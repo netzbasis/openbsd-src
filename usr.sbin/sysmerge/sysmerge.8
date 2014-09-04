@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sysmerge.8,v 1.63 2014/08/30 14:44:20 ajacoutot Exp $
+.\"	$OpenBSD: sysmerge.8,v 1.67 2014/09/05 17:26:08 ajacoutot Exp $
 .\"
 .\" Copyright (c) 2008 Antoine Jacoutot <ajacoutot@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 30 2014 $
+.Dd $Mdocdate: September 5 2014 $
 .Dt SYSMERGE 8
 .Os
 .Sh NAME
@@ -50,7 +50,8 @@ run output log file.
 .Pp
 .Nm
 will work through the fileset,
-offering the chance to merge any differences using ${SM_MERGE}.
+offering the chance to merge any differences using
+.Xr sdiff 1 .
 Merged files may be edited using the default editor or be left to deal
 with at a later date.
 Should any problems occur,
@@ -114,29 +115,20 @@ against their target on the system (@sample).
 .Pp
 Files can be excluded from comparison by listing them in
 .Pa /etc/sysmerge.ignore .
-The following files will always be skipped from comparison:
-.Pa /etc/*.db ,
+The following files will always be skipped from direct comparison:
+.Pa /etc/group ,
 .Pa /etc/localtime ,
-.Pa /etc/mail/*.db ,
-.Pa /etc/passwd ,
+.Pa /etc/mail/aliases.db ,
+.Pa /etc/master.passwd ,
 .Pa /etc/motd ,
-.Pa /etc/myname ,
-.Pa /var/db/locate.database ,
+.Pa /etc/passwd ,
+.Pa /etc/pwd.db ,
+.Pa /etc/spwd.db ,
 .Pa /usr/share/sysmerge/etcsum ,
 .Pa /usr/share/sysmerge/examplessum ,
 .Pa /usr/share/sysmerge/xetcsum ,
+.Pa /var/db/locate.database ,
 .Pa /var/mail/root .
-.Pp
-The
-.Xr sendmail 8
-configuration files
-.Pa /etc/mail/localhost.cf ,
-.Pa /etc/mail/sendmail.cf
-and
-.Pa /etc/mail/submit.cf
-will always differ because they include their build date and directories.
-A special test was added to handle this
-and they are offered for comparison only if they really differ.
 .Sh ENVIRONMENT
 .Bl -tag -width "EDITORXXVISUAL"
 .It Ev EDITOR , VISUAL
@@ -157,16 +149,6 @@ the default is
 .Xr vi 1 .
 .It Ev PAGER
 Specifies the pagination program to use.
-.It Ev SM_MERGE
-Command used to merge diffs.
-This will be called with three arguments: the first argument is the
-output file to create, the second argument is the currently installed
-file and the third argument is the reference file.
-If unset, this defaults to
-.Dq sdiff -as -w ${SWIDTH} -o
-where
-.Ev SWIDTH
-is the size of the terminal.
 .It Ev TMPDIR
 Directory in which the work directory is created.
 If unset, this defaults to

@@ -3,17 +3,20 @@
 # The syslogd passes it via UDP to the loghost.
 # The server receives the message on its UDP socket.
 # Find the message in client, file, pipe, syslogd, server log.
-# Check that the file log contains the message.
+# Check that the file log contains the hostname and message.
 
 use strict;
 use warnings;
+use Sys::Hostname;
+
+(my $host = hostname()) =~ s/\..*//;  # short name
 
 our %args = (
     client => {
 	logsock => { type => "unix" },
     },
     file => {
-	loggrep => qr/ syslogd-regress\[\d+\]: /. get_log(),
+	loggrep => qr/ $host syslogd-regress\[\d+\]: /. get_log(),
     },
 );
 

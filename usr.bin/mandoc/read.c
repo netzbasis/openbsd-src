@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.58 2014/09/03 23:20:33 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.62 2014/09/07 23:24:33 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -45,26 +45,27 @@ struct	buf {
 };
 
 struct	mparse {
-	enum mandoclevel  file_status; /* status of current parse */
-	enum mandoclevel  wlevel; /* ignore messages below this */
-	int		  line; /* line number in the file */
-	int		  options; /* parser options */
 	struct man	 *pman; /* persistent man parser */
 	struct mdoc	 *pmdoc; /* persistent mdoc parser */
 	struct man	 *man; /* man parser */
 	struct mdoc	 *mdoc; /* mdoc parser */
 	struct roff	 *roff; /* roff parser (!NULL) */
 	char		 *sodest; /* filename pointed to by .so */
-	int		  reparse_count; /* finite interp. stack */
-	mandocmsg	  mmsg; /* warning/error message handler */
-	const char	 *file;
-	struct buf	 *secondary;
+	const char	 *file; /* filename of current input file */
+	struct buf	 *primary; /* buffer currently being parsed */
+	struct buf	 *secondary; /* preprocessed copy of input */
 	const char	 *defos; /* default operating system */
+	mandocmsg	  mmsg; /* warning/error message handler */
+	enum mandoclevel  file_status; /* status of current parse */
+	enum mandoclevel  wlevel; /* ignore messages below this */
+	int		  options; /* parser options */
+	int		  reparse_count; /* finite interp. stack */
+	int		  line; /* line number in the file */
 };
 
+static	void	  choose_parser(struct mparse *);
 static	void	  resize_buf(struct buf *, size_t);
 static	void	  mparse_buf_r(struct mparse *, struct buf, int);
-static	void	  pset(const char *, int, struct mparse *);
 static	int	  read_whole_file(struct mparse *, const char *, int,
 				struct buf *, int *);
 static	void	  mparse_end(struct mparse *);
@@ -110,6 +111,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"sections out of conventional order",
 	"duplicate section title",
 	"unexpected section",
+	"AUTHORS section without An macro",
 
 	/* related to macros and nesting */
 	"obsolete macro",
@@ -240,38 +242,40 @@ resize_buf(struct buf *buf, size_t initial)
 }
 
 static void
-pset(const char *buf, int pos, struct mparse *curp)
+choose_parser(struct mparse *curp)
 {
-	int		 i;
+	char		*cp, *ep;
+	int		 format;
 
 	/*
-	 * Try to intuit which kind of manual parser should be used.  If
-	 * passed in by command-line (-man, -mdoc), then use that
-	 * explicitly.  If passed as -mandoc, then try to guess from the
-	 * line: either skip dot-lines, use -mdoc when finding `.Dt', or
-	 * default to -man, which is more lenient.
-	 *
-	 * Separate out pmdoc/pman from mdoc/man: the first persists
-	 * through all parsers, while the latter is used per-parse.
+	 * If neither command line arguments -mdoc or -man select
+	 * a parser nor the roff parser found a .Dd or .TH macro
+	 * yet, look ahead in the main input buffer.
 	 */
 
-	if ('.' == buf[0] || '\'' == buf[0]) {
-		for (i = 1; buf[i]; i++)
-			if (' ' != buf[i] && '\t' != buf[i])
+	if ((format = roff_getformat(curp->roff)) == 0) {
+		cp = curp->primary->buf;
+		ep = cp + curp->primary->sz;
+		while (cp < ep) {
+			if (*cp == '.' || *cp == '\'') {
+				cp++;
+				if (cp[0] == 'D' && cp[1] == 'd') {
+					format = MPARSE_MDOC;
+					break;
+				}
+				if (cp[0] == 'T' && cp[1] == 'H') {
+					format = MPARSE_MAN;
+					break;
+				}
+			}
+			cp = memchr(cp, '\n', ep - cp);
+			if (cp == NULL)
 				break;
-		if ('\0' == buf[i])
-			return;
+			cp++;
+		}
 	}
 
-	if (MPARSE_MDOC & curp->options) {
-		curp->mdoc = curp->pmdoc;
-		return;
-	} else if (MPARSE_MAN & curp->options) {
-		curp->man = curp->pman;
-		return;
-	}
-
-	if (pos >= 3 && 0 == memcmp(buf, ".Dd", 3))  {
+	if (format == MPARSE_MDOC) {
 		if (NULL == curp->pmdoc)
 			curp->pmdoc = mdoc_alloc(
 			    curp->roff, curp, curp->defos,
@@ -280,6 +284,8 @@ pset(const char *buf, int pos, struct mparse *curp)
 		curp->mdoc = curp->pmdoc;
 		return;
 	}
+
+	/* Fall back to man(7) as a last resort. */
 
 	if (NULL == curp->pman)
 		curp->pman = man_alloc(curp->roff, curp,
@@ -530,12 +536,10 @@ rerun:
 		 */
 
 		if ( ! (curp->man || curp->mdoc))
-			pset(ln.buf + of, pos - of, curp);
+			choose_parser(curp);
 
 		/*
-		 * Lastly, push down into the parsers themselves.  One
-		 * of these will have already been set in the pset()
-		 * routine.
+		 * Lastly, push down into the parsers themselves.
 		 * If libroff returns ROFF_TBL, then add it to the
 		 * currently open parse.  Since we only get here if
 		 * there does exist data (see tbl_data.c), we're
@@ -701,6 +705,7 @@ mparse_end(struct mparse *curp)
 static void
 mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 {
+	struct buf	*svprimary;
 	const char	*svfile;
 	static int	 recursion_depth;
 
@@ -712,6 +717,8 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 	/* Line number is per-file. */
 	svfile = curp->file;
 	curp->file = file;
+	svprimary = curp->primary;
+	curp->primary = &blk;
 	curp->line = 1;
 	recursion_depth++;
 
@@ -720,6 +727,7 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 	if (0 == --recursion_depth && MANDOCLEVEL_FATAL > curp->file_status)
 		mparse_end(curp);
 
+	curp->primary = svprimary;
 	curp->file = svfile;
 }
 

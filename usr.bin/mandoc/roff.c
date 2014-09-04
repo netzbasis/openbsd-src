@@ -1,4 +1,4 @@
-/*	$Id: roff.c,v 1.98 2014/08/19 05:18:16 daniel Exp $ */
+/*	$OpenBSD: roff.c,v 1.101 2014/09/07 00:21:23 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -15,6 +15,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include <sys/types.h>
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -56,6 +58,7 @@ enum	rofft {
 	ROFF_nh,
 	ROFF_nr,
 	ROFF_ns,
+	ROFF_pl,
 	ROFF_ps,
 	ROFF_rm,
 	ROFF_rr,
@@ -118,6 +121,7 @@ struct	roff {
 	int		 options; /* parse options */
 	int		 rstacksz; /* current size limit of rstack */
 	int		 rstackpos; /* position in rstack */
+	int		 format; /* current file in mdoc or man format */
 	char		 control; /* control character */
 };
 
@@ -251,6 +255,7 @@ static	struct roffmac	 roffs[ROFF_MAX] = {
 	{ "nh", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "nr", roff_nr, NULL, NULL, 0, NULL },
 	{ "ns", roff_line_ignore, NULL, NULL, 0, NULL },
+	{ "pl", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "ps", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "rm", roff_rm, NULL, NULL, 0, NULL },
 	{ "rr", roff_rr, NULL, NULL, 0, NULL },
@@ -452,6 +457,7 @@ roff_reset(struct roff *r)
 {
 
 	roff_free1(r);
+	r->format = r->options & (MPARSE_MDOC | MPARSE_MAN);
 	r->control = 0;
 }
 
@@ -471,6 +477,7 @@ roff_alloc(struct mparse *parse, int options)
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->parse = parse;
 	r->options = options;
+	r->format = options & (MPARSE_MDOC | MPARSE_MAN);
 	r->rstackpos = -1;
 
 	roffhash_init();
@@ -751,6 +758,15 @@ roff_parseln(struct roff *r, int ln, char **bufp,
 			return(tbl_read(r->tbl, ln, *bufp, pos));
 		return(roff_parsetext(bufp, szp, pos, offs));
 	}
+
+	/* Skip empty request lines. */
+
+	if ((*bufp)[pos] == '"') {
+		mandoc_msg(MANDOCERR_COMMENT_BAD, r->parse,
+		    ln, pos, NULL);
+		return(ROFF_IGN);
+	} else if ((*bufp)[pos] == '\0')
+		return(ROFF_IGN);
 
 	/*
 	 * If a scope is open, go to the child handler for that macro,
@@ -1772,9 +1788,12 @@ roff_Dd(ROFF_ARGS)
 {
 	const char *const	*cp;
 
-	if (0 == ((MPARSE_MDOC | MPARSE_QUICK) & r->options))
+	if ((r->options & (MPARSE_MDOC | MPARSE_QUICK)) == 0)
 		for (cp = __mdoc_reserved; *cp; cp++)
 			roff_setstr(r, *cp, NULL, 0);
+
+	if (r->format == 0)
+		r->format = MPARSE_MDOC;
 
 	return(ROFF_CONT);
 }
@@ -1784,9 +1803,12 @@ roff_TH(ROFF_ARGS)
 {
 	const char *const	*cp;
 
-	if (0 == (MPARSE_QUICK & r->options))
+	if ((r->options & MPARSE_QUICK) == 0)
 		for (cp = __man_reserved; *cp; cp++)
 			roff_setstr(r, *cp, NULL, 0);
+
+	if (r->format == 0)
+		r->format = MPARSE_MAN;
 
 	return(ROFF_CONT);
 }
@@ -2301,6 +2323,13 @@ roff_strdup(const struct roff *r, const char *p)
 
 	res[(int)ssz] = '\0';
 	return(res);
+}
+
+int
+roff_getformat(const struct roff *r)
+{
+
+	return(r->format);
 }
 
 /*
