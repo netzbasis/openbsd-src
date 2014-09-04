@@ -72,7 +72,7 @@
 ./usr/lib/gcc-lib/amd64-unknown-openbsd5.6/4.2.1/cc1
 ./usr/lib/gcc-lib/amd64-unknown-openbsd5.6/4.2.1/collect2
 ./usr/lib/gcc-lib/amd64-unknown-openbsd5.6/4.2.1/specs
-./usr/lib/libc.so.77.1
+./usr/lib/libc.so.77.2
 ./usr/lib/libcrypto.so.30.0
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.1
@@ -665,6 +665,7 @@
 ./usr/libdata/perl5/site_perl/amd64-openbsd/bsd_auth.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/complex.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/cpio.ph
+./usr/libdata/perl5/site_perl/amd64-openbsd/cpuid.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/crypto
 ./usr/libdata/perl5/site_perl/amd64-openbsd/crypto/arc4.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/crypto/blf.ph
@@ -1738,8 +1739,6 @@
 ./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/fuse
 ./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/fuse/fusefs.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/fuse/fusefs_node.ph
-./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/procfs
-./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/procfs/procfs.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/mm_malloc.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/mmintrin.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/mpool.ph

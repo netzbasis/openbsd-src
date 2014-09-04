@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.185 2014/09/08 16:47:58 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.188 2014/09/09 08:53:51 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -221,8 +221,8 @@ sm_init() {
 				fi
 				# redirect stderr; file may not exist
 				_cursum=$(cd / && sha256 ${_k} 2>/dev/null)
-				[[ -n $(grep "${_cursum}" /usr/share/sysmerge/${_i}) && \
-					-z $(grep "${_cursum}" ./usr/share/sysmerge/${_i}) ]] && \
+				grep -q "${_cursum}" /usr/share/sysmerge/${_i} && \
+					! grep -q "${_cursum}" ./usr/share/sysmerge/${_i} && \
 					_auto_upg="${_auto_upg} ${_k}"
 			done
 			[[ -n ${_auto_upg} ]] && set -A AUTO_UPG -- ${_auto_upg}
@@ -343,7 +343,7 @@ sm_add_user_grp() {
 	while read _l; do
 		_u=${_l%%:*}
 		if [[ ${_u} != "root" ]]; then
-			if [[ -z $(grep -E "^${_u}:" /etc/master.passwd) ]]; then
+			if ! grep -Eq "^${_u}:" /etc/master.passwd; then
 				sm_echo "===> Adding the ${_u} user"
 				chpass -la "${_l}" && \
 					set -A _newusr -- ${_newusr[@]} ${_u}
@@ -352,7 +352,7 @@ sm_add_user_grp() {
 	done <${_pw}
 
 	while IFS=: read -r -- _g _p _gid _rest; do
-		if [[ -z $(grep -E "^${_g}:" /etc/group) ]]; then
+		if ! grep -Eq "^${_g}:" /etc/group; then
 			sm_echo "===> Adding the ${_g} group"
 			groupadd -g ${_gid} ${_g} && \
 				set -A _newgrp -- ${_newgrp[@]} ${_g}
@@ -366,7 +366,7 @@ sm_merge_loop() {
 	_tomerge=true
 	while ${_tomerge}; do
 		cp -p ${COMPFILE} ${COMPFILE}.merged
-		sdiff -as -w ${_SWIDTH} -o ${COMPFILE}.merged \
+		sdiff -as -w ${_STTYSIZE} -o ${COMPFILE}.merged \
 			${TARGET} ${COMPFILE}
 		_instmerged=v
 		while [[ ${_instmerged} == "v" ]]; do
@@ -594,7 +594,8 @@ sm_post() {
 		mtree -qdef /etc/mtree/BSD.x11.dist -p / -U >/dev/null
 
 	if [[ -e ${_WRKDIR}/sysmerge.log ]]; then
-		rm ${_WRKDIR}/*sum
+		# XXX drop -f after OPENBSD_5_7
+		rm -f ${_WRKDIR}/*sum
 		sed '/^$/d' ${_WRKDIR}/sysmerge.log >${_WRKDIR}/sysmerge.log.bak
 		mv ${_WRKDIR}/sysmerge.log.bak ${_WRKDIR}/sysmerge.log
 		cd ${_WRKDIR} && \
@@ -626,9 +627,9 @@ shift $(( OPTIND -1 ))
 _WRKDIR=$(mktemp -d -p ${TMPDIR:=/var/tmp} sysmerge.XXXXXXXXXX) || exit 1
 _BKPDIR=${_WRKDIR}/backups
 _TMPROOT=${_WRKDIR}/temproot
-_SWIDTH=$(stty size | awk '{w=$2} END {if (w==0) {w=80} print w}')
-_RELINT=$(uname -r | tr -d '.')
-readonly _WRKDIR _BKPDIR _TMPROOT _SWIDTH _RELINT
+_RELINT=$(uname -r | tr -d '.') || exit 1
+_STTYSIZE=$(stty size | ( read r c; ((c==0)) && c=80; echo $c )) || exit 1
+readonly _WRKDIR _BKPDIR _TMPROOT _RELINT _STTYSIZE
 
 [[ -z ${VISUAL} ]] && EDITOR=${EDITOR:=/usr/bin/vi} || EDITOR=${VISUAL}
 PAGER=${PAGER:=/usr/bin/more}

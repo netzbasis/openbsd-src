@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.98 2014/09/07 23:24:33 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.100 2014/09/12 00:53:21 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -72,6 +72,8 @@ enum	mandocerr {
 	MANDOCERR_SEC_ORDER, /* sections out of conventional order: Sh title */
 	MANDOCERR_SEC_REP, /* duplicate section title: Sh title */
 	MANDOCERR_SEC_MSEC, /* unexpected section: Sh title for ... only */
+	MANDOCERR_XR_ORDER, /* unusual Xr order: ... after ... */
+	MANDOCERR_XR_PUNCT, /* unusual Xr punctuation: ... after ... */
 	MANDOCERR_AN_MISSING, /* AUTHORS section without An macro */
 
 	/* related to macros and nesting */
@@ -111,6 +113,7 @@ enum	mandocerr {
 	MANDOCERR_BL_REP, /* skipping duplicate list type: Bl -type */
 	MANDOCERR_BL_SKIPW, /* skipping -width argument: Bl -type */
 	MANDOCERR_AT_BAD, /* unknown AT&T UNIX version: At version */
+	MANDOCERR_FA_COMMA, /* comma in function argument: arg */
 	MANDOCERR_RS_BAD, /* invalid content in Rs block: macro */
 	MANDOCERR_SM_BAD, /* invalid Boolean argument: macro arg */
 	MANDOCERR_FT_BAD, /* unknown font, skipping request: ft font */
