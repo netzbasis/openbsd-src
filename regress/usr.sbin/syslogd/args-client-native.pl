@@ -16,7 +16,7 @@ our %args = (
 	logsock => { type => "native" },
     },
     file => {
-	loggrep => qr/ $host syslogd-regress\[\d+\]: /. get_log(),
+	loggrep => qr/ $host syslogd-regress\[\d+\]: /. get_testlog(),
     },
 );
 

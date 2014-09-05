@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.c,v 1.103 2014/07/12 18:48:52 tedu Exp $	*/
+/*	$OpenBSD: pci.c,v 1.105 2014/09/14 14:17:25 jsg Exp $	*/
 /*	$NetBSD: pci.c,v 1.31 1997/06/06 23:48:04 thorpej Exp $	*/
 
 /*
@@ -39,7 +39,6 @@
 #include <sys/systm.h>
 #include <sys/device.h>
 #include <sys/malloc.h>
-#include <sys/proc.h>
 
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
@@ -574,8 +573,7 @@ pci_detach_devices(struct pci_softc *sc, int flags)
 	if (ret != 0)
 		return (ret);
 
-	for (pd = LIST_FIRST(&sc->sc_devs);
-	     pd != LIST_END(&sc->sc_devs); pd = next) {
+	for (pd = LIST_FIRST(&sc->sc_devs); pd != NULL; pd = next) {
 		next = LIST_NEXT(pd, pd_next);
 		free(pd, M_DEVBUF, 0);
 	}

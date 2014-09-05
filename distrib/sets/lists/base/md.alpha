@@ -80,7 +80,6 @@
 ./usr/lib/libm.so.9.0
 ./usr/lib/libmenu.so.6.0
 ./usr/lib/libmenuw.so.6.0
-./usr/lib/libmilter.so.3.0
 ./usr/lib/libncurses.so.14.0
 ./usr/lib/libncursesw.so.14.0
 ./usr/lib/libobjc.so.6.0
@@ -639,7 +638,6 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/bsd_auth.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/complex.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/cpio.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/cpuid.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/crypto
 ./usr/libdata/perl5/site_perl/alpha-openbsd/crypto/arc4.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/crypto/blf.ph
@@ -1691,10 +1689,6 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/kvm.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/langinfo.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/libgen.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/libmilter
-./usr/libdata/perl5/site_perl/alpha-openbsd/libmilter/mfapi.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/libmilter/mfdef.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/libmilter/milter.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/limits.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/link.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/link_elf.ph

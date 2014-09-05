@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_pool.c,v 1.152 2014/09/08 23:50:45 dlg Exp $	*/
+/*	$OpenBSD: subr_pool.c,v 1.154 2014/09/16 03:26:08 dlg Exp $	*/
 /*	$NetBSD: subr_pool.c,v 1.61 2001/09/26 07:14:56 chs Exp $	*/
 
 /*-
@@ -33,7 +33,6 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/proc.h>
 #include <sys/errno.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -266,11 +265,6 @@ pool_init(struct pool *pp, size_t size, u_int align, u_int ioff, int flags,
 #ifdef DIAGNOSTIC
 	struct pool *iter;
 	KASSERT(ioff == 0);
-#endif
-
-#ifdef MALLOC_DEBUG
-	if ((flags & PR_DEBUG) && align != 0)
-		flags &= ~PR_DEBUG;
 #endif
 
 	if (align == 0)
@@ -515,17 +509,6 @@ pool_do_get(struct pool *pp, int flags)
 	void *v;
 	int slowdown = 0;
 
-#ifdef MALLOC_DEBUG
-	if (pp->pr_roflags & PR_DEBUG) {
-		void *addr;
-
-		addr = NULL;
-		debug_malloc(pp->pr_size, M_DEBUG,
-		    (flags & PR_WAITOK) ? M_WAITOK : M_NOWAIT, &addr);
-		return (addr);
-	}
-#endif
-
 startover:
 	/*
 	 * Check to see if we've reached the hard limit.  If we have,
@@ -729,13 +712,6 @@ pool_do_put(struct pool *pp, void *v)
 
 	if (v == NULL)
 		panic("pool_put of NULL");
-
-#ifdef MALLOC_DEBUG
-	if (pp->pr_roflags & PR_DEBUG) {
-		debug_free(v, M_DEBUG);
-		return;
-	}
-#endif
 
 #ifdef DIAGNOSTIC
 	if (pp->pr_ipl != -1)

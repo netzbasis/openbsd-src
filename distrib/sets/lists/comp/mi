@@ -35,7 +35,6 @@
 ./usr/include/bsd_auth.h
 ./usr/include/complex.h
 ./usr/include/cpio.h
-./usr/include/cpuid.h
 ./usr/include/crypto
 ./usr/include/crypto/arc4.h
 ./usr/include/crypto/blf.h
@@ -947,10 +946,6 @@
 ./usr/include/kvm.h
 ./usr/include/langinfo.h
 ./usr/include/libgen.h
-./usr/include/libmilter
-./usr/include/libmilter/mfapi.h
-./usr/include/libmilter/mfdef.h
-./usr/include/libmilter/milter.h
 ./usr/include/limits.h
 ./usr/include/link.h
 ./usr/include/link_elf.h
@@ -1553,8 +1548,6 @@
 ./usr/lib/libmenu_p.a
 ./usr/lib/libmenuw.a
 ./usr/lib/libmenuw_p.a
-./usr/lib/libmilter.a
-./usr/lib/libmilter_p.a
 ./usr/lib/libncurses.a
 ./usr/lib/libncurses_p.a
 ./usr/lib/libncursesw.a
@@ -2178,26 +2171,6 @@
 ./usr/share/man/man3/BUF_MEM_grow.3
 ./usr/share/man/man3/BUF_MEM_new.3
 ./usr/share/man/man3/BUF_strdup.3
-./usr/share/man/man3/CIRCLEQ_EMPTY.3
-./usr/share/man/man3/CIRCLEQ_END.3
-./usr/share/man/man3/CIRCLEQ_ENTRY.3
-./usr/share/man/man3/CIRCLEQ_FIRST.3
-./usr/share/man/man3/CIRCLEQ_FOREACH.3
-./usr/share/man/man3/CIRCLEQ_FOREACH_REVERSE.3
-./usr/share/man/man3/CIRCLEQ_FOREACH_REVERSE_SAFE.3
-./usr/share/man/man3/CIRCLEQ_FOREACH_SAFE.3
-./usr/share/man/man3/CIRCLEQ_HEAD.3
-./usr/share/man/man3/CIRCLEQ_HEAD_INITIALIZER.3
-./usr/share/man/man3/CIRCLEQ_INIT.3
-./usr/share/man/man3/CIRCLEQ_INSERT_AFTER.3
-./usr/share/man/man3/CIRCLEQ_INSERT_BEFORE.3
-./usr/share/man/man3/CIRCLEQ_INSERT_HEAD.3
-./usr/share/man/man3/CIRCLEQ_INSERT_TAIL.3
-./usr/share/man/man3/CIRCLEQ_LAST.3
-./usr/share/man/man3/CIRCLEQ_NEXT.3
-./usr/share/man/man3/CIRCLEQ_PREV.3
-./usr/share/man/man3/CIRCLEQ_REMOVE.3
-./usr/share/man/man3/CIRCLEQ_REPLACE.3
 ./usr/share/man/man3/CMSG_DATA.3
 ./usr/share/man/man3/CMSG_FIRSTHDR.3
 ./usr/share/man/man3/CMSG_LEN.3
@@ -2662,7 +2635,6 @@
 ./usr/share/man/man3/HMAC_Update.3
 ./usr/share/man/man3/HMAC_cleanup.3
 ./usr/share/man/man3/LIST_EMPTY.3
-./usr/share/man/man3/LIST_END.3
 ./usr/share/man/man3/LIST_ENTRY.3
 ./usr/share/man/man3/LIST_FIRST.3
 ./usr/share/man/man3/LIST_FOREACH.3
@@ -2941,7 +2913,6 @@
 ./usr/share/man/man3/SHA512Transform.3
 ./usr/share/man/man3/SHA512Update.3
 ./usr/share/man/man3/SIMPLEQ_EMPTY.3
-./usr/share/man/man3/SIMPLEQ_END.3
 ./usr/share/man/man3/SIMPLEQ_ENTRY.3
 ./usr/share/man/man3/SIMPLEQ_FIRST.3
 ./usr/share/man/man3/SIMPLEQ_FOREACH.3
@@ -2956,7 +2927,6 @@
 ./usr/share/man/man3/SIMPLEQ_REMOVE_AFTER.3
 ./usr/share/man/man3/SIMPLEQ_REMOVE_HEAD.3
 ./usr/share/man/man3/SLIST_EMPTY.3
-./usr/share/man/man3/SLIST_END.3
 ./usr/share/man/man3/SLIST_ENTRY.3
 ./usr/share/man/man3/SLIST_FIRST.3
 ./usr/share/man/man3/SLIST_FOREACH.3
@@ -3211,7 +3181,6 @@
 ./usr/share/man/man3/SSLv3_method.3
 ./usr/share/man/man3/SSLv3_server_method.3
 ./usr/share/man/man3/TAILQ_EMPTY.3
-./usr/share/man/man3/TAILQ_END.3
 ./usr/share/man/man3/TAILQ_ENTRY.3
 ./usr/share/man/man3/TAILQ_FIRST.3
 ./usr/share/man/man3/TAILQ_FOREACH.3

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ses.c,v 1.52 2014/07/12 18:50:25 tedu Exp $ */
+/*	$OpenBSD: ses.c,v 1.54 2014/09/14 14:17:26 jsg Exp $ */
 
 /*
  * Copyright (c) 2005 David Gwynne <dlg@openbsd.org>
@@ -24,7 +24,6 @@
 #include <sys/scsiio.h>
 #include <sys/malloc.h>
 #include <sys/pool.h>
-#include <sys/proc.h>
 #include <sys/rwlock.h>
 #include <sys/queue.h>
 #include <sys/sensors.h>
@@ -647,7 +646,7 @@ ses_bio_blink(struct ses_softc *sc, struct bioc_blink *blink)
 			break;
 	}
 
-	if (slot == TAILQ_END(&sc->sc_slots)) {
+	if (slot == NULL) {
 		rw_exit_write(&sc->sc_lock);
 		return (EINVAL);
 	}

@@ -76,7 +76,6 @@
 ./usr/lib/libm.so.9.0
 ./usr/lib/libmenu.so.6.0
 ./usr/lib/libmenuw.so.6.0
-./usr/lib/libmilter.so.3.0
 ./usr/lib/libncurses.so.14.0
 ./usr/lib/libncursesw.so.14.0
 ./usr/lib/libobjc.so.6.0
@@ -582,7 +581,6 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/bsd_auth.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/complex.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/cpio.ph
-./usr/libdata/perl5/site_perl/powerpc-openbsd/cpuid.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/crypto
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/crypto/arc4.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/crypto/blf.ph
@@ -1634,10 +1632,6 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/kvm.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/langinfo.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/libgen.ph
-./usr/libdata/perl5/site_perl/powerpc-openbsd/libmilter
-./usr/libdata/perl5/site_perl/powerpc-openbsd/libmilter/mfapi.ph
-./usr/libdata/perl5/site_perl/powerpc-openbsd/libmilter/mfdef.ph
-./usr/libdata/perl5/site_perl/powerpc-openbsd/libmilter/milter.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/limits.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/link.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/link_elf.ph

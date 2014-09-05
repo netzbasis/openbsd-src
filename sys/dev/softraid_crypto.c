@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid_crypto.c,v 1.110 2014/07/12 18:48:51 tedu Exp $ */
+/* $OpenBSD: softraid_crypto.c,v 1.112 2014/09/14 14:17:24 jsg Exp $ */
 /*
  * Copyright (c) 2007 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Hans-Joerg Hoexer <hshoexer@openbsd.org>
@@ -25,7 +25,6 @@
 #include <sys/buf.h>
 #include <sys/device.h>
 #include <sys/ioctl.h>
-#include <sys/proc.h>
 #include <sys/malloc.h>
 #include <sys/pool.h>
 #include <sys/kernel.h>
@@ -887,7 +886,7 @@ sr_crypto_read_key_disk(struct sr_discipline *sd, dev_t dev)
 	open = 0;
 
 done:
-	for (omi = SLIST_FIRST(&som); omi != SLIST_END(&som); omi = omi_next) {
+	for (omi = SLIST_FIRST(&som); omi != NULL; omi = omi_next) {
 		omi_next = SLIST_NEXT(omi, omi_link);
 		if (omi->omi_som)
 			free(omi->omi_som, M_DEVBUF, 0);
