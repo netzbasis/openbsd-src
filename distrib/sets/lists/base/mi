@@ -2608,7 +2608,6 @@
 ./usr/libexec/rpc.rwalld
 ./usr/libexec/security
 ./usr/libexec/sftp-server
-./usr/libexec/sm.bin
 ./usr/libexec/smtpd
 ./usr/libexec/smtpd/makemap
 ./usr/libexec/smtpd/table-ldap
@@ -2810,6 +2809,7 @@
 ./usr/sbin/npppd
 ./usr/sbin/nsd
 ./usr/sbin/nsd-checkconf
+./usr/sbin/nsd-checkzone
 ./usr/sbin/nsd-control
 ./usr/sbin/nsd-control-setup
 ./usr/sbin/nslookup
