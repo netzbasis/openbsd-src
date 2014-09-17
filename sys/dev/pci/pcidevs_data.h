@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1741 2014/09/13 05:11:27 jsg Exp 
+ *	OpenBSD: pcidevs,v 1.1743 2014/09/23 13:27:51 jsg Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -9656,6 +9656,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "E5 v2 Unicast",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BAYTRAIL_SMB,
+	    "Baytrail SMBus",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BAYTRAIL_SATA_1,
 	    "Baytrail SATA",
 	},
@@ -11146,6 +11150,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I354_BP_2_5GBPS,
 	    "I354",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_BRASWELL_SMB,
+	    "Braswell SMBus",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_DH8900_LPC,
@@ -16274,6 +16282,14 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_WCH, PCI_PRODUCT_WCH_CH352,
 	    "CH352",
+	},
+	{
+	    PCI_VENDOR_WCH2, PCI_PRODUCT_WCH2_CH382_1,
+	    "CH382",
+	},
+	{
+	    PCI_VENDOR_WCH2, PCI_PRODUCT_WCH2_CH382_2,
+	    "CH382",
 	},
 	{
 	    PCI_VENDOR_NDC, PCI_PRODUCT_NDC_NCP130,
@@ -25142,6 +25158,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_FRESCO,
 	    "Fresco Logic",
+	},
+	{
+	    PCI_VENDOR_WCH2,
+	    "Nanjing QinHeng Electronics",
 	},
 	{
 	    PCI_VENDOR_SYMPHONY2,

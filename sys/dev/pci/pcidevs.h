@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1741 2014/09/13 05:11:27 jsg Exp 
+ *	OpenBSD: pcidevs,v 1.1743 2014/09/23 13:27:51 jsg Exp 
  */
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
 
@@ -332,6 +332,7 @@
 #define	PCI_VENDOR_MARVELL2	0x1b4b		/* Marvell */
 #define	PCI_VENDOR_ETRON	0x1b6f		/* Etron */
 #define	PCI_VENDOR_FRESCO	0x1b73		/* Fresco Logic */
+#define	PCI_VENDOR_WCH2	0x1c00		/* Nanjing QinHeng Electronics */
 #define	PCI_VENDOR_SYMPHONY2	0x1c1c		/* Symphony Labs */
 #define	PCI_VENDOR_TEKRAM2	0x1de1		/* Tekram */
 #define	PCI_VENDOR_TEHUTI	0x1fc9		/* Tehuti Networks */
@@ -3031,6 +3032,7 @@
 #define	PCI_PRODUCT_INTEL_E5V2_UNICAST_13	0x0eec		/* E5 v2 Unicast */
 #define	PCI_PRODUCT_INTEL_E5V2_UNICAST_14	0x0eed		/* E5 v2 Unicast */
 #define	PCI_PRODUCT_INTEL_E5V2_UNICAST_15	0x0eee		/* E5 v2 Unicast */
+#define	PCI_PRODUCT_INTEL_BAYTRAIL_SMB	0x0f12		/* Baytrail SMBus */
 #define	PCI_PRODUCT_INTEL_BAYTRAIL_SATA_1	0x0f20		/* Baytrail SATA */
 #define	PCI_PRODUCT_INTEL_BAYTRAIL_SATA_2	0x0f21		/* Baytrail SATA */
 #define	PCI_PRODUCT_INTEL_82542	0x1000		/* 82542 */
@@ -3404,6 +3406,7 @@
 #define	PCI_PRODUCT_INTEL_I354_BP_1GBPS	0x1f40		/* I354 */
 #define	PCI_PRODUCT_INTEL_I354_SGMII	0x1f41		/* I354 SGMII */
 #define	PCI_PRODUCT_INTEL_I354_BP_2_5GBPS	0x1f45		/* I354 */
+#define	PCI_PRODUCT_INTEL_BRASWELL_SMB	0x2292		/* Braswell SMBus */
 #define	PCI_PRODUCT_INTEL_DH8900_LPC	0x2310		/* DH8900 LPC */
 #define	PCI_PRODUCT_INTEL_DH8900_AHCI	0x2323		/* DH8900 AHCI */
 #define	PCI_PRODUCT_INTEL_DH8900_SATA_1	0x2326		/* DH8900 SATA */
@@ -4770,6 +4773,8 @@
 
 /* Nanjing QinHeng Electronics products */
 #define	PCI_PRODUCT_WCH_CH352	0x3253		/* CH352 */
+#define	PCI_PRODUCT_WCH2_CH382_1	0x3253		/* CH382 */
+#define	PCI_PRODUCT_WCH2_CH382_2	0x3250		/* CH382 */
 
 /* National Datacomm Corp products */
 #define	PCI_PRODUCT_NDC_NCP130	0x0130		/* NCP130 */
