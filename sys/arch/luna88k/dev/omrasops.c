@@ -1,4 +1,4 @@
-/* $OpenBSD: omrasops.c,v 1.11 2014/01/02 15:30:34 aoyama Exp $ */
+/* $OpenBSD: omrasops.c,v 1.13 2014/10/01 10:06:27 aoyama Exp $ */
 /* $NetBSD: omrasops.c,v 1.1 2000/01/05 08:48:56 nisimura Exp $ */
 
 /*-
@@ -159,6 +159,8 @@ om4_putchar(void *cookie, int row, int startcol, u_int uc, long attr)
 	u_int8_t *p;
 	int scanspan, startx, height, width, align, y;
 	u_int32_t lmask, rmask, glyph, glyphbg, fgpat, bgpat;
+	u_int32_t fgmask0, fgmask1, fgmask2, fgmask3;
+	u_int32_t bgmask0, bgmask1, bgmask2, bgmask3;
 	int i, fg, bg;
 	u_int8_t *fb;
 
@@ -169,14 +171,29 @@ om4_putchar(void *cookie, int row, int startcol, u_int uc, long attr)
 	fb = (u_int8_t *)ri->ri_font->data +
 	    (uc - ri->ri_font->firstchar) * ri->ri_fontscale;
 	ri->ri_ops.unpack_attr(cookie, attr, &fg, &bg, NULL);
+	fgmask0 = (fg & 0x01) ? ALL1BITS : ALL0BITS;
+	fgmask1 = (fg & 0x02) ? ALL1BITS : ALL0BITS;
+	fgmask2 = (fg & 0x04) ? ALL1BITS : ALL0BITS;
+	fgmask3 = (fg & 0x08) ? ALL1BITS : ALL0BITS;
+	bgmask0 = (bg & 0x01) ? ALL1BITS : ALL0BITS;
+	bgmask1 = (bg & 0x02) ? ALL1BITS : ALL0BITS;
+	bgmask2 = (bg & 0x04) ? ALL1BITS : ALL0BITS;
+	bgmask3 = (bg & 0x08) ? ALL1BITS : ALL0BITS;
 
 	p = (u_int8_t *)ri->ri_bits + y * scanspan + ((startx / 32) * 4);
 	align = startx & ALIGNMASK;
 	width = ri->ri_font->fontwidth + align;
 	lmask = ALL1BITS >> align;
 	rmask = ALL1BITS << (-width & ALIGNMASK);
+
+	/* select all planes for later ROP function target */ 
+	*(volatile u_int32_t *)OMFB_PLANEMASK = 0xff;
+
 	if (width <= BLITWIDTH) {
 		lmask &= rmask;
+		/* set lmask as ROP mask value, with THROUGH mode */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH] = lmask;
+
 		while (height > 0) {
 			glyph = 0;
 			for (i = ri->ri_font->stride; i != 0; i--)
@@ -185,22 +202,24 @@ om4_putchar(void *cookie, int row, int startcol, u_int uc, long attr)
 			glyph = (glyph >> align);
 			glyphbg = glyph ^ ALL1BITS;
 
-			fgpat = (fg & 0x01) ? glyph : 0;
-			bgpat = (bg & 0x01) ? glyphbg : 0;
-			*P0(p) = (*P0(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x02) ? glyph : 0;
-			bgpat = (bg & 0x02) ? glyphbg : 0;
-			*P1(p) = (*P1(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x04) ? glyph : 0;
-			bgpat = (bg & 0x04) ? glyphbg : 0;
-			*P2(p) = (*P2(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x08) ? glyph : 0;
-			bgpat = (bg & 0x08) ? glyphbg : 0;
-			*P3(p) = (*P3(p) & ~lmask) | ((fgpat | bgpat) & lmask);
+			fgpat = glyph & fgmask0;
+			bgpat = glyphbg & bgmask0;
+			*P0(p) = (fgpat | bgpat);
+			fgpat = glyph & fgmask1;
+			bgpat = glyphbg & bgmask1;
+			*P1(p) = (fgpat | bgpat);
+			fgpat = glyph & fgmask2;
+			bgpat = glyphbg & bgmask2;
+			*P2(p) = (fgpat | bgpat);
+			fgpat = glyph & fgmask3;
+			bgpat = glyphbg & bgmask3;
+			*P3(p) = (fgpat | bgpat);
 
 			p += scanspan;
 			height--;
 		}
+		/* reset mask value */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH] = ALL1BITS;
 	} else {
 		u_int8_t *q = p;
 		u_int32_t lhalf, rhalf;
@@ -213,42 +232,52 @@ om4_putchar(void *cookie, int row, int startcol, u_int uc, long attr)
 			glyph <<= (4 - ri->ri_font->stride) * NBBY;
 			lhalf = (glyph >> align);
 			lhalfbg = lhalf ^ ALL1BITS;
+			/* set lmask as ROP mask value, with THROUGH mode */
+			((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH]
+				= lmask;
 
-			fgpat = (fg & 0x01) ? lhalf : 0;
-			bgpat = (bg & 0x01) ? lhalfbg : 0;
-			*P0(p) = (*P0(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x02) ? lhalf : 0;
-			bgpat = (bg & 0x02) ? lhalfbg : 0;
-			*P1(p) = (*P1(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x04) ? lhalf : 0;
-			bgpat = (bg & 0x04) ? lhalfbg : 0;
-			*P2(p) = (*P2(p) & ~lmask) | ((fgpat | bgpat) & lmask);
-			fgpat = (fg & 0x08) ? lhalf : 0;
-			bgpat = (bg & 0x08) ? lhalfbg : 0;
-			*P3(p) = (*P3(p) & ~lmask) | ((fgpat | bgpat) & lmask);
+			fgpat = lhalf & fgmask0;
+			bgpat = lhalfbg & bgmask0;
+			*P0(p) = (fgpat | bgpat);
+			fgpat = lhalf & fgmask1;
+			bgpat = lhalfbg & bgmask1;
+			*P1(p) = (fgpat | bgpat);
+			fgpat = lhalf & fgmask2;
+			bgpat = lhalfbg & bgmask2;
+			*P2(p) = (fgpat | bgpat);
+			fgpat = lhalf & fgmask3;
+			bgpat = lhalfbg & bgmask3;
+			*P3(p) = (fgpat | bgpat);
 
 			p += BYTESDONE;
 
 			rhalf = (glyph << (BLITWIDTH - align));
 			rhalfbg = rhalf ^ ALL1BITS;
+			/* set rmask as ROP mask value, with THROUGH mode */
+			((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH]
+				= rmask;
 
-			fgpat = (fg & 0x01) ? rhalf : 0;
-			bgpat = (bg & 0x01) ? rhalfbg : 0;
-			*P0(p) = ((fgpat | bgpat) & rmask) | (*P0(p) & ~rmask);
-			fgpat = (fg & 0x02) ? rhalf : 0;
-			bgpat = (bg & 0x02) ? rhalfbg : 0;
-			*P1(p) = ((fgpat | bgpat) & rmask) | (*P1(p) & ~rmask);
-			fgpat = (fg & 0x04) ? rhalf : 0;
-			bgpat = (bg & 0x04) ? rhalfbg : 0;
-			*P2(p) = ((fgpat | bgpat) & rmask) | (*P2(p) & ~rmask);
-			fgpat = (fg & 0x08) ? rhalf : 0;
-			bgpat = (bg & 0x08) ? rhalfbg : 0;
-			*P3(p) = ((fgpat | bgpat) & rmask) | (*P3(p) & ~rmask);
+			fgpat = rhalf & fgmask0;
+			bgpat = rhalfbg & bgmask0;
+			*P0(p) = (fgpat | bgpat);
+			fgpat = rhalf & fgmask1;
+			bgpat = rhalfbg & bgmask1;
+			*P1(p) = (fgpat | bgpat);
+			fgpat = rhalf & fgmask2;
+			bgpat = rhalfbg & bgmask2;
+			*P2(p) = (fgpat | bgpat);
+			fgpat = rhalf & fgmask3;
+			bgpat = rhalfbg & bgmask3;
+			*P3(p) = (fgpat | bgpat);
 
 			p = (q += scanspan);
 			height--;
 		}
+		/* reset mask value */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH] = ALL1BITS;
 	}
+	/* select plane #0 only; XXX need this ? */
+	*(volatile u_int32_t *)OMFB_PLANEMASK = 0x01;
 
 	return 0;
 }
@@ -408,7 +437,7 @@ om4_cursor(void *cookie, int on, int row, int col)
 	struct rasops_info *ri = cookie;
 	u_int8_t *p;
 	int scanspan, startx, height, width, align, y;
-	u_int32_t lmask, rmask, image;
+	u_int32_t lmask, rmask;
 
 	if (!on) {
 		/* make sure it's on */
@@ -433,48 +462,45 @@ om4_cursor(void *cookie, int on, int row, int col)
 	width = ri->ri_font->fontwidth + align;
 	lmask = ALL1BITS >> align;
 	rmask = ALL1BITS << (-width & ALIGNMASK);
+
+	/* select all planes for later ROP function target */ 
+	*(volatile u_int32_t *)OMFB_PLANEMASK = 0xff;
+
 	if (width <= BLITWIDTH) {
 		lmask &= rmask;
+		/* set lmask as ROP mask value, with INV2 mode */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_INV2] = lmask;
+
 		while (height > 0) {
-			image = *P0(p);
-			*P0(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P1(p);
-			*P1(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P2(p);
-			*P2(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P3(p);
-			*P3(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
+			*W(p) = ALL1BITS;
 			p += scanspan;
 			height--;
 		}
+		/* reset mask value */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH] = ALL1BITS;
 	} else {
 		u_int8_t *q = p;
 
 		while (height > 0) {
-			image = *P0(p);
-			*P0(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P1(p);
-			*P1(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P2(p);
-			*P2(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
-			image = *P3(p);
-			*P3(p) = (image & ~lmask) | ((image ^ ALL1BITS) & lmask);
+			/* set lmask as ROP mask value, with INV2 mode */
+			((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_INV2] = lmask;
+			*W(p) = ALL1BITS;
 
 			p += BYTESDONE;
 
-			image = *P0(p);
-			*P0(p) = ((image ^ ALL1BITS) & rmask) | (image & ~rmask);
-			image = *P1(p);
-			*P1(p) = ((image ^ ALL1BITS) & rmask) | (image & ~rmask);
-			image = *P2(p);
-			*P2(p) = ((image ^ ALL1BITS) & rmask) | (image & ~rmask);
-			image = *P3(p);
-			*P3(p) = ((image ^ ALL1BITS) & rmask) | (image & ~rmask);
+			/* set rmask as ROP mask value, with INV2 mode */
+			((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_INV2] = rmask;
+			*W(p) = ALL1BITS;
 
 			p = (q += scanspan);
 			height--;
 		}
+		/* reset mask value */
+		((volatile u_int32_t *)OMFB_ROPFUNC)[ROP_THROUGH] = ALL1BITS;
 	}
+	/* select plane #0 only; XXX need this ? */
+	*(volatile u_int32_t *)OMFB_PLANEMASK = 0x01;
+
 	ri->ri_flg ^= RI_CURSOR;
 
 	return 0;

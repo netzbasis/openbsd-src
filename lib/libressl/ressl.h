@@ -1,4 +1,4 @@
-/* $OpenBSD: ressl.h,v 1.14 2014/09/28 06:24:00 tedu Exp $ */
+/* $OpenBSD: ressl.h,v 1.17 2014/09/29 15:11:29 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -18,6 +18,15 @@
 #ifndef HEADER_RESSL_H
 #define HEADER_RESSL_H
 
+#define RESSL_PROTOCOL_SSLv3	(1 << 0)
+#define RESSL_PROTOCOL_TLSv1_0	(1 << 1)
+#define RESSL_PROTOCOL_TLSv1_1	(1 << 2)
+#define RESSL_PROTOCOL_TLSv1_2	(1 << 3)
+#define RESSL_PROTOCOL_TLSv1 \
+	(RESSL_PROTOCOL_TLSv1_0|RESSL_PROTOCOL_TLSv1_1|RESSL_PROTOCOL_TLSv1_2)
+#define RESSL_PROTOCOLS_DEFAULT \
+	(RESSL_PROTOCOL_SSLv3|RESSL_PROTOCOL_TLSv1)
+
 #define RESSL_READ_AGAIN	-2
 #define RESSL_WRITE_AGAIN	-3
 
@@ -33,17 +42,22 @@ void ressl_config_free(struct ressl_config *config);
 
 int ressl_config_set_ca_file(struct ressl_config *config, const char *ca_file);
 int ressl_config_set_ca_path(struct ressl_config *config, const char *ca_path);
-int ressl_config_set_cert_file(struct ressl_config *config, const char *cert_file);
+int ressl_config_set_cert_file(struct ressl_config *config,
+    const char *cert_file);
 int ressl_config_set_cert_mem(struct ressl_config *config, const uint8_t *cert,
     size_t len);
 int ressl_config_set_ciphers(struct ressl_config *config, const char *ciphers);
-int ressl_config_set_ecdhcurve(struct ressl_config *config, const char *);
-int ressl_config_set_key_file(struct ressl_config *config, const char *key_file);
+int ressl_config_set_ecdhcurve(struct ressl_config *config, const char *name);
+int ressl_config_set_key_file(struct ressl_config *config,
+    const char *key_file);
 int ressl_config_set_key_mem(struct ressl_config *config, const uint8_t *key,
     size_t len);
+void ressl_config_set_protocols(struct ressl_config *config,
+    uint32_t protocols);
 void ressl_config_set_verify_depth(struct ressl_config *config,
     int verify_depth);
 
+void ressl_config_clear_keys(struct ressl_config *config);
 void ressl_config_insecure_no_verify(struct ressl_config *config);
 void ressl_config_verify(struct ressl_config *config);
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: ressl_server.c,v 1.7 2014/08/27 10:46:53 reyk Exp $ */
+/* $OpenBSD: ressl_server.c,v 1.9 2014/09/29 15:31:38 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -52,22 +52,15 @@ ressl_configure_server(struct ressl *ctx)
 {
 	EC_KEY *ecdh_key;
 
-	/* XXX - add a configuration option to control versions. */
 	if ((ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method())) == NULL) {
 		ressl_set_error(ctx, "ssl context failure");
 		goto err;
 	}
 
+	if (ressl_configure_ssl(ctx) != 0)
+		goto err;
 	if (ressl_configure_keypair(ctx) != 0)
 		goto err;
-
-	if (ctx->config->ciphers != NULL) {
-		if (SSL_CTX_set_cipher_list(ctx->ssl_ctx,
-		    ctx->config->ciphers) != 1) {
-			ressl_set_error(ctx, "failed to set ciphers");
-			goto err;
-		}
-	}
 
 	if (ctx->config->ecdhcurve != NID_undef) {
 		if ((ecdh_key = EC_KEY_new_by_curve_name(

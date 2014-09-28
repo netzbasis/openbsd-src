@@ -1,4 +1,4 @@
-/*	$OpenBSD: vdsp.c,v 1.28 2014/09/22 08:26:16 kettenis Exp $	*/
+/*	$OpenBSD: vdsp.c,v 1.32 2014/09/29 19:34:23 kettenis Exp $	*/
 /*
  * Copyright (c) 2009, 2011, 2014 Mark Kettenis
  *
@@ -23,10 +23,13 @@
 #include <sys/disklabel.h>
 #include <sys/fcntl.h>
 #include <sys/malloc.h>
+#include <sys/mutex.h>
 #include <sys/namei.h>
 #include <sys/systm.h>
 #include <sys/task.h>
 #include <sys/vnode.h>
+#include <sys/dkio.h>
+#include <sys/specdev.h>
 
 #include <machine/autoconf.h>
 #include <machine/conf.h>
@@ -235,6 +238,7 @@ struct vdsp_softc {
 	struct task	sc_alloc_task;
 	struct task	sc_close_task;
 
+	struct mutex	sc_desc_mtx;
 	struct vdsk_desc_msg *sc_desc_msg[VDSK_RX_ENTRIES];
 	int		sc_desc_head;
 	int		sc_desc_tail;
@@ -333,6 +337,8 @@ vdsp_attach(struct device *parent, struct device *self, void *aux)
 	}
 	printf(": ivec 0x%llx, 0x%llx", sc->sc_tx_sysino, sc->sc_rx_sysino);
 
+	mtx_init(&sc->sc_desc_mtx, IPL_BIO);
+
 	/*
 	 * Un-configure queues before registering interrupt handlers,
 	 * such that we dont get any stale LDC packets or events.
@@ -341,9 +347,11 @@ vdsp_attach(struct device *parent, struct device *self, void *aux)
 	hv_ldc_rx_qconf(ca->ca_id, 0, 0);
 
 	sc->sc_tx_ih = bus_intr_establish(ca->ca_bustag, sc->sc_tx_sysino,
-	    IPL_BIO, 0, vdsp_tx_intr, sc, sc->sc_dv.dv_xname);
+	    IPL_BIO, BUS_INTR_ESTABLISH_MPSAFE, vdsp_tx_intr, sc,
+	    sc->sc_dv.dv_xname);
 	sc->sc_rx_ih = bus_intr_establish(ca->ca_bustag, sc->sc_rx_sysino,
-	    IPL_BIO, 0, vdsp_rx_intr, sc, sc->sc_dv.dv_xname);
+	    IPL_BIO, BUS_INTR_ESTABLISH_MPSAFE, vdsp_rx_intr, sc,
+	    sc->sc_dv.dv_xname);
 	if (sc->sc_tx_ih == NULL || sc->sc_rx_ih == NULL) {
 		printf(", can't establish interrupt\n");
 		return;
@@ -812,9 +820,11 @@ vdsp_rx_vio_desc_data(struct vdsp_softc *sc, struct vio_msg_tag *tag)
 
 		switch (dm->operation) {
 		case VD_OP_BREAD:
+			mtx_enter(&sc->sc_desc_mtx);
 			sc->sc_desc_msg[sc->sc_desc_head++] = dm;
 			sc->sc_desc_head &= (VDSK_RX_ENTRIES - 1);
 			KASSERT(sc->sc_desc_head != sc->sc_desc_tail);
+			mtx_leave(&sc->sc_desc_mtx);
 			task_add(systq, &sc->sc_read_task);
 			break;
 		default:
@@ -843,23 +853,7 @@ vdsp_ldc_reset(struct ldc_conn *lc)
 {
 	struct vdsp_softc *sc = lc->lc_sc;
 
-	sc->sc_desc_head = sc->sc_desc_tail = 0;
-
 	sc->sc_vio_state = 0;
-	sc->sc_seq_no = 0;
-	if (sc->sc_vd) {
-		free(sc->sc_vd, M_DEVBUF, 0);
-		sc->sc_vd = NULL;
-	}
-	if (sc->sc_vd_task) {
-		free(sc->sc_vd_task, M_DEVBUF, 0);
-		sc->sc_vd_task = NULL;
-	}
-	if (sc->sc_label) {
-		free(sc->sc_label, M_DEVBUF, 0);
-		sc->sc_label = NULL;
-	}
-
 	task_add(systq, &sc->sc_close_task);
 }
 
@@ -899,7 +893,9 @@ vdsp_open(void *arg1, void *arg2)
 	if (sc->sc_vp == NULL) {
 		struct nameidata nd;
 		struct vattr va;
+		struct partinfo pi;
 		const char *name;
+		dev_t dev;
 		int error;
 
 		name = mdesc_get_prop_str(sc->sc_idx, "vds-block-device");
@@ -913,11 +909,21 @@ vdsp_open(void *arg1, void *arg2)
 			return;
 		}
 
-		error = VOP_GETATTR(nd.ni_vp, &va, p->p_ucred, p);
-		if (error)
-			printf("VOP_GETATTR: %s, %d\n", name, error);
-		sc->sc_vdisk_block_size = DEV_BSIZE;
-		sc->sc_vdisk_size = va.va_size / DEV_BSIZE;
+		if (nd.ni_vp->v_type == VBLK) {
+			dev = nd.ni_vp->v_rdev;
+			error = (*bdevsw[major(dev)].d_ioctl)(dev,
+			    DIOCGPART, (caddr_t)&pi, FREAD, curproc);
+			if (error)
+				printf("DIOCGPART: %s, %d\n", name, error);
+			sc->sc_vdisk_block_size = pi.disklab->d_secsize;
+			sc->sc_vdisk_size = DL_GETPSIZE(pi.part);
+		} else {
+			error = VOP_GETATTR(nd.ni_vp, &va, p->p_ucred, p);
+			if (error)
+				printf("VOP_GETATTR: %s, %d\n", name, error);
+			sc->sc_vdisk_block_size = DEV_BSIZE;
+			sc->sc_vdisk_size = va.va_size / DEV_BSIZE;
+		}
 
 		VOP_UNLOCK(nd.ni_vp, 0, p);
 		sc->sc_vp = nd.ni_vp;
@@ -951,6 +957,20 @@ vdsp_close(void *arg1, void *arg2)
 	struct vdsp_softc *sc = arg1;
 	struct proc *p = curproc;
 
+	sc->sc_seq_no = 0;
+
+	if (sc->sc_vd) {
+		free(sc->sc_vd, M_DEVBUF, 0);
+		sc->sc_vd = NULL;
+	}
+	if (sc->sc_vd_task) {
+		free(sc->sc_vd_task, M_DEVBUF, 0);
+		sc->sc_vd_task = NULL;
+	}
+	if (sc->sc_label) {
+		free(sc->sc_label, M_DEVBUF, 0);
+		sc->sc_label = NULL;
+	}
 	if (sc->sc_vp) {
 		vn_close(sc->sc_vp, FREAD | FWRITE, p->p_ucred, p);
 		sc->sc_vp = NULL;
@@ -1079,10 +1099,15 @@ vdsp_read(void *arg1, void *arg2)
 {
 	struct vdsp_softc *sc = arg1;
 
+	mtx_enter(&sc->sc_desc_mtx);
 	while (sc->sc_desc_tail != sc->sc_desc_head) {
-		vdsp_read_desc(sc, sc->sc_desc_msg[sc->sc_desc_tail++]);
+		mtx_leave(&sc->sc_desc_mtx);
+		vdsp_read_desc(sc, sc->sc_desc_msg[sc->sc_desc_tail]);
+		mtx_enter(&sc->sc_desc_mtx);
+		sc->sc_desc_tail++;
 		sc->sc_desc_tail &= (VDSK_RX_ENTRIES - 1);
 	}
+	mtx_leave(&sc->sc_desc_mtx);
 }
 
 void
@@ -1700,11 +1725,7 @@ vdspclose(dev_t dev, int flag, int mode, struct proc *p)
 	hv_ldc_tx_qconf(sc->sc_lc.lc_id, 0, 0);
 	hv_ldc_rx_qconf(sc->sc_lc.lc_id, 0, 0);
 
-	if (sc->sc_vp) {
-		vn_close(sc->sc_vp, FREAD | FWRITE, p->p_ucred, p);
-		sc->sc_vp = NULL;
-	}
-
+	task_add(systq, &sc->sc_close_task);
 	return (0);
 }
 

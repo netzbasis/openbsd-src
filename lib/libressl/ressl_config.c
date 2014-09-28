@@ -1,4 +1,4 @@
-/* $OpenBSD: ressl_config.c,v 1.9 2014/09/28 06:24:00 tedu Exp $ */
+/* $OpenBSD: ressl_config.c,v 1.12 2014/09/29 15:11:29 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -71,11 +71,13 @@ ressl_config_new(void)
 		ressl_config_free(config);
 		return (NULL);
 	}
-	ressl_config_verify(config);
+	ressl_config_set_protocols(config, RESSL_PROTOCOLS_DEFAULT);
 	ressl_config_set_verify_depth(config, 6);
 	/* ? use function ? */
 	config->ecdhcurve = NID_X9_62_prime256v1;
 	
+	ressl_config_verify(config);
+
 	return (config);
 }
 
@@ -84,17 +86,25 @@ ressl_config_free(struct ressl_config *config)
 {
 	if (config == NULL)
 		return;
+
+	ressl_config_clear_keys(config);
+
 	free((char *)config->ca_file);
 	free((char *)config->ca_path);
 	free((char *)config->cert_file);
 	free(config->cert_mem);
 	free((char *)config->ciphers);
 	free((char *)config->key_file);
-	if (config->key_mem != NULL) {
-		explicit_bzero(config->key_mem, config->key_len);
-		free(config->key_mem);
-	}
+	free(config->key_mem);
+
 	free(config);
+}
+
+void
+ressl_config_clear_keys(struct ressl_config *config)
+{
+	ressl_config_set_cert_mem(config, NULL, 0);
+	ressl_config_set_key_mem(config, NULL, 0);
 }
 
 int
@@ -153,6 +163,12 @@ ressl_config_set_key_mem(struct ressl_config *config, const uint8_t *key,
 	if (config->key_mem)
 		explicit_bzero(config->key_mem, config->key_len);
 	return set_mem(&config->key_mem, &config->key_len, key, len);
+}
+
+void
+ressl_config_set_protocols(struct ressl_config *config, uint32_t protocols)
+{
+	config->protocols = protocols;
 }
 
 void

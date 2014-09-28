@@ -1,4 +1,4 @@
-/* $OpenBSD: ressl.c,v 1.13 2014/09/28 06:24:00 tedu Exp $ */
+/* $OpenBSD: ressl.c,v 1.16 2014/09/29 15:31:38 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -110,22 +110,11 @@ ressl_configure_keypair(struct ressl *ctx)
 	BIO *bio = NULL;
 
 	if (ctx->config->cert_mem != NULL) {
-		if ((bio = BIO_new_mem_buf(ctx->config->cert_mem,
-		    ctx->config->cert_len)) == NULL) {
-			ressl_set_error(ctx, "failed to create buffer");
-			goto err;
-		}
-		if ((cert = PEM_read_bio_X509(bio, NULL, NULL, NULL)) == NULL) {
-			ressl_set_error(ctx, "failed to read certificate");
-			goto err;
-		}
-		if (SSL_CTX_use_certificate(ctx->ssl_ctx, cert) != 1) {
+		if (SSL_CTX_use_certificate_chain(ctx->ssl_ctx,
+		    ctx->config->cert_mem, ctx->config->cert_len) != 1) {
 			ressl_set_error(ctx, "failed to load certificate");
 			goto err;
 		}
-		BIO_free(bio);
-		bio = NULL;
-		X509_free(cert);
 		cert = NULL;
 	}
 	if (ctx->config->key_mem != NULL) {
@@ -150,8 +139,8 @@ ressl_configure_keypair(struct ressl *ctx)
 	}
 
 	if (ctx->config->cert_file != NULL) {
-		if (SSL_CTX_use_certificate_file(ctx->ssl_ctx,
-		    ctx->config->cert_file, SSL_FILETYPE_PEM) != 1) {
+		if (SSL_CTX_use_certificate_chain_file(ctx->ssl_ctx,
+		    ctx->config->cert_file) != 1) {
 			ressl_set_error(ctx, "failed to load certificate file");
 			goto err;
 		}
@@ -177,6 +166,34 @@ err:
 	BIO_free(bio);
 
 	return (1);
+}
+
+int
+ressl_configure_ssl(struct ressl *ctx)
+{
+	SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv2);
+
+	if ((ctx->config->protocols & RESSL_PROTOCOL_SSLv3) == 0)
+		SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_SSLv3);
+	if ((ctx->config->protocols & RESSL_PROTOCOL_TLSv1_0) == 0)
+		SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_TLSv1);
+	if ((ctx->config->protocols & RESSL_PROTOCOL_TLSv1_1) == 0)
+		SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_TLSv1_1);
+	if ((ctx->config->protocols & RESSL_PROTOCOL_TLSv1_2) == 0)
+		SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_NO_TLSv1_2);
+
+	if (ctx->config->ciphers != NULL) {
+		if (SSL_CTX_set_cipher_list(ctx->ssl_ctx,
+		    ctx->config->ciphers) != 1) {
+			ressl_set_error(ctx, "failed to set ciphers");
+			goto err;
+		}
+	}
+
+	return (0);
+
+err:
+	return (-1);
 }
 
 void

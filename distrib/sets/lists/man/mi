@@ -1287,6 +1287,7 @@
 ./usr/share/man/man4/armish/kmem.4
 ./usr/share/man/man4/armish/mem.4
 ./usr/share/man/man4/armv7
+./usr/share/man/man4/armv7/a1xintc.4
 ./usr/share/man/man4/armv7/cpsw.4
 ./usr/share/man/man4/armv7/dmtimer.4
 ./usr/share/man/man4/armv7/edma.4
@@ -1303,6 +1304,12 @@
 ./usr/share/man/man4/armv7/ommmc.4
 ./usr/share/man/man4/armv7/prcm.4
 ./usr/share/man/man4/armv7/sitaracm.4
+./usr/share/man/man4/armv7/sunxi.4
+./usr/share/man/man4/armv7/sxiccmu.4
+./usr/share/man/man4/armv7/sxidog.4
+./usr/share/man/man4/armv7/sxie.4
+./usr/share/man/man4/armv7/sxipio.4
+./usr/share/man/man4/armv7/sxitimer.4
 ./usr/share/man/man4/arp.4
 ./usr/share/man/man4/asbtm.4
 ./usr/share/man/man4/ast.4
@@ -1792,7 +1799,6 @@
 ./usr/share/man/man4/sis.4
 ./usr/share/man/man4/sk.4
 ./usr/share/man/man4/skc.4
-./usr/share/man/man4/sl.4
 ./usr/share/man/man4/sli.4
 ./usr/share/man/man4/sm.4
 ./usr/share/man/man4/smsc.4
@@ -2281,8 +2287,6 @@
 ./usr/share/man/man5/services.5
 ./usr/share/man/man5/shells.5
 ./usr/share/man/man5/skey.5
-./usr/share/man/man5/slip.hosts.5
-./usr/share/man/man5/slip.login.5
 ./usr/share/man/man5/smtpd.conf.5
 ./usr/share/man/man5/snmpd.conf.5
 ./usr/share/man/man5/socppc
@@ -2530,6 +2534,7 @@
 ./usr/share/man/man8/macppc/pdisk.8
 ./usr/share/man/man8/macppc/zzz.8
 ./usr/share/man/man8/mail.local.8
+./usr/share/man/man8/mailq.8
 ./usr/share/man/man8/mailwrapper.8
 ./usr/share/man/man8/makedbm.8
 ./usr/share/man/man8/makekey.8
@@ -2666,11 +2671,7 @@
 ./usr/share/man/man8/showmount.8
 ./usr/share/man/man8/shutdown.8
 ./usr/share/man/man8/skeyprune.8
-./usr/share/man/man8/slattach.8
-./usr/share/man/man8/slip.8
-./usr/share/man/man8/sliplogin.8
 ./usr/share/man/man8/slowcgi.8
-./usr/share/man/man8/slstats.8
 ./usr/share/man/man8/smtpctl.8
 ./usr/share/man/man8/smtpd.8
 ./usr/share/man/man8/snkadm.8

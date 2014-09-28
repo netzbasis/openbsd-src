@@ -544,7 +544,6 @@
 ./usr/include/dev/pci/if_agereg.h
 ./usr/include/dev/pci/if_alcreg.h
 ./usr/include/dev/pci/if_alereg.h
-./usr/include/dev/pci/if_art.h
 ./usr/include/dev/pci/if_bcereg.h
 ./usr/include/dev/pci/if_bgereg.h
 ./usr/include/dev/pci/if_bnxreg.h
@@ -992,7 +991,6 @@
 ./usr/include/net/if_ppp.h
 ./usr/include/net/if_pppoe.h
 ./usr/include/net/if_pppvar.h
-./usr/include/net/if_slvar.h
 ./usr/include/net/if_sppp.h
 ./usr/include/net/if_trunk.h
 ./usr/include/net/if_tun.h
