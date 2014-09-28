@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile.inc,v 1.4 2014/05/02 22:23:00 miod Exp $
+# $OpenBSD: Makefile.inc,v 1.6 2014/09/27 20:42:38 miod Exp $
 
 # hppa-specific libcrypto build rules
 
