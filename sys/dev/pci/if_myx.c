@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.67 2014/10/03 09:52:01 dlg Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.69 2014/10/03 13:41:55 dlg Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -207,7 +207,7 @@ void	 myx_write_txd_tail(struct myx_softc *, struct myx_buf *, u_int8_t,
 int	 myx_load_buf(struct myx_softc *, struct myx_buf *, struct mbuf *);
 int	 myx_setlladdr(struct myx_softc *, u_int32_t, u_int8_t *);
 int	 myx_intr(void *);
-int	 myx_rxeof(struct myx_softc *);
+void	 myx_rxeof(struct myx_softc *);
 void	 myx_txeof(struct myx_softc *, u_int32_t);
 
 struct myx_buf *	myx_buf_alloc(struct myx_softc *, bus_size_t, int,
@@ -1649,9 +1649,7 @@ myx_intr(void *arg)
 	enum myx_state		 state = MYX_S_RUNNING;
 	bus_dmamap_t		 map = sc->sc_sts_dma.mxm_map;
 	u_int32_t		 data, link = 0xffffffff;
-	int			 refill = 0;
 	u_int8_t		 valid = 0;
-	int			 i;
 
 	mtx_enter(&sc->sc_sts_mtx);
 	if (sc->sc_state == MYX_S_OFF) {
@@ -1698,7 +1696,7 @@ myx_intr(void *arg)
 
 	data = htobe32(3);
 	if (valid & 0x1) {
-		refill |= myx_rxeof(sc);
+		myx_rxeof(sc);
 
 		bus_space_write_raw_region_4(sc->sc_memt, sc->sc_memh,
 		    sc->sc_irqclaimoff, &data, sizeof(data));
@@ -1727,14 +1725,6 @@ myx_intr(void *arg)
 		CLR(ifp->if_flags, IFF_OACTIVE);
 		myx_start(ifp);
 		KERNEL_UNLOCK();
-	}
-
-	for (i = 0; i < 2; i++) {
-		if (ISSET(refill, 1 << i)) {
-			if (myx_rx_fill(sc, i) >= 0 &&
-			    myx_bufs_empty(&sc->sc_rx_buf_list[i]))
-				timeout_add(&sc->sc_refill, 0);
-		}
 	}
 
 	return (1);
@@ -1791,15 +1781,15 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 	}
 }
 
-int
+void
 myx_rxeof(struct myx_softc *sc)
 {
 	static const struct myx_intrq_desc zerodesc = { 0, 0 };
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct myx_buf *mb;
 	struct mbuf *m;
 	int ring;
-	int rings = 0;
 	u_int rxfree[2] = { 0 , 0 };
 	u_int len;
 
@@ -1830,15 +1820,7 @@ myx_rxeof(struct myx_softc *sc)
 		m->m_pkthdr.rcvif = ifp;
 		m->m_pkthdr.len = m->m_len = len;
 
-		KERNEL_LOCK();
-#if NBPFILTER > 0
-		if (ifp->if_bpf)
-			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_IN);
-#endif
-
-		ether_input_mbuf(ifp, m);
-		KERNEL_UNLOCK();
-		ifp->if_ipackets++;
+		ml_enqueue(&ml, m);
 
 		myx_buf_put(&sc->sc_rx_buf_free[ring], mb);
 
@@ -1856,10 +1838,24 @@ myx_rxeof(struct myx_softc *sc)
 		if_rxr_put(&sc->sc_rx_ring[ring], rxfree[ring]);
 		mtx_leave(&sc->sc_rx_ring_lock[ring].mrl_mtx);
 
-		SET(rings, 1 << ring);
+		if (myx_rx_fill(sc, ring) >= 0 &&
+		    myx_bufs_empty(&sc->sc_rx_buf_list[ring]))
+			timeout_add(&sc->sc_refill, 0);
 	}
 
-	return (rings);
+	ifp->if_ipackets += ml_len(&ml);
+
+	KERNEL_LOCK();
+#if NBPFILTER > 0
+	if (ifp->if_bpf) {
+		MBUF_LIST_FOREACH(&ml, m)
+			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_IN);
+	}
+#endif
+
+	while ((m = ml_dequeue(&ml)) != NULL)
+		ether_input_mbuf(ifp, m);
+	KERNEL_UNLOCK();
 }
 
 void
