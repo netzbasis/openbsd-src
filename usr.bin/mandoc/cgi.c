@@ -1,4 +1,4 @@
-/*	$OpenBSD: cgi.c,v 1.36 2014/09/14 19:44:20 schwarze Exp $ */
+/*	$OpenBSD: cgi.c,v 1.38 2014/10/07 18:20:42 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014 Ingo Schwarze <schwarze@usta.de>
@@ -375,13 +375,10 @@ resp_begin_html(int code, const char *msg)
 
 	resp_begin_http(code, msg);
 
-	printf("<!DOCTYPE HTML PUBLIC "
-	       " \"-//W3C//DTD HTML 4.01//EN\""
-	       " \"http://www.w3.org/TR/html4/strict.dtd\">\n"
+	printf("<!DOCTYPE html>\n"
 	       "<HTML>\n"
 	       "<HEAD>\n"
-	       "<META HTTP-EQUIV=\"Content-Type\""
-	       " CONTENT=\"text/html; charset=utf-8\">\n"
+	       "<META CHARSET=\"UTF-8\" />\n"
 	       "<LINK REL=\"stylesheet\" HREF=\"%s/man-cgi.css\""
 	       " TYPE=\"text/css\" media=\"all\">\n"
 	       "<LINK REL=\"stylesheet\" HREF=\"%s/man.css\""
@@ -1035,9 +1032,9 @@ main(void)
 
 	/* Poor man's ReDoS mitigation. */
 
-	itimer.it_value.tv_sec = 1;
+	itimer.it_value.tv_sec = 2;
 	itimer.it_value.tv_usec = 0;
-	itimer.it_interval.tv_sec = 1;
+	itimer.it_interval.tv_sec = 2;
 	itimer.it_interval.tv_usec = 0;
 	if (setitimer(ITIMER_VIRTUAL, &itimer, NULL) == -1) {
 		fprintf(stderr, "setitimer: %s\n", strerror(errno));
