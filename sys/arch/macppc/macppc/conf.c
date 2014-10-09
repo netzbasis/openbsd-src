@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.59 2014/08/20 06:14:42 mikeb Exp $ */
+/*	$OpenBSD: conf.c,v 1.61 2014/10/09 04:10:03 tedu Exp $ */
 
 /*
  * Copyright (c) 1997 Per Fogelstrom
@@ -61,12 +61,12 @@ struct bdevsw bdevsw[] = {
 	bdev_tape_init(NST,st),		/* 5 SCSI tape */
 	bdev_notdef(),			/* 6 unknown*/
 	bdev_notdef(),			/* 7 unknown*/
-	bdev_lkm_dummy(),		/* 8 */
-	bdev_lkm_dummy(),		/* 9 */
-	bdev_lkm_dummy(),		/* 10 */
-	bdev_lkm_dummy(),		/* 11 */
-	bdev_lkm_dummy(),		/* 12 */
-	bdev_lkm_dummy(),		/* 13 */
+	bdev_notdef(),			/* 8 */
+	bdev_notdef(),			/* 9 */
+	bdev_notdef(),			/* 10 */
+	bdev_notdef(),			/* 11 */
+	bdev_notdef(),			/* 12 */
+	bdev_notdef(),			/* 13 */
 	bdev_disk_init(NVND,vnd),	/* 14 vnode disk driver*/
 	bdev_notdef(),			/* 15 unknown*/
 	bdev_notdef(),			/* 16 was: concatenated disk driver*/
@@ -92,12 +92,6 @@ cdev_decl(com);
 #include "bpfilter.h"
 
 #include "tun.h"
-
-#ifdef LKM
-#define NLKM 1
-#else
-#define NLKM 0
-#endif
 
 #include "ksyms.h"
 #include "usb.h"
@@ -160,7 +154,7 @@ struct cdevsw cdevsw[] = {
 	cdev_fd_init(1,filedesc),	/* 21: file descriptor pseudo-dev */
 	cdev_bpf_init(NBPFILTER,bpf),	/* 22: berkeley packet filter */
 	cdev_tun_init(NTUN,tun),	/* 23: network tunnel */
-	cdev_lkm_init(NLKM,lkm),	/* 24: loadable module driver */
+	cdev_notdef(),			/* 24 was LKM */
 	cdev_apm_init(NAPM,apm),	/* 25: APM interface */
 	cdev_tty_init(NCOM,com),        /* 26: Serial Ports via com(4) */
 	cdev_notdef(),			/* 27 */
@@ -169,12 +163,12 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),			/* 30 */
 	cdev_notdef(),			/* 31 */
 	cdev_notdef(),			/* 32 */
-	cdev_lkm_dummy(),		/* 33 */
-	cdev_lkm_dummy(),		/* 34 */
-	cdev_lkm_dummy(),		/* 35 */
-	cdev_lkm_dummy(),		/* 36 */
-	cdev_lkm_dummy(),		/* 37 */
-	cdev_lkm_dummy(),		/* 38 */
+	cdev_notdef(),			/* 33 */
+	cdev_notdef(),			/* 34 */
+	cdev_notdef(),			/* 35 */
+	cdev_notdef(),			/* 36 */
+	cdev_notdef(),			/* 37 */
+	cdev_notdef(),			/* 38 */
 	cdev_pf_init(NPF,pf),		/* 39: packet filter */
 	cdev_random_init(1,random),	/* 40: random data source */
 	cdev_uk_init(NUK,uk),		/* 41: unknown SCSI */

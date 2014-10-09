@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_hibernate.c,v 1.101 2014/09/26 09:25:38 kettenis Exp $	*/
+/*	$OpenBSD: subr_hibernate.c,v 1.103 2014/10/09 00:50:54 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2011 Ariane van der Steldt <ariane@stack.nl>
@@ -47,9 +47,7 @@
  * 1*PAGE_SIZE			I/O page used during hibernate suspend
  * 2*PAGE_SIZE			I/O page used during hibernate suspend
  * 3*PAGE_SIZE			copy page used during hibernate suspend
- * 4*PAGE_SIZE			final chunk ordering list (8 pages)
- * 12*PAGE_SIZE			piglet chunk ordering list (8 pages)
- * 20*PAGE_SIZE			temp chunk ordering list (8 pages)
+ * 4*PAGE_SIZE			final chunk ordering list (24 pages)
  * 28*PAGE_SIZE			RLE utility page
  * 29*PAGE_SIZE			start of hiballoc area
  * 109*PAGE_SIZE		end of hiballoc area (80 pages)
@@ -525,7 +523,6 @@ uvm_page_rle(paddr_t addr)
 int
 get_hibernate_info(union hibernate_info *hib, int suspend)
 {
-	int chunktable_size;
 	struct disklabel dl;
 	char err_string[128], *dl_ret;
 
@@ -565,8 +562,6 @@ get_hibernate_info(union hibernate_info *hib, int suspend)
 	/* Calculate signature block location */
 	hib->sig_offset = DL_GETPSIZE(&dl.d_partitions[1]) -
 	    sizeof(union hibernate_info)/DEV_BSIZE;
-
-	chunktable_size = HIBERNATE_CHUNK_TABLE_SIZE / DEV_BSIZE;
 
 	/* Stash kernel version information */
 	memset(&hib->kernel_version, 0, 128);
@@ -659,7 +654,7 @@ hibernate_inflate_page(int *rle)
 	    (struct hibernate_zlib_state *)HIBERNATE_HIBALLOC_PAGE;
 
 	/* Set up the stream for RLE code inflate */
-	hibernate_state->hib_stream.next_out = (char *)rle;
+	hibernate_state->hib_stream.next_out = (unsigned char *)rle;
 	hibernate_state->hib_stream.avail_out = sizeof(*rle);
 
 	/* Inflate RLE code */
@@ -697,8 +692,9 @@ hibernate_inflate_page(int *rle)
 	if (*rle != 0)
 		return (0);
 
-	/* Set up the stream for page inflate */	
-	hibernate_state->hib_stream.next_out = (char *)HIBERNATE_INFLATE_PAGE;
+	/* Set up the stream for page inflate */
+	hibernate_state->hib_stream.next_out =
+		(unsigned char *)HIBERNATE_INFLATE_PAGE;
 	hibernate_state->hib_stream.avail_out = PAGE_SIZE;
 
 	/* Process next block of data */
@@ -744,7 +740,7 @@ hibernate_inflate_region(union hibernate_info *hib, paddr_t dest,
 	hibernate_state =
 	    (struct hibernate_zlib_state *)HIBERNATE_HIBALLOC_PAGE;
 
-	hibernate_state->hib_stream.next_in = (char *)src;
+	hibernate_state->hib_stream.next_in = (unsigned char *)src;
 	hibernate_state->hib_stream.avail_in = size;
 
 	do {
@@ -789,10 +785,10 @@ hibernate_deflate(union hibernate_info *hib, paddr_t src,
 	    (struct hibernate_zlib_state *)HIBERNATE_HIBALLOC_PAGE;
 
 	/* Set up the stream for deflate */
-	hibernate_state->hib_stream.next_in = (caddr_t)src;
+	hibernate_state->hib_stream.next_in = (unsigned char *)src;
 	hibernate_state->hib_stream.avail_in = PAGE_SIZE - (src & PAGE_MASK);
-	hibernate_state->hib_stream.next_out = (caddr_t)hibernate_io_page +
-	    (PAGE_SIZE - *remaining);
+	hibernate_state->hib_stream.next_out =
+		(unsigned char *)hibernate_io_page + (PAGE_SIZE - *remaining);
 	hibernate_state->hib_stream.avail_out = *remaining;
 
 	/* Process next block of data */
@@ -827,7 +823,6 @@ hibernate_write_signature(union hibernate_info *hib)
 int
 hibernate_write_chunktable(union hibernate_info *hib)
 {
-	struct hibernate_disk_chunk *chunks;
 	vaddr_t hibernate_chunk_table_start;
 	size_t hibernate_chunk_table_size;
 	int i, err;
@@ -836,9 +831,6 @@ hibernate_write_chunktable(union hibernate_info *hib)
 
 	hibernate_chunk_table_start = hib->piglet_va +
 	    HIBERNATE_CHUNK_SIZE;
-
-	chunks = (struct hibernate_disk_chunk *)(hib->piglet_va +
-	    HIBERNATE_CHUNK_SIZE);
 
 	/* Write chunk table */
 	for (i = 0; i < hibernate_chunk_table_size; i += MAXPHYS) {
@@ -878,34 +870,6 @@ hibernate_clear_signature(void)
 	    hib.sig_offset,
 	    DEV_BSIZE, (vaddr_t)&blank_hiber_info, 1))
 		printf("Warning: could not clear hibernate signature\n");
-
-	return (0);
-}
-
-/*
- * Check chunk range overlap when calculating whether or not to copy a
- * compressed chunk to the piglet area before decompressing.
- *
- * returns zero if the ranges do not overlap, non-zero otherwise.
- */
-int
-hibernate_check_overlap(paddr_t r1s, paddr_t r1e, paddr_t r2s, paddr_t r2e)
-{
-	/* case A : end of r1 overlaps start of r2 */
-	if (r1s < r2s && r1e > r2s)
-		return (1);
-
-	/* case B : r1 entirely inside r2 */
-	if (r1s >= r2s && r1e <= r2e)
-		return (1);
-
-	/* case C : r2 entirely inside r1 */
-	if (r2s >= r1s && r2e <= r1e)
-		return (1);
-
-	/* case D : end of r2 overlaps start of r1 */
-	if (r2s < r1s && r2e > r1s)
-		return (1);
 
 	return (0);
 }
@@ -1477,10 +1441,11 @@ hibernate_write_chunks(union hibernate_info *hib)
 			out_remaining = PAGE_SIZE;
 
 		/* Finish compress */
-		hibernate_state->hib_stream.next_in = (caddr_t)inaddr;
+		hibernate_state->hib_stream.next_in = (unsigned char *)inaddr;
 		hibernate_state->hib_stream.avail_in = 0;
 		hibernate_state->hib_stream.next_out =
-		    (caddr_t)hibernate_io_page + (PAGE_SIZE - out_remaining);
+		    (unsigned char *)hibernate_io_page +
+			(PAGE_SIZE - out_remaining);
 
 		/* We have an extra output page available for finalize */
 		hibernate_state->hib_stream.avail_out =

@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.21 2014/04/16 12:01:33 aoyama Exp $	*/
+/*	$OpenBSD: conf.c,v 1.23 2014/10/09 04:10:03 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1991 The Regents of the University of California.
@@ -84,12 +84,12 @@ struct bdevsw	bdevsw[] =
 	bdev_notdef(),			/* 10 */
 	bdev_notdef(),			/* 11 */
 	bdev_notdef(),			/* 12 */
-	bdev_lkm_dummy(),		/* 13 */
-	bdev_lkm_dummy(),		/* 14 */
-	bdev_lkm_dummy(),		/* 15 */
-	bdev_lkm_dummy(),		/* 16 */
-	bdev_lkm_dummy(),		/* 17 */
-	bdev_lkm_dummy(),		/* 18 */
+	bdev_notdef(),			/* 13 */
+	bdev_notdef(),			/* 14 */
+	bdev_notdef(),			/* 15 */
+	bdev_notdef(),			/* 16 */
+	bdev_notdef(),			/* 17 */
+	bdev_notdef(),			/* 18 */
 };
 int	nblkdev = nitems(bdevsw);
 
@@ -121,7 +121,7 @@ struct cdevsw	cdevsw[] =
 	cdev_fd_init(1,filedesc),	/* 21: file descriptor pseudo-dev */
 	cdev_bpf_init(NBPFILTER,bpf),	/* 22: berkeley packet filter */
 	cdev_tun_init(NTUN,tun),	/* 23: network tunnel */
-	cdev_lkm_init(NLKM,lkm),	/* 24: loadable module driver */
+	cdev_notdef(),			/* 26 was LKM */
 	cdev_pcex_init(NPCEX, pcex),	/* 25: PC-9801 extension board slot */
 	cdev_notdef(),			/* 26 */
 	cdev_notdef(),			/* 27 */
@@ -130,12 +130,12 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 30 */
 	cdev_notdef(),			/* 31 */
 	cdev_notdef(),			/* 32 */
-	cdev_lkm_dummy(),		/* 33 */
-	cdev_lkm_dummy(),		/* 34 */
-	cdev_lkm_dummy(),		/* 35 */
-	cdev_lkm_dummy(),		/* 36 */
-	cdev_lkm_dummy(),		/* 37 */
-	cdev_lkm_dummy(),		/* 38 */
+	cdev_notdef(),			/* 33 */
+	cdev_notdef(),			/* 34 */
+	cdev_notdef(),			/* 35 */
+	cdev_notdef(),			/* 36 */
+	cdev_notdef(),			/* 37 */
+	cdev_notdef(),			/* 38 */
 	cdev_pf_init(NPF,pf),		/* 39: packet filter */
 	cdev_random_init(1,random),	/* 40: random data source */
 	cdev_uk_init(NUK,uk),		/* 41 */
@@ -198,7 +198,6 @@ getnulldev()
 }
 
 int chrtoblktbl[] = {
-	/* XXXX This needs to be dynamic for LKMs. */
 	/*VCHR*/	/*VBLK*/
 	/*  0 */	NODEV,
 	/*  1 */	NODEV,
