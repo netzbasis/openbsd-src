@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.h,v 1.25 2014/10/07 18:17:05 schwarze Exp $ */
+/*	$OpenBSD: html.h,v 1.28 2014/10/10 15:25:06 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -50,6 +50,22 @@ enum	htmltag {
 	TAG_CODE,
 	TAG_SMALL,
 	TAG_STYLE,
+	TAG_MATH,
+	TAG_MROW,
+	TAG_MI,
+	TAG_MO,
+	TAG_MSUP,
+	TAG_MSUB,
+	TAG_MSUBSUP,
+	TAG_MFRAC,
+	TAG_MSQRT,
+	TAG_MFENCED,
+	TAG_MTABLE,
+	TAG_MTR,
+	TAG_MTD,
+	TAG_MUNDEROVER,
+	TAG_MUNDER,
+	TAG_MOVER,
 	TAG_MAX
 };
 
@@ -64,6 +80,9 @@ enum	htmlattr {
 	ATTR_ID,
 	ATTR_COLSPAN,
 	ATTR_CHARSET,
+	ATTR_OPEN,
+	ATTR_CLOSE,
+	ATTR_MATHVARIANT,
 	ATTR_MAX
 };
 
