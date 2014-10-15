@@ -178,15 +178,8 @@
 #include <openssl/dh.h>
 #include <openssl/bn.h>
 
-#define _XOPEN_SOURCE_EXTENDED	1
-/* Or gethostname won't be declared properly
-   on Compaq platforms (at least with DEC C).
-   Do not try to put it earlier, or IPv6 includes
-   get screwed... */
-
-
-#  define TEST_SERVER_CERT "../apps/server.pem"
-#  define TEST_CLIENT_CERT "../apps/client.pem"
+#define TEST_SERVER_CERT "../apps/server.pem"
+#define TEST_CLIENT_CERT "../apps/client.pem"
 
 static int verify_callback(int ok, X509_STORE_CTX *ctx);
 static RSA *tmp_rsa_cb(SSL *s, int is_export, int keylength);
@@ -207,6 +200,89 @@ static DH *get_dh1024dsa(void);
 
 static BIO *bio_err = NULL;
 static BIO *bio_stdout = NULL;
+
+#ifndef OPENSSL_NO_NEXTPROTONEG
+/* Note that this code assumes that this is only a one element list: */
+static const char NEXT_PROTO_STRING[] = "\x09testproto";
+int npn_client = 0;
+int npn_server = 0;
+int npn_server_reject = 0;
+
+static int
+cb_client_npn(SSL *s, unsigned char **out, unsigned char *outlen,
+    const unsigned char *in, unsigned int inlen, void *arg)
+{
+	/*
+	 * This callback only returns the protocol string, rather than a length
+	 * prefixed set. We assume that NEXT_PROTO_STRING is a one element list
+	 * and remove the first byte to chop off the length prefix.
+	 */
+	*out = (unsigned char *)NEXT_PROTO_STRING + 1;
+	*outlen = sizeof(NEXT_PROTO_STRING) - 2;
+	return (SSL_TLSEXT_ERR_OK);
+}
+
+static int
+cb_server_npn(SSL *s, const unsigned char **data, unsigned int *len, void *arg)
+{
+	*data = (const unsigned char *)NEXT_PROTO_STRING;
+	*len = sizeof(NEXT_PROTO_STRING) - 1;
+	return (SSL_TLSEXT_ERR_OK);
+}
+
+static int
+cb_server_rejects_npn(SSL *s, const unsigned char **data, unsigned int *len,
+    void *arg)
+{
+	return (SSL_TLSEXT_ERR_NOACK);
+}
+
+static int
+verify_npn(SSL *client, SSL *server)
+{
+	const unsigned char *client_s;
+	unsigned int client_len;
+	const unsigned char *server_s;
+	unsigned int server_len;
+
+	SSL_get0_next_proto_negotiated(client, &client_s, &client_len);
+	SSL_get0_next_proto_negotiated(server, &server_s, &server_len);
+
+	if (client_len) {
+		BIO_printf(bio_stdout, "Client NPN: ");
+		BIO_write(bio_stdout, client_s, client_len);
+		BIO_printf(bio_stdout, "\n");
+	}
+
+	if (server_len) {
+		BIO_printf(bio_stdout, "Server NPN: ");
+		BIO_write(bio_stdout, server_s, server_len);
+		BIO_printf(bio_stdout, "\n");
+	}
+
+	/*
+	 * If an NPN string was returned, it must be the protocol that we
+	 * expected to negotiate.
+	 */
+	if (client_len && (client_len != sizeof(NEXT_PROTO_STRING) - 2 ||
+	    memcmp(client_s, NEXT_PROTO_STRING + 1, client_len)))
+		return (-1);
+	if (server_len && (server_len != sizeof(NEXT_PROTO_STRING) - 2 ||
+	    memcmp(server_s, NEXT_PROTO_STRING + 1, server_len)))
+		return (-1);
+
+	if (!npn_client && client_len)
+		return (-1);
+	if (!npn_server && server_len)
+		return (-1);
+	if (npn_server_reject && server_len)
+		return (-1);
+	if (npn_client && npn_server && (!client_len || !server_len))
+		return (-1);
+
+	return (0);
+}
+#endif
 
 static char *cipher = NULL;
 static int verbose = 0;
@@ -253,6 +329,11 @@ sv_usage(void)
 	               "                 Use \"openssl ecparam -list_curves\" for all names\n"  \
 	               "                 (default is sect163r2).\n");
 	fprintf(stderr, " -test_cipherlist - verifies the order of the ssl cipher lists\n");
+#ifndef OPENSSL_NO_NEXTPROTONEG
+	fprintf(stderr, " -npn_client - have client side offer NPN\n");
+	fprintf(stderr, " -npn_server - have server side offer NPN\n");
+	fprintf(stderr, " -npn_server_reject - have server reject NPN\n");
+#endif
 }
 
 static void
@@ -495,7 +576,17 @@ main(int argc, char *argv[])
 			app_verify_arg.allow_proxy_certs = 1;
 		} else if (strcmp(*argv, "-test_cipherlist") == 0) {
 			test_cipherlist = 1;
-		} else {
+		}
+#ifndef OPENSSL_NO_NEXTPROTONEG
+		else if (strcmp(*argv, "-npn_client") == 0) {
+			npn_client = 1;
+		} else if (strcmp(*argv, "-npn_server") == 0) {
+			npn_server = 1;
+		} else if (strcmp(*argv, "-npn_server_reject") == 0) {
+			npn_server_reject = 1;
+		}
+#endif
+		else {
 			fprintf(stderr, "unknown option %s\n", *argv);
 			badop = 1;
 			break;
@@ -540,7 +631,6 @@ bad:
 
 	SSL_library_init();
 	SSL_load_error_strings();
-
 
 	if (dtls1)
 		meth = DTLSv1_method();
@@ -653,6 +743,24 @@ bad:
 		    (void *)&session_id_context, sizeof(session_id_context));
 	}
 
+#ifndef OPENSSL_NO_NEXTPROTONEG
+	if (npn_client)
+		SSL_CTX_set_next_proto_select_cb(c_ctx, cb_client_npn, NULL);
+	if (npn_server) {
+		if (npn_server_reject) {
+			BIO_printf(bio_err, "Can't have both -npn_server and "
+			    "-npn_server_reject\n");
+			goto end;
+		}
+		SSL_CTX_set_next_protos_advertised_cb(s_ctx,
+		    cb_server_npn, NULL);
+	}
+	if (npn_server_reject) {
+		SSL_CTX_set_next_protos_advertised_cb(s_ctx,
+		    cb_server_rejects_npn, NULL);
+	}
+#endif
+
 	c_ssl = SSL_new(c_ctx);
 	s_ssl = SSL_new(s_ctx);
 
@@ -698,13 +806,9 @@ bad:
 	SSL_free(c_ssl);
 
 end:
-	if (s_ctx != NULL)
-		SSL_CTX_free(s_ctx);
-	if (c_ctx != NULL)
-		SSL_CTX_free(c_ctx);
-
-	if (bio_stdout != NULL)
-		BIO_free(bio_stdout);
+	SSL_CTX_free(s_ctx);
+	SSL_CTX_free(c_ctx);
+	BIO_free(bio_stdout);
 
 	free_tmp_rsa();
 #ifndef OPENSSL_NO_ENGINE
@@ -715,8 +819,8 @@ end:
 	ERR_remove_thread_state(NULL);
 	EVP_cleanup();
 	CRYPTO_mem_leaks(bio_err);
-	if (bio_err != NULL)
-		BIO_free(bio_err);
+	BIO_free(bio_err);
+
 	exit(ret);
 	return ret;
 }
@@ -1054,24 +1158,26 @@ doit_biopair(SSL *s_ssl, SSL *c_ssl, long count, clock_t *s_time,
 
 	if (verbose)
 		print_details(c_ssl, "DONE via BIO pair: ");
+
+#ifndef OPENSSL_NO_NEXTPROTONEG
+	if (verify_npn(c_ssl, s_ssl) < 0) {
+		ret = 1;
+		goto err;
+	}
+#endif
+
 end:
 	ret = 0;
 
 err:
 	ERR_print_errors(bio_err);
 
-	if (server)
-		BIO_free(server);
-	if (server_io)
-		BIO_free(server_io);
-	if (client)
-		BIO_free(client);
-	if (client_io)
-		BIO_free(client_io);
-	if (s_ssl_bio)
-		BIO_free(s_ssl_bio);
-	if (c_ssl_bio)
-		BIO_free(c_ssl_bio);
+	BIO_free(server);
+	BIO_free(server_io);
+	BIO_free(client);
+	BIO_free(client_io);
+	BIO_free(s_ssl_bio);
+	BIO_free(c_ssl_bio);
 
 	return ret;
 }
@@ -1305,6 +1411,14 @@ doit(SSL *s_ssl, SSL *c_ssl, long count)
 
 	if (verbose)
 		print_details(c_ssl, "DONE: ");
+
+#ifndef OPENSSL_NO_NEXTPROTONEG
+	if (verify_npn(c_ssl, s_ssl) < 0) {
+		ret = 1;
+		goto err;
+	}
+#endif
+
 	ret = 0;
 err:
 	/* We have to set the BIO's to NULL otherwise they will be
@@ -1323,14 +1437,11 @@ err:
 		c_ssl->wbio = NULL;
 	}
 
-	if (c_to_s != NULL)
-		BIO_free(c_to_s);
-	if (s_to_c != NULL)
-		BIO_free(s_to_c);
-	if (c_bio != NULL)
-		BIO_free_all(c_bio);
-	if (s_bio != NULL)
-		BIO_free_all(s_bio);
+	BIO_free(c_to_s);
+	BIO_free(s_to_c);
+	BIO_free_all(c_bio);
+	BIO_free_all(s_bio);
+
 	return (ret);
 }
 

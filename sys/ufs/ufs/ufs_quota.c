@@ -1,4 +1,4 @@
-/*	$OpenBSD: ufs_quota.c,v 1.33 2014/03/30 21:54:48 guenther Exp $	*/
+/*	$OpenBSD: ufs_quota.c,v 1.35 2014/10/13 03:46:33 guenther Exp $	*/
 /*	$NetBSD: ufs_quota.c,v 1.8 1996/02/09 22:36:09 christos Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <sys/proc.h>
 #include <sys/vnode.h>
 #include <sys/mount.h>
+#include <sys/ktrace.h>
 
 #include <ufs/ufs/quota.h>
 #include <ufs/ufs/inode.h>
@@ -501,18 +502,32 @@ quotaon(struct proc *p, struct mount *mp, int type, caddr_t fname)
 		(void) vn_close(vp, FREAD|FWRITE, p->p_ucred, p);
 		return (EACCES);
 	}
-	if (*vpp != vp)
+
+	/*
+	 * Update the vnode and ucred for quota file updates
+	 */
+	if (*vpp != vp) {
 		quotaoff(p, mp, type);
+		*vpp = vp;
+		crhold(p->p_ucred);
+		ump->um_cred[type] = p->p_ucred;
+	} else {
+		struct ucred *ocred = ump->um_cred[type];
+
+		(void) vn_close(vp, FREAD|FWRITE, ocred, p);
+		if (ocred != p->p_ucred) {
+			crhold(p->p_ucred);
+			ump->um_cred[type] = p->p_ucred;
+			crfree(ocred);
+		}
+	}
+
 	ump->um_qflags[type] |= QTF_OPENING;
 	mp->mnt_flag |= MNT_QUOTA;
 	vp->v_flag |= VSYSTEM;
-	*vpp = vp;
 	/*
-	 * Save the credential of the process that turned on quotas.
 	 * Set up the time limits for this quota.
 	 */
-	crhold(p->p_ucred);
-	ump->um_cred[type] = p->p_ucred;
 	ump->um_btime[type] = MAX_DQ_TIME;
 	ump->um_itime[type] = MAX_IQ_TIME;
 	if (dqget(NULLVP, 0, ump, type, &dq) == 0) {
@@ -612,6 +627,14 @@ getquota(struct mount *mp, u_long id, int type, caddr_t addr)
 	if ((error = dqget(NULLVP, id, VFSTOUFS(mp), type, &dq)) != 0)
 		return (error);
 	error = copyout((caddr_t)&dq->dq_dqb, addr, sizeof (struct dqblk));
+#ifdef KTRACE
+	if (error == 0) {
+		struct proc *p = curproc;
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrquota(p, &dq->dq_dqb);
+	}
+#endif
+
 	dqrele(NULLVP, dq);
 	return (error);
 }
@@ -631,6 +654,14 @@ setquota(struct mount *mp, u_long id, int type, caddr_t addr)
 	error = copyin(addr, (caddr_t)&newlim, sizeof (struct dqblk));
 	if (error)
 		return (error);
+#ifdef KTRACE
+	{
+		struct proc *p = curproc;
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrquota(p, &newlim);
+	}
+#endif
+
 	if ((error = dqget(NULLVP, id, ump, type, &ndq)) != 0)
 		return (error);
 	dq = ndq;
@@ -687,6 +718,14 @@ setuse(struct mount *mp, u_long id, int type, caddr_t addr)
 	error = copyin(addr, (caddr_t)&usage, sizeof (struct dqblk));
 	if (error)
 		return (error);
+#ifdef KTRACE
+	{
+		struct proc *p = curproc;
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrquota(p, &usage);
+	}
+#endif
+
 	if ((error = dqget(NULLVP, id, ump, type, &ndq)) != 0)
 		return (error);
 	dq = ndq;

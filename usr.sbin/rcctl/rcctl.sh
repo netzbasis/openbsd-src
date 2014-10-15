@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: rcctl.sh,v 1.41 2014/10/10 15:59:36 ajacoutot Exp $
+# $OpenBSD: rcctl.sh,v 1.45 2014/10/15 07:38:24 ajacoutot Exp $
 #
 # Copyright (c) 2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -27,13 +27,23 @@ _rc_parse_conf
 
 usage()
 {
-	_rc_err "usage: ${0##*/} [-df] enable|disable|status|action
+	_rc_err "usage: ${0##*/} [-df] enable|disable|status|default|action
              [service | daemon [flags [arguments]]]"
 }
 
 needs_root()
 {
 	[ "$(id -u)" -ne 0 ] && _rc_err "${0##*/} $1: need root privileges"
+}
+
+ls_rcscripts() {
+	local _s
+
+	cd /etc/rc.d && set -- *
+	for _s; do
+		[ "${_s}" = "rc.subr" ] && continue
+		[ ! -d "${_s}" ] && echo "${_s}"
+	done
 }
 
 rcconf_edit_begin()
@@ -69,17 +79,37 @@ svc_default_enabled()
 	return ${_ret}
 }
 
-# for security reason and to prevent namespace pollution, only call in a
-# subshell against base system daemons or disabled package scripts
+# to prevent namespace pollution, only call in a subshell
 svc_default_enabled_flags()
 {
 	local _svc=$1
 	[ -n "${_svc}" ] || return
 
-	FUNCS_ONLY=1
-	rc_cmd() { }
-	. /etc/rc.d/${_svc} >/dev/null 2>&1
-	[ -n "${daemon_flags}" ] && print -r -- ${daemon_flags}
+	if svc_is_special ${_svc}; then
+		svc_default_enabled ${_svc} && echo "YES" || echo "NO"
+	else
+		FUNCS_ONLY=1
+		rc_cmd() { }
+		. /etc/rc.d/${_svc} >/dev/null 2>&1
+		[ -n "${daemon_flags}" ] && print -r -- "${daemon_flags}"
+	fi
+}
+
+svc_get_defaults()
+{
+	local _i _svc=$1
+
+	if [ -n "${_svc}" ]; then
+		print -r -- "$(svc_default_enabled_flags ${_svc})"
+		svc_default_enabled ${_svc}
+	else
+		for _i in $(ls_rcscripts); do
+			echo "${_i}_flags=$(svc_default_enabled_flags ${_i})"
+		done
+		for _i in ${_special_services}; do
+			echo "${_i}=$(svc_default_enabled_flags ${_i})"
+		done
+	fi
 }
 
 svc_get_flags()
@@ -98,11 +128,11 @@ svc_get_flags()
 			fi
 		fi
 		[ -z "${daemon_flags}" ] && \
-			daemon_flags="$(eval echo \${${_svc}_flags})"
+			daemon_flags="$(eval echo \"\${${_svc}_flags}\")"
 		[ -z "${daemon_flags}" ] && \
 			daemon_flags="$(svc_default_enabled_flags ${_svc})"
 
-		print -r -- ${daemon_flags} | sed '/^$/d'
+		print -r -- "${daemon_flags}" | sed '/^$/d'
 	fi
 }
 
@@ -114,7 +144,7 @@ svc_get_status()
 		svc_get_flags ${_svc}
 		svc_is_enabled ${_svc}
 	else
-		for _i in $(ls -A /etc/rc.d | grep -v rc.subr); do
+		for _i in $(ls_rcscripts); do
 			echo "${_i}_flags=$(svc_get_flags ${_i})"
 		done
 		for _i in ${_special_services}; do
@@ -205,10 +235,10 @@ add_flags()
 
 	if [ -n "$3" ]; then
 		shift 3
-		_flags=$*
+		_flags="$*"
 	else
 		# keep our flags since none were given
-		eval "_flags=\${${_svc}_flags}"
+		eval "_flags=\"\${${_svc}_flags}\""
 		[ "${_flags}" = "NO" ] && unset _flags
 	fi
 
@@ -218,11 +248,14 @@ add_flags()
 			unset _flags
 	fi
 
+	# protect leading whitespace
+	[ "${_flags}" = "${_flags# }" ] || _flags="\"${_flags}\""
+
 	rcconf_edit_begin
 	grep -v "^${_svc}_flags.*=" /etc/rc.conf.local >${_TMP_RCCONF}
 	if [ -n "${_flags}" ] || \
 	   ( svc_is_base ${_svc} && ! svc_default_enabled ${_svc} ); then
-		echo ${_svc}_flags=${_flags} >>${_TMP_RCCONF}
+		echo "${_svc}_flags=${_flags}" >>${_TMP_RCCONF}
 	fi
 	rcconf_edit_end
 }
@@ -261,13 +294,14 @@ shift $((OPTIND-1))
 action=$1
 svc=$2
 flag=$3
-flags=$*
+[ $# -ge 3 ] && shift 3 || shift $#
+flags="$*"
 
 if [ -n "$svc" ]; then
 	if ! svc_is_avail $svc; then
 		_rc_err "${0##*/}: service $svc does not exist" 2
 	fi
-elif [ "$action" != "status" ]; then
+elif [ "$action" != "default" -a "$action" != "status" ] ; then
 	usage
 fi
 
@@ -276,10 +310,10 @@ if [ -n "$flag" ]; then
 		if [ "$action" != "enable" ]; then
 			_rc_err "${0##*/}: \"flags\" can only be set with \"enable\""
 		fi
-		if svc_is_special $svc && [ -n "$4" ]; then
+		if svc_is_special $svc && [ -n "$flags" ]; then
 			_rc_err "${0##*/}: \"$svc\" is a special variable, cannot set \"flags\""
 		fi
-		if [ "$4" = "NO" ]; then
+		if [ "$flags" = "NO" ]; then
 			_rc_err "${0##*/}: \"flags NO\" contradicts \"enable\""
 		fi
 	else
@@ -288,6 +322,9 @@ if [ -n "$flag" ]; then
 fi
 
 case $action in
+	default)
+		svc_get_defaults $svc
+		;;
 	disable)
 		needs_root $action
 		if ! svc_is_base $svc && ! svc_is_special $svc; then
@@ -297,7 +334,7 @@ case $action in
 		;;
 	enable)
 		needs_root $action
-		add_flags $flags
+		add_flags $action $svc "$flag" "$flags"
 		if ! svc_is_base $svc && ! svc_is_special $svc; then
 			append_to_pkg_scripts $svc
 		fi

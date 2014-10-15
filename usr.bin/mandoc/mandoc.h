@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.103 2014/10/10 15:25:06 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.106 2014/10/14 02:16:02 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -104,6 +104,7 @@ enum	mandocerr {
 	MANDOCERR_BF_NOFONT, /* missing font type, using \fR: Bf */
 	MANDOCERR_BF_BADFONT, /* unknown font type, using \fR: Bf font */
 	MANDOCERR_ARG_STD, /* missing -std argument, adding it: macro */
+	MANDOCERR_EQN_NOBOX, /* missing eqn box, using "": op */
 
 	/* related to bad arguments */
 	MANDOCERR_ARG_QUOTE, /* unterminated quoted argument */
@@ -114,6 +115,7 @@ enum	mandocerr {
 	MANDOCERR_BL_SKIPW, /* skipping -width argument: Bl -type */
 	MANDOCERR_AT_BAD, /* unknown AT&T UNIX version: At version */
 	MANDOCERR_FA_COMMA, /* comma in function argument: arg */
+	MANDOCERR_FN_PAREN, /* parenthesis in function name: arg */
 	MANDOCERR_RS_BAD, /* invalid content in Rs block: macro */
 	MANDOCERR_SM_BAD, /* invalid Boolean argument: macro arg */
 	MANDOCERR_FT_BAD, /* unknown font, skipping request: ft font */
@@ -133,7 +135,6 @@ enum	mandocerr {
 	MANDOCERR_EQNSCOPE, /* equation scope open on exit */
 	MANDOCERR_EQNBADSCOPE, /* overlapping equation scopes */
 	MANDOCERR_EQNEOF, /* unexpected end of equation */
-	MANDOCERR_EQNSYNT, /* equation syntax error */
 
 	/* related to tables */
 	MANDOCERR_TBL, /* bad table syntax */
@@ -245,6 +246,7 @@ struct	tbl_cell {
 #define	TBL_CELL_EQUAL	 (1 << 4) /* e, E */
 #define	TBL_CELL_UP	 (1 << 5) /* u, U */
 #define	TBL_CELL_WIGN	 (1 << 6) /* z, Z */
+#define	TBL_CELL_WMAX	 (1 << 7) /* x, X */
 	struct tbl_head	 *head;
 };
 
