@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.16 2012/12/04 02:24:46 deraadt Exp $	*/
+/*	$OpenBSD: extern.h,v 1.19 2014/10/17 06:17:37 deraadt Exp $	*/
 /*	$NetBSD: extern.h,v 1.8 1996/10/31 23:50:54 christos Exp $	*/
 
 /*-
@@ -296,9 +296,8 @@ void	psecs(long);
  */
 void	Free(ptr_t);
 ptr_t	Malloc(size_t);
-ptr_t	Realloc(ptr_t, size_t);
+ptr_t	Reallocarray(ptr_t, size_t, size_t);
 ptr_t	Calloc(size_t, size_t);
-void	showall(Char **, struct command *);
 
 /*
  * str.c:

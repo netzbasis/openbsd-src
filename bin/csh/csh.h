@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.h,v 1.17 2005/03/13 19:08:27 cloder Exp $	*/
+/*	$OpenBSD: csh.h,v 1.19 2014/10/17 06:17:37 deraadt Exp $	*/
 /*	$NetBSD: csh.h,v 1.9 1995/03/21 09:02:40 cgd Exp $	*/
 
 /*-
@@ -85,7 +85,7 @@ typedef void *ptr_t;
 #include "error.h"
 
 #define xmalloc(i)	Malloc(i)
-#define xrealloc(p, i)	Realloc(p, i)
+#define xreallocarray(p, i, j)	Reallocarray(p, i, j)
 #define xcalloc(n, s)	Calloc(n, s)
 #define xfree(p)	Free(p)
 
