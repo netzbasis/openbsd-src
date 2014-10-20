@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus_space.c,v 1.6 2014/10/17 01:46:26 dlg Exp $ */
+/*	$OpenBSD: bus_space.c,v 1.8 2014/10/17 20:37:57 sthen Exp $ */
 /*-
  * Copyright (c) 1996, 1997 The NetBSD Foundation, Inc.
  * All rights reserved.

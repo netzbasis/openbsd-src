@@ -1,4 +1,4 @@
-/*	$OpenBSD: evutil.c,v 1.5 2014/10/16 07:38:06 bluhm Exp $	*/
+/*	$OpenBSD: evutil.c,v 1.9 2014/10/18 21:56:44 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2007 Niels Provos <provos@citi.umich.edu>
@@ -28,23 +28,16 @@
  */
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-#endif
-#ifdef HAVE_UNISTD_H
+#include <sys/queue.h>
+
 #include <unistd.h>
-#endif
-#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
-#endif
-#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
-#endif
 #include <errno.h>
 #include <stdio.h>
 #include <signal.h>
 
-#include <sys/queue.h>
 #include "event.h"
 #include "event-internal.h"
 #include "evutil.h"
@@ -75,30 +68,8 @@ evutil_make_socket_nonblocking(int fd)
 ev_int64_t
 evutil_strtoll(const char *s, char **endptr, int base)
 {
-#ifdef HAVE_STRTOLL
 	return (ev_int64_t)strtoll(s, endptr, base);
-#elif SIZEOF_LONG == 8
-	return (ev_int64_t)strtol(s, endptr, base);
-#else
-#error "I don't know how to parse 64-bit integers."
-#endif
 }
-
-#ifndef HAVE_GETTIMEOFDAY
-int
-evutil_gettimeofday(struct timeval *tv, struct timezone *tz)
-{
-	struct _timeb tb;
-
-	if(tv == NULL)
-		return -1;
-
-	_ftime(&tb);
-	tv->tv_sec = (long) tb.time;
-	tv->tv_usec = ((int) tb.millitm) * 1000;
-	return 0;
-}
-#endif
 
 int
 evutil_snprintf(char *buf, size_t buflen, const char *format, ...)
@@ -114,37 +85,15 @@ evutil_snprintf(char *buf, size_t buflen, const char *format, ...)
 int
 evutil_vsnprintf(char *buf, size_t buflen, const char *format, va_list ap)
 {
-#ifdef _MSC_VER
-	int r = _vsnprintf(buf, buflen, format, ap);
-	buf[buflen-1] = '\0';
-	if (r >= 0)
-		return r;
-	else
-		return _vscprintf(format, ap);
-#else
 	int r = vsnprintf(buf, buflen, format, ap);
 	buf[buflen-1] = '\0';
 	return r;
-#endif
 }
 
 static int
 evutil_issetugid(void)
 {
-#ifdef HAVE_ISSETUGID
 	return issetugid();
-#else
-
-#ifdef HAVE_GETEUID
-	if (getuid() != geteuid())
-		return 1;
-#endif
-#ifdef HAVE_GETEGID
-	if (getgid() != getegid())
-		return 1;
-#endif
-	return 0;
-#endif
 }
 
 const char *

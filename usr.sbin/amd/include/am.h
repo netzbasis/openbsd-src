@@ -1,4 +1,4 @@
-/*	$OpenBSD: am.h,v 1.12 2009/10/27 23:59:51 deraadt Exp $	*/
+/*	$OpenBSD: am.h,v 1.14 2014/10/20 06:55:59 guenther Exp $	*/
 
 /*
  * Copyright (c) 1990 Jan-Simon Pendry
@@ -47,28 +47,11 @@
 #include <sys/mount.h>
 #include <string.h>
 #include <stdlib.h>
-#ifdef MNTENT_HDR
-#include MNTENT_HDR
-#endif /* MNTENT_HDR */
-#ifndef NFS_PROTOCOL_VERSION
-#if NFS_ARGSVERSION >= 3
-#define NFS_PROTOCOL_VERSION 3
-#endif /* NFS_ARGSVERSION >= 3 */
-#endif /* NFS_PROTOCOL_VERSION */
 #include "nfs_prot.h"
 #include <assert.h>
 
-#ifdef DEBUG_MEM
-#include <malloc.h>
-#endif /* DEBUG_MEM */
-
-#ifndef MAXHOSTNAMELEN
-#define MAXHOSTNAMELEN 64
-#endif /* MAXHOSTNAMELEN */
-
-#ifndef MNTTYPE_AUTO
-#define MNTTYPE_AUTO "auto"
-#endif /* MNTTYPE_AUTO */
+/* max length of mount options */
+#define	MNTMAXSTR	128
 
 #ifndef FALSE
 #define FALSE 0
@@ -85,9 +68,7 @@
 extern int print_pid;		/* Print pid to stdout */
 extern int normalize_hosts;	/* Normalize host names before use */
 extern int restart_existing_mounts;
-#ifdef HAS_NIS_MAPS
 extern char *domain;		/* NIS domain to use */
-#endif /* HAS_NIS_MAPS */
 extern int am_timeo;		/* Cache period */
 extern int afs_timeo;		/* AFS timeout */
 extern int afs_retrans;		/* AFS retrans */
@@ -197,6 +178,16 @@ struct qelem {
 #define	ITER(v, ty, q) \
 	for ((v) = FIRST(ty,(q)); (v) != HEAD(ty,(q)); (v) = NEXT(ty,(v)))
 
+
+struct mntent {
+	char	*mnt_fsname;	/* name of mounted file system */
+	char	*mnt_dir;	/* file system path prefix */
+	char	*mnt_type;	/* MNTTYPE_* */
+	char	*mnt_opts;	/* MNTOPT* */
+	int	mnt_freq;	/* dump frequency, in days */
+	int	mnt_passno;	/* pass number on parallel fsck */
+};
+
 /*
  * List of mount table entries
  */
@@ -252,9 +243,7 @@ extern int	 fwd_packet(int, void *, int, struct sockaddr_in *,
 extern void	 fwd_reply(void);
 extern void	 get_args(int, char *[]);
 extern char	*getwire(void);
-#ifdef NEED_MNTOPT_PARSER
 extern char	*hasmntopt(struct mntent *, char *);
-#endif /* NEED_MNTOPT_PARSER */
 extern int	 hasmntval(struct mntent *, char *);
 extern void	 host_normalize(char **);
 extern char	*inet_dquad(char *, size_t, u_int32_t);
@@ -281,7 +270,7 @@ extern void	 mnt_free(struct mntent *);
 extern int	 mount_auto_node(char *, void *);
 extern int	 mount_automounter(pid_t);
 extern int	 mount_exported(void);
-extern int	 mount_fs(struct mntent *, int, caddr_t, int, MTYPE_TYPE);
+extern int	 mount_fs(struct mntent *, int, caddr_t, int, const char *);
 extern int	 mount_nfs_fh(struct fhstatus *, char *, char *, char *, mntfs *);
 extern int	 mount_node(am_node *);
 extern mntfs	*new_mntfs(void);
@@ -297,9 +286,6 @@ extern mntfs	*realloc_mntfs(mntfs *, am_ops *, am_opts *, char *,
 extern void	 rem_que(qelem *);
 extern void	 reschedule_timeout_mp(void);
 extern void	 restart(void);
-#ifdef UPDATE_MTAB
-extern void	 rewrite_mtab(mntlist *);
-#endif /* UPDATE_MTAB */
 extern void	 rmdirs(char *);
 extern am_node	*root_ap(char *, int);
 extern int	 root_keyiter(void (*)(char *,void *), void *);
@@ -330,11 +316,6 @@ extern void	 wakeup(void *);
 extern void	 wakeup_task(int, int, void *);
 extern void	 wakeup_srvr(fserver *);
 extern void	 write_mntent(struct mntent *);
-#ifdef UPDATE_MTAB
-extern void	 unlock_mntlist(void);
-#else
-#define	unlock_mntlist()
-#endif /* UPDATE_MTAB */
 
 
 #define	ALLOC(ty)	((struct ty *) xmalloc(sizeof(struct ty)))

@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus.h,v 1.62 2014/10/17 01:46:26 dlg Exp $	*/
+/*	$OpenBSD: bus.h,v 1.64 2014/10/17 20:37:57 sthen Exp $	*/
 /*	$NetBSD: bus.h,v 1.6 1996/11/10 03:19:25 thorpej Exp $	*/
 
 /*-

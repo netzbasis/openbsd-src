@@ -1,4 +1,4 @@
-#	$OpenBSD: files.isa,v 1.114 2014/10/12 19:33:32 miod Exp $
+#	$OpenBSD: files.isa,v 1.116 2014/10/18 15:37:06 miod Exp $
 #	$NetBSD: files.isa,v 1.21 1996/05/16 03:45:55 mycroft Exp $
 #
 # Config file and device description for machine-independent ISA code.
@@ -71,7 +71,7 @@ file	dev/isa/cy_isa.c		cy_isa
 
 # ISA PC keyboard controller
 attach	pckbc at isa with pckbc_isa
-file	dev/isa/pckbc_isa.c		pckbc_isa	needs-flag
+file	dev/isa/pckbc_isa.c		pckbc_isa
 
 # Generic ISA VGA
 attach	vga at isa with vga_isa
@@ -80,7 +80,7 @@ file	dev/isa/vga_isa.c		vga_isa
 # Generic PC graphics adapter (MGA, CGA, ...)
 device	pcdisplay: wsemuldisplaydev, pcdisplayops
 attach	pcdisplay at isa
-file	dev/isa/pcdisplay.c	pcdisplay	needs-flag
+file	dev/isa/pcdisplay.c		pcdisplay	needs-flag
 
 #
 # SCSI host adapters
@@ -297,7 +297,7 @@ file	dev/isa/spkr.c			spkr	needs-flag
 
 # 8255A-based PC parallel ports
 attach	lpt at isa with lpt_isa
-file	dev/isa/lpt_isa.c		lpt_isa needs-flag
+file	dev/isa/lpt_isa.c		lpt_isa
 
 # Winbond LPC Super I/O
 device	wbsio {}

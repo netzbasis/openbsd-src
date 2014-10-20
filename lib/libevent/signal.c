@@ -1,4 +1,4 @@
-/*	$OpenBSD: signal.c,v 1.20 2014/10/16 07:38:06 bluhm Exp $	*/
+/*	$OpenBSD: signal.c,v 1.22 2014/10/18 16:48:28 bluhm Exp $	*/
 
 /*
  * Copyright 2000-2002 Niels Provos <provos@citi.umich.edu>
@@ -28,24 +28,17 @@
  */
 
 #include <sys/types.h>
-#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
-#endif
 #include <sys/queue.h>
-#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
-#endif
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
 #include <errno.h>
-#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
-#endif
 #include <assert.h>
 
 #include "event.h"
@@ -70,14 +63,10 @@ evsignal_cb(int fd, short what, void *arg)
 		event_err(1, "%s: read", __func__);
 }
 
-#ifdef HAVE_SETFD
 #define FD_CLOSEONEXEC(x) do { \
         if (fcntl(x, F_SETFD, FD_CLOEXEC) == -1) \
                 event_warn("fcntl(%d, F_SETFD)", x); \
 } while (0)
-#else
-#define FD_CLOSEONEXEC(x)
-#endif
 
 int
 evsignal_init(struct event_base *base)

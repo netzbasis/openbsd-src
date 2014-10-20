@@ -1,4 +1,4 @@
-/*	$OpenBSD: dl_realpath.c,v 1.1 2013/04/05 12:58:03 kurt Exp $ */
+/*	$OpenBSD: dl_realpath.c,v 1.3 2014/10/19 03:56:28 doug Exp $ */
 /*
  * Copyright (c) 2003 Constantin S. Svintsoff <kostik@iclub.nsu.ru>
  *

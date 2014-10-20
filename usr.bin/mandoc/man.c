@@ -1,4 +1,4 @@
-/*	$OpenBSD: man.c,v 1.87 2014/09/06 23:24:27 schwarze Exp $ */
+/*	$OpenBSD: man.c,v 1.89 2014/10/20 15:49:45 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -117,7 +117,8 @@ int
 man_parseln(struct man *man, int ln, char *buf, int offs)
 {
 
-	man->flags |= MAN_NEWLINE;
+	if (man->last->type != MAN_EQN || ln > man->last->line)
+		man->flags |= MAN_NEWLINE;
 
 	return (roff_getcontrol(man->roff, buf, &offs) ?
 	    man_pmacro(man, ln, buf, offs) :
@@ -343,6 +344,8 @@ man_addeqn(struct man *man, const struct eqn *ep)
 
 	n = man_node_alloc(man, ep->ln, ep->pos, MAN_EQN, MAN_MAX);
 	n->eqn = ep;
+	if (ep->ln > man->last->line)
+		n->flags |= MAN_LINE;
 
 	if ( ! man_node_append(man, n))
 		return(0);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: event.c,v 1.31 2014/10/16 07:38:06 bluhm Exp $	*/
+/*	$OpenBSD: event.c,v 1.34 2014/10/17 22:59:46 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2000-2004 Niels Provos <provos@citi.umich.edu>
@@ -29,12 +29,9 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
-#else 
-#include <sys/_libevent_time.h>
-#endif
 #include <sys/queue.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -51,45 +48,15 @@
 #include "evutil.h"
 #include "log.h"
 
-#ifdef HAVE_EVENT_PORTS
-extern const struct eventop evportops;
-#endif
-#ifdef HAVE_SELECT
 extern const struct eventop selectops;
-#endif
-#ifdef HAVE_POLL
 extern const struct eventop pollops;
-#endif
-#ifdef HAVE_EPOLL
-extern const struct eventop epollops;
-#endif
-#ifdef HAVE_WORKING_KQUEUE
 extern const struct eventop kqops;
-#endif
-#ifdef HAVE_DEVPOLL
-extern const struct eventop devpollops;
-#endif
 
 /* In order of preference */
 static const struct eventop *eventops[] = {
-#ifdef HAVE_EVENT_PORTS
-	&evportops,
-#endif
-#ifdef HAVE_WORKING_KQUEUE
 	&kqops,
-#endif
-#ifdef HAVE_EPOLL
-	&epollops,
-#endif
-#ifdef HAVE_DEVPOLL
-	&devpollops,
-#endif
-#ifdef HAVE_POLL
 	&pollops,
-#endif
-#ifdef HAVE_SELECT
 	&selectops,
-#endif
 	NULL
 };
 
@@ -116,12 +83,10 @@ static void	timeout_correct(struct event_base *, struct timeval *);
 static void
 detect_monotonic(void)
 {
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
 	struct timespec	ts;
 
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
 		use_monotonic = 1;
-#endif
 }
 
 static int
@@ -132,7 +97,6 @@ gettime(struct event_base *base, struct timeval *tp)
 		return (0);
 	}
 
-#if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_MONOTONIC)
 	if (use_monotonic) {
 		struct timespec	ts;
 
@@ -143,7 +107,6 @@ gettime(struct event_base *base, struct timeval *tp)
 		tp->tv_usec = ts.tv_nsec / 1000;
 		return (0);
 	}
-#endif
 
 	return (evutil_gettimeofday(tp, NULL));
 }

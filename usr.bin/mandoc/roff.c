@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.103 2014/10/16 01:27:48 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.105 2014/10/20 15:04:37 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -1855,7 +1855,8 @@ roff_T_(ROFF_ARGS)
 static enum rofferr
 roff_eqndelim(struct roff *r, char **bufp, size_t *szp, int pos)
 {
-	char	*cp1, *cp2;
+	char		*cp1, *cp2;
+	const char	*bef_pr, *bef_nl, *mac, *aft_nl, *aft_pr;
 
 	/*
 	 * Outside equations, look for an opening delimiter.
@@ -1870,19 +1871,41 @@ roff_eqndelim(struct roff *r, char **bufp, size_t *szp, int pos)
 	if (cp2 == NULL)
 		return(ROFF_CONT);
 
-	/* Found a delimiter; get rid of surrounding blanks. */
+	*cp2++ = '\0';
+	bef_pr = bef_nl = aft_nl = aft_pr = "";
 
-	cp1 = cp2++;
-	while (cp2[0] == ' ')
-		cp2++;
-	while (cp1[-1] == ' ')
-		cp1--;
-	*cp1 = '\0';
+	/* Handle preceding text, protecting whitespace. */
 
-	/* Replace the delimiter with an equation macro. */
+	if (**bufp != '\0') {
+		if (r->eqn == NULL)
+			bef_pr = "\\&";
+		bef_nl = "\n";
+	}
 
-	*szp = mandoc_asprintf(&cp1, "%s\n.E%s%s", *bufp,
-	    r->eqn == NULL ? "Q\n" : "N\n\\&", cp2) + 1;
+	/*
+	 * Prepare replacing the delimiter with an equation macro
+	 * and drop leading white space from the equation.
+	 */
+
+	if (r->eqn == NULL) {
+		while (*cp2 == ' ')
+			cp2++;
+		mac = ".EQ";
+	} else
+		mac = ".EN";
+
+	/* Handle following text, protecting whitespace. */
+
+	if (*cp2 != '\0') {
+		aft_nl = "\n";
+		if (r->eqn != NULL)
+			aft_pr = "\\&";
+	}
+
+	/* Do the actual replacement. */
+
+	*szp = mandoc_asprintf(&cp1, "%s%s%s%s%s%s%s", *bufp,
+	    bef_pr, bef_nl, mac, aft_nl, aft_pr, cp2) + 1;
 	free(*bufp);
 	*bufp = cp1;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: buffer.c,v 1.21 2014/10/16 07:38:06 bluhm Exp $	*/
+/*	$OpenBSD: buffer.c,v 1.24 2014/10/18 21:56:44 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2002, 2003 Niels Provos <provos@citi.umich.edu>
@@ -27,36 +27,21 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef HAVE_VASPRINTF
-/* If we have vasprintf, we need to define this before we include stdio.h. */
-#define _GNU_SOURCE
-#endif
-
 #include <sys/types.h>
-
-#ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
-#endif
-
-#ifdef HAVE_SYS_IOCTL_H
 #include <sys/ioctl.h>
-#endif
 
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_STDARG_H
 #include <stdarg.h>
-#endif
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
 
 #include "event.h"
 #include "evutil.h"
-#include "./log.h"
+#include "log.h"
 
 struct evbuffer *
 evbuffer_new(void)
@@ -143,9 +128,6 @@ evbuffer_add_vprintf(struct evbuffer *buf, const char *fmt, va_list ap)
 		assert(buf->totallen >= used);
 		space = buf->totallen - used;
 
-#ifndef va_copy
-#define	va_copy(dst, src)	memcpy(&(dst), &(src), sizeof(va_list))
-#endif
 		va_copy(aq, ap);
 
 		sz = evutil_vsnprintf(buffer, space, fmt, aq);
@@ -432,7 +414,6 @@ evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 	size_t oldoff = buf->off;
 	int n = EVBUFFER_MAX_READ;
 
-#if defined(FIONREAD)
 	if (ioctl(fd, FIONREAD, &n) == -1 || n <= 0) {
 		n = EVBUFFER_MAX_READ;
 	} else if (n > EVBUFFER_MAX_READ && n > howmuch) {
@@ -448,7 +429,6 @@ evbuffer_read(struct evbuffer *buf, int fd, int howmuch)
 		if (n < EVBUFFER_MAX_READ)
 			n = EVBUFFER_MAX_READ;
 	}
-#endif	
 	if (howmuch < 0 || howmuch > n)
 		howmuch = n;
 
