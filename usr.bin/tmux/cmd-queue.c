@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-queue.c,v 1.17 2014/09/01 21:50:18 nicm Exp $ */
+/* $OpenBSD: cmd-queue.c,v 1.19 2014/10/21 22:06:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2013 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -57,7 +57,7 @@ cmdq_free(struct cmd_q *cmdq)
 }
 
 /* Show message from command. */
-void printflike2
+void
 cmdq_print(struct cmd_q *cmdq, const char *fmt, ...)
 {
 	struct client	*c = cmdq->client;
@@ -87,7 +87,7 @@ cmdq_print(struct cmd_q *cmdq, const char *fmt, ...)
 }
 
 /* Show error from command. */
-void printflike2
+void
 cmdq_error(struct cmd_q *cmdq, const char *fmt, ...)
 {
 	struct client	*c = cmdq->client;
@@ -180,8 +180,6 @@ cmdq_continue(struct cmd_q *cmdq)
 		cmdq->cmd = TAILQ_NEXT(cmdq->cmd, qentry);
 
 	do {
-		next = TAILQ_NEXT(cmdq->item, qentry);
-
 		while (cmdq->cmd != NULL) {
 			cmd_print(cmdq->cmd, s, sizeof s);
 			log_debug("cmdq %p: %s (client %d)", cmdq, s,
@@ -213,6 +211,7 @@ cmdq_continue(struct cmd_q *cmdq)
 
 			cmdq->cmd = TAILQ_NEXT(cmdq->cmd, qentry);
 		}
+		next = TAILQ_NEXT(cmdq->item, qentry);
 
 		TAILQ_REMOVE(&cmdq->queue, cmdq->item, qentry);
 		cmd_list_free(cmdq->item->cmdlist);

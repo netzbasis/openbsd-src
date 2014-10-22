@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-clients.c,v 1.17 2013/10/10 12:00:20 nicm Exp $ */
+/* $OpenBSD: cmd-list-clients.c,v 1.19 2014/10/20 23:35:28 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,6 +28,11 @@
  * List all clients.
  */
 
+#define LIST_CLIENTS_TEMPLATE					\
+	"#{client_tty}: #{session_name} "			\
+	"[#{client_width}x#{client_height} #{client_termname}]"	\
+	"#{?client_utf8, (utf8),} #{?client_readonly, (ro),}"
+
 enum cmd_retval	cmd_list_clients_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_list_clients_entry = {
@@ -35,7 +40,6 @@ const struct cmd_entry cmd_list_clients_entry = {
 	"F:t:", 0, 0,
 	"[-F format] " CMD_TARGET_SESSION_USAGE,
 	CMD_READONLY,
-	NULL,
 	cmd_list_clients_exec
 };
 
