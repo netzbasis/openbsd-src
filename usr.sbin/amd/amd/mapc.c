@@ -1,4 +1,4 @@
-/*	$OpenBSD: mapc.c,v 1.17 2014/10/20 06:55:59 guenther Exp $	*/
+/*	$OpenBSD: mapc.c,v 1.22 2014/10/26 03:28:41 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1989 Jan-Simon Pendry
@@ -248,19 +248,30 @@ mapc_add_kv(mnt_map *m, char *key, char *val)
 	if (MAPC_ISRE(m)) {
 		char keyb[MAXPATHLEN];
 		regex_t *re;
+		int err;
+
 		/*
 		 * Make sure the string is bound to the start and end
 		 */
 		snprintf(keyb, sizeof(keyb), "^%s$", key);
 		re = malloc(sizeof(*re));
-		if (!re || regcomp(re, keyb, 0)) {
-			free(re);
-			plog(XLOG_USER, "error compiling RE \"%s\": %s", keyb);
+		if (re == NULL) {
+			plog(XLOG_USER, "error allocating RE \"%s\"", keyb);
 			return;
-		} else {
-			free(key);
-			key = (char *)re;
 		}
+		err = regcomp(re, keyb, 0);
+		if (err) {
+			char errbuf[100];
+
+			regerror(err, re, errbuf, sizeof errbuf);
+			free(re);
+			plog(XLOG_USER, "error compiling RE \"%s\": %s",
+			    keyb, errbuf);
+			return;
+		}
+
+		free(key);
+		key = (char *)re;
 	}
 
 	h = &m->kvhash[hash];
@@ -271,7 +282,7 @@ mapc_add_kv(mnt_map *m, char *key, char *val)
 	*h = n;
 }
 
-void
+static void
 mapc_repl_kv(mnt_map *m, char *key, char *val)
 {
 	kv *k;
@@ -420,7 +431,7 @@ mapc_create(char *map, char *opt)
 	m->modify = modify;
 	m->search = alloc >= MAPC_ALL ? error_search : mt->search;
 	m->mtime = mt->mtime;
-	bzero((void *)m->kvhash, sizeof(m->kvhash));
+	bzero(m->kvhash, sizeof(m->kvhash));
 	m->map_name = strdup(map);
 	m->refc = 1;
 	m->wildcard = 0;
@@ -449,17 +460,17 @@ mapc_clear(mnt_map *m)
 		kv *k = m->kvhash[i];
 		while (k) {
 			kv *n = k->next;
-			free((void *)k->key);
+			free(k->key);
 			if (k->val)
-				free((void *)k->val);
-			free((void *)k);
+				free(k->val);
+			free(k);
 			k = n;
 		}
 	}
 	/*
 	 * Zero the hash slots
 	 */
-	bzero((void *)m->kvhash, sizeof(m->kvhash));
+	bzero(m->kvhash, sizeof(m->kvhash));
 	/*
 	 * Free the wildcard if it exists
 	 */
@@ -497,8 +508,9 @@ mapc_find(char *map, char *opt)
  * Free a map.
  */
 void
-mapc_free(mnt_map *m)
+mapc_free(void *arg)
 {
+	mnt_map *m = arg;
 	/*
 	 * Decrement the reference count.
 	 * If the reference count hits zero
@@ -506,9 +518,9 @@ mapc_free(mnt_map *m)
 	 */
 	if (m && --m->refc == 0) {
 		mapc_clear(m);
-		free((void *)m->map_name);
+		free(m->map_name);
 		rem_que(&m->hdr);
-		free((void *)m);
+		free(m);
 	}
 }
 
@@ -779,14 +791,12 @@ error_init(char *map, time_t *tp)
 	return 0;
 }
 
-/*ARGSUSED*/
 static int
 error_search(mnt_map *m, char *map, char *key, char **pval, time_t *tp)
 {
 	return ENOENT;
 }
 
-/*ARGSUSED*/
 static int
 error_reload(mnt_map *m, char *map, add_fn *fn)
 {

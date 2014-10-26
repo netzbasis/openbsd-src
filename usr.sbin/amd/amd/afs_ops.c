@@ -1,4 +1,4 @@
-/*	$OpenBSD: afs_ops.c,v 1.14 2014/10/20 06:55:59 guenther Exp $	*/
+/*	$OpenBSD: afs_ops.c,v 1.19 2014/10/26 03:28:41 guenther Exp $	*/
 
 /*
  * Copyright (c) 1990 Jan-Simon Pendry
@@ -102,13 +102,12 @@ mount_toplvl(char *dir, char *opts)
 	struct sockaddr_in sin;
 	unsigned short port;
 	int flags;
-	extern nfs_fh *root_fh();
 	nfs_fh *fhp;
 	char fs_hostname[MAXHOSTNAMELEN+MAXPATHLEN+1];
 
 	const char *type = MOUNT_NFS;
 
-	bzero((void *)&nfs_args, sizeof(nfs_args));	/* Paranoid */
+	bzero(&nfs_args, sizeof(nfs_args));	/* Paranoid */
 
 	mnt.mnt_dir = dir;
 	mnt.mnt_fsname = pid_fsname;
@@ -139,7 +138,7 @@ mount_toplvl(char *dir, char *opts)
 	 * is not used since that will not work in HP-UX clusters and
 	 * this is no more expensive.
 	 */
-	bzero((void *)&sin, sizeof(sin));
+	bzero(&sin, sizeof(sin));
 	sin.sin_family = AF_INET;
 	sin.sin_addr = myipaddr;
 	if ((port = hasmntval(&mnt, "port"))) {
@@ -228,7 +227,7 @@ afs_mkcacheref(mntfs *mf)
 		cache = mf->mf_fo->opt_cache;
 	else
 		cache = "none";
-	mf->mf_private = (void *)mapc_find(mf->mf_info, cache);
+	mf->mf_private = mapc_find(mf->mf_info, cache);
 	mf->mf_prfree = mapc_free;
 }
 
@@ -241,7 +240,7 @@ root_mount(am_node *mp)
 	mntfs *mf = mp->am_mnt;
 
 	mf->mf_mount = strealloc(mf->mf_mount, pid_fsname);
-	mf->mf_private = (void *)mapc_find(mf->mf_info, "");
+	mf->mf_private = mapc_find(mf->mf_info, "");
 	mf->mf_prfree = mapc_free;
 
 	return 0;
@@ -411,7 +410,7 @@ union_mounted(mntfs *mf)
 	 * keep the wildcard and /defaults entries...
 	 */
 	mapc_free(mf->mf_private);
-	mf->mf_private = (void *)mapc_find(mf->mf_info, "inc");
+	mf->mf_private = mapc_find(mf->mf_info, "inc");
 /*	mapc_add_kv(mf->mf_private, strdup("/defaults"),
 		strdup("type:=link;opts:=nounmount;sublink:=${key}")); */
 #endif
@@ -519,13 +518,13 @@ free_continuation(struct continuation *cp)
 {
 	if (cp->callout)
 		untimeout(cp->callout);
-	free((void *)cp->key);
-	free((void *)cp->xivec);
-	free((void *)cp->info);
-	free((void *)cp->auto_opts);
-	free((void *)cp->def_opts);
+	free(cp->key);
+	free(cp->xivec);
+	free(cp->info);
+	free(cp->auto_opts);
+	free(cp->def_opts);
 	free_opts(&cp->fs_opts);
-	free((void *)cp);
+	free(cp);
 }
 
 static int afs_bgmount(struct continuation *, int);
@@ -587,7 +586,7 @@ afs_cont(int rc, int term, void *closure)
 	/*
 	 * Wakeup anything waiting for this mount
 	 */
-	wakeup((void *)mf);
+	wakeup(mf);
 
 	/*
 	 * Check for termination signal or exit status...
@@ -636,7 +635,6 @@ afs_cont(int rc, int term, void *closure)
 /*
  * Retry a mount
  */
-/*ARGSUSED*/
 static void
 afs_retry(int rc, int term, void *closure)
 {
@@ -991,7 +989,7 @@ afs_bgmount(struct continuation *cp, int mpe)
 					untimeout(cp->callout);
 					cp->callout = 0;
 				}
-				run_task(try_mount, (void *)mp, afs_cont, (void *)cp);
+				run_task(try_mount, mp, afs_cont, cp);
 				mf->mf_flags |= MFF_MKMNT;	/* XXX */
 				if (mf_retry) free_mntfs(mf_retry);
 				return -1;
@@ -999,7 +997,7 @@ afs_bgmount(struct continuation *cp, int mpe)
 #ifdef DEBUG
 				dlog("foreground mount of \"%s\" ...", mf->mf_info);
 #endif /* DEBUG */
-				this_error = try_mount((void *)mp);
+				this_error = try_mount(mp);
 				if (this_error < 0) {
 					if (!mf_retry)
 						mf_retry = dup_mntfs(mf);
@@ -1019,7 +1017,7 @@ afs_bgmount(struct continuation *cp, int mpe)
 			/*
 			 * Wakeup anything waiting for this mount
 			 */
-			wakeup((void *)mf);
+			wakeup(mf);
 		}
 	}
 
@@ -1045,10 +1043,10 @@ afs_bgmount(struct continuation *cp, int mpe)
 #ifdef DEBUG
 		dlog("Arranging to retry mount of %s", cp->mp->am_path);
 #endif /* DEBUG */
-		sched_task(afs_retry, (void *)cp, (void *)mf);
+		sched_task(afs_retry, cp, mf);
 		if (cp->callout)
 			untimeout(cp->callout);
-		cp->callout = timeout(RETRY_INTERVAL, wakeup, (void *)mf);
+		cp->callout = timeout(RETRY_INTERVAL, wakeup, mf);
 
 		cp->mp->am_ttl = clocktime() + RETRY_INTERVAL;
 
@@ -1363,9 +1361,9 @@ in_progrss:
 	 */
 	new_mp = exported_ap_alloc();
 	if (new_mp == 0) {
-		free((void *)xivec);
-		free((void *)info);
-		free((void *)fname);
+		free(xivec);
+		free(info);
+		free(fname);
 		ereturn(ENOSPC);
 	}
 
@@ -1418,7 +1416,7 @@ in_progrss:
 			 * otherwise just use these defaults.
 			 */
 			if (*auto_opts && *dfl) {
-				char *nopts = (char *) xmalloc(strlen(auto_opts)+strlen(dfl)+2);
+				char *nopts = xmalloc(strlen(auto_opts)+strlen(dfl)+2);
 				snprintf(nopts,
 				    strlen(auto_opts) + strlen(dfl) + 2,
 				    "%s;%s", dfl, auto_opts);
@@ -1432,7 +1430,7 @@ in_progrss:
 		/*
 		 * Don't need info vector any more
 		 */
-		free((void *)rvec);
+		free(rvec);
 	}
 
 	/*
@@ -1479,7 +1477,7 @@ in_progrss:
 	cp->tried = FALSE;
 	cp->start = clocktime();
 	cp->def_opts = strdup(auto_opts);
-	bzero((void *)&cp->fs_opts, sizeof(cp->fs_opts));
+	bzero(&cp->fs_opts, sizeof(cp->fs_opts));
 
 	/*
 	 * Try and mount the file system

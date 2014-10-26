@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_ops.c,v 1.21 2014/10/20 06:55:59 guenther Exp $	*/
+/*	$OpenBSD: nfs_ops.c,v 1.26 2014/10/26 03:28:41 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1990 Jan-Simon Pendry
@@ -146,7 +146,8 @@ got_nfs_fh(void *pkt, int len, struct sockaddr_in *sa,
 	fh_cache *fp = find_nfs_fhandle_cache(idv, done);
 	if (fp) {
 		fp->fh_handle.fhs_vers = MOUNTVERS;
-		fp->fh_error = pickup_rpc_reply(pkt, len, (void *)&fp->fh_handle, xdr_fhstatus);
+		fp->fh_error = pickup_rpc_reply(pkt, len, &fp->fh_handle,
+		    xdr_fhstatus);
 		if (!fp->fh_error) {
 #ifdef DEBUG
 			dlog("got filehandle for %s:%s", fp->fh_fs->fs_host, fp->fh_path);
@@ -177,15 +178,17 @@ flush_nfs_fhandle_cache(fserver *fs)
 }
 
 static void
-discard_fh(fh_cache *fp)
+discard_fh(void *arg)
 {
+	fh_cache *fp = arg;
+
 	rem_que(&fp->fh_q);
 #ifdef DEBUG
 	dlog("Discarding filehandle for %s:%s", fp->fh_fs->fs_host, fp->fh_path);
 #endif /* DEBUG */
 	free_srvr(fp->fh_fs);
-	free((void *)fp->fh_path);
-	free((void *)fp);
+	free(fp->fh_path);
+	free(fp);
 }
 
 /*
@@ -212,11 +215,12 @@ prime_nfs_fhandle_cache(char *path, fserver *fs, fhstatus *fhbuf, void *wchan)
 				error = fp->fh_error = unx_error(fp->fh_handle.fhs_stat);
 				if (error == 0) {
 					if (fhbuf)
-						bcopy((void *)&fp->fh_handle, (void *)fhbuf,
+						bcopy(&fp->fh_handle, fhbuf,
 							sizeof(fp->fh_handle));
 					if (fp->fh_cid)
 						untimeout(fp->fh_cid);
-					fp->fh_cid = timeout(FH_TTL, discard_fh, (void *)fp);
+					fp->fh_cid = timeout(FH_TTL,
+					    discard_fh, fp);
 				} else if (error == EACCES) {
 					/*
 					 * Now decode the file handle return code.
@@ -275,14 +279,14 @@ prime_nfs_fhandle_cache(char *path, fserver *fs, fhstatus *fhbuf, void *wchan)
 		free(fp->fh_path);
 	} else {
 		fp = ALLOC(fh_cache);
-		bzero((void *)fp, sizeof(*fp));
+		bzero(fp, sizeof(*fp));
 		ins_que(&fp->fh_q, &fh_head);
 	}
 	if (!reuse_id)
 		fp->fh_id = FHID_ALLOC();
 	fp->fh_wchan = wchan;
 	fp->fh_error = -1;
-	fp->fh_cid = timeout(FH_TTL, discard_fh, (void *)fp);
+	fp->fh_cid = timeout(FH_TTL, discard_fh, fp);
 
 	/*
 	 * If the address has changed then don't try to re-use the
@@ -303,7 +307,7 @@ prime_nfs_fhandle_cache(char *path, fserver *fs, fhstatus *fhbuf, void *wchan)
 		 */
 		untimeout(fp->fh_cid);
 		fp->fh_cid = timeout(error < 0 ? 2 * ALLOWED_MOUNT_TIME : FH_TTL_ERROR,
-						discard_fh, (void *)fp);
+						discard_fh, fp);
 		fp->fh_error = error;
 	} else {
 		error = fp->fh_error;
@@ -351,7 +355,7 @@ call_mountd(fh_cache *fp, u_long proc, fwd_fun f, void *wchan)
 
 	rpc_msg_init(&mnt_msg, MOUNTPROG, MOUNTVERS, (unsigned long) 0);
 	len = make_rpc_packet(iobuf, sizeof(iobuf), proc,
-			&mnt_msg, (void *)&fp->fh_path, xdr_nfspath,  nfs_auth);
+			&mnt_msg, &fp->fh_path, xdr_nfspath,  nfs_auth);
 
 	/*
 	 * XXX EVIL!  We cast fh_id to a pointer, then back to an int
@@ -359,7 +363,8 @@ call_mountd(fh_cache *fp, u_long proc, fwd_fun f, void *wchan)
 	 */
 	if (len > 0) {
 		error = fwd_packet(MK_RPC_XID(RPC_XID_MOUNTD, fp->fh_id),
-			(void *)iobuf, len, &fp->fh_sin, &fp->fh_sin, (void *)((long)fp->fh_id), f);
+			iobuf, len, &fp->fh_sin, &fp->fh_sin,
+			(void *)((long)fp->fh_id), f);
 	} else {
 		error = -len;
 	}
@@ -401,7 +406,7 @@ nfs_match(am_opts *fo)
 	/*
 	 * Determine magic cookie to put in mtab
 	 */
-	xmtab = (char *) xmalloc(strlen(fo->opt_rhost) + strlen(fo->opt_rfs) + 2);
+	xmtab = xmalloc(strlen(fo->opt_rhost) + strlen(fo->opt_rfs) + 2);
 	snprintf(xmtab, strlen(fo->opt_rhost) + strlen(fo->opt_rfs) + 2,
 		"%s:%s", fo->opt_rhost, fo->opt_rfs);
 #ifdef DEBUG
@@ -426,11 +431,12 @@ nfs_init(mntfs *mf)
 		if (colon == 0)
 			return ENOENT;
 
-		error = prime_nfs_fhandle_cache(colon+1, mf->mf_server, &fhs, (void *)mf);
+		error = prime_nfs_fhandle_cache(colon+1, mf->mf_server,
+		    &fhs, mf);
 		if (!error) {
-			mf->mf_private = (void *)ALLOC(fhstatus);
-			mf->mf_prfree = (void (*)()) free;
-			bcopy((void *)&fhs, mf->mf_private, sizeof(fhs));
+			mf->mf_private = ALLOC(fhstatus);
+			mf->mf_prfree = free;
+			bcopy(&fhs, mf->mf_private, sizeof(fhs));
 		}
 		return error;
 	}
@@ -458,7 +464,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
 
 	const char *type = MOUNT_NFS;
 
-	bzero((void *)&nfs_args, sizeof(nfs_args));	/* Paranoid */
+	bzero(&nfs_args, sizeof(nfs_args));	/* Paranoid */
 
 	/*
 	 * Extract host name to give to kernel
@@ -473,7 +479,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
 	else
 		xopts = strdup(opts);
 
-	bzero((void *)&nfs_args, sizeof(nfs_args));
+	bzero(&nfs_args, sizeof(nfs_args));
 
 	mnt.mnt_dir = dir;
 	mnt.mnt_fsname = fs_name;
@@ -526,7 +532,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
 		nfs_args.flags |= NFSMNT_RETRANS;
 
 #ifdef NFSMNT_BIODS
-	if (nfs_args.biods = hasmntval(&mnt, "biods"))
+	if ((nfs_args.biods = hasmntval(&mnt, "biods")))
 		nfs_args.flags |= NFSMNT_BIODS;
 
 #endif /* NFSMNT_BIODS */
@@ -537,7 +543,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
 #endif /* NFSMNT_MAXGRPS */
 
 #ifdef NFSMNT_READAHEAD
-	if (nfs_args.readahead = hasmntval(&mnt, "readahead"))
+	if ((nfs_args.readahead = hasmntval(&mnt, "readahead")))
 		nfs_args.flags |= NFSMNT_READAHEAD;
 #endif /* NFSMNT_READAHEAD */
 
@@ -546,7 +552,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
  * This isn't supported by the ping algorithm yet.
  * In any case, it is all done in nfs_init().
  */
-	if (port = hasmntval(&mnt, "port"))
+	if ((port = hasmntval(&mnt, "port")))
 		sin.sin_port = htons(port);
 	else
 		sin.sin_port = htons(NFS_PORT);	/* XXX should use portmapper */
@@ -581,7 +587,7 @@ mount_nfs_fh(fhstatus *fhp, char *dir, char *fs_name, char *opts,
 		nfs_args.flags |= NFSMNT_RESVPORT;
 
 #ifdef NFSMNT_PGTHRESH
-	if (nfs_args.pg_thresh = hasmntval(&mnt, "pgthresh"))
+	if ((nfs_args.pg_thresh = hasmntval(&mnt, "pgthresh")))
 		nfs_args.flags |= NFSMNT_PGTHRESH;
 #endif /* NFSMNT_PGTHRESH */
 
@@ -621,7 +627,7 @@ mount_nfs(char *dir, char *fs_name, char *opts, mntfs *mf)
 #ifdef DEBUG
 	dlog("locating fhandle for %s", fs_name);
 #endif /* DEBUG */
-	error = prime_nfs_fhandle_cache(colon+1, mf->mf_server, &fhs, (void *)0);
+	error = prime_nfs_fhandle_cache(colon+1, mf->mf_server, &fhs, NULL);
 
 	if (error)
 		return error;

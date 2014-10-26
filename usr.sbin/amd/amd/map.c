@@ -1,4 +1,4 @@
-/*	$OpenBSD: map.c,v 1.10 2009/10/27 23:59:50 deraadt Exp $	*/
+/*	$OpenBSD: map.c,v 1.15 2014/10/26 03:28:41 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1990 Jan-Simon Pendry
@@ -90,25 +90,16 @@ static struct fattr gen_fattr = {
 static int
 exported_ap_realloc_map(int nsize)
 {
-#ifdef notdef
-	/*
-	 * If a second realloc occasionally causes Amd to die
-	 * in then include this check.
-	 */
-	if (exported_ap_size != 0)	/* XXX */
-		return 0;
-#endif
-
 	/*
 	 * this shouldn't happen, but...
 	 */
 	if (nsize < 0 || nsize == exported_ap_size)
 		return 0;
 
-	exported_ap = (am_node **) xrealloc((void *)exported_ap, nsize * sizeof(am_node*));
+	exported_ap = xreallocarray(exported_ap, nsize, sizeof *exported_ap);
 
 	if (nsize > exported_ap_size)
-		bzero((char *) (exported_ap+exported_ap_size),
+		bzero(exported_ap+exported_ap_size,
 			(nsize - exported_ap_size) * sizeof(am_node*));
 	exported_ap_size = nsize;
 
@@ -142,7 +133,7 @@ am_node *exported_ap_alloc(void)
 	 */
 	mpp = exported_ap + first_free_map;
 	mp = *mpp = ALLOC(am_node);
-	bzero((char *) mp, sizeof(*mp));
+	bzero(mp, sizeof(*mp));
 
 	mp->am_mapno = first_free_map++;
 
@@ -162,7 +153,7 @@ am_node *exported_ap_alloc(void)
 		exported_ap_realloc_map(exported_ap_size - NEXP_AP);
 
 #ifdef DEBUG
-	/*dlog("alloc_exp: last_used_map = %d, first_free_map = %d\n",
+	/*dlog("alloc_exp: last_used_map = %d, first_free_map = %d",
 		last_used_map, first_free_map);*/
 #endif /* DEBUG */
 
@@ -172,7 +163,7 @@ am_node *exported_ap_alloc(void)
 /*
  * Free a mount slot
  */
-void
+static void
 exported_ap_free(am_node *mp)
 {
 	/*
@@ -197,14 +188,14 @@ exported_ap_free(am_node *mp)
 		first_free_map = mp->am_mapno;
 
 #ifdef DEBUG
-	/*dlog("free_exp: last_used_map = %d, first_free_map = %d\n",
+	/*dlog("free_exp: last_used_map = %d, first_free_map = %d",
 		last_used_map, first_free_map);*/
 #endif /* DEBUG */
 
 	/*
 	 * Free the mount node
 	 */
-	free((void *)mp);
+	free(mp);
 }
 
 /*
@@ -236,7 +227,7 @@ insert_am(am_node *mp, am_node *p_mp)
 /*
  * Remove am from its place in the mount tree
  */
-void
+static void
 remove_am(am_node *mp)
 {
 	/*
@@ -925,7 +916,7 @@ free_map_if_success(int rc, int term, void *closure)
 	/*
 	 * Wakeup anything waiting for this mount
 	 */
-	wakeup((void *)mf);
+	wakeup(mf);
 }
 
 static int
@@ -960,8 +951,8 @@ unmount_mp(am_node *mp)
 			 * Note that we are unmounting this node
 			 */
 			mf->mf_flags |= MFF_UNMOUNTING;
-			run_task(unmount_node_wrap, (void *)mp,
-				 free_map_if_success, (void *)mp);
+			run_task(unmount_node_wrap, mp,
+				 free_map_if_success, mp);
 			was_backgrounded = 1;
 #ifdef DEBUG
 			dlog("unmount attempt backgrounded");
@@ -973,7 +964,7 @@ unmount_mp(am_node *mp)
 		dlog("Trying unmount in foreground");
 #endif
 		mf->mf_flags |= MFF_UNMOUNTING;
-		free_map_if_success(unmount_node(mp), 0, (void *)mp);
+		free_map_if_success(unmount_node(mp), 0, mp);
 #ifdef DEBUG
 		dlog("unmount attempt done");
 #endif /* DEBUG */
@@ -982,7 +973,8 @@ unmount_mp(am_node *mp)
 	return was_backgrounded;
 }
 
-void timeout_mp()
+static void
+timeout_mp(void *arg)
 {
 #define NEVER (time_t) 0
 #define	smallest_t(t1, t2) \

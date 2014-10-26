@@ -32,7 +32,7 @@
  * SUCH DAMAGE.
  *
  *	from: @(#)info_nis.c	8.1 (Berkeley) 6/6/93
- *	$Id: info_nis.c,v 1.11 2014/10/20 02:33:42 guenther Exp $
+ *	$Id: info_nis.c,v 1.13 2014/10/26 03:28:41 guenther Exp $
  */
 
 /*
@@ -86,16 +86,17 @@ determine_nis_domain(void)
 struct nis_callback_data {
 	mnt_map *ncd_m;
 	char *ncd_map;
-	void (*ncd_fn)();
+	void (*ncd_fn)(mnt_map *, char *, char *);
 };
 
 /*
  * Callback from yp_all
  */
 static int
-callback(int status, char *key, int kl, char *val,
-    int vl, struct nis_callback_data *data)
+callback(unsigned long status, char *key, int kl, char *val, int vl, void *arg)
 {
+	struct nis_callback_data *data = arg;
+
 	if (status == YP_TRUE) {
 		/*
 		 * Add to list of maps
@@ -132,7 +133,7 @@ callback(int status, char *key, int kl, char *val,
 }
 
 int
-nis_reload(mnt_map *m, char *map, void (*fn)())
+nis_reload(mnt_map *m, char *map, void (*fn)(mnt_map *, char *, char *))
 {
 	struct ypall_callback cbinfo;
 	int error;
@@ -148,7 +149,7 @@ nis_reload(mnt_map *m, char *map, void (*fn)())
 	data.ncd_map = map;
 	data.ncd_fn = fn;
 	cbinfo.data = (void *)&data;
-	cbinfo.foreach = (void *)&callback;
+	cbinfo.foreach = &callback;
 
 	error = yp_all(domain, map, &cbinfo);
 

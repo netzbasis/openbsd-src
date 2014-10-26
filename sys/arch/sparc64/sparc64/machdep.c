@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.168 2014/09/18 18:55:23 kettenis Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.170 2014/10/25 16:58:59 kettenis Exp $	*/
 /*	$NetBSD: machdep.c,v 1.108 2001/07/24 19:30:14 eeh Exp $ */
 
 /*-
@@ -160,6 +160,7 @@ int     _bus_dmamem_alloc_range(bus_dma_tag_t tag, bus_dma_tag_t,
 int bus_space_debug = 0;
 
 struct vm_map *exec_map = NULL;
+struct vm_map *phys_map = NULL;
 
 struct uvm_constraint_range  dma_constraint = { 0x0, (paddr_t)-1 };
 struct uvm_constraint_range *uvm_md_constraints[] = { NULL };
@@ -232,6 +233,13 @@ cpu_startup()
 	minaddr = vm_map_min(kernel_map);
 	exec_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
 	    16*NCARGS, VM_MAP_PAGEABLE, FALSE, NULL);
+
+	/*
+	 * Allocate a submap for physio
+	 */
+	minaddr = vm_map_min(kernel_map);
+	phys_map = uvm_km_suballoc(kernel_map, &minaddr, &maxaddr,
+	    VM_PHYS_SIZE, 0, FALSE, NULL);
 
 #ifdef DEBUG
 	pmapdebug = opmapdebug;
@@ -1640,7 +1648,7 @@ sparc_bus_map(bus_space_tag_t t, bus_space_tag_t t0, bus_addr_t	addr,
 	if ((flags & BUS_SPACE_MAP_CACHEABLE) == 0)
 		pm_flags |= PMAP_NC;
 
-	va = uvm_km_valloc(kernel_map, size);
+	va = (vaddr_t)km_alloc(size, &kv_any, &kp_none, &kd_nowait);
 	if (va == 0)
 		return (ENOMEM);
 
@@ -1753,7 +1761,7 @@ sparc_bus_unmap(bus_space_tag_t t, bus_space_tag_t t0, bus_space_handle_t bh,
 
 	pmap_remove(pmap_kernel(), va, endva);
 	pmap_update(pmap_kernel());
-	uvm_km_free(kernel_map, va, endva - va);
+	km_free((void *)va, endva - va, &kv_any, &kp_none);
 
 	return (0);
 }

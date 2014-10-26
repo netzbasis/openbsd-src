@@ -167,7 +167,7 @@ find_mntfs(am_ops *ops, am_opts *mo, char *mp, char *info,
 				/*
 				 * Remember who we are restarting
 				 */
-				mf2->mf_private = (void *)dup_mntfs(mf);
+				mf2->mf_private = dup_mntfs(mf);
 				mf2->mf_prfree = free_mntfs;
 				return mf2;
 			}
@@ -205,10 +205,10 @@ new_mntfs()
 static void
 uninit_mntfs(mntfs *mf, int rmd)
 {
-	if (mf->mf_auto) free((void *)mf->mf_auto);
-	if (mf->mf_mopts) free((void *)mf->mf_mopts);
-	if (mf->mf_remopts) free((void *)mf->mf_remopts);
-	if (mf->mf_info) free((void *)mf->mf_info);
+	if (mf->mf_auto) free(mf->mf_auto);
+	if (mf->mf_mopts) free(mf->mf_mopts);
+	if (mf->mf_remopts) free(mf->mf_remopts);
+	if (mf->mf_info) free(mf->mf_info);
 	if (mf->mf_private && mf->mf_prfree)
 		(*mf->mf_prfree)(mf->mf_private);
 	/*
@@ -216,7 +216,7 @@ uninit_mntfs(mntfs *mf, int rmd)
 	 */
 	if (rmd && (mf->mf_flags & MFF_MKMNT))
 		rmdirs(mf->mf_mount);
-	if (mf->mf_mount) free((void *)mf->mf_mount);
+	if (mf->mf_mount) free(mf->mf_mount);
 
 	/*
 	 * Clean up the file server
@@ -234,20 +234,22 @@ uninit_mntfs(mntfs *mf, int rmd)
 }
 
 static void
-discard_mntfs(mntfs *mf)
+discard_mntfs(void *arg)
 {
+	mntfs *mf = arg;
+
 	rem_que(&mf->mf_q);
 	/*
 	 * Free memory
 	 */
 	uninit_mntfs(mf, TRUE);
-	free((void *)mf);
+	free(mf);
 
 	--mntfs_allocated;
 }
 
 void
-flush_mntfs()
+flush_mntfs(void)
 {
 	mntfs *mf;
 
@@ -261,8 +263,10 @@ flush_mntfs()
 }
 
 void
-free_mntfs(mntfs *mf)
+free_mntfs(void *arg)
 {
+	mntfs *mf = arg;
+
 	if (--mf->mf_refc == 0) {
 		if (mf->mf_flags & MFF_MOUNTED) {
 			int quoted;
@@ -296,7 +300,8 @@ free_mntfs(mntfs *mf)
 			if (mf->mf_flags & (MFF_MOUNTED|MFF_MOUNTING|MFF_UNMOUNTING))
 				dlog("mntfs reference for %s still active", mf->mf_mount);
 #endif /* DEBUG */
-			mf->mf_cid = timeout(ALLOWED_MOUNT_TIME, discard_mntfs, (void *)mf);
+			mf->mf_cid = timeout(ALLOWED_MOUNT_TIME,
+			    discard_mntfs, mf);
 		}
 	}
 }

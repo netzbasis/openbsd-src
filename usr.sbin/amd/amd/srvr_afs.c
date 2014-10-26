@@ -32,7 +32,7 @@
  * SUCH DAMAGE.
  *
  *	from: @(#)srvr_afs.c	8.1 (Berkeley) 6/6/93
- *	$Id: srvr_afs.c,v 1.4 2003/06/02 23:36:51 millert Exp $
+ *	$Id: srvr_afs.c,v 1.7 2014/10/26 03:28:41 guenther Exp $
  */
 
 /*
@@ -88,15 +88,17 @@ void
 wakeup_srvr(fserver *fs)
 {
 	fs->fs_flags &= ~FSF_WANT;
-	wakeup((void *)fs);
+	wakeup(fs);
 }
 
 /*
  * Called when final ttl of server has expired
  */
 static void
-timeout_srvr(fserver *fs)
+timeout_srvr(void *arg)
 {
+	fserver *fs = arg;
+
 	/*
 	 * If the reference count is still zero then
 	 * we are free to remove this node
@@ -122,17 +124,17 @@ timeout_srvr(fserver *fs)
 		 * Free the net address
 		 */
 		if (fs->fs_ip)
-			free((void *)fs->fs_ip);
+			free(fs->fs_ip);
 
 		/*
 		 * Free the host name.
 		 */
-		free((void *)fs->fs_host);
+		free(fs->fs_host);
 
 		/*
 		 * Discard the fserver object.
 		 */
-		free((void *)fs);
+		free(fs);
 	}
 }
 
@@ -163,7 +165,7 @@ free_srvr(fserver *fs)
 		/*
 		 * Keep structure lying around for a while
 		 */
-		fs->fs_cid = timeout(ttl, timeout_srvr, (void *)fs);
+		fs->fs_cid = timeout(ttl, timeout_srvr, fs);
 		/*
 		 * Mark the fileserver down and invalid again
 		 */

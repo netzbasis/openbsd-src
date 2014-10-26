@@ -1,4 +1,4 @@
-/*	$OpenBSD: host_ops.c,v 1.15 2014/10/20 06:55:59 guenther Exp $	*/
+/*	$OpenBSD: host_ops.c,v 1.18 2014/10/26 03:00:35 guenther Exp $	*/
 
 /*
  * Copyright (c) 1990 Jan-Simon Pendry
@@ -130,7 +130,7 @@ do_mount(fhstatus *fhp, char *dir, char *fs_name, char *opts, mntfs *mf)
 	struct stat stb;
 
 #ifdef DEBUG
-	dlog("host: mounting fs %s on %s\n", fs_name, dir);
+	dlog("host: mounting fs %s on %s", fs_name, dir);
 #endif /* DEBUG */
 #ifdef HOST_MKDIRS
 	(void) mkdirs(dir, 0555);
@@ -175,7 +175,6 @@ fetch_fhandle(CLIENT *client, char *dir, fhstatus *fhp)
 	fhp->fhs_vers = MOUNTVERS;
 	clnt_stat = clnt_call(client, MOUNTPROC_MNT, xdr_dirpath, &dir, xdr_fhstatus, fhp, tv);
 	if (clnt_stat != RPC_SUCCESS) {
-		extern char *clnt_sperrno();
 		char *msg = clnt_sperrno(clnt_stat);
 		plog(XLOG_ERROR, "mountd rpc failed: %s", msg);
 		return EIO;
@@ -288,7 +287,7 @@ host_fmount(mntfs *mf)
 		n_export++;
 	}
 #ifdef DEBUG
-	/*dlog("%d exports returned\n", n_export);*/
+	/*dlog("%d exports returned", n_export);*/
 #endif /* DEBUG */
 
 	/*
@@ -296,7 +295,7 @@ host_fmount(mntfs *mf)
 	 * so that they can be sorted.  If the filesystem
 	 * is already mounted then ignore it.
 	 */
-	ep = (exports *) xmalloc(n_export * sizeof(exports));
+	ep = xreallocarray(NULL, n_export, sizeof *ep);
 	for (j = 0, ex = exlist; ex; ex = ex->ex_next) {
 		MAKE_MNTPT(mntpt, ex, mf);
 		if (!already_mounted(mlist, mntpt))
@@ -315,7 +314,7 @@ host_fmount(mntfs *mf)
 	/*
 	 * Allocate an array of filehandles
 	 */
-	fp = (fhstatus *) xmalloc(n_export * sizeof(fhstatus));
+	fp = xreallocarray(NULL, n_export, sizeof *fp);
 
 	/*
 	 * Try to obtain filehandles for each directory.

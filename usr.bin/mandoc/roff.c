@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.106 2014/10/20 19:21:31 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.108 2014/10/25 15:23:25 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -205,8 +205,6 @@ static	const char	*roff_getstrn(const struct roff *,
 static	enum rofferr	 roff_it(ROFF_ARGS);
 static	enum rofferr	 roff_line_ignore(ROFF_ARGS);
 static	enum rofferr	 roff_nr(ROFF_ARGS);
-static	void		 roff_openeqn(struct roff *, const char *,
-				int, int, const char *);
 static	enum rofft	 roff_parse(struct roff *, char *, int *,
 				int, int);
 static	enum rofferr	 roff_parsetext(char **, size_t *, int, int *);
@@ -730,7 +728,8 @@ roff_parseln(struct roff *r, int ln, char **bufp,
 
 	/* Handle in-line equation delimiters. */
 
-	if (r->last_eqn != NULL && r->last_eqn->delim &&
+	if (r->tbl == NULL &&
+	    r->last_eqn != NULL && r->last_eqn->delim &&
 	    (r->eqn == NULL || r->eqn_inline)) {
 		e = roff_eqndelim(r, bufp, szp, pos);
 		if (e == ROFF_REPARSE)
@@ -1926,15 +1925,13 @@ roff_eqndelim(struct roff *r, char **bufp, size_t *szp, int pos)
 	return(ROFF_REPARSE);
 }
 
-static void
-roff_openeqn(struct roff *r, const char *name, int line,
-		int offs, const char *buf)
+static enum rofferr
+roff_EQ(ROFF_ARGS)
 {
 	struct eqn_node *e;
-	int		 poff;
 
 	assert(NULL == r->eqn);
-	e = eqn_alloc(name, offs, line, r->parse);
+	e = eqn_alloc(ppos, ln, r->parse);
 
 	if (r->last_eqn) {
 		r->last_eqn->next = e;
@@ -1946,17 +1943,10 @@ roff_openeqn(struct roff *r, const char *name, int line,
 
 	r->eqn = r->last_eqn = e;
 
-	if (buf) {
-		poff = 0;
-		eqn_read(&r->eqn, line, buf, offs, &poff);
-	}
-}
+	if ((*bufp)[pos])
+		mandoc_vmsg(MANDOCERR_ARG_SKIP, r->parse, ln, pos,
+		    ".EQ %s", *bufp + pos);
 
-static enum rofferr
-roff_EQ(ROFF_ARGS)
-{
-
-	roff_openeqn(r, *bufp + pos, ln, ppos, NULL);
 	return(ROFF_IGN);
 }
 

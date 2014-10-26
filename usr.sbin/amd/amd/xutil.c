@@ -32,17 +32,18 @@
  * SUCH DAMAGE.
  *
  *	from: @(#)xutil.c	8.1 (Berkeley) 6/6/93
- *	$Id: xutil.c,v 1.13 2014/10/20 00:20:04 guenther Exp $
+ *	$Id: xutil.c,v 1.17 2014/10/26 02:58:43 guenther Exp $
  */
 
-#include "config.h"
-#include <syslog.h>
-#include <string.h>
+#include "am.h"
 
-#include <unistd.h>
+#include <sys/stat.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <sys/stat.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>
+#include <unistd.h>
 
 FILE *logfp = stderr;		/* Log errors to stderr initially */
 int syslogging;
@@ -68,23 +69,25 @@ struct opt_tab xlog_opt[] = {
 	{ 0, 0 }
 };
 
+__dead void
+xmallocfailure(void)
+{
+	plog(XLOG_FATAL, "Out of memory");
+	going_down(1);
+	abort();
+}
+
 void *
-xmalloc(int len)
+xmalloc(size_t len)
 {
 	void *p;
 	int retries = 600;
 
-	/*
-	 * Avoid malloc's which return NULL for malloc(0)
-	 */
-	if (len == 0)
-		len = 1;
-
 	do {
-		p = (void *)malloc((unsigned) len);
+		p = malloc(len);
 		if (p) {
 #if defined(DEBUG) && defined(DEBUG_MEM)
-			Debug(D_MEM) plog(XLOG_DEBUG, "Allocated size %d; block %#x", len, p);
+			Debug(D_MEM) plog(XLOG_DEBUG, "Allocated size %zu; block %#x", len, p);
 #endif /* defined(DEBUG) && defined(DEBUG_MEM) */
 			return p;
 		}
@@ -94,35 +97,21 @@ xmalloc(int len)
 		}
 	} while (--retries);
 
-	plog(XLOG_FATAL, "Out of memory");
-	going_down(1);
-
-	abort();
-
-	return 0;
+	xmallocfailure();
 }
 
 void *
-xrealloc(void *ptr, int len)
+xreallocarray(void *ptr, size_t nmemb, size_t size)
 {
 #if defined(DEBUG) && defined(DEBUG_MEM)
-	Debug(D_MEM) plog(XLOG_DEBUG, "Reallocated size %d; block %#x", len, ptr);
+	Debug(D_MEM) plog(XLOG_DEBUG, "Reallocated nmemb %zu of size %zu; block %#x", nmemb, size, ptr);
 #endif /* defined(DEBUG) && defined(DEBUG_MEM) */
 
-	if (len == 0)
-		len = 1;
+	ptr = reallocarray(ptr, nmemb, size);
 
-	if (ptr)
-		ptr = (void *)realloc(ptr, (unsigned) len);
-	else
-		ptr = (void *)xmalloc((unsigned) len);
-
-	if (!ptr) {
-		plog(XLOG_FATAL, "Out of memory in realloc");
-		going_down(1);
-		abort();
-	}
-	return ptr;
+	if (ptr == NULL)
+		xmallocfailure();
+	return (ptr);
 }
 
 #if defined(DEBUG) && defined(DEBUG_MEM)
@@ -168,9 +157,10 @@ checkup_mem(void)
  * 'e' never gets longer than maxlen characters.
  */
 static void
-expand_error(char *f, char *e, int maxlen)
+expand_error(const char *f, char *e, int maxlen)
 {
-	char *p, *q;
+	const char *p;
+	char *q;
 	int error = errno;
 	int len = 0;
 
@@ -201,7 +191,6 @@ show_time_host_and_name(int lvl)
 	static char *last_ctime = 0;
 	time_t t = clocktime();
 	char *sev;
-	extern char *ctime();
 
 #if defined(DEBUG) && defined(PARANOID)
 extern char **gargv;
@@ -234,16 +223,11 @@ extern char **gargv;
 		sev);
 }
 
-/*VARARGS1*/
 void
-plog(int lvl, char *fmt, ...)
+plog(int lvl, const char *fmt, ...)
 {
-	char msg[1024];
 	char efmt[1024];
-	char *ptr;
 	va_list ap;
-
-	va_start(ap, fmt);
 
 	if (!(xlog_level & lvl))
 		return;
@@ -252,16 +236,6 @@ plog(int lvl, char *fmt, ...)
 	checkup_mem();
 #endif /* DEBUG_MEM */
 
-	expand_error(fmt, efmt, sizeof(efmt));
-	/*
-	 * XXX: msg is 1024 bytes long.  It is possible to write into it
-	 * more than 1024 bytes, if efmt is already large, and vargs expand
-	 * as well.
-	 */
-	vsnprintf(msg, sizeof(msg), efmt, ap);
-	ptr = msg + strlen(msg);
-	if (ptr[-1] == '\n')
-		*--ptr  = '\0';
 	if (syslogging) {
 		switch(lvl) {	/* from mike <mcooper@usc.edu> */
 		case XLOG_FATAL:	lvl = LOG_CRIT; break;
@@ -274,16 +248,21 @@ plog(int lvl, char *fmt, ...)
 		case XLOG_STATS:	lvl = LOG_INFO; break;
 		default:		lvl = LOG_ERR; break;
 		}
-		syslog(lvl, "%s", msg);
+		va_start(ap, fmt);
+		vsyslog(lvl, fmt, ap);
+		va_end(ap);
 		return;
 	}
+
+	expand_error(fmt, efmt, sizeof(efmt));
 
 	/*
 	 * Mimic syslog header
 	 */
-	va_end(ap);
 	show_time_host_and_name(lvl);
-	fwrite(msg, ptr - msg, 1, logfp);
+	va_start(ap, fmt);
+	vfprintf(logfp, efmt, ap);
+	va_end(ap);
 	fputc('\n', logfp);
 	fflush(logfp);
 }

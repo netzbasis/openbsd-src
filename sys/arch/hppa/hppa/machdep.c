@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.236 2014/09/22 12:12:23 dlg Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.239 2014/10/25 17:31:26 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1999-2003 Michael Shalayeff
@@ -145,8 +145,6 @@ struct consdev *cn_tab;
 
 struct vm_map *exec_map = NULL;
 struct vm_map *phys_map = NULL;
-/* Virtual page frame for /dev/mem (see mem.c) */
-vaddr_t vmmap;
 
 void delay_init(void);
 static __inline void fall(int, int, int, int, int);
@@ -308,15 +306,22 @@ hppa_init(paddr_t start)
 
 	/* setup hpmc handler */
 	{
-		extern u_int hpmc_v[];	/* from locore.s */
-		u_int *p = hpmc_v;
+		/* from locore.s */
+		extern uint32_t hpmc_v[], hpmc_tramp[], hpmc_tramp_end[];
+		uint32_t *p;
+		uint32_t cksum = 0;
 
+		for (p = hpmc_tramp; p < hpmc_tramp_end; p++)
+			cksum += *p;
+
+		p = hpmc_v;
 		if (pdc_call((iodcio_t)pdc, 0, PDC_INSTR, PDC_INSTR_DFLT, p))
 			*p = 0x08000240;
 
-		p[6] = (u_int)&hpmc_dump;
-		p[7] = 32;
-		p[5] = -(p[0] + p[1] + p[2] + p[3] + p[4] + p[6] + p[7]);
+		p[6] = (uint32_t)&hpmc_tramp;
+		p[7] = (hpmc_tramp_end - hpmc_tramp) * sizeof(uint32_t);
+		p[5] =
+		    -(p[0] + p[1] + p[2] + p[3] + p[4] + p[6] + p[7] + cksum);
 	}
 
 	{
@@ -353,18 +358,8 @@ hppa_init(paddr_t start)
 	fdcacheall();
 
 	avail_end = trunc_page(PAGE0->imm_max_mem);
-	/*
-	 * XXX For some reason, using any physical memory above the
-	 * 2GB marker causes memory corruption on PA-RISC 2.0
-	 * machines.  Cap physical memory at 2GB for now.
-	 */
-#if 0
 	if (avail_end > SYSCALLGATE)
 		avail_end = SYSCALLGATE;
-#else
-	if (avail_end > 0x80000000)
-		avail_end = 0x80000000;
-#endif
 	physmem = atop(avail_end);
 	resvmem = atop(((vaddr_t)&kernel_text));
 
@@ -649,7 +644,6 @@ cpu_startup(void)
 	 * Set up buffers, so they can be used to read disk labels.
 	 */
 	bufinit();
-	vmmap = uvm_km_valloc_wait(kernel_map, NBPG);
 
 	/*
 	 * Configure the system.
