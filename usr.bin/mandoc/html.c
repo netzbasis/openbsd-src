@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.46 2014/10/13 21:05:59 chl Exp $ */
+/*	$OpenBSD: html.c,v 1.49 2014/10/27 16:28:30 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -435,29 +435,28 @@ print_encode(struct html *h, const char *p, int norecurse)
 		case ESCAPE_UNICODE:
 			/* Skip past "u" header. */
 			c = mchars_num2uc(seq + 1, len - 1);
-			if ('\0' != c)
-				printf("&#x%x;", c);
 			break;
 		case ESCAPE_NUMBERED:
 			c = mchars_num2char(seq, len);
-			if ( ! ('\0' == c || print_escape(c)))
-				putchar(c);
 			break;
 		case ESCAPE_SPECIAL:
 			c = mchars_spec2cp(h->symtab, seq, len);
-			if (c > 0)
-				printf("&#%d;", c);
-			else if (-1 == c && 1 == len &&
-			    !print_escape(*seq))
-				putchar((int)*seq);
 			break;
 		case ESCAPE_NOSPACE:
 			if ('\0' == *p)
 				nospace = 1;
-			break;
+			continue;
 		default:
-			break;
+			continue;
 		}
+		if (c <= 0)
+			continue;
+		if (c < 0x20 || (c > 0x7E && c < 0xA0))
+			c = 0xFFFD;
+		if (c > 0x7E)
+			printf("&#%d;", c);
+		else if ( ! print_escape(c))
+			putchar(c);
 	}
 
 	return(nospace);
