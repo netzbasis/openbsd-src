@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_cert.c,v 1.42 2014/10/03 13:58:18 jsing Exp $ */
+/* $OpenBSD: ssl_cert.c,v 1.44 2014/10/31 15:25:55 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -205,12 +205,6 @@ ssl_cert_dup(CERT *cert)
 	ret->mask_k = cert->mask_k;
 	ret->mask_a = cert->mask_a;
 
-	if (cert->rsa_tmp != NULL) {
-		RSA_up_ref(cert->rsa_tmp);
-		ret->rsa_tmp = cert->rsa_tmp;
-	}
-	ret->rsa_tmp_cb = cert->rsa_tmp_cb;
-
 	if (cert->dh_tmp != NULL) {
 		ret->dh_tmp = DHparams_dup(cert->dh_tmp);
 		if (ret->dh_tmp == NULL) {
@@ -235,6 +229,7 @@ ssl_cert_dup(CERT *cert)
 		}
 	}
 	ret->dh_tmp_cb = cert->dh_tmp_cb;
+	ret->dh_tmp_auto = cert->dh_tmp_auto;
 
 	if (cert->ecdh_tmp) {
 		ret->ecdh_tmp = EC_KEY_dup(cert->ecdh_tmp);
@@ -305,7 +300,6 @@ ssl_cert_dup(CERT *cert)
 	return (ret);
 
 err:
-	RSA_free(ret->rsa_tmp);
 	DH_free(ret->dh_tmp);
 	EC_KEY_free(ret->ecdh_tmp);
 
@@ -331,7 +325,6 @@ ssl_cert_free(CERT *c)
 	if (i > 0)
 		return;
 
-	RSA_free(c->rsa_tmp);
 	DH_free(c->dh_tmp);
 	EC_KEY_free(c->ecdh_tmp);
 

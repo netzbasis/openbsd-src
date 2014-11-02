@@ -1,4 +1,4 @@
-/*	$OpenBSD: usbdi.c,v 1.73 2014/09/26 09:31:08 guenther Exp $ */
+/*	$OpenBSD: usbdi.c,v 1.75 2014/11/01 00:41:33 mpi Exp $ */
 /*	$NetBSD: usbdi.c,v 1.103 2002/09/27 15:37:38 provos Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usbdi.c,v 1.28 1999/11/17 22:33:49 n_hibma Exp $	*/
 
@@ -281,7 +281,6 @@ usbd_status
 usbd_transfer(struct usbd_xfer *xfer)
 {
 	struct usbd_pipe *pipe = xfer->pipe;
-	struct usb_dma *dmap = &xfer->dmabuf;
 	usbd_status err;
 	u_int size;
 	int flags, s;
@@ -309,7 +308,7 @@ usbd_transfer(struct usbd_xfer *xfer)
 		if (xfer->rqflags & URQ_AUTO_DMABUF)
 			printf("usbd_transfer: has old buffer!\n");
 #endif
-		err = usb_allocmem(bus, size, 0, dmap);
+		err = usb_allocmem(bus, size, 0, &xfer->dmabuf);
 		if (err)
 			return (err);
 		xfer->rqflags |= URQ_AUTO_DMABUF;
@@ -318,7 +317,7 @@ usbd_transfer(struct usbd_xfer *xfer)
 	/* Copy data if going out. */
 	if (!(xfer->flags & USBD_NO_COPY) && size != 0 &&
 	    !usbd_xfer_isread(xfer))
-		memcpy(KERNADDR(dmap, 0), xfer->buffer, size);
+		memcpy(KERNADDR(&xfer->dmabuf, 0), xfer->buffer, size);
 
 	err = pipe->methods->transfer(xfer);
 
@@ -396,7 +395,7 @@ usbd_alloc_xfer(struct usbd_device *dev)
 	if (xfer == NULL)
 		return (NULL);
 #ifdef DIAGNOSTIC
-	xfer->busy_free = XFER_BUSY;
+	xfer->busy_free = XFER_FREE;
 #endif
 	xfer->device = dev;
 	timeout_set(&xfer->timeout_handle, NULL, NULL);
@@ -411,9 +410,8 @@ usbd_free_xfer(struct usbd_xfer *xfer)
 	if (xfer->rqflags & (URQ_DEV_DMABUF | URQ_AUTO_DMABUF))
 		usbd_free_buffer(xfer);
 #ifdef DIAGNOSTIC
-	if (xfer->busy_free != XFER_BUSY) {
-		printf("%s: xfer=%p not busy, 0x%08x\n", __func__, xfer,
-		    xfer->busy_free);
+	if (xfer->busy_free != XFER_FREE) {
+		printf("%s: xfer=%p not free\n", __func__, xfer);
 		return;
 	}
 #endif
@@ -709,7 +707,6 @@ void
 usb_transfer_complete(struct usbd_xfer *xfer)
 {
 	struct usbd_pipe *pipe = xfer->pipe;
-	struct usb_dma *dmap = &xfer->dmabuf;
 	int polling;
 
 	SPLUSBCHECK;
@@ -718,8 +715,7 @@ usb_transfer_complete(struct usbd_xfer *xfer)
 		     "actlen=%d\n", pipe, xfer, xfer->status, xfer->actlen));
 #ifdef DIAGNOSTIC
 	if (xfer->busy_free != XFER_ONQU) {
-		printf("usb_transfer_complete: xfer=%p not busy 0x%08x\n",
-		    xfer, xfer->busy_free);
+		printf("%s: xfer=%p not on queue\n", __func__, xfer);
 		return;
 	}
 #endif
@@ -744,14 +740,13 @@ usb_transfer_complete(struct usbd_xfer *xfer)
 			xfer->actlen = xfer->length;
 		}
 #endif
-		memcpy(xfer->buffer, KERNADDR(dmap, 0), xfer->actlen);
+		memcpy(xfer->buffer, KERNADDR(&xfer->dmabuf, 0), xfer->actlen);
 	}
 
 	/* if we allocated the buffer in usbd_transfer() we free it here. */
 	if (xfer->rqflags & URQ_AUTO_DMABUF) {
 		if (!pipe->repeat) {
-			struct usbd_bus *bus = pipe->device->bus;
-			usb_freemem(bus, dmap);
+			usb_freemem(pipe->device->bus, &xfer->dmabuf);
 			xfer->rqflags &= ~URQ_AUTO_DMABUF;
 		}
 	}
@@ -762,7 +757,7 @@ usb_transfer_complete(struct usbd_xfer *xfer)
 		if (xfer != SIMPLEQ_FIRST(&pipe->queue))
 			printf("usb_transfer_complete: bad dequeue %p != %p\n",
 			    xfer, SIMPLEQ_FIRST(&pipe->queue));
-		xfer->busy_free = XFER_BUSY;
+		xfer->busy_free = XFER_FREE;
 #endif
 		SIMPLEQ_REMOVE_HEAD(&pipe->queue, next);
 	}
@@ -825,9 +820,8 @@ usb_insert_transfer(struct usbd_xfer *xfer)
 	DPRINTFN(5,("usb_insert_transfer: pipe=%p running=%d timeout=%d\n",
 	    pipe, pipe->running, xfer->timeout));
 #ifdef DIAGNOSTIC
-	if (xfer->busy_free != XFER_BUSY) {
-		printf("usb_insert_transfer: xfer=%p not busy 0x%08x\n", xfer,
-		    xfer->busy_free);
+	if (xfer->busy_free != XFER_FREE) {
+		printf("%s: xfer=%p not free\n", __func__, xfer);
 		return (USBD_INVAL);
 	}
 	xfer->busy_free = XFER_ONQU;

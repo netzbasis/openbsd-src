@@ -1,4 +1,4 @@
-/*	$OpenBSD: rarpd.c,v 1.54 2014/10/08 04:58:18 deraadt Exp $ */
+/*	$OpenBSD: rarpd.c,v 1.56 2014/10/31 20:11:52 deraadt Exp $ */
 /*	$NetBSD: rarpd.c,v 1.25 1998/04/23 02:48:33 mrg Exp $	*/
 
 /*
@@ -48,6 +48,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <util.h>
+#include <poll.h>
 #include <ifaddrs.h>
 #include <paths.h>
 
@@ -384,9 +385,9 @@ rarp_check(u_char *p, int len)
 void
 rarp_loop(void)
 {
-	int	cc, fd, fdsn, maxfd = 0;
+	int	cc, fd, numfd = 0, i;
 	u_int	bufsize;
-	fd_set  *fdsp, *lfdsp;
+	struct pollfd *pfd;
 	u_char	*buf, *bp, *ep;
 	struct if_info *ii;
 
@@ -404,48 +405,37 @@ rarp_loop(void)
 		/* NOTREACHED */
 	}
 	/*
-	 * Find the highest numbered file descriptor for select().
 	 * Initialize the set of descriptors to listen to.
 	 */
 	for (ii = iflist; ii; ii = ii->ii_next)
-		if (ii->ii_fd > maxfd)
-			maxfd = ii->ii_fd;
-
-	fdsn = howmany(maxfd+1, NFDBITS) * sizeof(fd_mask);
-	if ((fdsp = (fd_set *)malloc(fdsn)) == NULL)
-		error(FATAL, "malloc");
-	if ((lfdsp = (fd_set *)malloc(fdsn)) == NULL)
-		error(FATAL, "malloc");
-
-	memset(fdsp, 0, fdsn);
-	for (ii = iflist; ii; ii = ii->ii_next)
-		FD_SET(ii->ii_fd, fdsp);
+		numfd++;
+	pfd = reallocarray(NULL, numfd, sizeof(*pfd));
+	if (pfd == NULL) {
+		error(FATAL, "malloc: %s", strerror(errno));
+		/* NOTREACHED */
+	}
+	for (i = 0, ii = iflist; ii; ii = ii->ii_next, i++) {
+		pfd[i].fd = ii->ii_fd;
+		pfd[i].events = POLLIN;
+	}
 
 	while (1) {
-		memcpy(lfdsp, fdsp, fdsn);
-		if (select(maxfd + 1, lfdsp, (fd_set *) 0,
-			(fd_set *) 0, (struct timeval *) 0) < 0) {
+		if (poll(pfd, numfd, -1) == -1) {
+			if (errno == EINTR)
+				continue;
 			error(FATAL, "select: %s", strerror(errno));
 			/* NOTREACHED */
 		}
-		for (ii = iflist; ii; ii = ii->ii_next) {
-			fd = ii->ii_fd;
-			if (!FD_ISSET(fd, lfdsp))
+		for (i = 0, ii = iflist; ii; ii = ii->ii_next, i++) {
+			if (pfd[i].revents == 0)
 				continue;
+			fd = ii->ii_fd;
 		again:
-			cc = read(fd, (char *) buf, bufsize);
+			cc = read(fd, (char *)buf, bufsize);
 			/* Don't choke when we get ptraced */
 			if (cc < 0 && errno == EINTR)
 				goto again;
-			/* Due to a SunOS bug, after 2^31 bytes, the file
-			 * offset overflows and read fails with EINVAL.  The
-			 * lseek() to 0 will fix things. */
 			if (cc < 0) {
-				if (errno == EINVAL &&
-				    (lseek(fd, (off_t)0, SEEK_CUR) + bufsize) < 0) {
-					(void) lseek(fd, (off_t)0, SEEK_SET);
-					goto again;
-				}
 				error(FATAL, "read: %s", strerror(errno));
 				/* NOTREACHED */
 			}
@@ -464,6 +454,7 @@ rarp_loop(void)
 			}
 		}
 	}
+	free(pfd);
 }
 
 #ifndef TFTP_DIR

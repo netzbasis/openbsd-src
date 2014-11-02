@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.101 2014/10/18 15:46:16 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.104 2014/10/30 15:05:05 jmc Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2011, 2012, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -57,7 +57,6 @@ enum	outt {
 	OUTT_TREE,	/* -Ttree */
 	OUTT_MAN,	/* -Tman */
 	OUTT_HTML,	/* -Thtml */
-	OUTT_XHTML,	/* -Txhtml */
 	OUTT_LINT,	/* -Tlint */
 	OUTT_PS,	/* -Tps */
 	OUTT_PDF	/* -Tpdf */
@@ -65,6 +64,7 @@ enum	outt {
 
 struct	curparse {
 	struct mparse	 *mp;
+	struct mchars	 *mchars;	/* character table */
 	enum mandoclevel  wlevel;	/* ignore messages below this */
 	int		  wstop;	/* stop after a file with a warning */
 	enum outt	  outtype;	/* which output to use */
@@ -75,6 +75,7 @@ struct	curparse {
 	char		  outopts[BUFSIZ]; /* buf of output opts */
 };
 
+static	int		  koptions(int *, char *);
 int			  mandocdb(int, char**);
 static	int		  moptions(int *, char *);
 static	void		  mmsg(enum mandocerr, enum mandoclevel,
@@ -145,14 +146,15 @@ main(int argc, char *argv[])
 	memset(&curp, 0, sizeof(struct curparse));
 	curp.outtype = OUTT_ASCII;
 	curp.wlevel  = MANDOCLEVEL_FATAL;
-	options = MPARSE_SO;
+	options = MPARSE_SO | MPARSE_UTF8 | MPARSE_LATIN1;
 	defos = NULL;
 
 	use_pager = 1;
 	show_usage = 0;
 	outmode = OUTMODE_DEF;
 
-	while (-1 != (c = getopt(argc, argv, "aC:cfhI:iklM:m:O:S:s:T:VW:w"))) {
+	while (-1 != (c = getopt(argc, argv,
+			"aC:cfhI:iK:klM:m:O:S:s:T:VW:w"))) {
 		switch (c) {
 		case 'a':
 			outmode = OUTMODE_ALL;
@@ -187,6 +189,10 @@ main(int argc, char *argv[])
 			break;
 		case 'i':
 			outmode = OUTMODE_INT;
+			break;
+		case 'K':
+			if ( ! koptions(&options, optarg))
+				return((int)MANDOCLEVEL_BADARG);
 			break;
 		case 'k':
 			search.argmode = ARG_EXPR;
@@ -346,7 +352,9 @@ main(int argc, char *argv[])
 	if (use_pager && isatty(STDOUT_FILENO))
 		spawn_pager();
 
-	curp.mp = mparse_alloc(options, curp.wlevel, mmsg, defos);
+	curp.mchars = mchars_alloc();
+	curp.mp = mparse_alloc(options, curp.wlevel, mmsg,
+	    curp.mchars, defos);
 
 	/*
 	 * Conditionally start up the lookaside buffer before parsing.
@@ -388,8 +396,8 @@ main(int argc, char *argv[])
 
 	if (curp.outfree)
 		(*curp.outfree)(curp.outdata);
-	if (curp.mp)
-		mparse_free(curp.mp);
+	mparse_free(curp.mp);
+	mchars_free(curp.mchars);
 
 out:
 	if (search.argmode != ARG_FILE) {
@@ -418,8 +426,8 @@ usage(enum argmode argmode)
 	switch (argmode) {
 	case ARG_FILE:
 		fputs("usage: mandoc [-acfhklV] [-Ios=name] "
-		    "[-mformat] [-Ooption] [-Toutput] [-Wlevel]\n"
-		    "\t      [file ...]\n", stderr);
+		    "[-Kencoding] [-mformat] [-Ooption]\n"
+		    "\t      [-Toutput] [-Wlevel] [file ...]\n", stderr);
 		break;
 	case ARG_NAME:
 		fputs("usage: man [-acfhklVw] [-C file] "
@@ -472,32 +480,34 @@ parse(struct curparse *curp, int fd, const char *file,
 
 	if ( ! (curp->outman && curp->outmdoc)) {
 		switch (curp->outtype) {
-		case OUTT_XHTML:
-			curp->outdata = xhtml_alloc(curp->outopts);
-			curp->outfree = html_free;
-			break;
 		case OUTT_HTML:
-			curp->outdata = html_alloc(curp->outopts);
+			curp->outdata = html_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = html_free;
 			break;
 		case OUTT_UTF8:
-			curp->outdata = utf8_alloc(curp->outopts);
+			curp->outdata = utf8_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = ascii_free;
 			break;
 		case OUTT_LOCALE:
-			curp->outdata = locale_alloc(curp->outopts);
+			curp->outdata = locale_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = ascii_free;
 			break;
 		case OUTT_ASCII:
-			curp->outdata = ascii_alloc(curp->outopts);
+			curp->outdata = ascii_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = ascii_free;
 			break;
 		case OUTT_PDF:
-			curp->outdata = pdf_alloc(curp->outopts);
+			curp->outdata = pdf_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = pspdf_free;
 			break;
 		case OUTT_PS:
-			curp->outdata = ps_alloc(curp->outopts);
+			curp->outdata = ps_alloc(curp->mchars,
+			    curp->outopts);
 			curp->outfree = pspdf_free;
 			break;
 		default:
@@ -506,8 +516,6 @@ parse(struct curparse *curp, int fd, const char *file,
 
 		switch (curp->outtype) {
 		case OUTT_HTML:
-			/* FALLTHROUGH */
-		case OUTT_XHTML:
 			curp->outman = html_man;
 			curp->outmdoc = html_mdoc;
 			break;
@@ -582,6 +590,26 @@ fail:
 }
 
 static int
+koptions(int *options, char *arg)
+{
+
+	if ( ! strcmp(arg, "utf-8")) {
+		*options |=  MPARSE_UTF8;
+		*options &= ~MPARSE_LATIN1;
+	} else if ( ! strcmp(arg, "iso-8859-1")) {
+		*options |=  MPARSE_LATIN1;
+		*options &= ~MPARSE_UTF8;
+	} else if ( ! strcmp(arg, "us-ascii")) {
+		*options &= ~(MPARSE_UTF8 | MPARSE_LATIN1);
+	} else {
+		fprintf(stderr, "%s: -K%s: Bad argument\n",
+		    progname, arg);
+		return(0);
+	}
+	return(1);
+}
+
+static int
 moptions(int *options, char *arg)
 {
 
@@ -622,7 +650,7 @@ toptions(struct curparse *curp, char *arg)
 	else if (0 == strcmp(arg, "locale"))
 		curp->outtype = OUTT_LOCALE;
 	else if (0 == strcmp(arg, "xhtml"))
-		curp->outtype = OUTT_XHTML;
+		curp->outtype = OUTT_HTML;
 	else if (0 == strcmp(arg, "ps"))
 		curp->outtype = OUTT_PS;
 	else if (0 == strcmp(arg, "pdf"))

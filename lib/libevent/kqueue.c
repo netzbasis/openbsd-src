@@ -1,4 +1,4 @@
-/*	$OpenBSD: kqueue.c,v 1.33 2014/10/18 21:56:44 bluhm Exp $	*/
+/*	$OpenBSD: kqueue.c,v 1.36 2014/10/30 16:45:37 bluhm Exp $	*/
 
 /*
  * Copyright 2000-2002 Niels Provos <provos@citi.umich.edu>
@@ -84,14 +84,14 @@ kq_init(struct event_base *base)
 	struct kqop *kqueueop;
 
 	/* Disable kqueue when this environment variable is set */
-	if (evutil_getenv("EVENT_NOKQUEUE"))
+	if (!issetugid() && getenv("EVENT_NOKQUEUE"))
 		return (NULL);
 
 	if (!(kqueueop = calloc(1, sizeof(struct kqop))))
 		return (NULL);
 
 	/* Initalize the kernel queue */
-	
+
 	if ((kq = kqueue()) == -1) {
 		event_warn("kqueue");
 		free (kqueueop);
@@ -119,27 +119,6 @@ kq_init(struct event_base *base)
 	/* we need to keep track of multiple events per signal */
 	for (i = 0; i < NSIG; ++i) {
 		TAILQ_INIT(&kqueueop->evsigevents[i]);
-	}
-
-	/* Check for Mac OS X kqueue bug. */
-	kqueueop->changes[0].ident = -1;
-	kqueueop->changes[0].filter = EVFILT_READ;
-	kqueueop->changes[0].flags = EV_ADD;
-	/* 
-	 * If kqueue works, then kevent will succeed, and it will
-	 * stick an error in events[0].  If kqueue is broken, then
-	 * kevent will fail.
-	 */
-	if (kevent(kq,
-		kqueueop->changes, 1, kqueueop->events, NEVENT, NULL) != 1 ||
-	    kqueueop->events[0].ident != -1 ||
-	    kqueueop->events[0].flags != EV_ERROR) {
-		event_warn("%s: detected broken kqueue; not using.", __func__);
-		free(kqueueop->changes);
-		free(kqueueop->events);
-		free(kqueueop);
-		close(kq);
-		return (NULL);
 	}
 
 	return (kqueueop);
@@ -183,7 +162,7 @@ kq_insert(struct kqop *kqop, struct kevent *kev)
 	memcpy(&kqop->changes[kqop->nchanges++], kev, sizeof(struct kevent));
 
 	event_debug(("%s: fd %d %s%s",
-		__func__, (int)kev->ident, 
+		__func__, (int)kev->ident,
 		kev->filter == EVFILT_READ ? "EVFILT_READ" : "EVFILT_WRITE",
 		kev->flags == EV_DELETE ? " (del)" : ""));
 
@@ -216,7 +195,7 @@ kq_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 	kqop->nchanges = 0;
 	if (res == -1) {
 		if (errno != EINTR) {
-                        event_warn("kevent");
+			event_warn("kevent");
 			return (-1);
 		}
 
@@ -312,13 +291,13 @@ kq_add(void *arg, struct event *ev)
 		assert(nsignal >= 0 && nsignal < NSIG);
 		if (TAILQ_EMPTY(&kqop->evsigevents[nsignal])) {
 			struct timespec timeout = { 0, 0 };
-			
+
 			memset(&kev, 0, sizeof(kev));
 			kev.ident = nsignal;
 			kev.filter = EVFILT_SIGNAL;
 			kev.flags = EV_ADD;
 			kev.udata = &kqop->evsigevents[nsignal];
-			
+
 			/* Be ready for the signal if it is sent any
 			 * time between now and the next call to
 			 * kq_dispatch. */
@@ -337,7 +316,7 @@ kq_add(void *arg, struct event *ev)
 	}
 
 	if (ev->ev_events & EV_READ) {
- 		memset(&kev, 0, sizeof(kev));
+		memset(&kev, 0, sizeof(kev));
 		kev.ident = ev->ev_fd;
 		kev.filter = EVFILT_READ;
 		/* Make it behave like select() and poll() */
@@ -346,7 +325,7 @@ kq_add(void *arg, struct event *ev)
 		if (!(ev->ev_events & EV_PERSIST))
 			kev.flags |= EV_ONESHOT;
 		kev.udata = ev;
-		
+
 		if (kq_insert(kqop, &kev) == -1)
 			return (-1);
 
@@ -354,14 +333,14 @@ kq_add(void *arg, struct event *ev)
 	}
 
 	if (ev->ev_events & EV_WRITE) {
- 		memset(&kev, 0, sizeof(kev));
+		memset(&kev, 0, sizeof(kev));
 		kev.ident = ev->ev_fd;
 		kev.filter = EVFILT_WRITE;
 		kev.flags = EV_ADD;
 		if (!(ev->ev_events & EV_PERSIST))
 			kev.flags |= EV_ONESHOT;
 		kev.udata = ev;
-		
+
 		if (kq_insert(kqop, &kev) == -1)
 			return (-1);
 
@@ -391,7 +370,7 @@ kq_del(void *arg, struct event *ev)
 			kev.ident = nsignal;
 			kev.filter = EVFILT_SIGNAL;
 			kev.flags = EV_DELETE;
-		
+
 			/* Because we insert signal events
 			 * immediately, we need to delete them
 			 * immediately, too */
@@ -408,11 +387,11 @@ kq_del(void *arg, struct event *ev)
 	}
 
 	if (ev->ev_events & EV_READ) {
- 		memset(&kev, 0, sizeof(kev));
+		memset(&kev, 0, sizeof(kev));
 		kev.ident = ev->ev_fd;
 		kev.filter = EVFILT_READ;
 		kev.flags = EV_DELETE;
-		
+
 		if (kq_insert(kqop, &kev) == -1)
 			return (-1);
 
@@ -420,11 +399,11 @@ kq_del(void *arg, struct event *ev)
 	}
 
 	if (ev->ev_events & EV_WRITE) {
- 		memset(&kev, 0, sizeof(kev));
+		memset(&kev, 0, sizeof(kev));
 		kev.ident = ev->ev_fd;
 		kev.filter = EVFILT_WRITE;
 		kev.flags = EV_DELETE;
-		
+
 		if (kq_insert(kqop, &kev) == -1)
 			return (-1);
 

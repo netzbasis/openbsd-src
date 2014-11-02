@@ -1,4 +1,4 @@
-/* $OpenBSD: xhci.c,v 1.28 2014/10/05 13:32:14 mpi Exp $ */
+/* $OpenBSD: xhci.c,v 1.34 2014/11/01 18:21:07 mpi Exp $ */
 
 /*
  * Copyright (c) 2014 Martin Pieuchot
@@ -51,7 +51,7 @@ int xhcidebug = 3;
 
 #define DEVNAME(sc)		((sc)->sc_bus.bdev.dv_xname)
 
-#define TRBOFF(ring, trb)	((void *)(trb) - (void *)((ring).trbs))
+#define TRBOFF(ring, trb)	((char *)(trb) - (char *)((ring).trbs))
 
 struct pool *xhcixfer;
 
@@ -72,14 +72,14 @@ struct xhci_pipe {
 };
 
 int	xhci_reset(struct xhci_softc *);
-void	xhci_config(struct xhci_softc *);
 int	xhci_intr1(struct xhci_softc *);
 void	xhci_waitintr(struct xhci_softc *, struct usbd_xfer *);
 void	xhci_event_dequeue(struct xhci_softc *);
 void	xhci_event_xfer(struct xhci_softc *, uint64_t, uint32_t, uint32_t);
 void	xhci_event_command(struct xhci_softc *, uint64_t);
 void	xhci_event_port_change(struct xhci_softc *, uint64_t, uint32_t);
-int	xhci_pipe_init(struct xhci_softc *, struct usbd_pipe *, uint32_t);
+int	xhci_pipe_init(struct xhci_softc *, struct usbd_pipe *, uint32_t,
+	    uint32_t);
 int	xhci_scratchpad_alloc(struct xhci_softc *, int);
 void	xhci_scratchpad_free(struct xhci_softc *);
 int	xhci_softdev_alloc(struct xhci_softc *, uint8_t);
@@ -113,9 +113,7 @@ void	xhci_abort_xfer(struct usbd_xfer *, usbd_status);
 void	xhci_pipe_close(struct usbd_pipe *);
 void	xhci_noop(struct usbd_xfer *);
 
-/* XXX these are common to all HC drivers and should be merged. */
 void 	xhci_timeout(void *);
-void 	xhci_timeout_task(void *);
 
 /* USBD Bus Interface. */
 usbd_status	  xhci_pipe_open(struct usbd_pipe *);
@@ -330,8 +328,6 @@ xhci_init(struct xhci_softc *sc)
 		return (ENOMEM);
 	}
 
-
-	xhci_config(sc);
 
 	return (0);
 }
@@ -661,6 +657,8 @@ xhci_event_xfer(struct xhci_softc *sc, uint64_t paddr, uint32_t status,
 	}
 
 	xp = sc->sc_sdevs[slot].pipes[dci - 1];
+	if (xp == NULL)
+		return;
 
 	code = XHCI_TRB_GET_CODE(status);
 	remain = XHCI_TRB_REMAIN(status);
@@ -741,7 +739,6 @@ xhci_event_xfer(struct xhci_softc *sc, uint64_t paddr, uint32_t status,
 	}
 
 	xhci_xfer_done(xfer);
-	usb_transfer_complete(xfer);
 }
 
 void
@@ -767,7 +764,6 @@ xhci_event_command(struct xhci_softc *sc, uint64_t paddr)
 
 	slot = XHCI_TRB_GET_SLOT(flags);
 	dci = XHCI_TRB_GET_EP(flags);
-	xp = sc->sc_sdevs[slot].pipes[dci - 1];
 
 	switch (flags & XHCI_TRB_TYPE_MASK) {
 	case XHCI_CMD_RESET_EP:
@@ -775,6 +771,10 @@ xhci_event_command(struct xhci_softc *sc, uint64_t paddr)
 		 * Clear the TRBs and reconfigure the dequeue pointer
 		 * before declaring the endpoint ready.
 		 */
+		xp = sc->sc_sdevs[slot].pipes[dci - 1];
+		if (xp == NULL)
+			break;
+
 		xhci_ring_reset(sc, &xp->ring);
 		xp->free_trbs = xp->ring.ntrb;
 		xhci_cmd_set_tr_deq_async(sc, xp->slot, xp->dci,
@@ -786,13 +786,17 @@ xhci_event_command(struct xhci_softc *sc, uint64_t paddr)
 		 * can finish all its pending transfers and let the
 		 * stack play with it again.
 		 */
+		xp = sc->sc_sdevs[slot].pipes[dci - 1];
+		if (xp == NULL)
+			break;
+
 		xp->halted = 0;
 		for (i = 0; i < XHCI_MAX_TRANSFERS; i++) {
 			xfer = xp->pending_xfers[i];
 			if (xfer != NULL && xfer->done == 0) {
 				if (xfer->status != USBD_STALLED)
 					xfer->status = USBD_IOERROR;
-				usb_transfer_complete(xfer);
+				xhci_xfer_done(xfer);
 			}
 			xp->pending_xfers[i] = NULL;
 		}
@@ -856,6 +860,9 @@ xhci_xfer_done(struct usbd_xfer *xfer)
 	xp->free_trbs += xx->ntrb;
 	xx->index = -1;
 	xx->ntrb = 0;
+
+	timeout_del(&xfer->timeout_handle);
+	usb_transfer_complete(xfer);
 }
 
 static inline uint8_t
@@ -882,7 +889,7 @@ xhci_pipe_open(struct usbd_pipe *pipe)
 	usb_endpoint_descriptor_t *ed = pipe->endpoint->edesc;
 	uint8_t slot = 0, xfertype = UE_GET_XFERTYPE(ed->bmAttributes);
 	struct usbd_device *hub;
-	uint32_t rhport = 0;
+	uint32_t route = 0, rhport = 0;
 	int error;
 
 	KASSERT(xp->slot == 0);
@@ -931,9 +938,19 @@ xhci_pipe_open(struct usbd_pipe *pipe)
 		if (xhci_softdev_alloc(sc, slot))
 			return (USBD_NOMEM);
 
-		/* Get root hub port */
-		for (hub = pipe->device; hub->myhub->depth; hub = hub->myhub)
-			;
+		/*
+		 * Calculate the Route String.  Note that this code assume
+		 * that there is no hub with more than 16 ports and that
+		 * they all are at a detph < USB_HUB_MAX_DEPTH.
+		 */
+		for (hub = pipe->device; hub->myhub->depth; hub = hub->myhub) {
+			uint32_t port = hub->powersrc->portno;
+			uint32_t depth = hub->myhub->depth;
+
+			route |= port << (4 * (depth - 1));
+		}
+
+		/* Get Root Hub port */
 		rhport = hub->powersrc->portno;
 		break;
 	case UE_ISOCHRONOUS:
@@ -963,7 +980,7 @@ xhci_pipe_open(struct usbd_pipe *pipe)
 	else
 		xp->slot = ((struct xhci_pipe *)pipe->device->default_pipe)->slot;
 
-	if (xhci_pipe_init(sc, pipe, rhport))
+	if (xhci_pipe_init(sc, pipe, rhport, route))
 		return (USBD_IOERROR);
 
 	return (USBD_NORMAL_COMPLETION);
@@ -1006,7 +1023,8 @@ xhci_get_txinfo(struct xhci_softc *sc, struct usbd_pipe *pipe)
 }
 
 int
-xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe, uint32_t port)
+xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe, uint32_t port,
+    uint32_t route)
 {
 	struct xhci_pipe *xp = (struct xhci_pipe *)pipe;
 	struct xhci_soft_dev *sdev = &sc->sc_sdevs[xp->slot];
@@ -1031,12 +1049,12 @@ xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe, uint32_t port)
 	case USB_SPEED_LOW:
 		ival= 3;
 		speed = XHCI_SPEED_LOW;
-		mps = USB_MAX_IPACKET;
+		mps = 8;
 		break;
 	case USB_SPEED_FULL:
 		ival = 3;
 		speed = XHCI_SPEED_FULL;
-		mps = 64;
+		mps = 8;
 		break;
 	case USB_SPEED_HIGH:
 		ival = min(3, ed->bInterval);
@@ -1058,8 +1076,8 @@ xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe, uint32_t port)
 	if (pipe->interval != USBD_DEFAULT_INTERVAL)
 		ival = min(ival, pipe->interval);
 
-	DPRINTF(("%s: speed %d mps %d rhport %d\n", DEVNAME(sc), speed, mps,
-	    port));
+	DPRINTF(("%s: speed %d mps %d rhport %d route 0x%x\n", DEVNAME(sc),
+	    speed, mps, port, route));
 
 	/* Setup the endpoint context */
 	if (xfertype != UE_ISOCHRONOUS)
@@ -1087,12 +1105,14 @@ xhci_pipe_init(struct xhci_softc *sc, struct usbd_pipe *pipe, uint32_t port)
 
 	/* Setup the slot context */
 	sdev->slot_ctx->info_lo = htole32(
-	    XHCI_SCTX_DCI(xp->dci) | XHCI_SCTX_SPEED(speed)
+	    XHCI_SCTX_DCI(xp->dci) | XHCI_SCTX_SPEED(speed) |
+	    XHCI_SCTX_ROUTE(route)
 	);
 	sdev->slot_ctx->info_hi = htole32(XHCI_SCTX_RHPORT(port));
 	sdev->slot_ctx->tt = 0;
 	sdev->slot_ctx->state = 0;
 
+	/* If we are opening the interrupt pipe of a hub, update its context. */
 	if (pipe->device->hub != NULL) {
 		int nports = pipe->device->hub->nports;
 
@@ -1710,13 +1730,12 @@ xhci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 {
 	int s;
 
+	DPRINTF(("%s: xfer=%p err=%s\n", __func__, xfer, usbd_errstr(status)));
+
 	xfer->status = status;
-	timeout_del(&xfer->timeout_handle);
-	usb_rem_task(xfer->device, &xfer->abort_task);
 
 	s = splusb();
 	xhci_xfer_done(xfer);
-	usb_transfer_complete(xfer);
 	splx(s);
 }
 
@@ -1724,24 +1743,6 @@ void
 xhci_timeout(void *addr)
 {
 	struct usbd_xfer *xfer = addr;
-	struct xhci_softc *sc = (struct xhci_softc *)xfer->device->bus;
-
-	if (sc->sc_bus.dying) {
-		xhci_timeout_task(addr);
-		return;
-	}
-
-	usb_init_task(&xfer->abort_task, xhci_timeout_task, addr,
-	    USB_TASK_TYPE_ABORT);
-	usb_add_task(xfer->device, &xfer->abort_task);
-}
-
-void
-xhci_timeout_task(void *addr)
-{
-	struct usbd_xfer *xfer = addr;
-
-	DPRINTF(("%s: xfer=%p\n", __func__, xfer));
 
 	xhci_abort_xfer(xfer, USBD_TIMEOUT);
 }
@@ -2230,13 +2231,11 @@ xhci_device_ctrl_start(struct usbd_xfer *xfer)
 
 	if (sc->sc_bus.use_polling)
 		xhci_waitintr(sc, xfer);
-#if notyet
 	else if (xfer->timeout) {
 		timeout_del(&xfer->timeout_handle);
 		timeout_set(&xfer->timeout_handle, xhci_timeout, xfer);
 		timeout_add_msec(&xfer->timeout_handle, xfer->timeout);
 	}
-#endif
 
 	return (USBD_IN_PROGRESS);
 }
@@ -2284,7 +2283,7 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 	    XHCI_TRB_TYPE_NORMAL | XHCI_TRB_ISP | XHCI_TRB_IOC | toggle
 	);
 
-	usb_syncmem(&xp->ring.dma, ((void *)trb - (void *)xp->ring.trbs),
+	usb_syncmem(&xp->ring.dma, TRBOFF(xp->ring, trb),
 	    sizeof(struct xhci_trb), BUS_DMASYNC_PREWRITE);
 	XDWRITE4(sc, XHCI_DOORBELL(xp->slot), xp->dci);
 
@@ -2292,13 +2291,11 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 
 	if (sc->sc_bus.use_polling)
 		xhci_waitintr(sc, xfer);
-#if notyet
 	else if (xfer->timeout) {
 		timeout_del(&xfer->timeout_handle);
 		timeout_set(&xfer->timeout_handle, xhci_timeout, xfer);
 		timeout_add_msec(&xfer->timeout_handle, xfer->timeout);
 	}
-#endif
 
 	return (USBD_IN_PROGRESS);
 }
@@ -2310,8 +2307,10 @@ xhci_device_generic_done(struct usbd_xfer *xfer)
 	    BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE);
 
 	/* Only happens with interrupt transfers. */
-	if (xfer->pipe->repeat)
-		xfer->status = xhci_device_generic_start(xfer);
+	if (xfer->pipe->repeat) {
+		xfer->actlen = 0;
+		xhci_device_generic_start(xfer);
+	}
 }
 
 void

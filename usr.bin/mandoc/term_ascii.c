@@ -1,4 +1,4 @@
-/*	$OpenBSD: term_ascii.c,v 1.24 2014/10/28 02:43:05 schwarze Exp $ */
+/*	$OpenBSD: term_ascii.c,v 1.26 2014/10/28 18:48:56 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -17,6 +17,7 @@
  */
 #include <sys/types.h>
 
+#include <assert.h>
 #include <locale.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -30,7 +31,8 @@
 #include "term.h"
 #include "main.h"
 
-static	struct termp	 *ascii_init(enum termenc, char *);
+static	struct termp	 *ascii_init(enum termenc,
+				const struct mchars *, char *);
 static	double		  ascii_hspan(const struct termp *,
 				const struct roffsu *);
 static	size_t		  ascii_width(const struct termp *, int);
@@ -48,7 +50,7 @@ static	size_t		  locale_width(const struct termp *, int);
 
 
 static struct termp *
-ascii_init(enum termenc enc, char *outopts)
+ascii_init(enum termenc enc, const struct mchars *mchars, char *outopts)
 {
 	const char	*toks[5];
 	char		*v;
@@ -56,6 +58,7 @@ ascii_init(enum termenc enc, char *outopts)
 
 	p = mandoc_calloc(1, sizeof(struct termp));
 
+	p->symtab = mchars;
 	p->tabwidth = 5;
 	p->defrmargin = p->lastrmargin = 78;
 
@@ -121,24 +124,24 @@ ascii_init(enum termenc enc, char *outopts)
 }
 
 void *
-ascii_alloc(char *outopts)
+ascii_alloc(const struct mchars *mchars, char *outopts)
 {
 
-	return(ascii_init(TERMENC_ASCII, outopts));
+	return(ascii_init(TERMENC_ASCII, mchars, outopts));
 }
 
 void *
-utf8_alloc(char *outopts)
+utf8_alloc(const struct mchars *mchars, char *outopts)
 {
 
-	return(ascii_init(TERMENC_UTF8, outopts));
+	return(ascii_init(TERMENC_UTF8, mchars, outopts));
 }
 
 void *
-locale_alloc(char *outopts)
+locale_alloc(const struct mchars *mchars, char *outopts)
 {
 
-	return(ascii_init(TERMENC_LOCALE, outopts));
+	return(ascii_init(TERMENC_LOCALE, mchars, outopts));
 }
 
 static void
@@ -325,8 +328,7 @@ ascii_uc2str(int uc)
 	"j",	"DZ",	"Dz",	"dz",	"'\bG",	"'\bg",	"HV",	"W",
 	"`\bN",	"`\bn",	"A",	"a",	"'\bAE","'\bae","O",	"o"};
 
-	if (uc < 0)
-		return("<?>");
+	assert(uc >= 0);
 	if ((size_t)uc < sizeof(tab)/sizeof(tab[0]))
 		return(tab[uc]);
 	return(mchars_uc2str(uc));

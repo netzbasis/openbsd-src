@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: rcctl.sh,v 1.46 2014/10/27 21:24:26 rpe Exp $
+# $OpenBSD: rcctl.sh,v 1.49 2014/11/01 13:59:42 ajacoutot Exp $
 #
 # Copyright (c) 2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -100,7 +100,7 @@ svc_get_defaults()
 	local _i _svc=$1
 
 	if [ -n "${_svc}" ]; then
-		print -r -- "$(svc_default_enabled_flags ${_svc})"
+		( svc_default_enabled_flags ${_svc} )
 		svc_default_enabled ${_svc}
 	else
 		for _i in $(ls_rcscripts); do
@@ -132,7 +132,7 @@ svc_get_flags()
 		[ -z "${daemon_flags}" ] && \
 			daemon_flags="$(svc_default_enabled_flags ${_svc})"
 
-		print -r -- "${daemon_flags}" | sed '/^$/d'
+		[ -n "${daemon_flags}" ] && print -r -- "${daemon_flags}"
 	fi
 }
 

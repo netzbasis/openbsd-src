@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.323 2014/10/27 19:54:31 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.325 2014/11/01 15:49:07 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -64,9 +64,6 @@
 #include <pwd.h>
 #include <resolv.h>
 #include <stdint.h>
-
-#define DEFAULT_LEASE_TIME	43200	/* 12 hours. */
-#define TIME_MAX		2147483647
 
 char *path_dhclient_conf = _PATH_DHCLIENT_CONF;
 char *path_dhclient_db = NULL;
@@ -727,27 +724,32 @@ state_selecting(void)
 		client->new = picked;
 
 		/*
-		 * Fake up DHO_DHCP_LEASE_TIME, DHO_RENEWAL_TIME and
-		 * DHO_REBINDING_TIME options so bind_lease() can
-		 * set the times.
+		 * Set (unsigned 32 bit) options
+		 *
+		 * DHO_DHCP_LEASE_TIME (12000 seconds),
+		 * DHO_RENEWAL_TIME (8000 seconds)
+		 * DHO_REBINDING_TIME (10000 seconds)
+		 *
+		 * so bind_lease() can set the lease times. Note that the
+		 * values must be big-endian.
 		 */
 		option = &client->new->options[DHO_DHCP_LEASE_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
-			putULong(option->data, 12000);
+			memcpy(option->data, "\x00\x00\x2e\xe0", 4);
 		}
 		option = &client->new->options[DHO_DHCP_RENEWAL_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
-			putULong(option->data, 8000);
+			memcpy(option->data, "\x00\x00\x1f\x40", 4);
 		}
 		option = &client->new->options[DHO_DHCP_REBINDING_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
-			putULong(option->data, 10000);
+			memcpy(option->data, "\x00\x00\x27\x10", 4);
 		}
 
 		client->state = S_REQUESTING;
@@ -2518,49 +2520,61 @@ compare_lease(struct client_lease *active, struct client_lease *new)
 void
 set_lease_times(struct client_lease *lease)
 {
-	time_t cur_time;
+	time_t cur_time, time_max;
+	u_int32_t uint32val;
+
+	time(&cur_time);
+
+	time_max = LLONG_MAX - cur_time;
+	if (time_max > UINT32_MAX)
+		time_max = UINT32_MAX;
 
 	/*
 	 * Take the server-provided times if available.  Otherwise
 	 * figure them out according to the spec.
+	 *
+	 * expiry  == time to discard lease.
+	 * renewal == time to renew lease from server that provided it.
+	 * rebind  == time to renew lease from any server.
+	 *
+	 * 0 <= renewal <= rebind <= expiry <= time_max
+	 * &&
+	 * expiry >= MIN(time_max, 60)
 	 */
-	if (lease->options[DHO_DHCP_LEASE_TIME].len == 4)
-		lease->expiry =
-		    getULong(lease->options[DHO_DHCP_LEASE_TIME].data);
-	else
-		lease->expiry = DEFAULT_LEASE_TIME;
-	if (lease->options[DHO_DHCP_RENEWAL_TIME].len == 4)
-		lease->renewal =
-		    getULong(lease->options[DHO_DHCP_RENEWAL_TIME].data);
-	else
-		lease->renewal = lease->expiry / 2;
-	if (lease->options[DHO_DHCP_REBINDING_TIME].len == 4)
-		lease->rebind =
-		    getULong(lease->options[DHO_DHCP_REBINDING_TIME].data);
-	else
-		lease->rebind = lease->renewal + lease->renewal / 2 +
-		    lease->renewal / 4;
 
-	/*
-	 * A number that looks negative here is really just very large,
-	 * because the lease expiry offset is unsigned.
-	 */
-	if (lease->expiry < 0)
-		lease->expiry = TIME_MAX;
-	/* XXX should be fixed by resetting the client state */
-	if (lease->expiry < 60)
-		lease->expiry = 60;
+	lease->expiry = 43200;	/* Default to 12 hours */
+	if (lease->options[DHO_DHCP_LEASE_TIME].len == sizeof(uint32val)) {
+		memcpy(&uint32val, lease->options[DHO_DHCP_LEASE_TIME].data,
+		    sizeof(uint32val));
+		lease->expiry = ntohl(uint32val);
+		if (lease->expiry < 60)
+			lease->expiry = 60;
+	}
+	if (lease->expiry > time_max)
+		lease->expiry = time_max;
 
-	time(&cur_time);
+	lease->renewal = lease->expiry / 2;
+	if (lease->options[DHO_DHCP_RENEWAL_TIME].len == sizeof(uint32val)) {
+		memcpy(&uint32val, lease->options[DHO_DHCP_RENEWAL_TIME].data,
+		    sizeof(uint32val));
+		lease->renewal = ntohl(uint32val);
+		if (lease->renewal > lease->expiry)
+			lease->renewal = lease->expiry;
+	}
 
-	/* Lease lengths can never be negative. */
+	lease->rebind = (lease->expiry * 7) / 8;
+	if (lease->options[DHO_DHCP_REBINDING_TIME].len == sizeof(uint32val)) {
+		memcpy(&uint32val, lease->options[DHO_DHCP_REBINDING_TIME].data,
+		    sizeof(uint32val));
+		lease->rebind = ntohl(uint32val);
+		if (lease->rebind > lease->expiry)
+			lease->rebind = lease->expiry;
+	}
+	if (lease->rebind < lease->renewal)
+		lease->rebind = lease->renewal;
+
+	/* Convert lease lengths to times. */
 	lease->expiry += cur_time;
-	if (lease->expiry < cur_time)
-		lease->expiry = TIME_MAX;
 	lease->renewal += cur_time;
-	if (lease->renewal < cur_time)
-		lease->renewal = TIME_MAX;
 	lease->rebind += cur_time;
-	if (lease->rebind < cur_time)
-		lease->rebind = TIME_MAX;
 }

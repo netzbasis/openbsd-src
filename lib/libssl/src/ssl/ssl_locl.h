@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.71 2014/10/03 13:58:18 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.74 2014/11/02 10:42:38 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -274,18 +274,16 @@
 #define SSL_DES			0x00000001L
 #define SSL_3DES		0x00000002L
 #define SSL_RC4			0x00000004L
-#define SSL_RC2			0x00000008L
-#define SSL_IDEA		0x00000010L
-#define SSL_eNULL		0x00000020L
-#define SSL_AES128		0x00000040L
-#define SSL_AES256		0x00000080L
-#define SSL_CAMELLIA128		0x00000100L
-#define SSL_CAMELLIA256		0x00000200L
-#define SSL_eGOST2814789CNT	0x00000400L
-#define SSL_SEED		0x00000800L
-#define SSL_AES128GCM		0x00001000L
-#define SSL_AES256GCM		0x00002000L
-#define SSL_CHACHA20POLY1305	0x00004000L
+#define SSL_IDEA		0x00000008L
+#define SSL_eNULL		0x00000010L
+#define SSL_AES128		0x00000020L
+#define SSL_AES256		0x00000040L
+#define SSL_CAMELLIA128		0x00000080L
+#define SSL_CAMELLIA256		0x00000100L
+#define SSL_eGOST2814789CNT	0x00000200L
+#define SSL_AES128GCM		0x00000400L
+#define SSL_AES256GCM		0x00000800L
+#define SSL_CHACHA20POLY1305	0x00001000L
 
 #define SSL_AES        		(SSL_AES128|SSL_AES256|SSL_AES128GCM|SSL_AES256GCM)
 #define SSL_CAMELLIA		(SSL_CAMELLIA128|SSL_CAMELLIA256)
@@ -440,11 +438,9 @@ typedef struct cert_st {
 	unsigned long mask_k;
 	unsigned long mask_a;
 
-	RSA *rsa_tmp;
-	RSA *(*rsa_tmp_cb)(SSL *ssl, int is_export, int keysize);
-
 	DH *dh_tmp;
 	DH *(*dh_tmp_cb)(SSL *ssl, int is_export, int keysize);
+	int dh_tmp_auto;
 
 	EC_KEY *ecdh_tmp;
 	EC_KEY *(*ecdh_tmp_cb)(SSL *ssl, int is_export, int keysize);
@@ -591,6 +587,7 @@ int ssl_undefined_const_function(const SSL *s);
 CERT_PKEY *ssl_get_server_send_pkey(const SSL *s);
 X509 *ssl_get_server_send_cert(const SSL *);
 EVP_PKEY *ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *c, const EVP_MD **pmd);
+DH *ssl_get_auto_dh(SSL *s);
 int ssl_cert_type(X509 *x, EVP_PKEY *pkey);
 void ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher);
 STACK_OF(SSL_CIPHER) *ssl_get_ciphers_by_id(SSL *s);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: event_tagging.c,v 1.7 2014/10/17 19:16:01 bluhm Exp $	*/
+/*	$OpenBSD: event_tagging.c,v 1.10 2014/10/30 16:45:37 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Niels Provos <provos@citi.umich.edu>
@@ -40,7 +40,6 @@
 #include <unistd.h>
 
 #include "event.h"
-#include "evutil.h"
 #include "log.h"
 
 int evtag_decode_int(ev_uint32_t *pnumber, struct evbuffer *evbuf);
@@ -59,7 +58,7 @@ evtag_init(void)
 		event_err(1, "%s: malloc", __func__);
 }
 
-/* 
+/*
  * We encode integer's by nibbles; the first nibble contains the number
  * of significant nibbles - 1;  this allows us to encode up to 64-bit
  * integers.  This function is byte-order independent.
@@ -168,7 +167,7 @@ evtag_marshal(struct evbuffer *evbuf, ev_uint32_t tag,
 {
 	evtag_encode_tag(evbuf, tag);
 	encode_int(evbuf, len);
-	evbuffer_add(evbuf, (void *)data, len);
+	evbuffer_add(evbuf, data, len);
 }
 
 /* Marshaling for integers */
@@ -319,7 +318,7 @@ evtag_unmarshal(struct evbuffer *src, ev_uint32_t *ptag, struct evbuffer *dst)
 
 	if (EVBUFFER_LENGTH(src) < len)
 		return (-1);
-	
+
 	if (evbuffer_add(dst, EVBUFFER_DATA(src), len) == -1)
 		return (-1);
 

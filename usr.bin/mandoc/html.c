@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.49 2014/10/27 16:28:30 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.51 2014/10/29 00:17:01 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -125,11 +125,10 @@ static	int	 print_escape(char);
 static	int	 print_encode(struct html *, const char *, int);
 static	void	 print_metaf(struct html *, enum mandoc_esc);
 static	void	 print_attr(struct html *, const char *, const char *);
-static	void	 *ml_alloc(char *);
 
 
-static void *
-ml_alloc(char *outopts)
+void *
+html_alloc(const struct mchars *mchars, char *outopts)
 {
 	struct html	*h;
 	const char	*toks[5];
@@ -144,7 +143,7 @@ ml_alloc(char *outopts)
 	h = mandoc_calloc(1, sizeof(struct html));
 
 	h->tags.head = NULL;
-	h->symtab = mchars_alloc();
+	h->symtab = mchars;
 
 	while (outopts && *outopts)
 		switch (getsubopt(&outopts, UNCONST(toks), &v)) {
@@ -167,20 +166,6 @@ ml_alloc(char *outopts)
 	return(h);
 }
 
-void *
-html_alloc(char *outopts)
-{
-
-	return(ml_alloc(outopts));
-}
-
-void *
-xhtml_alloc(char *outopts)
-{
-
-	return(ml_alloc(outopts));
-}
-
 void
 html_free(void *p)
 {
@@ -193,9 +178,6 @@ html_free(void *p)
 		h->tags.head = tag->next;
 		free(tag);
 	}
-
-	if (h->symtab)
-		mchars_free(h->symtab);
 
 	free(h);
 }
@@ -438,9 +420,13 @@ print_encode(struct html *h, const char *p, int norecurse)
 			break;
 		case ESCAPE_NUMBERED:
 			c = mchars_num2char(seq, len);
+			if (c < 0)
+				continue;
 			break;
 		case ESCAPE_SPECIAL:
 			c = mchars_spec2cp(h->symtab, seq, len);
+			if (c <= 0)
+				continue;
 			break;
 		case ESCAPE_NOSPACE:
 			if ('\0' == *p)
@@ -449,9 +435,8 @@ print_encode(struct html *h, const char *p, int norecurse)
 		default:
 			continue;
 		}
-		if (c <= 0)
-			continue;
-		if (c < 0x20 || (c > 0x7E && c < 0xA0))
+		if ((c < 0x20 && c != 0x09) ||
+		    (c > 0x7E && c < 0xA0))
 			c = 0xFFFD;
 		if (c > 0x7E)
 			printf("&#%d;", c);

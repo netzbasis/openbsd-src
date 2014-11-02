@@ -1,4 +1,4 @@
-/*	$OpenBSD: buffer.c,v 1.24 2014/10/18 21:56:44 bluhm Exp $	*/
+/*	$OpenBSD: buffer.c,v 1.26 2014/10/30 16:45:37 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2002, 2003 Niels Provos <provos@citi.umich.edu>
@@ -40,14 +40,13 @@
 #include <unistd.h>
 
 #include "event.h"
-#include "evutil.h"
 #include "log.h"
 
 struct evbuffer *
 evbuffer_new(void)
 {
 	struct evbuffer *buffer;
-	
+
 	buffer = calloc(1, sizeof(struct evbuffer));
 
 	return (buffer);
@@ -61,7 +60,7 @@ evbuffer_free(struct evbuffer *buffer)
 	free(buffer);
 }
 
-/* 
+/*
  * This is a destructive add.  The data from one buffer moves into
  * the other buffer.
  */
@@ -89,7 +88,7 @@ evbuffer_add_buffer(struct evbuffer *outbuf, struct evbuffer *inbuf)
 		SWAP(outbuf, inbuf);
 		SWAP(inbuf, &tmp);
 
-		/* 
+		/*
 		 * Optimization comes with a price; we need to notify the
 		 * buffer if necessary of the changes. oldoff is the amount
 		 * of data that we transferred from inbuf to outbuf
@@ -98,7 +97,7 @@ evbuffer_add_buffer(struct evbuffer *outbuf, struct evbuffer *inbuf)
 			(*inbuf->cb)(inbuf, oldoff, inbuf->off, inbuf->cbarg);
 		if (oldoff && outbuf->cb != NULL)
 			(*outbuf->cb)(outbuf, 0, oldoff, outbuf->cbarg);
-		
+
 		return (0);
 	}
 
@@ -130,7 +129,7 @@ evbuffer_add_vprintf(struct evbuffer *buf, const char *fmt, va_list ap)
 
 		va_copy(aq, ap);
 
-		sz = evutil_vsnprintf(buffer, space, fmt, aq);
+		sz = vsnprintf(buffer, space, fmt, aq);
 
 		va_end(aq);
 
@@ -173,7 +172,7 @@ evbuffer_remove(struct evbuffer *buf, void *data, size_t datlen)
 
 	memcpy(data, buf->buffer, nread);
 	evbuffer_drain(buf, nread);
-	
+
 	return (nread);
 }
 

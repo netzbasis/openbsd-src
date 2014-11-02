@@ -1,4 +1,4 @@
-/*	$OpenBSD: libmandoc.h,v 1.30 2014/10/16 01:10:06 schwarze Exp $ */
+/*	$OpenBSD: libmandoc.h,v 1.34 2014/11/01 06:02:43 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -28,6 +28,11 @@ enum	rofferr {
 	ROFF_TBL, /* a table row was successfully parsed */
 	ROFF_EQN, /* an equation was successfully parsed */
 	ROFF_ERR /* badness: puke and stop */
+};
+
+struct	buf {
+	char	*buf;
+	size_t	 sz;
 };
 
 __BEGIN_DECLS
@@ -63,11 +68,14 @@ int		 man_endparse(struct man *);
 int		 man_addspan(struct man *, const struct tbl_span *);
 int		 man_addeqn(struct man *, const struct eqn *);
 
+int		 preconv_cue(const struct buf *, size_t);
+int		 preconv_encode(struct buf *, size_t *,
+			struct buf *, size_t *, int *);
+
 void		 roff_free(struct roff *);
-struct roff	*roff_alloc(struct mparse *, int);
+struct roff	*roff_alloc(struct mparse *, const struct mchars *, int);
 void		 roff_reset(struct roff *);
-enum rofferr	 roff_parseln(struct roff *, int,
-			char **, size_t *, int, int *);
+enum rofferr	 roff_parseln(struct roff *, int, struct buf *, int *);
 void		 roff_endparse(struct roff *);
 void		 roff_setreg(struct roff *, const char *, int, char sign);
 int		 roff_getreg(const struct roff *, const char *);

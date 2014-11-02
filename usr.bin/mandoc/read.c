@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.68 2014/10/20 19:21:31 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.72 2014/11/01 06:02:43 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -39,17 +39,13 @@
 
 #define	REPARSE_LIMIT	1000
 
-struct	buf {
-	char		 *buf; /* binary input buffer */
-	size_t		  sz; /* size of binary buffer */
-};
-
 struct	mparse {
 	struct man	 *pman; /* persistent man parser */
 	struct mdoc	 *pmdoc; /* persistent mdoc parser */
 	struct man	 *man; /* man parser */
 	struct mdoc	 *mdoc; /* mdoc parser */
 	struct roff	 *roff; /* roff parser (!NULL) */
+	const struct mchars *mchars; /* character table */
 	char		 *sodest; /* filename pointed to by .so */
 	const char	 *file; /* filename of current input file */
 	struct buf	 *primary; /* buffer currently being parsed */
@@ -59,13 +55,14 @@ struct	mparse {
 	enum mandoclevel  file_status; /* status of current parse */
 	enum mandoclevel  wlevel; /* ignore messages below this */
 	int		  options; /* parser options */
+	int		  filenc; /* encoding of the current file */
 	int		  reparse_count; /* finite interp. stack */
 	int		  line; /* line number in the file */
 };
 
 static	void	  choose_parser(struct mparse *);
 static	void	  resize_buf(struct buf *, size_t);
-static	void	  mparse_buf_r(struct mparse *, struct buf, int);
+static	void	  mparse_buf_r(struct mparse *, struct buf, size_t, int);
 static	int	  read_whole_file(struct mparse *, const char *, int,
 				struct buf *, int *);
 static	void	  mparse_end(struct mparse *);
@@ -300,36 +297,43 @@ choose_parser(struct mparse *curp)
 }
 
 /*
- * Main parse routine for an opened file.  This is called for each
- * opened file and simply loops around the full input file, possibly
- * nesting (i.e., with `so').
+ * Main parse routine for a buffer.
+ * It assumes encoding and line numbering are already set up.
+ * It can recurse directly (for invocations of user-defined
+ * macros, inline equations, and input line traps)
+ * and indirectly (for .so file inclusion).
  */
 static void
-mparse_buf_r(struct mparse *curp, struct buf blk, int start)
+mparse_buf_r(struct mparse *curp, struct buf blk, size_t i, int start)
 {
 	const struct tbl_span	*span;
 	struct buf	 ln;
+	size_t		 pos; /* byte number in the ln buffer */
 	enum rofferr	 rr;
-	int		 i, of, rc;
-	int		 pos; /* byte number in the ln buffer */
+	int		 of, rc;
 	int		 lnn; /* line number in the real file */
 	unsigned char	 c;
 
-	memset(&ln, 0, sizeof(struct buf));
+	memset(&ln, 0, sizeof(ln));
 
 	lnn = curp->line;
 	pos = 0;
 
-	for (i = 0; i < (int)blk.sz; ) {
+	while (i < blk.sz) {
 		if (0 == pos && '\0' == blk.buf[i])
 			break;
 
 		if (start) {
 			curp->line = lnn;
 			curp->reparse_count = 0;
+
+			if (lnn < 3 &&
+			    curp->filenc & MPARSE_UTF8 &&
+			    curp->filenc & MPARSE_LATIN1)
+				curp->filenc = preconv_cue(&blk, i);
 		}
 
-		while (i < (int)blk.sz && (start || '\0' != blk.buf[i])) {
+		while (i < blk.sz && (start || blk.buf[i] != '\0')) {
 
 			/*
 			 * When finding an unescaped newline character,
@@ -337,7 +341,7 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 			 * Skip a preceding carriage return, if any.
 			 */
 
-			if ('\r' == blk.buf[i] && i + 1 < (int)blk.sz &&
+			if ('\r' == blk.buf[i] && i + 1 < blk.sz &&
 			    '\n' == blk.buf[i + 1])
 				++i;
 			if ('\n' == blk.buf[i]) {
@@ -347,27 +351,35 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 			}
 
 			/*
-			 * Make sure we have space for at least
-			 * one backslash and one other character
-			 * and the trailing NUL byte.
+			 * Make sure we have space for the worst
+			 * case of 11 bytes: "\\[u10ffff]\0"
 			 */
 
-			if (pos + 2 >= (int)ln.sz)
+			if (pos + 11 > ln.sz)
 				resize_buf(&ln, 256);
 
 			/*
-			 * Warn about bogus characters.  If you're using
-			 * non-ASCII encoding, you're screwing your
-			 * readers.  Since I'd rather this not happen,
-			 * I'll be helpful and replace these characters
-			 * with "?", so we don't display gibberish.
-			 * Note to manual writers: use special characters.
+			 * Encode 8-bit input.
 			 */
 
-			c = (unsigned char) blk.buf[i];
+			c = blk.buf[i];
+			if (c & 0x80) {
+				if ( ! (curp->filenc && preconv_encode(
+				    &blk, &i, &ln, &pos, &curp->filenc))) {
+					mandoc_vmsg(MANDOCERR_BADCHAR,
+					    curp, curp->line, pos,
+					    "0x%x", c);
+					ln.buf[pos++] = '?';
+					i++;
+				}
+				continue;
+			}
 
-			if ( ! (isascii(c) &&
-			    (isgraph(c) || isblank(c)))) {
+			/*
+			 * Exclude control characters.
+			 */
+
+			if (c == 0x7f || (c < 0x20 && c != 0x09)) {
 				mandoc_vmsg(MANDOCERR_BADCHAR, curp,
 				    curp->line, pos, "0x%x", c);
 				i++;
@@ -377,7 +389,7 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 
 			/* Trailing backslash = a plain char. */
 
-			if ('\\' != blk.buf[i] || i + 1 == (int)blk.sz) {
+			if (blk.buf[i] != '\\' || i + 1 == blk.sz) {
 				ln.buf[pos++] = blk.buf[i++];
 				continue;
 			}
@@ -389,7 +401,7 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 			 * skip that one as well.
 			 */
 
-			if ('\r' == blk.buf[i + 1] && i + 2 < (int)blk.sz &&
+			if ('\r' == blk.buf[i + 1] && i + 2 < blk.sz &&
 			    '\n' == blk.buf[i + 2])
 				++i;
 			if ('\n' == blk.buf[i + 1]) {
@@ -401,7 +413,7 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 			if ('"' == blk.buf[i + 1] || '#' == blk.buf[i + 1]) {
 				i += 2;
 				/* Comment, skip to end of line */
-				for (; i < (int)blk.sz; ++i) {
+				for (; i < blk.sz; ++i) {
 					if ('\n' == blk.buf[i]) {
 						++i;
 						++lnn;
@@ -438,7 +450,7 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 			ln.buf[pos++] = blk.buf[i++];
 		}
 
-		if (pos >= (int)ln.sz)
+		if (pos >= ln.sz)
 			resize_buf(&ln, 256);
 
 		ln.buf[pos] = '\0';
@@ -475,20 +487,19 @@ mparse_buf_r(struct mparse *curp, struct buf blk, int start)
 				[curp->secondary->sz] = '\0';
 		}
 rerun:
-		rr = roff_parseln(curp->roff, curp->line,
-		    &ln.buf, &ln.sz, of, &of);
+		rr = roff_parseln(curp->roff, curp->line, &ln, &of);
 
 		switch (rr) {
 		case ROFF_REPARSE:
 			if (REPARSE_LIMIT >= ++curp->reparse_count)
-				mparse_buf_r(curp, ln, 0);
+				mparse_buf_r(curp, ln, of, 0);
 			else
 				mandoc_msg(MANDOCERR_ROFFLOOP, curp,
 				    curp->line, pos, NULL);
 			pos = 0;
 			continue;
 		case ROFF_APPEND:
-			pos = (int)strlen(ln.buf);
+			pos = strlen(ln.buf);
 			continue;
 		case ROFF_RERUN:
 			goto rerun;
@@ -499,8 +510,8 @@ rerun:
 			assert(MANDOCLEVEL_FATAL <= curp->file_status);
 			break;
 		case ROFF_SO:
-			if (0 == (MPARSE_SO & curp->options) &&
-			    (i >= (int)blk.sz || '\0' == blk.buf[i])) {
+			if ( ! (curp->options & MPARSE_SO) &&
+			    (i >= blk.sz || blk.buf[i] == '\0')) {
 				curp->sodest = mandoc_strdup(ln.buf + of);
 				free(ln.buf);
 				return;
@@ -712,6 +723,7 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 {
 	struct buf	*svprimary;
 	const char	*svfile;
+	size_t		 offset;
 	static int	 recursion_depth;
 
 	if (64 < recursion_depth) {
@@ -727,7 +739,17 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 	curp->line = 1;
 	recursion_depth++;
 
-	mparse_buf_r(curp, blk, 1);
+	/* Skip an UTF-8 byte order mark. */
+	if (curp->filenc & MPARSE_UTF8 && blk.sz > 2 &&
+	    (unsigned char)blk.buf[0] == 0xef &&
+	    (unsigned char)blk.buf[1] == 0xbb &&
+	    (unsigned char)blk.buf[2] == 0xbf) {
+		offset = 3;
+		curp->filenc &= ~MPARSE_LATIN1;
+	} else
+		offset = 0;
+
+	mparse_buf_r(curp, blk, offset, 1);
 
 	if (0 == --recursion_depth && MANDOCLEVEL_FATAL > curp->file_status)
 		mparse_end(curp);
@@ -741,6 +763,7 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 {
 	struct buf	 blk;
 	int		 with_mmap;
+	int		 save_filenc;
 
 	if (-1 == fd && -1 == (fd = open(file, O_RDONLY, 0))) {
 		curp->file_status = MANDOCLEVEL_SYSERR;
@@ -759,7 +782,11 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 	 */
 
 	if (read_whole_file(curp, file, fd, &blk, &with_mmap)) {
+		save_filenc = curp->filenc;
+		curp->filenc = curp->options &
+		    (MPARSE_UTF8 | MPARSE_LATIN1);
 		mparse_parse_buffer(curp, blk, file);
+		curp->filenc = save_filenc;
 		if (with_mmap)
 			munmap(blk.buf, blk.sz);
 		else
@@ -858,8 +885,8 @@ mparse_wait(struct mparse *curp, pid_t child_pid)
 }
 
 struct mparse *
-mparse_alloc(int options, enum mandoclevel wlevel,
-		mandocmsg mmsg, const char *defos)
+mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
+    const struct mchars *mchars, const char *defos)
 {
 	struct mparse	*curp;
 
@@ -872,7 +899,8 @@ mparse_alloc(int options, enum mandoclevel wlevel,
 	curp->mmsg = mmsg;
 	curp->defos = defos;
 
-	curp->roff = roff_alloc(curp, options);
+	curp->mchars = mchars;
+	curp->roff = roff_alloc(curp, curp->mchars, options);
 	if (curp->options & MPARSE_MDOC)
 		curp->pmdoc = mdoc_alloc(
 		    curp->roff, curp, curp->defos,

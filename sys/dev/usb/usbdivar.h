@@ -1,4 +1,4 @@
-/*	$OpenBSD: usbdivar.h,v 1.62 2014/08/09 09:45:14 mpi Exp $ */
+/*	$OpenBSD: usbdivar.h,v 1.65 2014/11/01 14:44:08 mpi Exp $ */
 /*	$NetBSD: usbdivar.h,v 1.70 2002/07/11 21:14:36 augustss Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usbdivar.h,v 1.11 1999/11/17 22:33:51 n_hibma Exp $	*/
 
@@ -192,8 +192,7 @@ struct usbd_xfer {
 	volatile char		done;
 #ifdef DIAGNOSTIC
 	u_int32_t		busy_free;
-#define XFER_FREE 0x46524545
-#define XFER_BUSY 0x42555359
+#define XFER_FREE 0x42555359
 #define XFER_ONQU 0x4f4e5155
 #endif
 
@@ -221,21 +220,17 @@ struct usbd_xfer {
 	struct timeout		timeout_handle;
 };
 
-#ifdef USB_DEBUG
 void usbd_dump_iface(struct usbd_interface *);
 void usbd_dump_device(struct usbd_device *);
 void usbd_dump_endpoint(struct usbd_endpoint *);
 void usbd_dump_queue(struct usbd_pipe *);
 void usbd_dump_pipe(struct usbd_pipe *);
-#endif
 
 /* Routines from usb_subr.c */
 int		usbctlprint(void *, const char *);
 void		usb_delay_ms(struct usbd_bus *, u_int);
-usbd_status	usbd_port_disown_to_1_1(struct usbd_device *, 
-		    int, usb_port_status_t *);
-usbd_status	usbd_reset_port(struct usbd_device *,
-		    int, usb_port_status_t *);
+usbd_status	usbd_port_disown_to_1_1(struct usbd_device *, int);
+usbd_status	usbd_reset_port(struct usbd_device *, int);
 usbd_status	usbd_setup_pipe(struct usbd_device *,
 		    struct usbd_interface *, struct usbd_endpoint *, int,
 		    struct usbd_pipe **);

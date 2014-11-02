@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.9 2014/10/17 19:16:01 bluhm Exp $	*/
+/*	$OpenBSD: log.c,v 1.11 2014/10/30 16:45:37 bluhm Exp $	*/
 
 /*
  * log.c
@@ -48,17 +48,16 @@
 
 #include "event.h"
 #include "log.h"
-#include "evutil.h"
 
-static void _warn_helper(int severity, int log_errno, const char *fmt,
-                         va_list ap);
-static void event_log(int severity, const char *msg);
+static void	_warn_helper(int severity, int log_errno, const char *fmt,
+		    va_list ap);
+static void	event_log(int severity, const char *msg);
 
 void
 event_err(int eval, const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_ERR, errno, fmt, ap);
 	va_end(ap);
@@ -69,7 +68,7 @@ void
 event_warn(const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_WARN, errno, fmt, ap);
 	va_end(ap);
@@ -79,7 +78,7 @@ void
 event_errx(int eval, const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_ERR, -1, fmt, ap);
 	va_end(ap);
@@ -90,7 +89,7 @@ void
 event_warnx(const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_WARN, -1, fmt, ap);
 	va_end(ap);
@@ -100,7 +99,7 @@ void
 event_msgx(const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_MSG, -1, fmt, ap);
 	va_end(ap);
@@ -110,7 +109,7 @@ void
 _event_debugx(const char *fmt, ...)
 {
 	va_list ap;
-	
+
 	va_start(ap, fmt);
 	_warn_helper(_EVENT_LOG_DEBUG, -1, fmt, ap);
 	va_end(ap);
@@ -123,14 +122,14 @@ _warn_helper(int severity, int log_errno, const char *fmt, va_list ap)
 	size_t len;
 
 	if (fmt != NULL)
-		evutil_vsnprintf(buf, sizeof(buf), fmt, ap);
+		vsnprintf(buf, sizeof(buf), fmt, ap);
 	else
 		buf[0] = '\0';
 
 	if (log_errno >= 0) {
 		len = strlen(buf);
 		if (len < sizeof(buf) - 3) {
-			evutil_snprintf(buf + len, sizeof(buf) - len, ": %s",
+			snprintf(buf + len, sizeof(buf) - len, ": %s",
 			    strerror(log_errno));
 		}
 	}

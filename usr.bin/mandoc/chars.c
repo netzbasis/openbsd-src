@@ -1,4 +1,4 @@
-/*	$OpenBSD: chars.c,v 1.32 2014/10/27 13:29:30 schwarze Exp $ */
+/*	$OpenBSD: chars.c,v 1.35 2014/10/29 00:17:01 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -102,18 +102,16 @@ mchars_spec2cp(const struct mchars *arg, const char *p, size_t sz)
 	const struct ln	*ln;
 
 	ln = find(arg, p, sz);
-	return(ln != NULL ? ln->unicode : sz == 1 ? *p : 0xFFFD);
+	return(ln != NULL ? ln->unicode : sz == 1 ? (unsigned char)*p : -1);
 }
 
-char
+int
 mchars_num2char(const char *p, size_t sz)
 {
 	int	  i;
 
-	if ((i = mandoc_strntoi(p, sz, 10)) < 0)
-		return('\0');
-
-	return(i > 0 && i < 256 && isprint(i) ? i : '\0');
+	i = mandoc_strntoi(p, sz, 10);
+	return(i >= 0 && i < 256 ? i : -1);
 }
 
 int
@@ -121,14 +119,9 @@ mchars_num2uc(const char *p, size_t sz)
 {
 	int	 i;
 
-	if ((i = mandoc_strntoi(p, sz, 16)) < 0)
-		return(0xFFFD);
-
-	/*
-	 * XXX Code is missing here to exclude bogus ranges.
-	 */
-
-	return(i <= 0x10FFFF ? i : 0xFFFD);
+	i = mandoc_strntoi(p, sz, 16);
+	assert(i >= 0 && i <= 0x10FFFF);
+	return(i);
 }
 
 const char *
