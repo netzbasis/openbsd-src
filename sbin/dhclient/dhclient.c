@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.325 2014/11/01 15:49:07 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.329 2014/11/04 04:03:10 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -103,7 +103,6 @@ void		 write_file(char *, int, mode_t, uid_t, gid_t, u_int8_t *,
 		     size_t);
 struct client_lease *apply_defaults(struct client_lease *);
 struct client_lease *clone_lease(struct client_lease *);
-void		 socket_nonblockmode(int);
 void		 apply_ignore_list(char *);
 
 void add_direct_route(int, struct in_addr, struct in_addr, struct in_addr);
@@ -549,12 +548,9 @@ main(int argc, char *argv[])
 	if_register_receive();
 	if_register_send();
 
-	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, socket_fd) == -1)
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+	    PF_UNSPEC, socket_fd) == -1)
 		error("socketpair: %s", strerror(errno));
-	socket_nonblockmode(socket_fd[0]);
-	fcntl(socket_fd[0], F_SETFD, FD_CLOEXEC);
-	socket_nonblockmode(socket_fd[1]);
-	fcntl(socket_fd[1], F_SETFD, FD_CLOEXEC);
 
 	fork_privchld(socket_fd[0], socket_fd[1]);
 
@@ -639,10 +635,8 @@ state_reboot(void)
 	adding.s_addr = INADDR_ANY;
 
 	time(&cur_time);
-	if (client->active && client->active->expiry <= cur_time) {
-		free_client_lease(client->active);
+	if (client->active && client->active->expiry <= cur_time)
 		client->active = NULL;
-	}
 
 	/* Run through the list of leases and see if one can be used. */
 	TAILQ_FOREACH(lp, &client->leases, next) {
@@ -921,8 +915,10 @@ newlease:
 		if (client->active == lease)
 			seen = 1;
 		else if (lease->expiry <= cur_time || lease->address.s_addr ==
-		    client->active->address.s_addr)
+		    client->active->address.s_addr) {
+			TAILQ_REMOVE(&client->leases, lease, next);
 			free_client_lease(lease);
+		}
 	}
 	if (!client->active->is_static && !seen)
 		TAILQ_INSERT_HEAD(&client->leases, client->active,  next);
@@ -1026,9 +1022,8 @@ dhcpoffer(struct in_addr client_addr, struct option_data *options, char *info)
 
 	if (stop_selecting <= time(NULL))
 		state_selecting();
-	else {
+	else
 		set_timeout(stop_selecting, state_selecting);
-	}
 }
 
 /*
@@ -1153,7 +1148,12 @@ dhcpnak(struct in_addr client_addr, struct option_data *options, char *info)
 
 	note("%s", info);
 
-	free_client_lease(client->active);
+	/* XXX Do we really want to remove a NAK'd lease from the database? */
+	if (!client->active->is_static) {
+		TAILQ_REMOVE(&client->leases, client->active, next);
+		free_client_lease(client->active);
+	}
+
 	client->active = NULL;
 
 	/* Stop sending DHCPREQUEST packets. */
@@ -1337,7 +1337,7 @@ send_request(void)
 		client->interval = client->active->expiry - cur_time + 1;
 
 	/*
- 	 * If the reboot timeout has expired, or the lease rebind time has
+	 * If the reboot timeout has expired, or the lease rebind time has
 	 * elapsed, or if we're not yet bound, broadcast the DHCPREQUEST rather
 	 * than unicasting.
 	 */
@@ -1587,17 +1587,11 @@ make_decline(struct client_lease *lease)
 void
 free_client_lease(struct client_lease *lease)
 {
-	struct client_lease *lp, *pl;
 	int i;
 
 	/* Static leases are forever. */
 	if (lease->is_static)
 		return;
-
-	TAILQ_FOREACH_SAFE(lp, &client->leases, next, pl) {
-		if (lease == lp)
-			TAILQ_REMOVE(&client->leases, lp, next);
-	}
 
 	if (lease->server_name)
 		free(lease->server_name);
@@ -2244,20 +2238,6 @@ cleanup:
 	return (NULL);
 }
 
-void
-socket_nonblockmode(int fd)
-{
-	int	flags;
-
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
-		error("fcntl F_GETF: %s", strerror(errno));
-
-	flags |= O_NONBLOCK;
-
-	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
-		error("fcntl F_SETFL: %s", strerror(errno));
-}
-
 /*
  * Apply the list of options to be ignored that was provided on the
  * command line. This will override any ignore list obtained from
@@ -2386,7 +2366,7 @@ add_direct_route(int rdomain, struct in_addr dest, struct in_addr mask, struct i
  *
  *	or
  *
- * 	route -q $rdomain add default $router
+ *	route -q $rdomain add default $router
  */
 void
 add_default_route(int rdomain, struct in_addr addr, struct in_addr gateway)

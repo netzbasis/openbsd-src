@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.211 2014/10/22 21:43:16 millert Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.213 2014/11/03 21:28:35 tedu Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -55,6 +55,7 @@
 #include <sys/dkio.h>
 #include <sys/disklabel.h>
 #include <sys/ktrace.h>
+#include <sys/unistd.h>
 
 #include <sys/syscallargs.h>
 
@@ -303,7 +304,7 @@ update:
 	} else {
 		mp->mnt_vnodecovered->v_mountedhere = NULL;
 		vfs_unbusy(mp);
-		free(mp, M_MOUNT, 0);
+		free(mp, M_MOUNT, sizeof(struct mount));
 		vput(vp);
 	}
 	return (error);
@@ -453,7 +454,7 @@ dounmount(struct mount *mp, int flags, struct proc *p, struct vnode *olddp)
 		panic("unmount: dangling vnode");
 
 	vfs_unbusy(mp);
-	free(mp, M_MOUNT, 0);
+	free(mp, M_MOUNT, sizeof(struct mount));
 
 	return (0);
 }

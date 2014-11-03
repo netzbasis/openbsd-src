@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.8 2014/09/12 06:54:38 dlg Exp $ */
+/*	$OpenBSD: nvme.c,v 1.10 2014/11/04 12:48:22 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -333,8 +333,8 @@ nvme_q_submit(struct nvme_softc *sc, struct nvme_queue *q, struct nvme_ccb *ccb,
 	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_sq_dmamem),
 	    sizeof(*sqe) * tail, sizeof(*sqe), BUS_DMASYNC_POSTWRITE);
 	memset(sqe, 0, sizeof(*sqe));
-	sqe->cid = ccb->ccb_id;
 	(*fill)(sc, ccb, sqe);
+	sqe->cid = ccb->ccb_id;
 	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_sq_dmamem),
 	    sizeof(*sqe) * tail, sizeof(*sqe), BUS_DMASYNC_PREWRITE);
 
@@ -357,7 +357,6 @@ nvme_poll(struct nvme_softc *sc, struct nvme_queue *q, struct nvme_ccb *ccb,
 	u_int16_t flags;
 
 	memset(&state, 0, sizeof(state));
-	state.s.cid = ccb->ccb_id;
 	(*fill)(sc, ccb, &state.s);
 
 	done = ccb->ccb_done;
@@ -438,7 +437,7 @@ nvme_q_complete(struct nvme_softc *sc, struct nvme_queue *q)
 	}
 
 	if (rv)
-		nvme_write4(sc, q->q_sqtdbl, q->q_cq_head = head);
+		nvme_write4(sc, q->q_cqhdbl, q->q_cq_head = head);
 	mtx_leave(&q->q_cq_mtx);
 
 	return (rv);
