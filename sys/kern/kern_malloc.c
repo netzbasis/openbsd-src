@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_malloc.c,v 1.117 2014/11/02 05:15:34 tedu Exp $	*/
+/*	$OpenBSD: kern_malloc.c,v 1.123 2014/11/06 17:29:23 tedu Exp $	*/
 /*	$NetBSD: kern_malloc.c,v 1.15.4.2 1996/06/13 17:10:56 cgd Exp $	*/
 
 /*
@@ -384,13 +384,16 @@ free(void *addr, int type, size_t freedsize)
 	kup = btokup(addr);
 	size = 1 << kup->ku_indx;
 	kbp = &bucket[kup->ku_indx];
+	if (size > MAXALLOCSAVE)
+		size = kup->ku_pagecnt << PAGE_SHIFT;
 	s = splvm();
 #ifdef DIAGNOSTIC
 	if (freedsize != 0 && freedsize > size)
-		panic("free: size too large %zu > %ld (%p)", freedsize, size, addr);
+		panic("free: size too large %zu > %ld (%p) type %s",
+		    freedsize, size, addr, memname[type]);
 	if (freedsize != 0 && size > MINALLOCSIZE && freedsize < size / 2)
-		panic("free: size too small %zu < %ld / 2 (%p)",
-		    freedsize, size, addr);
+		panic("free: size too small %zu < %ld / 2 (%p) type %s",
+		    freedsize, size, addr, memname[type]);
 	/*
 	 * Check for returns of data that do not point to the
 	 * beginning of the allocation.
@@ -406,7 +409,6 @@ free(void *addr, int type, size_t freedsize)
 	if (size > MAXALLOCSAVE) {
 		uvm_km_free(kmem_map, (vaddr_t)addr, ptoa(kup->ku_pagecnt));
 #ifdef KMEMSTATS
-		size = kup->ku_pagecnt << PAGE_SHIFT;
 		ksp->ks_memuse -= size;
 		kup->ku_indx = 0;
 		kup->ku_pagecnt = 0;
@@ -571,6 +573,9 @@ sysctl_malloc(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen, struct proc *p)
 {
 	struct kmembuckets kb;
+#if defined(KMEMSTATS) || defined(DIAGNOSTIC) || defined(FFS_SOFTUPDATES)
+	int error;
+#endif
 	int i, siz;
 
 	if (namelen != 2 && name[0] != KERN_MALLOC_BUCKETS &&
@@ -610,12 +615,11 @@ sysctl_malloc(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 #endif
 	case KERN_MALLOC_KMEMNAMES:
 #if defined(KMEMSTATS) || defined(DIAGNOSTIC) || defined(FFS_SOFTUPDATES)
+		error = rw_enter(&sysctl_kmemlock, RW_WRITE|RW_INTR);
+		if (error)
+			return (error);
 		if (memall == NULL) {
 			int totlen;
-
-			i = rw_enter(&sysctl_kmemlock, RW_WRITE|RW_INTR);
-			if (i)
-				return (i);
 
 			/* Figure out how large a buffer we need */
 			for (totlen = 0, i = 0; i < M_LAST; i++) {
@@ -639,8 +643,8 @@ sysctl_malloc(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			for (i = 0; i < totlen; i++)
 				if (memall[i] == ' ')
 					memall[i] = '_';
-			rw_exit_write(&sysctl_kmemlock);
 		}
+		rw_exit_write(&sysctl_kmemlock);
 		return (sysctl_rdstring(oldp, oldlenp, newp, memall));
 #else
 		return (EOPNOTSUPP);

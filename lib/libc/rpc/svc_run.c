@@ -1,4 +1,4 @@
-/*	$OpenBSD: svc_run.c,v 1.22 2014/10/22 23:10:30 millert Exp $ */
+/*	$OpenBSD: svc_run.c,v 1.24 2014/11/05 21:06:51 sthen Exp $ */
 
 /*
  * Copyright (c) 2010, Oracle America, Inc.
@@ -45,17 +45,19 @@
 void
 svc_run(void)
 {
-	struct pollfd *pfd = NULL;
+	struct pollfd *pfd = NULL, *newp;
 	int nready, saved_max_pollfd = 0;
 
 	for (;;) {
 		if (svc_max_pollfd > saved_max_pollfd) {
-			pfd = reallocarray(pfd, svc_max_pollfd, sizeof(*pfd));
-			if (pfd == NULL) {
+			newp = reallocarray(pfd, svc_max_pollfd, sizeof(*pfd));
+			if (newp == NULL) {
+				free(pfd);
 				perror("svc_run");	/* XXX */
 				return;			/* XXX */
 			}
 			saved_max_pollfd = svc_max_pollfd;
+			pfd = newp;
 		}
 		memcpy(pfd, svc_pollfd, sizeof(*pfd) * svc_max_pollfd);
 
@@ -68,6 +70,7 @@ svc_run(void)
 			free(pfd);
 			return;					/* XXX */
 		case 0:
+			/* should not happen */
 			continue;
 		default:
 			svc_getreq_poll(pfd, nready);

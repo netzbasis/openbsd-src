@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcd.c,v 1.13 2009/10/27 23:59:24 deraadt Exp $	*/
+/*	$OpenBSD: bcd.c,v 1.16 2014/11/04 17:58:26 tedu Exp $	*/
 /*	$NetBSD: bcd.c,v 1.6 1995/04/24 12:22:23 cgd Exp $	*/
 
 /*
@@ -110,46 +110,58 @@ u_short holes[256] = {
  */
 #define	bit(w,i)	((w)&(1<<(i)))
 
+void	printonecard(char *, size_t);
 void	printcard(char *);
+
+#define	COLUMNS	48
+
 
 int
 main(int argc, char *argv[])
 {
-	char cardline[80];
 
 	/*
 	 * The original bcd prompts with a "%" when reading from stdin,
 	 * but this seems kind of silly.  So this one doesn't.
 	 */
-
 	if (argc > 1) {
-		while (--argc)
-			printcard(*++argv);
-	} else
+		while (--argc) {
+			argv++;
+			printcard(*argv);
+		}
+	} else {
+		char cardline[1024];
 		while (fgets(cardline, sizeof(cardline), stdin))
 			printcard(cardline);
+	}
 	exit(0);
 }
-
-#define	COLUMNS	48
 
 void
 printcard(char *str)
 {
+	size_t len = strlen(str);
+
+	while (len > 0) {
+		size_t amt = len > COLUMNS ? COLUMNS : len;
+		printonecard(str, amt);
+		str += amt;
+		len -= amt;
+	}
+}
+
+void
+printonecard(char *str, size_t len)
+{
 	static const char rowchars[] = "   123456789";
 	int	i, row;
-	char	*p;
+	char	*p, *end;
 
-	/* ruthlessly remove newlines and truncate at 48 characters. */
-	str[strcspn(str, "\n")] = '\0';
-
-	if (strlen(str) > COLUMNS)
-		str[COLUMNS] = '\0';
+	end = str + len;
 
 	/* make string upper case. */
-	for (p = str; *p; ++p)
-		if (isascii(*p) && islower(*p))
-			*p = toupper(*p);
+	for (p = str; p < end; ++p)
+		*p = toupper((unsigned char)*p);
 
 	 /* top of card */
 	putchar(' ');
@@ -163,8 +175,8 @@ printcard(char *str)
 	 */
 	p = str;
 	putchar('/');
-	for (i = 1; *p; i++, p++)
-		if (holes[(int)*p])
+	for (i = 1; p < end; i++, p++)
+		if (holes[(unsigned char)*p])
 			putchar(*p);
 		else
 			putchar(' ');
@@ -181,8 +193,8 @@ printcard(char *str)
 	 */
 	for (row = 0; row <= 11; ++row) {
 		putchar('|');
-		for (i = 0, p = str; *p; i++, p++) {
-			if (bit(holes[(int)*p], 11 - row))
+		for (i = 0, p = str; p < end; i++, p++) {
+			if (bit(holes[(unsigned char)*p], 11 - row))
 				putchar(']');
 			else
 				putchar(rowchars[row]);
