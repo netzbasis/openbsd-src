@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2.c,v 1.114 2014/07/09 12:05:01 markus Exp $	*/
+/*	$OpenBSD: ikev2.c,v 1.116 2014/11/07 14:12:57 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -250,7 +250,6 @@ ikev2_dispatch_cert(int fd, struct privsep_proc *p, struct imsg *imsg)
 		if (imsg->hdr.type == IMSG_CERTVALID) {
 			log_debug("%s: peer certificate is valid", __func__);
 			sa_stateflags(sa, IKED_REQ_CERTVALID);
-			sa_state(env, sa, IKEV2_STATE_VALID);
 		} else {
 			log_warnx("%s: peer certificate is invalid", __func__);
 		}
@@ -330,8 +329,6 @@ ikev2_dispatch_cert(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 
 		sa_stateflags(sa, IKED_REQ_AUTH);
-		/* Switch in case we already have certvalid or authvalid */
-		sa_state(env, sa, IKEV2_STATE_VALID);
 
 		if (ikev2_ike_auth(env, sa) != 0)
 			log_debug("%s: failed to send ike auth", __func__);
@@ -627,7 +624,7 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 			sa_stateflags(sa, IKED_REQ_AUTHVALID);
 			sa_stateflags(sa, IKED_REQ_EAPVALID);
 
-			sa_state(env, sa, IKEV2_STATE_EAP_VALID);
+			sa_state(env, sa, IKEV2_STATE_EAP_SUCCESS);
 		}
 	}
 
@@ -640,12 +637,19 @@ ikev2_ike_auth_recv(struct iked *env, struct iked_sa *sa,
 		} else
 			sa_stateflags(sa, IKED_REQ_SA);
 	}
+
 	return ikev2_ike_auth(env, sa);
 }
 
 int
 ikev2_ike_auth(struct iked *env, struct iked_sa *sa)
 {
+	/* Attempt state transition */
+	if (sa->sa_state == IKEV2_STATE_EAP_SUCCESS)
+		sa_state(env, sa, IKEV2_STATE_EAP_VALID);
+	else if (sa->sa_state == IKEV2_STATE_AUTH_SUCCESS)
+		sa_state(env, sa, IKEV2_STATE_VALID);
+
 	if (sa->sa_hdr.sh_initiator) {
 		if (sa_stateok(sa, IKEV2_STATE_AUTH_SUCCESS))
 			return (ikev2_init_done(env, sa));
@@ -2272,12 +2276,13 @@ ikev2_resp_ike_eap(struct iked *env, struct iked_sa *sa, struct ibuf *eapmsg)
 	int				 ret = -1;
 	ssize_t				 len = 0;
 
-	if (!sa_stateok(sa, IKEV2_STATE_EAP))
-		return (0);
-
 	/* Responder only */
 	if (sa->sa_hdr.sh_initiator)
 		return (-1);
+
+	/* Check if "ca" has done it's job yet */
+	if (!sa->sa_localauth.id_type)
+		return (0);
 
 	/* New encrypted message buffer */
 	if ((e = ibuf_static()) == NULL)
