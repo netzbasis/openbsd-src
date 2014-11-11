@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.17 2013/10/30 17:28:33 deraadt Exp $ */
+/*	$OpenBSD: util.c,v 1.19 2014/11/11 08:02:09 claudio Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -92,16 +92,11 @@ log_sockaddr(struct sockaddr *sa)
 const char *
 log_as(u_int32_t as)
 {
-	static char	buf[12];	/* "65000.65000\0" */
+	static char	buf[11];	/* "4294967294\0" */
 
-	if (as <= USHRT_MAX) {
-		if (snprintf(buf, sizeof(buf), "%u", as) == -1)
-			return ("?");
-	} else {
-		if (snprintf(buf, sizeof(buf), "%u.%u", as >> 16,
-		    as & 0xffff) == -1)
-			return ("?");
-	}
+	if (snprintf(buf, sizeof(buf), "%u", as) == -1)
+		return ("?");
+
 	return (buf);
 }
 
@@ -295,32 +290,10 @@ aspath_strlen(void *data, u_int16_t len)
 
 		for (i = 0; i < seg_len; i++) {
 			as = aspath_extract(seg, i);
-			if (as > USHRT_MAX) {
-				u_int32_t	a = as >> 16;
 
-				if (a >= 10000)
-					total_size += 5;
-				else if (a >= 1000)
-					total_size += 4;
-				else if (a >= 100)
-					total_size += 3;
-				else if (a >= 10)
-					total_size += 2;
-				else
-					total_size += 1;
-				total_size += 1; /* dot between hi & lo */
-				as &= 0xffff;
-			}
-			if (as >= 10000)
-				total_size += 5;
-			else if (as >= 1000)
-				total_size += 4;
-			else if (as >= 100)
-				total_size += 3;
-			else if (as >= 10)
-				total_size += 2;
-			else
-				total_size += 1;
+			do {
+				total_size++;
+			} while ((as = as / 10) != 0);
 
 			if (i + 1 < seg_len)
 				total_size += 1;

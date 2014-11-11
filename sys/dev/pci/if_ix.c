@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ix.c,v 1.100 2014/09/08 02:39:57 chris Exp $	*/
+/*	$OpenBSD: if_ix.c,v 1.106 2014/11/10 17:53:43 mikeb Exp $	*/
 
 /******************************************************************************
 
@@ -143,7 +143,6 @@ uint8_t	*ixgbe_mc_array_itr(struct ixgbe_hw *, uint8_t **, uint32_t *);
 void	ixgbe_setup_vlan_hw_support(struct ix_softc *);
 
 /* Support for pluggable optic modules */
-bool	ixgbe_sfp_probe(struct ix_softc *);
 void	ixgbe_setup_optics(struct ix_softc *);
 void	ixgbe_handle_mod(struct ix_softc *);
 void	ixgbe_handle_msf(struct ix_softc *);
@@ -889,11 +888,8 @@ ixgbe_intr(void *arg)
 	}
 
 	/* Link status change */
-	if (reg_eicr & IXGBE_EICR_LSC) {
-		timeout_del(&sc->timer);
+	if (reg_eicr & IXGBE_EICR_LSC)
 		ixgbe_update_link_status(sc);
-		timeout_add_sec(&sc->timer, 1);
-	}
 
 	if (hw->mac.type != ixgbe_mac_82598EB) {
 		if (reg_eicr & IXGBE_EICR_GPI_SDP2) {
@@ -1227,15 +1223,6 @@ ixgbe_mc_array_itr(struct ixgbe_hw *hw, uint8_t **update_ptr, uint32_t *vmdq)
 	return addr;
 }
 
-
-/*********************************************************************
- *  Timer routine
- *
- *  This routine checks for link status,updates statistics,
- *  and runs the watchdog check.
- *
- **********************************************************************/
-
 void
 ixgbe_local_timer(void *arg)
 {
@@ -1247,20 +1234,14 @@ ixgbe_local_timer(void *arg)
 
 	s = splnet();
 
-	/* Check for pluggable optics */
-	if (sc->sfp_probe)
-		if (!ixgbe_sfp_probe(sc))
-			goto out; /* Nothing to do */
-
-	ixgbe_update_link_status(sc);
 	ixgbe_update_stats_counters(sc);
 
-out:
 #ifdef IX_DEBUG
 	if ((ifp->if_flags & (IFF_RUNNING|IFF_DEBUG)) ==
 	    (IFF_RUNNING|IFF_DEBUG))
 		ixgbe_print_hw_stats(sc);
 #endif
+
 	timeout_add_sec(&sc->timer, 1);
 
 	splx(s);
@@ -1622,7 +1603,7 @@ ixgbe_config_link(struct ix_softc *sc)
 	}
 
 	if (sfp) {
-		if (&sc->hw.phy.multispeed_fiber) {
+		if (sc->hw.phy.multispeed_fiber) {
 			sc->hw.mac.ops.setup_sfp(&sc->hw);
 			sc->hw.mac.ops.enable_tx_laser(&sc->hw);
 			ixgbe_handle_msf(sc);
@@ -3222,36 +3203,6 @@ ixgbe_configure_ivars(struct ix_softc *sc)
 }
 
 /*
- * ixgbe_sfp_probe - called in the local timer to
- * determine if a port had optics inserted.
- */
-bool
-ixgbe_sfp_probe(struct ix_softc *sc)
-{
-	bool result = FALSE;
-
-	if ((sc->hw.phy.type == ixgbe_phy_nl) &&
-	    (sc->hw.phy.sfp_type == ixgbe_sfp_type_not_present)) {
-		int32_t  ret = sc->hw.phy.ops.identify_sfp(&sc->hw);
-		if (ret)
-			goto out;
-		ret = sc->hw.phy.ops.reset(&sc->hw);
-		if (ret == IXGBE_ERR_SFP_NOT_SUPPORTED) {
-			printf("%s: Unsupported SFP+ module detected!",
-			    sc->dev.dv_xname);
-			goto out;
-		}
-		/* We now have supported optics */
-		sc->sfp_probe = FALSE;
-		/* Set the optics type so system reports correctly */
-		ixgbe_setup_optics(sc);
-		result = TRUE;
-	}
-out:
-	return (result);
-}
-
-/*
  * SFP module interrupts handler
  */
 void
@@ -3286,12 +3237,15 @@ void
 ixgbe_handle_msf(struct ix_softc *sc)
 {
 	struct ixgbe_hw *hw = &sc->hw;
-	uint32_t autoneg;
+	uint32_t autoneg, err;
 	bool negotiate;
 
 	autoneg = hw->phy.autoneg_advertised;
 	if ((!autoneg) && (hw->mac.ops.get_link_capabilities))
-		hw->mac.ops.get_link_capabilities(hw, &autoneg, &negotiate);
+		err = hw->mac.ops.get_link_capabilities(hw, &autoneg,
+		    &negotiate);
+	if (err)
+		return;
 	if (hw->mac.ops.setup_link)
 		hw->mac.ops.setup_link(hw, autoneg, TRUE);
 }
@@ -3306,12 +3260,16 @@ ixgbe_update_stats_counters(struct ix_softc *sc)
 {
 	struct ifnet	*ifp = &sc->arpcom.ac_if;
 	struct ixgbe_hw	*hw = &sc->hw;
-	uint32_t	missed_rx = 0, bprc, lxon, lxoff, total;
 	uint64_t	total_missed_rx = 0;
+#ifdef IX_DEBUG
+	uint32_t	missed_rx = 0, bprc, lxon, lxoff, total;
 	int		i;
+#endif
 
 	sc->stats.crcerrs += IXGBE_READ_REG(hw, IXGBE_CRCERRS);
+	sc->stats.rlec += IXGBE_READ_REG(hw, IXGBE_RLEC);
 
+#ifdef IX_DEBUG
 	for (i = 0; i < 8; i++) {
 		uint32_t mp;
 		mp = IXGBE_READ_REG(hw, IXGBE_MPC(i));
@@ -3364,7 +3322,6 @@ ixgbe_update_stats_counters(struct ix_softc *sc)
 	sc->stats.prc511 += IXGBE_READ_REG(hw, IXGBE_PRC511);
 	sc->stats.prc1023 += IXGBE_READ_REG(hw, IXGBE_PRC1023);
 	sc->stats.prc1522 += IXGBE_READ_REG(hw, IXGBE_PRC1522);
-	sc->stats.rlec += IXGBE_READ_REG(hw, IXGBE_RLEC);
 
 	lxon = IXGBE_READ_REG(hw, IXGBE_LXONTXC);
 	sc->stats.lxontxc += lxon;
@@ -3390,6 +3347,7 @@ ixgbe_update_stats_counters(struct ix_softc *sc)
 	sc->stats.ptc1023 += IXGBE_READ_REG(hw, IXGBE_PTC1023);
 	sc->stats.ptc1522 += IXGBE_READ_REG(hw, IXGBE_PTC1522);
 	sc->stats.bptc += IXGBE_READ_REG(hw, IXGBE_BPTC);
+#endif
 
 #if 0
 	/* Fill out the OS statistics structure */
