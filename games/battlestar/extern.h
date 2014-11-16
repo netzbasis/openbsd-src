@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.15 2013/08/29 20:22:10 naddy Exp $	*/
+/*	$OpenBSD: extern.h,v 1.17 2014/11/16 04:50:46 guenther Exp $	*/
 /*	$NetBSD: extern.h,v 1.5 1995/04/24 12:22:18 cgd Exp $	*/
 
 /*
@@ -32,7 +32,6 @@
  *	@(#)extern.h	8.1 (Berkeley) 5/31/93
  */
 
-#include <sys/param.h>
 #include <sys/time.h>
 
 #include <ctype.h>
@@ -51,7 +50,6 @@
 #define OUTSIDE		(position > 68 && position < 246 && position != 218)
 #define rnd(x)		arc4random_uniform(x)
 #define max(a,b)	((a) < (b) ? (b) : (a))
- /* avoid name collision with sys/param.h */
 #define TestBit(array, index)	(array[index/BITS] & (1 << (index % BITS)))
 #define SetBit(array, index)	(array[index/BITS] |= (1 << (index % BITS)))
 #define ClearBit(array, index)	(array[index/BITS] &= ~(1 << (index % BITS)))

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.329 2014/11/04 04:03:10 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.331 2014/11/16 21:05:24 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -418,7 +418,9 @@ main(int argc, char *argv[])
 			path_dhclient_conf = optarg;
 			break;
 		case 'd':
-			no_daemon = 1;
+			if (log_perror == 0)
+				usage();
+			no_daemon = log_perror = 1;
 			break;
 		case 'i':
 			ignore_list = optarg;
@@ -440,7 +442,9 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 'q':
-			log_perror = 0;
+			if (no_daemon == 1)
+				usage();
+			no_daemon = log_perror = 0;
 			break;
 		case 'u':
 			unknown_ok = 0;
@@ -458,20 +462,12 @@ main(int argc, char *argv[])
 	ifi = calloc(1, sizeof(*ifi));
 	if (ifi == NULL)
 		error("ifi calloc");
-	client = calloc(1, sizeof(*client));
-	if (client == NULL)
-		error("client calloc");
-	TAILQ_INIT(&client->leases);
-	TAILQ_INIT(&client->offered_leases);
 	config = calloc(1, sizeof(*config));
 	if (config == NULL)
 		error("config calloc");
 	TAILQ_INIT(&config->reject_list);
 
 	get_ifname(argv[0]);
-	if (path_dhclient_db == NULL && asprintf(&path_dhclient_db, "%s.%s",
-	    _PATH_DHCLIENT_DB, ifi->name) == -1)
-		error("asprintf");
 
 	tzset();
 
@@ -481,36 +477,7 @@ main(int argc, char *argv[])
 		error("setting routing table to %u: '%s'", ifi->rdomain,
 		    strerror(errno));
 
-	read_client_conf();
-	if (ignore_list)
-		apply_ignore_list(ignore_list);
-
-	tailfd = open("/etc/resolv.conf.tail", O_RDONLY);
-	if (tailfd == -1) {
-		if (errno != ENOENT)
-			error("Cannot open /etc/resolv.conf.tail: %s",
-			    strerror(errno));
-	} else if (fstat(tailfd, &sb) == -1) {
-		error("Cannot stat /etc/resolv.conf.tail: %s",
-		    strerror(errno));
-	} else {
-		if (sb.st_size > 0 && sb.st_size < SIZE_MAX) {
-			config->resolv_tail = calloc(1, sb.st_size + 1);
-			if (config->resolv_tail == NULL) {
-				error("no memory for resolv.conf.tail "
-				    "contents: %s", strerror(errno));
-			}
-			tailn = read(tailfd, config->resolv_tail, sb.st_size);
-			if (tailn == -1)
-				error("Couldn't read resolv.conf.tail: %s",
-				    strerror(errno));
-			else if (tailn == 0)
-				error("Got no data from resolv.conf.tail");
-			else if (tailn != sb.st_size)
-				error("Short read of resolv.conf.tail");
-		}
-		close(tailfd);
-	}
+	read_client_conf();	/* Needed for config->link_timeout below! */
 
 	if (interface_status(ifi->name) == 0) {
 		interface_link_forceup(ifi->name);
@@ -558,6 +525,47 @@ main(int argc, char *argv[])
 	if ((unpriv_ibuf = malloc(sizeof(struct imsgbuf))) == NULL)
 		error("no memory for unpriv_ibuf");
 	imsg_init(unpriv_ibuf, socket_fd[1]);
+
+	if (path_dhclient_db == NULL && asprintf(&path_dhclient_db, "%s.%s",
+	    _PATH_DHCLIENT_DB, ifi->name) == -1)
+		error("asprintf");
+
+	client = calloc(1, sizeof(*client));
+	if (client == NULL)
+		error("client calloc");
+	TAILQ_INIT(&client->leases);
+	TAILQ_INIT(&client->offered_leases);
+
+	/* 2nd stage (post fork) config setup. */
+	if (ignore_list)
+		apply_ignore_list(ignore_list);
+
+	tailfd = open("/etc/resolv.conf.tail", O_RDONLY);
+	if (tailfd == -1) {
+		if (errno != ENOENT)
+			error("Cannot open /etc/resolv.conf.tail: %s",
+			    strerror(errno));
+	} else if (fstat(tailfd, &sb) == -1) {
+		error("Cannot stat /etc/resolv.conf.tail: %s",
+		    strerror(errno));
+	} else {
+		if (sb.st_size > 0 && sb.st_size < SIZE_MAX) {
+			config->resolv_tail = calloc(1, sb.st_size + 1);
+			if (config->resolv_tail == NULL) {
+				error("no memory for resolv.conf.tail "
+				    "contents: %s", strerror(errno));
+			}
+			tailn = read(tailfd, config->resolv_tail, sb.st_size);
+			if (tailn == -1)
+				error("Couldn't read resolv.conf.tail: %s",
+				    strerror(errno));
+			else if (tailn == 0)
+				error("Got no data from resolv.conf.tail");
+			else if (tailn != sb.st_size)
+				error("Short read of resolv.conf.tail");
+		}
+		close(tailfd);
+	}
 
 	if ((fd = open(path_dhclient_db,
 	    O_RDONLY|O_EXLOCK|O_CREAT|O_NOFOLLOW, 0640)) == -1)
@@ -616,7 +624,7 @@ usage(void)
 	extern char	*__progname;
 
 	fprintf(stderr,
-	    "usage: %s [-dqu] [-c file] [-i options] [-L file] [-l file] "
+	    "usage: %s [-d | -q] [-u] [-c file] [-i options] [-L file] [-l file] "
 	    "interface\n", __progname);
 	exit(1);
 }
