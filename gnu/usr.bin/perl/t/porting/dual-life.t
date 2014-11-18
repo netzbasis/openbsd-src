@@ -9,6 +9,11 @@ use strict;
 chdir 't';
 require './test.pl';
 
+use Config;
+if ( $Config{usecrosscompile} ) {
+  skip_all( "Not all files are available during cross-compilation" );
+}
+
 plan('no_plan');
 
 use File::Basename;
@@ -18,11 +23,16 @@ use File::Spec::Functions;
 # Exceptions that are found in dual-life bin dirs but aren't
 # installed by default; some occur only during testing:
 my $not_installed = qr{^(?:
+  \.\./cpan/Archive-Tar/bin/ptar.*
+   |
+  \.\./cpan/JSON-PP/bin/json_pp
+   |
+  \.\./cpan/IO-Compress/bin/zipdetails
+   |
   \.\./cpan/Encode/bin/u(?:cm(?:2table|lint|sort)|nidump)
    |
-  \.\./cpan/Module-Build/MB-[\w\d]+/Simple/(?:test_install/)?bin/.*
-   |
-  \.\./cpan/Archive-Tar/bin/ptar.*
+  \.\./cpan/Module-(?:Metadata|Build)
+                               /MB-[\w\d]+/Simple/(?:test_install/)?bin/.*
 )\z}ix;
 
 my %dist_dir_exe;

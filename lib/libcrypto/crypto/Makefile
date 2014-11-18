@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.47 2014/11/09 19:17:11 miod Exp $
+# $OpenBSD: Makefile,v 1.49 2014/11/18 05:31:47 miod Exp $
 
 LIB=	crypto
 
@@ -72,7 +72,7 @@ SRCS+= bn_depr.c bn_const.c bn_x931p.c
 SRCS+= buffer.c buf_err.c buf_str.c
 
 # camellia/
-#SRCS+= cmll_ecb.c cmll_ofb.c cmll_cfb.c cmll_ctr.c cmll_utl.c
+SRCS+= cmll_cfb.c cmll_ctr.c cmll_ecb.c cmll_ofb.c
 
 # cast/
 SRCS+= c_skey.c c_ecb.c c_enc.c c_cfb64.c c_ofb64.c
@@ -154,13 +154,13 @@ SRCS+= evp_pkey.c evp_pbe.c p5_crpt.c p5_crpt2.c
 SRCS+= e_old.c pmeth_lib.c pmeth_fn.c pmeth_gn.c m_sigver.c
 SRCS+= e_aes_cbc_hmac_sha1.c e_rc4_hmac_md5.c
 SRCS+= e_chacha.c evp_aead.c e_chacha20poly1305.c
-#SRCS+= e_gost2814789.c m_gost2814789.c m_gostr341194.c m_streebog.c
+SRCS+= e_gost2814789.c m_gost2814789.c m_gostr341194.c m_streebog.c
 
 # gost/
-#SRCS+= gost2814789.c gost89_keywrap.c gost89_params.c gost89imit_ameth.c
-#SRCS+= gost89imit_pmeth.c gost_asn1.c gost_err.c gostr341001.c
-#SRCS+= gostr341001_ameth.c gostr341001_key.c gostr341001_params.c
-#SRCS+= gostr341001_pmeth.c gostr341194.c streebog.c
+SRCS+= gost2814789.c gost89_keywrap.c gost89_params.c gost89imit_ameth.c
+SRCS+= gost89imit_pmeth.c gost_asn1.c gost_err.c gostr341001.c
+SRCS+= gostr341001_ameth.c gostr341001_key.c gostr341001_params.c
+SRCS+= gostr341001_pmeth.c gostr341194.c streebog.c
 
 # hmac/
 SRCS+= hmac.c hm_ameth.c hm_pmeth.c

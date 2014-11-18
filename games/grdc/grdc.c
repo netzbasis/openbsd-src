@@ -1,4 +1,4 @@
-/*	$OpenBSD: grdc.c,v 1.15 2008/03/17 09:17:56 sobrado Exp $	*/
+/*	$OpenBSD: grdc.c,v 1.17 2014/11/18 05:09:38 schwarze Exp $	*/
 /*
  *
  * Copyright 2002 Amos Shapir.  Public domain.
@@ -20,8 +20,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define YBASE	10
-#define XBASE	10
 #define XLENGTH 58
 #define YDEPTH  7
 
@@ -33,7 +31,6 @@ short disp[11] = {
 	074717, 074757, 071111, 075757, 075717, 002020
 };
 long old[6], next[6], new[6], mask;
-char scrol;
 
 volatile sig_atomic_t sigtermed = 0;
 
@@ -55,10 +52,14 @@ main(int argc, char *argv[])
 {
 	long t, a;
 	int i, j, s, k;
+	int scrol;
 	int n = 0;
 	struct timeval nowtv;
 	struct timespec delay;
-	char *ep;
+	const char *errstr;
+	long scroldelay = 50000000;
+	int xbase;
+	int ybase;
 
 	scrol = 0;
 	while ((i = getopt(argc, argv, "sh")) != -1)
@@ -77,17 +78,21 @@ main(int argc, char *argv[])
 	if (argc > 1)
 		usage();
 	if (argc == 1) {
-		t = strtol(*argv, &ep, 10);
-		if ((*argv)[0] == '\0' || *ep != '\0')
-			usage();
-		if (t < 1 || t >= INT_MAX) {
-			fprintf(stderr, "number of seconds is out of range");
+		n = strtonum(*argv, 1, INT_MAX, &errstr);
+		if (errstr) {
+			fprintf(stderr, "number of seconds is %s\n", errstr);
 			usage();
 		}
-		n = t;
 	}
 
 	initscr();
+	if (COLS < XLENGTH + 2 || LINES < YDEPTH + 2 ) {
+		endwin();
+		errx(1, "screen too small");
+	}
+
+	xbase = (COLS - XLENGTH) / 2;
+	ybase = (LINES - YDEPTH) / 2;
 
 	signal(SIGINT,sighndl);
 	signal(SIGTERM,sighndl);
@@ -112,18 +117,18 @@ main(int argc, char *argv[])
 	if(hascolor) {
 		attrset(COLOR_PAIR(3));
 
-		mvaddch(YBASE - 2,  XBASE - 3, ACS_ULCORNER);
+		mvaddch(ybase - 1,  xbase - 1, ACS_ULCORNER);
 		hline(ACS_HLINE, XLENGTH);
-		mvaddch(YBASE - 2,  XBASE - 2 + XLENGTH, ACS_URCORNER);
+		mvaddch(ybase - 1,  xbase + XLENGTH, ACS_URCORNER);
 
-		mvaddch(YBASE + YDEPTH - 1,  XBASE - 3, ACS_LLCORNER);
+		mvaddch(ybase + YDEPTH,  xbase - 1, ACS_LLCORNER);
 		hline(ACS_HLINE, XLENGTH);
-		mvaddch(YBASE + YDEPTH - 1,  XBASE - 2 + XLENGTH, ACS_LRCORNER);
+		mvaddch(ybase + YDEPTH,  xbase + XLENGTH, ACS_LRCORNER);
 
-		move(YBASE - 1,  XBASE - 3);
+		move(ybase,  xbase - 1);
 		vline(ACS_VLINE, YDEPTH);
 
-		move(YBASE - 1,  XBASE - 2 + XLENGTH);
+		move(ybase,  xbase + XLENGTH);
 		vline(ACS_VLINE, YDEPTH);
 
 		attrset(COLOR_PAIR(2));
@@ -156,7 +161,7 @@ main(int argc, char *argv[])
 						for(j=0,t=1<<26; t; t>>=1,j++) {
 							if(a&t) {
 								if(!(a&(t<<1))) {
-									movto(YBASE + i, XBASE + 2*j);
+									movto(ybase + i+1, xbase + 2*(j+1));
 								}
 								addstr("  ");
 							}
@@ -170,6 +175,16 @@ main(int argc, char *argv[])
 					refresh();
 				}
 			}
+			if (scrol && k <= 4) {
+				gettimeofday(&nowtv, NULL);
+				TIMEVAL_TO_TIMESPEC(&nowtv, &now);
+				delay.tv_sec = 0;
+				delay.tv_nsec = 1000000000 - now.tv_nsec
+				    - (4-k) * scroldelay;
+				if (delay.tv_nsec <= scroldelay &&
+				    delay.tv_nsec > 0)
+					nanosleep(&delay, NULL);
+			}
 		}
 		movto(6, 0);
 		refresh();
@@ -177,6 +192,9 @@ main(int argc, char *argv[])
 		TIMEVAL_TO_TIMESPEC(&nowtv, &now);
 		delay.tv_sec = 0;
 		delay.tv_nsec = (1000000000 - now.tv_nsec);
+		/* want scrolling to END on the second */
+		if (scrol)
+			delay.tv_nsec -= 5 * scroldelay;
 		nanosleep(&delay, NULL);
 		now.tv_sec++;
 
