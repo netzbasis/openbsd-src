@@ -1,4 +1,4 @@
-/*	$OpenBSD: login_cap.h,v 1.13 2005/01/28 17:17:22 millert Exp $	*/
+/*	$OpenBSD: login_cap.h,v 1.15 2014/11/21 05:13:44 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1995,1997 Berkeley Software Design, Inc. All rights reserved.

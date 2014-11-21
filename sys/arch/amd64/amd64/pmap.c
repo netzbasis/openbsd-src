@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.78 2014/11/16 12:30:56 deraadt Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.80 2014/11/20 06:51:41 mlarkin Exp $	*/
 /*	$NetBSD: pmap.c,v 1.3 2003/05/08 18:13:13 thorpej Exp $	*/
 
 /*
@@ -278,47 +278,6 @@ extern vaddr_t lo32_paddr;
 vaddr_t virtual_avail;
 extern int end;
 
-extern vaddr_t __rodata_start;
-extern int __rodata_size;
-extern vaddr_t erodata;
-
-/*
- * NX range definitions
- */
-struct nx_range_description {
-	vaddr_t start;
-	size_t size;
-	vm_prot_t prot;
-	int is_ptr;
-};
-
-static const struct nx_range_description nx_ranges[] = {
-	/*
-	 * List of ranges to map as NX (non-execute) if the processor supports
-	 * NX. Each range consists of a start vaddr and size (in bytes), and a
-	 * protection value (eg, PROT_READ or PROT_READ | PROT_WRITE).
-	 *
-	 * The list also includes an 'is_ptr' field in each element to denote
-	 * if the 'start' value is a constant (is_ptr == 0) or should be
-	 * interpreted as an address containing the real value (is_ptr == 1).
-	 *
-	 * The range includes the page containing [start va] and extends through
-	 * and including the page containing [end va].
-	 */
-	{ /* .rodata range */
-	    (vaddr_t)&__rodata_start,
-	    (size_t)&__rodata_size,
-	    PROT_READ,
-	    0
-	},
-	{ /* ISA hole */
-	    (vaddr_t)&atdevbase,
-	    IOM_SIZE,
-	    PROT_READ | PROT_WRITE,
-	    1
-	}
-};
-
 /*
  * local prototypes
  */
@@ -501,8 +460,8 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 	if (va >= (vaddr_t)NBPD_L2)
 		npte |= PG_G;
 
-	if ((cpu_feature & CPUID_NXE) && !(prot & PROT_EXEC))
-		npte |= PG_NX;
+	if (!(prot & PROT_EXEC))
+		npte |= pg_nx;
 	opte = pmap_pte_set(pte, npte);
 #ifdef LARGEPAGES
 	/* XXX For now... */
@@ -572,13 +531,12 @@ pmap_kremove(vaddr_t sva, vsize_t len)
 paddr_t
 pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 {
-	vaddr_t kva, kva_end, kva_start = VM_MIN_KERNEL_ADDRESS, nx_start;
+	vaddr_t kva, kva_end, kva_start = VM_MIN_KERNEL_ADDRESS;
 	struct pmap *kpm;
 	int i;
 	unsigned long p1i;
-	pt_entry_t pg_nx = (cpu_feature & CPUID_NXE? PG_NX : 0);
 	long ndmpdp;
-	paddr_t dmpd, dmpdp, nx_paddr;
+	paddr_t dmpd, dmpdp;
 
 	/*
 	 * define the boundaries of the managed kernel virtual address
@@ -670,7 +628,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 
 		*((pd_entry_t *)va) = ((paddr_t)i << L2_SHIFT);
 		*((pd_entry_t *)va) |= PG_RW | PG_V | PG_PS | PG_G | PG_U |
-		    PG_M;
+		    PG_M | pg_nx;
 	}
 
 	for (i = NDML2_ENTRIES; i < ndmpdp; i++) {
@@ -681,7 +639,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 		va = PMAP_DIRECT_MAP(pdp);
 
 		*((pd_entry_t *)va) = dmpd + (i << PAGE_SHIFT);
-		*((pd_entry_t *)va) |= PG_RW | PG_V | PG_U | PG_M;
+		*((pd_entry_t *)va) |= PG_RW | PG_V | PG_U | PG_M | pg_nx;
 	}
 
 	kpm->pm_pdir[PDIR_SLOT_DIRECT] = dmpdp | PG_V | PG_KW | PG_U |
@@ -730,25 +688,6 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 
 	pool_init(&pmap_pdp_pool, PAGE_SIZE, 0, 0, 0, "pdppl",
 	    &pool_allocator_nointr);
-
-	/*
-	 * Enable NX ranges, resets page permissions on already mapped ranges
-	 */
-	 if (pg_nx) {
-		for (i = 0 ; i < nitems(nx_ranges); i++ ) {
-			if (nx_ranges[i].is_ptr)
-				nx_start = *(vaddr_t *)(nx_ranges[i].start);
-			else
-				nx_start = nx_ranges[i].start;
-
-			for (kva = nx_start; kva < nx_start + nx_ranges[i].size;
-			    kva += PAGE_SIZE) {
-				if(pmap_extract(pmap_kernel(), kva, &nx_paddr))
-					pmap_kenter_pa(kva, nx_paddr,
-					    nx_ranges[i].prot);
-			}
-		}	
-	}
 
 	/*
 	 * ensure the TLB is sync'd with reality by flushing it...
@@ -1849,8 +1788,8 @@ pmap_write_protect(struct pmap *pmap, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 	eva &= PG_FRAME;
 
 	nx = 0;
-	if ((cpu_feature & CPUID_NXE) && !(prot & PROT_EXEC))
-		nx = PG_NX;
+	if (!(prot & PROT_EXEC))
+		nx = pg_nx;
 
 	if ((eva - sva > 32 * PAGE_SIZE) && pmap != pmap_kernel())
 		shootall = 1;

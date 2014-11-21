@@ -1,4 +1,4 @@
-/*	$OpenBSD: local_passwd.c,v 1.42 2014/11/11 21:06:24 tedu Exp $	*/
+/*	$OpenBSD: local_passwd.c,v 1.44 2014/11/21 05:13:44 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -146,9 +146,10 @@ local_passwd(char *uname, int authenticated)
 char *
 getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 {
-	char *p;
+	static char hash[_PASSWORD_LEN];
+	char *p, *pref;
 	int tries, pwd_tries;
-	char buf[_PASSWORD_LEN+1], salt[_PASSWORD_LEN];
+	char buf[1024];
 	sig_t saveint, savequit;
 
 	saveint = signal(SIGINT, kbintr);
@@ -193,14 +194,17 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 			break;
 		(void)printf("Mismatch; try again, EOF to quit.\n");
 	}
-	if (!pwd_gensalt(salt, _PASSWORD_LEN, lc, 'l')) {
-		(void)printf("Couldn't generate salt.\n");
-		pw_error(NULL, 0, 0);
-	}
+
 	(void)signal(SIGINT, saveint);
 	(void)signal(SIGQUIT, savequit);
 
-	return(crypt(buf, salt));
+	pref = login_getcapstr(lc, "localcipher", NULL, NULL);
+	if (crypt_newhash(buf, pref, hash, sizeof(hash)) != 0) {
+		(void)printf("Couldn't generate hash.\n");
+		pw_error(NULL, 0, 0);
+	}
+	free(pref);
+	return hash;
 }
 
 /* ARGSUSED */

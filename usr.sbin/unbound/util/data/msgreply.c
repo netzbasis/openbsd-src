@@ -78,7 +78,7 @@ parse_create_qinfo(sldns_buffer* pkt, struct msg_parse* msg,
 }
 
 /** constructor for replyinfo */
-static struct reply_info*
+struct reply_info*
 construct_reply_info_base(struct regional* region, uint16_t flags, size_t qd,
 	time_t ttl, time_t prettl, size_t an, size_t ns, size_t ar, 
 	size_t total, enum sec_status sec)
@@ -576,10 +576,12 @@ reply_info_delete(void* d, void* ATTR_UNUSED(arg))
 }
 
 hashvalue_t 
-query_info_hash(struct query_info *q)
+query_info_hash(struct query_info *q, uint16_t flags)
 {
 	hashvalue_t h = 0xab;
 	h = hashlittle(&q->qtype, sizeof(q->qtype), h);
+	if(q->qtype == LDNS_RR_TYPE_AAAA && (flags&BIT_CD))
+		h++;
 	h = hashlittle(&q->qclass, sizeof(q->qclass), h);
 	h = dname_query_hash(q->qname, h);
 	return h;

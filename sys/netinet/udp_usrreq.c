@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp_usrreq.c,v 1.191 2014/11/09 22:05:08 bluhm Exp $	*/
+/*	$OpenBSD: udp_usrreq.c,v 1.193 2014/11/20 14:51:42 krw Exp $	*/
 /*	$NetBSD: udp_usrreq.c,v 1.28 1996/03/16 23:54:03 christos Exp $	*/
 
 /*
@@ -95,9 +95,6 @@
 #endif
 
 #ifdef INET6
-#ifndef INET
-#include <netinet/in.h>
-#endif
 #include <netinet6/in6_var.h>
 #include <netinet6/ip6_var.h>
 #include <netinet6/ip6protosw.h>
@@ -400,16 +397,7 @@ udp_input(struct mbuf *m, ...)
 	}
 #endif
 
-#ifdef INET6
-	if ((ip6 && IN6_IS_ADDR_MULTICAST(&ip6->ip6_dst)) ||
-	    (ip && IN_MULTICAST(ip->ip_dst.s_addr)) ||
-	    (ip && in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif,
-	    m->m_pkthdr.ph_rtableid))) {
-#else /* INET6 */
-	if (IN_MULTICAST(ip->ip_dst.s_addr) ||
-	    in_broadcast(ip->ip_dst, m->m_pkthdr.rcvif,
-		m->m_pkthdr.ph_rtableid)) {
-#endif /* INET6 */
+	if (m->m_flags & (M_BCAST|M_MCAST)) {
 		struct inpcb *last;
 		/*
 		 * Deliver a multicast or broadcast datagram to *all* sockets

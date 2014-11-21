@@ -1,4 +1,4 @@
-/*	$OpenBSD: ether.c,v 1.8 2014/07/13 15:31:20 mpi Exp $	*/
+/*	$OpenBSD: ether.c,v 1.10 2014/11/19 20:28:56 miod Exp $	*/
 /*	$NetBSD: ether.c,v 1.8 1996/10/13 02:29:00 christos Exp $	*/
 
 /*
@@ -55,15 +55,10 @@
 
 /* Caller must leave room for ethernet header in front!! */
 ssize_t
-sendether(d, pkt, len, dea, etype)
-	struct iodesc *d;
-	void *pkt;
-	size_t len;
-	u_char *dea;
-	int etype;
+sendether(struct iodesc *d, void *pkt, size_t len, u_char *dea, int etype)
 {
-ssize_t n;
-struct ether_header *eh;
+	ssize_t n;
+	struct ether_header *eh;
 
 #ifdef ETHER_DEBUG
 	if (debug)
@@ -91,15 +86,11 @@ struct ether_header *eh;
  * NOTE: Caller must leave room for the Ether header.
  */
 ssize_t
-readether(d, pkt, len, tleft, etype)
-struct iodesc *d;
-void *pkt;
-size_t len;
-	time_t tleft;
-u_int16_t *etype;
+readether(struct iodesc *d, void *pkt, size_t len, time_t tleft,
+    u_int16_t *etype)
 {
-ssize_t n;
-struct ether_header *eh;
+	ssize_t n;
+	struct ether_header *eh;
 
 #ifdef ETHER_DEBUG
 	if (debug)
@@ -132,9 +123,9 @@ struct ether_header *eh;
 /*
  * Convert Ethernet address to printable (loggable) representation.
  */
-static char digits[] = "0123456789abcdef";
-char *
-ether_sprintf(u_char *ap)
+static const char digits[] = "0123456789abcdef";
+const char *
+ether_sprintf(const u_char *ap)
 {
 	int i;
 	static char etherbuf[18];
