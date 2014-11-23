@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.68 2014/11/21 07:02:11 mlarkin Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.70 2014/11/23 00:25:05 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -793,6 +793,8 @@ cpu_copy_trampoline(void)
 	 */
 	extern u_char cpu_spinup_trampoline[];
 	extern u_char cpu_spinup_trampoline_end[];
+	extern u_char mp_tramp_data_start[];
+	extern u_char mp_tramp_data_end[];
 
 	extern u_int32_t mp_pdirpa;
 	extern paddr_t tramp_pdirpa;
@@ -801,11 +803,21 @@ cpu_copy_trampoline(void)
 	    cpu_spinup_trampoline,
 	    cpu_spinup_trampoline_end-cpu_spinup_trampoline);
 
+	pmap_kenter_pa(MP_TRAMP_DATA, MP_TRAMP_DATA,
+		PROT_READ | PROT_WRITE);
+	memcpy((caddr_t)MP_TRAMP_DATA,
+		mp_tramp_data_start,
+		mp_tramp_data_end - mp_tramp_data_start);
+
 	/*
-	 * We need to patch this after we copy the trampoline,
-	 * the symbol points into the copied trampoline.
+	 * We need to patch this after we copy the tramp data,
+	 * the symbol points into the copied tramp data page.
 	 */
 	mp_pdirpa = tramp_pdirpa;
+
+	/* Remap the trampoline RX */
+	pmap_kenter_pa(MP_TRAMPOLINE, MP_TRAMPOLINE,
+		PROT_READ | PROT_EXEC);
 }
 
 
@@ -888,7 +900,7 @@ cpu_init_msrs(struct cpu_info *ci)
 	    ((uint64_t)GSEL(GUCODE32_SEL, SEL_UPL) << 48));
 	wrmsr(MSR_LSTAR, (uint64_t)Xsyscall);
 	wrmsr(MSR_CSTAR, (uint64_t)Xsyscall32);
-	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C);
+	wrmsr(MSR_SFMASK, PSL_NT|PSL_T|PSL_I|PSL_C|PSL_D);
 
 	wrmsr(MSR_FSBASE, 0);
 	wrmsr(MSR_GSBASE, (u_int64_t)ci);
