@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.92 2014/11/16 12:12:01 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.94 2014/11/23 18:22:45 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -45,6 +45,7 @@
 #include <sys/ioctl.h>
 
 #include <net/if_media.h>
+#include <net/if_types.h>
 #include <ifaddrs.h>
 #include <poll.h>
 
@@ -52,22 +53,17 @@ struct dhcp_timeout timeout;
 
 void got_one(void);
 
-/*
- * Use getifaddrs() to get a list of all the attached interfaces.  Find
- * our interface on the list and store the interesting information about it.
- */
 void
-discover_interface(void)
+get_hw_address(void)
 {
 	struct ifaddrs *ifap, *ifa;
-	struct ifreq *tif;
-	struct option_data *opt;
-	char *data;
-	int len;
+	struct sockaddr_dl *sdl;
+	int found;
 
 	if (getifaddrs(&ifap) != 0)
 		error("getifaddrs failed");
 
+	found = 0;
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		if ((ifa->ifa_flags & IFF_LOOPBACK) ||
 		    (ifa->ifa_flags & IFF_POINTOPOINT) ||
@@ -76,50 +72,22 @@ discover_interface(void)
 
 		if (strcmp(ifi->name, ifa->ifa_name))
 			continue;
+		found = 1;
 
-		/*
-		 * If we have the capability, extract & save link information.
-		 */
-		if (ifa->ifa_addr->sa_family == AF_LINK) {
-			struct sockaddr_dl *foo =
-			    (struct sockaddr_dl *)ifa->ifa_addr;
+		if (ifa->ifa_addr->sa_family != AF_LINK)
+			continue;
 
-			if (foo->sdl_alen != ETHER_ADDR_LEN)
-				continue;
+		sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+		if (sdl->sdl_type != IFT_ETHER ||
+		    sdl->sdl_alen != ETHER_ADDR_LEN)
+			continue;
 
-			ifi->index = foo->sdl_index;
-			memcpy(ifi->hw_address.ether_addr_octet, LLADDR(foo),
-			    ETHER_ADDR_LEN);
-			opt = &config->send_options[DHO_DHCP_CLIENT_IDENTIFIER];
-			/*
-			 * Check both len && data so
-			 *     send dhcp-client-identifier "";
-			 * can be used to suppress sending the default client
-			 * identifier.
-			 */
-			if (opt->len == 0 && opt->data == NULL) {
-				/* Build default client identifier. */
-				data = calloc(1, ETHER_ADDR_LEN + 1);
-				if (data != NULL) {
-					data[0] = HTYPE_ETHER;
-					memcpy(&data[1], LLADDR(foo),
-					    ETHER_ADDR_LEN);
-					opt->data = data;
-					opt->len = ETHER_ADDR_LEN + 1;
-				}
-			}
-		}
-
-		if (!ifi->ifp) {
-			len = IFNAMSIZ + sizeof(struct sockaddr_storage);
-			if ((tif = malloc(len)) == NULL)
-				error("no space to remember ifp");
-			strlcpy(tif->ifr_name, ifa->ifa_name, IFNAMSIZ);
-			ifi->ifp = tif;
-		}
+		ifi->index = sdl->sdl_index;
+		memcpy(ifi->hw_address.ether_addr_octet, LLADDR(sdl),
+		    ETHER_ADDR_LEN);
 	}
 
-	if (!ifi->ifp)
+	if (!found)
 		error("%s: not found", ifi->name);
 
 	freeifaddrs(ifap);
@@ -147,7 +115,7 @@ dispatch(void)
 			quit = INTERNALSIG;
 			continue;
 		}
-		if (ifi->rfdesc == -1) {
+		if (ifi->bfdesc == -1) {
 			warning("%s bpf socket gone; exiting", ifi->name);
 			quit = INTERNALSIG;
 			continue;
@@ -181,7 +149,7 @@ dispatch(void)
 		 *  fds[1] == routing socket for incoming RTM messages
 		 *  fds[2] == imsg socket to privileged process
 		*/
-		fds[0].fd = ifi->rfdesc;
+		fds[0].fd = ifi->bfdesc;
 		fds[1].fd = routefd;
 		fds[2].fd = unpriv_ibuf->fd;
 		fds[0].events = fds[1].events = fds[2].events = POLLIN;
@@ -201,7 +169,7 @@ dispatch(void)
 		}
 
 		if ((fds[0].revents & (POLLIN | POLLHUP))) {
-			if (ifi && ifi->linkstat && ifi->rfdesc != -1)
+			if (ifi && ifi->linkstat && ifi->bfdesc != -1)
 				got_one();
 		}
 		if ((fds[1].revents & (POLLIN | POLLHUP))) {
@@ -242,7 +210,7 @@ got_one(void)
 		    strerror(errno));
 		ifi->errors++;
 		if ((!interface_status(ifi->name)) ||
-		    (ifi->noifmedia && ifi->errors > 20)) {
+		    ((ifi->flags & IFI_NOMEDIA) && ifi->errors > 20)) {
 			/* our interface has gone away. */
 			error("Interface %s no longer appears valid.",
 			    ifi->name);
@@ -317,7 +285,7 @@ interface_status(char *ifname)
 		goto inactive;
 
 	/* Next, check carrier on the interface if possible. */
-	if (ifi->noifmedia)
+	if (ifi->flags & IFI_NOMEDIA)
 		goto active;
 	memset(&ifmr, 0, sizeof(ifmr));
 	strlcpy(ifmr.ifm_name, ifname, sizeof(ifmr.ifm_name));
@@ -332,7 +300,7 @@ interface_status(char *ifname)
 			    strerror(errno));
 #endif
 
-		ifi->noifmedia = 1;
+		ifi->flags |= IFI_NOMEDIA;
 		goto active;
 	}
 	if (ifmr.ifm_status & IFM_AVALID) {
