@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.23 2009/10/27 23:59:40 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.25 2014/11/24 20:03:33 millert Exp $	*/
 /*	$NetBSD: main.c,v 1.7 1997/05/13 06:15:57 mikel Exp $	*/
 
 /*
@@ -78,18 +78,8 @@ main(int argc, char **argv)
 	bcc = NULL;
 	smopts = NULL;
 	subject = NULL;
-	while ((i = getopt(argc, argv, "EINT:b:c:dfins:u:v")) != -1) {
+	while ((i = getopt(argc, argv, "EIN:b:c:dfins:u:v")) != -1) {
 		switch (i) {
-		case 'T':
-			/*
-			 * Next argument is temp file to write which
-			 * articles have been read/deleted for netnews.
-			 */
-			Tflag = optarg;
-			if ((i = creat(Tflag, 0600)) < 0)
-				err(1, "%s", Tflag);
-			(void)close(i);
-			break;
 		case 'u':
 			/*
 			 * Next argument is person to pretend to be.
@@ -121,16 +111,10 @@ main(int argc, char **argv)
 			/*
 			 * User is specifying file to "edit" with Mail,
 			 * as opposed to reading system mailbox.
-			 * If no argument is given after -f, we read his
-			 * mbox file.
-			 *
-			 * getopt() can't handle optional arguments, so here
-			 * is an ugly hack to get around it.
+			 * We read his mbox file unless another file
+			 * is specified after the arguments.
 			 */
-			if ((argv[optind]) && (argv[optind][0] != '-'))
-				ef = argv[optind++];
-			else
-				ef = "&";
+			ef = "&";
 			break;
 		case 'n':
 			/*
@@ -179,17 +163,24 @@ main(int argc, char **argv)
 			/*NOTREACHED*/
 		}
 	}
-	for (i = optind; (argv[i]) && (*argv[i] != '-'); i++)
-		to = cat(to, nalloc(argv[i], GTO));
-	for (; argv[i]; i++)
-		smopts = cat(smopts, nalloc(argv[i], 0));
+	if (ef != NULL) {
+		/* Check for optional mailbox file name. */
+		if (optind < argc) {
+			ef = argv[optind++];
+			if (optind < argc)
+			    errx(1, "Cannot give -f and people to send to");
+		}
+	} else {
+		for (i = optind; (argv[i]) && (*argv[i] != '-'); i++)
+			to = cat(to, nalloc(argv[i], GTO));
+		for (; argv[i]; i++)
+			smopts = cat(smopts, nalloc(argv[i], 0));
+	}
 	/*
 	 * Check for inconsistent arguments.
 	 */
 	if (to == NULL && (subject != NULL || cc != NULL || bcc != NULL))
 		errx(1, "You must specify direct recipients with -s, -c, or -b");
-	if (ef != NULL && to != NULL)
-		errx(1, "Cannot give -f and people to send to");
 	/*
 	 * Block SIGINT except where we install an explicit handler for it.
 	 */

@@ -1,4 +1,4 @@
-/* $OpenBSD: xhci.c,v 1.42 2014/11/23 10:46:46 mpi Exp $ */
+/* $OpenBSD: xhci.c,v 1.44 2014/11/24 13:02:15 mpi Exp $ */
 
 /*
  * Copyright (c) 2014 Martin Pieuchot
@@ -847,9 +847,9 @@ xhci_xfer_done(struct usbd_xfer *xfer)
 	int ntrb, i;
 
 #ifdef XHCI_DEBUG
-	if (xx->index == -1 || xp->pending_xfers[xx->index] == NULL) {
-		printf("%s: xfer=%p already done (index=%d)\n", __func__,
-		    xfer, xx->index);
+	if (xx->index < 0 || xp->pending_xfers[xx->index] == NULL) {
+		printf("%s: xfer=%p done (index=%d, ntrb=%zd)\n", __func__,
+		    xfer, xx->index, xx->ntrb);
 	}
 #endif
 
@@ -1455,7 +1455,7 @@ xhci_xfer_get_trb(struct xhci_softc *sc, struct usbd_xfer* xfer,
 	xp->pending_xfers[xp->ring.index] = xfer;
 	xp->free_trbs--;
 
-	xx->index = (last) ? xp->ring.index : -1;
+	xx->index = (last) ? xp->ring.index : -2;
 	xx->ntrb += 1;
 
 	*togglep = xp->ring.toggle;
@@ -1818,23 +1818,25 @@ const usb_hub_descriptor_t xhci_hubd = {
 void
 xhci_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 {
-	int s;
+	splsoftassert(IPL_SOFTUSB);
 
-	DPRINTF(("%s: xfer=%p err=%s\n", __func__, xfer, usbd_errstr(status)));
+	DPRINTF(("%s: xfer=%p status=%s err=%s actlen=%d len=%d index=%d\n",
+	    __func__, xfer, usbd_errstr(xfer->status), usbd_errstr(status),
+	    xfer->actlen, xfer->length, ((struct xhci_xfer *)xfer)->index));
 
 	xfer->status = status;
-
-	s = splusb();
 	xhci_xfer_done(xfer);
-	splx(s);
 }
 
 void
 xhci_timeout(void *addr)
 {
 	struct usbd_xfer *xfer = addr;
+	int s;
 
+	s = splusb();
 	xhci_abort_xfer(xfer, USBD_TIMEOUT);
+	splx(s);
 }
 
 usbd_status
@@ -2374,9 +2376,10 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 	trb->trb_status = htole32(
 	    XHCI_TRB_INTR(0) | XHCI_TRB_TDREM(1) | XHCI_TRB_LEN(xfer->length)
 	);
-	trb->trb_flags = htole32(
-	    XHCI_TRB_TYPE_NORMAL | XHCI_TRB_ISP | XHCI_TRB_IOC | toggle
-	);
+	trb->trb_flags = htole32(XHCI_TRB_TYPE_NORMAL | XHCI_TRB_IOC | toggle);
+
+	if (usbd_xfer_isread(xfer))
+		trb->trb_flags |= htole32(XHCI_TRB_ISP);
 
 	usb_syncmem(&xp->ring.dma, TRBOFF(xp->ring, trb),
 	    sizeof(struct xhci_trb), BUS_DMASYNC_PREWRITE);

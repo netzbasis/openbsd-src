@@ -1,4 +1,4 @@
-/*	$OpenBSD: crypt.c,v 1.22 2014/05/17 13:27:55 tedu Exp $	*/
+/*	$OpenBSD: crypt.c,v 1.24 2014/11/25 03:23:22 tedu Exp $	*/
 
 /*
  * FreeSec: libcrypt
