@@ -1,4 +1,4 @@
-/* $OpenBSD: bss_dgram.c,v 1.33 2014/08/24 16:08:30 bcook Exp $ */
+/* $OpenBSD: bss_dgram.c,v 1.37 2014/11/26 05:41:44 bcook Exp $ */
 /* 
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.  
@@ -81,10 +81,6 @@
 #define OPENSSL_SCTP_FORWARD_CUM_TSN_CHUNK_TYPE 0xc0
 #endif
 
-#if defined(OPENSSL_SYS_LINUX) && !defined(IP_MTU)
-#define IP_MTU      14 /* linux is lame */
-#endif
-
 static int dgram_write(BIO *h, const char *buf, int num);
 static int dgram_read(BIO *h, char *buf, int size);
 static int dgram_puts(BIO *h, const char *str);
@@ -107,8 +103,6 @@ static void dgram_sctp_handle_auth_free_key_event(BIO *b,
 #endif
 
 static int BIO_dgram_should_retry(int s);
-
-static void get_current_time(struct timeval *t);
 
 static BIO_METHOD methods_dgramp = {
 	.type = BIO_TYPE_DGRAM,
@@ -248,24 +242,20 @@ dgram_adjust_rcv_timeout(BIO *b)
 {
 #if defined(SO_RCVTIMEO)
 	bio_dgram_data *data = (bio_dgram_data *)b->ptr;
-		union { size_t s;
-		int i;
-	} sz = {0};
 
 	/* Is a timer active? */
 	if (data->next_timeout.tv_sec > 0 || data->next_timeout.tv_usec > 0) {
 		struct timeval timenow, timeleft;
 
 		/* Read current socket timeout */
-		sz.i = sizeof(data->socket_timeout);
+		socklen_t sz = sizeof(data->socket_timeout);
 		if (getsockopt(b->num, SOL_SOCKET, SO_RCVTIMEO,
-		    &(data->socket_timeout), (void *)&sz) < 0) {
+		    &(data->socket_timeout), &sz) < 0) {
 			perror("getsockopt");
-		} else if (sizeof(sz.s) != sizeof(sz.i) && sz.i == 0)
-			OPENSSL_assert(sz.s <= sizeof(data->socket_timeout));
+		}
 
 		/* Get current time */
-		get_current_time(&timenow);
+		gettimeofday(&timenow, NULL);
 
 		/* Calculate time left until timer expires */
 		memcpy(&timeleft, &(data->next_timeout), sizeof(struct timeval));
@@ -333,7 +323,7 @@ dgram_read(BIO *b, char *out, int outl)
 
 	if (out != NULL) {
 		errno = 0;
-		memset(&sa.peer, 0x00, sizeof(sa.peer));
+		memset(&sa.peer, 0, sizeof(sa.peer));
 		dgram_adjust_rcv_timeout(b);
 		ret = recvfrom(b->num, out, outl, 0, &sa.peer.sa, &sa.len);
 
@@ -394,7 +384,7 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 	int *ip;
 	struct sockaddr *to = NULL;
 	bio_dgram_data *data = NULL;
-#if defined(OPENSSL_SYS_LINUX) && (defined(IP_MTU_DISCOVER) || defined(IP_MTU))
+#if (defined(IP_MTU_DISCOVER) || defined(IP_MTU))
 	int sockopt_val = 0;
 	socklen_t sockopt_len;	/* assume that system supporting IP_MTU is
 				 * modern enough to define socklen_t */
@@ -463,7 +453,7 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 		break;
 		/* (Linux)kernel sets DF bit on outgoing IP packets */
 	case BIO_CTRL_DGRAM_MTU_DISCOVER:
-#if defined(OPENSSL_SYS_LINUX) && defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_DO)
+#if defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_DO)
 		addr_len = (socklen_t)sizeof(addr);
 		memset((void *)&addr, 0, sizeof(addr));
 		if (getsockname(b->num, &addr.sa, &addr_len) < 0) {
@@ -473,17 +463,18 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 		switch (addr.sa.sa_family) {
 		case AF_INET:
 			sockopt_val = IP_PMTUDISC_DO;
-			if ((ret = setsockopt(b->num, IPPROTO_IP,
-			    IP_MTU_DISCOVER, &sockopt_val,
-			    sizeof(sockopt_val))) < 0)
+			ret = setsockopt(b->num, IPPROTO_IP, IP_MTU_DISCOVER,
+			    &sockopt_val, sizeof(sockopt_val));
+			if (ret < 0)
 				perror("setsockopt");
 			break;
 #if defined(IPV6_MTU_DISCOVER) && defined(IPV6_PMTUDISC_DO)
 		case AF_INET6:
 			sockopt_val = IPV6_PMTUDISC_DO;
-			if ((ret = setsockopt(b->num, IPPROTO_IPV6,
+			ret = setsockopt(b->num, IPPROTO_IPV6,
 			    IPV6_MTU_DISCOVER, &sockopt_val,
-			    sizeof(sockopt_val))) < 0)
+			    sizeof(sockopt_val));
+			if (ret < 0)
 				perror("setsockopt");
 			break;
 #endif
@@ -496,7 +487,7 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 		break;
 #endif
 	case BIO_CTRL_DGRAM_QUERY_MTU:
-#if defined(OPENSSL_SYS_LINUX) && defined(IP_MTU)
+#if defined(IP_MTU)
 		addr_len = (socklen_t)sizeof(addr);
 		memset((void *)&addr, 0, sizeof(addr));
 		if (getsockname(b->num, &addr.sa, &addr_len) < 0) {
@@ -506,9 +497,9 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 		sockopt_len = sizeof(sockopt_val);
 		switch (addr.sa.sa_family) {
 		case AF_INET:
-			if ((ret = getsockopt(b->num, IPPROTO_IP, IP_MTU,
-			    (void *)&sockopt_val, &sockopt_len)) < 0 ||
-			    sockopt_val < 0) {
+			ret = getsockopt(b->num, IPPROTO_IP, IP_MTU,
+			    &sockopt_val, &sockopt_len);
+			if (ret < 0 || sockopt_val < 0) {
 				ret = 0;
 			} else {
 				/* we assume that the transport protocol is UDP and no
@@ -520,9 +511,9 @@ dgram_ctrl(BIO *b, int cmd, long num, void *ptr)
 			break;
 #if defined(IPV6_MTU)
 		case AF_INET6:
-			if ((ret = getsockopt(b->num, IPPROTO_IPV6, IPV6_MTU,
-			    (void *)&sockopt_val, &sockopt_len)) < 0 ||
-			    sockopt_val < 0) {
+			ret = getsockopt(b->num, IPPROTO_IPV6, IPV6_MTU,
+			    &sockopt_val, &sockopt_len);
+			if (ret < 0 || sockopt_val < 0) {
 				ret = 0;
 			} else {
 				/* we assume that the transport protocol is UDP and no
@@ -584,7 +575,7 @@ default:
 			}
 		} else {
 			data->connected = 0;
-			memset(&(data->peer), 0x00, sizeof(data->peer));
+			memset(&(data->peer), 0, sizeof(data->peer));
 		}
 		break;
 	case BIO_CTRL_DGRAM_GET_PEER:
@@ -630,20 +621,13 @@ default:
 		break;
 	case BIO_CTRL_DGRAM_GET_RECV_TIMEOUT:
 		{
-			union {
-				size_t s;
-				int i;
-			} sz = {0};
-			sz.i = sizeof(struct timeval);
+			socklen_t sz = sizeof(struct timeval);
 			if (getsockopt(b->num, SOL_SOCKET, SO_RCVTIMEO,
-			    ptr, (void *)&sz) < 0) {
+			    ptr, &sz) < 0) {
 				perror("getsockopt");
 				ret = -1;
-			} else if (sizeof(sz.s)!=sizeof(sz.i) && sz.i==0) {
-				OPENSSL_assert(sz.s <= sizeof(struct timeval));
-				ret = (int)sz.s;
 			} else
-				ret = sz.i;
+				ret = sz;
 		}
 		break;
 #endif
@@ -657,20 +641,13 @@ default:
 		break;
 	case BIO_CTRL_DGRAM_GET_SEND_TIMEOUT:
 		{
-			union {
-				size_t s;
-				int i;
-			} sz = {0};
-			sz.i = sizeof(struct timeval);
+			socklen_t sz = sizeof(struct timeval);
 			if (getsockopt(b->num, SOL_SOCKET, SO_SNDTIMEO,
-			    ptr, (void *)&sz) < 0) {
+			    ptr, &sz) < 0) {
 				perror("getsockopt");
 				ret = -1;
-			} else if (sizeof(sz.s) != sizeof(sz.i) && sz.i == 0) {
-				OPENSSL_assert(sz.s <= sizeof(struct timeval));
-				ret = (int)sz.s;
 			} else
-				ret = sz.i;
+				ret = sz;
 		}
 		break;
 #endif
@@ -873,7 +850,7 @@ dgram_sctp_read(BIO *b, char *out, int outl)
 		errno = 0;
 
 		do {
-			memset(&data->rcvinfo, 0x00, sizeof(struct bio_dgram_sctp_rcvinfo));
+			memset(&data->rcvinfo, 0, sizeof(struct bio_dgram_sctp_rcvinfo));
 			iov.iov_base = out;
 			iov.iov_len = outl;
 			msg.msg_name = NULL;
@@ -1082,7 +1059,7 @@ dgram_sctp_write(BIO *b, const char *in, int inl)
 	 * disable all user parameters and flags.
 	 */
 	if (in[0] != 23) {
-		memset(&handshake_sinfo, 0x00, sizeof(struct bio_dgram_sctp_sndinfo));
+		memset(&handshake_sinfo, 0, sizeof(struct bio_dgram_sctp_sndinfo));
 #ifdef SCTP_SACK_IMMEDIATELY
 		handshake_sinfo.snd_flags = SCTP_SACK_IMMEDIATELY;
 #endif
@@ -1299,7 +1276,7 @@ dgram_sctp_ctrl(BIO *b, int cmd, long num, void *ptr)
 			if (authkeyid.scact_keynumber > 0) {
 				authkeyid.scact_keynumber = authkeyid.scact_keynumber - 1;
 				ret = setsockopt(b->num, IPPROTO_SCTP, SCTP_AUTH_DELETE_KEY,
-				&authkeyid, sizeof(struct sctp_authkeyid));
+				    &authkeyid, sizeof(struct sctp_authkeyid));
 				if (ret < 0)
 					break;
 			}
@@ -1426,7 +1403,7 @@ BIO_dgram_sctp_wait_for_dry(BIO *b)
 		return -1;
 
 	/* peek for notification */
-	memset(&snp, 0x00, sizeof(union sctp_notification));
+	memset(&snp, 0, sizeof(union sctp_notification));
 	iov.iov_base = (char *)&snp;
 	iov.iov_len = sizeof(union sctp_notification);
 	msg.msg_name = NULL;
@@ -1447,7 +1424,7 @@ BIO_dgram_sctp_wait_for_dry(BIO *b)
 
 	/* if we find a notification, process it and try again if necessary */
 	while (msg.msg_flags & MSG_NOTIFICATION) {
-		memset(&snp, 0x00, sizeof(union sctp_notification));
+		memset(&snp, 0, sizeof(union sctp_notification));
 		iov.iov_base = (char *)&snp;
 		iov.iov_len = sizeof(union sctp_notification);
 		msg.msg_name = NULL;
@@ -1499,7 +1476,7 @@ BIO_dgram_sctp_wait_for_dry(BIO *b)
 			data->handle_notifications(b, data->notification_context, (void*) &snp);
 
 		/* found notification, peek again */
-		memset(&snp, 0x00, sizeof(union sctp_notification));
+		memset(&snp, 0, sizeof(union sctp_notification));
 		iov.iov_base = (char *)&snp;
 		iov.iov_len = sizeof(union sctp_notification);
 		msg.msg_name = NULL;
@@ -1546,7 +1523,7 @@ BIO_dgram_sctp_msg_waiting(BIO *b)
 	/* Check if there are any messages waiting to be read */
 	do
 	{
-		memset(&snp, 0x00, sizeof(union sctp_notification));
+		memset(&snp, 0, sizeof(union sctp_notification));
 		iov.iov_base = (char *)&snp;
 		iov.iov_len = sizeof(union sctp_notification);
 		msg.msg_name = NULL;
@@ -1569,7 +1546,7 @@ BIO_dgram_sctp_msg_waiting(BIO *b)
 				dgram_sctp_handle_auth_free_key_event(b, &snp);
 #endif
 
-			memset(&snp, 0x00, sizeof(union sctp_notification));
+			memset(&snp, 0, sizeof(union sctp_notification));
 			iov.iov_base = (char *)&snp;
 			iov.iov_len = sizeof(union sctp_notification);
 			msg.msg_name = NULL;
@@ -1630,11 +1607,6 @@ BIO_dgram_non_fatal_error(int err)
 		break;
 	}
 	return (0);
-}
-
-static void
-get_current_time(struct timeval *t) {
-	gettimeofday(t, NULL);
 }
 
 #endif
