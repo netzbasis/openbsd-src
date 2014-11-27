@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.95 2014/11/26 00:15:36 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.97 2014/11/26 19:25:31 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -105,18 +105,8 @@ dispatch(void)
 	void (*func)(void);
 
 	while (quit == 0) {
-		if (!ifi) {
-			warning("No interface!");
-			quit = INTERNALSIG;
-			continue;
-		}
 		if (ifi->rdomain != get_rdomain(ifi->name)) {
 			warning("%s rdomain changed; exiting", ifi->name);
-			quit = INTERNALSIG;
-			continue;
-		}
-		if (ifi->bfdesc == -1) {
-			warning("%s bpf socket gone; exiting", ifi->name);
 			quit = INTERNALSIG;
 			continue;
 		}
@@ -168,17 +158,12 @@ dispatch(void)
 			}
 		}
 
-		if ((fds[0].revents & (POLLIN | POLLHUP))) {
-			if (ifi && ifi->linkstat && ifi->bfdesc != -1)
-				packethandler();
-		}
-		if ((fds[1].revents & (POLLIN | POLLHUP))) {
-			if (ifi)
-				routehandler();
-		}
-		if (fds[2].revents & POLLOUT) {
+		if ((fds[0].revents & (POLLIN | POLLHUP)))
+			packethandler();
+		if ((fds[1].revents & (POLLIN | POLLHUP)))
+			routehandler();
+		if (fds[2].revents & POLLOUT)
 			flush_unpriv_ibuf("dispatch");
-		}
 		if ((fds[2].revents & (POLLIN | POLLHUP))) {
 			/* Pipe to [priv] closed. Assume it emitted error. */
 			quit = INTERNALSIG;
@@ -206,17 +191,17 @@ packethandler(void)
 	ssize_t result;
 
 	if ((result = receive_packet(&from, &hfrom)) == -1) {
-		warning("receive_packet failed on %s: %s", ifi->name,
+		warning("%s receive_packet failed: %s", ifi->name,
 		    strerror(errno));
 		ifi->errors++;
-		if ((!interface_status(ifi->name)) ||
-		    ((ifi->flags & IFI_NOMEDIA) && ifi->errors > 20)) {
-			/* our interface has gone away. */
-			error("Interface %s no longer appears valid.",
+		if (ifi->errors > 20) {
+			error("%s too many receive_packet failures; exiting",
 			    ifi->name);
 		}
 		return;
 	}
+	ifi->errors = 0;
+
 	if (result == 0)
 		return;
 
