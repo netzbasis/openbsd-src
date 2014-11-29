@@ -1,8 +1,5 @@
 obj
-*.orig
-*.patch
-*.diff
-compile/
+compile/*
 *.err.log
 CVS
 CVSROOT
