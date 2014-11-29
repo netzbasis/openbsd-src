@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.175 2014/11/28 01:05:40 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.178 2014/11/28 18:35:37 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -936,22 +936,12 @@ static void
 post_lb(POST_ARGS)
 {
 	struct mdoc_node	*n;
-	const char		*stdlibname;
 	char			*libname;
 
 	check_count(mdoc, MDOC_ELEM, CHECK_WARN, CHECK_EQ, 1);
-
 	n = mdoc->last->child;
-
-	assert(n);
 	assert(MDOC_TEXT == n->type);
-
-	if (NULL == (stdlibname = mdoc_a2lib(n->string)))
-		mandoc_asprintf(&libname,
-		    "library \\(lq%s\\(rq", n->string);
-	else
-		libname = mandoc_strdup(stdlibname);
-
+	mandoc_asprintf(&libname, "library \\(lq%s\\(rq", n->string);
 	free(n->string);
 	n->string = libname;
 }
@@ -2281,29 +2271,12 @@ post_dt(POST_ARGS)
 		mdoc->meta.msec = mandoc_strdup(nn->string);
 	}
 
-	if (NULL == (nn = nn->next))
-		goto out;
+	/* Handle an optional architecture */
 
-	/* Handles: `.Dt TITLE SEC VOL'
-	 * title = TITLE,
-	 * volume = VOL is vol ? format(VOL) :
-	 *	    VOL is arch ? format(arch) :
-	 *	    VOL
-	 */
-
-	cp = mdoc_a2vol(nn->string);
-	if (cp) {
-		free(mdoc->meta.vol);
-		mdoc->meta.vol = mandoc_strdup(cp);
-	} else {
-		cp = mdoc_a2arch(nn->string);
-		if (NULL == cp) {
-			mandoc_vmsg(MANDOCERR_ARCH_BAD, mdoc->parse,
-			    nn->line, nn->pos, "Dt ... %s", nn->string);
-			free(mdoc->meta.vol);
-			mdoc->meta.vol = mandoc_strdup(nn->string);
-		} else
-			mdoc->meta.arch = mandoc_strdup(cp);
+	if ((nn = nn->next) != NULL) {
+		for (p = nn->string; *p; p++)
+			*p = tolower((unsigned char)*p);
+		mdoc->meta.arch = mandoc_strdup(nn->string);
 	}
 
 	/* Ignore any subsequent parameters... */

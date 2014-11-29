@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.107 2014/11/28 04:46:30 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.110 2014/11/29 04:31:33 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -52,10 +52,11 @@ static	void		dword(struct mdoc *, int, int, const char *,
 				 enum mdelim, int);
 static	void		append_delims(struct mdoc *, int, int *, char *);
 static	enum mdoct	lookup(enum mdoct, const char *);
-static	enum mdoct	lookup_raw(const char *);
+static	int		macro_or_word(MACRO_PROT_ARGS, int);
 static	int		make_pending(struct mdoc_node *, enum mdoct,
 				struct mdoc *, int, int);
-static	void		phrase(struct mdoc *, int, int, char *);
+static	int		parse_rest(struct mdoc *, enum mdoct,
+				int, int *, char *);
 static	enum mdoct	rew_alt(enum mdoct);
 static	enum rew	rew_dohalt(enum mdoct, enum mdoc_type,
 				const struct mdoc_node *);
@@ -238,29 +239,19 @@ mdoc_macroend(struct mdoc *mdoc)
 }
 
 /*
- * Look up a macro from within a subsequent context.
+ * Look up the macro at *p called by "from",
+ * or as a line macro if from == MDOC_MAX.
  */
 static enum mdoct
 lookup(enum mdoct from, const char *p)
 {
-
-	if ( ! (MDOC_PARSED & mdoc_macros[from].flags))
-		return(MDOC_MAX);
-	return(lookup_raw(p));
-}
-
-/*
- * Lookup a macro following the initial line macro.
- */
-static enum mdoct
-lookup_raw(const char *p)
-{
 	enum mdoct	 res;
 
-	if (MDOC_MAX == (res = mdoc_hash_find(p)))
-		return(MDOC_MAX);
-	if (MDOC_CALLABLE & mdoc_macros[res].flags)
-		return(res);
+	if (from == MDOC_MAX || mdoc_macros[from].flags & MDOC_PARSED) {
+		res = mdoc_hash_find(p);
+		if (res != MDOC_MAX && mdoc_macros[res].flags & MDOC_CALLABLE)
+			return(res);
+	}
 	return(MDOC_MAX);
 }
 
@@ -631,17 +622,15 @@ dword(struct mdoc *mdoc, int line, int col, const char *p,
 static void
 append_delims(struct mdoc *mdoc, int line, int *pos, char *buf)
 {
-	int		 la;
-	enum margserr	 ac;
 	char		*p;
+	int		 la;
 
 	if (buf[*pos] == '\0')
 		return;
 
 	for (;;) {
 		la = *pos;
-		ac = mdoc_zargs(mdoc, line, pos, buf, &p);
-		if (ac == ARGS_EOLN)
+		if (mdoc_args(mdoc, line, pos, buf, MDOC_MAX, &p) == ARGS_EOLN)
 			break;
 		dword(mdoc, line, la, p, DELIM_MAX, 1);
 
@@ -659,6 +648,40 @@ append_delims(struct mdoc *mdoc, int line, int *pos, char *buf)
 
 		if (mandoc_eos(p, strlen(p)))
 			mdoc->last->flags |= MDOC_EOS;
+	}
+}
+
+/*
+ * Parse one word.
+ * If it is a macro, call it and return 1.
+ * Otherwise, allocate it and return 0.
+ */
+static int
+macro_or_word(MACRO_PROT_ARGS, int parsed)
+{
+	char		*p;
+	enum mdoct	 ntok;
+
+	p = buf + ppos;
+	ntok = MDOC_MAX;
+	if (mdoc->flags & MDOC_PHRASELIT)
+		/* nothing */;
+	else if (*p == '"')
+		p++;
+	else if (parsed)
+		ntok = lookup(tok, p);
+
+	if (ntok == MDOC_MAX) {
+		dword(mdoc, line, ppos, p, DELIM_MAX, tok == MDOC_MAX ||
+		    mdoc_macros[tok].flags & MDOC_JOIN);
+		return(0);
+	} else {
+		if (mdoc_macros[tok].fp == in_line_eoln)
+			rew_elem(mdoc, tok);
+		mdoc_macro(mdoc, ntok, line, ppos, pos, buf);
+		if (tok == MDOC_MAX)
+			append_delims(mdoc, line, pos, buf);
+		return(1);
 	}
 }
 
@@ -841,7 +864,6 @@ static void
 in_line(MACRO_PROT_ARGS)
 {
 	int		 la, scope, cnt, firstarg, mayopen, nc, nl;
-	enum margverr	 av;
 	enum mdoct	 ntok;
 	enum margserr	 ac;
 	enum mdelim	 d;
@@ -874,15 +896,7 @@ in_line(MACRO_PROT_ARGS)
 		break;
 	}
 
-	for (arg = NULL;; ) {
-		la = *pos;
-		av = mdoc_argv(mdoc, line, tok, &arg, pos, buf);
-		if (av == ARGV_ARG)
-			continue;
-		if (av == ARGV_WORD)
-			*pos = la;
-		break;
-	}
+	mdoc_argv(mdoc, line, tok, &arg, pos, buf);
 
 	d = DELIM_NONE;
 	firstarg = 1;
@@ -1032,14 +1046,12 @@ in_line(MACRO_PROT_ARGS)
 static void
 blk_full(MACRO_PROT_ARGS)
 {
-	int		  la, nl, nparsed;
+	int		  la, nl, parsed;
 	struct mdoc_arg	 *arg;
 	struct mdoc_node *head; /* save of head macro */
 	struct mdoc_node *body; /* save of body macro */
 	struct mdoc_node *n;
-	enum mdoct	  ntok;
 	enum margserr	  ac, lac;
-	enum margverr	  av;
 	char		 *p;
 
 	nl = MDOC_NEWLINE & mdoc->flags;
@@ -1076,16 +1088,7 @@ blk_full(MACRO_PROT_ARGS)
 	 * regular child nodes.
 	 */
 
-	for (arg = NULL;; ) {
-		la = *pos;
-		av = mdoc_argv(mdoc, line, tok, &arg, pos, buf);
-		if (av == ARGV_ARG)
-			continue;
-		if (av == ARGV_WORD)
-			*pos = la;
-		break;
-	}
-
+	mdoc_argv(mdoc, line, tok, &arg, pos, buf);
 	mdoc_block_alloc(mdoc, line, ppos, tok, arg);
 	head = body = NULL;
 
@@ -1094,9 +1097,9 @@ blk_full(MACRO_PROT_ARGS)
 	 * parsed, even though `It' macros in general are parsed.
 	 */
 
-	nparsed = tok == MDOC_It &&
-	    mdoc->last->parent->tok == MDOC_Bl &&
-	    mdoc->last->parent->norm->Bl.type == LIST_diag;
+	parsed = tok != MDOC_It ||
+	    mdoc->last->parent->tok != MDOC_Bl ||
+	    mdoc->last->parent->norm->Bl.type != LIST_diag;
 
 	/*
 	 * The `Nd' macro has all arguments in its body: it's a hybrid
@@ -1177,20 +1180,13 @@ blk_full(MACRO_PROT_ARGS)
 				mdoc->flags |= MDOC_PPHRASE;
 			if (ac == ARGS_PEND && lac == ARGS_PPHRASE)
 				mdoc->flags |= MDOC_PPHRASE;
-			phrase(mdoc, line, la, buf);
+			parse_rest(mdoc, MDOC_MAX, line, &la, buf);
 			mdoc->flags &= ~MDOC_PPHRASE;
 			continue;
 		}
 
-		ntok = nparsed || ac == ARGS_QWORD ?
-		    MDOC_MAX : lookup(tok, p);
-
-		if (ntok != MDOC_MAX) {
-			mdoc_macro(mdoc, ntok, line, la, pos, buf);
+		if (macro_or_word(mdoc, tok, line, la, pos, buf, parsed))
 			break;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX,
-		    MDOC_JOIN & mdoc_macros[tok].flags);
 	}
 
 	if (head == NULL)
@@ -1231,7 +1227,6 @@ static void
 blk_part_imp(MACRO_PROT_ARGS)
 {
 	int		  la, nl;
-	enum mdoct	  ntok;
 	enum margserr	  ac;
 	char		 *p;
 	struct mdoc_node *blk; /* saved block context */
@@ -1274,14 +1269,8 @@ blk_part_imp(MACRO_PROT_ARGS)
 		if (body == NULL)
 			body = mdoc_body_alloc(mdoc, line, ppos, tok);
 
-		ntok = ac == ARGS_QWORD ? MDOC_MAX : lookup(tok, p);
-
-		if (ntok != MDOC_MAX) {
-			mdoc_macro(mdoc, ntok, line, la, pos, buf);
+		if (macro_or_word(mdoc, tok, line, la, pos, buf, 1))
 			break;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX,
-		    MDOC_JOIN & mdoc_macros[tok].flags);
 	}
 	if (body == NULL)
 		body = mdoc_body_alloc(mdoc, line, ppos, tok);
@@ -1325,7 +1314,6 @@ blk_part_exp(MACRO_PROT_ARGS)
 	struct mdoc_node *head; /* keep track of head */
 	struct mdoc_node *body; /* keep track of body */
 	char		 *p;
-	enum mdoct	  ntok;
 
 	nl = MDOC_NEWLINE & mdoc->flags;
 
@@ -1373,13 +1361,8 @@ blk_part_exp(MACRO_PROT_ARGS)
 		}
 		assert(head != NULL && body != NULL);
 
-		ntok = ac == ARGS_QWORD ? MDOC_MAX : lookup(tok, p);
-		if (ntok != MDOC_MAX) {
-			mdoc_macro(mdoc, ntok, line, la, pos, buf);
+		if (macro_or_word(mdoc, tok, line, la, pos, buf, 1))
 			break;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX,
-		    MDOC_JOIN & mdoc_macros[tok].flags);
 	}
 
 	/* Clean-up to leave in a consistent state. */
@@ -1400,7 +1383,6 @@ in_line_argn(MACRO_PROT_ARGS)
 {
 	int		 la, flushed, j, maxargs, nl;
 	enum margserr	 ac;
-	enum margverr	 av;
 	struct mdoc_arg	*arg;
 	char		*p;
 	enum mdoct	 ntok;
@@ -1435,15 +1417,7 @@ in_line_argn(MACRO_PROT_ARGS)
 		break;
 	}
 
-	for (arg = NULL; ; ) {
-		la = *pos;
-		av = mdoc_argv(mdoc, line, tok, &arg, pos, buf);
-		if (av == ARGV_ARG)
-			continue;
-		if (av == ARGV_WORD)
-			*pos = la;
-		break;
-	}
+	mdoc_argv(mdoc, line, tok, &arg, pos, buf);
 
 	for (flushed = j = 0; ; ) {
 		la = *pos;
@@ -1498,56 +1472,35 @@ in_line_argn(MACRO_PROT_ARGS)
 static void
 in_line_eoln(MACRO_PROT_ARGS)
 {
-	int		 la;
-	enum margserr	 ac;
-	enum margverr	 av;
 	struct mdoc_arg	*arg;
-	char		*p;
-	enum mdoct	 ntok;
-
-	assert( ! (MDOC_PARSED & mdoc_macros[tok].flags));
 
 	if (tok == MDOC_Pp)
 		rew_sub(MDOC_BLOCK, mdoc, MDOC_Nm, line, ppos);
 
-	/* Parse macro arguments. */
-
-	for (arg = NULL; ; ) {
-		la = *pos;
-		av = mdoc_argv(mdoc, line, tok, &arg, pos, buf);
-		if (av == ARGV_ARG)
-			continue;
-		if (av == ARGV_WORD)
-			*pos = la;
-		break;
-	}
-
-	/* Open element scope. */
-
+	mdoc_argv(mdoc, line, tok, &arg, pos, buf);
 	mdoc_elem_alloc(mdoc, line, ppos, tok, arg);
+	if (parse_rest(mdoc, tok, line, pos, buf))
+		return;
+	rew_elem(mdoc, tok);
+}
 
-	/* Parse argument terms. */
+/*
+ * The simplest argument parser available: Parse the remaining
+ * words until the end of the phrase or line and return 0
+ * or until the next macro, call that macro, and return 1.
+ */
+static int
+parse_rest(struct mdoc *mdoc, enum mdoct tok, int line, int *pos, char *buf)
+{
+	int		 la;
 
 	for (;;) {
 		la = *pos;
-		ac = mdoc_args(mdoc, line, pos, buf, tok, &p);
-		if (ac == ARGS_EOLN)
-			break;
-
-		ntok = ac == ARGS_QWORD ? MDOC_MAX : lookup(tok, p);
-
-		if (ntok != MDOC_MAX) {
-			rew_elem(mdoc, tok);
-			mdoc_macro(mdoc, ntok, line, la, pos, buf);
-			return;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX,
-		    MDOC_JOIN & mdoc_macros[tok].flags);
+		if (mdoc_args(mdoc, line, pos, buf, tok, NULL) == ARGS_EOLN)
+			return(0);
+		if (macro_or_word(mdoc, tok, line, la, pos, buf, 1))
+			return(1);
 	}
-
-	/* Close out (no delimiters). */
-
-	rew_elem(mdoc, tok);
 }
 
 static void
@@ -1570,39 +1523,9 @@ ctx_synopsis(MACRO_PROT_ARGS)
  * macro is encountered.
  */
 static void
-phrase(struct mdoc *mdoc, int line, int ppos, char *buf)
-{
-	int		 la, pos;
-	enum margserr	 ac;
-	enum mdoct	 ntok;
-	char		*p;
-
-	for (pos = ppos; ; ) {
-		la = pos;
-
-		ac = mdoc_zargs(mdoc, line, &pos, buf, &p);
-		if (ac == ARGS_EOLN)
-			break;
-
-		ntok = ac == ARGS_QWORD ? MDOC_MAX : lookup_raw(p);
-
-		if (ntok != MDOC_MAX) {
-			mdoc_macro(mdoc, ntok, line, la, &pos, buf);
-			append_delims(mdoc, line, &pos, buf);
-			return;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX, 1);
-	}
-}
-
-static void
 phrase_ta(MACRO_PROT_ARGS)
 {
 	struct mdoc_node *n;
-	int		  la;
-	enum mdoct	  ntok;
-	enum margserr	  ac;
-	char		 *p;
 
 	/* Make sure we are in a column list or ignore this macro. */
 
@@ -1619,21 +1542,5 @@ phrase_ta(MACRO_PROT_ARGS)
 
 	rew_sub(MDOC_BODY, mdoc, MDOC_It, line, ppos);
 	mdoc_body_alloc(mdoc, line, ppos, MDOC_It);
-
-	for (;;) {
-		la = *pos;
-		ac = mdoc_zargs(mdoc, line, pos, buf, &p);
-		if (ac == ARGS_EOLN)
-			break;
-
-		ntok = ac == ARGS_QWORD ? MDOC_MAX : lookup_raw(p);
-
-		if (ntok != MDOC_MAX) {
-			mdoc_macro(mdoc, ntok, line, la, pos, buf);
-			append_delims(mdoc, line, pos, buf);
-			return;
-		}
-		dword(mdoc, line, la, p, DELIM_MAX,
-		    MDOC_JOIN & mdoc_macros[tok].flags);
-	}
+	parse_rest(mdoc, MDOC_MAX, line, pos, buf);
 }
