@@ -1,5 +1,4 @@
 obj
-compile/*
 *.err.log
 CVS
 CVSROOT
