@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.115 2014/11/28 18:07:38 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.117 2014/11/30 05:28:00 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -75,6 +75,7 @@ enum	mandocerr {
 
 	/* related to macros and nesting */
 	MANDOCERR_MACRO_OBS, /* obsolete macro: macro */
+	MANDOCERR_MACRO_CALL, /* macro neither callable nor escaped: macro */
 	MANDOCERR_PAR_SKIP, /* skipping paragraph macro: macro ... */
 	MANDOCERR_PAR_MOVE, /* moving paragraph macro out of list: macro */
 	MANDOCERR_NS_SKIP, /* skipping no-space macro */
@@ -100,6 +101,7 @@ enum	mandocerr {
 	MANDOCERR_IT_NOBODY, /* empty list item: Bl -type It */
 	MANDOCERR_BF_NOFONT, /* missing font type, using \fR: Bf */
 	MANDOCERR_BF_BADFONT, /* unknown font type, using \fR: Bf font */
+	MANDOCERR_PF_SKIP, /* nothing follows prefix: Pf arg */
 	MANDOCERR_ARG_STD, /* missing -std argument, adding it: macro */
 	MANDOCERR_EQN_NOBOX, /* missing eqn box, using "": op */
 
