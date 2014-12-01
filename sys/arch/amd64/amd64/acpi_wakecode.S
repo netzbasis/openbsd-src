@@ -1,4 +1,4 @@
-/* $OpenBSD: acpi_wakecode.S,v 1.31 2014/11/22 18:31:46 mlarkin Exp $ */
+/* $OpenBSD: acpi_wakecode.S,v 1.34 2014/12/01 04:33:00 mlarkin Exp $ */
 /*
  * Copyright (c) 2001 Takanori Watanabe <takawata@jp.freebsd.org>
  * Copyright (c) 2001 Mitsuru IWASAKI <iwasaki@jp.freebsd.org>
@@ -192,24 +192,16 @@ _C_LABEL(acpi_protected_mode_resume):
 	mov	%eax,%cr4
 
 	/*
-	 * Stash away our previously saved EFER in EBX.
-	 * We have to make sure we don't write to any
-	 * of the EFER reserved bits, so we zero those
-	 * out here.
-	 */
-	movl	acpi_saved_efer, %ebx
-	andl 	$(EFER_LME | EFER_LMA | EFER_NXE | EFER_SCE), %ebx	
-
-	/*
 	 * Set up a temporary long mode GDT describing 2
 	 * segments, one for code and one for data.
 	 */
 	lgdt 	tmp_gdt64	
 
-	/* Prepare to enter long mode by enabling LME in EFER */
+	/* Restore saved EFER (LME, NXE, etc) */
 	movl	$MSR_EFER, %ecx
 	rdmsr
-	orl	$EFER_LME, %eax
+	movl	acpi_saved_efer, %eax
+	andl 	$(EFER_LME | EFER_NXE | EFER_SCE), %eax	
 	wrmsr
 
 	/* Reenable paging using temporary cr3 */
@@ -238,14 +230,10 @@ _C_LABEL(acpi_protected_mode_resume):
 	.align 16
 _ACPI_TRMP_LABEL(acpi_long_mode_trampoline)
 _C_LABEL(acpi_long_mode_resume):
-	/* Restore the stashed copy of EFER we set aside earlier */	
-	movl	%ebx, %eax
-	movl	$MSR_EFER, %ecx
-	wrmsr
 
 	/* Load GDT based on our saved copy */
 	lgdt	acpi_saved_gdt
-	
+
 	/* Reset segment registers */
 	movw    $GSEL(GDATA_SEL, SEL_KPL),%ax
 	movw    %ax,%ds
@@ -521,56 +509,6 @@ _ACPI_TRMP_OFFSET(clean_idt)
 	.word	0xffff
 	.long	0
 	.word	0
-
-	/*
-	 * gdt_16 is the gdt used when returning to real mode for bios
-	 * reads/writes (sets up a 16 bit segment)
-	 */
-	.align 8
-_ACPI_TRMP_LABEL(gdt_16)
-	.word   gdt_16_end - gdt_16_table
-	.long   gdt_16_table
-
-	.align 8
-_ACPI_TRMP_LABEL(gdt_16_table)
-	/*
-	 * null
-	 */
-	.word   0, 0
-	.byte   0, 0, 0, 0
-	/*
-	 * Code
-	 * Limit: 0xffffffff
-	 * Base: 0x00000000
-	 * Descriptor Type: Code
-	 * Segment Type: CRA
-	 * Present: True
-	 * Priv: 0
-	 * AVL: False
-	 * 64-bit: False
-	 * 32-bit: False
-	 *
-	 */
-	.word   0xffff, 0
-	.byte   0, 0x9f, 0x8f, 0
-
-	/*
-	 * Data
-	 * Limit: 0xffffffff
-	 * Base: 0x00000000
-	 * Descriptor Type:
-	 * Segment Type: W
-	 * Present: True
-	 * Priv: 0
-	 * AVL: False
-	 * 64-bit: False
-	 * 32-bit: False
-	 *
-	 */
-	.word   0xffff, 0
-	.byte   0, 0x93, 0x8f, 0
-
-_ACPI_TRMP_LABEL(gdt_16_end)
 
 	.align 8
 _ACPI_TRMP_LABEL(tmp_gdt64)
