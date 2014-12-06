@@ -1,4 +1,4 @@
-/*	$OpenBSD: slowcgi.c,v 1.35 2014/09/19 21:28:32 florian Exp $ */
+/*	$OpenBSD: slowcgi.c,v 1.40 2014/12/05 20:01:39 florian Exp $ */
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
  * Copyright (c) 2013 Florian Obser <florian@openbsd.org>
@@ -191,8 +191,8 @@ void		dump_fcgi_end_request_body(const char *,
 void		cleanup_request(struct request *);
 
 struct loggers {
-	void (*err)(int, const char *, ...);
-	void (*errx)(int, const char *, ...);
+	__dead void (*err)(int, const char *, ...);
+	__dead void (*errx)(int, const char *, ...);
 	void (*warn)(const char *, ...);
 	void (*warnx)(const char *, ...);
 	void (*info)(const char *, ...);
@@ -208,13 +208,13 @@ const struct loggers conslogger = {
 	warnx /* debug */
 };
 
-void	syslog_err(int, const char *, ...);
-void	syslog_errx(int, const char *, ...);
-void	syslog_warn(const char *, ...);
-void	syslog_warnx(const char *, ...);
-void	syslog_info(const char *, ...);
-void	syslog_debug(const char *, ...);
-void	syslog_vstrerror(int, int, const char *, va_list);
+__dead void	syslog_err(int, const char *, ...);
+__dead void	syslog_errx(int, const char *, ...);
+void		syslog_warn(const char *, ...);
+void		syslog_warnx(const char *, ...);
+void		syslog_info(const char *, ...);
+void		syslog_debug(const char *, ...);
+void		syslog_vstrerror(int, int, const char *, va_list);
 
 const struct loggers syslogger = {
 	syslog_err,
@@ -355,7 +355,7 @@ slowcgi_listen(char *path, struct passwd *pw)
 	struct listener		 *l = NULL;
 	struct sockaddr_un	 sun;
 	size_t			 len;
-	mode_t			 old_umask, mode;
+	mode_t			 old_umask;
 	int			 fd;
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
@@ -430,15 +430,15 @@ slowcgi_accept(int fd, short events, void *arg)
 {
 	struct listener		*l;
 	struct sockaddr_storage	 ss;
-	struct timeval		 pause;
+	struct timeval		 backoff;
 	struct request		*c;
 	struct requests		*requests;
 	socklen_t		 len;
 	int			 s;
 
 	l = arg;
-	pause.tv_sec = 1;
-	pause.tv_usec = 0;
+	backoff.tv_sec = 1;
+	backoff.tv_usec = 0;
 	c = NULL;
 
 	len = sizeof(ss);
@@ -452,7 +452,7 @@ slowcgi_accept(int fd, short events, void *arg)
 		case EMFILE:
 		case ENFILE:
 			event_del(&l->ev);
-			evtimer_add(&l->pause, &pause);
+			evtimer_add(&l->pause, &backoff);
 			return;
 		default:
 			lerr(1, "accept");
@@ -599,7 +599,6 @@ slowcgi_request(int fd, short events, void *arg)
 	size_t		 n, parsed;
 
 	c = arg;
-	parsed = 0;
 
 	n = read(fd, c->buf + c->buf_pos + c->buf_len,
 	    FCGI_RECORD_SIZE - c->buf_pos-c->buf_len);
@@ -649,8 +648,6 @@ fail:
 void
 parse_begin_request(uint8_t *buf, uint16_t n, struct request *c, uint16_t id)
 {
-	struct fcgi_begin_request_body	*b;
-
 	/* XXX -- FCGI_CANT_MPX_CONN */
 	if (c->request_started) {
 		lwarnx("unexpected FCGI_BEGIN_REQUEST, ignoring");
@@ -664,7 +661,6 @@ parse_begin_request(uint8_t *buf, uint16_t n, struct request *c, uint16_t id)
 	}
 
 	c->request_started = 1;
-	b = (struct fcgi_begin_request_body*) buf;
 
 	c->id = id;
 	SLIST_INIT(&c->env);
@@ -685,8 +681,6 @@ parse_params(uint8_t *buf, uint16_t n, struct request *c, uint16_t id)
 		lwarnx("unexpected id, ignoring");
 		return;
 	}
-
-	name_len = val_len = 0;
 
 	/*
 	 * If this is the last FastCGI parameter record,
@@ -727,7 +721,9 @@ parse_params(uint8_t *buf, uint16_t n, struct request *c, uint16_t id)
 				} else
 					return;
 			}
-		}
+		} else
+			return;
+
 		if (n < name_len + val_len)
 			return;
 
@@ -1195,7 +1191,7 @@ syslog_vstrerror(int e, int priority, const char *fmt, va_list ap)
 	free(s);
 }
 
-void
+__dead void
 syslog_err(int ecode, const char *fmt, ...)
 {
 	va_list ap;
@@ -1206,7 +1202,7 @@ syslog_err(int ecode, const char *fmt, ...)
 	exit(ecode);
 }
 
-void
+__dead void
 syslog_errx(int ecode, const char *fmt, ...)
 {
 	va_list ap;
