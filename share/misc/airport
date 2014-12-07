@@ -1,4 +1,4 @@
-#	$OpenBSD: airport,v 1.30 2014/12/06 05:20:54 deraadt Exp $
+#	$OpenBSD: airport,v 1.38 2014/12/06 23:19:50 mlarkin Exp $
 #	@(#)airport	8.1 (Berkeley) 6/8/93
 #
 # Some of this information from the Airport Search Engine at
@@ -150,7 +150,7 @@ BEH:Southwest Michigan Regional, Benton Harbor, MI, USA
 BEI:Beica, Ethiopia
 BEL:Val De Caes International, Belem, Para, Brazil
 BEO:Belmont, Newcastle, New South Wales, Australia
-BER:Berling/Brandenburg, Berlin, Germany
+BER:Berlin Brandenburg, Berlin, Germany
 BES:Brest/Bretagne, Brest, France
 BET:Bethel, AK, USA
 BEW:Beira, Mozambique
@@ -214,6 +214,7 @@ BNE:Brisbane International, Queensland, Australia
 BNJ:Hangelar, Bonn, Germany
 BNN:Bronnoysun, Bronnoysund, Norway
 BNS:Barinas, Venezuela
+BOB:Bora Bora, French Polynesia
 BOD:Merignac, Bordeaux, France
 BOG:El Dorado International, Bogota, Colombia
 BOI:Boise Air Terminal/Gowen Field, Idaho, USA
@@ -307,7 +308,7 @@ CGD:Changde, China
 CGH:Congonhas, Sao Paulo, Sao Paulo, Brazil
 CGI:Cape Girardeau, MO, USA
 CGK:Soekarno Hatta International, Jakarta, Indonesia
-CGN:Konrad Adenauer, Koln/Bonn, Germany
+CGN:Konrad Adenauer, Cologne/Bonn, Germany
 CGO:Zhengzhou, China
 CGP:Patenga, Chittagong, Bangladesh
 CGQ:Changchun, China
@@ -487,6 +488,7 @@ ELY:Yelland Field, Ely, NV, USA
 EMA:East Midlands, England, United Kingdom
 EMD:Emerald, Queensland, Australia
 ENA:Kenai Municipal, AK, USA
+ENC:Nancy-Essey, France
 ENS:Twente, Enschede, Netherlands
 EOH:Enrique Olaya Herrara, Medellin, Colombia
 EPR:Esperance, Western Australia, Australia
@@ -499,7 +501,7 @@ ESC:Delta County, Escanaba, MI, USA
 ESD:Eastsound/Orcas Island, WA, USA
 ESR:El Salvador, Chile
 ETH:Elat, Israel
-ETZ:Frescaty, Metz/Nancy, France
+ETZ:Metz/Nancy Lorraine, France
 EUG:Eugene, OR, USA
 EVE:Evenes, Norway
 EVG:Sveg, Sweden
@@ -645,7 +647,6 @@ HAN:Noibai, Hanoi, Vietnam
 HAU:Karmoy, Haugesund, Norway
 HAV:Jose Marti, Havana, Cuba
 HBA:Hobart, Tasmania, Australia
-HDB:Heidelberg, Germany
 HDN:Yampa Valley Regional, Hayden, CO, USA
 HDY:Hat Yai, Thailand
 HEL:Helsinki-Vantaa, Finland
@@ -656,6 +657,7 @@ HFT:Hammerfest, Norway
 HGH:Hangzhou, China
 HGN:Mae Hong Son, Thailand
 HGR:Washington County Regional, Hagerstown, MD, USA
+HHN:Frankfurt-Hahn, Kirchberg, Germany
 HHH:Municipal, Hilton Head, SC, USA
 HIJ:Hiroshima, Japan
 HIR:Henderson International, Honiara/Guadalcanal, Solomon Islands
@@ -668,6 +670,7 @@ HKT:Phuket, Thailand
 HKV:Haskovo, Bulgaria
 HKY:Hickory, NC, USA
 HLF:Hultsfred, Smaland, Sweden
+HLI:Hollister, CA, USA
 HLN:Helena, MT, USA
 HLP:Halim Perdana Kusama, Jakarta, Indonesia
 HLZ:Hamilton, New Zealand
@@ -724,6 +727,7 @@ IGM:Mohave County, Kingman, AZ, USA
 IGR:Iguazu International, Misiones, Argentina
 IGU:Iguassu Falls, Parana, Brazil
 IJK:Izhevsk, Russia
+IKA:Imam Khomeini International Airport, Tehran, Iran
 IKT:Irkutsk, Russia
 ILE:Killeen, TX, USA
 ILF:Ilford, Manitoba, Canada
@@ -991,6 +995,7 @@ LUG:Agno, Lugano, Switzerland
 LUN:Lusaka, Zambia
 LUX:Findel, Luxembourg
 LVI:Livingstone, Zambia
+LVK:Livermore, CA, USA
 LWB:Greenbrier, WV, USA
 LWK:Tingwall, Shetland Islands /Shetland Isd, Scotland, United Kingdom
 LWO:Snilow, Lvov, Ukraine
@@ -1002,7 +1007,7 @@ LYC:Lycksele, Sweden
 LYH:Lynchburg, VA, USA
 LYP:Lyallpur, Faisalabad, Pakistan
 LYR:Svalbard, Longyearbyen, Norway
-LYS:Satolas, Lyon, France
+LYS:Lyon Saint-Exupery, France
 LZC:Na, Lazaro Cardenas, Michoacan, Mexico
 MAA:Meenambarkkam, Madras, India
 MAD:Barajas, Madrid, Spain
@@ -1321,6 +1326,7 @@ POU:Dutchess County, Poughkeepsie, NY, USA
 POZ:Lawica, Poznan, Poland
 PPG:Pago Pago International, American Samoa
 PPS:Puerto Princesa, Philippines
+PPT:Pape'ete, Tahiti, French Polynesia
 PQI:Presque Isle, ME, USA
 PQQ:Port Macquarie, New South Wales, Australia
 PRC:Prescott, AZ, USA
@@ -1339,6 +1345,7 @@ PTG:Pietersburg, South Africa
 PTP:Le Raizet, Pointe A Pitre, Guadeloupe
 PTY:Tocumen International, Panama City, Panama
 PUB:Pueblo, CO, USA
+PUF:Pau Pyrenees, Pau, France
 PUJ:Punta Cana, Dominican Republic
 PUQ:Presidente Ibanez, Punta Arenas, Chile
 PUS:Kimhae, Pusan, South Korea
@@ -1357,6 +1364,7 @@ PXM:Puerto Escondido, Oaxaca, Mexico
 PXO:Porto Santo, Madeira Islands, Portugal
 PZE:Penzance, England, United Kingdom
 PZO:Puerto Ordaz, Venezuela
+PZU:Port Sudan, Sudan
 QBF:Vail/Eagle, CO, USA
 QDU:Main Train Station, Duesseldorf, Germany
 QDV:All Airports around Denver, Colorado, USA
@@ -1389,6 +1397,7 @@ RGA:Rio Grande, Tierra Del Fuego, Argentina
 RGN:Mingaladon, Yangon, Myanmar
 RHI:Rhinelander Oneida County, WI, USA
 RHO:Paradisi, Rhodes, Greece
+RHV:Reid-Hillview Airport, San Jose, CA, USA
 RIC:Richmond International/Byrd Field, Virginia, USA
 RIO:All Airports around Rio de Janeiro, RJ, Brazil
 RIW:Riverton, WY, USA
@@ -1458,7 +1467,7 @@ SEL:Kimpo International, Seoul, South Korea
 SEN:Southend, London, England, United Kingdom
 SEZ:Mahe Island Seychelles Intl, Mahe Island, Seychelles
 SFA:Sfax, Tunisia
-SFG:Esperance, St Martin, Netherlands Antilles
+SFG:Esperance, St Martin, French Antilles
 SFJ:Sondre Stromfjord, Kangerlussuaq, Greenland
 SFN:Santa Fe, Santa Fe, Argentina
 SFO:San Francisco International, California, USA
@@ -1635,6 +1644,7 @@ TLH:Tallahassee, FL, USA
 TLL:Ulemiste, Tallinn, Estonia
 TLS:Blagnac, Toulouse, France
 TLV:Ben-Gurion, Tel Aviv, Israel
+TMS:Sao Tome International, Sao Tome and Principe
 TMW:Tamworth, New South Wales, Australia
 TNG:Boukhalef Souahel, Tangier, Morocco
 TNR:Ivato, Antananarivo, Madagascar
@@ -1697,6 +1707,7 @@ UEL:Quelimane, Mozambique
 UET:Quetta, Pakistan
 UGC:Urgench, Uzbekistan
 UIB:Quibdo, Colombia
+UII:Utila, Honduras
 UIN:Baldwin Field, Quincy, IL, USA
 UIO:Mariscal, Quito, Ecuador
 UIP:Pluguffan, Quimper, France
@@ -1827,6 +1838,7 @@ XSC:South Caicos, Turks And Caicos Islands
 XTY:Strathroy / Via Rail Service, Ontario, Canada
 XVV:Belleville / Via Rail Service, Ontario, Canada
 XWY:Wyoming / Via Rail Service, Ontario, Canada
+XYT:Montaudran, Toulouse, France
 XZB:Casselman / Via Rail Service, Ontario, Canada
 XZC:Glencoe / Via Rail Service, Ontario, Canada
 YAM:Sault Ste Marie, Ontario, Canada
