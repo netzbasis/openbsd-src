@@ -1,7 +1,7 @@
-/*	$OpenBSD: if_enc.h,v 1.12 2014/12/08 10:46:14 mpi Exp $	*/
+/*	$OpenBSD: cbusvar.h,v 1.1 2014/12/08 13:24:04 aoyama Exp $	*/
 
 /*
- * Copyright (c) 2010 Reyk Floeter <reyk@vantronix.net>
+ * Copyright (c) 2014 Kenji Aoyama.
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,27 +16,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _NET_ENC_H
-#define _NET_ENC_H
+/*
+ * PC-9801 extension board slot bus ('C-bus') driver for LUNA-88K2.
+ */
 
-#define ENCMTU		1536		/* XXX should be bigger, maybe LOMTU */
-#define ENC_HDRLEN	12
+#include <sys/evcount.h>
+#include <sys/queue.h>
 
-struct enchdr {
-	u_int32_t af;
-	u_int32_t spi;
-	u_int32_t flags;
+/*
+ * Currently 7 level C-bus interrupts (INT0 - INT6) are supported.
+ */
+#define NCBUSISR	7
+
+/*
+ * C-bus interrupt handler
+ */
+struct cbus_isr_t {
+	int		(*isr_func)(void *);
+	void		*isr_arg;
+	struct evcount	isr_count;
 };
 
-#ifdef _KERNEL
-struct enc_softc {
-	struct ifnet		 sc_if;		/* virtual interface */
-	u_int			 sc_unit;
-	struct ifaddr		 sc_ifa;	/* needed to attach rtentry */
+int	cbus_isrlink(int (*)(void *), void *, int, const char *);
+int	cbus_isrunlink(int (*)(void *), int);
+void	cbus_isrdispatch(int);
+
+struct cbus_attach_args {
+	int	intlevel;
 };
-
-struct ifnet	*enc_getif(u_int, u_int);
-struct ifaddr	*enc_getifa(u_int, u_int);
-#endif /* _KERNEL */
-
-#endif /* _NET_ENC_H */
