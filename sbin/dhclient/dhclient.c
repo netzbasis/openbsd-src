@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.339 2014/12/05 15:47:05 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.343 2014/12/08 02:04:58 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -341,9 +341,7 @@ routehandler(void)
 		linkstat =
 		    LINK_STATE_IS_UP(ifm->ifm_data.ifi_link_state) ? 1 : 0;
 		linkstat = linkstat || (ifi->flags & IFI_NOMEDIA);
-		linkstat = linkstat &&
-			((ifm->ifm_flags & (IFF_UP | IFF_RUNNING)) ==
-			(IFF_UP | IFF_RUNNING));
+		linkstat = linkstat && (ifm->ifm_flags & IFF_UP);
 		if (linkstat != ifi->linkstat) {
 #ifdef DEBUG
 			debug("link state %s -> %s",
@@ -352,8 +350,10 @@ routehandler(void)
 #endif
 			ifi->linkstat = linkstat;
 			if (ifi->linkstat) {
-				if (client->state == S_PREBOOT)
+				if (client->state == S_PREBOOT) {
 					state_preboot();
+					get_hw_address();
+				}
 				client->state = S_REBOOTING;
 				set_timeout_interval(1, state_reboot);
 			} else if (strlen(path_option_db)) {
@@ -636,19 +636,17 @@ state_preboot(void)
 	interval = (int)(cur_time - client->first_sending);
 
 	if (log_perror && interval > 3) {
-		if (!preamble) {
+		if (!preamble && !ifi->linkstat) {
 			fprintf(stderr, "%s: no link ....", ifi->name);
-			fflush(stderr);
 			preamble = 1;
 		}
-		if (ifi->linkstat) {
-			fprintf(stderr, " got link\n");
-			fflush(stderr);
-		} else if (interval > config->link_timeout) {
-			fprintf(stderr, " sleeping\n");
-			fflush(stderr);
-		} else {
-			fprintf(stderr, ".");
+		if (preamble) {
+			if (ifi->linkstat)
+				fprintf(stderr, " got link\n");
+			else if (interval > config->link_timeout)
+				fprintf(stderr, " sleeping\n");
+			else
+				fprintf(stderr, ".");
 			fflush(stderr);
 		}
 	}
@@ -656,9 +654,8 @@ state_preboot(void)
 	if (!ifi->linkstat) {
 		if (interval > config->link_timeout) {
 			go_daemon();
-			client->state = S_REBOOTING;
 			set_timeout_interval(config->retry_interval,
-			    state_reboot);
+			    state_preboot);
 		} else
 			set_timeout_interval(1, state_preboot);
 	}
