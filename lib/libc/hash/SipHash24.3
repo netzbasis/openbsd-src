@@ -1,4 +1,4 @@
-.\"	$OpenBSD: SipHash24.9,v 1.4 2014/12/08 20:49:23 tedu Exp $
+.\"	$OpenBSD: SipHash24.3,v 1.3 2014/12/08 20:52:25 tedu Exp $
 .\"
 .\" Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
 .\"
@@ -15,7 +15,7 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: December 8 2014 $
-.Dt SIPHASH24 9
+.Dt SIPHASH24 3
 .Os
 .Sh NAME
 .Nm SipHash24_Init ,
@@ -25,7 +25,7 @@
 .Nm SipHash24
 .Nd calculate SipHash24 hashes
 .Sh SYNOPSIS
-.In crypto/siphash.h
+.In siphash.h
 .Ft void
 .Fn "SipHash24_Init" "SIPHASH_CTX *ctx" "const SIPHASH_KEY *key"
 .Ft void
@@ -90,19 +90,14 @@ with the secret
 It is recommended that the
 .Vt SIPHASH_KEY
 key be generated with
-.Xr arc4random_buf 9 .
-.Sh CONTEXT
-.Fn SipHash24_Init ,
-.Fn SipHash24_Update ,
-.Fn SipHash24_End ,
-.Fn SipHash24_Final
-and
-.Fn SipHash24
-can be called during autoconf, from process context, or from interrupt context.
+.Xr arc4random_buf 3 .
 .Sh RETURN VALUES
 .Fn SipHash24_End
 and
 .Fn SipHash24
 return the 64-bit message digest in the host's native endian representation.
 .Sh SEE ALSO
-.Xr arc4random_buf 9
+.Xr arc4random_buf 3
+.Sh HISTORY
+These functions appeared in
+.Ox 5.7 .

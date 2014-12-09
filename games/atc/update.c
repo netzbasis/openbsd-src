@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.14 2014/07/13 14:01:04 tedu Exp $	*/
+/*	$OpenBSD: update.c,v 1.16 2014/12/09 05:01:14 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -43,12 +43,11 @@
 
 #include "include.h"
 
-int seeded;
 void
 setseed(const char *seed)
 {
 	seeded = 1;
-	srandom(atol(seed));
+	srandom_deterministic(atol(seed));
 }
 
 uint32_t
