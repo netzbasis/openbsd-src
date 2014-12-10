@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.344 2014/12/09 02:27:54 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.346 2014/12/10 02:34:03 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -327,7 +327,7 @@ routehandler(void)
 			goto die;
 		}
 
-		if (ifi->linkstat) {
+		if (ifi->flags & IFI_VALID_LLADDR) {
 			memcpy(&hw, &ifi->hw_address, sizeof(hw));
 			get_hw_address();
 			if (memcmp(&hw, &ifi->hw_address, sizeof(hw))) {
@@ -338,10 +338,7 @@ routehandler(void)
 			}
 		}
 
-		linkstat =
-		    LINK_STATE_IS_UP(ifm->ifm_data.ifi_link_state) ? 1 : 0;
-		linkstat = linkstat || (ifi->flags & IFI_NOMEDIA);
-		linkstat = linkstat && (ifm->ifm_flags & IFF_UP);
+		linkstat = interface_status(ifi->name);
 		if (linkstat != ifi->linkstat) {
 #ifdef DEBUG
 			debug("link state %s -> %s",
@@ -353,9 +350,10 @@ routehandler(void)
 				if (client->state == S_PREBOOT) {
 					state_preboot();
 					get_hw_address();
+				} else {
+					client->state = S_REBOOTING;
+					state_reboot();
 				}
-				client->state = S_REBOOTING;
-				set_timeout_interval(1, state_reboot);
 			} else if (strlen(path_option_db)) {
 				/* Let monitoring programs see link loss. */
 				write_file(path_option_db,
@@ -601,6 +599,7 @@ main(int argc, char *argv[])
 	endpwent();
 
 	setproctitle("%s", ifi->name);
+	time(&client->startup_time);
 
 	if (ifi->linkstat) {
 		client->state = S_REBOOTING;
@@ -636,10 +635,9 @@ state_preboot(void)
 
 	time(&cur_time);
 
-	if (client->first_sending == 0)
-		client->first_sending = cur_time;
+	interval = (int)(cur_time - client->startup_time);
 
-	interval = (int)(cur_time - client->first_sending);
+	ifi->linkstat = interface_status(ifi->name);
 
 	if (log_perror && interval > 3) {
 		if (!preamble && !ifi->linkstat) {
@@ -657,13 +655,14 @@ state_preboot(void)
 		}
 	}
 
-	if (!ifi->linkstat) {
-		if (interval > config->link_timeout) {
+	if (ifi->linkstat) {
+		client->state = S_REBOOTING;
+		set_timeout_interval(1, state_reboot);
+	} else {
+		if (interval > config->link_timeout)
 			go_daemon();
-			set_timeout_interval(config->retry_interval,
-			    state_preboot);
-		} else
-			set_timeout_interval(1, state_preboot);
+		client->state = S_PREBOOT;
+		set_timeout_interval(1, state_preboot);
 	}
 }
 
