@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_srvr.c,v 1.91 2014/11/18 05:33:43 miod Exp $ */
+/* $OpenBSD: s3_srvr.c,v 1.93 2014/12/10 15:43:31 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -298,7 +298,11 @@ ssl3_accept(SSL *s)
 					goto end;
 				}
 
-				ssl3_init_finished_mac(s);
+				if (!ssl3_init_finished_mac(s)) {
+					ret = -1;
+					goto end;
+				}
+
 				s->state = SSL3_ST_SR_CLNT_HELLO_A;
 				s->ctx->stats.sess_accept++;
 			} else if (!s->s3->send_connection_binding) {
@@ -334,7 +338,10 @@ ssl3_accept(SSL *s)
 			s->state = SSL3_ST_SW_FLUSH;
 			s->init_num = 0;
 
-			ssl3_init_finished_mac(s);
+			if (!ssl3_init_finished_mac(s)) {
+				ret = -1;
+				goto end;
+			}
 			break;
 
 		case SSL3_ST_SW_HELLO_REQ_C:
@@ -2134,9 +2141,7 @@ ssl3_get_client_key_exchange(SSL *s)
 
 		/* Get our certificate private key*/
 		alg_a = s->s3->tmp.new_cipher->algorithm_auth;
-		if (alg_a & SSL_aGOST94)
-			pk = s->cert->pkeys[SSL_PKEY_GOST94].privatekey;
-		else if (alg_a & SSL_aGOST01)
+		if (alg_a & SSL_aGOST01)
 			pk = s->cert->pkeys[SSL_PKEY_GOST01].privatekey;
 
 		pkey_ctx = EVP_PKEY_CTX_new(pk, NULL);

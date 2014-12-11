@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.97 2014/12/06 14:24:26 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.99 2014/12/10 15:43:31 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -288,7 +288,10 @@ ssl3_connect(SSL *s)
 
 			/* don't push the buffering BIO quite yet */
 
-			ssl3_init_finished_mac(s);
+			if (!ssl3_init_finished_mac(s)) {
+				ret = -1;
+				goto end;
+			}
 
 			s->state = SSL3_ST_CW_CLNT_HELLO_A;
 			s->ctx->stats.sess_connect++;
@@ -2207,8 +2210,6 @@ ssl3_send_client_key_exchange(SSL *s)
 
 			/* Get server sertificate PKEY and create ctx from it */
 			peer_cert = s->session->sess_cert->peer_pkeys[SSL_PKEY_GOST01].x509;
-			if (!peer_cert)
-				peer_cert = s->session->sess_cert->peer_pkeys[SSL_PKEY_GOST94].x509;
 			if (!peer_cert) {
 				SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
 				    SSL_R_NO_GOST_CERTIFICATE_SENT_BY_PEER);

@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.85 2014/11/18 05:33:43 miod Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.87 2014/12/10 15:36:47 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -747,23 +747,6 @@ SSL_CIPHER ssl3_ciphers[] = {
 
 	/* GOST Ciphersuites */
 
-	/* Cipher 80 */
-	{
-		.valid = 1,
-		.name = "GOST94-GOST89-GOST89",
-		.id = 0x3000080,
-		.algorithm_mkey = SSL_kGOST,
-		.algorithm_auth = SSL_aGOST94,
-		.algorithm_enc = SSL_eGOST2814789CNT,
-		.algorithm_mac = SSL_GOST89MAC,
-		.algorithm_ssl = SSL_TLSV1,
-		.algo_strength = SSL_HIGH,
-		.algorithm2 = SSL_HANDSHAKE_MAC_GOST94|TLS1_PRF_GOST94|
-		    TLS1_STREAM_MAC,
-		.strength_bits = 256,
-		.alg_bits = 256
-	},
-
 	/* Cipher 81 */
 	{
 		.valid = 1,
@@ -779,22 +762,6 @@ SSL_CIPHER ssl3_ciphers[] = {
 		    TLS1_STREAM_MAC,
 		.strength_bits = 256,
 		.alg_bits = 256
-	},
-
-	/* Cipher 82 */
-	{
-		.valid = 1,
-		.name = "GOST94-NULL-GOST94",
-		.id = 0x3000082,
-		.algorithm_mkey = SSL_kGOST,
-		.algorithm_auth = SSL_aGOST94,
-		.algorithm_enc = SSL_eNULL,
-		.algorithm_mac = SSL_GOST94,
-		.algorithm_ssl = SSL_TLSV1,
-		.algo_strength = SSL_STRONG_NONE,
-		.algorithm2 = SSL_HANDSHAKE_MAC_GOST94|TLS1_PRF_GOST94,
-		.strength_bits = 0,
-		.alg_bits = 0
 	},
 
 	/* Cipher 83 */
@@ -1905,6 +1872,8 @@ ssl3_free(SSL *s)
 		sk_X509_NAME_pop_free(s->s3->tmp.ca_names, X509_NAME_free);
 	BIO_free(s->s3->handshake_buffer);
 	ssl3_free_digest_list(s);
+	free(s->s3->alpn_selected);
+
 	OPENSSL_cleanse(s->s3, sizeof *s->s3);
 	free(s->s3);
 	s->s3 = NULL;
@@ -1938,6 +1907,9 @@ ssl3_clear(SSL *s)
 	s->s3->handshake_buffer = NULL;
 
 	ssl3_free_digest_list(s);
+
+	free(s->s3->alpn_selected);
+	s->s3->alpn_selected = NULL;
 
 	memset(s->s3, 0, sizeof *s->s3);
 	s->s3->rbuf.buf = rp;
