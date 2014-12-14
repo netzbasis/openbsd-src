@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.71 2014/12/02 18:13:10 tedu Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.73 2014/12/14 05:04:49 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -334,8 +334,6 @@ cpu_init_mwait(struct cpu_softc *sc)
 	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0)
 		return;
 
-	return;
-
 	/* get the monitor granularity */
 	CPUID(0x5, smallest, largest, extensions, c_substates);
 	smallest &= 0xffff;
@@ -361,6 +359,8 @@ cpu_init_mwait(struct cpu_softc *sc)
 	else
 		mwait_size = largest;
 	printf("\n");
+	/* XXX disable mwait: ACPI says not to use it on too many systems */
+	mwait_size = 0;
 }
 
 void
