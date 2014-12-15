@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_enc.c,v 1.73 2014/11/18 05:33:43 miod Exp $ */
+/* $OpenBSD: t1_enc.c,v 1.75 2014/12/15 00:46:53 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -605,7 +605,7 @@ tls1_setup_key_block(SSL *s)
 		key_len = EVP_CIPHER_key_length(cipher);
 		iv_len = EVP_CIPHER_iv_length(cipher);
 
-		/* If GCM mode only part of IV comes from PRF. */ 
+		/* If GCM mode only part of IV comes from PRF. */
 		if (EVP_CIPHER_mode(cipher) == EVP_CIPH_GCM_MODE)
 			iv_len = EVP_GCM_TLS_FIXED_IV_LEN;
 	}
@@ -823,7 +823,7 @@ tls1_enc(SSL *s, int send)
 					fprintf(stderr,
 					    "%s:%d: rec->data != rec->input\n",
 					    __FILE__, __LINE__);
-				else 
+				else
 					arc4random_buf(rec->input, ivlen);
 			}
 		}
@@ -1054,12 +1054,13 @@ tls1_mac(SSL *ssl, unsigned char *md, int send)
 		 * timing-side channel information about how many blocks of
 		 * data we are hashing because that gives an attacker a
 		 * timing-oracle. */
-		ssl3_cbc_digest_record(mac_ctx,
+		if (!ssl3_cbc_digest_record(mac_ctx,
 		    md, &md_size, header, rec->input,
 		    rec->length + md_size, orig_len,
 		    ssl->s3->read_mac_secret,
 		    ssl->s3->read_mac_secret_size,
-		    0 /* not SSLv3 */);
+		    0 /* not SSLv3 */))
+			return -1;
 	} else {
 		EVP_DigestSignUpdate(mac_ctx, header, sizeof(header));
 		EVP_DigestSignUpdate(mac_ctx, rec->input, rec->length);
