@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.111 2014/11/19 01:20:18 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.114 2014/12/16 03:52:31 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -1234,7 +1234,7 @@ roff_evalstrcond(const char *v, int *pos)
 out:
 	if (NULL == s3)
 		s3 = strchr(s2, '\0');
-	else
+	else if (*s3 != '\0')
 		s3++;
 	*pos = s3 - v;
 	return(match);
@@ -1247,7 +1247,7 @@ out:
 static int
 roff_evalcond(struct roff *r, int ln, const char *v, int *pos)
 {
-	int	 wanttrue, number;
+	int	 number, savepos, wanttrue;
 
 	if ('!' == v[*pos]) {
 		wanttrue = 0;
@@ -1256,6 +1256,8 @@ roff_evalcond(struct roff *r, int ln, const char *v, int *pos)
 		wanttrue = 1;
 
 	switch (v[*pos]) {
+	case '\0':
+		return(0);
 	case 'n':
 		/* FALLTHROUGH */
 	case 'o':
@@ -1278,10 +1280,13 @@ roff_evalcond(struct roff *r, int ln, const char *v, int *pos)
 		break;
 	}
 
+	savepos = *pos;
 	if (roff_evalnum(r, ln, v, pos, &number, 0))
 		return((number > 0) == wanttrue);
-	else
+	else if (*pos == savepos)
 		return(roff_evalstrcond(v, pos) == wanttrue);
+	else
+		return (0);
 }
 
 static enum rofferr
