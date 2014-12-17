@@ -59,6 +59,7 @@
 ./etc/firmware/zd1211-license
 ./etc/firmware/zd1211b
 ./sbin/kbd
+./sbin/ld.so
 ./sbin/mount_ntfs
 ./sbin/wsconsctl
 ./usr/lib/libc.so.78.0
@@ -2175,6 +2176,7 @@
 ./usr/mdec/bootxx
 ./usr/mdec/installboot
 ./usr/mdec/netboot
+./usr/mdec/netboot.mop
 ./usr/mdec/setnetbootinfo
 ./usr/sbin/hotplugd
 ./usr/sbin/pcidump
