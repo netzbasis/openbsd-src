@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.119 2014/11/18 02:37:31 tedu Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.121 2014/12/18 21:00:12 tedu Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -663,7 +663,7 @@ nfsm_mbuftouio(struct mbuf **mrep, struct uio *uiop, int siz, caddr_t *dpos)
 			}
 			xfer = (left > len) ? len : left;
 			if (uiop->uio_segflg == UIO_SYSSPACE)
-				bcopy(mbufcp, uiocp, xfer);
+				memcpy(uiocp, mbufcp, xfer);
 			else
 				copyout(mbufcp, uiocp, xfer);
 			left -= xfer;
@@ -1093,7 +1093,7 @@ nfs_loadattrcache(struct vnode **vpp, struct mbuf **mdp, caddr_t *dposp,
 	}
 	np->n_attrstamp = time_second;
 	if (vaper != NULL) {
-		bcopy((caddr_t)vap, (caddr_t)vaper, sizeof(*vap));
+		bcopy(vap, vaper, sizeof(*vap));
 		if (np->n_flag & NCHG) {
 			if (np->n_flag & NACC)
 				vaper->va_atime = np->n_atim;
@@ -1160,7 +1160,7 @@ nfs_getattrcache(struct vnode *vp, struct vattr *vaper)
 		} else
 			np->n_size = vap->va_size;
 	}
-	bcopy((caddr_t)vap, (caddr_t)vaper, sizeof(struct vattr));
+	bcopy(vap, vaper, sizeof(struct vattr));
 	if (np->n_flag & NCHG) {
 		if (np->n_flag & NACC)
 			vaper->va_atime = np->n_atim;

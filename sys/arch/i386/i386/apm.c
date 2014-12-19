@@ -1,4 +1,4 @@
-/*	$OpenBSD: apm.c,v 1.110 2014/10/17 15:35:31 deraadt Exp $	*/
+/*	$OpenBSD: apm.c,v 1.112 2014/12/18 17:02:35 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1998-2001 Michael Shalayeff. All rights reserved.
@@ -50,6 +50,7 @@
 #include <sys/buf.h>
 #include <sys/reboot.h>
 #include <sys/event.h>
+#include <dev/rndvar.h>
 
 #include <machine/conf.h>
 #include <machine/cpu.h>
@@ -253,6 +254,7 @@ apm_suspend(int state)
 	s = splhigh();
 	disable_intr();
 	config_suspend_all(DVACT_SUSPEND);
+	suspend_randomness();
 
 	/* XXX
 	 * Flag to disk drivers that they should "power down" the disk
@@ -276,9 +278,7 @@ apm_suspend(int state)
 	enable_intr();
 	splx(s);
 
-	/* restore hw.setperf */
-	if (cpu_setperf != NULL)
-		cpu_setperf(perflevel);
+	resume_randomness();		/* force RNG upper level reseed */
 	bufq_restart();
 
 	config_suspend_all(DVACT_WAKEUP);
@@ -286,6 +286,10 @@ apm_suspend(int state)
 #if NWSDISPLAY > 0
 	wsdisplay_resume();
 #endif /* NWSDISPLAY > 0 */
+
+	/* restore hw.setperf */
+	if (cpu_setperf != NULL)
+		cpu_setperf(perflevel);
 }
 
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: prom.c,v 1.13 2002/03/14 01:26:26 millert Exp $ */
+/* $OpenBSD: prom.c,v 1.16 2014/12/18 10:50:02 dlg Exp $ */
 /* $NetBSD: prom.c,v 1.39 2000/03/06 21:36:05 thorpej Exp $ */
 
 /* 
@@ -29,9 +29,9 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <uvm/uvm_extern.h>
-#include <sys/lock.h>
 #include <sys/proc.h>
 #include <sys/user.h>
+#include <sys/mutex.h>
 
 #include <machine/cpu.h>
 #include <machine/rpb.h>
@@ -49,7 +49,10 @@ int		alpha_console;
 
 extern struct prom_vec prom_dispatch_v;
 
-struct simplelock prom_slock;
+struct mutex prom_lock = MUTEX_INITIALIZER(IPL_HIGH);
+
+void	prom_enter(void);
+void	prom_leave(void);
 
 #ifdef _PMAP_MAY_USE_PROM_CONSOLE
 int		prom_mapped = 1;	/* Is PROM still mapped? */
@@ -72,17 +75,14 @@ prom_lev1map()
 #endif /* _PMAP_MAY_USE_PROM_CONSOLE */
 
 void
-init_prom_interface(rpb)
-	struct rpb *rpb;
+init_prom_interface(struct rpb *rpb)
 {
 	struct crb *c;
 
 	c = (struct crb *)((char *)rpb + rpb->rpb_crb_off);
 
-        prom_dispatch_v.routine_arg = c->crb_v_dispatch;
-        prom_dispatch_v.routine = c->crb_v_dispatch->entry_va;
-
-	simple_lock_init(&prom_slock);
+	prom_dispatch_v.routine_arg = c->crb_v_dispatch;
+	prom_dispatch_v.routine = c->crb_v_dispatch->entry_va;
 }
 
 void
@@ -103,13 +103,10 @@ init_bootstrap_console()
 static void prom_cache_sync(void);
 #endif
 
-int
-prom_enter()
+void
+prom_enter(void)
 {
-	int s;
-
-	s = splhigh();
-	simple_lock(&prom_slock);
+	mtx_enter(&prom_lock);
 
 #ifdef _PMAP_MAY_USE_PROM_CONSOLE
 	/*
@@ -130,14 +127,11 @@ prom_enter()
 		prom_cache_sync();			/* XXX */
 	}
 #endif
-	return s;
 }
 
 void
-prom_leave(s)
-	int s;
+prom_leave(void)
 {
-
 #ifdef _PMAP_MAY_USE_PROM_CONSOLE
 	/*
 	 * See comment above.
@@ -154,8 +148,8 @@ prom_leave(s)
 		prom_cache_sync();			/* XXX */
 	}
 #endif
-	simple_unlock(&prom_slock);
-	splx(s);
+
+	mtx_leave(&prom_lock);
 }
 
 #ifdef _PMAP_MAY_USE_PROM_CONSOLE
@@ -178,22 +172,19 @@ prom_cache_sync(void)
  * of the console area.
  */
 void
-promcnputc(dev, c)
-	dev_t dev;
-	int c;
+promcnputc(dev_t dev, int c)
 {
-        prom_return_t ret;
+	prom_return_t ret;
 	unsigned char *to = (unsigned char *)0x20000000;
-	int s;
 
-	s = prom_enter();	/* splhigh() and map prom */
+	prom_enter();	/* lock and map prom */
 	*to = c;
 
 	do {
 		ret.bits = prom_putstr(alpha_console, to, 1);
 	} while ((ret.u.retval & 1) == 0);
 
-	prom_leave(s);		/* unmap prom and splx(s) */
+	prom_leave();		/* unmap prom and unlock */
 }
 
 /*
@@ -202,19 +193,17 @@ promcnputc(dev, c)
  * Wait for the prom to get a real char and pass it back.
  */
 int
-promcngetc(dev)
-	dev_t dev;
+promcngetc(dev_t dev)
 {
-        prom_return_t ret;
-	int s;
+	prom_return_t ret;
 
-        for (;;) {
-		s = prom_enter();
-                ret.bits = prom_getc(alpha_console);
-		prom_leave(s);
-                if (ret.u.status == 0 || ret.u.status == 1)
-                        return (ret.u.retval);
-        }
+	for (;;) {
+		prom_enter();
+		ret.bits = prom_getc(alpha_console);
+		prom_leave();
+		if (ret.u.status == 0 || ret.u.status == 1)
+			return (ret.u.retval);
+	}
 }
 
 /*
@@ -223,16 +212,13 @@ promcngetc(dev)
  * See if prom has a real char and pass it back.
  */
 int
-promcnlookc(dev, cp)
-	dev_t dev;
-	char *cp;
+promcnlookc(dev_t dev, char *cp)
 {
-        prom_return_t ret;
-	int s;
+	prom_return_t ret;
 
-	s = prom_enter();
+	prom_enter();
 	ret.bits = prom_getc(alpha_console);
-	prom_leave(s);
+	prom_leave();
 	if (ret.u.status == 0 || ret.u.status == 1) {
 		*cp = ret.u.retval;
 		return 1;
@@ -241,18 +227,15 @@ promcnlookc(dev, cp)
 }
 
 int
-prom_getenv(id, buf, len)
-	int id, len;
-	char *buf;
+prom_getenv(int id, char *buf, int len)
 {
 	unsigned char *to = (unsigned char *)0x20000000;
 	prom_return_t ret;
-	int s;
 
-	s = prom_enter();
+	prom_enter();
 	ret.bits = prom_getenv_disp(id, to, len);
 	bcopy(to, buf, len);
-	prom_leave(s);
+	prom_leave();
 
 	if (ret.u.status & 0x4)
 		ret.u.retval = 0;
@@ -262,8 +245,7 @@ prom_getenv(id, buf, len)
 }
 
 void
-prom_halt(halt)
-	int halt;
+prom_halt(int halt)
 {
 	struct pcs *p;
 
@@ -337,8 +319,7 @@ hwrpb_restart_setup()
 }
 
 u_int64_t
-console_restart(framep)
-	struct trapframe *framep;
+console_restart(struct trapframe *framep)
 {
 	struct pcs *p;
 
