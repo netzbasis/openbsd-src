@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ipw.c,v 1.101 2014/07/22 13:12:11 mpi Exp $	*/
+/*	$OpenBSD: if_ipw.c,v 1.104 2014/12/19 22:44:58 guenther Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -25,16 +25,16 @@
 
 #include <sys/param.h>
 #include <sys/sockio.h>
-#include <sys/workq.h>
+#include <sys/task.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
 #include <sys/device.h>
+#include <sys/endian.h>
 
 #include <machine/bus.h>
-#include <machine/endian.h>
 #include <machine/intr.h>
 
 #include <dev/pci/pcireg.h>
@@ -204,6 +204,9 @@ ipw_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 	printf(": %s", intrstr);
+
+	task_set(&sc->sc_scantask, ipw_scan, sc, NULL);
+	task_set(&sc->sc_authandassoctask, ipw_auth_and_assoc, sc, NULL);
 
 	if (ipw_reset(sc) != 0) {
 		printf(": could not reset adapter\n");
@@ -606,6 +609,9 @@ ipw_release(struct ipw_softc *sc)
 			bus_dmamap_destroy(sc->sc_dmat, sbuf->map);
 		}
 	}
+
+	task_del(systq, &sc->sc_scantask);
+	task_del(systq, &sc->sc_authandassoctask);
 }
 
 int
@@ -676,19 +682,14 @@ int
 ipw_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 {
 	struct ipw_softc *sc = ic->ic_softc;
-	int error;
 
 	switch (nstate) {
 	case IEEE80211_S_SCAN:
-		error = workq_add_task(NULL, 0, ipw_scan, sc, NULL);
-		if (error != 0)
-			return error;
+		task_add(systq, &sc->sc_scantask);
 		break;
 
 	case IEEE80211_S_AUTH:
-		error = workq_add_task(NULL, 0, ipw_auth_and_assoc, sc, NULL);
-		if (error != 0)
-			return error;
+		task_add(systq, &sc->sc_authandassoctask);
 		break;
 
 	case IEEE80211_S_RUN:

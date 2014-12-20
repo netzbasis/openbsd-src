@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_lb.c,v 1.37 2014/12/18 19:02:56 tedu Exp $ */
+/*	$OpenBSD: pf_lb.c,v 1.40 2014/12/19 17:14:40 tedu Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -92,7 +92,7 @@
  * Global variables
  */
 
-void			 pf_hash(struct pf_addr *, struct pf_addr *,
+u_int64_t		 pf_hash(struct pf_addr *, struct pf_addr *,
 			    struct pf_poolhashkey *, sa_family_t);
 int			 pf_get_sport(struct pf_pdesc *, struct pf_rule *,
 			    struct pf_addr *, u_int16_t *, u_int16_t,
@@ -104,13 +104,11 @@ int			 pf_map_addr_sticky(sa_family_t, struct pf_rule *,
 			    struct pf_src_node **, struct pf_pool *,
 			    enum pf_sn_types);
 
-/*
- * hash function based on bridge_hash in if_bridge.c
- */
-void
+u_int64_t
 pf_hash(struct pf_addr *inaddr, struct pf_addr *hash,
     struct pf_poolhashkey *key, sa_family_t af)
 {
+	uint64_t res = 0;
 #ifdef INET6
 	union {
 		uint64_t hash64;
@@ -119,16 +117,16 @@ pf_hash(struct pf_addr *inaddr, struct pf_addr *hash,
 #endif
 
 	switch (af) {
-#ifdef INET
 	case AF_INET:
-		hash->addr32[0] = SipHash24((SIPHASH_KEY *)key,
+		res = SipHash24((SIPHASH_KEY *)key,
 		    &inaddr->addr32[0], sizeof(inaddr->addr32[0]));
+		hash->addr32[0] = res;
 		break;
-#endif /* INET */
 #ifdef INET6
 	case AF_INET6:
-		h.hash64 = SipHash24((SIPHASH_KEY *)key, &inaddr->addr32[0],
+		res = SipHash24((SIPHASH_KEY *)key, &inaddr->addr32[0],
 		    4 * sizeof(inaddr->addr32[0]));
+		h.hash64 = res;
 		hash->addr32[0] = h.hash32[0];
 		hash->addr32[1] = h.hash32[1];
 		/*
@@ -140,6 +138,7 @@ pf_hash(struct pf_addr *inaddr, struct pf_addr *hash,
 		break;
 #endif /* INET6 */
 	}
+	return (res);
 }
 
 int
@@ -340,6 +339,8 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 	u_int16_t		 weight;
 	u_int64_t		 load;
 	u_int64_t		 cload;
+	u_int64_t		 hashidx;
+	int			 cnt;
 
 	if (sns[type] == NULL && rpool->opts & PF_POOL_STICKYADDR &&
 	    (rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_NONE &&
@@ -350,25 +351,17 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 		return (1);
 	if (rpool->addr.type == PF_ADDR_DYNIFTL) {
 		switch (af) {
-#ifdef INET
 		case AF_INET:
 			if (rpool->addr.p.dyn->pfid_acnt4 < 1 &&
-			    ((rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN) &&
-			    ((rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_LEASTSTATES))
+			    !PF_POOL_DYNTYPE(rpool->opts))
 				return (1);
 			raddr = &rpool->addr.p.dyn->pfid_addr4;
 			rmask = &rpool->addr.p.dyn->pfid_mask4;
 			break;
-#endif /* INET */
 #ifdef INET6
 		case AF_INET6:
 			if (rpool->addr.p.dyn->pfid_acnt6 < 1 &&
-			    ((rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_ROUNDROBIN) &&
-			    ((rpool->opts & PF_POOL_TYPEMASK) !=
-			    PF_POOL_LEASTSTATES))
+			    !PF_POOL_DYNTYPE(rpool->opts))
 				return (1);
 			raddr = &rpool->addr.p.dyn->pfid_addr6;
 			rmask = &rpool->addr.p.dyn->pfid_mask6;
@@ -376,8 +369,7 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 #endif /* INET6 */
 		}
 	} else if (rpool->addr.type == PF_ADDR_TABLE) {
-		if (((rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_ROUNDROBIN) &&
-		    ((rpool->opts & PF_POOL_TYPEMASK) != PF_POOL_LEASTSTATES))
+		if (!PF_POOL_DYNTYPE(rpool->opts))
 			return (1); /* unsupported */
 	} else {
 		raddr = &rpool->addr.v.a.addr;
@@ -392,13 +384,25 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 		PF_POOLMASK(naddr, raddr, rmask, saddr, af);
 		break;
 	case PF_POOL_RANDOM:
-		if (init_addr != NULL && PF_AZERO(init_addr, af)) {
+		if (rpool->addr.type == PF_ADDR_TABLE) {
+			cnt = rpool->addr.p.tbl->pfrkt_cnt;
+			rpool->tblidx = (int)arc4random_uniform(cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool, &raddr, &rmask, af))
+				return (1);
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (rpool->addr.type == PF_ADDR_DYNIFTL) {
+			cnt = rpool->addr.p.dyn->pfid_kt->pfrkt_cnt;
+			rpool->tblidx = (int)arc4random_uniform(cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool, &raddr, &rmask, af))
+				return (1);
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (init_addr != NULL && PF_AZERO(init_addr, af)) {
 			switch (af) {
-#ifdef INET
 			case AF_INET:
 				rpool->counter.addr32[0] = htonl(arc4random());
 				break;
-#endif /* INET */
 #ifdef INET6
 			case AF_INET6:
 				if (rmask->addr32[3] != 0xffffffff)
@@ -431,8 +435,26 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 		}
 		break;
 	case PF_POOL_SRCHASH:
-		pf_hash(saddr, (struct pf_addr *)&hash, &rpool->key, af);
-		PF_POOLMASK(naddr, raddr, rmask, (struct pf_addr *)&hash, af);
+		hashidx =
+		    pf_hash(saddr, (struct pf_addr *)&hash, &rpool->key, af);
+		if (rpool->addr.type == PF_ADDR_TABLE) {
+			cnt = rpool->addr.p.tbl->pfrkt_cnt;
+			rpool->tblidx = (int)(hashidx % cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool, &raddr, &rmask, af))
+				return (1);
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else if (rpool->addr.type == PF_ADDR_DYNIFTL) {
+			cnt = rpool->addr.p.dyn->pfid_kt->pfrkt_cnt;
+			rpool->tblidx = (int)(hashidx % cnt);
+			memset(&rpool->counter, 0, sizeof(rpool->counter));
+			if (pfr_pool_get(rpool, &raddr, &rmask, af))
+				return (1);
+			PF_ACPY(naddr, &rpool->counter, af);
+		} else {
+			PF_POOLMASK(naddr, raddr, rmask,
+			    (struct pf_addr *)&hash, af);
+		}
 		break;
 	case PF_POOL_ROUNDROBIN:
 		if (rpool->addr.type == PF_ADDR_TABLE ||
