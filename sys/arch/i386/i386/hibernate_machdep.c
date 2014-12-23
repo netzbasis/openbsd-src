@@ -1,4 +1,4 @@
-/*	$OpenBSD: hibernate_machdep.c,v 1.41 2014/11/16 12:30:57 deraadt Exp $	*/
+/*	$OpenBSD: hibernate_machdep.c,v 1.43 2014/12/23 01:24:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Mike Larkin <mlarkin@openbsd.org>

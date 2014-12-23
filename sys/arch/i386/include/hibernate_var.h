@@ -1,4 +1,4 @@
-/*	$OpenBSD: hibernate_var.h,v 1.12 2014/12/08 07:12:37 mlarkin Exp $	*/
+/*	$OpenBSD: hibernate_var.h,v 1.14 2014/12/23 01:24:51 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Mike Larkin <mlarkin@openbsd.org>
