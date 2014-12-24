@@ -1,4 +1,4 @@
-/*	$OpenBSD: term.c,v 1.98 2014/12/19 17:10:42 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.100 2014/12/23 13:48:15 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -99,7 +99,6 @@ term_flushln(struct termp *p)
 	size_t		 j;     /* temporary loop index for p->buf */
 	size_t		 jhy;	/* last hyph before overflow w/r/t j */
 	size_t		 maxvis; /* output position of visible boundary */
-	size_t		 rmargin; /* the rightmost of the two margins */
 
 	/*
 	 * First, establish the maximum columns of "visible" content.
@@ -112,8 +111,7 @@ term_flushln(struct termp *p)
 	 * is negative, it gets sign extended.  Subtracting that
 	 * very large size_t effectively adds a small number to dv.
 	 */
-	rmargin = p->rmargin > p->offset ? p->rmargin : p->offset;
-	dv = p->rmargin - p->offset;
+	dv = p->rmargin > p->offset ? p->rmargin - p->offset : 0;
 	maxvis = (int)dv > p->overstep ? dv - (size_t)p->overstep : 0;
 
 	if (p->flags & TERMP_NOBREAK) {
@@ -191,8 +189,9 @@ term_flushln(struct termp *p)
 			(*p->endline)(p);
 			p->viscol = 0;
 			if (TERMP_BRIND & p->flags) {
-				vbl = rmargin;
-				vend += rmargin - p->offset;
+				vbl = p->rmargin;
+				vend += p->rmargin;
+				vend -= p->offset;
 			} else
 				vbl = p->offset;
 
@@ -768,47 +767,53 @@ term_strlen(const struct termp *p, const char *cp)
 	return(sz);
 }
 
-size_t
+int
 term_vspan(const struct termp *p, const struct roffsu *su)
 {
 	double		 r;
 
 	switch (su->unit) {
+	case SCALE_BU:
+		r = su->scale / 40.0;
+		break;
 	case SCALE_CM:
-		r = su->scale * 2.0;
+		r = su->scale * 6.0 / 2.54;
+		break;
+	case SCALE_FS:
+		r = su->scale * 65536.0 / 40.0;
 		break;
 	case SCALE_IN:
 		r = su->scale * 6.0;
+		break;
+	case SCALE_MM:
+		r = su->scale * 0.006;
 		break;
 	case SCALE_PC:
 		r = su->scale;
 		break;
 	case SCALE_PT:
-		r = su->scale / 8.0;
+		r = su->scale / 12.0;
 		break;
-	case SCALE_MM:
-		r = su->scale / 1000.0;
+	case SCALE_EN:
+		/* FALLTHROUGH */
+	case SCALE_EM:
+		r = su->scale * 0.6;
 		break;
 	case SCALE_VS:
 		r = su->scale;
 		break;
 	default:
-		r = su->scale - 1.0;
-		break;
+		abort();
+		/* NOTREACHED */
 	}
-
-	if (r < 0.0)
-		r = 0.0;
-	return((size_t)(r + 0.0005));
+	return(r > 0.0 ? r + 0.4995 : r - 0.4995);
 }
 
-size_t
+int
 term_hspan(const struct termp *p, const struct roffsu *su)
 {
 	double		 v;
 
 	v = (*p->hspan)(p, su);
-	if (v < 0.0)
-		v = 0.0;
-	return((size_t)(v + 0.0005));
+	return(v > 0.0 ? v + 0.0005 : v - 0.0005);
 }

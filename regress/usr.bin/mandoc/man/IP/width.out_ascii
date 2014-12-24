@@ -9,6 +9,18 @@ DDEESSCCRRIIPPTTIIOONN
        Regular mode:
 
        tag
+indented
+text
+
+       tag
+   indented
+   text
+
+       tag
+       indented
+       text
+
+       tag
         indented
         text
 
@@ -22,6 +34,9 @@ DDEESSCCRRIIPPTTIIOONN
 
        tag indented
            text
+
+       tag  indented
+            text
 
        tag  indented
             text
@@ -32,6 +47,18 @@ DDEESSCCRRIIPPTTIIOONN
        Literal mode:
 
        tag
+indented
+text
+
+       tag
+   indented
+   text
+
+       tag
+       indented
+       text
+
+       tag
         indented
         text
 
@@ -49,9 +76,12 @@ DDEESSCCRRIIPPTTIIOONN
        tag  indented
             text
 
+       tag  indented
+            text
+
        tag                                                                                                 indented
                                                                                                            text
 
 
 
-OpenBSD                        February 16, 2014                   IP-WIDTH(1)
+OpenBSD                        December 23, 2014                   IP-WIDTH(1)
