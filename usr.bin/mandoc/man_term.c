@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_term.c,v 1.116 2014/12/23 13:48:15 schwarze Exp $ */
+/*	$OpenBSD: man_term.c,v 1.118 2014/12/24 18:03:34 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -19,6 +19,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +45,7 @@ struct	mtermp {
 
 #define	DECL_ARGS	  struct termp *p, \
 			  struct mtermp *mt, \
-			  const struct man_node *n, \
+			  struct man_node *n, \
 			  const struct man_meta *meta
 
 struct	termact {
@@ -277,7 +278,7 @@ static int
 pre_alternate(DECL_ARGS)
 {
 	enum termfont		 font[2];
-	const struct man_node	*nn;
+	struct man_node		*nn;
 	int			 savelit, i;
 
 	switch (n->tok) {
@@ -430,6 +431,8 @@ pre_in(DECL_ARGS)
 		p->offset += v;
 	else
 		p->offset = v;
+	if (p->offset > SHRT_MAX)
+		p->offset = term_len(p, p->defindent);
 
 	return(0);
 }
@@ -506,16 +509,16 @@ pre_HP(DECL_ARGS)
 	if ((nn = n->parent->head->child) != NULL &&
 	    a2roffsu(nn->string, &su, SCALE_EN)) {
 		len = term_hspan(p, &su);
+		if (len < 0 && (size_t)(-len) > mt->offset)
+			len = -mt->offset;
+		else if (len > SHRT_MAX)
+			len = term_len(p, p->defindent);
 		mt->lmargin[mt->lmargincur] = len;
 	} else
 		len = mt->lmargin[mt->lmargincur];
 
 	p->offset = mt->offset;
-	if (len > 0 || (size_t)(-len) < mt->offset)
-		p->rmargin = mt->offset + len;
-	else
-		p->rmargin = 0;
-
+	p->rmargin = mt->offset + len;
 	return(1);
 }
 
@@ -580,9 +583,11 @@ pre_IP(DECL_ARGS)
 	    (nn = nn->next) != NULL &&
 	    a2roffsu(nn->string, &su, SCALE_EN)) {
 		len = term_hspan(p, &su);
-		mt->lmargin[mt->lmargincur] = len;
 		if (len < 0 && (size_t)(-len) > mt->offset)
 			len = -mt->offset;
+		else if (len > SHRT_MAX)
+			len = term_len(p, p->defindent);
+		mt->lmargin[mt->lmargincur] = len;
 	} else
 		len = mt->lmargin[mt->lmargincur];
 
@@ -636,7 +641,7 @@ static int
 pre_TP(DECL_ARGS)
 {
 	struct roffsu		 su;
-	const struct man_node	*nn;
+	struct man_node		*nn;
 	int			 len, savelit;
 
 	switch (n->type) {
@@ -660,9 +665,11 @@ pre_TP(DECL_ARGS)
 	    nn->string != NULL && ! (MAN_LINE & nn->flags) &&
 	    a2roffsu(nn->string, &su, SCALE_EN)) {
 		len = term_hspan(p, &su);
-		mt->lmargin[mt->lmargincur] = len;
 		if (len < 0 && (size_t)(-len) > mt->offset)
 			len = -mt->offset;
+		else if (len > SHRT_MAX)
+			len = term_len(p, p->defindent);
+		mt->lmargin[mt->lmargincur] = len;
 	} else
 		len = mt->lmargin[mt->lmargincur];
 
@@ -831,7 +838,6 @@ static int
 pre_RS(DECL_ARGS)
 {
 	struct roffsu	 su;
-	int		 len;
 
 	switch (n->type) {
 	case MAN_BLOCK:
@@ -843,16 +849,16 @@ pre_RS(DECL_ARGS)
 		break;
 	}
 
-	if ((n = n->parent->head->child) != NULL &&
-	    a2roffsu(n->string, &su, SCALE_EN))
-		len = term_hspan(p, &su);
-	else
-		len = term_len(p, p->defindent);
+	n = n->parent->head;
+	n->aux = SHRT_MAX + 1;
+	if (n->child != NULL && a2roffsu(n->child->string, &su, SCALE_EN))
+		n->aux = term_hspan(p, &su);
+	if (n->aux < 0 && (size_t)(-n->aux) > mt->offset)
+		n->aux = -mt->offset;
+	else if (n->aux > SHRT_MAX)
+		n->aux = term_len(p, p->defindent);
 
-	if (len > 0 || (size_t)(-len) < mt->offset)
-		mt->offset += len;
-	else
-		mt->offset = 0;
+	mt->offset += n->aux;
 	p->offset = mt->offset;
 	p->rmargin = p->maxrmargin;
 
@@ -866,8 +872,6 @@ pre_RS(DECL_ARGS)
 static void
 post_RS(DECL_ARGS)
 {
-	struct roffsu	 su;
-	int		 len;
 
 	switch (n->type) {
 	case MAN_BLOCK:
@@ -879,16 +883,7 @@ post_RS(DECL_ARGS)
 		break;
 	}
 
-	if ((n = n->parent->head->child) != NULL &&
-	    a2roffsu(n->string, &su, SCALE_EN))
-		len = term_hspan(p, &su);
-	else
-		len = term_len(p, p->defindent);
-
-	if (len < 0 || (size_t)len < mt->offset)
-		mt->offset -= len;
-	else
-		mt->offset = 0;
+	mt->offset -= n->parent->head->aux;
 	p->offset = mt->offset;
 
 	if (--mt->lmarginsz < MAXMARGINS)

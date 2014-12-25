@@ -1,4 +1,4 @@
-/*	$OpenBSD: term.c,v 1.100 2014/12/23 13:48:15 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.102 2014/12/24 23:31:59 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -271,7 +271,7 @@ term_flushln(struct termp *p)
 	}
 
 	if (TERMP_HANG & p->flags) {
-		p->overstep = (int)(vis - maxvis +
+		p->overstep += (int)(p->offset + vis - p->rmargin +
 		    p->trailspace * (*p->width)(p, ' '));
 
 		/*
@@ -771,6 +771,7 @@ int
 term_vspan(const struct termp *p, const struct roffsu *su)
 {
 	double		 r;
+	int		 ri;
 
 	switch (su->unit) {
 	case SCALE_BU:
@@ -806,7 +807,8 @@ term_vspan(const struct termp *p, const struct roffsu *su)
 		abort();
 		/* NOTREACHED */
 	}
-	return(r > 0.0 ? r + 0.4995 : r - 0.4995);
+	ri = r > 0.0 ? r + 0.4995 : r - 0.4995;
+	return(ri < 66 ? ri : 1);
 }
 
 int
