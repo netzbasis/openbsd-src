@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.152 2014/12/23 17:20:11 deraadt Exp $
+#	$OpenBSD: bsd.own.mk,v 1.154 2014/12/25 23:15:26 kettenis Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -41,7 +41,7 @@ BINUTILS_VERSION=binutils
 .endif
 
 .if !empty(STATICPIE_ARCH:M${_arch})
-STATICPIE?=-pie -Wl,-Bsymbolic
+STATICPIE?=-pie
 .endif
 
 .if !empty(PIE_ARCH:M${_arch})
@@ -121,8 +121,6 @@ INSTALL_COPY?=	-c
 INSTALL_STRIP?=	-s
 .endif
 
-# This may be changed for _single filesystem_ configurations (such as
-# routers and other embedded systems); normal systems should leave it alone!
 STATIC?=	-static ${STATICPIE}
 
 # Define SYS_INCLUDE to indicate whether you want symbolic links to the system
