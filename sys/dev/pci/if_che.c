@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_che.c,v 1.10 2011/04/03 15:36:02 jasper Exp $ */
+/*	$OpenBSD: if_che.c,v 1.12 2014/12/28 14:20:37 jsg Exp $ */
 
 /*
  * Copyright (c) 2007 Claudio Jeker <claudio@openbsd.org>
@@ -82,7 +82,7 @@
 #define CHE_T3DBG_F_GPIO1_OUT_VAL	0x00000002
 #define CHE_T3DBG_F_GPIO0_OUT_VAL	0x00000001
 #define CHE_REG_I2C_CFG		0x6a0
-#define CHE_I2C_CLKDIV(_x)	((_x) && 0xfff)
+#define CHE_I2C_CLKDIV(_x)	((_x) & 0xfff)
 #define CHE_REG_MI1_CFG		0x6b0
 #define CHE_REG_MI1_ADDR	0x6b4
 #define CHE_REG_MI1_DATA	0x6b8
@@ -555,8 +555,7 @@ che_read_eeprom(struct cheg_softc *sc, struct pci_attach_args *pa,
 
 	if (!pci_get_capability(pa->pa_pc, pa->pa_tag, CHE_PCI_CAP_ID_VPD,
 	    &base, NULL)) {
-		printf("%s: VPD EEPROM not found\n", 
-		    DEVNAME(sc), addr);
+		printf("%s: VPD EEPROM not found\n", DEVNAME(sc));
 		return EIO;
 	}
 
