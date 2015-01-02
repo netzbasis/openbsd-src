@@ -43,7 +43,11 @@ our %args = (
 		print STDERR "Signal\n";
 	    });
 	},
-	loggrep => { get_between2loggrep() },
+	loggrep => {
+	    get_between2loggrep(),
+	    qr/Signal/ => 1,
+	    qr/Accepted/ => 1,
+	},
     },
     check => sub {
 	my $self = shift;
