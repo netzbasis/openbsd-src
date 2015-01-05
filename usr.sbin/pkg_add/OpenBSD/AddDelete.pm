@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: AddDelete.pm,v 1.69 2014/12/03 22:41:11 espie Exp $
+# $OpenBSD: AddDelete.pm,v 1.71 2015/01/04 14:20:04 espie Exp $
 #
 # Copyright (c) 2007-2010 Marc Espie <espie@openbsd.org>
 #
@@ -220,7 +220,7 @@ sub syslog
 	Sys::Syslog::syslog('info', $self->f(@_));
 }
 
-sub todo
+sub ntodo
 {
 	my ($state, $offset) = @_;
 	return $state->tracker->sets_todo($offset);
@@ -447,7 +447,7 @@ sub print
 		$object = "Parameters";
 	}
 
-	$state->say($what." #1 (#2)", $object, $state->ntogo_string);
+	$state->say($what." #1#2", $object, $state->ntogo_string);
 	if ($state->defines('carp')) {
 		require Carp;
 		Carp::cluck("currently here");
