@@ -1,4 +1,4 @@
-/* $OpenBSD: mfii.c,v 1.20 2015/01/05 23:18:36 dlg Exp $ */
+/* $OpenBSD: mfii.c,v 1.22 2015/01/07 04:56:56 dlg Exp $ */
 
 /*
  * Copyright (c) 2012 David Gwynne <dlg@openbsd.org>
@@ -487,7 +487,7 @@ mfii_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_link.adapter_buswidth = sc->sc_info.mci_max_lds;
 	sc->sc_link.pool = &sc->sc_iopool;
 
-	bzero(&saa, sizeof(saa));
+	memset(&saa, 0, sizeof(saa));
 	saa.saa_sc_link = &sc->sc_link;
 
 	config_found(&sc->sc_dev, &saa, scsiprint);
@@ -573,7 +573,7 @@ mfii_syspd(struct mfii_softc *sc)
 	link->openings = sc->sc_max_cmds - 1;
 	link->pool = &sc->sc_iopool;
 
-	bzero(&saa, sizeof(saa));
+	memset(&saa, 0, sizeof(saa));
 	saa.saa_sc_link = link;
 
 	sc->sc_pd->pd_scsibus = (struct scsibus_softc *)
@@ -1047,7 +1047,7 @@ mfii_mgmt(struct mfii_softc *sc, struct mfii_ccb *ccb,
 	case SCSI_DATA_OUT:
 		ccb->ccb_direction = MFII_DATA_OUT;
 		hdr->mfh_flags = htole16(MFI_FRAME_DIR_WRITE);
-		bcopy(buf, dma_buf, len);
+		memcpy(dma_buf, buf, len);
 		break;
 	}
 
@@ -1079,7 +1079,7 @@ mfii_mgmt(struct mfii_softc *sc, struct mfii_ccb *ccb,
 		rv = 0;
 
 		if (ccb->ccb_direction == MFII_DATA_IN)
-			bcopy(dma_buf, buf, len);
+			memcpy(buf, dma_buf, len);
 	}
 
 done:
@@ -1174,7 +1174,7 @@ mfii_initialise_firmware(struct mfii_softc *sc)
 		return (1);
 
 	iiq = MFII_DMA_KVA(m);
-	bzero(iiq, sizeof(*iiq));
+	memset(iiq, 0, sizeof(*iiq));
 
 	iiq->function = MPII_FUNCTION_IOC_INIT;
 	iiq->whoinit = MPII_WHOINIT_HOST_DRIVER;
@@ -1440,7 +1440,7 @@ mfii_scsi_cmd_cdb(struct mfii_softc *sc, struct scsi_xfer *xs)
 		io->direction = MPII_SCSIIO_DIR_NONE;
 		break;
 	}
-	bcopy(xs->cmd, io->cdb, xs->cmdlen);
+	memcpy(io->cdb, xs->cmd, xs->cmdlen);
 
 	ctx->virtual_disk_target_id = htole16(link->target);
 
@@ -1551,7 +1551,7 @@ mfii_pd_scsi_cmd_cdb(struct mfii_softc *sc, struct scsi_xfer *xs)
 		io->direction = MPII_SCSIIO_DIR_NONE;
 		break;
 	}
-	bcopy(xs->cmd, io->cdb, xs->cmdlen);
+	memcpy(io->cdb, xs->cmd, xs->cmdlen);
 
 	ctx->virtual_disk_target_id = htole16(link->target);
 	ctx->raid_flags = MFII_RAID_CTX_IO_TYPE_SYSPD;
@@ -1600,7 +1600,7 @@ mfii_load_ccb(struct mfii_softc *sc, struct mfii_ccb *ccb, void *sglp,
 		space--;
 
 		ccb->ccb_sgl_len = (dmap->dm_nsegs - space) * sizeof(*nsge);
-		bzero(ccb->ccb_sgl, ccb->ccb_sgl_len);
+		memset(ccb->ccb_sgl, 0, ccb->ccb_sgl_len);
 
 		ce = nsge + space;
 		ce->sg_addr = htole64(ccb->ccb_sgl_dva);
@@ -1663,8 +1663,8 @@ mfii_scrub_ccb(struct mfii_ccb *ccb)
 	ccb->ccb_len = 0;
 	ccb->ccb_sgl_len = 0;
 
-	bzero(&ccb->ccb_req, sizeof(ccb->ccb_req));
-	bzero(ccb->ccb_request, MFII_REQUEST_SIZE);
+	memset(&ccb->ccb_req, 0, sizeof(ccb->ccb_req));
+	memset(ccb->ccb_request, 0, MFII_REQUEST_SIZE);
 }
 
 void
