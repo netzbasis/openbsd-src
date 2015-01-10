@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.19 2006/05/27 17:01:07 henning Exp $ */
+/*	$OpenBSD: config.c,v 1.21 2015/01/10 01:56:52 bcook Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
