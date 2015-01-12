@@ -1,4 +1,4 @@
-/*	$OpenBSD: promdev.c,v 1.15 2013/03/21 21:51:00 deraadt Exp $	*/
+/*	$OpenBSD: promdev.c,v 1.17 2015/01/11 18:10:33 miod Exp $	*/
 /*	$NetBSD: promdev.c,v 1.16 1995/11/14 15:04:01 pk Exp $ */
 
 /*
@@ -221,12 +221,15 @@ prom0_strategy(devdata, flag, dblk, size, buf, rsize)
 	struct promdata	*pd = devdata;
 	struct saioreq	*si;
 	struct om_boottable *ops;
-	char	*dmabuf;
-	int	si_flag;
-	size_t	xcnt;
+	struct devinfo *dip;
+	char *dmabuf;
+	int si_flag;
+	size_t	xcnt, total, chunk;
+	int rc = 0;
 
 	si = pd->si;
 	ops = si->si_boottab;
+	dip = ops->b_devinfo;
 
 #ifdef DEBUG_PROM
 	printf("prom_strategy: size=%d dblk=%d\n", size, dblk);
@@ -234,23 +237,51 @@ prom0_strategy(devdata, flag, dblk, size, buf, rsize)
 
 	dmabuf = dvma_mapin(buf, size);
 
-	si->si_bn = dblk;
-	si->si_ma = dmabuf;
-	si->si_cc = size;
+	/*
+	 * Clamp I/O to the maximum DMA transfer size supported by the PROM,
+	 * if necessary. Note that we need to round down to a block boundary
+	 * as the value is not necessarily a power of two (8216 has been
+	 * seen with PROM rev 1.3.)
+	 */
+	if (dip->d_dmabytes != 0)
+		chunk = dbtob(btodb(dip->d_dmabytes));
+	else
+		chunk = size;
 
-	si_flag = (flag == F_READ) ? SAIO_F_READ : SAIO_F_WRITE;
-	xcnt = (*ops->b_strategy)(si, si_flag);
-	dvma_mapout(dmabuf, size);
+	total = 0;
+	while (size != 0) {
+		if (size < chunk)
+			chunk = size;
+
+		si->si_bn = dblk;
+		si->si_ma = dmabuf;
+		si->si_cc = chunk;
+
+		si_flag = (flag == F_READ) ? SAIO_F_READ : SAIO_F_WRITE;
+		xcnt = (*ops->b_strategy)(si, si_flag);
 
 #ifdef DEBUG_PROM
-	printf("disk_strategy: xcnt = %x\n", xcnt);
+		printf("disk_strategy: xcnt = %x\n", xcnt);
 #endif
 
-	if (xcnt <= 0)
-		return (EIO);
+		if (xcnt <= 0) {
+			rc = EIO;
+			break;
+		}
 
-	*rsize = xcnt;
-	return (0);
+		total += xcnt;
+		if (xcnt != chunk)
+			break;
+
+		size -= chunk;
+		dmabuf += chunk;
+		dblk += btodb(chunk);
+	}
+
+	dvma_mapout(dmabuf, size);
+
+	*rsize = total;
+	return rc;
 }
 
 int
@@ -711,6 +742,11 @@ prom_init()
 	if (cputyp == CPU_SUN4) {
 		prom0_fake();
 		dvma_init();
+#ifdef BOOTXX
+		pgshift = SUN4_PGSHIFT;
+		nbpg = 1 << pgshift;
+		pgofset = nbpg - 1;
+#endif
 	}
 
 	if (promvec->pv_romvec_vers >= 2) {
@@ -789,17 +825,6 @@ prom_init()
 		 * page size.
 		 */
 
-#ifdef BOOTXX
-		char tmpstr[24];
-
-		snprintf(tmpstr, sizeof tmpstr, "pagesize %x l!",
-		    (u_long)&nbpg);
-		prom_interpret(tmpstr);
-		if (nbpg == 1 << SUN4_PGSHIFT)
-			pgshift = SUN4_PGSHIFT;
-		else
-			pgshift = SUN4CM_PGSHIFT;
-#else
 		node = prom_findroot();
 		cp = prom_getpropstring(node, "compatible");
 		if (*cp == '\0' || strcmp(cp, "sun4c") == 0) {
@@ -826,7 +851,6 @@ prom_init()
 #endif
 		} else
 			panic("Unknown CPU type (compatible=`%s')", cp);
-#endif	/* BOOTXX */
 	}
 
 	nbpg = 1 << pgshift;
