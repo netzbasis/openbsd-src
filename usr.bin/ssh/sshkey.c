@@ -1,4 +1,4 @@
-/* $OpenBSD: sshkey.c,v 1.8 2015/01/08 10:14:08 djm Exp $ */
+/* $OpenBSD: sshkey.c,v 1.10 2015/01/12 20:13:27 markus Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Alexander von Gernler.  All rights reserved.
@@ -1251,8 +1251,14 @@ sshkey_read(struct sshkey *ret, char **cpp)
 			return SSH_ERR_ALLOC_FAIL;
 		/* trim comment */
 		space = strchr(cp, ' ');
-		if (space)
-			*space = '\0';
+		if (space) {
+			/* advance 'space': skip whitespace */
+			*space++ = '\0';
+			while (*space == ' ' || *space == '\t')
+				space++;
+			*cpp = space;
+		} else
+			*cpp = cp + strlen(cp);
 		if ((r = sshbuf_b64tod(blob, cp)) != 0) {
 			sshbuf_free(blob);
 			return r;
@@ -1327,12 +1333,6 @@ sshkey_read(struct sshkey *ret, char **cpp)
 		sshkey_free(k);
 		if (retval != 0)
 			break;
-		/* advance cp: skip whitespace and data */
-		while (*cp == ' ' || *cp == '\t')
-			cp++;
-		while (*cp != '\0' && *cp != ' ' && *cp != '\t')
-			cp++;
-		*cpp = cp;
 		break;
 	default:
 		return SSH_ERR_INVALID_ARGUMENT;
@@ -3454,10 +3454,12 @@ sshkey_private_to_fileblob(struct sshkey *key, struct sshbuf *blob,
     int force_new_format, const char *new_format_cipher, int new_format_rounds)
 {
 	switch (key->type) {
-#ifdef WITH_OPENSSL
+#ifdef WITH_SSH1
 	case KEY_RSA1:
 		return sshkey_private_rsa1_to_blob(key, blob,
 		    passphrase, comment);
+#endif /* WITH_SSH1 */
+#ifdef WITH_OPENSSL
 	case KEY_DSA:
 	case KEY_ECDSA:
 	case KEY_RSA:
@@ -3762,10 +3764,12 @@ sshkey_parse_private_fileblob_type(struct sshbuf *blob, int type,
 		*commentp = NULL;
 
 	switch (type) {
-#ifdef WITH_OPENSSL
+#ifdef WITH_SSH1
 	case KEY_RSA1:
 		return sshkey_parse_private_rsa1(blob, passphrase,
 		    keyp, commentp);
+#endif /* WITH_SSH1 */
+#ifdef WITH_OPENSSL
 	case KEY_DSA:
 	case KEY_ECDSA:
 	case KEY_RSA:
