@@ -1,7 +1,7 @@
-/*	$OpenBSD: main.c,v 1.117 2015/01/01 13:18:23 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.119 2015/01/13 23:16:12 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011, 2012, 2014 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -75,6 +75,13 @@ struct	curparse {
 	char		  outopts[BUFSIZ]; /* buf of output opts */
 };
 
+static	int		  fs_lookup(const struct manpaths *,
+				size_t ipath, const char *,
+				const char *, const char *,
+				struct manpage **, size_t *);
+static	void		  fs_search(const struct mansearch *,
+				const struct manpaths *, int, char**,
+				struct manpage **, size_t *);
 static	int		  koptions(int *, char *);
 int			  mandocdb(int, char**);
 static	int		  moptions(int *, char *);
@@ -313,12 +320,11 @@ main(int argc, char *argv[])
 		mansearch_setup(1);
 		if( ! mansearch(&search, &paths, argc, argv, &res, &sz))
 			usage(search.argmode);
-		resp = res;
+
+		if (sz == 0 && search.argmode == ARG_NAME)
+			fs_search(&search, &paths, argc, argv, &res, &sz);
 
 		if (sz == 0) {
-			if (search.argmode == ARG_NAME)
-				fprintf(stderr, "%s: No entry for %s "
-				    "in the manual.\n", progname, argv[0]);
 			rc = MANDOCLEVEL_BADARG;
 			goto out;
 		}
@@ -337,6 +343,7 @@ main(int argc, char *argv[])
 
 		/* Iterate all matching manuals. */
 
+		resp = res;
 		for (i = 0; i < sz; i++) {
 			if (outmode == OUTMODE_FLN)
 				puts(res[i].file);
@@ -373,9 +380,6 @@ main(int argc, char *argv[])
 	if (search.argmode == ARG_FILE && ! moptions(&options, auxpaths))
 		return((int)MANDOCLEVEL_BADARG);
 
-	if (use_pager && isatty(STDOUT_FILENO))
-		spawn_pager();
-
 	curp.mchars = mchars_alloc();
 	curp.mp = mparse_alloc(options, curp.wlevel, mmsg,
 	    curp.mchars, defos);
@@ -386,14 +390,23 @@ main(int argc, char *argv[])
 	if (OUTT_MAN == curp.outtype)
 		mparse_keep(curp.mp);
 
-	if (argc == 0)
+	if (argc == 0) {
+		if (use_pager && isatty(STDOUT_FILENO))
+			spawn_pager();
 		parse(&curp, STDIN_FILENO, "<stdin>", &rc);
+	}
 
 	while (argc) {
-		if (resp != NULL) {
-			rc = mparse_open(curp.mp, &fd, resp->file);
-			if (fd == -1)
-				/* nothing */;
+		rc = mparse_open(curp.mp, &fd,
+		    resp != NULL ? resp->file : *argv);
+
+		if (fd != -1) {
+			if (use_pager && isatty(STDOUT_FILENO))
+				spawn_pager();
+			use_pager = 0;
+
+			if (resp == NULL)
+				parse(&curp, fd, *argv, &rc);
 			else if (resp->form & FORM_SRC) {
 				/* For .so only; ignore failure. */
 				chdir(paths.paths[resp->ipath]);
@@ -401,21 +414,23 @@ main(int argc, char *argv[])
 			} else
 				rc = passthrough(resp->file, fd,
 				    synopsis_only);
-			resp++;
-		} else {
-			rc = mparse_open(curp.mp, &fd, *argv++);
-			if (fd != -1)
-				parse(&curp, fd, argv[-1], &rc);
-		}
 
-		if (mparse_wait(curp.mp) != MANDOCLEVEL_OK)
-			rc = MANDOCLEVEL_SYSERR;
+			if (mparse_wait(curp.mp) != MANDOCLEVEL_OK)
+				rc = MANDOCLEVEL_SYSERR;
+
+			if (argc > 1 && curp.outtype <= OUTT_UTF8)
+				ascii_sepline(curp.outdata);
+		}
 
 		if (MANDOCLEVEL_OK != rc && curp.wstop)
 			break;
 
-		if (--argc && curp.outtype <= OUTT_UTF8)
-			ascii_sepline(curp.outdata);
+		if (resp != NULL)
+			resp++;
+		else
+			argv++;
+		if (--argc)
+			mparse_reset(curp.mp);
 	}
 
 	if (curp.outfree)
@@ -472,6 +487,96 @@ usage(enum argmode argmode)
 		break;
 	}
 	exit((int)MANDOCLEVEL_BADARG);
+}
+
+static int
+fs_lookup(const struct manpaths *paths, size_t ipath,
+	const char *sec, const char *arch, const char *name,
+	struct manpage **res, size_t *ressz)
+{
+	struct manpage	*page;
+	char		*file;
+	int		 form;
+
+	mandoc_asprintf(&file, "%s/man%s/%s.%s",
+	    paths->paths[ipath], sec, name, sec);
+	if (access(file, R_OK) != -1) {
+		form = FORM_SRC;
+		goto found;
+	}
+	free(file);
+
+	mandoc_asprintf(&file, "%s/cat%s/%s.0",
+	    paths->paths[ipath], sec, name);
+	if (access(file, R_OK) != -1) {
+		form = FORM_CAT;
+		goto found;
+	}
+	free(file);
+
+	if (arch != NULL) {
+		mandoc_asprintf(&file, "%s/man%s/%s/%s.%s",
+		    paths->paths[ipath], sec, arch, name, sec);
+		if (access(file, R_OK) != -1) {
+			form = FORM_SRC;
+			goto found;
+		}
+		free(file);
+	}
+	return(0);
+
+found:
+	fprintf(stderr, "%s: outdated mandoc.db lacks %s(%s) entry,\n"
+	    "     consider running  # makewhatis %s\n",
+	    progname, name, sec, paths->paths[ipath]);
+	
+	*res = mandoc_reallocarray(*res, ++*ressz, sizeof(struct manpage));
+	page = *res + (*ressz - 1);
+	page->file = file;
+	page->names = NULL;
+	page->output = NULL;
+	page->ipath = ipath;
+	page->bits = NAME_FILE & NAME_MASK;
+	page->sec = (*sec >= '1' && *sec <= '9') ? *sec - '1' + 1 : 10;
+	page->form = form;
+	return(1);
+}
+
+static void
+fs_search(const struct mansearch *cfg, const struct manpaths *paths,
+	int argc, char **argv, struct manpage **res, size_t *ressz)
+{
+	const char *const sections[] =
+	    {"1", "8", "6", "2", "3", "3p", "5", "7", "4", "9"};
+	const size_t nsec = sizeof(sections)/sizeof(sections[0]);
+
+	size_t		 ipath, isec, lastsz;
+
+	assert(cfg->argmode == ARG_NAME);
+
+	*res = NULL;
+	*ressz = lastsz = 0;
+	while (argc) {
+		for (ipath = 0; ipath < paths->sz; ipath++) {
+			if (cfg->sec != NULL) {
+				if (fs_lookup(paths, ipath, cfg->sec,
+				    cfg->arch, *argv, res, ressz) &&
+				    cfg->firstmatch)
+					return;
+			} else for (isec = 0; isec < nsec; isec++)
+				if (fs_lookup(paths, ipath, sections[isec],
+				    cfg->arch, *argv, res, ressz) &&
+				    cfg->firstmatch)
+					return;
+		}
+		if (*ressz == lastsz)
+			fprintf(stderr,
+			    "%s: No entry for %s in the manual.\n",
+			    progname, *argv);
+		lastsz = *ressz;
+		argv++;
+		argc--;
+	}
 }
 
 static void
@@ -579,10 +684,7 @@ parse(struct curparse *curp, int fd, const char *file,
 	if (mdoc && curp->outmdoc)
 		(*curp->outmdoc)(curp->outdata, mdoc);
 
- cleanup:
-
-	mparse_reset(curp->mp);
-
+cleanup:
 	if (*level < rc)
 		*level = rc;
 }
