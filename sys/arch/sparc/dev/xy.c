@@ -1,4 +1,4 @@
-/*	$OpenBSD: xy.c,v 1.61 2015/01/13 20:40:11 miod Exp $	*/
+/*	$OpenBSD: xy.c,v 1.66 2015/01/14 21:17:09 miod Exp $	*/
 /*	$NetBSD: xy.c,v 1.26 1997/07/19 21:43:56 pk Exp $	*/
 
 /*
@@ -79,7 +79,6 @@
 
 #include <sparc/dev/xyreg.h>
 #include <sparc/dev/xyvar.h>
-#include <sparc/dev/xio.h>
 #include <sparc/sparc/vaddrs.h>
 
 /*
@@ -141,11 +140,10 @@ extern int pil_to_vme[];	/* from obio.c */
 /* internals */
 struct xy_iopb *xyc_chain(struct xyc_softc *, struct xy_iorq *);
 int	xyc_cmd(struct xyc_softc *, int, int, int, int, int, char *, int);
-char   *xyc_e2str(int);
+const char *xyc_e2str(int);
 int	xyc_entoact(int);
 int	xyc_error(struct xyc_softc *, struct xy_iorq *,
 		   struct xy_iopb *, int);
-int	xyc_ioctlcmd(struct xy_softc *, dev_t dev, struct xd_iocmd *);
 void	xyc_perror(struct xy_iorq *, struct xy_iopb *, int);
 int	xyc_piodriver(struct xyc_softc *, struct xy_iorq *);
 int	xyc_remove_iorq(struct xyc_softc *);
@@ -206,15 +204,16 @@ struct xyc_attach_args {	/* this is the "aux" args to xyattach */
  * start: disk label fix code (XXX)
  */
 
-static void *xy_labeldata;
-
 static void
 xydummystrat(bp)
 	struct buf *bp;
 {
+	struct xy_softc *xy;
+       
+	xy = (struct xy_softc *)xy_cd.cd_devs[DISKUNIT(bp->b_dev)];
 	if (bp->b_bcount != XYFM_BPS)
 		panic("xydummystrat");
-	bcopy(xy_labeldata, bp->b_data, XYFM_BPS);
+	bcopy(xy->xy_labeldata, bp->b_data, XYFM_BPS);
 	bp->b_flags |= B_DONE;
 }
 
@@ -239,7 +238,7 @@ xygetdisklabel(xy, b)
 	lp->d_type = DTYPE_SMD;
 
 	/* We already have the label data in `b'; setup for dummy strategy */
-	xy_labeldata = b;
+	xy->xy_labeldata = b;
 
 	error = readdisklabel(MAKEDISKDEV(0, xy->sc_dev.dv_unit, RAW_PART),
 	    xydummystrat, lp, 0);
@@ -744,19 +743,6 @@ xydump(dev, blkno, va, size)
 	    'a' + part);
 
 	return ENXIO;
-
-	/* outline: globals: "dumplo" == sector number of partition to start
-	 * dump at (convert to physical sector with partition table)
-	 * "dumpsize" == size of dump in clicks "physmem" == size of physical
-	 * memory (clicks, ptoa() to get bytes) (normal case: dumpsize ==
-	 * physmem)
-	 *
-	 * dump a copy of physical memory to the dump device starting at sector
-	 * "dumplo" in the swap partition (make sure > 0).   map in pages as
-	 * we go.   use polled I/O.
-	 *
-	 * XXX how to handle NON_CONTIG? */
-
 }
 
 /*
@@ -772,7 +758,6 @@ xyioctl(dev, command, addr, flag, p)
 
 {
 	struct xy_softc *xy;
-	struct xd_iocmd *xio;
 	int     error, s, unit;
 
 	unit = DISKUNIT(dev);
@@ -825,12 +810,6 @@ xyioctl(dev, command, addr, flag, p)
 			}
 		}
 		return error;
-
-	case DIOSXDCMD:
-		xio = (struct xd_iocmd *) addr;
-		if ((error = suser(p, 0)) != 0)
-			return (error);
-		return (xyc_ioctlcmd(xy, dev, xio));
 
 	default:
 		return ENOTTY;
@@ -1846,6 +1825,7 @@ xyc_error(xycsc, iorq, iopb, comm)
 	int     errno = iorq->errno;
 	int     erract = xyc_entoact(errno);
 	int     oldmode, advance, i;
+	u_long  addr;
 
 	if (erract == XY_ERA_RSET) {	/* some errors require a reset */
 		oldmode = iorq->mode;
@@ -1874,6 +1854,11 @@ xyc_error(xycsc, iorq, iopb, comm)
 								 * standard */
 			iopb->head = i % iorq->xy->nhead;
 			iopb->sect = i / iorq->xy->nhead;
+
+			addr = (u_long) iorq->dbuf - DVMA_BASE;
+			iopb->dataa = (addr & 0xffff);
+			iopb->datar = ((addr & 0xff0000) >> 16);
+
 			/* will resubmit when we come out of remove_iorq */
 			return (XY_ERR_AOK);	/* recovered! */
 		}
@@ -1918,8 +1903,10 @@ xyc_tick(arg)
 		    XY_STATE(xycsc->reqs[lcv].mode) == XY_SUB_DONE)
 			continue;
 		xycsc->reqs[lcv].ttl--;
-		if (xycsc->reqs[lcv].ttl == 0)
+		if (xycsc->reqs[lcv].ttl == 0) {
 			reset = 1;
+			break;	/* we're going to fail all requests anyway */
+		}
 	}
 	if (reset) {
 		printf("%s: watchdog timeout\n", xycsc->sc_dev.dv_xname);
@@ -1933,90 +1920,9 @@ xyc_tick(arg)
 }
 
 /*
- * xyc_ioctlcmd: this function provides a user level interface to the
- * controller via ioctl.   this allows "format" programs to be written
- * in user code, and is also useful for some debugging.   we return
- * an error code.   called at user priority.
- *
- * XXX missing a few commands (see the 7053 driver for ideas)
- */
-int
-xyc_ioctlcmd(xy, dev, xio)
-	struct xy_softc *xy;
-	dev_t   dev;
-	struct xd_iocmd *xio;
-
-{
-	int     s, err, rqno, dummy = 0;
-	caddr_t dvmabuf = NULL, buf = NULL;
-	struct xyc_softc *xycsc;
-
-	/* check sanity of requested command */
-
-	switch (xio->cmd) {
-
-	case XYCMD_NOP:	/* no op: everything should be zero */
-		if (xio->subfn || xio->dptr || xio->dlen ||
-		    xio->block || xio->sectcnt)
-			return (EINVAL);
-		break;
-
-	case XYCMD_RD:		/* read / write sectors (up to XD_IOCMD_MAXS) */
-	case XYCMD_WR:
-		if (xio->subfn || xio->sectcnt > XD_IOCMD_MAXS ||
-		    xio->sectcnt * XYFM_BPS != xio->dlen || xio->dptr == NULL)
-			return (EINVAL);
-		break;
-
-	case XYCMD_SK:		/* seek: doesn't seem useful to export this */
-		return (EINVAL);
-
-		break;
-
-	default:
-		return (EINVAL);/* ??? */
-	}
-
-	/* create DVMA buffer for request if needed */
-
-	if (xio->dlen) {
-		dvmabuf = dvma_malloc(xio->dlen, &buf, M_WAITOK);
-		if (xio->cmd == XYCMD_WR) {
-			if ((err = copyin(xio->dptr, buf, xio->dlen)) != 0) {
-				dvma_free(dvmabuf, xio->dlen, &buf);
-				return (err);
-			}
-		}
-	}
-	/* do it! */
-
-	err = 0;
-	xycsc = xy->parent;
-	s = splbio();
-	rqno = xyc_cmd(xycsc, xio->cmd, xio->subfn, xy->xy_drive, xio->block,
-	    xio->sectcnt, dvmabuf, XY_SUB_WAIT);
-	if (rqno == XY_ERR_FAIL) {
-		err = EIO;
-		goto done;
-	}
-	xio->errno = xycsc->ciorq->errno;
-	xio->tries = xycsc->ciorq->tries;
-	XYC_DONE(xycsc, dummy);
-
-	if (xio->cmd == XYCMD_RD)
-		err = copyout(buf, xio->dptr, xio->dlen);
-
-done:
-	splx(s);
-	if (dvmabuf)
-		dvma_free(dvmabuf, xio->dlen, &buf);
-	return (err);
-}
-
-/*
  * xyc_e2str: convert error code number into an error string
  */
-char *
+const char *
 xyc_e2str(no)
 	int     no;
 {

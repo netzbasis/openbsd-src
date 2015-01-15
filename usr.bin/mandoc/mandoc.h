@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.119 2014/12/16 23:44:16 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.124 2015/01/15 04:26:06 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -147,6 +147,8 @@ enum	mandocerr {
 	MANDOCERR_TBLMACRO, /* ignoring macro in table: macro */
 
 	/* related to document structure and macros */
+	MANDOCERR_FILE, /* cannot open file */
+	MANDOCERR_TOOLARGE, /* input too large */
 	MANDOCERR_ROFFLOOP, /* input stack limit exceeded, infinite loop? */
 	MANDOCERR_BADCHAR, /* skipping bad character: number */
 	MANDOCERR_MACRO, /* skipping unknown macro: macro */
@@ -165,28 +167,11 @@ enum	mandocerr {
 	MANDOCERR_OS_UNAME, /* uname(3) system call failed, using UNKNOWN */
 	MANDOCERR_ST_BAD, /* unknown standard specifier: St standard */
 	MANDOCERR_IT_NONUM, /* skipping request without numeric argument */
+	MANDOCERR_SO_PATH, /* NOT IMPLEMENTED: .so with absolute path or ".." */
+	MANDOCERR_SO_FAIL, /* .so request failed */
 	MANDOCERR_ARG_SKIP, /* skipping all arguments: macro args */
 	MANDOCERR_ARG_EXCESS, /* skipping excess arguments: macro ... args */
 	MANDOCERR_DIVZERO, /* divide by zero */
-
-	MANDOCERR_FATAL, /* ===== start of fatal errors ===== */
-
-	MANDOCERR_TOOLARGE, /* input too large */
-	MANDOCERR_SO_PATH, /* NOT IMPLEMENTED: .so with absolute path or ".." */
-	MANDOCERR_SO_FAIL, /* .so request failed */
-
-	/* ===== system errors ===== */
-
-	MANDOCERR_SYSDUP, /* cannot dup file descriptor */
-	MANDOCERR_SYSEXEC, /* cannot exec */
-	MANDOCERR_SYSEXIT, /* gunzip failed with code */
-	MANDOCERR_SYSFORK, /* cannot fork */
-	MANDOCERR_SYSOPEN, /* cannot open file */
-	MANDOCERR_SYSPIPE, /* cannot open pipe */
-	MANDOCERR_SYSREAD, /* cannot read file */
-	MANDOCERR_SYSSIG, /* gunzip died from signal */
-	MANDOCERR_SYSSTAT, /* cannot stat file */
-	MANDOCERR_SYSWAIT, /* wait failed */
 
 	MANDOCERR_MAX
 };

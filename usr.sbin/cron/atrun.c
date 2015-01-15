@@ -1,4 +1,4 @@
-/*	$OpenBSD: atrun.c,v 1.20 2013/11/23 19:18:52 deraadt Exp $	*/
+/*	$OpenBSD: atrun.c,v 1.23 2015/01/14 17:30:53 millert Exp $	*/
 
 /*
  * Copyright (c) 2002-2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -233,7 +233,7 @@ run_job(atjob *job, char *atfile)
 	pid_t pid;
 	long nuid, ngid;
 	FILE *fp;
-	WAIT_T waiter;
+	int waiter;
 	size_t nread;
 	char *cp, *ep, mailto[MAX_UNAME], buf[BUFSIZ];
 	int fd, always_mail;
@@ -284,7 +284,7 @@ run_job(atjob *job, char *atfile)
 		log_it("CRON", getpid(), "ORPHANED JOB", atfile);
 		_exit(EXIT_FAILURE);
 	}
-#if (defined(BSD)) && (BSD >= 199103)
+#ifdef HAVE_PW_EXPIRE
 	if (pw->pw_expire && time(NULL) >= pw->pw_expire) {
 		log_it(pw->pw_name, getpid(), "ACCOUNT EXPIRED, JOB ABORTED",
 		    atfile);
@@ -459,7 +459,7 @@ run_job(atjob *job, char *atfile)
 			    "unable to set groups for %s\n", pw->pw_name);
 			_exit(EXIT_FAILURE);
 		}
-#if (defined(BSD)) && (BSD >= 199103)
+#ifdef HAVE_SETLOGIN
 		setlogin(pw->pw_name);
 #endif
 		if (setuid(pw->pw_uid)) {
@@ -526,7 +526,7 @@ run_job(atjob *job, char *atfile)
 		size_t	bytes = 0;
 		int	status = 0;
 		char	mailcmd[MAX_COMMAND];
-		char	hostname[MAXHOSTNAMELEN];
+		char	hostname[HOST_NAME_MAX + 1];
 
 		Debug(DPROC|DEXT, ("[%ld] got data from grandchild\n",
 		    (long)getpid()))

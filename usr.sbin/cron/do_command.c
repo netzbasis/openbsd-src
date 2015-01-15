@@ -1,4 +1,4 @@
-/*	$OpenBSD: do_command.c,v 1.38 2013/11/23 18:23:00 deraadt Exp $	*/
+/*	$OpenBSD: do_command.c,v 1.41 2015/01/14 17:30:53 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -234,9 +234,9 @@ child_process(entry *e, user *u) {
 			    "unable to set groups for %s\n", e->pwd->pw_name);
 			_exit(EXIT_FAILURE);
 		}
-#if (defined(BSD)) && (BSD >= 199103)
+#ifdef HAVE_SETLOGIN
 		setlogin(usernm);
-#endif /* BSD */
+#endif
 		if (setuid(e->pwd->pw_uid)) {
 			fprintf(stderr,
 			    "unable to set uid to %lu\n",
@@ -400,7 +400,7 @@ child_process(entry *e, user *u) {
 			if (mailto) {
 				char	**env;
 				char	mailcmd[MAX_COMMAND];
-				char	hostname[MAXHOSTNAMELEN];
+				char	hostname[HOST_NAME_MAX + 1];
 
 				gethostname(hostname, sizeof(hostname));
 				if (snprintf(mailcmd, sizeof mailcmd,  MAILFMT,
@@ -484,8 +484,8 @@ child_process(entry *e, user *u) {
 	/* wait for children to die.
 	 */
 	for (; children > 0; children--) {
-		WAIT_T waiter;
-		PID_T pid;
+		int waiter;
+		pid_t pid;
 
 		Debug(DPROC, ("[%ld] waiting for grandchild #%d to finish\n",
 			      (long)getpid(), children))

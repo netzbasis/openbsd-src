@@ -1,7 +1,7 @@
-/*	$OpenBSD: read.c,v 1.81 2014/12/28 14:39:08 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.86 2015/01/15 04:26:06 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010, 2012 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -75,7 +75,7 @@ static	const enum mandocerr	mandoclimits[MANDOCLEVEL_MAX] = {
 	MANDOCERR_WARNING,
 	MANDOCERR_WARNING,
 	MANDOCERR_ERROR,
-	MANDOCERR_FATAL,
+	MANDOCERR_MAX,
 	MANDOCERR_MAX,
 	MANDOCERR_MAX
 };
@@ -186,6 +186,8 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"ignoring macro in table",
 
 	/* related to document structure and macros */
+	NULL,
+	"input too large",
 	"input stack limit exceeded, infinite loop?",
 	"skipping bad character",
 	"skipping unknown macro",
@@ -204,27 +206,11 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"uname(3) system call failed, using UNKNOWN",
 	"unknown standard specifier",
 	"skipping request without numeric argument",
+	"NOT IMPLEMENTED: .so with absolute path or \"..\"",
+	".so request failed",
 	"skipping all arguments",
 	"skipping excess arguments",
 	"divide by zero",
-
-	"generic fatal error",
-
-	"input too large",
-	"NOT IMPLEMENTED: .so with absolute path or \"..\"",
-	".so request failed",
-
-	/* system errors */
-	"cannot dup file descriptor",
-	"cannot exec",
-	"gunzip failed with code",
-	"cannot fork",
-	NULL,
-	"cannot open pipe",
-	"cannot read file",
-	"gunzip died from signal",
-	"cannot stat file",
-	"wait failed",
 };
 
 static	const char * const	mandoclevels[MANDOCLEVEL_MAX] = {
@@ -312,10 +298,13 @@ mparse_buf_r(struct mparse *curp, struct buf blk, size_t i, int start)
 {
 	const struct tbl_span	*span;
 	struct buf	 ln;
+	char		*cp;
 	size_t		 pos; /* byte number in the ln buffer */
 	enum rofferr	 rr;
 	int		 of;
 	int		 lnn; /* line number in the real file */
+	int		 fd;
+	pid_t		 save_child;
 	unsigned char	 c;
 
 	memset(&ln, 0, sizeof(ln));
@@ -510,9 +499,6 @@ rerun:
 		case ROFF_IGN:
 			pos = 0;
 			continue;
-		case ROFF_ERR:
-			assert(MANDOCLEVEL_FATAL <= curp->file_status);
-			break;
 		case ROFF_SO:
 			if ( ! (curp->options & MPARSE_SO) &&
 			    (i >= blk.sz || blk.buf[i] == '\0')) {
@@ -527,26 +513,28 @@ rerun:
 			 */
 			if (curp->secondary)
 				curp->secondary->sz -= pos + 1;
-			mparse_readfd(curp, -1, ln.buf + of);
-			if (MANDOCLEVEL_FATAL <= curp->file_status) {
+			save_child = curp->child;
+			if (mparse_open(curp, &fd, ln.buf + of) ==
+			    MANDOCLEVEL_OK)
+				mparse_readfd(curp, fd, ln.buf + of);
+			else {
 				mandoc_vmsg(MANDOCERR_SO_FAIL,
 				    curp, curp->line, pos,
 				    ".so %s", ln.buf + of);
-				break;
+				ln.sz = mandoc_asprintf(&cp,
+				    ".sp\nSee the file %s.\n.sp",
+				    ln.buf + of);
+				free(ln.buf);
+				ln.buf = cp;
+				of = 0;
+				mparse_buf_r(curp, ln, of, 0);
 			}
+			curp->child = save_child;
 			pos = 0;
 			continue;
 		default:
 			break;
 		}
-
-		/*
-		 * If we encounter errors in the recursive parse, make
-		 * sure we don't continue parsing.
-		 */
-
-		if (MANDOCLEVEL_FATAL <= curp->file_status)
-			break;
 
 		/*
 		 * If input parsers have not been allocated, do so now.
@@ -605,11 +593,8 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 	ssize_t		 ssz;
 
 	if (-1 == fstat(fd, &st)) {
-		curp->file_status = MANDOCLEVEL_SYSERR;
-		if (curp->mmsg)
-			(*curp->mmsg)(MANDOCERR_SYSSTAT, curp->file_status,
-			    file, 0, 0, strerror(errno));
-		return(0);
+		perror(file);
+		exit((int)MANDOCLEVEL_SYSERR);
 	}
 
 	/*
@@ -621,10 +606,7 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 
 	if (S_ISREG(st.st_mode)) {
 		if (st.st_size >= (1U << 31)) {
-			curp->file_status = MANDOCLEVEL_FATAL;
-			if (curp->mmsg)
-				(*curp->mmsg)(MANDOCERR_TOOLARGE,
-				    curp->file_status, file, 0, 0, NULL);
+			mandoc_msg(MANDOCERR_TOOLARGE, curp, 0, 0, NULL);
 			return(0);
 		}
 		*with_mmap = 1;
@@ -646,11 +628,8 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 	for (;;) {
 		if (off == fb->sz) {
 			if (fb->sz == (1U << 31)) {
-				curp->file_status = MANDOCLEVEL_FATAL;
-				if (curp->mmsg)
-					(*curp->mmsg)(MANDOCERR_TOOLARGE,
-					    curp->file_status,
-					    file, 0, 0, NULL);
+				mandoc_msg(MANDOCERR_TOOLARGE, curp,
+				    0, 0, NULL);
 				break;
 			}
 			resize_buf(fb, 65536);
@@ -661,12 +640,8 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 			return(1);
 		}
 		if (ssz == -1) {
-			curp->file_status = MANDOCLEVEL_SYSERR;
-			if (curp->mmsg)
-				(*curp->mmsg)(MANDOCERR_SYSREAD,
-				    curp->file_status, file, 0, 0,
-				    strerror(errno));
-			break;
+			perror(file);
+			exit((int)MANDOCLEVEL_SYSERR);
 		}
 		off += (size_t)ssz;
 	}
@@ -679,9 +654,6 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 static void
 mparse_end(struct mparse *curp)
 {
-
-	if (MANDOCLEVEL_FATAL <= curp->file_status)
-		return;
 
 	if (curp->mdoc == NULL &&
 	    curp->man == NULL &&
@@ -696,17 +668,10 @@ mparse_end(struct mparse *curp)
 			curp->man = curp->pman;
 		}
 	}
-
-	if (curp->mdoc && ! mdoc_endparse(curp->mdoc)) {
-		assert(MANDOCLEVEL_FATAL <= curp->file_status);
-		return;
-	}
-
-	if (curp->man && ! man_endparse(curp->man)) {
-		assert(MANDOCLEVEL_FATAL <= curp->file_status);
-		return;
-	}
-
+	if (curp->mdoc)
+		mdoc_endparse(curp->mdoc);
+	if (curp->man)
+		man_endparse(curp->man);
 	roff_endparse(curp->roff);
 }
 
@@ -743,7 +708,7 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 
 	mparse_buf_r(curp, blk, offset, 1);
 
-	if (0 == --recursion_depth && MANDOCLEVEL_FATAL > curp->file_status)
+	if (--recursion_depth == 0)
 		mparse_end(curp);
 
 	curp->primary = svprimary;
@@ -751,8 +716,6 @@ mparse_parse_buffer(struct mparse *curp, struct buf blk, const char *file)
 }
 
 /*
- * If a file descriptor is given, use it and assume it points
- * to the named file.  Otherwise, open the named file.
  * Read the whole file into memory and call the parsers.
  * Called recursively when an .so request is encountered.
  */
@@ -762,13 +725,6 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 	struct buf	 blk;
 	int		 with_mmap;
 	int		 save_filenc;
-	pid_t		 save_child;
-
-	save_child = curp->child;
-	if (fd != -1)
-		curp->child = 0;
-	else if (mparse_open(curp, &fd, file) >= MANDOCLEVEL_SYSERR)
-		goto out;
 
 	if (read_whole_file(curp, file, fd, &blk, &with_mmap)) {
 		save_filenc = curp->filenc;
@@ -786,8 +742,6 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 		perror(file);
 
 	mparse_wait(curp);
-out:
-	curp->child = save_child;
 	return(curp->file_status);
 }
 
@@ -797,9 +751,7 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 	int		  pfd[2];
 	int		  save_errno;
 	char		 *cp;
-	enum mandocerr	  err;
 
-	pfd[1] = -1;
 	curp->file = file;
 
 	/* Unless zipped, try to just open the file. */
@@ -823,50 +775,38 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 	if (access(file, R_OK) == -1) {
 		if (cp != NULL)
 			errno = save_errno;
-		err = MANDOCERR_SYSOPEN;
-		goto out;
+		free(cp);
+		*fd = -1;
+		curp->child = 0;
+		mandoc_msg(MANDOCERR_FILE, curp, 0, 0, strerror(errno));
+		return(MANDOCLEVEL_ERROR);
 	}
 
 	/* Run gunzip(1). */
 
 	if (pipe(pfd) == -1) {
-		err = MANDOCERR_SYSPIPE;
-		goto out;
+		perror("pipe");
+		exit((int)MANDOCLEVEL_SYSERR);
 	}
 
 	switch (curp->child = fork()) {
 	case -1:
-		err = MANDOCERR_SYSFORK;
-		close(pfd[0]);
-		close(pfd[1]);
-		pfd[1] = -1;
-		break;
+		perror("fork");
+		exit((int)MANDOCLEVEL_SYSERR);
 	case 0:
 		close(pfd[0]);
 		if (dup2(pfd[1], STDOUT_FILENO) == -1) {
-			err = MANDOCERR_SYSDUP;
-			break;
+			perror("dup");
+			exit((int)MANDOCLEVEL_SYSERR);
 		}
 		execlp("gunzip", "gunzip", "-c", file, NULL);
-		err = MANDOCERR_SYSEXEC;
-		break;
+		perror("exec");
+		exit((int)MANDOCLEVEL_SYSERR);
 	default:
 		close(pfd[1]);
 		*fd = pfd[0];
 		return(MANDOCLEVEL_OK);
 	}
-
-out:
-	free(cp);
-	*fd = -1;
-	curp->child = 0;
-	curp->file_status = MANDOCLEVEL_SYSERR;
-	if (curp->mmsg)
-		(*curp->mmsg)(err, curp->file_status, curp->file,
-		    0, 0, strerror(errno));
-	if (pfd[1] != -1)
-		exit(1);
-	return(curp->file_status);
 }
 
 enum mandoclevel
@@ -878,22 +818,18 @@ mparse_wait(struct mparse *curp)
 		return(MANDOCLEVEL_OK);
 
 	if (waitpid(curp->child, &status, 0) == -1) {
-		mandoc_msg(MANDOCERR_SYSWAIT, curp, 0, 0,
-		    strerror(errno));
-		curp->file_status = MANDOCLEVEL_SYSERR;
-		return(curp->file_status);
+		perror("wait");
+		exit((int)MANDOCLEVEL_SYSERR);
 	}
 	if (WIFSIGNALED(status)) {
-		mandoc_vmsg(MANDOCERR_SYSSIG, curp, 0, 0,
-		    "%d", WTERMSIG(status));
-		curp->file_status = MANDOCLEVEL_SYSERR;
-		return(curp->file_status);
+		mandoc_vmsg(MANDOCERR_FILE, curp, 0, 0,
+		    "gunzip died from signal %d", WTERMSIG(status));
+		return(MANDOCLEVEL_ERROR);
 	}
 	if (WEXITSTATUS(status)) {
-		mandoc_vmsg(MANDOCERR_SYSEXIT, curp, 0, 0,
-		    "%d", WEXITSTATUS(status));
-		curp->file_status = MANDOCLEVEL_SYSERR;
-		return(curp->file_status);
+		mandoc_vmsg(MANDOCERR_FILE, curp, 0, 0,
+		    "gunzip failed with code %d", WEXITSTATUS(status));
+		return(MANDOCLEVEL_ERROR);
 	}
 	return(MANDOCLEVEL_OK);
 }
@@ -903,8 +839,6 @@ mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
     const struct mchars *mchars, const char *defos)
 {
 	struct mparse	*curp;
-
-	assert(wlevel <= MANDOCLEVEL_FATAL);
 
 	curp = mandoc_calloc(1, sizeof(struct mparse));
 
@@ -1002,11 +936,11 @@ mandoc_msg(enum mandocerr er, struct mparse *m,
 {
 	enum mandoclevel level;
 
-	level = MANDOCLEVEL_FATAL;
+	level = MANDOCLEVEL_ERROR;
 	while (er < mandoclimits[level])
 		level--;
 
-	if (level < m->wlevel)
+	if (level < m->wlevel && er != MANDOCERR_FILE)
 		return;
 
 	if (m->mmsg)

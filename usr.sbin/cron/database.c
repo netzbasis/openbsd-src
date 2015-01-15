@@ -1,4 +1,4 @@
-/*	$OpenBSD: database.c,v 1.19 2010/12/14 23:31:33 millert Exp $	*/
+/*	$OpenBSD: database.c,v 1.21 2015/01/14 17:30:53 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -36,7 +36,7 @@ void
 load_database(cron_db *old_db) {
 	struct stat statbuf, syscron_stat;
 	cron_db new_db;
-	DIR_T *dp;
+	struct dirent *dp;
 	DIR *dir;
 	user *u, *nu;
 
@@ -92,7 +92,7 @@ load_database(cron_db *old_db) {
 	}
 
 	while (NULL != (dp = readdir(dir))) {
-		char fname[MAXNAMLEN+1], tabname[MAXNAMLEN];
+		char fname[NAME_MAX+1], tabname[MAX_FNAME];
 
 		/* avoid file names beginning with ".".  this is good
 		 * because we would otherwise waste two guaranteed calls
