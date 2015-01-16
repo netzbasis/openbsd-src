@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.184 2014/12/21 00:54:49 guenther Exp $	*/
+/*	$OpenBSD: relay.c,v 1.187 2015/01/16 15:08:52 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -44,6 +44,8 @@
 #include <openssl/ssl.h>
 
 #include "relayd.h"
+
+#define MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
 
 void		 relay_statistics(int, short, void *);
 int		 relay_dispatch_parent(int, struct privsep_proc *,
@@ -1964,7 +1966,7 @@ relay_tls_callback_dh(SSL *ssl, int export, int keylen)
 	}
 
 	/* get built-in params based on the shorter key length */
-	dh = relay_tls_get_dhparams(MIN(keylen, maxlen));
+	dh = relay_tls_get_dhparams(MINIMUM(keylen, maxlen));
 
 	return (dh);
 }
@@ -1986,6 +1988,7 @@ relay_tls_ctx_create(struct relay *rlay)
 	struct protocol	*proto = rlay->rl_proto;
 	SSL_CTX		*ctx;
 	EC_KEY		*ecdhkey;
+	u_int8_t	 sid[SSL_MAX_SID_CTX_LENGTH];
 
 	ctx = SSL_CTX_new(SSLv23_method());
 	if (ctx == NULL)
@@ -1993,7 +1996,7 @@ relay_tls_ctx_create(struct relay *rlay)
 
 	/* Modify session timeout and cache size*/
 	SSL_CTX_set_timeout(ctx,
-	    (long)MIN(rlay->rl_conf.timeout.tv_sec, LONG_MAX));
+	    (long)MINIMUM(rlay->rl_conf.timeout.tv_sec, LONG_MAX));
 	if (proto->cache < -1) {
 		SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 	} else if (proto->cache >= -1) {
@@ -2058,7 +2061,7 @@ relay_tls_ctx_create(struct relay *rlay)
 		return (ctx);
 
 	log_debug("%s: loading certificate", __func__);
-	if (!ssl_ctx_use_certificate_chain(ctx,
+	if (!SSL_CTX_use_certificate_chain(ctx,
 	    rlay->rl_tls_cert, rlay->rl_conf.tls_cert_len))
 		goto err;
 
@@ -2081,9 +2084,13 @@ relay_tls_ctx_create(struct relay *rlay)
 			goto err;
 	}
 
-	/* Set session context to the local relay name */
-	if (!SSL_CTX_set_session_id_context(ctx, rlay->rl_conf.name,
-	    strlen(rlay->rl_conf.name)))
+	/*
+	 * Set session ID context to a random value.  We don't support
+	 * persistent caching of sessions so it is OK to set a temporary
+	 * session ID context that is valid during run time.
+	 */
+	arc4random_buf(sid, sizeof(sid));
+	if (!SSL_CTX_set_session_id_context(ctx, sid, sizeof(sid)))
 		goto err;
 
 	/* The text versions of the keys/certs are not needed anymore */
@@ -2333,7 +2340,7 @@ relay_tls_readcb(int fd, short event, void *arg)
 	}
 
 	if (bufev->wm_read.high != 0)
-		howmuch = MIN(sizeof(rbuf), bufev->wm_read.high);
+		howmuch = MINIMUM(sizeof(rbuf), bufev->wm_read.high);
 
 	ret = SSL_read(cre->ssl, rbuf, howmuch);
 	if (ret <= 0) {

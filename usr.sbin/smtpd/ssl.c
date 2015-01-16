@@ -1,4 +1,4 @@
-/*	$OpenBSD: ssl.c,v 1.72 2014/10/16 09:40:46 gilles Exp $	*/
+/*	$OpenBSD: ssl.c,v 1.74 2015/01/16 15:08:52 reyk Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -69,12 +69,17 @@ ssl_setup(SSL_CTX **ctxp, struct pki *pki)
 {
 	DH	*dh;
 	SSL_CTX	*ctx;
+	u_int8_t sid[SSL_MAX_SID_CTX_LENGTH];
 
 	ctx = ssl_ctx_create(pki->pki_name, pki->pki_cert, pki->pki_cert_len);
 
-	if (!SSL_CTX_set_session_id_context(ctx,
-		(const unsigned char *)pki->pki_name,
-		strlen(pki->pki_name) + 1))
+	/*
+	 * Set session ID context to a random value.  We don't support
+	 * persistent caching of sessions so it is OK to set a temporary
+	 * session ID context that is valid during run time.
+	 */
+	arc4random_buf(sid, sizeof(sid));
+	if (!SSL_CTX_set_session_id_context(ctx, sid, sizeof(sid)))
 		goto err;
 
 	if (pki->pki_dhparams_len == 0)
@@ -275,7 +280,7 @@ ssl_ctx_create(const char *pkiname, char *cert, off_t cert_len)
 	if (cert != NULL) {
 		if (pkiname != NULL)
 			pkinamelen = strlen(pkiname) + 1;
-		if (!ssl_ctx_use_certificate_chain(ctx, cert, cert_len)) {
+		if (!SSL_CTX_use_certificate_chain(ctx, cert, cert_len)) {
 			ssl_error("ssl_ctx_create");
 			fatal("ssl_ctx_create: invalid certificate chain");
 		} else if (!ssl_ctx_fake_private_key(ctx,
