@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcap-bpf.c,v 1.24 2014/10/16 20:08:21 deraadt Exp $	*/
+/*	$OpenBSD: pcap-bpf.c,v 1.27 2015/01/16 04:03:04 lteo Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996, 1998
@@ -288,7 +288,7 @@ get_dlt_list(int fd, int v, struct bpf_dltlist *bdlp, char *ebuf)
 {
 	memset(bdlp, 0, sizeof(*bdlp));
 	if (ioctl(fd, BIOCGDLTLIST, (caddr_t)bdlp) == 0) {
-		bdlp->bfl_list = (u_int *) calloc(bdlp->bfl_len + 1, sizeof(u_int));
+		bdlp->bfl_list = calloc(bdlp->bfl_len + 1, sizeof(u_int));
 		if (bdlp->bfl_list == NULL) {
 			(void)snprintf(ebuf, PCAP_ERRBUF_SIZE, "malloc: %s",
 			    pcap_strerror(errno));
@@ -431,9 +431,8 @@ pcap_cleanup_bpf(pcap_t *p)
 void
 pcap_close(pcap_t *p)
 {
-	if (p->opt.source != NULL)
-		free(p->opt.source);
 	pcap_cleanup_bpf(p);
+	free(p->opt.source);
 	free(p);
 }
 
@@ -652,7 +651,7 @@ pcap_activate(pcap_t *p)
 		goto bad;
 	}
 	p->bufsize = v;
-	p->buffer = (u_char *)malloc(p->bufsize);
+	p->buffer = malloc(p->bufsize);
 	if (p->buffer == NULL) {
 		snprintf(p->errbuf, PCAP_ERRBUF_SIZE, "malloc: %s",
 		    pcap_strerror(errno));
@@ -745,7 +744,7 @@ monitor_mode(pcap_t *p, int set)
 	 * Allocate a buffer to hold all the media types, and
 	 * get the media types.
 	 */
-	media_list = (int *) calloc(req.ifm_count, sizeof(int));
+	media_list = calloc(req.ifm_count, sizeof(int));
 	if (media_list == NULL) {
 		snprintf(p->errbuf, PCAP_ERRBUF_SIZE, "malloc: %s",
 		    pcap_strerror(errno));
@@ -891,13 +890,13 @@ find_802_11(struct bpf_dltlist *bdlp)
 }
 
 pcap_t *
-pcap_create(const char *device, char *ebuf)
+pcap_create(const char *device, char *errbuf)
 {
 	pcap_t *p;
 
 	p = calloc(1, sizeof(*p));
 	if (p == NULL) {
-		snprintf(ebuf, PCAP_ERRBUF_SIZE, "malloc: %s",
+		snprintf(errbuf, PCAP_ERRBUF_SIZE, "malloc: %s",
 		    pcap_strerror(errno));
 		return (NULL);
 	}
@@ -905,7 +904,7 @@ pcap_create(const char *device, char *ebuf)
 
 	p->opt.source = strdup(device);
 	if (p->opt.source == NULL) {
-		snprintf(ebuf, PCAP_ERRBUF_SIZE, "malloc: %s",
+		snprintf(errbuf, PCAP_ERRBUF_SIZE, "malloc: %s",
 		    pcap_strerror(errno));
 		free(p);
 		return (NULL);
