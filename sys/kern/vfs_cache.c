@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_cache.c,v 1.43 2015/01/12 20:00:11 tedu Exp $	*/
+/*	$OpenBSD: vfs_cache.c,v 1.45 2015/01/16 21:16:14 tedu Exp $	*/
 /*	$NetBSD: vfs_cache.c,v 1.13 1996/02/04 02:18:09 christos Exp $	*/
 
 /*
@@ -349,7 +349,7 @@ cache_enter(struct vnode *dvp, struct vnode *vp, struct componentname *cnp)
 	/*
 	 * allocate, or recycle (free and allocate) an ncp.
 	 */
-	if (numcache >= initialvnodes) {
+	if (numcache >= maxvnodes) {
 		if ((ncp = TAILQ_FIRST(&nclruhead)) != NULL)
 			cache_zap(ncp);
 		else if ((ncp = TAILQ_FIRST(&nclruneghead)) != NULL)
@@ -448,10 +448,6 @@ cache_purge(struct vnode *vp)
 /*
  * Cache flush, a whole filesystem; called when filesys is umounted to
  * remove entries that would now be invalid
- *
- * The line "nxtcp = nchhead" near the end is to avoid potential problems
- * if the cache lru chain is modified while we are dumping the
- * inode.  This makes the algorithm O(n^2), but do you think I care?
  */
 void
 cache_purgevfs(struct mount *mp)
@@ -460,24 +456,20 @@ cache_purgevfs(struct mount *mp)
 
 	/* whack the regular entries */
 	for (ncp = TAILQ_FIRST(&nclruhead); ncp != NULL; ncp = nxtcp) {
+		nxtcp = TAILQ_NEXT(ncp, nc_lru);
 		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp) {
-			nxtcp = TAILQ_NEXT(ncp, nc_lru);
 			continue;
 		}
 		/* free the resources we had */
 		cache_zap(ncp);
-		/* cause rescan of list, it may have altered */
-		nxtcp = TAILQ_FIRST(&nclruhead);
 	}
 	/* whack the negative entries */
 	for (ncp = TAILQ_FIRST(&nclruneghead); ncp != NULL; ncp = nxtcp) {
+		nxtcp = TAILQ_NEXT(ncp, nc_neg);
 		if (ncp->nc_dvp == NULL || ncp->nc_dvp->v_mount != mp) {
-			nxtcp = TAILQ_NEXT(ncp, nc_neg);
 			continue;
 		}
 		/* free the resources we had */
 		cache_zap(ncp);
-		/* cause rescan of list, it may have altered */
-		nxtcp = TAILQ_FIRST(&nclruneghead);
 	}
 }
