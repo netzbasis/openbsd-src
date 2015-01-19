@@ -1,4 +1,4 @@
-/* $OpenBSD: xhcireg.h,v 1.9 2015/01/02 18:06:25 mpi Exp $ */
+/* $OpenBSD: xhcireg.h,v 1.11 2015/01/18 20:35:11 mpi Exp $ */
 
 /*-
  * Copyright (c) 2014 Martin Pieuchot. All rights reserved.
@@ -28,9 +28,6 @@
 
 #ifndef _XHCIREG_H_
 #define _XHCIREG_H_
-
-/* Default command execution time (implementation defined). */
-#define XHCI_COMMAND_TIMEOUT	500	/* ms */
 
 /* Data Structure Boundary and Alignment Requirement. */
 #define XHCI_DCBAA_ALIGN	64
@@ -435,7 +432,7 @@ struct xhci_trb {
 #define XHCI_CODE_CMD_RING_STOP	24 	/* Command Stop (CS) requested */
 #define XHCI_CODE_CMD_ABORTED	25 	/* Command Abort (CA) operation */
 #define XHCI_CODE_XFER_STOPPED	26 	/* xfer terminated by a stop endpoint */
-#define XHCI_CODE_XFER_INVLEN	27 	/* TRB transfer length invalid */
+#define XHCI_CODE_XFER_STOPINV	27 	/* TRB transfer length invalid */
 #define XHCI_CODE_XFER_SHORTPKT	28 	/* Stopped before reaching end of TD */
 #define XHCI_CODE_MELAT		29	/* Max Exit Latency too large */
 #define XHCI_CODE_RESERVED	30

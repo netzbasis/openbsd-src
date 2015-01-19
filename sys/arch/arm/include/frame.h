@@ -1,4 +1,4 @@
-/*	$OpenBSD: frame.h,v 1.4 2011/09/20 22:02:13 miod Exp $	*/
+/*	$OpenBSD: frame.h,v 1.6 2015/01/18 16:26:39 jsg Exp $	*/
 /*	$NetBSD: frame.h,v 1.9 2003/12/01 08:48:33 scw Exp $	*/
 
 /*
@@ -207,7 +207,7 @@ struct frame {
 	sub	sp, sp, #(4*17);	/* Adjust the stack pointer */	   \
 	stmia	sp, {r0-r14}^;		/* Push the user mode registers */ \
         mov     r0, r0;                 /* NOP for previous instruction */ \
-	mrs	r0, spsr_all;		/* Put the SPSR on the stack */	   \
+	mrs	r0, spsr;		/* Put the SPSR on the stack */	   \
 	str	r0, [sp, #-4]!
 
 /*
@@ -217,7 +217,7 @@ struct frame {
 
 #define PULLFRAME							   \
         ldr     r0, [sp], #0x0004;      /* Get the SPSR from stack */	   \
-        msr     spsr_all, r0;						   \
+        msr     spsr_fsxc, r0;						   \
         ldmia   sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
         mov     r0, r0;                 /* NOP for previous instruction */ \
 	add	sp, sp, #(4*17);	/* Adjust the stack pointer */	   \
@@ -244,12 +244,12 @@ struct frame {
 	str	r0, [sp, #-4]!;		/* Push return address */	   \
 	str	lr, [sp, #-4]!;		/* Push SVC lr */		   \
 	str	r2, [sp, #-4]!;		/* Push SVC sp */		   \
-	msr     spsr_all, r3;		/* Restore correct spsr */	   \
+	msr     spsr_fsxc, r3;		/* Restore correct spsr */	   \
 	ldmdb	r1, {r0-r3};		/* Restore 4 regs from xxx mode */ \
 	sub	sp, sp, #(4*15);	/* Adjust the stack pointer */	   \
 	stmia	sp, {r0-r14}^;		/* Push the user mode registers */ \
         mov     r0, r0;                 /* NOP for previous instruction */ \
-	mrs	r0, spsr_all;		/* Put the SPSR on the stack */	   \
+	mrs	r0, spsr;		/* Put the SPSR on the stack */	   \
 	str	r0, [sp, #-4]!
 
 /*
@@ -261,7 +261,7 @@ struct frame {
 
 #define PULLFRAMEFROMSVCANDEXIT						   \
         ldr     r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
-        msr     spsr_all, r0;		/* restore SPSR */		   \
+        msr     spsr_fsxc, r0;		/* restore SPSR */		   \
         ldmia   sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
         mov     r0, r0;	  		/* NOP for previous instruction */ \
 	add	sp, sp, #(4*15);	/* Adjust the stack pointer */	   \

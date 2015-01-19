@@ -1,4 +1,4 @@
-/*	$OpenBSD: fiq_subr.S,v 1.2 2011/09/20 22:02:11 miod Exp $	*/
+/*	$OpenBSD: fiq_subr.S,v 1.4 2015/01/18 14:55:02 jsg Exp $	*/
 /*	$NetBSD: fiq_subr.S,v 1.3 2002/04/12 18:50:31 thorpej Exp $	*/
 
 /*
@@ -43,14 +43,14 @@
 #include <arm/cpuconf.h>
 
 #define	SWITCH_TO_FIQ_MODE						\
-	mrs	r2, cpsr_all					;	\
+	mrs	r2, cpsr					;	\
 	mov	r3, r2						;	\
 	bic	r2, r2, #(PSR_MODE)				;	\
 	orr	r2, r2, #(PSR_FIQ32_MODE)			;	\
-	msr	cpsr_all, r2
+	msr	cpsr_c, r2
 
 #define	BACK_TO_SVC_MODE						\
-	msr	cpsr_all, r3
+	msr	cpsr_c, r3
 
 /*
  * fiq_getregs:
