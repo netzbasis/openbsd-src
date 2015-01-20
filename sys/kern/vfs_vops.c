@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_vops.c,v 1.9 2013/08/13 05:52:24 guenther Exp $	*/
+/*	$OpenBSD: vfs_vops.c,v 1.11 2015/01/19 20:16:27 guenther Exp $	*/
 /*
  * Copyright (c) 2010 Thordur I. Bjornsson <thib@openbsd.org> 
  *
@@ -48,10 +48,13 @@
 #include <sys/unistd.h>
 
 #ifdef VFSLCKDEBUG
-#define ASSERT_VP_ISLOCKED(vp) do {                             \
-        if (((vp)->v_flag & VLOCKSWORK) && !VOP_ISLOCKED(vp))   \
-                VOP_PRINT(vp);                                  \
-                panic("vp not locked");                         \
+#include <sys/systm.h>		/* for panic() */
+
+#define ASSERT_VP_ISLOCKED(vp) do {				\
+	if (((vp)->v_flag & VLOCKSWORK) && !VOP_ISLOCKED(vp)) {	\
+		VOP_PRINT(vp);					\
+		panic("vp not locked");				\
+	}							\
 } while (0)
 #else
 #define ASSERT_VP_ISLOCKED(vp)  /* nothing */

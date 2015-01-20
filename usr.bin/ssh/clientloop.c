@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.262 2015/01/14 20:05:27 djm Exp $ */
+/* $OpenBSD: clientloop.c,v 1.265 2015/01/19 20:16:15 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -183,9 +183,6 @@ struct global_confirm {
 TAILQ_HEAD(global_confirms, global_confirm);
 static struct global_confirms global_confirms =
     TAILQ_HEAD_INITIALIZER(global_confirms);
-
-/*XXX*/
-extern Kex *xxx_kex;
 
 void ssh_process_session2_setup(int, int, int, Buffer *);
 
@@ -531,13 +528,13 @@ client_check_window_change(void)
 	}
 }
 
-static void
+static int
 client_global_request_reply(int type, u_int32_t seq, void *ctxt)
 {
 	struct global_confirm *gc;
 
 	if ((gc = TAILQ_FIRST(&global_confirms)) == NULL)
-		return;
+		return 0;
 	if (gc->cb != NULL)
 		gc->cb(type, seq, gc->ctx);
 	if (--gc->ref_count <= 0) {
@@ -547,6 +544,7 @@ client_global_request_reply(int type, u_int32_t seq, void *ctxt)
 	}
 
 	packet_set_alive_timeouts(0);
+	return 0;
 }
 
 static void
@@ -1403,8 +1401,7 @@ client_process_output(fd_set *writeset)
 static void
 client_process_buffered_input_packets(void)
 {
-	dispatch_run(DISPATCH_NONBLOCK, &quit_pending,
-	    compat20 ? xxx_kex : NULL);
+	dispatch_run(DISPATCH_NONBLOCK, &quit_pending, active_state);
 }
 
 /* scan buf[] for '~' before sending data to the peer */
@@ -1458,7 +1455,7 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 {
 	fd_set *readset = NULL, *writeset = NULL;
 	double start_time, total_time;
-	int max_fd = 0, max_fd2 = 0, len, rekeying = 0;
+	int r, max_fd = 0, max_fd2 = 0, len, rekeying = 0;
 	u_int64_t ibytes, obytes;
 	u_int nalloc = 0;
 	char buf[100];
@@ -1543,7 +1540,7 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 		if (compat20 && session_closed && !channel_still_open())
 			break;
 
-		rekeying = (xxx_kex != NULL && !xxx_kex->done);
+		rekeying = (active_state->kex != NULL && !active_state->kex->done);
 
 		if (rekeying) {
 			debug("rekeying in progress");
@@ -1587,8 +1584,10 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 			channel_after_select(readset, writeset);
 			if (need_rekeying || packet_need_rekeying()) {
 				debug("need rekeying");
-				xxx_kex->done = 0;
-				kex_send_kexinit(xxx_kex);
+				active_state->kex->done = 0;
+				if ((r = kex_send_kexinit(active_state)) != 0)
+					fatal("%s: kex_send_kexinit: %s",
+					    __func__, ssh_err(r));
 				need_rekeying = 0;
 			}
 		}
@@ -1717,8 +1716,7 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 
 	/* Report bytes transferred, and transfer rates. */
 	total_time = get_current_time() - start_time;
-	packet_get_state(MODE_IN, NULL, NULL, NULL, &ibytes);
-	packet_get_state(MODE_OUT, NULL, NULL, NULL, &obytes);
+	packet_get_bytes(&ibytes, &obytes);
 	verbose("Transferred: sent %llu, received %llu bytes, in %.1f seconds",
 	    (unsigned long long)obytes, (unsigned long long)ibytes, total_time);
 	if (total_time > 0)
@@ -1731,7 +1729,7 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 
 /*********/
 
-static void
+static int
 client_input_stdout_data(int type, u_int32_t seq, void *ctxt)
 {
 	u_int data_len;
@@ -1740,8 +1738,9 @@ client_input_stdout_data(int type, u_int32_t seq, void *ctxt)
 	buffer_append(&stdout_buffer, data, data_len);
 	explicit_bzero(data, data_len);
 	free(data);
+	return 0;
 }
-static void
+static int
 client_input_stderr_data(int type, u_int32_t seq, void *ctxt)
 {
 	u_int data_len;
@@ -1750,8 +1749,9 @@ client_input_stderr_data(int type, u_int32_t seq, void *ctxt)
 	buffer_append(&stderr_buffer, data, data_len);
 	explicit_bzero(data, data_len);
 	free(data);
+	return 0;
 }
-static void
+static int
 client_input_exit_status(int type, u_int32_t seq, void *ctxt)
 {
 	exit_status = packet_get_int();
@@ -1766,8 +1766,9 @@ client_input_exit_status(int type, u_int32_t seq, void *ctxt)
 	packet_write_wait();
 	/* Flag that we want to exit. */
 	quit_pending = 1;
+	return 0;
 }
-static void
+static int
 client_input_agent_open(int type, u_int32_t seq, void *ctxt)
 {
 	Channel *c = NULL;
@@ -1810,6 +1811,7 @@ client_input_agent_open(int type, u_int32_t seq, void *ctxt)
 		packet_put_int(c->self);
 	}
 	packet_send();
+	return 0;
 }
 
 static Channel *
@@ -1964,7 +1966,7 @@ client_request_tun_fwd(int tun_mode, int local_tun, int remote_tun)
 }
 
 /* XXXX move to generic input handler */
-static void
+static int
 client_input_channel_open(int type, u_int32_t seq, void *ctxt)
 {
 	Channel *c = NULL;
@@ -2015,8 +2017,9 @@ client_input_channel_open(int type, u_int32_t seq, void *ctxt)
 		packet_send();
 	}
 	free(ctype);
+	return 0;
 }
-static void
+static int
 client_input_channel_req(int type, u_int32_t seq, void *ctxt)
 {
 	Channel *c = NULL;
@@ -2061,8 +2064,9 @@ client_input_channel_req(int type, u_int32_t seq, void *ctxt)
 		packet_send();
 	}
 	free(rtype);
+	return 0;
 }
-static void
+static int
 client_input_global_request(int type, u_int32_t seq, void *ctxt)
 {
 	char *rtype;
@@ -2080,6 +2084,7 @@ client_input_global_request(int type, u_int32_t seq, void *ctxt)
 		packet_write_wait();
 	}
 	free(rtype);
+	return 0;
 }
 
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: serverloop.c,v 1.172 2014/07/15 15:54:14 millert Exp $ */
+/* $OpenBSD: serverloop.c,v 1.175 2015/01/19 20:16:15 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -79,7 +79,6 @@
 extern ServerOptions options;
 
 /* XXX */
-extern Kex *xxx_kex;
 extern Authctxt *the_authctxt;
 extern int use_privsep;
 
@@ -513,7 +512,7 @@ drain_output(void)
 static void
 process_buffered_input_packets(void)
 {
-	dispatch_run(DISPATCH_NONBLOCK, NULL, compat20 ? xxx_kex : NULL);
+	dispatch_run(DISPATCH_NONBLOCK, NULL, active_state);
 }
 
 /*
@@ -819,7 +818,7 @@ server_loop2(Authctxt *authctxt)
 	for (;;) {
 		process_buffered_input_packets();
 
-		rekeying = (xxx_kex != NULL && !xxx_kex->done);
+		rekeying = (active_state->kex != NULL && !active_state->kex->done);
 
 		if (!rekeying && packet_not_very_much_data_to_write())
 			channel_output_poll();
@@ -842,8 +841,8 @@ server_loop2(Authctxt *authctxt)
 			channel_after_select(readset, writeset);
 			if (packet_need_rekeying()) {
 				debug("need rekeying");
-				xxx_kex->done = 0;
-				kex_send_kexinit(xxx_kex);
+				active_state->kex->done = 0;
+				kex_send_kexinit(active_state);
 			}
 		}
 		process_input(readset);
@@ -863,7 +862,7 @@ server_loop2(Authctxt *authctxt)
 	session_destroy_all(NULL);
 }
 
-static void
+static int
 server_input_keep_alive(int type, u_int32_t seq, void *ctxt)
 {
 	debug("Got %d/%u for keepalive", type, seq);
@@ -873,9 +872,10 @@ server_input_keep_alive(int type, u_int32_t seq, void *ctxt)
 	 * the bogus CHANNEL_REQUEST we send for keepalives.
 	 */
 	packet_set_alive_timeouts(0);
+	return 0;
 }
 
-static void
+static int
 server_input_stdin_data(int type, u_int32_t seq, void *ctxt)
 {
 	char *data;
@@ -884,15 +884,16 @@ server_input_stdin_data(int type, u_int32_t seq, void *ctxt)
 	/* Stdin data from the client.  Append it to the buffer. */
 	/* Ignore any data if the client has closed stdin. */
 	if (fdin == -1)
-		return;
+		return 0;
 	data = packet_get_string(&data_len);
 	packet_check_eom();
 	buffer_append(&stdin_buffer, data, data_len);
 	explicit_bzero(data, data_len);
 	free(data);
+	return 0;
 }
 
-static void
+static int
 server_input_eof(int type, u_int32_t seq, void *ctxt)
 {
 	/*
@@ -903,9 +904,10 @@ server_input_eof(int type, u_int32_t seq, void *ctxt)
 	debug("EOF received for stdin.");
 	packet_check_eom();
 	stdin_eof = 1;
+	return 0;
 }
 
-static void
+static int
 server_input_window_size(int type, u_int32_t seq, void *ctxt)
 {
 	u_int row = packet_get_int();
@@ -917,6 +919,7 @@ server_input_window_size(int type, u_int32_t seq, void *ctxt)
 	packet_check_eom();
 	if (fdin != -1)
 		pty_change_window_size(fdin, row, col, xpixel, ypixel);
+	return 0;
 }
 
 static Channel *
@@ -1056,7 +1059,7 @@ server_request_session(void)
 	return c;
 }
 
-static void
+static int
 server_input_channel_open(int type, u_int32_t seq, void *ctxt)
 {
 	Channel *c = NULL;
@@ -1106,9 +1109,10 @@ server_input_channel_open(int type, u_int32_t seq, void *ctxt)
 		packet_send();
 	}
 	free(ctype);
+	return 0;
 }
 
-static void
+static int
 server_input_global_request(int type, u_int32_t seq, void *ctxt)
 {
 	char *rtype;
@@ -1200,9 +1204,10 @@ server_input_global_request(int type, u_int32_t seq, void *ctxt)
 		packet_write_wait();
 	}
 	free(rtype);
+	return 0;
 }
 
-static void
+static int
 server_input_channel_req(int type, u_int32_t seq, void *ctxt)
 {
 	Channel *c;
@@ -1232,6 +1237,7 @@ server_input_channel_req(int type, u_int32_t seq, void *ctxt)
 		packet_send();
 	}
 	free(rtype);
+	return 0;
 }
 
 static void

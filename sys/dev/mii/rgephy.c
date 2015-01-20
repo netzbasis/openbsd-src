@@ -1,4 +1,4 @@
-/*	$OpenBSD: rgephy.c,v 1.34 2014/11/24 00:13:42 brad Exp $	*/
+/*	$OpenBSD: rgephy.c,v 1.37 2015/01/20 03:58:04 brad Exp $	*/
 /*
  * Copyright (c) 2003
  *	Bill Paul <wpaul@windriver.com>.  All rights reserved.
@@ -479,19 +479,6 @@ rgephy_load_dspcode(struct mii_softc *sc)
 void
 rgephy_reset(struct mii_softc *sc)
 {
-	uint16_t reg;
-
-	if (sc->mii_model == MII_MODEL_xxREALTEK_RTL8251) {
-		PHY_WRITE(sc, 31, 0x0a43);
-		reg = PHY_READ(sc, RGEPHY_CR);
-		if ((reg & RGEPHY_CR_ALDPS) != 0) {
-			printf("rgephy disabling ALDPS");
-			reg &= ~RGEPHY_CR_ALDPS;
-			PHY_WRITE(sc, RGEPHY_CR, reg);
-		}
-		PHY_WRITE(sc, 31, 0x0000);
-	}
-
 	mii_phy_reset(sc);
 	DELAY(1000);
 	rgephy_load_dspcode(sc);
