@@ -1,4 +1,4 @@
-/*	$OpenBSD: param.h,v 1.111 2015/01/18 21:47:16 millert Exp $	*/
+/*	$OpenBSD: param.h,v 1.115 2015/01/20 18:14:51 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1982, 1986, 1989, 1993
@@ -120,24 +120,6 @@
 
 #define	NODEV	(dev_t)(-1)	/* non-existent device */
 
-#define	CMASK	022		/* default file mask: S_IWGRP|S_IWOTH */
-
-/*
- * Constants related to network buffer management.
- * MCLBYTES must be no larger than PAGE_SIZE (the software page size) and,
- * on machines that exchange pages of input or output buffers with mbuf
- * clusters (MAPPED_MBUFS), MCLBYTES must also be an integral multiple
- * of the hardware page size.
- */
-#define	MSIZE		256		/* size of an mbuf */
-
-#ifdef _KERNEL
-#define	MCLSHIFT	11		/* convert bytes to m_buf clusters */
-					/* 2K cluster can hold Ether frame */
-#define	MCLBYTES	(1 << MCLSHIFT)	/* size of a m_buf cluster */
-#define	MCLOFSET	(MCLBYTES - 1)
-#endif /* _KERNEL */
-
 #define	ALIGNBYTES		_ALIGNBYTES
 #define	ALIGN(p)		_ALIGN(p)
 #define	ALIGNED_POINTER(p,t)	_ALIGNED_POINTER(p,t)
@@ -155,7 +137,6 @@
 #define MAXPHYS		(64 * 1024)	/* max raw I/O transfer size */
 #endif /* _KERNEL */
 #define	MAXBSIZE	(64 * 1024)
-#define MAXFRAG 	8
 
 #define	_DEV_BSHIFT	9		/* log2(DEV_BSIZE) */
 #define	DEV_BSIZE	(1 << _DEV_BSHIFT)
@@ -238,7 +219,10 @@
  * For the scheduler to maintain a 1:1 mapping of CPU `tick' to `%age',
  * FSHIFT must be at least 11; this gives us a maximum load avg of ~1024.
  */
-#define	FSHIFT	11		/* bits to right of fixed binary point */
-#define FSCALE	(1<<FSHIFT)
+#define	_FSHIFT	11		/* bits to right of fixed binary point */
+#ifdef _KERNEL
+#define	FSHIFT	_FSHIFT	
+#endif
+#define FSCALE	(1<<_FSHIFT)
 
 #endif /* !_SYS_PARAM_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.34 2015/01/16 06:40:11 deraadt Exp $	*/
+/*	$OpenBSD: server.c,v 1.37 2015/01/21 04:08:37 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -29,9 +29,19 @@
  * SUCH DAMAGE.
  */
 
+#include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <grp.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 
-#include "defs.h"
+#include "server.h"
 
 /*
  * Server routines
@@ -160,7 +170,6 @@ static int
 fchog(int fd, char *file, char *owner, char *group, int mode)
 {
 	static struct group *gr = NULL;
-	extern char *locuser;
 	int i;
 	struct stat st;
 	uid_t uid;
@@ -537,12 +546,8 @@ docmdspecial(void)
 /*
  * Query. Check to see if file exists. Return one of the following:
  *
-#ifdef NFS_CHECK
  *  QC_ONNFS		- resides on a NFS
-#endif NFS_CHECK
-#ifdef RO_CHECK
  *  QC_ONRO		- resides on a Read-Only filesystem
-#endif RO_CHECK
  *  QC_NO		- doesn't exist
  *  QC_YESsize mtime 	- exists and its a regular file (size & mtime of file)
  *  QC_YES		- exists and its a directory or symbolic link
@@ -563,7 +568,6 @@ query(char *xname)
 	if (catname && cattarget(name) < 0)
 		return;
 
-#if	defined(NFS_CHECK)
 	if (IS_ON(options, DO_CHKNFS)) {
 		s = is_nfs_mounted(target, &stb, &stbvalid);
 		if (s > 0)
@@ -576,9 +580,7 @@ query(char *xname)
 			return;
 		}
 	}
-#endif 	/* NFS_CHECK */
 
-#if	defined(RO_CHECK)
 	if (IS_ON(options, DO_CHKREADONLY)) {
 		s = is_ro_mounted(target, &stb, &stbvalid);
 		if (s > 0)
@@ -591,7 +593,6 @@ query(char *xname)
 			return;
 		}
 	}
-#endif 	/* RO_CHECK */
 
 	if (IS_ON(options, DO_CHKSYM)) {
 		if (is_symlinked(target, &stb, &stbvalid) > 0) {
@@ -601,10 +602,8 @@ query(char *xname)
 	}
 
 	/*
-	 * If stbvalid is false, "stb" is not valid because:
-	 *	a) RO_CHECK and NFS_CHECK were not defined
-	 *	b) The stat by is_*_mounted() either failed or
-	 *	   does not match "target".
+	 * If stbvalid is false, "stb" is not valid because the stat()
+	 * by is_*_mounted() either failed or does not match "target".
 	 */
 	if (!stbvalid && lstat(target, &stb) < 0) {
 		if (errno == ENOENT)
@@ -644,7 +643,7 @@ chkparent(char *name, opt_t opts)
 	struct stat stb;
 	int r = -1;
 
-	debugmsg(DM_CALL, "chkparent(%s, %lo) start\n", name, opts);
+	debugmsg(DM_CALL, "chkparent(%s, %#x) start\n", name, opts);
 
 	cp = strrchr(name, '/');
 	if (cp == NULL || cp == name)
@@ -659,7 +658,7 @@ chkparent(char *name, opt_t opts)
 				r = 0;
 			} else 
 				debugmsg(DM_MISC, 
-					 "chkparent(%s, %lo) mkdir fail: %s\n",
+					 "chkparent(%s, %#04o) mkdir fail: %s\n",
 					 name, opts, SYSERR);
 		}
 	} else	/* It exists */
@@ -987,23 +986,21 @@ recvdir(opt_t opts, int mode, char *owner, char *group)
 			    (stb.st_mode & 07777) != mode) {
 				if (IS_ON(opts, DO_VERIFY))
 					message(MT_NOTICE, 
-						"%s: need to chmod to %o",
+						"%s: need to chmod to %#04o",
 						target, mode);
-				else {
-					if (chmod(target, mode) != 0)
-						message(MT_NOTICE,
-					  "%s: chmod from %o to %o failed: %s",
-							target, 
-							stb.st_mode & 07777, 
-							mode,
-							SYSERR);
-					else
-						message(MT_NOTICE,
-						"%s: chmod from %o to %o",
-							target, 
-							stb.st_mode & 07777, 
-							mode);
-				}
+				else if (chmod(target, mode) != 0)
+					message(MT_NOTICE,
+				  "%s: chmod from %#04o to %#04o failed: %s",
+						target, 
+						stb.st_mode & 07777, 
+						mode,
+						SYSERR);
+				else
+					message(MT_NOTICE,
+						"%s: chmod from %#04o to %#04o",
+						target, 
+						stb.st_mode & 07777, 
+						mode);
 			}
 
 			/*
@@ -1439,7 +1436,7 @@ recvit(char *cmd, int type)
 	file = fileb;
 
 	debugmsg(DM_MISC,
-		 "recvit: opts = %04lo mode = %04o size = %lld mtime = %lld",
+		 "recvit: opts = %#x mode = %#04o size = %lld mtime = %lld",
 		 opts, mode, (long long) size, (long long)mtime);
 	debugmsg(DM_MISC,
        "recvit: owner = '%s' group = '%s' file = '%s' catname = %d isdir = %d",
@@ -1595,7 +1592,7 @@ dochmog(char *cmd)
 	file = fileb;
 
 	debugmsg(DM_MISC,
-		 "dochmog: opts = %04lo mode = %04o", opts, mode);
+		 "dochmog: opts = %#x mode = %#04o", opts, mode);
 	debugmsg(DM_MISC,
 	         "dochmog: owner = '%s' group = '%s' file = '%s' catname = %d",
 		 owner, group, file, catname);
@@ -1666,8 +1663,7 @@ server(void)
 {
 	static char cmdbuf[BUFSIZ];
 	char *cp;
-	int n;
-	extern jmp_buf finish_jmpbuf;
+	int n, proto_version;
 
 	if (setjmp(finish_jmpbuf))
 		return;

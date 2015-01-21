@@ -1,4 +1,4 @@
-/*	$OpenBSD: message.c,v 1.23 2015/01/20 03:14:52 guenther Exp $	*/
+/*	$OpenBSD: message.c,v 1.27 2015/01/20 09:00:16 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -29,7 +29,16 @@
  * SUCH DAMAGE.
  */
 
+#include <errno.h>
+#include <limits.h>
+#include <paths.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <syslog.h>
+#include <unistd.h>
+
 #include "defs.h"
 
 /*
@@ -45,7 +54,10 @@ int			nerrs = 0;		/* Number of errors */
 /*
  * Message Types
  */
-MSGTYPE msgtypes[] = {
+struct msgtype {
+	int		mt_type;		/* Type (bit) */
+	char	       *mt_name;		/* Name of message type */
+} msgtypes[] = {
 	{ MT_CHANGE,	"change" },
 	{ MT_INFO,	"info" },
 	{ MT_NOTICE,	"notice" },
@@ -58,15 +70,38 @@ MSGTYPE msgtypes[] = {
 	{ 0 },
 };
 
-static void msgsendstdout(MSGFACILITY *, int, int, char *);
-static void msgsendsyslog(MSGFACILITY *, int, int, char *);
-static void msgsendfile(MSGFACILITY *, int, int, char *);
-static void msgsendnotify(MSGFACILITY *, int, int, char *);
+/*
+ * Description of message facilities
+ */
+struct msgfacility {
+	/* compile time initialized data */
+	int		mf_msgfac;		/* One of MF_* from below */
+	char	       *mf_name;		/* Name of this facility */
+	void	      (*mf_sendfunc)		/* Function to send msg */
+			(struct msgfacility *, int, int, char *);
+	/* run time initialized data */
+	int		mf_msgtypes;		/* Bitmask of MT_* from above*/
+	char	       *mf_filename;		/* Name of file */
+	FILE	       *mf_fptr;		/* File pointer to output to */
+};
 
 /*
  * Message Facilities
  */
-MSGFACILITY msgfacility[] = {
+#define MF_STDOUT	1			/* Standard Output */
+#define MF_NOTIFY	2			/* Notify mail service */
+#define MF_FILE		3			/* A normal file */
+#define MF_SYSLOG	4			/* syslog() */
+
+static void msgsendstdout(struct msgfacility *, int, int, char *);
+static void msgsendsyslog(struct msgfacility *, int, int, char *);
+static void msgsendfile(struct msgfacility *, int, int, char *);
+static void msgsendnotify(struct msgfacility *, int, int, char *);
+
+/*
+ * Message Facilities
+ */
+struct msgfacility msgfacility[] = {
 	{ MF_STDOUT,	"stdout",	msgsendstdout },
 	{ MF_FILE,	"file",		msgsendfile },
 	{ MF_SYSLOG,	"syslog",	msgsendsyslog },
@@ -74,9 +109,9 @@ MSGFACILITY msgfacility[] = {
 	{ 0 },
 };
 
-static MSGFACILITY *getmsgfac(char *);
-static MSGTYPE *getmsgtype(char *);
-static char *setmsgtypes(MSGFACILITY *, char *);
+static struct msgfacility *getmsgfac(char *);
+static struct msgtype *getmsgtype(char *);
+static char *setmsgtypes(struct msgfacility *, char *);
 static void _message(int, char *);
 static void _debugmsg(int, char *);
 static void _error(const char *);
@@ -135,7 +170,7 @@ msgprconfig(void)
 /*
  * Get the Message Facility entry "name"
  */
-static MSGFACILITY *
+static struct msgfacility *
 getmsgfac(char *name)
 {
 	int i;
@@ -150,7 +185,7 @@ getmsgfac(char *name)
 /*
  * Get the Message Type entry named "name"
  */
-static MSGTYPE *
+static struct msgtype *
 getmsgtype(char *name)
 {
 	int i;
@@ -167,12 +202,12 @@ getmsgtype(char *name)
  * indicated by string "str".
  */
 static char *
-setmsgtypes(MSGFACILITY *msgfac, char *str)
+setmsgtypes(struct msgfacility *msgfac, char *str)
 {
 	static char ebuf[BUFSIZ];
 	char *cp;
 	char *strptr, *word;
-	MSGTYPE *mtp;
+	struct msgtype *mtp;
 
 	/*
 	 * MF_SYSLOG is the only supported message facility for the server
@@ -216,13 +251,7 @@ setmsgtypes(MSGFACILITY *msgfac, char *str)
 		break;
 
 	case MF_SYSLOG:
-#if defined(LOG_OPTS)
-#if	defined(LOG_FACILITY)
-		openlog(progname, LOG_OPTS, LOG_FACILITY);
-#else
-		openlog(progname, LOG_OPTS);
-#endif	/* LOG_FACILITY */
-#endif	/* LOG_OPTS */
+		openlog(progname, LOG_PID, LOG_DAEMON);
 		break;
 	}
 
@@ -265,7 +294,7 @@ msgparseopts(char *msgstr, int doset)
 	static char ebuf[BUFSIZ], msgbuf[MSGBUFSIZ];
 	char *cp, *optstr;
 	char *word;
-	MSGFACILITY *msgfac;
+	struct msgfacility *msgfac;
 
 	if (msgstr == NULL)
 		return("NULL message string");
@@ -317,7 +346,7 @@ msgparseopts(char *msgstr, int doset)
  * For rdistd, this is really the rdist client.
  */
 static void
-msgsendstdout(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
+msgsendstdout(struct msgfacility *msgfac, int mtype, int flags, char *msgbuf)
 {
 	char cmd;
 
@@ -371,7 +400,7 @@ msgsendstdout(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
  * Send a message to facility "syslog"
  */
 static void
-msgsendsyslog(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
+msgsendsyslog(struct msgfacility *msgfac, int mtype, int flags, char *msgbuf)
 {
 	int syslvl = 0;
 
@@ -412,7 +441,7 @@ msgsendsyslog(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
  * Send a message to a "file" facility.
  */
 static void
-msgsendfile(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
+msgsendfile(struct msgfacility *msgfac, int mtype, int flags, char *msgbuf)
 {
 	if (msgfac->mf_fptr == NULL)
 		return;
@@ -428,7 +457,7 @@ msgsendfile(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
  * Same method as msgsendfile()
  */
 static void
-msgsendnotify(MSGFACILITY *msgfac, int mtype, int flags, char *msgbuf)
+msgsendnotify(struct msgfacility *msgfac, int mtype, int flags, char *msgbuf)
 {
 	char *tempfile;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.h,v 1.11 2015/01/20 03:55:18 guenther Exp $	*/
+/*	$OpenBSD: config.h,v 1.13 2015/01/21 04:08:37 guenther Exp $	*/
 
 /*
  * Copyright (c) 1993 Michael A. Cooper
@@ -43,22 +43,6 @@
  */
 
 /*
- * Check to see if file is on a NFS.  If it is, the file is
- * skipped unless the hostname specified in the Distfile has
- * a trailing "+".  e.g. "foobar+".  This feature is enabled by
- * the -N option.  If your system does not support NFS or you don't
- * want the -N option, undefine this.
- */
-#define NFS_CHECK
-
-/*
- * Check to see if file on a Read-Only filesystem.  If it is, no
- * attempt is made to update the file.  This feature is enabled by
- * the -O option.
- */
-#define RO_CHECK
-
-/*
  * Default value for the maximum number of clients to update at once.
  * Can be changed with the -M option.
  */
@@ -70,18 +54,6 @@
  * The -t option can be used to override this value.
  */
 #define RTIMEOUT 	900
-
-/*
- * Define LOG_OPTS to be the syslog/openlog() logging options you
- * wish to use.  Define to be 0 if you don't want any options.
- * Define LOG_FACILITY to be the syslog/openlog() facility to log
- * to.  Both LOG_OPTS and LOG_FACILITY values are defined in <syslog.h>
- * If you don't have syslog, then undefine both values.
- */
-#define LOG_OPTS		LOG_PID
-#if	defined(LOG_DAEMON)
-#	define LOG_FACILITY	LOG_DAEMON
-#endif
 
 /*
  * Syslog levels.  Define these to match the levels you want to log
