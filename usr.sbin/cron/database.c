@@ -1,4 +1,4 @@
-/*	$OpenBSD: database.c,v 1.21 2015/01/14 17:30:53 millert Exp $	*/
+/*	$OpenBSD: database.c,v 1.23 2015/01/23 02:37:25 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -40,20 +40,18 @@ load_database(cron_db *old_db) {
 	DIR *dir;
 	user *u, *nu;
 
-	Debug(DLOAD, ("[%ld] load_database()\n", (long)getpid()))
-
 	/* before we start loading any data, do a stat on SPOOL_DIR
 	 * so that if anything changes as of this moment (i.e., before we've
 	 * cached any of the database), we'll see the changes next time.
 	 */
-	if (stat(SPOOL_DIR, &statbuf) < OK) {
+	if (stat(SPOOL_DIR, &statbuf) < 0) {
 		log_it("CRON", getpid(), "STAT FAILED", SPOOL_DIR);
 		return;
 	}
 
 	/* track system crontab file
 	 */
-	if (stat(SYSCRONTAB, &syscron_stat) < OK)
+	if (stat(SYSCRONTAB, &syscron_stat) < 0)
 		syscron_stat.st_mtime = 0;
 
 	/* if spooldir's mtime has not changed, we don't need to fiddle with
@@ -64,8 +62,6 @@ load_database(cron_db *old_db) {
 	 * time this function is called.
 	 */
 	if (old_db->mtime == HASH(statbuf.st_mtime, syscron_stat.st_mtime)) {
-		Debug(DLOAD, ("[%ld] spool dir mtime unch, no load needed.\n",
-			      (long)getpid()))
 		return;
 	}
 
@@ -122,9 +118,7 @@ load_database(cron_db *old_db) {
 
 	/* whatever's left in the old database is now junk.
 	 */
-	Debug(DLOAD, ("unlinking old database:\n"))
 	for (u = old_db->head;  u != NULL;  u = nu) {
-		Debug(DLOAD, ("\t%s\n", u->name))
 		nu = u->next;
 		unlink_user(old_db, u);
 		free_user(u);
@@ -133,7 +127,6 @@ load_database(cron_db *old_db) {
 	/* overwrite the database control block with the new one.
 	 */
 	*old_db = new_db;
-	Debug(DLOAD, ("load_database is done\n"))
 }
 
 void
@@ -175,7 +168,7 @@ process_crontab(const char *uname, const char *fname, const char *tabname,
 		struct stat *statbuf, cron_db *new_db, cron_db *old_db)
 {
 	struct passwd *pw = NULL;
-	int crontab_fd = OK - 1;
+	int crontab_fd = -1;
 	user *u;
 
 	if (fname == NULL) {
@@ -189,14 +182,14 @@ process_crontab(const char *uname, const char *fname, const char *tabname,
 		goto next_crontab;
 	}
 
-	if ((crontab_fd = open(tabname, O_RDONLY|O_NONBLOCK|O_NOFOLLOW, 0)) < OK) {
+	if ((crontab_fd = open(tabname, O_RDONLY|O_NONBLOCK|O_NOFOLLOW, 0)) < 0) {
 		/* crontab not accessible?
 		 */
 		log_it(fname, getpid(), "CAN'T OPEN", tabname);
 		goto next_crontab;
 	}
 
-	if (fstat(crontab_fd, statbuf) < OK) {
+	if (fstat(crontab_fd, statbuf) < 0) {
 		log_it(fname, getpid(), "FSTAT FAILED", tabname);
 		goto next_crontab;
 	}
@@ -221,14 +214,12 @@ process_crontab(const char *uname, const char *fname, const char *tabname,
 		goto next_crontab;
 	}
 
-	Debug(DLOAD, ("\t%s:", fname))
 	u = find_user(old_db, fname);
 	if (u != NULL) {
 		/* if crontab has not changed since we last read it
 		 * in, then we can just use our existing entry.
 		 */
 		if (u->mtime == statbuf->st_mtime) {
-			Debug(DLOAD, (" [no change, using old data]"))
 			unlink_user(old_db, u);
 			link_user(new_db, u);
 			goto next_crontab;
@@ -241,7 +232,6 @@ process_crontab(const char *uname, const char *fname, const char *tabname,
 		 * users will be deleted from the old database when
 		 * we finish with the crontab...
 		 */
-		Debug(DLOAD, (" [delete old data]"))
 		unlink_user(old_db, u);
 		free_user(u);
 		log_it(fname, getpid(), "RELOAD", tabname);
@@ -253,8 +243,7 @@ process_crontab(const char *uname, const char *fname, const char *tabname,
 	}
 
  next_crontab:
-	if (crontab_fd >= OK) {
-		Debug(DLOAD, (" [done]\n"))
+	if (crontab_fd >= 0) {
 		close(crontab_fd);
 	}
 }

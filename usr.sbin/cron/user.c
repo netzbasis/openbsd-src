@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.8 2009/10/27 23:59:51 deraadt Exp $	*/
+/*	$OpenBSD: user.c,v 1.11 2015/01/23 02:37:25 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -52,11 +52,9 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name) {
 		return (NULL);
 	}
 
-	Debug(DPARS, ("load_user()\n"))
-
 	/* file is open.  build user entry, then read the crontab file.
 	 */
-	if ((u = (user *) malloc(sizeof(user))) == NULL)
+	if ((u = malloc(sizeof(user))) == NULL)
 		return (NULL);
 	if ((u->name = strdup(name)) == NULL) {
 		save_errno = errno;
@@ -78,9 +76,9 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name) {
 
 	/* load the crontab
 	 */
-	while ((status = load_env(envstr, file)) >= OK) {
+	while ((status = load_env(envstr, file)) >= 0) {
 		switch (status) {
-		case ERR:
+		case -1:
 			free_user(u);
 			u = NULL;
 			goto done;
@@ -107,6 +105,5 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name) {
  done:
 	env_free(envp);
 	fclose(file);
-	Debug(DPARS, ("...load_user() done\n"))
 	return (u);
 }

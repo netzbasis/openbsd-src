@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_http.c,v 1.41 2015/01/16 15:06:40 deraadt Exp $	*/
+/*	$OpenBSD: relay_http.c,v 1.43 2015/01/22 17:42:09 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -19,28 +19,22 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/time.h>
-#include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/tree.h>
 
-#include <net/if.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
+#include <arpa/inet.h>
 
-#include <errno.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <limits.h>
 #include <stdio.h>
-#include <err.h>
-#include <pwd.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <time.h>
 #include <event.h>
 #include <fnmatch.h>
-
-#include <openssl/ssl.h>
+#include <siphash.h>
+#include <imsg.h>
 
 #include "relayd.h"
 #include "http.h"
@@ -1252,7 +1246,8 @@ relay_httpheader_test(struct ctl_relay_event *cre, struct relay_rule *rule,
 		/* Fail if header doesn't exist */
 		return (-1);
 	} else {
-		if (fnmatch(kv->kv_key, match->kv_key, FNM_CASEFOLD) == FNM_NOMATCH)
+		if (fnmatch(kv->kv_key, match->kv_key,
+		    FNM_CASEFOLD) == FNM_NOMATCH)
 			return (-1);
 		if (kv->kv_value != NULL &&
 		    match->kv_value != NULL &&
@@ -1537,7 +1532,7 @@ relay_apply_actions(struct ctl_relay_event *cre, struct kvlist *actions)
 		}
 
  matchdel:
-		switch(kv->kv_option) {
+		switch (kv->kv_option) {
 		case KEY_OPTION_LOG:
 			if (match == NULL)
 				break;
@@ -1546,10 +1541,10 @@ relay_apply_actions(struct ctl_relay_event *cre, struct kvlist *actions)
 				goto fail;
 			if (mp->kv_flags & KV_FLAG_INVALID) {
 				if (kv_set(mp, "%s (removed)",
-				   mp->kv_value) == -1)
+				    mp->kv_value) == -1)
 					goto fail;
 			}
-			switch(kv->kv_type) {
+			switch (kv->kv_type) {
 			case KEY_TYPE_URL:
 				key.kv_key = "Host";
 				host = kv_find(&desc->http_headers, &key);

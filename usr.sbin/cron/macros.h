@@ -1,4 +1,4 @@
-/*	$OpenBSD: macros.h,v 1.9 2015/01/14 17:30:53 millert Exp $	*/
+/*	$OpenBSD: macros.h,v 1.11 2015/01/23 02:37:25 tedu Exp $	*/
 
 /*
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -17,22 +17,8 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-	/* these are really immutable, and are
-	 *   defined for symbolic convenience only
-	 * TRUE, FALSE, and ERR must be distinct
-	 * ERR must be < OK.
-	 */
 #define TRUE		1
 #define FALSE		0
-	/* system calls return this on success */
-#define OK		0
-	/*   or this on error */
-#define ERR		(-1)
-
-	/* turn this on to get '-x' code */
-#ifndef DEBUGGING
-#define DEBUGGING	FALSE
-#endif
 
 #define	INIT_PID	1	/* parent of orphans */
 #define READ_PIPE	0	/* which end of a pipe pair do you read? */
@@ -45,17 +31,6 @@
 #define	ROOT_UID	0	/* don't change this, it really must be root */
 #define	ROOT_USER	"root"	/* ditto */
 
-				/* NOTE: these correspond to DebugFlagNames,
-				 *	defined below.
-				 */
-#define	DEXT		0x0001	/* extend flag for other debug masks */
-#define	DSCH		0x0002	/* scheduling debug mask */
-#define	DPROC		0x0004	/* process control debug mask */
-#define	DPARS		0x0008	/* parsing debug mask */
-#define	DLOAD		0x0010	/* database loading debug mask */
-#define	DMISC		0x0020	/* misc debug mask */
-#define	DTEST		0x0040	/* test mode: don't execute any commands */
-
 #define	PPC_NULL	((const char **)NULL)
 
 #define	Skip_Blanks(c, f) \
@@ -66,18 +41,7 @@
 			while (c!='\t' && c!=' ' && c!='\n' && c != EOF) \
 				c = get_char(f);
 
-#if DEBUGGING
-# define Debug(mask, message) \
-			if (DebugFlags & (mask)) \
-				printf message;
-#else /* !DEBUGGING */
-# define Debug(mask, message) \
-			;
-#endif /* DEBUGGING */
-
-#define	Set_LineNum(ln)	{Debug(DPARS|DEXT,("linenum=%d\n",ln)); \
-			 LineNumber = ln; \
-			}
+#define	Set_LineNum(ln)	{ LineNumber = ln; }
 
 /* Data values used on cron socket */
 #define	RELOAD_CRON	0x2

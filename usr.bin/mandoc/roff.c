@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.124 2015/01/21 02:16:11 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.126 2015/01/23 00:38:42 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -1002,8 +1002,9 @@ roff_res(struct roff *r, struct buf *buf, int ln, int pos)
 
 		/* Advance to the end of the name. */
 
+		naml = 0;
 		arg_complete = 1;
-		for (naml = 0; maxl == 0 || naml < maxl; naml++, cp++) {
+		while (maxl == 0 || naml < maxl) {
 			if (*cp == '\0') {
 				mandoc_msg(MANDOCERR_ESC_BAD, r->parse,
 				    ln, (int)(stesc - buf->buf), stesc);
@@ -1012,6 +1013,23 @@ roff_res(struct roff *r, struct buf *buf, int ln, int pos)
 			}
 			if (maxl == 0 && *cp == term) {
 				cp++;
+				break;
+			}
+			if (*cp++ != '\\' || stesc[1] != 'w') {
+				naml++;
+				continue;
+			}
+			switch (mandoc_escape(&cp, NULL, NULL)) {
+			case ESCAPE_SPECIAL:
+				/* FALLTHROUGH */
+			case ESCAPE_UNICODE:
+				/* FALLTHROUGH */
+			case ESCAPE_NUMBERED:
+				/* FALLTHROUGH */
+			case ESCAPE_OVERSTRIKE:
+				naml++;
+				break;
+			default:
 				break;
 			}
 		}
@@ -1621,8 +1639,46 @@ roff_getnum(const char *v, int *pos, int *res)
 	if (n)
 		*res = -*res;
 
-	*pos = p;
-	return 1;
+	/* Each number may be followed by one optional scaling unit. */
+
+	switch (v[p]) {
+	case 'f':
+		*res *= 65536;
+		break;
+	case 'i':
+		*res *= 240;
+		break;
+	case 'c':
+		*res *= 240;
+		*res /= 2.54;
+		break;
+	case 'v':
+		/* FALLTROUGH */
+	case 'P':
+		*res *= 40;
+		break;
+	case 'm':
+		/* FALLTROUGH */
+	case 'n':
+		*res *= 24;
+		break;
+	case 'p':
+		*res *= 10;
+		*res /= 3;
+		break;
+	case 'u':
+		break;
+	case 'M':
+		*res *= 6;
+		*res /= 25;
+		break;
+	default:
+		p--;
+		break;
+	}
+
+	*pos = p + 1;
+	return(1);
 }
 
 /*

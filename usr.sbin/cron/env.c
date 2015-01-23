@@ -1,4 +1,4 @@
-/*	$OpenBSD: env.c,v 1.25 2015/01/14 18:28:15 millert Exp $	*/
+/*	$OpenBSD: env.c,v 1.27 2015/01/23 02:37:25 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -121,7 +121,7 @@ enum env_state {
 	ERROR		/* Error */
 };
 
-/* return	ERR = end of file
+/* return	-1 = end of file
  *		FALSE = not an env setting (file was repositioned)
  *		TRUE = was an env setting
  */
@@ -137,9 +137,7 @@ load_env(char *envstr, FILE *f) {
 	fileline = LineNumber;
 	skip_comments(f);
 	if (EOF == get_string(envstr, MAX_ENVSTR, f, "\n"))
-		return (ERR);
-
-	Debug(DPARS, ("load_env, read <%s>\n", envstr))
+		return (-1);
 
 	bzero(name, sizeof name);
 	bzero(val, sizeof val);
@@ -206,7 +204,6 @@ load_env(char *envstr, FILE *f) {
 		}
 	}
 	if (state != FINI && !(state == VALUE && !quotechar)) {
-		Debug(DPARS, ("load_env, not an env var, state = %d\n", state))
 		fseek(f, filepos, SEEK_SET);
 		Set_LineNum(fileline);
 		return (FALSE);
@@ -226,7 +223,6 @@ load_env(char *envstr, FILE *f) {
 	 */
 	if (snprintf(envstr, MAX_ENVSTR, "%s=%s", name, val) >= MAX_ENVSTR)
 		return (FALSE);
-	Debug(DPARS, ("load_env, <%s> <%s> -> <%s>\n", name, val, envstr))
 	return (TRUE);
 }
 

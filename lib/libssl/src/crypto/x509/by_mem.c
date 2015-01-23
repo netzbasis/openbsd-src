@@ -1,5 +1,4 @@
-/*      $OpenBSD: ssl_privsep.c,v 1.8 2015/01/16 15:08:52 reyk Exp $    */
-
+/* $OpenBSD: by_mem.c,v 1.2 2015/01/22 11:16:56 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -57,77 +56,52 @@
  * [including the GNU Public Licence.]
  */
 
-/*
- * SSL operations needed when running in a privilege separated environment.
- * Adapted from openssl's ssl_rsa.c by Pierre-Yves Ritschard .
- */
-
-#include <sys/types.h>
 #include <sys/uio.h>
-
-#include <unistd.h>
+#include <errno.h>
 #include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 
+#include <openssl/buffer.h>
 #include <openssl/err.h>
-#include <openssl/bio.h>
-#include <openssl/objects.h>
-#include <openssl/evp.h>
-#include <openssl/x509.h>
 #include <openssl/pem.h>
-#include <openssl/ssl.h>
+#include <openssl/lhash.h>
+#include <openssl/x509.h>
 
-int	 ssl_ctx_use_private_key(SSL_CTX *, char *, off_t);
-int	 ssl_ctx_load_verify_memory(SSL_CTX *, char *, off_t);
-int	 ssl_by_mem_ctrl(X509_LOOKUP *, int, const char *, long, char **);
+static int by_mem_ctrl(X509_LOOKUP *, int, const char *, long, char **);
 
 X509_LOOKUP_METHOD x509_mem_lookup = {
-	"Load cert from memory",
-	NULL,			/* new */
-	NULL,			/* free */
-	NULL,			/* init */
-	NULL,			/* shutdown */
-	ssl_by_mem_ctrl,	/* ctrl */
-	NULL,			/* get_by_subject */
-	NULL,			/* get_by_issuer_serial */
-	NULL,			/* get_by_fingerprint */
-	NULL,			/* get_by_alias */
+	.name = "Load cert from memory",
+	.new_item = NULL,
+	.free = NULL,
+	.init = NULL,
+	.shutdown = NULL,
+	.ctrl = by_mem_ctrl,
+	.get_by_subject = NULL,
+	.get_by_issuer_serial = NULL,
+	.get_by_fingerprint = NULL,
+	.get_by_alias = NULL,
 };
 
-#define X509_L_ADD_MEM	3
-
-int
-ssl_ctx_load_verify_memory(SSL_CTX *ctx, char *buf, off_t len)
+X509_LOOKUP_METHOD *
+X509_LOOKUP_mem(void)
 {
-	X509_LOOKUP		*lu;
-	struct iovec		 iov;
-
-	if ((lu = X509_STORE_add_lookup(ctx->cert_store,
-	    &x509_mem_lookup)) == NULL)
-		return (0);
-
-	iov.iov_base = buf;
-	iov.iov_len = len;
-
-	if (!ssl_by_mem_ctrl(lu, X509_L_ADD_MEM,
-	    (const char *)&iov, X509_FILETYPE_PEM, NULL))
-		return (0);
-
-	return (1);
+	return (&x509_mem_lookup);
 }
 
-int
-ssl_by_mem_ctrl(X509_LOOKUP *lu, int cmd, const char *buf,
+static int
+by_mem_ctrl(X509_LOOKUP *lu, int cmd, const char *buf,
     long type, char **ret)
 {
-	STACK_OF(X509_INFO)	*inf;
+	STACK_OF(X509_INFO)	*inf = NULL;
 	const struct iovec	*iov;
 	X509_INFO		*itmp;
 	BIO			*in = NULL;
-	int			 i, count = 0;
+	int			 i, count = 0, ok = 0;
 
 	iov = (const struct iovec *)buf;
 
-	if (type != X509_FILETYPE_PEM)
+	if (!(cmd == X509_L_MEM && type == X509_FILETYPE_PEM))
 		goto done;
 
 	if ((in = BIO_new_mem_buf(iov->iov_base, iov->iov_len)) == NULL)
@@ -139,21 +113,26 @@ ssl_by_mem_ctrl(X509_LOOKUP *lu, int cmd, const char *buf,
 	for (i = 0; i < sk_X509_INFO_num(inf); i++) {
 		itmp = sk_X509_INFO_value(inf, i);
 		if (itmp->x509) {
-			X509_STORE_add_cert(lu->store_ctx, itmp->x509);
+			ok = X509_STORE_add_cert(lu->store_ctx, itmp->x509);
+			if (!ok)
+				goto done;
 			count++;
 		}
 		if (itmp->crl) {
-			X509_STORE_add_crl(lu->store_ctx, itmp->crl);
+			ok = X509_STORE_add_crl(lu->store_ctx, itmp->crl);
+			if (!ok)
+				goto done;
 			count++;
 		}
 	}
-	sk_X509_INFO_pop_free(inf, X509_INFO_free);
 
+	ok = count != 0;
  done:
-	if (!count)
+	if (count == 0)
 		X509err(X509_F_X509_LOAD_CERT_CRL_FILE,ERR_R_PEM_LIB);
-
+	if (inf != NULL)
+		sk_X509_INFO_pop_free(inf, X509_INFO_free);
 	if (in != NULL)
 		BIO_free(in);
-	return (count);
+	return (ok);
 }

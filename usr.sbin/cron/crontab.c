@@ -1,4 +1,4 @@
-/*	$OpenBSD: crontab.c,v 1.67 2015/01/14 17:27:29 millert Exp $	*/
+/*	$OpenBSD: crontab.c,v 1.69 2015/01/23 02:37:25 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -36,12 +36,7 @@
 
 enum opt_t	{ opt_unknown, opt_list, opt_delete, opt_edit, opt_replace };
 
-#if DEBUGGING
-static char	*Options[] = { "???", "list", "delete", "edit", "replace" };
-static char	*getoptargs = "u:lerx:";
-#else
 static char	*getoptargs = "u:ler";
-#endif
 
 static	pid_t		Pid;
 static	char		User[MAX_UNAME], RealUser[MAX_UNAME];
@@ -136,12 +131,6 @@ parse_args(int argc, char *argv[]) {
 	Option = opt_unknown;
 	while (-1 != (argch = getopt(argc, argv, getoptargs))) {
 		switch (argch) {
-#if DEBUGGING
-		case 'x':
-			if (!set_debug_flags(optarg))
-				usage("bad debug option");
-			break;
-#endif
 		case 'u':
 			if (getuid() != ROOT_UID) {
 				fprintf(stderr,
@@ -207,7 +196,7 @@ parse_args(int argc, char *argv[]) {
 			 * the race.
 			 */
 
-			if (swap_gids() < OK) {
+			if (swap_gids() < 0) {
 				perror("swapping gids");
 				exit(EXIT_FAILURE);
 			}
@@ -215,15 +204,12 @@ parse_args(int argc, char *argv[]) {
 				perror(Filename);
 				exit(EXIT_FAILURE);
 			}
-			if (swap_gids_back() < OK) {
+			if (swap_gids_back() < 0) {
 				perror("swapping gids back");
 				exit(EXIT_FAILURE);
 			}
 		}
 	}
-
-	Debug(DMISC, ("user=%s, file=%s, option=%s\n",
-		      User, Filename, Options[(int)Option]))
 }
 
 static void
@@ -326,12 +312,12 @@ edit_cmd(void) {
 		fprintf(stderr, "path too long\n");
 		goto fatal;
 	}
-	if (swap_gids() < OK) {
+	if (swap_gids() < 0) {
 		perror("swapping gids");
 		exit(EXIT_FAILURE);
 	}
 	t = mkstemp(Filename);
-	if (swap_gids_back() < OK) {
+	if (swap_gids_back() < 0) {
 		perror("swapping gids back");
 		exit(EXIT_FAILURE);
 	}
@@ -348,7 +334,7 @@ edit_cmd(void) {
 
 	copy_crontab(f, NewCrontab);
 	fclose(f);
-	if (fflush(NewCrontab) < OK) {
+	if (fflush(NewCrontab) < 0) {
 		perror(Filename);
 		exit(EXIT_FAILURE);
 	}
@@ -359,12 +345,12 @@ edit_cmd(void) {
 		fprintf(stderr, "%s: error while writing new crontab to %s\n",
 			ProgramName, Filename);
  fatal:
-		if (swap_gids() < OK) {
+		if (swap_gids() < 0) {
 			perror("swapping gids");
 			exit(EXIT_FAILURE);
 		}
 		unlink(Filename);
-		if (swap_gids_back() < OK) {
+		if (swap_gids_back() < 0) {
 			perror("swapping gids back");
 			exit(EXIT_FAILURE);
 		}
@@ -388,7 +374,7 @@ edit_cmd(void) {
 		goto fatal;
 	}
 	if (timespeccmp(&ts[1], &statbuf.st_mtim, ==)) {
-		if (swap_gids() < OK) {
+		if (swap_gids() < 0) {
 			perror("swapping gids");
 			exit(EXIT_FAILURE);
 		}
@@ -397,7 +383,7 @@ edit_cmd(void) {
 			fprintf(stderr, "%s: crontab temp file moved, editor "
 			   "may create backup files improperly\n", ProgramName);
 		}
-		if (swap_gids_back() < OK) {
+		if (swap_gids_back() < 0) {
 			perror("swapping gids back");
 			exit(EXIT_FAILURE);
 		}
@@ -441,12 +427,12 @@ edit_cmd(void) {
 		goto fatal;
 	}
  remove:
-	if (swap_gids() < OK) {
+	if (swap_gids() < 0) {
 		perror("swapping gids");
 		exit(EXIT_FAILURE);
 	}
 	unlink(Filename);
-	if (swap_gids_back() < OK) {
+	if (swap_gids_back() < 0) {
 		perror("swapping gids back");
 		exit(EXIT_FAILURE);
 	}
@@ -528,7 +514,7 @@ replace_cmd(void) {
 	CheckErrorCount = 0;  eof = FALSE;
 	while (!CheckErrorCount && !eof) {
 		switch (load_env(envstr, tmp)) {
-		case ERR:
+		case -1:
 			/* check for data before the EOF */
 			if (envstr[0] != '\0') {
 				Set_LineNum(LineNumber + 1);
@@ -553,7 +539,7 @@ replace_cmd(void) {
 		goto done;
 	}
 
-	if (fchown(fileno(tmp), pw->pw_uid, -1) < OK) {
+	if (fchown(fileno(tmp), pw->pw_uid, -1) < 0) {
 		perror("fchown");
 		fclose(tmp);
 		error = -2;

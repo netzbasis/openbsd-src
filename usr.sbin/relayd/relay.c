@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.187 2015/01/16 15:08:52 reyk Exp $	*/
+/*	$OpenBSD: relay.c,v 1.190 2015/01/22 17:42:09 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -21,24 +21,22 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/tree.h>
 
-#include <net/if.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <err.h>
-#include <pwd.h>
 #include <event.h>
-#include <fnmatch.h>
+#include <siphash.h>
+#include <imsg.h>
 
 #include <openssl/dh.h>
 #include <openssl/ssl.h>
@@ -2051,7 +2049,7 @@ relay_tls_ctx_create(struct relay *rlay)
 	/* Verify the server certificate if we have a CA chain */
 	if ((rlay->rl_conf.flags & F_TLSCLIENT) &&
 	    (rlay->rl_tls_ca != NULL)) {
-		if (!ssl_ctx_load_verify_memory(ctx,
+		if (!SSL_CTX_load_verify_mem(ctx,
 		    rlay->rl_tls_ca, rlay->rl_conf.tls_ca_len))
 			goto err;
 		SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
@@ -2411,7 +2409,7 @@ relay_tls_writecb(int fd, short event, void *arg)
 		goto err;
 	}
 
-        if (cre->tlsreneg_state == TLSRENEG_ABORT) {
+	if (cre->tlsreneg_state == TLSRENEG_ABORT) {
 		what |= EVBUFFER_ERROR;
 		goto err;
 	}

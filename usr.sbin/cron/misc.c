@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.50 2015/01/14 17:27:30 millert Exp $	*/
+/*	$OpenBSD: misc.c,v 1.53 2015/01/23 02:37:25 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -40,7 +40,7 @@
 #define FACILITY LOG_CRON
 #endif
 
-static int LogFD = ERR;
+static int LogFD = -1;
 
 #if defined(SYSLOG)
 static int syslog_open = FALSE;
@@ -60,72 +60,9 @@ strcmp_until(const char *left, const char *right, char until) {
 	return (*left - *right);
 }
 
-int
-set_debug_flags(const char *flags) {
-	/* debug flags are of the form    flag[,flag ...]
-	 *
-	 * if an error occurs, print a message to stdout and return FALSE.
-	 * otherwise return TRUE after setting ERROR_FLAGS.
-	 */
-
-#if !DEBUGGING
-
-	printf("this program was compiled without debugging enabled\n");
-	return (FALSE);
-
-#else /* DEBUGGING */
-
-	const char *pc = flags;
-
-	DebugFlags = 0;
-
-	while (*pc) {
-		const char	**test;
-		int		mask;
-
-		/* try to find debug flag name in our list.
-		 */
-		for (test = DebugFlagNames, mask = 1;
-		     *test != NULL && strcmp_until(*test, pc, ',');
-		     test++, mask <<= 1)
-			continue;
-
-		if (!*test) {
-			fprintf(stderr,
-				"unrecognized debug flag <%s> <%s>\n",
-				flags, pc);
-			return (FALSE);
-		}
-
-		DebugFlags |= mask;
-
-		/* skip to the next flag
-		 */
-		while (*pc && *pc != ',')
-			pc++;
-		if (*pc == ',')
-			pc++;
-	}
-
-	if (DebugFlags) {
-		int flag;
-
-		fprintf(stderr, "debug flags enabled:");
-
-		for (flag = 0;  DebugFlagNames[flag];  flag++)
-			if (DebugFlags & (1 << flag))
-				fprintf(stderr, " %s", DebugFlagNames[flag]);
-		fprintf(stderr, "\n");
-	}
-
-	return (TRUE);
-
-#endif /* DEBUGGING */
-}
-
 void
 set_cron_uid(void) {
-	if (seteuid(ROOT_UID) < OK) {
+	if (seteuid(ROOT_UID) < 0) {
 		perror("seteuid");
 		exit(EXIT_FAILURE);
 	}
@@ -141,9 +78,9 @@ set_cron_cwd(void) {
 #endif
 	/* first check for CRONDIR ("/var/cron" or some such)
 	 */
-	if (stat(CRONDIR, &sb) < OK && errno == ENOENT) {
+	if (stat(CRONDIR, &sb) < 0 && errno == ENOENT) {
 		perror(CRONDIR);
-		if (OK == mkdir(CRONDIR, 0710)) {
+		if (0 == mkdir(CRONDIR, 0710)) {
 			fprintf(stderr, "%s: created\n", CRONDIR);
 			stat(CRONDIR, &sb);
 		} else {
@@ -157,7 +94,7 @@ set_cron_cwd(void) {
 			CRONDIR);
 		exit(EXIT_FAILURE);
 	}
-	if (chdir(CRONDIR) < OK) {
+	if (chdir(CRONDIR) < 0) {
 		fprintf(stderr, "cannot chdir(%s), bailing out.\n", CRONDIR);
 		perror(CRONDIR);
 		exit(EXIT_FAILURE);
@@ -165,9 +102,9 @@ set_cron_cwd(void) {
 
 	/* CRONDIR okay (now==CWD), now look at SPOOL_DIR ("tabs" or some such)
 	 */
-	if (stat(SPOOL_DIR, &sb) < OK && errno == ENOENT) {
+	if (stat(SPOOL_DIR, &sb) < 0 && errno == ENOENT) {
 		perror(SPOOL_DIR);
-		if (OK == mkdir(SPOOL_DIR, 0700)) {
+		if (0 == mkdir(SPOOL_DIR, 0700)) {
 			fprintf(stderr, "%s: created\n", SPOOL_DIR);
 			stat(SPOOL_DIR, &sb);
 		} else {
@@ -190,9 +127,9 @@ set_cron_cwd(void) {
 
 	/* finally, look at AT_DIR ("atjobs" or some such)
 	 */
-	if (stat(AT_DIR, &sb) < OK && errno == ENOENT) {
+	if (stat(AT_DIR, &sb) < 0 && errno == ENOENT) {
 		perror(AT_DIR);
-		if (OK == mkdir(AT_DIR, 0700)) {
+		if (0 == mkdir(AT_DIR, 0700)) {
 			fprintf(stderr, "%s: created\n", AT_DIR);
 			stat(AT_DIR, &sb);
 		} else {
@@ -291,9 +228,9 @@ acquire_daemonlock(int closeflag) {
 	}
 
 	snprintf(buf, sizeof(buf), "%ld\n", (long)getpid());
-	(void) lseek(fd, (off_t)0, SEEK_SET);
+	(void) lseek(fd, 0, SEEK_SET);
 	num = write(fd, buf, strlen(buf));
-	(void) ftruncate(fd, (off_t)num);
+	(void) ftruncate(fd, num);
 
 	/* abandon fd even though the file is open. we need to keep
 	 * it open and locked, but we don't need the handles elsewhere.
@@ -333,7 +270,7 @@ get_string(char *string, int size, FILE *file, char *terms) {
 
 	while (EOF != (ch = get_char(file)) && !strchr(terms, ch)) {
 		if (size > 1) {
-			*string++ = (char) ch;
+			*string++ = ch;
 			size--;
 		}
 	}
@@ -455,10 +392,10 @@ log_it(const char *username, pid_t xpid, const char *event, const char *detail) 
 	if ((msg = malloc(msglen)) == NULL)
 		return;
 
-	if (LogFD < OK) {
+	if (LogFD < 0) {
 		LogFD = open(LOG_FILE, O_WRONLY|O_APPEND|O_CREAT|O_CLOEXEC,
 		    0600);
-		if (LogFD < OK) {
+		if (LogFD < 0) {
 			fprintf(stderr, "%s: can't open log file\n",
 				ProgramName);
 			perror(LOG_FILE);
@@ -474,8 +411,8 @@ log_it(const char *username, pid_t xpid, const char *event, const char *detail) 
 		t->tm_mon+1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec,
 		(long)pid, event, detail);
 
-	if (LogFD < OK || write(LogFD, msg, strlen(msg)) < OK) {
-		if (LogFD >= OK)
+	if (LogFD < 0 || write(LogFD, msg, strlen(msg)) < 0) {
+		if (LogFD >= 0)
 			perror(LOG_FILE);
 		fprintf(stderr, "%s: can't write to log file\n", ProgramName);
 		write(STDERR_FILENO, msg, strlen(msg));
@@ -498,19 +435,13 @@ log_it(const char *username, pid_t xpid, const char *event, const char *detail) 
 
 #endif /*SYSLOG*/
 
-#if DEBUGGING
-	if (DebugFlags) {
-		fprintf(stderr, "log_it: (%s %ld) %s (%s)\n",
-			username, (long)pid, event, detail);
-	}
-#endif
 }
 
 void
 log_close(void) {
-	if (LogFD != ERR) {
+	if (LogFD != -1) {
 		close(LogFD);
-		LogFD = ERR;
+		LogFD = -1;
 	}
 #if defined(SYSLOG)
 	closelog();
