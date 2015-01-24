@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.11 2015/01/23 02:37:25 tedu Exp $	*/
+/*	$OpenBSD: user.c,v 1.13 2015/01/23 19:07:27 tedu Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * All rights reserved
@@ -27,7 +27,8 @@
 #include "cron.h"
 
 void
-free_user(user *u) {
+free_user(user *u)
+{
 	entry *e, *ne;
 
 	free(u->name);
@@ -39,7 +40,8 @@ free_user(user *u) {
 }
 
 user *
-load_user(int crontab_fd, struct passwd	*pw, const char *name) {
+load_user(int crontab_fd, struct passwd	*pw, const char *name)
+{
 	char envstr[MAX_ENVSTR];
 	FILE *file;
 	user *u;
@@ -78,10 +80,6 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name) {
 	 */
 	while ((status = load_env(envstr, file)) >= 0) {
 		switch (status) {
-		case -1:
-			free_user(u);
-			u = NULL;
-			goto done;
 		case FALSE:
 			e = load_entry(file, NULL, pw, envp);
 			if (e) {

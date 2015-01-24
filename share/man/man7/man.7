@@ -1,7 +1,7 @@
-.\"	$OpenBSD: man.7,v 1.40 2014/12/28 15:22:42 schwarze Exp $
+.\"	$OpenBSD: man.7,v 1.43 2015/01/24 02:41:32 schwarze Exp $
 .\"
 .\" Copyright (c) 2009, 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
-.\" Copyright (c) 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
+.\" Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
 .\" Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 28 2014 $
+.Dd $Mdocdate: January 24 2015 $
 .Dt MAN 7
 .Os
 .Sh NAME
@@ -369,11 +369,11 @@ Begin a paragraph whose initial output line is left-justified, but
 subsequent output lines are indented, with the following syntax:
 .Bd -filled -offset indent
 .Pf \. Sx \&HP
-.Op Cm width
+.Op Ar width
 .Ed
 .Pp
 The
-.Cm width
+.Ar width
 argument is a
 .Xr roff 7
 scaling width.
@@ -413,11 +413,11 @@ and
 Begin an indented paragraph with the following syntax:
 .Bd -filled -offset indent
 .Pf \. Sx \&IP
-.Op Cm head Op Cm width
+.Op Ar head Op Ar width
 .Ed
 .Pp
 The
-.Cm width
+.Ar width
 argument is a
 .Xr roff 7
 scaling width defining the left margin.
@@ -425,7 +425,7 @@ It's saved for later paragraph left-margins; if unspecified, the saved or
 default width is used.
 .Pp
 The
-.Cm head
+.Ar head
 argument is used as a leading term, flushed to the left margin.
 This is useful for bulleted paragraphs and so on.
 .Pp
@@ -470,13 +470,13 @@ This is a non-standard GNU extension, included only for compatibility.
 It has the following syntax:
 .Bd -filled -offset indent
 .Pf \. Sx \&OP
-.Cm key Op Cm value
+.Ar key Op Ar value
 .Ed
 .Pp
 The
-.Cm key
+.Ar key
 is usually a command-line flag and
-.Cm value
+.Ar value
 its argument.
 .Ss \&P
 Synonym for
@@ -495,11 +495,11 @@ Specify the vertical space to be inserted before each new paragraph.
 The syntax is as follows:
 .Bd -filled -offset indent
 .Pf \. Sx \&PD
-.Op Cm height
+.Op Ar height
 .Ed
 .Pp
 The
-.Cm height
+.Ar height
 argument is a
 .Xr roff 7
 scaling width.
@@ -555,9 +555,29 @@ and
 .Ss \&RE
 Explicitly close out the scope of a prior
 .Sx \&RS .
-The default left margin is restored to the state of the original
+The default left margin is restored to the state before that
 .Sx \&RS
 invocation.
+.Pp
+The syntax is as follows:
+.Bd -filled -offset indent
+.Pf \. Sx \&RE
+.Op Ar level
+.Ed
+.Pp
+Without an argument, the most recent
+.Sx \&RS
+block is closed out.
+If
+.Ar level
+is 1, all open
+.Sx \&RS
+blocks are closed out.
+Otherwise,
+.Ar level No \(mi 1
+nested
+.Sx \&RS
+blocks remain open.
 .Ss \&RI
 Text is rendered alternately in roman (the default font) and italics.
 Whitespace between arguments is omitted in output.
@@ -578,11 +598,11 @@ Temporarily reset the default left margin.
 This has the following syntax:
 .Bd -filled -offset indent
 .Pf \. Sx \&RS
-.Op Cm width
+.Op Ar width
 .Ed
 .Pp
 The
-.Cm width
+.Ar width
 argument is a
 .Xr roff 7
 scaling width.
@@ -651,11 +671,11 @@ Subsequent output lines are indented.
 The syntax is as follows:
 .Bd -filled -offset indent
 .Pf \. Sx \&TP
-.Op Cm width
+.Op Ar width
 .Ed
 .Pp
 The
-.Cm width
+.Ar width
 argument is a
 .Xr roff 7
 scaling width.
@@ -700,15 +720,13 @@ End literal mode begun by
 .Ss \&in
 Indent relative to the current indentation:
 .Pp
-.D1 Pf \. Sx \&in Op Cm width
+.D1 Pf \. Sx \&in Op Ar width
 .Pp
 If
-.Cm width
+.Ar width
 is signed, the new offset is relative.
 Otherwise, it is absolute.
 This value is reset upon the next paragraph, section, or sub-section.
-.Ss \&na
-Don't align to the right margin.
 .Ss \&nf
 Begin literal mode: all subsequent free-form lines have their end of
 line boundaries preserved.
@@ -722,11 +740,11 @@ or
 Insert vertical spaces into output with the following syntax:
 .Bd -filled -offset indent
 .Pf \. Sx \&sp
-.Op Cm height
+.Op Ar height
 .Ed
 .Pp
 The
-.Cm height
+.Ar height
 argument is a scaling width as described in
 .Xr roff 7 .
 If 0, this is equivalent to the
@@ -760,10 +778,9 @@ is equivalent to
 If next-line macros are invoked consecutively, only the last is used.
 If a next-line macro is followed by a non-next-line macro, an error is
 raised, except for
-.Sx \&br ,
-.Sx \&sp ,
+.Sx \&br
 and
-.Sx \&na .
+.Sx \&sp .
 .Pp
 The syntax is as follows:
 .Bd -literal -offset indent
@@ -794,7 +811,6 @@ The syntax is as follows:
 .It Sx \&br  Ta    0         Ta    current   Ta    compat
 .It Sx \&fi  Ta    0         Ta    current   Ta    compat
 .It Sx \&in  Ta    1         Ta    current   Ta    compat
-.It Sx \&na  Ta    0         Ta    current   Ta    compat
 .It Sx \&nf  Ta    0         Ta    current   Ta    compat
 .It Sx \&sp  Ta    1         Ta    current   Ta    compat
 .El
