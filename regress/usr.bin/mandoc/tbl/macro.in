@@ -6,10 +6,11 @@ normal text
 .TS
 box tab(:);
 l | l .
-a:b
+a:b:stray
 _
-.PD 1
-c:d
+c:T{
+.SM d
+T}
 .TE
 .PP
 normal text
