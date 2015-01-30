@@ -1,4 +1,4 @@
-/*	$OpenBSD: tbl_layout.c,v 1.21 2015/01/28 15:02:25 schwarze Exp $ */
+/*	$OpenBSD: tbl_layout.c,v 1.24 2015/01/30 04:08:37 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -260,11 +260,14 @@ tbl_layout(struct tbl_node *tbl, int ln, const char *p, int pos)
 			 */
 
 			if (tbl->first_row == NULL) {
+				tbl->first_row = tbl->last_row =
+				    mandoc_calloc(1, sizeof(*rp));
+			}
+			if (tbl->first_row->first == NULL) {
 				mandoc_msg(MANDOCERR_TBLLAYOUT_NONE,
 				    tbl->parse, ln, pos, NULL);
-				rp = mandoc_calloc(1, sizeof(*rp));
-				cell_alloc(tbl, rp, TBL_CELL_LEFT);
-				tbl->first_row = tbl->last_row = rp;
+				cell_alloc(tbl, tbl->first_row,
+				    TBL_CELL_LEFT);
 				return;
 			}
 
@@ -277,22 +280,39 @@ tbl_layout(struct tbl_node *tbl, int ln, const char *p, int pos)
 				if (tbl->opts.lvert < rp->vert)
 					tbl->opts.lvert = rp->vert;
 				if (rp->last != NULL &&
-				    rp->last->head == tbl->last_head &&
+				    rp->last->col + 1 == tbl->opts.cols &&
 				    tbl->opts.rvert < rp->last->vert)
 					tbl->opts.rvert = rp->last->vert;
+
+				/* If the last line is empty, drop it. */
+
+				if (rp->next != NULL &&
+				    rp->next->first == NULL) {
+					free(rp->next);
+					rp->next = NULL;
+				}
 			}
 			return;
 		default:  /* Cell. */
 			break;
 		}
 
-		if (rp == NULL) {  /* First cell on this line. */
-			rp = mandoc_calloc(1, sizeof(*rp));
-			if (tbl->last_row)
-				tbl->last_row->next = rp;
-			else
-				tbl->first_row = rp;
-			tbl->last_row = rp;
+		/*
+		 * If the last line had at least one cell,
+		 * start a new one; otherwise, continue it.
+		 */
+
+		if (rp == NULL) {
+			if (tbl->last_row == NULL ||
+			    tbl->last_row->first != NULL) {
+				rp = mandoc_calloc(1, sizeof(*rp));
+				if (tbl->last_row)
+					tbl->last_row->next = rp;
+				else
+					tbl->first_row = rp;
+				tbl->last_row = rp;
+			} else
+				rp = tbl->last_row;
 		}
 		cell(tbl, rp, ln, p, &pos);
 	}
@@ -302,38 +322,19 @@ static struct tbl_cell *
 cell_alloc(struct tbl_node *tbl, struct tbl_row *rp, enum tbl_cellt pos)
 {
 	struct tbl_cell	*p, *pp;
-	struct tbl_head	*h, *hp;
 
-	p = mandoc_calloc(1, sizeof(struct tbl_cell));
-
-	if (NULL != (pp = rp->last)) {
-		pp->next = p;
-		h = pp->head->next;
-	} else {
-		rp->first = p;
-		h = tbl->first_head;
-	}
-	rp->last = p;
-
+	p = mandoc_calloc(1, sizeof(*p));
 	p->pos = pos;
 
-	/* Re-use header. */
-
-	if (h) {
-		p->head = h;
-		return(p);
-	}
-
-	hp = mandoc_calloc(1, sizeof(struct tbl_head));
-	hp->ident = tbl->opts.cols++;
-
-	if (tbl->last_head) {
-		hp->prev = tbl->last_head;
-		tbl->last_head->next = hp;
+	if ((pp = rp->last) != NULL) {
+		pp->next = p;
+		p->col = pp->col + 1;
 	} else
-		tbl->first_head = hp;
-	tbl->last_head = hp;
+		rp->first = p;
+	rp->last = p;
 
-	p->head = hp;
+	if (tbl->opts.cols <= p->col)
+		tbl->opts.cols = p->col + 1;
+
 	return(p);
 }
