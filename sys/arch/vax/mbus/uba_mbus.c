@@ -1,4 +1,4 @@
-/*	$OpenBSD: uba_mbus.c,v 1.3 2011/09/18 11:34:29 miod Exp $	*/
+/*	$OpenBSD: uba_mbus.c,v 1.5 2015/02/01 15:27:11 miod Exp $	*/
 
 /*
  * Copyright (c) 2008 Miodrag Vallat.
@@ -61,11 +61,9 @@
 #include <vax/mbus/mbusreg.h>
 #include <vax/mbus/mbusvar.h>
 
+#include <arch/vax/uba/ubareg.h>
 #include <arch/vax/qbus/ubavar.h>
 #include <arch/vax/uba/uba_common.h>
-#include <arch/vax/uba/ubareg.h>
-
-#define	QBASIZE	(8192 * VAX_NBPG)
 
 void	uba_mbus_attach(struct device *, struct device *, void *);
 int	uba_mbus_match(struct device *, void *, void *);
@@ -163,7 +161,12 @@ void
 uba_mbus_beforescan(sc)
 	struct uba_softc *sc;
 {
-	bus_space_write_2(sc->uh_tag, sc->uh_ioh, QIPCR, Q_LMEAE);
+	/*
+	 * Writing to the doorbell registers causes a bus error and
+	 * a machine check.  Don't do this for now, the built-in
+	 * tape drive still works without this.
+	bus_space_write_2(sc->uh_iot, sc->uh_ioh, QIPCR, Q_LMEAE);
+	 */
 }
 
 void
