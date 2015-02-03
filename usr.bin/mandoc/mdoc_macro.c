@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.122 2015/02/02 04:26:03 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.127 2015/02/03 01:13:48 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -29,15 +29,6 @@
 #include "libmdoc.h"
 #include "libmandoc.h"
 
-enum	rew {	/* see rew_dohalt() */
-	REWIND_NONE,
-	REWIND_THIS,
-	REWIND_MORE,
-	REWIND_FORCE,
-	REWIND_LATER,
-	REWIND_ERROR
-};
-
 static	void		blk_full(MACRO_PROT_ARGS);
 static	void		blk_exp_close(MACRO_PROT_ARGS);
 static	void		blk_part_exp(MACRO_PROT_ARGS);
@@ -54,18 +45,14 @@ static	void		append_delims(struct mdoc *, int, int *, char *);
 static	enum mdoct	lookup(struct mdoc *, enum mdoct,
 				int, int, const char *);
 static	int		macro_or_word(MACRO_PROT_ARGS, int);
-static	int		make_pending(struct mdoc_node *, enum mdoct,
-				struct mdoc *, int, int);
+static	void		make_pending(struct mdoc *, struct mdoc_node *,
+				struct mdoc_node *, int, int);
 static	int		parse_rest(struct mdoc *, enum mdoct,
 				int, int *, char *);
 static	enum mdoct	rew_alt(enum mdoct);
-static	enum rew	rew_dohalt(enum mdoct, enum mdoc_type,
-				const struct mdoc_node *);
 static	void		rew_elem(struct mdoc *, enum mdoct);
 static	void		rew_last(struct mdoc *, const struct mdoc_node *);
 static	void		rew_pending(struct mdoc *, const struct mdoc_node *);
-static	void		rew_sub(enum mdoc_type, struct mdoc *,
-				enum mdoct, int, int);
 
 const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED | MDOC_JOIN }, /* Ap */
@@ -357,119 +344,6 @@ rew_alt(enum mdoct tok)
 	/* NOTREACHED */
 }
 
-/*
- * Rewinding to tok, how do we have to handle *p?
- * REWIND_NONE: *p would delimit tok, but no tok scope is open
- *   inside *p, so there is no need to rewind anything at all.
- * REWIND_THIS: *p matches tok, so rewind *p and nothing else.
- * REWIND_MORE: *p is implicit, rewind it and keep searching for tok.
- * REWIND_FORCE: *p is explicit, but tok is full, force rewinding *p.
- * REWIND_LATER: *p is explicit and still open, postpone rewinding.
- * REWIND_ERROR: No tok block is open at all.
- */
-static enum rew
-rew_dohalt(enum mdoct tok, enum mdoc_type type,
-		const struct mdoc_node *p)
-{
-
-	/*
-	 * No matching token, no delimiting block, no broken block.
-	 * This can happen when full implicit macros are called for
-	 * the first time but try to rewind their previous
-	 * instance anyway.
-	 */
-	if (MDOC_ROOT == p->type)
-		return(MDOC_BLOCK == type &&
-		    MDOC_EXPLICIT & mdoc_macros[tok].flags ?
-		    REWIND_ERROR : REWIND_NONE);
-
-	/*
-	 * When starting to rewind, skip plain text
-	 * and nodes that have already been rewound.
-	 */
-	if (p->type == MDOC_TEXT || p->flags & (MDOC_VALID | MDOC_BREAK))
-		return(REWIND_MORE);
-
-	/*
-	 * The easiest case:  Found a matching token.
-	 * This applies to both blocks and elements.
-	 */
-	tok = rew_alt(tok);
-	if (tok == p->tok)
-		return(p->end ? REWIND_NONE :
-		    type == p->type ? REWIND_THIS : REWIND_MORE);
-
-	/*
-	 * While elements do require rewinding for themselves,
-	 * they never affect rewinding of other nodes.
-	 */
-	if (MDOC_ELEM == p->type)
-		return(REWIND_MORE);
-
-	/*
-	 * Blocks delimited by our target token get REWIND_MORE.
-	 * Blocks delimiting our target token get REWIND_NONE.
-	 */
-	switch (tok) {
-	case MDOC_Bl:
-		if (MDOC_It == p->tok)
-			return(REWIND_MORE);
-		break;
-	case MDOC_It:
-		if (MDOC_BODY == p->type && MDOC_Bl == p->tok)
-			return(REWIND_NONE);
-		break;
-	/*
-	 * XXX Badly nested block handling still fails badly
-	 * when one block is breaking two blocks of the same type.
-	 * This is an incomplete and extremely ugly workaround,
-	 * required to let the OpenBSD tree build.
-	 */
-	case MDOC_Oo:
-		if (MDOC_Op == p->tok)
-			return(REWIND_MORE);
-		break;
-	case MDOC_Nm:
-		return(REWIND_NONE);
-	case MDOC_Nd:
-		/* FALLTHROUGH */
-	case MDOC_Ss:
-		if (MDOC_BODY == p->type && MDOC_Sh == p->tok)
-			return(REWIND_NONE);
-		/* FALLTHROUGH */
-	case MDOC_Sh:
-		if (MDOC_ROOT == p->parent->type)
-			return(REWIND_THIS);
-		if (MDOC_Nd == p->tok || MDOC_Ss == p->tok ||
-		    MDOC_Sh == p->tok)
-			return(REWIND_MORE);
-		break;
-	default:
-		break;
-	}
-
-	/*
-	 * Default block rewinding rules.
-	 * In particular, always skip block end markers,
-	 * and let all blocks rewind Nm children.
-	 * Do not warn again when closing a block,
-	 * since closing the body already warned.
-	 */
-	if (ENDBODY_NOT != p->end || MDOC_Nm == p->tok ||
-	    MDOC_BLOCK == type || (MDOC_BLOCK == p->type &&
-	    ! (MDOC_EXPLICIT & mdoc_macros[tok].flags)))
-		return(REWIND_MORE);
-
-	/*
-	 * By default, closing out full blocks
-	 * forces closing of broken explicit blocks,
-	 * while closing out partial blocks
-	 * allows delayed rewinding by default.
-	 */
-	return (&blk_full == mdoc_macros[tok].fp ?
-	    REWIND_FORCE : REWIND_LATER);
-}
-
 static void
 rew_elem(struct mdoc *mdoc, enum mdoct tok)
 {
@@ -484,141 +358,75 @@ rew_elem(struct mdoc *mdoc, enum mdoct tok)
 }
 
 /*
- * We are trying to close a block identified by tok,
+ * We are trying to close the block *breaker,
  * but the child block *broken is still open.
- * Thus, postpone closing the tok block
- * until the rew_sub call closing *broken.
+ * Thus, postpone closing the *breaker
+ * until the rew_pending() call closing *broken.
  */
-static int
-make_pending(struct mdoc_node *broken, enum mdoct tok,
-		struct mdoc *mdoc, int line, int ppos)
-{
-	struct mdoc_node *breaker;
-
-	/*
-	 * Iterate backwards, searching for the block matching tok,
-	 * that is, the block breaking the *broken block.
-	 */
-	for (breaker = broken->parent; breaker; breaker = breaker->parent) {
-
-		/*
-		 * If the *broken block (Z) is already broken and we
-		 * encounter its breaker (B), make the tok block (A)
-		 * pending on that inner breaker (B).
-		 * Graphically, [A breaker=[B! broken=[Z->B B] tok=A] Z]
-		 * becomes breaker=[A broken=[B! [Z->B B] tok=A] Z]
-		 * and finally [A! [B!->A [Z->B B] A] Z].
-		 * In these graphics, "->" indicates the "pending"
-		 * pointer and "!" indicates the MDOC_BREAK flag.
-		 * Each of the cases gets one additional pointer (B->A)
-		 * and one additional flag (A!).
-		 */
-		if (breaker == broken->pending) {
-			broken = breaker;
-			continue;
-		}
-
-		if (REWIND_THIS != rew_dohalt(tok, MDOC_BLOCK, breaker))
-			continue;
-		if (MDOC_BODY == broken->type)
-			broken = broken->parent;
-
-		/*
-		 * Found the breaker.
-		 * If another, outer breaker (X) is already pending on
-		 * the *broken block (B), we must not clobber the link
-		 * to the outer breaker, but make it pending on the
-		 * new, now inner breaker (A).
-		 * Graphically, [X! breaker=[A broken=[B->X X] tok=A] B]
-		 * becomes [X! breaker=[A->X broken=[B X] tok=A] B]
-		 * and finally [X! [A!->X [B->A X] A] B].
-		 */
-		if (broken->pending) {
-			struct mdoc_node *taker;
-
-			/*
-			 * If the inner breaker (A) is already broken,
-			 * too, it cannot take on the outer breaker (X)
-			 * but must hand it on to its own breakers (Y):
-			 * [X! [Y! breaker=[A->Y Y] broken=[B->X X] tok=A] B]
-			 * [X! take=[Y!->X brea=[A->Y Y] brok=[B X] tok=A] B]
-			 * and finally [X! [Y!->X [A!->Y Y] [B->A X] A] B].
-			 */
-			taker = breaker;
-			while (taker->pending)
-				taker = taker->pending;
-			taker->pending = broken->pending;
-		}
-
-		/*
-		 * Now we have reduced the situation to the simplest
-		 * case, which is just breaker=[A broken=[B tok=A] B]
-		 * and becomes [A! [B->A A] B].
-		 */
-		broken->pending = breaker;
-		breaker->flags |= MDOC_BREAK;
-		if (breaker->body != NULL)
-			breaker->body->flags |= MDOC_BREAK;
-		mandoc_vmsg(MANDOCERR_BLK_NEST, mdoc->parse, line, ppos,
-		    "%s breaks %s", mdoc_macronames[tok],
-		    mdoc_macronames[broken->tok]);
-		return(1);
-	}
-
-	/*
-	 * Found no matching block for tok.
-	 * Are you trying to close a block that is not open?
-	 */
-	return(0);
-}
-
 static void
-rew_sub(enum mdoc_type t, struct mdoc *mdoc,
-		enum mdoct tok, int line, int ppos)
+make_pending(struct mdoc *mdoc, struct mdoc_node *breaker,
+	struct mdoc_node *broken, int line, int ppos)
 {
-	struct mdoc_node *n, *to;
+	struct mdoc_node *n;
 
-	to = NULL;
-	n = mdoc->last;
-	while (n) {
-		switch (rew_dohalt(tok, t, n)) {
-		case REWIND_NONE:
-			if (to == NULL)
-				return;
-			n = to;
+	mandoc_vmsg(MANDOCERR_BLK_NEST, mdoc->parse, line, ppos,
+	    "%s breaks %s", mdoc_macronames[breaker->tok],
+	    mdoc_macronames[broken->tok]);
+
+	/*
+	 * If the *broken block (Z) is already broken by a block (B)
+	 * contained in the breaker (A), make the breaker pending
+	 * on that inner breaker (B).  Graphically,
+	 *
+	 * breaker=[A! broken=n=[B!->A (old broken=)[Z->B B] A] Z]
+	 *
+	 * In these graphics, "->" indicates the "pending" pointer and
+	 * "!" indicates the MDOC_BREAK flag.  Each of the cases gets
+	 * one additional pointer (B->A) and one additional flag (A!).
+	 */
+
+	for (n = broken->parent; ; n = n->parent)
+		if (n == broken->pending)
+			broken = n;
+		else if (n == breaker)
 			break;
-		case REWIND_THIS:
-			n->lastline = line -
-			    (mdoc->flags & MDOC_NEWLINE &&
-			     ! (mdoc_macros[tok].flags & MDOC_EXPLICIT));
-			break;
-		case REWIND_FORCE:
-			mandoc_vmsg(MANDOCERR_BLK_BROKEN, mdoc->parse,
-			    line, ppos, "%s breaks %s",
-			    mdoc_macronames[tok],
-			    mdoc_macronames[n->tok]);
-			/* FALLTHROUGH */
-		case REWIND_MORE:
-			n->lastline = line -
-			    (mdoc->flags & MDOC_NEWLINE ? 1 : 0);
-			to = n;
-			n = n->parent;
-			continue;
-		case REWIND_LATER:
-			if (make_pending(n, tok, mdoc, line, ppos) ||
-			    t != MDOC_BLOCK)
-				return;
-			/* FALLTHROUGH */
-		case REWIND_ERROR:
-			mandoc_msg(MANDOCERR_BLK_NOTOPEN,
-			    mdoc->parse, line, ppos,
-			    mdoc_macronames[tok]);
-			return;
-		}
-		break;
+
+	/*
+	 * Found the breaker.
+	 *
+	 * If another, outer breaker (X) is already pending on
+	 * the *broken block (B), we must not clobber the link
+	 * to the outer breaker, but make it pending on the new,
+	 * now inner breaker (A).  Graphically,
+	 *
+	 * [X! n=breaker=[A!->X broken=[B(->X)->A X] A] B].
+	 */
+
+	if (broken->pending != NULL) {
+		n = breaker;
+
+		/*
+		 * If the inner breaker (A) is already broken, too,
+		 * it cannot take on the outer breaker (X) but must
+		 * hand it on to its own breakers (Y).  Graphically,
+		 *
+		 * [X! n=[Y!->X breaker=[A!->Y Y] broken=[B(->X)->A X] A] B]
+		 */
+
+		while (n->pending)
+			n = n->pending;
+		n->pending = broken->pending;
 	}
-	assert(n);
-	rew_pending(mdoc, n);
+
+	/*
+	 * Now we have reduced the situation to the simplest case:
+	 * breaker=[A! broken=[B->A A] B].
+	 */
+
+	broken->pending = breaker;
+	breaker->flags |= MDOC_BREAK;
+	if (breaker->body != NULL)
+		breaker->body->flags |= MDOC_BREAK;
 }
 
 /*
@@ -731,10 +539,11 @@ blk_exp_close(MACRO_PROT_ARGS)
 {
 	struct mdoc_node *body;		/* Our own body. */
 	struct mdoc_node *endbody;	/* Our own end marker. */
+	struct mdoc_node *itblk;	/* An It block starting later. */
 	struct mdoc_node *later;	/* A sub-block starting later. */
 	struct mdoc_node *n;		/* Search back to our block. */
 
-	int		 have_it, j, lastarg, maxargs, nl;
+	int		 j, lastarg, maxargs, nl;
 	enum margserr	 ac;
 	enum mdoct	 atok, ntok;
 	char		*p;
@@ -758,9 +567,8 @@ blk_exp_close(MACRO_PROT_ARGS)
 	 * both of our own and of pending sub-blocks.
 	 */
 
-	have_it = 0;
 	atok = rew_alt(tok);
-	body = endbody = later = NULL;
+	body = endbody = itblk = later = NULL;
 	for (n = mdoc->last; n; n = n->parent) {
 		if (n->flags & (MDOC_VALID | MDOC_BREAK))
 			continue;
@@ -779,7 +587,7 @@ blk_exp_close(MACRO_PROT_ARGS)
 			continue;
 
 		if (n->tok == MDOC_It) {
-			have_it = 1;
+			itblk = n;
 			continue;
 		}
 
@@ -794,16 +602,18 @@ blk_exp_close(MACRO_PROT_ARGS)
 			 */
 
 			if (later == NULL ||
-			    (tok == MDOC_El && !have_it))
+			    (tok == MDOC_El && itblk == NULL))
 				break;
 
 			/*
-			 * When there is a pending sub block,
-			 * postpone closing out the current block
-			 * until the rew_sub() closing out the sub-block.
+			 * When there is a pending sub block, postpone
+			 * closing out the current block until the
+			 * rew_pending() closing out the sub-block.
 			 */
 
-			make_pending(later, tok, mdoc, line, ppos);
+			make_pending(mdoc, n, later, line, ppos);
+			if (tok == MDOC_El)
+				itblk->flags |= MDOC_BREAK;
 
 			/*
 			 * Mark the place where the formatting - but not
@@ -858,7 +668,8 @@ blk_exp_close(MACRO_PROT_ARGS)
 			    mdoc->parse, line, ppos,
 			    "%s %s", mdoc_macronames[tok],
 			    buf + *pos);
-		rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos);
+		if (endbody == NULL && n != NULL)
+			rew_pending(mdoc, n);
 		return;
 	}
 
@@ -1088,7 +899,7 @@ blk_full(MACRO_PROT_ARGS)
 {
 	int		  la, nl, parsed;
 	struct mdoc_arg	 *arg;
-	struct mdoc_node *blk; /* Our own block. */
+	struct mdoc_node *blk; /* Our own or a broken block. */
 	struct mdoc_node *head; /* Our own head. */
 	struct mdoc_node *body; /* Our own body. */
 	struct mdoc_node *n;
@@ -1097,27 +908,79 @@ blk_full(MACRO_PROT_ARGS)
 
 	nl = MDOC_NEWLINE & mdoc->flags;
 
-	/* Skip items outside lists. */
+	if ( ! (mdoc_macros[tok].flags & MDOC_EXPLICIT)) {
 
-	if (tok == MDOC_It) {
-		for (n = mdoc->last; n; n = n->parent)
-			if (n->tok == MDOC_Bl && n->type == MDOC_BLOCK &&
-			    ! (n->flags & (MDOC_VALID | MDOC_BREAK)))
+		/* Here, tok is one of Sh Ss Nm Nd It. */
+
+		blk = NULL;
+		for (n = mdoc->last; n != NULL; n = n->parent) {
+			if (n->flags & (MDOC_VALID | MDOC_BREAK) ||
+			    n->type != MDOC_BLOCK)
+				continue;
+			if (tok == MDOC_It && n->tok == MDOC_Bl) {
+				if (blk != NULL) {
+					mandoc_vmsg(MANDOCERR_BLK_BROKEN,
+					    mdoc->parse, line, ppos,
+					    "It breaks %s",
+					    mdoc_macronames[blk->tok]);
+					rew_pending(mdoc, blk);
+				}
 				break;
-		if (n == NULL) {
+			}
+
+			if (mdoc_macros[n->tok].flags & MDOC_EXPLICIT) {
+				switch (tok) {
+				case MDOC_Sh:
+					/* FALLTHROUGH */
+				case MDOC_Ss:
+					mandoc_vmsg(MANDOCERR_BLK_BROKEN,
+					    mdoc->parse, line, ppos,
+					    "%s breaks %s",
+					    mdoc_macronames[tok],
+					    mdoc_macronames[n->tok]);
+					rew_pending(mdoc, n);
+					continue;
+				case MDOC_It:
+					/* Delay in case it's astray. */
+					blk = n;
+					continue;
+				default:
+					break;
+				}
+				break;
+			}
+
+			/* Here, n is one of Sh Ss Nm Nd It. */
+
+			if (tok != MDOC_Sh && (n->tok == MDOC_Sh ||
+			    (tok != MDOC_Ss && (n->tok == MDOC_Ss ||
+			     (tok != MDOC_It && n->tok == MDOC_It)))))
+				break;
+
+			/* Item breaking an explicit block. */
+
+			if (blk != NULL) {
+				mandoc_vmsg(MANDOCERR_BLK_BROKEN,
+				    mdoc->parse, line, ppos,
+				    "It breaks %s",
+				    mdoc_macronames[blk->tok]);
+				rew_pending(mdoc, blk);
+			}
+
+			/* Close out prior implicit scopes. */
+
+			rew_last(mdoc, n);
+		}
+
+		/* Skip items outside lists. */
+
+		if (tok == MDOC_It && (n == NULL || n->tok != MDOC_Bl)) {
 			mandoc_vmsg(MANDOCERR_IT_STRAY, mdoc->parse,
 			    line, ppos, "It %s", buf + *pos);
 			mdoc_elem_alloc(mdoc, line, ppos, MDOC_br, NULL);
 			rew_elem(mdoc, MDOC_br);
 			return;
 		}
-	}
-
-	/* Close out prior implicit scope. */
-
-	if ( ! (mdoc_macros[tok].flags & MDOC_EXPLICIT)) {
-		rew_sub(MDOC_BODY, mdoc, tok, line, ppos);
-		rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos);
 	}
 
 	/*
@@ -1173,7 +1036,8 @@ blk_full(MACRO_PROT_ARGS)
 			 * reopen our scope if the last parse was a
 			 * phrase or partial phrase.
 			 */
-			rew_sub(MDOC_BODY, mdoc, tok, line, ppos);
+			if (body != NULL)
+				rew_last(mdoc, body);
 			body = mdoc_body_alloc(mdoc, line, ppos, tok);
 			break;
 		}
@@ -1207,8 +1071,7 @@ blk_full(MACRO_PROT_ARGS)
 			 * head; if we have, rewind that instead.
 			 */
 
-			rew_sub(body ? MDOC_BODY : MDOC_HEAD,
-			    mdoc, tok, line, ppos);
+			rew_last(mdoc, body == NULL ? head : body);
 			body = mdoc_body_alloc(mdoc, line, ppos, tok);
 
 			/*
@@ -1242,7 +1105,7 @@ blk_full(MACRO_PROT_ARGS)
 	/*
 	 * If there is an open (i.e., unvalidated) sub-block requiring
 	 * explicit close-out, postpone switching the current block from
-	 * head to body until the rew_sub() call closing out that
+	 * head to body until the rew_pending() call closing out that
 	 * sub-block.
 	 */
 	for (n = mdoc->last; n && n != head; n = n->parent) {
@@ -1256,12 +1119,12 @@ blk_full(MACRO_PROT_ARGS)
 
 	/* Close out scopes to remain in a consistent state. */
 
-	rew_sub(MDOC_HEAD, mdoc, tok, line, ppos);
-	mdoc_body_alloc(mdoc, line, ppos, tok);
+	rew_last(mdoc, head);
+	body = mdoc_body_alloc(mdoc, line, ppos, tok);
 out:
 	if (mdoc->flags & MDOC_FREECOL) {
-		rew_sub(MDOC_BODY, mdoc, tok, line, ppos);
-		rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos);
+		rew_last(mdoc, body);
+		rew_last(mdoc, blk);
 		mdoc->flags &= ~MDOC_FREECOL;
 	}
 }
@@ -1319,8 +1182,8 @@ blk_part_imp(MACRO_PROT_ARGS)
 
 	/*
 	 * If there is an open sub-block requiring explicit close-out,
-	 * postpone closing out the current block
-	 * until the rew_sub() call closing out the sub-block.
+	 * postpone closing out the current block until the
+	 * rew_pending() call closing out the sub-block.
 	 */
 
 	for (n = mdoc->last; n && n != body && n != blk->parent;
@@ -1328,7 +1191,7 @@ blk_part_imp(MACRO_PROT_ARGS)
 		if (n->type == MDOC_BLOCK &&
 		    mdoc_macros[n->tok].flags & MDOC_EXPLICIT &&
 		    ! (n->flags & MDOC_VALID)) {
-			make_pending(n, tok, mdoc, line, ppos);
+			make_pending(mdoc, blk, n, line, ppos);
 			mdoc_endbody_alloc(mdoc, line, ppos,
 			    tok, body, ENDBODY_NOSPACE);
 			return;
@@ -1509,10 +1372,17 @@ in_line_argn(MACRO_PROT_ARGS)
 static void
 in_line_eoln(MACRO_PROT_ARGS)
 {
-	struct mdoc_arg	*arg;
+	struct mdoc_node	*n;
+	struct mdoc_arg		*arg;
 
-	if (tok == MDOC_Pp)
-		rew_sub(MDOC_BLOCK, mdoc, MDOC_Nm, line, ppos);
+	if ((tok == MDOC_Pp || tok == MDOC_Lp) &&
+	    ! (mdoc->flags & MDOC_SYNOPSIS)) {
+		n = mdoc->last;
+		if (mdoc->next == MDOC_NEXT_SIBLING)
+			n = n->parent;
+		if (n->tok == MDOC_Nm)
+			rew_last(mdoc, mdoc->last->parent);
+	}
 
 	mdoc_argv(mdoc, line, tok, &arg, pos, buf);
 	mdoc_elem_alloc(mdoc, line, ppos, tok, arg);
@@ -1562,14 +1432,20 @@ ctx_synopsis(MACRO_PROT_ARGS)
 static void
 phrase_ta(MACRO_PROT_ARGS)
 {
-	struct mdoc_node *n;
+	struct mdoc_node *body, *n;
 
 	/* Make sure we are in a column list or ignore this macro. */
 
-	n = mdoc->last;
-	while (n != NULL &&
-	    (n->tok != MDOC_Bl || n->flags & (MDOC_VALID | MDOC_BREAK)))
-		n = n->parent;
+	body = NULL;
+	for (n = mdoc->last; n != NULL; n = n->parent) {
+		if (n->flags & (MDOC_VALID | MDOC_BREAK))
+			continue;
+		if (n->tok == MDOC_It && n->type == MDOC_BODY)
+			body = n;
+		if (n->tok == MDOC_Bl)
+			break;
+	}
+
 	if (n == NULL || n->norm->Bl.type != LIST_column) {
 		mandoc_msg(MANDOCERR_TA_STRAY, mdoc->parse,
 		    line, ppos, "Ta");
@@ -1578,7 +1454,7 @@ phrase_ta(MACRO_PROT_ARGS)
 
 	/* Advance to the next column. */
 
-	rew_sub(MDOC_BODY, mdoc, MDOC_It, line, ppos);
+	rew_last(mdoc, body);
 	mdoc_body_alloc(mdoc, line, ppos, MDOC_It);
 	parse_rest(mdoc, MDOC_MAX, line, pos, buf);
 }
