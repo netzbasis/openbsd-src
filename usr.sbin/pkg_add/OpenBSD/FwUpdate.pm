@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: FwUpdate.pm,v 1.11 2015/01/27 09:35:35 espie Exp $
+# $OpenBSD: FwUpdate.pm,v 1.15 2015/02/03 21:37:54 espie Exp $
 #
 # Copyright (c) 2014 Marc Espie <espie@openbsd.org>
 #
@@ -72,6 +72,7 @@ sub handle_options
 	if ($state->{fw_verbose}) {
 		$state->say("Path to firmware: #1", $state->{path});
 	}
+	$state->{subst}->add('NO_SCP', 1);
 }
 
 sub finish_init
@@ -97,6 +98,12 @@ sub machine_drivers
 {
 	my $self = shift;
 	return keys %{$self->{machine_drivers}};
+}
+
+sub all_drivers
+{
+	my $self = shift;
+	return keys %{$self->{all_drivers}};
 }
 
 sub is_needed
@@ -154,6 +161,7 @@ sub find_machine_drivers
 {
 	my ($self, $state) = @_;
 	$state->{machine_drivers} = {};
+	$state->{all_drivers} = \%possible_drivers;
 	my %search = %possible_drivers;
 	if (open(my $f, '<', '/var/run/dmesg.boot')) {
 		$self->parse_dmesg($f, \%search, $state->{machine_drivers});
@@ -253,12 +261,22 @@ sub process_parameters
 				}
 			}
 		} else {
-			for my $driver ($state->machine_drivers) {
-				$self->to_add_or_update($state, $driver);
-			}
-			for my $driver ($state->installed_drivers) {
-				next if $state->is_needed($driver);
-				$self->to_add_or_update($state, $driver);
+			if ($state->opt('a')) {
+				for my $driver ($state->all_drivers) {
+					$self->to_add_or_update($state, 
+					    $driver);
+				}
+			} else {
+				for my $driver ($state->machine_drivers) {
+					$self->to_add_or_update($state, 
+					    $driver);
+				}
+				for my $driver ($state->installed_drivers) {
+					# XXX skip already done up there ^
+					next if $state->is_needed($driver);
+					$self->to_add_or_update($state, 
+					    $driver);
+				}
 			}
 		}
 		if (!(defined $state->{setlist}) && $state->{fw_verbose}) {
@@ -273,12 +291,14 @@ sub process_parameters
 				$state->errsay("#1: unknown driver", $driver);
 				exit(1);
 			}
+			if ($state->opt('d') && 
+			    !$state->is_installed($driver)) {
+				$state->errsay("Can't delete uninstalled driver: #1", $driver);
+				next;
+			}
+
 			my $set = $self->to_add_or_update($state, $driver);
 			if ($state->opt('d')) {
-				if (!$state->is_installed($driver)) {
-					$state->errsay("Can't delete uninstalled driver: #1", $driver);
-					next;
-				}
 				$self->mark_set_for_deletion($set);
 			} 
 		}
