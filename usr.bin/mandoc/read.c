@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.95 2015/01/28 21:10:28 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.97 2015/02/04 18:03:28 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -105,6 +105,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"content before first section header",
 	"first section is not \"NAME\"",
 	"bad NAME section contents",
+	"missing description line, using \"\"",
 	"sections out of conventional order",
 	"duplicate section title",
 	"unexpected section",
@@ -141,6 +142,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"missing font type, using \\fR",
 	"unknown font type, using \\fR",
 	"nothing follows prefix",
+	"empty reference block",
 	"missing -std argument, adding it",
 	"missing eqn box, using \"\"",
 

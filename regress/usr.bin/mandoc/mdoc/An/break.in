@@ -1,4 +1,4 @@
-.Dd July 31, 2014
+.Dd February 5, 2015
 .Dt AN-BREAK 1
 .Os OpenBSD
 .Sh NAME
@@ -10,22 +10,40 @@ inline is the default:
 .An Ingo ,
 and
 .An Joerg .
+empty
+.An
+trailing
+.An .
 .Pp
-.An -split -nosplit
+.An -split -nosplit bogus
 split mode:
 .An Kristaps
 .An Ingo
 .An Joerg
+.Pp
+empty
+.An
+trailing
+.An .
 .An -nosplit
 .Sh AUTHORS
 split mode is the default:
 .An Kristaps
 .An Ingo
 .An Joerg
-.An -nosplit -split
+.Pp
+empty
+.An
+trailing
+.An .
+.An -nosplit -split bogus
 .Pp
 inline:
 .An Kristaps ,
 .An Ingo ,
 and
 .An Joerg .
+empty
+.An
+trailing
+.An .
