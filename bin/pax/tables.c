@@ -1,4 +1,4 @@
-/*	$OpenBSD: tables.c,v 1.37 2014/11/23 05:32:20 guenther Exp $	*/
+/*	$OpenBSD: tables.c,v 1.39 2015/02/05 22:32:20 sthen Exp $	*/
 /*	$NetBSD: tables.c,v 1.4 1995/03/21 09:07:45 cgd Exp $	*/
 
 /*-

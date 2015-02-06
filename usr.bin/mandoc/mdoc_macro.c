@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.132 2015/02/05 01:46:38 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.134 2015/02/06 03:31:11 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -902,6 +902,12 @@ blk_full(MACRO_PROT_ARGS)
 
 	nl = MDOC_NEWLINE & mdoc->flags;
 
+	if (buf[*pos] == '\0' && (tok == MDOC_Sh || tok == MDOC_Ss)) {
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    line, ppos, mdoc_macronames[tok]);
+		return;
+	}
+
 	if ( ! (mdoc_macros[tok].flags & MDOC_EXPLICIT)) {
 
 		/* Here, tok is one of Sh Ss Nm Nd It. */
@@ -1365,6 +1371,11 @@ in_line_argn(MACRO_PROT_ARGS)
 	}
 
 	if (j == 0) {
+		if (tok == MDOC_In || tok == MDOC_St || tok == MDOC_Xr) {
+			mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+			    line, ppos, mdoc_macronames[tok]);
+			return;
+		}
 		mdoc_elem_alloc(mdoc, line, ppos, tok, arg);
 		if (ac == ARGS_PUNCT && tok == MDOC_Pf)
 			append_delims(mdoc, line, pos, buf);
@@ -1388,6 +1399,12 @@ in_line_eoln(MACRO_PROT_ARGS)
 			n = n->parent;
 		if (n->tok == MDOC_Nm)
 			rew_last(mdoc, mdoc->last->parent);
+	}
+
+	if (buf[*pos] == '\0' && tok == MDOC_Fd) {
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    line, ppos, "Fd");
+		return;
 	}
 
 	mdoc_argv(mdoc, line, tok, &arg, pos, buf);

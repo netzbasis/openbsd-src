@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.54 2014/11/12 22:57:06 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.56 2015/02/05 10:32:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -59,7 +59,6 @@ cmd_split_window_exec(struct cmd *self, struct cmd_q *cmdq)
 	int			 argc, size, percentage, cwd, fd = -1;
 	enum layout_type	 type;
 	struct layout_cell	*lc;
-	struct client		*c;
 	struct format_tree	*ft;
 	struct environ_entry	*envent;
 
@@ -89,11 +88,8 @@ cmd_split_window_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if (args_has(args, 'c')) {
 		ft = format_create();
-		if ((c = cmd_find_client(cmdq, NULL, 1)) != NULL)
-			format_client(ft, c);
-		format_session(ft, s);
-		format_winlink(ft, s, s->curw);
-		format_window_pane(ft, s->curw->window->active);
+		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s, NULL,
+		    NULL);
 		cp = format_expand(ft, args_get(args, 'c'));
 		format_free(ft);
 
@@ -181,11 +177,8 @@ cmd_split_window_exec(struct cmd *self, struct cmd_q *cmdq)
 			template = SPLIT_WINDOW_TEMPLATE;
 
 		ft = format_create();
-		if ((c = cmd_find_client(cmdq, NULL, 1)) != NULL)
-			format_client(ft, c);
-		format_session(ft, s);
-		format_winlink(ft, s, wl);
-		format_window_pane(ft, new_wp);
+		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s, wl,
+		    new_wp);
 
 		cp = format_expand(ft, template);
 		cmdq_print(cmdq, "%s", cp);

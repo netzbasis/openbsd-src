@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.486 2015/02/01 23:43:23 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.488 2015/02/05 10:29:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1513,14 +1513,12 @@ void printflike(3, 4) format_add(struct format_tree *, const char *,
 		     const char *, ...);
 const char	*format_find(struct format_tree *, const char *);
 char		*format_expand(struct format_tree *, const char *);
-void		 format_session(struct format_tree *, struct session *);
-void		 format_client(struct format_tree *, struct client *);
-void		 format_window(struct format_tree *, struct window *);
-void		 format_winlink(struct format_tree *, struct session *,
-		     struct winlink *);
-void		 format_window_pane(struct format_tree *,
+void		 format_defaults(struct format_tree *, struct client *,
+		     struct session *, struct winlink *, struct window_pane *);
+void		 format_defaults_window(struct format_tree *, struct window *);
+void		 format_defaults_pane(struct format_tree *,
 		     struct window_pane *);
-void		 format_paste_buffer(struct format_tree *,
+void		 format_defaults_paste_buffer(struct format_tree *,
 		     struct paste_buffer *, int);
 
 /* mode-key.c */
@@ -1832,7 +1830,7 @@ struct cmd_q	*cmdq_new(struct client *);
 int		 cmdq_free(struct cmd_q *);
 void printflike(2, 3) cmdq_print(struct cmd_q *, const char *, ...);
 void printflike(2, 3) cmdq_error(struct cmd_q *, const char *, ...);
-int		 cmdq_guard(struct cmd_q *, const char *, int);
+void		 cmdq_guard(struct cmd_q *, const char *, int);
 void		 cmdq_run(struct cmd_q *, struct cmd_list *);
 void		 cmdq_append(struct cmd_q *, struct cmd_list *);
 int		 cmdq_continue(struct cmd_q *);

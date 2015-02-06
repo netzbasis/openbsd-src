@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.187 2015/02/05 01:46:38 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.190 2015/02/06 03:31:11 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -65,7 +65,6 @@ static	enum mdoc_sec	a2sec(const char *);
 static	size_t		macro2len(enum mdoct);
 static	void	 rewrite_macro2len(char **);
 
-static	void	 bwarn_ge1(POST_ARGS);
 static	void	 ewarn_eq1(POST_ARGS);
 static	void	 ewarn_ge1(POST_ARGS);
 
@@ -149,12 +148,12 @@ static	const struct valids mdoc_valids[MDOC_MAX] = {
 	{ NULL, NULL },				/* Ev */
 	{ pre_std, post_ex },			/* Ex */
 	{ NULL, post_fa },			/* Fa */
-	{ NULL, ewarn_ge1 },			/* Fd */
+	{ NULL, NULL },				/* Fd */
 	{ NULL, NULL },				/* Fl */
 	{ NULL, post_fn },			/* Fn */
 	{ NULL, NULL },				/* Ft */
 	{ NULL, NULL },				/* Ic */
-	{ NULL, ewarn_eq1 },			/* In */
+	{ NULL, NULL },				/* In */
 	{ NULL, post_defaults },		/* Li */
 	{ NULL, post_nd },			/* Nd */
 	{ NULL, post_nm },			/* Nm */
@@ -165,7 +164,7 @@ static	const struct valids mdoc_valids[MDOC_MAX] = {
 	{ NULL, post_st },			/* St */
 	{ NULL, NULL },				/* Va */
 	{ NULL, post_vt },			/* Vt */
-	{ NULL, ewarn_ge1 },			/* Xr */
+	{ NULL, NULL },				/* Xr */
 	{ NULL, ewarn_ge1 },			/* %A */
 	{ NULL, post_hyphtext },		/* %B */ /* FIXME: can be used outside Rs/Re. */
 	{ NULL, ewarn_ge1 },			/* %D */
@@ -397,12 +396,6 @@ check_count(struct mdoc *mdoc, enum mdoc_type type,
 	mandoc_vmsg(MANDOCERR_ARGCWARN, mdoc->parse, mdoc->last->line,
 	    mdoc->last->pos, "want %s%d children (have %d)",
 	    p, val, mdoc->last->nchild);
-}
-
-static void
-bwarn_ge1(POST_ARGS)
-{
-	check_count(mdoc, MDOC_BODY, CHECK_GT, 0);
 }
 
 static void
@@ -971,11 +964,27 @@ post_fn(POST_ARGS)
 static void
 post_fo(POST_ARGS)
 {
+	const struct mdoc_node	*n;
 
-	check_count(mdoc, MDOC_HEAD, CHECK_EQ, 1);
-	bwarn_ge1(mdoc);
-	if (mdoc->last->type == MDOC_HEAD && mdoc->last->nchild)
-		post_fname(mdoc);
+	n = mdoc->last;
+
+	if (n->type != MDOC_HEAD)
+		return;
+
+	if (n->child == NULL) {
+		mandoc_msg(MANDOCERR_FO_NOHEAD, mdoc->parse,
+		    n->line, n->pos, "Fo");
+		return;
+	}
+	if (n->child != n->last) {
+		mandoc_vmsg(MANDOCERR_ARG_EXCESS, mdoc->parse,
+		    n->child->next->line, n->child->next->pos,
+		    "Fo ... %s", n->child->next->string);
+		while (n->child != n->last)
+			mdoc_node_delete(mdoc, n->last);
+	}
+
+	post_fname(mdoc);
 }
 
 static void
@@ -1063,26 +1072,40 @@ post_nd(POST_ARGS)
 static void
 post_d1(POST_ARGS)
 {
+	struct mdoc_node	*n;
 
-	bwarn_ge1(mdoc);
+	n = mdoc->last;
+
+	if (n->type != MDOC_BODY)
+		return;
+
+	if (n->child == NULL)
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    n->line, n->pos, "D1");
+
 	post_hyph(mdoc);
 }
 
 static void
 post_literal(POST_ARGS)
 {
+	struct mdoc_node	*n;
 
-	bwarn_ge1(mdoc);
+	n = mdoc->last;
 
-	/*
-	 * The `Dl' (note "el" not "one") and `Bd' macros unset the
-	 * MDOC_LITERAL flag as they leave.  Note that `Bd' only sets
-	 * this in literal mode, but it doesn't hurt to just switch it
-	 * off in general since displays can't be nested.
-	 */
+	if (n->type != MDOC_BODY)
+		return;
 
-	if (MDOC_BODY == mdoc->last->type)
-		mdoc->flags &= ~MDOC_LITERAL;
+	if (n->child == NULL)
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    n->line, n->pos, mdoc_macronames[n->tok]);
+
+	if (n->tok == MDOC_Bd &&
+	    n->norm->Bd.type != DISP_literal &&
+	    n->norm->Bd.type != DISP_unfilled)
+		return;
+
+	mdoc->flags &= ~MDOC_LITERAL;
 }
 
 static void
@@ -1479,10 +1502,13 @@ post_bl(POST_ARGS)
 		return;
 	}
 
-	bwarn_ge1(mdoc);
-
 	nchild = nbody->child;
-	while (NULL != nchild) {
+	if (nchild == NULL) {
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    nbody->line, nbody->pos, "Bl");
+		return;
+	}
+	while (nchild != NULL) {
 		if (nchild->tok == MDOC_It ||
 		    (nchild->tok == MDOC_Sm &&
 		     nchild->next != NULL &&
@@ -1631,13 +1657,6 @@ post_st(POST_ARGS)
 	n = mdoc->last;
 	nch = n->child;
 
-	if (NULL == nch) {
-		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
-		    n->line, n->pos, mdoc_macronames[n->tok]);
-		mdoc_node_delete(mdoc, n);
-		return;
-	}
-
 	assert(MDOC_TEXT == nch->type);
 
 	if (NULL == (p = mdoc_a2st(nch->string))) {
@@ -1747,33 +1766,17 @@ post_rs(POST_ARGS)
 static void
 post_hyph(POST_ARGS)
 {
-	struct mdoc_node	*n, *nch;
+	struct mdoc_node	*nch;
 	char			*cp;
 
-	n = mdoc->last;
-	switch (n->type) {
-	case MDOC_HEAD:
-		if (MDOC_Sh == n->tok || MDOC_Ss == n->tok)
-			break;
-		return;
-	case MDOC_BODY:
-		if (MDOC_D1 == n->tok || MDOC_Nd == n->tok)
-			break;
-		return;
-	case MDOC_ELEM:
-		break;
-	default:
-		return;
-	}
-
-	for (nch = n->child; nch; nch = nch->next) {
-		if (MDOC_TEXT != nch->type)
+	for (nch = mdoc->last->child; nch != NULL; nch = nch->next) {
+		if (nch->type != MDOC_TEXT)
 			continue;
 		cp = nch->string;
-		if ('\0' == *cp)
+		if (*cp == '\0')
 			continue;
-		while ('\0' != *(++cp))
-			if ('-' == *cp &&
+		while (*(++cp) != '\0')
+			if (*cp == '-' &&
 			    isalpha((unsigned char)cp[-1]) &&
 			    isalpha((unsigned char)cp[1]))
 				*cp = ASCII_HYPH;
@@ -2067,11 +2070,15 @@ post_ignpar(POST_ARGS)
 {
 	struct mdoc_node *np;
 
-	check_count(mdoc, MDOC_HEAD, CHECK_GT, 0);
-	post_hyph(mdoc);
-
-	if (MDOC_BODY != mdoc->last->type)
+	switch (mdoc->last->type) {
+	case MDOC_HEAD:
+		post_hyph(mdoc);
 		return;
+	case MDOC_BODY:
+		break;
+	default:
+		return;
+	}
 
 	if (NULL != (np = mdoc->last->child))
 		if (MDOC_Pp == np->tok || MDOC_Lp == np->tok) {

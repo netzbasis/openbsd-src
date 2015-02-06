@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_subs.c,v 1.38 2015/01/16 06:39:32 deraadt Exp $	*/
+/*	$OpenBSD: file_subs.c,v 1.40 2015/02/05 22:32:20 sthen Exp $	*/
 /*	$NetBSD: file_subs.c,v 1.4 1995/03/21 09:07:18 cgd Exp $	*/
 
 /*-
