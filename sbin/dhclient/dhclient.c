@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.353 2015/02/05 23:56:06 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.356 2015/02/07 02:07:32 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -99,16 +99,17 @@ void		 fork_privchld(int, int);
 void		 get_ifname(char *);
 char		*resolv_conf_contents(struct option_data  *,
 		     struct option_data *);
-void		 write_file(char *, int, mode_t, uid_t, gid_t, u_int8_t *,
-		     size_t);
+void		 write_resolv_conf(u_int8_t *, size_t);
+void		 write_option_db(u_int8_t *, size_t);
+
 struct client_lease *apply_defaults(struct client_lease *);
 struct client_lease *clone_lease(struct client_lease *);
 void		 apply_ignore_list(char *);
 
-void add_direct_route(int, struct in_addr, struct in_addr, struct in_addr);
-void add_default_route(int, struct in_addr, struct in_addr);
-void add_static_routes(int, struct option_data *);
-void add_classless_static_routes(int, struct option_data *, struct in_addr);
+void add_direct_route(struct in_addr, struct in_addr, struct in_addr);
+void add_default_route(struct in_addr, struct in_addr);
+void add_static_routes(struct option_data *);
+void add_classless_static_routes(struct option_data *, struct in_addr);
 
 int compare_lease(struct client_lease *, struct client_lease *);
 void set_lease_times(struct client_lease *);
@@ -304,7 +305,7 @@ routehandler(void)
 			warning("Active address (%s) deleted; exiting",
 			    inet_ntoa(client->active->address));
 			memset(&b, 0, sizeof(b));
-			add_address(ifi->name, 0, b, b);
+			add_address(b, b);
 			/* No need to write resolv.conf now. */
 			client->flags &= ~IS_RESPONSIBLE;
 			quit = INTERNALSIG;
@@ -356,10 +357,7 @@ routehandler(void)
 				}
 			} else if (strlen(path_option_db)) {
 				/* Let monitoring programs see link loss. */
-				write_file(path_option_db,
-				    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC |
-				    O_EXLOCK | O_NOFOLLOW, S_IRUSR | S_IWUSR |
-				    S_IRGRP, 0, 0, "", 0);
+				write_option_db("", 0);
 				/* No need to wait for anything but link. */
 				cancel_timeout();
 			}
@@ -380,10 +378,7 @@ routehandler(void)
 	/* Something has happened. Try to write out the resolv.conf. */
 	if (client->active && client->active->resolv_conf &&
 	    client->flags & IS_RESPONSIBLE)
-		write_file("/etc/resolv.conf",
-		    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK,
-		    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, 0, 0,
-		    client->active->resolv_conf,
+		write_resolv_conf(client->active->resolv_conf,
 		    strlen(client->active->resolv_conf));
 
 done:
@@ -916,8 +911,8 @@ bind_lease(void)
 	client->new = NULL;
 
 	/* Deleting the addresses also clears out arp entries. */
-	delete_addresses(ifi->name, ifi->rdomain);
-	flush_routes(ifi->name, ifi->rdomain);
+	delete_addresses();
+	flush_routes();
 
 	opt = &options[DHO_SUBNET_MASK];
 	if (opt->len == sizeof(mask))
@@ -929,13 +924,13 @@ bind_lease(void)
 	 * Add address and default route last, so we know when the binding
 	 * is done by the RTM_NEWADDR message being received.
 	 */
-	add_address(ifi->name, ifi->rdomain, client->active->address, mask);
+	add_address(client->active->address, mask);
 	if (options[DHO_CLASSLESS_STATIC_ROUTES].len) {
-		add_classless_static_routes(ifi->rdomain,
+		add_classless_static_routes(
 		    &options[DHO_CLASSLESS_STATIC_ROUTES],
 		    client->active->address);
 	} else if (options[DHO_CLASSLESS_MS_STATIC_ROUTES].len) {
-		add_classless_static_routes(ifi->rdomain,
+		add_classless_static_routes(
 		    &options[DHO_CLASSLESS_MS_STATIC_ROUTES],
 		    client->active->address);
 	} else {
@@ -950,16 +945,14 @@ bind_lease(void)
 			 * direct route for the gateway to make it routable.
 			 */
 			if (mask.s_addr == INADDR_BROADCAST) {
-				add_direct_route(ifi->rdomain, gateway, mask,
+				add_direct_route(gateway, mask,
 				    client->active->address);
 			}
 
-			add_default_route(ifi->rdomain, client->active->address,
-			    gateway);
+			add_default_route(client->active->address, gateway);
 		}
 		if (options[DHO_STATIC_ROUTES].len)
-			add_static_routes(ifi->rdomain,
-			    &options[DHO_STATIC_ROUTES]);
+			add_static_routes(&options[DHO_STATIC_ROUTES]);
 	}
 
 newlease:
@@ -1370,10 +1363,8 @@ send_request(void)
 	 */
 	if (client->state != S_REQUESTING &&
 	    cur_time > client->active->expiry) {
-		if (client->active) {
-			delete_address(ifi->name, ifi->rdomain,
-			    client->active->address);
-		}
+		if (client->active)
+			delete_address(client->active->address);
 		client->state = S_INIT;
 		state_init();
 		return;
@@ -1733,9 +1724,7 @@ rewrite_option_db(struct client_lease *offered, struct client_lease *effective)
 	} else
 		warning("cannot make effective lease into string");
 
-	write_file(path_option_db,
-	    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK | O_NOFOLLOW,
-	    S_IRUSR | S_IWUSR | S_IRGRP, 0, 0, db, strlen(db));
+	write_option_db(db, strlen(db));
 }
 
 char *
@@ -1987,8 +1976,6 @@ fork_privchld(int fd, int fd2)
 	 */
 	if (quit != SIGTERM) {
 		memset(&imsg, 0, sizeof(imsg));
-		strlcpy(imsg.ifname, ifi->name, sizeof(imsg.ifname));
-		imsg.rdomain = ifi->rdomain;
 		imsg.addr = active_addr;
 		priv_cleanup(&imsg);
 	}
@@ -2339,70 +2326,99 @@ apply_ignore_list(char *ignore_list)
 }
 
 void
-write_file(char *path, int flags, mode_t mode, uid_t uid, gid_t gid,
-    u_int8_t *contents, size_t sz)
+write_resolv_conf(u_int8_t *contents, size_t sz)
 {
-	struct iovec iov[2];
-	struct imsg_write_file imsg;
-	size_t rslt;
+	int rslt;
 
-	memset(&imsg, 0, sizeof(imsg));
-
-	rslt = strlcpy(imsg.path, path, sizeof(imsg.path));
-	if (rslt >= sizeof(imsg.path)) {
-		warning("write_file: path too long (%zu)", rslt);
-		return;
-	}
-
-	imsg.rdomain = ifi->rdomain;
-	imsg.len = sz;
-	imsg.flags = flags;
-	imsg.mode = mode;
-	imsg.uid = uid;
-	imsg.gid = gid;
-
-	iov[0].iov_base = &imsg;
-	iov[0].iov_len = sizeof(imsg);
-	iov[1].iov_base = contents;
-	iov[1].iov_len = sz;
-
-	rslt = imsg_composev(unpriv_ibuf, IMSG_WRITE_FILE, 0, 0, -1, iov, 2);
+	rslt = imsg_compose(unpriv_ibuf, IMSG_WRITE_RESOLV_CONF,
+	    0, 0, -1, contents, sz);
 	if (rslt == -1)
-		warning("write_file: imsg_composev: %s", strerror(errno));
+		warning("write_resolv_conf: imsg_compose: %s", strerror(errno));
 
-	flush_unpriv_ibuf("write_file");
+	flush_unpriv_ibuf("write_resolv_conf");
 }
 
 void
-priv_write_file(struct imsg_write_file *imsg)
+write_option_db(u_int8_t *contents, size_t sz)
+{
+	int rslt;
+
+	rslt = imsg_compose(unpriv_ibuf, IMSG_WRITE_OPTION_DB,
+	    0, 0, -1, contents, sz);
+	if (rslt == -1)
+		warning("write_option_db: imsg_compose: %s", strerror(errno));
+
+	flush_unpriv_ibuf("write_option_db");
+}
+
+void
+priv_write_resolv_conf(struct imsg *imsg)
+{
+	u_int8_t *contents;
+	size_t sz;
+
+	if (imsg->hdr.len < IMSG_HEADER_SIZE) {
+		warning("short IMSG_WRITE_RESOLV_CONF");
+		return;
+	}
+
+	if (!resolv_conf_priority())
+		return;
+
+	contents = imsg->data;
+	sz = imsg->hdr.len - IMSG_HEADER_SIZE;
+
+	priv_write_file("/etc/resolv.conf",
+	    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK,
+	    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, 0, 0, contents, sz);
+}
+
+void
+priv_write_option_db(struct imsg *imsg)
+{
+	u_int8_t *contents;
+	size_t sz;
+
+	if (imsg->hdr.len < IMSG_HEADER_SIZE) {
+		warning("short IMSG_WRITE_OPTION_DB");
+		return;
+	}
+
+	contents = imsg->data;
+	sz = imsg->hdr.len - IMSG_HEADER_SIZE;
+
+	priv_write_file(path_option_db,
+	    O_WRONLY | O_CREAT | O_TRUNC | O_SYNC | O_EXLOCK | O_NOFOLLOW,
+	    S_IRUSR | S_IWUSR | S_IRGRP, 0, 0, contents, sz);
+}
+
+void
+priv_write_file(char *path, int flags, mode_t mode, uid_t uid, gid_t gid,
+    u_int8_t *contents, size_t sz)
 {
 	ssize_t n;
 	int fd;
 
-	if ((strcmp("/etc/resolv.conf", imsg->path) == 0) &&
-	    !resolv_conf_priority(imsg->rdomain))
-		return;
-
-	fd = open(imsg->path, imsg->flags, imsg->mode);
+	fd = open(path, flags, mode);
 	if (fd == -1) {
-		note("Couldn't open '%s': %s", imsg->path, strerror(errno));
+		note("Couldn't open '%s': %s", path, strerror(errno));
 		return;
 	}
 
-	n = write(fd, imsg+1, imsg->len);
+	n = write(fd, contents, sz);
 	if (n == -1)
-		note("Couldn't write contents to '%s': %s", imsg->path,
+		note("Couldn't write contents to '%s': %s", path,
 		    strerror(errno));
-	else if (n < imsg->len)
-		note("Short contents write to '%s' (%zd vs %zu)", imsg->path,
-		    n, imsg->len);
+	else if (n < sz)
+		note("Short contents write to '%s' (%zd vs %zu)", path,
+		    n, sz);
 
-	if (fchmod(fd, imsg->mode) == -1)
-		note("fchmod(fd, 0x%x) of '%s' failed (%s)", imsg->mode,
-		    imsg->path, strerror(errno));
-	if (fchown(fd, imsg->uid, imsg->gid) == -1)
-		note("fchown(fd, %d, %d) of '%s' failed (%s)", imsg->uid,
-		    imsg->gid, imsg->path, strerror(errno));
+	if (fchmod(fd, mode) == -1)
+		note("fchmod(fd, 0x%x) of '%s' failed (%s)", mode,
+		    path, strerror(errno));
+	if (fchown(fd, uid, gid) == -1)
+		note("fchown(fd, %d, %d) of '%s' failed (%s)", uid,
+		    gid, path, strerror(errno));
 
 	close(fd);
 }
@@ -2413,9 +2429,9 @@ priv_write_file(struct imsg_write_file *imsg)
  *     route add -net $dest -netmask $mask -cloning -iface $iface
  */
 void
-add_direct_route(int rdomain, struct in_addr dest, struct in_addr mask, struct in_addr iface)
+add_direct_route(struct in_addr dest, struct in_addr mask, struct in_addr iface)
 {
-	add_route(rdomain, dest, mask, iface,
+	add_route(dest, mask, iface,
 	    RTA_DST | RTA_NETMASK | RTA_GATEWAY, RTF_CLONING | RTF_STATIC);
 }
 
@@ -2429,7 +2445,7 @@ add_direct_route(int rdomain, struct in_addr dest, struct in_addr mask, struct i
  *	route -q $rdomain add default $router
  */
 void
-add_default_route(int rdomain, struct in_addr addr, struct in_addr gateway)
+add_default_route(struct in_addr addr, struct in_addr gateway)
 {
 	struct in_addr netmask, dest;
 	int addrs, flags;
@@ -2449,11 +2465,11 @@ add_default_route(int rdomain, struct in_addr addr, struct in_addr gateway)
 		flags |= RTF_GATEWAY | RTF_STATIC;
 	}
 
-	add_route(rdomain, dest, netmask, gateway, addrs, flags);
+	add_route(dest, netmask, gateway, addrs, flags);
 }
 
 void
-add_static_routes(int rdomain, struct option_data *static_routes)
+add_static_routes(struct option_data *static_routes)
 {
 	struct in_addr		 dest, netmask, gateway;
 	struct in_addr		 *addr;
@@ -2471,14 +2487,13 @@ add_static_routes(int rdomain, struct option_data *static_routes)
 		gateway.s_addr = (addr+1)->s_addr;
 
 		/* XXX Order implies priority but we're ignoring that. */
-		add_route(rdomain, dest, netmask, gateway,
+		add_route(dest, netmask, gateway,
 		    RTA_DST | RTA_GATEWAY, RTF_GATEWAY | RTF_STATIC);
 	}
 }
 
 void
-add_classless_static_routes(int rdomain, struct option_data *opt,
-    struct in_addr iface)
+add_classless_static_routes(struct option_data *opt, struct in_addr iface)
 {
 	struct in_addr	 dest, netmask, gateway;
 	int		 bits, bytes, i;
@@ -2508,9 +2523,9 @@ add_classless_static_routes(int rdomain, struct option_data *opt,
 		i += sizeof(gateway);
 
 		if (gateway.s_addr == INADDR_ANY)
-			add_direct_route(rdomain, dest, netmask, iface);
+			add_direct_route(dest, netmask, iface);
 		else
-			add_route(rdomain, dest, netmask, gateway,
+			add_route(dest, netmask, gateway,
 			    RTA_DST | RTA_GATEWAY | RTA_NETMASK,
 			    RTF_GATEWAY | RTF_STATIC);
 	}

@@ -559,6 +559,8 @@
 ./usr/include/dev/pci/if_ipwvar.h
 ./usr/include/dev/pci/if_iwireg.h
 ./usr/include/dev/pci/if_iwivar.h
+./usr/include/dev/pci/if_iwmreg.h
+./usr/include/dev/pci/if_iwmvar.h
 ./usr/include/dev/pci/if_iwnreg.h
 ./usr/include/dev/pci/if_iwnvar.h
 ./usr/include/dev/pci/if_ix.h
@@ -3038,6 +3040,7 @@
 ./usr/share/man/man3/SSL_CTX_use_certificate.3
 ./usr/share/man/man3/SSL_CTX_use_certificate_ASN1.3
 ./usr/share/man/man3/SSL_CTX_use_certificate_chain_file.3
+./usr/share/man/man3/SSL_CTX_use_certificate_chain_mem.3
 ./usr/share/man/man3/SSL_CTX_use_certificate_file.3
 ./usr/share/man/man3/SSL_CTX_use_psk_identity_hint.3
 ./usr/share/man/man3/SSL_SESSION_free.3
@@ -5445,6 +5448,7 @@
 ./usr/share/man/man3/store.3
 ./usr/share/man/man3/stpcpy.3
 ./usr/share/man/man3/stpncpy.3
+./usr/share/man/man3/stravis.3
 ./usr/share/man/man3/strcasecmp.3
 ./usr/share/man/man3/strcasestr.3
 ./usr/share/man/man3/strcat.3

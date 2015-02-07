@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.139 2015/02/06 03:31:11 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.142 2015/02/06 16:05:51 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -92,8 +92,8 @@ enum	mandocerr {
 	MANDOCERR_REQ_EMPTY, /* skipping empty request: request */
 	MANDOCERR_COND_EMPTY, /* conditional request controls empty scope */
 	MANDOCERR_MACRO_EMPTY, /* skipping empty macro: macro */
+	MANDOCERR_BLK_EMPTY, /* empty block: macro */
 	MANDOCERR_ARG_EMPTY, /* empty argument, using 0n: macro arg */
-	MANDOCERR_ARGCWARN, /* argument count wrong */
 	MANDOCERR_BD_NOTYPE, /* missing display type, using -ragged: Bd */
 	MANDOCERR_BL_LATETYPE, /* list type is not the first argument: Bl arg */
 	MANDOCERR_BL_NOWIDTH, /* missing -width in -tag list, using 8n */
@@ -106,6 +106,8 @@ enum	mandocerr {
 	MANDOCERR_PF_SKIP, /* nothing follows prefix: Pf arg */
 	MANDOCERR_RS_EMPTY, /* empty reference block: Rs */
 	MANDOCERR_ARG_STD, /* missing -std argument, adding it: macro */
+	MANDOCERR_OP_EMPTY, /* missing option string, using "": OP */
+	MANDOCERR_UR_NOHEAD, /* missing resource identifier, using "": UR */
 	MANDOCERR_EQN_NOBOX, /* missing eqn box, using "": op */
 
 	/* related to bad arguments */
@@ -115,12 +117,14 @@ enum	mandocerr {
 	MANDOCERR_BD_REP, /* skipping duplicate display type: Bd -type */
 	MANDOCERR_BL_REP, /* skipping duplicate list type: Bl -type */
 	MANDOCERR_BL_SKIPW, /* skipping -width argument: Bl -type */
+	MANDOCERR_BL_COL, /* wrong number of cells */
 	MANDOCERR_AT_BAD, /* unknown AT&T UNIX version: At version */
 	MANDOCERR_FA_COMMA, /* comma in function argument: arg */
 	MANDOCERR_FN_PAREN, /* parenthesis in function name: arg */
 	MANDOCERR_RS_BAD, /* invalid content in Rs block: macro */
 	MANDOCERR_SM_BAD, /* invalid Boolean argument: macro arg */
 	MANDOCERR_FT_BAD, /* unknown font, skipping request: ft font */
+	MANDOCERR_TR_ODD, /* odd number of characters in request: tr char */
 
 	/* related to plain text */
 	MANDOCERR_FI_BLANK, /* blank line in fill mode, using .sp */
@@ -165,7 +169,6 @@ enum	mandocerr {
 
 	/* related to request and macro arguments */
 	MANDOCERR_NAMESC, /* escaped character not allowed in a name: name */
-	MANDOCERR_ARGCOUNT, /* argument count wrong */
 	MANDOCERR_BD_FILE, /* NOT IMPLEMENTED: Bd -file */
 	MANDOCERR_BL_NOTYPE, /* missing list type, using -item: Bl */
 	MANDOCERR_NM_NONAME, /* missing manual name, using "": Nm */

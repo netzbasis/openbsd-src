@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.488 2015/02/05 10:29:43 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.490 2015/02/06 17:21:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1512,6 +1512,7 @@ void		 format_free(struct format_tree *);
 void printflike(3, 4) format_add(struct format_tree *, const char *,
 		     const char *, ...);
 const char	*format_find(struct format_tree *, const char *);
+char		*format_expand_time(struct format_tree *, const char *, time_t);
 char		*format_expand(struct format_tree *, const char *);
 void		 format_defaults(struct format_tree *, struct client *,
 		     struct session *, struct winlink *, struct window_pane *);
@@ -1924,8 +1925,6 @@ void	 status_free_jobs(struct status_out_tree *);
 void	 status_update_jobs(struct client *);
 void	 status_set_window_at(struct client *, u_int);
 int	 status_redraw(struct client *);
-char	*status_replace(struct client *, struct winlink *, const char *, time_t,
-	     int);
 void printflike(2, 3) status_message_set(struct client *, const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);

@@ -1469,6 +1469,7 @@
 ./usr/share/man/man4/it.4
 ./usr/share/man/man4/itherm.4
 ./usr/share/man/man4/iwi.4
+./usr/share/man/man4/iwm.4
 ./usr/share/man/man4/iwn.4
 ./usr/share/man/man4/ix.4
 ./usr/share/man/man4/ixgb.4
@@ -1668,6 +1669,7 @@
 ./usr/share/man/man4/rd.4
 ./usr/share/man/man4/rdac.4
 ./usr/share/man/man4/rdcphy.4
+./usr/share/man/man4/rdomain.4
 ./usr/share/man/man4/re.4
 ./usr/share/man/man4/rgephy.4
 ./usr/share/man/man4/ricohrtc.4
@@ -1676,6 +1678,7 @@
 ./usr/share/man/man4/route.4
 ./usr/share/man/man4/rsu.4
 ./usr/share/man/man4/rt.4
+./usr/share/man/man4/rtable.4
 ./usr/share/man/man4/rtfps.4
 ./usr/share/man/man4/rtii.4
 ./usr/share/man/man4/rtsx.4

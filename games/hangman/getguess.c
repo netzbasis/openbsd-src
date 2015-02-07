@@ -1,4 +1,4 @@
-/*	$OpenBSD: getguess.c,v 1.9 2009/10/27 23:59:25 deraadt Exp $	*/
+/*	$OpenBSD: getguess.c,v 1.13 2015/02/07 03:30:08 tedu Exp $	*/
 /*	$NetBSD: getguess.c,v 1.5 1995/03/23 08:32:43 cgd Exp $	*/
 
 /*
@@ -41,7 +41,7 @@ void
 getguess(void)
 {
 	int	i;
-	int	ch, uch;
+	unsigned char	ch, uch;
 	bool	correct;
 
 	leaveok(stdscr, FALSE);
@@ -52,23 +52,39 @@ getguess(void)
 		if (isalpha(ch)) {
 			if (isupper(ch))
 				ch = tolower(ch);
-			if (Guessed[ch - 'a'])
+			if (Guessed[ch - 'a']) {
+				move(MESGY, MESGX);
+				clrtoeol();
 				mvprintw(MESGY, MESGX, "Already guessed '%c'",
 				    ch);
-			else
+			} else
+				break;
+		} else if (isdigit(ch)) {
+			if (Guessed[ch - '0' + 26]) {
+				move(MESGY, MESGX);
+				clrtoeol();
+				mvprintw(MESGY, MESGX, "Already guessed '%c'",
+				    ch);
+			} else
 				break;
 		} else
 			if (ch == CTRL('D'))
 				die(0);
-			else
+			else {
+				move(MESGY, MESGX);
+				clrtoeol();
 				mvprintw(MESGY, MESGX,
 				    "Not a valid guess: '%s'", unctrl(ch));
+			}
 	}
 	leaveok(stdscr, TRUE);
 	move(MESGY, MESGX);
 	clrtoeol();
 
-	Guessed[ch - 'a'] = TRUE;
+	if (isalpha(ch))
+		Guessed[ch - 'a'] = TRUE;
+	else
+		Guessed[ch - '0' + 26] = TRUE;
 	correct = FALSE;
 	uch = toupper(ch);
 	for (i = 0; Word[i] != '\0'; i++)
@@ -87,7 +103,7 @@ getguess(void)
  * readch;
  *	Read a character from the input
  */
-int
+unsigned char
 readch(void)
 {
 	int	cnt;

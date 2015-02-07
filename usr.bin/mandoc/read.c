@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.98 2015/02/06 03:31:11 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.101 2015/02/06 16:05:51 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -131,8 +131,8 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"skipping empty request",
 	"conditional request controls empty scope",
 	"skipping empty macro",
+	"empty block",
 	"empty argument, using 0n",
-	"argument count wrong",
 	"missing display type, using -ragged",
 	"list type is not the first argument",
 	"missing -width in -tag list, using 8n",
@@ -145,6 +145,8 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"nothing follows prefix",
 	"empty reference block",
 	"missing -std argument, adding it",
+	"missing option string, using \"\"",
+	"missing resource identifier, using \"\"",
 	"missing eqn box, using \"\"",
 
 	/* related to bad macro arguments */
@@ -154,12 +156,14 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"skipping duplicate display type",
 	"skipping duplicate list type",
 	"skipping -width argument",
+	"wrong number of cells",
 	"unknown AT&T UNIX version",
 	"comma in function argument",
 	"parenthesis in function name",
 	"invalid content in Rs block",
 	"invalid Boolean argument",
 	"unknown font, skipping request",
+	"odd number of characters in request",
 
 	/* related to plain text */
 	"blank line in fill mode, using .sp",
@@ -204,7 +208,6 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 
 	/* related to request and macro arguments */
 	"escaped character not allowed in a name",
-	"argument count wrong",
 	"NOT IMPLEMENTED: Bd -file",
 	"missing list type, using -item",
 	"missing manual name, using \"\"",

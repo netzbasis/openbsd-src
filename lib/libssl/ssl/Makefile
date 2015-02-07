@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.47 2014/07/12 03:27:23 deraadt Exp $
+# $OpenBSD: Makefile,v 1.49 2015/02/07 03:26:06 jsing Exp $
 
 LIB=	ssl
 
@@ -11,8 +11,6 @@ CFLAGS+= -Wall
 CFLAGS+= -Werror
 .endif
 CFLAGS+= -DLIBRESSL_INTERNAL
-CFLAGS+= -DTERMIOS -DANSI_SOURCE
-CFLAGS+= -DOPENSSL_NO_RC5
 CFLAGS+= -I${SSL_SRC}
 
 SRCS=\
@@ -27,6 +25,7 @@ SRCS=\
 	bio_ssl.c ssl_err.c t1_reneg.c \
 	pqueue.c
 SRCS+=	s3_cbc.c
+SRCS+=	bs_ber.c bs_cbb.c bs_cbs.c
 
 HDRS=	srtp.h ssl.h ssl2.h ssl3.h ssl23.h tls1.h dtls1.h 
 

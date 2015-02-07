@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.104 2015/01/23 14:40:59 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.107 2015/02/07 05:46:01 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -188,6 +188,8 @@ const SSL_METHOD SSLv3_client_method_data = {
 	.ssl_dispatch_alert = ssl3_dispatch_alert,
 	.ssl_ctrl = ssl3_ctrl,
 	.ssl_ctx_ctrl = ssl3_ctx_ctrl,
+	.get_cipher_by_char = ssl3_get_cipher_by_char,
+	.put_cipher_by_char = ssl3_put_cipher_by_char,
 	.ssl_pending = ssl3_pending,
 	.num_ciphers = ssl3_num_ciphers,
 	.get_cipher = ssl3_get_cipher,
@@ -771,7 +773,7 @@ ssl3_get_server_hello(SSL *s)
 	const SSL_CIPHER	*c;
 	unsigned char		*p, *q, *d;
 	int			 i, al, ok;
-	unsigned int		 j, cipher_id;
+	unsigned int		 j;
 	uint16_t		 cipher_value;
 	long			 n;
 	unsigned long		 alg_k;
@@ -842,7 +844,6 @@ ssl3_get_server_hello(SSL *s)
 	/* Get the cipher value. */
 	q = p + j;
 	n2s(q, cipher_value);
-	cipher_id = SSL3_CK_ID | cipher_value;
 
 	/*
 	 * Check if we want to resume the session based on external
@@ -854,8 +855,8 @@ ssl3_get_server_hello(SSL *s)
 		if (s->tls_session_secret_cb(s, s->session->master_key,
 		    &s->session->master_key_length, NULL, &pref_cipher,
 		    s->tls_session_secret_cb_arg)) {
-			s->session->cipher = pref_cipher ?
-			    pref_cipher : ssl3_get_cipher_by_id(cipher_id);
+			s->session->cipher = pref_cipher ? pref_cipher :
+			    ssl3_get_cipher_by_value(cipher_value);
 			s->s3->flags |= SSL3_FLAGS_CCS_OK;
 		}
 	}
@@ -890,8 +891,7 @@ ssl3_get_server_hello(SSL *s)
 	}
 	p += j;
 
-	c = ssl3_get_cipher_by_id(cipher_id);
-	if (c == NULL) {
+	if ((c = ssl3_get_cipher_by_value(cipher_value)) == NULL) {
 		/* unknown cipher */
 		al = SSL_AD_ILLEGAL_PARAMETER;
 		SSLerr(SSL_F_SSL3_GET_SERVER_HELLO,
@@ -1966,16 +1966,15 @@ ssl3_send_client_key_exchange(SSL *s)
 		} else if (alg_k & SSL_kDHE) {
 			DH *dh_srvr, *dh_clnt;
 
-			if (s->session->sess_cert->peer_dh_tmp != NULL)
-				dh_srvr = s->session->sess_cert->peer_dh_tmp;
-			else {
-				/* We get them from the cert. */
+			/* Ensure that we have an ephemeral key for DHE. */
+			if (s->session->sess_cert->peer_dh_tmp == NULL) {
 				ssl3_send_alert(s, SSL3_AL_FATAL,
 				    SSL_AD_HANDSHAKE_FAILURE);
 				SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
 				    SSL_R_UNABLE_TO_FIND_DH_PARAMETERS);
 				goto err;
 			}
+			dh_srvr = s->session->sess_cert->peer_dh_tmp;
 
 			/* Generate a new random key. */
 			if ((dh_clnt = DHparams_dup(dh_srvr)) == NULL) {
@@ -2055,22 +2054,30 @@ ssl3_send_client_key_exchange(SSL *s)
 				 */
 			}
 
-			if (s->session->sess_cert->peer_ecdh_tmp != NULL) {
-				tkey = s->session->sess_cert->peer_ecdh_tmp;
-			} else {
+			/* Ensure that we have an ephemeral key for ECDHE. */
+			if ((alg_k & SSL_kECDHE) &&
+			    s->session->sess_cert->peer_ecdh_tmp == NULL) {
+				ssl3_send_alert(s, SSL3_AL_FATAL,
+				    SSL_AD_HANDSHAKE_FAILURE);
+				SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
+				    ERR_R_INTERNAL_ERROR);
+				goto err;
+			}
+			tkey = s->session->sess_cert->peer_ecdh_tmp;
+
+			if (alg_k & (SSL_kECDHr|SSL_kECDHe)) {
 				/* Get the Server Public Key from Cert */
 				srvr_pub_pkey = X509_get_pubkey(s->session-> \
 				    sess_cert->peer_pkeys[SSL_PKEY_ECC].x509);
-				if ((srvr_pub_pkey == NULL) ||
-				    (srvr_pub_pkey->type != EVP_PKEY_EC) ||
-				    (srvr_pub_pkey->pkey.ec == NULL)) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-					    ERR_R_INTERNAL_ERROR);
-					goto err;
-				}
+				if (srvr_pub_pkey != NULL &&
+				    srvr_pub_pkey->type == EVP_PKEY_EC)
+					tkey = srvr_pub_pkey->pkey.ec;
+			}
 
-				tkey = srvr_pub_pkey->pkey.ec;
+			if (tkey == NULL) {
+				SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
+				    ERR_R_INTERNAL_ERROR);
+				goto err;
 			}
 
 			srvr_group = EC_KEY_get0_group(tkey);
@@ -2312,7 +2319,7 @@ ssl3_send_client_key_exchange(SSL *s)
 			ssl3_send_alert(s, SSL3_AL_FATAL,
 			    SSL_AD_HANDSHAKE_FAILURE);
 			SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-			ERR_R_INTERNAL_ERROR);
+			    ERR_R_INTERNAL_ERROR);
 			goto err;
 		}
 

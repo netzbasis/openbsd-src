@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.70 2015/01/31 03:13:04 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.72 2015/02/07 02:07:32 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -33,7 +33,7 @@ struct in_addr active_addr;
 int	create_route_label(struct sockaddr_rtlabel *);
 int	check_route_label(struct sockaddr_rtlabel *);
 void	populate_rti_info(struct sockaddr **, struct rt_msghdr *);
-void	delete_route(int, int, struct rt_msghdr *);
+void	delete_route(int, struct rt_msghdr *);
 
 #define	ROUTE_LABEL_NONE		1
 #define	ROUTE_LABEL_NOT_DHCLIENT	2
@@ -49,15 +49,13 @@ void	delete_route(int, int, struct rt_msghdr *);
  *	arp -dan
  */
 void
-flush_routes(char *ifname, int rdomain)
+flush_routes(void)
 {
 	struct imsg_flush_routes imsg;
 	int			 rslt;
 
 	memset(&imsg, 0, sizeof(imsg));
 
-	strlcpy(imsg.ifname, ifname, sizeof(imsg.ifname));
-	imsg.rdomain = rdomain;
 	imsg.zapzombies = 1;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_FLUSH_ROUTES, 0, 0, -1,
@@ -87,7 +85,7 @@ priv_flush_routes(struct imsg_flush_routes *imsg)
 	mib[3] = AF_INET;
 	mib[4] = NET_RT_FLAGS;
 	mib[5] = RTF_GATEWAY;
-	mib[6] = imsg->rdomain;
+	mib[6] = ifi->rdomain;
 
 	while (1) {
 		if (sysctl(mib, 7, NULL, &needed, NULL, 0) == -1) {
@@ -136,11 +134,11 @@ priv_flush_routes(struct imsg_flush_routes *imsg)
 		switch (check_route_label(sa_rl)) {
 		case ROUTE_LABEL_DHCLIENT_OURS:
 			/* Always delete routes we labeled. */
-			delete_route(s, imsg->rdomain, rtm);
+			delete_route(s, rtm);
 			break;
 		case ROUTE_LABEL_DHCLIENT_DEAD:
 			if (imsg->zapzombies)
-				delete_route(s, imsg->rdomain, rtm);
+				delete_route(s, rtm);
 			break;
 		case ROUTE_LABEL_DHCLIENT_LIVE:
 		case ROUTE_LABEL_DHCLIENT_UNKNOWN:
@@ -153,9 +151,9 @@ priv_flush_routes(struct imsg_flush_routes *imsg)
 			if (if_indextoname(rtm->rtm_index, ifname) &&
 			    sa_in &&
 			    sa_in->sin_addr.s_addr == INADDR_ANY &&
-			    rtm->rtm_tableid == imsg->rdomain &&
-			    strcmp(imsg->ifname, ifname) == 0)
-				delete_route(s, imsg->rdomain, rtm);
+			    rtm->rtm_tableid == ifi->rdomain &&
+			    strcmp(ifi->name, ifname) == 0)
+				delete_route(s, rtm);
 			break;
 		default:
 			break;
@@ -167,15 +165,14 @@ priv_flush_routes(struct imsg_flush_routes *imsg)
 }
 
 void
-add_route(int rdomain, struct in_addr dest, struct in_addr netmask,
-    struct in_addr gateway, int addrs, int flags)
+add_route(struct in_addr dest, struct in_addr netmask, struct in_addr gateway,
+    int addrs, int flags)
 {
 	struct imsg_add_route	 imsg;
 	int			 rslt;
 
 	memset(&imsg, 0, sizeof(imsg));
 
-	imsg.rdomain = rdomain;
 	imsg.dest = dest;
 	imsg.gateway = gateway;
 	imsg.netmask = netmask;
@@ -208,7 +205,7 @@ priv_add_route(struct imsg_add_route *imsg)
 
 	rtm.rtm_version = RTM_VERSION;
 	rtm.rtm_type = RTM_ADD;
-	rtm.rtm_tableid = imsg->rdomain;
+	rtm.rtm_tableid = ifi->rdomain;
 	rtm.rtm_priority = RTP_NONE;
 	rtm.rtm_msglen = sizeof(rtm);
 	rtm.rtm_addrs = imsg->addrs;
@@ -281,7 +278,7 @@ priv_add_route(struct imsg_add_route *imsg)
  * Delete all existing inet addresses on interface.
  */
 void
-delete_addresses(char *ifname, int rdomain)
+delete_addresses(void)
 {
 	struct in_addr addr;
 	struct ifaddrs *ifap, *ifa;
@@ -300,7 +297,7 @@ delete_addresses(char *ifname, int rdomain)
 		memcpy(&addr, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
 		    sizeof(addr));
 
-		delete_address(ifi->name, ifi->rdomain, addr);
+		delete_address(addr);
 	}
 
 	freeifaddrs(ifap);
@@ -312,7 +309,7 @@ delete_addresses(char *ifname, int rdomain)
  *	ifconfig <ifname> inet <addr> delete
  */
 void
-delete_address(char *ifname, int rdomain, struct in_addr addr)
+delete_address(struct in_addr addr)
 {
 	struct imsg_delete_address	 imsg;
 	int				 rslt;
@@ -322,8 +319,6 @@ delete_address(char *ifname, int rdomain, struct in_addr addr)
 	/* Note the address we are deleting for RTM_DELADDR filtering! */
 	deleting.s_addr = addr.s_addr;
 
-	strlcpy(imsg.ifname, ifname, sizeof(imsg.ifname));
-	imsg.rdomain = rdomain;
 	imsg.addr = addr;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_DELETE_ADDRESS, 0, 0 , -1, &imsg,
@@ -349,8 +344,7 @@ priv_delete_address(struct imsg_delete_address *imsg)
 		error("socket open failed: %s", strerror(errno));
 
 	memset(&ifaliasreq, 0, sizeof(ifaliasreq));
-	strncpy(ifaliasreq.ifra_name, imsg->ifname,
-	    sizeof(ifaliasreq.ifra_name));
+	strncpy(ifaliasreq.ifra_name, ifi->name, sizeof(ifaliasreq.ifra_name));
 
 	in = (struct sockaddr_in *)&ifaliasreq.ifra_addr;
 	in->sin_family = AF_INET;
@@ -375,8 +369,7 @@ priv_delete_address(struct imsg_delete_address *imsg)
  *	ifconfig <if> inet <addr> netmask <mask> broadcast <addr>
  */
 void
-add_address(char *ifname, int rdomain, struct in_addr addr,
-    struct in_addr mask)
+add_address(struct in_addr addr, struct in_addr mask)
 {
 	struct imsg_add_address imsg;
 	int			rslt;
@@ -386,8 +379,6 @@ add_address(char *ifname, int rdomain, struct in_addr addr,
 	/* Note the address we are adding for RTM_NEWADDR filtering! */
 	adding = addr;
 
-	strlcpy(imsg.ifname, ifname, sizeof(imsg.ifname));
-	imsg.rdomain = rdomain;
 	imsg.addr = addr;
 	imsg.mask = mask;
 
@@ -421,8 +412,7 @@ priv_add_address(struct imsg_add_address *imsg)
 		error("socket open failed: %s", strerror(errno));
 
 	memset(&ifaliasreq, 0, sizeof(ifaliasreq));
-	strncpy(ifaliasreq.ifra_name, imsg->ifname,
-	    sizeof(ifaliasreq.ifra_name));
+	strncpy(ifaliasreq.ifra_name, ifi->name, sizeof(ifaliasreq.ifra_name));
 
 	/* The actual address in ifra_addr. */
 	in = (struct sockaddr_in *)&ifaliasreq.ifra_addr;
@@ -458,8 +448,6 @@ sendhup(struct client_lease *active)
 
 	memset(&imsg, 0, sizeof(imsg));
 
-	strlcpy(imsg.ifname, ifi->name, sizeof(imsg.ifname));
-	imsg.rdomain = ifi->rdomain;
 	if (active)
 		imsg.addr = active->address;
 
@@ -481,7 +469,6 @@ priv_cleanup(struct imsg_hup *imsg)
 	struct imsg_delete_address dimsg;
 
 	memset(&fimsg, 0, sizeof(fimsg));
-	fimsg.rdomain = imsg->rdomain;
 	fimsg.zapzombies = 0;	/* Only zapzombies when binding a lease. */
 	priv_flush_routes(&fimsg);
 
@@ -489,14 +476,12 @@ priv_cleanup(struct imsg_hup *imsg)
 		return;
 
 	memset(&dimsg, 0, sizeof(dimsg));
-	strlcpy(dimsg.ifname, imsg->ifname, sizeof(imsg->ifname));
-	dimsg.rdomain = imsg->rdomain;
 	dimsg.addr = imsg->addr;
 	priv_delete_address(&dimsg);
 }
 
 int
-resolv_conf_priority(int domain)
+resolv_conf_priority(void)
 {
 	struct iovec iov[3];
 	struct {
@@ -528,7 +513,7 @@ resolv_conf_priority(int domain)
 	m_rtmsg.m_rtm.rtm_msglen = sizeof(m_rtmsg.m_rtm);
 	m_rtmsg.m_rtm.rtm_flags = RTF_STATIC | RTF_GATEWAY | RTF_UP;
 	m_rtmsg.m_rtm.rtm_seq = seq = arc4random();
-	m_rtmsg.m_rtm.rtm_tableid = domain;
+	m_rtmsg.m_rtm.rtm_tableid = ifi->rdomain;
 
 	iov[iovcnt].iov_base = &m_rtmsg.m_rtm;
 	iov[iovcnt++].iov_len = sizeof(m_rtmsg.m_rtm);
@@ -668,13 +653,13 @@ populate_rti_info(struct sockaddr **rti_info, struct rt_msghdr *rtm)
 }
 
 void
-delete_route(int s, int rdomain, struct rt_msghdr *rtm)
+delete_route(int s, struct rt_msghdr *rtm)
 {
 	static int seqno;
 	ssize_t rlen;
 
 	rtm->rtm_type = RTM_DELETE;
-	rtm->rtm_tableid = rdomain;
+	rtm->rtm_tableid = ifi->rdomain;
 	rtm->rtm_seq = seqno++;
 
 	rlen = write(s, (char *)rtm, rtm->rtm_msglen);

@@ -1,4 +1,4 @@
-/* $OpenBSD: drm.h,v 1.16 2014/08/14 03:57:44 jsg Exp $ */
+/* $OpenBSD: drm.h,v 1.18 2015/02/07 01:02:25 jsg Exp $ */
 /**
  * \file drm.h
  * Header for the Direct Rendering Manager
@@ -48,6 +48,9 @@
 #endif
 
 #include <sys/ioccom.h>
+#include <sys/types.h>
+typedef unsigned long drm_handle_t;
+
 #define DRM_IOCTL_NR(n)		((n) & 0xff)
 #define DRM_IOC_VOID		IOC_VOID
 #define DRM_IOC_READ		IOC_OUT
@@ -73,8 +76,6 @@
 #define _DRM_LOCK_IS_CONT(lock)	   ((lock) & _DRM_LOCK_CONT)
 #define _DRM_LOCKING_CONTEXT(lock) ((lock) & ~(_DRM_LOCK_HELD|_DRM_LOCK_CONT))
 
-#include <sys/types.h>
-typedef unsigned long drm_handle_t;	/**< To mapped regions */
 typedef unsigned int drm_context_t;	/**< GLXContext handle */
 typedef unsigned int drm_drawable_t;
 typedef unsigned int drm_magic_t;	/**< Magic for authentication */
@@ -93,6 +94,14 @@ struct drm_clip_rect {
 	unsigned short y1;
 	unsigned short x2;
 	unsigned short y2;
+};
+
+/**
+ * Drawable information.
+ */
+struct drm_drawable_info {
+	unsigned int num_rects;
+	struct drm_clip_rect *rects;
 };
 
 /**
@@ -806,6 +815,7 @@ struct drm_event_vblank {
 /* typedef area */
 #ifndef __KERNEL__
 typedef struct drm_clip_rect drm_clip_rect_t;
+typedef struct drm_drawable_info drm_drawable_info_t;
 typedef struct drm_tex_region drm_tex_region_t;
 typedef struct drm_hw_lock drm_hw_lock_t;
 typedef struct drm_version drm_version_t;
@@ -839,6 +849,7 @@ typedef struct drm_update_draw drm_update_draw_t;
 typedef struct drm_auth drm_auth_t;
 typedef struct drm_irq_busid drm_irq_busid_t;
 typedef enum drm_vblank_seq_type drm_vblank_seq_type_t;
+
 typedef struct drm_agp_buffer drm_agp_buffer_t;
 typedef struct drm_agp_binding drm_agp_binding_t;
 typedef struct drm_agp_info drm_agp_info_t;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.70 2015/02/05 10:47:53 reyk Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.72 2015/02/07 01:23:12 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -617,6 +617,8 @@ server_reset_http(struct client *clt)
 {
 	struct server		*srv = clt->clt_srv;
 
+	server_log(clt, NULL);
+
 	server_httpdesc_free(clt->clt_descreq);
 	server_httpdesc_free(clt->clt_descresp);
 	clt->clt_headerlen = 0;
@@ -627,8 +629,6 @@ server_reset_http(struct client *clt)
 	clt->clt_remote_user = NULL;
 	clt->clt_bev->readcb = server_read_http;
 	clt->clt_srv_conf = &srv->srv_conf;
-
-	server_log(clt, NULL);
 }
 
 ssize_t
@@ -735,6 +735,11 @@ server_abort_http(struct client *clt, u_int code, const char *msg)
 	char			*httpmsg, *body = NULL, *extraheader = NULL;
 	char			 tmbuf[32], hbuf[128];
 	int			 bodylen;
+
+	if (code == 0) {
+		server_close(clt, "dropped");
+		return;
+	}
 
 	if ((httperr = server_httperror_byid(code)) == NULL)
 		httperr = "Unknown Error";
@@ -957,7 +962,11 @@ server_response(struct httpd *httpd, struct client *clt)
 	/* Now search for the location */
 	srv_conf = server_getlocation(clt, desc->http_path);
 
-	if (srv_conf->flags & SRVFLAG_AUTH &&
+	if (srv_conf->flags & SRVFLAG_BLOCK) {
+		server_abort_http(clt, srv_conf->return_code,
+		    srv_conf->return_uri);
+		return (-1);
+	} else if (srv_conf->flags & SRVFLAG_AUTH &&
 	    server_http_authenticate(srv_conf, clt) == -1) {
 		server_abort_http(clt, 401, srv_conf->auth_realm);
 		return (-1);
@@ -998,7 +1007,7 @@ server_getlocation(struct client *clt, const char *path)
 		}
 #endif
 		if ((location->flags & SRVFLAG_LOCATION) &&
-		    location->id == srv_conf->id &&
+		    location->parent_id == srv_conf->parent_id &&
 		    fnmatch(location->location, path, FNM_CASEFOLD) == 0) {
 			/* Replace host configuration */
 			clt->clt_srv_conf = srv_conf = location;
