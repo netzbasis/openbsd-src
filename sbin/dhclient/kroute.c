@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.72 2015/02/07 02:07:32 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.74 2015/02/08 01:20:40 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -53,8 +53,6 @@ flush_routes(void)
 {
 	struct imsg_flush_routes imsg;
 	int			 rslt;
-
-	memset(&imsg, 0, sizeof(imsg));
 
 	imsg.zapzombies = 1;
 
@@ -147,7 +145,6 @@ priv_flush_routes(struct imsg_flush_routes *imsg)
 		case ROUTE_LABEL_NONE:
 		case ROUTE_LABEL_NOT_DHCLIENT:
 			/* Delete default routes on our interface. */
-			memset(ifname, 0, sizeof(ifname));
 			if (if_indextoname(rtm->rtm_index, ifname) &&
 			    sa_in &&
 			    sa_in->sin_addr.s_addr == INADDR_ANY &&
@@ -170,8 +167,6 @@ add_route(struct in_addr dest, struct in_addr netmask, struct in_addr gateway,
 {
 	struct imsg_add_route	 imsg;
 	int			 rslt;
-
-	memset(&imsg, 0, sizeof(imsg));
 
 	imsg.dest = dest;
 	imsg.gateway = gateway;
@@ -314,8 +309,6 @@ delete_address(struct in_addr addr)
 	struct imsg_delete_address	 imsg;
 	int				 rslt;
 
-	memset(&imsg, 0, sizeof(imsg));
-
 	/* Note the address we are deleting for RTM_DELADDR filtering! */
 	deleting.s_addr = addr.s_addr;
 
@@ -364,6 +357,45 @@ priv_delete_address(struct imsg_delete_address *imsg)
 }
 
 /*
+ * [priv_]set_interface_mtu is the equivalent of
+ *
+ *      ifconfig <if> mtu <mtu>
+ */
+void
+set_interface_mtu(int mtu)
+{
+	struct imsg_set_interface_mtu imsg;
+	int rslt;
+
+	imsg.mtu = mtu;
+
+	rslt = imsg_compose(unpriv_ibuf, IMSG_SET_INTERFACE_MTU, 0, 0, -1,
+	    &imsg, sizeof(imsg));
+	if (rslt == -1)
+		warning("set_interface_mtu: imsg_compose: %s", strerror(errno));
+
+	flush_unpriv_ibuf("set_interface_mtu");
+}
+
+void
+priv_set_interface_mtu(struct imsg_set_interface_mtu *imsg)
+{
+	struct ifreq ifr;
+	int s;
+
+	memset(&ifr, 0, sizeof(ifr));
+
+	strlcpy(ifr.ifr_name, ifi->name, sizeof(ifr.ifr_name));
+	ifr.ifr_mtu = imsg->mtu;
+
+	if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+		error("socket open failed: %s", strerror(errno));
+	if (ioctl(s, SIOCSIFMTU, &ifr) < 0)
+		warning("SIOCSIFMTU failed (%d): %s", imsg->mtu, strerror(errno));
+	close(s);
+}
+
+/*
  * [priv_]add_address is the equivalent of
  *
  *	ifconfig <if> inet <addr> netmask <mask> broadcast <addr>
@@ -373,8 +405,6 @@ add_address(struct in_addr addr, struct in_addr mask)
 {
 	struct imsg_add_address imsg;
 	int			rslt;
-
-	memset(&imsg, 0, sizeof(imsg));
 
 	/* Note the address we are adding for RTM_NEWADDR filtering! */
 	adding = addr;
@@ -446,10 +476,10 @@ sendhup(struct client_lease *active)
 	struct imsg_hup imsg;
 	int rslt;
 
-	memset(&imsg, 0, sizeof(imsg));
-
 	if (active)
 		imsg.addr = active->address;
+	else
+		imsg.addr.s_addr = INADDR_ANY;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_HUP, 0, 0, -1,
 	    &imsg, sizeof(imsg));
@@ -468,14 +498,12 @@ priv_cleanup(struct imsg_hup *imsg)
 	struct imsg_flush_routes fimsg;
 	struct imsg_delete_address dimsg;
 
-	memset(&fimsg, 0, sizeof(fimsg));
 	fimsg.zapzombies = 0;	/* Only zapzombies when binding a lease. */
 	priv_flush_routes(&fimsg);
 
 	if (imsg->addr.s_addr == INADDR_ANY)
 		return;
 
-	memset(&dimsg, 0, sizeof(dimsg));
 	dimsg.addr = imsg->addr;
 	priv_delete_address(&dimsg);
 }

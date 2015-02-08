@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.102 2014/11/16 12:30:58 deraadt Exp $	*/
+/*	$OpenBSD: trap.c,v 1.105 2015/02/08 05:40:48 uebayasi Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -144,7 +144,7 @@ int	process_sstep(struct proc *, int);
  * Handle an AST for the current process.
  */
 void
-ast()
+ast(void)
 {
 	struct cpu_info *ci = curcpu();
 	struct proc *p = ci->ci_curproc;
@@ -847,8 +847,7 @@ fault_common_no_miss:
 }
 
 void
-child_return(arg)
-	void *arg;
+child_return(void *arg)
 {
 	struct proc *p = arg;
 	struct trap_frame *trapframe;
@@ -1165,8 +1164,7 @@ void stacktrace_subr(struct trap_frame *, int, int (*)(const char*, ...));
  * Print a stack backtrace.
  */
 void
-stacktrace(regs)
-	struct trap_frame *regs;
+stacktrace(struct trap_frame *regs)
 {
 	stacktrace_subr(regs, 6, printf);
 }
@@ -1240,9 +1238,20 @@ loop:
 	 * Watch out for function tail optimizations.
 	 */
 	sym = db_search_symbol(pc, DB_STGY_ANY, &diff);
-	db_symbol_values(sym, &symname, 0);
-	if (sym != DB_SYM_NULL)
+	if (sym != DB_SYM_NULL && diff == 0) {
+		instr = kdbpeek(pc - 2 * sizeof(int));
+		i.word = instr;
+		if (i.JType.op == OP_JAL) {
+			sym = db_search_symbol(pc - sizeof(int),
+			    DB_STGY_ANY, &diff);
+			if (sym != DB_SYM_NULL && diff != 0)
+				diff += sizeof(int);
+		}
+	}
+	if (sym != DB_SYM_NULL) {
+		db_symbol_values(sym, &symname, 0);
 		subr = pc - (vaddr_t)diff;
+	}
 #endif
 
 	/*
@@ -1370,8 +1379,13 @@ loop:
 
 end:
 	if (ra) {
+		extern void *kernel_text;
+		extern void *etext;
+
 		if (pc == ra && stksize == 0)
 			(*pr)("stacktrace: loop!\n");
+		else if (ra < (vaddr_t)&kernel_text || ra > (vaddr_t)&etext)
+			(*pr)("stacktrace: ra corrupted!\n");
 		else {
 			pc = ra;
 			sp += stksize;

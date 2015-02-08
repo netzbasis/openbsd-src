@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_server.c,v 1.3 2015/01/30 14:25:37 bluhm Exp $ */
+/* $OpenBSD: tls_server.c,v 1.5 2015/02/07 09:50:09 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -63,12 +63,17 @@ tls_configure_server(struct tls *ctx)
 	if (tls_configure_keypair(ctx) != 0)
 		goto err;
 
-	if (ctx->config->ecdhcurve == -1) {
+	if (ctx->config->dheparams == -1)
+		SSL_CTX_set_dh_auto(ctx->ssl_ctx, 1);
+	else if (ctx->config->dheparams == 1024)
+		SSL_CTX_set_dh_auto(ctx->ssl_ctx, 2);
+
+	if (ctx->config->ecdhecurve == -1) {
 		SSL_CTX_set_ecdh_auto(ctx->ssl_ctx, 1);
-	} else if (ctx->config->ecdhcurve != NID_undef) {
+	} else if (ctx->config->ecdhecurve != NID_undef) {
 		if ((ecdh_key = EC_KEY_new_by_curve_name(
-		    ctx->config->ecdhcurve)) == NULL) {
-			tls_set_error(ctx, "failed to set ECDH curve");
+		    ctx->config->ecdhecurve)) == NULL) {
+			tls_set_error(ctx, "failed to set ECDHE curve");
 			goto err;
 		}
 		SSL_CTX_set_options(ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
@@ -97,7 +102,7 @@ int
 tls_accept_socket(struct tls *ctx, struct tls **cctx, int socket)
 {
 	struct tls *conn_ctx = *cctx;
-	int ret, ssl_err;
+	int ret, err;
 	
 	if ((ctx->flags & TLS_SERVER) == 0) {
 		tls_set_error(ctx, "not a server context");
@@ -126,16 +131,11 @@ tls_accept_socket(struct tls *ctx, struct tls **cctx, int socket)
 	}
 
 	if ((ret = SSL_accept(conn_ctx->ssl_conn)) != 1) {
-		ssl_err = SSL_get_error(conn_ctx->ssl_conn, ret);
-		switch (ssl_err) {
-		case SSL_ERROR_WANT_READ:
-			return (TLS_READ_AGAIN);
-		case SSL_ERROR_WANT_WRITE:
-			return (TLS_WRITE_AGAIN);
-		default:
-			tls_set_error(ctx, "TLS accept failed (%i)", ssl_err);
-			goto err;
+		err = tls_ssl_error(conn_ctx, ret, "accept");
+		if (err == TLS_READ_AGAIN || err == TLS_WRITE_AGAIN) {
+			return (err);
 		}
+		goto err;
 	}
 
 	return (0);

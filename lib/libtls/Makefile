@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.2 2015/01/22 09:29:04 reyk Exp $
+#	$OpenBSD: Makefile,v 1.4 2015/02/07 23:45:06 reyk Exp $
 
 CFLAGS+= -Wall -Werror -Wimplicit
 CFLAGS+= -DLIBRESSL_INTERNAL
@@ -26,7 +26,8 @@ MLINKS+=tls_init.3 tls_config_set_ca_mem.3
 MLINKS+=tls_init.3 tls_config_set_cert_file.3
 MLINKS+=tls_init.3 tls_config_set_cert_mem.3
 MLINKS+=tls_init.3 tls_config_set_ciphers.3
-MLINKS+=tls_init.3 tls_config_set_ecdhcurve.3
+MLINKS+=tls_init.3 tls_config_set_ecdhecurve.3
+MLINKS+=tls_init.3 tls_config_set_dheparams.3
 MLINKS+=tls_init.3 tls_config_set_key_file.3
 MLINKS+=tls_init.3 tls_config_set_key_mem.3
 MLINKS+=tls_init.3 tls_config_set_protocols.3
@@ -35,6 +36,7 @@ MLINKS+=tls_init.3 tls_config_clear_keys.3
 MLINKS+=tls_init.3 tls_config_insecure_noverifyhost.3
 MLINKS+=tls_init.3 tls_config_insecure_noverifycert.3
 MLINKS+=tls_init.3 tls_config_verify.3
+MLINKS+=tls_init.3 tls_load_file.3
 MLINKS+=tls_init.3 tls_client.3
 MLINKS+=tls_init.3 tls_server.3
 MLINKS+=tls_init.3 tls_configure.3
@@ -44,6 +46,7 @@ MLINKS+=tls_init.3 tls_free.3
 MLINKS+=tls_init.3 tls_close.3
 MLINKS+=tls_init.3 tls_connect.3
 MLINKS+=tls_init.3 tls_connect_socket.3
+MLINKS+=tls_init.3 tls_accept_socket.3
 MLINKS+=tls_init.3 tls_read.3
 MLINKS+=tls_init.3 tls_write.3
 

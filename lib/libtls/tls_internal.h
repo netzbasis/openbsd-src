@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_internal.h,v 1.7 2015/01/22 09:16:24 reyk Exp $ */
+/* $OpenBSD: tls_internal.h,v 1.9 2015/02/07 09:50:09 jsing Exp $ */
 /*
  * Copyright (c) 2014 Jeremie Courreges-Anglas <jca@openbsd.org>
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
@@ -34,7 +34,8 @@ struct tls_config {
 	char *cert_mem;
 	size_t cert_len;
 	const char *ciphers;
-	int ecdhcurve;
+	int dheparams;
+	int ecdhecurve;
 	const char *key_file;
 	char *key_mem;
 	size_t key_len;
@@ -73,5 +74,6 @@ int tls_host_port(const char *hostport, char **host, char **port);
 int tls_set_error(struct tls *ctx, char *fmt, ...)
     __attribute__((__format__ (printf, 2, 3)))
     __attribute__((__nonnull__ (2)));
+int tls_ssl_error(struct tls *ctx, int ssl_ret, const char *prefix);
 
 #endif /* HEADER_TLS_INTERNAL_H */
