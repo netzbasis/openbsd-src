@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bm.c,v 1.29 2014/12/22 02:26:53 tedu Exp $	*/
+/*	$OpenBSD: if_bm.c,v 1.31 2015/02/09 03:09:57 dlg Exp $	*/
 /*	$NetBSD: if_bm.c,v 1.1 1999/01/01 01:27:52 tsubai Exp $	*/
 
 /*-
@@ -500,6 +500,7 @@ bmac_rint(void *v)
 {
 	struct bmac_softc *sc = v;
 	struct ifnet *ifp = &sc->arpcom.ac_if;
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct mbuf *m;
 	dbdma_command_t *cmd;
 	int status, resid, count, datalen;
@@ -547,15 +548,7 @@ bmac_rint(void *v)
 			goto next;
 		}
 
-#if NBPFILTER > 0
-		/*
-		 * Check if there's a BPF listener on this interface.
-		 * If so, hand off the raw packet to BPF.
-		 */
-		if (ifp->if_bpf)
-			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_IN);
-#endif
-		ether_input_mbuf(ifp, m);
+		ml_enqueue(&ml, m);
 		ifp->if_ipackets++;
 
 next:
@@ -568,6 +561,7 @@ next:
 	}
 	dbdma_continue(sc->sc_rxdma);
 
+	if_input(ifp, &ml);
 	return (1);
 }
 
@@ -693,7 +687,6 @@ bmac_get(struct bmac_softc *sc, caddr_t pkt, int totlen)
 	MGETHDR(m, M_DONTWAIT, MT_DATA);
 	if (m == 0)
 		return (0);
-	m->m_pkthdr.rcvif = &sc->arpcom.ac_if;
 	m->m_pkthdr.len = totlen;
 	len = MHLEN;
 	top = 0;

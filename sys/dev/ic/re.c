@@ -1,4 +1,4 @@
-/*	$OpenBSD: re.c,v 1.173 2015/01/21 10:00:42 brad Exp $	*/
+/*	$OpenBSD: re.c,v 1.175 2015/02/09 03:09:57 dlg Exp $	*/
 /*	$FreeBSD: if_re.c,v 1.31 2004/09/04 07:54:05 ru Exp $	*/
 /*
  * Copyright (c) 1997, 1998-2003
@@ -1272,6 +1272,7 @@ re_rx_list_fill(struct rl_softc *sc)
 int
 re_rxeof(struct rl_softc *sc)
 {
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct mbuf	*m;
 	struct ifnet	*ifp;
 	int		i, total_len, rx = 0;
@@ -1382,7 +1383,6 @@ re_rxeof(struct rl_softc *sc)
 			    (total_len - ETHER_CRC_LEN);
 
 		ifp->if_ipackets++;
-		m->m_pkthdr.rcvif = ifp;
 
 		/* Do RX checksumming */
 
@@ -1422,15 +1422,13 @@ re_rxeof(struct rl_softc *sc)
 		}
 #endif
 
-#if NBPFILTER > 0
-		if (ifp->if_bpf)
-			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_IN);
-#endif
-		ether_input_mbuf(ifp, m);
+		ml_enqueue(&ml, m);
 	}
 
 	sc->rl_ldata.rl_rx_considx = i;
 	re_rx_list_fill(sc);
+
+	if_input(ifp, &ml);
 
 	return (rx);
 }

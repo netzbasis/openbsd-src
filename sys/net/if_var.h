@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.18 2015/02/06 06:42:36 henning Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.20 2015/02/09 03:09:57 dlg Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -69,6 +69,7 @@
 #include <sys/time.h>
 
 struct mbuf;
+struct mbuf_list;
 struct proc;
 struct rtentry;
 struct socket;
@@ -108,6 +109,14 @@ struct	ifqueue {
 	int			 ifq_drops;
 	struct hfsc_if		*ifq_hfsc;
 	struct timeout		*ifq_congestion;
+};
+
+/*
+ * Interface input hooks.
+ */
+struct ifih {
+	SLIST_ENTRY(ifih) ifih_next;
+	int		(*ifih_input)(struct ifnet *, void *, struct mbuf *);
 };
 
 /*
@@ -153,6 +162,8 @@ struct ifnet {				/* and the entries */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
+	SLIST_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
+
 					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
 		     struct rtentry *);
@@ -385,12 +396,15 @@ do {									\
 extern struct ifnet_head ifnet;
 extern struct ifnet *lo0ifp;
 
+void	if_start(struct ifnet *);
+void	if_input(struct ifnet *, struct mbuf_list *);
+
 #define	ether_input_mbuf(ifp, m)        ether_input((ifp), NULL, (m))
 
 void	ether_ifattach(struct ifnet *);
 void	ether_ifdetach(struct ifnet *);
 int	ether_ioctl(struct ifnet *, struct arpcom *, u_long, caddr_t);
-void	ether_input(struct ifnet *, struct ether_header *, struct mbuf *);
+int	ether_input(struct ifnet *, void *, struct mbuf *);
 int	ether_output(struct ifnet *,
 	    struct mbuf *, struct sockaddr *, struct rtentry *);
 char	*ether_sprintf(u_char *);

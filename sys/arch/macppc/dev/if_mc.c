@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mc.c,v 1.18 2014/12/22 02:26:53 tedu Exp $	*/
+/*	$OpenBSD: if_mc.c,v 1.20 2015/02/09 03:09:57 dlg Exp $	*/
 /*	$NetBSD: if_mc.c,v 1.9.16.1 2006/06/21 14:53:13 yamt Exp $	*/
 
 /*-
@@ -875,6 +875,7 @@ void
 mace_read(struct mc_softc *sc, caddr_t pkt, int len)
 {
 	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
+	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct mbuf *m;
 
 	if (len <= sizeof(struct ether_header) ||
@@ -893,16 +894,9 @@ mace_read(struct mc_softc *sc, caddr_t pkt, int len)
 		return;
 	}
 
+	ml_enqueue(&ml, m);
+	if_input(ifp, &ml);
 	ifp->if_ipackets++;
-
-#if NBPFILTER > 0
-	/* Pass the packet to any BPF listeners. */
-	if (ifp->if_bpf)
-		bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_IN);
-#endif
-
-	/* Pass the packet up. */
-	ether_input_mbuf(ifp, m);
 }
 
 /*
@@ -922,7 +916,6 @@ mace_get(struct mc_softc *sc, caddr_t pkt, int totlen)
 	 if (m == NULL)
 		  return (NULL);
 
-	 m->m_pkthdr.rcvif = &sc->sc_arpcom.ac_if;
 	 m->m_pkthdr.len = totlen;
 	 len = MHLEN;
 	 top = 0;

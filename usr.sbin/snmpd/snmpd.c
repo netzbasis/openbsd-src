@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpd.c,v 1.25 2015/01/16 00:05:13 deraadt Exp $	*/
+/*	$OpenBSD: snmpd.c,v 1.27 2015/02/08 23:28:48 tedu Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -153,7 +153,7 @@ main(int argc, char *argv[])
 				    optarg);
 			break;
 		case 'n':
-			noaction++;
+			noaction = 1;
 			break;
 		case 'N':
 			flags |= SNMPD_F_NONAMES;

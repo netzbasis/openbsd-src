@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.316 2015/02/05 10:28:50 henning Exp $	*/
+/*	$OpenBSD: if.c,v 1.319 2015/02/09 03:09:57 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -405,6 +405,8 @@ if_attach_common(struct ifnet *ifp)
 	    M_WAITOK|M_ZERO);
 	ifp->if_linkstatetask = malloc(sizeof(*ifp->if_linkstatetask),
 	    M_TEMP, M_WAITOK|M_ZERO);
+
+	SLIST_INIT(&ifp->if_inputs);
 }
 
 void
@@ -427,6 +429,30 @@ if_start(struct ifnet *ifp)
 		SET(ifp->if_xflags, IFXF_TXREADY);
 		TAILQ_INSERT_TAIL(&iftxlist, ifp, if_txlist);
 		schednetisr(NETISR_TX);
+	}
+}
+
+void
+if_input(struct ifnet *ifp, struct mbuf_list *ml)
+{
+	struct mbuf *m;
+	struct ifih *ifih;
+
+	splassert(IPL_NET);
+
+	while ((m = ml_dequeue(ml)) != NULL) {
+		m->m_pkthdr.rcvif = ifp;
+		m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
+
+#if NBPFILTER > 0
+		if (ifp->if_bpf)
+			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_IN);
+#endif
+
+		SLIST_FOREACH(ifih, &ifp->if_inputs, ifih_next) {
+			if ((*ifih->ifih_input)(ifp, NULL, m))
+				break;
+		}
 	}
 }
 
