@@ -1,8 +1,9 @@
-#	$OpenBSD: Makefile,v 1.2 1997/09/21 11:44:42 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.6 2015/02/10 05:44:50 tedu Exp $
 
 PROG=	zic
-SRCS=	zic.c scheck.c ialloc.c
+SRCS=	zic.c
 MAN=	zic.8
 
-.PATH: ${.CURDIR}/../../lib/libc/time
+CFLAGS+=-I${.CURDIR}/../../lib/libc/time -Wall
+
 .include <bsd.prog.mk>

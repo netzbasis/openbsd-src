@@ -1,4 +1,4 @@
-/*	$OpenBSD: asctime.c,v 1.16 2010/08/23 22:35:34 millert Exp $ */
+/*	$OpenBSD: asctime.c,v 1.19 2015/02/09 14:52:28 tedu Exp $ */
 /*
 ** This file is in the public domain, so clarified as of
 ** 1996-06-05 by Arthur David Olson.
@@ -9,8 +9,6 @@
 ** the output of strftime is supposed to be locale specific
 ** whereas the output of asctime is supposed to be constant.
 */
-
-/*LINTLIBRARY*/
 
 #include "private.h"
 #include "tzfile.h"
@@ -34,22 +32,15 @@
 ** The ISO C 1999 and POSIX 1003.1-2004 standards prohibit padding the year,
 ** but many implementations pad anyway; most likely the standards are buggy.
 */
-#ifdef __GNUC__
 #define ASCTIME_FMT	"%.3s %.3s%3d %2.2d:%2.2d:%2.2d %-4s\n"
-#else /* !defined __GNUC__ */
-#define ASCTIME_FMT	"%.3s %.3s%3d %02.2d:%02.2d:%02.2d %-4s\n"
-#endif /* !defined __GNUC__ */
+
 /*
 ** For years that are more than four digits we put extra spaces before the year
 ** so that code trying to overwrite the newline won't end up overwriting
 ** a digit within a year and truncating the year (operating on the assumption
 ** that no output is better than wrong output).
 */
-#ifdef __GNUC__
 #define ASCTIME_FMT_B	"%.3s %.3s%3d %2.2d:%2.2d:%2.2d     %s\n"
-#else /* !defined __GNUC__ */
-#define ASCTIME_FMT_B	"%.3s %.3s%3d %02.2d:%02.2d:%02.2d     %s\n"
-#endif /* !defined __GNUC__ */
 
 #define STD_ASCTIME_BUF_SIZE	26
 /*
@@ -66,7 +57,7 @@
 
 static char *
 asctime3(timeptr, buf, bufsize)
-register const struct tm *	timeptr;
+const struct tm *	timeptr;
 char *				buf;
 int				bufsize;
 {
@@ -77,8 +68,8 @@ int				bufsize;
 		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
-	register const char *	wn;
-	register const char *	mn;
+	const char *	wn;
+	const char *	mn;
 	char			year[INT_STRLEN_MAXIMUM(int) + 2];
 	int			len;
 
@@ -109,11 +100,7 @@ int				bufsize;
 	if (len != -1 && len < bufsize) {
 		return buf;
 	} else {
-#ifdef EOVERFLOW
 		errno = EOVERFLOW;
-#else /* !defined EOVERFLOW */
-		errno = EINVAL;
-#endif /* !defined EOVERFLOW */
 		return NULL;
 	}
 }
@@ -124,7 +111,7 @@ int				bufsize;
 
 char *
 asctime_r(timeptr, buf)
-register const struct tm *	timeptr;
+const struct tm *	timeptr;
 char *				buf;
 {
 	/*

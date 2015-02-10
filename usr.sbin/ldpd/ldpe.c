@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.25 2014/11/18 20:54:28 krw Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.27 2015/02/10 01:03:54 claudio Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -101,7 +101,8 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	disc_addr.sin_port = htons(LDP_PORT);
 	disc_addr.sin_addr.s_addr = INADDR_ANY;
 
-	if ((xconf->ldp_discovery_socket = socket(AF_INET, SOCK_DGRAM,
+	if ((xconf->ldp_discovery_socket = socket(AF_INET,
+	    SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
 	    IPPROTO_UDP)) == -1)
 		fatal("error creating discovery socket");
 
@@ -130,7 +131,8 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	disc_addr.sin_port = htons(LDP_PORT);
 	disc_addr.sin_addr.s_addr = xconf->rtr_id.s_addr;
 
-	if ((xconf->ldp_ediscovery_socket = socket(AF_INET, SOCK_DGRAM,
+	if ((xconf->ldp_ediscovery_socket = socket(AF_INET,
+	    SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
 	    IPPROTO_UDP)) == -1)
 		fatal("error creating extended discovery socket");
 
@@ -154,7 +156,8 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	sess_addr.sin_port = htons(LDP_PORT);
 	sess_addr.sin_addr.s_addr = INADDR_ANY;
 
-	if ((xconf->ldp_session_socket = socket(AF_INET, SOCK_STREAM,
+	if ((xconf->ldp_session_socket = socket(AF_INET,
+	    SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
 	    IPPROTO_TCP)) == -1)
 		fatal("error creating session socket");
 
@@ -172,7 +175,6 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	if (if_set_tos(xconf->ldp_session_socket,
 	    IPTOS_PREC_INTERNETCONTROL) == -1)
 		fatal("if_set_tos");
-	session_socket_blockmode(xconf->ldp_session_socket, BM_NONBLOCK);
 
 	if ((pw = getpwnam(LDPD_USER)) == NULL)
 		fatal("getpwnam");

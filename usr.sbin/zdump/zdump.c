@@ -1,4 +1,4 @@
-/*	$OpenBSD: zdump.c,v 1.22 2010/08/23 22:35:34 millert Exp $ */
+/*	$OpenBSD: zdump.c,v 1.8 2015/02/09 23:14:32 tedu Exp $ */
 /*
 ** This file is in the public domain, so clarified as of
 ** 2009-05-17 by Arthur David Olson.
@@ -10,17 +10,12 @@
 ** You can use this code to help in verifying other implementations.
 */
 
-#include "stdio.h"	/* for stdout, stderr, perror */
-#include "string.h"	/* for strlcpy */
-#include "ctype.h"	/* for isascii, isalpha, isdigit */
-#include "sys/types.h"	/* for time_t */
-#include "time.h"	/* for struct tm */
-#include "stdlib.h"	/* for exit, malloc, atoi */
-#include "float.h"	/* for FLT_MAX and DBL_MAX */
-#include "ctype.h"	/* for isalpha et al. */
-#ifndef isascii
-#define isascii(x) 1
-#endif /* !defined isascii */
+#include <ctype.h>	/* for isalpha et al. */
+#include <float.h>	/* for FLT_MAX and DBL_MAX */
+#include <stdio.h>	/* for stdout, stderr, perror */
+#include <string.h>	/* for strlcpy */
+#include <stdlib.h>	/* for exit, malloc, atoi */
+#include <time.h>	/* for struct tm */
 
 #ifndef ZDUMP_LO_YEAR
 #define ZDUMP_LO_YEAR	(-500)
@@ -41,14 +36,6 @@
 #ifndef FALSE
 #define FALSE		0
 #endif /* !defined FALSE */
-
-#ifndef EXIT_SUCCESS
-#define EXIT_SUCCESS	0
-#endif /* !defined EXIT_SUCCESS */
-
-#ifndef EXIT_FAILURE
-#define EXIT_FAILURE	1
-#endif /* !defined EXIT_FAILURE */
 
 #ifndef SECSPERMIN
 #define SECSPERMIN	60
@@ -93,45 +80,7 @@
 #define SECSPERNYEAR	(SECSPERDAY * DAYSPERNYEAR)
 #define SECSPERLYEAR	(SECSPERNYEAR + SECSPERDAY)
 
-#ifndef HAVE_GETTEXT
-#define HAVE_GETTEXT 0
-#endif
-#if HAVE_GETTEXT
-#include "locale.h"	/* for setlocale */
-#include "libintl.h"
-#endif /* HAVE_GETTEXT */
-
-#ifndef GNUC_or_lint
-#ifdef lint
-#define GNUC_or_lint
-#else /* !defined lint */
-#ifdef __GNUC__
-#define GNUC_or_lint
-#endif /* defined __GNUC__ */
-#endif /* !defined lint */
-#endif /* !defined GNUC_or_lint */
-
-#ifndef INITIALIZE
-#ifdef GNUC_or_lint
-#define INITIALIZE(x)	((x) = 0)
-#else /* !defined GNUC_or_lint */
-#define INITIALIZE(x)
-#endif /* !defined GNUC_or_lint */
-#endif /* !defined INITIALIZE */
-
-/*
-** For the benefit of GNU folk...
-** `_(MSGID)' uses the current locale's message library string for MSGID.
-** The default is to use gettext if available, and use MSGID otherwise.
-*/
-
-#ifndef _
-#if HAVE_GETTEXT
-#define _(msgid) gettext(msgid)
-#else /* !HAVE_GETTEXT */
 #define _(msgid) msgid
-#endif /* !HAVE_GETTEXT */
-#endif /* !defined _ */
 
 #ifndef TZ_DOMAIN
 #define TZ_DOMAIN "tz"
@@ -167,30 +116,30 @@ static struct tm *
 my_localtime(tp)
 time_t *	tp;
 {
-	register struct tm *	tmp;
+	struct tm *	tmp;
 
 	tmp = localtime(tp);
 	if (tp != NULL && tmp != NULL) {
 		struct tm	tm;
-		register time_t	t;
+		time_t	t;
 
 		tm = *tmp;
 		t = mktime(&tm);
 		if (t - *tp >= 1 || *tp - t >= 1) {
-			(void) fflush(stdout);
-			(void) fprintf(stderr, "\n%s: ", progname);
-			(void) fprintf(stderr, tformat(), *tp);
-			(void) fprintf(stderr, " ->");
-			(void) fprintf(stderr, " year=%d", tmp->tm_year);
-			(void) fprintf(stderr, " mon=%d", tmp->tm_mon);
-			(void) fprintf(stderr, " mday=%d", tmp->tm_mday);
-			(void) fprintf(stderr, " hour=%d", tmp->tm_hour);
-			(void) fprintf(stderr, " min=%d", tmp->tm_min);
-			(void) fprintf(stderr, " sec=%d", tmp->tm_sec);
-			(void) fprintf(stderr, " isdst=%d", tmp->tm_isdst);
-			(void) fprintf(stderr, " -> ");
-			(void) fprintf(stderr, tformat(), t);
-			(void) fprintf(stderr, "\n");
+			fflush(stdout);
+			fprintf(stderr, "\n%s: ", progname);
+			fprintf(stderr, tformat(), *tp);
+			fprintf(stderr, " ->");
+			fprintf(stderr, " year=%d", tmp->tm_year);
+			fprintf(stderr, " mon=%d", tmp->tm_mon);
+			fprintf(stderr, " mday=%d", tmp->tm_mday);
+			fprintf(stderr, " hour=%d", tmp->tm_hour);
+			fprintf(stderr, " min=%d", tmp->tm_min);
+			fprintf(stderr, " sec=%d", tmp->tm_sec);
+			fprintf(stderr, " isdst=%d", tmp->tm_isdst);
+			fprintf(stderr, " -> ");
+			fprintf(stderr, tformat(), t);
+			fprintf(stderr, "\n");
 		}
 	}
 	return tmp;
@@ -202,8 +151,8 @@ abbrok(abbrp, zone)
 const char * const	abbrp;
 const char * const	zone;
 {
-	register const char *	cp;
-	register char *		wp;
+	const char *	cp;
+	char *		wp;
 
 	if (warned)
 		return;
@@ -228,21 +177,17 @@ const char * const	zone;
 	}
 	if (wp == NULL)
 		return;
-	(void) fflush(stdout);
-	(void) fprintf(stderr,
-		_("%s: warning: zone \"%s\" abbreviation \"%s\" %s\n"),
+	fflush(stdout);
+	fprintf(stderr, _("%s: warning: zone \"%s\" abbreviation \"%s\" %s\n"),
 		progname, zone, abbrp, wp);
 	warned = TRUE;
 }
 
 static void
-usage(stream, status)
-FILE * const	stream;
-const int	status;
+usage(void)
 {
-	(void) fprintf(stream,
-_("usage: %s [-v] [-c [loyear,]hiyear] zonename ...\n"), progname);
-	exit(status);
+	fprintf(stderr, _("usage: %s [-v] [-c [loyear,]hiyear] zonename ...\n"), progname);
+	exit(EXIT_FAILURE);
 }
 
 int
@@ -250,32 +195,25 @@ main(argc, argv)
 int	argc;
 char *	argv[];
 {
-	register int		i;
-	register int		c;
-	register int		vflag;
-	register char *		cutarg;
-	register long		cutloyear = ZDUMP_LO_YEAR;
-	register long		cuthiyear = ZDUMP_HI_YEAR;
-	register time_t		cutlotime;
-	register time_t		cuthitime;
-	register char **	fakeenv;
+	int		i;
+	int		c;
+	int		vflag;
+	char *		cutarg;
+	long		cutloyear = ZDUMP_LO_YEAR;
+	long		cuthiyear = ZDUMP_HI_YEAR;
+	time_t		cutlotime;
+	time_t		cuthitime;
+	char **	fakeenv;
 	time_t			now;
 	time_t			t;
 	time_t			newt;
 	struct tm		tm;
 	struct tm		newtm;
-	register struct tm *	tmp;
-	register struct tm *	newtmp;
+	struct tm *	tmp;
+	struct tm *	newtmp;
 
-	INITIALIZE(cutlotime);
-	INITIALIZE(cuthitime);
-#if HAVE_GETTEXT
-	(void) setlocale(LC_ALL, "");
-#ifdef TZ_DOMAINDIR
-	(void) bindtextdomain(TZ_DOMAIN, TZ_DOMAINDIR);
-#endif /* defined TEXTDOMAINDIR */
-	(void) textdomain(TZ_DOMAIN);
-#endif /* HAVE_GETTEXT */
+	cutlotime = 0;
+	cuthitime = 0;
 	progname = argv[0];
 	vflag = 0;
 	cutarg = NULL;
@@ -285,7 +223,7 @@ char *	argv[];
 		else	cutarg = optarg;
 	if ((c != EOF && c != -1) ||
 		(optind == argc - 1 && strcmp(argv[optind], "=") == 0)) {
-			usage(stderr, EXIT_FAILURE);
+			usage();
 	}
 	if (vflag) {
 		if (cutarg != NULL) {
@@ -300,7 +238,7 @@ char *	argv[];
 					cutloyear = lo;
 					cuthiyear = hi;
 			} else {
-(void) fprintf(stderr, _("%s: wild -c argument %s\n"),
+				fprintf(stderr, _("%s: wild -c argument %s\n"),
 					progname, cutarg);
 				exit(EXIT_FAILURE);
 			}
@@ -309,23 +247,22 @@ char *	argv[];
 		cutlotime = yeartot(cutloyear);
 		cuthitime = yeartot(cuthiyear);
 	}
-	(void) time(&now);
+	time(&now);
 	longest = 0;
 	for (i = optind; i < argc; ++i)
 		if (strlen(argv[i]) > longest)
 			longest = strlen(argv[i]);
 	{
-		register int	from;
-		register int	to;
+		int	from;
+		int	to;
 
 		for (i = 0; environ[i] != NULL; ++i)
 			continue;
-		fakeenv = (char **) malloc((size_t) ((i + 2) *
-			sizeof *fakeenv));
+		fakeenv = malloc((size_t) ((i + 2) * sizeof *fakeenv));
 		if (fakeenv == NULL ||
-			(fakeenv[0] = (char *) malloc(longest + 4)) == NULL) {
-					(void) perror(progname);
-					exit(EXIT_FAILURE);
+			(fakeenv[0] = malloc(longest + 4)) == NULL) {
+				perror(progname);
+				exit(EXIT_FAILURE);
 		}
 		to = 0;
 		strlcpy(fakeenv[to++], "TZ=", longest + 4);
@@ -385,67 +322,41 @@ char *	argv[];
 		show(argv[i], t, TRUE);
 	}
 	if (fflush(stdout) || ferror(stdout)) {
-		(void) fprintf(stderr, "%s: ", progname);
-		(void) perror(_("Error writing to standard output"));
+		fprintf(stderr, "%s: ", progname);
+		perror(_("Error writing to standard output"));
 		exit(EXIT_FAILURE);
 	}
-	exit(EXIT_SUCCESS);
-	/* If exit fails to exit... */
-	return EXIT_FAILURE;
+	return 0;
 }
 
 static void
 setabsolutes(void)
 {
-	if (0.5 == (time_t) 0.5) {
-		/*
-		** time_t is floating.
-		*/
-		if (sizeof (time_t) == sizeof (float)) {
-			absolute_min_time = (time_t) -FLT_MAX;
-			absolute_max_time = (time_t) FLT_MAX;
-		} else if (sizeof (time_t) == sizeof (double)) {
-			absolute_min_time = (time_t) -DBL_MAX;
-			absolute_max_time = (time_t) DBL_MAX;
-		} else {
-			(void) fprintf(stderr,
-_("%s: use of -v on system with floating time_t other than float or double\n"),
-				progname);
-			exit(EXIT_FAILURE);
-		}
-	} else if (0 > (time_t) -1) {
-		/*
-		** time_t is signed.  Assume overflow wraps around.
-		*/
-		time_t t = 0;
-		time_t t1 = 1;
+	/*
+	** time_t is signed.  Assume overflow wraps around.
+	*/
+	time_t t = 0;
+	time_t t1 = 1;
 
-		while (t < t1) {
-			t = t1;
-			t1 = 2 * t1 + 1;
-		}
-
-		absolute_max_time = t;
-		t = -t;
-		absolute_min_time = t - 1;
-		if (t < absolute_min_time)
-			absolute_min_time = t;
-	} else {
-		/*
-		** time_t is unsigned.
-		*/
-		absolute_min_time = 0;
-		absolute_max_time = absolute_min_time - 1;
+	while (t < t1) {
+		t = t1;
+		t1 = 2 * t1 + 1;
 	}
+
+	absolute_max_time = t;
+	t = -t;
+	absolute_min_time = t - 1;
+	if (t < absolute_min_time)
+		absolute_min_time = t;
 }
 
 static time_t
 yeartot(y)
 const long	y;
 {
-	register long	myy;
-	register long	seconds;
-	register time_t	t;
+	long	myy;
+	long	seconds;
+	time_t	t;
 
 	myy = EPOCH_YEAR;
 	t = 0;
@@ -477,15 +388,15 @@ hunt(char *name, time_t lot, time_t hit)
 	time_t			t;
 	long			diff;
 	struct tm		lotm;
-	register struct tm *	lotmp;
+	struct tm *	lotmp;
 	struct tm		tm;
-	register struct tm *	tmp;
+	struct tm *	tmp;
 	char			loab[MAX_STRING_LENGTH];
 
 	lotmp = my_localtime(&lot);
 	if (lotmp != NULL) {
 		lotm = *lotmp;
-		(void) strlcpy(loab, abbr(&lotm), sizeof loab);
+		strlcpy(loab, abbr(&lotm), sizeof loab);
 	}
 	for ( ; ; ) {
 		diff = (long) (hit - lot);
@@ -523,8 +434,8 @@ delta(newp, oldp)
 struct tm *	newp;
 struct tm *	oldp;
 {
-	register long	result;
-	register int	tmy;
+	long	result;
+	int	tmy;
 
 	if (newp->tm_year < oldp->tm_year)
 		return -delta(oldp, newp);
@@ -544,32 +455,32 @@ struct tm *	oldp;
 static void
 show(char *zone, time_t t, int v)
 {
-	register struct tm *	tmp;
+	struct tm *	tmp;
 
-	(void) printf("%-*s  ", (int) longest, zone);
+	printf("%-*s  ", (int) longest, zone);
 	if (v) {
 		tmp = gmtime(&t);
 		if (tmp == NULL) {
-			(void) printf(tformat(), t);
+			printf(tformat(), t);
 		} else {
 			dumptime(tmp);
-			(void) printf(" UTC");
+			printf(" UTC");
 		}
-		(void) printf(" = ");
+		printf(" = ");
 	}
 	tmp = my_localtime(&t);
 	dumptime(tmp);
 	if (tmp != NULL) {
 		if (*abbr(tmp) != '\0')
-			(void) printf(" %s", abbr(tmp));
+			printf(" %s", abbr(tmp));
 		if (v) {
-			(void) printf(" isdst=%d", tmp->tm_isdst);
+			printf(" isdst=%d", tmp->tm_isdst);
 #ifdef TM_GMTOFF
-			(void) printf(" gmtoff=%ld", tmp->TM_GMTOFF);
+			printf(" gmtoff=%ld", tmp->TM_GMTOFF);
 #endif /* defined TM_GMTOFF */
 		}
 	}
-	(void) printf("\n");
+	printf("\n");
 	if (tmp != NULL && *abbr(tmp) != '\0')
 		abbrok(abbr(tmp), zone);
 }
@@ -578,7 +489,7 @@ static char *
 abbr(tmp)
 struct tm *	tmp;
 {
-	register char *	result;
+	char *	result;
 	static char	nada;
 
 	if (tmp->tm_isdst != 0 && tmp->tm_isdst != 1)
@@ -595,28 +506,12 @@ struct tm *	tmp;
 static const char *
 tformat(void)
 {
-	if (0.5 == (time_t) 0.5) {	/* floating */
-		if (sizeof (time_t) > sizeof (double))
-			return "%Lg";
-		return "%g";
-	}
-	if (0 > (time_t) -1) {		/* signed */
-		if (sizeof (time_t) > sizeof (long))
-			return "%lld";
-		if (sizeof (time_t) > sizeof (int))
-			return "%ld";
-		return "%d";
-	}
-	if (sizeof (time_t) > sizeof (unsigned long))
-		return "%llu";
-	if (sizeof (time_t) > sizeof (unsigned int))
-		return "%lu";
-	return "%u";
+	return "%lld";
 }
 
 static void
 dumptime(timeptr)
-register const struct tm *	timeptr;
+const struct tm *	timeptr;
 {
 	static const char	wday_name[][3] = {
 		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
@@ -625,13 +520,13 @@ register const struct tm *	timeptr;
 		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
-	register const char *	wn;
-	register const char *	mn;
-	register int		lead;
-	register int		trail;
+	const char *	wn;
+	const char *	mn;
+	int		lead;
+	int		trail;
 
 	if (timeptr == NULL) {
-		(void) printf("NULL");
+		printf("NULL");
 		return;
 	}
 	/*
@@ -647,7 +542,7 @@ register const struct tm *	timeptr;
 		(int) (sizeof mon_name / sizeof mon_name[0]))
 			mn = "???";
 	else		mn = mon_name[timeptr->tm_mon];
-	(void) printf("%.3s %.3s%3d %.2d:%.2d:%.2d ",
+	printf("%.3s %.3s%3d %.2d:%.2d:%.2d ",
 		wn, mn,
 		timeptr->tm_mday, timeptr->tm_hour,
 		timeptr->tm_min, timeptr->tm_sec);
@@ -664,6 +559,7 @@ register const struct tm *	timeptr;
 		++lead;
 	}
 	if (lead == 0)
-		(void) printf("%d", trail);
-	else	(void) printf("%d%d", lead, ((trail < 0) ? -trail : trail));
+		printf("%d", trail);
+	else
+		printf("%d%d", lead, ((trail < 0) ? -trail : trail));
 }

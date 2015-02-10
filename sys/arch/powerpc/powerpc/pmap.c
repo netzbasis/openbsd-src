@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.140 2015/01/22 19:47:00 deraadt Exp $ */
+/*	$OpenBSD: pmap.c,v 1.142 2015/02/09 13:35:44 deraadt Exp $ */
 
 /*
  * Copyright (c) 2001, 2002, 2007 Dale Rahn.

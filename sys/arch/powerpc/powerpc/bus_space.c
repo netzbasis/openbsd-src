@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus_space.c,v 1.3 2015/02/08 06:21:04 mpi Exp $	*/
+/*	$OpenBSD: bus_space.c,v 1.5 2015/02/09 13:35:44 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*

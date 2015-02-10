@@ -1,10 +1,6 @@
-/*	$OpenBSD: config.h,v 1.19 2015/01/23 01:01:06 tedu Exp $	*/
+/*	$OpenBSD: config.h,v 1.21 2015/02/09 23:00:14 deraadt Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
- * All rights reserved
- */
-
-/*
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1997,2000 by Internet Software Consortium, Inc.
  *
@@ -74,12 +70,12 @@
 			 * are both defined, then logging will go to both
 			 * places.
 			 */
-#define SYSLOG	 			/*-*/
+#define SYSLOG				/*-*/
 
 			/* if you have a tm_gmtoff member in struct tm.
 			 * If not, we will have to compute the value ourselves.
 			 */
-#define HAVE_TM_GMTOFF		 	/*-*/
+#define HAVE_TM_GMTOFF			/*-*/
 
 			/* if your OS has the paths.h header */
 #define HAVE_PATHS_H			/*-*/

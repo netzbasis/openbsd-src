@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.158 2015/02/07 08:47:49 tedu Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.160 2015/02/09 11:52:47 miod Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -85,7 +85,7 @@ int exec_sigcode_map(struct process *, struct emul *);
 
 /*
  * If non-zero, stackgap_random specifies the upper limit of the random gap size
- * added to the fixed stack gap. Must be n^2.
+ * added to the fixed stack position. Must be n^2.
  */
 int stackgap_random = STACKGAP_RANDOM;
 
@@ -402,8 +402,14 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	dp = (char *)(((long)dp + _STACKALIGNBYTES) & ~_STACKALIGNBYTES);
 
 	sgap = STACKGAPLEN;
+
+	/*
+	 * If we have enabled random stackgap, the stack itself has already
+	 * been moved from a random location, but is still aligned to a page
+	 * boundary.  Provide the lower bits of random placement now.
+	 */
 	if (stackgap_random != 0) {
-		sgap += arc4random() & (stackgap_random - 1);
+		sgap += arc4random() & PAGE_MASK;
 		sgap = (sgap + _STACKALIGNBYTES) & ~_STACKALIGNBYTES;
 	}
 
@@ -461,12 +467,12 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	pr->ps_stackgap = 0;
 
 #ifdef MACHINE_STACK_GROWS_UP
-	pr->ps_strings = (vaddr_t)USRSTACK + sgap;
+	pr->ps_strings = (vaddr_t)vm->vm_maxsaddr + sgap;
         if (uvm_map_protect(&vm->vm_map, (vaddr_t)vm->vm_maxsaddr,
             trunc_page(pr->ps_strings), PROT_NONE, TRUE))
                 goto exec_abort;
 #else
-	pr->ps_strings = (vaddr_t)USRSTACK - sizeof(arginfo) - sgap;
+	pr->ps_strings = (vaddr_t)vm->vm_minsaddr - sizeof(arginfo) - sgap;
         if (uvm_map_protect(&vm->vm_map,
             round_page(pr->ps_strings + sizeof(arginfo)),
             (vaddr_t)vm->vm_minsaddr, PROT_NONE, TRUE))
@@ -478,10 +484,10 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	arginfo.ps_nenvstr = envc;
 
 #ifdef MACHINE_STACK_GROWS_UP
-	stack = (char *)USRSTACK + sizeof(arginfo) + sgap;
+	stack = (char *)vm->vm_maxsaddr + sizeof(arginfo) + sgap;
 	slen = len - sizeof(arginfo) - sgap;
 #else
-	stack = (char *)(USRSTACK - len);
+	stack = (char *)(vm->vm_minsaddr - len);
 #endif
 	/* Now copy argc, args & environ to new stack */
 	if (!(*pack.ep_emul->e_copyargs)(&pack, &arginfo, stack, argp))

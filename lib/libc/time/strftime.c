@@ -1,6 +1,4 @@
-/*	$OpenBSD: strftime.c,v 1.22 2014/05/06 15:49:45 tedu Exp $ */
-#include "private.h"
-
+/*	$OpenBSD: strftime.c,v 1.25 2015/02/09 14:52:28 tedu Exp $ */
 /*
 ** Copyright (c) 1989, 1993
 **	The Regents of the University of California.  All rights reserved.
@@ -30,9 +28,11 @@
 ** SUCH DAMAGE.
 */
 
+#include <fcntl.h>
+#include <locale.h>
+
+#include "private.h"
 #include "tzfile.h"
-#include "fcntl.h"
-#include "locale.h"
 
 struct lc_time_T {
 	const char *	mon[MONSPERYEAR];
@@ -306,11 +306,8 @@ label:
 
 					tm = *t;
 					mkt = mktime(&tm);
-					if (TYPE_SIGNED(time_t))
-						(void) snprintf(buf, sizeof buf,
-						    "%ld", (long) mkt);
-					else	(void) snprintf(buf, sizeof buf,
-						    "%lu", (unsigned long) mkt);
+					(void) snprintf(buf, sizeof buf,
+					    "%ld", (long) mkt);
 					pt = _add(buf, pt, ptlim);
 				}
 				continue;
@@ -595,8 +592,8 @@ const int		convert_yy;
 char *			pt;
 const char * const	ptlim;
 {
-	register int	lead;
-	register int	trail;
+	int	lead;
+	int	trail;
 
 #define DIVISOR	100
 	trail = a % DIVISOR + b % DIVISOR;

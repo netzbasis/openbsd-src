@@ -1,7 +1,8 @@
-#	$OpenBSD: Makefile,v 1.3 2004/07/01 21:46:37 mickey Exp $
+#	$OpenBSD: Makefile,v 1.5 2015/02/09 13:04:58 tedu Exp $
 
 PROG=	zdump
 MAN=	zdump.8
 
-.PATH: ${.CURDIR}/../../lib/libc/time
+CFLAGS+=-Wall
+
 .include <bsd.prog.mk>

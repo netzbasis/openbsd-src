@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_autoconf.c,v 1.84 2015/01/22 01:19:51 dlg Exp $	*/
+/*	$OpenBSD: subr_autoconf.c,v 1.86 2015/02/09 13:38:50 dlg Exp $	*/
 /*	$NetBSD: subr_autoconf.c,v 1.21 1996/04/04 06:06:18 cgd Exp $	*/
 
 /*
@@ -51,6 +51,7 @@
 #include <sys/systm.h>
 #include <sys/queue.h>
 #include <sys/mutex.h>
+#include <sys/atomic.h>
 
 #include "hotplug.h"
 #include "mpath.h"
@@ -922,7 +923,7 @@ device_mpath(void)
 void
 device_ref(struct device *dv)
 {
-	dv->dv_ref++;
+	atomic_inc_int(&dv->dv_ref);
 }
 
 /*
@@ -937,8 +938,7 @@ device_unref(struct device *dv)
 {
 	struct cfattach *ca;
 
-	dv->dv_ref--;
-	if (dv->dv_ref == 0) {
+	if (atomic_dec_int_nv(&dv->dv_ref) == 0) {
 		ca = dv->dv_cfdata->cf_attach;
 		free(dv, M_DEVBUF, ca->ca_devsize);
 	}

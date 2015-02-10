@@ -1,4 +1,4 @@
-/*	$OpenBSD: i915_irq.c,v 1.14 2015/01/27 03:17:36 dlg Exp $	*/
+/*	$OpenBSD: i915_irq.c,v 1.16 2015/02/10 03:39:41 jsg Exp $	*/
 /* i915_irq.c -- IRQ support for the I915 -*- linux-c -*-
  */
 /*
@@ -285,14 +285,14 @@ static void i915_hotplug_work_func(void *arg1)
 	struct drm_mode_config *mode_config = &dev->mode_config;
 	struct intel_encoder *encoder;
 
-	rw_enter_write(&mode_config->rwl);
+	mutex_lock(&mode_config->mutex);
 	DRM_DEBUG_KMS("running encoder hotplug functions\n");
 
 	list_for_each_entry(encoder, &mode_config->encoder_list, base.head)
 		if (encoder->hot_plug)
 			encoder->hot_plug(encoder);
 
-	rw_exit_write(&mode_config->rwl);
+	mutex_unlock(&mode_config->mutex);
 
 	/* Just fire off a uevent and let userspace tell us what to do */
 	drm_helper_hpd_irq_event(dev);
@@ -414,7 +414,7 @@ static void ivybridge_parity_work(void *arg1)
 	 * In order to prevent a get/put style interface, acquire struct mutex
 	 * any time we access those registers.
 	 */
-	DRM_LOCK();
+	mutex_lock(&dev->struct_mutex);
 
 	misccpctl = I915_READ(GEN7_MISCCPCTL);
 	I915_WRITE(GEN7_MISCCPCTL, misccpctl & ~GEN7_DOP_CLOCK_GATE_ENABLE);
@@ -436,7 +436,7 @@ static void ivybridge_parity_work(void *arg1)
 	I915_WRITE(GTIMR, dev_priv->gt_irq_mask);
 	mtx_leave(&dev_priv->irq_lock);
 
-	DRM_UNLOCK();
+	mutex_unlock(&dev->struct_mutex);
 
 #if 0
 	parity_event[0] = "L3_PARITY_ERROR=1";
