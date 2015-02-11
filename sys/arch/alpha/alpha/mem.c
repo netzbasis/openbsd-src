@@ -1,4 +1,4 @@
-/* $OpenBSD: mem.c,v 1.25 2010/12/26 15:40:58 miod Exp $ */
+/* $OpenBSD: mem.c,v 1.27 2015/02/10 22:44:35 miod Exp $ */
 /* $NetBSD: mem.c,v 1.26 2000/03/29 03:48:20 simonb Exp $ */
 
 /*
@@ -124,9 +124,9 @@ mmrw(dev, uio, flags)
 	struct uio *uio;
 	int flags;
 {
-	register vaddr_t o, v;
-	register int c;
-	register struct iovec *iov;
+	vaddr_t o, v;
+	size_t c;
+	struct iovec *iov;
 	int error = 0, rw;
 	extern int msgbufmapped;
 
@@ -161,7 +161,7 @@ kmemphys:
 			}
 
 			o = uio->uio_offset & PGOFSET;
-			c = min(uio->uio_resid, (int)(PAGE_SIZE - o));
+			c = ulmin(uio->uio_resid, PAGE_SIZE - o);
 			error =
 			    uiomove((caddr_t)ALPHA_PHYS_TO_K0SEG(v), c, uio);
 			break;
@@ -175,7 +175,7 @@ kmemphys:
 				goto kmemphys;
 			}
 
-			c = min(iov->iov_len, MAXPHYS);
+			c = ulmin(iov->iov_len, MAXPHYS);
 			if (!uvm_kernacc((caddr_t)v, c,
 			    uio->uio_rw == UIO_READ ? B_READ : B_WRITE))
 				return (EFAULT);
@@ -201,7 +201,7 @@ kmemphys:
 			if (zeropage == NULL)
 				zeropage = malloc(PAGE_SIZE, M_TEMP,
 				    M_WAITOK | M_ZERO);
-			c = min(iov->iov_len, PAGE_SIZE);
+			c = ulmin(iov->iov_len, PAGE_SIZE);
 			error = uiomove(zeropage, c, uio);
 			break;
 

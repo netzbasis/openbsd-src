@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_device.c,v 1.15 2014/07/12 18:43:52 tedu Exp $ */
+/* $OpenBSD: fuse_device.c,v 1.18 2015/02/10 22:04:00 miod Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -496,7 +496,7 @@ fusewrite(dev_t dev, struct uio *uio, int ioflag)
 	}
 
 	/* Get the missing datas from the fbuf */
-	error = uiomove(&fbuf->FD, uio->uio_resid, uio);
+	error = uiomovei(&fbuf->FD, uio->uio_resid, uio);
 	if (error)
 		return error;
 	fbuf->fb_dat = NULL;

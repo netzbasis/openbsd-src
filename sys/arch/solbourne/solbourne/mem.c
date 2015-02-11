@@ -1,4 +1,4 @@
-/*	$OpenBSD: mem.c,v 1.3 2014/11/16 12:30:58 deraadt Exp $	*/
+/*	$OpenBSD: mem.c,v 1.5 2015/02/10 22:44:35 miod Exp $	*/
 /*	OpenBSD: mem.c,v 1.21 2003/06/02 23:27:55 millert Exp 	*/
 
 /*
@@ -97,10 +97,9 @@ mmrw(dev, uio, flags)
 	struct uio *uio;
 	int flags;
 {
-	int o;
 	paddr_t pa;
 	vaddr_t va;
-	int c;
+	size_t c, o;
 	struct iovec *iov;
 	int error = 0;
 	static int physlock;
@@ -143,7 +142,7 @@ mmrw(dev, uio, flags)
 			    PROT_READ : PROT_WRITE, PMAP_WIRED);
 			pmap_update(pmap_kernel());
 			o = uio->uio_offset & PGOFSET;
-			c = min(uio->uio_resid, (int)(NBPG - o));
+			c = ulmin(uio->uio_resid, NBPG - o);
 			error = uiomove((caddr_t)mem_page + o, c, uio);
 			pmap_remove(pmap_kernel(), mem_page, mem_page + NBPG);
 			pmap_update(pmap_kernel());
@@ -153,15 +152,15 @@ mmrw(dev, uio, flags)
 		case 1:
 			va = (vaddr_t)uio->uio_offset;
 			if (va >= MSGBUF_VA && va < MSGBUF_VA+MSGBUFSIZE) {
-				c = min(iov->iov_len, MSGBUFSIZE);
+				c = ulmin(iov->iov_len, MSGBUFSIZE);
 #if 0
 			} else if (va >= prom_vstart && va < prom_vend &&
 				   uio->uio_rw == UIO_READ) {
 				/* Allow read-only access to the PROM */
-				c = min(iov->iov_len, prom_vend - prom_vstart);
+				c = ulmin(iov->iov_len, prom_vend - prom_vstart);
 #endif
 			} else {
-				c = min(iov->iov_len, MAXPHYS);
+				c = ulmin(iov->iov_len, MAXPHYS);
 				if (!uvm_kernacc((caddr_t)va, c,
 				    uio->uio_rw == UIO_READ ? B_READ : B_WRITE))
 					return (EFAULT);
@@ -186,7 +185,7 @@ mmrw(dev, uio, flags)
 			if (zeropage == NULL)
 				zeropage = malloc(PAGE_SIZE, M_TEMP,
 				    M_WAITOK | M_ZERO);
-			c = min(iov->iov_len, PAGE_SIZE);
+			c = ulmin(iov->iov_len, PAGE_SIZE);
 			error = uiomove(zeropage, c, uio);
 			continue;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.902 2015/02/09 19:14:48 markus Exp $ */
+/*	$OpenBSD: pf.c,v 1.904 2015/02/10 09:28:40 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1142,6 +1142,8 @@ pf_state_export(struct pfsync_state *sp, struct pf_state *st)
 	sp->max_mss = htons(st->max_mss);
 	sp->min_ttl = st->min_ttl;
 	sp->set_tos = st->set_tos;
+	sp->set_prio[0] = st->set_prio[0];
+	sp->set_prio[1] = st->set_prio[1];
 }
 
 /* END state table stuff */
@@ -3227,6 +3229,9 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 			TAILQ_NEXT(r, entries));
 		PF_TEST_ATTRIB((r->rcv_kif && pf_match_rcvif(pd->m, r) ==
 		    r->rcvifnot),
+			TAILQ_NEXT(r, entries));
+		PF_TEST_ATTRIB((r->prio != 0xff &&
+		    r->prio != pd->m->m_pkthdr.pf.prio),
 			TAILQ_NEXT(r, entries));
 
 		/* FALLTHROUGH */

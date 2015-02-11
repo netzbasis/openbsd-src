@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.c,v 1.88 2015/01/21 03:14:10 bcook Exp $ */
+/*	$OpenBSD: ntpd.c,v 1.92 2015/02/11 03:16:57 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -89,7 +89,8 @@ usage(void)
 	extern char *__progname;
 
 	if (strcmp(__progname, "ntpctl") == 0)
-		fprintf(stderr, "usage: ntpctl [-s all | peers | Sensors | status]\n");
+		fprintf(stderr,
+		    "usage: ntpctl [-s all | peers | Sensors | status]\n");
 	else
 		fprintf(stderr, "usage: %s [-dnSsv] [-f file]\n",
 		    __progname);
@@ -112,7 +113,7 @@ main(int argc, char *argv[])
 	extern char		*__progname;
 
 	if (strcmp(__progname, "ntpctl") == 0) {
-		ctl_main (argc, argv);
+		ctl_main(argc, argv);
 		/* NOTREACHED */
 	}
 
@@ -294,11 +295,8 @@ int
 dispatch_imsg(struct ntpd_conf *lconf)
 {
 	struct imsg		 imsg;
-	int			 n, cnt;
+	int			 n;
 	double			 d;
-	char			*name;
-	struct ntp_addr		*h, *hn;
-	struct ibuf		*buf;
 
 	if ((n = imsg_read(ibuf)) == -1)
 		return (-1);
@@ -344,34 +342,6 @@ dispatch_imsg(struct ntpd_conf *lconf)
 					fatal("daemon");
 			lconf->settime = 0;
 			timeout = INFTIM;
-			break;
-		case IMSG_HOST_DNS:
-			name = imsg.data;
-			if (imsg.hdr.len < 1 + IMSG_HEADER_SIZE)
-				fatalx("invalid IMSG_HOST_DNS received");
-			imsg.hdr.len -= 1 + IMSG_HEADER_SIZE;
-			if (name[imsg.hdr.len] != '\0' ||
-			    strlen(name) != imsg.hdr.len)
-				fatalx("invalid IMSG_HOST_DNS received");
-			if ((cnt = host_dns(name, &hn)) == -1)
-				break;
-			buf = imsg_create(ibuf, IMSG_HOST_DNS,
-			    imsg.hdr.peerid, 0,
-			    cnt * sizeof(struct sockaddr_storage));
-			if (cnt > 0) {
-				if (buf) {
-					for (h = hn; h != NULL; h = h->next)
-						if (imsg_add(buf, &h->ss,
-						    sizeof(h->ss)) == -1) {
-							buf = NULL;
-							break;
-						}
-				}
-				host_dns_free(hn);
-				hn = NULL;
-			}
-			if (buf)
-				imsg_close(ibuf, buf);
 			break;
 		default:
 			break;
@@ -580,7 +550,7 @@ ctl_main(int argc, char *argv[])
 			break;
 		}
 	}
-	if (action == -1) 
+	if (action == -1)
 		usage();
 		/* NOTREACHED */
 
@@ -686,7 +656,7 @@ ctl_main(int argc, char *argv[])
 	}
 	close(fd);
 	free(ibuf_ctl);
-	exit (0);
+	exit(0);
 }
 
 const char *
@@ -709,6 +679,7 @@ show_status_msg(struct imsg *imsg)
 {
 	struct ctl_show_status	*cstatus;
 	double			 clock_offset;
+	struct timeval		 tv;
 
 	if (imsg->hdr.len != IMSG_HEADER_SIZE + sizeof(struct ctl_show_status))
 		fatalx("invalid IMSG_CTL_SHOW_STATUS received");
@@ -722,6 +693,18 @@ show_status_msg(struct imsg *imsg)
 	if (cstatus->sensorcnt > 0)
 		printf("%d/%d sensors valid, ",
 		    cstatus->valid_sensors, cstatus->sensorcnt);
+
+	if (cstatus->constraint_median) {
+		tv.tv_sec = cstatus->constraint_median +
+		    (getmonotime() - cstatus->constraint_last);
+		tv.tv_usec = 0;
+		d_to_tv(gettime_from_timeval(&tv) - gettime(), &tv);
+		printf("constraint offset %llds", (long long)tv.tv_sec);
+		if (cstatus->constraint_errors)
+			printf(" (%d errors)",
+			    cstatus->constraint_errors);
+		printf(", ");
+	}
 
 	if (cstatus->peercnt + cstatus->sensorcnt == 0)
 		printf("no peers and no sensors configured\n");
@@ -776,7 +759,7 @@ show_peer_msg(struct imsg *imsg, int calledfromshowall)
 	if (cpeer->stratum > 0)
 		snprintf(stratum, sizeof(stratum), "%2u", cpeer->stratum);
 	else
-		strlcpy (stratum, " -", sizeof (stratum));
+		strlcpy(stratum, " -", sizeof (stratum));
 
 	printf("%s\n %1s %2u %2u %2s %4llds %4llds",
 	    cpeer->peer_desc, cpeer->syncedto == 1 ? "*" : " ",

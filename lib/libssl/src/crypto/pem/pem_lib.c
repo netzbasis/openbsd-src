@@ -1,4 +1,4 @@
-/* $OpenBSD: pem_lib.c,v 1.35 2014/10/22 13:02:04 jsing Exp $ */
+/* $OpenBSD: pem_lib.c,v 1.39 2015/02/11 04:05:14 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -64,6 +64,7 @@
 #include <openssl/opensslconf.h>
 
 #include <openssl/buffer.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 #include <openssl/pem.h>
@@ -389,7 +390,10 @@ PEM_ASN1_write_bio(i2d_of_void *i2d, const char *name, BIO *bp, void *x,
 			}
 			kstr = (unsigned char *)buf;
 		}
-		OPENSSL_assert(enc->iv_len <= (int)sizeof(iv));
+		if ((size_t)enc->iv_len > sizeof(iv)) {
+			PEMerr(PEM_F_PEM_ASN1_WRITE_BIO, EVP_R_IV_TOO_LARGE);
+			goto err;
+		}
 		arc4random_buf(iv, enc->iv_len); /* Generate a salt */
 		/* The 'iv' is used as the iv and as a salt.  It is
 		 * NOT taken from the BytesToKey function */
@@ -400,8 +404,11 @@ PEM_ASN1_write_bio(i2d_of_void *i2d, const char *name, BIO *bp, void *x,
 		if (kstr == (unsigned char *)buf)
 			OPENSSL_cleanse(buf, PEM_BUFSIZE);
 
-		OPENSSL_assert(strlen(objstr) + 23 +
-		    2 * enc->iv_len + 13 <= sizeof buf);
+		if (strlen(objstr) + 23 + 2 * enc->iv_len + 13 > sizeof buf) {
+			PEMerr(PEM_F_PEM_ASN1_WRITE_BIO,
+			    ASN1_R_BUFFER_TOO_SMALL);
+			goto err;
+		}
 
 		buf[0] = '\0';
 		PEM_proc_type(buf, PEM_TYPE_ENCRYPTED);

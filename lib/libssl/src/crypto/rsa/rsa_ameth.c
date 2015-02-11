@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa_ameth.c,v 1.12 2014/07/11 12:59:10 miod Exp $ */
+/* $OpenBSD: rsa_ameth.c,v 1.14 2015/02/11 04:05:14 beck Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2006.
  */

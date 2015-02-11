@@ -1,4 +1,4 @@
-/*	$OpenBSD: hotplug.c,v 1.12 2011/07/02 22:20:07 nicm Exp $	*/
+/*	$OpenBSD: hotplug.c,v 1.14 2015/02/10 21:58:16 miod Exp $	*/
 /*
  * Copyright (c) 2004 Alexander Yurchenko <grange@openbsd.org>
  *

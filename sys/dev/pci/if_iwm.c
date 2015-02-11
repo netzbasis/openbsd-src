@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.9 2015/02/09 03:51:59 guenther Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.18 2015/02/11 01:12:42 brad Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -105,8 +105,6 @@
 
 #include "bpfilter.h"
 
-#include <sys/cdefs.h>
-
 #include <sys/param.h>
 #include <sys/conf.h>
 #include <sys/kernel.h>
@@ -174,6 +172,7 @@ const uint8_t iwm_nvm_channels[] = {
 };
 #define IWM_NUM_2GHZ_CHANNELS	14
 
+/* It looks like 11a TX is broken, unfortunately. */
 #define IWM_NO_5GHZ		1
 
 const struct iwm_rate {
@@ -198,18 +197,6 @@ const struct iwm_rate {
 #define IWM_RIDX_MAX	(nitems(iwm_rates)-1)
 #define IWM_RIDX_IS_CCK(_i_) ((_i_) < IWM_RIDX_OFDM)
 #define IWM_RIDX_IS_OFDM(_i_) ((_i_) >= IWM_RIDX_OFDM)
-
-/*
- * Supported rates for 802.11a/b/g modes (in 500Kbps unit).
- */
-const struct ieee80211_rateset iwm_rateset_11a =
-	{ 8, { 12, 18, 24, 36, 48, 72, 96, 108 } };
-
-const struct ieee80211_rateset iwm_rateset_11b =
-	{ 4, { 2, 4, 11, 22 } };
-
-const struct ieee80211_rateset iwm_rateset_11g =
-	{ 12, { 2, 4, 11, 22, 12, 18, 24, 36, 48, 72, 96, 108 } };
 
 struct iwm_newstate_state {
 	struct task ns_wk;
@@ -2089,22 +2076,23 @@ iwm_send_phy_db_data(struct iwm_softc *sc)
 	/* Send PHY DB CFG section */
 	err = iwm_phy_db_get_section_data(sc, IWM_PHY_DB_CFG, &data, &size, 0);
 	if (err) {
-		DPRINTF(("%s: Cannot get Phy DB cfg section\n", DEVNAME(sc)));
+		DPRINTF(("%s: Cannot get Phy DB cfg section, %d\n",
+		    DEVNAME(sc), err));
 		return err;
 	}
 
 	err = iwm_send_phy_db_cmd(sc, IWM_PHY_DB_CFG, size, data);
 	if (err) {
-		DPRINTF(("%s: Cannot send HCMD of  Phy DB cfg section\n",
-		    DEVNAME(sc)));
+		DPRINTF(("%s: Cannot send HCMD of Phy DB cfg section, %d\n",
+		    DEVNAME(sc), err));
 		return err;
 	}
 
 	err = iwm_phy_db_get_section_data(sc, IWM_PHY_DB_CALIB_NCH,
 	    &data, &size, 0);
 	if (err) {
-		DPRINTF(("%s: Cannot get Phy DB non specific channel section\n",
-		    DEVNAME(sc)));
+		DPRINTF(("%s: Cannot get Phy DB non specific channel section, "
+		    "%d\n", DEVNAME(sc), err));
 		return err;
 	}
 
@@ -2119,8 +2107,8 @@ iwm_send_phy_db_data(struct iwm_softc *sc)
 	err = iwm_phy_db_send_all_channel_groups(sc,
 	    IWM_PHY_DB_CALIB_CHG_PAPD, IWM_NUM_PAPD_CH_GROUPS);
 	if (err) {
-		DPRINTF(("%s: Cannot send channel specific PAPD groups\n",
-		    DEVNAME(sc)));
+		DPRINTF(("%s: Cannot send channel specific PAPD groups, %d\n",
+		    DEVNAME(sc), err));
 		return err;
 	}
 
@@ -2128,8 +2116,8 @@ iwm_send_phy_db_data(struct iwm_softc *sc)
 	err = iwm_phy_db_send_all_channel_groups(sc,
 	    IWM_PHY_DB_CALIB_CHG_TXP, IWM_NUM_TXP_CH_GROUPS);
 	if (err) {
-		DPRINTF(("%s: Cannot send channel specific TX power groups\n",
-		    DEVNAME(sc)));
+		DPRINTF(("%s: Cannot send channel specific TX power groups, "
+		    "%d\n", DEVNAME(sc), err));
 		return err;
 	}
 
@@ -2524,7 +2512,11 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
 
 	sku = le16_to_cpup(nvm_sw + IWM_SKU);
 	data->sku_cap_band_24GHz_enable = sku & IWM_NVM_SKU_CAP_BAND_24GHZ;
+#ifndef IWM_NO_5GHZ
 	data->sku_cap_band_52GHz_enable = sku & IWM_NVM_SKU_CAP_BAND_52GHZ;
+#else
+	data->sku_cap_band_52GHz_enable = 0;
+#endif
 	data->sku_cap_11n_enable = 0;
 
 	if (!data->valid_tx_ant || !data->valid_rx_ant) {
@@ -2808,7 +2800,6 @@ iwm_mvm_load_ucode_wait_alive(struct iwm_softc *sc,
 int
 iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 {
-	struct ifnet *ifp = IC2IFP(&sc->sc_ic);
 	int error;
 
 	/* do not operate with rfkill switch turned on */
@@ -2830,10 +2821,6 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 		}
 		memcpy(&sc->sc_ic.ic_myaddr,
 		    &sc->sc_nvm.hw_addr, ETHER_ADDR_LEN);
-		memcpy((caddr_t)((struct arpcom *)ifp)->ac_enaddr,
-			&sc->sc_nvm.hw_addr, ETHER_ADDR_LEN);
-		memcpy(LLADDR(ifp->if_sadl), &sc->sc_nvm.hw_addr,
-		    ifp->if_addrlen);
 
 		sc->sc_scan_cmd_len = sizeof(struct iwm_scan_cmd)
 		    + sc->sc_capa_max_probe_len
@@ -3080,8 +3067,6 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	/* replenish ring for the buffer we're going to feed to the sharks */
 	if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur) != 0)
 		return;
-
-	m->m_pkthdr.rcvif = IC2IFP(ic);
 
 	if (sc->sc_scanband == IEEE80211_CHAN_5GHZ) {
 		if (le32toh(phy_info->channel) < nitems(ic->ic_channels))
@@ -5470,7 +5455,7 @@ iwm_endscan_cb(void *arg)
 	DPRINTF(("scan ended\n"));
 
 	if (sc->sc_scanband == IEEE80211_CHAN_2GHZ) {
-#ifndef IWM_NO_5GHZ /* for quick testing, makes scan few sec faster */
+#ifndef IWM_NO_5GHZ
 		int error;
 		done = 0;
 		if ((error = iwm_mvm_scan_request(sc,
@@ -5731,6 +5716,18 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 
 	s = splnet();
 
+	/*
+	 * Prevent processes from entering this function while another
+	 * process is tsleep'ing in it.
+	 */
+	while ((sc->sc_flags & IWM_FLAG_BUSY) && error == 0)
+		error = tsleep(&sc->sc_flags, PCATCH, "iwmioc", 0);
+	if (error != 0) {
+		splx(s);
+		return error;
+	}
+	sc->sc_flags |= IWM_FLAG_BUSY;
+
 	switch (cmd) {
 	case SIOCSIFADDR:
 		ifp->if_flags |= IFF_UP;
@@ -5773,6 +5770,8 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 		}
 	}
 
+	sc->sc_flags &= ~IWM_FLAG_BUSY;
+	wakeup(&sc->sc_flags);
 	splx(s);
 	return error;
 }
@@ -6240,7 +6239,7 @@ iwm_intr(void *arg)
 		DPRINTF(("  802.11 state %d\n", sc->sc_ic.ic_state));
 #endif
 
-		printf("%s: firmware error, stopping device\n", DEVNAME(sc));
+		printf("%s: fatal firmware error\n", DEVNAME(sc));
 		ifp->if_flags &= ~IFF_UP;
 		iwm_stop(ifp, 1);
 		rv = 1;
@@ -6332,6 +6331,8 @@ iwm_match(struct device *parent, iwm_match_t match __unused, void *aux)
 int
 iwm_preinit(struct iwm_softc *sc)
 {
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ifnet *ifp = IC2IFP(ic);
 	int error;
 	static int attached;
 
@@ -6361,6 +6362,17 @@ iwm_preinit(struct iwm_softc *sc)
 	    IWM_UCODE_MINOR(sc->sc_fwver),
 	    IWM_UCODE_API(sc->sc_fwver),
 	    ether_sprintf(sc->sc_nvm.hw_addr));
+
+	/* Reattach net80211 so MAC address and channel map are picked up. */
+	ieee80211_ifdetach(ifp);
+	ieee80211_ifattach(ifp);
+
+	ic->ic_node_alloc = iwm_node_alloc;
+
+	/* Override 802.11 state transition machine. */
+	sc->sc_newstate = ic->ic_newstate;
+	ic->ic_newstate = iwm_newstate;
+	ieee80211_media_init(ifp, iwm_media_change, ieee80211_media_status);
 
 	return 0;
 }
@@ -6527,9 +6539,11 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE;	/* short preamble supported */
 
-	ic->ic_sup_rates[IEEE80211_MODE_11A] = iwm_rateset_11a;
-	ic->ic_sup_rates[IEEE80211_MODE_11B] = iwm_rateset_11b;
-	ic->ic_sup_rates[IEEE80211_MODE_11G] = iwm_rateset_11g;
+#ifndef IWM_NO_5GHZ
+	ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
+#endif
+	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
+	ic->ic_sup_rates[IEEE80211_MODE_11G] = ieee80211_std_rateset_11g;
 
 	for (i = 0; i < nitems(sc->sc_phyctxt); i++) {
 		sc->sc_phyctxt[i].id = i;
@@ -6554,12 +6568,6 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 
 	if_attach(ifp);
 	ieee80211_ifattach(ifp);
-
-	ic->ic_node_alloc = iwm_node_alloc;
-
-	/* Override 802.11 state transition machine. */
-	sc->sc_newstate = ic->ic_newstate;
-	ic->ic_newstate = iwm_newstate;
 	ieee80211_media_init(ifp, iwm_media_change, ieee80211_media_status);
 
 #if NBPFILTER > 0

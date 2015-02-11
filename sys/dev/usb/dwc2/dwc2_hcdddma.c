@@ -1,3 +1,4 @@
+/*	$OpenBSD: dwc2_hcdddma.c,v 1.8 2015/02/10 23:43:46 uebayasi Exp $	*/
 /*	$NetBSD: dwc2_hcdddma.c,v 1.6 2014/04/03 06:34:58 skrll Exp $	*/
 
 /*
@@ -39,28 +40,34 @@
 /*
  * This file contains the Descriptor DMA implementation for Host mode
  */
+#if 0
 #include <sys/cdefs.h>
 __KERNEL_RCSID(0, "$NetBSD: dwc2_hcdddma.c,v 1.6 2014/04/03 06:34:58 skrll Exp $");
+#endif
 
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/kernel.h>
-#include <sys/kmem.h>
+#include <sys/malloc.h>
+#if 0
 #include <sys/cpu.h>
+#endif
+
+#include <machine/bus.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
 
-#include <linux/kernel.h>
-#include <linux/list.h>
+#include <dev/usb/dwc2/linux/kernel.h>
+#include <dev/usb/dwc2/linux/list.h>
 
-#include <dwc2/dwc2.h>
-#include <dwc2/dwc2var.h>
+#include <dev/usb/dwc2/dwc2.h>
+#include <dev/usb/dwc2/dwc2var.h>
 
-#include "dwc2_core.h"
-#include "dwc2_hcd.h"
+#include <dev/usb/dwc2/dwc2_core.h>
+#include <dev/usb/dwc2/dwc2_hcd.h>
 
 static u16 dwc2_frame_list_idx(u16 frame)
 {
@@ -99,7 +106,7 @@ static int dwc2_desc_list_alloc(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh,
 {
 	int err;
 
-	KASSERT(!cpu_intr_p() && !cpu_softintr_p());
+	//KASSERT(!cpu_intr_p() && !cpu_softintr_p());
 
 	qh->desc_list = NULL;
 	err = usb_allocmem(&hsotg->hsotg_sc->sc_bus,
@@ -117,7 +124,8 @@ static int dwc2_desc_list_alloc(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh,
 	memset(qh->desc_list, 0,
 	       sizeof(struct dwc2_hcd_dma_desc) * dwc2_max_desc_num(qh));
 
-	qh->n_bytes = kmem_zalloc(sizeof(u32) * dwc2_max_desc_num(qh), KM_SLEEP);
+	qh->n_bytes = malloc(sizeof(u32) * dwc2_max_desc_num(qh), M_DEVBUF,
+	    M_ZERO | M_WAITOK);
 	if (!qh->n_bytes) {
 		usb_freemem(&hsotg->hsotg_sc->sc_bus, &qh->desc_list_usbdma);
 		qh->desc_list = NULL;
@@ -134,7 +142,7 @@ static void dwc2_desc_list_free(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh)
 		qh->desc_list = NULL;
 	}
 
-	kmem_free(qh->n_bytes, sizeof(u32) * dwc2_max_desc_num(qh));
+	free(qh->n_bytes, M_DEVBUF, sizeof(u32) * dwc2_max_desc_num(qh));
 	qh->n_bytes = NULL;
 }
 
@@ -145,7 +153,7 @@ static int dwc2_frame_list_alloc(struct dwc2_hsotg *hsotg, gfp_t mem_flags)
 	if (hsotg->frame_list)
 		return 0;
 
-	/* XXXNH - pool_cache_t */
+	/* XXXNH - struct pool */
 	hsotg->frame_list = NULL;
 	err = usb_allocmem(&hsotg->hsotg_sc->sc_bus, 4 * FRLISTEN_64_SIZE,
 	    0, &hsotg->frame_list_usbdma);
@@ -164,7 +172,7 @@ static int dwc2_frame_list_alloc(struct dwc2_hsotg *hsotg, gfp_t mem_flags)
 
 static void dwc2_frame_list_free(struct dwc2_hsotg *hsotg)
 {
-	usb_dma_t frame_list_usbdma;
+	struct usb_dma frame_list_usbdma;
 	unsigned long flags;
 
 	spin_lock_irqsave(&hsotg->lock, flags);

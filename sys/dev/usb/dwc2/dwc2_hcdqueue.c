@@ -1,3 +1,4 @@
+/*	$OpenBSD: dwc2_hcdqueue.c,v 1.5 2015/02/10 14:18:34 uebayasi Exp $	*/
 /*	$NetBSD: dwc2_hcdqueue.c,v 1.11 2014/09/03 10:00:08 skrll Exp $	*/
 
 /*
@@ -41,27 +42,30 @@
  * Transfer Descriptors for Host mode
  */
 
+#if 0
 #include <sys/cdefs.h>
 __KERNEL_RCSID(0, "$NetBSD: dwc2_hcdqueue.c,v 1.11 2014/09/03 10:00:08 skrll Exp $");
+#endif
 
+#include <sys/param.h>
 #include <sys/types.h>
-#include <sys/kmem.h>
+#include <sys/malloc.h>
 #include <sys/pool.h>
+
+#include <machine/bus.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
 
-#include <machine/param.h>
+#include <dev/usb/dwc2/linux/kernel.h>
 
-#include <linux/kernel.h>
+#include <dev/usb/dwc2/dwc2.h>
+#include <dev/usb/dwc2/dwc2var.h>
 
-#include <dwc2/dwc2.h>
-#include <dwc2/dwc2var.h>
-
-#include "dwc2_core.h"
-#include "dwc2_hcd.h"
+#include <dev/usb/dwc2/dwc2_core.h>
+#include <dev/usb/dwc2/dwc2_hcd.h>
 
 static u32 dwc2_calc_bus_time(struct dwc2_hsotg *, int, int, int, int);
 
@@ -217,7 +221,7 @@ static struct dwc2_qh *dwc2_hcd_qh_create(struct dwc2_hsotg *hsotg,
 		return NULL;
 
 	/* Allocate memory */
-	qh = pool_cache_get(sc->sc_qhpool, PR_NOWAIT);
+	qh = pool_get(&sc->sc_qhpool, PR_NOWAIT);
 	if (!qh)
 		return NULL;
 
@@ -255,7 +259,7 @@ void dwc2_hcd_qh_free(struct dwc2_hsotg *hsotg, struct dwc2_qh *qh)
 		usb_freemem(&hsotg->hsotg_sc->sc_bus, &qh->dw_align_buf_usbdma);
 	}
 
-	pool_cache_put(sc->sc_qhpool, qh);
+	pool_put(&sc->sc_qhpool, qh);
 }
 
 /**
@@ -847,7 +851,7 @@ void dwc2_hcd_qtd_unlink_and_free(struct dwc2_hsotg *hsotg,
 	struct dwc2_softc *sc = hsotg->hsotg_sc;
 
 	list_del_init(&qtd->qtd_list_entry);
- 	pool_cache_put(sc->sc_qtdpool, qtd);
+ 	pool_put(&sc->sc_qtdpool, qtd);
 }
 
 #define BITSTUFFTIME(bytecount)	((8 * 7 * (bytecount)) / 6)

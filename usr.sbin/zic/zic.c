@@ -1,4 +1,4 @@
-/*	$OpenBSD: zic.c,v 1.15 2015/02/10 05:45:46 tedu Exp $	*/
+/*	$OpenBSD: zic.c,v 1.17 2015/02/11 01:07:37 deraadt Exp $	*/
 /*
 ** This file is in the public domain, so clarified as of
 ** 2006-07-17 by Arthur David Olson.
@@ -94,7 +94,6 @@ static int	addtype(long gmtoff, const char * abbr, int isdst,
 static void	leapadd(zic_t t, int positive, int rolling, int count);
 static void	adjleap(void);
 static void	associate(void);
-static int	ciequal(const char * ap, const char * bp);
 static void	convert(long val, char * buf);
 static void	convert64(zic_t val, char * buf);
 static void	dolink(const char * fromfield, const char * tofield);
@@ -118,7 +117,6 @@ static int	inzsub(char ** fields, int nfields, int iscont);
 static int	is32(zic_t x);
 static int	itsabbr(const char * abbr, const char * word);
 static int	itsdir(const char * name);
-static int	lowerit(int c);
 static int	mkdirs(char * filename);
 static void	newabbr(const char * abbr);
 static long	oadd(long t1, long t2);
@@ -382,6 +380,7 @@ ecatalloc(char *start, const char *tail)
 }
 
 #define emalloc(size)		memcheck(malloc(size))
+#define ereallocarray(ptr, nmemb, size)		memcheck(reallocarray(ptr, nmemb, size))
 #define erealloc(ptr, size)	memcheck(realloc((ptr), (size)))
 #define ecpyalloc(ptr)		memcheck(strdup(ptr))
 
@@ -447,7 +446,7 @@ scheck(const char *string, const char *format)
 	result = "";
 	if (string == NULL || format == NULL)
 		return result;
-	fbuf = malloc(2 * strlen(format) + 4);
+	fbuf = reallocarray(NULL, strlen(format) + 2, 2);
 	if (fbuf == NULL)
 		return result;
 	fp = format;
@@ -907,7 +906,7 @@ inrule(char **fields, int nfields)
 	r.r_abbrvar = ecpyalloc(fields[RF_ABBRVAR]);
 	if (max_abbrvar_len < strlen(r.r_abbrvar))
 		max_abbrvar_len = strlen(r.r_abbrvar);
-	rules = erealloc(rules, (nrules + 1) * sizeof *rules);
+	rules = ereallocarray(rules, nrules + 1, sizeof *rules);
 	rules[nrules++] = r;
 }
 
@@ -1031,7 +1030,7 @@ inzsub(char **fields, int nfields, int iscont)
 				return FALSE;
 		}
 	}
-	zones = erealloc(zones, (nzones + 1) * sizeof *zones);
+	zones = ereallocarray(zones, nzones + 1, sizeof *zones);
 	zones[nzones++] = z;
 	/*
 	** If there was an UNTIL field on this line,
@@ -1161,7 +1160,7 @@ inlink(char **fields, int nfields)
 	l.l_linenum = linenum;
 	l.l_from = ecpyalloc(fields[LF_FROM]);
 	l.l_to = ecpyalloc(fields[LF_TO]);
-	links = erealloc(links, (nlinks + 1) * sizeof *links);
+	links = ereallocarray(links, nlinks + 1, sizeof *links);
 	links[nlinks++] = l;
 }
 
@@ -1190,7 +1189,7 @@ const char * const		timep;
 	dp = ecpyalloc(timep);
 	if (*dp != '\0') {
 		ep = dp + strlen(dp) - 1;
-		switch (lowerit(*ep)) {
+		switch (tolower((unsigned char)*ep)) {
 			case 's':	/* Standard */
 				rp->r_todisstd = TRUE;
 				rp->r_todisgmt = FALSE;
@@ -2295,38 +2294,21 @@ yearistype(int year, const char *type)
 	errx(1, "command was '%s', result was %d", buf, result);
 }
 
+/* this function is not strncasecmp */
 static int
-lowerit(a)
-int	a;
+itsabbr(const char *sabbr, const char *sword)
 {
-	a = (unsigned char) a;
-	return (isascii(a) && isupper(a)) ? tolower(a) : a;
-}
+	const unsigned char *abbr = sabbr;
+	const unsigned char *word = sword;
 
-static int
-ciequal(ap, bp)		/* case-insensitive equality */
-const char *	ap;
-const char *	bp;
-{
-	while (lowerit(*ap) == lowerit(*bp++))
-		if (*ap++ == '\0')
-			return TRUE;
-	return FALSE;
-}
-
-static int
-itsabbr(abbr, word)
-const char *	abbr;
-const char *	word;
-{
-	if (lowerit(*abbr) != lowerit(*word))
+	if (tolower(*abbr) != tolower(*word))
 		return FALSE;
-	++word;
 	while (*++abbr != '\0')
 		do {
+			++word;
 			if (*word == '\0')
 				return FALSE;
-		} while (lowerit(*word++) != lowerit(*abbr));
+		} while (tolower(*word) != tolower(*abbr));
 	return TRUE;
 }
 
@@ -2342,7 +2324,7 @@ byword(const char *word, const struct lookup *table)
 	** Look for exact match.
 	*/
 	for (lp = table; lp->l_word != NULL; ++lp)
-		if (ciequal(word, lp->l_word))
+		if (strcasecmp(word, lp->l_word) == 0)
 			return lp;
 	/*
 	** Look for inexact match.
@@ -2352,7 +2334,8 @@ byword(const char *word, const struct lookup *table)
 		if (itsabbr(word, lp->l_word)) {
 			if (foundlp == NULL)
 				foundlp = lp;
-			else	return NULL;	/* multiple inexact matches */
+			else
+				return NULL;	/* multiple inexact matches */
 		}
 	return foundlp;
 }
@@ -2366,7 +2349,7 @@ getfields(char *cp)
 
 	if (cp == NULL)
 		return NULL;
-	array = emalloc((strlen(cp) + 1) * sizeof *array);
+	array = ereallocarray(NULL, strlen(cp) + 1, sizeof *array);
 	nsubs = 0;
 	for ( ; ; ) {
 		while (isascii((unsigned char) *cp) &&

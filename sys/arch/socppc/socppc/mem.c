@@ -1,4 +1,4 @@
-/*	$OpenBSD: mem.c,v 1.2 2008/11/05 06:32:47 matthieu Exp $	*/
+/*	$OpenBSD: mem.c,v 1.4 2015/02/10 22:44:35 miod Exp $	*/
 /*	$NetBSD: mem.c,v 1.1 1996/09/30 16:34:50 ws Exp $ */
 
 /*
@@ -127,7 +127,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 		/* minor device 1 is kernel memory */
 		case 1:
 			v = uio->uio_offset;
-			c = min(iov->iov_len, MAXPHYS);
+			c = ulmin(iov->iov_len, MAXPHYS);
 			error = uiomove((caddr_t)v, c, uio);
 			continue;
 
@@ -148,7 +148,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 			if (zeropage == NULL)
 				zeropage = malloc(PAGE_SIZE, M_TEMP,
 				    M_WAITOK | M_ZERO);
-			c = min(iov->iov_len, PAGE_SIZE);
+			c = ulmin(iov->iov_len, PAGE_SIZE);
 			error = uiomove(zeropage, c, uio);
 			continue;
 

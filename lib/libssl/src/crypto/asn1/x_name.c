@@ -1,4 +1,4 @@
-/* $OpenBSD: x_name.c,v 1.23 2015/02/10 05:25:45 jsing Exp $ */
+/* $OpenBSD: x_name.c,v 1.26 2015/02/11 04:00:39 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -87,10 +87,27 @@ static int i2d_name_canon(STACK_OF(STACK_OF_X509_NAME_ENTRY) *intname,
 static int x509_name_ex_print(BIO *out, ASN1_VALUE **pval, int indent,
     const char *fname, const ASN1_PCTX *pctx);
 
-ASN1_SEQUENCE(X509_NAME_ENTRY) = {
-	ASN1_SIMPLE(X509_NAME_ENTRY, object, ASN1_OBJECT),
-	ASN1_SIMPLE(X509_NAME_ENTRY, value, ASN1_PRINTABLE)
-} ASN1_SEQUENCE_END(X509_NAME_ENTRY)
+static const ASN1_TEMPLATE X509_NAME_ENTRY_seq_tt[] = {
+	{
+		.offset = offsetof(X509_NAME_ENTRY, object),
+		.field_name = "object",
+		.item = &ASN1_OBJECT_it,
+	},
+	{
+		.offset = offsetof(X509_NAME_ENTRY, value),
+		.field_name = "value",
+		.item = &ASN1_PRINTABLE_it,
+	},
+};
+
+const ASN1_ITEM X509_NAME_ENTRY_it = {
+	.itype = ASN1_ITYPE_SEQUENCE,
+	.utype = V_ASN1_SEQUENCE,
+	.templates = X509_NAME_ENTRY_seq_tt,
+	.tcount = sizeof(X509_NAME_ENTRY_seq_tt) / sizeof(ASN1_TEMPLATE),
+	.size = sizeof(X509_NAME_ENTRY),
+	.sname = "X509_NAME_ENTRY",
+};
 
 
 X509_NAME_ENTRY *
@@ -577,6 +594,3 @@ X509_NAME_set(X509_NAME **xn, X509_NAME *name)
 	}
 	return (*xn != NULL);
 }
-
-IMPLEMENT_STACK_OF(X509_NAME_ENTRY)
-IMPLEMENT_ASN1_SET_OF(X509_NAME_ENTRY)

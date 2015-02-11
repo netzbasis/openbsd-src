@@ -1,4 +1,4 @@
-/* $OpenBSD: gostr341001_pmeth.c,v 1.6 2014/11/13 20:29:55 miod Exp $ */
+/* $OpenBSD: gostr341001_pmeth.c,v 1.10 2015/02/11 04:05:14 beck Exp $ */
 /*
  * Copyright (c) 2014 Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
  * Copyright (c) 2005-2006 Cryptocom LTD
@@ -54,6 +54,7 @@
 #include <openssl/opensslconf.h>
 
 #ifndef OPENSSL_NO_GOST
+#include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/gost.h>
@@ -248,7 +249,10 @@ pkey_gost01_sign(EVP_PKEY_CTX *ctx, unsigned char *sig, size_t *siglen,
 		GOSTerr(GOST_F_PKEY_GOST01_SIGN, EC_R_BUFFER_TOO_SMALL);
 		return 0;
 	}
-	OPENSSL_assert(tbs_len == 32 || tbs_len == 64);
+	if (tbs_len != 32 && tbs_len != 64) {
+		GOSTerr(GOST_F_PKEY_GOST01_SIGN, EVP_R_BAD_BLOCK_LENGTH);
+		return 0;
+	}
 	md = GOST_le2bn(tbs, tbs_len, NULL);
 	if (md == NULL)
 		return 0;
@@ -411,11 +415,23 @@ pkey_gost01_decrypt(EVP_PKEY_CTX *pctx, unsigned char *key, size_t *key_len,
 
 	nid = OBJ_obj2nid(gkt->key_agreement_info->cipher);
 
-	OPENSSL_assert(gkt->key_agreement_info->eph_iv->length == 8);
+	if (gkt->key_agreement_info->eph_iv->length != 8) {
+		GOSTerr(GOST_F_PKEY_GOST01_DECRYPT,
+		    GOST_R_INVALID_IV_LENGTH);
+		goto err;
+	}
 	memcpy(wrappedKey, gkt->key_agreement_info->eph_iv->data, 8);
-	OPENSSL_assert(gkt->key_info->encrypted_key->length == 32);
+	if (gkt->key_info->encrypted_key->length != 32) {
+		GOSTerr(GOST_F_PKEY_GOST01_DECRYPT,
+		    EVP_R_BAD_KEY_LENGTH);
+		goto err;
+	}
 	memcpy(wrappedKey + 8, gkt->key_info->encrypted_key->data, 32);
-	OPENSSL_assert(gkt->key_info->imit->length == 4);
+	if (gkt->key_info->imit->length != 4) {
+		GOSTerr(GOST_F_PKEY_GOST01_DECRYPT,
+		    ERR_R_INTERNAL_ERROR);
+		goto err;
+	}
 	memcpy(wrappedKey + 40, gkt->key_info->imit->data, 4);
 	if (gost01_VKO_key(peerkey, priv, wrappedKey, sharedKey) <= 0)
 		goto err;

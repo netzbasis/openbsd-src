@@ -1,3 +1,4 @@
+/*	$OpenBSD: dwc2_coreintr.c,v 1.5 2015/02/10 23:10:21 uebayasi Exp $	*/
 /*	$NetBSD: dwc2_coreintr.c,v 1.8 2014/04/04 05:40:57 skrll Exp $	*/
 
 /*
@@ -40,29 +41,32 @@
  * This file contains the common interrupt handlers
  */
 
+#if 0
 #include <sys/cdefs.h>
 __KERNEL_RCSID(0, "$NetBSD: dwc2_coreintr.c,v 1.8 2014/04/04 05:40:57 skrll Exp $");
+#endif
 
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/mutex.h>
 #include <sys/pool.h>
-#include <sys/bus.h>
-#include <sys/callout.h>
+#include <sys/timeout.h>
+
+#include <machine/bus.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
 
-#include <linux/kernel.h>
-#include <linux/list.h>
+#include <dev/usb/dwc2/linux/kernel.h>
+#include <dev/usb/dwc2/linux/list.h>
 
-#include <dwc2/dwc2.h>
-#include <dwc2/dwc2var.h>
+#include <dev/usb/dwc2/dwc2.h>
+#include <dev/usb/dwc2/dwc2var.h>
 
-#include "dwc2_core.h"
-#include "dwc2_hcd.h"
+#include <dev/usb/dwc2/dwc2_core.h>
+#include <dev/usb/dwc2/dwc2_hcd.h>
 
 #ifdef DWC2_DEBUG
 static const char *dwc2_op_state_str(struct dwc2_hsotg *hsotg)
@@ -301,7 +305,7 @@ static void dwc2_handle_conn_id_status_change_intr(struct dwc2_hsotg *hsotg)
 	 * scheduling.
 	 */
 	spin_unlock(&hsotg->lock);
-	workqueue_enqueue(hsotg->wq_otg, &hsotg->wf_otg, NULL);
+	task_add(hsotg->wq_otg, &hsotg->wf_otg);
 	spin_lock(&hsotg->lock);
 
 	/* Clear interrupt */
@@ -357,7 +361,7 @@ static void dwc2_handle_wakeup_detected_intr(struct dwc2_hsotg *hsotg)
 			/* Restart the Phy Clock */
 			pcgcctl &= ~PCGCTL_STOPPCLK;
 			DWC2_WRITE_4(hsotg, PCGCTL, pcgcctl);
-			callout_reset(&hsotg->wkp_timer, mstohz(71),
+			timeout_reset(&hsotg->wkp_timer, mstohz(71),
 			    dwc2_wakeup_detected, hsotg);
 		} else {
 			/* Change to L0 state */
@@ -485,7 +489,7 @@ irqreturn_t dwc2_handle_common_intr(void *dev)
 		goto out;
 	}
 
-	KASSERT(mutex_owned(&hsotg->lock));
+	KASSERT(mtx_owned(&hsotg->lock));
 
 	gintsts = dwc2_read_common_intr(hsotg);
 	if (gintsts & ~GINTSTS_PRTINT)

@@ -1,3 +1,4 @@
+/*	$OpenBSD: dwc2_hcd.h,v 1.7 2015/02/10 23:43:46 uebayasi Exp $	*/
 /*	$NetBSD: dwc2_hcd.h,v 1.9 2014/09/03 10:00:08 skrll Exp $	*/
 
 /*
@@ -132,7 +133,7 @@ struct dwc2_host_chan {
 
 	unsigned multi_count:2;
 
-	usb_dma_t *xfer_usbdma;
+	struct usb_dma *xfer_usbdma;
 	u8 *xfer_buf;
 	dma_addr_t xfer_dma;
 	dma_addr_t align_buf;
@@ -184,10 +185,10 @@ struct dwc2_qtd;
 struct dwc2_hcd_urb {
 	void *priv;		/* the xfer handle */
 	struct dwc2_qtd *qtd;
-	usb_dma_t *usbdma;
+	struct usb_dma *usbdma;
 	u8 *buf;
 	dma_addr_t dma;
-	usb_dma_t *setup_usbdma;
+	struct usb_dma *setup_usbdma;
 	void *setup_packet;
 	dma_addr_t setup_dma;
 	u32 length;
@@ -282,13 +283,13 @@ struct dwc2_qh {
 	u16 frame_usecs[8];
 	u16 start_split_frame;
 	u16 ntd;
-	usb_dma_t dw_align_buf_usbdma;
+	struct usb_dma dw_align_buf_usbdma;
 	u8 *dw_align_buf;
 	dma_addr_t dw_align_buf_dma;
 	struct list_head qtd_list;
 	struct dwc2_host_chan *channel;
 	struct list_head qh_list_entry;
-	usb_dma_t desc_list_usbdma;
+	struct usb_dma desc_list_usbdma;
 	struct dwc2_hcd_dma_desc *desc_list;
 	dma_addr_t desc_list_dma;
 	u32 *n_bytes;
@@ -620,7 +621,7 @@ static inline u32 dwc2_hcd_urb_get_iso_desc_actual_length(
 }
 
 static inline int dwc2_hcd_is_bandwidth_allocated(struct dwc2_hsotg *hsotg,
-						  usbd_xfer_handle xfer)
+						  struct usbd_xfer *xfer)
 {
 	struct dwc2_pipe *dpipe = DWC2_XFER2DPIPE(xfer);
 	struct dwc2_qh *qh = dpipe->priv;
@@ -779,9 +780,9 @@ int dwc2_hcd_urb_enqueue(struct dwc2_hsotg *, struct dwc2_hcd_urb *, void **,
 void dwc2_hcd_urb_set_pipeinfo(struct dwc2_hsotg *, struct dwc2_hcd_urb *,
 			       u8 ,u8, u8, u8, u16);
 
-void dwc2_conn_id_status_change(struct work *);
-void dwc2_hcd_start_func(struct work *);
-void dwc2_hcd_reset_func(struct work *);
+void dwc2_conn_id_status_change(struct task *);
+void dwc2_hcd_start_func(struct task *);
+void dwc2_hcd_reset_func(struct task *);
 
 struct dwc2_hcd_urb * dwc2_hcd_urb_alloc(struct dwc2_hsotg *, int, gfp_t);
 void dwc2_hcd_urb_free(struct dwc2_hsotg *, struct dwc2_hcd_urb *, int);

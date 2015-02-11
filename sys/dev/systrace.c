@@ -1,4 +1,4 @@
-/*	$OpenBSD: systrace.c,v 1.72 2015/01/19 18:37:19 deraadt Exp $	*/
+/*	$OpenBSD: systrace.c,v 1.74 2015/02/10 22:03:11 miod Exp $	*/
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.

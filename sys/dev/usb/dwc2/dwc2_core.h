@@ -1,3 +1,4 @@
+/*	$OpenBSD: dwc2_core.h,v 1.7 2015/02/10 23:43:46 uebayasi Exp $	*/
 /*	$NetBSD: dwc2_core.h,v 1.5 2014/04/03 06:34:58 skrll Exp $	*/
 
 /*
@@ -40,15 +41,17 @@
 #define __DWC2_CORE_H__
 
 #include <sys/stdint.h>
-#include <sys/workqueue.h>
+#include <sys/task.h>
 #include <sys/pool.h>
 #include <sys/queue.h>
 #include <sys/device.h>
 
 #include <machine/intr.h>
-#include <sys/bus.h>
+#include <machine/bus.h>
 
-#include "dwc2_hw.h"
+#include <dev/usb/dwc2/linux/list.h>
+
+#include <dev/usb/dwc2/dwc2_hw.h>
 
 /* Maximum number of Endpoints/HostChannels */
 #define MAX_EPS_CHANNELS	16
@@ -402,7 +405,7 @@ struct dwc2_hw_params {
  * @frame_list_dma:     Frame list DMA address
  */
 struct dwc2_hsotg {
-	device_t dev;
+	struct device *dev;
 	struct dwc2_softc *hsotg_sc;
 	/** Params detected from hardware */
 	struct dwc2_hw_params hw_params;
@@ -413,9 +416,9 @@ struct dwc2_hsotg {
 	unsigned int queuing_high_bandwidth:1;
 	unsigned int srp_success:1;
 
-	struct workqueue *wq_otg;
-	struct work wf_otg;
-	struct callout wkp_timer;
+	struct taskq *wq_otg;
+	struct task wf_otg;
+	struct timeout wkp_timer;
 	enum dwc2_lx_state lx_state;
 
 	union dwc2_hcd_internal_flags {
@@ -458,7 +461,7 @@ struct dwc2_hsotg {
 	int non_periodic_channels;
 	int available_host_channels;
 	struct dwc2_host_chan *hc_ptr_array[MAX_EPS_CHANNELS];
-	usb_dma_t status_buf_usbdma;
+	struct usb_dma status_buf_usbdma;
 	u8 *status_buf;
 	dma_addr_t status_buf_dma;
 #define DWC2_HCD_STATUS_BUF_SIZE 64
@@ -468,7 +471,7 @@ struct dwc2_hsotg {
 	spinlock_t lock;
 	void *priv;
 	u8 otg_port;
-	usb_dma_t frame_list_usbdma;
+	struct usb_dma frame_list_usbdma;
 	u32 *frame_list;
 	dma_addr_t frame_list_dma;
 

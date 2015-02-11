@@ -1,5 +1,5 @@
 /*	$NetBSD: mem.c,v 1.31 1996/05/03 19:42:19 christos Exp $	*/
-/*	$OpenBSD: mem.c,v 1.41 2014/11/16 12:30:57 deraadt Exp $ */
+/*	$OpenBSD: mem.c,v 1.43 2015/02/10 22:44:35 miod Exp $ */
 /*
  * Copyright (c) 1988 University of Utah.
  * Copyright (c) 1982, 1986, 1990, 1993
@@ -115,7 +115,7 @@ int
 mmrw(dev_t dev, struct uio *uio, int flags)
 {
 	vaddr_t o, v;
-	int c;
+	size_t c;
 	struct iovec *iov;
 	int error = 0;
 	static int physlock;
@@ -150,7 +150,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 			    PROT_READ : PROT_WRITE, PMAP_WIRED);
 			pmap_update(pmap_kernel());
 			o = uio->uio_offset & PGOFSET;
-			c = min(uio->uio_resid, (int)(NBPG - o));
+			c = ulmin(uio->uio_resid, NBPG - o);
 			error = uiomove((caddr_t)vmmap + o, c, uio);
 			pmap_remove(pmap_kernel(), (vaddr_t)vmmap,
 			    (vaddr_t)vmmap + NBPG);
@@ -160,7 +160,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 /* minor device 1 is kernel memory */
 		case 1:
 			v = uio->uio_offset;
-			c = min(iov->iov_len, MAXPHYS);
+			c = ulmin(iov->iov_len, MAXPHYS);
 			if (!uvm_kernacc((caddr_t)v, c,
 			    uio->uio_rw == UIO_READ ? B_READ : B_WRITE))
 				return (EFAULT);
@@ -183,7 +183,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 				zeropage = malloc(PAGE_SIZE, M_TEMP,
 				    M_WAITOK|M_ZERO);
 			}
-			c = min(iov->iov_len, PAGE_SIZE);
+			c = ulmin(iov->iov_len, PAGE_SIZE);
 			error = uiomove(zeropage, c, uio);
 			continue;
 

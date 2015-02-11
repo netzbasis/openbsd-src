@@ -1,4 +1,4 @@
-/*	$OpenBSD: openprom.c,v 1.18 2014/07/12 18:44:43 tedu Exp $	*/
+/*	$OpenBSD: openprom.c,v 1.20 2015/02/11 01:14:06 miod Exp $	*/
 /*	$NetBSD: openprom.c,v 1.4 2002/01/10 06:21:53 briggs Exp $ */
 
 /*
@@ -98,6 +98,9 @@ openpromread(dev_t dev, struct uio *uio, int flags)
 
 	if (minor(dev) != 1)
 		return (ENXIO);
+
+	if (uio->uio_offset < 0)
+		return (EINVAL);
 
 	while (uio->uio_resid > 0) {
 		if (uio->uio_offset >= mdesc_len)

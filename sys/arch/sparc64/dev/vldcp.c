@@ -1,4 +1,4 @@
-/*	$OpenBSD: vldcp.c,v 1.10 2015/01/25 21:42:13 kettenis Exp $	*/
+/*	$OpenBSD: vldcp.c,v 1.12 2015/02/10 22:04:00 miod Exp $	*/
 /*
  * Copyright (c) 2009, 2012 Mark Kettenis
  *
