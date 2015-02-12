@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.h,v 1.5 2015/02/07 23:25:37 reyk Exp $ */
+/* $OpenBSD: tls.h,v 1.9 2015/02/12 04:35:17 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -25,7 +25,9 @@
 #define TLS_PROTOCOL_TLSv1_2	(1 << 3)
 #define TLS_PROTOCOL_TLSv1 \
 	(TLS_PROTOCOL_TLSv1_0|TLS_PROTOCOL_TLSv1_1|TLS_PROTOCOL_TLSv1_2)
-#define TLS_PROTOCOLS_DEFAULT TLS_PROTOCOL_TLSv1
+
+#define TLS_PROTOCOLS_ALL TLS_PROTOCOL_TLSv1
+#define TLS_PROTOCOLS_DEFAULT TLS_PROTOCOL_TLSv1_2
 
 #define TLS_READ_AGAIN	-2
 #define TLS_WRITE_AGAIN	-3
@@ -57,6 +59,8 @@ void tls_config_set_protocols(struct tls_config *config, uint32_t protocols);
 void tls_config_set_verify_depth(struct tls_config *config, int verify_depth);
 
 void tls_config_clear_keys(struct tls_config *config);
+int tls_config_parse_protocols(uint32_t *protocols, const char *protostr);
+
 void tls_config_insecure_noverifyhost(struct tls_config *config);
 void tls_config_insecure_noverifycert(struct tls_config *config);
 void tls_config_verify(struct tls_config *config);
@@ -70,8 +74,10 @@ void tls_free(struct tls *ctx);
 int tls_accept_socket(struct tls *ctx, struct tls **cctx, int socket);
 int tls_connect(struct tls *ctx, const char *host, const char *port);
 int tls_connect_fds(struct tls *ctx, int fd_read, int fd_write,
-    const char *hostname);
-int tls_connect_socket(struct tls *ctx, int s, const char *hostname);
+    const char *servername);
+int tls_connect_servername(struct tls *ctx, const char *host, const char *port,
+    const char *servername);
+int tls_connect_socket(struct tls *ctx, int s, const char *servername);
 int tls_read(struct tls *ctx, void *buf, size_t buflen, size_t *outlen);
 int tls_write(struct tls *ctx, const void *buf, size_t buflen, size_t *outlen);
 int tls_close(struct tls *ctx);

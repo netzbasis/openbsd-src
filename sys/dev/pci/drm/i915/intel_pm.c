@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_pm.c,v 1.25 2015/02/10 10:50:49 jsg Exp $	*/
+/*	$OpenBSD: intel_pm.c,v 1.28 2015/02/12 04:56:03 kettenis Exp $	*/
 /*
  * Copyright © 2012 Intel Corporation
  *
@@ -2282,9 +2282,7 @@ intel_alloc_context_page(struct drm_device *dev)
 	struct drm_i915_gem_object *ctx;
 	int ret;
 
-#ifdef notyet
 	WARN_ON(!mutex_is_locked(&dev->struct_mutex));
-#endif
 
 	ctx = i915_gem_alloc_object(dev, 4096);
 	if (!ctx) {
@@ -2481,7 +2479,7 @@ void gen6_set_rps(struct drm_device *dev, u8 val)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	u32 limits = gen6_rps_limits(dev_priv, &val);
 
-	rw_assert_wrlock(&dev_priv->rps.hw_lock);
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 	WARN_ON(val > dev_priv->rps.max_delay);
 	WARN_ON(val < dev_priv->rps.min_delay);
 
@@ -2561,7 +2559,7 @@ static void gen6_enable_rps(struct drm_device *dev)
 	int rc6_mode;
 	int i, ret;
 
-	rw_assert_wrlock(&dev_priv->rps.hw_lock);
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 
 	/* Here begins a magic sequence of register writes to enable
 	 * auto-downclocking.
@@ -2606,7 +2604,7 @@ static void gen6_enable_rps(struct drm_device *dev)
 	I915_WRITE(GEN6_RC6pp_THRESHOLD, 64000); /* unused */
 
 	/* Check if we are enabling RC6 */
-	rc6_mode = intel_enable_rc6(dev);
+	rc6_mode = intel_enable_rc6(dev_priv->dev);
 	if (rc6_mode & INTEL_RC6_ENABLE)
 		rc6_mask |= GEN6_RC_CTL_RC6_ENABLE;
 
@@ -2619,7 +2617,7 @@ static void gen6_enable_rps(struct drm_device *dev)
 			rc6_mask |= GEN6_RC_CTL_RC6pp_ENABLE;
 	}
 
-	DRM_DEBUG("Enabling RC6 states: RC6 %s, RC6p %s, RC6pp %s\n",
+	DRM_INFO("Enabling RC6 states: RC6 %s, RC6p %s, RC6pp %s\n",
 			(rc6_mask & GEN6_RC_CTL_RC6_ENABLE) ? "on" : "off",
 			(rc6_mask & GEN6_RC_CTL_RC6p_ENABLE) ? "on" : "off",
 			(rc6_mask & GEN6_RC_CTL_RC6pp_ENABLE) ? "on" : "off");
@@ -2667,7 +2665,7 @@ static void gen6_enable_rps(struct drm_device *dev)
 		DRM_DEBUG_DRIVER("Failed to set the min frequency\n");
 	}
 
-	gen6_set_rps(dev, (gt_perf_status & 0xff00) >> 8);
+	gen6_set_rps(dev_priv->dev, (gt_perf_status & 0xff00) >> 8);
 
 	/* requires MSI enabled */
 	I915_WRITE(GEN6_PMIER, GEN6_PM_DEFERRED_EVENTS);
@@ -2703,7 +2701,7 @@ static void gen6_update_ring_freq(struct drm_device *dev)
 	unsigned int ia_freq, max_ia_freq;
 	int scaling_factor = 180;
 
-	rw_assert_wrlock(&dev_priv->rps.hw_lock);
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 
 #ifdef notyet
 	max_ia_freq = cpufreq_quick_get_max(0);
@@ -2818,9 +2816,7 @@ static void ironlake_enable_rc6(struct drm_device *dev)
 	if (!intel_enable_rc6(dev))
 		return;
 
-#ifdef notyet
 	WARN_ON(!mutex_is_locked(&dev->struct_mutex));
-#endif
 
 	ret = ironlake_setup_rc6(dev);
 	if (ret)
@@ -3339,7 +3335,6 @@ out_unlock:
 bool i915_gpu_turbo_disable(void)
 {
 	struct drm_i915_private *dev_priv;
-	struct drm_device *dev;
 	bool ret = true;
 
 	spin_lock_irq(&mchdev_lock);
@@ -3348,10 +3343,10 @@ bool i915_gpu_turbo_disable(void)
 		goto out_unlock;
 	}
 	dev_priv = i915_mch_dev;
-	dev = (struct drm_device *)dev_priv->drmdev;
+
 	dev_priv->ips.max_delay = dev_priv->ips.fstart;
 
-	if (!ironlake_set_drps(dev, dev_priv->ips.fstart))
+	if (!ironlake_set_drps(dev_priv->dev, dev_priv->ips.fstart))
 		ret = false;
 
 out_unlock:
@@ -3398,7 +3393,7 @@ void intel_gpu_ips_teardown(void)
 	spin_lock_irq(&mchdev_lock);
 	i915_mch_dev = NULL;
 	spin_unlock_irq(&mchdev_lock);
-} 
+}
 static void intel_init_emon(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
@@ -3489,7 +3484,7 @@ void intel_disable_gt_powersave(struct drm_device *dev)
 static void intel_gen6_powersave_work(void *arg1)
 {
 	drm_i915_private_t *dev_priv = arg1;
-	struct drm_device *dev = (struct drm_device *)dev_priv->drmdev;
+	struct drm_device *dev = dev_priv->dev;
 
 	mutex_lock(&dev_priv->rps.hw_lock);
 	gen6_enable_rps(dev);
@@ -4264,11 +4259,10 @@ void intel_init_pm(struct drm_device *dev)
 
 static void __gen6_gt_wait_for_thread_c0(struct drm_i915_private *dev_priv)
 {
-	struct drm_device *dev = (struct drm_device *)dev_priv->drmdev;
 	u32 gt_thread_status_mask;
 	int retries;
 
-	if (IS_HASWELL(dev))
+	if (IS_HASWELL(dev_priv->dev))
 		gt_thread_status_mask = GEN6_GT_THREAD_STATUS_CORE_MASK_HSW;
 	else
 		gt_thread_status_mask = GEN6_GT_THREAD_STATUS_CORE_MASK;
@@ -4294,11 +4288,10 @@ static void __gen6_gt_force_wake_reset(struct drm_i915_private *dev_priv)
 
 static void __gen6_gt_force_wake_get(struct drm_i915_private *dev_priv)
 {
-	struct drm_device *dev = (struct drm_device *)dev_priv->drmdev;
 	u32 forcewake_ack;
 	int count;
 
-	if (IS_HASWELL(dev))
+	if (IS_HASWELL(dev_priv->dev))
 		forcewake_ack = FORCEWAKE_ACK_HSW;
 	else
 		forcewake_ack = FORCEWAKE_ACK;
@@ -4326,11 +4319,10 @@ static void __gen6_gt_force_wake_mt_reset(struct drm_i915_private *dev_priv)
 
 static void __gen6_gt_force_wake_mt_get(struct drm_i915_private *dev_priv)
 {
-	struct drm_device *dev = (struct drm_device *)dev_priv->drmdev;
 	u32 forcewake_ack;
 	int count;
 
-	if (IS_HASWELL(dev))
+	if (IS_HASWELL(dev_priv->dev))
 		forcewake_ack = FORCEWAKE_ACK_HSW;
 	else
 		forcewake_ack = FORCEWAKE_MT_ACK;
@@ -4531,7 +4523,7 @@ void intel_pm_init(struct drm_device *dev)
 int sandybridge_pcode_read(struct drm_i915_private *dev_priv, u8 mbox, u32 *val)
 {
 	int retries;
-	rw_assert_wrlock(&dev_priv->rps.hw_lock);
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 
 	if (I915_READ(GEN6_PCODE_MAILBOX) & GEN6_PCODE_READY) {
 		DRM_DEBUG_DRIVER("warning: pcode (read) mailbox access failed\n");
@@ -4560,7 +4552,7 @@ int sandybridge_pcode_read(struct drm_i915_private *dev_priv, u8 mbox, u32 *val)
 int sandybridge_pcode_write(struct drm_i915_private *dev_priv, u8 mbox, u32 val)
 {
 	int retries;
-	rw_assert_wrlock(&dev_priv->rps.hw_lock);
+	WARN_ON(!mutex_is_locked(&dev_priv->rps.hw_lock));
 
 	if (I915_READ(GEN6_PCODE_MAILBOX) & GEN6_PCODE_READY) {
 		DRM_DEBUG_DRIVER("warning: pcode (write) mailbox access failed\n");

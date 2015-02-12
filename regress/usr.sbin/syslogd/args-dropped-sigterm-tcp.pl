@@ -28,7 +28,7 @@ our %args = (
 	loghost => '@tcp://localhost:$connectport',
 	loggrep => {
 	    get_charlog() => 300,
-	    qr/ \(dropped\)/ => 17,
+	    qr/ \(dropped\)/ => '~17',
 	},
     },
     server => {
@@ -36,7 +36,7 @@ our %args = (
 	redo => 0,
 	func => sub {
 	    my $self = shift;
-	    ${$self->{client}}->loggrep(get_thirdlog(), 5)
+	    ${$self->{client}}->loggrep(get_thirdlog(), 20)
 		or die ref($self), " client did not send third log";
 	    ${$self->{syslogd}}->kill_syslogd('TERM');
 	    ${$self->{syslogd}}->loggrep("syslogd: exiting", 5)
@@ -64,7 +64,7 @@ our %args = (
 	    get_testlog() => 0,
 	    qr/syslogd: start/ => 1,
 	    get_charlog() => 300,
-	    qr/syslogd: dropped 260 messages to remote loghost/ => 1,
+	    qr/syslogd: dropped 2[56][0-9] messages to remote loghost/ => 1,
 	},
     },
 );

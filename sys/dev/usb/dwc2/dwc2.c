@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2.c,v 1.16 2015/02/10 23:43:46 uebayasi Exp $	*/
+/*	$OpenBSD: dwc2.c,v 1.19 2015/02/12 05:09:46 uebayasi Exp $	*/
 /*	$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $	*/
 
 /*-
@@ -148,7 +148,7 @@ static void		dwc2_close_pipe(struct usbd_pipe *);
 static void		dwc2_abort_xfer(struct usbd_xfer *, usbd_status);
 
 static void		dwc2_device_clear_toggle(struct usbd_pipe *);
-static void		dwc2_noop(struct usbd_pipe * pipe);
+static void		dwc2_noop(struct usbd_pipe *pipe);
 
 static int		dwc2_interrupt(struct dwc2_softc *);
 static void		dwc2_rhc(void *);
@@ -286,7 +286,7 @@ dwc2_allocx(struct usbd_bus *bus)
 		    DWC2_MAXISOCPACKETS, GFP_KERNEL);
 
 #ifdef DWC2_DEBUG
-		dxfer->xfer->busy_free = XFER_ONQU;
+		dxfer->xfer.busy_free = XFER_ONQU;
 #endif
 	}
 	return (struct usbd_xfer *)dxfer;
@@ -363,8 +363,8 @@ dwc2_softintr(void *v)
 	mtx_enter(&hsotg->lock);
 	while ((dxfer = TAILQ_FIRST(&sc->sc_complete)) != NULL) {
 
-		KASSERTMSG(!timeout_pending(&dxfer->xfer->timeout_handle), 
-		    "xfer %p pipe %p\n", dxfer, dxfer->xfer->pipe);
+		KASSERTMSG(!timeout_pending(&dxfer->xfer.timeout_handle), 
+		    "xfer %p pipe %p\n", dxfer, dxfer->xfer.pipe);
 
 		/*
 		 * dwc2_abort_xfer will remove this transfer from the
@@ -379,7 +379,7 @@ dwc2_softintr(void *v)
 		TAILQ_REMOVE(&sc->sc_complete, dxfer, xnext);
 
 		mtx_leave(&hsotg->lock);
-		usb_transfer_complete(dxfer->xfer);
+		usb_transfer_complete(&dxfer->xfer);
 		mtx_enter(&hsotg->lock);
 	}
 	mtx_leave(&hsotg->lock);
@@ -431,7 +431,7 @@ dwc2_timeout(void *addr)
 
 	if (sc->sc_dying) {
 		mtx_enter(&sc->sc_lock);
-		dwc2_abort_xfer(dxfer->xfer, USBD_TIMEOUT);
+		dwc2_abort_xfer(&dxfer->xfer, USBD_TIMEOUT);
 		mtx_leave(&sc->sc_lock);
 		return;
 	}
@@ -439,7 +439,7 @@ dwc2_timeout(void *addr)
 	/* Execute the abort in a process context. */
 	usb_init_task(&dxfer->abort_task, dwc2_timeout_task, addr,
 	    USB_TASK_TYPE_GENERIC);
-	usb_add_task(dxfer->xfer->pipe->device, &dxfer->abort_task);
+	usb_add_task(dxfer->xfer.pipe->device, &dxfer->abort_task);
 }
 
 static void
@@ -456,7 +456,7 @@ dwc2_timeout_task(void *addr)
 }
 
 usbd_status
-dwc2_open(struct usbd_pipe * pipe)
+dwc2_open(struct usbd_pipe *pipe)
 {
 	struct usbd_device *dev = pipe->device;
 	struct dwc2_softc *sc = DWC2_PIPE2SC(pipe);
@@ -533,9 +533,9 @@ dwc2_poll(struct usbd_bus *bus)
  * Assumes that there are no pending transactions.
  */
 static void
-dwc2_close_pipe(struct usbd_pipe * pipe)
+dwc2_close_pipe(struct usbd_pipe *pipe)
 {
-#ifdef DWC2_DEBUG
+#ifdef DIAGNOSTIC
 	struct dwc2_softc *sc = DWC2_PIPE2SC(pipe);
 #endif
 
@@ -615,16 +615,16 @@ dwc2_abort_xfer(struct usbd_xfer *xfer, usbd_status status)
 }
 
 static void
-dwc2_noop(struct usbd_pipe * pipe)
+dwc2_noop(struct usbd_pipe *pipe)
 {
 
 }
 
 static void
-dwc2_device_clear_toggle(struct usbd_pipe * pipe)
+dwc2_device_clear_toggle(struct usbd_pipe *pipe)
 {
 
-	DPRINTF("toggle %d -> 0", pipe->endpoint->datatoggle);
+	DPRINTF("toggle %d -> 0", pipe->endpoint->savedtoggle);
 }
 
 /***********************************************************************/
@@ -870,7 +870,7 @@ dwc2_root_ctrl_abort(struct usbd_xfer *xfer)
 }
 
 static void
-dwc2_root_ctrl_close(struct usbd_pipe * pipe)
+dwc2_root_ctrl_close(struct usbd_pipe *pipe)
 {
 	DPRINTFN(10, "\n");
 
@@ -940,7 +940,7 @@ dwc2_root_intr_abort(struct usbd_xfer *xfer)
 }
 
 static void
-dwc2_root_intr_close(struct usbd_pipe * pipe)
+dwc2_root_intr_close(struct usbd_pipe *pipe)
 {
 	struct dwc2_softc *sc = DWC2_PIPE2SC(pipe);
 
@@ -1014,7 +1014,7 @@ dwc2_device_ctrl_abort(struct usbd_xfer *xfer)
 }
 
 static void
-dwc2_device_ctrl_close(struct usbd_pipe * pipe)
+dwc2_device_ctrl_close(struct usbd_pipe *pipe)
 {
 
 	DPRINTF("pipe=%p\n", pipe);
@@ -1077,7 +1077,7 @@ dwc2_device_bulk_abort(struct usbd_xfer *xfer)
 }
 
 static void
-dwc2_device_bulk_close(struct usbd_pipe * pipe)
+dwc2_device_bulk_close(struct usbd_pipe *pipe)
 {
 
 	DPRINTF("pipe=%p\n", pipe);
@@ -1151,7 +1151,7 @@ dwc2_device_intr_abort(struct usbd_xfer *xfer)
 }
 
 static void
-dwc2_device_intr_close(struct usbd_pipe * pipe)
+dwc2_device_intr_close(struct usbd_pipe *pipe)
 {
 
 	DPRINTF("pipe=%p\n", pipe);
@@ -1223,7 +1223,7 @@ dwc2_device_isoc_abort(struct usbd_xfer *xfer)
 }
 
 void
-dwc2_device_isoc_close(struct usbd_pipe * pipe)
+dwc2_device_isoc_close(struct usbd_pipe *pipe)
 {
 	DPRINTF("\n");
 
@@ -1297,8 +1297,9 @@ dwc2_device_start(struct usbd_xfer *xfer)
 			dir = UE_DIR_OUT;
 		}
 
-		DPRINTFN(3, "req = %p dma = %" PRIxBUSADDR " len %d dir %s\n",
-		    KERNADDR(&dpipe->req_dma, 0), DMAADDR(&dpipe->req_dma, 0),
+		DPRINTFN(3, "req = %p dma = %llx len %d dir %s\n",
+		    KERNADDR(&dpipe->req_dma, 0),
+		    (long long)DMAADDR(&dpipe->req_dma, 0),
 		    len, dir == UE_DIR_IN ? "in" : "out");
 	} else {
 		DPRINTFN(3, "xfer=%p len=%d flags=%d addr=%d endpt=%d,"
@@ -1595,8 +1596,7 @@ dwc2_init(struct dwc2_softc *sc)
 
 	TAILQ_INIT(&sc->sc_complete);
 
-	sc->sc_rhc_si = softintr_establish(IPL_SOFTNET,
-	    dwc2_rhc, sc);
+	sc->sc_rhc_si = softintr_establish(IPL_SOFTUSB, dwc2_rhc, sc);
 
 #if 0
 	usb_setup_reserve(&sc->sc_bus, &sc->sc_dma_reserve, sc->sc_bus.dmatag,
@@ -1677,8 +1677,10 @@ void dwc2_host_hub_info(struct dwc2_hsotg *hsotg, void *context, int *hub_addr,
 	struct dwc2_pipe *dpipe = DWC2_XFER2DPIPE(xfer);
 	struct usbd_device *dev = dpipe->pipe.device;
 
-	*hub_addr = dev->myhsport->parent->address;
- 	*hub_port = dev->myhsport->portno;
+	if (dev->myhsport != NULL) {
+		*hub_addr = dev->myhsport->parent->address;
+ 		*hub_port = dev->myhsport->portno;
+	}
 }
 
 int dwc2_host_get_speed(struct dwc2_hsotg *hsotg, void *context)

@@ -1,4 +1,4 @@
-#	$OpenBSD: funcs.pl,v 1.15 2015/02/08 15:24:14 bluhm Exp $
+#	$OpenBSD: funcs.pl,v 1.17 2015/02/11 21:51:13 bluhm Exp $
 
 # Copyright (c) 2010-2015 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -23,6 +23,7 @@ use List::Util qw(first);
 use Socket;
 use Socket6;
 use Sys::Syslog qw(:standard :extended :macros);
+use Time::HiRes 'sleep';
 use IO::Socket;
 use IO::Socket::INET6;
 
@@ -110,17 +111,21 @@ sub write_lines {
 
 	foreach (1..$lines) {
 		write_chars($self, $lenght, " $_");
-		# if client is sending too fast, syslogd will not see everything
-		sleep .01;
 	}
+}
+
+sub write_lengths {
+	my $self = shift;
+	my ($lenghts, $tail) = ref $_[0] ? @_ : [@_];
+
+	write_chars($self, $lenghts, $tail);
 }
 
 sub write_chars {
 	my $self = shift;
-	my @lenghts = shift || @{$self->{lengths}};
-	my $tail = shift // $self->{tail};
+	my ($length, $tail) = @_;
 
-	foreach my $len (@lenghts) {
+	foreach my $len (ref $length ? @$length : $length) {
 		my $t = $tail // "";
 		substr($t, 0, length($t) - $len, "")
 		    if length($t) && length($t) > $len;
@@ -137,13 +142,9 @@ sub write_chars {
 		}
 		$msg .= $t if length($t);
 		write_message($self, $msg);
+		# if client is sending too fast, syslogd will not see everything
+		sleep .01;
 	}
-}
-
-sub write_length {
-	my $self = shift;
-	write_chars($self, @_);
-	write_log($self);
 }
 
 sub write_unix {
@@ -267,6 +268,8 @@ sub compare($$) {
 		return $_[0] >= $1;
 	} elsif (/^<=(\d+)/) {
 		return $_[0] <= $1;
+	} elsif (/^~(\d+)/) {
+		return $1 * 0.9 <= $_[0] && $_[0] <= $1 * 1.1;
 	}
 	die "bad compare operator: $_";
 }
@@ -277,7 +280,8 @@ sub check_pattern {
 	$pattern = [ $pattern ] unless ref($pattern) eq 'ARRAY';
 	foreach my $pat (@$pattern) {
 		if (ref($pat) eq 'HASH') {
-			while (my($re, $num) = each %$pat) {
+			foreach my $re (sort keys %$pat) {
+				my $num = $pat->{$re};
 				my @matches = $func->($proc, $re);
 				compare(@matches, $num)
 				    or die "$name matches '@matches': ",

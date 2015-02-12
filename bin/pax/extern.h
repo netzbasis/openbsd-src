@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.44 2015/02/05 22:32:20 sthen Exp $	*/
+/*	$OpenBSD: extern.h,v 1.46 2015/02/12 01:30:47 guenther Exp $	*/
 /*	$NetBSD: extern.h,v 1.5 1996/03/26 23:54:16 mrg Exp $	*/
 
 /*-
@@ -147,6 +147,8 @@ int set_ids(char *, uid_t, gid_t);
 int fset_ids(char *, int, uid_t, gid_t);
 void set_pmode(char *, mode_t);
 void fset_pmode(char *, int, mode_t);
+int set_attr(const struct file_times *, int _force_times, mode_t, int _do_mode,
+    int _in_sig);
 int file_write(int, char *, int, int *, int *, int, char *);
 void file_flush(int, char *, int);
 void rdfile_close(ARCHD *, int *);
@@ -264,13 +266,19 @@ int chk_ftime(ARCHD *);
 int name_start(void);
 int add_name(char *, int, char *);
 void sub_name(char *, int *, size_t);
+#ifndef NOCPIO
 int dev_start(void);
 int add_dev(ARCHD *);
 int map_dev(ARCHD *, u_long, u_long);
+#else
+# define dev_start()	0
+# define add_dev(x)	0
+# define map_dev(x,y,z)	0
+#endif /* NOCPIO */
 int atdir_start(void);
 void atdir_end(void);
 void add_atdir(char *, dev_t, ino_t, time_t, time_t);
-int get_atdir(dev_t, ino_t, time_t *, time_t *);
+int do_atdir(const char *, dev_t, ino_t);
 int dir_start(void);
 void add_dir(char *, struct stat *, int);
 void proc_dir(int _in_sig);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2var.h,v 1.9 2015/02/10 23:43:46 uebayasi Exp $	*/
+/*	$OpenBSD: dwc2var.h,v 1.11 2015/02/11 22:55:25 uebayasi Exp $	*/
 /*	$NetBSD: dwc2var.h,v 1.3 2013/10/22 12:57:40 skrll Exp $	*/
 
 /*-
@@ -42,7 +42,7 @@ struct dwc2_hsotg;
 struct dwc2_qtd;
 
 struct dwc2_xfer {
-	struct usbd_xfer *xfer;			/* Needs to be first */
+	struct usbd_xfer xfer;			/* Needs to be first */
 	struct usb_task	abort_task;
 
 	struct dwc2_hcd_urb *urb;
@@ -82,7 +82,6 @@ typedef struct dwc2_softc {
 
  	bus_space_tag_t		sc_iot;
  	bus_space_handle_t	sc_ioh;
- 	bus_dma_tag_t		sc_dmat;
 	struct dwc2_core_params *sc_params;
 
 	/*
@@ -143,7 +142,8 @@ dwc2_root_intr(dwc2_softc_t *sc)
 
 // XXX compat
 
-#define	mtx_owned(x)	1
+#define	mtx_owned(x)	((void)(x), 1)
+
 #define	ENOSR		90
 #define	EPROTO		96
 
@@ -159,5 +159,7 @@ do { \
 	timeout_set((x), (f), (a)); \
 	timeout_add((x), (t)); \
 } while (0)
+
+#define	device_xname(d)	((d)->dv_xname)
 
 #endif	/* _DWC_OTGVAR_H_ */

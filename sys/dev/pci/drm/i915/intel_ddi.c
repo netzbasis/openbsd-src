@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_ddi.c,v 1.11 2014/02/15 09:37:03 jsg Exp $	*/
+/*	$OpenBSD: intel_ddi.c,v 1.13 2015/02/12 04:56:03 kettenis Exp $	*/
 /*
  * Copyright © 2012 Intel Corporation
  *
@@ -819,7 +819,7 @@ static void intel_ddi_calculate_wrpll(int clock, int *p, int *n2, int *r2)
 	*r2 = wrpll_tmds_clock_table[i].r2;
 
 	if (wrpll_tmds_clock_table[i].clock != clock)
-		printf("WRPLL: using settings for %dKHz on %dKHz mode\n",
+		DRM_INFO("WRPLL: using settings for %dKHz on %dKHz mode\n",
 			 wrpll_tmds_clock_table[i].clock, clock);
 
 	DRM_DEBUG_KMS("WRPLL: %dKHz refresh rate with p=%d, n2=%d r2=%d\n",
@@ -1338,14 +1338,12 @@ static void intel_disable_ddi(struct intel_encoder *intel_encoder)
 
 int intel_ddi_get_cdclk_freq(struct drm_i915_private *dev_priv)
 {
-	struct drm_device *dev = (struct drm_device *)dev_priv->drmdev;
-
 	if (I915_READ(HSW_FUSE_STRAP) & HSW_CDCLK_LIMIT)
 		return 450;
 	else if ((I915_READ(LCPLL_CTL) & LCPLL_CLK_FREQ_MASK) ==
 		 LCPLL_CLK_FREQ_450)
 		return 450;
-	else if (IS_ULT(dev))
+	else if (IS_ULT(dev_priv->dev))
 		return 338;
 	else
 		return 540;
