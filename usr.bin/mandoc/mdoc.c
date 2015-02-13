@@ -1,7 +1,7 @@
-/*	$OpenBSD: mdoc.c,v 1.125 2015/02/05 00:13:34 schwarze Exp $ */
+/*	$OpenBSD: mdoc.c,v 1.127 2015/02/12 13:00:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -417,8 +417,10 @@ mdoc_endbody_alloc(struct mdoc *mdoc, int line, int pos, enum mdoct tok,
 {
 	struct mdoc_node *p;
 
+	body->flags |= MDOC_ENDED;
+	body->parent->flags |= MDOC_ENDED;
 	p = node_alloc(mdoc, line, pos, tok, MDOC_BODY);
-	p->pending = body;
+	p->body = body;
 	p->norm = body->norm;
 	p->end = end;
 	node_append(mdoc, p);
@@ -597,8 +599,8 @@ mdoc_ptext(struct mdoc *mdoc, int line, char *buf, int offs)
 	 * process within its context in the normal way).
 	 */
 
-	if (MDOC_Bl == n->tok && MDOC_BODY == n->type &&
-	    LIST_column == n->norm->Bl.type) {
+	if (n->tok == MDOC_Bl && n->type == MDOC_BODY &&
+	    n->end == ENDBODY_NOT && n->norm->Bl.type == LIST_column) {
 		/* `Bl' is open without any children. */
 		mdoc->flags |= MDOC_FREECOL;
 		mdoc_macro(mdoc, MDOC_It, line, offs, &offs, buf);
@@ -774,8 +776,8 @@ mdoc_pmacro(struct mdoc *mdoc, int ln, char *buf, int offs)
 	 * context around the parsed macro.
 	 */
 
-	if (MDOC_Bl == n->tok && MDOC_BODY == n->type &&
-	    LIST_column == n->norm->Bl.type) {
+	if (n->tok == MDOC_Bl && n->type == MDOC_BODY &&
+	    n->end == ENDBODY_NOT && n->norm->Bl.type == LIST_column) {
 		mdoc->flags |= MDOC_FREECOL;
 		mdoc_macro(mdoc, MDOC_It, ln, sv, &sv, buf);
 		return(1);

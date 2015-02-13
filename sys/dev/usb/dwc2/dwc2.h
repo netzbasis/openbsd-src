@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2.h,v 1.9 2015/02/11 01:26:52 uebayasi Exp $	*/
+/*	$OpenBSD: dwc2.h,v 1.11 2015/02/12 07:51:51 uebayasi Exp $	*/
 /*	$NetBSD: dwc2.h,v 1.4 2014/12/23 16:20:06 macallan Exp $	*/
 
 /*-
@@ -44,6 +44,10 @@
 #if 0
 #include "opt_usb.h"
 #endif
+
+#define	STATIC_INLINE		static inline
+#define	STATIC
+
 // #define VERBOSE_DEBUG
 // #define DWC2_DUMP_FRREM
 // #define CONFIG_USB_DWC2_TRACK_MISSED_SOFS
@@ -59,11 +63,6 @@ typedef int irqreturn_t;
 #define	u64	uint64_t
 
 #define	dma_addr_t	bus_addr_t
-
-#define DWC2_READ_4(hsotg, reg) \
-    bus_space_read_4((hsotg)->hsotg_sc->sc_iot, (hsotg)->hsotg_sc->sc_ioh, (reg))
-#define DWC2_WRITE_4(hsotg, reg, data)  \
-    bus_space_write_4((hsotg)->hsotg_sc->sc_iot, (hsotg)->hsotg_sc->sc_ioh, (reg), (data));
 
 #ifdef DWC2_DEBUG
 extern int dwc2debug;
@@ -194,7 +193,7 @@ enum usb_otg_state {
 #define	USB_PORT_STAT_C_RESET		UPS_C_PORT_RESET
 #define	USB_PORT_STAT_C_L1		UPS_C_PORT_L1
 
-static inline void
+STATIC_INLINE void
 udelay(unsigned long usecs)
 {
 	DELAY(usecs);
@@ -216,14 +215,14 @@ struct delayed_work {
 	void (*dw_fn)(void *);
 };
 
-static inline void
+STATIC_INLINE void
 INIT_DELAYED_WORK(struct delayed_work *dw, void (*fn)(struct task *))
 {
 	dw->dw_fn = (void (*)(void *))fn;
 	timeout_set(&dw->dw_timer, dw_timeout, dw);
 }
 
-static inline void
+STATIC_INLINE void
 queue_delayed_work(struct taskq *wq, struct delayed_work *dw, int j)
 {
 	timeout_add(&dw->dw_timer, j);

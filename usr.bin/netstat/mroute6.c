@@ -1,4 +1,4 @@
-/*	$OpenBSD: mroute6.c,v 1.17 2015/02/09 12:25:03 claudio Exp $	*/
+/*	$OpenBSD: mroute6.c,v 1.19 2015/02/12 23:31:12 claudio Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
@@ -84,7 +84,7 @@
 void
 mroute6pr(void)
 {
-	char *buf;
+	char *buf = NULL;
 	char fmtbuf[FMT_SCALED_STRSIZE];
 	struct mf6cinfo *mfc;
 	struct mif6info *mif;
@@ -187,6 +187,8 @@ mroute6pr(void)
 
 	printf("\n");
 	nflag = saved_nflag;
+
+	free(buf);
 }
 
 void

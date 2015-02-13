@@ -1,4 +1,4 @@
-/*	$OpenBSD: i915_gem_execbuffer.c,v 1.33 2015/02/12 02:12:02 kettenis Exp $	*/
+/*	$OpenBSD: i915_gem_execbuffer.c,v 1.35 2015/02/12 08:48:32 jsg Exp $	*/
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -103,7 +103,7 @@ static void
 eb_destroy(struct eb_objects *eb)
 {
 	free(eb->buckets, M_DRM, 0);
-	free(eb, M_DRM, 0);
+	kfree(eb);
 }
 
 static inline int use_cpu_reloc(struct drm_i915_gem_object *obj)
@@ -703,7 +703,7 @@ i915_gem_execbuffer_move_to_gpu(struct intel_ring_buffer *ring,
 		i915_gem_chipset_flush(ring->dev);
 
 	if (flush_domains & I915_GEM_DOMAIN_GTT)
-		DRM_WRITEMEMORYBARRIER();
+		wmb();
 
 	/* Unconditionally invalidate gpu caches and ensure that we do flush
 	 * any residual writes from the previous batch.

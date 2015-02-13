@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_hdmi.c,v 1.10 2014/07/12 18:48:52 tedu Exp $	*/
+/*	$OpenBSD: intel_hdmi.c,v 1.12 2015/02/12 08:48:32 jsg Exp $	*/
 /*
  * Copyright 2006 Dave Airlie <airlied@linux.ie>
  * Copyright © 2006-2009 Intel Corporation
@@ -149,7 +149,7 @@ static void g4x_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(VIDEO_DIP_CTL, val);
 
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(VIDEO_DIP_DATA, *data);
 		data++;
@@ -157,7 +157,7 @@ static void g4x_write_infoframe(struct drm_encoder *encoder,
 	/* Write every possible data byte to force correct ECC calculation. */
 	for (; i < VIDEO_DIP_DATA_SIZE; i += 4)
 		I915_WRITE(VIDEO_DIP_DATA, 0);
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
@@ -187,7 +187,7 @@ static void ibx_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
@@ -195,7 +195,7 @@ static void ibx_write_infoframe(struct drm_encoder *encoder,
 	/* Write every possible data byte to force correct ECC calculation. */
 	for (; i < VIDEO_DIP_DATA_SIZE; i += 4)
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), 0);
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
@@ -228,7 +228,7 @@ static void cpt_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
@@ -236,7 +236,7 @@ static void cpt_write_infoframe(struct drm_encoder *encoder,
 	/* Write every possible data byte to force correct ECC calculation. */
 	for (; i < VIDEO_DIP_DATA_SIZE; i += 4)
 		I915_WRITE(TVIDEO_DIP_DATA(intel_crtc->pipe), 0);
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
@@ -266,7 +266,7 @@ static void vlv_write_infoframe(struct drm_encoder *encoder,
 
 	I915_WRITE(reg, val);
 
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(VLV_TVIDEO_DIP_DATA(intel_crtc->pipe), *data);
 		data++;
@@ -274,7 +274,7 @@ static void vlv_write_infoframe(struct drm_encoder *encoder,
 	/* Write every possible data byte to force correct ECC calculation. */
 	for (; i < VIDEO_DIP_DATA_SIZE; i += 4)
 		I915_WRITE(VLV_TVIDEO_DIP_DATA(intel_crtc->pipe), 0);
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 
 	val |= g4x_infoframe_enable(frame);
 	val &= ~VIDEO_DIP_FREQ_MASK;
@@ -302,7 +302,7 @@ static void hsw_write_infoframe(struct drm_encoder *encoder,
 	val &= ~hsw_infoframe_enable(frame);
 	I915_WRITE(ctl_reg, val);
 
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 	for (i = 0; i < len; i += 4) {
 		I915_WRITE(data_reg + i, *data);
 		data++;
@@ -310,7 +310,7 @@ static void hsw_write_infoframe(struct drm_encoder *encoder,
 	/* Write every possible data byte to force correct ECC calculation. */
 	for (; i < VIDEO_DIP_DATA_SIZE; i += 4)
 		I915_WRITE(data_reg + i, 0);
-	DRM_WRITEMEMORYBARRIER();
+	mmiowb();
 
 	val |= hsw_infoframe_enable(frame);
 	I915_WRITE(ctl_reg, val);
@@ -792,7 +792,7 @@ intel_hdmi_detect(struct drm_connector *connector, bool force)
 						drm_detect_hdmi_monitor(edid);
 			intel_hdmi->has_audio = drm_detect_monitor_audio(edid);
 		}
-		free(edid, M_DRM, 0);
+		kfree(edid);
 	}
 
 	if (status == connector_status_connected) {
@@ -833,7 +833,7 @@ intel_hdmi_detect_audio(struct drm_connector *connector)
 	if (edid) {
 		if (edid->input & DRM_EDID_INPUT_DIGITAL)
 			has_audio = drm_detect_monitor_audio(edid);
-		free(edid, M_DRM, 0);
+		kfree(edid);
 	}
 
 	return has_audio;
@@ -899,7 +899,7 @@ static void intel_hdmi_destroy(struct drm_connector *connector)
 {
 	drm_sysfs_connector_remove(connector);
 	drm_connector_cleanup(connector);
-	free(connector, M_DRM, 0);
+	kfree(connector);
 }
 
 static const struct drm_encoder_helper_funcs intel_hdmi_helper_funcs = {

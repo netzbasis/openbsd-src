@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2var.h,v 1.11 2015/02/11 22:55:25 uebayasi Exp $	*/
+/*	$OpenBSD: dwc2var.h,v 1.14 2015/02/12 11:38:42 uebayasi Exp $	*/
 /*	$NetBSD: dwc2var.h,v 1.3 2013/10/22 12:57:40 skrll Exp $	*/
 
 /*-
@@ -83,6 +83,7 @@ typedef struct dwc2_softc {
  	bus_space_tag_t		sc_iot;
  	bus_space_handle_t	sc_ioh;
 	struct dwc2_core_params *sc_params;
+	struct dwc2_core_dma_config *sc_dma_config;
 
 	/*
 	 * Private
@@ -118,6 +119,8 @@ typedef struct dwc2_softc {
 } dwc2_softc_t;
 
 int		dwc2_init(struct dwc2_softc *);
+int		dwc2_dma_config(struct dwc2_softc *,
+				struct dwc2_core_dma_config *);
 int		dwc2_intr(void *);
 int		dwc2_detach(dwc2_softc_t *, int);
 bool		dwc2_shutdown(struct device *, int);
@@ -132,6 +135,13 @@ void		dwc2_worker(struct task *, void *);
 
 void		dwc2_host_complete(struct dwc2_hsotg *, struct dwc2_qtd *,
 				   int);
+
+#define DWC2_READ_4(hsotg, reg) \
+    bus_space_read_4((hsotg)->hsotg_sc->sc_iot, (hsotg)->hsotg_sc->sc_ioh, \
+    (reg))
+#define DWC2_WRITE_4(hsotg, reg, data)  \
+    bus_space_write_4((hsotg)->hsotg_sc->sc_iot, (hsotg)->hsotg_sc->sc_ioh, \
+    (reg), (data))
 
 static inline void
 dwc2_root_intr(dwc2_softc_t *sc)
