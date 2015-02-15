@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_new.c,v 1.11 2014/06/12 15:49:27 deraadt Exp $ */
+/* $OpenBSD: tasn_new.c,v 1.14 2015/02/14 15:23:57 miod Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -91,17 +91,14 @@ static int
 asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it, int combine)
 {
 	const ASN1_TEMPLATE *tt = NULL;
-	const ASN1_COMPAT_FUNCS *cf;
 	const ASN1_EXTERN_FUNCS *ef;
 	const ASN1_AUX *aux = it->funcs;
-	ASN1_aux_cb *asn1_cb;
+	ASN1_aux_cb *asn1_cb = NULL;
 	ASN1_VALUE **pseqval;
 	int i;
 
-	if (aux && aux->asn1_cb)
+	if (aux != NULL && aux->asn1_cb != NULL)
 		asn1_cb = aux->asn1_cb;
-	else
-		asn1_cb = 0;
 
 	if (!combine)
 		*pval = NULL;
@@ -116,15 +113,6 @@ asn1_item_ex_combine_new(ASN1_VALUE **pval, const ASN1_ITEM *it, int combine)
 		ef = it->funcs;
 		if (ef && ef->asn1_ex_new) {
 			if (!ef->asn1_ex_new(pval, it))
-				goto memerr;
-		}
-		break;
-
-	case ASN1_ITYPE_COMPAT:
-		cf = it->funcs;
-		if (cf && cf->asn1_new) {
-			*pval = cf->asn1_new();
-			if (!*pval)
 				goto memerr;
 		}
 		break;
@@ -245,7 +233,6 @@ asn1_item_clear(ASN1_VALUE **pval, const ASN1_ITEM *it)
 		asn1_primitive_clear(pval, it);
 		break;
 
-	case ASN1_ITYPE_COMPAT:
 	case ASN1_ITYPE_CHOICE:
 	case ASN1_ITYPE_SEQUENCE:
 	case ASN1_ITYPE_NDEF_SEQUENCE:
@@ -353,7 +340,8 @@ ASN1_primitive_new(ASN1_VALUE **pval, const ASN1_ITEM *it)
 
 	default:
 		str = ASN1_STRING_type_new(utype);
-		if (it->itype == ASN1_ITYPE_MSTRING && str)
+		if (it != NULL && it->itype == ASN1_ITYPE_MSTRING &&
+		    str != NULL)
 			str->flags |= ASN1_STRING_FLAG_MSTRING;
 		*pval = (ASN1_VALUE *)str;
 		break;

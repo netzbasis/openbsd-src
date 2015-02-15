@@ -1,4 +1,4 @@
-/* $OpenBSD: x_name.c,v 1.26 2015/02/11 04:00:39 jsing Exp $ */
+/* $OpenBSD: x_name.c,v 1.29 2015/02/14 15:29:29 miod Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -169,8 +169,15 @@ const ASN1_EXTERN_FUNCS x509_name_ff = {
 	x509_name_ex_print
 };
 
-IMPLEMENT_EXTERN_ASN1(X509_NAME, V_ASN1_SEQUENCE, x509_name_ff)
-
+const ASN1_ITEM X509_NAME_it = {
+	.itype = ASN1_ITYPE_EXTERN,
+	.utype = V_ASN1_SEQUENCE,
+	.templates = NULL,
+	.tcount = 0,
+	.funcs = &x509_name_ff,
+	.size = 0,
+	.sname = "X509_NAME",
+};
 
 X509_NAME *
 d2i_X509_NAME(X509_NAME **a, const unsigned char **in, long len)
@@ -422,7 +429,7 @@ x509_name_canon(X509_NAME *a)
 	STACK_OF(STACK_OF_X509_NAME_ENTRY) *intname = NULL;
 	STACK_OF(X509_NAME_ENTRY) *entries = NULL;
 	X509_NAME_ENTRY *entry, *tmpentry = NULL;
-	int i, set = -1, ret = 0;
+	int i, len, set = -1, ret = 0;
 
 	if (a->canon_enc) {
 		free(a->canon_enc);
@@ -447,7 +454,11 @@ x509_name_canon(X509_NAME *a)
 			set = entry->set;
 		}
 		tmpentry = X509_NAME_ENTRY_new();
+		if (tmpentry == NULL)
+			goto err;
 		tmpentry->object = OBJ_dup(entry->object);
+		if (tmpentry->object == NULL)
+			goto err;
 		if (!asn1_string_canon(tmpentry->value, entry->value))
 			goto err;
 		if (!sk_X509_NAME_ENTRY_push(entries, tmpentry))
@@ -456,16 +467,18 @@ x509_name_canon(X509_NAME *a)
 	}
 
 	/* Finally generate encoding */
-	a->canon_enclen = i2d_name_canon(intname, NULL);
-	p = malloc(a->canon_enclen);
-	if (!p)
+	len = i2d_name_canon(intname, NULL);
+	if (len < 0)
+		goto err;
+	p = malloc(len);
+	if (p == NULL)
 		goto err;
 	a->canon_enc = p;
+	a->canon_enclen = len;
 	i2d_name_canon(intname, &p);
 	ret = 1;
 
 err:
-
 	if (tmpentry)
 		X509_NAME_ENTRY_free(tmpentry);
 	if (intname)

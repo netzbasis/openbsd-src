@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.15 2015/01/16 01:58:18 schwarze Exp $
+# $OpenBSD: Makefile,v 1.17 2015/02/14 14:09:01 schwarze Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 
@@ -21,6 +21,8 @@ MAN=	\
 	BIO_f_null.3 \
 	BIO_find_type.3 \
 	BIO_new.3 \
+
+GENMAN= \
 	BIO_push.3 \
 	BIO_read.3 \
 	BIO_s_accept.3 \
@@ -194,6 +196,8 @@ MAN=	\
 	ui.3 \
 	ui_compat.3 \
 	x509.3 \
+
+MAN+=	${GENMAN}
 
 #MAN+=	BIO_new_CMS.3 \
 #	CMS_add0_cert.3 \
@@ -1146,4 +1150,4 @@ maninstall:
 .include <bsd.subdir.mk>
 
 clean cleandir:
-	rm -f ${MAN}
+	rm -f ${GENMAN}
