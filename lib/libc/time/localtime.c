@@ -1,4 +1,4 @@
-/*	$OpenBSD: localtime.c,v 1.47 2015/02/10 00:46:27 tedu Exp $ */
+/*	$OpenBSD: localtime.c,v 1.51 2015/02/16 17:51:48 tedu Exp $ */
 /*
 ** This file is in the public domain, so clarified as of
 ** 1996-06-05 by Arthur David Olson.
@@ -101,7 +101,7 @@ struct state {
 	unsigned char	types[TZ_MAX_TIMES];
 	struct ttinfo	ttis[TZ_MAX_TYPES];
 	char		chars[BIGGEST(BIGGEST(TZ_MAX_CHARS + 1, sizeof gmt),
-				(2 * (MY_TZNAME_MAX + 1)))];
+			    (2 * (MY_TZNAME_MAX + 1)))];
 	struct lsinfo	lsis[TZ_MAX_LEAPS];
 };
 
@@ -207,8 +207,7 @@ time_t			altzone = 0;
 #endif /* defined ALTZONE */
 
 static long
-detzcode(codep)
-const char * const	codep;
+detzcode(const char *codep)
 {
 	long	result;
 	int	i;
@@ -220,8 +219,7 @@ const char * const	codep;
 }
 
 static time_t
-detzcode64(codep)
-const char * const	codep;
+detzcode64(const char *codep)
 {
 	time_t	result;
 	int	i;
@@ -255,11 +253,9 @@ settzname(void)
 	** And to get the latest zone names into tzname. . .
 	*/
 	for (i = 0; i < sp->timecnt; ++i) {
-		const struct ttinfo * const	ttisp =
-			&sp->ttis[sp->types[i]];
+		const struct ttinfo *ttisp = &sp->ttis[sp->types[i]];
 
-		tzname[ttisp->tt_isdst] =
-			&sp->chars[ttisp->tt_abbrind];
+		tzname[ttisp->tt_isdst] = &sp->chars[ttisp->tt_abbrind];
 #ifdef USG_COMPAT
 		if (ttisp->tt_isdst)
 			daylight = 1;
@@ -275,37 +271,33 @@ settzname(void)
 	** Finally, scrub the abbreviations.
 	** First, replace bogus characters.
 	*/
-	for (i = 0; i < sp->charcnt; ++i)
+	for (i = 0; i < sp->charcnt; ++i) {
 		if (strchr(TZ_ABBR_CHAR_SET, sp->chars[i]) == NULL)
 			sp->chars[i] = TZ_ABBR_ERR_CHAR;
+	}
 	/*
 	** Second, truncate long abbreviations.
 	*/
 	for (i = 0; i < sp->typecnt; ++i) {
-		const struct ttinfo * const	ttisp = &sp->ttis[i];
-		char *				cp = &sp->chars[ttisp->tt_abbrind];
+		const struct ttinfo *ttisp = &sp->ttis[i];
+		char *cp = &sp->chars[ttisp->tt_abbrind];
 
 		if (strlen(cp) > TZ_ABBR_MAX_LEN &&
-			strcmp(cp, GRANDPARENTED) != 0)
-				*(cp + TZ_ABBR_MAX_LEN) = '\0';
+		    strcmp(cp, GRANDPARENTED) != 0)
+			*(cp + TZ_ABBR_MAX_LEN) = '\0';
 	}
 }
 
 static int
-differ_by_repeat(t1, t0)
-const time_t	t1;
-const time_t	t0;
+differ_by_repeat(time_t t1, time_t t0)
 {
 	if (TYPE_BIT(time_t) - 1 < SECSPERREPEAT_BITS)
-			return 0;
+		return 0;
 	return (int64_t)t1 - t0 == SECSPERREPEAT;
 }
 
 static int
-tzload(name, sp, doextend)
-const char *		name;
-struct state * const	sp;
-const int		doextend;
+tzload(const char *name, struct state *sp, int doextend)
 {
 	const char *		p;
 	int			i;
@@ -315,56 +307,49 @@ const int		doextend;
 	typedef union {
 		struct tzhead	tzhead;
 		char		buf[2 * sizeof(struct tzhead) +
-					2 * sizeof *sp +
-					4 * TZ_MAX_TIMES];
+				    2 * sizeof *sp +
+				    4 * TZ_MAX_TIMES];
 	} u_t;
 	u_t *			up;
+	int			doaccess;
+	char			fullname[FILENAME_MAX];
 
 	up = calloc(1, sizeof *up);
 	if (up == NULL)
 		return -1;
 
 	sp->goback = sp->goahead = FALSE;
-	if (name != NULL && issetugid() != 0)
+	if (name != NULL && issetugid() != 0) {
 		if ((name[0] == ':' && (strchr(name, '/') || strstr(name, ".."))) ||
 		    name[0] == '/' || strchr(name, '.'))
 			name = NULL;
+	}
 	if (name == NULL && (name = TZDEFAULT) == NULL)
 		goto oops;
-	{
-		int	doaccess;
-		/*
-		** Section 4.9.1 of the C standard says that
-		** "FILENAME_MAX expands to an integral constant expression
-		** that is the size needed for an array of char large enough
-		** to hold the longest file name string that the implementation
-		** guarantees can be opened."
-		*/
-		char		fullname[FILENAME_MAX];
 
-		if (name[0] == ':')
-			++name;
-		doaccess = name[0] == '/';
-		if (!doaccess) {
-			if ((p = TZDIR) == NULL)
-				goto oops;
-			if ((strlen(p) + strlen(name) + 1) >= sizeof fullname)
-				goto oops;
-			strlcpy(fullname, p, sizeof fullname);
-			strlcat(fullname, "/", sizeof fullname);
-			strlcat(fullname, name, sizeof fullname);
-			/*
-			** Set doaccess if '.' (as in "../") shows up in name.
-			*/
-			if (strchr(name, '.') != NULL)
-				doaccess = TRUE;
-			name = fullname;
-		}
-		if (doaccess && access(name, R_OK) != 0)
+	if (name[0] == ':')
+		++name;
+	doaccess = name[0] == '/';
+	if (!doaccess) {
+		if ((p = TZDIR) == NULL)
 			goto oops;
-		if ((fid = open(name, O_RDONLY)) == -1)
+		if ((strlen(p) + strlen(name) + 1) >= sizeof fullname)
 			goto oops;
+		strlcpy(fullname, p, sizeof fullname);
+		strlcat(fullname, "/", sizeof fullname);
+		strlcat(fullname, name, sizeof fullname);
+		/*
+		** Set doaccess if '.' (as in "../") shows up in name.
+		*/
+		if (strchr(name, '.') != NULL)
+			doaccess = TRUE;
+		name = fullname;
 	}
+	if (doaccess && access(name, R_OK) != 0)
+		goto oops;
+	if ((fid = open(name, O_RDONLY)) == -1)
+		goto oops;
+
 	nread = read(fid, up->buf, sizeof up->buf);
 	if (close(fid) < 0 || nread <= 0)
 		goto oops;
@@ -380,24 +365,24 @@ const int		doextend;
 		sp->charcnt = (int) detzcode(up->tzhead.tzh_charcnt);
 		p = up->tzhead.tzh_charcnt + sizeof up->tzhead.tzh_charcnt;
 		if (sp->leapcnt < 0 || sp->leapcnt > TZ_MAX_LEAPS ||
-			sp->typecnt <= 0 || sp->typecnt > TZ_MAX_TYPES ||
-			sp->timecnt < 0 || sp->timecnt > TZ_MAX_TIMES ||
-			sp->charcnt < 0 || sp->charcnt > TZ_MAX_CHARS ||
-			(ttisstdcnt != sp->typecnt && ttisstdcnt != 0) ||
-			(ttisgmtcnt != sp->typecnt && ttisgmtcnt != 0))
-				goto oops;
+		    sp->typecnt <= 0 || sp->typecnt > TZ_MAX_TYPES ||
+		    sp->timecnt < 0 || sp->timecnt > TZ_MAX_TIMES ||
+		    sp->charcnt < 0 || sp->charcnt > TZ_MAX_CHARS ||
+		    (ttisstdcnt != sp->typecnt && ttisstdcnt != 0) ||
+		    (ttisgmtcnt != sp->typecnt && ttisgmtcnt != 0))
+			goto oops;
 		if (nread - (p - up->buf) <
-			sp->timecnt * stored +		/* ats */
-			sp->timecnt +			/* types */
-			sp->typecnt * 6 +		/* ttinfos */
-			sp->charcnt +			/* chars */
-			sp->leapcnt * (stored + 4) +	/* lsinfos */
-			ttisstdcnt +			/* ttisstds */
-			ttisgmtcnt)			/* ttisgmts */
-				goto oops;
+		    sp->timecnt * stored +		/* ats */
+		    sp->timecnt +			/* types */
+		    sp->typecnt * 6 +		/* ttinfos */
+		    sp->charcnt +			/* chars */
+		    sp->leapcnt * (stored + 4) +	/* lsinfos */
+		    ttisstdcnt +			/* ttisstds */
+		    ttisgmtcnt)			/* ttisgmts */
+			goto oops;
 		for (i = 0; i < sp->timecnt; ++i) {
 			sp->ats[i] = (stored == 4) ?
-				detzcode(p) : detzcode64(p);
+			    detzcode(p) : detzcode64(p);
 			p += stored;
 		}
 		for (i = 0; i < sp->timecnt; ++i) {
@@ -416,8 +401,8 @@ const int		doextend;
 				goto oops;
 			ttisp->tt_abbrind = (unsigned char) *p++;
 			if (ttisp->tt_abbrind < 0 ||
-				ttisp->tt_abbrind > sp->charcnt)
-					goto oops;
+			    ttisp->tt_abbrind > sp->charcnt)
+				goto oops;
 		}
 		for (i = 0; i < sp->charcnt; ++i)
 			sp->chars[i] = *p++;
@@ -427,7 +412,7 @@ const int		doextend;
 
 			lsisp = &sp->lsis[i];
 			lsisp->ls_trans = (stored == 4) ?
-				detzcode(p) : detzcode64(p);
+			    detzcode(p) : detzcode64(p);
 			p += stored;
 			lsisp->ls_corr = detzcode(p);
 			p += 4;
@@ -441,8 +426,8 @@ const int		doextend;
 			else {
 				ttisp->tt_ttisstd = *p++;
 				if (ttisp->tt_ttisstd != TRUE &&
-					ttisp->tt_ttisstd != FALSE)
-						goto oops;
+				    ttisp->tt_ttisstd != FALSE)
+					goto oops;
 			}
 		}
 		for (i = 0; i < sp->typecnt; ++i) {
@@ -454,8 +439,8 @@ const int		doextend;
 			else {
 				ttisp->tt_ttisgmt = *p++;
 				if (ttisp->tt_ttisgmt != TRUE &&
-					ttisp->tt_ttisgmt != FALSE)
-						goto oops;
+				    ttisp->tt_ttisgmt != FALSE)
+					goto oops;
 			}
 		}
 		/*
@@ -487,54 +472,56 @@ const int		doextend;
 			break;
 	}
 	if (doextend && nread > 2 &&
-		up->buf[0] == '\n' && up->buf[nread - 1] == '\n' &&
-		sp->typecnt + 2 <= TZ_MAX_TYPES) {
-			struct state	ts;
-			int	result;
+	    up->buf[0] == '\n' && up->buf[nread - 1] == '\n' &&
+	    sp->typecnt + 2 <= TZ_MAX_TYPES) {
+		struct state	ts;
+		int	result;
 
-			up->buf[nread - 1] = '\0';
-			result = tzparse(&up->buf[1], &ts, FALSE);
-			if (result == 0 && ts.typecnt == 2 &&
-				sp->charcnt + ts.charcnt <= TZ_MAX_CHARS) {
-					for (i = 0; i < 2; ++i)
-						ts.ttis[i].tt_abbrind +=
-							sp->charcnt;
-					for (i = 0; i < ts.charcnt; ++i)
-						sp->chars[sp->charcnt++] =
-							ts.chars[i];
-					i = 0;
-					while (i < ts.timecnt &&
-						ts.ats[i] <=
-						sp->ats[sp->timecnt - 1])
-							++i;
-					while (i < ts.timecnt &&
-					    sp->timecnt < TZ_MAX_TIMES) {
-						sp->ats[sp->timecnt] =
-							ts.ats[i];
-						sp->types[sp->timecnt] =
-							sp->typecnt +
-							ts.types[i];
-						++sp->timecnt;
-						++i;
-					}
-					sp->ttis[sp->typecnt++] = ts.ttis[0];
-					sp->ttis[sp->typecnt++] = ts.ttis[1];
+		up->buf[nread - 1] = '\0';
+		result = tzparse(&up->buf[1], &ts, FALSE);
+		if (result == 0 && ts.typecnt == 2 &&
+		    sp->charcnt + ts.charcnt <= TZ_MAX_CHARS) {
+			for (i = 0; i < 2; ++i)
+				ts.ttis[i].tt_abbrind +=
+				    sp->charcnt;
+			for (i = 0; i < ts.charcnt; ++i)
+				sp->chars[sp->charcnt++] =
+				    ts.chars[i];
+			i = 0;
+			while (i < ts.timecnt &&
+			    ts.ats[i] <=
+			    sp->ats[sp->timecnt - 1])
+				++i;
+			while (i < ts.timecnt &&
+			    sp->timecnt < TZ_MAX_TIMES) {
+				sp->ats[sp->timecnt] =
+				    ts.ats[i];
+				sp->types[sp->timecnt] =
+				    sp->typecnt +
+				    ts.types[i];
+				++sp->timecnt;
+				++i;
 			}
+			sp->ttis[sp->typecnt++] = ts.ttis[0];
+			sp->ttis[sp->typecnt++] = ts.ttis[1];
+		}
 	}
 	if (sp->timecnt > 1) {
-		for (i = 1; i < sp->timecnt; ++i)
+		for (i = 1; i < sp->timecnt; ++i) {
 			if (typesequiv(sp, sp->types[i], sp->types[0]) &&
-				differ_by_repeat(sp->ats[i], sp->ats[0])) {
-					sp->goback = TRUE;
-					break;
-				}
-		for (i = sp->timecnt - 2; i >= 0; --i)
+			    differ_by_repeat(sp->ats[i], sp->ats[0])) {
+				sp->goback = TRUE;
+				break;
+			}
+		}
+		for (i = sp->timecnt - 2; i >= 0; --i) {
 			if (typesequiv(sp, sp->types[sp->timecnt - 1],
-				sp->types[i]) &&
-				differ_by_repeat(sp->ats[sp->timecnt - 1],
-				sp->ats[i])) {
-					sp->goahead = TRUE;
-					break;
+			    sp->types[i]) &&
+			    differ_by_repeat(sp->ats[sp->timecnt - 1],
+			    sp->ats[i])) {
+				sp->goahead = TRUE;
+				break;
+			}
 		}
 	}
 	free(up);
@@ -545,26 +532,23 @@ oops:
 }
 
 static int
-typesequiv(sp, a, b)
-const struct state * const	sp;
-const int			a;
-const int			b;
+typesequiv(const struct state *sp, int a, int b)
 {
 	int	result;
 
 	if (sp == NULL ||
-		a < 0 || a >= sp->typecnt ||
-		b < 0 || b >= sp->typecnt)
-			result = FALSE;
+	    a < 0 || a >= sp->typecnt ||
+	    b < 0 || b >= sp->typecnt)
+		result = FALSE;
 	else {
 		const struct ttinfo *	ap = &sp->ttis[a];
 		const struct ttinfo *	bp = &sp->ttis[b];
 		result = ap->tt_gmtoff == bp->tt_gmtoff &&
-			ap->tt_isdst == bp->tt_isdst &&
-			ap->tt_ttisstd == bp->tt_ttisstd &&
-			ap->tt_ttisgmt == bp->tt_ttisgmt &&
-			strcmp(&sp->chars[ap->tt_abbrind],
-			&sp->chars[bp->tt_abbrind]) == 0;
+		    ap->tt_isdst == bp->tt_isdst &&
+		    ap->tt_ttisstd == bp->tt_ttisstd &&
+		    ap->tt_ttisgmt == bp->tt_ttisgmt &&
+		    strcmp(&sp->chars[ap->tt_abbrind],
+		    &sp->chars[bp->tt_abbrind]) == 0;
 	}
 	return result;
 }
@@ -585,14 +569,13 @@ static const int	year_lengths[2] = {
 */
 
 static const char *
-getzname(strp)
-const char *	strp;
+getzname(const char *strp)
 {
 	char	c;
 
 	while ((c = *strp) != '\0' && !isdigit((unsigned char)c) && c != ',' && c != '-' &&
-		c != '+')
-			++strp;
+	    c != '+')
+		++strp;
 	return strp;
 }
 
@@ -623,11 +606,7 @@ getqzname(const char *strp, const int delim)
 */
 
 static const char *
-getnum(strp, nump, min, max)
-const char *	strp;
-int * const		nump;
-const int		min;
-const int		max;
+getnum(const char *strp, int *nump, int min, int max)
 {
 	char	c;
 	int	num;
@@ -656,9 +635,7 @@ const int		max;
 */
 
 static const char *
-getsecs(strp, secsp)
-const char *	strp;
-long * const		secsp;
+getsecs(const char *strp, long *secsp)
 {
 	int	num;
 
@@ -698,9 +675,7 @@ long * const		secsp;
 */
 
 static const char *
-getoffset(strp, offsetp)
-const char *	strp;
-long * const		offsetp;
+getoffset(const char *strp, long *offsetp)
 {
 	int	neg = 0;
 
@@ -725,9 +700,7 @@ long * const		offsetp;
 */
 
 static const char *
-getrule(strp, rulep)
-const char *			strp;
-struct rule * const	rulep;
+getrule(const char *strp, struct rule *rulep)
 {
 	if (*strp == 'J') {
 		/*
@@ -759,7 +732,8 @@ struct rule * const	rulep;
 		*/
 		rulep->r_type = DAY_OF_YEAR;
 		strp = getnum(strp, &rulep->r_day, 0, DAYSPERLYEAR - 1);
-	} else	return NULL;		/* invalid format */
+	} else
+		return NULL;		/* invalid format */
 	if (strp == NULL)
 		return NULL;
 	if (*strp == '/') {
@@ -768,7 +742,8 @@ struct rule * const	rulep;
 		*/
 		++strp;
 		strp = getsecs(strp, &rulep->r_time);
-	} else	rulep->r_time = 2 * SECSPERHOUR;	/* default = 2:00:00 */
+	} else
+		rulep->r_time = 2 * SECSPERHOUR;	/* default = 2:00:00 */
 	return strp;
 }
 
@@ -779,11 +754,7 @@ struct rule * const	rulep;
 */
 
 static time_t
-transtime(janfirst, year, rulep, offset)
-const time_t				janfirst;
-const int				year;
-const struct rule * const	rulep;
-const long				offset;
+transtime(time_t janfirst, int year, const struct rule *rulep, long offset)
 {
 	int	leapyear;
 	time_t	value;
@@ -833,7 +804,7 @@ const long				offset;
 		yy1 = yy0 / 100;
 		yy2 = yy0 % 100;
 		dow = ((26 * m1 - 2) / 10 +
-			1 + yy2 + yy2 / 4 + yy1 / 4 - 2 * yy1) % 7;
+		    1 + yy2 + yy2 / 4 + yy1 / 4 - 2 * yy1) % 7;
 		if (dow < 0)
 			dow += DAYSPERWEEK;
 
@@ -847,8 +818,8 @@ const long				offset;
 			d += DAYSPERWEEK;
 		for (i = 1; i < rulep->r_week; ++i) {
 			if (d + DAYSPERWEEK >=
-				mon_lengths[leapyear][rulep->r_mon - 1])
-					break;
+			    mon_lengths[leapyear][rulep->r_mon - 1])
+				break;
 			d += DAYSPERWEEK;
 		}
 
@@ -874,10 +845,7 @@ const long				offset;
 */
 
 static int
-tzparse(name, sp, lastditch)
-const char *			name;
-struct state * const	sp;
-const int			lastditch;
+tzparse(const char *name, struct state *sp, int lastditch)
 {
 	const char *			stdname;
 	const char *			dstname;
@@ -938,14 +906,15 @@ const int			lastditch;
 			name = getoffset(name, &dstoffset);
 			if (name == NULL)
 				return -1;
-		} else	dstoffset = stdoffset - SECSPERHOUR;
+		} else
+			dstoffset = stdoffset - SECSPERHOUR;
 		if (*name == '\0' && load_result != 0)
 			name = TZDEFRULESTRING;
 		if (*name == ',' || *name == ';') {
 			struct rule	start;
 			struct rule	end;
-			int	year;
-			time_t	janfirst;
+			int		year;
+			time_t		janfirst;
 			time_t		starttime;
 			time_t		endtime;
 
@@ -979,9 +948,9 @@ const int			lastditch;
 			    	time_t	newfirst;
 
 				starttime = transtime(janfirst, year, &start,
-					stdoffset);
+				    stdoffset);
 				endtime = transtime(janfirst, year, &end,
-					dstoffset);
+				    dstoffset);
 				if (starttime > endtime) {
 					*atp++ = endtime;
 					*typep++ = 1;	/* DST ends */
@@ -996,7 +965,7 @@ const int			lastditch;
 				sp->timecnt += 2;
 				newfirst = janfirst;
 				newfirst += year_lengths[isleap(year)] *
-					SECSPERDAY;
+				    SECSPERDAY;
 				if (newfirst <= janfirst)
 					break;
 				janfirst = newfirst;
@@ -1063,16 +1032,17 @@ const int			lastditch;
 					*/
 					if (isdst && !sp->ttis[j].tt_ttisstd) {
 						sp->ats[i] += dstoffset -
-							theirdstoffset;
+						    theirdstoffset;
 					} else {
 						sp->ats[i] += stdoffset -
-							theirstdoffset;
+						    theirstdoffset;
 					}
 				}
 				theiroffset = -sp->ttis[j].tt_gmtoff;
 				if (sp->ttis[j].tt_isdst)
 					theirdstoffset = theiroffset;
-				else	theirstdoffset = theiroffset;
+				else
+					theirstdoffset = theiroffset;
 			}
 			/*
 			** Finally, fill in ttis.
@@ -1110,14 +1080,13 @@ const int			lastditch;
 }
 
 static void
-gmtload(sp)
-struct state * const	sp;
+gmtload(struct state *sp)
 {
 	if (tzload(gmt, sp, TRUE) != 0)
 		(void) tzparse(gmt, sp, TRUE);
 }
-static
-void
+
+static void
 tzsetwall_basic(void)
 {
 	if (lcl_is_set < 0)
@@ -1151,8 +1120,7 @@ tzsetwall(void)
 	_THREAD_PRIVATE_MUTEX_UNLOCK(lcl);
 }
 
-static
-void
+static void
 tzset_basic(void)
 {
 	const char *	name;
@@ -1187,9 +1155,10 @@ tzset_basic(void)
 		lclptr->ttis[0].tt_gmtoff = 0;
 		lclptr->ttis[0].tt_abbrind = 0;
 		strlcpy(lclptr->chars, gmt, sizeof lclptr->chars);
-	} else if (tzload(name, lclptr, TRUE) != 0)
+	} else if (tzload(name, lclptr, TRUE) != 0) {
 		if (name[0] == ':' || tzparse(name, lclptr, FALSE) != 0)
 			gmtload(lclptr);
+	}
 	settzname();
 }
 
@@ -1212,10 +1181,7 @@ tzset(void)
 
 /*ARGSUSED*/
 static struct tm *
-localsub(timep, offset, tmp)
-const time_t * const	timep;
-const long		offset;
-struct tm * const	tmp;
+localsub(const time_t *timep, long offset, struct tm *tmp)
 {
 	struct state *		sp;
 	const struct ttinfo *	ttisp;
@@ -1227,51 +1193,55 @@ struct tm * const	tmp;
 	if (sp == NULL)
 		return gmtsub(timep, offset, tmp);
 	if ((sp->goback && t < sp->ats[0]) ||
-		(sp->goahead && t > sp->ats[sp->timecnt - 1])) {
-			time_t			newt = t;
-			time_t		seconds;
-			time_t		tcycles;
-			int_fast64_t	icycles;
+	    (sp->goahead && t > sp->ats[sp->timecnt - 1])) {
+		time_t			newt = t;
+		time_t		seconds;
+		time_t		tcycles;
+		int_fast64_t	icycles;
 
+		if (t < sp->ats[0])
+			seconds = sp->ats[0] - t;
+		else
+			seconds = t - sp->ats[sp->timecnt - 1];
+		--seconds;
+		tcycles = seconds / YEARSPERREPEAT / AVGSECSPERYEAR;
+		++tcycles;
+		icycles = tcycles;
+		if (tcycles - icycles >= 1 || icycles - tcycles >= 1)
+			return NULL;
+		seconds = icycles;
+		seconds *= YEARSPERREPEAT;
+		seconds *= AVGSECSPERYEAR;
+		if (t < sp->ats[0])
+			newt += seconds;
+		else
+			newt -= seconds;
+		if (newt < sp->ats[0] ||
+		    newt > sp->ats[sp->timecnt - 1])
+			return NULL;	/* "cannot happen" */
+		result = localsub(&newt, offset, tmp);
+		if (result == tmp) {
+			time_t	newy;
+
+			newy = tmp->tm_year;
 			if (t < sp->ats[0])
-				seconds = sp->ats[0] - t;
-			else	seconds = t - sp->ats[sp->timecnt - 1];
-			--seconds;
-			tcycles = seconds / YEARSPERREPEAT / AVGSECSPERYEAR;
-			++tcycles;
-			icycles = tcycles;
-			if (tcycles - icycles >= 1 || icycles - tcycles >= 1)
+				newy -= icycles * YEARSPERREPEAT;
+			else
+				newy += icycles * YEARSPERREPEAT;
+			tmp->tm_year = newy;
+			if (tmp->tm_year != newy)
 				return NULL;
-			seconds = icycles;
-			seconds *= YEARSPERREPEAT;
-			seconds *= AVGSECSPERYEAR;
-			if (t < sp->ats[0])
-				newt += seconds;
-			else	newt -= seconds;
-			if (newt < sp->ats[0] ||
-				newt > sp->ats[sp->timecnt - 1])
-					return NULL;	/* "cannot happen" */
-			result = localsub(&newt, offset, tmp);
-			if (result == tmp) {
-				time_t	newy;
-
-				newy = tmp->tm_year;
-				if (t < sp->ats[0])
-					newy -= icycles * YEARSPERREPEAT;
-				else	newy += icycles * YEARSPERREPEAT;
-				tmp->tm_year = newy;
-				if (tmp->tm_year != newy)
-					return NULL;
-			}
-			return result;
+		}
+		return result;
 	}
 	if (sp->timecnt == 0 || t < sp->ats[0]) {
 		i = 0;
-		while (sp->ttis[i].tt_isdst)
+		while (sp->ttis[i].tt_isdst) {
 			if (++i >= sp->typecnt) {
 				i = 0;
 				break;
 			}
+		}
 	} else {
 		int	lo = 1;
 		int	hi = sp->timecnt;
@@ -1281,7 +1251,8 @@ struct tm * const	tmp;
 
 			if (t < sp->ats[mid])
 				hi = mid;
-			else	lo = mid + 1;
+			else
+				lo = mid + 1;
 		}
 		i = (int) sp->types[lo - 1];
 	}
@@ -1306,9 +1277,7 @@ struct tm * const	tmp;
 */
 
 struct tm *
-localtime_r(timep, p_tm)
-const time_t * const	timep;
-struct tm *p_tm;
+localtime_r(const time_t *timep, struct tm *p_tm)
 {
 	_THREAD_PRIVATE_MUTEX_LOCK(lcl);
 	tzset_basic();
@@ -1318,8 +1287,7 @@ struct tm *p_tm;
 }
 
 struct tm *
-localtime(timep)
-const time_t * const	timep;
+localtime(const time_t *timep)
 {
 	_THREAD_PRIVATE_KEY(localtime);
 	struct tm * p_tm = (struct tm*)_THREAD_PRIVATE(localtime, tm, NULL);
@@ -1334,10 +1302,7 @@ const time_t * const	timep;
 */
 
 static struct tm *
-gmtsub(timep, offset, tmp)
-const time_t * const	timep;
-const long		offset;
-struct tm * const	tmp;
+gmtsub(const time_t *timep, long offset, struct tm *tmp)
 {
 	struct tm *	result;
 
@@ -1361,7 +1326,8 @@ struct tm * const	tmp;
 	else {
 		if (gmtptr == NULL)
 			tmp->TM_ZONE = (char *)gmt;
-		else	tmp->TM_ZONE = gmtptr->chars;
+		else
+			tmp->TM_ZONE = gmtptr->chars;
 	}
 #endif /* defined TM_ZONE */
 	return result;
@@ -1372,17 +1338,14 @@ struct tm * const	tmp;
 */
 
 struct tm *
-gmtime_r(timep, p_tm)
-const time_t *		timep;
-struct tm *		p_tm;
+gmtime_r(const time_t *timep, struct tm *p_tm)
 {
 	gmtsub(timep, 0L, p_tm);
 	return p_tm;
 }
 
 struct tm *
-gmtime(timep)
-const time_t * const	timep;
+gmtime(const time_t *timep)
 {
 	_THREAD_PRIVATE_KEY(gmtime);
 	struct tm * p_tm = (struct tm*) _THREAD_PRIVATE(gmtime, tm, NULL);
@@ -1396,9 +1359,7 @@ const time_t * const	timep;
 #ifdef STD_INSPIRED
 
 struct tm *
-offtime(timep, offset)
-const time_t * const	timep;
-const long		offset;
+offtime(const time_t *timep, long offset)
 {
 	return gmtsub(timep, offset, &tm);
 }
@@ -1411,29 +1372,25 @@ const long		offset;
 */
 
 static int
-leaps_thru_end_of(y)
-const int	y;
+leaps_thru_end_of(int y)
 {
 	return (y >= 0) ? (y / 4 - y / 100 + y / 400) :
 		-(leaps_thru_end_of(-(y + 1)) + 1);
 }
 
 static struct tm *
-timesub(timep, offset, sp, tmp)
-const time_t * const			timep;
-const long				offset;
-const struct state * const	sp;
-struct tm * const		tmp;
+timesub(const time_t *timep, long offset, const struct state *sp, struct tm *tmp)
 {
 	const struct lsinfo *	lp;
 	time_t			tdays;
 	int			idays;	/* unsigned would be so 2003 */
 	long			rem;
-	int				y;
+	int			y;
 	const int *		ip;
 	long			corr;
 	int			hit;
 	int			i;
+	long			seconds;
 
 	corr = 0;
 	hit = 0;
@@ -1443,16 +1400,17 @@ struct tm * const		tmp;
 		if (*timep >= lp->ls_trans) {
 			if (*timep == lp->ls_trans) {
 				hit = ((i == 0 && lp->ls_corr > 0) ||
-					lp->ls_corr > sp->lsis[i - 1].ls_corr);
-				if (hit)
+				    lp->ls_corr > sp->lsis[i - 1].ls_corr);
+				if (hit) {
 					while (i > 0 &&
-						sp->lsis[i].ls_trans ==
-						sp->lsis[i - 1].ls_trans + 1 &&
-						sp->lsis[i].ls_corr ==
-						sp->lsis[i - 1].ls_corr + 1) {
-							++hit;
-							--i;
+					    sp->lsis[i].ls_trans ==
+					    sp->lsis[i - 1].ls_trans + 1 &&
+					    sp->lsis[i].ls_corr ==
+					    sp->lsis[i - 1].ls_corr + 1) {
+						++hit;
+						--i;
 					}
+				}
 			}
 			corr = lp->ls_corr;
 			break;
@@ -1482,13 +1440,11 @@ struct tm * const		tmp;
 		tdays -= leapdays;
 		y = newy;
 	}
-	{
-		long	seconds;
 
-		seconds = tdays * SECSPERDAY + 0.5;
-		tdays = seconds / SECSPERDAY;
-		rem += seconds - tdays * SECSPERDAY;
-	}
+	seconds = tdays * SECSPERDAY + 0.5;
+	tdays = seconds / SECSPERDAY;
+	rem += seconds - tdays * SECSPERDAY;
+
 	/*
 	** Given the range, we can now fearlessly cast...
 	*/
@@ -1520,11 +1476,11 @@ struct tm * const		tmp;
 	** The "extra" mods below avoid overflow problems.
 	*/
 	tmp->tm_wday = EPOCH_WDAY +
-		((y - EPOCH_YEAR) % DAYSPERWEEK) *
-		(DAYSPERNYEAR % DAYSPERWEEK) +
-		leaps_thru_end_of(y - 1) -
-		leaps_thru_end_of(EPOCH_YEAR - 1) +
-		idays;
+	    ((y - EPOCH_YEAR) % DAYSPERWEEK) *
+	    (DAYSPERNYEAR % DAYSPERWEEK) +
+	    leaps_thru_end_of(y - 1) -
+	    leaps_thru_end_of(EPOCH_YEAR - 1) +
+	    idays;
 	tmp->tm_wday %= DAYSPERWEEK;
 	if (tmp->tm_wday < 0)
 		tmp->tm_wday += DAYSPERWEEK;
@@ -1548,8 +1504,7 @@ struct tm * const		tmp;
 }
 
 char *
-ctime(timep)
-const time_t * const	timep;
+ctime(const time_t *timep)
 {
 /*
 ** Section 4.12.3.2 of X3.159-1989 requires that
@@ -1561,9 +1516,7 @@ const time_t * const	timep;
 }
 
 char *
-ctime_r(timep, buf)
-const time_t * const	timep;
-char *			buf;
+ctime_r(const time_t *timep, char *buf)
 {
 	struct tm	mytm;
 
@@ -1588,9 +1541,7 @@ char *			buf;
 */
 
 static int
-increment_overflow(ip, j)
-int * const	ip;
-int		j;
+increment_overflow(int *ip, int j)
 {
 	int const	i = *ip;
 
@@ -1607,9 +1558,7 @@ int		j;
 }
 
 static int
-long_increment_overflow(lp, m)
-long * const	lp;
-int const	m;
+long_increment_overflow(long *lp, int m)
 {
 	long const	l = *lp;
 
@@ -1620,58 +1569,46 @@ int const	m;
 }
 
 static int
-normalize_overflow(tensptr, unitsptr, base)
-int * const	tensptr;
-int * const	unitsptr;
-const int	base;
+normalize_overflow(int *tensptr, int *unitsptr, int base)
 {
 	int	tensdelta;
 
 	tensdelta = (*unitsptr >= 0) ?
-		(*unitsptr / base) :
-		(-1 - (-1 - *unitsptr) / base);
+	    (*unitsptr / base) :
+	    (-1 - (-1 - *unitsptr) / base);
 	*unitsptr -= tensdelta * base;
 	return increment_overflow(tensptr, tensdelta);
 }
 
 static int
-long_normalize_overflow(tensptr, unitsptr, base)
-long * const	tensptr;
-int * const	unitsptr;
-const int	base;
+long_normalize_overflow(long *tensptr, int *unitsptr, int base)
 {
 	int	tensdelta;
 
 	tensdelta = (*unitsptr >= 0) ?
-		(*unitsptr / base) :
-		(-1 - (-1 - *unitsptr) / base);
+	    (*unitsptr / base) :
+	    (-1 - (-1 - *unitsptr) / base);
 	*unitsptr -= tensdelta * base;
 	return long_increment_overflow(tensptr, tensdelta);
 }
 
 static int
-tmcomp(atmp, btmp)
-const struct tm * const atmp;
-const struct tm * const btmp;
+tmcomp(const struct tm *atmp, const struct tm *btmp)
 {
 	int	result;
 
 	if ((result = (atmp->tm_year - btmp->tm_year)) == 0 &&
-		(result = (atmp->tm_mon - btmp->tm_mon)) == 0 &&
-		(result = (atmp->tm_mday - btmp->tm_mday)) == 0 &&
-		(result = (atmp->tm_hour - btmp->tm_hour)) == 0 &&
-		(result = (atmp->tm_min - btmp->tm_min)) == 0)
-			result = atmp->tm_sec - btmp->tm_sec;
+	    (result = (atmp->tm_mon - btmp->tm_mon)) == 0 &&
+	    (result = (atmp->tm_mday - btmp->tm_mday)) == 0 &&
+	    (result = (atmp->tm_hour - btmp->tm_hour)) == 0 &&
+	    (result = (atmp->tm_min - btmp->tm_min)) == 0)
+		result = atmp->tm_sec - btmp->tm_sec;
 	return result;
 }
 
 static time_t
-time2sub(tmp, funcp, offset, okayp, do_norm_secs)
-struct tm * const	tmp;
-struct tm * (* const	funcp)(const time_t*, long, struct tm*);
-const long		offset;
-int * const		okayp;
-const int		do_norm_secs;
+time2sub(struct tm *tmp, struct tm *(*funcp)(const time_t *, long, struct tm *),
+    long offset, int *okayp, int do_norm_secs)
 {
 	const struct state *	sp;
 	int			dir;
@@ -1680,10 +1617,10 @@ const int		do_norm_secs;
 	long			li;
 	time_t			lo;
 	time_t			hi;
-	long				y;
-	time_t				newt;
-	time_t				t;
-	struct tm			yourtm, mytm;
+	long			y;
+	time_t			newt;
+	time_t			t;
+	struct tm		yourtm, mytm;
 
 	*okayp = FALSE;
 	yourtm = *tmp;
@@ -1772,7 +1709,8 @@ const int		do_norm_secs;
 			** extreme on the next pass.
 			*/
 			dir = (t > 0) ? 1 : -1;
-		} else	dir = tmcomp(&mytm, &yourtm);
+		} else
+			dir = tmcomp(&mytm, &yourtm);
 		if (dir != 0) {
 			if (t == lo) {
 				++t;
@@ -1789,7 +1727,8 @@ const int		do_norm_secs;
 				return WRONG;
 			if (dir > 0)
 				hi = t;
-			else	lo = t;
+			else
+				lo = t;
 			continue;
 		}
 		if (yourtm.tm_isdst < 0 || mytm.tm_isdst == yourtm.tm_isdst)
@@ -1801,7 +1740,7 @@ const int		do_norm_secs;
 		** gets checked.
 		*/
 		sp = (const struct state *)
-			((funcp == localsub) ? lclptr : gmtptr);
+		    ((funcp == localsub) ? lclptr : gmtptr);
 		if (sp == NULL)
 			return WRONG;
 		for (i = sp->typecnt - 1; i >= 0; --i) {
@@ -1838,11 +1777,8 @@ label:
 }
 
 static time_t
-time2(tmp, funcp, offset, okayp)
-struct tm * const	tmp;
-struct tm * (* const	funcp)(const time_t*, long, struct tm*);
-const long		offset;
-int * const		okayp;
+time2(struct tm *tmp, struct tm * (*funcp)(const time_t *, long, struct tm *),
+    long offset, int *okayp)
 {
 	time_t	t;
 
@@ -1856,10 +1792,8 @@ int * const		okayp;
 }
 
 static time_t
-time1(tmp, funcp, offset)
-struct tm * const	tmp;
-struct tm * (* const	funcp)(const time_t *, long, struct tm *);
-const long		offset;
+time1(struct tm *tmp, struct tm * (*funcp)(const time_t *, long, struct tm *),
+    long offset)
 {
 	time_t			t;
 	const struct state *	sp;
@@ -1867,9 +1801,9 @@ const long		offset;
 	int			sameind, otherind;
 	int			i;
 	int			nseen;
-	int				seen[TZ_MAX_TYPES];
-	int				types[TZ_MAX_TYPES];
-	int				okay;
+	int			seen[TZ_MAX_TYPES];
+	int			types[TZ_MAX_TYPES];
+	int			okay;
 
 	if (tmp == NULL) {
 		errno = EINVAL;
@@ -1903,11 +1837,12 @@ const long		offset;
 	for (i = 0; i < sp->typecnt; ++i)
 		seen[i] = FALSE;
 	nseen = 0;
-	for (i = sp->timecnt - 1; i >= 0; --i)
+	for (i = sp->timecnt - 1; i >= 0; --i) {
 		if (!seen[sp->types[i]]) {
 			seen[sp->types[i]] = TRUE;
 			types[nseen++] = sp->types[i];
 		}
+	}
 	for (sameind = 0; sameind < nseen; ++sameind) {
 		samei = types[sameind];
 		if (sp->ttis[samei].tt_isdst != tmp->tm_isdst)
@@ -1917,13 +1852,13 @@ const long		offset;
 			if (sp->ttis[otheri].tt_isdst == tmp->tm_isdst)
 				continue;
 			tmp->tm_sec += sp->ttis[otheri].tt_gmtoff -
-					sp->ttis[samei].tt_gmtoff;
+			    sp->ttis[samei].tt_gmtoff;
 			tmp->tm_isdst = !tmp->tm_isdst;
 			t = time2(tmp, funcp, offset, &okay);
 			if (okay)
 				return t;
 			tmp->tm_sec -= sp->ttis[otheri].tt_gmtoff -
-					sp->ttis[samei].tt_gmtoff;
+			    sp->ttis[samei].tt_gmtoff;
 			tmp->tm_isdst = !tmp->tm_isdst;
 		}
 	}
@@ -1931,8 +1866,7 @@ const long		offset;
 }
 
 time_t
-mktime(tmp)
-struct tm * const	tmp;
+mktime(struct tm *tmp)
 {
 	time_t ret;
 
@@ -1946,8 +1880,7 @@ struct tm * const	tmp;
 #ifdef STD_INSPIRED
 
 time_t
-timelocal(tmp)
-struct tm * const	tmp;
+timelocal(struct tm *tmp)
 {
 	if (tmp != NULL)
 		tmp->tm_isdst = -1;	/* in case it wasn't initialized */
@@ -1955,8 +1888,7 @@ struct tm * const	tmp;
 }
 
 time_t
-timegm(tmp)
-struct tm * const	tmp;
+timegm(struct tm *tmp)
 {
 	if (tmp != NULL)
 		tmp->tm_isdst = 0;
@@ -1964,9 +1896,7 @@ struct tm * const	tmp;
 }
 
 time_t
-timeoff(tmp, offset)
-struct tm * const	tmp;
-const long		offset;
+timeoff(struct tm *tmp, long offset)
 {
 	if (tmp != NULL)
 		tmp->tm_isdst = 0;
@@ -1990,8 +1920,7 @@ const long		offset;
 */
 
 static long
-leapcorr(timep)
-time_t *	timep;
+leapcorr(time_t *timep)
 {
 	struct state *		sp;
 	struct lsinfo *	lp;
@@ -2008,16 +1937,14 @@ time_t *	timep;
 }
 
 time_t
-time2posix(t)
-time_t	t;
+time2posix(time_t t)
 {
 	tzset();
 	return t - leapcorr(&t);
 }
 
 time_t
-posix2time(t)
-time_t	t;
+posix2time(time_t t)
 {
 	time_t	x;
 	time_t	y;

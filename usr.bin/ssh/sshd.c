@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.441 2015/01/31 20:30:05 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.443 2015/02/16 22:30:03 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -758,7 +758,7 @@ list_hostkey_types(void)
 	buffer_init(&b);
 	for (i = 0; i < options.num_host_key_files; i++) {
 		key = sensitive_data.host_keys[i];
-		if (key == NULL && have_agent)
+		if (key == NULL)
 			key = sensitive_data.host_pubkeys[i];
 		if (key == NULL)
 			continue;
@@ -857,18 +857,25 @@ get_hostkey_public_by_index(int ind, struct ssh *ssh)
 }
 
 int
-get_hostkey_index(Key *key, struct ssh *ssh)
+get_hostkey_index(Key *key, int compare, struct ssh *ssh)
 {
 	int i;
 
 	for (i = 0; i < options.num_host_key_files; i++) {
 		if (key_is_cert(key)) {
-			if (key == sensitive_data.host_certificates[i])
+			if (key == sensitive_data.host_certificates[i] ||
+			    (compare && sensitive_data.host_certificates[i] &&
+			    sshkey_equal(key,
+			    sensitive_data.host_certificates[i])))
 				return (i);
 		} else {
-			if (key == sensitive_data.host_keys[i])
+			if (key == sensitive_data.host_keys[i] ||
+			    (compare && sensitive_data.host_keys[i] &&
+			    sshkey_equal(key, sensitive_data.host_keys[i])))
 				return (i);
-			if (key == sensitive_data.host_pubkeys[i])
+			if (key == sensitive_data.host_pubkeys[i] ||
+			    (compare && sensitive_data.host_pubkeys[i] &&
+			    sshkey_equal(key, sensitive_data.host_pubkeys[i])))
 				return (i);
 		}
 	}
@@ -896,19 +903,23 @@ notify_hostkeys(struct ssh *ssh)
 		debug3("%s: key %d: %s %s", __func__, i,
 		    sshkey_ssh_name(key), fp);
 		free(fp);
-		if ((r = sshkey_puts(key, buf)) != 0)
+		if (nkeys == 0) {
+			packet_start(SSH2_MSG_GLOBAL_REQUEST);
+			packet_put_cstring("hostkeys@openssh.com");
+			packet_put_char(0); /* want-reply */
+		}
+		sshbuf_reset(buf);
+		if ((r = sshkey_putb(key, buf)) != 0)
 			fatal("%s: couldn't put hostkey %d: %s",
 			    __func__, i, ssh_err(r));
+		packet_put_string(sshbuf_ptr(buf), sshbuf_len(buf));
 		nkeys++;
 	}
+	debug3("%s: sent %d hostkeys", __func__, nkeys);
 	if (nkeys == 0)
 		fatal("%s: no hostkeys", __func__);
-	debug3("%s: send %d hostkeys", __func__, nkeys);
-	packet_start(SSH2_MSG_GLOBAL_REQUEST);
-	packet_put_cstring("hostkeys@openssh.com");
-	packet_put_char(0); /* want-reply */
-	packet_put_string(sshbuf_ptr(buf), sshbuf_len(buf));
 	packet_send();
+	sshbuf_free(buf);
 }
 
 /*
@@ -1650,11 +1661,10 @@ main(int ac, char **av)
 		sensitive_data.host_keys[i] = key;
 		sensitive_data.host_pubkeys[i] = pubkey;
 
-		if (key == NULL && pubkey != NULL && pubkey->type != KEY_RSA1) {
-			if (have_agent) {
-				debug("will rely on agent for hostkey %s",
-				    options.host_key_files[i]);
-			}
+		if (key == NULL && pubkey != NULL && pubkey->type != KEY_RSA1 &&
+		    have_agent) {
+			debug("will rely on agent for hostkey %s",
+			    options.host_key_files[i]);
 			keytype = pubkey->type;
 		} else if (key != NULL) {
 			keytype = key->type;
@@ -1683,7 +1693,7 @@ main(int ac, char **av)
 		    SSH_FP_DEFAULT)) == NULL)
 			fatal("sshkey_fingerprint failed");
 		debug("%s host key #%d: %s %s",
-		    key ? "private" : "public", i, keytype == KEY_RSA1 ?
+		    key ? "private" : "agent", i, keytype == KEY_RSA1 ?
 		    sshkey_type(pubkey) : sshkey_ssh_name(pubkey), fp);
 		free(fp);
 	}
@@ -2310,7 +2320,7 @@ do_ssh1_kex(void)
 
 int
 sshd_hostkey_sign(Key *privkey, Key *pubkey, u_char **signature, size_t *slen,
-    u_char *data, size_t dlen, u_int flag)
+    const u_char *data, size_t dlen, u_int flag)
 {
 	int r;
 	u_int xxx_slen, xxx_dlen = dlen;
