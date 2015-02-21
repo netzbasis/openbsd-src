@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.18 2015/02/11 01:12:42 brad Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.20 2015/02/20 14:08:18 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -220,7 +220,7 @@ int	iwm_poll_bit(struct iwm_softc *, int, uint32_t, uint32_t, int);
 int	iwm_nic_lock(struct iwm_softc *);
 void	iwm_nic_unlock(struct iwm_softc *);
 void	iwm_set_bits_mask_prph(struct iwm_softc *, uint32_t, uint32_t,
-				uint32_t); 
+		    uint32_t);
 void	iwm_set_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 void	iwm_clear_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 int	iwm_dma_contig_alloc(bus_dma_tag_t, struct iwm_dma_info *,
@@ -251,6 +251,7 @@ int	iwm_prepare_card_hw(struct iwm_softc *);
 void	iwm_apm_config(struct iwm_softc *);
 int	iwm_apm_init(struct iwm_softc *);
 void	iwm_apm_stop(struct iwm_softc *);
+int	iwm_allow_mcast(struct iwm_softc *);
 int	iwm_start_hw(struct iwm_softc *);
 void	iwm_stop_device(struct iwm_softc *);
 void	iwm_set_pwr(struct iwm_softc *);
@@ -511,8 +512,8 @@ int
 iwm_read_firmware(struct iwm_softc *sc)
 {
 	struct iwm_fw_info *fw = &sc->sc_fw;
-        struct iwm_tlv_ucode_header *uhdr;
-        struct iwm_ucode_tlv tlv;
+	struct iwm_tlv_ucode_header *uhdr;
+	struct iwm_ucode_tlv tlv;
 	enum iwm_ucode_tlv_type tlv_type;
 	uint8_t *data;
 	int error, status;
@@ -1187,7 +1188,7 @@ iwm_check_rfkill(struct iwm_softc *sc)
 	uint32_t v;
 	int s;
 	int rv;
-	
+
 	s = splnet();
 
 	/*
@@ -1267,7 +1268,7 @@ iwm_set_hw_ready(struct iwm_softc *sc)
 	IWM_SETBITS(sc, IWM_CSR_HW_IF_CONFIG_REG,
 	    IWM_CSR_HW_IF_CONFIG_REG_BIT_NIC_READY);
 
-        return iwm_poll_bit(sc, IWM_CSR_HW_IF_CONFIG_REG,
+	return iwm_poll_bit(sc, IWM_CSR_HW_IF_CONFIG_REG,
 	    IWM_CSR_HW_IF_CONFIG_REG_BIT_NIC_READY,
 	    IWM_CSR_HW_IF_CONFIG_REG_BIT_NIC_READY,
 	    IWM_HW_READY_TIMEOUT);
@@ -1447,7 +1448,7 @@ iwm_start_hw(struct iwm_softc *sc)
 	if ((error = iwm_prepare_card_hw(sc)) != 0)
 		return error;
 
-        /* Reset the entire device */
+	/* Reset the entire device */
 	IWM_WRITE(sc, IWM_CSR_RESET,
 	    IWM_CSR_RESET_REG_FLAG_SW_RESET |
 	    IWM_CSR_RESET_REG_FLAG_NEVO_RESET);
@@ -1518,9 +1519,9 @@ iwm_stop_device(struct iwm_softc *sc)
 	/* Stop the device, and put it in low power state */
 	iwm_apm_stop(sc);
 
-        /* Upon stop, the APM issues an interrupt if HW RF kill is set.
-         * Clean again the interrupt here
-         */
+	/* Upon stop, the APM issues an interrupt if HW RF kill is set.
+	 * Clean again the interrupt here
+	 */
 	iwm_disable_interrupts(sc);
 	/* stop and reset the on-board processor */
 	IWM_WRITE(sc, IWM_CSR_RESET, IWM_CSR_RESET_REG_FLAG_NEVO_RESET);
@@ -1568,8 +1569,8 @@ iwm_mvm_nic_config(struct iwm_softc *sc)
 
 	IWM_WRITE(sc, IWM_CSR_HW_IF_CONFIG_REG, reg_val);
 
-        DPRINTF(("Radio type=0x%x-0x%x-0x%x\n", radio_cfg_type,
-                       radio_cfg_step, radio_cfg_dash));
+	DPRINTF(("Radio type=0x%x-0x%x-0x%x\n", radio_cfg_type,
+	    radio_cfg_step, radio_cfg_dash));
 
 	/*
 	 * W/A : NIC is stuck in a reset state after Early PCIe power off
@@ -1688,7 +1689,7 @@ iwm_nic_init(struct iwm_softc *sc)
 	DPRINTF(("shadow registers enabled\n"));
 	IWM_SETBITS(sc, IWM_CSR_MAC_SHADOW_REG_CTRL, 0x800fffff);
 
-        return 0;
+	return 0;
 }
 
 enum iwm_mvm_tx_fifo {
@@ -1700,10 +1701,10 @@ enum iwm_mvm_tx_fifo {
 };
 
 const uint8_t iwm_mvm_ac_to_tx_fifo[] = {
-        IWM_MVM_TX_FIFO_VO,
-        IWM_MVM_TX_FIFO_VI,
-        IWM_MVM_TX_FIFO_BE,
-        IWM_MVM_TX_FIFO_BK,
+	IWM_MVM_TX_FIFO_VO,
+	IWM_MVM_TX_FIFO_VI,
+	IWM_MVM_TX_FIFO_BE,
+	IWM_MVM_TX_FIFO_BK,
 };
 
 void
@@ -1796,7 +1797,7 @@ iwm_post_alive(struct iwm_softc *sc)
 	IWM_SETBITS(sc, IWM_FH_TX_CHICKEN_BITS_REG,
 	    IWM_FH_TX_CHICKEN_BITS_SCD_AUTO_RETRY_EN);
 
-        /* Enable L1-Active */
+	/* Enable L1-Active */
 	iwm_clear_bits_prph(sc, IWM_APMG_PCIDEV_STT_REG,
 	    IWM_APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
 
@@ -2555,8 +2556,8 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
  */
 
 struct iwm_nvm_section {
-        uint16_t length;
-        const uint8_t *data;
+	uint16_t length;
+	const uint8_t *data;
 };
 
 #define IWM_FW_VALID_TX_ANT(sc) \
@@ -2647,7 +2648,7 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 	IWM_WRITE(sc, IWM_FH_TFDIB_CTRL0_REG(IWM_FH_SRVC_CHNL),
 	    dma->paddr & IWM_FH_MEM_TFDIB_DRAM_ADDR_LSB_MSK);
 	IWM_WRITE(sc, IWM_FH_TFDIB_CTRL1_REG(IWM_FH_SRVC_CHNL),
-	    (iwm_get_dma_hi_addr(dma->paddr)	
+	    (iwm_get_dma_hi_addr(dma->paddr)
 	      << IWM_FH_MEM_TFDIB_REG1_ADDR_BITSHIFT) | byte_cnt);
 	IWM_WRITE(sc, IWM_FH_TCSR_CHNL_TX_BUF_STS_REG(IWM_FH_SRVC_CHNL),
 	    1 << IWM_FH_TCSR_CHNL_TX_BUF_STS_REG_POS_TB_NUM |
@@ -2657,7 +2658,7 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 	    IWM_FH_TCSR_TX_CONFIG_REG_VAL_DMA_CHNL_ENABLE    |
 	    IWM_FH_TCSR_TX_CONFIG_REG_VAL_DMA_CREDIT_DISABLE |
 	    IWM_FH_TCSR_TX_CONFIG_REG_VAL_CIRQ_HOST_ENDTFD);
-    
+
 	iwm_nic_unlock(sc);
 
 	/* wait 1s for this segment to load */
@@ -2665,7 +2666,7 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 		if ((error = tsleep(&sc->sc_fw, 0, "iwmfw", hz)) != 0)
 			break;
 
-        return error;
+	return error;
 }
 
 int
@@ -2781,7 +2782,7 @@ iwm_mvm_load_ucode_wait_alive(struct iwm_softc *sc,
 		return error;
 
 	sc->sc_uc_current = ucode_type;
-        error = iwm_start_fw(sc, ucode_type);
+	error = iwm_start_fw(sc, ucode_type);
 	if (error) {
 		sc->sc_uc_current = old_type;
 		return error;
@@ -2810,7 +2811,7 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 	}
 
 	sc->sc_init_complete = 0;
-        if ((error = iwm_mvm_load_ucode_wait_alive(sc,
+	if ((error = iwm_mvm_load_ucode_wait_alive(sc,
 	    IWM_UCODE_TYPE_INIT)) != 0)
 		return error;
 
@@ -2902,7 +2903,7 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	data->m = m;
 	bus_dmamap_sync(sc->sc_dmat, data->map, 0, size, BUS_DMASYNC_PREREAD);
 
-        /* Update RX descriptor. */
+	/* Update RX descriptor. */
 	ring->desc[idx] = htole32(data->map->dm_segs[0].ds_addr >> 8);
 	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
 	    idx * sizeof(uint32_t), sizeof(uint32_t), BUS_DMASYNC_PREWRITE);
@@ -3153,7 +3154,7 @@ iwm_mvm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 }
 
 void
-iwm_mvm_rx_tx_cmd(struct iwm_softc *sc, 
+iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 	struct iwm_rx_packet *pkt, struct iwm_rx_data *data)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
@@ -3372,7 +3373,7 @@ iwm_mvm_phy_ctxt_changed(struct iwm_softc *sc,
 	    chains_static, chains_dynamic, IWM_FW_CTXT_ACTION_MODIFY, 0);
 }
 
-/* 
+/*
  * END iwlwifi/mvm/phy-ctxt.c
  */
 
@@ -3709,7 +3710,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		} else {
 			tx->initial_rate_index = (nrates-1) - in->in_ni.ni_txrate;
 		}
-                tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
+		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
 		DPRINTFN(12, ("start with txrate %d\n", tx->initial_rate_index));
 		return &iwm_rates[tx->initial_rate_index];
 	}
@@ -3843,12 +3844,12 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		tx->pm_frame_timeout = htole16(0);
 	}
 
-        if (hdrlen & 3) {
-                /* First segment length must be a multiple of 4. */
-                flags |= IWM_TX_CMD_FLG_MH_PAD;
-                pad = 4 - (hdrlen & 3);
-        } else
-                pad = 0;
+	if (hdrlen & 3) {
+		/* First segment length must be a multiple of 4. */
+		flags |= IWM_TX_CMD_FLG_MH_PAD;
+		pad = 4 - (hdrlen & 3);
+	} else
+		pad = 0;
 
 	tx->driver_txop = 0;
 	tx->next_frame_len = 0;
@@ -5034,6 +5035,11 @@ iwm_auth(struct iwm_softc *sc)
 	int error;
 
 	in->in_assoc = 0;
+
+	error = iwm_allow_mcast(sc);
+	if (error)
+		return error;
+
 	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
 		DPRINTF(("%s: failed to add MAC\n", DEVNAME(sc)));
 		return error;
@@ -5060,7 +5066,7 @@ iwm_auth(struct iwm_softc *sc)
 	while (sc->sc_auth_prot)
 		tsleep(&sc->sc_auth_prot, 0, "iwmauth", 0);
 	sc->sc_auth_prot = 1;
-	
+
 	duration = min(IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS,
 	    200 + in->in_ni.ni_intval);
 	min_duration = min(IWM_MVM_TE_SESSION_PROTECTION_MIN_TIME_MS,
@@ -5211,7 +5217,7 @@ iwm_setrates(struct iwm_node *in)
 	memset(&in->in_ridx, -1, sizeof(in->in_ridx));
 	for (i = 0; i < nrates; i++) {
 		int rate = ni->ni_rates.rs_rates[i] & IEEE80211_RATE_VAL;
-		
+
 		/* Map 802.11 rate to HW rate index. */
 		for (ridx = 0; ridx <= IWM_RIDX_MAX; ridx++)
 			if (iwm_rates[ridx].rate == rate)
@@ -5514,15 +5520,15 @@ iwm_init_hw(struct iwm_softc *sc)
 		goto error;
 	}
 
-        if ((error = iwm_send_tx_ant_cfg(sc, IWM_FW_VALID_TX_ANT(sc))) != 0)
-                goto error;
+	if ((error = iwm_send_tx_ant_cfg(sc, IWM_FW_VALID_TX_ANT(sc))) != 0)
+		goto error;
 
-        /* Send phy db control command and then phy db calibration*/
-        if ((error = iwm_send_phy_db_data(sc)) != 0)
-                goto error;
+	/* Send phy db control command and then phy db calibration*/
+	if ((error = iwm_send_phy_db_data(sc)) != 0)
+		goto error;
 
-        if ((error = iwm_send_phy_cfg_cmd(sc)) != 0)
-                goto error;
+	if ((error = iwm_send_phy_cfg_cmd(sc)) != 0)
+		goto error;
 
 	/* Add auxiliary station for scanning */
 	if ((error = iwm_mvm_add_aux_sta(sc)) != 0)
@@ -5539,9 +5545,9 @@ iwm_init_hw(struct iwm_softc *sc)
 			goto error;
 	}
 
-        error = iwm_mvm_power_update_device(sc);
-        if (error)
-                goto error;
+	error = iwm_mvm_power_update_device(sc);
+	if (error)
+		goto error;
 
 	/* Mark TX rings as active. */
 	for (qid = 0; qid < 4; qid++) {
@@ -5552,6 +5558,32 @@ iwm_init_hw(struct iwm_softc *sc)
 
  error:
 	iwm_stop_device(sc);
+	return error;
+}
+
+/* Allow multicast from our BSSID. */
+int
+iwm_allow_mcast(struct iwm_softc *sc)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ieee80211_node *ni = ic->ic_bss;
+	struct iwm_mcast_filter_cmd *cmd;
+	size_t size;
+	int error;
+
+	size = roundup(sizeof(*cmd), 4);
+	cmd = malloc(size, M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (cmd == NULL)
+		return ENOMEM;
+	cmd->filter_own = 1;
+	cmd->port_id = 0;
+	cmd->count = 0;
+	cmd->pass_all = 1;
+	IEEE80211_ADDR_COPY(cmd->bssid, ni->ni_bssid);
+
+	error = iwm_mvm_send_cmd_pdu(sc, IWM_MCAST_FILTER_CMD,
+	    IWM_CMD_SYNC, size, cmd);
+	free(cmd, M_DEVBUF, size);
 	return error;
 }
 
@@ -5599,7 +5631,7 @@ iwm_start(struct ifnet *ifp)
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_node *ni;
-        struct ether_header *eh;
+	struct ether_header *eh;
 	struct mbuf *m;
 	int ac;
 
@@ -5627,11 +5659,11 @@ iwm_start(struct ifnet *ifp)
 		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (!m)
 			break;
-                if (m->m_len < sizeof (*eh) &&
-                    (m = m_pullup(m, sizeof (*eh))) == NULL) {
-                        ifp->if_oerrors++;
-                        continue;
-                }
+		if (m->m_len < sizeof (*eh) &&
+		    (m = m_pullup(m, sizeof (*eh))) == NULL) {
+			ifp->if_oerrors++;
+			continue;
+		}
 #if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
@@ -6114,7 +6146,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 		case IWM_TIME_EVENT_NOTIFICATION: {
 			struct iwm_time_event_notif *notif;
 			SYNC_RESP_STRUCT(notif, pkt);
-			
+
 			if (notif->status) {
 				if (le32toh(notif->action) &
 				    IWM_TE_V2_NOTIF_HOST_EVENT_START)
@@ -6126,6 +6158,9 @@ iwm_notif_intr(struct iwm_softc *sc)
 			}
 			wakeup(&sc->sc_auth_prot);
 			break; }
+
+		case IWM_MCAST_FILTER_CMD:
+			break;
 
 		default:
 			printf("%s: frame %d/%d %x UNHANDLED (this should "
@@ -6624,12 +6659,12 @@ iwm_init_task(void *arg1)
 	struct iwm_softc *sc = arg1;
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int s;
-	
+
 	s = splnet();
 	while (sc->sc_flags & IWM_FLAG_BUSY)
 		tsleep(&sc->sc_flags, 0, "iwmpwr", 0);
 	sc->sc_flags |= IWM_FLAG_BUSY;
-  
+
 	iwm_stop(ifp, 0);
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
 		iwm_init(ifp);
