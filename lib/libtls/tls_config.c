@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_config.c,v 1.6 2015/02/12 04:35:17 jsing Exp $ */
+/* $OpenBSD: tls_config.c,v 1.9 2015/02/22 15:09:54 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -68,18 +68,25 @@ tls_config_new(void)
 	/*
 	 * Default configuration.
 	 */
-	if (tls_config_set_ca_file(config, _PATH_SSL_CA_FILE) != 0) {
-		tls_config_free(config);
-		return (NULL);
-	}
-	tls_config_set_dheparams(config, "none");
-	tls_config_set_ecdhecurve(config, "auto");
+	if (tls_config_set_ca_file(config, _PATH_SSL_CA_FILE) != 0)
+		goto err;
+	if (tls_config_set_dheparams(config, "none") != 0)
+		goto err;
+	if (tls_config_set_ecdhecurve(config, "auto") != 0)
+		goto err;
+	if (tls_config_set_ciphers(config, "secure") != 0)
+		goto err;
+
 	tls_config_set_protocols(config, TLS_PROTOCOLS_DEFAULT);
 	tls_config_set_verify_depth(config, 6);
 	
 	tls_config_verify(config);
 
 	return (config);
+
+err:
+	tls_config_free(config);
+	return (NULL);
 }
 
 void
@@ -201,6 +208,14 @@ tls_config_set_cert_mem(struct tls_config *config, const uint8_t *cert,
 int
 tls_config_set_ciphers(struct tls_config *config, const char *ciphers)
 {
+	if (ciphers == NULL ||
+	    strcasecmp(ciphers, "default") == 0 ||
+	    strcasecmp(ciphers, "secure") == 0)
+		ciphers = TLS_CIPHERS_DEFAULT;
+	else if (strcasecmp(ciphers, "compat") == 0 ||
+	    strcasecmp(ciphers, "legacy") == 0)
+		ciphers = TLS_CIPHERS_COMPAT;
+
 	return set_string(&config->ciphers, ciphers);
 }
 
@@ -267,17 +282,16 @@ tls_config_set_verify_depth(struct tls_config *config, int verify_depth)
 	config->verify_depth = verify_depth;
 }
 
-/* XXX - rename to noverifyname. */
-void
-tls_config_insecure_noverifyhost(struct tls_config *config)
-{
-	config->verify_name = 0;
-}
-
 void
 tls_config_insecure_noverifycert(struct tls_config *config)
 {
 	config->verify_cert = 0;
+}
+
+void
+tls_config_insecure_noverifyname(struct tls_config *config)
+{
+	config->verify_name = 0;
 }
 
 void

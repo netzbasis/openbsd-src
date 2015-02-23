@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.98 2015/02/11 03:19:37 doug Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.101 2015/02/22 15:54:27 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1406,12 +1406,8 @@ ssl_cipher_list_to_bytes(SSL *s, STACK_OF(SSL_CIPHER) *sk, unsigned char *p)
 	 * If p == q, no ciphers and caller indicates an error. Otherwise
 	 * add SCSV if not renegotiating.
 	 */
-	if (p != q && !s->renegotiate) {
-		static SSL_CIPHER scsv = {
-			0, NULL, SSL3_CK_SCSV, 0, 0, 0, 0, 0, 0, 0, 0, 0
-		};
-		s2n(ssl3_cipher_get_value(&scsv), p);
-	}
+	if (p != q && !s->renegotiate)
+		s2n(SSL3_CK_SCSV & SSL3_CK_VALUE_MASK, p);
 
 	return (p - q);
 }
@@ -1423,7 +1419,9 @@ ssl_bytes_to_cipher_list(SSL *s, unsigned char *p, int num,
 	const SSL_CIPHER	*c;
 	STACK_OF(SSL_CIPHER)	*sk;
 	int			 i;
+	unsigned long		 cipher_id;
 	uint16_t		 cipher_value;
+	uint16_t		 max_version;
 
 	if (s->s3)
 		s->s3->send_connection_binding = 0;
@@ -1444,10 +1442,13 @@ ssl_bytes_to_cipher_list(SSL *s, unsigned char *p, int num,
 
 	for (i = 0; i < num; i += SSL3_CIPHER_VALUE_SIZE) {
 		n2s(p, cipher_value);
+		cipher_id = SSL3_CK_ID | cipher_value;
 
-		/* Check for SCSV */
-		if (s->s3 && (SSL3_CK_ID | cipher_value) == SSL3_CK_SCSV) {
-			/* SCSV is fatal if renegotiating. */
+		if (s->s3 != NULL && cipher_id == SSL3_CK_SCSV) {
+			/*
+			 * TLS_EMPTY_RENEGOTIATION_INFO_SCSV is fatal if
+			 * renegotiating.
+			 */
 			if (s->renegotiate) {
 				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
 				    SSL_R_SCSV_RECEIVED_WHEN_RENEGOTIATING);
@@ -1457,6 +1458,25 @@ ssl_bytes_to_cipher_list(SSL *s, unsigned char *p, int num,
 				goto err;
 			}
 			s->s3->send_connection_binding = 1;
+			continue;
+		}
+
+		if (cipher_id == SSL3_CK_FALLBACK_SCSV) {
+			/*
+			 * TLS_FALLBACK_SCSV indicates that the client
+			 * previously tried a higher protocol version.
+			 * Fail if the current version is an unexpected
+			 * downgrade.
+			 */
+			max_version = ssl_max_server_version(s);
+			if (max_version == 0 || s->version < max_version) {
+				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
+				    SSL_R_INAPPROPRIATE_FALLBACK);
+				if (s->s3 != NULL)
+					ssl3_send_alert(s, SSL3_AL_FATAL,
+					    SSL_AD_INAPPROPRIATE_FALLBACK);
+				goto err;
+			}
 			continue;
 		}
 
@@ -2547,6 +2567,36 @@ SSL_get_version(const SSL *s)
 	return ssl_version_string(s->version);
 }
 
+uint16_t
+ssl_max_server_version(SSL *s)
+{
+	uint16_t max_version;
+
+	/*
+	 * The SSL method will be changed during version negotiation, as such
+	 * we want to use the SSL method from the context.
+	 */
+	max_version = s->ctx->method->version;
+
+	if (SSL_IS_DTLS(s))
+		return (DTLS1_VERSION);
+
+	if ((s->options & SSL_OP_NO_TLSv1_2) == 0 &&
+	    max_version >= TLS1_2_VERSION)
+		return (TLS1_2_VERSION);
+	if ((s->options & SSL_OP_NO_TLSv1_1) == 0 &&
+	    max_version >= TLS1_1_VERSION)
+		return (TLS1_1_VERSION);
+	if ((s->options & SSL_OP_NO_TLSv1) == 0 &&
+	    max_version >= TLS1_VERSION)
+		return (TLS1_VERSION);
+	if ((s->options & SSL_OP_NO_SSLv3) == 0 &&
+	    max_version >= SSL3_VERSION)
+		return (SSL3_VERSION);
+
+	return (0);
+}
+
 SSL *
 SSL_dup(SSL *s)
 {
@@ -3068,5 +3118,4 @@ SSL_cache_hit(SSL *s)
 	return (s->hit);
 }
 
-IMPLEMENT_STACK_OF(SSL_CIPHER)
 IMPLEMENT_OBJ_BSEARCH_GLOBAL_CMP_FN(SSL_CIPHER, SSL_CIPHER, ssl_cipher_id);
