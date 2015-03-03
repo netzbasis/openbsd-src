@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.23 2015/03/01 14:56:34 kettenis Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.32 2015/03/02 22:50:10 jsg Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -1385,25 +1385,27 @@ iwm_apm_init(struct iwm_softc *sc)
 		goto out;
 	}
 
-	/*
-	 * This is a bit of an abuse - This is needed for 7260 / 3160
-	 * only check host_interrupt_operation_mode even if this is
-	 * not related to host_interrupt_operation_mode.
-	 *
-	 * Enable the oscillator to count wake up time for L1 exit. This
-	 * consumes slightly more power (100uA) - but allows to be sure
-	 * that we wake up from L1 on time.
-	 *
-	 * This looks weird: read twice the same register, discard the
-	 * value, set a bit, and yet again, read that same register
-	 * just to discard the value. But that's the way the hardware
-	 * seems to like it.
-	 */
-	iwm_read_prph(sc, IWM_OSC_CLK);
-	iwm_read_prph(sc, IWM_OSC_CLK);
-	iwm_set_bits_prph(sc, IWM_OSC_CLK, IWM_OSC_CLK_FORCE_CONTROL);
-	iwm_read_prph(sc, IWM_OSC_CLK);
-	iwm_read_prph(sc, IWM_OSC_CLK);
+	if (sc->host_interrupt_operation_mode) {
+		/*
+		 * This is a bit of an abuse - This is needed for 7260 / 3160
+		 * only check host_interrupt_operation_mode even if this is
+		 * not related to host_interrupt_operation_mode.
+		 *
+		 * Enable the oscillator to count wake up time for L1 exit. This
+		 * consumes slightly more power (100uA) - but allows to be sure
+		 * that we wake up from L1 on time.
+		 *
+		 * This looks weird: read twice the same register, discard the
+		 * value, set a bit, and yet again, read that same register
+		 * just to discard the value. But that's the way the hardware
+		 * seems to like it.
+		 */
+		iwm_read_prph(sc, IWM_OSC_CLK);
+		iwm_read_prph(sc, IWM_OSC_CLK);
+		iwm_set_bits_prph(sc, IWM_OSC_CLK, IWM_OSC_CLK_FORCE_CONTROL);
+		iwm_read_prph(sc, IWM_OSC_CLK);
+		iwm_read_prph(sc, IWM_OSC_CLK);
+	}
 
 	/*
 	 * Enable DMA clock and wait for it to stabilize.
@@ -1628,7 +1630,10 @@ iwm_nic_rx_init(struct iwm_softc *sc)
 	    IWM_RX_QUEUE_SIZE_LOG << IWM_FH_RCSR_RX_CONFIG_RBDCB_SIZE_POS);
 
 	IWM_WRITE_1(sc, IWM_CSR_INT_COALESCING, IWM_HOST_INT_TIMEOUT_DEF);
-	IWM_SETBITS(sc, IWM_CSR_INT_COALESCING, IWM_HOST_INT_OPER_MODE);
+
+	/* W/A for interrupt coalescing bug in 7260 and 3160 */
+	if (sc->host_interrupt_operation_mode)
+		IWM_SETBITS(sc, IWM_CSR_INT_COALESCING, IWM_HOST_INT_OPER_MODE);
 
 	/*
 	 * Thus sayeth el jefe (iwlwifi) via a comment:
@@ -3403,7 +3408,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	struct mbuf *m;
 	bus_addr_t paddr;
 	uint32_t addr_lo;
-	int error, i, paylen, off, s;
+	int error = 0, i, paylen, off, s;
 	int code;
 	int async, wantresp;
 
@@ -3710,7 +3715,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 
 	/* for data frames, use RS table */
 	if (type == IEEE80211_FC0_TYPE_DATA) {
-		if (sc->sc_fixed_ridx != -1) {
+		if (sc->sc_ic.ic_fixed_rate != -1) {
 			tx->initial_rate_index = sc->sc_fixed_ridx;
 		} else {
 			tx->initial_rate_index = (nrates-1) - in->in_ni.ni_txrate;
@@ -4681,8 +4686,8 @@ iwm_mvm_ack_rates(struct iwm_softc *sc, struct iwm_node *in,
 	for (i = IWM_FIRST_OFDM_RATE; i <= IWM_LAST_NON_HT_RATE; i++) {
 		int adj = i - IWM_FIRST_OFDM_RATE;
 		ofdm |= (1 << adj);
-		if (lowest_present_ofdm > adj)
-			lowest_present_ofdm = adj;
+		if (lowest_present_ofdm > i)
+			lowest_present_ofdm = i;
 	}
 
 	/*
@@ -4784,8 +4789,8 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 		cmd->ac[txf].edca_txop = 0;
 	}
 
-	cmd->protection_flags |= htole32(IWM_MAC_PROT_FLG_TGG_PROTECT);
-	cmd->protection_flags |= htole32(IWM_MAC_PROT_FLG_SELF_CTS_EN);
+	if (ic->ic_flags & IEEE80211_F_USEPROT)
+		cmd->protection_flags |= htole32(IWM_MAC_PROT_FLG_TGG_PROTECT);
 
 	cmd->filter_flags = htole32(IWM_MAC_FILTER_ACCEPT_GRP);
 }
@@ -5277,7 +5282,8 @@ iwm_setrates(struct iwm_node *in)
 
 	/* init amrr */
 	ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
-	ni->ni_txrate = nrates-1;
+	/* Start at lowest available bit-rate, AMRR will raise. */
+	ni->ni_txrate = 0;
 }
 
 int
@@ -6359,6 +6365,8 @@ typedef void *iwm_match_t;
 static const struct pci_matchid iwm_devices[] = {
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7260_1 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7260_2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7265_1 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7265_2 },
 };
 
 int
@@ -6501,8 +6509,26 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_wantresp = -1;
 
-	/* only one firmware possibility for now */
-	sc->sc_fwname = IWM_FWNAME;
+	switch (PCI_PRODUCT(pa->pa_id)) {
+	case PCI_PRODUCT_INTEL_WL_3160_1:
+	case PCI_PRODUCT_INTEL_WL_3160_2:
+		sc->sc_fwname = "iwm-3160-9";
+		sc->host_interrupt_operation_mode = 1;
+		break;
+	case PCI_PRODUCT_INTEL_WL_7260_1:
+	case PCI_PRODUCT_INTEL_WL_7260_2:
+		sc->sc_fwname = "iwm-7260-9";
+		sc->host_interrupt_operation_mode = 1;
+		break;
+	case PCI_PRODUCT_INTEL_WL_7265_1:
+	case PCI_PRODUCT_INTEL_WL_7265_2:
+		sc->sc_fwname = "iwm-7265-9";
+		sc->host_interrupt_operation_mode = 0;
+		break;
+	default:
+		printf("%s: unknown adapter type\n", DEVNAME(sc));
+		return;
+	}
 	sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
 
 	/*
