@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.127 2015/02/27 16:00:54 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.130 2015/03/10 13:48:57 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 #include <sys/param.h>	/* MACHINE */
+#include <sys/wait.h>
 
 #include <assert.h>
 #include <ctype.h>
@@ -92,7 +93,7 @@ static	void		  mmsg(enum mandocerr, enum mandoclevel,
 static	void		  parse(struct curparse *, int,
 				const char *, enum mandoclevel *);
 static	enum mandoclevel  passthrough(const char *, int, int);
-static	void		  spawn_pager(void);
+static	pid_t		  spawn_pager(void);
 static	int		  toptions(struct curparse *, char *);
 static	void		  usage(enum argmode) __attribute__((noreturn));
 static	int		  woptions(struct curparse *, char *);
@@ -121,9 +122,9 @@ main(int argc, char *argv[])
 	enum outmode	 outmode;
 	int		 fd;
 	int		 show_usage;
-	int		 use_pager;
 	int		 options;
 	int		 c;
+	pid_t		 pager_pid;  /* 0: don't use; 1: not yet spawned. */
 
 	if (argc < 1)
 		progname = "mandoc";
@@ -164,7 +165,7 @@ main(int argc, char *argv[])
 	options = MPARSE_SO | MPARSE_UTF8 | MPARSE_LATIN1;
 	defos = NULL;
 
-	use_pager = 1;
+	pager_pid = 1;
 	show_usage = 0;
 	synopsis_only = 0;
 	outmode = OUTMODE_DEF;
@@ -179,7 +180,7 @@ main(int argc, char *argv[])
 			conf_file = optarg;
 			break;
 		case 'c':
-			use_pager = 0;
+			pager_pid = 0;
 			break;
 		case 'f':
 			search.argmode = ARG_WORD;
@@ -187,7 +188,7 @@ main(int argc, char *argv[])
 		case 'h':
 			(void)strlcat(curp.outopts, "synopsis,", BUFSIZ);
 			synopsis_only = 1;
-			use_pager = 0;
+			pager_pid = 0;
 			outmode = OUTMODE_ALL;
 			break;
 		case 'I':
@@ -262,7 +263,7 @@ main(int argc, char *argv[])
 		switch (search.argmode) {
 		case ARG_FILE:
 			outmode = OUTMODE_ALL;
-			use_pager = 0;
+			pager_pid = 0;
 			break;
 		case ARG_NAME:
 			outmode = OUTMODE_ONE;
@@ -293,11 +294,11 @@ main(int argc, char *argv[])
 				argc = 1;
 			}
 		} else if (argc > 1 &&
-		    ((uc = argv[0]) != NULL) &&
+		    ((uc = (unsigned char *)argv[0]) != NULL) &&
 		    ((isdigit(uc[0]) && (uc[1] == '\0' ||
 		      (isalpha(uc[1]) && uc[2] == '\0'))) ||
 		     (uc[0] == 'n' && uc[1] == '\0'))) {
-			search.sec = uc;
+			search.sec = (char *)uc;
 			argv++;
 			argc--;
 		}
@@ -396,8 +397,8 @@ main(int argc, char *argv[])
 		mparse_keep(curp.mp);
 
 	if (argc < 1) {
-		if (use_pager && isatty(STDOUT_FILENO))
-			spawn_pager();
+		if (pager_pid == 1 && isatty(STDOUT_FILENO))
+			pager_pid = spawn_pager();
 		parse(&curp, STDIN_FILENO, "<stdin>", &rc);
 	}
 
@@ -408,9 +409,8 @@ main(int argc, char *argv[])
 			rc = rctmp;
 
 		if (fd != -1) {
-			if (use_pager && isatty(STDOUT_FILENO))
-				spawn_pager();
-			use_pager = 0;
+			if (pager_pid == 1 && isatty(STDOUT_FILENO))
+				pager_pid = spawn_pager();
 
 			if (resp == NULL)
 				parse(&curp, fd, *argv, &rc);
@@ -457,6 +457,17 @@ out:
 	}
 
 	free(defos);
+
+	/*
+	 * If a pager is attached, flush the pipe leading to it
+	 * and signal end of file such that the user can browse
+	 * to the end.  Then wait for the user to close the pager.
+	 */
+
+	if (pager_pid != 0 && pager_pid != 1) {
+		fclose(stdout);
+		waitpid(pager_pid, NULL, 0);
+	}
 
 	return((int)rc);
 }
@@ -904,7 +915,7 @@ mmsg(enum mandocerr t, enum mandoclevel lvl,
 	fputc('\n', stderr);
 }
 
-static void
+static pid_t
 spawn_pager(void)
 {
 #define MAX_PAGER_ARGS 16
@@ -913,31 +924,33 @@ spawn_pager(void)
 	char		*cp;
 	int		 fildes[2];
 	int		 argc;
+	pid_t		 pager_pid;
 
 	if (pipe(fildes) == -1) {
 		fprintf(stderr, "%s: pipe: %s\n",
 		    progname, strerror(errno));
-		return;
+		return(0);
 	}
 
-	switch (fork()) {
+	switch (pager_pid = fork()) {
 	case -1:
 		fprintf(stderr, "%s: fork: %s\n",
 		    progname, strerror(errno));
 		exit((int)MANDOCLEVEL_SYSERR);
 	case 0:
+		break;
+	default:
 		close(fildes[0]);
 		if (dup2(fildes[1], STDOUT_FILENO) == -1) {
 			fprintf(stderr, "%s: dup output: %s\n",
 			    progname, strerror(errno));
 			exit((int)MANDOCLEVEL_SYSERR);
 		}
-		return;
-	default:
-		break;
+		close(fildes[1]);
+		return(pager_pid);
 	}
 
-	/* The original process becomes the pager. */
+	/* The child process becomes the pager. */
 
 	close(fildes[1]);
 	if (dup2(fildes[0], STDIN_FILENO) == -1) {
@@ -945,6 +958,7 @@ spawn_pager(void)
 		    progname, strerror(errno));
 		exit((int)MANDOCLEVEL_SYSERR);
 	}
+	close(fildes[0]);
 
 	pager = getenv("MANPAGER");
 	if (pager == NULL || *pager == '\0')
