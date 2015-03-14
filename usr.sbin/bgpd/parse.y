@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.275 2014/11/20 05:51:20 jsg Exp $ */
+/*	$OpenBSD: parse.y,v 1.278 2015/03/14 03:52:42 claudio Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -135,6 +135,7 @@ int		 neighbor_consistent(struct peer *);
 int		 merge_filterset(struct filter_set_head *, struct filter_set *);
 void		 copy_filterset(struct filter_set_head *,
 		    struct filter_set_head *);
+void		 merge_filter_lists(struct filter_head *, struct filter_head *);
 struct filter_rule	*get_rule(enum action_types);
 
 int		 getcommunity(char *);
@@ -306,7 +307,7 @@ yesno		:  STRING			{
 		;
 
 varset		: STRING '=' string		{
-			if (conf->opts & BGPD_OPT_VERBOSE)
+			if (cmd_opts & BGPD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
@@ -1302,7 +1303,7 @@ peeropts	: REMOTEAS as4number	{
 			}
 			free($2);
 			if (carp_demote_init(curpeer->conf.demote_group,
-			    conf->opts & BGPD_OPT_FORCE_DEMOTE) == -1) {
+			    cmd_opts & BGPD_OPT_FORCE_DEMOTE) == -1) {
 				yyerror("error initializing group \"%s\"",
 				    curpeer->conf.demote_group);
 				YYERROR;
@@ -1972,7 +1973,7 @@ filter_set_opt	: LOCALPREF NUMBER		{
 			if (($$ = calloc(1, sizeof(struct filter_set))) == NULL)
 				fatal(NULL);
 			$$->type = ACTION_PFTABLE;
-			if (!(conf->opts & BGPD_OPT_NOACTION) &&
+			if (!(cmd_opts & BGPD_OPT_NOACTION) &&
 			    pftable_exists($2) != 0) {
 				yyerror("pftable name does not exist");
 				free($2);
@@ -2574,18 +2575,13 @@ parse_config(char *filename, struct bgpd_config *xconf,
 	struct peer		*p, *pnext;
 	struct listen_addr	*la;
 	struct network		*n;
-	struct filter_rule	*r;
 	struct rde_rib		*rr;
 	struct rdomain		*rd;
 	int			 errors = 0;
-	u_int8_t		 old_prio;
-
-	old_prio = xconf->fib_priority;
 
 	if ((conf = calloc(1, sizeof(struct bgpd_config))) == NULL)
 		fatal(NULL);
 
-	conf->opts = xconf->opts;
 	conf->csock = strdup(SOCKET_NAME);
 
 	if ((file = pushfile(filename, 1)) == NULL) {
@@ -2634,7 +2630,7 @@ parse_config(char *filename, struct bgpd_config *xconf,
 	/* Free macros and check which have not been used. */
 	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
 		next = TAILQ_NEXT(sym, entry);
-		if ((conf->opts & BGPD_OPT_VERBOSE2) && !sym->used)
+		if ((cmd_opts & BGPD_OPT_VERBOSE2) && !sym->used)
 			fprintf(stderr, "warning: macro \"%s\" not "
 			    "used\n", sym->nam);
 		if (!sym->persist) {
@@ -2667,23 +2663,10 @@ parse_config(char *filename, struct bgpd_config *xconf,
 			free(n);
 		}
 
-		while ((r = TAILQ_FIRST(filter_l)) != NULL) {
-			TAILQ_REMOVE(filter_l, r, entry);
-			filterset_free(&r->set);
-			free(r);
-		}
+		filterlist_free(filter_l);
+		filterlist_free(peerfilter_l);
+		filterlist_free(groupfilter_l);
 
-		while ((r = TAILQ_FIRST(peerfilter_l)) != NULL) {
-			TAILQ_REMOVE(peerfilter_l, r, entry);
-			filterset_free(&r->set);
-			free(r);
-		}
-
-		while ((r = TAILQ_FIRST(groupfilter_l)) != NULL) {
-			TAILQ_REMOVE(groupfilter_l, r, entry);
-			filterset_free(&r->set);
-			free(r);
-		}
 		while ((rr = SIMPLEQ_FIRST(&ribnames)) != NULL) {
 			SIMPLEQ_REMOVE_HEAD(&ribnames, entry);
 			free(rr);
@@ -2716,32 +2699,16 @@ parse_config(char *filename, struct bgpd_config *xconf,
 		 * together. Static group sets come first then peer sets
 		 * last normal filter rules.
 		 */
-		while ((r = TAILQ_FIRST(groupfilter_l)) != NULL) {
-			TAILQ_REMOVE(groupfilter_l, r, entry);
-			TAILQ_INSERT_TAIL(xfilter_l, r, entry);
-		}
-		while ((r = TAILQ_FIRST(peerfilter_l)) != NULL) {
-			TAILQ_REMOVE(peerfilter_l, r, entry);
-			TAILQ_INSERT_TAIL(xfilter_l, r, entry);
-		}
-		while ((r = TAILQ_FIRST(filter_l)) != NULL) {
-			TAILQ_REMOVE(filter_l, r, entry);
-			TAILQ_INSERT_TAIL(xfilter_l, r, entry);
-		}
+		merge_filter_lists(xfilter_l, groupfilter_l);
+		merge_filter_lists(xfilter_l, peerfilter_l);
+		merge_filter_lists(xfilter_l, filter_l);
+		free(filter_l);
+		free(peerfilter_l);
+		free(groupfilter_l);
 	}
 
 	free(conf);
 	free(mrtconf);
-	free(filter_l);
-	free(peerfilter_l);
-	free(groupfilter_l);
-
-	if (!errors && old_prio != RTP_NONE && old_prio !=
-	    xconf->fib_priority) {
-		kr_fib_decouple_all(old_prio);
-		kr_fib_update_prio_all(xconf->fib_priority);
-		kr_fib_couple_all(xconf->fib_priority);
-	}
 
 	return (errors ? -1 : 0);
 }
@@ -3571,6 +3538,17 @@ copy_filterset(struct filter_set_head *source, struct filter_set_head *dest)
 			fatal(NULL);
 		memcpy(t, s, sizeof(struct filter_set));
 		TAILQ_INSERT_TAIL(dest, t, entry);
+	}
+}
+
+void
+merge_filter_lists(struct filter_head *dst, struct filter_head *src)
+{
+	struct filter_rule *r;
+
+	while ((r = TAILQ_FIRST(src)) != NULL) {
+		TAILQ_REMOVE(src, r, entry);
+		TAILQ_INSERT_TAIL(dst, r, entry);
 	}
 }
 

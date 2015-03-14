@@ -1,4 +1,4 @@
-/* $OpenBSD: pckbc.c,v 1.43 2014/12/19 07:23:57 deraadt Exp $ */
+/* $OpenBSD: pckbc.c,v 1.45 2015/03/14 03:38:47 jsg Exp $ */
 /* $NetBSD: pckbc.c,v 1.5 2000/06/09 04:58:35 soda Exp $ */
 
 /*
@@ -34,13 +34,13 @@
 #include <sys/malloc.h>
 #include <sys/errno.h>
 #include <sys/queue.h>
-#include <sys/lock.h>
 
 #include <machine/bus.h>
 #include <machine/cpu.h>
 
 #include <dev/ic/i8042reg.h>
 #include <dev/ic/pckbcvar.h>
+#include <dev/pckbc/pmsreg.h>
 
 #include "pckbd.h"
 
@@ -277,6 +277,12 @@ pckbc_attach_slot(struct pckbc_softc *sc, pckbc_slot_t slot, int force)
 		if (t->t_slotdata[slot] == NULL)
 			return 0;
 		pckbc_init_slotdata(t->t_slotdata[slot]);
+	} else if (!found && slot == PCKBC_AUX_SLOT) {
+		u_char cmd[1] = { PMS_RESET };
+
+		(void) pckbc_poll_cmd(t, PCKBC_AUX_SLOT, cmd, sizeof cmd,
+		    0, NULL, 1);
+		pckbc_slot_enable(t, PCKBC_AUX_SLOT, 0);
 	}
 	return (found);
 }
