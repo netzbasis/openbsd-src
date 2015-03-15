@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.44 2015/03/14 15:21:53 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.46 2015/03/14 18:32:29 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -211,9 +211,9 @@ MBR_write(int fd, off_t where, struct dos_mbr *dos_mbr)
 void
 MBR_pcopy(struct disk *disk, struct mbr *mbr)
 {
-	int i, fd, error;
-	struct dos_mbr dos_mbr;
 	struct dos_partition dos_parts[NDOSPART];
+	struct dos_mbr dos_mbr;
+	int i, fd, error;
 
 	fd = DISK_open(disk->name, O_RDONLY);
 	error = MBR_read(fd, 0, &dos_mbr);
@@ -234,8 +234,8 @@ MBR_pcopy(struct disk *disk, struct mbr *mbr)
 char *
 MBR_readsector(int fd, off_t where)
 {
-	char *secbuf;
 	const int secsize = unit_types[SECTORS].conversion;
+	char *secbuf;
 	ssize_t len;
 	off_t off;
 
@@ -292,7 +292,6 @@ MBR_writesector(int fd, char *secbuf, off_t where)
 void
 MBR_zapgpt(int fd, struct dos_mbr *dos_mbr, uint64_t lastsec)
 {
-	const int secsize = unit_types[SECTORS].conversion;
 	struct dos_partition dos_parts[NDOSPART];
 	char *secbuf;
 	uint64_t sig;
