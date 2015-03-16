@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sh.1,v 1.102 2015/03/14 18:54:50 jmc Exp $
+.\"	$OpenBSD: sh.1,v 1.107 2015/03/15 23:09:10 jmc Exp $
 .\"
 .\" Copyright (c) 2015 Jason McIntyre <jmc@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 14 2015 $
+.Dd $Mdocdate: March 15 2015 $
 .Dt SH 1
 .Os
 .Sh NAME
@@ -268,12 +268,18 @@ or
 loop,
 or from loop level
 .Ar n .
-.It Ic cd Oo Fl | L | P Oc Op Ar dir
+.It Ic cd Oo Fl L | P Oc Op Ar dir
 Change the current working directory to
 .Ar dir ,
 or
 .Ev $HOME
 by default.
+If
+.Ar dir
+is set to
+.Sq - ,
+change to the previous working directory and
+print the (now current) working directory.
 If
 .Ar dir
 does not begin with a slash or dot,
@@ -293,9 +299,6 @@ components.
 Resolve symbolic links before processing
 .Qq ..
 components.
-.It Fl
-Change to the previous working directory and
-print the (now current) working directory.
 .El
 .It Ic command Oo Fl p | V | v Oc Ar command Op Ar arg ...
 Invoke
@@ -342,7 +345,7 @@ are given,
 the exit status is 0 on success,
 or >0 if an error occurs.
 .It Ic continue Op Ar n
-Return to the top of the innermost
+Go directly to the next iteration of the innermost
 .Ic for , while ,
 or
 .Ic until
@@ -393,7 +396,7 @@ command are as follows:
 List all exported variables in a manner that can be reinput to the shell.
 .El
 .It Ic false
-Exit with a non-zero status.
+Return a false (non-zero) value.
 .It Xo
 .Ic fc
 .Op Fl lnr
@@ -698,8 +701,9 @@ with
 .Sq #
 set to the number of positional parameters.
 The sequence
-.Qq set\ --
-can be used to delimit arguments;
+.Qq set --
+indicates an end to option processing
+(i.e. only arguments follow);
 .Qq set --
 by itself unsets all positional parameters
 and sets
@@ -725,12 +729,12 @@ is updated to the new number of positional parameters.
 If
 .Ar n
 is 0,
-not change occurs.
+no change occurs.
 .It Ic times
 Display accumulated process times for the shell (user and system)
 and all child processes (user and system).
 .It Ic true
-Exit with a zero status.
+Return a true (zero) value.
 .It Ic trap Op Ar action signal ...
 Perform
 .Ar action
@@ -1526,7 +1530,7 @@ The basic format is:
 .Pp
 Provided
 .Ar delimiter
-doesn't contains any quoted characters,
+doesn't contain any quoted characters,
 parameter, command, and arithmetic expansions are performed on
 .Ar block ,
 and backslashes escape the special meaning of
