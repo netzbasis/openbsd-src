@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.38 2015/03/14 18:32:29 krw Exp $	*/
+/*	$OpenBSD: user.c,v 1.40 2015/03/16 23:51:50 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -51,27 +51,11 @@ struct cmd cmd_table[] = {
 	{NULL,     NULL,	NULL}
 };
 
-void
-USER_init(struct disk *disk, struct mbr *tt, int preserve)
-{
-	char *query;
-
-	if (preserve) {
-		MBR_pcopy(disk, tt);
-		query = "Do you wish to write new MBR?";
-	} else {
-		MBR_init(disk, tt);
-		query = "Do you wish to write new MBR and partition table?";
-	}
-
-	if (ask_yn(query))
-		Xwrite(NULL, disk, tt, NULL, 0);
-}
 
 int modified;
 
 void
-USER_edit(struct disk *disk, struct mbr *tt, off_t offset, off_t reloff)
+USER_edit(struct mbr *tt, off_t offset, off_t reloff)
 {
 	static int editlevel;
 	struct dos_mbr dos_mbr;
@@ -83,14 +67,14 @@ USER_edit(struct disk *disk, struct mbr *tt, off_t offset, off_t reloff)
 	editlevel += 1;
 
 	/* Read MBR & partition */
-	fd = DISK_open(disk->name, O_RDONLY);
+	fd = DISK_open(disk.name, O_RDONLY);
 	error = MBR_read(fd, offset, &dos_mbr);
 	close(fd);
 	if (error == -1)
 		goto done;
 
 	/* Parse the sucker */
-	MBR_parse(disk, &dos_mbr, offset, reloff, &mbr);
+	MBR_parse(&dos_mbr, offset, reloff, &mbr);
 
 	printf("Enter 'help' for information\n");
 
@@ -118,7 +102,7 @@ again:
 		}
 
 		/* Call function */
-		st = cmd_table[i].fcn(args, disk, &mbr, tt, offset);
+		st = cmd_table[i].fcn(args, &mbr, tt, offset);
 
 		/* Update status */
 		if (st == CMD_EXIT)
@@ -134,7 +118,7 @@ again:
 	/* Write out MBR */
 	if (modified) {
 		if (st == CMD_SAVE) {
-			if (Xwrite(NULL, disk, &mbr, NULL, offset) == CMD_CONT)
+			if (Xwrite(NULL, &mbr, NULL, offset) == CMD_CONT)
 				goto again;
 			close(fd);
 		} else
@@ -147,23 +131,23 @@ done:
 }
 
 void
-USER_print_disk(struct disk *disk)
+USER_print_disk(void)
 {
 	off_t offset, firstoff;
 	int fd, i, error;
 	struct dos_mbr dos_mbr;
 	struct mbr mbr;
 
-	fd = DISK_open(disk->name, O_RDONLY);
+	fd = DISK_open(disk.name, O_RDONLY);
 	offset = firstoff = 0;
 
-	DISK_printgeometry(disk, NULL);
+	DISK_printgeometry(NULL);
 
 	do {
 		error = MBR_read(fd, offset, &dos_mbr);
 		if (error == -1)
 			break;
-		MBR_parse(disk, &dos_mbr, offset, firstoff, &mbr);
+		MBR_parse(&dos_mbr, offset, firstoff, &mbr);
 
 		printf("Offset: %lld\t", offset);
 		MBR_print(&mbr, NULL);
