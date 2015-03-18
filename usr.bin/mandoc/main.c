@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.130 2015/03/10 13:48:57 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.132 2015/03/17 13:35:04 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <glob.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -85,14 +86,14 @@ static	int		  fs_lookup(const struct manpaths *,
 static	void		  fs_search(const struct mansearch *,
 				const struct manpaths *, int, char**,
 				struct manpage **, size_t *);
+static	void		  handle_sigpipe(int);
 static	int		  koptions(int *, char *);
 int			  mandocdb(int, char**);
 static	int		  moptions(int *, char *);
 static	void		  mmsg(enum mandocerr, enum mandoclevel,
 				const char *, int, int, const char *);
-static	void		  parse(struct curparse *, int,
-				const char *, enum mandoclevel *);
-static	enum mandoclevel  passthrough(const char *, int, int);
+static	void		  parse(struct curparse *, int, const char *);
+static	void		  passthrough(const char *, int, int);
 static	pid_t		  spawn_pager(void);
 static	int		  toptions(struct curparse *, char *);
 static	void		  usage(enum argmode) __attribute__((noreturn));
@@ -102,6 +103,7 @@ static	const int sec_prios[] = {1, 4, 5, 8, 6, 3, 7, 2, 9};
 static	char		  help_arg[] = "help";
 static	char		 *help_argv[] = {help_arg, NULL};
 static	const char	 *progname;
+static	enum mandoclevel  rc;
 
 
 int
@@ -118,7 +120,7 @@ main(int argc, char *argv[])
 	size_t		 isec, i, sz;
 	int		 prio, best_prio, synopsis_only;
 	char		 sec;
-	enum mandoclevel rc, rctmp;
+	enum mandoclevel rctmp;
 	enum outmode	 outmode;
 	int		 fd;
 	int		 show_usage;
@@ -399,7 +401,7 @@ main(int argc, char *argv[])
 	if (argc < 1) {
 		if (pager_pid == 1 && isatty(STDOUT_FILENO))
 			pager_pid = spawn_pager();
-		parse(&curp, STDIN_FILENO, "<stdin>", &rc);
+		parse(&curp, STDIN_FILENO, "<stdin>");
 	}
 
 	while (argc > 0) {
@@ -413,17 +415,13 @@ main(int argc, char *argv[])
 				pager_pid = spawn_pager();
 
 			if (resp == NULL)
-				parse(&curp, fd, *argv, &rc);
+				parse(&curp, fd, *argv);
 			else if (resp->form & FORM_SRC) {
 				/* For .so only; ignore failure. */
 				chdir(paths.paths[resp->ipath]);
-				parse(&curp, fd, resp->file, &rc);
-			} else {
-				rctmp = passthrough(resp->file, fd,
-				    synopsis_only);
-				if (rc < rctmp)
-					rc = rctmp;
-			}
+				parse(&curp, fd, resp->file);
+			} else
+				passthrough(resp->file, fd, synopsis_only);
 
 			rctmp = mparse_wait(curp.mp);
 			if (rc < rctmp)
@@ -604,10 +602,9 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 }
 
 static void
-parse(struct curparse *curp, int fd, const char *file,
-	enum mandoclevel *level)
+parse(struct curparse *curp, int fd, const char *file)
 {
-	enum mandoclevel  rc;
+	enum mandoclevel  rctmp;
 	struct mdoc	 *mdoc;
 	struct man	 *man;
 
@@ -616,15 +613,17 @@ parse(struct curparse *curp, int fd, const char *file,
 	assert(file);
 	assert(fd >= -1);
 
-	rc = mparse_readfd(curp->mp, fd, file);
+	rctmp = mparse_readfd(curp->mp, fd, file);
+	if (rc < rctmp)
+		rc = rctmp;
 
 	/*
 	 * With -Wstop and warnings or errors of at least the requested
 	 * level, do not produce output.
 	 */
 
-	if (MANDOCLEVEL_OK != rc && curp->wstop)
-		goto cleanup;
+	if (rctmp != MANDOCLEVEL_OK && curp->wstop)
+		return;
 
 	/* If unset, allocate output dev now (if applicable). */
 
@@ -702,13 +701,9 @@ parse(struct curparse *curp, int fd, const char *file,
 		(*curp->outman)(curp->outdata, man);
 	if (mdoc && curp->outmdoc)
 		(*curp->outmdoc)(curp->outdata, mdoc);
-
-cleanup:
-	if (*level < rc)
-		*level = rc;
 }
 
-static enum mandoclevel
+static void
 passthrough(const char *file, int fd, int synopsis_only)
 {
 	const char	 synb[] = "S\bSY\bYN\bNO\bOP\bPS\bSI\bIS\bS";
@@ -766,12 +761,13 @@ passthrough(const char *file, int fd, int synopsis_only)
 
 done:
 	fclose(stream);
-	return(MANDOCLEVEL_OK);
+	return;
 
 fail:
 	fprintf(stderr, "%s: %s: SYSERR: %s: %s",
 	    progname, file, syscall, strerror(errno));
-	return(MANDOCLEVEL_SYSERR);
+	if (rc < MANDOCLEVEL_SYSERR)
+		rc = MANDOCLEVEL_SYSERR;
 }
 
 static int
@@ -915,6 +911,13 @@ mmsg(enum mandocerr t, enum mandoclevel lvl,
 	fputc('\n', stderr);
 }
 
+static void
+handle_sigpipe(int signum)
+{
+
+	exit((int)rc);
+}
+
 static pid_t
 spawn_pager(void)
 {
@@ -947,6 +950,7 @@ spawn_pager(void)
 			exit((int)MANDOCLEVEL_SYSERR);
 		}
 		close(fildes[1]);
+		signal(SIGPIPE, handle_sigpipe);
 		return(pager_pid);
 	}
 
