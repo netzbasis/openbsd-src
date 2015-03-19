@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.97 2015/02/09 09:21:30 miod Exp $	*/
+/*	$OpenBSD: locore.s,v 1.99 2015/03/18 20:49:40 miod Exp $	*/
 /*	$NetBSD: locore.s,v 1.73 1997/09/13 20:36:48 pk Exp $	*/
 
 /*
@@ -3680,7 +3680,7 @@ no_3mmu:
 
 	/*
 	 * Ok, we have a non-MBus TI Viking, a MicroSparc.
-	 * In this scenerio, in order to play with the MMU
+	 * In this scenario, in order to play with the MMU
 	 * passthrough safely, we need turn off traps, flip
 	 * the AC bit on in the mmu status register, do our
 	 * passthroughs, then restore the mmu reg and %psr
@@ -3765,7 +3765,7 @@ startmap_done:
 	sethi	%hi(_C_LABEL(u0) + PCB_WIM), %g2
 	st	%g1, [%g2 + %lo(_C_LABEL(u0) + PCB_WIM)]
 
-	set	VM_MIN_KERNEL_ADDRESS - CCFSZ, %fp	! as if called from user code
+	set	KERNBASE - CCFSZ, %fp	! as if called from user code
 	set	estack0 - CCFSZ - 80, %sp ! via syscall(boot_me_up) or somesuch
 	rd	%psr, %l0
 	wr	%l0, PSR_ET, %psr
@@ -4067,7 +4067,12 @@ ENTRY(copyinstr)
 	beq,a	Lcstoolong0		! yes, return ENAMETOOLONG
 	 sethi	%hi(_C_LABEL(cpcb)), %o4
 
+#ifdef VM_MIN_KERNEL_ADDRESS
 	set	VM_MIN_KERNEL_ADDRESS, %o4
+#else
+	sethi	%hi(_C_LABEL(vm_min_kernel_address)), %o4
+	ld	[%o4 + %lo(_C_LABEL(vm_min_kernel_address))], %o4
+#endif
 	cmp	%o0, %o4		! fromaddr < VM_MIN_KERNEL_ADDRESS?
 	blu	Lcsdocopyi		! yes, go do it
 	 sethi	%hi(_C_LABEL(cpcb)), %o4		! (first instr of copy)
@@ -4088,7 +4093,12 @@ ENTRY(copyoutstr)
 	beq,a	Lcstoolong0		! yes, return ENAMETOOLONG
 	 sethi	%hi(_C_LABEL(cpcb)), %o4
 
+#ifdef VM_MIN_KERNEL_ADDRESS
 	set	VM_MIN_KERNEL_ADDRESS, %o4
+#else
+	sethi	%hi(_C_LABEL(vm_min_kernel_address)), %o4
+	ld	[%o4 + %lo(_C_LABEL(vm_min_kernel_address))], %o4
+#endif
 	cmp	%o1, %o4		! toaddr < VM_MIN_KERNEL_ADDRESS?
 	blu	Lcsdocopyo		! yes, go do it
 	 sethi	%hi(_C_LABEL(cpcb)), %o4		! (first instr of copy)
@@ -4198,7 +4208,12 @@ ENTRY(copystr)
  * Copy specified amount of data from user space into the kernel.
  */
 ENTRY(copyin)
+#ifdef VM_MIN_KERNEL_ADDRESS
 	set	VM_MIN_KERNEL_ADDRESS, %o3
+#else
+	sethi	%hi(_C_LABEL(vm_min_kernel_address)), %o3
+	ld	[%o3 + %lo(_C_LABEL(vm_min_kernel_address))], %o3
+#endif
 	cmp	%o0, %o3		! src < VM_MIN_KERNEL_ADDRESS?
 	blu,a	Ldocopy			! yes, can try it
 	 sethi	%hi(_C_LABEL(cpcb)), %o3
@@ -4215,7 +4230,12 @@ ENTRY(copyin)
  * rather than the `src' addresses.
  */
 ENTRY(copyout)
+#ifdef VM_MIN_KERNEL_ADDRESS
 	set	VM_MIN_KERNEL_ADDRESS, %o3
+#else
+	sethi	%hi(_C_LABEL(vm_min_kernel_address)), %o3
+	ld	[%o3 + %lo(_C_LABEL(vm_min_kernel_address))], %o3
+#endif
 	cmp	%o1, %o3		! dst < VM_MIN_KERNEL_ADDRESS?
 	blu,a	Ldocopy
 	 sethi	%hi(_C_LABEL(cpcb)), %o3

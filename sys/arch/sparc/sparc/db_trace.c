@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.7 2015/02/09 09:21:30 miod Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.9 2015/03/18 20:49:40 miod Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.9 1997/07/29 09:42:00 fair Exp $ */
 
 /*
@@ -36,7 +36,8 @@
 #include <ddb/db_interface.h>
 #include <ddb/db_output.h>
 
-#define INKERNEL(va)	(((vaddr_t)(va)) >= VM_MIN_KERNEL_ADDRESS)
+#define INKERNEL(va)		(((vaddr_t)(va)) >= vm_min_kernel_address)
+#define INKERNELTEXT(va)	(((vaddr_t)(va)) >= KERNBASE)
 
 void
 db_stack_trace_print(addr, have_addr, count, modif, pr)
@@ -71,7 +72,7 @@ db_stack_trace_print(addr, have_addr, count, modif, pr)
 		db_addr_t	pc;
 
 		pc = frame->fr_pc;
-		if (!INKERNEL(pc))
+		if (!INKERNELTEXT(pc))
 			break;
 
 		/*
