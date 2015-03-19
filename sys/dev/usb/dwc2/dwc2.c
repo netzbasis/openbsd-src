@@ -1,4 +1,4 @@
-/*	$OpenBSD: dwc2.c,v 1.22 2015/02/14 05:52:19 uebayasi Exp $	*/
+/*	$OpenBSD: dwc2.c,v 1.25 2015/03/19 10:39:17 mpi Exp $	*/
 /*	$NetBSD: dwc2.c,v 1.32 2014/09/02 23:26:20 macallan Exp $	*/
 
 /*-
@@ -91,6 +91,7 @@ int dwc2debug = 0;
 #endif
 
 STATIC usbd_status	dwc2_open(struct usbd_pipe *);
+STATIC int		dwc2_setaddr(struct usbd_device *, int);
 STATIC void		dwc2_poll(struct usbd_bus *);
 STATIC void		dwc2_softintr(void *);
 STATIC void		dwc2_waitintr(struct dwc2_softc *, struct usbd_xfer *);
@@ -172,6 +173,7 @@ dwc2_free_bus_bandwidth(struct dwc2_hsotg *hsotg, u16 bw,
 
 STATIC struct usbd_bus_methods dwc2_bus_methods = {
 	.open_pipe =	dwc2_open,
+	.dev_setaddr =	dwc2_setaddr,
 	.soft_intr =	dwc2_softintr,
 	.do_poll =	dwc2_poll,
 #if 0
@@ -268,6 +270,29 @@ dwc2_freem(struct usbd_bus *bus, struct usb_dma *dma)
 	usb_freemem(&sc->sc_bus, dma);
 }
 #endif
+
+/*
+ * Work around the half configured control (default) pipe when setting
+ * the address of a device.
+ */
+STATIC int
+dwc2_setaddr(struct usbd_device *dev, int addr)
+{
+	if (usbd_set_address(dev, addr))
+		return (1);
+
+	dev->address = addr;
+
+	/*
+	 * Re-establish the default pipe with the new address and the
+	 * new max packet size.
+	 */
+	dwc2_close_pipe(dev->default_pipe);
+	if (dwc2_open(dev->default_pipe))
+		return (EINVAL);
+
+	return (0);
+}
 
 struct usbd_xfer *
 dwc2_allocx(struct usbd_bus *bus)
@@ -438,7 +463,7 @@ dwc2_timeout(void *addr)
 
 	/* Execute the abort in a process context. */
 	usb_init_task(&dxfer->abort_task, dwc2_timeout_task, addr,
-	    USB_TASK_TYPE_GENERIC);
+	    USB_TASK_TYPE_ABORT);
 	usb_add_task(dxfer->xfer.pipe->device, &dxfer->abort_task);
 }
 
@@ -1004,7 +1029,7 @@ dwc2_device_ctrl_start(struct usbd_xfer *xfer)
 STATIC void
 dwc2_device_ctrl_abort(struct usbd_xfer *xfer)
 {
-#ifdef DWC2_DEBUG
+#ifdef DIAGNOSTIC
 	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 #endif
 	KASSERT(mtx_owned(&sc->sc_lock));
@@ -1067,7 +1092,7 @@ dwc2_device_bulk_start(struct usbd_xfer *xfer)
 STATIC void
 dwc2_device_bulk_abort(struct usbd_xfer *xfer)
 {
-#ifdef DWC2_DEBUG
+#ifdef DIAGNOSTIC
 	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 #endif
 	KASSERT(mtx_owned(&sc->sc_lock));
@@ -1138,7 +1163,7 @@ dwc2_device_intr_start(struct usbd_xfer *xfer)
 STATIC void
 dwc2_device_intr_abort(struct usbd_xfer *xfer)
 {
-#ifdef DWC2_DEBUG
+#ifdef DIAGNOSTIC
 	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 #endif
 
@@ -1213,7 +1238,7 @@ dwc2_device_isoc_start(struct usbd_xfer *xfer)
 void
 dwc2_device_isoc_abort(struct usbd_xfer *xfer)
 {
-#ifdef DWC2_DEBUG
+#ifdef DIAGNOSTIC
 	struct dwc2_softc *sc = DWC2_XFER2SC(xfer);
 #endif
 	KASSERT(mtx_owned(&sc->sc_lock));
