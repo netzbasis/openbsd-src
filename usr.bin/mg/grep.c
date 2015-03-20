@@ -1,16 +1,22 @@
-/*	$OpenBSD: grep.c,v 1.42 2014/11/16 04:16:41 guenther Exp $	*/
+/*	$OpenBSD: grep.c,v 1.44 2015/03/19 21:48:05 bcallah Exp $	*/
 
 /* This file is in the public domain */
 
-#include "def.h"
-#include "kbd.h"
-#include "funmap.h"
-
+#include <sys/queue.h>
 #include <sys/types.h>
 #include <ctype.h>
 #include <libgen.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
+#include <unistd.h>
+
+#include "def.h"
+#include "kbd.h"
+#include "funmap.h"
 
 int	 globalwd = FALSE;
 static int	 compile_goto_error(int, int);
@@ -34,9 +40,9 @@ static PF compile_pf[] = {
 	compile_goto_error
 };
 
-static struct KEYMAPE (1 + IMAPEXT) compilemap = {
+static struct KEYMAPE (1) compilemap = {
 	1,
-	1 + IMAPEXT,
+	1,
 	rescan,
 	{
 		{ CCHR('M'), CCHR('M'), compile_pf, NULL }

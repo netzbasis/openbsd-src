@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sh.1,v 1.116 2015/03/18 22:18:19 jmc Exp $
+.\"	$OpenBSD: sh.1,v 1.118 2015/03/19 22:38:28 zhuk Exp $
 .\"
 .\" Copyright (c) 2015 Jason McIntyre <jmc@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 18 2015 $
+.Dd $Mdocdate: March 19 2015 $
 .Dt SH 1
 .Os
 .Sh NAME
@@ -857,8 +857,7 @@ In this mode text is entered normally.
 A
 .Aq newline
 executes the current command line.
-The command line is entered into command history,
-providing it is not empty.
+The command line, unless empty, is entered into command history.
 The
 .Aq ESC
 key is used to enter command mode,
@@ -1417,7 +1416,14 @@ is used to split fields;
 any
 .Ev IFS
 characters at the beginning and end of input are ignored.
-If the value of
+If
+.Ev IFS
+is unset, the default value consisting of
+.Aq space ,
+.Aq tab
+and
+.Aq newline
+is used; if the value of
 .Ev IFS
 is null, no field splitting is performed.
 .Pp
