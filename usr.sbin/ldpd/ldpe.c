@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.27 2015/02/10 01:03:54 claudio Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.30 2015/03/21 18:32:01 renato Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -264,10 +264,6 @@ ldpe_shutdown(void)
 
 	/* stop all interfaces */
 	while ((iface = LIST_FIRST(&leconf->iface_list)) != NULL) {
-		if (if_fsm(iface, IF_EVT_DOWN)) {
-			log_debug("error stopping interface %s",
-			    iface->name);
-		}
 		LIST_REMOVE(iface, entry);
 		if_del(iface);
 	}
@@ -279,6 +275,7 @@ ldpe_shutdown(void)
 	}
 
 	close(leconf->ldp_discovery_socket);
+	close(leconf->ldp_ediscovery_socket);
 	close(leconf->ldp_session_socket);
 
 	/* clean up */
@@ -345,8 +342,6 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_IFSTATUS:
-		case IMSG_IFUP:
-		case IMSG_IFDOWN:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
 			    sizeof(struct kif))
 				fatalx("IFINFO imsg with wrong len");
@@ -358,16 +353,7 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 
 			iface->flags = kif->flags;
 			iface->linkstate = kif->link_state;
-			switch (imsg.hdr.type) {
-			case IMSG_IFUP:
-				if_fsm(iface, IF_EVT_UP);
-				break;
-			case IMSG_IFDOWN:
-				if_fsm(iface, IF_EVT_DOWN);
-				break;
-			default:
-				break;
-			}
+			if_update(iface);
 			break;
 		case IMSG_NEWADDR:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
@@ -394,7 +380,7 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			if (iface) {
 				LIST_INSERT_HEAD(&iface->addr_list, if_addr,
 				    iface_entry);
-				if_fsm(iface, IF_EVT_NEWADDR);
+				if_update(iface);
 			}
 			break;
 		case IMSG_DELADDR:
@@ -413,17 +399,18 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 				break;
 
 			LIST_REMOVE(if_addr, global_entry);
+			iface = if_lookup(kaddr->ifindex);
+			if (iface) {
+				LIST_REMOVE(if_addr, iface_entry);
+				if_update(iface);
+			}
+
 			RB_FOREACH(nbr, nbr_id_head, &nbrs_by_id) {
 				if (nbr->state != NBR_STA_OPER)
 					continue;
 				send_address_withdraw(nbr, if_addr);
 			}
 
-			iface = if_lookup(kaddr->ifindex);
-			if (iface) {
-				LIST_REMOVE(if_addr, iface_entry);
-				if_fsm(iface, IF_EVT_DELADDR);
-			}
 			free(if_addr);
 			break;
 		case IMSG_RECONF_CONF:

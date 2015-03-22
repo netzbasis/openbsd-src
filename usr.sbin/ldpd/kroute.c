@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.37 2015/02/11 05:56:51 claudio Exp $ */
+/*	$OpenBSD: kroute.c,v 1.40 2015/03/21 18:34:01 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -113,8 +113,6 @@ RB_HEAD(kif_tree, kif_node)		kit;
 RB_PROTOTYPE(kif_tree, kif_node, entry, kif_compare)
 RB_GENERATE(kif_tree, kif_node, entry, kif_compare)
 
-int		flag_implicit_null = 0;
-
 int
 kif_init(void)
 {
@@ -136,7 +134,7 @@ kif_redistribute(void)
 	struct kif_addr		*ka;
 
 	RB_FOREACH(kif, kif_tree, &kit) {
-		main_imsg_compose_ldpe(IMSG_IFUP, 0, &kif->k,
+		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
 		    sizeof(struct kif));
 
 		TAILQ_FOREACH(ka, &kif->addrs, entry)
@@ -855,18 +853,17 @@ if_change(u_short ifindex, int flags, struct if_data *ifd,
 	link_new = (kif->k.flags & IFF_UP) &&
 	    LINK_STATE_IS_UP(kif->k.link_state);
 
-	if (link_new == link_old) {
-		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
-		    sizeof(struct kif));
+	if (link_new == link_old)
 		return;
-	} else if (link_new) {
-		main_imsg_compose_ldpe(IMSG_IFUP, 0, &kif->k,
+
+	if (link_new) {
+		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
 		    sizeof(struct kif));
 		TAILQ_FOREACH(ka, &kif->addrs, entry)
 			main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->addr,
 			    sizeof(struct kaddr));
 	} else {
-		main_imsg_compose_ldpe(IMSG_IFDOWN, 0, &kif->k,
+		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
 		    sizeof(struct kif));
 		TAILQ_FOREACH(ka, &kif->addrs, entry)
 			main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->addr,
@@ -1245,6 +1242,10 @@ rtmsg_process(char *buf, size_t len)
 				continue;
 
 			if (rtm->rtm_flags & RTF_LLINFO)	/* arp cache */
+				continue;
+
+			/* LDP should follow the IGP and ignore BGP routes */
+			if (rtm->rtm_priority == RTP_BGP)
 				continue;
 
 			if (rtm->rtm_flags & RTF_MPATH)

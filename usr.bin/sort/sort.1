@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sort.1,v 1.45 2015/03/19 13:51:10 jmc Exp $
+.\"	$OpenBSD: sort.1,v 1.50 2015/03/21 21:47:37 jmc Exp $
 .\"
 .\" Copyright (c) 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -32,7 +32,7 @@
 .\"
 .\"     @(#)sort.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: March 19 2015 $
+.Dd $Mdocdate: March 21 2015 $
 .Dt SORT 1
 .Os
 .Sh NAME
@@ -62,6 +62,14 @@ sorting behavior.
 By default, if keys are not given,
 .Nm
 uses entire lines for comparison.
+.Pp
+If no
+.Ar file
+is specified, or if
+.Ar file
+is
+.Sq - ,
+the standard input is used.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -94,7 +102,7 @@ If the input is too big to fit into the memory buffer,
 temporary files are used.
 .It Fl s
 Stable sort; maintains the original record order of records that have
-and equal key.
+an equal key.
 This is a non-standard feature, but it is widely accepted and used.
 .It Fl T Ar dir , Fl Fl temporary-directory Ns = Ns Ar dir
 Store temporary files in the directory
@@ -115,10 +123,6 @@ or
 .Fl c ,
 .Nm
 also checks that there are no lines with duplicate keys.
-.It Fl Fl version
-Print the version and exit.
-.It Fl Fl help
-Print the help text and exit.
 .El
 .Pp
 The following options override the default ordering rules.
@@ -144,9 +148,10 @@ equivalents to be the same for purposes of comparison.
 Sort by general numerical value.
 As opposed to
 .Fl n ,
-this option handles general floating points, which have a much
-permissive format than those allowed by
-. Fl n ,
+this option handles general floating points.
+It has a more
+permissive format than that allowed by
+.Fl n
 but it has a significant performance drawback.
 .It Fl h, Fl Fl human-numeric-sort, Fl Fl sort=human-numeric
 Sort by numerical value, but take into account the SI suffix,
@@ -182,7 +187,7 @@ This is a random permutation of the inputs with the exception that
 equal keys sort together.
 It is implemented by hashing the input keys and sorting the hash values.
 The hash function is randomized with data from
-.Fn arc4random_buf ,
+.Xr arc4random_buf 3 ,
 or by file content if one is specified via
 .Fl Fl random-source .
 If multiple sort fields are specified,
@@ -309,17 +314,6 @@ The
 and
 .Xr gzip 1
 utilities meet these requirements.
-.It Fl Fl random-source Ns = Ns Ar filename
-For random sort, the contents of
-.Ar filename
-are used as the source of the
-.Sq seed
-data for the hash function.
-Two invocations of random sort with the same seed data will use
-produce the same result if the input is also identical.
-By default, the
-.Fn arc4random_buf
-function is used instead.
 .It Fl Fl debug
 Print some extra information about the sorting process to the
 standard output.
@@ -329,43 +323,45 @@ Take the input file list from the file
 The file names must be separated by NUL
 (like the output produced by the command
 .Dq find ... -print0 ) .
-.It Fl Fl radixsort
-Try to use radix sort, if the sort specifications allow.
-The radix sort can only be used for trivial locales (C and POSIX),
-and it cannot be used for numeric or month sort.
-Radix sort is very fast and stable.
-.It Fl H, Fl Fl mergesort
-Use mergesort.
-This is a universal algorithm that can always be used,
-but it is not always the fastest.
-.It Fl Fl qsort
-Try to use quick sort, if the sort specifications allow.
-This sort algorithm cannot be used with
-.Fl u
-and
-.Fl s .
 .It Fl Fl heapsort
 Try to use heap sort, if the sort specifications allow.
 This sort algorithm cannot be used with
 .Fl u
 and
 .Fl s .
+.It Fl Fl help
+Print the help text and exit.
+.It Fl Fl mergesort , Fl H
+Use mergesort.
+This is a universal algorithm that can always be used,
+but it is not always the fastest.
 .It Fl Fl mmap
 Try to use file memory mapping system call.
 It may increase speed in some cases.
-.El
-.Pp
-The following operands are available:
-.Bl -tag -width indent
-.It Ar file
-The pathname of a file to be sorted, merged, or checked.
-If no
-.Ar file
-operands are specified, or if a
-.Ar file
-operand is
-.Fl ,
-the standard input is used.
+.It Fl Fl qsort
+Try to use quick sort, if the sort specifications allow.
+This sort algorithm cannot be used with
+.Fl u
+and
+.Fl s .
+.It Fl Fl radixsort
+Try to use radix sort, if the sort specifications allow.
+The radix sort can only be used for trivial locales (C and POSIX),
+and it cannot be used for numeric or month sort.
+Radix sort is very fast and stable.
+.It Fl Fl random-source Ns = Ns Ar filename
+For random sort, the contents of
+.Ar filename
+are used as the source of the
+.Sq seed
+data for the hash function.
+Two invocations of random sort with the same seed data will use
+produce the same result if the input is also identical.
+By default, the
+.Xr arc4random_buf 3
+function is used instead.
+.It Fl Fl version
+Print the version and exit.
 .El
 .Pp
 A field is defined as a maximal sequence of characters other than the
@@ -494,6 +490,27 @@ which has no
 equivalent.
 .Sh ENVIRONMENT
 .Bl -tag -width Fl
+.It Ev GNUSORT_NUMERIC_COMPATIBILITY
+If defined
+.Fl t
+will not override the locale numeric symbols, that is, thousand
+separators and decimal separators.
+By default, if we specify
+.Fl t
+with the same symbol as the thousand separator or decimal point,
+the symbol will be treated as the field separator.
+Older behavior was less definite: the symbol was treated as both field
+separator and numeric separator, simultaneously.
+This environment variable enables the old behavior.
+.It Ev LANG
+Used as a last resort to determine different kinds of locale-specific
+behavior if neither the respective environment variable nor
+.Ev LC_ALL
+are set.
+.It Ev LC_ALL
+Locale settings that override all of the other locale settings.
+This environment variable can be used to set all these settings
+to the same value at once.
 .It Ev LC_COLLATE
 Locale settings to be used to determine the collation for
 sorting records.
@@ -510,15 +527,6 @@ prints out.
 Locale settings that determine the number format used in numeric sort.
 .It Ev LC_TIME
 Locale settings that determine the month format used in month sort.
-.It Ev LC_ALL
-Locale settings that override all of the above locale settings.
-This environment variable can be used to set all these settings
-to the same value at once.
-.It Ev LANG
-Used as a last resort to determine different kinds of locale-specific
-behavior if neither the respective environment variable, nor
-.Ev LC_ALL
-are set.
 .It Ev TMPDIR
 Path to the directory in which temporary files will be stored.
 Note that
@@ -526,18 +534,6 @@ Note that
 may be overridden by the
 .Fl T
 option.
-.It Ev GNUSORT_NUMERIC_COMPATIBILITY
-If defined
-.Fl t
-will not override the locale numeric symbols, that is, thousand
-separators and decimal separators.
-By default, if we specify
-.Fl t
-with the same symbol as the thousand separator or decimal point,
-the symbol will be treated as the field separator.
-Older behavior was less definite; the symbol was treated as both field
-separator and numeric separator, simultaneously.
-This environment variable enables the old behavior.
 .El
 .Sh FILES
 .Bl -tag -width Pa -compact
@@ -568,8 +564,7 @@ An error occurred.
 .Sh SEE ALSO
 .Xr comm 1 ,
 .Xr join 1 ,
-.Xr uniq 1 ,
-.Xr arc4random_buf 3
+.Xr uniq 1
 .Sh STANDARDS
 The
 .Nm
