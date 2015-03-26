@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.143 2015/03/19 21:22:15 bcallah Exp $	*/
+/*	$OpenBSD: def.h,v 1.145 2015/03/25 20:53:31 bcallah Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -11,7 +11,6 @@
  */
 
 #include	"chrdef.h"
-#include	"ttydef.h"
 
 typedef int	(*PF)(int, int);	/* generally useful type */
 
@@ -313,6 +312,16 @@ struct undo_rec {
 	int		 pos;
 	char		*content;
 };
+
+/*
+ * Previously from ttydef.h
+ */
+#define STANDOUT_GLITCH			/* possible standout glitch	*/
+
+#define putpad(str, num)	tputs(str, num, ttputc)
+
+#define KFIRST	K00
+#define KLAST	K00
 
 /*
  * Prototypes.
@@ -732,9 +741,7 @@ extern int		 dovisiblebell;
 extern char	 	 cinfo[];
 extern char		*keystrings[];
 extern char		 pat[NPAT];
-#ifndef NO_DPROMPT
 extern char		 prompt[];
-#endif	/* !NO_DPROMPT */
 
 /*
  * Globals.
