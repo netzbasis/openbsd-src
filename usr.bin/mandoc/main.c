@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.132 2015/03/17 13:35:04 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.135 2015/03/27 21:17:16 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -8,9 +8,9 @@
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -38,7 +38,7 @@
 #include "main.h"
 #include "mdoc.h"
 #include "man.h"
-#include "manpath.h"
+#include "manconf.h"
 #include "mansearch.h"
 
 enum	outmode {
@@ -76,7 +76,7 @@ struct	curparse {
 	out_man		  outman;	/* man output ptr */
 	out_free	  outfree;	/* free output ptr */
 	void		 *outdata;	/* data for output */
-	char		  outopts[BUFSIZ]; /* buf of output opts */
+	struct manoutput *outopts;	/* output options */
 };
 
 static	int		  fs_lookup(const struct manpaths *,
@@ -109,16 +109,16 @@ static	enum mandoclevel  rc;
 int
 main(int argc, char *argv[])
 {
+	struct manconf	 conf;
 	struct curparse	 curp;
 	struct mansearch search;
-	struct manpaths	 paths;
 	char		*auxpaths;
 	char		*defos;
 	unsigned char	*uc;
 	struct manpage	*res, *resp;
 	char		*conf_file, *defpaths;
 	size_t		 isec, i, sz;
-	int		 prio, best_prio, synopsis_only;
+	int		 prio, best_prio;
 	char		 sec;
 	enum mandoclevel rctmp;
 	enum outmode	 outmode;
@@ -141,7 +141,7 @@ main(int argc, char *argv[])
 
 	/* Search options. */
 
-	memset(&paths, 0, sizeof(struct manpaths));
+	memset(&conf, 0, sizeof(conf));
 	conf_file = defpaths = NULL;
 	auxpaths = NULL;
 
@@ -164,12 +164,12 @@ main(int argc, char *argv[])
 	memset(&curp, 0, sizeof(struct curparse));
 	curp.outtype = OUTT_LOCALE;
 	curp.wlevel  = MANDOCLEVEL_BADARG;
+	curp.outopts = &conf.output;
 	options = MPARSE_SO | MPARSE_UTF8 | MPARSE_LATIN1;
 	defos = NULL;
 
 	pager_pid = 1;
 	show_usage = 0;
-	synopsis_only = 0;
 	outmode = OUTMODE_DEF;
 
 	while (-1 != (c = getopt(argc, argv,
@@ -188,8 +188,7 @@ main(int argc, char *argv[])
 			search.argmode = ARG_WORD;
 			break;
 		case 'h':
-			(void)strlcat(curp.outopts, "synopsis,", BUFSIZ);
-			synopsis_only = 1;
+			conf.output.synopsisonly = 1;
 			pager_pid = 0;
 			outmode = OUTMODE_ALL;
 			break;
@@ -230,8 +229,9 @@ main(int argc, char *argv[])
 			break;
 		case 'O':
 			search.outkey = optarg;
-			(void)strlcat(curp.outopts, optarg, BUFSIZ);
-			(void)strlcat(curp.outopts, ",", BUFSIZ);
+			while (optarg != NULL)
+				manconf_output(&conf.output,
+				    strsep(&optarg, ","));
 			break;
 		case 'S':
 			search.arch = optarg;
@@ -324,13 +324,15 @@ main(int argc, char *argv[])
 
 		/* Access the mandoc database. */
 
-		manpath_parse(&paths, conf_file, defpaths, auxpaths);
+		manconf_parse(&conf, conf_file, defpaths, auxpaths);
 		mansearch_setup(1);
-		if( ! mansearch(&search, &paths, argc, argv, &res, &sz))
+		if ( ! mansearch(&search, &conf.manpath,
+		    argc, argv, &res, &sz))
 			usage(search.argmode);
 
 		if (sz == 0 && search.argmode == ARG_NAME)
-			fs_search(&search, &paths, argc, argv, &res, &sz);
+			fs_search(&search, &conf.manpath,
+			    argc, argv, &res, &sz);
 
 		if (sz == 0) {
 			rc = MANDOCLEVEL_BADARG;
@@ -418,10 +420,11 @@ main(int argc, char *argv[])
 				parse(&curp, fd, *argv);
 			else if (resp->form & FORM_SRC) {
 				/* For .so only; ignore failure. */
-				chdir(paths.paths[resp->ipath]);
+				chdir(conf.manpath.paths[resp->ipath]);
 				parse(&curp, fd, resp->file);
 			} else
-				passthrough(resp->file, fd, synopsis_only);
+				passthrough(resp->file, fd,
+				    conf.output.synopsisonly);
 
 			rctmp = mparse_wait(curp.mp);
 			if (rc < rctmp)
@@ -449,7 +452,7 @@ main(int argc, char *argv[])
 
 out:
 	if (search.argmode != ARG_FILE) {
-		manpath_free(&paths);
+		manconf_free(&conf);
 		mansearch_free(res, sz);
 		mansearch_setup(0);
 	}
@@ -476,9 +479,9 @@ usage(enum argmode argmode)
 
 	switch (argmode) {
 	case ARG_FILE:
-		fputs("usage: mandoc [-acfhkl] [-Ios=name] "
-		    "[-Kencoding] [-mformat] [-Ooption]\n"
-		    "\t      [-Toutput] [-Wlevel] [file ...]\n", stderr);
+		fputs("usage: mandoc [-acfhkl] [-I os=name] "
+		    "[-K encoding] [-mformat] [-O option]\n"
+		    "\t      [-T output] [-W level] [file ...]\n", stderr);
 		break;
 	case ARG_NAME:
 		fputs("usage: man [-acfhklw] [-C file] [-I os=name] "
