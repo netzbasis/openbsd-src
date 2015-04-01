@@ -1,5 +1,5 @@
 #!/bin/sh -
-#	$OpenBSD: stests,v 1.8 2015/03/30 19:49:09 millert Exp $
+#	$OpenBSD: stests,v 1.12 2015/03/31 16:31:42 millert Exp $
 #	from: @(#)stests	8.1 (Berkeley) 6/6/93
 
 #Latest version.  My sort passes all tests because I wrote it.
@@ -18,11 +18,15 @@
 export SORTPROG
 
 # Tests for the Unix sort utility
-# Test Posix features except for locale.
+# Test POSIX features except for locale.
 # Test some nonstandard features if present.
 
 # Other tests should be made for files too big to fit in memory.
 
+# Currently we only test the C locale
+LANG=C
+LC_ALL=C
+export LANG LC_ALL
 
 # Initialize switches for nonstandard features.
 # Use parenthesized settings for supported features.
@@ -64,11 +68,15 @@ trap "rm -f -- -k in in1 out xx -k xsort linecount fields; exit" 0 1 2 13 15
 
 #	"sum" must be dumb; insensitive to the
 #	order of lines within a file.
-#	System V sum is suitable; sum -5 is the v10 equivalent.
+#	System V sum is suitable; we use perl's builtin sum support.
 
 PATH=.:$PATH
 export PATH
 cat <<'!' >xsort; chmod +x xsort
+
+	sum() {
+		perl -e 'local $/; $sum = unpack("%32W*",<>) % 65535; $total = tell(STDIN); print "$sum $total\n"'
+	}
 
 	X=$1; shift
 
@@ -79,7 +87,7 @@ cat <<'!' >xsort; chmod +x xsort
 			cmp xx out >/dev/null && exit 0
 			echo $TEST$X comparison failed
 		else
-			test "`cksum <in`" = "`cksum <xx`" && exit 0
+			test "`sum <in`" = "`sum <xx`" && exit 0
 			echo $TEST$X checksum failed
 		fi
 	else
@@ -109,12 +117,12 @@ rm -f out -o
 
 $SORTPROG -c in 2>/dev/null && echo ${TEST}A failed
 
-xsort B || echo '"cksum"' is probably unsuitable - see comments
+xsort B || echo '"sum"' is probably unsuitable - see comments
 
 $o $SORTPROG +0 in -o in || echo ${TEST}c failed
 
 #---------------------------------------------------------------
-TEST=02; echo $TEST	# output from -c
+TEST=02; echo $TEST	# output from -c, none from -C
 cat <<! >in
 x
 y
@@ -122,8 +130,10 @@ y
 
 $SORTPROG -cr in >out 2>xx && echo ${TEST}A failed
 test -s out && echo ${TEST}B failed
-test -s xx && echo option -c is noisy "(probably legal)"
-test -s xx || echo option -c is quiet "(legal, not classical)"
+test -s xx || echo ${TEST}C failed
+$SORTPROG -Cr in >out 2>xx && echo ${TEST}D failed
+test -s out && echo ${TEST}E failed
+test -s xx && echo ${TEST}F failed
 
 #---------------------------------------------------------------
 TEST=03; echo $TEST	# -n
@@ -972,3 +982,27 @@ BEGIN {
 }'
 
 xsort A -u
+#---------------------------------------------------------------
+TEST=42; echo $TEST	# overwrite permissions
+
+omask=`umask`
+:> in
+:> out
+
+umask 000
+chmod 0643 out
+$SORTPROG -o out in
+ls -l out | grep -e -rw-r---wx -q || echo ${TEST}A failed
+chmod u-w out
+$SORTPROG -o out in 2>/dev/null && echo ${TEST}B failed
+chmod 0643 out
+$SORTPROG -o out in out
+ls -l out | grep -e -rw-r---wx -q || echo ${TEST}C failed
+umask 071
+$SORTPROG -o out out
+ls -l out | grep -e -rw-r---wx -q || echo ${TEST}D failed
+chmod u-w out
+$SORTPROG -o out out 2>/dev/null && echo ${TEST}F failed
+
+rm -f in out
+umask $omask
