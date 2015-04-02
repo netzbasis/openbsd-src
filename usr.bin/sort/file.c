@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.5 2015/03/31 19:50:54 tobias Exp $	*/
+/*	$OpenBSD: file.c,v 1.14 2015/04/01 22:43:16 deraadt Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -36,6 +36,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 #include <wchar.h>
@@ -106,7 +107,6 @@ static LIST_HEAD(CLEANABLE_FILES, CLEANABLE_FILE) tmp_files;
 void
 init_tmp_files(void)
 {
-
 	LIST_INIT(&tmp_files);
 }
 
@@ -116,13 +116,16 @@ init_tmp_files(void)
 void
 tmp_file_atexit(const char *tmp_file)
 {
+	struct CLEANABLE_FILE *item;
+	sigset_t mask, oldmask;
 
-	if (tmp_file) {
-		struct CLEANABLE_FILE *item =
-		    sort_malloc(sizeof(struct CLEANABLE_FILE));
-		item->fn = sort_strdup(tmp_file);
-		LIST_INSERT_HEAD(&tmp_files, item, files);
-	}
+	item = sort_malloc(sizeof(struct CLEANABLE_FILE));
+	item->fn = sort_strdup(tmp_file);
+
+	sigfillset(&mask);
+	sigprocmask(SIG_BLOCK, &mask, &oldmask);
+	LIST_INSERT_HEAD(&tmp_files, item, files);
+	sigprocmask(SIG_SETMASK, &oldmask, NULL);
 }
 
 /*
@@ -146,19 +149,13 @@ static bool
 file_is_tmp(const char *fn)
 {
 	struct CLEANABLE_FILE *item;
-	bool ret = false;
 
-	if (fn) {
-		LIST_FOREACH(item, &tmp_files, files) {
-			if (item != NULL && item->fn != NULL)
-				if (strcmp(item->fn, fn) == 0) {
-					ret = true;
-					break;
-				}
-		}
+	LIST_FOREACH(item, &tmp_files, files) {
+		if (item->fn != NULL && strcmp(item->fn, fn) == 0)
+			return true;
 	}
 
-	return ret;
+	return false;
 }
 
 /*
@@ -167,13 +164,13 @@ file_is_tmp(const char *fn)
 char *
 new_tmp_file_name(void)
 {
-	static size_t tfcounter = 0;
-	static const char *fn = ".bsdsort.";
 	char *ret;
-	int len;
+	int fd;
 
-	len = sort_asprintf(&ret, "%s/%s%d.%lu", tmpdir, fn, (int)getpid(),
-	    (unsigned long)(tfcounter++));
+	sort_asprintf(&ret, "%s/.bsdsort.XXXXXXXXXX", tmpdir);
+	if ((fd = mkstemp(ret)) == -1)
+		err(2, "%s", ret);
+	close(fd);
 	tmp_file_atexit(ret);
 	return ret;
 }
@@ -184,13 +181,10 @@ new_tmp_file_name(void)
 void
 file_list_init(struct file_list *fl, bool tmp)
 {
-
-	if (fl) {
-		fl->count = 0;
-		fl->sz = 0;
-		fl->fns = NULL;
-		fl->tmp = tmp;
-	}
+	fl->count = 0;
+	fl->sz = 0;
+	fl->fns = NULL;
+	fl->tmp = tmp;
 }
 
 /*
@@ -199,16 +193,13 @@ file_list_init(struct file_list *fl, bool tmp)
 void
 file_list_add(struct file_list *fl, char *fn, bool allocate)
 {
-
-	if (fl && fn) {
-		if (fl->count >= fl->sz || fl->fns == NULL) {
-			fl->sz = fl->sz * 2 + 1;
-			fl->fns = sort_reallocarray(fl->fns, fl->sz,
-			    sizeof(char *));
-		}
-		fl->fns[fl->count] = allocate ? sort_strdup(fn) : fn;
-		fl->count += 1;
+	if (fl->count >= fl->sz) {
+		fl->fns = sort_reallocarray(fl->fns,
+		    fl->sz ? fl->sz : (fl->sz = 1), 2 * sizeof(char *));
+		fl->sz *= 2;
 	}
+	fl->fns[fl->count] = allocate ? sort_strdup(fn) : fn;
+	fl->count += 1;
 }
 
 /*
@@ -217,13 +208,10 @@ file_list_add(struct file_list *fl, char *fn, bool allocate)
 void
 file_list_populate(struct file_list *fl, int argc, char **argv, bool allocate)
 {
+	int i;
 
-	if (fl && argv) {
-		int i;
-
-		for (i = 0; i < argc; i++)
-			file_list_add(fl, argv[i], allocate);
-	}
+	for (i = 0; i < argc; i++)
+		file_list_add(fl, argv[i], allocate);
 }
 
 /*
@@ -233,26 +221,23 @@ file_list_populate(struct file_list *fl, int argc, char **argv, bool allocate)
 void
 file_list_clean(struct file_list *fl)
 {
+	if (fl->fns) {
+		size_t i;
 
-	if (fl) {
-		if (fl->fns) {
-			size_t i;
-
-			for (i = 0; i < fl->count; i++) {
-				if (fl->fns[i]) {
-					if (fl->tmp)
-						unlink(fl->fns[i]);
-					sort_free(fl->fns[i]);
-					fl->fns[i] = 0;
-				}
+		for (i = 0; i < fl->count; i++) {
+			if (fl->fns[i]) {
+				if (fl->tmp)
+					unlink(fl->fns[i]);
+				sort_free(fl->fns[i]);
+				fl->fns[i] = NULL;
 			}
-			sort_free(fl->fns);
-			fl->fns = NULL;
 		}
-		fl->sz = 0;
-		fl->count = 0;
-		fl->tmp = false;
+		sort_free(fl->fns);
+		fl->fns = NULL;
 	}
+	fl->sz = 0;
+	fl->count = 0;
+	fl->tmp = false;
 }
 
 /*
@@ -261,13 +246,10 @@ file_list_clean(struct file_list *fl)
 void
 sort_list_init(struct sort_list *l)
 {
-
-	if (l) {
-		l->count = 0;
-		l->size = 0;
-		l->memsize = sizeof(struct sort_list);
-		l->list = NULL;
-	}
+	l->count = 0;
+	l->size = 0;
+	l->memsize = sizeof(struct sort_list);
+	l->list = NULL;
 }
 
 /*
@@ -276,24 +258,21 @@ sort_list_init(struct sort_list *l)
 void
 sort_list_add(struct sort_list *l, struct bwstring *str)
 {
+	size_t indx = l->count;
 
-	if (l && str) {
-		size_t indx = l->count;
+	if ((l->list == NULL) || (indx >= l->size)) {
+		size_t newsize = (l->size + 1) + 1024;
 
-		if ((l->list == NULL) || (indx >= l->size)) {
-			size_t newsize = (l->size + 1) + 1024;
-
-			l->list = sort_reallocarray(l->list, newsize,
-			    sizeof(struct sort_list_item *));
-			l->memsize += (newsize - l->size) *
-			    sizeof(struct sort_list_item *);
-			l->size = newsize;
-		}
-		l->list[indx] = sort_list_item_alloc();
-		sort_list_item_set(l->list[indx], str);
-		l->memsize += sort_list_item_size(l->list[indx]);
-		l->count += 1;
+		l->list = sort_reallocarray(l->list, newsize,
+		    sizeof(struct sort_list_item *));
+		l->memsize += (newsize - l->size) *
+		    sizeof(struct sort_list_item *);
+		l->size = newsize;
 	}
+	l->list[indx] = sort_list_item_alloc();
+	sort_list_item_set(l->list[indx], str);
+	l->memsize += sort_list_item_size(l->list[indx]);
+	l->count += 1;
 }
 
 /*
@@ -302,29 +281,26 @@ sort_list_add(struct sort_list *l, struct bwstring *str)
 void
 sort_list_clean(struct sort_list *l)
 {
+	if (l->list) {
+		size_t i;
 
-	if (l) {
-		if (l->list) {
-			size_t i;
+		for (i = 0; i < l->count; i++) {
+			struct sort_list_item *item;
 
-			for (i = 0; i < l->count; i++) {
-				struct sort_list_item *item;
+			item = l->list[i];
 
-				item = l->list[i];
-
-				if (item) {
-					sort_list_item_clean(item);
-					sort_free(item);
-					l->list[i] = NULL;
-				}
+			if (item) {
+				sort_list_item_clean(item);
+				sort_free(item);
+				l->list[i] = NULL;
 			}
-			sort_free(l->list);
-			l->list = NULL;
 		}
-		l->count = 0;
-		l->size = 0;
-		l->memsize = sizeof(struct sort_list);
+		sort_free(l->list);
+		l->list = NULL;
 	}
+	l->count = 0;
+	l->size = 0;
+	l->memsize = sizeof(struct sort_list);
 }
 
 /*
@@ -333,36 +309,34 @@ sort_list_clean(struct sort_list *l)
 void
 sort_list_dump(struct sort_list *l, const char *fn)
 {
+	FILE *f;
 
-	if (l && fn) {
-		FILE *f;
+	f = openfile(fn, "w");
+	if (f == NULL)
+		err(2, "%s", fn);
 
-		f = openfile(fn, "w");
-		if (f == NULL)
-			err(2, "%s", fn);
+	if (l->list) {
+		size_t i;
 
-		if (l->list) {
-			size_t i;
-			if (!sort_opts_vals.uflag) {
-				for (i = 0; i < l->count; ++i)
-					bwsfwrite(l->list[i]->str, f,
-					    sort_opts_vals.zflag);
-			} else {
-				struct sort_list_item *last_printed_item = NULL;
-				struct sort_list_item *item;
-				for (i = 0; i < l->count; ++i) {
-					item = l->list[i];
-					if ((last_printed_item == NULL) ||
-					    list_coll(&last_printed_item, &item)) {
-						bwsfwrite(item->str, f, sort_opts_vals.zflag);
-						last_printed_item = item;
-					}
+		if (!sort_opts_vals.uflag) {
+			for (i = 0; i < l->count; ++i)
+				bwsfwrite(l->list[i]->str, f,
+				    sort_opts_vals.zflag);
+		} else {
+			struct sort_list_item *last_printed_item = NULL;
+			struct sort_list_item *item;
+			for (i = 0; i < l->count; ++i) {
+				item = l->list[i];
+				if ((last_printed_item == NULL) ||
+				    list_coll(&last_printed_item, &item)) {
+					bwsfwrite(item->str, f, sort_opts_vals.zflag);
+					last_printed_item = item;
 				}
 			}
 		}
-
-		closefile(f, fn);
 	}
+
+	closefile(f, fn);
 }
 
 /*
@@ -521,15 +495,14 @@ openfile(const char *fn, const char *mode)
 
 		if (is_tmp && (compress_program != NULL)) {
 			char *cmd;
-			int len;
 
 			fflush(stdout);
 
 			if (mode[0] == 'r')
-				len = sort_asprintf(&cmd, "%s -d < %s",
+				sort_asprintf(&cmd, "%s -d < %s",
 				    compress_program, fn);
 			else if (mode[0] == 'w')
-				len = sort_asprintf(&cmd, "%s > %s",
+				sort_asprintf(&cmd, "%s > %s",
 				    compress_program, fn);
 			else
 				err(2, "Wrong file mode");
@@ -697,8 +670,8 @@ file_reader_readline(struct file_reader *fr)
 			if (remsz > (READ_CHUNK >> 1)) {
 				search_start = fr->cbsz - fr->strbeg;
 				fr->cbsz += READ_CHUNK;
-				fr->buffer = sort_realloc(fr->buffer,
-				    fr->cbsz);
+				fr->buffer = sort_reallocarray(fr->buffer,
+				    1, fr->cbsz);
 				bsz1 = fread(fr->buffer + fr->bsz, 1,
 				    READ_CHUNK, fr->file);
 				if (bsz1 == 0) {
@@ -709,10 +682,10 @@ file_reader_readline(struct file_reader *fr)
 				fr->bsz += bsz1;
 				remsz += bsz1;
 			} else {
-				if (remsz > 0 && fr->strbeg>0)
-					bcopy(fr->buffer + fr->strbeg,
-					    fr->buffer, remsz);
-
+				if (remsz > 0 && fr->strbeg > 0) {
+					memmove(fr->buffer,
+					    fr->buffer + fr->strbeg, remsz);
+				}
 				fr->strbeg = 0;
 				search_start = remsz;
 				bsz1 = fread(fr->buffer + remsz, 1,
@@ -736,7 +709,6 @@ file_reader_readline(struct file_reader *fr)
 			    fr->buffer - fr->strbeg);
 
 		fr->strbeg = (strend - fr->buffer) + 1;
-
 	} else {
 		size_t len = 0;
 
@@ -750,36 +722,28 @@ file_reader_readline(struct file_reader *fr)
 static void
 file_reader_clean(struct file_reader *fr)
 {
+	if (fr->mmapaddr)
+		munmap(fr->mmapaddr, fr->mmapsize);
 
-	if (fr) {
-		if (fr->mmapaddr)
-			munmap(fr->mmapaddr, fr->mmapsize);
+	if (fr->fd)
+		close(fr->fd);
 
-		if (fr->fd)
-			close(fr->fd);
+	sort_free(fr->buffer);
 
-		if (fr->buffer)
-			sort_free(fr->buffer);
+	if (fr->file)
+		if (fr->file != stdin)
+			closefile(fr->file, fr->fname);
 
-		if (fr->file)
-			if (fr->file != stdin)
-				closefile(fr->file, fr->fname);
+	sort_free(fr->fname);
 
-		if (fr->fname)
-			sort_free(fr->fname);
-
-		memset(fr, 0, sizeof(struct file_reader));
-	}
+	memset(fr, 0, sizeof(struct file_reader));
 }
 
 void
 file_reader_free(struct file_reader *fr)
 {
-
-	if (fr) {
-		file_reader_clean(fr);
-		sort_free(fr);
-	}
+	file_reader_clean(fr);
+	sort_free(fr);
 }
 
 int
@@ -823,23 +787,19 @@ procfile(const char *fsrc, struct sort_list *list, struct file_list *fl)
 static int
 file_header_cmp(struct file_header *f1, struct file_header *f2)
 {
+	int ret;
 
 	if (f1 == f2)
 		return 0;
-	else {
-		if (f1->fr == NULL) {
-			return (f2->fr == NULL) ? 0 : 1;
-		} else if (f2->fr == NULL)
-			return -1;
-		else {
-			int ret;
+	if (f1->fr == NULL)
+		return (f2->fr == NULL) ? 0 : 1;
+	if (f2->fr == NULL)
+		return -1;
 
-			ret = list_coll(&(f1->si), &(f2->si));
-			if (!ret)
-				return (f1->file_pos < f2->file_pos) ? -1 : 1;
-			return ret;
-		}
-	}
+	ret = list_coll(&(f1->si), &(f2->si));
+	if (!ret)
+		return (f1->file_pos < f2->file_pos) ? -1 : 1;
+	return ret;
 }
 
 /*
@@ -848,26 +808,23 @@ file_header_cmp(struct file_header *f1, struct file_header *f2)
 static void
 file_header_init(struct file_header **fh, const char *fn, size_t file_pos)
 {
+	struct bwstring *line;
 
-	if (fh && fn) {
-		struct bwstring *line;
-
-		*fh = sort_malloc(sizeof(struct file_header));
-		(*fh)->file_pos = file_pos;
-		(*fh)->fr = file_reader_init(fn);
-		if ((*fh)->fr == NULL) {
-			err(2, "Cannot open %s for reading",
-			    strcmp(fn, "-") == 0 ? "stdin" : fn);
-		}
-		line = file_reader_readline((*fh)->fr);
-		if (line == NULL) {
-			file_reader_free((*fh)->fr);
-			(*fh)->fr = NULL;
-			(*fh)->si = NULL;
-		} else {
-			(*fh)->si = sort_list_item_alloc();
-			sort_list_item_set((*fh)->si, line);
-		}
+	*fh = sort_malloc(sizeof(struct file_header));
+	(*fh)->file_pos = file_pos;
+	(*fh)->fr = file_reader_init(fn);
+	if ((*fh)->fr == NULL) {
+		err(2, "Cannot open %s for reading",
+		    strcmp(fn, "-") == 0 ? "stdin" : fn);
+	}
+	line = file_reader_readline((*fh)->fr);
+	if (line == NULL) {
+		file_reader_free((*fh)->fr);
+		(*fh)->fr = NULL;
+		(*fh)->si = NULL;
+	} else {
+		(*fh)->si = sort_list_item_alloc();
+		sort_list_item_set((*fh)->si, line);
 	}
 }
 
@@ -877,20 +834,17 @@ file_header_init(struct file_header **fh, const char *fn, size_t file_pos)
 static void
 file_header_close(struct file_header **fh)
 {
-
-	if (fh && *fh) {
-		if ((*fh)->fr) {
-			file_reader_free((*fh)->fr);
-			(*fh)->fr = NULL;
-		}
-		if ((*fh)->si) {
-			sort_list_item_clean((*fh)->si);
-			sort_free((*fh)->si);
-			(*fh)->si = NULL;
-		}
-		sort_free(*fh);
-		*fh = NULL;
+	if ((*fh)->fr) {
+		file_reader_free((*fh)->fr);
+		(*fh)->fr = NULL;
 	}
+	if ((*fh)->si) {
+		sort_list_item_clean((*fh)->si);
+		sort_free((*fh)->si);
+		(*fh)->si = NULL;
+	}
+	sort_free(*fh);
+	*fh = NULL;
 }
 
 /*
@@ -915,7 +869,6 @@ file_header_swap(struct file_header **fh, size_t i1, size_t i2)
 static void
 file_header_heap_swim(struct file_header **fh, size_t indx)
 {
-
 	if (indx > 0) {
 		size_t parent_index;
 
@@ -965,7 +918,6 @@ file_header_heap_sink(struct file_header **fh, size_t indx, size_t size)
 static void
 file_header_list_rearrange_from_header(struct file_header **fh, size_t size)
 {
-
 	file_header_heap_sink(fh, 0, size);
 }
 
@@ -975,7 +927,6 @@ file_header_list_rearrange_from_header(struct file_header **fh, size_t size)
 static void
 file_header_list_push(struct file_header *f, struct file_header **fh, size_t size)
 {
-
 	fh[size++] = f;
 	file_header_heap_swim(fh, size - 1);
 }
@@ -991,18 +942,15 @@ struct last_printed
 static void
 file_header_print(struct file_header *fh, FILE *f_out, struct last_printed *lp)
 {
-
-	if (fh && fh->fr && f_out && fh->si && fh->si->str) {
-		if (sort_opts_vals.uflag) {
-			if ((lp->str == NULL) || (str_list_coll(lp->str, &(fh->si)))) {
-				bwsfwrite(fh->si->str, f_out, sort_opts_vals.zflag);
-				if (lp->str)
-					bwsfree(lp->str);
-				lp->str = bwsdup(fh->si->str);
-			}
-		} else
+	if (sort_opts_vals.uflag) {
+		if ((lp->str == NULL) || (str_list_coll(lp->str, &(fh->si)))) {
 			bwsfwrite(fh->si->str, f_out, sort_opts_vals.zflag);
-	}
+			if (lp->str)
+				bwsfree(lp->str);
+			lp->str = bwsdup(fh->si->str);
+		}
+	} else
+		bwsfwrite(fh->si->str, f_out, sort_opts_vals.zflag);
 }
 
 /*
@@ -1011,24 +959,21 @@ file_header_print(struct file_header *fh, FILE *f_out, struct last_printed *lp)
 static void
 file_header_read_next(struct file_header *fh)
 {
+	struct bwstring *tmp;
 
-	if (fh && fh->fr) {
-		struct bwstring *tmp;
-
-		tmp = file_reader_readline(fh->fr);
-		if (tmp == NULL) {
-			file_reader_free(fh->fr);
-			fh->fr = NULL;
-			if (fh->si) {
-				sort_list_item_clean(fh->si);
-				sort_free(fh->si);
-				fh->si = NULL;
-			}
-		} else {
-			if (fh->si == NULL)
-				fh->si = sort_list_item_alloc();
-			sort_list_item_set(fh->si, tmp);
+	tmp = file_reader_readline(fh->fr);
+	if (tmp == NULL) {
+		file_reader_free(fh->fr);
+		fh->fr = NULL;
+		if (fh->si) {
+			sort_list_item_clean(fh->si);
+			sort_free(fh->si);
+			fh->si = NULL;
 		}
+	} else {
+		if (fh->si == NULL)
+			fh->si = sort_list_item_alloc();
+		sort_list_item_set(fh->si, tmp);
 	}
 }
 
@@ -1069,31 +1014,28 @@ file_headers_merge(size_t fnum, struct file_header **fh, FILE *f_out)
 static void
 merge_files_array(size_t argc, char **argv, const char *fn_out)
 {
+	struct file_header **fh;
+	FILE *f_out;
+	size_t i;
 
-	if (argv && fn_out) {
-		struct file_header **fh;
-		FILE *f_out;
-		size_t i;
+	f_out = openfile(fn_out, "w");
 
-		f_out = openfile(fn_out, "w");
+	if (f_out == NULL)
+		err(2, "%s", fn_out);
 
-		if (f_out == NULL)
-			err(2, "%s", fn_out);
+	fh = sort_reallocarray(NULL, argc + 1, sizeof(struct file_header *));
 
-		fh = sort_malloc((argc + 1) * sizeof(struct file_header *));
+	for (i = 0; i < argc; i++)
+		file_header_init(fh + i, argv[i], i);
 
-		for (i = 0; i < argc; i++)
-			file_header_init(fh + i, argv[i], (size_t) i);
+	file_headers_merge(argc, fh, f_out);
 
-		file_headers_merge(argc, fh, f_out);
+	for (i = 0; i < argc; i++)
+		file_header_close(fh + i);
 
-		for (i = 0; i < argc; i++)
-			file_header_close(fh + i);
+	sort_free(fh);
 
-		sort_free(fh);
-
-		closefile(f_out, fn_out);
-	}
+	closefile(f_out, fn_out);
 }
 
 /*
@@ -1102,43 +1044,41 @@ merge_files_array(size_t argc, char **argv, const char *fn_out)
 static int
 shrink_file_list(struct file_list *fl)
 {
+	struct file_list new_fl;
+	size_t indx = 0;
 
-	if (fl == NULL || (size_t)fl->count < max_open_files)
+	if (fl->count < max_open_files)
 		return 0;
-	else {
-		struct file_list new_fl;
-		size_t indx = 0;
 
-		file_list_init(&new_fl, true);
-		while (indx < fl->count) {
-			char *fnew;
-			size_t num;
+	file_list_init(&new_fl, true);
+	while (indx < fl->count) {
+		char *fnew;
+		size_t num;
 
-			num = fl->count - indx;
-			fnew = new_tmp_file_name();
+		num = fl->count - indx;
+		fnew = new_tmp_file_name();
 
-			if ((size_t) num >= max_open_files)
-				num = max_open_files - 1;
-			merge_files_array(num, fl->fns + indx, fnew);
-			if (fl->tmp) {
-				size_t i;
+		if (num >= max_open_files)
+			num = max_open_files - 1;
+		merge_files_array(num, fl->fns + indx, fnew);
+		if (fl->tmp) {
+			size_t i;
 
-				for (i = 0; i < num; i++)
-					unlink(fl->fns[indx + i]);
-			}
-			file_list_add(&new_fl, fnew, false);
-			indx += num;
+			for (i = 0; i < num; i++)
+				unlink(fl->fns[indx + i]);
 		}
-		fl->tmp = false; /* already taken care of */
-		file_list_clean(fl);
-
-		fl->count = new_fl.count;
-		fl->fns = new_fl.fns;
-		fl->sz = new_fl.sz;
-		fl->tmp = new_fl.tmp;
-
-		return 1;
+		file_list_add(&new_fl, fnew, false);
+		indx += num;
 	}
+	fl->tmp = false; /* already taken care of */
+	file_list_clean(fl);
+
+	fl->count = new_fl.count;
+	fl->fns = new_fl.fns;
+	fl->sz = new_fl.sz;
+	fl->tmp = new_fl.tmp;
+
+	return 1;
 }
 
 /*
@@ -1147,18 +1087,15 @@ shrink_file_list(struct file_list *fl)
 void
 merge_files(struct file_list *fl, const char *fn_out)
 {
+	while (shrink_file_list(fl))
+		;
 
-	if (fl && fn_out) {
-		while (shrink_file_list(fl));
-
-		merge_files_array(fl->count, fl->fns, fn_out);
-	}
+	merge_files_array(fl->count, fl->fns, fn_out);
 }
 
 static const char *
 get_sort_method_name(int sm)
 {
-
 	if (sm == SORT_MERGESORT)
 		return "mergesort";
 	else if (sort_opts_vals.sort_method == SORT_RADIXSORT)
@@ -1186,8 +1123,8 @@ sort_list_to_file(struct sort_list *list, const char *outfile)
 		err(2, "Radix sort cannot be used with these sort options");
 
 	/*
-	 * to handle stable sort and the unique cases in the
-	 * right order, we need stable basic algorithm
+	 * To handle stable sort and the unique cases in the
+	 * right order, we need to use a stable algorithm.
 	 */
 	if (sort_opts_vals.sflag) {
 		switch (sort_opts_vals.sort_method){
