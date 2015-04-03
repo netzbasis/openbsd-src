@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_term.c,v 1.123 2015/03/15 16:51:34 schwarze Exp $ */
+/*	$OpenBSD: man_term.c,v 1.126 2015/04/02 23:47:43 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -7,9 +7,9 @@
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -24,10 +24,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "mandoc.h"
 #include "mandoc_aux.h"
-#include "out.h"
+#include "mandoc.h"
+#include "roff.h"
 #include "man.h"
+#include "out.h"
 #include "term.h"
 #include "main.h"
 
@@ -45,8 +46,8 @@ struct	mtermp {
 
 #define	DECL_ARGS	  struct termp *p, \
 			  struct mtermp *mt, \
-			  struct man_node *n, \
-			  const struct man_meta *meta
+			  struct roff_node *n, \
+			  const struct roff_meta *meta
 
 struct	termact {
 	int		(*pre)(DECL_ARGS);
@@ -57,10 +58,12 @@ struct	termact {
 
 static	void		  print_man_nodelist(DECL_ARGS);
 static	void		  print_man_node(DECL_ARGS);
-static	void		  print_man_head(struct termp *, const void *);
-static	void		  print_man_foot(struct termp *, const void *);
+static	void		  print_man_head(struct termp *,
+				const struct roff_meta *);
+static	void		  print_man_foot(struct termp *,
+				const struct roff_meta *);
 static	void		  print_bvspace(struct termp *,
-				const struct man_node *, int);
+				const struct roff_node *, int);
 
 static	int		  pre_B(DECL_ARGS);
 static	int		  pre_HP(DECL_ARGS);
@@ -136,8 +139,8 @@ void
 terminal_man(void *arg, const struct man *man)
 {
 	struct termp		*p;
-	const struct man_meta	*meta;
-	struct man_node		*n;
+	const struct roff_meta	*meta;
+	struct roff_node	*n;
 	struct mtermp		 mt;
 
 	p = (struct termp *)arg;
@@ -158,7 +161,7 @@ terminal_man(void *arg, const struct man *man)
 	if (p->synopsisonly) {
 		while (n != NULL) {
 			if (n->tok == MAN_SH &&
-			    n->child->child->type == MAN_TEXT &&
+			    n->child->child->type == ROFFT_TEXT &&
 			    !strcmp(n->child->child->string, "SYNOPSIS")) {
 				if (n->child->next->child != NULL)
 					print_man_nodelist(p, &mt,
@@ -188,17 +191,17 @@ terminal_man(void *arg, const struct man *man)
  * first, print it.
  */
 static void
-print_bvspace(struct termp *p, const struct man_node *n, int pardist)
+print_bvspace(struct termp *p, const struct roff_node *n, int pardist)
 {
 	int	 i;
 
 	term_newln(p);
 
 	if (n->body && n->body->child)
-		if (MAN_TBL == n->body->child->type)
+		if (n->body->child->type == ROFFT_TBL)
 			return;
 
-	if (MAN_ROOT == n->parent->type || MAN_RS != n->parent->tok)
+	if (n->parent->type == ROFFT_ROOT || n->parent->tok != MAN_RS)
 		if (NULL == n->prev)
 			return;
 
@@ -267,7 +270,7 @@ pre_PD(DECL_ARGS)
 		mt->pardist = 1;
 		return(0);
 	}
-	assert(MAN_TEXT == n->type);
+	assert(n->type == ROFFT_TEXT);
 	if (a2roffsu(n->string, &su, SCALE_VS))
 		mt->pardist = term_vspan(p, &su);
 	return(0);
@@ -277,7 +280,7 @@ static int
 pre_alternate(DECL_ARGS)
 {
 	enum termfont		 font[2];
-	struct man_node		*nn;
+	struct roff_node	*nn;
 	int			 savelit, i;
 
 	switch (n->tok) {
@@ -485,14 +488,14 @@ static int
 pre_HP(DECL_ARGS)
 {
 	struct roffsu		 su;
-	const struct man_node	*nn;
+	const struct roff_node	*nn;
 	int			 len;
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		print_bvspace(p, n, mt->pardist);
 		return(1);
-	case MAN_BODY:
+	case ROFFT_BODY:
 		break;
 	default:
 		return(0);
@@ -526,7 +529,7 @@ post_HP(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_BODY:
+	case ROFFT_BODY:
 		term_newln(p);
 		p->flags &= ~(TERMP_NOBREAK | TERMP_BRIND);
 		p->trailspace = 0;
@@ -543,7 +546,7 @@ pre_PP(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		print_bvspace(p, n, mt->pardist);
 		break;
@@ -552,25 +555,25 @@ pre_PP(DECL_ARGS)
 		break;
 	}
 
-	return(MAN_HEAD != n->type);
+	return(n->type != ROFFT_HEAD);
 }
 
 static int
 pre_IP(DECL_ARGS)
 {
 	struct roffsu		 su;
-	const struct man_node	*nn;
+	const struct roff_node	*nn;
 	int			 len, savelit;
 
 	switch (n->type) {
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->flags |= TERMP_NOSPACE;
 		break;
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		p->flags |= TERMP_NOBREAK;
 		p->trailspace = 1;
 		break;
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		print_bvspace(p, n, mt->pardist);
 		/* FALLTHROUGH */
 	default:
@@ -591,7 +594,7 @@ pre_IP(DECL_ARGS)
 		len = mt->lmargin[mt->lmargincur];
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		p->offset = mt->offset;
 		p->rmargin = mt->offset + len;
 
@@ -605,7 +608,7 @@ pre_IP(DECL_ARGS)
 			mt->fl |= MANT_LITERAL;
 
 		return(0);
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->offset = mt->offset + len;
 		p->rmargin = p->maxrmargin;
 		break;
@@ -621,13 +624,13 @@ post_IP(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_flushln(p);
 		p->flags &= ~TERMP_NOBREAK;
 		p->trailspace = 0;
 		p->rmargin = p->maxrmargin;
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		term_newln(p);
 		p->offset = mt->offset;
 		break;
@@ -640,18 +643,18 @@ static int
 pre_TP(DECL_ARGS)
 {
 	struct roffsu		 su;
-	struct man_node		*nn;
+	struct roff_node	*nn;
 	int			 len, savelit;
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		p->flags |= TERMP_NOBREAK;
 		p->trailspace = 1;
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->flags |= TERMP_NOSPACE;
 		break;
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		print_bvspace(p, n, mt->pardist);
 		/* FALLTHROUGH */
 	default:
@@ -673,7 +676,7 @@ pre_TP(DECL_ARGS)
 		len = mt->lmargin[mt->lmargincur];
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		p->offset = mt->offset;
 		p->rmargin = mt->offset + len;
 
@@ -693,7 +696,7 @@ pre_TP(DECL_ARGS)
 		if (savelit)
 			mt->fl |= MANT_LITERAL;
 		return(0);
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->offset = mt->offset + len;
 		p->rmargin = p->maxrmargin;
 		p->trailspace = 0;
@@ -711,10 +714,10 @@ post_TP(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_flushln(p);
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		term_newln(p);
 		p->offset = mt->offset;
 		break;
@@ -729,7 +732,7 @@ pre_SS(DECL_ARGS)
 	int	 i;
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		mt->fl &= ~MANT_LITERAL;
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		mt->offset = term_len(p, p->defindent);
@@ -749,11 +752,11 @@ pre_SS(DECL_ARGS)
 		for (i = 0; i < mt->pardist; i++)
 			term_vspace(p);
 		break;
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_fontrepl(p, TERMFONT_BOLD);
 		p->offset = term_len(p, 3);
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->offset = mt->offset;
 		break;
 	default:
@@ -768,10 +771,10 @@ post_SS(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_newln(p);
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		term_newln(p);
 		break;
 	default:
@@ -785,7 +788,7 @@ pre_SH(DECL_ARGS)
 	int	 i;
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		mt->fl &= ~MANT_LITERAL;
 		mt->lmargin[mt->lmargincur] = term_len(p, p->defindent);
 		mt->offset = term_len(p, p->defindent);
@@ -804,11 +807,11 @@ pre_SH(DECL_ARGS)
 		for (i = 0; i < mt->pardist; i++)
 			term_vspace(p);
 		break;
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_fontrepl(p, TERMFONT_BOLD);
 		p->offset = 0;
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		p->offset = mt->offset;
 		break;
 	default:
@@ -823,10 +826,10 @@ post_SH(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		term_newln(p);
 		break;
-	case MAN_BODY:
+	case ROFFT_BODY:
 		term_newln(p);
 		break;
 	default:
@@ -840,10 +843,10 @@ pre_RS(DECL_ARGS)
 	struct roffsu	 su;
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		term_newln(p);
 		return(1);
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		return(0);
 	default:
 		break;
@@ -874,9 +877,9 @@ post_RS(DECL_ARGS)
 {
 
 	switch (n->type) {
-	case MAN_BLOCK:
+	case ROFFT_BLOCK:
 		return;
-	case MAN_HEAD:
+	case ROFFT_HEAD:
 		return;
 	default:
 		term_newln(p);
@@ -894,14 +897,14 @@ static int
 pre_UR(DECL_ARGS)
 {
 
-	return (MAN_HEAD != n->type);
+	return (n->type != ROFFT_HEAD);
 }
 
 static void
 post_UR(DECL_ARGS)
 {
 
-	if (MAN_BLOCK != n->type)
+	if (n->type != ROFFT_BLOCK)
 		return;
 
 	term_word(p, "<");
@@ -921,7 +924,7 @@ print_man_node(DECL_ARGS)
 	int		 c;
 
 	switch (n->type) {
-	case MAN_TEXT:
+	case ROFFT_TEXT:
 		/*
 		 * If we have a blank line, output a vertical space.
 		 * If we have a space as the first character, break
@@ -936,14 +939,14 @@ print_man_node(DECL_ARGS)
 		term_word(p, n->string);
 		goto out;
 
-	case MAN_EQN:
+	case ROFFT_EQN:
 		if ( ! (n->flags & MAN_LINE))
 			p->flags |= TERMP_NOSPACE;
 		term_eqn(p, n->eqn);
 		if (n->next != NULL && ! (n->next->flags & MAN_LINE))
 			p->flags |= TERMP_NOSPACE;
 		return;
-	case MAN_TBL:
+	case ROFFT_TBL:
 		if (p->tbl.cols == NULL)
 			term_vspace(p);
 		term_tbl(p, n->span);
@@ -1009,13 +1012,11 @@ print_man_nodelist(DECL_ARGS)
 }
 
 static void
-print_man_foot(struct termp *p, const void *arg)
+print_man_foot(struct termp *p, const struct roff_meta *meta)
 {
-	const struct man_meta	*meta;
 	char			*title;
 	size_t			 datelen, titlen;
 
-	meta = (const struct man_meta *)arg;
 	assert(meta->title);
 	assert(meta->msec);
 	assert(meta->date);
@@ -1027,8 +1028,8 @@ print_man_foot(struct termp *p, const void *arg)
 
 	/*
 	 * Temporary, undocumented option to imitate mdoc(7) output.
-	 * In the bottom right corner, use the source instead of
-	 * the title.
+	 * In the bottom right corner, use the operating system
+	 * instead of the title.
 	 */
 
 	if ( ! p->mdocstyle) {
@@ -1038,14 +1039,14 @@ print_man_foot(struct termp *p, const void *arg)
 		}
 		mandoc_asprintf(&title, "%s(%s)",
 		    meta->title, meta->msec);
-	} else if (meta->source) {
-		title = mandoc_strdup(meta->source);
+	} else if (meta->os) {
+		title = mandoc_strdup(meta->os);
 	} else {
 		title = mandoc_strdup("");
 	}
 	datelen = term_strlen(p, meta->date);
 
-	/* Bottom left corner: manual source. */
+	/* Bottom left corner: operating system. */
 
 	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
 	p->trailspace = 1;
@@ -1053,8 +1054,8 @@ print_man_foot(struct termp *p, const void *arg)
 	p->rmargin = p->maxrmargin > datelen ?
 	    (p->maxrmargin + term_len(p, 1) - datelen) / 2 : 0;
 
-	if (meta->source)
-		term_word(p, meta->source);
+	if (meta->os)
+		term_word(p, meta->os);
 	term_flushln(p);
 
 	/* At the bottom in the middle: manual date. */
@@ -1081,14 +1082,12 @@ print_man_foot(struct termp *p, const void *arg)
 }
 
 static void
-print_man_head(struct termp *p, const void *arg)
+print_man_head(struct termp *p, const struct roff_meta *meta)
 {
-	const struct man_meta	*meta;
 	const char		*volume;
 	char			*title;
 	size_t			 vollen, titlen;
 
-	meta = (const struct man_meta *)arg;
 	assert(meta->title);
 	assert(meta->msec);
 

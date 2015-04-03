@@ -1,4 +1,4 @@
-/*	$OpenBSD: sort.c,v 1.68 2015/04/01 22:49:47 millert Exp $	*/
+/*	$OpenBSD: sort.c,v 1.74 2015/04/02 21:09:51 tobias Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -41,6 +41,7 @@
 #include <regex.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,6 +201,7 @@ read_fns_from_file0(const char *fn)
 static void
 set_hw_params(void)
 {
+	unsigned long long free_memory;
 	long long user_memory;
 	struct rlimit rl;
 	size_t len;
@@ -219,8 +221,10 @@ set_hw_params(void)
 		} else {
 			warn("Can't set resource limit to max data size");
 		}
-	} else
+	} else {
+		free_memory = 1000000;
 		warn("Can't get resource limit for data size");
+	}
 
 	/* We prefer to use temp files rather than swap space. */
 	if (user_memory != -1 && free_memory > user_memory)
@@ -302,7 +306,7 @@ set_tmpdir(void)
 
 		td = getenv("TMPDIR");
 		if (td != NULL)
-			tmpdir = sort_strdup(td);
+			tmpdir = td;
 	}
 }
 
@@ -365,6 +369,9 @@ parse_memory_buffer_value(const char *value)
 	case 'b':
 		break;
 	case '%':
+		if (available_free_memory != 0 &&
+		    membuf > ULLONG_MAX / available_free_memory)
+			goto invalid;
 		membuf = (available_free_memory * membuf) /
 		    100;
 		break;
@@ -372,6 +379,8 @@ parse_memory_buffer_value(const char *value)
 		warnc(EINVAL, "%s", optarg);
 		membuf = available_free_memory;
 	}
+	if (membuf > SIZE_MAX)
+		goto invalid;
 	return membuf;
 invalid:
 	errx(2, "invalid memory buffer size: %s", value);
@@ -394,8 +403,8 @@ static void
 set_signal_handler(void)
 {
 	struct sigaction sa;
-	int i, signals[] = {SIGTERM, SIGHUP, SIGINT, SIGQUIT, SIGUSR1, SIGUSR2,
-	    SIGPIPE, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, 0};
+	int i, signals[] = {SIGTERM, SIGHUP, SIGINT, SIGUSR1, SIGUSR2,
+	    SIGPIPE, SIGXCPU, SIGXFSZ, 0};
 
 	memset(&sa, 0, sizeof(sa));
 	sigfillset(&sa.sa_mask);
@@ -404,7 +413,7 @@ set_signal_handler(void)
 
 	for (i = 0; signals[i] != 0; i++) {
 		if (sigaction(signals[i], &sa, NULL) < 0) {
-			warn("sigaction(%d)", i);
+			warn("sigaction(%s)", strsignal(signals[i]));
 			continue;
 		}
 	}
@@ -428,7 +437,7 @@ check_mutually_exclusive_flags(char c, bool *mef_flags)
 	int i, fo_index, mec;
 	bool found_others, found_this;
 
-	found_others = found_this =false;
+	found_others = found_this = false;
 	fo_index = 0;
 
 	for (i = 0; i < NUMBER_OF_MUTUALLY_EXCLUSIVE_FLAGS; i++) {
@@ -925,7 +934,7 @@ main(int argc, char *argv[])
 				    parse_memory_buffer_value(optarg);
 				break;
 			case 'T':
-				tmpdir = sort_strdup(optarg);
+				tmpdir = optarg;
 				break;
 			case 't':
 				while (strlen(optarg) > 1) {
@@ -993,10 +1002,10 @@ main(int argc, char *argv[])
 				sort_opts_vals.sort_method = SORT_RADIXSORT;
 				break;
 			case RANDOMSOURCE_OPT:
-				random_source = strdup(optarg);
+				random_source = optarg;
 				break;
 			case COMPRESSPROGRAM_OPT:
-				compress_program = strdup(optarg);
+				compress_program = optarg;
 				break;
 			case FF_OPT:
 				read_fns_from_file0(optarg);

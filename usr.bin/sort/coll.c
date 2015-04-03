@@ -1,4 +1,4 @@
-/*	$OpenBSD: coll.c,v 1.6 2015/04/01 21:47:19 millert Exp $	*/
+/*	$OpenBSD: coll.c,v 1.8 2015/04/02 22:14:51 deraadt Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -76,7 +76,7 @@ keys_array_alloc(void)
 }
 
 /*
- * Calculate whether we need key hint space 
+ * Calculate whether we need key hint space
  */
 static size_t
 key_hint_size(void)
@@ -120,7 +120,7 @@ set_key_on_keys_array(struct keys_array *ka, struct bwstring *s, size_t ind)
 
 		kv = &(ka->key[ind]);
 
-		if (kv->k && kv->k != s)
+		if (kv->k != s)
 			bwsfree(kv->k);
 		kv->k = s;
 	}
@@ -582,8 +582,8 @@ list_coll(const void *ss1, const void *ss2)
 	    (struct sort_list_item **)ss2, 0);
 }
 
-#define LSCDEF(N) 											\
-static int 												\
+#define LSCDEF(N)											\
+static int												\
 list_coll_##N(struct sort_list_item **ss1, struct sort_list_item **ss2)					\
 {													\
 													\

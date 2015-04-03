@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_hash.c,v 1.16 2014/11/28 19:25:03 schwarze Exp $ */
+/*	$OpenBSD: mdoc_hash.c,v 1.18 2015/04/02 22:06:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "roff.h"
 #include "mdoc.h"
 #include "libmdoc.h"
 
@@ -59,7 +60,7 @@ mdoc_hash_init(void)
 	}
 }
 
-enum mdoct
+int
 mdoc_hash_find(const char *p)
 {
 	int		  major, i, j;
@@ -83,7 +84,7 @@ mdoc_hash_find(const char *p)
 		if (UCHAR_MAX == (i = table[major + j]))
 			break;
 		if (0 == strcmp(p, mdoc_macronames[i]))
-			return((enum mdoct)i);
+			return(i);
 	}
 
 	return(MDOC_MAX);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.139 2015/02/12 12:20:47 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.141 2015/04/02 22:06:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -7,9 +7,9 @@
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -24,10 +24,11 @@
 #include <string.h>
 #include <time.h>
 
-#include "mdoc.h"
 #include "mandoc.h"
-#include "libmdoc.h"
+#include "roff.h"
+#include "mdoc.h"
 #include "libmandoc.h"
+#include "libmdoc.h"
 
 static	void		blk_full(MACRO_PROT_ARGS);
 static	void		blk_exp_close(MACRO_PROT_ARGS);
@@ -42,15 +43,13 @@ static	void		phrase_ta(MACRO_PROT_ARGS);
 static	void		dword(struct mdoc *, int, int, const char *,
 				 enum mdelim, int);
 static	void		append_delims(struct mdoc *, int, int *, char *);
-static	enum mdoct	lookup(struct mdoc *, enum mdoct,
-				int, int, const char *);
+static	int		lookup(struct mdoc *, int, int, int, const char *);
 static	int		macro_or_word(MACRO_PROT_ARGS, int);
-static	int		parse_rest(struct mdoc *, enum mdoct,
-				int, int *, char *);
-static	enum mdoct	rew_alt(enum mdoct);
-static	void		rew_elem(struct mdoc *, enum mdoct);
-static	void		rew_last(struct mdoc *, const struct mdoc_node *);
-static	void		rew_pending(struct mdoc *, const struct mdoc_node *);
+static	int		parse_rest(struct mdoc *, int, int, int *, char *);
+static	int		rew_alt(int);
+static	void		rew_elem(struct mdoc *, int);
+static	void		rew_last(struct mdoc *, const struct roff_node *);
+static	void		rew_pending(struct mdoc *, const struct roff_node *);
 
 const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED | MDOC_JOIN }, /* Ap */
@@ -207,7 +206,7 @@ const	struct mdoc_macro * const mdoc_macros = __mdoc_macros;
 void
 mdoc_macroend(struct mdoc *mdoc)
 {
-	struct mdoc_node *n;
+	struct roff_node *n;
 
 	/* Scan for open explicit scopes. */
 
@@ -215,7 +214,7 @@ mdoc_macroend(struct mdoc *mdoc)
 	    mdoc->last->parent : mdoc->last;
 
 	for ( ; n; n = n->parent)
-		if (n->type == MDOC_BLOCK &&
+		if (n->type == ROFFT_BLOCK &&
 		    mdoc_macros[n->tok].flags & MDOC_EXPLICIT)
 			mandoc_msg(MANDOCERR_BLK_NOEND, mdoc->parse,
 			    n->line, n->pos, mdoc_macronames[n->tok]);
@@ -229,10 +228,10 @@ mdoc_macroend(struct mdoc *mdoc)
  * Look up the macro at *p called by "from",
  * or as a line macro if from == MDOC_MAX.
  */
-static enum mdoct
-lookup(struct mdoc *mdoc, enum mdoct from, int line, int ppos, const char *p)
+static int
+lookup(struct mdoc *mdoc, int from, int line, int ppos, const char *p)
 {
-	enum mdoct	 res;
+	int	 res;
 
 	if (from == MDOC_MAX || mdoc_macros[from].flags & MDOC_PARSED) {
 		res = mdoc_hash_find(p);
@@ -251,9 +250,9 @@ lookup(struct mdoc *mdoc, enum mdoct from, int line, int ppos, const char *p)
  * Rewind up to and including a specific node.
  */
 static void
-rew_last(struct mdoc *mdoc, const struct mdoc_node *to)
+rew_last(struct mdoc *mdoc, const struct roff_node *to)
 {
-	struct mdoc_node *n, *np;
+	struct roff_node *n, *np;
 
 	assert(to);
 	mdoc->next = MDOC_NEXT_SIBLING;
@@ -278,17 +277,17 @@ rew_last(struct mdoc *mdoc, const struct mdoc_node *to)
  * Rewind up to a specific block, including all blocks that broke it.
  */
 static void
-rew_pending(struct mdoc *mdoc, const struct mdoc_node *n)
+rew_pending(struct mdoc *mdoc, const struct roff_node *n)
 {
 
 	for (;;) {
 		rew_last(mdoc, n);
 
 		switch (n->type) {
-		case MDOC_HEAD:
+		case ROFFT_HEAD:
 			mdoc_body_alloc(mdoc, n->line, n->pos, n->tok);
 			return;
-		case MDOC_BLOCK:
+		case ROFFT_BLOCK:
 			break;
 		default:
 			return;
@@ -301,8 +300,8 @@ rew_pending(struct mdoc *mdoc, const struct mdoc_node *n)
 			if ((n = n->parent) == NULL)
 				return;
 
-			if (n->type == MDOC_BLOCK ||
-			    n->type == MDOC_HEAD) {
+			if (n->type == ROFFT_BLOCK ||
+			    n->type == ROFFT_HEAD) {
 				if (n->flags & MDOC_ENDED)
 					break;
 				else
@@ -316,8 +315,8 @@ rew_pending(struct mdoc *mdoc, const struct mdoc_node *n)
  * For a block closing macro, return the corresponding opening one.
  * Otherwise, return the macro itself.
  */
-static enum mdoct
-rew_alt(enum mdoct tok)
+static int
+rew_alt(int tok)
 {
 	switch (tok) {
 	case MDOC_Ac:
@@ -359,14 +358,14 @@ rew_alt(enum mdoct tok)
 }
 
 static void
-rew_elem(struct mdoc *mdoc, enum mdoct tok)
+rew_elem(struct mdoc *mdoc, int tok)
 {
-	struct mdoc_node *n;
+	struct roff_node *n;
 
 	n = mdoc->last;
-	if (MDOC_ELEM != n->type)
+	if (n->type != ROFFT_ELEM)
 		n = n->parent;
-	assert(MDOC_ELEM == n->type);
+	assert(n->type == ROFFT_ELEM);
 	assert(tok == n->tok);
 	rew_last(mdoc, n);
 }
@@ -385,7 +384,7 @@ dword(struct mdoc *mdoc, int line, int col, const char *p,
 
 	if (may_append &&
 	    ! (mdoc->flags & (MDOC_SYNOPSIS | MDOC_KEEP | MDOC_SMOFF)) &&
-	    d == DELIM_NONE && mdoc->last->type == MDOC_TEXT &&
+	    d == DELIM_NONE && mdoc->last->type == ROFFT_TEXT &&
 	    mdoc_isdelim(mdoc->last->string) == DELIM_NONE) {
 		mdoc_word_append(mdoc, p);
 		return;
@@ -450,7 +449,7 @@ static int
 macro_or_word(MACRO_PROT_ARGS, int parsed)
 {
 	char		*p;
-	enum mdoct	 ntok;
+	int		 ntok;
 
 	p = buf + ppos;
 	ntok = MDOC_MAX;
@@ -479,15 +478,15 @@ macro_or_word(MACRO_PROT_ARGS, int parsed)
 static void
 blk_exp_close(MACRO_PROT_ARGS)
 {
-	struct mdoc_node *body;		/* Our own body. */
-	struct mdoc_node *endbody;	/* Our own end marker. */
-	struct mdoc_node *itblk;	/* An It block starting later. */
-	struct mdoc_node *later;	/* A sub-block starting later. */
-	struct mdoc_node *n;		/* Search back to our block. */
+	struct roff_node *body;		/* Our own body. */
+	struct roff_node *endbody;	/* Our own end marker. */
+	struct roff_node *itblk;	/* An It block starting later. */
+	struct roff_node *later;	/* A sub-block starting later. */
+	struct roff_node *n;		/* Search back to our block. */
 
 	int		 j, lastarg, maxargs, nl;
 	enum margserr	 ac;
-	enum mdoct	 atok, ntok;
+	int		 atok, ntok;
 	char		*p;
 
 	nl = MDOC_NEWLINE & mdoc->flags;
@@ -520,13 +519,13 @@ blk_exp_close(MACRO_PROT_ARGS)
 
 		/* Remember the start of our own body. */
 
-		if (n->type == MDOC_BODY && atok == n->tok) {
+		if (n->type == ROFFT_BODY && atok == n->tok) {
 			if (n->end == ENDBODY_NOT)
 				body = n;
 			continue;
 		}
 
-		if (n->type != MDOC_BLOCK || n->tok == MDOC_Nm)
+		if (n->type != ROFFT_BLOCK || n->tok == MDOC_Nm)
 			continue;
 
 		if (n->tok == MDOC_It) {
@@ -661,7 +660,7 @@ static void
 in_line(MACRO_PROT_ARGS)
 {
 	int		 la, scope, cnt, firstarg, mayopen, nc, nl;
-	enum mdoct	 ntok;
+	int		 ntok;
 	enum margserr	 ac;
 	enum mdelim	 d;
 	struct mdoc_arg	*arg;
@@ -845,10 +844,10 @@ blk_full(MACRO_PROT_ARGS)
 {
 	int		  la, nl, parsed;
 	struct mdoc_arg	 *arg;
-	struct mdoc_node *blk; /* Our own or a broken block. */
-	struct mdoc_node *head; /* Our own head. */
-	struct mdoc_node *body; /* Our own body. */
-	struct mdoc_node *n;
+	struct roff_node *blk; /* Our own or a broken block. */
+	struct roff_node *head; /* Our own head. */
+	struct roff_node *body; /* Our own body. */
+	struct roff_node *n;
 	enum margserr	  ac, lac;
 	char		 *p;
 
@@ -871,7 +870,7 @@ blk_full(MACRO_PROT_ARGS)
 					n->flags |= MDOC_BROKEN;
 				continue;
 			}
-			if (n->type != MDOC_BLOCK)
+			if (n->type != ROFFT_BLOCK)
 				continue;
 
 			if (tok == MDOC_It && n->tok == MDOC_Bl) {
@@ -1014,7 +1013,7 @@ blk_full(MACRO_PROT_ARGS)
 
 		/*
 		 * Emit leading punctuation (i.e., punctuation before
-		 * the MDOC_HEAD) for non-phrase types.
+		 * the ROFFT_HEAD) for non-phrase types.
 		 */
 
 		if (head == NULL &&
@@ -1084,7 +1083,7 @@ blk_full(MACRO_PROT_ARGS)
 				n->flags |= MDOC_BROKEN;
 			continue;
 		}
-		if (n->type == MDOC_BLOCK &&
+		if (n->type == ROFFT_BLOCK &&
 		    mdoc_macros[n->tok].flags & MDOC_EXPLICIT) {
 			n->flags = MDOC_BROKEN;
 			head->flags = MDOC_ENDED;
@@ -1111,9 +1110,9 @@ blk_part_imp(MACRO_PROT_ARGS)
 	int		  la, nl;
 	enum margserr	  ac;
 	char		 *p;
-	struct mdoc_node *blk; /* saved block context */
-	struct mdoc_node *body; /* saved body context */
-	struct mdoc_node *n;
+	struct roff_node *blk; /* saved block context */
+	struct roff_node *body; /* saved body context */
+	struct roff_node *n;
 
 	nl = MDOC_NEWLINE & mdoc->flags;
 
@@ -1169,7 +1168,7 @@ blk_part_imp(MACRO_PROT_ARGS)
 				n->flags |= MDOC_BROKEN;
 			continue;
 		}
-		if (n->type == MDOC_BLOCK &&
+		if (n->type == ROFFT_BLOCK &&
 		    mdoc_macros[n->tok].flags & MDOC_EXPLICIT) {
 			n->flags |= MDOC_BROKEN;
 			if ( ! (body->flags & MDOC_ENDED)) {
@@ -1204,7 +1203,7 @@ blk_part_exp(MACRO_PROT_ARGS)
 {
 	int		  la, nl;
 	enum margserr	  ac;
-	struct mdoc_node *head; /* keep track of head */
+	struct roff_node *head; /* keep track of head */
 	char		 *p;
 
 	nl = MDOC_NEWLINE & mdoc->flags;
@@ -1261,7 +1260,7 @@ in_line_argn(MACRO_PROT_ARGS)
 	struct mdoc_arg	*arg;
 	char		*p;
 	enum margserr	 ac;
-	enum mdoct	 ntok;
+	int		 ntok;
 	int		 state; /* arg#; -1: not yet open; -2: closed */
 	int		 la, maxargs, nl;
 
@@ -1375,7 +1374,7 @@ in_line_argn(MACRO_PROT_ARGS)
 static void
 in_line_eoln(MACRO_PROT_ARGS)
 {
-	struct mdoc_node	*n;
+	struct roff_node	*n;
 	struct mdoc_arg		*arg;
 
 	if ((tok == MDOC_Pp || tok == MDOC_Lp) &&
@@ -1407,7 +1406,7 @@ in_line_eoln(MACRO_PROT_ARGS)
  * or until the next macro, call that macro, and return 1.
  */
 static int
-parse_rest(struct mdoc *mdoc, enum mdoct tok, int line, int *pos, char *buf)
+parse_rest(struct mdoc *mdoc, int tok, int line, int *pos, char *buf)
 {
 	int		 la;
 
@@ -1442,7 +1441,7 @@ ctx_synopsis(MACRO_PROT_ARGS)
 static void
 phrase_ta(MACRO_PROT_ARGS)
 {
-	struct mdoc_node *body, *n;
+	struct roff_node *body, *n;
 
 	/* Make sure we are in a column list or ignore this macro. */
 
@@ -1450,7 +1449,7 @@ phrase_ta(MACRO_PROT_ARGS)
 	for (n = mdoc->last; n != NULL; n = n->parent) {
 		if (n->flags & MDOC_ENDED)
 			continue;
-		if (n->tok == MDOC_It && n->type == MDOC_BODY)
+		if (n->tok == MDOC_It && n->type == ROFFT_BODY)
 			body = n;
 		if (n->tok == MDOC_Bl)
 			break;
