@@ -1,4 +1,4 @@
-/*	$OpenBSD: sort.c,v 1.74 2015/04/02 21:09:51 tobias Exp $	*/
+/*	$OpenBSD: sort.c,v 1.77 2015/04/03 12:52:48 millert Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -856,15 +856,15 @@ set_random_seed(void)
 int
 main(int argc, char *argv[])
 {
-	char *outfile, *real_outfile;
-	int c, result;
+	char *outfile, *real_outfile, *sflag;
+	int c;
 	size_t i;
 	bool mef_flags[NUMBER_OF_MUTUALLY_EXCLUSIVE_FLAGS] =
 	    { false, false, false, false, false, false };
 
-	result = 0;
 	outfile = "-";
 	real_outfile = NULL;
+	sflag = NULL;
 
 	struct sort_mods *sm = &default_sort_mods_object;
 
@@ -930,8 +930,7 @@ main(int argc, char *argv[])
 				sort_opts_vals.sflag = true;
 				break;
 			case 'S':
-				available_free_memory =
-				    parse_memory_buffer_value(optarg);
+				sflag = optarg;
 				break;
 			case 'T':
 				tmpdir = optarg;
@@ -1043,6 +1042,13 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if (sort_opts_vals.cflag && argc > 1)
+		errx(2, "only one input file is allowed with the -%c flag",
+		    sort_opts_vals.csilentflag ? 'C' : 'c');
+
+	if (sflag != NULL)
+		available_free_memory = parse_memory_buffer_value(sflag);
+
 	if (keys_num == 0) {
 		keys_num = 1;
 		keys = sort_reallocarray(keys, 1, sizeof(struct key_specs));
@@ -1091,6 +1097,9 @@ main(int argc, char *argv[])
 		}
 	}
 
+	if (sort_opts_vals.cflag)
+		return check(argc ? *argv : "-");
+
 	set_random_seed();
 
 	/* Case when the outfile equals one of the input files: */
@@ -1117,7 +1126,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if (!sort_opts_vals.cflag && !sort_opts_vals.mflag) {
+	if (!sort_opts_vals.mflag) {
 		struct file_list fl;
 		struct sort_list list;
 
@@ -1155,9 +1164,7 @@ main(int argc, char *argv[])
 		 * sort_list_clean(&list);
 		 */
 
-	} else if (sort_opts_vals.cflag) {
-		result = (argc == 0) ? (check("-")) : (check(*argv));
-	} else if (sort_opts_vals.mflag) {
+	} else {
 		struct file_list fl;
 
 		file_list_init(&fl, false);
@@ -1172,5 +1179,5 @@ main(int argc, char *argv[])
 		sort_free(outfile);
 	}
 
-	return result;
+	return 0;
 }

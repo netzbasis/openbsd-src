@@ -1,5 +1,5 @@
 #!/bin/sh -
-#	$OpenBSD: stests,v 1.12 2015/03/31 16:31:42 millert Exp $
+#	$OpenBSD: stests,v 1.15 2015/04/03 20:28:32 millert Exp $
 #	from: @(#)stests	8.1 (Berkeley) 6/6/93
 
 #Latest version.  My sort passes all tests because I wrote it.
@@ -171,11 +171,12 @@ cat <<! >in
 cp in out
 
 xsort A -b
+xsort B -k1 -b
 
 cat in | $SORTPROG | cat >xx
-cmp xx out >/dev/null || echo ${TEST}B failed
+cmp xx out >/dev/null || echo ${TEST}C failed
 
-$SORTPROG in | $SORTPROG -cr 2>/dev/null && echo ${TEST}C failed
+$SORTPROG in | $SORTPROG -cr 2>/dev/null && echo ${TEST}D failed
 
 #---------------------------------------------------------------
 TEST=05; echo $TEST	# fields, reverse fields, -c status return
@@ -651,7 +652,7 @@ sort -k2,2.1b -k2r in >xx &&
 sort -b -k2,2 -k2 in >xx && 
 	$SORTPROG -c -t: -k8n xx 2>/dev/null || echo ${TEST}G failed
 sort -b -k2,2b -k2 in >xx &&			# perhaps same as G
-	$SORTPROG -c -t: -k3n xx 2>/dev/null || echo ${TEST}H failed\
+	$SORTPROG -c -t: -k8n xx 2>/dev/null || echo ${TEST}H failed\
  "(standard is not clear on this)"
 
 #---------------------------------------------------------------
@@ -798,14 +799,14 @@ $g xsort "" -g
 #---------------------------------------------------------------
 TEST=34; echo $TEST	# -g wide operands
 cat <<! >in
-.99999999999999999999
+.9999999999999999
 099999999999999999999e-21
 099999999999999999999e-19
 .1e1
 !
 cat <<! >out
 099999999999999999999e-21
-.99999999999999999999
+.9999999999999999
 .1e1
 099999999999999999999e-19
 !
@@ -814,7 +815,7 @@ $g xsort A -g
 
 cat <<! >out
 .1e1
-.99999999999999999999
+.9999999999999999
 099999999999999999999e-19
 099999999999999999999e-21
 !
@@ -1006,3 +1007,34 @@ $SORTPROG -o out out 2>/dev/null && echo ${TEST}F failed
 
 rm -f in out
 umask $omask
+#---------------------------------------------------------------
+TEST=43; echo $TEST	# -c/-C should not overwrite output file
+
+cat <<! >out
+x
+y
+!
+cp out xx
+
+$SORTPROG -c -o xx xx 2>/dev/null || echo ${TEST}A failed
+cmp -s xx out || echo ${TEST}B failed
+$SORTPROG -cr -o xx xx 2>/dev/null && echo ${TEST}C failed
+cmp -s xx out || echo ${TEST}D failed
+$SORTPROG -C -o xx xx 2>/dev/null || echo ${TEST}E failed
+cmp -s xx out || echo ${TEST}F failed
+$SORTPROG -Cr -o xx xx 2>/dev/null && echo ${TEST}G failed
+cmp -s xx out || echo ${TEST}G failed
+
+#---------------------------------------------------------------
+TEST=44; echo $TEST	# only a single input file allowed for -c/-C 
+
+cat <<! >in
+x
+y
+!
+cp in out
+
+$SORTPROG -c in out 2>/dev/null
+test $? -eq 2 || echo ${TEST}A failed
+$SORTPROG -C in out 2>/dev/null
+test $? -eq 2 || echo ${TEST}B failed
