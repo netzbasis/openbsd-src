@@ -1,4 +1,4 @@
-/*	$OpenBSD: sort.c,v 1.77 2015/04/03 12:52:48 millert Exp $	*/
+/*	$OpenBSD: sort.c,v 1.79 2015/04/05 13:56:04 millert Exp $	*/
 
 /*-
  * Copyright (C) 2009 Gabor Kovesdan <gabor@FreeBSD.org>
@@ -53,7 +53,12 @@
 #include "file.h"
 #include "sort.h"
 
-#define	OPTIONS	"bCcdfgHhik:Mmno:RrS:st:T:uVz"
+#ifdef GNUSORT_COMPATIBILITY
+# define PERMUTE	""
+#else
+# define PERMUTE	"+"
+#endif
+#define	OPTIONS	PERMUTE"bCcdfgHhik:Mmno:RrS:st:T:uVz"
 
 static bool need_random;
 static const char *random_source;
@@ -859,14 +864,13 @@ main(int argc, char *argv[])
 	char *outfile, *real_outfile, *sflag;
 	int c;
 	size_t i;
+	struct sort_mods *sm = &default_sort_mods_object;
 	bool mef_flags[NUMBER_OF_MUTUALLY_EXCLUSIVE_FLAGS] =
 	    { false, false, false, false, false, false };
 
 	outfile = "-";
 	real_outfile = NULL;
 	sflag = NULL;
-
-	struct sort_mods *sm = &default_sort_mods_object;
 
 	init_tmp_files();
 
@@ -909,13 +913,16 @@ main(int argc, char *argv[])
 				sort_opts_vals.complex_sort = true;
 				sort_opts_vals.kflag = true;
 
-				keys_num++;
-				keys = sort_reallocarray(keys, keys_num,
+				keys = sort_reallocarray(keys, keys_num + 1,
 				    sizeof(struct key_specs));
-				memset(&(keys[keys_num - 1]), 0,
+				memset(&(keys[keys_num]), 0,
 				    sizeof(struct key_specs));
+#ifndef GNUSORT_COMPATIBILITY
+				keys[keys_num].pos1b = default_sort_mods->bflag;
+				keys[keys_num].pos2b = default_sort_mods->bflag;
+#endif
 
-				if (parse_k(optarg, &(keys[keys_num - 1])) < 0)
+				if (parse_k(optarg, &(keys[keys_num++])) < 0)
 					errc(2, EINVAL, "-k %s", optarg);
 
 				break;
@@ -1038,9 +1045,15 @@ main(int argc, char *argv[])
 			}
 		}
 	}
-
 	argc -= optind;
 	argv += optind;
+
+#ifndef GNUSORT_COMPATIBILITY
+	if (argc > 2 && strcmp(argv[argc - 2], "-o") == 0) {
+		outfile = argv[argc - 1];
+		argc -= 2;
+	}
+#endif
 
 	if (sort_opts_vals.cflag && argc > 1)
 		errx(2, "only one input file is allowed with the -%c flag",
@@ -1054,10 +1067,11 @@ main(int argc, char *argv[])
 		keys = sort_reallocarray(keys, 1, sizeof(struct key_specs));
 		memset(&(keys[0]), 0, sizeof(struct key_specs));
 		keys[0].c1 = 1;
-		keys[0].pos1b = default_sort_mods->bflag;
-		keys[0].pos2b = default_sort_mods->bflag;
-		memcpy(&(keys[0].sm), default_sort_mods,
-		    sizeof(struct sort_mods));
+#ifdef GNUSORT_COMPATIBILITY
+		keys[0].pos1b = sm->bflag;
+		keys[0].pos2b = sm->bflag;
+#endif
+		memcpy(&(keys[0].sm), sm, sizeof(struct sort_mods));
 	}
 
 	for (i = 0; i < keys_num; i++) {
@@ -1067,8 +1081,10 @@ main(int argc, char *argv[])
 
 		if (sort_modifier_empty(&(ks->sm)) && !(ks->pos1b) &&
 		    !(ks->pos2b)) {
+#ifdef GNUSORT_COMPATIBILITY
 			ks->pos1b = sm->bflag;
 			ks->pos2b = sm->bflag;
+#endif
 			memcpy(&(ks->sm), sm, sizeof(struct sort_mods));
 		}
 
