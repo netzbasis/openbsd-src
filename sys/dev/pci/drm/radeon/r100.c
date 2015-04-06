@@ -1,4 +1,4 @@
-/*	$OpenBSD: r100.c,v 1.12 2015/04/06 03:49:47 jsg Exp $	*/
+/*	$OpenBSD: r100.c,v 1.15 2015/04/06 14:10:59 jsg Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -63,8 +63,6 @@ MODULE_FIRMWARE(FIRMWARE_R520);
  * r100,rv100,rs100,rv200,rs200,r200,rv250,rs300,rv280
  * and others in some cases.
  */
-
-u32	 r100_get_accessible_vram(struct radeon_device *);
 
 static bool r100_is_in_vblank(struct radeon_device *rdev, int crtc)
 {
@@ -789,7 +787,7 @@ int r100_irq_process(struct radeon_device *rdev)
 			if (rdev->irq.crtc_vblank_int[0]) {
 				drm_handle_vblank(rdev->ddev, 0);
 				rdev->pm.vblank_sync = true;
-				wakeup(&rdev->irq.vblank_queue);
+				wake_up(&rdev->irq.vblank_queue);
 			}
 			if (atomic_read(&rdev->irq.pflip[0]))
 				radeon_crtc_handle_flip(rdev, 0);
@@ -798,7 +796,7 @@ int r100_irq_process(struct radeon_device *rdev)
 			if (rdev->irq.crtc_vblank_int[1]) {
 				drm_handle_vblank(rdev->ddev, 1);
 				rdev->pm.vblank_sync = true;
-				wakeup(&rdev->irq.vblank_queue);
+				wake_up(&rdev->irq.vblank_queue);
 			}
 			if (atomic_read(&rdev->irq.pflip[1]))
 				radeon_crtc_handle_flip(rdev, 1);
@@ -896,7 +894,7 @@ int r100_copy_blit(struct radeon_device *rdev,
 	/* radeon pitch is /64 */
 	pitch = stride_bytes / 64;
 	stride_pixels = stride_bytes / 4;
-	num_loops = howmany(num_gpu_pages, 8191);
+	num_loops = DIV_ROUND_UP(num_gpu_pages, 8191);
 
 	/* Ask for enough room for blit + flush + fence */
 	ndw = 64 + (10 * num_loops);
@@ -2824,8 +2822,7 @@ static void r100_vram_get_type(struct radeon_device *rdev)
 	}
 }
 
-u32
-r100_get_accessible_vram(struct radeon_device *rdev)
+static u32 r100_get_accessible_vram(struct radeon_device *rdev)
 {
 	u32 aper_size;
 	pcireg_t reg;

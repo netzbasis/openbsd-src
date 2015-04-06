@@ -1,4 +1,4 @@
-/*	$OpenBSD: i915_gem.c,v 1.86 2015/04/05 11:53:53 kettenis Exp $	*/
+/*	$OpenBSD: i915_gem.c,v 1.88 2015/04/06 12:25:10 jsg Exp $	*/
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -290,8 +290,6 @@ static int i915_gem_object_needs_bit17_swizzle(struct drm_i915_gem_object *obj)
 		obj->tiling_mode != I915_TILING_NONE;
 }
 
-#define offset_in_page(off) ((off) & PAGE_MASK)
-
 static void *
 kmap(struct vm_page *pg)
 {
@@ -404,9 +402,6 @@ shmem_pread_fast(struct vm_page *page, int shmem_page_offset, int page_length,
 
 	return ret ? -EFAULT : 0;
 }
-
-#define round_up(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
-#define round_down(x, y) (((x) / (y)) * (y))
 
 static void
 shmem_clflush_swizzled_range(char *addr, unsigned long length,
@@ -1161,7 +1156,7 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 	case 0: /* Timeout */
 		if (timeout)
 			timeout->tv_sec = timeout->tv_nsec = 0;
-		return -ETIMEDOUT;
+		return -ETIME;
 	default: /* Completed */
 		WARN_ON(end < 0); /* We're not aware of other errors */
 		return 0;
@@ -2543,7 +2538,7 @@ i915_gem_wait_ioctl(struct drm_device *dev, void *data, struct drm_file *file)
 	 * on this IOCTL with a 0 timeout (like busy ioctl)
 	 */
 	if (!args->timeout_ns) {
-		ret = -ETIMEDOUT;
+		ret = -ETIME;
 		goto out;
 	}
 

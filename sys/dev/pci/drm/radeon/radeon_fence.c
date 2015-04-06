@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon_fence.c,v 1.3 2015/02/10 06:19:36 jsg Exp $	*/
+/*	$OpenBSD: radeon_fence.c,v 1.5 2015/04/06 07:38:49 jsg Exp $	*/
 /*
  * Copyright 2009 Jerome Glisse.
  * All Rights Reserved.
@@ -37,8 +37,6 @@
 #endif
 
 #include <dev/pci/drm/refcount.h>
-
-bool	 radeon_fence_any_seq_signaled(struct radeon_device *, u64 *);
 
 extern int ticks;
 
@@ -191,7 +189,7 @@ void radeon_fence_process(struct radeon_device *rdev, int ring)
 
 	if (wake) {
 		rdev->fence_drv[ring].last_activity = ticks;
-		wakeup(&rdev->fence_queue);
+		wake_up_all(&rdev->fence_queue);
 	}
 }
 
@@ -409,8 +407,7 @@ int radeon_fence_wait(struct radeon_fence *fence, bool intr)
 	return 0;
 }
 
-bool
-radeon_fence_any_seq_signaled(struct radeon_device *rdev, u64 *seq)
+static bool radeon_fence_any_seq_signaled(struct radeon_device *rdev, u64 *seq)
 {
 	unsigned i;
 
@@ -885,7 +882,7 @@ void radeon_fence_driver_fini(struct radeon_device *rdev)
 			/* no need to trigger GPU reset as we are unloading */
 			radeon_fence_driver_force_completion(rdev);
 		}
-		wakeup(&rdev->fence_queue);
+		wake_up_all(&rdev->fence_queue);
 		radeon_scratch_free(rdev, rdev->fence_drv[ring].scratch_reg);
 		rdev->fence_drv[ring].initialized = false;
 	}

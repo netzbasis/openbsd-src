@@ -1,4 +1,4 @@
-/*	$OpenBSD: evergreen.c,v 1.15 2015/02/12 11:11:45 jsg Exp $	*/
+/*	$OpenBSD: evergreen.c,v 1.18 2015/04/06 14:10:59 jsg Exp $	*/
 /*
  * Copyright 2010 Advanced Micro Devices, Inc.
  *
@@ -3032,7 +3032,6 @@ static u32 evergreen_get_ih_wptr(struct radeon_device *rdev)
 
 int evergreen_irq_process(struct radeon_device *rdev)
 {
-	struct drm_device *ddev = rdev->ddev;
 	u32 wptr;
 	u32 rptr;
 	u32 src_id, src_data;
@@ -3073,9 +3072,9 @@ restart_ih:
 			case 0: /* D1 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int & LB_D1_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[0]) {
-						drm_handle_vblank(ddev, 0);
+						drm_handle_vblank(rdev->ddev, 0);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[0]))
 						radeon_crtc_handle_flip(rdev, 0);
@@ -3099,9 +3098,9 @@ restart_ih:
 			case 0: /* D2 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont & LB_D2_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[1]) {
-						drm_handle_vblank(ddev, 1);
+						drm_handle_vblank(rdev->ddev, 1);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[1]))
 						radeon_crtc_handle_flip(rdev, 1);
@@ -3125,9 +3124,9 @@ restart_ih:
 			case 0: /* D3 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont2 & LB_D3_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[2]) {
-						drm_handle_vblank(ddev, 2);
+						drm_handle_vblank(rdev->ddev, 2);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[2]))
 						radeon_crtc_handle_flip(rdev, 2);
@@ -3151,9 +3150,9 @@ restart_ih:
 			case 0: /* D4 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont3 & LB_D4_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[3]) {
-						drm_handle_vblank(ddev, 3);
+						drm_handle_vblank(rdev->ddev, 3);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[3]))
 						radeon_crtc_handle_flip(rdev, 3);
@@ -3177,9 +3176,9 @@ restart_ih:
 			case 0: /* D5 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont4 & LB_D5_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[4]) {
-						drm_handle_vblank(ddev, 4);
+						drm_handle_vblank(rdev->ddev, 4);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[4]))
 						radeon_crtc_handle_flip(rdev, 4);
@@ -3203,9 +3202,9 @@ restart_ih:
 			case 0: /* D6 vblank */
 				if (rdev->irq.stat_regs.evergreen.disp_int_cont5 & LB_D6_VBLANK_INTERRUPT) {
 					if (rdev->irq.crtc_vblank_int[5]) {
-						drm_handle_vblank(ddev, 5);
+						drm_handle_vblank(rdev->ddev, 5);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[5]))
 						radeon_crtc_handle_flip(rdev, 5);
@@ -3488,7 +3487,7 @@ int evergreen_copy_dma(struct radeon_device *rdev,
 	}
 
 	size_in_dw = (num_gpu_pages << RADEON_GPU_PAGE_SHIFT) / 4;
-	num_loops = howmany(size_in_dw, 0xfffff);
+	num_loops = DIV_ROUND_UP(size_in_dw, 0xfffff);
 	r = radeon_ring_lock(rdev, ring, num_loops * 5 + 11);
 	if (r) {
 		DRM_ERROR("radeon: moving bo (%d).\n", r);
@@ -3701,7 +3700,6 @@ int evergreen_suspend(struct radeon_device *rdev)
  */
 int evergreen_init(struct radeon_device *rdev)
 {
-	struct drm_device *ddev = rdev->ddev;
 	int r;
 
 	/* Read BIOS */
@@ -3736,7 +3734,7 @@ int evergreen_init(struct radeon_device *rdev)
 	/* Initialize surface registers */
 	radeon_surface_init(rdev);
 	/* Initialize clocks */
-	radeon_get_clock_info(ddev);
+	radeon_get_clock_info(rdev->ddev);
 	/* Fence driver */
 	r = radeon_fence_driver_init(rdev);
 	if (r)

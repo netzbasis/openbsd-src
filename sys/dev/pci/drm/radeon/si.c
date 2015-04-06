@@ -1,4 +1,4 @@
-/*	$OpenBSD: si.c,v 1.19 2015/02/12 11:11:45 jsg Exp $	*/
+/*	$OpenBSD: si.c,v 1.22 2015/04/06 14:10:59 jsg Exp $	*/
 /*
  * Copyright 2011 Advanced Micro Devices, Inc.
  *
@@ -58,11 +58,6 @@ extern void evergreen_fix_pci_max_read_req_size(struct radeon_device *rdev);
 extern void evergreen_mc_stop(struct radeon_device *rdev, struct evergreen_mc_save *save);
 extern void evergreen_mc_resume(struct radeon_device *rdev, struct evergreen_mc_save *save);
 extern u32 evergreen_get_number_of_dram_channels(struct radeon_device *rdev);
-
-void	 si_rlc_fini(struct radeon_device *);
-int	 si_rlc_init(struct radeon_device *);
-void	 si_vram_gtt_location(struct radeon_device *, struct radeon_mc *);
-void	 si_rlc_start(struct radeon_device *);
 
 /* get temperature in millidegrees */
 int si_get_temp(struct radeon_device *rdev)
@@ -2367,8 +2362,7 @@ static void si_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 			mc->gtt_size >> 20, mc->gtt_start, mc->gtt_end);
 }
 
-void
-si_vram_gtt_location(struct radeon_device *rdev,
+static void si_vram_gtt_location(struct radeon_device *rdev,
 				 struct radeon_mc *mc)
 {
 	if (mc->mc_vram_size > 0xFFC0000000ULL) {
@@ -3227,8 +3221,7 @@ static void si_rlc_stop(struct radeon_device *rdev)
 	WREG32(RLC_CNTL, 0);
 }
 
-void
-si_rlc_start(struct radeon_device *rdev)
+static void si_rlc_start(struct radeon_device *rdev)
 {
 	WREG32(RLC_CNTL, RLC_ENABLE);
 }
@@ -3764,7 +3757,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[0]) {
 						drm_handle_vblank(rdev->ddev, 0);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[0]))
 						radeon_crtc_handle_flip(rdev, 0);
@@ -3790,7 +3783,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[1]) {
 						drm_handle_vblank(rdev->ddev, 1);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[1]))
 						radeon_crtc_handle_flip(rdev, 1);
@@ -3816,7 +3809,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[2]) {
 						drm_handle_vblank(rdev->ddev, 2);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[2]))
 						radeon_crtc_handle_flip(rdev, 2);
@@ -3842,7 +3835,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[3]) {
 						drm_handle_vblank(rdev->ddev, 3);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[3]))
 						radeon_crtc_handle_flip(rdev, 3);
@@ -3868,7 +3861,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[4]) {
 						drm_handle_vblank(rdev->ddev, 4);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[4]))
 						radeon_crtc_handle_flip(rdev, 4);
@@ -3894,7 +3887,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[5]) {
 						drm_handle_vblank(rdev->ddev, 5);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[5]))
 						radeon_crtc_handle_flip(rdev, 5);
@@ -4061,7 +4054,7 @@ int si_copy_dma(struct radeon_device *rdev,
 	}
 
 	size_in_bytes = (num_gpu_pages << RADEON_GPU_PAGE_SHIFT);
-	num_loops = howmany(size_in_bytes, 0xfffff);
+	num_loops = DIV_ROUND_UP(size_in_bytes, 0xfffff);
 	r = radeon_ring_lock(rdev, ring, num_loops * 5 + 11);
 	if (r) {
 		DRM_ERROR("radeon: moving bo (%d).\n", r);

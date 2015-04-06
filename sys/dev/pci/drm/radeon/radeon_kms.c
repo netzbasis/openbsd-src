@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon_kms.c,v 1.35 2015/02/11 07:01:37 jsg Exp $	*/
+/*	$OpenBSD: radeon_kms.c,v 1.37 2015/04/06 12:25:10 jsg Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -32,14 +32,6 @@
 #include <dev/pci/drm/radeon_drm.h>
 #include "radeon_asic.h"
 #include <dev/pci/drm/drm_pciids.h>
-
-#ifndef PCI_MEM_START
-#define PCI_MEM_START	0
-#endif
-
-#ifndef PCI_MEM_END
-#define PCI_MEM_END	0xffffffff
-#endif
 
 /* can't include radeon_drv.h due to duplicated defines in radeon_reg.h */
 
@@ -80,8 +72,6 @@ int	radeon_enable_vblank_kms(struct drm_device *, int);
 void	radeon_disable_vblank_kms(struct drm_device *, int);
 int	radeon_get_vblank_timestamp_kms(struct drm_device *, int, int *,
 	    struct timeval *, unsigned);
-void	radeon_set_filp_rights(struct drm_device *, struct drm_file **,
-	    struct drm_file *, uint32_t *);
 
 int	radeondrm_ioctl_kms(struct drm_device *, u_long, caddr_t, struct drm_file *);
 int	radeon_ioctl_kms(struct drm_device *, u_long, caddr_t, struct drm_file *);
@@ -789,8 +779,7 @@ radeondrm_activate_kms(struct device *self, int act)
  *
  * Sets the filp rights for the device (all asics).
  */
-void
-radeon_set_filp_rights(struct drm_device *dev,
+static void radeon_set_filp_rights(struct drm_device *dev,
 				   struct drm_file **owner,
 				   struct drm_file *applier,
 				   uint32_t *value)

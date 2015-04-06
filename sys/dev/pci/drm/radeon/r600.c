@@ -1,4 +1,4 @@
-/*	$OpenBSD: r600.c,v 1.15 2015/04/06 03:49:47 jsg Exp $	*/
+/*	$OpenBSD: r600.c,v 1.19 2015/04/06 14:10:59 jsg Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -98,10 +98,6 @@ static void r600_gpu_init(struct radeon_device *rdev);
 void r600_fini(struct radeon_device *rdev);
 void r600_irq_disable(struct radeon_device *rdev);
 static void r600_pcie_gen2_enable(struct radeon_device *rdev);
-int r600_ih_ring_alloc(struct radeon_device *rdev);
-void r600_ih_ring_fini(struct radeon_device *rdev);
-void r600_vram_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc);
-void r600_rlc_start(struct radeon_device *rdev);
 
 /* get temperature in millidegrees */
 int rv6xx_get_temp(struct radeon_device *rdev)
@@ -1114,8 +1110,7 @@ static void r600_mc_program(struct radeon_device *rdev)
  * Note: GTT start, end, size should be initialized before calling this
  * function on AGP platform.
  */
-void
-r600_vram_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
+static void r600_vram_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 {
 	u64 size_bf, size_af;
 
@@ -1504,16 +1499,6 @@ u32 r6xx_remap_render_backend(struct radeon_device *rdev,
 	}
 
 	return data;
-}
-
-static inline uint32_t hweight32(uint32_t x)
-{
-	x = (x & 0x55555555) + ((x & 0xaaaaaaaa) >> 1);
-	x = (x & 0x33333333) + ((x & 0xcccccccc) >> 2);
-	x = (x + (x >> 4)) & 0x0f0f0f0f;
-	x = (x + (x >> 8));
-	x = (x + (x >> 16)) & 0x000000ff;
-	return x;
 }
 
 int r600_count_pipe_bits(uint32_t val)
@@ -2699,7 +2684,7 @@ int r600_copy_dma(struct radeon_device *rdev,
 	}
 
 	size_in_dw = (num_gpu_pages << RADEON_GPU_PAGE_SHIFT) / 4;
-	num_loops = howmany(size_in_dw, 0xFFFE);
+	num_loops = DIV_ROUND_UP(size_in_dw, 0xFFFE);
 	r = radeon_ring_lock(rdev, ring, num_loops * 4 + 8);
 	if (r) {
 		DRM_ERROR("radeon: moving bo (%d).\n", r);
@@ -3296,8 +3281,7 @@ void r600_rlc_stop(struct radeon_device *rdev)
 	WREG32(RLC_CNTL, 0);
 }
 
-void
-r600_rlc_start(struct radeon_device *rdev)
+static void r600_rlc_start(struct radeon_device *rdev)
 {
 	WREG32(RLC_CNTL, RLC_ENABLE);
 }
@@ -3891,7 +3875,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[0]) {
 						drm_handle_vblank(rdev->ddev, 0);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[0]))
 						radeon_crtc_handle_flip(rdev, 0);
@@ -3917,7 +3901,7 @@ restart_ih:
 					if (rdev->irq.crtc_vblank_int[1]) {
 						drm_handle_vblank(rdev->ddev, 1);
 						rdev->pm.vblank_sync = true;
-						wakeup(&rdev->irq.vblank_queue);
+						wake_up(&rdev->irq.vblank_queue);
 					}
 					if (atomic_read(&rdev->irq.pflip[1]))
 						radeon_crtc_handle_flip(rdev, 1);
