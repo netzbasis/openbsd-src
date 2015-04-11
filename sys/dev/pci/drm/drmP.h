@@ -1,4 +1,4 @@
-/* $OpenBSD: drmP.h,v 1.186 2015/04/06 15:43:15 jsg Exp $ */
+/* $OpenBSD: drmP.h,v 1.191 2015/04/11 04:36:10 jsg Exp $ */
 /* drmP.h -- Private header for Direct Rendering Manager -*- linux-c -*-
  * Created: Mon Jan  4 10:05:05 1999 by faith@precisioninsight.com
  */
@@ -54,6 +54,10 @@
 #include <sys/extent.h>
 #include <sys/rwlock.h>
 
+#ifdef DDB
+#include <ddb/db_var.h>
+#endif
+
 #include <uvm/uvm_extern.h>
 #include <uvm/uvm_object.h>
 
@@ -85,7 +89,7 @@
 #define DRM_SUSER(p)		(suser(p, 0) == 0)
 #define DRM_MTRR_WC		MDF_WRITECOMBINE
 
-#define drm_msleep(x, msg)	delay(x * 1000)
+#define drm_msleep(x, msg)	mdelay(x)
 
 extern struct cfdriver drm_cd;
 
@@ -151,7 +155,18 @@ extern struct cfdriver drm_cd;
 #define	DRM_COPY_FROM_USER(kern, user, size)	copyin(user, kern, size)
 
 #define DRM_UDELAY(udelay)	DELAY(udelay)
-#define	drm_can_sleep()	(hz & 1)
+
+static inline bool
+drm_can_sleep(void)
+{
+#if defined(__i386__) || defined(__amd64__)
+	if (in_atomic() || in_dbg_master() || irqs_disabled())
+#else
+	if (in_dbg_master() || irqs_disabled())
+#endif
+		return false;
+	return true;
+}
 
 #define DRM_WAIT_ON(ret, queue, lock,  timeout, msg, condition ) do {	\
 	mtx_enter(lock);						\
@@ -662,6 +677,8 @@ void	*drm_alloc(size_t);
 void	*drm_calloc(size_t, size_t);
 void	*drm_realloc(void *, size_t, size_t);
 void	 drm_free(void *);
+
+#include "drm_mem_util.h"
 
 /* XXX until we get PAT support */
 #define drm_core_ioremap_wc drm_core_ioremap

@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.15 2015/04/08 04:03:06 jsg Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.18 2015/04/11 02:59:05 jsg Exp $	*/
 /*
  * Copyright (c) 2013, 2014 Mark Kettenis
  *
@@ -336,6 +336,11 @@ vfree(void *objp)
 	t __min_b = (b); \
 	__min_a < __min_b ? __min_a : __min_b; })
 
+#define max_t(t, a, b) ({ \
+	t __max_a = (a); \
+	t __max_b = (b); \
+	__max_a > __max_b ? __max_a : __max_b; })
+
 static inline uint64_t
 div_u64(uint64_t x, uint32_t y)
 {
@@ -511,6 +516,21 @@ mdelay(unsigned long msecs)
 static inline uint32_t ror32(uint32_t word, unsigned int shift)
 {
 	return (word >> shift) | (word << (32 - shift));
+}
+
+static inline int
+irqs_disabled(void)
+{
+	return (cold);
+}
+
+static inline int
+in_dbg_master(void)
+{
+#ifdef DDB
+	return (db_is_active);
+#endif
+	return (0);
 }
 
 #ifdef __macppc__
