@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon.h,v 1.12 2015/04/06 07:38:49 jsg Exp $	*/
+/*	$OpenBSD: radeon.h,v 1.14 2015/04/12 03:54:10 jsg Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -382,8 +382,7 @@ struct radeon_bo_list {
  * alignment).
  */
 struct radeon_sa_manager {
-	int			wq;
-	struct mutex		wq_lock;
+	wait_queue_head_t	wq;
 	struct radeon_bo	*bo;
 	struct list_head	*hole;
 	struct list_head	flist[RADEON_NUM_RINGS];
@@ -597,11 +596,11 @@ union radeon_irq_stat_regs {
 
 struct radeon_irq {
 	bool				installed;
-	struct mutex			lock;
+	spinlock_t			lock;
 	atomic_t			ring_int[RADEON_NUM_RINGS];
 	bool				crtc_vblank_int[RADEON_MAX_CRTCS];
 	atomic_t			pflip[RADEON_MAX_CRTCS];
-	int				vblank_queue;
+	wait_queue_head_t		vblank_queue;
 	bool				hpd[RADEON_MAX_HPD_PINS];
 	bool				afmt[RADEON_MAX_AFMT_BLOCKS];
 	union radeon_irq_stat_regs	stat_regs;
@@ -1604,7 +1603,7 @@ struct radeon_device {
 	bus_addr_t			rmmio_base;
 	bus_size_t			rmmio_size;
 	/* protects concurrent MM_INDEX/DATA based register access */
-	struct mutex			mmio_idx_lock;
+	spinlock_t mmio_idx_lock;
 	bus_space_handle_t		rmmio;
 	radeon_rreg_t			mc_rreg;
 	radeon_wreg_t			mc_wreg;
@@ -1623,7 +1622,7 @@ struct radeon_device {
 	struct radeon_scratch		scratch;
 	struct radeon_mman		mman;
 	struct radeon_fence_driver	fence_drv[RADEON_NUM_RINGS];
-	int				fence_queue;
+	wait_queue_head_t		fence_queue;
 	struct rwlock 			ring_lock;
 	struct radeon_ring		ring[RADEON_NUM_RINGS];
 	bool				ib_pool_ready;
