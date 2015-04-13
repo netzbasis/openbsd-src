@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.21 2015/04/12 03:54:10 jsg Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.24 2015/04/12 17:10:07 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014 Mark Kettenis
  *
@@ -265,6 +265,18 @@ extern struct timeval ns_to_timeval(const int64_t);
 #define time_after(a,b)		((long)(b) - (long)(a) < 0)
 #define time_after_eq(a,b)	((long)(b) - (long)(a) <= 0)
 
+static inline void
+set_normalized_timespec(struct timespec *ts, time_t sec, int64_t nsec)
+{
+	while (nsec > NSEC_PER_SEC) {
+		nsec -= NSEC_PER_SEC;
+		sec++;
+	}
+
+	ts->tv_sec = sec;
+	ts->tv_nsec = nsec;
+}
+
 static inline int64_t
 timespec_to_ns(const struct timespec *ts)
 {
@@ -473,9 +485,34 @@ struct pci_dev {
 };
 #define PCI_ANY_ID (uint16_t) (~0U)
 
+#define PCI_VENDOR_ID_ASUSTEK	PCI_VENDOR_ASUSTEK
+#define PCI_VENDOR_ID_ATI	PCI_VENDOR_ATI
+#define PCI_VENDOR_ID_DELL	PCI_VENDOR_DELL
+#define PCI_VENDOR_ID_HP	PCI_VENDOR_HP
+#define PCI_VENDOR_ID_IBM	PCI_VENDOR_IBM
+#define PCI_VENDOR_ID_INTEL	PCI_VENDOR_INTEL
+#define PCI_VENDOR_ID_SONY	PCI_VENDOR_SONY
+#define PCI_VENDOR_ID_VIA	PCI_VENDOR_VIATECH
+
+#define PCI_DEVICE_ID_ATI_RADEON_QY	PCI_PRODUCT_ATI_RADEON_QY
+
 #define memcpy_toio(d, s, n)	memcpy(d, s, n)
 #define memcpy_fromio(d, s, n)	memcpy(d, s, n)
 #define memset_io(d, b, n)	memset(d, b, n)
+
+static inline u32
+ioread32(const volatile void __iomem *addr)
+{
+	u32 r;
+	memcpy(&r, (void *)addr, 4);
+	return (r);
+}
+
+static inline void
+iowrite32(u32 val, volatile void __iomem *addr)
+{
+	memcpy((void *)addr, &val, 4);
+}
 
 #define page_to_phys(page)	(VM_PAGE_TO_PHYS(page))
 #define page_to_pfn(pp)		(VM_PAGE_TO_PHYS(pp) / PAGE_SIZE)

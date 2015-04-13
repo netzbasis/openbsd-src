@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_ringbuffer.c,v 1.26 2015/04/12 03:54:10 jsg Exp $	*/
+/*	$OpenBSD: intel_ringbuffer.c,v 1.28 2015/04/12 17:10:07 kettenis Exp $	*/
 /*
  * Copyright © 2008-2010 Intel Corporation
  *
@@ -31,6 +31,7 @@
 #include <dev/pci/drm/drmP.h>
 #include "i915_drv.h"
 #include <dev/pci/drm/i915_drm.h>
+#include "i915_trace.h"
 #include "intel_drv.h"
 
 /*
@@ -364,7 +365,6 @@ static int init_ring_common(struct intel_ring_buffer *ring)
 	struct drm_i915_gem_object *obj = ring->obj;
 	int ret = 0;
 	u32 head;
-	int retries;
 
 	if (HAS_FORCE_WAKE(dev))
 		gen6_gt_force_wake_get(dev_priv);
@@ -409,14 +409,9 @@ static int init_ring_common(struct intel_ring_buffer *ring)
 			| RING_VALID);
 
 	/* If the head is still not zero, the ring is dead */
-	for (retries = 50; retries > 0; retries--) {
-		if ((I915_READ_CTL(ring) & RING_VALID) != 0 &&
-		    I915_READ_START(ring) == obj->gtt_offset &&
-		    (I915_READ_HEAD(ring) & HEAD_ADDR) == 0)
-			break;
-		DELAY(1000);
-	}
-	if (retries == 0) {
+	if (wait_for((I915_READ_CTL(ring) & RING_VALID) != 0 &&
+		     I915_READ_START(ring) == obj->gtt_offset &&
+		     (I915_READ_HEAD(ring) & HEAD_ADDR) == 0, 50)) {
 		DRM_ERROR("%s initialization failed "
 				"ctl %08x head %08x tail %08x start %08x\n",
 				ring->name,
@@ -894,17 +889,12 @@ void intel_ring_setup_status_page(struct intel_ring_buffer *ring)
 
 	/* Flush the TLB for this page */
 	if (INTEL_INFO(dev)->gen >= 6) {
-		int retries;
 		u32 reg = RING_INSTPM(ring->mmio_base);
 		I915_WRITE(reg,
 			   _MASKED_BIT_ENABLE(INSTPM_TLB_INVALIDATE |
 					      INSTPM_SYNC_FLUSH));
-		for (retries = 1000; retries > 0; retries--) {
-			if ((I915_READ(reg) & INSTPM_SYNC_FLUSH) == 0)
-				break;
-			DELAY(1000);
-		}
-		if (retries == 0)
+		if (wait_for((I915_READ(reg) & INSTPM_SYNC_FLUSH) == 0,
+			     1000))
 			DRM_ERROR("%s: wait for SyncFlush to complete for TLB invalidation timed out\n",
 				  ring->name);
 	}
@@ -1373,7 +1363,7 @@ static int ring_wait_for_space(struct intel_ring_buffer *ring, int n)
 	if (ret != -ENOSPC)
 		return ret;
 
-//	trace_i915_ring_wait_begin(ring);
+	trace_i915_ring_wait_begin(ring);
 	/* With GEM the hangcheck timer should kick us out of the loop,
 	 * leaving it early runs the risk of corrupting GEM state (due
 	 * to running on almost untested codepaths). But on resume
@@ -1385,7 +1375,7 @@ static int ring_wait_for_space(struct intel_ring_buffer *ring, int n)
 		ring->head = I915_READ_HEAD(ring);
 		ring->space = ring_space(ring);
 		if (ring->space >= n) {
-//			trace_i915_ring_wait_end(ring);
+			trace_i915_ring_wait_end(ring);
 			return 0;
 		}
 
@@ -1403,7 +1393,7 @@ static int ring_wait_for_space(struct intel_ring_buffer *ring, int n)
 		if (ret)
 			return ret;
 	} while (!time_after(ticks, end));
-//	trace_i915_ring_wait_end(ring);
+	trace_i915_ring_wait_end(ring);
 	return -EBUSY;
 }
 
@@ -1527,7 +1517,6 @@ static void gen6_bsd_ring_write_tail(struct intel_ring_buffer *ring,
 				     u32 value)
 {
 	drm_i915_private_t *dev_priv = ring->dev->dev_private;
-	int retries;
 
        /* Every tail move must follow the sequence below */
 
@@ -1541,13 +1530,9 @@ static void gen6_bsd_ring_write_tail(struct intel_ring_buffer *ring,
 	I915_WRITE64(GEN6_BSD_RNCID, 0x0);
 
 	/* Wait for the ring not to be idle, i.e. for it to wake up. */
-	for (retries = 50; retries > 0; retries--) {
-		if ((I915_READ(GEN6_BSD_SLEEP_PSMI_CONTROL) &
-		    GEN6_BSD_SLEEP_INDICATOR) == 0)
-			break;
-		DELAY(1000);
-	}
-	if (retries == 0)
+	if (wait_for((I915_READ(GEN6_BSD_SLEEP_PSMI_CONTROL) &
+		      GEN6_BSD_SLEEP_INDICATOR) == 0,
+		     50))
 		DRM_ERROR("timed out waiting for the BSD ring to wake up\n");
 
 	/* Now that the ring is fully powered up, update the tail */
@@ -1900,7 +1885,7 @@ intel_ring_flush_all_caches(struct intel_ring_buffer *ring)
 	if (ret)
 		return ret;
 
-//	trace_i915_gem_ring_flush(ring, 0, I915_GEM_GPU_DOMAINS);
+	trace_i915_gem_ring_flush(ring, 0, I915_GEM_GPU_DOMAINS);
 
 	ring->gpu_caches_dirty = false;
 	return 0;
@@ -1920,7 +1905,7 @@ intel_ring_invalidate_all_caches(struct intel_ring_buffer *ring)
 	if (ret)
 		return ret;
 
-//	trace_i915_gem_ring_flush(ring, I915_GEM_GPU_DOMAINS, flush_domains);
+	trace_i915_gem_ring_flush(ring, I915_GEM_GPU_DOMAINS, flush_domains);
 
 	ring->gpu_caches_dirty = false;
 	return 0;
