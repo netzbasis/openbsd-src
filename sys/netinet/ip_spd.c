@@ -1,4 +1,4 @@
-/* $OpenBSD: ip_spd.c,v 1.78 2015/03/14 03:38:52 jsg Exp $ */
+/* $OpenBSD: ip_spd.c,v 1.81 2015/04/13 16:50:43 mikeb Exp $ */
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
  *
@@ -327,17 +327,6 @@ ipsp_spd_lookup(struct mbuf *m, int af, int hlen, int *error, int direction,
 	/* Outgoing packet policy check. */
 	if (direction == IPSP_DIRECTION_OUT) {
 		/*
-		 * Fetch the incoming TDB based on the SPI passed
-		 * in ipsecflow and use it's dstid when looking
-		 * up the outgoing TDB.
-		 */
-		if (ipsecflowinfo &&
-		   (tdbin = gettdb(rdomain, ipsecflowinfo, &ssrc,
-		    ipo->ipo_sproto)) != NULL) {
-			srcid = tdbin->tdb_dstid;
-			dstid = tdbin->tdb_srcid;
-		}
-		/*
 		 * If the packet is destined for the policy-specified
 		 * gateway/endhost, and the socket has the BYPASS
 		 * option set, skip IPsec processing.
@@ -353,6 +342,18 @@ ipsp_spd_lookup(struct mbuf *m, int af, int hlen, int *error, int direction,
 				*error = 0;
 				return NULL;
 			}
+		}
+
+		/*
+		 * Fetch the incoming TDB based on the SPI passed
+		 * in ipsecflow and use it's dstid when looking
+		 * up the outgoing TDB.
+		 */
+		if (ipsecflowinfo &&
+		   (tdbin = gettdb(rdomain, ipsecflowinfo, &ssrc,
+		    ipo->ipo_sproto)) != NULL) {
+			srcid = tdbin->tdb_dstid;
+			dstid = tdbin->tdb_srcid;
 		}
 
 		/* Check that the cached TDB (if present), is appropriate. */
@@ -400,13 +401,13 @@ ipsp_spd_lookup(struct mbuf *m, int af, int hlen, int *error, int direction,
 
 			/* Find an appropriate SA from the existing ones. */
 			ipo->ipo_tdb =
-			    gettdbbyaddr(rdomain,
+			    gettdbbydst(rdomain,
 				dignore ? &sdst : &ipo->ipo_dst,
 				ipo->ipo_sproto,
 				srcid ? srcid : ipo->ipo_srcid,
 				dstid ? dstid : ipo->ipo_dstid,
-				ipo->ipo_local_cred, m, af,
-				&ipo->ipo_addr, &ipo->ipo_mask);
+				ipo->ipo_local_cred, &ipo->ipo_addr,
+				&ipo->ipo_mask);
 			if (ipo->ipo_tdb) {
 				TAILQ_INSERT_TAIL(&ipo->ipo_tdb->tdb_policy_head,
 				    ipo, ipo_tdb_next);
@@ -519,7 +520,7 @@ ipsp_spd_lookup(struct mbuf *m, int af, int hlen, int *error, int direction,
 			    gettdbbysrc(rdomain,
 				dignore ? &ssrc : &ipo->ipo_dst,
 				ipo->ipo_sproto, ipo->ipo_srcid,
-				ipo->ipo_dstid, m, af, &ipo->ipo_addr,
+				ipo->ipo_dstid, &ipo->ipo_addr,
 				&ipo->ipo_mask);
 			if (ipo->ipo_tdb)
 				TAILQ_INSERT_TAIL(&ipo->ipo_tdb->tdb_policy_head,
@@ -1010,7 +1011,7 @@ ipsp_spd_inp(struct mbuf *m, int af, int hlen, int *error, int direction,
 				    &inp->inp_ipo->ipo_dst,
 				    inp->inp_ipo->ipo_sproto,
 				    inp->inp_ipo->ipo_srcid,
-				    inp->inp_ipo->ipo_dstid, m, af,
+				    inp->inp_ipo->ipo_dstid,
 				    &inp->inp_ipo->ipo_addr,
 				    &inp->inp_ipo->ipo_mask) != NULL) {
 					*error = -EINVAL;
@@ -1063,12 +1064,12 @@ ipsp_spd_inp(struct mbuf *m, int af, int hlen, int *error, int direction,
 				ipsec_update_policy(inp, inp->inp_ipo, af,
 				    IPSP_DIRECTION_OUT);
 
-				tdb = gettdbbyaddr(rtable_l2(inp->inp_rtableid),
+				tdb = gettdbbydst(rtable_l2(inp->inp_rtableid),
 				    &inp->inp_ipo->ipo_dst,
 				    inp->inp_ipo->ipo_sproto,
 				    inp->inp_ipo->ipo_srcid,
 				    inp->inp_ipo->ipo_dstid,
-				    inp->inp_ipo->ipo_local_cred, m, af,
+				    inp->inp_ipo->ipo_local_cred,
 				    &inp->inp_ipo->ipo_addr,
 				    &inp->inp_ipo->ipo_mask);
 			}
@@ -1080,10 +1081,9 @@ ipsp_spd_inp(struct mbuf *m, int af, int hlen, int *error, int direction,
 			ipsec_update_policy(inp, &sipon, af,
 			    IPSP_DIRECTION_OUT);
 
-			tdb = gettdbbyaddr(rtable_l2(inp->inp_rtableid),
+			tdb = gettdbbydst(rtable_l2(inp->inp_rtableid),
 			    &sipon.ipo_dst, IPPROTO_ESP, NULL,
-			    NULL, NULL, m, af, &sipon.ipo_addr,
-			    &sipon.ipo_mask);
+			    NULL, NULL, &sipon.ipo_addr, &sipon.ipo_mask);
 		}
 
 		/* If we found an appropriate SA... */

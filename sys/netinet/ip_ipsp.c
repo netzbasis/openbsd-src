@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipsp.c,v 1.205 2015/04/10 12:31:55 dlg Exp $	*/
+/*	$OpenBSD: ip_ipsp.c,v 1.208 2015/04/13 16:52:26 mikeb Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
@@ -126,7 +126,7 @@ struct xformsw *xformswNXFORMSW = &xformsw[nitems(xformsw)];
 
 static SIPHASH_KEY tdbkey;
 static struct tdb **tdbh = NULL;
-static struct tdb **tdbaddr = NULL;
+static struct tdb **tdbdst = NULL;
 static struct tdb **tdbsrc = NULL;
 static u_int tdb_hashmask = TDB_HASHSIZE_INIT - 1;
 static int tdb_count;
@@ -359,7 +359,8 @@ ipsp_aux_match(struct tdb *tdb,
 			return 0;
 
 	/* Check for filter matches. */
-	if (tdb->tdb_filter.sen_type) {
+	if (pfilter != NULL && pfiltermask != NULL &&
+	    tdb->tdb_filter.sen_type) {
 		/*
 		 * XXX We should really be doing a subnet-check (see
 		 * whether the TDB-associated filter is a subset
@@ -382,20 +383,20 @@ ipsp_aux_match(struct tdb *tdb,
  * the desired IDs.
  */
 struct tdb *
-gettdbbyaddr(u_int rdomain, union sockaddr_union *dst, u_int8_t sproto,
+gettdbbydst(u_int rdomain, union sockaddr_union *dst, u_int8_t sproto,
     struct ipsec_ref *srcid, struct ipsec_ref *dstid,
-    struct ipsec_ref *local_cred, struct mbuf *m, int af,
-    struct sockaddr_encap *filter, struct sockaddr_encap *filtermask)
+    struct ipsec_ref *local_cred, struct sockaddr_encap *filter,
+    struct sockaddr_encap *filtermask)
 {
 	u_int32_t hashval;
 	struct tdb *tdbp;
 
-	if (tdbaddr == NULL)
+	if (tdbdst == NULL)
 		return (struct tdb *) NULL;
 
 	hashval = tdb_hash(rdomain, 0, dst, sproto);
 
-	for (tdbp = tdbaddr[hashval]; tdbp != NULL; tdbp = tdbp->tdb_anext)
+	for (tdbp = tdbdst[hashval]; tdbp != NULL; tdbp = tdbp->tdb_dnext)
 		if ((tdbp->tdb_sproto == sproto) &&
 		    (tdbp->tdb_rdomain == rdomain) &&
 		    ((tdbp->tdb_flags & TDBF_INVALID) == 0) &&
@@ -417,8 +418,7 @@ gettdbbyaddr(u_int rdomain, union sockaddr_union *dst, u_int8_t sproto,
 struct tdb *
 gettdbbysrc(u_int rdomain, union sockaddr_union *src, u_int8_t sproto,
     struct ipsec_ref *srcid, struct ipsec_ref *dstid,
-    struct mbuf *m, int af, struct sockaddr_encap *filter,
-    struct sockaddr_encap *filtermask)
+    struct sockaddr_encap *filter, struct sockaddr_encap *filtermask)
 {
 	u_int32_t hashval;
 	struct tdb *tdbp;
@@ -566,7 +566,7 @@ tdb_soft_firstuse(void *v)
 void
 tdb_rehash(void)
 {
-	struct tdb **new_tdbh, **new_tdbaddr, **new_srcaddr, *tdbp, *tdbnp;
+	struct tdb **new_tdbh, **new_tdbdst, **new_srcaddr, *tdbp, *tdbnp;
 	u_int i, old_hashmask = tdb_hashmask;
 	u_int32_t hashval;
 
@@ -575,7 +575,7 @@ tdb_rehash(void)
 	arc4random_buf(&tdbkey, sizeof(tdbkey));
 	new_tdbh = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *), M_TDB,
 	    M_WAITOK | M_ZERO);
-	new_tdbaddr = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *), M_TDB,
+	new_tdbdst = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *), M_TDB,
 	    M_WAITOK | M_ZERO);
 	new_srcaddr = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *), M_TDB,
 	    M_WAITOK | M_ZERO);
@@ -590,13 +590,13 @@ tdb_rehash(void)
 			new_tdbh[hashval] = tdbp;
 		}
 
-		for (tdbp = tdbaddr[i]; tdbp != NULL; tdbp = tdbnp) {
-			tdbnp = tdbp->tdb_anext;
+		for (tdbp = tdbdst[i]; tdbp != NULL; tdbp = tdbnp) {
+			tdbnp = tdbp->tdb_dnext;
 			hashval = tdb_hash(tdbp->tdb_rdomain,
 			    0, &tdbp->tdb_dst,
 			    tdbp->tdb_sproto);
-			tdbp->tdb_anext = new_tdbaddr[hashval];
-			new_tdbaddr[hashval] = tdbp;
+			tdbp->tdb_dnext = new_tdbdst[hashval];
+			new_tdbdst[hashval] = tdbp;
 		}
 
 		for (tdbp = tdbsrc[i]; tdbp != NULL; tdbp = tdbnp) {
@@ -612,8 +612,8 @@ tdb_rehash(void)
 	free(tdbh, M_TDB, 0);
 	tdbh = new_tdbh;
 
-	free(tdbaddr, M_TDB, 0);
-	tdbaddr = new_tdbaddr;
+	free(tdbdst, M_TDB, 0);
+	tdbdst = new_tdbdst;
 
 	free(tdbsrc, M_TDB, 0);
 	tdbsrc = new_srcaddr;
@@ -632,7 +632,7 @@ puttdb(struct tdb *tdbp)
 		arc4random_buf(&tdbkey, sizeof(tdbkey));
 		tdbh = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *),
 		    M_TDB, M_WAITOK | M_ZERO);
-		tdbaddr = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *),
+		tdbdst = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *),
 		    M_TDB, M_WAITOK | M_ZERO);
 		tdbsrc = mallocarray(tdb_hashmask + 1, sizeof(struct tdb *),
 		    M_TDB, M_WAITOK | M_ZERO);
@@ -661,8 +661,8 @@ puttdb(struct tdb *tdbp)
 
 	hashval = tdb_hash(tdbp->tdb_rdomain, 0, &tdbp->tdb_dst,
 	    tdbp->tdb_sproto);
-	tdbp->tdb_anext = tdbaddr[hashval];
-	tdbaddr[hashval] = tdbp;
+	tdbp->tdb_dnext = tdbdst[hashval];
+	tdbdst[hashval] = tdbp;
 
 	hashval = tdb_hash(tdbp->tdb_rdomain, 0, &tdbp->tdb_src,
 	    tdbp->tdb_sproto);
@@ -689,10 +689,11 @@ tdb_delete(struct tdb *tdbp)
 	if (tdbh == NULL)
 		return;
 
+	s = splsoftnet();
+
 	hashval = tdb_hash(tdbp->tdb_rdomain, tdbp->tdb_spi,
 	    &tdbp->tdb_dst, tdbp->tdb_sproto);
 
-	s = splsoftnet();
 	if (tdbh[hashval] == tdbp) {
 		tdbh[hashval] = tdbp->tdb_hnext;
 	} else {
@@ -710,17 +711,19 @@ tdb_delete(struct tdb *tdbp)
 	hashval = tdb_hash(tdbp->tdb_rdomain, 0, &tdbp->tdb_dst,
 	    tdbp->tdb_sproto);
 
-	if (tdbaddr[hashval] == tdbp) {
-		tdbaddr[hashval] = tdbp->tdb_anext;
+	if (tdbdst[hashval] == tdbp) {
+		tdbdst[hashval] = tdbp->tdb_dnext;
 	} else {
-		for (tdbpp = tdbaddr[hashval]; tdbpp != NULL;
-		    tdbpp = tdbpp->tdb_anext) {
-			if (tdbpp->tdb_anext == tdbp) {
-				tdbpp->tdb_anext = tdbp->tdb_anext;
+		for (tdbpp = tdbdst[hashval]; tdbpp != NULL;
+		    tdbpp = tdbpp->tdb_dnext) {
+			if (tdbpp->tdb_dnext == tdbp) {
+				tdbpp->tdb_dnext = tdbp->tdb_dnext;
 				break;
 			}
 		}
 	}
+
+	tdbp->tdb_dnext = NULL;
 
 	hashval = tdb_hash(tdbp->tdb_rdomain, 0, &tdbp->tdb_src,
 	    tdbp->tdb_sproto);
