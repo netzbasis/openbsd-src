@@ -1,4 +1,4 @@
-/* $OpenBSD: umcs.c,v 1.2 2015/03/14 03:38:50 jsg Exp $ */
+/* $OpenBSD: umcs.c,v 1.4 2015/04/14 14:57:05 mpi Exp $ */
 /* $NetBSD: umcs.c,v 1.8 2014/08/23 21:37:56 martin Exp $ */
 /* $FreeBSD: head/sys/dev/usb/serial/umcs.c 260559 2014-01-12 11:44:28Z hselasky $ */
 
@@ -46,6 +46,7 @@
 #include <sys/malloc.h>
 #include <sys/tty.h>
 #include <sys/device.h>
+#include <sys/task.h>
 
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
@@ -75,13 +76,15 @@
 struct umcs_port {
 	struct ucom_softc 	*ucom;		/* ucom subdevice */
 	unsigned int		 pn;		/* physical port number */
+	int			 flags;
+#define	UMCS_STATCHG		 0x01
+
 	uint8_t			 lcr;		/* local line control reg. */
 	uint8_t			 mcr;		/* local modem control reg. */
 };
 
 struct umcs_softc {
 	struct device		 sc_dev;
-	struct usbd_interface	*sc_iface;	/* the usb interface */
 	struct usbd_device	*sc_udev;	/* the usb device */
 	struct usbd_pipe	*sc_ipipe;	/* interrupt pipe */
 	uint8_t			*sc_ibuf;	/* buffer for interrupt xfer */
@@ -91,6 +94,7 @@ struct umcs_softc {
 	uint8_t			 sc_numports;	/* number of ports */
 
 	int			 sc_init_done;
+	struct task		 sc_status_task;
 };
 
 int	umcs_get_reg(struct umcs_softc *, uint8_t, uint8_t *);
@@ -107,6 +111,7 @@ int	umcs_match(struct device *, void *, void *);
 void	umcs_attach(struct device *, struct device *, void *);
 int	umcs_detach(struct device *, int);
 void	umcs_intr(struct usbd_xfer *, void *, usbd_status);
+void	umcs_status_task(void *);
 
 void	umcs_get_status(void *, int, uint8_t *, uint8_t *);
 void	umcs_set(void *, int, int, int);
@@ -172,6 +177,9 @@ umcs_match(struct device *dev, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
+	if (uaa->iface == NULL || uaa->ifaceno != UMCS_IFACE_NO)
+		return (UMATCH_NONE);
+
 	return (usb_lookup(umcs_devs, uaa->vendor, uaa->product) != NULL) ?
 	    UMATCH_VENDOR_PRODUCT : UMATCH_NONE;
 }
@@ -188,21 +196,6 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 	uint8_t data;
 
 	sc->sc_udev = uaa->device;
-
-	if (usbd_set_config_index(sc->sc_udev, UMCS_CONFIG_NO, 1) != 0) {
-		printf("%s: could not set configuration no\n", DEVNAME(sc));
-		usbd_deactivate(sc->sc_udev);
-		return;
-	}
-
-	/* Get the first interface handle */
-	error = usbd_device2interface_handle(sc->sc_udev, UMCS_IFACE_NO,
-	    &sc->sc_iface);
-	if (error != 0) {
-		printf("%s: could not get interface handle\n", DEVNAME(sc));
-		usbd_deactivate(sc->sc_udev);
-		return;
-	}
 
 	/*
 	 * Get number of ports
@@ -240,10 +233,10 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 #endif
 
 	/* Set up the interrupt pipe */
-	id = usbd_get_interface_descriptor(sc->sc_iface);
+	id = usbd_get_interface_descriptor(uaa->iface);
 	intr_addr = -1;
 	for (i = 0 ; i < id->bNumEndpoints ; i++) {
-		ed = usbd_interface2endpoint_descriptor(sc->sc_iface, i);
+		ed = usbd_interface2endpoint_descriptor(uaa->iface, i);
 		if (ed == NULL) {
 			printf("%s: no endpoint descriptor found for %d\n",
 			    DEVNAME(sc), i);
@@ -265,7 +258,7 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 	}
 	sc->sc_ibuf = malloc(sc->sc_isize, M_USBDEV, M_WAITOK);
 
-	error = usbd_open_pipe_intr(sc->sc_iface, intr_addr,
+	error = usbd_open_pipe_intr(uaa->iface, intr_addr,
 		    USBD_SHORT_XFER_OK, &sc->sc_ipipe, sc, sc->sc_ibuf,
 		    sc->sc_isize, umcs_intr, 100 /* XXX */);
 	if (error) {
@@ -281,7 +274,7 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 	uca.ibufsizepad = 256;
 	uca.opkthdrlen = 0;
 	uca.device = sc->sc_udev;
-	uca.iface = sc->sc_iface;
+	uca.iface = uaa->iface;
 	uca.methods = &umcs_methods;
 	uca.arg = sc;
 
@@ -295,7 +288,7 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 		 */
 		int pn = i * (sc->sc_numports == 2 ? 2 : 1);
 
-		ed = usbd_interface2endpoint_descriptor(sc->sc_iface, pn*2);
+		ed = usbd_interface2endpoint_descriptor(uaa->iface, pn*2);
 		if (ed == NULL) {
 			printf("%s: no bulk in endpoint found for %d\n",
 			    DEVNAME(sc), i);
@@ -304,7 +297,7 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 		}
 		uca.bulkin = ed->bEndpointAddress;
 
-		ed = usbd_interface2endpoint_descriptor(sc->sc_iface, pn*2+1);
+		ed = usbd_interface2endpoint_descriptor(uaa->iface, pn*2+1);
 		if (ed == NULL) {
 			printf("%s: no bulk out endpoint found for %d\n",
 			    DEVNAME(sc), i);
@@ -318,6 +311,8 @@ umcs_attach(struct device *parent, struct device *self, void *aux)
 		sc->sc_subdevs[i].ucom = (struct ucom_softc *)
 		    config_found_sm(self, &uca, ucomprint, ucomsubmatch);
 	}
+
+	task_set(&sc->sc_status_task, umcs_status_task, sc);
 }
 
 int
@@ -468,6 +463,8 @@ int
 umcs_detach(struct device *self, int flags)
 {
 	struct umcs_softc *sc = (struct umcs_softc *)self;
+
+	task_del(systq, &sc->sc_status_task);
 
 	if (sc->sc_ipipe != NULL) {
 		usbd_abort_pipe(sc->sc_ipipe);
@@ -795,11 +792,27 @@ umcs_intr(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		case UMCS_ISR_RXHASDATA:
 		case UMCS_ISR_RXTIMEOUT:
 		case UMCS_ISR_MSCHANGE:
-			ucom_status_change(sc->sc_subdevs[i].ucom);
+			sc->sc_subdevs[i].flags |= UMCS_STATCHG;
+			task_add(systq, &sc->sc_status_task);
 			break;
 		default:
 			/* Do nothing */
 			break;
 		}
+	}
+}
+
+void
+umcs_status_task(void *arg)
+{
+	struct umcs_softc *sc = arg;
+	int i;
+
+	for (i = 0; i < sc->sc_numports; i++) {
+		if ((sc->sc_subdevs[i].flags & UMCS_STATCHG) == 0)
+			continue;
+
+		sc->sc_subdevs[i].flags &= ~UMCS_STATCHG;
+		ucom_status_change(sc->sc_subdevs[i].ucom);
 	}
 }
