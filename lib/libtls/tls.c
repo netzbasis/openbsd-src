@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.9 2015/04/02 13:19:15 jsing Exp $ */
+/* $OpenBSD: tls.c,v 1.11 2015/04/15 16:08:43 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -246,11 +246,8 @@ tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret, const char *prefix)
 	ssl_err = SSL_get_error(ssl_conn, ssl_ret);
 	switch (ssl_err) {
 	case SSL_ERROR_NONE:
-		return (0);
-
 	case SSL_ERROR_ZERO_RETURN:
-		tls_set_error(ctx, "%s failed: TLS connection closed", prefix);
-		return (-1);
+		return (0);
 
 	case SSL_ERROR_WANT_READ:
 		return (TLS_READ_AGAIN);
@@ -301,6 +298,8 @@ tls_read(struct tls *ctx, void *buf, size_t buflen, size_t *outlen)
 		return (0);
 	}
 
+	*outlen = 0;
+
 	return tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "read"); 
 }
 
@@ -320,6 +319,8 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen, size_t *outlen)
 		return (0);
 	}
 
+	*outlen = 0;
+
 	return tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "write"); 
 }
 
@@ -327,30 +328,34 @@ int
 tls_close(struct tls *ctx)
 {
 	int ssl_ret;
+	int rv = 0;
 
 	if (ctx->ssl_conn != NULL) {
 		ssl_ret = SSL_shutdown(ctx->ssl_conn);
-		if (ssl_ret == 0)
-			ssl_ret = SSL_shutdown(ctx->ssl_conn);
-		if (ssl_ret < 0)
-			return tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret,
+		if (ssl_ret < 0) {
+			rv = tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret,
 			    "shutdown");
+			if (rv == TLS_READ_AGAIN || rv == TLS_WRITE_AGAIN)
+				return (rv);
+		}
 	}
 
 	if (ctx->socket != -1) {
 		if (shutdown(ctx->socket, SHUT_RDWR) != 0) {
-			tls_set_error(ctx, "shutdown");
-			goto err;
+			if (rv == 0 &&
+			    errno != ENOTCONN && errno != ECONNRESET) {
+				tls_set_error(ctx, "shutdown");
+				rv = -1;
+			}
 		}
 		if (close(ctx->socket) != 0) {
-			tls_set_error(ctx, "close");
-			goto err;
+			if (rv == 0) {
+				tls_set_error(ctx, "close");
+				rv = -1;
+			}
 		}
 		ctx->socket = -1;
 	}
 
-	return (0);
-
-err:
-	return (-1);
+	return (rv);
 }
