@@ -1,4 +1,4 @@
-/*      $OpenBSD: codepatch.c,v 1.2 2015/04/19 06:30:20 sf Exp $    */
+/*      $OpenBSD: codepatch.c,v 1.1 2015/04/19 06:27:17 sf Exp $    */
 /*
  * Copyright (c) 2014-2015 Stefan Fritsch <sf@sfritsch.de>
  *
@@ -17,6 +17,7 @@
 
 #include <sys/param.h>
 #include <machine/codepatch.h>
+#include <machine/cpu.h>
 #include <uvm/uvm_extern.h>
 
 #ifdef CODEPATCH_DEBUG
@@ -54,6 +55,28 @@ codepatch_fill_nop(void *caddr, uint16_t len)
 	unsigned char *addr = caddr;
 	uint16_t nop_len;
 
+	if ((strcmp(cpu_vendor, "GenuineIntel") != 0) &&
+	    (strcmp(cpu_vendor, "AuthenticAMD") != 0)) {
+		/*
+		 * Others don't support multi-byte NOPs.
+		 * Except maybe some Via C3's, but I couldn't find
+		 * definitive information, so better be safe.
+		 */
+		goto singlebyte;
+	}
+	/*
+	 * Intel says family 0x6 or 0xf.
+	 * AMD says "Athlon or newer", which happen to be the same families.
+	 */
+	switch (cpu_id & 0xf00) {
+	case 0x600:
+	case 0xf00:
+		/* Multi-byte NOP supported */
+		break;
+	default:
+		goto singlebyte;
+	}
+
 	while (len > 0) {
 		if (len <= NOP_LEN_MAX)
 			nop_len = len;
@@ -63,6 +86,11 @@ codepatch_fill_nop(void *caddr, uint16_t len)
 		addr += nop_len;
 		len -= nop_len;
 	}
+	return;
+
+singlebyte:
+	/* Use single-byte NOP */
+	memset(caddr, 0x90, len);
 }
 
 /*
