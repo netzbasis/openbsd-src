@@ -1,4 +1,4 @@
-/*	$OpenBSD: man.h,v 1.52 2015/04/02 23:47:43 schwarze Exp $ */
+/*	$OpenBSD: man.h,v 1.54 2015/04/18 17:50:02 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -61,11 +61,9 @@ extern	const char *const *man_macronames;
 
 __BEGIN_DECLS
 
-struct	man;
+struct	roff_man;
 
-const struct roff_node *man_node(const struct man *);
-const struct roff_meta *man_meta(const struct man *);
-const struct mparse   *man_mparse(const struct man *);
+const struct mparse   *man_mparse(const struct roff_man *);
 void man_deroff(char **, const struct roff_node *);
 
 __END_DECLS

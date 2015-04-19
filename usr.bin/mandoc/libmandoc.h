@@ -1,15 +1,15 @@
-/*	$OpenBSD: libmandoc.h,v 1.41 2015/01/15 04:26:06 schwarze Exp $ */
+/*	$OpenBSD: libmandoc.h,v 1.44 2015/04/18 17:28:08 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2013, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -39,8 +39,8 @@ struct	mchars;
 struct	tbl_span;
 struct	eqn;
 struct	roff;
-struct	mdoc;
-struct	man;
+struct	roff_man;
+struct	roff_node;
 
 void		 mandoc_msg(enum mandocerr, struct mparse *,
 			int, int, const char *);
@@ -52,23 +52,19 @@ int		 mandoc_eos(const char *, size_t);
 int		 mandoc_strntoi(const char *, size_t, int);
 const char	*mandoc_a2msec(const char*);
 
-void		 mdoc_free(struct mdoc *);
-struct	mdoc	*mdoc_alloc(struct roff *, struct mparse *,
-			const char *, int);
-void		 mdoc_reset(struct mdoc *);
-int		 mdoc_parseln(struct mdoc *, int, char *, int);
-void		 mdoc_endparse(struct mdoc *);
-void		 mdoc_addspan(struct mdoc *, const struct tbl_span *);
-void		 mdoc_addeqn(struct mdoc *, const struct eqn *);
+void		 mdoc_hash_init(void);
+void		 mdoc_node_delete(struct roff_man *, struct roff_node *);
+int		 mdoc_parseln(struct roff_man *, int, char *, int);
+void		 mdoc_endparse(struct roff_man *);
+void		 mdoc_addspan(struct roff_man *, const struct tbl_span *);
+void		 mdoc_addeqn(struct roff_man *, const struct eqn *);
 
-void		 man_free(struct man *);
-struct	man	*man_alloc(struct roff *, struct mparse *,
-			const char *, int);
-void		 man_reset(struct man *);
-int		 man_parseln(struct man *, int, char *, int);
-void		 man_endparse(struct man *);
-void		 man_addspan(struct man *, const struct tbl_span *);
-void		 man_addeqn(struct man *, const struct eqn *);
+void		 man_hash_init(void);
+void		 man_node_delete(struct roff_man *, struct roff_node *);
+int		 man_parseln(struct roff_man *, int, char *, int);
+void		 man_endparse(struct roff_man *);
+void		 man_addspan(struct roff_man *, const struct tbl_span *);
+void		 man_addeqn(struct roff_man *, const struct eqn *);
 
 int		 preconv_cue(const struct buf *, size_t);
 int		 preconv_encode(struct buf *, size_t *,
@@ -77,6 +73,10 @@ int		 preconv_encode(struct buf *, size_t *,
 void		 roff_free(struct roff *);
 struct roff	*roff_alloc(struct mparse *, const struct mchars *, int);
 void		 roff_reset(struct roff *);
+void		 roff_man_free(struct roff_man *);
+struct roff_man	*roff_man_alloc(struct roff *, struct mparse *,
+			const char *, int);
+void		 roff_man_reset(struct roff_man *);
 enum rofferr	 roff_parseln(struct roff *, int, struct buf *, int *);
 void		 roff_endparse(struct roff *);
 void		 roff_setreg(struct roff *, const char *, int, char sign);

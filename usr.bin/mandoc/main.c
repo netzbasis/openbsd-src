@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.138 2015/04/16 16:35:02 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.140 2015/04/18 16:34:03 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -51,8 +51,8 @@ enum	outmode {
 	OUTMODE_ONE
 };
 
-typedef	void		(*out_mdoc)(void *, const struct mdoc *);
-typedef	void		(*out_man)(void *, const struct man *);
+typedef	void		(*out_mdoc)(void *, const struct roff_man *);
+typedef	void		(*out_man)(void *, const struct roff_man *);
 typedef	void		(*out_free)(void *);
 
 enum	outt {
@@ -607,8 +607,7 @@ static void
 parse(struct curparse *curp, int fd, const char *file)
 {
 	enum mandoclevel  rctmp;
-	struct mdoc	 *mdoc;
-	struct man	 *man;
+	struct roff_man	 *man;
 
 	/* Begin by parsing the file itself. */
 
@@ -695,14 +694,16 @@ parse(struct curparse *curp, int fd, const char *file)
 		}
 	}
 
-	mparse_result(curp->mp, &mdoc, &man, NULL);
+	mparse_result(curp->mp, &man, NULL);
 
 	/* Execute the out device, if it exists. */
 
-	if (man && curp->outman)
+	if (man == NULL)
+		return;
+	if (curp->outmdoc != NULL && man->macroset == MACROSET_MDOC)
+		(*curp->outmdoc)(curp->outdata, man);
+	if (curp->outman != NULL && man->macroset == MACROSET_MAN)
 		(*curp->outman)(curp->outdata, man);
-	if (mdoc && curp->outmdoc)
-		(*curp->outmdoc)(curp->outdata, mdoc);
 }
 
 static void

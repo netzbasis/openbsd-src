@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_panel.c,v 1.8 2015/02/12 04:56:03 kettenis Exp $	*/
+/*	$OpenBSD: intel_panel.c,v 1.10 2015/04/18 14:47:34 jsg Exp $	*/
 /*
  * Copyright © 2006-2010 Intel Corporation
  * Copyright (c) 2006 Dave Airlie <airlied@linux.ie>
@@ -197,9 +197,7 @@ u32 intel_panel_get_max_backlight(struct drm_device *dev)
 		/* XXX add code here to query mode clock or hardware clock
 		 * and program max PWM appropriately.
 		 */
-#ifdef notyet
 		pr_warn_once("fixme: max PWM is zero\n");
-#endif
 		return 1;
 	}
 
@@ -208,12 +206,12 @@ u32 intel_panel_get_max_backlight(struct drm_device *dev)
 }
 
 static int i915_panel_invert_brightness;
-/* 
+MODULE_PARM_DESC(invert_brightness, "Invert backlight brightness "
 	"(-1 force normal, 0 machine defaults, 1 force inversion), please "
 	"report PCI device ID, subsystem vendor and subsystem device ID "
 	"to dri-devel@lists.freedesktop.org, if your machine needs it. "
 	"It will then be included in an upcoming module version.");
-*/
+module_param_named(invert_brightness, i915_panel_invert_brightness, int, 0600);
 static u32 intel_panel_compute_brightness(struct drm_device *dev, u32 val)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;

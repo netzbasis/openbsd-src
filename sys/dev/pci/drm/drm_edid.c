@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_edid.c,v 1.12 2015/04/05 12:53:41 kettenis Exp $	*/
+/*	$OpenBSD: drm_edid.c,v 1.14 2015/04/18 14:47:34 jsg Exp $	*/
 /*
  * Copyright (c) 2006 Luc Verhaegen (quirks list)
  * Copyright (c) 2007-2008 Intel Corporation
@@ -156,8 +156,10 @@ int drm_edid_header_is_valid(const u8 *raw_edid)
 }
 EXPORT_SYMBOL(drm_edid_header_is_valid);
 
-/* Minimum number of valid EDID header bytes (0-8, default 6) */
-static int edid_fixup = 6;
+static int edid_fixup __read_mostly = 6;
+module_param_named(edid_fixup, edid_fixup, int, 0400);
+MODULE_PARM_DESC(edid_fixup,
+		 "Minimum number of valid EDID header bytes (0-8, default 6)");
 
 /*
  * Sanity check the EDID block (base or extension).  Return 0 if the block
@@ -921,9 +923,9 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_device *dev,
 		return NULL;
 
 	if (quirks & EDID_QUIRK_135_CLOCK_TOO_HIGH)
-		timing->pixel_clock = htole16(1088);
+		timing->pixel_clock = cpu_to_le16(1088);
 
-	mode->clock = letoh16(timing->pixel_clock) * 10;
+	mode->clock = le16_to_cpu(timing->pixel_clock) * 10;
 
 	mode->hdisplay = hactive;
 	mode->hsync_start = mode->hdisplay + hsync_offset;
@@ -1360,7 +1362,7 @@ static int drm_cvt_modes(struct drm_connector *connector,
 	const u8 empty[3] = { 0, 0, 0 };
 
 	for (i = 0; i < 4; i++) {
-		int width, height;
+		int uninitialized_var(width), height;
 		cvt = &(timing->data.other_data.data.cvt[i]);
 
 		if (!memcmp(cvt->code, empty, 3))
