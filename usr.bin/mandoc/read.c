@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.112 2015/04/18 17:28:08 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.114 2015/04/19 14:25:05 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -38,6 +38,7 @@
 #include "mdoc.h"
 #include "man.h"
 #include "libmandoc.h"
+#include "roff_int.h"
 
 #define	REPARSE_LIMIT	1000
 
@@ -288,17 +289,17 @@ choose_parser(struct mparse *curp)
 		curp->man = roff_man_alloc(curp->roff, curp, curp->defos,
 		    curp->options & MPARSE_QUICK ? 1 : 0);
 		curp->man->macroset = MACROSET_MAN;
-		curp->man->first->tok = MDOC_MAX;
+		curp->man->first->tok = TOKEN_NONE;
 	}
 
 	if (format == MPARSE_MDOC) {
 		mdoc_hash_init();
 		curp->man->macroset = MACROSET_MDOC;
-		curp->man->first->tok = MDOC_MAX;
+		curp->man->first->tok = TOKEN_NONE;
 	} else {
 		man_hash_init();
 		curp->man->macroset = MACROSET_MAN;
-		curp->man->first->tok = MAN_MAX;
+		curp->man->first->tok = TOKEN_NONE;
 	}
 }
 
@@ -578,18 +579,12 @@ rerun:
 		 * Do the same for ROFF_EQN.
 		 */
 
-		if (rr == ROFF_TBL) {
+		if (rr == ROFF_TBL)
 			while ((span = roff_span(curp->roff)) != NULL)
-				if (curp->man->macroset == MACROSET_MDOC)
-					mdoc_addspan(curp->man, span);
-				else
-					man_addspan(curp->man, span);
-		} else if (rr == ROFF_EQN) {
-			if (curp->man->macroset == MACROSET_MDOC)
-				mdoc_addeqn(curp->man, roff_eqn(curp->roff));
-			else
-				man_addeqn(curp->man, roff_eqn(curp->roff));
-		} else if ((curp->man->macroset == MACROSET_MDOC ?
+				roff_addtbl(curp->man, span);
+		else if (rr == ROFF_EQN)
+			roff_addeqn(curp->man, roff_eqn(curp->roff));
+		else if ((curp->man->macroset == MACROSET_MDOC ?
 		    mdoc_parseln(curp->man, curp->line, ln.buf, of) :
 		    man_parseln(curp->man, curp->line, ln.buf, of)) == 2)
 				break;
@@ -871,12 +866,11 @@ mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
 	if (curp->options & MPARSE_MDOC) {
 		mdoc_hash_init();
 		curp->man->macroset = MACROSET_MDOC;
-		curp->man->first->tok = MDOC_MAX;
 	} else if (curp->options & MPARSE_MAN) {
 		man_hash_init();
 		curp->man->macroset = MACROSET_MAN;
-		curp->man->first->tok = MAN_MAX;
 	}
+	curp->man->first->tok = TOKEN_NONE;
 	return(curp);
 }
 

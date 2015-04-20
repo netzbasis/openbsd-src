@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc.c,v 1.135 2015/04/18 17:50:02 schwarze Exp $ */
+/*	$OpenBSD: mdoc.c,v 1.139 2015/04/19 14:57:16 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -30,9 +30,11 @@
 #include "roff.h"
 #include "mdoc.h"
 #include "libmandoc.h"
+#include "roff_int.h"
 #include "libmdoc.h"
 
 const	char *const __mdoc_macronames[MDOC_MAX + 1] = {
+	"text",
 	"Ap",		"Dd",		"Dt",		"Os",
 	"Sh",		"Ss",		"Pp",		"D1",
 	"Dl",		"Bd",		"Ed",		"Bl",
@@ -63,8 +65,8 @@ const	char *const __mdoc_macronames[MDOC_MAX + 1] = {
 	"Lk",		"Mt",		"Brq",		"Bro",
 	"Brc",		"%C",		"Es",		"En",
 	"Dx",		"%Q",		"br",		"sp",
-	"%U",		"Ta",		"ll",		"text",
-	};
+	"%U",		"Ta",		"ll",
+};
 
 const	char *const __mdoc_argnames[MDOC_ARG_MAX] = {
 	"split",		"nosplit",		"ragged",
@@ -78,15 +80,9 @@ const	char *const __mdoc_argnames[MDOC_ARG_MAX] = {
 	"symbolic",		"nested",		"centered"
 	};
 
-const	char * const *mdoc_macronames = __mdoc_macronames;
+const	char * const *mdoc_macronames = __mdoc_macronames + 1;
 const	char * const *mdoc_argnames = __mdoc_argnames;
 
-static	void		  mdoc_node_free(struct roff_node *);
-static	void		  mdoc_node_unlink(struct roff_man *,
-				struct roff_node *);
-static	struct roff_node *node_alloc(struct roff_man *, int, int,
-				int, enum roff_type);
-static	void		  node_append(struct roff_man *, struct roff_node *);
 static	int		  mdoc_ptext(struct roff_man *, int, char *, int);
 static	int		  mdoc_pmacro(struct roff_man *, int, char *, int);
 
@@ -96,30 +92,6 @@ mdoc_endparse(struct roff_man *mdoc)
 {
 
 	mdoc_macroend(mdoc);
-}
-
-void
-mdoc_addeqn(struct roff_man *mdoc, const struct eqn *ep)
-{
-	struct roff_node *n;
-
-	n = node_alloc(mdoc, ep->ln, ep->pos, MDOC_MAX, ROFFT_EQN);
-	n->eqn = ep;
-	if (ep->ln > mdoc->last->line)
-		n->flags |= MDOC_LINE;
-	node_append(mdoc, n);
-	mdoc->next = ROFF_NEXT_SIBLING;
-}
-
-void
-mdoc_addspan(struct roff_man *mdoc, const struct tbl_span *sp)
-{
-	struct roff_node *n;
-
-	n = node_alloc(mdoc, sp->line, 0, MDOC_MAX, ROFFT_TBL);
-	n->span = sp;
-	node_append(mdoc, n);
-	mdoc->next = ROFF_NEXT_SIBLING;
 }
 
 /*
@@ -152,7 +124,7 @@ mdoc_parseln(struct roff_man *mdoc, int ln, char *buf, int offs)
 void
 mdoc_macro(MACRO_PROT_ARGS)
 {
-	assert(tok < MDOC_MAX);
+	assert(tok > TOKEN_NONE && tok < MDOC_MAX);
 
 	if (mdoc->flags & MDOC_PBODY) {
 		if (tok == MDOC_Dt) {
@@ -175,143 +147,14 @@ mdoc_macro(MACRO_PROT_ARGS)
 	(*mdoc_macros[tok].fp)(mdoc, tok, line, ppos, pos, buf);
 }
 
-
-static void
-node_append(struct roff_man *mdoc, struct roff_node *p)
-{
-
-	assert(mdoc->last);
-	assert(mdoc->first);
-	assert(p->type != ROFFT_ROOT);
-
-	switch (mdoc->next) {
-	case ROFF_NEXT_SIBLING:
-		mdoc->last->next = p;
-		p->prev = mdoc->last;
-		p->parent = mdoc->last->parent;
-		break;
-	case ROFF_NEXT_CHILD:
-		mdoc->last->child = p;
-		p->parent = mdoc->last;
-		break;
-	default:
-		abort();
-		/* NOTREACHED */
-	}
-
-	p->parent->nchild++;
-
-	/*
-	 * Copy over the normalised-data pointer of our parent.  Not
-	 * everybody has one, but copying a null pointer is fine.
-	 */
-
-	switch (p->type) {
-	case ROFFT_BODY:
-		if (ENDBODY_NOT != p->end)
-			break;
-		/* FALLTHROUGH */
-	case ROFFT_TAIL:
-		/* FALLTHROUGH */
-	case ROFFT_HEAD:
-		p->norm = p->parent->norm;
-		break;
-	default:
-		break;
-	}
-
-	mdoc_valid_pre(mdoc, p);
-
-	switch (p->type) {
-	case ROFFT_HEAD:
-		assert(p->parent->type == ROFFT_BLOCK);
-		p->parent->head = p;
-		break;
-	case ROFFT_TAIL:
-		assert(p->parent->type == ROFFT_BLOCK);
-		p->parent->tail = p;
-		break;
-	case ROFFT_BODY:
-		if (p->end)
-			break;
-		assert(p->parent->type == ROFFT_BLOCK);
-		p->parent->body = p;
-		break;
-	default:
-		break;
-	}
-
-	mdoc->last = p;
-
-	switch (p->type) {
-	case ROFFT_TBL:
-		/* FALLTHROUGH */
-	case ROFFT_TEXT:
-		mdoc_valid_post(mdoc);
-		break;
-	default:
-		break;
-	}
-}
-
-static struct roff_node *
-node_alloc(struct roff_man *mdoc, int line, int pos,
-	int tok, enum roff_type type)
-{
-	struct roff_node *p;
-
-	p = mandoc_calloc(1, sizeof(*p));
-	p->sec = mdoc->lastsec;
-	p->line = line;
-	p->pos = pos;
-	p->tok = tok;
-	p->type = type;
-
-	/* Flag analysis. */
-
-	if (MDOC_SYNOPSIS & mdoc->flags)
-		p->flags |= MDOC_SYNPRETTY;
-	else
-		p->flags &= ~MDOC_SYNPRETTY;
-	if (MDOC_NEWLINE & mdoc->flags)
-		p->flags |= MDOC_LINE;
-	mdoc->flags &= ~MDOC_NEWLINE;
-
-	return(p);
-}
-
 void
 mdoc_tail_alloc(struct roff_man *mdoc, int line, int pos, int tok)
 {
 	struct roff_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_TAIL);
-	node_append(mdoc, p);
+	p = roff_node_alloc(mdoc, line, pos, ROFFT_TAIL, tok);
+	roff_node_append(mdoc, p);
 	mdoc->next = ROFF_NEXT_CHILD;
-}
-
-struct roff_node *
-mdoc_head_alloc(struct roff_man *mdoc, int line, int pos, int tok)
-{
-	struct roff_node *p;
-
-	assert(mdoc->first);
-	assert(mdoc->last);
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_HEAD);
-	node_append(mdoc, p);
-	mdoc->next = ROFF_NEXT_CHILD;
-	return(p);
-}
-
-struct roff_node *
-mdoc_body_alloc(struct roff_man *mdoc, int line, int pos, int tok)
-{
-	struct roff_node *p;
-
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_BODY);
-	node_append(mdoc, p);
-	mdoc->next = ROFF_NEXT_CHILD;
-	return(p);
 }
 
 struct roff_node *
@@ -322,11 +165,11 @@ mdoc_endbody_alloc(struct roff_man *mdoc, int line, int pos, int tok,
 
 	body->flags |= MDOC_ENDED;
 	body->parent->flags |= MDOC_ENDED;
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_BODY);
+	p = roff_node_alloc(mdoc, line, pos, ROFFT_BODY, tok);
 	p->body = body;
 	p->norm = body->norm;
 	p->end = end;
-	node_append(mdoc, p);
+	roff_node_append(mdoc, p);
 	mdoc->next = ROFF_NEXT_SIBLING;
 	return(p);
 }
@@ -337,7 +180,7 @@ mdoc_block_alloc(struct roff_man *mdoc, int line, int pos,
 {
 	struct roff_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_BLOCK);
+	p = roff_node_alloc(mdoc, line, pos, ROFFT_BLOCK, tok);
 	p->args = args;
 	if (p->args)
 		(args->refcnt)++;
@@ -357,7 +200,7 @@ mdoc_block_alloc(struct roff_man *mdoc, int line, int pos,
 	default:
 		break;
 	}
-	node_append(mdoc, p);
+	roff_node_append(mdoc, p);
 	mdoc->next = ROFF_NEXT_CHILD;
 	return(p);
 }
@@ -368,7 +211,7 @@ mdoc_elem_alloc(struct roff_man *mdoc, int line, int pos,
 {
 	struct roff_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, ROFFT_ELEM);
+	p = roff_node_alloc(mdoc, line, pos, ROFFT_ELEM, tok);
 	p->args = args;
 	if (p->args)
 		(args->refcnt)++;
@@ -380,106 +223,16 @@ mdoc_elem_alloc(struct roff_man *mdoc, int line, int pos,
 	default:
 		break;
 	}
-	node_append(mdoc, p);
+	roff_node_append(mdoc, p);
 	mdoc->next = ROFF_NEXT_CHILD;
-}
-
-void
-mdoc_word_alloc(struct roff_man *mdoc, int line, int pos, const char *p)
-{
-	struct roff_node *n;
-
-	n = node_alloc(mdoc, line, pos, MDOC_MAX, ROFFT_TEXT);
-	n->string = roff_strdup(mdoc->roff, p);
-	node_append(mdoc, n);
-	mdoc->next = ROFF_NEXT_SIBLING;
-}
-
-void
-mdoc_word_append(struct roff_man *mdoc, const char *p)
-{
-	struct roff_node	*n;
-	char			*addstr, *newstr;
-
-	n = mdoc->last;
-	addstr = roff_strdup(mdoc->roff, p);
-	mandoc_asprintf(&newstr, "%s %s", n->string, addstr);
-	free(addstr);
-	free(n->string);
-	n->string = newstr;
-	mdoc->next = ROFF_NEXT_SIBLING;
-}
-
-static void
-mdoc_node_free(struct roff_node *p)
-{
-
-	if (p->type == ROFFT_BLOCK || p->type == ROFFT_ELEM)
-		free(p->norm);
-	if (p->string)
-		free(p->string);
-	if (p->args)
-		mdoc_argv_free(p->args);
-	free(p);
-}
-
-static void
-mdoc_node_unlink(struct roff_man *mdoc, struct roff_node *n)
-{
-
-	/* Adjust siblings. */
-
-	if (n->prev)
-		n->prev->next = n->next;
-	if (n->next)
-		n->next->prev = n->prev;
-
-	/* Adjust parent. */
-
-	if (n->parent) {
-		n->parent->nchild--;
-		if (n->parent->child == n)
-			n->parent->child = n->prev ? n->prev : n->next;
-		if (n->parent->last == n)
-			n->parent->last = n->prev ? n->prev : NULL;
-	}
-
-	/* Adjust parse point, if applicable. */
-
-	if (mdoc && mdoc->last == n) {
-		if (n->prev) {
-			mdoc->last = n->prev;
-			mdoc->next = ROFF_NEXT_SIBLING;
-		} else {
-			mdoc->last = n->parent;
-			mdoc->next = ROFF_NEXT_CHILD;
-		}
-	}
-
-	if (mdoc && mdoc->first == n)
-		mdoc->first = NULL;
-}
-
-void
-mdoc_node_delete(struct roff_man *mdoc, struct roff_node *p)
-{
-
-	while (p->child) {
-		assert(p->nchild);
-		mdoc_node_delete(mdoc, p->child);
-	}
-	assert(0 == p->nchild);
-
-	mdoc_node_unlink(mdoc, p);
-	mdoc_node_free(p);
 }
 
 void
 mdoc_node_relink(struct roff_man *mdoc, struct roff_node *p)
 {
 
-	mdoc_node_unlink(mdoc, p);
-	node_append(mdoc, p);
+	roff_node_unlink(mdoc, p);
+	roff_node_append(mdoc, p);
 }
 
 /*
@@ -574,13 +327,13 @@ mdoc_ptext(struct roff_man *mdoc, int line, char *buf, int offs)
 		 * blank lines aren't allowed, but enough manuals assume this
 		 * behaviour that we want to work around it.
 		 */
-		mdoc_elem_alloc(mdoc, line, offs, MDOC_sp, NULL);
+		roff_elem_alloc(mdoc, line, offs, MDOC_sp);
 		mdoc->next = ROFF_NEXT_SIBLING;
 		mdoc_valid_post(mdoc);
 		return(1);
 	}
 
-	mdoc_word_alloc(mdoc, line, offs, buf+offs);
+	roff_word_alloc(mdoc, line, offs, buf+offs);
 
 	if (mdoc->flags & MDOC_LITERAL)
 		return(1);
@@ -624,9 +377,9 @@ mdoc_pmacro(struct roff_man *mdoc, int ln, char *buf, int offs)
 
 	mac[i] = '\0';
 
-	tok = (i > 1 && i < 4) ? mdoc_hash_find(mac) : MDOC_MAX;
+	tok = (i > 1 && i < 4) ? mdoc_hash_find(mac) : TOKEN_NONE;
 
-	if (tok == MDOC_MAX) {
+	if (tok == TOKEN_NONE) {
 		mandoc_msg(MANDOCERR_MACRO, mdoc->parse,
 		    ln, sv, buf + sv - 1);
 		return(1);

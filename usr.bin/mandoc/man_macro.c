@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_macro.c,v 1.67 2015/04/18 16:04:40 schwarze Exp $ */
+/*	$OpenBSD: man_macro.c,v 1.70 2015/04/19 14:57:16 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2012, 2013, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -27,6 +27,7 @@
 #include "roff.h"
 #include "man.h"
 #include "libmandoc.h"
+#include "roff_int.h"
 #include "libman.h"
 
 static	void		 blk_close(MACRO_PROT_ARGS);
@@ -108,7 +109,7 @@ man_unscope(struct roff_man *man, const struct roff_node *to)
 				}
 				man->last = n;
 				n = n->parent;
-				man_node_delete(man, man->last);
+				roff_node_delete(man, man->last);
 				continue;
 			}
 			if (n->type == ROFFT_BLOCK &&
@@ -256,13 +257,12 @@ blk_exp(MACRO_PROT_ARGS)
 	int		 la;
 
 	rew_scope(man, tok);
-	man_block_alloc(man, line, ppos, tok);
-	man_head_alloc(man, line, ppos, tok);
-	head = man->last;
+	roff_block_alloc(man, line, ppos, tok);
+	head = roff_head_alloc(man, line, ppos, tok);
 
 	la = *pos;
 	if (man_args(man, line, pos, buf, &p))
-		man_word_alloc(man, line, la, p);
+		roff_word_alloc(man, line, la, p);
 
 	if (buf[*pos] != '\0')
 		mandoc_vmsg(MANDOCERR_ARG_EXCESS,
@@ -270,7 +270,7 @@ blk_exp(MACRO_PROT_ARGS)
 		    man_macronames[tok], buf + *pos);
 
 	man_unscope(man, head);
-	man_body_alloc(man, line, ppos, tok);
+	roff_body_alloc(man, line, ppos, tok);
 }
 
 /*
@@ -287,9 +287,10 @@ blk_imp(MACRO_PROT_ARGS)
 	struct roff_node *n;
 
 	rew_scope(man, tok);
-	man_block_alloc(man, line, ppos, tok);
-	man_head_alloc(man, line, ppos, tok);
-	n = man->last;
+	n = roff_block_alloc(man, line, ppos, tok);
+	if (n->tok == MAN_SH || n->tok == MAN_SS)
+		man->flags &= ~MAN_LITERAL;
+	n = roff_head_alloc(man, line, ppos, tok);
 
 	/* Add line arguments. */
 
@@ -297,7 +298,7 @@ blk_imp(MACRO_PROT_ARGS)
 		la = *pos;
 		if ( ! man_args(man, line, pos, buf, &p))
 			break;
-		man_word_alloc(man, line, la, p);
+		roff_word_alloc(man, line, la, p);
 	}
 
 	/*
@@ -315,7 +316,7 @@ blk_imp(MACRO_PROT_ARGS)
 	/* Close out the head and open the body. */
 
 	man_unscope(man, n);
-	man_body_alloc(man, line, ppos, tok);
+	roff_body_alloc(man, line, ppos, tok);
 }
 
 void
@@ -325,7 +326,7 @@ in_line_eoln(MACRO_PROT_ARGS)
 	char		*p;
 	struct roff_node *n;
 
-	man_elem_alloc(man, line, ppos, tok);
+	roff_elem_alloc(man, line, ppos, tok);
 	n = man->last;
 
 	for (;;) {
@@ -348,9 +349,9 @@ in_line_eoln(MACRO_PROT_ARGS)
 			break;
 		if (man_macros[tok].flags & MAN_JOIN &&
 		    man->last->type == ROFFT_TEXT)
-			man_word_append(man, p);
+			roff_word_append(man, p);
 		else
-			man_word_alloc(man, line, la, p);
+			roff_word_alloc(man, line, la, p);
 	}
 
 	/*
