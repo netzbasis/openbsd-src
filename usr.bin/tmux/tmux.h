@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.494 2015/04/21 22:38:49 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.497 2015/04/22 15:32:33 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -983,8 +983,10 @@ struct window {
 	struct options	 options;
 
 	u_int		 references;
+
+	RB_ENTRY(window) entry;
 };
-ARRAY_DECL(windows, struct window *);
+RB_HEAD(windows, window);
 
 /* Entry on local window list. */
 struct winlink {
@@ -2121,6 +2123,8 @@ void	 screen_reflow(struct screen *, u_int);
 /* window.c */
 extern struct windows windows;
 extern struct window_pane_tree all_window_panes;
+int		 window_cmp(struct window *, struct window *);
+RB_PROTOTYPE(windows, window, entry, window_cmp);
 int		 winlink_cmp(struct winlink *, struct winlink *);
 RB_PROTOTYPE(winlinks, winlink, entry, winlink_cmp);
 int		 window_pane_cmp(struct window_pane *, struct window_pane *);
@@ -2141,7 +2145,6 @@ struct winlink	*winlink_previous_by_number(struct winlink *, struct session *,
 		     int);
 void		 winlink_stack_push(struct winlink_stack *, struct winlink *);
 void		 winlink_stack_remove(struct winlink_stack *, struct winlink *);
-int		 window_index(struct window *, u_int *);
 struct window	*window_find_by_id(u_int);
 struct window	*window_create1(u_int, u_int);
 struct window	*window_create(const char *, int, char **, const char *,
@@ -2318,7 +2321,7 @@ struct winlink	*session_new(struct session *, const char *, int, char **,
 struct winlink	*session_attach(struct session *, struct window *, int,
 		     char **);
 int		 session_detach(struct session *, struct winlink *);
-struct winlink	*session_has(struct session *, struct window *);
+int		 session_has(struct session *, struct window *);
 int		 session_next(struct session *, int);
 int		 session_previous(struct session *, int);
 int		 session_select(struct session *, int);
