@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmapae.c,v 1.33 2015/04/22 06:26:23 mlarkin Exp $	*/
+/*	$OpenBSD: pmapae.c,v 1.35 2015/04/24 19:41:58 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006-2008 Michael Shalayeff
@@ -423,6 +423,7 @@ typedef u_int64_t pt_entry_t;		/* PTE */
 
 extern u_int32_t protection_codes[];	/* maps MI prot to i386 prot code */
 extern boolean_t pmap_initialized;	/* pmap_init done yet? */
+pt_entry_t pg_nx;
 
 /*
  * MULTIPROCESSOR: special VA's/ PTE's are actually allocated inside a
@@ -595,6 +596,8 @@ pmap_bootstrap_pae()
 	}
 
 	cpu_pae = 1;
+	if (ecpu_feature & CPUID_NXE)
+		pg_nx = (1ULL << 63);
 
 	va = (vaddr_t)kpm->pm_pdir;
 	kpm->pm_pdidx[0] = (va + 0*NBPG - KERNBASE) | PG_V;
@@ -1078,7 +1081,7 @@ pmap_do_remove_pae(struct pmap *pmap, vaddr_t sva, vaddr_t eva, int flags)
 		 * be VM_MAX_ADDRESS.
 		 */
 
-		if (pdei(va) == PDSLOT_PTE)
+		if (pdei(va) >= PDSLOT_PTE && pdei(va) <= (PDSLOT_PTE + 3))
 			/* XXXCDC: ugly hack to avoid freeing PDP here */
 			continue;
 
@@ -1313,7 +1316,7 @@ pmap_write_protect_pae(struct pmap *pmap, vaddr_t sva, vaddr_t eva,
 {
 	pt_entry_t *ptes, *spte, *epte, npte, opte;
 	vaddr_t blockend;
-	u_int32_t md_prot;
+	u_int64_t md_prot;
 	vaddr_t va;
 	int shootall = 0;
 
@@ -1341,7 +1344,7 @@ pmap_write_protect_pae(struct pmap *pmap, vaddr_t sva, vaddr_t eva,
 		 */
 
 		/* XXXCDC: ugly hack to avoid freeing PDP here */
-		if (pdei(va) == PDSLOT_PTE)
+		if (pdei(va) >= PDSLOT_PTE && pdei(va) <= (PDSLOT_PTE + 3))
 			continue;
 
 		/* empty block? */
@@ -1349,6 +1352,8 @@ pmap_write_protect_pae(struct pmap *pmap, vaddr_t sva, vaddr_t eva,
 			continue;
 
 		md_prot = protection_codes[prot];
+		if (!(prot & PROT_EXEC))
+			md_prot |= pg_nx;
 		if (va < VM_MAXUSER_ADDRESS)
 			md_prot |= PG_u;
 		else if (va < VM_MAX_ADDRESS)
@@ -1604,6 +1609,8 @@ enter_now:
 	 */
 
 	npte = pa | protection_codes[prot] | PG_V;
+	if (!(prot & PROT_EXEC))
+		npte |= pg_nx;
 	pmap_exec_account(pmap, va, opte, npte);
 	if (wired)
 		npte |= PG_W;

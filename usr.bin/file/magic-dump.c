@@ -1,4 +1,4 @@
-/* $OpenBSD: file.h,v 1.26 2015/04/24 16:47:32 nicm Exp $ */
+/* $OpenBSD: magic-dump.c,v 1.1 2015/04/24 16:24:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -16,14 +16,38 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef FILE_H
-#define FILE_H
+#include <sys/types.h>
 
-/* Bytes to read if can't use the whole file. */
-#define FILE_READ_SIZE (256 * 1024)
+#include <stdio.h>
 
-/* text.c */
-const char	*text_get_type(const void *, size_t);
-const char	*text_try_words(const void *, size_t, int);
+#include "magic.h"
 
-#endif /* FILE_H */
+static void
+magic_dump_line(struct magic_line *ml, u_int depth)
+{
+	struct magic_line	*child;
+	u_int			 i;
+
+	printf("%u", ml->line);
+	for (i = 0; i < depth; i++)
+		printf(">");
+	printf(" %s/%s%s%s%s [%u]%s\n", ml->type_string,
+	    ml->result == NULL ? "" : ml->result,
+	    ml->mimetype == NULL ? "" : " (",
+	    ml->mimetype == NULL ? "" : ml->mimetype,
+	    ml->mimetype == NULL ? "" : ")",
+	    ml->strength, ml->text ? " (text)" : "");
+
+	TAILQ_FOREACH(child, &ml->children, entry)
+		magic_dump_line(child, depth + 1);
+
+}
+
+void
+magic_dump(struct magic *m)
+{
+	struct magic_line	*ml;
+
+	RB_FOREACH(ml, magic_tree, &m->tree)
+		magic_dump_line(ml, 0);
+}

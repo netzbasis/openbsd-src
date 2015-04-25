@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-option.c,v 1.72 2015/04/22 15:30:11 nicm Exp $ */
+/* $OpenBSD: cmd-set-option.c,v 1.74 2015/04/24 23:17:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -91,7 +91,6 @@ cmd_set_option_exec(struct cmd *self, struct cmd_q *cmdq)
 	struct options				*oo;
 	struct window				*w;
 	const char				*optstr, *valstr;
-	u_int					 i;
 
 	/* Get the option name and value. */
 	optstr = args->argv[0];
@@ -186,9 +185,8 @@ cmd_set_option_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	/* Update sizes and redraw. May not need it but meh. */
 	recalculate_sizes();
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c != NULL && c->session != NULL)
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (c->session != NULL)
 			server_redraw_client(c);
 	}
 
@@ -289,9 +287,15 @@ cmd_set_option_set(struct cmd *self, struct cmd_q *cmdq,
 {
 	struct options_entry	*o;
 
-	if (oe->type != OPTIONS_TABLE_FLAG && value == NULL) {
-		cmdq_error(cmdq, "empty value");
-		return (-1);
+	switch (oe->type) {
+	case OPTIONS_TABLE_FLAG:
+	case OPTIONS_TABLE_CHOICE:
+		break;
+	default:
+		if (value == NULL) {
+			cmdq_error(cmdq, "empty value");
+			return (-1);
+		}
 	}
 
 	o = NULL;
@@ -455,21 +459,27 @@ cmd_set_option_choice(unused struct cmd *self, struct cmd_q *cmdq,
 	const char	**choicep;
 	int		  n, choice = -1;
 
-	n = 0;
-	for (choicep = oe->choices; *choicep != NULL; choicep++) {
-		n++;
-		if (strncmp(*choicep, value, strlen(value)) != 0)
-			continue;
+	if (value == NULL) {
+		choice = options_get_number(oo, oe->name);
+		if (choice < 2)
+			choice = !choice;
+	} else {
+		n = 0;
+		for (choicep = oe->choices; *choicep != NULL; choicep++) {
+			n++;
+			if (strncmp(*choicep, value, strlen(value)) != 0)
+				continue;
 
-		if (choice != -1) {
-			cmdq_error(cmdq, "ambiguous value: %s", value);
+			if (choice != -1) {
+				cmdq_error(cmdq, "ambiguous value: %s", value);
+				return (NULL);
+			}
+			choice = n - 1;
+		}
+		if (choice == -1) {
+			cmdq_error(cmdq, "unknown value: %s", value);
 			return (NULL);
 		}
-		choice = n - 1;
-	}
-	if (choice == -1) {
-		cmdq_error(cmdq, "unknown value: %s", value);
-		return (NULL);
 	}
 
 	return (options_set_number(oo, oe->name, choice));
