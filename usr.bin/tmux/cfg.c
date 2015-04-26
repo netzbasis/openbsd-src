@@ -1,4 +1,4 @@
-/* $OpenBSD: cfg.c,v 1.34 2015/04/19 21:34:21 nicm Exp $ */
+/* $OpenBSD: cfg.c,v 1.36 2015/04/25 18:49:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,11 +27,12 @@
 
 #include "tmux.h"
 
-struct cmd_q		*cfg_cmd_q;
-int			 cfg_finished;
-int			 cfg_references;
-ARRAY_DECL (, char *)	 cfg_causes = ARRAY_INITIALIZER;
-struct client		*cfg_client;
+struct cmd_q		 *cfg_cmd_q;
+int			  cfg_finished;
+int			  cfg_references;
+char			**cfg_causes;
+u_int			  cfg_ncauses;
+struct client		 *cfg_client;
 
 int
 load_cfg(const char *path, struct cmd_q *cmdq, char **cause)
@@ -113,49 +114,51 @@ cfg_default_done(unused struct cmd_q *cmdq)
 }
 
 void
-cfg_add_cause(const char* fmt, ...)
+cfg_add_cause(const char *fmt, ...)
 {
-	va_list	ap;
-	char*	msg;
+	va_list	 ap;
+	char	*msg;
 
 	va_start(ap, fmt);
 	xvasprintf(&msg, fmt, ap);
 	va_end (ap);
 
-	ARRAY_ADD(&cfg_causes, msg);
+	cfg_ncauses++;
+	cfg_causes = xreallocarray(cfg_causes, cfg_ncauses, sizeof *cfg_causes);
+	cfg_causes[cfg_ncauses - 1] = msg;
 }
 
 void
 cfg_print_causes(struct cmd_q *cmdq)
 {
-	char	*cause;
 	u_int	 i;
 
-	for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
-		cause = ARRAY_ITEM(&cfg_causes, i);
-		cmdq_print(cmdq, "%s", cause);
-		free(cause);
+	for (i = 0; i < cfg_ncauses; i++) {
+		cmdq_print(cmdq, "%s", cfg_causes[i]);
+		free(cfg_causes[i]);
 	}
-	ARRAY_FREE(&cfg_causes);
+
+	free(cfg_causes);
+	cfg_causes = NULL;
 }
 
 void
 cfg_show_causes(struct session *s)
 {
 	struct window_pane	*wp;
-	char			*cause;
 	u_int			 i;
 
-	if (s == NULL || ARRAY_EMPTY(&cfg_causes))
+	if (s == NULL || cfg_ncauses == 0)
 		return;
 	wp = s->curw->window->active;
 
 	window_pane_set_mode(wp, &window_copy_mode);
 	window_copy_init_for_output(wp);
-	for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
-		cause = ARRAY_ITEM(&cfg_causes, i);
-		window_copy_add(wp, "%s", cause);
-		free(cause);
+	for (i = 0; i < cfg_ncauses; i++) {
+		window_copy_add(wp, "%s", cfg_causes[i]);
+		free(cfg_causes[i]);
 	}
-	ARRAY_FREE(&cfg_causes);
+
+	free(cfg_causes);
+	cfg_causes = NULL;
 }

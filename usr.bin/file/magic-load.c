@@ -1,4 +1,4 @@
-/* $OpenBSD: magic-load.c,v 1.2 2015/04/24 16:45:32 nicm Exp $ */
+/* $OpenBSD: magic-load.c,v 1.4 2015/04/25 21:17:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -401,6 +401,8 @@ magic_get_string(char **line, char *out, size_t *outlen)
 		}
 
 		switch (c = *++cp) {
+		case '\0': /* end of line */
+			return (-1);
 		case ' ':
 			*out++ = ' ';
 			break;
@@ -920,13 +922,17 @@ magic_set_mimetype(struct magic *m, u_int at, struct magic_line *ml, char *line)
 		cp++;
 	}
 	if (*mimetype == '\0' || *cp != '\0') {
-		fprintf(stderr, "%s:%u: invalid MIME type: %s\n", m->path, at,
-		    mimetype);
+		if (m->warnings) {
+			fprintf(stderr, "%s:%u: invalid MIME type: %s\n",
+			    m->path, at, mimetype);
+		}
 		return;
 	}
 	if (ml == NULL) {
-		fprintf(stderr, "%s:%u: stray MIME type: %s\n", m->path, at,
-		    mimetype);
+		if (m->warnings) {
+			fprintf(stderr, "%s:%u: stray MIME type: %s\n",
+			    m->path, at, mimetype);
+		}
 		return;
 	}
 	ml->mimetype = xstrdup(mimetype);
