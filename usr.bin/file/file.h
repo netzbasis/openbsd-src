@@ -1,4 +1,4 @@
-/* $OpenBSD: file.h,v 1.26 2015/04/24 16:47:32 nicm Exp $ */
+/* $OpenBSD: file.h,v 1.29 2015/04/27 13:52:17 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -21,6 +21,12 @@
 
 /* Bytes to read if can't use the whole file. */
 #define FILE_READ_SIZE (256 * 1024)
+
+/* User to drop privileges to in child process. */
+#define FILE_USER "_file"
+
+/* sandbox.c */
+int		 sandbox_fork(const char *);
 
 /* text.c */
 const char	*text_get_type(const void *, size_t);
