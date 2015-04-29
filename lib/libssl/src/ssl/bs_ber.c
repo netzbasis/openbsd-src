@@ -1,4 +1,4 @@
-/*	$OpenBSD: bs_ber.c,v 1.2 2015/02/06 22:22:33 doug Exp $	*/
+/*	$OpenBSD: bs_ber.c,v 1.4 2015/04/29 02:11:09 doug Exp $	*/
 /*
  * Copyright (c) 2014, Google Inc.
  *
@@ -54,7 +54,7 @@ cbs_find_ber(CBS *orig_in, char *ber_found, unsigned depth)
 			return 0;
 
 		if (CBS_len(&contents) == header_len && header_len > 0 &&
-		    CBS_data(&contents)[header_len-1] == 0x80) {
+		    CBS_data(&contents)[header_len - 1] == 0x80) {
 			*ber_found = 1;
 			return 1;
 		}
@@ -89,8 +89,7 @@ is_primitive_type(unsigned tag)
 static char
 is_eoc(size_t header_len, CBS *contents)
 {
-	return header_len == 2 && CBS_len(contents) == 2 &&
-	    memcmp(CBS_data(contents), "\x00\x00", 2) == 0;
+	return header_len == 2 && CBS_mem_equal(contents, "\x00\x00", 2);
 }
 
 /*

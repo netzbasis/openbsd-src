@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find.c,v 1.3 2015/04/27 22:58:58 nicm Exp $ */
+/* $OpenBSD: cmd-find.c,v 1.6 2015/04/28 12:09:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -243,10 +243,13 @@ cmd_find_current_session_with_client(struct cmd_find_state *fs)
 	struct window_pane	*wp;
 
 	/* If this is running in a pane, that's great. */
-	RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
-		if (strcmp(wp->tty, fs->cmdq->client->tty.path) == 0)
-			break;
-	}
+	if (fs->cmdq->client->tty.path != NULL) {
+		RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
+			if (strcmp(wp->tty, fs->cmdq->client->tty.path) == 0)
+				break;
+		}
+	} else
+		wp = NULL;
 
 	/* Not running in a pane. We know nothing. Find the best session. */
 	if (wp == NULL) {
@@ -426,7 +429,20 @@ cmd_find_get_window(struct cmd_find_state *fs, const char *window)
 	fs->s = fs->current->s;
 
 	/* We now only need to find the winlink in this session. */
-	return (cmd_find_get_window_with_session(fs, window));
+	if (cmd_find_get_window_with_session(fs, window) == 0)
+		return (0);
+
+	/* Otherwise try as a session itself. */
+	if (cmd_find_get_session(fs, window) == 0) {
+		if (~fs->flags & CMD_FIND_WINDOW_INDEX) {
+			fs->wl = fs->s->curw;
+			fs->w = fs->wl->window;
+			fs->idx = fs->wl->idx;
+		}
+		return (0);
+	}
+
+	return (-1);
 }
 
 /*
@@ -592,14 +608,23 @@ cmd_find_get_pane(struct cmd_find_state *fs, const char *pane)
 		return (cmd_find_best_session_with_window(fs));
 	}
 
-	/* Not a pane id, so use the current session and window. */
+	/* Not a pane id, so try the current session and window. */
 	fs->s = fs->current->s;
 	fs->wl = fs->current->wl;
 	fs->idx = fs->current->idx;
 	fs->w = fs->current->w;
 
 	/* We now only need to find the pane in this window. */
-	return (cmd_find_get_pane_with_window(fs, pane));
+	if (cmd_find_get_pane_with_window(fs, pane) == 0)
+		return (0);
+
+	/* Otherwise try as a window itself (this will also try as session). */
+	if (cmd_find_get_window(fs, pane) == 0) {
+		fs->wp = fs->w->active;
+		return (0);
+	}
+
+	return (-1);
 }
 
 /*

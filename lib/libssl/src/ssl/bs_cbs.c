@@ -1,4 +1,4 @@
-/*	$OpenBSD: bs_cbs.c,v 1.3 2015/04/25 15:28:47 doug Exp $	*/
+/*	$OpenBSD: bs_cbs.c,v 1.7 2015/04/29 02:11:09 doug Exp $	*/
 /*
  * Copyright (c) 2014, Google Inc.
  *
@@ -65,10 +65,8 @@ CBS_len(const CBS *cbs)
 int
 CBS_stow(const CBS *cbs, uint8_t **out_ptr, size_t *out_len)
 {
-	if (*out_ptr != NULL) {
-		free(*out_ptr);
-		*out_ptr = NULL;
-	}
+	free(*out_ptr);
+	*out_ptr = NULL;
 	*out_len = 0;
 
 	if (cbs->len == 0)
@@ -85,10 +83,8 @@ CBS_stow(const CBS *cbs, uint8_t **out_ptr, size_t *out_len)
 int
 CBS_strdup(const CBS *cbs, char **out_ptr)
 {
-	if (*out_ptr != NULL)
-		free(*out_ptr);
-
-	*out_ptr = strndup((const char*)cbs->data, cbs->len);
+	free(*out_ptr);
+	*out_ptr = strndup((const char *)cbs->data, cbs->len);
 	return (*out_ptr != NULL);
 }
 
@@ -113,6 +109,9 @@ cbs_get_u(CBS *cbs, uint32_t *out, size_t len)
 	uint32_t result = 0;
 	size_t i;
 	const uint8_t *data;
+
+	if (len < 1 || len > 4)
+		return 0;
 
 	if (!cbs_get(cbs, &data, len))
 		return 0;
@@ -237,7 +236,8 @@ CBS_get_any_asn1_element(CBS *cbs, CBS *out, unsigned *out_tag,
 
 		if ((tag & CBS_ASN1_CONSTRUCTED) != 0 && num_bytes == 0) {
 			/* indefinite length */
-			*out_header_len = 2;
+			if (out_header_len != NULL)
+				*out_header_len = 2;
 			return CBS_get_bytes(cbs, out, 2);
 		}
 
@@ -251,7 +251,7 @@ CBS_get_any_asn1_element(CBS *cbs, CBS *out, unsigned *out_tag,
 			/* Length should have used short-form encoding. */
 			return 0;
 
-		if ((len32 >> ((num_bytes-1)*8)) == 0)
+		if ((len32 >> ((num_bytes - 1) * 8)) == 0)
 			/* Length should have been at least one byte shorter. */
 			return 0;
 
