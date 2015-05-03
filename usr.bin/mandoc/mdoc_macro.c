@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.153 2015/04/29 21:57:50 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.156 2015/05/01 16:56:36 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -256,12 +256,11 @@ lookup(struct roff_man *mdoc, int from, int line, int ppos, const char *p)
 static void
 rew_last(struct roff_man *mdoc, const struct roff_node *to)
 {
-	struct roff_node *n, *np;
+	struct roff_node	*np;
 
 	if (to->flags & MDOC_VALID)
 		return;
 
-	mdoc->next = ROFF_NEXT_SIBLING;
 	while (mdoc->last != to) {
 		/*
 		 * Save the parent here, because we may delete the
@@ -271,11 +270,10 @@ rew_last(struct roff_man *mdoc, const struct roff_node *to)
 		 */
 		np = mdoc->last->parent;
 		mdoc_valid_post(mdoc);
-		n = mdoc->last;
 		mdoc->last = np;
 		assert(mdoc->last);
-		mdoc->last->last = n;
 	}
+	mdoc->next = ROFF_NEXT_SIBLING;
 	mdoc_valid_post(mdoc);
 }
 
@@ -1397,7 +1395,7 @@ in_line_eoln(MACRO_PROT_ARGS)
 		if (mdoc->next == ROFF_NEXT_SIBLING)
 			n = n->parent;
 		if (n->tok == MDOC_Nm)
-			rew_last(mdoc, mdoc->last->parent);
+			rew_last(mdoc, n->parent);
 	}
 
 	if (buf[*pos] == '\0' &&

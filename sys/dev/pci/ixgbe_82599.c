@@ -1,4 +1,4 @@
-/*	$OpenBSD: ixgbe_82599.c,v 1.10 2013/08/05 19:58:06 mikeb Exp $	*/
+/*	$OpenBSD: ixgbe_82599.c,v 1.12 2015/04/30 14:17:26 jsg Exp $	*/
 
 /******************************************************************************
 
@@ -372,6 +372,8 @@ int32_t ixgbe_get_link_capabilities_82599(struct ixgbe_hw *hw,
 	/* Check if 1G SFP module. */
 	if (hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core0 ||
 	    hw->phy.sfp_type == ixgbe_sfp_type_1g_cu_core1 ||
+	    hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core0 ||
+	    hw->phy.sfp_type == ixgbe_sfp_type_1g_lx_core1 ||
 	    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core0 ||
 	    hw->phy.sfp_type == ixgbe_sfp_type_1g_sx_core1) {
 		*speed = IXGBE_LINK_SPEED_1GB_FULL;
@@ -1580,6 +1582,8 @@ sfp_check:
 			physical_layer = IXGBE_PHYSICAL_LAYER_1000BASE_T;
 		else if (comp_codes_1g & IXGBE_SFF_1GBASESX_CAPABLE)
 			physical_layer = IXGBE_PHYSICAL_LAYER_1000BASE_SX;
+		else if (comp_codes_1g & IXGBE_SFF_1GBASELX_CAPABLE)
+			physical_layer = IXGBE_PHYSICAL_LAYER_1000BASE_LX;
 		break;
 	default:
 		break;

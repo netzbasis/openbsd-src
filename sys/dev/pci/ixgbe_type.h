@@ -1,4 +1,4 @@
-/*	$OpenBSD: ixgbe_type.h,v 1.20 2014/08/25 14:26:25 mikeb Exp $	*/
+/*	$OpenBSD: ixgbe_type.h,v 1.22 2015/04/30 14:17:26 jsg Exp $	*/
 
 /******************************************************************************
 
@@ -2591,6 +2591,7 @@ typedef uint32_t ixgbe_physical_layer;
 #define IXGBE_PHYSICAL_LAYER_10GBASE_XAUI	0x1000
 #define IXGBE_PHYSICAL_LAYER_SFP_ACTIVE_DA	0x2000
 #define IXGBE_PHYSICAL_LAYER_1000BASE_SX	0x4000
+#define IXGBE_PHYSICAL_LAYER_1000BASE_LX	0x8000
 
 /* Flow Control Data Sheet defined values
  * Calculation and defines taken from 802.1bb Annex O
@@ -2798,6 +2799,8 @@ enum ixgbe_sfp_type {
 	ixgbe_sfp_type_1g_cu_core1 = 10,
 	ixgbe_sfp_type_1g_sx_core0 = 11,
 	ixgbe_sfp_type_1g_sx_core1 = 12,
+	ixgbe_sfp_type_1g_lx_core0 = 13,
+	ixgbe_sfp_type_1g_lx_core1 = 14,
 	ixgbe_sfp_type_not_present = 0xFFFE,
 	ixgbe_sfp_type_unknown = 0xFFFF
 };

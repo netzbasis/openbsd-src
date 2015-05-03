@@ -1,4 +1,4 @@
-/*	$OpenBSD: conflex.c,v 1.12 2013/12/05 22:31:35 krw Exp $	*/
+/*	$OpenBSD: conflex.c,v 1.14 2015/05/02 14:29:32 krw Exp $	*/
 
 /* Lexical scanner for dhcpd config file... */
 
@@ -94,8 +94,8 @@ get_char(FILE *cfile)
 				cur_line = line2;
 				prev_line = line1;
 			} else {
-				cur_line = line2;
-				prev_line = line1;
+				cur_line = line1;
+				prev_line = line2;
 			}
 			line++;
 			lpos = 1;
@@ -131,25 +131,19 @@ get_token(FILE *cfile)
 			skip_to_eol(cfile);
 			continue;
 		}
+		lexline = l;
+		lexchar = p;
 		if (c == '"') {
-			lexline = l;
-			lexchar = p;
 			ttok = read_string(cfile);
 			break;
 		}
 		if ((isascii(c) && isdigit(c)) || c == '-') {
-			lexline = l;
-			lexchar = p;
 			ttok = read_number(c, cfile);
 			break;
 		} else if (isascii(c) && isalpha(c)) {
-			lexline = l;
-			lexchar = p;
 			ttok = read_num_or_name(c, cfile);
 			break;
 		} else {
-			lexline = l;
-			lexchar = p;
 			tb[0] = c;
 			tb[1] = 0;
 			tval = tb;
