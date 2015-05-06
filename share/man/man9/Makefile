@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.230 2015/02/10 21:56:08 miod Exp $
+#	$OpenBSD: Makefile,v 1.232 2015/05/05 16:38:20 mikeb Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -31,7 +31,7 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	tsleep.9 spl.9 startuphook_establish.9 \
 	socreate.9 sosplice.9 style.9 syscall.9 systrace.9 sysctl_int.9 \
 	task_add.9 tc_init.9 time.9 timeout.9 tvtohz.9 uiomove.9 uvm.9 \
-	usbd_transfer.9 \
+	usbd_close_pipe.9 usbd_open_pipe.9 usbd_transfer.9 \
 	vfs.9 vfs_busy.9 \
 	vfs_cache.9 vaccess.9 vclean.9 vcount.9 vdevgone.9 vfinddev.9 vflush.9 \
 	vflushbuf.9 vget.9 vgone.9 vhold.9 vinvalbuf.9 vnode.9 vnsubr.9 \
@@ -143,14 +143,11 @@ MLINKS+=copy.9 copyin.9 copy.9 copyout.9 copy.9 copystr.9 \
 	copy.9 kcopy.9
 MLINKS+=crypto.9 crypto_get_driverid.9 \
 	crypto.9 crypto_register.9 \
-	crypto.9 crypto_kregister.9 \
 	crypto.9 crypto_unregister.9 \
 	crypto.9 crypto_done.9 \
-	crypto.9 crypto_kdone.9 \
 	crypto.9 crypto_newsession.9 \
 	crypto.9 crypto_freesession.9 \
 	crypto.9 crypto_dispatch.9 \
-	crypto.9 crypto_kdispatch.9 \
 	crypto.9 crypto_getreq.9 \
 	crypto.9 crypto_freereq.9
 MLINKS+=mi_switch.9 cpu_switchto.9
@@ -393,6 +390,8 @@ MLINKS+=tsleep.9 wakeup.9 tsleep.9 wakeup_n.9 tsleep.9 wakeup_one.9 \
 	tsleep.9 msleep.9 
 MLINKS+=tvtohz.9 tstohz.9
 MLINKS+=uiomove.9 uio.9 uiomove.9 uiomovei.9
+MLINKS+=usbd_close_pipe.9 usbd_abort_pipe.9
+MLINKS+=usbd_open_pipe.9 usbd_open_pipe_intr.9
 MLINKS+=usbd_transfer.9 usbd_setup_xfer.9
 MLINKS+=uvm.9 uvm_init.9 uvm.9 uvm_init_limits.9 uvm.9 uvm_setpagesize.9 \
 	uvm.9 uvm_swap_init.9 uvm.9 uvm_map.9 uvm.9 uvm_map_pageable.9 \

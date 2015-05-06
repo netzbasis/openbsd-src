@@ -1,4 +1,4 @@
-/* $OpenBSD: compat.c,v 1.90 2015/04/13 02:04:08 djm Exp $ */
+/* $OpenBSD: compat.c,v 1.93 2015/05/06 04:07:18 dtucker Exp $ */
 /*
  * Copyright (c) 1999, 2000, 2001, 2002 Markus Friedl.  All rights reserved.
  *
@@ -163,7 +163,14 @@ compat_datafellows(const char *version)
 		  "OSU_1.5alpha3*",	SSH_BUG_PASSWORDPAD },
 		{ "*SSH_Version_Mapper*",
 					SSH_BUG_SCANNER },
-		{ "PuTTY*",		SSH_OLD_DHGEX },
+		{ "PuTTY-Release-0.5*," /* 0.50-0.57, DH-GEX in >=0.52 */
+		  "PuTTY_Release_0.5*,"	/* 0.58-0.59 */
+		  "PuTTY_Release_0.60*,"
+		  "PuTTY_Release_0.61*,"
+		  "PuTTY_Release_0.62*,"
+		  "PuTTY_Release_0.63*,"
+		  "PuTTY_Release_0.64*",
+					SSH_OLD_DHGEX },
 		{ "Probe-*",
 					SSH_BUG_PROBE },
 		{ "TeraTerm SSH*,"
@@ -177,13 +184,13 @@ compat_datafellows(const char *version)
 		  "TTSSH/2.70*,"
 		  "TTSSH/2.71*,"
 		  "TTSSH/2.72*",	SSH_BUG_HOSTKEYS },
+		{ "WinSCP*",		SSH_OLD_DHGEX },
 		{ NULL,			0 }
 	};
 
 	/* process table, return first match */
 	for (i = 0; check[i].pat; i++) {
-		if (match_pattern_list(version, check[i].pat,
-		    strlen(check[i].pat), 0) == 1) {
+		if (match_pattern_list(version, check[i].pat, 0) == 1) {
 			debug("match: %s pat %s compat 0x%08x",
 			    version, check[i].pat, check[i].bugs);
 			datafellows = check[i].bugs;	/* XXX for now */
@@ -241,7 +248,7 @@ filter_proposal(char *proposal, const char *filter)
 	buffer_init(&b);
 	tmp = orig_prop = xstrdup(proposal);
 	while ((cp = strsep(&tmp, ",")) != NULL) {
-		if (match_pattern_list(cp, filter, strlen(cp), 0) != 1) {
+		if (match_pattern_list(cp, filter, 0) != 1) {
 			if (buffer_len(&b) > 0)
 				buffer_append(&b, ",", 1);
 			buffer_append(&b, cp, strlen(cp));
