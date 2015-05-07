@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.503 2015/04/28 10:43:14 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.505 2015/05/06 23:56:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -42,9 +42,6 @@ extern char   **environ;
 
 /* Default global configuration file. */
 #define TMUX_CONF "/etc/tmux.conf"
-
-/* Default prompt history length. */
-#define PROMPT_HISTORY 100
 
 /*
  * Minimum layout cell size, NOT including separator line. The scroll region
@@ -2328,6 +2325,7 @@ struct winlink	*session_attach(struct session *, struct window *, int,
 		     char **);
 int		 session_detach(struct session *, struct winlink *);
 int		 session_has(struct session *, struct window *);
+int		 session_is_linked(struct session *, struct window *);
 int		 session_next(struct session *, int);
 int		 session_previous(struct session *, int);
 int		 session_select(struct session *, int);
