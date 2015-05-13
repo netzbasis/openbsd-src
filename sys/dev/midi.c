@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.34 2015/03/14 03:38:46 jsg Exp $	*/
+/*	$OpenBSD: midi.c,v 1.38 2015/05/12 18:39:30 ratchov Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Alexandre Ratchov
@@ -84,7 +84,7 @@ midi_iintr(void *addr, int data)
 	struct midi_softc  *sc = (struct midi_softc *)addr;
 	struct midi_buffer *mb = &sc->inbuf;
 
-	if (sc->isdying || !sc->isopen || !(sc->flags & FREAD))
+	if (sc->isdying || !(sc->flags & FREAD))
 		return;
 
 	if (MIDIBUF_ISFULL(mb))
@@ -107,7 +107,7 @@ midiread(dev_t dev, struct uio *uio, int ioflag)
 {
 	struct midi_softc  *sc = MIDI_DEV2SC(dev);
 	struct midi_buffer *mb = &sc->inbuf;
-	unsigned int count;
+	size_t count;
 	int error;
 
 	if (!(sc->flags & FREAD))
@@ -141,11 +141,11 @@ midiread(dev_t dev, struct uio *uio, int ioflag)
 			count = mb->used;
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
-		error = uiomovei(mb->data + mb->start, count, uio);
-		if (error) {
-			mtx_leave(&audio_lock);
+		mtx_leave(&audio_lock);
+		error = uiomove(mb->data + mb->start, count, uio);
+		if (error)
 			return error;
-		}
+		mtx_enter(&audio_lock);
 		MIDIBUF_REMOVE(mb, count);
 	}
 	mtx_leave(&audio_lock);
@@ -159,7 +159,7 @@ midi_ointr(void *addr)
 	struct midi_buffer *mb;
 
 	MUTEX_ASSERT_LOCKED(&audio_lock);
-	if (sc->isopen && !sc->isdying) {
+	if (!(sc->flags & FWRITE) && !sc->isdying) {
 		mb = &sc->outbuf;
 		if (mb->used > 0) {
 #ifdef MIDI_DEBUG
@@ -233,7 +233,7 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 {
 	struct midi_softc  *sc = MIDI_DEV2SC(dev);
 	struct midi_buffer *mb = &sc->outbuf;
-	unsigned int count;
+	size_t count;
 	int error;
 
 	if (!(sc->flags & FWRITE))
@@ -246,12 +246,13 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 	 * in the buffer to store at least one byte. If not then dont
 	 * start the write process.
 	 */
-
-	if ((ioflag & IO_NDELAY) && MIDIBUF_ISFULL(mb) && (uio->uio_resid > 0))
+	mtx_enter(&audio_lock);
+	if ((ioflag & IO_NDELAY) && MIDIBUF_ISFULL(mb) && (uio->uio_resid > 0)) {
+		mtx_leave(&audio_lock);
 		return EWOULDBLOCK;
+	}
 
 	while (uio->uio_resid > 0) {
-		mtx_enter(&audio_lock);
 		while (MIDIBUF_ISFULL(mb)) {
 			if (ioflag & IO_NDELAY) {
 				/*
@@ -279,15 +280,15 @@ midiwrite(dev_t dev, struct uio *uio, int ioflag)
 			count = MIDIBUF_AVAIL(mb);
 		if (count > uio->uio_resid)
 			count = uio->uio_resid;
-		error = uiomovei(mb->data + MIDIBUF_END(mb), count, uio);
-		if (error) {
-			mtx_leave(&audio_lock);
+		mtx_leave(&audio_lock);
+		error = uiomove(mb->data + MIDIBUF_END(mb), count, uio);
+		if (error)
 			return error;
-		}
+		mtx_enter(&audio_lock);
 		mb->used += count;
 		midi_out_start(sc);
-		mtx_leave(&audio_lock);
 	}
+	mtx_leave(&audio_lock);
 	return 0;
 }
 
@@ -432,7 +433,7 @@ midiopen(dev_t dev, int flags, int mode, struct proc *p)
 		return ENXIO;
 	if (sc->isdying)
 		return EIO;
-	if (sc->isopen)
+	if (sc->flags)
 		return EBUSY;
 
 	MIDIBUF_INIT(&sc->inbuf);
@@ -441,11 +442,11 @@ midiopen(dev_t dev, int flags, int mode, struct proc *p)
 	sc->rchan = sc->wchan = 0;
 	sc->async = 0;
 	sc->flags = flags;
-
 	err = sc->hw_if->open(sc->hw_hdl, flags, midi_iintr, midi_ointr, sc);
-	if (err)
+	if (err) {
+		sc->flags = 0;
 		return err;
-	sc->isopen = 1;
+	}
 	return 0;
 }
 
@@ -481,7 +482,7 @@ midiclose(dev_t dev, int fflag, int devtype, struct proc *p)
 	 */
 	tsleep(&sc->wchan, PWAIT, "mid_cl", hz * MIDI_MAXWRITE / MIDI_RATE);
 	sc->hw_if->close(sc->hw_hdl);
-	sc->isopen = 0;
+	sc->flags = 0;
 	return 0;
 }
 
@@ -494,21 +495,9 @@ midiprobe(struct device *parent, void *match, void *aux)
 }
 
 void
-midi_attach(struct midi_softc *sc, struct device *parent)
-{
-	struct midi_info mi;
-
-	sc->isdying = 0;
-	sc->hw_if->getinfo(sc->hw_hdl, &mi);
-	sc->props = mi.props;
-	sc->isopen = 0;
-	timeout_set(&sc->timeo, midi_timeout, sc);
-	printf(": <%s>\n", mi.name);
-}
-
-void
 midiattach(struct device *parent, struct device *self, void *aux)
 {
+	struct midi_info	  mi;
 	struct midi_softc        *sc = (struct midi_softc *)self;
 	struct audio_attach_args *sa = (struct audio_attach_args *)aux;
 	struct midi_hw_if        *hwif = sa->hwif;
@@ -526,7 +515,12 @@ midiattach(struct device *parent, struct device *self, void *aux)
 #endif
 	sc->hw_if = hwif;
 	sc->hw_hdl = hdl;
-	midi_attach(sc, parent);
+	sc->isdying = 0;
+	sc->hw_if->getinfo(sc->hw_hdl, &mi);
+	sc->props = mi.props;
+	sc->flags = 0;
+	timeout_set(&sc->timeo, midi_timeout, sc);
+	printf(": <%s>\n", mi.name);
 }
 
 int
@@ -564,19 +558,6 @@ midiprint(void *aux, const char *pnp)
 	return (UNCONF);
 }
 
-void
-midi_getinfo(dev_t dev, struct midi_info *mi)
-{
-	struct midi_softc *sc = MIDI_DEV2SC(dev);
-
-	if (MIDI_UNIT(dev) >= midi_cd.cd_ndevs || sc == NULL || sc->isdying) {
-		mi->name = "unconfigured";
-		mi->props = 0;
-		return;
-	}
-	sc->hw_if->getinfo(sc->hw_hdl, mi);
-}
-
 struct device *
 midi_attach_mi(struct midi_hw_if *hwif, void *hdl, struct device *dev)
 {
@@ -587,11 +568,3 @@ midi_attach_mi(struct midi_hw_if *hwif, void *hdl, struct device *dev)
 	arg.hdl = hdl;
 	return config_found(dev, &arg, midiprint);
 }
-
-
-int
-midi_unit_count(void)
-{
-	return midi_cd.cd_ndevs;
-}
-

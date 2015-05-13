@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.58 2015/05/11 10:58:22 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.60 2015/05/12 15:29:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -49,7 +49,7 @@ const char *options_table_status_position_list[] = {
 	"top", "bottom", NULL
 };
 const char *options_table_bell_action_list[] = {
-	"none", "any", "current", NULL
+	"none", "any", "current", "other", NULL
 };
 
 /* Server options. */
@@ -296,7 +296,7 @@ const struct options_table_entry session_options_table[] = {
 
 	{ .name = "set-titles-string",
 	  .type = OPTIONS_TABLE_STRING,
-	  .default_str = "#S:#I:#W - \"#T\""
+	  .default_str = "#S:#I:#W - \"#T\" #{session_alerts}"
 	},
 
 	{ .name = "status",
