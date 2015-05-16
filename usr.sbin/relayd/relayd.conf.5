@@ -1,4 +1,4 @@
-.\"	$OpenBSD: relayd.conf.5,v 1.161 2015/03/09 17:20:38 reyk Exp $
+.\"	$OpenBSD: relayd.conf.5,v 1.163 2015/05/15 20:40:26 reyk Exp $
 .\"
 .\" Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
 .\" Copyright (c) 2006, 2007 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 9 2015 $
+.Dd $Mdocdate: May 15 2015 $
 .Dt RELAYD.CONF 5
 .Os
 .Sh NAME
@@ -658,17 +658,11 @@ it will be used as a backup if the lookup failed.
 Like the previous directive, but for redirections with rdr-to in
 .Xr pf.conf 5 .
 .It Xo
-.Ic listen on Ar address
-.Op Ic port Ar port
+.Ic listen on Ar address Ic port Ar port
 .Op Ic tls
 .Xc
 Specify the address and port for the relay to listen on.
 The relay will accept incoming connections to the specified address.
-If the
-.Ic port
-option is not specified, the port from the
-.Ic listen on
-directive will be used.
 .Pp
 If the
 .Ic tls
@@ -905,12 +899,12 @@ are true:
 .Pp
 .Bl -bullet -compact -offset indent
 .It
-TLS client mode is enabled by the
+TLS server mode is enabled by the
 .Ic listen
 directive:
 .Ic listen on ... tls .
 .It
-TLS server mode and divert lookups are enabled by the
+TLS client mode and divert lookups are enabled by the
 .Ic forward
 directive:
 .Ic forward with tls to destination .
