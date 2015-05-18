@@ -1,4 +1,4 @@
-/*	$OpenBSD: imxesdhc.c,v 1.8 2015/05/15 17:01:18 jsg Exp $	*/
+/*	$OpenBSD: imxesdhc.c,v 1.10 2015/05/17 12:28:03 jsg Exp $	*/
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -437,21 +437,27 @@ imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 	{
 	case BOARD_ID_IMX6_CUBOXI:
 	case BOARD_ID_IMX6_HUMMINGBOARD:
-		gpio = 0*32 + 4;
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-		break;
-	case BOARD_ID_IMX6_PHYFLEX:
 		switch (sc->unit) {
 			case 1:
-				gpio = 0*32 + 2;
-				break;
-			case 2:
-				gpio = 4*32 + 22;
+				gpio = 0*32 + 4;
 				break;
 			default:
 				return 0;
 		}
+		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
+		return imxgpio_get_bit(gpio) ? 0 : 1;
+	case BOARD_ID_IMX6_PHYFLEX:
+		switch (sc->unit) {
+			case 1:
+				gpio = 0*32 + 4;
+				break;
+			case 2:
+				gpio = 0*32 + 27;
+				break;
+			default:
+				return 0;
+		}
+		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
 		return imxgpio_get_bit(gpio) ? 0 : 1;
 	case BOARD_ID_IMX6_SABRELITE:
 		switch (sc->unit) {
@@ -464,6 +470,7 @@ imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 			default:
 				return 0;
 		}
+		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
 		return imxgpio_get_bit(gpio) ? 0 : 1;
 	case BOARD_ID_IMX6_SABRESD:
 		switch (sc->unit) {
@@ -482,21 +489,11 @@ imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 		return imxgpio_get_bit(gpio) ? 0 : 1;
 	case BOARD_ID_IMX6_UDOO:
 		switch (sc->unit) {
-			/*
-			 * One of these is the SD card, another the wifi
-			 * the third is not connected (?)
-			 */
-			case 0:
-			case 1:
 			case 2:
-			case 3:
-				gpio = 3*32 + 9;
-				break;
 				return 1;
 			default:
 				return 0;
 		}
-		return 1;
 	case BOARD_ID_IMX6_UTILITE:
 		switch (sc->unit) {
 			case 2:
@@ -526,11 +523,12 @@ imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 				gpio = 0*32 + 2;
 				break;
 			case 2:
-				gpio = 3*32 + 9;
+				gpio = 2*32 + 9;
 				break;
 			default:
 				return 0;
 		}
+		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
 		return imxgpio_get_bit(gpio) ? 0 : 1;
 	default:
 		printf("%s: unhandled board\n", __func__);
