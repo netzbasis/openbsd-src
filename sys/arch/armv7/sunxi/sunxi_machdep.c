@@ -1,4 +1,4 @@
-/*	$OpenBSD: sunxi_machdep.c,v 1.6 2015/05/15 15:35:43 jsg Exp $	*/
+/*	$OpenBSD: sunxi_machdep.c,v 1.8 2015/05/19 03:30:54 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -34,20 +34,20 @@
 extern int sxiuartcnattach(bus_space_tag_t, bus_addr_t, int, long, tcflag_t);
 extern void sxidog_reset(void);
 extern char *sunxi_board_name(void);
+extern struct board_dev *sunxi_board_devs(void);
+extern void sunxi_board_init(void);
 extern int comcnspeed;
 extern int comcnmode;
 
-const char *platform_boot_name = "OpenBSD/sunxi";
-
 void
-platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
-    uint32_t op, uint32_t val)
+sunxi_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
+    bus_size_t off, uint32_t op, uint32_t val)
 {
 
 }
 
 void
-platform_init_cons(void)
+sunxi_platform_init_cons(void)
 {
 	paddr_t paddr;
 
@@ -67,51 +67,55 @@ platform_init_cons(void)
 }
 
 void
-platform_watchdog_reset(void)
+sunxi_platform_watchdog_reset(void)
 {
 	sxidog_reset();
 }
 
 void
-platform_powerdown(void)
+sunxi_platform_powerdown(void)
 {
 
 }
 
 const char *
-platform_board_name(void)
+sunxi_platform_board_name(void)
 {
 	return (sunxi_board_name());
 }
 
 void
-platform_bootconfig_dram(BootConfig *bootconfig, psize_t *memstart, psize_t *memsize)
+sunxi_platform_disable_l2_if_needed(void)
 {
-	int loop;
 
-	if (bootconfig->dramblocks == 0) {
-		*memstart = SDRAM_START;
-		*memsize = 0x10000000; /* 256 MB */
-		/* Fake bootconfig structure for the benefit of pmap.c */
-		/* XXX must make the memory description h/w independant */
-		bootconfig->dram[0].address = *memstart;
-		bootconfig->dram[0].pages = *memsize / PAGE_SIZE;
-		bootconfig->dramblocks = 1;
-	} else {
-		*memstart = bootconfig->dram[0].address;
-		*memsize = bootconfig->dram[0].pages * PAGE_SIZE;
-		printf("memory size derived from u-boot\n");
-		for (loop = 0; loop < bootconfig->dramblocks; loop++) {
-			printf("bootconf.mem[%d].address = %08x pages %d/0x%08x\n",
-			    loop, bootconfig->dram[0].address, bootconfig->dram[0].pages,
-			        bootconfig->dram[0].pages * PAGE_SIZE);
-		}
-	}
 }
 
 void
-platform_disable_l2_if_needed(void)
+sunxi_platform_board_init(void)
 {
-
+	sunxi_board_init();
 }
 
+struct armv7_platform sunxi_platform = {
+	.boot_name = "OpenBSD/sunxi",
+	.board_name = sunxi_platform_board_name,
+	.board_init = sunxi_platform_board_init,
+	.smc_write = sunxi_platform_smc_write,
+	.init_cons = sunxi_platform_init_cons,
+	.watchdog_reset = sunxi_platform_watchdog_reset,
+	.powerdown = sunxi_platform_powerdown,
+	.disable_l2_if_needed = sunxi_platform_disable_l2_if_needed,
+};
+
+struct armv7_platform *
+sunxi_platform_match(void)
+{
+	struct board_dev *devs;
+
+	devs = sunxi_board_devs();
+	if (devs == NULL)
+		return (NULL);
+
+	sunxi_platform.devs = devs;
+	return (&sunxi_platform);
+}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: omap_machdep.c,v 1.4 2015/05/15 15:35:43 jsg Exp $	*/
+/*	$OpenBSD: omap_machdep.c,v 1.6 2015/05/19 03:30:54 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -35,14 +35,14 @@
 extern void omap4_smc_call(uint32_t, uint32_t);
 extern void omdog_reset(void);
 extern char *omap_board_name(void);
+extern struct board_dev *omap_board_devs(void);
+extern void omap_board_init(void);
 extern int comcnspeed;
 extern int comcnmode;
 
-const char *platform_boot_name = "OpenBSD/omap";
-
 void
-platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
-    uint32_t op, uint32_t val)
+omap_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
+    bus_size_t off, uint32_t op, uint32_t val)
 {
 	switch (op) {
 	case 0x100:	/* PL310 DEBUG */
@@ -56,7 +56,7 @@ platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
 }
 
 void
-platform_init_cons(void)
+omap_platform_init_cons(void)
 {
 	paddr_t paddr;
 
@@ -78,65 +78,25 @@ platform_init_cons(void)
 }
 
 void
-platform_watchdog_reset(void)
+omap_platform_watchdog_reset(void)
 {
 	omdog_reset();
 }
 
 void
-platform_powerdown(void)
+omap_platform_powerdown(void)
 {
 
 }
 
 const char *
-platform_board_name(void)
+omap_platform_board_name(void)
 {
 	return (omap_board_name());
 }
 
 void
-platform_bootconfig_dram(BootConfig *bootconfig, psize_t *memstart, psize_t *memsize)
-{
-	uint32_t sdrc_mcfg_0, sdrc_mcfg_1, memsize0, memsize1;
-	int loop;
-
-	if (bootconfig->dramblocks == 0) {
-		sdrc_mcfg_0 = *(uint32_t *)0x6d000080;
-		sdrc_mcfg_1 = *(uint32_t *)0x6d0000b0;
-		memsize0 = (((sdrc_mcfg_0 >> 8))&0x3ff) * (2 * 1024 * 1024);
-		memsize1 = (((sdrc_mcfg_1 >> 8))&0x3ff) * (2 * 1024 * 1024);
-		*memsize = memsize0 + memsize1;
-
-		*memstart = SDRAM_START;
-		*memsize =  0x02000000; /* 32MB */
-		/* Fake bootconfig structure for the benefit of pmap.c */
-		/* XXX must make the memory description h/w independant */
-		bootconfig->dram[0].address = *memstart;
-		bootconfig->dram[0].pages = memsize0 / PAGE_SIZE;
-		bootconfig->dramblocks = 1;
-		if (memsize1 != 0) {
-			bootconfig->dram[1].address = bootconfig->dram[0].address
-			    + memsize0; /* XXX */
-			bootconfig->dram[1].pages = memsize1 / PAGE_SIZE;
-			bootconfig->dramblocks++; /* both banks populated */
-		}
-	} else {
-		/* doesn't deal with multiple segments, hopefully u-boot collaped them into one */
-		*memstart = bootconfig->dram[0].address;
-		*memsize = bootconfig->dram[0].pages * PAGE_SIZE;
-		printf("memory size derived from u-boot\n");
-		for (loop = 0; loop < bootconfig->dramblocks; loop++) {
-			printf("bootconf.mem[%d].address = %08x pages %d/0x%08x\n",
-			    loop, bootconfig->dram[0].address, bootconfig->dram[0].pages,
-			        bootconfig->dram[0].pages * PAGE_SIZE);
-		}
-	}
-
-}
-
-void
-platform_disable_l2_if_needed(void)
+omap_platform_disable_l2_if_needed(void)
 {
 	switch (board_id) {
 	case BOARD_ID_OMAP4_PANDA:
@@ -144,4 +104,34 @@ platform_disable_l2_if_needed(void)
 		omap4_smc_call(0x102, 0);
 		break;
 	}
+}
+
+void
+omap_platform_board_init(void)
+{
+	omap_board_init();
+}
+
+struct armv7_platform omap_platform = {
+	.boot_name = "OpenBSD/omap",
+	.board_name = omap_platform_board_name,
+	.board_init = omap_platform_board_init,
+	.smc_write = omap_platform_smc_write,
+	.init_cons = omap_platform_init_cons,
+	.watchdog_reset = omap_platform_watchdog_reset,
+	.powerdown = omap_platform_powerdown,
+	.disable_l2_if_needed = omap_platform_disable_l2_if_needed,
+};
+
+struct armv7_platform *
+omap_platform_match(void)
+{
+	struct board_dev *devs;
+
+	devs = omap_board_devs();
+	if (devs == NULL)
+		return (NULL);
+
+	omap_platform.devs = devs;
+	return (&omap_platform);
 }

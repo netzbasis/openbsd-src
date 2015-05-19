@@ -1,4 +1,4 @@
-/*	$OpenBSD: imx_machdep.c,v 1.13 2015/05/15 15:35:43 jsg Exp $	*/
+/*	$OpenBSD: imx_machdep.c,v 1.15 2015/05/19 03:30:54 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -34,21 +34,20 @@
 
 extern void imxdog_reset(void);
 extern char *imx_board_name(void);
-extern int32_t amptimer_frequency;
+extern struct board_dev *imx_board_devs(void);
+extern void imx_board_init(void);
 extern int comcnspeed;
 extern int comcnmode;
 
-const char *platform_boot_name = "OpenBSD/imx";
-
 void
-platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
+imx_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
     uint32_t op, uint32_t val)
 {
 	bus_space_write_4(iot, ioh, off, val);
 }
 
 void
-platform_init_cons(void)
+imx_platform_init_cons(void)
 {
 	paddr_t paddr;
 
@@ -80,42 +79,55 @@ platform_init_cons(void)
 }
 
 void
-platform_watchdog_reset(void)
+imx_platform_watchdog_reset(void)
 {
 	imxdog_reset();
 }
 
 void
-platform_powerdown(void)
+imx_platform_powerdown(void)
 {
 
 }
 
 const char *
-platform_board_name(void)
+imx_platform_board_name(void)
 {
 	return (imx_board_name());
 }
 
 void
-platform_bootconfig_dram(BootConfig *bootconfig, psize_t *memstart, psize_t *memsize)
+imx_platform_disable_l2_if_needed(void)
 {
-	if (bootconfig->dramblocks == 0) {
-		*memstart = SDRAM_START;
-		*memsize = 0x10000000; /* 256 MB */
-		/* Fake bootconfig structure for the benefit of pmap.c */
-		/* XXX must make the memory description h/w independant */
-		bootconfig->dram[0].address = *memstart;
-		bootconfig->dram[0].pages = *memsize / PAGE_SIZE;
-		bootconfig->dramblocks = 1;
-	} else {
-		*memstart = bootconfig->dram[0].address;
-		*memsize = bootconfig->dram[0].pages * PAGE_SIZE;
-	}
+
 }
 
 void
-platform_disable_l2_if_needed(void)
+imx_platform_board_init(void)
 {
+	imx_board_init();
+}
 
+struct armv7_platform imx_platform = {
+	.boot_name = "OpenBSD/imx",
+	.board_name = imx_platform_board_name,
+	.board_init = imx_platform_board_init,
+	.smc_write = imx_platform_smc_write,
+	.init_cons = imx_platform_init_cons,
+	.watchdog_reset = imx_platform_watchdog_reset,
+	.powerdown = imx_platform_powerdown,
+	.disable_l2_if_needed = imx_platform_disable_l2_if_needed,
+};
+
+struct armv7_platform *
+imx_platform_match(void)
+{
+	struct board_dev *devs;
+
+	devs = imx_board_devs();
+	if (devs == NULL)
+		return (NULL);
+
+	imx_platform.devs = devs;
+	return (&imx_platform);
 }

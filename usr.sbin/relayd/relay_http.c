@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_http.c,v 1.44 2015/04/29 08:41:24 bluhm Exp $	*/
+/*	$OpenBSD: relay_http.c,v 1.46 2015/05/18 16:57:20 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -149,6 +149,7 @@ relay_httpdesc_free(struct http_descriptor *desc)
 		desc->query_val = NULL;
 	}
 	kv_purge(&desc->http_headers);
+	desc->http_lastheader = NULL;
 }
 
 void
@@ -213,7 +214,7 @@ relay_read_http(struct bufferevent *bev, void *arg)
 		else
 			value = strchr(key, ':');
 		if (value == NULL) {
-			if (cre->line == 1) {
+			if (cre->line <= 2) {
 				free(line);
 				relay_abort_http(con, 400, "malformed", 0);
 				return;
@@ -433,11 +434,18 @@ relay_read_http(struct bufferevent *bev, void *arg)
 		relay_close(con, "last http read (done)");
 		return;
 	}
+	switch (relay_splice(cre)) {
+	case -1:
+		relay_close(con, strerror(errno));
+	case 1:
+		return;
+	case 0:
+		break;
+	}
+	bufferevent_enable(bev, EV_READ);
 	if (EVBUFFER_LENGTH(src) && bev->readcb != relay_read_http)
 		bev->readcb(bev, arg);
-	bufferevent_enable(bev, EV_READ);
-	if (relay_splice(cre) == -1)
-		relay_close(con, strerror(errno));
+	/* The callback readcb() might have freed the session. */
 	return;
  fail:
 	relay_abort_http(con, 500, strerror(errno), 0);
@@ -487,9 +495,10 @@ relay_read_httpcontent(struct bufferevent *bev, void *arg)
 	}
 	if (con->se_done)
 		goto done;
+	bufferevent_enable(bev, EV_READ);
 	if (bev->readcb != relay_read_httpcontent)
 		bev->readcb(bev, arg);
-	bufferevent_enable(bev, EV_READ);
+	/* The callback readcb() might have freed the session. */
 	return;
  done:
 	relay_close(con, "last http content read");
@@ -604,9 +613,10 @@ relay_read_httpchunks(struct bufferevent *bev, void *arg)
  next:
 	if (con->se_done)
 		goto done;
+	bufferevent_enable(bev, EV_READ);
 	if (EVBUFFER_LENGTH(src))
 		bev->readcb(bev, arg);
-	bufferevent_enable(bev, EV_READ);
+	/* The callback readcb() might have freed the session. */
 	return;
 
  done:

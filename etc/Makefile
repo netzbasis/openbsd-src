@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.401 2015/03/27 18:49:50 schwarze Exp $
+#	$OpenBSD: Makefile,v 1.403 2015/05/18 15:17:29 ajacoutot Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -33,7 +33,7 @@ BINGRP= wheel
 MUTABLE=changelist csh.cshrc csh.login csh.logout daily \
 	etc.${MACHINE}/disktab etc.${MACHINE}/login.conf ftpusers \
 	gettytab group ksh.kshrc locate.rc mailer.conf \
-	moduli monthly netstart networks newsyslog.conf \
+	moduli monthly netstart networks newsyslog.conf ntpd.conf \
 	pf.os protocols rc rc.conf rpc services shells syslog.conf weekly
 
 # -rw-r--r--

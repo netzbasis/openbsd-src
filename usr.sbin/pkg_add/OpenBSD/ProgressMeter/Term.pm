@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Term.pm,v 1.30 2015/01/04 14:20:04 espie Exp $
+# $OpenBSD: Term.pm,v 1.32 2015/05/18 10:41:20 espie Exp $
 #
 # Copyright (c) 2004-2007 Marc Espie <espie@openbsd.org>
 #
@@ -60,9 +60,9 @@ sub compute_count
 
 sub visit_with_size
 {
-	my ($progress, $plist, $method, $state, @r) = @_;
-	my $p = $progress->new_sizer($plist, $state);
-	$plist->size_and($p, $method, $state, @r);
+	my ($progress, $plist, $method, @r) = @_;
+	my $p = $progress->new_sizer($plist);
+	$plist->size_and($p, $method, $progress->{state}, @r);
 }
 
 sub sizer_class
@@ -77,7 +77,7 @@ sub visit_with_count
 	my $count = 0;
 	$progress->show($count, $plist->{total});
 	$plist->count_and($progress, \$count, $plist->{total},
-	    $method, @r);
+	    $method, $progress->{state}, @r);
 }
 
 package OpenBSD::ProgressMeter::Term;
@@ -295,11 +295,11 @@ our @ISA = qw(PureSizer);
 
 sub new
 {
-	my ($class, $progress, $plist, $state) = @_;
-	my $p = $class->SUPER::new($progress, $plist, $state);
+	my ($class, $progress, $plist) = @_;
+	my $p = $class->SUPER::new($progress, $plist);
 	$progress->show(0, $p->{totsize});
-	if (defined $state->{archive}) {
-		$state->{archive}->set_callback(
+	if (defined $progress->{state}{archive}) {
+		$progress->{state}{archive}->set_callback(
 		    sub {
 			my $done = shift;
 			$progress->show($p->{donesize} + $done, $p->{totsize});

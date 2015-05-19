@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: ProgressMeter.pm,v 1.45 2014/12/22 14:24:56 espie Exp $
+# $OpenBSD: ProgressMeter.pm,v 1.47 2015/05/18 10:41:20 espie Exp $
 #
 # Copyright (c) 2010 Marc Espie <espie@openbsd.org>
 #
@@ -44,10 +44,10 @@ sub compute_size
 sub setup
 {
 	my ($self, $opt_x, $opt_m, $state) = @_;
+	$self->{state} = $state;
 	if ($opt_m || (!$opt_x && -t STDOUT)) {
 		require OpenBSD::ProgressMeter::Term;
 		bless $self, "OpenBSD::ProgressMeter::Term";
-		$self->{state} = $state;
 		$self->init;
 	}
 }
@@ -56,8 +56,8 @@ sub disable {}
 
 sub new_sizer
 {
-	my ($progress, $plist, $state) = @_;
-	return $progress->sizer_class->new($progress, $plist, $state);
+	my ($progress, $plist) = @_;
+	return $progress->sizer_class->new($progress, $plist);
 }
 
 sub sizer_class
@@ -104,7 +104,7 @@ sub ntogo
 sub visit_with_size
 {
 	my ($progress, $plist, $method, @r) = @_;
-	$plist->$method(@r);
+	$plist->$method($progress->{state}, @r);
 }
 
 sub visit_with_count
@@ -116,13 +116,12 @@ package PureSizer;
 
 sub new
 {
-	my ($class, $progress, $plist, $state) = @_;
+	my ($class, $progress, $plist) = @_;
 	$plist->{totsize} //= $progress->compute_size($plist);
 	bless {
 	    progress => $progress, 
 	    totsize => $plist->{totsize},
 	    donesize => 0,
-	    state => $state
 	    }, $class;
 }
 
@@ -137,8 +136,8 @@ sub advance
 sub saved
 {
 	my $self = shift;
-	$self->{state}{stats}{totsize} += $self->{totsize};
-	$self->{state}{stats}{donesize} += $self->{donesize};
+	$self->{progress}{state}{stats}{totsize} += $self->{totsize};
+	$self->{progress}{state}{stats}{donesize} += $self->{donesize};
 }
 
 1;
