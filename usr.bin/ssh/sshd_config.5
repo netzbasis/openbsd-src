@@ -33,8 +33,8 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: sshd_config.5,v 1.200 2015/04/29 03:48:56 dtucker Exp $
-.Dd $Mdocdate: April 29 2015 $
+.\" $OpenBSD: sshd_config.5,v 1.203 2015/05/22 03:50:02 djm Exp $
+.Dd $Mdocdate: May 22 2015 $
 .Dt SSHD_CONFIG 5
 .Os
 .Sh NAME
@@ -234,9 +234,21 @@ The default is not to require multiple authentication; successful completion
 of a single authentication method is sufficient.
 .It Cm AuthorizedKeysCommand
 Specifies a program to be used to look up the user's public keys.
-The program must be owned by root and not writable by group or others.
-It will be invoked with a single argument of the username
-being authenticated, and should produce on standard output zero or
+The program must be owned by root, not writable by group or others and
+specified by an absolute path.
+.Pp
+Arguments to
+.Cm AuthorizedKeysCommand
+may be provided using the following tokens, which will be expanded
+at runtime: %% is replaced by a literal '%', %u is replaced by the
+username being authenticated, %h is replaced by the home directory
+of the user being authenticated, %t is replaced with the key type
+offered for authentication, %f is replaced with the fingerprint of
+the key, and %k is replaced with the key being offered for authentication.
+If no arguments are specified then the username of the target user
+will be supplied.
+.Pp
+The program should produce on standard output zero or
 more lines of authorized_keys output (see AUTHORIZED_KEYS in
 .Xr sshd 8 ) .
 If a key supplied by AuthorizedKeysCommand does not successfully authenticate
@@ -275,6 +287,42 @@ directory.
 Multiple files may be listed, separated by whitespace.
 The default is
 .Dq .ssh/authorized_keys .ssh/authorized_keys2 .
+.It Cm AuthorizedPrincipalsCommand
+Specifies a program to be used to generate the list of allowed
+certificate principals as per
+.Cm AuthorizedPrincipalsFile .
+The program must be owned by root, not writable by group or others and
+specified by an absolute path.
+.Pp
+Arguments to
+.Cm AuthorizedPrincipalsCommand
+may be provided using the following tokens, which will be expanded
+at runtime: %% is replaced by a literal '%', %u is replaced by the
+username being authenticated and %h is replaced by the home directory
+of the user being authenticated.
+.Pp
+The program should produce on standard output zero or
+more lines of
+.Cm AuthorizedPrincipalsFile
+output.
+If either
+.Cm AuthorizedPrincipalsCommand
+or
+.Cm AuthorizedPrincipalsFile
+is specified, then certificates offered by the client for authentication
+must contain a principal that is listed.
+By default, no AuthorizedPrincipalsCommand is run.
+.It Cm AuthorizedPrincipalsCommandUser
+Specifies the user under whose account the AuthorizedPrincipalsCommand is run.
+It is recommended to use a dedicated user that has no other role on the host
+than running authorized principals commands.
+If
+.Cm AuthorizedPrincipalsCommand
+is specified but
+.Cm AuthorizedPrincipalsCommandUser
+is not, then
+.Xr sshd 8
+will refuse to start.
 .It Cm AuthorizedPrincipalsFile
 Specifies a file that lists principal names that are accepted for
 certificate authentication.
@@ -575,6 +623,21 @@ on logout.
 The default is
 .Dq yes .
 Note that this option applies to protocol version 2 only.
+.It Cm GSSAPIStrictAcceptorCheck
+Determines whether to be strict about the identity of the GSSAPI acceptor
+a client authenticates against.
+If set to
+.Dq yes
+then the client must authenticate against the
+.Pa host
+service on the current hostname.
+If set to
+.Dq no
+then the client may authenticate against any service key stored in the
+machine's default store.
+This facility is provided to assist with operation on multi homed machines.
+The default is
+.Dq yes .
 .It Cm HostbasedAcceptedKeyTypes
 Specifies the key types that will be accepted for hostbased authentication
 as a comma-separated pattern list.
