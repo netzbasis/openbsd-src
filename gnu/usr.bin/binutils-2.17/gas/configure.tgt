@@ -254,6 +254,8 @@ case ${generic_target} in
   m68k-*-openbsd*)			fmt=aout em=obsd bfd_gas=yes ;;
   m68k-*-psos*)				fmt=elf em=psos;;
 
+  m88k-*-openbsd*)			fmt=elf em=obsd ;;
+
   maxq-*-coff)      			fmt=coff bfd_gas=yes ;;
 
   mcore-*-elf)				fmt=elf ;;
@@ -374,7 +376,7 @@ case ${generic_target} in
   v850e-*-*)				fmt=elf ;;
   v850ea-*-*)				fmt=elf ;;
 
-  vax-*-netbsdelf*)			fmt=elf em=nbsd ;;
+  vax-*-netbsdelf* | vax-*-openbsd*)	fmt=elf em=nbsd ;;
   vax-*-linux-*)			fmt=elf em=linux ;;
 
   xscale-*-coff)			fmt=coff ;;

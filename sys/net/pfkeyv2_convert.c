@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkeyv2_convert.c,v 1.51 2015/05/23 12:38:53 markus Exp $	*/
+/*	$OpenBSD: pfkeyv2_convert.c,v 1.53 2015/05/25 22:18:38 benno Exp $	*/
 /*
  * The author of this code is Angelos D. Keromytis (angelos@keromytis.org)
  *
@@ -705,8 +705,10 @@ export_address(void **p, struct sockaddr *sa)
 static void
 import_identity(struct ipsec_id **id, struct sadb_ident *sadb_ident)
 {
-	if (!sadb_ident)
+	if (!sadb_ident) {
+		*id = NULL;
 		return;
+	}
 
 	*id = malloc(EXTLEN(sadb_ident) - sizeof(struct sadb_ident) +
 	    sizeof(struct ipsec_id), M_CREDENTIALS, M_WAITOK);

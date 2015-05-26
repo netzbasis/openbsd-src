@@ -1,4 +1,4 @@
-/*	$OpenBSD: getaddrinfo_async.c,v 1.36 2015/05/05 17:08:44 jca Exp $	*/
+/*	$OpenBSD: getaddrinfo_async.c,v 1.38 2015/05/25 21:59:37 jca Exp $	*/
 /*
  * Copyright (c) 2012 Eric Faurot <eric@openbsd.org>
  *
@@ -27,7 +27,7 @@
 #include <err.h>
 #include <errno.h>
 #include <ifaddrs.h>
-#include <resolv.h> /* for res_hnok */
+#include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -639,7 +639,11 @@ iter_domain(struct asr_query *as, const char *name, char * buf, size_t len)
 		/* FALLTHROUGH */
 
 	case DOM_DOMAIN:
-		if (as->as_dom_idx < as->as_ctx->ac_domcount) {
+		if (as->as_dom_idx < as->as_ctx->ac_domcount &&
+		    (as->as_ctx->ac_options & RES_DNSRCH || (
+			as->as_ctx->ac_options & RES_DEFNAMES &&
+			as->as_dom_idx == 0 &&
+			strchr(name, '.') == NULL))) {
 			DPRINT("asr: iter_domain(\"%s\") domain \"%s\"\n",
 			    name, as->as_ctx->ac_dom[as->as_dom_idx]);
 			as->as_dom_flags |= ASYNC_DOM_DOMAIN;
