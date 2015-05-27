@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.333 2015/05/20 08:28:54 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.335 2015/05/26 11:39:07 mpi Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -80,6 +80,8 @@
 #include <sys/domain.h>
 #include <sys/sysctl.h>
 #include <sys/task.h>
+
+#include <dev/rndvar.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -523,6 +525,8 @@ if_input_process(void *xmq)
 	if (ml_empty(&ml))
 		return;
 
+	add_net_randomness(ml_len(&ml));
+
 	KERNEL_LOCK();
 	s = splnet();
 	while ((m = ml_dequeue(&ml)) != NULL) {
@@ -536,7 +540,7 @@ again:
 		 */
 		ifp = m->m_pkthdr.rcvif;
 		SLIST_FOREACH(ifih, &ifp->if_inputs, ifih_next) {
-			if ((*ifih->ifih_input)(m, NULL))
+			if ((*ifih->ifih_input)(m))
 				break;
 
 			/* Pseudo-drivers might be stacked. */
