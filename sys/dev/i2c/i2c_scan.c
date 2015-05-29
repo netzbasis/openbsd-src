@@ -1,4 +1,4 @@
-/*	$OpenBSD: i2c_scan.c,v 1.143 2014/11/14 07:03:22 jsg Exp $	*/
+/*	$OpenBSD: i2c_scan.c,v 1.145 2015/05/29 00:37:10 uebayasi Exp $	*/
 
 /*
  * Copyright (c) 2005 Theo de Raadt <deraadt@openbsd.org>

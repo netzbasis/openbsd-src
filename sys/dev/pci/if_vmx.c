@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vmx.c,v 1.26 2015/05/26 12:29:42 dlg Exp $	*/
+/*	$OpenBSD: if_vmx.c,v 1.28 2015/05/29 00:37:10 uebayasi Exp $	*/
 
 /*
  * Copyright (c) 2013 Tsubai Masanari
