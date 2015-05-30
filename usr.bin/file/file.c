@@ -1,4 +1,4 @@
-/* $OpenBSD: file.c,v 1.39 2015/05/28 19:26:37 jmc Exp $ */
+/* $OpenBSD: file.c,v 1.44 2015/05/29 15:58:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #include <pwd.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "file.h"
@@ -123,6 +124,8 @@ main(int argc, char **argv)
 	struct input_ack	*ack;
 	pid_t			 pid, parent;
 
+	tzset();
+
 	for (;;) {
 		opt = getopt_long(argc, argv, "bchiLsW", longopts, NULL);
 		if (opt == -1)
@@ -174,8 +177,6 @@ main(int argc, char **argv)
 		if (home != NULL) {
 			xasprintf(&magicpath, "%s/.magic", home);
 			magicfp = fopen(magicpath, "r");
-			if (magicfp == NULL && errno != ENOENT)
-				err(1, "%s", magicpath);
 			if (magicfp == NULL)
 				free(magicpath);
 		}
@@ -373,7 +374,7 @@ child(int fd, pid_t parent, int argc, char **argv)
 }
 
 static void *
-fill_buffer(struct input_file *inf)
+fill_buffer(int fd, size_t size, size_t *used)
 {
 	static void	*buffer;
 	ssize_t		 got;
@@ -384,9 +385,9 @@ fill_buffer(struct input_file *inf)
 		buffer = xmalloc(FILE_READ_SIZE);
 
 	next = buffer;
-	left = inf->size;
+	left = size;
 	while (left != 0) {
-		got = read(inf->fd, next, left);
+		got = read(fd, next, left);
 		if (got == -1) {
 			if (errno == EINTR)
 				continue;
@@ -397,33 +398,38 @@ fill_buffer(struct input_file *inf)
 		next = (char *)next + got;
 		left -= got;
 	}
-
+	*used = size - left;
 	return buffer;
 }
 
 static int
 load_file(struct input_file *inf)
 {
+	size_t	used;
+
 	inf->size = inf->msg->sb.st_size;
-	if (inf->size > FILE_READ_SIZE)
+	if (inf->size == 0 && S_ISREG(inf->msg->sb.st_mode))
+		return (0); /* empty file */
+	if (inf->size == 0 || inf->size > FILE_READ_SIZE)
 		inf->size = FILE_READ_SIZE;
-	if (inf->size == 0) {
-		if (!S_ISREG(inf->msg->sb.st_mode))
-			inf->size = FILE_READ_SIZE;
-		else
-			return (0);
-	}
+
+	if (!S_ISREG(inf->msg->sb.st_mode))
+		goto try_read;
 
 	inf->base = mmap(NULL, inf->size, PROT_READ, MAP_PRIVATE, inf->fd, 0);
-	if (inf->base == MAP_FAILED) {
-		inf->base = fill_buffer(inf);
-		if (inf->base == NULL) {
-			xasprintf(&inf->result, "cannot read '%s' (%s)",
-			    inf->path, strerror(errno));
-			return (1);
-		}
-	} else
-		inf->mapped = 1;
+	if (inf->base == MAP_FAILED)
+		goto try_read;
+	inf->mapped = 1;
+	return (0);
+
+try_read:
+	inf->base = fill_buffer(inf->fd, inf->size, &used);
+	if (inf->base == NULL) {
+		xasprintf(&inf->result, "cannot read '%s' (%s)", inf->path,
+		    strerror(errno));
+		return (1);
+	}
+	inf->size = used;
 	return (0);
 }
 

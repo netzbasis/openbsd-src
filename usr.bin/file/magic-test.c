@@ -1,4 +1,4 @@
-/* $OpenBSD: magic-test.c,v 1.3 2015/04/25 16:35:47 brynet Exp $ */
+/* $OpenBSD: magic-test.c,v 1.6 2015/05/29 15:58:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -38,7 +38,7 @@ magic_one_eq(char a, char b, int cflag)
 {
 	if (a == b)
 		return (1);
-	if (cflag && tolower((u_char)a) == tolower((u_char)b))
+	if (cflag && islower((u_char)b) && tolower((u_char)a) == (u_char)b)
 		return (1);
 	return (0);
 }
@@ -603,7 +603,7 @@ magic_test_type_date(struct magic_line *ml, struct magic_state *ms)
 			ctime_r(&t, s);
 			break;
 		default:
-			asctime_r(localtime(&t), s);
+			asctime_r(gmtime(&t), s);
 			break;
 		}
 		s[strcspn(s, "\n")] = '\0';
@@ -645,7 +645,7 @@ magic_test_type_qdate(struct magic_line *ml, struct magic_state *ms)
 			ctime_r(&t, s);
 			break;
 		default:
-			asctime_r(localtime(&t), s);
+			asctime_r(gmtime(&t), s);
 			break;
 		}
 		s[strcspn(s, "\n")] = '\0';
@@ -1087,7 +1087,7 @@ magic_test_line(struct magic_line *ml, struct magic_state *ms)
 		ms->offset = offset;
 		magic_test_line(child, ms);
 	}
-	return (1);
+	return (ml->result != NULL);
 }
 
 const char *

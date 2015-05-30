@@ -1,4 +1,4 @@
-/*	$OpenBSD: fsck.c,v 1.35 2015/04/18 18:28:37 deraadt Exp $	*/
+/*	$OpenBSD: fsck.c,v 1.37 2015/05/29 15:57:36 deraadt Exp $	*/
 /*	$NetBSD: fsck.c,v 1.7 1996/10/03 20:06:30 christos Exp $	*/
 
 /*
@@ -287,8 +287,7 @@ checkfs(const char *vfstype, const char *spec, const char *mntpt, void *auxarg,
 	switch (pid = fork()) {
 	case -1:				/* Error. */
 		warn("fork");
-		if (optbuf)
-			free(optbuf);
+		free(optbuf);
 		free(argv);
 		return (1);
 
@@ -320,8 +319,7 @@ checkfs(const char *vfstype, const char *spec, const char *mntpt, void *auxarg,
 		/* NOTREACHED */
 
 	default:				/* Parent. */
-		if (optbuf)
-			free(optbuf);
+		free(optbuf);
 		free(argv);
 
 		if (pidp) {
@@ -439,7 +437,7 @@ catopt(char *s0, const char *s1, int fr)
 	} else
 		cp = estrdup(s1);
 
-	if (s0 && fr)
+	if (fr)
 		free(s0);
 	return (cp);
 }
@@ -451,9 +449,6 @@ mangle(char *opts, int *argcp, const char ***argvp, int *maxargcp)
 	char *p, *s;
 	int argc = *argcp, maxargc = *maxargcp;
 	const char **argv = *argvp;
-
-	argc = *argcp;
-	maxargc = *maxargcp;
 
 	for (s = opts; (p = strsep(&s, ",")) != NULL;) {
 		/* always leave space for one more argument and the NULL */

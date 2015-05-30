@@ -1,4 +1,4 @@
-/* $OpenBSD: sandbox.c,v 1.5 2015/05/18 11:57:52 deraadt Exp $ */
+/* $OpenBSD: sandbox.c,v 1.7 2015/05/29 15:58:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
