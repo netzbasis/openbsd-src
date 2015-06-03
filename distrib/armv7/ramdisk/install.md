@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.10 2015/06/02 01:48:25 jsg Exp $
+#	$OpenBSD: install.md,v 1.13 2015/06/03 01:30:29 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -94,13 +94,14 @@ __EOT
 		if [[ -n $CUBOX ]]; then
 			cat > /tmp/boot.cmd<<__EOT
 ; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in usb mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg
+__EOT
 			mkuboot -t script -a arm -o linux /tmp/boot.cmd /mnt/mnt/boot.scr
 			dd if=/mnt/usr/mdec/cubox/SPL of=/dev/${_disk}c bs=1024 seek=1
 			dd if=/mnt/usr/mdec/cubox/u-boot.img of=/dev/${_disk}c bs=1024 seek=42
 		elif [[ -n $NITROGEN ]]; then
 			cat > /tmp/6x_bootscript.scr<<__EOT
 	; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in sata mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg 
-	__EOT
+__EOT
 			mkuboot -t script -a arm -o linux /tmp/6x_bootscript.scr /mnt/mnt/6x_bootscript
 		fi
 	elif [[ ${MDPLAT} == "SUNXI" ]]; then
@@ -136,7 +137,7 @@ md_prep_fdisk() {
 
 	while :; do
 		_d=whole
-		if [[ -n $(fdisk $_disk | grep 'Signature: 0xAA55') ]]; then
+		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
 			fdisk $_disk
 		else
 			echo "MBR has invalid signature; not showing it."
@@ -180,7 +181,7 @@ at least 16MB and be the first 'MSDOS' partition on the disk.
 $(fdisk ${_disk})
 __EOT
 			fdisk -e ${_disk}
-			[[ -n $(fdisk $_disk | grep ' A6 ') ]] && return
+			fdisk $_disk | grep -q ' A6 ' && return
 			echo No OpenBSD partition in MBR, try again. ;;
 		o*|O*)	return ;;
 		esac
@@ -207,7 +208,7 @@ start of the disk, NOT the start of the OpenBSD MBR partition.
 
 __EOT
 
-	disklabel $FSTABFLAG $_f -E $_disk
+	disklabel -F $_f -E $_disk
 }
 
 md_congrats() {
