@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.515 2015/05/27 13:28:04 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.521 2015/06/05 22:33:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1374,8 +1374,7 @@ struct cmd_entry {
 	const char	*usage;
 
 #define CMD_STARTSERVER 0x1
-#define CMD_CANTNEST 0x2
-#define CMD_READONLY 0x4
+#define CMD_READONLY 0x2
 	int		 flags;
 
 	enum cmd_retval	 (*exec)(struct cmd *, struct cmd_q *);
@@ -1688,8 +1687,12 @@ struct session	*cmd_find_current(struct cmd_q *);
 struct session	*cmd_find_session(struct cmd_q *, const char *, int);
 struct winlink	*cmd_find_window(struct cmd_q *, const char *,
 		     struct session **);
+struct winlink	*cmd_find_window_marked(struct cmd_q *, const char *,
+		     struct session **);
 struct winlink	*cmd_find_pane(struct cmd_q *, const char *, struct session **,
 		     struct window_pane **);
+struct winlink	*cmd_find_pane_marked(struct cmd_q *, const char *,
+		     struct session **, struct window_pane **);
 struct client	*cmd_find_client(struct cmd_q *, const char *, int);
 int		 cmd_find_index(struct cmd_q *, const char *,
 		     struct session **);
@@ -1850,14 +1853,25 @@ const char *key_string_lookup_key(int);
 /* server.c */
 extern struct clients clients;
 extern struct clients dead_clients;
+extern struct session *marked_session;
+extern struct winlink *marked_winlink;
+extern struct window_pane *marked_window_pane;
+void	 server_set_marked(struct session *, struct winlink *,
+	     struct window_pane *);
+void	 server_clear_marked(void);
+int	 server_is_marked(struct session *, struct winlink *,
+	     struct window_pane *);
+int	 server_check_marked(void);
 int	 server_start(int, char *);
 void	 server_update_socket(void);
 void	 server_add_accept(int);
 
 /* server-client.c */
+int	 server_client_check_nested(struct client *);
 void	 server_client_handle_key(struct client *, int);
 void	 server_client_create(int);
 int	 server_client_open(struct client *, char **);
+void	 server_client_unref(struct client *);
 void	 server_client_lost(struct client *);
 void	 server_client_callback(int, short, void *);
 void	 server_client_status_timer(void);
@@ -1939,6 +1953,7 @@ char	*xterm_keys_lookup(int);
 int	 xterm_keys_find(const char *, size_t, size_t *, int *);
 
 /* colour.c */
+int	 colour_find_rgb(u_char, u_char, u_char);
 void	 colour_set_fg(struct grid_cell *, int);
 void	 colour_set_bg(struct grid_cell *, int);
 const char *colour_tostring(int);
@@ -2245,7 +2260,6 @@ void	control_notify_session_close(struct session *);
 
 /* session.c */
 extern struct sessions sessions;
-extern struct sessions dead_sessions;
 extern struct session_groups session_groups;
 int	session_cmp(struct session *, struct session *);
 RB_PROTOTYPE(sessions, session, entry, session_cmp);
@@ -2257,6 +2271,7 @@ struct session	*session_create(const char *, int, char **, const char *,
 		     int, struct environ *, struct termios *, int, u_int,
 		     u_int, char **);
 void		 session_destroy(struct session *);
+void		 session_unref(struct session *);
 int		 session_check_name(const char *);
 void		 session_update_activity(struct session *);
 struct session	*session_next_session(struct session *);

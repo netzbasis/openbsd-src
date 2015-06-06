@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.32 2015/04/27 16:25:57 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.34 2015/06/05 18:06:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -132,7 +132,7 @@ cmd_load_buffer_callback(struct client *c, int closed, void *data)
 		return;
 	c->stdin_callback = NULL;
 
-	c->references--;
+	server_client_unref(c);
 	if (c->flags & CLIENT_DEAD)
 		return;
 

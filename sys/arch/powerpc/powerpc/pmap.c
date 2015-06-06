@@ -1,10 +1,11 @@
-/*	$OpenBSD: pmap.c,v 1.145 2015/04/23 14:42:02 mpi Exp $ */
+/*	$OpenBSD: pmap.c,v 1.159 2015/06/05 10:15:54 mpi Exp $ */
 
 /*
+ * Copyright (c) 2015 Martin Pieuchot
  * Copyright (c) 2001, 2002, 2007 Dale Rahn.
  * All rights reserved.
  *
- *   
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -28,7 +29,7 @@
  * Effort sponsored in part by the Defense Advanced Research Projects
  * Agency (DARPA) and Air Force Research Laboratory, Air Force
  * Materiel Command, USAF, under agreement number F30602-01-2-0537.
- */  
+ */
 
 /*
  * powerpc lazy icache managment.
@@ -88,10 +89,6 @@
 #include <powerpc/bat.h>
 #include <machine/pmap.h>
 
-#include <machine/db_machdep.h>
-#include <ddb/db_extern.h>
-#include <ddb/db_output.h>
-
 struct bat battable[16];
 
 struct dumpmem dumpmem[VM_PHYSSEG_MAX];
@@ -125,15 +122,10 @@ struct pte_desc {
 	vaddr_t pted_va;
 };
 
-void print_pteg(pmap_t pm, vaddr_t va);
-
-static inline void tlbsync(void);
-static inline void tlbie(vaddr_t ea);
-void tlbia(void);
-
 void pmap_attr_save(paddr_t pa, u_int32_t bits);
-void pmap_page_ro64(pmap_t pm, vaddr_t va, vm_prot_t prot);
-void pmap_page_ro32(pmap_t pm, vaddr_t va, vm_prot_t prot);
+void pmap_pted_ro(struct pte_desc *, vm_prot_t);
+void pmap_pted_ro64(struct pte_desc *, vm_prot_t);
+void pmap_pted_ro32(struct pte_desc *, vm_prot_t);
 
 /*
  * Some functions are called in real mode and cannot be profiled.
@@ -152,7 +144,7 @@ void pmap_remove_pv(struct pte_desc *pted);
 
 
 /* pte hash table routines */
-void pmap_hash_remove(struct pte_desc *);
+static inline void *pmap_ptedinhash(struct pte_desc *);
 void pte_insert32(struct pte_desc *) __noprof;
 void pte_insert64(struct pte_desc *) __noprof;
 void pmap_fill_pte64(pmap_t, vaddr_t, paddr_t, struct pte_desc *, vm_prot_t,
@@ -164,7 +156,7 @@ void pmap_syncicache_user_virt(pmap_t pm, vaddr_t va);
 
 void _pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot, int flags,
     int cache);
-void pmap_remove_pg(pmap_t pm, vaddr_t va);
+void pmap_remove_pted(pmap_t, struct pte_desc *);
 
 /* setup/initialization functions */
 void pmap_avail_setup(void);
@@ -174,15 +166,14 @@ void *pmap_steal_avail(size_t size, int align);
 
 /* asm interface */
 int pte_spill_r(u_int32_t, u_int32_t, u_int32_t, int) __noprof;
+int pte_spill_v(pmap_t, u_int32_t, u_int32_t, int) __noprof;
 
 u_int32_t pmap_setusr(pmap_t pm, vaddr_t va);
 void pmap_popusr(u_int32_t oldsr);
 
 /* pte invalidation */
-void pte_zap(void *ptp, struct pte_desc *pted);
-
-/* debugging */
-void pmap_print_pted(struct pte_desc *pted, int(*print)(const char *, ...));
+void pte_del(void *, vaddr_t);
+void pte_zap(void *, struct pte_desc *);
 
 /* XXX - panic on pool get failures? */
 struct pool pmap_pmap_pool;
@@ -194,63 +185,52 @@ int physmem;
 int physmaxaddr;
 
 #ifdef MULTIPROCESSOR
-void pmap_hash_lock_init(void);
-void pmap_hash_lock(int entry);
-void pmap_hash_unlock(int entry)  __noprof;
-int pmap_hash_lock_try(int entry) __noprof;
+struct __mp_lock pmap_hash_lock;
 
-volatile unsigned int pmap_hash_lock_word = 0;
+#define	PMAP_HASH_LOCK_INIT()		__mp_lock_init(&pmap_hash_lock)
 
-void
-pmap_hash_lock_init()
-{
-	pmap_hash_lock_word = 0;
-}
+#define	PMAP_HASH_LOCK(s)						\
+do {									\
+	s = ppc_intr_disable();						\
+	__mp_lock(&pmap_hash_lock);					\
+} while (0)
 
-int
-pmap_hash_lock_try(int entry)
-{
-	int val = 1 << entry;
-	int success, tmp;
-	__asm volatile (
-	    "1: lwarx	%0, 0, %3	\n"
-	    "	and.	%1, %2, %0	\n"
-	    "	li	%1, 0		\n"
-	    "	bne 2f			\n"
-	    "	or	%0, %2, %0	\n"
-	    "	stwcx.  %0, 0, %3	\n"
-	    "	li	%1, 1		\n"
-	    "	bne-	1b		\n"
-	    "2:				\n"
-	    : "=&r" (tmp), "=&r" (success)
-	    : "r" (val), "r" (&pmap_hash_lock_word)
-	    : "memory");
-	return success;
-}
+#define	PMAP_HASH_UNLOCK(s)						\
+do {									\
+	__mp_unlock(&pmap_hash_lock);					\
+	ppc_intr_enable(s);						\
+} while (0)
 
+#define	PMAP_VP_LOCK_INIT(pm)		mtx_init(&pm->pm_mtx, IPL_VM)
 
-void
-pmap_hash_lock(int entry)
-{
-	int attempt = 0;
-	int locked = 0;
-	do {
-		if (pmap_hash_lock_word & (1 << entry)) {
-			attempt++;
-			if(attempt >0x20000000)
-				panic("unable to obtain lock on entry %d",
-				    entry);
-			continue;
-		}
-		locked = pmap_hash_lock_try(entry);
-	} while (locked == 0);
-}
+#define	PMAP_VP_LOCK(pm)						\
+do {									\
+	if (pm != pmap_kernel())					\
+		mtx_enter(&pm->pm_mtx);					\
+} while (0)
 
-void
-pmap_hash_unlock(int entry)
-{
-	atomic_clearbits_int(&pmap_hash_lock_word,  1 << entry);
-}
+#define	PMAP_VP_UNLOCK(pm)						\
+do {									\
+	if (pm != pmap_kernel())					\
+		mtx_leave(&pm->pm_mtx);					\
+} while (0)
+
+#define PMAP_VP_ASSERT_LOCKED(pm)					\
+do {									\
+	if (pm != pmap_kernel())					\
+		MUTEX_ASSERT_LOCKED(&pm->pm_mtx);			\
+} while (0)
+
+#else /* ! MULTIPROCESSOR */
+
+#define	PMAP_HASH_LOCK_INIT()		/* nothing */
+#define	PMAP_HASH_LOCK(s)		(void)s
+#define	PMAP_HASH_UNLOCK(s)		/* nothing */
+
+#define	PMAP_VP_LOCK_INIT(pm)		/* nothing */
+#define	PMAP_VP_LOCK(pm)		/* nothing */
+#define	PMAP_VP_UNLOCK(pm)		/* nothing */
+#define	PMAP_VP_ASSERT_LOCKED(pm)	/* nothing */
 #endif /* MULTIPROCESSOR */
 
 /* virtual to physical helpers */
@@ -299,6 +279,8 @@ pmap_vp_lookup(pmap_t pm, vaddr_t va)
 	struct pmapvp *vp2;
 	struct pte_desc *pted;
 
+	PMAP_VP_ASSERT_LOCKED(pm);
+
 	vp1 = pm->pm_vp[VP_SR(va)];
 	if (vp1 == NULL) {
 		return NULL;
@@ -324,6 +306,8 @@ pmap_vp_remove(pmap_t pm, vaddr_t va)
 	struct pmapvp *vp2;
 	struct pte_desc *pted;
 
+	PMAP_VP_ASSERT_LOCKED(pm);
+
 	vp1 = pm->pm_vp[VP_SR(va)];
 	if (vp1 == NULL) {
 		return NULL;
@@ -345,14 +329,14 @@ pmap_vp_remove(pmap_t pm, vaddr_t va)
  * with reference to the pte descriptor that is used to map the page.
  * This code should track allocations of vp table allocations
  * so they can be freed efficiently.
- * 
- * Should this be called under splvm?
  */
 int
 pmap_vp_enter(pmap_t pm, vaddr_t va, struct pte_desc *pted, int flags)
 {
 	struct pmapvp *vp1;
 	struct pmapvp *vp2;
+
+	PMAP_VP_ASSERT_LOCKED(pm);
 
 	vp1 = pm->pm_vp[VP_SR(va)];
 	if (vp1 == NULL) {
@@ -381,28 +365,40 @@ pmap_vp_enter(pmap_t pm, vaddr_t va, struct pte_desc *pted, int flags)
 	return 0;
 }
 
-/* PTE manipulation/calculations */
 static inline void
 tlbie(vaddr_t va)
 {
-	__asm volatile ("tlbie %0" :: "r"(va));
+	asm volatile ("tlbie %0" :: "r"(va & ~PAGE_MASK));
 }
 
 static inline void
 tlbsync(void)
 {
-	__asm volatile ("sync; tlbsync; sync");
+	asm volatile ("tlbsync");
+}
+static inline void
+eieio(void)
+{
+	asm volatile ("eieio");
 }
 
-void
-tlbia()
+static inline void
+sync(void)
+{
+	asm volatile ("sync");
+}
+
+static inline void
+tlbia(void)
 {
 	vaddr_t va;
 
-	__asm volatile ("sync");
+	sync();
 	for (va = 0; va < 0x00040000; va += 0x00001000)
 		tlbie(va);
+	eieio();
 	tlbsync();
+	sync();
 }
 
 static inline int
@@ -500,6 +496,7 @@ pmap_enter_pv(struct pte_desc *pted, struct vm_page *pg)
 void
 pmap_remove_pv(struct pte_desc *pted)
 {
+	pted->pted_va &= ~PTED_VA_MANAGED_M;
 	LIST_REMOVE(pted, pted_pv_list);
 }
 
@@ -539,20 +536,16 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	struct vm_page *pg;
 	boolean_t nocache = (pa & PMAP_NOCACHE) != 0;
 	boolean_t wt = (pa & PMAP_WT) != 0;
-	int s;
 	int need_sync = 0;
-	int cache;
-	int error;
+	int cache, error = 0;
 
 	KASSERT(!(wt && nocache));
 	pa &= PMAP_PA_MASK;
 
-	/* MP - Acquire lock for this pmap */
-
-	s = splvm();
+	PMAP_VP_LOCK(pm);
 	pted = pmap_vp_lookup(pm, va);
 	if (pted && PTED_VALID(pted)) {
-		pmap_remove_pg(pm, va);
+		pmap_remove_pted(pm, pted);
 		/* we lost our pted if it was user */
 		if (pm != pmap_kernel())
 			pted = pmap_vp_lookup(pm, va);
@@ -562,19 +555,18 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 
 	/* Do not have pted for this, get one and put it in VP */
 	if (pted == NULL) {
-		pted = pool_get(&pmap_pted_pool, PR_NOWAIT | PR_ZERO);	
+		pted = pool_get(&pmap_pted_pool, PR_NOWAIT | PR_ZERO);
 		if (pted == NULL) {
 			if ((flags & PMAP_CANFAIL) == 0) {
-				splx(s);
-				return ENOMEM;
+				error = ENOMEM;
+				goto out;
 			}
 			panic("pmap_enter: failed to allocate pted");
 		}
 		error = pmap_vp_enter(pm, va, pted, flags);
 		if (error) {
 			pool_put(&pmap_pted_pool, pted);
-			splx(s);
-			return error;
+			goto out;
 		}
 	}
 
@@ -632,110 +624,54 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 			atomic_clearbits_int(&pg->pg_flags, PG_PMAP_EXE);
 	}
 
-	splx(s);
-
 	/* only instruction sync executable pages */
 	if (need_sync)
 		pmap_syncicache_user_virt(pm, va);
 
-	/* MP - free pmap lock */
-	return 0;
+out:
+	PMAP_VP_UNLOCK(pm);
+	return (error);
 }
 
-/* 
+/*
  * Remove the given range of mapping entries.
  */
 void
-pmap_remove(pmap_t pm, vaddr_t va, vaddr_t endva)
+pmap_remove(pmap_t pm, vaddr_t sva, vaddr_t eva)
 {
-	int i_sr, s_sr, e_sr;
-	int i_vp1, s_vp1, e_vp1;
-	int i_vp2, s_vp2, e_vp2;
-	struct pmapvp *vp1;
-	struct pmapvp *vp2;
+	struct pte_desc *pted;
+	vaddr_t va;
 
-	/* I suspect that if this loop were unrolled better 
-	 * it would have better performance, testing i_sr and i_vp1
-	 * in the middle loop seems excessive
-	 */
-
-	s_sr = VP_SR(va);
-	e_sr = VP_SR(endva);
-	for (i_sr = s_sr; i_sr <= e_sr; i_sr++) {
-		vp1 = pm->pm_vp[i_sr];
-		if (vp1 == NULL)
-			continue;
-
-		if (i_sr == s_sr)
-			s_vp1 = VP_IDX1(va);
-		else
-			s_vp1 = 0;
-
-		if (i_sr == e_sr)
-			e_vp1 = VP_IDX1(endva);
-		else
-			e_vp1 = VP_IDX1_SIZE-1; 
-
-		for (i_vp1 = s_vp1; i_vp1 <= e_vp1; i_vp1++) {
-			vp2 = vp1->vp[i_vp1];
-			if (vp2 == NULL)
-				continue;
-
-			if ((i_sr == s_sr) && (i_vp1 == s_vp1))
-				s_vp2 = VP_IDX2(va);
-			else
-				s_vp2 = 0;
-
-			if ((i_sr == e_sr) && (i_vp1 == e_vp1))
-				e_vp2 = VP_IDX2(endva);
-			else
-				e_vp2 = VP_IDX2_SIZE; 
-
-			for (i_vp2 = s_vp2; i_vp2 < e_vp2; i_vp2++) {
-				if (vp2->vp[i_vp2] != NULL) {
-					pmap_remove_pg(pm,
-					    (i_sr << VP_SR_POS) |
-					    (i_vp1 << VP_IDX1_POS) |
-					    (i_vp2 << VP_IDX2_POS));
-				}
-			}
-		}
+	PMAP_VP_LOCK(pm);
+	for (va = sva; va < eva; va += PAGE_SIZE) {
+		pted = pmap_vp_lookup(pm, va);
+		if (pted && PTED_VALID(pted))
+			pmap_remove_pted(pm, pted);
 	}
+	PMAP_VP_UNLOCK(pm);
 }
+
 /*
  * remove a single mapping, notice that this code is O(1)
  */
 void
-pmap_remove_pg(pmap_t pm, vaddr_t va)
+pmap_remove_pted(pmap_t pm, struct pte_desc *pted)
 {
-	struct pte_desc *pted;
+	void *pte;
 	int s;
 
-	/*
-	 * HASH needs to be locked here as well as pmap, and pv list.
-	 * so that we know the mapping information is either valid,
-	 * or that the mapping is not present in the hash table.
-	 */
-	s = splvm();
-	if (pm == pmap_kernel()) {
-		pted = pmap_vp_lookup(pm, va);
-		if (pted == NULL || !PTED_VALID(pted)) {
-			splx(s);
-			return;
-		} 
-	} else {
-		pted = pmap_vp_remove(pm, va);
-		if (pted == NULL || !PTED_VALID(pted)) {
-			splx(s);
-			return;
-		}
-	}
+	KASSERT(pm == pted->pted_pmap);
+	PMAP_VP_ASSERT_LOCKED(pm);
+
 	pm->pm_stats.resident_count--;
 
-	pmap_hash_remove(pted);
+	PMAP_HASH_LOCK(s);
+	if ((pte = pmap_ptedinhash(pted)) != NULL)
+		pte_zap(pte, pted);
+	PMAP_HASH_UNLOCK(s);
 
 	if (pted->pted_va & PTED_VA_EXEC_M) {
-		u_int sn = VP_SR(va);
+		u_int sn = VP_SR(pted->pted_va);
 
 		pted->pted_va &= ~PTED_VA_EXEC_M;
 		pm->pm_exec[sn]--;
@@ -751,10 +687,10 @@ pmap_remove_pg(pmap_t pm, vaddr_t va)
 	if (PTED_MANAGED(pted))
 		pmap_remove_pv(pted);
 
-	if (pm != pmap_kernel())
+	if (pm != pmap_kernel()) {
+		(void)pmap_vp_remove(pm, pted->pted_va);
 		pool_put(&pmap_pted_pool, pted);
-
-	splx(s);
+	}
 }
 
 /*
@@ -774,19 +710,16 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 	boolean_t nocache = (pa & PMAP_NOCACHE) != 0;
 	boolean_t wt = (pa & PMAP_WT) != 0;
 	pmap_t pm;
-	int cache, s;
+	int cache;
 
 	KASSERT(!(wt && nocache));
 	pa &= PMAP_PA_MASK;
 
 	pm = pmap_kernel();
 
-	/* MP - lock pmap. */
-	s = splvm();
-
 	pted = pmap_vp_lookup(pm, va);
 	if (pted && PTED_VALID(pted))
-		pmap_remove_pg(pm, va); /* pted is reused */
+		pmap_remove_pted(pm, pted); /* pted is reused */
 
 	pm->pm_stats.resident_count++;
 
@@ -835,8 +768,6 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 		if (pm->pm_sr[sn] & SR_NOEXEC)
 			pm->pm_sr[sn] &= ~SR_NOEXEC;
 	}
-
-	splx(s);
 }
 
 /*
@@ -845,105 +776,94 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 void
 pmap_kremove(vaddr_t va, vsize_t len)
 {
-	for (len >>= PAGE_SHIFT; len >0; len--, va += PAGE_SIZE)
-		pmap_remove_pg(pmap_kernel(), va);
-}
+	struct pte_desc *pted;
 
-void
-pte_zap(void *ptp, struct pte_desc *pted)
-{
-
-	struct pte_64 *ptp64 = (void*) ptp;
-	struct pte_32 *ptp32 = (void*) ptp;
-
-	if (ppc_proc_is_64b)
-		ptp64->pte_hi &= ~PTE_VALID_64;
-	else 
-		ptp32->pte_hi &= ~PTE_VALID_32;
-
-	__asm volatile ("sync");
-	tlbie(pted->pted_va);
-	__asm volatile ("sync");
-	tlbsync();
-	__asm volatile ("sync");
-	if (ppc_proc_is_64b) {
-		if (PTED_MANAGED(pted))
-			pmap_attr_save(pted->p.pted_pte64.pte_lo & PTE_RPGN_64,
-			    ptp64->pte_lo & (PTE_REF_64|PTE_CHG_64));
-	} else {
-		if (PTED_MANAGED(pted))
-			pmap_attr_save(pted->p.pted_pte32.pte_lo & PTE_RPGN_32,
-			    ptp32->pte_lo & (PTE_REF_32|PTE_CHG_32));
+	for (len >>= PAGE_SHIFT; len > 0; len--, va += PAGE_SIZE) {
+		pted = pmap_vp_lookup(pmap_kernel(), va);
+		if (pted && PTED_VALID(pted))
+			pmap_remove_pted(pmap_kernel(), pted);
 	}
 }
 
-/*
- * remove specified entry from hash table.
- * all information is present in pted to look up entry
- * LOCKS... should the caller lock?
- */
-void
-pmap_hash_remove(struct pte_desc *pted)
+static inline void *
+pmap_ptedinhash(struct pte_desc *pted)
 {
-	vaddr_t va = pted->pted_va;
+	vaddr_t va = pted->pted_va & ~PAGE_MASK;
 	pmap_t pm = pted->pted_pmap;
-	struct pte_64 *ptp64;
-	struct pte_32 *ptp32;
 	int sr, idx;
-#ifdef MULTIPROCESSOR
-	int s;
-#endif
 
 	sr = ptesr(pm->pm_sr, va);
 	idx = pteidx(sr, va);
 
-	idx =  (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0));
-	/* determine which pteg mapping is present in */
-
 	if (ppc_proc_is_64b) {
-		int entry = PTED_PTEGIDX(pted); 
-		ptp64 = pmap_ptable64 + (idx * 8);
-		ptp64 += entry; /* increment by entry into pteg */
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		pmap_hash_lock(entry);
-#endif
+		struct pte_64 *pte = pmap_ptable64;
+
+		pte += (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
+		pte += PTED_PTEGIDX(pted);
+
 		/*
 		 * We now have the pointer to where it will be, if it is
 		 * currently mapped. If the mapping was thrown away in
-		 * exchange for another page mapping, then this page is not
-		 * currently in the HASH.
+		 * exchange for another page mapping, then this page is
+		 * not currently in the HASH.
 		 */
-		if ((pted->p.pted_pte64.pte_hi | 
-		    (PTED_HID(pted) ? PTE_HID_64 : 0)) == ptp64->pte_hi) {
-			pte_zap((void*)ptp64, pted);
-		}
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(entry);
-		ppc_intr_enable(s);
-#endif
+		if ((pted->p.pted_pte64.pte_hi |
+		    (PTED_HID(pted) ? PTE_HID_64 : 0)) == pte->pte_hi)
+			return (pte);
 	} else {
-		int entry = PTED_PTEGIDX(pted); 
-		ptp32 = pmap_ptable32 + (idx * 8);
-		ptp32 += entry; /* increment by entry into pteg */
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		pmap_hash_lock(entry);
-#endif
+		struct pte_32 *pte = pmap_ptable32;
+
+		pte += (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
+		pte += PTED_PTEGIDX(pted);
+
 		/*
 		 * We now have the pointer to where it will be, if it is
 		 * currently mapped. If the mapping was thrown away in
-		 * exchange for another page mapping, then this page is not
-		 * currently in the HASH.
+		 * exchange for another page mapping, then this page is
+		 * not currently in the HASH.
 		 */
 		if ((pted->p.pted_pte32.pte_hi |
-		    (PTED_HID(pted) ? PTE_HID_32 : 0)) == ptp32->pte_hi) {
-			pte_zap((void*)ptp32, pted);
-		}
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(entry);
-		ppc_intr_enable(s);
-#endif
+		    (PTED_HID(pted) ? PTE_HID_32 : 0)) == pte->pte_hi)
+			return (pte);
+	}
+
+	return (NULL);
+}
+
+/*
+ * Delete a Page Table Entry, section 7.6.3.3.
+ *
+ * Note: pte must be locked.
+ */
+void
+pte_del(void *pte, vaddr_t va)
+{
+	if (ppc_proc_is_64b)
+		((struct pte_64 *)pte)->pte_hi &= ~PTE_VALID_64;
+	else
+		((struct pte_32 *)pte)->pte_hi &= ~PTE_VALID_32;
+
+	sync();		/* Ensure update completed. */
+	tlbie(va);	/* Invalidate old translation. */
+	eieio();	/* Order tlbie before tlbsync. */
+	tlbsync();	/* Ensure tlbie completed on all processors. */
+	sync();		/* Ensure tlbsync and update completed. */
+}
+
+void
+pte_zap(void *pte, struct pte_desc *pted)
+{
+	pte_del(pte, pted->pted_va);
+
+	if (!PTED_MANAGED(pted))
+		return;
+
+	if (ppc_proc_is_64b) {
+		pmap_attr_save(pted->p.pted_pte64.pte_lo & PTE_RPGN_64,
+		    ((struct pte_64 *)pte)->pte_lo & (PTE_REF_64|PTE_CHG_64));
+	} else {
+		pmap_attr_save(pted->p.pted_pte32.pte_lo & PTE_RPGN_32,
+		    ((struct pte_32 *)pte)->pte_lo & (PTE_REF_32|PTE_CHG_32));
 	}
 }
 
@@ -987,6 +907,7 @@ pmap_fill_pte64(pmap_t pm, vaddr_t va, paddr_t pa, struct pte_desc *pted,
 
 	pted->pted_pmap = pm;
 }
+
 /*
  * What about execution control? Even at only a segment granularity.
  */
@@ -1025,117 +946,96 @@ pmap_fill_pte32(pmap_t pm, vaddr_t va, paddr_t pa, struct pte_desc *pted,
 	pted->pted_pmap = pm;
 }
 
-/*
- * read/clear bits from pte/attr cache, for reference/change
- * ack, copied code in the pte flush code....
- */
 int
-pteclrbits(struct vm_page *pg, u_int flagbit, u_int clear)
+pmap_test_attrs(struct vm_page *pg, u_int flagbit)
 {
 	u_int bits;
-	int s;
 	struct pte_desc *pted;
 	u_int ptebit = pmap_flags2pte(flagbit);
+	int s;
 
 	/* PTE_CHG_32 == PTE_CHG_64 */
 	/* PTE_REF_32 == PTE_REF_64 */
 
-	/*
-	 *  First try the attribute cache
-	 */
 	bits = pg->pg_flags & flagbit;
-	if ((bits == flagbit) && (clear == 0))
+	if ((bits == flagbit))
 		return bits;
 
-	/* cache did not contain all necessary bits,
-	 * need to walk thru pv table to collect all mappings for this
-	 * page, copying bits to the attribute cache 
-	 * then reread the attribute cache.
-	 */
-	/* need lock for this pv */
-	s = splvm();
-
 	LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list) {
-		vaddr_t va = pted->pted_va & ~PAGE_MASK;
-		pmap_t pm = pted->pted_pmap;
-		struct pte_64 *ptp64;
-		struct pte_32 *ptp32;
-		int sr, idx;
+		void *pte;
 
-		sr = ptesr(pm->pm_sr, va);
-		idx = pteidx(sr, va);
-
-		/* determine which pteg mapping is present in */
-		if (ppc_proc_is_64b) {
-			ptp64 = pmap_ptable64 +
-				(idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-			ptp64 += PTED_PTEGIDX(pted); /* increment by index into pteg */
-
-			/*
-			 * We now have the pointer to where it will be, if it is
-			 * currently mapped. If the mapping was thrown away in
-			 * exchange for another page mapping, then this page is
-			 * not currently in the HASH.
-			 *
-			 * if we are not clearing bits, and have found all of the
-			 * bits we want, we can stop
-			 */
-			if ((pted->p.pted_pte64.pte_hi |
-			    (PTED_HID(pted) ? PTE_HID_64 : 0)) == ptp64->pte_hi) {
+		PMAP_HASH_LOCK(s);
+		if ((pte = pmap_ptedinhash(pted)) != NULL) {
+			if (ppc_proc_is_64b) {
+				struct pte_64 *ptp64 = pte;
 				bits |=	pmap_pte2flags(ptp64->pte_lo & ptebit);
-				if (clear) {
-					ptp64->pte_hi &= ~PTE_VALID_64;
-					__asm__ volatile ("sync");
-					tlbie(va);
-					tlbsync();
-					ptp64->pte_lo &= ~ptebit;
-					__asm__ volatile ("sync");
-					ptp64->pte_hi |= PTE_VALID_64;
-				} else if (bits == flagbit)
-					break;
-			}
-		} else {
-			ptp32 = pmap_ptable32 +
-				(idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-			ptp32 += PTED_PTEGIDX(pted); /* increment by index into pteg */
-
-			/*
-			 * We now have the pointer to where it will be, if it is
-			 * currently mapped. If the mapping was thrown away in
-			 * exchange for another page mapping, then this page is
-			 * not currently in the HASH.
-			 *
-			 * if we are not clearing bits, and have found all of the
-			 * bits we want, we can stop
-			 */
-			if ((pted->p.pted_pte32.pte_hi |
-			    (PTED_HID(pted) ? PTE_HID_32 : 0)) == ptp32->pte_hi) {
+			} else {
+				struct pte_32 *ptp32 = pte;
 				bits |=	pmap_pte2flags(ptp32->pte_lo & ptebit);
-				if (clear) {
-					ptp32->pte_hi &= ~PTE_VALID_32;
-					__asm__ volatile ("sync");
-					tlbie(va);
-					tlbsync();
-					ptp32->pte_lo &= ~ptebit;
-					__asm__ volatile ("sync");
-					ptp32->pte_hi |= PTE_VALID_32;
-				} else if (bits == flagbit)
-					break;
 			}
 		}
+		PMAP_HASH_UNLOCK(s);
+
+		if (bits == flagbit)
+			break;
 	}
 
-	if (clear) {
-		/*
-		 * this is done a second time, because while walking the list
-		 * a bit could have been promoted via pmap_attr_save()
-		 */
-		bits |= pg->pg_flags & flagbit;
-		atomic_clearbits_int(&pg->pg_flags,  flagbit); 
-	} else
-		atomic_setbits_int(&pg->pg_flags,  bits);
+	atomic_setbits_int(&pg->pg_flags,  bits);
 
-	splx(s);
+	return bits;
+}
+int
+pmap_clear_attrs(struct vm_page *pg, u_int flagbit)
+{
+	u_int bits;
+	struct pte_desc *pted;
+	u_int ptebit = pmap_flags2pte(flagbit);
+	int s;
+
+	/* PTE_CHG_32 == PTE_CHG_64 */
+	/* PTE_REF_32 == PTE_REF_64 */
+
+	bits = pg->pg_flags & flagbit;
+
+	LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list) {
+		void *pte;
+
+		PMAP_HASH_LOCK(s);
+		if ((pte = pmap_ptedinhash(pted)) != NULL) {
+			if (ppc_proc_is_64b) {
+				struct pte_64 *ptp64 = pte;
+
+				bits |=	pmap_pte2flags(ptp64->pte_lo & ptebit);
+
+				pte_del(ptp64, pted->pted_va);
+
+				ptp64->pte_lo &= ~ptebit;
+				eieio();
+				ptp64->pte_hi |= PTE_VALID_64;
+				sync();
+			} else {
+				struct pte_32 *ptp32 = pte;
+
+				bits |=	pmap_pte2flags(ptp32->pte_lo & ptebit);
+
+				pte_del(ptp32, pted->pted_va);
+
+				ptp32->pte_lo &= ~ptebit;
+				eieio();
+				ptp32->pte_hi |= PTE_VALID_32;
+				sync();
+			}
+		}
+		PMAP_HASH_UNLOCK(s);
+	}
+
+	/*
+	 * this is done a second time, because while walking the list
+	 * a bit could have been promoted via pmap_attr_save()
+	 */
+	bits |= pg->pg_flags & flagbit;
+	atomic_clearbits_int(&pg->pg_flags,  flagbit);
+
 	return bits;
 }
 
@@ -1197,15 +1097,17 @@ pmap_copy_page(struct vm_page *srcpg, struct vm_page *dstpg)
 
 int pmap_id_avail = 0;
 
-void
-pmap_pinit(pmap_t pm)
+pmap_t
+pmap_create(void)
 {
 	int i, k, try, tblidx, tbloff;
 	int s, seg;
+	pmap_t pm;
 
-	bzero(pm, sizeof (struct pmap));
+	pm = pool_get(&pmap_pmap_pool, PR_WAITOK|PR_ZERO);
 
 	pmap_reference(pm);
+	PMAP_VP_LOCK_INIT(pm);
 
 	/*
 	 * Allocate segment registers for this pmap.
@@ -1232,23 +1134,10 @@ again:
 			seg = try << 4;
 			for (k = 0; k < 16; k++)
 				pm->pm_sr[k] = (seg + k) | SR_NOEXEC;
-			return;
+			return (pm);
 		}
 	}
 	panic("out of pmap slots");
-}
-
-/* 
- * Create and return a physical map.
- */
-pmap_t 
-pmap_create()
-{
-	pmap_t pmap;
-
-	pmap = pool_get(&pmap_pmap_pool, PR_WAITOK);
-	pmap_pinit(pmap);
-	return (pmap);
 }
 
 /*
@@ -1789,9 +1678,12 @@ pmap_extract(pmap_t pm, vaddr_t va, paddr_t *pa)
 		return TRUE;
 	}
 
+	PMAP_VP_LOCK(pm);
 	pted = pmap_vp_lookup(pm, va);
-	if (pted == NULL || !PTED_VALID(pted))
+	if (pted == NULL || !PTED_VALID(pted)) {
+		PMAP_VP_UNLOCK(pm);
 		return FALSE;
+	}
 
 	if (ppc_proc_is_64b)
 		*pa = (pted->p.pted_pte64.pte_lo & PTE_RPGN_64) |
@@ -1799,6 +1691,8 @@ pmap_extract(pmap_t pm, vaddr_t va, paddr_t *pa)
 	else
 		*pa = (pted->p.pted_pte32.pte_lo & PTE_RPGN_32) |
 		    (va & ~PTE_RPGN_32);
+
+	PMAP_VP_UNLOCK(pm);
 	return TRUE;
 }
 
@@ -1808,13 +1702,11 @@ pmap_setusr(pmap_t pm, vaddr_t va)
 	u_int32_t sr;
 	u_int32_t oldsr;
 
-	sr = pm->pm_sr[(u_int)va >> ADDR_SR_SHIFT];
+	sr = ptesr(pm->pm_sr, va);
 
 	/* user address range lock?? */
-	asm volatile ("mfsr %0,%1"
-	    : "=r" (oldsr): "n"(PPC_USER_SR));
-	asm volatile ("isync; mtsr %0,%1; isync"
-	    :: "n"(PPC_USER_SR), "r"(sr));
+	asm volatile ("mfsr %0,%1" : "=r" (oldsr): "n"(PPC_USER_SR));
+	asm volatile ("isync; mtsr %0,%1; isync" :: "n"(PPC_USER_SR), "r"(sr));
 	return oldsr;
 }
 
@@ -2028,16 +1920,22 @@ pmap_syncicache_user_virt(pmap_t pm, vaddr_t va)
 }
 
 void
-pmap_page_ro64(pmap_t pm, vaddr_t va, vm_prot_t prot)
+pmap_pted_ro(struct pte_desc *pted, vm_prot_t prot)
 {
-	struct pte_64 *ptp64;
-	struct pte_desc *pted;
-	struct vm_page *pg;
-	int sr, idx;
+	if (ppc_proc_is_64b)
+		pmap_pted_ro64(pted, prot);
+	else
+		pmap_pted_ro32(pted, prot);
+}
 
-	pted = pmap_vp_lookup(pm, va);
-	if (pted == NULL || !PTED_VALID(pted))
-		return;
+void
+pmap_pted_ro64(struct pte_desc *pted, vm_prot_t prot)
+{
+	pmap_t pm = pted->pted_pmap;
+	vaddr_t va = pted->pted_va & ~PAGE_MASK;
+	struct vm_page *pg;
+	void *pte;
+	int s;
 
 	pg = PHYS_TO_VM_PAGE(pted->p.pted_pte64.pte_lo & PTE_RPGN_64);
 	if (pg->pg_flags & PG_PMAP_EXE) {
@@ -2054,49 +1952,35 @@ pmap_page_ro64(pmap_t pm, vaddr_t va, vm_prot_t prot)
 	if ((prot & PROT_EXEC) == 0)
 		pted->p.pted_pte64.pte_lo |= PTE_N_64;
 
-	sr = ptesr(pm->pm_sr, va);
-	idx = pteidx(sr, va);
+	PMAP_HASH_LOCK(s);
+	if ((pte = pmap_ptedinhash(pted)) != NULL) {
+		struct pte_64 *ptp64 = pte;
 
-	/* determine which pteg mapping is present in */
-	ptp64 = pmap_ptable64 +
-	    (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-	ptp64 += PTED_PTEGIDX(pted); /* increment by index into pteg */
+		pte_del(ptp64, va);
 
-	/*
-	 * We now have the pointer to where it will be, if it is
-	 * currently mapped. If the mapping was thrown away in
-	 * exchange for another page mapping, then this page is
-	 * not currently in the HASH.
-	 */
-	if ((pted->p.pted_pte64.pte_hi | (PTED_HID(pted) ? PTE_HID_64 : 0))
-	    == ptp64->pte_hi) {
-		ptp64->pte_hi &= ~PTE_VALID_64;
-		__asm__ volatile ("sync");
-		tlbie(va);
-		tlbsync();
 		if (PTED_MANAGED(pted)) { /* XXX */
 			pmap_attr_save(ptp64->pte_lo & PTE_RPGN_64,
 			    ptp64->pte_lo & (PTE_REF_64|PTE_CHG_64));
 		}
-		ptp64->pte_lo &= ~PTE_CHG_64;
-		ptp64->pte_lo &= ~PTE_PP_64;
+
+		/* Add a Page Table Entry, section 7.6.3.1. */
+		ptp64->pte_lo &= ~(PTE_CHG_64|PTE_PP_64);
 		ptp64->pte_lo |= PTE_RO_64;
-		__asm__ volatile ("sync");
+		eieio();	/* Order 1st PTE update before 2nd. */
 		ptp64->pte_hi |= PTE_VALID_64;
+		sync();		/* Ensure updates completed. */
 	}
+	PMAP_HASH_UNLOCK(s);
 }
 
 void
-pmap_page_ro32(pmap_t pm, vaddr_t va, vm_prot_t prot)
+pmap_pted_ro32(struct pte_desc *pted, vm_prot_t prot)
 {
-	struct pte_32 *ptp32;
-	struct pte_desc *pted;
-	struct vm_page *pg = NULL;
-	int sr, idx;
-
-	pted = pmap_vp_lookup(pm, va);
-	if (pted == NULL || !PTED_VALID(pted))
-		return;
+	pmap_t pm = pted->pted_pmap;
+	vaddr_t va = pted->pted_va & ~PAGE_MASK;
+	struct vm_page *pg;
+	void *pte;
+	int s;
 
 	pg = PHYS_TO_VM_PAGE(pted->p.pted_pte32.pte_lo & PTE_RPGN_32);
 	if (pg->pg_flags & PG_PMAP_EXE) {
@@ -2110,36 +1994,25 @@ pmap_page_ro32(pmap_t pm, vaddr_t va, vm_prot_t prot)
 	pted->p.pted_pte32.pte_lo &= ~PTE_PP_32;
 	pted->p.pted_pte32.pte_lo |= PTE_RO_32;
 
-	sr = ptesr(pm->pm_sr, va);
-	idx = pteidx(sr, va);
+	PMAP_HASH_LOCK(s);
+	if ((pte = pmap_ptedinhash(pted)) != NULL) {
+		struct pte_32 *ptp32 = pte;
 
-	/* determine which pteg mapping is present in */
-	ptp32 = pmap_ptable32 +
-	    (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-	ptp32 += PTED_PTEGIDX(pted); /* increment by index into pteg */
+		pte_del(ptp32, va);
 
-	/*
-	 * We now have the pointer to where it will be, if it is
-	 * currently mapped. If the mapping was thrown away in
-	 * exchange for another page mapping, then this page is
-	 * not currently in the HASH.
-	 */
-	if ((pted->p.pted_pte32.pte_hi | (PTED_HID(pted) ? PTE_HID_32 : 0))
-	    == ptp32->pte_hi) {
-		ptp32->pte_hi &= ~PTE_VALID_32;
-		__asm__ volatile ("sync");
-		tlbie(va);
-		tlbsync();
 		if (PTED_MANAGED(pted)) { /* XXX */
 			pmap_attr_save(ptp32->pte_lo & PTE_RPGN_32,
 			    ptp32->pte_lo & (PTE_REF_32|PTE_CHG_32));
 		}
-		ptp32->pte_lo &= ~PTE_CHG_32;
-		ptp32->pte_lo &= ~PTE_PP_32;
+
+		/* Add a Page Table Entry, section 7.6.3.1. */
+		ptp32->pte_lo &= ~(PTE_CHG_32|PTE_PP_32);
 		ptp32->pte_lo |= PTE_RO_32;
-		__asm__ volatile ("sync");
+		eieio();	/* Order 1st PTE update before 2nd. */
 		ptp32->pte_hi |= PTE_VALID_32;
+		sync();		/* Ensure updates completed. */
 	}
+	PMAP_HASH_UNLOCK(s);
 }
 
 /*
@@ -2151,50 +2024,39 @@ pmap_page_ro32(pmap_t pm, vaddr_t va, vm_prot_t prot)
 void
 pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 {
-	int s;
 	struct pte_desc *pted;
-
-	/* need to lock for this pv */
-	s = splvm();
+	pmap_t pm;
 
 	if (prot == PROT_NONE) {
-		while (!LIST_EMPTY(&(pg->mdpage.pv_list))) {
-			pted = LIST_FIRST(&(pg->mdpage.pv_list));
-			pmap_remove_pg(pted->pted_pmap, pted->pted_va);
+		while ((pted = LIST_FIRST(&(pg->mdpage.pv_list))) != NULL) {
+			pm = pted->pted_pmap;
+			PMAP_VP_LOCK(pm);
+			pmap_remove_pted(pm, pted);
+			PMAP_VP_UNLOCK(pm);
 		}
 		/* page is being reclaimed, sync icache next use */
 		atomic_clearbits_int(&pg->pg_flags, PG_PMAP_EXE);
-		splx(s);
 		return;
 	}
-	
-	LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list) {
-		if (ppc_proc_is_64b)
-			pmap_page_ro64(pted->pted_pmap, pted->pted_va, prot);
-		else
-			pmap_page_ro32(pted->pted_pmap, pted->pted_va, prot);
-	}
-	splx(s);
+
+	LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list)
+		pmap_pted_ro(pted, prot);
 }
 
 void
 pmap_protect(pmap_t pm, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 {
-	int s;
 	if (prot & (PROT_READ | PROT_EXEC)) {
-		s = splvm();
-		if (ppc_proc_is_64b) {
-			while (sva < eva) {
-				pmap_page_ro64(pm, sva, prot);
-				sva += PAGE_SIZE;
-			}
-		} else {
-			while (sva < eva) {
-				pmap_page_ro32(pm, sva, prot);
-				sva += PAGE_SIZE;
-			}
+		struct pte_desc *pted;
+
+		PMAP_VP_LOCK(pm);
+		while (sva < eva) {
+			pted = pmap_vp_lookup(pm, sva);
+			if (pted && PTED_VALID(pted))
+				pmap_pted_ro(pted, prot);
+			sva += PAGE_SIZE;
 		}
-		splx(s);
+		PMAP_VP_UNLOCK(pm);
 		return;
 	}
 	pmap_remove(pm, sva, eva);
@@ -2232,11 +2094,11 @@ pmap_init()
 	pool_init(&pmap_vp_pool, sizeof(struct pmapvp), 0, 0, 0, "vp",
 	    &pool_allocator_nointr);
 	pool_setlowat(&pmap_vp_pool, 10);
-	pool_setipl(&pmap_vp_pool, IPL_VM);
 	pool_init(&pmap_pted_pool, sizeof(struct pte_desc), 0, 0, 0, "pted",
 	    NULL);
-	pool_setipl(&pmap_pted_pool, IPL_VM);
 	pool_setlowat(&pmap_pted_pool, 20);
+
+	PMAP_HASH_LOCK_INIT();
 
 	pmap_initialized = 1;
 }
@@ -2308,85 +2170,56 @@ pte_spill_r(u_int32_t va, u_int32_t msr, u_int32_t dsisr, int exec_fault)
 			pmap_fill_pte64(pm, aligned_va, aligned_va,
 			    pted, prot, PMAP_CACHE_WB);
 			pte_insert64(pted);
-			return 1;
 		} else {
 			pmap_fill_pte32(pm, aligned_va, aligned_va,
 			    pted, prot, PMAP_CACHE_WB);
 			pte_insert32(pted);
-			return 1;
 		}
-		/* NOTREACHED */
+		return 1;
 	}
 
-	/*
-	 * If the current mapping is RO and the access was a write
-	 * we return 0
-	 */
-	pted = pmap_vp_lookup(pm, va);
-	if (pted == NULL || !PTED_VALID(pted))
-		return 0;
-
-	if (ppc_proc_is_64b) {
-		/* check write fault and we have a readonly mapping */
-		if ((dsisr & (1 << (31-6))) &&
-		    (pted->p.pted_pte64.pte_lo & 0x1))
-			return 0;
-		if ((exec_fault != 0)
-		    && ((pted->pted_va & PTED_VA_EXEC_M) == 0)) {
-			/* attempted to execute non-executable page */
-			return 0;
-		}
-		pte_insert64(pted);
-	} else {
-		/* check write fault and we have a readonly mapping */
-		if ((dsisr & (1 << (31-6))) &&
-		    (pted->p.pted_pte32.pte_lo & 0x1))
-			return 0;
-		if ((exec_fault != 0)
-		    && ((pted->pted_va & PTED_VA_EXEC_M) == 0)) {
-			/* attempted to execute non-executable page */
-			return 0;
-		}
-		pte_insert32(pted);
-	}
-
-	return 1;
+	return pte_spill_v(pm, va, dsisr, exec_fault);
 }
 
 int
 pte_spill_v(pmap_t pm, u_int32_t va, u_int32_t dsisr, int exec_fault)
 {
 	struct pte_desc *pted;
+	int inserted = 0;
 
 	/*
 	 * If the current mapping is RO and the access was a write
 	 * we return 0
 	 */
+	PMAP_VP_LOCK(pm);
 	pted = pmap_vp_lookup(pm, va);
 	if (pted == NULL || !PTED_VALID(pted))
-		return 0;
+		goto out;
 
-	if (ppc_proc_is_64b) {
-		/* check write fault and we have a readonly mapping */
-		if ((dsisr & (1 << (31-6))) &&
-		    (pted->p.pted_pte64.pte_lo & 0x1))
-			return 0;
-	} else {
-		/* check write fault and we have a readonly mapping */
-		if ((dsisr & (1 << (31-6))) &&
-		    (pted->p.pted_pte32.pte_lo & 0x1))
-			return 0;
+	/* Attempted to write a read-only page. */
+	if (dsisr & DSISR_STORE) {
+		if (ppc_proc_is_64b) {
+			if (pted->p.pted_pte64.pte_lo & PTE_RO_64)
+				goto out;
+		} else {
+			if (pted->p.pted_pte32.pte_lo & PTE_RO_32)
+				goto out;
+		}
 	}
-	if ((exec_fault != 0)
-	    && ((pted->pted_va & PTED_VA_EXEC_M) == 0)) {
-		/* attempted to execute non-executable page */
-		return 0;
-	}
+
+	/* Attempted to execute non-executable page. */
+	if ((exec_fault != 0) && ((pted->pted_va & PTED_VA_EXEC_M) == 0))
+		goto out;
+
+	inserted = 1;
 	if (ppc_proc_is_64b)
 		pte_insert64(pted);
 	else
 		pte_insert32(pted);
-	return 1;
+
+out:
+	PMAP_VP_UNLOCK(pm);
+	return (inserted);
 }
 
 
@@ -2399,26 +2232,20 @@ pte_spill_v(pmap_t pm, u_int32_t va, u_int32_t dsisr, int exec_fault)
 void
 pte_insert64(struct pte_desc *pted)
 {
-	int off;
-	int secondary;
 	struct pte_64 *ptp64;
+	int off, secondary;
 	int sr, idx, i;
-#ifdef MULTIPROCESSOR
+	void *pte;
 	int s;
-#endif
 
+	PMAP_HASH_LOCK(s);
+	if ((pte = pmap_ptedinhash(pted)) != NULL)
+		pte_zap(pte, pted);
+
+	pted->pted_va &= ~(PTED_VA_HID_M|PTED_VA_PTEGIDX_M);
 
 	sr = ptesr(pted->pted_pmap->pm_sr, pted->pted_va);
 	idx = pteidx(sr, pted->pted_va);
-
-	ptp64 = pmap_ptable64 +
-	    (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-	ptp64 += PTED_PTEGIDX(pted); /* increment by index into pteg */
-	if ((pted->p.pted_pte64.pte_hi |
-	    (PTED_HID(pted) ? PTE_HID_64 : 0)) == ptp64->pte_hi)
-		pte_zap(ptp64,pted);
-
-	pted->pted_va &= ~(PTED_VA_HID_M|PTED_VA_PTEGIDX_M);
 
 	/*
 	 * instead of starting at the beginning of each pteg,
@@ -2427,75 +2254,47 @@ pte_insert64(struct pte_desc *pted)
 	 * do the same for the secondary.
 	 * this would reduce the frontloading of the pteg.
 	 */
+
 	/* first just try fill of primary hash */
 	ptp64 = pmap_ptable64 + (idx) * 8;
 	for (i = 0; i < 8; i++) {
 		if (ptp64[i].pte_hi & PTE_VALID_64)
 			continue;
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		if (pmap_hash_lock_try(i) == 0) {
-			ppc_intr_enable(s);
-			continue;
-		}
-#endif
-		/* not valid, just load */
-		pted->pted_va |= i;
-		ptp64[i].pte_hi =
-		    pted->p.pted_pte64.pte_hi & ~PTE_VALID_64;
-		ptp64[i].pte_lo = pted->p.pted_pte64.pte_lo;
-		__asm__ volatile ("sync");
-		ptp64[i].pte_hi |= PTE_VALID_64;
-		__asm volatile ("sync");
 
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(i);
-		ppc_intr_enable(s);
-#endif
-		return;
+		pted->pted_va |= i;
+
+		/* Add a Page Table Entry, section 7.6.3.1. */
+		ptp64[i].pte_hi = pted->p.pted_pte64.pte_hi & ~PTE_VALID_64;
+		ptp64[i].pte_lo = pted->p.pted_pte64.pte_lo;
+		eieio();	/* Order 1st PTE update before 2nd. */
+		ptp64[i].pte_hi |= PTE_VALID_64;
+		sync();		/* Ensure updates completed. */
+
+		goto out;
 	}
+
 	/* try fill of secondary hash */
 	ptp64 = pmap_ptable64 + (idx ^ pmap_ptab_mask) * 8;
 	for (i = 0; i < 8; i++) {
 		if (ptp64[i].pte_hi & PTE_VALID_64)
 			continue;
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		if (pmap_hash_lock_try(i) == 0) {
-			ppc_intr_enable(s);
-			continue;
-		}
-#endif
 
 		pted->pted_va |= (i | PTED_VA_HID_M);
-		ptp64[i].pte_hi =
-		    (pted->p.pted_pte64.pte_hi | PTE_HID_64) & ~PTE_VALID_64;
-		ptp64[i].pte_lo = pted->p.pted_pte64.pte_lo;
-		__asm__ volatile ("sync");
-		ptp64[i].pte_hi |= PTE_VALID_64;
-		__asm volatile ("sync");
 
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(i);
-		ppc_intr_enable(s);
-#endif
-		return;
+		/* Add a Page Table Entry, section 7.6.3.1. */
+		ptp64[i].pte_hi = pted->p.pted_pte64.pte_hi & ~PTE_VALID_64;
+		ptp64[i].pte_lo = pted->p.pted_pte64.pte_lo;
+		eieio();	/* Order 1st PTE update before 2nd. */
+		ptp64[i].pte_hi |= (PTE_HID_64|PTE_VALID_64);
+		sync();		/* Ensure updates completed. */
+
+		goto out;
 	}
 
-#ifdef MULTIPROCESSOR
-busy:
-#endif
 	/* need decent replacement algorithm */
-	__asm__ volatile ("mftb %0" : "=r"(off));
+	off = ppc_mftb();
 	secondary = off & 8;
 
-#ifdef MULTIPROCESSOR
-	s = ppc_intr_disable();
-	if (pmap_hash_lock_try(off & 7) == 0) {
-		ppc_intr_enable(s);
-		goto busy;
-	}
-#endif
 
 	pted->pted_va |= off & (PTED_VA_PTEGIDX_M|PTED_VA_HID_M);
 
@@ -2503,11 +2302,10 @@ busy:
 
 	ptp64 = pmap_ptable64 + (idx * 8);
 	ptp64 += PTED_PTEGIDX(pted); /* increment by index into pteg */
+
 	if (ptp64->pte_hi & PTE_VALID_64) {
 		vaddr_t va;
-		ptp64->pte_hi &= ~PTE_VALID_64;
-		__asm volatile ("sync");
-		
+
 		/* Bits 9-19 */
 		idx = (idx ^ ((ptp64->pte_hi & PTE_HID_64) ?
 		    pmap_ptab_mask : 0));
@@ -2518,54 +2316,43 @@ busy:
 		/* Bits 0-3 */
 		va |= (ptp64->pte_hi >> PTE_VSID_SHIFT_64)
 		    << ADDR_SR_SHIFT;
-		tlbie(va);
 
-		tlbsync();
+		pte_del(ptp64, va);
+
 		pmap_attr_save(ptp64->pte_lo & PTE_RPGN_64,
 		    ptp64->pte_lo & (PTE_REF_64|PTE_CHG_64));
 	}
 
+	/* Add a Page Table Entry, section 7.6.3.1. */
+	ptp64->pte_hi = pted->p.pted_pte64.pte_hi & ~PTE_VALID_64;
 	if (secondary)
-		ptp64->pte_hi =
-		    (pted->p.pted_pte64.pte_hi | PTE_HID_64) &
-		    ~PTE_VALID_64;
-	 else 
-		ptp64->pte_hi = pted->p.pted_pte64.pte_hi & 
-		    ~PTE_VALID_64;
-
+		ptp64->pte_hi |= PTE_HID_64;
 	ptp64->pte_lo = pted->p.pted_pte64.pte_lo;
-	__asm__ volatile ("sync");
+	eieio();	/* Order 1st PTE update before 2nd. */
 	ptp64->pte_hi |= PTE_VALID_64;
+	sync();		/* Ensure updates completed. */
 
-#ifdef MULTIPROCESSOR
-	pmap_hash_unlock(off & 7);
-	ppc_intr_enable(s);
-#endif
+out:
+	PMAP_HASH_UNLOCK(s);
 }
 
 void
 pte_insert32(struct pte_desc *pted)
 {
-	int off;
-	int secondary;
 	struct pte_32 *ptp32;
+	int off, secondary;
 	int sr, idx, i;
-#ifdef MULTIPROCESSOR
+	void *pte;
 	int s;
-#endif
+
+	PMAP_HASH_LOCK(s);
+	if ((pte = pmap_ptedinhash(pted)) != NULL)
+		pte_zap(pte, pted);
+
+	pted->pted_va &= ~(PTED_VA_HID_M|PTED_VA_PTEGIDX_M);
 
 	sr = ptesr(pted->pted_pmap->pm_sr, pted->pted_va);
 	idx = pteidx(sr, pted->pted_va);
-
-	/* determine if ptp is already mapped */
-	ptp32 = pmap_ptable32 +
-	    (idx ^ (PTED_HID(pted) ? pmap_ptab_mask : 0)) * 8;
-	ptp32 += PTED_PTEGIDX(pted); /* increment by index into pteg */
-	if ((pted->p.pted_pte32.pte_hi |
-	    (PTED_HID(pted) ? PTE_HID_32 : 0)) == ptp32->pte_hi)
-		pte_zap(ptp32,pted);
-
-	pted->pted_va &= ~(PTED_VA_HID_M|PTED_VA_PTEGIDX_M);
 
 	/*
 	 * instead of starting at the beginning of each pteg,
@@ -2580,69 +2367,40 @@ pte_insert32(struct pte_desc *pted)
 	for (i = 0; i < 8; i++) {
 		if (ptp32[i].pte_hi & PTE_VALID_32)
 			continue;
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		if (pmap_hash_lock_try(i) == 0) {
-			ppc_intr_enable(s);
-			continue;
-		}
-#endif
 
-		/* not valid, just load */
 		pted->pted_va |= i;
+
+		/* Add a Page Table Entry, section 7.6.3.1. */
 		ptp32[i].pte_hi = pted->p.pted_pte32.pte_hi & ~PTE_VALID_32;
 		ptp32[i].pte_lo = pted->p.pted_pte32.pte_lo;
-		__asm__ volatile ("sync");
+		eieio();	/* Order 1st PTE update before 2nd. */
 		ptp32[i].pte_hi |= PTE_VALID_32;
-		__asm volatile ("sync");
+		sync();		/* Ensure updates completed. */
 
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(i);
-		ppc_intr_enable(s);
-#endif
-		return;
+		goto out;
 	}
+
 	/* try fill of secondary hash */
 	ptp32 = pmap_ptable32 + (idx ^ pmap_ptab_mask) * 8;
 	for (i = 0; i < 8; i++) {
 		if (ptp32[i].pte_hi & PTE_VALID_32)
 			continue;
-#ifdef MULTIPROCESSOR
-		s = ppc_intr_disable();
-		if (pmap_hash_lock_try(i) == 0) {
-			ppc_intr_enable(s);
-			continue;
-		}
-#endif
 
 		pted->pted_va |= (i | PTED_VA_HID_M);
-		ptp32[i].pte_hi =
-		    (pted->p.pted_pte32.pte_hi | PTE_HID_32) & ~PTE_VALID_32;
+
+		/* Add a Page Table Entry, section 7.6.3.1. */
+		ptp32[i].pte_hi = pted->p.pted_pte32.pte_hi & ~PTE_VALID_32;
 		ptp32[i].pte_lo = pted->p.pted_pte32.pte_lo;
-		__asm__ volatile ("sync");
-		ptp32[i].pte_hi |= PTE_VALID_32;
-		__asm volatile ("sync");
+		eieio();	/* Order 1st PTE update before 2nd. */
+		ptp32[i].pte_hi |= (PTE_HID_32|PTE_VALID_32);
+		sync();		/* Ensure updates completed. */
 
-#ifdef MULTIPROCESSOR
-		pmap_hash_unlock(i);
-		ppc_intr_enable(s);
-#endif
-		return;
+		goto out;
 	}
 
-#ifdef MULTIPROCESSOR
-busy:
-#endif
 	/* need decent replacement algorithm */
-	__asm__ volatile ("mftb %0" : "=r"(off));
+	off = ppc_mftb();
 	secondary = off & 8;
-#ifdef MULTIPROCESSOR
-	s = ppc_intr_disable();
-	if (pmap_hash_lock_try(off & 7) == 0) {
-		ppc_intr_enable(s);
-		goto busy;
-	}
-#endif
 
 	pted->pted_va |= off & (PTED_VA_PTEGIDX_M|PTED_VA_HID_M);
 
@@ -2650,219 +2408,30 @@ busy:
 
 	ptp32 = pmap_ptable32 + (idx * 8);
 	ptp32 += PTED_PTEGIDX(pted); /* increment by index into pteg */
+
 	if (ptp32->pte_hi & PTE_VALID_32) {
 		vaddr_t va;
-		ptp32->pte_hi &= ~PTE_VALID_32;
-		__asm volatile ("sync");
 
 		va = ((ptp32->pte_hi & PTE_API_32) << ADDR_API_SHIFT_32) |
 		     ((((ptp32->pte_hi >> PTE_VSID_SHIFT_32) & SR_VSID)
 			^(idx ^ ((ptp32->pte_hi & PTE_HID_32) ? 0x3ff : 0)))
 			    & 0x3ff) << PAGE_SHIFT;
-		tlbie(va);
 
-		tlbsync();
+		pte_del(ptp32, va);
+
 		pmap_attr_save(ptp32->pte_lo & PTE_RPGN_32,
 		    ptp32->pte_lo & (PTE_REF_32|PTE_CHG_32));
 	}
+
+	/* Add a Page Table Entry, section 7.6.3.1. */
+	ptp32->pte_hi = pted->p.pted_pte32.pte_hi & ~PTE_VALID_32;
 	if (secondary)
-		ptp32->pte_hi =
-		    (pted->p.pted_pte32.pte_hi | PTE_HID_32) & ~PTE_VALID_32;
-	else
-		ptp32->pte_hi = pted->p.pted_pte32.pte_hi & ~PTE_VALID_32;
+		ptp32->pte_hi |= PTE_HID_32;
 	ptp32->pte_lo = pted->p.pted_pte32.pte_lo;
-	__asm__ volatile ("sync");
+	eieio();	/* Order 1st PTE update before 2nd. */
 	ptp32->pte_hi |= PTE_VALID_32;
+	sync();		/* Ensure updates completed. */
 
-#ifdef MULTIPROCESSOR
-	pmap_hash_unlock(off & 7);
-	ppc_intr_enable(s);
-#endif
+out:
+	PMAP_HASH_UNLOCK(s);
 }
-
-#ifdef DEBUG_PMAP
-void
-print_pteg(pmap_t pm, vaddr_t va)
-{
-	int sr, idx;
-	struct pte_32 *ptp;
-
-	sr = ptesr(pm->pm_sr, va);
-	idx = pteidx(sr,  va);
-
-	ptp = pmap_ptable32 + idx  * 8;
-	db_printf("va %x, sr %x, idx %x\n", va, sr, idx);
-
-	db_printf("%08x %08x %08x %08x  %08x %08x %08x %08x\n",
-	    ptp[0].pte_hi, ptp[1].pte_hi, ptp[2].pte_hi, ptp[3].pte_hi,
-	    ptp[4].pte_hi, ptp[5].pte_hi, ptp[6].pte_hi, ptp[7].pte_hi);
-	db_printf("%08x %08x %08x %08x  %08x %08x %08x %08x\n",
-	    ptp[0].pte_lo, ptp[1].pte_lo, ptp[2].pte_lo, ptp[3].pte_lo,
-	    ptp[4].pte_lo, ptp[5].pte_lo, ptp[6].pte_lo, ptp[7].pte_lo);
-	ptp = pmap_ptable32 + (idx ^ pmap_ptab_mask) * 8;
-	db_printf("%08x %08x %08x %08x  %08x %08x %08x %08x\n",
-	    ptp[0].pte_hi, ptp[1].pte_hi, ptp[2].pte_hi, ptp[3].pte_hi,
-	    ptp[4].pte_hi, ptp[5].pte_hi, ptp[6].pte_hi, ptp[7].pte_hi);
-	db_printf("%08x %08x %08x %08x  %08x %08x %08x %08x\n",
-	    ptp[0].pte_lo, ptp[1].pte_lo, ptp[2].pte_lo, ptp[3].pte_lo,
-	    ptp[4].pte_lo, ptp[5].pte_lo, ptp[6].pte_lo, ptp[7].pte_lo);
-}
-
-
-/* debugger assist function */
-int pmap_prtrans(u_int pid, vaddr_t va);
-
-void
-pmap_print_pted(struct pte_desc *pted, int(*print)(const char *, ...))
-{
-	vaddr_t va;
-	va = pted->pted_va & ~PAGE_MASK;
-	print("\n pted %x", pted);
-	if (PTED_VALID(pted)) {
-		print(" va %x:", pted->pted_va & ~PAGE_MASK);
-		print(" HID %d", PTED_HID(pted) ? 1: 0);
-		print(" PTEGIDX %x", PTED_PTEGIDX(pted));
-		print(" MANAGED %d", PTED_MANAGED(pted) ? 1: 0);
-		print(" WIRED %d\n", PTED_WIRED(pted) ? 1: 0);
-		if (ppc_proc_is_64b) {
-			print("ptehi %x ptelo %x ptp %x Aptp %x\n",
-			    pted->p.pted_pte64.pte_hi,
-			    pted->p.pted_pte64.pte_lo,
-			    pmap_ptable64 +
-				8*pteidx(ptesr(pted->pted_pmap->pm_sr, va), va),
-			    pmap_ptable64 +
-				8*(pteidx(ptesr(pted->pted_pmap->pm_sr, va), va)
-				    ^ pmap_ptab_mask)
-			    );
-		} else {
-			print("ptehi %x ptelo %x ptp %x Aptp %x\n",
-			    pted->p.pted_pte32.pte_hi,
-			    pted->p.pted_pte32.pte_lo,
-			    pmap_ptable32 +
-				8*pteidx(ptesr(pted->pted_pmap->pm_sr, va), va),
-			    pmap_ptable32 +
-				8*(pteidx(ptesr(pted->pted_pmap->pm_sr, va), va)
-				    ^ pmap_ptab_mask)
-			    );
-		}
-	}
-}
-
-int pmap_user_read(int size, vaddr_t va);
-int
-pmap_user_read(int size, vaddr_t va)
-{
-	unsigned char  read1;
-	unsigned short read2;
-	unsigned int   read4;
-	int err;
-
-	if (size == 1) {
-		err = copyin((void *)va, &read1, 1);
-		if (err == 0) {
-			db_printf("byte read %x\n", read1);
-		}
-	} else if (size == 2) {
-		err = copyin((void *)va, &read2, 2);
-		if (err == 0) {
-			db_printf("short read %x\n", read2);
-		}
-	} else if (size == 4) {
-		err = copyin((void *)va, &read4, 4);
-		if (err == 0) {
-			db_printf("int read %x\n", read4);
-		}
-	} else {
-		return 1;
-	}
-
-
-	return 0;
-}
-
-int pmap_dump_pmap(u_int pid);
-int
-pmap_dump_pmap(u_int pid)
-{
-	pmap_t pm;
-	struct proc *p;
-	if (pid == 0) {
-		pm = pmap_kernel();
-	} else {
-		p = pfind(pid);
-
-		if (p == NULL) {
-			db_printf("invalid pid %d", pid);
-			return 1;
-		}
-		pm = p->p_vmspace->vm_map.pmap;
-	}
-	printf("pmap %x:\n", pm);
-	printf("segid %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x",
-	    pm->pm_sr[0], pm->pm_sr[1], pm->pm_sr[2], pm->pm_sr[3],
-	    pm->pm_sr[4], pm->pm_sr[5], pm->pm_sr[6], pm->pm_sr[7],
-	    pm->pm_sr[8], pm->pm_sr[9], pm->pm_sr[10], pm->pm_sr[11],
-	    pm->pm_sr[12], pm->pm_sr[13], pm->pm_sr[14], pm->pm_sr[15]);
-
-	return 0;
-}
-
-int
-pmap_prtrans(u_int pid, vaddr_t va)
-{
-	struct proc *p;
-	pmap_t pm;
-	struct pmapvp *vp1;
-	struct pmapvp *vp2;
-	struct pte_desc *pted;
-
-	if (pid == 0) {
-		pm = pmap_kernel();
-	} else {
-		p = pfind(pid);
-
-		if (p == NULL) {
-			db_printf("invalid pid %d", pid);
-			return 1;
-		}
-		pm = p->p_vmspace->vm_map.pmap;
-	}
-
-	db_printf(" pid %d, va 0x%x pmap %x\n", pid, va, pm);
-	vp1 = pm->pm_vp[VP_SR(va)];
-	db_printf("sr %x id %x vp1 %x", VP_SR(va), pm->pm_sr[VP_SR(va)],
-	    vp1);
-
-	if (vp1) {
-		vp2 = vp1->vp[VP_IDX1(va)];
-		db_printf(" vp2 %x", vp2);
-
-		if (vp2) {
-			pted = vp2->vp[VP_IDX2(va)];
-			pmap_print_pted(pted, db_printf);
-
-		}
-	}
-	print_pteg(pm, va);
-
-	return 0;
-}
-int pmap_show_mappings(paddr_t pa);
-
-int
-pmap_show_mappings(paddr_t pa) 
-{
-	struct pte_desc *pted;
-	struct vm_page *pg;
-
-	pg = PHYS_TO_VM_PAGE(pa);
-	if (pg == NULL) {
-		db_printf("pa %x: unmanaged\n");
-	} else {
-		LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list) {
-			pmap_print_pted(pted, db_printf);
-		}
-	}
-	return 0;
-}
-#endif

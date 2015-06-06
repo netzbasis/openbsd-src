@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.431 2015/05/27 13:28:04 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.435 2015/06/05 08:14:16 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 27 2015 $
+.Dd $Mdocdate: June 5 2015 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -23,7 +23,7 @@
 .Sh SYNOPSIS
 .Nm tmux
 .Bk -words
-.Op Fl 2lCuv
+.Op Fl 2Cluv
 .Op Fl c Ar shell-command
 .Op Fl f Ar file
 .Op Fl L Ar socket-name
@@ -298,6 +298,12 @@ Change to the previous window.
 Briefly display pane indexes.
 .It r
 Force redraw of the attached client.
+.It m
+Mark the current pane (see
+.Ic select-pane
+.Fl m ) .
+.It M
+Clear the marked pane.
 .It s
 Select a new session for the attached client interactively.
 .It t
@@ -351,6 +357,8 @@ This section contains a list of the commands supported by
 .Nm .
 Most commands accept the optional
 .Fl t
+(and sometimes
+.Fl s )
 argument with one of
 .Ar target-client ,
 .Ar target-session
@@ -396,6 +404,14 @@ An
 pattern which is matched against the session name.
 .El
 .Pp
+If the session name is prefixed with a
+.Ql = : ,
+only an exact match is accepted (so
+.Ql =mysess
+will only match exactly
+.Ql mysess ,
+not
+.Ql mysession ) .
 If a single session is found, it is used as the target session; multiple matches
 produce an error.
 If a session is omitted, the current session is used if available; if no
@@ -432,6 +448,9 @@ As an
 pattern matched against the window name.
 .El
 .Pp
+Like sessions, a
+.Ql =
+prefix will do an exact match only.
 An empty window name specifies the next unused index if appropriate (for
 example the
 .Ic new-window
@@ -451,7 +470,6 @@ Each has a single-character alternative form.
 .It Li "{last}" Ta "!" Ta "The last (previously current) window"
 .It Li "{next}" Ta "+" Ta "The next window by number"
 .It Li "{previous}" Ta "-" Ta "The previous window by number"
-.It Li "{mouse}" Ta "=" Ta "The window where the mouse event happened"
 .El
 .Pp
 .Ar target-pane
@@ -481,7 +499,6 @@ The following special tokens are available for the pane index:
 .It Li "{down}" Ta "" Ta "The pane below the active pane"
 .It Li "{left}" Ta "" Ta "The pane to the left of the active pane"
 .It Li "{right}" Ta "" Ta "The pane to the right of the active pane"
-.It Li "{mouse}" Ta "=" Ta "The pane where the mouse event happened"
 .El
 .Pp
 The tokens
@@ -492,6 +509,27 @@ may be followed by an offset, for example:
 .Bd -literal -offset indent
 select-window -t:+2
 .Ed
+.Pp
+In addition,
+.Em target-session ,
+.Em target-window
+or
+.Em target-pane
+may consist entirely of the token
+.Ql {mouse}
+(alternative form
+.Ql = )
+to specify the most recent mouse event
+(see the
+.Sx MOUSE SUPPORT
+section)
+or
+.Ql {marked}
+(alternative form
+.Ql ~ )
+to specify the marked pane (see
+.Ic select-pane
+.Fl m ) .
 .Pp
 Sessions, window and panes are each numbered with a unique ID; session IDs are
 prefixed with a
@@ -1440,6 +1478,13 @@ option causes
 .Ar src-pane
 to be joined to left of or above
 .Ar dst-pane .
+.Pp
+If
+.Fl s
+is omitted and a marked pane is present (see
+.Ic select-pane
+.Fl m ) ,
+the marked pane is used rather than the current pane.
 .It Xo Ic kill-pane
 .Op Fl a
 .Op Fl t Ar target-pane
@@ -1795,7 +1840,7 @@ commands.
 .Fl o
 applies the last set layout if possible (undoes the most recent layout change).
 .It Xo Ic select-pane
-.Op Fl DdegLlRU
+.Op Fl DdegLlMmRU
 .Op Fl P Ar style
 .Op Fl t Ar target-pane
 .Xc
@@ -1822,6 +1867,20 @@ command.
 enables or
 .Fl d
 disables input to the pane.
+.Pp
+.Fl m
+and
+.Fl M
+are used to set and clear the
+.Em marked pane .
+There is one marked pane at a time, setting a new marked pane clears the last.
+The marked pane is the default target for
+.Fl s
+to
+.Ic join-pane ,
+.Ic swap-pane
+and
+.Ic swap-window .
 .Pp
 Each pane has a style: by default the
 .Ic window-style
@@ -1911,6 +1970,13 @@ swaps with the next pane (after it numerically).
 instructs
 .Nm
 not to change the active pane.
+.Pp
+If
+.Fl s
+is omitted and a marked pane is present (see
+.Ic select-pane
+.Fl m ) ,
+the marked pane is used rather than the current pane.
 .It Xo Ic swap-window
 .Op Fl d
 .Op Fl s Ar src-window
@@ -1922,6 +1988,15 @@ This is similar to
 except the source and destination windows are swapped.
 It is an error if no window exists at
 .Ar src-window .
+.Pp
+Like
+.Ic swap-pane ,
+if
+.Fl s
+is omitted and a marked pane is present (see
+.Ic select-pane
+.Fl m ) ,
+the window containing the marked pane is used rather than the current window.
 .It Xo Ic unlink-window
 .Op Fl k
 .Op Fl t Ar target-window
@@ -2209,21 +2284,19 @@ command),
 a server option with
 .Fl s ,
 otherwise a session option.
-.Pp
 If
 .Fl g
-is specified, the global session or window option is set.
+is given, the global session or window option is set.
 The
 .Fl u
 flag unsets an option, so a session inherits the option from the global
-options.
-It is not possible to unset a global option.
+options (or with
+.Fl g ,
+restores a global option to the default).
 .Pp
 The
 .Fl o
-flag prevents setting an option that is already set.
-.Pp
-The
+flag prevents setting an option that is already set and
 .Fl q
 flag suppresses errors about unknown options.
 .Pp
@@ -3488,6 +3561,7 @@ The flag is one of the following symbols appended to the window name:
 .It Li "#" Ta "Window is monitored and activity has been detected."
 .It Li "!" Ta "A bell has occurred in the window."
 .It Li "~" Ta "The window has been silent for the monitor-silence interval."
+.It Li "M" Ta "The window contains the marked pane."
 .It Li "Z" Ta "The window's active pane is zoomed."
 .El
 .Pp
