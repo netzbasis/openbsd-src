@@ -1,4 +1,4 @@
-/*	$OpenBSD: autri.c,v 1.37 2015/05/11 06:46:21 ratchov Exp $	*/
+/*	$OpenBSD: autri.c,v 1.39 2015/06/10 20:14:02 ratchov Exp $	*/
 
 /*
  * Copyright (c) 2001 SOMEYA Yoshihiko and KUROSAWA Takahiro.
@@ -697,8 +697,8 @@ autri_init(void *sc_)
 	if (sc->sc_devid == AUTRI_DEVICE_ID_ALI_M5451) {
 		sc->sc_play.ch      = 0;
 		sc->sc_play.ch_intr = 1;
-		sc->sc_rec.ch       = 31;
-		sc->sc_rec.ch_intr  = 2;
+		sc->sc_rec.ch       = 2;
+		sc->sc_rec.ch_intr  = 3;
 	} else {
 		sc->sc_play.ch      = 0x20;
 		sc->sc_play.ch_intr = 0x21;
@@ -910,20 +910,8 @@ autri_query_encoding(void *addr, struct audio_encoding *fp)
 		fp->flags = 0;
 		break;
 	case 1:
-		strlcpy(fp->name, AudioEslinear, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 2:
 		strlcpy(fp->name, AudioEslinear_le, sizeof fp->name);
 		fp->encoding = AUDIO_ENCODING_SLINEAR_LE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 3:
-		strlcpy(fp->name, AudioEulinear_le, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR_LE;
 		fp->precision = 16;
 		fp->flags = 0;
 		break;
@@ -947,28 +935,14 @@ autri_set_params(void *addr, int setmode, int usemode, struct audio_params *play
 	    mode = mode == AUMODE_RECORD ? AUMODE_PLAY : -1) {
 		if ((setmode & mode) == 0)
 			continue;
-
 		p = mode == AUMODE_PLAY ? play : rec;
-		if (p->sample_rate < 4000)
-			p->sample_rate = 4000;
-		if (p->sample_rate > 48000)
-			p->sample_rate = 48000;
-		if (p->precision > 16)
+		p->sample_rate = 48000;
+		if (p->precision != 8)
 			p->precision = 16;
-		if (p->channels > 2)
+		if (p->channels != 1)
 			p->channels = 2;
-		switch (p->encoding) {
-		case AUDIO_ENCODING_SLINEAR_BE:
-		case AUDIO_ENCODING_ULINEAR_BE:
-			if (p->precision != 16)
-				return EINVAL;
-			break;
-		case AUDIO_ENCODING_SLINEAR_LE:
-		case AUDIO_ENCODING_ULINEAR_LE:
-			break;
-		default:
-			return (EINVAL);
-		}
+		p->encoding = p->precision == 16 ?
+		    AUDIO_ENCODING_SLINEAR_LE : AUDIO_ENCODING_ULINEAR_LE;
 		p->bps = AUDIO_BPS(p->precision);
 		p->msb = 1;
 	}
