@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_srvr.c,v 1.104 2015/06/15 03:32:59 doug Exp $ */
+/* $OpenBSD: s3_srvr.c,v 1.106 2015/06/15 05:32:58 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -147,8 +147,6 @@
  * OTHER ENTITY BASED ON INFRINGEMENT OF INTELLECTUAL PROPERTY RIGHTS OR
  * OTHERWISE.
  */
-
-#define REUSE_CIPHER_BUG
 
 #include <stdio.h>
 
@@ -1126,27 +1124,6 @@ ssl3_get_client_hello(SSL *s)
 		}
 		s->s3->tmp.new_cipher = c;
 	} else {
-		/* Session-id reuse */
-#ifdef REUSE_CIPHER_BUG
-		STACK_OF(SSL_CIPHER) *sk;
-		SSL_CIPHER *nc = NULL;
-		SSL_CIPHER *ec = NULL;
-
-		if (s->options & SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG) {
-			sk = s->session->ciphers;
-			for (i = 0; i < sk_SSL_CIPHER_num(sk); i++) {
-				c = sk_SSL_CIPHER_value(sk, i);
-				if (c->algorithm_enc & SSL_eNULL)
-					nc = c;
-			}
-			if (nc != NULL)
-				s->s3->tmp.new_cipher = nc;
-			else if (ec != NULL)
-				s->s3->tmp.new_cipher = ec;
-			else
-				s->s3->tmp.new_cipher = s->session->cipher;
-		} else
-#endif
 		s->s3->tmp.new_cipher = s->session->cipher;
 	}
 
@@ -1701,20 +1678,10 @@ ssl3_send_certificate_request(SSL *s)
 					goto err;
 				}
 				p = (unsigned char *)&(buf->data[4 + n]);
-				if (!(s->options & SSL_OP_NETSCAPE_CA_DN_BUG)) {
-					s2n(j, p);
-					i2d_X509_NAME(name, &p);
-					n += 2 + j;
-					nl += 2 + j;
-				} else {
-					d = p;
-					i2d_X509_NAME(name, &p);
-					j -= 2;
-					s2n(j, d);
-					j += 2;
-					n += j;
-					nl += j;
-				}
+				s2n(j, p);
+				i2d_X509_NAME(name, &p);
+				n += 2 + j;
+				nl += 2 + j;
 			}
 		}
 		/* else no CA names */
