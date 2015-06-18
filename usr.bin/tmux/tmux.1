@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.438 2015/06/15 10:58:01 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.440 2015/06/17 19:56:08 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 15 2015 $
+.Dd $Mdocdate: June 17 2015 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1233,12 +1233,14 @@ Commands related to windows and panes are as follows:
 .It Xo Ic break-pane
 .Op Fl dP
 .Op Fl F Ar format
-.Op Fl t Ar target-pane
+.Op Fl s Ar src-pane
+.Op Fl t Ar dst-pane
 .Xc
 .D1 (alias: Ic breakp )
 Break
-.Ar target-pane
-off from its containing window to make it the only pane in a new window.
+.Ar src-pane
+off from its containing window to make it the only pane in
+.Ar dst-window .
 If
 .Fl d
 is given, the new window does not become the current window.
@@ -1544,7 +1546,7 @@ If no
 .Ar target-session
 is specified, select the last window of the current session.
 .It Xo Ic link-window
-.Op Fl dk
+.Op Fl adk
 .Op Fl s Ar src-window
 .Op Fl t Ar dst-window
 .Xc
@@ -1558,6 +1560,10 @@ If
 is specified and no such window exists, the
 .Ar src-window
 is linked there.
+With
+.Fl a ,
+the window is moved to the next index up (following windows
+are moved if necessary).
 If
 .Fl k
 is given and
@@ -1623,7 +1629,7 @@ and
 .Ar dst-pane
 may belong to the same window.
 .It Xo Ic move-window
-.Op Fl rdk
+.Op Fl ardk
 .Op Fl s Ar src-window
 .Op Fl t Ar dst-window
 .Xc

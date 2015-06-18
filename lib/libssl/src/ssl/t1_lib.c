@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.75 2015/03/02 13:43:09 jsing Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.77 2015/06/17 07:52:22 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -117,6 +117,7 @@
 #include <openssl/ocsp.h>
 
 #include "ssl_locl.h"
+#include "bytestring.h"
 
 static int tls_decrypt_ticket(SSL *s, const unsigned char *tick, int ticklen,
     const unsigned char *sess_id, int sesslen,
@@ -403,15 +404,20 @@ tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
 int
 tls1_check_curve(SSL *s, const unsigned char *p, size_t len)
 {
+	CBS cbs;
 	const uint16_t *curves;
 	size_t curveslen, i;
+	uint8_t type;
 	uint16_t cid;
 
-	/* Only named curves are supported. */
-	if (len != 3 || p[0] != NAMED_CURVE_TYPE)
-		return (0);
+	CBS_init(&cbs, p, len);
 
-	cid = (p[1] << 8) | p[2];
+	/* Only named curves are supported. */
+	if (CBS_len(&cbs) != 3 ||
+	    !CBS_get_u8(&cbs, &type) ||
+	    type != NAMED_CURVE_TYPE ||
+	    !CBS_get_u16(&cbs, &cid))
+		return (0);
 
 	tls1_get_curvelist(s, 0, &curves, &curveslen);
 
@@ -1666,22 +1672,23 @@ ri_check:
 	return 1;
 }
 
-/* ssl_next_proto_validate validates a Next Protocol Negotiation block. No
+/*
+ * ssl_next_proto_validate validates a Next Protocol Negotiation block. No
  * elements of zero length are allowed and the set of elements must exactly fill
- * the length of the block. */
+ * the length of the block.
+ */
 static char
-ssl_next_proto_validate(unsigned char *d, unsigned len)
+ssl_next_proto_validate(const unsigned char *d, unsigned int len)
 {
-	unsigned int off = 0;
+	CBS npn, value;
 
-	while (off < len) {
-		if (d[off] == 0)
+	CBS_init(&npn, d, len);
+	while (CBS_len(&npn) > 0) {
+		if (!CBS_get_u8_length_prefixed(&npn, &value) ||
+		    CBS_len(&value) == 0)
 			return 0;
-		off += d[off];
-		off++;
 	}
-
-	return off == len;
+	return 1;
 }
 
 int

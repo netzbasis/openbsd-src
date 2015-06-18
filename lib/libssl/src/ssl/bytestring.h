@@ -1,4 +1,4 @@
-/*	$OpenBSD: bytestring.h,v 1.9 2015/06/16 06:37:58 doug Exp $	*/
+/*	$OpenBSD: bytestring.h,v 1.12 2015/06/17 07:25:56 doug Exp $	*/
 /*
  * Copyright (c) 2014, Google Inc.
  *
@@ -40,6 +40,7 @@ extern "C" {
 /* CRYPTO ByteString */
 typedef struct cbs_st {
 	const uint8_t *data;
+	size_t initial_len;
 	size_t len;
 } CBS;
 
@@ -66,6 +67,11 @@ const uint8_t *CBS_data(const CBS *cbs);
 size_t CBS_len(const CBS *cbs);
 
 /*
+ * CBS_offset returns the current offset into the original data of |cbs|.
+ */
+size_t CBS_offset(const CBS *cbs);
+
+/*
  * CBS_stow copies the current contents of |cbs| into |*out_ptr| and
  * |*out_len|. If |*out_ptr| is not NULL, the contents are freed with
  * free. It returns one on success and zero on allocation failure. On
@@ -84,6 +90,14 @@ int CBS_stow(const CBS *cbs, uint8_t **out_ptr, size_t *out_len);
  * |CBS_contains_zero_byte(cbs)| to check for NUL bytes.
  */
 int CBS_strdup(const CBS *cbs, char **out_ptr);
+
+/*
+ * CBS_write_bytes writes all of the remaining data from |cbs| into |dst|
+ * if it is at most |dst_len| bytes.  If |copied| is not NULL, it will be set
+ * to the amount copied. It returns one on success and zero otherwise.
+ */
+int CBS_write_bytes(const CBS *cbs, uint8_t *dst, size_t dst_len,
+    size_t *copied);
 
 /*
  * CBS_contains_zero_byte returns one if the current contents of |cbs| contains
@@ -203,13 +217,13 @@ int CBS_get_u24_length_prefixed(CBS *cbs, CBS *out);
  *
  * Tag numbers greater than 30 are not supported (i.e. short form only).
  */
-int CBS_get_asn1(CBS *cbs, CBS *out, unsigned tag_value);
+int CBS_get_asn1(CBS *cbs, CBS *out, unsigned int tag_value);
 
 /*
  * CBS_get_asn1_element acts like |CBS_get_asn1| but |out| will include the
  * ASN.1 header bytes too.
  */
-int CBS_get_asn1_element(CBS *cbs, CBS *out, unsigned tag_value);
+int CBS_get_asn1_element(CBS *cbs, CBS *out, unsigned int tag_value);
 
 /*
  * CBS_peek_asn1_tag looks ahead at the next ASN.1 tag and returns one
@@ -218,7 +232,7 @@ int CBS_get_asn1_element(CBS *cbs, CBS *out, unsigned tag_value);
  * it returns one, CBS_get_asn1 may still fail if the rest of the
  * element is malformed.
  */
-int CBS_peek_asn1_tag(const CBS *cbs, unsigned tag_value);
+int CBS_peek_asn1_tag(const CBS *cbs, unsigned int tag_value);
 
 /*
  * CBS_get_any_asn1_element sets |*out| to contain the next ASN.1 element from
@@ -229,7 +243,7 @@ int CBS_peek_asn1_tag(const CBS *cbs, unsigned tag_value);
  *
  * Tag numbers greater than 30 are not supported (i.e. short form only).
  */
-int CBS_get_any_asn1_element(CBS *cbs, CBS *out, unsigned *out_tag,
+int CBS_get_any_asn1_element(CBS *cbs, CBS *out, unsigned int *out_tag,
     size_t *out_header_len);
 
 /*
@@ -247,7 +261,8 @@ int CBS_get_asn1_uint64(CBS *cbs, uint64_t *out);
  * one on success, whether or not the element was present, and zero on
  * decode failure.
  */
-int CBS_get_optional_asn1(CBS *cbs, CBS *out, int *out_present, unsigned tag);
+int CBS_get_optional_asn1(CBS *cbs, CBS *out, int *out_present,
+    unsigned int tag);
 
 /*
  * CBS_get_optional_asn1_octet_string gets an optional
@@ -258,7 +273,7 @@ int CBS_get_optional_asn1(CBS *cbs, CBS *out, int *out_present, unsigned tag);
  * present, and zero on decode failure.
  */
 int CBS_get_optional_asn1_octet_string(CBS *cbs, CBS *out, int *out_present,
-    unsigned tag);
+    unsigned int tag);
 
 /*
  * CBS_get_optional_asn1_uint64 gets an optional explicitly-tagged
@@ -267,7 +282,7 @@ int CBS_get_optional_asn1_octet_string(CBS *cbs, CBS *out, int *out_present,
  * on success, whether or not the element was present, and zero on
  * decode failure.
  */
-int CBS_get_optional_asn1_uint64(CBS *cbs, uint64_t *out, unsigned tag,
+int CBS_get_optional_asn1_uint64(CBS *cbs, uint64_t *out, unsigned int tag,
     uint64_t default_value);
 
 /*
@@ -277,7 +292,7 @@ int CBS_get_optional_asn1_uint64(CBS *cbs, uint64_t *out, unsigned tag,
  * success, whether or not the element was present, and zero on decode
  * failure.
  */
-int CBS_get_optional_asn1_bool(CBS *cbs, int *out, unsigned tag,
+int CBS_get_optional_asn1_bool(CBS *cbs, int *out, unsigned int tag,
     int default_value);
 
 
@@ -460,7 +475,7 @@ int CBB_add_asn1_uint64(CBB *cbb, uint64_t value);
  *
  * Tag numbers greater than 30 are not supported (i.e. short form only).
  */
-int cbs_get_any_asn1_element_internal(CBS *cbs, CBS *out, unsigned *out_tag,
+int cbs_get_any_asn1_element_internal(CBS *cbs, CBS *out, unsigned int *out_tag,
     size_t *out_header_len, int strict);
 
 /*
