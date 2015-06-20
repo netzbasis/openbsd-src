@@ -258,13 +258,6 @@
 ./usr/include/dev/ic/if_wivar.h
 ./usr/include/dev/ic/iha.h
 ./usr/include/dev/ic/intersil7170.h
-./usr/include/dev/ic/isp_library.h
-./usr/include/dev/ic/isp_openbsd.h
-./usr/include/dev/ic/isp_stds.h
-./usr/include/dev/ic/isp_target.h
-./usr/include/dev/ic/ispmbox.h
-./usr/include/dev/ic/ispreg.h
-./usr/include/dev/ic/ispvar.h
 ./usr/include/dev/ic/lancereg.h
 ./usr/include/dev/ic/lancevar.h
 ./usr/include/dev/ic/lemacreg.h
@@ -1153,7 +1146,6 @@
 ./usr/include/openssl/lhash.h
 ./usr/include/openssl/md4.h
 ./usr/include/openssl/md5.h
-./usr/include/openssl/mdc2.h
 ./usr/include/openssl/modes.h
 ./usr/include/openssl/obj_mac.h
 ./usr/include/openssl/objects.h
@@ -2596,7 +2588,6 @@
 ./usr/share/man/man3/EVP_md2.3
 ./usr/share/man/man3/EVP_md5.3
 ./usr/share/man/man3/EVP_md_null.3
-./usr/share/man/man3/EVP_mdc2.3
 ./usr/share/man/man3/EVP_rc2_40_cbc.3
 ./usr/share/man/man3/EVP_rc2_64_cbc.3
 ./usr/share/man/man3/EVP_rc2_cbc.3
