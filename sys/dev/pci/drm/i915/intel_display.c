@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_display.c,v 1.50 2015/04/18 14:47:34 jsg Exp $	*/
+/*	$OpenBSD: intel_display.c,v 1.52 2015/06/24 17:59:42 kettenis Exp $	*/
 /*
  * Copyright © 2006-2007 Intel Corporation
  *
@@ -1022,7 +1022,7 @@ void intel_wait_for_pipe_off(struct drm_device *dev, int pipe)
 	} else {
 		u32 last_line, line_mask;
 		int reg = PIPEDSL(pipe);
-		unsigned long timeout = ticks + msecs_to_jiffies(100);
+		unsigned long timeout = jiffies + msecs_to_jiffies(100);
 
 		if (IS_GEN2(dev))
 			line_mask = DSL_LINEMASK_GEN2;
@@ -1034,8 +1034,8 @@ void intel_wait_for_pipe_off(struct drm_device *dev, int pipe)
 			last_line = I915_READ(reg) & line_mask;
 			mdelay(5);
 		} while (((I915_READ(reg) & line_mask) != last_line) &&
-			 time_after(timeout, ticks));
-		if (time_after(ticks, timeout))
+			 time_after(timeout, jiffies));
+		if (time_after(jiffies, timeout))
 			WARN(1, "pipe_off wait timed out\n");
 	}
 }
@@ -7054,7 +7054,7 @@ static void intel_crtc_destroy(struct drm_crtc *crtc)
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
 	if (work) {
-		task_del(systq, &work->task);
+		cancel_work_sync(&work->work);
 		kfree(work);
 	}
 
@@ -7063,9 +7063,10 @@ static void intel_crtc_destroy(struct drm_crtc *crtc)
 	kfree(intel_crtc);
 }
 
-static void intel_unpin_work_fn(void *arg1)
+static void intel_unpin_work_fn(struct work_struct *__work)
 {
-	struct intel_unpin_work *work = arg1;
+	struct intel_unpin_work *work =
+		container_of(__work, struct intel_unpin_work, work);
 	struct drm_device *dev = work->crtc->dev;
 
 	mutex_lock(&dev->struct_mutex);
@@ -7124,7 +7125,7 @@ static void do_intel_finish_page_flip(struct drm_device *dev,
 			  &obj->pending_flip);
 	wake_up(&dev_priv->pending_flip_queue);
 
-	task_add(systq, &work->task);
+	queue_work(dev_priv->wq, &work->work);
 
 	trace_i915_flip_complete(intel_crtc->plane, work->pending_flip_obj);
 }
@@ -7459,7 +7460,7 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 	work->event = event;
 	work->crtc = crtc;
 	work->old_fb_obj = to_intel_framebuffer(old_fb)->obj;
-	task_set(&work->task, intel_unpin_work_fn, work);
+	INIT_WORK(&work->work, intel_unpin_work_fn);
 
 	ret = drm_vblank_get(dev, intel_crtc->pipe);
 	if (ret)
@@ -9407,8 +9408,8 @@ void intel_modeset_cleanup(struct drm_device *dev)
 	/* Disable the irq before mode object teardown, for the irq might
 	 * enqueue unpin/hotplug work. */
 	drm_irq_uninstall(dev);
-	task_del(systq, &dev_priv->hotplug_task);
-	task_del(systq, &dev_priv->rps.task);
+	cancel_work_sync(&dev_priv->hotplug_work);
+	cancel_work_sync(&dev_priv->rps.work);
 
 	/* flush any delayed tasks or pending work */
 #ifdef notyet

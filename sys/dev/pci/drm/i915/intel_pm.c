@@ -1,4 +1,4 @@
-/*	$OpenBSD: intel_pm.c,v 1.34 2015/04/18 14:47:34 jsg Exp $	*/
+/*	$OpenBSD: intel_pm.c,v 1.36 2015/06/24 17:59:42 kettenis Exp $	*/
 /*
  * Copyright © 2012 Intel Corporation
  *
@@ -47,8 +47,6 @@ bool i915_gpu_raise(void);
 bool i915_gpu_lower(void);
 bool i915_gpu_turbo_disable(void);
 bool i915_gpu_busy(void);
-
-extern int ticks;
 
 static bool intel_crtc_active(struct drm_crtc *crtc)
 {
@@ -269,9 +267,11 @@ bool intel_fbc_enabled(struct drm_device *dev)
 	return dev_priv->display.fbc_enabled(dev);
 }
 
-static void intel_fbc_work_fn(void *arg1)
+static void intel_fbc_work_fn(struct work_struct *__work)
 {
-	struct intel_fbc_work *work = arg1;
+	struct intel_fbc_work *work =
+		container_of(to_delayed_work(__work),
+			     struct intel_fbc_work, work);
 	struct drm_device *dev = work->crtc->dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
@@ -296,14 +296,6 @@ static void intel_fbc_work_fn(void *arg1)
 	kfree(work);
 }
 
-static void
-intel_fbc_work_tick(void *arg)
-{
-	struct intel_fbc_work *work = arg;
-
-	task_add(systq, &work->task);
-}
-
 static void intel_cancel_fbc_work(struct drm_i915_private *dev_priv)
 {
 	if (dev_priv->fbc_work == NULL)
@@ -315,8 +307,7 @@ static void intel_cancel_fbc_work(struct drm_i915_private *dev_priv)
 	 * dev_priv->fbc_work, so we can perform the cancellation
 	 * entirely asynchronously.
 	 */
-	timeout_del(&dev_priv->fbc_work->to);
-	if (task_del(systq, &dev_priv->fbc_work->task))
+	if (cancel_delayed_work(&dev_priv->fbc_work->work))
 		/* tasklet was killed before being run, clean up */
 		kfree(dev_priv->fbc_work);
 
@@ -348,8 +339,7 @@ void intel_enable_fbc(struct drm_crtc *crtc, unsigned long interval)
 	work->crtc = crtc;
 	work->fb = crtc->fb;
 	work->interval = interval;
-	task_set(&work->task, intel_fbc_work_fn, work);
-	timeout_set(&work->to, intel_fbc_work_tick, work);
+	INIT_DELAYED_WORK(&work->work, intel_fbc_work_fn);
 
 	dev_priv->fbc_work = work;
 
@@ -366,7 +356,7 @@ void intel_enable_fbc(struct drm_crtc *crtc, unsigned long interval)
 	 * and indeed performing the enable as a co-routine and not
 	 * waiting synchronously upon the vblank.
 	 */
-	timeout_add_msec(&work->to, 50);
+	schedule_delayed_work(&work->work, msecs_to_jiffies(50));
 }
 
 void intel_disable_fbc(struct drm_device *dev)
@@ -2400,7 +2390,7 @@ static void ironlake_enable_drps(struct drm_device *dev)
 
 	dev_priv->ips.last_count1 = I915_READ(0x112e4) + I915_READ(0x112e8) +
 		I915_READ(0x112e0);
-	dev_priv->ips.last_time1 = jiffies_to_msecs(ticks);
+	dev_priv->ips.last_time1 = jiffies_to_msecs(jiffies);
 	dev_priv->ips.last_count2 = I915_READ(0x112f4);
 	getrawmonotonic(&dev_priv->ips.last_time2);
 
@@ -2882,7 +2872,7 @@ static unsigned long __i915_chipset_val(struct drm_i915_private *dev_priv)
 {
 	u64 total_count, diff, ret;
 	u32 count1, count2, count3, m = 0, c = 0;
-	unsigned long now = jiffies_to_msecs(ticks), diff1;
+	unsigned long now = jiffies_to_msecs(jiffies), diff1;
 	int i;
 
 	assert_spin_locked(&mchdev_lock);
@@ -3457,31 +3447,24 @@ void intel_disable_gt_powersave(struct drm_device *dev)
 		ironlake_disable_drps(dev);
 		ironlake_disable_rc6(dev);
 	} else if (INTEL_INFO(dev)->gen >= 6 && !IS_VALLEYVIEW(dev)) {
-		timeout_del(&dev_priv->rps.delayed_resume_to);
-		task_del(systq, &dev_priv->rps.delayed_resume_task);
+		cancel_delayed_work_sync(&dev_priv->rps.delayed_resume_work);
 		mutex_lock(&dev_priv->rps.hw_lock);
 		gen6_disable_rps(dev);
 		mutex_unlock(&dev_priv->rps.hw_lock);
 	}
 }
 
-static void intel_gen6_powersave_work(void *arg1)
+static void intel_gen6_powersave_work(struct work_struct *work)
 {
-	drm_i915_private_t *dev_priv = arg1;
+	struct drm_i915_private *dev_priv =
+		container_of(work, struct drm_i915_private,
+			     rps.delayed_resume_work.work);
 	struct drm_device *dev = dev_priv->dev;
 
 	mutex_lock(&dev_priv->rps.hw_lock);
 	gen6_enable_rps(dev);
 	gen6_update_ring_freq(dev);
 	mutex_unlock(&dev_priv->rps.hw_lock);
-}
-
-static void
-intel_gen6_powersave_tick(void *arg)
-{
-	drm_i915_private_t *dev_priv = arg;
-
-	task_add(systq, &dev_priv->rps.delayed_resume_task);
 }
 
 void intel_enable_gt_powersave(struct drm_device *dev)
@@ -3498,7 +3481,8 @@ void intel_enable_gt_powersave(struct drm_device *dev)
 		 * done at any specific time, so do this out of our fast path
 		 * to make resume and init faster.
 		 */
-		timeout_add_sec(&dev_priv->rps.delayed_resume_to, 1);
+		schedule_delayed_work(&dev_priv->rps.delayed_resume_work,
+				      round_jiffies_up_relative(HZ));
 	}
 }
 
@@ -4482,10 +4466,8 @@ void intel_pm_init(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	task_set(&dev_priv->rps.delayed_resume_task, intel_gen6_powersave_work,
-	    dev_priv);
-	timeout_set(&dev_priv->rps.delayed_resume_to, intel_gen6_powersave_tick,
-	    dev_priv);
+	INIT_DELAYED_WORK(&dev_priv->rps.delayed_resume_work,
+			  intel_gen6_powersave_work);
 }
 
 int sandybridge_pcode_read(struct drm_i915_private *dev_priv, u8 mbox, u32 *val)
