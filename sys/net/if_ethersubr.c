@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ethersubr.c,v 1.211 2015/06/29 10:32:29 dlg Exp $	*/
+/*	$OpenBSD: if_ethersubr.c,v 1.213 2015/06/30 15:30:17 mpi Exp $	*/
 /*	$NetBSD: if_ethersubr.c,v 1.19 1996/05/07 02:40:30 thorpej Exp $	*/
 
 /*
@@ -189,7 +189,7 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 		/* If broadcasting on a simplex interface, loopback a copy */
 		if ((m->m_flags & M_BCAST) && (ifp->if_flags & IFF_SIMPLEX) &&
 		    !m->m_pkthdr.pf.routed)
-			mcopy = m_copy(m, 0, (int)M_COPYALL);
+			mcopy = m_copym(m, 0, M_COPYALL, M_NOWAIT);
 		etype = htons(ETHERTYPE_IP);
 		break;
 #ifdef INET6
@@ -263,7 +263,7 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	memcpy(eh->ether_dhost, edst, sizeof(eh->ether_dhost));
 	memcpy(eh->ether_shost, esrc, sizeof(eh->ether_shost));
 
-	return (if_output(ifp, m));
+	return (if_enqueue(ifp, m));
 bad:
 	if (m)
 		m_freem(m);
