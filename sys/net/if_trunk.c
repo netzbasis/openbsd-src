@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_trunk.c,v 1.106 2015/06/30 13:54:42 mpi Exp $	*/
+/*	$OpenBSD: if_trunk.c,v 1.108 2015/07/02 10:02:40 mpi Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -75,7 +75,7 @@ int	 trunk_ether_delmulti(struct trunk_softc *, struct ifreq *);
 void	 trunk_ether_purgemulti(struct trunk_softc *);
 int	 trunk_ether_cmdmulti(struct trunk_port *, u_long);
 int	 trunk_ioctl_allports(struct trunk_softc *, u_long, caddr_t);
-int	 trunk_input(struct mbuf *);
+int	 trunk_input(struct ifnet *, struct mbuf *);
 void	 trunk_start(struct ifnet *);
 void	 trunk_init(struct ifnet *);
 void	 trunk_stop(struct ifnet *);
@@ -1080,42 +1080,29 @@ trunk_watchdog(struct ifnet *ifp)
 }
 
 int
-trunk_input(struct mbuf *m)
+trunk_input(struct ifnet *ifp, struct mbuf *m)
 {
-	struct ifnet *ifp;
 	struct trunk_softc *tr;
 	struct trunk_port *tp;
 	struct ifnet *trifp = NULL;
 	struct ether_header *eh;
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
-	int error;
-
-	ifp = if_get(m->m_pkthdr.ph_ifidx);
-	KASSERT(ifp != NULL);
-	if ((ifp->if_flags & IFF_UP) == 0) {
-		m_freem(m);
-		return (1);
-	}
 
 	eh = mtod(m, struct ether_header *);
 	if (ETHER_IS_MULTICAST(eh->ether_dhost))
 		ifp->if_imcasts++;
 
 	/* Should be checked by the caller */
-	if (ifp->if_type != IFT_IEEE8023ADLAG) {
-		error = EPROTONOSUPPORT;
+	if (ifp->if_type != IFT_IEEE8023ADLAG)
 		goto bad;
-	}
+
 	if ((tp = (struct trunk_port *)ifp->if_tp) == NULL ||
-	    (tr = (struct trunk_softc *)tp->tp_trunk) == NULL) {
-		error = ENOENT;
+	    (tr = (struct trunk_softc *)tp->tp_trunk) == NULL)
 		goto bad;
-	}
+
 	trifp = &tr->tr_ac.ac_if;
-	if (tr->tr_proto == TRUNK_PROTO_NONE) {
-		error = ENOENT;
+	if (tr->tr_proto == TRUNK_PROTO_NONE)
 		goto bad;
-	}
 
 	if ((*tr->tr_input)(tr, tp, m)) {
 		/*
@@ -1126,6 +1113,9 @@ trunk_input(struct mbuf *m)
 		return (1);
 	}
 
+	if ((trifp->if_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
+		goto bad;
+
 	ml_enqueue(&ml, m);
 	if_input(trifp, &ml);
 	return (1);
@@ -1134,7 +1124,7 @@ trunk_input(struct mbuf *m)
 	if (trifp != NULL)
 		trifp->if_ierrors++;
 	m_freem(m);
-	return (error);
+	return (1);
 }
 
 int
