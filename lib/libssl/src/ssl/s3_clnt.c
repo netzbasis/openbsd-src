@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.114 2015/06/24 09:44:18 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.116 2015/07/14 03:33:16 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -970,10 +970,10 @@ int
 ssl3_get_server_certificate(SSL *s)
 {
 	int			 al, i, ok, ret = -1;
-	unsigned long		 n, nc, llen, l;
+	long			 n;
+	CBS			 cbs, cert_list;
 	X509			*x = NULL;
-	const unsigned char	*q, *p;
-	unsigned char		*d;
+	const unsigned char	*q;
 	STACK_OF(X509)		*sk = NULL;
 	SESS_CERT		*sc;
 	EVP_PKEY		*pkey = NULL;
@@ -995,7 +995,8 @@ ssl3_get_server_certificate(SSL *s)
 		    SSL_R_BAD_MESSAGE_TYPE);
 		goto f_err;
 	}
-	p = d = (unsigned char *)s->init_msg;
+
+	CBS_init(&cbs, s->init_msg, n);
 
 	if ((sk = sk_X509_new_null()) == NULL) {
 		SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
@@ -1003,35 +1004,37 @@ ssl3_get_server_certificate(SSL *s)
 		goto err;
 	}
 
-	if (p + 3 - d > n)
+	if (n < 0 || CBS_len(&cbs) < 3)
 		goto truncated;
-	n2l3(p, llen);
-	if (llen + 3 != n) {
+	if (!CBS_get_u24_length_prefixed(&cbs, &cert_list) ||
+	    CBS_len(&cbs) != 0) {
 		al = SSL_AD_DECODE_ERROR;
 		SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
 		    SSL_R_LENGTH_MISMATCH);
 		goto f_err;
 	}
-	for (nc = 0; nc < llen; ) {
-		if (p + 3 - d > n)
+
+	while (CBS_len(&cert_list) > 0) {
+		CBS cert;
+
+		if (CBS_len(&cert_list) < 3)
 			goto truncated;
-		n2l3(p, l);
-		if ((l + nc + 3) > llen) {
+		if (!CBS_get_u24_length_prefixed(&cert_list, &cert)) {
 			al = SSL_AD_DECODE_ERROR;
 			SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
 			    SSL_R_CERT_LENGTH_MISMATCH);
 			goto f_err;
 		}
 
-		q = p;
-		x = d2i_X509(NULL, &q, l);
+		q = CBS_data(&cert);
+		x = d2i_X509(NULL, &q, CBS_len(&cert));
 		if (x == NULL) {
 			al = SSL_AD_BAD_CERTIFICATE;
 			SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
 			    ERR_R_ASN1_LIB);
 			goto f_err;
 		}
-		if (q != (p + l)) {
+		if (q != CBS_data(&cert) + CBS_len(&cert)) {
 			al = SSL_AD_DECODE_ERROR;
 			SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
 			    SSL_R_CERT_LENGTH_MISMATCH);
@@ -1043,8 +1046,6 @@ ssl3_get_server_certificate(SSL *s)
 			goto err;
 		}
 		x = NULL;
-		nc += l + 3;
-		p = q;
 	}
 
 	i = ssl_verify_cert_chain(s, sk);
@@ -1783,9 +1784,11 @@ err:
 int
 ssl3_get_cert_status(SSL *s)
 {
+	CBS			 cert_status, response;
+	size_t			 stow_len;
 	int			 ok, al;
-	unsigned long		 resplen, n;
-	const unsigned char	*p;
+	long			 n;
+	uint8_t			 status_type;
 
 	n = s->method->ssl_get_message(s, SSL3_ST_CR_CERT_STATUS_A,
 	    SSL3_ST_CR_CERT_STATUS_B, SSL3_MT_CERTIFICATE_STATUS,
@@ -1793,36 +1796,43 @@ ssl3_get_cert_status(SSL *s)
 
 	if (!ok)
 		return ((int)n);
-	if (n < 4) {
+
+	CBS_init(&cert_status, s->init_msg, n);
+
+	if (n < 0 || !CBS_get_u8(&cert_status, &status_type) ||
+	    CBS_len(&cert_status) < 3) {
 		/* need at least status type + length */
 		al = SSL_AD_DECODE_ERROR;
 		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
 		    SSL_R_LENGTH_MISMATCH);
 		goto f_err;
 	}
-	p = (unsigned char *)s->init_msg;
-	if (*p++ != TLSEXT_STATUSTYPE_ocsp) {
+
+	if (status_type != TLSEXT_STATUSTYPE_ocsp) {
 		al = SSL_AD_DECODE_ERROR;
 		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
 		    SSL_R_UNSUPPORTED_STATUS_TYPE);
 		goto f_err;
 	}
-	n2l3(p, resplen);
-	if (resplen + 4 != n) {
+
+	if (!CBS_get_u24_length_prefixed(&cert_status, &response) ||
+	    CBS_len(&cert_status) != 0) {
 		al = SSL_AD_DECODE_ERROR;
 		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
 		    SSL_R_LENGTH_MISMATCH);
 		goto f_err;
 	}
-	free(s->tlsext_ocsp_resp);
-	if ((s->tlsext_ocsp_resp = malloc(resplen)) == NULL) {
-		al = SSL_AD_INTERNAL_ERROR;
-		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
-		    ERR_R_MALLOC_FAILURE);
-		goto f_err;
-	}
-	memcpy(s->tlsext_ocsp_resp, p, resplen);
-	s->tlsext_ocsp_resplen = resplen;
+
+	if (!CBS_stow(&response, &s->tlsext_ocsp_resp,
+	    &stow_len) || stow_len > INT_MAX) {
+		s->tlsext_ocsp_resplen = 0;
+ 		al = SSL_AD_INTERNAL_ERROR;
+ 		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
+ 		    ERR_R_MALLOC_FAILURE);
+ 		goto f_err;
+ 	}
+	s->tlsext_ocsp_resplen = (int)stow_len;
+
 	if (s->ctx->tlsext_status_cb) {
 		int ret;
 		ret = s->ctx->tlsext_status_cb(s, s->ctx->tlsext_status_arg);
