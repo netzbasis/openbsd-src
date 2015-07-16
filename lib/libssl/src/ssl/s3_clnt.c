@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.116 2015/07/14 03:33:16 doug Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.119 2015/07/15 22:22:54 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -996,7 +996,6 @@ ssl3_get_server_certificate(SSL *s)
 		goto f_err;
 	}
 
-	CBS_init(&cbs, s->init_msg, n);
 
 	if ((sk = sk_X509_new_null()) == NULL) {
 		SSLerr(SSL_F_SSL3_GET_SERVER_CERTIFICATE,
@@ -1004,8 +1003,13 @@ ssl3_get_server_certificate(SSL *s)
 		goto err;
 	}
 
-	if (n < 0 || CBS_len(&cbs) < 3)
+	if (n < 0)
 		goto truncated;
+
+	CBS_init(&cbs, s->init_msg, n);
+	if (CBS_len(&cbs) < 3)
+		goto truncated;
+
 	if (!CBS_get_u24_length_prefixed(&cbs, &cert_list) ||
 	    CBS_len(&cbs) != 0) {
 		al = SSL_AD_DECODE_ERROR;
@@ -1732,9 +1736,15 @@ ssl3_get_new_session_ticket(SSL *s)
 		goto f_err;
 	}
 
-	CBS_init(&cbs, s->init_msg, n);
+	if (n < 0) {
+		al = SSL_AD_DECODE_ERROR;
+		SSLerr(SSL_F_SSL3_GET_NEW_SESSION_TICKET,
+		    SSL_R_LENGTH_MISMATCH);
+		goto f_err;
+	}
 
-	if (n < 0 || !CBS_get_u32(&cbs, &lifetime_hint) ||
+	CBS_init(&cbs, s->init_msg, n);
+	if (!CBS_get_u32(&cbs, &lifetime_hint) ||
 #if UINT32_MAX > LONG_MAX
 	    lifetime_hint > LONG_MAX ||
 #endif
@@ -1797,9 +1807,16 @@ ssl3_get_cert_status(SSL *s)
 	if (!ok)
 		return ((int)n);
 
-	CBS_init(&cert_status, s->init_msg, n);
+	if (n < 0) {
+		/* need at least status type + length */
+		al = SSL_AD_DECODE_ERROR;
+		SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
+		    SSL_R_LENGTH_MISMATCH);
+		goto f_err;
+	}
 
-	if (n < 0 || !CBS_get_u8(&cert_status, &status_type) ||
+	CBS_init(&cert_status, s->init_msg, n);
+	if (!CBS_get_u8(&cert_status, &status_type) ||
 	    CBS_len(&cert_status) < 3) {
 		/* need at least status type + length */
 		al = SSL_AD_DECODE_ERROR;
@@ -2009,37 +2026,8 @@ ssl3_send_client_key_exchange(SSL *s)
 		} else if (alg_k & (SSL_kECDHE|SSL_kECDHr|SSL_kECDHe)) {
 			const EC_GROUP *srvr_group = NULL;
 			EC_KEY *tkey;
-			int ecdh_clnt_cert = 0;
 			int field_size = 0;
 
-			/*
-			 * Did we send out the client's ECDH share for use
-			 * in premaster computation as part of client
-			 * certificate? If so, set ecdh_clnt_cert to 1.
-			 */
-			if ((alg_k & (SSL_kECDHr|SSL_kECDHe)) &&
-			    (s->cert != NULL)) {
-				/*
-				 * XXX: For now, we do not support client
-				 * authentication using ECDH certificates.
-				 * To add such support, one needs to add
-				 * code that checks for appropriate
-				 * conditions and sets ecdh_clnt_cert to 1.
-				 * For example, the cert have an ECC
-				 * key on the same curve as the server's
-				 * and the key should be authorized for
-				 * key agreement.
-				 *
-				 * One also needs to add code in ssl3_connect
-				 * to skip sending the certificate verify
-				 * message.
-				 *
-				 * if ((s->cert->key->privatekey != NULL) &&
-				 *     (s->cert->key->privatekey->type ==
-				 *      EVP_PKEY_EC) && ...)
-				 * ecdh_clnt_cert = 1;
-				 */
-			}
 
 			/* Ensure that we have an ephemeral key for ECDHE. */
 			if ((alg_k & SSL_kECDHE) &&
@@ -2087,36 +2075,13 @@ ssl3_send_client_key_exchange(SSL *s)
 				    ERR_R_EC_LIB);
 				goto err;
 			}
-			if (ecdh_clnt_cert) {
-				/*
-				 * Reuse key info from our certificate
-				 * We only need our private key to perform
-				 * the ECDH computation.
-				 */
-				const BIGNUM *priv_key;
-				tkey = s->cert->key->privatekey->pkey.ec;
-				priv_key = EC_KEY_get0_private_key(tkey);
-				if (priv_key == NULL) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-					    ERR_R_MALLOC_FAILURE);
-					goto err;
-				}
-				if (!EC_KEY_set_private_key(clnt_ecdh,
-				    priv_key)) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-					    ERR_R_EC_LIB);
-					goto err;
-				}
-			} else {
-				/* Generate a new ECDH key pair */
-				if (!(EC_KEY_generate_key(clnt_ecdh))) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-					    ERR_R_ECDH_LIB);
-					goto err;
-				}
+
+			/* Generate a new ECDH key pair */
+			if (!(EC_KEY_generate_key(clnt_ecdh))) {
+				SSLerr(
+				    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
+				    ERR_R_ECDH_LIB);
+				goto err;
 			}
 
 			/*
@@ -2144,47 +2109,41 @@ ssl3_send_client_key_exchange(SSL *s)
 
 			memset(p, 0, n); /* clean up */
 
-			if (ecdh_clnt_cert) {
-				/* Send empty client key exch message. */
-				n = 0;
-			} else {
-				/*
-				 * First check the size of encoding and
-				 * allocate memory accordingly.
-				 */
-				encoded_pt_len = EC_POINT_point2oct(
-				    srvr_group,
-				    EC_KEY_get0_public_key(clnt_ecdh),
-				    POINT_CONVERSION_UNCOMPRESSED,
-				    NULL, 0, NULL);
+			/*
+			 * First check the size of encoding and
+			 * allocate memory accordingly.
+			 */
+			encoded_pt_len = EC_POINT_point2oct(
+				srvr_group,
+				EC_KEY_get0_public_key(clnt_ecdh),
+				POINT_CONVERSION_UNCOMPRESSED,
+				NULL, 0, NULL);
 
-				encodedPoint = malloc(encoded_pt_len);
+			encodedPoint = malloc(encoded_pt_len);
 
-				bn_ctx = BN_CTX_new();
-				if ((encodedPoint == NULL) ||
-				    (bn_ctx == NULL)) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
-					    ERR_R_MALLOC_FAILURE);
-					goto err;
-				}
-
-				/* Encode the public key */
-				n = EC_POINT_point2oct(srvr_group,
-				    EC_KEY_get0_public_key(clnt_ecdh),
-				    POINT_CONVERSION_UNCOMPRESSED,
-				    encodedPoint, encoded_pt_len, bn_ctx);
-
-				*p = n; /* length of encoded point */
-				/* Encoded point will be copied here */
-				p += 1;
-
-				/* copy the point */
-				memcpy((unsigned char *)p, encodedPoint, n);
-				/* increment n to account for length field */
-				n += 1;
-
+			bn_ctx = BN_CTX_new();
+			if ((encodedPoint == NULL) ||
+			    (bn_ctx == NULL)) {
+				SSLerr(
+				    SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
+				    ERR_R_MALLOC_FAILURE);
+				goto err;
 			}
+
+			/* Encode the public key */
+			n = EC_POINT_point2oct(srvr_group,
+			    EC_KEY_get0_public_key(clnt_ecdh),
+			    POINT_CONVERSION_UNCOMPRESSED,
+			    encodedPoint, encoded_pt_len, bn_ctx);
+
+			*p = n; /* length of encoded point */
+			/* Encoded point will be copied here */
+			p += 1;
+
+			/* copy the point */
+			memcpy((unsigned char *)p, encodedPoint, n);
+			/* increment n to account for length field */
+			n += 1;
 
 			/* Free allocated memory */
 			BN_CTX_free(bn_ctx);
