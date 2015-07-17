@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: rcctl.sh,v 1.71 2015/07/15 04:19:41 ajacoutot Exp $
+# $OpenBSD: rcctl.sh,v 1.74 2015/07/16 23:05:12 ajacoutot Exp $
 #
 # Copyright (c) 2014, 2015 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -17,9 +17,9 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-_special_services="accounting check_quotas ipsec multicast_host multicast_router
-                   pf spamd_black"
-readonly _special_services
+_special_svcs="accounting check_quotas ipsec multicast_host multicast_router pf
+               spamd_black"
+readonly _special_svcs
 
 # get local functions from rc.subr(8)
 FUNCS_ONLY=1
@@ -42,7 +42,8 @@ rcctl_err()
 	_rc_err "${0##*/}: ${1}" ${2}
 }
 
-ls_rcscripts() {
+ls_rcscripts()
+{
 	local _s
 
 	cd /etc/rc.d && set -- *
@@ -153,7 +154,7 @@ svc_is_special()
 	local _svc=$1
 	[ -n "${_svc}" ] || return
 
-	echo ${_special_services} | grep -qw -- ${_svc}
+	echo ${_special_svcs} | grep -qw -- ${_svc}
 }
 
 svc_ls()
@@ -168,7 +169,7 @@ svc_ls()
 		all)
 			(
 				ls_rcscripts
-				echo ${_special_services} | tr "[:blank:]" "\n"
+				echo ${_special_svcs} | tr "[:blank:]" "\n"
 			) | sort
 			;;
 		faulty)
@@ -455,7 +456,7 @@ if [ -n "${var}" ]; then
 		rcctl_err "\"${svc}_class\" is a read-only variable set in login.conf(5)"
 	if svc_is_special ${svc}; then
 		if [[ ${action} == set && ${var} != status ]] || \
-			[[ ${action} == @(get|getdef) && ${var} == @(timeout|user) ]]; then
+			[[ ${action} == @(get|getdef) && ${var} == @(class|timeout|user) ]]; then
 			rcctl_err "\"${svc}\" is a special variable, cannot \"${action} ${svc} ${var}\""
 		fi
 	fi
