@@ -1,4 +1,4 @@
-/* $OpenBSD: s_server.c,v 1.11 2015/06/15 05:16:56 doug Exp $ */
+/* $OpenBSD: s_server.c,v 1.13 2015/07/17 16:09:46 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -310,7 +310,6 @@ sv_usage(void)
 	BIO_printf(bio_err, " -cipher arg   - play with 'openssl ciphers' to see what goes here\n");
 	BIO_printf(bio_err, " -serverpref   - Use server's cipher preferences\n");
 	BIO_printf(bio_err, " -quiet        - Inhibit printing of session and certificate information\n");
-	BIO_printf(bio_err, " -ssl3         - Just talk SSLv3\n");
 	BIO_printf(bio_err, " -tls1_2       - Just talk TLSv1.2\n");
 	BIO_printf(bio_err, " -tls1_1       - Just talk TLSv1.1\n");
 	BIO_printf(bio_err, " -tls1         - Just talk TLSv1\n");
@@ -806,12 +805,8 @@ s_server_main(int argc, char *argv[])
 			off |= SSL_OP_NO_TLSv1_2;
 		} else if (strcmp(*argv, "-no_comp") == 0) {
 			off |= SSL_OP_NO_COMPRESSION;
-		}
-		else if (strcmp(*argv, "-no_ticket") == 0) {
+		} else if (strcmp(*argv, "-no_ticket") == 0) {
 			off |= SSL_OP_NO_TICKET;
-		}
-		else if (strcmp(*argv, "-ssl3") == 0) {
-			meth = SSLv3_server_method();
 		} else if (strcmp(*argv, "-tls1") == 0) {
 			meth = TLSv1_server_method();
 		} else if (strcmp(*argv, "-tls1_1") == 0) {
@@ -1692,10 +1687,6 @@ init_ssl_connection(SSL * con)
 #endif
 	if (SSL_cache_hit(con))
 		BIO_printf(bio_s_out, "Reused session-id\n");
-	if (SSL_ctrl(con, SSL_CTRL_GET_FLAGS, 0, NULL) &
-	    TLS1_FLAGS_TLS_PADDING_BUG)
-		BIO_printf(bio_s_out,
-		    "Peer has incorrect TLSv1 block padding\n");
 	BIO_printf(bio_s_out, "Secure Renegotiation IS%s supported\n",
 	    SSL_get_secure_renegotiation_support(con) ? "" : " NOT");
 	if (keymatexportlabel != NULL) {

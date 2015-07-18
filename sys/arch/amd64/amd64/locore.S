@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.70 2015/07/16 23:04:12 mlarkin Exp $	*/
+/*	$OpenBSD: locore.S,v 1.72 2015/07/17 15:37:58 guenther Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -180,8 +180,6 @@ _C_LABEL(lapic_isr):
 	.globl	_C_LABEL(biosbasemem),_C_LABEL(biosextmem)
 	.globl	_C_LABEL(bootapiver)
 	.globl	_C_LABEL(pg_nx)
-_C_LABEL(cpu):		.long	0	# are we 386, 386sx, or 486,
-					#   or Pentium, or..
 _C_LABEL(cpu_id):	.long	0	# saved from `cpuid' instruction
 _C_LABEL(cpu_feature):	.long	0	# feature flags from 'cpuid'
 					#   instruction
@@ -1130,7 +1128,7 @@ NENTRY(intr_fast_exit)
 	movq	TF_RBP(%rsp),%rbp
 	movq	TF_RBX(%rsp),%rbx
 
-	testq	$SEL_UPL,TF_CS(%rsp)
+	testq	$SEL_RPL,TF_CS(%rsp)
 	je	5f
 
 	INTR_RESTORE_SELECTORS

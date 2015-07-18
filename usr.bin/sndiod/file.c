@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.6 2015/02/16 06:26:24 ratchov Exp $	*/
+/*	$OpenBSD: file.c,v 1.11 2015/07/17 10:15:24 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -44,7 +44,6 @@
  *
  */
 
-#include <sys/time.h>
 #include <sys/types.h>
 
 #include <err.h>
@@ -60,12 +59,11 @@
 #include "utils.h"
 
 #define MAXFDS 100
-#define TIMER_USEC 10000
+#define TIMER_MSEC 5
 
 void timo_update(unsigned int);
 void timo_init(void);
 void timo_done(void);
-void file_sigalrm(int);
 
 struct timespec file_ts;
 struct file *file_list;
@@ -235,7 +233,7 @@ file_new(struct fileops *ops, void *arg, char *name, unsigned int nfds)
 		return NULL;
 	}
 	f = xmalloc(sizeof(struct file));
-	f->nfds = nfds;
+	f->max_nfds = nfds;
 	f->ops = ops;
 	f->arg = arg;
 	f->name = name;
@@ -248,7 +246,7 @@ file_new(struct fileops *ops, void *arg, char *name, unsigned int nfds)
 		log_puts(": created\n");
 	}
 #endif
-	file_nfds += f->nfds;
+	file_nfds += f->max_nfds;
 	return f;
 }
 
@@ -261,7 +259,7 @@ file_del(struct file *f)
 		panic();
 	}
 #endif	
-	file_nfds -= f->nfds;
+	file_nfds -= f->max_nfds;
 	f->state = FILE_ZOMB;
 #ifdef DEBUG
 	if (log_level >= 3) {
@@ -274,17 +272,17 @@ file_del(struct file *f)
 int
 file_poll(void)
 {
-	struct pollfd pfds[MAXFDS];
+	struct pollfd pfds[MAXFDS], *pfd;
 	struct file *f, **pf;
 	struct timespec ts;
 #ifdef DEBUG
 	struct timespec sleepts;
 	struct timespec ts0, ts1;
 	long us;
-	int i, n, nfds;
+	int i;
 #endif
 	long long delta_nsec;
-	int revents, res, immed;
+	int nfds, revents, res, immed;
 
 	/*
 	 * cleanup zombies
@@ -307,65 +305,44 @@ file_poll(void)
 	}
 
 	log_flush();
-#ifdef DEBUG
-	if (log_level >= 4) 
-		log_puts("poll:");
-#endif
 	nfds = 0;
 	immed = 0;
 	for (f = file_list; f != NULL; f = f->next) {
-#ifdef DEBUG
-		if (log_level >= 4) {
-			log_puts(" ");
-			file_log(f);
-		}
-#endif
-		n = f->ops->pollfd(f->arg, pfds + nfds);
-		if (n == 0) {
-			f->pfd = NULL;
+		f->nfds = f->ops->pollfd(f->arg, pfds + nfds);
+		if (f->nfds == 0)
+			continue;
+		if (f->nfds < 0) {
+			immed = 1;
 			continue;
 		}
-		if (n < 0) {
-			immed = 1;
-			n = 0;
-		}
-		f->pfd = pfds + nfds;
-		nfds += n;
-#ifdef DEBUG
-		if (log_level >= 4) {
-			log_puts("=");
-			for (i = 0; i < n; i++) {
-				if (i > 0)
-					log_puts(",");
-				log_putx(f->pfd[i].events);
-			}
-		}
-#endif
+		nfds += f->nfds;
 	}
 #ifdef DEBUG
-	if (log_level >= 4)
+	if (log_level >= 4) {
+		log_puts("poll:");
+		pfd = pfds;
+		for (f = file_list; f != NULL; f = f->next) {
+			if (f->nfds <= 0)
+				continue;
+			log_puts(" ");
+			log_puts(f->ops->name);
+			log_puts(":");
+			for (i = 0; i < f->nfds; i++) {
+				log_puts(" ");
+				log_putx(pfd->events);
+				pfd++;
+			}
+		}
 		log_puts("\n");
-#endif
-
-#ifdef DEBUG
+	}
 	clock_gettime(CLOCK_MONOTONIC, &sleepts);
 	file_utime += 1000000000LL * (sleepts.tv_sec - file_ts.tv_sec);
 	file_utime += sleepts.tv_nsec - file_ts.tv_nsec;
 #endif
 	if (!immed) {
-		res = poll(pfds, nfds, -1);
+		res = poll(pfds, nfds, TIMER_MSEC);
 		if (res < 0 && errno != EINTR)
 			err(1, "poll");
-#ifdef DEBUG
-		if (log_level >= 4 && res >= 0) {
-			log_puts("poll: return:");
-			for (i = 0; i < nfds; i++) {
-				log_puts(" ");
-				log_putx(pfds[i].revents);
-			}
-			log_puts("\n");
-		}
-#endif
 	} else
 		res = 0;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -388,15 +365,16 @@ file_poll(void)
 	}
 	if (!immed && res <= 0)
 		return 1;
-
+	pfd = pfds;
 	for (f = file_list; f != NULL; f = f->next) {
-		if (f->pfd == NULL)
+		if (f->nfds <= 0)
 			continue;
 #ifdef DEBUG
-		clock_gettime(CLOCK_MONOTONIC, &ts0);
+		if (log_level >= 3)
+			clock_gettime(CLOCK_MONOTONIC, &ts0);
 #endif
 		revents = (f->state != FILE_ZOMB) ? 
-		    f->ops->revents(f->arg, f->pfd) : 0;
+		    f->ops->revents(f->arg, pfd) : 0;
 		if ((revents & POLLHUP) && (f->state != FILE_ZOMB))
 			f->ops->hup(f->arg);
 		if ((revents & POLLIN) && (f->state != FILE_ZOMB))
@@ -404,35 +382,26 @@ file_poll(void)
 		if ((revents & POLLOUT) && (f->state != FILE_ZOMB))
 			f->ops->out(f->arg);
 #ifdef DEBUG
-		clock_gettime(CLOCK_MONOTONIC, &ts1);
-		us = 1000000L * (ts1.tv_sec - ts0.tv_sec);
-		us += (ts1.tv_nsec - ts0.tv_nsec) / 1000;
-		if (log_level >= 4 || (log_level >= 3 && us >= 5000)) {
-			file_log(f);
-			log_puts(": processed in ");
-			log_putu(us);
-			log_puts("us\n");
+		if (log_level >= 3) {
+			clock_gettime(CLOCK_MONOTONIC, &ts1);
+			us = 1000000L * (ts1.tv_sec - ts0.tv_sec);
+			us += (ts1.tv_nsec - ts0.tv_nsec) / 1000;
+			if (log_level >= 4 || us >= 5000) {
+				file_log(f);
+				log_puts(": processed in ");
+				log_putu(us);
+				log_puts("us\n");
+			}
 		}
 #endif
+		pfd += f->nfds;
 	}
 	return 1;
 }
 
-/*
- * handler for SIGALRM, invoked periodically
- */
-void
-file_sigalrm(int i)
-{
-	/* nothing to do, we only want poll() to return EINTR */
-}
-
-
 void
 filelist_init(void)
 {
-	static struct sigaction sa;
-	struct itimerval it;
 	sigset_t set;
 
 	sigemptyset(&set);
@@ -444,21 +413,6 @@ filelist_init(void)
 		perror("clock_gettime");
 		exit(1);
 	}
-        sa.sa_flags = SA_RESTART;
-        sa.sa_handler = file_sigalrm;
-        sigfillset(&sa.sa_mask);
-        if (sigaction(SIGALRM, &sa, NULL) < 0) {
-		perror("sigaction");
-		exit(1);
-	}
-	it.it_interval.tv_sec = 0;
-	it.it_interval.tv_usec = TIMER_USEC;
-	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = TIMER_USEC;
-	if (setitimer(ITIMER_REAL, &it, NULL) < 0) {
-		perror("setitimer");
-		exit(1);
-	}
 	log_sync = 0;
 	timo_init();
 }
@@ -466,7 +420,6 @@ filelist_init(void)
 void
 filelist_done(void)
 {
-	struct itimerval it;
 #ifdef DEBUG
 	struct file *f;
 
@@ -480,11 +433,5 @@ filelist_done(void)
 	log_sync = 1;
 	log_flush();
 #endif
-	timerclear(&it.it_value);
-	timerclear(&it.it_interval);
-	if (setitimer(ITIMER_REAL, &it, NULL) < 0) {
-		perror("setitimer");
-		exit(1);
-	}
 	timo_done();
 }
