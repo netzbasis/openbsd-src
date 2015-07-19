@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_fcgi.c,v 1.55 2015/07/17 20:44:57 reyk Exp $	*/
+/*	$OpenBSD: server_fcgi.c,v 1.57 2015/07/18 22:42:24 blambert Exp $	*/
 
 /*
  * Copyright (c) 2014 Florian Obser <florian@openbsd.org>
@@ -306,8 +306,12 @@ server_fcgi(struct httpd *env, struct client *clt)
 			errstr = "failed to encode param";
 			goto fail;
 		}
-	} else if (asprintf(&str, "%s?%s", desc->http_path,
-	    desc->http_query) != -1) {
+	} else {
+		if (asprintf(&str, "%s?%s", desc->http_path,
+		    desc->http_query) == -1) {
+			errstr = "failed to encode param";
+			goto fail;
+		}
 		ret = fcgi_add_param(&param, "REQUEST_URI", str, clt);
 		free(str);
 		if (ret == -1) {
@@ -480,8 +484,10 @@ server_fcgi_read(struct bufferevent *bev, void *arg)
 
 	do {
 		len = bufferevent_read(bev, buf, clt->clt_fcgi_toread);
-		/* XXX error handling */
-		evbuffer_add(clt->clt_srvevb, buf, len);
+		if (evbuffer_add(clt->clt_srvevb, buf, len) == -1) {
+			server_abort_http(clt, 500, "short write");
+			return;
+		}
 		clt->clt_fcgi_toread -= len;
 		DPRINTF("%s: len: %lu toread: %d state: %d type: %d",
 		    __func__, len, clt->clt_fcgi_toread,

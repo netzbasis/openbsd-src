@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.99 2015/07/17 20:06:46 claudio Exp $ */
+/*	$OpenBSD: kroute.c,v 1.101 2015/07/19 01:59:32 benno Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>

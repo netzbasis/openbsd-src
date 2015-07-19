@@ -1,4 +1,4 @@
-#	$OpenBSD: files,v 1.595 2015/07/17 22:52:29 tedu Exp $
+#	$OpenBSD: files,v 1.597 2015/07/19 02:35:35 deraadt Exp $
 #	$NetBSD: files,v 1.87 1996/05/19 17:17:50 jonathan Exp $
 
 #	@(#)files.newconf	7.5 (Berkeley) 5/10/93
@@ -666,6 +666,7 @@ file kern/kern_physio.c
 file kern/kern_proc.c
 file kern/kern_prot.c
 file kern/kern_resource.c
+file kern/kern_tame.c
 file kern/kern_sched.c
 file kern/kern_sensors.c
 file kern/kern_sig.c
@@ -776,6 +777,7 @@ file net/radix.c
 file net/radix_mpath.c			!small_kernel
 file net/raw_cb.c
 file net/raw_usrreq.c
+file net/rtable.c
 file net/route.c
 file net/rtsock.c
 file net/slcompress.c			ppp

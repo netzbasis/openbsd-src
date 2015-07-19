@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.7 2015/07/18 00:19:38 doug Exp $ */
+/* $OpenBSD: doas.c,v 1.10 2015/07/19 01:19:22 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -29,13 +29,14 @@
 #include <pwd.h>
 #include <grp.h>
 #include <syslog.h>
+#include <errno.h>
 
 #include "doas.h"
 
 static void __dead
 usage(void)
 {
-	fprintf(stderr, "usage: doas [-u user] command [args]\n");
+	fprintf(stderr, "usage: doas [-s] [-u user] command [args]\n");
 	exit(1);
 }
 
@@ -43,6 +44,7 @@ size_t
 arraylen(const char **arr)
 {
 	size_t cnt = 0;
+
 	while (*arr) {
 		cnt++;
 		arr++;
@@ -165,6 +167,7 @@ copyenvhelper(const char **oldenvp, const char **safeset, int nsafe,
     char **envp, int ei)
 {
 	int i;
+
 	for (i = 0; i < nsafe; i++) {
 		const char **oe = oldenvp;
 		while (*oe) {
@@ -189,12 +192,12 @@ copyenv(const char **oldenvp, struct rule *rule)
 		"PATH", "TERM", "USER", "USERNAME",
 		NULL,
 	};
-	int nsafe;
-	int nextras = 0;
 	char **envp;
 	const char **extra;
 	int ei;
 	int i, j;
+	int nsafe;
+	int nextras = 0;
 	
 	if ((rule->options & KEEPENV) && !rule->envlist) {
 		j = arraylen(oldenvp);
@@ -244,25 +247,32 @@ fail(void)
 int
 main(int argc, char **argv, char **envp)
 {
-	char cmdline[LINE_MAX];
-	char myname[_PW_NAME_LEN + 1];
-	uid_t uid, target = 0;
-	gid_t groups[NGROUPS_MAX + 1];
-	int ngroups;
-	struct passwd *pw;
-	struct rule *rule;
-	const char *cmd;
-	int i, ch;
 	const char *safepath = "/bin:/sbin:/usr/bin:/usr/sbin:"
 	    "/usr/local/bin:/usr/local/sbin";
+	char *shargv[] = { NULL, NULL };
+	char *sh;
+	const char *cmd;
+	char cmdline[LINE_MAX];
+	char myname[_PW_NAME_LEN + 1];
+	struct passwd *pw;
+	struct rule *rule;
+	uid_t uid;
+	uid_t target = 0;
+	gid_t groups[NGROUPS_MAX + 1];
+	int ngroups;
+	int i, ch;
+	int sflag = 0;
 
 	parseconfig("/etc/doas.conf");
 
-	while ((ch = getopt(argc, argv, "u:")) != -1) {
+	while ((ch = getopt(argc, argv, "su:")) != -1) {
 		switch (ch) {
 		case 'u':
 			if (parseuid(optarg, &target) != 0)
 				errx(1, "unknown user");
+			break;
+		case 's':
+			sflag = 1;
 			break;
 		default:
 			usage();
@@ -272,18 +282,8 @@ main(int argc, char **argv, char **envp)
 	argv += optind;
 	argc -= optind;
 
-	if (!argc)
+	if ((!sflag && !argc) || (sflag && argc))
 		usage();
-
-	cmd = argv[0];
-	if (strlcpy(cmdline, argv[0], sizeof(cmdline)) >= sizeof(cmdline))
-		errx(1, "command line too long");
-	for (i = 1; i < argc; i++) {
-		if (strlcat(cmdline, " ", sizeof(cmdline)) >= sizeof(cmdline))
-			errx(1, "command line too long");
-		if (strlcat(cmdline, argv[i], sizeof(cmdline)) >= sizeof(cmdline))
-			errx(1, "command line too long");
-	}
 
 	uid = getuid();
 	pw = getpwuid(uid);
@@ -295,6 +295,26 @@ main(int argc, char **argv, char **envp)
 	if (ngroups == -1)
 		err(1, "can't get groups");
 	groups[ngroups++] = getgid();
+
+	if (sflag) {
+		sh = getenv("SHELL");
+		if (sh == NULL || *sh == '\0')
+			shargv[0] = pw->pw_shell;
+		else
+			shargv[0] = sh;
+		argv = shargv;
+		argc = 1;
+	}
+
+	cmd = argv[0];
+	if (strlcpy(cmdline, argv[0], sizeof(cmdline)) >= sizeof(cmdline))
+		errx(1, "command line too long");
+	for (i = 1; i < argc; i++) {
+		if (strlcat(cmdline, " ", sizeof(cmdline)) >= sizeof(cmdline))
+			errx(1, "command line too long");
+		if (strlcat(cmdline, argv[i], sizeof(cmdline)) >= sizeof(cmdline))
+			errx(1, "command line too long");
+	}
 
 	if (!permit(uid, groups, ngroups, &rule, target, cmd)) {
 		syslog(LOG_AUTHPRIV | LOG_NOTICE,
@@ -324,5 +344,7 @@ main(int argc, char **argv, char **envp)
 	if (setenv("PATH", safepath, 1) == -1)
 		err(1, "failed to set PATH '%s'", safepath);
 	execvpe(cmd, argv, envp);
+	if (errno == ENOENT)
+		errx(1, "%s: command not found", cmd);
 	err(1, "%s", cmd);
 }

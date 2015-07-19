@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.101 2015/04/18 18:28:37 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.103 2015/07/19 04:45:25 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -146,7 +146,7 @@ static void ktrnamei(const char *, size_t);
 static void ktrpsig(struct ktr_psig *);
 static void ktrsyscall(struct ktr_syscall *, size_t);
 static const char *kresolvsysctl(int, const int *);
-static void ktrsysret(struct ktr_sysret *);
+static void ktrsysret(struct ktr_sysret *, size_t);
 static void ktruser(struct ktr_user *, size_t);
 static void setemul(const char *);
 static void usage(void);
@@ -164,6 +164,8 @@ static void clockname(int);
 static void sockoptlevelname(int);
 static void ktraceopname(int);
 
+static int screenwidth;
+
 int
 main(int argc, char *argv[])
 {
@@ -174,6 +176,16 @@ main(int argc, char *argv[])
 	void *m;
 
 	def_emul = current = &emulations[0];	/* native */
+
+	if (screenwidth == 0) {
+		struct winsize ws;
+
+		if (fancy && ioctl(fileno(stderr), TIOCGWINSZ, &ws) != -1 &&
+		    ws.ws_col > 8)
+			screenwidth = ws.ws_col;
+		else
+			screenwidth = 80;
+	}
 
 	while ((ch = getopt(argc, argv, "e:f:dHlm:nRp:Tt:xX")) != -1)
 		switch (ch) {
@@ -269,7 +281,7 @@ main(int argc, char *argv[])
 			ktrsyscall((struct ktr_syscall *)m, ktrlen);
 			break;
 		case KTR_SYSRET:
-			ktrsysret((struct ktr_sysret *)m);
+			ktrsysret((struct ktr_sysret *)m, ktrlen);
 			break;
 		case KTR_NAMEI:
 			ktrnamei(m, ktrlen);
@@ -1093,17 +1105,33 @@ kresolvsysctl(int depth, const int *top)
 }
 
 static void
-ktrsysret(struct ktr_sysret *ktr)
+ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 {
-	register_t ret = ktr->ktr_retval;
+	register_t ret = 0;
+	long long retll;
 	int error = ktr->ktr_error;
 	int code = ktr->ktr_code;
+
+	if (ktrlen < sizeof(*ktr))
+		errx(1, "sysret length %zu < ktr header length %zu",
+		    ktrlen, sizeof(*ktr));
+	ktrlen -= sizeof(*ktr);
+	if (error == 0) {
+		if (ktrlen == sizeof(ret)) {
+			memcpy(&ret, ktr+1, sizeof(ret));
+			retll = ret;
+		} else if (ktrlen == sizeof(retll))
+			memcpy(&retll, ktr+1, sizeof(retll));
+		else
+			errx(1, "sysret bogus length %zu", ktrlen);
+	}
 
 	if (code >= current->nsysnames || code < 0)
 		(void)printf("[%d] ", code);
 	else {
 		(void)printf("%s ", current->sysnames[code]);
-		if (ret > 0 && (strcmp(current->sysnames[code], "fork") == 0 ||
+		if (error == 0 && ret > 0 &&
+		    (strcmp(current->sysnames[code], "fork") == 0 ||
 		    strcmp(current->sysnames[code], "vfork") == 0 ||
 		    strcmp(current->sysnames[code], "__tfork") == 0 ||
 		    strcmp(current->sysnames[code], "clone") == 0))
@@ -1113,6 +1141,11 @@ ktrsysret(struct ktr_sysret *ktr)
 	if (error == 0) {
 		if (fancy) {
 			switch (current == &emulations[0] ? code : -1) {
+			case SYS_lseek:
+				(void)printf("%lld", retll);
+				if (retll < 0 || retll > 9)
+					(void)printf("/%#llx", retll);
+				break;
 			case SYS_sigprocmask:
 			case SYS_sigpending:
 				sigset(ret);
@@ -1136,9 +1169,9 @@ ktrsysret(struct ktr_sysret *ktr)
 			}
 		} else {
 			if (decimal)
-				(void)printf("%ld", (long)ret);
+				(void)printf("%lld", retll);
 			else
-				(void)printf("%#lx", (long)ret);
+				(void)printf("%#llx", retll);
 		}
 	} else if (error == ERESTART)
 		(void)printf("RESTART");
@@ -1177,19 +1210,9 @@ static void
 showbuf(unsigned char *dp, size_t datalen)
 {
 	int i, j;
-	static int screenwidth;
 	int col = 0, width, bpl;
 	unsigned char visbuf[5], *cp, c;
 
-	if (screenwidth == 0) {
-		struct winsize ws;
-
-		if (fancy && ioctl(fileno(stderr), TIOCGWINSZ, &ws) != -1 &&
-		    ws.ws_col > 8)
-			screenwidth = ws.ws_col;
-		else
-			screenwidth = 80;
-	}
 	if (iohex == 1) {
 		putchar('\t');
 		col = 8;
