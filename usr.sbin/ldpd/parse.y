@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.23 2014/11/20 05:51:20 jsg Exp $ */
+/*	$OpenBSD: parse.y,v 1.26 2015/07/19 21:04:38 renato Exp $ */
 
 /*
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
@@ -85,8 +85,9 @@ int		 host(const char *, struct in_addr *, struct in_addr *);
 static struct ldpd_conf	*conf;
 static int			 errors = 0;
 
-struct iface	*iface = NULL;
-struct tnbr	*tnbr = NULL;
+struct iface		*iface = NULL;
+struct tnbr		*tnbr = NULL;
+struct nbr_params	*nbrp = NULL;
 
 struct config_defaults {
 	u_int16_t	lhello_holdtime;
@@ -100,8 +101,9 @@ struct config_defaults	 ifacedefs;
 struct config_defaults	 tnbrdefs;
 struct config_defaults	*defs;
 
-struct iface	*conf_get_if(struct kif *);
-struct tnbr	*conf_get_tnbr(struct in_addr);
+struct iface		*conf_get_if(struct kif *);
+struct tnbr		*conf_get_tnbr(struct in_addr);
+struct nbr_params	*conf_get_nbrp(struct in_addr);
 
 typedef struct {
 	union {
@@ -118,7 +120,7 @@ typedef struct {
 %token	THELLOHOLDTIME THELLOINTERVAL
 %token	THELLOACCEPT
 %token	KEEPALIVE
-%token	DISTRIBUTION RETENTION ADVERTISEMENT
+%token	NEIGHBOR PASSWORD
 %token	EXTTAG
 %token	YES NO
 %token	ERROR
@@ -135,6 +137,7 @@ grammar		: /* empty */
 		| grammar varset '\n'
 		| grammar interface '\n'
 		| grammar tneighbor '\n'
+		| grammar neighbor '\n'
 		| grammar error '\n'		{ file->errors++; }
 		;
 
@@ -178,48 +181,6 @@ conf_main	: ROUTERID STRING {
 				conf->flags |= LDPD_FLAG_NO_FIB_UPDATE;
 			else
 				conf->flags &= ~LDPD_FLAG_NO_FIB_UPDATE;
-		}
-		| DISTRIBUTION STRING {
-			conf->mode &= ~(MODE_DIST_INDEPENDENT |
-			    MODE_DIST_ORDERED);
-
-			if (!strcmp($2, "independent"))
-				conf->mode |= MODE_DIST_INDEPENDENT;
-			else if (!strcmp($2, "ordered"))
-				conf->mode |= MODE_DIST_ORDERED;
-			else {
-				yyerror("unknown distribution type");
-				free($2);
-				YYERROR;
-			}
-		}
-		| RETENTION STRING {
-			conf->mode &= ~(MODE_RET_CONSERVATIVE |
-			    MODE_RET_LIBERAL);
-
-			if (!strcmp($2, "conservative"))
-				conf->mode |= MODE_RET_CONSERVATIVE;
-			else if (!strcmp($2, "liberal"))
-				conf->mode |= MODE_RET_LIBERAL;
-			else {
-				yyerror("unknown retention type");
-				free($2);
-				YYERROR;
-			}
-		}
-		| ADVERTISEMENT STRING {
-			conf->mode &= ~(MODE_ADV_ONDEMAND |
-			    MODE_ADV_UNSOLICITED);
-
-			if (!strcmp($2, "ondemand"))
-				conf->mode |= MODE_ADV_ONDEMAND;
-			else if (!strcmp($2, "unsolicited"))
-				conf->mode |= MODE_ADV_UNSOLICITED;
-			else {
-				yyerror("unknown retention type");
-				free($2);
-				YYERROR;
-			}
 		}
 		| THELLOACCEPT yesno {
 			if ($2 == 0)
@@ -278,6 +239,21 @@ tnbr_defaults	: THELLOHOLDTIME NUMBER {
 			}
 			conf->thello_interval = $2;
 			defs->thello_interval = $2;
+		}
+		;
+
+nbr_opts	: PASSWORD STRING {
+			if (strlcpy(nbrp->auth.md5key, $2,
+			    sizeof(nbrp->auth.md5key)) >=
+			    sizeof(nbrp->auth.md5key)) {
+				yyerror("tcp md5sig password too long: max %zu",
+				    sizeof(nbrp->auth.md5key) - 1);
+				free($2);
+				YYERROR;
+			}
+			nbrp->auth.md5key_len = strlen($2);
+			nbrp->auth.method = AUTH_MD5SIG;
+			free($2);
 		}
 		;
 
@@ -364,6 +340,35 @@ tneighboropts_l	: tneighboropts_l tnbr_defaults nl
 		| tnbr_defaults optnl
 		;
 
+neighbor	: NEIGHBOR STRING	{
+			struct in_addr	 addr;
+
+			if (inet_aton($2, &addr) == 0) {
+				yyerror(
+				    "error parsing neighbor address");
+				free($2);
+				YYERROR;
+			}
+			free($2);
+
+			nbrp = conf_get_nbrp(addr);
+			if (nbrp == NULL)
+				YYERROR;
+			LIST_INSERT_HEAD(&conf->nbrp_list, nbrp, entry);
+		} neighbor_block {
+			nbrp = NULL;
+		}
+		;
+
+neighbor_block	: '{' optnl neighboropts_l '}'
+		| '{' optnl '}'
+		| /* nothing */
+		;
+
+neighboropts_l	: neighboropts_l nbr_opts nl
+		| nbr_opts optnl
+		;
+
 %%
 
 struct keywords {
@@ -398,16 +403,15 @@ lookup(char *s)
 {
 	/* this has to be sorted always */
 	static const struct keywords keywords[] = {
-		{"advertisement",		ADVERTISEMENT},
-		{"distribution",		DISTRIBUTION},
 		{"external-tag",		EXTTAG},
 		{"fib-update",			FIBUPDATE},
 		{"interface",			INTERFACE},
 		{"keepalive",			KEEPALIVE},
 		{"link-hello-holdtime",		LHELLOHOLDTIME},
 		{"link-hello-interval",		LHELLOINTERVAL},
+		{"neighbor",			NEIGHBOR},
 		{"no",				NO},
-		{"retention",			RETENTION},
+		{"password",			PASSWORD},
 		{"router-id",			ROUTERID},
 		{"targeted-hello-accept",	THELLOACCEPT},
 		{"targeted-hello-holdtime",	THELLOHOLDTIME},
@@ -753,14 +757,16 @@ parse_config(char *filename, int opts)
 	conf->thello_holdtime = TARGETED_DFLT_HOLDTIME;
 	conf->thello_interval = DEFAULT_HELLO_INTERVAL;
 
-	conf->mode = (MODE_DIST_INDEPENDENT | MODE_RET_LIBERAL |
-	    MODE_ADV_UNSOLICITED);
-
 	if ((file = pushfile(filename, !(conf->opts & LDPD_OPT_NOACTION))) == NULL) {
 		free(conf);
 		return (NULL);
 	}
 	topfile = file;
+
+	LIST_INIT(&conf->iface_list);
+	LIST_INIT(&conf->addr_list);
+	LIST_INIT(&conf->tnbr_list);
+	LIST_INIT(&conf->nbrp_list);
 
 	yyparse();
 	errors = file->errors;
@@ -900,6 +906,24 @@ conf_get_tnbr(struct in_addr addr)
 	t = tnbr_new(conf, addr, 1);
 
 	return (t);
+}
+
+struct nbr_params *
+conf_get_nbrp(struct in_addr addr)
+{
+	struct nbr_params	*n;
+
+	LIST_FOREACH(n, &conf->nbrp_list, entry) {
+		if (n->addr.s_addr == addr.s_addr) {
+			yyerror("neighbor %s already configured",
+			    inet_ntoa(addr));
+			return (NULL);
+		}
+	}
+
+	n = nbr_params_new(addr);
+
+	return (n);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpd.h,v 1.45 2015/04/04 15:15:44 renato Exp $ */
+/*	$OpenBSD: ldpd.h,v 1.49 2015/07/19 21:01:56 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -36,6 +36,8 @@
 #define CONF_FILE		"/etc/ldpd.conf"
 #define	LDPD_SOCKET		"/var/run/ldpd.sock"
 #define LDPD_USER		"_ldpd"
+
+#define TCP_MD5_KEY_LEN		80
 
 #define NBR_IDSELF		1
 #define NBR_CNTSTART		(NBR_IDSELF + 1)
@@ -99,6 +101,8 @@ enum imsg_type {
 	IMSG_MAPPING_ADD_END,
 	IMSG_RELEASE_ADD,
 	IMSG_RELEASE_ADD_END,
+	IMSG_WITHDRAW_ADD,
+	IMSG_WITHDRAW_ADD_END,
 	IMSG_ADDRESS_ADD,
 	IMSG_ADDRESS_DEL,
 	IMSG_NOTIFICATION_SEND,
@@ -160,15 +164,14 @@ TAILQ_HEAD(mapping_head, mapping_entry);
 
 struct map {
 	struct in_addr	prefix;
+	u_int8_t	prefixlen;
 	u_int32_t	label;
 	u_int32_t	messageid;
 	u_int32_t	requestid;
-	u_int8_t	prefixlen;
 	u_int8_t	flags;
 };
 #define F_MAP_WILDCARD	0x01	/* wildcard FEC */
-#define F_MAP_OPTLABEL	0x02	/* optional label present */
-#define F_MAP_REQ_ID	0x04	/* optional request message id present */
+#define F_MAP_REQ_ID	0x02	/* optional request message id present */
 
 struct notify_msg {
 	u_int32_t	messageid;
@@ -218,6 +221,22 @@ struct tnbr {
 };
 #define F_TNBR_CONFIGURED	 0x01
 
+enum auth_method {
+	AUTH_NONE,
+	AUTH_MD5SIG,
+};
+
+/* neighbor specific parameters */
+struct nbr_params {
+	LIST_ENTRY(nbr_params)	 entry;
+	struct in_addr		 addr;
+	struct {
+		enum auth_method	 method;
+		char			 md5key[TCP_MD5_KEY_LEN];
+		u_int8_t		 md5key_len;
+	} auth;
+};
+
 /* ldp_conf */
 enum {
 	PROC_MAIN,
@@ -230,13 +249,6 @@ enum hello_type {
 	HELLO_TARGETED
 };
 
-#define	MODE_DIST_INDEPENDENT	0x01
-#define	MODE_DIST_ORDERED	0x02
-#define	MODE_RET_LIBERAL	0x04
-#define	MODE_RET_CONSERVATIVE	0x08
-#define	MODE_ADV_ONDEMAND	0x10
-#define	MODE_ADV_UNSOLICITED	0x20
-
 struct ldpd_conf {
 	struct event		disc_ev;
 	struct event		edisc_ev;
@@ -244,6 +256,7 @@ struct ldpd_conf {
 	LIST_HEAD(, iface)	iface_list;
 	LIST_HEAD(, if_addr)	addr_list;
 	LIST_HEAD(, tnbr)	tnbr_list;
+	LIST_HEAD(, nbr_params)	nbrp_list;
 
 	u_int32_t		opts;
 #define LDPD_OPT_VERBOSE	0x00000001
@@ -254,7 +267,6 @@ struct ldpd_conf {
 	int			ldp_ediscovery_socket;
 	int			ldp_session_socket;
 	int			flags;
-	u_int8_t		mode;
 	u_int16_t		keepalive;
 	u_int16_t		thello_holdtime;
 	u_int16_t		thello_interval;
@@ -347,9 +359,8 @@ void		 kr_show_route(struct imsg *);
 void		 kr_ifinfo(char *, pid_t);
 struct kif	*kif_findname(char *);
 void		 kr_reload(void);
-
-u_int8_t	mask2prefixlen(in_addr_t);
-in_addr_t	prefixlen2mask(u_int8_t);
+u_int8_t	 mask2prefixlen(in_addr_t);
+in_addr_t	 prefixlen2mask(u_int8_t);
 
 /* log.h */
 const char	*nbr_state_name(int);

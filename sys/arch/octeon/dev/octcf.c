@@ -1,4 +1,4 @@
-/*	$OpenBSD: octcf.c,v 1.25 2014/08/11 19:00:50 miod Exp $ */
+/*	$OpenBSD: octcf.c,v 1.27 2015/07/20 01:38:31 jasper Exp $ */
 /*	$NetBSD: wd.c,v 1.193 1999/02/28 17:15:27 explorer Exp $ */
 
 /*
@@ -180,7 +180,7 @@ octcfattach(struct device *parent, struct device *self, void *aux)
 
 	wd->sc_iot = aa->aa_bust;
 
-	if (bus_space_map(wd->sc_iot, aa->aa_unit->addr,
+	if (bus_space_map(wd->sc_iot, aa->aa_addr,
 	    OCTCF_REG_SIZE, BUS_SPACE_MAP_KSEG0, &wd->sc_ioh)) {
 		printf(": couldn't map registers\n");
 		return;
@@ -818,7 +818,6 @@ octcf_get_params(struct octcf_softc *wd, struct ataparams *params)
 		free(tb, M_DEVBUF, 0);
 		return CMD_ERR;
 	} else {
-#if BYTE_ORDER == BIG_ENDIAN
 		/*
 		 * All the fields in the params structure are 16-bit
 		 * integers except for the ID strings which are char
@@ -832,7 +831,7 @@ octcf_get_params(struct octcf_softc *wd, struct ataparams *params)
 		swap16_multi((u_int16_t *)tb, 10);
 		swap16_multi((u_int16_t *)tb + 20, 3);
 		swap16_multi((u_int16_t *)tb + 47, ATAPARAMS_SIZE / 2 - 47);
-#endif
+
 		/* Read in parameter block. */
 		bcopy(tb, params, sizeof(struct ataparams));
 

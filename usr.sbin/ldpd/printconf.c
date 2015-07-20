@@ -1,4 +1,4 @@
-/*	$OpenBSD: printconf.c,v 1.7 2013/06/04 02:25:28 claudio Exp $ */
+/*	$OpenBSD: printconf.c,v 1.9 2015/07/19 21:01:56 renato Exp $ */
 
 /*
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
@@ -30,7 +30,8 @@
 
 void	print_mainconf(struct ldpd_conf *);
 void	print_iface(struct iface *);
-void	print_tnbr(struct tnbr *tnbr);
+void	print_tnbr(struct tnbr *);
+void	print_nbrp(struct nbr_params *);
 
 void
 print_mainconf(struct ldpd_conf *conf)
@@ -41,21 +42,6 @@ print_mainconf(struct ldpd_conf *conf)
 		printf("fib-update no\n");
 	else
 		printf("fib-update yes\n");
-
-	if (conf->mode & MODE_DIST_INDEPENDENT)
-		printf("distribution independent\n");
-	else
-		printf("distribution ordered\n");
-
-	if (conf->mode & MODE_RET_LIBERAL)
-		printf("retention liberal\n");
-	else
-		printf("retention conservative\n");
-
-	if (conf->mode & MODE_ADV_ONDEMAND)
-		printf("advertisement ondemand\n");
-	else
-		printf("advertisement unsolicited\n");
 
 	if (conf->flags & LDPD_FLAG_TH_ACCEPT)
 		printf("targeted-hello-accept yes\n");
@@ -84,10 +70,20 @@ print_tnbr(struct tnbr *tnbr)
 }
 
 void
+print_nbrp(struct nbr_params *nbrp)
+{
+	printf("\nneighbor %s {\n", inet_ntoa(nbrp->addr));
+	if (nbrp->auth.method == AUTH_MD5SIG)
+		printf("\tpassword XXXXXX\n");
+	printf("}\n");
+}
+
+void
 print_config(struct ldpd_conf *conf)
 {
-	struct iface	*iface;
-	struct tnbr	*tnbr;
+	struct iface		*iface;
+	struct tnbr		*tnbr;
+	struct nbr_params	*nbrp;
 
 	print_mainconf(conf);
 	printf("\n");
@@ -97,4 +93,7 @@ print_config(struct ldpd_conf *conf)
 	printf("\n");
 	LIST_FOREACH(tnbr, &conf->tnbr_list, entry)
 		print_tnbr(tnbr);
+	printf("\n");
+	LIST_FOREACH(nbrp, &conf->nbrp_list, entry)
+		print_nbrp(nbrp);
 }

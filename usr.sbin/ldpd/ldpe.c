@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.30 2015/03/21 18:32:01 renato Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.32 2015/07/19 21:01:56 renato Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/queue.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <net/if_types.h>
 #include <stdlib.h>
@@ -51,6 +52,8 @@ void	 ldpe_shutdown(void);
 struct ldpd_conf	*leconf = NULL, *nconf;
 struct imsgev		*iev_main;
 struct imsgev		*iev_lde;
+struct event             pfkey_ev;
+struct ldpd_sysdep	 sysdep;
 
 /* ARGSUSED */
 void
@@ -77,6 +80,7 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	struct event		 ev_sigint, ev_sigterm;
 	struct sockaddr_in	 disc_addr, sess_addr;
 	pid_t			 pid;
+	int			 pfkeysock, opt;
 
 	switch (pid = fork()) {
 	case -1:
@@ -91,6 +95,8 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 
 	setproctitle("ldp engine");
 	ldpd_process = PROC_LDP_ENGINE;
+
+	pfkeysock = pfkey_init(&sysdep);
 
 	/* create ldpd control socket outside chroot */
 	if (control_init() == -1)
@@ -171,6 +177,16 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	if (listen(xconf->ldp_session_socket, LDP_BACKLOG) == -1)
 		fatal("error in listen on session socket");
 
+	opt = 1;
+	if (setsockopt(xconf->ldp_session_socket, IPPROTO_TCP, TCP_MD5SIG,
+	    &opt, sizeof(opt)) == -1) {
+		if (errno == ENOPROTOOPT) {	/* system w/o md5sig */
+			log_warnx("md5sig not available, disabling");
+			sysdep.no_md5sig = 1;
+		} else
+			fatal("setsockopt TCP_MD5SIG");
+	}
+
 	/* set some defaults */
 	if (if_set_tos(xconf->ldp_session_socket,
 	    IPTOS_PREC_INTERNETCONTROL) == -1)
@@ -224,6 +240,10 @@ ldpe(struct ldpd_conf *xconf, int pipe_parent2ldpe[2], int pipe_ldpe2lde[2],
 	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
 	    iev_main->handler, iev_main);
 	event_add(&iev_main->ev, NULL);
+
+	event_set(&pfkey_ev, pfkeysock, EV_READ | EV_PERSIST,
+	    ldpe_dispatch_pfkey, NULL);
+	event_add(&pfkey_ev, NULL);
 
 	event_set(&leconf->disc_ev, leconf->ldp_discovery_socket,
 	    EV_READ|EV_PERSIST, disc_recv_packet, NULL);
@@ -476,6 +496,7 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 		case IMSG_MAPPING_ADD:
 		case IMSG_RELEASE_ADD:
 		case IMSG_REQUEST_ADD:
+		case IMSG_WITHDRAW_ADD:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE != sizeof(map))
 				fatalx("invalid size of map request");
 			memcpy(&map, imsg.data, sizeof(map));
@@ -499,11 +520,15 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			case IMSG_REQUEST_ADD:
 				nbr_mapping_add(nbr, &nbr->request_list, &map);
 				break;
+			case IMSG_WITHDRAW_ADD:
+				nbr_mapping_add(nbr, &nbr->withdraw_list, &map);
+				break;
 			}
 			break;
 		case IMSG_MAPPING_ADD_END:
 		case IMSG_RELEASE_ADD_END:
 		case IMSG_REQUEST_ADD_END:
+		case IMSG_WITHDRAW_ADD_END:
 			nbr = nbr_find_peerid(imsg.hdr.peerid);
 			if (nbr == NULL) {
 				log_debug("ldpe_dispatch_lde: cannot find "
@@ -525,6 +550,10 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			case IMSG_REQUEST_ADD_END:
 				send_labelmessage(nbr, MSG_TYPE_LABELREQUEST,
 				    &nbr->request_list);
+				break;
+			case IMSG_WITHDRAW_ADD_END:
+				send_labelmessage(nbr, MSG_TYPE_LABELWITHDRAW,
+				    &nbr->withdraw_list);
 				break;
 			}
 			break;
@@ -562,6 +591,17 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 		/* this pipe is dead, so remove the event handler */
 		event_del(&iev->ev);
 		event_loopexit(NULL);
+	}
+}
+
+/* ARGSUSED */
+void
+ldpe_dispatch_pfkey(int fd, short event, void *bula)
+{
+	if (event & EV_READ) {
+		if (pfkey_read(fd, NULL) == -1) {
+			fatal("pfkey_read failed, exiting...");
+		}
 	}
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: parse.y,v 1.4 2015/07/16 23:02:56 nicm Exp $ */
+/* $OpenBSD: parse.y,v 1.6 2015/07/19 22:11:41 benno Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -77,7 +77,8 @@ rule:		action ident target cmd {
 					maxrules = 63;
 				else
 					maxrules *= 2;
-				if (!(rules = reallocarray(rules, maxrules, sizeof(*rules))))
+				if (!(rules = reallocarray(rules, maxrules,
+				    sizeof(*rules))))
 					errx(1, "can't allocate rules");
 			}
 			rules[nrules++] = r;
@@ -116,7 +117,8 @@ envlist:	/* empty */ {
 				errx(1, "can't allocate envlist");
 		} | envlist TSTRING {
 			int nenv = arraylen($1.envlist);
-			if (!($$.envlist = reallocarray($1.envlist, nenv + 2, sizeof(char *))))
+			if (!($$.envlist = reallocarray($1.envlist, nenv + 2,
+			    sizeof(char *))))
 				errx(1, "can't allocate envlist");
 			$$.envlist[nenv] = $2.str;
 			$$.envlist[nenv + 1] = NULL;
@@ -166,13 +168,22 @@ int
 yylex(void)
 {
 	char buf[1024], *ebuf, *p, *str;
-	int i, c;
+	int i, c, next;
 
 	p = buf;
 	ebuf = buf + sizeof(buf);
-	while ((c = getc(yyfp)) == ' ' || c == '\t')
-		; /* skip spaces */
+repeat:
+	c = getc(yyfp);
 	switch (c) {
+		case ' ':
+		case '\t':
+			goto repeat; /* skip spaces */
+		case '\\':
+			next = getc(yyfp);
+			if (next == '\n')
+				goto repeat;
+			else
+				c = next;
 		case '\n':
 		case '{':
 		case '}':
