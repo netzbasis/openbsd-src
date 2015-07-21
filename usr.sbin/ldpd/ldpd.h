@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpd.h,v 1.49 2015/07/19 21:01:56 renato Exp $ */
+/*	$OpenBSD: ldpd.h,v 1.53 2015/07/21 04:45:21 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -112,11 +112,12 @@ enum imsg_type {
 	IMSG_NETWORK_DEL,
 	IMSG_RECONF_CONF,
 	IMSG_RECONF_IFACE,
+	IMSG_RECONF_TNBR,
+	IMSG_RECONF_NBRP,
 	IMSG_RECONF_END
 };
 
 /* interface states */
-#define	IF_STA_NEW		0x00	/* dummy state for reload */
 #define	IF_STA_DOWN		0x01
 #define	IF_STA_ACTIVE		0x02
 
@@ -180,19 +181,19 @@ struct notify_msg {
 };
 
 struct if_addr {
-	LIST_ENTRY(if_addr)	 global_entry;
-	LIST_ENTRY(if_addr)	 iface_entry;
+	LIST_ENTRY(if_addr)	 entry;
 	struct in_addr		 addr;
 	struct in_addr		 mask;
 	struct in_addr		 dstbrd;
 };
+LIST_HEAD(if_addr_head, if_addr);
 
 struct iface {
 	LIST_ENTRY(iface)	 entry;
 	struct event		 hello_timer;
 
 	char			 name[IF_NAMESIZE];
-	LIST_HEAD(, if_addr)	 addr_list;
+	struct if_addr_head	 addr_list;
 	LIST_HEAD(, adj)	 adj_list;
 
 	time_t			 uptime;
@@ -220,6 +221,7 @@ struct tnbr {
 	u_int8_t		 flags;
 };
 #define F_TNBR_CONFIGURED	 0x01
+#define F_TNBR_DYNAMIC		 0x02
 
 enum auth_method {
 	AUTH_NONE,
@@ -250,11 +252,9 @@ enum hello_type {
 };
 
 struct ldpd_conf {
-	struct event		disc_ev;
-	struct event		edisc_ev;
 	struct in_addr		rtr_id;
 	LIST_HEAD(, iface)	iface_list;
-	LIST_HEAD(, if_addr)	addr_list;
+	struct if_addr_head	addr_list;
 	LIST_HEAD(, tnbr)	tnbr_list;
 	LIST_HEAD(, nbr_params)	nbrp_list;
 
@@ -358,7 +358,6 @@ void		 kr_dispatch_msg(int, short, void *);
 void		 kr_show_route(struct imsg *);
 void		 kr_ifinfo(char *, pid_t);
 struct kif	*kif_findname(char *);
-void		 kr_reload(void);
 u_int8_t	 mask2prefixlen(in_addr_t);
 in_addr_t	 prefixlen2mask(u_int8_t);
 
@@ -372,6 +371,7 @@ const char	*notification_name(u_int32_t);
 void	main_imsg_compose_ldpe(int, pid_t, void *, u_int16_t);
 void	main_imsg_compose_lde(int, pid_t, void *, u_int16_t);
 void	merge_config(struct ldpd_conf *, struct ldpd_conf *);
+void	config_clear(struct ldpd_conf *);
 int	imsg_compose_event(struct imsgev *, u_int16_t, u_int32_t, pid_t,
 	    int, void *, u_int16_t);
 void	imsg_event_add(struct imsgev *);

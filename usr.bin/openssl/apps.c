@@ -1,4 +1,4 @@
-/* $OpenBSD: apps.c,v 1.31 2015/07/20 03:28:04 doug Exp $ */
+/* $OpenBSD: apps.c,v 1.33 2015/07/21 03:47:17 bcook Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -126,7 +126,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/times.h>
 
 #include <ctype.h>
 #include <errno.h>
@@ -134,7 +133,6 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <string.h>
-#include <strings.h>
 #include <unistd.h>
 
 #include "apps.h"

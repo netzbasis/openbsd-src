@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.26 2015/07/19 21:04:38 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.28 2015/07/21 04:45:21 renato Exp $ */
 
 /*
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
@@ -200,6 +200,7 @@ conf_main	: ROUTERID STRING {
 		| iface_defaults
 		| tnbr_defaults
 		;
+
 iface_defaults	: LHELLOHOLDTIME NUMBER {
 			if ($2 < MIN_HOLDTIME ||
 			    $2 > MAX_HOLDTIME) {
@@ -318,6 +319,8 @@ tneighbor	: TNEIGHBOR STRING	{
 			tnbr = conf_get_tnbr(addr);
 			if (tnbr == NULL)
 				YYERROR;
+
+			tnbr->flags |= F_TNBR_CONFIGURED;
 			LIST_INSERT_HEAD(&conf->tnbr_list, tnbr, entry);
 
 			memcpy(&tnbrdefs, defs, sizeof(tnbrdefs));
@@ -903,7 +906,7 @@ conf_get_tnbr(struct in_addr addr)
 		}
 	}
 
-	t = tnbr_new(conf, addr, 1);
+	t = tnbr_new(conf, addr);
 
 	return (t);
 }
@@ -929,11 +932,23 @@ conf_get_nbrp(struct in_addr addr)
 void
 clear_config(struct ldpd_conf *xconf)
 {
-	struct iface	*i;
+	struct iface		*i;
+	struct tnbr		*t;
+	struct nbr_params	*n;
 
-	while ((i = LIST_FIRST(&conf->iface_list)) != NULL) {
+	while ((i = LIST_FIRST(&xconf->iface_list)) != NULL) {
 		LIST_REMOVE(i, entry);
 		if_del(i);
+	}
+
+	while ((t = LIST_FIRST(&xconf->tnbr_list)) != NULL) {
+		LIST_REMOVE(t, entry);
+		tnbr_del(t);
+	}
+
+	while ((n = LIST_FIRST(&xconf->nbrp_list)) != NULL) {
+		LIST_REMOVE(n, entry);
+		free(n);
 	}
 
 	free(xconf);

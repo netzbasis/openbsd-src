@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.3 2015/07/20 02:43:26 deraadt Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.11 2015/07/20 21:36:27 tedu Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -24,6 +24,7 @@
 #include <sys/proc.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
+#include <sys/filedesc.h>
 #include <sys/vnode.h>
 #include <sys/mbuf.h>
 #include <sys/sysctl.h>
@@ -44,6 +45,8 @@
 #include <sys/syscall.h>
 #include <sys/syscallargs.h>
 #include <sys/systm.h>
+
+int canonpath(const char *input, char *buf, size_t bufsize);
 
 const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_exit] = 0xffffffff,
@@ -75,6 +78,12 @@ const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_chdir] = _TM_RPATH,
 
 	[SYS_fchdir] = _TM_SELF,	/* careful of directory fd inside jails */
+
+	/* needed by threaded programs */
+	[SYS_sched_yield] = _TM_SELF,
+	[SYS___thrsleep] = _TM_SELF,
+	[SYS___thrwakeup] = _TM_SELF,
+	[SYS___threxit] = _TM_SELF,
 
 	[SYS_sendsyslog] = _TM_SELF,
 	[SYS_nanosleep] = _TM_SELF,
@@ -132,6 +141,7 @@ const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_vfork] = _TM_PROC,
 	[SYS_kill] = _TM_PROC,
 
+	[SYS_setgroups] = _TM_PROC,
 	[SYS_setresgid] = _TM_PROC,
 	[SYS_setresuid] = _TM_PROC,
 
@@ -265,8 +275,13 @@ tame_fail(struct proc *p, int error, int code)
  * without the right flags set
  */
 int
-tame_namei(struct proc *p, char *path)
+tame_namei(struct proc *p, char *origpath)
 {
+	char path[PATH_MAX];
+
+	if (canonpath(origpath, path, sizeof(path)) != 0)
+		return (tame_fail(p, EPERM, TAME_RPATH));
+
 	/* Detect what looks like a mkstemp(3) family operation */
 	if ((p->p_p->ps_tame & _TM_TMPPATH) &&
 	    (p->p_tame_syscall == SYS_open) &&
@@ -405,7 +420,8 @@ tame_cmsg_recv(struct proc *p, void *v, int controllen)
 	struct mbuf *control = v;
 	struct msghdr tmp;
 	struct cmsghdr *cmsg;
-	struct file **rp, *fp;
+	int *fdp, fd;
+	struct file *fp;
 	int nfds, i;
 
 	if ((p->p_p->ps_flags & PS_TAMED) == 0)
@@ -432,13 +448,16 @@ tame_cmsg_recv(struct proc *p, void *v, int controllen)
 		return tame_fail(p, EPERM, TAME_CMSG);
 
 	/* In OpenBSD, a CMSG only contains one SCM_RIGHTS.  Check it. */ 
-	rp = (struct file **)CMSG_DATA(cmsg);
+	fdp = (int *)CMSG_DATA(cmsg);
 	nfds = (cmsg->cmsg_len - CMSG_ALIGN(sizeof(*cmsg))) /
 	    sizeof(struct file *);
 	for (i = 0; i < nfds; i++) {
 		struct vnode *vp;
 
-		fp = *rp++;
+		fd = *fdp++;
+		fp = fd_getfile(p->p_fd, fd);
+		if (fp == NULL)
+			return tame_fail(p, EBADF, TAME_CMSG);
 
 		/* Only allow passing of sockets, pipes, and pure files */
 		printf("f_type %d\n", fp->f_type);
@@ -471,7 +490,8 @@ tame_cmsg_send(struct proc *p, void *v, int controllen)
 	struct mbuf *control = v;
 	struct msghdr tmp;
 	struct cmsghdr *cmsg;
-	struct file **rp, *fp;
+	int *fdp, fd;
+	struct file *fp;
 	int nfds, i;
 
 	if ((p->p_p->ps_flags & PS_TAMED) == 0)
@@ -498,13 +518,16 @@ tame_cmsg_send(struct proc *p, void *v, int controllen)
 		return (0);
 
 	/* In OpenBSD, a CMSG only contains one SCM_RIGHTS.  Check it. */ 
-	rp = (struct file **)CMSG_DATA(cmsg);
+	fdp = (int *)CMSG_DATA(cmsg);
 	nfds = (cmsg->cmsg_len - CMSG_ALIGN(sizeof(*cmsg))) /
 	    sizeof(struct file *);
 	for (i = 0; i < nfds; i++) {
 		struct vnode *vp;
 
-		fp = *rp++;
+		fd = *fdp++;
+		fp = fd_getfile(p->p_fd, fd);
+		if (fp == NULL)
+			return tame_fail(p, EBADF, TAME_CMSG);
 
 		/* Only allow passing of sockets, pipes, and pure files */
 		printf("f_type %d\n", fp->f_type);
@@ -559,11 +582,30 @@ tame_sysctl_check(struct proc *p, int namelen, int *name, void *new)
 	    name[0] == CTL_HW && name[1] == HW_SENSORS)
 		return (0);
 
+	/* getdomainname(), gethostname(), getpagesize(), uname() */
 	if (namelen == 2 &&
 	    name[0] == CTL_KERN && name[1] == KERN_DOMAINNAME)
 		return (0);
 	if (namelen == 2 &&
 	    name[0] == CTL_KERN && name[1] == KERN_HOSTNAME)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_KERN && name[1] == KERN_OSTYPE)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_KERN && name[1] == KERN_OSRELEASE)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_KERN && name[1] == KERN_OSVERSION)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_KERN && name[1] == KERN_VERSION)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_HW && name[1] == HW_MACHINE)
+		return (0);
+	if (namelen == 2 &&
+	    name[0] == CTL_HW && name[1] == HW_PAGESIZE)
 		return (0);
 
 	printf("tame: pid %d %s sysctl %d: %d %d %d %d %d %d\n",
@@ -665,10 +707,14 @@ int
 tame_ioctl_check(struct proc *p, long com, void *v)
 {
 	struct file *fp = v;
-	struct vnode *vp = (struct vnode *)fp->f_data;
+	struct vnode *vp = NULL;
 
 	if ((p->p_p->ps_flags & PS_TAMED) == 0)
 		return (0);
+
+	if (fp == NULL)
+		return (EBADF);
+	vp = (struct vnode *)fp->f_data;
 
 	switch (com) {
 
@@ -790,4 +836,67 @@ tame_dns_check(struct proc *p, in_port_t port)
 	if ((p->p_p->ps_tame & _TM_DNS_ACTIVE) && port == htons(53))
 		return (0);	/* Allow a DNS connect outbound */
 	return (EPERM);
+}
+
+int
+canonpath(const char *input, char *buf, size_t bufsize)
+{
+	char *p, *q, *s, *end;
+
+	/* can't canon relative paths, don't bother */
+	if (input[0] != '/') {
+		if (strlcpy(buf, input, bufsize) >= bufsize)
+			return (EINVAL);
+		return (0);
+	}
+
+	/* easiest to work with strings always ending in '/' */
+	if (snprintf(buf, bufsize, "%s/", input) >= bufsize)
+		return (EINVAL);
+
+	/* after this we will only be shortening the string. */
+	p = buf;
+	q = p;
+	while (*p) {
+		if (p[0] == '/' && p[1] == '/') {
+			p += 1;
+		} else if (p[0] == '/' && p[1] == '.' &&
+		    p[2] == '/') {
+			p += 2;
+		} else {
+			*q++ = *p++;
+		}
+	}
+	*q = 0;
+
+	end = buf + strlen(buf);
+	s = buf;
+	p = s;
+	while (1) {
+		/* find "/../" (where's strstr when you need it?) */
+		while (p < end) {
+		    	if (p[0] == '/' && strncmp(p + 1, "../", 3) == 0)
+				break;
+			p++;
+		}
+		if (p == end)
+			break;
+		if (p == s) {
+			memmove(s, p + 3, end - p - 3 + 1);
+			end -= 3;
+		} else {
+			/* s starts with '/', so we know there's one
+			 * somewhere before p. */
+			q = p - 1;
+			while (*q != '/')
+				q--;
+			memmove(q, p + 3, end - p - 3 + 1);
+			end -= p + 3 - q;
+			p = q;
+		}
+	}
+	if (end > s + 1)
+		*(end - 1) = 0; /* remove trailing '/' */
+
+	return 0;
 }
