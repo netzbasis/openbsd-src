@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.14 2015/07/20 01:04:37 tedu Exp $ */
+/* $OpenBSD: doas.c,v 1.18 2015/07/21 17:49:33 jmc Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -36,7 +36,7 @@
 static void __dead
 usage(void)
 {
-	fprintf(stderr, "usage: doas [-s] [-u user] command [args]\n");
+	fprintf(stderr, "usage: doas [-s] [-C config] [-u user] command [args]\n");
 	exit(1);
 }
 
@@ -97,7 +97,7 @@ strtogid(const char *s)
 
 static int
 match(uid_t uid, gid_t *groups, int ngroups, uid_t target, const char *cmd,
-    struct rule *r)
+    const char **cmdargs, struct rule *r)
 {
 	int i;
 
@@ -117,20 +117,33 @@ match(uid_t uid, gid_t *groups, int ngroups, uid_t target, const char *cmd,
 	}
 	if (r->target && uidcheck(r->target, target) != 0)
 		return 0;
-	if (r->cmd && strcmp(r->cmd, cmd) != 0)
-		return 0;
+	if (r->cmd) {
+		if (strcmp(r->cmd, cmd))
+			return 0;
+		if (r->cmdargs) {
+			/* if arguments were given, they should match explicitly */
+			for (i = 0; r->cmdargs[i]; i++) {
+				if (!cmdargs[i])
+					return 0;
+				if (strcmp(r->cmdargs[i], cmdargs[i]))
+					return 0;
+			}
+			if (cmdargs[i])
+				return 0;
+		}
+	}
 	return 1;
 }
 
 static int
 permit(uid_t uid, gid_t *groups, int ngroups, struct rule **lastr,
-    uid_t target, const char *cmd)
+    uid_t target, const char *cmd, const char **cmdargs)
 {
 	int i;
 
 	*lastr = NULL;
 	for (i = 0; i < nrules; i++) {
-		if (match(uid, groups, ngroups, target, cmd, rules[i]))
+		if (match(uid, groups, ngroups, target, cmd, cmdargs, rules[i]))
 			*lastr = rules[i];
 	}
 	if (!*lastr)
@@ -281,10 +294,13 @@ main(int argc, char **argv, char **envp)
 	int i, ch;
 	int sflag = 0;
 
-	parseconfig("/etc/doas.conf");
-
-	while ((ch = getopt(argc, argv, "su:")) != -1) {
+	while ((ch = getopt(argc, argv, "C:su:")) != -1) {
 		switch (ch) {
+		case 'C':
+			target = getuid();
+			setresuid(target, target, target);
+			parseconfig(optarg);
+			exit(0);
 		case 'u':
 			if (parseuid(optarg, &target) != 0)
 				errx(1, "unknown user");
@@ -302,6 +318,8 @@ main(int argc, char **argv, char **envp)
 
 	if ((!sflag && !argc) || (sflag && argc))
 		usage();
+
+	parseconfig("/etc/doas.conf");
 
 	uid = getuid();
 	pw = getpwuid(uid);
@@ -334,7 +352,8 @@ main(int argc, char **argv, char **envp)
 			errx(1, "command line too long");
 	}
 
-	if (!permit(uid, groups, ngroups, &rule, target, cmd)) {
+	if (!permit(uid, groups, ngroups, &rule, target, cmd,
+	    (const char**)argv + 1)) {
 		syslog(LOG_AUTHPRIV | LOG_NOTICE,
 		    "failed command for %s: %s", myname, cmdline);
 		fail();

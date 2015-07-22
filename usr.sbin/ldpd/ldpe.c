@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.35 2015/07/21 04:45:21 renato Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.39 2015/07/21 05:04:12 renato Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -283,6 +283,8 @@ ldpe_shutdown(void)
 {
 	struct if_addr		*if_addr;
 
+	control_cleanup();
+
 	event_del(&disc_ev);
 	event_del(&edisc_ev);
 	event_del(&pfkey_ev);
@@ -333,6 +335,9 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 	struct iface		*niface;
 	struct tnbr		*ntnbr;
 	struct nbr_params	*nnbrp;
+	static struct l2vpn	*nl2vpn;
+	struct l2vpn_if		*nlif;
+	struct l2vpn_pw		*npw;
 	struct imsg		 imsg;
 	struct imsgev		*iev = bula;
 	struct imsgbuf		*ibuf = &iev->ibuf;
@@ -441,6 +446,7 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			LIST_INIT(&nconf->addr_list);
 			LIST_INIT(&nconf->tnbr_list);
 			LIST_INIT(&nconf->nbrp_list);
+			LIST_INIT(&nconf->l2vpn_list);
 			break;
 		case IMSG_RECONF_IFACE:
 			if ((niface = malloc(sizeof(struct iface))) == NULL)
@@ -465,6 +471,32 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			memcpy(nnbrp, imsg.data, sizeof(struct nbr_params));
 
 			LIST_INSERT_HEAD(&nconf->nbrp_list, nnbrp, entry);
+			break;
+		case IMSG_RECONF_L2VPN:
+			if ((nl2vpn = malloc(sizeof(struct l2vpn))) == NULL)
+				fatal(NULL);
+			memcpy(nl2vpn, imsg.data, sizeof(struct l2vpn));
+
+			LIST_INIT(&nl2vpn->if_list);
+			LIST_INIT(&nl2vpn->pw_list);
+
+			LIST_INSERT_HEAD(&nconf->l2vpn_list, nl2vpn, entry);
+			break;
+		case IMSG_RECONF_L2VPN_IF:
+			if ((nlif = malloc(sizeof(struct l2vpn_if))) == NULL)
+				fatal(NULL);
+			memcpy(nlif, imsg.data, sizeof(struct l2vpn_if));
+
+			nlif->l2vpn = nl2vpn;
+			LIST_INSERT_HEAD(&nl2vpn->if_list, nlif, entry);
+			break;
+		case IMSG_RECONF_L2VPN_PW:
+			if ((npw = malloc(sizeof(struct l2vpn_pw))) == NULL)
+				fatal(NULL);
+			memcpy(npw, imsg.data, sizeof(struct l2vpn_pw));
+
+			npw->l2vpn = nl2vpn;
+			LIST_INSERT_HEAD(&nl2vpn->pw_list, npw, entry);
 			break;
 		case IMSG_RECONF_END:
 			merge_config(leconf, nconf);
@@ -536,23 +568,23 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			if (nbr == NULL) {
 				log_debug("ldpe_dispatch_lde: cannot find "
 				    "neighbor");
-				return;
+				break;
 			}
 			if (nbr->state != NBR_STA_OPER)
-				return;
+				break;
 
 			switch (imsg.hdr.type) {
 			case IMSG_MAPPING_ADD:
-				nbr_mapping_add(nbr, &nbr->mapping_list, &map);
+				mapping_list_add(&nbr->mapping_list, &map);
 				break;
 			case IMSG_RELEASE_ADD:
-				nbr_mapping_add(nbr, &nbr->release_list, &map);
+				mapping_list_add(&nbr->release_list, &map);
 				break;
 			case IMSG_REQUEST_ADD:
-				nbr_mapping_add(nbr, &nbr->request_list, &map);
+				mapping_list_add(&nbr->request_list, &map);
 				break;
 			case IMSG_WITHDRAW_ADD:
-				nbr_mapping_add(nbr, &nbr->withdraw_list, &map);
+				mapping_list_add(&nbr->withdraw_list, &map);
 				break;
 			}
 			break;
@@ -564,10 +596,10 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			if (nbr == NULL) {
 				log_debug("ldpe_dispatch_lde: cannot find "
 				    "neighbor");
-				return;
+				break;
 			}
 			if (nbr->state != NBR_STA_OPER)
-				return;
+				break;
 
 			switch (imsg.hdr.type) {
 			case IMSG_MAPPING_ADD_END:
@@ -597,16 +629,17 @@ ldpe_dispatch_lde(int fd, short event, void *bula)
 			if (nbr == NULL) {
 				log_debug("ldpe_dispatch_lde: cannot find "
 				    "neighbor");
-				return;
+				break;
 			}
 			if (nbr->state != NBR_STA_OPER)
-				return;
+				break;
 
-			send_notification_nbr(nbr, nm.status,
-			    htonl(nm.messageid), htonl(nm.type));
+			send_notification_full(nbr->tcp, &nm);
 			break;
 		case IMSG_CTL_END:
 		case IMSG_CTL_SHOW_LIB:
+		case IMSG_CTL_SHOW_L2VPN_PW:
+		case IMSG_CTL_SHOW_L2VPN_BINDING:
 			control_imsg_relay(&imsg);
 			break;
 		default:
@@ -640,6 +673,30 @@ u_int32_t
 ldpe_router_id(void)
 {
 	return (leconf->rtr_id.s_addr);
+}
+
+void
+mapping_list_add(struct mapping_head *mh, struct map *map)
+{
+	struct mapping_entry	*me;
+
+	me = calloc(1, sizeof(*me));
+	if (me == NULL)
+		fatal("mapping_list_add");
+	me->map = *map;
+
+	TAILQ_INSERT_TAIL(mh, me, entry);
+}
+
+void
+mapping_list_clr(struct mapping_head *mh)
+{
+	struct mapping_entry	*me;
+
+	while ((me = TAILQ_FIRST(mh)) != NULL) {
+		TAILQ_REMOVE(mh, me, entry);
+		free(me);
+	}
 }
 
 void
