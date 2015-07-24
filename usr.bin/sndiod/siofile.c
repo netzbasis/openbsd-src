@@ -1,4 +1,4 @@
-/*	$OpenBSD: siofile.c,v 1.6 2015/02/16 06:28:05 ratchov Exp $	*/
+/*	$OpenBSD: siofile.c,v 1.9 2015/07/24 08:46:35 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -31,7 +31,7 @@
 #include "siofile.h"
 #include "utils.h"
 
-#define WATCHDOG_USEC	2000000		/* 2 seconds */
+#define WATCHDOG_USEC	4000000		/* 4 seconds */
 
 void dev_sio_onmove(void *, int);
 void dev_sio_timeout(void *);
@@ -228,6 +228,7 @@ dev_sio_close(struct dev *d)
 		log_puts(": closed\n");
 	}
 #endif
+	timo_del(&d->sio.watchdog);
 	file_del(d->sio.file);
 	sio_close(d->sio.hdl);	
 }
@@ -494,5 +495,11 @@ dev_sio_hup(void *arg)
 {
 	struct dev *d = arg;
 
+#ifdef DEBUG
+	if (log_level >= 2) {
+		dev_log(d);
+		log_puts(": disconnected\n");
+	}
+#endif
 	dev_close(d);
 }
