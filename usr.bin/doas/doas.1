@@ -1,4 +1,4 @@
-.\" $OpenBSD: doas.1,v 1.10 2015/07/21 17:49:33 jmc Exp $
+.\" $OpenBSD: doas.1,v 1.13 2015/07/26 23:00:15 tedu Exp $
 .\"
 .\"Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
 .\"
@@ -13,7 +13,7 @@
 .\"WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 .\"ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\"OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-.Dd $Mdocdate: July 21 2015 $
+.Dd $Mdocdate: July 26 2015 $
 .Dt DOAS 1
 .Os
 .Sh NAME
@@ -21,7 +21,7 @@
 .Nd execute commands as another user
 .Sh SYNOPSIS
 .Nm doas
-.Op Fl s
+.Op Fl ns
 .Op Fl C Ar config
 .Op Fl u Ar user
 .Ar command
@@ -30,6 +30,13 @@
 The
 .Nm
 utility executes the given command as another user.
+The
+.Ar command
+argument is mandatory unless
+.Fl C
+or
+.Fl s
+is specified.
 .Pp
 The options are as follows:
 .Bl -tag -width tenletters
@@ -37,7 +44,24 @@ The options are as follows:
 Parse and check the configuration file
 .Ar config ,
 then exit.
-No command is executed.
+If
+.Ar command
+is supplied,
+.Nm
+will also perform command matching.
+In the latter case
+either
+.Sq permit ,
+.Sq permit nopass
+or
+.Sq deny
+will be printed on standard output, depending on command
+matching results.
+In either case, no command is executed.
+.It Fl n
+Non interactive mode, fail if
+.Nm
+would prompt for password.
 .It Fl s
 Execute the shell from
 .Ev SHELL
@@ -62,7 +86,7 @@ The user attempted to run a command which is not permitted.
 .It
 The password was incorrect.
 .It
-The actual program is absent or not executable.
+The specified command was not found or is not executable.
 .El
 .Sh SEE ALSO
 .Xr doas.conf 5
