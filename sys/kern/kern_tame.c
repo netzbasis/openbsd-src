@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.14 2015/07/23 02:57:51 doug Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.16 2015/07/27 18:22:37 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -251,13 +251,14 @@ tame_fail(struct proc *p, int error, int code)
 	if (p->p_p->ps_tame & _TM_ABORT) {	/* Core dump requested */
 		struct sigaction sa;
 
-		p->p_p->ps_tame = 0;		/* Disable all TAME_ flags */
 		memset(&sa, 0, sizeof sa);
 		sa.sa_handler = SIG_DFL;
 		setsigvec(p, SIGABRT, &sa);
 		psignal(p, SIGABRT);
 	} else
 		psignal(p, SIGKILL);
+
+	p->p_p->ps_tame = 0;		/* Disable all TAME_ flags */
 	return (error);
 }
 
@@ -269,6 +270,9 @@ int
 tame_namei(struct proc *p, char *origpath)
 {
 	char path[PATH_MAX];
+
+	if (p->p_tamenote == TMN_COREDUMP)
+		return (0);			/* Allow a coredump */
 
 	if (canonpath(origpath, path, sizeof(path)) != 0)
 		return (tame_fail(p, EPERM, TAME_RPATH));
