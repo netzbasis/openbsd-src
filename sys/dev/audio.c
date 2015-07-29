@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.134 2015/07/24 08:56:45 ratchov Exp $	*/
+/*	$OpenBSD: audio.c,v 1.137 2015/07/28 21:04:28 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -66,9 +66,9 @@ struct audio_buf {
 	size_t start;			/* first byte used in the FIFO */
 	size_t used;			/* bytes used in the FIFO */
 	size_t blksz;			/* DMA block size */
-	unsigned long pos;		/* bytes transferred */
-	unsigned long xrun;		/* bytes lost by xruns */
 	struct selinfo sel;		/* to record & wakeup poll(2) */
+	unsigned int pos;		/* bytes transferred */
+	unsigned int xrun;		/* bytes lost by xruns */
 	int blocking;			/* read/write blocking */
 };
 
@@ -106,6 +106,7 @@ struct audio_softc {
 	unsigned char silence[4];	/* a sample of silence */
 	int pause;			/* not trying to start DMA */
 	int active;			/* DMA in process */
+	int offs;			/* offset between play & rec dir */
 	void (*conv_enc)(unsigned char *, int);	/* encode to native */
 	void (*conv_dec)(unsigned char *, int);	/* decode to user */
 #if NWSKBD > 0
@@ -348,7 +349,7 @@ audio_pintr(void *addr)
 	struct audio_softc *sc = addr;
 	unsigned char *ptr;
 	size_t count;
-	int error;
+	int error, nblk, todo;
 
 	MUTEX_ASSERT_LOCKED(&audio_lock);
 	if (!(sc->mode & AUMODE_PLAY) || !sc->active) {
@@ -358,6 +359,23 @@ audio_pintr(void *addr)
 	if (sc->quiesce) {
 		DPRINTF("%s: quesced, skipping play intr\n", DEVNAME(sc));
 		return;
+	}
+
+	/*
+	 * check if record pointer wrapped, see explanation
+	 * in audio_rintr()
+	 */
+	if (sc->mode & AUMODE_RECORD) {
+		sc->offs--;
+		nblk = sc->rec.len / sc->rec.blksz;
+		todo = -sc->offs;
+		if (todo >= nblk) {
+			todo -= todo % nblk;
+			DPRINTFN(1, "%s: rec ptr wrapped, moving %d blocks\n",
+			    DEVNAME(sc), todo);
+			while (todo-- > 0)
+				audio_rintr(sc);
+		}
 	}
 
 	sc->play.pos += sc->play.blksz;
@@ -402,7 +420,7 @@ audio_rintr(void *addr)
 	struct audio_softc *sc = addr;
 	unsigned char *ptr;
 	size_t count;
-	int error;
+	int error, nblk, todo;
 
 	MUTEX_ASSERT_LOCKED(&audio_lock);
 	if (!(sc->mode & AUMODE_RECORD) || !sc->active) {
@@ -412,6 +430,30 @@ audio_rintr(void *addr)
 	if (sc->quiesce) {
 		DPRINTF("%s: quesced, skipping rec intr\n", DEVNAME(sc));
 		return;
+	}
+
+	/*
+	 * Interrupts may be masked by other sub-systems during 320ms
+	 * and more. During such a delay the hardware doesn't stop
+	 * playing and the play buffer pointers may wrap, this can't be
+	 * detected and corrected by low level drivers. This makes the
+	 * record stream ahead of the play stream; this is detected as a
+	 * hardware anomaly by userland and cause programs to misbehave.
+	 *
+	 * We fix this by advancing play position by an integer count of
+	 * full buffers, so it reaches the record position.
+	 */
+	if (sc->mode & AUMODE_PLAY) {
+		sc->offs++;
+		nblk = sc->play.len / sc->play.blksz;
+		todo = sc->offs;
+		if (todo >= nblk) {
+			todo -= todo % nblk;
+			DPRINTFN(1, "%s: play ptr wrapped, moving %d blocks\n",
+			    DEVNAME(sc), todo);
+			while (todo-- > 0)
+				audio_pintr(sc);
+		}
 	}
 
 	sc->rec.pos += sc->rec.blksz;
@@ -464,6 +506,7 @@ audio_start_do(struct audio_softc *sc)
 	    sc->rec.len, sc->rec.blksz);
 
 	error = 0;
+	sc->offs = 0;
 	if (sc->mode & AUMODE_PLAY) {
 		if (sc->ops->trigger_output) {
 			p.encoding = sc->hw_enc;
@@ -637,7 +680,7 @@ audio_setpar(struct audio_softc *sc)
 		    p.bps != r.bps ||
 		    p.msb != r.msb ||
 		    p.sample_rate != r.sample_rate) {
-			printf("%s: different play and record parameters"
+			printf("%s: different play and record parameters "
 			    "returned by hardware\n", DEVNAME(sc));
 			return ENODEV;
 		}
@@ -1298,7 +1341,7 @@ audio_drain(struct audio_softc *sc)
 
 	xrun = sc->play.xrun;
 	while (sc->play.xrun == xrun) {
-		DPRINTF("%s: drain: used = %zu, xrun = %ld\n",
+		DPRINTF("%s: drain: used = %zu, xrun = %d\n",
 		    DEVNAME(sc), sc->play.used, sc->play.xrun);
 
 		/*
@@ -1486,6 +1529,7 @@ int
 audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 {
 	struct audio_offset *ao;
+	struct audio_pos *ap;
 	int error = 0, fd;
 
 	/* block if quiesced */
@@ -1516,6 +1560,15 @@ audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 		mtx_enter(&audio_lock);
 		ao = (struct audio_offset *)addr;
 		ao->samples = sc->rec.pos;
+		mtx_leave(&audio_lock);
+		break;
+	case AUDIO_GETPOS:
+		mtx_enter(&audio_lock);
+		ap = (struct audio_pos *)addr;
+		ap->play_pos = sc->play.pos;
+		ap->play_xrun = sc->play.xrun;
+		ap->rec_pos = sc->rec.pos;
+		ap->rec_xrun = sc->rec.xrun;
 		mtx_leave(&audio_lock);
 		break;
 	case AUDIO_SETINFO:

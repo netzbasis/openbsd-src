@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.28 2015/07/27 15:38:11 espie Exp $ */
+/* $OpenBSD: doas.c,v 1.32 2015/07/29 00:00:31 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -143,7 +143,8 @@ permit(uid_t uid, gid_t *groups, int ngroups, struct rule **lastr,
 
 	*lastr = NULL;
 	for (i = 0; i < nrules; i++) {
-		if (match(uid, groups, ngroups, target, cmd, cmdargs, rules[i]))
+		if (match(uid, groups, ngroups, target, cmd,
+		    cmdargs, rules[i]))
 			*lastr = rules[i];
 	}
 	if (!*lastr)
@@ -182,6 +183,9 @@ parseconfig(const char *filename, int checkperms)
 		exit(1);
 }
 
+/*
+ * Copy the environment variables in safeset from oldenvp to envp.
+ */
 static int
 copyenvhelper(const char **oldenvp, const char **safeset, int nsafe,
     char **envp, int ei)
@@ -222,42 +226,45 @@ copyenv(const char **oldenvp, struct rule *rule)
 	int nsafe, nbad;
 	int nextras = 0;
 
+	/* if there was no envvar whitelist, pass all except badset ones */
 	nbad = arraylen(badset);
 	if ((rule->options & KEEPENV) && !rule->envlist) {
-		size_t i, ii;
+		size_t iold, inew;
 		size_t oldlen = arraylen(oldenvp);
 		envp = reallocarray(NULL, oldlen + 1, sizeof(char *));
 		if (!envp)
 			err(1, "reallocarray");
-		for (ii = i = 0; i < oldlen; i++) {
-			size_t j;
-			for (j = 0; j < nbad; j++) {
-				size_t len = strlen(badset[j]);
-				if (strncmp(oldenvp[i], badset[j], len) == 0 &&
-				    oldenvp[i][len] == '=') {
+		for (inew = iold = 0; iold < oldlen; iold++) {
+			size_t ibad;
+			for (ibad = 0; ibad < nbad; ibad++) {
+				size_t len = strlen(badset[ibad]);
+				if (strncmp(oldenvp[iold], badset[ibad], len) == 0 &&
+				    oldenvp[iold][len] == '=') {
 					break;
 				}
 			}
-			if (j == nbad) {
-				if (!(envp[ii] = strdup(oldenvp[i])))
+			if (ibad == nbad) {
+				if (!(envp[inew] = strdup(oldenvp[iold])))
 					err(1, "strdup");
-				ii++;
+				inew++;
 			}
 		}
-		envp[ii] = NULL;
+		envp[inew] = NULL;
 		return envp;
 	}
 
 	nsafe = arraylen(safeset);
 	if ((extra = rule->envlist)) {
-		size_t i;
+		size_t isafe;
 		nextras = arraylen(extra);
-		for (i = 0; i < nsafe; i++) {
-			size_t j;
-			for (j = 0; j < nextras; j++) {
-				if (strcmp(extra[j], safeset[i]) == 0) {
-					extra[j--] = extra[nextras--];
+		for (isafe = 0; isafe < nsafe; isafe++) {
+			size_t iextras;
+			for (iextras = 0; iextras < nextras; iextras++) {
+				if (strcmp(extra[iextras], safeset[isafe]) == 0) {
+					nextras--;
+					extra[iextras] = extra[nextras];
 					extra[nextras] = NULL;
+					iextras--;
 				}
 			}
 		}

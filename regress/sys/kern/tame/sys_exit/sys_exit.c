@@ -1,6 +1,6 @@
-/*      $OpenBSD: tag.h,v 1.5 2015/07/28 18:38:05 schwarze Exp $    */
+/*	$OpenBSD: sys_exit.c,v 1.1 2015/07/28 10:17:10 semarie Exp $ */
 /*
- * Copyright (c) 2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2015 Sebastien Marie <semarie@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,18 +15,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-struct	tag_files {
-	char	 ofn[20];
-	char	 tfn[20];
-	int	 ofd;
-	int	 tfd;
-};
+#include <sys/tame.h>
 
-__BEGIN_DECLS
+#include <stdlib.h>
+#include <unistd.h>
 
-struct tag_files *tag_init(void);
-void	 tag_put(const char *, int, size_t);
-void	 tag_write(void);
-void	 tag_unlink(void);
+int
+main(int argc, char *argv[])
+{
+	/* calling sys_exit syscall is allowed */
+	tame(0);
 
-__END_DECLS
+	_exit(EXIT_SUCCESS);
+}
