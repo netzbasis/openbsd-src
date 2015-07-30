@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.71 2015/07/18 22:19:50 reyk Exp $	*/
+/*	$OpenBSD: server.c,v 1.73 2015/07/29 22:03:41 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>

@@ -1,4 +1,4 @@
-/* $OpenBSD: v3_sxnet.c,v 1.14 2015/07/25 16:00:14 jsing Exp $ */
+/* $OpenBSD: v3_sxnet.c,v 1.16 2015/07/29 16:13:49 jsing Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -75,19 +75,26 @@ static int sxnet_i2r(X509V3_EXT_METHOD *method, SXNET *sx, BIO *out,
 static SXNET * sxnet_v2i(X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
     STACK_OF(CONF_VALUE) *nval);
 #endif
+
 const X509V3_EXT_METHOD v3_sxnet = {
-	NID_sxnet, X509V3_EXT_MULTILINE, ASN1_ITEM_ref(SXNET),
-	0, 0, 0, 0,
-	0, 0,
-	0,
+	.ext_nid = NID_sxnet,
+	.ext_flags = X509V3_EXT_MULTILINE,
+	.it = ASN1_ITEM_ref(SXNET),
+	.ext_new = NULL,
+	.ext_free = NULL,
+	.d2i = NULL,
+	.i2d = NULL,
+	.i2s = NULL,
+	.s2i = NULL,
+	.i2v = NULL,
 #ifdef SXNET_TEST
-	(X509V3_EXT_V2I)sxnet_v2i,
+	.v2i = (X509V3_EXT_V2I)sxnet_v2i,
 #else
-	0,
+	.v2i = NULL,
 #endif
-	(X509V3_EXT_I2R)sxnet_i2r,
-	0,
-	NULL
+	.i2r = (X509V3_EXT_I2R)sxnet_i2r,
+	.r2i = NULL,
+	.usr_data = NULL,
 };
 
 static const ASN1_TEMPLATE SXNETID_seq_tt[] = {
@@ -211,7 +218,7 @@ sxnet_i2r(X509V3_EXT_METHOD *method, SXNET *sx, BIO *out, int indent)
 		tmp = i2s_ASN1_INTEGER(NULL, id->zone);
 		BIO_printf(out, "\n%*sZone: %s, User: ", indent, "", tmp);
 		free(tmp);
-		M_ASN1_OCTET_STRING_print(out, id->user);
+		ASN1_STRING_print(out, id->user);
 	}
 	return 1;
 }
@@ -316,7 +323,7 @@ SXNET_add_id_INTEGER(SXNET **psx, ASN1_INTEGER *zone, char *user, int userlen)
 	if (userlen == -1)
 		userlen = strlen(user);
 
-	if (!M_ASN1_OCTET_STRING_set(id->user, user, userlen))
+	if (!ASN1_STRING_set(id->user, user, userlen))
 		goto err;
 	if (!sk_SXNETID_push(sx->ids, id))
 		goto err;
@@ -372,7 +379,7 @@ SXNET_get_id_INTEGER(SXNET *sx, ASN1_INTEGER *zone)
 
 	for (i = 0; i < sk_SXNETID_num(sx->ids); i++) {
 		id = sk_SXNETID_value(sx->ids, i);
-		if (!M_ASN1_INTEGER_cmp(id->zone, zone))
+		if (!ASN1_STRING_cmp(id->zone, zone))
 			return id->user;
 	}
 	return NULL;

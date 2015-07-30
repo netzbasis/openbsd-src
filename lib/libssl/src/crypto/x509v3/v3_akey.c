@@ -1,4 +1,4 @@
-/* $OpenBSD: v3_akey.c,v 1.13 2014/10/05 18:26:22 miod Exp $ */
+/* $OpenBSD: v3_akey.c,v 1.15 2015/07/29 16:13:48 jsing Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -71,14 +71,20 @@ static AUTHORITY_KEYID *v2i_AUTHORITY_KEYID(X509V3_EXT_METHOD *method,
     X509V3_CTX *ctx, STACK_OF(CONF_VALUE) *values);
 
 const X509V3_EXT_METHOD v3_akey_id = {
-	NID_authority_key_identifier,
-	X509V3_EXT_MULTILINE, ASN1_ITEM_ref(AUTHORITY_KEYID),
-	0, 0,0, 0,
-	0, 0,
-	(X509V3_EXT_I2V)i2v_AUTHORITY_KEYID,
-	(X509V3_EXT_V2I)v2i_AUTHORITY_KEYID,
-	0, 0,
-	NULL
+	.ext_nid = NID_authority_key_identifier,
+	.ext_flags = X509V3_EXT_MULTILINE,
+	.it = ASN1_ITEM_ref(AUTHORITY_KEYID),
+	.ext_new = NULL,
+	.ext_free = NULL,
+	.d2i = NULL,
+	.i2d = NULL,
+	.i2s = NULL,
+	.s2i = NULL,
+	.i2v = (X509V3_EXT_I2V)i2v_AUTHORITY_KEYID,
+	.v2i = (X509V3_EXT_V2I)v2i_AUTHORITY_KEYID,
+	.i2r = NULL,
+	.r2i = NULL,
+	.usr_data = NULL,
 };
 
 static
@@ -169,7 +175,7 @@ v2i_AUTHORITY_KEYID(X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
 
 	if ((issuer && !ikeyid) || (issuer == 2)) {
 		isname = X509_NAME_dup(X509_get_issuer_name(cert));
-		serial = M_ASN1_INTEGER_dup(X509_get_serialNumber(cert));
+		serial = ASN1_STRING_dup(X509_get_serialNumber(cert));
 		if (!isname || !serial) {
 			X509V3err(X509V3_F_V2I_AUTHORITY_KEYID,
 			    X509V3_R_UNABLE_TO_GET_ISSUER_DETAILS);
