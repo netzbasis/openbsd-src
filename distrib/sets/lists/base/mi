@@ -75,6 +75,7 @@
 ./etc/examples/ospfd.conf
 ./etc/examples/pf.conf
 ./etc/examples/printcap
+./etc/examples/radiusd.conf
 ./etc/examples/rbootd.conf
 ./etc/examples/rc.local
 ./etc/examples/rc.securelevel
@@ -170,6 +171,7 @@
 ./etc/rc.d/ospfd
 ./etc/rc.d/pflogd
 ./etc/rc.d/portmap
+./etc/rc.d/radiusd
 ./etc/rc.d/rarpd
 ./etc/rc.d/rbootd
 ./etc/rc.d/rc.subr
