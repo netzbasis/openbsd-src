@@ -1,4 +1,4 @@
-/* $OpenBSD: acpicpu.c,v 1.65 2015/07/18 15:20:13 guenther Exp $ */
+/* $OpenBSD: acpicpu.c,v 1.68 2015/08/04 22:25:54 guenther Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
@@ -490,12 +490,12 @@ acpicpu_getcst(struct acpicpu_softc *sc)
 		free(cx, M_DEVBUF, sizeof(*cx));
 	}
 
-	if (aml_evalname(sc->sc_acpi, sc->sc_devnode, "_CST", 0, NULL, &res))
-		return (1);
-
 	/* provide a fallback C1-via-halt in case _CST's C1 is bogus */
 	acpicpu_add_cstate(sc, ACPI_STATE_C1, CST_METH_HALT,
 	    CST_FLAG_FALLBACK, 1, -1, 0);
+
+	if (aml_evalname(sc->sc_acpi, sc->sc_devnode, "_CST", 0, NULL, &res))
+		return (1);
 
 	aml_foreachpkg(&res, 1, acpicpu_add_cstatepkg, sc);
 	aml_freevalue(&res);
@@ -545,18 +545,23 @@ void
 acpicpu_getcst_from_fadt(struct acpicpu_softc *sc)
 {
 	struct acpi_fadt	*fadt = sc->sc_acpi->sc_fadt;
+	int flags;
 
 	/* FADT has to set flag to do C2 and higher on MP */
 	if ((fadt->flags & FADT_P_LVL2_UP) == 0 && ncpus > 1)
 		return;
 
+	/* skip these C2 and C3 states if the CPU doesn't have ARAT */
+	flags = (sc->sc_ci->ci_feature_tpmflags & TPM_ARAT)
+	    ? 0 : CST_FLAG_SKIP;
+
 	/* Some systems don't export a full PBLK; reduce functionality */
 	if (sc->sc_pblk_len >= 5 && fadt->p_lvl2_lat <= ACPI_MAX_C2_LATENCY) {
-		acpicpu_add_cstate(sc, ACPI_STATE_C2, CST_METH_GAS_IO, 0,
+		acpicpu_add_cstate(sc, ACPI_STATE_C2, CST_METH_GAS_IO, flags,
 		    fadt->p_lvl2_lat, -1, sc->sc_pblk_addr + 4);
 	}
 	if (sc->sc_pblk_len >= 6 && fadt->p_lvl3_lat <= ACPI_MAX_C3_LATENCY)
-		acpicpu_add_cstate(sc, ACPI_STATE_C3, CST_METH_GAS_IO, 0,
+		acpicpu_add_cstate(sc, ACPI_STATE_C3, CST_METH_GAS_IO, flags,
 		    fadt->p_lvl3_lat, -1, sc->sc_pblk_addr + 5);
 }
 
@@ -701,19 +706,21 @@ acpicpu_attach(struct device *parent, struct device *self, void *aux)
 		}
 	}
 	if (!SLIST_EMPTY(&sc->sc_cstates)) {
+		extern u_int32_t acpi_force_bm;
+
 		cpu_idle_cycle_fcn = &acpicpu_idle;
 
 		/*
 		 * C3 (and maybe C2?) needs BM_RLD to be set to
 		 * wake the system
-		 * XXX need to save and restore this in suspend/resume?
 		 */
-		if (SLIST_FIRST(&sc->sc_cstates)->state > 1) {
+		if (SLIST_FIRST(&sc->sc_cstates)->state > 1 && acpi_force_bm == 0) {
 			uint16_t en = acpi_read_pmreg(sc->sc_acpi,
 			    ACPIREG_PM1_CNT, 0);
 			if ((en & ACPI_PM1_BM_RLD) == 0) {
 				acpi_write_pmreg(sc->sc_acpi, ACPIREG_PM1_CNT,
 				    0, en | ACPI_PM1_BM_RLD);
+				acpi_force_bm = ACPI_PM1_BM_RLD;
 			}
 		}
 	}
