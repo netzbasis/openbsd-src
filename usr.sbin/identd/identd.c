@@ -1,4 +1,4 @@
-/*	$OpenBSD: identd.c,v 1.29 2015/08/04 11:05:18 dlg Exp $ */
+/*	$OpenBSD: identd.c,v 1.31 2015/08/20 11:06:35 dlg Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -41,6 +41,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -188,7 +189,6 @@ usage(void)
 struct timeval timeout = { TIMEOUT_DEFAULT, 0 };
 int debug = 0;
 int noident = 0;
-int on = 1;
 int unknown_err = 0;
 int hideall = 0;
 
@@ -271,7 +271,8 @@ main(int argc, char *argv[])
 	if (geteuid() != 0)
 		errx(1, "need root privileges");
 
-	if (socketpair(AF_UNIX, SOCK_SEQPACKET, PF_UNSPEC, pair) == -1)
+	if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK,
+	    PF_UNSPEC, pair) == -1)
 		err(1, "socketpair");
 
 	pw = getpwnam(IDENTD_USER);
@@ -309,8 +310,8 @@ main(int argc, char *argv[])
 
 	event_init();
 
-	if (ioctl(sibling, FIONBIO, &on) == -1)
-		lerr(1, "sibling ioctl(FIONBIO)");
+	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+		lerr(1, "signal(SIGPIPE)");
 
 	if (parent) {
 		SIMPLEQ_INIT(&sc.parent.replies);
@@ -623,6 +624,7 @@ identd_listen(const char *addr, const char *port, int family)
 	struct addrinfo hints, *res, *res0;
 	int error, s;
 	const char *cause = NULL;
+	int on = 1;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = family;
@@ -634,7 +636,8 @@ identd_listen(const char *addr, const char *port, int family)
 		lerrx(1, "%s/%s: %s", addr, port, gai_strerror(error));
 
 	for (res = res0; res != NULL; res = res->ai_next) {
-		s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+		s = socket(res->ai_family, res->ai_socktype | SOCK_NONBLOCK,
+		    res->ai_protocol);
 		if (s == -1) {
 			cause = "socket";
 			continue;
@@ -652,9 +655,6 @@ identd_listen(const char *addr, const char *port, int family)
 			errno = serrno;
 			continue;
 		}
-
-		if (ioctl(s, FIONBIO, &on) == -1)
-			err(1, "listener ioctl(FIONBIO)");
 
 		if (listen(s, 5) == -1)
 			err(1, "listen");
@@ -691,7 +691,7 @@ identd_accept(int fd, short events, void *arg)
 	int s;
 
 	len = sizeof(ss);
-	s = accept(fd, sa(&ss), &len);
+	s = accept4(fd, sa(&ss), &len, SOCK_NONBLOCK);
 	if (s == -1) {
 		switch (errno) {
 		case EINTR:
@@ -707,9 +707,6 @@ identd_accept(int fd, short events, void *arg)
 			lerr(1, "accept");
 		}
 	}
-
-	if (ioctl(s, FIONBIO, &on) == -1)
-		lerr(1, "client ioctl(FIONBIO)");
 
 	c = calloc(1, sizeof(*c));
 	if (c == NULL) {
@@ -1021,8 +1018,11 @@ identd_response(int fd, short events, void *arg)
 		case EINTR:
 		case EAGAIN:
 			return; /* try again later */
+		case EPIPE:
+			goto done;
 		default:
-			lerr(1, "response write");
+			lwarn("response write");
+			goto done;
 		}
 	}
 
