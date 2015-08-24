@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.26 2015/08/23 21:30:04 deraadt Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.28 2015/08/24 06:19:39 semarie Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -282,7 +282,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 					    NULL, &bp, cwdpath, cwdpathlen/2,
 					    GETCWD_CHECK_ACCESS, p);
 					if (error) {
-						free(cwdpath, M_TEMP, cwdpathlen);
 						printf("getcwd: %d\n", error);
 						break;
 					}
@@ -293,7 +292,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 				/* NUL included in cwd component */
 				builtlen = cwdlen + 1 + strlen(path);
 				if (builtlen > PATH_MAX) {
-					free(cwdpath, M_TEMP, cwdpathlen);
 					error = ENAMETOOLONG;
 					break;
 				}
@@ -519,7 +517,7 @@ tame_namei(struct proc *p, char *origpath)
 	if (p->p_p->ps_tamepaths) {
 		struct whitepaths *wl = p->p_p->ps_tamepaths;
 		char *fullpath = path, *builtpath = NULL, *canopath = NULL;
-		char *cwdpath, *cwd;
+		char *cwdpath = NULL, *cwd;
 		size_t cwdpathlen, cwdlen, builtlen;
 		int i, error;
 
