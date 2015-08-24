@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_client.c,v 1.17 2015/03/31 12:21:27 jsing Exp $ */
+/* $OpenBSD: tls_client.c,v 1.19 2015/08/22 14:51:34 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -223,6 +223,10 @@ tls_connect_fds(struct tls *ctx, int fd_read, int fd_write,
 
 	if ((ctx->ssl_conn = SSL_new(ctx->ssl_ctx)) == NULL) {
 		tls_set_error(ctx, "ssl connection failure");
+		goto err;
+	}
+	if (SSL_set_app_data(ctx->ssl_conn, ctx) != 1) {
+		tls_set_error(ctx, "ssl application data failure");
 		goto err;
 	}
 	if (SSL_set_rfd(ctx->ssl_conn, fd_read) != 1 ||
