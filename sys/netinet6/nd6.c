@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.146 2015/08/23 14:12:05 naddy Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.148 2015/08/24 23:26:43 mpi Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -719,6 +719,8 @@ int
 nd6_is_addr_neighbor(struct sockaddr_in6 *addr, struct ifnet *ifp)
 {
 	struct nd_prefix *pr;
+	struct in6_ifaddr *ia6;
+	struct ifaddr *ifa;
 	struct rtentry *rt;
 
 	/*
@@ -730,6 +732,22 @@ nd6_is_addr_neighbor(struct sockaddr_in6 *addr, struct ifnet *ifp)
 	if (IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr) &&
 	    ntohs(*(u_int16_t *)&addr->sin6_addr.s6_addr[2]) == ifp->if_index)
 		return (1);
+
+	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+		if (ifa->ifa_addr->sa_family != AF_INET6)
+			continue;
+
+		ia6 = ifatoia6(ifa);
+
+		/* Prefix check down below. */
+		if (ia6->ia6_flags & IN6_IFF_AUTOCONF)
+			continue;
+
+		if (IN6_ARE_MASKED_ADDR_EQUAL(&addr->sin6_addr,
+		    &ia6->ia_addr.sin6_addr,
+		    &ia6->ia_prefixmask.sin6_addr))
+			return (1);
+	}
 
 	/*
 	 * If the address matches one of our on-link prefixes, it should be a
@@ -1834,9 +1852,7 @@ fill_drlist(void *oldp, size_t *oldlenp, size_t ol)
 			bzero(d, sizeof(*d));
 			d->rtaddr.sin6_family = AF_INET6;
 			d->rtaddr.sin6_len = sizeof(struct sockaddr_in6);
-			d->rtaddr.sin6_addr = dr->rtaddr;
-			in6_recoverscope(&d->rtaddr, &d->rtaddr.sin6_addr,
-			    dr->ifp);
+			in6_recoverscope(&d->rtaddr, &dr->rtaddr, dr->ifp);
 			d->flags = dr->flags;
 			d->rtlifetime = dr->rtlifetime;
 			d->expire = dr->expire;
@@ -1927,9 +1943,9 @@ fill_prlist(void *oldp, size_t *oldlenp, size_t ol)
 					advrtrs++;
 					continue;
 				}
+				bzero(&sin6, sizeof(sin6));
 				sin6.sin6_family = AF_INET6;
 				sin6.sin6_len = sizeof(struct sockaddr_in6);
-				sin6.sin6_addr = pfr->router->rtaddr;
 				in6_recoverscope(&sin6, &pfr->router->rtaddr,
 				    pfr->router->ifp);
 				advrtrs++;
