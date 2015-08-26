@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.29 2015/08/25 15:35:44 jsg Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.33 2015/08/26 14:46:22 semarie Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -206,7 +206,7 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 {
 	struct sys_tame_args /* {
 		syscallarg(int) flags;
-		syscallarg(char **)paths;
+		syscallarg(const char **)paths;
 	} */	*uap = v;
 	int	 flags = SCARG(uap, flags);
 
@@ -227,10 +227,10 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 	}
 
 	if (SCARG(uap, paths)) {
-		char **u = SCARG(uap, paths), *sp;
+		const char **u = SCARG(uap, paths), *sp;
 		struct whitepaths *wl;
 		char *cwdpath = NULL, *path;
-		size_t cwdpathlen, cwdlen, len, maxargs = 0;
+		size_t cwdpathlen = MAXPATHLEN * 4, cwdlen, len, maxargs = 0;
 		int i, error;
 
 		if (p->p_p->ps_tamepaths)
@@ -257,7 +257,7 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 		/* Copy in */
 		for (i = 0; i < wl->wl_count; i++) {
 			char *fullpath = NULL, *builtpath = NULL, *canopath = NULL, *cwd;
-			size_t builtlen;
+			size_t builtlen = 0;
 
 			if ((error = copyin(u + i, &sp, sizeof(sp))) != 0)
 				break;
@@ -271,7 +271,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 				if (cwdpath == NULL) {
 					char *bp, *bpend;
 
-					cwdpathlen = MAXPATHLEN * 4;
 					cwdpath = malloc(cwdpathlen, M_TEMP, M_WAITOK);
 					bp = &cwdpath[cwdpathlen];
 					bpend = bp;
@@ -280,10 +279,8 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 					error = vfs_getcwd_common(p->p_fd->fd_cdir,
 					    NULL, &bp, cwdpath, cwdpathlen/2,
 					    GETCWD_CHECK_ACCESS, p);
-					if (error) {
-						printf("getcwd: %d\n", error);
+					if (error)
 						break;
-					}
 					cwd = bp;
 					cwdlen = (bpend - bp);
 				}
@@ -302,16 +299,13 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 				fullpath = path;
 
 			canopath = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-			if (canonpath(fullpath, canopath, MAXPATHLEN) != 0) {
-				free(path, M_TEMP, MAXPATHLEN);
-				free(canopath, M_TEMP, MAXPATHLEN);
-				if (builtpath)
-					free(builtpath, M_TEMP, builtlen);
-				return (tame_fail(p, EPERM, TAME_RPATH));
-			}
+			error = canonpath(fullpath, canopath, MAXPATHLEN);
 
-			if (builtpath)
-				free(builtpath, M_TEMP, builtlen);
+			free(builtpath, M_TEMP, builtlen);
+			if (error != 0) {
+				free(canopath, M_TEMP, MAXPATHLEN);
+				break;
+			}
 
 			len = strlen(canopath) + 1;
 
@@ -328,8 +322,7 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 			free(canopath, M_TEMP, MAXPATHLEN);
 		}
 		free(path, M_TEMP, MAXPATHLEN);
-		if (cwdpath)
-			free(cwdpath, M_TEMP, cwdpathlen);
+		free(cwdpath, M_TEMP, cwdpathlen);
 
 		if (error) {
 			printf("%s(%d): path load error %d\n",
@@ -515,15 +508,14 @@ tame_namei(struct proc *p, char *origpath)
 	 */
 	if (p->p_p->ps_tamepaths) {
 		struct whitepaths *wl = p->p_p->ps_tamepaths;
-		char *fullpath = path, *builtpath = NULL, *canopath = NULL;
-		char *cwdpath = NULL, *cwd;
-		size_t cwdpathlen, cwdlen, builtlen;
+		char *fullpath, *builtpath = NULL, *canopath = NULL;
+		size_t builtlen = 0;
 		int i, error;
 
 		if (origpath[0] != '/') {
-			char *bp, *bpend;
+			char *cwdpath, *cwd, *bp, *bpend;
+			size_t cwdpathlen = MAXPATHLEN * 4, cwdlen;
 
-			cwdpathlen = MAXPATHLEN * 4;
 			cwdpath = malloc(cwdpathlen, M_TEMP, M_WAITOK);
 			bp = &cwdpath[cwdpathlen];
 			bpend = bp;
@@ -534,7 +526,6 @@ tame_namei(struct proc *p, char *origpath)
 			    GETCWD_CHECK_ACCESS, p);
 			if (error) {
 				free(cwdpath, M_TEMP, cwdpathlen);
-				printf("getcwd: %d\n", error);
 				return (error);
 			}
 			cwd = bp;
@@ -544,25 +535,27 @@ tame_namei(struct proc *p, char *origpath)
 			builtlen = cwdlen + 1 + strlen(origpath);
 			builtpath = malloc(builtlen, M_TEMP, M_WAITOK);
 			snprintf(builtpath, builtlen, "%s/%s", cwd, origpath);
+			fullpath = builtpath;
+			free(cwdpath, M_TEMP, cwdpathlen);
+
 			//printf("namei: builtpath = %s %lld strlen %lld\n", builtpath,
 			//    (long long)builtlen, (long long)strlen(builtpath));
-			fullpath = builtpath;
-		}
+		} else
+			fullpath = path;
 
 		canopath = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
-		if (canonpath(fullpath, canopath, MAXPATHLEN) != 0) {
-			if (cwdpath)
-				free(cwdpath, M_TEMP, cwdpathlen);
+		error = canonpath(fullpath, canopath, MAXPATHLEN);
+
+		free(builtpath, M_TEMP, builtlen);
+		if (error != 0) {
 			free(canopath, M_TEMP, MAXPATHLEN);
-			if (builtpath)
-				free(builtpath, M_TEMP, builtlen);
 			return (tame_fail(p, EPERM, TAME_RPATH));
 		}
 
 		//printf("namei: canopath = %s strlen %lld\n", canopath,
 		//    (long long)strlen(canopath));
 
-		error = EACCES;
+		error = ENOENT;
 		for (i = 0; i < wl->wl_count && wl->wl_paths[i].name && error; i++) {
 			if (strncmp(canopath, wl->wl_paths[i].name,
 			    wl->wl_paths[i].len - 1) == 0) {
@@ -572,15 +565,10 @@ tame_namei(struct proc *p, char *origpath)
 					error = 0;
 			}
 		}
+		free(canopath, M_TEMP, MAXPATHLEN);
 		if (error)
 			printf("bad path: %s\n", canopath);
-		if (cwdpath)
-			free(cwdpath, M_TEMP, cwdpathlen);
-		free(canopath, M_TEMP, MAXPATHLEN);
-		if (builtpath)
-			free(builtpath, M_TEMP, builtlen);
-		if (error)
-			return (ENOENT);	/* Don't hint why it failed */
+		return (error);			/* Don't hint why it failed */
 	}
 
 	if (p->p_p->ps_tame & _TM_RPATH)
@@ -931,6 +919,7 @@ tame_ioctl_check(struct proc *p, long com, void *v)
 		return (EPERM);
 
 	/* tty subsystem */
+	case TIOCGETA:
 	case TIOCGPGRP:
 	case TIOCGWINSZ:	/* various programs */
 	case TIOCSTI:		/* ksh? csh? */
@@ -1045,13 +1034,13 @@ canonpath(const char *input, char *buf, size_t bufsize)
 	/* can't canon relative paths, don't bother */
 	if (input[0] != '/') {
 		if (strlcpy(buf, input, bufsize) >= bufsize)
-			return (EINVAL);
+			return (ENAMETOOLONG);
 		return (0);
 	}
 
 	/* easiest to work with strings always ending in '/' */
 	if (snprintf(buf, bufsize, "%s/", input) >= bufsize)
-		return (EINVAL);
+		return (ENAMETOOLONG);
 
 	/* after this we will only be shortening the string. */
 	p = buf;
