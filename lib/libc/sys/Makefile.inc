@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.126 2015/07/19 02:37:29 deraadt Exp $
+#	$OpenBSD: Makefile.inc,v 1.128 2015/08/26 01:54:09 guenther Exp $
 #	$NetBSD: Makefile.inc,v 1.35 1995/10/16 23:49:07 jtc Exp $
 #	@(#)Makefile.inc	8.1 (Berkeley) 6/17/93
 
@@ -6,7 +6,7 @@
 .PATH: ${LIBCSRCDIR}/arch/${MACHINE_CPU}/sys ${LIBCSRCDIR}/sys
 
 # modules with non-default implementations on at least one architecture:
-SRCS+=	Ovfork.S brk.S cerror.S exect.S fork.S \
+SRCS+=	Ovfork.S brk.S cerror.S fork.S \
 	sbrk.S sigpending.S sigprocmask.S sigreturn.S \
 	sigsuspend.S syscall.S tfork_thread.S
 
@@ -206,7 +206,7 @@ MAN+=	__get_tcb.2 __thrsigdivert.2 __thrsleep.2 _exit.2 accept.2 \
 	getpeername.2 getpgrp.2 getpid.2 getpriority.2 getrlimit.2 \
 	getrtable.2 getrusage.2 getsid.2 getsockname.2 getsockopt.2 \
 	getthrid.2 gettimeofday.2 getuid.2 intro.2 ioctl.2 issetugid.2 \
-	kill.2 kqueue.2 ktrace.2 link.2 listen.2 lseek.2 madvise.2 \
+	kbind.2 kill.2 kqueue.2 ktrace.2 link.2 listen.2 lseek.2 madvise.2 \
 	mincore.2 minherit.2 mkdir.2 mkfifo.2 mknod.2 mlock.2 \
 	mlockall.2 mmap.2 mount.2 mprotect.2 mquery.2 msgctl.2 \
 	msgget.2 msgrcv.2 msgsnd.2 msync.2 munmap.2 nanosleep.2 \
@@ -235,7 +235,6 @@ MLINKS+=clock_gettime.2 clock_getres.2
 MLINKS+=clock_gettime.2 clock_settime.2
 MLINKS+=dup.2 dup2.2
 MLINKS+=dup.2 dup3.2
-MLINKS+=execve.2 exect.2
 MLINKS+=fhopen.2 fhstat.2 fhopen.2 fhstatfs.2
 MLINKS+=fsync.2 fdatasync.2
 MLINKS+=getgid.2 getegid.2
