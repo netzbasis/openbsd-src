@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.531 2015/07/29 11:56:02 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.540 2015/08/29 00:29:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -47,8 +47,8 @@ extern char   **environ;
  */
 #define PANE_MINIMUM 2
 
-/* Automatic name refresh interval, in milliseconds. */
-#define NAME_INTERVAL 500
+/* Automatic name refresh interval, in microseconds. Must be < 1 second. */
+#define NAME_INTERVAL 500000
 
 /*
  * UTF-8 data size. This must be big enough to hold combined characters as well
@@ -777,7 +777,6 @@ struct window_mode {
 	void	(*resize)(struct window_pane *, u_int, u_int);
 	void	(*key)(struct window_pane *, struct client *, struct session *,
 		    int, struct mouse_event *);
-	void	(*timer)(struct window_pane *);
 };
 
 /* Structures for choose mode. */
@@ -826,6 +825,7 @@ struct window_pane {
 #define PANE_RESIZE 0x8
 #define PANE_FOCUSPUSH 0x10
 #define PANE_INPUTOFF 0x20
+#define PANE_CHANGED 0x40
 
 	int		 argc;
 	char	       **argv;
@@ -869,8 +869,11 @@ RB_HEAD(window_pane_tree, window_pane);
 /* Window structure. */
 struct window {
 	u_int		 id;
+
 	char		*name;
-	struct event	 name_timer;
+	struct event	 name_event;
+	struct timeval	 name_time;
+
 	struct timeval	 silence_timer;
 	struct timeval	 activity_time;
 
@@ -992,6 +995,8 @@ struct session {
 	struct timeval	 creation_time;
 	struct timeval	 activity_time;
 	struct timeval	 last_activity_time;
+
+	struct event	 lock_timer;
 
 	u_int		 sx;
 	u_int		 sy;
@@ -1206,7 +1211,7 @@ struct client {
 
 	struct event	 repeat_timer;
 
-	struct timeval	 status_timer;
+	struct event	 status_timer;
 	struct screen	 status;
 
 #define CLIENT_TERMINAL 0x1
@@ -1448,7 +1453,6 @@ void		 cfg_show_causes(struct session *);
 
 /* format.c */
 struct format_tree;
-void		 format_clean(void);
 struct format_tree *format_create(void);
 struct format_tree *format_create_status(int);
 void		 format_free(struct format_tree *);
@@ -1893,6 +1897,8 @@ int	 server_set_stdin_callback(struct client *, void (*)(struct client *,
 void	 server_unzoom_window(struct window *);
 
 /* status.c */
+void	 status_timer_start(struct client *);
+void	 status_timer_start_all(void);
 int	 status_at_line(struct client *);
 struct window *status_get_window_at(struct client *, u_int);
 int	 status_redraw(struct client *);
@@ -2206,7 +2212,7 @@ void	window_choose_collapse_all(struct window_pane *);
 void	window_choose_set_current(struct window_pane *, u_int);
 
 /* names.c */
-void	 queue_window_name(struct window *);
+void	 check_window_name(struct window *);
 char	*default_window_name(struct window *);
 char	*format_window_name(struct window *);
 char	*parse_window_name(const char *);
@@ -2247,7 +2253,7 @@ struct session	*session_create(const char *, int, char **, const char *,
 void		 session_destroy(struct session *);
 void		 session_unref(struct session *);
 int		 session_check_name(const char *);
-void		 session_update_activity(struct session *);
+void		 session_update_activity(struct session *, struct timeval *);
 struct session	*session_next_session(struct session *);
 struct session	*session_previous_session(struct session *);
 struct winlink	*session_new(struct session *, const char *, int, char **,

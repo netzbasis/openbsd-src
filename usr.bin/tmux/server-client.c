@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.147 2015/07/29 11:56:02 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.149 2015/08/28 13:01:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -188,6 +188,8 @@ server_client_lost(struct client *c)
 	if (c->stderr_data != c->stdout_data)
 		evbuffer_free(c->stderr_data);
 
+	if (event_initialized(&c->status_timer))
+		evtimer_del(&c->status_timer);
 	screen_free(&c->status);
 
 	free(c->title);
@@ -287,42 +289,6 @@ server_client_callback(int fd, short events, void *data)
 
 client_lost:
 	server_client_lost(c);
-}
-
-/* Handle client status timer. */
-void
-server_client_status_timer(void)
-{
-	struct client	*c;
-	struct session	*s;
-	struct timeval	 tv;
-	int		 interval;
-	time_t		 difference;
-
-	if (gettimeofday(&tv, NULL) != 0)
-		fatal("gettimeofday failed");
-
-	TAILQ_FOREACH(c, &clients, entry) {
-		if (c->session == NULL)
-			continue;
-		if (c->message_string != NULL || c->prompt_string != NULL) {
-			/*
-			 * Don't need timed redraw for messages/prompts so bail
-			 * now. The status timer isn't reset when they are
-			 * redrawn anyway.
-			 */
-			continue;
-		}
-		s = c->session;
-
-		if (!options_get_number(&s->options, "status"))
-			continue;
-		interval = options_get_number(&s->options, "status-interval");
-
-		difference = tv.tv_sec - c->status_timer.tv_sec;
-		if (interval != 0 && difference >= interval)
-			c->flags |= CLIENT_STATUS;
-	}
 }
 
 /* Check for mouse keys. */
@@ -595,9 +561,7 @@ server_client_handle_key(struct client *c, int key)
 	/* Update the activity timer. */
 	if (gettimeofday(&c->activity_time, NULL) != 0)
 		fatal("gettimeofday failed");
-	memcpy(&s->last_activity_time, &s->activity_time,
-	    sizeof s->last_activity_time);
-	memcpy(&s->activity_time, &c->activity_time, sizeof s->activity_time);
+	session_update_activity(s, &c->activity_time);
 
 	/* Number keys jump to pane in identify mode. */
 	if (c->flags & CLIENT_IDENTIFY && key >= '0' && key <= '9') {
@@ -1015,6 +979,7 @@ server_client_msg_dispatch(struct client *c)
 	struct msg_stdin_data	 stdindata;
 	const char		*data;
 	ssize_t			 n, datalen;
+	struct session		*s;
 
 	if ((n = imsg_read(&c->ibuf)) == -1 || n == 0)
 		return (-1);
@@ -1098,11 +1063,12 @@ server_client_msg_dispatch(struct client *c)
 
 			if (c->tty.fd == -1) /* exited in the meantime */
 				break;
+			s = c->session;
 
 			if (gettimeofday(&c->activity_time, NULL) != 0)
 				fatal("gettimeofday");
-			if (c->session != NULL)
-				session_update_activity(c->session);
+			if (s != NULL)
+				session_update_activity(s, &c->activity_time);
 
 			tty_start_tty(&c->tty);
 			server_redraw_client(c);

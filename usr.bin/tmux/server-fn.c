@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.85 2015/04/29 15:59:08 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.87 2015/08/28 13:01:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -419,8 +419,9 @@ server_destroy_session(struct session *s)
 		} else {
 			c->last_session = NULL;
 			c->session = s_new;
+			status_timer_start(c);
 			notify_attached_session_changed(c);
-			session_update_activity(s_new);
+			session_update_activity(s_new, NULL);
 			server_redraw_client(c);
 		}
 	}
