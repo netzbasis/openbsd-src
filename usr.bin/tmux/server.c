@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.135 2015/08/28 13:21:25 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.137 2015/08/29 08:54:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -250,9 +250,10 @@ void
 server_loop(void)
 {
 	while (!server_should_shutdown()) {
+		log_debug("event dispatch enter");
 		event_loop(EVLOOP_ONCE);
+		log_debug("event dispatch exit");
 
-		server_window_loop();
 		server_client_loop();
 	}
 }
