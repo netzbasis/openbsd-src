@@ -1,4 +1,4 @@
-/*	$OpenBSD: mainbus.c,v 1.30 2015/07/21 20:12:00 reyk Exp $	*/
+/*	$OpenBSD: mainbus.c,v 1.32 2015/08/30 18:08:24 kettenis Exp $	*/
 /*	$NetBSD: mainbus.c,v 1.1 2003/04/26 18:39:29 fvdl Exp $	*/
 
 /*
@@ -49,6 +49,7 @@
 #include "bios.h"
 #include "mpbios.h"
 #include "pvbus.h"
+#include "efifb.h"
 
 #include <machine/cpuvar.h>
 #include <machine/i82093var.h>
@@ -231,6 +232,12 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 		config_found(self, &mba_iba, mainbus_print);
 #endif
 
+#if NEFIFB > 0
+	if (bios_efiinfo != NULL) {
+		mba.mba_busname = "efifb";
+		config_found(self, &mba, mainbus_print);
+	}
+#endif
 }
 
 int

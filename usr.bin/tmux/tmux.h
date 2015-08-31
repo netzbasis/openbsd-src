@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.545 2015/08/29 23:55:55 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.548 2015/08/30 22:56:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1203,7 +1203,7 @@ struct client {
 	struct screen	 status;
 
 #define CLIENT_TERMINAL 0x1
-/* 0x2 unused */
+#define CLIENT_LOGIN 0x2
 #define CLIENT_EXIT 0x4
 #define CLIENT_REDRAW 0x8
 #define CLIENT_STATUS 0x10
@@ -1407,20 +1407,16 @@ extern struct options global_options;
 extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
-extern struct event_base *ev_base;
 extern char	*cfg_file;
 extern char	*shell_cmd;
 extern int	 debug_level;
 extern time_t	 start_time;
 extern char	 socket_path[PATH_MAX];
-extern int	 login_shell;
-extern char	*environ_path;
 void		 logfile(const char *);
 const char	*getshell(void);
 int		 checkshell(const char *);
 int		 areshell(const char *);
 void		 setblocking(int, int);
-__dead void	 shell_exec(const char *, const char *);
 const char	*find_home(void);
 
 /* cfg.c */
@@ -1792,7 +1788,7 @@ int	cmd_string_parse(const char *, struct cmd_list **, const char *,
 void	cmd_wait_for_flush(void);
 
 /* client.c */
-int	client_main(int, char **, int);
+int	client_main(struct event_base *, int, char **, int);
 
 /* key-bindings.c */
 RB_PROTOTYPE(key_bindings, key_binding, entry, key_bindings_cmp);
@@ -1829,7 +1825,7 @@ void	 server_clear_marked(void);
 int	 server_is_marked(struct session *, struct winlink *,
 	     struct window_pane *);
 int	 server_check_marked(void);
-int	 server_start(int, char *);
+int	 server_start(struct event_base *, int, char *);
 void	 server_update_socket(void);
 void	 server_add_accept(int);
 
