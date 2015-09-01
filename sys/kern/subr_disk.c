@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_disk.c,v 1.195 2015/08/30 17:19:51 krw Exp $	*/
+/*	$OpenBSD: subr_disk.c,v 1.200 2015/09/01 01:06:35 deraadt Exp $	*/
 /*	$NetBSD: subr_disk.c,v 1.17 1996/03/16 23:17:08 christos Exp $	*/
 
 /*
@@ -102,6 +102,9 @@ struct disk_attach_task {
 };
 
 void disk_attach_callback(void *);
+
+int readdisksector(struct buf *, void (*)(struct buf *), struct disklabel *,
+    u_int64_t);
 
 /*
  * Compute checksum for disk label.
@@ -291,6 +294,24 @@ checkdisklabel(void *rlp, struct disklabel *lp, u_int64_t boundstart,
 }
 
 /*
+ * Read a disk sector.
+ */
+int
+readdisksector(struct buf *bp, void (*strat)(struct buf *),
+    struct disklabel *lp, u_int64_t sector)
+{
+	bp->b_blkno = DL_SECTOBLK(lp, sector);
+	bp->b_bcount = lp->d_secsize;
+	bp->b_error = 0;
+	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
+	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
+
+	(*strat)(bp);
+
+	return (biowait(bp));
+}
+
+/*
  * If dos partition table requested, attempt to load it and
  * find disklabel inside a DOS partition. Return buffer
  * for use in signalling errors if requested.
@@ -328,13 +349,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *),
 			sector = extoff;
 
 		/* read MBR/EBR */
-		bp->b_blkno = DL_SECTOBLK(lp, sector);
-		bp->b_bcount = lp->d_secsize;
-		bp->b_error = 0; /* B_ERROR and b_error may have stale data. */
-		CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
-		SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-		(*strat)(bp);
-		error = biowait(bp);
+		error = readdisksector(bp, strat, lp, sector);
 		if (error) {
 /*wrong*/		if (partoffp)
 /*wrong*/			*partoffp = -1;
@@ -526,14 +541,9 @@ notfat:
 	if (spoofonly)
 		return (0);
 
-	bp->b_blkno = DL_BLKTOSEC(lp, DL_SECTOBLK(lp, dospartoff) +
-	    DOS_LABELSECTOR) * DL_BLKSPERSEC(lp);
-	bp->b_bcount = lp->d_secsize;
-	bp->b_error = 0; /* B_ERROR and b_error may have stale data. */
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if (biowait(bp))
+	error = readdisksector(bp, strat, lp, dospartoff +
+	    DL_BLKTOSEC(lp, DOS_LABELSECTOR));
+	if (error)
 		return (bp->b_error);
 
 	offset = DL_BLKOFFSET(lp, DOS_LABELSECTOR);
@@ -652,15 +662,7 @@ readgptlabel(struct buf *bp, void (*strat)(struct buf *),
 		uint32_t ghpartnum;
 		uint32_t ghpartspersec;
 
-		/* read header record */
-		bp->b_blkno = DL_SECTOBLK(lp, sector);
-		bp->b_bcount = lp->d_secsize;
-		bp->b_error = 0; /* B_ERROR and b_error may have stale data. */
-		CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
-		SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-		(*strat)(bp);
-		error = biowait(bp);
-
+		error = readdisksector(bp, strat, lp, sector);
 		if (error) {
 			DPRINTF("error reading from disk\n");
 	/*wrong*/	if (partoffp)
@@ -688,9 +690,9 @@ readgptlabel(struct buf *bp, void (*strat)(struct buf *),
 				return (EINVAL);
 			}
 
-			if (gh.gh_lba_alt >= DL_GETDSIZE(lp)) {
+			if (letoh64(gh.gh_lba_alt) >= DL_GETDSIZE(lp)) {
 				DPRINTF("alternate header's position is "
-				    "bogous\n");
+				    "bogus\n");
 				return (EINVAL);
 			}
 
@@ -739,15 +741,7 @@ readgptlabel(struct buf *bp, void (*strat)(struct buf *),
 		*/
 		sector = letoh64(gh.gh_part_lba);
 		for (i = 0; i < ghpartnum / ghpartspersec; i++, sector++) {
-			/* read partition record */
-			bp->b_blkno = DL_SECTOBLK(lp, sector);
-			bp->b_bcount = lp->d_secsize;
-			/* B_ERROR and b_error may have stale data. */
-			bp->b_error = 0;
-			CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
-			SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-			(*strat)(bp);
-			error = biowait(bp);
+			error = readdisksector(bp, strat, lp, sector);
 			if (error) {
 	/*wrong*/		if (partoffp)
 	/*wrong*/			*partoffp = -1;
@@ -840,14 +834,9 @@ readgptlabel(struct buf *bp, void (*strat)(struct buf *),
 	if (spoofonly)
 		return (0);
 
-	bp->b_blkno = DL_BLKTOSEC(lp, DL_SECTOBLK(lp, gptpartoff) +
-	    DOS_LABELSECTOR) * DL_BLKSPERSEC(lp);
-	bp->b_bcount = lp->d_secsize;
-	bp->b_error = 0; /* B_ERROR and b_error may have stale data. */
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE | B_ERROR);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if (biowait(bp))
+	error = readdisksector(bp, strat, lp, gptpartoff +
+	    DL_BLKTOSEC(lp, DOS_LABELSECTOR));
+	if (error)
 		return (bp->b_error);
 
 	offset = DL_BLKOFFSET(lp, DOS_LABELSECTOR);
@@ -1791,7 +1780,7 @@ disk_map(char *path, char *mappath, int size, int flags)
 			c -= '0';
 		else if (c >= 'a' && c <= 'f')
 			c -= ('a' - 10);
-                else
+		else
 			return -1;
 
 		uid[i / 2] <<= 4;
