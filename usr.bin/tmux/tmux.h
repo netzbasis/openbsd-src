@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.548 2015/08/30 22:56:36 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.552 2015/09/01 11:13:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1407,7 +1407,6 @@ extern struct options global_options;
 extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
-extern char	*cfg_file;
 extern char	*shell_cmd;
 extern int	 debug_level;
 extern time_t	 start_time;
@@ -1420,12 +1419,12 @@ void		 setblocking(int, int);
 const char	*find_home(void);
 
 /* cfg.c */
-extern struct cmd_q *cfg_cmd_q;
 extern int cfg_finished;
 extern int cfg_references;
 extern struct client *cfg_client;
+void		 start_cfg(void);
 int		 load_cfg(const char *, struct cmd_q *, char **);
-void		 cfg_default_done(struct cmd_q *);
+void		 set_cfg_file(const char *);
 void		 cfg_add_cause(const char *, ...);
 void		 cfg_print_causes(struct cmd_q *);
 void		 cfg_show_causes(struct session *);
@@ -1671,92 +1670,6 @@ struct window_pane *cmd_mouse_pane(struct mouse_event *, struct session **,
 		     struct winlink **);
 char		*cmd_template_replace(const char *, const char *, int);
 extern const struct cmd_entry *cmd_table[];
-extern const struct cmd_entry cmd_attach_session_entry;
-extern const struct cmd_entry cmd_bind_key_entry;
-extern const struct cmd_entry cmd_break_pane_entry;
-extern const struct cmd_entry cmd_capture_pane_entry;
-extern const struct cmd_entry cmd_choose_buffer_entry;
-extern const struct cmd_entry cmd_choose_client_entry;
-extern const struct cmd_entry cmd_choose_session_entry;
-extern const struct cmd_entry cmd_choose_tree_entry;
-extern const struct cmd_entry cmd_choose_window_entry;
-extern const struct cmd_entry cmd_clear_history_entry;
-extern const struct cmd_entry cmd_clock_mode_entry;
-extern const struct cmd_entry cmd_command_prompt_entry;
-extern const struct cmd_entry cmd_confirm_before_entry;
-extern const struct cmd_entry cmd_copy_mode_entry;
-extern const struct cmd_entry cmd_delete_buffer_entry;
-extern const struct cmd_entry cmd_detach_client_entry;
-extern const struct cmd_entry cmd_display_message_entry;
-extern const struct cmd_entry cmd_display_panes_entry;
-extern const struct cmd_entry cmd_down_pane_entry;
-extern const struct cmd_entry cmd_find_window_entry;
-extern const struct cmd_entry cmd_has_session_entry;
-extern const struct cmd_entry cmd_if_shell_entry;
-extern const struct cmd_entry cmd_join_pane_entry;
-extern const struct cmd_entry cmd_kill_pane_entry;
-extern const struct cmd_entry cmd_kill_server_entry;
-extern const struct cmd_entry cmd_kill_session_entry;
-extern const struct cmd_entry cmd_kill_window_entry;
-extern const struct cmd_entry cmd_last_pane_entry;
-extern const struct cmd_entry cmd_last_window_entry;
-extern const struct cmd_entry cmd_link_window_entry;
-extern const struct cmd_entry cmd_list_buffers_entry;
-extern const struct cmd_entry cmd_list_clients_entry;
-extern const struct cmd_entry cmd_list_commands_entry;
-extern const struct cmd_entry cmd_list_keys_entry;
-extern const struct cmd_entry cmd_list_panes_entry;
-extern const struct cmd_entry cmd_list_sessions_entry;
-extern const struct cmd_entry cmd_list_windows_entry;
-extern const struct cmd_entry cmd_load_buffer_entry;
-extern const struct cmd_entry cmd_lock_client_entry;
-extern const struct cmd_entry cmd_lock_server_entry;
-extern const struct cmd_entry cmd_lock_session_entry;
-extern const struct cmd_entry cmd_move_pane_entry;
-extern const struct cmd_entry cmd_move_window_entry;
-extern const struct cmd_entry cmd_new_session_entry;
-extern const struct cmd_entry cmd_new_window_entry;
-extern const struct cmd_entry cmd_next_layout_entry;
-extern const struct cmd_entry cmd_next_window_entry;
-extern const struct cmd_entry cmd_paste_buffer_entry;
-extern const struct cmd_entry cmd_pipe_pane_entry;
-extern const struct cmd_entry cmd_previous_layout_entry;
-extern const struct cmd_entry cmd_previous_window_entry;
-extern const struct cmd_entry cmd_refresh_client_entry;
-extern const struct cmd_entry cmd_rename_session_entry;
-extern const struct cmd_entry cmd_rename_window_entry;
-extern const struct cmd_entry cmd_resize_pane_entry;
-extern const struct cmd_entry cmd_respawn_pane_entry;
-extern const struct cmd_entry cmd_respawn_window_entry;
-extern const struct cmd_entry cmd_rotate_window_entry;
-extern const struct cmd_entry cmd_run_shell_entry;
-extern const struct cmd_entry cmd_save_buffer_entry;
-extern const struct cmd_entry cmd_select_layout_entry;
-extern const struct cmd_entry cmd_select_pane_entry;
-extern const struct cmd_entry cmd_select_window_entry;
-extern const struct cmd_entry cmd_send_keys_entry;
-extern const struct cmd_entry cmd_send_prefix_entry;
-extern const struct cmd_entry cmd_server_info_entry;
-extern const struct cmd_entry cmd_set_buffer_entry;
-extern const struct cmd_entry cmd_set_environment_entry;
-extern const struct cmd_entry cmd_set_option_entry;
-extern const struct cmd_entry cmd_set_window_option_entry;
-extern const struct cmd_entry cmd_show_buffer_entry;
-extern const struct cmd_entry cmd_show_environment_entry;
-extern const struct cmd_entry cmd_show_messages_entry;
-extern const struct cmd_entry cmd_show_options_entry;
-extern const struct cmd_entry cmd_show_window_options_entry;
-extern const struct cmd_entry cmd_source_file_entry;
-extern const struct cmd_entry cmd_split_window_entry;
-extern const struct cmd_entry cmd_start_server_entry;
-extern const struct cmd_entry cmd_suspend_client_entry;
-extern const struct cmd_entry cmd_swap_pane_entry;
-extern const struct cmd_entry cmd_swap_window_entry;
-extern const struct cmd_entry cmd_switch_client_entry;
-extern const struct cmd_entry cmd_unbind_key_entry;
-extern const struct cmd_entry cmd_unlink_window_entry;
-extern const struct cmd_entry cmd_up_pane_entry;
-extern const struct cmd_entry cmd_wait_for_entry;
 
 /* cmd-attach-session.c */
 enum cmd_retval	 cmd_attach_session(struct cmd_q *, const char *, int, int,
@@ -1815,7 +1728,6 @@ void	alerts_queue(struct window *, int);
 
 /* server.c */
 extern struct clients clients;
-extern struct clients dead_clients;
 extern struct session *marked_session;
 extern struct winlink *marked_winlink;
 extern struct window_pane *marked_window_pane;

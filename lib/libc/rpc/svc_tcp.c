@@ -1,4 +1,4 @@
-/*	$OpenBSD: svc_tcp.c,v 1.33 2014/10/25 03:18:58 lteo Exp $ */
+/*	$OpenBSD: svc_tcp.c,v 1.35 2015/09/01 19:54:01 deraadt Exp $ */
 
 /*
  * Copyright (c) 2010, Oracle America, Inc.
@@ -134,10 +134,8 @@ svctcp_create(int sock, u_int sendsize, u_int recvsize)
 	socklen_t len = sizeof(struct sockaddr_in);
 
 	if (sock == RPC_ANYSOCK) {
-		if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
-			perror("svctcp_.c - udp socket creation problem");
+		if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
 			return (NULL);
-		}
 		madesock = TRUE;
 	}
 	memset(&addr, 0, sizeof (addr));
@@ -149,14 +147,12 @@ svctcp_create(int sock, u_int sendsize, u_int recvsize)
 	}
 	if ((getsockname(sock, (struct sockaddr *)&addr, &len) != 0)  ||
 	    (listen(sock, 2) != 0)) {
-		perror("svctcp_.c - cannot getsockname or listen");
 		if (madesock)
 			(void)close(sock);
 		return (NULL);
 	}
 	r = (struct tcp_rendezvous *)mem_alloc(sizeof(*r));
 	if (r == NULL) {
-		(void)fprintf(stderr, "svctcp_create: out of memory\n");
 		if (madesock)
 			(void)close(sock);
 		return (NULL);
@@ -165,7 +161,6 @@ svctcp_create(int sock, u_int sendsize, u_int recvsize)
 	r->recvsize = recvsize;
 	xprt = (SVCXPRT *)mem_alloc(sizeof(SVCXPRT));
 	if (xprt == NULL) {
-		(void)fprintf(stderr, "svctcp_create: out of memory\n");
 		if (madesock)
 			(void)close(sock);
 		free(r);
@@ -205,13 +200,10 @@ makefd_xprt(int fd, u_int sendsize, u_int recvsize)
 	struct tcp_conn *cd;
  
 	xprt = (SVCXPRT *)mem_alloc(sizeof(SVCXPRT));
-	if (xprt == NULL) {
-		(void) fprintf(stderr, "svc_tcp: makefd_xprt: out of memory\n");
+	if (xprt == NULL)
 		goto done;
-	}
 	cd = (struct tcp_conn *)mem_alloc(sizeof(struct tcp_conn));
 	if (cd == NULL) {
-		(void) fprintf(stderr, "svc_tcp: makefd_xprt: out of memory\n");
 		mem_free((char *) xprt, sizeof(SVCXPRT));
 		xprt = NULL;
 		goto done;
