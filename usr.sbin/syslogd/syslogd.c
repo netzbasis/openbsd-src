@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.181 2015/09/01 17:53:14 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.183 2015/09/03 20:50:48 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -1041,8 +1041,7 @@ void
 tcp_readcb(struct bufferevent *bufev, void *arg)
 {
 	struct peer		*p = arg;
-	char			*msg, line[MAXLINE + 1];
-	size_t			 linelen;
+	char			*msg;
 	int			 len;
 
 	while (EVBUFFER_LENGTH(bufev->input) > 0) {
@@ -1061,10 +1060,9 @@ tcp_readcb(struct bufferevent *bufev, void *arg)
 		if (len > 0 && msg[len-1] == '\n')
 			msg[len-1] = '\0';
 		if (len == 0 || msg[len-1] != '\0') {
-			linelen = MINIMUM((size_t)len, sizeof(line)-1);
-			memcpy(line, msg, linelen);
-			line[linelen] = '\0';
-			msg = line;
+			memcpy(linebuf, msg, MINIMUM(len, MAXLINE));
+			linebuf[MINIMUM(len, MAXLINE)] = '\0';
+			msg = linebuf;
 		}
 		printline(p->p_hostname, msg);
 		evbuffer_drain(bufev->input, len);
@@ -1157,8 +1155,10 @@ tcp_writecb(struct bufferevent *bufev, void *arg)
 	if (f->f_un.f_forw.f_dropped > 0 &&
 	    EVBUFFER_LENGTH(f->f_un.f_forw.f_bufev->output) < MAX_TCPBUF) {
 		snprintf(ebuf, sizeof(ebuf),
-		    "syslogd: dropped %d messages to loghost \"%s\"",
-		    f->f_un.f_forw.f_dropped, f->f_un.f_forw.f_loghost);
+		    "syslogd: dropped %d message%s to loghost \"%s\"",
+		    f->f_un.f_forw.f_dropped,
+		    f->f_un.f_forw.f_dropped == 1 ? "" : "s",
+		    f->f_un.f_forw.f_loghost);
 		f->f_un.f_forw.f_dropped = 0;
 		logmsg(LOG_SYSLOG|LOG_WARNING, ebuf, LocalHostName, ADDDATE);
 	}
@@ -1865,8 +1865,8 @@ init_signalcb(int signum, short event, void *arg)
 
 	if (tcpbuf_dropped > 0) {
 		snprintf(ebuf, sizeof(ebuf),
-		    "syslogd: dropped %d messages to remote loghost",
-		    tcpbuf_dropped);
+		    "syslogd: dropped %d message%s to remote loghost",
+		    tcpbuf_dropped, tcpbuf_dropped == 1 ? "" : "s");
 		tcpbuf_dropped = 0;
 		logmsg(LOG_SYSLOG|LOG_WARNING, ebuf, LocalHostName, ADDDATE);
 	}
@@ -1915,8 +1915,8 @@ die(int signo)
 
 	if (tcpbuf_dropped > 0) {
 		snprintf(ebuf, sizeof(ebuf),
-		    "syslogd: dropped %d messages to remote loghost",
-		    tcpbuf_dropped);
+		    "syslogd: dropped %d message%s to remote loghost",
+		    tcpbuf_dropped, tcpbuf_dropped == 1 ? "" : "s");
 		tcpbuf_dropped = 0;
 		logmsg(LOG_SYSLOG|LOG_WARNING, ebuf, LocalHostName, ADDDATE);
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.1 2015/09/02 01:52:25 yasuoka Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.3 2015/09/03 09:22:40 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -133,7 +133,7 @@ efi_diskprobe(void)
 	EFI_BLOCK_IO		*blkio;
 	EFI_BLOCK_IO_MEDIA	*media;
 	struct diskinfo		*di;
-	EFI_DEVICE_PATH		*dp, *dp0;
+	EFI_DEVICE_PATH		*dp, *bp;
 
 	TAILQ_INIT(&efi_disklist);
 
@@ -164,16 +164,20 @@ efi_diskprobe(void)
 		if (efi_bootdp == NULL)
 			goto next;
 		status = EFI_CALL(BS->HandleProtocol, handles[i], &devp_guid,
-		    (void **)&dp0);
+		    (void **)&dp);
 		if (EFI_ERROR(status))
 			goto next;
-		for (dp = dp0; !IsDevicePathEnd(dp);
-		    dp = NextDevicePathNode(dp)) {
-			if (!memcmp(efi_bootdp, dp, sizeof(EFI_DEVICE_PATH)) &&
-			    !memcmp(efi_bootdp, dp, DevicePathNodeLength(dp))) {
+		bp = efi_bootdp;
+		while (1) {
+			if (IsDevicePathEnd(dp)) {
 				bootdev = 1;
 				break;
 			}
+			if (memcmp(dp, bp, sizeof(EFI_DEVICE_PATH)) != 0 ||
+			    memcmp(dp, bp, DevicePathNodeLength(dp)) != 0)
+				break;
+			dp = NextDevicePathNode(dp);
+			bp = NextDevicePathNode(bp);
 		}
 next:
 		if (bootdev)
@@ -300,7 +304,7 @@ efi_memprobe_internal(void)
 		    bm->addr / 1024 == extmem + 1024)
 			extmem += bm->size / 1024;
 	}
-	free(mm, siz);
+	free(mm0, siz);
 }
 
 /***********************************************************************

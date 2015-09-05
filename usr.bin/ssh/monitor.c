@@ -1,4 +1,4 @@
-/* $OpenBSD: monitor.c,v 1.151 2015/08/21 23:29:31 deraadt Exp $ */
+/* $OpenBSD: monitor.c,v 1.153 2015/09/04 04:44:08 djm Exp $ */
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * Copyright 2002 Markus Friedl <markus@openbsd.org>
@@ -626,7 +626,7 @@ mm_answer_sign(int sock, Buffer *m)
 			fatal("%s: sshbuf_new", __func__);
 		if ((r = sshbuf_put_cstring(sigbuf, proof_req)) != 0 ||
 		    (r = sshbuf_put_string(sigbuf, session_id2,
-		    session_id2_len) != 0) ||
+		    session_id2_len)) != 0 ||
 		    (r = sshkey_puts(key, sigbuf)) != 0)
 			fatal("%s: couldn't prepare private key "
 			    "proof buffer: %s", __func__, ssh_err(r));
@@ -1156,7 +1156,7 @@ mm_answer_keyverify(int sock, Buffer *m)
 	    __func__, key, (verified == 1) ? "verified" : "unverified");
 
 	/* If auth was successful then record key to ensure it isn't reused */
-	if (verified == 1)
+	if (verified == 1 && key_blobtype == MM_USERKEY)
 		auth2_record_userkey(authctxt, key);
 	else
 		key_free(key);
