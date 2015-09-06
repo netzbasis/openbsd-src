@@ -1,4 +1,4 @@
-/* $OpenBSD: pms.c,v 1.65 2015/08/23 04:45:23 deraadt Exp $ */
+/* $OpenBSD: pms.c,v 1.67 2015/09/05 14:02:21 bru Exp $ */
 /* $NetBSD: psm.c,v 1.11 2000/06/05 22:20:57 sommerfeld Exp $ */
 
 /*-
@@ -120,7 +120,8 @@ struct alps_softc {
 
 	int min_x, min_y;
 	int max_x, max_y;
-	int old_fin;
+
+	u_int gesture;
 
 	u_int sec_buttons;	/* trackpoint */
 
@@ -949,8 +950,10 @@ synaptics_get_hwinfo(struct pms_softc *sc)
 			return (-1);
 	}
 
-	syn->res_x = SYNAPTICS_RESOLUTION_X(syn->resolution);
-	syn->res_y = SYNAPTICS_RESOLUTION_Y(syn->resolution);
+	if (syn->resolution & SYNAPTICS_RESOLUTION_VALID) {
+		syn->res_x = SYNAPTICS_RESOLUTION_X(syn->resolution);
+		syn->res_y = SYNAPTICS_RESOLUTION_Y(syn->resolution);
+	}
 	syn->min_x = SYNAPTICS_XMIN_BEZEL;
 	syn->min_y = SYNAPTICS_YMIN_BEZEL;
 	syn->max_x = (syn->dimension) ?
@@ -1163,29 +1166,20 @@ pms_proc_synaptics(struct pms_softc *sc)
 
 	w = ((sc->packet[0] & 0x30) >> 2) | ((sc->packet[0] & 0x04) >> 1) |
 	    ((sc->packet[3] & 0x04) >> 2);
+	z = sc->packet[2];
 
-	/*
-	 * Conform to the encoding understood by
-	 * /usr/xenocara/driver/xf86-input-synaptics/src/wsconscomm.c
-	 */
-	switch (w) {
-	case 0:
-		/* fingerwidth 5, numfingers 2 */
-		break;
-	case 1:
-		/* fingerwidth 5, numfingers 3 */
-		break;
-	case 5:
-		/* fingerwidth 5, numfingers 1 */
-		break;
-	case 4:
-	case 8:
-		/* fingerwidth 4, numfingers 1 */
-		w = 4;
-		break;
-	default:
-		break;
+	if ((syn->capabilities & SYNAPTICS_CAP_EXTENDED) == 0) {
+		/*
+		 * Emulate W mode for models that don't provide it. Bit 3
+		 * of the w-input signals a touch ("finger"), Bit 2 and
+		 * the "gesture" bits 1-0 can be ignored.
+		 */
+		if (w & 8)
+			w = 4;
+		else
+			z = w = 0;
 	}
+
 
 	if ((syn->capabilities & SYNAPTICS_CAP_PASSTHROUGH) && w == 3) {
 		synaptics_sec_proc(sc);
@@ -1203,7 +1197,6 @@ pms_proc_synaptics(struct pms_softc *sc)
 	    sc->packet[4];
 	y = ((sc->packet[3] & 0x20) << 7) | ((sc->packet[1] & 0xf0) << 4) |
 	    sc->packet[5];
-	z = sc->packet[2];
 
 	buttons = ((sc->packet[0] & sc->packet[3]) & 0x01) ?
 	    WSMOUSE_BUTTON(1) : 0;
@@ -1522,8 +1515,7 @@ pms_proc_alps(struct pms_softc *sc)
 {
 	struct alps_softc *alps = sc->alps;
 	int x, y, z, w, dx, dy;
-	u_int buttons;
-	int fin, ges;
+	u_int buttons, gesture;
 
 	if ((alps->model & ALPS_DUALPOINT) && alps_sec_proc(sc))
 		return;
@@ -1558,28 +1550,44 @@ pms_proc_alps(struct pms_softc *sc)
 	y = ALPS_YMAX_BEZEL - y + ALPS_YMIN_BEZEL;
 
 	if (alps->wsmode == WSMOUSE_NATIVE) {
-		ges = sc->packet[2] & 0x01;
-		fin = sc->packet[2] & 0x02;
+		if (alps->gesture == ALPS_TAP) {
+			/* Report a touch with the tap coordinates. */
+			wsmouse_input(sc->sc_wsmousedev, buttons,
+			    alps->old_x, alps->old_y, ALPS_PRESSURE, 4,
+			    WSMOUSE_INPUT_ABSOLUTE_X
+			    | WSMOUSE_INPUT_ABSOLUTE_Y
+			    | WSMOUSE_INPUT_ABSOLUTE_Z
+			    | WSMOUSE_INPUT_ABSOLUTE_W);
+			if (z > 0) {
+				/*
+				 * The hardware doesn't send a null pressure
+				 * event when dragging starts.
+				 */
+				wsmouse_input(sc->sc_wsmousedev, buttons,
+				    alps->old_x, alps->old_y, 0, 0,
+				    WSMOUSE_INPUT_ABSOLUTE_X
+				    | WSMOUSE_INPUT_ABSOLUTE_Y
+				    | WSMOUSE_INPUT_ABSOLUTE_Z
+				    | WSMOUSE_INPUT_ABSOLUTE_W);
+			}
+		}
 
-		/* Simulate click (tap) */
-		if (ges && !fin)
-			z = 35;
+		gesture = sc->packet[2] & 0x03;
+		if (gesture != ALPS_TAP) {
+			w = z ? 4 : 0;
+			wsmouse_input(sc->sc_wsmousedev, buttons, x, y, z, w,
+			    WSMOUSE_INPUT_ABSOLUTE_X
+			    | WSMOUSE_INPUT_ABSOLUTE_Y
+			    | WSMOUSE_INPUT_ABSOLUTE_Z
+			    | WSMOUSE_INPUT_ABSOLUTE_W);
+		}
 
-		/* Generate a null pressure event (needed for tap & drag) */
-		if (ges && fin && !alps->old_fin)
-			z = 0;
+		if (alps->gesture != ALPS_DRAG || gesture != ALPS_TAP)
+			alps->gesture = gesture;
 
-		/* Generate a width value corresponding to one finger */
-		if (z > 0)
-			w = 4;
-		else
-			w = 0;
+		alps->old_x = x;
+		alps->old_y = y;
 
-		wsmouse_input(sc->sc_wsmousedev, buttons, x, y, z, w,
-		    WSMOUSE_INPUT_ABSOLUTE_X | WSMOUSE_INPUT_ABSOLUTE_Y |
-		    WSMOUSE_INPUT_ABSOLUTE_Z | WSMOUSE_INPUT_ABSOLUTE_W);
-
-		alps->old_fin = fin;
 	} else {
 		dx = dy = 0;
 		if (z > ALPS_PRESSURE) {

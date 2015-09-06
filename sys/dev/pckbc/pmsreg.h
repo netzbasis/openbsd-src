@@ -1,4 +1,4 @@
-/* $OpenBSD: pmsreg.h,v 1.11 2015/03/26 01:30:22 jsg Exp $ */
+/* $OpenBSD: pmsreg.h,v 1.13 2015/09/05 14:02:21 bru Exp $ */
 /* $NetBSD: psmreg.h,v 1.1 1998/03/22 15:41:28 drochner Exp $ */
 
 #ifndef SYS_DEV_PCKBC_PMSREG_H
@@ -119,6 +119,7 @@
 #define SYNAPTICS_MODEL_GEOMETRY(m)		((m) & 0x0f)
 
 /* Resolutions */
+#define SYNAPTICS_RESOLUTION_VALID		(1 << 15)
 #define SYNAPTICS_RESOLUTION_X(r)		(((r) >> 16) & 0xff)
 #define SYNAPTICS_RESOLUTION_Y(r)		((r) & 0xff)
 
@@ -163,6 +164,10 @@
 #define ALPS_YSEC_BEZEL				512
 
 #define ALPS_Z_MAGIC				127
+
+/* ALPS "gesture" and "finger" bits */
+#define ALPS_TAP				0x01
+#define ALPS_DRAG				0x03
 
 /* Elantech queries */
 #define ELANTECH_QUE_FW_ID			0
