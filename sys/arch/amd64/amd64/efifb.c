@@ -1,4 +1,4 @@
-/*	$OpenBSD: efifb.c,v 1.4 2015/09/05 08:21:27 miod Exp $	*/
+/*	$OpenBSD: efifb.c,v 1.6 2015/09/07 18:19:58 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -104,10 +104,11 @@ efifb_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct efifb		*fb;
 	struct efifb_softc	*sc = (struct efifb_softc *)self;
-	struct wsemuldisplaydev_attach_args
-				 aa;
+	struct wsemuldisplaydev_attach_args aa;
 	struct rasops_info 	*ri;
 	int			 ccol = 0, crow = 0;
+	bus_space_tag_t		 iot = X86_BUS_SPACE_MEM;
+	bus_space_handle_t	 ioh;
 	long			 defattr;
 
 	printf("\n");
@@ -119,9 +120,14 @@ efifb_attach(struct device *parent, struct device *self, void *aux)
 		ccol = ri->ri_ccol;
 		crow = ri->ri_crow;
 
+		if (bus_space_map(iot, fb->paddr, fb->psize,
+		    BUS_SPACE_MAP_PREFETCHABLE | BUS_SPACE_MAP_LINEAR,
+		    &ioh) == 0)
+			ri->ri_origbits = bus_space_vaddr(iot, ioh);
+
 		efifb_rasops_preinit(fb);
 		ri->ri_flg &= ~RI_CLEAR;
-		ri->ri_flg |= RI_VCONS;
+		ri->ri_flg |= RI_VCONS | RI_WRONLY;
 
 		rasops_init(ri, efifb_std_descr.nrows, efifb_std_descr.ncols);
 	}
@@ -264,6 +270,8 @@ efifb_list_font(void *v, struct wsdisplay_font *font)
 	return (rasops_list_font(ri, font));
 }
 
+struct wsdisplay_charcell efifb_bs[EFIFB_HEIGHT * EFIFB_WIDTH];
+
 int
 efifb_cnattach(void)
 {
@@ -289,7 +297,8 @@ efifb_cnattach(void)
 
 	efifb_rasops_preinit(fb);
 
-	ri->ri_flg = RI_CLEAR | RI_CENTER;
+	ri->ri_bs = efifb_bs;
+	ri->ri_flg = RI_CLEAR | RI_CENTER | RI_WRONLY;
 	rasops_init(ri, EFIFB_HEIGHT, EFIFB_WIDTH);
 	efifb_std_descr.ncols = ri->ri_cols;
 	efifb_std_descr.nrows = ri->ri_rows;
