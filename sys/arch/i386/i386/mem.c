@@ -1,5 +1,5 @@
 /*	$NetBSD: mem.c,v 1.31 1996/05/03 19:42:19 christos Exp $	*/
-/*	$OpenBSD: mem.c,v 1.45 2015/06/22 18:57:26 kettenis Exp $ */
+/*	$OpenBSD: mem.c,v 1.47 2015/09/08 07:12:56 deraadt Exp $ */
 /*
  * Copyright (c) 1988 University of Utah.
  * Copyright (c) 1982, 1986, 1990, 1993
@@ -294,14 +294,13 @@ mem_ioctl(dev_t dev, u_long cmd, caddr_t data, int flags, struct proc *p)
 	case MEMRANGE_GET:
 		nd = imin(mo->mo_arg[0], mem_range_softc.mr_ndesc);
 		if (nd > 0) {
-			md = (struct mem_range_desc *)
-				malloc(nd * sizeof(struct mem_range_desc),
-				       M_MEMDESC, M_WAITOK);
+			md = mallocarray(nd, sizeof(struct mem_range_desc),
+			    M_MEMDESC, M_WAITOK);
 			error = mem_range_attr_get(md, &nd);
 			if (!error)
 				error = copyout(md, mo->mo_desc,
 					nd * sizeof(struct mem_range_desc));
-			free(md, M_MEMDESC, 0);
+			free(md, M_MEMDESC, nd * sizeof(struct mem_range_desc));
 		} else {
 			nd = mem_range_softc.mr_ndesc;
 		}
@@ -315,7 +314,7 @@ mem_ioctl(dev_t dev, u_long cmd, caddr_t data, int flags, struct proc *p)
 		md->mr_owner[sizeof(md->mr_owner) - 1] = 0;
 		if (error == 0)
 			error = mem_range_attr_set(md, &mo->mo_arg[0]);
-		free(md, M_MEMDESC, 0);
+		free(md, M_MEMDESC, sizeof(struct mem_range_desc));
 		break;
 	}
 	return (error);

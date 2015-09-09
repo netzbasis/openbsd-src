@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_pool.c,v 1.190 2015/09/06 20:58:14 kettenis Exp $	*/
+/*	$OpenBSD: subr_pool.c,v 1.192 2015/09/08 21:28:36 kettenis Exp $	*/
 /*	$NetBSD: subr_pool.c,v 1.61 2001/09/26 07:14:56 chs Exp $	*/
 
 /*-
@@ -127,28 +127,27 @@ void	*pool_page_alloc(struct pool *, int, int *);
 void	pool_page_free(struct pool *, void *);
 
 /*
- * safe for interrupts, name preserved for compat this is the default
- * allocator
+ * safe for interrupts; this is the default allocator
  */
-struct pool_allocator pool_allocator_nointr = {
+struct pool_allocator pool_allocator_single = {
 	pool_page_alloc,
 	pool_page_free
 };
 
-void	*pool_large_alloc(struct pool *, int, int *);
-void	pool_large_free(struct pool *, void *);
+void	*pool_multi_alloc(struct pool *, int, int *);
+void	pool_multi_free(struct pool *, void *);
 
-struct pool_allocator pool_allocator_large = {
-	pool_large_alloc,
-	pool_large_free
+struct pool_allocator pool_allocator_multi = {
+	pool_multi_alloc,
+	pool_multi_free
 };
 
-void	*pool_large_alloc_ni(struct pool *, int, int *);
-void	pool_large_free_ni(struct pool *, void *);
+void	*pool_multi_alloc_ni(struct pool *, int, int *);
+void	pool_multi_free_ni(struct pool *, void *);
 
-struct pool_allocator pool_allocator_large_ni = {
-	pool_large_alloc_ni,
-	pool_large_free_ni
+struct pool_allocator pool_allocator_multi_ni = {
+	pool_multi_alloc_ni,
+	pool_multi_free_ni
 };
 
 #ifdef DDB
@@ -243,9 +242,9 @@ pool_init(struct pool *pp, size_t size, u_int align, u_int ioff, int flags,
 
 		if (pgsize > PAGE_SIZE) {
 			palloc = ISSET(flags, PR_WAITOK) ?
-			    &pool_allocator_large_ni : &pool_allocator_large;
+			    &pool_allocator_multi_ni : &pool_allocator_multi;
 		} else
-			palloc = &pool_allocator_nointr;
+			palloc = &pool_allocator_single;
 	} else
 		pgsize = palloc->pa_pagesz ? palloc->pa_pagesz : PAGE_SIZE;
 
@@ -1431,24 +1430,11 @@ void *
 pool_page_alloc(struct pool *pp, int flags, int *slowdown)
 {
 	struct kmem_dyn_mode kd = KMEM_DYN_INITIALIZER;
-	void *v;
 
 	kd.kd_waitok = ISSET(flags, PR_WAITOK);
 	kd.kd_slowdown = slowdown;
 
-	/* 
-	 * XXX Until we can call msleep(9) without holding the kernel
-	 * lock.
-	 */
-	if (ISSET(flags, PR_WAITOK))
-		KERNEL_LOCK();
-
-	v = km_alloc(pp->pr_pgsize, &kv_page, pp->pr_crange, &kd);
-
-	if (ISSET(flags, PR_WAITOK))
-		KERNEL_UNLOCK();
-
-	return (v);
+	return (km_alloc(pp->pr_pgsize, &kv_page, pp->pr_crange, &kd));
 }
 
 void
@@ -1458,7 +1444,7 @@ pool_page_free(struct pool *pp, void *v)
 }
 
 void *
-pool_large_alloc(struct pool *pp, int flags, int *slowdown)
+pool_multi_alloc(struct pool *pp, int flags, int *slowdown)
 {
 	struct kmem_va_mode kv = kv_intrsafe;
 	struct kmem_dyn_mode kd = KMEM_DYN_INITIALIZER;
@@ -1481,7 +1467,7 @@ pool_large_alloc(struct pool *pp, int flags, int *slowdown)
 }
 
 void
-pool_large_free(struct pool *pp, void *v)
+pool_multi_free(struct pool *pp, void *v)
 {
 	struct kmem_va_mode kv = kv_intrsafe;
 	int s;
@@ -1497,7 +1483,7 @@ pool_large_free(struct pool *pp, void *v)
 }
 
 void *
-pool_large_alloc_ni(struct pool *pp, int flags, int *slowdown)
+pool_multi_alloc_ni(struct pool *pp, int flags, int *slowdown)
 {
 	struct kmem_va_mode kv = kv_any;
 	struct kmem_dyn_mode kd = KMEM_DYN_INITIALIZER;
@@ -1517,7 +1503,7 @@ pool_large_alloc_ni(struct pool *pp, int flags, int *slowdown)
 }
 
 void
-pool_large_free_ni(struct pool *pp, void *v)
+pool_multi_free_ni(struct pool *pp, void *v)
 {
 	struct kmem_va_mode kv = kv_any;
 
