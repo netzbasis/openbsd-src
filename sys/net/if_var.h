@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.34 2015/07/02 09:40:02 mpi Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.39 2015/09/10 18:11:05 dlg Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -38,6 +38,7 @@
 
 #include <sys/queue.h>
 #include <sys/mbuf.h>
+#include <sys/srp.h>
 #ifdef _KERNEL
 #include <net/hfsc.h>
 #endif
@@ -110,15 +111,6 @@ struct	ifqueue {
 };
 
 /*
- * Interface input hooks.
- */
-struct ifih {
-	SLIST_ENTRY(ifih) ifih_next;
-	int		(*ifih_input)(struct ifnet *, struct mbuf *);
-	int		  ifih_refcnt;
-};
-
-/*
  * Structure defining a queue for a network interface.
  *
  * (Would like to call this struct ``if'', but C isn't PL/1.)
@@ -127,6 +119,7 @@ TAILQ_HEAD(ifnet_head, ifnet);		/* the actual queue head */
 
 struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
+	unsigned int if_refcnt;
 	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
 	TAILQ_ENTRY(ifnet) if_txlist;	/* list of ifnets ready to tx */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
@@ -147,7 +140,7 @@ struct ifnet {				/* and the entries */
 	} if_carp_ptr;
 #define if_carp		if_carp_ptr.carp_s
 #define if_carpdev	if_carp_ptr.carp_d
-	u_short	if_index;		/* numeric abbreviation for this if */
+	unsigned int if_index;		/* numeric abbreviation for this if */
 	short	if_timer;		/* time 'til if_watchdog called */
 	short	if_flags;		/* up/down, broadcast, etc. */
 	int	if_xflags;		/* extra softnet flags */
@@ -160,7 +153,7 @@ struct ifnet {				/* and the entries */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
-	SLIST_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
+	struct	srpl if_inputs;		/* input routines (dequeue) */
 
 					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
@@ -232,7 +225,7 @@ struct ifaddr {
  */
 struct ifmaddr {
 	struct sockaddr		*ifma_addr;	/* Protocol address */
-	unsigned short		 ifma_ifidx;	/* Index of the interface */
+	unsigned int		 ifma_ifidx;	/* Index of the interface */
 	unsigned int		 ifma_refcnt;	/* Count of references */
 	TAILQ_ENTRY(ifmaddr)	 ifma_list;	/* Per-interface list */
 };
@@ -416,7 +409,7 @@ void	if_input(struct ifnet *, struct mbuf_list *);
 void	ether_ifattach(struct ifnet *);
 void	ether_ifdetach(struct ifnet *);
 int	ether_ioctl(struct ifnet *, struct arpcom *, u_long, caddr_t);
-int	ether_input(struct ifnet *, struct mbuf *);
+int	ether_input(struct ifnet *, struct mbuf *, void *);
 int	ether_output(struct ifnet *,
 	    struct mbuf *, struct sockaddr *, struct rtentry *);
 char	*ether_sprintf(u_char *);
@@ -447,6 +440,11 @@ void	ifa_add(struct ifnet *, struct ifaddr *);
 void	ifa_del(struct ifnet *, struct ifaddr *);
 void	ifa_update_broadaddr(struct ifnet *, struct ifaddr *,
 	    struct sockaddr *);
+
+void	if_ih_insert(struct ifnet *, int (*)(struct ifnet *, struct mbuf *,
+	    void *), void *);
+void	if_ih_remove(struct ifnet *, int (*)(struct ifnet *, struct mbuf *,
+	    void *), void *);
 
 void	if_rxr_init(struct if_rxring *, u_int, u_int);
 u_int	if_rxr_get(struct if_rxring *, u_int);

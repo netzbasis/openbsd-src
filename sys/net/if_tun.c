@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.153 2015/09/01 21:24:04 bluhm Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.155 2015/09/10 17:41:15 dlg Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -729,11 +729,12 @@ tunread(dev_t dev, struct uio *uio, int ioflag)
 	if ((tp = tun_lookup(minor(dev))) == NULL)
 		return (ENXIO);
 
-	ifp = &tp->tun_if;
+	ifp = if_ref(&tp->tun_if);
 	ifindex = ifp->if_index;
 	TUNDEBUG(("%s: read\n", ifp->if_xname));
 	if ((tp->tun_flags & TUN_READY) != TUN_READY) {
 		TUNDEBUG(("%s: not ready %#x\n", ifp->if_xname, tp->tun_flags));
+		if_put(ifp);
 		return (EHOSTDOWN);
 	}
 
@@ -742,6 +743,7 @@ tunread(dev_t dev, struct uio *uio, int ioflag)
 	s = splnet();
 	do {
 		while ((tp->tun_flags & TUN_READY) != TUN_READY) {
+			if_put(ifp);
 			if ((error = tsleep((caddr_t)tp,
 			    (PZERO + 1)|PCATCH, "tunread", 0)) != 0) {
 				splx(s);
@@ -754,6 +756,7 @@ tunread(dev_t dev, struct uio *uio, int ioflag)
 		}
 		IFQ_DEQUEUE(&ifp->if_snd, m0);
 		if (m0 == NULL) {
+			if_put(ifp);
 			if (tp->tun_flags & TUN_NBIO && ioflag & IO_NDELAY) {
 				splx(s);
 				return (EWOULDBLOCK);
@@ -787,6 +790,7 @@ tunread(dev_t dev, struct uio *uio, int ioflag)
 	if (error)
 		ifp->if_oerrors++;
 
+	if_put(ifp);
 	return (error);
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_srvr.c,v 1.115 2015/09/01 13:38:27 jsing Exp $ */
+/* $OpenBSD: s3_srvr.c,v 1.117 2015/09/10 17:57:50 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1650,7 +1650,7 @@ ssl3_get_client_key_exchange(SSL *s)
 		rsa = pkey->pkey.rsa;
 
 		/* TLS and [incidentally] DTLS{0xFEFF} */
-		if (s->version > SSL3_VERSION && s->version != DTLS1_BAD_VER) {
+		if (s->version > SSL3_VERSION) {
 			if (2 > n)
 				goto truncated;
 			n2s(p, i);
@@ -1725,7 +1725,7 @@ ssl3_get_client_key_exchange(SSL *s)
 		    s->method->ssl3_enc->generate_master_secret(s,
 		    s->session->master_key,
 		    p, i);
-		OPENSSL_cleanse(p, i);
+		explicit_bzero(p, i);
 	} else if (alg_k & SSL_kDHE) {
 		if (2 > n)
 			goto truncated;
@@ -1776,7 +1776,7 @@ ssl3_get_client_key_exchange(SSL *s)
 		s->session->master_key_length =
 		    s->method->ssl3_enc->generate_master_secret(
 		        s, s->session->master_key, p, i);
-		OPENSSL_cleanse(p, i);
+		explicit_bzero(p, i);
 	} else
 
 	if (alg_k & (SSL_kECDHE|SSL_kECDHr|SSL_kECDHe)) {
@@ -1920,7 +1920,7 @@ ssl3_get_client_key_exchange(SSL *s)
 		s->session->master_key_length = s->method->ssl3_enc-> \
 		    generate_master_secret(s, s->session->master_key, p, i);
 
-		OPENSSL_cleanse(p, i);
+		explicit_bzero(p, i);
 		return (ret);
 	} else
 	if (alg_k & SSL_kGOST) {

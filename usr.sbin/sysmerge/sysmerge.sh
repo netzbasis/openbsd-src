@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.204 2015/09/07 10:02:04 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.207 2015/09/09 09:44:31 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -430,7 +430,7 @@ sm_merge_loop() {
 }
 
 sm_diff_loop() {
-	local i _handle _nonexistent _autoinst
+	local i _handle _nonexistent
 
 	${BATCHMODE} && _handle=todo || _handle=v
 
@@ -449,8 +449,7 @@ sm_diff_loop() {
 				if [[ -z $(diff -q -I'[$]OpenBSD:.*$' ${TARGET} ${COMPFILE}) ]] || \
 					${FORCE_UPG} || ${IS_BIN}; then
 					echo -n "===> Updating ${TARGET}"
-					sm_install && \
-						_autoinst="${_autoinst}${TARGET}\n" || \
+					sm_install || \
 						(echo && sm_warn "problem updating ${TARGET}")
 					return
 				fi
@@ -471,14 +470,12 @@ sm_diff_loop() {
 				${BATCHMODE} || echo "\n===> Missing ${TARGET}\n"
 			elif ${IS_LINK}; then
 				echo "===> Linking ${TARGET}"
-				sm_install && \
-					_autoinst="${_autoinst}${TARGET}\n" || \
+				sm_install || \
 					sm_warn "problem creating ${TARGET} link"
 				return
 			else
 				echo -n "===> Installing ${TARGET}"
-				sm_install && \
-					_autoinst="${_autoinst}${TARGET}\n" || \
+				sm_install || \
 					(echo && sm_warn "problem installing ${TARGET}")
 				return
 			fi
@@ -510,21 +507,17 @@ sm_diff_loop() {
 			echo
 			if ${IS_LINK}; then
 				echo "===> Linking ${TARGET}"
-				sm_install && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
+				sm_install || \
 					sm_warn "problem creating ${TARGET} link"
 			else
 				echo -n "===> Updating ${TARGET}"
-				sm_install && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
+				sm_install || \
 					(echo && sm_warn "problem updating ${TARGET}")
 			fi
 			;;
 		[mM])
 			if ! ${_nonexistent} && ! ${IS_BIN} && ! ${IS_LINK}; then
-				sm_merge_loop && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
-						_handle=todo
+				sm_merge_loop || _handle=todo
 			else
 				echo "invalid choice: ${_handle}\n"
 				_handle=todo
@@ -562,10 +555,10 @@ sm_check_an_eg() {
 	fi
 	for _i in ${_egmods}; do
 		_i=${_i##*/}
+		# only check files we care about
 		[[ -f /etc/${_i} ]] && \
 			_managed="${_managed:+${_managed} }${_i}"
 	done
-	# only warn for files we care about
 	[[ -n ${_managed} ]] && sm_warn "example(s) changed for: ${_managed}"
 	mv ./var/sysmerge/examplessum \
 		/var/sysmerge/examplessum

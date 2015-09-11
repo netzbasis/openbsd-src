@@ -1,4 +1,4 @@
-/* $OpenBSD: s_cb.c,v 1.4 2015/07/20 21:52:07 doug Exp $ */
+/* $OpenBSD: s_cb.c,v 1.6 2015/09/10 19:08:46 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -129,7 +129,6 @@
 #define	COOKIE_SECRET_LENGTH	16
 
 int verify_depth = 0;
-int verify_error = X509_V_OK;
 int verify_return_error = 0;
 unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
 int cookie_initialized = 0;
@@ -157,10 +156,8 @@ verify_callback(int ok, X509_STORE_CTX * ctx)
 		if (verify_depth >= depth) {
 			if (!verify_return_error)
 				ok = 1;
-			verify_error = X509_V_OK;
 		} else {
 			ok = 0;
-			verify_error = X509_V_ERR_CERT_CHAIN_TOO_LONG;
 		}
 	}
 	switch (err) {
@@ -375,9 +372,6 @@ msg_cb(int write_p, int version, int content_type, const void *buf, size_t len, 
 	case DTLS1_VERSION:
 		str_version = "DTLS 1.0 ";
 		break;
-	case DTLS1_BAD_VER:
-		str_version = "DTLS 1.0 (bad) ";
-		break;
 	default:
 		str_version = "???";
 	}
@@ -438,7 +432,7 @@ msg_cb(int write_p, int version, int content_type, const void *buf, size_t len, 
 	}
 	if (version == SSL3_VERSION || version == TLS1_VERSION ||
 	    version == TLS1_1_VERSION || version == TLS1_2_VERSION ||
-	    version == DTLS1_VERSION || version == DTLS1_BAD_VER) {
+	    version == DTLS1_VERSION) {
 		switch (content_type) {
 		case 20:
 			str_content_type = "ChangeCipherSpec";

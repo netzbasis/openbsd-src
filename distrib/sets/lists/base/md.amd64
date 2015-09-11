@@ -67,7 +67,7 @@
 ./sbin/mount_ntfs
 ./sbin/wsconsctl
 ./usr/bin/pctr
-./usr/lib/libc.so.81.0
+./usr/lib/libc.so.82.0
 ./usr/lib/libcrypto.so.35.0
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.2
@@ -102,7 +102,7 @@
 ./usr/lib/libstdc++.so.57.0
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.7.0
+./usr/lib/libtls.so.8.0
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.12.1
 ./usr/lib/libz.so.5.0
@@ -1655,7 +1655,6 @@
 ./usr/libdata/perl5/site_perl/amd64-openbsd/miscfs/fuse/fusefs_node.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/mm_malloc.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/mmintrin.ph
-./usr/libdata/perl5/site_perl/amd64-openbsd/mpool.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/msdosfs
 ./usr/libdata/perl5/site_perl/amd64-openbsd/msdosfs/bootsect.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/msdosfs/bpb.ph

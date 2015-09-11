@@ -1,4 +1,4 @@
-/*	$OpenBSD: jobs.c,v 1.41 2015/04/18 18:28:36 deraadt Exp $	*/
+/*	$OpenBSD: jobs.c,v 1.43 2015/09/10 22:48:58 nicm Exp $	*/
 
 /*
  * Process and job control
@@ -71,7 +71,7 @@ struct job {
 	int	status;		/* exit status of last process */
 	pid_t	pgrp;		/* process group of job */
 	pid_t	ppid;		/* pid of process that forked job */
-	INT32	age;		/* number of jobs started */
+	int	age;		/* number of jobs started */
 	struct timeval systime;	/* system time used by job */
 	struct timeval usrtime;	/* user time used by job */
 	Proc	*proc_list;	/* process list */
@@ -111,7 +111,7 @@ static Job		*async_job;
 static pid_t		async_pid;
 
 static int		nzombie;	/* # of zombies owned by this process */
-INT32			njobs;		/* # of jobs started */
+int			njobs;		/* # of jobs started */
 static int		child_max;	/* CHILD_MAX */
 
 
@@ -741,7 +741,7 @@ j_resume(const char *cp, int bg)
 		}
 		shprintf("%s%s", p->command, p->next ? "| " : null);
 	}
-	shprintf(newline);
+	shprintf("\n");
 	shf_flush(shl_stdout);
 	if (running)
 		j->state = PRUNNING;
@@ -1409,7 +1409,7 @@ j_print(Job *j, int how, struct shf *shf)
 		while (p && p->state == state && p->status == status) {
 			if (how == JP_LONG)
 				shf_fprintf(shf, "%s%5d %-20s %s%s", filler, p->pid,
-				    space, p->command, p->next ? "|" : null);
+				    " ", p->command, p->next ? "|" : null);
 			else if (how == JP_MEDIUM)
 				shf_fprintf(shf, " %s%s", p->command,
 				    p->next ? "|" : null);
@@ -1417,7 +1417,7 @@ j_print(Job *j, int how, struct shf *shf)
 		}
 	}
 	if (output)
-		shf_fprintf(shf, newline);
+		shf_fprintf(shf, "\n");
 }
 
 /* Convert % sequence to job

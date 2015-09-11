@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.76 2015/09/07 14:46:24 reyk Exp $	*/
+/*	$OpenBSD: server.c,v 1.79 2015/09/10 13:53:13 beck Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -65,7 +65,7 @@ void		 server_tls_readcb(int, short, void *);
 void		 server_tls_writecb(int, short, void *);
 
 void		 server_accept(int, short, void *);
-void		 server_accept_tls(int, short, void *);
+void		 server_handshake_tls(int, short, void *);
 void		 server_input(struct client *);
 void		 server_inflight_dec(struct client *, const char *);
 
@@ -563,7 +563,7 @@ server_tls_readcb(int fd, short event, void *arg)
 	char			 rbuf[IBUF_READ_SIZE];
 	int			 what = EVBUFFER_READ;
 	int			 howmuch = IBUF_READ_SIZE;
-	int			 ret;
+	ssize_t			 ret;
 	size_t			 len;
 
 	if (event == EV_TIMEOUT) {
@@ -574,13 +574,14 @@ server_tls_readcb(int fd, short event, void *arg)
 	if (bufev->wm_read.high != 0)
 		howmuch = MINIMUM(sizeof(rbuf), bufev->wm_read.high);
 
-	ret = tls_read(clt->clt_tls_ctx, rbuf, howmuch, &len);
-	if (ret == TLS_READ_AGAIN || ret == TLS_WRITE_AGAIN) {
+	ret = tls_read(clt->clt_tls_ctx, rbuf, howmuch);
+	if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT) {
 		goto retry;
-	} else if (ret != 0) {
+	} else if (ret < 0) {
 		what |= EVBUFFER_ERROR;
 		goto err;
 	}
+	len = ret;
 
 	if (len == 0) {
 		what |= EVBUFFER_EOF;
@@ -621,7 +622,7 @@ server_tls_writecb(int fd, short event, void *arg)
 {
 	struct bufferevent	*bufev = arg;
 	struct client		*clt = bufev->cbarg;
-	int			 ret;
+	ssize_t			 ret;
 	short			 what = EVBUFFER_WRITE;
 	size_t			 len;
 
@@ -633,13 +634,14 @@ server_tls_writecb(int fd, short event, void *arg)
 	if (EVBUFFER_LENGTH(bufev->output)) {
 		ret = tls_write(clt->clt_tls_ctx,
 		    EVBUFFER_DATA(bufev->output),
-		    EVBUFFER_LENGTH(bufev->output), &len);
-		if (ret == TLS_READ_AGAIN || ret == TLS_WRITE_AGAIN) {
+		    EVBUFFER_LENGTH(bufev->output));
+		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT) {
 			goto retry;
-		} else if (ret != 0) {
+		} else if (ret < 0) {
 			what |= EVBUFFER_ERROR;
 			goto err;
 		}
+		len = ret;
 		evbuffer_drain(bufev->output, len);
 	}
 
@@ -741,8 +743,6 @@ server_write(struct bufferevent *bev, void *arg)
 void
 server_dump(struct client *clt, const void *buf, size_t len)
 {
-	size_t			 outlen;
-
 	if (!len)
 		return;
 
@@ -753,7 +753,7 @@ server_dump(struct client *clt, const void *buf, size_t len)
 	 * error message before gracefully closing the client.
 	 */
 	if (clt->clt_tls_ctx != NULL)
-		(void)tls_write(clt->clt_tls_ctx, buf, len, &outlen);
+		(void)tls_write(clt->clt_tls_ctx, buf, len);
 	else
 		(void)write(clt->clt_s, buf, len);
 }
@@ -915,8 +915,13 @@ server_accept(int fd, short event, void *arg)
 	}
 
 	if (srv->srv_conf.flags & SRVFLAG_TLS) {
+		if (tls_accept_socket(srv->srv_tls_ctx, &clt->clt_tls_ctx,
+		    clt->clt_s) != 0) {
+			server_close(clt, "failed to setup tls context");
+			return;
+		}
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_READ,
-		    server_accept_tls, &clt->clt_tv_start,
+		    server_handshake_tls, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 		return;
 	}
@@ -937,34 +942,33 @@ server_accept(int fd, short event, void *arg)
 }
 
 void
-server_accept_tls(int fd, short event, void *arg)
+server_handshake_tls(int fd, short event, void *arg)
 {
 	struct client *clt = (struct client *)arg;
 	struct server *srv = (struct server *)clt->clt_srv;
 	int ret;
 
 	if (event == EV_TIMEOUT) {
-		server_close(clt, "TLS accept timeout");
+		server_close(clt, "TLS handshake timeout");
 		return;
 	}
 
 	if (srv->srv_tls_ctx == NULL)
 		fatalx("NULL tls context");
 
-	ret = tls_accept_socket(srv->srv_tls_ctx, &clt->clt_tls_ctx,
-	    clt->clt_s);
-	if (ret == TLS_READ_AGAIN) {
+	ret = tls_handshake(clt->clt_tls_ctx);
+	if (ret == TLS_WANT_POLLIN) {
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_READ,
-		    server_accept_tls, &clt->clt_tv_start,
+		    server_handshake_tls, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
-	} else if (ret == TLS_WRITE_AGAIN) {
+	} else if (ret == TLS_WANT_POLLOUT) {
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_WRITE,
-		    server_accept_tls, &clt->clt_tv_start,
+		    server_handshake_tls, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 	} else if (ret != 0) {
-		log_warnx("%s: TLS accept failed - %s", __func__,
-		    tls_error(srv->srv_tls_ctx));
-		server_close(clt, "TLS accept failed");
+		log_warnx("%s: TLS handshake failed - %s", __func__,
+		    tls_error(clt->clt_tls_ctx));
+		server_close(clt, "TLS handshake failed");
 		return;
 	}
 

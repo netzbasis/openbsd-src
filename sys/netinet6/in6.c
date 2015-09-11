@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.170 2015/09/04 13:00:41 mpi Exp $	*/
+/*	$OpenBSD: in6.c,v 1.174 2015/09/10 16:39:39 mpi Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -388,22 +388,8 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		break;
 
 	case SIOCGIFSTAT_IN6:
-		if (ifp == NULL)
-			return EINVAL;
-		bzero(&ifr->ifr_ifru.ifru_stat,
-		    sizeof(ifr->ifr_ifru.ifru_stat));
-		ifr->ifr_ifru.ifru_stat =
-		    *((struct in6_ifextra *)ifp->if_afdata[AF_INET6])->in6_ifstat;
-		break;
-
 	case SIOCGIFSTAT_ICMP6:
-		if (ifp == NULL)
-			return EINVAL;
-		bzero(&ifr->ifr_ifru.ifru_icmp6stat,
-		    sizeof(ifr->ifr_ifru.ifru_icmp6stat));
-		ifr->ifr_ifru.ifru_icmp6stat =
-		    *((struct in6_ifextra *)ifp->if_afdata[AF_INET6])->icmp6_ifstat;
-		break;
+		return (EOPNOTSUPP);
 
 	case SIOCGIFALIFETIME_IN6:
 		ifr->ifr_ifru.ifru_lifetime = ia6->ia6_lifetime;
@@ -1391,6 +1377,7 @@ in6_delmulti(struct in6_multi *in6m)
 			    ifma_list);
 			splx(s);
 		}
+		if_put(ifp);
 
 		free(in6m, M_IPMADDR, 0);
 	}
@@ -1807,6 +1794,12 @@ in6_ifawithscope(struct ifnet *oifp, struct in6_addr *dst, u_int rdomain)
 			     IN6_IFF_DEPRECATED) == 0)
 				goto replace;
 
+			/* RFC 3484 5. Rule 5: Prefer outgoing interface */
+			if (ia6_best->ia_ifp == oifp && ifp != oifp)
+				continue;
+			if (ia6_best->ia_ifp != oifp && ifp == oifp)
+				goto replace;
+
 			/*
 			 * At this point, we have two cases:
 			 * 1. we are looking at a non-deprecated address,
@@ -1997,12 +1990,6 @@ in6_domifattach(struct ifnet *ifp)
 
 	ext = malloc(sizeof(*ext), M_IFADDR, M_WAITOK | M_ZERO);
 
-	ext->in6_ifstat = malloc(sizeof(*ext->in6_ifstat), M_IFADDR,
-	    M_WAITOK | M_ZERO);
-
-	ext->icmp6_ifstat = malloc(sizeof(*ext->icmp6_ifstat), M_IFADDR,
-	    M_WAITOK | M_ZERO);
-
 	ext->nd_ifinfo = nd6_ifattach(ifp);
 	ext->nprefixes = 0;
 	ext->ndefrouters = 0;
@@ -2015,7 +2002,5 @@ in6_domifdetach(struct ifnet *ifp, void *aux)
 	struct in6_ifextra *ext = (struct in6_ifextra *)aux;
 
 	nd6_ifdetach(ext->nd_ifinfo);
-	free(ext->in6_ifstat, M_IFADDR, 0);
-	free(ext->icmp6_ifstat, M_IFADDR, 0);
 	free(ext, M_IFADDR, 0);
 }

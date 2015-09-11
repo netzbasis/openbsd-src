@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.139 2015/07/18 21:50:47 bluhm Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.142 2015/09/10 13:43:35 jsing Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -1459,21 +1459,17 @@ ftp_readline(FILE *fp, struct tls *tls, size_t *lenp)
 size_t
 ftp_read(FILE *fp, struct tls *tls, char *buf, size_t len)
 {
-	size_t ret;
+	ssize_t tls_ret;
+	size_t ret = 0;
+
 	if (fp != NULL)
 		ret = fread(buf, sizeof(char), len, fp);
 #ifndef SMALL
-	else if (tls!= NULL) {
-		size_t nr;
-
-		if ((ret = tls_read(tls, buf, len, &nr)) != 0)
-			ret = 0;
-		else
-			ret = nr;
+	else if (tls != NULL) {
+		if ((tls_ret = tls_read(tls, buf, len)) >= 0)
+			ret = (size_t)tls_ret;
 	}
 #endif /* !SMALL */
-	else
-		ret = 0;
 	return (ret);
 }
 
@@ -1510,7 +1506,7 @@ int
 SSL_vprintf(struct tls *tls, const char *fmt, va_list ap)
 {
 	char *string, *buf;
-	size_t nw, len;
+	size_t len;
 	int ret;
 
 	if ((ret = vasprintf(&string, fmt, ap)) == -1)
@@ -1518,13 +1514,13 @@ SSL_vprintf(struct tls *tls, const char *fmt, va_list ap)
 	buf = string;
 	len = ret;
 	while (len > 0) {
-		ret = tls_write(tls, buf, len, &nw);
-		if (ret == TLS_READ_AGAIN || ret == TLS_WRITE_AGAIN)
+		ret = tls_write(tls, buf, len);
+		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 			continue;
 		if (ret < 0)
 			break;
-		buf += nw;
-		len -= nw;
+		buf += ret;
+		len -= ret;
 	}
 	free(string);
 	return ret;
@@ -1533,7 +1529,7 @@ SSL_vprintf(struct tls *tls, const char *fmt, va_list ap)
 char *
 SSL_readline(struct tls *tls, size_t *lenp)
 {
-	size_t i, len, nr;
+	size_t i, len;
 	char *buf, *q, c;
 	int ret;
 
@@ -1548,11 +1544,11 @@ SSL_readline(struct tls *tls, size_t *lenp)
 			len *= 2;
 		}
 again:
-		ret = tls_read(tls, &c, 1, &nr);
-		if (ret == TLS_READ_AGAIN)
+		ret = tls_read(tls, &c, 1);
+		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 			goto again;
-		if (ret != 0)
-			errx(1, "SSL read error: %u", ret);
+		if (ret < 0)
+			errx(1, "SSL read error: %s", tls_error(tls));
 
 		buf[i] = c;
 		if (c == '\n')

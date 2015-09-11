@@ -1,4 +1,4 @@
-/*	$OpenBSD: constraint.c,v 1.14 2015/07/18 21:50:47 bluhm Exp $	*/
+/*	$OpenBSD: constraint.c,v 1.17 2015/09/10 13:49:48 beck Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -643,7 +643,7 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 {
 	size_t	 outlen = 0, maxlength = CONSTRAINT_MAXHEADERLENGTH, len;
 	char	*line, *p, *buf;
-	int	 ret;
+	ssize_t	 ret;
 
 	if ((httpsdate->tls_ctx = tls_client()) == NULL)
 		goto fail;
@@ -661,13 +661,13 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 	buf = httpsdate->tls_request;
 	len = strlen(httpsdate->tls_request);
 	while (len > 0) {
-		ret = tls_write(httpsdate->tls_ctx, buf, len, &outlen);
-		if (ret == TLS_READ_AGAIN || ret == TLS_WRITE_AGAIN)
+		ret = tls_write(httpsdate->tls_ctx, buf, len);
+		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 			continue;
 		if (ret < 0)
 			goto fail;
-		buf += outlen;
-		len -= outlen;
+		buf += ret;
+		len -= ret;
 	}
 
 	while ((line = tls_readline(httpsdate->tls_ctx, &outlen,
@@ -742,9 +742,9 @@ char *
 tls_readline(struct tls *tls, size_t *lenp, size_t *maxlength,
     struct timeval *when)
 {
-	size_t i, len, nr;
+	size_t i, len;
 	char *buf, *q, c;
-	int ret;
+	ssize_t ret;
 
 	len = 128;
 	if ((buf = malloc(len)) == NULL)
@@ -757,10 +757,10 @@ tls_readline(struct tls *tls, size_t *lenp, size_t *maxlength,
 			len *= 2;
 		}
  again:
-		ret = tls_read(tls, &c, 1, &nr);
-		if (ret == TLS_READ_AGAIN)
+		ret = tls_read(tls, &c, 1);
+		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 			goto again;
-		if (ret != 0) {
+		if (ret < 0) {
 			/* SSL read error, ignore */
 			free(buf);
 			return (NULL);
@@ -768,6 +768,7 @@ tls_readline(struct tls *tls, size_t *lenp, size_t *maxlength,
 
 		if (maxlength != NULL && (*maxlength)-- == 0) {
 			log_warnx("maximum length exceeded");
+			free(buf);
 			return (NULL);
 		}
 
