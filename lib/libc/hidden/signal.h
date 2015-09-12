@@ -1,4 +1,4 @@
-/*	$OpenBSD: signal.h,v 1.3 2015/09/10 18:13:46 guenther Exp $	*/
+/*	$OpenBSD: signal.h,v 1.4 2015/09/11 15:38:33 guenther Exp $	*/
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
@@ -28,5 +28,10 @@ extern PROTO_NORMAL(sys_siglist);
 extern PROTO_NORMAL(sys_signame);
 
 PROTO_NORMAL(signal);
+
+PROTO_NORMAL(kill);             /* wrap to ban SIGTHR? */
+PROTO_NORMAL(sigaltstack);
+PROTO_NORMAL(sigpending);
+PROTO_NORMAL(sigreturn);
 
 #endif	/* !_LIBC_SIGNAL_H */

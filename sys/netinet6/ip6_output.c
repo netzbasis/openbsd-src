@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.180 2015/09/10 09:11:11 mpi Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.185 2015/09/11 20:16:03 claudio Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -149,16 +149,13 @@ struct idgen32_ctx ip6_id_ctx;
  * type of "mtu": rt_rmx.rmx_mtu is u_long, ifnet.ifr_mtu is int, and
  * nd_ifinfo.linkmtu is u_int32_t.  so we use u_long to hold largest one,
  * which is rt_rmx.rmx_mtu.
- *
- * ifpp - XXX: just for statistics
  */
 int
 ip6_output(struct mbuf *m0, struct ip6_pktopts *opt, struct route_in6 *ro,
-    int flags, struct ip6_moptions *im6o, struct ifnet **ifpp,
-    struct inpcb *inp)
+    int flags, struct ip6_moptions *im6o, struct inpcb *inp)
 {
 	struct ip6_hdr *ip6;
-	struct ifnet *ifp;
+	struct ifnet *ifp = NULL;
 	struct mbuf *m = m0;
 	int hlen, tlen;
 	struct route_in6 ip6route;
@@ -531,24 +528,31 @@ reroute:
 	dstsock.sin6_addr = ip6->ip6_dst;
 	dstsock.sin6_len = sizeof(dstsock);
 	ro->ro_tableid = m->m_pkthdr.ph_rtableid;
-	if ((error = in6_selectroute(&dstsock, opt, im6o, ro, &ifp,
-	    &rt, m->m_pkthdr.ph_rtableid)) != 0) {
-		switch (error) {
-		case EHOSTUNREACH:
-			ip6stat.ip6s_noroute++;
-			break;
-		case EADDRNOTAVAIL:
-		default:
-			break;	/* XXX statistics? */
-		}
-		goto bad;
-	}
-	if (rt == NULL) {
+
+	if (IN6_IS_ADDR_MULTICAST(&dstsock.sin6_addr)) {
+		struct in6_pktinfo *pi = NULL;
+
 		/*
-		 * If in6_selectroute() does not return a route entry,
-		 * dst may not have been updated.
+		 * If the caller specify the outgoing interface
+		 * explicitly, use it.
 		 */
-		*dst = dstsock;	/* XXX */
+		if (opt != NULL && (pi = opt->ip6po_pktinfo) != NULL)
+			ifp = if_get(pi->ipi6_ifindex);
+
+		if (ifp == NULL && im6o != NULL)
+			ifp = if_get(im6o->im6o_ifidx);
+	}
+
+	if (ifp == NULL) {
+		rt = in6_selectroute(&dstsock, opt, ro, ro->ro_tableid);
+		if (rt == NULL) {
+			ip6stat.ip6s_noroute++;
+			error = EHOSTUNREACH;
+			goto bad;
+		}
+		ifp = if_ref(rt->rt_ifp);
+	} else {
+		*dst = dstsock;
 	}
 
 	/*
@@ -654,13 +658,6 @@ reroute:
 		ip6->ip6_dst.s6_addr16[1] = 0;
 	}
 
-	/*
-	 * Fill the outgoing interface to tell the upper layer
-	 * to increment per-interface statistics.
-	 */
-	if (ifpp)
-		*ifpp = ifp;
-
 	/* Determine path MTU. */
 	if ((error = ip6_getpmtu(ro_pmtu, ro, ifp, &finaldst, &mtu,
 	    &alwaysfrag)) != 0)
@@ -737,6 +734,7 @@ reroute:
 		m->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
 		finaldst = ip6->ip6_dst;
 		ro = NULL;
+		if_put(ifp); /* drop reference since destination changed */
 		goto reroute;
 	}
 #endif
@@ -897,6 +895,7 @@ reroute:
 		ip6stat.ip6s_fragmented++;
 
 done:
+	if_put(ifp);
 	if (ro == &ip6route && ro->ro_rt) {
 		rtfree(ro->ro_rt);
 	} else if (ro_pmtu == &ip6route && ro_pmtu->ro_rt) {
@@ -2285,9 +2284,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			break;
 		}
 		bcopy(mtod(m, u_int *), &ifindex, sizeof(ifindex));
-		if (ifindex == 0)
-			ifp = NULL;
-		else {
+		if (ifindex != 0) {
 			ifp = if_get(ifindex);
 			if (ifp == NULL) {
 				error = ENXIO;	/* XXX EINVAL? */
@@ -2295,8 +2292,10 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			}
 			if ((ifp->if_flags & IFF_MULTICAST) == 0) {
 				error = EADDRNOTAVAIL;
+				if_put(ifp);
 				break;
 			}
+			if_put(ifp);
 		}
 		im6o->im6o_ifidx = ifindex;
 		break;
@@ -2386,7 +2385,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 				error = EADDRNOTAVAIL;
 				break;
 			}
-			ifp = ro.ro_rt->rt_ifp;
+			ifp = if_ref(ro.ro_rt->rt_ifp);
 			rtfree(ro.ro_rt);
 		} else {
 			/*
@@ -2404,6 +2403,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 		 * supports multicast
 		 */
 		if (ifp == NULL || (ifp->if_flags & IFF_MULTICAST) == 0) {
+			if_put(ifp);
 			error = EADDRNOTAVAIL;
 			break;
 		}
@@ -2424,6 +2424,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			    &mreq->ipv6mr_multiaddr))
 				break;
 		if (imm != NULL) {
+			if_put(ifp);
 			error = EADDRINUSE;
 			break;
 		}
@@ -2432,6 +2433,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 		 * address list for the given interface.
 		 */
 		imm = in6_joingroup(ifp, &mreq->ipv6mr_multiaddr, &error);
+		if_put(ifp);
 		if (!imm)
 			break;
 		LIST_INSERT_HEAD(&im6o->im6o_memberships, imm, i6mm_chain);
@@ -2457,6 +2459,16 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			error = EINVAL;
 			break;
 		}
+
+		/*
+		 * Put interface index into the multicast address,
+		 * if the address has link-local scope.
+		 */
+		if (IN6_IS_ADDR_MC_LINKLOCAL(&mreq->ipv6mr_multiaddr)) {
+			mreq->ipv6mr_multiaddr.s6_addr16[1] =
+			    htons(mreq->ipv6mr_interface);
+		}
+
 		/*
 		 * If an interface address was specified, get a pointer
 		 * to its ifnet structure.
@@ -2472,14 +2484,6 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 		}
 
 		/*
-		 * Put interface index into the multicast address,
-		 * if the address has link-local scope.
-		 */
-		if (IN6_IS_ADDR_MC_LINKLOCAL(&mreq->ipv6mr_multiaddr)) {
-			mreq->ipv6mr_multiaddr.s6_addr16[1] =
-			    htons(mreq->ipv6mr_interface);
-		}
-		/*
 		 * Find the membership in the membership list.
 		 */
 		LIST_FOREACH(imm, &im6o->im6o_memberships, i6mm_chain) {
@@ -2489,6 +2493,9 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			    &mreq->ipv6mr_multiaddr))
 				break;
 		}
+
+		if_put(ifp);
+
 		if (imm == NULL) {
 			/* Unable to resolve interface */
 			error = EADDRNOTAVAIL;
@@ -2736,6 +2743,7 @@ ip6_setpktopt(int optname, u_char *buf, int len, struct ip6_pktopts *opt,
 			ifp = if_get(pktinfo->ipi6_ifindex);
 			if (ifp == NULL)
 				return (ENXIO);
+			if_put(ifp);
 		}
 
 		/*
@@ -2821,8 +2829,11 @@ ip6_setpktopt(int optname, u_char *buf, int len, struct ip6_pktopts *opt,
 				return (EINVAL);
 			}
 			if (IN6_IS_SCOPE_EMBED(&sa6->sin6_addr)) {
-				if (if_get(sa6->sin6_scope_id) == NULL)
+				struct ifnet *ifp;
+				ifp = if_get(sa6->sin6_scope_id);
+				if (ifp == NULL)
 					return (EINVAL);
+				if_put(ifp);
 				sa6->sin6_addr.s6_addr16[1] =
 				    htonl(sa6->sin6_scope_id);
 			} else if (sa6->sin6_scope_id)

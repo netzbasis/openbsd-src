@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.101 2015/09/10 15:56:26 jsing Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.104 2015/09/11 18:08:21 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1896,36 +1896,6 @@ SSL_CIPHER ssl3_ciphers[] = {
 	/* end of list */
 };
 
-SSL3_ENC_METHOD SSLv3_enc_data = {
-	.enc = ssl3_enc,
-	.mac = n_ssl3_mac,
-	.setup_key_block = ssl3_setup_key_block,
-	.generate_master_secret = ssl3_generate_master_secret,
-	.change_cipher_state = ssl3_change_cipher_state,
-	.final_finish_mac = ssl3_final_finish_mac,
-	.finish_mac_length = MD5_DIGEST_LENGTH + SHA_DIGEST_LENGTH,
-	.cert_verify_mac = ssl3_cert_verify_mac,
-	.client_finished_label = SSL3_MD_CLIENT_FINISHED_CONST,
-	.client_finished_label_len = 4,
-	.server_finished_label = SSL3_MD_SERVER_FINISHED_CONST,
-	.server_finished_label_len = 4,
-	.alert_value = ssl3_alert_code,
-	.export_keying_material = (int (*)(SSL *, unsigned char *, size_t,
-	    const char *, size_t, const unsigned char *, size_t,
-	    int use_context))ssl_undefined_function,
-	.enc_flags = 0,
-};
-
-long
-ssl3_default_timeout(void)
-{
-	/*
-	 * 2 hours, the 24 hours mentioned in the SSLv3 spec
-	 * is way too long for http, the cache would over fill
-	 */
-	return (60 * 60 * 2);
-}
-
 int
 ssl3_num_ciphers(void)
 {
@@ -2053,7 +2023,7 @@ ssl3_free(SSL *s)
 	if (s == NULL)
 		return;
 
-	ssl3_cleanup_key_block(s);
+	tls1_cleanup_key_block(s);
 	ssl3_release_read_buffer(s);
 	ssl3_release_write_buffer(s);
 
@@ -2063,7 +2033,7 @@ ssl3_free(SSL *s)
 	if (s->s3->tmp.ca_names != NULL)
 		sk_X509_NAME_pop_free(s->s3->tmp.ca_names, X509_NAME_free);
 	BIO_free(s->s3->handshake_buffer);
-	ssl3_free_digest_list(s);
+	tls1_free_digest_list(s);
 	free(s->s3->alpn_selected);
 
 	explicit_bzero(s->s3, sizeof *s->s3);
@@ -2077,7 +2047,7 @@ ssl3_clear(SSL *s)
 	unsigned char	*rp, *wp;
 	size_t		 rlen, wlen;
 
-	ssl3_cleanup_key_block(s);
+	tls1_cleanup_key_block(s);
 	if (s->s3->tmp.ca_names != NULL)
 		sk_X509_NAME_pop_free(s->s3->tmp.ca_names, X509_NAME_free);
 
@@ -2094,7 +2064,7 @@ ssl3_clear(SSL *s)
 	BIO_free(s->s3->handshake_buffer);
 	s->s3->handshake_buffer = NULL;
 
-	ssl3_free_digest_list(s);
+	tls1_free_digest_list(s);
 
 	free(s->s3->alpn_selected);
 	s->s3->alpn_selected = NULL;

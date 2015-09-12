@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.241 2015/09/09 11:21:51 dlg Exp $
+#	$OpenBSD: Makefile,v 1.243 2015/09/11 19:27:05 mpi Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -26,8 +26,8 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	namei.9 \
 	panic.9 pci_conf_read.9 pci_intr_map.9 pfind.9 physio.9 pmap.9 \
 	pool.9 powerhook_establish.9 ppsratecheck.9 printf.9 psignal.9 \
-	radio.9 arc4random.9 rasops.9 ratecheck.9 resettodr.9 rssadapt.9 \
-	route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
+	radio.9 arc4random.9 rasops.9 ratecheck.9 refcnt_init.9 resettodr.9 \
+	rssadapt.9 route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
 	rtlabel_id2name.9 rtrequest1.9 rwlock.9 SipHash24.9 sensor_attach.9 \
 	spl.9 srp_enter.9 srpl_rc_init.9 startuphook_establish.9 \
 	socreate.9 sosplice.9 style.9 syscall.9 systrace.9 sysctl_int.9 \
@@ -318,6 +318,9 @@ MLINKS+=arc4random.9 add_true_randomness.9 \
 	arc4random.9 arc4random_buf.9 \
 	arc4random.9 arc4random_uniform.9
 MLINKS+=rasops.9 rasops_init.9 rasops.9 rasops_reconfig.9
+MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_rele.9 \
+	refcnt_init.9 refcnt_rele_wake.9 refcnt_init.9 refcnt_finalize.9 \
+	refcnt_init.9 REFCNT_INITIALIZER.9
 MLINKS+=rssadapt.9 ieee80211_rssadapt_choose.9 \
 	rssadapt.9 ieee80211_rssadapt_input.9 \
 	rssadapt.9 ieee80211_rssadapt_lower_rate.9 \
@@ -332,7 +335,8 @@ MLINKS+=rt_timer_add.9 rt_timer_queue_create.9 \
 	rt_timer_add.9 rt_timer_queue_change.9 \
 	rt_timer_add.9 rt_timer_queue_destroy.9 \
 	rt_timer_add.9 rt_timer_remove_all.9
-MLINKS+=rtalloc.9 rtalloc_mpath.9 rtalloc.9 rtisvalid.9 rtalloc.9 rtfree.9
+MLINKS+=rtalloc.9 rtalloc_mpath.9 rtalloc.9 rtisvalid.9 rtalloc.9 rtref.9 \
+	rtalloc.9 rtfree.9
 MLINKS+=rtable_add.9 rtable_exists.9 rtable_add.9 rtable_get.9 \
 	rtable_add.9 rtable_l2.9 rtable_add.9 rtable_l2set.9
 MLINKS+=rtlabel_id2name.9 rtlabel_name2id.9 \

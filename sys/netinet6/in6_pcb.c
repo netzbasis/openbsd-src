@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_pcb.c,v 1.71 2015/09/10 17:52:05 claudio Exp $	*/
+/*	$OpenBSD: in6_pcb.c,v 1.74 2015/09/11 15:29:47 deraadt Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -109,6 +109,7 @@
 #include <sys/errno.h>
 #include <sys/time.h>
 #include <sys/proc.h>
+#include <sys/tame.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -194,7 +195,7 @@ in6_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 			return EAFNOSUPPORT;
 
 		/* KAME hack: embed scopeid */
-		if (in6_embedscope(&sin6->sin6_addr, sin6, inp, NULL) != 0)
+		if (in6_embedscope(&sin6->sin6_addr, sin6, inp) != 0)
 			return EINVAL;
 		/* this must be cleared for ifa_ifwithaddr() */
 		sin6->sin6_scope_id = 0;
@@ -403,7 +404,7 @@ in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 		return (EADDRNOTAVAIL);
 
 	if (tame_dns_check(p, sin6->sin6_port))
-		return (tame_fail(p, EPERM, TAME_DNS));
+		return (tame_fail(p, EPERM, TAME_DNSPATH));
 
 	/* reject IPv4 mapped address, we have no support for it */
 	if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr))
@@ -418,7 +419,7 @@ in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 	sin6 = &tmp;
 
 	/* KAME hack: embed scopeid */
-	if (in6_embedscope(&sin6->sin6_addr, sin6, inp, &ifp) != 0)
+	if (in6_embedscope(&sin6->sin6_addr, sin6, inp) != 0)
 		return EINVAL;
 	/* this must be cleared for ifa_ifwithaddr() */
 	sin6->sin6_scope_id = 0;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_src.c,v 1.56 2015/09/10 17:52:05 claudio Exp $	*/
+/*	$OpenBSD: in6_src.c,v 1.61 2015/09/11 20:16:03 claudio Exp $	*/
 /*	$KAME: in6_src.c,v 1.36 2001/02/06 04:08:17 itojun Exp $	*/
 
 /*
@@ -85,9 +85,6 @@
 
 int in6_selectif(struct sockaddr_in6 *, struct ip6_pktopts *,
     struct ip6_moptions *, struct route_in6 *, struct ifnet **, u_int);
-int selectroute(struct sockaddr_in6 *, struct ip6_pktopts *,
-    struct ip6_moptions *, struct route_in6 *, struct ifnet **,
-    struct rtentry **, int, u_int);
 
 /*
  * Return an IPv6 address, which is the most appropriate for a given
@@ -130,6 +127,7 @@ in6_selectsrc(struct in6_addr **in6src, struct sockaddr_in6 *dstsock,
 
 		if (ifp && IN6_IS_SCOPE_EMBED(&sa6.sin6_addr))
 			sa6.sin6_addr.s6_addr16[1] = htons(ifp->if_index);
+		if_put(ifp); /* put reference from in6_selectif */
 
 		ia6 = ifatoia6(ifa_ifwithaddr(sin6tosa(&sa6), rtableid));
 		if (ia6 == NULL ||
@@ -162,6 +160,8 @@ in6_selectsrc(struct in6_addr **in6src, struct sockaddr_in6 *dstsock,
 			return (ENXIO); /* XXX: better error? */
 
 		ia6 = in6_ifawithscope(ifp, dst, rtableid);
+		if_put(ifp);
+
 		if (ia6 == NULL)
 			return (EADDRNOTAVAIL);
 
@@ -185,6 +185,8 @@ in6_selectsrc(struct in6_addr **in6src, struct sockaddr_in6 *dstsock,
 			return (ENXIO); /* XXX: better error? */
 
 		ia6 = in6_ifawithscope(ifp, dst, rtableid);
+		if_put(ifp);
+
 		if (ia6 == NULL)
 			return (EADDRNOTAVAIL);
 
@@ -207,6 +209,8 @@ in6_selectsrc(struct in6_addr **in6src, struct sockaddr_in6 *dstsock,
 
 		if (ifp) {
 			ia6 = in6_ifawithscope(ifp, dst, rtableid);
+			if_put(ifp);
+
 			if (ia6 == NULL)
 				return (EADDRNOTAVAIL);
 
@@ -296,60 +300,15 @@ in6_selectsrc(struct in6_addr **in6src, struct sockaddr_in6 *dstsock,
 	return (EADDRNOTAVAIL);
 }
 
-int
-selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
-    struct ip6_moptions *mopts, struct route_in6 *ro, struct ifnet **retifp,
-    struct rtentry **retrt, int norouteok, u_int rtableid)
+struct rtentry *
+in6_selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
+    struct route_in6 *ro, unsigned int rtableid)
 {
-	int error = 0;
-	struct ifnet *ifp = NULL;
-	struct rtentry *rt = NULL;
 	struct sockaddr_in6 *sin6_next;
-	struct in6_pktinfo *pi = NULL;
 	struct in6_addr *dst;
 
 	dst = &dstsock->sin6_addr;
 
-#if 0
-	char ip[INET6_ADDRSTRLEN];
-
-	if (dstsock->sin6_addr.s6_addr32[0] == 0 &&
-	    dstsock->sin6_addr.s6_addr32[1] == 0 &&
-	    !IN6_IS_ADDR_LOOPBACK(&dstsock->sin6_addr)) {
-		printf("in6_selectroute: strange destination %s\n",
-		    inet_ntop(AF_INET6, &dstsock->sin6_addr, ip, sizeof(ip)));
-	} else {
-		printf("in6_selectroute: destination = %s%%%d\n",
-		    inet_ntop(AF_INET6, &dstsock->sin6_addr, ip, sizeof(ip)),
-		    dstsock->sin6_scope_id); /* for debug */
-	}
-#endif
-
-	/* If the caller specify the outgoing interface explicitly, use it. */
-	if (opts && (pi = opts->ip6po_pktinfo) != NULL && pi->ipi6_ifindex) {
-		ifp = if_get(pi->ipi6_ifindex);
-		if (ifp != NULL &&
-		    (norouteok || retrt == NULL ||
-		     IN6_IS_ADDR_MULTICAST(dst))) {
-			/*
-			 * we do not have to check or get the route for
-			 * multicast.
-			 */
-			goto done;
-		} else
-			goto getroute;
-	}
-
-	/*
-	 * If the destination address is a multicast address and the outgoing
-	 * interface for the address is specified by the caller, use it.
-	 */
-	if (IN6_IS_ADDR_MULTICAST(dst) &&
-	    mopts != NULL && (ifp = if_get(mopts->im6o_ifidx)) != NULL) {
-		goto done; /* we do not need a route for multicast. */
-	}
-
-  getroute:
 	/*
 	 * If the next hop address for the packet is specified by the caller,
 	 * use it as the gateway.
@@ -359,11 +318,9 @@ selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
 
 		sin6_next = satosin6(opts->ip6po_nexthop);
 
-		/* at this moment, we only support AF_INET6 next hops */
-		if (sin6_next->sin6_family != AF_INET6) {
-			error = EAFNOSUPPORT; /* or should we proceed? */
-			goto done;
-		}
+		/* We only support AF_INET6 next hops */
+		if (sin6_next->sin6_family != AF_INET6)
+			return (NULL);
 
 		/*
 		 * If the next hop is an IPv6 address, then the node identified
@@ -392,25 +349,16 @@ selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
 					rtfree(ron->ro_rt);
 					ron->ro_rt = NULL;
 				}
-				error = EHOSTUNREACH;
-				goto done;
+				return (NULL);
 			}
 		}
 		if (!nd6_is_addr_neighbor(sin6_next, ron->ro_rt->rt_ifp)) {
 			rtfree(ron->ro_rt);
 			ron->ro_rt = NULL;
-			error = EHOSTUNREACH;
-			goto done;
+			return (NULL);
 		}
-		rt = ron->ro_rt;
-		ifp = rt->rt_ifp;
 
-		/*
-		 * When cloning is required, try to allocate a route to the
-		 * destination so that the caller can store path MTU
-		 * information.
-		 */
-		goto done;
+		return (ron->ro_rt);
 	}
 
 	/*
@@ -441,25 +389,6 @@ selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
 		}
 
 		/*
-		 * do not care about the result if we have the nexthop
-		 * explicitly specified.
-		 */
-		if (opts && opts->ip6po_nexthop)
-			goto done;
-
-		if (ro->ro_rt) {
-			ifp = ro->ro_rt->rt_ifp;
-
-			if (ifp == NULL) { /* can this really happen? */
-				rtfree(ro->ro_rt);
-				ro->ro_rt = NULL;
-			}
-		}
-		if (ro->ro_rt == NULL)
-			error = EHOSTUNREACH;
-		rt = ro->ro_rt;
-
-		/*
 		 * Check if the outgoing interface conflicts with
 		 * the interface specified by ipi6_ifindex (if specified).
 		 * Note that loopback interface is always okay.
@@ -468,32 +397,18 @@ selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
 		 */
 		if (opts && opts->ip6po_pktinfo &&
 		    opts->ip6po_pktinfo->ipi6_ifindex) {
-			if (!(ifp->if_flags & IFF_LOOPBACK) &&
-			    ifp->if_index !=
+			if (ro->ro_rt != NULL &&
+			    (ro->ro_rt->rt_ifp->if_flags & IFF_LOOPBACK) == 0 &&
+			    ro->ro_rt->rt_ifp->if_index !=
 			    opts->ip6po_pktinfo->ipi6_ifindex) {
-				error = EHOSTUNREACH;
-				goto done;
+			    	return (NULL);
 			}
 		}
+
+		return (ro->ro_rt);
 	}
 
-  done:
-	if (ifp == NULL && rt == NULL) {
-		/*
-		 * This can happen if the caller did not pass a cached route
-		 * nor any other hints.  We treat this case an error.
-		 */
-		error = EHOSTUNREACH;
-	}
-	if (error == EHOSTUNREACH)
-		ip6stat.ip6s_noroute++;
-
-	if (retifp != NULL)
-		*retifp = ifp;
-	if (retrt != NULL)
-		*retrt = rt;	/* rt may be NULL */
-
-	return (error);
+	return (NULL);
 }
 
 int
@@ -502,11 +417,26 @@ in6_selectif(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
     u_int rtableid)
 {
 	struct rtentry *rt = NULL;
-	int error;
+	struct in6_pktinfo *pi = NULL;
 
-	if ((error = selectroute(dstsock, opts, mopts, ro, retifp,
-	    &rt, 1, rtableid)) != 0)
-		return (error);
+	/* If the caller specify the outgoing interface explicitly, use it. */
+	if (opts && (pi = opts->ip6po_pktinfo) != NULL && pi->ipi6_ifindex) {
+		*retifp = if_get(pi->ipi6_ifindex);
+		if (*retifp != NULL)
+			return (0);
+	}
+
+	/*
+	 * If the destination address is a multicast address and the outgoing
+	 * interface for the address is specified by the caller, use it.
+	 */
+	if (IN6_IS_ADDR_MULTICAST(&dstsock->sin6_addr) &&
+	    mopts != NULL && (*retifp = if_get(mopts->im6o_ifidx)) != NULL)
+	    	return (0);
+
+	rt = in6_selectroute(dstsock, opts, ro, rtableid);
+	if (rt == NULL)
+		return (EHOSTUNREACH);
 
 	/*
 	 * do not use a rejected or black hole route.
@@ -536,19 +466,9 @@ in6_selectif(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
 	 * addresses.)
 	 */
 	if (rt && rt->rt_ifa && rt->rt_ifa->ifa_ifp)
-		*retifp = rt->rt_ifa->ifa_ifp;
+		*retifp = if_ref(rt->rt_ifa->ifa_ifp);
 
 	return (0);
-}
-
-int
-in6_selectroute(struct sockaddr_in6 *dstsock, struct ip6_pktopts *opts,
-    struct ip6_moptions *mopts, struct route_in6 *ro, struct ifnet **retifp,
-    struct rtentry **retrt, u_int rtableid)
-{
-
-	return (selectroute(dstsock, opts, mopts, ro, retifp, retrt, 0,
-	    rtableid));
 }
 
 /*
@@ -586,15 +506,13 @@ in6_selecthlim(struct inpcb *in6p, struct ifnet *ifp)
  */
 int
 in6_embedscope(struct in6_addr *in6, const struct sockaddr_in6 *sin6,
-    struct inpcb *in6p, struct ifnet **ifpp)
+    struct inpcb *in6p)
 {
 	struct ifnet *ifp = NULL;
 	u_int32_t scopeid;
 
 	*in6 = sin6->sin6_addr;
 	scopeid = sin6->sin6_scope_id;
-	if (ifpp)
-		*ifpp = NULL;
 
 	/*
 	 * don't try to read sin6->sin6_addr beyond here, since the caller may
@@ -616,8 +534,8 @@ in6_embedscope(struct in6_addr *in6, const struct sockaddr_in6 *sin6,
 				return ENXIO;  /* XXX EINVAL? */
 			in6->s6_addr16[1] = htons(pi->ipi6_ifindex);
 		} else if (in6p && IN6_IS_ADDR_MULTICAST(in6) &&
-			   in6p->inp_moptions6 &&
-			   (ifp = if_get(in6p->inp_moptions6->im6o_ifidx))) {
+		    in6p->inp_moptions6 &&
+		    (ifp = if_get(in6p->inp_moptions6->im6o_ifidx))) {
 			in6->s6_addr16[1] = htons(ifp->if_index);
 		} else if (scopeid) {
 			ifp = if_get(scopeid);
@@ -626,9 +544,7 @@ in6_embedscope(struct in6_addr *in6, const struct sockaddr_in6 *sin6,
 			/*XXX assignment to 16bit from 32bit variable */
 			in6->s6_addr16[1] = htons(scopeid & 0xffff);
 		}
-
-		if (ifpp)
-			*ifpp = ifp;
+		if_put(ifp);
 	}
 
 	return 0;

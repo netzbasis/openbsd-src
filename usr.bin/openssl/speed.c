@@ -1,4 +1,4 @@
-/* $OpenBSD: speed.c,v 1.9 2015/08/22 16:36:05 jsing Exp $ */
+/* $OpenBSD: speed.c,v 1.12 2015/09/11 20:55:59 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -136,9 +136,6 @@
 #ifndef OPENSSL_NO_RC4
 #include <openssl/rc4.h>
 #endif
-#ifndef OPENSSL_NO_RC5
-#include <openssl/rc5.h>
-#endif
 #include <openssl/rsa.h>
 #ifndef OPENSSL_NO_RIPEMD
 #include <openssl/ripemd.h>
@@ -153,7 +150,7 @@
 #include "./testdsa.h"
 #include "./testrsa.h"
 
-#define BUFSIZE	((long)1024*8+1)
+#define BUFSIZE	(1024*8+1)
 int run = 0;
 
 static int mr = 0;
@@ -259,9 +256,6 @@ speed_main(int argc, char **argv)
 #endif
 #ifndef OPENSSL_NO_RC4
 	RC4_KEY rc4_ks;
-#endif
-#ifndef OPENSSL_NO_RC5
-	RC5_32_KEY rc5_ks;
 #endif
 #ifndef OPENSSL_NO_RC2
 	RC2_KEY rc2_ks;
@@ -485,11 +479,11 @@ speed_main(int argc, char **argv)
 	for (i = 0; i < RSA_NUM; i++)
 		rsa_key[i] = NULL;
 
-	if ((buf = malloc((int) BUFSIZE)) == NULL) {
+	if ((buf = malloc(BUFSIZE)) == NULL) {
 		BIO_printf(bio_err, "out of memory\n");
 		goto end;
 	}
-	if ((buf2 = malloc((int) BUFSIZE)) == NULL) {
+	if ((buf2 = malloc(BUFSIZE)) == NULL) {
 		BIO_printf(bio_err, "out of memory\n");
 		goto end;
 	}
@@ -538,24 +532,6 @@ speed_main(int argc, char **argv)
 			j--;	/* Otherwise, -elapsed gets confused with an
 				 * algorithm. */
 		}
-#ifndef OPENSSL_NO_ENGINE
-		else if ((argc > 0) && (strcmp(*argv, "-engine") == 0)) {
-			argc--;
-			argv++;
-			if (argc == 0) {
-				BIO_printf(bio_err, "no engine given\n");
-				goto end;
-			}
-			setup_engine(bio_err, *argv, 0);
-			/*
-			 * j will be increased again further down.  We just
-			 * don't want speed to confuse an engine with an
-			 * algorithm, especially when none is given (which
-			 * means all of them should be run)
-			 */
-			j--;
-		}
-#endif
 		else if ((argc > 0) && (strcmp(*argv, "-multi") == 0)) {
 			argc--;
 			argv++;
@@ -686,13 +662,6 @@ speed_main(int argc, char **argv)
 			doit[D_CBC_RC2] = 1;
 		else if (strcmp(*argv, "rc2") == 0)
 			doit[D_CBC_RC2] = 1;
-		else
-#endif
-#ifndef OPENSSL_NO_RC5
-		if (strcmp(*argv, "rc5-cbc") == 0)
-			doit[D_CBC_RC5] = 1;
-		else if (strcmp(*argv, "rc5") == 0)
-			doit[D_CBC_RC5] = 1;
 		else
 #endif
 #ifndef OPENSSL_NO_IDEA
@@ -866,9 +835,6 @@ speed_main(int argc, char **argv)
 #ifndef OPENSSL_NO_RC2
 			BIO_printf(bio_err, "rc2-cbc  ");
 #endif
-#ifndef OPENSSL_NO_RC5
-			BIO_printf(bio_err, "rc5-cbc  ");
-#endif
 #ifndef OPENSSL_NO_BF
 			BIO_printf(bio_err, "bf-cbc");
 #endif
@@ -933,9 +899,6 @@ speed_main(int argc, char **argv)
 			BIO_printf(bio_err, "\n");
 			BIO_printf(bio_err, "Available options:\n");
 			BIO_printf(bio_err, "-elapsed        measure time in real time instead of CPU user time.\n");
-#ifndef OPENSSL_NO_ENGINE
-			BIO_printf(bio_err, "-engine e       use engine e, possibly a hardware device.\n");
-#endif
 			BIO_printf(bio_err, "-evp e          use EVP e.\n");
 			BIO_printf(bio_err, "-decrypt        time decryption instead of encryption (only EVP).\n");
 			BIO_printf(bio_err, "-mr             produce machine readable output.\n");
@@ -1009,9 +972,6 @@ speed_main(int argc, char **argv)
 #endif
 #ifndef OPENSSL_NO_RC2
 	RC2_set_key(&rc2_ks, 16, key16, 128);
-#endif
-#ifndef OPENSSL_NO_RC5
-	RC5_32_set_key(&rc5_ks, 16, key16, 12);
 #endif
 #ifndef OPENSSL_NO_BF
 	BF_set_key(&bf_ks, 16, key16);
@@ -1324,20 +1284,6 @@ speed_main(int argc, char **argv)
 				    iv, RC2_ENCRYPT);
 			d = Time_F(STOP);
 			print_result(D_CBC_RC2, j, count, d);
-		}
-	}
-#endif
-#ifndef OPENSSL_NO_RC5
-	if (doit[D_CBC_RC5]) {
-		for (j = 0; j < SIZE_NUM; j++) {
-			print_message(names[D_CBC_RC5], c[D_CBC_RC5][j], lengths[j]);
-			Time_F(START);
-			for (count = 0, run = 1; COND(c[D_CBC_RC5][j]); count++)
-				RC5_32_cbc_encrypt(buf, buf,
-				    (unsigned long) lengths[j], &rc5_ks,
-				    iv, RC5_ENCRYPT);
-			d = Time_F(STOP);
-			print_result(D_CBC_RC5, j, count, d);
 		}
 	}
 #endif

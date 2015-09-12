@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.939 2015/09/10 08:28:31 mpi Exp $ */
+/*	$OpenBSD: pf.c,v 1.941 2015/09/11 15:21:31 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -2420,7 +2420,7 @@ pf_send_tcp(const struct pf_rule *r, sa_family_t af,
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ip6_output(m, NULL, NULL, 0, NULL, NULL, NULL);
+		ip6_output(m, NULL, NULL, 0, NULL, NULL);
 		break;
 #endif /* INET6 */
 	}
@@ -5418,8 +5418,7 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 	} else
 		ret = 0;
 out:
-	if (rt0 != NULL)
-		rtfree(rt0);
+	rtfree(rt0);
 	return (ret);
 }
 
@@ -5615,8 +5614,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 done:
 	if (r->rt != PF_DUPTO)
 		*m = NULL;
-	if (rt != NULL)
-		rtfree(rt);
+	rtfree(rt);
 	return;
 
 bad:
@@ -5671,7 +5669,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 
 	if (!r->rt) {
 		m0->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
-		ip6_output(m0, NULL, NULL, 0, NULL, NULL, NULL);
+		ip6_output(m0, NULL, NULL, 0, NULL, NULL);
 		return;
 	}
 

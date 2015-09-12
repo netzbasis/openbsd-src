@@ -1,10 +1,10 @@
-/*	$OpenBSD: if.c,v 1.369 2015/09/10 18:11:05 dlg Exp $	*/
+/*	$OpenBSD: if.c,v 1.373 2015/09/11 16:58:00 mpi Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -159,17 +159,17 @@ void	ifa_print_all(void);
  *
  * the map is an array of struct ifnet pointers prefixed by an if_map
  * structure. the if_map structure stores the length of its array.
- * 
+ *
  * as interfaces are attached to the system, the map is grown on demand
  * up to USHRT_MAX entries.
- * 
+ *
  * interface index 0 is reserved and represents no interface. this
  * supports the use of the interface index as the scope for IPv6 link
  * local addresses, where scope 0 means no scope has been specified.
  * it also supports the use of interface index as the unique identifier
  * for network interfaces in SNMP applications as per RFC2863. therefore
  * if_get(0) returns NULL.
- */ 
+ */
 
 struct if_map {
 	unsigned long		 limit;
@@ -275,8 +275,10 @@ if_idxmap_insert(struct ifnet *ifp)
 		for (i = 0; i < if_map->limit; i++)
 			nmap[i] = map[i];
 
-		while (i < nlimit)
+		while (i < nlimit) {
 			nmap[i] = NULL;
+			i++;
+		}
 
 		if_idxmap.map = nif_map;
 		free(if_map, M_IFADDR, sizeof(*nif_map) +
@@ -289,7 +291,7 @@ if_idxmap_insert(struct ifnet *ifp)
 	for (i = 0; i < USHRT_MAX; i++) {
 		if (index != 0 && map[index] == NULL)
 			break;
-		
+
 		index = if_idxmap.serial++ & USHRT_MAX;
 	}
 
@@ -786,7 +788,7 @@ if_detach(struct ifnet *ifp)
 #endif
 	rt_if_remove(ifp);
 	rti_delete(ifp);
-#if NETHER > 0 && defined(NFSCLIENT) 
+#if NETHER > 0 && defined(NFSCLIENT)
 	if (ifp == revarp_ifp)
 		revarp_ifp = NULL;
 #endif
@@ -1591,7 +1593,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		    !ISSET(ifp->if_xflags, IFXF_MPLS)) {
 			s = splnet();
 			ifp->if_xflags |= IFXF_MPLS;
-			ifp->if_ll_output = ifp->if_output; 
+			ifp->if_ll_output = ifp->if_output;
 			ifp->if_output = mpls_output;
 			splx(s);
 		}
@@ -1599,7 +1601,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		    !ISSET(ifr->ifr_flags, IFXF_MPLS)) {
 			s = splnet();
 			ifp->if_xflags &= ~IFXF_MPLS;
-			ifp->if_output = ifp->if_ll_output; 
+			ifp->if_output = ifp->if_ll_output;
 			ifp->if_ll_output = NULL;
 			splx(s);
 		}
@@ -2254,7 +2256,7 @@ if_group_egress_build(void)
 #ifdef INET6
 	struct sockaddr_in6	 sa_in6;
 #endif
-	struct rtentry		*rt;
+	struct rtentry		*rt0, *rt;
 
 	TAILQ_FOREACH(ifg, &ifg_head, ifg_next)
 		if (!strcmp(ifg->ifg_group, IFG_EGRESS))
@@ -2267,8 +2269,9 @@ if_group_egress_build(void)
 	bzero(&sa_in, sizeof(sa_in));
 	sa_in.sin_len = sizeof(sa_in);
 	sa_in.sin_family = AF_INET;
-	rt = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in));
-	if (rt != NULL) {
+	rt0 = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in));
+	if (rt0 != NULL) {
+		rt = rt0;
 		do {
 			if (rt->rt_ifp)
 				if_addgroup(rt->rt_ifp, IFG_EGRESS);
@@ -2279,11 +2282,13 @@ if_group_egress_build(void)
 #endif
 		} while (rt != NULL);
 	}
+	rtfree(rt0);
 
 #ifdef INET6
 	bcopy(&sa6_any, &sa_in6, sizeof(sa_in6));
-	rt = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6));
-	if (rt != NULL) {
+	rt0 = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6));
+	if (rt0 != NULL) {
+		rt = rt0;
 		do {
 			if (rt->rt_ifp)
 				if_addgroup(rt->rt_ifp, IFG_EGRESS);
@@ -2295,6 +2300,7 @@ if_group_egress_build(void)
 		} while (rt != NULL);
 	}
 #endif
+	rtfree(rt0);
 
 	return (0);
 }

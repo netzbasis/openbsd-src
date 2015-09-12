@@ -1047,16 +1047,11 @@ __res_randomid
 __res_send
 __sym_ntos
 _getlong
-_getnetbyaddr
-_getnetbyname
 _getshort
-_net_stayopen
-_protoent_data
 _res
 _res_ext
 _res_opcodes
 _res_resultcodes
-_servent_data
 dn_expand
 endhostent
 endnetent
@@ -1197,7 +1192,6 @@ __xdrrec_setnonblock
 __xprt_register
 _authenticate
 _null_auth
-_rpc_dtablesize
 _seterr_reply
 _svcauth_null
 _svcauth_short
@@ -1233,7 +1227,6 @@ pmap_set
 pmap_unset
 registerrpc
 rpc_createerr
-rpcdata
 set_rpc_maxgrouplist
 setrpcent
 svc_fdset
@@ -1694,5 +1687,3 @@ yperr_string
 ypprot_err
 _yp_check		/* chpass, passwd, login_chpass */
 yp_unbind		/* passwd */
-ypresp_allfn		/* ypserv */
-ypresp_data		/* ypserv */

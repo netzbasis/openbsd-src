@@ -1,4 +1,4 @@
-/* $OpenBSD: d1_both.c,v 1.35 2015/09/10 17:57:50 jsing Exp $ */
+/* $OpenBSD: d1_both.c,v 1.38 2015/09/11 18:08:21 jsing Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -363,7 +363,7 @@ dtls1_do_write(SSL *s, int type)
 					xlen = ret - DTLS1_HM_HEADER_LENGTH;
 				}
 
-				ssl3_finish_mac(s, p, xlen);
+				tls1_finish_mac(s, p, xlen);
 			}
 
 			if (ret == s->init_num) {
@@ -444,7 +444,7 @@ again:
 	p -= DTLS1_HM_HEADER_LENGTH;
 	msg_len += DTLS1_HM_HEADER_LENGTH;
 
-	ssl3_finish_mac(s, p, msg_len);
+	tls1_finish_mac(s, p, msg_len);
 	if (s->msg_callback)
 		s->msg_callback(0, s->version, SSL3_RT_HANDSHAKE, p, msg_len,
 		    s, s->msg_callback_arg);
@@ -900,54 +900,6 @@ f_err:
 
 	*ok = 0;
 	return (-1);
-}
-
-int
-dtls1_send_finished(SSL *s, int a, int b, const char *sender, int slen)
-{
-	unsigned char *p, *d;
-	int i;
-	unsigned long l;
-
-	if (s->state == a) {
-		d = (unsigned char *)s->init_buf->data;
-		p = &(d[DTLS1_HM_HEADER_LENGTH]);
-
-		i = s->method->ssl3_enc->final_finish_mac(s, sender, slen,
-		    s->s3->tmp.finish_md);
-		s->s3->tmp.finish_md_len = i;
-		memcpy(p, s->s3->tmp.finish_md, i);
-		p += i;
-		l = i;
-
-		/*
-		 * Copy the finished so we can use it for
-		 * renegotiation checks
-		 */
-		if (s->type == SSL_ST_CONNECT) {
-			OPENSSL_assert(i <= EVP_MAX_MD_SIZE);
-			memcpy(s->s3->previous_client_finished,
-			    s->s3->tmp.finish_md, i);
-			s->s3->previous_client_finished_len = i;
-		} else {
-			OPENSSL_assert(i <= EVP_MAX_MD_SIZE);
-			memcpy(s->s3->previous_server_finished,
-			    s->s3->tmp.finish_md, i);
-			s->s3->previous_server_finished_len = i;
-		}
-
-		d = dtls1_set_message_header(s, d, SSL3_MT_FINISHED, l, 0, l);
-		s->init_num = (int)l + DTLS1_HM_HEADER_LENGTH;
-		s->init_off = 0;
-
-		/* buffer the message to handle re-xmits */
-		dtls1_buffer_message(s, 0);
-
-		s->state = b;
-	}
-
-	/* SSL3_ST_SEND_xxxxxx_HELLO_B */
-	return (dtls1_do_write(s, SSL3_RT_HANDSHAKE));
 }
 
 /*

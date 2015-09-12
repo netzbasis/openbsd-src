@@ -1,4 +1,4 @@
-.\" $OpenBSD: tls_init.3,v 1.35 2015/09/10 16:59:00 deraadt Exp $
+.\" $OpenBSD: tls_init.3,v 1.42 2015/09/11 14:22:53 jmc Exp $
 .\"
 .\" Copyright (c) 2014 Ted Unangst <tedu@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 10 2015 $
+.Dd $Mdocdate: September 11 2015 $
 .Dt TLS_INIT 3
 .Os
 .Sh NAME
@@ -41,6 +41,13 @@
 .Nm tls_config_insecure_noverifycert ,
 .Nm tls_config_insecure_noverifyname ,
 .Nm tls_config_verify ,
+.Nm tls_config_verify_client ,
+.Nm tls_config_verify_client_optional ,
+.Nm tls_peer_cert_provided ,
+.Nm tls_peer_cert_contains_name ,
+.Nm tls_peer_cert_issuer ,
+.Nm tls_peer_cert_subject ,
+.Nm tls_peer_cert_hash ,
 .Nm tls_load_file ,
 .Nm tls_client ,
 .Nm tls_server ,
@@ -110,6 +117,16 @@
 .Fn tls_config_verify_client "struct tls_config *config"
 .Ft "void"
 .Fn tls_config_verify_client_optional "struct tls_config *config"
+.Ft "int"
+.Fn tls_peer_cert_provided "struct tls *ctx"
+.Ft "int"
+.Fn tls_peer_cert_contains_name "struct tls *ctx" "const char *name"
+.Ft "int"
+.Fn tls_peer_cert_issuer "struct tls *ctx" "char **issuer"
+.Ft "int"
+.Fn tls_peer_cert_subject "struct tls *ctx" "char **subject"
+.Ft "int"
+.Fn tls_peer_cert_hash "struct tls *ctx" "char **hash"
 .Ft "uint8_t *"
 .Fn tls_load_file "const char *file" "size_t *len" "char *password"
 .Ft "struct tls *"
@@ -160,9 +177,7 @@ function returns a new default configuration that can be used for future
 connections.
 Several functions exist to change the options of the configuration; see below.
 .Pp
-A
-.Em tls
-connection is represented as a
+A TLS connection is represented as a
 .Em context .
 A new
 .Em context
@@ -209,7 +224,7 @@ and
 Both of these functions will result in the TLS handshake being performed if it
 has not already completed.
 .Pp
-After use, a tls
+After use, a TLS
 .Em context
 should be closed with
 .Fn tls_close ,
@@ -279,6 +294,16 @@ sets the public certificate directly from memory.
 .It
 .Fn tls_config_set_ciphers
 sets the list of ciphers that may be used.
+Lists of ciphers are specified by name, and the
+permitted names are:
+.Pp
+.Bl -tag -width "default" -offset indent -compact
+.It Dv "secure"
+.It Dv "default" (an alias for secure)
+.It Dv "legacy"
+.It Dv "compat" (an alias for legacy)
+.El
+.Pp
 .Em (Client and server)
 .It
 .Fn tls_config_set_key_file
@@ -326,7 +351,7 @@ clears any secret keys from memory.
 .Fn tls_config_insecure_noverifycert
 disables certificate verification.
 Be extremely careful when using this option.
-.Em (Client and server) 
+.Em (Client and server)
 .It
 .Fn tls_config_insecure_noverifyname
 disables server name verification.
@@ -341,6 +366,69 @@ reenables server name and certificate verification.
 enables client certificate verification, requiring the client to send
 a certificate.
 .Em (Server)
+.It
+.Fn tls_peer_cert_provided
+checks if the peer of
+.Ar ctx
+has provided a certificate.
+.Fn tls_peer_cert_provided
+can only succeed after the handshake is complete.
+.Em (Server and client)
+.It
+.Fn tls_peer_cert_contains_name
+checks if the peer of a TLS
+.Ar ctx
+has povided a certificate that contains a
+SAN or CN that matches
+.Ar name .
+.Fn tls_peer_cert_contains_name
+can only succeed after the handshake is complete.
+.Em (Server and client)
+.It
+.Fn tls_peer_cert_subject
+returns a string in
+.Ar subject
+corresponding to the subject of the peer certificate from
+.Ar ctx .
+.Fn tls_peer_cert_subject
+will only succeed after the handshake is complete.
+Callers must free the string returned in
+.Ar subject .
+.Em (Server and client)
+.It
+.Fn tls_peer_cert_issuer
+returns a string in
+.Ar subject
+corresponding to the issuer of the peer certificate from
+.Ar ctx .
+.Fn tls_peer_cert_issuer
+will only succeed after the handshake is complete.
+Callers must free the string returned in
+.Ar issuer .
+.Em (Server and client)
+.It
+.Fn tls_peer_cert_hash
+returns a string
+in
+.Ar hash
+corresponding to a hash of the raw peer certificate from
+.Ar ctx
+prefixed by a hash name followed by a colon.
+The hash currently used is SHA256, though this
+could change in the future.
+The hash string for a certificate in file
+.Ar mycert.crt
+can be generated using the commands:
+.Bd -literal -offset indent
+h=$(openssl x509 -outform der -in mycert.crt | sha256)
+printf "SHA256:${h}\\n"
+.Ed
+.Pp
+.Fn tls_peer_cert_subject
+will only succeed after the handshake is complete.
+Callers must free the string returned in
+.Ar hash .
+.Em (Server and client)
 .It
 .Fn tls_config_verify_client_opional
 enables client certificate verification, without requiring the client
@@ -363,17 +451,17 @@ The following functions create, prepare, and free a connection context.
 .Bl -bullet -offset four
 .It
 .Fn tls_client
-creates a new tls context for client connections.
+creates a new TLS context for client connections.
 .It
 .Fn tls_server
-creates a new tls context for server connections.
+creates a new TLS context for server connections.
 .It
 .Fn tls_configure
-readies a tls context for use by applying the configuration
+readies a TLS context for use by applying the configuration
 options.
 .It
 .Fn tls_free
-frees a tls context after use.
+frees a TLS context after use.
 .El
 .Pp
 The following functions initiate a connection and perform input and output
@@ -443,10 +531,15 @@ or
 .Fn tls_connect_servername .
 .El
 .Sh RETURN VALUES
-Functions that return
+The
+.Fn tls_peer_cert_provided
+and
+.Fn tls_peer_cert_contains_name
+functions return 1 if the check succeeds, and 0 if it does not.
+All other functions that return
 .Vt int
-or 
-.Vt ssize_t 
+or
+.Vt ssize_t
 will return 0 on success and -1 on error.
 Functions that return a pointer will return NULL on error, which indicates an
 out of memory condition.
@@ -471,7 +564,7 @@ repeated immediately.
 In the case of non-blocking file descriptors, the same function call should be
 repeated when the required condition has been met.
 .Pp
-Callers of these functions can not rely on the value of the global
+Callers of these functions cannot rely on the value of the global
 .Ar errno .
 To prevent mishandling of error conditions,
 .Fn tls_handshake ,
