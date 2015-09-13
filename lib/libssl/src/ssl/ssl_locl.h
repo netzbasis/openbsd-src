@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.119 2015/09/11 18:08:21 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.128 2015/09/12 15:08:54 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -641,6 +641,7 @@ long	ssl3_callback_ctrl(SSL *s, int cmd, void (*fp)(void));
 long	ssl3_ctx_callback_ctrl(SSL_CTX *s, int cmd, void (*fp)(void));
 int	ssl3_pending(const SSL *s);
 
+int ssl3_handshake_msg_hdr_len(SSL *s);
 unsigned char *ssl3_handshake_msg_start(SSL *s, uint8_t htype);
 void ssl3_handshake_msg_finish(SSL *s, unsigned int len);
 int ssl3_handshake_write(SSL *s);
@@ -690,7 +691,6 @@ void dtls1_start_timer(SSL *s);
 void dtls1_stop_timer(SSL *s);
 int dtls1_is_timer_expired(SSL *s);
 void dtls1_double_timeout(SSL *s);
-int dtls1_send_newsession_ticket(SSL *s);
 unsigned int dtls1_min_mtu(void);
 
 /* some client-only functions */
@@ -711,8 +711,6 @@ int ssl3_check_finished(SSL *s);
 int ssl3_send_next_proto(SSL *s);
 
 int dtls1_send_client_certificate(SSL *s);
-int dtls1_send_client_key_exchange(SSL *s);
-int dtls1_send_client_verify(SSL *s);
 
 /* some server-only functions */
 int ssl3_get_client_hello(SSL *s);
@@ -726,12 +724,7 @@ int ssl3_get_client_key_exchange(SSL *s);
 int ssl3_get_cert_verify(SSL *s);
 int ssl3_get_next_proto(SSL *s);
 
-int dtls1_send_hello_request(SSL *s);
-int dtls1_send_server_hello(SSL *s);
 int dtls1_send_server_certificate(SSL *s);
-int dtls1_send_server_key_exchange(SSL *s);
-int dtls1_send_certificate_request(SSL *s);
-int dtls1_send_server_done(SSL *s);
 
 int ssl23_accept(SSL *s);
 int ssl23_connect(SSL *s);

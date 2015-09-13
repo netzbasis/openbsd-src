@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.39 2015/09/10 18:11:05 dlg Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.41 2015/09/12 20:26:06 mpi Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -405,6 +405,9 @@ extern struct ifnet *lo0ifp;
 void	if_start(struct ifnet *);
 int	if_enqueue(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);
+int	if_input_local(struct ifnet *, struct mbuf *, sa_family_t);
+int	if_output(struct ifnet *, struct mbuf *, struct sockaddr *,
+	    struct rtentry *);
 
 void	ether_ifattach(struct ifnet *);
 void	ether_ifdetach(struct ifnet *);
@@ -436,6 +439,7 @@ void	loopattach(int);
 int	looutput(struct ifnet *,
 	    struct mbuf *, struct sockaddr *, struct rtentry *);
 void	lortrequest(int, struct rtentry *);
+
 void	ifa_add(struct ifnet *, struct ifaddr *);
 void	ifa_del(struct ifnet *, struct ifaddr *);
 void	ifa_update_broadaddr(struct ifnet *, struct ifaddr *,

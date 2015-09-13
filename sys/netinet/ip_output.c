@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.293 2015/09/11 19:17:47 claudio Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.296 2015/09/12 20:26:07 mpi Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -89,7 +89,7 @@ ip_output(struct mbuf *m0, struct mbuf *opt, struct route *ro, int flags,
     struct ip_moptions *imo, struct inpcb *inp, u_int32_t ipsecflowinfo)
 {
 	struct ip *ip;
-	struct ifnet *ifp;
+	struct ifnet *ifp = NULL;
 	struct mbuf *m = m0;
 	int hlen = sizeof (struct ip);
 	int len, error = 0;
@@ -566,7 +566,7 @@ sendit:
 			ip->ip_sum = in_cksum(m, hlen);
 		}
 
-		error = (*ifp->if_output)(ifp, m, sintosa(dst), ro->ro_rt);
+		error = if_output(ifp, m, sintosa(dst), ro->ro_rt);
 		goto done;
 	}
 
@@ -606,8 +606,7 @@ sendit:
 		m0 = m->m_nextpkt;
 		m->m_nextpkt = 0;
 		if (error == 0)
-			error = (*ifp->if_output)(ifp, m, sintosa(dst),
-			    ro->ro_rt);
+			error = if_output(ifp, m, sintosa(dst), ro->ro_rt);
 		else
 			m_freem(m);
 	}
@@ -1617,10 +1616,10 @@ ip_getmoptions(int optname, struct ip_moptions *imo, struct mbuf **mp)
 			addr->s_addr = INADDR_ANY;
 		else {
 			IFP_TO_IA(ifp, ia);
+			if_put(ifp);
 			addr->s_addr = (ia == NULL) ? INADDR_ANY
 					: ia->ia_addr.sin_addr.s_addr;
 		}
-		if_put(ifp);
 		return (0);
 
 	case IP_MULTICAST_TTL:
@@ -1660,9 +1659,7 @@ ip_freemoptions(struct ip_moptions *imo)
 
 /*
  * Routine called from ip_output() to loop back a copy of an IP multicast
- * packet to the input queue of a specified interface.  Note that this
- * calls the output routine of the loopback "driver", but with an interface
- * pointer that might NOT be &loif -- easier than replicating that code here.
+ * packet to the input queue of a specified interface.
  */
 void
 ip_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in *dst)
@@ -1679,7 +1676,7 @@ ip_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in *dst)
 		ip = mtod(copym, struct ip *);
 		ip->ip_sum = 0;
 		ip->ip_sum = in_cksum(copym, ip->ip_hl << 2);
-		(void) looutput(ifp, copym, sintosa(dst), NULL);
+		if_input_local(ifp, copym, dst->sin_family);
 	}
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.25 2015/09/11 09:24:54 jsing Exp $ */
+/* $OpenBSD: tls.c,v 1.27 2015/09/12 21:00:38 beck Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -323,6 +323,10 @@ tls_reset(struct tls *ctx)
 	free(ctx->errmsg);
 	ctx->errmsg = NULL;
 	ctx->errnum = 0;
+
+	tls_free_conninfo(ctx->conninfo);
+	free(ctx->conninfo);
+	ctx->conninfo = NULL;
 }
 
 int
@@ -376,14 +380,19 @@ tls_handshake(struct tls *ctx)
 {
 	int rv = -1;
 
+	if ((ctx->conninfo = calloc(1, sizeof(*ctx->conninfo))) == NULL)
+		goto out;
+
 	if ((ctx->flags & TLS_CLIENT) != 0)
 		rv = tls_handshake_client(ctx);
 	else if ((ctx->flags & TLS_SERVER_CONN) != 0)
 		rv = tls_handshake_server(ctx);
 
-	if (rv == 0)
-		ctx->ssl_peer_cert = SSL_get_peer_certificate(ctx->ssl_conn);
-
+	if (rv == 0 &&
+	    (ctx->ssl_peer_cert = SSL_get_peer_certificate(ctx->ssl_conn)) &&
+	    (tls_get_conninfo(ctx) == -1))
+		rv = -1;
+out:
 	/* Prevent callers from performing incorrect error handling */
 	errno = 0;
 	return (rv);
@@ -405,12 +414,13 @@ tls_read(struct tls *ctx, void *buf, size_t buflen)
 		goto out;
 	}
 
+	ERR_clear_error();
 	if ((ssl_ret = SSL_read(ctx->ssl_conn, buf, buflen)) > 0) {
 		rv = (ssize_t)ssl_ret;
 		goto out;
 	}
-
 	rv = (ssize_t)tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "read");
+
  out:
 	/* Prevent callers from performing incorrect error handling */
 	errno = 0;
@@ -433,12 +443,13 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen)
 		goto out;
 	}
 
+	ERR_clear_error();
 	if ((ssl_ret = SSL_write(ctx->ssl_conn, buf, buflen)) > 0) {
 		rv = (ssize_t)ssl_ret;
 		goto out;
 	}
-
 	rv =  (ssize_t)tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret, "write");
+
  out:
 	/* Prevent callers from performing incorrect error handling */
 	errno = 0;
@@ -452,6 +463,7 @@ tls_close(struct tls *ctx)
 	int rv = 0;
 
 	if (ctx->ssl_conn != NULL) {
+		ERR_clear_error();
 		ssl_ret = SSL_shutdown(ctx->ssl_conn);
 		if (ssl_ret < 0) {
 			rv = tls_ssl_error(ctx, ctx->ssl_conn, ssl_ret,

@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.134 2015/09/11 21:22:54 deraadt Exp $ */
+/* $OpenBSD: netcat.c,v 1.137 2015/09/12 21:01:14 beck Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -45,7 +45,6 @@
 
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
 #include <poll.h>
@@ -110,7 +109,6 @@ char    *Rflag = DEFAULT_CA_FILE;		/* Root CA file */
 int	tls_cachanged;				/* Using non-default CA file */
 int     TLSopt;					/* TLS options */
 char	*tls_expectname;			/* required name in peer cert */
-char	*tls_peerhash;				/* hash of peer cert */
 char	*tls_expecthash;			/* required hash of peer cert */
 
 int timeout = -1;
@@ -129,7 +127,7 @@ int	timeout_connect(int, const struct sockaddr *, socklen_t);
 int	socks_connect(const char *, const char *, struct addrinfo,
 	    const char *, const char *, struct addrinfo, int, const char *);
 int	udptest(int);
-int	unix_bind(char *);
+int	unix_bind(char *, int);
 int	unix_connect(char *);
 int	unix_listen(char *);
 void	set_common_sockopts(int, int);
@@ -363,7 +361,7 @@ main(int argc, char *argv[])
 			unix_dg_tmp_socket = sflag;
 		} else {
 			strlcpy(unix_dg_tmp_socket_buf, "/tmp/nc.XXXXXXXXXX",
-				UNIX_DG_TMP_SOCKET_SIZE);
+			    UNIX_DG_TMP_SOCKET_SIZE);
 			if (mktemp(unix_dg_tmp_socket_buf) == NULL)
 				err(1, "mktemp");
 			unix_dg_tmp_socket = unix_dg_tmp_socket_buf;
@@ -441,7 +439,7 @@ main(int argc, char *argv[])
 
 		if (family == AF_UNIX) {
 			if (uflag)
-				s = unix_bind(host);
+				s = unix_bind(host, 0);
 			else
 				s = unix_listen(host);
 		}
@@ -508,6 +506,7 @@ main(int argc, char *argv[])
 					readwrite(connfd, NULL);
 				if (tls_cctx) {
 					int i;
+
 					do {
 						i = tls_close(tls_cctx);
 					} while (i == TLS_WANT_POLLIN ||
@@ -602,6 +601,7 @@ main(int argc, char *argv[])
 					readwrite(s, tls_ctx);
 				if (tls_ctx) {
 					int j;
+
 					do {
 						j = tls_close(tls_ctx);
 					} while (j == TLS_WANT_POLLIN ||
@@ -616,7 +616,6 @@ main(int argc, char *argv[])
 	if (s)
 		close(s);
 
-	free(tls_peerhash);
 	tls_config_free(tls_cfg);
 
 	exit(ret);
@@ -627,14 +626,14 @@ main(int argc, char *argv[])
  * Returns a unix socket bound to the given path
  */
 int
-unix_bind(char *path)
+unix_bind(char *path, int flags)
 {
 	struct sockaddr_un sun;
 	int s;
 
 	/* Create unix domain socket. */
-	if ((s = socket(AF_UNIX, uflag ? SOCK_DGRAM : SOCK_STREAM,
-	     0)) < 0)
+	if ((s = socket(AF_UNIX, flags | (uflag ? SOCK_DGRAM : SOCK_STREAM),
+	    0)) < 0)
 		return (-1);
 
 	memset(&sun, 0, sizeof(struct sockaddr_un));
@@ -659,6 +658,7 @@ tls_setup_client(struct tls *tls_ctx, int s, char *host)
 
 {
 	int i;
+
 	if (tls_connect_socket(tls_ctx, s,
 		tls_expectname ? tls_expectname : host) == -1) {
 		errx(1, "tls connection failed (%s)",
@@ -669,18 +669,17 @@ tls_setup_client(struct tls *tls_ctx, int s, char *host)
 			errx(1, "tls handshake failed (%s)",
 			    tls_error(tls_ctx));
 	} while (i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-	if (tls_peer_cert_hash(tls_ctx, &tls_peerhash) == -1)
-		errx(1, "hash of peer certificate failed");
 	if (vflag)
 		report_tls(tls_ctx, host, tls_expectname);
-	if (tls_expecthash && tls_peerhash &&
-	    strcmp(tls_expecthash, tls_peerhash) != 0)
+	if (tls_expecthash && tls_peer_cert_hash(tls_ctx) &&
+	    strcmp(tls_expecthash, tls_peer_cert_hash(tls_ctx)) != 0)
 		errx(1, "peer certificate is not %s", tls_expecthash);
 }
 struct tls *
 tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 {
 	struct tls *tls_cctx;
+
 	if (tls_accept_socket(tls_ctx, &tls_cctx,
 		connfd) == -1) {
 		warnx("tls accept failed (%s)",
@@ -688,6 +687,7 @@ tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 		tls_cctx = NULL;
 	} else {
 		int i;
+
 		do {
 			if ((i = tls_handshake(tls_cctx)) == -1)
 				warnx("tls handshake failed (%s)",
@@ -696,14 +696,13 @@ tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 	}
 	if (tls_cctx) {
 		int gotcert = tls_peer_cert_provided(tls_cctx);
-		if (gotcert && tls_peer_cert_hash(tls_cctx, &tls_peerhash) == -1)
-			warn("hash of peer certificate failed");
+
 		if (vflag && gotcert)
 			report_tls(tls_cctx, host, tls_expectname);
 		if ((TLSopt & TLS_CCERT) && !gotcert)
 			warnx("No client certificate provided");
-		else if (gotcert && tls_peerhash && tls_expecthash &&
-		    strcmp(tls_expecthash, tls_peerhash) != 0)
+		else if (gotcert && tls_peer_cert_hash(tls_ctx) && tls_expecthash &&
+		    strcmp(tls_expecthash, tls_peer_cert_hash(tls_ctx)) != 0)
 			warnx("peer certificate is not %s", tls_expecthash);
 		else if (gotcert && tls_expectname &&
 		    (!tls_peer_cert_contains_name(tls_cctx, tls_expectname)))
@@ -726,13 +725,12 @@ unix_connect(char *path)
 	int s;
 
 	if (uflag) {
-		if ((s = unix_bind(unix_dg_tmp_socket)) < 0)
+		if ((s = unix_bind(unix_dg_tmp_socket, SOCK_CLOEXEC)) < 0)
 			return (-1);
 	} else {
-		if ((s = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+		if ((s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0)
 			return (-1);
 	}
-	(void)fcntl(s, F_SETFD, FD_CLOEXEC);
 
 	memset(&sun, 0, sizeof(struct sockaddr_un));
 	sun.sun_family = AF_UNIX;
@@ -759,7 +757,7 @@ int
 unix_listen(char *path)
 {
 	int s;
-	if ((s = unix_bind(path)) < 0)
+	if ((s = unix_bind(path, 0)) < 0)
 		return (-1);
 
 	if (listen(s, 5) < 0) {
@@ -1450,19 +1448,18 @@ void
 report_tls(struct tls * tls_ctx, char * host, char *tls_expectname)
 {
 	char *subject = NULL, *issuer = NULL;
-	if (tls_peer_cert_subject(tls_ctx, &subject) == -1)
-		errx(1, "unable to get certificate subject");
-	if (tls_peer_cert_issuer(tls_ctx, &issuer) == -1)
-		errx(1, "unable to get certificate issuer");
 	fprintf(stderr, "TLS handshake completed with %s\n", host);
 	fprintf(stderr, "Peer name %s\n",
 	    tls_expectname ? tls_expectname : host);
-	if (subject)
-		fprintf(stderr, "Subject: %s\n", subject);
-	if (issuer)
-		fprintf(stderr, "Issuer: %s\n", issuer);
-	if (tls_peerhash)
-		fprintf(stderr, "Cert Hash: %s\n", tls_peerhash);
+	if (tls_peer_cert_subject(tls_ctx))
+		fprintf(stderr, "Subject: %s\n",
+		    tls_peer_cert_subject(tls_ctx));
+	if (tls_peer_cert_issuer(tls_ctx))
+		fprintf(stderr, "Issuer: %s\n",
+		    tls_peer_cert_issuer(tls_ctx));
+	if (tls_peer_cert_hash(tls_ctx))
+		fprintf(stderr, "Cert Hash: %s\n",
+		    tls_peer_cert_hash(tls_ctx));
 	free(subject);
 	free(issuer);
 }
@@ -1499,12 +1496,17 @@ help(void)
 	fprintf(stderr, "\tCommand Summary:\n\
 	\t-4		Use IPv4\n\
 	\t-6		Use IPv6\n\
+	\t-C certfile	Public key file\n\
+	\t-c		Use TLS\n\
 	\t-D		Enable the debug socket option\n\
 	\t-d		Detach from stdin\n\
+	\t-e name\t	Required name in peer certificate\n\
 	\t-F		Pass socket fd\n\
+	\t-H hash\t	Hash string of peer certificate\n\
 	\t-h		This help text\n\
 	\t-I length	TCP receive buffer length\n\
-	\t-i secs\t	Delay interval for lines sent, ports scanned\n\
+	\t-i interval	Delay interval for lines sent, ports scanned\n\
+	\t-K keyfile	Private key file\n\
 	\t-k		Keep inbound sockets open for multiple connects\n\
 	\t-l		Listen mode, for inbound connects\n\
 	\t-N		Shutdown the network socket after EOF on stdin\n\
@@ -1512,16 +1514,17 @@ help(void)
 	\t-O length	TCP send buffer length\n\
 	\t-P proxyuser\tUsername for proxy authentication\n\
 	\t-p port\t	Specify local port for remote connects\n\
+	\t-R CAfile	CA bundle\n\
 	\t-r		Randomize remote ports\n\
 	\t-S		Enable the TCP MD5 signature option\n\
-	\t-s addr\t	Local source address\n\
-	\t-T toskeyword\tSet IP Type of Service\n\
+	\t-s source	Local source address\n\
+	\t-T keyword	TOS value or TLS options\n\
 	\t-t		Answer TELNET negotiation\n\
 	\t-U		Use UNIX domain socket\n\
 	\t-u		UDP mode\n\
 	\t-V rtable	Specify alternate routing table\n\
 	\t-v		Verbose\n\
-	\t-w secs\t	Timeout for connects and final net reads\n\
+	\t-w timeout	Timeout for connects and final net reads\n\
 	\t-X proto	Proxy protocol: \"4\", \"5\" (SOCKS) or \"connect\"\n\
 	\t-x addr[:port]\tSpecify proxy address and port\n\
 	\t-z		Zero-I/O mode [used for scanning]\n\
@@ -1533,11 +1536,12 @@ void
 usage(int ret)
 {
 	fprintf(stderr,
-	    "usage: nc [-46cDdFhklNnrStUuvz] [-C certfile] [-e name] \n"
-	    "\t  [-I length] [-i interval] [-H hash] [-K keyfile] [-O length]\n"
-	    "\t  [-P proxy_username] [-p source_port] [-R cafile] [-s source]\n"
-	    "\t  [-T tls|toskeyword] [-V rtable] [-w timeout]\n"
-	    "\t  [-X proxy_protocol] [-x proxy_address[:port]]\n"
+	    "usage: nc [-46cDdFhklNnrStUuvz] [-C certfile] [-e name] "
+	    "[-H hash] [-I length]\n"
+	    "\t  [-i interval] [-K keyfile] [-O length] [-P proxy_username]\n"
+	    "\t  [-p source_port] [-R CAfile] [-s source] "
+	    "[-T keyword] [-V rtable]\n"
+	    "\t  [-w timeout] [-X proxy_protocol] [-x proxy_address[:port]]\n"
 	    "\t  [destination] [port]\n");
 	if (ret)
 		exit(1);

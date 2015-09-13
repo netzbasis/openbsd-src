@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.237 2015/09/11 20:03:40 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.239 2015/09/12 20:50:17 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -336,32 +336,26 @@ rtisvalid(struct rtentry *rt)
 struct rtentry *
 rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
 {
-	struct rtentry		*rt;
-	struct rtentry		*newrt = NULL;
+	struct rtentry		*rt0, *rt = NULL;
 	struct rt_addrinfo	 info;
 	int			 s, error = 0;
-
-	s = splsoftnet();
 
 	bzero(&info, sizeof(info));
 	info.rti_info[RTAX_DST] = dst;
 
+	s = splsoftnet();
 	rt = rtable_match(tableid, dst);
 	if (rt != NULL) {
-		newrt = rt;
 		if ((rt->rt_flags & RTF_CLONING) && ISSET(flags, RT_RESOLVE)) {
+			rt0 = rt;
 			error = rtrequest1(RTM_RESOLVE, &info, RTP_DEFAULT,
-			    &newrt, tableid);
-			if (error) {
-				newrt = rt;
-				rt->rt_refcnt++;
+			    &rt, tableid);
+			if (error)
 				goto miss;
-			}
-			rt = newrt;
 			/* Inform listeners of the new route */
 			rt_sendmsg(rt, RTM_ADD, tableid);
-		} else
-			rt->rt_refcnt++;
+			rtfree(rt0);
+		}
 	} else {
 		rtstat.rts_unreach++;
 miss:
@@ -369,7 +363,7 @@ miss:
 			rt_missmsg(RTM_MISS, &info, 0, NULL, error, tableid);
 	}
 	splx(s);
-	return (newrt);
+	return (rt);
 }
 
 #ifndef SMALL_KERNEL
@@ -1322,7 +1316,7 @@ rt_ifa_addlocal(struct ifaddr *ifa)
 	/* If there is no loopback entry, allocate one. */
 	rt = rtalloc(ifa->ifa_addr, 0, ifa->ifa_ifp->if_rdomain);
 	if (rt == NULL || !ISSET(rt->rt_flags, flags))
-		error = rt_ifa_add(ifa, RTF_UP | flags, ifa->ifa_addr);
+		error = rt_ifa_add(ifa, flags, ifa->ifa_addr);
 	if (rt)
 		rtfree(rt);
 

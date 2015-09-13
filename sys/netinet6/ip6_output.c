@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.185 2015/09/11 20:16:03 claudio Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.187 2015/09/12 20:26:07 mpi Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -3028,9 +3028,7 @@ ip6_setpktopt(int optname, u_char *buf, int len, struct ip6_pktopts *opt,
 
 /*
  * Routine called from ip6_output() to loop back a copy of an IP6 multicast
- * packet to the input queue of a specified interface.  Note that this
- * calls the output routine of the loopback "driver", but with an interface
- * pointer that might NOT be lo0ifp -- easier than replicating that code here.
+ * packet to the input queue of a specified interface.
  */
 void
 ip6_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in6 *dst)
@@ -3070,7 +3068,7 @@ ip6_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in6 *dst)
 	if (IN6_IS_SCOPE_EMBED(&ip6->ip6_dst))
 		ip6->ip6_dst.s6_addr16[1] = 0;
 
-	(void)looutput(ifp, copym, sin6tosa(dst), NULL);
+	if_input_local(ifp, copym, dst->sin6_family);
 }
 
 /*
