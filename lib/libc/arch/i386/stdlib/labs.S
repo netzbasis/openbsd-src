@@ -30,7 +30,7 @@
  * SUCH DAMAGE.
  */
 
-#include <machine/asm.h>
+#include "SYS.h"
 
 ENTRY(labs)
 	movl	4(%esp),%eax
@@ -38,3 +38,4 @@ ENTRY(labs)
 	jns	1f
 	negl	%eax
 1:	ret
+END_STRONG(labs)

@@ -7,8 +7,8 @@
 ./etc/firmware/tigon2
 ./sbin/kbd
 ./sbin/wsconsctl
-./usr/lib/libc.so.82.0
-./usr/lib/libcrypto.so.35.0
+./usr/lib/libc.so.83.0
+./usr/lib/libcrypto.so.35.1
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.2
 ./usr/lib/libevent.so.4.1
@@ -38,11 +38,11 @@
 ./usr/lib/libskey.so.6.0
 ./usr/lib/libsndio.so.6.0
 ./usr/lib/libsqlite3.so.31.0
-./usr/lib/libssl.so.36.0
+./usr/lib/libssl.so.36.1
 ./usr/lib/libstdc++.so.57.0
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.8.0
+./usr/lib/libtls.so.8.1
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.12.1
 ./usr/lib/libz.so.5.0
@@ -1299,7 +1299,6 @@
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dsa.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dso.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dtls1.ph
-./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/e_os2.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ec.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ecdh.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ecdsa.ph

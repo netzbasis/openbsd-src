@@ -1,4 +1,4 @@
-/* $OpenBSD: md4_one.c,v 1.8 2015/09/10 15:56:25 jsing Exp $ */
+/* $OpenBSD: md4_one.c,v 1.10 2015/09/14 01:45:03 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

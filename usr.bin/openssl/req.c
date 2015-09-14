@@ -1,4 +1,4 @@
-/* $OpenBSD: req.c,v 1.7 2015/09/11 14:30:23 bcook Exp $ */
+/* $OpenBSD: req.c,v 1.9 2015/09/14 01:45:03 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

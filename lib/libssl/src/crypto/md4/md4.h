@@ -1,4 +1,4 @@
-/* $OpenBSD: md4.h,v 1.14 2014/10/20 13:06:54 bcook Exp $ */
+/* $OpenBSD: md4.h,v 1.16 2015/09/14 01:45:03 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

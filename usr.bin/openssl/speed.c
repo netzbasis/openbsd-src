@@ -1,4 +1,4 @@
-/* $OpenBSD: speed.c,v 1.13 2015/09/12 15:49:53 bcook Exp $ */
+/* $OpenBSD: speed.c,v 1.15 2015/09/14 01:45:03 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

@@ -3,7 +3,7 @@
  * Public domain.
  */
 
-#include <machine/asm.h>
+#include "SYS.h"
 
 ENTRY(div)
 	movl	4(%esp),%eax
@@ -13,3 +13,4 @@ ENTRY(div)
 	movl	%eax,4(%esp)
 	movl	%edx,8(%esp)
 	ret
+END_STRONG(div)

@@ -1,4 +1,4 @@
-.\" $OpenBSD: openssl.1,v 1.23 2015/09/12 19:34:07 lteo Exp $
+.\" $OpenBSD: openssl.1,v 1.28 2015/09/14 01:45:03 doug Exp $
 .\" ====================================================================
 .\" Copyright (c) 1998-2002 The OpenSSL Project.  All rights reserved.
 .\"
@@ -112,7 +112,7 @@
 .\"
 .\" OPENSSL
 .\"
-.Dd $Mdocdate: September 12 2015 $
+.Dd $Mdocdate: September 14 2015 $
 .Dt OPENSSL 1
 .Os
 .Sh NAME
@@ -7648,10 +7648,13 @@ command were first added in
 .Op Cm aes-128-cbc
 .Op Cm aes-192-cbc
 .Op Cm aes-256-cbc
+.Op Cm aes-128-gcm
+.Op Cm aes-256-gcm
 .Op Cm blowfish
 .Op Cm bf-cbc
 .Op Cm cast
 .Op Cm cast-cbc
+.Op Cm chacha20-poly1305
 .Op Cm des
 .Op Cm des-cbc
 .Op Cm des-ede3
@@ -9822,6 +9825,7 @@ certificates.
 .\" SEE ALSO
 .\"
 .Sh SEE ALSO
+.Xr nc 1 ,
 .Xr ssl 8 ,
 .Xr starttls 8
 .Sh STANDARDS
@@ -9893,7 +9897,7 @@ certificates.
 .%A P. Chown
 .%D June 2002
 .%R RFC 3268
-.%T Advanced Encryption Standard (AES) Ciphersuites for Transport Layer Security(TLS)
+.%T Advanced Encryption Standard (AES) Ciphersuites for Transport Layer Security (TLS)
 .Re
 .\"
 .\" OPENSSL HISTORY

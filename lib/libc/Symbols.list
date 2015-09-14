@@ -43,7 +43,6 @@ _thread_sys___getcwd
 _thread_sys___semctl
 _thread_sys___set_tcb
 _thread_sys___syscall
-_thread_sys___sysctl
 _thread_sys___threxit
 _thread_sys___thrsigdivert
 _thread_sys___thrsleep
@@ -229,6 +228,7 @@ _thread_sys_symlink
 _thread_sys_symlinkat
 _thread_sys_sync
 _thread_sys_sysarch
+_thread_sys_sysctl
 _thread_sys_tame
 _thread_sys_truncate
 _thread_sys_umask
@@ -819,7 +819,6 @@ arc4random
 arc4random_buf
 arc4random_uniform
 bcrypt
-bcrypt_autorounds
 bcrypt_checkpass
 bcrypt_gensalt
 bcrypt_newhash
@@ -931,20 +930,12 @@ _DefaultMonetaryLocale
 _DefaultNumericLocale
 _DefaultRuneLocale
 _DefaultTimeLocale
-_NukeRune
-_Read_RuneMagi
-___runetype_mb
-__install_currentrunelocale_ctype
-__make_ctype_tabs
 __mb_cur_max
 __mb_len_max_runtime
 __mlocale_changed
 __nlocale_changed
-_findrunelocale
-_newrunelocale
 _towctrans_ext
 _wctrans_init
-_xpg4_setrunelocale
 btowc
 iswalnum
 iswalpha
@@ -1189,8 +1180,6 @@ __svc_fdset
 __svc_fdsetsize
 __xdrrec_getrec
 __xdrrec_setnonblock
-__xprt_register
-_authenticate
 _null_auth
 _seterr_reply
 _svcauth_null

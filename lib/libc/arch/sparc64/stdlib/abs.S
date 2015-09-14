@@ -1,4 +1,4 @@
-/*	$OpenBSD: abs.S,v 1.3 2003/06/02 20:18:32 millert Exp $	*/
+/*	$OpenBSD: abs.S,v 1.5 2015/09/13 16:27:59 guenther Exp $	*/
 /*	$NetBSD: abs.S,v 1.1 1998/09/11 04:56:32 eeh Exp $	*/
 
 /*
@@ -36,7 +36,7 @@
  * from: Header: abs.s,v 1.1 91/07/06 18:01:57 torek Exp
  */
 
-#include <machine/asm.h>
+#include "SYS.h"
 
 /* abs - int absolute value */
 
@@ -45,3 +45,4 @@ ENTRY(abs)
 	neg	%o0, %o1
 	retl
 	 movrlz	%o0, %o1, %o0
+END_STRONG(abs)

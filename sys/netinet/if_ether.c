@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.166 2015/09/12 20:26:07 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.168 2015/09/13 17:53:44 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -95,11 +95,14 @@ void arptfree(struct llinfo_arp *);
 void arptimer(void *);
 struct rtentry *arplookup(u_int32_t, int, int, u_int);
 void in_arpinput(struct mbuf *);
+void revarpinput(struct mbuf *);
+void in_revarpinput(struct mbuf *);
 
 LIST_HEAD(, llinfo_arp) llinfo_arp;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
 /* XXX hate magic numbers */
 struct	niqueue arpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
+struct	niqueue rarpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
 int	arp_inuse, arp_allocated;
 int	arp_maxtries = 5;
 int	arpinit_done;
@@ -306,7 +309,7 @@ arprequest(struct ifnet *ifp, u_int32_t *sip, u_int32_t *tip, u_int8_t *enaddr)
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
 	m->m_flags |= M_BCAST;
-	if_output(ifp, m, &sa, NULL);
+	ifp->if_output(ifp, m, &sa, NULL);
 }
 
 /*
@@ -498,6 +501,9 @@ arpintr(void)
 		}
 		m_freem(m);
 	}
+
+	while ((m = niq_dequeue(&rarpintrq)) != NULL)
+		revarpinput(m);
 }
 
 /*
@@ -703,7 +709,7 @@ in_arpinput(struct mbuf *m)
 			mh = ml_dequeue(&la->la_ml);
 			la_hold_total--;
 
-			if_output(ifp, mh, rt_key(rt), rt);
+			ifp->if_output(ifp, mh, rt_key(rt), rt);
 
 			if (ml_len(&la->la_ml) == len) {
 				/* mbuf is back in queue. Discard. */
@@ -753,7 +759,7 @@ out:
 	eh->ether_type = htons(ETHERTYPE_ARP);
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
-	if_output(ifp, m, &sa, NULL);
+	ifp->if_output(ifp, m, &sa, NULL);
 	if_put(ifp);
 	return;
 }
@@ -968,7 +974,7 @@ revarprequest(struct ifnet *ifp)
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
 	m->m_flags |= M_BCAST;
-	if_output(ifp, m, &sa, NULL);
+	ifp->if_output(ifp, m, &sa, NULL);
 }
 
 #ifdef NFSCLIENT

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.60 2015/07/19 22:34:27 doug Exp $
+# $OpenBSD: Makefile,v 1.65 2015/09/14 01:45:03 doug Exp $
 
 LIB=	crypto
 
@@ -122,7 +122,7 @@ SRCS+= ecp_nistp224.c ecp_nistp256.c ecp_nistp521.c ecp_nistputil.c
 SRCS+= ecp_oct.c ec2_oct.c ec_oct.c
 
 # ecdh/
-SRCS+= ech_lib.c ech_ossl.c ech_key.c ech_err.c
+SRCS+= ech_lib.c ech_key.c ech_err.c
 
 # ecdsa/
 SRCS+= ecs_lib.c ecs_asn1.c ecs_ossl.c ecs_sign.c ecs_vrf.c ecs_err.c
@@ -144,7 +144,7 @@ SRCS+= encode.c digest.c evp_enc.c evp_key.c
 SRCS+= e_des.c e_bf.c e_idea.c e_des3.c e_camellia.c
 SRCS+= e_rc4.c e_aes.c names.c
 SRCS+= e_xcbc_d.c e_rc2.c e_cast.c
-SRCS+= m_null.c m_md4.c m_md5.c m_sha.c m_sha1.c m_wp.c
+SRCS+= m_null.c m_md4.c m_md5.c m_sha1.c m_wp.c
 SRCS+= m_dss.c m_dss1.c m_ripemd.c m_ecdsa.c
 SRCS+= p_open.c p_seal.c p_sign.c p_verify.c p_lib.c p_enc.c p_dec.c
 SRCS+= bio_md.c bio_b64.c bio_enc.c evp_err.c e_null.c
@@ -221,7 +221,7 @@ SRCS+= rsa_pss.c rsa_x931.c rsa_asn1.c rsa_depr.c rsa_ameth.c rsa_prn.c
 SRCS+= rsa_pmeth.c rsa_crpt.c
 
 # sha/
-SRCS+= sha_dgst.c sha1dgst.c sha_one.c sha1_one.c sha256.c sha512.c
+SRCS+= sha1dgst.c sha1_one.c sha256.c sha512.c
 
 # stack/
 SRCS+= stack.c
@@ -312,7 +312,6 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 	${LCRYPTO_SRC}/x509v3
 
 HDRS=\
-	e_os2.h \
 	crypto/aes/aes.h \
 	crypto/asn1/asn1.h \
 	crypto/asn1/asn1_mac.h \
