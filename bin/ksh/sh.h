@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.35 2015/09/10 22:48:58 nicm Exp $	*/
+/*	$OpenBSD: sh.h,v 1.37 2015/09/14 16:08:50 nicm Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -46,11 +46,10 @@
 #define	sizeofN(type, n) (sizeof(type) * (n))
 #define	BIT(i)	(1<<(i))	/* define bit in flag */
 
-/* Table flag type - needs > 16 and < 32 bits */
-typedef int Tflag;
-
 #define	NUFILE	32		/* Number of user-accessible files */
 #define	FDBASE	10		/* First file usable by Shell */
+
+#define BITS(t)	(CHAR_BIT * sizeof(t))
 
 /* Make MAGIC a char that might be printed to make bugs more obvious, but
  * not a char that is used often.  Also, can't use the high bit as it causes
@@ -363,7 +362,7 @@ extern const char ksh_version[];
 
 /* name of called builtin function (used by error functions) */
 EXTERN char	*builtin_argv0;
-EXTERN Tflag	builtin_flag;	/* flags of called builtin (SPEC_BI, etc.) */
+EXTERN int	builtin_flag;	/* flags of called builtin (SPEC_BI, etc.) */
 
 /* current working directory, and size of memory allocated for same */
 EXTERN char	*current_wd;

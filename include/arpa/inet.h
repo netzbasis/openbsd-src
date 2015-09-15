@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.h,v 1.17 2014/08/31 04:04:01 guenther Exp $	*/
+/*	$OpenBSD: inet.h,v 1.19 2015/09/14 08:24:37 guenther Exp $	*/
 
 /*
  * ++Copyright++ 1983, 1993

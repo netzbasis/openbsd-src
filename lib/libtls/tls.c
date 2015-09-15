@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.29 2015/09/13 15:39:15 beck Exp $ */
+/* $OpenBSD: tls.c,v 1.32 2015/09/14 16:16:38 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -257,6 +257,11 @@ tls_configure_ssl(struct tls *ctx)
 		}
 	}
 
+	if (ctx->config->verify_time == 0) {
+		X509_VERIFY_PARAM_set_flags(ctx->ssl_ctx->param,
+		    X509_V_FLAG_NO_CHECK_TIME);
+	}
+
 	return (0);
 
  err:
@@ -352,7 +357,8 @@ tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret, const char *prefix)
 		if ((err = ERR_peek_error()) != 0) {
 			errstr = ERR_error_string(err, NULL);
 		} else if (ssl_ret == 0) {
-			errstr = "EOF";
+			ctx->state |= TLS_EOF_NO_CLOSE_NOTIFY;
+			return (0);
 		} else if (ssl_ret == -1) {
 			errstr = strerror(errno);
 		}
@@ -380,6 +386,11 @@ tls_handshake(struct tls *ctx)
 {
 	int rv = -1;
 
+	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
+		tls_set_errorx(ctx, "invalid operation for context");
+		goto out;
+	}
+
 	if (ctx->conninfo == NULL &&
 	    (ctx->conninfo = calloc(1, sizeof(*ctx->conninfo))) == NULL)
 		goto out;
@@ -393,7 +404,7 @@ tls_handshake(struct tls *ctx)
 	    (ctx->ssl_peer_cert = SSL_get_peer_certificate(ctx->ssl_conn)) &&
 	    (tls_get_conninfo(ctx) == -1))
 		rv = -1;
-out:
+ out:
 	/* Prevent callers from performing incorrect error handling */
 	errno = 0;
 	return (rv);
@@ -416,7 +427,7 @@ tls_read(struct tls *ctx, void *buf, size_t buflen)
 	}
 
 	ERR_clear_error();
-	if ((ssl_ret = SSL_read(ctx->ssl_conn, buf, buflen)) >= 0) {
+	if ((ssl_ret = SSL_read(ctx->ssl_conn, buf, buflen)) > 0) {
 		rv = (ssize_t)ssl_ret;
 		goto out;
 	}
@@ -445,7 +456,7 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen)
 	}
 
 	ERR_clear_error();
-	if ((ssl_ret = SSL_write(ctx->ssl_conn, buf, buflen)) >= 0) {
+	if ((ssl_ret = SSL_write(ctx->ssl_conn, buf, buflen)) > 0) {
 		rv = (ssize_t)ssl_ret;
 		goto out;
 	}
@@ -462,6 +473,12 @@ tls_close(struct tls *ctx)
 {
 	int ssl_ret;
 	int rv = 0;
+
+	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
+		tls_set_errorx(ctx, "invalid operation for context");
+		rv = -1;
+		goto out;
+	}
 
 	if (ctx->ssl_conn != NULL) {
 		ERR_clear_error();
@@ -490,6 +507,12 @@ tls_close(struct tls *ctx)
 		}
 		ctx->socket = -1;
 	}
+
+	if ((ctx->state & TLS_EOF_NO_CLOSE_NOTIFY) != 0) {
+		tls_set_errorx(ctx, "EOF without close notify");
+		rv = -1;
+	}
+
  out:
 	/* Prevent callers from performing incorrect error handling */
 	errno = 0;

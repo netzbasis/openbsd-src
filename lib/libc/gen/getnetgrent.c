@@ -1,4 +1,4 @@
-/*	$OpenBSD: getnetgrent.c,v 1.25 2015/09/10 18:59:34 deraadt Exp $	*/
+/*	$OpenBSD: getnetgrent.c,v 1.27 2015/09/14 16:09:13 tedu Exp $	*/
 
 /*
  * Copyright (c) 1994 Christos Zoulas
@@ -233,11 +233,9 @@ getnetgroup(char **pp)
 	return ng;
 
 baddomain:
-	if (ng->ng_user)
-		free(ng->ng_user);
+	free(ng->ng_user);
 baduser:
-	if (ng->ng_host)
-		free(ng->ng_host);
+	free(ng->ng_host);
 badhost:
 	free(ng);
 	return NULL;
@@ -477,12 +475,9 @@ in_find(char *ypdom, struct stringlist *sl, char *grp, const char *host,
 		case _NG_GROUP:
 			/* new netgroup */
 			i = in_check(host, user, domain, ng);
-			if (ng->ng_host != NULL)
-				free(ng->ng_host);
-			if (ng->ng_user != NULL)
-				free(ng->ng_user);
-			if (ng->ng_domain != NULL)
-				free(ng->ng_domain);
+			free(ng->ng_host);
+			free(ng->ng_user);
+			free(ng->ng_domain);
 			free(ng);
 			if (i) {
 				free(line);
@@ -605,12 +600,9 @@ endnetgrent(void)
 {
 	for (_nglist = _nghead; _nglist != NULL; _nglist = _nghead) {
 		_nghead = _nglist->ng_next;
-		if (_nglist->ng_host != NULL)
-			free(_nglist->ng_host);
-		if (_nglist->ng_user != NULL)
-			free(_nglist->ng_user);
-		if (_nglist->ng_domain != NULL)
-			free(_nglist->ng_domain);
+		free(_nglist->ng_host);
+		free(_nglist->ng_user);
+		free(_nglist->ng_domain);
 		free(_nglist);
 	}
 
@@ -619,6 +611,7 @@ endnetgrent(void)
 		_ng_db = NULL;
 	}
 }
+DEF_WEAK(endnetgrent);
 
 
 void
@@ -657,6 +650,7 @@ setnetgrent(const char *ng)
 	_nghead = _nglist;
 	_ng_sl_free(sl, 1);
 }
+DEF_WEAK(setnetgrent);
 
 
 int
@@ -673,6 +667,7 @@ getnetgrent(const char **host, const char **user, const char **domain)
 
 	return 1;
 }
+DEF_WEAK(getnetgrent);
 
 
 int
@@ -698,8 +693,7 @@ innetgr(const char *grp, const char *host, const char *user, const char *domain)
 	else if (lookup(NULL, "+", &line, _NG_KEYBYNAME) == 0)
 		yp_get_default_domain(&ypdom);
 
-	if (line)
-		free(line);
+	free(line);
 #endif
 
 	/* Try the fast lookup first */
@@ -729,3 +723,4 @@ innetgr(const char *grp, const char *host, const char *user, const char *domain)
 
 	return found;
 }
+DEF_WEAK(innetgr);
