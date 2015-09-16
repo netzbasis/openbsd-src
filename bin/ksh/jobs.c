@@ -1,4 +1,4 @@
-/*	$OpenBSD: jobs.c,v 1.43 2015/09/10 22:48:58 nicm Exp $	*/
+/*	$OpenBSD: jobs.c,v 1.45 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  * Process and job control
@@ -100,7 +100,7 @@ static const char	*const lookup_msgs[] = {
 	"no such job",
 	"ambiguous",
 	"argument must be %job or process id",
-	(char *) 0
+	NULL
 };
 
 struct timeval	j_systime, j_usrtime;	/* user and system time of last j_waitjed job */
@@ -628,7 +628,7 @@ waitfor(const char *cp, int *sigp)
 
 	*sigp = 0;
 
-	if (cp == (char *) 0) {
+	if (cp == NULL) {
 		/* wait for an unspecified job - always returns 0, so
 		 * don't have to worry about exited/signaled jobs
 		 */
@@ -739,7 +739,7 @@ j_resume(const char *cp, int bg)
 			p->status = 0;
 			running = 1;
 		}
-		shprintf("%s%s", p->command, p->next ? "| " : null);
+		shprintf("%s%s", p->command, p->next ? "| " : "");
 	}
 	shprintf("\n");
 	shf_flush(shl_stdout);
@@ -1394,13 +1394,13 @@ j_print(Job *j, int how, struct shf *shf)
 			if (buf[0]) {
 				output = 1;
 				shf_fprintf(shf, "%s%s ",
-				    buf, coredumped ? " (core dumped)" : null);
+				    buf, coredumped ? " (core dumped)" : "");
 			}
 		} else {
 			output = 1;
 			shf_fprintf(shf, "%-20s %s%s%s", buf, p->command,
-			    p->next ? "|" : null,
-			    coredumped ? " (core dumped)" : null);
+			    p->next ? "|" : "",
+			    coredumped ? " (core dumped)" : "");
 		}
 
 		state = p->state;
@@ -1409,10 +1409,10 @@ j_print(Job *j, int how, struct shf *shf)
 		while (p && p->state == state && p->status == status) {
 			if (how == JP_LONG)
 				shf_fprintf(shf, "%s%5d %-20s %s%s", filler, p->pid,
-				    " ", p->command, p->next ? "|" : null);
+				    " ", p->command, p->next ? "|" : "");
 			else if (how == JP_MEDIUM)
 				shf_fprintf(shf, " %s%s", p->command,
-				    p->next ? "|" : null);
+				    p->next ? "|" : "");
 			p = p->next;
 		}
 	}
@@ -1485,7 +1485,7 @@ j_lookup(const char *cp, int *ecodep)
 		last_match = (Job *) 0;
 		for (j = job_list; j != (Job *) 0; j = j->next)
 			for (p = j->proc_list; p != (Proc *) 0; p = p->next)
-				if (strstr(p->command, cp+1) != (char *) 0) {
+				if (strstr(p->command, cp+1) != NULL) {
 					if (last_match) {
 						if (ecodep)
 							*ecodep = JL_AMBIG;
