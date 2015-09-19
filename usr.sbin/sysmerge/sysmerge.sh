@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.207 2015/09/09 09:44:31 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.211 2015/09/18 18:03:47 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -37,15 +37,20 @@ stripcom() {
 }
 
 sm_error() {
-	(($#)) && echo "!!!! ERROR: $@"
-	rm -rf ${_WRKDIR}
+	(($#)) && echo "---- Error: $@"
+	rm -f /var/sysmerge/{etc,pkg,xetc}sum
+	rm -rf ${_TMPROOT}
 	exit 1
 }
 
 trap "sm_error; exit 1" 1 2 3 13 15
 
+sm_info() {
+	(($#)) && echo "---- Info: $@" || true
+}
+
 sm_warn() {
-	(($#)) && echo "**** WARNING: $@" || true
+	(($#)) && echo "---- Warning: $@" || true
 }
 
 sm_extract_sets() {
@@ -165,7 +170,7 @@ sm_cp_pkg_samples() {
 		sm_error "failed to populate packages @samples and create sum file"
 }
 
-sm_init() {
+sm_run() {
 	local _auto_upg _c _c1 _c2 _cursum _diff _i _k _j _cfdiff _cffiles
 	local _ignorefiles _cvsid1 _cvsid2 _matchsum _mismatch
 
@@ -177,7 +182,6 @@ sm_init() {
 
 	sm_extract_sets
 	sm_add_user_grp
-	sm_check_an_eg
 	sm_cp_pkg_samples
 
 	for _i in etcsum xetcsum pkgsum; do
@@ -247,9 +251,11 @@ sm_init() {
 		rm -f ./${_i}
 	done
 
-	# aliases(5) needs to be handled last in case mailer.conf(5) changes
-	_c1=$(find . -type f -or -type l | grep -vE '^./etc/mail/aliases$')
-	_c2=$(find . -type f -name aliases)
+	# aliases(5) needs to be handled last in case mailer.conf(5) changes;
+	# examples are checked later, we don't want to handle examplessum
+	_c1=$(find . -type f -or -type l | \
+		grep -vE '^./(etc/mail/aliases|var/sysmerge/examplessum)$')
+	[[ -f ./etc/mail/aliases ]] && _c2="./etc/mail/aliases"
 	for COMPFILE in ${_c1} ${_c2}; do
 		IS_BIN=false
 		IS_LINK=false
@@ -281,6 +287,8 @@ sm_init() {
 
 		sm_diff_loop
 	done
+
+	sm_check_an_eg
 }
 
 sm_install() {
@@ -332,7 +340,7 @@ sm_install() {
 }
 
 sm_add_user_grp() {
-	local _g _p _gid _l _u _rest _newgrp _newusr
+	local _g _p _gid _l _u _rest
 	local _gr=./etc/group
 	local _pw=./etc/master.passwd
 
@@ -341,8 +349,7 @@ sm_add_user_grp() {
 	while IFS=: read -r -- _g _p _gid _rest; do
 		if ! grep -Eq "^${_g}:" /etc/group; then
 			echo "===> Adding the ${_g} group"
-			groupadd -g ${_gid} ${_g} && \
-				set -A _newgrp -- ${_newgrp[@]} ${_g}
+			groupadd -g ${_gid} ${_g}
 		fi
 	done <${_gr}
 
@@ -351,8 +358,7 @@ sm_add_user_grp() {
 		if [[ ${_u} != root ]]; then
 			if ! grep -Eq "^${_u}:" /etc/master.passwd; then
 				echo "===> Adding the ${_u} user"
-				chpass -la "${_l}" && \
-					set -A _newusr -- ${_newusr[@]} ${_u}
+				chpass -la "${_l}"
 			fi
 		fi
 	done <${_pw}
@@ -543,7 +549,6 @@ sm_diff_loop() {
 	done
 }
 
-
 sm_check_an_eg() {
 	${PKGMODE} && return
 	local _egmods _i _managed
@@ -557,9 +562,8 @@ sm_check_an_eg() {
 		_i=${_i##*/}
 		# only check files we care about
 		[[ -f /etc/${_i} ]] && \
-			_managed="${_managed:+${_managed} }${_i}"
+			sm_info "updated /etc/examples/${_i}, syntax may have changed"
 	done
-	[[ -n ${_managed} ]] && sm_warn "example(s) changed for: ${_managed}"
 	mv ./var/sysmerge/examplessum \
 		/var/sysmerge/examplessum
 }
@@ -567,15 +571,15 @@ sm_check_an_eg() {
 sm_post() {
 	local _f
 
-	cd ${_WRKDIR} && \
+	cd ${_TMPROOT} && \
 		find . -type d -depth -empty -exec rmdir -p '{}' + 2>/dev/null
-	rmdir ${_WRKDIR} 2>/dev/null
+	rmdir ${_TMPROOT} 2>/dev/null
 
 	if [[ -d ${_TMPROOT} ]]; then
-		sm_warn "file(s) left for comparison:"
 		for _f in $(find ${_TMPROOT} ! -type d ! -name \*.merged -size +0)
 		do
-			echo "${_f}" && ${BATCHMODE} && [[ -f ${_f} ]] && \
+			sm_info "${_f} left for comparison"
+			${BATCHMODE} && [[ -f ${_f} ]] && \
 				sed -i "/$(sha256 -q ${_f})/d" /var/sysmerge/*sum
 		done
 	fi
@@ -605,9 +609,8 @@ shift $(( OPTIND -1 ))
 # global constants
 _BKPDIR=/var/sysmerge/backups
 _RELINT=$(uname -r | tr -d '.') || exit 1
-_WRKDIR=$(mktemp -d -p ${TMPDIR:=/tmp} sysmerge.XXXXXXXXXX) || exit 1
-_TMPROOT=${_WRKDIR}/temproot
-readonly _BKPDIR _RELINT _TMPROOT _WRKDIR
+_TMPROOT=$(mktemp -d -p ${TMPDIR:=/tmp} sysmerge.XXXXXXXXXX) || exit 1
+readonly _BKPDIR _RELINT _TMPROOT
 
 [[ -z ${VISUAL} ]] && EDITOR=${EDITOR:=/usr/bin/vi} || EDITOR=${VISUAL}
 PAGER=${PAGER:=/usr/bin/more}
@@ -615,4 +618,4 @@ PAGER=${PAGER:=/usr/bin/more}
 mkdir -p ${_TMPROOT} || sm_error "cannot create ${_TMPROOT}"
 cd ${_TMPROOT} || sm_error "cannot enter ${_TMPROOT}"
 
-sm_init && sm_post
+sm_run && sm_post
