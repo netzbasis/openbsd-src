@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.46 2015/07/19 21:40:00 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.48 2015/09/23 17:22:18 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -1046,6 +1046,12 @@ iwm_reset_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 		iwm_nic_unlock(sc);
 	}
 	ring->cur = 0;
+	bus_dmamap_sync(sc->sc_dmat, ring->stat_dma.map, 0,
+	    ring->stat_dma.size, BUS_DMASYNC_PREWRITE);
+	memset(ring->stat, 0, sizeof(*ring->stat));
+	bus_dmamap_sync(sc->sc_dmat, ring->stat_dma.map, 0,
+	    ring->stat_dma.size, BUS_DMASYNC_POSTWRITE);
+
 }
 
 void
@@ -4718,7 +4724,7 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	if (in->in_assoc) {
 		IEEE80211_ADDR_COPY(cmd->bssid_addr, ni->ni_bssid);
 	} else {
-		memset(cmd->bssid_addr, 0, sizeof(cmd->bssid_addr));
+		IEEE80211_ADDR_COPY(cmd->bssid_addr, etherbroadcastaddr);
 	}
 	iwm_mvm_ack_rates(sc, in, &cck_ack_rates, &ofdm_ack_rates);
 	cmd->cck_rates = htole32(cck_ack_rates);
