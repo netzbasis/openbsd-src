@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.108 2015/08/30 18:59:44 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.111 2015/09/26 00:53:15 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -639,16 +639,13 @@ mdoc_nm_pre(MDOC_ARGS)
 	int		 len;
 
 	switch (n->type) {
-	case ROFFT_ELEM:
-		synopsis_pre(h, n);
-		PAIR_CLASS_INIT(&tag, "name");
-		print_otag(h, TAG_B, 1, &tag);
-		if (NULL == n->child && meta->name)
-			print_text(h, meta->name);
-		return(1);
 	case ROFFT_HEAD:
 		print_otag(h, TAG_TD, 0, NULL);
-		if (NULL == n->child && meta->name)
+		/* FALLTHROUGH */
+	case ROFFT_ELEM:
+		PAIR_CLASS_INIT(&tag, "name");
+		print_otag(h, TAG_B, 1, &tag);
+		if (n->child == NULL && meta->name != NULL)
 			print_text(h, meta->name);
 		return(1);
 	case ROFFT_BODY:
@@ -662,11 +659,11 @@ mdoc_nm_pre(MDOC_ARGS)
 	PAIR_CLASS_INIT(&tag, "synopsis");
 	print_otag(h, TAG_TABLE, 1, &tag);
 
-	for (len = 0, n = n->child; n; n = n->next)
+	for (len = 0, n = n->head->child; n; n = n->next)
 		if (n->type == ROFFT_TEXT)
 			len += html_strlen(n->string);
 
-	if (0 == len && meta->name)
+	if (len == 0 && meta->name != NULL)
 		len = html_strlen(meta->name);
 
 	SCALE_HS_INIT(&su, len);
@@ -1001,7 +998,6 @@ mdoc_bl_pre(MDOC_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	return(1);
@@ -1998,7 +1994,6 @@ mdoc__x_pre(MDOC_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	if (MDOC__U != n->tok) {
@@ -2045,7 +2040,6 @@ mdoc_bk_pre(MDOC_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	return(1);
@@ -2125,7 +2119,6 @@ mdoc_quote_pre(MDOC_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	h->flags |= HTML_NOSPACE;
@@ -2193,7 +2186,6 @@ mdoc_quote_post(MDOC_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 }
 
