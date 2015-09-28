@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.49 2015/09/26 10:52:09 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.51 2015/09/27 16:53:38 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -2803,8 +2803,10 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 			printf("%s: failed to read nvm\n", DEVNAME(sc));
 			return error;
 		}
-		memcpy(&sc->sc_ic.ic_myaddr,
-		    &sc->sc_nvm.hw_addr, ETHER_ADDR_LEN);
+
+		if (IEEE80211_ADDR_EQ(etheranyaddr, sc->sc_ic.ic_myaddr))
+			IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
+			    sc->sc_nvm.hw_addr);
 
 		sc->sc_scan_cmd_len = sizeof(struct iwm_scan_cmd)
 		    + sc->sc_capa_max_probe_len
@@ -4634,7 +4636,8 @@ iwm_mvm_ack_rates(struct iwm_softc *sc, struct iwm_node *in,
 	uint8_t ofdm = 0;
 	int i;
 
-	if (IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
+	if (ni->ni_chan == IEEE80211_CHAN_ANYC ||
+	    IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
 		for (i = 0; i <= IWM_LAST_CCK_RATE; i++) {
 			cck |= (1 << i);
 			if (lowest_present_cck > i)
@@ -4997,11 +5000,6 @@ iwm_auth(struct iwm_softc *sc)
 	error = iwm_allow_mcast(sc);
 	if (error)
 		return error;
-
-	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
-		DPRINTF(("%s: failed to add MAC\n", DEVNAME(sc)));
-		return error;
-	}
 
 	if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
 	    in->in_ni.ni_chan, 1, 1)) != 0) {
@@ -5455,6 +5453,7 @@ int
 iwm_init_hw(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
+	struct iwm_node *in = (struct iwm_node *)ic->ic_bss;
 	int error, i, qid;
 
 	if ((error = iwm_preinit(sc)) != 0)
@@ -5517,6 +5516,12 @@ iwm_init_hw(struct iwm_softc *sc)
 	for (qid = 0; qid < 4; qid++) {
 		iwm_enable_txq(sc, qid, qid);
 	}
+
+	/* Add the MAC context. */
+	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
+		printf("%s: failed to add MAC\n", DEVNAME(sc));
+		goto error;
+ 	}
 
 	return 0;
 
@@ -5752,6 +5757,11 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 		    ether_delmulti(ifr, &ic->ic_ac);
 		if (error == ENETRESET)
 			error = 0;
+		break;
+
+	case SIOCSIFLLADDR:
+		IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
+		    ((struct arpcom *)ifp)->ac_enaddr);
 		break;
 
 	default:
@@ -6370,9 +6380,14 @@ iwm_preinit(struct iwm_softc *sc)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
-	/* Reattach net80211 so MAC address and channel map are picked up. */
-	ieee80211_ifdetach(ifp);
-	ieee80211_ifattach(ifp);
+	/* Configure channel information obtained from firmware. */
+	ieee80211_channel_init(ifp);
+
+	/* Configure MAC address. */
+	error = if_setlladdr(ifp, ic->ic_myaddr);
+	if (error)
+		printf("%s: could not set MAC address (error %d)\n",
+		    DEVNAME(sc), error);
 
 	ic->ic_node_alloc = iwm_node_alloc;
 
