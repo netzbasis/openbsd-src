@@ -1,4 +1,4 @@
-/*	$OpenBSD: disksubr.c,v 1.60 2014/12/24 22:48:27 miod Exp $	*/
+/*	$OpenBSD: disksubr.c,v 1.62 2015/09/28 21:52:28 krw Exp $	*/
 
 /*
  * Copyright (c) 2013 Miodrag Vallat.
@@ -134,25 +134,22 @@ writedisklabel(dev_t dev, void (*strat)(struct buf *), struct disklabel *lp)
 	bp = geteblk((int)lp->d_secsize);
 	bp->b_dev = dev;
 
+	/* Read it in, slap the new label in, and write it back out */
 	error = readvdmlabel(bp, strat, lp, &partoff, 1);
 	if (error == 0 || error == ENOENT) {
-		bp->b_blkno = partoff + LABELSECTOR;
+		error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp,
+		    partoff + LABELSECTOR));
 		offset = LABELOFFSET;
 	} else if (readdoslabel(bp, strat, lp, &partoff, 1) == 0) {
-		bp->b_blkno = DL_BLKTOSEC(lp, partoff + DOS_LABELSECTOR) *
-		    DL_BLKSPERSEC(lp);
+		error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp,
+		    partoff + DOS_LABELSECTOR));
 		offset = DL_BLKOFFSET(lp, partoff + DOS_LABELSECTOR);
 	} else {
 		error = EIO;
 		goto done;
 	}
 
-	/* Read it in, slap the new label in, and write it back out */
-	bp->b_bcount = lp->d_secsize;
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if ((error = biowait(bp)) != 0)
+	if (error)
 		goto done;
 
 	dlp = (struct disklabel *)(bp->b_data + offset);
@@ -190,13 +187,10 @@ readvdmlabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	 * may not be followed by a VDIT.
 	 */
 
-	bp->b_blkno = VDM_LABEL_SECTOR;
-	bp->b_bcount = lp->d_secsize;
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if ((error = biowait(bp)) != 0)
-		return error;
+	error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp,
+	    VDM_LABEL_SECTOR));
+	if (error)
+		return (error);
 
 	vdl = (struct vdm_label *)(bp->b_data + VDM_LABEL_OFFSET);
 	if (vdl->signature != VDM_LABEL_SIGNATURE)
@@ -237,13 +231,9 @@ readvdmlabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	if (spoofonly != 0)
 		return 0;
 
-	bp->b_blkno = LABELSECTOR;
-	bp->b_bcount = lp->d_secsize;
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if ((error = biowait(bp)) != 0)
-		return error;
+	error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp, LABELSECTOR));
+	if (error)
+		return (error);
 
 	return checkdisklabel(bp->b_data + LABELOFFSET, lp, 
 	    DL_GETBSTART(lp), DL_GETBEND(lp));
@@ -279,13 +269,9 @@ readvditlabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 	expected_kind = VDIT_BLOCK_HEAD_BE;
 	blkno = VDIT_SECTOR;
 	for (;;) { 
-		bp->b_blkno = blkno;
-		bp->b_bcount = lp->d_secsize;
-		CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-		SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-		(*strat)(bp);
-		if ((error = biowait(bp)) != 0)
-			return error;
+		error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp, blkno));
+		if (error)
+			return (error);
 
 		vbh = (struct vdit_block_header *)bp->b_data;
 		if (VDM_ID_KIND(&vbh->id) != expected_kind ||
@@ -428,12 +414,9 @@ readvditlabel(struct buf *bp, void (*strat)(struct buf *), struct disklabel *lp,
 		 */
 
 		if (spoofonly == 0) {
-			bp->b_blkno = start + LABELSECTOR;
-			bp->b_bcount = lp->d_secsize;
-			CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-			SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-			(*strat)(bp);
-			if ((error = biowait(bp)) != 0)
+			error = readdisksector(bp, strat, lp,
+			    DL_BLKTOSEC(lp, start + LABELSECTOR));
+			if (error)
 				goto done;
 
 			error = checkdisklabel(bp->b_data + LABELOFFSET, lp,

@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.c,v 1.91 2015/09/26 22:00:00 kettenis Exp $ */
+/* $OpenBSD: i915_drv.c,v 1.93 2015/09/28 17:29:56 kettenis Exp $ */
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -209,16 +209,6 @@ int	i915_load_modeset_init(struct drm_device *);
 	.device = id,				\
 	.subvendor = PCI_ANY_ID,		\
 	.subdevice = PCI_ANY_ID,		\
-	.driver_data = (unsigned long) info }
-
-#undef INTEL_QUANTA_VGA_DEVICE
-#define INTEL_QUANTA_VGA_DEVICE(info) {		\
-	.class = PCI_CLASS_DISPLAY << 16,	\
-	.class_mask = 0xff0000,			\
-	.vendor = 0x8086,			\
-	.device = 0x16a,			\
-	.subvendor = 0x152d,			\
-	.subdevice = 0x8990,			\
 	.driver_data = (unsigned long) info }
 
 static const struct intel_device_info intel_i830_info = {
@@ -446,7 +436,6 @@ static const struct intel_device_info intel_broadwell_m_info = {
 	INTEL_IRONLAKE_M_IDS(&intel_ironlake_m_info),	\
 	INTEL_SNB_D_IDS(&intel_sandybridge_d_info),	\
 	INTEL_SNB_M_IDS(&intel_sandybridge_m_info),	\
-	INTEL_IVB_Q_IDS(&intel_ivybridge_q_info), /* must be first IVB */ \
 	INTEL_IVB_M_IDS(&intel_ivybridge_m_info),	\
 	INTEL_IVB_D_IDS(&intel_ivybridge_d_info),	\
 	INTEL_HSW_D_IDS(&intel_haswell_d_info), \
@@ -977,6 +966,7 @@ int inteldrm_load_font(void *, void *, struct wsdisplay_font *);
 int inteldrm_list_font(void *, struct wsdisplay_font *);
 int inteldrm_getchar(void *, int, int, struct wsdisplay_charcell *);
 void inteldrm_burner(void *, u_int, u_int);
+void inteldrm_burner_cb(void *);
 
 struct wsscreen_descr inteldrm_stdscreen = {
 	"std",
@@ -1151,19 +1141,32 @@ void
 inteldrm_burner(void *v, u_int on, u_int flags)
 {
 	struct inteldrm_softc *dev_priv = v;
-	struct drm_fb_helper *helper = &dev_priv->fbdev->helper;
-	int dpms_mode;
+
+	task_del(systq, &dev_priv->burner_task);
 
 	if (on)
-		dpms_mode = DRM_MODE_DPMS_ON;
+		dev_priv->burner_dpms_mode = DRM_MODE_DPMS_ON;
 	else {
 		if (flags & WSDISPLAY_BURN_VBLANK)
-			dpms_mode = DRM_MODE_DPMS_OFF;
+			dev_priv->burner_dpms_mode = DRM_MODE_DPMS_OFF;
 		else
-			dpms_mode = DRM_MODE_DPMS_STANDBY;
+			dev_priv->burner_dpms_mode = DRM_MODE_DPMS_STANDBY;
 	}
 
-	drm_fb_helper_dpms(helper, dpms_mode);
+	/*
+	 * Setting the DPMS mode may sleep while waiting for the display
+	 * to come back on so hand things off to a taskq.
+	 */
+	task_add(systq, &dev_priv->burner_task);
+}
+
+void
+inteldrm_burner_cb(void *arg1)
+{
+	struct inteldrm_softc *dev_priv = arg1;
+	struct drm_fb_helper *helper = &dev_priv->fbdev->helper;
+
+	drm_fb_helper_dpms(helper, dev_priv->burner_dpms_mode);
 }
 
 int
@@ -1459,6 +1462,7 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	rasops_init(ri, 160, 160);
 
 	task_set(&dev_priv->switchtask, inteldrm_doswitch, dev_priv);
+	task_set(&dev_priv->burner_task, inteldrm_burner_cb, dev_priv);
 
 	inteldrm_stdscreen.capabilities = ri->ri_caps;
 	inteldrm_stdscreen.nrows = ri->ri_rows;

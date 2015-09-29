@@ -1,4 +1,4 @@
-/*	$OpenBSD: random.c,v 1.36 2015/09/29 03:19:24 guenther Exp $	*/
+/*	$OpenBSD: util.c,v 1.36 2015/09/29 03:19:24 guenther Exp $	*/
 
 /* This file is in the public domain. */
 
