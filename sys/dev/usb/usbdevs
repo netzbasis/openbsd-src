@@ -1,4 +1,4 @@
-$OpenBSD: usbdevs,v 1.657 2015/09/15 19:33:14 jasper Exp $
+$OpenBSD: usbdevs,v 1.659 2015/09/29 09:01:00 jung Exp $
 /* $NetBSD: usbdevs,v 1.322 2003/05/10 17:47:14 hamajima Exp $ */
 
 /*
@@ -965,6 +965,9 @@ product APPLE WELLSPRING7A_JIS	0x025b	Keyboard/Trackpad
 product APPLE WELLSPRING8_ANSI	0x0290	Keyboard/Trackpad
 product APPLE WELLSPRING8_ISO	0x0291	Keyboard/Trackpad
 product APPLE WELLSPRING8_JIS	0x0292	Keyboard/Trackpad
+product APPLE WELLSPRING9_ANSI	0x0272	Keyboard/Trackpad
+product APPLE WELLSPRING9_ISO	0x0273	Keyboard/Trackpad
+product APPLE WELLSPRING9_JIS	0x0274	Keyboard/Trackpad
 product APPLE OPTMOUSE		0x0302	Optical mouse
 product APPLE BLUETOOTH_HCI	0x1000	HID-proxy
 product APPLE SPEAKERS		0x1101	Speakers
@@ -2188,8 +2191,9 @@ product HUAWEI E1752		0x1417	HUAWEI Mobile Modem
 product HUAWEI E182		0x1429	HUAWEI Mobile Modem
 product HUAWEI E161		0x1446	HUAWEI Mobile Modem
 product HUAWEI K3765		0x1465	HUAWEI Mobile K3765
-product HUAWEI E1820		0x14ac  HUAWEI Mobile Modem
-product HUAWEI K4510		0x14c5  HUAWEI Mobile Modem
+product HUAWEI E1820		0x14ac	HUAWEI Mobile Modem
+product HUAWEI K4510		0x14c5	HUAWEI Mobile Modem
+product HUAWEI K4511		0x14b7	HUAWEI Mobile Modem K4511
 product HUAWEI E353_INIT	0x14fe	HUAWEI Mobile E353 Initial
 product HUAWEI E392_INIT	0x1505	HUAWEI Mobile E392 Initial
 product HUAWEI K3765_INIT	0x1520	HUAWEI Mobile K3765 Initial
