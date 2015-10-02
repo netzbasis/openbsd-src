@@ -1,4 +1,4 @@
-/*	$OpenBSD: wd.c,v 1.11 2013/11/05 00:51:58 krw Exp $	*/
+/*	$OpenBSD: wd.c,v 1.13 2015/10/01 20:28:12 krw Exp $	*/
 /*	$NetBSD: wd.c,v 1.5 2005/12/11 12:17:06 christos Exp $	*/
 
 /*-
@@ -171,7 +171,7 @@ wdgetdisklabel(wd)
 		 * Lookup OpenBSD slice. If there is none, go ahead
 		 * and try to read the disklabel off sector #0.
 		 */
-		
+
 		memcpy(dp, &buf[DOSPARTOFF], NDOSPART * sizeof(*dp));
 		for (i = 0; i < NDOSPART; i++) {
 			if (dp[i].dp_typ == DOSPTYP_OPENBSD) {
@@ -181,7 +181,7 @@ wdgetdisklabel(wd)
 		}
 	}
 
-	if (wdstrategy(wd, F_READ, sector + LABELSECTOR, DEV_BSIZE,
+	if (wdstrategy(wd, F_READ, sector + DOS_LABELSECTOR, DEV_BSIZE,
 				buf, &rsize))
 		return EOFFSET;
 
@@ -272,7 +272,7 @@ wdstrategy(f, rw, dblk, size, buf, rsize)
 
 	if (size == 0)
 		return (0);
-    
+
 	if (rw != F_READ)
 		return EOPNOTSUPP;
 

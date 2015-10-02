@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikev2_pld.c,v 1.52 2015/08/21 11:59:27 reyk Exp $	*/
+/*	$OpenBSD: ikev2_pld.c,v 1.54 2015/10/01 13:57:29 sthen Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -916,7 +916,9 @@ ikev2_pld_certreq(struct iked *env, struct ikev2_payload *pld,
 		return (0);
 
 	if (cert.cert_type == IKEV2_CERT_X509_CERT) {
-		if (!len || (len % SHA_DIGEST_LENGTH) != 0) {
+		if (!len)
+			return (0);
+		if ((len % SHA_DIGEST_LENGTH) != 0) {
 			log_debug("%s: invalid certificate request", __func__);
 			return (-1);
 		}
@@ -931,7 +933,7 @@ ikev2_pld_certreq(struct iked *env, struct ikev2_payload *pld,
 	else
 		sa->sa_statevalid |= IKED_REQ_CERT;
 
-	ca_setreq(env, &sa->sa_hdr, &sa->sa_policy->pol_localid,
+	ca_setreq(env, sa, &sa->sa_policy->pol_localid,
 	    cert.cert_type, buf, len, PROC_CERT);
 
 	return (0);

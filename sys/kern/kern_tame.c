@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.45 2015/09/30 11:36:07 semarie Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.50 2015/10/02 02:13:59 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -150,10 +150,10 @@ const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mquery] = TAME_MALLOC,
 	[SYS_munmap] = TAME_MALLOC,
 
-	[SYS_open] = TAME_SELF,
-	[SYS_stat] = TAME_SELF,
-	[SYS_access] = TAME_SELF,
-	[SYS_readlink] = TAME_SELF,
+	[SYS_open] = TAME_SELF,			/* further checks in namei */
+	[SYS_stat] = TAME_SELF,			/* further checks in namei */
+	[SYS_access] = TAME_SELF,		/* further checks in namei */
+	[SYS_readlink] = TAME_SELF,		/* further checks in namei */
 
 	[SYS_chdir] = TAME_RPATH,
 	[SYS___getcwd] = TAME_RPATH | TAME_WPATH,
@@ -267,8 +267,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 				}
 			}
 			if (f == 0) {
-				printf("%s(%d): unknown req %s\n",
-				    p->p_comm, p->p_pid, rp);
 				free(rbuf, M_TEMP, MAXPATHLEN);
 				return (EINVAL);
 			}
@@ -284,8 +282,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 		/* Already tamed, only allow reductions */
 		if (((flags | p->p_p->ps_tame) & TAME_USERSET) !=
 		    (p->p_p->ps_tame & TAME_USERSET)) {
-			printf("%s(%d): fail change %x %x\n", p->p_comm, p->p_pid,
-			    flags, p->p_p->ps_tame);
 			return (EPERM);
 		}
 
@@ -392,8 +388,6 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 		free(cwdpath, M_TEMP, cwdpathlen);
 
 		if (error) {
-			printf("%s(%d): path load error %d\n",
-			    p->p_comm, p->p_pid, error);
 			for (i = 0; i < wl->wl_count; i++)
 				free(wl->wl_paths[i].name,
 				    M_TEMP, wl->wl_paths[i].len);
@@ -401,11 +395,13 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 			return (error);
 		}
 		p->p_p->ps_tamepaths = wl;
+#if 0
 		printf("tame: %s(%d): paths loaded:\n", p->p_comm, p->p_pid);
 		for (i = 0; i < wl->wl_count; i++)
 			if (wl->wl_paths[i].name)
 				printf("tame: %d=%s %lld\n", i, wl->wl_paths[i].name,
 				    (long long)wl->wl_paths[i].len);
+#endif
 	}
 
 	p->p_p->ps_tame = flags;
@@ -505,8 +501,6 @@ tame_namei(struct proc *p, char *origpath)
 		/* getpw* and friends need a few files */
 		if ((p->p_tamenote == TMN_RPATH) &&
 		    (p->p_p->ps_tame & TAME_GETPW)) {
-			if (strcmp(path, "/etc/spwd.db") == 0)
-				return (0);
 			if (strcmp(path, "/etc/pwd.db") == 0)
 				return (0);
 			if (strcmp(path, "/etc/group") == 0)
@@ -633,8 +627,6 @@ tame_namei(struct proc *p, char *origpath)
 					error = 0;
 			}
 		}
-		if (error)
-			printf("bad path: %s\n", canopath);
 		free(canopath, M_TEMP, MAXPATHLEN);
 		return (error);			/* Don't hint why it failed */
 	}
@@ -714,21 +706,18 @@ tame_cmsg_recv(struct proc *p, void *v, int controllen)
 			return tame_fail(p, EBADF, TAME_CMSG);
 
 		/* Only allow passing of sockets, pipes, and pure files */
-		printf("f_type %d\n", fp->f_type);
 		switch (fp->f_type) {
 		case DTYPE_SOCKET:
 		case DTYPE_PIPE:
 			continue;
 		case DTYPE_VNODE:
 			vp = (struct vnode *)fp->f_data;
-			printf("v_type %d\n", vp->v_type);
 			if (vp->v_type == VREG)
 				continue;
 			break;
 		default:
 			break;
 		}
-		printf("bad fd type\n");
 		return tame_fail(p, EPERM, TAME_CMSG);
 	}
 	return (0);
@@ -783,14 +772,12 @@ tame_cmsg_send(struct proc *p, void *v, int controllen)
 			return tame_fail(p, EBADF, TAME_CMSG);
 
 		/* Only allow passing of sockets, pipes, and pure files */
-		printf("f_type %d\n", fp->f_type);
 		switch (fp->f_type) {
 		case DTYPE_SOCKET:
 		case DTYPE_PIPE:
 			continue;
 		case DTYPE_VNODE:
 			vp = (struct vnode *)fp->f_data;
-			printf("v_type %d\n", vp->v_type);
 			if (vp->v_type == VREG)
 				continue;
 			break;
@@ -1034,7 +1021,7 @@ tame_ioctl_check(struct proc *p, long com, void *v)
 		break;
 
 	default:
-		printf("ioctl %lx\n", com);
+		printf("tame: ioctl %lx\n", com);
 		break;
 	}
 	return (EPERM);
@@ -1062,6 +1049,7 @@ tame_setsockopt_check(struct proc *p, int level, int optname)
 		case TCP_NOPUSH:
 			return (0);
 		}
+		break;
 	case IPPROTO_IP:
 		switch (optname) {
 		case IP_TOS:
@@ -1071,9 +1059,18 @@ tame_setsockopt_check(struct proc *p, int level, int optname)
 		case IP_RECVDSTADDR:
 			return (0);
 		}
+		break;
 	case IPPROTO_ICMP:
 		break;
 	case IPPROTO_IPV6:
+		switch (optname) {
+		case IPV6_UNICAST_HOPS:
+		case IPV6_RECVHOPLIMIT:
+		case IPV6_PORTRANGE:
+		case IPV6_RECVPKTINFO:
+			return (0);
+		}
+		break;
 	case IPPROTO_ICMPV6:
 		break;
 	}

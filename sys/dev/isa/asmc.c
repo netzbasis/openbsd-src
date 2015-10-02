@@ -1,3 +1,4 @@
+/*	$OpenBSD: asmc.c,v 1.5 2015/10/01 18:41:06 jung Exp $	*/
 /*
  * Copyright (c) 2015 Joerg Jung <jung@openbsd.org>
  *
@@ -78,7 +79,7 @@ int	asmc_match(struct device *, void *, void *);
 void	asmc_attach(struct device *, struct device *, void *);
 int 	asmc_detach(struct device *, int);
 
-struct cfattach asmc_ca = {
+const struct cfattach asmc_ca = {
 	sizeof(struct asmc_softc), asmc_match, asmc_attach
 };
 
@@ -204,7 +205,7 @@ asmc_match(struct device *parent, void *match, void *aux)
 	bus_space_handle_t ioh;
 	int i;
 
-	if (!hw_vendor || !hw_prod || strcmp(hw_vendor, "Apple Inc."))
+	if (!hw_vendor || !hw_prod || strncmp(hw_vendor, "Apple", 5))
 		return 0;
 
 	for (i = 0; asmc_prods[i].pr_name && !sc->sc_prod; i++)
@@ -450,7 +451,6 @@ asmc_fans(struct asmc_softc *sc, uint8_t *n)
 		sc->sc_sensor_fan[i].flags &= ~SENSOR_FINVALID;
 		sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_fan[i]);
 	}
-	sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_fan[3]);
 	return 0;
 }
 
@@ -503,7 +503,7 @@ asmc_motions(struct asmc_softc *sc, uint8_t *n)
 		printf(", read MOCN failed (0x%x)", s);
 		return 1;
 	}
-	if (s == ASMC_NOTFOUND);
+	if (s == ASMC_NOTFOUND)
 		return 0;
 
 	*n = 1;
