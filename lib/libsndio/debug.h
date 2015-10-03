@@ -1,4 +1,4 @@
-/*	$OpenBSD: debug.h,v 1.3 2013/11/13 22:38:22 ratchov Exp $	*/
+/*	$OpenBSD: debug.h,v 1.5 2015/10/02 09:48:22 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -22,7 +22,7 @@
 
 #define DPRINTFN(n, ...)					\
 	do {							\
-		if (_sndio_debug >= (n))				\
+		if (_sndio_debug >= (n))			\
 			fprintf(stderr, __VA_ARGS__);		\
 	} while(0)
 
@@ -47,5 +47,6 @@ extern int _sndio_debug;
 #endif
 
 const char *_sndio_parsetype(const char *, char *);
+const char *_sndio_parsenum(const char *, unsigned int *, unsigned int);
 
 #endif

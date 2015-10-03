@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.50 2015/10/02 02:13:59 deraadt Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.53 2015/10/02 20:48:48 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -161,7 +161,7 @@ const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_fstatat] = TAME_RPATH | TAME_WPATH,
 	[SYS_faccessat] = TAME_RPATH | TAME_WPATH,
 	[SYS_readlinkat] = TAME_RPATH | TAME_WPATH,
-	[SYS_lstat] = TAME_RPATH | TAME_WPATH | TAME_TMPPATH | TAME_DNSPATH,
+	[SYS_lstat] = TAME_RPATH | TAME_WPATH | TAME_TMPPATH,
 	[SYS_rename] = TAME_CPATH,
 	[SYS_rmdir] = TAME_CPATH,
 	[SYS_renameat] = TAME_CPATH,
@@ -501,6 +501,8 @@ tame_namei(struct proc *p, char *origpath)
 		/* getpw* and friends need a few files */
 		if ((p->p_tamenote == TMN_RPATH) &&
 		    (p->p_p->ps_tame & TAME_GETPW)) {
+			if (strcmp(path, "/etc/spwd.db") == 0)
+				return (EPERM);
 			if (strcmp(path, "/etc/pwd.db") == 0)
 				return (0);
 			if (strcmp(path, "/etc/group") == 0)
@@ -927,7 +929,8 @@ tame_socket_check(struct proc *p, int domain)
 		return (0);
 	if ((p->p_p->ps_tame & (TAME_INET | TAME_UNIX)))
 		return (0);
-	if ((p->p_p->ps_tame & TAME_DNS_ACTIVE) && domain == AF_INET)
+	if ((p->p_p->ps_tame & TAME_DNS_ACTIVE) &&
+	    (domain == AF_INET || domain == AF_INET6))
 		return (0);
 	return (EPERM);
 }

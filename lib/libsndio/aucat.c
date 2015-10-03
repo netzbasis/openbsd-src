@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.64 2015/10/01 06:38:19 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.67 2015/10/02 09:51:54 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -205,6 +205,8 @@ _aucat_wdata(struct aucat *hdl, const void *buf, size_t len,
 static int
 aucat_mkcookie(unsigned char *cookie)
 {
+#define COOKIE_SUFFIX	"/.aucat_cookie"
+#define TEMPL_SUFFIX	".XXXXXXXX"
 	struct stat sb;
 	char *home, path[PATH_MAX], tmp[PATH_MAX];
 	ssize_t len;
@@ -216,7 +218,7 @@ aucat_mkcookie(unsigned char *cookie)
 	home = issetugid() ? NULL : getenv("HOME");
 	if (home == NULL)
 		goto bad_gen;
-	snprintf(path, PATH_MAX, "%s/.aucat_cookie", home);
+	snprintf(path, PATH_MAX, "%s" COOKIE_SUFFIX, home);
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		if (errno != ENOENT)
@@ -256,7 +258,7 @@ bad_gen:
 	if (home == NULL)
 		return 1;
 	if (strlcpy(tmp, path, PATH_MAX) >= PATH_MAX ||
-	    strlcat(tmp, ".XXXXXXXX", PATH_MAX) >= PATH_MAX) {
+	    strlcat(tmp, TEMPL_SUFFIX, PATH_MAX) >= PATH_MAX) {
 		DPRINTF("%s: too long\n", path);
 		return 1;
 	}
@@ -337,7 +339,7 @@ aucat_connect_un(struct aucat *hdl, unsigned int unit)
 
 	uid = geteuid();
 	snprintf(ca.sun_path, sizeof(ca.sun_path),
-	    "/tmp/aucat-%u/%s%u", uid, AUCAT_PATH, unit);
+	    SOCKPATH_DIR "-%u/" SOCKPATH_FILE "%u", uid, unit);
 	ca.sun_family = AF_UNIX;
 	s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (s < 0)
@@ -348,7 +350,7 @@ aucat_connect_un(struct aucat *hdl, unsigned int unit)
 		DPERROR(ca.sun_path);
 		/* try shared server */
 		snprintf(ca.sun_path, sizeof(ca.sun_path),
-		    "/tmp/aucat/%s%u", AUCAT_PATH, unit);
+		    SOCKPATH_DIR "/" SOCKPATH_FILE "%u", unit);
 		while (connect(s, (struct sockaddr *)&ca, len) < 0) {
 			if (errno == EINTR)
 				continue;
