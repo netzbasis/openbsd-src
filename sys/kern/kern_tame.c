@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_tame.c,v 1.53 2015/10/02 20:48:48 deraadt Exp $	*/
+/*	$OpenBSD: kern_tame.c,v 1.55 2015/10/04 01:56:54 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -173,7 +173,7 @@ const u_int tame_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mkdir] = TAME_CPATH,
 	[SYS_mkdirat] = TAME_CPATH,
 
-	/* Classify as RPATH, becuase these leak path information */
+	/* Classify as RPATH, because these leak path information */
 	[SYS_getfsstat] = TAME_RPATH,
 	[SYS_statfs] = TAME_RPATH,
 	[SYS_fstatfs] = TAME_RPATH,
@@ -252,6 +252,10 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 			free(rbuf, M_TEMP, MAXPATHLEN);
 			return (error);
 		}
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrstruct(p, "tamereq", rbuf, rbuflen-1);
+#endif
 
 		for (rp = rbuf; rp && *rp && error == 0; rp = pn) {
 			pn = strchr(rp, ' ');	/* find terminator */
@@ -328,6 +332,10 @@ sys_tame(struct proc *p, void *v, register_t *retval)
 				break;
 			if ((error = copyinstr(sp, path, MAXPATHLEN, &len)) != 0)
 				break;
+#ifdef KTRACE
+			if (KTRPOINT(p, KTR_STRUCT))
+				ktrstruct(p, "tamepath", path, len-1);
+#endif
 
 			/* If path is relative, prepend cwd */
 			if (path[0] != '/') {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: popen.c,v 1.25 2015/01/23 19:07:27 tedu Exp $	*/
+/*	$OpenBSD: popen.c,v 1.27 2015/10/03 19:47:21 tedu Exp $	*/
 
 /*
  * Copyright (c) 1988, 1993, 1994
@@ -47,11 +47,8 @@
  * may create a pipe to a hidden program as a side effect of a list or dir
  * command.
  */
-static pid_t *pids;
-static int fds;
-
 FILE *
-cron_popen(char *program, char *type, struct passwd *pw)
+cron_popen(char *program, char *type, struct passwd *pw, pid_t *pidptr)
 {
 	char *cp;
 	FILE *iop;
@@ -62,12 +59,6 @@ cron_popen(char *program, char *type, struct passwd *pw)
 	if ((*type != 'r' && *type != 'w') || type[1] != '\0')
 		return (NULL);
 
-	if (!pids) {
-		if ((fds = sysconf(_SC_OPEN_MAX)) <= 0)
-			return (NULL);
-		if (!(pids = calloc(fds, sizeof(pid_t))))
-			return (NULL);
-	}
 	if (pipe(pdes) < 0)
 		return (NULL);
 
@@ -85,31 +76,12 @@ cron_popen(char *program, char *type, struct passwd *pw)
 		/* NOTREACHED */
 	case 0:				/* child */
 		if (pw) {
-#ifdef LOGIN_CAP
 			if (setusercontext(0, pw, pw->pw_uid, LOGIN_SETALL) < 0) {
 				fprintf(stderr,
 				    "setusercontext failed for %s\n",
 				    pw->pw_name);
 				_exit(EXIT_FAILURE);
 			}
-#else
-			if (setgid(pw->pw_gid) < 0 ||
-			    initgroups(pw->pw_name, pw->pw_gid) < 0) {
-				fprintf(stderr,
-				    "unable to set groups for %s\n",
-				    pw->pw_name);
-				_exit(1);
-			}
-#ifdef HAVE_SETLOGIN
-			setlogin(pw->pw_name);
-#endif
-			if (setuid(pw->pw_uid)) {
-				fprintf(stderr,
-				    "unable to set uid for %s\n",
-				    pw->pw_name);
-				_exit(1);
-			}
-#endif /* LOGIN_CAP */
 		}
 		if (*type == 'r') {
 			if (pdes[1] != STDOUT_FILENO) {
@@ -137,37 +109,29 @@ cron_popen(char *program, char *type, struct passwd *pw)
 		iop = fdopen(pdes[1], type);
 		(void)close(pdes[0]);
 	}
-	pids[fileno(iop)] = pid;
+	*pidptr = pid;
 
 	return (iop);
 }
 
 int
-cron_pclose(FILE *iop)
+cron_pclose(FILE *iop, pid_t pid)
 {
-	int fdes;
-	pid_t pid;
+	int rv;
 	int status;
 	sigset_t sigset, osigset;
 
-	/*
-	 * pclose returns -1 if stream is not associated with a
-	 * `popened' command, or, if already `pclosed'.
-	 */
-	if (pids == 0 || pids[fdes = fileno(iop)] == 0)
-		return (-1);
 	(void)fclose(iop);
 	sigemptyset(&sigset);
 	sigaddset(&sigset, SIGINT);
 	sigaddset(&sigset, SIGQUIT);
 	sigaddset(&sigset, SIGHUP);
 	sigprocmask(SIG_BLOCK, &sigset, &osigset);
-	while ((pid = waitpid(pids[fdes], &status, 0)) < 0 && errno == EINTR)
+	while ((rv = waitpid(pid, &status, 0)) < 0 && errno == EINTR)
 		continue;
 	sigprocmask(SIG_SETMASK, &osigset, NULL);
-	pids[fdes] = 0;
-	if (pid < 0)
-		return (pid);
+	if (rv < 0)
+		return (rv);
 	if (WIFEXITED(status))
 		return (WEXITSTATUS(status));
 	return (1);
