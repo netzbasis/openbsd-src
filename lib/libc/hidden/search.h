@@ -1,7 +1,6 @@
-/*	$OpenBSD: mbr.h,v 1.25 2015/10/05 01:39:08 krw Exp $	*/
-
+/*	$OpenBSD: search.h,v 1.1 2015/10/04 08:36:57 guenther Exp $	*/
 /*
- * Copyright (c) 1997 Tobias Weingartner
+ * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,28 +15,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _MBR_H
-#define _MBR_H
+#ifndef _LIBC_SEARCH_H_
+#define _LIBC_SEARCH_H_
 
-struct mbr {
-	off_t reloffset;
-	off_t offset;
-	unsigned char code[DOSPARTOFF];
-	struct prt part[NDOSPART];
-	u_int16_t signature;
-};
+#include_next <search.h>
 
-extern struct mbr initial_mbr;
+PROTO_DEPRECATED(hcreate);
+PROTO_DEPRECATED(hdestroy);
+PROTO_DEPRECATED(hsearch);
+PROTO_DEPRECATED(insque);
+PROTO_DEPRECATED(lfind);
+PROTO_DEPRECATED(lsearch);
+PROTO_DEPRECATED(remque);
+PROTO_DEPRECATED(tdelete);
+PROTO_DEPRECATED(tfind);
+PROTO_DEPRECATED(tsearch);
+PROTO_DEPRECATED(twalk);
 
-void MBR_print(struct mbr *, char *);
-void MBR_parse(struct dos_mbr *, off_t, off_t, struct mbr *);
-void MBR_make(struct mbr *, struct dos_mbr *);
-void MBR_init(struct mbr *);
-void MBR_init_GPT(struct mbr *);
-int MBR_read(int, off_t, struct dos_mbr *);
-int MBR_write(int, off_t, struct dos_mbr *);
-void MBR_pcopy(struct mbr *);
-void MBR_zapgpt(int, struct dos_mbr *, uint64_t);
-void MBR_init_GPT(struct mbr *);
-
-#endif /* _MBR_H */
+#endif /* !_LIBC_SEARCH_H_ */

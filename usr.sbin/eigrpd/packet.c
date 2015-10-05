@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.1 2015/10/02 04:26:47 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.3 2015/10/04 23:08:57 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -196,7 +196,7 @@ send_packet(struct eigrp_iface *ei, struct nbr *nbr, uint32_t flags,
 		send_packet_v6(iface, nbr, buf);
 		break;
 	default:
-		break;
+		fatalx("send_packet: unknown af");
 	}
 
 	return (0);
@@ -278,13 +278,12 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 {
 	struct eigrp_iface	*ei;
 	struct nbr		*nbr;
-	struct tlv_parameter	*tp;
-	struct tlv_sw_version	*tv;
-	struct tlv_mcast_seq	*tm;
+	struct tlv_parameter	*tp = NULL;
+	struct tlv_sw_version	*tv = NULL;
+	struct tlv_mcast_seq	*tm = NULL;
 	struct rinfo		 ri;
 	struct rinfo_entry	*re;
-	int			 route_af;
-	enum route_type		 route_type;
+	enum route_type		 route_type = 0;
 	struct seq_addr_head	 seq_addr_list;
 	struct rinfo_head	 rinfo_list;
 
@@ -319,7 +318,7 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 				goto error;
 			break;
 		case TLV_TYPE_SEQ:
-			if (tlv_decode_seq(&tlv, buf, &seq_addr_list) < 0)
+			if (tlv_decode_seq(af, &tlv, buf, &seq_addr_list) < 0)
 				goto error;
 			break;
 		case TLV_TYPE_SW_VERSION:
@@ -334,26 +333,28 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 		case TLV_TYPE_IPV4_EXTERNAL:
 		case TLV_TYPE_IPV6_INTERNAL:
 		case TLV_TYPE_IPV6_EXTERNAL:
+			/* silently ignore TLV from different address-family */
+			if (af != AF_INET &&
+			    (ntohs(tlv.type) == TLV_TYPE_IPV4_INTERNAL  ||
+			    ntohs(tlv.type) == TLV_TYPE_IPV4_EXTERNAL))
+				break;
+			if (af != AF_INET6 &&
+			    (ntohs(tlv.type) == TLV_TYPE_IPV6_INTERNAL  ||
+			    ntohs(tlv.type) == TLV_TYPE_IPV6_EXTERNAL))
+				break;
+
 			switch (ntohs(tlv.type)) {
 			case TLV_TYPE_IPV4_INTERNAL:
-				route_af = AF_INET;
+			case TLV_TYPE_IPV6_INTERNAL:
 				route_type = EIGRP_ROUTE_INTERNAL;
 				break;
 			case TLV_TYPE_IPV4_EXTERNAL:
-				route_af = AF_INET;
-				route_type = EIGRP_ROUTE_EXTERNAL;
-				break;
-			case TLV_TYPE_IPV6_INTERNAL:
-				route_af = AF_INET6;
-				route_type = EIGRP_ROUTE_INTERNAL;
-				break;
 			case TLV_TYPE_IPV6_EXTERNAL:
-				route_af = AF_INET6;
 				route_type = EIGRP_ROUTE_EXTERNAL;
 				break;
 			}
 
-			if (tlv_decode_route(route_af, route_type, &tlv, buf,
+			if (tlv_decode_route(af, route_type, &tlv, buf,
 			    &ri) < 0)
 				goto error;
 			if ((re = calloc(1, sizeof(*re))) == NULL)
@@ -677,7 +678,7 @@ eigrp_hdr_sanity_check(int af, union eigrpd_addr *addr,
 			}
 			break;
 		default:
-			break;
+			fatalx("eigrp_hdr_sanity_check: unknown af");
 		}
 	}
 
@@ -722,7 +723,7 @@ find_iface(unsigned int ifindex, int af, union eigrpd_addr *src)
 			return (iface);
 		break;
 	default:
-		break;
+		fatalx("find_iface: unknown af");
 	}
 
 	return (NULL);

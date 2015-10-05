@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_dual.c,v 1.1 2015/10/02 04:26:47 renato Exp $ */
+/*	$OpenBSD: rde_dual.c,v 1.4 2015/10/05 01:59:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -168,8 +168,7 @@ rt_compare(struct rt_node *a, struct rt_node *b)
 			return (1);
 		break;
 	default:
-		log_debug("%s: unexpected address-family", __func__);
-		break;
+		fatalx("rt_compare: unknown af");
 	}
 
 	if (a->prefixlen < b->prefixlen)
@@ -435,16 +434,20 @@ reply_active_timer(int fd, short event, void *arg)
 	log_debug("%s: neighbor %s is stuck in active",
 	    log_addr(nbr->eigrp->af, &nbr->addr));
 
-	rde_nbr_del(reply->nbr);
+	rde_nbr_del(reply->nbr, 1);
 }
 
 void
 reply_active_start_timer(struct reply_node *reply)
 {
+	struct eigrp		*eigrp = reply->nbr->eigrp;
 	struct timeval		 tv;
 
+	if (eigrp->active_timeout == 0)
+		return;
+
 	timerclear(&tv);
-	tv.tv_sec = EIGRP_ACTIVE_TIMEOUT;
+	tv.tv_sec = eigrp->active_timeout * 60;
 	if (evtimer_add(&reply->ev_active_timeout, &tv) == -1)
 		fatal("reply_active_start_timer");
 }
@@ -472,7 +475,7 @@ reply_sia_timer(int fd, short event, void *arg)
 	if (reply->siaquery_sent > 0 && reply->siareply_recv == 0) {
 		log_debug("%s: neighbor %s is stuck in active",
 		    log_addr(nbr->eigrp->af, &nbr->addr));
-		rde_nbr_del(nbr);
+		rde_nbr_del(nbr, 1);
 		return;
 	}
 
@@ -500,7 +503,11 @@ reply_sia_timer(int fd, short event, void *arg)
 void
 reply_sia_start_timer(struct reply_node *reply)
 {
+	struct eigrp		*eigrp = reply->nbr->eigrp;
 	struct timeval		 tv;
+
+	if (eigrp->active_timeout == 0)
+		return;
 
 	/*
 	 * draft-savage-eigrp-04 - Section 4.4.1.1:
@@ -508,7 +515,7 @@ reply_sia_start_timer(struct reply_node *reply)
 	 * at one-half of the ACTIVE timeout period."
 	 */
 	timerclear(&tv);
-	tv.tv_sec = EIGRP_ACTIVE_TIMEOUT / 2;
+	tv.tv_sec = (eigrp->active_timeout * 60) / 2;
 	if (evtimer_add(&reply->ev_sia_timeout, &tv) == -1)
 		fatal("reply_sia_start_timer");
 }
@@ -1232,9 +1239,13 @@ rde_nbr_new(uint32_t peerid, struct rde_nbr *new)
 }
 
 void
-rde_nbr_del(struct rde_nbr *nbr)
+rde_nbr_del(struct rde_nbr *nbr, int send_peerterm)
 {
 	struct reply_node	*reply;
+
+	if (send_peerterm)
+		rde_imsg_compose_eigrpe(IMSG_NEIGHBOR_DOWN, nbr->peerid,
+		    0, NULL, 0);
 
 	while((reply = TAILQ_FIRST(&nbr->rijk)) != NULL)
 		reply_outstanding_remove(reply);

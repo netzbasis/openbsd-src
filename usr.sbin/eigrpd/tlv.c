@@ -1,4 +1,4 @@
-/*	$OpenBSD: tlv.c,v 1.1 2015/10/02 04:26:47 renato Exp $ */
+/*	$OpenBSD: tlv.c,v 1.4 2015/10/05 01:59:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -29,13 +29,21 @@
 #include "eigrpe.h"
 
 int
-gen_parameter_tlv(struct ibuf *buf, struct eigrp_iface *ei)
+gen_parameter_tlv(struct ibuf *buf, struct eigrp_iface *ei, int peerterm)
 {
 	struct tlv_parameter	 tp;
 
 	tp.type = htons(TLV_TYPE_PARAMETER);
 	tp.length = htons(TLV_TYPE_PARAMETER_LEN);
-	memcpy(tp.kvalues, ei->eigrp->kvalues, 6);
+	if (peerterm) {
+		tp.kvalues[0] = 255;
+		tp.kvalues[1] = 255;
+		tp.kvalues[2] = 255;
+		tp.kvalues[3] = 255;
+		tp.kvalues[4] = 255;
+		tp.kvalues[5] = 0;
+	} else
+		memcpy(tp.kvalues, ei->eigrp->kvalues, 6);
 	tp.holdtime = htons(ei->hello_holdtime);
 
 	return (ibuf_add(buf, &tp, sizeof(tp)));
@@ -187,7 +195,7 @@ gen_route_tlv(struct ibuf *buf, struct rinfo *ri)
 		}
 		break;
 	default:
-		break;
+		fatalx("gen_route_tlv: unknown af");
 	}
 	if (ibuf_add(buf, &tlv, sizeof(tlv)))
 		return (-1);
@@ -207,7 +215,7 @@ gen_route_tlv(struct ibuf *buf, struct rinfo *ri)
 		tlvlen += sizeof(ri->nexthop.v6);
 		break;
 	default:
-		break;
+		fatalx("gen_route_tlv: unknown af");
 	}
 
 	/* exterior metric */
@@ -246,7 +254,7 @@ gen_route_tlv(struct ibuf *buf, struct rinfo *ri)
 			return (-1);
 		break;
 	default:
-		break;
+		fatalx("gen_route_tlv: unknown af");
 	}
 	tlvlen += sizeof(pflen) + pflen;
 
@@ -272,7 +280,7 @@ tlv_decode_parameter(struct tlv *tlv, char *buf)
 }
 
 int
-tlv_decode_seq(struct tlv *tlv, char *buf,
+tlv_decode_seq(int af, struct tlv *tlv, char *buf,
     struct seq_addr_head *seq_addr_list)
 {
 	uint16_t		 len;
@@ -298,19 +306,27 @@ tlv_decode_seq(struct tlv *tlv, char *buf,
 
 		if ((sa = calloc(1, sizeof(*sa))) == NULL)
 			fatal("tlv_decode_seq");
-		switch (alen) {
-		case INADDRSZ:
-			sa->af = AF_INET;
+		sa->af = af;
+		switch (af) {
+		case AF_INET:
+			if (alen != INADDRSZ) {
+				log_debug("%s: invalid address length");
+				free(sa);
+				return (-1);
+			}
 			memcpy(&sa->addr.v4, buf, sizeof(struct in_addr));
 			break;
-		case IN6ADDRSZ:
-			sa->af = AF_INET6;
+		case AF_INET6:
+			if (alen != IN6ADDRSZ) {
+				log_debug("%s: invalid address length");
+				free(sa);
+				return (-1);
+			}
 			memcpy(&sa->addr.v6, buf, sizeof(struct in6_addr));
 			break;
 		default:
-			log_debug("%s: unknown address length", __func__);
 			free(sa);
-			return (-1);
+			fatalx("tlv_decode_seq: unknown af");
 		}
 		buf += alen;
 		len -= alen;
@@ -362,7 +378,7 @@ tlv_decode_route(int af, enum route_type type, struct tlv *tlv, char *buf,
 		min_len = TLV_TYPE_IPV6_INT_MIN_LEN;
 		break;
 	default:
-		break;
+		fatalx("tlv_decode_route: unknown af");
 	}
 	if (type == EIGRP_ROUTE_EXTERNAL)
 		min_len += sizeof(struct classic_emetric);
@@ -385,8 +401,9 @@ tlv_decode_route(int af, enum route_type type, struct tlv *tlv, char *buf,
 	case AF_INET6:
 		memcpy(&ri->nexthop.v6, buf + offset, sizeof(ri->nexthop.v6));
 		offset += sizeof(ri->nexthop.v6);
-	default:
 		break;
+	default:
+		fatalx("tlv_decode_route: unknown af");
 	}
 
 	/* exterior metric */
@@ -418,7 +435,7 @@ tlv_decode_route(int af, enum route_type type, struct tlv *tlv, char *buf,
 		plen = PREFIX_SIZE6(ri->prefixlen);
 		break;
 	default:
-		break;
+		fatalx("tlv_decode_route: unknown af");
 	}
 
 	/* safety check */
@@ -456,7 +473,7 @@ tlv_decode_route(int af, enum route_type type, struct tlv *tlv, char *buf,
 		}
 		break;
 	default:
-		break;
+		fatalx("tlv_decode_route: unknown af");
 	}
 
 	/* just in case... */

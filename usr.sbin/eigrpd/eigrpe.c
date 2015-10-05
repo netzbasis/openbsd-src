@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpe.c,v 1.1 2015/10/02 04:26:47 renato Exp $ */
+/*	$OpenBSD: eigrpe.c,v 1.3 2015/10/05 01:59:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -241,7 +241,7 @@ eigrpe_imsg_compose_rde(int type, uint32_t peerid, pid_t pid,
 void
 eigrpe_dispatch_main(int fd, short event, void *bula)
 {
-	struct iface		*niface;
+	struct iface		*niface = NULL;
 	static struct eigrp	*neigrp;
 	struct eigrp_iface	*nei;
 	struct imsg		 imsg;
@@ -359,6 +359,8 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 			TAILQ_INSERT_TAIL(&nconf->iface_list, niface, entry);
 			break;
 		case IMSG_RECONF_EIGRP_IFACE:
+			if (niface == NULL)
+				break;
 			if ((nei = malloc(sizeof(struct eigrp_iface))) == NULL)
 				fatal(NULL);
 			memcpy(nei, imsg.data, sizeof(struct eigrp_iface));
@@ -530,6 +532,17 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 				message_list_clr(&ei->query_list);
 				break;
 			}
+			break;
+		case IMSG_NEIGHBOR_DOWN:
+			nbr = nbr_find_peerid(imsg.hdr.peerid);
+			if (nbr == NULL) {
+				log_debug("%s: cannot find rde neighbor",
+				    __func__);
+				break;
+			}
+			/* announce that this neighborship is dead */
+			send_hello(nbr->ei, NULL, 0, 1);
+			nbr_del(nbr);
 			break;
 		case IMSG_CTL_SHOW_TOPOLOGY:
 		case IMSG_CTL_END:

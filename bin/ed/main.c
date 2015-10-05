@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.46 2015/07/28 17:46:52 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.48 2015/10/04 15:23:24 millert Exp $	*/
 /*	$NetBSD: main.c,v 1.3 1995/03/21 09:04:44 cgd Exp $	*/
 
 /* main.c: This file contains the main control and user-interface routines
@@ -52,11 +52,7 @@
 #include "ed.h"
 
 
-#ifdef _POSIX_SOURCE
 sigjmp_buf env;
-#else
-jmp_buf env;
-#endif
 
 /* static buffers */
 char stdinbuf[1];		/* stdin buffer */
@@ -149,21 +145,14 @@ top:
 	}
 
 	/* assert: reliable signals! */
-#ifdef SIGWINCH
 	if (isatty(STDIN_FILENO)) {
 		handle_winch(SIGWINCH);
 		signal(SIGWINCH, handle_winch);
 	}
-#endif
 	signal(SIGHUP, signal_hup);
 	signal(SIGQUIT, SIG_IGN);
 	signal(SIGINT, signal_int);
-#ifdef _POSIX_SOURCE
-	if (status = sigsetjmp(env, 1))
-#else
-	if ((status = setjmp(env)) != 0)
-#endif
-	{
+	if (status = sigsetjmp(env, 1)) {
 		fputs("\n?\n", stderr);
 		seterrmsg("interrupt");
 	} else {
@@ -470,11 +459,11 @@ exec_command(void)
 	extern int u_current_addr;
 	extern int u_addr_last;
 
-	static pattern_t *pat = NULL;
+	static regex_t *pat = NULL;
 	static int sgflag = 0;
 	static int sgnum = 0;
 
-	pattern_t *tpat;
+	regex_t *tpat;
 	char *fnp;
 	int gflag = 0;
 	int sflags = 0;
@@ -922,7 +911,7 @@ check_addr_range(int n, int m)
    pattern in a given direction.  wrap around begin/end of editor buffer if
    necessary */
 int
-get_matching_node_addr(pattern_t *pat, int dir)
+get_matching_node_addr(regex_t *pat, int dir)
 {
 	char *s;
 	int n = current_addr;
@@ -1405,11 +1394,7 @@ handle_int(int signo)
 	if (!sigactive)
 		_exit(1);
 	sigint = 0;
-#ifdef _POSIX_SOURCE
 	siglongjmp(env, -1);
-#else
-	longjmp(env, -1);
-#endif
 }
 
 

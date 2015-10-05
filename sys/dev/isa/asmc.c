@@ -1,4 +1,4 @@
-/*	$OpenBSD: asmc.c,v 1.5 2015/10/01 18:41:06 jung Exp $	*/
+/*	$OpenBSD: asmc.c,v 1.8 2015/10/04 20:00:50 jung Exp $	*/
 /*
  * Copyright (c) 2015 Joerg Jung <jung@openbsd.org>
  *
@@ -128,8 +128,8 @@ static struct asmc_prod asmc_prods[] = {
 		"TpPS", "TpTG", "Tv0S", "Tv1S", NULL }
 	},
 	{ "MacMini", {
-		"TC0D", "TC0H", "TC0P", "TH0P", "TN0D", "TN0P", "TN0P", "TN1P",
-		"TW0P", NULL }
+		"TC0D", "TC0H", "TC0P", "TH0P", "TN0D", "TN0P", "TN1P", "TW0P",
+		NULL }
 	},
 	{ "iMac", {
 		"TA0P", "TC0D", "TC0H", "TC0P", "TG0D", "TG0H", "TG0P", "TH0P",
@@ -471,7 +471,7 @@ asmc_lights(struct asmc_softc *sc, uint8_t *n)
 			printf(", read %s failed (0x%x)", key, s);
 			return 1;
 		}
-		if (s == ASMC_NOTFOUND)
+		if (s == ASMC_NOTFOUND || !buf[0]) /* valid data? */
 			continue;
 
 		(*n)++;
@@ -567,7 +567,7 @@ asmc_init(struct asmc_softc *sc)
 		printf(", light sensors failed\n");
 		return 1;
 	}
-	printf(", %u light%s", n, (n == 1) ? "" : "s");
+	printf("%s", n ? ", lights" : "");
 
 	if (asmc_motions(sc, &n)) { /* motion sensors are optional */
 		printf(", sudden motion sensors failed\n");
@@ -581,7 +581,7 @@ asmc_init(struct asmc_softc *sc)
 		printf(", keyboard backlight failed (0x%x)\n", s);
 		return 1;
 	}
-	printf("%s\n", (s == ASMC_NOTFOUND) ? "" : ", kbdled");
+	printf("\n");
 
 	return 0;
 }
@@ -615,12 +615,7 @@ asmc_update(void *arg)
 	for (i = 0; i < ASMC_MAXLIGHT; i++) {
 		snprintf(key, sizeof(key), "ALV%d", i);
 		if (!(sc->sc_sensor_light[i].flags & SENSOR_FINVALID) &&
-		    !asmc_try(sc, ASMC_READ, key, buf, sc->sc_lightlen)) {
-			if (!buf[0]) { /* check if found data is valid */
-				sc->sc_sensor_light[i].flags |=
-				    SENSOR_FINVALID;
-				continue;
-			}
+		    !asmc_try(sc, ASMC_READ, key, buf, sc->sc_lightlen))
 			/* newer macbooks report an 10 bit big endian value */
 			sc->sc_sensor_light[i].value =
 			    (sc->sc_lightlen == 10) ?
@@ -637,7 +632,6 @@ asmc_update(void *arg)
 			     */
 			    ((sc->sc_sensor_light[i].flags |=
 			        SENSOR_FUNKNOWN), 0);
-		}
 	}
 
 #if 0 /* todo: implement motion sensors update */
