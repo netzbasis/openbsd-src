@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ppp.c,v 1.87 2015/07/15 22:16:41 deraadt Exp $	*/
+/*	$OpenBSD: if_ppp.c,v 1.89 2015/10/05 19:05:09 uebayasi Exp $	*/
 /*	$NetBSD: if_ppp.c,v 1.39 1997/05/17 21:11:59 christos Exp $	*/
 
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.c,v 1.265 2015/09/29 10:11:40 deraadt Exp $	*/
+/*	$OpenBSD: if_bridge.c,v 1.267 2015/10/05 19:05:09 uebayasi Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)

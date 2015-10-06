@@ -43,11 +43,20 @@
  *   it possible to handle all "dodgy" directives correctly.
  */
 
-#include "unifdef.h"
+#include <sys/stat.h>
+
+#include <ctype.h>
+#include <err.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 static const char copyright[] =
     #include "version.h"
-    "@(#) $Author: tedu $\n"
+    "@(#) $Author: deraadt $\n"
     "@(#) $URL: http://dotat.at/prog/unifdef $\n"
 ;
 
@@ -243,6 +252,7 @@ static void             unnest(void);
 static void             usage(void);
 static void             version(void);
 static const char      *xstrdup(const char *, const char *);
+static FILE *		mktempmode(char *tmp, int mode);
 
 #define endsym(c) (!isalnum((unsigned char)c) && c != '_')
 
@@ -254,6 +264,9 @@ main(int argc, char *argv[])
 {
 	const char *errstr;
 	int opt;
+
+	if (tame("stdio rpath wpath cpath fattr", NULL) == -1)
+		err(1, "tame");
 
 	while ((opt = getopt(argc, argv, "i:D:U:f:I:M:o:x:bBcdehKklmnsStV")) != -1)
 		switch (opt) {
@@ -384,7 +397,7 @@ processinout(const char *ifn, const char *ofn)
 	if (ifn == NULL || strcmp(ifn, "-") == 0) {
 		filename = "[stdin]";
 		linefile = NULL;
-		input = fbinmode(stdin);
+		input = stdin;
 	} else {
 		filename = ifn;
 		linefile = ifn;
@@ -393,7 +406,7 @@ processinout(const char *ifn, const char *ofn)
 			err(2, "can't open %s", ifn);
 	}
 	if (strcmp(ofn, "-") == 0) {
-		output = fbinmode(stdout);
+		output = stdout;
 		process();
 		return;
 	}
@@ -418,7 +431,7 @@ processinout(const char *ifn, const char *ofn)
 			err(2, "can't rename \"%s\" to \"%s\"", ofn, backname);
 		free(backname);
 	}
-	if (replace(tempname, ofn) < 0)
+	if (rename(tempname, ofn) < 0)
 		err(2, "can't rename \"%s\" to \"%s\"", tempname, ofn);
 	free(tempname);
 	tempname = NULL;
@@ -1570,4 +1583,14 @@ error(const char *msg)
 		    filename, linenum, msg, stifline[depth], depth);
 	closeio();
 	errx(2, "output may be truncated");
+}
+
+static FILE *
+mktempmode(char *tmp, int mode)
+{
+	int fd = mkstemp(tmp);
+	if (fd < 0)
+		return (NULL);
+	fchmod(fd, mode & (S_IRWXU|S_IRWXG|S_IRWXO));
+	return (fdopen(fd, "wb"));
 }
