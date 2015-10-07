@@ -1,4 +1,4 @@
-/*	$OpenBSD: tame.h,v 1.8 2015/09/30 11:36:07 semarie Exp $	*/
+/*	$OpenBSD: tame.h,v 1.10 2015/10/06 15:21:26 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -33,13 +33,16 @@
 #define TAME_TMPPATH	0x00000040	/* for mk*temp() */
 #define TAME_INET	0x00000080	/* AF_INET/AF_INET6 sockets */
 #define TAME_UNIX	0x00000100	/* AF_UNIX sockets */
-#define TAME_CMSG	0x00000200	/* AF_UNIX CMSG fd passing */
-#define TAME_IOCTL	0x00000400	/* scary */
-#define TAME_GETPW	0x00000800	/* enough to enable YP */
+// reuse, old CMSG	0x00000200
+#define TAME_IOCTL	0x00000400	/* Select ioctl */
+#define TAME_GETPW	0x00000800	/* YP enables if ypbind.lock */
 #define TAME_PROC	0x00001000	/* fork, waitpid, etc */
 #define TAME_CPATH	0x00002000	/* allow creat, mkdir, path creations */
 #define TAME_FATTR	0x00004000	/* allow explicit file st_* mods */
 #define TAME_PROTEXEC	0x00008000	/* allow use of PROT_EXEC */
+#define TAME_TTY	0x00010000	/* tty setting */
+#define TAME_SENDFD	0x00020000	/* AF_UNIX CMSG fd sending */
+#define TAME_RECVFD	0x00040000	/* AF_UNIX CMSG fd receiving */
 
 #define TAME_ABORT	0x08000000	/* SIGABRT instead of SIGKILL */
 
@@ -54,8 +57,9 @@ int	tame_fail(struct proc *, int, int);
 int	tame_namei(struct proc *, char *);
 void	tame_aftersyscall(struct proc *, int, int);
 
-int	tame_cmsg_send(struct proc *p, void *v, int controllen);
-int	tame_cmsg_recv(struct proc *p, void *v, int controllen);
+struct mbuf;
+int	tame_cmsg_send(struct proc *p, struct mbuf *control);
+int	tame_cmsg_recv(struct proc *p, struct mbuf *control);
 int	tame_sysctl_check(struct proc *p, int namelen, int *name, void *new);
 int	tame_adjtime_check(struct proc *p, const void *v);
 int	tame_recvfrom_check(struct proc *p, void *from);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.8 2015/09/30 11:36:07 semarie Exp $ */
+/*	$OpenBSD: main.c,v 1.10 2015/10/06 15:45:31 semarie Exp $ */
 /*
  * Copyright (c) 2015 Sebastien Marie <semarie@openbsd.org>
  *
@@ -200,6 +200,48 @@ test_mmap()
 	close(fd);
 }
 
+static void
+test_rpath()
+{
+	int fd;
+	char data[512];
+
+	if ((fd = open("/dev/zero", O_RDONLY, 0)) == -1)
+		_exit(errno);
+
+	if (read(fd, data, sizeof(data)) == -1)
+		_exit(errno);
+
+	close(fd);
+}
+
+static void
+test_wpath()
+{
+	int fd;
+	char data[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+
+	if ((fd = open("/dev/null", O_WRONLY, 0)) == -1)
+		_exit(errno);
+
+	if (write(fd, data, sizeof(data)) == -1)
+		_exit(errno);
+
+	close(fd);
+}
+
+static void
+test_cpath()
+{
+	const char filename[] = "/tmp/generic-test-cpath";
+
+	if (mkdir(filename, S_IRWXU) == -1)
+		_exit(errno);
+
+	if (rmdir(filename) == -1)
+		_exit(errno);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -237,17 +279,21 @@ main(int argc, char *argv[])
 	start_test(&ret, "tmppath", NULL, test_allowed_syscalls);
 	start_test(&ret, "inet",    NULL, test_allowed_syscalls);
 	start_test(&ret, "unix",    NULL, test_allowed_syscalls);
-	start_test(&ret, "cmsg",    NULL, test_allowed_syscalls);
 	start_test(&ret, "dns",     NULL, test_allowed_syscalls);
 	start_test(&ret, "getpw",   NULL, test_allowed_syscalls);
 
 	/* tests req without TAME_SELF for "permitted syscalls" */
 	// XXX it is a documentation bug
+	start_test(&ret, "cmsg",  NULL, test_allowed_syscalls);
 	start_test(&ret, "ioctl", NULL, test_allowed_syscalls);
 	start_test(&ret, "proc",  NULL, test_allowed_syscalls);
 	start_test(&ret, "cpath", NULL, test_allowed_syscalls);
 	start_test(&ret, "abort", NULL, test_allowed_syscalls);
 	start_test(&ret, "fattr", NULL, test_allowed_syscalls);
+
+	start_test(&ret, "rpath", NULL, test_rpath);
+	start_test(&ret, "wpath", NULL, test_wpath);
+	start_test(&ret, "cpath", NULL, test_cpath);
 
 	/*
 	 * test whitelist path
@@ -279,7 +325,7 @@ main(int argc, char *argv[])
 	/* add request */
 	start_test(&ret, "stdio", NULL, test_tame);
 	/* change request */
-	start_test(&ret, "cmsg", NULL, test_tame);
+	start_test(&ret, "unix", NULL, test_tame);
 
 	/* test stat(2) */
 	start_test1(&ret, "stdio rpath", "/usr/share/man", test_stat);
