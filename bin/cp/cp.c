@@ -1,4 +1,4 @@
-/*	$OpenBSD: cp.c,v 1.38 2015/05/07 17:32:20 guenther Exp $	*/
+/*	$OpenBSD: cp.c,v 1.40 2015/10/08 00:07:20 deraadt Exp $	*/
 /*	$NetBSD: cp.c,v 1.14 1995/09/07 06:14:51 jtc Exp $	*/
 
 /*
