@@ -1,9 +1,7 @@
-/*	$OpenBSD: history.c,v 1.44 2015/09/17 21:39:54 nicm Exp $	*/
+/*	$OpenBSD: history.c,v 1.46 2015/10/08 16:41:26 tedu Exp $	*/
 
 /*
  * command history
- *
- * only implements in-memory history.
  */
 
 /*
@@ -598,24 +596,18 @@ histsave(int lno, const char *cmd, int dowrite)
 }
 
 /*
- *	Write history data to a file nominated by HISTFILE
- *	if HISTFILE is unset then history still happens, but
- *	the data is not written to a file
- *	All copies of ksh looking at the file will maintain the
- *	same history. This is ksh behaviour.
- *
- *	This stuff uses mmap()
- *	if your system ain't got it - then you'll have to undef HISTORYFILE
+ *	Write history data to a file nominated by HISTFILE. If HISTFILE
+ *	is unset then history is still recorded, but the data is not
+ *	written to a file. All copies of ksh looking at the file will
+ *	maintain the same history. This is ksh behaviour.
  */
 
 /*
- *	Open a history file
- *	Format is:
- *	Bytes 1, 2: HMAGIC - just to check that we are dealing with
- *		    the correct object
- *	Then follows a number of stored commands
- *	Each command is
- *	<command byte><command number(4 bytes)><bytes><null>
+ *	History file format:
+	 * Bytes 1, 2: HMAGIC - just to check that we are dealing with
+	   the correct object
+	 * Each command, in the format:
+	   <command byte><command number(4 bytes)><bytes><null>
  */
 #define HMAGIC1		0xab
 #define HMAGIC2		0xcd
@@ -627,6 +619,7 @@ hist_init(Source *s)
 	unsigned char	*base;
 	int	lines;
 	int	fd;
+	struct stat sb;
 
 	if (Flag(FTALKING) == 0)
 		return;
@@ -644,6 +637,10 @@ hist_init(Source *s)
 	/* we have a file and are interactive */
 	if ((fd = open(hname, O_RDWR|O_CREAT|O_APPEND, 0600)) < 0)
 		return;
+	if (fstat(fd, &sb) == -1 || sb.st_uid != getuid()) {
+		close(fd);
+		return;
+	}
 
 	histfd = savefd(fd);
 	if (histfd != fd)
@@ -664,7 +661,7 @@ hist_init(Source *s)
 		/*
 		 * we have some data
 		 */
-		base = (unsigned char *)mmap(0, hsize, PROT_READ,
+		base = mmap(0, hsize, PROT_READ,
 		    MAP_FILE|MAP_PRIVATE, histfd, 0);
 		/*
 		 * check on its validity
@@ -740,7 +737,6 @@ hist_shrink(unsigned char *oldbase, int oldbytes)
 {
 	int fd;
 	char	nfile[1024];
-	struct	stat statb;
 	unsigned char *nbase = oldbase;
 	int nbytes = oldbytes;
 
@@ -767,11 +763,6 @@ hist_shrink(unsigned char *oldbase, int oldbytes)
 		unlink(nfile);
 		return 1;
 	}
-	/*
-	 *	worry about who owns this file
-	 */
-	if (fstat(histfd, &statb) >= 0)
-		fchown(fd, statb.st_uid, statb.st_gid);
 	close(fd);
 
 	/*
@@ -902,7 +893,7 @@ writehistfile(int lno, char *cmd)
 		if (sizenow > hsize) {
 			/* someone has added some lines */
 			bytes = sizenow - hsize;
-			base = (unsigned char *)mmap(0, sizenow,
+			base = mmap(0, sizenow,
 			    PROT_READ, MAP_FILE|MAP_PRIVATE, histfd, 0);
 			if (base == MAP_FAILED)
 				goto bad;
