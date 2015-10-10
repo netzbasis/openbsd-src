@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.3 2015/10/09 02:44:22 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.6 2015/10/09 23:55:03 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -136,7 +136,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_fork] = PLEDGE_PROC,
 	[SYS_vfork] = PLEDGE_PROC,
-	[SYS_kill] = PLEDGE_PROC,
+	[SYS_kill] = PLEDGE_SELF | PLEDGE_PROC,	
 	[SYS_setpgid] = PLEDGE_PROC,
 	[SYS_sigsuspend] = PLEDGE_PROC,
 	[SYS_setrlimit] = PLEDGE_PROC,
@@ -217,7 +217,8 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 
-	[SYS_flock] = PLEDGE_GETPW,
+	/* XXX getpw for the ypbind.lock; all other flock users have cpath */
+	[SYS_flock] = PLEDGE_GETPW | PLEDGE_CPATH,
 };
 
 static const struct {
@@ -1016,6 +1017,9 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		case FIOGETOWN:
 			return (0);
 		case TIOCGETA:
+			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
+				return (0);
+			return (ENOTTY);
 		case TIOCGPGRP:
 		case TIOCGWINSZ:	/* various programs */
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
@@ -1059,6 +1063,9 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 				break;
 			/* FALTHROUGH */
 		case TIOCGETA:
+			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
+				return (0);
+			return (ENOTTY);
 		case TIOCGPGRP:
 		case TIOCGWINSZ:	/* various programs */
 #if notyet

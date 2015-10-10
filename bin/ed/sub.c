@@ -1,4 +1,4 @@
-/*	$OpenBSD: sub.c,v 1.12 2015/10/04 15:23:24 millert Exp $	*/
+/*	$OpenBSD: sub.c,v 1.14 2015/10/09 20:27:28 tobias Exp $	*/
 /*	$NetBSD: sub.c,v 1.4 1995/03/21 09:04:50 cgd Exp $	*/
 
 /* sub.c: This file contains the substitution routines for the ed
@@ -31,10 +31,13 @@
 
 #include "ed.h"
 
+static char *extract_subst_template(void);
+static int substitute_matching_text(regex_t *, line_t *, int, int);
+static int apply_subst_template(char *, regmatch_t *, int, int);
 
-char *rhbuf;			/* rhs substitution buffer */
-int rhbufsz;			/* rhs substitution buffer size */
-int rhbufi;			/* rhs substitution buffer index */
+static char *rhbuf;		/* rhs substitution buffer */
+static int rhbufsz;		/* rhs substitution buffer size */
+static int rhbufi;		/* rhs substitution buffer index */
 
 /* extract_subst_tail: extract substitution tail from the command buffer */
 int
@@ -68,7 +71,7 @@ extract_subst_tail(int *flagp, int *np)
 
 /* extract_subst_template: return pointer to copy of substitution template
    in the command buffer */
-char *
+static char *
 extract_subst_template(void)
 {
 	int n = 0;
@@ -105,8 +108,8 @@ extract_subst_template(void)
 }
 
 
-char *rbuf;			/* substitute_matching_text buffer */
-int rbufsz;			/* substitute_matching_text buffer size */
+static char *rbuf;		/* substitute_matching_text buffer */
+static int rbufsz;		/* substitute_matching_text buffer size */
 
 /* search_and_replace: for each line in a range, change text matching a pattern
    according to a substitution template; return status  */
@@ -164,7 +167,7 @@ search_and_replace(regex_t *pat, int gflag, int kth)
 
 /* substitute_matching_text: replace text matched by a pattern according to
    a substitution template; return pointer to the modified text */
-int
+static int
 substitute_matching_text(regex_t *pat, line_t *lp, int gflag, int kth)
 {
 	int off = 0;
@@ -221,7 +224,7 @@ substitute_matching_text(regex_t *pat, line_t *lp, int gflag, int kth)
 
 /* apply_subst_template: modify text according to a substitution template;
    return offset to end of modified text */
-int
+static int
 apply_subst_template(char *boln, regmatch_t *rm, int off, int re_nsub)
 {
 	int j = 0;

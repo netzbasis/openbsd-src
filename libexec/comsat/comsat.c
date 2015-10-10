@@ -1,4 +1,4 @@
-/*	$OpenBSD: comsat.c,v 1.40 2015/07/06 15:42:20 millert Exp $	*/
+/*	$OpenBSD: comsat.c,v 1.42 2015/10/09 17:09:06 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -52,6 +52,7 @@
 #include <unistd.h>
 #include <utmp.h>
 #include <vis.h>
+#include <err.h>
 
 int	debug = 0;
 #define	dsyslog	if (debug) syslog
@@ -81,6 +82,9 @@ main(int argc, char *argv[])
 	socklen_t fromlen;
 	char msgbuf[100];
 	sigset_t sigset;
+
+	if (pledge("stdio rpath wpath tty proc", NULL) == -1)
+		err(1, "pledge");
 
 	/* verify proper invocation */
 	fromlen = sizeof(from);
@@ -275,14 +279,7 @@ jkfprintf(FILE *tp, char name[], off_t offset)
 	char visout[5], *s2;
 	FILE *fi;
 	int linecnt, charcnt, inheader;
-	struct passwd *p;
 	char line[BUFSIZ];
-
-	/* Set effective uid to user in case mail drop is on nfs */
-	if ((p = getpwnam(name)) != NULL) {
-		(void) seteuid(p->pw_uid);
-		(void) setuid(p->pw_uid);
-	}
 
 	if ((fi = fopen(name, "r")) == NULL)
 		return;
