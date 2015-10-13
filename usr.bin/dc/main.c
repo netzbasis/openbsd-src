@@ -1,7 +1,7 @@
-/*	$OpenBSD: landisk_installboot.c,v 1.4 2015/10/11 15:36:58 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.1 2015/10/10 19:28:54 deraadt Exp $	*/
 
 /*
- * Copyright (c) 2013 Joel Sing <jsing@openbsd.org>
+ * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,40 +16,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <err.h>
 #include <stdlib.h>
+#include <unistd.h>
 
-#include "installboot.h"
+#include "extern.h"
 
-char	*bootldr;
-
-void
-md_init(void)
+int
+main(int argc, char *argv[])
 {
-	stages = 2;
-	stage1 = "/usr/mdec/xxboot";
-	stage2 = "/usr/mdec/boot";
+	setproctitle("dc");
 
-	bootldr = "/boot";
-}
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
 
-void
-md_loadboot(void)
-{
-}
-
-void
-md_installboot(int devfd, char *dev)
-{
-	/* XXX - is this necessary? */
-	sync();
-
-	bootldr = fileprefix(root, bootldr);
-	if (bootldr == NULL)
-		exit(1);
-	if (!nowrite)
-		if (filecopy(stage2, bootldr) == -1)
-			exit(1);
-
-	/* Write bootblock into the superblock. */
-	bootstrap(devfd, dev, stage1);
+	return dc_main(argc, argv);
 }

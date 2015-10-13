@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandocdb.c,v 1.150 2015/10/06 18:30:43 schwarze Exp $ */
+/*	$OpenBSD: mandocdb.c,v 1.155 2015/10/12 22:30:27 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -21,6 +21,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <fts.h>
@@ -179,8 +180,9 @@ static	int	 set_basedir(const char *, int);
 static	int	 treescan(void);
 static	size_t	 utf8(unsigned int, char [7]);
 
+extern	char		*__progname;
+
 static	char		 tempfilename[32];
-static	char		*progname;
 static	int		 nodb; /* no database changes */
 static	int		 mparse_options; /* abort the parse early */
 static	int		 use_all; /* use all found files */
@@ -336,6 +338,11 @@ mandocdb(int argc, char *argv[])
 	size_t		  j, sz;
 	int		  ch, i;
 
+	if (pledge("stdio rpath wpath cpath fattr proc exec", NULL) == -1) {
+		perror("pledge");
+		return (int)MANDOCLEVEL_SYSERR;
+	}
+
 	memset(&conf, 0, sizeof(conf));
 	memset(stmts, 0, STMT__MAX * sizeof(sqlite3_stmt *));
 
@@ -347,12 +354,6 @@ mandocdb(int argc, char *argv[])
 	mpages_info.key_offset = offsetof(struct mpage, inodev);
 	mlinks_info.key_offset = offsetof(struct mlink, file);
 
-	progname = strrchr(argv[0], '/');
-	if (progname == NULL)
-		progname = argv[0];
-	else
-		++progname;
-
 	/*
 	 * We accept a few different invocations.
 	 * The CHECKOP macro makes sure that invocation styles don't
@@ -360,8 +361,7 @@ mandocdb(int argc, char *argv[])
 	 */
 #define	CHECKOP(_op, _ch) do \
 	if (OP_DEFAULT != (_op)) { \
-		fprintf(stderr, "%s: -%c: Conflicting option\n", \
-		    progname, (_ch)); \
+		warnx("-%c: Conflicting option", (_ch)); \
 		goto usage; \
 	} while (/*CONSTCOND*/0)
 
@@ -397,9 +397,8 @@ mandocdb(int argc, char *argv[])
 			break;
 		case 'T':
 			if (strcmp(optarg, "utf8")) {
-				fprintf(stderr, "%s: -T%s: "
-				    "Unsupported output format\n",
-				    progname, optarg);
+				warnx("-T%s: Unsupported output format",
+				    optarg);
 				goto usage;
 			}
 			write_utf8 = 1;
@@ -425,9 +424,13 @@ mandocdb(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if (nodb && pledge("stdio rpath", NULL) == -1) {
+		perror("pledge");
+		return (int)MANDOCLEVEL_SYSERR;
+	}
+
 	if (OP_CONFFILE == op && argc > 0) {
-		fprintf(stderr, "%s: -C: Too many arguments\n",
-		    progname);
+		warnx("-C: Too many arguments");
 		goto usage;
 	}
 
@@ -452,6 +455,12 @@ mandocdb(int argc, char *argv[])
 			 * The existing database is usable.  Process
 			 * all files specified on the command-line.
 			 */
+			if (!nodb && pledge("stdio rpath wpath cpath fattr",
+			    NULL) == -1) {
+				perror("pledge");
+				exitcode = (int)MANDOCLEVEL_SYSERR;
+				goto out;
+			}
 			use_all = 1;
 			for (i = 0; i < argc; i++)
 				filescan(argv[i]);
@@ -544,8 +553,8 @@ usage:
 			"       %s [-DnpQ] [-Tutf8] -d dir [file ...]\n"
 			"       %s [-Dnp] -u dir [file ...]\n"
 			"       %s [-Q] -t file ...\n",
-		       progname, progname, progname,
-		       progname, progname);
+		       __progname, __progname, __progname,
+		       __progname, __progname);
 
 	return (int)MANDOCLEVEL_BADARG;
 }
@@ -581,7 +590,7 @@ treescan(void)
 
 	f = fts_open((char * const *)argv,
 	    FTS_PHYSICAL | FTS_NOCHDIR, NULL);
-	if (NULL == f) {
+	if (f == NULL) {
 		exitcode = (int)MANDOCLEVEL_SYSERR;
 		say("", "&fts_open");
 		return 0;
@@ -590,7 +599,7 @@ treescan(void)
 	dsec = arch = NULL;
 	dform = FORM_NONE;
 
-	while (NULL != (ff = fts_read(f))) {
+	while ((ff = fts_read(f)) != NULL) {
 		path = ff->fts_path + 2;
 		switch (ff->fts_info) {
 
@@ -599,7 +608,7 @@ treescan(void)
 		 * then get handled just like regular files.
 		 */
 		case FTS_SL:
-			if (NULL == realpath(path, buf)) {
+			if (realpath(path, buf) == NULL) {
 				if (warnings)
 					say(path, "&realpath");
 				continue;
@@ -610,7 +619,7 @@ treescan(void)
 				continue;
 			}
 			/* Use logical inode to avoid mpages dupe. */
-			if (-1 == stat(path, ff->fts_statp)) {
+			if (stat(path, ff->fts_statp) == -1) {
 				if (warnings)
 					say(path, "&stat");
 				continue;
@@ -622,7 +631,7 @@ treescan(void)
 		 * stored directory data and handling the filename.
 		 */
 		case FTS_F:
-			if (0 == strcmp(path, MANDOC_DB))
+			if ( ! strcmp(path, MANDOC_DB))
 				continue;
 			if ( ! use_all && ff->fts_level < 2) {
 				if (warnings)
@@ -631,37 +640,37 @@ treescan(void)
 			}
 			gzip = 0;
 			fsec = NULL;
-			while (NULL == fsec) {
+			while (fsec == NULL) {
 				fsec = strrchr(ff->fts_name, '.');
-				if (NULL == fsec || strcmp(fsec+1, "gz"))
+				if (fsec == NULL || strcmp(fsec+1, "gz"))
 					break;
 				gzip = 1;
 				*fsec = '\0';
 				fsec = NULL;
 			}
-			if (NULL == fsec) {
+			if (fsec == NULL) {
 				if ( ! use_all) {
 					if (warnings)
 						say(path,
 						    "No filename suffix");
 					continue;
 				}
-			} else if (0 == strcmp(++fsec, "html")) {
+			} else if ( ! strcmp(++fsec, "html")) {
 				if (warnings)
 					say(path, "Skip html");
 				continue;
-			} else if (0 == strcmp(fsec, "ps")) {
+			} else if ( ! strcmp(fsec, "ps")) {
 				if (warnings)
 					say(path, "Skip ps");
 				continue;
-			} else if (0 == strcmp(fsec, "pdf")) {
+			} else if ( ! strcmp(fsec, "pdf")) {
 				if (warnings)
 					say(path, "Skip pdf");
 				continue;
 			} else if ( ! use_all &&
-			    ((FORM_SRC == dform &&
+			    ((dform == FORM_SRC &&
 			      strncmp(fsec, dsec, strlen(dsec))) ||
-			     (FORM_CAT == dform && strcmp(fsec, "0")))) {
+			     (dform == FORM_CAT && strcmp(fsec, "0")))) {
 				if (warnings)
 					say(path, "Wrong filename suffix");
 				continue;
@@ -686,7 +695,6 @@ treescan(void)
 			continue;
 
 		case FTS_D:
-			/* FALLTHROUGH */
 		case FTS_DP:
 			break;
 
@@ -707,13 +715,16 @@ treescan(void)
 			 * If we're not in use_all, enforce it.
 			 */
 			cp = ff->fts_name;
-			if (FTS_DP == ff->fts_info)
+			if (ff->fts_info == FTS_DP) {
+				dform = FORM_NONE;
+				dsec = NULL;
 				break;
+			}
 
-			if (0 == strncmp(cp, "man", 3)) {
+			if ( ! strncmp(cp, "man", 3)) {
 				dform = FORM_SRC;
 				dsec = cp + 3;
-			} else if (0 == strncmp(cp, "cat", 3)) {
+			} else if ( ! strncmp(cp, "cat", 3)) {
 				dform = FORM_CAT;
 				dsec = cp + 3;
 			} else {
@@ -721,7 +732,7 @@ treescan(void)
 				dsec = NULL;
 			}
 
-			if (NULL != dsec || use_all)
+			if (dsec != NULL || use_all)
 				break;
 
 			if (warnings)
@@ -733,13 +744,13 @@ treescan(void)
 			 * Possibly our architecture.
 			 * If we're descending, keep tabs on it.
 			 */
-			if (FTS_DP != ff->fts_info && NULL != dsec)
+			if (ff->fts_info != FTS_DP && dsec != NULL)
 				arch = ff->fts_name;
 			else
 				arch = NULL;
 			break;
 		default:
-			if (FTS_DP == ff->fts_info || use_all)
+			if (ff->fts_info == FTS_DP || use_all)
 				break;
 			if (warnings)
 				say(path, "Extraneous directory part");
@@ -1242,7 +1253,6 @@ names_check(void)
 {
 	sqlite3_stmt	*stmt;
 	const char	*name, *sec, *arch, *key;
-	int		 irc;
 
 	sqlite3_prepare_v2(db,
 	  "SELECT name, sec, arch, key FROM ("
@@ -1258,10 +1268,10 @@ names_check(void)
 	  ") USING (pageid);",
 	  -1, &stmt, NULL);
 
-	if (SQLITE_OK != sqlite3_bind_int64(stmt, 1, NAME_TITLE))
+	if (sqlite3_bind_int64(stmt, 1, NAME_TITLE) != SQLITE_OK)
 		say("", "%s", sqlite3_errmsg(db));
 
-	while (SQLITE_ROW == (irc = sqlite3_step(stmt))) {
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
 		name = (const char *)sqlite3_column_text(stmt, 0);
 		sec  = (const char *)sqlite3_column_text(stmt, 1);
 		arch = (const char *)sqlite3_column_text(stmt, 2);
@@ -1552,13 +1562,9 @@ parse_mdoc(struct mpage *mpage, const struct roff_meta *meta,
 	for (n = n->child; NULL != n; n = n->next) {
 		switch (n->type) {
 		case ROFFT_ELEM:
-			/* FALLTHROUGH */
 		case ROFFT_BLOCK:
-			/* FALLTHROUGH */
 		case ROFFT_HEAD:
-			/* FALLTHROUGH */
 		case ROFFT_BODY:
-			/* FALLTHROUGH */
 		case ROFFT_TAIL:
 			if (NULL != mdocs[n->tok].fp)
 			       if (0 == (*mdocs[n->tok].fp)(mpage, meta, n))
@@ -1911,7 +1917,6 @@ render_string(char **public, size_t *psz)
 		case '\\':
 			break;
 		case '\t':
-			/* FALLTHROUGH */
 		case ASCII_NBRSP:
 			dst[dsz++] = ' ';
 			scp++;

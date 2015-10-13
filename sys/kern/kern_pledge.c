@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.6 2015/10/09 23:55:03 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.18 2015/10/13 00:03:42 doug Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -51,6 +51,7 @@ int canonpath(const char *input, char *buf, size_t bufsize);
 const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_exit] = 0xffffffff,
 	[SYS_kbind] = 0xffffffff,
+	[SYS___get_tcb] = 0xffffffff,
 
 	[SYS_getuid] = PLEDGE_SELF,
 	[SYS_geteuid] = PLEDGE_SELF,
@@ -88,7 +89,9 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_sendsyslog] = PLEDGE_SELF,
 	[SYS_nanosleep] = PLEDGE_SELF,
+	[SYS_sigaltstack] = PLEDGE_SELF,
 	[SYS_sigprocmask] = PLEDGE_SELF,
+	[SYS_sigsuspend] = PLEDGE_SELF,
 	[SYS_sigaction] = PLEDGE_SELF,
 	[SYS_sigreturn] = PLEDGE_SELF,
 	[SYS_sigpending] = PLEDGE_SELF,
@@ -138,7 +141,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_vfork] = PLEDGE_PROC,
 	[SYS_kill] = PLEDGE_SELF | PLEDGE_PROC,	
 	[SYS_setpgid] = PLEDGE_PROC,
-	[SYS_sigsuspend] = PLEDGE_PROC,
+	[SYS_setsid] = PLEDGE_PROC,
 	[SYS_setrlimit] = PLEDGE_PROC,
 
 	[SYS_execve] = PLEDGE_EXEC,
@@ -200,6 +203,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_fchmodat] = PLEDGE_FATTR,
 	[SYS_chflags] = PLEDGE_FATTR,
 	[SYS_chflagsat] = PLEDGE_FATTR,
+	[SYS_fchflags] = PLEDGE_FATTR,
 	[SYS_chown] = PLEDGE_FATTR,
 	[SYS_fchownat] = PLEDGE_FATTR,
 	[SYS_lchown] = PLEDGE_FATTR,
@@ -235,7 +239,6 @@ static const struct {
 	{ "unix",		PLEDGE_SELF | PLEDGE_RW | PLEDGE_UNIX },
 	{ "dns",		PLEDGE_SELF | PLEDGE_MALLOC | PLEDGE_DNSPATH },
 	{ "getpw",		PLEDGE_SELF | PLEDGE_MALLOC | PLEDGE_RW | PLEDGE_GETPW },
-/*X*/	{ "cmsg",		PLEDGE_UNIX | PLEDGE_INET | PLEDGE_SENDFD | PLEDGE_RECVFD },
 	{ "sendfd",		PLEDGE_RW | PLEDGE_SENDFD },
 	{ "recvfd",		PLEDGE_RW | PLEDGE_RECVFD },
 	{ "ioctl",		PLEDGE_IOCTL },
@@ -513,6 +516,11 @@ pledge_namei(struct proc *p, char *origpath)
 	    ((p->p_p->ps_pledge & PLEDGE_CPATH) == 0))
 		return (pledge_fail(p, EPERM, PLEDGE_CPATH));
 
+	/* Doing a permitted execve() */
+	if ((p->p_pledgenote & TMN_XPATH) &&
+	    (p->p_p->ps_pledge & PLEDGE_EXEC))
+		return (0);
+
 	if ((p->p_pledgenote & TMN_WPATH) &&
 	    (p->p_p->ps_pledge & PLEDGE_WPATH) == 0)
 		return (pledge_fail(p, EPERM, PLEDGE_WPATH));
@@ -592,6 +600,11 @@ pledge_namei(struct proc *p, char *origpath)
 		}
 		break;
 	}
+
+	/* ensure PLEDGE_RPATH request for doing read */	
+	if ((p->p_pledgenote & TMN_RPATH) &&
+	    (p->p_p->ps_pledge & PLEDGE_RPATH) == 0)
+		return (pledge_fail(p, EPERM, PLEDGE_RPATH));
 
 	/*
 	 * If a whitelist is set, compare canonical paths.  Anything
@@ -876,6 +889,9 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 	if (miblen == 2 &&			/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_VERSION)
 		return (0);
+	if (miblen == 2 &&			/* kern.clockrate */
+	    mib[0] == CTL_KERN && mib[1] == KERN_CLOCKRATE)
+		return (0);
 	if (miblen == 2 &&			/* uname() */
 	    mib[0] == CTL_HW && mib[1] == HW_MACHINE)
 		return (0);
@@ -1045,17 +1061,6 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		}
 	}
 
-	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
-		switch (com) {
-		case SIOCGIFADDR:
-		case SIOCGIFFLAGS:
-		case SIOCGIFRDOMAIN:
-			if (fp->f_type == DTYPE_SOCKET)
-				return (0);
-			break;
-		}
-	}
-
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
 		case TIOCSPGRP:
@@ -1066,17 +1071,32 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 				return (0);
 			return (ENOTTY);
-		case TIOCGPGRP:
-		case TIOCGWINSZ:	/* various programs */
 #if notyet
 		case TIOCSTI:		/* ksh? csh? */
+			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
+				return (0);
+			break;
 #endif
+		case TIOCGPGRP:
+		case TIOCGWINSZ:	/* various programs */
+		case TIOCSWINSZ:
 		case TIOCSBRK:		/* cu */
 		case TIOCCDTR:		/* cu */
 		case TIOCSETA:		/* cu, ... */
 		case TIOCSETAW:		/* cu, ... */
 		case TIOCSETAF:		/* tcsetattr TCSAFLUSH, script */
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
+				return (0);
+			break;
+		}
+	}
+
+	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
+		switch (com) {
+		case SIOCGIFADDR:
+		case SIOCGIFFLAGS:
+		case SIOCGIFRDOMAIN:
+			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
 		}

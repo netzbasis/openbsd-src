@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.113 2015/10/09 01:37:08 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.115 2015/10/10 20:35:00 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -241,7 +241,7 @@ main(int argc, char *argv[])
 	if (argc > optind)
 		usage();
 
-	if (pledge("stdio getpw rpath", NULL) == -1)
+	if (pledge("stdio rpath getpw", NULL) == -1)
 		err(1, "pledge");
 
 	m = malloc(size = 1025);
@@ -249,9 +249,6 @@ main(int argc, char *argv[])
 		err(1, NULL);
 	if (!freopen(tracefile, "r", stdin))
 		err(1, "%s", tracefile);
-
-	if (pledge("stdio getpw", NULL) == -1)
-		err(1, "pledge");
 
 	if (fread_tail(&ktr_header, sizeof(struct ktr_header), 1) == 0 ||
 	    ktr_header.ktr_type != htobe32(KTR_START))

@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.3 2015/10/05 01:59:33 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.6 2015/10/10 05:09:19 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -115,18 +115,6 @@ if_init(struct eigrpd_conf *xconf, struct iface *iface)
 {
 	struct ifreq		 ifr;
 	unsigned int		 rdomain;
-	struct eigrp_iface	*ei;
-	union eigrpd_addr	 addr;
-
-	memset(&addr, 0, sizeof(addr));
-	TAILQ_FOREACH(ei, &iface->ei_list, i_entry) {
-		/* init the dummy self neighbor */
-		ei->self = nbr_new(ei, &addr, 0, 1);
-		nbr_init(ei->self);
-
-		/* set event handlers for interface */
-		evtimer_set(&ei->hello_timer, eigrp_if_hello_timer, ei);
-	}
 
 	/* set rdomain */
 	strlcpy(ifr.ifr_name, iface->name, sizeof(ifr.ifr_name));
@@ -246,25 +234,37 @@ if_update(struct iface *iface, int af)
 {
 	struct eigrp_iface	*ei;
 	int			 link_ok;
+	int			 addr_ok = 1;
+	struct if_addr		*if_addr;
 
 	link_ok = (iface->flags & IFF_UP) &&
 	    LINK_STATE_IS_UP(iface->linkstate);
+
+	/*
+	 * NOTE: For EIGRPv4, each interface should have a valid IP address
+	 * otherwise they can not be enabled in the routing domain. For IPv6
+	 * this limitation does not exist because the link-local addresses
+	 * are used to form the adjacencies.
+	 */
+	if (af == AF_INET) {
+		TAILQ_FOREACH(if_addr, &iface->addr_list, entry)
+			if (if_addr->af == AF_INET)
+				break;
+		if (if_addr == NULL)
+			addr_ok = 0;
+	}
 
 	TAILQ_FOREACH(ei, &iface->ei_list, i_entry) {
 		if (af != AF_UNSPEC && ei->eigrp->af != af)
 			continue;
 
 		if (ei->state == IF_STA_DOWN) {
-			if (!link_ok)
-				continue;
-			if (af == AF_INET && TAILQ_EMPTY(&iface->addr_list))
+			if (!link_ok || !addr_ok)
 				continue;
 			ei->state = IF_STA_ACTIVE;
 			eigrp_if_start(ei);
-		} else {
-			if (link_ok)
-				continue;
-			if (!(af == AF_INET && TAILQ_EMPTY(&iface->addr_list)))
+		} else if (ei->state == IF_STA_ACTIVE) {
+			if (link_ok && addr_ok)
 				continue;
 			ei->state = IF_STA_DOWN;
 			eigrp_if_reset(ei);
@@ -313,17 +313,12 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 void
 eigrp_if_del(struct eigrp_iface *ei)
 {
-	struct nbr	*nbr;
-
 	RB_REMOVE(iface_id_head, &ifaces_by_id, ei);
 	TAILQ_REMOVE(&ei->eigrp->ei_list, ei, e_entry);
 	TAILQ_REMOVE(&ei->iface->ei_list, ei, i_entry);
 
 	if (ei->state == IF_STA_ACTIVE)
 		eigrp_if_reset(ei);
-
-	while ((nbr = TAILQ_FIRST(&ei->nbr_list)) != NULL)
-		nbr_del(nbr);
 
 	if (TAILQ_EMPTY(&ei->iface->ei_list))
 		if_del(ei->iface);
@@ -336,11 +331,20 @@ eigrp_if_start(struct eigrp_iface *ei)
 {
 	struct eigrp		*eigrp = ei->eigrp;
 	struct if_addr		*if_addr;
+	union eigrpd_addr	 addr;
 	struct in_addr		 addr4;
 	struct in6_addr		 addr6;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
 	    eigrp->as, af_name(eigrp->af));
+
+	/* init the dummy self neighbor */
+	memset(&addr, 0, sizeof(addr));
+	ei->self = nbr_new(ei, &addr, 0, 1);
+	nbr_init(ei->self);
+
+	/* set event handlers for interface */
+	evtimer_set(&ei->hello_timer, eigrp_if_hello_timer, ei);
 
 	TAILQ_FOREACH(if_addr, &ei->iface->addr_list, entry) {
 		if (if_addr->af != eigrp->af)
@@ -376,6 +380,7 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	struct eigrp		*eigrp = ei->eigrp;
 	struct in_addr		 addr4;
 	struct in6_addr		 addr6;
+	struct nbr		*nbr;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
 	    eigrp->as, af_name(eigrp->af));
@@ -400,6 +405,9 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	}
 
 	eigrp_if_stop_hello_timer(ei);
+
+	while ((nbr = TAILQ_FIRST(&ei->nbr_list)) != NULL)
+		nbr_del(nbr);
 }
 
 struct eigrp_iface *

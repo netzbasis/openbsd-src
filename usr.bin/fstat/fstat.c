@@ -1,4 +1,4 @@
-/*	$OpenBSD: fstat.c,v 1.80 2015/01/16 06:40:08 deraadt Exp $	*/
+/*	$OpenBSD: fstat.c,v 1.82 2015/10/12 14:09:32 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -274,6 +274,19 @@ main(int argc, char *argv[])
 
 	if ((kf = kvm_getfiles(kd, what, arg, sizeof(*kf), &cnt)) == NULL)
 		errx(1, "%s", kvm_geterr(kd));
+
+	if (fuser) {
+		if (sflg) { /* fuser might call kill(2) */
+			if (pledge("stdio rpath proc", NULL) == -1)
+				err(1, "pledge");
+		} else {
+			if (pledge("stdio rpath", NULL) == -1)
+				err(1, "pledge");
+		}
+	} else {
+		if (pledge("stdio rpath route", NULL) == -1)
+			err(1, "pledge");
+	}
 
 	find_splices(kf, cnt);
 	if (!fuser)

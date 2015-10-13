@@ -1,4 +1,4 @@
-.\" $OpenBSD: pledge.2,v 1.1 2015/10/09 01:24:57 deraadt Exp $
+.\" $OpenBSD: pledge.2,v 1.5 2015/10/12 23:32:55 deraadt Exp $
 .\"
 .\" Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 9 2015 $
+.Dd $Mdocdate: October 12 2015 $
 .Dt PLEDGE 2
 .Os
 .Sh NAME
@@ -110,6 +110,14 @@ May check for existence of
 .It Xr adjtime 2
 Read-only, for
 .Xr ntpd 8 .
+.Pp
+.It Xr ioctl 2
+Only the
+.Dv FIONREAD
+and
+.Dv FIONBIO
+operations are allowed by default.
+Use of the "tty" and "ioctl" requests will enable more ioctl requests.
 .Pp
 .It Xr chmod 2
 .It Xr fchmod 2
@@ -218,7 +226,8 @@ This subset is simply the combination of
 and
 .Va "rw" .
 As a result, all the expected functionalities of libc
-stdio work.
+stdio work.  Use of "stdio" is recommended instead of "malloc rw", to
+better express the intent of the program.
 .It Va "rpath"
 A number of system calls are allowed if they only cause
 read-only effects on the filesystem:
@@ -369,12 +378,12 @@ of
 enables
 .Va "inet"
 operations.
-.It Va "cmsg"
-Allows passing of file descriptors using the
-.Xr sendmsg 2
-and
-.Xr recvmsg 2
-functions.
+.It Va "sendfd"
+Allows sending of file descriptors using
+.Xr sendmsg 2 .
+.It Va "recvfd"
+Allows receiving of file descriptors using
+.Xr recvmsg 2 .
 .It Va "ioctl"
 Allows a subset of
 .Xr ioctl 2
@@ -382,13 +391,34 @@ operations:
 .Pp
 .Dv FIOCLEX ,
 .Dv FIONCLEX ,
-.Dv FIONREAD ,
-.Dv FIONBIO ,
+.Dv FIOASYNC ,
 .Dv FIOGETOWN ,
+and
+.Dv FIOSETOWN .
+On a tty device
+.Dv TIOCGETA will succeed otherwise fail with
+.Er EPERM .
+On a tty device,
+.Dv TIOCGPGRP
+and
+.Dv TIOCGWINSZ
+are allowed.
+A few other operations are allowed, but not listed here.
+.It Va "tty"
+This opens up a variety of
+.Xr ioctl 2
+requests used by tty devices:
+.Dv TIOCSPGRP ,
 .Dv TIOCGETA ,
 .Dv TIOCGPGRP ,
 .Dv TIOCGWINSZ ,
-.Dv TIOCSTI .
+.Dv TIOCSWINSZ ,
+.Dv TIOCSBRK ,
+.Dv TIOCCDTR ,
+.Dv TIOCSETA ,
+.Dv TIOCSETAW
+and
+.Dv TIOCSETAF .
 .It Va "proc"
 Allows the following process relationship operations:
 .Pp
@@ -398,6 +428,15 @@ Allows the following process relationship operations:
 .Xr setgroups 2 ,
 .Xr setresgid 2 ,
 .Xr setresuid 2 .
+.It Va "exec"
+Allows a process to call
+.Xr execve 2 .
+Coupled with the
+.Va "proc"
+request, this allows a process to fork and execute another program.
+The new program starts running without pledge active and hopefully
+makes a new
+.Xr pledge 2 .
 .It Va "prot_exec"
 Allows the use of
 .Dv PROT_EXEC
@@ -424,15 +463,22 @@ will fail if:
 .Bl -tag -width Er
 .It Bq Er EFAULT
 .Fa paths
+or one of its elements, or
+.Fa request
 points outside the process's allocated address space.
+.It Bq Er EINVAL
+.Ar request
+is malformed or contains invalid keywords.
 .It Bq Er ENAMETOOLONG
 An element of
 .Fa paths
-is too large, or prepending
+is too large, prepending
 .Fa cwd
 to it would exceed
 .Dv PATH_MAX
-bytes.
+bytes, or
+.Fa request
+is too long.
 .It Bq Er EPERM
 This process is attempting to increase permissions.
 .It Bq Er E2BIG
@@ -446,8 +492,8 @@ The limit in the system as released is 262144 bytes
 .Sh HISTORY
 The
 .Fn pledge
-system call appeared in
-.Ox 5.8 .
+system call first appeared in
+.Ox 5.9 .
 .Sh CAVEATS
 It is not possible to
 .Xr systrace 4

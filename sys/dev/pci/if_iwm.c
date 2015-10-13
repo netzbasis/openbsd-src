@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.53 2015/10/06 09:12:00 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.56 2015/10/12 10:01:27 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -1062,6 +1062,7 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 			    data->map->dm_mapsize, BUS_DMASYNC_POSTREAD);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
@@ -1169,6 +1170,7 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 			    data->map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
@@ -3372,7 +3374,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	/* if the command wants an answer, busy sc_cmd_resp */
 	if (wantresp) {
 		KASSERT(!async);
-		while (sc->sc_wantresp != -1)
+		while (sc->sc_wantresp != IWM_CMD_RESP_IDLE)
 			tsleep(&sc->sc_wantresp, 0, "iwmcmdsl", 0);
 		sc->sc_wantresp = ring->qid << 16 | ring->cur;
 		DPRINTFN(12, ("wantresp is %x\n", sc->sc_wantresp));
@@ -3571,10 +3573,10 @@ iwm_mvm_send_cmd_pdu_status(struct iwm_softc *sc, uint8_t id,
 void
 iwm_free_resp(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 {
-	KASSERT(sc->sc_wantresp != -1);
+	KASSERT(sc->sc_wantresp != IWM_CMD_RESP_IDLE);
 	KASSERT((hcmd->flags & (IWM_CMD_WANT_SKB|IWM_CMD_SYNC))
 	    == (IWM_CMD_WANT_SKB|IWM_CMD_SYNC));
-	sc->sc_wantresp = -1;
+	sc->sc_wantresp = IWM_CMD_RESP_IDLE;
 	wakeup(&sc->sc_wantresp);
 }
 
@@ -5570,7 +5572,7 @@ iwm_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct ether_header *eh;
 	struct mbuf *m;
-	int ac;
+	int ac = EDCA_AC_BE; /* XXX */
 
 	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
 		return;
@@ -5586,7 +5588,6 @@ iwm_start(struct ifnet *ifp)
 		IF_DEQUEUE(&ic->ic_mgtq, m);
 		if (m) {
 			ni = m->m_pkthdr.ph_cookie;
-			ac = 0;
 			goto sendit;
 		}
 		if (ic->ic_state != IEEE80211_S_RUN) {
@@ -6450,7 +6451,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	}
 	printf(", %s\n", intrstr);
 
-	sc->sc_wantresp = -1;
+	sc->sc_wantresp = IWM_CMD_RESP_IDLE;
 
 	switch (PCI_PRODUCT(pa->pa_id)) {
 	case PCI_PRODUCT_INTEL_WL_3160_1:

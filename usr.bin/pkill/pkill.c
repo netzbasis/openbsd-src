@@ -1,4 +1,4 @@
-/*	$OpenBSD: pkill.c,v 1.36 2015/01/16 06:40:10 deraadt Exp $	*/
+/*	$OpenBSD: pkill.c,v 1.38 2015/10/11 03:08:20 deraadt Exp $	*/
 /*	$NetBSD: pkill.c,v 1.5 2002/10/27 11:49:34 kleink Exp $	*/
 
 /*-
@@ -272,6 +272,16 @@ main(int argc, char **argv)
 	plist = kvm_getprocs(kd, KERN_PROC_ALL, 0, sizeof(*plist), &nproc);
 	if (plist == NULL)
 		errx(STATUS_ERROR, "kvm_getprocs() failed");
+
+	if (matchargs == 0 && confirmkill == 0) {
+		if (action == killact) {
+			if (pledge("stdio proc", NULL) == -1)
+				err(1, "pledge");
+		} else if (action == grepact) {
+			if (pledge("stdio", NULL) == -1)
+				err(1, "pledge");
+		}
+	}
 
 	/*
 	 * Allocate memory which will be used to keep track of the

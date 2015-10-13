@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.194 2015/10/09 16:58:25 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.197 2015/10/11 23:51:26 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -491,9 +491,6 @@ main(int argc, char *argv[])
 			die(0);
 	}
 
-#ifndef SUN_LEN
-#define SUN_LEN(unp) (strlen((unp)->sun_path) + 2)
-#endif
 	for (i = 0; i < nunix; i++) {
 		fd_unix[i] = unix_socket(path_unix[i], SOCK_DGRAM, 0666);
 		if (fd_unix[i] == -1) {
@@ -707,7 +704,7 @@ main(int argc, char *argv[])
 	if (priv_init(ConfFile, NoDNS, lockpipe[1], nullfd, argv) < 0)
 		errx(1, "unable to privsep");
 
-	if (pledge("stdio rpath unix inet recvfd proc", NULL) == -1)
+	if (pledge("stdio rpath unix inet proc recvfd", NULL) == -1)
 		err(1, "pledge");
 
 	/* Process is now unprivileged and inside a chroot */
@@ -1126,7 +1123,7 @@ octet_counting(struct evbuffer *evbuf, char **msg, int drain)
 	 * It can be assumed that octet-counting framing is used if a syslog
 	 * frame starts with a digit.
 	 */
-	if (buf >= end || !isdigit(*buf))
+	if (buf >= end || !isdigit((unsigned char)*buf))
 		return (-1);
 	/*
 	 * SYSLOG-FRAME = MSG-LEN SP SYSLOG-MSG
@@ -1134,7 +1131,7 @@ octet_counting(struct evbuffer *evbuf, char **msg, int drain)
 	 * We support up to 5 digits in MSG-LEN, so the maximum is 99999.
 	 */
 	for (p = buf; p < end && p < buf + 5; p++) {
-		if (!isdigit(*p))
+		if (!isdigit((unsigned char)*p))
 			break;
 	}
 	if (buf >= p || p >= end || *p != ' ')
@@ -2813,7 +2810,7 @@ unix_socket(char *path, int type, mode_t mode)
 	old_umask = umask(0177);
 
 	unlink(path);
-	if (bind(fd, (struct sockaddr *)&s_un, SUN_LEN(&s_un)) == -1) {
+	if (bind(fd, (struct sockaddr *)&s_un, sizeof(s_un)) == -1) {
 		snprintf(ebuf, sizeof(ebuf), "cannot bind %s", path);
 		logerror(ebuf);
 		umask(old_umask);
