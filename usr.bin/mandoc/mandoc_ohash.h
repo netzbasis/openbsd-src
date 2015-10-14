@@ -1,6 +1,6 @@
-/*	$OpenBSD: installboot.h,v 1.7 2015/10/14 00:19:04 krw Exp $	*/
+/*	$OpenBSD: mandoc_ohash.h,v 1.1 2015/10/13 15:50:15 schwarze Exp $ */
 /*
- * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>
+ * Copyright (c) 2015 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,28 +14,10 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include <ohash.h>
 
-extern int nowrite;
-extern int stages;
-extern int verbose;
+__BEGIN_DECLS
 
-extern char *root;
-extern char *stage1;
-extern char *stage2;
+void		  mandoc_ohash_init(struct ohash *, unsigned int, ptrdiff_t);
 
-#ifdef BOOTSTRAP
-void	bootstrap(int, char *, char *);
-#endif
-
-int	filecopy(const char *, const char *);
-char	*fileprefix(const char *, const char *);
-
-void	md_init(void);
-void	md_loadboot(void);
-void	md_installboot(int, char *);
-
-#ifdef SOFTRAID
-void	sr_installboot(int, char *);
-void	sr_install_bootblk(int, int, int);
-void	sr_install_bootldr(int, char *);
-#endif
+__END_DECLS

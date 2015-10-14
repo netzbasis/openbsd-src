@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.18 2015/10/13 00:03:42 doug Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.23 2015/10/14 03:27:02 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -36,7 +36,10 @@
 #include <net/bpf.h>
 #include <net/route.h>
 #include <net/if.h>
+#include <net/if_var.h>
 #include <netinet/in.h>
+#include <netinet6/in6_var.h>
+#include <netinet6/nd6.h>
 #include <netinet/tcp.h>
 
 #include <sys/signal.h>
@@ -783,9 +786,6 @@ pledge_cmsg_send(struct proc *p, struct mbuf *control)
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	if ((p->p_p->ps_pledge & PLEDGE_SENDFD) == 0)
-		return pledge_fail(p, EPERM, PLEDGE_SENDFD);
-
 	/* Scan the cmsg */
 	cmsg = mtod(control, struct cmsghdr *);
 
@@ -793,6 +793,9 @@ pledge_cmsg_send(struct proc *p, struct mbuf *control)
 	if (!(cmsg->cmsg_level == SOL_SOCKET &&
 	    cmsg->cmsg_type == SCM_RIGHTS))
 		return (0);
+
+	if ((p->p_p->ps_pledge & PLEDGE_SENDFD) == 0)
+		return pledge_fail(p, EPERM, PLEDGE_SENDFD);
 
 	/* In OpenBSD, a CMSG only contains one SCM_RIGHTS.  Check it. */
 	fdp = (int *)CMSG_DATA(cmsg);
@@ -852,7 +855,8 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 
 		if (miblen == 7 &&			/* exposes MACs */
 		    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
-		    mib[2] == 0 && mib[3] == AF_INET &&
+		    mib[2] == 0 &&
+		    (mib[3] == 0 || mib[3] == AF_INET6 || mib[3] == AF_INET) &&
 		    mib[4] == NET_RT_FLAGS && mib[5] == RTF_LLINFO)
 			return (0);
 	}
@@ -1096,6 +1100,7 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		case SIOCGIFADDR:
 		case SIOCGIFFLAGS:
 		case SIOCGIFRDOMAIN:
+		case SIOCGNBRINFO_IN6:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
@@ -1142,6 +1147,7 @@ pledge_setsockopt_check(struct proc *p, int level, int optname)
 		case IP_MINTTL:
 		case IP_PORTRANGE:
 		case IP_RECVDSTADDR:
+		case IP_RECVDSTPORT:
 			return (0);
 		case IP_MULTICAST_IF:
 		case IP_ADD_MEMBERSHIP:
@@ -1159,6 +1165,7 @@ pledge_setsockopt_check(struct proc *p, int level, int optname)
 		case IPV6_RECVHOPLIMIT:
 		case IPV6_PORTRANGE:
 		case IPV6_RECVPKTINFO:
+		case IPV6_RECVDSTPORT:
 #ifdef notyet
 		case IPV6_V6ONLY:
 #endif

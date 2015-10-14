@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandocdb.c,v 1.155 2015/10/12 22:30:27 schwarze Exp $ */
+/*	$OpenBSD: mandocdb.c,v 1.157 2015/10/13 22:57:49 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -34,10 +34,10 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <ohash.h>
 #include <sqlite3.h>
 
 #include "mandoc_aux.h"
+#include "mandoc_ohash.h"
 #include "mandoc.h"
 #include "roff.h"
 #include "mdoc.h"
@@ -136,9 +136,6 @@ static	void	 dbadd_mlink_name(const struct mlink *mlink);
 static	int	 dbopen(int);
 static	void	 dbprune(void);
 static	void	 filescan(const char *);
-static	void	*hash_alloc(size_t, void *);
-static	void	 hash_free(void *, void *);
-static	void	*hash_calloc(size_t, size_t, void *);
 static	void	 mlink_add(struct mlink *, const struct stat *);
 static	void	 mlink_check(struct mpage *, struct mlink *);
 static	void	 mlink_free(struct mlink *);
@@ -192,7 +189,6 @@ static	int		 write_utf8; /* write UTF-8 output; else ASCII */
 static	int		 exitcode; /* to be returned by main */
 static	enum op		 op; /* operational mode */
 static	char		 basedir[PATH_MAX]; /* current base directory */
-static	struct mchars	*mchars; /* table of named characters */
 static	struct ohash	 mpages; /* table of distinct manual pages */
 static	struct ohash	 mlinks; /* table of directory entries */
 static	struct ohash	 names; /* table of all names */
@@ -332,7 +328,6 @@ int
 mandocdb(int argc, char *argv[])
 {
 	struct manconf	  conf;
-	struct ohash_info mpages_info, mlinks_info;
 	struct mparse	 *mp;
 	const char	 *path_arg;
 	size_t		  j, sz;
@@ -345,14 +340,6 @@ mandocdb(int argc, char *argv[])
 
 	memset(&conf, 0, sizeof(conf));
 	memset(stmts, 0, STMT__MAX * sizeof(sqlite3_stmt *));
-
-	mpages_info.alloc  = mlinks_info.alloc  = hash_alloc;
-	mpages_info.calloc = mlinks_info.calloc = hash_calloc;
-	mpages_info.free   = mlinks_info.free   = hash_free;
-	mpages_info.data   = mlinks_info.data   = NULL;
-
-	mpages_info.key_offset = offsetof(struct mpage, inodev);
-	mlinks_info.key_offset = offsetof(struct mlink, file);
 
 	/*
 	 * We accept a few different invocations.
@@ -435,11 +422,10 @@ mandocdb(int argc, char *argv[])
 	}
 
 	exitcode = (int)MANDOCLEVEL_OK;
-	mchars = mchars_alloc();
-	mp = mparse_alloc(mparse_options, MANDOCLEVEL_BADARG, NULL,
-	    mchars, NULL);
-	ohash_init(&mpages, 6, &mpages_info);
-	ohash_init(&mlinks, 6, &mlinks_info);
+	mchars_alloc();
+	mp = mparse_alloc(mparse_options, MANDOCLEVEL_BADARG, NULL, NULL);
+	mandoc_ohash_init(&mpages, 6, offsetof(struct mpage, inodev));
+	mandoc_ohash_init(&mlinks, 6, offsetof(struct mlink, file));
 
 	if (OP_UPDATE == op || OP_DELETE == op || OP_TEST == op) {
 
@@ -515,8 +501,10 @@ mandocdb(int argc, char *argv[])
 				continue;
 
 			if (j) {
-				ohash_init(&mpages, 6, &mpages_info);
-				ohash_init(&mlinks, 6, &mlinks_info);
+				mandoc_ohash_init(&mpages, 6,
+				    offsetof(struct mpage, inodev));
+				mandoc_ohash_init(&mlinks, 6,
+				    offsetof(struct mlink, file));
 			}
 
 			if ( ! set_basedir(conf.manpath.paths[j], argc > 0))
@@ -542,7 +530,7 @@ mandocdb(int argc, char *argv[])
 out:
 	manconf_free(&conf);
 	mparse_free(mp);
-	mchars_free(mchars);
+	mchars_free();
 	mpages_free();
 	ohash_delete(&mpages);
 	ohash_delete(&mlinks);
@@ -1097,7 +1085,6 @@ static void
 mpages_merge(struct mparse *mp)
 {
 	char			 any[] = "any";
-	struct ohash_info	 str_info;
 	struct mpage		*mpage, *mpage_dest;
 	struct mlink		*mlink, *mlink_dest;
 	struct roff_man		*man;
@@ -1105,12 +1092,6 @@ mpages_merge(struct mparse *mp)
 	char			*cp;
 	int			 fd;
 	unsigned int		 pslot;
-
-	str_info.alloc = hash_alloc;
-	str_info.calloc = hash_calloc;
-	str_info.free = hash_free;
-	str_info.data = NULL;
-	str_info.key_offset = offsetof(struct str, key);
 
 	if ( ! nodb)
 		SQL_EXEC("BEGIN TRANSACTION");
@@ -1124,8 +1105,8 @@ mpages_merge(struct mparse *mp)
 		}
 
 		name_mask = NAME_MASK;
-		ohash_init(&names, 4, &str_info);
-		ohash_init(&strings, 6, &str_info);
+		mandoc_ohash_init(&names, 4, offsetof(struct str, key));
+		mandoc_ohash_init(&strings, 6, offsetof(struct str, key));
 		mparse_reset(mp);
 		man = NULL;
 		sodest = NULL;
@@ -1947,7 +1928,7 @@ render_string(char **public, size_t *psz)
 		 */
 
 		if (write_utf8) {
-			unicode = mchars_spec2cp(mchars, seq, seqlen);
+			unicode = mchars_spec2cp(seq, seqlen);
 			if (unicode <= 0)
 				continue;
 			addsz = utf8(unicode, utfbuf);
@@ -1955,7 +1936,7 @@ render_string(char **public, size_t *psz)
 				continue;
 			addcp = utfbuf;
 		} else {
-			addcp = mchars_spec2str(mchars, seq, seqlen, &addsz);
+			addcp = mchars_spec2str(seq, seqlen, &addsz);
 			if (addcp == NULL)
 				continue;
 			if (*addcp == ASCII_NBRSP) {
@@ -2378,27 +2359,6 @@ prepare_statements:
 	}
 
 	return 1;
-}
-
-static void *
-hash_calloc(size_t n, size_t sz, void *arg)
-{
-
-	return mandoc_calloc(n, sz);
-}
-
-static void *
-hash_alloc(size_t sz, void *arg)
-{
-
-	return mandoc_malloc(sz);
-}
-
-static void
-hash_free(void *p, void *arg)
-{
-
-	free(p);
 }
 
 static int
