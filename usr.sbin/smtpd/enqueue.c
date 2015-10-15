@@ -1,4 +1,4 @@
-/*	$OpenBSD: enqueue.c,v 1.100 2015/10/13 08:06:22 gilles Exp $	*/
+/*	$OpenBSD: enqueue.c,v 1.102 2015/10/14 22:01:43 gilles Exp $	*/
 
 /*
  * Copyright (c) 2005 Henning Brauer <henning@bulabula.org>
@@ -297,12 +297,12 @@ enqueue(int argc, char *argv[], FILE *ofp)
 
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
-	
+
 	fout = fdopen(msg.fd, "a+");
 	if (fout == NULL)
 		err(EX_UNAVAILABLE, "fdopen");
 
-	/* 
+	/*
 	 * We need to call get_responses after every command because we don't
 	 * support PIPELINING on the server-side yet.
 	 */

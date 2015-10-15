@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.250 2015/10/13 09:59:37 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.252 2015/10/14 10:18:03 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -139,7 +139,6 @@
 /* Give some jitter to hash, to avoid synchronization between routers. */
 static uint32_t		rt_hashjitter;
 
-extern void	     ***rtables;
 extern unsigned int	rtables_id_max;
 
 struct rtstat		rtstat;
@@ -807,10 +806,9 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 			info->rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 		}
 
-		info->rti_flags = rt->rt_flags & ~(RTF_CLONING | RTF_STATIC);
-		info->rti_flags |= RTF_CLONED;
+		info->rti_flags = rt->rt_flags | (RTF_CLONED|RTF_HOST);
+		info->rti_flags &= ~(RTF_CLONING|RTF_CONNECTED|RTF_STATIC);
 		info->rti_info[RTAX_GATEWAY] = (struct sockaddr *)&sa_dl;
-		info->rti_flags |= RTF_HOST;
 		info->rti_info[RTAX_LABEL] =
 		    rtlabel_id2sa(rt->rt_labelid, &sa_rl2);
 		/* FALLTHROUGH */
@@ -906,7 +904,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 		ifa->ifa_refcnt++;
 		rt->rt_ifa = ifa;
 		rt->rt_ifp = ifa->ifa_ifp;
-		if (req == RTM_RESOLVE) {
+		if (rt->rt_flags & RTF_CLONED) {
 			/*
 			 * If the ifa of the cloning route was stale, a
 			 * successful lookup for an ifa with the same address
@@ -1656,9 +1654,6 @@ rt_if_track(struct ifnet *ifp)
 {
 	int i;
 	u_int tid;
-
-	if (rtables == NULL)
-		return;
 
 	for (tid = 0; tid <= rtables_id_max; tid++) {
 		/* skip rtables that are not in the rdomain of the ifp */

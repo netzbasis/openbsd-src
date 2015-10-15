@@ -1,4 +1,4 @@
-/*	$OpenBSD: mproc.c,v 1.13 2015/10/02 00:32:05 gilles Exp $	*/
+/*	$OpenBSD: mproc.c,v 1.15 2015/10/14 21:27:29 gilles Exp $	*/
 
 /*
  * Copyright (c) 2012 Eric Faurot <eric@faurot.net>
@@ -160,6 +160,8 @@ mproc_dispatch(int fd, short event, void *arg)
 		if (n == -1) {
 			log_warn("warn: %s -> %s: imsg_read",
 			    proc_name(smtpd_process),  p->name);
+			if (errno == EAGAIN)
+				return;
 			fatal("exiting");
 		}
 		if (n == 0) {
@@ -319,7 +321,9 @@ m_forward(struct mproc *p, struct imsg *imsg)
 	    imsg->hdr.pid, imsg->fd, imsg->data,
 	    imsg->hdr.len - sizeof(imsg->hdr));
 
-	log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s (forward)",
+	if (imsg->hdr.type != IMSG_STAT_DECREMENT &&
+	    imsg->hdr.type != IMSG_STAT_INCREMENT)
+		log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s (forward)",
 		    proc_name(smtpd_process),
 		    proc_name(p->proc),
 		    imsg->hdr.len - sizeof(imsg->hdr),
@@ -339,7 +343,9 @@ m_compose(struct mproc *p, uint32_t type, uint32_t peerid, pid_t pid, int fd,
 {
 	imsg_compose(&p->imsgbuf, type, peerid, pid, fd, data, len);
 
-	log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s",
+	if (type != IMSG_STAT_DECREMENT &&
+	    type != IMSG_STAT_INCREMENT)
+		log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s",
 		    proc_name(smtpd_process),
 		    proc_name(p->proc),
 		    len,
@@ -371,7 +377,9 @@ m_composev(struct mproc *p, uint32_t type, uint32_t peerid, pid_t pid,
 	if (p->bytes_queued > p->bytes_queued_max)
 		p->bytes_queued_max = p->bytes_queued;
 
-	log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s",
+	if (type != IMSG_STAT_DECREMENT &&
+	    type != IMSG_STAT_INCREMENT)
+		log_trace(TRACE_MPROC, "mproc: %s -> %s : %zu %s",
 		    proc_name(smtpd_process),
 		    proc_name(p->proc),
 		    len,
@@ -385,7 +393,7 @@ m_create(struct mproc *p, uint32_t type, uint32_t peerid, pid_t pid, int fd)
 {
 	if (p->m_buf == NULL) {
 		p->m_alloc = 128;
-		log_trace(TRACE_MPROC, "mproc: %s -> %s: allocating %zu", 
+		log_trace(TRACE_MPROC, "mproc: %s -> %s: allocating %zu",
 		    proc_name(smtpd_process),
 		    proc_name(p->proc),
 		    p->m_alloc);
@@ -711,7 +719,7 @@ m_get_string(struct msg *m, const char **s)
 	end = memchr(m->pos + 1, 0, m->end - (m->pos + 1));
 	if (end == NULL)
 		m_error("unterminated string");
-	
+
 	*s = m->pos + 1;
 	m->pos = end + 1;
 }

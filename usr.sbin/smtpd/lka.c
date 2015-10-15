@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka.c,v 1.176 2015/10/02 00:28:30 gilles Exp $	*/
+/*	$OpenBSD: lka.c,v 1.178 2015/10/14 22:01:43 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -514,6 +514,9 @@ lka(void)
 	/* Ignore them until we get our config */
 	mproc_disable(p_pony);
 
+	if (pledge("stdio rpath inet dns getpw recvfd", NULL) == -1)
+		err(1, "pledge");
+
 	if (event_dispatch() < 0)
 		fatal("event_dispatch");
 	lka_shutdown();
@@ -651,7 +654,7 @@ lka_addrname(const char *tablename, const struct sockaddr *sa,
 		*res = lk.addrname;
 		return (LKA_OK);
 	}
-}      
+}
 
 static int
 lka_X509_verify(struct ca_vrfy_req_msg *vrfy,

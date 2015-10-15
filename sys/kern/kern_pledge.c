@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.23 2015/10/14 03:27:02 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.27 2015/10/14 23:15:37 sthen Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -224,8 +224,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 
-	/* XXX getpw for the ypbind.lock; all other flock users have cpath */
-	[SYS_flock] = PLEDGE_GETPW | PLEDGE_CPATH,
+	[SYS_flock] = PLEDGE_RW | PLEDGE_CPATH,
 };
 
 static const struct {
@@ -254,6 +253,7 @@ static const struct {
 	{ "abort",		PLEDGE_ABORT },
 	{ "fattr",		PLEDGE_FATTR },
 	{ "prot_exec",		PLEDGE_PROTEXEC },
+	{ "flock",		PLEDGE_RW | PLEDGE_CPATH },
 };
 
 int
@@ -913,6 +913,18 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 }
 
 int
+pledge_chown_check(struct proc *p, uid_t uid, gid_t gid)
+{
+	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
+		return (0);
+	if (uid != -1 && uid != p->p_ucred->cr_uid)
+		return (EPERM);
+	if (gid != -1 && !groupmember(gid, p->p_ucred))
+		return (EPERM);
+	return (0);
+}
+
+int
 pledge_adjtime_check(struct proc *p, const void *v)
 {
 	const struct timeval *delta = v;
@@ -1070,7 +1082,7 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		case TIOCSPGRP:
 			if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0)
 				break;
-			/* FALTHROUGH */
+			/* FALLTHROUGH */
 		case TIOCGETA:
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 				return (0);
@@ -1086,6 +1098,7 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		case TIOCSWINSZ:
 		case TIOCSBRK:		/* cu */
 		case TIOCCDTR:		/* cu */
+		case TIOCEXCL:		/* cu */
 		case TIOCSETA:		/* cu, ... */
 		case TIOCSETAW:		/* cu, ... */
 		case TIOCSETAF:		/* tcsetattr TCSAFLUSH, script */
