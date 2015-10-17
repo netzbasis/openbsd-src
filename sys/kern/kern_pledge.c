@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.30 2015/10/15 17:55:41 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.41 2015/10/17 00:58:50 jca Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -32,6 +32,7 @@
 
 #include <sys/ioctl.h>
 #include <sys/termios.h>
+#include <sys/tty.h>
 #include <sys/mtio.h>
 #include <net/bpf.h>
 #include <net/route.h>
@@ -42,12 +43,16 @@
 #include <netinet6/nd6.h>
 #include <netinet/tcp.h>
 
+#include <sys/conf.h>
+#include <sys/specdev.h>
 #include <sys/signal.h>
 #include <sys/signalvar.h>
 #include <sys/syscall.h>
 #include <sys/syscallargs.h>
 #include <sys/systm.h>
 #include <sys/pledge.h>
+
+#include "pty.h"
 
 int canonpath(const char *input, char *buf, size_t bufsize);
 
@@ -224,7 +229,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 
-	[SYS_flock] = PLEDGE_RW | PLEDGE_CPATH,
+	[SYS_flock] = PLEDGE_FLOCK | PLEDGE_YP_ACTIVE,
 };
 
 static const struct {
@@ -253,7 +258,7 @@ static const struct {
 	{ "abort",		PLEDGE_ABORT },
 	{ "fattr",		PLEDGE_FATTR },
 	{ "prot_exec",		PLEDGE_PROTEXEC },
-	{ "flock",		PLEDGE_RW | PLEDGE_CPATH },
+	{ "flock",		PLEDGE_FLOCK },
 };
 
 int
@@ -537,6 +542,13 @@ pledge_namei(struct proc *p, char *origpath)
 			return (0);
 		break;
 	case SYS_open:
+		/* daemon(3) or other such functions */
+		if ((p->p_pledgenote == TMN_RPATH ||
+		    p->p_pledgenote == TMN_WPATH)) {
+			if (strcmp(path, "/dev/null") == 0)
+				return (0);
+		}
+
 		/* getpw* and friends need a few files */
 		if ((p->p_pledgenote == TMN_RPATH) &&
 		    (p->p_p->ps_pledge & PLEDGE_GETPW)) {
@@ -839,7 +851,7 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 
 	/* routing table observation */
 	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
-		if (miblen == 7 &&
+		if ((miblen == 6 || miblen == 7) &&
 		    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 		    mib[2] == 0 &&
 		    (mib[3] == 0 || mib[3] == AF_INET6 || mib[3] == AF_INET) &&
@@ -1004,17 +1016,6 @@ pledge_socket_check(struct proc *p, int domain)
 }
 
 int
-pledge_bind_check(struct proc *p, const void *v)
-{
-
-	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
-		return (0);
-	if ((p->p_p->ps_pledge & PLEDGE_INET))
-		return (0);
-	return (EPERM);
-}
-
-int
 pledge_ioctl_check(struct proc *p, long com, void *v)
 {
 	struct file *fp = v;
@@ -1044,9 +1045,6 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 	 */
 	if ((p->p_p->ps_pledge & PLEDGE_IOCTL)) {
 		switch (com) {
-		case FIOSETOWN:
-		case FIOGETOWN:
-			return (0);
 		case TIOCGETA:
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 				return (0);
@@ -1078,25 +1076,39 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
-		case TIOCSPGRP:
-			if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0)
+#if NPTY > 0
+		case PTMGET:
+			if ((p->p_p->ps_pledge & PLEDGE_RPATH) == 0)
+		                break;
+			if ((p->p_p->ps_pledge & PLEDGE_WPATH) == 0)
+		                break;
+			if (fp->f_type != DTYPE_VNODE || vp->v_type != VCHR)
 				break;
-			/* FALLTHROUGH */
-		case TIOCGETA:
-			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
-				return (0);
-			return (ENOTTY);
+			if (cdevsw[major(vp->v_rdev)].d_open != ptmopen)
+				break;
+			return (0);
+#endif /* NPTY > 0 */
 #if notyet
 		case TIOCSTI:		/* ksh? csh? */
 			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 				return (0);
 			break;
 #endif
+		case TIOCSPGRP:
+			if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0)
+				break;
+			/* FALLTHROUGH */
 		case TIOCGPGRP:
+		case TIOCGETA:
 		case TIOCGWINSZ:	/* various programs */
+			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
+				return (0);
+			return (ENOTTY);
 		case TIOCSWINSZ:
+		case TIOCCBRK:		/* cu */
 		case TIOCSBRK:		/* cu */
 		case TIOCCDTR:		/* cu */
+		case TIOCSDTR:		/* cu */
 		case TIOCEXCL:		/* cu */
 		case TIOCSETA:		/* cu, ... */
 		case TIOCSETAW:		/* cu, ... */
@@ -1111,7 +1123,10 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
 		switch (com) {
 		case SIOCGIFADDR:
+		case SIOCGIFDSTADDR_IN6:
 		case SIOCGIFFLAGS:
+		case SIOCGIFMETRIC:
+		case SIOCGIFNETMASK_IN6:
 		case SIOCGIFRDOMAIN:
 		case SIOCGNBRINFO_IN6:
 			if (fp->f_type == DTYPE_SOCKET)
@@ -1208,6 +1223,16 @@ pledge_dns_check(struct proc *p, in_port_t port)
 	if ((p->p_p->ps_pledge & PLEDGE_DNS_ACTIVE) && port == htons(53))
 		return (0);	/* Allow a DNS connect outbound */
 	return (EPERM);
+}
+
+int
+pledge_flock_check(struct proc *p)
+{
+	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
+		return (0);
+	if ((p->p_p->ps_pledge & PLEDGE_FLOCK))
+		return (0);
+	return (pledge_fail(p, EPERM, PLEDGE_FLOCK));
 }
 
 void

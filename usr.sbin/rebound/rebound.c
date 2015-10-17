@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.19 2015/10/16 02:09:31 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.26 2015/10/17 00:38:57 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -78,6 +78,7 @@ static TAILQ_HEAD(, dnscache) cache;
 struct request {
 	int s;
 	int client;
+	int phase;
 	struct sockaddr from;
 	socklen_t fromlen;
 	struct timespec ts;
@@ -137,6 +138,32 @@ cachelookup(struct dnspacket *dnsreq, size_t reqlen)
 	return hit;
 }
 
+static void
+freerequest(struct request *req)
+{
+	struct dnscache *ent;
+
+	TAILQ_REMOVE(&reqfifo, req, fifo);
+	if (req->client != -1)
+		close(req->client);
+	if (req->s != -1)
+		close(req->s);
+	if ((ent = req->cacheent) && !ent->resp) {
+		free(ent->req);
+		free(ent);
+	}
+	free(req);
+}
+
+static void
+freecacheent(struct dnscache *ent)
+{
+	TAILQ_REMOVE(&cache, ent, cache);
+	free(ent->req);
+	free(ent->resp);
+	free(ent);
+}
+
 static struct request *
 newrequest(int ud, struct sockaddr *remoteaddr)
 {
@@ -164,6 +191,10 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 	if (!(req = calloc(1, sizeof(*req))))
 		return NULL;
 
+	TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
+	req->ts = now;
+	req->ts.tv_sec += 30;
+
 	req->client = -1;
 	memcpy(&req->from, &from, fromlen);
 	req->fromlen = fromlen;
@@ -177,6 +208,7 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 		hit->req = malloc(r);
 		if (hit->req) {
 			memcpy(hit->req, dnsreq, r);
+			hit->reqlen = r;
 			hit->req->id = 0;
 		} else {
 			free(hit);
@@ -195,15 +227,11 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 	}
 	if (send(req->s, buf, r, 0) != r)
 		goto fail;
-	req->ts = now;
-	req->ts.tv_sec += 30;
 
 	return req;
+
 fail:
-	free(hit);
-	if (req->s != -1)
-		close(req->s);
-	free(req);
+	freerequest(req);
 	return NULL;
 }
 
@@ -236,30 +264,29 @@ sendreply(int ud, struct request *req)
 	}
 }
 
-static void
-freerequest(struct request *req)
+static struct request *
+tcpphasetwo(struct request *req)
 {
-	struct dnscache *ent;
+	int error;
+	socklen_t len = sizeof(error);
 
-	TAILQ_REMOVE(&reqfifo, req, fifo);
-	if (req->client != -1)
-		close(req->client);
-	if (req->s != -1)
-		close(req->s);
-	if ((ent = req->cacheent) && !ent->resp) {
-		free(ent->req);
-		free(ent);
-	}
-	free(req);
-}
+	req->phase = 2;
+	
+	if (getsockopt(req->s, SOL_SOCKET, SO_ERROR, &error, &len) == -1 ||
+	    error != 0)
+		goto fail;
+	if (setsockopt(req->client, SOL_SOCKET, SO_SPLICE, &req->s,
+	    sizeof(req->s)) == -1)
+		goto fail;
+	if (setsockopt(req->s, SOL_SOCKET, SO_SPLICE, &req->client,
+	    sizeof(req->client)) == -1)
+		goto fail;
 
-static void
-freecacheent(struct dnscache *ent)
-{
-	TAILQ_REMOVE(&cache, ent, cache);
-	free(ent->req);
-	free(ent->resp);
-	free(ent);
+	return req;
+
+fail:
+	freerequest(req);
+	return NULL;
 }
 
 static struct request *
@@ -270,34 +297,31 @@ newtcprequest(int ld, struct sockaddr *remoteaddr)
 	if (!(req = calloc(1, sizeof(*req))))
 		return NULL;
 
+	TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
+	req->ts = now;
+	req->ts.tv_sec += 30;
+
 	req->s = -1;
 	req->fromlen = sizeof(req->from);
 	req->client = accept(ld, &req->from, &req->fromlen);
 	if (req->client == -1)
 		goto fail;
 
-	req->s = socket(remoteaddr->sa_family, SOCK_STREAM, 0);
+	req->s = socket(remoteaddr->sa_family, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (req->s == -1)
 		goto fail;
-	if (connect(req->s, remoteaddr, remoteaddr->sa_len) == -1)
-		goto fail;
-	if (setsockopt(req->client, SOL_SOCKET, SO_SPLICE, &req->s,
-	    sizeof(req->s)) == -1)
-		goto fail;
-	if (setsockopt(req->s, SOL_SOCKET, SO_SPLICE, &req->client,
-	    sizeof(req->client)) == -1)
-		goto fail;
-	req->ts = now;
-	req->ts.tv_sec += 30;
+	req->phase = 1;
+	if (connect(req->s, remoteaddr, remoteaddr->sa_len) == -1) {
+		if (errno != EINPROGRESS)
+			goto fail;
+	} else {
+		return tcpphasetwo(req);
+	}
 
 	return req;
 
 fail:
-	if (req->s != -1)
-		close(req->s);
-	if (req->client != -1)
-		close(req->client);
-	free(req);
+	freerequest(req);
 	return NULL;
 }
 
@@ -332,14 +356,14 @@ static int
 launch(const char *confname, int ud, int ld, int kq)
 {
 	struct sockaddr_storage remoteaddr;
-	struct kevent chlist[1], kev[4];
+	struct kevent chlist[2], kev[4];
 	struct timespec ts, *timeout = NULL;
 	struct request *req;
 	struct dnscache *ent;
 	struct passwd *pwd;
 	FILE *conf;
 	int i, r, af;
-	pid_t child;
+	pid_t parent, child;
 
 	conf = fopen(confname, "r");
 	if (!conf) {
@@ -347,10 +371,14 @@ launch(const char *confname, int ud, int ld, int kq)
 		return -1;
 	}
 
+	parent = getpid();
 	if (!debug) {
 		if ((child = fork()))
 			return child;
 	}
+
+	close(kq);
+	kq = kqueue();
 
 	if (!(pwd = getpwnam("_rebound")))
 		logerr("getpwnam failed");
@@ -359,12 +387,12 @@ launch(const char *confname, int ud, int ld, int kq)
 		logerr("chroot failed (%d)", errno);
 
 	setproctitle("worker");
+	EV_SET(&kev[0], parent, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
+	kevent(kq, kev, 1, NULL, 0, NULL);
 	if (setgroups(1, &pwd->pw_gid) ||
 	    setresgid(pwd->pw_gid, pwd->pw_gid, pwd->pw_gid) ||
 	    setresuid(pwd->pw_uid, pwd->pw_uid, pwd->pw_uid))
 		logerr("failed to privdrop");
-
-	close(kq);
 
 	if (pledge("stdio inet", NULL) == -1)
 		logerr("pledge failed");
@@ -373,8 +401,6 @@ launch(const char *confname, int ud, int ld, int kq)
 	fclose(conf);
 	if (af == -1)
 		logerr("failed to read config %s", confname);
-
-	kq = kqueue();
 
 	EV_SET(&kev[0], ud, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[1], ld, EVFILT_READ, EV_ADD, 0, 0, NULL);
@@ -393,6 +419,9 @@ launch(const char *confname, int ud, int ld, int kq)
 			if (kev[i].filter == EVFILT_SIGNAL) {
 				logmsg(LOG_INFO, "hupped, exiting");
 				exit(0);
+			} else if (kev[i].filter == EVFILT_PROC) {
+				logmsg(LOG_INFO, "parent died");
+				exit(0);
 			} else if (kev[i].ident == ud) {
 				req = newrequest(ud,
 				    (struct sockaddr *)&remoteaddr);
@@ -400,16 +429,32 @@ launch(const char *confname, int ud, int ld, int kq)
 					EV_SET(&chlist[0], req->s, EVFILT_READ,
 					    EV_ADD, 0, 0, NULL);
 					kevent(kq, chlist, 1, NULL, 0, NULL);
-					TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
 				}
 			} else if (kev[i].ident == ld) {
 				req = newtcprequest(ld,
 				    (struct sockaddr *)&remoteaddr);
 				if (req) {
-					EV_SET(&chlist[0], req->s, EVFILT_READ,
-					    EV_ADD, 0, 0, NULL);
+					EV_SET(&chlist[0], req->s,
+					    req->phase == 1 ? EVFILT_WRITE :
+					    EVFILT_READ, EV_ADD, 0, 0, NULL);
 					kevent(kq, chlist, 1, NULL, 0, NULL);
-					TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
+				}
+			} else if (kev[i].filter == EVFILT_WRITE) {
+				req = TAILQ_FIRST(&reqfifo);
+				while (req) {
+					if (req->s == kev[i].ident)
+						break;
+					req = TAILQ_NEXT(req, fifo);
+				}
+				if (!req)
+					logerr("lost request");
+				req = tcpphasetwo(req);
+				if (req) {
+					EV_SET(&chlist[0], req->s, EVFILT_WRITE,
+					    EV_DELETE, 0, 0, NULL);
+					EV_SET(&chlist[1], req->s, EVFILT_READ,
+					    EV_ADD, 0, 0, NULL);
+					kevent(kq, chlist, 2, NULL, 0, NULL);
 				}
 			} else if (kev[i].filter == EVFILT_READ) {
 				/* use a tree here? */

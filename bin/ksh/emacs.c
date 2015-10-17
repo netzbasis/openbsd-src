@@ -1,4 +1,4 @@
-/*	$OpenBSD: emacs.c,v 1.56 2015/10/10 15:31:00 millert Exp $	*/
+/*	$OpenBSD: emacs.c,v 1.58 2015/10/16 23:18:59 mmcc Exp $	*/
 
 /*
  *  Emacs-like command line editing and history
@@ -413,10 +413,8 @@ x_ins_string(int c)
 	return x_insert(c);
 }
 
-static int x_do_ins(const char *cp, int len);
-
 static int
-x_do_ins(const char *cp, int len)
+x_do_ins(const char *cp, size_t len)
 {
 	if (xep+len >= xend) {
 		x_e_putc(BEL);
@@ -1257,7 +1255,7 @@ kb_decode(const char *s)
 
 	l[0] = '\0';
 	for (i = 0; i < strlen(s); i++) {
-		if (iscntrl(s[i])) {
+		if (iscntrl((unsigned char)s[i])) {
 			l[at++] = '^';
 			l[at++] = UNCTRL(s[i]);
 		} else
