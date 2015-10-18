@@ -1,4 +1,4 @@
-/*	$OpenBSD: alloc.c,v 1.10 2015/10/16 23:13:35 mmcc Exp $	*/
+/*	$OpenBSD: alloc.c,v 1.12 2015/10/17 13:32:46 mmcc Exp $	*/
 /*
  * Copyright (c) 2002 Marc Espie.
  *
@@ -88,7 +88,7 @@ alloc(size_t size, Area *ap)
 #define MUL_NO_OVERFLOW	(1UL << (sizeof(size_t) * 4))
 
 void *
-allocarray(size_t nmemb, size_t size, Area *ap)
+areallocarray(void *ptr, size_t nmemb, size_t size, Area *ap)
 {
 	/* condition logic cloned from calloc() */
 	if ((nmemb >= MUL_NO_OVERFLOW || size >= MUL_NO_OVERFLOW) &&
@@ -96,7 +96,7 @@ allocarray(size_t nmemb, size_t size, Area *ap)
 		internal_errorf(1, "unable to allocate memory");
 	}
 
-	return alloc(nmemb * size, ap);
+	return aresize(ptr, nmemb * size, ap);
 }
 
 void *
@@ -106,6 +106,10 @@ aresize(void *ptr, size_t size, Area *ap)
 
 	if (ptr == NULL)
 		return alloc(size, ap);
+
+	/* ensure that we don't overflow by allocating space for link */
+	if (size > SIZE_MAX - sizeof(struct link))
+		internal_errorf(1, "unable to allocate memory");
 
 	l = P2L(ptr);
 	lprev = l->prev;

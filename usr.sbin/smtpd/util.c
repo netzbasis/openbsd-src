@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.120 2015/10/12 07:58:19 deraadt Exp $	*/
+/*	$OpenBSD: util.c,v 1.122 2015/10/17 22:24:36 gilles Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -139,11 +139,11 @@ strip(char *s)
 {
 	size_t	 l;
 
-	while (*s == ' ' || *s == '\t')
+	while (isspace((unsigned char)*s))
 		s++;
 
 	for (l = strlen(s); l; l--) {
-		if (s[l-1] != ' ' && s[l-1] != '\t')
+		if (!isspace((unsigned char)s[l-1]))
 			break;
 		s[l-1] = '\0';
 	}
@@ -196,7 +196,7 @@ mkdirs(char *path, mode_t mode)
 	if (*path != '/')
 		return 0;
 
-	/* make sure we don't exceed SMTPD_MAXPATHLEN */
+	/* make sure we don't exceed PATH_MAX */
 	if (strlen(path) >= sizeof buf)
 		return 0;
 
@@ -225,7 +225,6 @@ mkdirs(char *path, mode_t mode)
 
 	return 1;
 }
-
 
 int
 ckdir(const char *path, mode_t mode, uid_t owner, gid_t group, int create)
@@ -437,6 +436,34 @@ hostname_match(const char *hostname, const char *pattern)
 	}
 
 	return (*hostname == '\0' && *pattern == '\0');
+}
+
+int
+mailaddr_match(const struct mailaddr *maddr1, const struct mailaddr *maddr2)
+{
+	struct mailaddr m1 = *maddr1;
+	struct mailaddr m2 = *maddr2;
+	char	       *p;
+
+	/* catchall */
+	if (m2.user[0] == '\0' && m2.domain[0] == '\0')
+		return 1;
+
+	if (! hostname_match(m1.domain, m2.domain))
+		return 0;
+
+	if (m2.user[0]) {
+		/* if address from table has a tag, we must respect it */
+		if (strchr(m2.user, '+') == NULL) {
+			/* otherwise, strip tag from session address if any */
+			p = strchr(m1.user, '+');
+			if (p)
+				*p = '\0';
+		}
+		if (strcasecmp(m1.user, m2.user))
+			return 0;
+	}
+	return 1;
 }
 
 int
