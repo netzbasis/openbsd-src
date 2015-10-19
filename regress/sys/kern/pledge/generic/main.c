@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.2 2015/10/09 11:38:05 semarie Exp $ */
+/*	$OpenBSD: main.c,v 1.5 2015/10/18 13:01:40 semarie Exp $ */
 /*
  * Copyright (c) 2015 Sebastien Marie <semarie@openbsd.org>
  *
@@ -266,8 +266,8 @@ main(int argc, char *argv[])
 	/* inet under inet is ok */
 	start_test(&ret, "inet", NULL, test_inet);
 
-	/* kill under inet is forbidden */
-	start_test(&ret, "inet", NULL, test_kill);
+	/* kill under fattr is forbidden (don't have PLEDGE_SELF) */
+	start_test(&ret, "fattr", NULL, test_kill);
 
 	/* kill under proc is allowed */
 	start_test(&ret, "proc", NULL, test_kill);
@@ -286,7 +286,6 @@ main(int argc, char *argv[])
 
 	/* tests req without PLEDGE_SELF for "permitted syscalls" */
 	// XXX it is a documentation bug
-	start_test(&ret, "cmsg",  NULL, test_allowed_syscalls);
 	start_test(&ret, "ioctl", NULL, test_allowed_syscalls);
 	start_test(&ret, "proc",  NULL, test_allowed_syscalls);
 	start_test(&ret, "cpath", NULL, test_allowed_syscalls);
@@ -295,7 +294,7 @@ main(int argc, char *argv[])
 
 	start_test(&ret, "rpath", NULL, test_rpath);
 	start_test(&ret, "wpath", NULL, test_wpath);
-	start_test(&ret, "cpath", NULL, test_cpath);
+	start_test(&ret, "rpath cpath", NULL, test_cpath);
 
 	/*
 	 * test whitelist path

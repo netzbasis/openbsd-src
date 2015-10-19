@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.65 2015/10/17 18:26:24 mmcc Exp $	*/
+/*	$OpenBSD: main.c,v 1.67 2015/10/19 02:15:45 mmcc Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -6,10 +6,12 @@
 
 #define	EXTERN				/* define EXTERNs in sh.h */
 
-#include "sh.h"
 #include <sys/stat.h>
-#include <pwd.h>
+
 #include <paths.h>
+#include <pwd.h>
+
+#include "sh.h"
 
 extern char **environ;
 
@@ -21,6 +23,14 @@ static void	reclaim(void);
 static void	remove_temps(struct temp *tp);
 static int	is_restricted(char *name);
 static void	init_username(void);
+
+const char *kshname;
+pid_t	kshpid;
+pid_t	procpid;
+uid_t	ksheuid;
+int	exstat;
+int	subst_exstat;
+const char *safe_prompt;
 
 /*
  * shell initialization
