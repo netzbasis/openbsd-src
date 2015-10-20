@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.67 2015/10/19 02:15:45 mmcc Exp $	*/
+/*	$OpenBSD: main.c,v 1.69 2015/10/19 14:42:16 mmcc Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -10,6 +10,7 @@
 
 #include <paths.h>
 #include <pwd.h>
+#include <string.h>
 
 #include "sh.h"
 
@@ -31,6 +32,12 @@ uid_t	ksheuid;
 int	exstat;
 int	subst_exstat;
 const char *safe_prompt;
+
+Area	aperm;
+
+struct env	*e;
+
+char	shell_flags[FNFLAGS];
 
 /*
  * shell initialization

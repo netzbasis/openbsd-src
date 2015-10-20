@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd_module.c,v 1.4 2015/08/02 23:29:27 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd_module.c,v 1.6 2015/10/19 09:47:37 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -27,7 +27,6 @@
 #include <event.h>
 #include <fcntl.h>
 #include <imsg.h>
-#include <stdio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -149,6 +148,8 @@ void
 module_drop_privilege(struct module_base *base)
 {
 	struct passwd	*pw;
+
+	tzset();
 
 	/* Drop the privilege */
 	if ((pw = getpwnam(RADIUSD_USER)) == NULL)

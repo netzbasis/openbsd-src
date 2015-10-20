@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.7 2015/08/25 01:12:59 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.9 2015/10/19 22:07:37 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -174,6 +174,14 @@ main(int argc, char *argv[])
 
 	if (radiusd_start(radiusd) != 0)
 		errx(EX_DATAERR, "start failed");
+
+#ifdef RADIUSD_DEBUG
+	if (pledge("stdio inet proc abort", NULL) == -1)
+		err(EXIT_FAILURE, "pledge");
+#else
+	if (pledge("stdio inet", NULL) == -1)
+		err(EXIT_FAILURE, "pledge");
+#endif
 
 	if (event_loop(0) < 0)
 		radiusd_stop(radiusd);
@@ -1050,8 +1058,6 @@ on_fail:
 void
 radiusd_module_stop(struct radiusd_module *module)
 {
-	RADIUSD_ASSERT(module->fd >= 0);
-
 	module->stopped = true;
 
 	if (module->secret != NULL)
@@ -1059,9 +1065,11 @@ radiusd_module_stop(struct radiusd_module *module)
 	free(module->secret);
 	module->secret = NULL;
 
-	imsg_compose(&module->ibuf, IMSG_RADIUSD_MODULE_STOP, 0, 0, -1,
-	    NULL, 0);
-	radiusd_module_reset_ev_handler(module);
+	if (module->fd >= 0) {
+		imsg_compose(&module->ibuf, IMSG_RADIUSD_MODULE_STOP, 0, 0, -1,
+		    NULL, 0);
+		radiusd_module_reset_ev_handler(module);
+	}
 }
 
 static void

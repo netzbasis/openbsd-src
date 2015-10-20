@@ -1,4 +1,4 @@
-/*	$OpenBSD: inetd.c,v 1.144 2015/10/18 16:11:19 jca Exp $	*/
+/*	$OpenBSD: inetd.c,v 1.146 2015/10/19 11:52:51 jca Exp $	*/
 
 /*
  * Copyright (c) 1983,1991 The Regents of the University of California.
@@ -134,6 +134,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <err.h>
 #include <errno.h>
 #include <ctype.h>
 #include <signal.h>
@@ -295,8 +296,6 @@ int
 main(int argc, char *argv[])
 {
 	int ch;
-	extern char *optarg;
-	extern int optind;
 
 	while ((ch = getopt(argc, argv, "dR:")) != -1)
 		switch (ch) {

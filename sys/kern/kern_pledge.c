@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.55 2015/10/18 20:15:10 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.58 2015/10/20 01:44:00 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -87,6 +87,9 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_sysctl] = PLEDGE_SELF,	/* read-only; narrow subset */
 	[SYS_adjtime] = PLEDGE_SELF,	/* read-only */
 
+	[SYS_setsockopt] = PLEDGE_SELF,	/* white list */
+	[SYS_getsockopt] = PLEDGE_SELF,
+
 	[SYS_fchdir] = PLEDGE_SELF,	/* careful of directory fd inside jails */
 
 	/* needed by threaded programs */
@@ -156,6 +159,9 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setrlimit] = PLEDGE_PROC | PLEDGE_ID,
 	[SYS_getpriority] = PLEDGE_PROC | PLEDGE_ID,
 
+	/* XXX we should limit the power for the "proc"-only case */ 
+	[SYS_setpriority] = PLEDGE_PROC | PLEDGE_ID,
+
 	[SYS_setuid] = PLEDGE_ID,
 	[SYS_seteuid] = PLEDGE_ID,
 	[SYS_setresuid] = PLEDGE_ID,
@@ -164,7 +170,6 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_setresgid] = PLEDGE_ID,
 	[SYS_setgroups] = PLEDGE_ID,
 	[SYS_setlogin] = PLEDGE_ID,
-	[SYS_setpriority] = PLEDGE_ID,
 
 	[SYS_execve] = PLEDGE_EXEC,
 
@@ -240,8 +245,6 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_accept] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getpeername] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX,
-	[SYS_setsockopt] = PLEDGE_INET | PLEDGE_UNIX,
-	[SYS_getsockopt] = PLEDGE_INET | PLEDGE_UNIX,
 
 	[SYS_flock] = PLEDGE_FLOCK | PLEDGE_YP_ACTIVE,
 };
@@ -738,7 +741,7 @@ pledge_aftersyscall(struct proc *p, int code, int error)
 int
 pledge_recvfd_check(struct proc *p, struct file *fp)
 {
-	struct vnode *vp;
+	struct vnode *vp = NULL;
 	char *vtypes[] = { VTYPE_NAMES };
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
@@ -759,7 +762,7 @@ pledge_recvfd_check(struct proc *p, struct file *fp)
 			return (0);
 		break;
 	}
-	printf("recvfd type %d %s\n", fp->f_type, vtypes[fp->f_type]);
+	printf("recvfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
 	return pledge_fail(p, EPERM, PLEDGE_RECVFD);
 }
 
@@ -769,7 +772,7 @@ pledge_recvfd_check(struct proc *p, struct file *fp)
 int
 pledge_sendfd_check(struct proc *p, struct file *fp)
 {
-	struct vnode *vp;
+	struct vnode *vp = NULL;
 	char *vtypes[] = { VTYPE_NAMES };
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
@@ -786,12 +789,12 @@ pledge_sendfd_check(struct proc *p, struct file *fp)
 		return (0);
 	case DTYPE_VNODE:
 		vp = (struct vnode *)fp->f_data;
-	
+
 		if (vp->v_type != VDIR)
 			return (0);
 		break;
 	}
-	printf("sendfd type %d %s\n", fp->f_type, vtypes[fp->f_type]);
+	printf("sendfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
 	return pledge_fail(p, EPERM, PLEDGE_SENDFD);
 }
 
@@ -1055,12 +1058,35 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 }
 
 int
-pledge_setsockopt_check(struct proc *p, int level, int optname)
+pledge_sockopt_check(struct proc *p, int level, int optname)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	/* common case for PLEDGE_UNIX and PLEDGE_INET */
+	/* Always allow these, which are too common to reject */
+	switch (level) {
+	case SOL_SOCKET:
+	        switch (optname) {
+	        case SO_RCVBUF:
+	                return 0;
+	        }
+	        break;
+	}
+
+	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS)) == 0)
+	        return (EPERM);
+	/* In use by some service libraries */
+	switch (level) {
+	case SOL_SOCKET:
+	        switch (optname) {
+	        case SO_TIMESTAMP:
+	                return 0;
+	        }
+	        break;
+	}
+
+	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX)) == 0)
+		return (EPERM);
 	switch (level) {
 	case SOL_SOCKET:
 		switch (optname) {
@@ -1072,7 +1098,6 @@ pledge_setsockopt_check(struct proc *p, int level, int optname)
 
 	if ((p->p_p->ps_pledge & PLEDGE_INET) == 0)
 		return (EPERM);
-
 	switch (level) {
 	case IPPROTO_TCP:
 		switch (optname) {

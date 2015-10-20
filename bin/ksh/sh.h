@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.40 2015/10/18 18:05:35 mmcc Exp $	*/
+/*	$OpenBSD: sh.h,v 1.46 2015/10/19 17:15:53 mmcc Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -10,19 +10,17 @@
 
 /* Start of common headers */
 
-#include <stdio.h>
 #include <sys/types.h>
+
+#include <stdio.h>
 #include <setjmp.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <string.h>
 #include <stdarg.h>
 
 #include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 
 #include <signal.h>
 
@@ -52,7 +50,6 @@
  */
 #define	MAGIC		(7)	/* prefix for *?[!{,} during expand */
 #define ISMAGIC(c)	((unsigned char)(c) == MAGIC)
-#define	NOT		'!'	/* might use ^ (ie, [!...] vs [^..]) */
 
 #define	LINE	2048		/* input line size */
 #define	PATH	1024		/* pathname size (todo: PATH_MAX/pathconf()) */
@@ -73,7 +70,7 @@ typedef struct Area {
 	struct link *freelist;	/* free list */
 } Area;
 
-EXTERN	Area	aperm;		/* permanent object space */
+extern	Area	aperm;		/* permanent object space */
 #define	APERM	&aperm
 #define	ATEMP	&e->area
 
@@ -90,7 +87,7 @@ EXTERN	Area	aperm;		/* permanent object space */
 /*
  * parsing & execution environment
  */
-EXTERN	struct env {
+struct env {
 	short	type;			/* environment type - see below */
 	short	flags;			/* EF_* */
 	Area	area;			/* temporary allocation area */
@@ -99,7 +96,8 @@ EXTERN	struct env {
 	struct	env *oenv;		/* link to previous environment */
 	sigjmp_buf jbuf;		/* long jump back to env creator */
 	struct temp *temps;		/* temp files */
-} *e;
+};
+extern	struct env	*e;
 
 /* struct env.type values */
 #define	E_NONE	0		/* dummy environment */
@@ -203,7 +201,7 @@ enum sh_flag {
 
 #define Flag(f)	(shell_flags[(int) (f)])
 
-EXTERN	char shell_flags [FNFLAGS];
+extern	char shell_flags[FNFLAGS];
 
 EXTERN	char	null [] I__("");	/* null value for variable */
 

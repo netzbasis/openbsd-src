@@ -1,4 +1,4 @@
-/*	$OpenBSD: expr.c,v 1.29 2015/10/19 02:15:45 mmcc Exp $	*/
+/*	$OpenBSD: expr.c,v 1.31 2015/10/19 14:42:16 mmcc Exp $	*/
 
 /*
  * Korn expression evaluation
@@ -8,6 +8,8 @@
  */
 
 #include <ctype.h>
+#include <limits.h>
+#include <string.h>
 
 #include "sh.h"
 
