@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.58 2015/10/20 01:44:00 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.62 2015/10/20 18:04:03 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -56,6 +56,7 @@
 #include "pty.h"
 
 int canonpath(const char *input, char *buf, size_t bufsize);
+int substrcmp(const char *p1, size_t s1, const char *p2, size_t s2);
 
 const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_exit] = 0xffffffff,
@@ -232,19 +233,19 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_lchown] = PLEDGE_FATTR,
 	[SYS_fchown] = PLEDGE_FATTR,
 
-	/* XXX remove PLEDGE_DNS from socket/connect in 1 week */
 	[SYS_socket] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YP_ACTIVE,
 	[SYS_connect] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YP_ACTIVE,
+	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
+	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
 
+	/* XXX remove this, and the code in uipc_syscalls.c */
 	[SYS_dnssocket] = PLEDGE_DNS,
 	[SYS_dnsconnect] = PLEDGE_DNS,
 
 	[SYS_listen] = PLEDGE_INET | PLEDGE_UNIX,
-	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_accept4] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_accept] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_getpeername] = PLEDGE_INET | PLEDGE_UNIX,
-	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX,
 
 	[SYS_flock] = PLEDGE_FLOCK | PLEDGE_YP_ACTIVE,
 };
@@ -657,8 +658,8 @@ pledge_namei(struct proc *p, char *origpath)
 	if (p->p_p->ps_pledgepaths) {
 		struct whitepaths *wl = p->p_p->ps_pledgepaths;
 		char *fullpath, *builtpath = NULL, *canopath = NULL;
-		size_t builtlen = 0;
-		int i, error;
+		size_t builtlen = 0, canopathlen;
+		int i, error, pardir_found;
 
 		if (origpath[0] != '/') {
 			char *cwdpath, *cwd, *bp, *bpend;
@@ -704,16 +705,42 @@ pledge_namei(struct proc *p, char *origpath)
 		//    (long long)strlen(canopath));
 
 		error = ENOENT;
+		canopathlen = strlen(canopath);
+		pardir_found = 0;
 		for (i = 0; i < wl->wl_count && wl->wl_paths[i].name && error; i++) {
-			if (strncmp(canopath, wl->wl_paths[i].name,
-			    wl->wl_paths[i].len - 1) == 0) {
+			int substr = substrcmp(wl->wl_paths[i].name,
+			    wl->wl_paths[i].len - 1, canopath, canopathlen);
+
+			//printf("pledge: check: %s [%ld] %s [%ld] = %d\n",
+			//    wl->wl_paths[i].name, wl->wl_paths[i].len - 1,
+			//    canopath, canopathlen,
+			//    substr);
+
+			/* wl_paths[i].name is a substring of canopath */
+			if (substr == 1) {
 				u_char term = canopath[wl->wl_paths[i].len - 1];
 
 				if (term == '\0' || term == '/' ||
 				    wl->wl_paths[i].name[1] == '\0')
 					error = 0;
+
+			/* canopath is a substring of wl_paths[i].name */
+			} else if (substr == 2) {
+				u_char term = wl->wl_paths[i].name[canopathlen];
+
+				if (canopath[1] == '\0' || term == '/')
+					pardir_found = 1;
 			}
 		}
+		if (pardir_found)
+			switch (p->p_pledge_syscall) {
+			case SYS_stat:
+			case SYS_lstat:
+			case SYS_fstatat:
+			case SYS_fstat:
+				p->p_pledgenote |= TMN_STATLIE;
+				error = 0;
+			}
 		free(canopath, M_TEMP, MAXPATHLEN);
 		return (error);			/* Don't hint why it failed */
 	}
@@ -909,25 +936,12 @@ pledge_adjtime_check(struct proc *p, const void *v)
 }
 
 int
-pledge_recvit_check(struct proc *p, const void *from)
-{
-	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
-		return (0);
-
-	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX)))
-		return (0);		/* may use address */
-	if (from == NULL)
-		return (0);		/* behaves just like read */
-	return (EPERM);
-}
-
-int
 pledge_sendit_check(struct proc *p, const void *to)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX)))
+	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS)))
 		return (0);		/* may use address */
 	if (to == NULL)
 		return (0);		/* behaves just like write */
@@ -1048,6 +1062,7 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 		case SIOCGIFNETMASK_IN6:
 		case SIOCGIFRDOMAIN:
 		case SIOCGNBRINFO_IN6:
+		case SIOCGIFGMEMB:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
@@ -1068,13 +1083,14 @@ pledge_sockopt_check(struct proc *p, int level, int optname)
 	case SOL_SOCKET:
 	        switch (optname) {
 	        case SO_RCVBUF:
+		case SO_ERROR:
 	                return 0;
 	        }
 	        break;
 	}
 
 	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS)) == 0)
-	        return (EPERM);
+	 	return (EINVAL);
 	/* In use by some service libraries */
 	switch (level) {
 	case SOL_SOCKET:
@@ -1086,18 +1102,18 @@ pledge_sockopt_check(struct proc *p, int level, int optname)
 	}
 
 	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX)) == 0)
-		return (EPERM);
+		return (EINVAL);
 	switch (level) {
 	case SOL_SOCKET:
 		switch (optname) {
 		case SO_RTABLE:
-			return (EPERM);
+			return (EINVAL);
 		}
 		return (0);
 	}
 
 	if ((p->p_p->ps_pledge & PLEDGE_INET) == 0)
-		return (EPERM);
+		return (EINVAL);
 	switch (level) {
 	case IPPROTO_TCP:
 		switch (optname) {
@@ -1154,15 +1170,15 @@ pledge_sockopt_check(struct proc *p, int level, int optname)
 }
 
 int
-pledge_dns_check(struct proc *p, in_port_t port)
+pledge_socket_check(struct proc *p, int dns)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	if ((p->p_p->ps_pledge & PLEDGE_INET))
+	if (dns && (p->p_p->ps_pledge & PLEDGE_DNS))
 		return (0);
-	if ((p->p_p->ps_pledge & PLEDGE_DNS) && port == htons(53))
-		return (0);	/* Allow a DNS connect outbound */
+	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_YP_ACTIVE)))
+		return (0);
 	return (EPERM);
 }
 
@@ -1252,4 +1268,20 @@ canonpath(const char *input, char *buf, size_t bufsize)
 		*(end - 1) = 0; /* remove trailing '/' */
 
 	return 0;
+}
+
+int
+substrcmp(const char *p1, size_t s1, const char *p2, size_t s2)
+{
+	size_t i;
+	for (i = 0; i < s1 || i < s2; i++) {
+		if (p1[i] != p2[i])
+			break;
+	}
+	if (i == s1) {
+		return (1);	/* string1 is a subpath of string2 */
+	} else if (i == s2)
+		return (2);	/* string2 is a subpath of string1 */
+	else
+		return (0);	/* no subpath */
 }
