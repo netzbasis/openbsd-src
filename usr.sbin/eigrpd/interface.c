@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.6 2015/10/10 05:09:19 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.8 2015/10/21 03:52:12 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -93,13 +93,9 @@ if_new(struct eigrpd_conf *xconf, struct kif *kif)
 void
 if_del(struct iface *iface)
 {
-	struct eigrp_iface	*ei;
 	struct if_addr		*if_addr;
 
 	log_debug("%s: interface %s", __func__, iface->name);
-
-	while ((ei = TAILQ_FIRST(&iface->ei_list)) != NULL)
-		eigrp_if_del(ei);
 
 	while ((if_addr = TAILQ_FIRST(&iface->addr_list)) != NULL) {
 		TAILQ_REMOVE(&iface->addr_list, if_addr, entry);
@@ -302,6 +298,7 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 	TAILQ_INIT(&ei->nbr_list);
 	TAILQ_INIT(&ei->update_list);
 	TAILQ_INIT(&ei->query_list);
+	TAILQ_INIT(&ei->summary_list);
 	TAILQ_INSERT_TAIL(&iface->ei_list, ei, i_entry);
 	TAILQ_INSERT_TAIL(&eigrp->ei_list, ei, e_entry);
 	if (RB_INSERT(iface_id_head, &ifaces_by_id, ei) != NULL)
@@ -313,9 +310,17 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 void
 eigrp_if_del(struct eigrp_iface *ei)
 {
+	struct summary_addr	*summary;
+
 	RB_REMOVE(iface_id_head, &ifaces_by_id, ei);
 	TAILQ_REMOVE(&ei->eigrp->ei_list, ei, e_entry);
 	TAILQ_REMOVE(&ei->iface->ei_list, ei, i_entry);
+	while ((summary = TAILQ_FIRST(&ei->summary_list)) != NULL) {
+		TAILQ_REMOVE(&ei->summary_list, summary, entry);
+		free(summary);
+	}
+	message_list_clr(&ei->query_list);
+	message_list_clr(&ei->update_list);
 
 	if (ei->state == IF_STA_ACTIVE)
 		eigrp_if_reset(ei);

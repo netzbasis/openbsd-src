@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.h,v 1.3 2015/10/04 22:54:38 renato Exp $ */
+/*	$OpenBSD: eigrpd.h,v 1.5 2015/10/21 03:52:12 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -157,24 +157,30 @@ enum route_type {
 
 /* routing information advertised by update/query/reply messages */
 struct rinfo {
-	int				 af;
-	enum route_type			 type;
-	union eigrpd_addr		 prefix;
-	uint8_t				 prefixlen;
-	union eigrpd_addr		 nexthop;
-	struct classic_metric		 metric;
-	struct classic_emetric		 emetric;
+	int			 af;
+	enum route_type		 type;
+	union eigrpd_addr	 prefix;
+	uint8_t			 prefixlen;
+	union eigrpd_addr	 nexthop;
+	struct classic_metric	 metric;
+	struct classic_emetric	 emetric;
 };
 
 struct rinfo_entry {
-	TAILQ_ENTRY(rinfo_entry)	 entry;
-	struct rinfo			 rinfo;
+	TAILQ_ENTRY(rinfo_entry) entry;
+	struct rinfo		 rinfo;
 };
 TAILQ_HEAD(rinfo_head, rinfo_entry);
 
 /* interface states */
 #define	IF_STA_DOWN		0x01
 #define	IF_STA_ACTIVE		0x02
+
+struct summary_addr {
+	TAILQ_ENTRY(summary_addr) entry;
+	union eigrpd_addr	 prefix;
+	uint8_t			 prefixlen;
+};
 
 struct eigrp_iface {
 	RB_ENTRY(eigrp_iface)	 id_tree;
@@ -196,15 +202,16 @@ struct eigrp_iface {
 	struct nbr		*self;
 	struct rinfo_head	 update_list;	/* multicast updates */
 	struct rinfo_head	 query_list;	/* multicast queries */
+	TAILQ_HEAD(, summary_addr) summary_list;
 };
 
 #define INADDRSZ	4
 #define IN6ADDRSZ	16
 
 struct seq_addr_entry {
-	TAILQ_ENTRY(seq_addr_entry)	 entry;
-	int				 af;
-	union eigrpd_addr		 addr;
+	TAILQ_ENTRY(seq_addr_entry) entry;
+	int			 af;
+	union eigrpd_addr	 addr;
 };
 TAILQ_HEAD(seq_addr_head, seq_addr_entry);
 
@@ -223,24 +230,24 @@ RB_HEAD(rt_tree, rt_node);
 #define	REDIST_NO		0x40
 
 struct redist_metric {
-	uint32_t		bandwidth;
-	uint32_t		delay;
-	uint8_t			reliability;
-	uint8_t			load;
-	uint16_t		mtu;
+	uint32_t		 bandwidth;
+	uint32_t		 delay;
+	uint8_t			 reliability;
+	uint8_t			 load;
+	uint16_t		 mtu;
 };
 
 struct redistribute {
-	SIMPLEQ_ENTRY(redistribute)	 entry;
-	uint8_t				 type;
-	int				 af;
-	union eigrpd_addr		 addr;
-	uint8_t				 prefixlen;
-	struct redist_metric		*metric;
+	SIMPLEQ_ENTRY(redistribute) entry;
+	uint8_t			 type;
+	int			 af;
+	union eigrpd_addr	 addr;
+	uint8_t			 prefixlen;
+	struct redist_metric	*metric;
 	struct {
-		uint32_t		 as;
-		uint32_t		 metric;
-		uint32_t		 tag;
+		uint32_t	 as;
+		uint32_t	 metric;
+		uint32_t	 tag;
 	} emetric;
 };
 SIMPLEQ_HEAD(redist_list, redistribute);
@@ -289,6 +296,7 @@ struct eigrpd_conf {
 	unsigned int		 rdomain;
 	uint8_t			 fib_priority_internal;
 	uint8_t			 fib_priority_external;
+	uint8_t			 fib_priority_summary;
 	TAILQ_HEAD(, iface)	 iface_list;
 	TAILQ_HEAD(, eigrp)	 instances;
 	char			*csock;
@@ -424,6 +432,8 @@ void		 eigrp_applymask(int, union eigrpd_addr *,
     const union eigrpd_addr *, int);
 int		 eigrp_addrcmp(int, union eigrpd_addr *, union eigrpd_addr *);
 int		 eigrp_addrisset(int, union eigrpd_addr *);
+int		 eigrp_prefixcmp(int, const union eigrpd_addr *,
+    const union eigrpd_addr *, uint8_t);
 void		 embedscope(struct sockaddr_in6 *);
 void		 recoverscope(struct sockaddr_in6 *);
 void		 addscope(struct sockaddr_in6 *, uint32_t);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.1 2015/10/02 04:26:47 renato Exp $ */
+/*	$OpenBSD: kroute.c,v 1.3 2015/10/21 03:52:12 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -1525,7 +1525,6 @@ rtmsg_process_route(struct rt_msghdr *rtm, struct sockaddr *rti_info[RTAX_MAX])
 		kr.flags |= F_DYNAMIC;
 	kr.priority = rtm->rtm_priority;
 
-
 	if (rtm->rtm_type == RTM_CHANGE) {
 		/*
 		 * The kernel doesn't allow RTM_CHANGE for multipath routes.
@@ -1565,7 +1564,8 @@ rtmsg_process_route(struct rt_msghdr *rtm, struct sockaddr *rti_info[RTAX_MAX])
 	}
 
 	if (kr.priority == eigrpd_conf->fib_priority_internal ||
-	    kr.priority == eigrpd_conf->fib_priority_external) {
+	    kr.priority == eigrpd_conf->fib_priority_external ||
+	    kr.priority == eigrpd_conf->fib_priority_summary) {
 		log_warnx("alien EIGRP route %s/%d", log_addr(kr.af, &kr.prefix),
 		    kr.prefixlen);
 		return (send_rtmsg(kr_state.fd, RTM_DELETE, &kr));

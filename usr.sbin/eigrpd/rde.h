@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.2 2015/10/05 01:59:33 renato Exp $ */
+/*	$OpenBSD: rde.h,v 1.4 2015/10/21 03:52:12 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -133,6 +133,8 @@ void		 rde_instance_del(struct eigrp *);
 void		 rde_send_change_kroute(struct rt_node *, struct eigrp_route *);
 void		 rde_send_delete_kroute(struct rt_node *, struct eigrp_route *);
 void		 rt_redist_set(struct kroute *, int);
+void		 rt_summary_set(struct eigrp *, struct summary_addr *,
+    struct classic_metric *);
 void		 rt_snap(struct rde_nbr *);
 struct ctl_rt	*rt_to_ctl(struct rt_node *, struct eigrp_route *);
 void		 rt_dump(struct ctl_show_topology_req *, pid_t);
@@ -171,7 +173,8 @@ void			 rt_set_successor(struct rt_node *,
     struct eigrp_route *);
 struct eigrp_route	*rt_get_successor_fc(struct rt_node *);
 
-void			 rde_send_ack(struct rde_nbr *);
+struct summary_addr	*rde_summary_check(struct eigrp_iface *,
+    union eigrpd_addr *, uint8_t);
 void			 rde_send_update(struct eigrp_iface *, struct rinfo *);
 void			 rde_send_update_all(struct rt_node *, struct rinfo *);
 void			 rde_send_query(struct eigrp_iface *, struct rinfo *,
@@ -189,8 +192,7 @@ void			 rde_check_link_down_rn(struct rde_nbr *,
     struct rt_node *, struct eigrp_route *);
 void			 rde_check_link_down_nbr(struct rde_nbr *);
 void			 rde_check_link_down(unsigned int);
-struct eigrp_interface;
 void			 rde_check_link_cost_change(struct rde_nbr *,
-    struct eigrp_interface *);
+    struct eigrp_iface *);
 
 #endif	/* _RDE_H_ */
