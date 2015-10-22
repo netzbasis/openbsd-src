@@ -291,6 +291,7 @@ authkey		: AUTHKEY STRING {
 			}
 			bzero(defs->auth_key, MAX_SIMPLE_AUTH_LEN);
 			memcpy(defs->auth_key, $2, strlen($2));
+			explicit_bzero($2, strlen($2));
 			free($2);
 		}
 		;
