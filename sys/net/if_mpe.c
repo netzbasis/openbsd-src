@@ -1,4 +1,4 @@
-/* $OpenBSD: if_mpe.c,v 1.47 2015/09/12 20:50:17 mpi Exp $ */
+/* $OpenBSD: if_mpe.c,v 1.49 2015/10/22 17:48:34 mpi Exp $ */
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@spootnik.org>
@@ -25,6 +25,7 @@
 #include <sys/ioctl.h>
 
 #include <net/if.h>
+#include <net/if_dl.h>
 #include <net/if_var.h>
 #include <net/if_types.h>
 #include <net/netisr.h>
@@ -104,8 +105,7 @@ mpe_clone_create(struct if_clone *ifc, int unit)
 #endif
 
 	mpeif->sc_ifa.ifa_ifp = ifp;
-	mpeif->sc_ifa.ifa_rtrequest = link_rtrequest;
-	mpeif->sc_ifa.ifa_addr = (struct sockaddr *) ifp->if_sadl;
+	mpeif->sc_ifa.ifa_addr = sdltosa(ifp->if_sadl);
 	mpeif->sc_smpls.smpls_len = sizeof(mpeif->sc_smpls);
 	mpeif->sc_smpls.smpls_family = AF_MPLS;
 

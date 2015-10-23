@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.254 2015/10/21 08:21:06 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.258 2015/10/22 17:19:38 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -348,13 +348,9 @@ rtfree(struct rtentry *rt)
 	if (rt == NULL)
 		return;
 
-	rt->rt_refcnt--;
-
-	if (rt->rt_refcnt <= 0 && (rt->rt_flags & RTF_UP) == 0) {
-		if (rt->rt_refcnt == 0 && RT_ACTIVE(rt))
-			return; /* route still active but currently down */
-		if (RT_ACTIVE(rt) || RT_ROOT(rt))
-			panic("rtfree 2");
+	if (--rt->rt_refcnt <= 0) {
+		KASSERT(!ISSET(rt->rt_flags, RTF_UP));
+		KASSERT(!RT_ROOT(rt));
 		rttrash--;
 		if (rt->rt_refcnt < 0) {
 			printf("rtfree: %p not freed (neg refs)\n", rt);
@@ -388,7 +384,7 @@ rt_sendmsg(struct rtentry *rt, int cmd, u_int rtableid)
 	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
 	info.rti_info[RTAX_LABEL] = rtlabel_id2sa(rt->rt_labelid, &sa_rl);
 	if (rt->rt_ifp != NULL) {
-		info.rti_info[RTAX_IFP] =(struct sockaddr *)rt->rt_ifp->if_sadl;
+		info.rti_info[RTAX_IFP] = sdltosa(rt->rt_ifp->if_sadl);
 		info.rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 	}
 
@@ -612,7 +608,7 @@ ifa_ifwithroute(int flags, struct sockaddr *dst, struct sockaddr *gateway,
 	}
 	if (ifa == NULL) {
 		if (gateway->sa_family == AF_LINK) {
-			struct sockaddr_dl *sdl = (struct sockaddr_dl *)gateway;
+			struct sockaddr_dl *sdl = satosdl(gateway);
 			struct ifnet *ifp = if_get(sdl->sdl_index);
 
 			if (ifp != NULL)
@@ -656,7 +652,7 @@ rt_getifa(struct rt_addrinfo *info, u_int rtid)
 	if (info->rti_info[RTAX_IFP] != NULL) {
 		struct sockaddr_dl *sdl;
 
-		sdl = (struct sockaddr_dl *)info->rti_info[RTAX_IFP];
+		sdl = satosdl(info->rti_info[RTAX_IFP]);
 		ifp = if_get(sdl->sdl_index);
 	}
 
@@ -808,7 +804,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 
 		info->rti_flags = rt->rt_flags | (RTF_CLONED|RTF_HOST);
 		info->rti_flags &= ~(RTF_CLONING|RTF_CONNECTED|RTF_STATIC);
-		info->rti_info[RTAX_GATEWAY] = (struct sockaddr *)&sa_dl;
+		info->rti_info[RTAX_GATEWAY] = sdltosa(&sa_dl);
 		info->rti_info[RTAX_LABEL] =
 		    rtlabel_id2sa(rt->rt_labelid, &sa_rl2);
 		/* FALLTHROUGH */
@@ -846,6 +842,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 			return (ENOBUFS);
 		}
 
+		rt->rt_refcnt = 1;
 		rt->rt_flags = info->rti_flags | RTF_UP;
 		rt->rt_tableid = tableid;
 		rt->rt_priority = prio;	/* init routing priority */
@@ -931,7 +928,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 			rt->rt_rmx = (*ret_nrt)->rt_rmx; /* copy metrics */
 			rt->rt_priority = (*ret_nrt)->rt_priority;
 			rt->rt_parent = *ret_nrt;	 /* Back ptr. to parent. */
-			rt->rt_parent->rt_refcnt++;
+			rtref(rt->rt_parent);
 		}
 
 		/*
@@ -1108,7 +1105,7 @@ rt_ifa_add(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 	info.rti_flags = flags | RTF_MPATH;
 	info.rti_info[RTAX_DST] = dst;
 	if (flags & RTF_LLINFO)
-		info.rti_info[RTAX_GATEWAY] = (struct sockaddr *)ifp->if_sadl;
+		info.rti_info[RTAX_GATEWAY] = sdltosa(ifp->if_sadl);
 	else
 		info.rti_info[RTAX_GATEWAY] = ifa->ifa_addr;
 	info.rti_info[RTAX_LABEL] = rtlabel_id2sa(ifp->if_rtlabelid, &sa_rl);
@@ -1133,19 +1130,6 @@ rt_ifa_add(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 
 	error = rtrequest1(RTM_ADD, &info, prio, &rt, rtableid);
 	if (error == 0) {
-		if (rt->rt_ifa != ifa) {
-			printf("%s: wrong ifa (%p) was (%p)\n", __func__,
-			    ifa, rt->rt_ifa);
-			if (rt->rt_ifa->ifa_rtrequest)
-				rt->rt_ifa->ifa_rtrequest(RTM_DELETE, rt);
-			ifafree(rt->rt_ifa);
-			rt->rt_ifa = ifa;
-			rt->rt_ifp = ifa->ifa_ifp;
-			ifa->ifa_refcnt++;
-			if (ifa->ifa_rtrequest)
-				ifa->ifa_rtrequest(RTM_ADD, rt);
-		}
-
 		/*
 		 * A local route is created for every address configured
 		 * on an interface, so use this information to notify
@@ -1666,8 +1650,7 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 {
 	struct ifnet *ifp = arg;
 
-	if ((rt->rt_ifp != ifp) &&
-	    (rt->rt_ifa == NULL || rt->rt_ifa->ifa_ifp != ifp))
+	if (rt->rt_ifp != ifp)
 	    	return (0);
 
 	/* Local routes are always usable. */

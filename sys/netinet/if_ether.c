@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.172 2015/10/13 10:21:27 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.176 2015/10/22 18:14:53 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -68,8 +68,6 @@
 #if NBRIDGE > 0
 #include <net/if_bridge.h>
 #endif
-
-#define SDL(s) ((struct sockaddr_dl *)s)
 
 /*
  * ARP trailer negotiation.  Trailer protocol is not IP specific,
@@ -198,7 +196,7 @@ arp_rtrequest(int req, struct rtentry *rt)
 			arprequest(ifp,
 			    &satosin(rt_key(rt))->sin_addr.s_addr,
 			    &satosin(rt_key(rt))->sin_addr.s_addr,
-			    (u_char *)LLADDR(SDL(gate)));
+			    (u_char *)LLADDR(satosdl(gate)));
 		/*FALLTHROUGH*/
 	case RTM_RESOLVE:
 		if (gate->sa_family != AF_LINK ||
@@ -207,8 +205,8 @@ arp_rtrequest(int req, struct rtentry *rt)
 			    ifp->if_xname);
 			break;
 		}
-		SDL(gate)->sdl_type = ifp->if_type;
-		SDL(gate)->sdl_index = ifp->if_index;
+		satosdl(gate)->sdl_type = ifp->if_type;
+		satosdl(gate)->sdl_index = ifp->if_index;
 		if (la != 0)
 			break; /* This happens on a route change */
 		/*
@@ -235,17 +233,8 @@ arp_rtrequest(int req, struct rtentry *rt)
 				break;
 		}
 		if (ifa) {
+			KASSERT(ifa == rt->rt_ifa);
 			rt->rt_expire = 0;
-			/*
-			 * make sure to set rt->rt_ifa to the interface
-			 * address we are using, otherwise we will have trouble
-			 * with source address selection.
-			 */
-			if (ifa != rt->rt_ifa) {
-				ifafree(rt->rt_ifa);
-				ifa->ifa_refcnt++;
-				rt->rt_ifa = ifa;
-			}
 		}
 		break;
 
@@ -373,7 +362,7 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	}
 	if (la == NULL || rt == NULL)
 		goto bad;
-	sdl = SDL(rt->rt_gateway);
+	sdl = satosdl(rt->rt_gateway);
 	if (sdl->sdl_alen > 0 && sdl->sdl_alen != ETHER_ADDR_LEN) {
 		log(LOG_DEBUG, "%s: %s: incorrect arp information\n", __func__,
 		    inet_ntop(AF_INET, &satosin(dst)->sin_addr,
@@ -507,18 +496,9 @@ arpintr(void)
 }
 
 /*
- * ARP for Internet protocols on Ethernet.
- * Algorithm is that given in RFC 826.
+ * ARP for Internet protocols on Ethernet, RFC 826.
  * In addition, a sanity check is performed on the sender
  * protocol address, to catch impersonators.
- * We no longer handle negotiations for use of trailer protocol:
- * Formerly, ARP replied for protocol type ETHERTYPE_TRAIL sent
- * along with IP replies if we wanted trailers sent to us,
- * and also sent them in response to IP replies.
- * This allowed either end to announce the desire to receive
- * trailer packets.
- * We no longer reply to requests for ETHERTYPE_TRAIL protocol either,
- * but formerly didn't normally send requests.
  */
 void
 in_arpinput(struct mbuf *m)
@@ -553,13 +533,6 @@ in_arpinput(struct mbuf *m)
 	op = ntohs(ea->arp_op);
 	if ((op != ARPOP_REQUEST) && (op != ARPOP_REPLY))
 		goto out;
-#if notyet
-	if ((op == ARPOP_REPLY) && (m->m_flags & (M_BCAST|M_MCAST))) {
-		log(LOG_ERR,
-		    "arp: received reply to broadcast or multicast address\n");
-		goto out;
-	}
-#endif
 
 	memcpy(&itaddr, ea->arp_tpa, sizeof(itaddr));
 	memcpy(&isaddr, ea->arp_spa, sizeof(isaddr));
@@ -578,7 +551,7 @@ in_arpinput(struct mbuf *m)
 		    (IFF_UP|IFF_RUNNING))) {
 			if (op == ARPOP_REPLY)
 				break;
-			if (carp_iamatch(ifatoia(ifa), ea->arp_sha,
+			if (carp_iamatch(ifp, ea->arp_sha,
 			    &enaddr, &ether_shost))
 				break;
 			else
@@ -635,7 +608,7 @@ in_arpinput(struct mbuf *m)
 	}
 	rt = arplookup(isaddr.s_addr, itaddr.s_addr == myaddr.s_addr, 0,
 	    rtable_l2(m->m_pkthdr.ph_rtableid));
-	if (rt != NULL && (sdl = SDL(rt->rt_gateway)) != NULL) {
+	if (rt != NULL && (sdl = satosdl(rt->rt_gateway)) != NULL) {
 		la = (struct llinfo_arp *)rt->rt_llinfo;
 		if (sdl->sdl_alen) {
 			if (memcmp(ea->arp_sha, LLADDR(sdl), sdl->sdl_alen)) {
@@ -743,7 +716,7 @@ out:
 		if (rt->rt_ifp->if_type == IFT_CARP && ifp->if_type != IFT_CARP)
 			goto out;
 		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
-		sdl = SDL(rt->rt_gateway);
+		sdl = satosdl(rt->rt_gateway);
 		memcpy(ea->arp_sha, LLADDR(sdl), sizeof(ea->arp_sha));
 		rtfree(rt);
 	}
@@ -775,7 +748,7 @@ void
 arptfree(struct rtentry *rt)
 {
 	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
-	struct sockaddr_dl *sdl = SDL(rt->rt_gateway);
+	struct sockaddr_dl *sdl = satosdl(rt->rt_gateway);
 
 	if ((sdl != NULL) && (sdl->sdl_family == AF_LINK)) {
 		sdl->sdl_alen = 0;
@@ -831,7 +804,7 @@ arpproxy(struct in_addr in, unsigned int rtableid)
 		return (0);
 
 	/* Check that arp information are correct. */
-	sdl = (struct sockaddr_dl *)rt->rt_gateway;
+	sdl = satosdl(rt->rt_gateway);
 	if (sdl->sdl_alen != ETHER_ADDR_LEN) {
 		rtfree(rt);
 		return (0);
