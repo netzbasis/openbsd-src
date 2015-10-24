@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.66 2015/10/23 01:10:01 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.68 2015/10/23 15:53:49 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -938,6 +938,10 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 	if (miblen == 2 &&			/* gethostname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_HOSTNAME)
 		return (0);
+	if (miblen == 6 &&		/* if_nameindex() */
+	    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
+	    mib[2] == 0 && mib[3] == 0 && mib[4] == NET_RT_IFNAMES)
+		return (0);
 	if (miblen == 2 &&			/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSTYPE)
 		return (0);
@@ -1117,13 +1121,14 @@ pledge_ioctl_check(struct proc *p, long com, void *v)
 	if ((p->p_p->ps_pledge & PLEDGE_ROUTE)) {
 		switch (com) {
 		case SIOCGIFADDR:
-		case SIOCGIFDSTADDR_IN6:
 		case SIOCGIFFLAGS:
 		case SIOCGIFMETRIC:
-		case SIOCGIFNETMASK_IN6:
-		case SIOCGIFRDOMAIN:
-		case SIOCGNBRINFO_IN6:
 		case SIOCGIFGMEMB:
+		case SIOCGIFRDOMAIN:
+		case SIOCGIFDSTADDR_IN6:
+		case SIOCGIFNETMASK_IN6:
+		case SIOCGNBRINFO_IN6:
+		case SIOCGIFINFO_IN6:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
