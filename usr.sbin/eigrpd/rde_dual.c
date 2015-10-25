@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_dual.c,v 1.7 2015/10/21 03:52:12 renato Exp $ */
+/*	$OpenBSD: rde_dual.c,v 1.9 2015/10/25 00:42:02 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -314,10 +314,8 @@ safe_sum_uint32(uint32_t a, uint32_t b)
 uint32_t
 eigrp_composite_delay(uint32_t delay)
 {
-	/*
-	 * NOTE: the multiplication below has no risk of overflow
-	 * because of the maximum configurable delay.
-	 */
+	/* cheap overflow protection */
+	delay = min(delay, (1 << 24) - 1);
 	return (delay * EIGRP_SCALING_FACTOR);
 }
 
@@ -330,13 +328,18 @@ eigrp_real_delay(uint32_t delay)
 uint32_t
 eigrp_composite_bandwidth(uint32_t bandwidth)
 {
-	return ((EIGRP_SCALING_FACTOR * (uint32_t)10000000) / bandwidth);
+	/* truncate before applying the scaling factor */
+	bandwidth = 10000000 / bandwidth;
+	return (EIGRP_SCALING_FACTOR * bandwidth);
 }
 
-/* the formula is the same but let's focus on keeping the code readable */
 uint32_t
 eigrp_real_bandwidth(uint32_t bandwidth)
 {
+	/*
+	 * apply the scaling factor before the division and only then truncate.
+	 * this is to keep consistent with what cisco does.
+	 */
 	return ((EIGRP_SCALING_FACTOR * (uint32_t)10000000) / bandwidth);
 }
 
@@ -377,7 +380,8 @@ route_update_metrics(struct eigrp_route *route, struct rinfo *ri)
 			route->metric.hop_count++;
 	}
 
-	route->distance = route->metric.delay + route->metric.bandwidth;
+	route->distance = safe_sum_uint32(route->metric.delay,
+	    route->metric.bandwidth);
 	route->flags |= F_EIGRP_ROUTE_M_CHANGED;
 }
 

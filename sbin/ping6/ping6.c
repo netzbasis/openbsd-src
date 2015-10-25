@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.128 2015/10/17 15:43:31 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.131 2015/10/24 16:59:15 florian Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -168,7 +168,6 @@ char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
 char *hostname;
 int ident;			/* process id to identify our packets */
-u_int8_t nonce[8];		/* nonce field for node information */
 int hoplimit = -1;		/* hoplimit */
 
 /* counters */
@@ -211,7 +210,6 @@ int	 pinger(void);
 const char *pr_addr(struct sockaddr *, socklen_t);
 void	 pr_icmph(struct icmp6_hdr *, u_char *);
 void	 pr_iph(struct ip6_hdr *);
-int	 myechoreply(const struct icmp6_hdr *);
 void	 pr_pack(u_char *, int, struct msghdr *);
 void	 pr_exthdrs(struct msghdr *);
 void	 pr_ip6opt(void *);
@@ -501,7 +499,6 @@ main(int argc, char *argv[])
 			*datap++ = i;
 
 	ident = getpid() & 0xFFFF;
-	arc4random_buf(nonce, sizeof(nonce));
 
 	optval = 1;
 
@@ -571,7 +568,7 @@ main(int argc, char *argv[])
 		scmsgp = CMSG_NXTHDR(&smsghdr, scmsgp);
 	}
 
-	if (!(options & F_SRCADDR)) {
+	if (!(options & F_SRCADDR) && options & F_VERBOSE) {
 		/*
 		 * get the source address. XXX since we revoked the root
 		 * privilege, we cannot use a raw socket for this.
@@ -635,10 +632,12 @@ main(int argc, char *argv[])
 	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
 	arc4random_buf(&mac_key, sizeof(mac_key));
 
-	printf("PING6(%lu=40+8+%lu bytes) ", (unsigned long)(40 + ICMP6ECHOLEN
-	    + datalen), (unsigned long)(ICMP6ECHOLEN + datalen - 8));
-	printf("%s --> ", pr_addr((struct sockaddr *)&src, sizeof(src)));
-	printf("%s\n", pr_addr((struct sockaddr *)&dst, sizeof(dst)));
+	printf("PING6 %s (", hostname);
+	if (options & F_VERBOSE)
+		printf("%s --> ", pr_addr((struct sockaddr *)&src,
+		    sizeof(src)));
+	printf("%s): %d data bytes\n", pr_addr((struct sockaddr *)&dst,
+	    sizeof(dst)), datalen);
 
 	while (preload--)		/* Fire off them quickies. */
 		(void)pinger();
@@ -872,15 +871,6 @@ pinger(void)
 	return(0);
 }
 
-int
-myechoreply(const struct icmp6_hdr *icp)
-{
-	if (ntohs(icp->icmp6_id) == ident)
-		return 1;
-	else
-		return 0;
-}
-
 #define MINIMUM(a,b) (((a)<(b))?(a):(b))
 
 /*
@@ -937,7 +927,9 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		return;
 	}
 
-	if (icp->icmp6_type == ICMP6_ECHO_REPLY && myechoreply(icp)) {
+	if (icp->icmp6_type == ICMP6_ECHO_REPLY) {
+		if (ntohs(icp->icmp6_id) != ident)
+			return;			/* 'Twas not our ECHO */
 		seq = ntohs(icp->icmp6_seq);
 		++nreceived;
 		if (timing) {
@@ -1326,7 +1318,7 @@ summary(int signo)
 
 	buf[0] = '\0';
 
-	snprintf(buft, sizeof(buft), "\n--- %s ping6 statistics ---\n",
+	snprintf(buft, sizeof(buft), "--- %s ping6 statistics ---\n",
 	    hostname);
 	strlcat(buf, buft, sizeof(buf));
 	snprintf(buft, sizeof(buft), "%ld packets transmitted, ",
