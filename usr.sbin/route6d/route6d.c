@@ -1,4 +1,4 @@
-/*	$OpenBSD: route6d.c,v 1.70 2015/10/18 14:35:36 jca Exp $	*/
+/*	$OpenBSD: route6d.c,v 1.81 2015/10/26 00:37:44 jca Exp $	*/
 /*	$KAME: route6d.c,v 1.111 2006/10/25 06:38:13 jinmei Exp $	*/
 
 /*
@@ -124,7 +124,7 @@ int	nifc;		/* number of valid ifc's */
 struct	ifc **index2ifc;
 int	nindex2ifc;
 struct	ifc *loopifcp = NULL;	/* pointing to loopback */
-struct	pollfd set[2];
+struct	pollfd pfd[2];
 int	rtsock;		/* the routing socket */
 int	ripsock;	/* socket to send/receive RIP datagram */
 
@@ -173,13 +173,10 @@ pid_t	pid;
 
 struct	sockaddr_storage ripsin;
 
-int	interval = 1;
 time_t	nextalarm = 0;
 time_t	sup_trig_update = 0;
 
 FILE	*rtlog = NULL;
-
-int logopened = 0;
 
 static	int	seq = 0;
 
@@ -215,7 +212,6 @@ const char *rtflags(struct rt_msghdr *);
 const char *ifflags(int);
 int ifrt(struct ifc *, int);
 void ifrt_p2p(struct ifc *, int);
-void applymask(struct in6_addr *, struct in6_addr *);
 void applyplen(struct in6_addr *, int);
 void ifrtdump(int);
 void ifdump(int);
@@ -234,8 +230,8 @@ int delroute(struct netinfo6 *, struct in6_addr *);
 struct in6_addr *getroute(struct netinfo6 *, struct in6_addr *);
 void krtread(int);
 int tobeadv(struct riprt *, struct ifc *);
-char *allocopy(char *);
-char *hms(void);
+char *xstrdup(const char *);
+const char *hms(void);
 const char *inet6_n2p(const struct in6_addr *);
 struct ifac *ifa_match(const struct ifc *, const struct in6_addr *, int);
 struct in6_addr *plen2mask(int);
@@ -282,7 +278,7 @@ main(int argc, char *argv[])
 				/*NOTREACHED*/
 			}
 			filtertype[nfilter] = ch;
-			filter[nfilter++] = allocopy(optarg);
+			filter[nfilter++] = xstrdup(optarg);
 			break;
 		case 't':
 			ep = NULL;
@@ -334,7 +330,6 @@ main(int argc, char *argv[])
 	}
 
 	openlog(progname, LOG_NDELAY|LOG_PID, LOG_DAEMON);
-	logopened++;
 
 	if ((ripbuf = malloc(RIP6_MAXMTU)) == NULL)
 		fatal("malloc");
@@ -371,18 +366,6 @@ main(int argc, char *argv[])
 	krtread(0);
 	if (dflag)
 		ifrtdump(0);
-
-	pidfile(NULL);
-
-	if ((ripbuf = malloc(RIP6_MAXMTU)) == NULL) {
-		fatal("malloc");
-		/*NOTREACHED*/
-	}
-	memset(ripbuf, 0, RIP6_MAXMTU);
-	ripbuf->rip6_cmd = RIP6_RESPONSE;
-	ripbuf->rip6_vers = RIP6_VERSION;
-	ripbuf->rip6_res1[0] = 0;
-	ripbuf->rip6_res1[1] = 0;
 
 	if (signal(SIGALRM, sighandler) == SIG_ERR ||
 	    signal(SIGQUIT, sighandler) == SIG_ERR ||
@@ -427,7 +410,7 @@ main(int argc, char *argv[])
 			continue;
 		}
 
-		switch (poll(set, 2, INFTIM))
+		switch (poll(pfd, 2, INFTIM))
 		{
 		case -1:
 			if (errno != EINTR) {
@@ -438,12 +421,12 @@ main(int argc, char *argv[])
 		case 0:
 			continue;
 		default:
-			if (set[0].revents & POLLIN) {
+			if (pfd[0].revents & POLLIN) {
 				sigprocmask(SIG_BLOCK, &mask, &omask);
 				riprecv();
 				sigprocmask(SIG_SETMASK, &omask, NULL);
 			}
-			if (set[1].revents & POLLIN) {
+			if (pfd[1].revents & POLLIN) {
 				sigprocmask(SIG_BLOCK, &mask, &omask);
 				rtrecv();
 				sigprocmask(SIG_SETMASK, &omask, NULL);
@@ -475,7 +458,6 @@ sighandler(int signo)
 /*
  * gracefully exits after resetting sockopts.
  */
-/* ARGSUSED */
 void
 rtdexit(void)
 {
@@ -502,7 +484,6 @@ rtdexit(void)
  * to invoke this function in every 1 or 5 or 10 seconds only to age the
  * routes more precisely.
  */
-/* ARGSUSED */
 void
 ripalarm(void)
 {
@@ -623,18 +604,18 @@ init(void)
 	}
 	memcpy(&ripsin, res->ai_addr, res->ai_addrlen);
 
-	set[0].fd = ripsock;
-	set[0].events = POLLIN;
+	pfd[0].fd = ripsock;
+	pfd[0].events = POLLIN;
 
 	if (nflag == 0) {
 		if ((rtsock = socket(PF_ROUTE, SOCK_RAW, 0)) < 0) {
 			fatal("route socket");
 			/*NOTREACHED*/
 		}
-		set[1].fd = rtsock;
-		set[1].events = POLLIN;
+		pfd[1].fd = rtsock;
+		pfd[1].events = POLLIN;
 	} else
-		set[1].fd = -1;
+		pfd[1].fd = -1;
 
 }
 
@@ -1424,7 +1405,7 @@ ifconfig(void)
 			ifcp->ifc_next = ifc;
 			ifc = ifcp;
 			nifc++;
-			ifcp->ifc_name = allocopy(ifa->ifa_name);
+			ifcp->ifc_name = xstrdup(ifa->ifa_name);
 			ifcp->ifc_addr = 0;
 			ifcp->ifc_filter = 0;
 			ifcp->ifc_flags = ifa->ifa_flags;
@@ -1558,8 +1539,8 @@ rtrecv(void)
 		exit(1);
 	}
 	if (len < sizeof(*rtm)) {
-		trace(1, "short read from rtsock: %d (should be > %lu)\n",
-			len, (u_long)sizeof(*rtm));
+		trace(1, "short read from rtsock: %d (should be > %zu)\n",
+			len, sizeof(*rtm));
 		return;
 	}
 	if (dflag >= 2) {
@@ -2467,8 +2448,8 @@ krtread(int again)
 		}
 	} while (retry < 5 && errmsg != NULL);
 	if (errmsg) {
-		fatal("%s (with %d retries, msize=%lu)", errmsg, retry,
-		    (u_long)msize);
+		fatal("%s (with %d retries, msize=%zu)", errmsg, retry,
+		    msize);
 		/*NOTREACHED*/
 	} else if (1 < retry)
 		syslog(LOG_INFO, "NET_RT_DUMP %d retires", retry);
@@ -2946,11 +2927,11 @@ rtdump(int sig)
 			age = t - rrt->rrt_t;
 		inet_ntop(AF_INET6, (void *)&rrt->rrt_info.rip6_dest,
 			buf, sizeof(buf));
-		fprintf(dump, "    %s/%d if(%d:%s) gw(%s) [%d] age(%ld)",
+		fprintf(dump, "    %s/%d if(%d:%s) gw(%s) [%d] age(%lld)",
 			buf, rrt->rrt_info.rip6_plen, rrt->rrt_index,
 			index2ifc[rrt->rrt_index]->ifc_name,
 			inet6_n2p(&rrt->rrt_gw),
-			rrt->rrt_info.rip6_metric, (long)age);
+			rrt->rrt_info.rip6_metric, (long long)age);
 		if (rrt->rrt_info.rip6_tag) {
 			fprintf(dump, " tag(0x%04x)",
 				ntohs(rrt->rrt_info.rip6_tag) & 0xffff);
@@ -3177,23 +3158,11 @@ mask2len(const struct in6_addr *addr, int lenlim)
 }
 
 void
-applymask(struct in6_addr *addr, struct in6_addr *mask)
-{
-	int	i;
-	u_long	*p, *q;
-
-	p = (u_long *)addr; q = (u_long *)mask;
-	for (i = 0; i < 4; i++)
-		*p++ &= *q++;
-}
-
-static const u_char plent[8] = {
-	0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe
-};
-
-void
 applyplen(struct in6_addr *ia, int plen)
 {
+	static const u_char plent[8] = {
+		0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe
+	};
 	u_char	*p;
 	int	i;
 
@@ -3207,13 +3176,12 @@ applyplen(struct in6_addr *ia, int plen)
 	}
 }
 
-static const int pl2m[9] = {
-	0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
-};
-
 struct in6_addr *
 plen2mask(int n)
 {
+	static const int pl2m[9] = {
+		0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
+	};
 	static struct in6_addr ia;
 	u_char	*p;
 	int	i;
@@ -3232,21 +3200,19 @@ plen2mask(int n)
 }
 
 char *
-allocopy(char *p)
+xstrdup(const char *p)
 {
-	int len = strlen(p) + 1;
-	char *q = malloc(len);
+	char *q;
 
-	if (!q) {
-		fatal("malloc");
+	q = strdup(p);
+	if (q == NULL) {
+		fatal("strdup");
 		/*NOTREACHED*/
 	}
-
-	strlcpy(q, p, len);
 	return q;
 }
 
-char *
+const char *
 hms(void)
 {
 	static char buf[BUFSIZ];
@@ -3269,6 +3235,7 @@ int
 ripinterval(int timer)
 {
 	double r = arc4random();
+	int interval;
 
 	interval = (int)(timer + timer * RIPRANDDEV * (r / UINT32_MAX - 0.5));
 	nextalarm = time(NULL) + interval;
@@ -3404,10 +3371,10 @@ setindex2ifc(int idx, struct ifc *ifcp)
 	if (n != nindex2ifc) {
 		p = reallocarray(index2ifc, nindex2ifc, sizeof(*index2ifc));
 		if (p == NULL) {
-			fatal("realloc");
+			fatal("reallocarray");
 			/*NOTREACHED*/
 		}
-		memset(p + n, 0, sizeof(*index2ifc) * (nindex2ifc - n));
+		memset(p + n, 0, (nindex2ifc - n) * sizeof(*index2ifc));
 		index2ifc = p;
 	}
 	index2ifc[idx] = ifcp;
