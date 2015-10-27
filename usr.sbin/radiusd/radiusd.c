@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.9 2015/10/19 22:07:37 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.11 2015/10/27 04:27:01 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -197,7 +197,7 @@ radiusd_start(struct radiusd *radiusd)
 {
 	struct radiusd_listen	*l;
 	struct radiusd_module	*module;
-	int			 s;
+	int			 s, ival;
 	char			 hbuf[NI_MAXHOST];
 
 	TAILQ_FOREACH(l, &radiusd->listen, next) {
@@ -217,6 +217,16 @@ radiusd_start(struct radiusd *radiusd)
 		    != 0) {
 			log_warn("Listen %s port %d is failed: bind()",
 			    hbuf, (int)htons(l->addr.ipv4.sin_port));
+			close(s);
+			goto on_error;
+		}
+		if ((ival = fcntl(s, F_GETFL, 0)) < 0) {
+			log_warn("fcntl(F_GETFL) failed at %s()", __func__);
+			close(s);
+			goto on_error;
+		}
+		if (fcntl(s, F_SETFL, ival | O_NONBLOCK) < 0) {
+			log_warn("fcntl(F_SETFL,O_NONBLOCK) failed at %s()", __func__);
 			close(s);
 			goto on_error;
 		}
@@ -368,6 +378,8 @@ radiusd_listen_on_event(int fd, short evmask, void *ctx)
 		peersz = sizeof(peer);
 		if ((sz = recvfrom(listn->sock, buf, sizeof(buf), 0,
 		    (struct sockaddr *)&peer, &peersz)) < 0) {
+			if (errno == EAGAIN)
+				return;
 			log_warn("%s: recvfrom() failed", __func__);
 			goto on_error;
 		}
@@ -930,7 +942,7 @@ radiusd_module_load(struct radiusd *radiusd, const char *path, const char *name)
 {
 	struct radiusd_module		*module = NULL;
 	pid_t				 pid;
-	int				 on, pairsock[] = { -1, -1 };
+	int				 ival, pairsock[] = { -1, -1 };
 	const char			*av[3];
 	ssize_t				 n;
 	struct imsg			 imsg;
@@ -967,9 +979,13 @@ radiusd_module_load(struct radiusd *radiusd, const char *path, const char *name)
 	close(pairsock[1]);
 
 	module->fd = pairsock[0];
-	on = 1;
-	if (fcntl(module->fd, O_NONBLOCK, &on) == -1) {
-		log_warn("Could not load module `%s': fcntl(,O_NONBLOCK)",
+	if ((ival = fcntl(module->fd, F_GETFL, 0)) < 0) {
+		log_warn("Could not load module `%s': fcntl(F_GETFL)",
+		    name);
+		goto on_error;
+	}
+	if (fcntl(module->fd, F_SETFL, ival | O_NONBLOCK) < 0) {
+		log_warn("Could not load module `%s': fcntl(F_SETFL,O_NONBLOCK)",
 		    name);
 		goto on_error;
 	}

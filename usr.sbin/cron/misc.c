@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.58 2015/10/25 21:30:11 millert Exp $	*/
+/*	$OpenBSD: misc.c,v 1.60 2015/10/26 15:16:30 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -45,15 +45,6 @@ strcmp_until(const char *left, const char *right, char until)
 		return (0);
 	}
 	return (*left - *right);
-}
-
-void
-set_cron_uid(void)
-{
-	if (seteuid(ROOT_UID) < 0) {
-		perror("seteuid");
-		exit(EXIT_FAILURE);
-	}
 }
 
 void
@@ -261,7 +252,7 @@ allowed(const char *username, const char *allow_file, const char *deny_file)
 	FILE	*fp;
 	int	isallowed;
 
-	if (strcmp(username, ROOT_USER) == 0)
+	if (strcmp(username, "root") == 0)
 		return (TRUE);
 	isallowed = FALSE;
 	if ((fp = fopen(allow_file, "r")) != NULL) {
@@ -414,25 +405,11 @@ open_socket(void)
 	mode_t		   omask;
 	struct sockaddr_un s_un;
 
-	sock = socket(AF_UNIX, SOCK_STREAM, 0);
+	sock = socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0);
 	if (sock == -1) {
 		fprintf(stderr, "%s: can't create socket: %s\n",
 		    ProgramName, strerror(errno));
 		log_it("CRON", getpid(), "DEATH", "can't create socket");
-		exit(EXIT_FAILURE);
-	}
-	if (fcntl(sock, F_SETFD, FD_CLOEXEC) == -1) {
-		fprintf(stderr, "%s: can't make socket close on exec: %s\n",
-		    ProgramName, strerror(errno));
-		log_it("CRON", getpid(), "DEATH",
-		    "can't make socket close on exec");
-		exit(EXIT_FAILURE);
-	}
-	if (fcntl(sock, F_SETFL, O_NONBLOCK) == -1) {
-		fprintf(stderr, "%s: can't make socket non-blocking: %s\n",
-		    ProgramName, strerror(errno));
-		log_it("CRON", getpid(), "DEATH",
-		    "can't make socket non-blocking");
 		exit(EXIT_FAILURE);
 	}
 	bzero(&s_un, sizeof(s_un));

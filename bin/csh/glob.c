@@ -1,4 +1,4 @@
-/*	$OpenBSD: glob.c,v 1.18 2015/06/17 03:48:21 deraadt Exp $	*/
+/*	$OpenBSD: glob.c,v 1.20 2015/10/26 22:03:06 naddy Exp $	*/
 /*	$NetBSD: glob.c,v 1.10 1995/03/21 09:03:01 cgd Exp $	*/
 
 /*-
@@ -579,9 +579,6 @@ dobackp(Char *cp, bool literal)
     Char   *ep, word[PATH_MAX];
 
     if (pargv) {
-#ifdef notdef
-	abort();
-#endif
 	blkfree(pargv);
     }
     pargsiz = GLOBSPACE;
@@ -878,9 +875,7 @@ Gcat(Char *s1, Char *s2)
 int
 sortscmp(const void *a, const void *b)
 {
-#if defined(NLS) && !defined(NOSTRCOLL)
     char    buf[2048];
-#endif
 
     if (!a)			/* check for NULL */
 	return (b ? 1 : 0);
@@ -892,10 +887,6 @@ sortscmp(const void *a, const void *b)
     if (!*(Char **)b)
 	return (-1);
 
-#if defined(NLS) && !defined(NOSTRCOLL)
     (void) strlcpy(buf, short2str(*(Char **)a), sizeof buf);
     return ((int) strcoll(buf, short2str(*(Char **)b)));
-#else
-    return ((int) Strcmp(*(Char **)a, *(Char **)b));
-#endif
 }

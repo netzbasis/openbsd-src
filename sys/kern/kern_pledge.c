@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.74 2015/10/25 20:39:54 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.80 2015/10/26 17:52:19 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -121,6 +121,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_settimeofday] = PLEDGE_SETTIME,
 
 	[SYS_poll] = PLEDGE_STDIO,
+	[SYS_ppoll] = PLEDGE_STDIO,
 	[SYS_kevent] = PLEDGE_STDIO,
 	[SYS_kqueue] = PLEDGE_STDIO,
 	[SYS_select] = PLEDGE_STDIO,
@@ -169,9 +170,11 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_setuid] = PLEDGE_ID,
 	[SYS_seteuid] = PLEDGE_ID,
+	[SYS_setreuid] = PLEDGE_ID,
 	[SYS_setresuid] = PLEDGE_ID,
 	[SYS_setgid] = PLEDGE_ID,
 	[SYS_setegid] = PLEDGE_ID,
+	[SYS_setregid] = PLEDGE_ID,
 	[SYS_setresgid] = PLEDGE_ID,
 	[SYS_setgroups] = PLEDGE_ID,
 	[SYS_setlogin] = PLEDGE_ID,
@@ -477,30 +480,40 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 }
 
 int
-pledge_check(struct proc *p, int code)
+pledge_check(struct proc *p, int code, int *tval)
 {
 	p->p_pledgenote = p->p_pledgeafter = 0;	/* XX optimise? */
 	p->p_pledge_syscall = code;
+	*tval = 0;
 
 	if (code < 0 || code > SYS_MAXSYSCALL - 1)
+		return (EINVAL);
+
+	if ((p->p_p->ps_pledge == 0) &&
+	    (code == SYS_exit || code == SYS_kbind))
 		return (0);
 
-	if (p->p_p->ps_pledge == 0)
-		return (code == SYS_exit || code == SYS_kbind);
-	return (p->p_p->ps_pledge & pledge_syscalls[code]);
+	if (p->p_p->ps_pledge & pledge_syscalls[code])
+		return (0);
+
+	*tval = pledge_syscalls[code];
+	return (EPERM);
 }
 
 int
 pledge_fail(struct proc *p, int error, int code)
 {
+	char *codes = "";
 	int i;
 
 	/* Print first matching pledge */
-	for (i = 0; pledgenames[i].bits != 0; i++)
-		if (pledgenames[i].bits & code)
+	for (i = 0; code && pledgenames[i].bits != 0; i++)
+		if (pledgenames[i].bits & code) {
+			codes = pledgenames[i].name;
 			break;
+		}
 	printf("%s(%d): syscall %d \"%s\"\n", p->p_comm, p->p_pid,
-	    p->p_pledge_syscall, pledgenames[i].name);
+	    p->p_pledge_syscall, codes);
 #ifdef KTRACE
 	ktrpledge(p, error, code, p->p_pledge_syscall);
 #endif
@@ -539,7 +552,7 @@ pledge_namei(struct proc *p, char *origpath)
 	/* chmod(2), chflags(2), ... */
 	if ((p->p_pledgenote & PLEDGE_FATTR) &&
 	    (p->p_p->ps_pledge & PLEDGE_FATTR) == 0) {
-		return (pledge_fail(p, EPERM, p->p_pledgenote));
+		return (pledge_fail(p, EPERM, PLEDGE_FATTR));
 	}
 
 	/* Detect what looks like a mkstemp(3) family operation */
@@ -815,7 +828,7 @@ pledge_recvfd_check(struct proc *p, struct file *fp)
 		break;
 	}
 	printf("recvfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
-	return pledge_fail(p, EPERM, PLEDGE_RECVFD);
+	return pledge_fail(p, EINVAL, PLEDGE_RECVFD);
 }
 
 /*
@@ -847,7 +860,7 @@ pledge_sendfd_check(struct proc *p, struct file *fp)
 		break;
 	}
 	printf("sendfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
-	return pledge_fail(p, EPERM, PLEDGE_SENDFD);
+	return pledge_fail(p, EINVAL, PLEDGE_SENDFD);
 }
 
 int
@@ -932,7 +945,7 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 			return (0);
 	}
 
-	if ((p->p_p->ps_pledge & (PLEDGE_ROUTE | PLEDGE_INET))) {
+	if ((p->p_p->ps_pledge & (PLEDGE_ROUTE | PLEDGE_INET | PLEDGE_DNS))) {
 		if (miblen == 6 &&		/* getifaddrs() */
 		    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 		    mib[2] == 0 &&

@@ -1,4 +1,4 @@
-/*	$OpenBSD: str.c,v 1.16 2014/10/16 19:43:31 deraadt Exp $	*/
+/*	$OpenBSD: str.c,v 1.19 2015/10/26 16:31:09 naddy Exp $	*/
 /*	$NetBSD: str.c,v 1.6 1995/03/21 09:03:24 cgd Exp $	*/
 
 /*-
@@ -43,8 +43,6 @@
 
 #include "csh.h"
 #include "extern.h"
-
-#ifdef SHORT_STRINGS
 
 Char  **
 blk2short(char **src)
@@ -144,7 +142,7 @@ short2str(Char *src)
 }
 
 size_t
-s_strlcpy(Char *dst, const Char *src, size_t siz)
+Strlcpy(Char *dst, const Char *src, size_t siz)
 {
         Char *d = dst;
         const Char *s = src;
@@ -170,7 +168,7 @@ s_strlcpy(Char *dst, const Char *src, size_t siz)
 }
 
 size_t
-s_strlcat(Char *dst, const Char *src, size_t siz)
+Strlcat(Char *dst, const Char *src, size_t siz)
 {
         Char *d = dst;
         const Char *s = src;
@@ -184,7 +182,7 @@ s_strlcat(Char *dst, const Char *src, size_t siz)
         n = siz - dlen;
 
         if (n == 0)
-                return(dlen + s_strlen((Char *)s));
+                return(dlen + Strlen((Char *)s));
         while (*s != '\0') {
                 if (n != 1) {
                         *d++ = *s;
@@ -198,7 +196,7 @@ s_strlcat(Char *dst, const Char *src, size_t siz)
 }
 
 Char   *
-s_strchr(Char *str, int ch)
+Strchr(Char *str, int ch)
 {
     do
 	if (*str == ch)
@@ -209,7 +207,7 @@ s_strchr(Char *str, int ch)
 }
 
 Char   *
-s_strrchr(Char *str, int ch)
+Strrchr(Char *str, int ch)
 {
     Char *rstr;
 
@@ -223,7 +221,7 @@ s_strrchr(Char *str, int ch)
 }
 
 size_t
-s_strlen(Char *str)
+Strlen(Char *str)
 {
     size_t n;
 
@@ -233,7 +231,7 @@ s_strlen(Char *str)
 }
 
 int
-s_strcmp(Char *str1, Char *str2)
+Strcmp(Char *str1, Char *str2)
 {
     for (; *str1 && *str1 == *str2; str1++, str2++)
 	continue;
@@ -253,7 +251,7 @@ s_strcmp(Char *str1, Char *str2)
 }
 
 int
-s_strncmp(Char *str1, Char *str2, size_t n)
+Strncmp(Char *str1, Char *str2, size_t n)
 {
     if (n == 0)
 	return (0);
@@ -280,7 +278,7 @@ s_strncmp(Char *str1, Char *str2, size_t n)
 }
 
 Char   *
-s_strsave(Char *s)
+Strsave(Char *s)
 {
     Char   *n;
     Char *p;
@@ -296,7 +294,7 @@ s_strsave(Char *s)
 }
 
 Char   *
-s_strspl(Char *cp, Char *dp)
+Strspl(Char *cp, Char *dp)
 {
     Char   *ep;
     Char *p, *q;
@@ -318,7 +316,7 @@ s_strspl(Char *cp, Char *dp)
 }
 
 Char   *
-s_strend(Char *cp)
+Strend(Char *cp)
 {
     if (!cp)
 	return (cp);
@@ -328,7 +326,7 @@ s_strend(Char *cp)
 }
 
 Char   *
-s_strstr(Char *s, Char *t)
+Strstr(Char *s, Char *t)
 {
     do {
 	Char *ss = s;
@@ -341,7 +339,6 @@ s_strstr(Char *s, Char *t)
     } while (*s++ != '\0');
     return (NULL);
 }
-#endif				/* SHORT_STRINGS */
 
 char   *
 short2qstr(Char *src)
@@ -402,10 +399,6 @@ vis_str(Char *cp)
 	sdst = xreallocarray(sdst, n, sizeof(char));
 	dstsize = n;
     }
-    /*
-     * XXX: When we are in AsciiOnly we want all characters >= 0200 to
-     * be encoded, but currently there is no way in vis to do that.
-     */
     (void) strnvis(sdst, short2str(cp), dstsize, VIS_NOSLASH);
     return (sdst);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.c,v 1.30 2015/10/22 12:09:03 deraadt Exp $	*/
+/*	$OpenBSD: csh.c,v 1.34 2015/10/26 22:03:06 naddy Exp $	*/
 /*	$NetBSD: csh.c,v 1.14 1995/04/29 23:21:28 mycroft Exp $	*/
 
 /*-
@@ -155,24 +155,9 @@ main(int argc, char *argv[])
     if (loginsh)
 	(void) time(&chktim);
 
-    AsciiOnly = 1;
-#ifdef NLS
-    (void) setlocale(LC_ALL, "");
-
     if (pledge("stdio rpath wpath cpath fattr getpw proc exec tty",
 	NULL) == -1)
 	    perror("pledge");
-
-    {
-	int     k;
-
-	for (k = 0200; k <= 0377 && !Isprint(k); k++)
-	    continue;
-	AsciiOnly = k > 0377;
-    }
-#else
-    AsciiOnly = getenv("LANG") == NULL && getenv("LC_CTYPE") == NULL;
-#endif				/* NLS */
 
     /*
      * Move the descriptors to safe places. The variable didfds is 0 while we
@@ -834,9 +819,6 @@ void
 exitstat(void)
 {
     Char *s;
-#ifdef PROF
-    monitor(0);
-#endif
     /*
      * Note that if STATUS is corrupted (i.e. getn bombs) then error will exit
      * directly because we poke child here. Otherwise we might continue
@@ -1250,10 +1232,6 @@ vis_fputc(int ch, FILE *fp)
 
     if (ch & QUOTE)
 	return fputc(ch & TRIM, fp);
-    /*
-     * XXX: When we are in AsciiOnly we want all characters >= 0200 to
-     * be encoded, but currently there is no way in vis to do that.
-     */
     (void) vis(uenc, ch & TRIM, VIS_NOSLASH, 0);
     return fputs(uenc, fp);
 }
@@ -1276,11 +1254,7 @@ initdesc(void)
 
 
 void
-#ifdef PROF
-done(int i)
-#else
 xexit(int i)
-#endif
 {
     untty();
     _exit(i);
@@ -1303,11 +1277,6 @@ defaultpath(void)
     DIRAPPEND(_PATH_USRBIN);
 
 #undef DIRAPPEND
-
-#if 0
-    if (euid != 0 && uid != 0)
-	*blkp++ = Strsave(STRdot);
-#endif
 
     *blkp = NULL;
     return (blk);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cron.c,v 1.55 2015/10/25 21:30:11 millert Exp $	*/
+/*	$OpenBSD: cron.c,v 1.57 2015/10/26 15:16:30 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -77,7 +77,6 @@ main(int argc, char *argv[])
 	sact.sa_handler = SIG_IGN;
 	(void) sigaction(SIGPIPE, &sact, NULL);
 
-	set_cron_uid();
 	set_cron_cwd();
 
 	cronSock = open_socket();
@@ -346,8 +345,9 @@ cron_sleep(time_t target, sigset_t *mask)
 			break;		/* an error occurred */
 		if (nfds > 0) {
 			sunlen = sizeof(s_un);
-			fd = accept(cronSock, (struct sockaddr *)&s_un, &sunlen);
-			if (fd >= 0 && fcntl(fd, F_SETFL, O_NONBLOCK) == 0) {
+			fd = accept4(cronSock, (struct sockaddr *)&s_un,
+			    &sunlen, SOCK_NONBLOCK);
+			if (fd >= 0) {
 				(void) read(fd, &poke, 1);
 				close(fd);
 				if (poke & RELOAD_CRON) {

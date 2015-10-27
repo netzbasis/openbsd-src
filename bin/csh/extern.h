@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.21 2015/06/17 03:48:21 deraadt Exp $	*/
+/*	$OpenBSD: extern.h,v 1.24 2015/10/26 21:57:42 naddy Exp $	*/
 /*	$NetBSD: extern.h,v 1.8 1996/10/31 23:50:54 christos Exp $	*/
 
 /*-
@@ -48,12 +48,7 @@ void	process(bool);
 void	rechist(void);
 void	untty(void);
 int	vis_fputc(int, FILE *);
-
-#ifdef PROF
-void done(int);
-#else
-void xexit(int);
-#endif
+void	xexit(int);
 
 /*
  * dir.c
@@ -210,10 +205,6 @@ char	 *strsave(char *);
 char	 *strspl(char *, char *);
 void	  udvar(Char *);
 
-#ifndef	SHORT_STRINGS
-char	 *strend(char *);
-#endif
-
 /*
  * parse.c
  */
@@ -298,22 +289,20 @@ void *	Calloc(size_t, size_t);
 /*
  * str.c:
  */
-#ifdef SHORT_STRINGS
-size_t	  s_strlcpy(Char *, const Char *, size_t);
-size_t	  s_strlcat(Char *, const Char *, size_t);
-Char	 *s_strchr(Char *, int);
-Char	 *s_strrchr(Char *, int);
-Char	 *s_strspl(Char *, Char *);
-size_t	  s_strlen(Char *);
-int	  s_strcmp(Char *, Char *);
-int	  s_strncmp(Char *, Char *, size_t);
-Char	 *s_strsave(Char *);
-Char	 *s_strend(Char *);
-Char	 *s_strstr(Char *, Char *);
+size_t	  Strlcpy(Char *, const Char *, size_t);
+size_t	  Strlcat(Char *, const Char *, size_t);
+Char	 *Strchr(Char *, int);
+Char	 *Strrchr(Char *, int);
+Char	 *Strspl(Char *, Char *);
+size_t	  Strlen(Char *);
+int	  Strcmp(Char *, Char *);
+int	  Strncmp(Char *, Char *, size_t);
+Char	 *Strsave(Char *);
+Char	 *Strend(Char *);
+Char	 *Strstr(Char *, Char *);
 Char	 *str2short(char *);
 Char	**blk2short(char **);
 char	 *short2str(Char *);
 char	**short2blk(Char **);
-#endif /* SHORT_STRINGS */
 char	 *short2qstr(Char *);
 char	 *vis_str(Char *);

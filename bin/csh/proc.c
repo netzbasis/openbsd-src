@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.c,v 1.27 2015/04/18 18:28:36 deraadt Exp $	*/
+/*	$OpenBSD: proc.c,v 1.29 2015/10/26 22:03:06 naddy Exp $	*/
 /*	$NetBSD: proc.c,v 1.9 1995/04/29 23:21:33 mycroft Exp $	*/
 
 /*-
@@ -160,9 +160,6 @@ found:
 	    pclrcurr(fp);
 	if (jobflags & PFOREGND) {
 	    if (jobflags & (PSIGNALED | PSTOPPED | PPTIME) ||
-#ifdef IIASA
-		jobflags & PAEXITED ||
-#endif
 		!eq(dcwd->di_name, fp->p_cwd->di_name)) {
 		;		/* print in pjwait */
 	    }
@@ -279,10 +276,6 @@ pjwait(struct process *pp)
 	while ((fp = (fp->p_friends)) != pp);
 	if ((jobflags & PRUNNING) == 0)
 	    break;
-#ifdef JOBDEBUG
-	(void) fprintf(csherr, "starting to sigsuspend for  SIGCHLD on %d\n",
-		       fp->p_pid);
-#endif				/* JOBDEBUG */
 	sigset = osigset;
 	sigdelset(&sigset, SIGCHLD);
 	sigsuspend(&sigset);

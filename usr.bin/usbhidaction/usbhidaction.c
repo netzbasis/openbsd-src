@@ -1,4 +1,4 @@
-/*	$OpenBSD: usbhidaction.c,v 1.19 2015/01/18 17:18:08 mpi Exp $ */
+/*	$OpenBSD: usbhidaction.c,v 1.21 2015/10/26 10:08:14 jung Exp $ */
 /*      $NetBSD: usbhidaction.c,v 1.7 2002/01/18 14:38:59 augustss Exp $ */
 
 /*
@@ -43,7 +43,6 @@
 #include <dev/usb/usb.h>
 #include <dev/usb/usbhid.h>
 #include <usbhid.h>
-#include <util.h>
 #include <syslog.h>
 #include <signal.h>
 #include <paths.h>
@@ -162,7 +161,6 @@ main(int argc, char **argv)
 	if (demon) {
 		if (daemon(0, 0) < 0)
 			err(1, "daemon()");
-		pidfile(NULL);
 		isdemon = 1;
 	}
 
