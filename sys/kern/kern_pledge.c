@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.81 2015/10/28 02:12:54 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.90 2015/10/28 17:38:52 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -245,10 +245,6 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_connect] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
 	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
-
-	/* XXX remove this, and the code in uipc_syscalls.c */
-	[SYS_dnssocket] = PLEDGE_DNS,
-	[SYS_dnsconnect] = PLEDGE_DNS,
 
 	[SYS_listen] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_accept4] = PLEDGE_INET | PLEDGE_UNIX,
@@ -545,15 +541,14 @@ pledge_namei(struct proc *p, char *origpath)
 	if (p->p_pledgenote == PLEDGE_COREDUMP)
 		return (0);			/* Allow a coredump */
 
+	/* Doing a permitted execve() */
+	if ((p->p_pledgenote & PLEDGE_EXEC) &&
+	    (p->p_p->ps_pledge & PLEDGE_EXEC))
+		return (0);
+
 	error = canonpath(origpath, path, sizeof(path));
 	if (error)
-		return (pledge_fail(p, error, p->p_pledgenote));
-
-	/* chmod(2), chflags(2), ... */
-	if ((p->p_pledgenote & PLEDGE_FATTR) &&
-	    (p->p_p->ps_pledge & PLEDGE_FATTR) == 0) {
-		return (pledge_fail(p, EPERM, PLEDGE_FATTR));
-	}
+		return (pledge_fail(p, error, 0));
 
 	/* Detect what looks like a mkstemp(3) family operation */
 	if ((p->p_p->ps_pledge & PLEDGE_TMPPATH) &&
@@ -572,18 +567,14 @@ pledge_namei(struct proc *p, char *origpath)
 		return (0);
 	}
 
-	/* open, mkdir, or other path creation operation */
-	if ((p->p_pledgenote & PLEDGE_CPATH) &&
-	    ((p->p_p->ps_pledge & PLEDGE_CPATH) == 0))
-		return (pledge_fail(p, EPERM, PLEDGE_CPATH));
-
-	/* Doing a permitted execve() */
-	if ((p->p_pledgenote & PLEDGE_EXEC) &&
-	    (p->p_p->ps_pledge & PLEDGE_EXEC))
-		return (0);
-
-	/* Whitelisted read/write paths */
+	/* Whitelisted paths */
 	switch (p->p_pledge_syscall) {
+	case SYS_access:
+		/* tzset() needs this. */
+		if ((p->p_pledgenote == PLEDGE_RPATH) &&
+		    strcmp(path, "/etc/localtime") == 0)
+			return (0);
+		break;
 	case SYS_open:
 		/* daemon(3) or other such functions */
 		if ((p->p_pledgenote & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
@@ -597,23 +588,7 @@ pledge_namei(struct proc *p, char *origpath)
 		    strcmp(path, "/dev/tty") == 0) {
 			return (0);
 		}
-		break;
-	}
 
-	/* ensure PLEDGE_WPATH request for doing write */
-	if ((p->p_pledgenote & PLEDGE_WPATH) &&
-	    (p->p_p->ps_pledge & PLEDGE_WPATH) == 0)
-		return (pledge_fail(p, EPERM, PLEDGE_WPATH));
-
-	/* Whitelisted read-only paths */
-	switch (p->p_pledge_syscall) {
-	case SYS_access:
-		/* tzset() needs this. */
-		if ((p->p_pledgenote == PLEDGE_RPATH) &&
-		    strcmp(path, "/etc/localtime") == 0)
-			return (0);
-		break;
-	case SYS_open:
 		/* getpw* and friends need a few files */
 		if ((p->p_pledgenote == PLEDGE_RPATH) &&
 		    (p->p_p->ps_pledge & PLEDGE_GETPW)) {
@@ -677,17 +652,24 @@ pledge_namei(struct proc *p, char *origpath)
 		    strcmp(path, "/etc/resolv.conf") == 0)
 			return (0);
 		break;
-	case SYS_chroot:
-		/* Allowed for "proc id" */
-		if ((p->p_p->ps_pledge & PLEDGE_PROC))
-			return (0);
-		break;
 	}
 
-	/* ensure PLEDGE_RPATH request for doing read */
-	if ((p->p_pledgenote & PLEDGE_RPATH) &&
-	    (p->p_p->ps_pledge & PLEDGE_RPATH) == 0)
-		return (pledge_fail(p, EPERM, PLEDGE_RPATH));
+	/*
+	 * Ensure each flag of p_pledgenote has counterpart allowing it in
+	 * ps_pledge
+	 */
+	if (p->p_pledgenote & ~p->p_p->ps_pledge)
+		return (pledge_fail(p, EPERM, (p->p_pledgenote &
+		    ~p->p_p->ps_pledge)));
+
+	/* generic check for unsetted p_pledgenote */
+	if (p->p_pledgenote == 0) {
+		//printf("pledge_namei: %s(%d): syscall %d p_pledgenote=0\n",
+		//    p->p_comm, p->p_pid, p->p_pledge_syscall);
+
+		if ((p->p_p->ps_pledge & (PLEDGE_RPATH | PLEDGE_WPATH | PLEDGE_CPATH)) == 0)
+			return (pledge_fail(p, EPERM, PLEDGE_RPATH));
+	}
 
 	/*
 	 * If a whitelist is set, compare canonical paths.  Anything
@@ -736,7 +718,7 @@ pledge_namei(struct proc *p, char *origpath)
 		free(builtpath, M_TEMP, builtlen);
 		if (error != 0) {
 			free(canopath, M_TEMP, MAXPATHLEN);
-			return (pledge_fail(p, error, p->p_pledgenote));
+			return (pledge_fail(p, error, 0));
 		}
 
 		//printf("namei: canopath = %s strlen %lld\n", canopath,
@@ -783,14 +765,7 @@ pledge_namei(struct proc *p, char *origpath)
 		return (error);			/* Don't hint why it failed */
 	}
 
-	if (p->p_p->ps_pledge & PLEDGE_RPATH)
-		return (0);
-	if (p->p_p->ps_pledge & PLEDGE_WPATH)
-		return (0);
-	if (p->p_p->ps_pledge & PLEDGE_CPATH)
-		return (0);
-
-	return (pledge_fail(p, EPERM, p->p_pledgenote));
+	return (0);
 }
 
 void
@@ -887,7 +862,7 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 		    mib[4] == NET_RT_TABLE)
 			return (0);
 
-		if (miblen == 7 &&			/* exposes MACs */
+		if (miblen == 7 &&		/* exposes MACs */
 		    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 		    mib[2] == 0 &&
 		    (mib[3] == 0 || mib[3] == AF_INET6 || mib[3] == AF_INET) &&
@@ -896,19 +871,19 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 	}
 
 	if (p->p_p->ps_pledge & (PLEDGE_PS | PLEDGE_VMINFO)) {
-		if (miblen == 2 &&			/* kern.fscale */
+		if (miblen == 2 &&		/* kern.fscale */
 		    mib[0] == CTL_KERN && mib[1] == KERN_FSCALE)
 			return (0);
-		if (miblen == 2 &&			/* kern.boottime */
+		if (miblen == 2 &&		/* kern.boottime */
 		    mib[0] == CTL_KERN && mib[1] == KERN_BOOTTIME)
 			return (0);
-		if (miblen == 2 &&			/* kern.consdev */
+		if (miblen == 2 &&		/* kern.consdev */
 		    mib[0] == CTL_KERN && mib[1] == KERN_CONSDEV)
 			return (0);
-		if (miblen == 2 &&			/* kern.loadavg */
+		if (miblen == 2 &&		/* kern.loadavg */
 		    mib[0] == CTL_VM && mib[1] == VM_LOADAVG)
 			return (0);
-		if (miblen == 3 &&			/* kern.cptime */
+		if (miblen == 2 &&			/* kern.cptime */
 		    mib[0] == CTL_KERN && mib[1] == KERN_CPTIME)
 			return (0);
 		if (miblen == 3 &&			/* kern.cptime2 */
@@ -917,32 +892,32 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 	}
 
 	if ((p->p_p->ps_pledge & PLEDGE_PS)) {
-		if (miblen == 4 &&			/* kern.procargs.* */
+		if (miblen == 4 &&		/* kern.procargs.* */
 		    mib[0] == CTL_KERN && mib[1] == KERN_PROC_ARGS &&
 		    (mib[3] == KERN_PROC_ARGV || mib[3] == KERN_PROC_ENV))
 			return (0);
-		if (miblen == 6 &&			/* kern.proc.* */
+		if (miblen == 6 &&		/* kern.proc.* */
 		    mib[0] == CTL_KERN && mib[1] == KERN_PROC)
 			return (0);
-		if (miblen == 3 &&			/* kern.proc_cwd.* */
+		if (miblen == 3 &&		/* kern.proc_cwd.* */
 		    mib[0] == CTL_KERN && mib[1] == KERN_PROC_CWD)
 			return (0);
-		if (miblen == 2 &&			/* hw.physmem */
+		if (miblen == 2 &&		/* hw.physmem */
 		    mib[0] == CTL_HW && mib[1] == HW_PHYSMEM64)
 			return (0);
-		if (miblen == 2 &&			/* kern.ccpu */
+		if (miblen == 2 &&		/* kern.ccpu */
 		    mib[0] == CTL_KERN && mib[1] == KERN_CCPU)
 			return (0);
-		if (miblen == 2 &&			/* vm.maxslp */
+		if (miblen == 2 &&		/* vm.maxslp */
 		    mib[0] == CTL_VM && mib[1] == VM_MAXSLP)
 			return (0);
 	}
 
 	if ((p->p_p->ps_pledge & PLEDGE_VMINFO)) {
-		if (miblen == 2 &&			/* vm.uvmexp */
+		if (miblen == 2 &&		/* vm.uvmexp */
 		    mib[0] == CTL_VM && mib[1] == VM_UVMEXP)
 			return (0);
-		if (miblen == 3 &&			/* vfs.generic.bcachestat */
+		if (miblen == 3 &&		/* vfs.generic.bcachestat */
 		    mib[0] == CTL_VFS && mib[1] == VFS_GENERIC &&
 		    mib[2] == VFS_BCACHESTAT)
 			return (0);
@@ -957,8 +932,7 @@ pledge_sysctl_check(struct proc *p, int miblen, int *mib, void *new)
 			return (0);
 	}
 
-	/* used by ntpd(8) to read sensors. */
-	if (miblen >= 3 &&
+	if (miblen >= 3 &&			/* ntpd(8) to read sensors */
 	    mib[0] == CTL_HW && mib[1] == HW_SENSORS)
 		return (0);
 
@@ -1299,6 +1273,17 @@ pledge_swapctl_check(struct proc *p)
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 	return (EPERM);
+}
+
+int
+pledge_fcntl_check(struct proc *p, int cmd)
+{
+	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
+		return (0);
+	if ((p->p_p->ps_pledge & PLEDGE_PROC) == 0 &&
+	    cmd == F_SETOWN)
+		return (EPERM);
+	return (0);
 }
 
 void

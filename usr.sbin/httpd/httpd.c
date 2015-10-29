@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.c,v 1.42 2015/10/26 11:03:29 jung Exp $	*/
+/*	$OpenBSD: httpd.c,v 1.44 2015/10/28 15:50:04 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -454,8 +454,7 @@ parent_dispatch_logger(int fd, struct privsep_proc *p, struct imsg *imsg)
 		if (IMSG_DATA_SIZE(imsg) > 0)
 			str = get_string(imsg->data, IMSG_DATA_SIZE(imsg));
 		parent_reload(env, CONFIG_RELOAD, str);
-		if (str != NULL)
-			free(str);
+		free(str);
 		break;
 	case IMSG_CTL_SHUTDOWN:
 		parent_shutdown(env);
@@ -1017,8 +1016,7 @@ kv_set(struct kv *kv, char *fmt, ...)
 	}
 
 	/* Set the new value */
-	if (kv->kv_value != NULL)
-		free(kv->kv_value);
+	free(kv->kv_value);
 	kv->kv_value = value;
 
 	return (0);
@@ -1035,8 +1033,7 @@ kv_setkey(struct kv *kv, char *fmt, ...)
 		return (-1);
 	va_end(ap);
 
-	if (kv->kv_key != NULL)
-		free(kv->kv_key);
+	free(kv->kv_key);
 	kv->kv_key = key;
 
 	return (0);
@@ -1091,13 +1088,9 @@ kv_purge(struct kvtree *keys)
 void
 kv_free(struct kv *kv)
 {
-	if (kv->kv_key != NULL) {
-		free(kv->kv_key);
-	}
+	free(kv->kv_key);
 	kv->kv_key = NULL;
-	if (kv->kv_value != NULL) {
-		free(kv->kv_value);
-	}
+	free(kv->kv_value);
 	kv->kv_value = NULL;
 	memset(kv, 0, sizeof(*kv));
 }

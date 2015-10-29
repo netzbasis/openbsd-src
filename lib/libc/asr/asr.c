@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.46 2015/10/07 13:59:34 deraadt Exp $	*/
+/*	$OpenBSD: asr.c,v 1.48 2015/10/28 21:38:45 eric Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -68,7 +68,6 @@ static struct asr *_asr = NULL;
 static void *
 _asr_resolver(void)
 {
-	const char *conf = _PATH_RESCONF;
 	static int	 init = 0;
 	struct asr	*asr;
 
@@ -83,10 +82,6 @@ _asr_resolver(void)
 	if ((asr = calloc(1, sizeof(*asr))) == NULL)
 		goto fail;
 
-	/* Use the given config file */
-	asr->a_path = strdup(conf);
-	if (asr->a_path == NULL)
-		goto fail;
 	asr_check_reload(asr);
 	if (asr->a_ctx == NULL) {
 		if ((asr->a_ctx = asr_ctx_create()) == NULL)
@@ -105,7 +100,6 @@ _asr_resolver(void)
 	if (asr) {
 		if (asr->a_ctx)
 			asr_ctx_free(asr->a_ctx);
-		free(asr->a_path);
 		free(asr);
 	}
 
@@ -131,7 +125,6 @@ _asr_resolver_done(void *arg)
 	}
 
 	_asr_ctx_unref(asr->a_ctx);
-	free(asr->a_path);
 	free(asr);
 }
 
@@ -375,9 +368,6 @@ asr_check_reload(struct asr *asr)
 	struct timespec	 ts;
 	pid_t		 pid;
 
-	if (asr->a_path == NULL)
-		return;
-
 	pid = getpid();
 	if (pid != asr->a_pid) {
 		asr->a_pid = pid;
@@ -391,15 +381,15 @@ asr_check_reload(struct asr *asr)
 		return;
 	asr->a_rtime = ts.tv_sec;
 
-	DPRINT("asr: checking for update of \"%s\"\n", asr->a_path);
-	if (stat(asr->a_path, &st) == -1 ||
+	DPRINT("asr: checking for update of \"%s\"\n", _PATH_RESCONF);
+	if (stat(_PATH_RESCONF, &st) == -1 ||
 	    asr->a_mtime == st.st_mtime ||
 	    (ac = asr_ctx_create()) == NULL)
 		return;
 	asr->a_mtime = st.st_mtime;
 
 	DPRINT("asr: reloading config file\n");
-	if (asr_ctx_from_file(ac, asr->a_path) == -1) {
+	if (asr_ctx_from_file(ac, _PATH_RESCONF) == -1) {
 		asr_ctx_free(ac);
 		return;
 	}
@@ -750,28 +740,7 @@ asr_ctx_envopts(struct asr_ctx *ac)
 static int
 asr_parse_nameserver(struct sockaddr *sa, const char *s)
 {
-	const char	*estr;
-	char		 buf[256];
-	char		*port = NULL;
 	in_port_t	 portno = 53;
-
-	if (*s == '[') {
-		strlcpy(buf, s + 1, sizeof buf);
-		s = buf;
-		port = strchr(buf, ']');
-		if (port == NULL)
-			return (-1);
-		*port++ = '\0';
-		if (*port != ':')
-			return (-1);
-		port++;
-	}
-
-	if (port) {
-		portno = strtonum(port, 1, USHRT_MAX, &estr);
-		if (estr)
-			return (-1);
-	}
 
 	if (_asr_sockaddr_from_str(sa, PF_UNSPEC, s) == -1)
 		return (-1);
