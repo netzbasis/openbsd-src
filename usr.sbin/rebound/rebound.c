@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.35 2015/10/28 20:56:43 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.39 2015/10/29 14:01:01 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -82,6 +82,7 @@ RB_PROTOTYPE_STATIC(cachetree, dnscache, cachenode, cachecmp)
 
 static int cachecount;
 static int cachemax;
+static uint64_t cachehits;
 
 /*
  * requests are kept on both fifo and tree, but only after socket s is set.
@@ -105,6 +106,7 @@ RB_PROTOTYPE_STATIC(reqtree, request, reqnode, reqcmp)
 
 static int conncount;
 static int connmax;
+static uint64_t conntotal;
 static int stopaccepting;
 
 static void
@@ -159,6 +161,8 @@ cachelookup(struct dnspacket *dnsreq, size_t reqlen)
 	key.reqlen = reqlen;
 	key.req = dnsreq;
 	hit = RB_FIND(cachetree, &cachetree, &key);
+	if (hit)
+		cachehits += 1;
 
 	dnsreq->id = origid;
 	return hit;
@@ -223,6 +227,7 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 	if (r == 0 || r == -1 || r < sizeof(struct dnspacket))
 		return NULL;
 
+	conntotal += 1;
 	if ((hit = cachelookup(dnsreq, r))) {
 		hit->resp->id = dnsreq->id;
 		sendto(ud, hit->resp, hit->resplen, 0, &from, fromlen);
@@ -343,6 +348,7 @@ newtcprequest(int ld, struct sockaddr *remoteaddr)
 	if (!(req = calloc(1, sizeof(*req))))
 		return NULL;
 
+	conntotal += 1;
 	conncount += 2;
 	req->ts = now;
 	req->ts.tv_sec += 30;
@@ -407,7 +413,7 @@ static int
 launch(const char *confname, int ud, int ld, int kq)
 {
 	struct sockaddr_storage remoteaddr;
-	struct kevent chlist[2], kev[4];
+	struct kevent ch[2], kev[4];
 	struct timespec ts, *timeout = NULL;
 	struct request reqkey, *req;
 	struct dnscache *ent;
@@ -426,9 +432,9 @@ launch(const char *confname, int ud, int ld, int kq)
 	if (!debug) {
 		if ((child = fork()))
 			return child;
+		close(kq);
 	}
 
-	close(kq);
 	kq = kqueue();
 
 	if (!(pwd = getpwnam("_rebound")))
@@ -456,7 +462,9 @@ launch(const char *confname, int ud, int ld, int kq)
 	EV_SET(&kev[0], ud, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[1], ld, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[2], SIGHUP, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
-	kevent(kq, kev, 3, NULL, 0, NULL);
+	EV_SET(&kev[3], SIGUSR1, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
+	kevent(kq, kev, 4, NULL, 0, NULL);
+	signal(SIGUSR1, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 	logmsg(LOG_INFO, "worker process going to work");
 	while (1) {
@@ -467,37 +475,27 @@ launch(const char *confname, int ud, int ld, int kq)
 		clock_gettime(CLOCK_MONOTONIC, &now);
 
 		if (stopaccepting) {
-			EV_SET(&chlist[0], ld, EVFILT_READ, EV_ADD, 0, 0, NULL);
-			kevent(kq, chlist, 1, NULL, 0, NULL);
+			EV_SET(&ch[0], ld, EVFILT_READ, EV_ADD, 0, 0, NULL);
+			kevent(kq, ch, 1, NULL, 0, NULL);
 			stopaccepting = 0;
 		}
 
 		for (i = 0; i < r; i++) {
 			if (kev[i].filter == EVFILT_SIGNAL) {
-				logmsg(LOG_INFO, "hupped, exiting");
-				exit(0);
+				if (kev[i].ident == SIGHUP) {
+					logmsg(LOG_INFO, "hupped, exiting");
+					exit(0);
+				} else {
+					logmsg(LOG_INFO, "connection stats: "
+					    "%d active, %llu total",
+					    conncount, conntotal);
+					logmsg(LOG_INFO, "cache stats: "
+					    "%d active, %llu hits",
+					    cachecount, cachehits);
+				}
 			} else if (kev[i].filter == EVFILT_PROC) {
 				logmsg(LOG_INFO, "parent died");
 				exit(0);
-			} else if (kev[i].ident == ud) {
-				while ((req = newrequest(ud,
-				    (struct sockaddr *)&remoteaddr))) {
-					EV_SET(&chlist[0], req->s, EVFILT_READ,
-					    EV_ADD, 0, 0, NULL);
-					kevent(kq, chlist, 1, NULL, 0, NULL);
-					if (conncount > connmax)
-						break;
-				}
-			} else if (kev[i].ident == ld) {
-				while ((req = newtcprequest(ld,
-				    (struct sockaddr *)&remoteaddr))) {
-					EV_SET(&chlist[0], req->s,
-					    req->tcp == 1 ? EVFILT_WRITE :
-					    EVFILT_READ, EV_ADD, 0, 0, NULL);
-					kevent(kq, chlist, 1, NULL, 0, NULL);
-					if (conncount > connmax)
-						break;
-				}
 			} else if (kev[i].filter == EVFILT_WRITE) {
 				reqkey.s = kev[i].ident;
 				req = RB_FIND(reqtree, &reqtree, &reqkey);
@@ -505,13 +503,34 @@ launch(const char *confname, int ud, int ld, int kq)
 					logerr("lost partial tcp request");
 				req = tcpphasetwo(req);
 				if (req) {
-					EV_SET(&chlist[0], req->s, EVFILT_WRITE,
+					EV_SET(&ch[0], req->s, EVFILT_WRITE,
 					    EV_DELETE, 0, 0, NULL);
-					EV_SET(&chlist[1], req->s, EVFILT_READ,
+					EV_SET(&ch[1], req->s, EVFILT_READ,
 					    EV_ADD, 0, 0, NULL);
-					kevent(kq, chlist, 2, NULL, 0, NULL);
+					kevent(kq, ch, 2, NULL, 0, NULL);
 				}
-			} else if (kev[i].filter == EVFILT_READ) {
+			} else if (kev[i].filter != EVFILT_READ) {
+				logerr("don't know what happened");
+			} else if (kev[i].ident == ud) {
+				while ((req = newrequest(ud,
+				    (struct sockaddr *)&remoteaddr))) {
+					EV_SET(&ch[0], req->s, EVFILT_READ,
+					    EV_ADD, 0, 0, NULL);
+					kevent(kq, ch, 1, NULL, 0, NULL);
+					if (conncount > connmax)
+						break;
+				}
+			} else if (kev[i].ident == ld) {
+				while ((req = newtcprequest(ld,
+				    (struct sockaddr *)&remoteaddr))) {
+					EV_SET(&ch[0], req->s,
+					    req->tcp == 1 ? EVFILT_WRITE :
+					    EVFILT_READ, EV_ADD, 0, 0, NULL);
+					kevent(kq, ch, 1, NULL, 0, NULL);
+					if (conncount > connmax)
+						break;
+				}
+			} else {
 				reqkey.s = kev[i].ident;
 				req = RB_FIND(reqtree, &reqtree, &reqkey);
 				if (!req)
@@ -519,14 +538,14 @@ launch(const char *confname, int ud, int ld, int kq)
 				if (req->tcp == 0)
 					sendreply(ud, req);
 				freerequest(req);
-			} else {
-				logerr("don't know what happened");
 			}
 		}
 
+		timeout = NULL;
+
 		if (stopaccepting) {
-			EV_SET(&chlist[0], ld, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-			kevent(kq, chlist, 1, NULL, 0, NULL);
+			EV_SET(&ch[0], ld, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+			kevent(kq, ch, 1, NULL, 0, NULL);
 			memset(&ts, 0, sizeof(ts));
 			/* one second added below */
 			timeout = &ts;
@@ -537,7 +556,6 @@ launch(const char *confname, int ud, int ld, int kq)
 		while (cachecount > cachemax)
 			freecacheent(TAILQ_FIRST(&cachefifo));
 
-		timeout = NULL;
 		/* burn old cache entries */
 		while ((ent = TAILQ_FIRST(&cachefifo))) {
 			if (timespeccmp(&ent->ts, &now, <=))
@@ -663,6 +681,7 @@ main(int argc, char **argv)
 
 	EV_SET(&kev, SIGHUP, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
 	kevent(kq, &kev, 1, NULL, 0, NULL);
+	signal(SIGUSR1, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 	while (1) {
 		hupped = 0;
@@ -682,19 +701,18 @@ main(int argc, char **argv)
 				logerr("kevent failed (%d)", errno);
 
 			if (r == 0) {
+				/* timeout expired */
 				logerr("child died without HUP");
 			} else if (kev.filter == EVFILT_SIGNAL) {
 				/* signaled. kill child. */
-				logmsg(LOG_INFO,
-				    "received HUP, restarting");
+				logmsg(LOG_INFO, "received HUP, restarting");
 				hupped = 1;
 				if (childdead)
 					break;
 				kill(child, SIGHUP);
 			} else if (kev.filter == EVFILT_PROC) {
 				/* child died. wait for our own HUP. */
-				logmsg(LOG_INFO,
-				    "observed child exit");
+				logmsg(LOG_INFO, "observed child exit");
 				childdead = 1;
 				if (hupped)
 					break;

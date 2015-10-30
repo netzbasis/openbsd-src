@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.60 2015/10/26 15:16:30 millert Exp $	*/
+/*	$OpenBSD: misc.c,v 1.63 2015/10/29 22:41:27 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -18,34 +18,9 @@
  */
 
 #include "cron.h"
-#include <limits.h>
-
-#if defined(LOG_DAEMON) && !defined(LOG_CRON)
-# define LOG_CRON LOG_DAEMON
-#endif
-
-#ifndef FACILITY
-#define FACILITY LOG_CRON
-#endif
 
 static int LogFD = -1;
-
 static int syslog_open = FALSE;
-
-int
-strcmp_until(const char *left, const char *right, char until)
-{
-	while (*left && *left != until && *left == *right) {
-		left++;
-		right++;
-	}
-
-	if ((*left=='\0' || *left == until) &&
-	    (*right=='\0' || *right == until)) {
-		return (0);
-	}
-	return (*left - *right);
-}
 
 void
 set_cron_cwd(void)
@@ -272,7 +247,7 @@ log_it(const char *username, pid_t xpid, const char *event, const char *detail)
 	    "END EDIT", "LIST", "MAIL", "RELOAD", "REPLACE", "STARTUP", NULL };
 
 	if (!syslog_open) {
-		openlog(ProgramName, LOG_PID, FACILITY);
+		openlog(ProgramName, LOG_PID, LOG_CRON);
 		syslog_open = TRUE;		/* assume openlog success */
 	}
 
@@ -331,57 +306,6 @@ first_word(char *s, char *t)
 	*rp = '\0';
 	return (rb);
 }
-
-/* warning:
- *	heavily ascii-dependent.
- */
-void
-mkprint(dst, src, len)
-	char *dst;
-	unsigned char *src;
-	int len;
-{
-	/*
-	 * XXX
-	 * We know this routine can't overflow the dst buffer because mkprints()
-	 * allocated enough space for the worst case.
-	 */
-	while (len-- > 0)
-	{
-		unsigned char ch = *src++;
-
-		if (ch < ' ') {			/* control character */
-			*dst++ = '^';
-			*dst++ = ch + '@';
-		} else if (ch < 0177) {		/* printable */
-			*dst++ = ch;
-		} else if (ch == 0177) {	/* delete/rubout */
-			*dst++ = '^';
-			*dst++ = '?';
-		} else {			/* parity character */
-			snprintf(dst, 5, "\\%03o", ch);
-			dst += strlen(dst);
-		}
-	}
-	*dst = '\0';
-}
-
-/* warning:
- *	returns a pointer to malloc'd storage, you must call free yourself.
- */
-char *
-mkprints(src, len)
-	unsigned char *src;
-	unsigned int len;
-{
-	char *dst = malloc(len*4 + 1);
-
-	if (dst)
-		mkprint(dst, src, len);
-
-	return (dst);
-}
-
 
 static gid_t save_egid;
 int swap_gids() { save_egid = getegid(); return (setegid(getgid())); }
