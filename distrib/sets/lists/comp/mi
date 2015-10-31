@@ -53,6 +53,7 @@
 ./usr/include/crypto/md5.h
 ./usr/include/crypto/michael.h
 ./usr/include/crypto/podd.h
+./usr/include/crypto/poly1305.h
 ./usr/include/crypto/rijndael.h
 ./usr/include/crypto/rmd160.h
 ./usr/include/crypto/sha1.h
@@ -5342,7 +5343,6 @@
 ./usr/share/man/man3/setenv.3
 ./usr/share/man/man3/setfsent.3
 ./usr/share/man/man3/setgrent.3
-./usr/share/man/man3/setgrfile.3
 ./usr/share/man/man3/setgroupent.3
 ./usr/share/man/man3/sethostent.3
 ./usr/share/man/man3/sethostid.3
@@ -6469,6 +6469,7 @@
 ./usr/share/man/man9/m_pulldown.9
 ./usr/share/man/man9/m_pullup.9
 ./usr/share/man/man9/m_reclaim.9
+./usr/share/man/man9/m_resethdr.9
 ./usr/share/man/man9/m_split.9
 ./usr/share/man/man9/m_tag_copy.9
 ./usr/share/man/man9/m_tag_copy_chain.9
@@ -6631,7 +6632,7 @@
 ./usr/share/man/man9/rtlabel_unref.9
 ./usr/share/man/man9/rtredirect.9
 ./usr/share/man/man9/rtref.9
-./usr/share/man/man9/rtrequest1.9
+./usr/share/man/man9/rtrequest.9
 ./usr/share/man/man9/runtime.9
 ./usr/share/man/man9/rw_assert_rdlock.9
 ./usr/share/man/man9/rw_assert_unlocked.9

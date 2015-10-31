@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.248 2015/10/22 05:26:06 dlg Exp $
+#	$OpenBSD: Makefile,v 1.250 2015/10/30 21:21:19 benno Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -28,7 +28,7 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	pool.9 powerhook_establish.9 ppsratecheck.9 printf.9 psignal.9 \
 	radio.9 arc4random.9 rasops.9 ratecheck.9 refcnt_init.9 resettodr.9 \
 	rssadapt.9 route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
-	rtlabel_id2name.9 rtrequest1.9 rwlock.9 SipHash24.9 sensor_attach.9 \
+	rtlabel_id2name.9 rtrequest.9 rwlock.9 SipHash24.9 sensor_attach.9 \
 	spl.9 srp_enter.9 srpl_rc_init.9 startuphook_establish.9 \
 	socreate.9 sosplice.9 style.9 syscall.9 systrace.9 sysctl_int.9 \
 	task_add.9 tc_init.9 time.9 timeout.9 tsleep.9 tvtohz.9 \
@@ -244,8 +244,8 @@ MLINKS+=membar_sync.9 membar_enter.9 membar_sync.9 membar_exit.9 \
 	membar_sync.9 membar_producer.9 membar_sync.9 membar_consumer.9
 MLINKS+=mbuf.9 m_copym2.9 mbuf.9 m_copym.9 mbuf.9 m_free.9 \
 	mbuf.9 m_get.9 mbuf.9 MGET.9 mbuf.9 m_getclr.9 mbuf.9 m_gethdr.9 \
-	mbuf.9 MGETHDR.9 mbuf.9 m_prepend.9 mbuf.9 M_PREPEND.9 \
-	mbuf.9 m_pulldown.9 mbuf.9 m_pullup.9 \
+	mbuf.9 m_resethdr.9 mbuf.9 MGETHDR.9 mbuf.9 m_prepend.9 \
+	mbuf.9 M_PREPEND.9 mbuf.9 m_pulldown.9 mbuf.9 m_pullup.9 \
 	mbuf.9 m_split.9 \
 	mbuf.9 m_inject.9 mbuf.9 m_getptr.9 mbuf.9 m_adj.9 mbuf.9 m_copyback.9 \
 	mbuf.9 m_defrag.9 mbuf.9 m_freem.9 mbuf.9 m_reclaim.9 \
