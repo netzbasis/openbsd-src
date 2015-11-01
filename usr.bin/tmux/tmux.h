@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.568 2015/10/28 09:51:55 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.570 2015/10/31 13:12:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -829,7 +829,7 @@ struct window_pane {
 	int		 argc;
 	char	       **argv;
 	char		*shell;
-	int		 cwd;
+	const char	*cwd;
 
 	pid_t		 pid;
 	char		 tty[TTY_NAME_MAX];
@@ -976,7 +976,7 @@ struct session {
 	u_int		 id;
 
 	char		*name;
-	int		 cwd;
+	const char	*cwd;
 
 	struct timeval	 creation_time;
 	struct timeval	 last_attached_time;
@@ -1102,8 +1102,6 @@ struct tty {
 	int		 fd;
 	struct bufferevent *event;
 
-	int		 log_fd;
-
 	struct termios	 tio;
 
 	struct grid_cell cell;
@@ -1181,7 +1179,7 @@ struct client {
 	struct environ	*environ;
 
 	char		*title;
-	int		 cwd;
+	const char	*cwd;
 
 	char		*term;
 	char		*ttyname;
@@ -1536,7 +1534,7 @@ int	options_table_find(const char *, const struct options_table_entry **,
 
 /* job.c */
 extern struct joblist all_jobs;
-struct job *job_run(const char *, struct session *, int,
+struct job *job_run(const char *, struct session *, const char *,
 	    void (*)(struct job *), void (*)(void *), void *);
 void	job_free(struct job *);
 void	job_died(struct job *, int);
@@ -1555,6 +1553,7 @@ void	environ_update(const char *, struct environ *, struct environ *);
 void	environ_push(struct environ *);
 
 /* tty.c */
+void	tty_create_log(void);
 void	tty_init_termios(int, struct termios *, struct bufferevent *);
 void	tty_raw(struct tty *, const char *);
 void	tty_attributes(struct tty *, const struct grid_cell *,
@@ -1982,8 +1981,8 @@ struct window	*window_find_by_id(u_int);
 void		 window_update_activity(struct window *);
 struct window	*window_create1(u_int, u_int);
 struct window	*window_create(const char *, int, char **, const char *,
-		     const char *, int, struct environ *, struct termios *,
-		     u_int, u_int, u_int, char **);
+		     const char *, const char *, struct environ *,
+		     struct termios *, u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
 struct window_pane *window_get_active_at(struct window *, u_int, u_int);
 struct window_pane *window_find_string(struct window *, const char *);
@@ -2010,7 +2009,7 @@ struct window_pane *window_pane_find_by_id(u_int);
 struct window_pane *window_pane_create(struct window *, u_int, u_int, u_int);
 void		 window_pane_destroy(struct window_pane *);
 int		 window_pane_spawn(struct window_pane *, int, char **,
-		     const char *, const char *, int, struct environ *,
+		     const char *, const char *, const char *, struct environ *,
 		     struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
 void		 window_pane_alternate_on(struct window_pane *,
@@ -2144,8 +2143,8 @@ struct session	*session_find(const char *);
 struct session	*session_find_by_id_str(const char *);
 struct session	*session_find_by_id(u_int);
 struct session	*session_create(const char *, int, char **, const char *,
-		     int, struct environ *, struct termios *, int, u_int,
-		     u_int, char **);
+		     const char *, struct environ *, struct termios *, int,
+		     u_int, u_int, char **);
 void		 session_destroy(struct session *);
 void		 session_unref(struct session *);
 int		 session_check_name(const char *);
@@ -2153,7 +2152,7 @@ void		 session_update_activity(struct session *, struct timeval *);
 struct session	*session_next_session(struct session *);
 struct session	*session_previous_session(struct session *);
 struct winlink	*session_new(struct session *, const char *, int, char **,
-		     const char *, int, int, char **);
+		     const char *, const char *, int, char **);
 struct winlink	*session_attach(struct session *, struct window *, int,
 		     char **);
 int		 session_detach(struct session *, struct winlink *);

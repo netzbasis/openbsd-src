@@ -1,4 +1,4 @@
-/*	$OpenBSD: funcs.h,v 1.21 2015/10/29 22:41:27 millert Exp $	*/
+/*	$OpenBSD: funcs.h,v 1.23 2015/10/31 12:14:16 millert Exp $	*/
 
 /*
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -45,13 +45,10 @@ void		set_cron_uid(void),
 int		job_runqueue(void),
 		get_char(FILE *),
 		get_string(char *, int, FILE *, char *),
-		swap_gids(void),
-		swap_gids_back(void),
 		load_env(char *, FILE *),
 		cron_pclose(FILE *, pid_t),
 		glue_strings(char *, size_t, const char *, const char *, char),
 		allowed(const char *, const char *, const char *),
-		open_socket(void),
 		safe_p(const char *, const char *),
 		scan_atjobs(at_db *, struct timespec *);
 
