@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.167 2015/10/30 09:39:42 bluhm Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.169 2015/11/01 22:53:34 bluhm Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 #include <sys/sockio.h>
 #include <sys/time.h>
 #include <sys/kernel.h>
+#include <sys/pool.h>
 #include <sys/protosw.h>
 #include <sys/errno.h>
 #include <sys/ioctl.h>
@@ -82,6 +83,7 @@ int nd6_debug = 1;
 int nd6_debug = 0;
 #endif
 
+struct	pool nd6_pool;		/* pool for llinfo_nd6 structures */
 static int nd6_inuse, nd6_allocated;
 
 struct llinfo_nd6 llinfo_nd6 = {&llinfo_nd6, &llinfo_nd6};
@@ -122,6 +124,8 @@ nd6_init(void)
 		log(LOG_NOTICE, "%s called more than once\n", __func__);
 		return;
 	}
+
+	pool_init(&nd6_pool, sizeof(struct llinfo_nd6), 0, 0, 0, "nd6", NULL);
 
 	/* initialization of the default router list */
 	TAILQ_INIT(&nd_defrouter);
@@ -370,7 +374,7 @@ nd6_llinfo_timer(void *arg)
 	dst = satosin6(rt_key(rt));
 
 	/* sanity check */
-	if (rt->rt_llinfo && (struct llinfo_nd6 *)rt->rt_llinfo != ln)
+	if (rt->rt_llinfo != NULL && (struct llinfo_nd6 *)rt->rt_llinfo != ln)
 		panic("rt_llinfo(%p) is not equal to ln(%p)",
 		      rt->rt_llinfo, ln);
 	if (!dst)
@@ -641,7 +645,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 			    rtableid);
 			if (error)
 				return (NULL);
-			if (rt->rt_llinfo) {
+			if (rt->rt_llinfo != NULL) {
 				struct llinfo_nd6 *ln =
 				    (struct llinfo_nd6 *)rt->rt_llinfo;
 				ln->ln_state = ND6_LLINFO_NOSTATE;
@@ -861,7 +865,7 @@ nd6_nud_hint(struct rtentry *rt, u_int rtableid)
 
 	if ((rt->rt_flags & RTF_GATEWAY) != 0 ||
 	    (rt->rt_flags & RTF_LLINFO) == 0 ||
-	    !rt->rt_llinfo || !rt->rt_gateway ||
+	    rt->rt_llinfo == NULL || rt->rt_gateway == NULL ||
 	    rt->rt_gateway->sa_family != AF_LINK) {
 		/* This is not a host route. */
 		return;
@@ -947,8 +951,8 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		 *	   rt->rt_flags |= RTF_CLONING;
 		 */
 		if ((rt->rt_flags & RTF_CLONING) ||
-		    ((rt->rt_flags & (RTF_LLINFO | RTF_LOCAL)) && !ln)) {
-			if (ln)
+		    ((rt->rt_flags & (RTF_LLINFO | RTF_LOCAL)) && ln == NULL)) {
+			if (ln != NULL)
 				nd6_llinfo_settimer(ln, 0);
 			if ((rt->rt_flags & RTF_CLONING) != 0)
 				break;
@@ -996,10 +1000,10 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		 * Case 2: This route may come from cloning, or a manual route
 		 * add with a LL address.
 		 */
-		ln = malloc(sizeof(*ln), M_RTABLE, M_NOWAIT | M_ZERO);
+		ln = pool_get(&nd6_pool, PR_NOWAIT | PR_ZERO);
 		rt->rt_llinfo = (caddr_t)ln;
-		if (!ln) {
-			log(LOG_DEBUG, "%s: malloc failed\n", __func__);
+		if (ln == NULL) {
+			log(LOG_DEBUG, "%s: pool get failed\n", __func__);
 			break;
 		}
 		nd6_inuse++;
@@ -1099,7 +1103,7 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		break;
 
 	case RTM_DELETE:
-		if (!ln)
+		if (ln == NULL)
 			break;
 		/* leave from solicited node multicast for proxy ND */
 		if ((rt->rt_flags & RTF_ANNOUNCE) != 0 &&
@@ -1123,10 +1127,10 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		ln->ln_prev->ln_next = ln->ln_next;
 		ln->ln_prev = NULL;
 		nd6_llinfo_settimer(ln, -1);
-		rt->rt_llinfo = 0;
+		rt->rt_llinfo = NULL;
 		rt->rt_flags &= ~RTF_LLINFO;
 		m_freem(ln->ln_hold);
-		free(ln, M_RTABLE, 0);
+		pool_put(&nd6_pool, ln);
 	}
 }
 
@@ -1309,9 +1313,9 @@ fail:
 		return;
 	}
 	ln = (struct llinfo_nd6 *)rt->rt_llinfo;
-	if (!ln)
+	if (ln == NULL)
 		goto fail;
-	if (!rt->rt_gateway)
+	if (rt->rt_gateway == NULL)
 		goto fail;
 	if (rt->rt_gateway->sa_family != AF_LINK)
 		goto fail;
@@ -1559,7 +1563,7 @@ nd6_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr_in6 *dst,
 	 */
 
 	/* Look up the neighbor cache for the nexthop */
-	if (rt && (rt->rt_flags & RTF_LLINFO) != 0)
+	if (rt != NULL && (rt->rt_flags & RTF_LLINFO) != 0)
 		ln = (struct llinfo_nd6 *)rt->rt_llinfo;
 	else {
 		/*
@@ -1576,7 +1580,7 @@ nd6_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr_in6 *dst,
 			}
 		}
 	}
-	if (!ln || !rt) {
+	if (ln == NULL || rt == NULL) {
 		if ((ifp->if_flags & IFF_POINTOPOINT) == 0 &&
 		    !(ND_IFINFO(ifp)->flags & ND6_IFF_PERFORMNUD)) {
 			char addr[INET6_ADDRSTRLEN];

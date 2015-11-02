@@ -1,4 +1,4 @@
-/*	$OpenBSD: shf.c,v 1.26 2015/10/23 17:22:43 mmcc Exp $	*/
+/*	$OpenBSD: shf.c,v 1.28 2015/11/01 23:31:54 mmcc Exp $	*/
 
 /*
  *  Shell file I/O routines
@@ -330,8 +330,7 @@ shf_emptybuf(struct shf *shf, int flags)
 		    !(shf->flags & SHF_ALLOCB))
 			return EOF;
 		/* allocate more space for buffer */
-		nbuf = (unsigned char *) aresize(shf->buf, shf->wbsize * 2,
-		    shf->areap);
+		nbuf = areallocarray(shf->buf, 2, shf->wbsize, shf->areap);
 		shf->rp = nbuf + (shf->rp - shf->buf);
 		shf->wp = nbuf + (shf->wp - shf->buf);
 		shf->rbsize += shf->wbsize;
