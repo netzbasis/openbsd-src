@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptodev.h,v 1.60 2014/12/28 10:02:37 tedu Exp $	*/
+/*	$OpenBSD: cryptodev.h,v 1.62 2015/11/03 01:55:28 mikeb Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -77,7 +77,8 @@
 #define BLOWFISH_BLOCK_LEN	8
 #define CAST128_BLOCK_LEN	8
 #define RIJNDAEL128_BLOCK_LEN	16
-#define EALG_MAX_BLOCK_LEN	16 /* Keep this updated */
+#define CHACHA20_BLOCK_LEN	64
+#define EALG_MAX_BLOCK_LEN	64 /* Keep this updated */
 
 /* Maximum hash algorithm result length */
 #define AALG_MAX_RESULT_LEN	64 /* Keep this updated */
@@ -107,13 +108,13 @@
 #define CRYPTO_AES_192_GMAC	25
 #define CRYPTO_AES_256_GMAC	26
 #define CRYPTO_AES_GMAC		27
-#define CRYPTO_ESN		28 /* Support for Extended Sequence Numbers */
-#define CRYPTO_ALGORITHM_MAX	28 /* Keep updated */
+#define CRYPTO_CHACHA20_POLY1305	28
+#define CRYPTO_CHACHA20_POLY1305_MAC	29
+#define CRYPTO_ESN		30 /* Support for Extended Sequence Numbers */
+#define CRYPTO_ALGORITHM_MAX	30 /* Keep updated */
 
 /* Algorithm flags */
 #define	CRYPTO_ALG_FLAG_SUPPORTED	0x01 /* Algorithm is supported */
-#define	CRYPTO_ALG_FLAG_RNG_ENABLE	0x02 /* Has HW RNG for DH/DSA */
-#define	CRYPTO_ALG_FLAG_DSA_SHA		0x04 /* Can do SHA on msg */
 
 /* Standard initialization structure beginning */
 struct cryptoini {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_nbr.c,v 1.97 2015/10/22 15:37:47 bluhm Exp $	*/
+/*	$OpenBSD: nd6_nbr.c,v 1.99 2015/11/02 15:05:23 mpi Exp $	*/
 /*	$KAME: nd6_nbr.c,v 1.61 2001/02/10 16:06:14 jinmei Exp $	*/
 
 /*
@@ -215,8 +215,7 @@ nd6_ns_input(struct mbuf *m, int off, int icmp6len)
 	/* (1) and (3) check. */
 	ifa = &in6ifa_ifpwithaddr(ifp, &taddr6)->ia_ifa;
 #if NCARP > 0
-	if (ifp->if_type == IFT_CARP && ifa &&
-	    !carp_iamatch6(ifp, lladdr, &proxydl))
+	if (ifp->if_type == IFT_CARP && ifa && !carp_iamatch6(ifp))
 		ifa = NULL;
 #endif
 
@@ -670,14 +669,11 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 
 	if (ifa) {
 #if NCARP > 0
-		struct sockaddr_dl *proxydl = NULL;
-
 		/*
 		 * Ignore NAs silently for carp addresses if we're not
 		 * the CARP master.
 		 */
-		if (ifp->if_type == IFT_CARP &&
-		    !carp_iamatch6(ifp, lladdr, &proxydl))
+		if (ifp->if_type == IFT_CARP && !carp_iamatch6(ifp))
 			goto freeit;
 #endif
 		log(LOG_ERR,
@@ -730,7 +726,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			ln->ln_byhint = 0;
 			if (!ND6_LLINFO_PERMANENT(ln)) {
 				nd6_llinfo_settimer(ln,
-				    (long)ND_IFINFO(rt->rt_ifp)->reachable * hz);
+				    (long)ND_IFINFO(ifp)->reachable * hz);
 			}
 		} else {
 			ln->ln_state = ND6_LLINFO_STALE;
@@ -851,7 +847,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			 * context.  However, we keep it just for safety.
 			 */
 			s = splsoftnet();
-			dr = defrouter_lookup(in6, rt->rt_ifp);
+			dr = defrouter_lookup(in6, rt->rt_ifidx);
 			if (dr)
 				defrtrlist_del(dr);
 			else if (!ip6_forwarding) {
@@ -862,7 +858,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 				 * (e.g. redirect case). So we must
 				 * call rt6_flush explicitly.
 				 */
-				rt6_flush(&ip6->ip6_src, rt->rt_ifp);
+				rt6_flush(&ip6->ip6_src, ifp);
 			}
 			splx(s);
 		}
@@ -923,9 +919,6 @@ nd6_na_output(struct ifnet *ifp, struct in6_addr *daddr6,
 	int icmp6len, maxlen, error;
 	caddr_t mac;
 	struct route_in6 ro;
-#if NCARP > 0
-	struct sockaddr_dl *proxydl = NULL;
-#endif
 
 	mac = NULL;
 	bzero(&ro, sizeof(ro));
@@ -1055,7 +1048,7 @@ nd6_na_output(struct ifnet *ifp, struct in6_addr *daddr6,
 
 #if NCARP > 0
 	/* Do not send NAs for carp addresses if we're not the CARP master. */
-	if (ifp->if_type == IFT_CARP && !carp_iamatch6(ifp, mac, &proxydl))
+	if (ifp->if_type == IFT_CARP && !carp_iamatch6(ifp))
 		goto bad;
 #endif
 

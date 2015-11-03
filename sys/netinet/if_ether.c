@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.180 2015/11/01 22:53:34 bluhm Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.182 2015/11/02 15:05:23 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -96,7 +96,7 @@ void in_arpinput(struct mbuf *);
 void revarpinput(struct mbuf *);
 void in_revarpinput(struct mbuf *);
 
-LIST_HEAD(, llinfo_arp) llinfo_arp;
+LIST_HEAD(, llinfo_arp) arp_list;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
 /* XXX hate magic numbers */
 struct	niqueue arpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
@@ -126,10 +126,9 @@ arptimer(void *arg)
 
 	s = splsoftnet();
 	timeout_add_sec(to, arpt_prune);
-	for (la = LIST_FIRST(&llinfo_arp); la != NULL; la = nla) {
+	LIST_FOREACH_SAFE(la, &arp_list, la_list, nla) {
 		struct rtentry *rt = la->la_rt;
 
-		nla = LIST_NEXT(la, la_list);
 		if (rt->rt_expire && rt->rt_expire <= time_second)
 			arptfree(rt); /* timer has expired; clear */
 	}
@@ -223,7 +222,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		ml_init(&la->la_ml);
 		la->la_rt = rt;
 		rt->rt_flags |= RTF_LLINFO;
-		LIST_INSERT_HEAD(&llinfo_arp, la, la_list);
+		LIST_INSERT_HEAD(&arp_list, la, la_list);
 
 		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
 			if ((ifa->ifa_addr->sa_family == AF_INET) &&
@@ -506,7 +505,7 @@ in_arpinput(struct mbuf *m)
 	struct ifnet *ifp;
 	struct arpcom *ac;
 	struct ether_header *eh;
-	struct llinfo_arp *la = 0;
+	struct llinfo_arp *la = NULL;
 	struct rtentry *rt = NULL;
 	struct ifaddr *ifa;
 	struct sockaddr_dl *sdl;
@@ -515,7 +514,7 @@ in_arpinput(struct mbuf *m)
 	struct mbuf *mh;
 	u_int8_t *enaddr = NULL;
 #if NCARP > 0
-	u_int8_t *ether_shost = NULL;
+	uint8_t *ethshost = NULL;
 #endif
 	char addr[INET_ADDRSTRLEN];
 	int op, changed = 0;
@@ -554,18 +553,11 @@ in_arpinput(struct mbuf *m)
 		if (itaddr.s_addr != ifatoia(ifa)->ia_addr.sin_addr.s_addr)
 			continue;
 
+		if (op == ARPOP_REPLY)
+			break;
 #if NCARP > 0
-		if (ifp->if_type == IFT_CARP &&
-		    ((ifp->if_flags & (IFF_UP|IFF_RUNNING)) ==
-		    (IFF_UP|IFF_RUNNING))) {
-			if (op == ARPOP_REPLY)
-				break;
-			if (carp_iamatch(ifp, ea->arp_sha,
-			    &enaddr, &ether_shost))
-				break;
-			else
-				goto out;
-		}
+		if (ifp->if_type == IFT_CARP && !carp_iamatch(ifp, &ethshost))
+			goto out;
 #endif
 		break;
 	}
@@ -731,8 +723,8 @@ out:
 	eh = (struct ether_header *)sa.sa_data;
 	memcpy(eh->ether_dhost, ea->arp_tha, sizeof(eh->ether_dhost));
 #if NCARP > 0
-	if (ether_shost)
-		enaddr = ether_shost;
+	if (ethshost)
+		enaddr = ethshost;
 #endif
 	memcpy(eh->ether_shost, enaddr, sizeof(eh->ether_shost));
 
