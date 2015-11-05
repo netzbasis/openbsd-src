@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.66 2015/10/31 12:19:41 millert Exp $	*/
+/*	$OpenBSD: misc.c,v 1.68 2015/11/04 20:28:17 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -17,9 +17,21 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "cron.h"
+#include <sys/types.h>
+#include <sys/wait.h>
 
-static int LogFD = -1;
+#include <bitstring.h>		/* for structs.h */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>		/* for structs.h */
+
+#include "macros.h"
+#include "structs.h"
+#include "funcs.h"
+#include "globals.h"
+
 static int syslog_open = FALSE;
 
 /* get_char(file) : like getc() but increment LineNumber on newlines
@@ -123,17 +135,11 @@ log_it(const char *username, pid_t xpid, const char *event, const char *detail)
 			break;
 	syslog(*info ? LOG_INFO : LOG_WARNING, "(%s) %s (%s)", username, event,
 	    detail);
-
-
 }
 
 void
 log_close(void)
 {
-	if (LogFD != -1) {
-		close(LogFD);
-		LogFD = -1;
-	}
 	closelog();
 	syslog_open = FALSE;
 }

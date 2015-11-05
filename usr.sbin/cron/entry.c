@@ -1,4 +1,4 @@
-/*	$OpenBSD: entry.c,v 1.43 2015/10/26 14:27:41 millert Exp $	*/
+/*	$OpenBSD: entry.c,v 1.45 2015/11/04 20:28:17 millert Exp $	*/
 
 /*
  * Copyright 1988,1990,1993,1994 by Paul Vixie
@@ -18,27 +18,51 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "cron.h"
+#include <sys/types.h>
+
+#include <bitstring.h>		/* for structs.h */
+#include <ctype.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>		/* for structs.h */
+#include <unistd.h>
+
+#include "pathnames.h"
+#include "macros.h"
+#include "structs.h"
+#include "funcs.h"
 
 typedef	enum ecode {
 	e_none, e_minute, e_hour, e_dom, e_month, e_dow,
 	e_cmd, e_timespec, e_username, e_option, e_memory
 } ecode_e;
 
-static const char *ecodes[] =
-	{
-		"no error",
-		"bad minute",
-		"bad hour",
-		"bad day-of-month",
-		"bad month",
-		"bad day-of-week",
-		"bad command",
-		"bad time specifier",
-		"bad username",
-		"bad option",
-		"out of memory"
-	};
+static const char *ecodes[] = {
+	"no error",
+	"bad minute",
+	"bad hour",
+	"bad day-of-month",
+	"bad month",
+	"bad day-of-week",
+	"bad command",
+	"bad time specifier",
+	"bad username",
+	"bad option",
+	"out of memory"
+};
+
+static const char *MonthNames[] = {
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+	NULL
+};
+
+static const char *DowNames[] = {
+	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+	NULL
+};
 
 static int	get_list(bitstr_t *, int, int, const char *[], int, FILE *),
 		get_range(bitstr_t *, int, int, const char *[], int, FILE *),

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.135 2015/10/25 20:01:21 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.138 2015/11/04 21:26:30 tedu Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -195,7 +195,6 @@ SIPHASH_KEY mac_key;
 /* for ancillary data(advanced API) */
 struct msghdr smsghdr;
 struct iovec smsgiov;
-char *scmsg;
 
 volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
@@ -233,8 +232,7 @@ main(int argc, char *argv[])
 	u_char *datap, *packet;
 	char *e, *target;
 	const char *errstr;
-	int ip6optlen = 0;
-	struct cmsghdr *scmsgp = NULL;
+	struct cmsghdr *scmsg = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
 	double intval;
 	int mflag = 0, loop = 1;
@@ -276,7 +274,7 @@ main(int argc, char *argv[])
 				errx(1, "Must be superuser to flood ping");
 			}
 			options |= F_FLOOD;
-			setbuf(stdout, (char *)NULL);
+			setvbuf(stdout, NULL, _IONBF, 0);
 			break;
 		case 'H':
 			options |= F_HOSTNAME;
@@ -533,26 +531,17 @@ main(int argc, char *argv[])
 			err(1, "setsockopt(IPV6_RECVRTHDR)");
 	}
 
-	if (hoplimit != -1)
-		ip6optlen += CMSG_SPACE(sizeof(int));
-
-
-	/* set IP6 packet options */
-	if (ip6optlen) {
-		if ((scmsg = malloc(ip6optlen)) == 0)
+	if (hoplimit != -1) {
+		/* set IP6 packet options */
+		if ((scmsg = malloc( CMSG_SPACE(sizeof(int)))) == 0)
 			errx(1, "can't allocate enough memory");
 		smsghdr.msg_control = (caddr_t)scmsg;
-		smsghdr.msg_controllen = ip6optlen;
-		scmsgp = (struct cmsghdr *)scmsg;
-	}
+		smsghdr.msg_controllen =  CMSG_SPACE(sizeof(int));
 
-	if (hoplimit != -1) {
-		scmsgp->cmsg_len = CMSG_LEN(sizeof(int));
-		scmsgp->cmsg_level = IPPROTO_IPV6;
-		scmsgp->cmsg_type = IPV6_HOPLIMIT;
-		*(int *)(CMSG_DATA(scmsgp)) = hoplimit;
-
-		scmsgp = CMSG_NXTHDR(&smsghdr, scmsgp);
+		scmsg->cmsg_len = CMSG_LEN(sizeof(int));
+		scmsg->cmsg_level = IPPROTO_IPV6;
+		scmsg->cmsg_type = IPV6_HOPLIMIT;
+		*(int *)(CMSG_DATA(scmsg)) = hoplimit;
 	}
 
 	if (!(options & F_SRCADDR) && options & F_VERBOSE) {
@@ -1066,7 +1055,6 @@ pr_ip6opt(void *extbuf)
 	size_t extlen;
 	socklen_t len;
 	void *databuf;
-	size_t offset;
 	u_int16_t value2;
 	u_int32_t value4;
 
@@ -1087,16 +1075,12 @@ pr_ip6opt(void *extbuf)
 		 * options.
 		 */
 		case IP6OPT_JUMBO:
-			offset = 0;
-			offset = inet6_opt_get_val(databuf, offset,
-			    &value4, sizeof(value4));
+			inet6_opt_get_val(databuf, 0, &value4, sizeof(value4));
 			printf("    Jumbo Payload Opt: Length %u\n",
 			    (u_int32_t)ntohl(value4));
 			break;
 		case IP6OPT_ROUTER_ALERT:
-			offset = 0;
-			offset = inet6_opt_get_val(databuf, offset,
-						   &value2, sizeof(value2));
+			inet6_opt_get_val(databuf, 0, &value2, sizeof(value2));
 			printf("    Router Alert Opt: Type %u\n",
 			    ntohs(value2));
 			break;
