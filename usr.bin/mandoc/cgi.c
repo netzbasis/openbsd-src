@@ -1,4 +1,4 @@
-/*	$OpenBSD: cgi.c,v 1.51 2015/10/22 22:05:42 schwarze Exp $ */
+/*	$OpenBSD: cgi.c,v 1.53 2015/11/05 20:55:46 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@usta.de>
@@ -75,6 +75,7 @@ static	void		 pg_searchres(const struct req *,
 static	void		 pg_show(struct req *, const char *);
 static	void		 resp_begin_html(int, const char *);
 static	void		 resp_begin_http(int, const char *);
+static	void		 resp_copy(const char *);
 static	void		 resp_end_html(void);
 static	void		 resp_searchform(const struct req *);
 static	void		 resp_show(const struct req *, const char *);
@@ -366,6 +367,20 @@ resp_begin_http(int code, const char *msg)
 }
 
 static void
+resp_copy(const char *filename)
+{
+	char	 buf[4096];
+	ssize_t	 sz;
+	int	 fd;
+
+	if ((fd = open(filename, O_RDONLY)) != -1) {
+		fflush(stdout);
+		while ((sz = read(fd, buf, sizeof(buf))) > 0)
+			write(STDOUT_FILENO, buf, sz);
+	}
+}
+
+static void
 resp_begin_html(int code, const char *msg)
 {
 
@@ -375,20 +390,22 @@ resp_begin_html(int code, const char *msg)
 	       "<HTML>\n"
 	       "<HEAD>\n"
 	       "<META CHARSET=\"UTF-8\" />\n"
-	       "<LINK REL=\"stylesheet\" HREF=\"%s/man-cgi.css\""
-	       " TYPE=\"text/css\" media=\"all\">\n"
-	       "<LINK REL=\"stylesheet\" HREF=\"%s/man.css\""
+	       "<LINK REL=\"stylesheet\" HREF=\"%s/mandoc.css\""
 	       " TYPE=\"text/css\" media=\"all\">\n"
 	       "<TITLE>%s</TITLE>\n"
 	       "</HEAD>\n"
 	       "<BODY>\n"
 	       "<!-- Begin page content. //-->\n",
-	       CSS_DIR, CSS_DIR, CUSTOMIZE_TITLE);
+	       CSS_DIR, CUSTOMIZE_TITLE);
+
+	resp_copy(MAN_DIR "/header.html");
 }
 
 static void
 resp_end_html(void)
 {
+
+	resp_copy(MAN_DIR "/footer.html");
 
 	puts("</BODY>\n"
 	     "</HTML>");
@@ -399,7 +416,6 @@ resp_searchform(const struct req *req)
 {
 	int		 i;
 
-	puts(CUSTOMIZE_BEGIN);
 	puts("<!-- Begin search form. //-->");
 	printf("<DIV ID=\"mancgi\">\n"
 	       "<FORM ACTION=\"%s\" METHOD=\"get\">\n"
