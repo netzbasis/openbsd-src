@@ -1,14 +1,12 @@
 /*
  * Copyright (C) 1984-2012  Mark Nudelman
+ * Modified for use with illumos by Garrett D'Amore.
+ * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
  *
  * For more information, see the README file.
- */
-/*
- * Modified for use with illumos.
- * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  */
 
 #define	MAX_USERCMD		1000
@@ -39,7 +37,7 @@
 #define	A_QUIT			24
 #define	A_REPAINT		25
 #define	A_SETMARK		26
-#define	A_SHELL			27
+/* 27 unused */
 #define	A_STAT			28
 #define	A_FF_LINE		29
 #define	A_BF_LINE		30

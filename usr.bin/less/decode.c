@@ -1,14 +1,12 @@
 /*
  * Copyright (C) 1984-2012  Mark Nudelman
+ * Modified for use with illumos by Garrett D'Amore.
+ * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
  *
  * For more information, see the README file.
- */
-/*
- * Modified for use with illumos.
- * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  */
 
 /*
@@ -152,7 +150,6 @@ static unsigned char cmdtable[] =
 	':', 't', 0,			A_OPT_TOGGLE|A_EXTRA,	't', 0,
 	'|', 0,				A_PIPE,
 	'v', 0,				A_VISUAL,
-	'!', 0,				A_SHELL,
 	'+', 0,				A_FIRSTCMD,
 
 	'H', 0,				A_HELP,

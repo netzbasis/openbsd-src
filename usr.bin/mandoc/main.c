@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.161 2015/10/22 21:53:49 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.163 2015/11/06 17:23:50 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -92,8 +92,6 @@ static	int		  toptions(struct curparse *, char *);
 static	void		  usage(enum argmode) __attribute__((noreturn));
 static	int		  woptions(struct curparse *, char *);
 
-extern	char		 *__progname;
-
 static	const int sec_prios[] = {1, 4, 5, 8, 6, 3, 7, 2, 9};
 static	char		  help_arg[] = "help";
 static	char		 *help_argv[] = {help_arg, NULL};
@@ -107,6 +105,7 @@ main(int argc, char *argv[])
 	struct curparse	 curp;
 	struct mansearch search;
 	struct tag_files *tag_files;
+	const char	*progname;
 	char		*auxpaths;
 	char		*defos;
 	unsigned char	*uc;
@@ -123,12 +122,13 @@ main(int argc, char *argv[])
 	int		 use_pager;
 	int		 c;
 
-	if (0 == strncmp(__progname, "mandocdb", 8) ||
-	    0 == strncmp(__progname, "makewhatis", 10))
+	progname = getprogname();
+	if (strncmp(progname, "mandocdb", 8) == 0 ||
+	    strncmp(progname, "makewhatis", 10) == 0)
 		return mandocdb(argc, argv);
 
 	if (pledge("stdio rpath tmppath proc exec flock", NULL) == -1)
-		err(1, "pledge");
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Search options. */
 
@@ -139,13 +139,13 @@ main(int argc, char *argv[])
 	memset(&search, 0, sizeof(struct mansearch));
 	search.outkey = "Nd";
 
-	if (strcmp(__progname, "man") == 0)
+	if (strcmp(progname, "man") == 0)
 		search.argmode = ARG_NAME;
-	else if (strncmp(__progname, "apropos", 7) == 0)
+	else if (strncmp(progname, "apropos", 7) == 0)
 		search.argmode = ARG_EXPR;
-	else if (strncmp(__progname, "whatis", 6) == 0)
+	else if (strncmp(progname, "whatis", 6) == 0)
 		search.argmode = ARG_WORD;
-	else if (strncmp(__progname, "help", 4) == 0)
+	else if (strncmp(progname, "help", 4) == 0)
 		search.argmode = ARG_NAME;
 	else
 		search.argmode = ARG_FILE;
@@ -270,7 +270,7 @@ main(int argc, char *argv[])
 		use_pager = 0;
 
 	if (!use_pager && pledge("stdio rpath flock", NULL) == -1)
-		err(1, "pledge");
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Parse arguments. */
 
@@ -286,7 +286,7 @@ main(int argc, char *argv[])
 	 */
 
 	if (search.argmode == ARG_NAME) {
-		if (*__progname == 'h') {
+		if (*progname == 'h') {
 			if (argc == 0) {
 				argv = help_argv;
 				argc = 1;
@@ -389,7 +389,7 @@ main(int argc, char *argv[])
 
 	if (pledge(use_pager ? "stdio rpath tmppath proc exec" :
 	    "stdio rpath", NULL) == -1)
-		err(1, "pledge");
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	if (search.argmode == ARG_FILE && ! moptions(&options, auxpaths))
 		return (int)MANDOCLEVEL_BADARG;
@@ -907,7 +907,7 @@ mmsg(enum mandocerr t, enum mandoclevel lvl,
 {
 	const char	*mparse_msg;
 
-	fprintf(stderr, "%s: %s:", __progname, file);
+	fprintf(stderr, "%s: %s:", getprogname(), file);
 
 	if (line)
 		fprintf(stderr, "%d:%d:", line, col + 1);
@@ -978,7 +978,7 @@ spawn_pager(struct tag_files *tag_files)
 		break;
 	default:
 		if (pledge("stdio rpath tmppath", NULL) == -1)
-			err(1, "pledge");
+			err((int)MANDOCLEVEL_SYSERR, "pledge");
 		return pager_pid;
 	}
 

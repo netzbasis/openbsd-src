@@ -1,14 +1,12 @@
 /*
  * Copyright (C) 1984-2012  Mark Nudelman
+ * Modified for use with illumos by Garrett D'Amore.
+ * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
  *
  * For more information, see the README file.
- */
-/*
- * Modified for use with illumos.
- * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  */
 
 /*
@@ -210,14 +208,14 @@ longloopmessage(void)
 }
 
 static int loopcount;
-static long startime;
+static time_t startime;
 
 static void
 longish(void)
 {
 	if (loopcount >= 0 && ++loopcount > 100) {
 		loopcount = 0;
-		if (get_time() >= startime + LONGTIME) {
+		if (time(NULL) >= startime + LONGTIME) {
 			longloopmessage();
 			loopcount = -1;
 		}
@@ -287,7 +285,7 @@ find_linenum(off_t pos)
 	 * The decision is based on which way involves
 	 * traversing fewer bytes in the file.
 	 */
-	startime = get_time();
+	startime = time(NULL);
 	if (p == &anchor || pos - p->prev->pos < p->pos - pos) {
 		/*
 		 * Go forward.

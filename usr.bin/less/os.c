@@ -1,14 +1,12 @@
 /*
  * Copyright (C) 1984-2012  Mark Nudelman
+ * Modified for use with illumos by Garrett D'Amore.
+ * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
  *
  * For more information, see the README file.
- */
-/*
- * Modified for use with illumos.
- * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  */
 
 /*
@@ -53,18 +51,6 @@ start:
 		return (-1);
 	}
 	return (n);
-}
-
-/*
- * Return the current time.
- */
-long
-get_time(void)
-{
-	time_t t;
-
-	(void) time(&t);
-	return (t);
 }
 
 /*
