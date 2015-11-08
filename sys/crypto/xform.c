@@ -1,9 +1,10 @@
-/*	$OpenBSD: xform.c,v 1.49 2015/11/04 12:32:37 mikeb Exp $	*/
+/*	$OpenBSD: xform.c,v 1.51 2015/11/07 17:46:49 mikeb Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
- * Niels Provos (provos@physnet.uni-hamburg.de) and
- * Damien Miller (djm@mindrot.org).
+ * Niels Provos (provos@physnet.uni-hamburg.de),
+ * Damien Miller (djm@mindrot.org) and
+ * Mike Belopuhov (mikeb@openbsd.org).
  *
  * This code was written by John Ioannidis for BSD/OS in Athens, Greece,
  * in November 1995.
@@ -18,12 +19,16 @@
  *
  * AES XTS implementation in 2008 by Damien Miller
  *
+ * AES-GCM-16 and Chacha20-Poly1305 AEAD modes by Mike Belopuhov.
+ *
  * Copyright (C) 1995, 1996, 1997, 1998, 1999 by John Ioannidis,
  * Angelos D. Keromytis and Niels Provos.
  *
  * Copyright (C) 2001, Angelos D. Keromytis.
  *
  * Copyright (C) 2008, Damien Miller
+ *
+ * Copyright (C) 2010, 2015, Mike Belopuhov
  *
  * Permission to use, copy, and modify this software with or without fee
  * is hereby granted, provided that this entire notice is included in
@@ -297,31 +302,22 @@ struct auth_hash auth_hash_hmac_sha2_512_256 = {
 struct auth_hash auth_hash_gmac_aes_128 = {
 	CRYPTO_AES_128_GMAC, "GMAC-AES-128",
 	16+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
 struct auth_hash auth_hash_gmac_aes_192 = {
 	CRYPTO_AES_192_GMAC, "GMAC-AES-192",
 	24+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
 struct auth_hash auth_hash_gmac_aes_256 = {
 	CRYPTO_AES_256_GMAC, "GMAC-AES-256",
 	32+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
 struct auth_hash auth_hash_chacha20_poly1305 = {

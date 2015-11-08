@@ -1,7 +1,7 @@
-/*	$OpenBSD: gmac.h,v 1.3 2015/11/07 01:37:26 naddy Exp $	*/
+/*	$OpenBSD: gmac.h,v 1.5 2015/11/07 17:46:49 mikeb Exp $	*/
 
 /*
- * Copyright (c) 2010 Mike Belopuhov <mike@vantronix.net>
+ * Copyright (c) 2010 Mike Belopuhov
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -40,11 +40,11 @@ typedef struct _AES_GMAC_CTX {
 __BEGIN_DECLS
 extern void (*ghash_update)(GHASH_CTX *, uint8_t *, size_t);
 
-void	AES_GMAC_Init(AES_GMAC_CTX *);
-void	AES_GMAC_Setkey(AES_GMAC_CTX *, const uint8_t *, uint16_t);
-void	AES_GMAC_Reinit(AES_GMAC_CTX *, const uint8_t *, uint16_t);
-int	AES_GMAC_Update(AES_GMAC_CTX *, const uint8_t *, uint16_t);
-void	AES_GMAC_Final(uint8_t [GMAC_DIGEST_LEN], AES_GMAC_CTX *);
+void	AES_GMAC_Init(void *);
+void	AES_GMAC_Setkey(void *, const uint8_t *, uint16_t);
+void	AES_GMAC_Reinit(void *, const uint8_t *, uint16_t);
+int	AES_GMAC_Update(void *, const uint8_t *, uint16_t);
+void	AES_GMAC_Final(uint8_t [GMAC_DIGEST_LEN], void *);
 __END_DECLS
 
 #endif /* _GMAC_H_ */
