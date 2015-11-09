@@ -35,9 +35,9 @@ the OpenSSL libssl and libcrypto libraries.
 This document is intended as an overview of what the libraries do,
 and what uses them.
 .Pp
-The SSL libraries (libssl and libcrypto) implement the SSL version 3
-and TLS version 1 protocols.
-SSL and TLS are most commonly used by the HTTPS protocol for encrypted
+The SSL libraries (libssl and libcrypto) implement the TLS version 1
+protocols.
+TLS is most commonly used by the HTTPS protocol for encrypted
 web transactions, as can be done with
 .Xr httpd 8 .
 The libcrypto library is also used by various programs such as
@@ -46,7 +46,7 @@ The libcrypto library is also used by various programs such as
 and
 .Xr isakmpd 8 .
 .Sh SERVER CERTIFICATES
-The most common uses of SSL/TLS will require you to generate a server
+The most common uses of TLS will require you to generate a server
 certificate, which is provided by your host as evidence of its identity
 when clients make new connections.
 The certificates reside in the
@@ -101,7 +101,7 @@ and
 .Pa /etc/ssl/private/server.key
 in place, you should be able to start
 .Xr httpd 8
-with SSL configured, enabling HTTPS transactions with your machine on port 443.
+with TLS configured, enabling HTTPS transactions with your machine on port 443.
 .Pp
 You will most likely want to generate a self-signed certificate in the
 manner above along with your certificate signing request to test your
@@ -243,7 +243,9 @@ software and vendors.
 Due to multiple flaws in the protocols, SSL version 2 was removed in
 .Ox 5.2
 and SSL version 3 was disabled in
-.Ox 5.7 .
+.Ox 5.7
+and then removed in
+.Ox 5.9 .
 Users and programs should use TLS version 1.2 instead.
 .Pp
 This document first appeared in
