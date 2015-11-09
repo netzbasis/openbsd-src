@@ -1307,7 +1307,6 @@ cpio_options(int argc, char **argv)
 				 */
 				frmt = &(fsub[F_OCPIO]);
 				break;
-			case '?':
 			default:
 				cpio_usage();
 				break;

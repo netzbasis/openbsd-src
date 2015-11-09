@@ -210,7 +210,6 @@ parse_args(int argc, char *argv[])
 			verbose_logging = 1;
 			break;
 
-		case '?':
 		default:
 			usage();
 		}

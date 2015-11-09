@@ -413,7 +413,7 @@ main(int argc, char **argv)
 	struct sigaction sa;
 	struct itimerval it;
 
-	while ((ch = getopt(argc, argv, "?d:f:glmqt:vx")) != -1) {
+	while ((ch = getopt(argc, argv, "d:f:glmqt:vx")) != -1) {
 		switch (ch) {
 		case 'f':
 			file = optarg;
@@ -439,7 +439,6 @@ main(int argc, char **argv)
 		case 'x':
 			example = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

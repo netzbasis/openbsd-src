@@ -83,13 +83,11 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 
 	lflag = 0;
-	while ((ch = getopt(argc, argv, "hl")) != -1)
+	while ((ch = getopt(argc, argv, "l")) != -1)
 		switch (ch) {
 		case 'l':
 			lflag = 1;
 			break;
-		case '?':
-		case 'h':
 		default:
 			usage();
 		}

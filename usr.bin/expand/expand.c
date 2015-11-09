@@ -66,7 +66,6 @@ main(int argc, char *argv[])
 		case 't':
 			getstops(optarg);
 			break;
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

@@ -274,7 +274,6 @@ getargs(int argc, char *argv[])
 		case 'x':			/* set the rotated bit */
 			Xflag++;
 			break;
-		case '?':
 		default:
 			usage();
 		}

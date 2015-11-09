@@ -200,7 +200,6 @@ main(int argc, char *argv[])
 					usage();
 			}
 			break;
-		case '?':
 		default:
 			usage();
 		}

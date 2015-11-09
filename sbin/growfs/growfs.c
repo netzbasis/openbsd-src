@@ -1937,8 +1937,6 @@ main(int argc, char **argv)
 		case 'y':
 			ExpertFlag = 1;
 			break;
-		case '?':
-			/* FALLTHROUGH */
 		default:
 			usage();
 		}

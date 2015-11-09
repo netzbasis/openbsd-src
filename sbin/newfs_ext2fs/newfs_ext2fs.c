@@ -204,7 +204,6 @@ main(int argc, char *argv[])
 				errx(EXIT_FAILURE,
 				    "Volume name cannot be zero length");
 			break;
-		case '?':
 		default:
 			usage();
 		}

@@ -64,7 +64,7 @@ main(int argc, char **argv)
 		err(1, "pledge");
 
 	dflag = bflag = 0;
-	while ((c = getopt(argc, argv, "bdh")) != -1)
+	while ((c = getopt(argc, argv, "bd")) != -1)
 		switch(c) {
 		case 'd':
 			dflag = 1;
@@ -72,7 +72,6 @@ main(int argc, char **argv)
 		case 'b':
 			bflag = 1;
 			break;
-		case '?': case 'h':
 		default:
 			usage();
 		}

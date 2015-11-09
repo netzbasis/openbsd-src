@@ -80,7 +80,6 @@ main(int argc, char *argv[])
 		case 'f':
 			compare = strcasecmp;
 			break;
-		case '?':
 		default:
 			usage();
 		}

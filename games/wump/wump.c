@@ -176,7 +176,6 @@ main(int argc, char *argv[])
 				errx(1,
 	"wumpii like extra doors in their caves!");
 			break;
-		case '?':
 		default:
 			usage();
 	}

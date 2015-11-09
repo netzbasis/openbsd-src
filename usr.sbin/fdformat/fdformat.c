@@ -253,7 +253,7 @@ main(int argc, char *argv[])
 			verify_only = 1;
 			break;
 
-		case '?': default:
+		default:
 			usage();
 		}
 

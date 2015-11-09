@@ -108,7 +108,6 @@ main(int argc, char *argv[])
 		case 'o':
 			oflag = 1;		/* office info */
 			break;
-		case '?':
 		default:
 			(void)fprintf(stderr,
 			    "usage: %s [-hlMmops] [login ...]\n", __progname);

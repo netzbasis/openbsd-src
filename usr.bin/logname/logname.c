@@ -51,7 +51,6 @@ main(int argc, char *argv[])
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		switch (ch) {
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

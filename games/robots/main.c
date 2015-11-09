@@ -80,7 +80,6 @@ main(int ac, char *av[])
 		case 't':
 			Teleport = TRUE;
 			break;
-		case '?':
 		default:
 			usage();
 		}

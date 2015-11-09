@@ -163,7 +163,6 @@ main(int argc, char *argv[])
 			filter = NET_FILTER;
 			break;
 
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

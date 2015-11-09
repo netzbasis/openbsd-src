@@ -248,7 +248,6 @@ main(int argc, char **argv, char **envp)
 		case 'i':	FLAG_ON(options, DO_IGNLNKS);		break;
 		case 'x':	FLAG_ON(options, DO_NOEXEC);		break;
 
-		case '?':
 		default:
 			usage();
 		}

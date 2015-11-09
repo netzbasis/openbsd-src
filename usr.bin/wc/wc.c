@@ -75,7 +75,6 @@ main(int argc, char *argv[])
 		case 'h':
 			humanchar = 1;
 			break;
-		case '?':
 		default:
 			(void)fprintf(stderr,
 			    "usage: %s [-c | -m] [-hlw] [file ...]\n",

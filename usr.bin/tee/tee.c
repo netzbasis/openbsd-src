@@ -86,7 +86,6 @@ main(int argc, char *argv[])
 		case 'i':
 			(void)signal(SIGINT, SIG_IGN);
 			break;
-		case '?':
 		default:
 			(void)fprintf(stderr, "usage: tee [-ai] [file ...]\n");
 			exit(1);

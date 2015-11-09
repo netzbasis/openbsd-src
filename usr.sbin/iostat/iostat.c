@@ -150,7 +150,6 @@ main(int argc, char *argv[])
 			if (errstr)
 				errx(1, "interval is %s", errstr);
 			break;
-		case '?':
 		default:
 			usage();
 		}

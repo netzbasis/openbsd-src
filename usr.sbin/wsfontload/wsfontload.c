@@ -130,10 +130,8 @@ main(int argc, char *argv[])
 		case 'B':
 			f.byteorder = WSDISPLAY_FONTORDER_R2L;
 			break;
-		case '?':
 		default:
 			usage();
-			break;
 		}
 	}
 	argc -= optind;

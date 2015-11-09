@@ -210,7 +210,6 @@ editor(GS *gp, int argc, char *argv[])
 		case 'w':
 			wsizearg = optarg;
 			break;
-		case '?':
 		default:
 			(void)gp->scr_usage();
 			return (1);

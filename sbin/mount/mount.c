@@ -157,7 +157,6 @@ main(int argc, char * const argv[])
 			if (!hasopt(options, "rw"))
 				options = catopt(options, "rw");
 			break;
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

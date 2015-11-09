@@ -116,7 +116,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "dsh")) != -1)
+	while ((ch = getopt(argc, argv, "ds")) != -1)
 		switch(ch) {
 		case 'd':
 			dflag = 1;
@@ -124,7 +124,6 @@ main(int argc, char *argv[])
 		case 's':
 			sflag = 1;
 			break;
-		case '?': case 'h':
 		default:
 			fprintf(stderr, "usage: morse [-d | -s] [string ...]\n");
 			exit(1);

@@ -68,7 +68,6 @@ main(int argc, char *argv[])
 		case 's':		/* silent run */
 			sflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

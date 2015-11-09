@@ -131,7 +131,6 @@ mount_tmpfs_parseargs(int argc, char *argv[],
 			uidset = 1;
 			break;
 
-		case '?':
 		default:
 			usage();
 		}

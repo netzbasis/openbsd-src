@@ -79,7 +79,6 @@ main(int argc, char **argv, char **envp)
 			printf("%s\n", getversion());
 			exit(0);
 
-		case '?':
 		default:
 			error("Bad command line option.");
 			usage();

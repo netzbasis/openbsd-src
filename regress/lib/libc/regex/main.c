@@ -63,7 +63,6 @@ main(int argc, char *argv[])
 		case 'x':	/* Debugging. */
 			debug++;
 			break;
-		case '?':
 		default:
 			errflg++;
 			break;

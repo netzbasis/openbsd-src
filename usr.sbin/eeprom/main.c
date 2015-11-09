@@ -145,7 +145,6 @@ main(int argc, char *argv[])
 			break;
 #endif /* __sparc__ && !__sparc64__ */
 
-		case '?':
 		default:
 			usage();
 		}

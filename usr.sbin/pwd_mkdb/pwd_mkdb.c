@@ -133,7 +133,6 @@ main(int argc, char **argv)
 			break;
 		case 'v':			/* backward compatible */
 			break;
-		case '?':
 		default:
 			usage();
 		}

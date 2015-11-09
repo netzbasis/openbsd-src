@@ -1528,7 +1528,6 @@ main(int ac, char **av)
 				exit(1);
 			free(line);
 			break;
-		case '?':
 		default:
 			usage();
 			break;

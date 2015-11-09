@@ -90,7 +90,6 @@ main(int argc, char *argv[])
 		case 'o':
 			outfile = optarg;
 			break;
-		case '?':
 		default:
 			usage();
 		}

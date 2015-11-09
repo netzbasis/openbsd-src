@@ -142,7 +142,6 @@ procargs(int *argc_p, char ***argv_p)
 		case 'v':
 			verbose = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

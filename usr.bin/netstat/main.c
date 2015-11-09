@@ -256,7 +256,6 @@ main(int argc, char *argv[])
 				errx(1, "interval is %s", errstr);
 			iflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

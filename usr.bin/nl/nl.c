@@ -196,7 +196,6 @@ main(int argc, char *argv[])
 				errx(EXIT_FAILURE, "width is %s: %s", errstr,
 				    optarg);
 			break;
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

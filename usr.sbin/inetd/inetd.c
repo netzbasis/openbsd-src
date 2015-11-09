@@ -316,7 +316,6 @@ main(int argc, char *argv[])
 			    optarg);
 			break;
 		}
-		case '?':
 		default:
 			fprintf(stderr,
 			    "usage: inetd [-d] [-R rate] [configuration_file]\n");

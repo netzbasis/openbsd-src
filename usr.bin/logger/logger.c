@@ -82,7 +82,6 @@ main(int argc, char *argv[])
 		case 't':		/* tag */
 			tag = optarg;
 			break;
-		case '?':
 		default:
 			usage();
 		}

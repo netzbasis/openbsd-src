@@ -92,7 +92,6 @@ main(int argc, char *argv[])
 			break;
 		case 'n':
 			break;
-		case '?':
 		default:
 			usage();
 		}

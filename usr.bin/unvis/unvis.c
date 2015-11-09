@@ -48,7 +48,6 @@ main(int argc, char *argv[])
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		switch(ch) {
-		case '?':
 		default:
 			(void) fprintf(stderr, "usage: unvis [file ...]\n");
 			exit(1);

@@ -138,7 +138,6 @@ main(int argc, char *argv[])
 		case 'd':
 			dodir = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

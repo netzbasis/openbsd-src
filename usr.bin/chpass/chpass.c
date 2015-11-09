@@ -103,7 +103,6 @@ main(int argc, char *argv[])
 			force_yp = 1;
 			break;
 #endif
-		case '?':
 		default:
 			usage();
 		}

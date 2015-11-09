@@ -780,7 +780,7 @@ main(int argc, char **argv)
 	wflag = aflag = nflag = verbose = rflag = lflag = 0;
 	dev = NULL;
 	table = NULL;
-	while ((ch = getopt(argc, argv, "?af:lnrt:vw")) != -1) {
+	while ((ch = getopt(argc, argv, "af:lnrt:vw")) != -1) {
 		switch (ch) {
 		case 'a':
 			aflag = 1;
@@ -806,7 +806,6 @@ main(int argc, char **argv)
 		case 'w':
 			wflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

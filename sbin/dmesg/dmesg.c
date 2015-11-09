@@ -81,7 +81,6 @@ main(int argc, char *argv[])
 		case 'N':
 			nlistf = optarg;
 			break;
-		case '?':
 		default:
 			usage();
 		}

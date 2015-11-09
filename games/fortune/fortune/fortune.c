@@ -280,7 +280,6 @@ getargs(int argc, char *argv[])
 		case 'i':			/* case-insensitive match */
 			ignore_case = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

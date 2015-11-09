@@ -184,7 +184,6 @@ main(int argc, char *argv[])
 			if (*end)
 				errx(1, "illegal file number -- %s", optarg);
 			break;
-		case '?':
 		default:
 			usage();
 		}

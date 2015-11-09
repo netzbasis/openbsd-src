@@ -187,7 +187,7 @@ main(int argc, char **argv)
 	int addr = 0;
 	int ncont;
 
-	while ((ch = getopt(argc, argv, "a:df:v?")) != -1) {
+	while ((ch = getopt(argc, argv, "a:df:v")) != -1) {
 		switch (ch) {
 		case 'a':
 			addr = strtonum(optarg, 1, USB_MAX_DEVICES, &errstr);

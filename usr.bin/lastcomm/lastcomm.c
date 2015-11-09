@@ -78,7 +78,6 @@ main(int argc, char *argv[])
 		case 'f':
 			acctfile = optarg;
 			break;
-		case '?':
 		default:
 			usage();
 		}

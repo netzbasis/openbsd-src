@@ -63,7 +63,6 @@ main(int argc, char *argv[])
 		case 'r':
 			rflag = TRUE;
 			break;
-		case '?':
 		default:
 			(void) fprintf(stderr, "usage: cribbage [-emqr]\n");
 			exit(1);

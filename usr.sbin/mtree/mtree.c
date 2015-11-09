@@ -123,7 +123,6 @@ main(int argc, char *argv[])
 		case 'x':
 			ftsoptions |= FTS_XDEV;
 			break;
-		case '?':
 		default:
 			usage();
 		}

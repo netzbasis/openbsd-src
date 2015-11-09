@@ -105,7 +105,6 @@ main(int argc, char *argv[])
 		case 'c':
 			display = SHOW_CLIENT;
 			break;
-		case '?':
 		default:
 			usage();
 		}

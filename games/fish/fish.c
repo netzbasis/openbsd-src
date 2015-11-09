@@ -87,13 +87,11 @@ main(int argc, char *argv[])
 {
 	int ch, move;
 
-	while ((ch = getopt(argc, argv, "ph")) != -1)
+	while ((ch = getopt(argc, argv, "p")) != -1)
 		switch(ch) {
 		case 'p':
 			promode = 1;
 			break;
-		case '?':
-		case 'h':
 		default:
 			usage();
 		}

@@ -105,7 +105,6 @@ main(int argc, char **argv)
 			if (wait_time < 30)
 				warnx("warning: wait time less than 30 seconds");
 			break;
-		case '?':
 		default:
 			usage();
 		}

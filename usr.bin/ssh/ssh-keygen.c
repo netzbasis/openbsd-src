@@ -2411,7 +2411,6 @@ main(int argc, char **argv)
 				    optarg, errstr);
 			break;
 #endif /* WITH_OPENSSL */
-		case '?':
 		default:
 			usage();
 		}

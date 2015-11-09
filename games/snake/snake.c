@@ -146,7 +146,7 @@ main(int argc, char *argv[])
 	gid = getgid();
 	setresgid(gid, gid, gid);
 
-	while ((ch = getopt(argc, argv, "hl:stw:")) != -1)
+	while ((ch = getopt(argc, argv, "l:stw:")) != -1)
 		switch ((char)ch) {
 		case 'w':	/* width */
 			ccnt = atoi(optarg);
@@ -161,8 +161,6 @@ main(int argc, char *argv[])
 		case 't': /* slow terminal */
 			fast = 0;
 			break;
-		case '?':
-		case 'h':
 		default:
 			fputs("usage: snake [-st] [-l length] [-w width]\n",
 			    stderr);

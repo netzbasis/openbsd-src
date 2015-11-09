@@ -76,7 +76,6 @@ main(int argc, char *argv[])
 			mode = getmode(set, DEFFILEMODE);
 			free(set);
 			break;
-		case '?':
 		default:
 			usage(ismkfifo);
 		}

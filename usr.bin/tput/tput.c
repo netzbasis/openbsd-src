@@ -86,7 +86,6 @@ main(int argc, char *argv[])
 		case 'S':
 			Sflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

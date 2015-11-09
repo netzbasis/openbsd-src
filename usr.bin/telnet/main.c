@@ -160,7 +160,6 @@ main(int argc, char *argv[])
 				    prompt, errstr, optarg);
 			}
 			break;
-		case '?':
 		default:
 			usage();
 		}

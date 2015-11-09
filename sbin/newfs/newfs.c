@@ -294,7 +294,6 @@ main(int argc, char *argv[])
 			pop = optarg;
 			break;
 #endif
-		case '?':
 		default:
 			usage();
 		}

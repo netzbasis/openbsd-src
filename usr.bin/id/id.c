@@ -101,7 +101,6 @@ main(int argc, char *argv[])
 		case 'u':
 			uflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

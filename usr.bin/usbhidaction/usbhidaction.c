@@ -111,7 +111,6 @@ main(int argc, char **argv)
 			demon = 0;
 			verbose++;
 			break;
-		case '?':
 		default:
 			usage();
 		}

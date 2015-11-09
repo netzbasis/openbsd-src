@@ -89,7 +89,6 @@ main(int argc, char *argv[])
 		case 'm':
 			domarshal = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

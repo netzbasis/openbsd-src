@@ -69,7 +69,6 @@ main(int argc, char *argv[])
 		case 's':
 			seq = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

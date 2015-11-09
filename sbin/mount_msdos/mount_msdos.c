@@ -100,10 +100,8 @@ main(int argc, char **argv)
 		case 'o':
 			getmntopts(optarg, mopts, &mntflags);
 			break;
-		case '?':
 		default:
 			usage();
-			break;
 		}
 	}
 

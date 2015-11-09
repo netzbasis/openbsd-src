@@ -975,7 +975,6 @@ main(argc, argv)
 		case 'o':
 			outfile = optarg;
 			break;
-		case '?':
 		default:
 			warnx("Illegal argument: %c", ch);
 			usage(myname);

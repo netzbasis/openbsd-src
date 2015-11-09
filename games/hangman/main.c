@@ -46,7 +46,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio rpath tty", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "d:hk")) != -1) {
+	while ((ch = getopt(argc, argv, "d:k")) != -1) {
 		switch (ch) {
 		case 'd':
 			if (syms)
@@ -58,8 +58,6 @@ main(int argc, char *argv[])
 			syms = 1;
 			Dict_name = _PATH_KSYMS;
 			break;
-		case 'h':
-		case '?':
 		default:
 			usage();
 		}

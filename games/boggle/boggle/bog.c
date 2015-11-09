@@ -117,7 +117,6 @@ main(int argc, char *argv[])
 			if ((minlength = atoi(optarg)) < 3)
 				errx(1, "min word length must be > 2");
 			break;
-		case '?':
 		default:
 			usage();
 		}

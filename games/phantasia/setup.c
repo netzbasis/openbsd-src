@@ -75,7 +75,6 @@ main(argc, argv)
 		case 'm':
 			monsterfile = optarg;
 			break;
-		case '?':
 		default:
 			break;
 		}

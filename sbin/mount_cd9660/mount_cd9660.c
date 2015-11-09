@@ -91,7 +91,6 @@ main(int argc, char *argv[])
 				errx(1, "session number is %s: %s", errstr,
 				    optarg);
 			break;
-		case '?':
 		default:
 			usage();
 		}

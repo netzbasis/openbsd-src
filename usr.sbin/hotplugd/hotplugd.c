@@ -66,7 +66,6 @@ main(int argc, char *argv[])
 		case 'd':
 			device = optarg;
 			break;
-		case '?':
 		default:
 			usage();
 			/* NOTREACHED */

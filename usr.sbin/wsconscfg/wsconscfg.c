@@ -104,10 +104,8 @@ main(int argc, char *argv[])
 		case 'F':
 			dsd.flags |= WSDISPLAY_DELSCR_FORCE;
 			break;
-		case '?':
 		default:
 			usage();
-			break;
 		}
 	}
 	argc -= optind;

@@ -45,7 +45,6 @@ main(int argc, char **argv)
 					break;
 			case 'h':
 					usage(0);
-			case '?':
 			default:
 					usage(1);
 			}

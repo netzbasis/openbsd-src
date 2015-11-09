@@ -71,13 +71,11 @@ main(int argc, char *argv[])
 	int wintoosmall;
 
 	scrol = wintoosmall = 0;
-	while ((i = getopt(argc, argv, "sh")) != -1)
+	while ((i = getopt(argc, argv, "s")) != -1)
 		switch (i) {
 		case 's':
 			scrol = 1;
 			break;
-		case 'h':
-		case '?':
 		default:
 			usage();
 		}

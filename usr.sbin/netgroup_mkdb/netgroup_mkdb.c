@@ -110,7 +110,6 @@ main(int argc, char *argv[])
 			dbname = optarg;
 			break;
 
-		case '?':
 		default:
 			usage();
 		}

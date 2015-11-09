@@ -102,7 +102,6 @@ main(int argc, char *argv[])
 			debug = 1;
 			break;
 #endif
-		case '?':
 		default:
 			usage();
 		}

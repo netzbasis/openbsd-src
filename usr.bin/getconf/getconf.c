@@ -423,7 +423,6 @@ main(int argc, char *argv[])
 			if (! compilation_spec_valid(optarg))
 				errx(1, "%s: unknown specification", optarg);
 			break;
-		case '?':
 		default:
 			usage();
 		}

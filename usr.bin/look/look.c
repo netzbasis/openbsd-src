@@ -104,7 +104,6 @@ main(int argc, char *argv[])
 		case 't':
 			termchar = *optarg;
 			break;
-		case '?':
 		default:
 			usage();
 		}

@@ -104,7 +104,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "hr:o:")) != -1)
+	while ((ch = getopt(argc, argv, "r:o:")) != -1)
 		switch(ch) {
 		case 'o': {
 			const char *p;
@@ -119,8 +119,6 @@ main(int argc, char *argv[])
 			if ((rangemax = atoi(optarg)) <= 0)
 				errx(1, "invalid range.");
 			break;
-		case '?':
-		case 'h':
 		default:
 			usage();
 		}

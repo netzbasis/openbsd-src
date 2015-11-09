@@ -162,7 +162,6 @@ main(int argc, char **argv)
 			if (errstr)
 				errx(1, "-v %s: %s", optarg, errstr);
 			break;
-		case '?':
 		default:
 			(void)fprintf(stderr,
 			    "usage: %s [-abcDdfijKklmnqrstu] [-v cutoff]"

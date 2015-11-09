@@ -78,7 +78,6 @@ main(int argc, char *argv[])
 		case 'v':
 			vflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

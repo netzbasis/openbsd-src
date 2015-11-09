@@ -1020,7 +1020,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
 
-	while ((ch = getopt(argc, argv, "w:tdh")) != -1)
+	while ((ch = getopt(argc, argv, "w:td")) != -1)
 		switch (ch) {
 		case 'd':
 			debug = 1;
@@ -1033,7 +1033,6 @@ main(int argc, char *argv[])
 			if (width <= 0 || width > DWIDTH)
 				errx(1, "illegal argument for -w option");
 			break;
-		case '?': case 'h':
 		default:
 			(void)fprintf(stderr,
 			    "usage: banner [-w width] message ...\n");

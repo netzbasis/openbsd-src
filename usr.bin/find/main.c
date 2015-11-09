@@ -98,7 +98,6 @@ main(int argc, char *argv[])
 			ftsoptions &= ~FTS_NOSTAT;
 			ftsoptions |= FTS_XDEV;
 			break;
-		case '?':
 		default:
 			usage();
 		}

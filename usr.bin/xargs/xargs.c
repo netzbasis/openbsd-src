@@ -174,7 +174,6 @@ main(int argc, char *argv[])
 		case '0':
 			zflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 	}

@@ -139,7 +139,6 @@ main(int argc, char *argv[])
 		case 'x':		/* do not compress spaces into tabs */
 			compress_spaces = 0;
 			break;
-		case '?':
 		default:
 			usage();
 		}

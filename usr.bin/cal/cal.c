@@ -168,7 +168,6 @@ main(int argc, char *argv[])
 		case 'y':
 			yflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

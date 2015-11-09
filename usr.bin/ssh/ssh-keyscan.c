@@ -754,7 +754,6 @@ main(int argc, char **argv)
 		case '6':
 			IPv4or6 = AF_INET6;
 			break;
-		case '?':
 		default:
 			usage();
 		}

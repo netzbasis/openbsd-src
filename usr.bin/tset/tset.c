@@ -1212,7 +1212,6 @@ main(int argc, char **argv)
 	case 'w':		/* set window-size */
 	    opt_w = TRUE;
 	    break;
-	case '?':
 	default:
 	    usage();
 	}

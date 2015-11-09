@@ -151,7 +151,6 @@ main(int argc, char *argv[])
 		case 'f': case 'l': case 's': case 'u': case 'w':
 			warnx("[-flsuw] no longer supported");
 			/* FALLTHROUGH */
-		case '?':
 		default:
 			usage(wcmd);
 		}

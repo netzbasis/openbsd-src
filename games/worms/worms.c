@@ -192,7 +192,7 @@ main(int argc, char *argv[])
 	number = 3;
 	trail = ' ';
 	field = NULL;
-	while ((ch = getopt(argc, argv, "d:fhl:n:t")) != -1)
+	while ((ch = getopt(argc, argv, "d:fl:n:t")) != -1)
 		switch(ch) {
 		case 'd':
 			delay = (time_t)strtonum(optarg, 0, 1000, &errstr);
@@ -214,7 +214,6 @@ main(int argc, char *argv[])
 		case 't':
 			trail = '.';
 			break;
-		case '?': case 'h':
 		default:
 			(void)fprintf(stderr,
 			    "usage: worms [-ft] [-d delay] [-l length] [-n number]\n");

@@ -96,7 +96,6 @@ main(int argc, char *argv[])
 		case 'x':
 			xflag = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

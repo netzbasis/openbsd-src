@@ -402,7 +402,6 @@ main(int argc, char *argv[])
 			doperf = PERF_MANUAL;
 			setperfpolicy("high");
 			break;
-		case '?':
 		default:
 			usage();
 		}

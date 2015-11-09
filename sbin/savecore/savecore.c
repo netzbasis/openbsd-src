@@ -153,7 +153,6 @@ main(int argc, char *argv[])
 		case 'z':
 			zcompress = 1;
 			break;
-		case '?':
 		default:
 			usage();
 		}

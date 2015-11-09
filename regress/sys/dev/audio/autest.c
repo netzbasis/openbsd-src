@@ -140,7 +140,6 @@ main(int argc, char **argv)
 				return (1);
 			}
 			break;
-		case '?':
 		default:
 			fprintf(stderr, "%s [-f device]\n", argv[0]);
 			return (1);
