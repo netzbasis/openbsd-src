@@ -87,12 +87,6 @@ typedef off_t		LINENUM;
 #define	MIN_LINENUM_WIDTH  7	/* Min printing width of a line number */
 #define	MAX_UTF_CHAR_LEN   6	/* Max bytes in one UTF-8 char */
 
-/*
- * Flags for open()
- */
-#define	OPEN_READ	(O_RDONLY)
-#define	OPEN_APPEND	(O_APPEND|O_WRONLY)
-
 #define	SHELL_META_QUEST 1
 
 #define	SPACES_IN_FILENAMES 1
@@ -115,8 +109,7 @@ struct scrpos {
 	int ln;
 };
 
-typedef union parg
-{
+typedef union parg {
 	char *p_string;
 	int p_int;
 	LINENUM p_linenum;
@@ -124,8 +117,7 @@ typedef union parg
 
 #define	NULL_PARG	((PARG *)NULL)
 
-struct textlist
-{
+struct textlist {
 	char *string;
 	char *endstring;
 };

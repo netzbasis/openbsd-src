@@ -215,8 +215,7 @@ static unsigned char edittable[] =
 /*
  * Structure to support a list of command tables.
  */
-struct tablelist
-{
+struct tablelist {
 	struct tablelist *t_next;
 	char *t_start;
 	char *t_end;
@@ -623,7 +622,7 @@ lesskey(char *filename, int sysvar)
 	 * Try to open the lesskey file.
 	 */
 	filename = shell_unquote(filename);
-	f = open(filename, OPEN_READ);
+	f = open(filename, O_RDONLY);
 	free(filename);
 	if (f < 0)
 		return (1);
