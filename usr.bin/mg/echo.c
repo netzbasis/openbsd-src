@@ -1,4 +1,4 @@
-/*	$OpenBSD: echo.c,v 1.61 2015/10/31 11:59:47 jasper Exp $	*/
+/*	$OpenBSD: echo.c,v 1.63 2015/11/09 11:44:00 jasper Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -132,14 +132,9 @@ eyesno(const char *sp)
 				maclcur->l_fp = lp->l_fp;
 				free(lp);
 			}
-			if ((rep[0] == 'y' || rep[0] == 'Y') &&
-			    (rep[1] == 'e' || rep[1] == 'E') &&
-			    (rep[2] == 's' || rep[2] == 'S') &&
-			    (rep[3] == '\0'))
+			if (strncasecmp(rep, "yes", sizeof(rep)) == 0)
 				return (TRUE);
-			if ((rep[0] == 'n' || rep[0] == 'N') &&
-			    (rep[1] == 'o' || rep[0] == 'O') &&
-			    (rep[2] == '\0'))
+			if (strncasecmp(rep, "no", sizeof(rep)) == 0)
 				return (FALSE);
 		}
 		rep = eread("Please answer yes or no.  %s? (yes or no) ",
@@ -174,11 +169,10 @@ veread(const char *fp, char *buf, size_t nbuf, int flag, va_list ap)
 	int	 dynbuf = (buf == NULL);
 	int	 cpos, epos;		/* cursor, end position in buf */
 	int	 c, i, y;
-	int	 cplflag = FALSE;	/* display completion list */
+	int	 cplflag;		/* display completion list */
 	int	 cwin = FALSE;		/* completion list created */
-	int	 mr = 0;		/* match left arrow */
-	int	 ml = 0;		/* match right arrow */
-	int	 esc = 0;		/* position in esc pattern */
+	int	 mr, ml;		/* match left/right arrows */
+	int	 esc;			/* position in esc pattern */
 	struct buffer	*bp;			/* completion list buffer */
 	struct mgwin	*wp;			/* window for compl list */
 	int	 match;			/* esc match found */

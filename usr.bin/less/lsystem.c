@@ -52,7 +52,7 @@ lsystem(const char *cmd, const char *donemsg)
 	 * Close the current input file.
 	 */
 	save_ifile = save_curr_ifile();
-	(void) edit_ifile(NULL_IFILE);
+	(void) edit_ifile(NULL);
 
 	/*
 	 * De-initialize the terminal and take out of raw mode.
@@ -193,12 +193,12 @@ pipe_data(char *cmd, off_t spos, off_t epos)
 	 * the command, and reinitialization after it.
 	 */
 	if (ch_seek(spos) != 0) {
-		error("Cannot seek to start position", NULL_PARG);
+		error("Cannot seek to start position", NULL);
 		return (-1);
 	}
 
 	if ((f = popen(cmd, "w")) == NULL) {
-		error("Cannot create pipe", NULL_PARG);
+		error("Cannot create pipe", NULL);
 		return (-1);
 	}
 	clear_bot();

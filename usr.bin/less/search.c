@@ -97,12 +97,10 @@ set_pattern(struct pattern_info *info, char *pattern, int search_type)
 	else if (compile_pattern(pattern, search_type, &info->compiled) < 0)
 		return (-1);
 	/* Pattern compiled successfully; save the text too. */
-	if (info->text != NULL)
-		free(info->text);
+	free(info->text);
 	info->text = NULL;
-	if (pattern != NULL) {
+	if (pattern != NULL)
 		info->text = estrdup(pattern);
-	}
 	info->search_type = search_type;
 
 	/*
@@ -273,7 +271,7 @@ void
 undo_search(void)
 {
 	if (!prev_pattern(&search_info)) {
-		error("No previous regular expression", NULL_PARG);
+		error("No previous regular expression", NULL);
 		return;
 	}
 	hide_hilite = !hide_hilite;
@@ -291,7 +289,7 @@ clr_hlist(struct hilite *anchor)
 
 	for (hl = anchor->hl_first; hl != NULL; hl = nexthl) {
 		nexthl = hl->hl_next;
-		free((void*)hl);
+		free(hl);
 	}
 	anchor->hl_first = NULL;
 	prep_startpos = prep_endpos = -1;
@@ -862,12 +860,12 @@ search(int search_type, char *pattern, int n)
 		 */
 		search_type |= SRCH_AFTER_TARGET;
 		if (!prev_pattern(&search_info) && !hist_pattern(search_type)) {
-			error("No previous regular expression", NULL_PARG);
+			error("No previous regular expression", NULL);
 			return (-1);
 		}
 		if ((search_type & SRCH_NO_REGEX) !=
 		    (search_info.search_type & SRCH_NO_REGEX)) {
-			error("Please re-enter search pattern", NULL_PARG);
+			error("Please re-enter search pattern", NULL);
 			return (-1);
 		}
 		if (hilite_search == OPT_ON) {
@@ -921,7 +919,7 @@ search(int search_type, char *pattern, int n)
 		if (search_type & SRCH_PAST_EOF)
 			return (n);
 		/* repaint(); -- why was this here? */
-		error("Nothing to search", NULL_PARG);
+		error("Nothing to search", NULL);
 		return (-1);
 	}
 
