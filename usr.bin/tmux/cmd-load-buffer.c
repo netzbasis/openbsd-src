@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.35 2015/10/31 08:13:58 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.37 2015/11/10 22:33:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -77,11 +77,16 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	else
 		cwd = ".";
 
-	xasprintf(&file, "%s/%s", cwd, path);
-	if (realpath(file, resolved) == NULL)
-		f = NULL;
+	if (*path == '/')
+		file = xstrdup(path);
 	else
-		f = fopen(resolved, "rb");
+		xasprintf(&file, "%s/%s", cwd, path);
+	if (realpath(file, resolved) == NULL &&
+	    strlcpy(resolved, file, sizeof resolved) >= sizeof resolved) {
+		cmdq_error(cmdq, "%s: %s", file, strerror(ENAMETOOLONG));
+		return (CMD_RETURN_ERROR);
+	}
+	f = fopen(resolved, "rb");
 	free(file);
 	if (f == NULL) {
 		cmdq_error(cmdq, "%s: %s", resolved, strerror(errno));
