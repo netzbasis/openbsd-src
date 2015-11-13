@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptodev.h,v 1.62 2015/11/03 01:55:28 mikeb Exp $	*/
+/*	$OpenBSD: cryptodev.h,v 1.64 2015/11/12 16:57:00 mikeb Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -142,7 +142,6 @@ struct cryptodesc {
 #define	CRD_F_IV_PRESENT	0x02	/* When encrypting, IV is already in
 					   place, so don't copy. */
 #define	CRD_F_IV_EXPLICIT	0x04	/* IV explicitly provided */
-#define	CRD_F_DSA_SHA_NEEDED	0x08	/* Compute SHA-1 of buffer for DSA */
 #define CRD_F_COMP		0x10    /* Set when doing compression */
 #define CRD_F_ESN		0x20	/* Set when ESN field is provided */
 
@@ -180,7 +179,6 @@ struct cryptop {
 
 #define CRYPTO_F_IMBUF	0x0001	/* Input/output are mbuf chains, otherwise contig */
 #define CRYPTO_F_IOV	0x0002	/* Input/output are uio */
-#define CRYPTO_F_REL	0x0004	/* Must return data in same place */
 #define CRYPTO_F_NOQUEUE	0x0008	/* Don't use crypto queue/thread */
 #define CRYPTO_F_DONE	0x0010	/* request completed */
 
@@ -215,8 +213,6 @@ struct cryptocap {
 	u_int8_t	cc_flags;
 #define CRYPTOCAP_F_CLEANUP     0x01
 #define CRYPTOCAP_F_SOFTWARE    0x02
-#define CRYPTOCAP_F_ENCRYPT_MAC 0x04 /* Can do encrypt-then-MAC (IPsec) */
-#define CRYPTOCAP_F_MAC_ENCRYPT 0x08 /* Can do MAC-then-encrypt (TLS) */
 
 	int		(*cc_newsession) (u_int32_t *, struct cryptoini *);
 	int		(*cc_process) (struct cryptop *);

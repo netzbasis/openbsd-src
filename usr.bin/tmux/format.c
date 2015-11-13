@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.92 2015/10/31 08:13:58 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.94 2015/11/12 11:09:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1138,16 +1138,13 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	    !!(wp->base.mode & MODE_MOUSE_STANDARD));
 	format_add(ft, "mouse_button_flag", "%d",
 	    !!(wp->base.mode & MODE_MOUSE_BUTTON));
-	format_add(ft, "mouse_utf8_flag", "%d",
-	    !!(wp->base.mode & MODE_MOUSE_UTF8));
 
 	format_add_cb(ft, "pane_tabs", format_cb_pane_tabs);
 }
 
 /* Set default format keys for paste buffer. */
 void
-format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb,
-    int utf8flag)
+format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb)
 {
 	size_t	 bufsize;
 	char	*s;
@@ -1156,7 +1153,7 @@ format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb,
 	format_add(ft, "buffer_size", "%zu", bufsize);
 	format_add(ft, "buffer_name", "%s", paste_buffer_name(pb));
 
-	s = paste_make_sample(pb, utf8flag);
+	s = paste_make_sample(pb);
 	format_add(ft, "buffer_sample", "%s", s);
 	free(s);
 }

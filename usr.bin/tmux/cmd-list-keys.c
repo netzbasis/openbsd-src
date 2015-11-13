@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-keys.c,v 1.27 2015/10/26 22:03:04 nicm Exp $ */
+/* $OpenBSD: cmd-list-keys.c,v 1.29 2015/11/12 12:43:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "tmux.h"
@@ -54,7 +55,7 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 	struct key_table	*table;
 	struct key_binding	*bd;
 	const char		*key, *tablename, *r;
-	char			 tmp[BUFSIZ];
+	char			*cp, tmp[BUFSIZ];
 	size_t			 used;
 	int			 repeat, width, tablewidth, keywidth;
 
@@ -81,10 +82,10 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 			if (bd->can_repeat)
 				repeat = 1;
 
-			width = strlen(table->name);
+			width = utf8_cstrwidth(table->name);
 			if (width > tablewidth)
-				tablewidth =width;
-			width = strlen(key);
+				tablewidth = width;
+			width = utf8_cstrwidth(key);
 			if (width > keywidth)
 				keywidth = width;
 		}
@@ -102,9 +103,20 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 				r = "-r ";
 			else
 				r = "   ";
-			used = xsnprintf(tmp, sizeof tmp, "%s-T %-*s %-*s ", r,
-			    (int)tablewidth, table->name, (int)keywidth, key);
-			if (used < sizeof tmp) {
+			xsnprintf(tmp, sizeof tmp, "%s-T ", r);
+
+			cp = utf8_padcstr(table->name, tablewidth);
+			strlcat(tmp, cp, sizeof tmp);
+			strlcat(tmp, " ", sizeof tmp);
+			free(cp);
+
+			cp = utf8_padcstr(key, keywidth);
+			strlcat(tmp, cp, sizeof tmp);
+			strlcat(tmp, " ", sizeof tmp);
+			free(cp);
+
+			used = strlen(tmp);
+			if (used < (sizeof tmp) - 1) {
 				cmd_list_print(bd->cmdlist, tmp + used,
 				    (sizeof tmp) - used);
 			}

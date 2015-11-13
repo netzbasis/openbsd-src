@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.55 2015/11/03 14:20:00 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.57 2015/11/12 17:54:50 tim Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -71,38 +71,34 @@ string_from_line(char *buf, size_t buflen)
 		return (1);
 
 	if (line[sz - 1] == '\n')
-		line[--sz] = '\0';
+		sz--;
+	if (sz >= buflen)
+		sz = buflen - 1;
 
-	if (sz < buflen) {
-		memcpy(buf, line, sz);
-		buf[sz] = '\0';
-	} else {
-		memcpy(buf, line, buflen - 1);
-		buf[buflen - 1] = '\0';
-	}
+	memcpy(buf, line, sz);
+	buf[sz] = '\0';
 
 	return (0);
 }
 
-int
-ask_cmd(char **cmd, char **args)
+void
+ask_cmd(char **cmd, char **arg)
 {
 	static char lbuf[100];
-	char *cp, *buf;
+	size_t cmdstart, cmdend, argstart;
 
-	/* Get input */
+	/* Get NUL terminated string from stdin. */
 	if (string_from_line(lbuf, sizeof(lbuf)))
 		errx(1, "eof");
 
-	/* Parse input */
-	buf = lbuf;
-	buf = &buf[strspn(buf, " \t")];
-	cp = &buf[strcspn(buf, " \t")];
-	*cp++ = '\0';
-	*cmd = buf;
-	*args = &cp[strspn(cp, " \t")];
+	cmdstart = strspn(lbuf, " \t");
+	cmdend = cmdstart + strcspn(&lbuf[cmdstart], " \t");
+	argstart = cmdend + strspn(&lbuf[cmdend], " \t");
 
-	return (0);
+	/* *cmd and *arg may be set to point at final NUL! */
+	*cmd = &lbuf[cmdstart];
+	lbuf[cmdend] = '\0';
+	*arg = &lbuf[argstart];
 }
 
 int
