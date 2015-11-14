@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.81 2015/11/13 02:27:17 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.86 2015/11/14 00:20:59 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -50,14 +50,14 @@ usage(void)
 	extern char * __progname;
 
 	fprintf(stderr, "usage: %s "
-	    "[-egy] [-i|-u] [-b blocks] [-c # -h # -s #] "
-	    "[-f mbrfile] [-l blocks] disk\n"
-	    "\t-b: add special boot partition; requires -i\n"
+	    "[-egy] [-i|-u] [-b #] [-c # -h # -s #] "
+	    "[-f mbrfile] [-l # ] disk\n"
+	    "\t-b: specify special boot partition block count; requires -i\n"
 	    "\t-chs: specify disk geometry\n"
-	    "\t-e: edit MBRs on disk interactively\n"
+	    "\t-e: interactively edit MBR or GPT\n"
 	    "\t-f: specify non-standard MBR template\n"
-	    "\t-g: initialize disk with EFI/GPT partition; requires -i\n"
-	    "\t-i: initialize disk with virgin MBR\n"
+	    "\t-g: initialize disk with GPT; requires -i\n"
+	    "\t-i: initialize disk with MBR unless -g is also specified\n"
 	    "\t-l: specify LBA block count\n"
 	    "\t-u: update MBR code; preserve partition table\n"
 	    "\t-y: do not ask questions\n"
@@ -141,25 +141,13 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	memset(&disk, 0, sizeof(disk));
-
 	/* Argument checking */
-	if (argc != 1 || (i_flag && u_flag))
+	if (argc != 1 || (i_flag && u_flag) ||
+	    (i_flag == 0 && (b_arg || g_flag)))
 		usage();
-	else
-		disk.name = argv[0];
 
+	disk.name = argv[0];
 	DISK_open();
-
-	if (b_arg > 0 && i_flag == 0) {
-		warnx("-b specified without -i");
-		usage();
-	}
-
-	if (g_flag != 0 && i_flag == 0) {
-		warnx("-g specified without -i");
-		usage();
-	}
 
 	/* Get the GPT if present. */
 	if (GPT_get_gpt()) {
@@ -192,9 +180,12 @@ main(int argc, char *argv[])
 		errx(1, "Can't get disk geometry, please use [-chs] "
 		    "to specify.");
 
-	/* Print out current MBRs on disk */
-	if ((i_flag + u_flag + e_flag) == 0)
+	if ((i_flag + u_flag + e_flag) == 0) {
+		if (pledge("stdio", NULL) == -1)
+			err(1, "pledge");
 		USER_print_disk();
+		goto done;
+	}
 
 	/* Create initial/default MBR. */
 	if (i_flag == 0) {
@@ -249,6 +240,7 @@ main(int argc, char *argv[])
 	if (e_flag)
 		USER_edit(0, 0);
 
+done:
 	close(disk.fd);
 
 	return (0);

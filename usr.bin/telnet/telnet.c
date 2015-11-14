@@ -1,4 +1,4 @@
-/*	$OpenBSD: telnet.c,v 1.30 2014/09/09 03:41:08 guenther Exp $	*/
+/*	$OpenBSD: telnet.c,v 1.32 2015/11/13 17:13:59 deraadt Exp $	*/
 /*	$NetBSD: telnet.c,v 1.7 1996/02/28 21:04:15 thorpej Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <ctype.h>
 #include <curses.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <term.h>
 
@@ -83,7 +84,6 @@ int
 	connected,
 	showoptions,
 	ISend,		/* trying to send network data in */
-	debug = 0,
 	crmod,
 	netdata,	/* Print out network data flow */
 	crlf,		/* Should '\r' be mapped to <CR><LF> (or <CR><NUL>)? */
@@ -1838,6 +1838,11 @@ void
 telnet(char *user)
 {
     sys_telnet_init();
+
+    if (pledge("stdio tty", NULL) == -1) {
+	perror("pledge");
+	exit(1);
+    }
 
     if (telnetport) {
 	send_do(TELOPT_SGA, 1);
