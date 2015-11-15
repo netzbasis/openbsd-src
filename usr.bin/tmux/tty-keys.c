@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.77 2015/11/12 22:04:37 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.80 2015/11/14 11:45:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -475,6 +475,7 @@ tty_keys_next(struct tty *tty)
 	int			 delay, expired = 0;
 	key_code		 key;
 	struct utf8_data	 ud;
+	enum utf8_state		 more;
 	u_int			 i;
 
 	/* Get key buffer. */
@@ -539,7 +540,7 @@ first_key:
 	}
 
 	/* Is this valid UTF-8? */
-	if (utf8_open(&ud, (u_char)*buf)) {
+	if ((more = utf8_open(&ud, (u_char)*buf) == UTF8_MORE)) {
 		size = ud.size;
 		if (len < size) {
 			if (expired)
@@ -547,7 +548,9 @@ first_key:
 			goto partial_key;
 		}
 		for (i = 1; i < size; i++)
-			utf8_append(&ud, (u_char)buf[i]);
+			more = utf8_append(&ud, (u_char)buf[i]);
+		if (more != UTF8_DONE)
+			goto discard_key;
 		key = utf8_combine(&ud);
 		log_debug("UTF-8 key %.*s %#llx", (int)size, buf, key);
 		goto complete_key;
@@ -653,6 +656,7 @@ tty_keys_mouse(struct tty *tty, const char *buf, size_t len, size_t *size)
 	struct utf8_data	 ud;
 	u_int			 i, value, x, y, b, sgr_b;
 	u_char			 sgr_type, c;
+	enum utf8_state		 more;
 
 	/*
 	 * Standard mouse sequences are \033[M followed by three characters
@@ -693,13 +697,15 @@ tty_keys_mouse(struct tty *tty, const char *buf, size_t len, size_t *size)
 				return (1);
 
 			if (tty->mode & MODE_MOUSE_UTF8) {
-				if (utf8_open(&ud, buf[*size])) {
+				if (utf8_open(&ud, buf[*size]) == UTF8_MORE) {
 					if (ud.size != 2)
 						return (-1);
 					(*size)++;
 					if (len <= *size)
 						return (1);
-					utf8_append(&ud, buf[*size]);
+					more = utf8_append(&ud, buf[*size]);
+					if (more != UTF8_DONE)
+						return (-1);
 					value = utf8_combine(&ud);
 				} else
 					value = (u_char)buf[*size];

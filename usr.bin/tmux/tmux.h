@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.576 2015/11/13 08:09:28 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.579 2015/11/14 11:45:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -624,8 +624,13 @@ struct utf8_data {
 	u_char	have;
 	u_char	size;
 
-	u_char	width;
+	u_char	width;	/* 0xff if invalid */
 } __packed;
+enum utf8_state {
+	UTF8_MORE,
+	UTF8_DONE,
+	UTF8_ERROR
+};
 
 /* Grid attributes. */
 #define GRID_ATTR_BRIGHT 0x1
@@ -1781,6 +1786,8 @@ int	 server_client_open(struct client *, char **);
 void	 server_client_unref(struct client *);
 void	 server_client_lost(struct client *);
 void	 server_client_loop(void);
+void	 server_client_push_stdout(struct client *);
+void	 server_client_push_stderr(struct client *);
 
 /* server-fn.c */
 void	 server_fill_environ(struct session *, struct environ *);
@@ -1806,8 +1813,6 @@ void	 server_destroy_session(struct session *);
 void	 server_check_unattached(void);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
-void	 server_push_stdout(struct client *);
-void	 server_push_stderr(struct client *);
 int	 server_set_stdin_callback(struct client *, void (*)(struct client *,
 	     int, void *), void *, char **);
 void	 server_unzoom_window(struct window *);
@@ -2191,10 +2196,10 @@ void		 session_renumber_windows(struct session *);
 u_int		 utf8_width(u_int);
 void		 utf8_set(struct utf8_data *, u_char);
 void		 utf8_copy(struct utf8_data *, const struct utf8_data *);
-int		 utf8_open(struct utf8_data *, u_char);
-int		 utf8_append(struct utf8_data *, u_char);
+enum utf8_state	 utf8_open(struct utf8_data *, u_char);
+enum utf8_state	 utf8_append(struct utf8_data *, u_char);
 u_int		 utf8_combine(const struct utf8_data *);
-int		 utf8_split(u_int, struct utf8_data *);
+enum utf8_state	 utf8_split(u_int, struct utf8_data *);
 u_int		 utf8_split2(u_int, u_char *);
 int		 utf8_strvis(char *, const char *, size_t, int);
 char		*utf8_sanitize(const char *);

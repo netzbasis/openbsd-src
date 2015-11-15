@@ -1,7 +1,11 @@
-/*	$OpenBSD: putchar.c,v 1.3 2005/08/14 17:15:19 espie Exp $ */
-/*
- * Copyright (c) 1981, 1993, 1994
- *	The Regents of the University of California.  All rights reserved.
+/*	$OpenBSD: DEFS.h,v 1.1 2015/11/14 21:53:03 guenther Exp $	*/
+
+/*-
+ * Copyright (c) 1990 The Regents of the University of California.
+ * All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * William Jolitz.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,17 +30,32 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	from: @(#)SYS.h	5.5 (Berkeley) 5/7/91
+ *	$NetBSD: SYS.h,v 1.5 2002/06/03 18:30:32 fvdl Exp $
  */
 
-#include "curses.h"
+#include <machine/asm.h>
 
-void
-__cputchar(ch)
-	int ch;
-{
+/*
+ * We define a hidden alias with the prefix "_libc_" for each global symbol
+ * that may be used internally.  By referencing _libc_x instead of x, other
+ * parts of libc prevent overriding by the application and avoid unnecessary
+ * relocations.
+ */
+#define _HIDDEN(x)		_libc_##x
+#define _HIDDEN_ALIAS(x,y)			\
+	STRONG_ALIAS(_HIDDEN(x),y);		\
+	.hidden _HIDDEN(x)
+#define _HIDDEN_FALIAS(x,y)			\
+	_HIDDEN_ALIAS(x,y);			\
+	.type _HIDDEN(x),@function
 
-#ifdef DEBUG
-	__CTRACE("__cputchar: %s\n", unctrl(ch));
-#endif
-	(void)putchar(ch);
-}
+/*
+ * For functions implemented in ASM that aren't syscalls.
+ *   END_STRONG(x)	Like DEF_STRONG() in C; for standard/reserved C names
+ *   END_WEAK(x)	Like DEF_WEAK() in C; for non-ISO C names
+ */
+#define	END_STRONG(x)	END(x); _HIDDEN_FALIAS(x,x); END(_HIDDEN(x))
+#define	END_WEAK(x)	END_STRONG(x); .weak x
+

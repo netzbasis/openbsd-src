@@ -1,6 +1,8 @@
-/*	$OpenBSD: initscr.c,v 1.3 2005/08/14 17:15:19 espie Exp $ */
+/*	$OpenBSD: pathnames.h,v 1.3 2015/11/14 23:43:26 deraadt Exp $	*/
+/*	$NetBSD: pathnames.h,v 1.3 1995/02/27 10:18:43 cgd Exp $	*/
+
 /*
- * Copyright (c) 1981, 1993, 1994
+ * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,63 +28,9 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ *	@(#)pathnames.h	8.1 (Berkeley) 6/4/93
  */
 
-#include <signal.h>
-#include <stdlib.h>
-
-#include "curses.h"
-
-/*
- * initscr --
- *	Initialize the current and standard screen.
- */
-WINDOW *
-initscr()
-{
-	register char *sp;
-
-#ifdef DEBUG
-	__CTRACE("initscr\n");
-#endif
-	__echoit = 1;
-        __pfast = __rawmode = __noqch = 0;
-
-	if (gettmode() == ERR)
-		return (NULL);
-
-	/*
-	 * If My_term is set, or can't find a terminal in the environment,
-	 * use Def_term.
-	 */
-	if (My_term || (sp = getenv("TERM")) == NULL)
-		sp = Def_term;
-	if (setterm(sp) == ERR)
-		return (NULL);
-
-	/* Need either homing or cursor motion for refreshes */
-	if (!HO && !CM) 
-		return (NULL);
-
-	if (curscr != NULL)
-		delwin(curscr);
-	if ((curscr = newwin(LINES, COLS, 0, 0)) == ERR)
-		return (NULL);
-	clearok(curscr, 1);
-
-	if (stdscr != NULL)
-		delwin(stdscr);
-	if ((stdscr = newwin(LINES, COLS, 0, 0)) == ERR) {
-		delwin(curscr);
-		return (NULL);
-	}
-
-	__set_stophandler();
-
-#ifdef DEBUG
-	__CTRACE("initscr: LINES = %d, COLS = %d\n", LINES, COLS);
-#endif
-	__startwin();
-
-	return (stdscr);
-}
+#define	_PATH_TERMCAP	"/usr/share/misc/termcap"
+#define	_PATH_DEF	(".termcap " _PATH_TERMCAP)

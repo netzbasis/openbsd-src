@@ -1,4 +1,4 @@
-/*	$OpenBSD: termcap.c,v 1.10 2015/01/16 16:48:51 deraadt Exp $	*/
+/*	$OpenBSD: termcap.c,v 1.1 2015/11/14 23:43:26 deraadt Exp $	*/
 /*	$NetBSD: termcap.c,v 1.7 1995/06/05 19:45:52 pk Exp $	*/
 
 /*

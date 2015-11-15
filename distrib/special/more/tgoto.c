@@ -1,4 +1,4 @@
-/*	$OpenBSD: tgoto.c,v 1.4 2005/08/14 17:15:19 espie Exp $	*/
+/*	$OpenBSD: tgoto.c,v 1.1 2015/11/14 23:43:26 deraadt Exp $	*/
 /*	$NetBSD: tgoto.c,v 1.5 1995/06/05 19:45:54 pk Exp $	*/
 
 /*

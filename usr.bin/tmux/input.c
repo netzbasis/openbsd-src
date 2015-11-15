@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.89 2015/11/13 08:09:28 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.93 2015/11/14 12:20:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -446,11 +446,11 @@ const struct input_transition input_state_ground_table[] = {
 	{ 0x1c, 0x1f, input_c0_dispatch, NULL },
 	{ 0x20, 0x7e, input_print,	 NULL },
 	{ 0x7f, 0x7f, NULL,		 NULL },
-	{ 0x80, 0xc1, input_print,	 NULL },
+	{ 0x80, 0xc1, NULL,		 NULL },
 	{ 0xc2, 0xdf, input_utf8_open,	 &input_state_utf8_one },
 	{ 0xe0, 0xef, input_utf8_open,	 &input_state_utf8_two },
 	{ 0xf0, 0xf4, input_utf8_open,	 &input_state_utf8_three },
-	{ 0xf5, 0xff, input_print,	 NULL },
+	{ 0xf5, 0xff, NULL,		 NULL },
 
 	{ -1, -1, NULL, NULL }
 };
@@ -1921,9 +1921,13 @@ input_exit_rename(struct input_ctx *ictx)
 int
 input_utf8_open(struct input_ctx *ictx)
 {
-	log_debug("%s", __func__);
+	struct utf8_data	*ud = &ictx->utf8data;
 
-	utf8_open(&ictx->utf8data, ictx->ch);
+	if (utf8_open(ud, ictx->ch) != UTF8_MORE)
+		log_fatalx("UTF-8 open invalid %#x", ictx->ch);
+
+	log_debug("%s %hhu", __func__, ud->size);
+
 	return (0);
 }
 
@@ -1931,9 +1935,13 @@ input_utf8_open(struct input_ctx *ictx)
 int
 input_utf8_add(struct input_ctx *ictx)
 {
+	struct utf8_data	*ud = &ictx->utf8data;
+
+	if (utf8_append(ud, ictx->ch) != UTF8_MORE)
+		log_fatalx("UTF-8 add invalid %#x", ictx->ch);
+
 	log_debug("%s", __func__);
 
-	utf8_append(&ictx->utf8data, ictx->ch);
 	return (0);
 }
 
@@ -1941,11 +1949,15 @@ input_utf8_add(struct input_ctx *ictx)
 int
 input_utf8_close(struct input_ctx *ictx)
 {
-	log_debug("%s", __func__);
+	struct utf8_data	*ud = &ictx->utf8data;
 
-	utf8_append(&ictx->utf8data, ictx->ch);
+	if (utf8_append(ud, ictx->ch) != UTF8_DONE)
+		log_fatalx("UTF-8 close invalid %#x", ictx->ch);
 
-	utf8_copy(&ictx->cell.cell.data, &ictx->utf8data);
+	log_debug("%s %hhu '%*s' (width %hhu)", __func__, ud->size,
+	    (int)ud->size, ud->data, ud->width);
+
+	utf8_copy(&ictx->cell.cell.data, ud);
 	screen_write_cell(&ictx->ctx, &ictx->cell.cell);
 
 	return (0);

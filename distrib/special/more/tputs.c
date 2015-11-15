@@ -1,4 +1,4 @@
-/*	$OpenBSD: tputs.c,v 1.5 2013/12/03 00:25:07 deraadt Exp $	*/
+/*	$OpenBSD: tputs.c,v 1.1 2015/11/14 23:43:26 deraadt Exp $	*/
 /*	$NetBSD: tputs.c,v 1.5 1995/06/06 08:14:37 pk Exp $	*/
 
 /*

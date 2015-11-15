@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.77 2015/11/13 08:09:28 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.79 2015/11/14 11:45:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -115,6 +115,7 @@ screen_write_strlen(const char *fmt, ...)
 	struct utf8_data	ud;
 	u_char 	      	       *ptr;
 	size_t			left, size = 0;
+	enum utf8_state		more;
 
 	va_start(ap, fmt);
 	xvasprintf(&msg, fmt, ap);
@@ -122,17 +123,18 @@ screen_write_strlen(const char *fmt, ...)
 
 	ptr = msg;
 	while (*ptr != '\0') {
-		if (*ptr > 0x7f && utf8_open(&ud, *ptr)) {
+		if (*ptr > 0x7f && utf8_open(&ud, *ptr) == UTF8_MORE) {
 			ptr++;
 
 			left = strlen(ptr);
 			if (left < (size_t)ud.size - 1)
 				break;
-			while (utf8_append(&ud, *ptr))
+			while ((more = utf8_append(&ud, *ptr)) == UTF8_MORE)
 				ptr++;
 			ptr++;
 
-			size += ud.width;
+			if (more == UTF8_DONE)
+				size += ud.width;
 		} else {
 			if (*ptr > 0x1f && *ptr < 0x7f)
 				size++;
@@ -176,33 +178,36 @@ screen_write_vnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 	struct utf8_data	ud;
 	u_char 		       *ptr;
 	size_t		 	left, size = 0;
+	enum utf8_state		more;
 
 	xvasprintf(&msg, fmt, ap);
 
 	ptr = msg;
 	while (*ptr != '\0') {
-		if (*ptr > 0x7f && utf8_open(&ud, *ptr)) {
+		if (*ptr > 0x7f && utf8_open(&ud, *ptr) == UTF8_MORE) {
 			ptr++;
 
 			left = strlen(ptr);
 			if (left < (size_t)ud.size - 1)
 				break;
-			while (utf8_append(&ud, *ptr))
+			while ((more = utf8_append(&ud, *ptr)) == UTF8_MORE)
 				ptr++;
 			ptr++;
 
-			if (maxlen > 0 &&
-			    size + ud.width > (size_t) maxlen) {
-				while (size < (size_t) maxlen) {
-					screen_write_putc(ctx, gc, ' ');
-					size++;
+			if (more == UTF8_DONE) {
+				if (maxlen > 0 &&
+				    size + ud.width > (size_t) maxlen) {
+					while (size < (size_t) maxlen) {
+						screen_write_putc(ctx, gc, ' ');
+						size++;
+					}
+					break;
 				}
-				break;
-			}
-			size += ud.width;
+				size += ud.width;
 
-			utf8_copy(&gc->data, &ud);
-			screen_write_cell(ctx, gc);
+				utf8_copy(&gc->data, &ud);
+				screen_write_cell(ctx, gc);
+			}
 		} else {
 			if (maxlen > 0 && size + 1 > (size_t) maxlen)
 				break;
@@ -231,6 +236,7 @@ screen_write_cnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 	char			*msg;
 	u_char 			*ptr, *last;
 	size_t			 left, size = 0;
+	enum utf8_state		 more;
 
 	va_start(ap, fmt);
 	xvasprintf(&msg, fmt, ap);
@@ -254,28 +260,30 @@ screen_write_cnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 			continue;
 		}
 
-		if (*ptr > 0x7f && utf8_open(&ud, *ptr)) {
+		if (*ptr > 0x7f && utf8_open(&ud, *ptr) == UTF8_MORE) {
 			ptr++;
 
 			left = strlen(ptr);
 			if (left < (size_t)ud.size - 1)
 				break;
-			while (utf8_append(&ud, *ptr))
+			while ((more = utf8_append(&ud, *ptr)) == UTF8_MORE)
 				ptr++;
 			ptr++;
 
-			if (maxlen > 0 &&
-			    size + ud.width > (size_t) maxlen) {
-				while (size < (size_t) maxlen) {
-					screen_write_putc(ctx, gc, ' ');
-					size++;
+			if (more == UTF8_DONE) {
+				if (maxlen > 0 &&
+				    size + ud.width > (size_t) maxlen) {
+					while (size < (size_t) maxlen) {
+						screen_write_putc(ctx, gc, ' ');
+						size++;
+					}
+					break;
 				}
-				break;
-			}
-			size += ud.width;
+				size += ud.width;
 
-			utf8_copy(&lgc.data, &ud);
-			screen_write_cell(ctx, &lgc);
+				utf8_copy(&lgc.data, &ud);
+				screen_write_cell(ctx, &lgc);
+			}
 		} else {
 			if (maxlen > 0 && size + 1 > (size_t) maxlen)
 				break;

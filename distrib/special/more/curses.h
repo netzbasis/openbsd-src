@@ -45,25 +45,6 @@
 #define	FALSE	(0)
 #endif
 
-/*
- * The following #defines and #includes are present for backward
- * compatibility only.  They should not be used in future code.
- *
- * START BACKWARD COMPATIBILITY ONLY.
- */
-#ifndef _CURSES_PRIVATE
-#define	_puts(s)	tputs(s, 0, __cputchar)
-#define	_putchar(c)	__cputchar(c)
-
-/* Old-style terminal modes access. */
-#define	baudrate()	(cfgetospeed(&__baset))
-#define	crmode()	cbreak()
-#define	erasechar()	(__baset.c_cc[VERASE])
-#define	killchar()	(__baset.c_cc[VKILL])
-#define	nocrmode()	nocbreak()
-#define	ospeed		(cfgetospeed(&__baset))
-#endif /* _CURSES_PRIVATE */
-
 extern char	 GT;			/* Gtty indicates tabs. */
 extern char	 NONL;			/* Term can't hack LF doing a CR. */
 extern char	 UPPERCASE;		/* Terminal is uppercase only. */
@@ -294,7 +275,6 @@ int	 __waddbytes(WINDOW *, const char *, int, int);
 __END_DECLS
 
 /* Private functions. */
-#ifdef _CURSES_PRIVATE
 void	 __CTRACE(const char *, ...);
 unsigned int	 __hash(char *, int);
 void	 __id_subwins(WINDOW *);
@@ -320,7 +300,6 @@ extern int	 __endwin;
 extern int	 __pfast;
 extern int	 __rawmode;
 extern int	 __noqch;
-#endif
 
 /* Termcap functions. */
 __BEGIN_DECLS
