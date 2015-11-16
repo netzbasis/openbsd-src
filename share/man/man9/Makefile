@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.251 2015/11/02 09:21:48 dlg Exp $
+#	$OpenBSD: Makefile,v 1.253 2015/11/15 19:35:05 jmc Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -207,7 +207,6 @@ MLINKS+=ieee80211_node.9 ieee80211_node_attach.9 \
 MLINKS+=ieee80211_output.9 ieee80211_encap.9 \
 	ieee80211_output.9 ieee80211_add_rates.9 \
 	ieee80211_output.9 ieee80211_add_xrates.9 \
-	ieee80211_output.9 ieee80211_compute_duration.9 \
 	ieee80211_output.9 ieee80211_send_mgmt.9
 MLINKS+=ieee80211_proto.9 ieee80211_proto_attach.9 \
 	ieee80211_proto.9 ieee80211_proto_detach.9 \
@@ -374,8 +373,7 @@ MLINKS+=srp_enter.9 srp_init.9 srp_enter.9 srp_gc_init.9 \
 	srp_enter.9 srp_follow.9 srp_enter.9 srp_leave.9 \
 	srp_enter.9 srp_get_locked.9 srp_enter.9 srp_finalize.9 \
 	srp_enter.9 SRP_INITIALIZER.9 srp_enter.9 SRP_GC_INITIALIZER.9
-MLINKS+=srpl_rc_init.9 SRPL_HEAD_INIT.9 srpl_rc_init.9 SRPL_HEAD_INIT.9 \
-	srpl_rc_init.9 SRPL_ENTRY_INIT.9 srpl_rc_init.9 SRPL_ENTER.9 \
+MLINKS+=srpl_rc_init.9 SRPL_ENTER.9 \
 	srpl_rc_init.9 SRPL_NEXT.9 srpl_rc_init.9 SRPL_FOREACH.9 \
 	srpl_rc_init.9 SRPL_LEAVE.9 srpl_rc_init.9 SRPL_EMPTY_LOCKED.9 \
 	srpl_rc_init.9 SRPL_FIRST_LOCKED.9 srpl_rc_init.9 SRPL_NEXT_LOCKED.9 \
