@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.109 2015/11/14 22:23:22 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.113 2015/11/17 04:09:35 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -114,7 +114,6 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mprotect] = PLEDGE_STDIO,
 	[SYS_mquery] = PLEDGE_STDIO,
 	[SYS_munmap] = PLEDGE_STDIO,
-	[SYS_break] = PLEDGE_STDIO,
 
 	[SYS_umask] = PLEDGE_STDIO,
 
@@ -267,6 +266,8 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mkdirat] = PLEDGE_CPATH,
 
 	[SYS_chroot] = PLEDGE_ID,	/* also requires PLEDGE_PROC */
+
+	[SYS_revoke] = PLEDGE_TTY,	/* also requires PLEDGE_RPATH */
 
 	/*
 	 * Classify as RPATH|WPATH, because of path information leakage.
@@ -978,41 +979,53 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 	    mib[0] == CTL_HW && mib[1] == HW_SENSORS)
 		return (0);
 
-	if (miblen == 2 &&			/* getdomainname() */
+	if (miblen == 2 &&		/* getdomainname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_DOMAINNAME)
 		return (0);
-	if (miblen == 2 &&			/* gethostname() */
+	if (miblen == 2 &&		/* gethostname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_HOSTNAME)
 		return (0);
 	if (miblen == 6 &&		/* if_nameindex() */
 	    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 	    mib[2] == 0 && mib[3] == 0 && mib[4] == NET_RT_IFNAMES)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSTYPE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSRELEASE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSVERSION)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_VERSION)
 		return (0);
-	if (miblen == 2 &&			/* kern.clockrate */
+	if (miblen == 2 &&		/* kern.clockrate */
 	    mib[0] == CTL_KERN && mib[1] == KERN_CLOCKRATE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* kern.argmax */
+	    mib[0] == CTL_KERN && mib[1] == KERN_ARGMAX)
+		return (0);
+	if (miblen == 2 &&		/* kern.ngroups */
+	    mib[0] == CTL_KERN && mib[1] == KERN_NGROUPS)
+		return (0);
+	if (miblen == 2 &&		/* kern.sysvshm */
+	    mib[0] == CTL_KERN && mib[1] == KERN_SYSVSHM)
+		return (0);
+	if (miblen == 2 &&		/* kern.posix1version */
+	    mib[0] == CTL_KERN && mib[1] == KERN_POSIX1)
+		return (0);
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_HW && mib[1] == HW_MACHINE)
 		return (0);
-	if (miblen == 2 &&			/* getpagesize() */
+	if (miblen == 2 &&		/* getpagesize() */
 	    mib[0] == CTL_HW && mib[1] == HW_PAGESIZE)
 		return (0);
-	if (miblen == 2 &&			/* setproctitle() */
+	if (miblen == 2 &&		/* setproctitle() */
 	    mib[0] == CTL_VM && mib[1] == VM_PSSTRINGS)
 		return (0);
-	if (miblen == 2 &&			/* hw.ncpu */
+	if (miblen == 2 &&		/* hw.ncpu */
 	    mib[0] == CTL_HW && mib[1] == HW_NCPU)
 		return (0);
 	if (miblen == 2 &&		/* kern.loadavg / getloadavg(3) */
@@ -1151,6 +1164,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 				return (0);
 			return (ENOTTY);
 		case TIOCSWINSZ:
+		case TIOCEXT:		/* mail, libedit .. */
 		case TIOCCBRK:		/* cu */
 		case TIOCSBRK:		/* cu */
 		case TIOCCDTR:		/* cu */
