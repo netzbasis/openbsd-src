@@ -31,7 +31,7 @@
 .Nd details for libssl and libcrypto
 .Sh DESCRIPTION
 This document describes some of the issues relating to the use of
-the OpenSSL libssl and libcrypto libraries.
+the LibreSSL libssl and libcrypto libraries.
 This document is intended as an overview of what the libraries do,
 and what uses them.
 .Pp
@@ -190,6 +190,9 @@ You can also sign the key yourself, using the command:
 .Xr sshd 8 ,
 .Xr starttls 8
 .Sh HISTORY
+LibreSSL started as a fork of OpenSSL 1.x.x. It was severely improved and
+tedu'ed... XXX tell me more
+.Pp
 Prior to Sept 21, 2000,
 there were problems shipping fully functional implementations of these
 protocols, as such shipment would include shipping
@@ -241,8 +244,8 @@ However, this entire debacle is worth remembering when choosing
 software and vendors.
 .Pp
 Due to multiple flaws in the protocols, SSL version 2 was removed in
-.Ox 5.2
-and SSL version 3 was disabled in
+.Ox 5.2 ,
+SSL version 3 was disabled in
 .Ox 5.7
 and then removed in
 .Ox 5.9 .
