@@ -8,18 +8,18 @@
 
 #include <ctype.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
 int
 c_pledge(char **wp)
 {
+	wp += 1;
 	if (*wp != NULL)
-		shprintf("%s\n", *wp);
-
-
-
-
+		if (pledge(*wp, NULL) == -1)
+			return 1;
+	return 0;
 }
 
 int
