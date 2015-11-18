@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.89 2015/11/15 01:22:39 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.91 2015/11/18 02:32:56 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -161,8 +161,14 @@ main(int argc, char *argv[])
 	disk.name = argv[0];
 	DISK_open();
 
+	error = MBR_read(0, &dos_mbr);
+	if (error)
+		errx(1, "Can't read sector 0!");
+	MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
+
 	/* Get the GPT if present. */
-	GPT_get_gpt();
+	if (MBR_protective_mbr(&initial_mbr) == 0)
+		GPT_get_gpt();
 
 	if (letoh64(gh.gh_sig) != GPTSIGNATURE) {
 		if (DL_GETDSIZE(&dl) > disk.size)
@@ -178,37 +184,25 @@ main(int argc, char *argv[])
 	}
 
 	/* Create initial/default MBR. */
-	if (i_flag == 0) {
-		error = MBR_read(0, &dos_mbr);
-		if (error)
-			errx(1, "Can't read sector 0!");
-		MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
-	}
-
-	if (mbrfile != NULL && (fd = open(mbrfile, O_RDONLY)) == -1) {
-		warn("%s", mbrfile);
-		warnx("using builtin MBR");
-		memset(&initial_mbr, 0, sizeof(initial_mbr));
-		mbrfile = NULL;
-	}
 	if (mbrfile == NULL) {
-		if (MBR_protective_mbr(&initial_mbr) != 0) {
-			memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
-		}
+		memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
 	} else {
-		len = read(fd, &dos_mbr, sizeof(dos_mbr));
-		if (len == -1)
-			err(1, "Unable to read MBR from '%s'", mbrfile);
-		else if (len != sizeof(dos_mbr))
-			errx(1, "Unable to read complete MBR from '%s'",
-			    mbrfile);
-		close(fd);
+		fd = open(mbrfile, O_RDONLY);
+		if (fd == -1) {
+			warn("%s", mbrfile);
+			warnx("using builtin MBR");
+			memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
+		} else {
+			len = read(fd, &dos_mbr, sizeof(dos_mbr));
+			close(fd);
+			if (len == -1)
+				err(1, "Unable to read MBR from '%s'", mbrfile);
+			else if (len != sizeof(dos_mbr))
+				errx(1, "Unable to read complete MBR from '%s'",
+				    mbrfile);
+		}
 	}
-	if (f_flag || MBR_protective_mbr(&initial_mbr) != 0)  {
-		memset(&gh, 0, sizeof(gh));
-		memset(&gp, 0, sizeof(gp));
-		MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
-	}
+	MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
 
 	query = NULL;
 	if (i_flag) {

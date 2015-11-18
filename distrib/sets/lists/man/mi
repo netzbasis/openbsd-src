@@ -180,7 +180,6 @@
 ./usr/share/man/man1/lpq.1
 ./usr/share/man/man1/lpr.1
 ./usr/share/man/man1/lprm.1
-./usr/share/man/man1/lptest.1
 ./usr/share/man/man1/ls.1
 ./usr/share/man/man1/ltrace.1
 ./usr/share/man/man1/m4.1
@@ -1619,6 +1618,7 @@
 ./usr/share/man/man4/oce.4
 ./usr/share/man/man4/octeon
 ./usr/share/man/man4/octeon/amdcf.4
+./usr/share/man/man4/octeon/cnmac.4
 ./usr/share/man/man4/octeon/octrng.4
 ./usr/share/man/man4/octeon/octrtc.4
 ./usr/share/man/man4/ohci.4
@@ -2548,7 +2548,6 @@
 ./usr/share/man/man8/ospf6d.8
 ./usr/share/man/man8/ospfctl.8
 ./usr/share/man/man8/ospfd.8
-./usr/share/man/man8/pac.8
 ./usr/share/man/man8/pcidump.8
 ./usr/share/man/man8/pfctl.8
 ./usr/share/man/man8/pflogd.8
@@ -2711,7 +2710,6 @@
 ./usr/share/man/man8/yppush.8
 ./usr/share/man/man8/ypserv.8
 ./usr/share/man/man8/ypset.8
-./usr/share/man/man8/yptest.8
 ./usr/share/man/man8/ypxfr.8
 ./usr/share/man/man8/ypxfr_1perday.8
 ./usr/share/man/man8/ypxfr_1perhour.8

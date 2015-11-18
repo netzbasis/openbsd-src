@@ -1,4 +1,4 @@
-/*	$OpenBSD: mv.c,v 1.41 2015/10/06 16:51:15 tedu Exp $	*/
+/*	$OpenBSD: mv.c,v 1.43 2015/11/17 18:34:00 tedu Exp $	*/
 /*	$NetBSD: mv.c,v 1.9 1995/03/21 09:06:52 cgd Exp $	*/
 
 /*
@@ -56,7 +56,10 @@ extern char *__progname;
 int fflg, iflg;
 int stdin_ok;
 
-int	copy(char *, char *);
+extern int cpmain(int argc, char **argv);
+extern int rmmain(int argc, char **argv);
+
+int	mvcopy(char *, char *);
 int	do_move(char *, char *);
 int	fastcopy(char *, char *, struct stat *);
 void	usage(void);
@@ -248,7 +251,7 @@ do_move(char *from, char *to)
 	 *	as a file hierarchy rooted in the destination path...
 	 */
 	return (S_ISREG(fsb.st_mode) ?
-	    fastcopy(from, to, &fsb) : copy(from, to));
+	    fastcopy(from, to, &fsb) : mvcopy(from, to));
 }
 
 int
@@ -342,47 +345,25 @@ err:		if (unlink(to))
 }
 
 int
-copy(char *from, char *to)
+mvcopy(char *from, char *to)
 {
-	int status;
-	pid_t pid;
+	char *argv[3];
 
-	if ((pid = vfork()) == 0) {
-		execl(_PATH_CP, "cp", "-PRp", "--", from, to, (char *)NULL);
-		warn("%s", _PATH_CP);
+	argv[0] = from;
+	argv[1] = to;
+	argv[2] = NULL;
+	if (cpmain(2, argv)) {
+		warn("cp failed");
 		_exit(1);
 	}
-	if (waitpid(pid, &status, 0) == -1) {
-		warn("%s: waitpid", _PATH_CP);
-		return (1);
-	}
-	if (!WIFEXITED(status)) {
-		warnx("%s: did not terminate normally", _PATH_CP);
-		return (1);
-	}
-	if (WEXITSTATUS(status)) {
-		warnx("%s: terminated with %d (non-zero) status",
-		    _PATH_CP, WEXITSTATUS(status));
-		return (1);
-	}
-	if (!(pid = vfork())) {
-		execl(_PATH_RM, "rm", "-rf", "--", from, (char *)NULL);
-		warn("%s", _PATH_RM);
+
+	argv[0] = from;
+	argv[1] = NULL;
+	if (rmmain(1, argv)) {
+		warn("rm failed");
 		_exit(1);
 	}
-	if (waitpid(pid, &status, 0) == -1) {
-		warn("%s: waitpid", _PATH_RM);
-		return (1);
-	}
-	if (!WIFEXITED(status)) {
-		warnx("%s: did not terminate normally", _PATH_RM);
-		return (1);
-	}
-	if (WEXITSTATUS(status)) {
-		warnx("%s: terminated with %d (non-zero) status",
-		    _PATH_RM, WEXITSTATUS(status));
-		return (1);
-	}
+
 	return (0);
 }
 
