@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.91 2015/11/18 02:32:56 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.93 2015/11/18 15:31:15 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -41,7 +41,6 @@ static unsigned char builtin_mbr[] = {
 };
 
 u_int32_t b_arg;
-int	g_flag;
 int	y_flag;
 
 static void
@@ -66,13 +65,12 @@ usage(void)
 	exit(1);
 }
 
-
 int
 main(int argc, char *argv[])
 {
 	ssize_t len;
 	int ch, fd, error;
-	int i_flag = 0, e_flag = 0, f_flag = 0, u_flag = 0;
+	int e_flag = 0, f_flag = 0, g_flag = 0, i_flag = 0, u_flag = 0;
 	int c_arg = 0, h_arg = 0, s_arg = 0;
 	u_int32_t l_arg = 0;
 	char *query;
@@ -82,6 +80,7 @@ main(int argc, char *argv[])
 	char *mbrfile = NULL;
 #endif
 	struct dos_mbr dos_mbr;
+	struct mbr mbr;
 
 	while ((ch = getopt(argc, argv, "ieguf:c:h:s:l:b:y")) != -1) {
 		const char *errstr;
@@ -164,10 +163,10 @@ main(int argc, char *argv[])
 	error = MBR_read(0, &dos_mbr);
 	if (error)
 		errx(1, "Can't read sector 0!");
-	MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
+	MBR_parse(&dos_mbr, 0, 0, &mbr);
 
 	/* Get the GPT if present. */
-	if (MBR_protective_mbr(&initial_mbr) == 0)
+	if (MBR_protective_mbr(&mbr) == 0)
 		GPT_get_gpt();
 
 	if (letoh64(gh.gh_sig) != GPTSIGNATURE) {
@@ -216,7 +215,7 @@ main(int argc, char *argv[])
 			    "partition table?";
 		}
 	} else if (u_flag) {
-		MBR_pcopy(&initial_mbr);
+		memcpy(initial_mbr.part, mbr.part, sizeof(initial_mbr.part));
 		query = "Do you wish to write new MBR?";
 	}
 	if (query && ask_yn(query))
