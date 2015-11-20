@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.86 2015/11/18 17:09:26 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.88 2015/11/19 18:03:45 tim Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -16,17 +16,15 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
 #include <sys/types.h>
-#include <sys/fcntl.h>
 #include <sys/disklabel.h>
+
 #include <err.h>
-#include <errno.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <unistd.h>
 #include <uuid.h>
 
 #include "disk.h"
@@ -213,7 +211,7 @@ int
 Xedit(char *args, struct mbr *mbr)
 {
 	const char *errstr;
-	int pn, num, ret;
+	int pn, ret;
 	struct prt *pp;
 
 	if (letoh64(gh.gh_sig) == GPTSIGNATURE)
@@ -238,7 +236,7 @@ Xedit(char *args, struct mbr *mbr)
 
 	/* Change table entry */
 	if (ask_yn("Do you wish to edit in CHS mode?")) {
-		int maxcyl, maxhead, maxsect;
+		int maxcyl, maxhead, maxsect, num;
 
 		/* Shorter */
 		maxcyl = disk.cylinders - 1;
@@ -262,10 +260,15 @@ Xedit(char *args, struct mbr *mbr)
 		/* Fix up CHS values for LBA */
 		PRT_fix_CHS(pp);
 	} else {
-		pp->bs = getuint64("Partition offset", pp->bs,
-		    (u_int64_t)disk.size);
-		pp->ns = getuint64("Partition size", pp->ns,
-		    (u_int64_t)(disk.size - pp->bs));
+		u_int64_t num;
+
+#define EDIT(p, v, d)					\
+	if ((num = getuint64(p, v, (u_int64_t)d)) != v)	\
+		ret = CMD_DIRTY;			\
+	v = num;
+		EDIT("Partition offset", pp->bs, disk.size);
+		EDIT("Partition size",   pp->ns, disk.size - pp->bs);
+#undef EDIT
 		/* Fix up CHS values */
 		PRT_fix_CHS(pp);
 	}
@@ -512,7 +515,7 @@ Xflag(char *args, struct mbr *mbr)
 	if (flag != NULL) {
 		/* Set flag to value provided. */
 		if (letoh64(gh.gh_sig) == GPTSIGNATURE)
-			val = strtonum(flag, 0, LLONG_MAX, &errstr);
+			val = strtonum(flag, 0, INT64_MAX, &errstr);
 		else
 			val = strtonum(flag, 0, 0xff, &errstr);
 		if (errstr) {
