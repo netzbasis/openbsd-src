@@ -1,4 +1,4 @@
-/*	$OpenBSD: growfs.c,v 1.43 2015/11/19 17:46:46 mmcc Exp $	*/
+/*	$OpenBSD: growfs.c,v 1.45 2015/11/20 17:37:08 mmcc Exp $	*/
 /*
  * Copyright (c) 2000 Christoph Herrmann, Thomas-Henning von Kamptz
  * Copyright (c) 1980, 1989, 1993 The Regents of the University of California.
@@ -120,7 +120,7 @@ static char		inobuf[MAXBSIZE];	/* inode block */
 ino_t			maxino;			/* last valid inode */
 
 /*
- * An  array of elements of type struct gfs_bpp describes all blocks  to
+ * An array of elements of type struct gfs_bpp describes all blocks to
  * be relocated in order to free the space needed for the cylinder group
  * summary for all cylinder groups located in the first cylinder group.
  */
@@ -158,13 +158,13 @@ static void	indirchk(daddr_t, daddr_t, daddr_t, daddr_t,
 static void	ffs1_sb_update(struct fs *, daddr_t);
 
 /*
- * Here  we actually start growing the filesystem. We basically  read  the
- * cylinder  summary  from the first cylinder group as we want  to  update
- * this  on  the fly during our various operations. First  we  handle  the
+ * Here we actually start growing the filesystem. We basically read the
+ * cylinder summary from the first cylinder group as we want to update
+ * this on the fly during our various operations. First we handle the
  * changes in the former last cylinder group. Afterwards we create all new
- * cylinder  groups.  Now  we handle the  cylinder  group  containing  the
- * cylinder  summary  which  might result in a  relocation  of  the  whole
- * structure.  In the end we write back the updated cylinder summary,  the
+ * cylinder groups. Now we handle the cylinder group containing the
+ * cylinder summary which might result in a relocation of the whole
+ * structure. In the end we write back the updated cylinder summary, the
  * new superblock, and slightly patched versions of the super block
  * copies.
  */
@@ -1830,7 +1830,7 @@ ginode(ino_t inumber, int fsi, int cg)
 
 /*
  * Figure out how many lines our current terminal has. For more details again
- * please  see the source of newfs(8), as this function is taken over  almost
+ * please see the source of newfs(8), as this function is taken over almost
  * unchanged.
  */
 static int
@@ -1859,25 +1859,25 @@ charsperline(void)
 }
 
 /*
- * growfs(8)  is a utility which allows to increase the size of  an  existing
- * ufs filesystem. Currently this can only be done on unmounted file  system.
- * It  recognizes some command line options to specify the new desired  size,
- * and  it does some basic checkings. The old filesystem size is  determined
- * and  after some more checks like we can really access the new  last  block
+ * growfs(8) is a utility which allows to increase the size of an existing
+ * ufs filesystem. Currently this can only be done on unmounted file system.
+ * It recognizes some command line options to specify the new desired size,
+ * and it does some basic checkings. The old filesystem size is determined
+ * and after some more checks like we can really access the new last block
  * on the disk etc. we calculate the new parameters for the superblock. After
- * having  done  this we just call growfs() which will do  the  work.  Before
+ * having done this we just call growfs() which will do the work. Before
  * we finish the only thing left is to update the disklabel.
  * We still have to provide support for snapshots. Therefore we first have to
- * understand  what data structures are always replicated in the snapshot  on
- * creation,  for all other blocks we touch during our procedure, we have  to
+ * understand what data structures are always replicated in the snapshot on
+ * creation, for all other blocks we touch during our procedure, we have to
  * keep the old blocks unchanged somewhere available for the snapshots. If we
- * are lucky, then we only have to handle our blocks to be relocated in  that
+ * are lucky, then we only have to handle our blocks to be relocated in that
  * way.
- * Also  we  have to consider in what order we actually update  the  critical
+ * Also we have to consider in what order we actually update the critical
  * data structures of the filesystem to make sure, that in case of a disaster
  * fsck(8) is still able to restore any lost data.
- * The  foreseen last step then will be to provide for growing  even  mounted
- * file  systems. There we have to extend the mount() system call to  provide
+ * The foreseen last step then will be to provide for growing even mounted
+ * file systems. There we have to extend the mount() system call to provide
  * userland access to the filesystem locking facility.
  */
 int
@@ -1957,8 +1957,8 @@ main(int argc, char **argv)
 		err(1, "%s: fstat()", device);
 
 	/*
-	 * Try to read a label from the disk.  Then get the partition from the
-	 * device minor number, using DISKPART().  Probably don't need to
+	 * Try to read a label from the disk. Then get the partition from the
+	 * device minor number, using DISKPART(). Probably don't need to
 	 * check against getmaxpartitions().
 	 */
 	lp = get_disklabel(fsi);

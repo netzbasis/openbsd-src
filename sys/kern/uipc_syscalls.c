@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.126 2015/11/19 05:38:26 semarie Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.128 2015/11/20 23:16:00 deraadt Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -200,8 +200,7 @@ sys_listen(struct proc *p, void *v, register_t *retval)
 	if ((error = getsock(p, SCARG(uap, s), &fp)) != 0)
 		return (error);
 	so = fp->f_data;
-	error = pledge_socket(p, so->so_proto->pr_domain->dom_family,
-	    so->so_state);
+	error = pledge_socket(p, -1, so->so_state);
 	if (error)
 		goto out;
 	error = solisten(so, SCARG(uap, backlog));
@@ -261,8 +260,7 @@ doaccept(struct proc *p, int sock, struct sockaddr *name, socklen_t *anamelen,
 	headfp = fp;
 	head = fp->f_data;
 
-	error = pledge_socket(p, head->so_proto->pr_domain->dom_family,
-	    head->so_state);
+	error = pledge_socket(p, -1, head->so_state);
 	if (error)
 		goto bad;
 	if (isdnssocket((struct socket *)fp->f_data)) {
@@ -1053,8 +1051,7 @@ sys_getsockname(struct proc *p, void *v, register_t *retval)
 	if (error)
 		goto bad;
 	so = fp->f_data;
-	error = pledge_socket(p, so->so_proto->pr_domain->dom_family,
-	    so->so_state);
+	error = pledge_socket(p, -1, so->so_state);
 	if (error)
 		goto bad;
 	m = m_getclr(M_WAIT, MT_SONAME);
@@ -1090,8 +1087,7 @@ sys_getpeername(struct proc *p, void *v, register_t *retval)
 	if ((error = getsock(p, SCARG(uap, fdes), &fp)) != 0)
 		return (error);
 	so = fp->f_data;
-	error = pledge_socket(p, so->so_proto->pr_domain->dom_family,
-	    so->so_state);
+	error = pledge_socket(p, -1, so->so_state);
 	if (error)
 		goto bad;
 	if ((so->so_state & SS_ISCONNECTED) == 0) {

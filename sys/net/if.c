@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.408 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if.c,v 1.412 2015/11/21 01:08:49 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -174,6 +174,7 @@ void	ifa_print_all(void);
 
 void if_ifp_dtor(void *, void *);
 void if_map_dtor(void *, void *);
+struct ifnet *if_ref(struct ifnet *);
 
 /*
  * struct if_map
@@ -2733,7 +2734,6 @@ void		 priq_free(void *);
 int		 priq_enq(struct ifqueue *, struct mbuf *);
 struct mbuf	*priq_deq_begin(struct ifqueue *, void **);
 void		 priq_deq_commit(struct ifqueue *, struct mbuf *, void *);
-void		 priq_deq_rollback(struct ifqueue *, struct mbuf *, void *);
 void		 priq_purge(struct ifqueue *, struct mbuf_list *);
 
 const struct ifq_ops priq_ops = {
@@ -2742,7 +2742,6 @@ const struct ifq_ops priq_ops = {
 	priq_enq,
 	priq_deq_begin,
 	priq_deq_commit,
-	priq_deq_rollback,
 	priq_purge,
 };
 
@@ -2779,7 +2778,7 @@ priq_enq(struct ifqueue *ifq, struct mbuf *m)
 		return (ENOBUFS);
 
 	pq = ifq->ifq_q;
-	KASSERT(m->m_pkthdr.pf.prio < IFQ_MAXPRIO);
+	KASSERT(m->m_pkthdr.pf.prio <= IFQ_MAXPRIO);
 	pl = &pq->pq_lists[m->m_pkthdr.pf.prio];
 
 	m->m_nextpkt = NULL;
@@ -2827,16 +2826,6 @@ priq_deq_commit(struct ifqueue *ifq, struct mbuf *m, void *cookie)
 }
 
 void
-priq_deq_rollback(struct ifqueue *ifq, struct mbuf *m, void *cookie)
-{
-#ifdef DIAGNOSTIC
-	struct priq_list *pl = cookie;
-
-	KASSERT(pl->head == m);
-#endif
-}
-
-void
 priq_purge(struct ifqueue *ifq, struct mbuf_list *ml)
 {
 	struct priq *pq = ifq->ifq_q;
@@ -2873,7 +2862,7 @@ ifq_enqueue_try(struct ifqueue *ifq, struct mbuf *m)
 }
 
 int
-ifq_enq(struct ifqueue *ifq, struct mbuf *m)
+ifq_enqueue(struct ifqueue *ifq, struct mbuf *m)
 {
 	int err;
 
@@ -2918,17 +2907,13 @@ ifq_deq_commit(struct ifqueue *ifq, struct mbuf *m)
 void
 ifq_deq_rollback(struct ifqueue *ifq, struct mbuf *m)
 {
-	void *cookie;
-
 	KASSERT(m != NULL);
-	cookie = m->m_pkthdr.ph_cookie;
 
-	ifq->ifq_ops->ifqop_deq_rollback(ifq, m, cookie);
 	mtx_leave(&ifq->ifq_mtx);
 }
 
 struct mbuf *
-ifq_deq(struct ifqueue *ifq)
+ifq_dequeue(struct ifqueue *ifq)
 {
 	struct mbuf *m;
 
