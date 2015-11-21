@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.279 2015/11/16 22:53:07 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.283 2015/11/20 23:04:01 halex Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -848,8 +848,15 @@ fingerprint_private(const char *path)
 
 	if (stat(identity_file, &st) < 0)
 		fatal("%s: %s", path, strerror(errno));
-	if ((r = sshkey_load_public(path, &public, &comment)) != 0)
-		fatal("Error loading public key \"%s\": %s", path, ssh_err(r));
+	if ((r = sshkey_load_public(path, &public, &comment)) != 0) {
+		debug("load public \"%s\": %s", path, ssh_err(r));
+		if ((r = sshkey_load_private(path, NULL,
+		    &public, &comment)) != 0) {
+			debug("load private \"%s\": %s", path, ssh_err(r));
+			fatal("%s is not a key file.", path);
+		}
+	}
+
 	fingerprint_one_key(public, comment);
 	sshkey_free(public);
 	free(comment);
@@ -894,7 +901,7 @@ do_fingerprint(struct passwd *pw)
 		 * not reading from stdin (XXX support private keys on stdin).
 		 */
 		if (lnum == 1 && strcmp(identity_file, "-") != 0 &&
-		    strstr(cp, "SSH PRIVATE KEY") != NULL) {
+		    strstr(cp, "PRIVATE KEY") != NULL) {
 			fclose(f);
 			fingerprint_private(path);
 			exit(0);
@@ -1407,9 +1414,11 @@ do_change_comment(struct passwd *pw)
 			    identity_file, ssh_err(r));
 		}
 	}
-	/* XXX what about new-format keys? */
-	if (private->type != KEY_RSA1) {
-		error("Comments are only supported for RSA1 keys.");
+
+	if (private->type != KEY_RSA1 && private->type != KEY_ED25519 &&
+	    !use_new_format) {
+		error("Comments are only supported for RSA1 or keys stored in "
+		    "the new format (-o).");
 		explicit_bzero(passphrase, strlen(passphrase));
 		sshkey_free(private);
 		exit(1);
@@ -1463,44 +1472,6 @@ do_change_comment(struct passwd *pw)
 
 	printf("The comment in your key file has been changed.\n");
 	exit(0);
-}
-
-static const char *
-fmt_validity(u_int64_t valid_from, u_int64_t valid_to)
-{
-	char from[32], to[32];
-	static char ret[64];
-	time_t tt;
-	struct tm *tm;
-
-	*from = *to = '\0';
-	if (valid_from == 0 && valid_to == 0xffffffffffffffffULL)
-		return "forever";
-
-	if (valid_from != 0) {
-		/* XXX revisit INT_MAX in 2038 :) */
-		tt = valid_from > INT_MAX ? INT_MAX : valid_from;
-		tm = localtime(&tt);
-		strftime(from, sizeof(from), "%Y-%m-%dT%H:%M:%S", tm);
-	}
-	if (valid_to != 0xffffffffffffffffULL) {
-		/* XXX revisit INT_MAX in 2038 :) */
-		tt = valid_to > INT_MAX ? INT_MAX : valid_to;
-		tm = localtime(&tt);
-		strftime(to, sizeof(to), "%Y-%m-%dT%H:%M:%S", tm);
-	}
-
-	if (valid_from == 0) {
-		snprintf(ret, sizeof(ret), "before %s", to);
-		return ret;
-	}
-	if (valid_to == 0xffffffffffffffffULL) {
-		snprintf(ret, sizeof(ret), "after %s", from);
-		return ret;
-	}
-
-	snprintf(ret, sizeof(ret), "from %s to %s", from, to);
-	return ret;
 }
 
 static void
@@ -1596,7 +1567,7 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 	int r, i, fd;
 	u_int n;
 	struct sshkey *ca, *public;
-	char *otmp, *tmp, *cp, *out, *comment, **plist = NULL;
+	char valid[64], *otmp, *tmp, *cp, *out, *comment, **plist = NULL;
 	FILE *f;
 
 #ifdef ENABLE_PKCS11
@@ -1671,13 +1642,15 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 		fclose(f);
 
 		if (!quiet) {
+			sshkey_format_cert_validity(public->cert,
+			    valid, sizeof(valid));
 			logit("Signed %s key %s: id \"%s\" serial %llu%s%s "
-			    "valid %s", sshkey_cert_type(public), 
+			    "valid %s", sshkey_cert_type(public),
 			    out, public->cert->key_id,
 			    (unsigned long long)public->cert->serial,
 			    cert_principals != NULL ? " for " : "",
 			    cert_principals != NULL ? cert_principals : "",
-			    fmt_validity(cert_valid_from, cert_valid_to));
+			    valid);
 		}
 
 		sshkey_free(public);
@@ -1711,7 +1684,7 @@ parse_absolute_time(const char *s)
 	char buf[32], *fmt;
 
 	/*
-	 * POSIX strptime says "The application shall ensure that there 
+	 * POSIX strptime says "The application shall ensure that there
 	 * is white-space or other non-alphanumeric characters between
 	 * any two conversion specifications" so arrange things this way.
 	 */
@@ -1877,7 +1850,7 @@ show_options(struct sshbuf *optbuf, int in_critical)
 static void
 print_cert(struct sshkey *key)
 {
-	char *key_fp, *ca_fp;
+	char valid[64], *key_fp, *ca_fp;
 	u_int i;
 
 	key_fp = sshkey_fingerprint(key, fingerprint_hash, SSH_FP_DEFAULT);
@@ -1885,6 +1858,7 @@ print_cert(struct sshkey *key)
 	    fingerprint_hash, SSH_FP_DEFAULT);
 	if (key_fp == NULL || ca_fp == NULL)
 		fatal("%s: sshkey_fingerprint fail", __func__);
+	sshkey_format_cert_validity(key->cert, valid, sizeof(valid));
 
 	printf("        Type: %s %s certificate\n", sshkey_ssh_name(key),
 	    sshkey_cert_type(key));
@@ -1893,8 +1867,7 @@ print_cert(struct sshkey *key)
 	    sshkey_type(key->cert->signature_key), ca_fp);
 	printf("        Key ID: \"%s\"\n", key->cert->key_id);
 	printf("        Serial: %llu\n", (unsigned long long)key->cert->serial);
-	printf("        Valid: %s\n",
-	    fmt_validity(key->cert->valid_after, key->cert->valid_before));
+	printf("        Valid: %s\n", valid);
 	printf("        Principals: ");
 	if (key->cert->nprincipals == 0)
 		printf("(none)\n");

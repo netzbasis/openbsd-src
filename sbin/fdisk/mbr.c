@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.60 2015/11/13 02:27:17 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.63 2015/11/19 16:14:08 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -17,19 +17,14 @@
  */
 
 #include <sys/param.h>	/* DEV_BSIZE */
-#include <sys/fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
-#include <err.h>
-#include <errno.h>
-#include <util.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
+
 #include <stdint.h>
-#include <memory.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "disk.h"
 #include "part.h"
@@ -250,28 +245,6 @@ MBR_write(off_t where, struct dos_mbr *dos_mbr)
 	free(secbuf);
 
 	return (0);
-}
-
-/*
- * Parse the MBR partition table into 'mbr', leaving the rest of 'mbr'
- * untouched.
- */
-void
-MBR_pcopy(struct mbr *mbr)
-{
-	struct dos_partition dos_parts[NDOSPART];
-	struct dos_mbr dos_mbr;
-	int i, error;
-
-	error = MBR_read(0, &dos_mbr);
-
-	if (error == -1)
-		return;
-
-	memcpy(dos_parts, dos_mbr.dmbr_parts, sizeof(dos_parts));
-
-	for (i = 0; i < NDOSPART; i++)
-		PRT_parse(&dos_parts[i], 0, 0, &mbr->part[i]);
 }
 
 /*

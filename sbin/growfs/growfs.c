@@ -1,4 +1,4 @@
-/*	$OpenBSD: growfs.c,v 1.40 2015/08/20 22:02:21 deraadt Exp $	*/
+/*	$OpenBSD: growfs.c,v 1.45 2015/11/20 17:37:08 mmcc Exp $	*/
 /*
  * Copyright (c) 2000 Christoph Herrmann, Thomas-Henning von Kamptz
  * Copyright (c) 1980, 1989, 1993 The Regents of the University of California.
@@ -41,7 +41,6 @@
  *
  */
 
-/* ********************************************************** INCLUDES ***** */
 #include <sys/param.h>	/* DEV_BSIZE MAXBSIZE setbit isset isclr clrbit */
 #include <sys/types.h>
 #include <sys/disklabel.h>
@@ -73,7 +72,6 @@
 #define	rounddown(x, y)	(((x)/(y))*(y))
 #define	roundup(x, y)	((((x)+((y)-1))/(y))*(y))
 
-/* *************************************************** GLOBALS & TYPES ***** */
 #ifdef FS_DEBUG
 int	_dbg_lvl_ = (DL_INFO);	/* DL_TRC */
 #endif /* FS_DEBUG */
@@ -122,7 +120,7 @@ static char		inobuf[MAXBSIZE];	/* inode block */
 ino_t			maxino;			/* last valid inode */
 
 /*
- * An  array of elements of type struct gfs_bpp describes all blocks  to
+ * An array of elements of type struct gfs_bpp describes all blocks to
  * be relocated in order to free the space needed for the cylinder group
  * summary for all cylinder groups located in the first cylinder group.
  */
@@ -135,7 +133,6 @@ struct gfs_bpp {
 	int		found;		/* how many references were updated */
 };
 
-/* ******************************************************** PROTOTYPES ***** */
 static void	growfs(int, int, unsigned int);
 static void	rdfs(daddr_t, size_t, void *, int);
 static void	wtfs(daddr_t, size_t, void *, int, unsigned int);
@@ -160,15 +157,14 @@ static void	indirchk(daddr_t, daddr_t, daddr_t, daddr_t,
 		    struct gfs_bpp *, int, int, unsigned int);
 static void	ffs1_sb_update(struct fs *, daddr_t);
 
-/* ************************************************************ growfs ***** */
 /*
- * Here  we actually start growing the filesystem. We basically  read  the
- * cylinder  summary  from the first cylinder group as we want  to  update
- * this  on  the fly during our various operations. First  we  handle  the
+ * Here we actually start growing the filesystem. We basically read the
+ * cylinder summary from the first cylinder group as we want to update
+ * this on the fly during our various operations. First we handle the
  * changes in the former last cylinder group. Afterwards we create all new
- * cylinder  groups.  Now  we handle the  cylinder  group  containing  the
- * cylinder  summary  which  might result in a  relocation  of  the  whole
- * structure.  In the end we write back the updated cylinder summary,  the
+ * cylinder groups. Now we handle the cylinder group containing the
+ * cylinder summary which might result in a relocation of the whole
+ * structure. In the end we write back the updated cylinder summary, the
  * new superblock, and slightly patched versions of the super block
  * copies.
  */
@@ -189,7 +185,7 @@ growfs(int fsi, int fso, unsigned int Nflag)
 	/*
 	 * Get the cylinder summary into the memory.
 	 */
-	fscs = calloc((size_t)1, (size_t)sblock.fs_cssize);
+	fscs = calloc(1, (size_t)sblock.fs_cssize);
 	if (fscs == NULL)
 		errx(1, "calloc failed");
 	for (i = 0; i < osblock.fs_cssize; i += osblock.fs_bsize) {
@@ -328,7 +324,7 @@ growfs(int fsi, int fso, unsigned int Nflag)
 	sblock.fs_ronly = 0;
 	sblock.fs_cgrotor = 0;
 	sblock.fs_state = 0;
-	memset((void *)&sblock.fs_fsmnt, 0, sizeof(sblock.fs_fsmnt));
+	memset(&sblock.fs_fsmnt, 0, sizeof(sblock.fs_fsmnt));
 	sblock.fs_flags &= FS_DOSOFTDEP;
 	if (sblock.fs_magic == FS_UFS1_MAGIC)
 		sblock.fs_ffs1_flags &= FS_DOSOFTDEP;
@@ -367,7 +363,6 @@ growfs(int fsi, int fso, unsigned int Nflag)
 	DBG_LEAVE;
 }
 
-/* ************************************************************ initcg ***** */
 /*
  * This creates a new cylinder group structure, for more details please  see
  * the  source of newfs(8), as this function is taken over almost unchanged.
@@ -576,7 +571,6 @@ initcg(int cylno, time_t utime, int fso, unsigned int Nflag)
 	DBG_LEAVE;
 }
 
-/* ******************************************************* frag_adjust ***** */
 /*
  * Here  we add or subtract (sign +1/-1) the available fragments in  a  given
  * block to or from the fragment statistics. By subtracting before and adding
@@ -629,7 +623,6 @@ frag_adjust(daddr_t frag, int sign)
 	DBG_LEAVE;
 }
 
-/* ******************************************************* cond_bl_upd ***** */
 /*
  * Here we conditionally update a pointer to a fragment. We check for all
  * relocated blocks if any of its fragments is referenced by the current
@@ -688,7 +681,6 @@ cond_bl_upd(daddr_t *block, struct gfs_bpp *field, int fsi, int fso,
 	return (0);
 }
 
-/* ************************************************************ updjcg ***** */
 /*
  * Here we do all needed work for the former last cylinder group. It has to be
  * changed  in  any case, even if the filesystem ended exactly on the  end  of
@@ -920,7 +912,6 @@ updjcg(int cylno, time_t utime, int fsi, int fso, unsigned int Nflag)
 	DBG_LEAVE;
 }
 
-/* ********************************************************** updcsloc ***** */
 /*
  * Here  we update the location of the cylinder summary. We have  two  possible
  * ways of growing the cylinder summary.
@@ -1511,7 +1502,6 @@ updcsloc(time_t utime, int fsi, int fso, unsigned int Nflag)
 	DBG_LEAVE;
 }
 
-/* ************************************************************** rdfs ***** */
 /*
  * Here we read some block(s) from disk.
  */
@@ -1537,7 +1527,6 @@ rdfs(daddr_t bno, size_t size, void *bf, int fsi)
 	DBG_LEAVE;
 }
 
-/* ************************************************************** wtfs ***** */
 /*
  * Here we write some block(s) to disk.
  */
@@ -1564,7 +1553,6 @@ wtfs(daddr_t bno, size_t size, void *bf, int fso, unsigned int Nflag)
 	DBG_LEAVE;
 }
 
-/* ************************************************************* alloc ***** */
 /*
  * Here we allocate a free block in the current cylinder group. It is assumed,
  * that  acg contains the current cylinder group. As we may take a block  from
@@ -1689,7 +1677,6 @@ alloc(void)
 	return (d);
 }
 
-/* *********************************************************** isblock ***** */
 /*
  * Here  we check if all frags of a block are free. For more details  again
  * please see the source of newfs(8), as this function is taken over almost
@@ -1726,7 +1713,6 @@ isblock(struct fs *fs, unsigned char *cp, int h)
 	}
 }
 
-/* ********************************************************** clrblock ***** */
 /*
  * Here we allocate a complete block in the block map. For more details again
  * please  see the source of newfs(8), as this function is taken over  almost
@@ -1760,7 +1746,6 @@ clrblock(struct fs *fs, unsigned char *cp, int h)
 	DBG_LEAVE;
 }
 
-/* ********************************************************** setblock ***** */
 /*
  * Here we free a complete block in the free block map. For more details again
  * please  see the source of newfs(8), as this function is taken  over  almost
@@ -1794,7 +1779,6 @@ setblock(struct fs *fs, unsigned char *cp, int h)
 	DBG_LEAVE;
 }
 
-/* ************************************************************ ginode ***** */
 /*
  * This function provides access to an individual inode. We find out in which
  * block  the  requested inode is located, read it from disk if  needed,  and
@@ -1844,10 +1828,9 @@ ginode(ino_t inumber, int fsi, int cg)
 	    (inumber % INOPB(&sblock)) * sizeof(struct ufs2_dinode));
 }
 
-/* ****************************************************** charsperline ***** */
 /*
  * Figure out how many lines our current terminal has. For more details again
- * please  see the source of newfs(8), as this function is taken over  almost
+ * please see the source of newfs(8), as this function is taken over almost
  * unchanged.
  */
 static int
@@ -1875,27 +1858,26 @@ charsperline(void)
 	return columns;
 }
 
-/* ************************************************************** main ***** */
 /*
- * growfs(8)  is a utility which allows to increase the size of  an  existing
- * ufs filesystem. Currently this can only be done on unmounted file  system.
- * It  recognizes some command line options to specify the new desired  size,
- * and  it does some basic checkings. The old filesystem size is  determined
- * and  after some more checks like we can really access the new  last  block
+ * growfs(8) is a utility which allows to increase the size of an existing
+ * ufs filesystem. Currently this can only be done on unmounted file system.
+ * It recognizes some command line options to specify the new desired size,
+ * and it does some basic checkings. The old filesystem size is determined
+ * and after some more checks like we can really access the new last block
  * on the disk etc. we calculate the new parameters for the superblock. After
- * having  done  this we just call growfs() which will do  the  work.  Before
+ * having done this we just call growfs() which will do the work. Before
  * we finish the only thing left is to update the disklabel.
  * We still have to provide support for snapshots. Therefore we first have to
- * understand  what data structures are always replicated in the snapshot  on
- * creation,  for all other blocks we touch during our procedure, we have  to
+ * understand what data structures are always replicated in the snapshot on
+ * creation, for all other blocks we touch during our procedure, we have to
  * keep the old blocks unchanged somewhere available for the snapshots. If we
- * are lucky, then we only have to handle our blocks to be relocated in  that
+ * are lucky, then we only have to handle our blocks to be relocated in that
  * way.
- * Also  we  have to consider in what order we actually update  the  critical
+ * Also we have to consider in what order we actually update the critical
  * data structures of the filesystem to make sure, that in case of a disaster
  * fsck(8) is still able to restore any lost data.
- * The  foreseen last step then will be to provide for growing  even  mounted
- * file  systems. There we have to extend the mount() system call to  provide
+ * The foreseen last step then will be to provide for growing even mounted
+ * file systems. There we have to extend the mount() system call to provide
  * userland access to the filesystem locking facility.
  */
 int
@@ -1975,8 +1957,8 @@ main(int argc, char **argv)
 		err(1, "%s: fstat()", device);
 
 	/*
-	 * Try to read a label from the disk.  Then get the partition from the
-	 * device minor number, using DISKPART().  Probably don't need to
+	 * Try to read a label from the disk. Then get the partition from the
+	 * device minor number, using DISKPART(). Probably don't need to
 	 * check against getmaxpartitions().
 	 */
 	lp = get_disklabel(fsi);
@@ -2161,7 +2143,6 @@ main(int argc, char **argv)
 	return 0;
 }
 
-/* ************************************************** return_disklabel ***** */
 /*
  * Write the updated disklabel back to disk.
  */
@@ -2199,7 +2180,6 @@ return_disklabel(int fd, struct disklabel *lp, unsigned int Nflag)
 	return ;
 }
 
-/* ***************************************************** get_disklabel ***** */
 /*
  * Read the disklabel from disk.
  */
@@ -2222,7 +2202,6 @@ get_disklabel(int fd)
 }
 
 
-/* ************************************************************* usage ***** */
 /*
  * Dump a line of usage.
  */
@@ -2239,7 +2218,6 @@ usage(void)
 	exit(1);
 }
 
-/* *********************************************************** updclst ***** */
 /*
  * This updates most parameters and the bitmap related to cluster. We have to
  * assume that sblock, osblock, acg are set up.
@@ -2282,7 +2260,6 @@ updclst(int block)
 	DBG_LEAVE;
 }
 
-/* *********************************************************** updrefs ***** */
 /*
  * This updates all references to relocated blocks for the given inode.  The
  * inode is given as number within the cylinder group, and the number of the

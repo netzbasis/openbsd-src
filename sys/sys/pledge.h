@@ -1,4 +1,4 @@
-/*	$OpenBSD: pledge.h,v 1.18 2015/11/04 21:24:23 tedu Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.21 2015/11/20 16:06:54 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -48,6 +48,7 @@
 #define PLEDGE_VMINFO	0x00400000	/* vminfo listings */
 #define PLEDGE_PS	0x00800000	/* ps listings */
 #define PLEDGE_COREDUMP	0x01000000	/* generates coredump (default) */
+#define PLEDGE_DISKLABEL 0x02000000	/* disklabels */
 
 /* Following flags are set by kernel, as it learns things.
  * Not user settable. Should be moved to a seperate variable */
@@ -86,19 +87,19 @@ static struct {
 	{ PLEDGE_VMINFO,	"vminfo" },
 	{ PLEDGE_PS,		"ps" },
 	{ PLEDGE_COREDUMP,	"coredump" },
+	{ PLEDGE_DISKLABEL,	"disklabel" },
 	{ 0, NULL },
 };
 #endif
 
 #ifdef _KERNEL
 
-struct nameidata;
 int	pledge_syscall(struct proc *, int, int *);
 int	pledge_fail(struct proc *, int, int);
-int	pledge_namei(struct proc *, struct nameidata *, char *);
-void	pledge_aftersyscall(struct proc *, int, int);
 
 struct mbuf;
+struct nameidata;
+int	pledge_namei(struct proc *, struct nameidata *, char *);
 int	pledge_sendfd(struct proc *p, struct file *);
 int	pledge_recvfd(struct proc *p, struct file *);
 int	pledge_sysctl(struct proc *p, int namelen, int *name, void *new);
@@ -106,7 +107,7 @@ int	pledge_chown(struct proc *p, uid_t, gid_t);
 int	pledge_adjtime(struct proc *p, const void *v);
 int	pledge_sendit(struct proc *p, const void *to);
 int	pledge_sockopt(struct proc *p, int set, int level, int optname);
-int	pledge_socket(struct proc *p, int dns);
+int	pledge_socket(struct proc *p, int domain, int state);
 int	pledge_ioctl(struct proc *p, long com, struct file *);
 int	pledge_flock(struct proc *p);
 int	pledge_fcntl(struct proc *p, int cmd);

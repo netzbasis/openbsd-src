@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.30 2015/11/13 14:43:33 visa Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.32 2015/11/20 15:16:06 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -1016,24 +1016,8 @@ octeon_eth_start(struct ifnet *ifp)
 	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
 		goto last;
 
-	/* XXX assume that OCTEON doesn't buffer packets */
-	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port))) {
-		/* dequeue and drop them */
-		while (1) {
-			IFQ_DEQUEUE(&ifp->if_snd, m);
-			if (m == NULL)
-				break;
-#if 0
-#ifdef DDB
-			m_print(m, "cd", printf);
-#endif
-			printf("%s: drop\n", sc->sc_dev.dv_xname);
-#endif
-			m_freem(m);
-			IF_DROP(&ifp->if_snd);
-		}
+	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port)))
 		goto last;
-	}
 
 	for (;;) {
 		octeon_eth_send_queue_flush_fetch(sc); /* XXX */
@@ -1220,7 +1204,7 @@ octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
 	void (*ext_free)(caddr_t, u_int, void *);
 	void *ext_buf;
 	size_t ext_size;
-	void *data;
+	caddr_t data;
 	uint64_t word1 = work[1];
 	uint64_t word2 = work[2];
 	uint64_t word3 = work[3];
@@ -1236,7 +1220,14 @@ octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
 		ext_buf = &work[4];
 		ext_size = 96;
 
-		data = &work[4 + sc->sc_ip_offset / sizeof(uint64_t)];
+		/*
+		 * If the packet is IP, the hardware has padded it so that the
+		 * IP source address starts on the next 64-bit word boundary.
+		 */
+		data = (caddr_t)&work[4] + ETHER_ALIGN;
+		if (!ISSET(word2, PIP_WQE_WORD2_IP_NI) &&
+		    !ISSET(word2, PIP_WQE_WORD2_IP_V6))
+			data += 4;
 	} else {
 		vaddr_t addr;
 		vaddr_t start_buffer;

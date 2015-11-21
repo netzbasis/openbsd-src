@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.580 2015/11/15 22:50:38 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.584 2015/11/20 12:01:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,6 +33,8 @@
 #include <stdio.h>
 #include <termios.h>
 
+#include "xmalloc.h"
+
 extern char    *__progname;
 extern char   **environ;
 
@@ -66,13 +68,6 @@ struct tmuxproc;
 #define READ_SIZE 1024
 #define READ_BACKOFF 512
 #define READ_TIME 100
-
-/* Fatal errors. */
-#define fatal(msg) log_fatal("%s: %s", __func__, msg);
-#define fatalx(msg) log_fatalx("%s: %s", __func__, msg);
-
-/* Definition to shut gcc up about unused arguments. */
-#define unused __attribute__ ((unused))
 
 /* Attribute to make gcc check printf-like arguments. */
 #define printflike(a, b) __attribute__ ((format (printf, a, b)))
@@ -1019,6 +1014,7 @@ struct session {
 	struct options	*options;
 
 #define SESSION_UNATTACHED 0x1	/* not attached to any clients */
+#define SESSION_PASTING 0x2
 	int		 flags;
 
 	u_int		 attached;
@@ -1152,7 +1148,7 @@ struct tty {
 	struct tty_key	*key_tree;
 };
 
-/* TTY command context and function pointer. */
+/* TTY command context. */
 struct tty_ctx {
 	struct window_pane *wp;
 
@@ -1397,19 +1393,25 @@ enum options_table_type {
 	OPTIONS_TABLE_CHOICE,
 	OPTIONS_TABLE_STYLE
 };
+enum options_table_scope {
+	OPTIONS_TABLE_SERVER,
+	OPTIONS_TABLE_SESSION,
+	OPTIONS_TABLE_WINDOW,
+};
 
 struct options_table_entry {
-	const char	       *name;
-	enum options_table_type	type;
+	const char		 *name;
+	enum options_table_type	  type;
+	enum options_table_scope  scope;
 
-	u_int			minimum;
-	u_int			maximum;
-	const char	      **choices;
+	u_int			  minimum;
+	u_int			  maximum;
+	const char		**choices;
 
-	const char	       *default_str;
-	long long		default_num;
+	const char		 *default_str;
+	long long		  default_num;
 
-	const char	       *style;
+	const char		 *style;
 };
 
 /* Common command usages. */
@@ -1547,15 +1549,11 @@ struct options_entry *options_set_style(struct options *, const char *,
 struct grid_cell *options_get_style(struct options *, const char *);
 
 /* options-table.c */
-extern const struct options_table_entry server_options_table[];
-extern const struct options_table_entry session_options_table[];
-extern const struct options_table_entry window_options_table[];
-void	options_table_populate_tree(const struct options_table_entry *,
-	    struct options *);
+extern const struct options_table_entry options_table[];
+void	options_table_populate_tree(enum options_table_scope, struct options *);
 const char *options_table_print_entry(const struct options_table_entry *,
 	    struct options_entry *, int);
-int	options_table_find(const char *, const struct options_table_entry **,
-	    const struct options_table_entry **);
+int	options_table_find(const char *, const struct options_table_entry **);
 
 /* job.c */
 extern struct joblist all_jobs;
@@ -2214,19 +2212,8 @@ char   *get_proc_name(int, char *);
 void		 log_open(const char *);
 void		 log_close(void);
 void printflike(1, 2) log_debug(const char *, ...);
-__dead void printflike(1, 2) log_fatal(const char *, ...);
-__dead void printflike(1, 2) log_fatalx(const char *, ...);
-
-/* xmalloc.c */
-char		*xstrdup(const char *);
-void		*xcalloc(size_t, size_t);
-void		*xmalloc(size_t);
-void		*xrealloc(void *, size_t);
-void		*xreallocarray(void *, size_t, size_t);
-int printflike(2, 3) xasprintf(char **, const char *, ...);
-int		 xvasprintf(char **, const char *, va_list);
-int printflike(3, 4) xsnprintf(char *, size_t, const char *, ...);
-int		 xvsnprintf(char *, size_t, const char *, va_list);
+__dead void printflike(1, 2) fatal(const char *, ...);
+__dead void printflike(1, 2) fatalx(const char *, ...);
 
 /* style.c */
 int		 style_parse(const struct grid_cell *,

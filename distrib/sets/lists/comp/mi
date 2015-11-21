@@ -890,6 +890,7 @@
 ./usr/include/glob.h
 ./usr/include/grp.h
 ./usr/include/histedit.h
+./usr/include/icdb.h
 ./usr/include/ifaddrs.h
 ./usr/include/imsg.h
 ./usr/include/inttypes.h
@@ -2880,6 +2881,7 @@
 ./usr/share/man/man3/SHA512Pad.3
 ./usr/share/man/man3/SHA512Transform.3
 ./usr/share/man/man3/SHA512Update.3
+./usr/share/man/man3/SIMPLEQ_CONCAT.3
 ./usr/share/man/man3/SIMPLEQ_EMPTY.3
 ./usr/share/man/man3/SIMPLEQ_ENTRY.3
 ./usr/share/man/man3/SIMPLEQ_FIRST.3
@@ -3154,6 +3156,7 @@
 ./usr/share/man/man3/SipHash24_Final.3
 ./usr/share/man/man3/SipHash24_Init.3
 ./usr/share/man/man3/SipHash24_Update.3
+./usr/share/man/man3/TAILQ_CONCAT.3
 ./usr/share/man/man3/TAILQ_EMPTY.3
 ./usr/share/man/man3/TAILQ_ENTRY.3
 ./usr/share/man/man3/TAILQ_FIRST.3
@@ -4162,8 +4165,10 @@
 ./usr/share/man/man3/getpwent.3
 ./usr/share/man/man3/getpwnam.3
 ./usr/share/man/man3/getpwnam_r.3
+./usr/share/man/man3/getpwnam_shadow.3
 ./usr/share/man/man3/getpwuid.3
 ./usr/share/man/man3/getpwuid_r.3
+./usr/share/man/man3/getpwuid_shadow.3
 ./usr/share/man/man3/getrawpartition.3
 ./usr/share/man/man3/getrpcbyname.3
 ./usr/share/man/man3/getrpcbynumber.3
@@ -6015,8 +6020,10 @@
 ./usr/share/man/man9/KDASSERTMSG.9
 ./usr/share/man/man9/KNOTE.9
 ./usr/share/man/man9/KTRPOINT.9
+./usr/share/man/man9/MBUF_LIST_FIRST.9
 ./usr/share/man/man9/MBUF_LIST_FOREACH.9
 ./usr/share/man/man9/MBUF_LIST_INITIALIZER.9
+./usr/share/man/man9/MBUF_LIST_NEXT.9
 ./usr/share/man/man9/MBUF_QUEUE_INITIALIZER.9
 ./usr/share/man/man9/MCLGET.9
 ./usr/share/man/man9/MCLGETI.9
@@ -6294,7 +6301,6 @@
 ./usr/share/man/man9/dma_free.9
 ./usr/share/man/man9/dohooks.9
 ./usr/share/man/man9/domountroothooks.9
-./usr/share/man/man9/dopowerhooks.9
 ./usr/share/man/man9/dostartuphooks.9
 ./usr/share/man/man9/evcount.9
 ./usr/share/man/man9/evcount_attach.9
@@ -6409,6 +6415,14 @@
 ./usr/share/man/man9/if_rxr_inuse.9
 ./usr/share/man/man9/if_rxr_ioctl.9
 ./usr/share/man/man9/if_rxr_put.9
+./usr/share/man/man9/ifq_deq_begin.9
+./usr/share/man/man9/ifq_deq_commit.9
+./usr/share/man/man9/ifq_deq_rollback.9
+./usr/share/man/man9/ifq_dequeue.9
+./usr/share/man/man9/ifq_empty.9
+./usr/share/man/man9/ifq_enqueue.9
+./usr/share/man/man9/ifq_len.9
+./usr/share/man/man9/ifq_purge.9
 ./usr/share/man/man9/iic.9
 ./usr/share/man/man9/iic_acquire_bus.9
 ./usr/share/man/man9/iic_exec.9
@@ -6584,8 +6598,6 @@
 ./usr/share/man/man9/pool_sethiwat.9
 ./usr/share/man/man9/pool_setipl.9
 ./usr/share/man/man9/pool_setlowat.9
-./usr/share/man/man9/powerhook_disestablish.9
-./usr/share/man/man9/powerhook_establish.9
 ./usr/share/man/man9/ppsratecheck.9
 ./usr/share/man/man9/printf.9
 ./usr/share/man/man9/profhz.9

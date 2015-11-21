@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.53 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: sh.h,v 1.54 2015/11/20 09:29:53 tb Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell

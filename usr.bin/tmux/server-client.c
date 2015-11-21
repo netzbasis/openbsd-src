@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.169 2015/11/14 09:41:06 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.171 2015/11/19 22:46:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -246,7 +246,7 @@ server_client_unref(struct client *c)
 
 /* Free dead client. */
 void
-server_client_free(unused int fd, unused short events, void *arg)
+server_client_free(__unused int fd, __unused short events, void *arg)
 {
 	struct client	*c = arg;
 
@@ -494,8 +494,16 @@ server_client_assume_paste(struct session *s)
 		return (0);
 
 	timersub(&s->activity_time, &s->last_activity_time, &tv);
-	if (tv.tv_sec == 0 && tv.tv_usec < t * 1000)
-		return (1);
+	if (tv.tv_sec == 0 && tv.tv_usec < t * 1000) {
+		log_debug("session %s pasting (flag %d)", s->name,
+		    !!(s->flags & SESSION_PASTING));
+		if (s->flags & SESSION_PASTING)
+			return (1);
+		s->flags |= SESSION_PASTING;
+		return (0);
+	}
+	log_debug("session %s not pasting", s->name);
+	s->flags &= ~SESSION_PASTING;
 	return (0);
 }
 
@@ -818,7 +826,7 @@ server_client_reset_state(struct client *c)
 
 /* Repeat time callback. */
 void
-server_client_repeat_timer(unused int fd, unused short events, void *data)
+server_client_repeat_timer(__unused int fd, __unused short events, void *data)
 {
 	struct client	*c = data;
 
@@ -1214,7 +1222,7 @@ server_client_dispatch_shell(struct client *c)
 
 /* Event callback to push more stdout data if any left. */
 static void
-server_client_stdout_cb(unused int fd, unused short events, void *arg)
+server_client_stdout_cb(__unused int fd, __unused short events, void *arg)
 {
 	struct client	*c = arg;
 
@@ -1255,7 +1263,7 @@ server_client_push_stdout(struct client *c)
 
 /* Event callback to push more stderr data if any left. */
 static void
-server_client_stderr_cb(unused int fd, unused short events, void *arg)
+server_client_stderr_cb(__unused int fd, __unused short events, void *arg)
 {
 	struct client	*c = arg;
 
