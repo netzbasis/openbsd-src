@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.3 2015/11/16 10:08:41 mpi Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.6 2015/11/21 11:16:30 mpi Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -82,8 +82,8 @@ struct vmm_softc {
 	int			mode;
 
 	struct rwlock		vm_lock;
-	size_t			vm_ct;
-	size_t			vm_idx;
+	size_t			vm_ct;		/* number of in-memory VMs */
+	size_t			vm_idx;		/* next unique VM index */
 };
 
 int vmm_probe(struct device *, void *, void *);
@@ -179,21 +179,21 @@ vmm_probe(struct device *parent, void *match, void *aux)
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 	const char **busname = (const char **)aux;
-	boolean_t found_vmx, found_svm;
+	int found_vmx, found_svm;
 
 	/* Check if this probe is for us */
 	if (strcmp(*busname, vmm_cd.cd_name) != 0)
 		return (0);
 
-	found_vmx = FALSE;
-	found_svm = FALSE;
+	found_vmx = 0;
+	found_svm = 0;
 
 	/* Check if we have at least one CPU with either VMX or SVM */
 	CPU_INFO_FOREACH(cii, ci) {
 		if (ci->ci_vmm_flags & CI_VMM_VMX)
-			found_vmx = TRUE;
+			found_vmx = 1;
 		if (ci->ci_vmm_flags & CI_VMM_SVM)
-			found_svm = TRUE;
+			found_svm = 1;
 	}
 
 	/* Don't support both SVM and VMX at the same time */
@@ -309,9 +309,14 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	switch(cmd) {
 	case VMM_IOC_START:
 		ret = vmm_start();
+		if (ret)
+			vmm_stop();
 		break;
 	case VMM_IOC_STOP:
-		ret = vmm_stop();
+		if (vmm_softc->vm_ct > 0)
+			ret = EAGAIN;
+		else
+			ret = vmm_stop();
 		break;
 	case VMM_IOC_CREATE:
 		ret = vm_create((struct vm_create_params *)data, p);
@@ -550,17 +555,14 @@ vm_writepage(struct vm_writepage_params *vwp)
 int
 vmm_start(void)
 {
-	struct cpu_info *self;
+	struct cpu_info *self = curcpu();
 	int ret = 0;
 
 #ifdef MULTIPROCESSOR
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 	int i;
-#endif /* MULTIPROCESSOR */
 
-	self = curcpu();
-#ifdef MULTIPROCESSOR
 	/* Broadcast start VMM IPI */
 	x86_broadcast_ipi(X86_IPI_START_VMM);
 
@@ -594,23 +596,18 @@ vmm_start(void)
  * vmm_stop
  *
  * Stops VMM mode on the system
- *
- * XXX should restrict this function to not stop VMM mode while VMs are running
  */
 int
 vmm_stop(void)
 {
-	struct cpu_info *self;
+	struct cpu_info *self = curcpu();
 	int ret = 0;
 
 #ifdef MULTIPROCESSOR
 	struct cpu_info *ci;
 	CPU_INFO_ITERATOR cii;
 	int i;
-#endif /* MULTIPROCESSOR */
 
-	self = curcpu();
-#ifdef MULTIPROCESSOR
 	/* Stop VMM on other CPUs */
 	x86_broadcast_ipi(X86_IPI_STOP_VMM);
 
@@ -759,6 +756,9 @@ vm_create(struct vm_create_params *vcp, struct proc *p)
 	struct vm *vm;
 	struct vcpu *vcpu;
 
+	if (!(curcpu()->ci_flags & CPUF_VMM))
+		return (EINVAL);
+
 	vm = pool_get(&vm_pool, PR_WAITOK | PR_ZERO);
 	SLIST_INIT(&vm->vm_vcpu_list);
 	rw_init(&vm->vm_vcpu_lock, "vcpulock");
@@ -771,7 +771,7 @@ vm_create(struct vm_create_params *vcp, struct proc *p)
 		printf("failed to init arch-specific features for vm 0x%p\n",
 		    vm);
 		vm_teardown(vm);
-		return ENOMEM;
+		return (ENOMEM);
 	}
 
 	rw_enter_write(&vmm_softc->vm_lock);
