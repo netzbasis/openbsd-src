@@ -1,4 +1,4 @@
-/*	$OpenBSD: sio_sun.c,v 1.21 2015/11/18 09:35:59 ratchov Exp $	*/
+/*	$OpenBSD: sio_sun.c,v 1.23 2015/11/22 12:10:26 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -58,8 +58,6 @@ static size_t sio_sun_write(struct sio_hdl *, const void *, size_t);
 static int sio_sun_nfds(struct sio_hdl *);
 static int sio_sun_pollfd(struct sio_hdl *, struct pollfd *, int);
 static int sio_sun_revents(struct sio_hdl *, struct pollfd *);
-static int sio_sun_getfd(const char *, unsigned int, int);
-static struct sio_hdl *sio_sun_fdopen(int, unsigned int, int);
 
 static struct sio_ops sio_sun_ops = {
 	sio_sun_close,
@@ -333,21 +331,27 @@ sio_sun_getcap(struct sio_hdl *sh, struct sio_cap *cap)
 static int
 sio_sun_getfd(const char *str, unsigned int mode, int nbio)
 {
+	const char *p;
 	char path[DEVPATH_MAX];
 	unsigned int devnum;
 	int fd, flags;
 
-	switch (*str) {
-	case '/':
-		str++;
-		break;
-	default:
-		DPRINTF("sio_sun_getfd: %s: '/<devnum>' expected\n", str);
+	p = _sndio_parsetype(str, "rsnd");
+	if (p == NULL) {
+		DPRINTF("sio_sun_getfd: %s: \"rsnd\" expected\n", str);
 		return -1;
 	}
-	str = _sndio_parsenum(str, &devnum, 255);
-	if (str == NULL || *str != '\0') {
-		DPRINTF("sio_sun_getfd: can't determine device number\n");
+	switch (*p) {
+	case '/':
+		p++;
+		break;
+	default:
+		DPRINTF("sio_sun_getfd: %s: '/' expected\n", str);
+		return -1;
+	}
+	p = _sndio_parsenum(p, &devnum, 255);
+	if (p == NULL || *p != '\0') {
+		DPRINTF("sio_sun_getfd: %s: number expected after '/'\n", str);
 		return -1;
 	}
 	snprintf(path, sizeof(path), DEVPATH_PREFIX "%u", devnum);
