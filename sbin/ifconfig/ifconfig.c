@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.304 2015/10/24 10:52:05 reyk Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.306 2015/11/23 17:53:52 mpi Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*

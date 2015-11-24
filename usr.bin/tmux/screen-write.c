@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.80 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.82 2015/11/23 23:47:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>

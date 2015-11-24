@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.120 2015/11/22 18:50:45 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.122 2015/11/23 21:32:29 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -36,6 +36,7 @@
 #include <sys/ioctl.h>
 #include <sys/termios.h>
 #include <sys/tty.h>
+#include <sys/device.h>
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
 #include <sys/mtio.h>
@@ -644,8 +645,8 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 			return (0);
 		}
 
-		/* readpassphrase(3), getpw*(3) */
-		if ((p->p_p->ps_pledge & (PLEDGE_TTY | PLEDGE_GETPW)) &&
+		/* readpassphrase(3), getpass(3) */
+		if ((p->p_p->ps_pledge & PLEDGE_TTY) &&
 		    (ni->ni_pledge & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
 		    strcmp(path, "/dev/tty") == 0) {
 			return (0);
