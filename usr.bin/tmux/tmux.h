@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.586 2015/11/23 23:47:57 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.592 2015/11/24 23:46:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1394,6 +1394,7 @@ enum options_table_type {
 	OPTIONS_TABLE_STYLE
 };
 enum options_table_scope {
+	OPTIONS_TABLE_NONE,
 	OPTIONS_TABLE_SERVER,
 	OPTIONS_TABLE_SESSION,
 	OPTIONS_TABLE_WINDOW,
@@ -1430,11 +1431,8 @@ extern struct options *global_options;
 extern struct options *global_s_options;
 extern struct options *global_w_options;
 extern struct environ *global_environ;
-extern char	*shell_cmd;
-extern int	 debug_level;
-extern time_t	 start_time;
-extern char	 socket_path[PATH_MAX];
-void		 logfile(const char *);
+extern struct timeval	 start_time;
+extern const char	*socket_path;
 const char	*getshell(void);
 int		 checkshell(const char *);
 int		 areshell(const char *);
@@ -1569,7 +1567,9 @@ struct environ_entry *environ_first(struct environ *);
 struct environ_entry *environ_next(struct environ_entry *);
 void	environ_copy(struct environ *, struct environ *);
 struct environ_entry *environ_find(struct environ *, const char *);
-void	environ_set(struct environ *, const char *, const char *);
+void printflike(3, 4) environ_set(struct environ *, const char *, const char *,
+	    ...);
+void	environ_clear(struct environ *, const char *);
 void	environ_put(struct environ *, const char *);
 void	environ_unset(struct environ *, const char *);
 void	environ_update(const char *, struct environ *, struct environ *);
@@ -1733,7 +1733,7 @@ int	cmd_string_parse(const char *, struct cmd_list **, const char *,
 void	cmd_wait_for_flush(void);
 
 /* client.c */
-int	client_main(struct event_base *, int, char **, int);
+int	client_main(struct event_base *, int, char **, int, const char *);
 
 /* key-bindings.c */
 RB_PROTOTYPE(key_bindings, key_binding, entry, key_bindings_cmp);
@@ -1741,7 +1741,7 @@ RB_PROTOTYPE(key_tables, key_table, entry, key_table_cmp);
 extern struct key_tables key_tables;
 int	 key_table_cmp(struct key_table *, struct key_table *);
 int	 key_bindings_cmp(struct key_binding *, struct key_binding *);
-struct	 key_table *key_bindings_get_table(const char *, int);
+struct key_table *key_bindings_get_table(const char *, int);
 void	 key_bindings_unref_table(struct key_table *);
 void	 key_bindings_add(const char *, key_code, int, struct cmd_list *);
 void	 key_bindings_remove(const char *, key_code);
@@ -2209,8 +2209,10 @@ char		*utf8_padcstr(const char *, u_int);
 char   *get_proc_name(int, char *);
 
 /* log.c */
-void		 log_open(const char *);
-void		 log_close(void);
+void	log_add_level(void);
+int	log_get_level(void);
+void	log_open(const char *);
+void	log_close(void);
 void printflike(1, 2) log_debug(const char *, ...);
 __dead void printflike(1, 2) fatal(const char *, ...);
 __dead void printflike(1, 2) fatalx(const char *, ...);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ie.c,v 1.56 2015/11/14 17:26:40 mpi Exp $	*/
+/*	$OpenBSD: if_ie.c,v 1.59 2015/11/25 03:09:58 dlg Exp $	*/
 /*	$NetBSD: if_ie.c,v 1.33 1997/07/29 17:55:38 fair Exp $	*/
 
 /*-
@@ -113,8 +113,6 @@ Mode of operation:
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
-#include <net/if_dl.h>
 #include <net/netisr.h>
 #include <net/route.h>
 
@@ -821,7 +819,7 @@ ietint(sc)
 	int status;
 
 	sc->sc_arpcom.ac_if.if_timer = 0;
-	sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 
 	status = sc->xmit_cmds[sc->xctail]->ie_xmit_status;
 
@@ -1308,7 +1306,7 @@ iestart(ifp)
 		return;
 
 	if (sc->xmit_free == 0) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		if (!sc->xmit_busy)
 			iexmit(sc);
 		return;
@@ -1408,7 +1406,8 @@ iereset(sc)
 	printf("%s: reset\n", sc->sc_dev.dv_xname);
 
 	/* Clear OACTIVE in case we're called from watchdog (frozen xmit). */
-	sc->sc_arpcom.ac_if.if_flags &= ~(IFF_UP | IFF_OACTIVE);
+	sc->sc_arpcom.ac_if.if_flags &= ~IFF_UP;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 	ieioctl(&sc->sc_arpcom.ac_if, SIOCSIFFLAGS, 0);
 
 	/*

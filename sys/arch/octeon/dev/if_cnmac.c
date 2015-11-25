@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.33 2015/11/21 05:11:32 visa Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.35 2015/11/25 03:09:58 dlg Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -54,7 +54,6 @@
 #endif
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1007,7 +1006,7 @@ octeon_eth_start(struct ifnet *ifp)
 	 */
 	octeon_eth_send_queue_flush_prefetch(sc);
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		goto last;
 
 	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port)))
@@ -1064,7 +1063,7 @@ octeon_eth_watchdog(struct ifnet *ifp)
 	octeon_eth_configure(sc);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	octeon_eth_start(ifp);
@@ -1098,7 +1097,7 @@ octeon_eth_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_free_ch, 1);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1117,7 +1116,8 @@ octeon_eth_stop(struct ifnet *ifp, int disable)
 	cn30xxgmx_port_enable(sc->sc_gmx_port, 0);
 
 	/* Mark the interface as down and cancel the watchdog timer. */
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE);
+	CLR(ifp->if_flags, IFF_RUNNING);
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	intr_barrier(octeon_eth_pow_recv_ih);

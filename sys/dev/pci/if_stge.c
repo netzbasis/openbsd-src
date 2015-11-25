@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_stge.c,v 1.64 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_stge.c,v 1.66 2015/11/25 03:09:59 dlg Exp $	*/
 /*	$NetBSD: if_stge.c,v 1.27 2005/05/16 21:35:32 bouyer Exp $	*/
 
 /*-
@@ -51,7 +51,6 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -463,7 +462,7 @@ stge_start(struct ifnet *ifp)
 	int error, firsttx, nexttx, opending, seg, totlen;
 	uint64_t csum_flags = 0, tfc;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/*
@@ -609,7 +608,7 @@ stge_start(struct ifnet *ifp)
 
 	if (sc->sc_txpending == (STGE_NTXDESC - 1)) {
 		/* No more slots left; notify upper layer. */
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_txpending != opending) {
@@ -802,7 +801,7 @@ stge_txintr(struct stge_softc *sc)
 	uint64_t control;
 	int i;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Go through our Tx list and free mbufs for those
@@ -1292,7 +1291,7 @@ stge_init(struct ifnet *ifp)
 	 * ...all done!
 	 */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
  out:
 	if (error)
@@ -1342,7 +1341,8 @@ stge_stop(struct ifnet *ifp, int disable)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	/* Down the MII. */

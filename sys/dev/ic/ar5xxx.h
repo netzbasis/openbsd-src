@@ -1,4 +1,4 @@
-/*	$OpenBSD: ar5xxx.h,v 1.53 2014/12/26 05:46:32 tedu Exp $	*/
+/*	$OpenBSD: ar5xxx.h,v 1.55 2015/11/24 17:11:39 mpi Exp $	*/
 
 /*
  * Copyright (c) 2004, 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -45,9 +45,7 @@
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_arp.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_txp.c,v 1.119 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_txp.c,v 1.122 2015/11/25 03:09:59 dlg Exp $	*/
 
 /*
  * Copyright (c) 2001
@@ -45,8 +45,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -827,7 +825,7 @@ txp_tx_reclaim(struct txp_softc *sc, struct txp_tx_ring *r,
 				ifp->if_opackets++;
 			}
 		}
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 		if (++cons == TX_ENTRIES) {
 			txd = r->r_desc;
@@ -1217,7 +1215,7 @@ txp_init(struct txp_softc *sc)
 	WRITE_REG(sc, TXP_IMR, TXP_INT_A2H_3);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (!timeout_pending(&sc->sc_tick))
 		timeout_add_sec(&sc->sc_tick, 1);
@@ -1275,7 +1273,7 @@ txp_start(struct ifnet *ifp)
 	struct txp_swdesc *sd;
 	u_int32_t firstprod, firstcnt, prod, cnt, i;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	prod = r->r_prod;
@@ -1437,7 +1435,7 @@ oactive:
 	bus_dmamap_unload(sc->sc_dmat, sd->sd_map);
 oactive1:
 	ifq_deq_rollback(&ifp->if_snd, m);
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 	r->r_prod = firstprod;
 	r->r_cnt = firstcnt;
 }
@@ -1648,7 +1646,8 @@ txp_stop(struct txp_softc *sc)
 	timeout_del(&sc->sc_tick);
 
 	/* Mark the interface as down and cancel the watchdog timer. */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	txp_command(sc, TXP_CMD_TX_DISABLE, 0, 0, 0, NULL, NULL, NULL, 1);

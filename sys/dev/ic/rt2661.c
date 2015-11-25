@@ -1,4 +1,4 @@
-/*	$OpenBSD: rt2661.c,v 1.86 2015/11/20 12:41:29 mpi Exp $	*/
+/*	$OpenBSD: rt2661.c,v 1.88 2015/11/25 03:09:58 dlg Exp $	*/
 
 /*-
  * Copyright (c) 2006
@@ -46,7 +46,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1151,7 +1150,7 @@ rt2661_tx_dma_intr(struct rt2661_softc *sc, struct rt2661_tx_ring *txq)
 		if (sc->txq[0].queued < RT2661_TX_RING_COUNT - 1)
 			sc->sc_flags &= ~RT2661_DATA_OACTIVE;
 		if (!(sc->sc_flags & (RT2661_MGT_OACTIVE|RT2661_DATA_OACTIVE)))
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 		rt2661_start(ifp);
 	}
 }
@@ -1929,13 +1928,13 @@ rt2661_start(struct ifnet *ifp)
 	 * net80211 may still try to send management frames even if the
 	 * IFF_RUNNING flag is not set...
 	 */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (mq_len(&ic->ic_mgtq) > 0) {
 			if (sc->mgtq.queued >= RT2661_MGT_RING_COUNT) {
-				ifp->if_flags |= IFF_OACTIVE;
+				ifq_set_oactive(&ifp->if_snd);
 				break;
 			}
 
@@ -1952,7 +1951,7 @@ rt2661_start(struct ifnet *ifp)
 
 		} else {
 			if (sc->txq[0].queued >= RT2661_TX_RING_COUNT - 1) {
-				ifp->if_flags |= IFF_OACTIVE;
+				ifq_set_oactive(&ifp->if_snd);
 				break;
 			}
 
@@ -2708,8 +2707,8 @@ rt2661_init(struct ifnet *ifp)
 	/* kick Rx */
 	RAL_WRITE(sc, RT2661_RX_CNTL_CSR, 1);
 
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
 		ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
@@ -2729,7 +2728,8 @@ rt2661_stop(struct ifnet *ifp, int disable)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);	/* free all nodes */
 	rt2661_amrr_node_free_all(sc);

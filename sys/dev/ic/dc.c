@@ -1,4 +1,4 @@
-/*	$OpenBSD: dc.c,v 1.146 2015/11/20 03:35:22 dlg Exp $	*/
+/*	$OpenBSD: dc.c,v 1.148 2015/11/25 03:09:58 dlg Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -104,7 +104,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -2276,7 +2275,7 @@ dc_txeof(struct dc_softc *sc)
 	sc->dc_cdata.dc_tx_cons = idx;
 
 	if (DC_TX_LIST_CNT - sc->dc_cdata.dc_tx_cnt > 5)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	if (sc->dc_cdata.dc_tx_cnt == 0)
 		ifp->if_timer = 0;
 }
@@ -2612,7 +2611,7 @@ dc_start(struct ifnet *ifp)
 	if (!sc->dc_link && IFQ_LEN(&ifp->if_snd) < 10)
 		return;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	idx = sc->dc_cdata.dc_tx_prod;
@@ -2630,7 +2629,7 @@ dc_start(struct ifnet *ifp)
 			 */
 			ifq_deq_commit(&ifp->if_snd, m_head);
 			if (dc_coal(sc, &m_head)) {
-				ifp->if_flags |= IFF_OACTIVE;
+				ifq_set_oactive(&ifp->if_snd);
 				break;
 			}
 		}
@@ -2639,7 +2638,7 @@ dc_start(struct ifnet *ifp)
 			if ((sc->dc_flags & DC_TX_COALESCE) == 0)
 				ifq_deq_rollback(&ifp->if_snd, m_head);
 
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -2658,7 +2657,7 @@ dc_start(struct ifnet *ifp)
 			bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 		if (sc->dc_flags & DC_TX_ONE) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -2836,7 +2835,7 @@ dc_init(void *xsc)
 	dc_setcfg(sc, sc->dc_if_media);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -2994,7 +2993,8 @@ dc_stop(struct dc_softc *sc, int softonly)
 
 	timeout_del(&sc->dc_tick_tmo);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (!softonly) {
 		DC_CLRBIT(sc, DC_NETCFG, (DC_NETCFG_RX_ON|DC_NETCFG_TX_ON));

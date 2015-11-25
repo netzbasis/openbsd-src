@@ -1,4 +1,4 @@
-/*	$OpenBSD: qe.c,v 1.44 2015/11/14 17:26:40 mpi Exp $	*/
+/*	$OpenBSD: qe.c,v 1.47 2015/11/25 03:09:58 dlg Exp $	*/
 
 /*
  * Copyright (c) 1998, 2000 Jason L. Wright.
@@ -46,8 +46,6 @@
 #include <sys/malloc.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
 #include <net/netisr.h>
 
@@ -194,7 +192,7 @@ qestart(ifp)
 	struct mbuf *m;
 	int bix, len;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_last_td;
@@ -230,7 +228,7 @@ qestart(ifp)
 			bix = 0;
 
 		if (++sc->sc_no_td == QE_TX_RING_SIZE) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -357,8 +355,8 @@ qe_tint(sc)
 	 */
 	if (sc->sc_first_td != bix) {
 		sc->sc_first_td = bix;
-		if (ifp->if_flags & IFF_OACTIVE) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			qestart(ifp);
 		}
 	}
@@ -719,7 +717,7 @@ qeinit(sc)
 	i = mr->mpc;	/* cleared on read */
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	mr->maccc = QE_MR_MACCC_ENXMT | QE_MR_MACCC_ENRCV |
 	    ((ifp->if_flags & IFF_PROMISC) ? QE_MR_MACCC_PROM : 0);

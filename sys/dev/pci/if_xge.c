@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_xge.c,v 1.65 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_xge.c,v 1.67 2015/11/25 03:09:59 dlg Exp $	*/
 /*	$NetBSD: if_xge.c,v 1.1 2005/09/09 10:30:27 ragge Exp $	*/
 
 /*
@@ -53,7 +53,6 @@
 #include <sys/endian.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -770,7 +769,7 @@ xge_init(struct ifnet *ifp)
 
 	/* Done... */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -783,7 +782,8 @@ xge_stop(struct ifnet *ifp, int disable)
 	struct xge_softc *sc = ifp->if_softc;
 	uint64_t val;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	val = PIF_RCSR(ADAPTER_CONTROL);
 	val &= ~ADAPTER_EN;
@@ -850,7 +850,7 @@ xge_intr(void *pv)
 	}
 
 	if (sc->sc_lasttx != lasttx)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	/* Try to get more packets on the wire */
 	xge_start(ifp);
@@ -1063,7 +1063,7 @@ xge_start(struct ifnet *ifp)
 	uint64_t par, lcr;
 	int nexttx = 0, ntxd, error, i;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	par = lcr = 0;

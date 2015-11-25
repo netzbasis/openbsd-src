@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nge.c,v 1.88 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_nge.c,v 1.90 2015/11/25 03:09:59 dlg Exp $	*/
 /*
  * Copyright (c) 2001 Wind River Systems
  * Copyright (c) 1997, 1998, 1999, 2000, 2001
@@ -101,7 +101,6 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -1149,7 +1148,7 @@ nge_txeof(struct nge_softc *sc)
 		if (cur_tx->nge_mbuf != NULL) {
 			m_freem(cur_tx->nge_mbuf);
 			cur_tx->nge_mbuf = NULL;
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 		}
 
 		sc->nge_cdata.nge_tx_cnt--;
@@ -1404,7 +1403,7 @@ nge_start(struct ifnet *ifp)
 
 	idx = sc->nge_cdata.nge_tx_prod;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	while(sc->nge_ldata->nge_tx_list[idx].nge_mbuf == NULL) {
@@ -1414,7 +1413,7 @@ nge_start(struct ifnet *ifp)
 
 		if (nge_encap(sc, m_head, &idx)) {
 			ifq_deq_rollback(&ifp->if_snd, m_head);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1622,7 +1621,7 @@ nge_init(void *xsc)
 	    nge_ifmedia_mii_upd(ifp);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -1877,7 +1876,8 @@ nge_stop(struct nge_softc *sc)
 
 	timeout_del(&sc->nge_timeout);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	CSR_WRITE_4(sc, NGE_IER, 0);
 	CSR_WRITE_4(sc, NGE_IMR, 0);
