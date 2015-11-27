@@ -199,7 +199,6 @@
 ./etc/rc.d/xdm
 ./etc/rc.d/ypbind
 ./etc/rc.d/ypldap
-./etc/rc.d/yppasswdd
 ./etc/rc.d/ypserv
 ./etc/rmt
 ./etc/rpc
@@ -2376,7 +2375,6 @@
 ./usr/sbin/rpc.bootparamd
 ./usr/sbin/rpc.lockd
 ./usr/sbin/rpc.statd
-./usr/sbin/rpc.yppasswdd
 ./usr/sbin/rtadvd
 ./usr/sbin/sa
 ./usr/sbin/sasyncd

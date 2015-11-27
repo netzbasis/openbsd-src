@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.59 2015/11/21 16:45:41 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.61 2015/11/26 08:15:07 tim Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -151,7 +151,7 @@ ask_pid(int dflt, struct uuid *guid)
 			continue;
 		}
 
-		if (guid) {
+		if (guid && strlen(lbuf) == UUID_STR_LEN) {
 			uuid_from_string(lbuf, guid, &status);
 			if (status == uuid_s_ok)
 				return (0x100);
@@ -221,7 +221,8 @@ getuint64(char *prompt, u_int64_t oval, u_int64_t minval, u_int64_t maxval)
 	secpercyl = disk.sectors * disk.heads;
 
 	do {
-		printf("%s: [%llu] ", prompt, oval);
+		printf("%s [%llu - %llu]: [%llu] ", prompt, minval, maxval,
+		    oval);
 
 		if (string_from_line(buf, sizeof(buf)))
 			errx(1, "eof");
