@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urtw.c,v 1.56 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_urtw.c,v 1.60 2015/11/25 03:10:00 dlg Exp $	*/
 
 /*-
  * Copyright (c) 2009 Martynas Venckus <martynas@openbsd.org>
@@ -35,10 +35,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -2299,7 +2297,7 @@ urtw_init(struct ifnet *ifp)
 	if (error != 0)
 		goto fail;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	ifp->if_timer = 1;
@@ -2425,19 +2423,18 @@ urtw_start(struct ifnet *ifp)
 	 * net80211 may still try to send management frames even if the
 	 * IFF_RUNNING flag is not set...
 	 */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
+		if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
+		    sc->sc_tx_normal_queued >= URTW_TX_DATA_LIST_COUNT) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
 		m0 = mq_dequeue(&ic->ic_mgtq);
 		if (m0 != NULL) {
-			if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
-			    sc->sc_tx_normal_queued >=
-			    URTW_TX_DATA_LIST_COUNT) {
-				mq_requeue(&ic->ic_mgtq, m0);
-				ifp->if_flags |= IFF_OACTIVE;
-				break;
-			}
 			ni = m0->m_pkthdr.ph_cookie;
 #if NBPFILTER > 0
 			if (ic->ic_rawbpf != NULL)
@@ -2449,16 +2446,9 @@ urtw_start(struct ifnet *ifp)
 		} else {
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
-			IFQ_POLL(&ifp->if_snd, m0);
+			IFQ_DEQUEUE(&ifp->if_snd, m0);
 			if (m0 == NULL)
 				break;
-			if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
-			    sc->sc_tx_normal_queued >=
-			    URTW_TX_DATA_LIST_COUNT) {
-				ifp->if_flags |= IFF_OACTIVE;
-				break;
-			}
-			IFQ_DEQUEUE(&ifp->if_snd, m0);
 #if NBPFILTER > 0
 			if (ifp->if_bpf != NULL)
 				bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
@@ -2534,7 +2524,7 @@ urtw_txeof_low(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	sc->sc_tx_low_queued--;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	urtw_start(ifp);
 
 	splx(s);
@@ -2573,7 +2563,7 @@ urtw_txeof_normal(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	sc->sc_tx_normal_queued--;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	urtw_start(ifp);
 
 	splx(s);
@@ -3016,7 +3006,8 @@ urtw_stop(struct ifnet *ifp, int disable)
 	uint8_t data;
 	usbd_status error;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
 
@@ -3711,8 +3702,8 @@ urtw_8187b_init(struct ifnet *ifp)
 	if (error != 0)
 		goto fail;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ifp->if_timer = 1;
 

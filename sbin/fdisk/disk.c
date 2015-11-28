@@ -1,4 +1,4 @@
-/*	$OpenBSD: disk.c,v 1.48 2015/08/27 20:58:27 krw Exp $	*/
+/*	$OpenBSD: disk.c,v 1.52 2015/11/19 16:14:08 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -20,15 +20,16 @@
 #include <sys/fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/dkio.h>
-#include <sys/stdint.h>
 #include <sys/stat.h>
 #include <sys/disklabel.h>
+
 #include <err.h>
 #include <errno.h>
-#include <util.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <util.h>
 
 #include "disk.h"
 #include "misc.h"
@@ -36,35 +37,28 @@
 struct disk disk;
 struct disklabel dl;
 
-int
-DISK_open(char *disk, int mode)
+void
+DISK_open(void)
 {
 	struct stat st;
-	int fd;
+	u_int64_t sz, spc;
 
-	fd = opendev(disk, mode, OPENDEV_PART, NULL);
-	if (fd == -1)
-		err(1, "%s", disk);
-	if (fstat(fd, &st) == -1)
-		err(1, "%s", disk);
+	disk.fd = opendev(disk.name, O_RDWR, OPENDEV_PART, NULL);
+	if (disk.fd == -1)
+		err(1, "%s", disk.name);
+	if (fstat(disk.fd, &st) == -1)
+		err(1, "%s", disk.name);
 	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
 		errx(1, "%s is not a character device or a regular file",
 		    disk);
 
-	return (fd);
-}
-
-void
-DISK_getlabelgeometry(void)
-{
-	u_int64_t sz, spc;
-	int fd;
-
 	/* Get label geometry. */
-	if ((fd = DISK_open(disk.name, O_RDONLY)) != -1) {
-		if (ioctl(fd, DIOCGPDINFO, &dl) == -1) {
-			warn("DIOCGPDINFO");
-		} else {
+	if (ioctl(disk.fd, DIOCGPDINFO, &dl) == -1) {
+		warn("DIOCGPDINFO");
+	} else {
+		unit_types[SECTORS].conversion = dl.d_secsize;
+		if (disk.size == 0) {
+			/* -l or -c/-h/-s not used. Use disklabel info. */
 			disk.cylinders = dl.d_ncylinders;
 			disk.heads = dl.d_ntracks;
 			disk.sectors = dl.d_nsectors;
@@ -74,14 +68,15 @@ DISK_getlabelgeometry(void)
 			if (sz > UINT32_MAX) {
 				disk.cylinders = UINT32_MAX / spc;
 				disk.size = disk.cylinders * spc;
-				warnx("disk too large (%llu sectors)."
-				    " size truncated.", sz);
 			} else
 				disk.size = sz;
-			unit_types[SECTORS].conversion = dl.d_secsize;
 		}
-		close(fd);
 	}
+
+	if (disk.size == 0 || disk.cylinders == 0 || disk.heads == 0 ||
+	    disk.sectors == 0 || unit_types[SECTORS].conversion == 0)
+		errx(1, "Can't get disk geometry, please use [-chs] or [-l]"
+		    "to specify.");
 }
 
 /*
@@ -118,7 +113,7 @@ DISK_printgeometry(char *units)
  * The caller must free() the memory it gets.
  */
 char *
-DISK_readsector(int fd, off_t where)
+DISK_readsector(off_t where)
 {
 	int secsize;
 	char *secbuf;
@@ -128,7 +123,7 @@ DISK_readsector(int fd, off_t where)
 	secsize = dl.d_secsize;
 
 	where *= secsize;
-	off = lseek(fd, where, SEEK_SET);
+	off = lseek(disk.fd, where, SEEK_SET);
 	if (off != where)
 		return (NULL);
 
@@ -136,7 +131,7 @@ DISK_readsector(int fd, off_t where)
 	if (secbuf == NULL)
 		return (NULL);
 
-	len = read(fd, secbuf, secsize);
+	len = read(disk.fd, secbuf, secsize);
 	if (len == -1 || len != secsize) {
 		free(secbuf);
 		return (NULL);
@@ -151,7 +146,7 @@ DISK_readsector(int fd, off_t where)
  * errno if the write fails.
  */
 int
-DISK_writesector(int fd, char *secbuf, off_t where)
+DISK_writesector(char *secbuf, off_t where)
 {
 	int secsize;
 	ssize_t len;
@@ -161,9 +156,9 @@ DISK_writesector(int fd, char *secbuf, off_t where)
 	secsize = dl.d_secsize;
 
 	where *= secsize;
-	off = lseek(fd, where, SEEK_SET);
+	off = lseek(disk.fd, where, SEEK_SET);
 	if (off == where)
-		len = write(fd, secbuf, secsize);
+		len = write(disk.fd, secbuf, secsize);
 
 	if (len == -1 || len != secsize) {
 		/* short read or write */

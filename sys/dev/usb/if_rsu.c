@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rsu.c,v 1.28 2015/10/25 12:11:56 mpi Exp $	*/
+/*	$OpenBSD: if_rsu.c,v 1.32 2015/11/25 03:10:00 dlg Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -39,10 +39,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1463,8 +1461,8 @@ rsu_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	ifp->if_opackets++;
 
 	/* We just released a Tx buffer, notify Tx. */
-	if (ifp->if_flags & IFF_OACTIVE) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+	if (ifq_is_oactive(&ifp->if_snd)) {
+		ifq_clr_oactive(&ifp->if_snd);
 		rsu_start(ifp);
 	}
 	splx(s);
@@ -1603,12 +1601,12 @@ rsu_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (TAILQ_EMPTY(&sc->tx_free_list)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		if (ic->ic_state != IEEE80211_S_RUN)
@@ -1982,7 +1980,9 @@ rsu_fw_loadsection(struct rsu_softc *sc, uint8_t *buf, int len)
 int
 rsu_load_firmware(struct rsu_softc *sc)
 {
+#ifndef IEEE80211_NO_HT
 	struct ieee80211com *ic = &sc->sc_ic;
+#endif
 	struct r92s_fw_hdr *hdr;
 	struct r92s_fw_priv *dmem;
 	uint8_t *imem, *emem;
@@ -2113,7 +2113,9 @@ rsu_load_firmware(struct rsu_softc *sc)
 	dmem->rf_config = 0x12;	/* 1T2R */
 	dmem->vcs_type = R92S_VCS_TYPE_AUTO;
 	dmem->vcs_mode = R92S_VCS_MODE_RTS_CTS;
+#ifndef IEEE80211_NO_HT
 	dmem->bw40_en = (ic->ic_htcaps & IEEE80211_HTCAP_CBW20_40) != 0;
+#endif
 	dmem->turbo_mode = 1;
 	/* Load DMEM section. */
 	error = rsu_fw_loadsection(sc, (uint8_t *)dmem, sizeof(*dmem));
@@ -2254,6 +2256,7 @@ rsu_init(struct ifnet *ifp)
 		goto fail;
 	}
 
+#ifndef IEEE80211_NO_HT
 	if (ic->ic_htcaps & IEEE80211_HTCAP_CBW20_40) {
 		/* Enable 40MHz mode. */
 		error = rsu_fw_iocmd(sc,
@@ -2266,13 +2269,13 @@ rsu_init(struct ifnet *ifp)
 			goto fail;
 		}
 	}
-
+#endif
 	/* Set default channel. */
 	ic->ic_bss->ni_chan = ic->ic_ibss_chan;
 
 	/* We're ready to go. */
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_set_oactive(&ifp->if_snd);
 
 #ifdef notyet
 	if (ic->ic_flags & IEEE80211_F_WEPON) {
@@ -2300,7 +2303,8 @@ rsu_stop(struct ifnet *ifp)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* In case we were scanning, release the scan "lock". */
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;

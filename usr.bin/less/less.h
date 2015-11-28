@@ -66,8 +66,6 @@
 #define	OPT_ON		1
 #define	OPT_ONPLUS	2
 
-#define	BAD_LSEEK	((off_t)-1)
-
 #ifndef CHAR_BIT
 #define	CHAR_BIT 8
 #endif
@@ -89,13 +87,10 @@ typedef off_t		LINENUM;
 
 #define	SHELL_META_QUEST 1
 
-#define	SPACES_IN_FILENAMES 1
-
 /*
  * An IFILE represents an input file.
  */
 #define	IFILE		void *
-#define	NULL_IFILE	(NULL)
 
 /*
  * The structure used to represent a "screen position".
@@ -114,8 +109,6 @@ typedef union parg {
 	int p_int;
 	LINENUM p_linenum;
 } PARG;
-
-#define	NULL_PARG	((PARG *)NULL)
 
 struct textlist {
 	char *string;

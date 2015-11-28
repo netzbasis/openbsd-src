@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nxe.c,v 1.68 2015/10/25 13:04:28 mpi Exp $ */
+/*	$OpenBSD: if_nxe.c,v 1.71 2015/11/25 03:09:59 dlg Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -41,7 +41,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -1171,7 +1170,7 @@ nxe_up(struct nxe_softc *sc)
 	nxe_crb_set(sc, 1);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* enable interrupts */
 	intr_scheme = nxe_crb_read(sc, NXE_1_SW_NIC_CAP_FW);
@@ -1271,7 +1270,8 @@ nxe_down(struct nxe_softc *sc)
 	struct ifnet			*ifp = &sc->sc_ac.ac_if;
 	int				i;
 
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE | IFF_ALLMULTI);
+	CLR(ifp->if_flags, IFF_RUNNING | IFF_ALLMULTI);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* XXX turn the chip off */
 
@@ -1308,12 +1308,12 @@ nxe_start(struct ifnet *ifp)
 	int				nsegs;
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ISSET(ifp->if_flags, IFF_OACTIVE) ||
+	    ifq_is_oactive(&ifp->if_snd) ||
 	    IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
 
 	if (nxe_ring_writeable(nr, sc->sc_cmd_consumer_cur) < NXE_TXD_DESCS) {
-		SET(ifp->if_flags, IFF_OACTIVE);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -1322,17 +1322,18 @@ nxe_start(struct ifnet *ifp)
 	bzero(txd, sizeof(struct nxe_tx_desc));
 
 	do {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		pkt = nxe_pkt_get(sc->sc_tx_pkts);
 		if (pkt == NULL) {
-			SET(ifp->if_flags, IFF_OACTIVE);
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 		dmap = pkt->pkt_dmap;
 		m = nxe_load_pkt(sc, dmap, m);
@@ -1436,7 +1437,7 @@ nxe_complete(struct nxe_softc *sc)
 
 	if (rv == 1) {
 		sc->sc_cmd_consumer_cur = cur_cons;
-		CLR(sc->sc_ac.ac_if.if_flags, IFF_OACTIVE);
+		ifq_clr_oactive(&sc->sc_ac.ac_if.if_snd);
 	}
 
 	return (rv);

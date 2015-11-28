@@ -1,4 +1,4 @@
-/*	$OpenBSD: savefile.c,v 1.13 2015/01/16 03:19:57 lteo Exp $	*/
+/*	$OpenBSD: savefile.c,v 1.15 2015/11/17 21:39:23 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996, 1997
@@ -34,9 +34,9 @@
 #include <sys/time.h>
 
 #include <errno.h>
-#include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #ifdef HAVE_OS_PROTO_H
@@ -332,7 +332,7 @@ pcap_offline_read(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 void
 pcap_dump(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 {
-	register FILE *f;
+	FILE *f;
 
 	f = (FILE *)user;
 	/* XXX we should check the return status */

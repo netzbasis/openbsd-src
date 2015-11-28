@@ -1,4 +1,4 @@
-/*	$OpenBSD: bootparamd.c,v 1.18 2007/02/18 20:33:45 jmc Exp $	*/
+/*	$OpenBSD: bootparamd.c,v 1.20 2015/11/26 19:00:40 deraadt Exp $	*/
 
 /*
  * This code is not copyright, and is placed in the public domain.
@@ -6,7 +6,6 @@
  * suggestions + bug fixes to Klas Heggemann <klas@nada.kth.se>
  *
  * Various small changes by Theo de Raadt <deraadt@fsa.ca>
- * Parser rewritten (adding YP support) by Roland McGrath <roland@frob.com>
  */
 
 #include <sys/types.h>
@@ -63,7 +62,6 @@ usage(void)
 	exit(1);
 }
 
-
 /*
  * ever familiar
  */
@@ -88,7 +86,7 @@ main(int argc, char *argv[])
 				warnx("no such host: %s", optarg);
 				usage();
 			}
-			bcopy(he->h_addr, (char *) &route_addr.s_addr,
+			bcopy(he->h_addr, &route_addr.s_addr,
 			    sizeof(route_addr.s_addr));
 			break;
 		case 'f':
@@ -131,6 +129,9 @@ main(int argc, char *argv[])
 		errx(1, "unable to register BOOTPARAMPROG version %ld, udp",
 		    BOOTPARAMVERS);
 
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
+
 	svc_run();
 	errx(1, "svc_run returned");
 }
@@ -154,9 +155,9 @@ bootparamproc_whoami_1_svc(bp_whoami_arg *whoami, struct svc_req *rqstp)
 		    255 & whoami->client_address.bp_address_u.ip_addr.lh,
 		    255 & whoami->client_address.bp_address_u.ip_addr.impno);
 
-	bcopy((char *) &whoami->client_address.bp_address_u.ip_addr,
+	bcopy(&whoami->client_address.bp_address_u.ip_addr,
 	    &haddr, sizeof(haddr));
-	he = gethostbyaddr((char *) &haddr, sizeof(haddr), AF_INET);
+	he = gethostbyaddr(&haddr, sizeof(haddr), AF_INET);
 	if (!he)
 		goto failed;
 
@@ -267,16 +268,13 @@ int
 lookup_bootparam(char *client, char *client_canonical, char *id,
     char **server, char **path)
 {
-	FILE   *f = fopen(bootpfile, "r");
-#ifdef YP
-	static char *ypbuf = NULL;
-	static int ypbuflen = 0;
-#endif
+	FILE   *f;
 	static char buf[BUFSIZ];
 	char   *bp, *word = NULL;
 	size_t  idlen = id == NULL ? 0 : strlen(id);
 	int	contin = 0, found = 0;
 
+	f = fopen(bootpfile, "r");
 	if (f == NULL)
 		return EINVAL;	/* ? */
 
@@ -298,21 +296,6 @@ lookup_bootparam(char *client, char *client_canonical, char *id,
 				continue;
 			if ((word = strsep(&bp, " \t\n")) == NULL)
 				continue;
-#ifdef YP
-			/* A + in the file means try YP now */
-			if (!strcmp(word, "+")) {
-				char   *ypdom;
-
-				if (yp_get_default_domain(&ypdom) ||
-				    yp_match(ypdom, "bootparams", client,
-					strlen(client), &ypbuf, &ypbuflen))
-					continue;
-				bp = ypbuf;
-				word = client;
-				contin *= -1;
-				break;
-			}
-#endif
 			/* See if this line's client is the one we are
 			 * looking for */
 			if (strcasecmp(word, client) != 0) {

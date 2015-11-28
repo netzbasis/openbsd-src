@@ -1,4 +1,4 @@
-/* $OpenBSD: alerts.c,v 1.4 2015/10/27 15:58:42 nicm Exp $ */
+/* $OpenBSD: alerts.c,v 1.7 2015/11/20 16:33:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,7 @@ int	alerts_check_silence(struct session *, struct winlink *);
 void	alerts_ring_bell(struct session *);
 
 void
-alerts_timer(unused int fd, unused short events, void *arg)
+alerts_timer(__unused int fd, __unused short events, void *arg)
 {
 	struct window	*w = arg;
 
@@ -45,7 +45,7 @@ alerts_timer(unused int fd, unused short events, void *arg)
 }
 
 void
-alerts_callback(unused int fd, unused short events, unused void *arg)
+alerts_callback(__unused int fd, __unused short events, __unused void *arg)
 {
 	struct window	*w;
 	struct session	*s;
@@ -77,22 +77,14 @@ alerts_callback(unused int fd, unused short events, unused void *arg)
 int
 alerts_enabled(struct window *w, int flags)
 {
-	struct session	*s;
-
+	if (flags & WINDOW_BELL)
+		return (1);
 	if (flags & WINDOW_ACTIVITY) {
 		if (options_get_number(w->options, "monitor-activity"))
 			return (1);
 	}
 	if (flags & WINDOW_SILENCE) {
 		if (options_get_number(w->options, "monitor-silence") != 0)
-			return (1);
-	}
-	if (~flags & WINDOW_BELL)
-		return (0);
-	RB_FOREACH(s, sessions, &sessions) {
-		if (!session_has(s, w))
-			continue;
-		if (options_get_number(s->options, "bell-action") != BELL_NONE)
 			return (1);
 	}
 	return (0);
@@ -132,15 +124,15 @@ alerts_queue(struct window *w, int flags)
 	if (!event_initialized(&w->alerts_timer))
 		evtimer_set(&w->alerts_timer, alerts_timer, w);
 
-	if (w->flags & flags)
-		return;
-	w->flags |= flags;
-	log_debug("@%u alerts flags added %#x", w->id, flags);
+	if (!alerts_fired) {
+		w->flags |= flags;
+		log_debug("@%u alerts flags added %#x", w->id, flags);
 
-	if (!alerts_fired && alerts_enabled(w, flags)) {
-		log_debug("alerts check queued (by @%u)", w->id);
-		event_once(-1, EV_TIMEOUT, alerts_callback, NULL, NULL);
-		alerts_fired = 1;
+		if (alerts_enabled(w, flags)) {
+			log_debug("alerts check queued (by @%u)", w->id);
+			event_once(-1, EV_TIMEOUT, alerts_callback, NULL, NULL);
+			alerts_fired = 1;
+		}
 	}
 }
 

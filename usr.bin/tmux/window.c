@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.147 2015/10/31 08:13:58 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.150 2015/11/24 23:46:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -808,7 +808,7 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
     struct termios *tio, char **cause)
 {
 	struct winsize	 ws;
-	char		*argv0, *cmd, **argvp, paneid[16];
+	char		*argv0, *cmd, **argvp;
 	const char	*ptr, *first, *home;
 	struct termios	 tio2;
 	int		 i;
@@ -863,9 +863,8 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
 		closefrom(STDERR_FILENO + 1);
 
 		if (path != NULL)
-			environ_set(env, "PATH", path);
-		xsnprintf(paneid, sizeof paneid, "%%%u", wp->id);
-		environ_set(env, "TMUX_PANE", paneid);
+			environ_set(env, "PATH", "%s", path);
+		environ_set(env, "TMUX_PANE", "%%%u", wp->id);
 		environ_push(env);
 
 		clear_signals(1);
@@ -916,13 +915,13 @@ window_pane_spawn(struct window_pane *wp, int argc, char **argv,
 }
 
 void
-window_pane_timer_callback(unused int fd, unused short events, void *data)
+window_pane_timer_callback(__unused int fd, __unused short events, void *data)
 {
 	window_pane_read_callback(NULL, data);
 }
 
 void
-window_pane_read_callback(unused struct bufferevent *bufev, void *data)
+window_pane_read_callback(__unused struct bufferevent *bufev, void *data)
 {
 	struct window_pane	*wp = data;
 	struct evbuffer		*evb = wp->event->input;
@@ -968,8 +967,8 @@ start_timer:
 }
 
 void
-window_pane_error_callback(unused struct bufferevent *bufev, unused short what,
-    void *data)
+window_pane_error_callback(__unused struct bufferevent *bufev,
+    __unused short what, void *data)
 {
 	struct window_pane *wp = data;
 
@@ -1102,7 +1101,7 @@ window_pane_reset_mode(struct window_pane *wp)
 
 void
 window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
-    int key, struct mouse_event *m)
+    key_code key, struct mouse_event *m)
 {
 	struct window_pane	*wp2;
 

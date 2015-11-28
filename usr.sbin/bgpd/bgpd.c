@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.179 2015/08/04 14:46:38 phessler Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.183 2015/11/27 21:41:30 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -232,6 +232,27 @@ main(int argc, char *argv[])
 	mrt_init(ibuf_rde, ibuf_se);
 	if ((rfd = kr_init()) == -1)
 		quit = 1;
+
+	/*
+	 * rpath, read config file
+	 * cpath, unlink control socket
+	 * fattr, chmod on control socket
+	 * wpath, needed if we are doing mrt dumps
+	 * proc, for kill() when shutting down
+	 *
+	 * pledge placed here because kr_init() does a setsockopt on the
+	 * routing socket thats not allowed at all.
+	 */
+#if 0
+	/*
+	 * disabled because we do ioctls on /dev/pf and SIOCSIFGATTR
+	 * this needs some redesign of bgpd to be fixed.
+	 */
+	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd "
+	    "proc", NULL) == -1)
+		fatal("pledge");
+#endif
+
 	if (imsg_send_sockets(ibuf_se, ibuf_rde))
 		fatal("could not establish imsg links");
 	quit = reconfigure(conffile, conf, &peer_l);
@@ -828,6 +849,8 @@ control_setup(struct bgpd_config *conf)
 			fatal("strdup");
 		if ((fd = control_init(0, cname)) == -1)
 			fatalx("control socket setup failed");
+		if (control_listen(fd) == -1)
+			fatalx("control socket setup failed");
 		restricted = 0;
 		if (imsg_compose(ibuf_se, IMSG_RECONF_CTRL, 0, 0, fd,
 		    &restricted, sizeof(restricted)) == -1)
@@ -846,6 +869,8 @@ control_setup(struct bgpd_config *conf)
 		if ((rcname = strdup(conf->rcsock)) == NULL)
 			fatal("strdup");
 		if ((fd = control_init(1, rcname)) == -1)
+			fatalx("control socket setup failed");
+		if (control_listen(fd) == -1)
 			fatalx("control socket setup failed");
 		restricted = 1;
 		if (imsg_compose(ibuf_se, IMSG_RECONF_CTRL, 0, 0, fd,
@@ -878,21 +903,21 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 
 	if (pfd->revents & POLLOUT)
 		if (msgbuf_write(&i->w) <= 0 && errno != EAGAIN) {
-			log_warn("handle_pollfd: msgbuf_write error");
+			log_warn("imsg write error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
 
 	if (pfd->revents & POLLIN) {
-		if ((n = imsg_read(i)) == -1) {
-			log_warn("handle_pollfd: imsg_read error");
+		if ((n = imsg_read(i)) == -1 && errno != EAGAIN) {
+			log_warn("imsg read error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
-		if (n == 0) { /* connection closed */
-			log_warn("handle_pollfd: poll fd");
+		if (n == 0) {
+			log_warnx("peer closed imsg connection");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);

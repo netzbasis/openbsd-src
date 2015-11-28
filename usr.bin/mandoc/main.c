@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.164 2015/11/07 17:58:52 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.166 2015/11/20 21:58:32 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -24,6 +24,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <glob.h>
 #include <signal.h>
@@ -120,14 +121,16 @@ main(int argc, char *argv[])
 	int		 show_usage;
 	int		 options;
 	int		 use_pager;
+	int		 status, signum;
 	int		 c;
+	pid_t		 pager_pid, tc_pgid, man_pgid, pid;
 
 	progname = getprogname();
 	if (strncmp(progname, "mandocdb", 8) == 0 ||
 	    strncmp(progname, "makewhatis", 10) == 0)
 		return mandocdb(argc, argv);
 
-	if (pledge("stdio rpath tmppath proc exec flock", NULL) == -1)
+	if (pledge("stdio rpath tmppath tty proc exec flock", NULL) == -1)
 		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Search options. */
@@ -387,7 +390,7 @@ main(int argc, char *argv[])
 
 	/* mandoc(1) */
 
-	if (pledge(use_pager ? "stdio rpath tmppath proc exec" :
+	if (pledge(use_pager ? "stdio rpath tmppath tty proc exec" :
 	    "stdio rpath", NULL) == -1)
 		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
@@ -484,7 +487,52 @@ out:
 	if (tag_files != NULL) {
 		fclose(stdout);
 		tag_write();
-		waitpid(spawn_pager(tag_files), NULL, 0);
+		man_pgid = getpgid(0);
+		tag_files->tcpgid = man_pgid == getpid() ?
+		    getpgid(getppid()) : man_pgid;
+		pager_pid = 0;
+		signum = SIGSTOP;
+		for (;;) {
+
+			/* Stop here until moved to the foreground. */
+
+			tc_pgid = tcgetpgrp(STDIN_FILENO);
+			if (tc_pgid != man_pgid) {
+				if (tc_pgid == pager_pid) {
+					(void)tcsetpgrp(STDIN_FILENO,
+					    man_pgid);
+					if (signum == SIGTTIN)
+						continue;
+				} else
+					tag_files->tcpgid = tc_pgid;
+				kill(0, signum);
+				continue;
+			}
+
+			/* Once in the foreground, activate the pager. */
+
+			if (pager_pid) {
+				(void)tcsetpgrp(STDIN_FILENO, pager_pid);
+				kill(pager_pid, SIGCONT);
+			} else
+				pager_pid = spawn_pager(tag_files);
+
+			/* Wait for the pager to stop or exit. */
+
+			while ((pid = waitpid(pager_pid, &status,
+			    WUNTRACED)) == -1 && errno == EINTR)
+				continue;
+
+			if (pid == -1) {
+				warn("wait");
+				rc = MANDOCLEVEL_SYSERR;
+				break;
+			}
+			if (!WIFSTOPPED(status))
+				break;
+
+			signum = WSTOPSIG(status);
+		}
 		tag_unlink();
 	}
 
@@ -971,10 +1019,15 @@ spawn_pager(struct tag_files *tag_files)
 	case -1:
 		err((int)MANDOCLEVEL_SYSERR, "fork");
 	case 0:
+		/* Set pgrp in both parent and child to avoid racing exec. */
+		(void)setpgid(0, 0);
 		break;
 	default:
-		if (pledge("stdio rpath tmppath", NULL) == -1)
+		(void)setpgid(pager_pid, 0);
+		(void)tcsetpgrp(STDIN_FILENO, pager_pid);
+		if (pledge("stdio rpath tmppath tty proc", NULL) == -1)
 			err((int)MANDOCLEVEL_SYSERR, "pledge");
+		tag_files->pager_pid = pager_pid;
 		return pager_pid;
 	}
 

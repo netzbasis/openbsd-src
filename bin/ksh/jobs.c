@@ -1,4 +1,4 @@
-/*	$OpenBSD: jobs.c,v 1.50 2015/10/19 14:42:16 mmcc Exp $	*/
+/*	$OpenBSD: jobs.c,v 1.52 2015/11/12 22:33:07 deraadt Exp $	*/
 
 /*
  * Process and job control
@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 
+#include <ctype.h>
 #include <limits.h>
 #include <string.h>
 
@@ -519,7 +520,7 @@ exchild(struct op *t, int flags, volatile int *xerrok,
 			setsig(&sigtraps[SIGQUIT], SIG_IGN,
 			    SS_RESTORE_IGN|SS_FORCE);
 			if (!(flags & (XPIPEI | XCOPROC))) {
-				int fd = open("/dev/null", 0);
+				int fd = open("/dev/null", O_RDONLY);
 				if (fd != 0) {
 					(void) ksh_dup2(fd, 0, true);
 					close(fd);

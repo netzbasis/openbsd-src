@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tht.c,v 1.134 2015/10/25 13:04:28 mpi Exp $ */
+/*	$OpenBSD: if_tht.c,v 1.137 2015/11/25 03:09:59 dlg Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -47,7 +47,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -968,7 +967,7 @@ tht_up(struct tht_softc *sc)
 	tht_iff(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	
 	/* enable interrupts */
 	sc->sc_imr = THT_IMR_UP(sc->sc_port);
@@ -1063,7 +1062,8 @@ tht_down(struct tht_softc *sc)
 		return;
 	}
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE | IFF_ALLMULTI);
+	ifp->if_flags &= ~(IFF_RUNNING | IFF_ALLMULTI);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	while (tht_fifo_writable(sc, &sc->sc_txt) < sc->sc_txt.tf_len &&
 	    tht_fifo_readable(sc, &sc->sc_txf) > 0)
@@ -1098,7 +1098,7 @@ tht_start(struct ifnet *ifp)
 
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
@@ -1111,17 +1111,18 @@ tht_start(struct ifnet *ifp)
 	tht_fifo_pre(sc, &sc->sc_txt);
 
 	do {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		pkt = tht_pkt_get(&sc->sc_tx_list);
 		if (pkt == NULL) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 		if (tht_load_pkt(sc, pkt, m) != 0) {
 			m_freem(m);
 			tht_pkt_put(&sc->sc_tx_list, pkt);
@@ -1233,7 +1234,7 @@ tht_txf(struct tht_softc *sc)
 
 	} while (sc->sc_txf.tf_ready >= sizeof(txf));
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	tht_fifo_post(sc, &sc->sc_txf);
 }

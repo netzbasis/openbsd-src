@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.30 2014/07/22 07:30:24 jsg Exp $	*/
+/*	$OpenBSD: main.c,v 1.35 2015/11/19 22:01:33 deraadt Exp $	*/
 /*	$NetBSD: main.c,v 1.5 1996/02/28 21:04:05 thorpej Exp $	*/
 
 /*
@@ -61,7 +61,7 @@ usage(void)
 	extern char *__progname;
 
 	(void)fprintf(stderr,
-	    "usage: %s [-4678acDdEKLr] [-b hostalias] [-e escapechar] "
+	    "usage: %s [-4678acDEKLr] [-b hostalias] [-e escapechar] "
 	    "[-l user]\n"
 	    "\t[-n tracefile] [-V rtable] [host [port]]\n",
 	    __progname);
@@ -95,7 +95,7 @@ main(int argc, char *argv[])
 
 	autologin = -1;
 
-	while ((ch = getopt(argc, argv, "4678ab:cDdEe:KLl:n:rV:"))
+	while ((ch = getopt(argc, argv, "4678ab:cDEe:KLl:n:rV:"))
 	    != -1) {
 		switch(ch) {
 		case '4':
@@ -126,9 +126,6 @@ main(int argc, char *argv[])
 				env_define("DISPLAY", (unsigned char*)p);
 			break;
 		}
-		case 'd':
-			debug = 1;
-			break;
 		case 'E':
 			rlogin = escape = _POSIX_VDISABLE;
 			break;
@@ -163,6 +160,17 @@ main(int argc, char *argv[])
 		default:
 			usage();
 		}
+	}
+
+	if (rtableid >= 0)
+		if (setrtable(rtableid) == -1) {
+			perror("setrtable");
+			exit(1);
+		}
+
+	if (pledge("stdio rpath wpath getpw dns inet tty", NULL) == -1) {
+		perror("pledge");
+		exit(1);
 	}
 
 	if (autologin == -1)

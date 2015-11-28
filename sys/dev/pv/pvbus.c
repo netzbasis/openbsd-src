@@ -1,4 +1,4 @@
-/*	$OpenBSD: pvbus.c,v 1.5 2015/07/29 17:08:46 mikeb Exp $	*/
+/*	$OpenBSD: pvbus.c,v 1.8 2015/11/16 10:16:07 dlg Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -31,6 +31,9 @@
 #include <sys/socket.h>
 
 #include <machine/specialreg.h>
+#ifdef __amd64__
+#include <machine/vmmvar.h>
+#endif
 
 #include <dev/rndvar.h>
 
@@ -76,7 +79,10 @@ struct pvbus_type {
 	{ "Microsoft Hv",	"Hyper-V",	pvbus_hyperv },
 	{ "VMwareVMware",	"VMware",	NULL },
 	{ "XenVMMXenVMM",	"Xen",		pvbus_xen },
-	{ "bhyve bhyve ",	"bhyve",	NULL }
+	{ "bhyve bhyve ",	"bhyve",	NULL },
+#ifdef __amd64__
+	{ VMM_HV_SIGNATURE,	"OpenBSD",	NULL },
+#endif
 };
 
 int
@@ -123,7 +129,8 @@ pvbus_attach(struct device *parent, struct device *self, void *aux)
 		}
 
 		for (i = 0; i < PVBUS_MAX; i++) {
-			if (memcmp(pvbus_types[i].signature, r.str,
+			if (pvbus_types[i].signature == NULL ||
+			    memcmp(pvbus_types[i].signature, r.str,
 			    CPUID_HV_SIGNATURE_STRLEN) != 0)
 				continue;
 			hv = &sc->pvbus_hv[i];

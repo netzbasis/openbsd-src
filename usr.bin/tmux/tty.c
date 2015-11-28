@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.192 2015/10/31 13:12:03 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.195 2015/11/23 20:53:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -172,7 +172,7 @@ tty_open(struct tty *tty, char **cause)
 }
 
 void
-tty_read_callback(unused struct bufferevent *bufev, void *data)
+tty_read_callback(__unused struct bufferevent *bufev, void *data)
 {
 	struct tty	*tty = data;
 
@@ -181,8 +181,8 @@ tty_read_callback(unused struct bufferevent *bufev, void *data)
 }
 
 void
-tty_error_callback(
-    unused struct bufferevent *bufev, unused short what, unused void *data)
+tty_error_callback(__unused struct bufferevent *bufev, __unused short what,
+    __unused void *data)
 {
 }
 
@@ -521,21 +521,15 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 		}
 		tty->cstyle = s->cstyle;
 	}
-	if (changed & (ALL_MOUSE_MODES|MODE_MOUSE_UTF8)) {
+	if (changed & ALL_MOUSE_MODES) {
 		if (mode & ALL_MOUSE_MODES) {
 			/*
-			 * Enable the UTF-8 (1005) extension if configured to.
 			 * Enable the SGR (1006) extension unconditionally, as
 			 * this is safe from misinterpretation. Do it in this
 			 * order, because in some terminals it's the last one
 			 * that takes effect and SGR is the preferred one.
 			 */
-			if (mode & MODE_MOUSE_UTF8)
-				tty_puts(tty, "\033[?1005h");
-			else
-				tty_puts(tty, "\033[?1005l");
 			tty_puts(tty, "\033[?1006h");
-
 			if (mode & MODE_MOUSE_BUTTON)
 				tty_puts(tty, "\033[?1002h");
 			else if (mode & MODE_MOUSE_STANDARD)
@@ -545,10 +539,7 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 				tty_puts(tty, "\033[?1002l");
 			else if (tty->mode & MODE_MOUSE_STANDARD)
 				tty_puts(tty, "\033[?1000l");
-
 			tty_puts(tty, "\033[?1006l");
-			if (tty->mode & MODE_MOUSE_UTF8)
-				tty_puts(tty, "\033[?1005l");
 		}
 	}
 	if (changed & MODE_KKEYPAD) {
@@ -591,7 +582,7 @@ tty_repeat_space(struct tty *tty, u_int n)
  * pane.
  */
 int
-tty_large_region(unused struct tty *tty, const struct tty_ctx *ctx)
+tty_large_region(__unused struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 
@@ -656,10 +647,8 @@ void
 tty_draw_line(struct tty *tty, const struct window_pane *wp,
     struct screen *s, u_int py, u_int ox, u_int oy)
 {
-	const struct grid_cell	*gc;
+	struct grid_cell	 gc;
 	struct grid_line	*gl;
-	struct grid_cell	 tmpgc;
-	struct utf8_data	 ud;
 	u_int			 i, sx;
 	int			 flags;
 
@@ -686,18 +675,13 @@ tty_draw_line(struct tty *tty, const struct window_pane *wp,
 		tty_cursor(tty, ox, oy + py);
 
 	for (i = 0; i < sx; i++) {
-		gc = grid_view_peek_cell(s->grid, i, py);
+		grid_view_get_cell(s->grid, i, py, &gc);
 		if (screen_check_selection(s, i, py)) {
-			memcpy(&tmpgc, &s->sel.cell, sizeof tmpgc);
-			grid_cell_get(gc, &ud);
-			grid_cell_set(&tmpgc, &ud);
-			tmpgc.flags = gc->flags &
-			    ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
-			tmpgc.flags |= s->sel.cell.flags &
+			gc.flags &= ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
+			gc.flags |= s->sel.cell.flags &
 			    (GRID_FLAG_FG256|GRID_FLAG_BG256);
-			tty_cell(tty, &tmpgc, wp);
-		} else
-			tty_cell(tty, gc, wp);
+		}
+		tty_cell(tty, &gc, wp);
 	}
 
 	if (sx < tty->sx) {
@@ -1078,7 +1062,7 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 
 	/* Is the cursor in the very last position? */
-	width = grid_cell_width(ctx->cell);
+	width = ctx->cell->data.width;
 	if (ctx->ocx > wp->sx - width) {
 		if (ctx->xoff != 0 || wp->sx != tty->sx) {
 			/*
@@ -1095,7 +1079,7 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 			 * move as far left as possible and redraw the last
 			 * cell to move into the last position.
 			 */
-			cx = screen_size_x(s) - grid_cell_width(&ctx->last_cell);
+			cx = screen_size_x(s) - ctx->last_cell.data.width;
 			tty_cursor_pane(tty, ctx, cx, ctx->ocy);
 			tty_cell(tty, &ctx->last_cell, wp);
 		}
@@ -1155,8 +1139,7 @@ void
 tty_cell(struct tty *tty, const struct grid_cell *gc,
     const struct window_pane *wp)
 {
-	struct utf8_data	ud;
-	u_int			i;
+	u_int	i;
 
 	/* Skip last character if terminal is stupid. */
 	if (tty->term->flags & TERM_EARLYWRAP &&
@@ -1171,23 +1154,22 @@ tty_cell(struct tty *tty, const struct grid_cell *gc,
 	tty_attributes(tty, gc, wp);
 
 	/* Get the cell and if ASCII write with putc to do ACS translation. */
-	grid_cell_get(gc, &ud);
-	if (ud.size == 1) {
-		if (*ud.data < 0x20 || *ud.data == 0x7f)
+	if (gc->data.size == 1) {
+		if (*gc->data.data < 0x20 || *gc->data.data == 0x7f)
 			return;
-		tty_putc(tty, *ud.data);
+		tty_putc(tty, *gc->data.data);
 		return;
 	}
 
 	/* If not UTF-8, write _. */
 	if (!(tty->flags & TTY_UTF8)) {
-		for (i = 0; i < ud.width; i++)
+		for (i = 0; i < gc->data.width; i++)
 			tty_putc(tty, '_');
 		return;
 	}
 
 	/* Write the data. */
-	tty_putn(tty, ud.data, ud.size, ud.width);
+	tty_putn(tty, gc->data.data, gc->data.size, gc->data.width);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fortune.c,v 1.44 2015/10/24 18:02:28 mmcc Exp $	*/
+/*	$OpenBSD: fortune.c,v 1.47 2015/11/10 15:29:11 deraadt Exp $	*/
 /*	$NetBSD: fortune.c,v 1.8 1995/03/23 08:28:40 cgd Exp $	*/
 
 /*-
@@ -149,6 +149,11 @@ regex_t regex;
 int
 main(int ac, char *av[])
 {
+	if (pledge("stdio rpath", NULL) == -1) {
+		perror("pledge");
+		exit(1);
+	}
+
 	getargs(ac, av);
 
 	if (Match)
@@ -407,7 +412,7 @@ add_file(int percent, char *file, char *dir, FILEDESC **head, FILEDESC **tail,
 
 	DPRINTF(1, (stderr, "adding file \"%s\"\n", path));
 over:
-	if ((fd = open(path, 0)) < 0) {
+	if ((fd = open(path, O_RDONLY)) < 0) {
 		/*
 		 * This is a sneak.  If the user said -a, and if the
 		 * file we're given isn't a file, we check to see if
@@ -550,7 +555,7 @@ all_forts(FILEDESC *fp, char *offensive)
 		return;
 	if (!is_fortfile(offensive, &datfile, &posfile, 0))
 		return;
-	if ((fd = open(offensive, 0)) < 0)
+	if ((fd = open(offensive, O_RDONLY)) < 0)
 		return;
 	DPRINTF(1, (stderr, "adding \"%s\" because of -a\n", offensive));
 	scene = new_fp();
@@ -956,7 +961,7 @@ open_fp(FILEDESC *fp)
 void
 open_dat(FILEDESC *fp)
 {
-	if (fp->datfd < 0 && (fp->datfd = open(fp->datfile, 0)) < 0) {
+	if (fp->datfd < 0 && (fp->datfd = open(fp->datfile, O_RDONLY)) < 0) {
 		perror(fp->datfile);
 		exit(1);
 	}
@@ -992,7 +997,7 @@ get_tbl(FILEDESC *fp)
 	if (fp->read_tbl)
 		return;
 	if (fp->child == NULL) {
-		if ((fd = open(fp->datfile, 0)) < 0) {
+		if ((fd = open(fp->datfile, O_RDONLY)) < 0) {
 			perror(fp->datfile);
 			exit(1);
 		}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_qe.c,v 1.36 2015/10/27 15:20:13 mpi Exp $	*/
+/*	$OpenBSD: if_qe.c,v 1.40 2015/11/25 03:09:58 dlg Exp $	*/
 /*      $NetBSD: if_qe.c,v 1.51 2002/06/08 12:28:37 ragge Exp $ */
 /*
  * Copyright (c) 1999 Ludd, University of Lule}, Sweden. All rights reserved.
@@ -48,14 +48,12 @@
 #include <sys/sockio.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/bus.h>
@@ -409,7 +407,7 @@ qeinit(struct qe_softc *sc)
 	    HIWORD(sc->sc_pqedata->qc_recv));
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Send a setup frame.
@@ -443,7 +441,7 @@ qestart(struct ifnet *ifp)
 			continue;
 		}
 		idx = sc->sc_nexttx;
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd, m);
 		if (m == NULL)
 			goto out;
 		/*
@@ -458,11 +456,12 @@ qestart(struct ifnet *ifp)
 			panic("qestart");
 
 		if ((i + sc->sc_inq) >= (TXDESCS - 1)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			goto out;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
@@ -526,7 +525,7 @@ qestart(struct ifnet *ifp)
 		sc->sc_nexttx = idx;
 	}
 	if (sc->sc_inq == (TXDESCS - 1))
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 
 out:	if (sc->sc_inq)
 		ifp->if_timer = 5; /* If transmit logic dies */
@@ -603,7 +602,7 @@ qeintr(void *arg)
 			}
 		}
 		ifp->if_timer = 0;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		qestart(ifp); /* Put in more in queue */
 	}
 	/*

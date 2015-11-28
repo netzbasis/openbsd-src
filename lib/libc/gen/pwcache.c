@@ -1,4 +1,4 @@
-/*	$OpenBSD: pwcache.c,v 1.10 2015/10/26 15:04:51 tedu Exp $ */
+/*	$OpenBSD: pwcache.c,v 1.13 2015/11/25 23:16:01 jcs Exp $ */
 /*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -35,32 +35,54 @@
 #include <stdio.h>
 #include <string.h>
 
-#define	NCACHE	64			/* power of 2 */
+#define	NCACHE	16			/* power of 2 */
+#define	NLINES	4			/* associativity */
 #define	MASK	(NCACHE - 1)		/* bits to store with */
+#define	IDX(x, i)	((x & MASK) + i * NCACHE)
 
 char *
 user_from_uid(uid_t uid, int nouser)
 {
 	static struct ncache {
 		uid_t	uid;
+		short	noname;
 		char	name[_PW_NAME_LEN + 1];
-	} c_uid[NCACHE];
-	static char nbuf[15];		/* 32 bits == 10 digits */
-	struct passwd *pw;
+	} c_uid[NLINES * NCACHE];
+	char pwbuf[_PW_BUF_LEN];
+	struct passwd pwstore, *pw;
 	struct ncache *cp;
+	unsigned int i;
 
-	cp = c_uid + (uid & MASK);
-	if (cp->uid != uid || !*cp->name) {
-		if ((pw = getpwuid(uid)) == NULL) {
-			if (nouser)
-				return (NULL);
-			(void)snprintf(nbuf, sizeof(nbuf), "%u", uid);
-			return (nbuf);
+	for (i = 0; i < NLINES; i++) {
+		cp = &c_uid[IDX(uid, i)];
+		if (!*cp->name) {
+fillit:
+			cp->uid = uid;
+			pw = NULL;
+			getpwuid_r(uid, &pwstore, pwbuf, sizeof(pwbuf), &pw);
+			if (pw == NULL) {
+				snprintf(cp->name, sizeof(cp->name), "%u", uid);
+				cp->noname = 1;
+			} else {
+				strlcpy(cp->name, pw->pw_name, sizeof(cp->name));
+			}
 		}
-		cp->uid = uid;
-		strlcpy(cp->name, pw->pw_name, sizeof(cp->name));
+		if (cp->uid == uid) {
+			if (nouser && cp->noname)
+				return NULL;
+			return cp->name;
+		}
 	}
-	return (cp->name);
+	/* move everybody down a slot */
+	for (i = 0; i < NLINES - 1; i++) {
+		struct ncache *next;
+
+		cp = &c_uid[IDX(uid, i)];
+		next = &c_uid[IDX(uid, i + 1)];
+		memcpy(next, cp, sizeof(*cp));
+	}
+	cp = &c_uid[IDX(uid, 0)];
+	goto fillit;
 }
 
 char *
@@ -68,22 +90,42 @@ group_from_gid(gid_t gid, int nogroup)
 {
 	static struct ncache {
 		gid_t	gid;
+		short 	noname;
 		char	name[_PW_NAME_LEN + 1];
-	} c_gid[NCACHE];
-	static char nbuf[15];		/* 32 bits == 10 digits */
-	struct group *gr;
+	} c_gid[NLINES * NCACHE];
+	char grbuf[_GR_BUF_LEN];
+	struct group grstore, *gr;
 	struct ncache *cp;
+	unsigned int i;
 
-	cp = c_gid + (gid & MASK);
-	if (cp->gid != gid || !*cp->name) {
-		if ((gr = getgrgid(gid)) == NULL) {
-			if (nogroup)
-				return (NULL);
-			(void)snprintf(nbuf, sizeof(nbuf), "%u", gid);
-			return (nbuf);
+	for (i = 0; i < NLINES; i++) {
+		cp = &c_gid[IDX(gid, i)];
+		if (!*cp->name) {
+fillit:
+			cp->gid = gid;
+			gr = NULL;
+			getgrgid_r(gid, &grstore, grbuf, sizeof(grbuf), &gr);
+			if (gr == NULL) {
+				snprintf(cp->name, sizeof(cp->name), "%u", gid);
+				cp->noname = 1;
+			} else {
+				strlcpy(cp->name, gr->gr_name, sizeof(cp->name));
+			}
 		}
-		cp->gid = gid;
-		strlcpy(cp->name, gr->gr_name, sizeof(cp->name));
+		if (cp->gid == gid) {
+			if (nogroup && cp->noname)
+				return NULL;
+			return cp->name;
+		}
 	}
-	return (cp->name);
+	/* move everybody down a slot */
+	for (i = 0; i < NLINES - 1; i++) {
+		struct ncache *next;
+
+		cp = &c_gid[IDX(gid, i)];
+		next = &c_gid[IDX(gid, i + 1)];
+		memcpy(next, cp, sizeof(*cp));
+	}
+	cp = &c_gid[IDX(gid, 0)];
+	goto fillit;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndiod.c,v 1.11 2015/10/02 12:21:59 ratchov Exp $	*/
+/*	$OpenBSD: sndiod.c,v 1.17 2015/11/26 12:35:37 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -94,7 +94,6 @@ unsigned int opt_mode(void);
 void getbasepath(char *, size_t);
 void setsig(void);
 void unsetsig(void);
-void privdrop(void);
 struct dev *mkdev(char *, struct aparams *,
     int, int, int, int, int, int);
 struct opt *mkopt(char *, struct dev *,
@@ -255,7 +254,7 @@ getbasepath(char *base, size_t size)
 {
 	uid_t uid;
 	struct stat sb;
-	mode_t mask;
+	mode_t mask, omask;
 
 	uid = geteuid();
 	if (uid == 0) {
@@ -265,29 +264,16 @@ getbasepath(char *base, size_t size)
 		mask = 077;
 		snprintf(base, SOCKPATH_MAX, SOCKPATH_DIR "-%u", uid);
 	}
-	if (mkdir(base, 0777 & ~mask) < 0) {
+	omask = umask(mask);
+	if (mkdir(base, 0777) < 0) {
 		if (errno != EEXIST)
 			err(1, "mkdir(\"%s\")", base);
 	}
+	umask(omask);	
 	if (stat(base, &sb) < 0)
 		err(1, "stat(\"%s\")", base);
 	if (sb.st_uid != uid || (sb.st_mode & mask) != 0)
 		errx(1, "%s has wrong permissions", base);
-}
-
-void
-privdrop(void)
-{
-	struct passwd *pw;
-
-	if ((pw = getpwnam(SNDIO_USER)) == NULL)
-		errx(1, "unknown user %s", SNDIO_USER);
-	if (setpriority(PRIO_PROCESS, 0, SNDIO_PRIO) < 0)
-		err(1, "setpriority");
-	if (setgroups(1, &pw->pw_gid) ||
-	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-		err(1, "cannot drop privileges");
 }
 
 struct dev *
@@ -333,7 +319,7 @@ main(int argc, char **argv)
 {
 	int c, background, unit;
 	int pmin, pmax, rmin, rmax;
-	char base[SOCKPATH_MAX], path[SOCKPATH_MAX];
+	char base[SOCKPATH_MAX], path[SOCKPATH_MAX], *tcpaddr;
 	unsigned int mode, dup, mmc, vol;
 	unsigned int hold, autovol, bufsz, round, rate;
 	const char *str;
@@ -341,6 +327,7 @@ main(int argc, char **argv)
 	struct dev *d;
 	struct port *p;
 	struct listen *l;
+	struct passwd *pw;
 
 	atexit(log_flush);
 
@@ -363,25 +350,21 @@ main(int argc, char **argv)
 	rmax = 1;
 	aparams_init(&par);
 	mode = MODE_PLAY | MODE_REC;
+	tcpaddr = NULL;
 
-	setsig();
-	filelist_init();
-
-	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:Mq:r:s:t:U:v:w:x:z:")) != -1) {
+	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:q:r:s:t:U:v:w:x:z:")) != -1) {
 		switch (c) {
 		case 'd':
 			log_level++;
 			background = 0;
 			break;
 		case 'U':
-			if (listen_list)
-				errx(1, "-U must come before -L");
 			unit = strtonum(optarg, 0, 15, &str);
 			if (str)
 				errx(1, "%s: unit number is %s", optarg, str);
 			break;
 		case 'L':
-			listen_new_tcp(optarg, AUCAT_PORT + unit);
+			tcpaddr = optarg;
 			break;
 		case 'm':
 			mode = opt_mode();
@@ -443,9 +426,6 @@ main(int argc, char **argv)
 		case 'f':
 			mkdev(optarg, &par, 0, bufsz, round, rate, hold, autovol);
 			break;
-		case 'M':
-			/* XXX: for compatibility with aucat, remove this */
-			break;
 		default:
 			fputs(usagestr, stderr);
 			return 1;
@@ -465,11 +445,30 @@ main(int argc, char **argv)
 		mkopt("default", d, pmin, pmax, rmin, rmax,
 		    mode, vol, mmc, dup);
 	}
+
+	setsig();
+	filelist_init();
+
 	getbasepath(base, sizeof(base));
 	snprintf(path, SOCKPATH_MAX, "%s/" SOCKPATH_FILE "%u", base, unit);
 	listen_new_un(path);
-	if (geteuid() == 0)
-		privdrop();
+	if (tcpaddr) {
+#ifdef USE_TCP
+		listen_new_tcp(tcpaddr, AUCAT_PORT + unit);
+#else
+		errx(1, "-L option disabled at compilation time");
+#endif
+	}
+	if (geteuid() == 0) {
+		if ((pw = getpwnam(SNDIO_USER)) == NULL)
+			errx(1, "unknown user %s", SNDIO_USER);
+		if (setpriority(PRIO_PROCESS, 0, SNDIO_PRIO) < 0)
+			err(1, "setpriority");
+		if (setgroups(1, &pw->pw_gid) ||
+		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+			err(1, "cannot drop privileges");
+	}
 	midi_init();
 	for (p = port_list; p != NULL; p = p->next) {
 		if (!port_init(p))
@@ -489,10 +488,6 @@ main(int argc, char **argv)
 		if (daemon(0, 0) < 0)
 			err(1, "daemon");
 	}
-
-	/*
-	 * Loop, start audio.
-	 */
 	for (;;) {
 		if (quit_flag)
 			break;
@@ -516,8 +511,8 @@ main(int argc, char **argv)
 		dev_del(dev_list);
 	while (port_list)
 		port_del(port_list);
-	filelist_done();
 	rmdir(base);
+	filelist_done();
 	unsetsig();
 	return 0;
 }

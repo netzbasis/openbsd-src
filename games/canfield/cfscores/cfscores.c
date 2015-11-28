@@ -1,4 +1,4 @@
-/*	$OpenBSD: cfscores.c,v 1.15 2009/10/27 23:59:24 deraadt Exp $	*/
+/*	$OpenBSD: cfscores.c,v 1.19 2015/11/26 13:28:22 tb Exp $	*/
 /*	$NetBSD: cfscores.c,v 1.3 1995/03/21 15:08:37 cgd Exp $	*/
 
 /*
@@ -31,14 +31,14 @@
  */
 
 #include <sys/types.h>
+#include <errno.h>
 #include <err.h>
 #include <fcntl.h>
-#include <pwd.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "pathnames.h"
 
 struct betinfo {
 	long	hand;		/* cost of dealing hand */
@@ -52,50 +52,30 @@ struct betinfo {
 };
 
 int dbfd;
+char scorepath[PATH_MAX];
 
-void	printuser(const struct passwd *, int);
+void	printuser(void);
 
 int
 main(int argc, char *argv[])
 {
-	struct passwd *pw;
-	uid_t uid;
-	gid_t gid;
+	char *home, *name;
+	int ret;
+	
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
 
-	if (argc > 2) {
-		fprintf(stderr, "usage: cfscores [-a] [username]\n");
-		exit(1);
-	}
-	dbfd = open(_PATH_SCORE, O_RDONLY);
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home,
+	    ".cfscores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".cfscores");
+
+	dbfd = open(scorepath, O_RDONLY);
 	if (dbfd < 0)
-		err(2, "%s", _PATH_SCORE);
+		err(2, "%s", scorepath);
 
-	/* revoke privs */
-	gid = getgid();
-	setresgid(gid, gid, gid);
-
-	setpwent();
-	if (argc == 1) {
-		uid = getuid();
-		pw = getpwuid(uid);
-		if (pw == 0) {
-			printf("You are not listed in the password file?!?\n");
-			exit(2);
-		}
-		printuser(pw, 1);
-		exit(0);
-	}
-	if (strcmp(argv[1], "-a") == 0) {
-		while ((pw = getpwent()) != 0)
-			printuser(pw, 0);
-		exit(0);
-	}
-	pw = getpwnam(argv[1]);
-	if (pw == 0) {
-		printf("User %s unknown\n", argv[1]);
-		exit(3);
-	}
-	printuser(pw, 1);
+	printuser();
 	exit(0);
 }
 
@@ -103,51 +83,46 @@ main(int argc, char *argv[])
  * print out info for specified password entry
  */
 void
-printuser(const struct passwd *pw, int printfail)
+printuser(void)
 {
 	struct betinfo total;
+	const char *name;
 	int i;
 
-	if (pw->pw_uid < 0) {
-		printf("Bad uid %u\n", pw->pw_uid);
-		return;
-	}
-	i = lseek(dbfd, pw->pw_uid * sizeof(struct betinfo), SEEK_SET);
-	if (i < 0) {
-		warn("lseek %s", _PATH_SCORE);
-		return;
-	}
+	name = getlogin();
+	if (name == NULL || *name == '\0')
+		name = " ??? ";
+
 	i = read(dbfd, (char *)&total, sizeof(total));
 	if (i < 0) {
-		warn("lseek %s", _PATH_SCORE);
+		warn("lseek %s", scorepath);
 		return;
 	}
 	if (i == 0 || total.hand == 0) {
-		if (printfail)
-			printf("%s has never played canfield.\n", pw->pw_name);
+		printf("%s has never played canfield.\n", name);
 		return;
 	}
-	i = strlen(pw->pw_name);
+	i = strlen(name);
 	printf("*----------------------*\n");
 	if (total.worth >= 0) {
 		if (i <= 8)
-			printf("* Winnings for %-8s*\n", pw->pw_name);
+			printf("* Winnings for %-8s*\n", name);
 		else {
 			printf("*     Winnings for     *\n");
 			if (i <= 20)
-				printf("* %20s *\n", pw->pw_name);
+				printf("* %20s *\n", name);
 			else
-				printf("%s\n", pw->pw_name);
+				printf("%s\n", name);
 		}
 	} else {
 		if (i <= 10)
-			printf("* Losses for %-10s*\n", pw->pw_name);
+			printf("* Losses for %-10s*\n", name);
 		else {
 			printf("*      Losses for      *\n");
 			if (i <= 20)
-				printf("* %20s *\n", pw->pw_name);
+				printf("* %20s *\n", name);
 			else
-				printf("%s\n", pw->pw_name);
+				printf("%s\n", name);
 		}
 	}
 	printf("*======================*\n");

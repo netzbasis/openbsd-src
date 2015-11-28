@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.141 2015/11/01 01:05:31 deraadt Exp $ */
+/* $OpenBSD: netcat.c,v 1.144 2015/11/23 01:23:56 bcook Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -310,26 +310,20 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (rtableid >= 0) {
-		/*
-		 * XXX No pledge if doing rtable manipulation!
-		 * XXX the routing table stuff is dangerous and can't be pledged.
-		 * XXX rtable should really have a better interface than sockopt
-		 */
-	}
-	else if (family == AF_UNIX) {
+	if (rtableid >= 0)
+		if (setrtable(rtableid) == -1)
+			err(1, "setrtable");
+
+	if (family == AF_UNIX) {
 		if (pledge("stdio rpath wpath cpath tmppath unix", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (Fflag) {
+	} else if (Fflag) {
 		if (pledge("stdio inet dns sendfd", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (usetls) {
+	} else if (usetls) {
 		if (pledge("stdio rpath inet dns", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (pledge("stdio inet dns", NULL) == -1)
+	} else if (pledge("stdio inet dns", NULL) == -1)
 		err(1, "pledge");
 
 	/* Cruft to make sure options are clean, and used properly. */
@@ -649,7 +643,7 @@ main(int argc, char *argv[])
 int
 unix_bind(char *path, int flags)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un s_un;
 	int s;
 
 	/* Create unix domain socket. */
@@ -657,17 +651,17 @@ unix_bind(char *path, int flags)
 	    0)) < 0)
 		return (-1);
 
-	memset(&sun, 0, sizeof(struct sockaddr_un));
-	sun.sun_family = AF_UNIX;
+	memset(&s_un, 0, sizeof(struct sockaddr_un));
+	s_un.sun_family = AF_UNIX;
 
-	if (strlcpy(sun.sun_path, path, sizeof(sun.sun_path)) >=
-	    sizeof(sun.sun_path)) {
+	if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >=
+	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
 
-	if (bind(s, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
+	if (bind(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		close(s);
 		return (-1);
 	}
@@ -743,7 +737,7 @@ tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 int
 unix_connect(char *path)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un s_un;
 	int s;
 
 	if (uflag) {
@@ -754,16 +748,16 @@ unix_connect(char *path)
 			return (-1);
 	}
 
-	memset(&sun, 0, sizeof(struct sockaddr_un));
-	sun.sun_family = AF_UNIX;
+	memset(&s_un, 0, sizeof(struct sockaddr_un));
+	s_un.sun_family = AF_UNIX;
 
-	if (strlcpy(sun.sun_path, path, sizeof(sun.sun_path)) >=
-	    sizeof(sun.sun_path)) {
+	if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >=
+	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
-	if (connect(s, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
+	if (connect(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		close(s);
 		return (-1);
 	}
@@ -809,10 +803,6 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 		    SOCK_NONBLOCK, res0->ai_protocol)) < 0)
 			continue;
 
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
-
 		/* Bind to a local port or source address if specified. */
 		if (sflag || pflag) {
 			struct addrinfo ahints, *ares;
@@ -837,7 +827,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 		if (timeout_connect(s, res0->ai_addr, res0->ai_addrlen) == 0)
 			break;
-		else if (vflag)
+		if (vflag)
 			warn("connect to %s port %s (%s) failed", host, port,
 			    uflag ? "udp" : "tcp");
 
@@ -908,10 +898,6 @@ local_listen(char *host, char *port, struct addrinfo hints)
 		if ((s = socket(res0->ai_family, res0->ai_socktype,
 		    res0->ai_protocol)) < 0)
 			continue;
-
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
 
 		ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
 		if (ret == -1)

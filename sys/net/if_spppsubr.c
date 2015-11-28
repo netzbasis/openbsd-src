@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.144 2015/11/02 11:19:30 dlg Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.149 2015/11/23 14:41:05 sthen Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -161,6 +161,8 @@
 #define STATE_ACK_RCVD	7
 #define STATE_ACK_SENT	8
 #define STATE_OPENED	9
+
+#define PKTHDRLEN	2
 
 struct ppp_header {
 	u_char address;
@@ -334,7 +336,6 @@ void sppp_keepalive(void *dummy);
 void sppp_phase_network(struct sppp *sp);
 void sppp_print_bytes(const u_char *p, u_short len);
 void sppp_print_string(const char *p, u_short len);
-void sppp_qflush(struct ifqueue *ifq);
 int sppp_update_gw_walker(struct rtentry *rt, void *arg, unsigned int id);
 void sppp_update_gw(struct ifnet *ifp);
 void sppp_set_ip_addrs(void *);
@@ -446,16 +447,10 @@ sppp_input(struct ifnet *ifp, struct mbuf *m)
 	/* mark incoming routing domain */
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
 
-	if (sp->pp_flags & PP_NOFRAMING) {
-		m_copydata(m, 0, sizeof(ht.protocol), (caddr_t)&ht.protocol);
-		m_adj(m, 2);
-		ht.control = PPP_UI;
-		ht.address = PPP_ALLSTATIONS;
-	} else {
-		/* Get PPP header. */
-		m_copydata(m, 0, sizeof(ht), (caddr_t)&ht);
-		m_adj (m, PPP_HEADER_LEN);
-	}
+	m_copydata(m, 0, sizeof(ht.protocol), (caddr_t)&ht.protocol);
+	m_adj(m, 2);
+	ht.control = PPP_UI;
+	ht.address = PPP_ALLSTATIONS;
 
 	/* preserve the alignment */
 	if (m->m_len < m->m_pkthdr.len) {
@@ -558,7 +553,6 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 	    struct sockaddr *dst, struct rtentry *rt)
 {
 	struct sppp *sp = (struct sppp*) ifp;
-	struct ppp_header *h;
 	struct timeval tv;
 	int s, rv = 0;
 	u_int16_t protocol;
@@ -621,29 +615,6 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 		}
 	}
 
-	if (sp->pp_flags & PP_NOFRAMING)
-		goto skip_header;
-	/*
-	 * Prepend general data packet PPP header. For now, IP only.
-	 */
-	M_PREPEND (m, PPP_HEADER_LEN, M_DONTWAIT);
-	if (!m) {
-		if (ifp->if_flags & IFF_DEBUG)
-			log(LOG_DEBUG, SPP_FMT "no memory for transmit header\n",
-				SPP_ARGS(ifp));
-		++ifp->if_oerrors;
-		splx (s);
-		return (ENOBUFS);
-	}
-	/*
-	 * May want to check size of packet
-	 * (albeit due to the implementation it's always enough)
-	 */
-	h = mtod (m, struct ppp_header*);
-	h->address = PPP_ALLSTATIONS;        /* broadcast address */
-	h->control = PPP_UI;                 /* Unnumbered Info */
-
- skip_header:
 	switch (dst->sa_family) {
 	case AF_INET:   /* Internet Protocol */
 		/*
@@ -682,20 +653,17 @@ sppp_output(struct ifnet *ifp, struct mbuf *m,
 		return (EAFNOSUPPORT);
 	}
 
-	if (sp->pp_flags & PP_NOFRAMING) {
-		M_PREPEND(m, 2, M_DONTWAIT);
-		if (m == NULL) {
-			if (ifp->if_flags & IFF_DEBUG)
-				log(LOG_DEBUG, SPP_FMT
-				    "no memory for transmit header\n",
-				    SPP_ARGS(ifp));
-			++ifp->if_oerrors;
-			splx(s);
-			return (ENOBUFS);
-		}
-		*mtod(m, u_int16_t *) = protocol;
-	} else
-		h->protocol = protocol;
+	M_PREPEND(m, 2, M_DONTWAIT);
+	if (m == NULL) {
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_DEBUG, SPP_FMT
+			    "no memory for transmit header\n",
+			    SPP_ARGS(ifp));
+		++ifp->if_oerrors;
+		splx(s);
+		return (ENOBUFS);
+	}
+	*mtod(m, u_int16_t *) = protocol;
 
 	/*
 	 * Queue message on interface, and start output if interface
@@ -736,7 +704,7 @@ sppp_attach(struct ifnet *ifp)
 	sp->pp_if.if_type = IFT_PPP;
 	sp->pp_if.if_output = sppp_output;
 	IFQ_SET_MAXLEN(&sp->pp_if.if_snd, 50);
-	IFQ_SET_MAXLEN(&sp->pp_cpq, 50);
+	mq_init(&sp->pp_cpq, 50, IPL_NET);
 	sp->pp_loopcnt = 0;
 	sp->pp_alivecnt = 0;
 	sp->pp_last_activity = 0;
@@ -802,7 +770,7 @@ sppp_flush(struct ifnet *ifp)
 	struct sppp *sp = (struct sppp*) ifp;
 
 	IFQ_PURGE(&sp->pp_if.if_snd);
-	sppp_qflush (&sp->pp_cpq);
+	mq_purge(&sp->pp_cpq);
 }
 
 /*
@@ -815,8 +783,7 @@ sppp_isempty(struct ifnet *ifp)
 	int empty, s;
 
 	s = splnet();
-	empty = IF_IS_EMPTY(&sp->pp_cpq) &&
-		IFQ_IS_EMPTY(&sp->pp_if.if_snd);
+	empty = mq_empty(&sp->pp_cpq) && IFQ_IS_EMPTY(&sp->pp_if.if_snd);
 	splx(s);
 	return (empty);
 }
@@ -836,7 +803,7 @@ sppp_dequeue(struct ifnet *ifp)
 	 * Process only the control protocol queue until we have at
 	 * least one NCP open.
 	 */
-	IF_DEQUEUE(&sp->pp_cpq, m);
+	m = mq_dequeue(&sp->pp_cpq);
 	if (m == NULL && sppp_ncp_check(sp)) {
 		IFQ_DEQUEUE (&sp->pp_if.if_snd, m);
 	}
@@ -890,7 +857,6 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 		}
 		break;
 
-#ifdef SIOCSIFMTU
 	case SIOCSIFMTU:
 		if (ifr->ifr_mtu < 128 ||
 		    (sp->lcp.their_mru > 0 &&
@@ -900,33 +866,12 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 		}
 		ifp->if_mtu = ifr->ifr_mtu;
 		break;
-#endif
-#ifdef SLIOCSETMTU
-	case SLIOCSETMTU:
-		if (*(short*)data < 128 ||
-		    (sp->lcp.their_mru > 0 &&
-		     *(short*)data > sp->lcp.their_mru)) {
-			splx(s);
-			return (EINVAL);
-		}
-		ifp->if_mtu = *(short*)data;
-		break;
-#endif
-#ifdef SIOCGIFMTU
 	case SIOCGIFMTU:
 		ifr->ifr_mtu = ifp->if_mtu;
 		break;
-#endif
-#ifdef SIOCGIFHARDMTU
 	case SIOCGIFHARDMTU:
 		ifr->ifr_hardmtu = ifp->if_hardmtu;
 		break;
-#endif
-#ifdef SLIOCGETMTU
-	case SLIOCGETMTU:
-		*(short*)data = ifp->if_mtu;
-		break;
-#endif
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
 		break;
@@ -958,31 +903,20 @@ sppp_cp_send(struct sppp *sp, u_short proto, u_char type,
 	     u_char ident, u_short len, void *data)
 {
 	STDDCL;
-	struct ppp_header *h;
+	int s;
 	struct lcp_header *lh;
 	struct mbuf *m;
-	size_t pkthdrlen;
 
-	pkthdrlen = (sp->pp_flags & PP_NOFRAMING) ? 2 : PPP_HEADER_LEN;
-
-	if (len > MHLEN - pkthdrlen - LCP_HEADER_LEN)
-		len = MHLEN - pkthdrlen - LCP_HEADER_LEN;
+	if (len > MHLEN - PKTHDRLEN - LCP_HEADER_LEN)
+		len = MHLEN - PKTHDRLEN - LCP_HEADER_LEN;
 	MGETHDR (m, M_DONTWAIT, MT_DATA);
 	if (! m)
 		return;
-	m->m_pkthdr.len = m->m_len = pkthdrlen + LCP_HEADER_LEN + len;
+	m->m_pkthdr.len = m->m_len = PKTHDRLEN + LCP_HEADER_LEN + len;
 	m->m_pkthdr.ph_ifidx = 0;
 
-	if (sp->pp_flags & PP_NOFRAMING) {
-		*mtod(m, u_int16_t *) = htons(proto);
-		lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
-	} else {	
-		h = mtod (m, struct ppp_header*);
-		h->address = PPP_ALLSTATIONS;	/* broadcast address */
-		h->control = PPP_UI;		/* Unnumbered Info */
-		h->protocol = htons (proto);	/* Link Control Protocol */
-		lh = (struct lcp_header*) (h + 1);
-	}
+	*mtod(m, u_int16_t *) = htons(proto);
+	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
 	lh->type = type;
 	lh->ident = ident;
 	lh->len = htons (LCP_HEADER_LEN + len);
@@ -999,17 +933,17 @@ sppp_cp_send(struct sppp *sp, u_short proto, u_char type,
 			sppp_print_bytes ((u_char*) (lh+1), len);
 		addlog(">\n");
 	}
-	if (IF_QFULL (&sp->pp_cpq)) {
-		IF_DROP (&ifp->if_snd);
-		m_freem (m);
-		++ifp->if_oerrors;
-		m = NULL;
-	} else
-		IF_ENQUEUE (&sp->pp_cpq, m);
-	if (!(ifp->if_flags & IFF_OACTIVE))
-		(*ifp->if_start) (ifp);
-	if (m != NULL)
-		ifp->if_obytes += m->m_pkthdr.len + sp->pp_framebytes;
+
+	len = m->m_pkthdr.len + sp->pp_framebytes;
+	if (mq_enqueue(&sp->pp_cpq, m) != 0) {
+		ifp->if_oerrors++;
+		return;
+	}
+
+	ifp->if_obytes += len;
+	s = splnet();
+	if_start(ifp);
+	splx(s);
 }
 
 /*
@@ -4045,12 +3979,10 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 		unsigned int type, u_int id, ...)
 {
 	STDDCL;
-	struct ppp_header *h;
 	struct lcp_header *lh;
 	struct mbuf *m;
 	u_char *p;
-	int len;
-	size_t pkthdrlen;
+	int len, s;
 	unsigned int mlen;
 	const char *msg;
 	va_list ap;
@@ -4060,18 +3992,8 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 		return;
 	m->m_pkthdr.ph_ifidx = 0;
 
-	if (sp->pp_flags & PP_NOFRAMING) {
-		*mtod(m, u_int16_t *) = htons(cp->proto);
-		pkthdrlen = 2;
-		lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
-	} else {
-		h = mtod (m, struct ppp_header*);
-		h->address = PPP_ALLSTATIONS;	/* broadcast address */
-		h->control = PPP_UI;		/* Unnumbered Info */
-		h->protocol = htons(cp->proto);
-		pkthdrlen = PPP_HEADER_LEN;
-		lh = (struct lcp_header*)(h + 1);
-	}
+	*mtod(m, u_int16_t *) = htons(cp->proto);
+	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
 
 	lh->type = type;
 	lh->ident = id;
@@ -4083,7 +4005,7 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 	while ((mlen = (unsigned int)va_arg(ap, size_t)) != 0) {
 		msg = va_arg(ap, const char *);
 		len += mlen;
-		if (len > MHLEN - pkthdrlen - LCP_HEADER_LEN) {
+		if (len > MHLEN - PKTHDRLEN - LCP_HEADER_LEN) {
 			va_end(ap);
 			m_freem(m);
 			return;
@@ -4094,7 +4016,7 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 	}
 	va_end(ap);
 
-	m->m_pkthdr.len = m->m_len = pkthdrlen + LCP_HEADER_LEN + len;
+	m->m_pkthdr.len = m->m_len = PKTHDRLEN + LCP_HEADER_LEN + len;
 	lh->len = htons (LCP_HEADER_LEN + len);
 
 	if (debug) {
@@ -4106,26 +4028,17 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 			sppp_print_bytes((u_char*) (lh+1), len);
 		addlog(">\n");
 	}
-	if (IF_QFULL (&sp->pp_cpq)) {
-		IF_DROP (&ifp->if_snd);
-		m_freem (m);
-		++ifp->if_oerrors;
-		m = NULL;
-	} else
-		IF_ENQUEUE (&sp->pp_cpq, m);
-	if (! (ifp->if_flags & IFF_OACTIVE))
-		(*ifp->if_start) (ifp);
-	if (m != NULL)
-		ifp->if_obytes += m->m_pkthdr.len + sp->pp_framebytes;
-}
 
-/*
- * Flush interface queue.
- */
-void
-sppp_qflush(struct ifqueue *ifq)
-{
-	IF_PURGE(ifq);
+	len = m->m_pkthdr.len + sp->pp_framebytes;
+	if (mq_enqueue(&sp->pp_cpq, m) != 0) {
+		ifp->if_oerrors++;
+		return;
+	}
+
+	ifp->if_obytes += len;
+	s = splnet();
+	if_start(ifp);
+	splx(s);
 }
 
 /*
@@ -4161,7 +4074,7 @@ sppp_keepalive(void *dummy)
 		if (sp->pp_alivecnt >= MAXALIVECNT) {
 			/* No keepalive packets got.  Stop the interface. */
 			if_down (ifp);
-			sppp_qflush (&sp->pp_cpq);
+			mq_purge(&sp->pp_cpq);
 			log(LOG_INFO, SPP_FMT "LCP keepalive timeout\n",
 			    SPP_ARGS(ifp));
 			sp->pp_alivecnt = 0;
@@ -4244,10 +4157,9 @@ sppp_update_gw_walker(struct rtentry *rt, void *arg, unsigned int id)
 	if (rt->rt_ifidx == ifp->if_index) {
 		if (rt->rt_ifa->ifa_dstaddr->sa_family !=
 		    rt->rt_gateway->sa_family ||
-		    (rt->rt_flags & RTF_GATEWAY) == 0)
+		    !ISSET(rt->rt_flags, RTF_GATEWAY))
 			return (0);	/* do not modify non-gateway routes */
-		bcopy(rt->rt_ifa->ifa_dstaddr, rt->rt_gateway,
-		    rt->rt_ifa->ifa_dstaddr->sa_len);
+		rt_setgate(rt, rt->rt_ifa->ifa_dstaddr);
 	}
 	return (0);
 }

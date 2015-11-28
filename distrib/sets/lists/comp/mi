@@ -890,6 +890,7 @@
 ./usr/include/glob.h
 ./usr/include/grp.h
 ./usr/include/histedit.h
+./usr/include/icdb.h
 ./usr/include/ifaddrs.h
 ./usr/include/imsg.h
 ./usr/include/inttypes.h
@@ -1079,7 +1080,6 @@
 ./usr/include/objc/sarray.h
 ./usr/include/objc/thr.h
 ./usr/include/objc/typedstream.h
-./usr/include/ocurses.h
 ./usr/include/ohash.h
 ./usr/include/openssl
 ./usr/include/openssl/aes.h
@@ -1512,12 +1512,8 @@
 ./usr/lib/libncursesw_p.a
 ./usr/lib/libobjc.a
 ./usr/lib/libobjc_p.a
-./usr/lib/libocurses.a
-./usr/lib/libocurses_p.a
 ./usr/lib/libossaudio.a
 ./usr/lib/libossaudio_p.a
-./usr/lib/libotermcap.a
-./usr/lib/libotermcap_p.a
 ./usr/lib/libpanel.a
 ./usr/lib/libpanel_p.a
 ./usr/lib/libpanelw.a
@@ -1840,6 +1836,7 @@
 ./usr/share/man/man2/sync.2
 ./usr/share/man/man2/sysarch.2
 ./usr/share/man/man2/syscall.2
+./usr/share/man/man2/thrkill.2
 ./usr/share/man/man2/truncate.2
 ./usr/share/man/man2/umask.2
 ./usr/share/man/man2/unlink.2
@@ -1941,6 +1938,7 @@
 ./usr/share/man/man3/BIO_make_bio_pair.3
 ./usr/share/man/man3/BIO_method_type.3
 ./usr/share/man/man3/BIO_new.3
+./usr/share/man/man3/BIO_new_CMS.3
 ./usr/share/man/man3/BIO_new_accept.3
 ./usr/share/man/man3/BIO_new_bio_pair.3
 ./usr/share/man/man3/BIO_new_buffer_ssl_connect.3
@@ -2453,6 +2451,7 @@
 ./usr/share/man/man3/EVP_OpenInit.3
 ./usr/share/man/man3/EVP_OpenUpdate.3
 ./usr/share/man/man3/EVP_PKEY_CTX_ctrl.3
+./usr/share/man/man3/EVP_PKEY_CTX_ctrl_str.3
 ./usr/share/man/man3/EVP_PKEY_CTX_dup.3
 ./usr/share/man/man3/EVP_PKEY_CTX_free.3
 ./usr/share/man/man3/EVP_PKEY_CTX_get_app_data.3
@@ -2478,7 +2477,6 @@
 ./usr/share/man/man3/EVP_PKEY_cmp.3
 ./usr/share/man/man3/EVP_PKEY_cmp_parameters.3
 ./usr/share/man/man3/EVP_PKEY_copy_parameters.3
-./usr/share/man/man3/EVP_PKEY_ctrl_str.3
 ./usr/share/man/man3/EVP_PKEY_decrypt.3
 ./usr/share/man/man3/EVP_PKEY_decrypt_init.3
 ./usr/share/man/man3/EVP_PKEY_derive.3
@@ -2777,7 +2775,6 @@
 ./usr/share/man/man3/RMD160Pad.3
 ./usr/share/man/man3/RMD160Transform.3
 ./usr/share/man/man3/RMD160Update.3
-./usr/share/man/man3/RSA_PKCS1_RSAref.3
 ./usr/share/man/man3/RSA_PKCS1_SSLeay.3
 ./usr/share/man/man3/RSA_blinding_off.3
 ./usr/share/man/man3/RSA_blinding_on.3
@@ -2868,6 +2865,7 @@
 ./usr/share/man/man3/SHA512Pad.3
 ./usr/share/man/man3/SHA512Transform.3
 ./usr/share/man/man3/SHA512Update.3
+./usr/share/man/man3/SIMPLEQ_CONCAT.3
 ./usr/share/man/man3/SIMPLEQ_EMPTY.3
 ./usr/share/man/man3/SIMPLEQ_ENTRY.3
 ./usr/share/man/man3/SIMPLEQ_FIRST.3
@@ -2963,7 +2961,7 @@
 ./usr/share/man/man3/SSL_CTX_sess_set_cache_size.3
 ./usr/share/man/man3/SSL_CTX_sess_set_get_cb.3
 ./usr/share/man/man3/SSL_CTX_sess_set_new_cb.3
-./usr/share/man/man3/SSL_CTX_sess_set_remove.3
+./usr/share/man/man3/SSL_CTX_sess_set_remove_cb.3
 ./usr/share/man/man3/SSL_CTX_sess_timeouts.3
 ./usr/share/man/man3/SSL_CTX_sessions.3
 ./usr/share/man/man3/SSL_CTX_set_cert_store.3
@@ -3142,6 +3140,7 @@
 ./usr/share/man/man3/SipHash24_Final.3
 ./usr/share/man/man3/SipHash24_Init.3
 ./usr/share/man/man3/SipHash24_Update.3
+./usr/share/man/man3/TAILQ_CONCAT.3
 ./usr/share/man/man3/TAILQ_EMPTY.3
 ./usr/share/man/man3/TAILQ_ENTRY.3
 ./usr/share/man/man3/TAILQ_FIRST.3
@@ -3398,7 +3397,6 @@
 ./usr/share/man/man3/bn_expand.3
 ./usr/share/man/man3/bn_expand2.3
 ./usr/share/man/man3/bn_fix_top.3
-./usr/share/man/man3/bn_internal.3
 ./usr/share/man/man3/bn_mul_add_words.3
 ./usr/share/man/man3/bn_mul_comba4.3
 ./usr/share/man/man3/bn_mul_comba8.3
@@ -3663,7 +3661,6 @@
 ./usr/share/man/man3/d2i_ECPKParameters_bio.3
 ./usr/share/man/man3/d2i_ECPKParameters_fp.3
 ./usr/share/man/man3/d2i_Netscape_RSA.3
-./usr/share/man/man3/d2i_PKCS8PrivateKey.3
 ./usr/share/man/man3/d2i_PKCS8PrivateKey_bio.3
 ./usr/share/man/man3/d2i_PKCS8PrivateKey_fp.3
 ./usr/share/man/man3/d2i_RSAPrivateKey.3
@@ -3757,7 +3754,6 @@
 ./usr/share/man/man3/dupwin.3
 ./usr/share/man/man3/dynamic_field_info.3
 ./usr/share/man/man3/ec.3
-./usr/share/man/man3/ecdsa.3
 ./usr/share/man/man3/echo.3
 ./usr/share/man/man3/echo_wchar.3
 ./usr/share/man/man3/echochar.3
@@ -4154,8 +4150,10 @@
 ./usr/share/man/man3/getpwent.3
 ./usr/share/man/man3/getpwnam.3
 ./usr/share/man/man3/getpwnam_r.3
+./usr/share/man/man3/getpwnam_shadow.3
 ./usr/share/man/man3/getpwuid.3
 ./usr/share/man/man3/getpwuid_r.3
+./usr/share/man/man3/getpwuid_shadow.3
 ./usr/share/man/man3/getrawpartition.3
 ./usr/share/man/man3/getrpcbyname.3
 ./usr/share/man/man3/getrpcbynumber.3
@@ -4547,7 +4545,6 @@
 ./usr/share/man/man3/lh_retrieve.3
 ./usr/share/man/man3/lh_stats.3
 ./usr/share/man/man3/lh_stats_bio.3
-./usr/share/man/man3/lhash.3
 ./usr/share/man/man3/link_field.3
 ./usr/share/man/man3/link_fieldtype.3
 ./usr/share/man/man3/link_ntoa.3
@@ -4823,7 +4820,6 @@
 ./usr/share/man/man3/nrand48.3
 ./usr/share/man/man3/ntohl.3
 ./usr/share/man/man3/ntohs.3
-./usr/share/man/man3/ocurses.3
 ./usr/share/man/man3/offsetof.3
 ./usr/share/man/man3/ohash_create_entry.3
 ./usr/share/man/man3/ohash_delete.3
@@ -4848,7 +4844,6 @@
 ./usr/share/man/man3/openlog_r.3
 ./usr/share/man/man3/openpty.3
 ./usr/share/man/man3/ossaudio.3
-./usr/share/man/man3/otermcap.3
 ./usr/share/man/man3/overlay.3
 ./usr/share/man/man3/overwrite.3
 ./usr/share/man/man3/pair_content.3
@@ -5706,7 +5701,6 @@
 ./usr/share/man/man3/towctrans.3
 ./usr/share/man/man3/towlower.3
 ./usr/share/man/man3/towupper.3
-./usr/share/man/man3/tparam.3
 ./usr/share/man/man3/tparm.3
 ./usr/share/man/man3/tputs.3
 ./usr/share/man/man3/tree.3
@@ -5722,8 +5716,6 @@
 ./usr/share/man/man3/tzset.3
 ./usr/share/man/man3/tzsetwall.3
 ./usr/share/man/man3/ualarm.3
-./usr/share/man/man3/ui.3
-./usr/share/man/man3/ui_compat.3
 ./usr/share/man/man3/uname.3
 ./usr/share/man/man3/uncompress.3
 ./usr/share/man/man3/unctrl.3
@@ -6012,8 +6004,10 @@
 ./usr/share/man/man9/KDASSERTMSG.9
 ./usr/share/man/man9/KNOTE.9
 ./usr/share/man/man9/KTRPOINT.9
+./usr/share/man/man9/MBUF_LIST_FIRST.9
 ./usr/share/man/man9/MBUF_LIST_FOREACH.9
 ./usr/share/man/man9/MBUF_LIST_INITIALIZER.9
+./usr/share/man/man9/MBUF_LIST_NEXT.9
 ./usr/share/man/man9/MBUF_QUEUE_INITIALIZER.9
 ./usr/share/man/man9/MCLGET.9
 ./usr/share/man/man9/MCLGETI.9
@@ -6037,11 +6031,10 @@
 ./usr/share/man/man9/RWLOCK_INITIALIZER.9
 ./usr/share/man/man9/SRPL_EMPTY_LOCKED.9
 ./usr/share/man/man9/SRPL_ENTER.9
-./usr/share/man/man9/SRPL_ENTRY_INIT.9
 ./usr/share/man/man9/SRPL_FIRST_LOCKED.9
 ./usr/share/man/man9/SRPL_FOREACH.9
 ./usr/share/man/man9/SRPL_FOREACH_LOCKED.9
-./usr/share/man/man9/SRPL_HEAD_INIT.9
+./usr/share/man/man9/SRPL_FOREACH_SAFE_LOCKED.9
 ./usr/share/man/man9/SRPL_INSERT_AFTER_LOCKED.9
 ./usr/share/man/man9/SRPL_INSERT_HEAD_LOCKED.9
 ./usr/share/man/man9/SRPL_LEAVE.9
@@ -6278,7 +6271,6 @@
 ./usr/share/man/man9/crypto_newsession.9
 ./usr/share/man/man9/crypto_register.9
 ./usr/share/man/man9/crypto_unregister.9
-./usr/share/man/man9/ctlname.9
 ./usr/share/man/man9/db_printf.9
 ./usr/share/man/man9/db_vprintf.9
 ./usr/share/man/man9/delay.9
@@ -6293,7 +6285,6 @@
 ./usr/share/man/man9/dma_free.9
 ./usr/share/man/man9/dohooks.9
 ./usr/share/man/man9/domountroothooks.9
-./usr/share/man/man9/dopowerhooks.9
 ./usr/share/man/man9/dostartuphooks.9
 ./usr/share/man/man9/evcount.9
 ./usr/share/man/man9/evcount_attach.9
@@ -6353,7 +6344,6 @@
 ./usr/share/man/man9/ieee80211_begin_scan.9
 ./usr/share/man/man9/ieee80211_chan2ieee.9
 ./usr/share/man/man9/ieee80211_chan2mode.9
-./usr/share/man/man9/ieee80211_compute_duration.9
 ./usr/share/man/man9/ieee80211_create_ibss.9
 ./usr/share/man/man9/ieee80211_crypto.9
 ./usr/share/man/man9/ieee80211_crypto_attach.9
@@ -6409,6 +6399,17 @@
 ./usr/share/man/man9/if_rxr_inuse.9
 ./usr/share/man/man9/if_rxr_ioctl.9
 ./usr/share/man/man9/if_rxr_put.9
+./usr/share/man/man9/ifq_clr_oactive.9
+./usr/share/man/man9/ifq_deq_begin.9
+./usr/share/man/man9/ifq_deq_commit.9
+./usr/share/man/man9/ifq_deq_rollback.9
+./usr/share/man/man9/ifq_dequeue.9
+./usr/share/man/man9/ifq_empty.9
+./usr/share/man/man9/ifq_enqueue.9
+./usr/share/man/man9/ifq_is_oactive.9
+./usr/share/man/man9/ifq_len.9
+./usr/share/man/man9/ifq_purge.9
+./usr/share/man/man9/ifq_set_oactive.9
 ./usr/share/man/man9/iic.9
 ./usr/share/man/man9/iic_acquire_bus.9
 ./usr/share/man/man9/iic_exec.9
@@ -6508,7 +6509,6 @@
 ./usr/share/man/man9/ml_init.9
 ./usr/share/man/man9/ml_len.9
 ./usr/share/man/man9/ml_purge.9
-./usr/share/man/man9/ml_requeue.9
 ./usr/share/man/man9/mono_time.9
 ./usr/share/man/man9/mountroothook_disestablish.9
 ./usr/share/man/man9/mountroothook_establish.9
@@ -6523,7 +6523,6 @@
 ./usr/share/man/man9/mq_init.9
 ./usr/share/man/man9/mq_len.9
 ./usr/share/man/man9/mq_purge.9
-./usr/share/man/man9/mq_requeue.9
 ./usr/share/man/man9/mq_set_maxlen.9
 ./usr/share/man/man9/msleep.9
 ./usr/share/man/man9/mtod.9
@@ -6584,8 +6583,6 @@
 ./usr/share/man/man9/pool_sethiwat.9
 ./usr/share/man/man9/pool_setipl.9
 ./usr/share/man/man9/pool_setlowat.9
-./usr/share/man/man9/powerhook_disestablish.9
-./usr/share/man/man9/powerhook_establish.9
 ./usr/share/man/man9/ppsratecheck.9
 ./usr/share/man/man9/printf.9
 ./usr/share/man/man9/profhz.9
@@ -6804,6 +6801,8 @@
 ./usr/share/man/man9/uvm_setpagesize.9
 ./usr/share/man/man9/uvm_swap_init.9
 ./usr/share/man/man9/uvm_sysctl.9
+./usr/share/man/man9/uvm_uarea_alloc.9
+./usr/share/man/man9/uvm_uarea_free.9
 ./usr/share/man/man9/uvm_vnp_setsize.9
 ./usr/share/man/man9/uvm_vnp_sync.9
 ./usr/share/man/man9/uvm_vnp_terminate.9

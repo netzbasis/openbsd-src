@@ -1,4 +1,4 @@
-/* $OpenBSD: control.c,v 1.14 2015/04/19 21:34:21 nicm Exp $ */
+/* $OpenBSD: control.c,v 1.16 2015/11/18 14:27:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2012 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -37,7 +37,7 @@ control_write(struct client *c, const char *fmt, ...)
 	va_end(ap);
 
 	evbuffer_add(c->stdout_data, "\n", 1);
-	server_push_stdout(c);
+	server_client_push_stdout(c);
 }
 
 /* Write a buffer, adding a terminal newline. Empties buffer. */
@@ -46,12 +46,12 @@ control_write_buffer(struct client *c, struct evbuffer *buffer)
 {
 	evbuffer_add_buffer(c->stdout_data, buffer);
 	evbuffer_add(c->stdout_data, "\n", 1);
-	server_push_stdout(c);
+	server_client_push_stdout(c);
 }
 
 /* Control input callback. Read lines and fire commands. */
 void
-control_callback(struct client *c, int closed, unused void *data)
+control_callback(struct client *c, int closed, __unused void *data)
 {
 	char		*line, *cause;
 	struct cmd_list	*cmdlist;

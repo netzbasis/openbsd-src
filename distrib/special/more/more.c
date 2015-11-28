@@ -1,4 +1,4 @@
-/*	$OpenBSD: more.c,v 1.36 2015/10/15 16:10:57 deraadt Exp $	*/
+/*	$OpenBSD: more.c,v 1.38 2015/11/15 07:12:50 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -209,6 +209,11 @@ main(int argc, char **argv)
 	int		clearit = 0;
 	int		ch;
 	char		initbuf[80];
+
+	if (pledge("stdio rpath tty", NULL) == -1) {
+		perror("pledge");
+		exit(1);
+	}
 
 	setlocale(LC_ALL, "");
 
@@ -595,7 +600,7 @@ screen(FILE *f, int num_lines)
 /*
  * Clean up terminal state and exit. Also come here if interrupt signal received
  */
-void
+void __dead
 end_it(void)
 {
 	reset_tty();
@@ -868,7 +873,7 @@ command(char *filename, FILE *f)
 	int ch;
 	char colonch;
 	int done;
-	char comchar, cmdbuf[80], *p;
+	char comchar, cmdbuf[80];
 
 #define ret(val) retval=val;done++;break
 
@@ -1457,7 +1462,7 @@ handle_signal(void)
 			(void)sigaction(SIGTTOU, &sa, NULL);
 			reset_tty();
 			kill(getpid(), sig);
-	
+
 			sa.sa_handler = onsignal;
 			sa.sa_flags = 0;
 			(void)sigaction(SIGTSTP, &sa, NULL);
@@ -1472,7 +1477,7 @@ handle_signal(void)
 			break;
 		case SIGWINCH: {
 			struct winsize win;
-	
+
 			if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) != 0)
 				break;
 			if (win.ws_row != 0) {
@@ -1514,6 +1519,7 @@ again:
 		if (r == -1)
 			goto again;
 		return (r);		/* redraw, continue, etc */
+	default:
 	case 0:
 		end_it();
 	}
@@ -1738,7 +1744,7 @@ resize_line(char *pos)
 
 	linsize *= 2;
 	if (Line != Lineb)
-		np = realloc(Line, linsize); 
+		np = realloc(Line, linsize);
 	else if ((np = malloc(linsize)) != NULL)
 		memcpy(np, Lineb, sizeof(Lineb));
 	if (np == NULL) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.h,v 1.98 2015/09/07 14:46:24 reyk Exp $	*/
+/*	$OpenBSD: httpd.h,v 1.101 2015/11/23 20:56:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -163,11 +163,6 @@ struct {
 	struct event	 ev;
 	int		 fd;
 } control_state;
-
-enum blockmodes {
-	BM_NORMAL,
-	BM_NONBLOCK
-};
 
 struct imsgev {
 	struct imsgbuf		 ibuf;
@@ -524,7 +519,6 @@ void	 control_dispatch_imsg(int, short, void *);
 void	 control_imsg_forward(struct imsg *);
 struct ctl_conn	*
 	 control_connbyfd(int);
-void	 socket_set_blockmode(int, enum blockmodes);
 
 extern  struct ctl_connlist ctl_conns;
 
@@ -664,22 +658,31 @@ RB_PROTOTYPE(mediatypes, media_type, media_entry, media_cmp);
 struct auth	*auth_add(struct serverauth *, struct auth *);
 struct auth	*auth_byid(struct serverauth *, uint32_t);
 void		 auth_free(struct serverauth *, struct auth *);
+const char	*print_host(struct sockaddr_storage *, char *, size_t);
+const char	*print_time(struct timeval *, struct timeval *, char *, size_t);
+const char	*printb_flags(const uint32_t, const char *);
+void		 getmonotime(struct timeval *);
 
 /* log.c */
-void	log_init(int);
+void	log_init(int, int);
+void	log_procinit(const char *);
 void	log_verbose(int);
-void	log_warn(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_warnx(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_info(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_debug(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	logit(int, const char *, ...) __attribute__((__format__ (printf, 2, 3)));
-void	vlog(int, const char *, va_list) __attribute__((__format__ (printf, 2, 0)));
-__dead void fatal(const char *);
-__dead void fatalx(const char *);
-const char *print_host(struct sockaddr_storage *, char *, size_t);
-const char *print_time(struct timeval *, struct timeval *, char *, size_t);
-const char *printb_flags(const uint32_t, const char *);
-void	 getmonotime(struct timeval *);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* proc.c */
 void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int);

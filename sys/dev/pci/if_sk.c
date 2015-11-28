@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sk.c,v 1.178 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_sk.c,v 1.183 2015/11/25 03:09:59 dlg Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -100,14 +100,11 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 
 #include <net/if_media.h>
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -1499,7 +1496,7 @@ sk_start(struct ifnet *ifp)
 	DPRINTFN(2, ("sk_start\n"));
 
 	while (sc_if->sk_cdata.sk_tx_chain[idx].sk_mbuf == NULL) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		m_head = ifq_deq_begin(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
@@ -1509,12 +1506,13 @@ sk_start(struct ifnet *ifp)
 		 * for the NIC to drain the ring.
 		 */
 		if (sk_encap(sc_if, m_head, &idx)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m_head);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		ifq_deq_commit(&ifp->if_snd, m_head);
 		pkts++;
 
 		/*
@@ -1697,7 +1695,7 @@ sk_txeof(struct sk_if_softc *sc_if)
 	ifp->if_timer = sc_if->sk_cdata.sk_tx_cnt > 0 ? 5 : 0;
 
 	if (sc_if->sk_cdata.sk_tx_cnt < SK_TX_RING_CNT - 2)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	sc_if->sk_cdata.sk_tx_cons = idx;
 }
@@ -2398,7 +2396,7 @@ sk_init(void *xsc_if)
 	CSR_WRITE_4(sc, sc_if->sk_tx_bmu, SK_TXBMU_TX_START);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (SK_IS_YUKON(sc))
 		timeout_add_sec(&sc_if->sk_tick_ch, 1);
@@ -2420,7 +2418,8 @@ sk_stop(struct sk_if_softc *sc_if, int softonly)
 
 	timeout_del(&sc_if->sk_tick_ch);
 
-	ifp->if_flags &= ~(IFF_RUNNING|IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (!softonly) {
 		/* stop Tx descriptor polling timer */

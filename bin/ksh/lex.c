@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.62 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: lex.c,v 1.64 2015/11/18 15:31:21 nicm Exp $	*/
 
 /*
  * lexical analysis and source input
@@ -193,7 +193,7 @@ yylex(int cf)
 			    c == '!') {
 				char **replace = NULL;
 				int get, i;
-				char match[200], *str = match;
+				char match[200] = { 0 }, *str = match;
 				size_t mlen;
 
 				c2 = getsc();
@@ -247,12 +247,13 @@ yylex(int cf)
 					s->u.freeme = NULL;
 					source = s;
 					continue;
-				} else {
+				} else if (*match != '\0') {
 					/* restore what followed the '!' */
 					mlen = strlen(match);
 					for (i = mlen-1; i >= 0; i--)
 						ungetsc(match[i]);
-				}
+				} else
+					ungetsc(c2);
 			}
 			if (c == '[' && (cf & (VARASN|ARRAYVAR))) {
 				*wp = EOS; /* temporary */
@@ -399,12 +400,12 @@ yylex(int cf)
 						Xcheck(ws, wp);
 						*wp++ = c;
 						c = getsc();
-					} while (ctype(c, C_ALPHA|C_DIGIT));
+					} while (ctype(c, C_ALPHA) || digit(c));
 					*wp++ = '\0';
 					*wp++ = CSUBST;
 					*wp++ = 'X';
 					ungetsc(c);
-				} else if (ctype(c, C_DIGIT|C_VAR1)) {
+				} else if (ctype(c, C_VAR1) || digit(c)) {
 					Xcheck(ws, wp);
 					*wp++ = OSUBST;
 					*wp++ = 'X';

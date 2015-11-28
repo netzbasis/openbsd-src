@@ -1,4 +1,4 @@
-/*	$OpenBSD: commands.c,v 1.74 2015/10/26 00:33:03 jca Exp $	*/
+/*	$OpenBSD: commands.c,v 1.81 2015/11/24 05:06:24 beck Exp $	*/
 /*	$NetBSD: commands.c,v 1.14 1996/03/24 22:03:48 jtk Exp $	*/
 
 /*
@@ -49,11 +49,6 @@
 #include <unistd.h>
 #include <limits.h>
 
-#ifdef SKEY
-#include <sys/wait.h>
-#define PATH_SKEY	"/usr/bin/skey"
-#endif
-
 char	*hostname;
 
 typedef struct {
@@ -64,36 +59,8 @@ typedef struct {
 } Command;
 
 static char line[256];
-static char saveline[256];
 static int margc;
 static char *margv[20];
-
-#ifdef SKEY
-int
-skey_calc(int argc, char **argv)
-{
-	int status;
-
-	if(argc != 3) {
-		printf("usage: %s sequence challenge\n", argv[0]);
-		return 0;
-	}
-
-	switch(fork()) {
-	case 0:
-		execv(PATH_SKEY, argv);
-		exit (1);
-	case -1:
-		err(1, "fork");
-		break;
-	default:
-		(void) wait(&status);
-		if (WIFEXITED(status))
-			return (WEXITSTATUS(status));
-		return (0);
-	}
-}
-#endif
 
 static void
 makeargv(void)
@@ -103,12 +70,6 @@ makeargv(void)
 
     margc = 0;
     cp = line;
-    if (*cp == '!') {		/* Special case shell escape */
-	strlcpy(saveline, line, sizeof(saveline)); /* save for shell command */
-	*argp++ = "!";		/* No room in string to get this */
-	margc++;
-	cp++;
-    }
     while ((c = *cp)) {
 	int inquote = 0;
 	while (isspace((unsigned char)c))
@@ -468,16 +429,6 @@ lclchars(int unused)
 }
 
 static int
-togdebug(int unused)
-{
-    if (net > 0 &&
-	(setsockopt(net, SOL_SOCKET, SO_DEBUG, &debug, sizeof(debug))) == -1) {
-	    perror("setsockopt (SO_DEBUG)");
-    }
-    return 1;
-}
-
-static int
 togcrlf(int unused)
 {
     if (crlf) {
@@ -644,11 +595,6 @@ static struct togglelist Togglelist[] = {
 		&localchars,
 		    "recognize certain control characters" },
     { " ", "", 0, 0 },		/* empty line */
-    { "debug",
-	"debugging",
-	    togdebug,
-		&debug,
-		    "turn on socket level debugging" },
     { "netdata",
 	"printing of hexadecimal network data (debugging)",
 	    0,
@@ -779,7 +725,6 @@ static struct setlist Setlist[] = {
 #endif
     { "escape",	"character to escape back to telnet command mode", 0, &escape },
     { "rlogin", "rlogin escape character", 0, &rlogin },
-    { "tracefile", "file to write trace information to", SetNetTrace, (cc_t *)NetTraceFile},
     { " ", "" },
     { " ", "The following need 'localchars' to be toggled true", 0, 0 },
     { "flushoutput", "character to cause an Abort Output", 0, &termFlushChar },
@@ -1243,57 +1188,11 @@ telnetsuspend(int unused1, char *unused2[])
     return 1;
 }
 
-int
-shell(int argc, char *argv[])
-{
-    long oldrows, oldcols, newrows, newcols, err;
-
-    setcommandmode();
-
-    err = (TerminalWindowSize(&oldrows, &oldcols) == 0) ? 1 : 0;
-    switch(vfork()) {
-    case -1:
-	perror("Fork failed\r\n");
-	break;
-
-    case 0:
-	{
-	    /*
-	     * Fire up the shell in the child.
-	     */
-	    char *shellp, *shellname;
-
-	    shellp = getenv("SHELL");
-	    if (shellp == NULL)
-		shellp = "/bin/sh";
-	    if ((shellname = strrchr(shellp, '/')) == 0)
-		shellname = shellp;
-	    else
-		shellname++;
-	    if (argc > 1)
-		execl(shellp, shellname, "-c", &saveline[1], (char *)NULL);
-	    else
-		execl(shellp, shellname, (char *)NULL);
-	    perror("Execl");
-	    _exit(1);
-	}
-    default:
-	    (void)wait((int *)0);	/* Wait for the shell to complete */
-
-	    if (TerminalWindowSize(&newrows, &newcols) && connected &&
-		(err || ((oldrows != newrows) || (oldcols != newcols)))) {
-		    sendnaws();
-	    }
-	    break;
-    }
-    return 1;
-}
-
 static void
 close_connection(void)
 {
 	if (connected) {
-		(void) shutdown(net, 2);
+		(void) shutdown(net, SHUT_RDWR);
 		printf("Connection closed.\r\n");
 		(void)close(net);
 		connected = 0;
@@ -1854,6 +1753,10 @@ tn(int argc, char *argv[])
 	printf("?Already connected to %s\r\n", hostname);
 	return 0;
     }
+    if (connections) {
+	printf("Repeated connections not supported\r\n");
+	return 0;
+    }
     if (argc < 2) {
 	strlcpy(line, "open ", sizeof(line));
 	printf("(to) ");
@@ -1944,10 +1847,6 @@ tn(int argc, char *argv[])
 	if (net < 0)
 	    continue;
 
-	if (rtableid >= 0 && (setsockopt(net, SOL_SOCKET, SO_RTABLE, &rtableid,
-	    sizeof(rtableid)) == -1))
-		perror("setsockopt (SO_RTABLE)");
-
 	if (aliasp) {
 	    struct addrinfo ahints, *ares;
 
@@ -1983,14 +1882,6 @@ tn(int argc, char *argv[])
 		    sizeof(tos)) < 0 && errno != ENOPROTOOPT)
 			perror("telnet: setsockopt (IPV6_TCLASS) (ignored)");
 		break;
-	}
-
-	if (debug) {
-		int one = 1;
-
-		if (setsockopt(net, SOL_SOCKET, SO_DEBUG, &one,
-		    sizeof(one)) < 0)
-			perror("setsockopt (SO_DEBUG)");
 	}
 
 	if (connect(net, res->ai_addr, res->ai_addrlen) < 0) {
@@ -2056,10 +1947,6 @@ static char
 	slchelp[] =	"change state of special charaters ('slc ?' for more)",
 	displayhelp[] =	"display operating parameters",
 	zhelp[] =	"suspend telnet",
-#ifdef SKEY
-	skeyhelp[] =	"compute response to s/key challenge",
-#endif
-	shellhelp[] =	"invoke a subshell",
 	envhelp[] =	"change environment variables ('environ ?' for more)",
 	modestring[] = "try to enter line or character mode ('mode ?' for more)";
 
@@ -2080,12 +1967,8 @@ static Command cmdtab[] = {
 	{ "slc",	slchelp,	slccmd,		0 },
 
 	{ "z",		zhelp,		telnetsuspend,	0 },
-	{ "!",		shellhelp,	shell,		0 },
 	{ "environ",	envhelp,	env_cmd,	0 },
 	{ "?",		helphelp,	help,		0 },
-#ifdef SKEY
-	{ "skey",	skeyhelp,	skey_calc,	0 },
-#endif		
 	{ 0,		0,		0,		0 }
 };
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpd.c,v 1.29 2015/06/03 02:24:36 millert Exp $	*/
+/*	$OpenBSD: snmpd.c,v 1.31 2015/11/23 19:31:52 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <event.h>
 #include <signal.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <pwd.h>
@@ -146,7 +147,9 @@ main(int argc, char *argv[])
 	struct privsep	*ps;
 
 	smi_init();
-	log_init(1);	/* log to stderr until daemonized */
+
+	/* log to stderr until daemonized */
+	log_init(1, LOG_DAEMON);
 
 	while ((c = getopt(argc, argv, "dD:nNf:v")) != -1) {
 		switch (c) {
@@ -199,7 +202,7 @@ main(int argc, char *argv[])
 	if ((ps->ps_pw = getpwnam(SNMPD_USER)) == NULL)
 		errx(1, "unknown user %s", SNMPD_USER);
 
-	log_init(debug);
+	log_init(debug, LOG_DAEMON);
 	log_verbose(verbose);
 
 	if (!debug && daemon(0, 0) == -1)
@@ -215,6 +218,8 @@ main(int argc, char *argv[])
 	proc_init(ps, procs, nitems(procs));
 
 	setproctitle("parent");
+	log_procinit("parent");
+
 	log_info("startup");
 
 	event_init();
@@ -367,21 +372,4 @@ tohexstr(u_int8_t *str, int len)
 		r += snprintf(r, len * 2, "%0*x", 2, *str++);
 	*r = '\0';
 	return hstr;
-}
-
-void
-socket_set_blockmode(int fd, enum blockmodes bm)
-{
-	int	flags;
-
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
-		fatal("fcntl F_GETFL");
-
-	if (bm == BM_NONBLOCK)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
-
-	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
-		fatal("fcntl F_SETFL");
 }

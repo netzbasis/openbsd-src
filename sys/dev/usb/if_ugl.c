@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ugl.c,v 1.14 2015/10/25 12:11:56 mpi Exp $	*/
+/*	$OpenBSD: if_ugl.c,v 1.18 2015/11/25 11:20:38 mpi Exp $	*/
 /*	$NetBSD: if_upl.c,v 1.19 2002/07/11 21:14:26 augustss Exp $	*/
 /*
  * Copyright (c) 2013 SASANO Takayoshi <uaa@uaa.org.uk>
@@ -64,8 +64,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -522,7 +520,7 @@ ugl_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		    __func__, status));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -601,19 +599,20 @@ ugl_start(struct ifnet *ifp)
 
 	DPRINTFN(10,("%s: %s: enter\n", sc->sc_dev.dv_xname,__func__));
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
-	IFQ_POLL(&ifp->if_snd, m_head);
+	m_head = ifq_deq_begin(&ifp->if_snd);
 	if (m_head == NULL)
 		return;
 
 	if (ugl_send(sc, m_head, 0)) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_deq_commit(&ifp->if_snd, m_head);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
-	IFQ_DEQUEUE(&ifp->if_snd, m_head);
+	ifq_deq_commit(&ifp->if_snd, m_head);
 
 #if NBPFILTER > 0
 	/*
@@ -624,7 +623,7 @@ ugl_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * Set a timeout in case the chip goes out to lunch.
@@ -668,9 +667,9 @@ ugl_init(void *xsc)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
-
 	splx(s);
+
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 int
@@ -827,7 +826,8 @@ ugl_stop(struct ugl_softc *sc)
 
 	ifp = GET_IFP(sc);
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop transfers. */
 	if (sc->sc_ep[UGL_ENDPT_RX] != NULL) {

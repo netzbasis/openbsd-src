@@ -1,4 +1,4 @@
-/*	$OpenBSD: qe.c,v 1.42 2015/10/25 13:22:09 mpi Exp $	*/
+/*	$OpenBSD: qe.c,v 1.48 2015/11/25 11:20:38 mpi Exp $	*/
 
 /*
  * Copyright (c) 1998, 2000 Jason L. Wright.
@@ -46,10 +46,7 @@
 #include <sys/malloc.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
-#include <net/netisr.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -57,7 +54,6 @@
 #include "bpfilter.h"
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/autoconf.h>
@@ -195,17 +191,15 @@ qestart(ifp)
 	struct mbuf *m;
 	int bix, len;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_last_td;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*
@@ -233,7 +227,7 @@ qestart(ifp)
 			bix = 0;
 
 		if (++sc->sc_no_td == QE_TX_RING_SIZE) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -360,8 +354,8 @@ qe_tint(sc)
 	 */
 	if (sc->sc_first_td != bix) {
 		sc->sc_first_td = bix;
-		if (ifp->if_flags & IFF_OACTIVE) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			qestart(ifp);
 		}
 	}
@@ -722,7 +716,7 @@ qeinit(sc)
 	i = mr->mpc;	/* cleared on read */
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	mr->maccc = QE_MR_MACCC_ENXMT | QE_MR_MACCC_ENRCV |
 	    ((ifp->if_flags & IFF_PROMISC) ? QE_MR_MACCC_PROM : 0);

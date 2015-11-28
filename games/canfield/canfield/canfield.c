@@ -1,4 +1,4 @@
-/*	$OpenBSD: canfield.c,v 1.15 2015/11/05 23:16:44 tedu Exp $	*/
+/*	$OpenBSD: canfield.c,v 1.20 2015/11/26 13:28:22 tb Exp $	*/
 /*	$NetBSD: canfield.c,v 1.7 1995/05/13 07:28:35 jtc Exp $	*/
 
 /*
@@ -45,15 +45,16 @@
 
 #include <ctype.h>
 #include <curses.h>
+#include <errno.h>
+#include <err.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-
-#include "pathnames.h"
 
 #define	decksize	52
 #define	originrow	0
@@ -154,7 +155,6 @@ bool mtfdone, Cflag = FALSE;
 #define	BETTINGBOX	2
 #define	NOBOX		3
 int status = INSTRUCTIONBOX;
-int uid;
 
 /*
  * Basic betting costs
@@ -1379,7 +1379,7 @@ suspend(void)
 	move(21, 0);
 	refresh();
 	if (dbfd != -1) {
-		lseek(dbfd, uid * sizeof(struct betinfo), SEEK_SET);
+		lseek(dbfd, 0, SEEK_SET);
 		write(dbfd, (char *)&total, sizeof(total));
 	}
 	kill(getpid(), SIGTSTP);
@@ -1625,23 +1625,25 @@ instruct(void)
 void
 initall(void)
 {
-	int i;
+	int i, ret;
+	char scorepath[PATH_MAX];
+	char *home;
 
 	time(&acctstart);
 	initdeck(deck);
-	uid = getuid();
-	if (uid < 0)
-		uid = 0;
-	dbfd = open(_PATH_SCORE, O_RDWR);
-	setegid(getgid());
+
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home,
+	    ".cfscores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".cfscores");
+
+	dbfd = open(scorepath, O_RDWR | O_CREAT, 0644);
 	if (dbfd < 0)
 		return;
-	i = lseek(dbfd, uid * sizeof(struct betinfo), SEEK_SET);
-	if (i < 0) {
-		close(dbfd);
-		dbfd = -1;
-		return;
-	}
 	i = read(dbfd, (char *)&total, sizeof(total));
 	if (i < 0) {
 		close(dbfd);
@@ -1699,7 +1701,7 @@ cleanup(int dummy)
 	status = NOBOX;
 	updatebettinginfo();
 	if (dbfd != -1) {
-		lseek(dbfd, uid * sizeof(struct betinfo), SEEK_SET);
+		lseek(dbfd, 0, SEEK_SET);
 		write(dbfd, (char *)&total, sizeof(total));
 		close(dbfd);
 	}
@@ -1734,8 +1736,6 @@ askquit(int dummy)
 int
 main(int argc, char *argv[])
 {
-	gid_t gid;
-
 	signal(SIGINT, askquit);
 	signal(SIGHUP, cleanup);
 	signal(SIGTERM, cleanup);
@@ -1743,10 +1743,6 @@ main(int argc, char *argv[])
 	raw();
 	noecho();
 	initall();
-
-	/* revoke privs */
-	gid = getgid();
-	setresgid(gid, gid, gid);
 
 	instruct();
 	makeboard();

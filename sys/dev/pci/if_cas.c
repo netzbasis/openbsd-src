@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cas.c,v 1.43 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_cas.c,v 1.46 2015/11/25 03:09:59 dlg Exp $	*/
 
 /*
  *
@@ -58,7 +58,6 @@
 #include <sys/endian.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -720,7 +719,8 @@ cas_stop(struct ifnet *ifp, int disable)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	mii_down(&sc->sc_mii);
@@ -1068,7 +1068,7 @@ cas_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 	splx(s);
 
@@ -1842,7 +1842,7 @@ cas_tint(struct cas_softc *sc, u_int32_t status)
 	sc->sc_tx_cons = cons;
 
 	if (sc->sc_tx_cnt < CAS_NTXDESC - 2)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	if (sc->sc_tx_cnt == 0)
 		ifp->if_timer = 0;
 
@@ -1858,12 +1858,12 @@ cas_start(struct ifnet *ifp)
 	struct mbuf *m;
 	u_int32_t bix;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_tx_prod;
 	while (sc->sc_txd[bix].sd_mbuf == NULL) {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
@@ -1881,11 +1881,12 @@ cas_start(struct ifnet *ifp)
 		 * or fail...
 		 */
 		if (cas_encap(sc, m, &bix)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 		ifp->if_timer = 5;
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.45 2015/10/26 15:08:26 krw Exp $	*/
+/*	$OpenBSD: user.c,v 1.48 2015/11/19 16:14:08 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -19,12 +19,12 @@
 #include <sys/types.h>
 #include <sys/fcntl.h>
 #include <sys/disklabel.h>
+
 #include <err.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
-#include "disk.h"
 #include "part.h"
 #include "mbr.h"
 #include "misc.h"
@@ -62,20 +62,25 @@ USER_edit(off_t offset, off_t reloff)
 	struct dos_mbr dos_mbr;
 	struct mbr mbr;
 	char *cmd, *args;
-	int i, st, fd, error;
+	int i, st, error;
 
 	/* One level deeper */
 	editlevel += 1;
 
 	/* Read MBR & partition */
-	fd = DISK_open(disk.name, O_RDONLY);
-	error = MBR_read(fd, offset, &dos_mbr);
-	close(fd);
+	error = MBR_read(offset, &dos_mbr);
 	if (error == -1)
 		goto done;
 
 	/* Parse the sucker */
 	MBR_parse(&dos_mbr, offset, reloff, &mbr);
+
+	if (editlevel == 1) {
+		memset(&gh, 0, sizeof(gh));
+		memset(&gp, 0, sizeof(gp));
+		if (MBR_protective_mbr(&mbr) == 0)
+			GPT_get_gpt();
+	}
 
 	printf("Enter 'help' for information\n");
 
@@ -122,7 +127,6 @@ again:
 		if (st == CMD_SAVE) {
 			if (Xwrite(NULL, &mbr) == CMD_CONT)
 				goto again;
-			close(fd);
 		} else
 			printf("Aborting changes to current MBR.\n");
 	}
@@ -136,15 +140,14 @@ void
 USER_print_disk(void)
 {
 	off_t offset, firstoff;
-	int fd, i, error;
+	int i, error;
 	struct dos_mbr dos_mbr;
 	struct mbr mbr;
 
-	fd = DISK_open(disk.name, O_RDONLY);
 	offset = firstoff = 0;
 
 	do {
-		error = MBR_read(fd, offset, &dos_mbr);
+		error = MBR_read(offset, &dos_mbr);
 		if (error == -1)
 			break;
 		MBR_parse(&dos_mbr, offset, firstoff, &mbr);
@@ -166,8 +169,4 @@ USER_print_disk(void)
 					firstoff = offset;
 			}
 	} while (offset);
-
-	error = close(fd);
-	if (error == -1)
-		err(1, "Unable to close disk");
 }

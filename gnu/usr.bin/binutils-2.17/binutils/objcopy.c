@@ -1195,7 +1195,7 @@ copy_unknown_object (bfd *ibfd, bfd *obfd)
       ncopied += tocopy;
     }
 
-  chmod (bfd_get_filename (obfd), buf.st_mode);
+  chmod (bfd_get_filename (obfd), buf.st_mode & 0777);
   free (cbuf);
   return TRUE;
 }
@@ -3263,6 +3263,9 @@ main (int argc, char *argv[])
   xmalloc_set_program_name (program_name);
 
   START_PROGRESS (program_name, 0);
+
+  if (pledge ("stdio rpath wpath cpath fattr", NULL) == -1)
+    fatal (_("pledge: %s"), strerror (errno));
 
   expandargv (&argc, &argv);
 

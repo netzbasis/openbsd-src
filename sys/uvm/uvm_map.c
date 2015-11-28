@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.202 2015/10/01 20:27:51 kettenis Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.204 2015/11/14 14:53:14 miod Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -940,7 +940,7 @@ uvm_map_addr_augment(struct vm_map_entry *entry)
  */
 int
 uvm_mapanon(struct vm_map *map, vaddr_t *addr, vsize_t sz,
-    vsize_t align, uvm_flag_t flags)
+    vsize_t align, unsigned int flags)
 {
 	struct vm_map_entry	*first, *last, *entry, *new;
 	struct uvm_map_deadq	 dead;
@@ -1128,7 +1128,8 @@ out:
  */
 int
 uvm_map(struct vm_map *map, vaddr_t *addr, vsize_t sz,
-    struct uvm_object *uobj, voff_t uoffset, vsize_t align, uvm_flag_t flags)
+    struct uvm_object *uobj, voff_t uoffset,
+    vsize_t align, unsigned int flags)
 {
 	struct vm_map_entry	*first, *last, *entry, *new;
 	struct uvm_map_deadq	 dead;
@@ -4271,7 +4272,7 @@ deactivate_it:
 				break;
 			case PGO_FREE:
 				/*
-				 * If there are mutliple references to
+				 * If there are multiple references to
 				 * the amap, just deactivate the page.
 				 */
 				if (amap_refs(amap) > 1)

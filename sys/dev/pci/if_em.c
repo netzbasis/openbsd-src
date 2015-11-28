@@ -31,7 +31,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ***************************************************************************/
 
-/* $OpenBSD: if_em.c,v 1.310 2015/10/29 03:19:42 jsg Exp $ */
+/* $OpenBSD: if_em.c,v 1.313 2015/11/25 03:09:59 dlg Exp $ */
 /* $FreeBSD: if_em.c,v 1.46 2004/09/29 18:28:28 mlaier Exp $ */
 
 #include <dev/pci/if_em.h>
@@ -592,7 +592,7 @@ em_start(struct ifnet *ifp)
 	struct em_softc *sc = ifp->if_softc;
 	int		post = 0;
 
-	if ((ifp->if_flags & (IFF_OACTIVE | IFF_RUNNING)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	if (!sc->link_active)
@@ -605,16 +605,17 @@ em_start(struct ifnet *ifp)
 	}
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		m_head = ifq_deq_begin(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
 		if (em_encap(sc, m_head)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m_head);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		ifq_deq_commit(&ifp->if_snd, m_head);
 
 #if NBPFILTER > 0
 		/* Send a copy of the frame to the BPF listener */
@@ -877,7 +878,7 @@ em_init(void *arg)
 	em_iff(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->timer_handle, 1);
 	em_clear_hw_cntrs(&sc->hw);
@@ -917,16 +918,19 @@ em_intr(void *arg)
 	if (reg_icr & E1000_ICR_RXO)
 		sc->rx_overruns++;
 
+	KERNEL_LOCK();
+
 	/* Link status change */
 	if (reg_icr & (E1000_ICR_RXSEQ | E1000_ICR_LSC)) {
-		KERNEL_LOCK();
 		sc->hw.get_link_status = 1;
 		em_check_for_link(&sc->hw);
 		em_update_link_status(sc);
-		if (!IFQ_IS_EMPTY(&ifp->if_snd))
-			em_start(ifp);
-		KERNEL_UNLOCK();
 	}
+
+	if (ifp->if_flags & IFF_RUNNING && !IFQ_IS_EMPTY(&ifp->if_snd))
+		em_start(ifp);
+
+	KERNEL_UNLOCK();
 
 	if (refill && em_rxfill(sc)) {
 		/* Advance the Rx Queue #0 "Tail Pointer". */
@@ -1104,10 +1108,17 @@ em_encap(struct em_softc *sc, struct mbuf *m_head)
 	struct em_buffer   *tx_buffer, *tx_buffer_mapped;
 	struct em_tx_desc *current_tx_desc = NULL;
 
-	/* Check that we have least the minimal number of TX descriptors. */
-	if (sc->num_tx_desc_avail <= EM_TX_OP_THRESHOLD) {
-		sc->no_tx_desc_avail1++;
-		return (ENOBUFS);
+	/*
+	 * Force a cleanup if number of TX descriptors
+	 * available hits the threshold
+	 */
+	if (sc->num_tx_desc_avail <= EM_TX_CLEANUP_THRESHOLD) {
+		em_txeof(sc);
+		/* Now do we at least have a minimal? */
+		if (sc->num_tx_desc_avail <= EM_TX_OP_THRESHOLD) {
+			sc->no_tx_desc_avail1++;
+			return (ENOBUFS);
+		}
 	}
 
 	if (sc->hw.mac_type == em_82547) {
@@ -1209,6 +1220,12 @@ em_encap(struct em_softc *sc, struct mbuf *m_head)
 		}
 	}
 
+	sc->next_avail_tx_desc = i;
+	if (sc->pcix_82544)
+		sc->num_tx_desc_avail -= txd_used;
+	else
+		sc->num_tx_desc_avail -= map->dm_nsegs;
+
 #if NVLAN > 0
 	/* Find out if we are in VLAN mode */
 	if (m_head->m_flags & M_VLANTAG) {
@@ -1241,14 +1258,6 @@ em_encap(struct em_softc *sc, struct mbuf *m_head)
 	 */
 	tx_buffer = &sc->tx_buffer_area[first];
 	tx_buffer->next_eop = last;
-
-	membar_producer();
-
-	sc->next_avail_tx_desc = i;
-	if (sc->pcix_82544)
-		atomic_sub_int(&sc->num_tx_desc_avail, txd_used);
-	else
-		atomic_sub_int(&sc->num_tx_desc_avail, map->dm_nsegs);
 
 	/* 
 	 * Advance the Transmit Descriptor Tail (Tdt),
@@ -1548,7 +1557,8 @@ em_stop(void *arg, int softonly)
 	struct ifnet   *ifp = &sc->interface_data.ac_if;
 
 	/* Tell the stack that the interface is no longer active */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	INIT_DEBUGOUT("em_stop: begin");
@@ -2379,12 +2389,10 @@ em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp,
 	tx_buffer->m_head = NULL;
 	tx_buffer->next_eop = -1;
 
-	membar_producer();
-
 	if (++curr_txd == sc->num_tx_desc)
 		curr_txd = 0;
 
-	atomic_dec_int(&sc->num_tx_desc_avail);
+	sc->num_tx_desc_avail--;
 	sc->next_avail_tx_desc = curr_txd;
 }
 
@@ -2398,7 +2406,7 @@ em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp,
 void
 em_txeof(struct em_softc *sc)
 {
-	int first, last, done, num_avail, free = 0;
+	int first, last, done, num_avail;
 	struct em_buffer *tx_buffer;
 	struct em_tx_desc   *tx_desc, *eop_desc;
 	struct ifnet   *ifp = &sc->interface_data.ac_if;
@@ -2406,8 +2414,9 @@ em_txeof(struct em_softc *sc)
 	if (sc->num_tx_desc_avail == sc->num_tx_desc)
 		return;
 
-	membar_consumer();
+	KERNEL_LOCK();
 
+	num_avail = sc->num_tx_desc_avail;
 	first = sc->next_tx_to_clean;
 	tx_desc = &sc->tx_desc_base[first];
 	tx_buffer = &sc->tx_buffer_area[first];
@@ -2431,7 +2440,7 @@ em_txeof(struct em_softc *sc)
 		while (first != done) {
 			tx_desc->upper.data = 0;
 			tx_desc->lower.data = 0;
-			free++;
+			num_avail++;
 
 			if (tx_buffer->m_head != NULL) {
 				ifp->if_opackets++;
@@ -2471,23 +2480,25 @@ em_txeof(struct em_softc *sc)
 
 	sc->next_tx_to_clean = first;
 
-	num_avail = atomic_add_int_nv(&sc->num_tx_desc_avail, free);
+	/*
+	 * If we have enough room, clear IFF_OACTIVE to tell the stack
+	 * that it is OK to send packets.
+	 * If there are no pending descriptors, clear the timeout. Otherwise,
+	 * if some descriptors have been freed, restart the timeout.
+	 */
+	if (num_avail > EM_TX_CLEANUP_THRESHOLD)
+		ifq_clr_oactive(&ifp->if_snd);
 
 	/* All clean, turn off the timer */
 	if (num_avail == sc->num_tx_desc)
 		ifp->if_timer = 0;
+	/* Some cleaned, reset the timer */
+	else if (num_avail != sc->num_tx_desc_avail)
+		ifp->if_timer = EM_TX_TIMEOUT;
 
-	/*
-	 * If we have enough room, clear IFF_OACTIVE to tell the stack
-	 * that it is OK to send packets.
-	 */
-	if (ISSET(ifp->if_flags, IFF_OACTIVE) &&
-	    num_avail > EM_TX_OP_THRESHOLD) {
-		KERNEL_LOCK();
-		CLR(ifp->if_flags, IFF_OACTIVE);
-		em_start(ifp);
-		KERNEL_UNLOCK();
-	}
+	sc->num_tx_desc_avail = num_avail;
+
+	KERNEL_UNLOCK();
 }
 
 /*********************************************************************

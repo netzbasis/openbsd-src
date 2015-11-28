@@ -1,4 +1,4 @@
-/* $OpenBSD: ldapclient.c,v 1.32 2015/01/16 06:40:22 deraadt Exp $ */
+/* $OpenBSD: ldapclient.c,v 1.34 2015/11/17 02:16:52 deraadt Exp $ */
 
 /*
  * Copyright (c) 2008 Alexander Schrijver <aschrijver@openbsd.org>
@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
-#include <sys/signal.h>
 #include <sys/tree.h>
 
 #include <netinet/in.h>
@@ -29,6 +28,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <err.h>
+#include <signal.h>
 #include <event.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -403,6 +403,9 @@ ldapclient(int pipe_main2client[2])
 #else
 #warning disabling privilege revocation in DEBUG mode
 #endif
+
+	if (pledge("stdio inet", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 	signal(SIGPIPE, SIG_IGN);

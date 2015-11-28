@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.305 2015/11/03 21:11:48 naddy Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.308 2015/11/26 10:36:20 mpi Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -202,7 +202,7 @@ reroute:
 
 		ia = ifatoia(ro->ro_rt->rt_ifa);
 		if (ISSET(ro->ro_rt->rt_flags, RTF_LOCAL))
-			ifp = if_ref(lo0ifp);
+			ifp = if_get(lo0ifidx);
 		else
 			ifp = if_get(ro->ro_rt->rt_ifidx);
 		if ((mtu = ro->ro_rt->rt_rmx.rmx_mtu) == 0)
@@ -368,7 +368,12 @@ reroute:
 			 */
 			if (ipmforwarding && ip_mrouter &&
 			    (flags & IP_FORWARDING) == 0) {
-				if (ip_mforward(m, ifp) != 0) {
+				int rv;
+
+				KERNEL_LOCK();
+				rv = ip_mforward(m, ifp);
+				KERNEL_UNLOCK();
+				if (rv != 0) {
 					m_freem(m);
 					goto done;
 				}
@@ -1440,27 +1445,33 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 			sin.sin_addr = mreq->imr_multiaddr;
 			rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE,
 			    rtableid);
-			if (rt == NULL) {
+			if (!rtisvalid(rt)) {
+				rtfree(rt);
 				error = EADDRNOTAVAIL;
 				break;
 			}
-			ifp = rt->rt_ifp;
-			rtfree(rt);
 		} else {
 			memset(&sin, 0, sizeof(sin));
 			sin.sin_len = sizeof(sin);
 			sin.sin_family = AF_INET;
 			sin.sin_addr = mreq->imr_interface;
-			ia = ifatoia(ifa_ifwithaddr(sintosa(&sin), rtableid));
-			if (ia && in_hosteq(sin.sin_addr, ia->ia_addr.sin_addr))
-				ifp = ia->ia_ifp;
+			rt = rtalloc(sintosa(&sin), RT_REPORT, rtableid);
+			if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_LOCAL)) {
+				rtfree(rt);
+				error = EADDRNOTAVAIL;
+				break;
+			}
 		}
+		ifp = if_get(rt->rt_ifidx);
+		rtfree(rt);
+
 		/*
 		 * See if we found an interface, and confirm that it
 		 * supports multicast.
 		 */
 		if (ifp == NULL || (ifp->if_flags & IFF_MULTICAST) == 0) {
 			error = EADDRNOTAVAIL;
+			if_put(ifp);
 			break;
 		}
 		/*
@@ -1476,6 +1487,7 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 		}
 		if (i < imo->imo_num_memberships) {
 			error = EADDRINUSE;
+			if_put(ifp);
 			break;
 		}
 		if (imo->imo_num_memberships == imo->imo_max_memberships) {
@@ -1506,6 +1518,7 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 			}
 			if (nmships == NULL) {
 				error = ETOOMANYREFS;
+				if_put(ifp);
 				break;
 			}
 		}
@@ -1516,9 +1529,11 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 		if ((imo->imo_membership[i] =
 		    in_addmulti(&mreq->imr_multiaddr, ifp)) == NULL) {
 			error = ENOBUFS;
+			if_put(ifp);
 			break;
 		}
 		++imo->imo_num_memberships;
+		if_put(ifp);
 		break;
 
 	case IP_DROP_MEMBERSHIP:

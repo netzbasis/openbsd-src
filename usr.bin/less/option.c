@@ -24,8 +24,8 @@
 static struct loption *pendopt;
 int plusoption = FALSE;
 
-static char *optstring();
-static int flip_triple();
+static char *optstring(char *, char **, char *, char *);
+static int flip_triple(int, int);
 
 extern int screen_trashed;
 extern int less_is_more;
@@ -307,8 +307,7 @@ scan_option(char *s)
 		 */
 		if (o->ofunc != NULL)
 			(*o->ofunc)(INIT, str);
-		if (str != NULL)
-			free(str);
+		free(str);
 	}
 }
 
@@ -333,7 +332,7 @@ toggle_option(struct loption *o, int lower, char *s, int how_toggle)
 	how_toggle &= ~OPT_NO_PROMPT;
 
 	if (o == NULL) {
-		error("No such option", NULL_PARG);
+		error("No such option", NULL);
 		return;
 	}
 
@@ -416,7 +415,7 @@ toggle_option(struct loption *o, int lower, char *s, int how_toggle)
 			case OPT_SET:
 			case OPT_UNSET:
 				error("Cannot use \"-+\" or \"--\" "
-				    "for a string option", NULL_PARG);
+				    "for a string option", NULL);
 				return;
 			}
 			break;
@@ -435,7 +434,7 @@ toggle_option(struct loption *o, int lower, char *s, int how_toggle)
 				break;
 			case OPT_SET:
 				error("Can't use \"-!\" for a numeric option",
-				    NULL_PARG);
+				    NULL);
 				return;
 			}
 			break;
@@ -462,7 +461,7 @@ toggle_option(struct loption *o, int lower, char *s, int how_toggle)
 			/*
 			 * Print the odesc message.
 			 */
-			error(o->odesc[*(o->ovar)], NULL_PARG);
+			error(o->odesc[*(o->ovar)], NULL);
 			break;
 		case NUMBER:
 			/*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.215 2015/10/27 12:27:54 benno Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.217 2015/11/22 13:27:13 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -1103,7 +1103,7 @@ int	 parse_config(const char *, struct relayd *);
 int	 load_config(const char *, struct relayd *);
 int	 cmdline_symset(char *);
 
-/* log.c */
+/* util.c */
 const char *host_error(enum host_error);
 const char *host_status(enum host_status);
 const char *table_check(enum table_check);
@@ -1332,16 +1332,25 @@ void		shuffle_init(struct shuffle *);
 u_int16_t	shuffle_generate16(struct shuffle *);
 
 /* log.c */
-void	log_init(int);
+void	log_init(int, int);
+void	log_procinit(const char *);
 void	log_verbose(int);
-void	log_warn(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_warnx(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_info(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_debug(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	logit(int, const char *, ...) __attribute__((__format__ (printf, 2, 3)));
-void	vlog(int, const char *, va_list) __attribute__((__format__ (printf, 2, 0)));
-__dead void fatal(const char *);
-__dead void fatalx(const char *);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* proc.c */
 void	 proc_init(struct privsep *, struct privsep_proc *, u_int);

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.25 2015/10/14 07:41:28 reyk Exp $
+# $OpenBSD: Makefile,v 1.31 2015/11/24 19:36:35 schwarze Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 
@@ -21,6 +21,7 @@ MAN=	\
 	BIO_f_null.3 \
 	BIO_find_type.3 \
 	BIO_new.3 \
+	BIO_new_CMS.3 \
 	BIO_push.3 \
 	BIO_read.3 \
 	BIO_s_accept.3 \
@@ -52,13 +53,20 @@ MAN=	\
 	BN_swap.3 \
 	BN_zero.3 \
 	BUF_MEM_new.3 \
-	EVP_AEAD_CTX_init.3 \
-
-GENMAN= \
 	CONF_modules_free.3 \
 	CONF_modules_load_file.3 \
 	CRYPTO_set_ex_data.3 \
 	CRYPTO_set_locking_callback.3 \
+	ECDSA_SIG_new.3 \
+	EVP_AEAD_CTX_init.3 \
+	UI_new.3 \
+	bn_dump.3 \
+	crypto.3 \
+	d2i_PKCS8PrivateKey_bio.3 \
+	des_read_pw.3 \
+	lh_new.3 \
+
+GENMAN= \
 	DES_set_key.3 \
 	DH_generate_key.3 \
 	DH_generate_parameters.3 \
@@ -170,13 +178,10 @@ GENMAN= \
 	X509_new.3 \
 	X509_verify_cert.3 \
 	bn.3 \
-	bn_internal.3 \
-	crypto.3 \
 	d2i_ASN1_OBJECT.3 \
 	d2i_DHparams.3 \
 	d2i_DSAPublicKey.3 \
 	d2i_ECPKParameters.3 \
-	d2i_PKCS8PrivateKey.3 \
 	d2i_RSAPublicKey.3 \
 	d2i_X509.3 \
 	d2i_X509_ALGOR.3 \
@@ -187,22 +192,18 @@ GENMAN= \
 	dh.3 \
 	dsa.3 \
 	ec.3 \
-	ecdsa.3 \
 	engine.3 \
 	evp.3 \
 	i2d_PKCS7_bio_stream.3 \
 	lh_stats.3 \
-	lhash.3 \
 	rsa.3 \
-	ui.3 \
-	ui_compat.3 \
 	x509.3 \
 
 MAN+=	${GENMAN}
 
-#MAN+=	BIO_new_CMS.3 \
-#	CMS_add0_cert.3 \
+#MAN+=	CMS_add0_cert.3 \
 #	CMS_add1_recipient_cert.3 \
+#	CMS_add1_signer.3 \
 #	CMS_compress.3 \
 #	CMS_decrypt.3 \
 #	CMS_encrypt.3 \
@@ -212,7 +213,6 @@ MAN+=	${GENMAN}
 #	CMS_get0_type.3 \
 #	CMS_get1_ReceiptRequest.3 \
 #	CMS_sign.3 \
-#	CMS_sign_add1_signer.3 \
 #	CMS_sign_receipt.3 \
 #	CMS_uncompress.3 \
 #	CMS_verify.3 \
@@ -605,6 +605,23 @@ MLINKS+=\
 	EC_POINT_new.3 EC_POINT_set_compressed_coordinates_GF2m.3 \
 	EC_POINT_new.3 EC_POINT_set_compressed_coordinates_GFp.3 \
 	EC_POINT_new.3 EC_POINT_set_to_infinity.3 \
+	ECDSA_SIG_new.3 ECDSA_OpenSSL.3 \
+	ECDSA_SIG_new.3 ECDSA_SIG_free.3 \
+	ECDSA_SIG_new.3 ECDSA_do_sign.3 \
+	ECDSA_SIG_new.3 ECDSA_do_sign_ex.3 \
+	ECDSA_SIG_new.3 ECDSA_do_verify.3 \
+	ECDSA_SIG_new.3 ECDSA_get_default_method.3 \
+	ECDSA_SIG_new.3 ECDSA_get_ex_data.3 \
+	ECDSA_SIG_new.3 ECDSA_get_ex_new_index.3 \
+	ECDSA_SIG_new.3 ECDSA_set_default_method.3 \
+	ECDSA_SIG_new.3 ECDSA_set_ex_data.3 \
+	ECDSA_SIG_new.3 ECDSA_set_method.3 \
+	ECDSA_SIG_new.3 ECDSA_sign.3 \
+	ECDSA_SIG_new.3 ECDSA_sign_ex.3 \
+	ECDSA_SIG_new.3 ECDSA_sign_setup.3 \
+	ECDSA_SIG_new.3 ECDSA_verify.3 \
+	ECDSA_SIG_new.3 d2i_ECDSA_SIG.3 \
+	ECDSA_SIG_new.3 i2d_ECDSA_SIG.3 \
 	ERR_GET_LIB.3 ERR_GET_FUNC.3 \
 	ERR_GET_LIB.3 ERR_GET_REASON.3 \
 	ERR_error_string.3 ERR_error_string_n.3 \
@@ -741,7 +758,7 @@ MLINKS+=\
 	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_CTX_set_rsa_pss_saltlen.3 \
 	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_CTX_set_rsa_rsa_keygen_bits.3 \
 	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_CTX_set_signature_md.3 \
-	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_ctrl_str.3 \
+	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_CTX_ctrl_str.3 \
 	EVP_PKEY_CTX_ctrl.3 EVP_PKEY_get_default_digest_nid.3 \
 	EVP_PKEY_CTX_new.3 EVP_PKEY_CTX_new_id.3 \
 	EVP_PKEY_CTX_new.3 EVP_PKEY_CTX_dup.3 \
@@ -927,7 +944,6 @@ MLINKS+=\
 	RSA_print.3 RSA_print_fp.3 \
 	RSA_private_encrypt.3 RSA_public_decrypt.3 \
 	RSA_public_encrypt.3 RSA_private_decrypt.3 \
-	RSA_set_method.3 RSA_PKCS1_RSAref.3 \
 	RSA_set_method.3 RSA_PKCS1_SSLeay.3 \
 	RSA_set_method.3 RSA_flags.3 \
 	RSA_set_method.3 RSA_get_default_method.3 \
@@ -983,38 +999,60 @@ MLINKS+=\
 	X509_VERIFY_PARAM_set_flags.3 X509_VERIFY_PARAM_set_purpose.3 \
 	X509_VERIFY_PARAM_set_flags.3 X509_VERIFY_PARAM_set_time.3 \
 	X509_VERIFY_PARAM_set_flags.3 X509_VERIFY_PARAM_set_trust.3 \
-	bn_internal.3 bn_add_words.3 \
-	bn_internal.3 bn_check_top.3 \
-	bn_internal.3 bn_cmp_words.3 \
-	bn_internal.3 bn_div_words.3 \
-	bn_internal.3 bn_dump.3 \
-	bn_internal.3 bn_expand.3 \
-	bn_internal.3 bn_expand2.3 \
-	bn_internal.3 bn_fix_top.3 \
-	bn_internal.3 bn_mul_add_words.3 \
-	bn_internal.3 bn_mul_comba4.3 \
-	bn_internal.3 bn_mul_comba8.3 \
-	bn_internal.3 bn_mul_high.3 \
-	bn_internal.3 bn_mul_low_normal.3 \
-	bn_internal.3 bn_mul_low_recursive.3 \
-	bn_internal.3 bn_mul_normal.3 \
-	bn_internal.3 bn_mul_part_recursive.3 \
-	bn_internal.3 bn_mul_recursive.3 \
-	bn_internal.3 bn_mul_words.3 \
-	bn_internal.3 bn_print.3 \
-	bn_internal.3 bn_set_high.3 \
-	bn_internal.3 bn_set_low.3 \
-	bn_internal.3 bn_set_max.3 \
-	bn_internal.3 bn_sqr_comba4.3 \
-	bn_internal.3 bn_sqr_comba8.3 \
-	bn_internal.3 bn_sqr_normal.3 \
-	bn_internal.3 bn_sqr_recursive.3 \
-	bn_internal.3 bn_sqr_words.3 \
-	bn_internal.3 bn_sub_words.3 \
-	bn_internal.3 bn_wexpand.3 \
-	bn_internal.3 mul.3 \
-	bn_internal.3 mul_add.3 \
-	bn_internal.3 sqr.3 \
+	UI_new.3 UI_OpenSSL.3 \
+	UI_new.3 UI_add_error_string.3 \
+	UI_new.3 UI_add_info_string.3 \
+	UI_new.3 UI_add_input_boolean.3 \
+	UI_new.3 UI_add_input_string.3 \
+	UI_new.3 UI_add_user_data.3 \
+	UI_new.3 UI_add_verify_string.3 \
+	UI_new.3 UI_construct_prompt.3 \
+	UI_new.3 UI_ctrl.3 \
+	UI_new.3 UI_dup_error_string.3 \
+	UI_new.3 UI_dup_info_string.3 \
+	UI_new.3 UI_dup_input_boolean.3 \
+	UI_new.3 UI_dup_input_string.3 \
+	UI_new.3 UI_dup_verify_string.3 \
+	UI_new.3 UI_free.3 \
+	UI_new.3 UI_get0_result.3 \
+	UI_new.3 UI_get0_user_data.3 \
+	UI_new.3 UI_get_default_method.3 \
+	UI_new.3 UI_get_method.3 \
+	UI_new.3 UI_new_method.3 \
+	UI_new.3 UI_process.3 \
+	UI_new.3 UI_set_default_method.3 \
+	UI_new.3 UI_set_method.3 \
+	bn_dump.3 bn_add_words.3 \
+	bn_dump.3 bn_check_top.3 \
+	bn_dump.3 bn_cmp_words.3 \
+	bn_dump.3 bn_div_words.3 \
+	bn_dump.3 bn_expand.3 \
+	bn_dump.3 bn_expand2.3 \
+	bn_dump.3 bn_fix_top.3 \
+	bn_dump.3 bn_mul_add_words.3 \
+	bn_dump.3 bn_mul_comba4.3 \
+	bn_dump.3 bn_mul_comba8.3 \
+	bn_dump.3 bn_mul_high.3 \
+	bn_dump.3 bn_mul_low_normal.3 \
+	bn_dump.3 bn_mul_low_recursive.3 \
+	bn_dump.3 bn_mul_normal.3 \
+	bn_dump.3 bn_mul_part_recursive.3 \
+	bn_dump.3 bn_mul_recursive.3 \
+	bn_dump.3 bn_mul_words.3 \
+	bn_dump.3 bn_print.3 \
+	bn_dump.3 bn_set_high.3 \
+	bn_dump.3 bn_set_low.3 \
+	bn_dump.3 bn_set_max.3 \
+	bn_dump.3 bn_sqr_comba4.3 \
+	bn_dump.3 bn_sqr_comba8.3 \
+	bn_dump.3 bn_sqr_normal.3 \
+	bn_dump.3 bn_sqr_recursive.3 \
+	bn_dump.3 bn_sqr_words.3 \
+	bn_dump.3 bn_sub_words.3 \
+	bn_dump.3 bn_wexpand.3 \
+	bn_dump.3 mul.3 \
+	bn_dump.3 mul_add.3 \
+	bn_dump.3 sqr.3 \
 	d2i_ASN1_OBJECT.3 i2d_ASN1_OBJECT.3 \
 	d2i_DHparams.3 i2d_DHparams.3 \
 	d2i_DSAPublicKey.3 d2i_DSAPrivateKey.3 \
@@ -1033,12 +1071,11 @@ MLINKS+=\
 	d2i_ECPKParameters.3 i2d_ECPKParameters.3 \
 	d2i_ECPKParameters.3 i2d_ECPKParameters_bio.3 \
 	d2i_ECPKParameters.3 i2d_ECPKParameters_fp.3 \
-	d2i_PKCS8PrivateKey.3 d2i_PKCS8PrivateKey_bio.3 \
-	d2i_PKCS8PrivateKey.3 d2i_PKCS8PrivateKey_fp.3 \
-	d2i_PKCS8PrivateKey.3 i2d_PKCS8PrivateKey_bio.3 \
-	d2i_PKCS8PrivateKey.3 i2d_PKCS8PrivateKey_fp.3 \
-	d2i_PKCS8PrivateKey.3 i2d_PKCS8PrivateKey_nid_bio.3 \
-	d2i_PKCS8PrivateKey.3 i2d_PKCS8PrivateKey_nid_fp.3 \
+	d2i_PKCS8PrivateKey_bio.3 d2i_PKCS8PrivateKey_fp.3 \
+	d2i_PKCS8PrivateKey_bio.3 i2d_PKCS8PrivateKey_bio.3 \
+	d2i_PKCS8PrivateKey_bio.3 i2d_PKCS8PrivateKey_fp.3 \
+	d2i_PKCS8PrivateKey_bio.3 i2d_PKCS8PrivateKey_nid_bio.3 \
+	d2i_PKCS8PrivateKey_bio.3 i2d_PKCS8PrivateKey_nid_fp.3 \
 	d2i_RSAPublicKey.3 d2i_Netscape_RSA.3 \
 	d2i_RSAPublicKey.3 d2i_RSAPrivateKey.3 \
 	d2i_RSAPublicKey.3 i2d_Netscape_RSA.3 \
@@ -1061,24 +1098,9 @@ MLINKS+=\
 	d2i_X509_REQ.3 i2d_X509_REQ.3 \
 	d2i_X509_REQ.3 i2d_X509_REQ_bio.3 \
 	d2i_X509_REQ.3 i2d_X509_REQ_fp.3 \
-	ecdsa.3 ECDSA_OpenSSL.3 \
-	ecdsa.3 ECDSA_SIG_free.3 \
-	ecdsa.3 ECDSA_SIG_new.3 \
-	ecdsa.3 ECDSA_do_sign.3 \
-	ecdsa.3 ECDSA_do_sign_ex.3 \
-	ecdsa.3 ECDSA_do_verify.3 \
-	ecdsa.3 ECDSA_get_default_method.3 \
-	ecdsa.3 ECDSA_get_ex_data.3 \
-	ecdsa.3 ECDSA_get_ex_new_index.3 \
-	ecdsa.3 ECDSA_set_default_method.3 \
-	ecdsa.3 ECDSA_set_ex_data.3 \
-	ecdsa.3 ECDSA_set_method.3 \
-	ecdsa.3 ECDSA_sign.3 \
-	ecdsa.3 ECDSA_sign_ex.3 \
-	ecdsa.3 ECDSA_sign_setup.3 \
-	ecdsa.3 ECDSA_verify.3 \
-	ecdsa.3 d2i_ECDSA_SIG.3 \
-	ecdsa.3 i2d_ECDSA_SIG.3 \
+	des_read_pw.3 des_read_2passwords.3 \
+	des_read_pw.3 des_read_password.3 \
+	des_read_pw.3 des_read_pw_string.3 \
 	engine.3 ENGINE_add.3 \
 	engine.3 ENGINE_by_id.3 \
 	engine.3 ENGINE_finish.3 \
@@ -1089,47 +1111,18 @@ MLINKS+=\
 	engine.3 ENGINE_init.3 \
 	engine.3 ENGINE_load_builtin_engines.3 \
 	engine.3 ENGINE_remove.3 \
+	lh_new.3 lh_delete.3 \
+	lh_new.3 lh_doall.3 \
+	lh_new.3 lh_doall_arg.3 \
+	lh_new.3 lh_error.3 \
+	lh_new.3 lh_free.3 \
+	lh_new.3 lh_insert.3 \
+	lh_new.3 lh_retrieve.3 \
 	lh_stats.3 lh_node_stats.3 \
 	lh_stats.3 lh_node_stats_bio.3 \
 	lh_stats.3 lh_node_usage_stats.3 \
 	lh_stats.3 lh_node_usage_stats_bio.3 \
 	lh_stats.3 lh_stats_bio.3 \
-	lhash.3 lh_delete.3 \
-	lhash.3 lh_doall.3 \
-	lhash.3 lh_doall_arg.3 \
-	lhash.3 lh_error.3 \
-	lhash.3 lh_free.3 \
-	lhash.3 lh_insert.3 \
-	lhash.3 lh_new.3 \
-	lhash.3 lh_retrieve.3 \
-	ui.3 UI_OpenSSL.3 \
-	ui.3 UI_add_error_string.3 \
-	ui.3 UI_add_info_string.3 \
-	ui.3 UI_add_input_boolean.3 \
-	ui.3 UI_add_input_string.3 \
-	ui.3 UI_add_user_data.3 \
-	ui.3 UI_add_verify_string.3 \
-	ui.3 UI_construct_prompt.3 \
-	ui.3 UI_ctrl.3 \
-	ui.3 UI_dup_error_string.3 \
-	ui.3 UI_dup_info_string.3 \
-	ui.3 UI_dup_input_boolean.3 \
-	ui.3 UI_dup_input_string.3 \
-	ui.3 UI_dup_verify_string.3 \
-	ui.3 UI_free.3 \
-	ui.3 UI_get0_result.3 \
-	ui.3 UI_get0_user_data.3 \
-	ui.3 UI_get_default_method.3 \
-	ui.3 UI_get_method.3 \
-	ui.3 UI_new.3 \
-	ui.3 UI_new_method.3 \
-	ui.3 UI_process.3 \
-	ui.3 UI_set_default_method.3 \
-	ui.3 UI_set_method.3 \
-	ui_compat.3 des_read_2passwords.3 \
-	ui_compat.3 des_read_password.3 \
-	ui_compat.3 des_read_pw.3 \
-	ui_compat.3 des_read_pw_string.3
 
 .include <bsd.man.mk>
 .else

@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.268 2015/11/04 10:13:55 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.277 2015/11/27 11:52:44 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -113,6 +113,7 @@
 #include <sys/kernel.h>
 #include <sys/queue.h>
 #include <sys/pool.h>
+#include <sys/atomic.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -139,7 +140,7 @@
 /* Give some jitter to hash, to avoid synchronization between routers. */
 static uint32_t		rt_hashjitter;
 
-extern unsigned int	rtables_id_max;
+extern unsigned int	rtmap_limit;
 
 struct rtstat		rtstat;
 int			rttrash;	/* routes not in table but not freed */
@@ -151,6 +152,8 @@ void	rt_timer_init(void);
 int	rtflushclone1(struct rtentry *, void *, u_int);
 void	rtflushclone(unsigned int, struct rtentry *);
 int	rt_if_remove_rtdelete(struct rtentry *, void *, u_int);
+struct rtentry *rt_match(struct sockaddr *, uint32_t *, int, unsigned int);
+uint32_t	rt_hash(struct rtentry *, uint32_t *);
 
 struct	ifaddr *ifa_ifwithroute(int, struct sockaddr *, struct sockaddr *,
 		    u_int);
@@ -194,6 +197,12 @@ rtisvalid(struct rtentry *rt)
 	if (rt == NULL)
 		return (0);
 
+#ifdef DIAGNOSTIC
+	if (ISSET(rt->rt_flags, RTF_GATEWAY) && (rt->rt_gwroute != NULL) &&
+	    ISSET(rt->rt_gwroute->rt_flags, RTF_GATEWAY))
+	    	panic("next hop must be directly reachable");
+#endif
+
 	if ((rt->rt_flags & RTF_UP) == 0)
 		return (0);
 
@@ -201,11 +210,27 @@ rtisvalid(struct rtentry *rt)
 	if (rt->rt_ifa == NULL || rt->rt_ifa->ifa_ifp == NULL)
 		return (0);
 
+	if (ISSET(rt->rt_flags, RTF_GATEWAY) && !rtisvalid(rt->rt_gwroute))
+		return (0);
+
 	return (1);
 }
 
+/*
+ * Do the actual lookup for rtalloc(9), do not use directly!
+ *
+ * Return the best matching entry for the destination ``dst''.
+ *
+ * "RT_RESOLVE" means that a corresponding L2 entry should
+ *   be added to the routing table and resolved (via ARP or
+ *   NDP), if it does not exist.
+ *
+ * "RT_REPORT" indicates that a message should be sent to
+ *   userland if no matching route has been found or if an
+ *   error occured while adding a L2 entry.
+ */
 struct rtentry *
-rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
+rt_match(struct sockaddr *dst, uint32_t *src, int flags, unsigned int tableid)
 {
 	struct rtentry		*rt0, *rt = NULL;
 	struct rt_addrinfo	 info;
@@ -217,6 +242,29 @@ rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
 	s = splsoftnet();
 	KERNEL_LOCK();
 	rt = rtable_match(tableid, dst);
+
+#ifndef SMALL_KERNEL
+	/* Handle multipath routing if enabled for the specified protocol. */
+	if (rt != NULL && ISSET(rt->rt_flags, RTF_MPATH) && src != NULL) {
+		switch (dst->sa_family) {
+		case AF_INET:
+			if (!ipmultipath)
+				break;
+			rt = rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff);
+			break;
+#ifdef INET6
+		case AF_INET6:
+			if (!ip6_multipath)
+				break;
+			rt = rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff);
+			break;
+#endif
+		default:
+			break;
+		};
+	}
+#endif /* SMALL_KERNEL */
+
 	if (rt != NULL) {
 		if ((rt->rt_flags & RTF_CLONING) && ISSET(flags, RT_RESOLVE)) {
 			rt0 = rt;
@@ -242,8 +290,9 @@ miss:
 	return (rt);
 }
 
-#ifndef SMALL_KERNEL
+struct rtentry *_rtalloc(struct sockaddr *, uint32_t *, int, unsigned int);
 
+#ifndef SMALL_KERNEL
 /*
  * Originated from bridge_hash() in if_bridge.c
  */
@@ -259,7 +308,7 @@ miss:
 	c -= a; c -= b; c ^= (b >> 15);					\
 } while (0)
 
-static uint32_t
+uint32_t
 rt_hash(struct rtentry *rt, uint32_t *src)
 {
 	struct sockaddr *dst = rt_key(rt);
@@ -315,26 +364,83 @@ rt_hash(struct rtentry *rt, uint32_t *src)
 struct rtentry *
 rtalloc_mpath(struct sockaddr *dst, uint32_t *src, unsigned int rtableid)
 {
-	struct rtentry *rt;
-
-	rt = rtalloc(dst, RT_REPORT|RT_RESOLVE, rtableid);
-
-	/* if the route does not exist or it is not multipath, don't care */
-	if (rt == NULL || !ISSET(rt->rt_flags, RTF_MPATH))
-		return (rt);
-
-	/* check if multipath routing is enabled for the specified protocol */
-	if (!(0
-	    || (ipmultipath && dst->sa_family == AF_INET)
-#ifdef INET6
-	    || (ip6_multipath && dst->sa_family == AF_INET6)
-#endif
-	    ))
-		return (rt);
-
-	return (rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff));
+	return (_rtalloc(dst, src, RT_REPORT|RT_RESOLVE, rtableid));
 }
 #endif /* SMALL_KERNEL */
+
+struct rtentry *
+rtalloc(struct sockaddr *dst, int flags, unsigned int rtableid)
+{
+	return (_rtalloc(dst, NULL, flags, rtableid));
+}
+
+/*
+ * Look in the routing table for the best matching entry for
+ * ``dst''.
+ *
+ * If a route with a gateway is found and its next hop is no
+ * longer valid, try to cache it.
+ */
+struct rtentry *
+_rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
+{
+	struct rtentry *rt, *nhrt;
+
+	rt = rt_match(dst, src, flags, rtableid);
+
+	/* No match or route to host?  We're done. */
+	if (rt == NULL || !ISSET(rt->rt_flags, RTF_GATEWAY))
+		return (rt);
+
+	/* Nothing to do if the next hop is valid. */
+	if (rtisvalid(rt->rt_gwroute))
+		return (rt);
+
+	rtfree(rt->rt_gwroute);
+	rt->rt_gwroute = NULL;
+
+	/*
+	 * If we cannot find a valid next hop, return the route
+	 * with a gateway.
+	 *
+	 * XXX Some dragons hiding in the tree certainly depends on
+	 * this behavior.  But it is safe since rt_checkgate() wont
+	 * allow us to us this route later on.
+	 */
+	nhrt = rt_match(rt->rt_gateway, NULL, flags | RT_RESOLVE, rtableid);
+	if (nhrt == NULL)
+		return (rt);
+
+	/*
+	 * Next hop must be reachable, this also prevents rtentry
+	 * loops for example when rt->rt_gwroute points to rt.
+	 */
+	if (ISSET(nhrt->rt_flags, RTF_CLONING|RTF_GATEWAY)) {
+		rtfree(nhrt);
+		return (rt);
+	}
+
+	/* Next hop entry must be UP and on the same interface. */
+	if (!ISSET(nhrt->rt_flags, RTF_UP) || nhrt->rt_ifidx != rt->rt_ifidx) {
+		rtfree(nhrt);
+		return (rt);
+	}
+
+	/*
+	 * If the MTU of next hop is 0, this will reset the MTU of the
+	 * route to run PMTUD again from scratch.
+	 */
+	if (!ISSET(rt->rt_locks, RTV_MTU) && (rt->rt_mtu > nhrt->rt_mtu))
+		rt->rt_mtu = nhrt->rt_mtu;
+
+	/*
+	 * Do not return the cached next-hop route, rt_checkgate() will
+	 * do the magic for us.
+	 */
+	rt->rt_gwroute = nhrt;
+
+	return (rt);
+}
 
 void
 rtref(struct rtentry *rt)
@@ -431,7 +537,7 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 	u_int32_t		*stat = NULL;
 	struct rt_addrinfo	 info;
 	struct ifaddr		*ifa;
-	unsigned int		 ifidx;
+	unsigned int		 ifidx = 0;
 
 	splsoftassert(IPL_SOFTNET);
 
@@ -499,7 +605,7 @@ create:
 			rt->rt_flags |= RTF_MODIFIED;
 			flags |= RTF_MODIFIED;
 			stat = &rtstat.rts_newgateway;
-			rt_setgate(rt, gateway, rdomain);
+			rt_setgate(rt, gateway);
 		}
 	} else
 		error = EHOSTUNREACH;
@@ -713,6 +819,7 @@ int
 rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
     struct rtentry **ret_nrt, u_int tableid)
 {
+	struct ifnet		*ifp;
 	struct rtentry		*rt, *crt;
 	struct ifaddr		*ifa;
 	struct sockaddr		*ndst;
@@ -777,7 +884,12 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		rt->rt_parent = NULL;
 
 		rt->rt_flags &= ~RTF_UP;
-		rt->rt_ifp->if_rtrequest(rt->rt_ifp, RTM_DELETE, rt);
+
+		ifp = if_get(rt->rt_ifidx);
+		KASSERT(ifp != NULL);
+		ifp->if_rtrequest(ifp, RTM_DELETE, rt);
+		if_put(ifp);
+
 		atomic_inc_int(&rttrash);
 
 		if (ret_nrt != NULL)
@@ -818,8 +930,9 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		if (info->rti_ifa == NULL && (error = rt_getifa(info, tableid)))
 			return (error);
 		ifa = info->rti_ifa;
+		ifp = ifa->ifa_ifp;
 		if (prio == 0)
-			prio = ifa->ifa_ifp->if_priority + RTP_STATIC;
+			prio = ifp->if_priority + RTP_STATIC;
 
 		dlen = info->rti_info[RTAX_DST]->sa_len;
 		ndst = malloc(dlen, M_RTABLE, M_NOWAIT);
@@ -848,8 +961,8 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		/* Check the link state if the table supports it. */
 		if (rtable_mpath_capable(tableid, ndst->sa_family) &&
 		    !ISSET(rt->rt_flags, RTF_LOCAL) &&
-		    (!LINK_STATE_IS_UP(ifa->ifa_ifp->if_link_state) ||
-		    !ISSET(ifa->ifa_ifp->if_flags, IFF_UP))) {
+		    (!LINK_STATE_IS_UP(ifp->if_link_state) ||
+		    !ISSET(ifp->if_flags, IFF_UP))) {
 			rt->rt_flags &= ~RTF_UP;
 			rt->rt_priority |= RTP_DOWN;
 		}
@@ -896,7 +1009,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 
 		ifa->ifa_refcnt++;
 		rt->rt_ifa = ifa;
-		rt->rt_ifp = ifa->ifa_ifp;
+		rt->rt_ifp = ifp;
 		if (rt->rt_flags & RTF_CLONED) {
 			/*
 			 * If the ifa of the cloning route was stale, a
@@ -905,16 +1018,21 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 			 * route.
 			 */
 			if ((*ret_nrt)->rt_ifa->ifa_ifp == NULL) {
-				printf("rtrequest RTM_RESOLVE: wrong ifa (%p) "
-				    "was (%p)\n", ifa, (*ret_nrt)->rt_ifa);
-				(*ret_nrt)->rt_ifp->if_rtrequest(rt->rt_ifp,
-				    RTM_DELETE, *ret_nrt);
+				struct ifnet *ifp0;
+
+				printf("%s RTM_RESOLVE: wrong ifa (%p) was (%p)"
+				    "\n", __func__, ifa, (*ret_nrt)->rt_ifa);
+
+				ifp0 = if_get((*ret_nrt)->rt_ifidx);
+				KASSERT(ifp0 != NULL);
+				ifp0->if_rtrequest(ifp0, RTM_DELETE, *ret_nrt);
 				ifafree((*ret_nrt)->rt_ifa);
-				(*ret_nrt)->rt_ifa = ifa;
-				(*ret_nrt)->rt_ifp = ifa->ifa_ifp;
+				if_put(ifp0);
+
 				ifa->ifa_refcnt++;
-				(*ret_nrt)->rt_ifp->if_rtrequest(rt->rt_ifp,
-				    RTM_ADD, *ret_nrt);
+				(*ret_nrt)->rt_ifa = ifa;
+				(*ret_nrt)->rt_ifp = ifp;
+				ifp->if_rtrequest(ifp, RTM_ADD, *ret_nrt);
 			}
 			/*
 			 * Copy both metrics and a back pointer to the cloned
@@ -931,8 +1049,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		 * the routing table because the radix MPATH code use
 		 * it to (re)order routes.
 		 */
-		if ((error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY],
-		    tableid))) {
+		if ((error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY]))) {
 			free(ndst, M_RTABLE, dlen);
 			pool_put(&rtentry_pool, rt);
 			return (error);
@@ -964,7 +1081,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 			pool_put(&rtentry_pool, rt);
 			return (EEXIST);
 		}
-		rt->rt_ifp->if_rtrequest(rt->rt_ifp, req, rt);
+		ifp->if_rtrequest(ifp, req, rt);
 
 		if ((rt->rt_flags & RTF_CLONING) != 0) {
 			/* clean up any cloned children */
@@ -985,7 +1102,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 }
 
 int
-rt_setgate(struct rtentry *rt, struct sockaddr *gate, unsigned int tableid)
+rt_setgate(struct rtentry *rt, struct sockaddr *gate)
 {
 	int glen = ROUNDUP(gate->sa_len);
 	struct sockaddr *sa;
@@ -1003,22 +1120,7 @@ rt_setgate(struct rtentry *rt, struct sockaddr *gate, unsigned int tableid)
 		rtfree(rt->rt_gwroute);
 		rt->rt_gwroute = NULL;
 	}
-	if (rt->rt_flags & RTF_GATEWAY) {
-		/* XXX is this actually valid to cross tables here? */
-		rt->rt_gwroute = rtalloc(gate, RT_REPORT|RT_RESOLVE, tableid);
-		/*
-		 * If we switched gateways, grab the MTU from the new
-		 * gateway route if the current MTU is 0 or greater
-		 * than the MTU of gateway.
-		 * Note that, if the MTU of gateway is 0, we will reset the
-		 * MTU of the route to run PMTUD again from scratch. XXX
-		 */
-		if (rt->rt_gwroute && !(rt->rt_rmx.rmx_locks & RTV_MTU) &&
-		    rt->rt_rmx.rmx_mtu &&
-		    rt->rt_rmx.rmx_mtu > rt->rt_gwroute->rt_rmx.rmx_mtu) {
-			rt->rt_rmx.rmx_mtu = rt->rt_gwroute->rt_rmx.rmx_mtu;
-		}
-	}
+
 	return (0);
 }
 
@@ -1033,26 +1135,8 @@ rt_checkgate(struct ifnet *ifp, struct rtentry *rt, struct sockaddr *dst,
 	rt0 = rt;
 
 	if (rt->rt_flags & RTF_GATEWAY) {
-		if (rt->rt_gwroute && !(rt->rt_gwroute->rt_flags & RTF_UP)) {
-			rtfree(rt->rt_gwroute);
-			rt->rt_gwroute = NULL;
-		}
-		if (rt->rt_gwroute == NULL) {
-			rt->rt_gwroute = rtalloc(rt->rt_gateway,
-			    RT_REPORT|RT_RESOLVE, rtableid);
-			if (rt->rt_gwroute == NULL)
-				return (EHOSTUNREACH);
-		}
-		/*
-		 * Next hop must be reachable, this also prevents rtentry
-		 * loops, for example when rt->rt_gwroute points to rt.
-		 */
-		if (((rt->rt_gwroute->rt_flags & (RTF_UP|RTF_GATEWAY)) !=
-		    RTF_UP) || (rt->rt_gwroute->rt_ifidx != ifp->if_index)) {
-			rtfree(rt->rt_gwroute);
-			rt->rt_gwroute = NULL;
+		if (rt->rt_gwroute == NULL)
 			return (EHOSTUNREACH);
-		}
 		rt = rt->rt_gwroute;
 	}
 
@@ -1578,7 +1662,7 @@ rt_if_remove(struct ifnet *ifp)
 	int			 i;
 	u_int			 tid;
 
-	for (tid = 0; tid <= rtables_id_max; tid++) {
+	for (tid = 0; tid < rtmap_limit; tid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
 		if (rtable_l2(tid) != ifp->if_rdomain)
 			continue;
@@ -1608,11 +1692,6 @@ rt_if_remove_rtdelete(struct rtentry *rt, void *vifp, u_int id)
 			return (EAGAIN);
 	}
 
-	/*
-	 * XXX There should be no need to check for rt_ifa belonging to this
-	 * interface, because then rt_ifp is set, right?
-	 */
-
 	return (0);
 }
 
@@ -1623,7 +1702,7 @@ rt_if_track(struct ifnet *ifp)
 	int i;
 	u_int tid;
 
-	for (tid = 0; tid <= rtables_id_max; tid++) {
+	for (tid = 0; tid < rtmap_limit; tid++) {
 		/* skip rtables that are not in the rdomain of the ifp */
 		if (rtable_l2(tid) != ifp->if_rdomain)
 			continue;

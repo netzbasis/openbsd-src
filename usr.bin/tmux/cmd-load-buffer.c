@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.35 2015/10/31 08:13:58 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.39 2015/11/14 09:41:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -77,11 +77,16 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	else
 		cwd = ".";
 
-	xasprintf(&file, "%s/%s", cwd, path);
-	if (realpath(file, resolved) == NULL)
-		f = NULL;
+	if (*path == '/')
+		file = xstrdup(path);
 	else
-		f = fopen(resolved, "rb");
+		xasprintf(&file, "%s/%s", cwd, path);
+	if (realpath(file, resolved) == NULL &&
+	    strlcpy(resolved, file, sizeof resolved) >= sizeof resolved) {
+		cmdq_error(cmdq, "%s: %s", file, strerror(ENAMETOOLONG));
+		return (CMD_RETURN_ERROR);
+	}
+	f = fopen(resolved, "rb");
 	free(file);
 	if (f == NULL) {
 		cmdq_error(cmdq, "%s: %s", resolved, strerror(errno));
@@ -128,7 +133,7 @@ void
 cmd_load_buffer_callback(struct client *c, int closed, void *data)
 {
 	const char	*bufname = data;
-	char		*pdata, *cause;
+	char		*pdata, *cause, *saved;
 	size_t		 psize;
 
 	if (!closed)
@@ -149,8 +154,13 @@ cmd_load_buffer_callback(struct client *c, int closed, void *data)
 
 	if (paste_set(pdata, psize, bufname, &cause) != 0) {
 		/* No context so can't use server_client_msg_error. */
+		if (~c->flags & CLIENT_UTF8) {
+			saved = cause;
+			cause = utf8_sanitize(saved);
+			free(saved);
+		}
 		evbuffer_add_printf(c->stderr_data, "%s", cause);
-		server_push_stderr(c);
+		server_client_push_stderr(c);
 		free(pdata);
 		free(cause);
 	}

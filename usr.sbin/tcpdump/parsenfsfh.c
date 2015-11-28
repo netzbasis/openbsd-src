@@ -1,4 +1,4 @@
-/*	$OpenBSD: parsenfsfh.c,v 1.10 2009/10/27 23:59:55 deraadt Exp $	*/
+/*	$OpenBSD: parsenfsfh.c,v 1.12 2015/11/18 15:36:20 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994 Jeffrey C. Mogul, Digital Equipment Corporation,
@@ -46,7 +46,6 @@
 #include <sys/time.h>
 
 #include <ctype.h>
-#include <memory.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -106,14 +105,14 @@ static int is_UCX(unsigned char *);
 
 void
 Parse_fh(fh, fsidp, inop, osnamep, fsnamep, ourself)
-register caddr_t *fh;
+caddr_t *fh;
 my_fsid *fsidp;
 ino_t *inop;
 char **osnamep;		/* if non-NULL, return OS name here */
 char **fsnamep;		/* if non-NULL, return server fs name here (for VMS) */
 int ourself;		/* true if file handle was generated on this host */
 {
-	register unsigned char *fhp = (unsigned char *)fh;
+	unsigned char *fhp = (unsigned char *)fh;
 	u_int32_t temp;
 	int fhtype = FHT_UNKNOWN;
 
@@ -429,7 +428,7 @@ static int
 is_UCX(fhp)
 unsigned char *fhp;
 {
-	register int i;
+	int i;
 	int seen_null = 0;
 
 	for (i = 1; i < 14; i++) {

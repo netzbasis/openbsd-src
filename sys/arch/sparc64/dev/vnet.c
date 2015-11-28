@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnet.c,v 1.47 2015/10/25 13:22:09 mpi Exp $	*/
+/*	$OpenBSD: vnet.c,v 1.51 2015/11/25 03:09:58 dlg Exp $	*/
 /*
  * Copyright (c) 2009, 2015 Mark Kettenis
  *
@@ -33,9 +33,7 @@
 #include <machine/openfirm.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -662,7 +660,7 @@ vnet_rx_vio_rdx(struct vnet_softc *sc, struct vio_msg_tag *tag)
 		vnet_setmulti(sc, 1);
 
 		KERNEL_LOCK();
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		vnet_start(ifp);
 		KERNEL_UNLOCK();
 	}
@@ -891,7 +889,7 @@ vnet_rx_vio_dring_data(struct vnet_softc *sc, struct vio_msg_tag *tag)
 
 		KERNEL_LOCK();
 		if (count < (sc->sc_vd->vd_nentries - 1))
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 		if (count == 0)
 			ifp->if_timer = 0;
 
@@ -1066,7 +1064,7 @@ vnet_start(struct ifnet *ifp)
 	u_int start, prod, count;
 	int err;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
@@ -1090,7 +1088,7 @@ vnet_start(struct ifnet *ifp)
 	tx_tail += sizeof(struct ldc_pkt);
 	tx_tail &= ((lc->lc_txq->lq_nentries * sizeof(struct ldc_pkt)) - 1);
 	if (tx_tail == tx_head) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -1101,24 +1099,26 @@ vnet_start(struct ifnet *ifp)
 
 	start = prod = sc->sc_tx_prod & (sc->sc_vd->vd_nentries - 1);
 	while (sc->sc_vd->vd_desc[prod].hdr.dstate == VIO_DESC_FREE) {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		count = sc->sc_tx_prod - sc->sc_tx_cons;
 		if (count >= (sc->sc_vd->vd_nentries - 1) ||
 		    map->lm_count >= map->lm_nentries) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		buf = pool_get(&sc->sc_pool, PR_NOWAIT|PR_ZERO);
 		if (buf == NULL) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		m_copydata(m, 0, m->m_pkthdr.len, buf + VNET_ETHER_ALIGN);
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*
@@ -1176,24 +1176,26 @@ vnet_start_desc(struct ifnet *ifp)
 	u_int prod, count;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		count = sc->sc_tx_prod - sc->sc_tx_cons;
 		if (count >= (sc->sc_vd->vd_nentries - 1) ||
 		    map->lm_count >= map->lm_nentries) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			return;
 		}
 
 		buf = pool_get(&sc->sc_pool, PR_NOWAIT|PR_ZERO);
 		if (buf == NULL) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			return;
 		}
 		m_copydata(m, 0, m->m_pkthdr.len, buf);
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*
@@ -1427,7 +1429,8 @@ vnet_stop(struct ifnet *ifp)
 	struct vnet_softc *sc = ifp->if_softc;
 	struct ldc_conn *lc = &sc->sc_lc;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	cbus_intr_setenabled(sc->sc_bustag, sc->sc_tx_ino, INTR_DISABLED);

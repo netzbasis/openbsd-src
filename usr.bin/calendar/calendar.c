@@ -1,4 +1,4 @@
-/*	$OpenBSD: calendar.c,v 1.32 2015/10/23 11:43:16 zhuk Exp $	*/
+/*	$OpenBSD: calendar.c,v 1.34 2015/11/21 12:50:58 semarie Exp $	*/
 
 /*
  * Copyright (c) 1989, 1993, 1994
@@ -117,6 +117,15 @@ main(int argc, char *argv[])
 
 	if (argc)
 		usage();
+
+	if (doall) {
+		if (pledge("stdio rpath tmppath fattr getpw id proc exec", NULL)
+		    == -1)
+			err(1, "pledge");
+	} else {
+		if (pledge("stdio rpath proc exec", NULL) == -1)
+			err(1, "pledge");
+	}
 
 	/* use current time */
 	if (f_time <= 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.63 2015/11/04 12:11:59 dlg Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.68 2015/11/25 03:09:59 dlg Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -129,15 +129,10 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
-#include <netinet/in_systm.h>
 #include <netinet/if_ether.h>
-#include <netinet/ip.h>
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_amrr.h>
@@ -3180,8 +3175,8 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 
 	if (--ring->queued < IWM_TX_RING_LOMARK) {
 		sc->qfullmsk &= ~(1 << ring->qid);
-		if (sc->qfullmsk == 0 && (ifp->if_flags & IFF_OACTIVE)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (sc->qfullmsk == 0 && ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			/*
 			 * Well, we're in interrupt context, but then again
 			 * I guess net80211 does all sorts of stunts in
@@ -5557,7 +5552,7 @@ iwm_init(struct ifnet *ifp)
  	 * Ok, firmware loaded and we are jogging
 	 */
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	ieee80211_begin_scan(ifp);
@@ -5580,13 +5575,13 @@ iwm_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int ac = EDCA_AC_BE; /* XXX */
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		/* why isn't this done per-queue? */
 		if (sc->qfullmsk != 0) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -5649,7 +5644,8 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	task_del(systq, &sc->init_task);
 	task_del(sc->sc_nswq, &sc->newstate_task);

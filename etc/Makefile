@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.412 2015/10/23 06:42:53 tedu Exp $
+#	$OpenBSD: Makefile,v 1.414 2015/11/27 03:53:28 deraadt Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -59,7 +59,7 @@ RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dvmrpd eigrpd ftpd \
 	pflogd portmap radiusd rarpd rbootd relayd ripd route6d \
 	rtadvd sasyncd sensorsd slowcgi smtpd sndiod snmpd spamd \
 	spamlogd sshd statd syslogd tftpd tftpproxy unbound \
-	watchdogd wsmoused xdm ypbind ypldap yppasswdd ypserv
+	watchdogd wsmoused xdm ypbind ypldap ypserv
 
 MISETS=	base${OSrev}.tgz comp${OSrev}.tgz man${OSrev}.tgz game${OSrev}.tgz
 
@@ -200,6 +200,7 @@ distribution-etc-root-var: distrib-dirs
 	cd ../lib/libcrypto && exec ${MAKE} distribution
 	cd ../usr.bin/bgplg && exec ${MAKE} distribution
 	cd ../usr.bin/mail && exec ${MAKE} distribution
+	cd ../usr.sbin/ikectl && exec ${MAKE} distribution
 	cd ../usr.sbin/ldapd && exec ${MAKE} distribution
 	cd ../usr.sbin/npppd && exec ${MAKE} distribution
 	cd mail && exec ${MAKE} distribution

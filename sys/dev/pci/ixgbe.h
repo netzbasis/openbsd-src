@@ -1,4 +1,4 @@
-/*	$OpenBSD: ixgbe.h,v 1.17 2014/11/18 02:37:30 tedu Exp $	*/
+/*	$OpenBSD: ixgbe.h,v 1.20 2015/11/24 17:11:40 mpi Exp $	*/
 
 /******************************************************************************
 
@@ -54,9 +54,7 @@
 #include <sys/rwlock.h>
 
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/bpf.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -68,7 +66,6 @@
 #endif
 
 #if NVLAN > 0
-#include <net/if_types.h>
 #include <net/if_vlan_var.h>
 #endif
 

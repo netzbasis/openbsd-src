@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.23 2015/10/14 14:33:45 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.26 2015/11/25 00:29:15 deraadt Exp $	*/
 /*	$NetBSD: main.c,v 1.1 1997/06/11 11:21:50 bouyer Exp $	*/
 
 /*
@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <err.h>
 
 #include "fsck.h"
 #include "extern.h"
@@ -156,6 +157,7 @@ checkfilesys(char *filesys, char *mntpt, long auxdata, int child)
 	setcdevname(filesys, NULL, preen);
 	if (debug && preen)
 		pwarn("starting\n");
+
 	switch (setup(filesys)) {
 	case 0:
 		if (preen)

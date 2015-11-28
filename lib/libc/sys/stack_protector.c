@@ -1,4 +1,4 @@
-/*	$OpenBSD: stack_protector.c,v 1.17 2015/09/10 18:13:46 guenther Exp $	*/
+/*	$OpenBSD: stack_protector.c,v 1.20 2015/11/25 00:16:40 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2002 Hiroaki Etoh, Federico G. Schwindt, and Miodrag Vallat.
@@ -32,29 +32,52 @@
 #include <syslog.h>
 #include <unistd.h>
 
+/*
+ * Note: test below is for PIC not __PIC__.  This code must only be included
+ * in the shared library and not in libc.a, but __PIC__ is set for libc.a
+ * objects where PIE is supported
+ *
+ * XXX would this work? #if defined(__PIC__) && !defined(__PIE__)
+ * XXX any archs which are always PIC (like mips64) but don't have PIE?
+ */
+#ifdef PIC
+#include <../csu/os-note-elf.h>
+
+long __guard_local __dso_hidden __attribute__((section(".openbsd.randomdata")));
+#endif /* PIC */
+
 void
 __stack_smash_handler(const char func[], int damaged)
 {
-	struct syslog_data sdata = SYSLOG_DATA_INIT;
-	const char message[] = "stack overflow in function %s";
+	extern char *__progname;
 	struct sigaction sa;
 	sigset_t mask;
+	char buf[1024];
+	size_t len;
 
 	/* Immediately block all signal handlers from running code */
 	sigfillset(&mask);
 	sigdelset(&mask, SIGABRT);
-	sigprocmask(SIG_BLOCK, &mask, NULL);
+	sigprocmask(SIG_SETMASK, &mask, NULL);
 
-	/* This may fail on a chroot jail... */
-	syslog_r(LOG_CRIT, &sdata, message, func);
+	/* <10> is LOG_CRIT */
+	len = strlcpy(buf, "<10>", sizeof buf);
+	strlcpy(buf + len, __progname, sizeof buf - len);
 
-	bzero(&sa, sizeof(struct sigaction));
+	/* truncate progname in case it is too long */
+	buf[sizeof(buf) / 2] = '\0';
+	strlcat(buf, ": stack overflow in function ", sizeof buf);
+	strlcat(buf, func, sizeof buf);
+
+	sendsyslog2(buf, strlen(buf), LOG_CONS);
+
+	memset(&sa, 0, sizeof(sa));
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = 0;
 	sa.sa_handler = SIG_DFL;
 	sigaction(SIGABRT, &sa, NULL);
 
-	kill(getpid(), SIGABRT);
+	thrkill(0, SIGABRT, NULL);
 
 	_exit(127);
 }

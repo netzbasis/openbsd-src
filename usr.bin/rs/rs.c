@@ -1,4 +1,4 @@
-/*	$OpenBSD: rs.c,v 1.27 2015/10/09 01:37:08 deraadt Exp $	*/
+/*	$OpenBSD: rs.c,v 1.29 2015/11/14 17:03:02 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1993
@@ -67,10 +67,10 @@ char	**elem;
 char	**endelem;
 char	*curline;
 int	allocsize = BUFSIZ;
-int	curlen;
+ssize_t	curlen;
 int	irows, icols;
 int	orows, ocols;
-int	maxlen;
+ssize_t	maxlen;
 int	skip;
 int	propgutter;
 char	isep = ' ', osep = ' ';
@@ -118,11 +118,13 @@ getfile(void)
 	char **padto;
 
 	while (skip--) {
-		get_line();
+		if (get_line() == EOF)
+			return;
 		if (flags & SKIPPRINT)
 			puts(curline);
 	}
-	get_line();
+	if (get_line() == EOF)
+		return;
 	if (flags & NOARGS && curlen < owidth)
 		flags |= ONEPERLINE;
 	if (flags & ONEPERLINE)
@@ -274,20 +276,19 @@ prepfile(void)
 	if (!(colwidths = calloc(ocols, sizeof(short))))
 		errx(1, "malloc:  No gutter space");
 	if (flags & SQUEEZE) {
-		if (flags & TRANSPOSE)
-			for (ep = elem, i = 0; i < ocols; i++) {
+		for (ep = elem, i = 0; i < ocols; i++) {
+			max = 0;
+			if (flags & TRANSPOSE) {
 				for (j = 0; j < orows; j++)
 					if ((n = strlen(*ep++)) > max)
 						max = n;
-				colwidths[i] = max + gutter;
-			}
-		else
-			for (ep = elem, i = 0; i < ocols; i++) {
+			} else {
 				for (j = i; j < nelem; j += ocols)
 					if ((n = strlen(ep[j])) > max)
 						max = n;
-				colwidths[i] = max + gutter;
 			}
+			colwidths[i] = max + gutter;
+		}
 	} else {
 		for (i = 0; i < ocols; i++)
 			colwidths[i] = colw;
@@ -303,37 +304,29 @@ prepfile(void)
 		nelem = n;
 }
 
-#define	BSIZE	2048
-char	ibuf[BSIZE];		/* two screenfuls should do */
-
 int
 get_line(void)	/* get line; maintain curline, curlen; manage storage */
 {
-	static	int putlength;
-	static	char *endblock = ibuf + BSIZE;
-	char *p;
-	int c, i;
+	static	char	*ibuf = NULL;
+	static	size_t	 ibufsz = 0;
 
-	if (!irows) {
+	if (irows > 0 && flags & DETAILSHAPE)
+		printf(" %zd line %d\n", curlen, irows);
+
+	if ((curlen = getline(&ibuf, &ibufsz, stdin)) == EOF) {
+		if (ferror(stdin))
+			err(1, NULL);
+		return EOF;
+	}
+	if (curlen > 0 && ibuf[curlen - 1] == '\n')
+		ibuf[--curlen] = '\0';
+
+	if (skip >= 0 || flags & SHAPEONLY)
 		curline = ibuf;
-		putlength = flags & DETAILSHAPE;
-	}
-	else if (skip <= 0) {			/* don't waste storage */
-		curline += curlen + 1;
-		if (putlength)		/* print length, recycle storage */
-			printf(" %d line %d\n", curlen, irows);
-	}
-	if (!putlength && endblock - curline < BUFSIZ) {   /* need storage */
-		if (!(curline = malloc(BSIZE)))
-			errx(1, "File too large");
-		endblock = curline + BSIZE;
-	}
-	for (p = curline, i = 1; i < BUFSIZ; *p++ = c, i++)
-		if ((c = getchar()) == EOF || c == '\n')
-			break;
-	*p = '\0';
-	curlen = i - 1;
-	return(c);
+	else if ((curline = strdup(ibuf)) == NULL)
+		err(1, NULL);
+
+	return 0;
 }
 
 char **

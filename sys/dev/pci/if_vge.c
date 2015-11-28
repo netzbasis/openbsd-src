@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vge.c,v 1.65 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_vge.c,v 1.69 2015/11/25 03:09:59 dlg Exp $	*/
 /*	$FreeBSD: if_vge.c,v 1.3 2004/09/11 22:13:25 wpaul Exp $	*/
 /*
  * Copyright (c) 2004
@@ -96,16 +96,10 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -620,8 +614,8 @@ vge_allocmem(struct vge_softc *sc)
 	/* Create DMA maps for TX buffers */
 
 	for (i = 0; i < VGE_TX_DESC_CNT; i++) {
-		error = bus_dmamap_create(sc->sc_dmat, MCLBYTES * nseg, nseg,
-		    MCLBYTES, 0, BUS_DMA_ALLOCNOW,
+		error = bus_dmamap_create(sc->sc_dmat, MCLBYTES * nseg,
+		    VGE_TX_FRAGS, MCLBYTES, 0, BUS_DMA_ALLOCNOW,
 		    &sc->vge_ldata.vge_tx_dmamap[i]);
 		if (error) {
 			printf("%s: can't create DMA map for TX\n",
@@ -1199,7 +1193,7 @@ vge_txeof(struct vge_softc *sc)
 
 	if (idx != sc->vge_ldata.vge_tx_considx) {
 		sc->vge_ldata.vge_tx_considx = idx;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_timer = 0;
 	}
 
@@ -1321,13 +1315,12 @@ vge_intr(void *arg)
 int
 vge_encap(struct vge_softc *sc, struct mbuf *m_head, int idx)
 {
-	struct ifnet		*ifp = &sc->arpcom.ac_if;
 	bus_dmamap_t		txmap;
 	struct vge_tx_desc	*d = NULL;
 	struct vge_tx_frag	*f;
-	struct mbuf		*mnew = NULL;
 	int			error, frag;
 	u_int32_t		vge_flags;
+	unsigned int		len;
 
 	vge_flags = 0;
 
@@ -1339,14 +1332,19 @@ vge_encap(struct vge_softc *sc, struct mbuf *m_head, int idx)
 		vge_flags |= VGE_TDCTL_UDPCSUM;
 
 	txmap = sc->vge_ldata.vge_tx_dmamap[idx];
-repack:
 	error = bus_dmamap_load_mbuf(sc->sc_dmat, txmap,
 	    m_head, BUS_DMA_NOWAIT);
-	if (error) {
-		printf("%s: can't map mbuf (error %d)\n",
-		    sc->vge_dev.dv_xname, error);
-		return (ENOBUFS);
-	}
+	switch (error) {
+	case 0:
+		break;
+	case EFBIG: /* mbuf chain is too fragmented */
+		if ((error = m_defrag(m_head, M_DONTWAIT)) == 0 &&
+		    (error = bus_dmamap_load_mbuf(sc->sc_dmat, txmap, m_head,
+		    BUS_DMA_NOWAIT)) == 0)
+			break;
+	default:
+		return (error);
+        }
 
 	d = &sc->vge_ldata.vge_tx_list[idx];
 	/* If owned by chip, fail */
@@ -1354,38 +1352,10 @@ repack:
 		return (ENOBUFS);
 
 	for (frag = 0; frag < txmap->dm_nsegs; frag++) {
-		/* Check if we have used all 7 fragments. */
-		if (frag == VGE_TX_FRAGS)
-			break;
 		f = &d->vge_frag[frag];
 		f->vge_buflen = htole16(VGE_BUFLEN(txmap->dm_segs[frag].ds_len));
 		f->vge_addrlo = htole32(VGE_ADDR_LO(txmap->dm_segs[frag].ds_addr));
 		f->vge_addrhi = htole16(VGE_ADDR_HI(txmap->dm_segs[frag].ds_addr) & 0xFFFF);
-	}
-
-	/*
-	 * We used up all 7 fragments!  Now what we have to do is
-	 * copy the data into a mbuf cluster and map that.
-	 */
-	if (frag == VGE_TX_FRAGS) {
-		MGETHDR(mnew, M_DONTWAIT, MT_DATA);
-		if (mnew == NULL)
-			return (ENOBUFS);
-
-		if (m_head->m_pkthdr.len > MHLEN) {
-			MCLGET(mnew, M_DONTWAIT);
-			if (!(mnew->m_flags & M_EXT)) {
-				m_freem(mnew);
-				return (ENOBUFS);
-			}
-		}
-		m_copydata(m_head, 0, m_head->m_pkthdr.len,
-		    mtod(mnew, caddr_t));
-		mnew->m_pkthdr.len = mnew->m_len = m_head->m_pkthdr.len;
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
-		m_freem(m_head);
-		m_head = mnew;
-		goto repack;
 	}
 
 	/* This chip does not do auto-padding */
@@ -1396,19 +1366,21 @@ repack:
 		    m_head->m_pkthdr.len));
 		f->vge_addrlo = htole32(VGE_ADDR_LO(txmap->dm_segs[0].ds_addr));
 		f->vge_addrhi = htole16(VGE_ADDR_HI(txmap->dm_segs[0].ds_addr) & 0xFFFF);
-		m_head->m_pkthdr.len = VGE_MIN_FRAMELEN;
+		len = VGE_MIN_FRAMELEN;
 		frag++;
-	}
+	} else
+		len = m_head->m_pkthdr.len;
+
 	/* For some reason, we need to tell the card fragment + 1 */
 	frag++;
 
 	bus_dmamap_sync(sc->sc_dmat, txmap, 0, txmap->dm_mapsize,
 	    BUS_DMASYNC_PREWRITE);
 
-	d->vge_sts = htole32(m_head->m_pkthdr.len << 16);
+	d->vge_sts = htole32(len << 16);
 	d->vge_ctl = htole32(vge_flags|(frag << 28) | VGE_TD_LS_NORM);
 
-	if (m_head->m_pkthdr.len > ETHERMTU + ETHER_HDR_LEN)
+	if (len > ETHERMTU + ETHER_HDR_LEN)
 		d->vge_ctl |= htole32(VGE_TDCTL_JUMBO);
 
 #if NVLAN > 0
@@ -1425,10 +1397,6 @@ repack:
 	sc->vge_ldata.vge_tx_list[idx].vge_sts |= htole32(VGE_TDSTS_OWN);
 
 	idx++;
-	if (mnew == NULL) {
-		/* if mbuf is coalesced, it is already dequeued */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
-	}
 	return (0);
 }
 
@@ -1444,7 +1412,7 @@ vge_start(struct ifnet *ifp)
 
 	sc = ifp->if_softc;
 
-	if (!sc->vge_link || ifp->if_flags & IFF_OACTIVE)
+	if (!sc->vge_link || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
@@ -1456,10 +1424,21 @@ vge_start(struct ifnet *ifp)
 	if (pidx < 0)
 		pidx = VGE_TX_DESC_CNT - 1;
 
-	while (sc->vge_ldata.vge_tx_mbuf[idx] == NULL) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+	for (;;) {
+		if (sc->vge_ldata.vge_tx_mbuf[idx] != NULL) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
+		IFQ_DEQUEUE(&ifp->if_snd, m_head);
 		if (m_head == NULL)
 			break;
+
+		if (vge_encap(sc, m_head, idx)) {
+			m_freem(m_head);
+			ifp->if_oerrors++;
+			continue;
+		}
 
 		/*
 		 * If there's a BPF listener, bounce a copy of this frame
@@ -1469,11 +1448,6 @@ vge_start(struct ifnet *ifp)
 		if (ifp->if_bpf)
 			bpf_mtap_ether(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
-
-		if (vge_encap(sc, m_head, idx)) {
-			ifp->if_flags |= IFF_OACTIVE;
-			break;
-		}
 
 		sc->vge_ldata.vge_tx_list[pidx].vge_frag[0].vge_buflen |=
 		    htole16(VGE_TXDESC_Q);
@@ -1665,7 +1639,7 @@ vge_init(struct ifnet *ifp)
 	mii_mediachg(&sc->sc_mii);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	sc->vge_link = 0;
 
@@ -1835,7 +1809,8 @@ vge_stop(struct vge_softc *sc)
 
 	timeout_del(&sc->timer_handle);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	CSR_WRITE_1(sc, VGE_CRC3, VGE_CR3_INT_GMSK);
 	CSR_WRITE_1(sc, VGE_CRS0, VGE_CR0_STOP);
