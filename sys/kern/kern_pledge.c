@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.125 2015/11/27 18:54:47 jca Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.128 2015/11/29 03:23:19 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -48,6 +48,7 @@
 #include <netinet6/in6_var.h>
 #include <netinet6/nd6.h>
 #include <netinet/tcp.h>
+#include <net/pfvar.h>
 
 #include <sys/conf.h>
 #include <sys/specdev.h>
@@ -337,6 +338,7 @@ static const struct {
 	{ "inet",		PLEDGE_INET },
 	{ "ioctl",		PLEDGE_IOCTL },
 	{ "mcast",		PLEDGE_MCAST },
+	{ "pf",			PLEDGE_PF },
 	{ "proc",		PLEDGE_PROC },
 	{ "prot_exec",		PLEDGE_PROTEXEC },
 	{ "ps",			PLEDGE_PS },
@@ -1198,6 +1200,29 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
+	if ((p->p_p->ps_pledge & PLEDGE_PF)) {
+#ifndef SMALL_KERNEL
+		switch (com) {
+		case DIOCADDRULE:
+		case DIOCGETSTATUS:
+		case DIOCNATLOOK:
+		case DIOCRADDTABLES:
+		case DIOCRCLRADDRS:
+		case DIOCRCLRTABLES:
+		case DIOCRCLRTSTATS:
+		case DIOCRGETTSTATS:
+		case DIOCRSETADDRS:
+		case DIOCXBEGIN:
+		case DIOCXCOMMIT:
+			if ((fp->f_type == DTYPE_VNODE) &&
+			    (vp->v_type == VCHR) &&
+			    (cdevsw[major(vp->v_rdev)].d_open == pfopen))
+				return (0);
+			break;
+		}
+#endif /* !SMALL_KERNEL */
+	}
+
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
 #if NPTY > 0
@@ -1283,7 +1308,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 	}
 
 	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS)) == 0)
-	 	return pledge_fail(p, EPERM, PLEDGE_INET);
+		return pledge_fail(p, EPERM, PLEDGE_INET);
 	/* In use by some service libraries */
 	switch (level) {
 	case SOL_SOCKET:
@@ -1339,6 +1364,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		case IP_TOS:
 		case IP_TTL:
 		case IP_MINTTL:
+		case IP_IPDEFTTL:
 		case IP_PORTRANGE:
 		case IP_RECVDSTADDR:
 		case IP_RECVDSTPORT:
@@ -1475,7 +1501,7 @@ pledge_protexec(struct proc *p, int prot)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return 0;
-        if (!(p->p_p->ps_pledge & PLEDGE_PROTEXEC) && (prot & PROT_EXEC))
+	if (!(p->p_p->ps_pledge & PLEDGE_PROTEXEC) && (prot & PROT_EXEC))
 		return pledge_fail(p, EPERM, PLEDGE_PROTEXEC);
 	return 0;
 }
