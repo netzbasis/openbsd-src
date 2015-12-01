@@ -176,6 +176,7 @@
 ./etc/rc.d/rarpd
 ./etc/rc.d/rbootd
 ./etc/rc.d/rc.subr
+./etc/rc.d/rebound
 ./etc/rc.d/relayd
 ./etc/rc.d/ripd
 ./etc/rc.d/route6d
@@ -2130,9 +2131,6 @@
 ./usr/libexec/sftp-server
 ./usr/libexec/smtpd
 ./usr/libexec/smtpd/makemap
-./usr/libexec/smtpd/table-ldap
-./usr/libexec/smtpd/table-passwd
-./usr/libexec/smtpd/table-sqlite
 ./usr/libexec/spamd
 ./usr/libexec/spamd-setup
 ./usr/libexec/spamlogd

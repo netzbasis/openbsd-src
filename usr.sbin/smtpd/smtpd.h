@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.485 2015/11/23 21:50:12 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.489 2015/11/30 14:27:25 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -58,7 +58,8 @@
 #define PATH_PURGE		"/purge"
 #define PATH_TEMPORARY		"/temporary"
 
-#define	PATH_LIBEXEC		"/usr/libexec/smtpd"
+#define	PATH_LIBEXEC_DEPRECATED	"/usr/libexec/smtpd"
+#define	PATH_LIBEXEC		"/usr/local/libexec/smtpd:/usr/libexec/smtpd"
 
 
 /*
@@ -112,6 +113,7 @@ struct relayhost {
 	char hostname[HOST_NAME_MAX+1];
 	uint16_t port;
 	char pki_name[PATH_MAX];
+	char ca_name[PATH_MAX];
 	char authtable[PATH_MAX];
 	char authlabel[PATH_MAX];
 	char sourcetable[PATH_MAX];
@@ -259,10 +261,10 @@ enum imsg_type {
 	IMSG_MTA_LOOKUP_HELO,
 	IMSG_MTA_OPEN_MESSAGE,
 	IMSG_MTA_SCHEDULE,
-	IMSG_MTA_SSL_INIT,
-	IMSG_MTA_SSL_VERIFY_CERT,
-	IMSG_MTA_SSL_VERIFY_CHAIN,
-	IMSG_MTA_SSL_VERIFY,
+	IMSG_MTA_TLS_INIT,
+	IMSG_MTA_TLS_VERIFY_CERT,
+	IMSG_MTA_TLS_VERIFY_CHAIN,
+	IMSG_MTA_TLS_VERIFY,
 
 	IMSG_SCHED_ENVELOPE_BOUNCE,
 	IMSG_SCHED_ENVELOPE_DELIVER,
@@ -279,10 +281,10 @@ enum imsg_type {
 	IMSG_SMTP_MESSAGE_OPEN,
 	IMSG_SMTP_EXPAND_RCPT,
 	IMSG_SMTP_LOOKUP_HELO,
-	IMSG_SMTP_SSL_INIT,
-	IMSG_SMTP_SSL_VERIFY_CERT,
-	IMSG_SMTP_SSL_VERIFY_CHAIN,
-	IMSG_SMTP_SSL_VERIFY,
+	IMSG_SMTP_TLS_INIT,
+	IMSG_SMTP_TLS_VERIFY_CERT,
+	IMSG_SMTP_TLS_VERIFY_CHAIN,
+	IMSG_SMTP_TLS_VERIFY,
 
 	IMSG_SMTP_REQ_CONNECT,
 	IMSG_SMTP_REQ_HELO,
@@ -398,6 +400,7 @@ struct rule {
 	struct table		       *r_userbase;
 	time_t				r_qexpire;
 	uint8_t				r_forwardonly;
+	char				r_delivery_user[LINE_MAX];
 };
 
 struct delivery_mda {
@@ -405,6 +408,7 @@ struct delivery_mda {
 	char			usertable[PATH_MAX];
 	char			username[LOGIN_NAME_MAX];
 	char			buffer[EXPAND_BUFFER];
+	char			delivery_user[LINE_MAX];
 };
 
 struct delivery_mta {
@@ -539,6 +543,7 @@ struct listener {
 	struct timeval		 timeout;
 	struct event		 ev;
 	char			 pki_name[PATH_MAX];
+	char			 ca_name[PATH_MAX];
 	char			 tag[MAX_TAG_SIZE];
 	char			 filter[PATH_MAX];
 	char			 authtable[LINE_MAX];
@@ -794,6 +799,7 @@ struct mta_relay {
 	char			*sourcetable;
 	uint16_t		 port;
 	char			*pki_name;
+	char			*ca_name;
 	char			*authtable;
 	char			*authlabel;
 	char			*helotable;
