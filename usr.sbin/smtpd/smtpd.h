@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.489 2015/11/30 14:27:25 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.492 2015/12/01 18:22:30 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -82,6 +82,7 @@
 #define	F_MASK_SOURCE		0x100
 #define	F_TLS_VERIFY		0x200
 #define	F_EXT_DSN		0x400
+#define	F_RECEIVEDAUTH		0x800
 
 /* must match F_* for mta */
 #define RELAY_STARTTLS		0x01
@@ -279,6 +280,7 @@ enum imsg_type {
 	IMSG_SMTP_MESSAGE_CREATE,
 	IMSG_SMTP_MESSAGE_ROLLBACK,
 	IMSG_SMTP_MESSAGE_OPEN,
+	IMSG_SMTP_CHECK_SENDER,
 	IMSG_SMTP_EXPAND_RCPT,
 	IMSG_SMTP_LOOKUP_HELO,
 	IMSG_SMTP_TLS_INIT,
@@ -604,7 +606,8 @@ struct smtpd {
 	TAILQ_HEAD(listenerlist, listener)	*sc_listeners;
 
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
-	
+
+	struct dict			       *sc_ca_dict;
 	struct dict			       *sc_pki_dict;
 	struct dict			       *sc_ssl_dict;
 
