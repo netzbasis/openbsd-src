@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.147 2015/12/01 21:26:43 mpi Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.149 2015/12/02 16:35:53 bluhm Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -748,7 +748,7 @@ icmp_reflect(struct mbuf *m, struct mbuf **op, struct in_ifaddr *ia)
 		sin.sin_addr = ip->ip_src;
 
 		/* keep packet in the original virtual instance */
-		rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+		rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
 			ipstat.ips_noroute++;
 			m_freem(m);
@@ -933,7 +933,7 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	sin.sin_len = sizeof(sin);
 	sin.sin_addr = dst;
 
-	rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+	rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
 	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
@@ -1051,7 +1051,7 @@ icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 		sin = *satosin(rt_key(rt));
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 
 		/* Notify TCP layer of increased Path MTU estimate */
 		ctlfunc = inetsw[ip_protox[IPPROTO_TCP]].pr_ctlinput;
@@ -1093,7 +1093,7 @@ icmp_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 		int s;
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 		splx(s);
 	}
 }

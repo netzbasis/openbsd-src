@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.219 2015/11/29 01:20:33 benno Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.221 2015/12/02 22:12:29 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -76,6 +76,7 @@
 #define RELAY_BACKLOG		10
 #define RELAY_MAXLOOKUPLEVELS	5
 #define RELAY_OUTOF_FD_RETRIES	5
+#define RELAY_MAX_HASH_RETRIES	5
 
 #define CONFIG_RELOAD		0x00
 #define CONFIG_TABLES		0x01
@@ -1357,11 +1358,15 @@ pid_t	 proc_run(struct privsep *, struct privsep_proc *,
 	    void (*)(struct privsep *, struct privsep_proc *, void *), void *);
 void	 proc_range(struct privsep *, enum privsep_procid, int *, int *);
 int	 proc_compose_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, void *, u_int16_t);
+	    u_int16_t, u_int32_t, int, void *, u_int16_t);
+int	 proc_compose(struct privsep *, enum privsep_procid,
+	    uint16_t, void *, uint16_t);
 int	 proc_composev_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, const struct iovec *, int);
+	    u_int16_t, u_int32_t, int, const struct iovec *, int);
 int	 proc_forward_imsg(struct privsep *, struct imsg *,
 	    enum privsep_procid, int);
+int	 proc_composev(struct privsep *, enum privsep_procid,
+	    uint16_t, const struct iovec *, int);
 struct imsgbuf *
 	 proc_ibuf(struct privsep *, enum privsep_procid, int);
 struct imsgev *

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.173 2015/12/01 12:22:18 mpi Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.175 2015/12/02 16:35:53 bluhm Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -586,7 +586,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 	sin6.sin6_len = sizeof(struct sockaddr_in6);
 	sin6.sin6_family = AF_INET6;
 	sin6.sin6_addr = *addr6;
-	flags = (create) ? (RT_REPORT|RT_RESOLVE) : 0;
+	flags = (create) ? RT_RESOLVE : 0;
 
 	rt = rtalloc(sin6tosa(&sin6), flags, rtableid);
 	if (rt != NULL && (rt->rt_flags & RTF_LLINFO) == 0) {
@@ -833,7 +833,7 @@ nd6_free(struct rtentry *rt, int gc)
 	 * caches, and disable the route entry not to be used in already
 	 * cached routes.
 	 */
-	rtdeletemsg(rt, ifp->if_rdomain);
+	rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	splx(s);
 
 	if_put(ifp);

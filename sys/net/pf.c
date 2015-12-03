@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.952 2015/11/21 11:29:40 mpi Exp $ */
+/*	$OpenBSD: pf.c,v 1.954 2015/12/02 16:00:42 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1277,6 +1277,20 @@ pf_unlink_state(struct pf_state *cur)
 	cur->timeout = PFTM_UNLINKED;
 	pf_src_tree_remove_state(cur);
 	pf_detach_state(cur);
+}
+
+void
+pf_unlink_divert_state(struct pf_state_key *sk)
+{
+	struct pf_state_item	*si;
+
+	TAILQ_FOREACH(si, &sk->states, entry) {
+		if (sk == si->s->key[PF_SK_STACK] && si->s->rule.ptr &&
+		    si->s->rule.ptr->divert.port) {
+			pf_unlink_state(si->s);
+			break;
+		}
+	}
 }
 
 /* callers should be at splsoftnet and hold the
@@ -2934,7 +2948,7 @@ pf_calc_mss(struct pf_addr *addr, sa_family_t af, int rtableid, u_int16_t offer)
 		dst->sin_family = AF_INET;
 		dst->sin_len = sizeof(*dst);
 		dst->sin_addr = addr->v4;
-		rt = rtalloc(sintosa(dst), RT_REPORT, rtableid);
+		rt = rtalloc(sintosa(dst), 0, rtableid);
 		break;
 #ifdef INET6
 	case AF_INET6:
@@ -2943,7 +2957,7 @@ pf_calc_mss(struct pf_addr *addr, sa_family_t af, int rtableid, u_int16_t offer)
 		dst6->sin6_family = AF_INET6;
 		dst6->sin6_len = sizeof(*dst6);
 		dst6->sin6_addr = addr->v6;
-		rt = rtalloc(sin6tosa(dst6), RT_REPORT, rtableid);
+		rt = rtalloc(sin6tosa(dst6), 0, rtableid);
 		break;
 #endif /* INET6 */
 	}
@@ -5384,7 +5398,7 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 	if (kif != NULL && kif->pfik_ifp->if_type == IFT_ENC)
 		goto out;
 
-	rt0 = rtalloc((struct sockaddr *)&ss, RT_REPORT, rtableid);
+	rt0 = rtalloc((struct sockaddr *)&ss, 0, rtableid);
 	if (rt0 != NULL) {
 		/* No interface given, this is a no-route check */
 		if (kif == NULL)
@@ -5456,7 +5470,7 @@ pf_rtlabel_match(struct pf_addr *addr, sa_family_t af, struct pf_addr_wrap *aw,
 #endif /* INET6 */
 	}
 
-	rt = rtalloc((struct sockaddr *)&ss, RT_REPORT|RT_RESOLVE, rtableid);
+	rt = rtalloc((struct sockaddr *)&ss, RT_RESOLVE, rtableid);
 	if (rt != NULL) {
 		if (rt->rt_labelid == aw->v.rtlabel)
 			ret = 1;
@@ -5515,7 +5529,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	rtableid = m0->m_pkthdr.ph_rtableid;
 
 	if (!r->rt) {
-		rt = rtalloc(sintosa(dst), RT_REPORT|RT_RESOLVE, rtableid);
+		rt = rtalloc(sintosa(dst), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
 			ipstat.ips_noroute++;
 			goto bad;

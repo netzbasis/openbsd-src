@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtable.c,v 1.28 2015/11/29 16:02:18 mpi Exp $ */
+/*	$OpenBSD: rtable.c,v 1.31 2015/12/02 16:49:58 bluhm Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -74,6 +74,7 @@ void		   rtmap_dtor(void *, void *);
 
 struct srp_gc	   rtmap_gc = SRP_GC_INITIALIZER(rtmap_dtor, NULL);
 
+struct rtentry	  *rtable_mpath_select(struct rtentry *, uint32_t *);
 void		   rtable_init_backend(unsigned int);
 void		  *rtable_alloc(unsigned int, sa_family_t, unsigned int);
 void		  *rtable_get(unsigned int, sa_family_t);
@@ -343,7 +344,7 @@ rtable_lookup(unsigned int rtableid, struct sockaddr *dst,
 }
 
 struct rtentry *
-rtable_match(unsigned int rtableid, struct sockaddr *dst)
+rtable_match(unsigned int rtableid, struct sockaddr *dst, uint32_t *src)
 {
 	struct radix_node_head	*rnh;
 	struct radix_node	*rn;
@@ -359,6 +360,10 @@ rtable_match(unsigned int rtableid, struct sockaddr *dst)
 
 	rt = ((struct rtentry *)rn);
 	rtref(rt);
+
+#ifndef SMALL_KERNEL
+	rt = rtable_mpath_select(rt, src);
+#endif /* SMALL_KERNEL */
 
 	return (rt);
 }
@@ -397,7 +402,7 @@ rtable_insert(unsigned int rtableid, struct sockaddr *dst,
 
 int
 rtable_delete(unsigned int rtableid, struct sockaddr *dst,
-    struct sockaddr *mask, uint8_t prio, struct rtentry *rt)
+    struct sockaddr *mask, struct rtentry *rt)
 {
 	struct radix_node_head	*rnh;
 	struct radix_node	*rn = (struct radix_node *)rt;
@@ -450,10 +455,15 @@ rtable_mpath_capable(unsigned int rtableid, sa_family_t af)
 
 /* Gateway selection by Hash-Threshold (RFC 2992) */
 struct rtentry *
-rtable_mpath_select(struct rtentry *rt, uint32_t hash)
+rtable_mpath_select(struct rtentry *rt, uint32_t *src)
 {
 	struct rtentry *mrt = rt;
-	int npaths, threshold;
+	int npaths, threshold, hash;
+
+	if ((hash = rt_hash(rt, src)) == -1)
+		return (rt);
+
+	KASSERT(hash <= 0xffff);
 
 	npaths = 1;
 	while ((mrt = rtable_mpath_next(mrt)) != NULL)
@@ -582,7 +592,7 @@ rtable_lookup(unsigned int rtableid, struct sockaddr *dst,
 }
 
 struct rtentry *
-rtable_match(unsigned int rtableid, struct sockaddr *dst)
+rtable_match(unsigned int rtableid, struct sockaddr *dst, uint32_t *src)
 {
 	struct art_root			*ar;
 	struct art_node			*an;
@@ -602,6 +612,10 @@ rtable_match(unsigned int rtableid, struct sockaddr *dst)
 	rt = SRPL_ENTER(&an->an_rtlist, &i);
 	rtref(rt);
 	SRPL_LEAVE(&i, rt);
+
+#ifndef SMALL_KERNEL
+	rt = rtable_mpath_select(rt, src);
+#endif /* SMALL_KERNEL */
 
 	return (rt);
 }
@@ -731,7 +745,7 @@ rtable_insert(unsigned int rtableid, struct sockaddr *dst,
 
 int
 rtable_delete(unsigned int rtableid, struct sockaddr *dst,
-    struct sockaddr *mask, uint8_t prio, struct rtentry *rt)
+    struct sockaddr *mask, struct rtentry *rt)
 {
 	struct art_root			*ar;
 	struct art_node			*an = rt->rt_node;
@@ -852,12 +866,17 @@ rtable_mpath_capable(unsigned int rtableid, sa_family_t af)
 
 /* Gateway selection by Hash-Threshold (RFC 2992) */
 struct rtentry *
-rtable_mpath_select(struct rtentry *rt, uint32_t hash)
+rtable_mpath_select(struct rtentry *rt, uint32_t *src)
 {
 	struct art_node			*an = rt->rt_node;
 	struct rtentry			*mrt;
 	struct srpl_iter		 i;
-	int				 npaths, threshold;
+	int				 npaths, threshold, hash;
+
+	if ((hash = rt_hash(rt, src)) == -1)
+		return (rt);
+
+	KASSERT(hash <= 0xffff);
 
 	npaths = 0;
 	SRPL_FOREACH(mrt, &an->an_rtlist, &i, rt_next) {
@@ -890,7 +909,7 @@ void
 rtable_mpath_reprio(struct rtentry *rt, uint8_t prio)
 {
 	struct art_node			*an = rt->rt_node;
-	struct rtentry			*mrt, *prt;
+	struct rtentry			*mrt, *prt = NULL;
 
 	KERNEL_ASSERT_LOCKED();
 
@@ -909,10 +928,18 @@ rtable_mpath_reprio(struct rtentry *rt, uint8_t prio)
 		}
 
 		if (mrt->rt_priority > prio) {
-			/* prt -> rt -> mrt */
-			SRPL_INSERT_AFTER_LOCKED(&rt_rc, prt, rt, rt_next);
+			/*
+			 * ``rt'' has a higher (smaller) priority than
+			 * ``mrt'' so put it before in the list.
+			 */
+			if (prt != NULL) {
+				SRPL_INSERT_AFTER_LOCKED(&rt_rc, prt, rt,
+				    rt_next);
+			} else {
+				SRPL_INSERT_HEAD_LOCKED(&rt_rc, &an->an_rtlist,
+				    rt, rt_next);
+			}
 		} else {
-			/* prt -> mrt -> rt */
 			SRPL_INSERT_AFTER_LOCKED(&rt_rc, mrt, rt, rt_next);
 		}
 	} else {
