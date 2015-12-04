@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.c,v 1.190 2015/12/02 22:13:44 vgross Exp $	*/
+/*	$OpenBSD: in_pcb.c,v 1.194 2015/12/03 21:57:59 mpi Exp $	*/
 /*	$NetBSD: in_pcb.c,v 1.25 1996/02/13 23:41:53 christos Exp $	*/
 
 /*
@@ -332,14 +332,13 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 
 				ia = ifatoia(ifa_ifwithaddr(sintosa(sin),
 				    inp->inp_rtableid));
-				if (ia == NULL)
-					return (EADDRNOTAVAIL);
 
 				/* SOCK_RAW does not use in_pcbbind() */
-				if (so->so_type != SOCK_DGRAM &&
-				    sin->sin_addr.s_addr !=
-				    ia->ia_addr.sin_addr.s_addr)
-					return (EADDRNOTAVAIL);
+				if (ia == NULL &&
+				    (so->so_type != SOCK_DGRAM ||
+				    !in_broadcast(sin->sin_addr,
+					inp->inp_rtableid)))
+						return (EADDRNOTAVAIL);
 			}
 		}
 		if (lport) {
@@ -353,7 +352,8 @@ in_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
 				t = in_pcblookup(table, &zeroin_addr, 0,
 				    &sin->sin_addr, lport, INPLOOKUP_WILDCARD,
 				    inp->inp_rtableid);
-				if (t && (so->so_euid != t->inp_socket->so_euid))
+				if (t &&
+				    (so->so_euid != t->inp_socket->so_euid))
 					return (EADDRINUSE);
 			}
 			t = in_pcblookup(table, &zeroin_addr, 0,
@@ -528,10 +528,9 @@ in_pcbdetach(struct inpcb *inp)
 		ip_freemoptions(inp->inp_moptions);
 #if NPF > 0
 	if (inp->inp_pf_sk) {
-		pf_unlink_divert_state(inp->inp_pf_sk);
-		/* pf_unlink_divert_state() may have detached the state */
-		if (inp->inp_pf_sk)
-			inp->inp_pf_sk->inp = NULL;
+		pf_remove_divert_state(inp->inp_pf_sk);
+		/* pf_remove_divert_state() may have detached the state */
+		pf_inp_unlink(inp);
 	}
 #endif
 	s = splnet();
@@ -638,6 +637,7 @@ in_losing(struct inpcb *inp)
 {
 	struct rtentry *rt;
 	struct rt_addrinfo info;
+	struct sockaddr_in6 sa_mask;
 
 	if ((rt = inp->inp_route.ro_rt)) {
 		inp->inp_route.ro_rt = 0;
@@ -646,7 +646,7 @@ in_losing(struct inpcb *inp)
 		info.rti_flags = rt->rt_flags;
 		info.rti_info[RTAX_DST] = &inp->inp_route.ro_dst;
 		info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-		info.rti_info[RTAX_NETMASK] = rt_mask(rt);
+		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
 		rt_missmsg(RTM_LOSING, &info, rt->rt_flags, rt->rt_ifidx, 0,
 		    inp->inp_rtableid);
 		if (rt->rt_flags & RTF_DYNAMIC)

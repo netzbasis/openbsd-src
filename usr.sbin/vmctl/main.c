@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.6 2015/12/02 09:14:25 reyk Exp $	*/
+/*	$OpenBSD: main.c,v 1.2 2015/12/03 23:32:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -36,10 +36,9 @@
 #include <imsg.h>
 
 #include "vmd.h"
-#include "parser.h"
+#include "vmctl.h"
 
 static const char	*socket_name = SOCKET_NAME;
-static const char	*config_file = VMM_CONF;
 static int		 ctl_sock = -1;
 
 __dead void	 usage(void);
@@ -56,6 +55,7 @@ int		 ctl_stop(struct parse_result *, int, char *[]);
 struct ctl_command ctl_commands[] = {
 	{ "create",	CMD_CREATE,	ctl_create,	"\"name\" -s size", 1 },
 	{ "load",	CMD_LOAD,	ctl_load,	"[path]" },
+	{ "reload",	CMD_RELOAD,	ctl_load,	"[path]" },
 	{ "start",	CMD_START,	ctl_start,
 	    "\"name\" -k kernel -m memory [-i interfaces] [[-d disk] ...]" },
 	{ "status",	CMD_STATUS,	ctl_status,	"[id]" },
@@ -214,8 +214,17 @@ vmmaction(struct parse_result *res)
 	case CMD_STATUS:
 		get_info_vm(res->id);
 		break;
-	case CMD_CREATE:
+	case CMD_RELOAD:
+		imsg_compose(ibuf, IMSG_VMDOP_RELOAD, 0, 0, -1,
+		    res->path, res->path == NULL ? 0 : strlen(res->path) + 1);
+		done = 1;
+		break;
 	case CMD_LOAD:
+		imsg_compose(ibuf, IMSG_VMDOP_LOAD, 0, 0, -1,
+		    res->path, res->path == NULL ? 0 : strlen(res->path) + 1);
+		done = 1;
+		break;
+	case CMD_CREATE:
 	case NONE:
 		break;
 	}
@@ -235,6 +244,18 @@ vmmaction(struct parse_result *res)
 				errx(1, "imsg_get error");
 			if (n == 0)
 				break;
+
+			if (imsg.hdr.type == IMSG_CTL_FAIL) {
+				if (IMSG_DATA_SIZE(&imsg) == sizeof(ret)) {
+					memcpy(&ret, imsg.data, sizeof(ret));
+					errno = ret;
+					warn("command failed");
+				} else {
+					warnx("command failed");
+				}
+				done = 1;
+				break;
+			}
 
 			ret = 0;
 			switch (res->action) {
@@ -410,13 +431,18 @@ ctl_status(struct parse_result *res, int argc, char *argv[])
 int
 ctl_load(struct parse_result *res, int argc, char *argv[])
 {
+	char	*config_file = NULL;
+
 	if (argc == 2)
 		config_file = argv[1];
 	else if (argc > 2)
 		ctl_usage(res->ctl);
 
-	/* parse configuration file options */
-	return (parse_config(config_file));
+	if (config_file != NULL &&
+	    (res->path = strdup(config_file)) == NULL)
+		err(1, "strdup");
+
+	return (vmmaction(res));
 }
 
 int

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.6 2015/12/02 09:20:41 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.1 2015/12/03 16:11:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007-2015 Reyk Floeter <reyk@openbsd.org>
@@ -36,10 +36,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <netdb.h>
+#include <util.h>
 #include <err.h>
 
+#include "proc.h"
 #include "vmd.h"
-#include "parser.h"
 
 TAILQ_HEAD(files, file)		 files = TAILQ_HEAD_INITIALIZER(files);
 static struct file {
@@ -73,8 +74,14 @@ struct sym {
 int		 symset(const char *, const char *, int);
 char		*symget(const char *);
 
-struct parse_result		 res;
+ssize_t		 parse_size(char *, int64_t);
+int		 parse_disk(char *);
+
+static struct vm_create_params	 vcp;
+static int			 vcp_disable = 0;
 static int			 errors = 0;
+
+extern struct vmd		*env;
 
 typedef struct {
 	union {
@@ -121,24 +128,39 @@ include		: INCLUDE STRING		{
 
 varset		: STRING '=' STRING		{
 			if (symset($1, $3, 0) == -1)
-				errx(1, "cannot store variable");
+				fatalx("cannot store variable");
 			free($1);
 			free($3);
 		}
 		;
 
 main		: VM STRING			{
-			memset(&res, 0, sizeof(res));
-			res.name = $2;
-			res.nifs = -1;
+			memset(&vcp, 0, sizeof(vcp));
+			vcp_disable = 0;
+			if (strlcpy(vcp.vcp_name, $2, sizeof(vcp.vcp_name)) >=
+			    sizeof(vcp.vcp_name)) {
+				yyerror("vm name too long");
+				YYERROR;
+			}
 		} '{' optnl vm_opts_l '}'	{
-			if (res.disable) {
-				warnx("%s:%d: vm \"%s\" disabled",
-				    file->name, yylval.lineno, res.name);
-			} else {
-				res.action = CMD_START;
-				if (vmmaction(&res) != 0)
-					errx(1, "vmmaction");
+			if (vcp_disable) {
+				log_debug("%s:%d: vm \"%s\" disabled (skipped)",
+				    file->name, yylval.lineno, vcp.vcp_name);
+			} else if (!env->vmd_noaction) {
+				/*
+				 * XXX Start the vm right away -
+				 * XXX this should be done after parsing
+				 * XXX the configuration.
+				 */
+				if (config_getvm(&env->vmd_ps, &vcp,
+				    -1, -1) == -1) {
+					log_warnx("%s:%d: vm \"%s\" failed",
+					    file->name, yylval.lineno,
+					    vcp.vcp_name);
+					YYERROR;
+				}
+				log_debug("%s:%d: vm \"%s\" enabled",
+				    file->name, yylval.lineno, vcp.vcp_name);
 			}
 		}
 		;
@@ -148,52 +170,66 @@ vm_opts_l	: vm_opts_l vm_opts nl
 		;
 
 vm_opts		: disable			{
-			res.disable = $1;
+			vcp_disable = $1;
 		}
 		| DISK STRING			{
-			if (parse_disk(&res, $2) != 0) {
+			if (parse_disk($2) != 0) {
 				yyerror("failed to parse disks: %s", $2);
 				free($2);
 				YYERROR;
 			}
+			free($2);
 		}
 		| KERNEL STRING			{
-			if (res.path != NULL) {
-				yyerror("argument specified more than once");
+			if (vcp.vcp_kernel[0] != '\0') {
+				yyerror("kernel specified more than once");
+				free($2);
 				YYERROR;
 			}
-			res.path = $2;
+			if (strlcpy(vcp.vcp_kernel, $2,
+			    sizeof(vcp.vcp_kernel)) >= sizeof(vcp.vcp_kernel)) {
+				yyerror("kernel name too long");
+				free($2);
+				YYERROR;
+			}
+			free($2);
 		}
 		| NIFS NUMBER			{
-			if (res.nifs != -1) {
-				yyerror("argument specified more than once");
+			if (vcp.vcp_nnics != 0) {
+				yyerror("interfaces specified more than once");
 				YYERROR;
 			}
-			if (parse_ifs(&res, NULL, $2) != 0) {
-				yyerror("failed to parse interfaces: %lld", $2);
+			if ($2 < 0 || $2 > VMM_MAX_NICS_PER_VM) {
+				yyerror("too many interfaces: %lld", $2);
 				YYERROR;
 			}
+			vcp.vcp_nnics = (size_t)$2;
 		}
 		| MEMORY NUMBER			{
-			if (res.size != 0) {
-				yyerror("argument specified more than once");
+			ssize_t	 res;
+			if (vcp.vcp_memory_size != 0) {
+				yyerror("memory specified more than once");
 				YYERROR;
 			}
-			if (parse_size(&res, NULL, $2) != 0) {
+			if ((res = parse_size(NULL, $2)) == -1) {
 				yyerror("failed to parse size: %lld", $2);
 				YYERROR;
 			}
+			vcp.vcp_memory_size = (size_t)res;
 		}
 		| MEMORY STRING			{
-			if (res.size != 0) {
+			ssize_t	 res;
+			if (vcp.vcp_memory_size != 0) {
 				yyerror("argument specified more than once");
+				free($2);
 				YYERROR;
 			}
-			if (parse_size(&res, $2, 0) != 0) {
+			if ((res = parse_size($2, 0)) == -1) {
 				yyerror("failed to parse size: %s", $2);
 				free($2);
 				YYERROR;
 			}
+			vcp.vcp_memory_size = (size_t)res;
 		}
 		;
 
@@ -224,7 +260,7 @@ yyerror(const char *fmt, ...)
 	file->errors++;
 	va_start(ap, fmt);
 	if (vasprintf(&msg, fmt, ap) == -1)
-		errx(1, "yyerror vasprintf");
+		fatal("yyerror vasprintf");
 	va_end(ap);
 	warnx("%s:%d: %s", file->name, yylval.lineno, msg);
 	free(msg);
@@ -246,7 +282,7 @@ lookup(char *s)
 		{ "disk",		DISK },
 		{ "enable",		ENABLE },
 		{ "id",			VMID },
- 		{ "include",		INCLUDE },
+		{ "include",		INCLUDE },
 		{ "interfaces",		NIFS },
 		{ "kernel",		KERNEL },
 		{ "memory",		MEMORY },
@@ -292,7 +328,8 @@ lgetc(int quotec)
 
 	if (quotec) {
 		if ((c = getc(file->stream)) == EOF) {
-			yyerror("reached end of file while parsing quoted string");
+			yyerror("reached end of file while parsing "
+			    "quoted string");
 			if (file == topfile || popfile() == EOF)
 				return (EOF);
 			return (quotec);
@@ -444,7 +481,7 @@ top:
 		}
 		yylval.v.string = strdup(buf);
 		if (yylval.v.string == NULL)
-			err(1, "yylex: strdup");
+			fatal("yylex: strdup");
 		return (STRING);
 	}
 
@@ -502,7 +539,7 @@ nodigits:
 		*p = '\0';
 		if ((token = lookup(buf)) == STRING)
 			if ((yylval.v.string = strdup(buf)) == NULL)
-				err(1, "yylex: strdup");
+				fatal("yylex: strdup");
 		return (token);
 	}
 	if (c == '\n') {
@@ -520,16 +557,15 @@ pushfile(const char *name, int secret)
 	struct file	*nfile;
 
 	if ((nfile = calloc(1, sizeof(struct file))) == NULL) {
-		warn("malloc");
+		log_warn("malloc");
 		return (NULL);
 	}
 	if ((nfile->name = strdup(name)) == NULL) {
-		warn("malloc");
+		log_warn("malloc");
 		free(nfile);
 		return (NULL);
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		warn("%s", nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -561,7 +597,8 @@ parse_config(const char *filename)
 	struct sym	*sym, *next;
 
 	if ((file = pushfile(filename, 0)) == NULL) {
-		return (-1);
+		log_warn("failed to open %s", filename);
+		return (0);
 	}
 	topfile = file;
 	setservent(1);
@@ -643,7 +680,7 @@ cmdline_symset(char *s)
 
 	len = (val - s) + 1;
 	if ((sym = malloc(len)) == NULL)
-		errx(1, "cmdline_symset: malloc");
+		fatal("cmdline_symset: malloc");
 
 	(void)strlcpy(sym, s, len);
 
@@ -664,4 +701,49 @@ symget(const char *nam)
 			return (sym->val);
 		}
 	return (NULL);
+}
+
+ssize_t
+parse_size(char *word, int64_t val)
+{
+	ssize_t		 size;
+	long long	 res;
+
+	if (word != NULL) {
+		if (scan_scaled(word, &res) != 0) {
+			log_warn("invalid size: %s", word);
+			return (-1);
+		}
+		val = (int64_t)res;
+	}
+
+	if (val < (1024 * 1024)) {
+		log_warnx("size must be at least one megabyte");
+		return (-1);
+	} else
+		size = val / 1024 / 1024;
+
+	if ((size * 1024 * 1024) != val)
+		log_warnx("size rounded to %zd megabytes", size);
+
+	return ((ssize_t)size);
+}
+
+int
+parse_disk(char *word)
+{
+	if (vcp.vcp_ndisks >= VMM_MAX_DISKS_PER_VM) {
+		log_warnx("too many disks");
+		return (-1);
+	}
+
+	if (strlcpy(vcp.vcp_disks[vcp.vcp_ndisks], word,
+	    VMM_MAX_PATH_DISK) >= VMM_MAX_PATH_DISK) {
+		log_warnx("disk path too long");
+		return (-1);
+	}
+
+	vcp.vcp_ndisks++;
+
+	return (0);
 }

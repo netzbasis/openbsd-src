@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.954 2015/12/02 16:00:42 sashan Exp $ */
+/*	$OpenBSD: pf.c,v 1.957 2015/12/03 21:11:53 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -668,7 +668,7 @@ pf_state_key_attach(struct pf_state_key *sk, struct pf_state *s, int idx)
 				    si->s->dst.state >= TCPS_FIN_WAIT_2) {
 					si->s->src.state = si->s->dst.state =
 					    TCPS_CLOSED;
-					/* unlink late or sks can go away */
+					/* remove late or sks can go away */
 					olds = si->s;
 				} else {
 					if (pf_status.debug >= LOG_NOTICE) {
@@ -713,7 +713,7 @@ pf_state_key_attach(struct pf_state_key *sk, struct pf_state *s, int idx)
 		TAILQ_INSERT_HEAD(&s->key[idx]->states, si, entry);
 
 	if (olds)
-		pf_unlink_state(olds);
+		pf_remove_state(olds);
 
 	return (0);
 }
@@ -1249,7 +1249,7 @@ pf_src_tree_remove_state(struct pf_state *s)
 
 /* callers should be at splsoftnet */
 void
-pf_unlink_state(struct pf_state *cur)
+pf_remove_state(struct pf_state *cur)
 {
 	splsoftassert(IPL_SOFTNET);
 
@@ -1280,14 +1280,14 @@ pf_unlink_state(struct pf_state *cur)
 }
 
 void
-pf_unlink_divert_state(struct pf_state_key *sk)
+pf_remove_divert_state(struct pf_state_key *sk)
 {
 	struct pf_state_item	*si;
 
 	TAILQ_FOREACH(si, &sk->states, entry) {
 		if (sk == si->s->key[PF_SK_STACK] && si->s->rule.ptr &&
 		    si->s->rule.ptr->divert.port) {
-			pf_unlink_state(si->s);
+			pf_remove_state(si->s);
 			break;
 		}
 	}
@@ -1349,15 +1349,15 @@ pf_purge_expired_states(u_int32_t maxcheck)
 		next = TAILQ_NEXT(cur, entry_list);
 
 		if (cur->timeout == PFTM_UNLINKED) {
-			/* free unlinked state */
+			/* free removed state */
 			if (! locked) {
 				rw_enter_write(&pf_consistency_lock);
 				locked = 1;
 			}
 			pf_free_state(cur);
 		} else if (pf_state_expires(cur) <= time_uptime) {
-			/* unlink and free expired state */
-			pf_unlink_state(cur);
+			/* remove and free expired state */
+			pf_remove_state(cur);
 			if (! locked) {
 				rw_enter_write(&pf_consistency_lock);
 				locked = 1;
@@ -2424,11 +2424,11 @@ pf_send_tcp(const struct pf_rule *r, sa_family_t af,
 
 	switch (af) {
 	case AF_INET:
-		ip_output(m, NULL, NULL, 0, NULL, NULL, 0);
+		ip_send(m);
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ip6_output(m, NULL, NULL, 0, NULL, NULL);
+		ip6_send(m);
 		break;
 #endif /* INET6 */
 	}
@@ -4346,7 +4346,7 @@ pf_test_state(struct pf_pdesc *pd, struct pf_state **state, u_short *reason)
 			}
 			/* XXX make sure it's the same direction ?? */
 			(*state)->src.state = (*state)->dst.state = TCPS_CLOSED;
-			pf_unlink_state(*state);
+			pf_remove_state(*state);
 			*state = NULL;
 			pd->m->m_pkthdr.pf.inp = inp;
 			return (PF_DROP);
@@ -6726,6 +6726,40 @@ pf_pkt_addr_changed(struct mbuf *m)
 {
 	m->m_pkthdr.pf.statekey = NULL;
 	m->m_pkthdr.pf.inp = NULL;
+}
+
+struct inpcb *
+pf_inp_lookup(struct mbuf *m)
+{
+	struct inpcb *inp = NULL;
+
+	if (m->m_pkthdr.pf.statekey) {
+		inp = m->m_pkthdr.pf.statekey->inp;
+		if (inp && inp->inp_pf_sk)
+			KASSERT(m->m_pkthdr.pf.statekey == inp->inp_pf_sk);
+	}
+	return (inp);
+}
+
+void
+pf_inp_link(struct mbuf *m, struct inpcb *inp)
+{
+	if (m->m_pkthdr.pf.statekey && inp &&
+	    !m->m_pkthdr.pf.statekey->inp && !inp->inp_pf_sk) {
+		m->m_pkthdr.pf.statekey->inp = inp;
+		inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
+	}
+	/* The statekey has finished finding the inp, it is no longer needed. */
+	m->m_pkthdr.pf.statekey = NULL;
+}
+
+void
+pf_inp_unlink(struct inpcb *inp)
+{
+	if (inp->inp_pf_sk) {
+		inp->inp_pf_sk->inp = NULL;
+		inp->inp_pf_sk = NULL;
+	}
 }
 
 #if NPFLOG > 0

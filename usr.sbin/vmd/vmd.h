@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.6 2015/12/02 23:33:43 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.10 2015/12/03 23:32:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -29,6 +29,7 @@
 #define VMD_H
 
 #define VMD_USER		"_vmd"
+#define VMD_CONF		"/etc/vm.conf"
 #define SOCKET_NAME		"/var/run/vmd.sock"
 #define VMM_NODE		"/dev/vmm"
 #define VM_NAME_MAX		64
@@ -49,16 +50,18 @@ enum imsg_type {
 	IMSG_VMDOP_DISABLE_VMM_RESPONSE,
 	IMSG_VMDOP_ENABLE_VMM_REQUEST,
 	IMSG_VMDOP_ENABLE_VMM_RESPONSE,
-        IMSG_VMDOP_START_VM_REQUEST,
-        IMSG_VMDOP_START_VM_DISK,
-        IMSG_VMDOP_START_VM_IF,
-        IMSG_VMDOP_START_VM_END,
+	IMSG_VMDOP_START_VM_REQUEST,
+	IMSG_VMDOP_START_VM_DISK,
+	IMSG_VMDOP_START_VM_IF,
+	IMSG_VMDOP_START_VM_END,
 	IMSG_VMDOP_START_VM_RESPONSE,
-        IMSG_VMDOP_TERMINATE_VM_REQUEST,
+	IMSG_VMDOP_TERMINATE_VM_REQUEST,
 	IMSG_VMDOP_TERMINATE_VM_RESPONSE,
 	IMSG_VMDOP_GET_INFO_VM_REQUEST,
 	IMSG_VMDOP_GET_INFO_VM_DATA,
-	IMSG_VMDOP_GET_INFO_VM_END_DATA
+	IMSG_VMDOP_GET_INFO_VM_END_DATA,
+	IMSG_VMDOP_LOAD,
+	IMSG_VMDOP_RELOAD
 };
 
 struct vmop_start_result {
@@ -81,7 +84,7 @@ TAILQ_HEAD(vmlist, vmd_vm);
 
 struct vmd {
 	struct privsep		 vmd_ps;
-	int			 vmd_fd;
+	const char		*vmd_conffile;
 
 	int			 vmd_debug;
 	int			 vmd_verbose;
@@ -90,11 +93,15 @@ struct vmd {
 
 	uint32_t		 vmd_nvm;
 	struct vmlist		*vmd_vms;
+
+	int			 vmd_fd;
 };
 
 /* vmd.c */
+void	 vmd_reload(int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
 void	 vm_remove(struct vmd_vm *);
+char	*get_string(uint8_t *, size_t);
 
 /* vmm.c */
 pid_t	 vmm(struct privsep *, struct privsep_proc *);
@@ -104,11 +111,16 @@ int	 opentap(void);
 
 /* control.c */
 int	 config_init(struct vmd *);
-void	 config_purge(struct vmd *, u_int);
+void	 config_purge(struct vmd *, unsigned int);
 int	 config_setreset(struct vmd *, unsigned int);
 int	 config_getreset(struct vmd *, struct imsg *);
-int	 config_getvm(struct privsep *, struct imsg *);
+int	 config_getvm(struct privsep *, struct vm_create_params *,
+	    int, uint32_t);
 int	 config_getdisk(struct privsep *, struct imsg *);
 int	 config_getif(struct privsep *, struct imsg *);
+
+/* parse.y */
+int	 parse_config(const char *);
+int	 cmdline_symset(char *);
 
 #endif /* VMD_H */

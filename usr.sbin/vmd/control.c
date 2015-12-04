@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.2 2015/12/02 22:19:11 reyk Exp $	*/
+/*	$OpenBSD: control.c,v 1.4 2015/12/03 23:32:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>
@@ -223,6 +223,14 @@ control_accept(int listenfd, short event, void *arg)
 		return;
 	}
 
+	if (getsockopt(connfd, SOL_SOCKET, SO_PEERCRED,
+	    &c->peercred, &len) != 0) {
+		log_warn("%s: failed to get peer credentials", __func__);
+		close(connfd);
+		free(c);
+		return;
+	}
+
 	imsg_init(&c->iev.ibuf, connfd);
 	c->iev.handler = control_dispatch_imsg;
 	c->iev.events = EV_READ;
@@ -279,7 +287,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	struct privsep		*ps = cs->cs_env;
 	struct ctl_conn		*c;
 	struct imsg		 imsg;
-	int			 n, v;
+	int			 n, v, ret = 0;
 
 	if ((c = control_connbyfd(fd)) == NULL) {
 		log_warn("%s: fd %d: not found", __func__, fd);
@@ -308,6 +316,20 @@ control_dispatch_imsg(int fd, short event, void *arg)
 		if (n == 0)
 			break;
 
+		switch (imsg.hdr.type) {
+		case IMSG_VMDOP_GET_INFO_VM_REQUEST:
+			break;
+		default:
+			if (c->peercred.uid != 0) {
+				log_warnx("denied request %d from uid %d",
+				    imsg.hdr.type, c->peercred.uid);
+				ret = EPERM;
+				goto fail;
+			}
+			break;
+			break;
+		}
+
 		control_imsg_forward(&imsg);
 
 		switch (imsg.hdr.type) {
@@ -316,9 +338,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 				log_debug("%s: "
 				    "client requested notify more than once",
 				    __func__);
-				imsg_compose_event(&c->iev, IMSG_CTL_FAIL,
-				    0, 0, -1, NULL, 0);
-				break;
+				ret = EINVAL;
+				goto fail;
 			}
 			c->flags |= CTL_CONN_NOTIFY;
 			break;
@@ -342,6 +363,10 @@ control_dispatch_imsg(int fd, short event, void *arg)
 				return;
 			}
 			break;
+		case IMSG_VMDOP_LOAD:
+		case IMSG_VMDOP_RELOAD:
+			proc_forward_imsg(ps, &imsg, PROC_PARENT, -1);
+			break;
 		default:
 			log_debug("%s: error handling imsg %d",
 			    __func__, imsg.hdr.type);
@@ -352,6 +377,13 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	}
 
 	imsg_event_add(&c->iev);
+	return;
+
+ fail:
+	imsg_compose_event(&c->iev, IMSG_CTL_FAIL,
+	    0, 0, -1, &ret, sizeof(ret));
+	imsg_flush(&c->iev.ibuf);
+	control_close(fd, cs);
 }
 
 void

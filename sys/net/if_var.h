@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.60 2015/12/02 08:03:00 mpi Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.63 2015/12/03 21:11:53 sashan Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -129,7 +129,6 @@ struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
 	struct	refcnt if_refcnt;
 	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
-	TAILQ_ENTRY(ifnet) if_txlist;	/* list of ifnets ready to tx */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
 	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* list of multicast records */
 	TAILQ_HEAD(, ifg_list) if_groups; /* linked list of groups per if */
@@ -163,7 +162,7 @@ struct ifnet {				/* and the entries */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
-	struct	srpl if_inputs;		/* input routines (dequeue) */
+	SRPL_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
 
 					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
@@ -362,8 +361,10 @@ int		niq_enlist(struct niqueue *, struct mbuf_list *);
 
 extern struct ifnet_head ifnet;
 extern unsigned int lo0ifidx;
+extern struct taskq *softnettq;
 
 void	if_start(struct ifnet *);
+void	if_start_barrier(struct ifnet *);
 int	if_enqueue_try(struct ifnet *, struct mbuf *);
 int	if_enqueue(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);

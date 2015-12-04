@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_proto.c,v 1.82 2015/10/07 10:50:35 mpi Exp $	*/
+/*	$OpenBSD: in6_proto.c,v 1.84 2015/12/03 21:57:59 mpi Exp $	*/
 /*	$KAME: in6_proto.c,v 1.66 2000/10/10 15:35:47 itojun Exp $	*/
 
 /*
@@ -113,6 +113,11 @@
 #include "pf.h"
 #if NPF > 0
 #include <netinet6/ip6_divert.h>
+#endif
+
+#include "etherip.h"
+#if NETHERIP > 0
+#include <net/if_etherip.h>
 #endif
 
 /*
@@ -234,6 +239,13 @@ struct ip6protosw inet6sw[] = {
   divert6_init,	0,		0,		0,		divert6_sysctl
 },
 #endif /* NPF > 0 */
+#if NETHERIP > 0
+{ SOCK_RAW,	&inet6domain,	IPPROTO_ETHERIP,PR_ATOMIC|PR_ADDR,
+  ip6_etherip_input, rip6_output,	0,		rip6_ctloutput,
+  rip6_usrreq,
+  0,		0,		0,		0,		ip_etherip_sysctl
+},
+#endif /* NETHERIP */
 /* raw wildcard */
 { SOCK_RAW,	&inet6domain,	0,		PR_ATOMIC|PR_ADDR,
   rip6_input,	rip6_output,	0,		rip6_ctloutput,
@@ -247,7 +259,7 @@ struct domain inet6domain =
       (struct protosw *)inet6sw,
       (struct protosw *)&inet6sw[nitems(inet6sw)],
       sizeof(struct sockaddr_in6),
-      offsetof(struct sockaddr_in6, sin6_addr),
+      offsetof(struct sockaddr_in6, sin6_addr), 128,
       in6_domifattach, in6_domifdetach, };
 
 /*

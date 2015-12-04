@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.1 2015/12/02 22:19:11 reyk Exp $	*/
+/*	$OpenBSD: config.c,v 1.4 2015/12/03 23:32:32 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -38,7 +38,7 @@ int
 config_init(struct vmd *env)
 {
 	struct privsep	*ps = &env->vmd_ps;
-	u_int		 what;
+	unsigned int	 what;
 
 	/* Global configuration */
 	if (privsep_process == PROC_PARENT) {
@@ -58,14 +58,13 @@ config_init(struct vmd *env)
 }
 
 void
-config_purge(struct vmd *env, u_int reset)
+config_purge(struct vmd *env, unsigned int reset)
 {
 	struct privsep		*ps = &env->vmd_ps;
 	struct vmd_vm		*vm;
-	u_int			 what;
+	unsigned int		 what;
 
 	what = ps->ps_what[privsep_process] & reset;
-
 	if (what & CONFIG_VMS && env->vmd_vms != NULL) {
 		while ((vm = TAILQ_FIRST(env->vmd_vms)) != NULL)
 			vm_remove(vm);
@@ -74,7 +73,7 @@ config_purge(struct vmd *env, u_int reset)
 }
 
 int
-config_setreset(struct vmd *env, u_int reset)
+config_setreset(struct vmd *env, unsigned int reset)
 {
 	struct privsep	*ps = &env->vmd_ps;
 	unsigned int	 id;
@@ -103,24 +102,21 @@ config_getreset(struct vmd *env, struct imsg *imsg)
 }
 
 int
-config_getvm(struct privsep *ps, struct imsg *imsg)
+config_getvm(struct privsep *ps, struct vm_create_params *vcp,
+    int kernel_fd, uint32_t peerid)
 {
 	struct vmd		*env = ps->ps_env;
 	struct vmd_vm		*vm;
-	struct vm_create_params	 vcp;
 	unsigned int		 i;
 	int			 fd, ttys_fd;
 
-	IMSG_SIZE_CHECK(imsg, &vcp);
-	memcpy(&vcp, imsg->data, sizeof(vcp));
-
-	if (vcp.vcp_ncpus > VMM_MAX_VCPUS_PER_VM) {
+	if (vcp->vcp_ncpus > VMM_MAX_VCPUS_PER_VM) {
 		log_debug("invalid number of CPUs");
 		return (-1);
-	} else if (vcp.vcp_ndisks > VMM_MAX_DISKS_PER_VM) {
+	} else if (vcp->vcp_ndisks > VMM_MAX_DISKS_PER_VM) {
 		log_debug("invalid number of disks");
 		return (-1);
-	} else if (vcp.vcp_nnics > VMM_MAX_NICS_PER_VM) {
+	} else if (vcp->vcp_nnics > VMM_MAX_NICS_PER_VM) {
 		log_debug("invalid number of interfaces");
 		return (-1);
 	}
@@ -128,11 +124,11 @@ config_getvm(struct privsep *ps, struct imsg *imsg)
 	if ((vm = calloc(1, sizeof(*vm))) == NULL)
 		return (-1);
 
-	memcpy(&vm->vm_params, &vcp, sizeof(vm->vm_params));
+	memcpy(&vm->vm_params, vcp, sizeof(vm->vm_params));
 
-	for (i = 0; i < vcp.vcp_ndisks; i++)
+	for (i = 0; i < vcp->vcp_ndisks; i++)
 		vm->vm_disks[i] = -1;
-	for (i = 0; i < vcp.vcp_nnics; i++)
+	for (i = 0; i < vcp->vcp_nnics; i++)
 		vm->vm_ifs[i] = -1;
 	vm->vm_kernel = -1;
 	vm->vm_vmid = ++env->vmd_nvm;
@@ -143,30 +139,30 @@ config_getvm(struct privsep *ps, struct imsg *imsg)
 	TAILQ_INSERT_TAIL(env->vmd_vms, vm, vm_entry);
 
 	if (privsep_process != PROC_PARENT) {
-		if (imsg->fd == -1) {
+		if (kernel_fd == -1) {
 			log_debug("invalid kernel fd");
 			goto fail;
 		}
-		vm->vm_kernel = imsg->fd;
+		vm->vm_kernel = kernel_fd;
 	} else {
-		vm->vm_peerid = imsg->hdr.peerid;
+		vm->vm_peerid = peerid;
 
 		/* Open kernel for child */
-		if ((fd = open(vcp.vcp_kernel, O_RDONLY)) == -1) {
+		if ((fd = open(vcp->vcp_kernel, O_RDONLY)) == -1) {
 			log_warn("%s: can't open kernel %s", __func__,
-			    vcp.vcp_kernel);
+			    vcp->vcp_kernel);
 			goto fail;
 		}
 
 		proc_compose_imsg(ps, PROC_VMM, -1,
 		    IMSG_VMDOP_START_VM_REQUEST, vm->vm_vmid, fd,
-		    &vcp, sizeof(vcp));
+		    vcp, sizeof(*vcp));
 
 		/* Open disk images for child */
-		for (i = 0 ; i < vcp.vcp_ndisks; i++) {
-			if ((fd = open(vcp.vcp_disks[i], O_RDWR)) == -1) {
+		for (i = 0 ; i < vcp->vcp_ndisks; i++) {
+			if ((fd = open(vcp->vcp_disks[i], O_RDWR)) == -1) {
 				log_warn("%s: can't open %s", __func__,
-				    vcp.vcp_disks[i]);
+				    vcp->vcp_disks[i]);
 				goto fail;
 			}
 			proc_compose_imsg(ps, PROC_VMM, -1,
@@ -175,7 +171,7 @@ config_getvm(struct privsep *ps, struct imsg *imsg)
 		}
 
 		/* Open disk network interfaces */
-		for (i = 0 ; i < vcp.vcp_nnics; i++) {
+		for (i = 0 ; i < vcp->vcp_nnics; i++) {
 			if ((fd = opentap()) == -1) {
 				log_warn("%s: can't open tap", __func__);
 				goto fail;
@@ -193,11 +189,9 @@ config_getvm(struct privsep *ps, struct imsg *imsg)
 		}
 		close(ttys_fd);
 
-		log_info("%s console: %s", vcp.vcp_name, vm->vm_ttyname);
-
 		proc_compose_imsg(ps, PROC_VMM, -1,
 		    IMSG_VMDOP_START_VM_END, vm->vm_vmid, fd,
-		    &vcp, sizeof(vcp));
+		    vcp, sizeof(*vcp));
 	}
 
 	return (0);

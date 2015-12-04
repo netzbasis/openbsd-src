@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.128 2015/11/29 03:23:19 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.130 2015/12/03 16:50:44 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -717,13 +717,6 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 		    strcmp(path, "/etc/localtime") == 0)
 			return (0);
 
-		/* /usr/share/nls/../libc.cat has to succeed for strerror(3). */
-		if ((ni->ni_pledge == PLEDGE_RPATH) &&
-		    strncmp(path, "/usr/share/nls/",
-		    sizeof("/usr/share/nls/") - 1) == 0 &&
-		    strcmp(path + strlen(path) - 9, "/libc.cat") == 0)
-			return (0);
-
 		break;
 	case SYS_readlink:
 		/* Allow /etc/malloc.conf for malloc(3). */
@@ -1214,6 +1207,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case DIOCRSETADDRS:
 		case DIOCXBEGIN:
 		case DIOCXCOMMIT:
+		case DIOCKILLSRCNODES:
 			if ((fp->f_type == DTYPE_VNODE) &&
 			    (vp->v_type == VCHR) &&
 			    (cdevsw[major(vp->v_rdev)].d_open == pfopen))

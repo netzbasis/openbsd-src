@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_proto.c,v 1.68 2015/10/07 10:50:35 mpi Exp $	*/
+/*	$OpenBSD: in_proto.c,v 1.70 2015/12/03 21:57:59 mpi Exp $	*/
 /*	$NetBSD: in_proto.c,v 1.14 1996/02/18 18:58:32 christos Exp $	*/
 
 /*
@@ -170,6 +170,11 @@
 #include <netinet/ip_divert.h>
 #endif
 
+#include "etherip.h"
+#if NETHERIP > 0
+#include <net/if_etherip.h>
+#endif
+
 u_char ip_protox[IPPROTO_MAX];
 
 struct protosw inetsw[] = {
@@ -299,6 +304,13 @@ struct protosw inetsw[] = {
   divert_init,	0,		0,		0,		divert_sysctl
 },
 #endif /* NPF > 0 */
+#if NETHERIP > 0
+{ SOCK_RAW,   &inetdomain,    IPPROTO_ETHERIP, PR_ATOMIC|PR_ADDR,
+  ip_etherip_input,  rip_output, 0,              rip_ctloutput,
+  rip_usrreq,
+  0,          0,              0,              0,		ip_etherip_sysctl
+},
+#endif /* NETHERIP */
 /* raw wildcard */
 { SOCK_RAW,	&inetdomain,	0,		PR_ATOMIC|PR_ADDR,
   rip_input,	rip_output,	0,		rip_ctloutput,
@@ -311,4 +323,4 @@ struct domain inetdomain =
     { AF_INET, "internet", 0, 0, 0,
       inetsw, &inetsw[nitems(inetsw)],
       sizeof(struct sockaddr_in),
-      offsetof(struct sockaddr_in, sin_addr) };
+      offsetof(struct sockaddr_in, sin_addr), 32 };

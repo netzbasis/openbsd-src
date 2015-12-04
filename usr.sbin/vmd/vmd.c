@@ -1,7 +1,7 @@
-/*	$OpenBSD: vmd.c,v 1.11 2015/12/02 23:33:43 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.16 2015/12/03 23:32:32 reyk Exp $	*/
 
 /*
- * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
+ * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,6 +31,7 @@
 #include <signal.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include "proc.h"
 #include "vmd.h"
@@ -55,12 +56,16 @@ static struct privsep_proc procs[] = {
 int
 vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
-	struct privsep	*ps = p->p_ps;
-	int		 res = 0, cmd = 0;
+	struct privsep		*ps = p->p_ps;
+	int			 res = 0, cmd = 0, v = 0;
+	struct vm_create_params	 vcp;
+	char			*str = NULL;
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
-		res = config_getvm(ps, imsg);
+		IMSG_SIZE_CHECK(imsg, &vcp);
+		memcpy(&vcp, imsg->data, sizeof(vcp));
+		res = config_getvm(ps, &vcp, -1, imsg->hdr.peerid);
 		if (res == -1) {
 			res = EINVAL;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -69,6 +74,15 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
 	case IMSG_VMDOP_GET_INFO_VM_REQUEST:
 		proc_forward_imsg(ps, imsg, PROC_VMM, -1);
+		break;
+	case IMSG_VMDOP_RELOAD:
+		v = 1;
+	case IMSG_VMDOP_LOAD:
+		if (IMSG_DATA_SIZE(imsg) > 0)
+			str = get_string((uint8_t *)imsg->data,
+			    IMSG_DATA_SIZE(imsg));
+		vmd_reload(v, str);
+		free(str);
 		break;
 	default:
 		return (-1);
@@ -96,6 +110,20 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		memcpy(&res, imsg->data, sizeof(res));
 		if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL)
 			fatalx("%s: invalid vm response", __func__);
+		if (res) {
+			errno = res;
+			log_warn("%s: failed to start vm",
+			    vm->vm_params.vcp_name);
+		} else {
+			log_info("%s: started vm successfully, tty %s",
+			    vm->vm_params.vcp_name, vm->vm_ttyname);
+		}
+		/*
+		 * If the peerid is -1, the request originated from
+		 * the parent, not the control socket.
+		 */
+		if (vm->vm_peerid == (uint32_t)-1)
+			break;
 		vmr.vmr_result = res;
 		strlcpy(vmr.vmr_ttyname, vm->vm_ttyname,
 		    sizeof(vmr.vmr_ttyname));
@@ -135,7 +163,13 @@ vmd_sighdlr(int sig, short event, void *arg)
 
 	switch (sig) {
 	case SIGHUP:
-		log_info("%s: ignoring SIGHUP", __func__);
+		log_info("%s: reload requested with SIGHUP", __func__);
+
+		/*
+		 * This is safe because libevent uses async signal handlers
+		 * that run in the event loop and not in signal context.
+		 */
+		vmd_reload(1, NULL);
 		break;
 	case SIGPIPE:
 		log_info("%s: ignoring SIGPIPE", __func__);
@@ -198,7 +232,8 @@ __dead void
 usage(void)
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s [-dv]\n", __progname);
+	fprintf(stderr, "usage: %s [-dnv] [-D macro=value] [-f file]\n",
+	    __progname);
 	exit(1);
 }
 
@@ -207,14 +242,23 @@ main(int argc, char **argv)
 {
 	struct privsep	*ps;
 	int		 ch;
+	const char	*conffile = VMD_CONF;
 
 	if ((env = calloc(1, sizeof(*env))) == NULL)
 		fatal("calloc: env");
 
-	while ((ch = getopt(argc, argv, "dvn")) != -1) {
+	while ((ch = getopt(argc, argv, "D:df:vn")) != -1) {
 		switch (ch) {
+		case 'D':
+			if (cmdline_symset(optarg) < 0)
+				log_warnx("could not parse macro definition %s",
+				    optarg);
+			break;
 		case 'd':
 			env->vmd_debug = 2;
+			break;
+		case 'f':
+			conffile = optarg;
 			break;
 		case 'v':
 			env->vmd_verbose++;
@@ -226,6 +270,12 @@ main(int argc, char **argv)
 			usage();
 		}
 	}
+
+	if (env->vmd_noaction && !env->vmd_debug)
+		env->vmd_debug = 1;
+
+	/* log to stderr until daemonized */
+	log_init(env->vmd_debug ? env->vmd_debug : 1, LOG_DAEMON);
 
 	/* check for root privileges */
 	if (geteuid())
@@ -249,8 +299,11 @@ main(int argc, char **argv)
 	if (env->vmd_fd == -1)
 		fatal("can't open vmm device node %s", VMM_NODE);
 
-	/* log to stderr until daemonized */
-	log_init(env->vmd_debug ? env->vmd_debug : 1, LOG_DAEMON);
+	/* Configuration will be parsed after forking the children */
+	env->vmd_conffile = VMD_CONF;
+
+	log_init(env->vmd_debug, LOG_DAEMON);
+	log_verbose(env->vmd_verbose);
 
 	if (!env->vmd_debug && daemon(0, 0) == -1)
 		fatal("can't daemonize");
@@ -259,7 +312,9 @@ main(int argc, char **argv)
 	log_procinit("parent");
 
 	ps->ps_ninstances = 1;
-	proc_init(ps, procs, nitems(procs));
+
+	if (!env->vmd_noaction)
+		proc_init(ps, procs, nitems(procs));
 
 	event_init();
 
@@ -277,7 +332,8 @@ main(int argc, char **argv)
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
 
-	proc_listen(ps, procs, nitems(procs));
+	if (!env->vmd_noaction)
+		proc_listen(ps, procs, nitems(procs));
 
 	if (vmd_configure() == -1)
 		fatalx("configuration failed");
@@ -292,19 +348,6 @@ main(int argc, char **argv)
 int
 vmd_configure(void)
 {
-#if 0
-	if (parse_config(env->sc_conffile, env) == -1) {
-		proc_kill(&env->sc_ps);
-		exit(1);
-	}
-#endif
-
-	if (env->vmd_noaction) {
-		fprintf(stderr, "configuration OK\n");
-		proc_kill(&env->vmd_ps);
-		exit(0);
-	}
-
 	/*
 	 * pledge in the parent process:
 	 * stdio - for malloc and basic I/O including events.
@@ -317,7 +360,36 @@ vmd_configure(void)
 	if (pledge("stdio rpath wpath proc tty sendfd", NULL) == -1)
 		fatal("pledge");
 
+	if (parse_config(env->vmd_conffile) == -1) {
+		proc_kill(&env->vmd_ps);
+		exit(1);
+	}
+
+	if (env->vmd_noaction) {
+		fprintf(stderr, "configuration OK\n");
+		proc_kill(&env->vmd_ps);
+		exit(0);
+	}
+
 	return (0);
+}
+
+void
+vmd_reload(int reset, const char *filename)
+{
+	/* Switch back to the default config file */
+	if (filename == NULL || *filename == '\0')
+		filename = env->vmd_conffile;
+
+	log_debug("%s: level %d config file %s", __func__, reset, filename);
+
+	if (reset)
+		config_setreset(env, CONFIG_ALL);
+
+	if (parse_config(filename) == -1) {
+		log_debug("%s: failed to load config file %s",
+		    __func__, filename);
+	}
 }
 
 void
@@ -367,4 +439,16 @@ vm_remove(struct vmd_vm *vm)
 		close(vm->vm_tty);
 
 	free(vm);
+}
+
+char *
+get_string(uint8_t *ptr, size_t len)
+{
+	size_t	 i;
+
+	for (i = 0; i < len; i++)
+		if (!isprint(ptr[i]))
+			break;
+
+	return strndup(ptr, i);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.c,v 1.51 2015/12/02 15:13:00 reyk Exp $	*/
+/*	$OpenBSD: httpd.c,v 1.53 2015/12/03 11:46:25 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -251,7 +251,7 @@ main(int argc, char *argv[])
 	setproctitle("parent");
 	log_procinit("parent");
 
-	if (pledge("stdio rpath wpath cpath inet proc ioctl sendfd",
+	if (pledge("stdio rpath wpath cpath inet dns proc ioctl sendfd",
 	    NULL) == -1)
 		fatal("pledge");
 
@@ -1197,8 +1197,8 @@ void
 media_delete(struct mediatypes *types, struct media_type *media)
 {
 	RB_REMOVE(mediatypes, types, media);
-	if (media->media_encoding != NULL)
-		free(media->media_encoding);
+
+	free(media->media_encoding);
 	free(media);
 }
 
