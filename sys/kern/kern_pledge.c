@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.130 2015/12/03 16:50:44 bluhm Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.134 2015/12/04 16:56:35 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -83,6 +83,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_sendsyslog] = PLEDGE_ALWAYS,	/* stack protector reporting */
 	[SYS_sendsyslog2] = PLEDGE_ALWAYS,	/* stack protector reporting */
 	[SYS_thrkill] = PLEDGE_ALWAYS,		/* raise, abort, stack pro */
+	[SYS_utrace] = PLEDGE_ALWAYS,		/* ltrace(1) from ld.so */
 
 	/* "getting" information about self is considered safe */
 	[SYS_getuid] = PLEDGE_STDIO,
@@ -275,6 +276,9 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mkdir] = PLEDGE_CPATH,
 	[SYS_mkdirat] = PLEDGE_CPATH,
 
+	[SYS_mkfifo] = PLEDGE_DPATH,
+	[SYS_mknod] = PLEDGE_DPATH,
+
 	[SYS_chroot] = PLEDGE_ID,	/* also requires PLEDGE_PROC */
 
 	[SYS_revoke] = PLEDGE_TTY,	/* also requires PLEDGE_RPATH */
@@ -309,8 +313,8 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_socket] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 	[SYS_connect] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
-	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
-	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
+	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
+	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 
 	[SYS_listen] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_accept4] = PLEDGE_INET | PLEDGE_UNIX,
@@ -327,9 +331,11 @@ static const struct {
 	int flags;
 } pledgereq[] = {
 	{ "abort",		0 },	/* XXX reserve for later */
+	{ "audio",		PLEDGE_AUDIO },
 	{ "cpath",		PLEDGE_CPATH },
 	{ "disklabel",		PLEDGE_DISKLABEL },
 	{ "dns",		PLEDGE_DNS },
+	{ "dpath",		PLEDGE_DPATH },
 	{ "exec",		PLEDGE_EXEC },
 	{ "fattr",		PLEDGE_FATTR },
 	{ "flock",		PLEDGE_FLOCK },
@@ -699,8 +705,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 				 * worse than pre-pledge, but is a work in
 				 * progress, needing a clever design.
 				 */
-				atomic_setbits_int(&p->p_p->ps_pledge,
-				    PLEDGE_YPACTIVE | PLEDGE_INET);
+				p->p_p->ps_pledge |= PLEDGE_YPACTIVE;
 				return (0);
 			}
 			if (strncmp(path, "/var/yp/binding/",
@@ -1105,7 +1110,7 @@ pledge_sendit(struct proc *p, const void *to)
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS)))
+	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE)))
 		return (0);		/* may use address */
 	if (to == NULL)
 		return (0);		/* behaves just like write */
@@ -1301,7 +1306,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		break;
 	}
 
-	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS)) == 0)
+	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS|PLEDGE_YPACTIVE)) == 0)
 		return pledge_fail(p, EPERM, PLEDGE_INET);
 	/* In use by some service libraries */
 	switch (level) {
@@ -1322,6 +1327,25 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 			case IPV6_USE_MIN_MTU:
 				return (0);
 			}
+		}
+	}
+
+	/* YP may do these requests */
+	if (p->p_p->ps_pledge & PLEDGE_YPACTIVE) {
+		switch (level) {
+		case IPPROTO_IP:
+			switch (optname) {
+			case IP_PORTRANGE:
+				return (0);
+			}
+			break;
+
+		case IPPROTO_IPV6:
+			switch (optname) {
+			case IPV6_PORTRANGE:
+				return (0);
+			}
+			break;
 		}
 	}
 
