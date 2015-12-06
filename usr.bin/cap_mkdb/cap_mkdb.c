@@ -89,9 +89,6 @@ main(int argc, char *argv[])
 		case 'v':
 			verbose = 1;
 			break;
-		case 'i':
-			info = 1;
-			break;
 		default:
 			usage();
 		}
