@@ -1,4 +1,4 @@
-/*	$OpenBSD: canfield.c,v 1.20 2015/11/26 13:28:22 tb Exp $	*/
+/*	$OpenBSD: canfield.c,v 1.22 2015/12/02 18:34:10 tb Exp $	*/
 /*	$NetBSD: canfield.c,v 1.7 1995/05/13 07:28:35 jtc Exp $	*/
 
 /*
@@ -1627,7 +1627,7 @@ initall(void)
 {
 	int i, ret;
 	char scorepath[PATH_MAX];
-	char *home;
+	const char *home;
 
 	time(&acctstart);
 	initdeck(deck);
@@ -1736,6 +1736,9 @@ askquit(int dummy)
 int
 main(int argc, char *argv[])
 {
+	if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+		err(1, "pledge");
+
 	signal(SIGINT, askquit);
 	signal(SIGHUP, cleanup);
 	signal(SIGTERM, cleanup);

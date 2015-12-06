@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.146 2015/11/21 11:26:59 mpi Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.150 2015/12/03 21:11:53 sashan Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -652,9 +652,8 @@ reflect:
 		    &ip->ip_dst.s_addr))
 			goto freeit;
 #endif
-		rtredirect(sintosa(&sdst), sintosa(&sgw), NULL,
-		    RTF_GATEWAY | RTF_HOST, sintosa(&ssrc),
-		    &newrt, m->m_pkthdr.ph_rtableid);
+		rtredirect(sintosa(&sdst), sintosa(&sgw),
+		    sintosa(&ssrc), &newrt, m->m_pkthdr.ph_rtableid);
 		if (newrt != NULL && icmp_redirtimeout != 0) {
 			(void)rt_timer_add(newrt, icmp_redirect_timeout,
 			    icmp_redirect_timeout_q, m->m_pkthdr.ph_rtableid);
@@ -749,7 +748,7 @@ icmp_reflect(struct mbuf *m, struct mbuf **op, struct in_ifaddr *ia)
 		sin.sin_addr = ip->ip_src;
 
 		/* keep packet in the original virtual instance */
-		rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+		rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
 			ipstat.ips_noroute++;
 			m_freem(m);
@@ -855,7 +854,10 @@ icmp_send(struct mbuf *m, struct mbuf *opts)
 		printf("icmp_send dst %s src %s\n", dst, src);
 	}
 #endif
-	ip_output(m, opts, NULL, 0, NULL, NULL, 0);
+	if (opts != NULL)
+		m = ip_insertoptions(m, opts, &hlen);
+
+	ip_send(m);
 }
 
 u_int32_t
@@ -934,7 +936,7 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	sin.sin_len = sizeof(sin);
 	sin.sin_addr = dst;
 
-	rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+	rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
 	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
@@ -1052,7 +1054,7 @@ icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 		sin = *satosin(rt_key(rt));
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 
 		/* Notify TCP layer of increased Path MTU estimate */
 		ctlfunc = inetsw[ip_protox[IPPROTO_TCP]].pr_ctlinput;
@@ -1094,7 +1096,7 @@ icmp_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 		int s;
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 		splx(s);
 	}
 }

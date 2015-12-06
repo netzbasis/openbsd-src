@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfe.c,v 1.92 2015/11/22 13:09:10 claudio Exp $ */
+/*	$OpenBSD: ospfe.c,v 1.94 2015/12/05 12:20:13 claudio Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -87,6 +87,9 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 		return (pid);
 	}
 
+	/* cleanup a bit */
+	kif_clear();
+
 	/* create ospfd control socket outside chroot */
 	if (control_init(xconf->csock) == -1)
 		fatalx("control socket setup failed");
@@ -125,6 +128,9 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	if (pledge("stdio inet mcast", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 	nbr_init(NBR_HASHSIZE);
@@ -224,7 +230,6 @@ ospfe_shutdown(void)
 	}
 
 	nbr_del(nbr_find_peerid(NBR_IDSELF));
-	kr_shutdown();
 	close(oeconf->ospf_socket);
 
 	/* clean up */
@@ -273,7 +278,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 	int		 n, link_ok, stub_changed, shut = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -287,7 +292,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_main: imsg_read error");
+			fatal("ospfe_dispatch_main: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -435,7 +440,7 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 	u_int16_t		 l, age;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -449,7 +454,7 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_rde: imsg_read error");
+			fatal("ospfe_dispatch_rde: imsg_get error");
 		if (n == 0)
 			break;
 

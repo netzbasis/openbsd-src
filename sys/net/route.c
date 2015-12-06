@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.277 2015/11/27 11:52:44 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.289 2015/12/05 10:07:55 tedu Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -122,10 +122,12 @@
 
 #include <netinet/in.h>
 #include <netinet/ip_var.h>
+#include <netinet/in_var.h>
 
 #ifdef INET6
 #include <netinet/ip6.h>
 #include <netinet6/ip6_var.h>
+#include <netinet6/in6_var.h>
 #endif
 
 #ifdef MPLS
@@ -153,10 +155,12 @@ int	rtflushclone1(struct rtentry *, void *, u_int);
 void	rtflushclone(unsigned int, struct rtentry *);
 int	rt_if_remove_rtdelete(struct rtentry *, void *, u_int);
 struct rtentry *rt_match(struct sockaddr *, uint32_t *, int, unsigned int);
-uint32_t	rt_hash(struct rtentry *, uint32_t *);
+struct sockaddr *rt_plentosa(sa_family_t, int, struct sockaddr_in6 *);
 
 struct	ifaddr *ifa_ifwithroute(int, struct sockaddr *, struct sockaddr *,
 		    u_int);
+int	rtrequest_delete(struct rt_addrinfo *, u_int8_t, struct ifnet *,
+	    struct rtentry **, u_int);
 
 #ifdef DDB
 void	db_print_sa(struct sockaddr *);
@@ -224,10 +228,6 @@ rtisvalid(struct rtentry *rt)
  * "RT_RESOLVE" means that a corresponding L2 entry should
  *   be added to the routing table and resolved (via ARP or
  *   NDP), if it does not exist.
- *
- * "RT_REPORT" indicates that a message should be sent to
- *   userland if no matching route has been found or if an
- *   error occured while adding a L2 entry.
  */
 struct rtentry *
 rt_match(struct sockaddr *dst, uint32_t *src, int flags, unsigned int tableid)
@@ -240,52 +240,26 @@ rt_match(struct sockaddr *dst, uint32_t *src, int flags, unsigned int tableid)
 	info.rti_info[RTAX_DST] = dst;
 
 	s = splsoftnet();
-	KERNEL_LOCK();
-	rt = rtable_match(tableid, dst);
-
-#ifndef SMALL_KERNEL
-	/* Handle multipath routing if enabled for the specified protocol. */
-	if (rt != NULL && ISSET(rt->rt_flags, RTF_MPATH) && src != NULL) {
-		switch (dst->sa_family) {
-		case AF_INET:
-			if (!ipmultipath)
-				break;
-			rt = rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff);
-			break;
-#ifdef INET6
-		case AF_INET6:
-			if (!ip6_multipath)
-				break;
-			rt = rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff);
-			break;
-#endif
-		default:
-			break;
-		};
-	}
-#endif /* SMALL_KERNEL */
-
+	rt = rtable_match(tableid, dst, src);
 	if (rt != NULL) {
 		if ((rt->rt_flags & RTF_CLONING) && ISSET(flags, RT_RESOLVE)) {
 			rt0 = rt;
+			KERNEL_LOCK();
 			error = rtrequest(RTM_RESOLVE, &info, RTP_DEFAULT,
 			    &rt, tableid);
 			if (error) {
-				rt0->rt_use++;
-				goto miss;
+				rt_missmsg(RTM_MISS, &info, 0, 0, error,
+				    tableid);
+			} else {
+				/* Inform listeners of the new route */
+				rt_sendmsg(rt, RTM_ADD, tableid);
+				rtfree(rt0);
 			}
-			/* Inform listeners of the new route */
-			rt_sendmsg(rt, RTM_ADD, tableid);
-			rtfree(rt0);
+			KERNEL_UNLOCK();
 		}
 		rt->rt_use++;
-	} else {
+	} else
 		rtstat.rts_unreach++;
-miss:
-		if (ISSET(flags, RT_REPORT))
-			rt_missmsg(RTM_MISS, &info, 0, 0, error, tableid);
-	}
-	KERNEL_UNLOCK();
 	splx(s);
 	return (rt);
 }
@@ -308,11 +282,14 @@ struct rtentry *_rtalloc(struct sockaddr *, uint32_t *, int, unsigned int);
 	c -= a; c -= b; c ^= (b >> 15);					\
 } while (0)
 
-uint32_t
+int
 rt_hash(struct rtentry *rt, uint32_t *src)
 {
 	struct sockaddr *dst = rt_key(rt);
 	uint32_t a, b, c;
+
+	if (src == NULL || !rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_MPATH))
+		return (-1);
 
 	a = b = 0x9e3779b9;
 	c = rt_hashjitter;
@@ -321,6 +298,9 @@ rt_hash(struct rtentry *rt, uint32_t *src)
 	case AF_INET:
 	    {
 		struct sockaddr_in *sin;
+
+		if (!ipmultipath)
+			return (-1);
 
 		sin = satosin(dst);
 		a += sin->sin_addr.s_addr;
@@ -332,6 +312,9 @@ rt_hash(struct rtentry *rt, uint32_t *src)
 	case AF_INET6:
 	    {
 		struct sockaddr_in6 *sin6;
+
+		if (!ip6_multipath)
+			return (-1);
 
 		sin6 = satosin6(dst);
 		a += sin6->sin6_addr.s6_addr32[0];
@@ -355,7 +338,7 @@ rt_hash(struct rtentry *rt, uint32_t *src)
 #endif /* INET6 */
 	}
 
-	return (c);
+	return (c & 0xffff);
 }
 
 /*
@@ -364,7 +347,7 @@ rt_hash(struct rtentry *rt, uint32_t *src)
 struct rtentry *
 rtalloc_mpath(struct sockaddr *dst, uint32_t *src, unsigned int rtableid)
 {
-	return (_rtalloc(dst, src, RT_REPORT|RT_RESOLVE, rtableid));
+	return (_rtalloc(dst, src, RT_RESOLVE, rtableid));
 }
 #endif /* SMALL_KERNEL */
 
@@ -492,11 +475,12 @@ rt_sendmsg(struct rtentry *rt, int cmd, u_int rtableid)
 	struct rt_addrinfo	 info;
 	struct ifnet		*ifp;
 	struct sockaddr_rtlabel	 sa_rl;
+	struct sockaddr_in6	 sa_mask;
 
 	memset(&info, 0, sizeof(info));
 	info.rti_info[RTAX_DST] = rt_key(rt);
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
+	info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
 	info.rti_info[RTAX_LABEL] = rtlabel_id2sa(rt->rt_labelid, &sa_rl);
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp != NULL) {
@@ -529,8 +513,7 @@ ifafree(struct ifaddr *ifa)
  */
 void
 rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
-    struct sockaddr *netmask, int flags, struct sockaddr *src,
-    struct rtentry **rtp, u_int rdomain)
+    struct sockaddr *src, struct rtentry **rtp, unsigned int rdomain)
 {
 	struct rtentry		*rt;
 	int			 error = 0;
@@ -538,6 +521,7 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 	struct rt_addrinfo	 info;
 	struct ifaddr		*ifa;
 	unsigned int		 ifidx = 0;
+	int 			 flags = RTF_GATEWAY|RTF_HOST;
 
 	splsoftassert(IPL_SOFTNET);
 
@@ -547,7 +531,7 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 		goto out;
 	}
 	ifidx = ifa->ifa_ifp->if_index;
-	rt = rtalloc(dst, 0, rdomain);
+	rt = rtable_lookup(rdomain, dst, NULL, NULL, RTP_ANY);
 	/*
 	 * If the redirect isn't from our current router for this dst,
 	 * it's either old or wrong.  If it redirects us to ourselves,
@@ -557,10 +541,11 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 #define	equal(a1, a2) \
 	((a1)->sa_len == (a2)->sa_len && \
 	 bcmp((caddr_t)(a1), (caddr_t)(a2), (a1)->sa_len) == 0)
-	if (!(flags & RTF_DONE) && rt &&
-	     (!equal(src, rt->rt_gateway) || rt->rt_ifa != ifa))
+	if (rt != NULL && (!equal(src, rt->rt_gateway) || rt->rt_ifa != ifa))
 		error = EINVAL;
-	else if (ifa_ifwithaddr(gateway, rdomain) != NULL)
+	else if (ifa_ifwithaddr(gateway, rdomain) != NULL ||
+	    (gateway->sa_family = AF_INET &&
+	    in_broadcast(satosin(gateway)->sin_addr, rdomain)))
 		error = EHOSTUNREACH;
 	if (error)
 		goto done;
@@ -570,25 +555,24 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 	 * which use routing redirects generated by smart gateways
 	 * to dynamically build the routing tables.
 	 */
-	if ((rt == NULL) || (rt_mask(rt) && rt_mask(rt)->sa_len < 2))
+	if ((rt == NULL))
 		goto create;
 	/*
 	 * Don't listen to the redirect if it's
-	 * for a route to an interface. 
+	 * for a route to an interface.
 	 */
-	if (rt->rt_flags & RTF_GATEWAY) {
-		if (((rt->rt_flags & RTF_HOST) == 0) && (flags & RTF_HOST)) {
+	if (ISSET(rt->rt_flags, RTF_GATEWAY)) {
+		if (!ISSET(rt->rt_flags, RTF_HOST)) {
 			/*
 			 * Changing from route to net => route to host.
 			 * Create new route, rather than smashing route to net.
 			 */
 create:
 			rtfree(rt);
-			flags |= RTF_GATEWAY | RTF_DYNAMIC;
+			flags |= RTF_DYNAMIC;
 			bzero(&info, sizeof(info));
 			info.rti_info[RTAX_DST] = dst;
 			info.rti_info[RTAX_GATEWAY] = gateway;
-			info.rti_info[RTAX_NETMASK] = netmask;
 			info.rti_ifa = ifa;
 			info.rti_flags = flags;
 			rt = NULL;
@@ -624,7 +608,6 @@ out:
 	bzero((caddr_t)&info, sizeof(info));
 	info.rti_info[RTAX_DST] = dst;
 	info.rti_info[RTAX_GATEWAY] = gateway;
-	info.rti_info[RTAX_NETMASK] = netmask;
 	info.rti_info[RTAX_AUTHOR] = src;
 	rt_missmsg(RTM_REDIRECT, &info, flags, ifidx, error, rdomain);
 }
@@ -633,11 +616,12 @@ out:
  * Delete a route and generate a message
  */
 int
-rtdeletemsg(struct rtentry *rt, u_int tableid)
+rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 {
 	int			error;
 	struct rt_addrinfo	info;
 	unsigned int		ifidx;
+	struct sockaddr_in6	sa_mask;
 
 	/*
 	 * Request the new route so that the entry is not actually
@@ -646,11 +630,12 @@ rtdeletemsg(struct rtentry *rt, u_int tableid)
 	 */
 	bzero((caddr_t)&info, sizeof(info));
 	info.rti_info[RTAX_DST] = rt_key(rt);
-	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
+	if (!ISSET(rt->rt_flags, RTF_HOST))
+		info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 	info.rti_flags = rt->rt_flags;
 	ifidx = rt->rt_ifidx;
-	error = rtrequest(RTM_DELETE, &info, rt->rt_priority, &rt, tableid);
+	error = rtrequest_delete(&info, rt->rt_priority, ifp, &rt, tableid);
 	rt_missmsg(RTM_DELETE, &info, info.rti_flags, ifidx, error, tableid);
 	if (error == 0)
 		rtfree(rt);
@@ -661,7 +646,7 @@ static inline int
 rtequal(struct rtentry *a, struct rtentry *b)
 {
 	if (memcmp(rt_key(a), rt_key(b), rt_key(a)->sa_len) == 0 &&
-	    memcmp(rt_mask(a), rt_mask(b), rt_mask(a)->sa_len) == 0)
+	    rt_plen(a) == rt_plen(b))
 		return 1;
 	else
 		return 0;
@@ -674,7 +659,7 @@ rtflushclone1(struct rtentry *rt, void *arg, u_int id)
 
 	if ((rt->rt_flags & RTF_CLONED) != 0 && (rt->rt_parent == parent ||
 	    rtequal(rt->rt_parent, parent)))
-		rtdeletemsg(rt, id);
+		rtdeletemsg(rt, NULL, id);
 	return 0;
 }
 
@@ -816,6 +801,83 @@ rt_getifa(struct rt_addrinfo *info, u_int rtid)
 }
 
 int
+rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
+    struct rtentry **ret_nrt, u_int tableid)
+{
+	struct rtentry	*rt;
+	int		 error;
+
+	splsoftassert(IPL_SOFTNET);
+
+	if (!rtable_exists(tableid))
+		return (EAFNOSUPPORT);
+	rt = rtable_lookup(tableid, info->rti_info[RTAX_DST],
+	    info->rti_info[RTAX_NETMASK], info->rti_info[RTAX_GATEWAY], prio);
+	if (rt == NULL)
+		return (ESRCH);
+#ifndef SMALL_KERNEL
+	/*
+	 * If we got multipath routes, we require users to specify
+	 * a matching gateway.
+	 */
+	if ((rt->rt_flags & RTF_MPATH) &&
+	    info->rti_info[RTAX_GATEWAY] == NULL) {
+		rtfree(rt);
+		return (ESRCH);
+	}
+#endif
+
+	/*
+	 * Since RTP_LOCAL cannot be set by userland, make
+	 * sure that local routes are only modified by the
+	 * kernel.
+	 */
+	if ((rt->rt_flags & (RTF_LOCAL|RTF_BROADCAST)) &&
+	    prio != RTP_LOCAL) {
+		rtfree(rt);
+		return (EINVAL);
+	}
+
+	error = rtable_delete(tableid, info->rti_info[RTAX_DST],
+	    info->rti_info[RTAX_NETMASK], rt);
+	if (error != 0) {
+		rtfree(rt);
+		return (ESRCH);
+	}
+
+	/* clean up any cloned children */
+	if ((rt->rt_flags & RTF_CLONING) != 0)
+		rtflushclone(tableid, rt);
+
+	rtfree(rt->rt_gwroute);
+	rt->rt_gwroute = NULL;
+
+	rtfree(rt->rt_parent);
+	rt->rt_parent = NULL;
+
+	rt->rt_flags &= ~RTF_UP;
+
+	if (ifp == NULL) {
+		ifp = if_get(rt->rt_ifidx);
+		KASSERT(ifp != NULL);
+		ifp->if_rtrequest(ifp, RTM_DELETE, rt);
+		if_put(ifp);
+	} else {
+		KASSERT(ifp->if_index == rt->rt_ifidx);
+		ifp->if_rtrequest(ifp, RTM_DELETE, rt);
+	}
+
+	atomic_inc_int(&rttrash);
+
+	if (ret_nrt != NULL)
+		*ret_nrt = rt;
+	else
+		rtfree(rt);
+
+	return (0);
+}
+
+int
 rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
     struct rtentry **ret_nrt, u_int tableid)
 {
@@ -838,64 +900,9 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		info->rti_info[RTAX_NETMASK] = NULL;
 	switch (req) {
 	case RTM_DELETE:
-		rt = rtable_lookup(tableid, info->rti_info[RTAX_DST],
- 		    info->rti_info[RTAX_NETMASK], info->rti_info[RTAX_GATEWAY],
- 		    prio);
-		if (rt == NULL)
-			return (ESRCH);
-#ifndef SMALL_KERNEL
-		/*
-		 * If we got multipath routes, we require users to specify
-		 * a matching gateway.
-		 */
-		if ((rt->rt_flags & RTF_MPATH) &&
-		    info->rti_info[RTAX_GATEWAY] == NULL) {
-		    	rtfree(rt);
-			return (ESRCH);
-		}
-#endif
-
-		/*
-		 * Since RTP_LOCAL cannot be set by userland, make
-		 * sure that local routes are only modified by the
-		 * kernel.
-		 */
-		if ((rt->rt_flags & (RTF_LOCAL|RTF_BROADCAST)) &&
-		    prio != RTP_LOCAL) {
-		    	rtfree(rt);
-			return (EINVAL);
-		}
-
-		error = rtable_delete(tableid, info->rti_info[RTAX_DST],
-		    info->rti_info[RTAX_NETMASK], prio, rt);
-		if (error != 0) {
-		    	rtfree(rt);
-			return (ESRCH);
-		}
-
-		/* clean up any cloned children */
-		if ((rt->rt_flags & RTF_CLONING) != 0)
-			rtflushclone(tableid, rt);
-
-		rtfree(rt->rt_gwroute);
-		rt->rt_gwroute = NULL;
-
-		rtfree(rt->rt_parent);
-		rt->rt_parent = NULL;
-
-		rt->rt_flags &= ~RTF_UP;
-
-		ifp = if_get(rt->rt_ifidx);
-		KASSERT(ifp != NULL);
-		ifp->if_rtrequest(ifp, RTM_DELETE, rt);
-		if_put(ifp);
-
-		atomic_inc_int(&rttrash);
-
-		if (ret_nrt != NULL)
-			*ret_nrt = rt;
-		else
-			rtfree(rt);
+		error = rtrequest_delete(info, prio, NULL, ret_nrt, tableid);
+		if (error)
+			return (error);
 		break;
 
 	case RTM_RESOLVE:
@@ -953,7 +960,6 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 
 		rt->rt_refcnt = 1;
 		rt->rt_flags = info->rti_flags | RTF_UP;
-		rt->rt_tableid = tableid;
 		rt->rt_priority = prio;	/* init routing priority */
 		LIST_INIT(&rt->rt_timer);
 
@@ -1009,7 +1015,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 
 		ifa->ifa_refcnt++;
 		rt->rt_ifa = ifa;
-		rt->rt_ifp = ifp;
+		rt->rt_ifidx = ifp->if_index;
 		if (rt->rt_flags & RTF_CLONED) {
 			/*
 			 * If the ifa of the cloning route was stale, a
@@ -1031,7 +1037,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 
 				ifa->ifa_refcnt++;
 				(*ret_nrt)->rt_ifa = ifa;
-				(*ret_nrt)->rt_ifp = ifp;
+				(*ret_nrt)->rt_ifidx = ifp->if_index;
 				ifp->if_rtrequest(ifp, RTM_ADD, *ret_nrt);
 			}
 			/*
@@ -1061,7 +1067,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		if (error != 0 && (crt = rtalloc(ndst, 0, tableid)) != NULL) {
 			/* overwrite cloned route */
 			if ((crt->rt_flags & RTF_CLONED) != 0) {
-				rtdeletemsg(crt, tableid);
+				rtdeletemsg(crt, NULL, tableid);
 				error = rtable_insert(tableid, ndst,
 				    info->rti_info[RTAX_NETMASK],
 				    info->rti_info[RTAX_GATEWAY],
@@ -1267,7 +1273,7 @@ rt_ifa_del(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 	if (flags & RTF_CONNECTED)
 		prio = RTP_CONNECTED;
 
-	error = rtrequest(RTM_DELETE, &info, prio, &rt, rtableid);
+	error = rtrequest_delete(&info, prio, ifp, &rt, rtableid);
 	if (error == 0) {
 		rt_sendmsg(rt, RTM_DELETE, rtableid);
 		if (flags & RTF_LOCAL)
@@ -1532,7 +1538,6 @@ rt_timer_add(struct rtentry *rt, void (*func)(struct rtentry *,
 	return (0);
 }
 
-/* ARGSUSED */
 void
 rt_timer_timer(void *arg)
 {
@@ -1593,7 +1598,7 @@ rtlabel_name2id(char *name)
 	if (new_id > LABELID_MAX)
 		return (0);
 
-	label = malloc(sizeof(*label), M_TEMP, M_NOWAIT|M_ZERO);
+	label = malloc(sizeof(*label), M_RTABLE, M_NOWAIT|M_ZERO);
 	if (label == NULL)
 		return (0);
 	strlcpy(label->rtl_name, name, sizeof(label->rtl_name));
@@ -1649,7 +1654,7 @@ rtlabel_unref(u_int16_t id)
 		if (id == p->rtl_id) {
 			if (--p->rtl_ref == 0) {
 				TAILQ_REMOVE(&rt_labels, p, rtl_entry);
-				free(p, M_TEMP, sizeof(*p));
+				free(p, M_RTABLE, sizeof(*p));
 			}
 			break;
 		}
@@ -1688,7 +1693,7 @@ rt_if_remove_rtdelete(struct rtentry *rt, void *vifp, u_int id)
 	if (rt->rt_ifidx == ifp->if_index) {
 		int	cloning = (rt->rt_flags & RTF_CLONING);
 
-		if (rtdeletemsg(rt, id) == 0 && cloning)
+		if (rtdeletemsg(rt, ifp, id) == 0 && cloning)
 			return (EAGAIN);
 	}
 
@@ -1721,6 +1726,7 @@ int
 rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 {
 	struct ifnet *ifp = arg;
+	struct sockaddr_in6 sa_mask;
 
 	if (rt->rt_ifidx != ifp->if_index)
 	    	return (0);
@@ -1745,7 +1751,7 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 			 * clone a new route from a better source.
 			 */
 			if (rt->rt_flags & RTF_CLONED) {
-				rtdeletemsg(rt, id);
+				rtdeletemsg(rt, ifp, id);
 				return (0);
 			}
 			/* take route down */
@@ -1753,11 +1759,56 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 			rtable_mpath_reprio(rt, rt->rt_priority | RTP_DOWN);
 		}
 	}
-	if_group_routechange(rt_key(rt), rt_mask(rt));
+	if_group_routechange(rt_key(rt), rt_plen2mask(rt, &sa_mask));
 
 	return (0);
 }
 #endif
+
+struct sockaddr *
+rt_plentosa(sa_family_t af, int plen, struct sockaddr_in6 *sa_mask)
+{
+	struct sockaddr_in	*sin = (struct sockaddr_in *)sa_mask;
+#ifdef INET6
+	struct sockaddr_in6	*sin6 = (struct sockaddr_in6 *)sa_mask;
+#endif
+
+	KASSERT(plen >= 0 || plen == -1);
+
+	if (plen == -1)
+		return (NULL);
+
+	memset(sa_mask, 0, sizeof(*sa_mask));
+
+	switch (af) {
+	case AF_INET:
+		sin->sin_family = AF_INET;
+		sin->sin_len = sizeof(struct sockaddr_in);
+		in_prefixlen2mask(&sin->sin_addr, plen);
+		break;
+#ifdef INET6
+	case AF_INET6:
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_len = sizeof(struct sockaddr_in6);
+		in6_prefixlen2mask(&sin6->sin6_addr, plen);
+		break;
+#endif /* INET6 */
+	default:
+		return (NULL);
+	}
+
+	return ((struct sockaddr *)sa_mask);
+}
+
+struct sockaddr *
+rt_plen2mask(struct rtentry *rt, struct sockaddr_in6 *sa_mask)
+{
+#ifndef ART
+	return (rt_mask(rt));
+#else
+	return (rt_plentosa(rt_key(rt)->sa_family, rt_plen(rt), sa_mask));
+#endif /* ART */
+}
 
 #ifdef DDB
 #include <machine/db_machdep.h>
@@ -1815,7 +1866,7 @@ db_show_rtentry(struct rtentry *rt, void *w, unsigned int id)
 	    rt->rt_flags, rt->rt_refcnt, rt->rt_use, rt->rt_expire, id);
 
 	db_printf(" key="); db_print_sa(rt_key(rt));
-	db_printf(" mask="); db_print_sa(rt_mask(rt));
+	db_printf(" plen=%d", rt_plen(rt));
 	db_printf(" gw="); db_print_sa(rt->rt_gateway);
 	db_printf(" ifidx=%u ", rt->rt_ifidx);
 	db_printf(" ifa=%p\n", rt->rt_ifa);

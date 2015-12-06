@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.125 2015/11/27 18:54:47 jca Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.135 2015/12/05 19:21:49 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -48,6 +48,7 @@
 #include <netinet6/in6_var.h>
 #include <netinet6/nd6.h>
 #include <netinet/tcp.h>
+#include <net/pfvar.h>
 
 #include <sys/conf.h>
 #include <sys/specdev.h>
@@ -82,6 +83,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_sendsyslog] = PLEDGE_ALWAYS,	/* stack protector reporting */
 	[SYS_sendsyslog2] = PLEDGE_ALWAYS,	/* stack protector reporting */
 	[SYS_thrkill] = PLEDGE_ALWAYS,		/* raise, abort, stack pro */
+	[SYS_utrace] = PLEDGE_ALWAYS,		/* ltrace(1) from ld.so */
 
 	/* "getting" information about self is considered safe */
 	[SYS_getuid] = PLEDGE_STDIO,
@@ -274,6 +276,9 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mkdir] = PLEDGE_CPATH,
 	[SYS_mkdirat] = PLEDGE_CPATH,
 
+	[SYS_mkfifo] = PLEDGE_DPATH,
+	[SYS_mknod] = PLEDGE_DPATH,
+
 	[SYS_chroot] = PLEDGE_ID,	/* also requires PLEDGE_PROC */
 
 	[SYS_revoke] = PLEDGE_TTY,	/* also requires PLEDGE_RPATH */
@@ -308,8 +313,8 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_socket] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 	[SYS_connect] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
-	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
-	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS,
+	[SYS_bind] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
+	[SYS_getsockname] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 
 	[SYS_listen] = PLEDGE_INET | PLEDGE_UNIX,
 	[SYS_accept4] = PLEDGE_INET | PLEDGE_UNIX,
@@ -326,9 +331,11 @@ static const struct {
 	int flags;
 } pledgereq[] = {
 	{ "abort",		0 },	/* XXX reserve for later */
+	{ "audio",		PLEDGE_AUDIO },
 	{ "cpath",		PLEDGE_CPATH },
 	{ "disklabel",		PLEDGE_DISKLABEL },
 	{ "dns",		PLEDGE_DNS },
+	{ "dpath",		PLEDGE_DPATH },
 	{ "exec",		PLEDGE_EXEC },
 	{ "fattr",		PLEDGE_FATTR },
 	{ "flock",		PLEDGE_FLOCK },
@@ -337,6 +344,7 @@ static const struct {
 	{ "inet",		PLEDGE_INET },
 	{ "ioctl",		PLEDGE_IOCTL },
 	{ "mcast",		PLEDGE_MCAST },
+	{ "pf",			PLEDGE_PF },
 	{ "proc",		PLEDGE_PROC },
 	{ "prot_exec",		PLEDGE_PROTEXEC },
 	{ "ps",			PLEDGE_PS },
@@ -697,8 +705,7 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 				 * worse than pre-pledge, but is a work in
 				 * progress, needing a clever design.
 				 */
-				atomic_setbits_int(&p->p_p->ps_pledge,
-				    PLEDGE_YPACTIVE | PLEDGE_INET);
+				p->p_p->ps_pledge |= PLEDGE_YPACTIVE;
 				return (0);
 			}
 			if (strncmp(path, "/var/yp/binding/",
@@ -713,13 +720,6 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 			return (0);
 		if ((ni->ni_pledge == PLEDGE_RPATH) &&
 		    strcmp(path, "/etc/localtime") == 0)
-			return (0);
-
-		/* /usr/share/nls/../libc.cat has to succeed for strerror(3). */
-		if ((ni->ni_pledge == PLEDGE_RPATH) &&
-		    strncmp(path, "/usr/share/nls/",
-		    sizeof("/usr/share/nls/") - 1) == 0 &&
-		    strcmp(path + strlen(path) - 9, "/libc.cat") == 0)
 			return (0);
 
 		break;
@@ -1110,7 +1110,7 @@ pledge_sendit(struct proc *p, const void *to)
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
-	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS)))
+	if ((p->p_p->ps_pledge & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE)))
 		return (0);		/* may use address */
 	if (to == NULL)
 		return (0);		/* behaves just like write */
@@ -1198,6 +1198,30 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
+	if ((p->p_p->ps_pledge & PLEDGE_PF)) {
+#ifndef SMALL_KERNEL
+		switch (com) {
+		case DIOCADDRULE:
+		case DIOCGETSTATUS:
+		case DIOCNATLOOK:
+		case DIOCRADDTABLES:
+		case DIOCRCLRADDRS:
+		case DIOCRCLRTABLES:
+		case DIOCRCLRTSTATS:
+		case DIOCRGETTSTATS:
+		case DIOCRSETADDRS:
+		case DIOCXBEGIN:
+		case DIOCXCOMMIT:
+		case DIOCKILLSRCNODES:
+			if ((fp->f_type == DTYPE_VNODE) &&
+			    (vp->v_type == VCHR) &&
+			    (cdevsw[major(vp->v_rdev)].d_open == pfopen))
+				return (0);
+			break;
+		}
+#endif /* !SMALL_KERNEL */
+	}
+
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
 #if NPTY > 0
@@ -1256,6 +1280,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case SIOCGIFNETMASK_IN6:
 		case SIOCGNBRINFO_IN6:
 		case SIOCGIFINFO_IN6:
+		case SIOCGIFMEDIA:
 			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
@@ -1282,8 +1307,8 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		break;
 	}
 
-	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS)) == 0)
-	 	return pledge_fail(p, EPERM, PLEDGE_INET);
+	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_DNS|PLEDGE_YPACTIVE)) == 0)
+		return pledge_fail(p, EPERM, PLEDGE_INET);
 	/* In use by some service libraries */
 	switch (level) {
 	case SOL_SOCKET:
@@ -1303,6 +1328,25 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 			case IPV6_USE_MIN_MTU:
 				return (0);
 			}
+		}
+	}
+
+	/* YP may do these requests */
+	if (p->p_p->ps_pledge & PLEDGE_YPACTIVE) {
+		switch (level) {
+		case IPPROTO_IP:
+			switch (optname) {
+			case IP_PORTRANGE:
+				return (0);
+			}
+			break;
+
+		case IPPROTO_IPV6:
+			switch (optname) {
+			case IPV6_PORTRANGE:
+				return (0);
+			}
+			break;
 		}
 	}
 
@@ -1339,6 +1383,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		case IP_TOS:
 		case IP_TTL:
 		case IP_MINTTL:
+		case IP_IPDEFTTL:
 		case IP_PORTRANGE:
 		case IP_RECVDSTADDR:
 		case IP_RECVDSTPORT:
@@ -1475,7 +1520,7 @@ pledge_protexec(struct proc *p, int prot)
 {
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return 0;
-        if (!(p->p_p->ps_pledge & PLEDGE_PROTEXEC) && (prot & PROT_EXEC))
+	if (!(p->p_p->ps_pledge & PLEDGE_PROTEXEC) && (prot & PROT_EXEC))
 		return pledge_fail(p, EPERM, PLEDGE_PROTEXEC);
 	return 0;
 }

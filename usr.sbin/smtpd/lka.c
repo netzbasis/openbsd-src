@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka.c,v 1.178 2015/10/14 22:01:43 gilles Exp $	*/
+/*	$OpenBSD: lka.c,v 1.180 2015/11/30 14:05:34 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -55,6 +55,7 @@ static int lka_credentials(const char *, const char *, char *, size_t);
 static int lka_userinfo(const char *, const char *, struct userinfo *);
 static int lka_addrname(const char *, const struct sockaddr *,
     struct addrname *);
+static int lka_mailaddrmap(const char *, const char *, const struct mailaddr *);
 static int lka_X509_verify(struct ca_vrfy_req_msg *, const char *, const char *);
 
 static void
@@ -120,7 +121,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			m_close(p);
 			return;
 
-		case IMSG_SMTP_SSL_INIT:
+		case IMSG_SMTP_TLS_INIT:
 			req_ca_cert = imsg->data;
 			resp_ca_cert.reqid = req_ca_cert->reqid;
 
@@ -129,7 +130,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			pki = dict_get(env->sc_pki_dict, buf);
 			if (pki == NULL) {
 				resp_ca_cert.status = CA_FAIL;
-				m_compose(p, IMSG_SMTP_SSL_INIT, 0, 0, -1, &resp_ca_cert,
+				m_compose(p, IMSG_SMTP_TLS_INIT, 0, 0, -1, &resp_ca_cert,
 				    sizeof(resp_ca_cert));
 				return;
 			}
@@ -139,10 +140,10 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			iov[0].iov_len = sizeof(resp_ca_cert);
 			iov[1].iov_base = pki->pki_cert;
 			iov[1].iov_len = pki->pki_cert_len;
-			m_composev(p, IMSG_SMTP_SSL_INIT, 0, 0, -1, iov, nitems(iov));
+			m_composev(p, IMSG_SMTP_TLS_INIT, 0, 0, -1, iov, nitems(iov));
 			return;
 
-		case IMSG_SMTP_SSL_VERIFY_CERT:
+		case IMSG_SMTP_TLS_VERIFY_CERT:
 			req_ca_vrfy_smtp = xmemdup(imsg->data, sizeof *req_ca_vrfy_smtp, "lka:ca_vrfy");
 			req_ca_vrfy_smtp->cert = xmemdup((char *)imsg->data +
 			    sizeof *req_ca_vrfy_smtp, req_ca_vrfy_smtp->cert_len, "lka:ca_vrfy");
@@ -152,7 +153,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			    sizeof (off_t), "lka:ca_vrfy");
 			return;
 
-		case IMSG_SMTP_SSL_VERIFY_CHAIN:
+		case IMSG_SMTP_TLS_VERIFY_CHAIN:
 			if (req_ca_vrfy_smtp == NULL)
 				fatalx("lka:ca_vrfy: chain without a certificate");
 			req_ca_vrfy_chain = imsg->data;
@@ -162,7 +163,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			req_ca_vrfy_smtp->chain_offset++;
 			return;
 
-		case IMSG_SMTP_SSL_VERIFY:
+		case IMSG_SMTP_TLS_VERIFY:
 			if (req_ca_vrfy_smtp == NULL)
 				fatalx("lka:ca_vrfy: verify without a certificate");
 
@@ -176,7 +177,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			else
 				resp_ca_vrfy.status = CA_OK;
 
-			m_compose(p, IMSG_SMTP_SSL_VERIFY, 0, 0, -1, &resp_ca_vrfy,
+			m_compose(p, IMSG_SMTP_TLS_VERIFY, 0, 0, -1, &resp_ca_vrfy,
 			    sizeof resp_ca_vrfy);
 
 			for (i = 0; i < req_ca_vrfy_smtp->n_chain; ++i)
@@ -240,7 +241,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	if (p->proc == PROC_PONY) {
 		switch (imsg->hdr.type) {
 
-		case IMSG_MTA_SSL_INIT:
+		case IMSG_MTA_TLS_INIT:
 			req_ca_cert = imsg->data;
 			resp_ca_cert.reqid = req_ca_cert->reqid;
 
@@ -249,7 +250,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			pki = dict_get(env->sc_pki_dict, buf);
 			if (pki == NULL) {
 				resp_ca_cert.status = CA_FAIL;
-				m_compose(p, IMSG_MTA_SSL_INIT, 0, 0, -1, &resp_ca_cert,
+				m_compose(p, IMSG_MTA_TLS_INIT, 0, 0, -1, &resp_ca_cert,
 				    sizeof(resp_ca_cert));
 				return;
 			}
@@ -259,10 +260,10 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			iov[0].iov_len = sizeof(resp_ca_cert);
 			iov[1].iov_base = pki->pki_cert;
 			iov[1].iov_len = pki->pki_cert_len;
-			m_composev(p, IMSG_MTA_SSL_INIT, 0, 0, -1, iov, nitems(iov));
+			m_composev(p, IMSG_MTA_TLS_INIT, 0, 0, -1, iov, nitems(iov));
 			return;
 
-		case IMSG_MTA_SSL_VERIFY_CERT:
+		case IMSG_MTA_TLS_VERIFY_CERT:
 			req_ca_vrfy_mta = xmemdup(imsg->data, sizeof *req_ca_vrfy_mta, "lka:ca_vrfy");
 			req_ca_vrfy_mta->cert = xmemdup((char *)imsg->data +
 			    sizeof *req_ca_vrfy_mta, req_ca_vrfy_mta->cert_len, "lka:ca_vrfy");
@@ -272,7 +273,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			    sizeof (off_t), "lka:ca_vrfy");
 			return;
 
-		case IMSG_MTA_SSL_VERIFY_CHAIN:
+		case IMSG_MTA_TLS_VERIFY_CHAIN:
 			if (req_ca_vrfy_mta == NULL)
 				fatalx("lka:ca_vrfy: verify without a certificate");
 
@@ -283,7 +284,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			req_ca_vrfy_mta->chain_offset++;
 			return;
 
-		case IMSG_MTA_SSL_VERIFY:
+		case IMSG_MTA_TLS_VERIFY:
 			if (req_ca_vrfy_mta == NULL)
 				fatalx("lka:ca_vrfy: verify without a certificate");
 
@@ -298,7 +299,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			else
 				resp_ca_vrfy.status = CA_OK;
 
-			m_compose(p, IMSG_MTA_SSL_VERIFY, 0, 0, -1, &resp_ca_vrfy,
+			m_compose(p, IMSG_MTA_TLS_VERIFY, 0, 0, -1, &resp_ca_vrfy,
 			    sizeof resp_ca_vrfy);
 
 			for (i = 0; i < req_ca_vrfy_mta->n_chain; ++i)
@@ -654,6 +655,44 @@ lka_addrname(const char *tablename, const struct sockaddr *sa,
 		*res = lk.addrname;
 		return (LKA_OK);
 	}
+}
+
+static int
+lka_mailaddrmap(const char *tablename, const char *username, const struct mailaddr *maddr)
+{
+	struct table	       *table;
+	struct maddrnode       *mn;
+	union lookup		lk;
+	int			found;
+
+	log_debug("debug: lka: mailaddrmap %s:%s", tablename, username);
+	table = table_find(tablename, NULL);
+	if (table == NULL) {
+		log_warnx("warn: cannot find mailaddrmap table %s", tablename);
+		return (LKA_TEMPFAIL);
+	}
+
+	switch (table_lookup(table, NULL, username, K_MAILADDRMAP, &lk)) {
+	case -1:
+		log_warnx("warn: failure during mailaddrmap lookup %s:%s",
+		    tablename, username);
+		return (LKA_TEMPFAIL);
+	case 0:
+		return (LKA_PERMFAIL);
+	default:
+		found = 0;
+		TAILQ_FOREACH(mn, &lk.maddrmap->queue, entries) {
+			if (! mailaddr_match(maddr, &mn->mailaddr))
+				continue;
+			found = 1;
+			break;
+		}
+		maddrmap_free(lk.maddrmap);
+		if (found)
+			return (LKA_OK);
+		return (LKA_PERMFAIL);
+	}
+	return (LKA_OK);
 }
 
 static int

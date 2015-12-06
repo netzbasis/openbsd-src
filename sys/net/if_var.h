@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.59 2015/11/27 15:00:12 mpi Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.64 2015/12/05 16:24:59 mpi Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -36,10 +36,13 @@
 #ifndef _NET_IF_VAR_H_
 #define _NET_IF_VAR_H_
 
+#ifdef _KERNEL
+
 #include <sys/queue.h>
 #include <sys/mbuf.h>
 #include <sys/srp.h>
 #include <sys/refcnt.h>
+#include <sys/time.h>
 
 /*
  * Structures defining a network interface, providing a packet
@@ -66,17 +69,10 @@
  * interfaces.  These routines live in the files if.c and route.c
  */
 
-#include <sys/time.h>
-
-struct proc;
 struct rtentry;
-struct socket;
 struct timeout;
-struct ether_header;
 struct arpcom;
-struct rt_addrinfo;
 struct ifnet;
-struct hfsc_if;
 struct task;
 
 /*
@@ -134,7 +130,6 @@ struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
 	struct	refcnt if_refcnt;
 	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
-	TAILQ_ENTRY(ifnet) if_txlist;	/* list of ifnets ready to tx */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
 	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* list of multicast records */
 	TAILQ_HEAD(, ifg_list) if_groups; /* linked list of groups per if */
@@ -168,7 +163,7 @@ struct ifnet {				/* and the entries */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
-	struct	srpl if_inputs;		/* input routines (dequeue) */
+	SRPL_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
 
 					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
@@ -267,7 +262,6 @@ struct ifg_list {
 	TAILQ_ENTRY(ifg_list)	 ifgl_next;
 };
 
-#ifdef _KERNEL
 /*
  * Interface send queues.
  */
@@ -367,8 +361,10 @@ int		niq_enlist(struct niqueue *, struct mbuf_list *);
 
 extern struct ifnet_head ifnet;
 extern unsigned int lo0ifidx;
+extern struct taskq *softnettq;
 
 void	if_start(struct ifnet *);
+void	if_start_barrier(struct ifnet *);
 int	if_enqueue_try(struct ifnet *, struct mbuf *);
 int	if_enqueue(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);

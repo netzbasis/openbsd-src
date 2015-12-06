@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.c,v 1.254 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: smtpd.c,v 1.258 2015/12/05 21:27:42 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -390,8 +390,7 @@ parent_sig_handler(int sig, short event, void *p)
 					cause = child->cause;
 					child->cause = NULL;
 				}
-				if (child->cause)
-					free(child->cause);
+				free(child->cause);
 				log_debug("debug: smtpd: mda process done "
 				    "for session %016"PRIx64 ": %s",
 				    child->mda_id, cause);
@@ -689,7 +688,7 @@ main(int argc, char *argv[])
 	if (pledge("stdio rpath wpath cpath fattr flock tmppath "
 	    "getpw sendfd proc exec id inet unix", NULL) == -1)
 		err(1, "pledge");
-	
+
 	if (event_dispatch() < 0)
 		fatal("smtpd: event_dispatch");
 
@@ -793,7 +792,7 @@ fork_proc_backend(const char *key, const char *conf, const char *procname)
 	if (arg)
 		*arg++ = '\0';
 
-	if (snprintf(path, sizeof(path), PATH_LIBEXEC "/%s-%s", key, name) >=
+	if (snprintf(path, sizeof(path), PATH_LIBEXEC_DEPRECATED "/%s-%s", key, name) >=
 	    (ssize_t)sizeof(path)) {
 		log_warn("warn: %s-proc: exec path too long", key);
 		return (-1);
@@ -1488,10 +1487,10 @@ imsg_to_str(int type)
 	CASE(IMSG_MTA_LOOKUP_HELO);
 	CASE(IMSG_MTA_OPEN_MESSAGE);
 	CASE(IMSG_MTA_SCHEDULE);
-	CASE(IMSG_MTA_SSL_INIT);
-	CASE(IMSG_MTA_SSL_VERIFY_CERT);
-	CASE(IMSG_MTA_SSL_VERIFY_CHAIN);
-	CASE(IMSG_MTA_SSL_VERIFY);
+	CASE(IMSG_MTA_TLS_INIT);
+	CASE(IMSG_MTA_TLS_VERIFY_CERT);
+	CASE(IMSG_MTA_TLS_VERIFY_CHAIN);
+	CASE(IMSG_MTA_TLS_VERIFY);
 
 	CASE(IMSG_SCHED_ENVELOPE_BOUNCE);
 	CASE(IMSG_SCHED_ENVELOPE_DELIVER);
@@ -1508,10 +1507,10 @@ imsg_to_str(int type)
 	CASE(IMSG_SMTP_MESSAGE_OPEN);
 	CASE(IMSG_SMTP_EXPAND_RCPT);
 	CASE(IMSG_SMTP_LOOKUP_HELO);
-	CASE(IMSG_SMTP_SSL_INIT);
-	CASE(IMSG_SMTP_SSL_VERIFY_CERT);
-	CASE(IMSG_SMTP_SSL_VERIFY_CHAIN);
-	CASE(IMSG_SMTP_SSL_VERIFY);
+	CASE(IMSG_SMTP_TLS_INIT);
+	CASE(IMSG_SMTP_TLS_VERIFY_CERT);
+	CASE(IMSG_SMTP_TLS_VERIFY_CHAIN);
+	CASE(IMSG_SMTP_TLS_VERIFY);
 
 	CASE(IMSG_SMTP_REQ_CONNECT);
 	CASE(IMSG_SMTP_REQ_HELO);

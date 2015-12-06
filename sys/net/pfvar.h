@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.423 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.426 2015/12/03 14:05:28 bluhm Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1669,7 +1669,8 @@ extern struct pool		 pf_state_scrub_pl;
 extern void			 pf_purge_thread(void *);
 extern void			 pf_purge_expired_src_nodes(int);
 extern void			 pf_purge_expired_states(u_int32_t);
-extern void			 pf_unlink_state(struct pf_state *);
+extern void			 pf_remove_state(struct pf_state *);
+extern void			 pf_remove_divert_state(struct pf_state_key *);
 extern void			 pf_free_state(struct pf_state *);
 extern int			 pf_state_insert(struct pfi_kif *,
 				    struct pf_state_key **,
@@ -1753,6 +1754,9 @@ int	pf_rtlabel_match(struct pf_addr *, sa_family_t, struct pf_addr_wrap *,
 int	pf_socket_lookup(struct pf_pdesc *);
 struct pf_state_key *pf_alloc_state_key(int);
 void	pf_pkt_addr_changed(struct mbuf *);
+struct inpcb *pf_inp_lookup(struct mbuf *);
+void	pf_inp_link(struct mbuf *, struct inpcb *);
+void	pf_inp_unlink(struct inpcb *);
 int	pf_state_key_attach(struct pf_state_key *, struct pf_state *, int);
 int	pf_translate(struct pf_pdesc *, struct pf_addr *, u_int16_t,
 	    struct pf_addr *, u_int16_t, u_int16_t, int);

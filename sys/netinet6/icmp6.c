@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.178 2015/11/21 11:23:07 mpi Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.182 2015/12/03 21:11:53 sashan Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -1302,7 +1302,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 #if NPF > 0
 	pf_pkt_addr_changed(m);
 #endif
-	ip6_output(m, NULL, NULL, IPV6_MINMTU, NULL, NULL);
+	ip6_send(m);
 	return;
 
  bad:
@@ -1517,8 +1517,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 		bcopy(&redtgt6, &sgw.sin6_addr, sizeof(struct in6_addr));
 		bcopy(&reddst6, &sdst.sin6_addr, sizeof(struct in6_addr));
 		bcopy(&src6, &ssrc.sin6_addr, sizeof(struct in6_addr));
-		rtredirect(sin6tosa(&sdst), sin6tosa(&sgw), NULL,
-		    RTF_GATEWAY | RTF_HOST, sin6tosa(&ssrc),
+		rtredirect(sin6tosa(&sdst), sin6tosa(&sgw), sin6tosa(&ssrc),
 		    &newrt, m->m_pkthdr.ph_rtableid);
 
 		if (newrt) {
@@ -1913,7 +1912,7 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rdomain)
 	struct rtentry *rt;
 	int    error;
 
-	rt = rtalloc(dst, RT_REPORT|RT_RESOLVE, rdomain);
+	rt = rtalloc(dst, RT_RESOLVE, rdomain);
 	if (rt == NULL)
 		return NULL;
 
@@ -1960,7 +1959,7 @@ icmp6_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 		int s;
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 		splx(s);
 	} else {
 		if (!(rt->rt_rmx.rmx_locks & RTV_MTU))
@@ -1978,7 +1977,7 @@ icmp6_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 		int s;
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, NULL, r->rtt_tableid);
 		splx(s);
 	}
 }

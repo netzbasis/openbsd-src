@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.88 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.90 2015/12/03 12:45:56 dlg Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -34,7 +34,6 @@
 #include <sys/device.h>
 #include <sys/proc.h>
 #include <sys/queue.h>
-#include <sys/atomic.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -512,6 +511,7 @@ myx_attachhook(void *arg)
 
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = myx_ioctl;
 	ifp->if_start = myx_start;
 	ifp->if_watchdog = myx_watchdog;
@@ -1361,8 +1361,9 @@ myx_down(struct myx_softc *sc)
 		printf("%s: failed to reset the device\n", DEVNAME(sc));
 	}
 
-	CLR(ifp->if_flags, IFF_RUNNING);
 	ifq_clr_oactive(&ifp->if_snd);
+	CLR(ifp->if_flags, IFF_RUNNING);
+	if_start_barrier(ifp);
 
 	for (ring = 0; ring < 2; ring++) {
 		struct myx_rx_ring *mrr = &sc->sc_rx_ring[ring];
@@ -1436,11 +1437,6 @@ myx_start(struct ifnet *ifp)
 	u_int				idx, cons, prod;
 	u_int				free, used;
 	u_int8_t			flags;
-
-	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ifq_is_oactive(&ifp->if_snd) ||
-	    IFQ_IS_EMPTY(&ifp->if_snd))
-		return;
 
 	idx = sc->sc_tx_ring_prod;
 
@@ -1589,11 +1585,10 @@ int
 myx_intr(void *arg)
 {
 	struct myx_softc	*sc = (struct myx_softc *)arg;
-	struct ifnet		*ifp = &sc->sc_ac.ac_if;
 	volatile struct myx_status *sts = sc->sc_sts;
 	enum myx_state		 state;
 	bus_dmamap_t		 map = sc->sc_sts_dma.mxm_map;
-	u_int32_t		 data, start;
+	u_int32_t		 data;
 	u_int8_t		 valid = 0;
 
 	state = sc->sc_state;
@@ -1639,15 +1634,12 @@ myx_intr(void *arg)
 	bus_space_write_raw_region_4(sc->sc_memt, sc->sc_memh,
 	    sc->sc_irqclaimoff + sizeof(data), &data, sizeof(data));
 
-	start = ifq_is_oactive(&ifp->if_snd);
-
 	if (sts->ms_statusupdated) {
 		if (state == MYX_S_DOWN &&
 		    sc->sc_linkdown != sts->ms_linkdown) {
 			sc->sc_state = MYX_S_OFF;
 			membar_producer();
 			wakeup(sts);
-			start = 0;
 		} else {
 			data = sts->ms_linkstate;
 			if (data != 0xffffffff) {
@@ -1660,13 +1652,6 @@ myx_intr(void *arg)
 
 	bus_dmamap_sync(sc->sc_dmat, map, 0, map->dm_mapsize,
 	    BUS_DMASYNC_PREREAD|BUS_DMASYNC_PREWRITE);
-
-	if (start) {
-		KERNEL_LOCK();
-		ifq_clr_oactive(&ifp->if_snd);
-		myx_start(ifp);
-		KERNEL_UNLOCK();
-	}
 
 	return (1);
 }
@@ -1716,6 +1701,10 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 
 	sc->sc_tx_ring_cons = idx;
 	sc->sc_tx_cons = cons;
+
+	ifq_clr_oactive(&ifp->if_snd);
+	if (!ifq_empty(&ifp->if_snd))
+		if_start(ifp);
 }
 
 void
@@ -1865,23 +1854,6 @@ destroy:
 	}
 	free(mrr->mrr_slots, M_DEVBUF, sizeof(*ms) * sc->sc_rx_ring_count);
 	return (rv);
-}
-
-static inline int
-myx_rx_ring_enter(struct myx_rx_ring *mrr)
-{
-	return (atomic_inc_int_nv(&mrr->mrr_running) == 1);
-}
-
-static inline int
-myx_rx_ring_leave(struct myx_rx_ring *mrr)
-{
-	if (atomic_cas_uint(&mrr->mrr_running, 1, 0) == 1)
-		return (1);
-
-	mrr->mrr_running = 1;
-
-	return (0);
 }
 
 int

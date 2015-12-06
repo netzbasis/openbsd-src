@@ -1267,17 +1267,6 @@
 ./usr/share/man/man4/auixp.4
 ./usr/share/man/man4/autri.4
 ./usr/share/man/man4/auvia.4
-./usr/share/man/man4/aviion
-./usr/share/man/man4/aviion/autoconf.4
-./usr/share/man/man4/aviion/dart.4
-./usr/share/man/man4/aviion/intro.4
-./usr/share/man/man4/aviion/kmem.4
-./usr/share/man/man4/aviion/le.4
-./usr/share/man/man4/aviion/mem.4
-./usr/share/man/man4/aviion/nvram.4
-./usr/share/man/man4/aviion/oaic.4
-./usr/share/man/man4/aviion/syscon.4
-./usr/share/man/man4/aviion/vme.4
 ./usr/share/man/man4/axe.4
 ./usr/share/man/man4/axen.4
 ./usr/share/man/man4/az.4
@@ -1345,6 +1334,7 @@
 ./usr/share/man/man4/eso.4
 ./usr/share/man/man4/ess.4
 ./usr/share/man/man4/et.4
+./usr/share/man/man4/etherip.4
 ./usr/share/man/man4/etphy.4
 ./usr/share/man/man4/ex.4
 ./usr/share/man/man4/exphy.4
@@ -2251,7 +2241,6 @@
 ./usr/share/man/man5/sysctl.conf.5
 ./usr/share/man/man5/syslog.conf.5
 ./usr/share/man/man5/table.5
-./usr/share/man/man5/table_passwd.5
 ./usr/share/man/man5/term.5
 ./usr/share/man/man5/termcap.5
 ./usr/share/man/man5/terminfo.5
@@ -2262,7 +2251,7 @@
 ./usr/share/man/man5/usermgmt.conf.5
 ./usr/share/man/man5/utmp.5
 ./usr/share/man/man5/uuencode.5
-./usr/share/man/man5/vmm.conf.5
+./usr/share/man/man5/vm.conf.5
 ./usr/share/man/man5/wsconsctl.conf.5
 ./usr/share/man/man5/wtmp.5
 ./usr/share/man/man5/ypldap.conf.5
@@ -2337,11 +2326,6 @@
 ./usr/share/man/man8/authpf-noip.8
 ./usr/share/man/man8/authpf.8
 ./usr/share/man/man8/autoinstall.8
-./usr/share/man/man8/aviion
-./usr/share/man/man8/aviion/MAKEDEV.8
-./usr/share/man/man8/aviion/a2coff.8
-./usr/share/man/man8/aviion/installboot.8
-./usr/share/man/man8/aviion/vdmtool.8
 ./usr/share/man/man8/badsect.8
 ./usr/share/man/man8/bgpctl.8
 ./usr/share/man/man8/bgpd.8
@@ -2654,8 +2638,6 @@
 ./usr/share/man/man8/sshd.8
 ./usr/share/man/man8/ssl.8
 ./usr/share/man/man8/starttls.8
-./usr/share/man/man8/stdethers.8
-./usr/share/man/man8/stdhosts.8
 ./usr/share/man/man8/sticky.8
 ./usr/share/man/man8/swapctl.8
 ./usr/share/man/man8/swapon.8
@@ -2686,8 +2668,8 @@
 ./usr/share/man/man8/vax/MAKEDEV.8
 ./usr/share/man/man8/vax/boot_vax.8
 ./usr/share/man/man8/vipw.8
+./usr/share/man/man8/vmctl.8
 ./usr/share/man/man8/vmd.8
-./usr/share/man/man8/vmmctl.8
 ./usr/share/man/man8/vmstat.8
 ./usr/share/man/man8/vnconfig.8
 ./usr/share/man/man8/watchdogd.8

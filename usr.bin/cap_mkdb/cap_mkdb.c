@@ -1,4 +1,4 @@
-/*	$OpenBSD: cap_mkdb.c,v 1.20 2015/10/29 02:58:00 deraadt Exp $	*/
+/*	$OpenBSD: cap_mkdb.c,v 1.22 2015/12/04 19:15:54 jmc Exp $	*/
 /*	$NetBSD: cap_mkdb.c,v 1.5 1995/09/02 05:47:12 jtc Exp $	*/
 
 /*-
@@ -53,7 +53,7 @@ int	 igetnext(char **, char **);
 int	 main(int, char *[]);
 
 DB *capdbp;
-int info, verbose;
+int verbose;
 char *capname, buf[8 * 1024];
 
 HASHINFO openinfo = {
@@ -150,23 +150,21 @@ db_build(char **ifiles)
 	recno_t reccnt;
 	size_t len, bplen;
 	int st;
-	char *bp, *p, *t, *out, ch;
+	char *bp, *p, *t, *capbeg, *capend;
 
 	cgetusedb(0);		/* disable reading of .db files in getcap(3) */
 
 	data.data = NULL;
 	key.data = NULL;
-	for (reccnt = 0, bplen = 0;
-	     (st = (info ? igetnext(&bp, ifiles) : cgetnext(&bp, ifiles))) > 0;) {
+	for (reccnt = 0, bplen = 0; (st = cgetnext(&bp, ifiles)) > 0;) {
 
 		/*
-		 * Allocate enough memory to store four times the size of the
-		 * record (so an existing ':' can be expanded to '\072' for
-		 * terminfo) plus a terminating NULL and one extra byte.
+		 * Allocate enough memory to store the size of the record plus
+		 * a terminating NULL and one extra byte.
 		 */
 		len = strlen(bp);
-		if (bplen <= 4 * len + 2) {
-			int newbplen = bplen + MAXIMUM(256, 4 * len + 2);
+		if (bplen <= len + 2) {
+			int newbplen = bplen + MAXIMUM(256, len + 2);
 			void *newdata;
 
 			if ((newdata = realloc(data.data, newbplen)) == NULL)
@@ -176,7 +174,7 @@ db_build(char **ifiles)
 		}
 
 		/* Find the end of the name field. */
-		if ((p = strchr(bp, info ? ',' : ':')) == NULL) {
+		if ((p = strchr(bp, ':')) == NULL) {
 			warnx("no name field: %.*s", (int)MINIMUM(len, 20), bp);
 			continue;
 		}
@@ -193,70 +191,31 @@ db_build(char **ifiles)
 		}
 
 		/* Create the stored record. */
-		if (info) {
-			/*
-			 * The record separator is :, so it is necessary to
-			 * change commas into colons. However, \, should be
-			 * left alone, unless the \ is the last part of ^\.
-			 */
-			data.size = len + 2;
-			out = ((char *) data.data) + 1;
-			t = bp;
-			while (t < bp + len) {
-				switch (ch = *t++) {
-				case '^':
-				case '\\':
-					*out++ = ch;
-					if (*t != '\0')
-						*out++ = *t++;
-					break;
-				case ':':
-					memcpy(out, "\\072", 4);
-					out += 4;
-					data.size += 3; /* : already counted */
-					break;
-				case ',':
-					*out++ = ':';
-					break;
-				default:
-					*out++ = ch;
-					break;
-				}
-			}
-			*out++ = '\0';
-			if (memchr((char *)data.data + 1, '\0', data.size - 2)) {
-				warnx("NUL in entry: %.*s", (int)MINIMUM(len, 20), bp);
-				continue;
-			}
-		} else {
-			char *capbeg, *capend;
+		t = (char *)data.data + 1;
+		/* Copy the cap name and trailing ':' */
+		len = p - bp + 1;
+		memcpy(t, bp, len);
+		t += len;
 
-			t = (char *)data.data + 1;
-			/* Copy the cap name and trailing ':' */
-			len = p - bp + 1;
-			memcpy(t, bp, len);
-			t += len;
-
-			/* Copy entry, collapsing empty fields. */
-			capbeg = p + 1;
-			while (*capbeg) {
-				/* Skip empty fields. */
-				if ((len = strspn(capbeg, ": \t\n\r")))
-					capbeg += len;
-
-				/* Find the end of this cap and copy it w/ : */
-				capend = strchr(capbeg, ':');
-				if (capend)
-					len = capend - capbeg + 1;
-				else
-					len = strlen(capbeg);
-				memcpy(t, capbeg, len);
-				t += len;
+		/* Copy entry, collapsing empty fields. */
+		capbeg = p + 1;
+		while (*capbeg) {
+			/* Skip empty fields. */
+			if ((len = strspn(capbeg, ": \t\n\r")))
 				capbeg += len;
-			}
-			*t = '\0';
-			data.size = t - (char *)data.data + 1;
+
+			/* Find the end of this cap and copy it w/ : */
+			capend = strchr(capbeg, ':');
+			if (capend)
+				len = capend - capbeg + 1;
+			else
+				len = strlen(capbeg);
+			memcpy(t, capbeg, len);
+			t += len;
+			capbeg += len;
 		}
+		*t = '\0';
+		data.size = t - (char *)data.data + 1;
 
 		/* Store the record under the name field. */
 		key.data = bp;
@@ -284,7 +243,7 @@ db_build(char **ifiles)
 
 		/* Store references for other names. */
 		for (p = t = bp;; ++p) {
-			if (p > t && (*p == (info ? ',' : ':') || *p == '|')) {
+			if (p > t && (*p == ':' || *p == '|')) {
 				key.size = p - t;
 				key.data = t;
 
@@ -308,7 +267,7 @@ db_build(char **ifiles)
 				}
 				t = p + 1;
 			}
-			if (*p == (info ? ',' : ':'))
+			if (*p == ':')
 				break;
 		}
 		free(bp);
@@ -331,6 +290,6 @@ void
 usage(void)
 {
 	(void)fprintf(stderr,
-	    "usage: cap_mkdb [-iv] [-f outfile] file1 [file2 ...]\n");
+	    "usage: cap_mkdb [-v] [-f outfile] file1 [file2 ...]\n");
 	exit(1);
 }

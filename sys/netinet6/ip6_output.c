@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.199 2015/11/11 10:23:23 mpi Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.202 2015/12/03 10:34:24 tedu Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -128,8 +128,8 @@ int ip6_insertfraghdr(struct mbuf *, struct mbuf *, int,
 	struct ip6_frag **);
 int ip6_insert_jumboopt(struct ip6_exthdrs *, u_int32_t);
 int ip6_splithdr(struct mbuf *, struct ip6_exthdrs *);
-int ip6_getpmtu(struct route_in6 *, struct route_in6 *,
-	struct ifnet *, struct in6_addr *, u_long *, int *);
+int ip6_getpmtu(struct route_in6 *, struct route_in6 *, struct ifnet *,
+    unsigned int, struct in6_addr *, u_long *, int *);
 int copypktopts(struct ip6_pktopts *, struct ip6_pktopts *, int);
 static __inline u_int16_t __attribute__((__unused__))
     in6_cksum_phdr(const struct in6_addr *, const struct in6_addr *,
@@ -646,8 +646,8 @@ reroute:
 	}
 
 	/* Determine path MTU. */
-	if ((error = ip6_getpmtu(ro_pmtu, ro, ifp, &finaldst, &mtu,
-	    &alwaysfrag)) != 0)
+	if ((error = ip6_getpmtu(ro_pmtu, ro, ifp, ro->ro_tableid, &finaldst,
+	    &mtu, &alwaysfrag)) != 0)
 		goto bad;
 
 	/*
@@ -1111,8 +1111,8 @@ ip6_insertfraghdr(struct mbuf *m0, struct mbuf *m, int hlen,
 }
 
 int
-ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro,
-    struct ifnet *ifp, struct in6_addr *dst, u_long *mtup, int *alwaysfragp)
+ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro, struct ifnet *ifp0,
+    unsigned int rtableid, struct in6_addr *dst, u_long *mtup, int *alwaysfragp)
 {
 	u_int32_t mtu = 0;
 	int alwaysfrag = 0;
@@ -1123,25 +1123,32 @@ ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro,
 		struct sockaddr_in6 *sa6_dst = &ro_pmtu->ro_dst;
 
 		if (!rtisvalid(ro_pmtu->ro_rt) ||
-		    (ro_pmtu->ro_tableid != ifp->if_rdomain) ||
+		    (ro_pmtu->ro_tableid != rtableid) ||
 		     !IN6_ARE_ADDR_EQUAL(&sa6_dst->sin6_addr, dst)) {
 			rtfree(ro_pmtu->ro_rt);
 			ro_pmtu->ro_rt = NULL;
 		}
 		if (ro_pmtu->ro_rt == NULL) {
 			bzero(ro_pmtu, sizeof(*ro_pmtu));
-			ro_pmtu->ro_tableid = ifp->if_rdomain;
+			ro_pmtu->ro_tableid = rtableid;
 			sa6_dst->sin6_family = AF_INET6;
 			sa6_dst->sin6_len = sizeof(struct sockaddr_in6);
 			sa6_dst->sin6_addr = *dst;
 
 			ro_pmtu->ro_rt = rtalloc(sin6tosa(&ro_pmtu->ro_dst),
-			    RT_REPORT|RT_RESOLVE, ro_pmtu->ro_tableid);
+			    RT_RESOLVE, ro_pmtu->ro_tableid);
 		}
 	}
 	if (ro_pmtu->ro_rt) {
-		if (ifp == NULL)
-			ifp = ro_pmtu->ro_rt->rt_ifp;
+		struct ifnet *ifp;
+
+		if (ifp0 == NULL) {
+			ifp = if_get(ro_pmtu->ro_rt->rt_ifidx);
+			if (ifp == NULL)
+				return (EHOSTUNREACH);
+		} else
+			ifp = ifp0;
+
 		mtu = ro_pmtu->ro_rt->rt_rmx.rmx_mtu;
 		if (mtu == 0)
 			mtu = ifp->if_mtu;
@@ -1169,8 +1176,11 @@ ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro,
 			if (!(ro_pmtu->ro_rt->rt_rmx.rmx_locks & RTV_MTU))
 				ro_pmtu->ro_rt->rt_rmx.rmx_mtu = mtu;
 		}
-	} else if (ifp) {
-		mtu = ifp->if_mtu;
+
+		if (ifp0 == NULL)
+			if_put(ifp);
+	} else if (ifp0) {
+		mtu = ifp0->if_mtu;
 	} else
 		error = EHOSTUNREACH; /* XXX */
 
@@ -1219,7 +1229,6 @@ ip6_ctloutput(int op, struct socket *so, int level, int optname,
 			 */
 			case IPV6_RECVHOPOPTS:
 			case IPV6_RECVDSTOPTS:
-			case IPV6_RECVRTHDRDSTOPTS:
 				if (!privileged) {
 					error = EPERM;
 					break;
@@ -1287,10 +1296,6 @@ do { \
 
 				case IPV6_RECVDSTOPTS:
 					OPTSET(IN6P_DSTOPTS);
-					break;
-
-				case IPV6_RECVRTHDRDSTOPTS:
-					OPTSET(IN6P_RTHDRDSTOPTS);
 					break;
 
 				case IPV6_RECVRTHDR:
@@ -1528,7 +1533,6 @@ do { \
 
 			case IPV6_RECVHOPOPTS:
 			case IPV6_RECVDSTOPTS:
-			case IPV6_RECVRTHDRDSTOPTS:
 			case IPV6_UNICAST_HOPS:
 			case IPV6_RECVPKTINFO:
 			case IPV6_RECVHOPLIMIT:
@@ -1548,10 +1552,6 @@ do { \
 
 				case IPV6_RECVDSTOPTS:
 					optval = OPTBIT(IN6P_DSTOPTS);
-					break;
-
-				case IPV6_RECVRTHDRDSTOPTS:
-					optval = OPTBIT(IN6P_RTHDRDSTOPTS);
 					break;
 
 				case IPV6_UNICAST_HOPS:
@@ -1623,7 +1623,8 @@ do { \
 				 * the outgoing interface.
 				 */
 				error = ip6_getpmtu(ro, NULL, NULL,
-				    &inp->inp_faddr6, &pmtu, NULL);
+				    inp->inp_rtableid, &inp->inp_faddr6, &pmtu,
+				    NULL);
 				if (error)
 					break;
 				if (pmtu > IPV6_MAXPACKET)
@@ -2184,7 +2185,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			dst->sin6_family = AF_INET6;
 			dst->sin6_addr = mreq->ipv6mr_multiaddr;
 			ro.ro_rt = rtalloc(sin6tosa(&ro.ro_dst),
-			    RT_REPORT|RT_RESOLVE, ro.ro_tableid);
+			    RT_RESOLVE, ro.ro_tableid);
 			if (ro.ro_rt == NULL) {
 				error = EADDRNOTAVAIL;
 				break;

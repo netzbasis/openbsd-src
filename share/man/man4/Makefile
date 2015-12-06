@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.604 2015/11/21 07:46:03 jmc Exp $
+#	$OpenBSD: Makefile,v 1.606 2015/12/04 13:45:31 yasuoka Exp $
 
 MAN=	aac.4 ac97.4 acphy.4 \
 	acpi.4 acpiac.4 acpiasus.4 acpibat.4 acpibtn.4 acpicpu.4 acpidock.4 \
@@ -21,7 +21,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	diskmap.4 divert.4 dpt.4 drm.4 \
 	eap.4 ec.4 eephy.4 ef.4 eg.4 ehci.4 eisa.4 el.4 em.4 emc.4 gcu.4 \
 	emu.4 enc.4 endrun.4 envy.4 ep.4 epic.4 esa.4 \
-	eso.4 ess.4 et.4 etphy.4 ex.4 exphy.4 \
+	eso.4 ess.4 et.4 etherip.4 etphy.4 ex.4 exphy.4 \
 	fd.4 fdc.4 fins.4 fintek.4 fms.4 fuse.4 fxp.4 gdt.4 \
 	gentbi.4 gem.4 gif.4 \
 	glenv.4 gpio.4 gpiodcf.4 gpioiic.4 gpioow.4 gpr.4 gre.4 gscsio.4 gtp.4 \
@@ -94,7 +94,7 @@ MLINKS+=usb.4 uhub.4
 MLINKS+=vlan.4 svlan.4
 
 # man4.hppa64
-SUBDIR=	man4.alpha man4.amd64 man4.armish man4.armv7 man4.aviion \
+SUBDIR=	man4.alpha man4.amd64 man4.armish man4.armv7 \
 	man4.hppa man4.i386 man4.landisk man4.loongson man4.luna88k \
 	man4.macppc man4.octeon \
 	man4.sgi man4.socppc man4.sparc man4.sparc64 man4.vax man4.zaurus

@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.485 2015/11/23 21:50:12 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.493 2015/12/03 21:11:33 jung Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -58,7 +58,8 @@
 #define PATH_PURGE		"/purge"
 #define PATH_TEMPORARY		"/temporary"
 
-#define	PATH_LIBEXEC		"/usr/libexec/smtpd"
+#define	PATH_LIBEXEC_DEPRECATED	"/usr/libexec/smtpd"
+#define	PATH_LIBEXEC		"/usr/local/libexec/smtpd:/usr/libexec/smtpd"
 
 
 /*
@@ -81,6 +82,7 @@
 #define	F_MASK_SOURCE		0x100
 #define	F_TLS_VERIFY		0x200
 #define	F_EXT_DSN		0x400
+#define	F_RECEIVEDAUTH		0x800
 
 /* must match F_* for mta */
 #define RELAY_STARTTLS		0x01
@@ -112,6 +114,7 @@ struct relayhost {
 	char hostname[HOST_NAME_MAX+1];
 	uint16_t port;
 	char pki_name[PATH_MAX];
+	char ca_name[PATH_MAX];
 	char authtable[PATH_MAX];
 	char authlabel[PATH_MAX];
 	char sourcetable[PATH_MAX];
@@ -259,10 +262,10 @@ enum imsg_type {
 	IMSG_MTA_LOOKUP_HELO,
 	IMSG_MTA_OPEN_MESSAGE,
 	IMSG_MTA_SCHEDULE,
-	IMSG_MTA_SSL_INIT,
-	IMSG_MTA_SSL_VERIFY_CERT,
-	IMSG_MTA_SSL_VERIFY_CHAIN,
-	IMSG_MTA_SSL_VERIFY,
+	IMSG_MTA_TLS_INIT,
+	IMSG_MTA_TLS_VERIFY_CERT,
+	IMSG_MTA_TLS_VERIFY_CHAIN,
+	IMSG_MTA_TLS_VERIFY,
 
 	IMSG_SCHED_ENVELOPE_BOUNCE,
 	IMSG_SCHED_ENVELOPE_DELIVER,
@@ -277,12 +280,13 @@ enum imsg_type {
 	IMSG_SMTP_MESSAGE_CREATE,
 	IMSG_SMTP_MESSAGE_ROLLBACK,
 	IMSG_SMTP_MESSAGE_OPEN,
+	IMSG_SMTP_CHECK_SENDER,
 	IMSG_SMTP_EXPAND_RCPT,
 	IMSG_SMTP_LOOKUP_HELO,
-	IMSG_SMTP_SSL_INIT,
-	IMSG_SMTP_SSL_VERIFY_CERT,
-	IMSG_SMTP_SSL_VERIFY_CHAIN,
-	IMSG_SMTP_SSL_VERIFY,
+	IMSG_SMTP_TLS_INIT,
+	IMSG_SMTP_TLS_VERIFY_CERT,
+	IMSG_SMTP_TLS_VERIFY_CHAIN,
+	IMSG_SMTP_TLS_VERIFY,
 
 	IMSG_SMTP_REQ_CONNECT,
 	IMSG_SMTP_REQ_HELO,
@@ -398,6 +402,7 @@ struct rule {
 	struct table		       *r_userbase;
 	time_t				r_qexpire;
 	uint8_t				r_forwardonly;
+	char				r_delivery_user[LINE_MAX];
 };
 
 struct delivery_mda {
@@ -405,6 +410,7 @@ struct delivery_mda {
 	char			usertable[PATH_MAX];
 	char			username[LOGIN_NAME_MAX];
 	char			buffer[EXPAND_BUFFER];
+	char			delivery_user[LINE_MAX];
 };
 
 struct delivery_mta {
@@ -539,6 +545,7 @@ struct listener {
 	struct timeval		 timeout;
 	struct event		 ev;
 	char			 pki_name[PATH_MAX];
+	char			 ca_name[PATH_MAX];
 	char			 tag[MAX_TAG_SIZE];
 	char			 filter[PATH_MAX];
 	char			 authtable[LINE_MAX];
@@ -574,6 +581,9 @@ struct smtpd {
 	char			       *sc_queue_key;
 	size_t				sc_queue_evpcache_size;
 
+	size_t				sc_session_max_rcpt;
+	size_t				sc_session_max_mails;
+
 	size_t				sc_mda_max_session;
 	size_t				sc_mda_max_user_session;
 	size_t				sc_mda_task_hiwat;
@@ -599,7 +609,8 @@ struct smtpd {
 	TAILQ_HEAD(listenerlist, listener)	*sc_listeners;
 
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
-	
+
+	struct dict			       *sc_ca_dict;
 	struct dict			       *sc_pki_dict;
 	struct dict			       *sc_ssl_dict;
 
@@ -794,6 +805,7 @@ struct mta_relay {
 	char			*sourcetable;
 	uint16_t		 port;
 	char			*pki_name;
+	char			*ca_name;
 	char			*authtable;
 	char			*authlabel;
 	char			*helotable;

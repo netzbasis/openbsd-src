@@ -1,4 +1,4 @@
-.\" $OpenBSD: pledge.2,v 1.16 2015/11/18 05:22:04 deraadt Exp $
+.\" $OpenBSD: pledge.2,v 1.19 2015/12/03 16:50:44 bluhm Exp $
 .\"
 .\" Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: November 18 2015 $
+.Dd $Mdocdate: December 3 2015 $
 .Dt PLEDGE 2
 .Os
 .Sh NAME
@@ -91,13 +91,9 @@ isn't allowed.
 .Pp
 .It Xr open 2
 May open
-.Pa /etc/localtime ,
-any files below
-.Pa /usr/share/zoneinfo
-and files ending in
-.Pa libc.cat
-below the directory
-.Pa /usr/share/nls/ .
+.Pa /etc/localtime
+and any files below
+.Pa /usr/share/zoneinfo .
 .Pp
 .It Xr readlink 2
 May operate on
@@ -391,9 +387,14 @@ and
 are allowed.
 A few other operations are allowed, but not listed here.
 .It Va "tty"
-This opens up a variety of
+In addition to allowing read-write operations on
+.Pa /dev/tty ,
+this opens up a variety of
 .Xr ioctl 2
-used by tty devices:
+requests used by tty devices.
+The following
+.Xr ioctl 2
+requests are permitted:
 .Dv TIOCSPGRP ,
 .Dv TIOCGETA ,
 .Dv TIOCGPGRP ,
@@ -473,6 +474,24 @@ process:
 .Xr setrlimit 2 ,
 .Xr getpriority 2 ,
 .Xr setpriority 2 .
+.It Va "pf"
+Allows a subset of
+.Xr ioctl 2
+operations on the
+.Xr pf 4
+device:
+.Pp
+.Dv DIOCADDRULE ,
+.Dv DIOCGETSTATUS ,
+.Dv DIOCNATLOOK ,
+.Dv DIOCRADDTABLES ,
+.Dv DIOCRCLRADDRS ,
+.Dv DIOCRCLRTABLES ,
+.Dv DIOCRCLRTSTATS ,
+.Dv DIOCRGETTSTATS ,
+.Dv DIOCRSETADDRS ,
+.Dv DIOCXBEGIN ,
+.Dv DIOCXCOMMIT .
 .El
 .Pp
 A whitelist of permitted paths may be provided in

@@ -176,6 +176,7 @@
 ./etc/rc.d/rarpd
 ./etc/rc.d/rbootd
 ./etc/rc.d/rc.subr
+./etc/rc.d/rebound
 ./etc/rc.d/relayd
 ./etc/rc.d/ripd
 ./etc/rc.d/route6d
@@ -194,6 +195,7 @@
 ./etc/rc.d/tftpd
 ./etc/rc.d/tftpproxy
 ./etc/rc.d/unbound
+./etc/rc.d/vmd
 ./etc/rc.d/watchdogd
 ./etc/rc.d/wsmoused
 ./etc/rc.d/xdm
@@ -2130,9 +2132,6 @@
 ./usr/libexec/sftp-server
 ./usr/libexec/smtpd
 ./usr/libexec/smtpd/makemap
-./usr/libexec/smtpd/table-ldap
-./usr/libexec/smtpd/table-passwd
-./usr/libexec/smtpd/table-sqlite
 ./usr/libexec/spamd
 ./usr/libexec/spamd-setup
 ./usr/libexec/spamlogd
@@ -2389,8 +2388,6 @@
 ./usr/sbin/snmpd
 ./usr/sbin/spamdb
 ./usr/sbin/sshd
-./usr/sbin/stdethers
-./usr/sbin/stdhosts
 ./usr/sbin/sysctl
 ./usr/sbin/syslogc
 ./usr/sbin/syslogd
@@ -2565,8 +2562,6 @@
 ./usr/share/misc/na.phone
 ./usr/share/misc/scsi_modes
 ./usr/share/misc/termcap
-./usr/share/misc/termcap.db
-./usr/share/misc/terminfo.db
 ./usr/share/misc/units.lib
 ./usr/share/misc/usb_hid_usages
 ./usr/share/misc/zipcodes
@@ -3924,6 +3919,7 @@
 ./usr/share/terminfo/m/minitel1
 ./usr/share/terminfo/m/minitel1b
 ./usr/share/terminfo/m/minitel1b-80
+./usr/share/terminfo/m/minitel1b-nb
 ./usr/share/terminfo/m/minix
 ./usr/share/terminfo/m/minix-1.5
 ./usr/share/terminfo/m/minix-1.7
@@ -4096,6 +4092,7 @@
 ./usr/share/terminfo/n/nsterm-bce
 ./usr/share/terminfo/n/nsterm-build326
 ./usr/share/terminfo/n/nsterm-build343
+./usr/share/terminfo/n/nsterm-build361
 ./usr/share/terminfo/n/nsterm-c
 ./usr/share/terminfo/n/nsterm-c-7
 ./usr/share/terminfo/n/nsterm-c-acs
@@ -4811,6 +4808,8 @@
 ./usr/share/terminfo/v/vi55
 ./usr/share/terminfo/v/vi550
 ./usr/share/terminfo/v/vi603
+./usr/share/terminfo/v/viewdata
+./usr/share/terminfo/v/viewdata-rv
 ./usr/share/terminfo/v/viewpoint
 ./usr/share/terminfo/v/viewpoint3a+
 ./usr/share/terminfo/v/viewpoint60

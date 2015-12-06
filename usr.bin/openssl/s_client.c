@@ -1,4 +1,4 @@
-/* $OpenBSD: s_client.c,v 1.25 2015/11/21 16:04:20 jca Exp $ */
+/* $OpenBSD: s_client.c,v 1.27 2015/12/01 12:01:56 jca Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

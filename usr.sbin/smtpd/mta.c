@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta.c,v 1.193 2015/11/26 08:51:22 tim Exp $	*/
+/*	$OpenBSD: mta.c,v 1.196 2015/12/01 10:48:21 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -51,8 +51,8 @@
 #define DELAY_CHECK_LIMIT	5
 
 #define	DELAY_QUADRATIC		1
-#define DELAY_ROUTE_BASE	200
-#define DELAY_ROUTE_MAX		(3600 * 4)
+#define DELAY_ROUTE_BASE	15
+#define DELAY_ROUTE_MAX		3600
 
 #define RELAY_ONHOLD		0x01
 #define RELAY_HOLDQ		0x02
@@ -232,6 +232,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 				return;
 			}
 
+			task = NULL;
 			TAILQ_FOREACH(task, &relay->tasks, entry)
 				if (task->msgid == evpid_to_msgid(evp.id))
 					break;
@@ -383,11 +384,11 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 			mta_session_imsg(p, imsg);
 			return;
 
-		case IMSG_MTA_SSL_INIT:
+		case IMSG_MTA_TLS_INIT:
 			mta_session_imsg(p, imsg);
 			return;
 
-		case IMSG_MTA_SSL_VERIFY:
+		case IMSG_MTA_TLS_VERIFY:
 			mta_session_imsg(p, imsg);
 			return;
 		}
@@ -413,7 +414,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 
 	if (p->proc == PROC_CONTROL) {
 		switch (imsg->hdr.type) {
-			
+
 		case IMSG_CTL_RESUME_ROUTE:
 			u64 = *((uint64_t *)imsg->data);
 			if (u64)
@@ -667,7 +668,7 @@ mta_route_collect(struct mta_relay *relay, struct mta_route *route)
 
 	/* First connection failed */
 	if (route->flags & ROUTE_NEW)
-		mta_route_disable(route, 2, ROUTE_DISABLED_NET);
+		mta_route_disable(route, 1, ROUTE_DISABLED_NET);
 
 	c = mta_connector(relay, route->src);
 	c->nconn -= 1;
@@ -1442,7 +1443,7 @@ mta_find_route(struct mta_connector *c, time_t now, int *limits,
 	TAILQ_FOREACH(mx, &c->relay->domain->mxs, entry) {
 		/*
 		 * New preference level
-		 */		
+		 */
 		if (mx->preference > level) {
 #ifndef IGNORE_MX_PREFERENCE
 			/*

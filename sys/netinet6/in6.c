@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.179 2015/11/18 13:58:02 mpi Exp $	*/
+/*	$OpenBSD: in6.c,v 1.181 2015/12/03 13:13:42 tedu Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -1223,8 +1223,6 @@ in6_ifinit(struct ifnet *ifp, struct in6_ifaddr *ia6, int newhost)
 	 * and to validate the address if necessary.
 	 */
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		ifacount++;
@@ -1314,7 +1312,7 @@ in6_addmulti(struct in6_addr *maddr6, struct ifnet *ifp, int *errorp)
 		memcpy(&ifr.ifr_addr, &in6m->in6m_sin, sizeof(in6m->in6m_sin));
 		*errorp = (*ifp->if_ioctl)(ifp, SIOCADDMULTI, (caddr_t)&ifr);
 		if (*errorp) {
-			free(in6m, M_IPMADDR, 0);
+			free(in6m, M_IPMADDR, sizeof(*in6m));
 			return (NULL);
 		}
 
@@ -1369,7 +1367,7 @@ in6_delmulti(struct in6_multi *in6m)
 		}
 		if_put(ifp);
 
-		free(in6m, M_IPMADDR, 0);
+		free(in6m, M_IPMADDR, sizeof(*in6m));
 	}
 }
 
@@ -1386,7 +1384,7 @@ in6_joingroup(struct ifnet *ifp, struct in6_addr *addr, int *errorp)
 	imm->i6mm_maddr = in6_addmulti(addr, ifp, errorp);
 	if (!imm->i6mm_maddr) {
 		/* *errorp is alrady set */
-		free(imm, M_IPMADDR, 0);
+		free(imm, M_IPMADDR, sizeof(*imm));
 		return NULL;
 	}
 	return imm;
@@ -1398,7 +1396,7 @@ in6_leavegroup(struct in6_multi_mship *imm)
 
 	if (imm->i6mm_maddr)
 		in6_delmulti(imm->i6mm_maddr);
-	free(imm,  M_IPMADDR, 0);
+	free(imm,  M_IPMADDR, sizeof(*imm));
 	return 0;
 }
 
@@ -1411,8 +1409,6 @@ in6ifa_ifpforlinklocal(struct ifnet *ifp, int ignoreflags)
 	struct ifaddr *ifa;
 
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		if (IN6_IS_ADDR_LINKLOCAL(IFA_IN6(ifa))) {
@@ -1435,8 +1431,6 @@ in6ifa_ifpwithaddr(struct ifnet *ifp, struct in6_addr *addr)
 	struct ifaddr *ifa;
 
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		if (IN6_ARE_ADDR_EQUAL(addr, IFA_IN6(ifa)))

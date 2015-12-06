@@ -1,4 +1,4 @@
-#	$OpenBSD: rc,v 1.470 2015/11/27 03:53:28 deraadt Exp $
+#	$OpenBSD: rc,v 1.472 2015/12/05 09:55:18 jasper Exp $
 
 # System startup script run by init on autoboot or after single-user.
 # Output and error are redirected to console by init, and the console is the
@@ -442,7 +442,7 @@ fi
 
 if [[ -x /sbin/ldconfig ]]; then
 	echo 'creating runtime link editor directory cache.'
-	[[ -d /usr/local/lib ]] && shlib_dirs="/usr/local/lib"
+	[[ -d /usr/local/lib ]] && shlib_dirs="/usr/local/lib $shlib_dirs"
 	[[ -d /usr/X11R6/lib ]] && shlib_dirs="/usr/X11R6/lib $shlib_dirs"
 	ldconfig $shlib_dirs
 fi
@@ -450,7 +450,7 @@ fi
 echo 'preserving editor files.'; /usr/libexec/vi.recover
 
 echo -n 'starting network daemons:'
-start_daemon ldomd sshd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
+start_daemon ldomd vmd sshd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
 start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd
 
 if ifconfig lo0 inet6 >/dev/null 2>&1; then
