@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.35 2015/11/23 19:31:52 reyk Exp $	*/
+/*	$OpenBSD: control.c,v 1.37 2015/12/05 13:14:40 claudio Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -236,7 +236,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	int			 n, v, i;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read_nofd(&c->iev.ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read_nofd(&c->iev.ibuf)) == -1 &&
+		    errno != EAGAIN) || n == 0) {
 			control_close(c, "could not read imsg", NULL);
 			return;
 		}
@@ -626,8 +627,7 @@ control_dispatch_agentx(int fd, short event, void *arg)
 		uptime = smi_getticks();
 		if ((pdu = snmp_agentx_response_pdu(uptime, error, idx)) == NULL) {
 			log_debug("failed to generate response");
-			if (varcpy)
-				free(varcpy);
+			free(varcpy);
 			control_event_add(c, fd, EV_WRITE, NULL);	/* XXX -- EV_WRITE? */
 			return;
 		}
@@ -652,8 +652,7 @@ control_dispatch_agentx(int fd, short event, void *arg)
 	log_debug("subagent session '%i' destroyed", h->sessionid);
 	snmp_agentx_free(h);
 	purge_registered_oids(&c->oids);
-	if (varcpy)
-		free(varcpy);
+	free(varcpy);
 	control_close(c, "agentx teardown", NULL);
 }
 

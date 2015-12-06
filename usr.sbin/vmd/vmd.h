@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.10 2015/12/03 23:32:32 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.12 2015/12/06 02:26:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -33,7 +33,7 @@
 #define SOCKET_NAME		"/var/run/vmd.sock"
 #define VMM_NODE		"/dev/vmm"
 #define VM_NAME_MAX		64
-#define VM_TTYNAME_MAX		32
+#define VM_TTYNAME_MAX		12
 #define MAX_TAP			256
 #define NR_BACKLOG		5
 
@@ -64,9 +64,15 @@ enum imsg_type {
 	IMSG_VMDOP_RELOAD
 };
 
-struct vmop_start_result {
-	int	 vmr_result;
-	char	 vmr_ttyname[VM_TTYNAME_MAX];
+struct vmop_result {
+	int		 vmr_result;
+	uint32_t	 vmr_id;
+	char		 vmr_ttyname[VM_TTYNAME_MAX];
+};
+
+struct vmop_info_result {
+	struct vm_info_result	 vir_info;
+	char			 vir_ttyname[VM_TTYNAME_MAX];
 };
 
 struct vmd_vm {
@@ -100,6 +106,7 @@ struct vmd {
 /* vmd.c */
 void	 vmd_reload(int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
+struct vmd_vm *vm_getbyid(uint32_t);
 void	 vm_remove(struct vmd_vm *);
 char	*get_string(uint8_t *, size_t);
 

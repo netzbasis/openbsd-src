@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.7 2015/12/03 23:32:32 reyk Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.10 2015/12/06 02:26:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -108,9 +108,9 @@ struct ns8250_regs com1_regs;
 
 int start_client_vmd(void);
 int opentap(void);
-int start_vm(struct imsg *);
-int terminate_vm(struct imsg *);
-int get_info_vm(struct privsep *, struct imsg *);
+int start_vm(struct imsg *, uint32_t *);
+int terminate_vm(struct vm_terminate_params *);
+int get_info_vm(struct privsep *, struct imsg *, int);
 int run_vm(int *, int *, struct vm_create_params *);
 void *vcpu_run_loop(void *);
 int vcpu_exit(struct vm_run_params *);
@@ -163,6 +163,9 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (pledge("stdio vmm", NULL) == -1)
 		fatal("pledge");
 #endif
+
+	/* Get and terminate all running VMs */
+	get_info_vm(ps, NULL, 1);
 }
 
 int
@@ -171,14 +174,20 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct privsep		*ps = p->p_ps;
 	int			 res = 0, cmd = 0;
 	struct vm_create_params	 vcp;
+	struct vm_terminate_params vtp;
+	struct vmop_result	 vmr;
+	uint32_t		 id = 0;
+	struct vmd_vm		*vm;
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vcp);
 		memcpy(&vcp, imsg->data, sizeof(vcp));
 		res = config_getvm(ps, &vcp, imsg->fd, imsg->hdr.peerid);
-		if (res != 0)
+		if (res == -1) {
+			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
 		break;
 	case IMSG_VMDOP_START_VM_DISK:
 		res = config_getdisk(ps, imsg);
@@ -191,15 +200,23 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		break;
 	case IMSG_VMDOP_START_VM_END:
-		res = start_vm(imsg);
+		res = start_vm(imsg, &id);
 		cmd = IMSG_VMDOP_START_VM_RESPONSE;
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
-		res = terminate_vm(imsg);
+		IMSG_SIZE_CHECK(imsg, &vtp);
+		memcpy(&vtp, imsg->data, sizeof(vtp));
+		id = vtp.vtp_vm_id;
+		res = terminate_vm(&vtp);
 		cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
+		if (res == 0) {
+			/* Remove local reference */
+			vm = vm_getbyid(id);
+			vm_remove(vm);
+		}
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_REQUEST:
-		res = get_info_vm(ps, imsg);
+		res = get_info_vm(ps, imsg, 0);
 		cmd = IMSG_VMDOP_GET_INFO_VM_END_DATA;
 		break;
 	case IMSG_CTL_RESET:
@@ -209,10 +226,24 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		return (-1);
 	}
 
-	if (cmd &&
-	    proc_compose_imsg(ps, PROC_PARENT, -1, cmd, imsg->hdr.peerid, -1,
-	    &res, sizeof(res)) == -1)
-		return (-1);
+	switch (cmd) {
+	case 0:
+		break;
+	case IMSG_VMDOP_START_VM_RESPONSE:
+	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
+		memset(&vmr, 0, sizeof(vmr));
+		vmr.vmr_result = res;
+		vmr.vmr_id = id;
+		if (proc_compose_imsg(ps, PROC_PARENT, -1, cmd,
+		    imsg->hdr.peerid, -1, &vmr, sizeof(vmr)) == -1)
+			return (-1);
+		break;
+	default:
+		if (proc_compose_imsg(ps, PROC_PARENT, -1, cmd,
+		    imsg->hdr.peerid, -1, &res, sizeof(res)) == -1)
+			return (-1);
+		break;
+	}
 
 	return (0);
 }
@@ -233,12 +264,8 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
  *      valid)
  */
 int
-terminate_vm(struct imsg *imsg)
+terminate_vm(struct vm_terminate_params *vtp)
 {
-	struct vm_terminate_params *vtp;
-
-	vtp = (struct vm_terminate_params *)imsg->data;
-
 	if (ioctl(env->vmd_fd, VMM_IOC_TERM, vtp) < 0)
 		return (errno);
 
@@ -287,18 +314,20 @@ opentap(void)
  * Parameters:
  *  imsg: The incoming imsg body whose 'data' field is a vm_create_params
  *      struct containing the VM creation parameters.
+ *  id: Returns the VM id as reported by the kernel.
  *
  * Return values:
  *  0: success
  *  !0 : failure - typically an errno indicating the source of the failure
  */
 int
-start_vm(struct imsg *imsg)
+start_vm(struct imsg *imsg, uint32_t *id)
 {
 	struct vm_create_params	*vcp;
 	struct vmd_vm		*vm;
 	size_t			 i;
 	int			 ret = EINVAL;
+	int			 fds[2];
 
 	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
 		log_warn("%s: can't find vm", __func__);
@@ -310,6 +339,9 @@ start_vm(struct imsg *imsg)
 		log_warn("%s: can't get tty", __func__);
 		goto err;
 	}
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fds) == -1)
+		fatal("socketpair");
 
 	/* Start child vmd for this VM (fork, chroot, drop privs) */
 	ret = start_client_vmd();
@@ -339,6 +371,18 @@ start_vm(struct imsg *imsg)
 		close(vm->vm_tty);
 		vm->vm_tty = -1;
 
+		/* read back the kernel-generated vm id from the child */
+		close(fds[1]);
+		if (read(fds[0], &vcp->vcp_id, sizeof(vcp->vcp_id)) !=
+		    sizeof(vcp->vcp_id))
+			fatal("read vcp id");
+		close(fds[0]);
+
+		if (vcp->vcp_id == 0)
+			goto err;
+
+		*id = vcp->vcp_id;
+
 		return (0);
 	} else {
 		/* Child */
@@ -346,6 +390,14 @@ start_vm(struct imsg *imsg)
 		log_procinit(vcp->vcp_name);
 
 		ret = vmm_create_vm(vcp);
+
+		/* send back the kernel-generated vm id (0 on error) */
+		close(fds[0]);
+		if (write(fds[1], &vcp->vcp_id, sizeof(vcp->vcp_id)) !=
+		    sizeof(vcp->vcp_id))
+			fatal("write vcp id");
+		close(fds[1]);
+
 		if (ret) {
 			errno = ret;
 			fatal("create vmm ioctl failed - exiting");
@@ -385,20 +437,23 @@ start_vm(struct imsg *imsg)
  * Returns a list of VMs known to vmm(4).
  *
  * Parameters:
- *  ibuf: the imsg ibuf in which to place the results. A new imsg will
- *      be created using this ibuf.
+ *  ps: the privsep context.
+ *  imsg: the received imsg including the peer id.
+ *  terminate: terminate the listed vm.
  *
  * Return values:
  *  0: success
  *  !0 : failure (eg, ENOMEM, EIO or another error code from vmm(4) ioctl)
  */
 int
-get_info_vm(struct privsep *ps, struct imsg *imsg)
+get_info_vm(struct privsep *ps, struct imsg *imsg, int terminate)
 {
 	int ret;
 	size_t ct, i;
 	struct vm_info_params vip;
 	struct vm_info_result *info;
+	struct vm_terminate_params vtp;
+	struct vmop_info_result vir;
 
 	/*
 	 * We issue the VMM_IOC_INFO ioctl twice, once with an input
@@ -415,6 +470,7 @@ get_info_vm(struct privsep *ps, struct imsg *imsg)
 	vip.vip_size = 0;
 	info = NULL;
 	ret = 0;
+	memset(&vir, 0, sizeof(vir));
 
 	/* First ioctl to see how many bytes needed (vip.vip_size) */
 	if (ioctl(env->vmd_fd, VMM_IOC_INFO, &vip) < 0)
@@ -438,9 +494,18 @@ get_info_vm(struct privsep *ps, struct imsg *imsg)
 	/* Return info */
 	ct = vip.vip_size / sizeof(struct vm_info_result);
 	for (i = 0; i < ct; i++) {
+		if (terminate) {
+			vtp.vtp_vm_id = info[i].vir_id;
+			if ((ret = terminate_vm(&vtp)) != 0)
+				return (ret);
+			log_debug("%s: terminated id %d",
+			    info[i].vir_name, info[i].vir_id);
+			continue;
+		}
+		memcpy(&vir.vir_info, &info[i], sizeof(vir.vir_info));
 		if (proc_compose_imsg(ps, PROC_PARENT, -1,
 		    IMSG_VMDOP_GET_INFO_VM_DATA, imsg->hdr.peerid, -1,
-		    &info[i], sizeof(struct vm_info_result)) == -1)
+		    &vir, sizeof(vir)) == -1)
 			return (EIO);
 	}
 	free(info);
