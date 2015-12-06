@@ -98,9 +98,6 @@ main(int argc, char *argv[])
 			get_list(optarg);
 			fflag = 1;
 			break;
-		case 'n':
-			nflag = 1;
-			break;
 		case 's':
 			sflag = 1;
 			break;
