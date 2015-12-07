@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.12 2015/12/06 02:26:14 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.15 2015/12/06 21:02:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -46,11 +46,7 @@
 #endif /* VMM_DEBUG */
 
 enum imsg_type {
-	IMSG_VMDOP_DISABLE_VMM_REQUEST = IMSG_PROC_MAX,
-	IMSG_VMDOP_DISABLE_VMM_RESPONSE,
-	IMSG_VMDOP_ENABLE_VMM_REQUEST,
-	IMSG_VMDOP_ENABLE_VMM_RESPONSE,
-	IMSG_VMDOP_START_VM_REQUEST,
+	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,
 	IMSG_VMDOP_START_VM_DISK,
 	IMSG_VMDOP_START_VM_IF,
 	IMSG_VMDOP_START_VM_END,
@@ -65,9 +61,9 @@ enum imsg_type {
 };
 
 struct vmop_result {
-	int		 vmr_result;
-	uint32_t	 vmr_id;
-	char		 vmr_ttyname[VM_TTYNAME_MAX];
+	int			 vmr_result;
+	uint32_t		 vmr_id;
+	char			 vmr_ttyname[VM_TTYNAME_MAX];
 };
 
 struct vmop_info_result {
@@ -76,15 +72,15 @@ struct vmop_info_result {
 };
 
 struct vmd_vm {
-	struct vm_create_params	vm_params;
-	uint32_t		vm_vmid;
-	int			vm_kernel;
-	int			vm_disks[VMM_MAX_DISKS_PER_VM];
-	int			vm_ifs[VMM_MAX_NICS_PER_VM];
-	char			vm_ttyname[VM_TTYNAME_MAX];
-	int			vm_tty;
-	uint32_t		vm_peerid;
-	TAILQ_ENTRY(vmd_vm)	vm_entry;
+	struct vm_create_params	 vm_params;
+	uint32_t		 vm_vmid;
+	int			 vm_kernel;
+	int			 vm_disks[VMM_MAX_DISKS_PER_VM];
+	int			 vm_ifs[VMM_MAX_NICS_PER_VM];
+	char			 vm_ttyname[VM_TTYNAME_MAX];
+	int			 vm_tty;
+	uint32_t		 vm_peerid;
+	TAILQ_ENTRY(vmd_vm)	 vm_entry;
 };
 TAILQ_HEAD(vmlist, vmd_vm);
 
@@ -107,6 +103,7 @@ struct vmd {
 void	 vmd_reload(int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
 struct vmd_vm *vm_getbyid(uint32_t);
+struct vmd_vm *vm_getbyname(const char *);
 void	 vm_remove(struct vmd_vm *);
 char	*get_string(uint8_t *, size_t);
 

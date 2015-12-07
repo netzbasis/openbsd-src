@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.16 2015/12/06 01:16:58 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.20 2015/12/06 20:12:15 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -101,6 +101,7 @@ int vm_get_info(struct vm_info_params *);
 int vm_writepage(struct vm_writepage_params *);
 int vm_readpage(struct vm_readpage_params *);
 int vcpu_init(struct vcpu *);
+int vcpu_init_regs_vmx(struct vcpu *);
 int vcpu_init_vmx(struct vcpu *);
 int vcpu_init_svm(struct vcpu *);
 int vcpu_run_vmx(struct vcpu *, uint8_t, int16_t *);
@@ -239,29 +240,27 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 	SLIST_INIT(&sc->vm_list);
 	rw_init(&sc->vm_lock, "vmlistlock");
 
-	if (sc->nr_vmx_cpus)
-		printf(": %u VMX capable CPU%s, %u %s EPT capable\n",
-		    sc->nr_vmx_cpus, (sc->nr_vmx_cpus > 1) ? "s" : "",
-		    sc->nr_ept_cpus, (sc->nr_ept_cpus > 1) ? "are" : "is");
-	else if (sc->nr_svm_cpus)
-		printf(": %u SVM capable CPU%s, %u %s RVI capable\n",
-		    sc->nr_svm_cpus, (sc->nr_svm_cpus > 1) ? "s" : "",
-		    sc->nr_rvi_cpus, (sc->nr_rvi_cpus > 1) ? "are" : "is");
+	if (sc->nr_ept_cpus) {
+		printf(": VMX/EPT\n");
+		sc->mode = VMM_MODE_EPT;
+	} else if (sc->nr_vmx_cpus) {
+		printf(": VMX\n");
+		sc->mode = VMM_MODE_VMX;
+	} else if (sc->nr_rvi_cpus) {
+		printf(": SVM/RVI\n");
+		sc->mode = VMM_MODE_RVI;
+	} else if (sc->nr_svm_cpus) {
+		printf(": SVM\n");
+		sc->mode = VMM_MODE_SVM;
+	} else {
+		printf(": unknown\n");
+		sc->mode = VMM_MODE_UNKNOWN;
+	}
 
 	pool_init(&vm_pool, sizeof(struct vm), 0, 0, PR_WAITOK, "vmpool",
 	    NULL);
 	pool_init(&vcpu_pool, sizeof(struct vcpu), 0, 0, PR_WAITOK, "vcpupl",
 	    NULL);
-
-	sc->mode = VMM_MODE_UNKNOWN;
-	if (sc->nr_ept_cpus > 0)
-		sc->mode = VMM_MODE_EPT;
-	else if (sc->nr_vmx_cpus > 0)
-		sc->mode = VMM_MODE_VMX;
-	else if (sc->nr_rvi_cpus > 0)
-		sc->mode = VMM_MODE_RVI;
-	else
-		sc->mode = VMM_MODE_SVM;
 
 	vmm_softc = sc;
 }
@@ -287,6 +286,15 @@ vmm_activate(struct device *self, int act)
 int
 vmmopen(dev_t dev, int flag, int mode, struct proc *p)
 {
+	/* Don't allow open if we didn't attach */
+	if (vmm_softc == NULL)
+		return (ENODEV);
+
+	/* Don't allow open if we didn't detect any supported CPUs */
+	/* XXX presently this means EPT until SP and SVM are back */
+	if (vmm_softc->mode != VMM_MODE_EPT)
+		return (ENODEV);
+
 	return 0;
 }
 
@@ -300,10 +308,6 @@ int
 vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
 	int ret;
-
-	/* Don't allow ioctls if we have no supported CPUs */
-	if (vmm_softc->mode == VMM_MODE_UNKNOWN)
-		return (ENOTTY);
 
 	switch (cmd) {
 	case VMM_IOC_CREATE:
@@ -952,6 +956,283 @@ vm_impl_deinit(struct vm *vm)
 }
 
 /*
+ * vcpu_init_regs_vmx
+ *
+ * Initializes 'vcpu's registers to default power-on state
+ *
+ * Parameters:
+ *  vcpu: the vcpu whose register state is to be initialized
+ * 
+ * Return values:
+ *  0: registers init'ed successfully
+ *  EINVAL: an error occurred setting register state
+ */
+int
+vcpu_init_regs_vmx(struct vcpu *vcpu)
+{
+	int ret;
+	uint32_t cr0, cr4;
+
+	ret = 0;
+
+	/*
+	 * The next portion of code sets up the VMCS for the register state
+	 * we want during VCPU start. This matches what the CPU state would
+	 * be after a bootloader transition to 'start'.
+	 */
+	if (vmwrite(VMCS_GUEST_IA32_RFLAGS, 0x2)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * XXX -
+	 * vg_rip gets special treatment here since we will rewrite
+	 * it just before vmx_enter_guest, so it needs to match.
+	 * we could just set vg_rip here and be done with (no vmwrite
+	 * here) but that would require us to have proper resume
+	 * handling (resume=1) in the exit handler, so for now we
+	 * will just end up doing an extra vmwrite here.
+	 *
+	 * This can now change from the hardcoded value of 0x1000160
+	 * to the marks[start] from vmd's bootloader. That needs to
+	 * be hoisted up into vcpu create parameters via vm create params.
+	 */
+	vcpu->vc_gueststate.vg_rip = 0x01000160;
+	if (vmwrite(VMCS_GUEST_IA32_RIP, 0x01000160)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Determine default CR0 as per Intel SDM A.7
+	 * All flexible bits are set to 0
+	 */
+	cr0 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0) &
+	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1);
+	cr0 |= (CR0_CD | CR0_NW | CR0_ET);
+
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
+	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
+		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
+		    IA32_VMX_UNRESTRICTED_GUEST, 1))
+//			cr0 &= ~(CR0_PG);
+			cr0 &= ~(CR0_PG | CR0_PE);
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CR0, cr0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CR3, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Determine default CR4 as per Intel SDM A.8
+	 * All flexible bits are set to 0
+	 */
+	cr4 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed0) &
+	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed1);
+
+	if (vmwrite(VMCS_GUEST_IA32_CR4, cr4)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/* Set guest stack for 0x10000 - sizeof(bootloader stack setup) */
+	if (vmwrite(VMCS_GUEST_IA32_RSP, 0xFFDC)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_SS_SEL, 0x10)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_SS_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_SS_AR, 0xC093)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_SS_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_DS_SEL, 0x10)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_DS_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_DS_AR, 0xC093)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_DS_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_ES_SEL, 0x10)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_ES_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_ES_AR, 0xC093)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_ES_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_FS_SEL, 0x10)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_FS_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_FS_AR, 0xC093)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_FS_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GS_SEL, 0x10)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GS_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GS_AR, 0xC093)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GS_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CS_SEL, 0x8)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CS_LIMIT, 0xFFFFFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CS_AR, 0xC09F)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_CS_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GDTR_LIMIT, 0xFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_GDTR_BASE, 0x10000)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_IDTR_LIMIT, 0xFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_IDTR_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_LDTR_SEL, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_LDTR_LIMIT, 0xFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_LDTR_AR, 0x0082)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_LDTR_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_TR_SEL, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_TR_LIMIT, 0xFFFF)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_TR_AR, 0x008B)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_GUEST_IA32_TR_BASE, 0x0)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+exit:
+	return (ret);
+}
+
+/*
  * vcpu_init_vmx
  *
  * Intel VMX specific VCPU initialization routine.
@@ -1429,255 +1710,8 @@ vcpu_init_vmx(struct vcpu *vcpu)
 			}
 	}
 
-	/*
-	 * The next portion of code sets up the VMCS for the register state
-	 * we want during VCPU start. This matches what the CPU state would
-	 * be after a bootloader transition to 'start'.
-	 */
-	if (vmwrite(VMCS_GUEST_IA32_RFLAGS, 0x2)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * XXX -
-	 * vg_rip gets special treatment here since we will rewrite
-	 * it just before vmx_enter_guest, so it needs to match.
-	 * we could just set vg_rip here and be done with (no vmwrite
-	 * here) but that would require us to have proper resume
-	 * handling (resume=1) in the exit handler, so for now we
-	 * will just end up doing an extra vmwrite here.
-	 *
-	 * This can now change from the hardcoded value of 0x1000160
-	 * to the marks[start] from vmd's bootloader. That needs to
-	 * be hoisted up into vcpu create parameters via vm create params.
-	 */
-	vcpu->vc_gueststate.vg_rip = 0x01000160;
-	if (vmwrite(VMCS_GUEST_IA32_RIP, 0x01000160)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Determine default CR0 as per Intel SDM A.7
-	 * All flexible bits are set to 0
-	 */
-	cr0 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0) &
-	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1);
-	cr0 |= (CR0_CD | CR0_NW | CR0_ET);
-
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
-	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
-		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
-		    IA32_VMX_UNRESTRICTED_GUEST, 1))
-//			cr0 &= ~(CR0_PG);
-			cr0 &= ~(CR0_PG | CR0_PE);
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CR0, cr0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CR3, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Determine default CR4 as per Intel SDM A.8
-	 * All flexible bits are set to 0
-	 */
-	cr4 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed0) &
-	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed1);
-
-	if (vmwrite(VMCS_GUEST_IA32_CR4, cr4)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/* Set guest stack for 0x10000 - sizeof(bootloader stack setup) */
-	if (vmwrite(VMCS_GUEST_IA32_RSP, 0xFFDC)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_SS_SEL, 0x10)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_SS_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_SS_AR, 0xC093)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_SS_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_DS_SEL, 0x10)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_DS_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_DS_AR, 0xC093)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_DS_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_ES_SEL, 0x10)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_ES_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_ES_AR, 0xC093)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_ES_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_FS_SEL, 0x10)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_FS_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_FS_AR, 0xC093)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_FS_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GS_SEL, 0x10)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GS_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GS_AR, 0xC093)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GS_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CS_SEL, 0x8)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CS_LIMIT, 0xFFFFFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CS_AR, 0xC09F)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_CS_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GDTR_LIMIT, 0xFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_GDTR_BASE, 0x10000)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_IDTR_LIMIT, 0xFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_IDTR_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_LDTR_SEL, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_LDTR_LIMIT, 0xFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_LDTR_AR, 0x0082)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_LDTR_BASE, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_TR_SEL, 0x0)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_TR_LIMIT, 0xFFFF)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_TR_AR, 0x008B)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_GUEST_IA32_TR_BASE, 0x0)) {
+	/* Initialize default register state */
+	if (vcpu_init_regs_vmx(vcpu)) {
 		ret = EINVAL;
 		goto exit;
 	}
