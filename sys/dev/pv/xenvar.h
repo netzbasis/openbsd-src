@@ -61,6 +61,7 @@ struct xen_attach_args {
 	void			*xa_parent;
 	char			 xa_name[16];
 	char			 xa_node[64];
+	char			 xa_backend[128];
 };
 
 /*
@@ -107,6 +108,7 @@ struct xs_transaction {
 
 int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 	    int *);
+int	xs_getprop(struct xen_attach_args *, const char *, char *, int, int);
 void	xs_resfree(struct xs_transaction *, struct iovec *, int);
 
 #endif	/* _XENVAR_H_ */
