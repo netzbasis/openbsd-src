@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-rsa.c,v 1.56 2015/12/07 20:04:09 markus Exp $ */
+/* $OpenBSD: ssh-rsa.c,v 1.58 2015/12/11 04:21:12 mmcc Exp $ */
 /*
  * Copyright (c) 2000, 2003 Markus Friedl <markus@openbsd.org>
  *
@@ -151,8 +151,7 @@ ssh_rsa_sign(const struct sshkey *key, u_char **sigp, size_t *lenp,
 		explicit_bzero(sig, slen);
 		free(sig);
 	}
-	if (b != NULL)
-		sshbuf_free(b);
+	sshbuf_free(b);
 	return ret;
 }
 
@@ -221,10 +220,8 @@ ssh_rsa_verify(const struct sshkey *key,
 		explicit_bzero(sigblob, len);
 		free(sigblob);
 	}
-	if (ktype != NULL)
-		free(ktype);
-	if (b != NULL)
-		sshbuf_free(b);
+	free(ktype);
+	sshbuf_free(b);
 	explicit_bzero(digest, sizeof(digest));
 	return ret;
 }

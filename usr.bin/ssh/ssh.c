@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.430 2015/11/19 08:23:27 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.432 2015/12/11 03:20:09 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -881,8 +881,7 @@ main(int ac, char **av)
 			subsystem_flag = 1;
 			break;
 		case 'S':
-			if (options.control_path != NULL)
-				free(options.control_path);
+			free(options.control_path);
 			options.control_path = xstrdup(optarg);
 			break;
 		case 'b':
@@ -1209,8 +1208,10 @@ main(int ac, char **av)
 		    sizeof(Key));
 
 		PRIV_START;
+#if WITH_SSH1
 		sensitive_data.keys[0] = key_load_private_type(KEY_RSA1,
 		    _PATH_HOST_KEY_FILE, "", NULL, NULL);
+#endif
 		sensitive_data.keys[1] = key_load_private_cert(KEY_ECDSA,
 		    _PATH_HOST_ECDSA_KEY_FILE, "", NULL);
 		sensitive_data.keys[2] = key_load_private_cert(KEY_ED25519,

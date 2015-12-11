@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.231 2015/12/04 16:41:28 markus Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.235 2015/12/11 02:31:47 mmcc Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -1121,6 +1121,7 @@ sign_and_send_pubkey(Authctxt *authctxt, Identity *id)
 	ret = identity_sign(id, &signature, &slen,
 	    buffer_ptr(&b), buffer_len(&b), datafellows);
 	if (ret != 0) {
+		error("%s: signing failed: %s", __func__, ssh_err(ret));
 		free(blob);
 		buffer_free(&b);
 		return 0;
@@ -1249,8 +1250,7 @@ load_identity_file(Identity *id)
 			explicit_bzero(passphrase, strlen(passphrase));
 			free(passphrase);
 		}
-		if (comment)
-			free(comment);
+		free(comment);
 		if (private != NULL || quit)
 			break;
 	}
@@ -1410,8 +1410,7 @@ pubkey_cleanup(Authctxt *authctxt)
 	for (id = TAILQ_FIRST(&authctxt->keys); id;
 	    id = TAILQ_FIRST(&authctxt->keys)) {
 		TAILQ_REMOVE(&authctxt->keys, id, next);
-		if (id->key)
-			sshkey_free(id->key);
+		sshkey_free(id->key);
 		free(id->filename);
 		free(id);
 	}
@@ -1615,7 +1614,7 @@ ssh_keysign(struct sshkey *key, u_char **sigp, size_t *lenp,
 		closefrom(sock + 1);
 		debug3("%s: [child] pid=%ld, exec %s",
 		    __func__, (long)getpid(), _PATH_SSH_KEY_SIGN);
-		execl(_PATH_SSH_KEY_SIGN, _PATH_SSH_KEY_SIGN, (char *) 0);
+		execl(_PATH_SSH_KEY_SIGN, _PATH_SSH_KEY_SIGN, (char *)NULL);
 		fatal("%s: exec(%s): %s", __func__, _PATH_SSH_KEY_SIGN,
 		    strerror(errno));
 	}
