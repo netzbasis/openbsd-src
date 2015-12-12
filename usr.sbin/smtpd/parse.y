@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.164 2015/12/03 21:11:33 jung Exp $	*/
+/*	$OpenBSD: parse.y,v 1.166 2015/12/11 08:27:04 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -171,8 +171,8 @@ typedef struct {
 %token  RELAY BACKUP VIA DELIVER TO LMTP MAILDIR MBOX RCPTTO HOSTNAME HOSTNAMES
 %token	ACCEPT REJECT INCLUDE ERROR MDA FROM FOR SOURCE MTA PKI SCHEDULER
 %token	ARROW AUTH TLS LOCAL VIRTUAL TAG TAGGED ALIAS FILTER KEY CA DHPARAMS
-%token	AUTH_OPTIONAL TLS_REQUIRE USERBASE SENDER MASK_SOURCE VERIFY FORWARDONLY RECIPIENT
-%token	RECEIVEDAUTH
+%token	AUTH_OPTIONAL TLS_REQUIRE USERBASE SENDER SENDERS MASK_SOURCE VERIFY FORWARDONLY RECIPIENT
+%token	CIPHERS CURVE RECEIVEDAUTH MASQUERADE ENQUEUER
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.table>	table
@@ -1385,11 +1385,14 @@ lookup(char *s)
 		{ "bounce-warn",	BOUNCEWARN },
 		{ "ca",			CA },
 		{ "certificate",	CERTIFICATE },
+		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
+		{ "curve",		CURVE },
 		{ "deliver",		DELIVER },
 		{ "dhparams",		DHPARAMS },
 		{ "domain",		DOMAIN },
 		{ "encryption",		ENCRYPTION },
+		{ "enqueuer",		ENQUEUER },
 		{ "expire",		EXPIRE },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
@@ -1407,6 +1410,7 @@ lookup(char *s)
 		{ "local",		LOCAL },
 		{ "maildir",		MAILDIR },
 		{ "mask-source",	MASK_SOURCE },
+		{ "masquerade",		MASQUERADE },
 		{ "max-message-size",  	MAXMESSAGESIZE },
 		{ "max-mta-deferred",  	MAXMTADEFERRED },
 		{ "mbox",		MBOX },
@@ -1425,6 +1429,7 @@ lookup(char *s)
 		{ "scheduler",		SCHEDULER },
 		{ "secure",		SECURE },
 		{ "sender",    		SENDER },
+		{ "senders",   		SENDERS },
 		{ "session",   		SESSION },
 		{ "smtps",		SMTPS },
 		{ "source",		SOURCE },
@@ -2465,6 +2470,8 @@ create_filter_chain(char *name)
 static int
 add_filter_arg(struct filter_conf *f, char *arg)
 {
+	int	i;
+
 	if (f->argc == MAX_FILTER_ARGS) {
 		yyerror("filter \"%s\" is full", f->name);
 		return (0);
@@ -2479,6 +2486,11 @@ add_filter_arg(struct filter_conf *f, char *arg)
 			yyerror("filter chain cannot contain itself");
 			return (0);
 		}
+		for (i = 0; i < f->argc; ++i)
+			if (strcasecmp(f->argv[i], arg) == 0) {
+				yyerror("filter chain cannot contain twice the same filter instance");
+				return (0);
+			}
 	}
 
 	f->argv[f->argc++] = arg;

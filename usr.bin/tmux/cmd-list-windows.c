@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-windows.c,v 1.31 2015/12/08 08:34:18 nicm Exp $ */
+/* $OpenBSD: cmd-list-windows.c,v 1.33 2015/12/11 16:37:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -81,8 +81,8 @@ cmd_list_windows_server(struct cmd *self, struct cmd_q *cmdq)
 }
 
 void
-cmd_list_windows_session(
-    struct cmd *self, struct session *s, struct cmd_q *cmdq, int type)
+cmd_list_windows_session(struct cmd *self, struct session *s,
+    struct cmd_q *cmdq, int type)
 {
 	struct args		*args = self->args;
 	struct winlink		*wl;
@@ -105,7 +105,7 @@ cmd_list_windows_session(
 
 	n = 0;
 	RB_FOREACH(wl, winlinks, &s->windows) {
-		ft = format_create(0);
+		ft = format_create(cmdq, 0);
 		format_add(ft, "line", "%u", n);
 		format_defaults(ft, NULL, s, wl, NULL);
 

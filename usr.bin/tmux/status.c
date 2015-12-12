@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.144 2015/12/08 08:34:18 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.146 2015/12/11 16:37:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -500,9 +500,9 @@ status_replace(struct client *c, struct winlink *wl, const char *fmt, time_t t)
 		return (xstrdup(""));
 
 	if (c->flags & CLIENT_STATUSFORCE)
-		ft = format_create(FORMAT_STATUS|FORMAT_FORCE);
+		ft = format_create(NULL, FORMAT_STATUS|FORMAT_FORCE);
 	else
-		ft = format_create(FORMAT_STATUS);
+		ft = format_create(NULL, FORMAT_STATUS);
 	format_defaults(ft, c, NULL, wl, NULL);
 
 	expanded = format_expand_time(ft, fmt, t);
@@ -661,7 +661,7 @@ status_prompt_set(struct client *c, const char *msg, const char *input,
 	int			 keys;
 	time_t			 t;
 
-	ft = format_create(0);
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -722,7 +722,7 @@ status_prompt_update(struct client *c, const char *msg, const char *input)
 	struct format_tree	*ft;
 	time_t			 t;
 
-	ft = format_create(0);
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -1124,8 +1124,8 @@ status_prompt_key(struct client *c, key_code key)
 		}
 
 		if (c->prompt_flags & PROMPT_SINGLE) {
-			if (c->prompt_callbackfn(
-			    c->prompt_data, c->prompt_buffer) == 0)
+			if (c->prompt_callbackfn(c->prompt_data,
+			    c->prompt_buffer) == 0)
 				status_prompt_clear(c);
 		}
 
