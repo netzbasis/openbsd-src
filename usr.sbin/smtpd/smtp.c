@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp.c,v 1.145 2015/12/11 20:14:14 gilles Exp $	*/
+/*	$OpenBSD: smtp.c,v 1.149 2015/12/12 17:16:56 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -60,6 +60,7 @@ smtp_imsg(struct mproc *p, struct imsg *imsg)
 	if (p->proc == PROC_LKA) {
 		switch (imsg->hdr.type) {
 		case IMSG_SMTP_DNS_PTR:
+		case IMSG_SMTP_CHECK_SENDER:
 		case IMSG_SMTP_EXPAND_RCPT:
 		case IMSG_SMTP_LOOKUP_HELO:
 		case IMSG_SMTP_AUTHENTICATE:
@@ -163,8 +164,9 @@ smtp_setup_events(void)
 
 	TAILQ_FOREACH(l, env->sc_listeners, entry) {
 		log_debug("debug: smtp: listen on %s port %d flags 0x%01x"
-		    " pki \"%s\"", ss_to_text(&l->ss), ntohs(l->port),
-		    l->flags, l->pki_name);
+		    " pki \"%s\""
+		    " ca \"%s\"", ss_to_text(&l->ss), ntohs(l->port),
+		    l->flags, l->pki_name, l->ca_name);
 
 		session_socket_blockmode(l->fd, BM_NONBLOCK);
 		if (listen(l->fd, SMTPD_BACKLOG) == -1)
@@ -177,7 +179,7 @@ smtp_setup_events(void)
 
 	iter = NULL;
 	while (dict_iter(env->sc_pki_dict, &iter, &k, (void **)&pki)) {
-		if (! ssl_setup((SSL_CTX **)&ssl_ctx, pki))
+		if (! ssl_setup((SSL_CTX **)&ssl_ctx, pki, env->sc_tls_ciphers))
 			fatal("smtp_setup_events: ssl_setup failure");
 		dict_xset(env->sc_ssl_dict, k, ssl_ctx);
 	}
@@ -226,6 +228,8 @@ smtp_enqueue(uid_t *euid)
 		listener->ss.ss_len = sizeof(struct sockaddr *);
 		(void)strlcpy(listener->hostname, env->sc_hostname,
 		    sizeof(listener->hostname));
+		(void)strlcpy(listener->filter, env->sc_enqueue_filter,
+		    sizeof listener->filter);
 	}
 
 	/*

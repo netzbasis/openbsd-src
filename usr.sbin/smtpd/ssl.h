@@ -1,4 +1,4 @@
-/*	$OpenBSD: ssl.h,v 1.13 2015/12/01 09:33:17 gilles Exp $	*/
+/*	$OpenBSD: ssl.h,v 1.18 2015/12/12 20:02:31 gilles Exp $	*/
 /*
  * Copyright (c) 2013 Gilles Chehade <gilles@poolp.org>
  *
@@ -19,11 +19,7 @@
 #define	SSL_SESSION_TIMEOUT	300
 
 struct pki {
-	char			 pki_name[PATH_MAX];
-
-	char			*pki_ca_file;
-	char			*pki_ca;
-	off_t			 pki_ca_len;
+	char			 pki_name[HOST_NAME_MAX+1];
 
 	char			*pki_cert_file;
 	char			*pki_cert;
@@ -41,21 +37,19 @@ struct pki {
 };
 
 struct ca {
-	char                     ca_name[HOST_NAME_MAX+1];
+	char			 ca_name[HOST_NAME_MAX+1];
 
-	char                    *ca_cert_file;
-	char                    *ca_cert;
-	off_t                    ca_cert_len;
+	char			*ca_cert_file;
+	char			*ca_cert;
+	off_t			 ca_cert_len;
 };
 
 
 /* ssl.c */
 void		ssl_init(void);
-int		ssl_setup(SSL_CTX **, struct pki *);
-SSL_CTX	       *ssl_ctx_create(const char *, char *, off_t);
+int		ssl_setup(SSL_CTX **, struct pki *, const char *);
+SSL_CTX	       *ssl_ctx_create(const char *, char *, off_t, const char *);
 int	        ssl_cmp(struct pki *, struct pki *);
-DH	       *get_dh1024(void);
-DH	       *get_dh_from_memory(char *, size_t);
 void		ssl_set_ephemeral_key_exchange(SSL_CTX *, DH *);
 char	       *ssl_load_file(const char *, off_t *, mode_t);
 char	       *ssl_load_key(const char *, off_t *, char *, mode_t, const char *);
@@ -65,7 +59,7 @@ void		ssl_error(const char *);
 
 int		ssl_load_certificate(struct pki *, const char *);
 int		ssl_load_keyfile(struct pki *, const char *, const char *);
-int		ssl_load_cafile(struct pki *, const char *);
+int		ssl_load_cafile(struct ca *, const char *);
 int		ssl_load_dhparams(struct pki *, const char *);
 int		ssl_load_pkey(const void *, size_t, char *, off_t,
 		    X509 **, EVP_PKEY **);

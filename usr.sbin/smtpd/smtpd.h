@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.497 2015/12/11 21:44:01 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.506 2015/12/12 17:16:56 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -37,7 +37,6 @@
 
 #define MAX_HOPS_COUNT		 100
 #define	DEFAULT_MAX_BODY_SIZE	(35*1024*1024)
-#define MAX_TAG_SIZE		 32
 #define	MAX_FILTER_NAME		 32
 #define	MAX_FILTER_ARGS		 255
 
@@ -98,8 +97,9 @@
 
 #define MTA_EXT_DSN		0x400
 
+
 struct userinfo {
-	char username[LOGIN_NAME_MAX];
+	char username[SMTPD_VUSERNAME_SIZE];
 	char directory[PATH_MAX];
 	uid_t uid;
 	gid_t gid;
@@ -114,9 +114,9 @@ struct relayhost {
 	uint16_t flags;
 	char hostname[HOST_NAME_MAX+1];
 	uint16_t port;
-	char pki_name[PATH_MAX];
-	char ca_name[PATH_MAX];
-	char authtable[PATH_MAX];
+	char pki_name[HOST_NAME_MAX+1];
+	char ca_name[HOST_NAME_MAX+1];
+	char authtable[SMTPD_TABLENAME_SIZE];
 	char authlabel[PATH_MAX];
 	char sourcetable[PATH_MAX];
 	char heloname[HOST_NAME_MAX+1];
@@ -377,7 +377,7 @@ struct rule {
 	TAILQ_ENTRY(rule)		r_entry;
 	enum decision			r_decision;
 	uint8_t				r_nottag;
-	char				r_tag[MAX_TAG_SIZE];
+	char				r_tag[SMTPD_TAG_SIZE];
 
 	uint8_t				r_notsources;
 	struct table		       *r_sources;
@@ -408,10 +408,10 @@ struct rule {
 
 struct delivery_mda {
 	enum action_type	method;
-	char			usertable[PATH_MAX];
-	char			username[LOGIN_NAME_MAX];
+	char			usertable[SMTPD_TABLENAME_SIZE];
+	char			username[SMTPD_VUSERNAME_SIZE];
 	char			buffer[EXPAND_BUFFER];
-	char			delivery_user[LINE_MAX];
+	char			delivery_user[SMTPD_VUSERNAME_SIZE];
 };
 
 struct delivery_mta {
@@ -499,7 +499,7 @@ struct maddrmap {
 struct envelope {
 	TAILQ_ENTRY(envelope)		entry;
 
-	char				tag[MAX_TAG_SIZE];
+	char				tag[SMTPD_TAG_SIZE];
 
 	uint32_t			version;
 	uint64_t			id;
@@ -547,12 +547,13 @@ struct listener {
 	struct event		 ev;
 	char			 pki_name[PATH_MAX];
 	char			 ca_name[PATH_MAX];
-	char			 tag[MAX_TAG_SIZE];
+	char			 tag[SMTPD_TAG_SIZE];
 	char			 filter[PATH_MAX];
 	char			 authtable[LINE_MAX];
 	char			 hostname[HOST_NAME_MAX+1];
 	char			 hostnametable[PATH_MAX];
 	char			 sendertable[PATH_MAX];
+
 	TAILQ_ENTRY(listener)	 entry;
 
 	int			 local;		/* there must be a better way */
@@ -622,6 +623,10 @@ struct smtpd {
 
 	struct dict				sc_filters;
 	uint32_t				filtermask;
+
+	char					sc_enqueue_filter[PATH_MAX];
+
+	char				       *sc_tls_ciphers;
 };
 
 #define	TRACE_DEBUG	0x0001
@@ -649,17 +654,17 @@ struct forward_req {
 	uint64_t			id;
 	uint8_t				status;
 
-	char				user[LOGIN_NAME_MAX];
+	char				user[SMTPD_VUSERNAME_SIZE];
 	uid_t				uid;
 	gid_t				gid;
 	char				directory[PATH_MAX];
 };
 
 struct deliver {
-	char			to[PATH_MAX];
-	char			from[PATH_MAX];
-	char			dest[LINE_MAX];
-	char			user[LOGIN_NAME_MAX];
+	char			to[EXPAND_BUFFER];
+	char			from[SMTPD_MAXMAILADDRSIZE];
+	char			dest[SMTPD_MAXMAILADDRSIZE];
+	char			user[SMTPD_VUSERNAME_SIZE];
 	short			mode;
 
 	struct userinfo		userinfo;
@@ -1011,6 +1016,7 @@ struct msg {
 extern enum smtp_proc_type	smtpd_process;
 
 extern int verbose;
+extern int foreground_log;
 extern int profiling;
 
 extern struct mproc *p_control;
@@ -1064,11 +1070,13 @@ enum ca_resp_status {
 struct ca_cert_req_msg {
 	uint64_t		reqid;
 	char			name[HOST_NAME_MAX+1];
+	int			fallback;
 };
 
 struct ca_cert_resp_msg {
 	uint64_t		reqid;
 	enum ca_resp_status	status;
+	char			name[HOST_NAME_MAX+1];
 	char		       *cert;
 	off_t			cert_len;
 };
@@ -1076,6 +1084,7 @@ struct ca_cert_resp_msg {
 struct ca_vrfy_req_msg {
 	uint64_t		reqid;
 	char			name[HOST_NAME_MAX+1];
+	int			fallback;
 	unsigned char  	       *cert;
 	off_t			cert_len;
 	size_t			n_chain;
@@ -1391,7 +1400,7 @@ int fork_proc_backend(const char *, const char *, const char *);
 
 
 /* ssl_smtpd.c */
-void   *ssl_mta_init(void *, char *, off_t);
+void   *ssl_mta_init(void *, char *, off_t, const char *);
 void   *ssl_smtp_init(void *, void *, int);
 
 

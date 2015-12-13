@@ -1,3 +1,5 @@
+/*	$OpenBSD: xenreg.h,v 1.5 2015/12/12 21:07:45 reyk Exp $	*/
+
 /*
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -84,8 +86,6 @@
 #else
 # error "Not implemented"
 #endif
-
-#define CPUID_OFFSET_XEN_HYPERCALL		0x2
 
 #if defined(__i386__) || defined(__amd64__)
 struct arch_vcpu_info {

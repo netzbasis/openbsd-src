@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.166 2015/12/11 08:27:04 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.177 2015/12/12 20:02:31 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -114,7 +114,9 @@ enum listen_options {
 	LO_HOSTNAMES   	= 0x000100,
 	LO_MASKSOURCE  	= 0x000200,
 	LO_NODSN	= 0x000400,
+	LO_SENDERS	= 0x000800,
 	LO_RECEIVEDAUTH = 0x001000,
+	LO_MASQUERADE	= 0x002000,
 	LO_CA		= 0x010000
 };
 
@@ -131,6 +133,7 @@ static struct listen_opts {
 	char	       *tag;
 	char	       *hostname;
 	struct table   *hostnametable;
+	struct table   *sendertable;
 	uint16_t	flags;
 
 	uint32_t       	options;
@@ -391,9 +394,6 @@ opt_pki		: CERTIFICATE STRING {
 		| KEY STRING {
 			pki->pki_key_file = $2;
 		}
-		| CA STRING {
-			pki->pki_ca_file = $2;
-		}
 		| DHPARAMS STRING {
 			pki->pki_dhparams_file = $2;
 		}
@@ -563,7 +563,7 @@ opt_listen     	: INET4			{
 			}
 			listen_opts.options |= LO_TAG;
 
-			if (strlen($2) >= MAX_TAG_SIZE) {
+			if (strlen($2) >= SMTPD_TAG_SIZE) {
        				yyerror("tag name too long");
 				free($2);
 				YYERROR;
@@ -618,6 +618,38 @@ opt_listen     	: INET4			{
 			}
 			listen_opts.options |= LO_NODSN;
 			listen_opts.flags &= ~F_EXT_DSN;
+		}
+		| SENDERS tables	{
+			struct table	*t = $2;
+
+			if (listen_opts.options & LO_SENDERS) {
+				yyerror("senders already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_SENDERS;
+
+			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_MAILADDRMAP)) {
+				yyerror("invalid use of table \"%s\" as "
+				    "SENDERS parameter", t->t_name);
+				YYERROR;
+			}
+			listen_opts.sendertable = t;
+		}
+		| SENDERS tables MASQUERADE	{
+			struct table	*t = $2;
+
+			if (listen_opts.options & LO_SENDERS) {
+				yyerror("senders already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_SENDERS|LO_MASQUERADE;
+
+			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_MAILADDRMAP)) {
+				yyerror("invalid use of table \"%s\" as "
+				    "SENDERS parameter", t->t_name);
+				YYERROR;
+			}
+			listen_opts.sendertable = t;
 		}
 		;
 
@@ -683,7 +715,7 @@ opt_relay_common: AS STRING	{
 				YYERROR;
 			}
 			if (dict_get(conf->sc_pki_dict,
-			    rule->r_value.relayhost.pki_name) == NULL) {
+				rule->r_value.relayhost.pki_name) == NULL) {
 				log_warnx("pki name not found: %s", $2);
 				free($2);
 				YYERROR;
@@ -822,6 +854,20 @@ main		: BOUNCEWARN {
 			listen_opts.ifx = $4;
 			create_listener(conf->sc_listeners, &listen_opts);
 		}
+		| ENQUEUER FILTER STRING {
+			if (dict_get(&conf->sc_filters, $3) == NULL) {
+				yyerror("undefined filter \"%s\"", $3);
+				free($3);
+				YYERROR;
+			}
+			if (strlcpy(conf->sc_enqueue_filter, $3,
+				sizeof conf->sc_enqueue_filter)
+			    >= sizeof conf->sc_enqueue_filter) {
+				free($3);
+				YYERROR;
+			}
+			free($3);
+		}
 		| FILTER STRING STRING {
 			if (!strcmp($3, "chain")) {
 				free($3);
@@ -840,6 +886,15 @@ main		: BOUNCEWARN {
 		} filter_args
 		| PKI STRING	{
 			char buf[HOST_NAME_MAX+1];
+
+			/* if not catchall, check that it is a valid domain */
+			if (strcmp($2, "*") != 0) {
+				if (! res_hnok($2)) {
+					yyerror("not a valid domain name: %s", $2);
+					free($2);
+					YYERROR;
+				}
+			}
 			xlowercase(buf, $2, sizeof(buf));
 			free($2);
 			pki = dict_get(conf->sc_pki_dict, buf);
@@ -868,8 +923,11 @@ main		: BOUNCEWARN {
 				(void)strlcpy(sca->ca_name, buf, sizeof(sca->ca_name));
 				dict_set(conf->sc_ca_dict, sca->ca_name, sca);
 			}
-		  } ca
-		  ;
+		} ca
+		| CIPHERS STRING {
+			env->sc_tls_ciphers = $2;
+		}
+		;
 
 filter_args	:
 		| STRING {
@@ -1804,6 +1862,7 @@ parse_config(struct smtpd *x_conf, const char *filename, int opts)
 	    conf->sc_listeners == NULL		||
 	    conf->sc_ca_dict == NULL		||
 	    conf->sc_pki_dict == NULL		||
+	    conf->sc_ssl_dict == NULL		||
 	    conf->sc_limits_dict == NULL) {
 		log_warn("warn: cannot allocate memory");
 		free(conf->sc_tables_dict);
@@ -2081,6 +2140,11 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	(void)strlcpy(h->hostname, lo->hostname, sizeof(h->hostname));
 	if (lo->hostnametable)
 		(void)strlcpy(h->hostnametable, lo->hostnametable->t_name, sizeof(h->hostnametable));
+	if (lo->sendertable) {
+		(void)strlcpy(h->sendertable, lo->sendertable->t_name, sizeof(h->sendertable));
+		if (lo->options & LO_MASQUERADE)
+			h->flags |= F_MASQUERADE;
+	}
 
 	if (lo->ssl & F_TLS_VERIFY)
 		h->flags |= F_TLS_VERIFY;

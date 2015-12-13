@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.c,v 1.262 2015/12/11 07:44:59 sunil Exp $	*/
+/*	$OpenBSD: smtpd.c,v 1.266 2015/12/12 20:02:31 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -578,6 +578,12 @@ main(int argc, char *argv[])
 		errx(1, "config file exceeds PATH_MAX");
 
 	if (env->sc_opts & SMTPD_OPT_NOACTION) {
+		if (env->sc_queue_key &&
+		    crypto_setup(env->sc_queue_key,
+		    strlen(env->sc_queue_key)) == 0) {
+			fatalx("crypto_setup:"
+			    "invalid key for queue encryption");
+		}
 		load_pki_tree();
 		load_pki_keys();
 		fprintf(stderr, "configuration OK\n");
@@ -708,6 +714,7 @@ static void
 load_pki_tree(void)
 {
 	struct pki	*pki;
+	struct ca	*sca;
 	const char	*k;
 	void		*iter_dict;
 
@@ -723,12 +730,17 @@ load_pki_tree(void)
 		if (! ssl_load_certificate(pki, pki->pki_cert_file))
 			fatalx("load_pki_tree: failed to load certificate file");
 
-		if (pki->pki_ca_file)
-			if (! ssl_load_cafile(pki, pki->pki_ca_file))
-				fatalx("load_pki_tree: failed to load CA file");
 		if (pki->pki_dhparams_file)
 			if (! ssl_load_dhparams(pki, pki->pki_dhparams_file))
 				fatalx("load_pki_tree: failed to load dhparams file");
+	}
+
+	log_debug("debug: init ca-tree");
+	iter_dict = NULL;
+	while (dict_iter(env->sc_ca_dict, &iter_dict, &k, (void **)&sca)) {
+		log_debug("info: loading CA information for %s", k);
+		if (! ssl_load_cafile(sca, sca->ca_cert_file))
+			fatalx("load_pki_tree: failed to load CA file");
 	}
 }
 
@@ -1517,6 +1529,7 @@ imsg_to_str(int type)
 	CASE(IMSG_SMTP_MESSAGE_CREATE);
 	CASE(IMSG_SMTP_MESSAGE_ROLLBACK);
 	CASE(IMSG_SMTP_MESSAGE_OPEN);
+	CASE(IMSG_SMTP_CHECK_SENDER);
 	CASE(IMSG_SMTP_EXPAND_RCPT);
 	CASE(IMSG_SMTP_LOOKUP_HELO);
 	CASE(IMSG_SMTP_TLS_INIT);

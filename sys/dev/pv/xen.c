@@ -1,3 +1,5 @@
+/*	$OpenBSD: xen.c,v 1.14 2015/12/12 21:07:45 reyk Exp $	*/
+
 /*
  * Copyright (c) 2015 Mike Belopuhov
  *
@@ -30,6 +32,7 @@
 #include <machine/i82489var.h>
 
 #include <dev/pv/pvvar.h>
+#include <dev/pv/pvreg.h>
 #include <dev/pv/xenreg.h>
 #include <dev/pv/xenvar.h>
 
