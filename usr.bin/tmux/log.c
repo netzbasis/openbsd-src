@@ -1,4 +1,4 @@
-/* $OpenBSD: log.c,v 1.20 2015/11/24 21:19:46 nicm Exp $ */
+/* $OpenBSD: log.c,v 1.22 2015/12/14 00:32:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>

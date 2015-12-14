@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.506 2015/12/12 17:16:56 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.508 2015/12/13 11:06:13 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -47,7 +47,7 @@
 #ifndef SMTPD_NAME
 #define	SMTPD_NAME		 "OpenSMTPD"
 #endif
-#define	SMTPD_VERSION		 "5.4.6"
+#define	SMTPD_VERSION		 "master"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -1401,7 +1401,7 @@ int fork_proc_backend(const char *, const char *, const char *);
 
 /* ssl_smtpd.c */
 void   *ssl_mta_init(void *, char *, off_t, const char *);
-void   *ssl_smtp_init(void *, void *, int);
+void   *ssl_smtp_init(void *, int);
 
 
 /* stat_backend.c */

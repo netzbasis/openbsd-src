@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-send-keys.c,v 1.23 2015/12/12 18:19:00 nicm Exp $ */
+/* $OpenBSD: cmd-send-keys.c,v 1.26 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,30 +30,40 @@
 enum cmd_retval	 cmd_send_keys_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_send_keys_entry = {
-	"send-keys", "send",
-	"lRMt:", 0, -1,
-	"[-lRM] " CMD_TARGET_PANE_USAGE " key ...",
-	0,
-	cmd_send_keys_exec
+	.name = "send-keys",
+	.alias = "send",
+
+	.args = { "lRMt:", 0, -1 },
+	.usage = "[-lRM] " CMD_TARGET_PANE_USAGE " key ...",
+
+	.tflag = CMD_PANE,
+
+	.flags = 0,
+	.exec = cmd_send_keys_exec
 };
 
 const struct cmd_entry cmd_send_prefix_entry = {
-	"send-prefix", NULL,
-	"2t:", 0, 0,
-	"[-2] " CMD_TARGET_PANE_USAGE,
-	0,
-	cmd_send_keys_exec
+	.name = "send-prefix",
+	.alias = NULL,
+
+	.args = { "2t:", 0, 0 },
+	.usage = "[-2] " CMD_TARGET_PANE_USAGE,
+
+	.tflag = CMD_PANE,
+
+	.flags = 0,
+	.exec = cmd_send_keys_exec
 };
 
 enum cmd_retval
 cmd_send_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
+	struct window_pane	*wp = cmdq->state.tflag.wp;
+	struct session		*s = cmdq->state.tflag.s;
 	struct mouse_event	*m = &cmdq->item->mouse;
-	struct window_pane	*wp;
-	struct session		*s;
-	int			 i, literal;
 	const u_char		*keystr;
+	int			 i, literal;
 	key_code		 key;
 
 	if (args_has(args, 'M')) {
@@ -65,9 +75,6 @@ cmd_send_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 		window_pane_key(wp, NULL, s, m->key, m);
 		return (CMD_RETURN_NORMAL);
 	}
-
-	if (cmd_find_pane(cmdq, args_get(args, 't'), &s, &wp) == NULL)
-		return (CMD_RETURN_ERROR);
 
 	if (self->entry == &cmd_send_prefix_entry) {
 		if (args_has(args, '2'))

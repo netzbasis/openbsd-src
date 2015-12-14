@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.81 2015/12/01 10:06:59 gilles Exp $
+#	$OpenBSD: Makefile,v 1.83 2015/12/13 19:55:16 jung Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -17,6 +17,7 @@ SRCS+=	dns.c
 SRCS+=	envelope.c
 SRCS+=	esc.c
 SRCS+=	expand.c
+SRCS+=	filter.c
 SRCS+=	forward.c
 SRCS+=	iobuf.c
 SRCS+=	ioev.c
@@ -77,7 +78,7 @@ SRCS+=		scheduler_proc.c
 
 SRCS+=		stat_ramstat.c
 
-MAN=		sendmail.8 smtpd.8 smtpd.conf.5 table.5
+MAN=		sendmail.8 smtpd.8 smtpd.conf.5 table.5 filter_api.3
 BINDIR=		/usr/sbin
 
 LDADD+=		-levent -lutil -lssl -lcrypto -lm -lz

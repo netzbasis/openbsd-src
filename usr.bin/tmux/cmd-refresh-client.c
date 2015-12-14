@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-refresh-client.c,v 1.15 2015/09/14 10:25:52 nicm Exp $ */
+/* $OpenBSD: cmd-refresh-client.c,v 1.18 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,23 +27,25 @@
 enum cmd_retval	 cmd_refresh_client_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_refresh_client_entry = {
-	"refresh-client", "refresh",
-	"C:St:", 0, 0,
-	"[-S] [-C size] " CMD_TARGET_CLIENT_USAGE,
-	0,
-	cmd_refresh_client_exec
+	.name = "refresh-client",
+	.alias = "refresh",
+
+	.args = { "C:St:", 0, 0 },
+	.usage = "[-S] [-C size] " CMD_TARGET_CLIENT_USAGE,
+
+	.tflag = CMD_CLIENT,
+
+	.flags = 0,
+	.exec = cmd_refresh_client_exec
 };
 
 enum cmd_retval
 cmd_refresh_client_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args	*args = self->args;
-	struct client	*c;
+	struct client	*c = cmdq->state.c;
 	const char	*size;
 	u_int		 w, h;
-
-	if ((c = cmd_find_client(cmdq, args_get(args, 't'), 0)) == NULL)
-		return (CMD_RETURN_ERROR);
 
 	if (args_has(args, 'C')) {
 		if ((size = args_get(args, 'C')) == NULL) {

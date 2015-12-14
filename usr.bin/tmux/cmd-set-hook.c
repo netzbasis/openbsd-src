@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-hook.c,v 1.2 2015/12/11 15:46:57 nicm Exp $ */
+/* $OpenBSD: cmd-set-hook.c,v 1.5 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2012 Thomas Adam <thomas@xteddy.org>
@@ -30,26 +30,35 @@
 enum cmd_retval cmd_set_hook_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_set_hook_entry = {
-	"set-hook", NULL,
-	"gt:u", 1, 2,
-	"[-gu] " CMD_TARGET_SESSION_USAGE " hook-name [command]",
-	0,
-	cmd_set_hook_exec
+	.name = "set-hook",
+	.alias = NULL,
+
+	.args = { "gt:u", 1, 2 },
+	.usage = "[-gu] " CMD_TARGET_SESSION_USAGE " hook-name [command]",
+
+	.tflag = CMD_SESSION,
+
+	.flags = 0,
+	.exec = cmd_set_hook_exec
 };
 
 const struct cmd_entry cmd_show_hooks_entry = {
-	"show-hooks", NULL,
-	"gt:", 0, 1,
-	"[-g] " CMD_TARGET_SESSION_USAGE,
-	0,
-	cmd_set_hook_exec
+	.name = "show-hooks",
+	.alias = NULL,
+
+	.args = { "gt:", 0, 1 },
+	.usage = "[-g] " CMD_TARGET_SESSION_USAGE,
+
+	.tflag = CMD_SESSION,
+
+	.flags = 0,
+	.exec = cmd_set_hook_exec
 };
 
 enum cmd_retval
 cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args	*args = self->args;
-	struct session	*s;
 	struct cmd_list	*cmdlist;
 	struct hooks	*hooks;
 	struct hook	*hook;
@@ -58,12 +67,8 @@ cmd_set_hook_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if (args_has(args, 'g'))
 		hooks = global_hooks;
-	else {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-		hooks = s->hooks;
-	}
+	else
+		hooks = cmdq->state.tflag.s->hooks;
 
 	if (self->entry == &cmd_show_hooks_entry) {
 		hook = hooks_first(hooks);

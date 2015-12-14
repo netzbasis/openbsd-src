@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.107 2015/12/08 01:10:31 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.118 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -349,12 +349,12 @@ cmd_parse(int argc, char **argv, const char *file, u_int line, char **cause)
 		return (NULL);
 	}
 
-	args = args_parse(entry->args_template, argc, argv);
+	args = args_parse(entry->args.template, argc, argv);
 	if (args == NULL)
 		goto usage;
-	if (entry->args_lower != -1 && args->argc < entry->args_lower)
+	if (entry->args.lower != -1 && args->argc < entry->args.lower)
 		goto usage;
-	if (entry->args_upper != -1 && args->argc > entry->args_upper)
+	if (entry->args.upper != -1 && args->argc > entry->args.upper)
 		goto usage;
 
 	cmd = xcalloc(1, sizeof *cmd);
@@ -386,6 +386,150 @@ usage:
 		args_free(args);
 	xasprintf(cause, "usage: %s %s", entry->name, entry->usage);
 	return (NULL);
+}
+
+static void
+cmd_clear_state(struct cmd_state *state)
+{
+	state->c = NULL;
+
+	state->tflag.s = NULL;
+	state->tflag.wl = NULL;
+	state->tflag.wp = NULL;
+	state->tflag.idx = -1;
+
+	state->sflag.s = NULL;
+	state->sflag.wl = NULL;
+	state->sflag.wp = NULL;
+	state->sflag.idx = -1;
+}
+
+static int
+cmd_prepare_state_flag(struct cmd_find_state *fs, enum cmd_entry_flag flag,
+    const char *target, struct cmd_q *cmdq)
+{
+	int	targetflags, error;
+
+	if (flag == CMD_SESSION_WITHPANE) {
+		if (target != NULL && target[strcspn(target, ":.")] != '\0')
+			flag = CMD_PANE;
+		else
+			flag = CMD_SESSION;
+	}
+
+	switch (flag) {
+	case CMD_NONE:
+	case CMD_CLIENT:
+	case CMD_CLIENT_CANFAIL:
+		return (0);
+	case CMD_SESSION:
+	case CMD_SESSION_CANFAIL:
+	case CMD_SESSION_PREFERUNATTACHED:
+	case CMD_SESSION_WITHPANE:
+		targetflags = 0;
+		if (flag == CMD_SESSION_CANFAIL)
+			targetflags |= CMD_FIND_QUIET;
+		if (flag == CMD_SESSION_PREFERUNATTACHED)
+			targetflags |= CMD_FIND_PREFER_UNATTACHED;
+
+		error = cmd_find_target(fs, cmdq, target, CMD_FIND_SESSION,
+		    targetflags);
+		if (error != 0 && flag != CMD_SESSION_CANFAIL)
+			return (-1);
+		break;
+	case CMD_MOVEW_R:
+		error = cmd_find_target(fs, cmdq, target, CMD_FIND_SESSION,
+		    CMD_FIND_QUIET);
+		if (error == 0)
+			break;
+		flag = CMD_WINDOW_INDEX;
+		/* FALLTHROUGH */
+	case CMD_WINDOW:
+	case CMD_WINDOW_CANFAIL:
+	case CMD_WINDOW_MARKED:
+	case CMD_WINDOW_INDEX:
+		targetflags = 0;
+		if (flag == CMD_WINDOW_CANFAIL)
+			targetflags |= CMD_FIND_QUIET;
+		if (flag == CMD_WINDOW_MARKED)
+			targetflags |= CMD_FIND_DEFAULT_MARKED;
+		if (flag == CMD_WINDOW_INDEX)
+			targetflags |= CMD_FIND_WINDOW_INDEX;
+
+		error = cmd_find_target(fs, cmdq, target, CMD_FIND_WINDOW,
+		    targetflags);
+		if (error != 0 && flag != CMD_WINDOW_CANFAIL)
+			return (-1);
+		break;
+	case CMD_PANE:
+	case CMD_PANE_CANFAIL:
+	case CMD_PANE_MARKED:
+		targetflags = 0;
+		if (flag == CMD_PANE_CANFAIL)
+			targetflags |= CMD_FIND_QUIET;
+		if (flag == CMD_PANE_MARKED)
+			targetflags |= CMD_FIND_DEFAULT_MARKED;
+
+		error = cmd_find_target(fs, cmdq, target, CMD_FIND_PANE,
+		    targetflags);
+		if (error != 0 && flag != CMD_PANE_CANFAIL)
+			return (-1);
+		break;
+	}
+	return (0);
+}
+
+int
+cmd_prepare_state(struct cmd *cmd, struct cmd_q *cmdq)
+{
+	const struct cmd_entry		*entry = cmd->entry;
+	struct cmd_state		*state = &cmdq->state;
+	char				*tmp;
+	enum cmd_entry_flag		 flag;
+	const char			*s;
+	int				 error;
+
+	tmp = cmd_print(cmd);
+	log_debug("preparing state for %s (client %p)", tmp, cmdq->client);
+	free(tmp);
+
+	cmd_clear_state(state);
+
+	flag = cmd->entry->cflag;
+	if (flag == CMD_NONE) {
+		flag = cmd->entry->tflag;
+		if (flag == CMD_CLIENT || flag == CMD_CLIENT_CANFAIL)
+			s = args_get(cmd->args, 't');
+		else
+			s = NULL;
+	} else
+		s = args_get(cmd->args, 'c');
+	switch (flag) {
+	case CMD_CLIENT:
+		state->c = cmd_find_client(cmdq, s, 0);
+		if (state->c == NULL)
+			return (-1);
+		break;
+	default:
+		state->c = cmd_find_client(cmdq, s, 1);
+		break;
+	}
+
+	s = args_get(cmd->args, 't');
+	log_debug("preparing -t state: target %s", s == NULL ? "none" : s);
+
+	error = cmd_prepare_state_flag(&state->tflag, entry->tflag, s, cmdq);
+	if (error != 0)
+		return (error);
+
+	s = args_get(cmd->args, 's');
+	log_debug("preparing -s state: target %s", s == NULL ? "none" : s);
+
+	error = cmd_prepare_state_flag(&state->sflag, entry->sflag, s, cmdq);
+	if (error != 0)
+		return (error);
+
+	return (0);
 }
 
 char *

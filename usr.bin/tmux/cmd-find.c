@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find.c,v 1.17 2015/10/28 09:51:55 nicm Exp $ */
+/* $OpenBSD: cmd-find.c,v 1.21 2015/12/13 17:55:14 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,31 +27,6 @@
 
 #include "tmux.h"
 
-#define CMD_FIND_PREFER_UNATTACHED 0x1
-#define CMD_FIND_QUIET 0x2
-#define CMD_FIND_WINDOW_INDEX 0x4
-#define CMD_FIND_DEFAULT_MARKED 0x8
-#define CMD_FIND_EXACT_SESSION 0x10
-#define CMD_FIND_EXACT_WINDOW 0x20
-
-enum cmd_find_type {
-	CMD_FIND_PANE,
-	CMD_FIND_WINDOW,
-	CMD_FIND_SESSION,
-};
-
-struct cmd_find_state {
-	struct cmd_q		*cmdq;
-	int			 flags;
-	struct cmd_find_state	*current;
-
-	struct session          *s;
-	struct winlink          *wl;
-	struct window		*w;
-	struct window_pane      *wp;
-	int			 idx;
-};
-
 struct session	*cmd_find_try_TMUX(struct client *, struct window *);
 int		 cmd_find_client_better(struct client *, struct client *);
 struct client	*cmd_find_best_client(struct client **, u_int);
@@ -76,10 +51,7 @@ int	cmd_find_get_pane_with_session(struct cmd_find_state *, const char *);
 int	cmd_find_get_pane_with_window(struct cmd_find_state *, const char *);
 
 void	cmd_find_clear_state(struct cmd_find_state *, struct cmd_q *, int);
-void	cmd_find_log_state(const char *, const char *, struct cmd_find_state *);
-
-struct cmd_find_state	*cmd_find_target(struct cmd_q *, const char *,
-	    enum cmd_find_type, int);
+void	cmd_find_log_state(const char *, struct cmd_find_state *);
 
 const char *cmd_find_session_table[][2] = {
 	{ NULL, NULL }
@@ -495,11 +467,10 @@ cmd_find_get_window(struct cmd_find_state *fs, const char *window)
 
 	/* Otherwise try as a session itself. */
 	if (cmd_find_get_session(fs, window) == 0) {
-		if (~fs->flags & CMD_FIND_WINDOW_INDEX) {
-			fs->wl = fs->s->curw;
-			fs->w = fs->wl->window;
+		fs->wl = fs->s->curw;
+		fs->w = fs->wl->window;
+		if (~fs->flags & CMD_FIND_WINDOW_INDEX)
 			fs->idx = fs->wl->idx;
-		}
 		return (0);
 	}
 
@@ -520,6 +491,13 @@ cmd_find_get_window_with_session(struct cmd_find_state *fs, const char *window)
 
 	log_debug("%s: %s", __func__, window);
 	exact = (fs->flags & CMD_FIND_EXACT_WINDOW);
+
+	/*
+	 * Start with the current window as the default. So if only an index is
+	 * found, the window will be the current.
+	 */
+	fs->wl = fs->s->curw;
+	fs->w = fs->wl->window;
 
 	/* Check for window ids starting with @. */
 	if (*window == '@') {
@@ -817,15 +795,25 @@ cmd_find_clear_state(struct cmd_find_state *fs, struct cmd_q *cmdq, int flags)
 	fs->idx = -1;
 }
 
-/* Split target into pieces and resolve for the given type. */
-struct cmd_find_state *
-cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
-    int flags)
+/*
+ * Split target into pieces and resolve for the given type. Fills in the given
+ * state. Returns 0 on success or -1 on error.
+ */
+int
+cmd_find_target(struct cmd_find_state *fs, struct cmd_q *cmdq,
+    const char *target, enum cmd_find_type type, int flags)
 {
-	static struct cmd_find_state	 fs, current;
-	struct mouse_event		*m;
-	char				*colon, *period, *copy = NULL;
-	const char			*session, *window, *pane;
+	struct cmd_find_state	 current;
+	struct mouse_event	*m;
+	char			*colon, *period, *copy = NULL;
+	const char		*session, *window, *pane;
+
+	/* Log the arguments. */
+	if (target == NULL)
+		log_debug("%s: target none, type %d", __func__, type);
+	else
+		log_debug("%s: target %s, type %d", __func__, target, type);
+	log_debug("%s: cmdq %p, flags %#x", __func__, cmdq, flags);
 
 	/* Find current state. */
 	cmd_find_clear_state(&current, cmdq, flags);
@@ -843,8 +831,8 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 	}
 
 	/* Clear new state. */
-	cmd_find_clear_state(&fs, cmdq, flags);
-	fs.current = &current;
+	cmd_find_clear_state(fs, cmdq, flags);
+	fs->current = &current;
 
 	/* An empty or NULL target is the current. */
 	if (target == NULL || *target == '\0')
@@ -855,25 +843,25 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 		m = &cmdq->item->mouse;
 		switch (type) {
 		case CMD_FIND_PANE:
-			fs.wp = cmd_mouse_pane(m, &fs.s, &fs.wl);
-			if (fs.wp != NULL)
-				fs.w = fs.wl->window;
+			fs->wp = cmd_mouse_pane(m, &fs->s, &fs->wl);
+			if (fs->wp != NULL)
+				fs->w = fs->wl->window;
 			break;
 		case CMD_FIND_WINDOW:
 		case CMD_FIND_SESSION:
-			fs.wl = cmd_mouse_window(m, &fs.s);
-			if (fs.wl != NULL) {
-				fs.w = fs.wl->window;
-				fs.wp = fs.w->active;
+			fs->wl = cmd_mouse_window(m, &fs->s);
+			if (fs->wl != NULL) {
+				fs->w = fs->wl->window;
+				fs->wp = fs->w->active;
 			}
 			break;
 		}
-		if (fs.wp == NULL) {
+		if (fs->wp == NULL) {
 			if (~flags & CMD_FIND_QUIET)
 				cmdq_error(cmdq, "no mouse target");
 			goto error;
 		}
-		return (&fs);
+		goto found;
 	}
 
 	/* Marked target is a plain ~ or {marked}. */
@@ -883,12 +871,12 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 				cmdq_error(cmdq, "no marked target");
 			goto error;
 		}
-		fs.s = marked_session;
-		fs.wl = marked_winlink;
-		fs.idx = fs.wl->idx;
-		fs.w = fs.wl->window;
-		fs.wp = marked_window_pane;
-		return (&fs);
+		fs->s = marked_session;
+		fs->wl = marked_winlink;
+		fs->idx = fs->wl->idx;
+		fs->w = fs->wl->window;
+		fs->wp = marked_window_pane;
+		goto found;
 	}
 
 	/* Find separators if they exist. */
@@ -940,11 +928,11 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 	/* Set exact match flags. */
 	if (session != NULL && *session == '=') {
 		session++;
-		fs.flags |= CMD_FIND_EXACT_SESSION;
+		fs->flags |= CMD_FIND_EXACT_SESSION;
 	}
 	if (window != NULL && *window == '=') {
 		window++;
-		fs.flags |= CMD_FIND_EXACT_WINDOW;
+		fs->flags |= CMD_FIND_EXACT_WINDOW;
 	}
 
 	/* Empty is the same as NULL. */
@@ -977,32 +965,31 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 	/* If the session isn't NULL, look it up. */
 	if (session != NULL) {
 		/* This will fill in session. */
-		if (cmd_find_get_session(&fs, session) != 0)
+		if (cmd_find_get_session(fs, session) != 0)
 			goto no_session;
 
 		/* If window and pane are NULL, use that session's current. */
 		if (window == NULL && pane == NULL) {
-			fs.wl = fs.s->curw;
-			fs.idx = -1;
-			fs.w = fs.wl->window;
-			fs.wp = fs.w->active;
+			fs->wl = fs->s->curw;
+			fs->idx = -1;
+			fs->w = fs->wl->window;
+			fs->wp = fs->w->active;
 			goto found;
 		}
 
 		/* If window is present but pane not, find window in session. */
 		if (window != NULL && pane == NULL) {
 			/* This will fill in winlink and window. */
-			if (cmd_find_get_window_with_session(&fs, window) != 0)
+			if (cmd_find_get_window_with_session(fs, window) != 0)
 				goto no_window;
-			if (~flags & CMD_FIND_WINDOW_INDEX)
-				fs.wp = fs.wl->window->active;
+			fs->wp = fs->wl->window->active;
 			goto found;
 		}
 
 		/* If pane is present but window not, find pane. */
 		if (window == NULL && pane != NULL) {
 			/* This will fill in winlink and window and pane. */
-			if (cmd_find_get_pane_with_session(&fs, pane) != 0)
+			if (cmd_find_get_pane_with_session(fs, pane) != 0)
 				goto no_pane;
 			goto found;
 		}
@@ -1011,10 +998,10 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 		 * If window and pane are present, find both in session. This
 		 * will fill in winlink and window.
 		 */
-		if (cmd_find_get_window_with_session(&fs, window) != 0)
+		if (cmd_find_get_window_with_session(fs, window) != 0)
 			goto no_window;
 		/* This will fill in pane. */
-		if (cmd_find_get_pane_with_window(&fs, pane) != 0)
+		if (cmd_find_get_pane_with_window(fs, pane) != 0)
 			goto no_pane;
 		goto found;
 	}
@@ -1022,10 +1009,10 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 	/* No session. If window and pane, try them. */
 	if (window != NULL && pane != NULL) {
 		/* This will fill in session, winlink and window. */
-		if (cmd_find_get_window(&fs, window) != 0)
+		if (cmd_find_get_window(fs, window) != 0)
 			goto no_window;
 		/* This will fill in pane. */
-		if (cmd_find_get_pane_with_window(&fs, pane) != 0)
+		if (cmd_find_get_pane_with_window(fs, pane) != 0)
 			goto no_pane;
 		goto found;
 	}
@@ -1033,35 +1020,40 @@ cmd_find_target(struct cmd_q *cmdq, const char *target, enum cmd_find_type type,
 	/* If just window is present, try it. */
 	if (window != NULL && pane == NULL) {
 		/* This will fill in session, winlink and window. */
-		if (cmd_find_get_window(&fs, window) != 0)
+		if (cmd_find_get_window(fs, window) != 0)
 			goto no_window;
-		if (~flags & CMD_FIND_WINDOW_INDEX)
-			fs.wp = fs.wl->window->active;
+		fs->wp = fs->wl->window->active;
 		goto found;
 	}
 
 	/* If just pane is present, try it. */
 	if (window == NULL && pane != NULL) {
 		/* This will fill in session, winlink, window and pane. */
-		if (cmd_find_get_pane(&fs, pane) != 0)
+		if (cmd_find_get_pane(fs, pane) != 0)
 			goto no_pane;
 		goto found;
 	}
 
 current:
-	/* None is the current session. */
-	free(copy);
+	/* Use the current session. */
 	if (flags & CMD_FIND_WINDOW_INDEX)
 		current.idx = -1;
-	return (&current);
+	memcpy(fs, &current, sizeof *fs);
+	goto found;
 
 error:
+	fs->current = NULL;
+	log_debug("    error");
+
 	free(copy);
-	return (NULL);
+	return (-1);
 
 found:
+	fs->current = NULL;
+	cmd_find_log_state(__func__, fs);
+
 	free(copy);
-	return (&fs);
+	return (0);
 
 no_session:
 	if (~flags & CMD_FIND_QUIET)
@@ -1081,135 +1073,25 @@ no_pane:
 
 /* Log the result. */
 void
-cmd_find_log_state(const char *f, const char *target, struct cmd_find_state *fs)
+cmd_find_log_state(const char *prefix, struct cmd_find_state *fs)
 {
-	log_debug("%s: target %s%s", f, target == NULL ? "none" : target,
-	    fs != NULL ? "" : " (failed)");
-	if (fs == NULL)
-		return;
 	if (fs->s != NULL)
-		log_debug("\ts=$%u", fs->s->id);
+		log_debug("%s: s=$%u", prefix, fs->s->id);
 	else
-		log_debug("\ts=none");
+		log_debug("%s: s=none", prefix);
 	if (fs->wl != NULL) {
-		log_debug("\twl=%u %d w=@%u %s", fs->wl->idx,
+		log_debug("%s: wl=%u %d w=@%u %s", prefix, fs->wl->idx,
 		    fs->wl->window == fs->w, fs->w->id, fs->w->name);
 	} else
-		log_debug("\twl=none");
+		log_debug("%s: wl=none", prefix);
 	if (fs->wp != NULL)
-		log_debug("\twp=%%%u", fs->wp->id);
+		log_debug("%s: wp=%%%u", prefix, fs->wp->id);
 	else
-		log_debug("\twp=none");
+		log_debug("%s: wp=none", prefix);
 	if (fs->idx != -1)
-		log_debug("\tidx=%d", fs->idx);
+		log_debug("%s: idx=%d", prefix, fs->idx);
 	else
-		log_debug("\tidx=none");
-}
-
-/* Find the current session. */
-struct session *
-cmd_find_current(struct cmd_q *cmdq)
-{
-	struct cmd_find_state	*fs;
-	int			 flags = CMD_FIND_QUIET;
-
-	fs = cmd_find_target(cmdq, NULL, CMD_FIND_SESSION, flags);
-	cmd_find_log_state(__func__, NULL, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	return (fs->s);
-}
-
-/* Find the target session or report an error and return NULL. */
-struct session *
-cmd_find_session(struct cmd_q *cmdq, const char *target, int prefer_unattached)
-{
-	struct cmd_find_state	*fs;
-	int			 flags = 0;
-
-	if (prefer_unattached)
-		flags |= CMD_FIND_PREFER_UNATTACHED;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_SESSION, flags);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	return (fs->s);
-}
-
-/* Find the target window or report an error and return NULL. */
-struct winlink *
-cmd_find_window(struct cmd_q *cmdq, const char *target, struct session **sp)
-{
-	struct cmd_find_state	*fs;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_WINDOW, 0);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	if (sp != NULL)
-		*sp = fs->s;
-	return (fs->wl);
-}
-
-/* Find the target window, defaulting to marked rather than current. */
-struct winlink *
-cmd_find_window_marked(struct cmd_q *cmdq, const char *target,
-    struct session **sp)
-{
-	struct cmd_find_state	*fs;
-	int			 flags = CMD_FIND_DEFAULT_MARKED;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_WINDOW, flags);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	if (sp != NULL)
-		*sp = fs->s;
-	return (fs->wl);
-}
-
-/* Find the target pane and report an error and return NULL. */
-struct winlink *
-cmd_find_pane(struct cmd_q *cmdq, const char *target, struct session **sp,
-    struct window_pane **wpp)
-{
-	struct cmd_find_state	*fs;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_PANE, 0);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	if (sp != NULL)
-		*sp = fs->s;
-	if (wpp != NULL)
-		*wpp = fs->wp;
-	return (fs->wl);
-}
-
-/* Find the target pane, defaulting to marked rather than current. */
-struct winlink *
-cmd_find_pane_marked(struct cmd_q *cmdq, const char *target,
-    struct session **sp, struct window_pane **wpp)
-{
-	struct cmd_find_state	*fs;
-	int			 flags = CMD_FIND_DEFAULT_MARKED;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_PANE, flags);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (NULL);
-
-	if (sp != NULL)
-		*sp = fs->s;
-	if (wpp != NULL)
-		*wpp = fs->wp;
-	return (fs->wl);
+		log_debug("%s: idx=none", prefix);
 }
 
 /* Find the target client or report an error and return NULL. */
@@ -1260,26 +1142,4 @@ cmd_find_client(struct cmd_q *cmdq, const char *target, int quiet)
 	free(copy);
 	log_debug("%s: target %s, return %p", __func__, target, c);
 	return (c);
-}
-
-/*
- * Find the target session and window index, whether or not it exists in the
- * session. Return -2 on error or -1 if no window index is specified. This is
- * used when parsing an argument for a window target that may not exist (for
- * example if it is going to be created).
- */
-int
-cmd_find_index(struct cmd_q *cmdq, const char *target, struct session **sp)
-{
-	struct cmd_find_state	*fs;
-	int			 flags = CMD_FIND_WINDOW_INDEX;
-
-	fs = cmd_find_target(cmdq, target, CMD_FIND_WINDOW, flags);
-	cmd_find_log_state(__func__, target, fs);
-	if (fs == NULL)
-		return (-2);
-
-	if (sp != NULL)
-		*sp = fs->s;
-	return (fs->idx);
 }

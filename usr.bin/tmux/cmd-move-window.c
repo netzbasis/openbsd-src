@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-move-window.c,v 1.21 2015/10/27 15:58:42 nicm Exp $ */
+/* $OpenBSD: cmd-move-window.c,v 1.24 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,55 +29,59 @@
 enum cmd_retval	 cmd_move_window_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_move_window_entry = {
-	"move-window", "movew",
-	"adkrs:t:", 0, 0,
-	"[-dkr] " CMD_SRCDST_WINDOW_USAGE,
-	0,
-	cmd_move_window_exec
+	.name = "move-window",
+	.alias = "movew",
+
+	.args = { "adkrs:t:", 0, 0 },
+	.usage = "[-dkr] " CMD_SRCDST_WINDOW_USAGE,
+
+	.sflag = CMD_WINDOW,
+	.tflag = CMD_MOVEW_R,
+
+	.flags = 0,
+	.exec = cmd_move_window_exec
 };
 
 const struct cmd_entry cmd_link_window_entry = {
-	"link-window", "linkw",
-	"adks:t:", 0, 0,
-	"[-dk] " CMD_SRCDST_WINDOW_USAGE,
-	0,
-	cmd_move_window_exec
+	.name = "link-window",
+	.alias = "linkw",
+
+	.args = { "adks:t:", 0, 0 },
+	.usage = "[-dk] " CMD_SRCDST_WINDOW_USAGE,
+
+	.sflag = CMD_WINDOW,
+	.tflag = CMD_WINDOW_INDEX,
+
+	.flags = 0,
+	.exec = cmd_move_window_exec
 };
 
 enum cmd_retval
 cmd_move_window_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args	*args = self->args;
-	struct session	*src, *dst, *s;
-	struct winlink	*wl;
+	struct session	*src = cmdq->state.sflag.s;
+	struct session	*dst = cmdq->state.tflag.s;
+	struct winlink	*wl = cmdq->state.sflag.wl;
 	char		*cause;
-	int		 idx, kflag, dflag, sflag;
+	int		 idx = cmdq->state.tflag.idx, kflag, dflag, sflag;
+
+	kflag = args_has(self->args, 'k');
+	dflag = args_has(self->args, 'd');
 
 	if (args_has(args, 'r')) {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-
-		session_renumber_windows(s);
+		session_renumber_windows(dst);
 		recalculate_sizes();
 
 		return (CMD_RETURN_NORMAL);
 	}
-
-	if ((wl = cmd_find_window(cmdq, args_get(args, 's'), &src)) == NULL)
-		return (CMD_RETURN_ERROR);
-	if ((idx = cmd_find_index(cmdq, args_get(args, 't'), &dst)) == -2)
-		return (CMD_RETURN_ERROR);
 
 	kflag = args_has(self->args, 'k');
 	dflag = args_has(self->args, 'd');
 	sflag = args_has(self->args, 's');
 
 	if (args_has(self->args, 'a')) {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-		if ((idx = winlink_shuffle_up(s, s->curw)) == -1)
+		if ((idx = winlink_shuffle_up(dst, dst->curw)) == -1)
 			return (CMD_RETURN_ERROR);
 	}
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.602 2015/12/12 18:32:24 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.609 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1293,6 +1293,39 @@ struct args {
 	char			**argv;
 };
 
+/* Command find structures. */
+enum cmd_find_type {
+	CMD_FIND_PANE,
+	CMD_FIND_WINDOW,
+	CMD_FIND_SESSION,
+};
+struct cmd_find_state {
+	struct cmd_q		*cmdq;
+	int			 flags;
+	struct cmd_find_state	*current;
+
+	struct session          *s;
+	struct winlink          *wl;
+	struct window		*w;
+	struct window_pane      *wp;
+	int			 idx;
+};
+
+/* Command find flags. */
+#define CMD_FIND_PREFER_UNATTACHED 0x1
+#define CMD_FIND_QUIET 0x2
+#define CMD_FIND_WINDOW_INDEX 0x4
+#define CMD_FIND_DEFAULT_MARKED 0x8
+#define CMD_FIND_EXACT_SESSION 0x10
+#define CMD_FIND_EXACT_WINDOW 0x20
+
+/* Context for command being executed. */
+struct cmd_state {
+	struct client		*c;
+	struct cmd_find_state	 tflag;
+	struct cmd_find_state	 sflag;
+};
+
 /* Command and list of commands. */
 struct cmd {
 	const struct cmd_entry	*entry;
@@ -1343,6 +1376,8 @@ struct cmd_q {
 	struct cmd_q_item	*item;
 	struct cmd		*cmd;
 
+	struct cmd_state	 state;
+
 	time_t			 time;
 	u_int			 number;
 
@@ -1352,22 +1387,51 @@ struct cmd_q {
 	TAILQ_ENTRY(cmd_q)	 waitentry;
 };
 
+/* Command -c, -t or -s flags. */
+enum cmd_entry_flag {
+	CMD_NONE,
+
+	CMD_CLIENT,
+	CMD_CLIENT_CANFAIL,
+
+	CMD_SESSION,
+	CMD_SESSION_CANFAIL,
+	CMD_SESSION_PREFERUNATTACHED,
+	CMD_SESSION_WITHPANE,
+
+	CMD_WINDOW,
+	CMD_WINDOW_CANFAIL,
+	CMD_WINDOW_MARKED,
+	CMD_WINDOW_INDEX,
+
+	CMD_PANE,
+	CMD_PANE_CANFAIL,
+	CMD_PANE_MARKED,
+
+	CMD_MOVEW_R,
+};
+
 /* Command definition. */
 struct cmd_entry {
-	const char	*name;
-	const char	*alias;
+	const char		*name;
+	const char		*alias;
 
-	const char	*args_template;
-	int		 args_lower;
-	int		 args_upper;
+	struct {
+		const char	*template;
+		int		 lower;
+		int		 upper;
+	} args;
+	const char		*usage;
 
-	const char	*usage;
+	enum cmd_entry_flag	 tflag;
+	enum cmd_entry_flag	 sflag;
+	enum cmd_entry_flag	 cflag;
 
 #define CMD_STARTSERVER 0x1
 #define CMD_READONLY 0x2
 	int		 flags;
 
-	enum cmd_retval	 (*exec)(struct cmd *, struct cmd_q *);
+	enum cmd_retval		 (*exec)(struct cmd *, struct cmd_q *);
 };
 
 /* Key binding and key table. */
@@ -1697,19 +1761,9 @@ long long	 args_strtonum(struct args *, u_char, long long, long long,
 		     char **);
 
 /* cmd-find.c */
-struct session	*cmd_find_current(struct cmd_q *);
-struct session	*cmd_find_session(struct cmd_q *, const char *, int);
-struct winlink	*cmd_find_window(struct cmd_q *, const char *,
-		     struct session **);
-struct winlink	*cmd_find_window_marked(struct cmd_q *, const char *,
-		     struct session **);
-struct winlink	*cmd_find_pane(struct cmd_q *, const char *, struct session **,
-		     struct window_pane **);
-struct winlink	*cmd_find_pane_marked(struct cmd_q *, const char *,
-		     struct session **, struct window_pane **);
+int		 cmd_find_target(struct cmd_find_state *, struct cmd_q *,
+		     const char *, enum cmd_find_type, int);
 struct client	*cmd_find_client(struct cmd_q *, const char *, int);
-int		 cmd_find_index(struct cmd_q *, const char *,
-		     struct session **);
 
 /* cmd.c */
 int		 cmd_pack_argv(int, char **, char *, size_t);
@@ -1718,6 +1772,7 @@ char	       **cmd_copy_argv(int, char **);
 void		 cmd_free_argv(int, char **);
 char		*cmd_stringify_argv(int, char **);
 struct cmd	*cmd_parse(int, char **, const char *, u_int, char **);
+int		 cmd_prepare_state(struct cmd *, struct cmd_q *);
 char		*cmd_print(struct cmd *);
 int		 cmd_mouse_at(struct window_pane *, struct mouse_event *,
 		     u_int *, u_int *, int);
@@ -1728,8 +1783,8 @@ char		*cmd_template_replace(const char *, const char *, int);
 extern const struct cmd_entry *cmd_table[];
 
 /* cmd-attach-session.c */
-enum cmd_retval	 cmd_attach_session(struct cmd_q *, const char *, int, int,
-		     const char *, int);
+enum cmd_retval	 cmd_attach_session(struct cmd_q *, int, int, const char *,
+    int);
 
 /* cmd-list.c */
 struct cmd_list	*cmd_list_parse(int, char **, const char *, u_int, char **);

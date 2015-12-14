@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-show-environment.c,v 1.12 2015/10/28 09:51:55 nicm Exp $ */
+/* $OpenBSD: cmd-show-environment.c,v 1.16 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -34,11 +34,16 @@ void	 cmd_show_environment_print(struct cmd *, struct cmd_q *,
 	     struct environ_entry *);
 
 const struct cmd_entry cmd_show_environment_entry = {
-	"show-environment", "showenv",
-	"gst:", 0, 1,
-	"[-gs] " CMD_TARGET_SESSION_USAGE " [name]",
-	0,
-	cmd_show_environment_exec
+	.name = "show-environment",
+	.alias = "showenv",
+
+	.args = { "gst:", 0, 1 },
+	.usage = "[-gs] " CMD_TARGET_SESSION_USAGE " [name]",
+
+	.tflag = CMD_SESSION_CANFAIL,
+
+	.flags = 0,
+	.exec = cmd_show_environment_exec
 };
 
 char *
@@ -86,18 +91,13 @@ enum cmd_retval
 cmd_show_environment_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
-	struct session		*s;
 	struct environ		*env;
 	struct environ_entry	*envent;
 
 	if (args_has(self->args, 'g'))
 		env = global_environ;
-	else {
-		s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-		env = s->environ;
-	}
+	else
+		env = cmdq->state.tflag.s->environ;
 
 	if (args->argc != 0) {
 		envent = environ_find(env, args->argv[0]);

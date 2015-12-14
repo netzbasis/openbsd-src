@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-kill-pane.c,v 1.16 2014/10/20 22:29:25 nicm Exp $ */
+/* $OpenBSD: cmd-kill-pane.c,v 1.19 2015/12/14 00:31:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,22 +29,24 @@
 enum cmd_retval	 cmd_kill_pane_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_kill_pane_entry = {
-	"kill-pane", "killp",
-	"at:", 0, 0,
-	"[-a] " CMD_TARGET_PANE_USAGE,
-	0,
-	cmd_kill_pane_exec
+	.name = "kill-pane",
+	.alias = "killp",
+
+	.args = { "at:", 0, 0 },
+	.usage = "[-a] " CMD_TARGET_PANE_USAGE,
+
+	.tflag = CMD_PANE,
+
+	.flags = 0,
+	.exec = cmd_kill_pane_exec
 };
 
 enum cmd_retval
 cmd_kill_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 {
-	struct args		*args = self->args;
-	struct winlink		*wl;
-	struct window_pane	*loopwp, *tmpwp, *wp;
+	struct winlink		*wl = cmdq->state.tflag.wl;
+	struct window_pane	*loopwp, *tmpwp, *wp = cmdq->state.tflag.wp;
 
-	if ((wl = cmd_find_pane(cmdq, args_get(args, 't'), NULL, &wp)) == NULL)
-		return (CMD_RETURN_ERROR);
 	server_unzoom_window(wl->window);
 
 	if (window_count_panes(wl->window) == 1) {
