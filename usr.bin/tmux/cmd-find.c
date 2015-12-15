@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find.c,v 1.21 2015/12/13 17:55:14 nicm Exp $ */
+/* $OpenBSD: cmd-find.c,v 1.25 2015/12/15 00:45:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -49,9 +49,6 @@ int	cmd_find_get_window_with_pane(struct cmd_find_state *);
 int	cmd_find_get_pane(struct cmd_find_state *, const char *);
 int	cmd_find_get_pane_with_session(struct cmd_find_state *, const char *);
 int	cmd_find_get_pane_with_window(struct cmd_find_state *, const char *);
-
-void	cmd_find_clear_state(struct cmd_find_state *, struct cmd_q *, int);
-void	cmd_find_log_state(const char *, struct cmd_find_state *);
 
 const char *cmd_find_session_table[][2] = {
 	{ NULL, NULL }
@@ -252,7 +249,11 @@ cmd_find_current_session_with_client(struct cmd_find_state *fs)
 {
 	struct window_pane	*wp;
 
-	/* If this is running in a pane, that's great. */
+	/*
+	 * If this is running in a pane, we can use that to limit the list of
+	 * sessions to those containing that pane (we still use the current
+	 * window in the best session).
+	 */
 	if (fs->cmdq->client->tty.path != NULL) {
 		RB_FOREACH(wp, window_pane_tree, &all_window_panes) {
 			if (strcmp(wp->tty, fs->cmdq->client->tty.path) == 0)
@@ -265,11 +266,8 @@ cmd_find_current_session_with_client(struct cmd_find_state *fs)
 	if (wp == NULL)
 		goto unknown_pane;
 
-	/* We now know the window and pane. */
+	/* Find the best session and winlink containing this pane. */
 	fs->w = wp->window;
-	fs->wp = wp;
-
-	/* Find the best session and winlink. */
 	if (cmd_find_best_session_with_window(fs) != 0) {
 		if (wp != NULL) {
 			/*
@@ -281,6 +279,13 @@ cmd_find_current_session_with_client(struct cmd_find_state *fs)
 		}
 		return (-1);
 	}
+
+	/* Use the current window and pane from this session. */
+	fs->wl = fs->s->curw;
+	fs->idx = fs->wl->idx;
+	fs->w = fs->wl->window;
+	fs->wp = fs->w->active;
+
 	return (0);
 
 unknown_pane:
@@ -293,6 +298,7 @@ unknown_pane:
 	fs->idx = fs->wl->idx;
 	fs->w = fs->wl->window;
 	fs->wp = fs->w->active;
+
 	return (0);
 }
 
@@ -795,6 +801,67 @@ cmd_find_clear_state(struct cmd_find_state *fs, struct cmd_q *cmdq, int flags)
 	fs->idx = -1;
 }
 
+/* Check if a state if valid. */
+int
+cmd_find_valid_state(struct cmd_find_state *fs)
+{
+	struct winlink	*wl;
+
+	if (fs->s == NULL || fs->wl == NULL || fs->w == NULL || fs->wp == NULL)
+		return (0);
+
+	if (!session_alive(fs->s))
+		return (0);
+
+	RB_FOREACH(wl, winlinks, &fs->s->windows) {
+		if (wl->window == fs->w && wl == fs->wl)
+			break;
+	}
+	if (wl == NULL)
+		return (0);
+
+	if (fs->w != fs->wl->window)
+		return (0);
+
+	if (!window_has_pane(fs->w, fs->wp))
+		return (0);
+	return (window_pane_visible(fs->wp));
+}
+
+/* Copy a state. */
+void
+cmd_find_copy_state(struct cmd_find_state *dst, struct cmd_find_state *src)
+{
+	dst->s = src->s;
+	dst->wl = src->wl;
+	dst->idx = dst->wl->idx;
+	dst->w = dst->wl->window;
+	dst->wp = src->wp;
+}
+
+/* Log the result. */
+void
+cmd_find_log_state(const char *prefix, struct cmd_find_state *fs)
+{
+	if (fs->s != NULL)
+		log_debug("%s: s=$%u", prefix, fs->s->id);
+	else
+		log_debug("%s: s=none", prefix);
+	if (fs->wl != NULL) {
+		log_debug("%s: wl=%u %d w=@%u %s", prefix, fs->wl->idx,
+		    fs->wl->window == fs->w, fs->w->id, fs->w->name);
+	} else
+		log_debug("%s: wl=none", prefix);
+	if (fs->wp != NULL)
+		log_debug("%s: wp=%%%u", prefix, fs->wp->id);
+	else
+		log_debug("%s: wp=none", prefix);
+	if (fs->idx != -1)
+		log_debug("%s: idx=%d", prefix, fs->idx);
+	else
+		log_debug("%s: idx=none", prefix);
+}
+
 /*
  * Split target into pieces and resolve for the given type. Fills in the given
  * state. Returns 0 on success or -1 on error.
@@ -815,24 +882,22 @@ cmd_find_target(struct cmd_find_state *fs, struct cmd_q *cmdq,
 		log_debug("%s: target %s, type %d", __func__, target, type);
 	log_debug("%s: cmdq %p, flags %#x", __func__, cmdq, flags);
 
-	/* Find current state. */
-	cmd_find_clear_state(&current, cmdq, flags);
-	if (server_check_marked() && (flags & CMD_FIND_DEFAULT_MARKED)) {
-		current.s = marked_session;
-		current.wl = marked_winlink;
-		current.idx = current.wl->idx;
-		current.w = current.wl->window;
-		current.wp = marked_window_pane;
-	}
-	if (current.s == NULL && cmd_find_current_session(&current) != 0) {
-		if (~flags & CMD_FIND_QUIET)
-			cmdq_error(cmdq, "no current session");
-		goto error;
-	}
-
 	/* Clear new state. */
 	cmd_find_clear_state(fs, cmdq, flags);
-	fs->current = &current;
+
+	/* Find current state. */
+	fs->current = NULL;
+	if (server_check_marked() && (flags & CMD_FIND_DEFAULT_MARKED))
+		fs->current = &marked_pane;
+	if (fs->current == NULL) {
+		cmd_find_clear_state(&current, cmdq, flags);
+		if (cmd_find_current_session(&current) != 0) {
+			if (~flags & CMD_FIND_QUIET)
+				cmdq_error(cmdq, "no current session");
+			goto error;
+		}
+		fs->current = &current;
+	}
 
 	/* An empty or NULL target is the current. */
 	if (target == NULL || *target == '\0')
@@ -871,11 +936,7 @@ cmd_find_target(struct cmd_find_state *fs, struct cmd_q *cmdq,
 				cmdq_error(cmdq, "no marked target");
 			goto error;
 		}
-		fs->s = marked_session;
-		fs->wl = marked_winlink;
-		fs->idx = fs->wl->idx;
-		fs->w = fs->wl->window;
-		fs->wp = marked_window_pane;
+		cmd_find_copy_state(fs, &marked_pane);
 		goto found;
 	}
 
@@ -1036,9 +1097,9 @@ cmd_find_target(struct cmd_find_state *fs, struct cmd_q *cmdq,
 
 current:
 	/* Use the current session. */
+	cmd_find_copy_state(fs, fs->current);
 	if (flags & CMD_FIND_WINDOW_INDEX)
-		current.idx = -1;
-	memcpy(fs, &current, sizeof *fs);
+		fs->idx = -1;
 	goto found;
 
 error:
@@ -1069,29 +1130,6 @@ no_pane:
 	if (~flags & CMD_FIND_QUIET)
 		cmdq_error(cmdq, "can't find pane %s", pane);
 	goto error;
-}
-
-/* Log the result. */
-void
-cmd_find_log_state(const char *prefix, struct cmd_find_state *fs)
-{
-	if (fs->s != NULL)
-		log_debug("%s: s=$%u", prefix, fs->s->id);
-	else
-		log_debug("%s: s=none", prefix);
-	if (fs->wl != NULL) {
-		log_debug("%s: wl=%u %d w=@%u %s", prefix, fs->wl->idx,
-		    fs->wl->window == fs->w, fs->w->id, fs->w->name);
-	} else
-		log_debug("%s: wl=none", prefix);
-	if (fs->wp != NULL)
-		log_debug("%s: wp=%%%u", prefix, fs->wp->id);
-	else
-		log_debug("%s: wp=none", prefix);
-	if (fs->idx != -1)
-		log_debug("%s: idx=%d", prefix, fs->idx);
-	else
-		log_debug("%s: idx=none", prefix);
 }
 
 /* Find the target client or report an error and return NULL. */

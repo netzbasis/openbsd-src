@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.21 2015/12/09 02:29:09 deraadt Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.25 2015/12/15 03:24:26 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -56,6 +56,7 @@ struct vm {
 	uint32_t		 vm_id;
 	pid_t			 vm_creator_pid;
 	uint32_t		 vm_memory_size;
+	size_t			 vm_used_size;
 	char			 vm_name[VMM_MAX_NAME_LEN];
 
 	struct vcpu_head	 vm_vcpu_list;
@@ -100,8 +101,11 @@ int vm_terminate(struct vm_terminate_params *);
 int vm_get_info(struct vm_info_params *);
 int vm_writepage(struct vm_writepage_params *);
 int vm_readpage(struct vm_readpage_params *);
+int vm_resetcpu(struct vm_resetcpu_params *);
+int vcpu_reset_regs(struct vcpu *);
+int vcpu_reset_regs_vmx(struct vcpu *);
+int vcpu_reset_regs_svm(struct vcpu *);
 int vcpu_init(struct vcpu *);
-int vcpu_init_regs_vmx(struct vcpu *);
 int vcpu_init_vmx(struct vcpu *);
 int vcpu_init_svm(struct vcpu *);
 int vcpu_run_vmx(struct vcpu *, uint8_t, int16_t *);
@@ -336,6 +340,9 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case VMM_IOC_READPAGE:
 		ret = vm_readpage((struct vm_readpage_params *)data);
 		break;
+	case VMM_IOC_RESETCPU:
+		ret = vm_resetcpu((struct vm_resetcpu_params *)data);
+		break;
 	default:
 		ret = ENOTTY;
 	}
@@ -427,6 +434,60 @@ vm_readpage(struct vm_readpage_params *vrp)
 	km_free(kva, PAGE_SIZE, &kv_any, &kp_none);
 
 	rw_exit_read(&vmm_softc->vm_lock);
+
+	return (0);
+}
+
+/*
+ * vm_resetcpu
+ *
+ * Resets the vcpu defined in 'vrp' to power-on-init register state
+ *
+ * Parameters:
+ *  vrp: ioctl structure defining the vcpu to reset (see vmmvar.h)
+ *
+ * Returns 0 if successful, or various error codes on failure:
+ *  ENOENT if the VM id contained in 'vrp' refers to an unknown VM or
+ *      if vrp describes an unknown vcpu for this VM
+ *  EBUSY if the indicated VCPU is not stopped
+ *  EIO if the indicated VCPU failed to reset
+ */
+int
+vm_resetcpu(struct vm_resetcpu_params *vrp)
+{
+	struct vm *vm;
+	struct vcpu *vcpu;
+
+	/* Find the desired VM */
+	rw_enter_read(&vmm_softc->vm_lock);
+	SLIST_FOREACH(vm, &vmm_softc->vm_list, vm_link) {
+		if (vm->vm_id == vrp->vrp_vm_id)
+			break;
+	}
+	rw_exit_read(&vmm_softc->vm_lock);
+
+	/* Not found? exit. */
+	if (vm == NULL)
+		return (ENOENT);
+
+	rw_enter_read(&vm->vm_vcpu_lock);
+	SLIST_FOREACH(vcpu, &vm->vm_vcpu_list, vc_vcpu_link) {
+		if (vcpu->vc_id == vrp->vrp_vcpu_id)
+			break;
+	}
+	rw_exit_read(&vm->vm_vcpu_lock);
+
+	if (vcpu == NULL)
+		return (ENOENT);
+
+	if (vcpu->vc_state != VCPU_STATE_STOPPED)
+		return (EBUSY);
+
+	DPRINTF("vm_resetcpu: resetting vm %d vcpu %d to power on defaults\n",
+	    vm->vm_id, vcpu->vc_id);
+
+	if (vcpu_reset_regs(vcpu))
+		return (EIO);
 
 	return (0);
 }
@@ -757,6 +818,10 @@ vm_create(struct vm_create_params *vcp, struct proc *p)
 	if (!(curcpu()->ci_flags & CPUF_VMM))
 		return (EINVAL);
 
+	/* XXX - support UP only (for now) */
+	if (vcp->vcp_ncpus != 1)
+		return (EINVAL);
+
 	vm = pool_get(&vm_pool, PR_WAITOK | PR_ZERO);
 	SLIST_INIT(&vm->vm_vcpu_list);
 	rw_init(&vm->vm_vcpu_lock, "vcpulock");
@@ -950,9 +1015,19 @@ vm_impl_deinit(struct vm *vm)
 	else
 		panic("unknown vmm mode\n");
 }
+/*
+ * vcpu_reset_regs_svm
+ *
+ * XXX - unimplemented
+ */
+int
+vcpu_reset_regs_svm(struct vcpu *vcpu)
+{
+	return (0);
+}
 
 /*
- * vcpu_init_regs_vmx
+ * vcpu_reset_regs_vmx
  *
  * Initializes 'vcpu's registers to default power-on state
  *
@@ -964,12 +1039,316 @@ vm_impl_deinit(struct vm *vm)
  *  EINVAL: an error occurred setting register state
  */
 int
-vcpu_init_regs_vmx(struct vcpu *vcpu)
+vcpu_reset_regs_vmx(struct vcpu *vcpu)
 {
 	int ret;
 	uint32_t cr0, cr4;
+	uint32_t pinbased, procbased, procbased2, exit, entry;
+	uint32_t want1, want0;
+	uint64_t msr, ctrlval, eptp, vmcs_ptr;
+	uint16_t ctrl;
+	struct vmx_msr_store *msr_store;
 
 	ret = 0;
+
+	/* Flush any old state */
+	if (!vmptrst(&vmcs_ptr)) {
+		if (vmcs_ptr != 0xFFFFFFFFFFFFFFFFULL) {
+			if (vmclear(&vmcs_ptr)) {
+				ret = EINVAL;
+				goto exit;
+			}
+		}
+	} else {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/* Flush the VMCS */
+	if (vmclear(&vcpu->vc_control_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Load the VMCS onto this PCPU so we can write registers
+	 */
+	if (vmptrld(&vcpu->vc_control_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/* Compute Basic Entry / Exit Controls */
+	vcpu->vc_vmx_basic = rdmsr(IA32_VMX_BASIC);
+	vcpu->vc_vmx_entry_ctls = rdmsr(IA32_VMX_ENTRY_CTLS);
+	vcpu->vc_vmx_exit_ctls = rdmsr(IA32_VMX_EXIT_CTLS);
+	vcpu->vc_vmx_pinbased_ctls = rdmsr(IA32_VMX_PINBASED_CTLS);
+	vcpu->vc_vmx_procbased_ctls = rdmsr(IA32_VMX_PROCBASED_CTLS);
+
+	/* Compute True Entry / Exit Controls (if applicable) */
+	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
+		vcpu->vc_vmx_true_entry_ctls = rdmsr(IA32_VMX_TRUE_ENTRY_CTLS);
+		vcpu->vc_vmx_true_exit_ctls = rdmsr(IA32_VMX_TRUE_EXIT_CTLS);
+		vcpu->vc_vmx_true_pinbased_ctls =
+		    rdmsr(IA32_VMX_TRUE_PINBASED_CTLS);
+		vcpu->vc_vmx_true_procbased_ctls =
+		    rdmsr(IA32_VMX_TRUE_PROCBASED_CTLS);
+	}
+
+	/* Compute Secondary Procbased Controls (if applicable) */
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
+	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1))
+		vcpu->vc_vmx_procbased2_ctls = rdmsr(IA32_VMX_PROCBASED2_CTLS);
+
+
+# if 0
+	/* XXX not needed now with MSR list */
+
+	/* Default Guest PAT (if applicable) */
+	if ((vcpu_vmx_check_cap(vcpu, IA32_VMX_ENTRY_CTLS,
+	    IA32_VMX_LOAD_IA32_PAT_ON_ENTRY, 1)) ||
+	    vcpu_vmx_check_cap(vcpu, IA32_VMX_EXIT_CTLS,
+	    IA32_VMX_SAVE_IA32_PAT_ON_EXIT, 1)) {
+		pat_default = PATENTRY(0, PAT_WB) | PATENTRY(1, PAT_WT) |
+		    PATENTRY(2, PAT_UCMINUS) | PATENTRY(3, PAT_UC) |
+		    PATENTRY(4, PAT_WB) | PATENTRY(5, PAT_WT) |
+		    PATENTRY(6, PAT_UCMINUS) | PATENTRY(7, PAT_UC);
+		if (vmwrite(VMCS_GUEST_IA32_PAT, pat_default)) {
+			ret = EINVAL;
+			goto exit;
+		}
+	}
+
+	/* Host PAT (if applicable) */
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_EXIT_CTLS,
+	    IA32_VMX_LOAD_IA32_PAT_ON_EXIT, 1)) {
+		msr = rdmsr(MSR_CR_PAT);
+		if (vmwrite(VMCS_HOST_IA32_PAT, msr)) {
+			ret = EINVAL;
+			goto exit;
+		}
+	}
+#endif
+
+	/*
+	 * Pinbased ctrls
+	 *
+	 * We must be able to set the following:
+	 * IA32_VMX_EXTERNAL_INT_EXITING - exit on host interrupt
+	 * IA32_VMX_NMI_EXITING - exit on host NMI
+	 */
+	want1 = IA32_VMX_EXTERNAL_INT_EXITING |
+	    IA32_VMX_NMI_EXITING;
+	want0 = 0;
+
+	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
+		ctrl = IA32_VMX_TRUE_PINBASED_CTLS;
+		ctrlval = vcpu->vc_vmx_true_pinbased_ctls;
+	} else {
+		ctrl = IA32_VMX_PINBASED_CTLS;
+		ctrlval = vcpu->vc_vmx_pinbased_ctls;
+	}
+
+	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
+	    &pinbased)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_PINBASED_CTLS, pinbased)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Procbased ctrls
+	 *
+	 * We must be able to set the following:
+	 * IA32_VMX_HLT_EXITING - exit on HLT instruction
+	 * IA32_VMX_MWAIT_EXITING - exit on MWAIT instruction
+	 * IA32_VMX_UNCONDITIONAL_IO_EXITING - exit on I/O instructions
+	 * IA32_VMX_USE_MSR_BITMAPS - exit on various MSR accesses
+	 * IA32_VMX_CR8_LOAD_EXITING - guest TPR access
+	 * IA32_VMX_CR8_STORE_EXITING - guest TPR access
+	 * IA32_VMX_USE_TPR_SHADOW - guest TPR access (shadow)
+	 *
+	 * If we have EPT, we must be able to clear the following
+	 * IA32_VMX_CR3_LOAD_EXITING - don't care about guest CR3 accesses
+	 * IA32_VMX_CR3_STORE_EXITING - don't care about guest CR3 accesses
+	 */
+	want1 = IA32_VMX_HLT_EXITING |
+	    IA32_VMX_MWAIT_EXITING |
+	    IA32_VMX_UNCONDITIONAL_IO_EXITING |
+	    IA32_VMX_USE_MSR_BITMAPS |
+	    IA32_VMX_CR8_LOAD_EXITING |
+	    IA32_VMX_CR8_STORE_EXITING |
+	    IA32_VMX_USE_TPR_SHADOW;
+	want0 = 0;
+
+	if (vmm_softc->mode == VMM_MODE_EPT) {
+		want1 |= IA32_VMX_ACTIVATE_SECONDARY_CONTROLS;
+		want0 |= IA32_VMX_CR3_LOAD_EXITING |
+		    IA32_VMX_CR3_STORE_EXITING;
+	}
+
+	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
+		ctrl = IA32_VMX_TRUE_PROCBASED_CTLS;
+		ctrlval = vcpu->vc_vmx_true_procbased_ctls;
+	} else {
+		ctrl = IA32_VMX_PROCBASED_CTLS;
+		ctrlval = vcpu->vc_vmx_procbased_ctls;
+	}
+
+	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
+	    &procbased)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_PROCBASED_CTLS, procbased)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Secondary Procbased ctrls
+	 *
+	 * We want to be able to set the following, if available:
+	 * IA32_VMX_ENABLE_VPID - use VPIDs where available
+	 *
+	 * If we have EPT, we must be able to set the following:
+	 * IA32_VMX_ENABLE_EPT - enable EPT
+	 *
+	 * If we have unrestricted guest capability, we must be able to set
+	 * the following:
+	 * IA32_VMX_UNRESTRICTED_GUEST - enable unrestricted guest
+	 */
+	want1 = 0;
+
+	/* XXX checking for 2ndary controls can be combined here */
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
+	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
+		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
+		    IA32_VMX_ENABLE_VPID, 1))
+			want1 |= IA32_VMX_ENABLE_VPID;
+	}
+
+	if (vmm_softc->mode == VMM_MODE_EPT)
+		want1 |= IA32_VMX_ENABLE_EPT;
+
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
+	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
+		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
+		    IA32_VMX_UNRESTRICTED_GUEST, 1))
+			want1 |= IA32_VMX_UNRESTRICTED_GUEST;
+	}
+
+	want0 = ~want1;
+	ctrlval = vcpu->vc_vmx_procbased2_ctls;
+	ctrl = IA32_VMX_PROCBASED2_CTLS;
+
+	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
+	    &procbased2)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_PROCBASED2_CTLS, procbased2)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Exit ctrls
+	 *
+	 * We must be able to set the following:
+	 * IA32_VMX_HOST_SPACE_ADDRESS_SIZE - exit to long mode
+	 * IA32_VMX_ACKNOWLEDGE_INTERRUPT_ON_EXIT - ack interrupt on exit
+	 * XXX clear save_debug_ctrls on exit ?
+	 */
+	want1 = IA32_VMX_HOST_SPACE_ADDRESS_SIZE |
+	    IA32_VMX_ACKNOWLEDGE_INTERRUPT_ON_EXIT;
+	want0 = 0;
+
+	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
+		ctrl = IA32_VMX_TRUE_EXIT_CTLS;
+		ctrlval = vcpu->vc_vmx_true_exit_ctls;
+	} else {
+		ctrl = IA32_VMX_EXIT_CTLS;
+		ctrlval = vcpu->vc_vmx_exit_ctls;
+	}
+
+	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &exit)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_EXIT_CTLS, exit)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/*
+	 * Entry ctrls
+	 *
+	 * We must be able to clear the following:
+	 * IA32_VMX_ENTRY_TO_SMM - enter to SMM
+	 * IA32_VMX_DEACTIVATE_DUAL_MONITOR_TREATMENT
+	 * XXX clear load debug_ctrls on entry ?
+	 */
+	want1 = 0;
+	want0 = IA32_VMX_ENTRY_TO_SMM |
+	    IA32_VMX_DEACTIVATE_DUAL_MONITOR_TREATMENT;
+
+	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
+		ctrl = IA32_VMX_TRUE_ENTRY_CTLS;
+		ctrlval = vcpu->vc_vmx_true_entry_ctls;
+	} else {
+		ctrl = IA32_VMX_ENTRY_CTLS;
+		ctrlval = vcpu->vc_vmx_entry_ctls;
+	}
+
+	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &entry)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_ENTRY_CTLS, entry)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmm_softc->mode == VMM_MODE_EPT) {
+		eptp = vcpu->vc_parent->vm_map->pmap->pm_pdirpa;
+		msr = rdmsr(IA32_VMX_EPT_VPID_CAP);
+		if (msr & IA32_EPT_VPID_CAP_PAGE_WALK_4) {
+			/* Page walk length 4 supported */
+			eptp |= ((IA32_EPT_PAGE_WALK_LENGTH - 1) << 3);
+		}
+
+
+		if (msr & IA32_EPT_VPID_CAP_WB) {
+			/* WB cache type supported */
+			eptp |= IA32_EPT_PAGING_CACHE_TYPE_WB;
+		}
+
+		DPRINTF("guest eptp = 0x%llx\n", eptp);
+		if (vmwrite(VMCS_GUEST_IA32_EPTP, eptp)) {
+			ret = EINVAL;
+			goto exit;
+		}
+	}
+
+	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
+	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
+		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
+		    IA32_VMX_ENABLE_VPID, 1))
+			if (vmwrite(VMCS_GUEST_VPID,
+			    (uint16_t)vcpu->vc_parent->vm_id)) {
+				ret = EINVAL;
+				goto exit;
+			}
+	}
 
 	/*
 	 * The next portion of code sets up the VMCS for the register state
@@ -1224,6 +1603,93 @@ vcpu_init_regs_vmx(struct vcpu *vcpu)
 		goto exit;
 	}
 
+	/*
+	 * Select MSRs to be loaded on exit
+	 */
+	msr_store = (struct vmx_msr_store *)vcpu->vc_vmx_msr_exit_load_va;
+	msr_store[0].vms_index = MSR_EFER;
+	msr_store[0].vms_data = rdmsr(MSR_EFER);
+	msr_store[1].vms_index = MSR_CR_PAT;
+	msr_store[1].vms_data = rdmsr(MSR_CR_PAT);
+	msr_store[2].vms_index = MSR_STAR;
+	msr_store[2].vms_data = rdmsr(MSR_STAR);
+	msr_store[3].vms_index = MSR_LSTAR;
+	msr_store[3].vms_data = rdmsr(MSR_LSTAR);
+	msr_store[4].vms_index = MSR_CSTAR;
+	msr_store[4].vms_data = rdmsr(MSR_CSTAR);
+	msr_store[5].vms_index = MSR_SFMASK;
+	msr_store[5].vms_data = rdmsr(MSR_SFMASK);
+	msr_store[6].vms_index = MSR_KERNELGSBASE;
+	msr_store[6].vms_data = rdmsr(MSR_KERNELGSBASE);
+
+	/*
+	 * Select MSRs to be loaded on entry / saved on exit
+	 */
+	msr_store = (struct vmx_msr_store *)vcpu->vc_vmx_msr_exit_save_va;
+	msr_store[0].vms_index = MSR_EFER;
+	msr_store[0].vms_data = 0ULL;		/* Initial value */
+	msr_store[1].vms_index = MSR_CR_PAT;
+	msr_store[1].vms_data = 0ULL;		/* Initial value */
+	msr_store[2].vms_index = MSR_STAR;
+	msr_store[2].vms_data = 0ULL;		/* Initial value */
+	msr_store[3].vms_index = MSR_LSTAR;
+	msr_store[3].vms_data = 0ULL;		/* Initial value */
+	msr_store[4].vms_index = MSR_CSTAR;
+	msr_store[4].vms_data = 0ULL;		/* Initial value */
+	msr_store[5].vms_index = MSR_SFMASK;
+	msr_store[5].vms_data = 0ULL;		/* Initial value */
+	msr_store[6].vms_index = MSR_KERNELGSBASE;
+	msr_store[6].vms_data = 0ULL;		/* Initial value */
+
+	if (vmwrite(VMCS_EXIT_MSR_STORE_COUNT, 0x7)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_EXIT_MSR_LOAD_COUNT, 0x7)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_ENTRY_MSR_LOAD_COUNT, 0x7)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_EXIT_STORE_MSR_ADDRESS,
+	    vcpu->vc_vmx_msr_exit_save_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_EXIT_LOAD_MSR_ADDRESS,
+	    vcpu->vc_vmx_msr_exit_load_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_ENTRY_LOAD_MSR_ADDRESS,
+	    vcpu->vc_vmx_msr_exit_save_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	if (vmwrite(VMCS_MSR_BITMAP_ADDRESS,
+	    vcpu->vc_msr_bitmap_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
+	/* XXX msr bitmap - set restrictions */
+	/* XXX CR0 shadow */
+	/* XXX CR4 shadow */
+
+	/* Flush the VMCS */
+	if (vmclear(&vcpu->vc_control_pa)) {
+		ret = EINVAL;
+		goto exit;
+	}
+
 exit:
 	return (ret);
 }
@@ -1235,25 +1701,16 @@ exit:
  *
  * This function allocates various per-VCPU memory regions, sets up initial
  * VCPU VMCS controls, and sets initial register values.
- *
- * This function is very long but is only performing a bunch of register
- * setups, over and over.
  */
 int
 vcpu_init_vmx(struct vcpu *vcpu)
 {
 	struct vmcs *vmcs;
-	uint16_t ctrl;
-	uint64_t pat_default, msr, ctrlval, eptp;
-	uint32_t pinbased, procbased, procbased2, exit, entry;
-	uint32_t want1, want0;
 	uint32_t cr0, cr4;
 	paddr_t control_pa;
 	int ret;
-	struct vmx_msr_store *msr_store;
 
 	ret = 0;
-	pat_default = 0;
 
 	/* Allocate VMCS VA */
 	vcpu->vc_control_va = (vaddr_t)km_alloc(PAGE_SIZE, &kv_page, &kp_zero,
@@ -1339,90 +1796,22 @@ vcpu_init_vmx(struct vcpu *vcpu)
 		goto exit;
 	}
 
-	DPRINTF("exit save va/pa  0x%llx  0x%llx\n",
-	    (uint64_t)vcpu->vc_vmx_msr_exit_save_va,
-	    (uint64_t)vcpu->vc_vmx_msr_exit_save_pa);
-	DPRINTF("exit load va/pa  0x%llx  0x%llx\n",
-	    (uint64_t)vcpu->vc_vmx_msr_exit_load_va,
-	    (uint64_t)vcpu->vc_vmx_msr_exit_load_pa);
-	DPRINTF("entry load va/pa  0x%llx  0x%llx\n",
-	    (uint64_t)vcpu->vc_vmx_msr_entry_load_va,
-	    (uint64_t)vcpu->vc_vmx_msr_entry_load_pa);
-	DPRINTF("vlapic va/pa 0x%llx  0x%llx\n",
-	    (uint64_t)vcpu->vc_vlapic_va,
-	    (uint64_t)vcpu->vc_vlapic_pa);
-	DPRINTF("msr bitmap va/pa 0x%llx  0x%llx\n",
-	    (uint64_t)vcpu->vc_msr_bitmap_va,
-	    (uint64_t)vcpu->vc_msr_bitmap_pa);
-
 	vmcs = (struct vmcs *)vcpu->vc_control_va;
 	vmcs->vmcs_revision = curcpu()->ci_vmm_cap.vcc_vmx.vmx_vmxon_revision;
 
-	/* Clear the VMCS */
+	/* Flush the VMCS */
 	if (vmclear(&vcpu->vc_control_pa)) {
 		ret = EINVAL;
 		goto exit;
 	}
 
 	/*
-	 * Load the VMCS onto this PCPU so we can write registers and controls
+	 * Load the VMCS onto this PCPU so we can write registers
 	 */
 	if (vmptrld(&vcpu->vc_control_pa)) {
 		ret = EINVAL;
 		goto exit;
 	}
-
-	/* Compute Basic Entry / Exit Controls */
-	vcpu->vc_vmx_basic = rdmsr(IA32_VMX_BASIC);
-	vcpu->vc_vmx_entry_ctls = rdmsr(IA32_VMX_ENTRY_CTLS);
-	vcpu->vc_vmx_exit_ctls = rdmsr(IA32_VMX_EXIT_CTLS);
-	vcpu->vc_vmx_pinbased_ctls = rdmsr(IA32_VMX_PINBASED_CTLS);
-	vcpu->vc_vmx_procbased_ctls = rdmsr(IA32_VMX_PROCBASED_CTLS);
-
-	/* Compute True Entry / Exit Controls (if applicable) */
-	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
-		vcpu->vc_vmx_true_entry_ctls = rdmsr(IA32_VMX_TRUE_ENTRY_CTLS);
-		vcpu->vc_vmx_true_exit_ctls = rdmsr(IA32_VMX_TRUE_EXIT_CTLS);
-		vcpu->vc_vmx_true_pinbased_ctls =
-		    rdmsr(IA32_VMX_TRUE_PINBASED_CTLS);
-		vcpu->vc_vmx_true_procbased_ctls =
-		    rdmsr(IA32_VMX_TRUE_PROCBASED_CTLS);
-	}
-
-	/* Compute Secondary Procbased Controls (if applicable) */
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
-	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1))
-		vcpu->vc_vmx_procbased2_ctls = rdmsr(IA32_VMX_PROCBASED2_CTLS);
-
-
-# if 0
-	/* XXX not needed now with MSR list */
-
-	/* Default Guest PAT (if applicable) */
-	if ((vcpu_vmx_check_cap(vcpu, IA32_VMX_ENTRY_CTLS,
-	    IA32_VMX_LOAD_IA32_PAT_ON_ENTRY, 1)) ||
-	    vcpu_vmx_check_cap(vcpu, IA32_VMX_EXIT_CTLS,
-	    IA32_VMX_SAVE_IA32_PAT_ON_EXIT, 1)) {
-		pat_default = PATENTRY(0, PAT_WB) | PATENTRY(1, PAT_WT) |
-		    PATENTRY(2, PAT_UCMINUS) | PATENTRY(3, PAT_UC) |
-		    PATENTRY(4, PAT_WB) | PATENTRY(5, PAT_WT) |
-		    PATENTRY(6, PAT_UCMINUS) | PATENTRY(7, PAT_UC);
-		if (vmwrite(VMCS_GUEST_IA32_PAT, pat_default)) {
-			ret = EINVAL;
-			goto exit;
-		}
-	}
-
-	/* Host PAT (if applicable) */
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_EXIT_CTLS,
-	    IA32_VMX_LOAD_IA32_PAT_ON_EXIT, 1)) {
-		msr = rdmsr(MSR_CR_PAT);
-		if (vmwrite(VMCS_HOST_IA32_PAT, msr)) {
-			ret = EINVAL;
-			goto exit;
-		}
-	}
-#endif
 
 	/* Host CR0 */
 	cr0 = rcr0();
@@ -1486,327 +1875,8 @@ vcpu_init_vmx(struct vcpu *vcpu)
 		goto exit;
 	}
 
-	/*
-	 * Pinbased ctrls
-	 *
-	 * We must be able to set the following:
-	 * IA32_VMX_EXTERNAL_INT_EXITING - exit on host interrupt
-	 * IA32_VMX_NMI_EXITING - exit on host NMI
-	 */
-	want1 = IA32_VMX_EXTERNAL_INT_EXITING |
-	    IA32_VMX_NMI_EXITING;
-	want0 = 0;
-
-	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
-		ctrl = IA32_VMX_TRUE_PINBASED_CTLS;
-		ctrlval = vcpu->vc_vmx_true_pinbased_ctls;
-	} else {
-		ctrl = IA32_VMX_PINBASED_CTLS;
-		ctrlval = vcpu->vc_vmx_pinbased_ctls;
-	}
-
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &pinbased)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_PINBASED_CTLS, pinbased)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Procbased ctrls
-	 *
-	 * We must be able to set the following:
-	 * IA32_VMX_HLT_EXITING - exit on HLT instruction
-	 * IA32_VMX_MWAIT_EXITING - exit on MWAIT instruction
-	 * IA32_VMX_UNCONDITIONAL_IO_EXITING - exit on I/O instructions
-	 * IA32_VMX_USE_MSR_BITMAPS - exit on various MSR accesses
-	 * IA32_VMX_CR8_LOAD_EXITING - guest TPR access
-	 * IA32_VMX_CR8_STORE_EXITING - guest TPR access
-	 * IA32_VMX_USE_TPR_SHADOW - guest TPR access (shadow)
-	 *
-	 * If we have EPT, we must be able to clear the following
-	 * IA32_VMX_CR3_LOAD_EXITING - don't care about guest CR3 accesses
-	 * IA32_VMX_CR3_STORE_EXITING - don't care about guest CR3 accesses
-	 */
-	want1 = IA32_VMX_HLT_EXITING |
-	    IA32_VMX_MWAIT_EXITING |
-	    IA32_VMX_UNCONDITIONAL_IO_EXITING |
-	    IA32_VMX_USE_MSR_BITMAPS |
-	    IA32_VMX_CR8_LOAD_EXITING |
-	    IA32_VMX_CR8_STORE_EXITING |
-	    IA32_VMX_USE_TPR_SHADOW;
-	want0 = 0;
-
-	if (vmm_softc->mode == VMM_MODE_EPT) {
-		want1 |= IA32_VMX_ACTIVATE_SECONDARY_CONTROLS;
-		want0 |= IA32_VMX_CR3_LOAD_EXITING |
-		    IA32_VMX_CR3_STORE_EXITING;
-	}
-
-	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
-		ctrl = IA32_VMX_TRUE_PROCBASED_CTLS;
-		ctrlval = vcpu->vc_vmx_true_procbased_ctls;
-	} else {
-		ctrl = IA32_VMX_PROCBASED_CTLS;
-		ctrlval = vcpu->vc_vmx_procbased_ctls;
-	}
-
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &procbased)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_PROCBASED_CTLS, procbased)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Secondary Procbased ctrls
-	 *
-	 * We want to be able to set the following, if available:
-	 * IA32_VMX_ENABLE_VPID - use VPIDs where available
-	 *
-	 * If we have EPT, we must be able to set the following:
-	 * IA32_VMX_ENABLE_EPT - enable EPT
-	 *
-	 * If we have unrestricted guest capability, we must be able to set
-	 * the following:
-	 * IA32_VMX_UNRESTRICTED_GUEST - enable unrestricted guest
-	 */
-	want1 = 0;
-
-	/* XXX checking for 2ndary controls can be combined here */
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
-	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
-		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
-		    IA32_VMX_ENABLE_VPID, 1))
-			want1 |= IA32_VMX_ENABLE_VPID;
-	}
-
-	if (vmm_softc->mode == VMM_MODE_EPT)
-		want1 |= IA32_VMX_ENABLE_EPT;
-
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
-	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
-		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
-		    IA32_VMX_UNRESTRICTED_GUEST, 1))
-			want1 |= IA32_VMX_UNRESTRICTED_GUEST;
-	}
-
-	want0 = ~want1;
-	ctrlval = vcpu->vc_vmx_procbased2_ctls;
-	ctrl = IA32_VMX_PROCBASED2_CTLS;
-
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &procbased2)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_PROCBASED2_CTLS, procbased2)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Exit ctrls
-	 *
-	 * We must be able to set the following:
-	 * IA32_VMX_HOST_SPACE_ADDRESS_SIZE - exit to long mode
-	 * IA32_VMX_ACKNOWLEDGE_INTERRUPT_ON_EXIT - ack interrupt on exit
-	 * XXX clear save_debug_ctrls on exit ?
-	 */
-	want1 = IA32_VMX_HOST_SPACE_ADDRESS_SIZE |
-	    IA32_VMX_ACKNOWLEDGE_INTERRUPT_ON_EXIT;
-	want0 = 0;
-
-	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
-		ctrl = IA32_VMX_TRUE_EXIT_CTLS;
-		ctrlval = vcpu->vc_vmx_true_exit_ctls;
-	} else {
-		ctrl = IA32_VMX_EXIT_CTLS;
-		ctrlval = vcpu->vc_vmx_exit_ctls;
-	}
-
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &exit)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_EXIT_CTLS, exit)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Entry ctrls
-	 *
-	 * We must be able to clear the following:
-	 * IA32_VMX_ENTRY_TO_SMM - enter to SMM
-	 * IA32_VMX_DEACTIVATE_DUAL_MONITOR_TREATMENT
-	 * XXX clear load debug_ctrls on entry ?
-	 */
-	want1 = 0;
-	want0 = IA32_VMX_ENTRY_TO_SMM |
-	    IA32_VMX_DEACTIVATE_DUAL_MONITOR_TREATMENT;
-
-	if (vcpu->vc_vmx_basic & IA32_VMX_TRUE_CTLS_AVAIL) {
-		ctrl = IA32_VMX_TRUE_ENTRY_CTLS;
-		ctrlval = vcpu->vc_vmx_true_entry_ctls;
-	} else {
-		ctrl = IA32_VMX_ENTRY_CTLS;
-		ctrlval = vcpu->vc_vmx_entry_ctls;
-	}
-
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &entry)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_ENTRY_CTLS, entry)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmm_softc->mode == VMM_MODE_EPT) {
-		eptp = vcpu->vc_parent->vm_map->pmap->pm_pdirpa;
-		msr = rdmsr(IA32_VMX_EPT_VPID_CAP);
-		if (msr & IA32_EPT_VPID_CAP_PAGE_WALK_4) {
-			/* Page walk length 4 supported */
-			eptp |= ((IA32_EPT_PAGE_WALK_LENGTH - 1) << 3);
-		}
-
-
-		if (msr & IA32_EPT_VPID_CAP_WB) {
-			/* WB cache type supported */
-			eptp |= IA32_EPT_PAGING_CACHE_TYPE_WB;
-		}
-
-		DPRINTF("guest eptp = 0x%llx\n", eptp);
-		if (vmwrite(VMCS_GUEST_IA32_EPTP, eptp)) {
-			ret = EINVAL;
-			goto exit;
-		}
-	}
-
-	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
-	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
-		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
-		    IA32_VMX_ENABLE_VPID, 1))
-			if (vmwrite(VMCS_GUEST_VPID,
-			    (uint16_t)vcpu->vc_parent->vm_id)) {
-				ret = EINVAL;
-				goto exit;
-			}
-	}
-
 	/* Initialize default register state */
-	if (vcpu_init_regs_vmx(vcpu)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/*
-	 * Select MSRs to be saved on exit
-	 */
-	msr_store = (struct vmx_msr_store *)vcpu->vc_vmx_msr_exit_save_va;
-	msr_store[0].vms_index = MSR_EFER;
-	msr_store[1].vms_index = MSR_CR_PAT;
-	msr_store[2].vms_index = MSR_STAR;
-	msr_store[3].vms_index = MSR_LSTAR;
-	msr_store[4].vms_index = MSR_CSTAR;
-	msr_store[5].vms_index = MSR_SFMASK;
-	msr_store[6].vms_index = MSR_KERNELGSBASE;
-
-	/*
-	 * Select MSRs to be loaded on exit
-	 */
-	msr_store = (struct vmx_msr_store *)vcpu->vc_vmx_msr_exit_load_va;
-	msr_store[0].vms_index = MSR_EFER;
-	msr_store[0].vms_data = rdmsr(MSR_EFER);
-	msr_store[1].vms_index = MSR_CR_PAT;
-	msr_store[1].vms_data = rdmsr(MSR_CR_PAT);
-	msr_store[2].vms_index = MSR_STAR;
-	msr_store[2].vms_data = rdmsr(MSR_STAR);
-	msr_store[3].vms_index = MSR_LSTAR;
-	msr_store[3].vms_data = rdmsr(MSR_LSTAR);
-	msr_store[4].vms_index = MSR_CSTAR;
-	msr_store[4].vms_data = rdmsr(MSR_CSTAR);
-	msr_store[5].vms_index = MSR_SFMASK;
-	msr_store[5].vms_data = rdmsr(MSR_SFMASK);
-	msr_store[6].vms_index = MSR_KERNELGSBASE;
-	msr_store[6].vms_data = rdmsr(MSR_KERNELGSBASE);
-
-	/*
-	 * Select MSRs to be loaded on entry
-	 */
-	msr_store = (struct vmx_msr_store *)vcpu->vc_vmx_msr_entry_load_va;
-	msr_store[0].vms_index = MSR_EFER;
-	msr_store[0].vms_data = 0ULL;		/* Initial value */
-	msr_store[1].vms_index = MSR_CR_PAT;
-	msr_store[1].vms_data = pat_default;	/* Initial value */
-	msr_store[2].vms_index = MSR_STAR;
-	msr_store[2].vms_data = 0ULL;		/* Initial value */
-	msr_store[3].vms_index = MSR_LSTAR;
-	msr_store[3].vms_data = 0ULL;		/* Initial value */
-	msr_store[4].vms_index = MSR_CSTAR;
-	msr_store[4].vms_data = 0ULL;		/* Initial value */
-	msr_store[5].vms_index = MSR_SFMASK;
-	msr_store[5].vms_data = 0ULL;		/* Initial value */
-	msr_store[6].vms_index = MSR_KERNELGSBASE;
-	msr_store[6].vms_data = 0ULL;		/* Initial value */
-
-	if (vmwrite(VMCS_EXIT_MSR_STORE_COUNT, 0x7)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_EXIT_MSR_LOAD_COUNT, 0x7)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_ENTRY_MSR_LOAD_COUNT, 0x7)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_EXIT_STORE_MSR_ADDRESS,
-	    vcpu->vc_vmx_msr_exit_save_pa)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_EXIT_LOAD_MSR_ADDRESS,
-	    vcpu->vc_vmx_msr_exit_load_pa)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_ENTRY_LOAD_MSR_ADDRESS,
-	    vcpu->vc_vmx_msr_exit_save_pa)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	if (vmwrite(VMCS_MSR_BITMAP_ADDRESS,
-	    vcpu->vc_msr_bitmap_pa)) {
-		ret = EINVAL;
-		goto exit;
-	}
-
-	/* XXX msr bitmap - set restrictions */
-	/* XXX CR0 shadow */
-	/* XXX CR4 shadow */
-
-	/* Flush content of VMCS to memory */
-	if (vmclear(&vcpu->vc_control_pa)) {
+	if (vcpu_reset_regs(vcpu)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -1826,6 +1896,36 @@ exit:
 			km_free((void *)vcpu->vc_vmx_msr_entry_load_va,
 			    PAGE_SIZE, &kv_page, &kp_zero);
 	}
+
+	return (ret);
+}
+
+/*
+ * vcpu_reset_regs
+ *
+ * Resets a vcpu's registers to factory power-on state
+ *
+ * Parameters:
+ *  vcpu: the vcpu whose registers shall be reset
+ *
+ * Return values:
+ *  0: the vcpu's registers were successfully reset
+ *  !0: the vcpu's registers could not be reset (see arch-specific reset
+ *      function for various values that can be returned here)
+ */
+int 
+vcpu_reset_regs(struct vcpu *vcpu)
+{
+	int ret;
+
+	if (vmm_softc->mode == VMM_MODE_VMX ||
+	    vmm_softc->mode == VMM_MODE_EPT)
+		ret = vcpu_reset_regs_vmx(vcpu);
+	else if (vmm_softc->mode == VMM_MODE_SVM ||
+		 vmm_softc->mode == VMM_MODE_RVI)
+		ret = vcpu_reset_regs_svm(vcpu);
+	else
+		panic("unknown vmm mode\n");
 
 	return (ret);
 }
@@ -2237,6 +2337,7 @@ vm_get_info(struct vm_info_params *vip)
 	vip->vip_info_ct = vmm_softc->vm_ct;
 	SLIST_FOREACH(vm, &vmm_softc->vm_list, vm_link) {
 		out[i].vir_memory_size = vm->vm_memory_size;
+		out[i].vir_used_size = vm->vm_used_size;
 		out[i].vir_ncpus = vm->vm_vcpu_ct;
 		out[i].vir_id = vm->vm_id;
 		out[i].vir_creator_pid = vm->vm_creator_pid;
@@ -2475,6 +2576,8 @@ vcpu_run_vmx(struct vcpu *vcpu, uint8_t from_exit, int16_t *injint)
 				break;
 			case VMX_EXIT_HLT:
 				break;
+			case VMX_EXIT_TRIPLE_FAULT:
+				break;
 			default:
 				printf("vmx_enter_guest: returning from exit "
 				    "with unknown reason %d\n",
@@ -2705,6 +2808,11 @@ vmx_handle_exit(struct vcpu *vcpu, int *result)
 		update_rip = 1;
 		handled = 0;
 		break;
+	case VMX_EXIT_TRIPLE_FAULT:
+		*result = EAGAIN;
+		update_rip = 0;
+		handled = 0;
+		break;
 	default:
 		DPRINTF("vmx_handle_exit: unhandled exit %lld (%s)\n",
 		    exit_reason, vmx_exit_reason_decode(exit_reason));
@@ -2851,6 +2959,7 @@ vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 					pmap_kremove(kva, PAGE_SIZE);
 					km_free((void *)kva, PAGE_SIZE, &kv_any,
 					    &kp_none);
+					vcpu->vc_parent->vm_used_size += PAGE_SIZE;
 				} else {
 					printf("vmx_fault_page: kva failure\n");
 					ret = ENOMEM;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_sh.c,v 1.55 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: c_sh.c,v 1.57 2015/12/14 13:59:42 tb Exp $	*/
 
 /*
  * built-in Bourne commands
@@ -9,7 +9,12 @@
 #include <sys/time.h>
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -327,7 +332,7 @@ c_read(char **wp)
 				if (c == '\0')
 					continue;
 				if (c == EOF && shf_error(shf) &&
-				    shf_errno(shf) == EINTR) {
+				    shf->errno_ == EINTR) {
 					/* Was the offending signal one that
 					 * would normally kill a process?
 					 * If so, pretend the read was killed.

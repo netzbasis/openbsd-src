@@ -1,12 +1,15 @@
-/*	$OpenBSD: lex.c,v 1.64 2015/11/18 15:31:21 nicm Exp $	*/
+/*	$OpenBSD: lex.c,v 1.66 2015/12/14 13:59:42 tb Exp $	*/
 
 /*
  * lexical analysis and source input
  */
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -1121,7 +1124,7 @@ getsc_line(Source *s)
 			char *p = shf_getse(xp, Xnleft(s->xs, xp), s->u.shf);
 
 			if (!p && shf_error(s->u.shf) &&
-			    shf_errno(s->u.shf) == EINTR) {
+			    s->u.shf->errno_ == EINTR) {
 				shf_clearerr(s->u.shf);
 				if (trap)
 					runtraps(0);
