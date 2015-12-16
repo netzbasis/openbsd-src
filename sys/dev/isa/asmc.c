@@ -1,4 +1,4 @@
-/*	$OpenBSD: asmc.c,v 1.17 2015/12/12 12:34:05 jung Exp $	*/
+/*	$OpenBSD: asmc.c,v 1.21 2015/12/15 20:58:22 jung Exp $	*/
 /*
  * Copyright (c) 2015 Joerg Jung <jung@openbsd.org>
  *
@@ -111,23 +111,23 @@ struct cfdriver asmc_cd = {
 
 static struct asmc_prod asmc_prods[] = {
 	{ "MacBookAir", {
-		"TB0T", "TB1S", "TB1T", "TB2S", "TB2T", "TC0C", "TC0D", "TC0E",
-		"TC0F", "TC0P", "TC1C", "TC1E", "TC2C", "TCFP", "TCGC", "TCSA",
-		"TCZ3", "TCZ4", "TCZ5", "TG0E", "TG1E", "TG2E", "TGZ3", "TGZ4",
-		"TGZ5", "THSP", "TM0P", "TN0D", "TPCD", "TTF0", "TV0P", "TVFP",
-		"TW0P", "Ta0P", "Th0H", "Th0P", "Th1H", "Tm0P", "Tm1P", "Tp0P",
-		"Tp1P", "TpFP", "Ts0P", "Ts0S", NULL }
+		"TB0T", "TB1S", "TB1T", "TB2S", "TB2T", "TBXT", "TC0C", "TC0D",
+		"TC0E", "TC0F", "TC0P", "TC1C", "TC1E", "TC2C", "TCFP", "TCGC",
+		"TCHP", "TCMX", "TCSA", "TCXC", "TCZ3", "TCZ4", "TCZ5", "TG0E",
+		"TG1E", "TG2E", "TGZ3", "TGZ4", "TGZ5", "TH0A", "TH0B", "TH0V",
+		"TH0a", "TH0b", "THSP", "TM0P", "TN0D", "TPCD", "TS2P", "TTF0",
+		"TV0P", "TVFP", "TW0P", "Ta0P", "Th0H", "Th0P", "Th1H", "Tm0P",
+		"Tm1P", "Tp0P", "Tp1P", "TpFP", "Ts0P", "Ts0S", NULL }
 	},
 	{ "MacBookPro", {
-		"TA0P", "TALP", "TB0T", "TB1T", "TB2T", "TB3T", "TBXT", "TC0C",
-		"TC0D", "TC0E", "TC0F", "TC0P", "TC1C", "TC2C", "TC3C", "TC4C",
-		"TCFC", "TCGC", "TCSA", "TCTD", "TCXC", "TG0D", "TG0F", "TG0H",
-		"TG0P", "TG0T", "TG1D", "TG1F", "TG1H", "TG1d", "TH0A", "TH0B",
-		"TH0F", "TH0R", "TH0V", "TH0a", "TH0b", "TH0c", "THSP", "TM0P",
-		"TM0S", "TMBS", "TMCD", "TN0D", "TN0P", "TN0S", "TN1D", "TN1F",
-		"TN1G", "TN1S", "TP0P", "TPCD", "TTF0", "TW0P", "Ta0P", "TaSP",
-		"Th0H", "Th1H", "Th2H", "Tm0P", "Ts0P", "Ts0S", "Ts1P", "Ts1S",
-		NULL }
+		"TA0P", "TA1P", "TALP", "TB0T", "TB1T", "TB2T", "TB3T", "TBXT",
+		"TC0C", "TC0D", "TC0E", "TC0F", "TC0P", "TC1C", "TC2C", "TC3C",
+		"TC4C", "TCGC", "TCSA", "TCXC", "TG0D", "TG0F", "TG0H", "TG0P",
+		"TG0T", "TG1D", "TG1F", "TG1H", "TG1d", "TH0A", "TH0B", "TH0F",
+		"TH0R", "TH0V", "TH0a", "TH0b", "TH0c", "TH0x", "THSP", "TM0P",
+		"TM0S", "TMCD", "TN0D", "TN0P", "TN0S", "TN1D", "TN1F", "TN1G",
+		"TN1S", "TP0P", "TPCD", "TTF0", "TW0P", "Ta0P", "TaSP", "Th0H",
+		"Th1H", "Th2H", "Tm0P", "Ts0P", "Ts0S", "Ts1P", "Ts1S", NULL }
 	},
 	{ "MacBook", {
 		"TB0T", "TB1T", "TB2T", "TB3T", "TC0D", "TC0P", "TM0P", "TN0D",
@@ -555,11 +555,14 @@ static int
 asmc_temp(struct asmc_softc *sc, uint8_t idx)
 {
 	uint8_t buf[2];
+	uint32_t uk;
 	int i, r;
 
 	if ((r = asmc_try(sc, ASMC_READ, sc->sc_prod->pr_temp[idx], buf, 2)))
 		return r;
-	sc->sc_sensor_temp[idx].value = asmc_uk(buf);
+	if ((uk = asmc_uk(buf)) < 253150000) /* ignore unlikely values */
+		return 0;
+	sc->sc_sensor_temp[idx].value = uk;
 	sc->sc_sensor_temp[idx].flags &= ~SENSOR_FUNKNOWN;
 
 	if (sc->sc_init)
@@ -585,7 +588,7 @@ static int
 asmc_fan(struct asmc_softc *sc, uint8_t idx)
 {
 	char key[5];
-	uint8_t buf[16], *end;
+	uint8_t buf[17], *end;
 	int r;
 
 	snprintf(key, sizeof(key), "F%dAc", idx);
@@ -600,6 +603,7 @@ asmc_fan(struct asmc_softc *sc, uint8_t idx)
 	snprintf(key, sizeof(key), "F%dID", idx);
 	if ((r = asmc_try(sc, ASMC_READ, key, buf, 16)))
 		return r;
+	buf[16] = '\0';
 	end = buf + 4 + strlen((char *)buf + 4) - 1;
 	while (buf + 4 < end && *end == ' ') /* trim trailing spaces */
 		*end-- = '\0';
