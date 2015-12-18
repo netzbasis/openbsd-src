@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.67 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.69 2015/12/17 17:00:48 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -506,6 +506,10 @@ sys_kevent(struct proc *p, void *v, register_t *retval)
 		    n * sizeof(struct kevent));
 		if (error)
 			goto done;
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrevent(p, kq->kq_kev, n);
+#endif
 		for (i = 0; i < n; i++) {
 			kevp = &kq->kq_kev[i];
 			kevp->flags &= ~EV_SYSFLAGS;
@@ -793,7 +797,11 @@ start:
 		count--;
 		if (nkev == KQ_NEVENTS) {
 			splx(s);
-			error = copyout(&kq->kq_kev, ulistp,
+#ifdef KTRACE
+			if (KTRPOINT(p, KTR_STRUCT))
+				ktrevent(p, kq->kq_kev, nkev);
+#endif
+			error = copyout(kq->kq_kev, ulistp,
 			    sizeof(struct kevent) * nkev);
 			ulistp += nkev;
 			nkev = 0;
@@ -806,9 +814,14 @@ start:
 	TAILQ_REMOVE(&kq->kq_head, &marker, kn_tqe);
 	splx(s);
 done:
-	if (nkev != 0)
-		error = copyout(&kq->kq_kev, ulistp,
+	if (nkev != 0) {
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_STRUCT))
+			ktrevent(p, kq->kq_kev, nkev);
+#endif
+		error = copyout(kq->kq_kev, ulistp,
 		    sizeof(struct kevent) * nkev);
+	}
 	*retval = maxevents - count;
 	return (error);
 }
