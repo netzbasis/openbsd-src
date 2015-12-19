@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.75 2015/02/10 04:20:26 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.77 2015/12/19 01:09:10 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -363,8 +363,6 @@ priv_delete_address(struct imsg_delete_address *imsg)
 		if (errno != EADDRNOTAVAIL)
 			warning("SIOCDIFADDR failed (%s): %s",
 			    inet_ntoa(imsg->addr), strerror(errno));
-		close(s);
-		return;
 	}
 
 	close(s);
@@ -404,8 +402,9 @@ priv_set_interface_mtu(struct imsg_set_interface_mtu *imsg)
 
 	if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 		error("socket open failed: %s", strerror(errno));
-	if (ioctl(s, SIOCSIFMTU, &ifr) < 0)
-		warning("SIOCSIFMTU failed (%d): %s", imsg->mtu, strerror(errno));
+	if (ioctl(s, SIOCSIFMTU, &ifr) == -1)
+		warning("SIOCSIFMTU failed (%d): %s", imsg->mtu,
+		    strerror(errno));
 	close(s);
 }
 
