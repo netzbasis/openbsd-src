@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.38 2015/11/15 06:18:19 guenther Exp $	*/
+/*	$OpenBSD: server.c,v 1.40 2015/12/22 08:48:39 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -517,12 +517,12 @@ docmdspecial(void)
 		case RC_FILE:
 			if (env == NULL) {
 				len = (2 * sizeof(E_FILES)) + strlen(cp) + 10;
-				env = (char *) xmalloc(len);
+				env = xmalloc(len);
 				(void) snprintf(env, len, "export %s;%s=%s", 
 					       E_FILES, E_FILES, cp);
 			} else {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ":", len);
 				(void) strlcat(env, cp, len);
 			}
@@ -532,7 +532,7 @@ docmdspecial(void)
 		case RC_COMMAND:
 			if (env) {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ";", len);
 				(void) strlcat(env, cp, len);
 				cmd = env;
