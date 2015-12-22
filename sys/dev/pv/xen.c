@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.15 2015/12/19 09:11:14 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.18 2015/12/21 19:43:16 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -329,11 +329,11 @@ xen_getversion(struct xen_softc *sc)
 	int argc = 2;
 
 	memset(buf, 0, sizeof(buf));
-	if ((version = xen_hypercall(sc, xen_version, 1, XENVER_version)) < 0) {
+	if ((version = xen_hypercall(sc, XC_VERSION, 1, XENVER_version)) < 0) {
 		printf("%s: failed to fetch version\n", sc->sc_dev.dv_xname);
 		return (-1);
 	}
-	if (xen_hypercallv(sc, xen_version, argc, argv) < 0) {
+	if (xen_hypercallv(sc, XC_VERSION, argc, argv) < 0) {
 		printf("%s: failed to fetch extended version\n",
 		    sc->sc_dev.dv_xname);
 		return (-1);
@@ -351,7 +351,7 @@ xen_getfeatures(struct xen_softc *sc)
 	int argc = 2;
 
 	memset(&xfi, 0, sizeof(xfi));
-	if (xen_hypercallv(sc, xen_version, argc, argv) < 0) {
+	if (xen_hypercallv(sc, XC_VERSION, argc, argv) < 0) {
 		printf("%s: failed to fetch features\n", sc->sc_dev.dv_xname);
 		return (-1);
 	}
@@ -429,7 +429,7 @@ xen_init_info_page(struct xen_softc *sc)
 	xatp.idx = 0;
 	xatp.space = XENMAPSPACE_shared_info;
 	xatp.gpfn = atop(pa);
-	if (xen_hypercall(sc, memory_op, 2, XENMEM_add_to_physmap, &xatp)) {
+	if (xen_hypercall(sc, XC_MEMORY, 2, XENMEM_add_to_physmap, &xatp)) {
 		printf("%s: failed to register shared info page\n",
 		    sc->sc_dev.dv_xname);
 		free(sc->sc_ipg, M_DEVBUF, PAGE_SIZE);
@@ -451,7 +451,7 @@ xen_init_cbvec(struct xen_softc *sc)
 	xhp.domid = DOMID_SELF;
 	xhp.index = HVM_PARAM_CALLBACK_IRQ;
 	xhp.value = HVM_CALLBACK_VECTOR(LAPIC_XEN_VECTOR);
-	if (xen_hypercall(sc, hvm_op, 2, HVMOP_set_param, &xhp)) {
+	if (xen_hypercall(sc, XC_HVM, 2, HVMOP_set_param, &xhp)) {
 		/* Will retry with the xspd(4) PCI interrupt */
 		return (ENOENT);
 	}
@@ -552,7 +552,7 @@ xen_intr_signal(xen_intr_handle_t xih)
 
 	if ((xi = xen_lookup_intsrc(sc, (evtchn_port_t)xih)) != NULL) {
 		es.port = xi->xi_port;
-		xen_hypercall(sc, event_channel_op, 2, EVTCHNOP_send, &es);
+		xen_hypercall(sc, XC_EVTCHN, 2, EVTCHNOP_send, &es);
 	}
 }
 
@@ -563,16 +563,15 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
 	struct xen_softc *sc = xen_sc;
 	struct xen_intsrc *xi;
 	struct evtchn_alloc_unbound eau;
-	struct evtchn_unmask eu;
 #if notyet
 	struct evtchn_bind_vcpu ebv;
 #endif
-#ifdef XEN_DEBUG
+#if defined(XEN_DEBUG) && disabled
 	struct evtchn_status es;
 #endif
 
 	if (port && xen_lookup_intsrc(sc, port)) {
-		printf("%s: interrupt handler has already been established "
+		DPRINTF("%s: interrupt handler has already been established "
 		    "for port %u\n", sc->sc_dev.dv_xname, port);
 		return (-1);
 	}
@@ -589,7 +588,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
 		/* We're being asked to allocate a new event port */
 		memset(&eau, 0, sizeof(eau));
 		eau.dom = DOMID_SELF;
-		if (xen_hypercall(sc, event_channel_op, 2,
+		if (xen_hypercall(sc, XC_EVTCHN, 2,
 		    EVTCHNOP_alloc_unbound, &eau) != 0) {
 			DPRINTF("%s: failed to allocate new event port\n",
 			    sc->sc_dev.dv_xname);
@@ -611,7 +610,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
 	memset(&ebv, 0, sizeof(ebv));
 	ebv.port = xi->xi_port;
 	ebv.vcpu = 0;
-	if (xen_hypercall(sc, event_channel_op, 2, EVTCHNOP_bind_vcpu, &ebv)) {
+	if (xen_hypercall(sc, XC_EVTCHN, 2, EVTCHNOP_bind_vcpu, &ebv)) {
 		printf("%s: failed to bind interrupt on port %u to vcpu%d\n",
 		    sc->sc_dev.dv_xname, ebv.port, ebv.vcpu);
 	}
@@ -621,19 +620,14 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
 
 	SLIST_INSERT_HEAD(&sc->sc_intrs, xi, xi_entry);
 
-	if (!cold) {
-		eu.port = xi->xi_port;
-		if (xen_hypercall(sc, event_channel_op, 2, EVTCHNOP_unmask,
-		    &eu) || isset(sc->sc_ipg->evtchn_mask, xi->xi_port))
-			printf("%s: unmasking port %u failed\n",
-			    sc->sc_dev.dv_xname, xi->xi_port);
-	}
+	/* Mask the event port */
+	setbit((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port);
 
-#ifdef XEN_DEBUG
+#if defined(XEN_DEBUG) && disabled
 	memset(&es, 0, sizeof(es));
 	es.dom = DOMID_SELF;
 	es.port = xi->xi_port;
-	if (xen_hypercall(sc, event_channel_op, 2, EVTCHNOP_status, &es)) {
+	if (xen_hypercall(sc, XC_EVTCHN, 2, EVTCHNOP_status, &es)) {
 		printf("%s: failed to obtain status for port %d\n",
 		    sc->sc_dev.dv_xname, es.port);
 	}
@@ -676,7 +670,7 @@ xen_intr_disestablish(xen_intr_handle_t xih)
 
 	if (!xi->xi_noclose) {
 		ec.port = xi->xi_port;
-		if (xen_hypercall(sc, event_channel_op, 2, EVTCHNOP_close,
+		if (xen_hypercall(sc, XC_EVTCHN, 2, EVTCHNOP_close,
 		    &ec)) {
 			DPRINTF("%s: failed to close event port %u\n",
 			    sc->sc_dev.dv_xname, xi->xi_port);
@@ -697,13 +691,45 @@ xen_intr_enable(void)
 	SLIST_FOREACH(xi, &sc->sc_intrs, xi_entry) {
 		if (!xi->xi_masked) {
 			eu.port = xi->xi_port;
-			if (xen_hypercall(sc, event_channel_op, 2,
+			if (xen_hypercall(sc, XC_EVTCHN, 2,
 			    EVTCHNOP_unmask, &eu) ||
 			    isset(sc->sc_ipg->evtchn_mask, xi->xi_port))
 				printf("%s: unmasking port %u failed\n",
 				    sc->sc_dev.dv_xname, xi->xi_port);
 		}
 	}
+}
+
+void
+xen_intr_mask(xen_intr_handle_t xih)
+{
+	struct xen_softc *sc = xen_sc;
+	evtchn_port_t port = (evtchn_port_t)xih;
+	struct xen_intsrc *xi;
+
+	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
+		xi->xi_masked = 1;
+		setbit((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port);
+		membar_producer();
+	}
+}
+
+int
+xen_intr_unmask(xen_intr_handle_t xih)
+{
+	struct xen_softc *sc = xen_sc;
+	evtchn_port_t port = (evtchn_port_t)xih;
+	struct xen_intsrc *xi;
+	struct evtchn_unmask eu;
+
+	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
+		xi->xi_masked = 0;
+		if (!isset(sc->sc_ipg->evtchn_mask, xi->xi_port))
+			return (0);
+		eu.port = xi->xi_port;
+		return (xen_hypercall(sc, XC_EVTCHN, 2, EVTCHNOP_unmask, &eu));
+	}
+	return (0);
 }
 
 static int
