@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.9 2015/12/21 18:17:36 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.11 2015/12/22 22:19:46 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -23,6 +23,8 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/mutex.h>
+
+#include <machine/bus.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -697,6 +699,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		ov_cnt++;
 		break;
 	case XS_TCLOSE:
+	case XS_RM:
 	case XS_WRITE:
 		mode = WRITE;
 		/* FALLTHROUGH */
@@ -717,7 +720,6 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 			ov[ov_cnt].iov_base = (*iov)[i].iov_base;
 			ov[ov_cnt].iov_len = (*iov)[i].iov_len;
 		}
-		KASSERT(ov_cnt < nitems(ov));
 	}
 
 	xsm = xs_get_msg(xs, !(xst->xst_flags & XST_POLL));
@@ -830,12 +832,16 @@ xs_setprop(struct xen_attach_args *xa, const char *property, char *value,
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
-	iov.iov_base = value;
-	iov.iov_len = size;
-	iov_cnt = 1;
+	if (value && size > 0) {
+		iov.iov_base = value;
+		iov.iov_len = size;
+		iov_cnt = 1;
 
-	snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
-	if ((error = xs_cmd(&xst, XS_WRITE, path, &iovp, &iov_cnt)) != 0)
-		return (error);
-	return (0);
+		snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
+		error = xs_cmd(&xst, XS_WRITE, path, &iovp, &iov_cnt);
+	} else {
+		snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
+		error = xs_cmd(&xst, XS_RM, path, NULL, NULL);
+	}
+	return (error);
 }
