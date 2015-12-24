@@ -1,4 +1,4 @@
-#	$OpenBSD: install.sub,v 1.862 2015/12/18 16:20:58 rpe Exp $
+#	$OpenBSD: install.sub,v 1.866 2015/12/23 18:06:32 rpe Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -55,9 +55,9 @@
 
 # OpenBSD install/upgrade script common subroutines and initialization code
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Misc functions
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 usage() {
 	echo "usage: ${0##*/} [-a] [-f filename]" >&2
@@ -80,9 +80,9 @@ waitcgiinfo() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Utils functions
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Sort and print provided arguments.
 bsort() {
@@ -199,9 +199,9 @@ tmpdir() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Device related functions
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Show device name, label and size for the provided list of devices.
 diskinfo() {
@@ -241,6 +241,15 @@ get_dkdevs () {
 # Return list of CDROM devices.
 get_cddevs () {
 	echo $(scan_disknames "${MDCDDEVS:-/^cd[0-9][0-9]* /s/ .*//p}")
+}
+
+# Return list of disks not yet initialized.
+get_dkdevs_uninitialized() {
+	local _disks=$(get_dkdevs) _d
+	for _d in $DISKS_DONE; do
+		_disks=$(rmel "$_d" $_disks)
+	done
+	bsort $_disks
 }
 
 # Return list of network devices. Filter out dynamically created network
@@ -352,9 +361,9 @@ disklabel_autolayout() {
 	done
 }
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Functions for the dmesg listener
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Acquire lock.
 lock() {
@@ -373,9 +382,9 @@ retrap() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Functions to ask (or auto-answer) questions
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Fetch response file for autoinstall.
 get_responsefile() {
@@ -656,9 +665,9 @@ askpassword() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Support functions for donetconfig()
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Run dhclient, making sure there is a free bpf first.
 dhclient() {
@@ -1045,23 +1054,22 @@ configure_ifs() {
 
 # Set up IPv4 default route.
 v4_defroute() {
-	local _dr _prompt=" or 'none'"
+	local _dr
 
-	# Get/Confirm an IPv4 default route if an IPv4 address was configured.
+	# Only configure a default route if an IPv4 address was configured.
 	[[ -n $(ifconfig | sed -n '/[ 	]inet .* broadcast /p') ]] || return
 
-	# If only one interface, and it is running dhclient, ask nothing.
-	[[ -f /tmp/dhclient.conf && $NIFS == 1 ]] && return
+	# Check routing table to see if a default route ($1) already exists
+	# and if it is handled by dhclient ($2).
+	set -- $(route -nv show -inet | { set -- $(grep '^default '); print $2 $9; })
+	[[ -n $1 ]] && _dr=$1
 
-	[[ -x /sbin/dhclient ]] && _prompt=", 'dhcp'$_prompt"
-	_prompt="Default IPv4 route? (IPv4 address$_prompt)"
-
-	_dr=$(route -n show -inet | sed -n '/^default */{s///; s/ .*//; p;}')
-	[[ -f /tmp/dhclient.conf ]] && _dr=dhcp
+	# Don't ask if a default route exits and is handled by dhclient.
+	[[ -n $_dr && $2 == DHCLIENT && -f /tmp/dhclient.conf ]] && return
 
 	while :; do
-		ask_until "$_prompt" "$_dr"
-		[[ $resp == @(none|dhcp) ]] && break
+		ask_until "Default IPv4 route? (IPv4 address or none)" "$_dr"
+		[[ $resp == none ]] && break
 		route delete -inet default >/dev/null 2>&1
 		route -n add -inet -host default "$resp" && { echo "$resp" >>/tmp/mygate; break; }
 		# Put the old default route back. The new one did not work.
@@ -1082,9 +1090,9 @@ get_fqdn() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Support functions for install_sets()
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Check that missing required sets were deliberately skipped.
 # Care is taken to make sure the return value is correct.
@@ -1496,9 +1504,9 @@ mount_mnt2() {
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # Functions used in install.sh/upgrade.sh and it's associates
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Ask for terminal type if on console, otherwise ask for/set keyboard layout.
 set_term() {
@@ -1545,23 +1553,27 @@ donetconfig() {
 		done </tmp/resolv.conf
 	fi
 
-	# Get & apply fully qualified domain name to hostname.
+	# Get & apply fqdn to hostname. Don't ask if there's only one configured
+	# interface and if it's managed by dhclient and if the domain name is 
+	# configured via dhclient too.
 	resp="${_dn:=$(get_fqdn)}"
-	if [[ ! -f /tmp/dhclient.conf || $NIFS != 1 ]]; then
-		ask "DNS domain name? (e.g. 'bar.com')" "$resp"
-	else
+	if ifconfig dhcp >/dev/null 2>&1 && [[ $NIFS == 1 && -n $_dn ]]; then
 		echo "Using DNS domainname $resp"
+	else
+		ask "DNS domain name? (e.g. 'bar.com')" "$resp"
 	fi
 	hostname "$(hostname -s).$resp"
 
-	# If only one interface, and it is running dhclient, ask nothing
-	# else Get/Confirm nameservers.
+	# Get & add nameservers to /tmp/resolv.conf. Don't ask if there's only
+	# one configured interface and if it's managed by dhclient and if the
+	# nameserver is configured via dhclient too.
 	resp="${_ns:=none}"
-	if [[ ! -f /tmp/dhclient.conf || $NIFS != 1 || $resp == none ]]; then
-		ask "DNS nameservers? (IP address list or 'none')" "$resp"
-	else
+	if ifconfig dhcp >/dev/null 2>&1 && [[ $NIFS == 1 && -n $_ns ]]; then
 		echo "Using DNS nameservers at $resp"
+	else
+		ask "DNS nameservers? (IP address list or 'none')" "$resp"
 	fi
+
 	# Construct appropriate resolv.conf.
 	if [[ $resp != none ]]; then
 		echo "lookup file bind" >/tmp/resolv.conf
@@ -2251,7 +2263,7 @@ __EOT
 }
 
 
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 #
 # Initial actions common to both installs and upgrades.
 #
@@ -2259,7 +2271,7 @@ __EOT
 # call functions defined above, so it's safest to put this
 # code here rather than at the top of the file.
 #
-#-------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # Parse parameters.
 AUTO=false
