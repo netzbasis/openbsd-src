@@ -1,4 +1,4 @@
-/*	$OpenBSD: efidev.c,v 1.11 2015/11/29 15:35:41 krw Exp $	*/
+/*	$OpenBSD: efidev.c,v 1.14 2015/12/24 21:37:25 krw Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -63,7 +63,7 @@ static EFI_STATUS
 static int	 efid_diskio(int, struct diskinfo *, u_int, int, void *);
 static u_int	 findopenbsd(efi_diskinfo_t, const char **);
 static uint64_t	 findopenbsd_gpt(efi_diskinfo_t, const char **);
-static int	 gpt_chk_mbr(struct dos_partition *, efi_diskinfo_t);
+static int	 gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 void
 efid_init(struct diskinfo *dip, void *handle)
@@ -170,11 +170,10 @@ efid_diskio(int rw, struct diskinfo *dip, u_int off, int nsect, void *buf)
  *
  * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
  */
-int
-gpt_chk_mbr(struct dos_partition *dp, efi_diskinfo_t ed)
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 {
 	struct dos_partition *dp2;
-	EFI_LBA dsize;
 	int efi, found, i;
 	u_int32_t psize;
 
@@ -185,7 +184,6 @@ gpt_chk_mbr(struct dos_partition *dp, efi_diskinfo_t ed)
 		found++;
 		if (dp2->dp_typ != DOSPTYP_EFI)
 			continue;
-		dsize = ed->blkio->Media->LastBlock + 1;
 		psize = letoh32(dp2->dp_size);
 		if (psize == (dsize - 1) ||
 		    psize == UINT32_MAX) {
@@ -234,7 +232,8 @@ again:
 	}
 
 	/* check for GPT protective MBR. */
-	if (mbroff == DOSBBSECTOR && gpt_chk_mbr(mbr.dmbr_parts, ed) == 0) {
+	if (mbroff == DOSBBSECTOR && gpt_chk_mbr(mbr.dmbr_parts,
+	    ed->blkio->Media->LastBlock + 1) == 0) {
 		gptoff = findopenbsd_gpt(ed, err);
 		if (gptoff > UINT_MAX || EFI_SECTOBLK(ed, gptoff) > UINT_MAX) {
 			*err = "Paritition LBA > 2**32";
@@ -357,7 +356,7 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 	gh.gh_csum = orig_csum;
 	if (letoh32(orig_csum) != new_csum) {
 		*err = "bad GPT header checksum\n";
-		return (1);
+		return (-1);
 	}
 
 	lba = letoh64(gh.gh_part_lba);

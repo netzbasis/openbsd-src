@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.26 2015/12/17 09:29:28 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.28 2015/12/24 09:40:27 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -394,6 +394,12 @@ vm_readpage(struct vm_readpage_params *vrp)
 		return (ENOENT);
 	}
 
+	/* Check that the data to be read is within a page */
+	if (vrp->vrp_len > (PAGE_SIZE - (vrp->vrp_paddr & PAGE_MASK))) {
+		rw_exit_read(&vmm_softc->vm_lock);
+		return (EINVAL);
+	}
+
 	/* Calculate page containing vrp->vrp_paddr */
 	vr_page = vrp->vrp_paddr & ~PAGE_MASK;
 
@@ -525,6 +531,12 @@ vm_writepage(struct vm_writepage_params *vwp)
 	if (vm == NULL) {
 		rw_exit_read(&vmm_softc->vm_lock);
 		return (ENOENT);
+	}
+
+	/* Check that the data to be written is within a page */
+	if (vwp->vwp_len > (PAGE_SIZE - (vwp->vwp_paddr & PAGE_MASK))) {
+		rw_exit_read(&vmm_softc->vm_lock);
+		return (EINVAL);
 	}
 
 	/* Calculate page containing vwp->vwp_paddr */
@@ -2751,7 +2763,7 @@ vmx_handle_hlt(struct vcpu *vcpu)
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("vmx_handle_hlt: can't obtain instruction length\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	vcpu->vc_gueststate.vg_rip += insn_length;
@@ -3022,12 +3034,12 @@ vmx_handle_inout(struct vcpu *vcpu)
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("vmx_handle_inout: can't obtain instruction length\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	if (vmx_get_exit_qualification(&exit_qual)) {
 		printf("vmx_handle_inout: can't get exit qual\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	/* Bits 0:2 - size of exit */
@@ -3096,12 +3108,12 @@ vmx_handle_cr(struct vcpu *vcpu)
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("vmx_handle_cr: can't obtain instruction length\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	if (vmx_get_exit_qualification(&exit_qual)) {
 		printf("vmx_handle_cr: can't get exit qual\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	/* Low 4 bits of exit_qual represent the CR number */
@@ -3149,7 +3161,7 @@ vmx_handle_cpuid(struct vcpu *vcpu)
 
 	if (vmread(VMCS_INSTRUCTION_LENGTH, &insn_length)) {
 		printf("vmx_handle_cpuid: can't obtain instruction length\n");
-		return (1);
+		return (EINVAL);
 	}
 
 	/* All CPUID instructions are 0x0F 0xA2 */

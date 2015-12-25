@@ -1,4 +1,4 @@
-/*	$OpenBSD: softraid.c,v 1.17 2015/12/23 15:22:48 krw Exp $	*/
+/*	$OpenBSD: softraid.c,v 1.21 2015/12/24 21:37:25 krw Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Sing <jsing@openbsd.org>
@@ -45,6 +45,8 @@ struct sr_boot_keydisk {
 };
 SLIST_HEAD(sr_boot_keydisk_head, sr_boot_keydisk);
 struct sr_boot_keydisk_head sr_keydisks;
+
+static int gpt_chk_mbr(struct dos_partition *dp, u_int64_t);
 
 void
 srprobe_meta_opt_load(struct sr_metadata *sm, struct sr_meta_opt_head *som)
@@ -405,12 +407,11 @@ sr_strategy(struct sr_boot_volume *bv, int rw, daddr32_t blk, size_t size,
  *
  * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
  */
-int
-gpt_chk_mbr(struct dos_partition *dp, struct disklabel *dl)
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 {
 	struct dos_partition *dp2;
 	int efi, found, i;
-	u_int64_t dsize;
 	u_int32_t psize;
 
 	found = efi = 0;
@@ -420,7 +421,6 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *dl)
 		found++;
 		if (dp2->dp_typ != DOSPTYP_EFI)
 			continue;
-		dsize = DL_GETDSIZE(dl);
 		psize = letoh32(dp2->dp_size);
 		if (psize == (dsize - 1) ||
 		    psize == UINT32_MAX) {
@@ -485,7 +485,7 @@ findopenbsd_gpt(struct sr_boot_volume *bv)
 	new_csum = crc32(0, (unsigned char *)&gh, ghsize);
 	gh.gh_csum = orig_csum;
 	if (letoh32(orig_csum) != new_csum)
-		return (1);
+		return (-1);
 
 	lba = letoh64(gh.gh_part_lba);
 	ghpartsize = letoh32(gh.gh_part_size);
@@ -522,7 +522,7 @@ sr_getdisklabel(struct sr_boot_volume *bv, struct disklabel *label)
 	/* Check for MBR to determine partition offset. */
 	bzero(&mbr, sizeof(mbr));
 	sr_strategy(bv, F_READ, DOSBBSECTOR, sizeof(mbr), &mbr, NULL);
-	if (gpt_chk_mbr(mbr.dmbr_parts, label) == 0) {
+	if (gpt_chk_mbr(mbr.dmbr_parts, bv->sbv_size) == 0) {
 		start = findopenbsd_gpt(bv);
 	} else if (mbr.dmbr_sign == DOSMBR_SIGNATURE) {
 

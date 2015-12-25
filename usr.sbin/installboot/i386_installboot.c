@@ -1,4 +1,4 @@
-/*	$OpenBSD: i386_installboot.c,v 1.22 2015/12/20 18:04:34 rpe Exp $	*/
+/*	$OpenBSD: i386_installboot.c,v 1.25 2015/12/24 20:14:07 krw Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*
@@ -90,6 +90,7 @@ static void	devread(int, void *, daddr_t, size_t, char *);
 static u_int	findopenbsd(int, struct disklabel *);
 static int	getbootparams(char *, int, struct disklabel *);
 static char	*loadproto(char *, long *);
+static int	gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 /*
  * Read information about /boot's inode and filesystem parameters, then
@@ -454,11 +455,10 @@ again:
  *
  * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
  */
-int
-gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 {
 	struct dos_partition *dp2;
-	u_int64_t dsize;
 	int efi, found, i;
 	u_int32_t psize;
 
@@ -469,7 +469,6 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 		found++;
 		if (dp2->dp_typ != DOSPTYP_EFI)
 			continue;
-		dsize = DL_GETDSIZE(lp);
 		psize = letoh32(dp2->dp_size);
 		if (psize == (dsize - 1) ||
 		    psize == UINT32_MAX) {
@@ -480,7 +479,7 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 	if (found == 1 && efi == 1)
 		return (0);
 
-	return (EINVAL);
+	return (1);
 }
 
 int
@@ -510,7 +509,7 @@ findgptefisys(int devfd, struct disklabel *dl)
 	if (len != dl->d_secsize)
 		err(4, "can't read mbr");
 	memcpy(dp, &secbuf[DOSPARTOFF], sizeof(dp));
-	if (gpt_chk_mbr(dp, dl)) {
+	if (gpt_chk_mbr(dp, DL_GETDSIZE(dl))) {
 		free(secbuf);
 		return (-1);
 	}
