@@ -1,4 +1,4 @@
-/*	$OpenBSD: hub.h,v 1.8 2015/12/12 16:48:19 visa Exp $	*/
+/*	$OpenBSD: hub.h,v 1.10 2015/12/25 09:22:00 visa Exp $	*/
 
 /*
  * Copyright (c) 2009 Miodrag Vallat.
@@ -105,6 +105,8 @@
 #define	HUBPI_CPU1_IMR0			0x000000b8
 #define	HUBPI_CPU1_IMR1			0x000000c0
 
+#define	HUBPI_RT_COUNT			0x00030100
+
 /*
  * Offset to use to access the second PI over the remote hub interface
  * on IP35.
@@ -145,8 +147,10 @@
 /* 35-0 available */
 
 /** Level 0 interrupt */
-/* 63-9 available */
+/* 63-11 available */
 /* IPI interrupts */
+#define	HUBPI_ISR0_IPI_D		10
+#define	HUBPI_ISR0_IPI_C		9
 #define	HUBPI_ISR0_IPI_B		8
 #define	HUBPI_ISR0_IPI_A		7
 /* ? */
@@ -164,7 +168,7 @@
 #define	HUBPI_INTR1_WIDGET_MAX		35
 #define	HUBPI_INTR1_WIDGET_MIN		0
 #define	HUBPI_INTR0_WIDGET_MAX		63
-#define	HUBPI_INTR0_WIDGET_MIN		9
+#define	HUBPI_INTR0_WIDGET_MIN		11
 
 #define	HUBPI_NINTS			64	/* per register */
 
