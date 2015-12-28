@@ -1,4 +1,4 @@
-/*	$OpenBSD: asmc.c,v 1.22 2015/12/22 19:04:42 kettenis Exp $	*/
+/*	$OpenBSD: asmc.c,v 1.28 2015/12/27 20:54:53 jung Exp $	*/
 /*
  * Copyright (c) 2015 Joerg Jung <jung@openbsd.org>
  *
@@ -16,7 +16,7 @@
  */
 
 /*
- * Driver for Apple's System Management Controller (SMC)
+ * Driver for Apple's System Management Controller (SMC) an H8S/2117 chip
  */
 
 #include <sys/param.h>
@@ -69,15 +69,11 @@ struct asmc_softc {
 	bus_space_handle_t	 sc_ioh;
 
 	struct asmc_prod	*sc_prod;
-	uint8_t			 sc_init;	/* initialization done? */
 	uint8_t			 sc_nfans;	/* number of fans */
 	uint8_t			 sc_lightlen;	/* light data len */
-	uint8_t			 sc_kbdled;	/* backlight led value */
+	uint8_t			 sc_backlight;	/* keyboard backlight value */
 
 	struct rwlock		 sc_lock;
-	struct taskq		*sc_taskq;
-	struct task		 sc_task_init;
-	struct task		 sc_task_refresh;
 	struct task		 sc_task_backlight;
 
 	struct ksensor		 sc_sensor_temp[ASMC_MAXTEMP];
@@ -89,9 +85,7 @@ struct asmc_softc {
 };
 
 int	asmc_try(struct asmc_softc *, int, const char *, uint8_t *, uint8_t);
-
-void	asmc_init(void *);
-void	asmc_refresh(void *);
+void	asmc_init(struct asmc_softc *);
 void	asmc_update(void *);
 
 int	asmc_match(struct device *, void *, void *);
@@ -99,7 +93,7 @@ void	asmc_attach(struct device *, struct device *, void *);
 int 	asmc_detach(struct device *, int);
 
 /* wskbd hook functions */
-void	asmc_kbdled(void *);
+void	asmc_backlight(void *);
 int	asmc_get_backlight(struct wskbd_backlight *);
 int	asmc_set_backlight(struct wskbd_backlight *);
 extern int (*wskbd_get_backlight)(struct wskbd_backlight *);
@@ -298,7 +292,7 @@ asmc_attach(struct device *parent, struct device *self, void *aux)
 	    (ntohl(*(uint32_t *)buf) == 1) ? "" : "s");
 
 	/* keyboard backlight led is optional */
-	sc->sc_kbdled = buf[0] = 127, buf[1] = 0;
+	sc->sc_backlight = buf[0] = 127, buf[1] = 0;
 	if ((r = asmc_try(sc, ASMC_WRITE, "LKSB", buf, 2))) {
 		if (r != ASMC_NOTFOUND)
 			printf("%s: keyboard backlight failed (0x%x)\n",
@@ -307,53 +301,41 @@ asmc_attach(struct device *parent, struct device *self, void *aux)
 		wskbd_get_backlight = asmc_get_backlight;
 		wskbd_set_backlight = asmc_set_backlight;
 	}
-
-	if (!(sc->sc_taskq = taskq_create("asmc", 1, IPL_NONE, 0))) {
-		printf("%s: can't create task queue\n", sc->sc_dev.dv_xname);
-		bus_space_unmap(ia->ia_iot, ia->ia_iobase, ASMC_IOSIZE);
-		return;
-	}
-	task_set(&sc->sc_task_init, asmc_init, sc);
-	task_set(&sc->sc_task_refresh, asmc_refresh, sc);
-	task_set(&sc->sc_task_backlight, asmc_kbdled, sc);
+	task_set(&sc->sc_task_backlight, asmc_backlight, sc);
 
 	strlcpy(sc->sc_sensor_dev.xname, sc->sc_dev.dv_xname,
 	    sizeof(sc->sc_sensor_dev.xname));
 	for (i = 0; i < ASMC_MAXTEMP; i++) {
-		sc->sc_sensor_temp[i].type = SENSOR_TEMP;
 		sc->sc_sensor_temp[i].flags |= SENSOR_FINVALID;
 		sc->sc_sensor_temp[i].flags |= SENSOR_FUNKNOWN;
 	}
 	for (i = 0; i < ASMC_MAXFAN; i++) {
-		sc->sc_sensor_fan[i].type = SENSOR_FANRPM;
 		sc->sc_sensor_fan[i].flags |= SENSOR_FINVALID;
 		sc->sc_sensor_fan[i].flags |= SENSOR_FUNKNOWN;
 	}
 	for (i = 0; i < ASMC_MAXLIGHT; i++) {
-		sc->sc_sensor_light[i].type = SENSOR_LUX;
 		sc->sc_sensor_light[i].flags |= SENSOR_FINVALID;
 		sc->sc_sensor_light[i].flags |= SENSOR_FUNKNOWN;
 	}
 	for (i = 0; i < ASMC_MAXMOTION; i++) {
-		sc->sc_sensor_motion[i].type = SENSOR_ACCEL;
 		sc->sc_sensor_motion[i].flags |= SENSOR_FINVALID;
 		sc->sc_sensor_motion[i].flags |= SENSOR_FUNKNOWN;
 	}
+	asmc_init(sc);
+
 	if (!(sc->sc_sensor_task = sensor_task_register(sc, asmc_update, 5))) {
 		printf("%s: unable to register task\n", sc->sc_dev.dv_xname);
-		taskq_destroy(sc->sc_taskq);
 		bus_space_unmap(ia->ia_iot, ia->ia_iobase, ASMC_IOSIZE);
 		return;
 	}
 	sensordev_install(&sc->sc_sensor_dev);
-	task_add(sc->sc_taskq, &sc->sc_task_init);
 }
 
 int
 asmc_detach(struct device *self, int flags)
 {
 	struct asmc_softc *sc = (struct asmc_softc *)self;
-	uint8_t buf[2] = { (sc->sc_kbdled = 0), 0 };
+	uint8_t buf[2] = { (sc->sc_backlight = 0), 0 };
 	int i;
 
 	if (sc->sc_sensor_task) {
@@ -371,21 +353,15 @@ asmc_detach(struct device *self, int flags)
 		sensor_detach(&sc->sc_sensor_dev, &sc->sc_sensor_temp[i]);
 
 	task_del(systq, &sc->sc_task_backlight);
-	if (sc->sc_taskq) {
-		task_del(sc->sc_taskq, &sc->sc_task_refresh);
-		task_del(sc->sc_taskq, &sc->sc_task_init);
-		taskq_destroy(sc->sc_taskq);
-	}
-
 	asmc_try(sc, ASMC_WRITE, "LKSB", buf, 2);
 	return 0;
 }
 
 void
-asmc_kbdled(void *arg)
+asmc_backlight(void *arg)
 {
 	struct asmc_softc *sc = arg;
-	uint8_t buf[2] = { sc->sc_kbdled, 0 };
+	uint8_t buf[2] = { sc->sc_backlight, 0 };
 	int r;
 
 	if ((r = asmc_try(sc, ASMC_WRITE, "LKSB", buf, 2)))
@@ -396,36 +372,24 @@ asmc_kbdled(void *arg)
 int
 asmc_get_backlight(struct wskbd_backlight *kbl)
 {
-	struct asmc_softc *sc = NULL;
-	int i;
+	struct asmc_softc *sc = asmc_cd.cd_devs[0];
 
-	for (i = 0; i < asmc_cd.cd_ndevs && !sc; i++)
-		if (asmc_cd.cd_devs[i])
-			sc = (struct asmc_softc *)asmc_cd.cd_devs[i];
-	if (!sc)
-		return -1;
-
+	KASSERT(sc != NULL);
 	kbl->min = 0;
 	kbl->max = 0xff;
-	kbl->curval = sc->sc_kbdled;
+	kbl->curval = sc->sc_backlight;
 	return 0;
 }
 
 int
 asmc_set_backlight(struct wskbd_backlight *kbl)
 {
-	struct asmc_softc *sc = NULL;
-	int i;
+	struct asmc_softc *sc = asmc_cd.cd_devs[0];
 
-	for (i = 0; i < asmc_cd.cd_ndevs && !sc; i++)
-		if (asmc_cd.cd_devs[i])
-			sc = (struct asmc_softc *)asmc_cd.cd_devs[i];
-	if (!sc)
-		return -1;
-
+	KASSERT(sc != NULL);
 	if (kbl->curval > 0xff)
 		return EINVAL;
-	sc->sc_kbdled = kbl->curval;
+	sc->sc_backlight = kbl->curval;
 	task_add(systq, &sc->sc_task_backlight);
 	return 0;
 }
@@ -437,49 +401,35 @@ asmc_status(struct asmc_softc *sc)
 }
 
 static int
-asmc_write(struct asmc_softc *sc, uint8_t off, uint8_t val)
+asmc_wait(struct asmc_softc *sc, uint8_t mask, uint8_t val)
 {
-	uint8_t str;
 	int i;
 
-	for (i = 500; i > 0; i--) {
-		str = bus_space_read_1(sc->sc_iot, sc->sc_ioh, ASMC_COMMAND);
-		if ((str & ASMC_IBF) == 0)
-			break;
+	for (i = 0; i < 500; i++) { /* wait up to 5 ms */
+		if ((bus_space_read_1(sc->sc_iot, sc->sc_ioh, ASMC_COMMAND) &
+		    mask) == val)
+			return 0;
 		delay(10);
 	}
-	if (i == 0)
-		return ETIMEDOUT;
+	return ETIMEDOUT;
+}
 
+static int
+asmc_write(struct asmc_softc *sc, uint8_t off, uint8_t val)
+{
+	if (asmc_wait(sc, ASMC_IBF, 0))
+		return 1;
 	bus_space_write_1(sc->sc_iot, sc->sc_ioh, off, val);
-
-	for (i = 500; i > 0; i--) {
-		str = bus_space_read_1(sc->sc_iot, sc->sc_ioh, ASMC_COMMAND);
-		if (str & ASMC_ACCEPT)
-			break;
-		delay(10);
-	}
-	if (i == 0)
-		return ETIMEDOUT;
-
+	if (asmc_wait(sc, ASMC_ACCEPT, ASMC_ACCEPT))
+		return 1;
 	return 0;
 }
 
 static int
 asmc_read(struct asmc_softc *sc, uint8_t off, uint8_t *buf)
 {
-	uint8_t str;
-	int i;
-
-	for (i = 500; i > 0; i--) {
-		str = bus_space_read_1(sc->sc_iot, sc->sc_ioh, ASMC_COMMAND);
-		if (str & ASMC_OBF)
-			break;
-		delay(10);
-	}
-	if (i == 0)
-		return ETIMEDOUT;
-
+	if (asmc_wait(sc, ASMC_OBF, ASMC_OBF))
+		return 1;
 	*buf = bus_space_read_1(sc->sc_iot, sc->sc_ioh, off);
 	return 0;
 }
@@ -561,7 +511,7 @@ asmc_lux(uint8_t *buf, uint8_t lightlen)
 }
 
 static int
-asmc_temp(struct asmc_softc *sc, uint8_t idx)
+asmc_temp(struct asmc_softc *sc, uint8_t idx, int init)
 {
 	uint8_t buf[2];
 	uint32_t uk;
@@ -574,7 +524,7 @@ asmc_temp(struct asmc_softc *sc, uint8_t idx)
 	sc->sc_sensor_temp[idx].value = uk;
 	sc->sc_sensor_temp[idx].flags &= ~SENSOR_FUNKNOWN;
 
-	if (sc->sc_init)
+	if (!init)
 		return 0;
 
 	strlcpy(sc->sc_sensor_temp[idx].desc, sc->sc_prod->pr_temp[idx],
@@ -588,13 +538,14 @@ asmc_temp(struct asmc_softc *sc, uint8_t idx)
 		strlcat(sc->sc_sensor_temp[idx].desc, asmc_temp_desc[i][1],
 		    sizeof(sc->sc_sensor_temp[idx].desc));
 	}
+	sc->sc_sensor_temp[idx].type = SENSOR_TEMP;
 	sc->sc_sensor_temp[idx].flags &= ~SENSOR_FINVALID;
 	sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_temp[idx]);
 	return 0;
 }
 
 static int
-asmc_fan(struct asmc_softc *sc, uint8_t idx)
+asmc_fan(struct asmc_softc *sc, uint8_t idx, int init)
 {
 	char key[5];
 	uint8_t buf[17], *end;
@@ -606,7 +557,7 @@ asmc_fan(struct asmc_softc *sc, uint8_t idx)
 	sc->sc_sensor_fan[idx].value = asmc_rpm(buf);
 	sc->sc_sensor_fan[idx].flags &= ~SENSOR_FUNKNOWN;
 
-	if (sc->sc_init)
+	if (!init)
 		return 0;
 
 	snprintf(key, sizeof(key), "F%dID", idx);
@@ -624,13 +575,14 @@ asmc_fan(struct asmc_softc *sc, uint8_t idx)
 		strlcat(sc->sc_sensor_fan[idx].desc, asmc_fan_loc[buf[2]],
 		    sizeof(sc->sc_sensor_fan[idx].desc));
 	}
+	sc->sc_sensor_fan[idx].type = SENSOR_FANRPM;
 	sc->sc_sensor_fan[idx].flags &= ~SENSOR_FINVALID;
 	sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_fan[idx]);
 	return 0;
 }
 
 static int
-asmc_light(struct asmc_softc *sc, uint8_t idx)
+asmc_light(struct asmc_softc *sc, uint8_t idx, int init)
 {
 	char key[5];
 	uint8_t buf[10];
@@ -650,11 +602,12 @@ asmc_light(struct asmc_softc *sc, uint8_t idx)
 	sc->sc_sensor_light[idx].value = asmc_lux(buf, sc->sc_lightlen);
 	sc->sc_sensor_light[idx].flags &= ~SENSOR_FUNKNOWN;
 
-	if (sc->sc_init)
+	if (!init)
 		return 0;
 
 	strlcpy(sc->sc_sensor_light[idx].desc, asmc_light_desc[idx],
 	    sizeof(sc->sc_sensor_light[idx].desc));
+	sc->sc_sensor_light[idx].type = SENSOR_LUX;
 	sc->sc_sensor_light[idx].flags &= ~SENSOR_FINVALID;
 	sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_light[idx]);
 	return 0;
@@ -662,7 +615,7 @@ asmc_light(struct asmc_softc *sc, uint8_t idx)
 
 #if 0 /* todo: implement motion sensors update and initialization */
 static int
-asmc_motion(struct asmc_softc *sc, uint8_t idx)
+asmc_motion(struct asmc_softc *sc, uint8_t idx, int init)
 {
 	char key[5];
 	uint8_t buf[2];
@@ -674,7 +627,7 @@ asmc_motion(struct asmc_softc *sc, uint8_t idx)
 	sc->sc_sensor_motion[idx].value = 0;
 	sc->sc_sensor_motion[idx].flags &= ~SENSOR_FUNKNOWN;
 
-	if (sc->sc_init)
+	if (!init)
 		return 0;
 
 	/* todo: setup and attach sensors and description */
@@ -682,6 +635,7 @@ asmc_motion(struct asmc_softc *sc, uint8_t idx)
 	    sizeof(sc->sc_sensor_motion[idx].desc));
 	strlcat(sc->sc_sensor_motion[idx].desc, "-axis",
 	    sizeof(sc->sc_sensor_motion[idx].desc));
+	sc->sc_sensor_motion[idx].type = SENSOR_ACCEL;
 	sc->sc_sensor_motion[idx].flags &= ~SENSOR_FINVALID;
 	sensor_attach(&sc->sc_sensor_dev, &sc->sc_sensor_motion[idx]);
 	return 0;
@@ -689,15 +643,14 @@ asmc_motion(struct asmc_softc *sc, uint8_t idx)
 #endif
 
 void
-asmc_init(void *arg)
+asmc_init(struct asmc_softc *sc)
 {
-	struct asmc_softc *sc = arg;
 	uint8_t buf[2];
 	int i, r;
 
 	/* number of temperature sensors depends on product */
 	for (i = 0; sc->sc_prod->pr_temp[i] && i < ASMC_MAXTEMP; i++)
-		if ((r = asmc_temp(sc, i)) && r != ASMC_NOTFOUND)
+		if ((r = asmc_temp(sc, i, 1)) && r != ASMC_NOTFOUND)
 			printf("%s: read temp %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);
 	/* number of fan sensors depends on product */
@@ -707,12 +660,12 @@ asmc_init(void *arg)
 	else
 		sc->sc_nfans = buf[0];
 	for (i = 0; i < sc->sc_nfans && i < ASMC_MAXFAN; i++)
-		if ((r = asmc_fan(sc, i)) && r != ASMC_NOTFOUND)
+		if ((r = asmc_fan(sc, i, 1)) && r != ASMC_NOTFOUND)
 			printf("%s: read fan %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);
 	/* left and right light sensors are optional */
 	for (i = 0; i < ASMC_MAXLIGHT; i++)
-		if ((r = asmc_light(sc, i)) && r != ASMC_NOTFOUND)
+		if ((r = asmc_light(sc, i, 1)) && r != ASMC_NOTFOUND)
 			printf("%s: read light %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);
 	/* motion sensors are optional */
@@ -726,32 +679,9 @@ asmc_init(void *arg)
 		printf("%s write MOCN failed (0x%x)\n",
 		    sc->sc_dev.dv_xname, r);
 	for (i = 0; i < ASMC_MAXMOTION; i++)
-		if ((r = asmc_motion(sc, i)) && r != ASMC_NOTFOUND)
+		if ((r = asmc_motion(sc, i, 1)) && r != ASMC_NOTFOUND)
 			printf("%s: read motion %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);
-#endif
-	sc->sc_init = 1;
-}
-
-void
-asmc_refresh(void *arg)
-{
-	struct asmc_softc *sc = arg;
-	int i;
-
-	for (i = 0; sc->sc_prod->pr_temp[i] && i < ASMC_MAXTEMP; i++)
-		if (!(sc->sc_sensor_temp[i].flags & SENSOR_FINVALID))
-			asmc_temp(sc, i);
-	for (i = 0; i < sc->sc_nfans && i < ASMC_MAXFAN; i++)
-		if (!(sc->sc_sensor_fan[i].flags & SENSOR_FINVALID))
-			asmc_fan(sc, i);
-	for (i = 0; i < ASMC_MAXLIGHT; i++)
-		if (!(sc->sc_sensor_light[i].flags & SENSOR_FINVALID))
-			asmc_light(sc, i);
-#if 0
-	for (i = 0; i < ASMC_MAXMOTION; i++)
-		if (!(sc->sc_sensor_motion[i].flags & SENSOR_FINVALID))
-			asmc_motion(sc, i);
 #endif
 }
 
@@ -759,7 +689,20 @@ void
 asmc_update(void *arg)
 {
 	struct asmc_softc *sc = arg;
+	int i;
 
-	if (sc->sc_init)
-		task_add(sc->sc_taskq, &sc->sc_task_refresh);
+	for (i = 0; sc->sc_prod->pr_temp[i] && i < ASMC_MAXTEMP; i++)
+		if (!(sc->sc_sensor_temp[i].flags & SENSOR_FINVALID))
+			asmc_temp(sc, i, 0);
+	for (i = 0; i < sc->sc_nfans && i < ASMC_MAXFAN; i++)
+		if (!(sc->sc_sensor_fan[i].flags & SENSOR_FINVALID))
+			asmc_fan(sc, i, 0);
+	for (i = 0; i < ASMC_MAXLIGHT; i++)
+		if (!(sc->sc_sensor_light[i].flags & SENSOR_FINVALID))
+			asmc_light(sc, i, 0);
+#if 0
+	for (i = 0; i < ASMC_MAXMOTION; i++)
+		if (!(sc->sc_sensor_motion[i].flags & SENSOR_FINVALID))
+			asmc_motion(sc, i, 0);
+#endif
 }
