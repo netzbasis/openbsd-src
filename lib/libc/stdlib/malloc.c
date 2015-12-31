@@ -1,4 +1,4 @@
-/*	$OpenBSD: malloc.c,v 1.177 2015/12/09 02:45:23 tedu Exp $	*/
+/*	$OpenBSD: malloc.c,v 1.179 2015/12/30 06:04:39 tedu Exp $	*/
 /*
  * Copyright (c) 2008, 2010, 2011 Otto Moerbeek <otto@drijf.net>
  * Copyright (c) 2012 Matthew Dempsky <matthew@openbsd.org>
@@ -1225,8 +1225,10 @@ validate_junk(void *p) {
 	if (p == NULL)
 		return;
 	r = find(pool, p);
-	if (r == NULL)
+	if (r == NULL) {
 		wrterror("bogus pointer in validate_junk", p);
+		return;
+	}
 	REALSIZE(sz, r);
 	if (sz > 0 && sz <= MALLOC_MAXCHUNK)
 		sz -= mopts.malloc_canaries;
@@ -1917,8 +1919,10 @@ malloc_dump(int fd)
 		if (p == NULL)
 			continue;
 		r = find(pool, p);
-		if (r == NULL)
+		if (r == NULL) {
 			wrterror("bogus pointer in malloc_dump", p);
+			continue;
+		}
 		free_bytes(pool, r, p);
 		pool->delayed_chunks[i] = NULL;
 	}
