@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.4 2015/12/03 08:42:11 reyk Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.6 2016/01/04 02:07:28 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -185,7 +185,7 @@ viornd_notifyq(void)
 		return (0);
 	}
 
-	bzero(buf, vr_sz);
+	memset(buf, 0, vr_sz);
 
 	for (i = 0; i < vr_sz; i += VIRTIO_PAGE_SIZE) {
 		if (read_page((uint32_t)q_gpa + i, buf + i, PAGE_SIZE, 0)) {
@@ -400,7 +400,7 @@ vioblk_notifyq(struct vioblk_dev *dev)
 		return (0);
 	}
 
-	bzero(vr, vr_sz);
+	memset(vr, 0, vr_sz);
 
 	for (i = 0; i < vr_sz; i += VIRTIO_PAGE_SIZE) {
 		if (read_page((uint32_t)q_gpa + i, vr + i, PAGE_SIZE, 0)) {
@@ -847,7 +847,7 @@ vionet_enq_rx(struct vionet_dev *dev, char *pkt, ssize_t sz, int *spc)
 		return (0);
 	}
 
-	bzero(vr, vr_sz);
+	memset(vr, 0, vr_sz);
 
 	for (i = 0; i < vr_sz; i += VIRTIO_PAGE_SIZE) {
 		if (read_page((uint32_t)q_gpa + i, vr + i, PAGE_SIZE, 0)) {
@@ -927,8 +927,8 @@ vionet_process_rx(void)
 
 		spc = 1;
 		hasdata = 1;
-		bzero(buf, PAGE_SIZE);
-		bzero(&pfd, sizeof(struct pollfd));
+		memset(buf, 0, PAGE_SIZE);
+		memset(&pfd, 0, sizeof(struct pollfd));
 		pfd.fd = vionet[i].fd;
 		pfd.events = POLLIN;
 		while (spc && hasdata) {
@@ -976,7 +976,7 @@ vionet_notify_rx(struct vionet_dev *dev)
 		return;
 	}
 
-	bzero(vr, vr_sz);
+	memset(vr, 0, vr_sz);
 
 	for (i = 0; i < vr_sz; i += VIRTIO_PAGE_SIZE) {
 		if (read_page((uint32_t)q_gpa + i, vr + i, PAGE_SIZE, 0)) {
@@ -1005,7 +1005,6 @@ vionet_notify_rx(struct vionet_dev *dev)
 
 
 /*
- * XXX this function needs a cleanup block, lots of free(blah); return (0)
  * XXX cant trust ring data from VM, be extra cautious.
  * XXX advertise link status to guest
  */
@@ -1022,12 +1021,13 @@ vionet_notifyq(struct vionet_dev *dev)
 	struct vring_avail *avail;
 	struct vring_used *used;
 
+	vr = pkt = NULL;
 	ret = 0;
 
 	/* Invalid queue? */
 	if (dev->cfg.queue_notify != 1) {
 		vionet_notify_rx(dev);
-		return (0);
+		goto out;
 	}
 
 	vr_sz = vring_size(VIONET_QUEUE_SIZE);
@@ -1037,17 +1037,16 @@ vionet_notifyq(struct vionet_dev *dev)
 	vr = malloc(vr_sz);
 	if (vr == NULL) {
 		log_warn("malloc error getting vionet ring");
-		return (0);
+		goto out;
 	}
 
-	bzero(vr, vr_sz);
+	memset(vr, 0, vr_sz);
 
 	for (i = 0; i < vr_sz; i += VIRTIO_PAGE_SIZE) {
 		if (read_page((uint32_t)q_gpa + i, vr + i, PAGE_SIZE, 0)) {
 			log_warnx("error reading gpa 0x%x",
 			    (uint32_t)q_gpa + i);
-			free(vr);
-			return (0);
+			goto out;
 		}
 	}
 
@@ -1064,12 +1063,10 @@ vionet_notifyq(struct vionet_dev *dev)
 
 	if ((avail->idx & VIONET_QUEUE_MASK) == idx) {
 		log_warnx("vionet tx queue notify - nothing to do?");
-		free(vr);
-		return (0);
+		goto out;
 	}
 
 	while ((avail->idx & VIONET_QUEUE_MASK) != idx) {
-
 		hdr_desc_idx = avail->ring[idx] & VIONET_QUEUE_MASK;
 		hdr_desc = &desc[hdr_desc_idx];
 		pktsz = 0;
@@ -1093,8 +1090,7 @@ vionet_notifyq(struct vionet_dev *dev)
 		pkt = malloc(pktsz);
 		if (pkt == NULL) {
 			log_warn("malloc error alloc packet buf");
-			free(vr);
-			return (0);
+			goto out;
 		}
 
 		ofs = 0;
@@ -1104,10 +1100,9 @@ vionet_notifyq(struct vionet_dev *dev)
 		while (pkt_desc->flags & VRING_DESC_F_NEXT) {
 			/* must be not writable */
 			if (pkt_desc->flags & VRING_DESC_F_WRITE) {
-				log_warnx("unexpceted writable tx desc "
+				log_warnx("unexpected writable tx desc "
 				    "%d", pkt_desc_idx);
-				free(vr);
-				return (0);
+				goto out;
 			}
 
 			/* Read packet from descriptor ring */
@@ -1115,9 +1110,7 @@ vionet_notifyq(struct vionet_dev *dev)
 			    pkt_desc->len, 0)) {
 				log_warnx("vionet: packet read_page error "
 				    "@ 0x%llx", pkt_desc->addr);
-				free(pkt);
-				free(vr);
-				return (0);
+				goto out;
 			}
 
 			ofs += pkt_desc->len;
@@ -1127,10 +1120,9 @@ vionet_notifyq(struct vionet_dev *dev)
 
 		/* Now handle tail descriptor - must be not writable */
 		if (pkt_desc->flags & VRING_DESC_F_WRITE) {
-			log_warnx("unexpceted writable tx descriptor %d",
+			log_warnx("unexpected writable tx descriptor %d",
 			    pkt_desc_idx);
-			free(vr);
-			return (0);
+			goto out;
 		}
 
 		/* Read packet from descriptor ring */
@@ -1138,18 +1130,14 @@ vionet_notifyq(struct vionet_dev *dev)
 		    pkt_desc->len, 0)) {
 			log_warnx("vionet: packet read_page error @ "
 			    "0x%llx", pkt_desc->addr);
-			free(pkt);
-			free(vr);
-			return (0);
+			goto out;
 		}
 
 		/* XXX signed vs unsigned here, funky cast */
 		if (write(dev->fd, pkt, pktsz) != (int)pktsz) {
 			log_warnx("vionet: tx failed writing to tap: "
 			    "%d", errno);
-			free(pkt);
-			free(vr);
-			return (0);
+			goto out;
 		}
 
 		ret = 1;
@@ -1170,6 +1158,7 @@ vionet_notifyq(struct vionet_dev *dev)
 		log_warnx("vionet: tx error writing vio ring");
 	}
 
+out:
 	free(vr);
 	free(pkt);
 
@@ -1200,7 +1189,7 @@ virtio_init(struct vm_create_params *vcp, int *child_disks, int *child_taps)
 		return;
 	}
 
-	bzero(&viornd, sizeof(viornd));
+	memset(&viornd, 0, sizeof(viornd));
 	viornd.vq[0].qs = VIORND_QUEUE_SIZE;
 	viornd.vq[0].vq_availoffset = sizeof(struct vring_desc) *
 	    VIORND_QUEUE_SIZE;
@@ -1216,7 +1205,7 @@ virtio_init(struct vm_create_params *vcp, int *child_disks, int *child_taps)
 		return;
 	}
 
-	bzero(vioblk, sizeof(struct vioblk_dev) * vcp->vcp_ndisks);
+	memset(vioblk, 0, sizeof(struct vioblk_dev) * vcp->vcp_ndisks);
 
 	/* One virtio block device for each disk defined in vcp */
 	for (i = 0; i < vcp->vcp_ndisks; i++) {
@@ -1256,7 +1245,7 @@ virtio_init(struct vm_create_params *vcp, int *child_disks, int *child_taps)
 		return;
 	}
 
-	bzero(vionet, sizeof(struct vionet_dev) * vcp->vcp_nnics);
+	memset(vionet, 0, sizeof(struct vionet_dev) * vcp->vcp_nnics);
 
 	nr_vionet = vcp->vcp_nnics;
 	/* Virtio network */
