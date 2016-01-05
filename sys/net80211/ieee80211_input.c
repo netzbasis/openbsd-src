@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.145 2015/12/12 13:56:10 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.149 2016/01/04 13:29:31 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -210,8 +210,7 @@ ieee80211_input_print(struct ieee80211com *ic,  struct ifnet *ifp,
 	    "%s: received %s from %s rssi %d mode %s\n", ifp->if_xname,
 	    ieee80211_mgt_subtype_name[subtype >> IEEE80211_FC0_SUBTYPE_SHIFT],
 	    ether_sprintf(wh->i_addr2), rxi->rxi_rssi,
-	    ieee80211_phymode_name[ieee80211_chan2mode(
-	        ic, ic->ic_bss->ni_chan)]);
+	    ieee80211_phymode_name[ic->ic_curmode]);
 
 	task_set(&msg->task, ieee80211_input_print_task, msg);
 	task_add(systq, &msg->task);
@@ -2250,24 +2249,17 @@ ieee80211_recv_assoc_resp(struct ieee80211com *ic, struct mbuf *m,
 	ieee80211_ht_negotiate(ic, ni);
 
 	/* Hop into 11n mode after associating to an HT AP in a non-11n mode. */
-	if (ic->ic_curmode != IEEE80211_MODE_AUTO &&
-	    ic->ic_curmode != IEEE80211_MODE_11N &&
-	    (ni->ni_flags & IEEE80211_NODE_HT))
+	if (ni->ni_flags & IEEE80211_NODE_HT)
 		ieee80211_setmode(ic, IEEE80211_MODE_11N);
-
-	/* Hop out of 11n mode after associating to a non-HT AP. */
-	if (ic->ic_curmode == IEEE80211_MODE_11N &&
-	    (ni->ni_flags & IEEE80211_NODE_HT) == 0) {
-		if (IEEE80211_IS_CHAN_T(ni->ni_chan))
-			ieee80211_setmode(ic, IEEE80211_MODE_TURBO);
-		else if (IEEE80211_IS_CHAN_A(ni->ni_chan))
-			ieee80211_setmode(ic, IEEE80211_MODE_11A);
-		else if (IEEE80211_IS_CHAN_G(ni->ni_chan))
-			ieee80211_setmode(ic, IEEE80211_MODE_11G);
-		else
-			ieee80211_setmode(ic, IEEE80211_MODE_11B);
-	}
+	else
 #endif
+		ieee80211_setmode(ic, ieee80211_chan2mode(ic, ni->ni_chan));
+	/*
+	 * Reset the erp state (mostly the slot time) now that
+	 * our operating mode has been nailed down.
+	 */
+	ieee80211_reset_erp(ic);
+
 	/*
 	 * Configure state now that we are associated.
 	 */
@@ -2428,8 +2420,10 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 
 	token = frm[2];
 	params = LE_READ_2(&frm[3]);
-	tid = (params >> 2) & 0xf;
-	bufsz = (params >> 6) & 0x3ff;
+	tid = ((params & IEEE80211_ADDBA_TID_MASK) >>
+	    IEEE80211_ADDBA_TID_SHIFT);
+	bufsz = (params & IEEE80211_ADDBA_BUFSZ_MASK) >>
+	    IEEE80211_ADDBA_BUFSZ_SHIFT;
 	timeout = LE_READ_2(&frm[5]);
 	ssn = LE_READ_2(&frm[7]) >> 4;
 
@@ -2467,7 +2461,7 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 	}
 	/* check that we support the requested Block Ack Policy */
 	if (!(ic->ic_htcaps & IEEE80211_HTCAP_DELAYEDBA) &&
-	    !(params & IEEE80211_BA_ACK_POLICY)) {
+	    !(params & IEEE80211_ADDBA_BA_POLICY)) {
 		status = IEEE80211_STATUS_INVALID_PARAM;
 		goto resp;
 	}

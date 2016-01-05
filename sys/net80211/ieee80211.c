@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211.c,v 1.53 2015/12/18 07:42:24 stsp Exp $	*/
+/*	$OpenBSD: ieee80211.c,v 1.55 2016/01/04 12:25:46 stsp Exp $	*/
 /*	$NetBSD: ieee80211.c,v 1.19 2004/06/06 05:45:29 dyoung Exp $	*/
 
 /*-
@@ -875,6 +875,14 @@ ieee80211_next_mode(struct ifnet *ifp)
 		/* Wrap around and ignore turbo mode */
 		if (ic->ic_curmode == IEEE80211_MODE_TURBO)
 			continue;
+#ifndef IEEE80211_NO_HT
+		/* 
+		 * Skip over 11n mode. Its set of channels is the superset
+		 * of all channels supported by the other modes.
+		 */
+		if (ic->ic_curmode == IEEE80211_MODE_11N)
+			continue;
+#endif
 		if (ic->ic_curmode >= IEEE80211_MODE_MAX) {
 			ic->ic_curmode = IEEE80211_MODE_AUTO;
 			break;
@@ -894,6 +902,10 @@ ieee80211_next_mode(struct ifnet *ifp)
  * caller can select a rate set.  This is problematic and the
  * work here assumes how things work elsewhere in this code.
  *
+ * Because the result of this function is ultimately used to select a
+ * rate from the rate set of the returned mode, it must not return
+ * IEEE80211_MODE_11N, which uses MCS instead of rates for unicast frames.
+ *
  * XXX never returns turbo modes -dcy
  */
 enum ieee80211_phymode
@@ -904,19 +916,15 @@ ieee80211_chan2mode(struct ieee80211com *ic,
 	 * NB: this assumes the channel would not be supplied to us
 	 *     unless it was already compatible with the current mode.
 	 */
-	if (ic->ic_curmode != IEEE80211_MODE_AUTO ||
-	    chan == IEEE80211_CHAN_ANYC)
+	if (ic->ic_curmode != IEEE80211_MODE_11N &&
+	    (ic->ic_curmode != IEEE80211_MODE_AUTO ||
+	    chan == IEEE80211_CHAN_ANYC))
 		return ic->ic_curmode;
 	/*
-	 * In autoselect mode; deduce a mode based on the channel
+	 * In autoselect or 11n mode; deduce a mode based on the channel
 	 * characteristics.  We assume that turbo-only channels
 	 * are not considered when the channel set is constructed.
 	 */
-#ifndef IEEE80211_NO_HT
-	if (IEEE80211_IS_CHAN_N(chan))
-		return IEEE80211_MODE_11N;
-	else
-#endif
 	if (IEEE80211_IS_CHAN_T(chan))
 		return IEEE80211_MODE_TURBO;
 	else if (IEEE80211_IS_CHAN_5GHZ(chan))
