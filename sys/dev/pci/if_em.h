@@ -32,7 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
 ***************************************************************************/
 
 /* $FreeBSD: if_em.h,v 1.26 2004/09/01 23:22:41 pdeuskar Exp $ */
-/* $OpenBSD: if_em.h,v 1.61 2015/11/24 17:11:39 mpi Exp $ */
+/* $OpenBSD: if_em.h,v 1.65 2016/01/07 04:37:53 dlg Exp $ */
 
 #ifndef _EM_H_DEFINED_
 #define _EM_H_DEFINED_
@@ -49,6 +49,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <sys/device.h>
 #include <sys/socket.h>
 #include <sys/timeout.h>
+#include <sys/atomic.h>
 
 #include <net/if.h>
 #include <net/if_media.h>
@@ -181,10 +182,9 @@ typedef int	boolean_t;
 #define EM_TX_TIMEOUT			5	/* set to 5 seconds */
 
 /*
- * These parameters control when the driver calls the routine to reclaim
- * transmit descriptors.
+ * Thise parameter controls the minimum number of available transmit
+ * descriptors needed before we attempt transmission of a packet.
  */
-#define EM_TX_CLEANUP_THRESHOLD		(sc->num_tx_desc / 8)
 #define EM_TX_OP_THRESHOLD		(sc->num_tx_desc / 32)
 
 /*
@@ -310,8 +310,8 @@ typedef struct _DESCRIPTOR_PAIR
 
 /* Our adapter structure */
 struct em_softc {
-	struct device	sc_dv;
-	struct arpcom	interface_data;
+	struct device	sc_dev;
+	struct arpcom	sc_ac;
 	struct em_hw	hw;
 
 	/* OpenBSD operating-system-specific structures */
@@ -350,8 +350,8 @@ struct em_softc {
 	struct em_tx_desc	*tx_desc_base;
 	u_int32_t		next_avail_tx_desc;
 	u_int32_t		next_tx_to_clean;
-	volatile u_int16_t	num_tx_desc_avail;
-	u_int16_t		num_tx_desc;
+	volatile u_int32_t	num_tx_desc_avail;
+	u_int32_t		num_tx_desc;
 	u_int32_t		txd_cmd;
 	struct em_buffer	*tx_buffer_area;
 	bus_dma_tag_t		txtag;		/* dma tag for tx */
@@ -411,5 +411,7 @@ struct em_softc {
 	boolean_t	pcix_82544;
 	struct em_hw_stats stats;
 };
+
+#define DEVNAME(_sc) ((_sc)->sc_dev.dv_xname)
 
 #endif /* _EM_H_DEFINED_ */

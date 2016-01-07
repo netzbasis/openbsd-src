@@ -1,11 +1,20 @@
-/*	$OpenBSD: fight.c,v 1.11 2014/07/12 03:41:04 deraadt Exp $	*/
+/*	$OpenBSD: fight.c,v 1.13 2016/01/06 14:28:09 mestre Exp $	*/
 /*	$NetBSD: fight.c,v 1.2 1995/03/24 03:58:39 cgd Exp $	*/
 
 /*
  * fight.c   Phantasia monster fighting routines
  */
 
-#include "include.h"
+#include <curses.h>
+#include <math.h>
+#include <setjmp.h>
+#include <string.h>
+
+#include "macros.h"
+#include "phantdefs.h"
+#include "phantglobs.h"
+
+static jmp_buf Fightenv;	/* used to jump into fight routine */
 
 /************************************************************************
 /
@@ -38,8 +47,7 @@
 *************************************************************************/
 
 void
-encounter(particular)
-	int     particular;
+encounter(int particular)
 {
 	int flockcnt = 1;	/* how many time flocked */
 	volatile bool firsthit = Player.p_blessing;	/* set if player gets
@@ -207,7 +215,7 @@ encounter(particular)
 *************************************************************************/
 
 int
-pickmonster()
+pickmonster(void)
 {
 	if (Player.p_specialtype == SC_VALAR)
 		/* even chance of any monster */
@@ -264,7 +272,7 @@ pickmonster()
 *************************************************************************/
 
 void
-playerhits()
+playerhits(void)
 {
 	double  inflict;	/* damage inflicted */
 	int     ch;		/* input */
@@ -435,7 +443,7 @@ playerhits()
 *************************************************************************/
 
 void
-monsthits()
+monsthits(void)
 {
 	double  inflict;	/* damage inflicted */
 	int     ch;		/* input */
@@ -709,7 +717,7 @@ SPECIALHIT:
 *************************************************************************/
 
 void
-cancelmonster()
+cancelmonster(void)
 {
     Curmonster.m_energy = 0.0;
     Curmonster.m_experience = 0.0;
@@ -743,8 +751,7 @@ cancelmonster()
 *************************************************************************/
 
 void
-hitmonster(inflict)
-	double  inflict;
+hitmonster(double inflict)
 {
 	mvprintw(Lines++, 0, "You hit %s %.0f times!", Enemyname, inflict);
 	Curmonster.m_energy -= inflict;
@@ -797,7 +804,7 @@ hitmonster(inflict)
 *************************************************************************/
 
 void
-throwspell()
+throwspell(void)
 {
 	double  inflict;	/* damage inflicted */
 	double  dtemp;		/* for dtemporary calculations */
@@ -1028,8 +1035,7 @@ throwspell()
 *************************************************************************/
 
 void
-callmonster(which)
-	int     which;
+callmonster(int which)
 {
 	struct monster Othermonster;	/* to find a name for mimics */
 
@@ -1136,7 +1142,7 @@ callmonster(which)
 *************************************************************************/
 
 void
-awardtreasure()
+awardtreasure(void)
 {
 	int	whichtreasure;	/* calculated treasure to grant */
 	int	temp;		/* temporary */
@@ -1573,7 +1579,7 @@ awardtreasure()
 *************************************************************************/
 
 void
-cursedtreasure()
+cursedtreasure(void)
 {
 	if (Player.p_charms > 0) {
 		addstr("But your charm saved you!\n");
@@ -1613,7 +1619,7 @@ cursedtreasure()
 *************************************************************************/
 
 void
-scramblestats()
+scramblestats(void)
 {
 	double  dbuf[6];	/* to put statistic in */
 	double  dtemp1, dtemp2;	/* for swapping values */

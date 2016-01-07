@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.72 2016/01/05 18:41:15 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.74 2016/01/06 19:56:50 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -3853,11 +3853,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		ridx = sc->sc_fixed_ridx;
 	} else {
 		/* for data frames, use RS table */
-		if (ni->ni_flags & IEEE80211_NODE_HT) {
-			tx->initial_rate_index =
-			    (nitems(iwm_mcs2ridx) - 1) - ni->ni_txmcs;
-		} else
-			tx->initial_rate_index = (nrates - 1) - ni->ni_txrate;
+		tx->initial_rate_index = 0;
 		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
 		DPRINTFN(12, ("start with txrate %d\n", tx->initial_rate_index));
 		if (ni->ni_flags & IEEE80211_NODE_HT) {
@@ -6782,6 +6778,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_htxcaps = 0;
 	ic->ic_txbfcaps = 0;
 	ic->ic_aselcaps = 0;
+	ic->ic_ampdu_params = IEEE80211_AMPDU_PARAM_SS_4;
 
 	ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;

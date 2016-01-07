@@ -1,14 +1,23 @@
-/*	$OpenBSD: setup.c,v 1.14 2015/12/26 00:26:39 mestre Exp $	*/
+/*	$OpenBSD: setup.c,v 1.17 2016/01/06 14:28:09 mestre Exp $	*/
 /*	$NetBSD: setup.c,v 1.4 1995/04/24 12:24:41 cgd Exp $	*/
 
 /*
  * setup.c - set up all files for Phantasia
  */
-#include <sys/types.h>
 #include <sys/stat.h>
-#include "include.h"
-#include <limits.h>
+
 #include <fcntl.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "macros.h"
+#include "pathnames.h"
+#include "phantdefs.h"
+#include "phantglobs.h"
 
 __dead void Error(char *, char *);
 
@@ -59,9 +68,7 @@ static char *files[] = {		/* all files to create */
 char *monsterfile="monsters.asc";
 
 int
-main(argc, argv)
-	int argc;
-	char *argv[];
+main(int argc, char *argv[])
 {
 	char	**filename;	/* for pointing to file names */
 	int	fd;		/* file descriptor */
@@ -124,7 +131,7 @@ main(argc, argv)
 	}
 
     /* put holy grail info into energy void file */
-    Enrgyvoid.ev_active = TRUE;
+    Enrgyvoid.ev_active = true;
     Enrgyvoid.ev_x = ROLL(-1.0e6, 2.0e6);
     Enrgyvoid.ev_y = ROLL(-1.0e6, 2.0e6);
     snprintf(path, sizeof(path), "%s%s", prefix?prefix:"", _PATH_VOID);
@@ -173,8 +180,7 @@ main(argc, argv)
 	    }
 	}
 
-    exit(0);
-    /*NOTREACHED*/
+    return 0;
 }
 /**/
 /************************************************************************
@@ -203,8 +209,7 @@ main(argc, argv)
 *************************************************************************/
 
 void
-Error(str, file)
-	char	*str, *file;
+Error(char *str, char *file)
 {
 	fprintf(stderr, "Error: ");
 	fprintf(stderr, str, file);
@@ -236,7 +241,7 @@ Error(str, file)
 *************************************************************************/
 
 double
-drandom()
+drandom(void)
 {
 	return((double) arc4random() / (UINT32_MAX + 1.0));
 }

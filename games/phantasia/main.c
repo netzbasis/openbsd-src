@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.17 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.19 2016/01/06 14:28:09 mestre Exp $	*/
 /*	$NetBSD: main.c,v 1.3 1995/04/24 12:24:37 cgd Exp $	*/
 
 /*
@@ -28,12 +28,21 @@
  * AT&T is in no way connected with this game.
  */
 
-#include <sys/types.h>
-#include <limits.h>
+#include <curses.h>
+#include <err.h>
+#include <math.h>
 #include <pwd.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef TERMIOS
 #include <termios.h>
 #endif
+#include <unistd.h>
+
+#include "macros.h"
+#include "pathnames.h"
+#include "phantdefs.h"
+#include "phantglobs.h"
 
 /*
  * The program allocates as much file space as it needs to store characters,
@@ -58,8 +67,6 @@
 /*
  * main.c	Main routines for Phantasia
  */
-
-#include "include.h"
 
 /***************************************************************************
 / FUNCTION NAME: main()
@@ -95,9 +102,7 @@
 ****************************************************************************/
 
 int
-main(argc, argv)
-	int     argc;
-	char  **argv;
+main(int argc, char **argv)
 {
 	bool    noheader = FALSE;	/* set if don't want header */
 	bool    headeronly = FALSE;	/* set if only want header */
@@ -313,7 +318,7 @@ main(argc, argv)
 *************************************************************************/
 
 void
-initialstate()
+initialstate(void)
 {
 #ifdef TERMIOS
     struct termios tty;
@@ -398,7 +403,7 @@ initialstate()
 *************************************************************************/
 
 long
-rollnewplayer()
+rollnewplayer(void)
 {
 	int     chartype;	/* character type */
 	int     ch;		/* input */
@@ -515,7 +520,7 @@ rollnewplayer()
 *************************************************************************/
 
 void
-procmain()
+procmain(void)
 {
 	int     ch;		/* input */
 	double  x;		/* desired new x coordinate */
@@ -749,7 +754,7 @@ procmain()
 *************************************************************************/
 
 void
-titlelist()
+titlelist(void)
 {
 	FILE   *fp;		/* used for opening various files */
 	bool    councilfound = FALSE;	/* set if we find a member of the
@@ -883,7 +888,7 @@ titlelist()
 *************************************************************************/
 
 long
-recallplayer()
+recallplayer(void)
 {
 	long    loc = 0L;	/* location in player file */
 	int     loop;		/* loop counter */
@@ -966,7 +971,7 @@ recallplayer()
 *************************************************************************/
 
 void
-neatstuff()
+neatstuff(void)
 {
 	double  temp;		/* for temporary calculations */
 	int     ch;		/* input */
@@ -1090,8 +1095,7 @@ neatstuff()
 *************************************************************************/
 
 void
-genchar(type)
-	int     type;
+genchar(int type)
 {
 	int     subscript;	/* used for subscripting into Stattable */
 	struct charstats *statptr;	/* for pointing into Stattable */
@@ -1188,8 +1192,7 @@ playinit()
 *************************************************************************/
 
 void
-cleanup(doexit)
-	int	doexit;
+cleanup(int doexit)
 {
 	if (Windows) {
 		move(LINES - 2, 0);
