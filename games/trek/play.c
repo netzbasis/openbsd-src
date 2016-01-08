@@ -1,4 +1,4 @@
-/*	$OpenBSD: play.c,v 1.5 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: play.c,v 1.7 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: play.c,v 1.3 1995/04/22 10:59:18 cgd Exp $	*/
 
 /*
@@ -30,10 +30,11 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
 #include <setjmp.h>
-#include "trek.h"
+#include <stdio.h>
+
 #include "getpar.h"
+#include "trek.h"
 
 /*
 **  INSTRUCTION READ AND MAIN PLAY LOOP
@@ -75,8 +76,7 @@ const struct cvntab	Comtab[] =
 };
 
 void
-myreset(v)
-	int v;
+myreset(int v)
 {
 	extern jmp_buf env;
 
@@ -84,7 +84,7 @@ myreset(v)
 }
 
 void
-play()
+play(void)
 {
 	const struct cvntab	*r;
 

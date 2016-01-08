@@ -1,4 +1,4 @@
-/*	$OpenBSD: nova.c,v 1.5 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: nova.c,v 1.7 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: nova.c,v 1.3 1995/04/22 10:59:14 cgd Exp $	*/
 
 /*
@@ -31,6 +31,7 @@
  */
 
 #include <stdio.h>
+
 #include "trek.h"
 
 /*
@@ -48,8 +49,7 @@
 */
 
 void
-nova(x, y)
-	int	x, y;
+nova(int x, int y)
 {
 	int		i, j;
 	int		se;

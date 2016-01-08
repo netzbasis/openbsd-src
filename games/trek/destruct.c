@@ -1,4 +1,4 @@
-/*	$OpenBSD: destruct.c,v 1.7 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: destruct.c,v 1.9 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: destruct.c,v 1.3 1995/04/22 10:58:44 cgd Exp $	*/
 
 /*
@@ -33,8 +33,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "trek.h"
+
 #include "getpar.h"
+#include "trek.h"
 
 /*
 **  Self Destruct Sequence
@@ -57,8 +58,7 @@
 */
 
 void
-destruct(v)
-	int v;
+destruct(int v)
 {
 	char	checkpass[15];
 	int	i, j;

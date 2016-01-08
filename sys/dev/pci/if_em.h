@@ -32,7 +32,7 @@ POSSIBILITY OF SUCH DAMAGE.
 ***************************************************************************/
 
 /* $FreeBSD: if_em.h,v 1.26 2004/09/01 23:22:41 pdeuskar Exp $ */
-/* $OpenBSD: if_em.h,v 1.65 2016/01/07 04:37:53 dlg Exp $ */
+/* $OpenBSD: if_em.h,v 1.70 2016/01/07 11:19:54 dlg Exp $ */
 
 #ifndef _EM_H_DEFINED_
 #define _EM_H_DEFINED_
@@ -269,10 +269,10 @@ typedef int	boolean_t;
 #define EM_MAX_SCATTER		64
 #define EM_TSO_SIZE		65535
 
-struct em_buffer {
-	int		next_eop;	/* Index of the desc to watch */
-	struct mbuf	*m_head;
-	bus_dmamap_t	map;		/* bus_dma map for packet */
+struct em_packet {
+	int		 pkt_eop;	/* Index of the desc to watch */
+	struct mbuf	*pkt_m;
+	bus_dmamap_t	 pkt_map;	/* bus_dma map for packet */
 };
 
 /*
@@ -280,9 +280,7 @@ struct em_buffer {
  * em_dma_malloc and em_dma_free.
  */
 struct em_dma_alloc {
-	bus_addr_t		dma_paddr;
 	caddr_t			dma_vaddr;
-	bus_dma_tag_t		dma_tag;
 	bus_dmamap_t		dma_map;
 	bus_dma_segment_t	dma_seg;
 	bus_size_t		dma_size;
@@ -312,6 +310,9 @@ typedef struct _DESCRIPTOR_PAIR
 struct em_softc {
 	struct device	sc_dev;
 	struct arpcom	sc_ac;
+
+	bus_dma_tag_t	sc_dmat;
+
 	struct em_hw	hw;
 
 	/* OpenBSD operating-system-specific structures */
@@ -346,15 +347,15 @@ struct em_softc {
 	 * The index of the next available descriptor is next_avail_tx_desc.
 	 * The number of remaining tx_desc is num_tx_desc_avail.
 	 */
-	struct em_dma_alloc	txdma;		/* bus_dma glue for tx desc */
-	struct em_tx_desc	*tx_desc_base;
-	u_int32_t		next_avail_tx_desc;
-	u_int32_t		next_tx_to_clean;
-	volatile u_int32_t	num_tx_desc_avail;
-	u_int32_t		num_tx_desc;
-	u_int32_t		txd_cmd;
-	struct em_buffer	*tx_buffer_area;
-	bus_dma_tag_t		txtag;		/* dma tag for tx */
+	u_int			 sc_tx_slots;
+	struct em_dma_alloc	 sc_tx_dma;	/* bus_dma glue for tx desc */
+	struct em_tx_desc	*sc_tx_desc_ring;
+	u_int			 sc_tx_desc_head;
+	u_int			 sc_tx_desc_tail;
+	u_int			 sc_tx_desc_free;
+	struct em_packet	*sc_tx_pkts_ring;
+
+	u_int32_t		 sc_txd_cmd;
 
 	/*
 	 * Receive definitions
@@ -364,15 +365,15 @@ struct em_softc {
 	 * (at rx_buffer_area).
 	 * The next pair to check on receive is at offset next_rx_desc_to_check
 	 */
-	struct em_dma_alloc	rxdma;		/* bus_dma glue for rx desc */
-	struct em_rx_desc	*rx_desc_base;
-	struct if_rxring	rx_ring;
-	u_int32_t		next_rx_desc_to_check;
-	u_int32_t		last_rx_desc_filled;
-	u_int32_t		rx_buffer_len;
-	u_int16_t		num_rx_desc;
-	struct em_buffer	*rx_buffer_area;
-	bus_dma_tag_t		rxtag;
+	u_int			 sc_rx_slots;
+	struct if_rxring	 sc_rx_ring;
+	struct em_dma_alloc	 sc_rx_dma;	/* bus_dma glue for rx desc */
+	struct em_rx_desc	*sc_rx_desc_ring;
+	u_int			 sc_rx_desc_head;
+	u_int			 sc_rx_desc_tail;
+	struct em_packet	*sc_rx_pkts_ring;
+
+	u_int32_t		 sc_rx_buffer_len;
 
 	/*
 	 * First/last mbuf pointers, for

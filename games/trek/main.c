@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.14 2015/11/30 08:55:26 tb Exp $	*/
+/*	$OpenBSD: main.c,v 1.17 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: main.c,v 1.4 1995/04/22 10:59:10 cgd Exp $	*/
 
 /*
@@ -30,15 +30,14 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <stdio.h>
+#include <err.h>
 #include <setjmp.h>
-#include <termios.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <err.h>
-#include "trek.h"
+
 #include "getpar.h"
+#include "trek.h"
 
 /*
 **	 ####  #####	#    ####	   #####  ####	 #####	#   #
@@ -117,9 +116,7 @@
 jmp_buf env;
 
 int
-main(argc, argv)
-	int	argc;
-	char	**argv;
+main(int argc, char **argv)
 {
 	int		ac;
 	char		**av;
@@ -155,7 +152,7 @@ main(argc, argv)
 	if (setjmp(env))
 	{
 		if ( !getynpar("Another game") )
-			exit(0);
+			return 0;
 	}
 	do
 	{

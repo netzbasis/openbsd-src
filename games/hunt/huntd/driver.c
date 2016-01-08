@@ -1,4 +1,4 @@
-/*	$OpenBSD: driver.c,v 1.23 2015/12/16 14:21:50 tb Exp $	*/
+/*	$OpenBSD: driver.c,v 1.26 2016/01/07 21:37:53 mestre Exp $	*/
 /*	$NetBSD: driver.c,v 1.5 1997/10/20 00:37:16 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,25 +31,23 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <sys/time.h>
+
+#include <arpa/inet.h>
+
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <paths.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <stdio.h>
 #include <syslog.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <paths.h>
-#include <fcntl.h>
-#include "hunt.h"
+#include <unistd.h>
+
 #include "conf.h"
+#include "hunt.h"
 #include "server.h"
 
 u_int16_t Server_port;
@@ -62,7 +60,6 @@ in_addr_t Server_addr = INADDR_ANY;	/* address to bind to */
 static	void	clear_scores(void);
 static	int	havechar(PLAYER *);
 static	void	init(int);
-	int	main(int, char *[]);
 static	void	makeboots(void);
 static	void	send_stats(void);
 static	void	zap(PLAYER *, FLAG);
@@ -76,9 +73,7 @@ static	void	handle_wkport(int);
  *	The main program.
  */
 int
-main(ac, av)
-	int	ac;
-	char	**av;
+main(int ac, char **av)
 {
 	PLAYER		*pp;
 	int		had_char;
@@ -126,7 +121,7 @@ erred:
 			    "usage: %s [-bs] [-a addr] [-D var=value] "
 			    "[-p port]\n",
 			    __progname);
-			exit(2);
+			return 2;
 		}
 	}
 	if (optind < ac)
@@ -315,7 +310,7 @@ again:
 
 	/* Fin: */
 	cleanup(0);
-	exit(0);
+	return 0;
 }
 
 /*
@@ -487,7 +482,7 @@ init(int background)
  *	Put the boots in the maze
  */
 static void
-makeboots()
+makeboots(void)
 {
 	int	x, y;
 	PLAYER	*pp;
@@ -511,11 +506,8 @@ makeboots()
  *	If the victim dies as a result, give points to 'credit',
  */
 void
-checkdam(victim, attacker, credit, damage, shot_type)
-	PLAYER	*victim, *attacker;
-	IDENT	*credit;
-	int	damage;
-	char	shot_type;
+checkdam(PLAYER *victim, PLAYER *attacker, IDENT *credit, int damage,
+	char shot_type)
 {
 	char	*cp;
 	int	y;
@@ -671,9 +663,7 @@ checkdam(victim, attacker, credit, damage, shot_type)
  *	a monitor and needs extra cleaning up.
  */
 static void
-zap(pp, was_player)
-	PLAYER	*pp;
-	FLAG	was_player;
+zap(PLAYER *pp, FLAG was_player)
 {
 	int	len;
 	BULLET	*bp;
@@ -907,8 +897,7 @@ zap(pp, was_player)
  *	Return a random number in a given range.
  */
 int
-rand_num(range)
-	int	range;
+rand_num(int range)
 {
 	return (arc4random_uniform(range));
 }
@@ -920,8 +909,7 @@ rand_num(range)
  *	FALSE.
  */
 static int
-havechar(pp)
-	PLAYER	*pp;
+havechar(PLAYER *pp)
 {
 	int ret;
 
@@ -967,8 +955,7 @@ check_again:
  *	Exit with the given value, cleaning up any droppings lying around
  */
 void
-cleanup(eval)
-	int	eval;
+cleanup(int eval)
 {
 	PLAYER	*pp;
 
@@ -998,7 +985,7 @@ cleanup(eval)
  *	the stats.
  */
 static void
-send_stats()
+send_stats(void)
 {
 	FILE	*fp;
 	int	s;
@@ -1038,8 +1025,7 @@ send_stats()
  * 	emit the game statistics
  */
 void
-print_stats(fp)
-	FILE *fp;
+print_stats(FILE *fp)
 {
 	IDENT	*ip;
 	PLAYER  *pp;
@@ -1086,8 +1072,7 @@ print_stats(fp)
  * Send the game statistics to the controlling tty
  */
 static void
-siginfo(sig)
-	int sig;
+siginfo(int sig)
 {
 	int tty;
 	FILE *fp;
@@ -1105,7 +1090,7 @@ siginfo(sig)
  *	Clear the Scores list.
  */
 static void
-clear_scores()
+clear_scores(void)
 {
 	IDENT	*ip, *nextip;
 
@@ -1122,7 +1107,7 @@ clear_scores()
  *	Publically announce the game
  */
 static void
-announce_game()
+announce_game(void)
 {
 
 	/* TODO: could use system() to do something user-configurable */
@@ -1132,8 +1117,7 @@ announce_game()
  * Handle a UDP packet sent to the well known port.
  */
 static void
-handle_wkport(fd)
-	int fd;
+handle_wkport(int fd)
 {
 	struct sockaddr		fromaddr;
 	socklen_t		fromlen;

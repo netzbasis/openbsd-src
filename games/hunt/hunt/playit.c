@@ -1,4 +1,4 @@
-/*	$OpenBSD: playit.c,v 1.9 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: playit.c,v 1.11 2016/01/07 21:37:53 mestre Exp $	*/
 /*	$NetBSD: playit.c,v 1.4 1997/10/20 00:37:15 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,16 +31,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <ctype.h>
-#include <termios.h>
-#include <signal.h>
-#include <string.h>
-#include <unistd.h>
 #include <stdio.h>
-#include "hunt.h"
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+
 #include "display.h"
+#include "hunt.h"
 #include "client.h"
 
 static int	nchar_send;
@@ -68,7 +68,7 @@ static	void		send_stuff(void);
  *	the driver.
  */
 void
-playit()
+playit(void)
 {
 	int		ch;
 	int		y, x;
@@ -181,7 +181,7 @@ out:
  *	no characters in the input buffer.
  */
 static unsigned char
-getchr()
+getchr(void)
 {
 	fd_set	readfds, s_readfds;
 	int	nfds, s_nfds;
@@ -219,7 +219,7 @@ one_more_time:
  *	Send standard input characters to the driver
  */
 static void
-send_stuff()
+send_stuff(void)
 {
 	int		count;
 	char		*sp, *nsp;
@@ -271,8 +271,7 @@ send_stuff()
  *	Handle the end of the game when the player dies
  */
 int
-quit(old_status)
-	int	old_status;
+quit(int old_status)
 {
 	int	explain, ch;
 
@@ -392,7 +391,7 @@ get_message:
  *	Send a message to the driver and return
  */
 void
-do_message()
+do_message(void)
 {
 	u_int32_t	version;
 
