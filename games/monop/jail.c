@@ -1,4 +1,4 @@
-/*	$OpenBSD: jail.c,v 1.5 2009/10/27 23:59:26 deraadt Exp $	*/
+/*	$OpenBSD: jail.c,v 1.7 2016/01/08 18:20:33 mestre Exp $	*/
 /*	$NetBSD: jail.c,v 1.3 1995/03/23 08:34:44 cgd Exp $	*/
 
 /*
@@ -30,14 +30,16 @@
  * SUCH DAMAGE.
  */
 
-#include	"monop.ext"
+#include <stdio.h>
+
+#include "monop.ext"
 
 /*
  *	This routine uses a get-out-of-jail-free card to get the
  * player out of jail.
  */
 void
-card()
+card(void)
 {
 	if (cur_p->loc != JAIL) {
 		printf("But you're not IN Jail\n");
@@ -55,7 +57,7 @@ card()
  *	This routine deals with paying your way out of jail.
  */
 void
-pay()
+pay(void)
 {
 	if (cur_p->loc != JAIL) {
 		printf("But you're not IN Jail\n");
@@ -70,8 +72,7 @@ pay()
  *	This routine deals with a move in jail
  */
 int
-move_jail(r1, r2)
-	int	r1, r2;
+move_jail(int r1, int r2)
 {
 	if (r1 != r2) {
 		printf("Sorry, that doesn't get you out\n");
@@ -93,7 +94,7 @@ moveit:
 }
 
 void
-printturn()
+printturn(void)
 {
 	if (cur_p->loc != JAIL)
 		return;

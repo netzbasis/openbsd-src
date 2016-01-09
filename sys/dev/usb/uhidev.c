@@ -1,4 +1,4 @@
-/*	$OpenBSD: uhidev.c,v 1.71 2015/12/08 09:49:22 mpi Exp $	*/
+/*	$OpenBSD: uhidev.c,v 1.73 2016/01/09 04:14:42 jcs Exp $	*/
 /*	$NetBSD: uhidev.c,v 1.14 2003/03/11 16:44:00 augustss Exp $	*/
 
 /*
@@ -54,7 +54,6 @@
 #include <dev/usb/usbdi_util.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
-#include <dev/usb/hid.h>
 #include <dev/usb/usb_quirks.h>
 
 #include <dev/usb/uhidev.h>

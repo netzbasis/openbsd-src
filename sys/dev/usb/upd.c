@@ -1,4 +1,4 @@
-/*	$OpenBSD: upd.c,v 1.23 2015/10/01 14:03:44 mpi Exp $ */
+/*	$OpenBSD: upd.c,v 1.25 2016/01/09 04:14:42 jcs Exp $ */
 
 /*
  * Copyright (c) 2015 David Higgs <higgsd@gmail.com>
@@ -27,7 +27,6 @@
 #include <sys/queue.h>
 #include <sys/sensors.h>
 
-#include <dev/usb/hid.h>
 #include <dev/usb/usb.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdevs.h>

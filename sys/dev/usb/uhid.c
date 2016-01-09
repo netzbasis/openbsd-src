@@ -1,4 +1,4 @@
-/*	$OpenBSD: uhid.c,v 1.61 2015/03/14 03:38:50 jsg Exp $ */
+/*	$OpenBSD: uhid.c,v 1.63 2016/01/09 04:14:42 jcs Exp $ */
 /*	$NetBSD: uhid.c,v 1.57 2003/03/11 16:44:00 augustss Exp $	*/
 
 /*
@@ -56,7 +56,6 @@
 #include <dev/usb/usbdevs.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdi_util.h>
-#include <dev/usb/hid.h>
 
 #include <dev/usb/uhidev.h>
 

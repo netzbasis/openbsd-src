@@ -1,4 +1,4 @@
-/*	$OpenBSD: types.c,v 1.8 2015/01/19 00:47:01 deraadt Exp $	*/
+/*	$OpenBSD: types.c,v 1.10 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: types.c,v 1.4 1995/03/24 05:02:22 cgd Exp $	*/
 
 /*
@@ -30,23 +30,23 @@
  * SUCH DAMAGE.
  */
 
-#include	"mille.h"
+#include <err.h>
+
+#include "mille.h"
 
 /*
  * @(#)types.c	1.1 (Berkeley) 4/1/82
  */
 
 int
-is_repair(card)
-	CARD	card;
+is_repair(CARD card)
 {
 	return card == C_GAS || card == C_SPARE ||
 	    card == C_REPAIRS || card == C_INIT;
 }
 
 int
-safety(card)
-	CARD	card;
+safety(CARD card)
 {
 	switch (card) {
 	  case C_EMPTY:
@@ -69,5 +69,4 @@ safety(card)
 		return C_RIGHT_WAY;
 	}
 	errx(1, "safety() failed; please submit bug report.");
-	/* NOTREACHED */
 }

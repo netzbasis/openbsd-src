@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndiod.c,v 1.22 2015/12/23 20:12:18 ratchov Exp $	*/
+/*	$OpenBSD: sndiod.c,v 1.28 2016/01/08 16:17:31 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -14,7 +14,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <sys/queue.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/resource.h>
@@ -105,6 +104,7 @@ void setsig(void);
 void unsetsig(void);
 struct dev *mkdev(char *, struct aparams *,
     int, int, int, int, int, int);
+struct port *mkport(char *, int);
 struct opt *mkopt(char *, struct dev *,
     int, int, int, int, int, int, int, int);
 
@@ -278,7 +278,7 @@ getbasepath(char *base, size_t size)
 		if (errno != EEXIST)
 			err(1, "mkdir(\"%s\")", base);
 	}
-	umask(omask);	
+	umask(omask);
 	if (stat(base, &sb) < 0)
 		err(1, "stat(\"%s\")", base);
 	if (sb.st_uid != uid || (sb.st_mode & mask) != 0)
@@ -308,6 +308,21 @@ mkdev(char *path, struct aparams *par,
 	return d;
 }
 
+struct port *
+mkport(char *path, int hold)
+{
+	struct port *c;
+
+	for (c = port_list; c != NULL; c = c->next) {
+		if (strcmp(c->path, path) == 0)
+			return c;
+	}
+	c = port_new(path, MODE_MIDIMASK, hold);
+	if (c == NULL)
+		exit(1);
+	return c;
+}
+
 struct opt *
 mkopt(char *path, struct dev *d,
     int pmin, int pmax, int rmin, int rmax,
@@ -318,7 +333,7 @@ mkopt(char *path, struct dev *d,
 	o = opt_new(path, d, pmin, pmax, rmin, rmax,
 	    MIDI_TO_ADATA(vol), mmc, dup, mode);
 	if (o == NULL)
-		errx(1, "%s: couldn't create subdev", path);
+		return NULL;
 	dev_adjpar(d, o->mode, o->pmin, o->pmax, o->rmin, o->rmax);
 	return o;
 }
@@ -328,7 +343,7 @@ main(int argc, char **argv)
 {
 	int c, background, unit;
 	int pmin, pmax, rmin, rmax;
-	char base[SOCKPATH_MAX], path[SOCKPATH_MAX], *tcpaddr;
+	char base[SOCKPATH_MAX], path[SOCKPATH_MAX];
 	unsigned int mode, dup, mmc, vol;
 	unsigned int hold, autovol, bufsz, round, rate;
 	const char *str;
@@ -337,6 +352,10 @@ main(int argc, char **argv)
 	struct port *p;
 	struct listen *l;
 	struct passwd *pw;
+	struct tcpaddr {
+		char *host;
+		struct tcpaddr *next;
+	} *tcpaddr_list, *ta;
 	int s[2];
 	pid_t pid;
 	uid_t euid, hpw_uid, wpw_uid;
@@ -364,7 +383,7 @@ main(int argc, char **argv)
 	rmax = 1;
 	aparams_init(&par);
 	mode = MODE_PLAY | MODE_REC;
-	tcpaddr = NULL;
+	tcpaddr_list = NULL;
 
 	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:q:r:s:t:U:v:w:x:z:")) != -1) {
 		switch (c) {
@@ -378,7 +397,10 @@ main(int argc, char **argv)
 				errx(1, "%s: unit number is %s", optarg, str);
 			break;
 		case 'L':
-			tcpaddr = optarg;
+			ta = xmalloc(sizeof(struct tcpaddr));
+			ta->host = optarg;
+			ta->next = tcpaddr_list;
+			tcpaddr_list = ta;
 			break;
 		case 'm':
 			mode = opt_mode();
@@ -410,16 +432,15 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			if ((d = dev_list) == NULL) {
-				d = mkdev(DEFAULT_DEV, &par, 0, bufsz, round, rate,
-				    hold, autovol);
+				d = mkdev(DEFAULT_DEV, &par, 0, bufsz, round,
+				    rate, hold, autovol);
 			}
-			mkopt(optarg, d, pmin, pmax, rmin, rmax,
-			    mode, vol, mmc, dup);
+			if (mkopt(optarg, d, pmin, pmax, rmin, rmax,
+				mode, vol, mmc, dup) == NULL)
+				return 1;
 			break;
 		case 'q':
-			p = port_new(optarg, MODE_MIDIMASK, hold);
-			if (!p)
-				errx(1, "%s: can't open port", optarg);
+			mkport(optarg, hold);
 			break;
 		case 'a':
 			hold = opt_onoff();
@@ -438,7 +459,8 @@ main(int argc, char **argv)
 				errx(1, "%s: block size is %s", optarg, str);
 			break;
 		case 'f':
-			mkdev(optarg, &par, 0, bufsz, round, rate, hold, autovol);
+			mkdev(optarg, &par, 0, bufsz, round,
+			    rate, hold, autovol);
 			break;
 		default:
 			fputs(usagestr, stderr);
@@ -456,8 +478,9 @@ main(int argc, char **argv)
 	for (d = dev_list; d != NULL; d = d->next) {
 		if (opt_byname("default", d->num))
 			continue;
-		mkopt("default", d, pmin, pmax, rmin, rmax,
-		    mode, vol, mmc, dup);
+		if (mkopt("default", d, pmin, pmax, rmin, rmax,
+			mode, vol, mmc, dup) == NULL)
+			return 1;
 	}
 
 	setsig();
@@ -468,11 +491,11 @@ main(int argc, char **argv)
 		if ((pw = getpwnam(SNDIO_PRIV_USER)) == NULL)
 			errx(1, "unknown user %s", SNDIO_PRIV_USER);
 		hpw_uid = pw->pw_uid;
-		hpw_gid = pw->pw_gid;		
+		hpw_gid = pw->pw_gid;
 		if ((pw = getpwnam(SNDIO_USER)) == NULL)
 			errx(1, "unknown user %s", SNDIO_USER);
 		wpw_uid = pw->pw_uid;
-		wpw_gid = pw->pw_gid;		
+		wpw_gid = pw->pw_gid;
 		wpw_dir = xstrdup(pw->pw_dir);
 	} else {
 		hpw_uid = wpw_uid = hpw_gid = wpw_gid = 0xdeadbeef;
@@ -520,9 +543,12 @@ main(int argc, char **argv)
 		snprintf(path,
 		    SOCKPATH_MAX, "%s/" SOCKPATH_FILE "%u",
 		    base, unit);
-		listen_new_un(path);
-		if (tcpaddr)
-			listen_new_tcp(tcpaddr, AUCAT_PORT + unit);
+		if (!listen_new_un(path))
+			return 1;
+		for (ta = tcpaddr_list; ta != NULL; ta = ta->next) {
+			if (!listen_new_tcp(ta->host, AUCAT_PORT + unit))
+				return 1;
+		}
 		for (l = listen_list; l != NULL; l = l->next) {
 			if (!listen_init(l))
 				return 1;
@@ -553,7 +579,7 @@ main(int argc, char **argv)
 			    setresuid(wpw_uid, wpw_uid, wpw_uid))
 				err(1, "cannot drop privileges");
 		}
-		if (tcpaddr) {
+		if (tcpaddr_list) {
 			if (pledge("stdio audio recvfd unix inet", NULL) == -1)
 				err(1, "pledge");
 		} else {
@@ -588,6 +614,11 @@ main(int argc, char **argv)
 		dev_del(dev_list);
 	while (port_list)
 		port_del(port_list);
+	while (tcpaddr_list) {
+		ta = tcpaddr_list;
+		tcpaddr_list = ta->next;
+		xfree(ta);
+	}
 	filelist_done();
 	unsetsig();
 	return 0;

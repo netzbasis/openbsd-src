@@ -1,4 +1,4 @@
-/*	$OpenBSD: varpush.c,v 1.9 2015/11/04 21:22:10 tedu Exp $	*/
+/*	$OpenBSD: varpush.c,v 1.11 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: varpush.c,v 1.4 1995/03/24 05:02:35 cgd Exp $	*/
 
 /*
@@ -30,8 +30,14 @@
  * SUCH DAMAGE.
  */
 
-#include	<paths.h>
-#include	"mille.h"
+#ifdef DEBUG
+#include <err.h>
+#endif
+#include <errno.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "mille.h"
 
 /*
  * @(#)varpush.c	1.1 (Berkeley) 4/1/82
@@ -42,9 +48,7 @@
  * channel file.  func() is either read or write.
  */
 bool
-varpush(file, func)
-	int	file;
-	ssize_t	(*func)(int, const struct iovec *, int);
+varpush(int file, ssize_t (*func)(int, const struct iovec *, int))
 {
 	int	temp;
 	const struct iovec vec[] = {
@@ -84,7 +88,7 @@ over:
 				warn("%s", buf);
 				goto over;
 			}
-			if (strcmp(buf, _PATH_DEVNULL) != 0)
+			if (strcmp(buf, "/dev/null") != 0)
 				setvbuf(outf, NULL, _IONBF, 0);
 		}
 #endif
