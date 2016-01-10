@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndiod.c,v 1.28 2016/01/08 16:17:31 ratchov Exp $	*/
+/*	$OpenBSD: sndiod.c,v 1.30 2016/01/09 10:06:57 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -251,11 +251,11 @@ unsetsig(void)
 	sa.sa_flags = SA_RESTART;
 	sa.sa_handler = SIG_DFL;
 	if (sigaction(SIGHUP, &sa, NULL) < 0)
-		err(1, "unsetsig(hup): sigaction failed\n");
+		err(1, "unsetsig(hup): sigaction failed");
 	if (sigaction(SIGTERM, &sa, NULL) < 0)
-		err(1, "unsetsig(term): sigaction failed\n");
+		err(1, "unsetsig(term): sigaction failed");
 	if (sigaction(SIGINT, &sa, NULL) < 0)
-		err(1, "unsetsig(int): sigaction failed\n");
+		err(1, "unsetsig(int): sigaction failed");
 }
 
 void
@@ -281,6 +281,8 @@ getbasepath(char *base, size_t size)
 	umask(omask);
 	if (stat(base, &sb) < 0)
 		err(1, "stat(\"%s\")", base);
+	if (!S_ISDIR(sb.st_mode))
+		errx(1, "%s is not a directory", base);
 	if (sb.st_uid != uid || (sb.st_mode & mask) != 0)
 		errx(1, "%s has wrong permissions", base);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: hack.engrave.c,v 1.7 2014/03/11 08:05:15 guenther Exp $	*/
+/*	$OpenBSD: hack.engrave.c,v 1.9 2016/01/09 21:54:11 mestre Exp $	*/
 
 /*
  * Copyright (c) 1985, Stichting Centrum voor Wiskunde en Informatica,
@@ -61,8 +61,9 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include	<stdlib.h>
-#include	"hack.h"
+#include <stdlib.h>
+
+#include "hack.h"
 
 extern char *nomovemsg;
 extern char nul[];
@@ -195,7 +196,7 @@ make_engr_at(int x, int y, char *s)
 }
 
 int
-doengrave()
+doengrave(void)
 {
 	int len;
 	char *sp;
@@ -227,7 +228,7 @@ doengrave()
 			if(uwep && uwep->cursed) {
 			    /* Andreas Bormann */
 			    pline("Since your weapon is welded to your hand,");
-			    pline("you use the %s.", aobjnam(uwep, (char *) 0));
+			    pline("you use the %s.", aobjnam(uwep, NULL));
 			    otmp = uwep;
 			} else {
 			    if(!otmp)
