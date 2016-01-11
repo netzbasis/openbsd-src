@@ -1,4 +1,4 @@
-/*	$OpenBSD: mach.c,v 1.18 2016/01/03 14:38:16 mestre Exp $	*/
+/*	$OpenBSD: mach.c,v 1.21 2016/01/10 14:10:38 mestre Exp $	*/
 /*	$NetBSD: mach.c,v 1.5 1995/04/28 22:28:48 mycroft Exp $	*/
 
 /*-
@@ -43,9 +43,7 @@
 #include <ctype.h>
 #include <curses.h>
 #include <err.h>
-#include <fcntl.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
@@ -246,7 +244,6 @@ get_line(char *q)
 		case '\003':			/* <^c> */
 			cleanup();
 			exit(0);
-			/*NOTREACHED*/
 		case '\004':			/* <^d> */
 			done = 1;
 			ch = EOF;
@@ -277,7 +274,7 @@ get_line(char *q)
 	}
 	*p = '\0';
 	if (ch == EOF)
-		return((char *) NULL);
+		return(NULL);
 	return(q);
 }
 
