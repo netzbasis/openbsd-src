@@ -1,3 +1,5 @@
+/*	$OpenBSD: pdisk.c,v 1.25 2016/01/12 01:17:41 krw Exp $	*/
+
 //
 // pdisk - an editor for Apple format partition tables
 //
@@ -44,26 +46,22 @@
 #include "pdisk.h"
 #include "io.h"
 #include "partition_map.h"
-#include "pathname.h"
 #include "hfs_misc.h"
 #include "errors.h"
 #include "dump.h"
 #include "validate.h"
-#include "version.h"
-#include "util.h"
+#include "file_media.h"
 
 
 //
 // Defines
 //
 #define ARGV_CHUNK 5
-#define CFLAG_DEFAULT	0
 #define DFLAG_DEFAULT	0
 #define HFLAG_DEFAULT	0
 #define INTERACT_DEFAULT	0
 #define LFLAG_DEFAULT	0
 #define RFLAG_DEFAULT	0
-#define VFLAG_DEFAULT	0
 
 
 //
@@ -88,12 +86,10 @@ enum getopt_values {
 //
 int lflag = LFLAG_DEFAULT;	/* list the device */
 char *lfile;	/* list */
-int vflag = VFLAG_DEFAULT;	/* show version */
 int hflag = HFLAG_DEFAULT;	/* show help */
 int dflag = DFLAG_DEFAULT;	/* turn on debugging commands and printout */
 int rflag = RFLAG_DEFAULT;	/* open device read Only */
 int interactive = INTERACT_DEFAULT;
-int cflag = CFLAG_DEFAULT;	/* compute device size */
 
 static int first_get = 1;
 
@@ -129,7 +125,6 @@ int
 main(int argc, char **argv)
 {
     int name_index;
-    char *versionstr;
 
     if (sizeof(DPME) != PBLOCK_SIZE) {
 	fatal(-1, "Size of partition map entry (%d) "
@@ -141,20 +136,9 @@ main(int argc, char **argv)
 		"is not equal to block size (%d)\n",
 		sizeof(Block0), PBLOCK_SIZE);
     }
-    versionstr = (char *)get_version_string();
-    if (versionstr) {
-	if (strcmp(VERSION, versionstr) != 0) {
-		fatal(-1, "Version string static form (%s) does not match dynamic form (%s)\n",
-		    VERSION, versionstr);
-	}
-	free(versionstr); 
-    }
 
     name_index = get_options(argc, argv);
 
-    if (vflag) {
-	printf("version " VERSION " (" RELEASE_DATE ")\n");
-    }
     if (hflag) {
  	do_help();
     } else if (interactive) {
@@ -173,7 +157,7 @@ main(int argc, char **argv)
 	while (name_index < argc) {
 	    edit(argv[name_index++], 0);
 	}
-    } else if (!vflag) {
+    } else {
  	do_help();
     }
     return 0;
@@ -207,7 +191,6 @@ interact()
 	    if (dflag) {
 		printf("  a    toggle abbreviate flag\n");
 		printf("  p    toggle physical flag\n");
-		printf("  c    toggle compute size flag\n");
 		printf("  d    toggle debug flag\n");
 		printf("  x    examine block n of device\n");
 	    }
@@ -216,10 +199,6 @@ interact()
 	case 'Q':
 	case 'q':
 	    return;
-	    break;
-	case 'V':
-	case 'v':
-	    printf("version " VERSION " (" RELEASE_DATE ")\n");
 	    break;
 	case 'l':
 	    if (get_string_argument("Name of device: ", &name, 1) == 0) {
@@ -292,19 +271,6 @@ interact()
 	    }
 	    printf("Now in %s mode.\n", (dflag)?"debug":"normal");
 	    break;
-	case 'C':
-	case 'c':
-	    if (dflag) {
-		if (cflag) {
-		    cflag = 0;
-		} else {
-		    cflag = 1;
-		}
-		printf("Now in %s device size mode.\n", (cflag)?"always compute":"use existing");
-	    } else {
-	    	goto do_error;
-	    }
-	    break;
 	case 'X':
 	case 'x':
 	    if (dflag) {
@@ -332,14 +298,12 @@ get_options(int argc, char **argv)
 
     lflag = LFLAG_DEFAULT;
     lfile = NULL;
-    vflag = VFLAG_DEFAULT;
     hflag = HFLAG_DEFAULT;
     dflag = DFLAG_DEFAULT;
     rflag = RFLAG_DEFAULT;
     aflag = AFLAG_DEFAULT;
     pflag = PFLAG_DEFAULT;
     interactive = INTERACT_DEFAULT;
-    cflag = CFLAG_DEFAULT;
 
     optind = 1; // reset option scanner logic
     while ((c = getopt(argc, argv, "hlvdric")) != -1) {
@@ -350,14 +314,8 @@ get_options(int argc, char **argv)
 	case 'l':
 	    lflag = (LFLAG_DEFAULT)?0:1;
 	    break;
-	case 'v':
-	    vflag = (VFLAG_DEFAULT)?0:1;
-	    break;
 	case 'd':
 	    dflag = (DFLAG_DEFAULT)?0:1;
-	    break;
-	case 'c':
-	    cflag = (CFLAG_DEFAULT)?0:1;
 	    break;
 	case 'r':
 	    rflag = (RFLAG_DEFAULT)?0:1;
@@ -554,11 +512,11 @@ do_create_partition(partition_map_header *map, int get_type)
 	bad_input("Bad type");
 	goto xit1;
     } else {
-	if (istrncmp(type_name, kFreeType, DPISTRLEN) == 0) {
+	if (strncasecmp(type_name, kFreeType, DPISTRLEN) == 0) {
 	    bad_input("Can't create a partition with the Free type");
 	    goto xit2;
 	}
-	if (istrncmp(type_name, kMapType, DPISTRLEN) == 0) {
+	if (strncasecmp(type_name, kMapType, DPISTRLEN) == 0) {
 	    bad_input("Can't create a partition with the Map type");
 	    goto xit2;
 	}
@@ -922,7 +880,7 @@ do_display_block(partition_map_header *map, char *alt_name)
 		return;
 	    }
 	}
-	m = open_pathname_as_media(name, O_RDONLY);
+	m = open_file_as_media(name, O_RDONLY);
 	if (m == 0) {
 	    error(errno, "can't open file '%s'", name);
 	    free(name);

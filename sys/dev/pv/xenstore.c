@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.12 2016/01/04 16:06:50 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.15 2016/01/11 16:54:33 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -559,9 +559,6 @@ xs_intr(void *arg)
 
 		memcpy(&xsm->xsm_hdr, &xmh, sizeof(xmh));
 		xs->xs_rmsg = xsm;
-
-		if (avail == 0)
-			goto out;
 	}
 
 	if (xsm->xsm_hdr.xmh_len > xsm->xsm_dlen)
@@ -570,11 +567,16 @@ xs_intr(void *arg)
 		    xsm->xsm_hdr.xmh_rid);
 
 	len = MIN(xsm->xsm_hdr.xmh_len - xsm->xsm_read, avail);
-	if ((len = xs_ring_get(xs, &xsm->xsm_data[xsm->xsm_read], len)) <= 0) {
-		printf("%s: read failure %d\n", sc->sc_dev.dv_xname, len);
-		goto out;
+	if (len) {
+		/* Get data if reply is not empty */
+		if ((len = xs_ring_get(xs,
+		    &xsm->xsm_data[xsm->xsm_read], len)) <= 0) {
+			printf("%s: read failure %d\n", sc->sc_dev.dv_xname,
+			    len);
+			goto out;
+		}
+		xsm->xsm_read += len;
 	}
-	xsm->xsm_read += len;
 
 	/* Notify reader that we've managed to read the whole message */
 	if (xsm->xsm_read == xsm->xsm_hdr.xmh_len) {
@@ -633,10 +635,11 @@ int
 xs_parse(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec **iov,
     int *iov_cnt)
 {
-	int dlen = xsm->xsm_hdr.xmh_len;
 	char *bp, *cp;
-	int i, flags;
+	int i, dlen, flags;
 
+	/* If the response size is zero, we return an empty string */
+	dlen = MAX(xsm->xsm_hdr.xmh_len, 1);
 	flags = M_ZERO | (xst->xst_flags & XST_POLL ? M_NOWAIT : M_WAITOK);
 
 	*iov_cnt = 0;
@@ -650,13 +653,11 @@ xs_parse(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec **iov,
 		xsm->xsm_data[dlen - 1] = '\0';
 	}
 	for (i = 0; i < dlen; i++)
-		if (i > 0 && xsm->xsm_data[i] == '\0')
+		if (xsm->xsm_data[i] == '\0')
 			(*iov_cnt)++;
-	if (!*iov_cnt)
-		return (0);
 	*iov = mallocarray(*iov_cnt, sizeof(struct iovec), M_DEVBUF, flags);
 	if (*iov == NULL)
-		return (-1);
+		goto cleanup;
 	bp = xsm->xsm_data;
 	for (i = 0; i < *iov_cnt; i++) {
 		cp = bp;
@@ -664,16 +665,18 @@ xs_parse(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec **iov,
 			cp++;
 		(*iov)[i].iov_len = cp - bp + 1;
 		(*iov)[i].iov_base = malloc((*iov)[i].iov_len, M_DEVBUF, flags);
-		if (!(*iov)[i].iov_base)
+		if (!(*iov)[i].iov_base) {
+			xs_resfree(xst, *iov, *iov_cnt);
 			goto cleanup;
+		}
 		memcpy((*iov)[i].iov_base, bp, (*iov)[i].iov_len);
 		bp = ++cp;
 	}
-
 	return (0);
 
  cleanup:
-	xs_resfree(xst, *iov, *iov_cnt);
+	*iov = NULL;
+	*iov_cnt = 0;
 	return (ENOMEM);
 }
 
@@ -690,7 +693,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 	int i, error = 0;
 
 	if (cmd >= XS_MAX)
-		return (-1);
+		return (EINVAL);
 
 	switch (cmd) {
 	case XS_TOPEN:
@@ -726,7 +729,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 
 	if (xs_get_buf(xst, xsm, datalen)) {
 		xs_put_msg(xs, xsm);
-		return (-1);
+		return (ENOMEM);
 	}
 
 	xsm->xsm_hdr.xmh_tid = xst->xst_id;
@@ -741,7 +744,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		    xs->xs_sc->sc_dev.dv_xname, cmd);
 		xs_put_buf(xst, xsm);
 		xs_put_msg(xs, xsm);
-		return (-1);
+		return (EIO);
 	}
 
 	if (xs_start(xst, xsm, ov, ov_cnt)) {
@@ -749,7 +752,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		    xs->xs_sc->sc_dev.dv_xname, cmd);
 		xs_put_buf(xst, xsm);
 		xs_put_msg(xs, xsm);
-		return (-1);
+		return (EIO);
 	}
 
 	xsm = xs_reply(xst, xsm->xsm_hdr.xmh_rid);

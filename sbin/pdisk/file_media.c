@@ -1,3 +1,5 @@
+/*	$OpenBSD: file_media.c,v 1.15 2016/01/11 17:55:45 jasper Exp $	*/
+
 /*
  * file_media.c -
  *
@@ -177,6 +179,7 @@ compute_block_size(int fd)
 	    }
 	}
     }
+    free(buffer);
     return 0;
 }
 
@@ -188,7 +191,7 @@ open_file_as_media(char *file, int oflag)
     int			fd;
     loff_t off;
     struct stat info;
-	
+
     if (file_inited == 0) {
 	    file_init();
     }
@@ -420,12 +423,12 @@ step_file_iterator(MEDIA_ITERATOR m)
 		if (a->style > kMaxStyle) {
 		    break;
 		}
-#ifndef notdef
+
 		/* if old version of mklinux then skip CD drive */
 		if (a->style == kSCSI_Disks && a->index == 3) {
 		    a->index += 1;
 		}
-#endif
+
 		/* generate result */
 		result = malloc(20);
 		if (result != NULL) {

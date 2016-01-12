@@ -1,3 +1,5 @@
+/*	$OpenBSD: validate.c,v 1.9 2016/01/11 23:31:27 krw Exp $	*/
+
 //
 // validate.c -
 //
@@ -37,10 +39,10 @@
 
 #include "validate.h"
 #include "deblock_media.h"
-#include "pathname.h"
 #include "convert.h"
 #include "io.h"
 #include "errors.h"
+#include "file_media.h"
 
 
 //
@@ -226,7 +228,7 @@ add_range(range_list **list, u32 base, u32 len, int allocate)
 		}
 		cur->next = item;
 		item->prev = cur;
-		
+
 		cur->end = high;
 	    }
 
@@ -345,7 +347,7 @@ validate_map(partition_map_header *map)
 	    bad_input("Bad name");
 	    return;
 	}
-	the_media = open_pathname_as_media(name, O_RDONLY);
+	the_media = open_file_as_media(name, O_RDONLY);
 	if (the_media == 0) {
 	    error(errno, "can't open file '%s'", name);
 	    free(name);
@@ -419,7 +421,7 @@ check_map:
 	    goto post_processing;
 	}
 	printed = 0;
-	
+
 	// signature matches
 	if (mb->dpme_signature != DPME_SIGNATURE) {
 	    printed = 1;
@@ -447,7 +449,7 @@ check_map:
 	}
 	// remember stuff for post processing
 	add_range(&list, mb->dpme_pblock_start, mb->dpme_pblocks, 1);
-	
+
 	// XXX type is known type?
 	// XXX no unknown flags?
 	// XXX boot blocks either within or outside of logical
