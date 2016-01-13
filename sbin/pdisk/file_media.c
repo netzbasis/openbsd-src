@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_media.c,v 1.15 2016/01/11 17:55:45 jasper Exp $	*/
+/*	$OpenBSD: file_media.c,v 1.19 2016/01/13 00:12:49 krw Exp $	*/
 
 /*
  * file_media.c -
@@ -27,6 +27,8 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <err.h>
+
 // for printf()
 #include <stdio.h>
 // for malloc() & free()
@@ -45,15 +47,6 @@
 #include <util.h>
 
 #include "file_media.h"
-#include "errors.h"
-
-
-/*
- * Defines
- */
-#define loff_t off_t
-#define llseek lseek
-#define LOFF_MAX LLONG_MAX
 
 
 /*
@@ -72,28 +65,12 @@ struct file_media_globals {
     long		kind;
 };
 
-typedef struct file_media_iterator *FILE_MEDIA_ITERATOR;
-
-struct file_media_iterator {
-    struct media_iterator   m;
-    long		    style;
-    long		    index;
-};
-
-
 /*
  * Global Constants
  */
 int potential_block_sizes[] = {
     1, 512, 1024, 2048,
     0
-};
-
-enum {
-    kSCSI_Disks = 0,
-    kATA_Devices = 1,
-    kSCSI_CDs = 2,
-    kMaxStyle = 2
 };
 
 
@@ -113,11 +90,6 @@ long read_file_media(MEDIA m, long long offset, unsigned long count, void *addre
 long write_file_media(MEDIA m, long long offset, unsigned long count, void *address);
 long close_file_media(MEDIA m);
 long os_reload_file_media(MEDIA m);
-FILE_MEDIA_ITERATOR new_file_iterator(void);
-void reset_file_iterator(MEDIA_ITERATOR m);
-char *step_file_iterator(MEDIA_ITERATOR m);
-void delete_file_iterator(MEDIA_ITERATOR m);
-
 
 /*
  * Routines
@@ -146,7 +118,7 @@ compute_block_size(int fd)
 {
     int size;
     int max_size;
-    loff_t x;
+    off_t x;
     long t;
     int i;
     char *buffer;
@@ -169,8 +141,8 @@ compute_block_size(int fd)
 	    if (size == 0) {
 		break;
 	    }
-	    if ((x = llseek(fd, (loff_t)0, SEEK_SET)) < 0) {
-		error(errno, "Can't seek on file");
+	    if ((x = lseek(fd, 0, SEEK_SET)) < 0) {
+		warn("Can't seek on file");
 		break;
 	    }
 	    if ((t = read(fd, buffer, size)) == size) {
@@ -189,7 +161,7 @@ open_file_as_media(char *file, int oflag)
 {
     FILE_MEDIA	a;
     int			fd;
-    loff_t off;
+    off_t off;
     struct stat info;
 
     if (file_inited == 0) {
@@ -203,7 +175,7 @@ open_file_as_media(char *file, int oflag)
 	if (a != 0) {
 	    a->m.kind = file_info.kind;
 	    a->m.grain = compute_block_size(fd);
-	    off = llseek(fd, (loff_t)0, SEEK_END);	/* seek to end of media */
+	    off = lseek(fd, 0, SEEK_END);	/* seek to end of media */
 	    //printf("file size = %Ld\n", off);
 	    a->m.size_in_bytes = (long long) off;
 	    a->m.do_read = read_file_media;
@@ -213,7 +185,7 @@ open_file_as_media(char *file, int oflag)
 	    a->fd = fd;
 	    a->regular_file = 0;
 	    if (fstat(fd, &info) < 0) {
-		error(errno, "can't stat file '%s'", file);
+		warn("can't stat file '%s'", file);
 	    } else {
 		a->regular_file = S_ISREG(info.st_mode);
 	    }
@@ -230,7 +202,7 @@ read_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 {
     FILE_MEDIA a;
     long rtn_value;
-    loff_t off;
+    off_t off;
     int t;
 
     a = (FILE_MEDIA) m;
@@ -250,13 +222,13 @@ read_file_media(MEDIA m, long long offset, unsigned long count, void *address)
     } else if (offset + count > a->m.size_in_bytes && a->m.size_in_bytes != (long long) 0) {
 	/* check for offset (and offset+count) too large */
 	fprintf(stderr,"offset+count too large\n");
-    } else if (offset + count > (long long) LOFF_MAX) {
+    } else if (count > LLONG_MAX - offset) {
 	/* check for offset (and offset+count) too large */
 	fprintf(stderr,"offset+count too large 2\n");
     } else {
 	/* do the read */
 	off = offset;
-	if ((off = llseek(a->fd, off, SEEK_SET)) >= 0) {
+	if ((off = lseek(a->fd, off, SEEK_SET)) >= 0) {
 	    if ((t = read(a->fd, address, count)) == count) {
 		rtn_value = 1;
 	    } else {
@@ -275,7 +247,7 @@ write_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 {
     FILE_MEDIA a;
     long rtn_value;
-    loff_t off;
+    off_t off;
     int t;
 
     a = (FILE_MEDIA) m;
@@ -288,12 +260,12 @@ write_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 	/* can't handle size */
     } else if (offset < 0 || offset % a->m.grain != 0) {
 	/* can't handle offset */
-    } else if (offset + count > (long long) LOFF_MAX) {
+    } else if (count > LLONG_MAX - offset) {
 	/* check for offset (and offset+count) too large */
     } else {
 	/* do the write  */
 	off = offset;
-	if ((off = llseek(a->fd, off, SEEK_SET)) >= 0) {
+	if ((off = lseek(a->fd, off, SEEK_SET)) >= 0) {
 	    if ((t = write(a->fd, address, count)) == count) {
 		if (off + count > a->m.size_in_bytes) {
 			a->m.size_in_bytes = off + count;
@@ -343,176 +315,4 @@ os_reload_file_media(MEDIA m)
 	rtn_value = 1;
     }
     return rtn_value;
-}
-
-
-FILE_MEDIA_ITERATOR
-new_file_iterator(void)
-{
-    return (FILE_MEDIA_ITERATOR) new_media_iterator(sizeof(struct file_media_iterator));
-}
-
-
-MEDIA_ITERATOR
-create_file_iterator(void)
-{
-    FILE_MEDIA_ITERATOR a;
-
-    if (file_inited == 0) {
-	file_init();
-    }
-
-    a = new_file_iterator();
-    if (a != 0) {
-	a->m.kind = file_info.kind;
-	a->m.state = kInit;
-	a->m.do_reset = reset_file_iterator;
-	a->m.do_step = step_file_iterator;
-	a->m.do_delete = delete_file_iterator;
-	a->style = 0;
-	a->index = 0;
-    }
-
-    return (MEDIA_ITERATOR) a;
-}
-
-
-void
-reset_file_iterator(MEDIA_ITERATOR m)
-{
-    FILE_MEDIA_ITERATOR a;
-
-    a = (FILE_MEDIA_ITERATOR) m;
-    if (a == 0) {
-	/* no media */
-    } else if (a->m.kind != file_info.kind) {
-	/* wrong kind - XXX need to error here - this is an internal problem */
-    } else if (a->m.state != kInit) {
-	a->m.state = kReset;
-    }
-}
-
-
-char *
-step_file_iterator(MEDIA_ITERATOR m)
-{
-    FILE_MEDIA_ITERATOR a;
-    char *result;
-    struct stat info;
-    int	fd;
-    int bump;
-    int value;
-
-    a = (FILE_MEDIA_ITERATOR) m;
-    if (a == 0) {
-	/* no media */
-    } else if (a->m.kind != file_info.kind) {
-	/* wrong kind - XXX need to error here - this is an internal problem */
-    } else {
-	switch (a->m.state) {
-	case kInit:
-	    a->m.state = kReset;
-	    /* fall through to reset */
-	case kReset:
-	    a->style = 0 /* first style */;
-	    a->index = 0 /* first index */;
-	    a->m.state = kIterating;
-	    /* fall through to iterate */
-	case kIterating:
-	    while (1) {
-		if (a->style > kMaxStyle) {
-		    break;
-		}
-
-		/* if old version of mklinux then skip CD drive */
-		if (a->style == kSCSI_Disks && a->index == 3) {
-		    a->index += 1;
-		}
-
-		/* generate result */
-		result = malloc(20);
-		if (result != NULL) {
-		    /*
-		     * for DR3 we should actually iterate through:
-		     *
-		     *    /dev/sd[a...]    # first missing is end of list
-		     *    /dev/hd[a...]    # may be holes in sequence
-		     *    /dev/scd[0...]   # first missing is end of list
-		     *
-		     * and stop in each group when either a stat of
-		     * the name fails or if an open fails for
-		     * particular reasons.
-		     */
-		    bump = 0;
-		    value = (int) a->index;
-		    switch (a->style) {
-		    case kSCSI_Disks:
-			if (value < 26) {
-			    snprintf(result, 20, "/dev/sd%c", 'a'+value);
-			} else if (value < 676) {
-			    snprintf(result, 20, "/dev/sd%c%c",
-				    'a' + value / 26,
-				    'a' + value % 26);
-			} else {
-			    bump = -1;
-			}
-			break;
-		    case kATA_Devices:
-			if (value < 26) {
-			    snprintf(result, 20, "/dev/hd%c", 'a'+value);
-			} else {
-			    bump = -1;
-			}
-			break;
-		    case kSCSI_CDs:
-			if (value < 10) {
-			    snprintf(result, 20, "/dev/scd%c", '0'+value);
-			} else {
-			    bump = -1;
-			}
-			break;
-		    }
-		    if (bump != 0) {
-			// already set don't even check
-		    } else if (stat(result, &info) < 0) {
-			bump = 1;
-		    } else if ((fd = open(result, O_RDONLY)) >= 0) {
-			close(fd);
-		    } else if (errno == ENXIO || errno == ENODEV) {
-			if (a->style == kATA_Devices) {
-			    bump = -1;
-			} else {
-			    bump = 1;
-			}
-		    }
-		    if (bump) {
-			if (bump > 0) {
-			    a->style += 1; /* next style */
-			    a->index = 0; /* first index again */
-			} else {
-			    a->index += 1; /* next index */
-			}
-			free(result);
-			continue;
-		    }
-		}
-
-		a->index += 1; /* next index */
-		return result;
-	    }
-	    a->m.state = kEnd;
-	    /* fall through to end */
-	case kEnd:
-	default:
-	    break;
-	}
-    }
-    return 0 /* no entry */;
-}
-
-
-void
-delete_file_iterator(MEDIA_ITERATOR m)
-{
-    return;
 }
