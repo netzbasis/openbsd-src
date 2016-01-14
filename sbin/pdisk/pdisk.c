@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.29 2016/01/13 00:29:25 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.31 2016/01/14 04:22:25 krw Exp $	*/
 
 //
 // pdisk - an editor for Apple format partition tables
@@ -47,7 +47,6 @@
 
 #include "io.h"
 #include "partition_map.h"
-#include "hfs_misc.h"
 #include "dump.h"
 #include "validate.h"
 #include "file_media.h"
@@ -167,8 +166,6 @@ get_options(int argc, char **argv)
     lfile = NULL;
     dflag = DFLAG_DEFAULT;
     rflag = RFLAG_DEFAULT;
-    aflag = AFLAG_DEFAULT;
-    pflag = PFLAG_DEFAULT;
 
     optind = 1; // reset option scanner logic
     while ((c = getopt(argc, argv, "ldr")) != -1) {
@@ -181,12 +178,6 @@ get_options(int argc, char **argv)
 	    break;
 	case 'r':
 	    rflag = (RFLAG_DEFAULT)?0:1;
-	    break;
-	case 'a':
-	    aflag = (AFLAG_DEFAULT)?0:1;
-	    break;
-	case kLogicalOption:
-	    pflag = (PFLAG_DEFAULT)?0:1;
 	    break;
 	default:
 	    usage();

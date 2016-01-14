@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwn.c,v 1.154 2016/01/12 10:53:39 stsp Exp $	*/
+/*	$OpenBSD: if_iwn.c,v 1.157 2016/01/13 14:39:35 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -3398,16 +3398,8 @@ iwn_set_link_quality(struct iwn_softc *sc, struct ieee80211_node *ni)
 			if (i++ >= IWN_MAX_TX_RETRIES)
 				break;
 		}
-		/* Fill the rest with MCS 0. */
-		rinfo = &iwn_rates[iwn_mcs2ridx[0]];
- 		while (i < IWN_MAX_TX_RETRIES - 1) {
-			linkq.retry[i].plcp = rinfo->ht_plcp;
-			linkq.retry[i].rflags = rinfo->ht_flags;
- 			linkq.retry[i].rflags |= IWN_RFLAG_ANT(txant);
- 			i++;
- 		}
 
-		/* Fill the last slot with the lowest legacy rate. */
+		/* Fill the rest with the lowest legacy rate. */
 		if (IEEE80211_IS_CHAN_5GHZ(ni->ni_chan))
 			rinfo = &iwn_rates[IWN_RIDX_OFDM6];
 		else
@@ -4489,6 +4481,9 @@ iwn_config(struct iwn_softc *sc)
 	    IWN_RXCHAIN_IDLE_COUNT(2);
 	sc->rxon.rxchain = htole16(rxchain);
 	DPRINTF(("setting configuration\n"));
+	DPRINTF(("%s: rxon chan %d flags %x cck %x ofdm %x\n", __func__,
+	    sc->rxon.chan, le32toh(sc->rxon.flags), sc->rxon.cck_mask,
+	    sc->rxon.ofdm_mask));
 	error = iwn_cmd(sc, IWN_CMD_RXON, &sc->rxon, sc->rxonsz, 0);
 	if (error != 0) {
 		printf("%s: RXON command failed\n", sc->sc_dev.dv_xname);

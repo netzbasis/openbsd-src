@@ -1,4 +1,4 @@
-/* $OpenBSD: ihidev.c,v 1.2 2016/01/12 17:30:23 deraadt Exp $ */
+/* $OpenBSD: ihidev.c,v 1.4 2016/01/13 15:10:35 jcs Exp $ */
 /*
  * HID-over-i2c driver
  *
@@ -117,6 +117,7 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_tag = ia->ia_tag;
 	sc->sc_addr = ia->ia_addr;
+	sc->sc_hid_desc_addr = ia->ia_size;
 
 	printf(": int %d", ia->ia_int);
 
@@ -239,10 +240,10 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		 * register is passed from the controller, and is probably just
 		 * the address of the device
 		 */
-		uint8_t cmdbuf[] = { htole16(sc->sc_addr), 0x0 };
+		uint8_t cmdbuf[] = { htole16(sc->sc_hid_desc_addr), 0x0 };
 
 		DPRINTF(("%s: HID command I2C_HID_CMD_DESCR at 0x%x\n",
-		    sc->sc_dev.dv_xname, htole16(sc->sc_addr)));
+		    sc->sc_dev.dv_xname, htole16(sc->sc_hid_desc_addr)));
 
 		/* 20 00 */
 		res = iic_exec(sc->sc_tag, I2C_OP_WRITE, sc->sc_addr, &cmdbuf,
@@ -417,7 +418,6 @@ ihidev_intr(void *arg)
 	struct ihidev_softc *sc = arg;
 	struct ihidev *scd;
 	size_t size, psize;
-	u_int32_t cc;
 	int res, i;
 	u_char *p;
 	u_int rep = 0;
@@ -455,8 +455,9 @@ ihidev_intr(void *arg)
 
 	/* report id is 3rd byte */
 	p = sc->sc_ibuf + 2;
+	psize -= 2;
 	if (sc->sc_nrepid != 1)
-		rep = *p++, cc--;
+		rep = *p++; psize--;
 
 	if (rep >= sc->sc_nrepid) {
 		printf("%s: %s: bad repid %d\n", sc->sc_dev.dv_xname, __func__,
@@ -468,7 +469,7 @@ ihidev_intr(void *arg)
 	if (scd == NULL || !(scd->sc_state & IHIDEV_OPEN))
 		return (1);
 
-	scd->sc_intr(scd, p, cc);
+	scd->sc_intr(scd, p, psize);
 
 	return (1);
 }
