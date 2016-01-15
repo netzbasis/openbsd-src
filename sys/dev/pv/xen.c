@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.26 2016/01/14 12:37:17 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.28 2016/01/15 18:20:41 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -39,7 +39,6 @@
 struct xen_softc *xen_sc;
 
 int	xen_init_hypercall(struct xen_softc *);
-int	xen_getversion(struct xen_softc *);
 int	xen_getfeatures(struct xen_softc *);
 int	xen_init_info_page(struct xen_softc *);
 int	xen_init_cbvec(struct xen_softc *);
@@ -119,16 +118,12 @@ xen_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_base = hv->hv_base;
 
-	printf("\n");
-
 	if (xen_init_hypercall(sc))
 		return;
 
 	/* Wire it up to the global */
 	xen_sc = sc;
 
-	if (xen_getversion(sc))
-		return;
 	if (xen_getfeatures(sc))
 		return;
 
@@ -146,9 +141,10 @@ xen_attach(struct device *parent, struct device *self, void *aux)
 	if (xs_attach(sc))
 		return;
 
-	xen_disable_emulated_devices(sc);
 
 	xen_probe_devices(sc);
+
+	xen_disable_emulated_devices(sc);
 
 	config_mountroot(self, xen_deferred);
 }
@@ -158,7 +154,7 @@ xen_deferred(struct device *self)
 {
 	struct xen_softc *sc = (struct xen_softc *)self;
 
-	if (!sc->sc_cbvec) {
+	if (!(sc->sc_flags & XSF_CBVEC)) {
 		DPRINTF("%s: callback vector hasn't been established\n",
 		    sc->sc_dev.dv_xname);
 		return;
@@ -198,22 +194,17 @@ xen_init_hypercall(struct xen_softc *sc)
 
 	/* We don't support more than one hypercall page */
 	if (regs[0] != 1) {
-		printf("%s: requested %d hypercall pages\n",
-		    sc->sc_dev.dv_xname, regs[0]);
+		printf(": requested %d hypercall pages\n", regs[0]);
 		return (-1);
 	}
 
 	sc->sc_hc = &xen_hypercall_page;
 
 	if (!pmap_extract(pmap_kernel(), (vaddr_t)sc->sc_hc, &pa)) {
-		printf("%s: hypercall page PA extraction failed\n",
-		    sc->sc_dev.dv_xname);
+		printf(": hypercall page PA extraction failed\n");
 		return (-1);
 	}
 	wrmsr(regs[1], pa);
-
-	DPRINTF("%s: hypercall page at va %p pa %#lx\n", sc->sc_dev.dv_xname,
-	    sc->sc_hc, pa);
 
 	return (0);
 }
@@ -359,44 +350,23 @@ xen_hypercallv(struct xen_softc *sc, int op, int argc, ulong *argv)
 }
 
 int
-xen_getversion(struct xen_softc *sc)
-{
-	char buf[16];
-	int version;
-	ulong argv[2] = { XENVER_extraversion, (ulong)&buf[0] };
-	int argc = 2;
-
-	memset(buf, 0, sizeof(buf));
-	if ((version = xen_hypercall(sc, XC_VERSION, 1, XENVER_version)) < 0) {
-		printf("%s: failed to fetch version\n", sc->sc_dev.dv_xname);
-		return (-1);
-	}
-	if (xen_hypercallv(sc, XC_VERSION, argc, argv) < 0) {
-		printf("%s: failed to fetch extended version\n",
-		    sc->sc_dev.dv_xname);
-		return (-1);
-	}
-	printf("%s: version %d.%d%s\n", sc->sc_dev.dv_xname,
-	    version >> 16, version & 0xffff, buf);
-	return (0);
-}
-
-int
 xen_getfeatures(struct xen_softc *sc)
 {
 	struct xen_feature_info xfi;
-	ulong argv[2] = { XENVER_get_features, (ulong)&xfi };
-	int argc = 2;
 
 	memset(&xfi, 0, sizeof(xfi));
-	if (xen_hypercallv(sc, XC_VERSION, argc, argv) < 0) {
-		printf("%s: failed to fetch features\n", sc->sc_dev.dv_xname);
+	if (xen_hypercall(sc, XC_VERSION, 2, XENVER_get_features, &xfi) < 0) {
+		printf(": failed to fetch features\n");
 		return (-1);
 	}
 	sc->sc_features = xfi.submap;
-	printf("%s: features %b\n", sc->sc_dev.dv_xname, sc->sc_features,
+#ifdef XEN_DEBUG
+	printf(": features %b", sc->sc_features,
 	    "\20\014DOM0\013PIRQ\012PVCLOCK\011CBVEC\010GNTFLAGS\007HMA"
 	    "\006PTUPD\005PAE4G\004SUPERVISOR\003AUTOPMAP\002WDT\001WPT");
+#else
+	printf(": features %#x", sc->sc_features);
+#endif
 	return (0);
 }
 
@@ -453,13 +423,11 @@ xen_init_info_page(struct xen_softc *sc)
 
 	sc->sc_ipg = malloc(PAGE_SIZE, M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (sc->sc_ipg == NULL) {
-		printf("%s: failed to allocate shared info page\n",
-		    sc->sc_dev.dv_xname);
+		printf(": failed to allocate shared info page\n");
 		return (-1);
 	}
 	if (!pmap_extract(pmap_kernel(), (vaddr_t)sc->sc_ipg, &pa)) {
-		printf("%s: shared info page PA extraction failed\n",
-		    sc->sc_dev.dv_xname);
+		printf(": shared info page PA extraction failed\n");
 		free(sc->sc_ipg, M_DEVBUF, PAGE_SIZE);
 		return (-1);
 	}
@@ -468,13 +436,10 @@ xen_init_info_page(struct xen_softc *sc)
 	xatp.space = XENMAPSPACE_shared_info;
 	xatp.gpfn = atop(pa);
 	if (xen_hypercall(sc, XC_MEMORY, 2, XENMEM_add_to_physmap, &xatp)) {
-		printf("%s: failed to register shared info page\n",
-		    sc->sc_dev.dv_xname);
+		printf(": failed to register shared info page\n");
 		free(sc->sc_ipg, M_DEVBUF, PAGE_SIZE);
 		return (-1);
 	}
-	DPRINTF("%s: shared info page at va %p pa %#lx\n", sc->sc_dev.dv_xname,
-	    sc->sc_ipg, pa);
 	return (0);
 }
 
@@ -493,10 +458,9 @@ xen_init_cbvec(struct xen_softc *sc)
 		/* Will retry with the xspd(4) PCI interrupt */
 		return (ENOENT);
 	}
-	DPRINTF("%s: registered callback IDT vector %d\n",
-	    sc->sc_dev.dv_xname, LAPIC_XEN_VECTOR);
+	DPRINTF(", idtvec %d", LAPIC_XEN_VECTOR);
 
-	sc->sc_cbvec = 1;
+	sc->sc_flags |= XSF_CBVEC;
 
 	return (0);
 }
@@ -780,13 +744,12 @@ xen_init_grant_tables(struct xen_softc *sc)
 
 	gqs.dom = DOMID_SELF;
 	if (xen_hypercall(sc, XC_GNTTAB, 3, GNTTABOP_query_size, &gqs, 1)) {
-		printf("%s: failed the query for grant table pages\n",
-		    sc->sc_dev.dv_xname);
+		printf(": failed the query for grant table pages\n");
 		return (-1);
 	}
 	if (gqs.nr_frames == 0 || gqs.nr_frames > gqs.max_nr_frames) {
-		printf("%s: invalid number of grant table pages: %u/%u\n",
-		    sc->sc_dev.dv_xname, gqs.nr_frames, gqs.max_nr_frames);
+		printf(": invalid number of grant table pages: %u/%u\n",
+		    gqs.nr_frames, gqs.max_nr_frames);
 		return (-1);
 	}
 
@@ -795,8 +758,7 @@ xen_init_grant_tables(struct xen_softc *sc)
 	if (xen_hypercall(sc, XC_GNTTAB, 3, GNTTABOP_set_version, &gsv, 1) ||
 	    xen_hypercall(sc, XC_GNTTAB, 3, GNTTABOP_get_version, &ggv, 1) ||
 	    ggv.version != 1) {
-		printf("%s: failed to set grant tables API version\n",
-		    sc->sc_dev.dv_xname);
+		printf(": failed to set grant tables API version\n");
 		return (-1);
 	}
 
@@ -806,8 +768,7 @@ xen_init_grant_tables(struct xen_softc *sc)
 		if (xen_grant_table_grow(sc) == NULL)
 			break;
 
-	DPRINTF("%s: grant table frames allocated %u/%u\n",
-	    sc->sc_dev.dv_xname, sc->sc_gntcnt, gqs.max_nr_frames);
+	printf(", %u grant table frames", sc->sc_gntcnt);
 
 	xen_bus_dma_init(sc);
 
@@ -1170,8 +1131,6 @@ xen_probe_devices(struct xen_softc *sc)
 #define XMI_UNPLUG_NIC		0x02
 #define XMI_UNPLUG_IDESEC	0x04
 
-int xen_disable_pv_ide, xen_disable_pv_idesec, xen_disable_pv_nic;
-
 void
 xen_disable_emulated_devices(struct xen_softc *sc)
 {
@@ -1179,18 +1138,17 @@ xen_disable_emulated_devices(struct xen_softc *sc)
 	ushort unplug = 0;
 
 	if (inw(XMI_PORT) != XMI_MAGIC) {
-		printf("%s: no magic!\n", sc->sc_dev.dv_xname);
+		printf("%s: failed to disable emulated devices\n",
+		    sc->sc_dev.dv_xname);
 		return;
 	}
-	if (xen_disable_pv_ide)
+	if (sc->sc_flags & XSF_UNPLUG_IDE)
 		unplug |= XMI_UNPLUG_IDE;
-	if (xen_disable_pv_idesec)
+	if (sc->sc_flags & XSF_UNPLUG_IDESEC)
 		unplug |= XMI_UNPLUG_IDESEC;
-	if (xen_disable_pv_nic)
+	if (sc->sc_flags & XSF_UNPLUG_NIC)
 		unplug |= XMI_UNPLUG_NIC;
-	if (unplug) {
+	if (unplug)
 		outw(XMI_PORT, unplug);
-		DPRINTF("%s: disabled emulated devices\n", sc->sc_dev.dv_xname);
-	}
 #endif	/* __i386__ || __amd64__ */
 }

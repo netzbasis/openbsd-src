@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.19 2016/01/05 13:47:28 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.21 2016/01/15 18:20:41 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -19,7 +19,7 @@
 #ifndef _XENVAR_H_
 #define _XENVAR_H_
 
-#define XEN_DEBUG
+/* #define XEN_DEBUG */
 
 #ifdef XEN_DEBUG
 #define DPRINTF(x...)		printf(x)
@@ -61,7 +61,12 @@ struct xen_softc {
 
 	struct shared_info	*sc_ipg;	/* HYPERVISOR_shared_info */
 
-	int			 sc_cbvec;	/* callback was installed */
+	uint32_t		 sc_flags;
+#define  XSF_CBVEC		 0x0001
+#define  XSF_UNPLUG_NIC		 0x0002		/* disable emul. NICs */
+#define  XSF_UNPLUG_IDE		 0x0004		/* disable emul. primary IDE */
+#define  XSF_UNPLUG_IDESEC	 0x0008		/* disable emul. sec. IDE */
+
 	uint64_t		 sc_irq;	/* IDT vector number */
 	struct evcount		 sc_evcnt;	/* upcall counter */
 	SLIST_HEAD(, xen_intsrc) sc_intrs;

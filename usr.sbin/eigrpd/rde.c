@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.8 2015/12/05 15:49:01 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.10 2016/01/15 12:52:49 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -489,6 +489,7 @@ rde_send_change_kroute(struct rt_node *rn, struct eigrp_route *route)
 {
 	struct eigrp	*eigrp = route->nbr->eigrp;
 	struct kroute	 kr;
+	struct in6_addr	 lo6 = IN6ADDR_LOOPBACK_INIT;
 
 	log_debug("%s: %s nbr %s", __func__, log_prefix(rn),
 	    log_addr(eigrp->af, &route->nbr->addr));
@@ -497,19 +498,16 @@ rde_send_change_kroute(struct rt_node *rn, struct eigrp_route *route)
 	kr.af = eigrp->af;
 	memcpy(&kr.prefix, &rn->prefix, sizeof(kr.prefix));
 	kr.prefixlen = rn->prefixlen;
-	if (eigrp_addrisset(eigrp->af, &route->nexthop))
+	if (route->nbr->ei) {
 		memcpy(&kr.nexthop, &route->nexthop, sizeof(kr.nexthop));
-	else
-		memcpy(&kr.nexthop, &route->nbr->addr, sizeof(kr.nexthop));
-	if (route->nbr->ei)
 		kr.ifindex = route->nbr->ei->iface->ifindex;
-	else {
+	} else {
 		switch (eigrp->af) {
 		case AF_INET:
-			inet_pton(AF_INET, "127.0.0.1", &kr.nexthop.v4);
+			kr.nexthop.v4.s_addr = htonl(INADDR_LOOPBACK);
 			break;
 		case AF_INET6:
-			inet_pton(AF_INET, "::1", &kr.nexthop.v6);
+			memcpy(&kr.nexthop.v6, &lo6, sizeof(kr.nexthop.v6));
 			break;
 		default:
 			fatalx("rde_send_delete_kroute: unknown af");
@@ -536,6 +534,7 @@ rde_send_delete_kroute(struct rt_node *rn, struct eigrp_route *route)
 {
 	struct eigrp	*eigrp = route->nbr->eigrp;
 	struct kroute	 kr;
+	struct in6_addr	 lo6 = IN6ADDR_LOOPBACK_INIT;
 
 	log_debug("%s: %s nbr %s", __func__, log_prefix(rn),
 	    log_addr(eigrp->af, &route->nbr->addr));
@@ -544,19 +543,16 @@ rde_send_delete_kroute(struct rt_node *rn, struct eigrp_route *route)
 	kr.af = eigrp->af;
 	memcpy(&kr.prefix, &rn->prefix, sizeof(kr.prefix));
 	kr.prefixlen = rn->prefixlen;
-	if (eigrp_addrisset(eigrp->af, &route->nexthop))
+	if (route->nbr->ei) {
 		memcpy(&kr.nexthop, &route->nexthop, sizeof(kr.nexthop));
-	else
-		memcpy(&kr.nexthop, &route->nbr->addr, sizeof(kr.nexthop));
-	if (route->nbr->ei)
 		kr.ifindex = route->nbr->ei->iface->ifindex;
-	else {
+	} else {
 		switch (eigrp->af) {
 		case AF_INET:
-			inet_pton(AF_INET, "127.0.0.1", &kr.nexthop.v4);
+			kr.nexthop.v4.s_addr = htonl(INADDR_LOOPBACK);
 			break;
 		case AF_INET6:
-			inet_pton(AF_INET, "::1", &kr.nexthop.v6);
+			memcpy(&kr.nexthop.v6, &lo6, sizeof(kr.nexthop.v6));
 			break;
 		default:
 			fatalx("rde_send_delete_kroute: unknown af");
@@ -751,7 +747,7 @@ rt_to_ctl(struct rt_node *rn, struct eigrp_route *route)
 	memcpy(&rtctl.prefix, &rn->prefix, sizeof(rtctl.prefix));
 	rtctl.prefixlen = rn->prefixlen;
 	rtctl.type = route->type;
-	memcpy(&rtctl.nexthop, &route->nbr->addr, sizeof(rtctl.nexthop));
+	memcpy(&rtctl.nexthop, &route->nexthop, sizeof(rtctl.nexthop));
 	if (route->nbr->flags & F_RDE_NBR_REDIST)
 		strlcpy(rtctl.ifname, "redistribute", sizeof(rtctl.ifname));
 	else if (route->nbr->flags & F_RDE_NBR_SUMMARY)
