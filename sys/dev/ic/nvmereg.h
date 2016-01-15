@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvmereg.h,v 1.4 2014/04/16 00:26:59 dlg Exp $ */
+/*	$OpenBSD: nvmereg.h,v 1.6 2016/01/15 03:39:13 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -28,12 +28,15 @@
 #define  NVME_CAP_AMS_WRR	(1 << 0)
 #define  NVME_CAP_AMS_VENDOR	(1 << 1)
 #define  NVME_CAP_CQR(_r)	ISSET((_r), (1 << 16))
-#define  NVME_CAP_MQES(_r)	((_r) & 0xffff)
+#define  NVME_CAP_MQES(_r)	(((_r) & 0xffff) + 1)
 #define NVME_CAP_LO	0x0000
 #define NVME_CAP_HI	0x0004
 #define NVME_VS		0x0008	/* Version */
 #define  NVME_VS_MJR(_r)	(((_r) >> 16) & 0xffff)
 #define  NVME_VS_MNR(_r)	((_r) & 0xffff)
+#define  NVME_VS_1_0		0x00010000
+#define  NVME_VS_1_1		0x00010100
+#define  NVME_VS_1_2		0x00010200
 #define NVME_INTMS	0x000c	/* Interrupt Mask Set */
 #define NVME_INTMC	0x0010	/* Interrupt Mask Clear */
 #define NVME_CC		0x0014	/* Controller Configuration */

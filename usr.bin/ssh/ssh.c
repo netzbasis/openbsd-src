@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.433 2016/01/13 23:04:47 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.435 2016/01/14 16:17:40 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -95,7 +95,6 @@
 #include "match.h"
 #include "msg.h"
 #include "uidswap.h"
-#include "roaming.h"
 #include "version.h"
 #include "ssherr.h"
 #include "myproposal.h"
@@ -1899,9 +1898,6 @@ ssh_session2(void)
 		} else
 			fork_postauth();
 	}
-
-	if (options.use_roaming)
-		request_roaming();
 
 	return client_loop(tty_flag, tty_flag ?
 	    options.escape_char : SSH_ESCAPECHAR_NONE, id);

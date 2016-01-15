@@ -1,4 +1,4 @@
-/* $OpenBSD: ihidev.c,v 1.4 2016/01/13 15:10:35 jcs Exp $ */
+/* $OpenBSD: ihidev.c,v 1.7 2016/01/14 21:31:27 kettenis Exp $ */
 /*
  * HID-over-i2c driver
  *
@@ -114,6 +114,7 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 	struct device *dev;
 	int repid, repsz;
 	int repsizes[256];
+	int isize;
 
 	sc->sc_tag = ia->ia_tag;
 	sc->sc_addr = ia->ia_addr;
@@ -159,13 +160,16 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	sc->sc_isize = 0;
+	sc->sc_isize = letoh16(sc->hid_desc.wMaxInputLength);
 	for (repid = 0; repid < sc->sc_nrepid; repid++) {
 		repsz = hid_report_size(sc->sc_report, sc->sc_reportlen,
 		    hid_input, repid);
 		repsizes[repid] = repsz;
-		if (repsz > sc->sc_isize)
-			sc->sc_isize = repsz;
+
+		isize = repsz + 2; /* two bytes for the length */
+		isize += (sc->sc_nrepid != 1); /* one byte for the report ID */
+		if (isize > sc->sc_isize)
+			sc->sc_isize = isize;
 
 		DPRINTF(("%s: repid %d size %d\n", sc->sc_dev.dv_xname, repid,
 		    repsz));
@@ -183,9 +187,7 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 		    ihidev_submatch);
 		sc->sc_subdevs[repid] = (struct ihidev *)dev;
 	}
-	sc->sc_isize += (sc->sc_nrepid != 1); /* one byte for the report ID */
-
-	sc->sc_ibuf = malloc(sc->sc_isize, M_USBDEV, M_WAITOK);
+	sc->sc_ibuf = malloc(sc->sc_isize, M_DEVBUF, M_WAITOK);
 
 	/* register interrupt with system */
 	if (ia->ia_int > 0) {
@@ -246,8 +248,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		    sc->sc_dev.dv_xname, htole16(sc->sc_hid_desc_addr)));
 
 		/* 20 00 */
-		res = iic_exec(sc->sc_tag, I2C_OP_WRITE, sc->sc_addr, &cmdbuf,
-		    sizeof(cmdbuf), &sc->hid_desc_buf,
+		res = iic_exec(sc->sc_tag, I2C_OP_READ_WITH_STOP, sc->sc_addr,
+		    &cmdbuf, sizeof(cmdbuf), &sc->hid_desc_buf,
 		    sizeof(struct i2c_hid_desc), 0);
 
 		DPRINTF(("%s: HID descriptor:", sc->sc_dev.dv_xname));
@@ -271,8 +273,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		cmd->c.opcode = I2C_HID_CMD_RESET;
 
 		/* 22 00 00 01 */
-		res = iic_exec(sc->sc_tag, I2C_OP_WRITE, sc->sc_addr, &cmdbuf,
-		    sizeof(cmdbuf), NULL, 0, 0);
+		res = iic_exec(sc->sc_tag, I2C_OP_WRITE_WITH_STOP, sc->sc_addr,
+		    &cmdbuf, sizeof(cmdbuf), NULL, 0, 0);
 
 		break;
 	}
@@ -292,8 +294,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		cmd->c.reportTypeId = power;
 
 		/* 22 00 00 08 */
-		res = iic_exec(sc->sc_tag, I2C_OP_WRITE, sc->sc_addr, &cmdbuf,
-		    sizeof(cmdbuf), NULL, 0, 0);
+		res = iic_exec(sc->sc_tag, I2C_OP_WRITE_WITH_STOP, sc->sc_addr,
+		    &cmdbuf, sizeof(cmdbuf), NULL, 0, 0);
 
 		break;
 	}
@@ -307,8 +309,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		    sc->sc_reportlen));
 
 		/* 20 00 */
-		res = iic_exec(sc->sc_tag, I2C_OP_WRITE, sc->sc_addr, &cmdbuf,
-		    sizeof(cmdbuf), sc->sc_report, sc->sc_reportlen, 0);
+		res = iic_exec(sc->sc_tag, I2C_OP_READ_WITH_STOP, sc->sc_addr,
+		    &cmdbuf, sizeof(cmdbuf), sc->sc_report, sc->sc_reportlen, 0);
 
 		DPRINTF(("%s: HID report descriptor:", sc->sc_dev.dv_xname));
 		for (i = 0; i < sc->sc_reportlen; i++)
@@ -417,26 +419,25 @@ ihidev_intr(void *arg)
 {
 	struct ihidev_softc *sc = arg;
 	struct ihidev *scd;
-	size_t size, psize;
+	u_int psize;
 	int res, i;
 	u_char *p;
 	u_int rep = 0;
 
-	size = letoh16(sc->hid_desc.wMaxInputLength);
-	if (size > sc->sc_isize);
-		size = sc->sc_isize;
+	/*
+	 * XXX: force I2C_F_POLL for now to avoid dwiic interrupting
+	 * while we are interrupting
+	 */
 
-	iic_acquire_bus(sc->sc_tag, 0);
+	iic_acquire_bus(sc->sc_tag, I2C_F_POLL);
 
-	/* XXX: force I2C_F_POLL for now to avoid dwiic interrupting while we
-	 * are interrupting */
-	res = iic_exec(sc->sc_tag, I2C_OP_READ, sc->sc_addr, NULL, 0,
-	    sc->sc_ibuf, size, I2C_F_POLL);
+	res = iic_exec(sc->sc_tag, I2C_OP_READ_WITH_STOP, sc->sc_addr, NULL, 0,
+	    sc->sc_ibuf, sc->sc_isize, I2C_F_POLL);
 
-	iic_release_bus(sc->sc_tag, 0);
+	iic_release_bus(sc->sc_tag, I2C_F_POLL);
 
 	DPRINTF(("%s: ihidev_intr: hid input:", sc->sc_dev.dv_xname));
-	for (i = 0; i < size; i++)
+	for (i = 0; i < sc->sc_isize; i++)
 		DPRINTF((" %.2x", sc->sc_ibuf[i]));
 	DPRINTF(("\n"));
 
@@ -447,9 +448,9 @@ ihidev_intr(void *arg)
 		return (1);
 	}
 
-	if (psize > size) {
-		DPRINTF(("%s: %s: truncated packet (%zu > %zu)\n",
-		    sc->sc_dev.dv_xname, __func__, psize, size));
+	if (psize > sc->sc_isize) {
+		DPRINTF(("%s: %s: truncated packet (%u > %u)\n",
+		    sc->sc_dev.dv_xname, __func__, psize, sc->sc_isize));
 		return (1);
 	}
 
