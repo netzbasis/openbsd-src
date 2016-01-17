@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_media.c,v 1.20 2016/01/15 23:16:40 krw Exp $	*/
+/*	$OpenBSD: file_media.c,v 1.26 2016/01/16 22:28:14 krw Exp $	*/
 
 /*
  * file_media.c -
@@ -55,44 +55,23 @@
 /*
  * Types
  */
-typedef struct file_media *FILE_MEDIA;
 
-struct file_media {
-    struct media	m;
-    int			fd;
-    int			regular_file;
-};
-
-struct file_media_globals {
-    long		exists;
-    long		kind;
-};
 
 /*
  * Global Constants
  */
-int potential_block_sizes[] = {
-    1, 512, 1024, 2048,
-    0
-};
 
 
 /*
  * Global Variables
  */
 static long file_inited = 0;
-static struct file_media_globals file_info;
 
 /*
  * Forward declarations
  */
-int compute_block_size(int fd, char *name);
+void compute_block_size(int fd, char *name);
 void file_init(void);
-FILE_MEDIA new_file_media(void);
-long read_file_media(MEDIA m, long long offset, unsigned long count, void *address);
-long write_file_media(MEDIA m, long long offset, unsigned long count, void *address);
-long close_file_media(MEDIA m);
-long os_reload_file_media(MEDIA m);
 
 /*
  * Routines
@@ -104,19 +83,10 @@ file_init(void)
 	return;
     }
     file_inited = 1;
-
-    file_info.kind = allocate_media_kind();
 }
 
 
-FILE_MEDIA
-new_file_media(void)
-{
-    return (FILE_MEDIA) new_media(sizeof(struct file_media));
-}
-
-
-int
+void
 compute_block_size(int fd, char *name)
 {
 	struct disklabel dl;
@@ -129,11 +99,12 @@ compute_block_size(int fd, char *name)
 	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
 		err(1, "can't get disklabel for %s", name);
 
-	return (dl.d_secsize);
+	if (dl.d_secsize != DEV_BSIZE)
+		err(1, "%u-byte sector size not supported", dl.d_secsize);
 }
 
 
-MEDIA
+FILE_MEDIA
 open_file_as_media(char *file, int oflag)
 {
     FILE_MEDIA	a;
@@ -148,17 +119,12 @@ open_file_as_media(char *file, int oflag)
     a = 0;
     fd = opendev(file, oflag, OPENDEV_PART, NULL);
     if (fd >= 0) {
-	a = new_file_media();
+	a = malloc(sizeof(struct file_media));
 	if (a != 0) {
-	    a->m.kind = file_info.kind;
-	    a->m.grain = compute_block_size(fd, file);
+	    compute_block_size(fd, file);
 	    off = lseek(fd, 0, SEEK_END);	/* seek to end of media */
 	    //printf("file size = %Ld\n", off);
-	    a->m.size_in_bytes = (long long) off;
-	    a->m.do_read = read_file_media;
-	    a->m.do_write = write_file_media;
-	    a->m.do_close = close_file_media;
-	    a->m.do_os_reload = os_reload_file_media;
+	    a->size_in_bytes = (long long) off;
 	    a->fd = fd;
 	    a->regular_file = 0;
 	    if (fstat(fd, &info) < 0) {
@@ -170,33 +136,29 @@ open_file_as_media(char *file, int oflag)
 	    close(fd);
 	}
     }
-    return (MEDIA) a;
+    return (FILE_MEDIA) a;
 }
 
 
 long
-read_file_media(MEDIA m, long long offset, unsigned long count, void *address)
+read_file_media(FILE_MEDIA a, long long offset, unsigned long count,
+    void *address)
 {
-    FILE_MEDIA a;
     long rtn_value;
     off_t off;
     int t;
 
-    a = (FILE_MEDIA) m;
     rtn_value = 0;
     if (a == 0) {
 	/* no media */
 	fprintf(stderr,"no media\n");
-    } else if (a->m.kind != file_info.kind) {
-	/* wrong kind - XXX need to error here - this is an internal problem */
-	fprintf(stderr,"wrong kind\n");
-    } else if (count <= 0 || count % a->m.grain != 0) {
+    } else if (count <= 0 || count % DEV_BSIZE != 0) {
 	/* can't handle size */
 	fprintf(stderr,"bad size\n");
-    } else if (offset < 0 || offset % a->m.grain != 0) {
+    } else if (offset < 0 || offset % DEV_BSIZE != 0) {
 	/* can't handle offset */
 	fprintf(stderr,"bad offset\n");
-    } else if (offset + count > a->m.size_in_bytes && a->m.size_in_bytes != (long long) 0) {
+    } else if (offset + count > a->size_in_bytes && a->size_in_bytes != (long long) 0) {
 	/* check for offset (and offset+count) too large */
 	fprintf(stderr,"offset+count too large\n");
     } else if (count > LLONG_MAX - offset) {
@@ -220,22 +182,18 @@ read_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 
 
 long
-write_file_media(MEDIA m, long long offset, unsigned long count, void *address)
+write_file_media(FILE_MEDIA a, long long offset, unsigned long count, void *address)
 {
-    FILE_MEDIA a;
     long rtn_value;
     off_t off;
     int t;
 
-    a = (FILE_MEDIA) m;
     rtn_value = 0;
     if (a == 0) {
 	/* no media */
-    } else if (a->m.kind != file_info.kind) {
-	/* wrong kind - XXX need to error here - this is an internal problem */
-    } else if (count <= 0 || count % a->m.grain != 0) {
+    } else if (count <= 0 || count % DEV_BSIZE != 0) {
 	/* can't handle size */
-    } else if (offset < 0 || offset % a->m.grain != 0) {
+    } else if (offset < 0 || offset % DEV_BSIZE != 0) {
 	/* can't handle offset */
     } else if (count > LLONG_MAX - offset) {
 	/* check for offset (and offset+count) too large */
@@ -244,8 +202,8 @@ write_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 	off = offset;
 	if ((off = lseek(a->fd, off, SEEK_SET)) >= 0) {
 	    if ((t = write(a->fd, address, count)) == count) {
-		if (off + count > a->m.size_in_bytes) {
-			a->m.size_in_bytes = off + count;
+		if (off + count > a->size_in_bytes) {
+			a->size_in_bytes = off + count;
 		}
 		rtn_value = 1;
 	    }
@@ -256,15 +214,9 @@ write_file_media(MEDIA m, long long offset, unsigned long count, void *address)
 
 
 long
-close_file_media(MEDIA m)
+close_file_media(FILE_MEDIA a)
 {
-    FILE_MEDIA a;
-
-    a = (FILE_MEDIA) m;
     if (a == 0) {
-	return 0;
-    } else if (a->m.kind != file_info.kind) {
-	/* XXX need to error here - this is an internal problem */
 	return 0;
     }
 
@@ -274,17 +226,13 @@ close_file_media(MEDIA m)
 
 
 long
-os_reload_file_media(MEDIA m)
+os_reload_file_media(FILE_MEDIA a)
 {
-    FILE_MEDIA a;
     long rtn_value;
 
-    a = (FILE_MEDIA) m;
     rtn_value = 0;
     if (a == 0) {
 	/* no media */
-    } else if (a->m.kind != file_info.kind) {
-	/* wrong kind - XXX need to error here - this is an internal problem */
     } else if (a->regular_file) {
 	/* okay - nothing to do */
 	rtn_value = 1;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: validate.c,v 1.11 2016/01/15 23:05:00 krw Exp $	*/
+/*	$OpenBSD: validate.c,v 1.15 2016/01/16 22:28:14 krw Exp $	*/
 
 //
 // validate.c -
@@ -42,7 +42,6 @@
 #include <errno.h>
 
 #include "validate.h"
-#include "deblock_media.h"
 #include "convert.h"
 #include "io.h"
 #include "file_media.h"
@@ -85,7 +84,7 @@ static char *buffer;
 static Block0 *b0;
 static DPME *mb;
 static partition_map_header *the_map;
-static MEDIA the_media;
+static FILE_MEDIA the_media;
 static int g;
 
 
@@ -113,7 +112,7 @@ get_block_zero(void)
 	b0 = the_map->misc;
 	rtn_value = 1;
     } else {
-	if (read_media(the_media, (long long) 0, DEV_BSIZE, buffer) == 0) {
+	if (read_file_media(the_media, (long long) 0, DEV_BSIZE, buffer) == 0) {
 	    rtn_value = 0;
 	} else {
 	    b0 = (Block0 *) buffer;
@@ -140,7 +139,7 @@ get_block_n(int n)
 	    rtn_value = 0;
 	}
     } else {
-	if (read_media(the_media, ((long long) n) * g, DEV_BSIZE, (void *)buffer) == 0) {
+	if (read_file_media(the_media, ((long long) n) * g, DEV_BSIZE, (void *)buffer) == 0) {
 	    rtn_value = 0;
 	} else {
 	    mb = (DPME *) buffer;
@@ -356,11 +355,7 @@ validate_map(partition_map_header *map)
 	    free(name);
 	    return;
 	}
-	g = media_granularity(the_media);
-	if (g < DEV_BSIZE) {
-	    g = DEV_BSIZE;
-	}
-   	the_media = open_deblock_media(DEV_BSIZE, the_media);
+	g = DEV_BSIZE;
 
 	buffer = malloc(DEV_BSIZE);
 	if (buffer == NULL) {
@@ -478,7 +473,7 @@ post_processing:
 
 done:
     if (map == NULL) {
-	close_media(the_media);
+	close_file_media(the_media);
 	free(buffer);
 	free(name);
     }

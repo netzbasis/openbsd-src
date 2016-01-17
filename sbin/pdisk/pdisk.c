@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.33 2016/01/15 23:05:00 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.36 2016/01/16 22:28:14 krw Exp $	*/
 
 //
 // pdisk - an editor for Apple format partition tables
@@ -701,7 +701,7 @@ do_change_map_size(partition_map_header *map)
 void
 do_display_block(partition_map_header *map, char *alt_name)
 {
-    MEDIA m;
+    FILE_MEDIA m;
     long number;
     char *name;
     static unsigned char *display_block;
@@ -731,10 +731,7 @@ do_display_block(partition_map_header *map, char *alt_name)
 	    free(name);
 	    return;
 	}
-	g = media_granularity(m);
-	if (g < DEV_BSIZE) {
-	    g = DEV_BSIZE;
-	}
+	g = DEV_BSIZE;
     }
     if (get_number_argument("Block number: ", &number, next_number) == 0) {
 	bad_input("Bad block number");
@@ -752,7 +749,7 @@ do_display_block(partition_map_header *map, char *alt_name)
 	}
 	display_g = g;
     }
-    if (read_media(m, ((long long)number) * g, g, (char *)display_block) != 0) {
+    if (read_file_media(m, ((long long)number) * g, g, (char *)display_block) != 0) {
 	printf("block %ld -", number);
 	dump_block((unsigned char*) display_block, g);
 	next_number = number + 1;
@@ -760,7 +757,7 @@ do_display_block(partition_map_header *map, char *alt_name)
 
 xit:
     if (name) {
-	close_media(m);
+	close_file_media(m);
 	free(name);
     }
     return;
