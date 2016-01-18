@@ -1,10 +1,10 @@
-/*	$OpenBSD: io.h,v 1.4 2016/01/11 07:54:07 jasper Exp $	*/
+/*	$OpenBSD: io.h,v 1.7 2016/01/17 23:18:19 krw Exp $	*/
 
-//
-// io.h - simple io and input parsing routines
-//
-// Written by Eryk Vershen
-//
+/*
+ * io.h - simple io and input parsing routines
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1996,1997,1998 by Apple Computer, Inc.
@@ -31,39 +31,18 @@
 #define __io__
 
 
-//
-// Defines
-//
 #define MAXIOSIZE	2048
 
-
-//
-// Types
-//
-
-
-//
-// Global Constants
-//
 extern const long kDefault;
 
-
-//
-// Global Variables
-//
-
-
-//
-// Forward declarations
-//
-void bad_input(const char *fmt, ...);
-void flush_to_newline(int keep_newline);
-int get_command(const char *prompt, int promptBeforeGet, int *command);
-unsigned long get_multiplier(long divisor);
-int get_number_argument(const char *prompt, long *number, long default_value);
-int get_okay(const char *prompt, int default_value);
+void bad_input(const char *, ...);
+void flush_to_newline(int);
+int get_command(const char *, int, int *);
+unsigned long get_multiplier(long);
+int get_number_argument(const char *, long *, long);
+int get_okay(const char *, int);
 int get_partition_modifier(void);
-int get_string_argument(const char *prompt, char **string, int reprompt);
-int number_of_digits(unsigned long value);
+int get_string_argument(const char *, char **, int);
+int number_of_digits(unsigned long);
 
 #endif /* __io__ */

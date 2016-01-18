@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_media.c,v 1.26 2016/01/16 22:28:14 krw Exp $	*/
+/*	$OpenBSD: file_media.c,v 1.31 2016/01/18 00:04:36 krw Exp $	*/
 
 /*
  * file_media.c -
@@ -32,17 +32,11 @@
 #include <sys/disklabel.h>
 #include <err.h>
 
-// for printf()
 #include <stdio.h>
-// for malloc() & free()
 #include <stdlib.h>
-// for lseek(), read(), write(), close()
 #include <unistd.h>
-// for open()
 #include <fcntl.h>
-// for LONG_MAX
 #include <limits.h>
-// for errno
 #include <errno.h>
 
 #include <sys/ioctl.h>
@@ -51,40 +45,8 @@
 
 #include "file_media.h"
 
-
-/*
- * Types
- */
-
-
-/*
- * Global Constants
- */
-
-
-/*
- * Global Variables
- */
-static long file_inited = 0;
-
-/*
- * Forward declarations
- */
-void compute_block_size(int fd, char *name);
+void compute_block_size(int, char *);
 void file_init(void);
-
-/*
- * Routines
- */
-void
-file_init(void)
-{
-    if (file_inited != 0) {
-	return;
-    }
-    file_inited = 1;
-}
-
 
 void
 compute_block_size(int fd, char *name)
@@ -104,17 +66,13 @@ compute_block_size(int fd, char *name)
 }
 
 
-FILE_MEDIA
+struct file_media *
 open_file_as_media(char *file, int oflag)
 {
-    FILE_MEDIA	a;
+    struct file_media	*a;
     int			fd;
     off_t off;
     struct stat info;
-
-    if (file_inited == 0) {
-	    file_init();
-    }
 
     a = 0;
     fd = opendev(file, oflag, OPENDEV_PART, NULL);
@@ -123,7 +81,6 @@ open_file_as_media(char *file, int oflag)
 	if (a != 0) {
 	    compute_block_size(fd, file);
 	    off = lseek(fd, 0, SEEK_END);	/* seek to end of media */
-	    //printf("file size = %Ld\n", off);
 	    a->size_in_bytes = (long long) off;
 	    a->fd = fd;
 	    a->regular_file = 0;
@@ -136,12 +93,12 @@ open_file_as_media(char *file, int oflag)
 	    close(fd);
 	}
     }
-    return (FILE_MEDIA) a;
+    return (a);
 }
 
 
 long
-read_file_media(FILE_MEDIA a, long long offset, unsigned long count,
+read_file_media(struct file_media *a, long long offset, unsigned long count,
     void *address)
 {
     long rtn_value;
@@ -182,7 +139,8 @@ read_file_media(FILE_MEDIA a, long long offset, unsigned long count,
 
 
 long
-write_file_media(FILE_MEDIA a, long long offset, unsigned long count, void *address)
+write_file_media(struct file_media *a, long long offset, unsigned long count,
+    void *address)
 {
     long rtn_value;
     off_t off;
@@ -214,7 +172,7 @@ write_file_media(FILE_MEDIA a, long long offset, unsigned long count, void *addr
 
 
 long
-close_file_media(FILE_MEDIA a)
+close_file_media(struct file_media *a)
 {
     if (a == 0) {
 	return 0;
@@ -226,7 +184,7 @@ close_file_media(FILE_MEDIA a)
 
 
 long
-os_reload_file_media(FILE_MEDIA a)
+os_reload_file_media(struct file_media *a)
 {
     long rtn_value;
 

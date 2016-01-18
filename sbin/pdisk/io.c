@@ -1,10 +1,10 @@
-/*	$OpenBSD: io.c,v 1.12 2016/01/12 23:48:42 krw Exp $	*/
+/*	$OpenBSD: io.c,v 1.16 2016/01/17 23:18:19 krw Exp $	*/
 
-//
-// io.c - simple io and input parsing routines
-//
-// Written by Eryk Vershen
-//
+/*
+ * io.c - simple io and input parsing routines
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1996,1997,1998 by Apple Computer, Inc.
@@ -29,60 +29,29 @@
 
 #include <err.h>
 
-// for *printf()
 #include <stdio.h>
-
-// for malloc() & free()
 #include <stdlib.h>
-// for strncpy()
 #include <string.h>
-// for va_start(), etc.
 #include <stdarg.h>
-// for errno
 #include <errno.h>
 
 #include "io.h"
 
-
-//
-// Defines
-//
 #define BAD_DIGIT 17	/* must be greater than any base */
 #define	STRING_CHUNK	16
 #define UNGET_MAX_COUNT 10
 
-
-//
-// Types
-//
-
-
-//
-// Global Constants
-//
 const long kDefault = -1;
 
-
-//
-// Global Variables
-//
 short unget_buf[UNGET_MAX_COUNT+1];
 int unget_count;
 char io_buffer[MAXIOSIZE];
 
-
-//
-// Forward declarations
-//
-long get_number(int first_char);
-char* get_string(int eos);
+long get_number(int);
+char* get_string(int);
 int my_getch(void);
-void my_ungetch(int c);
+void my_ungetch(int);
 
-
-//
-// Routines
-//
 int
 my_getch()
 {
@@ -97,8 +66,10 @@ my_getch()
 void
 my_ungetch(int c)
 {
-    // In practice there is never more than one character in
-    // the unget_buf, but what's a little overkill among friends?
+    /*
+     * In practice there is never more than one character in
+     * the unget_buf, but what's a little overkill among friends?
+     */
 
     if (unget_count < UNGET_MAX_COUNT) {
 	unget_buf[unget_count++] = c;
@@ -123,7 +94,7 @@ flush_to_newline(int keep_newline)
 	    }
 	    break;
 	} else {
-	    // skip
+	    /* skip */
 	}
     }
     return;
@@ -144,7 +115,7 @@ get_okay(const char *prompt, int default_value)
 	if (c <= 0) {
 	    break;
 	} else if (c == ' ' || c == '\t') {
-	    // skip blanks and tabs
+	    /* skip blanks and tabs */
 	} else if (c == '\n') {
 	    my_ungetch(c);
 	    return default_value;
@@ -174,7 +145,7 @@ get_command(const char *prompt, int promptBeforeGet, int *command)
 	if (c <= 0) {
 	    break;
 	} else if (c == ' ' || c == '\t') {
-	    // skip blanks and tabs
+	    /* skip blanks and tabs */
 	} else if (c == '\n') {
 	    printf(prompt);
 	} else {
@@ -197,7 +168,7 @@ get_number_argument(const char *prompt, long *number, long default_value)
 	if (c <= 0) {
 	    break;
 	} else if (c == ' ' || c == '\t') {
-	    // skip blanks and tabs
+	    /* skip blanks and tabs */
 	} else if (c == '\n') {
 	    if (default_value == kDefault) {
 		printf(prompt);
@@ -275,7 +246,7 @@ get_string_argument(const char *prompt, char **string, int reprompt)
 	if (c <= 0) {
 	    break;
 	} else if (c == ' ' || c == '\t') {
-	    // skip blanks and tabs
+	    /* skip blanks and tabs */
 	} else if (c == '\n') {
 	    if (reprompt) {
 		printf(prompt);
@@ -324,7 +295,7 @@ get_string(int eos)
     c = my_getch();
     for (s = ret_value; ; c = my_getch()) {
 	if (s >= limit) {
-	    // expand string
+	    /* expand string */
 	    limit = malloc(length+STRING_CHUNK);
 	    if (limit == NULL) {
 		warn("can't allocate memory for string buffer");
@@ -408,7 +379,7 @@ get_partition_modifier(void)
     c = my_getch();
 
     if (c == 'p' || c == 'P') {
-    	result = 1;
+	result = 1;
     } else if (c > 0) {
 	my_ungetch(c);
     }
@@ -430,9 +401,9 @@ number_of_digits(unsigned long value)
 }
 
 
-//
-// Print a message on standard error & flush the input.
-//
+/*
+ * Print a message on standard error & flush the input.
+ */
 void
 bad_input(const char *fmt, ...)
 {

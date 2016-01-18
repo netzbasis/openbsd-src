@@ -1,10 +1,10 @@
-/*	$OpenBSD: validate.h,v 1.4 2016/01/11 07:54:07 jasper Exp $	*/
+/*	$OpenBSD: validate.h,v 1.8 2016/01/17 23:18:19 krw Exp $	*/
 
-//
-// validate.h -
-//
-// Written by Eryk Vershen
-//
+/*
+ * validate.h -
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1997,1998 by Apple Computer, Inc.
@@ -32,30 +32,6 @@
 
 #include "partition_map.h"
 
-
-//
-// Defines
-//
-
-
-//
-// Types
-//
-
-
-//
-// Global Constants
-//
-
-
-//
-// Global Variables
-//
-
-
-//
-// Forward declarations
-//
-void validate_map(partition_map_header *map);
+void validate_map(struct partition_map_header *);
 
 #endif /* __validate__ */

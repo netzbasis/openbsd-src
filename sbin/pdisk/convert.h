@@ -1,14 +1,14 @@
-/*	$OpenBSD: convert.h,v 1.4 2016/01/11 07:54:07 jasper Exp $	*/
+/*	$OpenBSD: convert.h,v 1.10 2016/01/17 23:18:19 krw Exp $	*/
 
-//
-// convert.h - Little-endian conversion
-//
-// Written by Eryk Vershen
-//
-// The approach taken to conversion is fairly simply.
-// Keep the in-memory copy in the machine's normal form and
-// Convert as necessary when reading and writing.
-//
+/*
+ * convert.h - Little-endian conversion
+ *
+ * Written by Eryk Vershen
+ *
+ * The approach taken to conversion is fairly simply.
+ * Keep the in-memory copy in the machine's normal form and
+ * Convert as necessary when reading and writing.
+ */
 
 /*
  * Copyright 1996,1998 by Apple Computer, Inc.
@@ -36,32 +36,7 @@
 
 #include "dpme.h"
 
-
-//
-// Defines
-//
-
-
-//
-// Types
-//
-
-
-//
-// Global Constants
-//
-
-
-//
-// Global Variables
-//
-
-
-//
-// Forward declarations
-//
-int convert_block0(Block0 *data, int to_cpu_form);
-int convert_bzb(BZB *data, int to_cpu_form);
-int convert_dpme(DPME *data, int to_cpu_form);
+int convert_block0(struct block0 *, int);
+int convert_dpme(struct dpme *, int);
 
 #endif /* __convert__ */

@@ -1,10 +1,10 @@
-/*	$OpenBSD: partition_map.h,v 1.8 2016/01/16 22:28:14 krw Exp $	*/
+/*	$OpenBSD: partition_map.h,v 1.18 2016/01/18 00:04:36 krw Exp $	*/
 
-//
-// partition_map.h - partition map routines
-//
-// Written by Eryk Vershen
-//
+/*
+ * partition_map.h - partition map routines
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1996,1998 by Apple Computer, Inc.
@@ -33,31 +33,21 @@
 #include "dpme.h"
 #include "file_media.h"
 
-
-//
-// Defines
-//
-
-
-//
-// Types
-//
 struct partition_map_header {
-    FILE_MEDIA m;
+    struct file_media *m;
     char *name;
     struct partition_map * disk_order;
     struct partition_map * base_order;
-    Block0 *misc;
+    struct block0 *misc;
     int writable;
     int changed;
     int written;
-    int physical_block;		// must be == sbBlockSize
-    int logical_block;		// must be <= physical_block
+    int physical_block;		/* must be == sbBlockSize */
+    int logical_block;		/* must be <= physical_block */
     int blocks_in_map;
     int maximum_in_map;
-    unsigned long media_size;	// in logical_blocks
+    unsigned long media_size;	/* in logical_blocks */
 };
-typedef struct partition_map_header partition_map_header;
 
 struct partition_map {
     struct partition_map * next_on_disk;
@@ -67,23 +57,9 @@ struct partition_map {
     long disk_address;
     struct partition_map_header * the_map;
     int contains_driver;
-    DPME *data;
-    int HFS_kind;
-};
-typedef struct partition_map partition_map;
-
-/* Identifies the HFS kind. */
-enum {
-    kHFS_not       =   0,	// ' '
-    kHFS_std       =   1,	// 'h'
-    kHFS_embed     =   2,	// 'e'
-    kHFS_plus      =   3	// '+'
+    struct dpme *data;
 };
 
-
-//
-// Global Constants
-//
 extern const char * kFreeType;
 extern const char * kMapType;
 extern const char * kUnixType;
@@ -91,30 +67,21 @@ extern const char * kHFSType;
 extern const char * kFreeName;
 extern const char * kPatchType;
 
-
-//
-// Global Variables
-//
 extern int rflag;
 extern int dflag;
 
-
-//
-// Forward declarations
-//
-int add_partition_to_map(const char *name, const char *dptype, u32 base, u32 length, partition_map_header *map);
-void close_partition_map(partition_map_header *map);
-partition_map_header* create_partition_map(char *name, partition_map_header *oldmap);
-void delete_partition_from_map(partition_map *entry);
-partition_map* find_entry_by_disk_address(long, partition_map_header *);
-partition_map* find_entry_by_type(const char *type_name, partition_map_header *map);
-partition_map* find_entry_by_base(u32 base, partition_map_header *map);
-partition_map_header* init_partition_map(char *name, partition_map_header* oldmap);
-void move_entry_in_map(long, long, partition_map_header *);
-partition_map_header* open_partition_map(char *name, int *valid_file);
-void resize_map(long new_size, partition_map_header *map);
-void write_partition_map(partition_map_header *map);
-void bzb_init_slice(BZB *bp, int slice);
-void dpme_init_flags(DPME *data);
+int add_partition_to_map(const char *, const char *, uint32_t, uint32_t, struct partition_map_header *);
+void close_partition_map(struct partition_map_header *);
+struct partition_map_header* create_partition_map(char *, struct partition_map_header *);
+void delete_partition_from_map(struct partition_map *);
+struct partition_map* find_entry_by_disk_address(long, struct partition_map_header *);
+struct partition_map* find_entry_by_type(const char *, struct partition_map_header *);
+struct partition_map* find_entry_by_base(uint32_t, struct partition_map_header *);
+struct partition_map_header* init_partition_map(char *, struct partition_map_header *);
+void move_entry_in_map(long, long, struct partition_map_header *);
+struct partition_map_header* open_partition_map(char *, int *);
+void resize_map(long new_size, struct partition_map_header *);
+void write_partition_map(struct partition_map_header *);
+void dpme_init_flags(struct dpme *);
 
 #endif /* __partition_map__ */

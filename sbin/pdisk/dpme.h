@@ -1,23 +1,23 @@
-/*	$OpenBSD: dpme.h,v 1.6 2016/01/15 16:39:20 krw Exp $	*/
+/*	$OpenBSD: dpme.h,v 1.16 2016/01/17 23:18:19 krw Exp $	*/
 
-//
-// dpme.h - Disk Partition Map Entry (dpme)
-//
-// Written by Eryk Vershen
-//
-// This file describes structures and values related to the standard
-// Apple SCSI disk partitioning scheme.
-//
-// Each entry is (and shall remain) 512 bytes long.
-//
-// For more information see:
-//	"Inside Macintosh: Devices" pages 3-12 to 3-15.
-//	"Inside Macintosh - Volume V" pages V-576 to V-582
-//	"Inside Macintosh - Volume IV" page IV-292
-//
-// There is a kernel file with much of the same info (under different names):
-//	/usr/src/mklinux-1.0DR2/osfmk/src/mach_kernel/ppc/POWERMAC/mac_label.h
-//
+/*
+ * dpme.h - Disk Partition Map Entry (dpme)
+ *
+ * Written by Eryk Vershen
+ *
+ * This file describes structures and values related to the standard
+ * Apple SCSI disk partitioning scheme.
+ *
+ * Each entry is (and shall remain) 512 bytes long.
+ *
+ * For more information see:
+ *	"Inside Macintosh: Devices" pages 3-12 to 3-15.
+ *	"Inside Macintosh - Volume V" pages V-576 to V-582
+ *	"Inside Macintosh - Volume IV" page IV-292
+ *
+ * There is a kernel file with much of the same info (under different names):
+ *	/usr/src/mklinux-1.0DR2/osfmk/src/mach_kernel/ppc/POWERMAC/mac_label.h
+ */
 
 /*
  * Copyright 1996 by Apple Computer, Inc.
@@ -42,65 +42,45 @@
 #ifndef __dpme__
 #define __dpme__
 
-//
-// Defines
-//
 #define	BLOCK0_SIGNATURE	0x4552	/* i.e. 'ER' */
 
 #define	DPISTRLEN	32
 #define	DPME_SIGNATURE	0x504D		/* i.e. 'PM' */
 
-// A/UX only stuff (tradition!)
-#define	dpme_bzb	dpme_boot_args
-#define	BZBMAGIC 0xABADBABE	/* BZB magic number */
-#define	FST	((u8) 0x1)	/* standard UNIX FS */
-#define	FSTEFS	((u8) 0x2)	/* Autorecovery FS */
-#define	FSTSFS	((u8) 0x3)	/* Swap FS */
-
-
-//
-// Types
-//
-typedef	unsigned char	u8;
-typedef	unsigned short	u16;
-typedef	unsigned long	u32;
-
-
-// Physical block zero of the disk has this format
-struct Block0 {
-    u16 	sbSig;		/* unique value for SCSI block 0 */
-    u16 	sbBlkSize;	/* block size of device */
-    u32 	sbBlkCount;	/* number of blocks on device */
-    u16 	sbDevType;	/* device type */
-    u16 	sbDevId;	/* device id */
-    u32 	sbData;		/* not used */
-    u16 	sbDrvrCount;	/* driver descriptor count */
-    u16 	sbMap[247];	/* descriptor map */
+struct block0 {
+    uint16_t	sbSig;		/* unique value for SCSI block 0 */
+    uint16_t	sbBlkSize;	/* block size of device */
+    uint32_t	sbBlkCount;	/* number of blocks on device */
+    uint16_t	sbDevType;	/* device type */
+    uint16_t	sbDevId;	/* device id */
+    uint32_t	sbData;		/* not used */
+    uint16_t	sbDrvrCount;	/* driver descriptor count */
+    uint16_t	sbMap[247];	/* descriptor map */
 };
-typedef struct Block0 Block0;
 
-// Where &sbMap[0] is actually an array DDMap[sbDrvrCount]
-// kludge to get around alignment junk
-struct DDMap {
-    u32 	ddBlock;	/* 1st driver's starting block (in sbBlkSize blocks!) */
-    u16 	ddSize;		/* size of 1st driver (512-byte blks) */
-    u16 	ddType;		/* system type (1 for Mac+) */
+/*
+ * Where &sbMap[0] is actually an array struct ddmap[sbDrvrCount]
+ * kludge to get around alignment junk
+ */
+struct ddmap {
+    uint32_t	ddBlock;	/* 1st driver's starting block (in sbBlkSize blocks!) */
+    uint16_t	ddSize;		/* size of 1st driver (512-byte blks) */
+    uint16_t	ddType;		/* system type (1 for Mac+) */
 };
-typedef struct DDMap DDMap;
 
 
-// Each partition map entry (blocks 1 through n) has this format
+/* Each partition map entry (blocks 1 through n) has this format */
 struct dpme {
-    u16     dpme_signature          ;
-    u16     dpme_reserved_1         ;
-    u32     dpme_map_entries        ;
-    u32     dpme_pblock_start       ;
-    u32     dpme_pblocks            ;
+    uint16_t     dpme_signature          ;
+    uint16_t     dpme_reserved_1         ;
+    uint32_t     dpme_map_entries        ;
+    uint32_t     dpme_pblock_start       ;
+    uint32_t     dpme_pblocks            ;
     char    dpme_name[DPISTRLEN]    ;  /* name of partition */
     char    dpme_type[DPISTRLEN]    ;  /* type of partition */
-    u32     dpme_lblock_start       ;
-    u32     dpme_lblocks            ;
-    u32     dpme_flags		    ;
+    uint32_t     dpme_lblock_start       ;
+    uint32_t     dpme_lblocks            ;
+    uint32_t     dpme_flags		    ;
 #define	DPME_DISKDRIVER		(1<<9)
 #define	DPME_CHAINABLE		(1<<8)
 #define	DPME_OS_SPECIFIC_1	(1<<8)
@@ -112,61 +92,16 @@ struct dpme {
 #define	DPME_IN_USE		(1<<2)
 #define	DPME_ALLOCATED		(1<<1)
 #define	DPME_VALID		(1<<0)
-    u32     dpme_boot_block         ;
-    u32     dpme_boot_bytes         ;
-    u8     *dpme_load_addr          ;
-    u8     *dpme_load_addr_2        ;
-    u8     *dpme_goto_addr          ;
-    u8     *dpme_goto_addr_2        ;
-    u32     dpme_checksum           ;
+    uint32_t     dpme_boot_block         ;
+    uint32_t     dpme_boot_bytes         ;
+    uint8_t     *dpme_load_addr          ;
+    uint8_t     *dpme_load_addr_2        ;
+    uint8_t     *dpme_goto_addr          ;
+    uint8_t     *dpme_goto_addr_2        ;
+    uint32_t     dpme_checksum           ;
     char    dpme_process_id[16]     ;
-    u32     dpme_boot_args[32]      ;
-    u32     dpme_reserved_3[62]     ;
+    uint32_t     dpme_boot_args[32]      ;
+    uint32_t     dpme_reserved_3[62]     ;
 };
-typedef struct dpme DPME;
-
-
-
-// A/UX only data structures (sentimental reasons?)
-
-// BZB (Block Zero Block, but I can't remember the etymology)
-// Where &dpme_boot_args[0] is actually the address of a struct bzb
-// kludge to get around alignment junk
-struct	bzb			/* block zero block format */
-{
-    u32  bzb_magic;		/* magic number */
-    u8   bzb_cluster;		/* Autorecovery cluster grouping */
-    u8   bzb_type;		/* FS type */
-    u16  bzb_inode;		/* bad block inode number */
-    u32  bzb_flags;
-#define	BZB_ROOT	(1<<31)
-#define	BZB_USR		(1<<30)
-#define	BZB_CRIT	(1<<29)
-#define	BZB_SLICE_SHIFT	16
-#define	BZB_SLICE_MASK	0x1f
-    u32  bzb_tmade;		/* time of FS creation */
-    u32  bzb_tmount;		/* time of last mount */
-    u32  bzb_tumount;		/* time of last umount */
-    u32  bzb_fill2[7];		/* for expansion of ABM (ha!ha!) */
-    u8   bzb_mount_point[64];	/* default mount point name */
-};
-typedef	struct bzb	BZB;
-
-
-
-
-//
-// Global Constants
-//
-
-
-//
-// Global Variables
-//
-
-
-//
-// Forward declarations
-//
 
 #endif /* __dpme__ */

@@ -1,4 +1,4 @@
-#	$Id: Makefile,v 1.19 2016/01/16 21:59:30 krw Exp $
+#	$Id: Makefile,v 1.21 2016/01/17 14:13:57 jasper Exp $
 
 .if ${MACHINE} == "macppc"
 PROG=	pdisk
