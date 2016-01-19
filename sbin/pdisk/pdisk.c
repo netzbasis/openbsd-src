@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.47 2016/01/18 02:16:06 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.49 2016/01/18 21:50:53 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -56,7 +56,6 @@ void		do_create_partition(struct partition_map_header *, int);
 void		do_delete_partition(struct partition_map_header *);
 void		do_display_block(struct partition_map_header *, char *);
 void		do_display_entry(struct partition_map_header *);
-void		do_examine_patch_partition(struct partition_map_header *);
 int		do_expert (struct partition_map_header *, char *);
 void		do_rename_partition(struct partition_map_header *);
 void		do_change_type(struct partition_map_header *);
@@ -553,7 +552,6 @@ do_expert(struct partition_map_header * map, char *name)
 			}
 			printf("  f    full display of nth entry\n");
 			printf("  v    validate map\n");
-			printf("  e    examine patch partition\n");
 			printf("  q    return to main edit menu\n");
 			printf("  Q    quit editing\n");
 			break;
@@ -592,10 +590,6 @@ do_expert(struct partition_map_header * map, char *name)
 		case 'v':
 			validate_map(map);
 			break;
-		case 'E':
-		case 'e':
-			do_examine_patch_partition(map);
-			break;
 		default:
 			bad_input("No such command (%c)", command);
 			break;
@@ -628,17 +622,16 @@ do_change_map_size(struct partition_map_header * map)
 void
 do_display_block(struct partition_map_header * map, char *alt_name)
 {
-	struct file_media *m;
 	char *name;
 	long number;
-	int g;
+	int fd, g;
 	static unsigned char *display_block;
 	static long next_number = -1;
 	static int display_g;
 
 	if (map != NULL) {
 		name = 0;
-		m = map->m;
+		fd = map->fd;
 		g = map->logical_block;
 	} else {
 		if (alt_name == 0) {
@@ -653,8 +646,8 @@ do_display_block(struct partition_map_header * map, char *alt_name)
 				return;
 			}
 		}
-		m = open_file_as_media(name, O_RDONLY);
-		if (m == 0) {
+		fd = open_file_as_media(name, O_RDONLY);
+		if (fd == -1) {
 			warn("can't open file '%s'", name);
 			free(name);
 			return;
@@ -677,7 +670,7 @@ do_display_block(struct partition_map_header * map, char *alt_name)
 		}
 		display_g = g;
 	}
-	if (read_file_media(m, ((long long) number) * g, g,
+	if (read_file_media(fd, ((long long) number) * g, g,
 		    (char *)display_block) != 0) {
 		printf("block %ld -", number);
 		dump_block((unsigned char *)display_block, g);
@@ -685,7 +678,7 @@ do_display_block(struct partition_map_header * map, char *alt_name)
 	}
 xit:
 	if (name) {
-		close_file_media(m);
+		close(fd);
 		free(name);
 	}
 	return;
@@ -712,23 +705,6 @@ do_display_entry(struct partition_map_header * map)
 	}
 }
 
-
-void
-do_examine_patch_partition(struct partition_map_header * map)
-{
-	struct partition_map *entry;
-
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
-	entry = find_entry_by_type(kPatchType, map);
-	if (entry == NULL) {
-		printf("No patch partition\n");
-	} else {
-		display_patches(entry);
-	}
-}
 
 __dead static void
 usage(void)
