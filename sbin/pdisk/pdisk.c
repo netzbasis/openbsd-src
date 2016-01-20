@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.49 2016/01/18 21:50:53 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.54 2016/01/19 23:44:47 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -54,7 +54,6 @@ static int	first_get = 1;
 void		do_change_map_size(struct partition_map_header *);
 void		do_create_partition(struct partition_map_header *, int);
 void		do_delete_partition(struct partition_map_header *);
-void		do_display_block(struct partition_map_header *, char *);
 void		do_display_entry(struct partition_map_header *);
 int		do_expert (struct partition_map_header *, char *);
 void		do_rename_partition(struct partition_map_header *);
@@ -63,7 +62,6 @@ void		do_reorder(struct partition_map_header *);
 void		do_write_partition_map(struct partition_map_header *);
 void		edit(char *);
 int		get_base_argument(long *, struct partition_map_header *);
-int		get_command_line(int *, char ***);
 int		get_size_argument(long *, struct partition_map_header *);
 void		print_edit_notes(void);
 void		print_expert_notes(void);
@@ -73,7 +71,8 @@ __dead static void usage(void);
 int
 main(int argc, char **argv)
 {
-	int c, name_index;
+	struct partition_map_header *map;
+	int c, junk;
 
 	if (sizeof(struct dpme) != DEV_BSIZE) {
 		errx(1, "Size of partition map entry (%zu) is not equal "
@@ -100,23 +99,21 @@ main(int argc, char **argv)
 		}
 	}
 
-	name_index = optind;
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 1)
+		usage();
 
 	if (lflag) {
-		if (name_index < argc) {
-			while (name_index < argc) {
-				dump(argv[name_index++]);
-			}
-		} else {
-			usage();
+		map = open_partition_map(*argv, &junk);
+		if (map) {
+			dump_partition_map(map, 1);
+			close_partition_map(map);
 		}
-	} else if (name_index < argc) {
-		while (name_index < argc) {
-			edit(argv[name_index++]);
-		}
-	} else {
-		usage();
-	}
+	} else
+		edit(*argv);
+
 	return 0;
 }
 
@@ -144,7 +141,7 @@ void
 edit(char *name)
 {
 	struct partition_map_header *map;
-	int command, order, get_type, valid_file;
+	int command, valid_file;
 
 	map = open_partition_map(name, &valid_file);
 	if (!valid_file) {
@@ -154,8 +151,6 @@ edit(char *name)
 
 	while (get_command("Command (? for help): ", first_get, &command)) {
 		first_get = 0;
-		order = 1;
-		get_type = 0;
 
 		switch (command) {
 		case '?':
@@ -185,10 +180,10 @@ edit(char *name)
 			}
 			break;
 		case 'P':
-			order = 0;
-			/* fall through */
+			dump_partition_map(map, 0);
+			break;
 		case 'p':
-			dump_partition_map(map, order);
+			dump_partition_map(map, 1);
 			break;
 		case 'Q':
 		case 'q':
@@ -206,10 +201,10 @@ edit(char *name)
 			map = init_partition_map(name, map);
 			break;
 		case 'C':
-			get_type = 1;
-			/* fall through */
+			do_create_partition(map, 1);
+			break;
 		case 'c':
-			do_create_partition(map, get_type);
+			do_create_partition(map, 0);
 			break;
 		case 'N':
 		case 'n':
@@ -544,12 +539,8 @@ do_expert(struct partition_map_header * map, char *name)
 		case 'h':
 			printf("Commands are:\n");
 			printf("  h    print help\n");
-			printf("  d    dump block n\n");
 			printf("  p    print the partition table\n");
-			if (dflag) {
-				printf("  P    (show data structures  - "
-				    "debugging)\n");
-			}
+			printf("  P    (show data structures  - debugging)\n");
 			printf("  f    full display of nth entry\n");
 			printf("  v    validate map\n");
 			printf("  q    return to main edit menu\n");
@@ -570,17 +561,10 @@ do_expert(struct partition_map_header * map, char *name)
 			goto finis;
 			break;
 		case 'P':
-			if (dflag) {
-				show_data_structures(map);
-				break;
-			}
-			/* fall through */
+			show_data_structures(map);
+			break;
 		case 'p':
 			dump_partition_map(map, 1);
-			break;
-		case 'D':
-		case 'd':
-			do_display_block(map, name);
 			break;
 		case 'F':
 		case 'f':
@@ -616,72 +600,6 @@ do_change_map_size(struct partition_map_header * map)
 		return;
 	}
 	resize_map(size, map);
-}
-
-
-void
-do_display_block(struct partition_map_header * map, char *alt_name)
-{
-	char *name;
-	long number;
-	int fd, g;
-	static unsigned char *display_block;
-	static long next_number = -1;
-	static int display_g;
-
-	if (map != NULL) {
-		name = 0;
-		fd = map->fd;
-		g = map->logical_block;
-	} else {
-		if (alt_name == 0) {
-			if (get_string_argument("Name of device: ", &name, 1)
-			    == 0) {
-				bad_input("Bad name");
-				return;
-			}
-		} else {
-			if ((name = strdup(alt_name)) == NULL) {
-				warn("strdup failed");
-				return;
-			}
-		}
-		fd = open_file_as_media(name, O_RDONLY);
-		if (fd == -1) {
-			warn("can't open file '%s'", name);
-			free(name);
-			return;
-		}
-		g = DEV_BSIZE;
-	}
-	if (get_number_argument("Block number: ", &number, next_number) == 0) {
-		bad_input("Bad block number");
-		goto xit;
-	}
-	if (display_block == NULL || display_g < g) {
-		if (display_block != NULL) {
-			free(display_block);
-			display_g = 0;
-		}
-		display_block = malloc(g);
-		if (display_block == NULL) {
-			warn("can't allocate memory for display block buffer");
-			goto xit;
-		}
-		display_g = g;
-	}
-	if (read_file_media(fd, ((long long) number) * g, g,
-		    (char *)display_block) != 0) {
-		printf("block %ld -", number);
-		dump_block((unsigned char *)display_block, g);
-		next_number = number + 1;
-	}
-xit:
-	if (name) {
-		close(fd);
-		free(name);
-	}
-	return;
 }
 
 
