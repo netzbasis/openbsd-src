@@ -604,6 +604,7 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hid/hidkbdsc.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hid/hidkbdvar.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hid/hidmsvar.ph
+./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hid/hidmtvar.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hil
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hil/hildevs.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/hil/hildevs_data.ph
@@ -1537,7 +1538,6 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/locale.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/login_cap.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/machine
-./usr/libdata/perl5/site_perl/powerpc-openbsd/malloc.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/math.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/md5.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/memory.ph

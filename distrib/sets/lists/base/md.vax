@@ -109,6 +109,7 @@
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hid/hidkbdsc.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hid/hidkbdvar.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hid/hidmsvar.ph
+./usr/libdata/perl5/site_perl/vax-openbsd/dev/hid/hidmtvar.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hil
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hil/hildevs.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/dev/hil/hildevs_data.ph
@@ -974,7 +975,6 @@
 ./usr/libdata/perl5/site_perl/vax-openbsd/locale.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/login_cap.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/machine
-./usr/libdata/perl5/site_perl/vax-openbsd/malloc.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/math.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/md5.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/memory.ph

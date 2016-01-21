@@ -629,6 +629,7 @@
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hid/hidkbdsc.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hid/hidkbdvar.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hid/hidmsvar.ph
+./usr/libdata/perl5/site_perl/arm-openbsd/dev/hid/hidmtvar.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hil
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hil/hildevs.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/dev/hil/hildevs_data.ph
@@ -1562,7 +1563,6 @@
 ./usr/libdata/perl5/site_perl/arm-openbsd/locale.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/login_cap.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/machine
-./usr/libdata/perl5/site_perl/arm-openbsd/malloc.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/math.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/md5.ph
 ./usr/libdata/perl5/site_perl/arm-openbsd/memory.ph

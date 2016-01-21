@@ -575,6 +575,7 @@
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hid/hidkbdsc.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hid/hidkbdvar.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hid/hidmsvar.ph
+./usr/libdata/perl5/site_perl/sh-openbsd/dev/hid/hidmtvar.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hil
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hil/hildevs.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/dev/hil/hildevs_data.ph
@@ -1553,7 +1554,6 @@
 ./usr/libdata/perl5/site_perl/sh-openbsd/locale.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/login_cap.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/machine
-./usr/libdata/perl5/site_perl/sh-openbsd/malloc.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/math.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/md5.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/memory.ph

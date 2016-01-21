@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.141 2016/01/09 23:24:31 jsg Exp $	*/
+/*	$OpenBSD: audio.c,v 1.143 2016/01/20 19:01:39 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -1083,7 +1083,11 @@ audio_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* set defaults */
-	sc->sw_enc = AUDIO_ENCODING_SLINEAR;
+#if BYTE_ORDER == LITTLE_ENDIAN
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_LE;
+#else
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_BE;
+#endif
 	sc->bits = 16;
 	sc->bps = 2;
 	sc->msb = 1;
@@ -1580,7 +1584,11 @@ audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 		error = audio_getinfo(sc, (struct audio_info *)addr);
 		break;
 	case AUDIO_GETDEV:
-		error = sc->ops->getdev(sc->arg, (audio_device_t *)addr);
+		memset(addr, 0, sizeof(struct audio_device));
+		if (sc->dev.dv_parent)
+			strlcpy(((struct audio_device *)addr)->name,
+			    sc->dev.dv_parent->dv_xname,
+			    MAX_AUDIO_DEV_LEN);
 		break;
 	case AUDIO_GETENC:
 		error = sc->ops->query_encoding(sc->arg,

@@ -127,6 +127,7 @@
 ./usr/include/dev/hid/hidkbdsc.h
 ./usr/include/dev/hid/hidkbdvar.h
 ./usr/include/dev/hid/hidmsvar.h
+./usr/include/dev/hid/hidmtvar.h
 ./usr/include/dev/hil
 ./usr/include/dev/hil/hildevs.h
 ./usr/include/dev/hil/hildevs_data.h
@@ -920,7 +921,6 @@
 ./usr/include/locale.h
 ./usr/include/login_cap.h
 ./usr/include/machine
-./usr/include/malloc.h
 ./usr/include/math.h
 ./usr/include/md5.h
 ./usr/include/memory.h
