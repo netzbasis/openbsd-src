@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.55 2016/01/21 02:52:52 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.59 2016/01/22 04:16:25 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -30,14 +30,18 @@
  */
 
 #include <sys/param.h>		/* DEV_BSIZE */
-#include <err.h>
+#include <sys/dkio.h>
+#include <sys/disklabel.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 
+#include <err.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
-#include <errno.h>
+#include <unistd.h>
+#include <util.h>
 
 #include "io.h"
 #include "partition_map.h"
@@ -46,7 +50,6 @@
 #include "file_media.h"
 
 int		lflag;		/* list the device */
-int		dflag;		/* turn on debugging commands and printout */
 int		rflag;		/* open device read Only */
 
 static int	first_get = 1;
@@ -55,24 +58,24 @@ void		do_change_map_size(struct partition_map_header *);
 void		do_create_partition(struct partition_map_header *, int);
 void		do_delete_partition(struct partition_map_header *);
 void		do_display_entry(struct partition_map_header *);
-int		do_expert (struct partition_map_header *, char *);
 void		do_rename_partition(struct partition_map_header *);
 void		do_change_type(struct partition_map_header *);
 void		do_reorder(struct partition_map_header *);
 void		do_write_partition_map(struct partition_map_header *);
-void		edit(char *);
+void		edit(struct partition_map_header **);
 int		get_base_argument(long *, struct partition_map_header *);
 int		get_size_argument(long *, struct partition_map_header *);
-void		print_edit_notes(void);
-void		print_expert_notes(void);
 
 __dead static void usage(void);
 
 int
 main(int argc, char **argv)
 {
+	struct disklabel dl;
+	struct stat st;
 	struct partition_map_header *map;
-	int c, junk;
+	uint64_t mediasz;
+	int c, fd;
 
 	if (sizeof(struct dpme) != DEV_BSIZE) {
 		errx(1, "Size of partition map entry (%zu) is not equal "
@@ -82,13 +85,10 @@ main(int argc, char **argv)
 		errx(1, "Size of block zero structure (%zu) is not equal "
 		    "to block size (%d)\n", sizeof(struct block0), DEV_BSIZE);
 	}
-	while ((c = getopt(argc, argv, "ldr")) != -1) {
+	while ((c = getopt(argc, argv, "lr")) != -1) {
 		switch (c) {
 		case 'l':
 			lflag = 1;
-			break;
-		case 'd':
-			dflag = 1;
 			break;
 		case 'r':
 			rflag = 1;
@@ -105,98 +105,113 @@ main(int argc, char **argv)
 	if (argc != 1)
 		usage();
 
-	if (lflag) {
-		map = open_partition_map(*argv, &junk);
-		if (map) {
-			dump_partition_map(map, 1);
-			close_partition_map(map);
-		}
-	} else
-		edit(*argv);
+	fd = opendev(*argv, (rflag ? O_RDONLY:O_RDWR), OPENDEV_PART, NULL);
+	if (fd == -1)
+		err(1, "can't open file '%s'", *argv);
+	if (fstat(fd, &st) == -1)
+		err(1, "can't fstat %s", *argv);
+	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
+		errx(1, "%s is not a character device or a regular file",
+		    *argv);
+	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
+		err(1, "can't get disklabel for %s", *argv);
+	if (dl.d_secsize != DEV_BSIZE)
+		err(1, "%u-byte sector size not supported", dl.d_secsize);
+
+	if (DL_GETDSIZE(&dl) > LONG_MAX)
+		mediasz =  LONG_MAX;
+	else
+		mediasz = DL_GETDSIZE(&dl);
+
+	map = open_partition_map(fd, *argv, mediasz);
+	if (map != NULL) {
+		if (lflag)
+			dump_partition_map(map);
+		else
+			edit(&map);
+	}
+
+	free_partition_map(map);
+	close(fd);
 
 	return 0;
-}
-
-void
-print_edit_notes()
-{
-	printf("Notes:\n");
-	printf("  Base and length fields are blocks, which vary in size "
-	    "between media.\n");
-	printf("  The base field can be <nth>p; i.e. use the base of the "
-	    "nth partition.\n");
-	printf("  The length field can be a length followed by k, m, g or "
-	    "t to indicate\n");
-	printf("  kilo, mega, giga, or tera bytes; also the length can be "
-	    "<nth>p; i.e. use\n");
-	printf("  the length of the nth partition.\n");
-	printf("  The name of a partition is descriptive text.\n");
-	printf("\n");
 }
 
 /*
  * Edit the file
  */
 void
-edit(char *name)
+edit(struct partition_map_header **mapp)
 {
-	struct partition_map_header *map;
-	int command, valid_file;
+	struct partition_map_header *map = *mapp;
+	struct partition_map_header *oldmap;
+	int command;
 
-	map = open_partition_map(name, &valid_file);
-	if (!valid_file) {
-		return;
-	}
-	printf("Edit %s -\n", name);
+	printf("Edit %s -\n", map->name);
 
 	while (get_command("Command (? for help): ", first_get, &command)) {
 		first_get = 0;
 
 		switch (command) {
 		case '?':
-			print_edit_notes();
+			printf("Notes:\n"
+			    "  Base and length fields are blocks, which "
+			    "vary in size between media.\n"
+			    "  The base field can be <nth>p; i.e. the "
+			    "base of the nth partition.\n"
+			    "  The length field can be a length followed "
+			    "by k, m, g or t to indicate\n"
+			    "    kilo, mega, giga, or tera bytes.\n"
+			    "  The length field can also be <nth>p; i.e. "
+			    "the length of the nth partition.\n"
+			    "  The name of a partition is descriptive "
+			    "text.\n\n");
+
 			/* fall through */
-		case 'H':
 		case 'h':
-			printf("Commands are:\n");
-			printf("  C    (create with type also specified)\n");
-			printf("  c    create new partition (standard OpenBSD "
-			    "root)\n");
-			printf("  d    delete a partition\n");
-			printf("  h    help\n");
-			printf("  i    initialize partition map\n");
-			printf("  n    (re)name a partition\n");
-			printf("  P    (print ordered by base address)\n");
-			printf("  p    print the partition table\n");
-			printf("  q    quit editing\n");
-			printf("  r    reorder partition entry in map\n");
-			printf("  s    change size of partition map\n");
-			printf("  t    change a partition's type\n");
-			printf("  w    write the partition table\n");
-			if (dflag) {
-				printf("  x    extra extensions for experts\n");
-			}
+			printf("Commands are:\n"
+			    "  ?    verbose command help\n"
+			    "  C    create a partition of the specified type\n"
+			    "  c    create an OpenBSD partition\n"
+			    "  d    delete a partition\n"
+			    "  f    full display of the specified entry\n"
+			    "  h    command help\n"
+			    "  i    (re)initialize the partition map\n"
+			    "  n    (re)name a partition\n"
+			    "  P    show the partition map's data structures\n"
+			    "  p    print the partition map\n"
+			    "  q    quit editing\n"
+			    "  r    reorder an entry in the partition map\n"
+			    "  s    change the size of the partition map\n"
+			    "  t    change the specified partition's type\n"
+			    "  v    validate the partition map\n"
+			    "  w    write the partition map\n");
 			break;
 		case 'P':
-			dump_partition_map(map, 0);
+			show_data_structures(map);
 			break;
 		case 'p':
-			dump_partition_map(map, 1);
+			dump_partition_map(map);
 			break;
-		case 'Q':
 		case 'q':
-			if (map && map->changed) {
+			if (map->changed) {
 				if (get_okay("Discard changes? [n/y]: ", 0) !=
 				    1) {
 					break;
 				}
 			}
 			flush_to_newline(1);
-			goto finis;
-			break;
-		case 'I':
+			return;
 		case 'i':
-			map = init_partition_map(name, map);
+			if (get_okay("Discard current map? [n/y]: ", 0) == 1) {
+				oldmap = map;
+				map = create_partition_map(oldmap->fd,
+				    oldmap->name, oldmap->media_size);
+				if (map == NULL)
+					break;
+				*mapp = map;
+				free_partition_map(oldmap);
+			}
 			break;
 		case 'C':
 			do_create_partition(map, 1);
@@ -204,48 +219,35 @@ edit(char *name)
 		case 'c':
 			do_create_partition(map, 0);
 			break;
-		case 'N':
 		case 'n':
 			do_rename_partition(map);
 			break;
-		case 'D':
 		case 'd':
 			do_delete_partition(map);
 			break;
-		case 'R':
 		case 'r':
 			do_reorder(map);
 			break;
-		case 'S':
 		case 's':
 			do_change_map_size(map);
 			break;
-		case 'T':
 		case 't':
 			do_change_type(map);
 			break;
-		case 'X':
-		case 'x':
-			if (!dflag) {
-				goto do_error;
-			} else if (do_expert(map, name)) {
-				flush_to_newline(1);
-				goto finis;
-			}
-			break;
-		case 'W':
 		case 'w':
 			do_write_partition_map(map);
 			break;
+		case 'f':
+			do_display_entry(map);
+			break;
+		case 'v':
+			validate_map(map);
+			break;
 		default:
-	do_error:
 			bad_input("No such command (%c)", command);
 			break;
 		}
 	}
-finis:
-
-	close_partition_map(map);
 }
 
 void
@@ -471,7 +473,7 @@ do_write_partition_map(struct partition_map_header * map)
 		bad_input("No partition map exists");
 		return;
 	}
-	if (map->changed == 0 && map->written == 0) {
+	if (map->changed == 0) {
 		bad_input("The map has not been changed.");
 		return;
 	}
@@ -486,91 +488,14 @@ do_write_partition_map(struct partition_map_header * map)
 	write_partition_map(map);
 
 	map->changed = 0;
-	map->written = 1;
 }
 
-
-void
-print_expert_notes()
-{
-	printf("Notes:\n");
-	printf("  The expert commands are for low level and experimental "
-	    "features.\n");
-	printf("  These commands are available only when debug mode is on.\n");
-	printf("\n");
-}
-
-
-int
-do_expert(struct partition_map_header * map, char *name)
-{
-	int command, quit = 0;
-
-	while (get_command("Expert command (? for help): ", first_get,
-		    &command)) {
-		first_get = 0;
-
-		switch (command) {
-		case '?':
-			print_expert_notes();
-			/* fall through */
-		case 'H':
-		case 'h':
-			printf("Commands are:\n");
-			printf("  h    print help\n");
-			printf("  p    print the partition table\n");
-			printf("  P    (show data structures  - debugging)\n");
-			printf("  f    full display of nth entry\n");
-			printf("  v    validate map\n");
-			printf("  q    return to main edit menu\n");
-			printf("  Q    quit editing\n");
-			break;
-		case 'q':
-			flush_to_newline(1);
-			goto finis;
-			break;
-		case 'Q':
-			if (map->changed) {
-				if (get_okay("Discard changes? [n/y]: ", 0) !=
-				    1) {
-					break;
-				}
-			}
-			quit = 1;
-			goto finis;
-			break;
-		case 'P':
-			show_data_structures(map);
-			break;
-		case 'p':
-			dump_partition_map(map, 1);
-			break;
-		case 'F':
-		case 'f':
-			do_display_entry(map);
-			break;
-		case 'V':
-		case 'v':
-			validate_map(map);
-			break;
-		default:
-			bad_input("No such command (%c)", command);
-			break;
-		}
-	}
-finis:
-	return quit;
-}
 
 void
 do_change_map_size(struct partition_map_header * map)
 {
 	long size;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("New size: ", &size, kDefault) == 0) {
 		bad_input("Bad size");
 		return;
@@ -584,10 +509,6 @@ do_display_entry(struct partition_map_header * map)
 {
 	long number;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("Partition number: ", &number, kDefault) == 0) {
 		bad_input("Bad partition number");
 		return;
