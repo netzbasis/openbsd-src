@@ -1,4 +1,4 @@
-/*	$OpenBSD: validate.c,v 1.29 2016/01/21 15:33:21 krw Exp $	*/
+/*	$OpenBSD: validate.c,v 1.34 2016/01/23 03:46:18 krw Exp $	*/
 
 /*
  * validate.c -
@@ -27,8 +27,6 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
-#include <sys/param.h>		/* DEV_BSIZE */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,35 +58,12 @@ static struct partition_map_header *the_map;
 static int	the_fd;
 static int	g;
 
-int		get_block_zero(void);
 int		get_block_n(int);
 struct range_list *new_range_list_item(enum range_state state, int, uint32_t, uint32_t);
 void		initialize_list(struct range_list **);
 void		add_range(struct range_list **, uint32_t, uint32_t, int);
 void		print_range_list(struct range_list *);
 void		coalesce_list(struct range_list *);
-
-int
-get_block_zero(void)
-{
-	int rtn_value;
-
-	if (the_map != NULL) {
-		b0 = the_map->misc;
-		rtn_value = 1;
-	} else {
-		if (read_file_media(the_fd, (long long) 0, DEV_BSIZE,
-		    buffer) == 0) {
-			rtn_value = 0;
-		} else {
-			b0 = (struct block0 *) buffer;
-			convert_block0(b0, 1);
-			rtn_value = 1;
-		}
-	}
-	return rtn_value;
-}
-
 
 int
 get_block_n(int n)
@@ -99,13 +74,13 @@ get_block_n(int n)
 	if (the_map != NULL) {
 		entry = find_entry_by_disk_address(n, the_map);
 		if (entry != 0) {
-			mb = entry->data;
+			mb = entry->dpme;
 			rtn_value = 1;
 		} else {
 			rtn_value = 0;
 		}
 	} else {
-		if (read_file_media(the_fd, ((long long) n) * g, DEV_BSIZE, (void *) buffer) == 0) {
+		if (read_block(the_fd, n, buffer) == 0) {
 			rtn_value = 0;
 		} else {
 			mb = (struct dpme *) buffer;
@@ -303,10 +278,8 @@ validate_map(struct partition_map_header * map)
 
 	initialize_list(&list);
 
-	if (get_block_zero() == 0) {
-		printf("unable to read block 0\n");
-		goto check_map;
-	}
+	b0 = map->block0;
+
 	/*
          * XXX signature valid
          * XXX size & count match DeviceCapacity
@@ -319,7 +292,6 @@ validate_map(struct partition_map_header * map)
 							 * args are base & len
 							 */
 
-check_map:
 	/* compute size of map */
 	if (map != NULL) {
 		limit = the_map->blocks_in_map;

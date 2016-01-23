@@ -1,4 +1,4 @@
-/*	$OpenBSD: dump.c,v 1.42 2016/01/22 01:25:56 krw Exp $	*/
+/*	$OpenBSD: dump.c,v 1.46 2016/01/23 03:46:18 krw Exp $	*/
 
 /*
  * dump.c - dumping partition maps
@@ -26,8 +26,6 @@
  * NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-#include <sys/param.h>		/* DEV_BSIZE */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +56,7 @@ dump_block_zero(struct partition_map_header * map)
 	long t;
 	int i, prefix;
 
-	p = map->misc;
+	p = map->block0;
 	if (p->sbSig != BLOCK0_SIGNATURE) {
 		return;
 	}
@@ -136,7 +134,7 @@ dump_partition_entry(struct partition_map * entry, int type_length, int name_len
 	uint32_t size;
 
 	map = entry->the_map;
-	p = entry->data;
+	p = entry->dpme;
 	driver = entry->contains_driver ? '*' : ' ';
 	printf("%2ld: %*.32s", entry->disk_address, type_length, p->dpme_type);
 
@@ -190,33 +188,29 @@ show_data_structures(struct partition_map_header * map)
 	    kStringNot);
 	printf("\n");
 
-	if (map->misc == NULL) {
-		printf("No block zero\n");
-	} else {
-		zp = map->misc;
+	zp = map->block0;
 
-		printf("Block0:\n");
-		printf("signature 0x%x", zp->sbSig);
-		if (zp->sbSig == BLOCK0_SIGNATURE) {
-			printf("\n");
-		} else {
-			printf(" should be 0x%x\n", BLOCK0_SIGNATURE);
-		}
-		printf("Block size=%u, Number of Blocks=%u\n",
-		       zp->sbBlkSize, zp->sbBlkCount);
-		printf("DeviceType=0x%x, DeviceId=0x%x, sbData=0x%x\n",
-		       zp->sbDevType, zp->sbDevId, zp->sbData);
-		if (zp->sbDrvrCount == 0) {
-			printf("No drivers\n");
-		} else {
-			printf("%u driver%s-\n", zp->sbDrvrCount,
-			       (zp->sbDrvrCount > 1) ? "s" : kStringEmpty);
-			m = (struct ddmap *) zp->sbMap;
-			for (i = 0; i < zp->sbDrvrCount; i++) {
-				printf("%u: @ %u for %u, type=0x%x\n", i + 1,
-				       get_align_long(&m[i].ddBlock),
-				       m[i].ddSize, m[i].ddType);
-			}
+	printf("Block0:\n");
+	printf("signature 0x%x", zp->sbSig);
+	if (zp->sbSig == BLOCK0_SIGNATURE) {
+		printf("\n");
+	} else {
+		printf(" should be 0x%x\n", BLOCK0_SIGNATURE);
+	}
+	printf("Block size=%u, Number of Blocks=%u\n", zp->sbBlkSize,
+	    zp->sbBlkCount);
+	printf("DeviceType=0x%x, DeviceId=0x%x, sbData=0x%x\n", zp->sbDevType,
+	    zp->sbDevId, zp->sbData);
+	if (zp->sbDrvrCount == 0) {
+		printf("No drivers\n");
+	} else {
+		printf("%u driver%s-\n", zp->sbDrvrCount,
+		       (zp->sbDrvrCount > 1) ? "s" : kStringEmpty);
+		m = (struct ddmap *) zp->sbMap;
+		for (i = 0; i < zp->sbDrvrCount; i++) {
+			printf("%u: @ %u for %u, type=0x%x\n", i + 1,
+			    get_align_long(&m[i].ddBlock), m[i].ddSize,
+			    m[i].ddType);
 		}
 	}
 	printf("\n");
@@ -224,7 +218,7 @@ show_data_structures(struct partition_map_header * map)
 	       "flags        (logical)\n");
 	for (entry = map->disk_order; entry != NULL;
 	    entry = entry->next_on_disk) {
-		p = entry->data;
+		p = entry->dpme;
 		printf("%2ld: %20.32s ",
 		       entry->disk_address, p->dpme_type);
 		printf("%7u @ %-7u ", p->dpme_pblocks, p->dpme_pblock_start);
@@ -253,7 +247,7 @@ show_data_structures(struct partition_map_header * map)
 	       "goto_address checksum processor\n");
 	for (entry = map->disk_order; entry != NULL;
 	    entry = entry->next_on_disk) {
-		p = entry->data;
+		p = entry->dpme;
 		printf("%2ld: ", entry->disk_address);
 		printf("%7u ", p->dpme_boot_block);
 		printf("%7u ", p->dpme_boot_bytes);
@@ -282,7 +276,7 @@ full_dump_partition_entry(struct partition_map_header * map, int ix)
 		printf("No such partition\n");
 		return;
 	}
-	p = cur->data;
+	p = cur->dpme;
 	printf("             signature: 0x%x\n", p->dpme_signature);
 	printf("             reserved1: 0x%x\n", p->dpme_reserved_1);
 	printf(" number of map entries: %u\n", p->dpme_map_entries);
@@ -383,11 +377,11 @@ full_dump_block_zero(struct partition_map_header * map)
 	struct ddmap *m;
 	int i;
 
-	if (map->misc == NULL) {
+	if (map->block0 == NULL) {
 		printf("No block zero\n");
 		return;
 	}
-	zp = map->misc;
+	zp = map->block0;
 
 	printf("             signature: 0x%x\n", zp->sbSig);
 	printf("       size of a block: %u\n", zp->sbBlkSize);
@@ -419,7 +413,7 @@ get_max_type_string_length(struct partition_map_header * map)
 	max = 0;
 
 	for (entry = map->disk_order; entry != NULL; entry = entry->next_on_disk) {
-		length = strnlen(entry->data->dpme_type, DPISTRLEN);
+		length = strnlen(entry->dpme->dpme_type, DPISTRLEN);
 		if (length > max) {
 			max = length;
 		}
@@ -438,7 +432,7 @@ get_max_name_string_length(struct partition_map_header * map)
 
 	for (entry = map->disk_order; entry != NULL; entry =
 	    entry->next_on_disk) {
-		length = strnlen(entry->data->dpme_name, DPISTRLEN);
+		length = strnlen(entry->dpme->dpme_name, DPISTRLEN);
 		if (length > max) {
 			max = length;
 		}
@@ -457,17 +451,17 @@ get_max_base_or_length(struct partition_map_header * map)
 
 	for (entry = map->disk_order; entry != NULL;
 	    entry = entry->next_on_disk) {
-		if (entry->data->dpme_pblock_start > max) {
-			max = entry->data->dpme_pblock_start;
+		if (entry->dpme->dpme_pblock_start > max) {
+			max = entry->dpme->dpme_pblock_start;
 		}
-		if (entry->data->dpme_pblocks > max) {
-			max = entry->data->dpme_pblocks;
+		if (entry->dpme->dpme_pblocks > max) {
+			max = entry->dpme->dpme_pblocks;
 		}
-		if (entry->data->dpme_lblock_start > max) {
-			max = entry->data->dpme_lblock_start;
+		if (entry->dpme->dpme_lblock_start > max) {
+			max = entry->dpme->dpme_lblock_start;
 		}
-		if (entry->data->dpme_lblocks > max) {
-			max = entry->data->dpme_lblocks;
+		if (entry->dpme->dpme_lblocks > max) {
+			max = entry->dpme->dpme_lblocks;
 		}
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_media.h,v 1.14 2016/01/21 15:33:21 krw Exp $	*/
+/*	$OpenBSD: file_media.h,v 1.16 2016/01/23 03:46:18 krw Exp $	*/
 
 /*
  * file_media.h -
@@ -30,7 +30,7 @@
 #ifndef __file_media__
 #define __file_media__
 
-long read_file_media(int, long long, unsigned long, void *);
-long write_file_media(int, long long, unsigned long, void *);
+int	read_block(int, uint64_t, void *);
+int	write_block(int, uint64_t, void *);
 
 #endif /* __file_media__ */
