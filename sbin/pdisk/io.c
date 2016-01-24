@@ -1,4 +1,4 @@
-/*	$OpenBSD: io.c,v 1.19 2016/01/21 15:33:21 krw Exp $	*/
+/*	$OpenBSD: io.c,v 1.22 2016/01/24 01:38:32 krw Exp $	*/
 
 /*
  * io.c - simple io and input parsing routines
@@ -39,14 +39,12 @@
 #define	STRING_CHUNK	16
 #define UNGET_MAX_COUNT 10
 
-const long	kDefault = -1;
+short	unget_buf[UNGET_MAX_COUNT + 1];
+int	unget_count;
 
-short		unget_buf[UNGET_MAX_COUNT + 1];
-int		unget_count;
-
-long		get_number(int);
-char           *get_string(int);
-int		my_getch  (void);
+long	get_number(int);
+char   *get_string(int);
+int	my_getch (void);
 
 int
 my_getch()
@@ -153,7 +151,7 @@ get_command(const char *prompt, int promptBeforeGet, int *command)
 }
 
 int
-get_number_argument(const char *prompt, long *number, long default_value)
+get_number_argument(const char *prompt, long *number)
 {
 	int c;
 	int result = 0;
@@ -166,14 +164,7 @@ get_number_argument(const char *prompt, long *number, long default_value)
 		} else if (c == ' ' || c == '\t') {
 			/* skip blanks and tabs */
 		} else if (c == '\n') {
-			if (default_value == kDefault) {
-				printf(prompt);
-			} else {
-				my_ungetch(c);
-				*number = default_value;
-				result = 1;
-				break;
-			}
+			printf(prompt);
 		} else if ('0' <= c && c <= '9') {
 			*number = get_number(c);
 			result = 1;
@@ -228,7 +219,7 @@ get_number(int first_char)
 }
 
 int
-get_string_argument(const char *prompt, char **string, int reprompt)
+get_string_argument(const char *prompt, char **string)
 {
 	int c;
 	int result = 0;
@@ -241,13 +232,7 @@ get_string_argument(const char *prompt, char **string, int reprompt)
 		} else if (c == ' ' || c == '\t') {
 			/* skip blanks and tabs */
 		} else if (c == '\n') {
-			if (reprompt) {
-				printf(prompt);
-			} else {
-				my_ungetch(c);
-				*string = NULL;
-				break;
-			}
+			printf(prompt);
 		} else if (c == '"' || c == '\'') {
 			*string = get_string(c);
 			result = 1;

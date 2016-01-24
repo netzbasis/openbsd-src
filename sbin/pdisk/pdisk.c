@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.60 2016/01/22 18:57:42 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.66 2016/01/24 01:38:32 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -29,7 +29,7 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>		/* DEV_BSIZE */
+#include <sys/types.h>
 #include <sys/dkio.h>
 #include <sys/disklabel.h>
 #include <sys/ioctl.h>
@@ -43,28 +43,29 @@
 #include <unistd.h>
 #include <util.h>
 
+#include "dpme.h"
 #include "io.h"
 #include "partition_map.h"
 #include "dump.h"
 #include "validate.h"
 #include "file_media.h"
 
-int		lflag;		/* list the device */
-int		rflag;		/* open device read Only */
+int	lflag;	/* list the device */
+int	rflag;	/* open device read Only */
 
 static int	first_get = 1;
 
-void		do_change_map_size(struct partition_map_header *);
-void		do_create_partition(struct partition_map_header *, int);
-void		do_delete_partition(struct partition_map_header *);
-void		do_display_entry(struct partition_map_header *);
-void		do_rename_partition(struct partition_map_header *);
-void		do_change_type(struct partition_map_header *);
-void		do_reorder(struct partition_map_header *);
-void		do_write_partition_map(struct partition_map_header *);
-void		edit(struct partition_map_header **);
-int		get_base_argument(long *, struct partition_map_header *);
-int		get_size_argument(long *, struct partition_map_header *);
+void	do_change_map_size(struct partition_map_header *);
+void	do_create_partition(struct partition_map_header *, int);
+void	do_delete_partition(struct partition_map_header *);
+void	do_display_entry(struct partition_map_header *);
+void	do_rename_partition(struct partition_map_header *);
+void	do_change_type(struct partition_map_header *);
+void	do_reorder(struct partition_map_header *);
+void	do_write_partition_map(struct partition_map_header *);
+void	edit(struct partition_map_header **);
+int	get_base_argument(long *, struct partition_map_header *);
+int	get_size_argument(long *, struct partition_map_header *);
 
 __dead static void usage(void);
 
@@ -74,17 +75,8 @@ main(int argc, char **argv)
 	struct disklabel dl;
 	struct stat st;
 	struct partition_map_header *map;
-	uint64_t mediasz;
 	int c, fd;
 
-	if (sizeof(struct dpme) != DEV_BSIZE) {
-		errx(1, "Size of partition map entry (%zu) is not equal "
-		    "to block size (%d)\n", sizeof(struct dpme), DEV_BSIZE);
-	}
-	if (sizeof(struct block0) != DEV_BSIZE) {
-		errx(1, "Size of block zero structure (%zu) is not equal "
-		    "to block size (%d)\n", sizeof(struct block0), DEV_BSIZE);
-	}
 	while ((c = getopt(argc, argv, "lr")) != -1) {
 		switch (c) {
 		case 'l':
@@ -115,15 +107,19 @@ main(int argc, char **argv)
 		    *argv);
 	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
 		err(1, "can't get disklabel for %s", *argv);
-	if (dl.d_secsize != DEV_BSIZE)
-		err(1, "%u-byte sector size not supported", dl.d_secsize);
 
-	if (DL_GETDSIZE(&dl) > LONG_MAX)
-		mediasz =  LONG_MAX;
-	else
-		mediasz = DL_GETDSIZE(&dl);
+	if (sizeof(struct block0) != dl.d_secsize) {
+		errx(1, "Size of block zero structure (%zu) is not equal "
+		    "to disk sector size (%d)\n", sizeof(struct block0),
+		    dl.d_secsize);
+	}
+	if (sizeof(struct dpme) != dl.d_secsize) {
+		errx(1, "Size of partition map entry (%zu) is not equal "
+		    "to disk sector size (%d)\n", sizeof(struct dpme),
+		    dl.d_secsize);
+	}
 
-	map = open_partition_map(fd, *argv, mediasz);
+	map = open_partition_map(fd, *argv, DL_GETDSIZE(&dl), dl.d_secsize);
 	if (map != NULL) {
 		if (lflag)
 			dump_partition_map(map);
@@ -206,7 +202,8 @@ edit(struct partition_map_header **mapp)
 			if (get_okay("Discard current map? [n/y]: ", 0) == 1) {
 				oldmap = map;
 				map = create_partition_map(oldmap->fd,
-				    oldmap->name, oldmap->media_size);
+				    oldmap->name, oldmap->media_size,
+				    oldmap->physical_block);
 				if (map == NULL)
 					break;
 				*mapp = map;
@@ -251,7 +248,7 @@ edit(struct partition_map_header **mapp)
 }
 
 void
-do_create_partition(struct partition_map_header * map, int get_type)
+do_create_partition(struct partition_map_header *map, int get_type)
 {
 	long base, length;
 	char *name = NULL;
@@ -267,13 +264,13 @@ do_create_partition(struct partition_map_header * map, int get_type)
 	if (get_size_argument(&length, map) == 0) {
 		return;
 	}
-	if (get_string_argument("Name of partition: ", &name, 1) == 0) {
+	if (get_string_argument("Name of partition: ", &name) == 0) {
 		bad_input("Bad name");
 		return;
 	}
 	if (get_type == 0) {
 		add_partition_to_map(name, kUnixType, base, length, map);
-	} else if (get_string_argument("Type of partition: ", &type_name, 1) ==
+	} else if (get_string_argument("Type of partition: ", &type_name) ==
 	    0) {
 		bad_input("Bad type");
 		goto xit1;
@@ -298,12 +295,12 @@ xit1:
 }
 
 int
-get_base_argument(long *number, struct partition_map_header * map)
+get_base_argument(long *number, struct partition_map_header *map)
 {
 	struct partition_map *entry;
 	int result = 0;
 
-	if (get_number_argument("First block: ", number, kDefault) == 0) {
+	if (get_number_argument("First block: ", number) == 0) {
 		bad_input("Bad block number");
 	} else {
 		result = 1;
@@ -322,13 +319,13 @@ get_base_argument(long *number, struct partition_map_header * map)
 
 
 int
-get_size_argument(long *number, struct partition_map_header * map)
+get_size_argument(long *number, struct partition_map_header *map)
 {
 	struct partition_map *entry;
 	unsigned long multiple;
 	int result = 0;
 
-	if (get_number_argument("Length in blocks: ", number, kDefault) == 0) {
+	if (get_number_argument("Length in blocks: ", number) == 0) {
 		bad_input("Bad length");
 	} else {
 		multiple = get_multiplier(map->logical_block);
@@ -354,7 +351,7 @@ get_size_argument(long *number, struct partition_map_header * map)
 
 
 void
-do_rename_partition(struct partition_map_header * map)
+do_rename_partition(struct partition_map_header *map)
 {
 	struct partition_map *entry;
 	char *name;
@@ -364,11 +361,11 @@ do_rename_partition(struct partition_map_header * map)
 		bad_input("No partition map exists");
 		return;
 	}
-	if (get_number_argument("Partition number: ", &ix, kDefault) == 0) {
+	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
-	if (get_string_argument("New name of partition: ", &name, 1) == 0) {
+	if (get_string_argument("New name of partition: ", &name) == 0) {
 		bad_input("Bad name");
 		return;
 	}
@@ -386,7 +383,7 @@ do_rename_partition(struct partition_map_header * map)
 }
 
 void
-do_change_type(struct partition_map_header * map)
+do_change_type(struct partition_map_header *map)
 {
 	struct partition_map *entry;
 	char *type = NULL;
@@ -396,7 +393,7 @@ do_change_type(struct partition_map_header * map)
 		bad_input("No partition map exists");
 		return;
 	}
-	if (get_number_argument("Partition number: ", &ix, kDefault) == 0) {
+	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
@@ -407,7 +404,7 @@ do_change_type(struct partition_map_header * map)
 		goto out;
 	}
 	printf("Existing partition type ``%s''.\n", entry->dpme->dpme_type);
-	if (get_string_argument("New type of partition: ", &type, 1) == 0) {
+	if (get_string_argument("New type of partition: ", &type) == 0) {
 		bad_input("Bad type");
 		goto out;
 	}
@@ -421,7 +418,7 @@ out:
 
 
 void
-do_delete_partition(struct partition_map_header * map)
+do_delete_partition(struct partition_map_header *map)
 {
 	struct partition_map *cur;
 	long ix;
@@ -430,7 +427,7 @@ do_delete_partition(struct partition_map_header * map)
 		bad_input("No partition map exists");
 		return;
 	}
-	if (get_number_argument("Partition number: ", &ix, kDefault) == 0) {
+	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
@@ -445,7 +442,7 @@ do_delete_partition(struct partition_map_header * map)
 
 
 void
-do_reorder(struct partition_map_header * map)
+do_reorder(struct partition_map_header *map)
 {
 	long ix, old_index;
 
@@ -453,12 +450,11 @@ do_reorder(struct partition_map_header * map)
 		bad_input("No partition map exists");
 		return;
 	}
-	if (get_number_argument("Partition number: ", &old_index, kDefault) ==
-	    0) {
+	if (get_number_argument("Partition number: ", &old_index) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
-	if (get_number_argument("New number: ", &ix, kDefault) == 0) {
+	if (get_number_argument("New number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
@@ -467,7 +463,7 @@ do_reorder(struct partition_map_header * map)
 
 
 void
-do_write_partition_map(struct partition_map_header * map)
+do_write_partition_map(struct partition_map_header *map)
 {
 	if (map == NULL) {
 		bad_input("No partition map exists");
@@ -492,11 +488,11 @@ do_write_partition_map(struct partition_map_header * map)
 
 
 void
-do_change_map_size(struct partition_map_header * map)
+do_change_map_size(struct partition_map_header *map)
 {
 	long size;
 
-	if (get_number_argument("New size: ", &size, kDefault) == 0) {
+	if (get_number_argument("New size: ", &size) == 0) {
 		bad_input("Bad size");
 		return;
 	}
@@ -505,11 +501,11 @@ do_change_map_size(struct partition_map_header * map)
 
 
 void
-do_display_entry(struct partition_map_header * map)
+do_display_entry(struct partition_map_header *map)
 {
 	long number;
 
-	if (get_number_argument("Partition number: ", &number, kDefault) == 0) {
+	if (get_number_argument("Partition number: ", &number) == 0) {
 		bad_input("Bad partition number");
 		return;
 	}
