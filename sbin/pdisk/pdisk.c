@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.66 2016/01/24 01:38:32 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.68 2016/01/25 03:26:54 jsg Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -48,7 +48,6 @@
 #include "partition_map.h"
 #include "dump.h"
 #include "validate.h"
-#include "file_media.h"
 
 int	lflag;	/* list the device */
 int	rflag;	/* open device read Only */
@@ -254,10 +253,6 @@ do_create_partition(struct partition_map_header *map, int get_type)
 	char *name = NULL;
 	char *type_name = NULL;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_base_argument(&base, map) == 0) {
 		return;
 	}
@@ -357,10 +352,6 @@ do_rename_partition(struct partition_map_header *map)
 	char *name;
 	long ix;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
@@ -389,10 +380,6 @@ do_change_type(struct partition_map_header *map)
 	char *type = NULL;
 	long ix;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
@@ -423,10 +410,6 @@ do_delete_partition(struct partition_map_header *map)
 	struct partition_map *cur;
 	long ix;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("Partition number: ", &ix) == 0) {
 		bad_input("Bad partition number");
 		return;
@@ -446,10 +429,6 @@ do_reorder(struct partition_map_header *map)
 {
 	long ix, old_index;
 
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (get_number_argument("Partition number: ", &old_index) == 0) {
 		bad_input("Bad partition number");
 		return;
@@ -465,10 +444,6 @@ do_reorder(struct partition_map_header *map)
 void
 do_write_partition_map(struct partition_map_header *map)
 {
-	if (map == NULL) {
-		bad_input("No partition map exists");
-		return;
-	}
 	if (map->changed == 0) {
 		bad_input("The map has not been changed.");
 		return;
