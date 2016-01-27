@@ -37,6 +37,7 @@
 #define CLOCK_MONOTONIC			3
 #define CLOCK_THREAD_CPUTIME_ID		4
 #define CLOCK_UPTIME			5
+#define CLOCK_MONOTONIC_COARSE		6
 
 #if __BSD_VISIBLE
 #define	__CLOCK_USE_TICKET_LOCKS	8	/* flag for __thrsleep() */

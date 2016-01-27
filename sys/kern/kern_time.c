@@ -136,6 +136,9 @@ clock_gettime(struct proc *p, clockid_t clock_id, struct timespec *tp)
 		timespecadd(tp, &p->p_tu.tu_runtime, tp);
 		timespecadd(tp, &p->p_rtime, tp);
 		break;
+	case CLOCK_MONOTONIC_COARSE:
+		getnanouptime(tp);
+		break;
 	default:
 		/* check for clock from pthread_getcpuclockid() */
 		if (__CLOCK_TYPE(clock_id) == CLOCK_THREAD_CPUTIME_ID) {
@@ -224,6 +227,7 @@ sys_clock_getres(struct proc *p, void *v, register_t *retval)
 	case CLOCK_UPTIME:
 	case CLOCK_PROCESS_CPUTIME_ID:
 	case CLOCK_THREAD_CPUTIME_ID:
+	case CLOCK_MONOTONIC_COARSE:
 		ts.tv_sec = 0;
 		ts.tv_nsec = 1000000000 / hz;
 		break;
