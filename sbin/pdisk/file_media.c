@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_media.c,v 1.41 2016/01/25 23:43:20 krw Exp $	*/
+/*	$OpenBSD: file_media.c,v 1.43 2016/01/26 21:07:54 krw Exp $	*/
 
 /*
  * file_media.c -
@@ -155,7 +155,8 @@ read_block0(int fd, struct block0 *block0)
 		    sizeof(ddmap_ondisk));
 		memcpy(&block0->sbDDMap[i].ddBlock, &ddmap_ondisk.ddBlock,
 		    sizeof(block0->sbDDMap[i].ddBlock));
-		block0->sbDDMap[i].ddBlock = betoh32(block0->sbDDMap[i].ddBlock);
+		block0->sbDDMap[i].ddBlock =
+		    betoh32(block0->sbDDMap[i].ddBlock);
 		memcpy(&block0->sbDDMap[i].ddSize, &ddmap_ondisk.ddSize,
 		    sizeof(block0->sbDDMap[i].ddSize));
 		block0->sbDDMap[i].ddSize = betoh16(block0->sbDDMap[i].ddSize);
@@ -281,11 +282,11 @@ read_dpme(int fd, uint64_t sector, struct dpme *dpme)
 	memcpy(dpme->dpme_reserved_4, dpme_ondisk->dpme_reserved_4,
 	    sizeof(dpme->dpme_reserved_4));
 
-	memcpy(dpme->dpme_name, dpme_ondisk->dpme_name,
+	strlcpy(dpme->dpme_name, dpme_ondisk->dpme_name,
 	    sizeof(dpme->dpme_name));
-	memcpy(dpme->dpme_type, dpme_ondisk->dpme_type,
+	strlcpy(dpme->dpme_type, dpme_ondisk->dpme_type,
 	    sizeof(dpme->dpme_type));
-	memcpy(dpme->dpme_processor_id, dpme_ondisk->dpme_processor_id,
+	strlcpy(dpme->dpme_processor_id, dpme_ondisk->dpme_processor_id,
 	    sizeof(dpme->dpme_processor_id));
 
 	free(dpme_ondisk);

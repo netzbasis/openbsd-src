@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.35 2016/01/25 15:22:56 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.39 2016/01/26 15:51:07 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -18,7 +18,6 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
-#include <sys/atomic.h>
 #include <sys/malloc.h>
 #include <sys/kernel.h>
 #include <sys/device.h>
@@ -35,6 +34,17 @@
 #include <dev/pv/pvreg.h>
 #include <dev/pv/xenreg.h>
 #include <dev/pv/xenvar.h>
+
+/* Xen requires locked atomic operations */
+#ifndef MULTIPROCESSOR
+#define _XENMPATOMICS
+#define MULTIPROCESSOR
+#endif
+#include <sys/atomic.h>
+#ifdef _XENMPATOMICS
+#undef MULTIPROCESSOR
+#undef _XENMPATOMICS
+#endif
 
 struct xen_softc *xen_sc;
 
@@ -68,6 +78,8 @@ int	xen_bus_dmamap_load(bus_dma_tag_t, bus_dmamap_t, void *, bus_size_t,
 int	xen_bus_dmamap_load_mbuf(bus_dma_tag_t, bus_dmamap_t, struct mbuf *,
 	    int);
 void	xen_bus_dmamap_unload(bus_dma_tag_t, bus_dmamap_t);
+void	xen_bus_dmamap_sync(bus_dma_tag_t, bus_dmamap_t, bus_addr_t,
+	    bus_size_t, int);
 
 int	xs_attach(struct xen_softc *);
 
@@ -88,7 +100,7 @@ struct bus_dma_tag xen_bus_dma_tag = {
 	NULL,
 	NULL,
 	xen_bus_dmamap_unload,
-	_bus_dmamap_sync,
+	xen_bus_dmamap_sync,
 	_bus_dmamem_alloc,
 	NULL,
 	_bus_dmamem_free,
@@ -912,12 +924,11 @@ xen_grant_table_enter(struct xen_softc *sc, grant_ref_t ref, paddr_t pa,
 		if (ref < ge->ge_start || ref > ge->ge_start + GNTTAB_NEPG)
 			continue;
 		ref -= ge->ge_start;
-		mtx_enter(&ge->ge_mtx);
 		ge->ge_table[ref].frame = atop(pa);
 		ge->ge_table[ref].domid = 0;
 		virtio_membar_sync();
 		ge->ge_table[ref].flags = GTF_permit_access | flags;
-		mtx_leave(&ge->ge_mtx);
+		virtio_membar_sync();
 		return (0);
 	}
 	return (ENOBUFS);
@@ -928,20 +939,28 @@ xen_grant_table_remove(struct xen_softc *sc, grant_ref_t ref)
 {
 	struct xen_gntent *ge;
 	uint32_t flags, *ptr;
+	int loop;
 
 	SLIST_FOREACH(ge, &sc->sc_gnts, ge_entry) {
 		if (ref < ge->ge_start || ref > ge->ge_start + GNTTAB_NEPG)
 			continue;
 		ref -= ge->ge_start;
 
-		mtx_enter(&ge->ge_mtx);
 		/* Invalidate the grant reference */
+		virtio_membar_sync();
 		ptr = (uint32_t *)&ge->ge_table[ref];
 		flags = (ge->ge_table[ref].flags & ~(GTF_reading | GTF_writing));
-		while (atomic_cas_uint(ptr, flags, GTF_invalid) != flags)
+		loop = 0;
+		while (atomic_cas_uint(ptr, flags, GTF_invalid) != flags) {
+			if (loop++ > 10000000) {
+				printf("%s: grant table reference %u is held by "
+				    "domain %d\n", sc->sc_dev.dv_xname, ref +
+				    ge->ge_start, ge->ge_table[ref].domid);
+				return;
+			}
 			CPU_BUSY_CYCLE();
+		}
 		ge->ge_table[ref].frame = 0xffffffff;
-		mtx_leave(&ge->ge_mtx);
 		break;
 	}
 }
@@ -1081,6 +1100,15 @@ xen_bus_dmamap_unload(bus_dma_tag_t t, bus_dmamap_t map)
 	_bus_dmamap_unload(t, map);
 }
 
+void
+xen_bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t map, bus_addr_t addr,
+    bus_size_t size, int op)
+{
+	if ((op == (BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE)) ||
+	    (op == (BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE)))
+		virtio_membar_sync();
+}
+
 static int
 xen_attach_print(void *aux, const char *name)
 {
@@ -1106,8 +1134,7 @@ xen_probe_devices(struct xen_softc *sc)
 	xst.xst_sc = sc->sc_xs;
 	xst.xst_flags |= XST_POLL;
 
-	if ((error = xs_cmd(&xst, XS_LIST, "device", &iovp1,
-	    &iov1_cnt)) != 0)
+	if ((error = xs_cmd(&xst, XS_LIST, "device", &iovp1, &iov1_cnt)) != 0)
 		return (error);
 
 	for (i = 0; i < iov1_cnt; i++) {

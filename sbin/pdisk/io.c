@@ -1,4 +1,4 @@
-/*	$OpenBSD: io.c,v 1.22 2016/01/24 01:38:32 krw Exp $	*/
+/*	$OpenBSD: io.c,v 1.26 2016/01/27 00:26:33 krw Exp $	*/
 
 /*
  * io.c - simple io and input parsing routines
@@ -33,27 +33,26 @@
 #include <string.h>
 #include <stdarg.h>
 
+#include "dpme.h"
 #include "io.h"
 
 #define BAD_DIGIT 17		/* must be greater than any base */
-#define	STRING_CHUNK	16
 #define UNGET_MAX_COUNT 10
 
 short	unget_buf[UNGET_MAX_COUNT + 1];
 int	unget_count;
 
-long	get_number(int);
-char   *get_string(int);
-int	my_getch (void);
+static long	get_number(int);
+static char    *get_string(int);
+static int	my_getch (void);
 
 int
 my_getch()
 {
-	if (unget_count > 0) {
+	if (unget_count > 0)
 		return (unget_buf[--unget_count]);
-	} else {
+	else
 		return (getc(stdin));
-	}
 }
 
 
@@ -64,12 +63,10 @@ my_ungetch(int c)
          * In practice there is never more than one character in
          * the unget_buf, but what's a little overkill among friends?
          */
-
-	if (unget_count < UNGET_MAX_COUNT) {
+	if (unget_count < UNGET_MAX_COUNT)
 		unget_buf[unget_count++] = c;
-	} else {
+	else
 		errx(1, "Programmer error in my_ungetch().");
-	}
 }
 
 void
@@ -83,9 +80,8 @@ flush_to_newline(int keep_newline)
 		if (c <= 0) {
 			break;
 		} else if (c == '\n') {
-			if (keep_newline) {
+			if (keep_newline)
 				my_ungetch(c);
-			}
 			break;
 		} else {
 			/* skip */
@@ -130,9 +126,9 @@ get_command(const char *prompt, int promptBeforeGet, int *command)
 {
 	int c;
 
-	if (promptBeforeGet) {
+	if (promptBeforeGet)
 		printf(prompt);
-	}
+
 	for (;;) {
 		c = my_getch();
 
@@ -200,29 +196,26 @@ get_number(int first_char)
 	}
 	ret_value = 0;
 	for (ret_value = 0;; c = my_getch()) {
-		if (c >= '0' && c <= '9') {
+		if (c >= '0' && c <= '9')
 			digit = c - '0';
-		} else if (c >= 'A' && c <= 'F') {
+		else if (c >= 'A' && c <= 'F')
 			digit = 10 + (c - 'A');
-		} else if (c >= 'a' && c <= 'f') {
+		else if (c >= 'a' && c <= 'f')
 			digit = 10 + (c - 'a');
-		} else {
+		else
 			digit = BAD_DIGIT;
-		}
-		if (digit >= base) {
+		if (digit >= base)
 			break;
-		}
 		ret_value = ret_value * base + digit;
 	}
 	my_ungetch(c);
 	return (ret_value);
 }
 
-int
-get_string_argument(const char *prompt, char **string)
+char *
+get_dpistr_argument(const char *prompt)
 {
 	int c;
-	int result = 0;
 
 	for (;;) {
 		c = my_getch();
@@ -234,68 +227,46 @@ get_string_argument(const char *prompt, char **string)
 		} else if (c == '\n') {
 			printf(prompt);
 		} else if (c == '"' || c == '\'') {
-			*string = get_string(c);
-			result = 1;
-			break;
-		} else if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
-			|| (c == '-' || c == '/' || c == '.' || c == ':')) {
+			return get_string(c);
+		} else if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') ||
+		    (c == '-' || c == '/' || c == '.' || c == ':')) {
 			my_ungetch(c);
-			*string = get_string(' ');
-			result = 1;
-			break;
+			return get_string(' ');
 		} else {
 			my_ungetch(c);
-			*string = NULL;
-			break;
+			return NULL;
 		}
 	}
-	return result;
+	return NULL;
 }
 
 
-char           *
+char *
 get_string(int eos)
 {
-	char *s, *ret_value, *limit;
-	int c, length;
+	char buf[DPISTRLEN];
+	char *s, *limit;
+	int c;
 
-	ret_value = malloc(STRING_CHUNK);
-	if (ret_value == NULL) {
-		warn("can't allocate memory for string buffer");
-		return NULL;
-	}
-	length = STRING_CHUNK;
-	limit = ret_value + length;
+	memset(buf, 0, sizeof(buf));
+	limit = buf + sizeof(buf);
 
 	c = my_getch();
-	for (s = ret_value;; c = my_getch()) {
-		if (s >= limit) {
-			/* expand string */
-			limit = malloc(length + STRING_CHUNK);
-			if (limit == NULL) {
-				warn("can't allocate memory for string buffer");
-				ret_value[length - 1] = 0;
-				break;
-			}
-			strncpy(limit, ret_value, length);
-			free(ret_value);
-			s = limit + (s - ret_value);
-			ret_value = limit;
-			length += STRING_CHUNK;
-			limit = ret_value + length;
-		}
+	for (s = buf;; c = my_getch()) {
 		if (c <= 0 || c == eos || (eos == ' ' && c == '\t')) {
-			*s++ = 0;
+			*s = 0;
 			break;
 		} else if (c == '\n') {
-			*s++ = 0;
+			*s = 0;
 			my_ungetch(c);
 			break;
 		} else {
 			*s++ = c;
+			if (s >= limit)
+				return NULL;
 		}
 	}
-	return (ret_value);
+	return (strdup(buf));
 }
 
 
@@ -326,12 +297,10 @@ get_multiplier(long divisor)
 	if (result > 1) {
 		if (extra > 1) {
 			result /= divisor;
-			if (result >= 4096) {
-				/* overflow -> 20bits + >12bits */
-				result = 0;
-			} else {
+			if (result >= 4096)
+				result = 0; /* overflow -> 20bits + >12bits */
+			else
 				result *= extra;
-			}
 		} else if (result >= divisor) {
 			result /= divisor;
 		} else {
@@ -351,11 +320,11 @@ get_partition_modifier(void)
 
 	c = my_getch();
 
-	if (c == 'p' || c == 'P') {
+	if (c == 'p' || c == 'P')
 		result = 1;
-	} else if (c > 0) {
+	else if (c > 0)
 		my_ungetch(c);
-	}
+
 	return result;
 }
 
