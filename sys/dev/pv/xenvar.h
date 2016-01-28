@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.23 2016/01/25 15:22:56 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.25 2016/01/27 15:34:50 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -38,7 +38,6 @@ struct xen_intsrc {
 };
 
 struct xen_gntent {
-	SLIST_ENTRY(xen_gntent)	 ge_entry;
 	grant_entry_t		*ge_table;
 	grant_ref_t		 ge_start;
 	short			 ge_reserved;
@@ -70,8 +69,10 @@ struct xen_softc {
 	uint64_t		 sc_irq;	/* IDT vector number */
 	SLIST_HEAD(, xen_intsrc) sc_intrs;
 
-	SLIST_HEAD(, xen_gntent) sc_gnts;	/* grant table entries */
+	struct xen_gntent	*sc_gnt;	/* grant table entries */
+	struct mutex		 sc_gntmtx;
 	int			 sc_gntcnt;	/* number of allocated frames */
+	int			 sc_gntmax;	/* number of allotted frames */
 
 	/*
 	 * Xenstore
@@ -150,5 +151,6 @@ int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 int	xs_getprop(struct xen_attach_args *, const char *, char *, int);
 int	xs_setprop(struct xen_attach_args *, const char *, char *, int);
 void	xs_resfree(struct xs_transaction *, struct iovec *, int);
+int	xs_kvop(void *, int, char *, char *, size_t);
 
 #endif	/* _XENVAR_H_ */

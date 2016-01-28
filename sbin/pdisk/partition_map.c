@@ -1,4 +1,4 @@
-/*	$OpenBSD: partition_map.c,v 1.69 2016/01/27 00:03:52 krw Exp $	*/
+/*	$OpenBSD: partition_map.c,v 1.73 2016/01/28 01:00:53 krw Exp $	*/
 
 /*
  * partition_map.c - partition map routines
@@ -87,7 +87,6 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 	map->disk_order = NULL;
 	map->base_order = NULL;
 	map->physical_block = sectorsz;
-	map->logical_block = sectorsz;
 	map->blocks_in_map = 0;
 	map->maximum_in_map = -1;
 
@@ -107,9 +106,24 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 		free_partition_map(map);
 		return NULL;
 	}
-
-	if (read_partition_map(map) == 0)
-		return map;
+	if (map->block0->sbSig == BLOCK0_SIGNATURE &&
+	    map->block0->sbBlkSize == sectorsz &&
+	    map->block0->sbBlkCount == mediasz) {
+		if (read_partition_map(map) == 0)
+			return map;
+	} else {
+		if (map->block0->sbSig != BLOCK0_SIGNATURE)
+			warnx("Block 0 signature: Expected 0x%04x, "
+			    "got 0x%04x", BLOCK0_SIGNATURE,
+			    map->block0->sbSig);
+		else if (map->block0->sbBlkSize != sectorsz)
+			warnx("Block 0 sbBlkSize (%u) != sector size (%u)",
+			    map->block0->sbBlkSize, sectorsz);
+		else if (map->block0->sbBlkCount != mediasz)
+			warnx("Block 0 sbBlkCount (%u) != media size (%llu)",
+			    map->block0->sbBlkCount,
+			    (unsigned long long)mediasz);
+	}
 
 	if (!lflag) {
 		my_ungetch('\n');
@@ -148,9 +162,10 @@ free_partition_map(struct partition_map_header *map)
 int
 read_partition_map(struct partition_map_header *map)
 {
+	struct partition_map *cur;
 	struct dpme *dpme;
 	int ix;
-	uint32_t limit;
+	uint32_t limit, base, next, nextbase;
 
 	limit = 1; /* There has to be at least one, which has actual value. */
 	for (ix = 1; ix <= limit; ix++) {
@@ -180,11 +195,47 @@ read_partition_map(struct partition_map_header *map)
 			free(dpme);
 			return 1;
 		}
+		if (dpme->dpme_lblock_start >= dpme->dpme_pblocks) {
+			warnx("\tlogical start (%u) >= block count"
+			    "count (%u).", dpme->dpme_lblock_start,
+			    dpme->dpme_pblocks);
+			free(dpme);
+			return 1;
+		}
+		if (dpme->dpme_lblocks > dpme->dpme_pblocks -
+			dpme->dpme_lblock_start) {
+			warnx("\tlogical blocks (%u) > available blocks (%u).",
+			    dpme->dpme_lblocks,
+			    dpme->dpme_pblocks - dpme->dpme_lblock_start);
+			free(dpme);
+			return 1;
+		}
+
 		if (add_data_to_map(dpme, ix, map) == 0) {
 			free(dpme);
 			return 1;
 		}
 	}
+
+	/* Traverse base_order looking for
+	 *
+	 * 1) Overlapping partitions
+	 * 2) Unmapped space
+	 */
+	for (cur = map->base_order; cur != NULL; cur = cur->next_by_base) {
+		base = cur->dpme->dpme_pblock_start;
+		next = base + cur->dpme->dpme_pblocks;
+		if (cur->next_by_base != NULL)
+			nextbase = cur->next_by_base->dpme->dpme_pblock_start;
+		else
+			nextbase = map->media_size;
+		if (next != nextbase)
+			warnx("Unmapped pblocks: %u -> %u", next, nextbase);
+		if (next > nextbase)
+			warnx("Partition %ld overlaps next partition",
+			    cur->disk_address);
+	}
+
 	return 0;
 }
 
@@ -256,7 +307,6 @@ create_partition_map(int fd, char *name, u_int64_t mediasz, uint32_t sectorsz)
 	map->base_order = NULL;
 
 	map->physical_block = sectorsz;
-	map->logical_block = sectorsz;
 
 	map->blocks_in_map = 0;
 	map->maximum_in_map = -1;
@@ -565,23 +615,20 @@ contains_driver(struct partition_map *entry)
 	struct partition_map_header *map;
 	struct block0  *p;
 	struct ddmap   *m;
-	int i, f;
+	int i;
 	uint32_t start;
 
 	map = entry->the_map;
 	p = map->block0;
 	if (p->sbSig != BLOCK0_SIGNATURE)
 		return 0;
-	if (map->logical_block > p->sbBlkSize)
-		return 0;
 
-	f = p->sbBlkSize / map->logical_block;
 	if (p->sbDrvrCount > 0) {
 		m = p->sbDDMap;
 		for (i = 0; i < p->sbDrvrCount; i++) {
 			start = m[i].ddBlock;
-			if (entry->dpme->dpme_pblock_start <= f * start &&
-			    f * (start + m[i].ddSize) <=
+			if (entry->dpme->dpme_pblock_start <= start &&
+			    (start + m[i].ddSize) <=
 			    (entry->dpme->dpme_pblock_start +
 			    entry->dpme->dpme_pblocks))
 				return 1;
@@ -733,20 +780,39 @@ find_entry_by_base(uint32_t base, struct partition_map_header *map)
 
 
 void
-move_entry_in_map(long old_index, long ix, struct partition_map_header *map)
+move_entry_in_map(long index1, long index2, struct partition_map_header *map)
 {
-	struct partition_map *cur;
+	struct partition_map *p1, *p2;
 
-	cur = find_entry_by_disk_address(old_index, map);
-	if (cur == NULL) {
-		printf("No such partition\n");
-	} else {
-		remove_from_disk_order(cur);
-		cur->disk_address = ix;
-		insert_in_disk_order(cur);
-		renumber_disk_addresses(map);
-		map->changed = 1;
+	if (index1 == index2)
+		return;
+
+	if (index1 == 1 || index2 == 1) {
+		printf("Partition #1 cannot be moved\n");
+		return;
 	}
+	p1 = find_entry_by_disk_address(index1, map);
+	if (p1 == NULL) {
+		printf("Partition #%ld not found\n", index1);
+		return;
+	}
+	p2 = find_entry_by_disk_address(index2, map);
+	if (p2 == NULL) {
+		printf("Partition #%ld not found\n", index2);
+		return;
+	}
+
+	remove_from_disk_order(p1);
+	remove_from_disk_order(p2);
+
+	p1->disk_address = index2;
+	p2->disk_address = index1;
+
+	insert_in_disk_order(p1);
+	insert_in_disk_order(p2);
+
+	renumber_disk_addresses(map);
+	map->changed = 1;
 }
 
 
@@ -903,21 +969,18 @@ remove_driver(struct partition_map *entry)
 	struct partition_map_header *map;
 	struct block0  *p;
 	struct ddmap   *m;
-	int i, j, f;
+	int i, j;
 	uint32_t start;
 
 	map = entry->the_map;
 	p = map->block0;
 	if (p->sbSig != BLOCK0_SIGNATURE)
 		return;
-	if (map->logical_block > p->sbBlkSize)
-		return;
 
 	/*
 	 * compute the factor to convert the block numbers in block0
 	 * into partition map block numbers.
 	 */
-	f = p->sbBlkSize / map->logical_block;
 	if (p->sbDrvrCount > 0) {
 		m = p->sbDDMap;
 		for (i = 0; i < p->sbDrvrCount; i++) {
@@ -927,8 +990,8 @@ remove_driver(struct partition_map *entry)
 			 * zap the driver if it is wholly contained in the
 			 * partition
 			 */
-			if (entry->dpme->dpme_pblock_start <= f * start &&
-			    f * (start + m[i].ddSize) <=
+			if (entry->dpme->dpme_pblock_start <= start &&
+			    (start + m[i].ddSize) <=
 			    (entry->dpme->dpme_pblock_start
 				+ entry->dpme->dpme_pblocks)) {
 				/* delete this driver */

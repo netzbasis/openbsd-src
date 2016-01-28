@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.72 2016/01/26 23:41:48 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.77 2016/01/28 01:07:39 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -47,7 +47,6 @@
 #include "io.h"
 #include "partition_map.h"
 #include "dump.h"
-#include "validate.h"
 
 int	lflag;	/* list the device */
 int	rflag;	/* open device read Only */
@@ -157,21 +156,21 @@ edit(struct partition_map_header **mapp)
 		case 'h':
 			printf("Commands are:\n"
 			    "  ?    verbose command help\n"
-			    "  C    create a partition of the specified type\n"
+			    "  C    create a partition of a specified type\n"
 			    "  c    create an OpenBSD partition\n"
 			    "  d    delete a partition\n"
-			    "  f    full display of the specified entry\n"
+			    "  f    full display of a partition\n"
 			    "  h    command help\n"
 			    "  i    (re)initialize the partition map\n"
 			    "  n    (re)name a partition\n"
 			    "  P    show the partition map's data structures\n"
 			    "  p    print the partition map\n"
 			    "  q    quit editing\n"
-			    "  r    reorder an entry in the partition map\n"
+			    "  r    reorder (swap) disk positions of two "
+			        "entries in the partition map\n"
 			    "  s    change the size of the partition map\n"
-			    "  t    change the specified partition's type\n"
-			    "  v    validate the partition map\n"
-			    "  w    write the partition map\n");
+			    "  t    change the type of a partition\n"
+			    "  w    write the partition map to disk\n");
 			break;
 		case 'P':
 			show_data_structures(map);
@@ -226,9 +225,6 @@ edit(struct partition_map_header **mapp)
 			break;
 		case 'f':
 			do_display_entry(map);
-			break;
-		case 'v':
-			validate_map(map);
 			break;
 		default:
 			bad_input("No such command (%c)", command);
@@ -316,7 +312,7 @@ get_size_argument(long *number, struct partition_map_header *map)
 	if (get_number_argument("Length in blocks: ", number) == 0) {
 		bad_input("Bad length");
 	} else {
-		multiple = get_multiplier(map->logical_block);
+		multiple = get_multiplier(map->physical_block);
 		if (multiple == 0) {
 			bad_input("Bad multiplier");
 		} else if (multiple != 1) {
@@ -367,7 +363,7 @@ do_rename_partition(struct partition_map_header *map)
 	 * current contents are zapped before copying in new name!
 	 */
 	memset(entry->dpme->dpme_name, 0, sizeof(entry->dpme->dpme_name));
-	strlcpy(entry->dpme->dpme_name, name, DPISTRLEN);
+	strlcpy(entry->dpme->dpme_name, name, sizeof(entry->dpme->dpme_name));
 	map->changed = 1;
 
 	free(name);
@@ -403,7 +399,7 @@ do_change_type(struct partition_map_header *map)
          * current contents are zapped before copying in new type!
 	 */
 	memset(entry->dpme->dpme_type, 0, sizeof(entry->dpme->dpme_type));
-	strncpy(entry->dpme->dpme_type, type, DPISTRLEN);
+	strncpy(entry->dpme->dpme_type, type, sizeof(entry->dpme->dpme_type));
 	map->changed = 1;
 
 	free(type);
