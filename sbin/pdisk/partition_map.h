@@ -1,4 +1,4 @@
-/*	$OpenBSD: partition_map.h,v 1.30 2016/01/27 14:47:53 krw Exp $	*/
+/*	$OpenBSD: partition_map.h,v 1.32 2016/01/28 22:09:56 krw Exp $	*/
 
 /*
  * partition_map.h - partition map routines
@@ -30,10 +30,12 @@
 #ifndef __partition_map__
 #define __partition_map__
 
+struct partition_map;
+
 struct partition_map_header {
+    LIST_HEAD(, partition_map)	disk_order;
+    LIST_HEAD(, partition_map)	base_order;
     char		       *name;
-    struct partition_map       *disk_order;
-    struct partition_map       *base_order;
     struct block0	       *block0;
     int				fd;
     int				changed;
@@ -44,10 +46,8 @@ struct partition_map_header {
 };
 
 struct partition_map {
-    struct partition_map	       *next_on_disk;
-    struct partition_map	       *prev_on_disk;
-    struct partition_map	       *next_by_base;
-    struct partition_map	       *prev_by_base;
+    LIST_ENTRY(partition_map)		disk_entry;
+    LIST_ENTRY(partition_map)		base_entry;
     struct partition_map_header	       *the_map;
     struct dpme			       *dpme;
     long				disk_address;

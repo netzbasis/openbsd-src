@@ -1,4 +1,4 @@
-/*	$OpenBSD: dump.c,v 1.60 2016/01/27 20:34:27 krw Exp $	*/
+/*	$OpenBSD: dump.c,v 1.62 2016/01/28 19:07:45 krw Exp $	*/
 
 /*
  * dump.c - dumping partition maps
@@ -27,6 +27,8 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/queue.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,8 +54,6 @@ dump_block_zero(struct partition_map_header *map)
 	int i, prefix;
 
 	p = map->block0;
-	if (p->sbSig != BLOCK0_SIGNATURE)
-		return;
 
 	value = ((double) p->sbBlkCount) * p->sbBlkSize;
 	adjust_value_and_compute_prefix(&value, &prefix);
@@ -95,8 +95,7 @@ dump_partition_map(struct partition_map_header *map)
 	printf(" #: %*s %-*s %*s   %-*s ( size )\n", max_type_length, "type",
 	    max_name_length, "name", digits, "length", digits, "base");
 
-	for (entry = map->disk_order; entry != NULL;
-	     entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		dump_partition_entry(entry, max_type_length,
 		    max_name_length, digits);
 	}
@@ -165,10 +164,6 @@ show_data_structures(struct partition_map_header *map)
 
 	printf("Block0:\n");
 	printf("signature 0x%x", zp->sbSig);
-	if (zp->sbSig == BLOCK0_SIGNATURE)
-		printf("\n");
-	else
-		printf(" should be 0x%x\n", BLOCK0_SIGNATURE);
 	printf("Block size=%u, Number of Blocks=%u\n", zp->sbBlkSize,
 	    zp->sbBlkCount);
 	printf("DeviceType=0x%x, DeviceId=0x%x, sbData=0x%x\n", zp->sbDevType,
@@ -187,8 +182,7 @@ show_data_structures(struct partition_map_header *map)
 	printf("\n");
 	printf(" #:                 type  length   base    "
 	       "flags        (logical)\n");
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		p = entry->dpme;
 		printf("%2ld: %20.32s ", entry->disk_address, p->dpme_type);
 		printf("%7u @ %-7u ", p->dpme_pblocks, p->dpme_pblock_start);
@@ -212,8 +206,7 @@ show_data_structures(struct partition_map_header *map)
 	printf("\n");
 	printf(" #:  booter   bytes      load_address      "
 	    "goto_address checksum processor\n");
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		p = entry->dpme;
 		printf("%2ld: ", entry->disk_address);
 		printf("%7u ", p->dpme_boot_block);
@@ -369,8 +362,7 @@ get_max_type_string_length(struct partition_map_header *map)
 
 	max = 0;
 
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		length = strnlen(entry->dpme->dpme_type, DPISTRLEN);
 		if (length > max)
 			max = length;
@@ -387,8 +379,7 @@ get_max_name_string_length(struct partition_map_header *map)
 
 	max = 0;
 
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		length = strnlen(entry->dpme->dpme_name, DPISTRLEN);
 		if (length > max)
 			max = length;
@@ -405,8 +396,7 @@ get_max_base_or_length(struct partition_map_header *map)
 
 	max = 0;
 
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		if (entry->dpme->dpme_pblock_start > max)
 			max = entry->dpme->dpme_pblock_start;
 		if (entry->dpme->dpme_pblocks > max)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: partition_map.c,v 1.73 2016/01/28 01:00:53 krw Exp $	*/
+/*	$OpenBSD: partition_map.c,v 1.80 2016/01/28 22:09:56 krw Exp $	*/
 
 /*
  * partition_map.c - partition map routines
@@ -27,6 +27,7 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/queue.h>
 #include <sys/stdint.h>
 
 #include <err.h>
@@ -65,7 +66,6 @@ void		insert_in_base_order(struct partition_map *);
 void		insert_in_disk_order(struct partition_map *);
 int		read_partition_map(struct partition_map_header *);
 void		remove_driver(struct partition_map *);
-void		remove_from_disk_order(struct partition_map *);
 void		renumber_disk_addresses(struct partition_map_header *);
 
 struct partition_map_header *
@@ -84,8 +84,8 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 	map->name = name;
 
 	map->changed = 0;
-	map->disk_order = NULL;
-	map->base_order = NULL;
+	LIST_INIT(&map->disk_order);
+	LIST_INIT(&map->base_order);
 	map->physical_block = sectorsz;
 	map->blocks_in_map = 0;
 	map->maximum_in_map = -1;
@@ -134,7 +134,7 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 			free_partition_map(map);
 			map = create_partition_map(fd, name, mediasz, sectorsz);
 			if (map)
-				return (map);
+				return map;
 		}
 	}
 
@@ -146,12 +146,13 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 void
 free_partition_map(struct partition_map_header *map)
 {
-	struct partition_map *entry, *next;
+	struct partition_map *entry;
 
 	if (map) {
 		free(map->block0);
-		for (entry = map->disk_order; entry != NULL; entry = next) {
-			next = entry->next_on_disk;
+		while (!LIST_EMPTY(&map->disk_order)) {
+			entry = LIST_FIRST(&map->disk_order);
+			LIST_REMOVE(entry, disk_entry);
 			free(entry->dpme);
 			free(entry);
 		}
@@ -162,7 +163,7 @@ free_partition_map(struct partition_map_header *map)
 int
 read_partition_map(struct partition_map_header *map)
 {
-	struct partition_map *cur;
+	struct partition_map *cur, *nextcur;
 	struct dpme *dpme;
 	int ix;
 	uint32_t limit, base, next, nextbase;
@@ -222,11 +223,12 @@ read_partition_map(struct partition_map_header *map)
 	 * 1) Overlapping partitions
 	 * 2) Unmapped space
 	 */
-	for (cur = map->base_order; cur != NULL; cur = cur->next_by_base) {
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
 		base = cur->dpme->dpme_pblock_start;
 		next = base + cur->dpme->dpme_pblocks;
-		if (cur->next_by_base != NULL)
-			nextbase = cur->next_by_base->dpme->dpme_pblock_start;
+		nextcur = LIST_NEXT(cur, base_entry);
+		if (nextcur)
+			nextbase = nextcur->dpme->dpme_pblock_start;
 		else
 			nextbase = map->media_size;
 		if (next != nextbase)
@@ -250,8 +252,7 @@ write_partition_map(struct partition_map_header *map)
 	if (result == 0)
 		warn("Unable to write block zero");
 
-	for (entry = map->disk_order; entry != NULL;
-	    entry = entry->next_on_disk) {
+	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
 		result = write_dpme(map->fd, entry->disk_address, entry->dpme);
 		if (result == 0)
 			warn("Unable to write block %ld", entry->disk_address);
@@ -269,10 +270,6 @@ add_data_to_map(struct dpme *dpme, long ix, struct partition_map_header *map)
 		warn("can't allocate memory for map entries");
 		return 0;
 	}
-	entry->next_on_disk = NULL;
-	entry->prev_on_disk = NULL;
-	entry->next_by_base = NULL;
-	entry->prev_by_base = NULL;
 	entry->disk_address = ix;
 	entry->the_map = map;
 	entry->dpme = dpme;
@@ -303,8 +300,8 @@ create_partition_map(int fd, char *name, u_int64_t mediasz, uint32_t sectorsz)
 	map->name = name;
 	map->fd = fd;
 	map->changed = 1;
-	map->disk_order = NULL;
-	map->base_order = NULL;
+	LIST_INIT(&map->disk_order);
+	LIST_INIT(&map->base_order);
 
 	map->physical_block = sectorsz;
 
@@ -383,57 +380,11 @@ add_partition_to_map(const char *name, const char *dptype, uint32_t base,
 	uint32_t new_length = 0;
 
 	/* find a block that starts includes base and length */
-	cur = map->base_order;
-	while (cur != NULL) {
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
 		if (cur->dpme->dpme_pblock_start <= base &&
 		    (base + length) <=
-		    (cur->dpme->dpme_pblock_start + cur->dpme->dpme_pblocks)) {
+		    (cur->dpme->dpme_pblock_start + cur->dpme->dpme_pblocks))
 			break;
-		} else {
-			/*
-			 * check if request is past end of existing
-			 * partitions, but on disk
-			 */
-			if ((cur->next_by_base == NULL) &&
-			    (base + length <= map->media_size)) {
-				/* Expand final free partition */
-				if ((strncasecmp(cur->dpme->dpme_type,
-				    kFreeType, DPISTRLEN) == 0) &&
-				    base >= cur->dpme->dpme_pblock_start) {
-					cur->dpme->dpme_pblocks =
-					    map->media_size -
-					    cur->dpme->dpme_pblock_start;
-					break;
-				}
-				/* create an extra free partition */
-				if (base >= cur->dpme->dpme_pblock_start +
-				    cur->dpme->dpme_pblocks) {
-					if (map->maximum_in_map < 0) {
-						limit = map->media_size;
-					} else {
-						limit = map->maximum_in_map;
-					}
-					if (map->blocks_in_map + 1 > limit) {
-						printf("the map is not big "
-						    "enough\n");
-						return 0;
-					}
-					dpme = create_dpme(kFreeName, kFreeType,
-					    cur->dpme->dpme_pblock_start +
-					    cur->dpme->dpme_pblocks,
-					    map->media_size -
-					    (cur->dpme->dpme_pblock_start +
-					    cur->dpme->dpme_pblocks));
-					if (dpme != NULL) {
-						if (add_data_to_map(dpme,
-						    cur->disk_address, map) ==
-						    0)
-							free(dpme);
-					}
-				}
-			}
-			cur = cur->next_by_base;
-		}
 	}
 	/* if it is not Extra then punt */
 	if (cur == NULL ||
@@ -554,23 +505,24 @@ renumber_disk_addresses(struct partition_map_header *map)
 	long ix;
 
 	/* reset disk addresses */
-	cur = map->disk_order;
 	ix = 1;
-	while (cur != NULL) {
+	LIST_FOREACH(cur, &map->disk_order, disk_entry) {
 		cur->disk_address = ix++;
 		cur->dpme->dpme_map_entries = map->blocks_in_map;
-		cur = cur->next_on_disk;
 	}
 }
 
 void
 delete_partition_from_map(struct partition_map *entry)
 {
-	struct partition_map_header *map;
 	struct dpme *dpme;
 
 	if (strncasecmp(entry->dpme->dpme_type, kMapType, DPISTRLEN) == 0) {
 		printf("Can't delete entry for the map itself\n");
+		return;
+	}
+	if (strncasecmp(entry->dpme->dpme_type, kFreeType, DPISTRLEN) == 0) {
+		printf("Can't delete entry for free space\n");
 		return;
 	}
 	if (entry->contains_driver) {
@@ -579,33 +531,19 @@ delete_partition_from_map(struct partition_map *entry)
 		    "[n/y]: ", 0) != 1) {
 			return;
 		}
-	}
-	/* if past end of disk, delete it completely */
-	if (entry->next_by_base == NULL &&
-	    entry->dpme->dpme_pblock_start >= entry->the_map->media_size) {
-		if (entry->contains_driver) {
-			remove_driver(entry);	/* update block0 if necessary */
-		}
-		delete_entry(entry);
-		return;
-	}
-	/* If at end of disk, incorporate extra disk space to partition */
-	if (entry->next_by_base == NULL) {
-		entry->dpme->dpme_pblocks = entry->the_map->media_size -
-		    entry->dpme->dpme_pblock_start;
-	}
-	dpme = create_dpme(kFreeName, kFreeType,
-	    entry->dpme->dpme_pblock_start, entry->dpme->dpme_pblocks);
-	if (dpme == NULL)
-		return;
-	if (entry->contains_driver)
 		remove_driver(entry);	/* update block0 if necessary */
-	free(entry->dpme);
-	entry->dpme = dpme;
+	}
+
+	dpme = entry->dpme;
+	memset(dpme->dpme_name, 0, sizeof(dpme->dpme_name));
+	strlcpy(dpme->dpme_name, kFreeName, sizeof(dpme->dpme_name));
+	memset(dpme->dpme_type, 0, sizeof(dpme->dpme_type));
+	strlcpy(dpme->dpme_type, kFreeType, sizeof(dpme->dpme_type));
+	dpme_init_flags(dpme);
+
 	combine_entry(entry);
-	map = entry->the_map;
-	renumber_disk_addresses(map);
-	map->changed = 1;
+	renumber_disk_addresses(entry->the_map);
+	entry->the_map->changed = 1;
 }
 
 
@@ -620,8 +558,6 @@ contains_driver(struct partition_map *entry)
 
 	map = entry->the_map;
 	p = map->block0;
-	if (p->sbSig != BLOCK0_SIGNATURE)
-		return 0;
 
 	if (p->sbDrvrCount > 0) {
 		m = p->sbDDMap;
@@ -648,8 +584,8 @@ combine_entry(struct partition_map *entry)
 	    strncasecmp(entry->dpme->dpme_type, kFreeType, DPISTRLEN) != 0)
 		return;
 
-	if (entry->next_by_base != NULL) {
-		p = entry->next_by_base;
+	p = LIST_NEXT(entry, base_entry);
+	if (p != NULL) {
 		if (strncasecmp(p->dpme->dpme_type, kFreeType, DPISTRLEN) !=
 		    0) {
 			/* next is not free */
@@ -674,8 +610,12 @@ combine_entry(struct partition_map *entry)
 			delete_entry(p);
 		}
 	}
-	if (entry->prev_by_base != NULL) {
-		p = entry->prev_by_base;
+
+	LIST_FOREACH(p, &entry->the_map->base_order, base_entry) {
+		if (LIST_NEXT(p, base_entry) == entry)
+			break;
+	}
+	if (p != NULL) {
 		if (strncasecmp(p->dpme->dpme_type, kFreeType, DPISTRLEN) !=
 		    0) {
 			/* previous is not free */
@@ -714,20 +654,12 @@ void
 delete_entry(struct partition_map *entry)
 {
 	struct partition_map_header *map;
-	struct partition_map *p;
 
 	map = entry->the_map;
 	map->blocks_in_map--;
 
-	remove_from_disk_order(entry);
-
-	p = entry->next_by_base;
-	if (map->base_order == entry)
-		map->base_order = p;
-	if (p != NULL)
-		p->prev_by_base = entry->prev_by_base;
-	if (entry->prev_by_base != NULL)
-		entry->prev_by_base->next_by_base = p;
+	LIST_REMOVE(entry, disk_entry);
+	LIST_REMOVE(entry, base_entry);
 
 	free(entry->dpme);
 	free(entry);
@@ -739,11 +671,9 @@ find_entry_by_disk_address(long ix, struct partition_map_header *map)
 {
 	struct partition_map *cur;
 
-	cur = map->disk_order;
-	while (cur != NULL) {
+	LIST_FOREACH(cur, &map->disk_order, disk_entry) {
 		if (cur->disk_address == ix)
 			break;
-		cur = cur->next_on_disk;
 	}
 	return cur;
 }
@@ -754,12 +684,10 @@ find_entry_by_type(const char *type_name, struct partition_map_header *map)
 {
 	struct partition_map *cur;
 
-	cur = map->base_order;
-	while (cur != NULL) {
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
 		if (strncasecmp(cur->dpme->dpme_type, type_name, DPISTRLEN) ==
 		    0)
 			break;
-		cur = cur->next_by_base;
 	}
 	return cur;
 }
@@ -769,11 +697,9 @@ find_entry_by_base(uint32_t base, struct partition_map_header *map)
 {
 	struct partition_map *cur;
 
-	cur = map->base_order;
-	while (cur != NULL) {
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
 		if (cur->dpme->dpme_pblock_start == base)
 			break;
-		cur = cur->next_by_base;
 	}
 	return cur;
 }
@@ -802,8 +728,8 @@ move_entry_in_map(long index1, long index2, struct partition_map_header *map)
 		return;
 	}
 
-	remove_from_disk_order(p1);
-	remove_from_disk_order(p2);
+	LIST_REMOVE(p1, disk_entry);
+	LIST_REMOVE(p2, disk_entry);
 
 	p1->disk_address = index2;
 	p2->disk_address = index1;
@@ -817,26 +743,6 @@ move_entry_in_map(long index1, long index2, struct partition_map_header *map)
 
 
 void
-remove_from_disk_order(struct partition_map *entry)
-{
-	struct partition_map_header *map;
-	struct partition_map *p;
-
-	map = entry->the_map;
-	p = entry->next_on_disk;
-	if (map->disk_order == entry)
-		map->disk_order = p;
-	if (p != NULL)
-		p->prev_on_disk = entry->prev_on_disk;
-	if (entry->prev_on_disk != NULL)
-		entry->prev_on_disk->next_on_disk = p;
-
-	entry->next_on_disk = NULL;
-	entry->prev_on_disk = NULL;
-}
-
-
-void
 insert_in_disk_order(struct partition_map *entry)
 {
 	struct partition_map_header *map;
@@ -844,28 +750,19 @@ insert_in_disk_order(struct partition_map *entry)
 
 	/* find position in disk list & insert */
 	map = entry->the_map;
-	cur = map->disk_order;
-	if (cur == NULL || entry->disk_address <= cur->disk_address) {
-		map->disk_order = entry;
-		entry->next_on_disk = cur;
-		if (cur != NULL)
-			cur->prev_on_disk = entry;
-		entry->prev_on_disk = NULL;
-	} else {
-		for (cur = map->disk_order; cur != NULL;
-		    cur = cur->next_on_disk) {
-			if (cur->disk_address <= entry->disk_address &&
-			    (cur->next_on_disk == NULL ||
-			    entry->disk_address <=
-			    cur->next_on_disk->disk_address)) {
-				entry->next_on_disk = cur->next_on_disk;
-				cur->next_on_disk = entry;
-				entry->prev_on_disk = cur;
-				if (entry->next_on_disk != NULL)
-					entry->next_on_disk->prev_on_disk =
-					    entry;
-				break;
-			}
+	if (LIST_EMPTY(&map->disk_order)) {
+		LIST_INSERT_HEAD(&map->disk_order, entry, disk_entry);
+		return;
+	}
+
+	LIST_FOREACH(cur, &map->disk_order, disk_entry) {
+		if (cur->disk_address >= entry->disk_address) {
+			LIST_INSERT_BEFORE(cur, entry, disk_entry);
+			return;
+		}
+		if (LIST_NEXT(cur, disk_entry) == NULL) {
+			LIST_INSERT_AFTER(cur, entry, disk_entry);
+			return;
 		}
 	}
 }
@@ -876,33 +773,24 @@ insert_in_base_order(struct partition_map *entry)
 {
 	struct partition_map_header *map;
 	struct partition_map *cur;
+	uint32_t start;
 
 	/* find position in base list & insert */
 	map = entry->the_map;
-	cur = map->base_order;
-	if (cur == NULL
-	|| entry->dpme->dpme_pblock_start <= cur->dpme->dpme_pblock_start) {
-		map->base_order = entry;
-		entry->next_by_base = cur;
-		if (cur != NULL)
-			cur->prev_by_base = entry;
-		entry->prev_by_base = NULL;
-	} else {
-		for (cur = map->base_order; cur != NULL;
-		    cur = cur->next_by_base) {
-			if (cur->dpme->dpme_pblock_start <=
-			    entry->dpme->dpme_pblock_start &&
-			    (cur->next_by_base == NULL ||
-			    entry->dpme->dpme_pblock_start <=
-			    cur->next_by_base->dpme->dpme_pblock_start)) {
-				entry->next_by_base = cur->next_by_base;
-				cur->next_by_base = entry;
-				entry->prev_by_base = cur;
-				if (entry->next_by_base != NULL)
-					entry->next_by_base->prev_by_base =
-					    entry;
-				break;
-			}
+	if (LIST_EMPTY(&map->base_order)) {
+		LIST_INSERT_HEAD(&map->base_order, entry, base_entry);
+		return;
+	}
+
+	start = entry->dpme->dpme_pblock_start;
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
+		if (start <= cur->dpme->dpme_pblock_start) {
+			LIST_INSERT_BEFORE(cur, entry, base_entry);
+			return;
+		}
+		if (LIST_NEXT(cur, base_entry) == NULL) {
+			LIST_INSERT_AFTER(cur, entry, base_entry);
+			return;
 		}
 	}
 }
@@ -921,13 +809,13 @@ resize_map(long new_size, struct partition_map_header *map)
 		printf("Couldn't find entry for map!\n");
 		return;
 	}
-	next = entry->next_by_base;
-
 	if (new_size == entry->dpme->dpme_pblocks)
 		return;
 
-	/* make it smaller */
+	next = LIST_NEXT(entry, base_entry);
+
 	if (new_size < entry->dpme->dpme_pblocks) {
+		/* make it smaller */
 		if (next == NULL ||
 		    strncasecmp(next->dpme->dpme_type, kFreeType, DPISTRLEN) !=
 		    0)
@@ -966,16 +854,12 @@ doit:
 void
 remove_driver(struct partition_map *entry)
 {
-	struct partition_map_header *map;
-	struct block0  *p;
-	struct ddmap   *m;
+	struct block0 *p;
+	struct ddmap *m;
 	int i, j;
 	uint32_t start;
 
-	map = entry->the_map;
-	p = map->block0;
-	if (p->sbSig != BLOCK0_SIGNATURE)
-		return;
+	p = entry->the_map->block0;
 
 	/*
 	 * compute the factor to convert the block numbers in block0
