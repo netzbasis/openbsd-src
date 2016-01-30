@@ -1,7 +1,7 @@
-/* $OpenBSD: status.c,v 1.143 2015/11/22 18:28:01 tim Exp $ */
+/* $OpenBSD: status.c,v 1.148 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -500,9 +500,9 @@ status_replace(struct client *c, struct winlink *wl, const char *fmt, time_t t)
 		return (xstrdup(""));
 
 	if (c->flags & CLIENT_STATUSFORCE)
-		ft = format_create_flags(FORMAT_STATUS|FORMAT_FORCE);
+		ft = format_create(NULL, FORMAT_STATUS|FORMAT_FORCE);
 	else
-		ft = format_create_flags(FORMAT_STATUS);
+		ft = format_create(NULL, FORMAT_STATUS);
 	format_defaults(ft, c, NULL, wl, NULL);
 
 	expanded = format_expand_time(ft, fmt, t);
@@ -547,7 +547,7 @@ status_message_set(struct client *c, const char *fmt, ...)
 	struct message_entry	*msg, *msg1;
 	va_list			 ap;
 	int			 delay;
-	u_int			 first, limit;
+	u_int			 limit;
 
 	limit = options_get_number(global_options, "message-limit");
 
@@ -564,10 +564,9 @@ status_message_set(struct client *c, const char *fmt, ...)
 	msg->msg = xstrdup(c->message_string);
 	TAILQ_INSERT_TAIL(&c->message_log, msg, entry);
 
-	first = c->message_next - limit;
 	TAILQ_FOREACH_SAFE(msg, &c->message_log, entry, msg1) {
-		if (msg->msg_num >= first)
-			continue;
+		if (msg->msg_num + limit >= c->message_next)
+			break;
 		free(msg->msg);
 		TAILQ_REMOVE(&c->message_log, msg, entry);
 		free(msg);
@@ -661,7 +660,7 @@ status_prompt_set(struct client *c, const char *msg, const char *input,
 	int			 keys;
 	time_t			 t;
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -722,7 +721,7 @@ status_prompt_update(struct client *c, const char *msg, const char *input)
 	struct format_tree	*ft;
 	time_t			 t;
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -1124,8 +1123,8 @@ status_prompt_key(struct client *c, key_code key)
 		}
 
 		if (c->prompt_flags & PROMPT_SINGLE) {
-			if (c->prompt_callbackfn(
-			    c->prompt_data, c->prompt_buffer) == 0)
+			if (c->prompt_callbackfn(c->prompt_data,
+			    c->prompt_buffer) == 0)
 				status_prompt_clear(c);
 		}
 

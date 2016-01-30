@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.139 2015/09/04 16:02:19 ratchov Exp $	*/
+/*	$OpenBSD: audio.c,v 1.144 2016/01/29 15:14:23 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -95,7 +95,7 @@ struct audio_softc {
 	int quiesce;			/* device suspended */
 	struct audio_buf play, rec;
 	unsigned int sw_enc;		/* user exposed AUDIO_ENCODING_* */
-	unsigned int hw_enc;		/* harware AUDIO_ENCODING_* */
+	unsigned int hw_enc;		/* hardware AUDIO_ENCODING_* */
 	unsigned int bits;		/* bits per sample */
 	unsigned int bps;		/* bytes-per-sample */
 	unsigned int msb;		/* sample are MSB aligned */
@@ -1083,7 +1083,11 @@ audio_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* set defaults */
-	sc->sw_enc = AUDIO_ENCODING_SLINEAR;
+#if BYTE_ORDER == LITTLE_ENDIAN
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_LE;
+#else
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_BE;
+#endif
 	sc->bits = 16;
 	sc->bps = 2;
 	sc->msb = 1;
@@ -1528,6 +1532,16 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 }
 
 int
+audio_getdev(struct audio_softc *sc, struct audio_device *adev)
+{
+	memset(adev, 0, sizeof(struct audio_device));
+	if (sc->dev.dv_parent == NULL)
+		return EIO;
+	strlcpy(adev->name, sc->dev.dv_parent->dv_xname, MAX_AUDIO_DEV_LEN);
+	return 0;
+}
+
+int
 audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 {
 	struct audio_offset *ao;
@@ -1580,7 +1594,7 @@ audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 		error = audio_getinfo(sc, (struct audio_info *)addr);
 		break;
 	case AUDIO_GETDEV:
-		error = sc->ops->getdev(sc->arg, (audio_device_t *)addr);
+		error = audio_getdev(sc, (struct audio_device *)addr);
 		break;
 	case AUDIO_GETENC:
 		error = sc->ops->query_encoding(sc->arg,
@@ -1704,6 +1718,7 @@ audioclose(dev_t dev, int flags, int ifmt, struct proc *p)
 	case AUDIO_DEV_MIXER:
 	case AUDIO_DEV_AUDIOCTL:
 		error = 0;
+		break;
 	default:
 		error = ENXIO;
 	}

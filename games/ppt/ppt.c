@@ -1,4 +1,4 @@
-/*	$OpenBSD: ppt.c,v 1.13 2015/10/14 08:12:12 doug Exp $	*/
+/*	$OpenBSD: ppt.c,v 1.16 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: ppt.c,v 1.4 1995/03/23 08:35:40 cgd Exp $	*/
 
 /*
@@ -30,7 +30,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,7 +40,7 @@
 
 #define	EDGE	"___________"
 
-void	usage(void);
+__dead void	usage(void);
 void	putppt(int);
 int	getppt(const char *buf);
 
@@ -122,7 +121,7 @@ main(int argc, char **argv)
 			putppt(c);
 		(void) puts(EDGE);
 	}
-	exit(0);
+	return 0;
 }
 
 void

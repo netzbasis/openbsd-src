@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.25 2015/11/29 15:23:38 tb Exp $	*/
+/*	$OpenBSD: main.c,v 1.27 2016/01/07 16:00:31 tb Exp $	*/
 /*	$NetBSD: main.c,v 1.4 1995/04/27 21:22:25 mycroft Exp $	*/
 
 /*-
@@ -42,7 +42,14 @@
  * For more info on this and all of my stuff, mail edjames@berkeley.edu.
  */
 
-#include "include.h"
+#include <err.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include "extern.h"
 #include "pathnames.h"
 
 int
@@ -122,7 +129,7 @@ main(int argc, char *argv[])
 	}
 		
 	if (f_usage || f_showscore || f_list || f_printpath)
-		exit(0);
+		return 0;
 
 	if (file == NULL)
 		file = default_game();
@@ -130,7 +137,7 @@ main(int argc, char *argv[])
 		file = okay_game(file);
 
 	if (file == NULL || read_file(file) < 0)
-		exit(1);
+		return 1;
 
 	setup_screen(sp);
 

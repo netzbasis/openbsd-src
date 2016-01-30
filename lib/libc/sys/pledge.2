@@ -1,4 +1,4 @@
-.\" $OpenBSD: pledge.2,v 1.19 2015/12/03 16:50:44 bluhm Exp $
+.\" $OpenBSD: pledge.2,v 1.24 2016/01/18 23:29:37 deraadt Exp $
 .\"
 .\" Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 3 2015 $
+.Dd $Mdocdate: January 18 2016 $
 .Dt PLEDGE 2
 .Os
 .Sh NAME
@@ -43,7 +43,7 @@ Subsequent calls to
 .Fn pledge
 can reduce the abilities further, but abilities can never be regained.
 .Pp
-A process which attempts a restricted operation is killed with
+A process which attempts a restricted operation is killed with an uncatchable
 .Dv SIGABRT ,
 delivering a core file if possible.
 .Pp
@@ -81,6 +81,8 @@ Use of the "tty" and "ioctl" promises receive more ioctl requests.
 .It Xr lchown 2
 .It Xr fchown 2
 .It Xr fchownat 2
+.It Xr mkfifo 2
+.It Xr mknod 2
 Setuid/setgid/sticky bits are ignored.
 The user or group cannot be changed on a file.
 .Pp
@@ -252,6 +254,11 @@ create new files or directories in the filesystem:
 .Xr unlinkat 2 ,
 .Xr mkdir 2 ,
 .Xr mkdirat 2 .
+.It Va "dpath"
+A number of system calls are allowed to create special files:
+.Pp
+.Xr mkfifo 2 ,
+.Xr mknod 2 .
 .It Va "tmppath"
 A number of system calls are allowed to do operations in the
 .Pa /tmp
@@ -419,9 +426,11 @@ Allows the following process relationship operations:
 .Xr fork 2 ,
 .Xr vfork 2 ,
 .Xr kill 2 ,
-.Xr setgroups 2 ,
-.Xr setresgid 2 ,
-.Xr setresuid 2 .
+.Xr getpriority 2 ,
+.Xr setpriority 2 ,
+.Xr setrlimit 2 ,
+.Xr setpgid 2 ,
+.Xr setsid 2 .
 .It Va "exec"
 Allows a process to call
 .Xr execve 2 .
@@ -465,9 +474,11 @@ process:
 .Pp
 .Xr setuid 2 ,
 .Xr seteuid 2 ,
+.Xr setreuid 2 ,
 .Xr setresuid 2 ,
 .Xr setgid 2 ,
 .Xr setegid 2 ,
+.Xr setregid 2 ,
 .Xr setresgid 2 ,
 .Xr setgroups 2 ,
 .Xr setlogin 2 ,
@@ -537,3 +548,5 @@ The
 .Fn pledge
 system call first appeared in
 .Ox 5.9 .
+.Sh BUGS
+The path whitelist feature is not available at this time.

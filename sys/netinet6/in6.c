@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.181 2015/12/03 13:13:42 tedu Exp $	*/
+/*	$OpenBSD: in6.c,v 1.183 2016/01/21 11:23:48 mpi Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -444,7 +444,7 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 
 	case SIOCAIFADDR_IN6:
 	{
-		int plen, error = 0;
+		int plen, error = 0, newifaddr = 0;
 
 		/* reject read-only flags */
 		if ((ifra->ifra_flags & IN6_IFF_DUPLICATED) != 0 ||
@@ -454,12 +454,15 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 			return (EINVAL);
 		}
 
+		if (ia6 == NULL)
+			newifaddr = 1;
+
 		/*
 		 * Make the address tentative before joining multicast
 		 * addresses, so that corresponding MLD responses would
 		 * not have a tentative source address.
 		 */
-		if ((ia6 == NULL) && in6if_do_dad(ifp))
+		if (newifaddr && in6if_do_dad(ifp))
 			ifra->ifra_flags |= IN6_IFF_TENTATIVE;
 
 		/*
@@ -477,14 +480,18 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		splx(s);
 		if (error != 0)
 			return (error);
-		if ((ia6 = in6ifa_ifpwithaddr(ifp, &ifra->ifra_addr.sin6_addr))
-		    == NULL) {
+
+		ia6 = in6ifa_ifpwithaddr(ifp, &ifra->ifra_addr.sin6_addr);
+		if (ia6 == NULL) {
 			/*
 			 * this can happen when the user specify the 0 valid
 			 * lifetime.
 			 */
 			break;
 		}
+
+		if (!newifaddr)
+			break;
 
 		/* Perform DAD, if needed. */
 		if (ia6->ia6_flags & IN6_IFF_TENTATIVE)
@@ -1369,6 +1376,22 @@ in6_delmulti(struct in6_multi *in6m)
 
 		free(in6m, M_IPMADDR, sizeof(*in6m));
 	}
+}
+
+/*
+ * Return 1 if the multicast group represented by ``maddr6'' has been
+ * joined by interface ``ifp'', 0 otherwise.
+ */
+int
+in6_hasmulti(struct in6_addr *maddr6, struct ifnet *ifp)
+{
+	struct in6_multi *in6m;
+	int joined;
+
+	IN6_LOOKUP_MULTI(*maddr6, ifp, in6m);
+	joined = (in6m != NULL);
+
+	return (joined);
 }
 
 struct in6_multi_mship *

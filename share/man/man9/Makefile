@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.266 2015/12/03 16:27:32 mpi Exp $
+#	$OpenBSD: Makefile,v 1.271 2015/12/20 08:10:36 sf Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -9,20 +9,20 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	audio.9 autoconf.9 \
 	bemtoh32.9 bio_register.9 boot.9 buffercache.9 bufq_init.9 bus_dma.9 \
 	bus_space.9 \
-	copy.9 config_attach.9 crypto.9 delay.9 \
+	copy.9 config_attach.9 config_defer.9 crypto.9 delay.9 \
 	disk.9 disklabel.9 dma_alloc.9 dohooks.9 \
-	domountroothooks.9 dostartuphooks.9 \
+	dostartuphooks.9 \
 	evcount.9 extent.9 fb_setup.9 file.9 fork1.9 \
 	getdevvp.9 getnewvnode.9 hash.9 hashinit.9 \
 	hardclock.9 hook_establish.9 hz.9 idgen32.9 \
 	ieee80211.9 ieee80211_crypto.9 ieee80211_input.9 ieee80211_ioctl.9 \
 	ieee80211_node.9 ieee80211_output.9 ieee80211_proto.9 \
-	ieee80211_radiotap.9 if_rxr_init.9 ifq_enqueue.9 ifq_deq_begin.9 \
-	iic.9 intro.9 inittodr.9 intr_barrier.9 \
+	ieee80211_radiotap.9 if_get.9 if_rxr_init.9 ifq_enqueue.9 \
+	ifq_deq_begin.9 iic.9 intro.9 inittodr.9 intr_barrier.9 \
 	kern.9 km_alloc.9 knote.9 kthread.9 ktrace.9 \
 	loadfirmware.9 lock.9 log.9 \
 	malloc.9 membar_sync.9 mbuf.9 mbuf_tags.9 md5.9 mi_switch.9 \
-	microtime.9 ml_init.9 mountroothook_establish.9 mq_init.9 mutex.9 \
+	microtime.9 ml_init.9 mq_init.9 mutex.9 \
 	namei.9 \
 	panic.9 pci_conf_read.9 pci_intr_map.9 pfind.9 physio.9 pmap.9 \
 	pool.9 ppsratecheck.9 printf.9 psignal.9 \
@@ -60,8 +60,7 @@ MLINKS+=atomic_swap_uint.9 atomic_swap_ulong.9 \
 	atomic_swap_uint.9 atomic_swap_ptr.9
 MLINKS+=autoconf.9 config_search.9 \
 	autoconf.9 config_rootsearch.9 autoconf.9 config_found_sm.9 \
-	autoconf.9 config_found.9 autoconf.9 config_rootfound.9 \
-	autoconf.9 config_defer.9
+	autoconf.9 config_found.9 autoconf.9 config_rootfound.9
 MLINKS+=bemtoh32.9 bemtoh16.9 bemtoh32.9 bemtoh64.9 \
 	bemtoh32.9 htobem16.9 bemtoh32.9 htobem32.9 bemtoh32.9 htobem64.9 \
 	bemtoh32.9 lemtoh16.9 bemtoh32.9 lemtoh32.9 bemtoh32.9 lemtoh64.9 \
@@ -139,6 +138,7 @@ MLINKS+=bus_space.9 bus_space_alloc.9 bus_space.9 bus_space_barrier.9 \
 	bus_space.9 bus_space_write_raw_region_4.9 \
 	bus_space.9 bus_space_write_raw_region_8.9
 MLINKS+=config_attach.9 config_detach.9 config_attach.9 config_detach_children.9
+MLINKS+=config_defer.9 config_mountroot.9
 MLINKS+=copy.9 copyin.9 copy.9 copyout.9 copy.9 copystr.9 \
 	copy.9 copyinstr.9 copy.9 copyoutstr.9 \
 	copy.9 kcopy.9
@@ -213,13 +213,15 @@ MLINKS+=ieee80211_proto.9 ieee80211_proto_attach.9 \
 	ieee80211_proto.9 ieee80211_print_essid.9 \
 	ieee80211_proto.9 ieee80211_dump_pkt.9 \
 	ieee80211_proto.9 ieee80211_fix_rate.9
+MLINKS+=if_get.9 if_put.9
 MLINKS+=if_rxr_init.9 if_rxr_get.9 if_rxr_init.9 if_rxr_put.9 \
 	if_rxr_init.9 if_rxr_inuse.9 if_rxr_init.9 if_rxr_ioctl.9 \
 	if_rxr_init.9 if_rxr_info_ioctl.9
 MLINKS+=ifq_enqueue.9 ifq_dequeue.9 ifq_enqueue.9 ifq_purge.9 \
 	ifq_enqueue.9 ifq_len.9 ifq_enqueue.9 ifq_empty.9 \
 	ifq_enqueue.9 ifq_set_oactive.9 ifq_enqueue.9 ifq_clr_oactive.9 \
-	ifq_enqueue.9 ifq_is_oactive.9
+	ifq_enqueue.9 ifq_is_oactive.9 ifq_enqueue.9 ifq_restart.9 \
+	ifq_enqueue.9 ifq_barrier.9
 MLINKS+=ifq_deq_begin.9 ifq_deq_commit.9 ifq_deq_begin.9 ifq_deq_rollback.9
 MLINKS+=iic.9 iic_acquire_bus.9 iic.9 iic_release_bus.9 iic.9 iic_exec.9 \
 	iic.9 iic_smbus_write_byte.9 iic.9 iic_smbus_read_byte.9 \
@@ -227,7 +229,7 @@ MLINKS+=iic.9 iic_acquire_bus.9 iic.9 iic_release_bus.9 iic.9 iic_exec.9 \
 MLINKS+=kern.9 imax.9 kern.9 imin.9 kern.9 lmax.9 kern.9 lmin.9 \
 	kern.9 max.9 kern.9 min.9 kern.9 ulmax.9 kern.9 ulmin.9 kern.9 abs.9 \
 	kern.9 assert.9 kern.9 KASSERT.9 kern.9 KDASSERT.9 \
-	kern.9 KASSERTMSG.9 kern.9 KDASSERTMSG.9 \
+	kern.9 KASSERTMSG.9 kern.9 KDASSERTMSG.9 kern.9 CTASSERT.9 \
 	kern.9 skpc.9 kern.9 scanc.9 kern.9 bcmp.9 \
 	kern.9 memchr.9 kern.9 memcmp.9 kern.9 ffs.9 kern.9 fls.9 kern.9 flsl.9 \
 	kern.9 strlen.9 kern.9 strncpy.9 kern.9 strlcpy.9 kern.9 strlcat.9 \
@@ -276,7 +278,6 @@ MLINKS+=ml_init.9 ml_enqueue.9 ml_init.9 ml_dequeue.9 \
 	ml_init.9 ml_purge.9 \
 	ml_init.9 MBUF_LIST_INITIALIZER.9 ml_init.9 MBUF_LIST_FIRST.9 \
 	ml_init.9 MBUF_LIST_NEXT.9 ml_init.9 MBUF_LIST_FOREACH.9
-MLINKS+=mountroothook_establish.9 mountroothook_disestablish.9
 MLINKS+=mutex.9 mtx_init.9 mutex.9 mtx_enter.9 mutex.9 mtx_leave.9 \
 	mutex.9 MUTEX_ASSERT_LOCKED.9 mutex.9 MUTEX_ASSERT_UNLOCKED.9 \
 	mutex.9 MUTEX_INITIALIZER.9
@@ -323,7 +324,8 @@ MLINKS+=arc4random.9 add_true_randomness.9 \
 	arc4random.9 arc4random_buf.9 \
 	arc4random.9 arc4random_uniform.9
 MLINKS+=rasops.9 rasops_init.9 rasops.9 rasops_reconfig.9
-MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_rele.9 \
+MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_take_n.9 \
+	refcnt_init.9 refcnt_rele.9 \
 	refcnt_init.9 refcnt_rele_wake.9 refcnt_init.9 refcnt_finalize.9 \
 	refcnt_init.9 REFCNT_INITIALIZER.9
 MLINKS+=rssadapt.9 ieee80211_rssadapt_choose.9 \

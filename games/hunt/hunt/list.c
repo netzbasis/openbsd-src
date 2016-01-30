@@ -1,4 +1,4 @@
-/*	$OpenBSD: list.c,v 1.6 2014/10/11 04:06:05 doug Exp $	*/
+/*	$OpenBSD: list.c,v 1.8 2016/01/07 21:37:53 mestre Exp $	*/
 /*
  * Copyright 2001, David Leonard. All rights reserved.
  * Redistribution and use in source and binary forms with or without
@@ -6,25 +6,19 @@
  * This software is provided ``as is'' without express or implied warranty.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <errno.h>
-#include <err.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/sockio.h>
 #include <sys/ioctl.h>
-
-#include <netinet/in.h>
-#include <net/if.h>
+#include <sys/socket.h>
 
 #include <arpa/inet.h>
+#include <net/if.h>
 
-#include "hunt.h"
+#include <err.h>
+#include <errno.h>
+#include <netdb.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "list.h"
 
 /* Wait at most 5 seconds for a reply */
@@ -41,21 +35,21 @@ static int probe_sock[64];
 static struct timeval probe_timeout;
 
 struct driver *
-next_driver()
+next_driver(void)
 {
 
 	return next_driver_fd(-1);
 }
 
 struct driver *
-next_driver_fd(fd)
-	int	fd;
+next_driver_fd(int fd)
 {
 	fd_set	r;
 	int	maxfd = -1;
-	int	i, s, ret, len;
+	int	i, s, ret;
 	struct driver *driver;
 	u_int16_t resp;
+	socklen_t len;
 
 	if (fd == -1 && numprobes == 0)
 		return NULL;
@@ -133,8 +127,7 @@ next_driver_fd(fd)
 
 /* Return the hostname for a driver. */
 const char *
-driver_name(driver)
-	struct driver *driver;
+driver_name(struct driver *driver)
 {
 	const char *name;
 	static char buf[80];
@@ -159,9 +152,7 @@ driver_name(driver)
 }
 
 static int
-start_probe(addr, req)
-	struct sockaddr *addr;
-	u_int16_t req;
+start_probe(struct sockaddr *addr, u_int16_t req)
 {
 	u_int16_t msg;
 	int s;
@@ -198,7 +189,7 @@ start_probe(addr, req)
 }
 
 void
-probe_cleanup()
+probe_cleanup(void)
 {
 	int i;
 
@@ -212,9 +203,7 @@ probe_cleanup()
  * Otherwise, send the request message only to the preferred host.
  */
 void
-probe_drivers(req, preferred)
-	u_int16_t	req;
-	char 		*preferred;
+probe_drivers(u_int16_t req, char *preferred)
 {
 	struct sockaddr_in *target;
 	struct sockaddr_in localhost;
@@ -252,7 +241,7 @@ probe_drivers(req, preferred)
 		if (!target)
 			errx(1, "Bad hostname: %s", preferred);
 
-		start_probe(target, req);
+		start_probe((struct sockaddr *)target, req);
 		return;
 	}
 
@@ -310,7 +299,7 @@ probe_drivers(req, preferred)
 		} else
 			continue;
 
-		start_probe(target, req);
+		start_probe((struct sockaddr *)target, req);
         }
         free(inbuf);
         (void) close(fd);

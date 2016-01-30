@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-list-buffers.c,v 1.26 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: cmd-list-buffers.c,v 1.30 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,11 +33,14 @@
 enum cmd_retval	 cmd_list_buffers_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_list_buffers_entry = {
-	"list-buffers", "lsb",
-	"F:", 0, 0,
-	"[-F format]",
-	0,
-	cmd_list_buffers_exec
+	.name = "list-buffers",
+	.alias = "lsb",
+
+	.args = { "F:", 0, 0 },
+	.usage = "[-F format]",
+
+	.flags = 0,
+	.exec = cmd_list_buffers_exec
 };
 
 enum cmd_retval
@@ -54,7 +57,7 @@ cmd_list_buffers_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	pb = NULL;
 	while ((pb = paste_walk(pb)) != NULL) {
-		ft = format_create();
+		ft = format_create(cmdq, 0);
 		format_defaults_paste_buffer(ft, pb);
 
 		line = format_expand(ft, template);

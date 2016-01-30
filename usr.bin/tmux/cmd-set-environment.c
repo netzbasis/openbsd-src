@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-set-environment.c,v 1.12 2015/11/24 23:46:15 nicm Exp $ */
+/* $OpenBSD: cmd-set-environment.c,v 1.17 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,18 +30,22 @@
 enum cmd_retval	 cmd_set_environment_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_set_environment_entry = {
-	"set-environment", "setenv",
-	"grt:u", 1, 2,
-	"[-gru] " CMD_TARGET_SESSION_USAGE " name [value]",
-	0,
-	cmd_set_environment_exec
+	.name = "set-environment",
+	.alias = "setenv",
+
+	.args = { "grt:u", 1, 2 },
+	.usage = "[-gru] " CMD_TARGET_SESSION_USAGE " name [value]",
+
+	.tflag = CMD_SESSION_CANFAIL,
+
+	.flags = 0,
+	.exec = cmd_set_environment_exec
 };
 
 enum cmd_retval
 cmd_set_environment_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args	*args = self->args;
-	struct session	*s;
 	struct environ	*env;
 	const char	*name, *value;
 
@@ -60,13 +64,10 @@ cmd_set_environment_exec(struct cmd *self, struct cmd_q *cmdq)
 	else
 		value = args->argv[1];
 
-	if (args_has(self->args, 'g'))
+	if (args_has(self->args, 'g') || cmdq->state.tflag.s == NULL)
 		env = global_environ;
-	else {
-		if ((s = cmd_find_session(cmdq, args_get(args, 't'), 0)) == NULL)
-			return (CMD_RETURN_ERROR);
-		env = s->environ;
-	}
+	else
+		env = cmdq->state.tflag.s->environ;
 
 	if (args_has(self->args, 'u')) {
 		if (value != NULL) {

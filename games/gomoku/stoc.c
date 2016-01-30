@@ -1,4 +1,4 @@
-/*	$OpenBSD: stoc.c,v 1.9 2015/10/24 17:36:06 mmcc Exp $	*/
+/*	$OpenBSD: stoc.c,v 1.11 2016/01/08 21:38:33 mestre Exp $	*/
 /*
  * Copyright (c) 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -31,10 +31,11 @@
  * SUCH DAMAGE.
  */
 
-#include "gomoku.h"
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
+
+#include "gomoku.h"
 
 char	*letters	= "<ABCDEFGHJKLMNOPQRST>";
 
@@ -53,8 +54,7 @@ static	struct	mvstr	mv[] = {
  * Turn the spot number form of a move into the character form.
  */
 char *
-stoc(s)
-	int s;
+stoc(int s)
 {
 	static char buf[32];
 	int i;
@@ -70,8 +70,7 @@ stoc(s)
  * Turn the character form of a move into the spot number form.
  */
 int
-ctos(mp)
-	char *mp;
+ctos(char *mp)
 {
 	int i;
 
@@ -90,8 +89,7 @@ ctos(mp)
  * Turn a letter into a number.
  */
 int
-lton(c)
-	int c;
+lton(int c)
 {
 	int i;
 

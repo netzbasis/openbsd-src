@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.6 2015/12/05 22:34:31 sobrado Exp $	*/
+/*	$OpenBSD: main.c,v 1.14 2016/01/26 07:55:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -20,7 +20,6 @@
 #include <sys/socket.h>
 #include <sys/queue.h>
 #include <sys/un.h>
-#include <sys/cdefs.h>
 
 #include <machine/vmmvar.h>
 
@@ -36,6 +35,7 @@
 #include <imsg.h>
 
 #include "vmd.h"
+#include "proc.h"
 #include "vmctl.h"
 
 static const char	*socket_name = SOCKET_NAME;
@@ -47,6 +47,7 @@ __dead void	 ctl_usage(struct ctl_command *);
 
 int		 vmm_action(struct parse_result *);
 
+int		 ctl_console(struct parse_result *, int, char *[]);
 int		 ctl_create(struct parse_result *, int, char *[]);
 int		 ctl_load(struct parse_result *, int, char *[]);
 int		 ctl_start(struct parse_result *, int, char *[]);
@@ -54,6 +55,7 @@ int		 ctl_status(struct parse_result *, int, char *[]);
 int		 ctl_stop(struct parse_result *, int, char *[]);
 
 struct ctl_command ctl_commands[] = {
+	{ "console",	CMD_CONSOLE,	ctl_console,	"id" },
 	{ "create",	CMD_CREATE,	ctl_create,	"\"name\" -s size", 1 },
 	{ "load",	CMD_LOAD,	ctl_load,	"[path]" },
 	{ "reload",	CMD_RELOAD,	ctl_load,	"[path]" },
@@ -208,10 +210,13 @@ vmmaction(struct parse_result *res)
 		}
 		break;
 	case CMD_STOP:
-		terminate_vm(res->id);
+		terminate_vm(res->id, res->name);
 		break;
 	case CMD_STATUS:
-		get_info_vm(res->id);
+		get_info_vm(res->id, res->name, 0);
+		break;
+	case CMD_CONSOLE:
+		get_info_vm(res->id, res->name, 1);
 		break;
 	case CMD_RELOAD:
 		imsg_compose(ibuf, IMSG_VMDOP_RELOAD, 0, 0, -1,
@@ -268,6 +273,7 @@ vmmaction(struct parse_result *res)
 			case CMD_STOP:
 				done = terminate_vm_complete(&imsg, &ret);
 				break;
+			case CMD_CONSOLE:
 			case CMD_STATUS:
 				done = add_info(&imsg, &ret);
 				break;
@@ -357,18 +363,28 @@ parse_disk(struct parse_result *res, char *word)
 }
 
 int
-parse_vmid(struct parse_result *res, char *word, uint32_t id)
+parse_vmid(struct parse_result *res, char *word)
 {
 	const char	*error;
+	uint32_t	 id;
 
-	if (word != NULL) {
-		id = strtonum(word, 0, UINT32_MAX, &error);
-		if (error != NULL)  {
-			warnx("invalid id: %s", error);
+	if (word == NULL) {
+		warnx("missing vmid argument");
+		return (-1);
+	}
+	id = strtonum(word, 0, UINT32_MAX, &error);
+	if (error == NULL) {
+		res->id = id;
+		res->name = NULL;
+	} else {
+		if (strlen(word) >= VMM_MAX_NAME_LEN) {
+			warnx("name too long");
 			return (-1);
 		}
+		res->id = 0;
+		if ((res->name = strdup(word)) == NULL)
+			errx(1, "strdup");
 	}
-	res->id = id;
 
 	return (0);
 }
@@ -384,7 +400,7 @@ ctl_create(struct parse_result *res, int argc, char *argv[])
 
 	paths[0] = argv[1];
 	paths[1] = NULL;
-	if (pledge("stdio rpath wpath cpath", paths) == -1)
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
 		err(1, "pledge");
 	argc--;
 	argv++;
@@ -405,9 +421,6 @@ ctl_create(struct parse_result *res, int argc, char *argv[])
 		fprintf(stderr, "missing size argument\n");
 		ctl_usage(res->ctl);
 	}
-	res->size /= 1024 / 1024;
-	if (res->size < 1)
-		errx(1, "specified image size too small");
 	ret = create_imagefile(paths[0], res->size);
 	if (ret != 0) {
 		errno = ret;
@@ -421,7 +434,7 @@ int
 ctl_status(struct parse_result *res, int argc, char *argv[])
 {
 	if (argc == 2) {
-		if (parse_vmid(res, argv[1], 0) == -1)
+		if (parse_vmid(res, argv[1]) == -1)
 			errx(1, "invalid id: %s", argv[1]);
 	} else if (argc > 2)
 		ctl_usage(res->ctl);
@@ -449,7 +462,8 @@ ctl_load(struct parse_result *res, int argc, char *argv[])
 int
 ctl_start(struct parse_result *res, int argc, char *argv[])
 {
-	int			 ch;
+	int		 ch;
+	char		 path[PATH_MAX];
 
 	if (argc < 2)
 		ctl_usage(res->ctl);
@@ -467,7 +481,9 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 		case 'k':
 			if (res->path)
 				errx(1, "kernel specified multiple times");
-			if ((res->path = strdup(optarg)) == NULL)
+			if (realpath(optarg, path) == NULL)
+				err(1, "invalid kernel path");
+			if ((res->path = strdup(path)) == NULL)
 				errx(1, "strdup");
 			break;
 		case 'm':
@@ -477,8 +493,10 @@ ctl_start(struct parse_result *res, int argc, char *argv[])
 				errx(1, "invalid memory size: %s", optarg);
 			break;
 		case 'd':
-			if (parse_disk(res, optarg) != 0)
-				errx(1, "invalid memory size: %s", optarg);
+			if (realpath(optarg, path) == NULL)
+				err(1, "invalid disk path");
+			if (parse_disk(res, path) != 0)
+				errx(1, "invalid disk: %s", optarg);
 			break;
 		case 'i':
 			if (res->nifs != -1)
@@ -499,10 +517,30 @@ int
 ctl_stop(struct parse_result *res, int argc, char *argv[])
 {
 	if (argc == 2) {
-		if (parse_vmid(res, argv[1], 0) == -1)
+		if (parse_vmid(res, argv[1]) == -1)
 			errx(1, "invalid id: %s", argv[1]);
 	} else if (argc != 2)
 		ctl_usage(res->ctl);
 
 	return (vmmaction(res));
+}
+
+int
+ctl_console(struct parse_result *res, int argc, char *argv[])
+{
+	if (argc == 2) {
+		if (parse_vmid(res, argv[1]) == -1)
+			errx(1, "invalid id: %s", argv[1]);
+	} else if (argc != 2)
+		ctl_usage(res->ctl);
+
+	return (vmmaction(res));
+}
+
+__dead void
+ctl_openconsole(const char *name)
+{
+	closefrom(STDERR_FILENO + 1);
+	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "9600", NULL);
+	err(1, "failed to open the console");
 }

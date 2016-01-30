@@ -1,5 +1,5 @@
 /* $NetBSD: loadfile.c,v 1.10 2000/12/03 02:53:04 tsutsui Exp $ */
-/* $OpenBSD: loadfile_elf.c,v 1.3 2015/12/03 08:42:11 reyk Exp $ */
+/* $OpenBSD: loadfile_elf.c,v 1.9 2016/01/16 08:55:40 stefan Exp $ */
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -95,12 +95,13 @@
 #include <sys/param.h>
 #include <sys/exec.h>
 
-#include "loadfile.h"
-#include "vmd.h"
 #include <sys/exec_elf.h>
 #include <machine/vmmvar.h>
 #include <machine/biosvar.h>
 #include <machine/segments.h>
+
+#include "loadfile.h"
+#include "vmd.h"
 
 #define BOOTARGS_PAGE 0x2000
 #define GDT_PAGE 0x10000
@@ -115,11 +116,10 @@ union {
 
 static void setsegment(struct mem_segment_descriptor *, uint32_t,
     size_t, int, int, int, int);
-int loadelf_main(int fd, int, int);
-int elf32_exec(int, Elf32_Ehdr *, u_long *, int);
-int elf64_exec(int, Elf64_Ehdr *, u_long *, int);
+static int elf32_exec(int, Elf32_Ehdr *, u_long *, int);
+static int elf64_exec(int, Elf64_Ehdr *, u_long *, int);
 static void push_bootargs(int);
-static void push_stack(int, uint32_t);
+static size_t push_stack(int, uint32_t);
 static void push_gdt(void);
 static size_t mread(int, uint32_t, size_t);
 static void marc4random_buf(uint32_t, int);
@@ -127,7 +127,6 @@ static void mbzero(uint32_t, int);
 static void mbcopy(char *, char *, int);
 
 extern char *__progname;
-extern int vmm_fd;
 extern int vm_id;
 
 /*
@@ -179,20 +178,20 @@ push_gdt(void)
 	uint8_t gdtpage[PAGE_SIZE];
 	struct mem_segment_descriptor *sd;
 
-	bzero(&gdtpage, sizeof(gdtpage));
+	memset(&gdtpage, 0, sizeof(gdtpage));
 	sd = (struct mem_segment_descriptor *)&gdtpage;
 
 	/*
 	 * Create three segment descriptors:
 	 *
-	 * GDT[0] : null desriptor. "Created" via bzero above.
+	 * GDT[0] : null desriptor. "Created" via memset above.
 	 * GDT[1] (selector @ 0x8): Executable segment, for CS
 	 * GDT[2] (selector @ 0x10): RW Data segment, for DS/ES/SS
 	 */
 	setsegment(&sd[1], 0, 0xffffffff, SDT_MEMERA, SEL_KPL, 1, 1);
 	setsegment(&sd[2], 0, 0xffffffff, SDT_MEMRWA, SEL_KPL, 1, 1);
 
-	write_page(GDT_PAGE, gdtpage, PAGE_SIZE, 1);
+	write_mem(GDT_PAGE, gdtpage, PAGE_SIZE, 1);
 }
 
 /*
@@ -207,15 +206,17 @@ push_gdt(void)
  *  vm_id_in: ID of the VM to load the kernel into
  *  mem_sz: memory size in MB assigned to the guest (passed through to
  *      push_bootargs)
+ *  (out) vis: register state to set on init for this kernel
  *
  * Return values:
  *  0 if successful
  *  various error codes returned from read(2) or loadelf functions
  */
 int
-loadelf_main(int fd, int vm_id_in, int mem_sz)
+loadelf_main(int fd, int vm_id_in, int mem_sz, struct vcpu_init_state *vis)
 {
 	int r;
+	size_t stacksize;
 	u_long marks[MARK_MAX];
 
 	vm_id = vm_id_in;
@@ -223,7 +224,7 @@ loadelf_main(int fd, int vm_id_in, int mem_sz)
 	if ((r = read(fd, &hdr, sizeof(hdr))) != sizeof(hdr))
 		return 1;
 
-	bzero(&marks, sizeof(marks));
+	memset(&marks, 0, sizeof(marks));
 	if (memcmp(hdr.elf32.e_ident, ELFMAG, SELFMAG) == 0 &&
 	    hdr.elf32.e_ident[EI_CLASS] == ELFCLASS32) {
 		r = elf32_exec(fd, &hdr.elf32, marks, LOAD_ALL);
@@ -232,11 +233,18 @@ loadelf_main(int fd, int vm_id_in, int mem_sz)
 		r = elf64_exec(fd, &hdr.elf64, marks, LOAD_ALL);
 	}
 
+	if (r)
+		return (r);
+
 	push_bootargs(mem_sz);
 	push_gdt();
-	push_stack(mem_sz, marks[MARK_END]);
+	stacksize = push_stack(mem_sz, marks[MARK_END]);
 
-	return r;
+	vis->vis_rip = (uint64_t)marks[MARK_ENTRY];
+	vis->vis_rsp = (uint64_t)(STACK_PAGE + PAGE_SIZE) - stacksize;
+	vis->vis_gdtr.vsi_base = GDT_PAGE;
+
+	return (0);
 }
 
 /*
@@ -294,7 +302,7 @@ push_bootargs(int mem_sz)
 	ba[sz + 2] = (int)sizeof(bios_consdev_t) + 3 * sizeof(int);
 	memcpy(&ba[sz + 3], &consdev, sizeof(bios_consdev_t));
 
-	write_page(BOOTARGS_PAGE, ba, PAGE_SIZE, 1);
+	write_mem(BOOTARGS_PAGE, ba, PAGE_SIZE, 1);
 }
 
 /*
@@ -320,15 +328,15 @@ push_bootargs(int mem_sz)
  *  end: kernel 'end' symbol value
  *
  * Return values:
- *  nothing
+ *  size of the stack
  */
-static void
+static size_t
 push_stack(int mem_sz, uint32_t end)
 {
 	uint32_t stack[1024];
 	uint16_t loc;
 
-	bzero(&stack, sizeof(stack));
+	memset(&stack, 0, sizeof(stack));
 	loc = 1024;
 
 	stack[--loc] = BOOTARGS_PAGE;
@@ -342,7 +350,9 @@ push_stack(int mem_sz, uint32_t end)
 	stack[--loc] = 0x0;
 	stack[--loc] = 0x0;
 
-	write_page(STACK_PAGE, &stack, PAGE_SIZE, 1);
+	write_mem(STACK_PAGE, &stack, PAGE_SIZE, 1);
+
+	return (1024 - (loc - 1)) * sizeof(uint32_t);
 }
 
 /*
@@ -369,13 +379,13 @@ mread(int fd, uint32_t addr, size_t sz)
 
 	/*
 	 * break up the 'sz' bytes into PAGE_SIZE chunks for use with
-	 * write_page
+	 * write_mem
 	 */
 	ct = 0;
 	rd = 0;
 	osz = sz;
 	if ((addr & PAGE_MASK) != 0) {
-		bzero(buf, sizeof(buf));
+		memset(buf, 0, sizeof(buf));
 		if (sz > PAGE_SIZE)
 			ct = PAGE_SIZE - (addr & PAGE_MASK);
 		else
@@ -387,7 +397,7 @@ mread(int fd, uint32_t addr, size_t sz)
 		}
 		rd += ct;
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return (0);
 
 		addr += ct;
@@ -399,7 +409,7 @@ mread(int fd, uint32_t addr, size_t sz)
 		return (osz);
 
 	for (i = 0; i < sz; i += PAGE_SIZE, addr += PAGE_SIZE) {
-		bzero(buf, sizeof(buf));
+		memset(buf, 0, sizeof(buf));
 		if (i + PAGE_SIZE > sz)
 			ct = sz - i;
 		else
@@ -411,7 +421,7 @@ mread(int fd, uint32_t addr, size_t sz)
 		}
 		rd += ct;
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return (0);
 	}
 
@@ -439,23 +449,23 @@ marc4random_buf(uint32_t addr, int sz)
 
 	/*
 	 * break up the 'sz' bytes into PAGE_SIZE chunks for use with
-	 * write_page
+	 * write_mem
 	 */
 	ct = 0;
 	if (addr % PAGE_SIZE != 0) {
-		bzero(buf, sizeof(buf));
+		memset(buf, 0, sizeof(buf));
 		ct = PAGE_SIZE - (addr % PAGE_SIZE);
 
 		arc4random_buf(buf, ct);
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return;
 
 		addr += ct;
 	}
 
 	for (i = 0; i < sz; i+= PAGE_SIZE, addr += PAGE_SIZE) {
-		bzero(buf, sizeof(buf));
+		memset(buf, 0, sizeof(buf));
 		if (i + PAGE_SIZE > sz)
 			ct = sz - i;
 		else
@@ -463,7 +473,7 @@ marc4random_buf(uint32_t addr, int sz)
 
 		arc4random_buf(buf, ct);
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return;
 	}
 }
@@ -489,14 +499,14 @@ mbzero(uint32_t addr, int sz)
 
 	/*
 	 * break up the 'sz' bytes into PAGE_SIZE chunks for use with
-	 * write_page
+	 * write_mem
 	 */
 	ct = 0;
-	bzero(buf, sizeof(buf));
+	memset(buf, 0, sizeof(buf));
 	if (addr % PAGE_SIZE != 0) {
 		ct = PAGE_SIZE - (addr % PAGE_SIZE);
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return;
 
 		addr += ct;
@@ -508,7 +518,7 @@ mbzero(uint32_t addr, int sz)
 		else
 			ct = PAGE_SIZE;
 
-		if (write_page(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct, 1))
 			return;
 	}
 }
@@ -555,7 +565,7 @@ mbcopy(char *src, char *dst, int sz)
  *  0 if successful
  *  1 if unsuccessful
  */
-int
+static int
 elf64_exec(int fd, Elf64_Ehdr *elf, u_long *marks, int flags)
 {
 	Elf64_Shdr *shp;
@@ -778,7 +788,7 @@ elf64_exec(int fd, Elf64_Ehdr *elf, u_long *marks, int flags)
  *  0 if successful
  *  1 if unsuccessful
  */
-int
+static int
 elf32_exec(int fd, Elf32_Ehdr *elf, u_long *marks, int flags)
 {
 	Elf32_Shdr *shp;

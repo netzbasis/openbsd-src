@@ -1,4 +1,4 @@
-/*	$OpenBSD: worms.c,v 1.23 2015/11/21 05:29:42 deraadt Exp $	*/
+/*	$OpenBSD: worms.c,v 1.25 2016/01/07 16:00:34 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -46,12 +46,9 @@
  *				 October, 1980
  *
  */
-#include <sys/types.h>
-
 #include <curses.h>
 #include <err.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
@@ -220,7 +217,7 @@ main(int argc, char *argv[])
 		default:
 			(void)fprintf(stderr,
 			    "usage: worms [-ft] [-d delay] [-l length] [-n number]\n");
-			exit(1);
+			return 1;
 		}
 
 	/* Convert delay from ms -> ns */
@@ -288,7 +285,7 @@ main(int argc, char *argv[])
 		refresh();
 		if (sig_caught) {
 			endwin();
-			exit(0);
+			return 0;
 		}
 		nanosleep(&sleeptime, NULL);
 		for (n = 0, w = &worm[0]; n < number; n++, w++) {

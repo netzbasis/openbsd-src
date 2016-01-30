@@ -1,12 +1,16 @@
-/*	$OpenBSD: misc.c,v 1.51 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: misc.c,v 1.53 2015/12/21 04:57:50 mmcc Exp $	*/
 
 /*
  * Miscellaneous functions
  */
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "charclass.h"
@@ -982,7 +986,7 @@ print_value_quoted(const char *s)
 	}
 	for (p = s; *p; p++) {
 		if (*p == '\'') {
-			shprintf("'\\'" + 1 - inquote);
+			shprintf(inquote ? "'\\'" : "\\'");
 			inquote = 0;
 		} else {
 			if (!inquote) {

@@ -135,7 +135,7 @@ void						\
 funcname(type num, char *buf, size_t len)	\
 {						\
 	int neg = (num < 0);			\
-	char tbuf[INT_STRLEN_BOUND(num)+2];	\
+	char tbuf[23];	\
 	char *s = tbuf + sizeof (tbuf);		\
 	if (neg)				\
 		num = -num;			\
@@ -149,7 +149,6 @@ funcname(type num, char *buf, size_t len)	\
 }
 
 TYPE_TO_A_FUNC(postoa, off_t)
-TYPE_TO_A_FUNC(linenumtoa, LINENUM)
 TYPE_TO_A_FUNC(inttoa, int)
 
 /*
@@ -158,7 +157,7 @@ TYPE_TO_A_FUNC(inttoa, int)
 static int
 iprint_int(int num)
 {
-	char buf[INT_STRLEN_BOUND(num)];
+	char buf[11];
 
 	inttoa(num, buf, sizeof (buf));
 	putstr(buf);
@@ -169,11 +168,11 @@ iprint_int(int num)
  * Output a line number in a given radix.
  */
 static int
-iprint_linenum(LINENUM num)
+iprint_linenum(off_t num)
 {
-	char buf[INT_STRLEN_BOUND(num)];
+	char buf[21];
 
-	linenumtoa(num, buf, sizeof (buf));
+	postoa(num, buf, sizeof(buf));
 	putstr(buf);
 	return (strlen(buf));
 }

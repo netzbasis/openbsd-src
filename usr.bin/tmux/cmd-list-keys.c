@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-list-keys.c,v 1.31 2015/11/27 15:06:43 nicm Exp $ */
+/* $OpenBSD: cmd-list-keys.c,v 1.34 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,19 +33,25 @@ enum cmd_retval	 cmd_list_keys_table(struct cmd *, struct cmd_q *);
 enum cmd_retval	 cmd_list_keys_commands(struct cmd_q *);
 
 const struct cmd_entry cmd_list_keys_entry = {
-	"list-keys", "lsk",
-	"t:T:", 0, 0,
-	"[-t mode-table] [-T key-table]",
-	0,
-	cmd_list_keys_exec
+	.name = "list-keys",
+	.alias = "lsk",
+
+	.args = { "t:T:", 0, 0 },
+	.usage = "[-t mode-table] [-T key-table]",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_list_keys_exec
 };
 
 const struct cmd_entry cmd_list_commands_entry = {
-	"list-commands", "lscm",
-	"", 0, 0,
-	"",
-	0,
-	cmd_list_keys_exec
+	.name = "list-commands",
+	.alias = "lscm",
+
+	.args = { "", 0, 0 },
+	.usage = "",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_list_keys_exec
 };
 
 enum cmd_retval

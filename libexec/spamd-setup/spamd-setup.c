@@ -1,4 +1,4 @@
-/*	$OpenBSD: spamd-setup.c,v 1.46 2015/06/03 02:24:36 millert Exp $ */
+/*	$OpenBSD: spamd-setup.c,v 1.48 2016/01/04 09:15:24 mestre Exp $ */
 
 /*
  * Copyright (c) 2003 Bob Beck.  All rights reserved.
@@ -24,17 +24,17 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <err.h>
-#include <netdb.h>
 #include <zlib.h>
 
 #define PATH_FTP		"/usr/bin/ftp"
@@ -511,8 +511,7 @@ add_blacklist(struct bl *bl, size_t *blc, size_t *bls, gzFile gzf, int white)
 	if (bu == 0)
 		errno = EIO;
  bldone:
-	if (buf)
-		free(buf);
+	free(buf);
 	if (serrno)
 		errno = serrno;
 	return (bl);
@@ -825,6 +824,9 @@ main(int argc, char *argv[])
 	argv += optind;
 	if (argc != 0)
 		usage();
+
+	if (pledge("stdio rpath inet proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	if (daemonize)
 		daemon(0, 0);

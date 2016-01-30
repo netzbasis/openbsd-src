@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.22 2015/12/04 16:40:09 tb Exp $	*/
+/*	$OpenBSD: main.c,v 1.24 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: main.c,v 1.5 1995/04/22 10:08:54 cgd Exp $	*/
 
 /*
@@ -30,7 +30,15 @@
  * SUCH DAMAGE.
  */
 
-#include	"robots.h"
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "robots.h"
 
 void
 usage(void)
@@ -121,7 +129,7 @@ main(int ac, char *av[])
 
 	if (show_only) {
 		show_score();
-		exit(0);
+		return 0;
 	}
 
 	if (score_wfd < 0) {
@@ -156,7 +164,6 @@ main(int ac, char *av[])
 		score(score_wfd);
 	} while (another());
 	quit(0);
-	/* NOT REACHED */
 }
 
 /*

@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-wait-for.c,v 1.11 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: cmd-wait-for.c,v 1.13 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2013 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2013 Nicholas Marriott <nicholas.marriott@gmail.com>
  * Copyright (c) 2013 Thiago de Arruda <tpadilha84@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,11 +31,14 @@
 enum cmd_retval cmd_wait_for_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_wait_for_entry = {
-	"wait-for", "wait",
-	"LSU", 1, 1,
-	"[-L|-S|-U] channel",
-	0,
-	cmd_wait_for_exec
+	.name = "wait-for",
+	.alias = "wait",
+
+	.args = { "LSU", 1, 1 },
+	.usage = "[-L|-S|-U] channel",
+
+	.flags = 0,
+	.exec = cmd_wait_for_exec
 };
 
 struct wait_channel {

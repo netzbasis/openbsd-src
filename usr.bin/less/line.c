@@ -142,7 +142,7 @@ prewind(void)
 void
 plinenum(off_t pos)
 {
-	LINENUM linenum = 0;
+	off_t linenum = 0;
 	int i;
 
 	if (linenums == OPT_ONPLUS) {
@@ -175,10 +175,10 @@ plinenum(off_t pos)
 	 * if the -N option is set.
 	 */
 	if (linenums == OPT_ONPLUS) {
-		char buf[INT_STRLEN_BOUND(pos) + 2];
+		char buf[23];
 		int n;
 
-		linenumtoa(linenum, buf, sizeof (buf));
+		postoa(linenum, buf, sizeof(buf));
 		n = strlen(buf);
 		if (n < MIN_LINENUM_WIDTH)
 			n = MIN_LINENUM_WIDTH;

@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.140 2015/11/22 15:35:49 kettenis Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.144 2016/01/09 11:34:57 kettenis Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -44,6 +44,7 @@
 #include <sys/fcntl.h>
 #include <sys/filio.h>
 #include <sys/limits.h>
+#include <sys/pledge.h>
 #include <sys/poll.h>
 #include <sys/specdev.h>
 #include <sys/systm.h>
@@ -246,6 +247,41 @@ static struct drm_ioctl_desc drm_ioctls[] = {
 #define DRM_CORE_IOCTL_COUNT	ARRAY_SIZE( drm_ioctls )
 
 int
+pledge_ioctl_drm(struct proc *p, long com, dev_t device)
+{
+	struct drm_device *dev = drm_get_device_from_kdev(device);
+	unsigned int nr = DRM_IOCTL_NR(com);
+	const struct drm_ioctl_desc *ioctl;
+
+	if (dev == NULL)
+		return EPERM;
+
+	if (nr < DRM_CORE_IOCTL_COUNT &&
+	    ((nr < DRM_COMMAND_BASE || nr >= DRM_COMMAND_END)))
+		ioctl = &drm_ioctls[nr];
+	else if (nr >= DRM_COMMAND_BASE && nr < DRM_COMMAND_END &&
+	    nr < DRM_COMMAND_BASE + dev->driver->num_ioctls)
+		ioctl = &dev->driver->ioctls[nr - DRM_COMMAND_BASE];
+	else
+		return EPERM;
+
+	if (ioctl->flags & DRM_RENDER_ALLOW)
+		return 0;
+
+	/*
+	 * These are dangerous, but we have to allow them until we
+	 * have prime/dma-buf support.
+	 */
+	switch (com) {
+	case DRM_IOCTL_GET_MAGIC:
+	case DRM_IOCTL_GEM_OPEN:
+		return 0;
+	}
+
+	return EPERM;
+}
+
+int
 drm_setunique(struct drm_device *dev, void *data,
     struct drm_file *file_priv)
 {
@@ -383,6 +419,7 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 	dev->pdev->pc = da->pc;
 	dev->bridgetag = da->bridgetag;
 	dev->pdev->tag = da->tag;
+	dev->pdev->pci = (struct pci_softc *)parent->dv_parent;
 
 	rw_init(&dev->struct_mutex, "drmdevlk");
 	mtx_init(&dev->event_lock, IPL_TTY);
@@ -911,7 +948,7 @@ drmread(dev_t kdev, struct uio *uio, int ioflag)
 	while (drm_dequeue_event(dev, file_priv, uio->uio_resid, &ev)) {
 		MUTEX_ASSERT_UNLOCKED(&dev->event_lock);
 		/* XXX we always destroy the event on error. */
-		error = uiomovei(ev->event, ev->event->length, uio);
+		error = uiomove(ev->event, ev->event->length, uio);
 		ev->destroy(ev);
 		if (error)
 			break;
@@ -1180,7 +1217,7 @@ drm_setclientcap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 #define DRM_IF_MAJOR	1
-#define DRM_IF_MINOR	2
+#define DRM_IF_MINOR	4
 
 int
 drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)

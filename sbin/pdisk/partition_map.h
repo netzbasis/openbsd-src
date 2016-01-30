@@ -1,8 +1,10 @@
-//
-// partition_map.h - partition map routines
-//
-// Written by Eryk Vershen
-//
+/*	$OpenBSD: partition_map.h,v 1.36 2016/01/29 22:51:43 krw Exp $	*/
+
+/*
+ * partition_map.h - partition map routines
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1996,1998 by Apple Computer, Inc.
@@ -28,95 +30,74 @@
 #ifndef __partition_map__
 #define __partition_map__
 
-#include "dpme.h"
-#include "media.h"
-
-
-//
-// Defines
-//
-#define	PBLOCK_SIZE	512
-#define	MAX_LINUX_MAP	15
-
-
-//
-// Types
-//
-struct partition_map_header {
-    MEDIA m;
-    char *name;
-    struct partition_map * disk_order;
-    struct partition_map * base_order;
-    Block0 *misc;
-    int writable;
-    int changed;
-    int written;
-    int physical_block;		// must be == sbBlockSize
-    int logical_block;		// must be <= physical_block
-    int blocks_in_map;
-    int maximum_in_map;
-    unsigned long media_size;	// in logical_blocks
+struct ddmap {
+    uint32_t	ddBlock;	/* 1st driver's starting sbBlkSize block */
+    uint16_t	ddSize;		/* size of 1st driver (512-byte blks) */
+    uint16_t	ddType;		/* system type (1 for Mac+) */
 };
-typedef struct partition_map_header partition_map_header;
+
+struct entry;
 
 struct partition_map {
-    struct partition_map * next_on_disk;
-    struct partition_map * prev_on_disk;
-    struct partition_map * next_by_base;
-    struct partition_map * prev_by_base;
-    long disk_address;
-    struct partition_map_header * the_map;
-    int contains_driver;
-    DPME *data;
-    int HFS_kind;
-    char *HFS_name;
+    LIST_HEAD(, entry)	disk_order;
+    LIST_HEAD(, entry)	base_order;
+    char	       *name;
+    int			fd;
+    int			changed;
+    int			physical_block;
+    int			blocks_in_map;
+    int			maximum_in_map;
+    unsigned long	media_size;	/* in physical blocks */
+
+    /* On-disk block 0 data. */
+    uint16_t		sbSig;		/* "ER" */
+    uint16_t		sbBlkSize;	/* physical block size of device */
+    uint32_t		sbBlkCount;	/* # of physical blocks on device */
+    uint16_t		sbDevType;	/* device type */
+    uint16_t		sbDevId;	/* device id */
+    uint32_t		sbData;		/* not used */
+    uint16_t		sbDrvrCount;	/* driver descriptor count */
+    struct ddmap	sbDDMap[8];	/* driver descriptor map*/
+    uint8_t		sbReserved[430];
 };
-typedef struct partition_map partition_map;
 
-/* Identifies the HFS kind. */
-enum {
-    kHFS_not       =   0,	// ' '
-    kHFS_std       =   1,	// 'h'
-    kHFS_embed     =   2,	// 'e'
-    kHFS_plus      =   3	// '+'
+struct entry {
+    LIST_ENTRY(entry)		disk_entry;
+    LIST_ENTRY(entry)		base_entry;
+    struct partition_map       *the_map;
+    struct dpme		       *dpme;
+    long			disk_address;
+    int				contains_driver;
 };
 
+extern const char *kFreeType;
+extern const char *kMapType;
+extern const char *kUnixType;
+extern const char *kHFSType;
+extern const char *kFreeName;
+extern const char *kPatchType;
 
-//
-// Global Constants
-//
-extern const char * kFreeType;
-extern const char * kMapType;
-extern const char * kUnixType;
-extern const char * kHFSType;
-extern const char * kFreeName;
-extern const char * kPatchType;
-
-
-//
-// Global Variables
-//
-extern int rflag;
-extern int interactive;
 extern int dflag;
+extern int lflag;
+extern int rflag;
 
+struct partition_map	*init_partition_map(char *);
+struct partition_map	*create_partition_map(int, char *, uint64_t, uint32_t);
+struct partition_map	*open_partition_map(int, char *, uint64_t, uint32_t);
 
-//
-// Forward declarations
-//
-int add_partition_to_map(const char *name, const char *dptype, u32 base, u32 length, partition_map_header *map);
-void close_partition_map(partition_map_header *map);
-partition_map_header* create_partition_map(char *name, partition_map_header *oldmap);
-void delete_partition_from_map(partition_map *entry);
-partition_map* find_entry_by_disk_address(long, partition_map_header *);
-partition_map* find_entry_by_type(const char *type_name, partition_map_header *map);
-partition_map* find_entry_by_base(u32 base, partition_map_header *map);
-partition_map_header* init_partition_map(char *name, partition_map_header* oldmap);
-void move_entry_in_map(long, long, partition_map_header *);
-partition_map_header* open_partition_map(char *name, int *valid_file, int ask_logical_size);
-void resize_map(long new_size, partition_map_header *map);
-void write_partition_map(partition_map_header *map);
-void bzb_init_slice(BZB *bp, int slice);
-void dpme_init_flags(DPME *data);
+struct entry	*find_entry_by_disk_address(long, struct partition_map *);
+struct entry	*find_entry_by_type(const char *, struct partition_map *);
+struct entry	*find_entry_by_base(uint32_t, struct partition_map *);
+
+int	add_partition_to_map(const char *, const char *, uint32_t, uint32_t,
+    struct partition_map *);
+
+void	free_partition_map(struct partition_map *);
+void	delete_partition_from_map(struct entry *);
+void	move_entry_in_map(long, long, struct partition_map *);
+void	resize_map(long new_size, struct partition_map *);
+void	write_partition_map(struct partition_map *);
+void	dpme_init_flags(struct dpme *);
+void	sync_device_size(struct partition_map *);
 
 #endif /* __partition_map__ */

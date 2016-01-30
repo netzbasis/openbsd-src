@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-detach-client.c,v 1.22 2015/11/24 20:40:51 nicm Exp $ */
+/* $OpenBSD: cmd-detach-client.c,v 1.27 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,32 +29,41 @@
 enum cmd_retval	 cmd_detach_client_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_detach_client_entry = {
-	"detach-client", "detach",
-	"as:t:P", 0, 0,
-	"[-aP] [-s target-session] " CMD_TARGET_CLIENT_USAGE,
-	CMD_READONLY,
-	cmd_detach_client_exec
+	.name = "detach-client",
+	.alias = "detach",
+
+	.args = { "as:t:P", 0, 0 },
+	.usage = "[-P] [-a] [-s target-session] " CMD_TARGET_CLIENT_USAGE,
+
+	.sflag = CMD_SESSION,
+	.tflag = CMD_CLIENT,
+
+	.flags = CMD_READONLY,
+	.exec = cmd_detach_client_exec
 };
 
 const struct cmd_entry cmd_suspend_client_entry = {
-	"suspend-client", "suspendc",
-	"t:", 0, 0,
-	CMD_TARGET_CLIENT_USAGE,
-	0,
-	cmd_detach_client_exec
+	.name = "suspend-client",
+	.alias = "suspendc",
+
+	.args = { "t:", 0, 0 },
+	.usage = CMD_TARGET_CLIENT_USAGE,
+
+	.tflag = CMD_CLIENT,
+
+	.flags = 0,
+	.exec = cmd_detach_client_exec
 };
 
 enum cmd_retval
 cmd_detach_client_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args	*args = self->args;
-	struct client	*c, *cloop;
+	struct client	*c = cmdq->state.c, *cloop;
 	struct session	*s;
 	enum msgtype	 msgtype;
 
 	if (self->entry == &cmd_suspend_client_entry) {
-		if ((c = cmd_find_client(cmdq, args_get(args, 't'), 0)) == NULL)
-			return (CMD_RETURN_ERROR);
 		tty_stop_tty(&c->tty);
 		c->flags |= CLIENT_SUSPENDED;
 		proc_send(c->peer, MSG_SUSPEND, -1, NULL, 0);
@@ -67,31 +76,22 @@ cmd_detach_client_exec(struct cmd *self, struct cmd_q *cmdq)
 		msgtype = MSG_DETACH;
 
 	if (args_has(args, 's')) {
-		s = cmd_find_session(cmdq, args_get(args, 's'), 0);
-		if (s == NULL)
-			return (CMD_RETURN_ERROR);
-
+		s = cmdq->state.sflag.s;
 		TAILQ_FOREACH(cloop, &clients, entry) {
-			if (cloop->session != s)
-				continue;
-			proc_send_s(cloop->peer, msgtype, cloop->session->name);
+			if (cloop->session == s)
+				server_client_detach(cloop, msgtype);
 		}
 		return (CMD_RETURN_STOP);
 	}
 
-	c = cmd_find_client(cmdq, args_get(args, 't'), 0);
-	if (c == NULL)
-		return (CMD_RETURN_ERROR);
-
 	if (args_has(args, 'a')) {
 		TAILQ_FOREACH(cloop, &clients, entry) {
-			if (cloop->session == NULL || cloop == c)
-				continue;
-			proc_send_s(cloop->peer, msgtype, cloop->session->name);
+			if (cloop->session != NULL && cloop != c)
+				server_client_detach(cloop, msgtype);
 		}
 		return (CMD_RETURN_NORMAL);
 	}
 
-	proc_send_s(c->peer, msgtype, c->session->name);
+	server_client_detach(c, msgtype);
 	return (CMD_RETURN_STOP);
 }

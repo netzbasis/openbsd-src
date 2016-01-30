@@ -1,4 +1,4 @@
-/*	$OpenBSD: ksyms.c,v 1.8 2015/02/07 03:26:20 tedu Exp $	*/
+/*	$OpenBSD: ksyms.c,v 1.10 2016/01/08 13:40:05 tb Exp $	*/
 
 /*
  * Copyright (c) 2008 Miodrag Vallat.
@@ -16,21 +16,22 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <unistd.h>
 #include <ctype.h>
+#include <curses.h>
+#include <elf_abi.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
-
-#include <sys/exec.h>
-#include <elf_abi.h>
+#include <unistd.h>
 
 #include "hangman.h"
 
 static int ksyms_elf_parse(void);
 
 void
-sym_getword()
+sym_getword(void)
 {
 	uint tries;
 	off_t pos;
@@ -91,7 +92,7 @@ sym_getword()
 }
 
 int
-sym_setup()
+sym_setup(void)
 {
 	if ((symfd = open(Dict_name, O_RDONLY)) < 0)
 		return -1;
@@ -105,7 +106,7 @@ sym_setup()
 }
 
 int
-ksyms_elf_parse()
+ksyms_elf_parse(void)
 {
 	Elf_Ehdr eh;
 	Elf_Shdr sh;

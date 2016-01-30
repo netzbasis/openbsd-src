@@ -1,4 +1,4 @@
-/*	$OpenBSD: umass.c,v 1.70 2015/03/14 03:38:50 jsg Exp $ */
+/*	$OpenBSD: umass.c,v 1.72 2015/12/17 10:21:22 mpi Exp $ */
 /*	$NetBSD: umass.c,v 1.116 2004/06/30 05:53:46 mycroft Exp $	*/
 
 /*
@@ -616,7 +616,6 @@ int
 umass_detach(struct device *self, int flags)
 {
 	struct umass_softc *sc = (struct umass_softc *)self;
-	struct umassbus_softc *scbus;
 	int rv = 0, i, s;
 
 	DPRINTF(UDMASS_USB, ("%s: detached\n", sc->sc_dev.dv_xname));
@@ -647,14 +646,7 @@ umass_detach(struct device *self, int flags)
 	}
 	splx(s);
 
-	scbus = sc->bus;
-	if (scbus != NULL) {
-		if (scbus->sc_child != NULL)
-			rv = config_detach(scbus->sc_child, flags);
-		free(scbus, M_DEVBUF, 0);
-		sc->bus = NULL;
-	}
-
+	rv = umass_scsi_detach(sc, flags);
 	if (rv != 0)
 		return (rv);
 

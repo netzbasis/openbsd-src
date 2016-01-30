@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.10 2015/12/06 02:26:14 reyk Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.20 2016/01/16 08:55:40 stefan Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -58,6 +58,8 @@
 #include "virtio.h"
 #include "proc.h"
 
+#define MAX_PORTS 65536
+
 /*
  * Emulated 8250 UART
  *
@@ -103,23 +105,27 @@ struct ns8250_regs {
 	uint8_t data;		/* Unread input data */
 };
 
+typedef uint8_t (*io_fn_t)(struct vm_run_params *);
+
 struct i8253_counter i8253_counter[3];
 struct ns8250_regs com1_regs;
+io_fn_t ioports_map[MAX_PORTS];
 
 int start_client_vmd(void);
 int opentap(void);
 int start_vm(struct imsg *, uint32_t *);
 int terminate_vm(struct vm_terminate_params *);
 int get_info_vm(struct privsep *, struct imsg *, int);
-int run_vm(int *, int *, struct vm_create_params *);
+int run_vm(int *, int *, struct vm_create_params *, struct vcpu_init_state *);
 void *vcpu_run_loop(void *);
 int vcpu_exit(struct vm_run_params *);
+int vcpu_reset(uint32_t, uint32_t, struct vcpu_init_state *);
 int vmm_create_vm(struct vm_create_params *);
 void init_emulated_hw(struct vm_create_params *, int *, int *);
 void vcpu_exit_inout(struct vm_run_params *);
 uint8_t vcpu_exit_pci(struct vm_run_params *);
-void vcpu_exit_i8253(union vm_exit *);
-void vcpu_exit_com(struct vm_run_params *);
+uint8_t vcpu_exit_i8253(struct vm_run_params *);
+uint8_t vcpu_exit_com(struct vm_run_params *);
 void vcpu_process_com_data(union vm_exit *);
 void vcpu_process_com_lcr(union vm_exit *);
 void vcpu_process_com_lsr(union vm_exit *);
@@ -142,6 +148,35 @@ static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	vmm_dispatch_parent  },
 };
 
+/*
+ * Represents a standard register set for an OS to be booted
+ * as a flat 32 bit address space, before paging is enabled.
+ *
+ * NOT set here are:
+ *  RIP
+ *  RSP
+ *  GDTR BASE
+ *
+ * Specific bootloaders should clone this structure and override
+ * those fields as needed.
+ */
+static const struct vcpu_init_state vcpu_init_flat32 = {
+	0x2,					/* RFLAGS */
+	0x0,					/* RIP */
+	0x0,					/* RSP */
+	0x0,					/* CR3 */
+	{ 0x8, 0xFFFFFFFF, 0xC09F, 0x0},	/* CS */
+	{ 0x10, 0xFFFFFFFF, 0xC093, 0x0},	/* DS */
+	{ 0x10, 0xFFFFFFFF, 0xC093, 0x0},	/* ES */
+	{ 0x10, 0xFFFFFFFF, 0xC093, 0x0},	/* FS */
+	{ 0x10, 0xFFFFFFFF, 0xC093, 0x0},	/* GS */
+	{ 0x10, 0xFFFFFFFF, 0xC093, 0x0},	/* SS */
+	{ 0x0, 0xFFFF, 0x0, 0x0},		/* GDTR */
+	{ 0x0, 0xFFFF, 0x0, 0x0},		/* IDTR */
+	{ 0x0, 0xFFFF, 0x0082, 0x0},		/* LDTR */
+	{ 0x0, 0xFFFF, 0x008B, 0x0},		/* TR */
+};
+
 pid_t
 vmm(struct privsep *ps, struct privsep_proc *p)
 {
@@ -158,9 +193,12 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	/*
 	 * pledge in the vmm process:
  	 * stdio - for malloc and basic I/O including events.
-	 * XXX vmm - for the vmm ioctls and operations
+	 * vmm - for the vmm ioctls and operations.
+	 * proc - for forking and maitaining vms.
+	 * recvfd - for disks, interfaces and other fds.
 	 */
-	if (pledge("stdio vmm", NULL) == -1)
+	/* XXX'ed pledge to hide it from grep as long as it's disabled */
+	if (XXX("stdio vmm recvfd proc", NULL) == -1)
 		fatal("pledge");
 #endif
 
@@ -191,13 +229,17 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 	case IMSG_VMDOP_START_VM_DISK:
 		res = config_getdisk(ps, imsg);
-		if (res != 0)
+		if (res == -1) {
+			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
 		break;
 	case IMSG_VMDOP_START_VM_IF:
 		res = config_getif(ps, imsg);
-		if (res != 0)
+		if (res == -1) {
+			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
 		break;
 	case IMSG_VMDOP_START_VM_END:
 		res = start_vm(imsg, &id);
@@ -230,6 +272,10 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case 0:
 		break;
 	case IMSG_VMDOP_START_VM_RESPONSE:
+		if (res != 0) {
+			vm = vm_getbyvmid(imsg->hdr.peerid);
+			vm_remove(vm);
+		}
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
 		memset(&vmr, 0, sizeof(vmr));
 		vmr.vmr_result = res;
@@ -249,14 +295,45 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 }
 
 /*
+ * vcpu_reset
+ *
+ * Requests vmm(4) to reset the VCPUs in the indicated VM to
+ * the register state provided
+ *
+ * Parameters
+ *  vmid: VM ID to reset
+ *  vcpu_id: VCPU ID to reset
+ *  vis: the register state to initialize 
+ *
+ * Return values:
+ *  0: success
+ *  !0 : ioctl to vmm(4) failed (eg, ENOENT if the supplied VM ID is not
+ *      valid)
+ */
+int
+vcpu_reset(uint32_t vmid, uint32_t vcpu_id, struct vcpu_init_state *vis)
+{
+	struct vm_resetcpu_params vrp;
+
+	memset(&vrp, 0, sizeof(vrp));
+	vrp.vrp_vm_id = vmid;
+	vrp.vrp_vcpu_id = vcpu_id;
+	memcpy(&vrp.vrp_init_state, vis, sizeof(struct vcpu_init_state));
+
+	if (ioctl(env->vmd_fd, VMM_IOC_RESETCPU, &vrp) < 0)
+		return (errno);
+
+	return (0);
+}
+
+/*
  * terminate_vm
  *
  * Requests vmm(4) to terminate the VM whose ID is provided in the
  * supplied vm_terminate_params structure (vtp->vtp_vm_id)
  *
  * Parameters
- *  imsg: The incoming imsg body whose 'data' field contains the 
- *      vm_terminate_params struct
+ *  vtp: vm_create_params struct containing the ID of the VM to terminate
  *
  * Return values:
  *  0: success
@@ -328,10 +405,12 @@ start_vm(struct imsg *imsg, uint32_t *id)
 	size_t			 i;
 	int			 ret = EINVAL;
 	int			 fds[2];
+	struct vcpu_init_state vis;
 
 	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
 		log_warn("%s: can't find vm", __func__);
-		return (-1);
+		ret = ENOENT;
+		goto err;
 	}
 	vcp = &vm->vm_params;
 
@@ -403,9 +482,25 @@ start_vm(struct imsg *imsg, uint32_t *id)
 			fatal("create vmm ioctl failed - exiting");
 		}
 
+#if 0
+		/*
+		 * pledge in the vm processes:
+	 	 * stdio - for malloc and basic I/O including events.
+		 * vmm - for the vmm ioctls and operations.
+		 */
+		if (XXX("stdio vmm", NULL) == -1)
+			fatal("pledge");
+#endif
+
+		/*
+		 * Set up default "flat 32 bit" register state - RIP,
+		 * RSP, and GDT info will be set in bootloader
+	 	 */
+		memcpy(&vis, &vcpu_init_flat32, sizeof(struct vcpu_init_state));
+
 		/* Load kernel image */
-		ret = loadelf_main(vm->vm_kernel,
-		    vcp->vcp_id, vcp->vcp_memory_size);
+		ret = loadelf_main(vm->vm_kernel, vcp->vcp_id,
+		    vcp->vcp_memory_size, &vis);
 		if (ret) {
 			errno = ret;
 			fatal("failed to load kernel - exiting");
@@ -418,7 +513,7 @@ start_vm(struct imsg *imsg, uint32_t *id)
 			fatal("failed to set nonblocking mode on console");
 
 		/* Execute the vcpu run loop(s) for this VM */
-		ret = run_vm(vm->vm_disks, vm->vm_ifs, vcp);
+		ret = run_vm(vm->vm_disks, vm->vm_ifs, vcp, &vis);
 
 		_exit(ret != 0);
 	}
@@ -587,19 +682,35 @@ void
 init_emulated_hw(struct vm_create_params *vcp, int *child_disks,
     int *child_taps)
 {
+	int i;
+
+	/* Reset the IO port map */
+	memset(&ioports_map, 0, sizeof(io_fn_t) * MAX_PORTS);
+	
 	/* Init the i8253 PIT's 3 counters */
-	bzero(&i8253_counter, sizeof(struct i8253_counter) * 3);
+	memset(&i8253_counter, 0, sizeof(struct i8253_counter) * 3);
 	gettimeofday(&i8253_counter[0].tv, NULL);
 	gettimeofday(&i8253_counter[1].tv, NULL);
 	gettimeofday(&i8253_counter[2].tv, NULL);
 	i8253_counter[0].start = TIMER_DIV(100);
 	i8253_counter[1].start = TIMER_DIV(100);
 	i8253_counter[2].start = TIMER_DIV(100);
+	ioports_map[TIMER_CTRL] = vcpu_exit_i8253;
+	ioports_map[TIMER_BASE + TIMER_CNTR0] = vcpu_exit_i8253;
+	ioports_map[TIMER_BASE + TIMER_CNTR1] = vcpu_exit_i8253;
+	ioports_map[TIMER_BASE + TIMER_CNTR2] = vcpu_exit_i8253;
 
 	/* Init ns8250 UART */
-	bzero(&com1_regs, sizeof(struct ns8250_regs));
+	memset(&com1_regs, 0, sizeof(struct ns8250_regs));
+	for (i = COM1_DATA; i <= COM1_SCR; i++)
+		ioports_map[i] = vcpu_exit_com;
 
 	/* Initialize PCI */
+	for (i = VMM_PCI_IO_BAR_BASE; i <= VMM_PCI_IO_BAR_END; i++)
+		ioports_map[i] = vcpu_exit_pci;
+	
+	ioports_map[PCI_MODE1_ADDRESS_REG] = vcpu_exit_pci;
+	ioports_map[PCI_MODE1_DATA_REG] = vcpu_exit_pci;
 	pci_init();
 
 	/* Initialize virtio devices */
@@ -612,23 +723,26 @@ init_emulated_hw(struct vm_create_params *vcp, int *child_disks,
  * Runs the VM whose creation parameters are specified in vcp
  *
  * Parameters:
- *  vcp: vm_create_params struct containing the VM's desired creation
- *      configuration
  *  child_disks: previously-opened child VM disk file file descriptors
  *  child_taps: previously-opened child tap file descriptors
+ *  vcp: vm_create_params struct containing the VM's desired creation
+ *      configuration
+ *  vis: VCPU register state to initialize
  *
  * Return values:
  *  0: the VM exited normally
  *  !0 : the VM exited abnormally or failed to start
  */
 int
-run_vm(int *child_disks, int *child_taps, struct vm_create_params *vcp)
+run_vm(int *child_disks, int *child_taps, struct vm_create_params *vcp,
+    struct vcpu_init_state *vis)
 {
 	size_t i;
 	int ret;
 	pthread_t *tid;
 	void *exit_status;
 	struct vm_run_params **vrp;
+	struct vm_terminate_params vtp;
 
 	ret = 0;
 
@@ -671,6 +785,12 @@ run_vm(int *child_disks, int *child_taps, struct vm_create_params *vcp)
 		vrp[i]->vrp_vm_id = vcp->vcp_id;
 		vrp[i]->vrp_vcpu_id = i;
 
+		if (vcpu_reset(vcp->vcp_id, i, vis)) {
+			log_warn("%s: cannot reset VCPU %zu - exiting.",
+			    __progname, i);
+			return (EIO);
+		}
+
 		/* Start each VCPU run thread at vcpu_run_loop */
 		ret = pthread_create(&tid[i], NULL, vcpu_run_loop, vrp[i]);
 		if (ret) {
@@ -690,6 +810,13 @@ run_vm(int *child_disks, int *child_taps, struct vm_create_params *vcp)
 		if (exit_status != NULL) {
 			log_warnx("%s: vm %d vcpu run thread %zd exited "
 			    "abnormally", __progname, vcp->vcp_id, i);
+			/* Terminate the VM if we can */
+			memset(&vtp, 0, sizeof(vtp));
+			vtp.vtp_vm_id = vcp->vcp_id;
+			if (terminate_vm(&vtp)) {
+				log_warnx("%s: could not terminate vm %d",
+				    __progname, vcp->vcp_id);
+			}
 			ret = EIO;
 		}
 	}
@@ -751,16 +878,21 @@ vcpu_run_loop(void *arg)
  * clock.
  *
  * Parameters:
- *  vei: VM exit information from vmm(4) containing information on the in/out
+ *  vrp: vm run parameters containing exit information for the I/O
  *      instruction being performed
+ *
+ * Return value:
+ *  Interrupt to inject to the guest VM, or 0xFF if no interrupt should
+ *      be injected.
  */
-void
-vcpu_exit_i8253(union vm_exit *vei)
+uint8_t
+vcpu_exit_i8253(struct vm_run_params *vrp)
 {
 	uint32_t out_data;
 	uint8_t sel, rw, data;
 	uint64_t ns, ticks;
 	struct timeval now, delta;
+	union vm_exit *vei = vrp->vrp_exit;
 
 	if (vei->vei.vei_port == TIMER_CTRL) {
 		if (vei->vei.vei_dir == 0) { /* OUT instruction */
@@ -772,7 +904,7 @@ vcpu_exit_i8253(union vm_exit *vei)
 				log_warnx("%s: i8253 PIT: invalid "
 				    "timer selected (%d)",
 				    __progname, sel);
-				return;
+				goto ret;
 			}
 
 			rw = vei->vei.vei_data &
@@ -787,7 +919,7 @@ vcpu_exit_i8253(union vm_exit *vei)
 				log_warnx("%s: i8253 PIT: 16 bit "
 				    "counter I/O not supported",
 				    __progname);
-				    return;
+				    goto ret;
 			}
 
 			/*
@@ -819,14 +951,14 @@ vcpu_exit_i8253(union vm_exit *vei)
 				i8253_counter[sel].olatch =
 				    i8253_counter[sel].start -
 				    ticks % i8253_counter[sel].start;
-				return;
+				goto ret;
 			}
 
 			log_warnx("%s: i8253 PIT: unsupported rw mode "
 			    "%d", __progname, rw);
-			return;
+			goto ret;
 		} else {
-			/* XXX should this return 0xff? */
+			/* XXX should this return 0xff as the data read? */
 			log_warnx("%s: i8253 PIT: read from control "
 			    "port unsupported", __progname);
 		}
@@ -856,6 +988,10 @@ vcpu_exit_i8253(union vm_exit *vei)
 			}
 		}
 	}
+
+ret:
+	/* XXX don't yet support interrupts generated from the 8253 */
+	return (0xFF);
 }
 
 /*
@@ -1154,8 +1290,12 @@ vcpu_process_com_ier(union vm_exit *vei)
  *
  * Parameters:
  *  vrp: vcpu run parameters containing guest state for this exit
+ *
+ * Return value:
+ *  Interrupt to inject to the guest VM, or 0xFF if no interrupt should
+ *      be injected.
  */
-void
+uint8_t
 vcpu_exit_com(struct vm_run_params *vrp)
 {
 	union vm_exit *vei = vrp->vrp_exit;
@@ -1186,6 +1326,8 @@ vcpu_exit_com(struct vm_run_params *vrp)
 		vcpu_process_com_data(vei);
 		break;
 	}
+
+	return (0xFF);
 }
 
 /*
@@ -1196,9 +1338,9 @@ vcpu_exit_com(struct vm_run_params *vrp)
  * Parameters:
  *  vrp: vcpu run paramters containing guest state for this exit
  *
- * Return values:
- *  0xff if no interrupt is required after this pci exit,
- *      or an interrupt vector otherwise
+ * Return value:
+ *  Interrupt to inject to the guest VM, or 0xFF if no interrupt should
+ *      be injected.
  */
 uint8_t
 vcpu_exit_pci(struct vm_run_params *vrp)
@@ -1240,33 +1382,17 @@ void
 vcpu_exit_inout(struct vm_run_params *vrp)
 {
 	union vm_exit *vei = vrp->vrp_exit;
-	uint8_t intr;
+	uint8_t intr = 0xFF;
 
-	switch (vei->vei.vei_port) {
-	case TIMER_CTRL:
-	case (TIMER_CNTR0 + TIMER_BASE):
-	case (TIMER_CNTR1 + TIMER_BASE):
-	case (TIMER_CNTR2 + TIMER_BASE):
-		vcpu_exit_i8253(vei);
-		break;
-	case COM1_DATA ... COM1_SCR:
-		vcpu_exit_com(vrp);
-		break;
-	case PCI_MODE1_ADDRESS_REG:
-	case PCI_MODE1_DATA_REG:
-	case VMM_PCI_IO_BAR_BASE ... VMM_PCI_IO_BAR_END:
-		intr = vcpu_exit_pci(vrp);
-		if (intr != 0xFF)
-			vrp->vrp_injint = intr;
-		else
-			vrp->vrp_injint = -1;
-		break;
-	default:
-		/* IN from unsupported port gives FFs */
-		if (vei->vei.vei_dir == 1)
+	if (ioports_map[vei->vei.vei_port] != NULL)
+		intr = ioports_map[vei->vei.vei_port](vrp);
+	else if (vei->vei.vei_dir == 1)
 			vei->vei.vei_data = 0xFFFFFFFF;
-		break;
-	}
+	
+	if (intr != 0xFF)
+		vrp->vrp_injint = intr;
+	else
+		vrp->vrp_injint = -1;
 }
 
 /*
@@ -1351,17 +1477,16 @@ vcpu_exit(struct vm_run_params *vrp)
 }
 
 /*
- * write_page
+ * write_mem
  *
- * Pushes a page of data from 'buf' into the guest VM's memory
- * at paddr 'dst'.
+ * Pushes data from 'buf' into the guest VM's memory at paddr 'dst'.
  *
  * Parameters:
  *  dst: the destination paddr_t in the guest VM to push into.
  *      If there is no guest paddr mapping at 'dst', a new page will be
  *      faulted in by the VMM (provided 'dst' represents a valid paddr
  *      in the guest's address space)
- *  buf: page of data to push
+ *  buf: data to push
  *  len: size of 'buf'
  *  do_mask: 1 to mask the destination address (for kernel load), 0 to
  *      leave 'dst' unmasked
@@ -1373,8 +1498,10 @@ vcpu_exit(struct vm_run_params *vrp)
  * Note - this function only handles GPAs < 4GB. 
  */
 int
-write_page(uint32_t dst, void *buf, uint32_t len, int do_mask)
+write_mem(uint32_t dst, void *buf, uint32_t len, int do_mask)
 {
+	char *p = buf;
+	uint32_t gpa, n, left;
 	struct vm_writepage_params vwp;
 
 	/*
@@ -1384,21 +1511,36 @@ write_page(uint32_t dst, void *buf, uint32_t len, int do_mask)
 	if (do_mask)
 		dst &= 0xFFFFFFF;
 
-	vwp.vwp_paddr = (paddr_t)dst;
-	vwp.vwp_data = buf;
-	vwp.vwp_vm_id = vm_id;
-	vwp.vwp_len = len;
-	if (ioctl(env->vmd_fd, VMM_IOC_WRITEPAGE, &vwp) < 0) {
-		log_warn("writepage ioctl failed");
-		return (errno);
+	left = len;
+	for (gpa = dst; gpa < dst + len;
+	    gpa = (gpa & ~PAGE_MASK) + PAGE_SIZE) {
+		n = left;
+		if (n > PAGE_SIZE)
+			n = PAGE_SIZE;
+		if (n > (PAGE_SIZE - (gpa & PAGE_MASK)))
+			n = PAGE_SIZE - (gpa & PAGE_MASK);
+
+		vwp.vwp_paddr = (paddr_t)gpa;
+		vwp.vwp_data = p;
+		vwp.vwp_vm_id = vm_id;
+		vwp.vwp_len = n;
+		if (ioctl(env->vmd_fd, VMM_IOC_WRITEPAGE, &vwp) < 0) {
+			log_warn("writepage ioctl failed @ 0x%x: "
+			    "dst = 0x%x, len = 0x%x", gpa, dst, len);
+			return (errno);
+		}
+
+		left -= n;
+		p += n;
 	}
+
 	return (0);
 }
 
 /*
- * read_page
+ * read_mem
  *
- * Reads a page of memory at guest paddr 'src' into 'buf'.
+ * Reads memory at guest paddr 'src' into 'buf'.
  *
  * Parameters:
  *  src: the source paddr_t in the guest VM to read from.
@@ -1414,9 +1556,12 @@ write_page(uint32_t dst, void *buf, uint32_t len, int do_mask)
  * Note - this function only handles GPAs < 4GB.
  */
 int
-read_page(uint32_t src, void *buf, uint32_t len, int do_mask)
+read_mem(uint32_t src, void *buf, uint32_t len, int do_mask)
 {
+	char *p = buf;
+	uint32_t gpa, n, left;
 	struct vm_readpage_params vrp;
+
 
 	/*
 	 * Mask kernel load addresses to avoid uint32_t -> uint64_t cast
@@ -1425,13 +1570,28 @@ read_page(uint32_t src, void *buf, uint32_t len, int do_mask)
 	if (do_mask)
 		src &= 0xFFFFFFF;
 
-	vrp.vrp_paddr = (paddr_t)src;
-	vrp.vrp_data = buf;
-	vrp.vrp_vm_id = vm_id;
-	vrp.vrp_len = len;
-	if (ioctl(env->vmd_fd, VMM_IOC_READPAGE, &vrp) < 0) {
-		log_warn("readpage ioctl failed");
-		return (errno);
+	left = len;
+	for (gpa = src; gpa < src + len;
+	    gpa = (gpa & ~PAGE_MASK) + PAGE_SIZE) {
+		n = left;
+		if (n > PAGE_SIZE)
+			n = PAGE_SIZE;
+		if (n > (PAGE_SIZE - (gpa & PAGE_MASK)))
+			n = PAGE_SIZE - (gpa & PAGE_MASK);
+
+		vrp.vrp_paddr = (paddr_t)gpa;
+		vrp.vrp_data = p;
+		vrp.vrp_vm_id = vm_id;
+		vrp.vrp_len = n;
+		if (ioctl(env->vmd_fd, VMM_IOC_READPAGE, &vrp) < 0) {
+			log_warn("readpage ioctl failed @ 0x%x: "
+			    "src = 0x%x, len = 0x%x", gpa, src, len);
+			return (errno);
+		}
+
+		left -= n;
+		p += n;
 	}
+
 	return (0);
 }

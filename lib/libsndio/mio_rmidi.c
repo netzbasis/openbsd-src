@@ -1,4 +1,4 @@
-/*	$OpenBSD: mio_rmidi.c,v 1.22 2015/11/30 02:41:45 ratchov Exp $	*/
+/*	$OpenBSD: mio_rmidi.c,v 1.24 2016/01/09 08:27:24 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -56,7 +56,7 @@ static struct mio_ops mio_rmidi_ops = {
 	mio_rmidi_revents
 };
 
-static int
+int
 mio_rmidi_getfd(const char *str, unsigned int mode, int nbio)
 {
 	const char *p;
@@ -64,6 +64,9 @@ mio_rmidi_getfd(const char *str, unsigned int mode, int nbio)
 	unsigned int devnum;
 	int fd, flags;
 
+#ifdef DEBUG
+	_sndio_debug_init();
+#endif
 	p = _sndio_parsetype(str, "rmidi");
 	if (p == NULL) {
 		DPRINTF("mio_rmidi_getfd: %s: \"rsnd\" expected\n", str);
@@ -96,11 +99,14 @@ mio_rmidi_getfd(const char *str, unsigned int mode, int nbio)
 	return fd;
 }
 
-static struct mio_hdl *
+struct mio_hdl *
 mio_rmidi_fdopen(int fd, unsigned int mode, int nbio)
 {
 	struct mio_rmidi_hdl *hdl;
 
+#ifdef DEBUG
+	_sndio_debug_init();
+#endif
 	hdl = malloc(sizeof(struct mio_rmidi_hdl));
 	if (hdl == NULL)
 		return NULL;
@@ -174,7 +180,7 @@ mio_rmidi_write(struct mio_hdl *sh, const void *buf, size_t len)
 			DPERROR("mio_rmidi_write: write");
 			hdl->mio.eof = 1;
 		}
- 		return 0;
+		return 0;
 	}
 	return n;
 }

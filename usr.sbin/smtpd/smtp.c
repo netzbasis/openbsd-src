@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp.c,v 1.144 2015/11/30 12:49:35 gilles Exp $	*/
+/*	$OpenBSD: smtp.c,v 1.152 2016/01/08 21:31:06 jung Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -49,9 +49,11 @@ static void smtp_accept(int, short, void *);
 static int smtp_enqueue(uid_t *);
 static int smtp_can_accept(void);
 static void smtp_setup_listeners(void);
+static int smtp_sni_callback(SSL *, int *, void *);
 
 #define	SMTP_FD_RESERVE	5
 static size_t	sessions;
+static size_t	maxsessions;
 
 void
 smtp_imsg(struct mproc *p, struct imsg *imsg)
@@ -59,6 +61,7 @@ smtp_imsg(struct mproc *p, struct imsg *imsg)
 	if (p->proc == PROC_LKA) {
 		switch (imsg->hdr.type) {
 		case IMSG_SMTP_DNS_PTR:
+		case IMSG_SMTP_CHECK_SENDER:
 		case IMSG_SMTP_EXPAND_RCPT:
 		case IMSG_SMTP_LOOKUP_HELO:
 		case IMSG_SMTP_AUTHENTICATE:
@@ -162,8 +165,9 @@ smtp_setup_events(void)
 
 	TAILQ_FOREACH(l, env->sc_listeners, entry) {
 		log_debug("debug: smtp: listen on %s port %d flags 0x%01x"
-		    " pki \"%s\"", ss_to_text(&l->ss), ntohs(l->port),
-		    l->flags, l->pki_name);
+		    " pki \"%s\""
+		    " ca \"%s\"", ss_to_text(&l->ss), ntohs(l->port),
+		    l->flags, l->pki_name, l->ca_name);
 
 		session_socket_blockmode(l->fd, BM_NONBLOCK);
 		if (listen(l->fd, SMTPD_BACKLOG) == -1)
@@ -176,15 +180,16 @@ smtp_setup_events(void)
 
 	iter = NULL;
 	while (dict_iter(env->sc_pki_dict, &iter, &k, (void **)&pki)) {
-		if (! ssl_setup((SSL_CTX **)&ssl_ctx, pki))
+		if (!ssl_setup((SSL_CTX **)&ssl_ctx, pki, smtp_sni_callback,
+			env->sc_tls_ciphers))
 			fatal("smtp_setup_events: ssl_setup failure");
 		dict_xset(env->sc_ssl_dict, k, ssl_ctx);
 	}
 
 	purge_config(PURGE_PKI_KEYS);
 
-	log_debug("debug: smtp: will accept at most %d clients",
-	    (getdtablesize() - getdtablecount())/2 - SMTP_FD_RESERVE);
+	maxsessions = (getdtablesize() - getdtablecount()) / 2 - SMTP_FD_RESERVE;
+	log_debug("debug: smtp: will accept at most %zu clients", maxsessions);
 }
 
 static void
@@ -225,6 +230,8 @@ smtp_enqueue(uid_t *euid)
 		listener->ss.ss_len = sizeof(struct sockaddr *);
 		(void)strlcpy(listener->hostname, env->sc_hostname,
 		    sizeof(listener->hostname));
+		(void)strlcpy(listener->filter, env->sc_enqueue_filter,
+		    sizeof listener->filter);
 	}
 
 	/*
@@ -235,9 +242,8 @@ smtp_enqueue(uid_t *euid)
 	if (env->sc_flags & SMTPD_SMTP_PAUSED)
 		return (-1);
 
-	/* XXX dont' fatal here */
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, fd))
-		fatal("socketpair");
+		return (-1);
 
 	hostname = env->sc_hostname;
 	if (euid) {
@@ -269,7 +275,7 @@ smtp_accept(int fd, short event, void *p)
 	if (env->sc_flags & SMTPD_SMTP_PAUSED)
 		fatalx("smtp_session: unexpected client");
 
-	if (! smtp_can_accept()) {
+	if (!smtp_can_accept()) {
 		log_warnx("warn: Disabling incoming SMTP connections: "
 		    "Client limit reached");
 		goto pause;
@@ -313,11 +319,9 @@ pause:
 static int
 smtp_can_accept(void)
 {
-	size_t max;
-
-	max = (getdtablesize() - getdtablecount()) / 2 - SMTP_FD_RESERVE;
-
-	return (sessions < max);
+	if (sessions + 1 == maxsessions)
+		return 0;
+	return (getdtablesize() - getdtablecount() - SMTP_FD_RESERVE >= 2);
 }
 
 void
@@ -335,4 +339,20 @@ smtp_collect(void)
 		env->sc_flags &= ~SMTPD_SMTP_DISABLED;
 		smtp_resume();
 	}
+}
+
+static int
+smtp_sni_callback(SSL *ssl, int *ad, void *arg)
+{
+	const char		*sn;
+	void			*ssl_ctx;
+
+	sn = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (sn == NULL)
+		return SSL_TLSEXT_ERR_NOACK;
+	ssl_ctx = dict_get(env->sc_ssl_dict, sn);
+	if (ssl_ctx == NULL)
+		return SSL_TLSEXT_ERR_NOACK;
+	SSL_set_SSL_CTX(ssl, ssl_ctx);
+	return SSL_TLSEXT_ERR_OK;
 }

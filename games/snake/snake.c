@@ -1,4 +1,4 @@
-/*	$OpenBSD: snake.c,v 1.20 2015/12/02 18:52:23 tb Exp $	*/
+/*	$OpenBSD: snake.c,v 1.23 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: snake.c,v 1.8 1995/04/29 00:06:41 mycroft Exp $	*/
 
 /*
@@ -41,9 +41,6 @@
  *	cc -O snake.c move.c -o snake -lm -lcurses
  */
 
-#include <sys/types.h>
-#include <sys/ioctl.h>
-
 #include <curses.h>
 #include <err.h>
 #include <errno.h>
@@ -51,11 +48,9 @@
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #ifdef	DEBUG
@@ -171,7 +166,7 @@ main(int argc, char *argv[])
 				snscore(rawscores, 0);
 			else
 				printf("no scores so far\n");
-			exit(0);
+			return 0;
 			break;
 		case 't': /* slow terminal */
 			fast = 0;
@@ -179,7 +174,7 @@ main(int argc, char *argv[])
 		default:
 			fputs("usage: snake [-st] [-l length] [-w width]\n",
 			    stderr);
-			exit(1);
+			return 1;
 		}
 
 	readscores(1);
@@ -240,8 +235,7 @@ main(int argc, char *argv[])
 		chase(&snake[i], &snake[i - 1]);
 	setup();
 	mainloop();
-	/* NOT REACHED */
-	return(0);
+	return 0;
 }
 
 /* Main command loop */

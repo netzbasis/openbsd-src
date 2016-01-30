@@ -1,4 +1,4 @@
-/*      $OpenBSD: ath.c,v 1.108 2015/11/25 03:09:58 dlg Exp $  */
+/*      $OpenBSD: ath.c,v 1.110 2016/01/12 09:28:09 stsp Exp $  */
 /*	$NetBSD: ath.c,v 1.37 2004/08/18 21:59:39 dyoung Exp $	*/
 
 /*-
@@ -299,7 +299,6 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 	ath_rate_setup(sc, IEEE80211_MODE_11A);
 	ath_rate_setup(sc, IEEE80211_MODE_11B);
 	ath_rate_setup(sc, IEEE80211_MODE_11G);
-	ath_rate_setup(sc, IEEE80211_MODE_TURBO);
 
 	error = ath_desc_alloc(sc);
 	if (error != 0) {
@@ -350,8 +349,7 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 	}
 
 	ifp->if_softc = sc;
-	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST
-	    | IFF_NOTRAILERS;
+	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_start = ath_start;
 	ifp->if_watchdog = ath_watchdog;
 	ifp->if_ioctl = ath_ioctl;
@@ -618,8 +616,6 @@ ath_chan2flags(struct ieee80211com *ic, struct ieee80211_channel *chan)
 		return CHANNEL_B;
 	case IEEE80211_MODE_11G:
 		return CHANNEL_G;
-	case IEEE80211_MODE_TURBO:
-		return CHANNEL_T;
 	default:
 		panic("%s: unsupported mode %d", __func__, mode);
 		return 0;
@@ -3053,9 +3049,6 @@ ath_rate_setup(struct ath_softc *sc, u_int mode)
 		break;
 	case IEEE80211_MODE_11G:
 		sc->sc_rates[mode] = ath_hal_get_rate_table(ah, HAL_MODE_11G);
-		break;
-	case IEEE80211_MODE_TURBO:
-		sc->sc_rates[mode] = ath_hal_get_rate_table(ah, HAL_MODE_TURBO);
 		break;
 	default:
 		DPRINTF(ATH_DEBUG_ANY,

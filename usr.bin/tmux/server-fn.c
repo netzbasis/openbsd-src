@@ -1,7 +1,7 @@
-/* $OpenBSD: server-fn.c,v 1.94 2015/11/24 23:46:15 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.98 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -293,12 +293,13 @@ server_unlink_window(struct session *s, struct winlink *wl)
 }
 
 void
-server_destroy_pane(struct window_pane *wp)
+server_destroy_pane(struct window_pane *wp, int hooks)
 {
 	struct window		*w = wp->window;
 	int			 old_fd;
 	struct screen_write_ctx	 ctx;
 	struct grid_cell	 gc;
+	struct cmd_find_state	 fs;
 
 	old_fd = wp->fd;
 	if (wp->fd != -1) {
@@ -319,12 +320,18 @@ server_destroy_pane(struct window_pane *wp)
 		screen_write_puts(&ctx, &gc, "Pane is dead");
 		screen_write_stop(&ctx);
 		wp->flags |= PANE_REDRAW;
+
+		if (hooks && cmd_find_from_pane(&fs, wp) == 0)
+			hooks_run(hooks_get(fs.s), NULL, &fs, "pane-died");
 		return;
 	}
 
 	server_unzoom_window(w);
 	layout_close_pane(wp);
 	window_remove_pane(w, wp);
+
+	if (hooks && cmd_find_from_window(&fs, w) == 0)
+		hooks_run(hooks_get(fs.s), NULL, &fs, "pane-exited");
 
 	if (TAILQ_EMPTY(&w->panes))
 		server_kill_window(w);
@@ -384,11 +391,13 @@ server_destroy_session(struct session *s)
 		} else {
 			c->last_session = NULL;
 			c->session = s_new;
+			server_client_set_key_table(c, NULL);
 			status_timer_start(c);
 			notify_attached_session_changed(c);
 			session_update_activity(s_new, NULL);
 			gettimeofday(&s_new->last_attached_time, NULL);
 			server_redraw_client(c);
+			alerts_check_session(s_new);
 		}
 	}
 	recalculate_sizes();

@@ -1,6 +1,6 @@
 #!/bin/sh -
 #
-#	$OpenBSD: newvers.sh,v 1.140 2015/08/10 20:31:00 jca Exp $
+#	$OpenBSD: newvers.sh,v 1.142 2016/01/06 23:14:05 benno Exp $
 #	$NetBSD: newvers.sh,v 1.17.2.1 1995/10/12 05:17:11 jtc Exp $
 #
 # Copyright (c) 1984, 1986, 1990, 1993
@@ -52,6 +52,8 @@ id=`basename "${d}"`
 #		VERSION and other bits
 #	sys/arch/macppc/stand/tbxidata/bsd.tbxi
 #		change	/X.X/macppc/bsd.rd
+#	usr.bin/signify/signify.1
+#		change the version in the EXAMPLES section
 #
 # -current and -beta tagging:
 #	For release, select STATUS ""
@@ -61,14 +63,14 @@ id=`basename "${d}"`
 #	and disable POOL_DEBUG in sys/conf/GENERIC
 
 ost="OpenBSD"
-osr="5.8"
+osr="5.9"
 
 cat >vers.c <<eof
+#define STATUS "-beta"			/* just before a release */
 #if 0
 #define STATUS ""			/* release */
-#define STATUS "-beta"			/* just before a release */
-#endif
 #define STATUS "-current"		/* just after a release */
+#endif
 
 const char ostype[] = "${ost}";
 const char osrelease[] = "${osr}";

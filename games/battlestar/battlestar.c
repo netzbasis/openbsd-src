@@ -1,4 +1,4 @@
-/*	$OpenBSD: battlestar.c,v 1.18 2015/12/04 17:34:40 tb Exp $	*/
+/*	$OpenBSD: battlestar.c,v 1.20 2016/01/01 15:56:04 tedu Exp $	*/
 /*	$NetBSD: battlestar.c,v 1.3 1995/03/21 15:06:47 cgd Exp $	*/
 
 /*
@@ -37,10 +37,12 @@
  * on the Cory PDP-11/70, University of California, Berkeley.
  */
 
+#include <err.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "extern.h"
 #include "pathnames.h"
-
-int main(int, char *[]);
 
 int
 main(int argc, char *argv[])

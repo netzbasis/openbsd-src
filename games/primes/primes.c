@@ -1,4 +1,4 @@
-/*	$OpenBSD: primes.c,v 1.18 2015/11/30 08:53:53 tb Exp $	*/
+/*	$OpenBSD: primes.c,v 1.21 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: primes.c,v 1.5 1995/04/24 12:24:47 cgd Exp $	*/
 
 /*
@@ -50,11 +50,9 @@
  * validation check: there are 664579 primes between 0 and 10^7
  */
 
-#include <sys/types.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,7 +91,7 @@ extern const int pattern_size;	/* length of pattern array */
 
 void	primes(ubig, ubig);
 ubig	read_num_buf(void);
-void	usage(void);
+__dead void	usage(void);
 
 int
 main(int argc, char *argv[])
@@ -166,7 +164,7 @@ main(int argc, char *argv[])
 	if (start > stop)
 		errx(1, "start value must be less than stop value.");
 	primes(start, stop);
-	exit(0);
+	return 0;
 }
 
 /*

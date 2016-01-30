@@ -122,6 +122,12 @@
 ./usr/include/dev/flashvar.h
 ./usr/include/dev/gpio
 ./usr/include/dev/gpio/gpiovar.h
+./usr/include/dev/hid
+./usr/include/dev/hid/hid.h
+./usr/include/dev/hid/hidkbdsc.h
+./usr/include/dev/hid/hidkbdvar.h
+./usr/include/dev/hid/hidmsvar.h
+./usr/include/dev/hid/hidmtvar.h
 ./usr/include/dev/hil
 ./usr/include/dev/hil/hildevs.h
 ./usr/include/dev/hil/hildevs_data.h
@@ -132,6 +138,7 @@
 ./usr/include/dev/i2c/i2c_bitbang.h
 ./usr/include/dev/i2c/i2c_io.h
 ./usr/include/dev/i2c/i2cvar.h
+./usr/include/dev/i2c/ihidev.h
 ./usr/include/dev/i2c/wm8750reg.h
 ./usr/include/dev/ic
 ./usr/include/dev/ic/aac_tables.h
@@ -637,6 +644,8 @@
 ./usr/include/dev/pv
 ./usr/include/dev/pv/pvreg.h
 ./usr/include/dev/pv/pvvar.h
+./usr/include/dev/pv/xenreg.h
+./usr/include/dev/pv/xenvar.h
 ./usr/include/dev/radio_if.h
 ./usr/include/dev/radiovar.h
 ./usr/include/dev/rasops
@@ -702,10 +711,6 @@
 ./usr/include/dev/usb/dwc2/dwc2var.h
 ./usr/include/dev/usb/ehcireg.h
 ./usr/include/dev/usb/ehcivar.h
-./usr/include/dev/usb/hid.h
-./usr/include/dev/usb/hidkbdsc.h
-./usr/include/dev/usb/hidkbdvar.h
-./usr/include/dev/usb/hidmsvar.h
 ./usr/include/dev/usb/if_athn_usb.h
 ./usr/include/dev/usb/if_atureg.h
 ./usr/include/dev/usb/if_auereg.h
@@ -916,7 +921,6 @@
 ./usr/include/locale.h
 ./usr/include/login_cap.h
 ./usr/include/machine
-./usr/include/malloc.h
 ./usr/include/math.h
 ./usr/include/md5.h
 ./usr/include/memory.h
@@ -965,6 +969,7 @@
 ./usr/include/net/if_var.h
 ./usr/include/net/if_vlan_var.h
 ./usr/include/net/if_vxlan.h
+./usr/include/net/ifq.h
 ./usr/include/net/netisr.h
 ./usr/include/net/pfkeyv2.h
 ./usr/include/net/pfvar.h
@@ -5997,6 +6002,7 @@
 ./usr/share/man/man3/ypprot_err.3
 ./usr/share/man/man3/zlibCompileFlags.3
 ./usr/share/man/man3/zlibVersion.3
+./usr/share/man/man9/CTASSERT.9
 ./usr/share/man/man9/FREF.9
 ./usr/share/man/man9/FRELE.9
 ./usr/share/man/man9/KASSERT.9
@@ -6254,6 +6260,7 @@
 ./usr/share/man/man9/config_detach_children.9
 ./usr/share/man/man9/config_found.9
 ./usr/share/man/man9/config_found_sm.9
+./usr/share/man/man9/config_mountroot.9
 ./usr/share/man/man9/config_rootfound.9
 ./usr/share/man/man9/config_rootsearch.9
 ./usr/share/man/man9/config_search.9
@@ -6287,7 +6294,6 @@
 ./usr/share/man/man9/dma_alloc.9
 ./usr/share/man/man9/dma_free.9
 ./usr/share/man/man9/dohooks.9
-./usr/share/man/man9/domountroothooks.9
 ./usr/share/man/man9/dostartuphooks.9
 ./usr/share/man/man9/evcount.9
 ./usr/share/man/man9/evcount_attach.9
@@ -6396,12 +6402,15 @@
 ./usr/share/man/man9/ieee80211_setmode.9
 ./usr/share/man/man9/ieee80211_watchdog.9
 ./usr/share/man/man9/ieee80211_wep_crypt.9
+./usr/share/man/man9/if_get.9
+./usr/share/man/man9/if_put.9
 ./usr/share/man/man9/if_rxr_get.9
 ./usr/share/man/man9/if_rxr_info_ioctl.9
 ./usr/share/man/man9/if_rxr_init.9
 ./usr/share/man/man9/if_rxr_inuse.9
 ./usr/share/man/man9/if_rxr_ioctl.9
 ./usr/share/man/man9/if_rxr_put.9
+./usr/share/man/man9/ifq_barrier.9
 ./usr/share/man/man9/ifq_clr_oactive.9
 ./usr/share/man/man9/ifq_deq_begin.9
 ./usr/share/man/man9/ifq_deq_commit.9
@@ -6412,6 +6421,7 @@
 ./usr/share/man/man9/ifq_is_oactive.9
 ./usr/share/man/man9/ifq_len.9
 ./usr/share/man/man9/ifq_purge.9
+./usr/share/man/man9/ifq_restart.9
 ./usr/share/man/man9/ifq_set_oactive.9
 ./usr/share/man/man9/iic.9
 ./usr/share/man/man9/iic_acquire_bus.9
@@ -6513,8 +6523,6 @@
 ./usr/share/man/man9/ml_len.9
 ./usr/share/man/man9/ml_purge.9
 ./usr/share/man/man9/mono_time.9
-./usr/share/man/man9/mountroothook_disestablish.9
-./usr/share/man/man9/mountroothook_establish.9
 ./usr/share/man/man9/mq_dechain.9
 ./usr/share/man/man9/mq_delist.9
 ./usr/share/man/man9/mq_dequeue.9
@@ -6601,6 +6609,7 @@
 ./usr/share/man/man9/refcnt_rele.9
 ./usr/share/man/man9/refcnt_rele_wake.9
 ./usr/share/man/man9/refcnt_take.9
+./usr/share/man/man9/refcnt_take_n.9
 ./usr/share/man/man9/resettodr.9
 ./usr/share/man/man9/route.9
 ./usr/share/man/man9/rrw_enter.9

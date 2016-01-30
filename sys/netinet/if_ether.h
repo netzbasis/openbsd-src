@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.h,v 1.64 2015/11/24 15:27:46 mpi Exp $	*/
+/*	$OpenBSD: if_ether.h,v 1.66 2016/01/08 13:53:24 mpi Exp $	*/
 /*	$NetBSD: if_ether.h,v 1.22 1996/05/11 13:00:00 mycroft Exp $	*/
 
 /*
@@ -182,11 +182,20 @@ extern u_int8_t etherbroadcastaddr[ETHER_ADDR_LEN];
 extern u_int8_t etheranyaddr[ETHER_ADDR_LEN];
 extern u_int8_t ether_ipmulticast_min[ETHER_ADDR_LEN];
 extern u_int8_t ether_ipmulticast_max[ETHER_ADDR_LEN];
-extern struct niqueue arpintrq;
-extern struct niqueue rarpintrq;
 
+#ifdef NFSCLIENT
+extern unsigned int revarp_ifidx;
+#endif /* NFSCLIENT */
+
+void	revarpinput(struct mbuf *);
+void	revarprequest(struct ifnet *);
+int	revarpwhoarewe(struct ifnet *, struct in_addr *, struct in_addr *);
+int	revarpwhoami(struct in_addr *, struct ifnet *);
+
+void	arpinput(struct mbuf *);
+void	arprequest(struct ifnet *, u_int32_t *, u_int32_t *, u_int8_t *);
 void	arpwhohas(struct arpcom *, struct in_addr *);
-void	arpintr(void);
+int	arpproxy(struct in_addr, unsigned int);
 int	arpresolve(struct ifnet *, struct rtentry *, struct mbuf *,
 	    struct sockaddr *, u_char *);
 void	arp_rtrequest(struct ifnet *, int, struct rtentry *);
@@ -195,6 +204,15 @@ void	ether_fakeaddr(struct ifnet *);
 int	ether_addmulti(struct ifreq *, struct arpcom *);
 int	ether_delmulti(struct ifreq *, struct arpcom *);
 int	ether_multiaddr(struct sockaddr *, u_int8_t[], u_int8_t[]);
+void	ether_ifattach(struct ifnet *);
+void	ether_ifdetach(struct ifnet *);
+int	ether_ioctl(struct ifnet *, struct arpcom *, u_long, caddr_t);
+int	ether_input(struct ifnet *, struct mbuf *, void *);
+int	ether_output(struct ifnet *,
+	    struct mbuf *, struct sockaddr *, struct rtentry *);
+void	ether_rtrequest(struct ifnet *, int, struct rtentry *);
+char	*ether_sprintf(u_char *);
+
 
 /*
  * Ethernet multicast address structure.  There is one of these for each
@@ -261,17 +279,6 @@ do {									\
 	(step).e_enm = LIST_FIRST(&(ac)->ac_multiaddrs);		\
 	ETHER_NEXT_MULTI((step), (enm));				\
 } while (/* CONSTCOND */ 0)
-
-#ifdef NFSCLIENT
-extern unsigned int revarp_ifidx;
-#endif /* NFSCLIENT */
-
-void arprequest(struct ifnet *, u_int32_t *, u_int32_t *, u_int8_t *);
-int arpproxy(struct in_addr, unsigned int);
-void revarprequest(struct ifnet *);
-int revarpwhoarewe(struct ifnet *, struct in_addr *, struct in_addr *);
-int revarpwhoami(struct in_addr *, struct ifnet *);
-int db_show_arptab(void);
 
 u_int32_t ether_crc32_le_update(u_int32_t crc, const u_int8_t *, size_t);
 u_int32_t ether_crc32_be_update(u_int32_t crc, const u_int8_t *, size_t);

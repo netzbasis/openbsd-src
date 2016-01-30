@@ -1,4 +1,4 @@
-/*	$OpenBSD: pgt.c,v 1.84 2015/11/25 03:09:58 dlg Exp $  */
+/*	$OpenBSD: pgt.c,v 1.86 2016/01/12 09:28:09 stsp Exp $  */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -554,9 +554,9 @@ trying_again:
 }
 
 void
-pgt_attach(void *xsc)
+pgt_attach(struct device *self)
 {
-	struct pgt_softc *sc = xsc;
+	struct pgt_softc *sc = (struct pgt_softc *)self;
 	int error;
 
 	/* debug flags */
@@ -2635,8 +2635,6 @@ badopmode:
 		preamble = PGT_OID_PREAMBLE_MODE_SHORT;
 		DPRINTF(("IEEE80211_MODE_11G\n"));
 		break;
-	case IEEE80211_MODE_TURBO: /* not handled */
-		/* FALLTHROUGH */
 	case IEEE80211_MODE_AUTO:
 		profile = PGT_PROFILE_MIXED_G_WIFI;
 		preamble = PGT_OID_PREAMBLE_MODE_DYNAMIC;

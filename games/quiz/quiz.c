@@ -1,4 +1,4 @@
-/*	$OpenBSD: quiz.c,v 1.22 2015/10/25 09:34:49 tedu Exp $	*/
+/*	$OpenBSD: quiz.c,v 1.28 2016/01/10 13:35:10 mestre Exp $	*/
 /*	$NetBSD: quiz.c,v 1.9 1995/04/22 10:16:58 cgd Exp $	*/
 
 /*-
@@ -34,17 +34,15 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <errno.h>
+#include <ctype.h>
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <err.h>
-#include <time.h>
 #include <unistd.h>
-#include "quiz.h"
+
 #include "pathnames.h"
+#include "quiz.h"
 
 static QE qlist;
 static int catone, cattwo, tflag;
@@ -58,7 +56,7 @@ const char	*next_cat(const char *);
 void	 quiz(void);
 void	 score(u_int, u_int, u_int);
 void	 show_index(void);
-void	 usage(void);
+__dead void	usage(void);
 
 int
 main(int argc, char *argv[])
@@ -66,7 +64,7 @@ main(int argc, char *argv[])
 	int ch;
 	const char *indexfile;
 
-	if (pledge("stdio rpath", NULL) == -1)
+	if (pledge("stdio rpath proc exec", NULL) == -1)
 		err(1, "pledge");
 
 	indexfile = _PATH_QUIZIDX;
@@ -90,6 +88,8 @@ main(int argc, char *argv[])
 		show_index();
 		break;
 	case 2:
+		if (pledge("stdio rpath", NULL) == -1)
+			err(1, "pledge");
 		get_file(indexfile);
 		get_cats(argv[0], argv[1]);
 		quiz();
@@ -97,7 +97,7 @@ main(int argc, char *argv[])
 	default:
 		usage();
 	}
-	exit(0);
+	return 0;
 }
 
 void
@@ -146,21 +146,30 @@ show_index(void)
 {
 	QE *qp;
 	const char *p, *s;
+	FILE *pf;
+	const char *pager;
 
-	printf("Subjects:\n\n");
+	if (!isatty(1))
+		pager = "/bin/cat";
+	else if (!(pager = getenv("PAGER")) || (*pager == 0))
+			pager = _PATH_PAGER;
+	if ((pf = popen(pager, "w")) == NULL)
+		err(1, "%s", pager);
+	(void)fprintf(pf, "Subjects:\n\n");
 	for (qp = qlist.q_next; qp; qp = qp->q_next) {
 		for (s = next_cat(qp->q_text); s; s = next_cat(s)) {
 			if (!rxp_compile(s))
 				errx(1, "%s", rxperr);
 			if ((p = rxp_expand()))
-				printf("%s ", p);
+				(void)fprintf(pf, "%s ", p);
 		}
-		printf("\n");
+		(void)fprintf(pf, "\n");
 	}
-	printf("\n%s\n%s\n%s\n",
+	(void)fprintf(pf, "\n%s\n%s\n%s\n",
 "For example, \"quiz victim killer\" prints a victim's name and you reply",
 "with the killer, and \"quiz killer victim\" works the other way around.",
 "Type an empty line to get the correct answer.");
+	(void)pclose(pf);
 }
 
 void
@@ -302,7 +311,6 @@ next_cat(const char *s)
 			esc = 0;
 			break;
 		}
-	/* NOTREACHED */
 }
 
 char *

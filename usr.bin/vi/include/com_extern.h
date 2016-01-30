@@ -1,4 +1,4 @@
-/*	$OpenBSD: com_extern.h,v 1.7 2014/11/20 08:50:53 bentley Exp $	*/
+/*	$OpenBSD: com_extern.h,v 1.11 2016/01/20 08:43:27 bentley Exp $	*/
 
 int cut(SCR *, CHAR_T *, MARK *, MARK *, int);
 int cut_line(SCR *, recno_t, size_t, size_t, CB *);
@@ -19,9 +19,9 @@ void set_alt_name(SCR *, char *);
 lockr_t file_lock(SCR *, char *, int *, int, int);
 int v_key_init(SCR *);
 void v_key_ilookup(SCR *);
-size_t v_key_len(SCR *, ARG_CHAR_T);
-CHAR_T *v_key_name(SCR *, ARG_CHAR_T);
-int v_key_val(SCR *, ARG_CHAR_T);
+size_t v_key_len(SCR *, CHAR_T);
+CHAR_T *v_key_name(SCR *, CHAR_T);
+int v_key_val(SCR *, CHAR_T);
 int v_event_push(SCR *, EVENT *, CHAR_T *, size_t, u_int);
 int v_event_get(SCR *, EVENT *, int, u_int32_t);
 void v_event_err(SCR *, EVENT *);
@@ -47,17 +47,14 @@ int editor(GS *, int, char *[]);
 void v_end(GS *);
 int mark_init(SCR *, EXF *);
 int mark_end(SCR *, EXF *);
-int mark_get(SCR *, ARG_CHAR_T, MARK *, mtype_t);
-int mark_set(SCR *, ARG_CHAR_T, MARK *, int);
+int mark_get(SCR *, CHAR_T, MARK *, mtype_t);
+int mark_set(SCR *, CHAR_T, MARK *, int);
 int mark_insdel(SCR *, lnop_t, recno_t);
 void msgq(SCR *, mtype_t, const char *, ...);
 void msgq_str(SCR *, mtype_t, char *, char *);
 void mod_rpt(SCR *);
 void msgq_status(SCR *, recno_t, u_int);
-int msg_open(SCR *, char *);
-void msg_close(GS *);
 const char *msg_cmsg(SCR *, cmsg_t, size_t *);
-const char *msg_cat(SCR *, const char *, size_t *);
 char *msg_print(SCR *, const char *, int *);
 int opts_init(SCR *, int *);
 int opts_set(SCR *, ARGS *[], char *);
@@ -73,7 +70,6 @@ int f_altwerase(SCR *, OPTION *, char *, u_long *);
 int f_columns(SCR *, OPTION *, char *, u_long *);
 int f_lines(SCR *, OPTION *, char *, u_long *);
 int f_lisp(SCR *, OPTION *, char *, u_long *);
-int f_msgcat(SCR *, OPTION *, char *, u_long *);
 int f_paragraph(SCR *, OPTION *, char *, u_long *);
 int f_print(SCR *, OPTION *, char *, u_long *);
 int f_readonly(SCR *, OPTION *, char *, u_long *);

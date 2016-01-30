@@ -1,7 +1,7 @@
-/* $OpenBSD: server-client.c,v 1.173 2015/12/01 09:41:03 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.181 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,6 @@
 
 #include "tmux.h"
 
-void		server_client_key_table(struct client *, const char *);
 void		server_client_free(int, short, void *);
 void		server_client_check_focus(struct window_pane *);
 void		server_client_check_resize(struct window_pane *);
@@ -72,11 +71,30 @@ server_client_check_nested(struct client *c)
 
 /* Set client key table. */
 void
-server_client_key_table(struct client *c, const char *name)
+server_client_set_key_table(struct client *c, const char *name)
 {
+	if (name == NULL)
+		name = server_client_get_key_table(c);
+
 	key_bindings_unref_table(c->keytable);
 	c->keytable = key_bindings_get_table(name, 1);
 	c->keytable->references++;
+}
+
+/* Get default key table. */
+const char *
+server_client_get_key_table(struct client *c)
+{
+	struct session	*s = c->session;
+	const char	*name;
+
+	if (s == NULL)
+		return ("root");
+
+	name = options_get_string(s->options, "key-table");
+	if (*name == '\0')
+		return ("root");
+	return (name);
 }
 
 /* Create a new client. */
@@ -256,6 +274,19 @@ server_client_free(__unused int fd, __unused short events, void *arg)
 		free(c);
 }
 
+/* Detach a client. */
+void
+server_client_detach(struct client *c, enum msgtype msgtype)
+{
+	struct session	*s = c->session;
+
+	if (s == NULL)
+		return;
+
+	hooks_run(c->session->hooks, c, NULL, "client-detached");
+	proc_send_s(c->peer, msgtype, s->name);
+}
+
 /* Check for mouse keys. */
 key_code
 server_client_check_mouse(struct client *c)
@@ -296,7 +327,7 @@ server_client_check_mouse(struct client *c)
 		log_debug("down at %u,%u", x, y);
 	}
 	if (type == NOTYPE)
-		return (KEYC_NONE);
+		return (KEYC_UNKNOWN);
 
 	/* Always save the session. */
 	m->s = s->id;
@@ -306,7 +337,7 @@ server_client_check_mouse(struct client *c)
 	if (m->statusat != -1 && y == (u_int)m->statusat) {
 		w = status_get_window_at(c, x);
 		if (w == NULL)
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 		m->w = w->id;
 		where = STATUS;
 	} else
@@ -339,7 +370,7 @@ server_client_check_mouse(struct client *c)
 			}
 		}
 		if (where == NOWHERE)
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 		m->wp = wp->id;
 		m->w = wp->window->id;
 	} else
@@ -358,7 +389,7 @@ server_client_check_mouse(struct client *c)
 	}
 
 	/* Convert to a key binding. */
-	key = KEYC_NONE;
+	key = KEYC_UNKNOWN;
 	switch (type) {
 	case NOTYPE:
 		break;
@@ -470,8 +501,8 @@ server_client_check_mouse(struct client *c)
 		}
 		break;
 	}
-	if (key == KEYC_NONE)
-		return (KEYC_NONE);
+	if (key == KEYC_UNKNOWN)
+		return (KEYC_UNKNOWN);
 
 	/* Apply modifiers if any. */
 	if (b & MOUSE_MASK_META)
@@ -559,7 +590,7 @@ server_client_handle_key(struct client *c, key_code key)
 		if (c->flags & CLIENT_READONLY)
 			return;
 		key = server_client_check_mouse(c);
-		if (key == KEYC_NONE)
+		if (key == KEYC_UNKNOWN)
 			return;
 
 		m->valid = 1;
@@ -585,7 +616,7 @@ retry:
 		 * again in the root table.
 		 */
 		if ((c->flags & CLIENT_REPEAT) && !bd->can_repeat) {
-			server_client_key_table(c, "root");
+			server_client_set_key_table(c, NULL);
 			c->flags &= ~CLIENT_REPEAT;
 			server_status_client(c);
 			goto retry;
@@ -612,7 +643,7 @@ retry:
 			evtimer_add(&c->repeat_timer, &tv);
 		} else {
 			c->flags &= ~CLIENT_REPEAT;
-			server_client_key_table(c, "root");
+			server_client_set_key_table(c, NULL);
 		}
 		server_status_client(c);
 
@@ -627,15 +658,15 @@ retry:
 	 * root table and try again.
 	 */
 	if (c->flags & CLIENT_REPEAT) {
-		server_client_key_table(c, "root");
+		server_client_set_key_table(c, NULL);
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
 		goto retry;
 	}
 
 	/* If no match and we're not in the root table, that's it. */
-	if (strcmp(c->keytable->name, "root") != 0) {
-		server_client_key_table(c, "root");
+	if (strcmp(c->keytable->name, server_client_get_key_table(c)) != 0) {
+		server_client_set_key_table(c, NULL);
 		server_status_client(c);
 		return;
 	}
@@ -646,7 +677,7 @@ retry:
 	 */
 	if (key == (key_code)options_get_number(s->options, "prefix") ||
 	    key == (key_code)options_get_number(s->options, "prefix2")) {
-		server_client_key_table(c, "prefix");
+		server_client_set_key_table(c, "prefix");
 		server_status_client(c);
 		return;
 	}
@@ -821,7 +852,7 @@ server_client_repeat_timer(__unused int fd, __unused short events, void *data)
 	struct client	*c = data;
 
 	if (c->flags & CLIENT_REPEAT) {
-		server_client_key_table(c, "root");
+		server_client_set_key_table(c, NULL);
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
 	}
@@ -920,7 +951,7 @@ server_client_set_title(struct client *c)
 
 	template = options_get_string(s->options, "set-titles-string");
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 
 	title = format_expand_time(ft, template, time(NULL));
@@ -995,6 +1026,8 @@ server_client_dispatch(struct imsg *imsg, void *arg)
 			recalculate_sizes();
 			server_redraw_client(c);
 		}
+		if (c->session != NULL)
+			hooks_run(c->session->hooks, c, NULL, "client-resized");
 		break;
 	case MSG_EXITING:
 		if (datalen != 0)

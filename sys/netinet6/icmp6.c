@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.182 2015/12/03 21:11:53 sashan Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.184 2016/01/21 06:32:19 jsg Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -444,8 +444,10 @@ icmp6_input(struct mbuf **mp, int *offp, int proto)
 	if (ifp->if_type == IFT_CARP &&
 	    icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
 	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
-	    ip6->ip6_dst.s6_addr32))
+	    ip6->ip6_dst.s6_addr32)) {
+		if_put(ifp);
 		goto freeit;
+	}
 
 	if_put(ifp);
 #endif
@@ -1952,34 +1954,42 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rdomain)
 void
 icmp6_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp6_mtudisc_timeout: bad route to timeout");
-	if ((rt->rt_flags & (RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_DYNAMIC | RTF_HOST)) {
-		int s;
+	struct ifnet *ifp;
+	int s;
 
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
+
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		s = splsoftnet();
-		rtdeletemsg(rt, NULL, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 		splx(s);
 	} else {
 		if (!(rt->rt_rmx.rmx_locks & RTV_MTU))
 			rt->rt_rmx.rmx_mtu = 0;
 	}
+
+	if_put(ifp);
 }
 
 void
 icmp6_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp6_redirect_timeout: bad route to timeout");
-	if ((rt->rt_flags & (RTF_GATEWAY | RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_GATEWAY | RTF_DYNAMIC | RTF_HOST)) {
-		int s;
+	struct ifnet *ifp;
+	int s;
 
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
+
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		s = splsoftnet();
-		rtdeletemsg(rt, NULL, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 		splx(s);
 	}
+
+	if_put(ifp);
 }
 
 int *icmpv6ctl_vars[ICMPV6CTL_MAXID] = ICMPV6CTL_VARS;

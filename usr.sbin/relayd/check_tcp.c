@@ -1,4 +1,4 @@
-/*	$OpenBSD: check_tcp.c,v 1.48 2015/11/28 09:52:07 reyk Exp $	*/
+/*	$OpenBSD: check_tcp.c,v 1.51 2016/01/11 21:31:42 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -41,7 +41,6 @@ void	tcp_close(struct ctl_tcp_event *, int);
 void	tcp_send_req(int, short, void *);
 void	tcp_read_buf(int, short, void *);
 
-int	check_http_resphead(struct ctl_tcp_event *);
 int	check_http_code(struct ctl_tcp_event *);
 int	check_http_digest(struct ctl_tcp_event *);
 int	check_send_expect(struct ctl_tcp_event *);
@@ -142,10 +141,8 @@ tcp_close(struct ctl_tcp_event *cte, int status)
 	cte->s = -1;
 	if (status != 0)
 		cte->host->up = status;
-	if (cte->buf) {
-		ibuf_free(cte->buf);
-		cte->buf = NULL;
-	}
+	ibuf_free(cte->buf);
+	cte->buf = NULL;
 }
 
 void
@@ -159,7 +156,7 @@ tcp_host_up(struct ctl_tcp_event *cte)
 		hce_notify_done(cte->host, HCE_TCP_CONNECT_OK);
 		return;
 	case CHECK_HTTP_CODE:
-		cte->validate_read = check_http_resphead;
+		cte->validate_read = NULL;
 		cte->validate_close = check_http_code;
 		break;
 	case CHECK_HTTP_DIGEST:
@@ -301,24 +298,6 @@ check_send_expect(struct ctl_tcp_event *cte)
 }
 
 int
-check_http_resphead(struct ctl_tcp_event *cte)
-{
-	int	 i, siz;
-
-	/* checks whether the buffer contains the response header  */
-	siz = ibuf_size(cte->buf);
-	for (i = 0; i <= siz - 4; i++) {
-		if (cte->buf->buf[i] == '\r' &&
-		    cte->buf->buf[i + 1] == '\n' &&
-		    cte->buf->buf[i + 2] == '\r' &&
-		    cte->buf->buf[i + 3] == '\n')
-			return (0);
-	}
-
-	return (1);
-}
-
-int
 check_http_code(struct ctl_tcp_event *cte)
 {
 	char		*head;
@@ -339,6 +318,7 @@ check_http_code(struct ctl_tcp_event *cte)
 	head = cte->buf->buf;
 	host = cte->host;
 	host->he = HCE_HTTP_CODE_ERROR;
+	host->code = 0;
 
 	if (strncmp(head, "HTTP/1.1 ", strlen("HTTP/1.1 ")) &&
 	    strncmp(head, "HTTP/1.0 ", strlen("HTTP/1.0 "))) {
@@ -361,10 +341,11 @@ check_http_code(struct ctl_tcp_event *cte)
 		return (1);
 	}
 	if (code != cte->table->conf.retcode) {
-		log_debug("%s: %s failed (invalid HTTP code returned)",
-		    __func__, host->conf.name);
+		log_debug("%s: %s failed (invalid HTTP code %d returned)",
+		    __func__, host->conf.name, code);
 		host->he = HCE_HTTP_CODE_FAIL;
 		host->up = HOST_DOWN;
+		host->code = code;
 	} else {
 		host->he = HCE_HTTP_CODE_OK;
 		host->up = HOST_UP;

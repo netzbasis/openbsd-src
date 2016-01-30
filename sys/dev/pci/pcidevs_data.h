@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1780 2015/11/28 14:11:33 kettenis Exp 
+ *	OpenBSD: pcidevs,v 1.1786 2016/01/30 01:02:04 jsg Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -10952,6 +10952,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "I218-V",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_X557_AT2,
+	    "X557-AT2",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_H_PCIE_X16,
 	    "Core 5G PCIE",
 	},
@@ -12909,7 +12913,7 @@ static const struct pci_known_product pci_known_products[] = {
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82801HBM_RAID,
-	    "82081HBM RAID",
+	    "82801HBM RAID",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82801H_SMB,
@@ -15404,6 +15408,82 @@ static const struct pci_known_product pci_known_products[] = {
 	    "5100 PCIE",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_HB,
+	    "Xeon-D Host",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_1,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_2,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_3,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_4,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_5,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_6,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_7,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_8,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_9,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_PCIE_10,
+	    "Xeon-D PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_ADDRMAP,
+	    "Xeon-D Address Map",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_HOTPLUG,
+	    "Xeon-D Hot Plug",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_RAS,
+	    "Xeon-D RAS",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_IOAPIC,
+	    "Xeon-D I/O APIC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_QD_1,
+	    "Xeon-D QuickData",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_QD_2,
+	    "Xeon-D QuickData",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_QD_3,
+	    "Xeon-D QuickData",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_XEOND_QD_4,
+	    "Xeon-D QuickData",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_IOAT_SCNB,
 	    "I/OAT SCNB",
 	},
@@ -16086,6 +16166,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_C610_SMB,
 	    "C610 SMBus",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_C610_THERM,
+	    "C610 Thermal",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_C610_EHCI_1,
@@ -17578,6 +17662,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_MOXA, PCI_PRODUCT_MOXA_C168H,
 	    "C168H",
+	},
+	{
+	    PCI_VENDOR_MOXA, PCI_PRODUCT_MOXA_CP168U,
+	    "CP-168U",
 	},
 	{
 	    PCI_VENDOR_MRTMAGMA, PCI_PRODUCT_MRTMAGMA_DMA4,
@@ -21124,6 +21212,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "HSP MicroModem 56",
 	},
 	{
+	    PCI_VENDOR_PERLE, PCI_PRODUCT_PERLE_SPEED8_LE,
+	    "Speed8 LE",
+	},
+	{
 	    PCI_VENDOR_QUMRANET, PCI_PRODUCT_QUMRANET_VIO_NET,
 	    "Virtio Network",
 	},
@@ -22400,8 +22492,12 @@ static const struct pci_known_product pci_known_products[] = {
 	    "XP941",
 	},
 	{
-	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM951,
-	    "SM951",
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM951_AHCI,
+	    "SM951 AHCI",
+	},
+	{
+	    PCI_VENDOR_SAMSUNG2, PCI_PRODUCT_SAMSUNG2_SM951_NVME,
+	    "SM951 NVMe",
 	},
 	{
 	    PCI_VENDOR_SANGOMA, PCI_PRODUCT_SANGOMA_A10X,
@@ -26354,6 +26450,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_TERRATEC,
 	    "TerraTec",
+	},
+	{
+	    PCI_VENDOR_PERLE,
+	    "Perle",
 	},
 	{
 	    PCI_VENDOR_SYMBOL,

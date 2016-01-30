@@ -1,4 +1,4 @@
-/*	$OpenBSD: impulse.c,v 1.5 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: impulse.c,v 1.7 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: impulse.c,v 1.3 1995/04/22 10:59:03 cgd Exp $	*/
 
 /*
@@ -31,16 +31,16 @@
  */
 
 #include <stdio.h>
-#include "trek.h"
+
 #include "getpar.h"
+#include "trek.h"
 
 /**
  **	move under impulse power
  **/
 
 void
-impulse(v)
-	int v;
+impulse(int v)
 {
 	int	course, power, percent;
 	double	dist, time;

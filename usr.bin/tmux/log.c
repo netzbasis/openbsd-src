@@ -1,7 +1,7 @@
-/* $OpenBSD: log.c,v 1.20 2015/11/24 21:19:46 nicm Exp $ */
+/* $OpenBSD: log.c,v 1.23 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above

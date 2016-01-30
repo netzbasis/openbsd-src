@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.331 2015/10/02 15:32:17 krw Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.334 2016/01/14 12:05:51 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -220,7 +220,6 @@ static const char *tblcmdopt_list[] = {
 static const char *debugopt_list[] = {
 	"debug", "info", "notice", "warning",
 	"error", "crit", "alert", "emerg",
-	"none", "urgent", "misc", "loud",
 	NULL
 };
 
@@ -1120,6 +1119,16 @@ pfctl_add_queue(struct pfctl *pf, struct pf_queuespec *q)
 		return (1);
 	}
 
+	if (q->parent[0] == '\0') {
+		TAILQ_FOREACH(qi, &rootqs, entries) {
+			if (strcmp(q->ifname, qi->qs.ifname))
+			    continue;
+			printf("A root queue is already defined on %s\n",
+			    qi->qs.ifname);
+			return (1);
+		}
+	}
+
 	if ((qi = calloc(1, sizeof(*qi))) == NULL)
 		err(1, "calloc");
 	bcopy(q, &qi->qs, sizeof(qi->qs));
@@ -1546,8 +1555,7 @@ _error:
 				err(1, "DIOCXROLLBACK");
 		exit(1);
 	} else {		/* sub ruleset */
-		if (path)
-			free(path);
+		free(path);
 		return (-1);
 	}
 
@@ -1884,15 +1892,7 @@ pfctl_set_debug(struct pfctl *pf, char *d)
 	u_int32_t	level;
 	int		loglevel;
 
-	if (!strcmp(d, "none"))
-		level = LOG_CRIT;
-	else if (!strcmp(d, "urgent"))
-		level = LOG_ERR;
-	else if (!strcmp(d, "misc"))
-		level = LOG_NOTICE;
-	else if (!strcmp(d, "loud"))
-		level = LOG_DEBUG;
-	else if ((loglevel = string_to_loglevel(d)) >= 0)
+	if ((loglevel = string_to_loglevel(d)) >= 0)
 		level = loglevel;
 	else {
 		warnx("unknown debug level \"%s\"", d);

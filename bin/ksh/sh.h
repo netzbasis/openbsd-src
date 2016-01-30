@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.54 2015/11/20 09:29:53 tb Exp $	*/
+/*	$OpenBSD: sh.h,v 1.56 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -10,19 +10,10 @@
 
 /* Start of common headers */
 
-#include <sys/types.h>
-
-#include <stdio.h>
 #include <setjmp.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <stdarg.h>
-
-#include <errno.h>
-#include <fcntl.h>
-
 #include <signal.h>
+#include <stdbool.h>
 
 /* end of common headers */
 
@@ -62,7 +53,7 @@ typedef struct Area {
 
 extern	Area	aperm;		/* permanent object space */
 #define	APERM	&aperm
-#define	ATEMP	&e->area
+#define	ATEMP	&genv->area
 
 #ifdef KSH_DEBUG
 # define kshdebug_init()	kshdebug_init_()
@@ -87,7 +78,7 @@ struct env {
 	sigjmp_buf jbuf;		/* long jump back to env creator */
 	struct temp *temps;		/* temp files */
 };
-extern	struct env	*e;
+extern	struct env	*genv;
 
 /* struct env.type values */
 #define	E_NONE	0		/* dummy environment */

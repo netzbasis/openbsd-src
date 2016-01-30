@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.106 2015/09/23 21:18:38 miod Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.108 2016/01/05 05:27:54 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -175,6 +175,8 @@ struct cpu_info {
 	void		(*ci_SyncICache)(struct cpu_info *);
 	void		(*ci_SyncDCachePage)(struct cpu_info *, vaddr_t,
 			    paddr_t);
+	void		(*ci_HitSyncDCachePage)(struct cpu_info *, vaddr_t,
+			    paddr_t);
 	void		(*ci_HitSyncDCache)(struct cpu_info *, vaddr_t, size_t);
 	void		(*ci_HitInvalidateDCache)(struct cpu_info *, vaddr_t,
 			    size_t);
@@ -193,6 +195,12 @@ struct cpu_info {
 	u_int32_t	ci_cpu_counter_interval; /* # of counter ticks/tick */
 
 	u_int32_t	ci_pendingticks;
+
+#ifdef TGT_ORIGIN
+	u_int16_t	ci_nasid;
+	u_int16_t	ci_slice;
+#endif
+
 	struct pmap	*ci_curpmap;
 	uint		ci_intrdepth;		/* interrupt depth */
 #ifdef MULTIPROCESSOR
@@ -502,6 +510,10 @@ u_int	cp1_get_prid(void);
 #ifndef	Mips_SyncDCachePage
 #define	Mips_SyncDCachePage(ci, va, pa) \
 	((ci)->ci_SyncDCachePage)(ci, va, pa)
+#endif
+#ifndef	Mips_HitSyncDCachePage
+#define	Mips_HitSyncDCachePage(ci, va, pa) \
+	((ci)->ci_HitSyncDCachePage)(ci, va, pa)
 #endif
 #ifndef	Mips_HitSyncDCache
 #define	Mips_HitSyncDCache(ci, va, l) \

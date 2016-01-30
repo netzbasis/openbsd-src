@@ -1,4 +1,4 @@
-/*	$OpenBSD: fmt.c,v 1.13 2015/01/05 13:14:24 tedu Exp $	*/
+/*	$OpenBSD: fmt.c,v 1.15 2016/01/10 21:08:01 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993, 1994

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.90 2015/12/03 12:45:56 dlg Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.92 2015/12/11 16:07:02 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -166,7 +166,7 @@ void	 myx_attach(struct device *, struct device *, void *);
 int	 myx_pcie_dc(struct myx_softc *, struct pci_attach_args *);
 int	 myx_query(struct myx_softc *sc, char *, size_t);
 u_int	 myx_ether_aton(char *, u_int8_t *, u_int);
-void	 myx_attachhook(void *);
+void	 myx_attachhook(struct device *);
 int	 myx_loadfirmware(struct myx_softc *, const char *);
 int	 myx_probe_firmware(struct myx_softc *);
 
@@ -311,10 +311,7 @@ myx_attach(struct device *parent, struct device *self, void *aux)
 	if (myx_pcie_dc(sc, pa) != 0)
 		printf("%s: unable to configure PCI Express\n", DEVNAME(sc));
 
-	if (mountroothook_establish(myx_attachhook, sc) == NULL) {
-		printf("%s: unable to establish mountroot hook\n", DEVNAME(sc));
-		goto unmap;
-	}
+	config_mountroot(self, myx_attachhook);
 
 	return;
 
@@ -468,9 +465,9 @@ err:
 }
 
 void
-myx_attachhook(void *arg)
+myx_attachhook(struct device *self)
 {
-	struct myx_softc	*sc = (struct myx_softc *)arg;
+	struct myx_softc	*sc = (struct myx_softc *)self;
 	struct ifnet		*ifp = &sc->sc_ac.ac_if;
 	struct myx_cmd		 mc;
 
@@ -1208,7 +1205,7 @@ myx_up(struct myx_softc *sc)
 	ifq_clr_oactive(&ifp->if_snd);
 	SET(ifp->if_flags, IFF_RUNNING);
 	myx_iff(sc);
-	myx_start(ifp);
+	if_start(ifp);
 
 	return;
 
@@ -1330,6 +1327,8 @@ myx_down(struct myx_softc *sc)
 	int			 s;
 	int			 ring;
 
+	CLR(ifp->if_flags, IFF_RUNNING);
+
 	bus_dmamap_sync(sc->sc_dmat, map, 0, map->dm_mapsize,
 	    BUS_DMASYNC_POSTREAD|BUS_DMASYNC_POSTWRITE);
 	sc->sc_linkdown = sts->ms_linkdown;
@@ -1362,8 +1361,7 @@ myx_down(struct myx_softc *sc)
 	}
 
 	ifq_clr_oactive(&ifp->if_snd);
-	CLR(ifp->if_flags, IFF_RUNNING);
-	if_start_barrier(ifp);
+	ifq_barrier(&ifp->if_snd);
 
 	for (ring = 0; ring < 2; ring++) {
 		struct myx_rx_ring *mrr = &sc->sc_rx_ring[ring];
@@ -1702,9 +1700,8 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 	sc->sc_tx_ring_cons = idx;
 	sc->sc_tx_cons = cons;
 
-	ifq_clr_oactive(&ifp->if_snd);
-	if (!ifq_empty(&ifp->if_snd))
-		if_start(ifp);
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpe.c,v 1.9 2015/12/05 15:49:01 claudio Exp $ */
+/*	$OpenBSD: eigrpe.c,v 1.13 2016/01/15 12:41:09 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -66,8 +66,8 @@ eigrpe_sig_handler(int sig, short event, void *bula)
 
 /* eigrp engine */
 pid_t
-eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2], int pipe_eigrpe2rde[2],
-    int pipe_parent2rde[2])
+eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2],
+    int pipe_eigrpe2rde[2], int pipe_parent2rde[2])
 {
 	struct passwd		*pw;
 	struct event		 ev_sigint, ev_sigterm;
@@ -500,8 +500,7 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 
 			switch (imsg.hdr.type) {
 			case IMSG_SEND_UPDATE_END:
-				send_update(nbr->ei, nbr, 0, 1,
-				    &nbr->update_list);
+				send_update(nbr->ei, nbr, 0, &nbr->update_list);
 				message_list_clr(&nbr->update_list);
 				break;
 			case IMSG_SEND_REPLY_END:
@@ -529,7 +528,7 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 
 			switch (imsg.hdr.type) {
 			case IMSG_SEND_MUPDATE_END:
-				send_update(ei, NULL, 0, 0, &ei->update_list);
+				send_update(ei, NULL, 0, &ei->update_list);
 				message_list_clr(&ei->update_list);
 				break;
 			case IMSG_SEND_MQUERY_END:
@@ -546,7 +545,7 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 				break;
 			}
 			/* announce that this neighborship is dead */
-			send_hello(nbr->ei, NULL, 0, 1);
+			send_peerterm(nbr);
 			nbr_del(nbr);
 			break;
 		case IMSG_CTL_SHOW_TOPOLOGY:
@@ -686,6 +685,23 @@ eigrpe_nbr_ctl(struct ctl_conn *c)
 			imsg_compose_event(&c->iev, IMSG_CTL_SHOW_NBR, 0,
 			    0, -1, nctl, sizeof(struct ctl_nbr));
 		}
+	}
+
+	imsg_compose_event(&c->iev, IMSG_CTL_END, 0, 0, -1, NULL, 0);
+}
+
+void
+eigrpe_stats_ctl(struct ctl_conn *c)
+{
+	struct eigrp		*eigrp;
+	struct ctl_stats	 sctl;
+
+	TAILQ_FOREACH(eigrp, &econf->instances, entry) {
+		sctl.af = eigrp->af;
+		sctl.as = eigrp->as;
+		memcpy(&sctl.stats, &eigrp->stats, sizeof(sctl.stats));
+		imsg_compose_event(&c->iev, IMSG_CTL_SHOW_STATS, 0,
+		    0, -1, &sctl, sizeof(struct ctl_stats));
 	}
 
 	imsg_compose_event(&c->iev, IMSG_CTL_END, 0, 0, -1, NULL, 0);

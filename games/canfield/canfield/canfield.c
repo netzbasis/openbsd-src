@@ -1,4 +1,4 @@
-/*	$OpenBSD: canfield.c,v 1.22 2015/12/02 18:34:10 tb Exp $	*/
+/*	$OpenBSD: canfield.c,v 1.26 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: canfield.c,v 1.7 1995/05/13 07:28:35 jtc Exp $	*/
 
 /*
@@ -41,19 +41,15 @@
  *	Betting by Kirk McKusick
  */
 
-#include <sys/types.h>
-
 #include <ctype.h>
 #include <curses.h>
-#include <errno.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #define	decksize	52
@@ -186,7 +182,7 @@ time_t acctstart;
 int dbfd = -1;
 
 void	askquit(int);
-void	cleanup(int) __attribute__((__noreturn__));
+__dead void	cleanup(int);
 void	cleanupboard(void);
 void	clearabovemovebox(void);
 void	clearbelowmovebox(void);
@@ -1710,7 +1706,6 @@ cleanup(int dummy)
 	refresh();
 	endwin();
 	exit(0);
-	/* NOTREACHED */
 }
 
 /*
@@ -1760,5 +1755,4 @@ main(int argc, char *argv[])
 			cleanupboard();
 	}
 	cleanup(0);
-	/* NOTREACHED */
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ktrace.h,v 1.26 2015/10/25 20:39:54 deraadt Exp $	*/
+/*	$OpenBSD: ktrace.h,v 1.28 2015/12/17 16:57:21 tedu Exp $	*/
 /*	$NetBSD: ktrace.h,v 1.12 1996/02/04 02:12:29 christos Exp $	*/
 
 /*
@@ -171,8 +171,8 @@ struct ktr_user {
 #define	KTR_PLEDGE	12
 struct ktr_pledge {
 	int	error;
-	int	code;
 	int	syscall;
+	int64_t	code;
 };
 
 /*
@@ -217,7 +217,7 @@ void ktrsysret(struct proc *, register_t, int, const register_t [2]);
 void ktr_kuser(const char *, void *, size_t);
 int ktruser(struct proc *, const char *, const void *, size_t);
 void ktrexec(struct proc *, int, const char *, ssize_t);
-void ktrpledge(struct proc *, int, int, int);
+void ktrpledge(struct proc *, int, uint64_t, int);
 
 void ktrcleartrace(struct process *);
 void ktrsettrace(struct process *, int, struct vnode *, struct ucred *);
@@ -251,5 +251,7 @@ void    ktrstruct(struct proc *, const char *, const void *, size_t);
 	ktrstruct(p, "iovec", s, (count) * sizeof(struct iovec))
 #define ktrcmsghdr(p, c, len) \
 	ktrstruct(p, "cmsghdr", c, len)
+#define ktrevent(p, kev, count) \
+	ktrstruct(p, "kevent", kev, (count) * sizeof(struct kevent))
 
 #endif	/* !_KERNEL */

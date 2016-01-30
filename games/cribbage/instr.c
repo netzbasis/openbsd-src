@@ -1,4 +1,4 @@
-/*	$OpenBSD: instr.c,v 1.12 2015/11/29 14:42:36 tb Exp $	*/
+/*	$OpenBSD: instr.c,v 1.14 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: instr.c,v 1.5 1997/07/10 06:47:30 mikel Exp $	*/
 
 /*-
@@ -30,22 +30,15 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
 
-#include <curses.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <paths.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
-#include "deck.h"
-#include "cribbage.h"
 #include "pathnames.h"
 
 void
@@ -62,7 +55,6 @@ instructions(void)
 	switch (pid = vfork()) {
 	case -1:
 		err(1, "vfork");
-		/* NOTREACHED */
 	case 0:
 		if (!isatty(1))
 			pager = "/bin/cat";
@@ -74,7 +66,6 @@ instructions(void)
 			err(1, "dup2");
 		execl(_PATH_BSHELL, "sh", "-c", pager, (char *)NULL);
 		err(1, "exec sh -c %s", pager);
-		/* NOTREACHED */
 	default:
 		do {
 			pid = waitpid(pid, &pstat, 0);

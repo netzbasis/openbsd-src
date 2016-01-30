@@ -1,4 +1,4 @@
-/* $OpenBSD: kex.c,v 1.113 2015/12/04 16:41:28 markus Exp $ */
+/* $OpenBSD: kex.c,v 1.116 2016/01/14 16:17:39 markus Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  *
@@ -46,7 +46,6 @@
 #include "misc.h"
 #include "dispatch.h"
 #include "monitor.h"
-#include "roaming.h"
 
 #include "ssherr.h"
 #include "sshbuf.h"
@@ -264,11 +263,11 @@ kex_buf2prop(struct sshbuf *raw, int *first_kex_follows, char ***propp)
 		debug2("%s: %s", proposal_names[i], proposal[i]);
 	}
 	/* first kex follows / reserved */
-	if ((r = sshbuf_get_u8(b, &v)) != 0 ||
-	    (r = sshbuf_get_u32(b, &i)) != 0)
+	if ((r = sshbuf_get_u8(b, &v)) != 0 ||	/* first_kex_follows */
+	    (r = sshbuf_get_u32(b, &i)) != 0)	/* reserved */
 		goto out;
 	if (first_kex_follows != NULL)
-		*first_kex_follows = i;
+		*first_kex_follows = v;
 	debug2("first_kex_follows %d ", v);
 	debug2("reserved %u ", i);
 	r = 0;
@@ -727,17 +726,6 @@ kex_choose_conf(struct ssh *ssh)
 		sprop=peer;
 	}
 
-	/* Check whether server offers roaming */
-	if (!kex->server) {
-		char *roaming = match_list(KEX_RESUME,
-		    peer[PROPOSAL_KEX_ALGS], NULL);
-
-		if (roaming) {
-			kex->roaming = 1;
-			free(roaming);
-		}
-	}
-
 	/* Check whether client supports ext_info_c */
 	if (kex->server) {
 		char *ext;
@@ -885,8 +873,7 @@ derive_key(struct ssh *ssh, int id, u_int need, u_char *hash, u_int hashlen,
 	digest = NULL;
 	r = 0;
  out:
-	if (digest)
-		free(digest);
+	free(digest);
 	ssh_digest_free(hashctx);
 	return r;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: arp.c,v 1.69 2015/10/14 04:03:01 deraadt Exp $ */
+/*	$OpenBSD: arp.c,v 1.71 2016/01/26 18:26:19 mmcc Exp $ */
 /*	$NetBSD: arp.c,v 1.12 1995/04/24 13:25:18 cgd Exp $ */
 
 /*
@@ -316,9 +316,7 @@ set(int argc, char *argv[])
 				usage();
 				return (0);
 			}
-		} else if (strncmp(argv[0], "trail", 5) == 0)
-			printf("%s: Sending trailers is no longer supported\n",
-			    host);
+		}
 
 		argv++;
 	}
@@ -697,7 +695,7 @@ rtget(struct sockaddr_inarp **sinp, struct sockaddr_dl **sdlp)
 	struct sockaddr_dl *sdl = NULL;
 	struct sockaddr *sa;
 	char *cp;
-	int i;
+	unsigned int i;
 
 	if (rtmsg(RTM_GET) < 0)
 		return (1);

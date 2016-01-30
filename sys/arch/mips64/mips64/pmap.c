@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.81 2015/08/11 13:15:36 visa Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.85 2016/01/10 10:22:56 visa Exp $	*/
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -655,7 +655,7 @@ pmap_remove(pmap_t pmap, vaddr_t sva, vaddr_t eva)
 			    (void *)sva, (void *)eva);
 #endif
 		pte = kvtopte(sva);
-		for(; sva < eva; sva += PAGE_SIZE, pte++) {
+		for (; sva < eva; sva += PAGE_SIZE, pte++) {
 			entry = *pte;
 			if (!(entry & PG_V))
 				continue;
@@ -664,7 +664,7 @@ pmap_remove(pmap_t pmap, vaddr_t sva, vaddr_t eva)
 			pmap->pm_stats.resident_count--;
 			pa = pfn_to_pad(entry);
 			if ((entry & PG_CACHEMODE) == PG_CACHED)
-				Mips_HitSyncDCache(ci, sva, PAGE_SIZE);
+				Mips_HitSyncDCachePage(ci, sva, pa);
 			pmap_remove_pv(pmap, sva, pa);
 			*pte = PG_NV | PG_G;
 			/*
@@ -817,7 +817,8 @@ pmap_protect(pmap_t pmap, vaddr_t sva, vaddr_t eva, vm_prot_t prot)
 				continue;
 			if ((entry & PG_M) != 0 /* && p != PG_M */)
 				if ((entry & PG_CACHEMODE) == PG_CACHED)
-					Mips_HitSyncDCache(ci, sva, PAGE_SIZE);
+					Mips_HitSyncDCachePage(ci, sva,
+					    pfn_to_pad(entry));
 			entry = (entry & ~(PG_M | PG_RO)) | p;
 			*pte = entry;
 			/*
@@ -1126,7 +1127,7 @@ pmap_kremove(vaddr_t va, vsize_t len)
 		if (!(entry & PG_V))
 			continue;
 		if ((entry & PG_CACHEMODE) == PG_CACHED)
-			Mips_HitSyncDCache(ci, va, PAGE_SIZE);
+			Mips_HitSyncDCachePage(ci, va, pfn_to_pad(entry));
 		*pte = PG_NV | PG_G;
 		pmap_invalidate_kernel_page(va);
 		pmap_kernel()->pm_stats.wired_count--;
@@ -1269,7 +1270,7 @@ pmap_zero_page(struct vm_page *pg)
 	}
 	mem_zero_page(va);
 	if (df || cache_valias_mask != 0)
-		Mips_HitSyncDCache(ci, va, PAGE_SIZE);
+		Mips_HitSyncDCachePage(ci, va, phys);
 
 #ifdef CPU_R4000
 	atomic_clearbits_int(&pg->pg_flags, PGF_EOP_CHECKED | PGF_EOP_VULN);
@@ -1323,7 +1324,7 @@ pmap_copy_page(struct vm_page *srcpg, struct vm_page *dstpg)
 	if (sf)
 		Mips_HitInvalidateDCache(ci, s, PAGE_SIZE);
 	if (df || cache_valias_mask != 0)
-		Mips_HitSyncDCache(ci, d, PAGE_SIZE);
+		Mips_HitSyncDCachePage(ci, d, dst);
 
 #ifdef CPU_R4000
 	atomic_clearbits_int(&dstpg->pg_flags, PGF_EOP_CHECKED | PGF_EOP_VULN);
@@ -1369,8 +1370,8 @@ pmap_clear_modify(struct vm_page *pg)
 			entry = *pte;
 			if ((entry & PG_V) != 0 && (entry & PG_M) != 0) {
 				if (pg->pg_flags & PGF_CACHED)
-					Mips_HitSyncDCache(ci, pv->pv_va,
-					    PAGE_SIZE);
+					Mips_HitSyncDCachePage(ci, pv->pv_va,
+					    pfn_to_pad(entry));
 				rv = TRUE;
 				entry &= ~PG_M;
 				*pte = entry;
@@ -1781,7 +1782,7 @@ pmap_pg_free(struct pool *pp, void *item)
 	vm_page_t pg = PHYS_TO_VM_PAGE(pa);
 
 	if (cache_valias_mask)
-		Mips_HitSyncDCache(curcpu(), va, PAGE_SIZE);
+		Mips_HitSyncDCachePage(curcpu(), va, pa);
 	uvm_pagefree(pg);
 }
 
@@ -1847,7 +1848,7 @@ pmap_unmap_direct(vaddr_t va)
 
 	pg = PHYS_TO_VM_PAGE(pa);
 	if (cache_valias_mask)
-		Mips_HitSyncDCache(curcpu(), va, PAGE_SIZE);
+		Mips_HitSyncDCachePage(curcpu(), va, pa);
 
 	return pg;
 }

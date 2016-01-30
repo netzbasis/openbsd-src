@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.h,v 1.125 2015/11/24 01:03:25 deraadt Exp $ */
+/*	$OpenBSD: ntpd.h,v 1.129 2016/01/27 21:48:34 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -29,10 +29,9 @@
 #include <pwd.h>
 #include <stdarg.h>
 #include <poll.h>
-
-#include "log.h"
-#include "ntp.h"
 #include <imsg.h>
+
+#include "ntp.h"
 
 #define MAXIMUM(a, b)	((a) > (b) ? (a) : (b))
 
@@ -90,6 +89,7 @@ enum client_state {
 	STATE_DNS_DONE,
 	STATE_QUERY_SENT,
 	STATE_REPLY_RECEIVED,
+	STATE_TIMEOUT,
 	STATE_INVALID
 };
 
@@ -214,9 +214,10 @@ struct ntpd_conf {
 	struct ntp_status				status;
 	struct ntp_freq					freq;
 	u_int32_t					scale;
+	int				        	debug;
+	int				        	verbose;
 	u_int8_t					listen_all;
 	u_int8_t					settime;
-	u_int8_t					debug;
 	u_int8_t					noaction;
 	u_int8_t					filters;
 	time_t						constraint_last;
@@ -286,6 +287,7 @@ enum imsg_type {
 	IMSG_CONSTRAINT_QUERY,
 	IMSG_CONSTRAINT_RESULT,
 	IMSG_CONSTRAINT_CLOSE,
+	IMSG_CONSTRAINT_KILL,
 	IMSG_CTL_SHOW_STATUS,
 	IMSG_CTL_SHOW_PEERS,
 	IMSG_CTL_SHOW_PEERS_END,
@@ -357,6 +359,7 @@ void	 constraint_msg_result(u_int32_t, u_int8_t *, size_t);
 void	 constraint_msg_close(u_int32_t, u_int8_t *, size_t);
 void	 priv_constraint_msg(u_int32_t, u_int8_t *, size_t,
 	    const char *, uid_t, gid_t);
+void	 priv_constraint_kill(u_int32_t);
 int	 priv_constraint_dispatch(struct pollfd *);
 void	 priv_constraint_check_child(pid_t, int);
 char	*get_string(u_int8_t *, size_t);
@@ -373,6 +376,7 @@ struct l_fixedpt	 d_to_lfp(double);
 double			 sfp_to_d(struct s_fixedpt);
 struct s_fixedpt	 d_to_sfp(double);
 char			*print_rtable(int);
+const char		*log_sockaddr(struct sockaddr *);
 
 /* sensors.c */
 void			sensor_init(void);
@@ -397,3 +401,24 @@ void			 build_show_peer(struct ctl_show_peer *,
 			     struct ntp_peer *);
 void			 build_show_sensor(struct ctl_show_sensor *,
 			     struct ntp_sensor *);
+
+/* log.c */
+void	log_init(int, int);
+void	log_procinit(const char *);
+void	log_verbose(int);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));

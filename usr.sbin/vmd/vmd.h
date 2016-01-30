@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.12 2015/12/06 02:26:14 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.18 2016/01/16 08:55:40 stefan Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -43,14 +43,10 @@
 #define dprintf(x...)   do { log_debug(x); } while(0)
 #else
 #define dprintf(x...)
-#endif /* VMM_DEBUG */
+#endif /* VMD_DEBUG */
 
 enum imsg_type {
-	IMSG_VMDOP_DISABLE_VMM_REQUEST = IMSG_PROC_MAX,
-	IMSG_VMDOP_DISABLE_VMM_RESPONSE,
-	IMSG_VMDOP_ENABLE_VMM_REQUEST,
-	IMSG_VMDOP_ENABLE_VMM_RESPONSE,
-	IMSG_VMDOP_START_VM_REQUEST,
+	IMSG_VMDOP_START_VM_REQUEST = IMSG_PROC_MAX,
 	IMSG_VMDOP_START_VM_DISK,
 	IMSG_VMDOP_START_VM_IF,
 	IMSG_VMDOP_START_VM_END,
@@ -65,9 +61,9 @@ enum imsg_type {
 };
 
 struct vmop_result {
-	int		 vmr_result;
-	uint32_t	 vmr_id;
-	char		 vmr_ttyname[VM_TTYNAME_MAX];
+	int			 vmr_result;
+	uint32_t		 vmr_id;
+	char			 vmr_ttyname[VM_TTYNAME_MAX];
 };
 
 struct vmop_info_result {
@@ -75,16 +71,21 @@ struct vmop_info_result {
 	char			 vir_ttyname[VM_TTYNAME_MAX];
 };
 
+struct vmop_id {
+	uint32_t		 vid_id;
+	char			 vid_name[VMM_MAX_NAME_LEN];
+};
+
 struct vmd_vm {
-	struct vm_create_params	vm_params;
-	uint32_t		vm_vmid;
-	int			vm_kernel;
-	int			vm_disks[VMM_MAX_DISKS_PER_VM];
-	int			vm_ifs[VMM_MAX_NICS_PER_VM];
-	char			vm_ttyname[VM_TTYNAME_MAX];
-	int			vm_tty;
-	uint32_t		vm_peerid;
-	TAILQ_ENTRY(vmd_vm)	vm_entry;
+	struct vm_create_params	 vm_params;
+	uint32_t		 vm_vmid;
+	int			 vm_kernel;
+	int			 vm_disks[VMM_MAX_DISKS_PER_VM];
+	int			 vm_ifs[VMM_MAX_NICS_PER_VM];
+	char			 vm_ttyname[VM_TTYNAME_MAX];
+	int			 vm_tty;
+	uint32_t		 vm_peerid;
+	TAILQ_ENTRY(vmd_vm)	 vm_entry;
 };
 TAILQ_HEAD(vmlist, vmd_vm);
 
@@ -107,13 +108,14 @@ struct vmd {
 void	 vmd_reload(int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
 struct vmd_vm *vm_getbyid(uint32_t);
+struct vmd_vm *vm_getbyname(const char *);
 void	 vm_remove(struct vmd_vm *);
 char	*get_string(uint8_t *, size_t);
 
 /* vmm.c */
 pid_t	 vmm(struct privsep *, struct privsep_proc *);
-int	 write_page(uint32_t dst, void *buf, uint32_t, int);
-int	 read_page(uint32_t dst, void *buf, uint32_t, int);
+int	 write_mem(uint32_t dst, void *buf, uint32_t, int);
+int	 read_mem(uint32_t dst, void *buf, uint32_t, int);
 int	 opentap(void);
 
 /* control.c */

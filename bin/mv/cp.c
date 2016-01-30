@@ -1,4 +1,4 @@
-/*	$OpenBSD: cp.c,v 1.5 2015/11/17 19:11:11 tedu Exp $	*/
+/*	$OpenBSD: cp.c,v 1.7 2015/12/27 01:25:57 chl Exp $	*/
 /*	$NetBSD: cp.c,v 1.14 1995/09/07 06:14:51 jtc Exp $	*/
 
 /*
@@ -79,7 +79,6 @@ static int     copy_file(FTSENT *, int);
 static int     copy_link(FTSENT *, int);
 static int     copy_special(struct stat *, int);
 static int     setfile(struct stat *, int);
-static int     setlink(struct stat *);
 
 
 extern char *__progname;
@@ -387,7 +386,7 @@ copy(char *argv[], enum op type, int fts_options)
 }
 
 
-/*	$OpenBSD: cp.c,v 1.5 2015/11/17 19:11:11 tedu Exp $	*/
+/*	$OpenBSD: cp.c,v 1.7 2015/12/27 01:25:57 chl Exp $	*/
 /*	$NetBSD: utils.c,v 1.6 1997/02/26 14:40:51 cgd Exp $	*/
 
 /*-
@@ -439,7 +438,7 @@ copy_file(FTSENT *entp, int dne)
 {
 	static char *buf;
 	static char *zeroes;
-	struct stat to_stat, *fs;
+	struct stat *fs;
 	int ch, checkch, from_fd, rcount, rval, to_fd, wcount;
 #ifdef VM_AND_BUFFER_CACHE_SYNCHRONIZED
 	char *p;
@@ -587,7 +586,7 @@ copy_link(FTSENT *p, int exists)
 		warn("symlink: %s", linkname);
 		return (1);
 	}
-	return (setlink(p->fts_statp));
+	return (setfile(p->fts_statp, -1));
 }
 
 static int
@@ -670,18 +669,4 @@ setfile(struct stat *fs, int fd)
 			rval = 1;
 		}
 	return (rval);
-}
-
-
-static int
-setlink(struct stat *fs)
-{
-
-	if (lchown(to.p_path, fs->st_uid, fs->st_gid)) {
-		if (errno != EPERM) {
-			warn("lchown: %s", to.p_path);
-			return (1);
-		}
-	}
-	return (0);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi.c,v 1.15 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: vi.c,v 1.18 2016/01/20 08:43:27 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -34,7 +34,7 @@ typedef enum {
 static VIKEYS const
 	       *v_alias(SCR *, VICMD *, VIKEYS const *);
 static gcret_t	v_cmd(SCR *, VICMD *, VICMD *, VICMD *, int *, int *);
-static int	v_count(SCR *, ARG_CHAR_T, u_long *);
+static int	v_count(SCR *, CHAR_T, u_long *);
 static void	v_dtoh(SCR *);
 static int	v_init(SCR *);
 static gcret_t	v_key(SCR *, int, EVENT *, u_int32_t);
@@ -237,7 +237,7 @@ gc_event:
 		if (F_ISSET(gp, G_TMP_INUSE)) {
 			F_CLR(gp, G_TMP_INUSE);
 			msgq(sp, M_ERR,
-			    "232|vi: temporary buffer not released");
+			    "vi: temporary buffer not released");
 		}
 #endif
 		/*
@@ -353,7 +353,7 @@ gc_event:
 		if (0) {
 err:			if (v_event_flush(sp, CH_MAPPED))
 				msgq(sp, M_BERR,
-			    "110|Vi command failed: mapped keys discarded");
+			    "Vi command failed: mapped keys discarded");
 		}
 
 		/*
@@ -364,9 +364,9 @@ gc_err_noflush:	if (INTERRUPTED(sp)) {
 intr:			CLR_INTERRUPT(sp);
 			if (v_event_flush(sp, CH_MAPPED))
 				msgq(sp, M_ERR,
-				    "231|Interrupted: mapped keys discarded");
+				    "Interrupted: mapped keys discarded");
 			else
-				msgq(sp, M_ERR, "236|Interrupted");
+				msgq(sp, M_ERR, "Interrupted");
 		}
 
 		/* If the last command switched screens, update. */
@@ -519,7 +519,7 @@ v_cmd(SCR *sp, VICMD *dp, VICMD *vp, VICMD *ismotion, int *comcountp,
 	if (key == '"') {
 		cpart = ISPARTIAL;
 		if (F_ISSET(vp, VC_BUFFER)) {
-			msgq(sp, M_ERR, "234|Only one buffer may be specified");
+			msgq(sp, M_ERR, "Only one buffer may be specified");
 			return (GC_ERR);
 		}
 		if (ismotion != NULL) {
@@ -593,7 +593,7 @@ v_cmd(SCR *sp, VICMD *dp, VICMD *vp, VICMD *ismotion, int *comcountp,
 
 		/* Otherwise, a repeatable command must have been executed. */
 		if (!F_ISSET(dp, VC_ISDOT)) {
-			msgq(sp, M_ERR, "208|No command to repeat");
+			msgq(sp, M_ERR, "No command to repeat");
 			return (GC_ERR);
 		}
 
@@ -676,7 +676,7 @@ usage:			if (ismotion == NULL)
 	 * imply the current line.
 	 */
 	if (ismotion != NULL && ismotion->key != key && !LF_ISSET(V_MOVE)) {
-		msgq(sp, M_ERR, "210|%s may not be used as a motion command",
+		msgq(sp, M_ERR, "%s may not be used as a motion command",
 		    KEY_NAME(sp, key));
 		return (GC_ERR);
 	}
@@ -693,7 +693,7 @@ usage:			if (ismotion == NULL)
 
 esc:	switch (cpart) {
 	case COMMANDMODE:
-		msgq(sp, M_BERR, "211|Already in command mode");
+		msgq(sp, M_BERR, "Already in command mode");
 		return (GC_ERR_NOFLUSH);
 	case ISPARTIAL:
 		break;
@@ -953,7 +953,7 @@ v_init(SCR *sp)
 		if (sp->t_rows > sp->rows - 1) {
 			sp->t_minrows = sp->t_rows = sp->rows - 1;
 			msgq(sp, M_INFO,
-			    "214|Windows option value is too large, max is %u",
+			    "Windows option value is too large, max is %u",
 			    sp->t_rows);
 		}
 		sp->t_maxrows = sp->rows - 1;
@@ -962,7 +962,7 @@ v_init(SCR *sp)
 	sp->woff = 0;
 
 	/* Create a screen map. */
-	CALLOC_RET(sp, HMAP, SMAP *, SIZE_HMAP(sp), sizeof(SMAP));
+	CALLOC_RET(sp, HMAP, SIZE_HMAP(sp), sizeof(SMAP));
 	TMAP = HMAP + (sp->t_rows - 1);
 	HMAP->lno = sp->lno;
 	HMAP->coff = 0;
@@ -1058,7 +1058,7 @@ v_keyword(SCR *sp)
 	for (moved = 0,
 	    beg = sp->cno; beg < len && isspace(p[beg]); moved = 1, ++beg);
 	if (beg >= len) {
-		msgq(sp, M_BERR, "212|Cursor not in a word");
+		msgq(sp, M_BERR, "Cursor not in a word");
 		return (1);
 	}
 	if (moved) {
@@ -1116,7 +1116,7 @@ v_alias(SCR *sp, VICMD *vp, VIKEYS const *kp)
  *	Return the next count.
  */
 static int
-v_count(SCR *sp, ARG_CHAR_T fkey, u_long *countp)
+v_count(SCR *sp, CHAR_T fkey, u_long *countp)
 {
 	EVENT ev;
 	u_long count, tc;
@@ -1137,7 +1137,7 @@ v_count(SCR *sp, ARG_CHAR_T fkey, u_long *countp)
 					return (1);
 			} while (isdigit(ev.e_c));
 			msgq(sp, M_ERR,
-			    "235|Number larger than %lu", ULONG_MAX);
+			    "Number larger than %lu", ULONG_MAX);
 			return (1);
 		}
 		count = tc;

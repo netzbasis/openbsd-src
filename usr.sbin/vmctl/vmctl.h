@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.h,v 1.4 2015/12/06 02:26:14 reyk Exp $	*/
+/*	$OpenBSD: vmctl.h,v 1.7 2015/12/11 10:16:53 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -26,6 +26,7 @@
 
 enum actions {
 	NONE,
+	CMD_CONSOLE,
 	CMD_CREATE,
 	CMD_LOAD,
 	CMD_RELOAD,
@@ -64,18 +65,23 @@ int	 vmmaction(struct parse_result *);
 int	 parse_ifs(struct parse_result *, char *, int);
 int	 parse_size(struct parse_result *, char *, long long);
 int	 parse_disk(struct parse_result *, char *);
-int	 parse_vmid(struct parse_result *, char *, uint32_t);
+int	 parse_vmid(struct parse_result *, char *);
 void	 parse_free(struct parse_result *);
 int	 parse(int, char *[]);
+__dead void
+	 ctl_openconsole(const char *);
 
 /* vmctl.c */
 int	 create_imagefile(const char *, long);
 int	 start_vm(const char *, int, int, int, char **, char *);
 int	 start_vm_complete(struct imsg *, int *, int);
-void	 terminate_vm(uint32_t);
+void	 terminate_vm(uint32_t, const char *);
 int	 terminate_vm_complete(struct imsg *, int *);
-void	 get_info_vm(uint32_t);
+int	 check_info_id(const char *, uint32_t);
+void	 get_info_vm(uint32_t, const char *, int);
 int	 add_info(struct imsg *, int *);
 void	 print_vm_info(struct vmop_info_result *, size_t);
+__dead void
+	 vm_console(struct vmop_info_result *, size_t);
 
 #endif /* VMCTL_PARSER_H */

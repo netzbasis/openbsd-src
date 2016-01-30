@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.52 2015/11/13 07:52:20 mlarkin Exp $	*/
+/*	$OpenBSD: conf.c,v 1.55 2016/01/27 09:04:19 reyk Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995 Charles M. Hannum.  All rights reserved.
@@ -163,8 +163,8 @@ cdev_decl(cztty);
 cdev_decl(nvram);
 #include "drm.h"
 cdev_decl(drm);
-#include "vmm.h"
-cdev_decl(vmm);
+#include "viocon.h"
+cdev_decl(viocon);
 
 #include "wsdisplay.h"
 #include "wskbd.h"
@@ -182,6 +182,7 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "pvbus.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -291,6 +292,8 @@ struct cdevsw	cdevsw[] =
 	cdev_pppx_init(NPPPX,pppx),     /* 91: pppx */
 	cdev_fuse_init(NFUSE,fuse),	/* 92: fuse */
 	cdev_tun_init(NTUN,tap),	/* 93: Ethernet network tunnel */
+	cdev_tty_init(NVIOCON,viocon),  /* 94: virtio console */
+	cdev_pvbus_init(NPVBUS,pvbus),	/* 95: pvbus(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 

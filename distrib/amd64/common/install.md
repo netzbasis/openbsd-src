@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.47 2015/12/02 21:17:16 krw Exp $
+#	$OpenBSD: install.md,v 1.50 2015/12/29 11:16:14 rpe Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -59,29 +59,22 @@ md_prep_fdisk() {
 
 		[[ $MDEFI == y ]] && _d=gpt
 
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr openbsd || disk_has $_disk gpt openbsd; then
+			_q="$_q, (O)penBSD area"
+			_d=OpenBSD
 			fdisk $_disk
-			if fdisk $_disk | grep -q '^..: A6 '; then
-				_d=OpenBSD
-			fi
-		elif fdisk $_disk | grep -q "First usable LBA:"; then
-			fdisk $_disk
-			if fdisk $_disk | grep -q "^      OpenBSD "; then
-				_d=OpenBSD
-			fi
 		else
 			echo "No valid MBR or GPT."
 		fi
-		[[ $_d == OpenBSD ]] && _q="$_q, (O)penBSD area"
 
 		ask "$_q or (E)dit?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			echo -n "Setting OpenBSD MBR partition to whole $_disk..."
 			fdisk -iy $_disk >/dev/null
 			echo "done."
 			return ;;
-		g*|G*)
+		[gG]*)
 			if [[ $MDEFI != y ]]; then
 				ask_yn "An EFI/GPT disk may not boot. Proceed?"
 				[[ $resp == n ]] && continue
@@ -91,8 +84,8 @@ md_prep_fdisk() {
 			fdisk -iy -g -b 960 $_disk >/dev/null
 			echo "done."
 			return ;;
-		e*|E*)
-			if fdisk $_disk | grep -q "First usable LBA:"; then
+		[eE]*)
+			if disk_has $_disk gpt; then
 				# Manually configure the GPT.
 				cat <<__EOT
 
@@ -106,11 +99,10 @@ commands in detail.
 $(fdisk $_disk)
 __EOT
 				fdisk -e $_disk
-				_d=$(fdisk $_disk | grep "^      OpenBSD ")
-				_q=$(fdisk $_disk | grep "^      EFI Sys ")
-				if [[ -z $_d ]]; then
+
+				if ! disk_has $_disk gpt openbsd; then
 					echo -n "No OpenBSD partition in GPT,"
-				elif [[ -z $_q ]]; then
+				elif ! disk_has $_disk gpt efisys; then
 					echo -n "No EFI Sys partition in GPT,"
 				else
 					return
@@ -127,16 +119,16 @@ must be marked as the only active partition.  Inside the fdisk command, the
 $(fdisk $_disk)
 __EOT
 				fdisk -e $_disk
-				fdisk $_disk | grep -q ' A6 ' && return
+				disk_has $_disk mbr openbsd && return
 				echo -n "No OpenBSD partition in MBR,"
 			fi
 			echo "try again." ;;
-		o*|O*)
+		[oO]*)
 			[[ $_d == OpenBSD ]] || continue
-			_d=$(fdisk $_disk | grep "First usable LBA:")
-			_q=$(fdisk $_disk | grep "^      EFI Sys ")
-			if [[ -n $_d && -z $_q ]]; then
+			if [[ $_disk == $ROOTDISK ]] && disk_has $_disk gpt &&
+				! disk_has $_disk gpt efisys; then
 				echo "No EFI Sys partition in GPT, try again."
+				$AUTO && exit 1
 				continue
 			fi
 			return ;;

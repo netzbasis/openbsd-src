@@ -1,4 +1,4 @@
-/* $OpenBSD: icdb.c,v 1.3 2015/11/25 15:49:50 guenther Exp $ */
+/* $OpenBSD: icdb.c,v 1.5 2015/12/27 01:26:47 chl Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -162,6 +162,8 @@ icdb_open(const char *name, int flags, uint32_t version)
 		return NULL;
 	if (fstat(fd, &sb) != 0)
 		goto fail;
+	if (sb.st_size < sizeof(struct icdbinfo))
+		goto fail;
 	ptr = mmap(NULL, sb.st_size, PROT_READ |
 	    ((flags & O_RDWR) ? PROT_WRITE : 0), MAP_SHARED, fd, 0);
 	if (ptr == MAP_FAILED)
@@ -212,7 +214,6 @@ int
 icdb_lookup(struct icdb *db, int keynum, const void *key, void *entry, uint32_t *idxp)
 {
 	struct icdbinfo *info = db->info;
-	uint32_t entrysize = info->entrysize;
 	uint32_t offset;
 	uint64_t hash;
 	uint32_t indexsize, idxmask, idxlen;

@@ -1,12 +1,15 @@
-/*	$OpenBSD: lex.c,v 1.64 2015/11/18 15:31:21 nicm Exp $	*/
+/*	$OpenBSD: lex.c,v 1.67 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * lexical analysis and source input
  */
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -1121,7 +1124,7 @@ getsc_line(Source *s)
 			char *p = shf_getse(xp, Xnleft(s->xs, xp), s->u.shf);
 
 			if (!p && shf_error(s->u.shf) &&
-			    shf_errno(s->u.shf) == EINTR) {
+			    s->u.shf->errno_ == EINTR) {
 				shf_clearerr(s->u.shf);
 				if (trap)
 					runtraps(0);
@@ -1198,7 +1201,7 @@ set_prompt(int to, Source *s)
 		ps1 = str_save(str_val(global("PS1")), ATEMP);
 		saved_atemp = ATEMP;	/* ps1 is freed by substitute() */
 		newenv(E_ERRH);
-		if (sigsetjmp(e->jbuf, 0)) {
+		if (sigsetjmp(genv->jbuf, 0)) {
 			prompt = safe_prompt;
 			/* Don't print an error - assume it has already
 			 * been printed.  Reason is we may have forked

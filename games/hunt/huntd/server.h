@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.h,v 1.9 2004/01/16 00:13:19 espie Exp $	*/
+/*	$OpenBSD: server.h,v 1.11 2016/01/07 21:29:31 mestre Exp $	*/
 /*	$NetBSD: hunt.h,v 1.5 1998/09/13 15:27:28 hubertf Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,9 +31,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/socket.h>
 
 #include <stdio.h>
-#include <sys/socket.h>
 
 #ifndef __GNUC__
 #define __attribute__(x)
@@ -230,7 +230,7 @@ void	message(PLAYER *, char *);
 /* driver.c */
 int	rand_num(int);
 void	checkdam(PLAYER *, PLAYER *, IDENT *, int, char);
-void	cleanup(int);
+__dead void	cleanup(int);
 
 /* execute.c */
 void	mon_execute(PLAYER *);

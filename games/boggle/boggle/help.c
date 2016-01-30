@@ -1,4 +1,4 @@
-/*	$OpenBSD: help.c,v 1.5 2009/10/27 23:59:24 deraadt Exp $	*/
+/*	$OpenBSD: help.c,v 1.7 2016/01/10 14:10:38 mestre Exp $	*/
 /*	$NetBSD: help.c,v 1.2 1995/03/21 12:14:38 cgd Exp $	*/
 
 /*-
@@ -34,7 +34,6 @@
  */
 
 #include <curses.h>
-#include <stdio.h>
 
 #include "bog.h"
 #include "extern.h"
@@ -61,7 +60,7 @@ help(void)
 
 	while (!eof) {
 		for (i = 0; i < nlines - 3; i++) {
-			if (fgets(buf, sizeof(buf), fp) == (char *) NULL) {
+			if (fgets(buf, sizeof(buf), fp) == NULL) {
 				eof = 1;
 				break;
 			}

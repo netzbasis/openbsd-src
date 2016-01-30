@@ -1,4 +1,4 @@
-/*	$OpenBSD: lance.c,v 1.10 2015/11/25 03:09:58 dlg Exp $	*/
+/*	$OpenBSD: lance.c,v 1.12 2015/12/17 19:26:28 mmcc Exp $	*/
 /*	$NetBSD: lance.c,v 1.46 2012/02/02 19:43:03 tls Exp $	*/
 
 /*-
@@ -145,7 +145,7 @@ ether_cmp(void *one, void *two)
 	diff |= *a++ - *b++;
 #else
 	/*
-	 * Most modern CPUs do better with a single expresion.
+	 * Most modern CPUs do better with a single expression.
 	 * Note that short-cut evaluation is NOT helpful here,
 	 * because it just makes the code longer, not faster!
 	 */
@@ -175,7 +175,7 @@ lance_config(struct lance_softc *sc)
 	ifp->if_ioctl = lance_ioctl;
 	ifp->if_watchdog = lance_watchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 #ifdef LANCE_REVC_BUG
 	ifp->if_flags &= ~IFF_MULTICAST;
 #endif

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.10 2014/11/04 12:48:22 dlg Exp $ */
+/*	$OpenBSD: nvme.c,v 1.14 2016/01/15 06:38:33 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -40,47 +40,41 @@ struct cfdriver nvme_cd = {
 	DV_DULL
 };
 
-int			nvme_ready(struct nvme_softc *, u_int32_t);
-int			nvme_enable(struct nvme_softc *, u_int);
-int			nvme_disable(struct nvme_softc *);
+int	nvme_ready(struct nvme_softc *, u_int32_t);
+int	nvme_enable(struct nvme_softc *, u_int);
+int	nvme_disable(struct nvme_softc *);
 
-void			nvme_version(struct nvme_softc *, u_int32_t);
-void			nvme_dumpregs(struct nvme_softc *);
-int			nvme_identify(struct nvme_softc *, u_int);
-void			nvme_fill_identify(struct nvme_softc *,
-			    struct nvme_ccb *, void *);
+void	nvme_version(struct nvme_softc *, u_int32_t);
+void	nvme_dumpregs(struct nvme_softc *);
+int	nvme_identify(struct nvme_softc *, u_int);
+void	nvme_fill_identify(struct nvme_softc *, struct nvme_ccb *, void *);
 
-int			nvme_ccbs_alloc(struct nvme_softc *, u_int);
-void			nvme_ccbs_free(struct nvme_softc *);
+int	nvme_ccbs_alloc(struct nvme_softc *, u_int);
+void	nvme_ccbs_free(struct nvme_softc *);
 
-void *			nvme_ccb_get(void *);
-void			nvme_ccb_put(void *, void *);
+void *	nvme_ccb_get(void *);
+void	nvme_ccb_put(void *, void *);
 
-int			nvme_poll(struct nvme_softc *, struct nvme_queue *,
-			    struct nvme_ccb *,
-			    void (*fill)(struct nvme_softc *,
-			     struct nvme_ccb *, void *));
-void			nvme_poll_fill(struct nvme_softc *,
-			    struct nvme_ccb *, void *);
-void			nvme_poll_done(struct nvme_softc *,
-			    struct nvme_ccb *, struct nvme_cqe *);
-void			nvme_empty_done(struct nvme_softc *,
-			    struct nvme_ccb *, struct nvme_cqe *);
+int	nvme_poll(struct nvme_softc *, struct nvme_queue *, struct nvme_ccb *,
+	    void (*fill)(struct nvme_softc *, struct nvme_ccb *, void *));
+void	nvme_poll_fill(struct nvme_softc *, struct nvme_ccb *, void *);
+void	nvme_poll_done(struct nvme_softc *, struct nvme_ccb *,
+	    struct nvme_cqe *);
+void	nvme_empty_done(struct nvme_softc *, struct nvme_ccb *,
+	    struct nvme_cqe *);
 
-struct nvme_queue *	nvme_q_alloc(struct nvme_softc *,
-			    u_int, u_int, u_int);
-void			nvme_q_submit(struct nvme_softc *,
-			    struct nvme_queue *, struct nvme_ccb *,
-			    void (*)(struct nvme_softc *,
-			     struct nvme_ccb *, void *));
-int			nvme_q_complete(struct nvme_softc *,
-			    struct nvme_queue *q);
-void			nvme_q_free(struct nvme_softc *,
-			    struct nvme_queue *);
+struct nvme_queue *
+	nvme_q_alloc(struct nvme_softc *, u_int, u_int, u_int);
+void	nvme_q_submit(struct nvme_softc *,
+	    struct nvme_queue *, struct nvme_ccb *,
+	    void (*)(struct nvme_softc *, struct nvme_ccb *, void *));
+int	nvme_q_complete(struct nvme_softc *, struct nvme_queue *);
+void	nvme_q_free(struct nvme_softc *, struct nvme_queue *);
 
-struct nvme_dmamem *	nvme_dmamem_alloc(struct nvme_softc *, size_t);
-void			nvme_dmamem_free(struct nvme_softc *,
-			    struct nvme_dmamem *);
+struct nvme_dmamem *
+	nvme_dmamem_alloc(struct nvme_softc *, size_t);
+void	nvme_dmamem_free(struct nvme_softc *, struct nvme_dmamem *);
+void	nvme_dmamem_sync(struct nvme_softc *, struct nvme_dmamem *, int);
 
 #define nvme_read4(_s, _r) \
 	bus_space_read_4((_s)->sc_iot, (_s)->sc_ioh, (_r))
@@ -129,11 +123,24 @@ nvme_write8(struct nvme_softc *sc, bus_size_t r, u_int64_t v)
 void
 nvme_version(struct nvme_softc *sc, u_int32_t version)
 {
-	u_int16_t minor;
+	const char *v = NULL;
 
-	minor = NVME_VS_MNR(version);
-	minor = ((minor >> 8) * 10) + (minor & 0xff);
-	printf(", NVME %d.%d", NVME_VS_MJR(version), minor);
+	switch (version) {
+	case NVME_VS_1_0:
+		v = "1.0";
+		break;
+	case NVME_VS_1_1:
+		v = "1.1";
+		break;
+	case NVME_VS_1_2:
+		v = "1.2";
+		break;
+	default:
+		printf(", unknown version 0x%08x", version);
+		return;
+	}
+
+	printf(", NVME %s", v);
 }
 
 void
@@ -199,13 +206,13 @@ nvme_enable(struct nvme_softc *sc, u_int mps)
 	if (ISSET(cc, NVME_CC_EN))
 		return (nvme_ready(sc, NVME_CSTS_RDY));
 
+	nvme_write4(sc, NVME_AQA, NVME_AQA_ACQS(sc->sc_admin_q->q_entries) |
+	    NVME_AQA_ASQS(sc->sc_admin_q->q_entries));
+	nvme_barrier(sc, 0, sc->sc_ios, BUS_SPACE_BARRIER_WRITE);
+
 	nvme_write8(sc, NVME_ASQ, NVME_DMA_DVA(sc->sc_admin_q->q_sq_dmamem));
 	nvme_barrier(sc, 0, sc->sc_ios, BUS_SPACE_BARRIER_WRITE);
 	nvme_write8(sc, NVME_ACQ, NVME_DMA_DVA(sc->sc_admin_q->q_cq_dmamem));
-	nvme_barrier(sc, 0, sc->sc_ios, BUS_SPACE_BARRIER_WRITE);
-
-	nvme_write4(sc, NVME_AQA, NVME_AQA_ACQS(sc->sc_admin_q->q_entries) |
-	    NVME_AQA_ASQS(sc->sc_admin_q->q_entries));
 	nvme_barrier(sc, 0, sc->sc_ios, BUS_SPACE_BARRIER_WRITE);
 
 	CLR(cc, NVME_CC_IOCQES_MASK | NVME_CC_IOSQES_MASK | NVME_CC_SHN_MASK |
@@ -221,7 +228,7 @@ nvme_enable(struct nvme_softc *sc, u_int mps)
 	nvme_barrier(sc, 0, sc->sc_ios,
 	    BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE);
 
-	return (0);
+	return (nvme_ready(sc, NVME_CSTS_RDY));
 }
 
 int
@@ -419,6 +426,8 @@ nvme_q_complete(struct nvme_softc *sc, struct nvme_queue *q)
 		return (-1);
 
 	head = q->q_cq_head;
+
+	nvme_dmamem_sync(sc, q->q_cq_dmamem, BUS_DMASYNC_POSTREAD);
 	for (;;) {
 		cqe = &ring[head];
 		flags = lemtoh16(&cqe->flags);
@@ -435,6 +444,7 @@ nvme_q_complete(struct nvme_softc *sc, struct nvme_queue *q)
 
 		rv = 1;
 	}
+	nvme_dmamem_sync(sc, q->q_cq_dmamem, BUS_DMASYNC_PREREAD);
 
 	if (rv)
 		nvme_write4(sc, q->q_cqhdbl, q->q_cq_head = head);
@@ -466,11 +476,9 @@ nvme_identify(struct nvme_softc *sc, u_int mps)
 	ccb->ccb_done = nvme_empty_done;
 	ccb->ccb_cookie = mem;
 
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(mem),
-	    0, sizeof(*identify), BUS_DMASYNC_PREREAD);
+	nvme_dmamem_sync(sc, mem, BUS_DMASYNC_PREREAD);
 	rv = nvme_poll(sc, sc->sc_admin_q, ccb, nvme_fill_identify);
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(mem),
-	    0, sizeof(*identify), BUS_DMASYNC_POSTREAD);
+	nvme_dmamem_sync(sc, mem, BUS_DMASYNC_POSTREAD);
 
 	nvme_ccb_put(sc, ccb);
 
@@ -606,10 +614,8 @@ nvme_q_alloc(struct nvme_softc *sc, u_int idx, u_int entries, u_int dstrd)
 	q->q_cq_head = 0;
 	q->q_cq_phase = NVME_CQE_PHASE;
 
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_sq_dmamem),
-	    0, NVME_DMA_LEN(q->q_sq_dmamem), BUS_DMASYNC_PREWRITE);
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_cq_dmamem),
-	    0, NVME_DMA_LEN(q->q_cq_dmamem), BUS_DMASYNC_PREREAD);
+	nvme_dmamem_sync(sc, q->q_sq_dmamem, BUS_DMASYNC_PREWRITE);
+	nvme_dmamem_sync(sc, q->q_cq_dmamem, BUS_DMASYNC_PREREAD);
 
 	return (q);
 
@@ -624,10 +630,8 @@ free:
 void
 nvme_q_free(struct nvme_softc *sc, struct nvme_queue *q)
 {
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_cq_dmamem),
-	    0, NVME_DMA_LEN(q->q_cq_dmamem), BUS_DMASYNC_POSTREAD);
-	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(q->q_sq_dmamem),
-	    0, NVME_DMA_LEN(q->q_sq_dmamem), BUS_DMASYNC_POSTWRITE);
+	nvme_dmamem_sync(sc, q->q_cq_dmamem, BUS_DMASYNC_POSTREAD);
+	nvme_dmamem_sync(sc, q->q_sq_dmamem, BUS_DMASYNC_POSTWRITE);
 	nvme_dmamem_free(sc, q->q_cq_dmamem);
 	nvme_dmamem_free(sc, q->q_sq_dmamem);
 	free(q, M_DEVBUF, 0);
@@ -681,6 +685,13 @@ ndmfree:
 	free(ndm, M_DEVBUF, 0);
 
 	return (NULL);
+}
+
+void
+nvme_dmamem_sync(struct nvme_softc *sc, struct nvme_dmamem *mem, int ops)
+{
+	bus_dmamap_sync(sc->sc_dmat, NVME_DMA_MAP(mem),
+	    0, NVME_DMA_LEN(mem), ops);
 }
 
 void

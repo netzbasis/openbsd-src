@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.6 2015/12/06 01:14:08 reyk Exp $	*/
+/*	$OpenBSD: config.c,v 1.9 2015/12/07 15:57:53 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -113,6 +113,11 @@ config_getvm(struct privsep *ps, struct vm_create_params *vcp,
 
 	errno = 0;
 
+	if (vm_getbyname(vcp->vcp_name) != NULL) {
+		errno = EALREADY;
+		goto fail;
+	}
+
 	if (vcp->vcp_ncpus == 0)
 		vcp->vcp_ncpus = 1;
 	if (vcp->vcp_ncpus > VMM_MAX_VCPUS_PER_VM) {
@@ -136,7 +141,7 @@ config_getvm(struct privsep *ps, struct vm_create_params *vcp,
 	for (i = 0; i < vcp->vcp_nnics; i++)
 		vm->vm_ifs[i] = -1;
 	vm->vm_kernel = -1;
-	vm->vm_vmid = ++env->vmd_nvm;
+	vm->vm_vmid = env->vmd_nvm + 1;
 
 	if (vm_getbyvmid(vm->vm_vmid) != NULL)
 		fatalx("too many vms");
@@ -199,6 +204,7 @@ config_getvm(struct privsep *ps, struct vm_create_params *vcp,
 		    vcp, sizeof(*vcp));
 	}
 
+	env->vmd_nvm++;
 	return (0);
 
  fail:
@@ -213,9 +219,12 @@ config_getdisk(struct privsep *ps, struct imsg *imsg)
 {
 	struct vmd_vm	*vm;
 	unsigned int	 n;
-
-	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL)
+	
+	errno = 0;
+	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
+		errno = ENOENT;
 		return (-1);
+	}
 
 	IMSG_SIZE_CHECK(imsg, &n);
 	memcpy(&n, imsg->data, sizeof(n));
@@ -223,6 +232,7 @@ config_getdisk(struct privsep *ps, struct imsg *imsg)
 	if (n >= vm->vm_params.vcp_ndisks ||
 	    vm->vm_disks[n] != -1 || imsg->fd == -1) {
 		log_debug("invalid disk id");
+		errno = EINVAL;
 		return (-1);
 	}
 	vm->vm_disks[n] = imsg->fd;
@@ -236,14 +246,18 @@ config_getif(struct privsep *ps, struct imsg *imsg)
 	struct vmd_vm	*vm;
 	unsigned int	 n;
 
-	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL)
+	errno = 0;
+	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
+		errno = ENOENT;
 		return (-1);
+	}
 
 	IMSG_SIZE_CHECK(imsg, &n);
 	memcpy(&n, imsg->data, sizeof(n));
 	if (n >= vm->vm_params.vcp_nnics ||
 	    vm->vm_ifs[n] != -1 || imsg->fd == -1) {
 		log_debug("invalid interface id");
+		errno = EINVAL;
 		return (-1);
 	}
 	vm->vm_ifs[n] = imsg->fd;

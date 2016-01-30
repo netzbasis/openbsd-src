@@ -1,7 +1,7 @@
-/* $OpenBSD: window.c,v 1.151 2015/12/02 23:09:22 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.156 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -568,7 +568,7 @@ window_add_pane(struct window *w, u_int hlimit)
 void
 window_lost_pane(struct window *w, struct window_pane *wp)
 {
-	if (wp == marked_window_pane)
+	if (wp == marked_pane.wp)
 		server_clear_marked();
 
 	if (wp == w->active) {
@@ -691,7 +691,7 @@ window_printable_flags(struct session *s, struct winlink *wl)
 		flags[pos++] = '*';
 	if (wl == TAILQ_FIRST(&s->lastw))
 		flags[pos++] = '-';
-	if (server_check_marked() && wl == marked_winlink)
+	if (server_check_marked() && wl == marked_pane.wl)
 		flags[pos++] = 'M';
 	if (wl->window->flags & WINDOW_ZOOMED)
 		flags[pos++] = 'Z';
@@ -948,7 +948,7 @@ window_pane_read_callback(__unused struct bufferevent *bufev, void *data)
 
 	new_size = EVBUFFER_LENGTH(evb) - wp->pipe_off;
 	if (wp->pipe_fd != -1 && new_size > 0) {
-		new_data = EVBUFFER_DATA(evb);
+		new_data = EVBUFFER_DATA(evb) + wp->pipe_off;
 		bufferevent_write(wp->pipe_event, new_data, new_size);
 	}
 
@@ -974,7 +974,7 @@ window_pane_error_callback(__unused struct bufferevent *bufev,
 {
 	struct window_pane *wp = data;
 
-	server_destroy_pane(wp);
+	server_destroy_pane(wp, 1);
 }
 
 void
@@ -1127,7 +1127,9 @@ window_pane_key(struct window_pane *wp, struct client *c, struct session *s,
 		TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
 			if (wp2 == wp || wp2->mode != NULL)
 				continue;
-			if (wp2->fd != -1 && window_pane_visible(wp2))
+			if (wp2->fd == -1 || wp2->flags & PANE_INPUTOFF)
+				continue;
+			if (window_pane_visible(wp2))
 				input_key(wp2, key, NULL);
 		}
 	}

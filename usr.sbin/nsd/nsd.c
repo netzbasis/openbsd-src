@@ -662,6 +662,9 @@ main(int argc, char *argv[])
 		if(nsd.options->identity)
 			nsd.identity = nsd.options->identity;
 	}
+	if(nsd.options->version) {
+		nsd.version = nsd.options->version;
+	}
 	if (nsd.options->logfile && !nsd.log_filename) {
 		nsd.log_filename = nsd.options->logfile;
 	}
@@ -1114,7 +1117,6 @@ main(int argc, char *argv[])
 
 	if (pledge("stdio rpath wpath cpath dns inet proc", NULL) == -1)
 		error("pledge");
-
 
 	xfrd_make_tempdir(&nsd);
 #ifdef USE_ZONE_STATS

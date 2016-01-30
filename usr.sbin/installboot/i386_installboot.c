@@ -1,4 +1,4 @@
-/*	$OpenBSD: i386_installboot.c,v 1.20 2015/12/01 19:10:16 krw Exp $	*/
+/*	$OpenBSD: i386_installboot.c,v 1.26 2015/12/28 23:00:29 krw Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*
@@ -90,6 +90,7 @@ static void	devread(int, void *, daddr_t, size_t, char *);
 static u_int	findopenbsd(int, struct disklabel *);
 static int	getbootparams(char *, int, struct disklabel *);
 static char	*loadproto(char *, long *);
+static int	gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 /*
  * Read information about /boot's inode and filesystem parameters, then
@@ -203,16 +204,14 @@ write_bootblocks(int devfd, char *dev, struct disklabel *dl)
 		    stage1, BOOTBIOS_MAXSEC);
 
 	if (!nowrite) {
-		if (lseek(devfd, (off_t)start * dl->d_secsize, SEEK_SET) < 0)
-			err(1, "seek boot sector");
 		secbuf = calloc(1, dl->d_secsize);
-		if (read(devfd, secbuf, dl->d_secsize) != dl->d_secsize)
-			err(1, "read boot sector");
+		if (pread(devfd, secbuf, dl->d_secsize, (off_t)start *
+		    dl->d_secsize) != dl->d_secsize)
+			err(1, "pread boot sector");
 		bcopy(blkstore, secbuf, blksize);
-		if (lseek(devfd, (off_t)start * dl->d_secsize, SEEK_SET) < 0)
-			err(1, "seek bootstrap");
-		if (write(devfd, secbuf, dl->d_secsize) != dl->d_secsize)
-			err(1, "write bootstrap");
+		if (pwrite(devfd, secbuf, dl->d_secsize, (off_t)start *
+		    dl->d_secsize) != dl->d_secsize)
+			err(1, "pwrite bootstrap");
 		free(secbuf);
 	}
 }
@@ -220,8 +219,8 @@ write_bootblocks(int devfd, char *dev, struct disklabel *dl)
 void
 write_efisystem(struct disklabel *dl, char part)
 {
-	static char *fsckfmt = "/sbin/fsck_msdos -f %s >/dev/null";
-	static char *newfsfmt ="/sbin/newfs_msdos -t msdos %s >/dev/null";
+	static char *fsckfmt = "/sbin/fsck_msdos %s >/dev/null";
+	static char *newfsfmt ="/sbin/newfs_msdos %s >/dev/null";
 	struct msdosfs_args args;
 	char cmd[60];
 	char dst[50];	/* /tmp/installboot.XXXXXXXXXX/efi/BOOT/BOOTIA32.EFI */
@@ -369,8 +368,7 @@ rmdir:
 	if (rmdir(dst) == -1)
 		err(1, "rmdir('%s') failed", dst);
 
-	if (src)
-		free(src);
+	free(src);
 
 	if (rslt == -1)
 		exit(1);
@@ -402,9 +400,9 @@ again:
 
 	if ((secbuf = malloc(dl->d_secsize)) == NULL)
 		err(1, NULL);
-	if (lseek(devfd, (off_t)mbroff * dl->d_secsize, SEEK_SET) < 0 ||
-	    read(devfd, secbuf, dl->d_secsize) < (ssize_t)sizeof(mbr))
-		err(4, "can't read boot record");
+	if (pread(devfd, secbuf, dl->d_secsize, (off_t)mbroff * dl->d_secsize)
+	    < (ssize_t)sizeof(mbr))
+		err(4, "can't pread boot record");
 	bcopy(secbuf, &mbr, sizeof(mbr));
 	free(secbuf);
 
@@ -455,11 +453,10 @@ again:
  *
  * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
  */
-int
-gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 {
 	struct dos_partition *dp2;
-	u_int64_t dsize;
 	int efi, found, i;
 	u_int32_t psize;
 
@@ -470,7 +467,6 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 		found++;
 		if (dp2->dp_typ != DOSPTYP_EFI)
 			continue;
-		dsize = DL_GETDSIZE(lp);
 		psize = letoh32(dp2->dp_size);
 		if (psize == (dsize - 1) ||
 		    psize == UINT32_MAX) {
@@ -481,7 +477,7 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 	if (found == 1 && efi == 1)
 		return (0);
 
-	return (EINVAL);
+	return (1);
 }
 
 int
@@ -511,7 +507,7 @@ findgptefisys(int devfd, struct disklabel *dl)
 	if (len != dl->d_secsize)
 		err(4, "can't read mbr");
 	memcpy(dp, &secbuf[DOSPARTOFF], sizeof(dp));
-	if (gpt_chk_mbr(dp, dl)) {
+	if (gpt_chk_mbr(dp, DL_GETDSIZE(dl))) {
 		free(secbuf);
 		return (-1);
 	}
@@ -520,7 +516,7 @@ findgptefisys(int devfd, struct disklabel *dl)
 	off = dl->d_secsize;	/* Read header from sector 1. */
 	len = pread(devfd, secbuf, dl->d_secsize, off);
 	if (len != dl->d_secsize)
-		err(4, "can't read gpt header");
+		err(4, "can't pread gpt header");
 
 	memcpy(&gh, secbuf, sizeof(gh));
 	free(secbuf);
@@ -622,10 +618,9 @@ loadproto(char *fname, long *size)
 	if (ph == NULL)
 		err(1, NULL);
 	phsize = eh.e_phnum * sizeof(Elf_Phdr);
-	lseek(fd, eh.e_phoff, SEEK_SET);
 
-	if (read(fd, ph, phsize) != phsize)
-		errx(1, "%s: can't read header", fname);
+	if (pread(fd, ph, phsize, eh.e_phoff) != phsize)
+		errx(1, "%s: can't pread header", fname);
 
 	tdsize = ph->p_filesz;
 
@@ -638,9 +633,8 @@ loadproto(char *fname, long *size)
 		err(1, NULL);
 
 	/* Read the rest of the file. */
-	lseek(fd, ph->p_offset, SEEK_SET);
-	if (read(fd, bp, tdsize) != (ssize_t)tdsize)
-		errx(1, "%s: read failed", fname);
+	if (pread(fd, bp, tdsize, ph->p_offset) != (ssize_t)tdsize)
+		errx(1, "%s: pread failed", fname);
 
 	*size = tdsize;	/* not aligned to DEV_BSIZE */
 
@@ -651,11 +645,8 @@ loadproto(char *fname, long *size)
 static void
 devread(int fd, void *buf, daddr_t blk, size_t size, char *msg)
 {
-	if (lseek(fd, dbtob((off_t)blk), SEEK_SET) != dbtob((off_t)blk))
-		err(1, "%s: devread: lseek", msg);
-
-	if (read(fd, buf, size) != (ssize_t)size)
-		err(1, "%s: devread: read", msg);
+	if (pread(fd, buf, size, dbtob((off_t)blk)) != (ssize_t)size)
+		err(1, "%s: devread: pread", msg);
 }
 
 static char sblock[SBSIZE];

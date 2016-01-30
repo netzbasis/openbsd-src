@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-new-window.c,v 1.52 2015/11/20 22:02:54 nicm Exp $ */
+/* $OpenBSD: cmd-new-window.c,v 1.59 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,38 +35,38 @@
 enum cmd_retval	cmd_new_window_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_new_window_entry = {
-	"new-window", "neww",
-	"ac:dF:kn:Pt:", 0, -1,
-	"[-adkP] [-c start-directory] [-F format] [-n window-name] "
-	CMD_TARGET_WINDOW_USAGE " [command]",
-	0,
-	cmd_new_window_exec
+	.name = "new-window",
+	.alias = "neww",
+
+	.args = { "ac:dF:kn:Pt:", 0, -1 },
+	.usage = "[-adkP] [-c start-directory] [-F format] [-n window-name] "
+		 CMD_TARGET_WINDOW_USAGE " [command]",
+
+	.tflag = CMD_WINDOW_INDEX,
+
+	.flags = 0,
+	.exec = cmd_new_window_exec
 };
 
 enum cmd_retval
 cmd_new_window_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
-	struct session		*s;
-	struct winlink		*wl;
+	struct session		*s = cmdq->state.tflag.s;
+	struct winlink		*wl = cmdq->state.tflag.wl;
+	struct client		*c = cmdq->state.c;
+	int			 idx = cmdq->state.tflag.idx;
 	const char		*cmd, *path, *template, *cwd, *to_free;
 	char		       **argv, *cause, *cp;
-	int			 argc, idx, detached;
+	int			 argc, detached;
 	struct format_tree	*ft;
 	struct environ_entry	*envent;
 
 	if (args_has(args, 'a')) {
-		wl = cmd_find_window(cmdq, args_get(args, 't'), &s);
-		if (wl == NULL)
-			return (CMD_RETURN_ERROR);
 		if ((idx = winlink_shuffle_up(s, wl)) == -1) {
 			cmdq_error(cmdq, "no free window indexes");
 			return (CMD_RETURN_ERROR);
 		}
-	} else {
-		idx = cmd_find_index(cmdq, args_get(args, 't'), &s);
-		if (idx == -2)
-			return (CMD_RETURN_ERROR);
 	}
 	detached = args_has(args, 'd');
 
@@ -94,9 +94,8 @@ cmd_new_window_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	to_free = NULL;
 	if (args_has(args, 'c')) {
-		ft = format_create();
-		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s, NULL,
-		    NULL);
+		ft = format_create(cmdq, 0);
+		format_defaults(ft, c, s, NULL, NULL);
 		cwd = to_free = format_expand(ft, args_get(args, 'c'));
 		format_free(ft);
 	} else if (cmdq->client != NULL && cmdq->client->session == NULL)
@@ -143,9 +142,8 @@ cmd_new_window_exec(struct cmd *self, struct cmd_q *cmdq)
 		if ((template = args_get(args, 'F')) == NULL)
 			template = NEW_WINDOW_TEMPLATE;
 
-		ft = format_create();
-		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s, wl,
-		    NULL);
+		ft = format_create(cmdq, 0);
+		format_defaults(ft, c, s, wl, NULL);
 
 		cp = format_expand(ft, template);
 		cmdq_print(cmdq, "%s", cp);

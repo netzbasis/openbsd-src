@@ -1,4 +1,4 @@
-/*	$OpenBSD: search.c,v 1.15 2015/06/03 02:24:36 millert Exp $ */
+/*	$OpenBSD: search.c,v 1.17 2015/12/24 17:47:57 mmcc Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -215,12 +215,11 @@ check_search_entry(struct btval *key, struct btval *val, struct search *search)
 		return 0;
 	}
 
-	if ((dn0 = malloc(key->size + 1)) == NULL) {
+	if ((dn0 = strndup(key->data, key->size)) == NULL) {
 		log_warn("malloc");
 		return 0;
 	}
-	strncpy(dn0, key->data, key->size);
-	dn0[key->size] = 0;
+
 	if (!authorized(search->conn, search->ns, ACI_READ, dn0,
 	    LDAP_SCOPE_BASE)) {
 		/* LDAP_INSUFFICIENT_ACCESS */
@@ -291,8 +290,8 @@ conn_search(struct search *search)
 
 	conn = search->conn;
 
-	bzero(&key, sizeof(key));
-	bzero(&val, sizeof(val));
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
 
 	if (search->plan->indexed)
 		txn = search->indx_txn;
@@ -347,7 +346,7 @@ conn_search(struct search *search)
 			search->cindx = TAILQ_NEXT(search->cindx, next);
 			if (search->cindx != NULL) {
 				rc = BT_SUCCESS;
-				bzero(&key, sizeof(key));
+				memset(&key, 0, sizeof(key));
 				key.data = search->cindx->prefix;
 				key.size = strlen(key.data);
 				log_debug("re-init cursor on [%s]", key.data);
@@ -368,7 +367,7 @@ conn_search(struct search *search)
 
 		if (search->plan->indexed) {
 			bcopy(&key, &ikey, sizeof(key));
-			bzero(&key, sizeof(key));
+			memset(&key, 0, sizeof(key));
 			btval_reset(&val);
 
 			rc = index_to_dn(search->ns, &ikey, &key);
@@ -949,8 +948,8 @@ ldap_search(struct request *req)
 	if (search->scope == LDAP_SCOPE_BASE) {
 		struct btval		 key, val;
 
-		bzero(&key, sizeof(key));
-		bzero(&val, sizeof(val));
+		memset(&key, 0, sizeof(key));
+		memset(&val, 0, sizeof(val));
 		key.data = search->basedn;
 		key.size = strlen(key.data);
 

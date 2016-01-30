@@ -1,4 +1,4 @@
-/*	$OpenBSD: spamd.c,v 1.134 2015/12/05 20:32:53 henning Exp $	*/
+/*	$OpenBSD: spamd.c,v 1.137 2015/12/12 20:09:28 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2015 Henning Brauer <henning@openbsd.org>
@@ -111,7 +111,8 @@ char    *loglists(struct con *);
 void     getcaddr(struct con *);
 void     gethelo(char *, size_t, char *);
 int      read_configline(FILE *);
-void	 spamd_tls_init(char *, char *);
+void	 spamd_tls_init(void);
+void	 check_spamd_db(void);
 
 char hostname[HOST_NAME_MAX+1];
 struct syslog_data sdata = SYSLOG_DATA_INIT;
@@ -131,6 +132,12 @@ u_short cfg_port;
 u_short sync_port;
 struct tls_config *tlscfg;
 struct tls *tlsctx;
+uint8_t	*pubcert;
+size_t	 pubcertlen;
+uint8_t	*privkey;
+size_t	 privkeylen;
+char 	*tlskeyfile = NULL;
+char 	*tlscertfile = NULL;
 
 extern struct sdlist *blacklists;
 extern int pfdev;
@@ -432,11 +439,11 @@ read_configline(FILE *config)
 }
 
 void
-spamd_tls_init(char *keyfile, char *certfile)
+spamd_tls_init()
 {
-	if (keyfile == NULL && certfile == NULL)
+	if (tlskeyfile == NULL && tlscertfile == NULL)
 		return;
-	if (keyfile == NULL || certfile == NULL)
+	if (tlskeyfile == NULL || tlscertfile == NULL)
 		errx(1, "need key and certificate for TLS");
 
 	if (tls_init() != 0)
@@ -452,10 +459,10 @@ spamd_tls_init(char *keyfile, char *certfile)
 	if (tls_config_set_ciphers(tlscfg, "compat") != 0)
 		errx(1, "failed to set tls ciphers");
 
-	if (tls_config_set_cert_file(tlscfg, certfile) != 0)
-		err(1, "could not load certificate %s", certfile);
-	if (tls_config_set_key_file(tlscfg, keyfile) != 0)
-		err(1, "could not load key %s", keyfile);
+	if (tls_config_set_cert_mem(tlscfg, pubcert, pubcertlen) == -1)
+		errx(1, "unable to set TLS certificate file %s", tlscertfile);
+	if (tls_config_set_key_mem(tlscfg, privkey, privkeylen) == -1)
+		errx(1, "unable to set TLS key file %s", tlskeyfile);
 	if (tls_configure(tlsctx, tlscfg) != 0)
 		errx(1, "failed to configure TLS - %s", tls_error(tlsctx));
 
@@ -770,10 +777,8 @@ closecon(struct con *cp)
 	if (debug > 0)
 		printf("%s connected for %lld seconds.\n", cp->addr,
 		    (long long)(tt - cp->s));
-	if (cp->lists != NULL) {
-		free(cp->lists);
-		cp->lists = NULL;
-	}
+	free(cp->lists);
+	cp->lists = NULL;
 	if (cp->blacklists != NULL) {
 		blackcount--;
 		free(cp->blacklists);
@@ -1226,8 +1231,6 @@ main(int argc, char *argv[])
 	const char *errstr;
 	char *sync_iface = NULL;
 	char *sync_baddr = NULL;
-	char *tlskeyfile = NULL;
-	char *tlscertfile = NULL;
 
 	tzset();
 	openlog_r("spamd", LOG_PID | LOG_NDELAY, LOG_DAEMON, &sdata);
@@ -1353,10 +1356,29 @@ main(int argc, char *argv[])
 	    greylist ? " (greylist)" : "",
 	    (syncrecv || syncsend) ? " (sync)" : "");
 
-	if (!greylist)
+	if (syncsend || syncrecv) {
+		syncfd = sync_init(sync_iface, sync_baddr, sync_port);
+		if (syncfd == -1)
+			err(1, "sync init");
+	}
+
+	if ((pw = getpwnam("_spamd")) == NULL)
+		errx(1, "no such user _spamd");
+
+	if (!greylist) {
 		maxblack = maxcon;
-	else if (maxblack > maxcon)
+
+		if (pledge("stdio rpath inet proc id", NULL) == -1)
+			err(1, "pledge");
+	} else if (maxblack > maxcon)
 		usage();
+
+	if (tlscertfile &&
+		(pubcert=tls_load_file(tlscertfile, &pubcertlen, NULL)) == NULL)
+		errx(1, "unable to load TLS certificate file %s", tlscertfile);
+	if (tlskeyfile &&
+		(privkey=tls_load_file(tlskeyfile, &privkeylen, NULL)) == NULL)
+		errx(1, "unable to load TLS key file %s", tlskeyfile);
 
 	rlp.rlim_cur = rlp.rlim_max = maxcon + 15;
 	if (setrlimit(RLIMIT_NOFILE, &rlp) == -1)
@@ -1421,15 +1443,6 @@ main(int argc, char *argv[])
 	if (bind(conflisten, (struct sockaddr *)&lin, sizeof lin) == -1)
 		err(1, "bind local");
 
-	if (syncsend || syncrecv) {
-		syncfd = sync_init(sync_iface, sync_baddr, sync_port);
-		if (syncfd == -1)
-			err(1, "sync init");
-	}
-
-	if ((pw = getpwnam("_spamd")) == NULL)
-		errx(1, "no such user _spamd");
-
 	if (debug == 0) {
 		if (daemon(1, 1) == -1)
 			err(1, "daemon");
@@ -1441,6 +1454,8 @@ main(int argc, char *argv[])
 			syslog_r(LOG_ERR, &sdata, "open /dev/pf: %m");
 			exit(1);
 		}
+
+		check_spamd_db();
 
 		maxblack = (maxblack >= maxcon) ? maxcon - 100 : maxblack;
 		if (maxblack < 0)
@@ -1477,6 +1492,18 @@ main(int argc, char *argv[])
 				_exit(1);
 			}
 			close(trappipe[1]);
+
+			if (chroot("/var/empty") == -1 || chdir("/") == -1) {
+				syslog(LOG_ERR, "cannot chdir to /var/empty.");
+				exit(1);
+			}
+
+			if (pw)
+				if (setgroups(1, &pw->pw_gid) ||
+					setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+					setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+					err(1, "failed to drop privs");
+
 			goto jail;
 		}
 		/* parent - run greylister */
@@ -1497,18 +1524,10 @@ main(int argc, char *argv[])
 	}
 
 jail:
-	spamd_tls_init(tlskeyfile, tlscertfile);
+	if (pledge("stdio inet", NULL) == -1)
+		err(1, "pledge");
 
-	if (chroot("/var/empty") == -1 || chdir("/") == -1) {
-		syslog(LOG_ERR, "cannot chdir to /var/empty.");
-		exit(1);
-	}
-
-	if (pw)
-		if (setgroups(1, &pw->pw_gid) ||
-		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-			err(1, "failed to drop privs");
+	spamd_tls_init();
 
 	if (listen(smtplisten, 10) == -1)
 		err(1, "listen");

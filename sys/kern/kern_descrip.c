@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.125 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.128 2016/01/06 17:59:30 tedu Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -401,7 +401,7 @@ restart:
 		break;
 
 	case F_ISATTY:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 	        if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 			*retval = 1;
 		else {
@@ -442,7 +442,7 @@ restart:
 
 	case F_SETOWN:
 		if (fp->f_type == DTYPE_SOCKET) {
-			struct socket *so = (struct socket *)fp->f_data;
+			struct socket *so = fp->f_data;
 
 			so->so_pgid = (long)SCARG(uap, arg);
 			so->so_siguid = p->p_ucred->cr_ruid;
@@ -450,7 +450,7 @@ restart:
 			break;
 		}
 		if (fp->f_type == DTYPE_PIPE) {
-			struct pipe *mpipe = (struct pipe *)fp->f_data;
+			struct pipe *mpipe = fp->f_data;
 
 			mpipe->pipe_pgid = (long)SCARG(uap, arg);
 			break;
@@ -482,7 +482,7 @@ restart:
 			error = EBADF;
 			break;
 		}
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		/* Copy in the lock structure */
 		error = copyin((caddr_t)SCARG(uap, arg), (caddr_t)&fl,
 		    sizeof (fl));
@@ -549,7 +549,7 @@ restart:
 			error = EBADF;
 			break;
 		}
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		/* Copy in the lock structure */
 		error = copyin((caddr_t)SCARG(uap, arg), (caddr_t)&fl,
 		    sizeof (fl));
@@ -749,7 +749,7 @@ sys_fpathconf(struct proc *p, void *v, register_t *retval)
 		break;
 
 	case DTYPE_VNODE:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
 		error = VOP_PATHCONF(vp, SCARG(uap, name), retval);
 		VOP_UNLOCK(vp, 0, p);
@@ -1092,10 +1092,8 @@ fdfree(struct proc *p)
 		vrele(fdp->fd_cdir);
 	if (fdp->fd_rdir)
 		vrele(fdp->fd_rdir);
-	if (fdp->fd_knlist)
-		free(fdp->fd_knlist, M_TEMP, 0);
-	if (fdp->fd_knhash)
-		free(fdp->fd_knhash, M_TEMP, 0);
+	free(fdp->fd_knlist, M_TEMP, fdp->fd_knlistsize * sizeof(struct klist));
+	free(fdp->fd_knhash, M_TEMP, 0);
 	pool_put(&fdesc_pool, fdp);
 }
 
@@ -1196,7 +1194,7 @@ sys_flock(struct proc *p, void *v, register_t *retval)
 	if (fp->f_type != DTYPE_VNODE)
 		return (EOPNOTSUPP);
 	FREF(fp);
-	vp = (struct vnode *)fp->f_data;
+	vp = fp->f_data;
 	lf.l_whence = SEEK_SET;
 	lf.l_start = 0;
 	lf.l_len = 0;

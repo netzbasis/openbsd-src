@@ -1,5 +1,5 @@
 #!/bin/ksh
-#	$OpenBSD: install.sh,v 1.270 2015/09/09 23:07:10 halex Exp $
+#	$OpenBSD: install.sh,v 1.273 2015/12/27 18:42:11 rpe Exp $
 #	$NetBSD: install.sh,v 1.5.2.8 1996/08/27 18:15:05 gwr Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
@@ -65,7 +65,7 @@ MODE=install
 
 # Ask for/set the system hostname and add the hostname specific siteXX set.
 ask_until "System hostname? (short form, e.g. 'foo')" "$(hostname -s)"
-[[ ${resp%%.*} != $(hostname -s) ]] && hostname $resp
+[[ ${resp%%.*} != $(hostname -s) ]] && hostname "$resp"
 THESETS="$THESETS site$VERSION-$(hostname -s).tgz"
 
 echo
@@ -75,9 +75,10 @@ donetconfig
 
 # If there's network connectivity, fetch list of mirror servers and installer
 # choices from previous runs.
-((NIFS != 0)) && startcgiinfo
+((NIFS)) && startcgiinfo
 
 echo
+
 while :; do
 	askpassword "Password for root account?"
 	_rootpass="$_password"
@@ -87,8 +88,10 @@ done
 
 # Ask for the root user public ssh key during autoinstall.
 rootkey=
-$AUTO && ask "Public ssh key for root account?" none &&
+if $AUTO; then
+	ask "Public ssh key for root account?" none
 	[[ $resp != none ]] && rootkey=$resp
+fi
 
 # Ask user about daemon startup on boot, X Window usage and console setup.
 questions
@@ -99,93 +102,39 @@ ask_root_sshd
 
 # Set TZ variable based on zonefile and user selection.
 set_timezone /var/tzlist
+
 echo
 
 # Get information about ROOTDISK, etc.
 get_rootinfo
 
-DISK=
 DISKS_DONE=
-_DKDEVS=$(get_dkdevs)
-_fsent=
+FSENT=
 
 # Remove traces of previous install attempt.
 rm -f /tmp/fstab*
 
 # Configure the disk(s).
 while :; do
-	DISKS_DONE=$(addel "$DISK" $DISKS_DONE)
-	_DKDEVS=$(rmel "$DISK" $_DKDEVS)
-
 	# Always do ROOTDISK first, and repeat until it is configured.
-	if isin $ROOTDISK $_DKDEVS; then
+	if ! isin $ROOTDISK $DISKS_DONE; then
 		resp=$ROOTDISK
 		rm -f /tmp/fstab
 	else
 		# Force the user to think and type in a disk name by
 		# making 'done' the default choice.
 		ask_which "disk" "do you wish to initialize" \
-			'$(l=$(get_dkdevs); for a in $DISKS_DONE; do
-				l=$(rmel $a $l); done; bsort $l)' \
-			done
+			'$(get_dkdevs_uninitialized)' done
 		[[ $resp == done ]] && break
 	fi
-
-	DISK=$resp
-	makedev $DISK || continue
-
-	# Deal with disklabels, including editing the root disklabel
-	# and labeling additional disks. This is machine-dependent since
-	# some platforms may not be able to provide this functionality.
-	# /tmp/fstab.$DISK is created here with 'disklabel -F'.
-	rm -f /tmp/*.$DISK
-	md_prep_disklabel $DISK || { DISK=; continue; }
-
-	# Make sure there is a '/' mount point.
-	grep -qs " / ffs " /tmp/fstab.$ROOTDISK ||
-		{ DISK=; echo "'/' must be configured!"; continue; }
-
-	if [[ -f /tmp/fstab.$DISK ]]; then
-		# Avoid duplicate mount points on different disks.
-		while read _pp _mp _rest; do
-			if [[ $_mp == none ]]; then
-				# Multiple swap partitions are ok.
-				echo "$_pp $_mp $_rest" >>/tmp/fstab
-				continue
-			fi
-			# Non-swap mountpoints must be in only one file.
-			[[ /tmp/fstab.$DISK == $(grep -l " $_mp " /tmp/fstab.*) ]] ||
-				{ _rest=$DISK; DISK=; break; }
-		done </tmp/fstab.$DISK
-		if [[ -z $DISK ]]; then
-			# Duplicate mountpoint.
-			# Allow disklabel(8) to read back mountpoint info
-			# if it is immediately run against the same disk.
-			cat /tmp/fstab.$_rest >/etc/fstab
-			rm /tmp/fstab.$_rest
-			set -- $(grep -h " $_mp " /tmp/fstab.*[0-9])
-			echo "$_pp and $1 can't both be mounted at $_mp."
-			continue
-		fi
-
-		# Add ffs filesystems to list after newfs'ing them. Ignore
-		# other filesystems.
-		while read _pp _mp _fstype _rest; do
-			[[ $_fstype == ffs ]] || continue
-			_OPT=
-			[[ $_mp == / ]] && _OPT=$MDROOTFSOPT
-			newfs -q $_OPT ${_pp##/dev/}
-			# N.B.: '!' is lexically < '/'. That is
-			#	required for correct sorting of
-			#	mount points.
-			_fsent="$_fsent $_mp!$_pp"
-		done </tmp/fstab.$DISK
-	fi
+	_disk=$resp
+	configure_disk $_disk || continue
+	DISKS_DONE=$(addel $_disk $DISKS_DONE)
 done
 
 # Write fstab entries to fstab in mount point alphabetic order
 # to enforce a rational mount order.
-for _mp in $(bsort $_fsent); do
+for _mp in $(bsort $FSENT); do
 	_pp=${_mp##*!}
 	_mp=${_mp%!*}
 	echo -n "$_pp $_mp ffs rw"
@@ -293,9 +242,11 @@ hostname >/tmp/myname
 # to '1.2.3.4 hostname.$FQDN hostname'. Leave untouched lines containing
 # domain information or aliases. These are lines the user added/changed
 # manually.
+
 # Add common entries.
 echo "127.0.0.1\tlocalhost" >/mnt/etc/hosts
 echo "::1\t\tlocalhost" >>/mnt/etc/hosts
+
 # Note we may have no hosts file if no interfaces were configured.
 if [[ -f /tmp/hosts ]]; then
 	_dn=$(get_fqdn)

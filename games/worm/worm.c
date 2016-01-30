@@ -1,4 +1,4 @@
-/*	$OpenBSD: worm.c,v 1.34 2015/11/21 05:29:42 deraadt Exp $	*/
+/*	$OpenBSD: worm.c,v 1.38 2016/01/07 16:00:33 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -34,16 +34,13 @@
  * UCSC
  */
 
-#include <sys/types.h>
 #include <ctype.h>
 #include <curses.h>
 #include <err.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <string.h>
-#include <time.h>
 #include <unistd.h>
-#include <poll.h>
 
 #define HEAD '@'
 #define BODY 'o'
@@ -72,7 +69,7 @@ char outbuf[BUFSIZ];
 volatile sig_atomic_t wantleave = 0;
 volatile sig_atomic_t wantsuspend = 0;
 
-void	crash(void);
+__dead void	crash(void);
 void	display(struct body *, char);
 void	leave(int);
 void	life(void);
@@ -139,7 +136,7 @@ main(int argc, char **argv)
 	while (1) {
 		if (wantleave) {
 			endwin();
-			exit(0);
+			return 0;
 		}
 		if (wantsuspend) {
 			move(LINES-1, 0);

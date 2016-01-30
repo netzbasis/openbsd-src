@@ -1,4 +1,4 @@
-/*	$OpenBSD: pom.c,v 1.18 2015/10/24 17:33:05 mmcc Exp $	*/
+/*	$OpenBSD: pom.c,v 1.21 2016/01/07 16:00:33 tb Exp $	*/
 /*    $NetBSD: pom.c,v 1.6 1996/02/06 22:47:29 jtc Exp $      */
 
 /*
@@ -44,14 +44,12 @@
  *
  */
 
-#include <sys/time.h>
-#include <sys/types.h>
 #include <ctype.h>
+#include <err.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
-#include <err.h>
 #include <unistd.h>
 
 #ifndef M_PI
@@ -72,7 +70,7 @@ void	adj360(double *);
 double	dtor(double);
 double	potm(double);
 time_t	parsetime(char *);
-void	badformat(void);
+__dead void	badformat(void);
 
 int
 main(int argc, char *argv[])
@@ -132,7 +130,7 @@ main(int argc, char *argv[])
 				    today);
 		}
 	}
-	exit(0);
+	return 0;
 }
 
 /*

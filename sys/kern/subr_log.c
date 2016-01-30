@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.34 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.37 2016/01/13 17:05:25 stefan Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -59,6 +59,8 @@
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
 
+#include <dev/cons.h>
+
 #define LOG_RDPRI	(PZERO + 1)
 
 #define LOG_ASYNC	0x04
@@ -76,7 +78,7 @@ int	log_open;			/* also used in log() */
 int	msgbufmapped;			/* is the message buffer mapped */
 struct	msgbuf *msgbufp;		/* the mapped buffer, itself. */
 struct	msgbuf *consbufp;		/* console message buffer. */
-struct file *syslogf;
+struct	file *syslogf;
 
 void filt_logrdetach(struct knote *kn);
 int filt_logread(struct knote *kn, long hint);
@@ -178,7 +180,7 @@ int
 logread(dev_t dev, struct uio *uio, int flag)
 {
 	struct msgbuf *mbp = msgbufp;
-	long l;
+	size_t l;
 	int s;
 	int error = 0;
 
@@ -200,13 +202,14 @@ logread(dev_t dev, struct uio *uio, int flag)
 	logsoftc.sc_state &= ~LOG_RDWAIT;
 
 	while (uio->uio_resid > 0) {
-		l = mbp->msg_bufx - mbp->msg_bufr;
-		if (l < 0)
+		if (mbp->msg_bufx >= mbp->msg_bufr)
+			l = mbp->msg_bufx - mbp->msg_bufr;
+		else
 			l = mbp->msg_bufs - mbp->msg_bufr;
-		l = min(l, uio->uio_resid);
+		l = ulmin(l, uio->uio_resid);
 		if (l == 0)
 			break;
-		error = uiomovei(&mbp->msg_bufc[mbp->msg_bufr], (int)l, uio);
+		error = uiomove(&mbp->msg_bufc[mbp->msg_bufr], l, uio);
 		if (error)
 			break;
 		mbp->msg_bufr += l;
@@ -380,18 +383,15 @@ sys_sendsyslog2(struct proc *p, void *v, register_t *retval)
 		    LOG_KERN|LOG_WARNING, dropped_count,
 		    dropped_count == 1 ? "" : "s", orig_error);
 		error = dosendsyslog(p, buf, MIN((size_t)len, sizeof(buf) - 1),
-		    SCARG(uap, flags), UIO_SYSSPACE);
-		if (error) {
-			dropped_count++;
-			return (error);
-		}
-		dropped_count = 0;
+		    0, UIO_SYSSPACE);
+		if (error == 0)
+			dropped_count = 0;
 	}
 #endif
 	error = dosendsyslog(p, SCARG(uap, buf), SCARG(uap, nbyte),
 	    SCARG(uap, flags), UIO_USERSPACE);
 #ifndef SMALL_KERNEL
-	if (error && error != ENOTCONN) {
+	if (error) {
 		dropped_count++;
 		orig_error = error;
 	}
@@ -407,31 +407,43 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 	struct iovec *ktriov = NULL;
 	int iovlen;
 #endif
-	extern struct tty *constty;
+	char pri[6];
 	struct iovec aiov;
 	struct uio auio;
-	struct file *f;
-	size_t len;
+	size_t i, len;
 	int error;
 
-	if (syslogf == NULL) {
-		if (constty && (flags & LOG_CONS)) {
-			int i;
-
-			/* Skip syslog prefix */
-			if (nbyte >= 4 && buf[0] == '<' &&
-			    buf[3] == '>') {
-				buf += 4;
-				nbyte -= 4;
-			}
-			for (i = 0; i < nbyte; i++)
-				tputchar(buf[i], constty);
-			tputchar('\n', constty);
-		}
+	if (syslogf)
+		FREF(syslogf);
+	else if ((flags & LOG_CONS) == 0)
 		return (ENOTCONN);
+	else {
+		/*
+		 * Strip off syslog priority when logging to console.
+		 * LOG_PRIMASK | LOG_FACMASK is 0x03ff, so at most 4
+		 * decimal digits may appear in priority as <1023>.
+		 */
+		len = MIN(nbyte, sizeof(pri));
+		if (sflg == UIO_USERSPACE) {
+			if ((error = copyin(buf, pri, len)))
+				return (error);
+		} else
+			memcpy(pri, buf, len);
+		if (0 < len && pri[0] == '<') {
+			for (i = 1; i < len; i++) {
+				if (pri[i] < '0' || pri[i] > '9')
+					break;
+			}
+			if (i < len && pri[i] == '>') {
+				i++;
+				/* There must be at least one digit <0>. */
+				if (i >= 3) {
+					buf += i;
+					nbyte -= i;
+				}
+			}
+		}
 	}
-	f = syslogf;
-	FREF(f);
 
 	aiov.iov_base = (char *)buf;
 	aiov.iov_len = nbyte;
@@ -453,9 +465,24 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 #endif
 
 	len = auio.uio_resid;
-	error = sosend(f->f_data, NULL, &auio, NULL, NULL, 0);
+	if (syslogf)
+		error = sosend(syslogf->f_data, NULL, &auio, NULL, NULL, 0);
+	else
+		error = cnwrite(0, &auio, 0);
 	if (error == 0)
 		len -= auio.uio_resid;
+	if (syslogf == NULL) {
+		aiov.iov_base = "\r\n";
+		aiov.iov_len = 2;
+		auio.uio_iov = &aiov;
+		auio.uio_iovcnt = 1;
+		auio.uio_segflg = UIO_SYSSPACE;
+		auio.uio_rw = UIO_WRITE;
+		auio.uio_procp = p;
+		auio.uio_offset = 0;
+		auio.uio_resid = aiov.iov_len;
+		cnwrite(0, &auio, 0);
+	}
 
 #ifdef KTRACE
 	if (ktriov != NULL) {
@@ -464,6 +491,9 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 		free(ktriov, M_TEMP, iovlen);
 	}
 #endif
-	FRELE(f, p);
-	return error;
+	if (syslogf)
+		FRELE(syslogf, p);
+	else
+		error = ENOTCONN;
+	return (error);
 }

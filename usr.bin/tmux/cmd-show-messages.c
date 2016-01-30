@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-show-messages.c,v 1.16 2015/11/24 21:52:06 nicm Exp $ */
+/* $OpenBSD: cmd-show-messages.c,v 1.20 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,19 +32,27 @@
 enum cmd_retval	 cmd_show_messages_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_show_messages_entry = {
-	"show-messages", "showmsgs",
-	"JTt:", 0, 0,
-	"[-JT] " CMD_TARGET_CLIENT_USAGE,
-	0,
-	cmd_show_messages_exec
+	.name = "show-messages",
+	.alias = "showmsgs",
+
+	.args = { "JTt:", 0, 0 },
+	.usage = "[-JT] " CMD_TARGET_CLIENT_USAGE,
+
+	.tflag = CMD_CLIENT,
+
+	.flags = 0,
+	.exec = cmd_show_messages_exec
 };
 
 const struct cmd_entry cmd_server_info_entry = {
-	"server-info", "info",
-	"", 0, 0,
-	"",
-	0,
-	cmd_show_messages_exec
+	.name = "server-info",
+	.alias = "info",
+
+	.args = { "", 0, 0 },
+	.usage = "",
+
+	.flags = 0,
+	.exec = cmd_show_messages_exec
 };
 
 int	cmd_show_messages_terminals(struct cmd_q *, int);
@@ -94,7 +102,7 @@ enum cmd_retval
 cmd_show_messages_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
-	struct client		*c;
+	struct client		*c = cmdq->state.c;
 	struct message_entry	*msg;
 	char			*tim;
 	int			 done, blank;
@@ -110,9 +118,6 @@ cmd_show_messages_exec(struct cmd *self, struct cmd_q *cmdq)
 	}
 	if (done)
 		return (CMD_RETURN_NORMAL);
-
-	if ((c = cmd_find_client(cmdq, args_get(args, 't'), 0)) == NULL)
-		return (CMD_RETURN_ERROR);
 
 	TAILQ_FOREACH(msg, &c->message_log, entry) {
 		tim = ctime(&msg->msg_time);

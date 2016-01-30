@@ -1,8 +1,10 @@
-//
-// dump.h - dumping partition maps
-//
-// Written by Eryk Vershen
-//
+/*	$OpenBSD: dump.h,v 1.16 2016/01/29 14:54:38 krw Exp $	*/
+
+/*
+ * dump.h - dumping partition maps
+ *
+ * Written by Eryk Vershen
+ */
 
 /*
  * Copyright 1996,1997 by Apple Computer, Inc.
@@ -28,44 +30,10 @@
 #ifndef __dump__
 #define __dump__
 
-#include "partition_map.h"
-
-
-//
-// Defines
-//
-#define AFLAG_DEFAULT	0
-#define PFLAG_DEFAULT	1
-#define FFLAG_DEFAULT	0
-
-
-//
-// Types
-//
-
-
-//
-// Global Constants
-//
-
-
-//
-// Global Variables
-//
-extern int aflag;
-extern int pflag;
-extern int fflag;
-
-
-//
-// Forward declarations
-//
-void display_patches(partition_map *entry);
-int dump(char *name);
-void dump_block(unsigned char *addr, int len);
-void dump_partition_map(partition_map_header *map, int disk_order);
-void full_dump_partition_entry(partition_map_header *, int);
-void full_dump_block_zero(partition_map_header *map);
-void show_data_structures(partition_map_header *map);
+void	dump_block(unsigned char *, int);
+void	dump_partition_map(struct partition_map *);
+void	full_dump_partition_entry(struct partition_map *, int);
+void	full_dump_block_zero(struct partition_map *);
+void	show_data_structures(struct partition_map *);
 
 #endif /* __dump__ */

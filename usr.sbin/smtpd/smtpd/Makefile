@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.81 2015/12/01 10:06:59 gilles Exp $
+#	$OpenBSD: Makefile,v 1.85 2016/01/09 09:48:03 jung Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -17,6 +17,7 @@ SRCS+=	dns.c
 SRCS+=	envelope.c
 SRCS+=	esc.c
 SRCS+=	expand.c
+SRCS+=	filter.c
 SRCS+=	forward.c
 SRCS+=	iobuf.c
 SRCS+=	ioev.c
@@ -89,6 +90,7 @@ CFLAGS+=	-Wall -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=	-Wmissing-declarations
 CFLAGS+=	-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=	-Wsign-compare
+CFLAGS+=	-Werror-implicit-function-declaration
 #CFLAGS+=	-Werror # during development phase (breaks some archs)
 CFLAGS+=	-DIO_SSL
 CFLAGS+=	-DQUEUE_PROFILING

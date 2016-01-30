@@ -443,7 +443,6 @@
 ./usr/share/man/man1/skeyinfo.1
 ./usr/share/man/man1/skeyinit.1
 ./usr/share/man/man1/sleep.1
-./usr/share/man/man1/sndiod.1
 ./usr/share/man/man1/sort.1
 ./usr/share/man/man1/sparc
 ./usr/share/man/man1/sparc/fdformat.1
@@ -863,6 +862,7 @@
 ./usr/share/man/man3p/OpenBSD::PackingList.3p
 ./usr/share/man/man3p/OpenBSD::PkgCfl.3p
 ./usr/share/man/man3p/OpenBSD::PkgSpec.3p
+./usr/share/man/man3p/OpenBSD::Pledge.3p
 ./usr/share/man/man3p/OpenBSD::RequiredBy.3p
 ./usr/share/man/man3p/OpenBSD::Search.3p
 ./usr/share/man/man3p/OpenBSD::State.3p
@@ -1314,6 +1314,7 @@
 ./usr/share/man/man4/divert.4
 ./usr/share/man/man4/dpt.4
 ./usr/share/man/man4/drm.4
+./usr/share/man/man4/dwiic.4
 ./usr/share/man/man4/eap.4
 ./usr/share/man/man4/ec.4
 ./usr/share/man/man4/eephy.4
@@ -1441,7 +1442,11 @@
 ./usr/share/man/man4/icsphy.4
 ./usr/share/man/man4/ifmedia.4
 ./usr/share/man/man4/iha.4
+./usr/share/man/man4/ihidev.4
 ./usr/share/man/man4/iic.4
+./usr/share/man/man4/ikbd.4
+./usr/share/man/man4/ims.4
+./usr/share/man/man4/imt.4
 ./usr/share/man/man4/inet.4
 ./usr/share/man/man4/inet6.4
 ./usr/share/man/man4/inphy.4
@@ -1625,6 +1630,7 @@
 ./usr/share/man/man4/pcfadc.4
 ./usr/share/man/man4/pcfiic.4
 ./usr/share/man/man4/pchb.4
+./usr/share/man/man4/pchtemp.4
 ./usr/share/man/man4/pci.4
 ./usr/share/man/man4/pcib.4
 ./usr/share/man/man4/pcic.4
@@ -1979,6 +1985,7 @@
 ./usr/share/man/man4/uoaklux.4
 ./usr/share/man/man4/uoakrh.4
 ./usr/share/man/man4/uoakv.4
+./usr/share/man/man4/uonerng.4
 ./usr/share/man/man4/uow.4
 ./usr/share/man/man4/upd.4
 ./usr/share/man/man4/upgt.4
@@ -2052,6 +2059,7 @@
 ./usr/share/man/man4/video.4
 ./usr/share/man/man4/vio.4
 ./usr/share/man/man4/vioblk.4
+./usr/share/man/man4/viocon.4
 ./usr/share/man/man4/viomb.4
 ./usr/share/man/man4/viornd.4
 ./usr/share/man/man4/vioscsi.4
@@ -2083,11 +2091,14 @@
 ./usr/share/man/man4/wsmouse.4
 ./usr/share/man/man4/wsmux.4
 ./usr/share/man/man4/xe.4
+./usr/share/man/man4/xen.4
 ./usr/share/man/man4/xf86.4
 ./usr/share/man/man4/xge.4
 ./usr/share/man/man4/xhci.4
 ./usr/share/man/man4/xl.4
 ./usr/share/man/man4/xmphy.4
+./usr/share/man/man4/xnf.4
+./usr/share/man/man4/xspd.4
 ./usr/share/man/man4/yds.4
 ./usr/share/man/man4/ym.4
 ./usr/share/man/man4/zaurus
@@ -2115,7 +2126,6 @@
 ./usr/share/man/man4/zyd.4
 ./usr/share/man/man5
 ./usr/share/man/man5/acct.5
-./usr/share/man/man5/aliases.5
 ./usr/share/man/man5/amd64
 ./usr/share/man/man5/amd64/boot.conf.5
 ./usr/share/man/man5/ar.5
@@ -2150,7 +2160,6 @@
 ./usr/share/man/man5/exports.5
 ./usr/share/man/man5/fbtab.5
 ./usr/share/man/man5/files.conf.5
-./usr/share/man/man5/forward.5
 ./usr/share/man/man5/fs.5
 ./usr/share/man/man5/fstab.5
 ./usr/share/man/man5/genassym.cf.5
@@ -2474,7 +2483,6 @@
 ./usr/share/man/man8/mailq.8
 ./usr/share/man/man8/mailwrapper.8
 ./usr/share/man/man8/makedbm.8
-./usr/share/man/man8/makemap.8
 ./usr/share/man/man8/makewhatis.8
 ./usr/share/man/man8/map-mbone.8
 ./usr/share/man/man8/mkalias.8
@@ -2505,7 +2513,6 @@
 ./usr/share/man/man8/ndp.8
 ./usr/share/man/man8/netgroup_mkdb.8
 ./usr/share/man/man8/netstart.8
-./usr/share/man/man8/newaliases.8
 ./usr/share/man/man8/newfs.8
 ./usr/share/man/man8/newfs_ext2fs.8
 ./usr/share/man/man8/newfs_msdos.8
@@ -2602,6 +2609,7 @@
 ./usr/share/man/man8/slowcgi.8
 ./usr/share/man/man8/smtpctl.8
 ./usr/share/man/man8/smtpd.8
+./usr/share/man/man8/sndiod.8
 ./usr/share/man/man8/snkadm.8
 ./usr/share/man/man8/snkinit.8
 ./usr/share/man/man8/snmpctl.8

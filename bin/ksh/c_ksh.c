@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_ksh.c,v 1.46 2015/10/21 15:20:37 mmcc Exp $	*/
+/*	$OpenBSD: c_ksh.c,v 1.49 2016/01/15 17:55:45 mmcc Exp $	*/
 
 /*
  * built-in Korn commands: c_*
@@ -7,7 +7,9 @@
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -708,7 +710,7 @@ c_typeset(char **wp)
 	/* list variables and attributes */
 	flag = fset | fclr; /* no difference at this point.. */
 	if (func) {
-		for (l = e->loc; l; l = l->next) {
+		for (l = genv->loc; l; l = l->next) {
 			for (p = ktsort(&l->funs); (vp = *p++); ) {
 				if (flag && (vp->flag & flag) == 0)
 					continue;
@@ -721,7 +723,7 @@ c_typeset(char **wp)
 			}
 		}
 	} else {
-		for (l = e->loc; l; l = l->next) {
+		for (l = genv->loc; l; l = l->next) {
 			for (p = ktsort(&l->vars); (vp = *p++); ) {
 				struct tbl *tvp;
 				int any_set = 0;
@@ -1182,13 +1184,15 @@ c_kill(char **wp)
 					shprintf("%s%s", p, sigtraps[i].name);
 			shprintf("\n");
 		} else {
-			int w, i;
-			int mess_width;
-			struct kill_info ki;
+			int mess_width = 0, w, i;
+			struct kill_info ki = {
+				.num_width = 1,
+				.name_width = 0,
+			};
 
-			for (i = NSIG, ki.num_width = 1; i >= 10; i /= 10)
+			for (i = NSIG; i >= 10; i /= 10)
 				ki.num_width++;
-			ki.name_width = mess_width = 0;
+
 			for (i = 0; i < NSIG; i++) {
 				w = sigtraps[i].name ? strlen(sigtraps[i].name) :
 				    ki.num_width;
@@ -1269,15 +1273,15 @@ c_getopts(char **wp)
 		return 1;
 	}
 
-	if (e->loc->next == NULL) {
+	if (genv->loc->next == NULL) {
 		internal_errorf(0, "c_getopts: no argv");
 		return 1;
 	}
 	/* Which arguments are we parsing... */
 	if (*wp == NULL)
-		wp = e->loc->next->argv;
+		wp = genv->loc->next->argv;
 	else
-		*--wp = e->loc->next->argv[0];
+		*--wp = genv->loc->next->argv[0];
 
 	/* Check that our saved state won't cause a core dump... */
 	for (argc = 0; wp[argc]; argc++)

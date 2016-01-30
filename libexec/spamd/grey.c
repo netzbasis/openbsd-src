@@ -1,4 +1,4 @@
-/*	$OpenBSD: grey.c,v 1.60 2015/11/29 06:51:20 deraadt Exp $	*/
+/*	$OpenBSD: grey.c,v 1.62 2015/12/10 16:06:29 beck Exp $	*/
 
 /*
  * Copyright (c) 2004-2006 Bob Beck.  All rights reserved.
@@ -1018,7 +1018,7 @@ drop_privs(void)
 	}
 }
 
-static void
+void
 check_spamd_db(void)
 {
 	HASHINFO hashinfo;
@@ -1045,7 +1045,6 @@ check_spamd_db(void)
 				exit(1);
 			}
 			close(i);
-			drop_privs();
 			return;
 			break;
 		default:
@@ -1056,7 +1055,6 @@ check_spamd_db(void)
 	}
 	db->sync(db, 0);
 	db->close(db);
-	drop_privs();
 }
 
 
@@ -1065,8 +1063,13 @@ greywatcher(void)
 {
 	struct sigaction sa;
 
-	check_spamd_db();
+	drop_privs();
 
+	if (pledge("stdio rpath wpath inet flock proc exec", NULL) == -1) {
+		syslog_r(LOG_ERR, &sdata, "pledge failed (%m)");
+		exit(1);
+	}
+		
 	startup = time(NULL);
 	db_pid = fork();
 	switch (db_pid) {

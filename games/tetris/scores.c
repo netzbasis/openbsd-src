@@ -1,4 +1,4 @@
-/*	$OpenBSD: scores.c,v 1.16 2015/11/29 14:31:02 tb Exp $	*/
+/*	$OpenBSD: scores.c,v 1.19 2016/01/04 17:33:24 mestre Exp $	*/
 /*	$NetBSD: scores.c,v 1.2 1995/04/22 07:42:38 cgd Exp $	*/
 
 /*-
@@ -42,22 +42,18 @@
  *
  * Major whacks since then.
  */
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <errno.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <term.h>
 #include <unistd.h>
 
-#include "screen.h"
 #include "scores.h"
+#include "screen.h"
 #include "tetris.h"
 
 /*
@@ -94,7 +90,7 @@ static char *thisuser(void);
 static void
 getscores(FILE **fpp)
 {
-	int sd, mint, mask, i, ret;
+	int sd, mint, i, ret;
 	char *mstr, *human, *home;
 	char scorepath[PATH_MAX];
 	FILE *sf;

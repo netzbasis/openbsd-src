@@ -13,42 +13,28 @@
  * Standard include file for "less".
  */
 
-/*
- * Include the file of compile-time options.
- * The <> make cc search for it in -I., not srcdir.
- */
-#include <defines.h>
-
-/* Library function declarations */
+#include "defines.h"
 
 #include <sys/types.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
+
 #include <ctype.h>
-#include <wctype.h>
+#include <fcntl.h>
+#include <libgen.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libgen.h>
-#include <signal.h>
+#include <unistd.h>
+#include <wctype.h>
 
 /*
  * Simple lowercase test which can be used during option processing
  * (before options are parsed which might tell us what charset to use).
  */
 
-#undef IS_UPPER
-#undef IS_LOWER
-#undef TO_UPPER
-#undef TO_LOWER
 #undef IS_SPACE
 #undef IS_DIGIT
-
-#define	IS_UPPER(c)	iswupper(c)
-#define	IS_LOWER(c)	iswlower(c)
-#define	TO_UPPER(c)	towupper(c)
-#define	TO_LOWER(c)	towlower(c)
 
 #define	IS_SPACE(c)	isspace((unsigned char)(c))
 #define	IS_DIGIT(c)	isdigit((unsigned char)(c))
@@ -66,22 +52,10 @@
 #define	OPT_ON		1
 #define	OPT_ONPLUS	2
 
-#ifndef CHAR_BIT
-#define	CHAR_BIT 8
-#endif
-
-/*
- * Upper bound on the string length of an integer converted to string.
- * 302 / 1000 is ceil (log10 (2.0)).  Subtract 1 for the sign bit;
- * add 1 for integer division truncation; add 1 more for a minus sign.
- */
-#define	INT_STRLEN_BOUND(t) ((sizeof (t) * CHAR_BIT - 1) * 302 / 1000 + 1 + 1)
-
 /*
  * Special types and constants.
  */
 typedef unsigned long LWCHAR;
-typedef off_t		LINENUM;
 #define	MIN_LINENUM_WIDTH  7	/* Min printing width of a line number */
 #define	MAX_UTF_CHAR_LEN   6	/* Max bytes in one UTF-8 char */
 
@@ -107,7 +81,7 @@ struct scrpos {
 typedef union parg {
 	char *p_string;
 	int p_int;
-	LINENUM p_linenum;
+	off_t p_linenum;
 } PARG;
 
 struct textlist {
@@ -216,5 +190,4 @@ struct textlist {
 
 /* Functions not included in funcs.h */
 void postoa(off_t, char *, size_t);
-void linenumtoa(LINENUM, char *, size_t);
 void inttoa(int, char *, size_t);

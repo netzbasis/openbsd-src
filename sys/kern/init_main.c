@@ -1,4 +1,4 @@
-/*	$OpenBSD: init_main.c,v 1.246 2015/11/08 20:45:57 naddy Exp $	*/
+/*	$OpenBSD: init_main.c,v 1.248 2016/01/03 00:15:59 jsg Exp $	*/
 /*	$NetBSD: init_main.c,v 1.84.4.1 1996/06/02 09:08:06 mrg Exp $	*/
 
 /*
@@ -105,7 +105,7 @@ extern void nfs_init(void);
 const char	copyright[] =
 "Copyright (c) 1982, 1986, 1989, 1991, 1993\n"
 "\tThe Regents of the University of California.  All rights reserved.\n"
-"Copyright (c) 1995-2015 OpenBSD. All rights reserved.  http://www.OpenBSD.org\n";
+"Copyright (c) 1995-2016 OpenBSD. All rights reserved.  http://www.OpenBSD.org\n";
 
 /* Components of the first process -- never freed. */
 struct	session session0;
@@ -536,7 +536,7 @@ main(void *framep)
 	cpu_boot_secondary_processors();
 #endif
 
-	domountroothooks();
+	config_process_deferred_mountroot();
 
 	/*
 	 * Okay, now we can let init(8) exec!  It's off to userland!

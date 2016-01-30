@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.6 2015/12/06 02:26:14 reyk Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.12 2016/01/26 07:58:35 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -40,6 +40,8 @@
 
 extern char *__progname;
 uint32_t info_id;
+char info_name[VMM_MAX_NAME_LEN];
+int info_console;
 
 /*
  * start_vm
@@ -125,14 +127,8 @@ start_vm_complete(struct imsg *imsg, int *ret, int autoconnect)
 			warn("start vm command failed");
 			*ret = EIO;
 		} else if (autoconnect) {
-			closefrom(STDERR_FILENO + 1);
-
-			/* Only returns on error */
-			if (execl(VMCTL_CU, VMCTL_CU,
-			    "-l", vmr->vmr_ttyname, "-s", "9600", NULL) == -1) {
-				warn("failed to open the console");
-				*ret = errno;
-			}
+			/* does not return */
+			ctl_openconsole(vmr->vmr_ttyname);
 		} else {
 			warnx("started vm %d successfully, tty %s",
 			    vmr->vmr_id, vmr->vmr_ttyname);
@@ -153,17 +149,20 @@ start_vm_complete(struct imsg *imsg, int *ret, int autoconnect)
  *
  * Parameters:
  *  terminate_id: ID of the vm to be terminated
+ *  name: optional name of the VM to be terminated
  */
 void
-terminate_vm(uint32_t terminate_id)
+terminate_vm(uint32_t terminate_id, const char *name)
 {
-	struct vm_terminate_params vtp;
+	struct vmop_id vid;
 
-	bzero(&vtp, sizeof(struct vm_terminate_params));
-	vtp.vtp_vm_id = terminate_id;
+	memset(&vid, 0, sizeof(vid));
+	vid.vid_id = terminate_id;
+	if (name != NULL)
+		(void)strlcpy(vid.vid_name, name, sizeof(vid.vid_name));
 
 	imsg_compose(ibuf, IMSG_VMDOP_TERMINATE_VM_REQUEST, 0, 0, -1,
-	    &vtp, sizeof(struct vm_terminate_params));
+	    &vid, sizeof(vid));
 }
 
 /*
@@ -214,13 +213,44 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
 /*
  * get_info_vm
  *
+ * Return the list of all running VMs or find a specific VM by ID or name.
+ *
+ * Parameters:
+ *  id: optional ID of a VM to list
+ *  name: optional name of a VM to list 
+ *  console: if true, open the console of the selected VM (by name or ID)
+ *
  * Request a list of running VMs from vmd
  */
 void
-get_info_vm(uint32_t id)
+get_info_vm(uint32_t id, const char *name, int console)
 {
 	info_id = id;
+	if (name != NULL)
+		(void)strlcpy(info_name, name, sizeof(info_name));
+	info_console = console;
 	imsg_compose(ibuf, IMSG_VMDOP_GET_INFO_VM_REQUEST, 0, 0, -1, NULL, 0);
+}
+
+/*
+ * chec_info_id
+ *
+ * Check if requested name or ID of a VM matches specified arguments
+ *
+ * Parameters:
+ *  name: name of the VM
+ *  id: ID of the VM
+ */
+int
+check_info_id(const char *name, uint32_t id)
+{
+	if (info_id == 0 && *info_name == '\0')
+		return (-1);
+	if (info_id != 0 && info_id == id)
+		return (1);
+	if (*info_name != '\0' && name && strcmp(info_name, name) == 0)
+		return (1);
+	return (0);
 }
 
 /*
@@ -242,6 +272,8 @@ get_info_vm(uint32_t id)
  *          add_info again), or an error occurred adding the returned data
  *          to the "list vm" data. The caller should check the value of
  *          'ret' to determine which case occurred.
+ *
+ * This function does not return if a VM is found and info_console is set.
  *
  *  The function also sets 'ret' to the error code as follows:
  *   0     : Message successfully processed
@@ -266,7 +298,10 @@ add_info(struct imsg *imsg, int *ret)
 		*ret = 0;
 		return (0);
 	} else if (imsg->hdr.type == IMSG_VMDOP_GET_INFO_VM_END_DATA) {
-		print_vm_info(vir, ct);
+		if (info_console)
+			vm_console(vir, ct);
+		else
+			print_vm_info(vir, ct);
 		free(vir);
 		*ret = 0;
 		return (1);
@@ -292,17 +327,18 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 	size_t i, j;
 	char *vcpu_state;
 
-	printf("%5s %5s %5s %9s %*s %s\n", "ID", "PID", "VCPUS", "MAXMEM",
-	    VM_TTYNAME_MAX, "TTY", "NAME");
+	printf("%5s %5s %5s %9s %9s %*s %s\n", "ID", "PID", "VCPUS", "MAXMEM",
+	    "CURMEM", VM_TTYNAME_MAX, "TTY", "NAME");
 	for (i = 0; i < ct; i++) {
 		vir = &list[i].vir_info;
-		if (info_id == 0 || info_id == vir->vir_id)
-			printf("%5u %5u %5zd %7zdMB %*s %s\n",
+		if (check_info_id(vir->vir_name, vir->vir_id)) {
+			printf("%5u %5u %5zd %7zdMB %7zdMB %*s %s\n",
 			    vir->vir_id, vir->vir_creator_pid,
 			    vir->vir_ncpus, vir->vir_memory_size,
-			    VM_TTYNAME_MAX, list[i].vir_ttyname,
-			    vir->vir_name);
-		if (info_id == vir->vir_id) {
+			    vir->vir_used_size / 1024 / 1024 , VM_TTYNAME_MAX,
+			    list[i].vir_ttyname, vir->vir_name);
+		}
+		if (check_info_id(vir->vir_name, vir->vir_id) > 0) {
 			for (j = 0; j < vir->vir_ncpus; j++) {
 				if (vir->vir_vcpu_state[j] ==
 				    VCPU_STATE_STOPPED)
@@ -321,13 +357,40 @@ print_vm_info(struct vmop_info_result *list, size_t ct)
 }
 
 /*
+ * vm_console
+ *
+ * Connects to the vm console returned from vmd in 'list'.
+ *
+ * Parameters
+ *  list: the vm information (consolidated) returned from vmd via imsg
+ *  ct  : the size (number of elements in 'list') of the result
+ */
+__dead void
+vm_console(struct vmop_info_result *list, size_t ct)
+{
+	struct vmop_info_result *vir;
+	size_t i;
+
+	for (i = 0; i < ct; i++) {
+		vir = &list[i];
+		if (check_info_id(vir->vir_info.vir_name,
+		    vir->vir_info.vir_id) > 0) {
+			/* does not return */
+			ctl_openconsole(vir->vir_ttyname);
+		}
+	}
+
+	errx(1, "console %d not found", info_id);
+}
+
+/*
  * create_imagefile
  *
  * Create an empty imagefile with the specified path and size.
  *
  * Parameters:
  *  imgfile_path: path to the image file to create
- *  imgsize     : size of the image file to create
+ *  imgsize     : size of the image file to create (in MB)
  *
  * Return:
  *  EEXIST: The requested image file already exists
@@ -338,35 +401,18 @@ int
 create_imagefile(const char *imgfile_path, long imgsize)
 {
 	int fd, ret;
-	struct stat sb;
-	off_t ofs;
-	char ch = '\0';
 
 	/* Refuse to overwrite an existing image */
-	bzero(&sb, sizeof(sb));
-	if (stat(imgfile_path, &sb) == 0) {
-		return (EEXIST);
-	}
-
-	fd = open(imgfile_path, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-
-	if (fd == -1) {
+	fd = open(imgfile_path, O_RDWR | O_CREAT | O_TRUNC | O_EXCL,
+	    S_IRUSR | S_IWUSR);
+	if (fd == -1)
 		return (errno);
-	}
 
-	ofs = (imgsize * 1024 * 1024) - 1;
-
-	/* Set fd pos at desired size */
-	if (lseek(fd, ofs, SEEK_SET) == -1) {
+	/* Extend to desired size */
+	if (ftruncate(fd, (off_t)imgsize * 1024 * 1024) == -1) {
 		ret = errno;
 		close(fd);
-		return (ret);
-	}
-
-	/* Write one byte to fill out the extent */
-	if (write(fd, &ch, 1) == -1) {
-		ret = errno;
-		close(fd);
+		unlink(imgfile_path);
 		return (ret);
 	}
 

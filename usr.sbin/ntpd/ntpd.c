@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.c,v 1.100 2015/12/05 13:12:16 claudio Exp $ */
+/*	$OpenBSD: ntpd.c,v 1.105 2016/01/27 21:48:34 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -131,18 +132,16 @@ main(int argc, char *argv[])
 
 	memset(&lconf, 0, sizeof(lconf));
 
-	log_init(1);		/* log to stderr until daemonized */
-
 	while ((ch = getopt(argc, argv, "df:nsSv")) != -1) {
 		switch (ch) {
 		case 'd':
-			lconf.debug = 1;
-			log_verbose(1);
+			lconf.debug = 2;
 			break;
 		case 'f':
 			conffile = optarg;
 			break;
 		case 'n':
+			lconf.debug = 2;
 			lconf.noaction = 1;
 			break;
 		case 's':
@@ -152,13 +151,16 @@ main(int argc, char *argv[])
 			lconf.settime = 0;
 			break;
 		case 'v':
-			log_verbose(1);
+			lconf.verbose++;
 			break;
 		default:
 			usage();
 			/* NOTREACHED */
 		}
 	}
+
+	/* log to stderr until daemonized */
+	log_init(lconf.debug ? lconf.debug : 1, LOG_DAEMON);
 
 	argc -= optind;
 	argv += optind;
@@ -188,7 +190,8 @@ main(int argc, char *argv[])
 
 	reset_adjtime();
 	if (!lconf.settime) {
-		log_init(lconf.debug);
+		log_init(lconf.debug, LOG_DAEMON);
+		log_verbose(lconf.verbose);
 		if (!lconf.debug)
 			if (daemon(1, 0))
 				fatal("daemon");
@@ -208,6 +211,7 @@ main(int argc, char *argv[])
 	chld_pid = ntp_main(pipe_chld, fd_ctl, &lconf, pw);
 
 	setproctitle("[priv]");
+	log_procinit("[priv]");
 	readfreq();
 
 	signal(SIGTERM, sighdlr);
@@ -266,7 +270,8 @@ main(int argc, char *argv[])
 		if (nfds == 0 && lconf.settime) {
 			lconf.settime = 0;
 			timeout = INFTIM;
-			log_init(lconf.debug);
+			log_init(lconf.debug, LOG_DAEMON);
+			log_verbose(lconf.verbose);
 			log_warnx("no reply received in time, skipping initial "
 			    "time setting");
 			if (!lconf.debug)
@@ -392,7 +397,8 @@ dispatch_imsg(struct ntpd_conf *lconf, const char *pw_dir,
 				fatalx("invalid IMSG_SETTIME received");
 			if (!lconf->settime)
 				break;
-			log_init(lconf->debug);
+			log_init(lconf->debug, LOG_DAEMON);
+			log_verbose(lconf->verbose);
 			memcpy(&d, imsg.data, sizeof(d));
 			ntpd_settime(d);
 			/* daemonize now */
@@ -406,6 +412,9 @@ dispatch_imsg(struct ntpd_conf *lconf, const char *pw_dir,
 			priv_constraint_msg(imsg.hdr.peerid,
 			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE,
 			    pw_dir, pw_uid, pw_gid);
+			break;
+		case IMSG_CONSTRAINT_KILL:
+			priv_constraint_kill(imsg.hdr.peerid);
 			break;
 		default:
 			break;
@@ -526,7 +535,7 @@ readfreq(void)
 		freqfp = fopen(DRIFTFILE, "w");
 		return;
 	}
-	
+
 	freqfp = fdopen(fd, "r+");
 
 	/* if we're adjusting frequency already, don't override */
@@ -550,13 +559,13 @@ writefreq(double d)
 	if (freqfp == NULL)
 		return 0;
 	rewind(freqfp);
-	fprintf(freqfp, "%.3f\n", d * 1e6);	/* scale to ppm */
-	r = ferror(freqfp);
-	if (r != 0) {
+	r = fprintf(freqfp, "%.3f\n", d * 1e6);	/* scale to ppm */
+	if (r < 0 || fflush(freqfp) != 0) {
 		if (warnonce) {
 			log_warnx("can't write %s", DRIFTFILE);
 			warnonce = 0;
 		}
+		clearerr(freqfp);
 		return 0;
 	}
 	ftruncate(fileno(freqfp), ftello(freqfp));

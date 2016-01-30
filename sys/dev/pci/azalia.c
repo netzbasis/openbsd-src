@@ -1,4 +1,4 @@
-/*	$OpenBSD: azalia.c,v 1.222 2015/07/29 08:06:29 ratchov Exp $	*/
+/*	$OpenBSD: azalia.c,v 1.225 2015/12/17 15:07:57 ratchov Exp $	*/
 /*	$NetBSD: azalia.c,v 1.20 2006/05/07 08:31:44 kent Exp $	*/
 
 /*-
@@ -460,6 +460,7 @@ azalia_configure_pci(azalia_t *az)
 	case PCI_PRODUCT_INTEL_9SERIES_HDA:
 	case PCI_PRODUCT_INTEL_9SERIES_LP_HDA:
 	case PCI_PRODUCT_INTEL_BAYTRAIL_HDA:
+	case PCI_PRODUCT_INTEL_100SERIES_HDA:
 		reg = azalia_pci_read(az->pc, az->tag,
 		    INTEL_PCIE_NOSNOOP_REG);
 		reg &= INTEL_PCIE_NOSNOOP_MASK;
@@ -1170,12 +1171,10 @@ azalia_set_command(azalia_t *az, int caddr, nid_t nid, uint32_t control,
 	uint32_t verb;
 	uint16_t corbwp;
 
-#ifdef DIAGNOSTIC
 	if ((AZ_READ_1(az, CORBCTL) & HDA_CORBCTL_CORBRUN) == 0) {
-		DPRINTF(("%s: CORB is not running.\n", XNAME(az)));
+		printf("%s: CORB is not running.\n", XNAME(az));
 		return(-1);
 	}
-#endif
 	verb = (caddr << 28) | (nid << 20) | (control << 8) | param;
 	corbwp = AZ_READ_2(az, CORBWP);
 	wp = corbwp & HDA_CORBWP_CORBWP;
@@ -1196,12 +1195,10 @@ azalia_get_response(azalia_t *az, uint32_t *result)
 	int i;
 	uint16_t wp;
 
-#ifdef DIAGNOSTIC
 	if ((AZ_READ_1(az, RIRBCTL) & HDA_RIRBCTL_RIRBDMAEN) == 0) {
-		DPRINTF(("%s: RIRB is not running.\n", XNAME(az)));
+		printf("%s: RIRB is not running.\n", XNAME(az));
 		return(-1);
 	}
-#endif
 
 	rirb = (rirb_entry_t*)az->rirb_dma.addr;
 	i = 5000;
@@ -4054,12 +4051,6 @@ azalia_round_blocksize(void *v, int blk)
 	/* number of blocks must be <= HDA_BDL_MAX */
 	az = v;
 	size = az->pstream.buffer.size;
-#ifdef DIAGNOSTIC
-	if (size <= 0) {
-		printf("%s: size is 0", __func__);
-		return 256;
-	}
-#endif
 	if (size > HDA_BDL_MAX * blk) {
 		blk = size / HDA_BDL_MAX;
 		if (blk & 0x7f)

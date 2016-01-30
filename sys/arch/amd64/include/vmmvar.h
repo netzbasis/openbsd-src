@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmvar.h,v 1.3 2015/11/26 08:26:48 reyk Exp $	*/
+/*	$OpenBSD: vmmvar.h,v 1.7 2016/01/04 01:35:56 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -103,15 +103,15 @@
 enum {
 	VCPU_STATE_STOPPED,
 	VCPU_STATE_RUNNING,
-	VCPU_STATE_REQSTOP,
-	VCPU_STATE_UNKNOWN
+	VCPU_STATE_REQTERM,
+	VCPU_STATE_TERMINATED,
+	VCPU_STATE_UNKNOWN,
 };
 
 enum {
 	VEI_DIR_OUT,
 	VEI_DIR_IN
 };
-
 
 /*
  * vm exit data
@@ -131,6 +131,41 @@ union vm_exit {
 	struct vm_exit_inout	vei;		/* IN/OUT exit */
 };
 
+/*
+ * struct vcpu_segment_info describes a segment + selector set, used
+ * in constructing the initial vcpu register content
+ */
+struct vcpu_segment_info {
+	uint16_t vsi_sel;
+	uint32_t vsi_limit;
+	uint32_t vsi_ar;
+	uint64_t vsi_base;
+};
+
+/*
+ * struct vcpu_init_state describes the set of vmd-settable registers
+ * that the VM's vcpus will be set to during VM boot or reset. Certain
+ * registers are always set to 0 (eg, the GP regs) and certain registers
+ * have fixed values based on hardware requirements and calculated by
+ * vmm (eg, CR0/CR4)
+ */
+struct vcpu_init_state {
+	uint64_t			vis_rflags;
+	uint64_t			vis_rip;
+	uint64_t			vis_rsp;
+	uint64_t			vis_cr3;
+
+	struct vcpu_segment_info	vis_cs;
+	struct vcpu_segment_info	vis_ds;
+	struct vcpu_segment_info	vis_es;
+	struct vcpu_segment_info	vis_fs;
+	struct vcpu_segment_info	vis_gs;
+	struct vcpu_segment_info	vis_ss;
+	struct vcpu_segment_info	vis_gdtr;
+	struct vcpu_segment_info	vis_idtr;
+	struct vcpu_segment_info	vis_ldtr;
+	struct vcpu_segment_info	vis_tr;
+};
 
 struct vm_create_params {
 	/* Input parameters to VMM_IOC_CREATE */
@@ -164,6 +199,7 @@ struct vm_run_params {
 struct vm_info_result {
 	/* Output parameters from VMM_IOC_INFO */
 	size_t		vir_memory_size;
+	size_t		vir_used_size;
 	size_t		vir_ncpus;
 	uint8_t		vir_vcpu_state[VMM_MAX_VCPUS_PER_VM];
 	pid_t		vir_creator_pid;
@@ -203,6 +239,13 @@ struct vm_readpage_params {
 	char			*vrp_data; /* Page Data */
 };
 
+struct vm_resetcpu_params {
+	/* Input parameters to VMM_IOC_RESETCPU */
+	uint32_t		vrp_vm_id;
+	uint32_t		vrp_vcpu_id;
+	struct vcpu_init_state	vrp_init_state;
+};
+
 /* IOCTL definitions */
 #define VMM_IOC_CREATE _IOWR('V', 1, struct vm_create_params) /* Create VM */
 #define VMM_IOC_RUN _IOWR('V', 2, struct vm_run_params) /* Run VCPU */
@@ -210,6 +253,7 @@ struct vm_readpage_params {
 #define VMM_IOC_TERM _IOW('V', 4, struct vm_terminate_params) /* Terminate VM */
 #define VMM_IOC_WRITEPAGE _IOW('V', 5, struct vm_writepage_params) /* Wr Pg */
 #define VMM_IOC_READPAGE _IOW('V', 6, struct vm_readpage_params) /* Rd Pg */
+#define VMM_IOC_RESETCPU _IOW('V', 7, struct vm_resetcpu_params) /* Reset */
 
 #ifdef _KERNEL
 
@@ -314,11 +358,11 @@ struct vcpu {
 
 	struct vm *vc_parent;
 	uint32_t vc_id;
+	u_int vc_state;
 	SLIST_ENTRY(vcpu) vc_vcpu_link;
 	vaddr_t vc_hsa_stack_va;
 
 	uint8_t vc_virt_mode;
-	uint8_t vc_state;
 
 	struct cpu_info *vc_last_pcpu;
 	union vm_exit vc_exit;

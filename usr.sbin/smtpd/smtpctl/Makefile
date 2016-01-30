@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.40 2015/12/01 09:58:38 gilles Exp $
+#	$OpenBSD: Makefile,v 1.43 2015/12/28 13:26:44 benno Exp $
 
 .PATH:		${.CURDIR}/..
 
@@ -9,7 +9,7 @@ BINGRP=	_smtpq
 BINMODE?=2555
 
 BINDIR=	/usr/sbin
-MAN=	smtpctl.8
+MAN=	smtpctl.8 aliases.5 forward.5 makemap.8 newaliases.8
 MLINKS=	smtpctl.8 mailq.8
 
 CFLAGS+=	-fstack-protector-all
@@ -18,6 +18,7 @@ CFLAGS+=	-Wall -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=	-Wmissing-declarations
 CFLAGS+=	-Wshadow -Wpointer-arith -Wcast-qual
 CFLAGS+=	-Wsign-compare
+CFLAGS+=	-Werror-implicit-function-declaration
 CFLAGS+=	-DNO_IO
 
 SRCS=	enqueue.c
@@ -35,6 +36,16 @@ SRCS+=	to.c
 SRCS+=	expand.c
 SRCS+=	tree.c
 SRCS+=	dict.c
+SRCS+=	aliases.c
+SRCS+=	limit.c
+SRCS+=	makemap.c
+SRCS+=	parse.y
+SRCS+=	mailaddr.c
+SRCS+=	table.c
+SRCS+=	table_static.c
+SRCS+=	table_db.c
+SRCS+=	table_getpwnam.c
+SRCS+=	table_proc.c
 
 LDADD+=	-lutil -lz -lcrypto
 DPADD+=	${LIBUTIL} ${LIBZ} ${LIBCRYPTO}

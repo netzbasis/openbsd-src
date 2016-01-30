@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.197 2015/12/02 22:02:18 claudio Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.201 2016/01/21 03:34:05 dlg Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -64,12 +64,6 @@
 #include <netinet/ip_carp.h>
 #endif
 
-/*
- * ARP trailer negotiation.  Trailer protocol is not IP specific,
- * but ARP request/response use IP addresses.
- */
-#define ETHERTYPE_IPTRAILERS ETHERTYPE_TRAIL
-
 struct llinfo_arp {
 	LIST_ENTRY(llinfo_arp)	 la_list;
 	struct rtentry		*la_rt;		/* backpointer to rtentry */
@@ -88,15 +82,10 @@ void arptfree(struct rtentry *);
 void arptimer(void *);
 struct rtentry *arplookup(u_int32_t, int, int, u_int);
 void in_arpinput(struct mbuf *);
-void revarpinput(struct mbuf *);
 void in_revarpinput(struct mbuf *);
 
 LIST_HEAD(, llinfo_arp) arp_list;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
-/* XXX hate magic numbers */
-struct	niqueue arpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
-struct	niqueue rarpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
-int	arp_inuse, arp_allocated;
 int	arp_maxtries = 5;
 int	arpinit_done;
 int	la_hold_total;
@@ -203,8 +192,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 			log(LOG_DEBUG, "%s: pool get failed\n", __func__);
 			break;
 		}
-		arp_inuse++;
-		arp_allocated++;
+
 		ml_init(&la->la_ml);
 		la->la_rt = rt;
 		rt->rt_flags |= RTF_LLINFO;
@@ -225,7 +213,6 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 	case RTM_DELETE:
 		if (la == NULL)
 			break;
-		arp_inuse--;
 		LIST_REMOVE(la, la_list);
 		rt->rt_llinfo = 0;
 		rt->rt_flags &= ~RTF_LLINFO;
@@ -426,43 +413,32 @@ bad:
  * then the protocol-specific routine is called.
  */
 void
-arpintr(void)
+arpinput(struct mbuf *m)
 {
-	struct mbuf *m;
 	struct arphdr *ar;
 	int len;
 
-	while ((m = niq_dequeue(&arpintrq)) != NULL) {
 #ifdef DIAGNOSTIC
-		if ((m->m_flags & M_PKTHDR) == 0)
-			panic("arpintr");
+	if ((m->m_flags & M_PKTHDR) == 0)
+		panic("arpintr");
 #endif
 
-		len = sizeof(struct arphdr);
-		if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
-			continue;
+	len = sizeof(struct arphdr);
+	if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
+		return;
 
-		ar = mtod(m, struct arphdr *);
-		if (ntohs(ar->ar_hrd) != ARPHRD_ETHER) {
-			m_freem(m);
-			continue;
-		}
-
-		len += 2 * (ar->ar_hln + ar->ar_pln);
-		if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
-			continue;
-
-		switch (ntohs(ar->ar_pro)) {
-		case ETHERTYPE_IP:
-		case ETHERTYPE_IPTRAILERS:
-			in_arpinput(m);
-			continue;
-		}
+	ar = mtod(m, struct arphdr *);
+	if (ntohs(ar->ar_hrd) != ARPHRD_ETHER ||
+	    ntohs(ar->ar_pro) != ETHERTYPE_IP) {
 		m_freem(m);
+		return;
 	}
 
-	while ((m = niq_dequeue(&rarpintrq)) != NULL)
-		revarpinput(m);
+	len += 2 * (ar->ar_hln + ar->ar_pln);
+	if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
+		return;
+
+	in_arpinput(m);
 }
 
 /*
@@ -611,8 +587,11 @@ in_arpinput(struct mbuf *m)
 			rt->rt_expire = time_second + arpt_keep;
 		rt->rt_flags &= ~RTF_REJECT;
 		/* Notify userland that an ARP resolution has been done. */
-		if (la->la_asked || changed)
+		if (la->la_asked || changed) {
+			KERNEL_LOCK();
 			rt_sendmsg(rt, RTM_RESOLVE, ifp->if_rdomain);
+			KERNEL_UNLOCK();
+		}
 		la->la_asked = 0;
 		while ((len = ml_len(&la->la_ml)) != 0) {
 			mh = ml_dequeue(&la->la_ml);
@@ -778,7 +757,6 @@ revarpinput(struct mbuf *m)
 	switch (ntohs(ar->ar_pro)) {
 
 	case ETHERTYPE_IP:
-	case ETHERTYPE_IPTRAILERS:
 		in_revarpinput(m);
 		return;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: schedule.c,v 1.6 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: schedule.c,v 1.8 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: schedule.c,v 1.3 1995/04/22 10:59:23 cgd Exp $	*/
 
 /*
@@ -30,9 +30,10 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
-#include <math.h>
 #include <err.h>
+#include <math.h>
+#include <stdio.h>
+
 #include "trek.h"
 
 /*
@@ -46,11 +47,7 @@
 */
 
 struct event *
-schedule(type, offset, x, y, z)
-	int	type;
-	double	offset;
-	char	x, y;
-	char	z;
+schedule(int type, double offset, int x, int y, int z)
 {
 	struct event	*e;
 	int		i;
@@ -88,9 +85,7 @@ schedule(type, offset, x, y, z)
 */
 
 void
-reschedule(e1, offset)
-	struct event	*e1;
-	double		offset;
+reschedule(struct event *e1, double offset)
 {
 	double		date;
 	struct event	*e;
@@ -115,8 +110,7 @@ reschedule(e1, offset)
 */
 
 void
-unschedule(e1)
-	struct event	*e1;
+unschedule(struct event *e1)
 {
 	struct event	*e;
 
@@ -142,10 +136,7 @@ unschedule(e1)
 */
 
 struct event *
-xsched(ev1, factor, x, y, z)
-	int	ev1;
-	int	factor;
-	int	x, y, z;
+xsched(int ev1, int factor, int x, int y, int z)
 {
 	int	ev;
 
@@ -162,10 +153,7 @@ xsched(ev1, factor, x, y, z)
 */
 
 void
-xresched(e1, ev1, factor)
-	struct event	*e1;
-	int		ev1;
-	int		factor;
+xresched(struct event *e1, int ev1, int factor)
 {
 	int		ev;
 	struct event	*e;

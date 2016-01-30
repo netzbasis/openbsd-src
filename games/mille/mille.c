@@ -1,4 +1,4 @@
-/*	$OpenBSD: mille.c,v 1.22 2015/11/30 08:49:06 tb Exp $	*/
+/*	$OpenBSD: mille.c,v 1.25 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: mille.c,v 1.4 1995/03/24 05:01:48 cgd Exp $	*/
 
 /*
@@ -30,17 +30,22 @@
  * SUCH DAMAGE.
  */
 
-#include	"mille.h"
-#include	<signal.h>
+#include <err.h>
+#include <signal.h>
+#include <stdlib.h>
+#ifdef DEBUG
+#include <string.h>
+#endif
+#include <unistd.h>
+
+#include "mille.h"
 
 /*
  * @(#)mille.c	1.3 (Berkeley) 5/10/83
  */
 
 int
-main(ac, av)
-	int	ac;
-	char	*av[];
+main(int ac, char *av[])
 {
 	bool	restore;
 	extern char *__progname;
@@ -64,15 +69,14 @@ main(ac, av)
 		break;
 	  default:
 		fprintf(stderr, "usage: %s [file]\n", __progname);
-		exit(1);
-		/* NOTREACHED */
+		return 1;
 	}
 	Play = PLAYER;
 	initscr();
 	if ((LINES < 24) || (COLS < 80)) {
 		endwin();
 		fprintf(stderr, "Screen must be at least 24x80\n");
-		exit(1);
+		return 1;
 	}
 	delwin(stdscr);
 	stdscr = Board = newwin(BOARD_Y, BOARD_X, 0, 0);
@@ -123,8 +127,7 @@ main(ac, av)
  * quit.
  */
 void
-rub(dummy)
-	int dummy;
+rub(int dummy)
 {
 	(void)signal(SIGINT, SIG_IGN);
 	if (getyn(REALLYPROMPT))
@@ -136,8 +139,7 @@ rub(dummy)
  *	Time to go beddy-by
  */
 void
-die(code)
-	int code;
+die(int code)
 {
 	(void)signal(SIGINT, SIG_IGN);
 	if (outf)

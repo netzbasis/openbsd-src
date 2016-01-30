@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.48 2015/12/02 12:43:59 naddy Exp $	*/
+/*	$OpenBSD: pfkey.c,v 1.50 2015/12/10 17:23:34 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -69,7 +69,6 @@ struct pfkey_constmap {
 };
 
 static const struct pfkey_constmap pfkey_encr[] = {
-	{ SADB_EALG_DESCBC,	IKEV2_XFORMENCR_DES },
 	{ SADB_EALG_3DESCBC,	IKEV2_XFORMENCR_3DES },
 	{ SADB_X_EALG_CAST,	IKEV2_XFORMENCR_CAST },
 	{ SADB_X_EALG_BLF,	IKEV2_XFORMENCR_BLOWFISH },
@@ -1572,7 +1571,7 @@ pfkey_timer_cb(int unused, short event, void *arg)
 
 /*
  * pfkey_process returns 0 if the message has been processed and -1 if
- * the system is busy and the the message should be passed again, later.
+ * the system is busy and the message should be passed again, later.
  */
 int
 pfkey_process(struct iked *env, struct pfkey_message *pm)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: telnet.c,v 1.33 2015/11/24 05:06:24 beck Exp $	*/
+/*	$OpenBSD: telnet.c,v 1.35 2016/01/26 18:35:01 mmcc Exp $	*/
 /*	$NetBSD: telnet.c,v 1.7 1996/02/28 21:04:15 thorpej Exp $	*/
 
 /*
@@ -1586,7 +1586,7 @@ process_iac:
 		     * inserted into the suboption are all possibilities.
 		     * If we assume that the IAC was not doubled,
 		     * and really the IAC SE was left off, we could
-		     * get into an infinate loop here.  So, instead,
+		     * get into an infinite loop here.  So, instead,
 		     * we terminate the suboption, and process the
 		     * partial suboption if we can.
 		     */
@@ -1841,7 +1841,7 @@ telnet(char *user)
     connections++;
     sys_telnet_init();
 
-    if (pledge("stdio tty", NULL) == -1) {
+    if (pledge("stdio rpath tty", NULL) == -1) {
 	perror("pledge");
 	exit(1);
     }

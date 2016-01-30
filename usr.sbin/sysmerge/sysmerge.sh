@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.217 2015/11/28 02:42:22 deraadt Exp $
+# $OpenBSD: sysmerge.sh,v 1.220 2016/01/14 19:58:32 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -37,7 +37,7 @@ stripcom() {
 }
 
 sm_error() {
-	(($#)) && echo "---- Error: $@"
+	(($#)) && echo "!!!! $@"
 	rm -rf ${_TMPROOT}
 	exit 1
 }
@@ -50,11 +50,11 @@ sm_trap() {
 trap "sm_trap" 1 2 3 13 15
 
 sm_info() {
-	(($#)) && echo "---- Info: $@" || true
+	(($#)) && echo "---- $@" || true
 }
 
 sm_warn() {
-	(($#)) && echo "---- Warning: $@" || true
+	(($#)) && echo "**** $@" || true
 }
 
 sm_extract_sets() {
@@ -240,7 +240,6 @@ sm_run() {
 	# files we don't want/need to deal with
 	_ignorefiles="/etc/group
 		      /etc/localtime
-		      /etc/mail/aliases.db
 		      /etc/master.passwd
 		      /etc/motd
 		      /etc/passwd
@@ -337,8 +336,12 @@ sm_install() {
 		fi
 		;;
 	/etc/mail/aliases)
-		echo " (running newaliases(8))"
-		sm_warn $(newaliases 2>&1 >/dev/null)
+		if [[ -f /etc/mail/aliases.db ]]; then
+			echo " (running newaliases(8))"
+			sm_warn $(newaliases 2>&1 >/dev/null)
+		else
+			echo
+		fi
 		;;
 	*)
 		echo

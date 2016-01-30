@@ -1,4 +1,4 @@
-/*	$OpenBSD: help.c,v 1.6 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: help.c,v 1.8 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: help.c,v 1.3 1995/04/22 10:59:01 cgd Exp $	*/
 
 /*
@@ -30,9 +30,10 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
 #include <math.h>
+#include <stdio.h>
 #include <unistd.h>
+
 #include "trek.h"
 
 /*
@@ -59,8 +60,7 @@ const char	*const Cntvect[3] =
 {"first", "second", "third"};
 
 void
-help(v)
-	int v;
+help(int v)
 {
 	double		dist, x;
 	int		dx = 0, dy = 0;

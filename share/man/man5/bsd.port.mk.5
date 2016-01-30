@@ -1,4 +1,4 @@
-.\" $OpenBSD: bsd.port.mk.5,v 1.428 2015/11/23 10:01:45 jmc Exp $
+.\" $OpenBSD: bsd.port.mk.5,v 1.432 2016/01/02 08:29:26 jmc Exp $
 .\"
 .\" Copyright (c) 2000-2008 Marc Espie
 .\"
@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: November 23 2015 $
+.Dd $Mdocdate: January 2 2016 $
 .Dt BSD.PORT.MK 5
 .Os
 .Sh NAME
@@ -1702,7 +1702,9 @@ to limit ports to architectures where they compile.
 Support for GitHub-hosted projects.
 Leave empty for non hosted projects.
 Yields a suitable default for
-.Ev MASTER_SITES_GITHUB .
+.Ev MASTER_SITES_GITHUB
+and
+.Ev DISTNAME .
 .It Ev GH_ACCOUNT
 Account name of the GitHub user hosting the project.
 .It Ev GH_COMMIT
@@ -1854,7 +1856,7 @@ Read-only.
 Use with
 .Ev NOT_FOR_ARCHS .
 .It Ev MAINTAINER
-E-mail address with full name of the port's maintainer.
+Email address with full name of the port's maintainer.
 Defaults to
 .Mt ports@openbsd.org .
 .It Ev MAKE_ENV
@@ -3638,7 +3640,7 @@ should be built:
 .Ed
 .Pp
 The
-.Pa lang/gcc/4.2
+.Pa lang/gcc/4.9
 or
 .Pa print/poppler
 ports should provide examples of proper use.

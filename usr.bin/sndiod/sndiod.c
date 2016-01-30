@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndiod.c,v 1.17 2015/11/26 12:35:37 ratchov Exp $	*/
+/*	$OpenBSD: sndiod.c,v 1.30 2016/01/09 10:06:57 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -14,10 +14,10 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <sys/queue.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 
 #include <err.h>
 #include <errno.h>
@@ -35,6 +35,7 @@
 #include "amsg.h"
 #include "defs.h"
 #include "dev.h"
+#include "fdpass.h"
 #include "file.h"
 #include "listen.h"
 #include "midi.h"
@@ -47,6 +48,13 @@
  */
 #ifndef SNDIO_USER
 #define SNDIO_USER	"_sndio"
+#endif
+
+/*
+ * privileged user name
+ */
+#ifndef SNDIO_PRIV_USER
+#define SNDIO_PRIV_USER	"_sndiop"
 #endif
 
 /*
@@ -96,6 +104,7 @@ void setsig(void);
 void unsetsig(void);
 struct dev *mkdev(char *, struct aparams *,
     int, int, int, int, int, int);
+struct port *mkport(char *, int);
 struct opt *mkopt(char *, struct dev *,
     int, int, int, int, int, int, int, int);
 
@@ -242,11 +251,11 @@ unsetsig(void)
 	sa.sa_flags = SA_RESTART;
 	sa.sa_handler = SIG_DFL;
 	if (sigaction(SIGHUP, &sa, NULL) < 0)
-		err(1, "unsetsig(hup): sigaction failed\n");
+		err(1, "unsetsig(hup): sigaction failed");
 	if (sigaction(SIGTERM, &sa, NULL) < 0)
-		err(1, "unsetsig(term): sigaction failed\n");
+		err(1, "unsetsig(term): sigaction failed");
 	if (sigaction(SIGINT, &sa, NULL) < 0)
-		err(1, "unsetsig(int): sigaction failed\n");
+		err(1, "unsetsig(int): sigaction failed");
 }
 
 void
@@ -269,9 +278,11 @@ getbasepath(char *base, size_t size)
 		if (errno != EEXIST)
 			err(1, "mkdir(\"%s\")", base);
 	}
-	umask(omask);	
+	umask(omask);
 	if (stat(base, &sb) < 0)
 		err(1, "stat(\"%s\")", base);
+	if (!S_ISDIR(sb.st_mode))
+		errx(1, "%s is not a directory", base);
 	if (sb.st_uid != uid || (sb.st_mode & mask) != 0)
 		errx(1, "%s has wrong permissions", base);
 }
@@ -299,6 +310,21 @@ mkdev(char *path, struct aparams *par,
 	return d;
 }
 
+struct port *
+mkport(char *path, int hold)
+{
+	struct port *c;
+
+	for (c = port_list; c != NULL; c = c->next) {
+		if (strcmp(c->path, path) == 0)
+			return c;
+	}
+	c = port_new(path, MODE_MIDIMASK, hold);
+	if (c == NULL)
+		exit(1);
+	return c;
+}
+
 struct opt *
 mkopt(char *path, struct dev *d,
     int pmin, int pmax, int rmin, int rmax,
@@ -309,7 +335,7 @@ mkopt(char *path, struct dev *d,
 	o = opt_new(path, d, pmin, pmax, rmin, rmax,
 	    MIDI_TO_ADATA(vol), mmc, dup, mode);
 	if (o == NULL)
-		errx(1, "%s: couldn't create subdev", path);
+		return NULL;
 	dev_adjpar(d, o->mode, o->pmin, o->pmax, o->rmin, o->rmax);
 	return o;
 }
@@ -319,7 +345,7 @@ main(int argc, char **argv)
 {
 	int c, background, unit;
 	int pmin, pmax, rmin, rmax;
-	char base[SOCKPATH_MAX], path[SOCKPATH_MAX], *tcpaddr;
+	char base[SOCKPATH_MAX], path[SOCKPATH_MAX];
 	unsigned int mode, dup, mmc, vol;
 	unsigned int hold, autovol, bufsz, round, rate;
 	const char *str;
@@ -328,6 +354,15 @@ main(int argc, char **argv)
 	struct port *p;
 	struct listen *l;
 	struct passwd *pw;
+	struct tcpaddr {
+		char *host;
+		struct tcpaddr *next;
+	} *tcpaddr_list, *ta;
+	int s[2];
+	pid_t pid;
+	uid_t euid, hpw_uid, wpw_uid;
+	gid_t hpw_gid, wpw_gid;
+	char *wpw_dir;
 
 	atexit(log_flush);
 
@@ -350,7 +385,7 @@ main(int argc, char **argv)
 	rmax = 1;
 	aparams_init(&par);
 	mode = MODE_PLAY | MODE_REC;
-	tcpaddr = NULL;
+	tcpaddr_list = NULL;
 
 	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:q:r:s:t:U:v:w:x:z:")) != -1) {
 		switch (c) {
@@ -364,7 +399,10 @@ main(int argc, char **argv)
 				errx(1, "%s: unit number is %s", optarg, str);
 			break;
 		case 'L':
-			tcpaddr = optarg;
+			ta = xmalloc(sizeof(struct tcpaddr));
+			ta->host = optarg;
+			ta->next = tcpaddr_list;
+			tcpaddr_list = ta;
 			break;
 		case 'm':
 			mode = opt_mode();
@@ -396,16 +434,15 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			if ((d = dev_list) == NULL) {
-				d = mkdev(DEFAULT_DEV, &par, 0, bufsz, round, rate,
-				    hold, autovol);
+				d = mkdev(DEFAULT_DEV, &par, 0, bufsz, round,
+				    rate, hold, autovol);
 			}
-			mkopt(optarg, d, pmin, pmax, rmin, rmax,
-			    mode, vol, mmc, dup);
+			if (mkopt(optarg, d, pmin, pmax, rmin, rmax,
+				mode, vol, mmc, dup) == NULL)
+				return 1;
 			break;
 		case 'q':
-			p = port_new(optarg, MODE_MIDIMASK, hold);
-			if (!p)
-				errx(1, "%s: can't open port", optarg);
+			mkport(optarg, hold);
 			break;
 		case 'a':
 			hold = opt_onoff();
@@ -424,7 +461,8 @@ main(int argc, char **argv)
 				errx(1, "%s: block size is %s", optarg, str);
 			break;
 		case 'f':
-			mkdev(optarg, &par, 0, bufsz, round, rate, hold, autovol);
+			mkdev(optarg, &par, 0, bufsz, round,
+			    rate, hold, autovol);
 			break;
 		default:
 			fputs(usagestr, stderr);
@@ -442,76 +480,147 @@ main(int argc, char **argv)
 	for (d = dev_list; d != NULL; d = d->next) {
 		if (opt_byname("default", d->num))
 			continue;
-		mkopt("default", d, pmin, pmax, rmin, rmax,
-		    mode, vol, mmc, dup);
+		if (mkopt("default", d, pmin, pmax, rmin, rmax,
+			mode, vol, mmc, dup) == NULL)
+			return 1;
 	}
 
 	setsig();
 	filelist_init();
 
-	getbasepath(base, sizeof(base));
-	snprintf(path, SOCKPATH_MAX, "%s/" SOCKPATH_FILE "%u", base, unit);
-	listen_new_un(path);
-	if (tcpaddr) {
-#ifdef USE_TCP
-		listen_new_tcp(tcpaddr, AUCAT_PORT + unit);
-#else
-		errx(1, "-L option disabled at compilation time");
-#endif
-	}
-	if (geteuid() == 0) {
+	euid = geteuid();
+	if (euid == 0) {
+		if ((pw = getpwnam(SNDIO_PRIV_USER)) == NULL)
+			errx(1, "unknown user %s", SNDIO_PRIV_USER);
+		hpw_uid = pw->pw_uid;
+		hpw_gid = pw->pw_gid;
 		if ((pw = getpwnam(SNDIO_USER)) == NULL)
 			errx(1, "unknown user %s", SNDIO_USER);
-		if (setpriority(PRIO_PROCESS, 0, SNDIO_PRIO) < 0)
-			err(1, "setpriority");
-		if (setgroups(1, &pw->pw_gid) ||
-		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-			err(1, "cannot drop privileges");
+		wpw_uid = pw->pw_uid;
+		wpw_gid = pw->pw_gid;
+		wpw_dir = xstrdup(pw->pw_dir);
+	} else {
+		hpw_uid = wpw_uid = hpw_gid = wpw_gid = 0xdeadbeef;
+		wpw_dir = NULL;
 	}
-	midi_init();
-	for (p = port_list; p != NULL; p = p->next) {
-		if (!port_init(p))
+
+	/* start subprocesses */
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, s) < 0) {
+		perror("socketpair");
+		return 1;
+	}
+	pid = fork();
+	if (pid	== -1) {
+		log_puts("can't fork\n");
+		return 1;
+	}
+	if (pid == 0) {
+		setproctitle("helper");
+		close(s[0]);
+		if (fdpass_new(s[1], &helper_fileops) == NULL)
 			return 1;
-	}
-	for (d = dev_list; d != NULL; d = d->next) {
-		if (!dev_init(d))
+		if (background) {
+			log_flush();
+			log_level = 0;
+			if (daemon(0, 0) < 0)
+				err(1, "daemon");
+		}
+		if (euid == 0) {
+			if (setgroups(1, &hpw_gid) ||
+			    setresgid(hpw_gid, hpw_gid, hpw_gid) ||
+			    setresuid(hpw_uid, hpw_uid, hpw_uid))
+				err(1, "cannot drop privileges");
+		}
+		if (pledge("stdio sendfd rpath wpath", NULL) < 0)
+			err(1, "pledge");
+		while (file_poll())
+			; /* nothing */
+	} else {
+		close(s[1]);
+		if (fdpass_new(s[0], &worker_fileops) == NULL)
 			return 1;
-	}
-	for (l = listen_list; l != NULL; l = l->next) {
-		if (!listen_init(l))
+
+		getbasepath(base, sizeof(base));
+		snprintf(path,
+		    SOCKPATH_MAX, "%s/" SOCKPATH_FILE "%u",
+		    base, unit);
+		if (!listen_new_un(path))
 			return 1;
+		for (ta = tcpaddr_list; ta != NULL; ta = ta->next) {
+			if (!listen_new_tcp(ta->host, AUCAT_PORT + unit))
+				return 1;
+		}
+		for (l = listen_list; l != NULL; l = l->next) {
+			if (!listen_init(l))
+				return 1;
+		}
+
+		midi_init();
+		for (p = port_list; p != NULL; p = p->next) {
+			if (!port_init(p))
+				return 1;
+		}
+		for (d = dev_list; d != NULL; d = d->next) {
+			if (!dev_init(d))
+				return 1;
+		}
+		if (background) {
+			log_flush();
+			log_level = 0;
+			if (daemon(0, 0) < 0)
+				err(1, "daemon");
+		}
+		if (euid == 0) {
+			if (setpriority(PRIO_PROCESS, 0, SNDIO_PRIO) < 0)
+				err(1, "setpriority");
+			if (chroot(wpw_dir) != 0 || chdir("/") != 0)
+				err(1, "cannot chroot to %s", wpw_dir);
+			if (setgroups(1, &wpw_gid) ||
+			    setresgid(wpw_gid, wpw_gid, wpw_gid) ||
+			    setresuid(wpw_uid, wpw_uid, wpw_uid))
+				err(1, "cannot drop privileges");
+		}
+		if (tcpaddr_list) {
+			if (pledge("stdio audio recvfd unix inet", NULL) == -1)
+				err(1, "pledge");
+		} else {
+			if (pledge("stdio audio recvfd unix", NULL) == -1)
+				err(1, "pledge");
+		}
+		for (;;) {
+			if (quit_flag)
+				break;
+			if (!fdpass_peer)
+				break;
+			if (!file_poll())
+				break;
+		}
+		if (fdpass_peer)
+			fdpass_close(fdpass_peer);
+		while (listen_list != NULL)
+			listen_close(listen_list);
+		while (sock_list != NULL)
+			sock_close(sock_list);
+		for (d = dev_list; d != NULL; d = d->next)
+			dev_done(d);
+		for (p = port_list; p != NULL; p = p->next)
+			port_done(p);
+		while (file_poll())
+			; /* nothing */
+		midi_done();
 	}
-	if (background) {
-		log_flush();
-		log_level = 0;
-		if (daemon(0, 0) < 0)
-			err(1, "daemon");
-	}
-	for (;;) {
-		if (quit_flag)
-			break;
-		if (!file_poll())
-			break;
-	}
-	while (listen_list != NULL)
-		listen_close(listen_list);
-	while (sock_list != NULL)
-		sock_close(sock_list);
 	while (opt_list != NULL)
 		opt_del(opt_list);
-	for (d = dev_list; d != NULL; d = d->next)
-		dev_done(d);
-	for (p = port_list; p != NULL; p = p->next)
-		port_done(p);
-	midi_done();
-	while (file_poll())
-		; /* nothing */
 	while (dev_list)
 		dev_del(dev_list);
 	while (port_list)
 		port_del(port_list);
-	rmdir(base);
+	while (tcpaddr_list) {
+		ta = tcpaddr_list;
+		tcpaddr_list = ta->next;
+		xfree(ta);
+	}
 	filelist_done();
 	unsetsig();
 	return 0;

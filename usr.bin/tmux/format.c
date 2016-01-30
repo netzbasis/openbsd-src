@@ -1,7 +1,7 @@
-/* $OpenBSD: format.c,v 1.100 2015/11/24 21:52:06 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.104 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -465,14 +465,7 @@ format_cb_pane_tabs(struct format_tree *ft, struct format_entry *fe)
 
 /* Create a new tree. */
 struct format_tree *
-format_create(void)
-{
-	return (format_create_flags(0));
-}
-
-/* Create a new tree for the status line. */
-struct format_tree *
-format_create_flags(int flags)
+format_create(struct cmd_q *cmdq, int flags)
 {
 	struct format_tree	*ft;
 
@@ -490,6 +483,9 @@ format_create_flags(int flags)
 	format_add_cb(ft, "pid", format_cb_pid);
 	format_add(ft, "socket_path", "%s", socket_path);
 	format_add_tv(ft, "start_time", &start_time);
+
+	if (cmdq != NULL && cmdq->cmd != NULL)
+		format_add(ft, "command_name", "%s", cmdq->cmd->entry->name);
 
 	return (ft);
 }
@@ -1039,6 +1035,7 @@ void
 format_defaults_client(struct format_tree *ft, struct client *c)
 {
 	struct session	*s;
+	const char	*name;
 
 	if (ft->s == NULL)
 		ft->s = c->session;
@@ -1056,7 +1053,8 @@ format_defaults_client(struct format_tree *ft, struct client *c)
 	format_add_tv(ft, "client_created", &c->creation_time);
 	format_add_tv(ft, "client_activity", &c->activity_time);
 
-	if (strcmp(c->keytable->name, "root") == 0)
+	name = server_client_get_key_table(c);
+	if (strcmp(c->keytable->name, name) == 0)
 		format_add(ft, "client_prefix", "%d", 0);
 	else
 		format_add(ft, "client_prefix", "%d", 1);

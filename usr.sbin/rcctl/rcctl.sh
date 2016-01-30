@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: rcctl.sh,v 1.86 2015/11/29 15:58:59 ajacoutot Exp $
+# $OpenBSD: rcctl.sh,v 1.88 2016/01/24 08:51:50 ajacoutot Exp $
 #
 # Copyright (c) 2014, 2015 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -17,8 +17,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-_special_svcs="accounting check_quotas ipsec multicast_host multicast_router pf
-               spamd_black"
+_special_svcs="accounting check_quotas ipsec multicast pf spamd_black"
 readonly _special_svcs
 
 # get local functions from rc.subr(8)
@@ -185,7 +184,7 @@ svc_ls()
 			;;
 		faulty)
 			for _svc in $(svc_ls on); do
-				svc_is_base ${_svc} && \
+				! svc_is_special ${_svc} && \
 					! /etc/rc.d/${_svc} check >/dev/null && \
 					echo ${_svc} && _ret=1
 			done

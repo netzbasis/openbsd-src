@@ -1,4 +1,4 @@
-/* $OpenBSD: acpicpu.c,v 1.70 2015/09/12 07:52:27 guenther Exp $ */
+/* $OpenBSD: acpicpu.c,v 1.72 2015/12/29 04:46:28 mmcc Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
@@ -260,6 +260,7 @@ acpicpu_set_pdc(struct acpicpu_softc *sc)
 
 		if (res.type != AML_OBJTYPE_BUFFER || res.length < 8) {
 			printf(": unable to query capabilities\n");
+			aml_freevalue(&res);
 			return;
 		}
 
@@ -283,8 +284,10 @@ acpicpu_set_pdc(struct acpicpu_softc *sc)
 		osc_cmd[3].v_buffer = (int8_t *)&buf;
 		osc_cmd[3].length = sizeof(buf);
 
+		aml_freevalue(&res);
+
 		aml_evalname(sc->sc_acpi, sc->sc_devnode, "_OSC",
-		    4, osc_cmd, &res);
+		    4, osc_cmd, NULL);
 	} else {
 		/* Evaluate _PDC */
 		memset(&cmd, 0, sizeof(cmd));
@@ -297,7 +300,7 @@ acpicpu_set_pdc(struct acpicpu_softc *sc)
 		buf[2] = cap;
 
 		aml_evalname(sc->sc_acpi, sc->sc_devnode, "_PDC",
-		    1, &cmd, &res);
+		    1, &cmd, NULL);
 	}
 }
 
@@ -903,8 +906,7 @@ acpicpu_getpss(struct acpicpu_softc *sc)
 		return (1);
 	}
 
-	if (sc->sc_pss)
-		free(sc->sc_pss, M_DEVBUF, 0);
+	free(sc->sc_pss, M_DEVBUF, 0);
 
 	sc->sc_pss = mallocarray(res.length, sizeof(*sc->sc_pss), M_DEVBUF,
 	    M_WAITOK | M_ZERO);

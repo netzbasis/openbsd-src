@@ -1,5 +1,5 @@
 %{
-/* $OpenBSD: keynote-ver.l,v 1.17 2015/11/19 19:48:27 tedu Exp $ */
+/* $OpenBSD: keynote-ver.l,v 1.19 2015/12/23 23:55:30 mmcc Exp $ */
 /*
  * The author of this code is Angelos D. Keromytis (angelos@dsl.cis.upenn.edu)
  *
@@ -50,8 +50,7 @@ comment         "#"[^\n]*
 <FIRSTPART>{vstring}          {
 				int len = strlen(kvtext) + 1;
 				kvlval.s.string = calloc(len, sizeof(char));
-                                if (kvlval.s.string == (char *) NULL)
-				{
+                                if (kvlval.s.string == NULL) {
 				    keynote_errno = ERROR_MEMORY;
 				    return -1;
 				}
@@ -61,8 +60,7 @@ comment         "#"[^\n]*
                               }
 <KEYSTATE,SECONDPART>{litstring} { kvlval.s.string = calloc(strlen(kvtext) - 1,
 				  		         sizeof(char));
-                                   if (kvlval.s.string == (char *) NULL)
-				   {
+                                   if (kvlval.s.string == NULL) {
 				       keynote_errno = ERROR_MEMORY;
 				       return -1;
 				   }
@@ -218,9 +216,7 @@ read_environment(char *filename)
     FILE *fp;
     int i;
 
-    fp = fopen(filename, "r");
-    if (fp == (FILE *) NULL)
-    {
+    if ((fp = fopen(filename, "r")) == NULL) {
 	perror(filename);
 	return -1;
     }

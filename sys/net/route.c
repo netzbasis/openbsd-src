@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.289 2015/12/05 10:07:55 tedu Exp $	*/
+/*	$OpenBSD: route.c,v 1.293 2015/12/21 10:51:55 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -623,6 +623,8 @@ rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 	unsigned int		ifidx;
 	struct sockaddr_in6	sa_mask;
 
+	KASSERT(rt->rt_ifidx == ifp->if_index);
+
 	/*
 	 * Request the new route so that the entry is not actually
 	 * deleted.  That will allow the information being reported to
@@ -645,6 +647,9 @@ rtdeletemsg(struct rtentry *rt, struct ifnet *ifp, u_int tableid)
 static inline int
 rtequal(struct rtentry *a, struct rtentry *b)
 {
+	if (a == b)
+		return 1;
+
 	if (memcmp(rt_key(a), rt_key(b), rt_key(a)->sa_len) == 0 &&
 	    rt_plen(a) == rt_plen(b))
 		return 1;
@@ -656,10 +661,22 @@ int
 rtflushclone1(struct rtentry *rt, void *arg, u_int id)
 {
 	struct rtentry *parent = arg;
+	struct ifnet *ifp;
 
-	if ((rt->rt_flags & RTF_CLONED) != 0 && (rt->rt_parent == parent ||
-	    rtequal(rt->rt_parent, parent)))
-		rtdeletemsg(rt, NULL, id);
+	ifp = if_get(rt->rt_ifidx);
+
+	/*
+	 * This happens when an interface with a RTF_CLONING route is
+	 * being detached.  In this case it's safe to bail because all
+	 * the routes are being purged by rt_if_remove().
+	 */
+	if (ifp == NULL)
+	        return 0;
+
+	if (ISSET(rt->rt_flags, RTF_CLONED) && rtequal(rt->rt_parent, parent))
+	        rtdeletemsg(rt, ifp, id);
+
+	if_put(ifp);
 	return 0;
 }
 
@@ -815,6 +832,13 @@ rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
 	    info->rti_info[RTAX_NETMASK], info->rti_info[RTAX_GATEWAY], prio);
 	if (rt == NULL)
 		return (ESRCH);
+
+	/* Make sure that's the route the caller want to delete. */
+	if (ifp != NULL && ifp->if_index != rt->rt_ifidx) {
+		rtfree(rt);
+		return (ESRCH);
+	}
+
 #ifndef SMALL_KERNEL
 	/*
 	 * If we got multipath routes, we require users to specify
@@ -1066,8 +1090,14 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		    rt->rt_priority, rt);
 		if (error != 0 && (crt = rtalloc(ndst, 0, tableid)) != NULL) {
 			/* overwrite cloned route */
-			if ((crt->rt_flags & RTF_CLONED) != 0) {
-				rtdeletemsg(crt, NULL, tableid);
+			if (ISSET(crt->rt_flags, RTF_CLONED)) {
+				struct ifnet *cifp;
+
+				cifp = if_get(crt->rt_ifidx);
+				KASSERT(cifp != NULL);
+				rtdeletemsg(crt, cifp, tableid);
+				if_put(cifp);
+
 				error = rtable_insert(tableid, ndst,
 				    info->rti_info[RTAX_NETMASK],
 				    info->rti_info[RTAX_GATEWAY],
@@ -1741,7 +1771,9 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 		if (!(rt->rt_flags & RTF_UP)) {
 			/* bring route up */
 			rt->rt_flags |= RTF_UP;
-			rtable_mpath_reprio(rt, rt->rt_priority & RTP_MASK);
+			rtable_mpath_reprio(id, rt_key(rt),
+			    rt_plen2mask(rt, &sa_mask),
+			    rt->rt_priority & RTP_MASK, rt);
 		}
 	} else {
 		if (rt->rt_flags & RTF_UP) {
@@ -1756,7 +1788,9 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 			}
 			/* take route down */
 			rt->rt_flags &= ~RTF_UP;
-			rtable_mpath_reprio(rt, rt->rt_priority | RTP_DOWN);
+			rtable_mpath_reprio(id, rt_key(rt),
+			    rt_plen2mask(rt, &sa_mask),
+			    rt->rt_priority | RTP_DOWN, rt);
 		}
 	}
 	if_group_routechange(rt_key(rt), rt_plen2mask(rt, &sa_mask));

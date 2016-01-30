@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.164 2015/12/03 21:11:33 jung Exp $	*/
+/*	$OpenBSD: parse.y,v 1.181 2016/01/18 09:19:41 jung Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -114,7 +114,9 @@ enum listen_options {
 	LO_HOSTNAMES   	= 0x000100,
 	LO_MASKSOURCE  	= 0x000200,
 	LO_NODSN	= 0x000400,
+	LO_SENDERS	= 0x000800,
 	LO_RECEIVEDAUTH = 0x001000,
+	LO_MASQUERADE	= 0x002000,
 	LO_CA		= 0x010000
 };
 
@@ -131,6 +133,7 @@ static struct listen_opts {
 	char	       *tag;
 	char	       *hostname;
 	struct table   *hostnametable;
+	struct table   *sendertable;
 	uint16_t	flags;
 
 	uint32_t       	options;
@@ -171,8 +174,8 @@ typedef struct {
 %token  RELAY BACKUP VIA DELIVER TO LMTP MAILDIR MBOX RCPTTO HOSTNAME HOSTNAMES
 %token	ACCEPT REJECT INCLUDE ERROR MDA FROM FOR SOURCE MTA PKI SCHEDULER
 %token	ARROW AUTH TLS LOCAL VIRTUAL TAG TAGGED ALIAS FILTER KEY CA DHPARAMS
-%token	AUTH_OPTIONAL TLS_REQUIRE USERBASE SENDER MASK_SOURCE VERIFY FORWARDONLY RECIPIENT
-%token	RECEIVEDAUTH
+%token	AUTH_OPTIONAL TLS_REQUIRE USERBASE SENDER SENDERS MASK_SOURCE VERIFY FORWARDONLY RECIPIENT
+%token	CIPHERS RECEIVEDAUTH MASQUERADE ENQUEUER
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.table>	table
@@ -391,9 +394,6 @@ opt_pki		: CERTIFICATE STRING {
 		| KEY STRING {
 			pki->pki_key_file = $2;
 		}
-		| CA STRING {
-			pki->pki_ca_file = $2;
-		}
 		| DHPARAMS STRING {
 			pki->pki_dhparams_file = $2;
 		}
@@ -563,7 +563,7 @@ opt_listen     	: INET4			{
 			}
 			listen_opts.options |= LO_TAG;
 
-			if (strlen($2) >= MAX_TAG_SIZE) {
+			if (strlen($2) >= SMTPD_TAG_SIZE) {
        				yyerror("tag name too long");
 				free($2);
 				YYERROR;
@@ -588,7 +588,7 @@ opt_listen     	: INET4			{
 			}
 			listen_opts.options |= LO_HOSTNAMES;
 
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_ADDRNAME)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_ADDRNAME)) {
 				yyerror("invalid use of table \"%s\" as "
 				    "HOSTNAMES parameter", t->t_name);
 				YYERROR;
@@ -619,6 +619,38 @@ opt_listen     	: INET4			{
 			listen_opts.options |= LO_NODSN;
 			listen_opts.flags &= ~F_EXT_DSN;
 		}
+		| SENDERS tables	{
+			struct table	*t = $2;
+
+			if (listen_opts.options & LO_SENDERS) {
+				yyerror("senders already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_SENDERS;
+
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_MAILADDRMAP)) {
+				yyerror("invalid use of table \"%s\" as "
+				    "SENDERS parameter", t->t_name);
+				YYERROR;
+			}
+			listen_opts.sendertable = t;
+		}
+		| SENDERS tables MASQUERADE	{
+			struct table	*t = $2;
+
+			if (listen_opts.options & LO_SENDERS) {
+				yyerror("senders already specified");
+				YYERROR;
+			}
+			listen_opts.options |= LO_SENDERS|LO_MASQUERADE;
+
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_MAILADDRMAP)) {
+				yyerror("invalid use of table \"%s\" as "
+				    "SENDERS parameter", t->t_name);
+				YYERROR;
+			}
+			listen_opts.sendertable = t;
+		}
 		;
 
 listen		: opt_listen listen
@@ -628,7 +660,7 @@ listen		: opt_listen listen
 opt_relay_common: AS STRING	{
 			struct mailaddr maddr, *maddrp;
 
-			if (! text_to_mailaddr(&maddr, $2)) {
+			if (!text_to_mailaddr(&maddr, $2)) {
 				yyerror("invalid parameter to AS: %s", $2);
 				free($2);
 				YYERROR;
@@ -652,7 +684,7 @@ opt_relay_common: AS STRING	{
 		}
 		| SOURCE tables			{
 			struct table	*t = $2;
-			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_SOURCE)) {
+			if (!table_check_use(t, T_DYNAMIC|T_LIST, K_SOURCE)) {
 				yyerror("invalid use of table \"%s\" as "
 				    "SOURCE parameter", t->t_name);
 				YYERROR;
@@ -667,7 +699,7 @@ opt_relay_common: AS STRING	{
 		}
 		| HOSTNAMES tables		{
 			struct table	*t = $2;
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_ADDRNAME)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_ADDRNAME)) {
 				yyerror("invalid use of table \"%s\" as "
 				    "HOSTNAMES parameter", t->t_name);
 				YYERROR;
@@ -676,14 +708,14 @@ opt_relay_common: AS STRING	{
 			    sizeof rule->r_value.relayhost.helotable);
 		}
 		| PKI STRING {
-			if (! lowercase(rule->r_value.relayhost.pki_name, $2,
+			if (!lowercase(rule->r_value.relayhost.pki_name, $2,
 				sizeof(rule->r_value.relayhost.pki_name))) {
 				yyerror("pki name too long: %s", $2);
 				free($2);
 				YYERROR;
 			}
 			if (dict_get(conf->sc_pki_dict,
-			    rule->r_value.relayhost.pki_name) == NULL) {
+				rule->r_value.relayhost.pki_name) == NULL) {
 				log_warnx("pki name not found: %s", $2);
 				free($2);
 				YYERROR;
@@ -691,7 +723,7 @@ opt_relay_common: AS STRING	{
 			free($2);
 		}
 		| CA STRING {
-			if (! lowercase(rule->r_value.relayhost.ca_name, $2,
+			if (!lowercase(rule->r_value.relayhost.ca_name, $2,
 				sizeof(rule->r_value.relayhost.ca_name))) {
 				yyerror("ca name too long: %s", $2);
 				free($2);
@@ -740,7 +772,7 @@ relay		: opt_relay_common relay
 opt_relay_via	: AUTH tables {
 			struct table   *t = $2;
 
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_CREDENTIALS)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_CREDENTIALS)) {
 				yyerror("invalid use of table \"%s\" as AUTH parameter",
 				    t->t_name);
 				YYERROR;
@@ -822,6 +854,20 @@ main		: BOUNCEWARN {
 			listen_opts.ifx = $4;
 			create_listener(conf->sc_listeners, &listen_opts);
 		}
+		| ENQUEUER FILTER STRING {
+			if (dict_get(&conf->sc_filters, $3) == NULL) {
+				yyerror("undefined filter \"%s\"", $3);
+				free($3);
+				YYERROR;
+			}
+			if (strlcpy(conf->sc_enqueue_filter, $3,
+				sizeof conf->sc_enqueue_filter)
+			    >= sizeof conf->sc_enqueue_filter) {
+				free($3);
+				YYERROR;
+			}
+			free($3);
+		}
 		| FILTER STRING STRING {
 			if (!strcmp($3, "chain")) {
 				free($3);
@@ -840,6 +886,15 @@ main		: BOUNCEWARN {
 		} filter_args
 		| PKI STRING	{
 			char buf[HOST_NAME_MAX+1];
+
+			/* if not catchall, check that it is a valid domain */
+			if (strcmp($2, "*") != 0) {
+				if (!res_hnok($2)) {
+					yyerror("not a valid domain name: %s", $2);
+					free($2);
+					YYERROR;
+				}
+			}
 			xlowercase(buf, $2, sizeof(buf));
 			free($2);
 			pki = dict_get(conf->sc_pki_dict, buf);
@@ -854,7 +909,7 @@ main		: BOUNCEWARN {
 
 			/* if not catchall, check that it is a valid domain */
 			if (strcmp($2, "*") != 0) {
-				if (! res_hnok($2)) {
+				if (!res_hnok($2)) {
 					yyerror("not a valid domain name: %s", $2);
 					free($2);
 					YYERROR;
@@ -868,8 +923,11 @@ main		: BOUNCEWARN {
 				(void)strlcpy(sca->ca_name, buf, sizeof(sca->ca_name));
 				dict_set(conf->sc_ca_dict, sca->ca_name, sca);
 			}
-		  } ca
-		  ;
+		} ca
+		| CIPHERS STRING {
+			env->sc_tls_ciphers = $2;
+		}
+		;
 
 filter_args	:
 		| STRING {
@@ -990,7 +1048,7 @@ tables		: tablenew			{ $$ = $1; }
 alias		: ALIAS tables			{
 			struct table   *t = $2;
 
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_ALIAS)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_ALIAS)) {
 				yyerror("invalid use of table \"%s\" as ALIAS parameter",
 				    t->t_name);
 				YYERROR;
@@ -1003,7 +1061,7 @@ alias		: ALIAS tables			{
 virtual		: VIRTUAL tables		{
 			struct table   *t = $2;
 
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_ALIAS)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_ALIAS)) {
 				yyerror("invalid use of table \"%s\" as VIRTUAL parameter",
 				    t->t_name);
 				YYERROR;
@@ -1037,7 +1095,7 @@ userbase	: USERBASE tables	{
 				yyerror("userbase specified multiple times");
 				YYERROR;
 			}
-			if (! table_check_use(t, T_DYNAMIC|T_HASH, K_USERINFO)) {
+			if (!table_check_use(t, T_DYNAMIC|T_HASH, K_USERINFO)) {
 				yyerror("invalid use of table \"%s\" as USERBASE parameter",
 				    t->t_name);
 				YYERROR;
@@ -1119,7 +1177,7 @@ relay_action   	: RELAY relay {
 		}
 		| RELAY VIA STRING {
 			rule->r_action = A_RELAYVIA;
-			if (! text_to_relayhost(&rule->r_value.relayhost, $3)) {
+			if (!text_to_relayhost(&rule->r_value.relayhost, $3)) {
 				yyerror("error: invalid url: %s", $3);
 				free($3);
 				YYERROR;
@@ -1147,7 +1205,7 @@ from		: FROM negation SOURCE tables       		{
 				yyerror("from specified multiple times");
 				YYERROR;
 			}
-			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_NETADDR)) {
+			if (!table_check_use(t, T_DYNAMIC|T_LIST, K_NETADDR)) {
 				yyerror("invalid use of table \"%s\" as FROM parameter",
 				    t->t_name);
 				YYERROR;
@@ -1180,7 +1238,7 @@ for		: FOR negation DOMAIN tables {
 				yyerror("for specified multiple times");
 				YYERROR;
 			}
-			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_DOMAIN)) {
+			if (!table_check_use(t, T_DYNAMIC|T_LIST, K_DOMAIN)) {
 				yyerror("invalid use of table \"%s\" as DOMAIN parameter",
 				    t->t_name);
 				YYERROR;
@@ -1214,7 +1272,7 @@ sender		: SENDER negation tables			{
 				YYERROR;
 			}
 
-			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_MAILADDR)) {
+			if (!table_check_use(t, T_DYNAMIC|T_LIST, K_MAILADDR)) {
 				yyerror("invalid use of table \"%s\" as SENDER parameter",
 				    t->t_name);
 				YYERROR;
@@ -1232,7 +1290,7 @@ recipient      	: RECIPIENT negation tables			{
 				YYERROR;
 			}
 
-			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_MAILADDR)) {
+			if (!table_check_use(t, T_DYNAMIC|T_LIST, K_MAILADDR)) {
 				yyerror("invalid use of table \"%s\" as RECIPIENT parameter",
 				    t->t_name);
 				YYERROR;
@@ -1303,11 +1361,11 @@ rule		: ACCEPT {
 			rule->r_desttype = DEST_DOM;
 			rule->r_qexpire = -1;
 		} decision lookup action accept_params {
-			if (! rule->r_sources)
+			if (!rule->r_sources)
 				rule->r_sources = table_find("<localhost>", NULL);
-			if (! rule->r_destination)
+			if (!rule->r_destination)
 			 	rule->r_destination = table_find("<localnames>", NULL);
-			if (! rule->r_userbase)
+			if (!rule->r_userbase)
 				rule->r_userbase = table_find("<getpwnam>", NULL);
 			if (rule->r_qexpire == -1)
 				rule->r_qexpire = conf->sc_qexpire;
@@ -1333,9 +1391,9 @@ rule		: ACCEPT {
 			rule->r_decision = R_REJECT;
 			rule->r_desttype = DEST_DOM;
 		} decision {
-			if (! rule->r_sources)
+			if (!rule->r_sources)
 				rule->r_sources = table_find("<localhost>", NULL);
-			if (! rule->r_destination)
+			if (!rule->r_destination)
 				rule->r_destination = table_find("<localnames>", NULL);
 			TAILQ_INSERT_TAIL(conf->sc_rules, rule, r_entry);
 			rule = NULL;
@@ -1385,11 +1443,13 @@ lookup(char *s)
 		{ "bounce-warn",	BOUNCEWARN },
 		{ "ca",			CA },
 		{ "certificate",	CERTIFICATE },
+		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
 		{ "deliver",		DELIVER },
 		{ "dhparams",		DHPARAMS },
 		{ "domain",		DOMAIN },
 		{ "encryption",		ENCRYPTION },
+		{ "enqueuer",		ENQUEUER },
 		{ "expire",		EXPIRE },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
@@ -1407,6 +1467,7 @@ lookup(char *s)
 		{ "local",		LOCAL },
 		{ "maildir",		MAILDIR },
 		{ "mask-source",	MASK_SOURCE },
+		{ "masquerade",		MASQUERADE },
 		{ "max-message-size",  	MAXMESSAGESIZE },
 		{ "max-mta-deferred",  	MAXMTADEFERRED },
 		{ "mbox",		MBOX },
@@ -1425,6 +1486,7 @@ lookup(char *s)
 		{ "scheduler",		SCHEDULER },
 		{ "secure",		SECURE },
 		{ "sender",    		SENDER },
+		{ "senders",   		SENDERS },
 		{ "session",   		SESSION },
 		{ "smtps",		SMTPS },
 		{ "source",		SOURCE },
@@ -1773,7 +1835,7 @@ parse_config(struct smtpd *x_conf, const char *filename, int opts)
 	char		hostname[HOST_NAME_MAX+1];
 	char		hostname_copy[HOST_NAME_MAX+1];
 
-	if (! getmailname(hostname, sizeof hostname))
+	if (getmailname(hostname, sizeof hostname) == -1)
 		return (-1);
 
 	conf = x_conf;
@@ -1799,6 +1861,7 @@ parse_config(struct smtpd *x_conf, const char *filename, int opts)
 	    conf->sc_listeners == NULL		||
 	    conf->sc_ca_dict == NULL		||
 	    conf->sc_pki_dict == NULL		||
+	    conf->sc_ssl_dict == NULL		||
 	    conf->sc_limits_dict == NULL) {
 		log_warn("warn: cannot allocate memory");
 		free(conf->sc_tables_dict);
@@ -2002,7 +2065,7 @@ create_listener(struct listenerlist *ll,  struct listen_opts *lo)
 	if (lo->port) {
 		lo->flags = lo->ssl|lo->auth|flags;
 		lo->port = htons(lo->port);
-		if (! interface(ll, lo))
+		if (!interface(ll, lo))
 			if (host(ll, lo) <= 0)
 				errx(1, "invalid virtual ip or interface: %s", lo->ifx);
 	}
@@ -2010,17 +2073,17 @@ create_listener(struct listenerlist *ll,  struct listen_opts *lo)
 		if (lo->ssl & F_SMTPS) {
 			lo->port = htons(465);
 			lo->flags = F_SMTPS|lo->auth|flags;
-			if (! interface(ll, lo))
+			if (!interface(ll, lo))
 				if (host(ll, lo) <= 0)
 					errx(1, "invalid virtual ip or interface: %s", lo->ifx);
 		}
 
-		if (! lo->ssl || (lo->ssl & F_STARTTLS)) {
+		if (!lo->ssl || (lo->ssl & F_STARTTLS)) {
 			lo->port = htons(25);
 			lo->flags = lo->auth|flags;
 			if (lo->ssl & F_STARTTLS)
 				lo->flags |= F_STARTTLS;
-			if (! interface(ll, lo))
+			if (!interface(ll, lo))
 				if (host(ll, lo) <= 0)
 					errx(1, "invalid virtual ip or interface: %s", lo->ifx);
 		}
@@ -2050,7 +2113,7 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	if (lo->authtable != NULL)
 		(void)strlcpy(h->authtable, lo->authtable->t_name, sizeof(h->authtable));
 	if (lo->pki != NULL) {
-		if (! lowercase(h->pki_name, lo->pki, sizeof(h->pki_name))) {
+		if (!lowercase(h->pki_name, lo->pki, sizeof(h->pki_name))) {
 			log_warnx("pki name too long: %s", lo->pki);
 			fatalx(NULL);
 		}
@@ -2061,7 +2124,7 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	}
 
 	if (lo->ca != NULL) {
-		if (! lowercase(h->ca_name, lo->ca, sizeof(h->ca_name))) {
+		if (!lowercase(h->ca_name, lo->ca, sizeof(h->ca_name))) {
 			log_warnx("ca name too long: %s", lo->ca);
 			fatalx(NULL);
 		}
@@ -2076,6 +2139,11 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	(void)strlcpy(h->hostname, lo->hostname, sizeof(h->hostname));
 	if (lo->hostnametable)
 		(void)strlcpy(h->hostnametable, lo->hostnametable->t_name, sizeof(h->hostnametable));
+	if (lo->sendertable) {
+		(void)strlcpy(h->sendertable, lo->sendertable->t_name, sizeof(h->sendertable));
+		if (lo->options & LO_MASQUERADE)
+			h->flags |= F_MASQUERADE;
+	}
 
 	if (lo->ssl & F_TLS_VERIFY)
 		h->flags |= F_TLS_VERIFY;
@@ -2222,7 +2290,7 @@ interface(struct listenerlist *al, struct listen_opts *lo)
 		if (p->ifa_addr == NULL)
 			continue;
 		if (strcmp(p->ifa_name, lo->ifx) != 0 &&
-		    ! is_if_in_group(p->ifa_name, lo->ifx))
+		    !is_if_in_group(p->ifa_name, lo->ifx))
 			continue;
 		if (lo->family != AF_UNSPEC && lo->family != p->ifa_addr->sa_family)
 			continue;
@@ -2428,7 +2496,7 @@ create_filter_proc(char *name, char *prog)
 		return (NULL);
 	}
 
-	if (asprintf(&path, "%s/filter-%s", PATH_LIBEXEC_DEPRECATED, prog) == -1) {
+	if (asprintf(&path, "%s/filter-%s", PATH_LIBEXEC, prog) == -1) {
 		yyerror("filter \"%s\" asprintf failed", name);
 		return (0);
 	}
@@ -2465,6 +2533,8 @@ create_filter_chain(char *name)
 static int
 add_filter_arg(struct filter_conf *f, char *arg)
 {
+	int	i;
+
 	if (f->argc == MAX_FILTER_ARGS) {
 		yyerror("filter \"%s\" is full", f->name);
 		return (0);
@@ -2479,6 +2549,11 @@ add_filter_arg(struct filter_conf *f, char *arg)
 			yyerror("filter chain cannot contain itself");
 			return (0);
 		}
+		for (i = 0; i < f->argc; ++i)
+			if (strcasecmp(f->argv[i], arg) == 0) {
+				yyerror("filter chain cannot contain twice the same filter instance");
+				return (0);
+			}
 	}
 
 	f->argv[f->argc++] = arg;

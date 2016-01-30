@@ -1,4 +1,4 @@
-/*      $OpenBSD: pmap.h,v 1.38 2015/02/15 21:34:33 miod Exp $ */
+/*      $OpenBSD: pmap.h,v 1.40 2016/01/10 10:22:56 visa Exp $ */
 
 /*
  * Copyright (c) 1987 Carnegie-Mellon University

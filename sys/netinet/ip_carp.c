@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_carp.c,v 1.283 2015/12/03 16:27:32 mpi Exp $	*/
+/*	$OpenBSD: ip_carp.c,v 1.286 2016/01/21 11:23:48 mpi Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff. All rights reserved.
@@ -1653,10 +1653,8 @@ carp_set_ifp(struct carp_softc *sc, struct ifnet *ifp0)
 	int myself = 0, error = 0;
 	int s;
 
+	KASSERT(ifp0 != sc->sc_carpdev);
 	KERNEL_ASSERT_LOCKED(); /* touching vhif_vrs */
-
-	if (ifp0 == sc->sc_carpdev)
-		return (0);
 
 	if ((ifp0->if_flags & IFF_MULTICAST) == 0)
 		return (EADDRNOTAVAIL);
@@ -1811,17 +1809,13 @@ carp_addr_updated(void *v)
 
 	/* We received address changes from if_addrhooks callback */
 	if (new_naddrs != sc->sc_naddrs || new_naddrs6 != sc->sc_naddrs6) {
-		struct in_addr mc_addr;
-		struct in_multi *inm;
 
 		sc->sc_naddrs = new_naddrs;
 		sc->sc_naddrs6 = new_naddrs6;
 
 		/* Re-establish multicast membership removed by in_control */
 		if (IN_MULTICAST(sc->sc_peer.s_addr)) {
-			mc_addr.s_addr = sc->sc_peer.s_addr;
-			IN_LOOKUP_MULTI(mc_addr, &sc->sc_if, inm);
-			if (inm == NULL) {
+			if (!in_hasmulti(&sc->sc_peer, &sc->sc_if)) {
 				struct in_multi **imm =
 				    sc->sc_imo.imo_membership;
 				u_int16_t maxmem =
@@ -1968,12 +1962,12 @@ carp_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr)
 	struct carpreq carpr;
 	struct ifaddr *ifa = (struct ifaddr *)addr;
 	struct ifreq *ifr = (struct ifreq *)addr;
-	struct ifnet *ifp0 = NULL;
+	struct ifnet *ifp0 = sc->sc_carpdev;
 	int i, error = 0;
 
 	switch (cmd) {
 	case SIOCSIFADDR:
-		if (sc->sc_carpdev == NULL)
+		if (ifp0 == NULL)
 			return (EINVAL);
 
 		switch (ifa->ifa_addr->sa_family) {
@@ -2029,8 +2023,10 @@ carp_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr)
 			sc->sc_peer.s_addr = INADDR_CARP_GROUP;
 		else
 			sc->sc_peer.s_addr = carpr.carpr_peer.s_addr;
-		if ((error = carp_set_ifp(sc, ifp0)))
-			return (error);
+		if (ifp0 != sc->sc_carpdev) {
+			if ((error = carp_set_ifp(sc, ifp0)))
+				return (error);
+		}
 		if (vhe->state != INIT && carpr.carpr_state != vhe->state) {
 			switch (carpr.carpr_state) {
 			case BACKUP:
@@ -2090,9 +2086,8 @@ carp_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr)
 
 	case SIOCGVH:
 		memset(&carpr, 0, sizeof(carpr));
-		if (sc->sc_carpdev != NULL)
-			strlcpy(carpr.carpr_carpdev, sc->sc_carpdev->if_xname,
-			    IFNAMSIZ);
+		if (ifp0 != NULL)
+			strlcpy(carpr.carpr_carpdev, ifp0->if_xname, IFNAMSIZ);
 		i = 0;
 		KERNEL_ASSERT_LOCKED(); /* touching carp_vhosts */
 		SRPL_FOREACH_LOCKED(vhe, &sc->carp_vhosts, vhost_entries) {
@@ -2305,13 +2300,20 @@ carp_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 {
 	struct carp_softc *sc = ((struct carp_softc *)ifp->if_softc);
 	struct carp_vhost_entry *vhe;
+	struct srpl_iter i;
+	int ismaster;
 
-	KERNEL_ASSERT_LOCKED(); /* touching carp_vhosts */
+	KASSERT(sc->sc_carpdev != NULL);
 
-	vhe = sc->cur_vhe ? sc->cur_vhe : SRPL_FIRST_LOCKED(&sc->carp_vhosts);
+	if (sc->cur_vhe == NULL) {
+		vhe = SRPL_ENTER(&sc->carp_vhosts, &i); /* head */
+		ismaster = (vhe->state == MASTER);
+		SRPL_LEAVE(&i, vhe);
+	} else {
+		ismaster = (sc->cur_vhe->state == MASTER);
+	}
 
-	if ((sc->sc_carpdev == NULL) ||
-	    (sc->sc_balancing == CARP_BAL_NONE && vhe->state != MASTER)) {
+	if ((sc->sc_balancing == CARP_BAL_NONE && !ismaster)) {
 		m_freem(m);
 		return (ENETUNREACH);
 	}

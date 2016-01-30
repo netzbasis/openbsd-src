@@ -1,4 +1,4 @@
-/*	$OpenBSD: pax.c,v 1.42 2015/10/12 05:05:24 deraadt Exp $	*/
+/*	$OpenBSD: pax.c,v 1.44 2015/12/16 01:39:11 tb Exp $	*/
 /*	$NetBSD: pax.c,v 1.5 1996/03/26 23:54:20 mrg Exp $	*/
 
 /*-
@@ -258,10 +258,10 @@ main(int argc, char **argv)
 
 	/*
 	 * pmode needs to restore setugid bits when extracting or copying,
-	 * so can't tame at all then.
+	 * so can't pledge at all then.
 	 */
 	if (pmode == 0 || (act != EXTRACT && act != COPY)) {
-		if (pledge("stdio rpath wpath cpath fattr getpw ioctl proc exec",
+		if (pledge("stdio rpath wpath cpath dpath fattr getpw ioctl proc exec",
 		    NULL) == -1)
 			err(1, "pledge");
 

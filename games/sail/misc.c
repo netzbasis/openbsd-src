@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.7 2015/10/24 18:16:40 mmcc Exp $	*/
+/*	$OpenBSD: misc.c,v 1.9 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: misc.c,v 1.3 1995/04/22 10:37:03 cgd Exp $	*/
 
 /*
@@ -30,9 +30,15 @@
  * SUCH DAMAGE.
  */
 
+#include <ctype.h>
+#ifdef LOCK_EX
 #include <fcntl.h>
+#endif
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
+
 #include "extern.h"
 #include "pathnames.h"
 
@@ -40,8 +46,7 @@
 
 /* XXX */
 int
-range(from, to)
-	struct ship *from, *to;
+range(struct ship *from, struct ship *to)
 {
 	int bow1r, bow1c, bow2r, bow2c;
 	int stern1r, stern1c, stern2c, stern2r;
@@ -68,9 +73,7 @@ range(from, to)
 }
 
 struct ship *
-closestenemy(from, side, anyship)
-	struct ship *from;
-	char side, anyship;
+closestenemy(struct ship *from, int side, int anyship)
 {
 	struct ship *sp;
 	char a;
@@ -97,8 +100,7 @@ closestenemy(from, side, anyship)
 }
 
 int
-angle(dr, dc)
-	int dr, dc;
+angle(int dr, int dc)
 {
 	int i;
 
@@ -124,9 +126,9 @@ angle(dr, dc)
 	return i % 8 + 1;
 }
 
+/* checks for target bow or stern */
 int
-gunsbear(from, to)		/* checks for target bow or stern */
-	struct ship *from, *to;
+gunsbear(struct ship *from, struct ship *to)
 {
 	int Dr, Dc, i;
 	int ang;
@@ -146,11 +148,10 @@ gunsbear(from, to)		/* checks for target bow or stern */
 	return 0;
 }
 
+/* returns true if fromship is shooting at onship's starboard side */
 int
-portside(from, on, quick)
-	struct ship *from, *on;
-	int quick;		/* returns true if fromship is */
-{				/* shooting at onship's starboard side */
+portside(struct ship *from, struct ship *on, int quick)
+{
 	int ang;
 	int Dr, Dc;
 
@@ -168,8 +169,7 @@ portside(from, on, quick)
 }
 
 int
-colours(sp)
-	struct ship *sp;
+colours(struct ship *sp)
 {
 	char flag;
 
@@ -186,8 +186,7 @@ colours(sp)
 }
 
 void
-logger(s)
-	struct ship *s;
+logger(struct ship *s)
 {
 	FILE *fp;
 	int persons;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.18 2015/12/04 17:34:40 tb Exp $	*/
+/*	$OpenBSD: extern.h,v 1.20 2015/12/31 17:51:19 mestre Exp $	*/
 /*	$NetBSD: extern.h,v 1.5 1995/04/24 12:22:18 cgd Exp $	*/
 
 /*
@@ -32,17 +32,7 @@
  *	@(#)extern.h	8.1 (Berkeley) 5/31/93
  */
 
-#include <sys/time.h>
-
-#include <ctype.h>
-#include <err.h>
-#include <errno.h>
-#include <limits.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <sys/types.h>
 
 #define BITS (8 * sizeof (int))
 
@@ -330,7 +320,7 @@ void chime(void);
 void convert(int);
 void crash(void);
 int cypher(void);
-void die(int);
+__dead void die(int);
 void dig(void);
 void dooropen(void);
 int draw(void);
@@ -350,7 +340,7 @@ void kiss(void);
 int land(void);
 int launch(void);
 void light(void);
-void live(void);
+__dead void live(void);
 void love(void);
 int moveplayer(int, int);
 void murder(void);

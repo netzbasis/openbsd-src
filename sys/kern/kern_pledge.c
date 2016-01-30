@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.135 2015/12/05 19:21:49 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.148 2016/01/19 07:31:48 ratchov Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -40,6 +40,7 @@
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
 #include <sys/mtio.h>
+#include <sys/audioio.h>
 #include <net/bpf.h>
 #include <net/route.h>
 #include <net/if.h>
@@ -63,7 +64,20 @@
 #define PLEDGENAMES
 #include <sys/pledge.h>
 
+#include "audio.h"
 #include "pty.h"
+
+#if defined(__amd64__)
+#include "vmm.h"
+#if NVMM > 0
+#include <machine/conf.h>
+#endif
+#endif
+
+#if defined(__amd64__) || defined(__i386__) || \
+    defined(__macppc__) || defined(__sparc64__)
+#include "drm.h"
+#endif
 
 int pledgereq_flags(const char *req);
 int canonpath(const char *input, char *buf, size_t bufsize);
@@ -72,9 +86,9 @@ int substrcmp(const char *p1, size_t s1, const char *p2, size_t s2);
 /*
  * Ordered in blocks starting with least risky and most required.
  */
-const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
+const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	/*
-	 * Minimum required 
+	 * Minimum required
 	 */
 	[SYS_exit] = PLEDGE_ALWAYS,
 	[SYS_kbind] = PLEDGE_ALWAYS,
@@ -154,7 +168,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	 */
 	[SYS_sendmsg] = PLEDGE_STDIO,
 
-	/* Common signal operations */ 
+	/* Common signal operations */
 	[SYS_nanosleep] = PLEDGE_STDIO,
 	[SYS_sigaltstack] = PLEDGE_STDIO,
 	[SYS_sigprocmask] = PLEDGE_STDIO,
@@ -265,6 +279,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_faccessat] = PLEDGE_RPATH | PLEDGE_WPATH,
 	[SYS_readlinkat] = PLEDGE_RPATH | PLEDGE_WPATH,
 	[SYS_lstat] = PLEDGE_RPATH | PLEDGE_WPATH | PLEDGE_TMPPATH,
+	[SYS_truncate] = PLEDGE_WPATH,
 	[SYS_rename] = PLEDGE_CPATH,
 	[SYS_rmdir] = PLEDGE_CPATH,
 	[SYS_renameat] = PLEDGE_CPATH,
@@ -330,12 +345,12 @@ static const struct {
 	char *name;
 	int flags;
 } pledgereq[] = {
-	{ "abort",		0 },	/* XXX reserve for later */
 	{ "audio",		PLEDGE_AUDIO },
 	{ "cpath",		PLEDGE_CPATH },
 	{ "disklabel",		PLEDGE_DISKLABEL },
 	{ "dns",		PLEDGE_DNS },
 	{ "dpath",		PLEDGE_DPATH },
+	{ "drm",		PLEDGE_DRM },
 	{ "exec",		PLEDGE_EXEC },
 	{ "fattr",		PLEDGE_FATTR },
 	{ "flock",		PLEDGE_FLOCK },
@@ -358,6 +373,7 @@ static const struct {
 	{ "tty",		PLEDGE_TTY },
 	{ "unix",		PLEDGE_UNIX },
 	{ "vminfo",		PLEDGE_VMINFO },
+	{ "vmm",		PLEDGE_VMM },
 	{ "wpath",		PLEDGE_WPATH },
 };
 
@@ -368,7 +384,7 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 		syscallarg(const char *)request;
 		syscallarg(const char **)paths;
 	} */	*uap = v;
-	int flags = 0;
+	uint64_t flags = 0;
 	int error;
 
 	if (SCARG(uap, request)) {
@@ -419,6 +435,8 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 	}
 
 	if (SCARG(uap, paths)) {
+		return (EINVAL);
+#if 0
 		const char **u = SCARG(uap, paths), *sp;
 		struct whitepaths *wl;
 		char *cwdpath = NULL, *path;
@@ -535,10 +553,10 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 				printf("pledge: %d=%s %lld\n", i, wl->wl_paths[i].name,
 				    (long long)wl->wl_paths[i].len);
 #endif
+#endif
 	}
 
 	p->p_p->ps_pledge = flags;
-	p->p_p->ps_pledge |= PLEDGE_COREDUMP;	/* XXX temporary */
 	p->p_p->ps_flags |= PS_PLEDGE;
 	return (0);
 }
@@ -563,10 +581,11 @@ pledge_syscall(struct proc *p, int code, int *tval)
 }
 
 int
-pledge_fail(struct proc *p, int error, int code)
+pledge_fail(struct proc *p, int error, uint64_t code)
 {
 	char *codes = "";
 	int i;
+	struct sigaction sa;
 
 	/* Print first matching pledge */
 	for (i = 0; code && pledgenames[i].bits != 0; i++)
@@ -579,16 +598,11 @@ pledge_fail(struct proc *p, int error, int code)
 #ifdef KTRACE
 	ktrpledge(p, error, code, p->p_pledge_syscall);
 #endif
-	if (p->p_p->ps_pledge & PLEDGE_COREDUMP) {
-		/* Core dump requested */
-		struct sigaction sa;
-
-		memset(&sa, 0, sizeof sa);
-		sa.sa_handler = SIG_DFL;
-		setsigvec(p, SIGABRT, &sa);
-		psignal(p, SIGABRT);
-	} else
-		psignal(p, SIGKILL);
+	/* Send uncatchable SIGABRT for coredump */
+	memset(&sa, 0, sizeof sa);
+	sa.sa_handler = SIG_DFL;
+	setsigvec(p, SIGABRT, &sa);
+	psignal(p, SIGABRT);
 
 	p->p_p->ps_pledge = 0;		/* Disable all PLEDGE_ flags */
 	return (error);
@@ -604,14 +618,12 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 	char path[PATH_MAX];
 	int error;
 
-	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
+	if ((p->p_p->ps_flags & PS_PLEDGE) == 0 ||
+	    (p->p_p->ps_flags & PS_COREDUMP))
 		return (0);
 
 	if (!ni || (ni->ni_pledge == 0))
 		panic("ni_pledge");
-
-	if (ni->ni_pledge == PLEDGE_COREDUMP)
-		return (0);			/* Allow a coredump */
 
 	/* Doing a permitted execve() */
 	if ((ni->ni_pledge & PLEDGE_EXEC) &&
@@ -863,7 +875,7 @@ pledge_recvfd(struct proc *p, struct file *fp)
 	case DTYPE_PIPE:
 		return (0);
 	case DTYPE_VNODE:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 
 		if (vp->v_type != VDIR)
 			return (0);
@@ -895,7 +907,7 @@ pledge_sendfd(struct proc *p, struct file *fp)
 	case DTYPE_PIPE:
 		return (0);
 	case DTYPE_VNODE:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 
 		if (vp->v_type != VDIR)
 			return (0);
@@ -1121,6 +1133,7 @@ int
 pledge_ioctl(struct proc *p, long com, struct file *fp)
 {
 	struct vnode *vp = NULL;
+	int error = EPERM;
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
@@ -1137,8 +1150,11 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 	}
 
 	/* fp != NULL was already checked */
-	if (fp->f_type == DTYPE_VNODE)
-		vp = (struct vnode *)fp->f_data;
+	if (fp->f_type == DTYPE_VNODE) {
+		vp = fp->f_data;
+		if (vp->v_type == VBAD)
+			return (ENOTTY);
+	}
 
 	/*
 	 * Further sets of ioctl become available, but are checked a
@@ -1170,6 +1186,35 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 				return (0);
 			break;
 		}
+	}
+
+	if ((p->p_p->ps_pledge & PLEDGE_DRM)) {
+#if NDRM > 0
+		if ((fp->f_type == DTYPE_VNODE) &&
+		    (vp->v_type == VCHR) &&
+		    (cdevsw[major(vp->v_rdev)].d_open == drmopen)) {
+			error = pledge_ioctl_drm(p, com, vp->v_rdev);
+			if (error == 0)
+				return 0;
+		}
+#endif /* NDRM > 0 */
+	}
+
+	if ((p->p_p->ps_pledge & PLEDGE_AUDIO)) {
+#if NAUDIO > 0
+		switch (com) {
+		case AUDIO_GETPOS:
+		case AUDIO_SETINFO:
+		case AUDIO_GETINFO:
+		case AUDIO_GETENC:
+		case AUDIO_SETFD:
+		case AUDIO_GETPROPS:
+			if (fp->f_type == DTYPE_VNODE &&
+			    vp->v_type == VCHR &&
+			    cdevsw[major(vp->v_rdev)].d_open == audioopen)
+				return (0);
+		}
+#endif /* NAUDIO > 0 */
 	}
 
 	if ((p->p_p->ps_pledge & PLEDGE_DISKLABEL)) {
@@ -1287,7 +1332,19 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
-	return pledge_fail(p, EPERM, PLEDGE_IOCTL);
+	if ((p->p_p->ps_pledge & PLEDGE_VMM)) {
+#if NVMM > 0
+		if ((fp->f_type == DTYPE_VNODE) &&
+		    (vp->v_type == VCHR) &&
+		    (cdevsw[major(vp->v_rdev)].d_open == vmmopen)) {
+			error = pledge_ioctl_vmm(p, com);
+			if (error == 0)
+				return 0;
+		}
+#endif
+	}
+
+	return pledge_fail(p, error, PLEDGE_IOCTL);
 }
 
 int

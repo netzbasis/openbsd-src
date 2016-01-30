@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwnvar.h,v 1.28 2014/09/09 18:55:08 sthen Exp $	*/
+/*	$OpenBSD: if_iwnvar.h,v 1.30 2016/01/05 18:41:15 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007, 2008
@@ -172,12 +172,10 @@ struct iwn_ops {
 			    int);
 	void		(*tx_done)(struct iwn_softc *, struct iwn_rx_desc *,
 			    struct iwn_rx_data *);
-#ifndef IEEE80211_NO_HT
 	void		(*ampdu_tx_start)(struct iwn_softc *,
 			    struct ieee80211_node *, uint8_t, uint16_t);
 	void		(*ampdu_tx_stop)(struct iwn_softc *, uint8_t,
 			    uint16_t);
-#endif
 };
 
 struct iwn_softc {
@@ -259,6 +257,8 @@ struct iwn_softc {
 
 	struct iwn_rx_stat	last_rx_stat;
 	int			last_rx_valid;
+#define IWN_LAST_RX_VALID	0x01
+#define IWN_LAST_RX_AMPDU	0x02
 	struct iwn_ucode_info	ucode_info;
 	struct iwn_rxon		rxon;
 	uint32_t		rawtemp;

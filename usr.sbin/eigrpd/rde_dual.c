@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_dual.c,v 1.10 2015/10/27 03:25:55 renato Exp $ */
+/*	$OpenBSD: rde_dual.c,v 1.19 2016/01/28 13:25:14 jsg Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -145,11 +145,6 @@ dual_fsm(struct rt_node *rn, enum dual_event event)
 static int
 rt_compare(struct rt_node *a, struct rt_node *b)
 {
-	if (a->eigrp->af < b->eigrp->af)
-		return (-1);
-	if (a->eigrp->af > b->eigrp->af)
-		return (1);
-
 	switch (a->eigrp->af) {
 	case AF_INET:
 		if (ntohl(a->prefix.v4.s_addr) <
@@ -265,16 +260,42 @@ struct eigrp_route *
 route_new(struct rt_node *rn, struct rde_nbr *nbr, struct rinfo *ri)
 {
 	struct eigrp		*eigrp = rn->eigrp;
-	struct eigrp_route	*route;
+	struct eigrp_route	*route, *tmp;
 
 	if ((route = calloc(1, sizeof(*route))) == NULL)
 		fatal("route_new");
 
 	route->nbr = nbr;
 	route->type = ri->type;
-	memcpy(&route->nexthop, &ri->nexthop, sizeof(route->nexthop));
-	route_update_metrics(route, ri);
-	TAILQ_INSERT_TAIL(&rn->routes, route, entry);
+	if (eigrp_addrisset(eigrp->af, &ri->nexthop))
+		memcpy(&route->nexthop, &ri->nexthop, sizeof(route->nexthop));
+	else
+		memcpy(&route->nexthop, &nbr->addr, sizeof(route->nexthop));
+	route_update_metrics(eigrp, route, ri);
+
+	/* order by nexthop */
+	TAILQ_FOREACH(tmp, &rn->routes, entry) {
+		switch (eigrp->af) {
+		case AF_INET:
+			if (ntohl(tmp->nexthop.v4.s_addr) >
+			    ntohl(route->nexthop.v4.s_addr))
+				goto insert;
+			break;
+		case AF_INET6:
+			if (memcmp(&tmp->nexthop.v6.s6_addr[0],
+			    &route->nexthop.v6.s6_addr[0],
+			    sizeof(struct in6_addr)) > 0)
+				goto insert;
+			break;
+		default:
+			fatalx("route_new: unknown af");
+		}
+	}
+insert:
+	if (tmp)
+		TAILQ_INSERT_BEFORE(tmp, route, entry);
+	else
+		TAILQ_INSERT_TAIL(&rn->routes, route, entry);
 
 	log_debug("%s: prefix %s via %s distance (%u/%u)", __func__,
 	    log_prefix(rn), route_print_origin(eigrp->af, route->nbr),
@@ -308,7 +329,20 @@ safe_sum_uint32(uint32_t a, uint32_t b)
 	if (total >> 32)
 		return ((uint32_t )(~0));
 
-	return (total & 0xFFFFFFFF);
+	return ((uint32_t) total);
+}
+
+uint32_t
+safe_mul_uint32(uint32_t a, uint32_t b)
+{
+	uint64_t	total;
+
+	total = (uint64_t) a * (uint64_t) b;
+
+	if (total >> 32)
+		return ((uint32_t )(~0));
+
+	return ((uint32_t) total);
 }
 
 uint32_t
@@ -343,46 +377,82 @@ eigrp_real_bandwidth(uint32_t bandwidth)
 	return ((EIGRP_SCALING_FACTOR * (uint32_t)10000000) / bandwidth);
 }
 
-void
-route_update_metrics(struct eigrp_route *route, struct rinfo *ri)
+uint32_t
+route_composite_metric(uint8_t *kvalues, uint32_t delay, uint32_t bandwidth,
+    uint8_t load, uint8_t reliability)
 {
-	uint32_t	 bandwidth;
-	int		 mtu;
+	uint64_t	 distance;
+	uint32_t	 operand1, operand2, operand3;
+	double		 operand4;
 
-	if (route->nbr->flags & F_RDE_NBR_SELF) {
-		memcpy(&route->metric, &ri->metric, sizeof(route->metric));
-		memcpy(&route->emetric, &ri->emetric, sizeof(route->emetric));
+	/*
+	 * Need to apply the scaling factor before any division to avoid
+	 * losing information from truncation.
+	 */
+	operand1 = safe_mul_uint32(kvalues[0] * EIGRP_SCALING_FACTOR,
+	    10000000 / bandwidth);
+	operand2 = safe_mul_uint32(kvalues[1] * EIGRP_SCALING_FACTOR,
+	    10000000 / bandwidth) / (256 - load);
+	operand3 = safe_mul_uint32(kvalues[2] * EIGRP_SCALING_FACTOR, delay);
+
+	distance = (uint64_t) operand1 + (uint64_t) operand2 +
+	    (uint64_t) operand3;
+
+	/* if K5 is set to zero, the last term of the formula is not used */
+	if (kvalues[4] != 0) {
+		operand4 = (double) kvalues[4] / (reliability + kvalues[3]);
+		/* no risk of overflow (64 bits), operand4 can be at most 255 */
+		distance *= operand4;
+	}
+
+	/* overflow protection */
+	if (distance >> 32)
+		distance = ((uint32_t )(~0));
+
+	return ((uint32_t) distance);
+}
+
+void
+route_update_metrics(struct eigrp *eigrp, struct eigrp_route *route,
+    struct rinfo *ri)
+{
+	struct eigrp_iface	*ei = route->nbr->ei;
+	uint32_t		 delay, bandwidth;
+	int			 mtu;
+
+	memcpy(&route->metric, &ri->metric, sizeof(route->metric));
+	memcpy(&route->emetric, &ri->emetric, sizeof(route->emetric));
+	route->flags |= F_EIGRP_ROUTE_M_CHANGED;
+
+	delay = eigrp_real_delay(route->metric.delay);
+	bandwidth = eigrp_real_bandwidth(route->metric.bandwidth);
+
+	if (route->nbr->flags & F_RDE_NBR_SELF)
 		route->rdistance = 0;
+	else {
+		route->rdistance = route_composite_metric(eigrp->kvalues,
+		    delay, bandwidth, route->metric.load,
+		    route->metric.reliability);
 
-		/* no need to update the local metric */
-	} else {
-		memcpy(&route->metric, &ri->metric, sizeof(route->metric));
-		memcpy(&route->emetric, &ri->emetric, sizeof(route->emetric));
-		route->rdistance = safe_sum_uint32(ri->metric.delay,
-		    ri->metric.bandwidth);
+		/* update the delay */
+		delay = safe_sum_uint32(delay, ei->delay);
+		route->metric.delay = eigrp_composite_delay(delay);
 
-		/* update delay. */
-		route->metric.delay = safe_sum_uint32(route->metric.delay,
-		    eigrp_composite_delay(route->nbr->ei->delay));
-
-		/* update bandwidth */
-		bandwidth = min(route->nbr->ei->bandwidth,
-		    eigrp_real_bandwidth(route->metric.bandwidth));
+		/* update the bandwidth */
+		bandwidth = min(bandwidth, ei->bandwidth);
 		route->metric.bandwidth = eigrp_composite_bandwidth(bandwidth);
 
-		/* update mtu */
-		mtu = min(metric_decode_mtu(route->metric.mtu),
-		    route->nbr->ei->iface->mtu);
+		/* update the mtu */
+		mtu = min(metric_decode_mtu(route->metric.mtu), ei->iface->mtu);
 		metric_encode_mtu(route->metric.mtu, mtu);
 
-		/* update hop count */
+		/* update the hop count */
 		if (route->metric.hop_count < UINT8_MAX)
 			route->metric.hop_count++;
 	}
 
-	route->distance = safe_sum_uint32(route->metric.delay,
-	    route->metric.bandwidth);
-	route->flags |= F_EIGRP_ROUTE_M_CHANGED;
+	route->distance = route_composite_metric(eigrp->kvalues, delay,
+	    bandwidth, DEFAULT_LOAD, DEFAULT_RELIABILITY);
 }
 
 void
@@ -435,7 +505,7 @@ reply_active_timer(int fd, short event, void *arg)
 	struct reply_node	*reply = arg;
 	struct rde_nbr		*nbr = reply->nbr;
 
-	log_debug("%s: neighbor %s is stuck in active",
+	log_debug("%s: neighbor %s is stuck in active", __func__,
 	    log_addr(nbr->eigrp->af, &nbr->addr));
 
 	rde_nbr_del(reply->nbr, 1);
@@ -477,19 +547,11 @@ reply_sia_timer(int fd, short event, void *arg)
 	    &nbr->addr), log_prefix(rn));
 
 	if (reply->siaquery_sent > 0 && reply->siareply_recv == 0) {
-		log_debug("%s: neighbor %s is stuck in active",
+		log_debug("%s: neighbor %s is stuck in active", __func__,
 		    log_addr(nbr->eigrp->af, &nbr->addr));
 		rde_nbr_del(nbr, 1);
 		return;
 	}
-
-	/* restart active timeout */
-	reply_active_start_timer(reply);
-
-	/* send an sia-query */
-	rinfo_fill_successor(rn, &ri);
-	ri.metric.flags |= F_METRIC_ACTIVE;
-	rde_send_siaquery(nbr, &ri);
 
 	/*
 	 * draft-savage-eigrp-04 - Section 4.4.1.1:
@@ -497,11 +559,21 @@ reply_sia_timer(int fd, short event, void *arg)
 	 * be sent, each at a value of one-half the ACTIVE time, so long
 	 * as each are successfully acknowledged and met with an SIA-REPLY".
 	 */
-	if (reply->siaquery_sent < 3) {
-		reply->siaquery_sent++;
-		reply->siareply_recv = 0;
-		reply_sia_start_timer(reply);
-	}
+	if (reply->siaquery_sent >= 3)
+		return;
+
+	reply->siaquery_sent++;
+	reply->siareply_recv = 0;
+
+	/* restart sia and active timeouts */
+	reply_sia_start_timer(reply);
+	reply_active_start_timer(reply);
+
+	/* send an sia-query */
+	rinfo_fill_successor(rn, &ri);
+	ri.metric.flags |= F_METRIC_ACTIVE;
+	rde_send_siaquery(nbr, &ri);
+
 }
 
 void
@@ -594,8 +666,8 @@ rt_update_fib(struct rt_node *rn)
 
 			installed++;
 
-			if (route->flags & (F_EIGRP_ROUTE_INSTALLED |
-			    !F_EIGRP_ROUTE_M_CHANGED))
+			if ((route->flags & F_EIGRP_ROUTE_INSTALLED) &&
+			    !(route->flags & F_EIGRP_ROUTE_M_CHANGED))
 				continue;
 
 			rde_send_change_kroute(rn, route);
@@ -626,6 +698,7 @@ rt_set_successor(struct rt_node *rn, struct eigrp_route *successor)
 		rn->successor.rdistance = EIGRP_INFINITE_METRIC;
 		memset(&rn->successor.metric, 0,
 		    sizeof(rn->successor.metric));
+		rn->successor.metric.delay = EIGRP_INFINITE_METRIC;
 		memset(&rn->successor.emetric, 0,
 		    sizeof(rn->successor.emetric));
 	} else {
@@ -846,7 +919,7 @@ rde_check_update(struct rde_nbr *nbr, struct rinfo *ri)
 			if (route == NULL)
 				route = route_new(rn, nbr, ri);
 			else
-				route_update_metrics(route, ri);
+				route_update_metrics(eigrp, route, ri);
 		}
 	}
 
@@ -927,7 +1000,7 @@ rde_check_query(struct rde_nbr *nbr, struct rinfo *ri, int siaquery)
 		if (route == NULL)
 			route = route_new(rn, nbr, ri);
 		else
-			route_update_metrics(route, ri);
+			route_update_metrics(eigrp, route, ri);
 	}
 
 	switch (rn->state) {
@@ -1115,15 +1188,12 @@ rde_check_reply(struct rde_nbr *nbr, struct rinfo *ri, int siareply)
 		if (route == NULL)
 			route = route_new(rn, nbr, ri);
 		else
-			route_update_metrics(route, ri);
+			route_update_metrics(eigrp, route, ri);
 	}
 
 	reply_outstanding_remove(reply);
-	if (!TAILQ_EMPTY(&rn->rijk))
-		/* not last reply */
-		return;
-
-	rde_last_reply(rn);
+	if (TAILQ_EMPTY(&rn->rijk))
+		rde_last_reply(rn);
 }
 
 void
@@ -1258,11 +1328,11 @@ rde_nbr_new(uint32_t peerid, struct rde_nbr *new)
 }
 
 void
-rde_nbr_del(struct rde_nbr *nbr, int send_peerterm)
+rde_nbr_del(struct rde_nbr *nbr, int peerterm)
 {
 	struct reply_node	*reply;
 
-	if (send_peerterm)
+	if (peerterm)
 		rde_imsg_compose_eigrpe(IMSG_NEIGHBOR_DOWN, nbr->peerid,
 		    0, NULL, 0);
 

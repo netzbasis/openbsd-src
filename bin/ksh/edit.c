@@ -1,4 +1,4 @@
-/*	$OpenBSD: edit.c,v 1.50 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: edit.c,v 1.52 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * Command line editing - common code
@@ -12,8 +12,11 @@
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "edit.h"
@@ -451,7 +454,7 @@ x_command_glob(int flags, const char *str, int slen, char ***wordsp)
 	glob_table(pat, &w, &keywords);
 	glob_table(pat, &w, &aliases);
 	glob_table(pat, &w, &builtins);
-	for (l = e->loc; l; l = l->next)
+	for (l = genv->loc; l; l = l->next)
 		glob_table(pat, &w, &l->funs);
 
 	glob_path(flags, pat, &w, path);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fortune.c,v 1.47 2015/11/10 15:29:11 deraadt Exp $	*/
+/*	$OpenBSD: fortune.c,v 1.51 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: fortune.c,v 1.8 1995/03/23 08:28:40 cgd Exp $	*/
 
 /*-
@@ -35,18 +35,19 @@
 
 #include <sys/stat.h>
 
+#include <assert.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <assert.h>
-#include <unistd.h>
+#include <limits.h>
 #include <stdio.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <regex.h>
-#include "strfile.h"
+#include <unistd.h>
+
 #include "pathnames.h"
+#include "strfile.h"
 
 #define	bool	short
 
@@ -136,7 +137,7 @@ void	 print_file_list(void);
 void	 print_list(FILEDESC *, int);
 void	 sum_noprobs(FILEDESC *);
 void	 sum_tbl(STRFILE *, STRFILE *);
-void	 usage(void);
+__dead void	 usage(void);
 void	 zero_tbl(STRFILE *);
 
 char	*conv_pat(char *);
@@ -151,18 +152,18 @@ main(int ac, char *av[])
 {
 	if (pledge("stdio rpath", NULL) == -1) {
 		perror("pledge");
-		exit(1);
+		return 1;
 	}
 
 	getargs(ac, av);
 
 	if (Match)
-		exit(find_matches() != 0);
+		return find_matches() != 0;
 
 	init_prob();
 	if ((Short_only && minlen_in_list(File_list) > SLEN) ||
 	    (Long_only && maxlen_in_list(File_list) <= SLEN))
-		exit(0);
+		return 0;
 
 	do {
 		get_fort();
@@ -176,7 +177,7 @@ main(int ac, char *av[])
 			(void) fortlen();
 		sleep((unsigned int) max(Fort_len / CPERS, MINW));
 	}
-	exit(0);
+	return 0;
 }
 
 void
@@ -645,7 +646,6 @@ is_dir(char *file)
  *	overhead.  Files which start with ".", or which have "illegal"
  *	suffixes, as contained in suflist[], are ruled out.
  */
-/* ARGSUSED */
 int
 is_fortfile(char *file, char **datp, char **posp, int check_for_offend)
 {

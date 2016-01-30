@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.203 2015/12/05 20:58:32 benno Exp $	*/
+/*	$OpenBSD: relay.c,v 1.206 2015/12/30 16:00:57 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -1175,10 +1175,9 @@ relay_accept(int fd, short event, void *arg)
  err:
 	if (s != -1) {
 		close(s);
-		if (con != NULL)
-			free(con);
+		free(con);
 		/*
-		 * the session struct was not completly set up, but still
+		 * the session struct was not completely set up, but still
 		 * counted as an inflight session. account for this.
 		 */
 		relay_inflight--;
@@ -1676,15 +1675,13 @@ relay_close(struct rsession *con, const char *msg)
 		    con->se_tag != 0 ? tag_id2name(con->se_tag) : "0", ibuf,
 		    obuf, ntohs(con->se_out.port), msg, ptr == NULL ? "" : ",",
 		    ptr == NULL ? "" : ptr);
-		if (ptr != NULL)
-			free(ptr);
+		free(ptr);
 	}
 
 	if (proto->close != NULL)
 		(*proto->close)(con);
 
-	if (con->se_priv != NULL)
-		free(con->se_priv);
+	free(con->se_priv);
 	if (con->se_in.bev != NULL)
 		bufferevent_free(con->se_in.bev);
 	else if (con->se_in.output != NULL)
@@ -1709,8 +1706,7 @@ relay_close(struct rsession *con, const char *msg)
 			    __func__, relay_inflight);
 		}
 	}
-	if (con->se_in.buf != NULL)
-		free(con->se_in.buf);
+	free(con->se_in.buf);
 
 	if (con->se_out.bev != NULL)
 		bufferevent_free(con->se_out.bev);
@@ -1735,8 +1731,7 @@ relay_close(struct rsession *con, const char *msg)
 	}
 	con->se_out.state = STATE_INIT;
 
-	if (con->se_out.buf != NULL)
-		free(con->se_out.buf);
+	free(con->se_out.buf);
 
 	if (con->se_log != NULL)
 		evbuffer_free(con->se_log);
@@ -2162,8 +2157,7 @@ relay_tls_ctx_create(struct relay *rlay)
 	return (ctx);
 
  err:
-	if (ctx != NULL)
-		SSL_CTX_free(ctx);
+	SSL_CTX_free(ctx);
 	ssl_error(rlay->rl_conf.name, "relay_tls_ctx_create");
 	return (NULL);
 }
@@ -2225,8 +2219,7 @@ relay_tls_transaction(struct rsession *con, struct ctl_relay_event *cre)
 	return;
 
  err:
-	if (ssl != NULL)
-		SSL_free(ssl);
+	SSL_free(ssl);
 	ssl_error(rlay->rl_conf.name, "relay_tls_transaction");
 	relay_close(con, "session tls failed");
 }
@@ -2672,8 +2665,7 @@ relay_load_file(const char *name, off_t *len)
 	return (buf);
 
  fail:
-	if (buf != NULL)
-		free(buf);
+	free(buf);
 	close(fd);
 	return (NULL);
 }

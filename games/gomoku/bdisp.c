@@ -1,4 +1,4 @@
-/*	$OpenBSD: bdisp.c,v 1.11 2012/03/04 04:05:15 fgsch Exp $	*/
+/*	$OpenBSD: bdisp.c,v 1.13 2016/01/08 21:38:33 mestre Exp $	*/
 /*
  * Copyright (c) 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -31,10 +31,11 @@
  * SUCH DAMAGE.
  */
 
-#include "gomoku.h"
 #include <curses.h>
-#include <string.h>
 #include <err.h>
+#include <string.h>
+
+#include "gomoku.h"
 
 #define	SCRNH		24		/* assume 24 lines for the moment */
 #define	SCRNW		80		/* assume 80 chars for the moment */
@@ -46,7 +47,7 @@ static	char	pcolor[] = "*O.?";
  * Initialize screen display.
  */
 void
-cursinit()
+cursinit(void)
 {
 	initscr();
 	if ((LINES < SCRNH) || (COLS < SCRNW)) {
@@ -69,7 +70,7 @@ cursinit()
  * Restore screen display.
  */
 void
-cursfini()
+cursfini(void)
 {
 	move(BSZ4, 0);
 	clrtoeol();
@@ -82,7 +83,7 @@ cursfini()
  * Initialize board display.
  */
 void
-bdisp_init()
+bdisp_init(void)
 {
 	int i, j;
 
@@ -114,8 +115,7 @@ bdisp_init()
  * Update who is playing whom.
  */
 void
-bdwho(update)
-	int update;
+bdwho(int update)
 {
 	int i, j;
 	extern char *plyr[];
@@ -147,7 +147,7 @@ bdwho(update)
  * Update the board display after a move.
  */
 void
-bdisp()
+bdisp(void)
 {
 	int i, j, c;
 	struct spotstr *sp;
@@ -175,8 +175,7 @@ bdisp()
 /*
  * Dump board display to a file.
  */
-void bdump(fp)
-	FILE *fp;
+void bdump(FILE *fp)
 {
 	int i, j, c;
 	struct spotstr *sp;
@@ -214,8 +213,7 @@ void bdump(fp)
  * Display a transcript entry
  */
 void
-dislog(str)
-	char *str;
+dislog(char *str)
 {
 
 	if (++lastline >= SCRNH - 1) {
@@ -235,8 +233,7 @@ dislog(str)
  * Display a question.
  */
 void
-ask(str)
-	char *str;
+ask(char *str)
 {
 	int len = strlen(str);
 
@@ -248,9 +245,7 @@ ask(str)
 }
 
 int
-get_line(buf, size)
-	char *buf;
-	int size;
+get_line(char *buf, int size)
 {
 	char *cp, *end;
 	int c = EOF;

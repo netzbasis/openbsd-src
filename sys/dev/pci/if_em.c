@@ -31,7 +31,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ***************************************************************************/
 
-/* $OpenBSD: if_em.c,v 1.313 2015/11/25 03:09:59 dlg Exp $ */
+/* $OpenBSD: if_em.c,v 1.329 2016/01/12 00:05:21 dlg Exp $ */
 /* $FreeBSD: if_em.c,v 1.46 2004/09/29 18:28:28 mlaier Exp $ */
 
 #include <dev/pci/if_em.h>
@@ -230,11 +230,11 @@ void em_txeof(struct em_softc *);
 int  em_allocate_receive_structures(struct em_softc *);
 int  em_allocate_transmit_structures(struct em_softc *);
 int  em_rxfill(struct em_softc *);
-void em_rxeof(struct em_softc *);
+int  em_rxeof(struct em_softc *);
 void em_receive_checksum(struct em_softc *, struct em_rx_desc *,
 			 struct mbuf *);
-void em_transmit_checksum_setup(struct em_softc *, struct mbuf *,
-				u_int32_t *, u_int32_t *);
+u_int	em_transmit_checksum_setup(struct em_softc *, struct mbuf *, u_int,
+	    u_int32_t *, u_int32_t *);
 void em_iff(struct em_softc *);
 #ifdef EM_DEBUG
 void em_print_hw_stats(struct em_softc *);
@@ -242,15 +242,14 @@ void em_print_hw_stats(struct em_softc *);
 void em_update_link_status(struct em_softc *);
 int  em_get_buf(struct em_softc *, int);
 void em_enable_hw_vlans(struct em_softc *);
-int  em_encap(struct em_softc *, struct mbuf *);
+u_int em_encap(struct em_softc *, struct mbuf *);
 void em_smartspeed(struct em_softc *);
 int  em_82547_fifo_workaround(struct em_softc *, int);
 void em_82547_update_fifo_head(struct em_softc *, int);
 int  em_82547_tx_fifo_reset(struct em_softc *);
 void em_82547_move_tail(void *arg);
 void em_82547_move_tail_locked(struct em_softc *);
-int  em_dma_malloc(struct em_softc *, bus_size_t, struct em_dma_alloc *,
-		   int);
+int  em_dma_malloc(struct em_softc *, bus_size_t, struct em_dma_alloc *);
 void em_dma_free(struct em_softc *, struct em_dma_alloc *);
 u_int32_t em_fill_descriptors(u_int64_t address, u_int32_t length,
 			      PDESC_ARRAY desc_array);
@@ -300,7 +299,7 @@ em_defer_attach(struct device *self)
 
 	if ((gcu = em_lookup_gcu(self)) == 0) {
 		printf("%s: No GCU found, defered attachment failed\n",
-		    sc->sc_dv.dv_xname);
+		    DEVNAME(sc));
 
 		if (sc->sc_intrhand)
 			pci_intr_disestablish(pc, sc->sc_intrhand);
@@ -309,8 +308,11 @@ em_defer_attach(struct device *self)
 		em_stop(sc, 1);
 
 		em_free_pci_resources(sc);
-		em_dma_free(sc, &sc->rxdma);
-		em_dma_free(sc, &sc->txdma);
+
+		sc->sc_rx_desc_ring = NULL;
+		em_dma_free(sc, &sc->sc_rx_dma);
+		sc->sc_tx_desc_ring = NULL;
+		em_dma_free(sc, &sc->sc_tx_dma);
 
 		return;
 	}
@@ -340,12 +342,12 @@ em_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct pci_attach_args *pa = aux;
 	struct em_softc *sc;
-	int tsize, rsize;
 	int defer = 0;
     
 	INIT_DEBUGOUT("em_attach: begin");
 
 	sc = (struct em_softc *)self;
+	sc->sc_dmat = pa->pa_dmat;
 	sc->osdep.em_pa = *pa;
 
 	timeout_set(&sc->timer_handle, em_local_timer, sc);
@@ -363,11 +365,11 @@ em_attach(struct device *parent, struct device *self, void *aux)
 
 	/* Parameters (to be read from user) */
 	if (sc->hw.mac_type >= em_82544) {
-		sc->num_tx_desc = EM_MAX_TXD;
-		sc->num_rx_desc = EM_MAX_RXD;
+		sc->sc_tx_slots = EM_MAX_TXD;
+		sc->sc_rx_slots = EM_MAX_RXD;
 	} else {
-		sc->num_tx_desc = EM_MAX_TXD_82543;
-		sc->num_rx_desc = EM_MAX_RXD_82543;
+		sc->sc_tx_slots = EM_MAX_TXD_82543;
+		sc->sc_rx_slots = EM_MAX_RXD_82543;
 	}
 	sc->tx_int_delay = EM_TIDV;
 	sc->tx_abs_int_delay = EM_TADV;
@@ -377,7 +379,7 @@ em_attach(struct device *parent, struct device *self, void *aux)
 	sc->hw.wait_autoneg_complete = WAIT_FOR_AUTO_NEG_DEFAULT;
 	sc->hw.autoneg_advertised = AUTONEG_ADV_DEFAULT;
 	sc->hw.tbi_compatibility_en = TRUE;
-	sc->rx_buffer_len = EM_RXBUFFER_2048;
+	sc->sc_rx_buffer_len = EM_RXBUFFER_2048;
 
 	sc->hw.phy_init_script = 1;
 	sc->hw.phy_reset_disable = FALSE;
@@ -454,37 +456,23 @@ em_attach(struct device *parent, struct device *self, void *aux)
 	sc->hw.min_frame_size = 
 	    ETHER_MIN_LEN + ETHER_CRC_LEN;
 
-	if (sc->hw.mac_type >= em_82544)
-	    tsize = EM_ROUNDUP(sc->num_tx_desc * sizeof(struct em_tx_desc),
-		EM_MAX_TXD * sizeof(struct em_tx_desc));
-	else
-	    tsize = EM_ROUNDUP(sc->num_tx_desc * sizeof(struct em_tx_desc),
-		EM_MAX_TXD_82543 * sizeof(struct em_tx_desc));
-	tsize = EM_ROUNDUP(tsize, PAGE_SIZE);
-
 	/* Allocate Transmit Descriptor ring */
-	if (em_dma_malloc(sc, tsize, &sc->txdma, BUS_DMA_NOWAIT)) {
+	if (em_dma_malloc(sc, sc->sc_tx_slots * sizeof(struct em_tx_desc),
+	    &sc->sc_tx_dma) != 0) {
 		printf("%s: Unable to allocate tx_desc memory\n", 
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		goto err_tx_desc;
 	}
-	sc->tx_desc_base = (struct em_tx_desc *)sc->txdma.dma_vaddr;
-
-	if (sc->hw.mac_type >= em_82544)
-	    rsize = EM_ROUNDUP(sc->num_rx_desc * sizeof(struct em_rx_desc),
-		EM_MAX_RXD * sizeof(struct em_rx_desc));
-	else
-	    rsize = EM_ROUNDUP(sc->num_rx_desc * sizeof(struct em_rx_desc),
-		EM_MAX_RXD_82543 * sizeof(struct em_rx_desc));
-	rsize = EM_ROUNDUP(rsize, PAGE_SIZE);
+	sc->sc_tx_desc_ring = (struct em_tx_desc *)sc->sc_tx_dma.dma_vaddr;
 
 	/* Allocate Receive Descriptor ring */
-	if (em_dma_malloc(sc, rsize, &sc->rxdma, BUS_DMA_NOWAIT)) {
+	if (em_dma_malloc(sc, sc->sc_rx_slots * sizeof(struct em_rx_desc),
+	    &sc->sc_rx_dma) != 0) {
 		printf("%s: Unable to allocate rx_desc memory\n",
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		goto err_rx_desc;
 	}
-	sc->rx_desc_base = (struct em_rx_desc *) sc->rxdma.dma_vaddr;
+	sc->sc_rx_desc_ring = (struct em_rx_desc *)sc->sc_rx_dma.dma_vaddr;
 
 	/* Initialize the hardware */
 	if ((defer = em_hardware_init(sc))) {
@@ -492,7 +480,7 @@ em_attach(struct device *parent, struct device *self, void *aux)
 			config_defer(self, em_defer_attach);
 		else {
 			printf("%s: Unable to initialize the hardware\n",
-			    sc->sc_dv.dv_xname);
+			    DEVNAME(sc));
 			goto err_hw_init;
 		}
 	}
@@ -525,12 +513,11 @@ em_attach(struct device *parent, struct device *self, void *aux)
 	/* Copy the permanent MAC address out of the EEPROM */
 	if (em_read_mac_addr(&sc->hw) < 0) {
 		printf("%s: EEPROM read error while reading mac address\n",
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		goto err_mac_addr;
 	}
 
-	bcopy(sc->hw.mac_addr, sc->interface_data.ac_enaddr,
-	    ETHER_ADDR_LEN);
+	bcopy(sc->hw.mac_addr, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN);
 
 	/* Setup OS specific network interface */
 	if (!defer)
@@ -545,12 +532,12 @@ em_attach(struct device *parent, struct device *self, void *aux)
 	if (!defer)
 		em_update_link_status(sc);
 
-	printf(", address %s\n", ether_sprintf(sc->interface_data.ac_enaddr));
+	printf(", address %s\n", ether_sprintf(sc->sc_ac.ac_enaddr));
 
 	/* Indicate SOL/IDER usage */
 	if (em_check_phy_reset_block(&sc->hw))
 		printf("%s: PHY reset is blocked due to SOL/IDER session.\n",
-		    sc->sc_dv.dv_xname);
+		    DEVNAME(sc));
 
 	/* Identify 82544 on PCI-X */
 	em_get_bus_info(&sc->hw);
@@ -567,9 +554,11 @@ em_attach(struct device *parent, struct device *self, void *aux)
 
 err_mac_addr:
 err_hw_init:
-	em_dma_free(sc, &sc->rxdma);
+	sc->sc_rx_desc_ring = NULL;
+	em_dma_free(sc, &sc->sc_rx_dma);
 err_rx_desc:
-	em_dma_free(sc, &sc->txdma);
+	sc->sc_tx_desc_ring = NULL;
+	em_dma_free(sc, &sc->sc_tx_dma);
 err_tx_desc:
 err_pci:
 	em_free_pci_resources(sc);
@@ -588,50 +577,77 @@ err_pci:
 void
 em_start(struct ifnet *ifp)
 {
-	struct mbuf    *m_head;
 	struct em_softc *sc = ifp->if_softc;
-	int		post = 0;
+	u_int head, free, used;
+	struct mbuf *m;
+	int post = 0;
 
-	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
+	if (!sc->link_active) {
+		IFQ_PURGE(&ifp->if_snd);
 		return;
+	}
 
-	if (!sc->link_active)
-		return;
+	/* calculate free space */
+	head = sc->sc_tx_desc_head;
+	free = sc->sc_tx_desc_tail;
+	if (free <= head)
+		free += sc->sc_tx_slots;
+	free -= head;
 
 	if (sc->hw.mac_type != em_82547) {
-		bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-		    sc->txdma.dma_map->dm_mapsize,
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+		    0, sc->sc_tx_dma.dma_map->dm_mapsize,
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 	}
 
 	for (;;) {
-		m_head = ifq_deq_begin(&ifp->if_snd);
-		if (m_head == NULL)
-			break;
-
-		if (em_encap(sc, m_head)) {
-			ifq_deq_rollback(&ifp->if_snd, m_head);
+		/* use 2 because cksum setup can use an extra slot */
+		if (EM_MAX_SCATTER + 2 > free) {
 			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		ifq_deq_commit(&ifp->if_snd, m_head);
+		m = ifq_dequeue(&ifp->if_snd);
+		if (m == NULL)
+			break;
+
+		used = em_encap(sc, m);
+		if (used == 0) {
+			m_freem(m);
+			continue;
+		}
+
+		KASSERT(used <= free);
+
+		free -= used;
 
 #if NBPFILTER > 0
 		/* Send a copy of the frame to the BPF listener */
 		if (ifp->if_bpf)
-			bpf_mtap_ether(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
+			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
 
 		/* Set timeout in case hardware has problems transmitting */
 		ifp->if_timer = EM_TX_TIMEOUT;
 
+		if (sc->hw.mac_type == em_82547) {
+			int len = m->m_pkthdr.len;
+
+			if (sc->link_duplex == HALF_DUPLEX)
+				em_82547_move_tail_locked(sc);
+			else {
+				E1000_WRITE_REG(&sc->hw, TDT,
+				    sc->sc_tx_desc_head);
+				em_82547_update_fifo_head(sc, len);
+			}
+		}
+
 		post = 1;
 	}
 
 	if (sc->hw.mac_type != em_82547) {
-		bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-		    sc->txdma.dma_map->dm_mapsize,
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+		    0, sc->sc_tx_dma.dma_map->dm_mapsize,
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 		/* 
 		 * Advance the Transmit Descriptor Tail (Tdt),
@@ -639,7 +655,7 @@ em_start(struct ifnet *ifp)
 		 * available to transmit.
 		 */
 		if (post)
-			E1000_WRITE_REG(&sc->hw, TDT, sc->next_avail_tx_desc);
+			E1000_WRITE_REG(&sc->hw, TDT, sc->sc_tx_desc_head);
 	}
 }
 
@@ -689,7 +705,7 @@ em_ioctl(struct ifnet *ifp, u_long command, caddr_t data)
 		/* Check SOL/IDER usage */
 		if (em_check_phy_reset_block(&sc->hw)) {
 			printf("%s: Media change is blocked due to SOL/IDER session.\n",
-			    sc->sc_dv.dv_xname);
+			    DEVNAME(sc));
 			break;
 		}
 	case SIOCGIFMEDIA:
@@ -699,11 +715,11 @@ em_ioctl(struct ifnet *ifp, u_long command, caddr_t data)
 
 	case SIOCGIFRXR:
 		error = if_rxr_ioctl((struct if_rxrinfo *)ifr->ifr_data,
-		    NULL, EM_MCLBYTES, &sc->rx_ring);
+		    NULL, EM_MCLBYTES, &sc->sc_rx_ring);
 		break;
 
 	default:
-		error = ether_ioctl(ifp, &sc->interface_data, command, data);
+		error = ether_ioctl(ifp, &sc->sc_ac, command, data);
 	}
 
 	if (error == ENETRESET) {
@@ -740,7 +756,10 @@ em_watchdog(struct ifnet *ifp)
 		ifp->if_timer = EM_TX_TIMEOUT;
 		return;
 	}
-	printf("%s: watchdog timeout -- resetting\n", sc->sc_dv.dv_xname);
+	printf("%s: watchdog: head %u tail %u TDH %u TDT %u\n",
+	    DEVNAME(sc),
+	    sc->sc_tx_desc_head, sc->sc_tx_desc_tail,
+	    E1000_READ_REG(&sc->hw, TDH), E1000_READ_REG(&sc->hw, TDT));
 
 	em_init(sc);
 
@@ -761,7 +780,7 @@ void
 em_init(void *arg)
 {
 	struct em_softc *sc = arg;
-	struct ifnet   *ifp = &sc->interface_data.ac_if;
+	struct ifnet   *ifp = &sc->sc_ac.ac_if;
 	uint32_t	pba;
 	int s;
 
@@ -838,13 +857,12 @@ em_init(void *arg)
 	E1000_WRITE_REG(&sc->hw, PBA, pba);
 
 	/* Get the latest mac address, User can use a LAA */
-	bcopy(sc->interface_data.ac_enaddr, sc->hw.mac_addr,
-	      ETHER_ADDR_LEN);
+	bcopy(sc->sc_ac.ac_enaddr, sc->hw.mac_addr, ETHER_ADDR_LEN);
 
 	/* Initialize the hardware */
 	if (em_hardware_init(sc)) {
 		printf("%s: Unable to initialize the hardware\n", 
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		splx(s);
 		return;
 	}
@@ -857,7 +875,7 @@ em_init(void *arg)
 	/* Prepare transmit descriptors and buffers */
 	if (em_setup_transmit_structures(sc)) {
 		printf("%s: Could not setup transmit structures\n", 
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		em_stop(sc, 0);
 		splx(s);
 		return;
@@ -867,7 +885,7 @@ em_init(void *arg)
 	/* Prepare receive descriptors and buffers */
 	if (em_setup_receive_structures(sc)) {
 		printf("%s: Could not setup receive structures\n", 
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		em_stop(sc, 0);
 		splx(s);
 		return;
@@ -899,9 +917,8 @@ int
 em_intr(void *arg)
 {
 	struct em_softc	*sc = arg;
-	struct ifnet	*ifp = &sc->interface_data.ac_if;
+	struct ifnet	*ifp = &sc->sc_ac.ac_if;
 	u_int32_t	reg_icr, test_icr;
-	int		refill = 0;
 
 	test_icr = reg_icr = E1000_READ_REG(&sc->hw, ICR);
 	if (sc->hw.mac_type >= em_82571)
@@ -910,31 +927,23 @@ em_intr(void *arg)
 		return (0);
 
 	if (ifp->if_flags & IFF_RUNNING) {
-		em_rxeof(sc);
 		em_txeof(sc);
-		refill = 1;
+
+		if (em_rxeof(sc) || ISSET(reg_icr, E1000_ICR_RXO)) {
+			if (em_rxfill(sc)) {
+				E1000_WRITE_REG(&sc->hw, RDT,
+				    sc->sc_rx_desc_head);
+			}
+		}
 	}
-
-	if (reg_icr & E1000_ICR_RXO)
-		sc->rx_overruns++;
-
-	KERNEL_LOCK();
 
 	/* Link status change */
 	if (reg_icr & (E1000_ICR_RXSEQ | E1000_ICR_LSC)) {
+		KERNEL_LOCK();
 		sc->hw.get_link_status = 1;
 		em_check_for_link(&sc->hw);
 		em_update_link_status(sc);
-	}
-
-	if (ifp->if_flags & IFF_RUNNING && !IFQ_IS_EMPTY(&ifp->if_snd))
-		em_start(ifp);
-
-	KERNEL_UNLOCK();
-
-	if (refill && em_rxfill(sc)) {
-		/* Advance the Rx Queue #0 "Tail Pointer". */
-		E1000_WRITE_REG(&sc->hw, RDT, sc->last_rx_desc_filled);
+		KERNEL_UNLOCK();
 	}
 
 	return (1);
@@ -1048,7 +1057,7 @@ em_media_change(struct ifnet *ifp)
 			sc->hw.forced_speed_duplex = em_10_half;
 		break;
 	default:
-		printf("%s: Unsupported media type\n", sc->sc_dv.dv_xname);
+		printf("%s: Unsupported media type\n", DEVNAME(sc));
 	}
 
 	/*
@@ -1092,203 +1101,136 @@ em_flowstatus(struct em_softc *sc)
  *
  *  return 0 on success, positive on failure
  **********************************************************************/
-int
-em_encap(struct em_softc *sc, struct mbuf *m_head)
+u_int
+em_encap(struct em_softc *sc, struct mbuf *m)
 {
-	u_int32_t	txd_upper;
-	u_int32_t	txd_lower, txd_used = 0, txd_saved = 0;
-	int		i, j, first, error = 0, last = 0;
-	bus_dmamap_t	map;
+	struct em_packet *pkt;
+	struct em_tx_desc *desc;
+	bus_dmamap_t map;
+	u_int32_t txd_upper, txd_lower;
+	u_int head, last, used = 0;
+	int i, j;
 
 	/* For 82544 Workaround */
 	DESC_ARRAY		desc_array;
 	u_int32_t		array_elements;
-	u_int32_t		counter;
 
-	struct em_buffer   *tx_buffer, *tx_buffer_mapped;
-	struct em_tx_desc *current_tx_desc = NULL;
+	/* get a dmamap for this packet from the next free slot */
+	head = sc->sc_tx_desc_head;
+	pkt = &sc->sc_tx_pkts_ring[head];
+	map = pkt->pkt_map;
 
-	/*
-	 * Force a cleanup if number of TX descriptors
-	 * available hits the threshold
-	 */
-	if (sc->num_tx_desc_avail <= EM_TX_CLEANUP_THRESHOLD) {
-		em_txeof(sc);
-		/* Now do we at least have a minimal? */
-		if (sc->num_tx_desc_avail <= EM_TX_OP_THRESHOLD) {
-			sc->no_tx_desc_avail1++;
-			return (ENOBUFS);
-		}
-	}
-
-	if (sc->hw.mac_type == em_82547) {
-		bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-		    sc->txdma.dma_map->dm_mapsize,
-		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-	}
-
-	/*
-	 * Map the packet for DMA.
-	 *
-	 * Capture the first descriptor index,
-	 * this descriptor will have the index
-	 * of the EOP which is the only one that
-	 * no gets a DONE bit writeback.
-	 */
-	first = sc->next_avail_tx_desc;
-	tx_buffer = &sc->tx_buffer_area[first];
-	tx_buffer_mapped = tx_buffer;
-	map = tx_buffer->map;
-
-	error = bus_dmamap_load_mbuf(sc->txtag, map, m_head, BUS_DMA_NOWAIT);
-	switch (error) {
+	switch (bus_dmamap_load_mbuf(sc->sc_dmat, map, m, BUS_DMA_NOWAIT)) {
 	case 0:
 		break;
 	case EFBIG:
-		if ((error = m_defrag(m_head, M_DONTWAIT)) == 0 &&
-		    (error = bus_dmamap_load_mbuf(sc->txtag, map, m_head,
-		     BUS_DMA_NOWAIT)) == 0)
+		if (m_defrag(m, M_DONTWAIT) == 0 &&
+		    bus_dmamap_load_mbuf(sc->sc_dmat, map, m,
+		     BUS_DMA_NOWAIT) == 0)
 			break;
 
 		/* FALLTHROUGH */
 	default:
 		sc->no_tx_dma_setup++;
-		goto loaderr;
+		return (0);
 	}
 
-	EM_KASSERT(map->dm_nsegs!= 0, ("em_encap: empty packet"));
+	bus_dmamap_sync(sc->sc_dmat, map,
+	    0, map->dm_mapsize,
+	    BUS_DMASYNC_PREWRITE);
 
-	if (map->dm_nsegs > sc->num_tx_desc_avail - 2)
-		goto fail;
+	if (sc->hw.mac_type == em_82547) {
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+		    0, sc->sc_tx_dma.dma_map->dm_mapsize,
+		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+	}
 
 	if (sc->hw.mac_type >= em_82543 && sc->hw.mac_type != em_82575 &&
 	    sc->hw.mac_type != em_82580 && sc->hw.mac_type != em_i210 &&
-	    sc->hw.mac_type != em_i350)
-		em_transmit_checksum_setup(sc, m_head, &txd_upper, &txd_lower);
-	else
+	    sc->hw.mac_type != em_i350) {
+		used += em_transmit_checksum_setup(sc, m, head,
+		    &txd_upper, &txd_lower);
+	} else {
 		txd_upper = txd_lower = 0;
+	}
 
-	i = sc->next_avail_tx_desc;
-	if (sc->pcix_82544)
-		txd_saved = i;
+	head += used;
+	if (head >= sc->sc_tx_slots)
+		head -= sc->sc_tx_slots;
 
-	for (j = 0; j < map->dm_nsegs; j++) {
+	for (i = 0; i < map->dm_nsegs; i++) {
 		/* If sc is 82544 and on PCI-X bus */
 		if (sc->pcix_82544) {
 			/*
 			 * Check the Address and Length combination and
 			 * split the data accordingly
 			 */
-			array_elements = em_fill_descriptors(map->dm_segs[j].ds_addr,
-							     map->dm_segs[j].ds_len,
-							     &desc_array);
-			for (counter = 0; counter < array_elements; counter++) {
-				if (txd_used == sc->num_tx_desc_avail) {
-					sc->next_avail_tx_desc = txd_saved;
-					goto fail;
-				}
-				tx_buffer = &sc->tx_buffer_area[i];
-				current_tx_desc = &sc->tx_desc_base[i];
-				current_tx_desc->buffer_addr = htole64(
-					desc_array.descriptor[counter].address);
-				current_tx_desc->lower.data = htole32(
-					(sc->txd_cmd | txd_lower |
-					 (u_int16_t)desc_array.descriptor[counter].length));
-				current_tx_desc->upper.data = htole32((txd_upper));
-				last = i;
-				if (++i == sc->num_tx_desc)
-					i = 0;
+			array_elements = em_fill_descriptors(
+			    map->dm_segs[i].ds_addr, map->dm_segs[i].ds_len,
+			    &desc_array);
+			for (j = 0; j < array_elements; j++) {
+				desc = &sc->sc_tx_desc_ring[head];
 
-				tx_buffer->m_head = NULL;
-				tx_buffer->next_eop = -1;
-				txd_used++;
+				desc->buffer_addr = htole64(
+					desc_array.descriptor[j].address);
+				desc->lower.data = htole32(
+					(sc->sc_txd_cmd | txd_lower |
+					 (u_int16_t)desc_array.descriptor[j].length));
+				desc->upper.data = htole32(txd_upper);
+
+				last = head;
+				if (++head == sc->sc_tx_slots)
+					head = 0;
+
+				used++;
 			}
 		} else {
-			tx_buffer = &sc->tx_buffer_area[i];
-			current_tx_desc = &sc->tx_desc_base[i];
+			desc = &sc->sc_tx_desc_ring[head];
 
-			current_tx_desc->buffer_addr = htole64(map->dm_segs[j].ds_addr);
-			current_tx_desc->lower.data = htole32(
-				sc->txd_cmd | txd_lower | map->dm_segs[j].ds_len);
-			current_tx_desc->upper.data = htole32(txd_upper);
-			last = i;
-			if (++i == sc->num_tx_desc)
-	        		i = 0;
+			desc->buffer_addr = htole64(map->dm_segs[i].ds_addr);
+			desc->lower.data = htole32(sc->sc_txd_cmd |
+			    txd_lower | map->dm_segs[i].ds_len);
+			desc->upper.data = htole32(txd_upper);
 
-			tx_buffer->m_head = NULL;
-			tx_buffer->next_eop = -1;
+			last = head;
+			if (++head == sc->sc_tx_slots)
+	        		head = 0;
+
+			used++;
 		}
 	}
 
-	sc->next_avail_tx_desc = i;
-	if (sc->pcix_82544)
-		sc->num_tx_desc_avail -= txd_used;
-	else
-		sc->num_tx_desc_avail -= map->dm_nsegs;
-
 #if NVLAN > 0
 	/* Find out if we are in VLAN mode */
-	if (m_head->m_flags & M_VLANTAG) {
+	if (m->m_flags & M_VLANTAG) {
 		/* Set the VLAN id */
-		current_tx_desc->upper.fields.special =
-			htole16(m_head->m_pkthdr.ether_vtag);
+		desc->upper.fields.special = htole16(m->m_pkthdr.ether_vtag);
 
 		/* Tell hardware to add tag */
-		current_tx_desc->lower.data |= htole32(E1000_TXD_CMD_VLE);
+		desc->lower.data |= htole32(E1000_TXD_CMD_VLE);
 	}
 #endif
 
-	tx_buffer->m_head = m_head;
-	tx_buffer_mapped->map = tx_buffer->map;
-	tx_buffer->map = map;
-	bus_dmamap_sync(sc->txtag, map, 0, map->dm_mapsize,
-	    BUS_DMASYNC_PREWRITE);
+	/* mark the packet with the mbuf and last desc slot */
+	pkt->pkt_m = m;
+	pkt->pkt_eop = last;
+
+	sc->sc_tx_desc_head = head;
 
 	/* 
 	 * Last Descriptor of Packet
 	 * needs End Of Packet (EOP)
 	 * and Report Status (RS)
 	 */
-	current_tx_desc->lower.data |=
-	    htole32(E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS);
+	desc->lower.data |= htole32(E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS);
 
-	/*
-	 * Keep track in the first buffer which
-	 * descriptor will be written back
-	 */
-	tx_buffer = &sc->tx_buffer_area[first];
-	tx_buffer->next_eop = last;
-
-	/* 
-	 * Advance the Transmit Descriptor Tail (Tdt),
-	 * this tells the E1000 that this frame is
-	 * available to transmit.
-	 */
 	if (sc->hw.mac_type == em_82547) {
-		bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-		    sc->txdma.dma_map->dm_mapsize,
-		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
-		if (sc->link_duplex == HALF_DUPLEX)
-			em_82547_move_tail_locked(sc);
-		else {
-			E1000_WRITE_REG(&sc->hw, TDT, i);
-			em_82547_update_fifo_head(sc, m_head->m_pkthdr.len);
-		}
-	}
-
-	return (0);
-
-fail:
-	sc->no_tx_desc_avail2++;
-	bus_dmamap_unload(sc->txtag, map);
-	error = ENOBUFS;
-loaderr:
-	if (sc->hw.mac_type == em_82547) {
-		bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-		    sc->txdma.dma_map->dm_mapsize,
+		bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+		    0, sc->sc_tx_dma.dma_map->dm_mapsize,
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 	}
-	return (error);
+
+	return (used);
 }
 
 /*********************************************************************
@@ -1309,13 +1251,13 @@ em_82547_move_tail_locked(struct em_softc *sc)
 	boolean_t eop = 0;
 
 	hw_tdt = E1000_READ_REG(&sc->hw, TDT);
-	sw_tdt = sc->next_avail_tx_desc;
+	sw_tdt = sc->sc_tx_desc_head;
 
 	while (hw_tdt != sw_tdt) {
-		tx_desc = &sc->tx_desc_base[hw_tdt];
+		tx_desc = &sc->sc_tx_desc_ring[hw_tdt];
 		length += tx_desc->lower.flags.length;
 		eop = tx_desc->lower.data & E1000_TXD_CMD_EOP;
-		if (++hw_tdt == sc->num_tx_desc)
+		if (++hw_tdt == sc->sc_tx_slots)
 			hw_tdt = 0;
 
 		if (eop) {
@@ -1412,8 +1354,8 @@ em_82547_tx_fifo_reset(struct em_softc *sc)
 void
 em_iff(struct em_softc *sc)
 {
-	struct ifnet *ifp = &sc->interface_data.ac_if;
-	struct arpcom *ac = &sc->interface_data;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
+	struct arpcom *ac = &sc->sc_ac;
 	u_int32_t reg_rctl = 0;
 	u_int8_t  mta[MAX_NUM_MULTICAST_ADDRESSES * ETH_LENGTH_OF_ADDRESS];
 	struct ether_multi *enm;
@@ -1479,7 +1421,7 @@ em_local_timer(void *arg)
 	struct em_softc *sc = arg;
 	int s;
 
-	ifp = &sc->interface_data.ac_if;
+	ifp = &sc->sc_ac.ac_if;
 
 	s = splnet();
 
@@ -1500,7 +1442,7 @@ em_local_timer(void *arg)
 void
 em_update_link_status(struct em_softc *sc)
 {
-	struct ifnet *ifp = &sc->interface_data.ac_if;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
 
 	if (E1000_READ_REG(&sc->hw, STATUS) & E1000_STATUS_LU) {
 		if (sc->link_active == 0) {
@@ -1554,12 +1496,10 @@ void
 em_stop(void *arg, int softonly)
 {
 	struct em_softc *sc = arg;
-	struct ifnet   *ifp = &sc->interface_data.ac_if;
+	struct ifnet   *ifp = &sc->sc_ac.ac_if;
 
 	/* Tell the stack that the interface is no longer active */
 	ifp->if_flags &= ~IFF_RUNNING;
-	ifq_clr_oactive(&ifp->if_snd);
-	ifp->if_timer = 0;
 
 	INIT_DEBUGOUT("em_stop: begin");
 
@@ -1572,8 +1512,12 @@ em_stop(void *arg, int softonly)
 	}
 
 	intr_barrier(sc->sc_intrhand);
+	ifq_barrier(&ifp->if_snd);
 
 	KASSERT((ifp->if_flags & IFF_RUNNING) == 0);
+
+	ifq_clr_oactive(&ifp->if_snd);
+	ifp->if_timer = 0;
 
 	em_free_transmit_structures(sc);
 	em_free_receive_structures(sc);
@@ -1607,7 +1551,7 @@ em_identify_hardware(struct em_softc *sc)
 
 	/* Identify the MAC */
 	if (em_set_mac_type(&sc->hw))
-		printf("%s: Unknown MAC Type\n", sc->sc_dv.dv_xname);
+		printf("%s: Unknown MAC Type\n", DEVNAME(sc));
 
 	if (sc->hw.mac_type == em_pchlan)
 		sc->hw.revision_id = PCI_PRODUCT(pa->pa_id) & 0x0f;
@@ -1699,7 +1643,7 @@ em_allocate_pci_resources(struct em_softc *sc)
 
 	intrstr = pci_intr_string(pc, ih);
 	sc->sc_intrhand = pci_intr_establish(pc, ih, IPL_NET | IPL_MPSAFE,
-	    em_intr, sc, sc->sc_dv.dv_xname);
+	    em_intr, sc, DEVNAME(sc));
 	if (sc->sc_intrhand == NULL) {
 		printf(": couldn't establish interrupt");
 		if (intrstr != NULL)
@@ -1789,7 +1733,7 @@ em_hardware_init(struct em_softc *sc)
 		 */
 		if (em_validate_eeprom_checksum(&sc->hw) < 0) {
 			printf("%s: The EEPROM Checksum Is Not Valid\n",
-			       sc->sc_dv.dv_xname);
+			       DEVNAME(sc));
 			return (EIO);
 		}
 	}
@@ -1797,7 +1741,7 @@ em_hardware_init(struct em_softc *sc)
 	if (em_get_flash_presence_i210(&sc->hw) &&
 	    em_read_part_num(&sc->hw, &(sc->part_num)) < 0) {
 		printf("%s: EEPROM read error while reading part number\n",
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		return (EIO);
 	}
 
@@ -1851,7 +1795,7 @@ em_hardware_init(struct em_softc *sc)
 			return (EAGAIN);
 		}
 		printf("\n%s: Hardware Initialization Failed\n",
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		return (EIO);
 	}
 
@@ -1873,16 +1817,17 @@ em_setup_interface(struct em_softc *sc)
 
 	INIT_DEBUGOUT("em_setup_interface: begin");
 
-	ifp = &sc->interface_data.ac_if;
-	strlcpy(ifp->if_xname, sc->sc_dv.dv_xname, IFNAMSIZ);
+	ifp = &sc->sc_ac.ac_if;
+	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = em_ioctl;
 	ifp->if_start = em_start;
 	ifp->if_watchdog = em_watchdog;
 	ifp->if_hardmtu =
 		sc->hw.max_frame_size - ETHER_HDR_LEN - ETHER_CRC_LEN;
-	IFQ_SET_MAXLEN(&ifp->if_snd, sc->num_tx_desc - 1);
+	IFQ_SET_MAXLEN(&ifp->if_snd, sc->sc_tx_slots - 1);
 	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -1937,7 +1882,7 @@ int
 em_detach(struct device *self, int flags)
 {
 	struct em_softc *sc = (struct em_softc *)self;
-	struct ifnet *ifp = &sc->interface_data.ac_if;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct pci_attach_args *pa = &sc->osdep.em_pa;
 	pci_chipset_tag_t	pc = pa->pa_pc;
 
@@ -1948,8 +1893,15 @@ em_detach(struct device *self, int flags)
 	em_stop(sc, 1);
 
 	em_free_pci_resources(sc);
-	em_dma_free(sc, &sc->rxdma);
-	em_dma_free(sc, &sc->txdma);
+
+	if (sc->sc_rx_desc_ring != NULL) {
+		sc->sc_rx_desc_ring = NULL;
+		em_dma_free(sc, &sc->sc_rx_dma);
+	}
+	if (sc->sc_tx_desc_ring != NULL) {
+		sc->sc_tx_desc_ring = NULL;
+		em_dma_free(sc, &sc->sc_tx_dma);
+	}
 
 	ether_ifdetach(ifp);
 	if_detach(ifp);
@@ -1961,7 +1913,7 @@ int
 em_activate(struct device *self, int act)
 {
 	struct em_softc *sc = (struct em_softc *)self;
-	struct ifnet *ifp = &sc->interface_data.ac_if;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	int rv = 0;
 
 	switch (act) {
@@ -2045,59 +1997,39 @@ em_smartspeed(struct em_softc *sc)
  * Manage DMA'able memory.
  */
 int
-em_dma_malloc(struct em_softc *sc, bus_size_t size,
-    struct em_dma_alloc *dma, int mapflags)
+em_dma_malloc(struct em_softc *sc, bus_size_t size, struct em_dma_alloc *dma)
 {
 	int r;
 
-	dma->dma_tag = sc->osdep.em_pa.pa_dmat;
-	r = bus_dmamap_create(dma->dma_tag, size, 1,
-	    size, 0, BUS_DMA_NOWAIT, &dma->dma_map);
-	if (r != 0) {
-		printf("%s: em_dma_malloc: bus_dmamap_create failed; "
-			"error %u\n", sc->sc_dv.dv_xname, r);
-		goto fail_0;
-	}
+	r = bus_dmamap_create(sc->sc_dmat, size, 1,
+	    size, 0, BUS_DMA_WAITOK | BUS_DMA_ALLOCNOW, &dma->dma_map);
+	if (r != 0)
+		return (r);
 
-	r = bus_dmamem_alloc(dma->dma_tag, size, PAGE_SIZE, 0, &dma->dma_seg,
-	    1, &dma->dma_nseg, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		printf("%s: em_dma_malloc: bus_dmammem_alloc failed; "
-			"size %lu, error %d\n", sc->sc_dv.dv_xname,
-			(unsigned long)size, r);
-		goto fail_1;
-	}
+	r = bus_dmamem_alloc(sc->sc_dmat, size, PAGE_SIZE, 0, &dma->dma_seg,
+	    1, &dma->dma_nseg, BUS_DMA_WAITOK | BUS_DMA_ZERO);
+	if (r != 0)
+		goto destroy;
 
-	r = bus_dmamem_map(dma->dma_tag, &dma->dma_seg, dma->dma_nseg, size,
-	    &dma->dma_vaddr, BUS_DMA_NOWAIT);
-	if (r != 0) {
-		printf("%s: em_dma_malloc: bus_dmammem_map failed; "
-			"size %lu, error %d\n", sc->sc_dv.dv_xname,
-			(unsigned long)size, r);
-		goto fail_2;
-	}
+	r = bus_dmamem_map(sc->sc_dmat, &dma->dma_seg, dma->dma_nseg, size,
+	    &dma->dma_vaddr, BUS_DMA_WAITOK);
+	if (r != 0)
+		goto free;
 
-	r = bus_dmamap_load(sc->osdep.em_pa.pa_dmat, dma->dma_map,
-			    dma->dma_vaddr, size, NULL,
-			    mapflags | BUS_DMA_NOWAIT);
-	if (r != 0) {
-		printf("%s: em_dma_malloc: bus_dmamap_load failed; "
-			"error %u\n", sc->sc_dv.dv_xname, r);
-		goto fail_3;
-	}
+	r = bus_dmamap_load(sc->sc_dmat, dma->dma_map, dma->dma_vaddr, size,
+	    NULL, BUS_DMA_WAITOK);
+	if (r != 0)
+		goto unmap;
 
 	dma->dma_size = size;
 	return (0);
 
-fail_3:
-	bus_dmamem_unmap(dma->dma_tag, dma->dma_vaddr, size);
-fail_2:
-	bus_dmamem_free(dma->dma_tag, &dma->dma_seg, dma->dma_nseg);
-fail_1:
-	bus_dmamap_destroy(dma->dma_tag, dma->dma_map);
-fail_0:
-	dma->dma_map = NULL;
-	dma->dma_tag = NULL;
+unmap:
+	bus_dmamem_unmap(sc->sc_dmat, dma->dma_vaddr, size);
+free:
+	bus_dmamem_free(sc->sc_dmat, &dma->dma_seg, dma->dma_nseg);
+destroy:
+	bus_dmamap_destroy(sc->sc_dmat, dma->dma_map);
 
 	return (r);
 }
@@ -2105,19 +2037,10 @@ fail_0:
 void
 em_dma_free(struct em_softc *sc, struct em_dma_alloc *dma)
 {
-	if (dma->dma_tag == NULL)
-		return;
-
-	if (dma->dma_map != NULL) {
-		bus_dmamap_sync(dma->dma_tag, dma->dma_map, 0,
-		    dma->dma_map->dm_mapsize,
-		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-		bus_dmamap_unload(dma->dma_tag, dma->dma_map);
-		bus_dmamem_unmap(dma->dma_tag, dma->dma_vaddr, dma->dma_size);
-		bus_dmamem_free(dma->dma_tag, &dma->dma_seg, dma->dma_nseg);
-		bus_dmamap_destroy(dma->dma_tag, dma->dma_map);
-	}
-	dma->dma_tag = NULL;
+	bus_dmamap_unload(sc->sc_dmat, dma->dma_map);
+	bus_dmamem_unmap(sc->sc_dmat, dma->dma_vaddr, dma->dma_size);
+	bus_dmamem_free(sc->sc_dmat, &dma->dma_seg, dma->dma_nseg);
+	bus_dmamap_destroy(sc->sc_dmat, dma->dma_map);
 }
 
 /*********************************************************************
@@ -2129,10 +2052,15 @@ em_dma_free(struct em_softc *sc, struct em_dma_alloc *dma)
 int
 em_allocate_transmit_structures(struct em_softc *sc)
 {
-	if (!(sc->tx_buffer_area = mallocarray(sc->num_tx_desc,
-	    sizeof(struct em_buffer), M_DEVBUF, M_NOWAIT | M_ZERO))) {
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+	    0, sc->sc_tx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
+
+	sc->sc_tx_pkts_ring = mallocarray(sc->sc_tx_slots,
+	    sizeof(*sc->sc_tx_pkts_ring), M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (sc->sc_tx_pkts_ring == NULL) {
 		printf("%s: Unable to allocate tx_buffer memory\n", 
-		       sc->sc_dv.dv_xname);
+		       DEVNAME(sc));
 		return (ENOMEM);
 	}
 
@@ -2147,40 +2075,32 @@ em_allocate_transmit_structures(struct em_softc *sc)
 int
 em_setup_transmit_structures(struct em_softc *sc)
 {
-	struct  em_buffer *tx_buffer;
+	struct em_packet *pkt;
 	int error, i;
 
 	if ((error = em_allocate_transmit_structures(sc)) != 0)
 		goto fail;
 
-	bzero((void *) sc->tx_desc_base,
-	      (sizeof(struct em_tx_desc)) * sc->num_tx_desc);
+	bzero((void *) sc->sc_tx_desc_ring,
+	      (sizeof(struct em_tx_desc)) * sc->sc_tx_slots);
 
-	sc->txtag = sc->osdep.em_pa.pa_dmat;
-
-	tx_buffer = sc->tx_buffer_area;
-	for (i = 0; i < sc->num_tx_desc; i++) {
-		error = bus_dmamap_create(sc->txtag, MAX_JUMBO_FRAME_SIZE,
-			    EM_MAX_SCATTER, MAX_JUMBO_FRAME_SIZE, 0,
-			    BUS_DMA_NOWAIT, &tx_buffer->map);
+	for (i = 0; i < sc->sc_tx_slots; i++) {
+		pkt = &sc->sc_tx_pkts_ring[i];
+		error = bus_dmamap_create(sc->sc_dmat, MAX_JUMBO_FRAME_SIZE,
+		    EM_MAX_SCATTER / (sc->pcix_82544 ? 2 : 1),
+		    MAX_JUMBO_FRAME_SIZE, 0, BUS_DMA_NOWAIT, &pkt->pkt_map);
 		if (error != 0) {
 			printf("%s: Unable to create TX DMA map\n",
-			    sc->sc_dv.dv_xname);
+			    DEVNAME(sc));
 			goto fail;
 		}
-		tx_buffer++;
 	}
 
-	sc->next_avail_tx_desc = 0;
-	sc->next_tx_to_clean = 0;
-
-	/* Set number of descriptors available */
-	sc->num_tx_desc_avail = sc->num_tx_desc;
+	sc->sc_tx_desc_head = 0;
+	sc->sc_tx_desc_tail = 0;
 
 	/* Set checksum context */
 	sc->active_checksum_context = OFFLOAD_NONE;
-	bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-	    sc->txdma.dma_size, BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	return (0);
 
@@ -2203,9 +2123,9 @@ em_initialize_transmit_unit(struct em_softc *sc)
 	INIT_DEBUGOUT("em_initialize_transmit_unit: begin");
 
 	/* Setup the Base and Length of the Tx Descriptor Ring */
-	bus_addr = sc->txdma.dma_map->dm_segs[0].ds_addr;
+	bus_addr = sc->sc_tx_dma.dma_map->dm_segs[0].ds_addr;
 	E1000_WRITE_REG(&sc->hw, TDLEN, 
-			sc->num_tx_desc *
+			sc->sc_tx_slots *
 			sizeof(struct em_tx_desc));
 	E1000_WRITE_REG(&sc->hw, TDBAH, (u_int32_t)(bus_addr >> 32));
 	E1000_WRITE_REG(&sc->hw, TDBAL, (u_int32_t)bus_addr);
@@ -2247,7 +2167,7 @@ em_initialize_transmit_unit(struct em_softc *sc)
 		E1000_WRITE_REG(&sc->hw, TADV, sc->tx_abs_int_delay);
 
 	/* Setup Transmit Descriptor Base Settings */   
-	sc->txd_cmd = E1000_TXD_CMD_IFCS;
+	sc->sc_txd_cmd = E1000_TXD_CMD_IFCS;
 
 	if (sc->hw.mac_type == em_82575 || sc->hw.mac_type == em_82580 ||
 	    sc->hw.mac_type == em_i210 || sc->hw.mac_type == em_i350) {
@@ -2256,7 +2176,7 @@ em_initialize_transmit_unit(struct em_softc *sc)
 		reg_tctl |= E1000_TXDCTL_QUEUE_ENABLE;
 		E1000_WRITE_REG(&sc->hw, TXDCTL, reg_tctl);
 	} else if (sc->tx_int_delay > 0)
-		sc->txd_cmd |= E1000_TXD_CMD_IDE;
+		sc->sc_txd_cmd |= E1000_TXD_CMD_IDE;
 
 	/* Program the Transmit Control Register */
 	reg_tctl = E1000_TCTL_PSP | E1000_TCTL_EN |
@@ -2279,40 +2199,39 @@ em_initialize_transmit_unit(struct em_softc *sc)
 void
 em_free_transmit_structures(struct em_softc *sc)
 {
-	struct em_buffer   *tx_buffer;
-	int		i;
+	struct em_packet *pkt;
+	int i;
 
 	INIT_DEBUGOUT("free_transmit_structures: begin");
 
-	if (sc->tx_buffer_area != NULL) {
-		tx_buffer = sc->tx_buffer_area;
-		for (i = 0; i < sc->num_tx_desc; i++, tx_buffer++) {
-			if (tx_buffer->map != NULL &&
-			    tx_buffer->map->dm_nsegs > 0) {
-				bus_dmamap_sync(sc->txtag, tx_buffer->map,
-				    0, tx_buffer->map->dm_mapsize,
+	if (sc->sc_tx_pkts_ring != NULL) {
+		for (i = 0; i < sc->sc_tx_slots; i++) {
+			pkt = &sc->sc_tx_pkts_ring[i];
+
+			if (pkt->pkt_m != NULL) {
+				bus_dmamap_sync(sc->sc_dmat, pkt->pkt_map,
+				    0, pkt->pkt_map->dm_mapsize,
 				    BUS_DMASYNC_POSTWRITE);
-				bus_dmamap_unload(sc->txtag,
-				    tx_buffer->map);
+				bus_dmamap_unload(sc->sc_dmat, pkt->pkt_map);
+
+				m_freem(pkt->pkt_m);
+				pkt->pkt_m = NULL;
 			}
-			if (tx_buffer->m_head != NULL) {
-				m_freem(tx_buffer->m_head);
-				tx_buffer->m_head = NULL;
-			}
-			if (tx_buffer->map != NULL) {
-				bus_dmamap_destroy(sc->txtag,
-				    tx_buffer->map);
-				tx_buffer->map = NULL;
+
+			if (pkt->pkt_map != NULL) {
+				bus_dmamap_destroy(sc->sc_dmat, pkt->pkt_map);
+				pkt->pkt_map = NULL;
 			}
 		}
+
+		free(sc->sc_tx_pkts_ring, M_DEVBUF,
+		    sc->sc_tx_slots * sizeof(*sc->sc_tx_pkts_ring));
+		sc->sc_tx_pkts_ring = NULL;
 	}
-	if (sc->tx_buffer_area != NULL) {
-		free(sc->tx_buffer_area, M_DEVBUF,
-		    sc->num_tx_desc * sizeof(struct em_buffer));
-		sc->tx_buffer_area = NULL;
-	}
-	if (sc->txtag != NULL)
-		sc->txtag = NULL;
+
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+	    0, sc->sc_tx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 }
 
 /*********************************************************************
@@ -2322,46 +2241,36 @@ em_free_transmit_structures(struct em_softc *sc)
  *  context only if the protocol type changes.
  *
  **********************************************************************/
-void
-em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp,
+u_int
+em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp, u_int head,
     u_int32_t *txd_upper, u_int32_t *txd_lower)
 {
 	struct em_context_desc *TXD;
-	struct em_buffer *tx_buffer;
-	int curr_txd;
 
-	if (mp->m_pkthdr.csum_flags) {
-		if (mp->m_pkthdr.csum_flags & M_TCP_CSUM_OUT) {
-			*txd_upper = E1000_TXD_POPTS_TXSM << 8;
-			*txd_lower = E1000_TXD_CMD_DEXT | E1000_TXD_DTYP_D;
-			if (sc->active_checksum_context == OFFLOAD_TCP_IP)
-				return;
-			else
-				sc->active_checksum_context = OFFLOAD_TCP_IP;
-		} else if (mp->m_pkthdr.csum_flags & M_UDP_CSUM_OUT) {
-			*txd_upper = E1000_TXD_POPTS_TXSM << 8;
-			*txd_lower = E1000_TXD_CMD_DEXT | E1000_TXD_DTYP_D;
-			if (sc->active_checksum_context == OFFLOAD_UDP_IP)
-				return;
-			else
-				sc->active_checksum_context = OFFLOAD_UDP_IP;
-		} else {
-			*txd_upper = 0;
-			*txd_lower = 0;
-			return;
-		}
+	if (mp->m_pkthdr.csum_flags & M_TCP_CSUM_OUT) {
+		*txd_upper = E1000_TXD_POPTS_TXSM << 8;
+		*txd_lower = E1000_TXD_CMD_DEXT | E1000_TXD_DTYP_D;
+		if (sc->active_checksum_context == OFFLOAD_TCP_IP)
+			return (0);
+		else
+			sc->active_checksum_context = OFFLOAD_TCP_IP;
+	} else if (mp->m_pkthdr.csum_flags & M_UDP_CSUM_OUT) {
+		*txd_upper = E1000_TXD_POPTS_TXSM << 8;
+		*txd_lower = E1000_TXD_CMD_DEXT | E1000_TXD_DTYP_D;
+		if (sc->active_checksum_context == OFFLOAD_UDP_IP)
+			return (0);
+		else
+			sc->active_checksum_context = OFFLOAD_UDP_IP;
 	} else {
 		*txd_upper = 0;
 		*txd_lower = 0;
-		return;
+		return (0);
 	}
 
 	/* If we reach this point, the checksum offload context
 	 * needs to be reset.
 	 */
-	curr_txd = sc->next_avail_tx_desc;
-	tx_buffer = &sc->tx_buffer_area[curr_txd];
-	TXD = (struct em_context_desc *) &sc->tx_desc_base[curr_txd];
+	TXD = (struct em_context_desc *)&sc->sc_tx_desc_ring[head];
 
 	TXD->lower_setup.ip_fields.ipcss = ETHER_HDR_LEN;
 	TXD->lower_setup.ip_fields.ipcso = 
@@ -2384,16 +2293,9 @@ em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp,
 	}
 
 	TXD->tcp_seg_setup.data = htole32(0);
-	TXD->cmd_and_length = htole32(sc->txd_cmd | E1000_TXD_CMD_DEXT);
+	TXD->cmd_and_length = htole32(sc->sc_txd_cmd | E1000_TXD_CMD_DEXT);
 
-	tx_buffer->m_head = NULL;
-	tx_buffer->next_eop = -1;
-
-	if (++curr_txd == sc->num_tx_desc)
-		curr_txd = 0;
-
-	sc->num_tx_desc_avail--;
-	sc->next_avail_tx_desc = curr_txd;
+	return (1);
 }
 
 /**********************************************************************
@@ -2406,99 +2308,62 @@ em_transmit_checksum_setup(struct em_softc *sc, struct mbuf *mp,
 void
 em_txeof(struct em_softc *sc)
 {
-	int first, last, done, num_avail;
-	struct em_buffer *tx_buffer;
-	struct em_tx_desc   *tx_desc, *eop_desc;
-	struct ifnet   *ifp = &sc->interface_data.ac_if;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
+	struct em_packet *pkt;
+	struct em_tx_desc *desc;
+	u_int head, tail;
+	u_int free = 0;
 
-	if (sc->num_tx_desc_avail == sc->num_tx_desc)
+	head = sc->sc_tx_desc_head;
+	tail = sc->sc_tx_desc_tail;
+
+	if (head == tail)
 		return;
 
-	KERNEL_LOCK();
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+	    0, sc->sc_tx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_POSTREAD);
 
-	num_avail = sc->num_tx_desc_avail;
-	first = sc->next_tx_to_clean;
-	tx_desc = &sc->tx_desc_base[first];
-	tx_buffer = &sc->tx_buffer_area[first];
-	last = tx_buffer->next_eop;
-	eop_desc = &sc->tx_desc_base[last];
+	do {
+		pkt = &sc->sc_tx_pkts_ring[tail];
+		desc = &sc->sc_tx_desc_ring[pkt->pkt_eop];
 
-	/*
-	 * What this does is get the index of the
-	 * first descriptor AFTER the EOP of the 
-	 * first packet, that way we can do the
-	 * simple comparison on the inner while loop.
-	 */
-	if (++last == sc->num_tx_desc)
-		last = 0;
-	done = last;
-
-	bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-	    sc->txdma.dma_map->dm_mapsize, BUS_DMASYNC_POSTREAD);
-	while (eop_desc->upper.fields.status & E1000_TXD_STAT_DD) {
-		/* We clean the range of the packet */
-		while (first != done) {
-			tx_desc->upper.data = 0;
-			tx_desc->lower.data = 0;
-			num_avail++;
-
-			if (tx_buffer->m_head != NULL) {
-				ifp->if_opackets++;
-				if (tx_buffer->map->dm_nsegs > 0) {
-					bus_dmamap_sync(sc->txtag,
-					    tx_buffer->map, 0,
-					    tx_buffer->map->dm_mapsize,
-					    BUS_DMASYNC_POSTWRITE);
-					bus_dmamap_unload(sc->txtag,
-					    tx_buffer->map);
-				}
-				m_freem(tx_buffer->m_head);
-				tx_buffer->m_head = NULL;
-			}
-			tx_buffer->next_eop = -1;
-
-			if (++first == sc->num_tx_desc)
-				first = 0;
-
-			tx_buffer = &sc->tx_buffer_area[first];
-			tx_desc = &sc->tx_desc_base[first];
-		}
-		/* See if we can continue to the next packet */
-		last = tx_buffer->next_eop;
-		if (last != -1) {
-			eop_desc = &sc->tx_desc_base[last];
-			/* Get new done point */
-			if (++last == sc->num_tx_desc)
-				last = 0;
-			done = last;
-		} else
+		if (!ISSET(desc->upper.fields.status, E1000_TXD_STAT_DD))
 			break;
-	}
-	bus_dmamap_sync(sc->txdma.dma_tag, sc->txdma.dma_map, 0,
-	    sc->txdma.dma_map->dm_mapsize,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
-	sc->next_tx_to_clean = first;
+		bus_dmamap_sync(sc->sc_dmat, pkt->pkt_map,
+		    0, pkt->pkt_map->dm_mapsize,
+		    BUS_DMASYNC_POSTWRITE);
+		bus_dmamap_unload(sc->sc_dmat, pkt->pkt_map);
 
-	/*
-	 * If we have enough room, clear IFF_OACTIVE to tell the stack
-	 * that it is OK to send packets.
-	 * If there are no pending descriptors, clear the timeout. Otherwise,
-	 * if some descriptors have been freed, restart the timeout.
-	 */
-	if (num_avail > EM_TX_CLEANUP_THRESHOLD)
-		ifq_clr_oactive(&ifp->if_snd);
+		KASSERT(pkt->pkt_m != NULL);
 
-	/* All clean, turn off the timer */
-	if (num_avail == sc->num_tx_desc)
+		m_freem(pkt->pkt_m);
+		pkt->pkt_m = NULL;
+
+		tail = pkt->pkt_eop;
+
+		if (++tail == sc->sc_tx_slots)
+			tail = 0;
+
+		free++;
+	} while (tail != head);
+
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_tx_dma.dma_map,
+	    0, sc->sc_tx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_PREREAD);
+
+	if (free == 0)
+		return;
+
+	ifp->if_opackets += free;
+
+	sc->sc_tx_desc_tail = tail;
+
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
+	else if (tail == head)
 		ifp->if_timer = 0;
-	/* Some cleaned, reset the timer */
-	else if (num_avail != sc->num_tx_desc_avail)
-		ifp->if_timer = EM_TX_TIMEOUT;
-
-	sc->num_tx_desc_avail = num_avail;
-
-	KERNEL_UNLOCK();
 }
 
 /*********************************************************************
@@ -2510,21 +2375,17 @@ int
 em_get_buf(struct em_softc *sc, int i)
 {
 	struct mbuf    *m;
-	struct em_buffer *pkt;
+	struct em_packet *pkt;
 	struct em_rx_desc *desc;
 	int error;
 
-	pkt = &sc->rx_buffer_area[i];
-	desc = &sc->rx_desc_base[i];
+	pkt = &sc->sc_rx_pkts_ring[i];
+	desc = &sc->sc_rx_desc_ring[i];
 
-	if (pkt->m_head != NULL) {
-		printf("%s: em_get_buf: slot %d already has an mbuf\n",
-		    sc->sc_dv.dv_xname, i);
-		return (ENOBUFS);
-	}
+	KASSERT(pkt->pkt_m == NULL);
 
 	m = MCLGETI(NULL, M_DONTWAIT, NULL, EM_MCLBYTES);
-	if (!m) {
+	if (m == NULL) {
 		sc->mbuf_cluster_failed++;
 		return (ENOBUFS);
 	}
@@ -2533,24 +2394,20 @@ em_get_buf(struct em_softc *sc, int i)
 	m_adj(m, ETHER_ALIGN);
 #endif
 
-	error = bus_dmamap_load_mbuf(sc->rxtag, pkt->map, m, BUS_DMA_NOWAIT);
+	error = bus_dmamap_load_mbuf(sc->sc_dmat, pkt->pkt_map,
+	    m, BUS_DMA_NOWAIT);
 	if (error) {
 		m_freem(m);
 		return (error);
 	}
 
-	bus_dmamap_sync(sc->rxtag, pkt->map, 0, pkt->map->dm_mapsize,
+	bus_dmamap_sync(sc->sc_dmat, pkt->pkt_map,
+	    0, pkt->pkt_map->dm_mapsize,
 	    BUS_DMASYNC_PREREAD);
-	pkt->m_head = m;
+	pkt->pkt_m = m;
 
-	bus_dmamap_sync(sc->rxdma.dma_tag, sc->rxdma.dma_map,
-	    sizeof(*desc) * i, sizeof(*desc), BUS_DMASYNC_POSTWRITE);
-
-	bzero(desc, sizeof(*desc));
-	desc->buffer_addr = htole64(pkt->map->dm_segs[0].ds_addr);
-
-	bus_dmamap_sync(sc->rxdma.dma_tag, sc->rxdma.dma_map,
-	    sizeof(*desc) * i, sizeof(*desc), BUS_DMASYNC_PREWRITE);
+	memset(desc, 0, sizeof(*desc));
+	htolem64(&desc->buffer_addr, pkt->pkt_map->dm_segs[0].ds_addr);
 
 	return (0);
 }
@@ -2566,33 +2423,36 @@ em_get_buf(struct em_softc *sc, int i)
 int
 em_allocate_receive_structures(struct em_softc *sc)
 {
-	int		i, error;
-	struct em_buffer *rx_buffer;
+	struct em_packet *pkt;
+	int i;
+	int error;
 
-	if (!(sc->rx_buffer_area = mallocarray(sc->num_rx_desc,
-	    sizeof(struct em_buffer), M_DEVBUF, M_NOWAIT | M_ZERO))) {
+	sc->sc_rx_pkts_ring = mallocarray(sc->sc_rx_slots,
+	    sizeof(*sc->sc_rx_pkts_ring), M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (sc->sc_rx_pkts_ring == NULL) {
 		printf("%s: Unable to allocate rx_buffer memory\n", 
-		       sc->sc_dv.dv_xname);
+		    DEVNAME(sc));
 		return (ENOMEM);
 	}
 
-	sc->rxtag = sc->osdep.em_pa.pa_dmat;
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
-	rx_buffer = sc->rx_buffer_area;
-	for (i = 0; i < sc->num_rx_desc; i++, rx_buffer++) {
-		error = bus_dmamap_create(sc->rxtag, EM_MCLBYTES, 1,
-		    EM_MCLBYTES, 0, BUS_DMA_NOWAIT, &rx_buffer->map);
+	for (i = 0; i < sc->sc_rx_slots; i++) {
+		pkt = &sc->sc_rx_pkts_ring[i];
+
+		error = bus_dmamap_create(sc->sc_dmat, EM_MCLBYTES, 1,
+		    EM_MCLBYTES, 0, BUS_DMA_NOWAIT, &pkt->pkt_map);
 		if (error != 0) {
 			printf("%s: em_allocate_receive_structures: "
 			    "bus_dmamap_create failed; error %u\n",
-			    sc->sc_dv.dv_xname, error);
+			    DEVNAME(sc), error);
 			goto fail;
 		}
-		rx_buffer->m_head = NULL;
+
+		pkt->pkt_m = NULL;
 	}
-	bus_dmamap_sync(sc->rxdma.dma_tag, sc->rxdma.dma_map, 0,
-	    sc->rxdma.dma_map->dm_mapsize,
-	    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
         return (0);
 
@@ -2609,25 +2469,25 @@ fail:
 int
 em_setup_receive_structures(struct em_softc *sc)
 {
-	struct ifnet *ifp = &sc->interface_data.ac_if;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	u_int lwm;
 
-	memset(sc->rx_desc_base, 0,
-	    sizeof(struct em_rx_desc) * sc->num_rx_desc);
+	memset(sc->sc_rx_desc_ring, 0,
+	    sc->sc_rx_slots * sizeof(*sc->sc_rx_desc_ring));
 
 	if (em_allocate_receive_structures(sc))
 		return (ENOMEM);
 
 	/* Setup our descriptor pointers */
-	sc->next_rx_desc_to_check = 0;
-	sc->last_rx_desc_filled = sc->num_rx_desc - 1;
+	sc->sc_rx_desc_tail = 0;
+	sc->sc_rx_desc_head = sc->sc_rx_slots - 1;
 
 	lwm = max(4, 2 * ((ifp->if_hardmtu / MCLBYTES) + 1));
-	if_rxr_init(&sc->rx_ring, lwm, sc->num_rx_desc);
+	if_rxr_init(&sc->sc_rx_ring, lwm, sc->sc_rx_slots);
 
 	if (em_rxfill(sc) == 0) {
 		printf("%s: unable to fill any rx descriptors\n",
-		    sc->sc_dv.dv_xname);
+		    DEVNAME(sc));
 	}
 
 	return (0);
@@ -2664,9 +2524,9 @@ em_initialize_receive_unit(struct em_softc *sc)
 	}
 
 	/* Setup the Base and Length of the Rx Descriptor Ring */
-	bus_addr = sc->rxdma.dma_map->dm_segs[0].ds_addr;
-	E1000_WRITE_REG(&sc->hw, RDLEN, sc->num_rx_desc *
-			sizeof(struct em_rx_desc));
+	bus_addr = sc->sc_rx_dma.dma_map->dm_segs[0].ds_addr;
+	E1000_WRITE_REG(&sc->hw, RDLEN,
+	    sc->sc_rx_slots * sizeof(*sc->sc_rx_desc_ring));
 	E1000_WRITE_REG(&sc->hw, RDBAH, (u_int32_t)(bus_addr >> 32));
 	E1000_WRITE_REG(&sc->hw, RDBAL, (u_int32_t)bus_addr);
 
@@ -2686,7 +2546,7 @@ em_initialize_receive_unit(struct em_softc *sc)
 	if (sc->hw.mac_type == em_i210 || sc->hw.mac_type == em_i350)
 		reg_rctl |= E1000_RCTL_SECRC;
 
-	switch (sc->rx_buffer_len) {
+	switch (sc->sc_rx_buffer_len) {
 	default:
 	case EM_RXBUFFER_2048:
 		reg_rctl |= E1000_RCTL_SZ_2048;
@@ -2733,7 +2593,7 @@ em_initialize_receive_unit(struct em_softc *sc)
 
 	/* Setup the HW Rx Head and Tail Descriptor Pointers */
 	E1000_WRITE_REG(&sc->hw, RDH, 0);
-	E1000_WRITE_REG(&sc->hw, RDT, sc->last_rx_desc_filled);
+	E1000_WRITE_REG(&sc->hw, RDT, sc->sc_rx_desc_head);
 }
 
 /*********************************************************************
@@ -2744,34 +2604,35 @@ em_initialize_receive_unit(struct em_softc *sc)
 void
 em_free_receive_structures(struct em_softc *sc)
 {
-	struct em_buffer   *rx_buffer;
-	int		i;
+	struct em_packet *pkt;
+	int i;
 
 	INIT_DEBUGOUT("free_receive_structures: begin");
 
-	if_rxr_init(&sc->rx_ring, 0, 0);
+	if_rxr_init(&sc->sc_rx_ring, 0, 0);
 
-	if (sc->rx_buffer_area != NULL) {
-		rx_buffer = sc->rx_buffer_area;
-		for (i = 0; i < sc->num_rx_desc; i++, rx_buffer++) {
-			if (rx_buffer->m_head != NULL) {
-				bus_dmamap_sync(sc->rxtag, rx_buffer->map,
-				    0, rx_buffer->map->dm_mapsize,
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+
+	if (sc->sc_rx_pkts_ring != NULL) {
+		for (i = 0; i < sc->sc_rx_slots; i++) {
+			pkt = &sc->sc_rx_pkts_ring[i];
+			if (pkt->pkt_m != NULL) {
+				bus_dmamap_sync(sc->sc_dmat, pkt->pkt_map,
+				    0, pkt->pkt_map->dm_mapsize,
 				    BUS_DMASYNC_POSTREAD);
-				bus_dmamap_unload(sc->rxtag, rx_buffer->map);
-				m_freem(rx_buffer->m_head);
-				rx_buffer->m_head = NULL;
+				bus_dmamap_unload(sc->sc_dmat, pkt->pkt_map);
+				m_freem(pkt->pkt_m);
+				pkt->pkt_m = NULL;
 			}
-			bus_dmamap_destroy(sc->rxtag, rx_buffer->map);
+			bus_dmamap_destroy(sc->sc_dmat, pkt->pkt_map);
 		}
+
+		free(sc->sc_rx_pkts_ring, M_DEVBUF,
+		    sc->sc_rx_slots * sizeof(*sc->sc_rx_pkts_ring));
+		sc->sc_rx_pkts_ring = NULL;
 	}
-	if (sc->rx_buffer_area != NULL) {
-		free(sc->rx_buffer_area, M_DEVBUF,
-		    sc->num_rx_desc * sizeof(struct em_buffer));
-		sc->rx_buffer_area = NULL;
-	}
-	if (sc->rxtag != NULL)
-		sc->rxtag = NULL;
 
 	if (sc->fmp != NULL) {
 		m_freem(sc->fmp);
@@ -2787,21 +2648,29 @@ em_rxfill(struct em_softc *sc)
 	int post = 0;
 	int i;
 
-	i = sc->last_rx_desc_filled;
+	i = sc->sc_rx_desc_head;
 
-	for (slots = if_rxr_get(&sc->rx_ring, sc->num_rx_desc);
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_POSTWRITE);
+
+	for (slots = if_rxr_get(&sc->sc_rx_ring, sc->sc_rx_slots);
 	    slots > 0; slots--) {
-		if (++i == sc->num_rx_desc)
+		if (++i == sc->sc_rx_slots)
 			i = 0;
 
 		if (em_get_buf(sc, i) != 0)
 			break;
 
-		sc->last_rx_desc_filled = i;
+		sc->sc_rx_desc_head = i;
 		post = 1;
 	}
 
-	if_rxr_put(&sc->rx_ring, slots);
+	if_rxr_put(&sc->sc_rx_ring, slots);
+
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
+	    BUS_DMASYNC_PREWRITE);
 
 	return (post);
 }
@@ -2813,56 +2682,53 @@ em_rxfill(struct em_softc *sc)
  *  dma'ed into host memory to upper layer.
  *
  *********************************************************************/
-void
+int
 em_rxeof(struct em_softc *sc)
 {
-	struct ifnet	    *ifp = &sc->interface_data.ac_if;
+	struct ifnet	    *ifp = &sc->sc_ac.ac_if;
 	struct mbuf_list    ml = MBUF_LIST_INITIALIZER();
 	struct mbuf	    *m;
 	u_int8_t	    accept_frame = 0;
 	u_int8_t	    eop = 0;
 	u_int16_t	    len, desc_len, prev_len_adj;
-	int		    i;
+	int		    i, rv = 0;
 
 	/* Pointer to the receive descriptor being examined. */
 	struct em_rx_desc   *desc;
-	struct em_buffer    *pkt;
+	struct em_packet    *pkt;
 	u_int8_t	    status;
 
-	if (if_rxr_inuse(&sc->rx_ring) == 0)
-		return;
+	if (if_rxr_inuse(&sc->sc_rx_ring) == 0)
+		return (0);
 
-	i = sc->next_rx_desc_to_check;
+	i = sc->sc_rx_desc_tail;
 
-	bus_dmamap_sync(sc->rxdma.dma_tag, sc->rxdma.dma_map,
-	    0, sizeof(*desc) * sc->num_rx_desc,
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
 	    BUS_DMASYNC_POSTREAD);
 
 	do {
 		m = NULL;
 
-		desc = &sc->rx_desc_base[i];
-		pkt = &sc->rx_buffer_area[i];
+		pkt = &sc->sc_rx_pkts_ring[i];
+		desc = &sc->sc_rx_desc_ring[i];
 
 		status = desc->status;
 		if (!ISSET(status, E1000_RXD_STAT_DD))
 			break;
 
 		/* pull the mbuf off the ring */
-		bus_dmamap_sync(sc->rxtag, pkt->map, 0, pkt->map->dm_mapsize,
+		bus_dmamap_sync(sc->sc_dmat, pkt->pkt_map,
+		    0, pkt->pkt_map->dm_mapsize,
 		    BUS_DMASYNC_POSTREAD);
-		bus_dmamap_unload(sc->rxtag, pkt->map);
-		m = pkt->m_head;
-		pkt->m_head = NULL;
+		bus_dmamap_unload(sc->sc_dmat, pkt->pkt_map);
+		m = pkt->pkt_m;
+		pkt->pkt_m = NULL;
 
-		if (m == NULL) {
-			panic("em_rxeof: NULL mbuf in slot %d "
-			    "(nrx %d, filled %d)", i,
-			    if_rxr_inuse(&sc->rx_ring),
-			    sc->last_rx_desc_filled);
-		}
+		KASSERT(m != NULL);
 
-		if_rxr_put(&sc->rx_ring, 1);
+		if_rxr_put(&sc->sc_rx_ring, 1);
+		rv = 1;
 
 		accept_frame = 1;
 		prev_len_adj = 0;
@@ -2957,17 +2823,19 @@ em_rxeof(struct em_softc *sc)
 		}
 
 		/* Advance our pointers to the next descriptor. */
-		if (++i == sc->num_rx_desc)
+		if (++i == sc->sc_rx_slots)
 			i = 0;
-	} while (if_rxr_inuse(&sc->rx_ring) > 0);
+	} while (if_rxr_inuse(&sc->sc_rx_ring) > 0);
 
-	bus_dmamap_sync(sc->rxdma.dma_tag, sc->rxdma.dma_map,
-	    0, sizeof(*desc) * sc->num_rx_desc,
+	bus_dmamap_sync(sc->sc_dmat, sc->sc_rx_dma.dma_map,
+	    0, sc->sc_rx_dma.dma_map->dm_mapsize,
 	    BUS_DMASYNC_PREREAD);
 
-	sc->next_rx_desc_to_check = i;
+	sc->sc_rx_desc_tail = i;
 
 	if_input(ifp, &ml);
+
+	return (rv);
 }
 
 /*********************************************************************
@@ -3209,7 +3077,7 @@ em_disable_aspm(struct em_softc *sc)
 void
 em_update_stats_counters(struct em_softc *sc)
 {
-	struct ifnet   *ifp = &sc->interface_data.ac_if;
+	struct ifnet   *ifp = &sc->sc_ac.ac_if;
 
 	sc->stats.crcerrs += E1000_READ_REG(&sc->hw, CRCERRS);
 	sc->stats.mpc += E1000_READ_REG(&sc->hw, MPC);
@@ -3324,7 +3192,7 @@ em_update_stats_counters(struct em_softc *sc)
 void
 em_print_hw_stats(struct em_softc *sc)
 {
-	const char * const unit = sc->sc_dv.dv_xname;
+	const char * const unit = DEVNAME(sc);
 
 	printf("%s: Excessive collisions = %lld\n", unit,
 		(long long)sc->stats.ecol);

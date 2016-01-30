@@ -1,7 +1,7 @@
-/* $OpenBSD: tty-keys.c,v 1.82 2015/11/23 20:53:09 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.84 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -344,7 +344,7 @@ tty_keys_add1(struct tty_key **tkp, const char *s, key_code key)
 	if (tk == NULL) {
 		tk = *tkp = xcalloc(1, sizeof *tk);
 		tk->ch = *s;
-		tk->key = KEYC_NONE;
+		tk->key = KEYC_UNKNOWN;
 	}
 
 	/* Find the next entry. */
@@ -444,7 +444,7 @@ tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 		(*size)++;
 
 		/* At the end of the string, return the current node. */
-		if (len == 0 || (tk->next == NULL && tk->key != KEYC_NONE))
+		if (len == 0 || (tk->next == NULL && tk->key != KEYC_UNKNOWN))
 			return (tk);
 
 		/* Move into the next tree for the following character. */
@@ -534,7 +534,7 @@ first_key:
 			if (tk->next != NULL)
 				goto partial_key;
 			key = tk->key;
-			if (key != KEYC_NONE)
+			if (key != KEYC_UNKNOWN)
 				key |= KEYC_ESCAPE;
 			goto complete_key;
 		}
@@ -620,7 +620,7 @@ complete_key:
 	}
 
 	/* Fire the key. */
-	if (key != KEYC_NONE)
+	if (key != KEYC_UNKNOWN)
 		server_client_handle_key(tty->client, key);
 
 	return (1);
