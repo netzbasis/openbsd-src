@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.25 2016/01/27 15:34:50 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.28 2016/01/29 19:12:26 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -19,7 +19,7 @@
 #ifndef _XENVAR_H_
 #define _XENVAR_H_
 
-/* #define XEN_DEBUG */
+#define XEN_DEBUG
 
 #ifdef XEN_DEBUG
 #define DPRINTF(x...)		printf(x)
@@ -78,6 +78,8 @@ struct xen_softc {
 	 * Xenstore
 	 */
 	struct xs_softc		*sc_xs;		/* xenstore softc */
+
+	struct task		 sc_ctltsk;	/* control task */
 };
 
 extern struct xen_softc *xen_sc;
@@ -132,10 +134,12 @@ int	xen_intr_unmask(xen_intr_handle_t);
  */
 #define XS_LIST			0x01
 #define XS_READ			0x02
+#define XS_WATCH		0x04
 #define XS_TOPEN		0x06
 #define XS_TCLOSE		0x07
 #define XS_WRITE		0x0b
 #define XS_RM			0x0d
+#define XS_EVENT		0x0f
 #define XS_ERROR		0x10
 #define XS_MAX			0x16
 
@@ -148,9 +152,11 @@ struct xs_transaction {
 
 int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 	    int *);
-int	xs_getprop(struct xen_attach_args *, const char *, char *, int);
-int	xs_setprop(struct xen_attach_args *, const char *, char *, int);
 void	xs_resfree(struct xs_transaction *, struct iovec *, int);
+int	xs_watch(struct xen_softc *, const char *, const char *, struct task *,
+	    void (*)(void *), void *);
+int	xs_getprop(struct xen_softc *, const char *, const char *, char *, int);
+int	xs_setprop(struct xen_softc *, const char *, const char *, char *, int);
 int	xs_kvop(void *, int, char *, char *, size_t);
 
 #endif	/* _XENVAR_H_ */

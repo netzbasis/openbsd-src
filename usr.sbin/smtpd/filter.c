@@ -1,4 +1,4 @@
-/*	$OpenBSD: filter.c,v 1.12 2016/01/28 09:03:35 eric Exp $	*/
+/*	$OpenBSD: filter.c,v 1.15 2016/01/29 12:43:38 eric Exp $	*/
 
 /*
  * Copyright (c) 2011 Gilles Chehade <gilles@poolp.org>
@@ -43,7 +43,6 @@
 
 enum {
 	QUERY_READY,
-	QUERY_WAITING,
 	QUERY_RUNNING,
 	QUERY_DONE
 };
@@ -70,8 +69,6 @@ struct filter_session {
 	struct filter_lst	*filters;
 	struct filter		*fcurr;
 
-	struct filter_query_lst	 queries;
-
 	int			 error;
 	struct io		 iev;
 	struct iobuf		 ibuf;
@@ -85,10 +82,8 @@ struct filter_query {
 	uint64_t			 qid;
 	int				 type;
 	struct filter_session		*session;
-	TAILQ_ENTRY(filter_query)	 entry;
 
 	int				 state;
-	int				 hasrun;
 	struct filter			*current;
 
 	/* current data */
@@ -319,7 +314,6 @@ filter_connect(uint64_t id, const struct sockaddr *local,
 		filter = "<no-filter>";
 	s->filters = dict_xget(&chains, filter);
 	s->iev.sock = -1;
-	TAILQ_INIT(&s->queries);
 	tree_xset(&sessions, s->id, s);
 
 	filter_event(id, EVENT_CONNECT);
@@ -437,11 +431,9 @@ filter_query(struct filter_session *s, int type)
 	q->qid = generate_uid();
 	q->session = s;
 	q->type = type;
-	TAILQ_INSERT_TAIL(&s->queries, q, entry);
 
 	q->state = QUERY_READY;
 	q->current = TAILQ_FIRST(s->filters);
-	q->hasrun = 0;
 
 	log_trace(TRACE_FILTERS, "filter: new query %s", query_to_str(type));
 
@@ -451,8 +443,6 @@ filter_query(struct filter_session *s, int type)
 static void
 filter_drain_query(struct filter_query *q)
 {
-	struct filter_query	*prev;
-
 	log_trace(TRACE_FILTERS, "filter: filter_drain_query %s",
 	    filter_query_to_text(q));
 
@@ -463,33 +453,13 @@ filter_drain_query(struct filter_query *q)
 	while (q->state != QUERY_DONE) {
 		/* Walk over all filters */
 		while (q->current) {
-			/* Trigger the current filter if not done yet. */
-			if (!q->hasrun) {
-				filter_run_query(q->current, q);
-				q->hasrun = 1;
-			}
+			filter_run_query(q->current, q);
 			if (q->state == QUERY_RUNNING) {
 				log_trace(TRACE_FILTERS,
 				    "filter: waiting for running query %s",
 				    filter_query_to_text(q));
 				return;
 			}
-
-			/*
-			 * Do not move forward if the query ahead of us is
-			 * waiting on this filter.
-			 */
-			prev = TAILQ_PREV(q, filter_query_lst, entry);
-			if (prev && prev->current == q->current) {
-				q->state = QUERY_WAITING;
-				log_trace(TRACE_FILTERS,
-				    "filter: query blocked by previous query"
-				    "%s", filter_query_to_text(prev));
-				return;
-			}
-
-			q->current = TAILQ_NEXT(q->current, entry);
-			q->hasrun = 0;
 		}
 		q->state = QUERY_DONE;
 	}
@@ -585,7 +555,6 @@ filter_end_query(struct filter_query *q)
 	free(q->smtp.response);
 
     done:
-	TAILQ_REMOVE(&s->queries, q, entry);
 	free(q);
 }
 
@@ -594,7 +563,7 @@ filter_imsg(struct mproc *p, struct imsg *imsg)
 {
 	struct filter_proc	*proc = p->data;
 	struct filter_session	*s;
-	struct filter_query	*q, *next;
+	struct filter_query	*q;
 	struct msg		 m;
 	const char		*line;
 	uint64_t		 qid;
@@ -666,15 +635,8 @@ filter_imsg(struct mproc *p, struct imsg *imsg)
 		if (type == QUERY_EOM)
 			q->u.datalen = datalen;
 
-		next = TAILQ_NEXT(q, entry);
+		q->current = TAILQ_NEXT(q->current, entry);
 		filter_drain_query(q);
-
-		/*
-		 * If there is another query after this one which is waiting,
-		 * make it move forward.
-		 */
-		if (next && next->state == QUERY_WAITING)
-			filter_drain_query(next);
 		break;
 
 	case IMSG_FILTER_PIPE:

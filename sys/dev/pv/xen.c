@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.45 2016/01/28 11:19:49 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.48 2016/01/29 19:12:26 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -18,9 +18,13 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/proc.h>
+#include <sys/signal.h>
+#include <sys/signalvar.h>
 #include <sys/malloc.h>
 #include <sys/kernel.h>
 #include <sys/device.h>
+#include <sys/task.h>
 
 #include <machine/bus.h>
 #include <machine/cpu.h>
@@ -65,6 +69,7 @@ void	xen_disable_emulated_devices(struct xen_softc *);
 int 	xen_match(struct device *, void *, void *);
 void	xen_attach(struct device *, struct device *, void *);
 void	xen_deferred(struct device *);
+void	xen_control(void *);
 void	xen_resume(struct device *);
 int	xen_activate(struct device *, int);
 int	xen_probe_devices(struct xen_softc *);
@@ -152,7 +157,6 @@ xen_attach(struct device *parent, struct device *self, void *aux)
 	if (xs_attach(sc))
 		return;
 
-
 	xen_probe_devices(sc);
 
 	/* pvbus(4) key/value interface */
@@ -176,6 +180,55 @@ xen_deferred(struct device *self)
 	}
 
 	xen_intr_enable();
+
+	if (xs_watch(sc, "control", "shutdown", &sc->sc_ctltsk,
+	    xen_control, sc))
+		printf("%s: failed to setup shutdown control watch\n",
+		    sc->sc_dev.dv_xname);
+}
+
+void
+xen_control(void *arg)
+{
+	struct xen_softc *sc = arg;
+	struct xs_transaction xst;
+	char action[128];
+
+	memset(&xst, 0, sizeof(xst));
+	xst.xst_id = 0;
+	xst.xst_sc = sc->sc_xs;
+
+	if (xs_getprop(sc, "control", "shutdown", action, sizeof(action))) {
+		printf("%s: failed to process control event\n",
+		    sc->sc_dev.dv_xname);
+		return;
+	}
+
+	if (strlen(action) == 0)
+		return;
+
+	if (strcmp(action, "halt") == 0 || strcmp(action, "poweroff") == 0) {
+		extern int allowpowerdown;
+
+		if (allowpowerdown == 1) {
+			allowpowerdown = 0;
+			prsignal(initprocess, SIGUSR2);
+		}
+	} else if (strcmp(action, "reboot") == 0) {
+		extern int allowpowerdown;
+
+		if (allowpowerdown == 1) {
+			allowpowerdown = 0;
+			prsignal(initprocess, SIGINT);
+		}
+	} else if (strcmp(action, "crash") == 0) {
+		panic("xen told us to do this");
+	} else if (strcmp(action, "suspend") == 0) {
+		/* Not implemented yet */
+	} else {
+		printf("%s: unknown shutdown event \"%s\"\n",
+		    sc->sc_dev.dv_xname, action);
+	}
 }
 
 void
@@ -1173,9 +1226,9 @@ xen_probe_devices(struct xen_softc *sc)
 {
 	struct xen_attach_args xa;
 	struct xs_transaction xst;
-	struct iovec *iovp1, *iovp2, *iovp3;
-	int i, j, error = 0, iov1_cnt, iov2_cnt, iov3_cnt;
-	char path[128];
+	struct iovec *iovp1, *iovp2;
+	int i, j, error = 0, iov1_cnt, iov2_cnt;
+	char path[256];
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
@@ -1203,11 +1256,11 @@ xen_probe_devices(struct xen_softc *sc)
 			snprintf(xa.xa_node, sizeof(xa.xa_node), "device/%s/%s",
 			    (char *)iovp1[i].iov_base,
 			    (char *)iovp2[j].iov_base);
-			snprintf(path, sizeof(path), "%s/backend", xa.xa_node);
-			if (!xs_cmd(&xst, XS_READ, path, &iovp3, &iov3_cnt)) {
-				strlcpy(xa.xa_backend, (char *)iovp3->iov_base,
-				    sizeof(xa.xa_backend));
-				xs_resfree(&xst, iovp3, iov3_cnt);
+			if (xs_getprop(sc, xa.xa_node, "backend", xa.xa_backend,
+			    sizeof(xa.xa_backend))) {
+				printf("%s: failed to identify \"backend\" "
+				    "for \"%s\"\n", sc->sc_dev.dv_xname,
+				    xa.xa_node);
 			}
 			config_found((struct device *)sc, &xa,
 			    xen_attach_print);

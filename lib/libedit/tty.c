@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty.c,v 1.14 2014/05/20 22:28:07 yasuoka Exp $	*/
+/*	$OpenBSD: tty.c,v 1.17 2016/01/30 02:52:41 schwarze Exp $	*/
 /*	$NetBSD: tty.c,v 1.34 2011/01/27 23:11:40 christos Exp $	*/
 
 /*-
@@ -547,10 +547,6 @@ tty_setup(EditLine *el)
 			return (-1);
 		}
 	}
-#ifdef notdef
-	else
-		tty__setchar(&el->el_tty.t_ex, el->el_tty.t_c[EX_IO]);
-#endif
 
 	tty_setup_flags(el, &el->el_tty.t_ed, ED_IO);
 
@@ -899,15 +895,15 @@ tty_bind_char(EditLine *el, int force)
 		if (new[0] == old[0] && !force)
 			continue;
 		/* Put the old default binding back, and set the new binding */
-		key_clear(el, map, old);
+		keymacro_clear(el, map, old);
 		map[UC(old[0])] = dmap[UC(old[0])];
-		key_clear(el, map, new);
+		keymacro_clear(el, map, new);
 		/* MAP_VI == 1, MAP_EMACS == 0... */
 		map[UC(new[0])] = tp->bind[el->el_map.type];
 		if (dalt) {
-			key_clear(el, alt, old);
+			keymacro_clear(el, alt, old);
 			alt[UC(old[0])] = dalt[UC(old[0])];
-			key_clear(el, alt, new);
+			keymacro_clear(el, alt, new);
 			alt[UC(new[0])] = tp->bind[el->el_map.type + 1];
 		}
 	}
@@ -1196,7 +1192,8 @@ tty_stty(EditLine *el, int argc __attribute__((__unused__)), const Char **argv)
 
 				cu = strlen(m->m_name) + (x != '\0') + 1;
 
-				if (len + cu >= (size_t)el->el_term.t_size.h) {
+				if (len + cu >=
+				    (size_t)el->el_terminal.t_size.h) {
 					(void) fprintf(el->el_outfile, "\n%*s",
 					    (int)st, "");
 					len = st + cu;

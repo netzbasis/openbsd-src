@@ -15,19 +15,18 @@
 
 #include "defines.h"
 
-/* Library function declarations */
-
 #include <sys/types.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
+
 #include <ctype.h>
-#include <wctype.h>
+#include <fcntl.h>
+#include <libgen.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libgen.h>
-#include <signal.h>
+#include <unistd.h>
+#include <wctype.h>
 
 /*
  * Simple lowercase test which can be used during option processing
@@ -52,10 +51,6 @@
 #define	OPT_OFF		0
 #define	OPT_ON		1
 #define	OPT_ONPLUS	2
-
-#ifndef CHAR_BIT
-#define	CHAR_BIT 8
-#endif
 
 /*
  * Special types and constants.
