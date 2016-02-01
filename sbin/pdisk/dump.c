@@ -1,4 +1,4 @@
-/*	$OpenBSD: dump.c,v 1.69 2016/01/30 17:21:10 krw Exp $	*/
+/*	$OpenBSD: dump.c,v 1.74 2016/01/31 23:00:11 krw Exp $	*/
 
 /*
  * dump.c - dumping partition maps
@@ -32,12 +32,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <util.h>
 
 #include "partition_map.h"
 #include "dump.h"
 #include "io.h"
 
-void	adjust_value_and_compute_prefix(double *, int *);
+void	dump_block(unsigned char *, int);
 void	dump_block_zero(struct partition_map *);
 void	dump_partition_entry(struct entry *, int, int, int);
 int	get_max_base_or_length(struct partition_map *);
@@ -47,14 +48,16 @@ int	get_max_type_string_length(struct partition_map *);
 void
 dump_block_zero(struct partition_map *map)
 {
+	char buf[FMT_SCALED_STRSIZE];
 	struct ddmap  *m;
-	double value;
-	int i, prefix;
+	int i;
 
-	value = ((double)map->sbBlkCount) * map->sbBlkSize;
-	adjust_value_and_compute_prefix(&value, &prefix);
-	printf("\nDevice block size=%u, Number of Blocks=%u (%1.1f%c)\n",
-	       map->sbBlkSize, map->sbBlkCount, value, prefix);
+	printf("\nDevice block size=%u, Number of Blocks=%u",
+	       map->sbBlkSize, map->sbBlkCount);
+	if (fmt_scaled(map->sbBlkCount * map->sbBlkSize, buf) == 0)
+		printf(" (%s)\n", buf);
+	else
+		printf("\n");
 
 	printf("DeviceType=0x%x, DeviceId=0x%x\n", map->sbDevType,
 	    map->sbDevId);
@@ -78,7 +81,7 @@ dump_partition_map(struct partition_map *map)
 	int digits, max_type_length, max_name_length;
 
 	printf("\nPartition map (with %d byte blocks) on '%s'\n",
-	       map->physical_block, map->name);
+	       map->sbBlkSize, map->name);
 
 	digits = number_of_digits(get_max_base_or_length(map));
 	if (digits < 6)
@@ -89,7 +92,7 @@ dump_partition_map(struct partition_map *map)
 	max_name_length = get_max_name_string_length(map);
 	if (max_name_length < 6)
 		max_name_length = 6;
-	printf(" #: %*s %-*s %*s   %-*s ( size )\n", max_type_length, "type",
+	printf(" #: %*s %-*s %*s   %-*s\n", max_type_length, "type",
 	    max_name_length, "name", digits, "length", digits, "base");
 
 	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
@@ -101,27 +104,24 @@ dump_partition_map(struct partition_map *map)
 
 
 void
-dump_partition_entry(struct entry *entry, int type_length,
-    int name_length, int digits)
+dump_partition_entry(struct entry *entry, int type_length, int name_length,
+    int digits)
 {
-	struct partition_map *map;
-	double bytes;
-	int j, driver;
+	char buf[FMT_SCALED_STRSIZE];
 
-	map = entry->the_map;
-	driver = entry->contains_driver ? '*' : ' ';
 	printf("%2ld: %*.32s", entry->disk_address, type_length,
 	    entry->dpme_type);
-	printf("%c%-*.32s ", driver, name_length, entry->dpme_name);
+	printf("%c%-*.32s ", contains_driver(entry) ? '*' : ' ',
+	    name_length, entry->dpme_name);
 
 	printf("%*u @ %-*u", digits, entry->dpme_pblocks, digits,
 	    entry->dpme_pblock_start);
 
-	bytes = ((double)entry->dpme_pblocks) * map->physical_block;
-	adjust_value_and_compute_prefix(&bytes, &j);
-	if (j != ' ' && j != 'K')
-		printf(" (%#5.1f%c)", bytes, j);
-	printf("\n");
+	if (fmt_scaled(entry->dpme_pblocks * entry->the_map->sbBlkSize, buf) == 
+	    0)
+		printf("(%s)\n", buf);
+	else
+		printf("\n");
 }
 
 
@@ -135,7 +135,7 @@ show_data_structures(struct partition_map *map)
 	printf("Header:\n");
 	printf("map %d blocks out of %d,  media %lu blocks (%d byte blocks)\n",
 	    map->blocks_in_map, map->maximum_in_map, map->media_size,
-	    map->physical_block);
+	    map->sbBlkSize);
 	printf("Map is%s writable", rflag ? " not" : "");
 	printf(" and has%s been changed\n", (map->changed) ? "" : " not");
 	printf("\n");
@@ -366,43 +366,7 @@ get_max_base_or_length(struct partition_map *map)
 			max = entry->dpme_pblock_start;
 		if (entry->dpme_pblocks > max)
 			max = entry->dpme_pblocks;
-		if (entry->dpme_lblock_start > max)
-			max = entry->dpme_lblock_start;
-		if (entry->dpme_lblocks > max)
-			max = entry->dpme_lblocks;
 	}
 
 	return max;
-}
-
-void
-adjust_value_and_compute_prefix(double *value, int *prefix)
-{
-	double bytes;
-	int multiplier;
-
-	bytes = *value;
-	if (bytes < 1024.0) {
-		multiplier = ' ';
-	} else {
-		bytes = bytes / 1024.0;
-		if (bytes < 1024.0) {
-			multiplier = 'K';
-		} else {
-			bytes = bytes / 1024.0;
-			if (bytes < 1024.0) {
-				multiplier = 'M';
-			} else {
-				bytes = bytes / 1024.0;
-				if (bytes < 1024.0) {
-					multiplier = 'G';
-				} else {
-					bytes = bytes / 1024.0;
-					multiplier = 'T';
-				}
-			}
-		}
-	}
-	*value = bytes;
-	*prefix = multiplier;
 }

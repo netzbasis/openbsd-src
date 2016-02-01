@@ -1,4 +1,4 @@
-/*	$OpenBSD: partition_map.h,v 1.39 2016/01/30 17:28:34 krw Exp $	*/
+/*	$OpenBSD: partition_map.h,v 1.42 2016/01/31 23:00:11 krw Exp $	*/
 
 /*
  * partition_map.h - partition map routines
@@ -49,7 +49,6 @@ struct partition_map {
     char	       *name;
     int			fd;
     int			changed;
-    int			physical_block;
     int			blocks_in_map;
     int			maximum_in_map;
     unsigned long	media_size;	/* in physical blocks */
@@ -71,7 +70,6 @@ struct entry {
     LIST_ENTRY(entry)		base_entry;
     struct partition_map       *the_map;
     long			disk_address;
-    int				contains_driver;
 
     /* On-disk dpme block data.*/
     uint16_t	dpme_signature;		/* "PM" */
@@ -108,12 +106,10 @@ extern const char *kFreeType;
 extern const char *kMapType;
 extern const char *kUnixType;
 extern const char *kHFSType;
-extern const char *kPatchType;
 
 extern int lflag;
 extern int rflag;
 
-struct partition_map	*init_partition_map(char *);
 struct partition_map	*create_partition_map(int, char *, uint64_t, uint32_t);
 struct partition_map	*open_partition_map(int, char *, uint64_t, uint32_t);
 
@@ -124,6 +120,7 @@ struct entry	*find_entry_by_base(uint32_t, struct partition_map *);
 int	add_partition_to_map(const char *, const char *, uint32_t, uint32_t,
     struct partition_map *);
 
+int	contains_driver(struct entry *);
 void	free_partition_map(struct partition_map *);
 void	delete_partition_from_map(struct entry *);
 void	move_entry_in_map(long, long, struct partition_map *);
