@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldapctl.c,v 1.7 2015/12/05 13:19:13 claudio Exp $	*/
+/*	$OpenBSD: ldapctl.c,v 1.9 2016/02/02 18:18:04 jca Exp $	*/
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -22,6 +22,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/queue.h>
 #include <sys/un.h>
 #include <sys/tree.h>
@@ -56,10 +57,10 @@ void		 show_stats(struct imsg *imsg);
 void		 show_dbstats(const char *prefix, struct btree_stat *st);
 void		 show_nsstats(struct imsg *imsg);
 int		 compact_db(const char *path);
-int		 compact_namespace(struct namespace *ns);
-int		 compact_namespaces(void);
-int		 index_namespace(struct namespace *ns);
-int		 index_namespaces(void);
+int		 compact_namespace(struct namespace *ns, const char *datadir);
+int		 compact_namespaces(const char *datadir);
+int		 index_namespace(struct namespace *ns, const char *datadir);
+int		 index_namespaces(const char *datadir);
 
 __dead void
 usage(void)
@@ -67,7 +68,8 @@ usage(void)
 	extern char *__progname;
 
 	fprintf(stderr,
-	    "usage: %s [-v] [-f file] [-s socket] command [argument ...]\n",
+	    "usage: %s [-v] [-f file] [-r directory] [-s socket] "
+	    "command [argument ...]\n",
 	    __progname);
 	exit(1);
 }
@@ -93,11 +95,11 @@ compact_db(const char *path)
 }
 
 int
-compact_namespace(struct namespace *ns)
+compact_namespace(struct namespace *ns, const char *datadir)
 {
 	char		*path;
 
-	if (asprintf(&path, "%s/%s_data.db", DATADIR, ns->suffix) < 0)
+	if (asprintf(&path, "%s/%s_data.db", datadir, ns->suffix) < 0)
 		return -1;
 	if (compact_db(path) != 0) {
 		log_warn("%s", path);
@@ -106,7 +108,7 @@ compact_namespace(struct namespace *ns)
 	}
 	free(path);
 
-	if (asprintf(&path, "%s/%s_indx.db", DATADIR, ns->suffix) < 0)
+	if (asprintf(&path, "%s/%s_indx.db", datadir, ns->suffix) < 0)
 		return -1;
 	if (compact_db(path) != 0) {
 		log_warn("%s", path);
@@ -119,19 +121,22 @@ compact_namespace(struct namespace *ns)
 }
 
 int
-compact_namespaces(void)
+compact_namespaces(const char *datadir)
 {
 	struct namespace	*ns;
 
-	TAILQ_FOREACH(ns, &conf->namespaces, next)
-		if (SLIST_EMPTY(&ns->referrals) && compact_namespace(ns) != 0)
+	TAILQ_FOREACH(ns, &conf->namespaces, next) {
+		if (SLIST_EMPTY(&ns->referrals))
+		    continue;
+		if (compact_namespace(ns, datadir) != 0)
 			return -1;
+	}
 
 	return 0;
 }
 
 int
-index_namespace(struct namespace *ns)
+index_namespace(struct namespace *ns, const char *datadir)
 {
 	struct btval		 key, val;
 	struct btree		*data_db, *indx_db;
@@ -150,7 +155,7 @@ index_namespace(struct namespace *ns)
 	if (data_db == NULL)
 		return -1;
 
-	if (asprintf(&path, "%s/%s_indx.db", DATADIR, ns->suffix) < 0)
+	if (asprintf(&path, "%s/%s_indx.db", datadir, ns->suffix) < 0)
 		return -1;
 	indx_db = btree_open(path, BT_NOSYNC, 0644);
 	free(path);
@@ -212,13 +217,16 @@ index_namespace(struct namespace *ns)
 }
 
 int
-index_namespaces(void)
+index_namespaces(const char *datadir)
 {
 	struct namespace	*ns;
 
-	TAILQ_FOREACH(ns, &conf->namespaces, next)
-		if (SLIST_EMPTY(&ns->referrals) && index_namespace(ns) != 0)
+	TAILQ_FOREACH(ns, &conf->namespaces, next) {
+		if (SLIST_EMPTY(&ns->referrals))
+			continue;
+		if (index_namespace(ns, datadir) != 0)
 			return -1;
+	}
 
 	return 0;
 }
@@ -237,6 +245,8 @@ main(int argc, char *argv[])
 	ssize_t			 n;
 	int			 ch;
 	enum action		 action = NONE;
+	const char		*datadir = DATADIR;
+	struct stat		 sb;
 	const char		*sock = LDAPD_SOCKET;
 	char			*conffile = CONFFILE;
 	struct sockaddr_un	 sun;
@@ -245,10 +255,13 @@ main(int argc, char *argv[])
 
 	log_init(1);
 
-	while ((ch = getopt(argc, argv, "f:s:v")) != -1) {
+	while ((ch = getopt(argc, argv, "f:r:s:v")) != -1) {
 		switch (ch) {
 		case 'f':
 			conffile = optarg;
+			break;
+		case 'r':
+			datadir = optarg;
 			break;
 		case 's':
 			sock = optarg;
@@ -266,6 +279,11 @@ main(int argc, char *argv[])
 
 	if (argc == 0)
 		usage();
+
+	if (stat(datadir, &sb) == -1)
+		err(1, "%s", datadir);
+	if (!S_ISDIR(sb.st_mode))
+		errx(1, "%s is not a directory", datadir);
 
 	log_verbose(verbose);
 
@@ -295,9 +313,9 @@ main(int argc, char *argv[])
 			err(1, "pledge");
 
 		if (action == COMPACT_DB)
-			return compact_namespaces();
+			return compact_namespaces(datadir);
 		else
-			return index_namespaces();
+			return index_namespaces(datadir);
 	}
 
 	/* connect to ldapd control socket */

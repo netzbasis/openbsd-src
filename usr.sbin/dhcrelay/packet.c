@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.6 2016/01/13 13:41:42 sthen Exp $	*/
+/*	$OpenBSD: packet.c,v 1.9 2016/02/02 23:18:16 sthen Exp $	*/
 
 /* Packet assembly code, originally contributed by Archie Cobbs. */
 
@@ -46,8 +46,6 @@
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <netinet/if_ether.h>
-
-#define ETHER_HEADER_SIZE (ETHER_ADDR_LEN * 2 + sizeof(u_int16_t))
 
 u_int32_t	checksum(unsigned char *, unsigned, u_int32_t);
 u_int32_t	wrapsum(u_int32_t);
@@ -101,8 +99,8 @@ assemble_hw_header(struct interface_info *interface, unsigned char *buf,
 
 	eh.ether_type = htons(ETHERTYPE_IP);
 
-	memcpy(&buf[*bufix], &eh, ETHER_HEADER_SIZE);
-	*bufix += ETHER_HEADER_SIZE;
+	memcpy(&buf[*bufix], &eh, ETHER_HDR_LEN);
+	*bufix += ETHER_HDR_LEN;
 }
 
 void
@@ -165,7 +163,7 @@ decode_hw_header(struct interface_info *interface, unsigned char *buf,
 		bzero(&eh, sizeof(eh));
 		offset = ENC_HDRLEN + ip_len;
 	} else {	
-		memcpy(&eh, buf + bufix, ETHER_HEADER_SIZE);
+		memcpy(&eh, buf + bufix, ETHER_HDR_LEN);
 		offset = sizeof(eh);
 	}
 
@@ -178,19 +176,20 @@ decode_hw_header(struct interface_info *interface, unsigned char *buf,
 
 ssize_t
 decode_udp_ip_header(struct interface_info *interface, unsigned char *buf,
-    int bufix, struct sockaddr_in *from, unsigned char *data, int buflen)
+    int bufix, struct sockaddr_in *from, int buflen)
 {
 	struct ip *ip;
 	struct udphdr *udp;
+	unsigned char *data;
 	u_int32_t ip_len = (buf[bufix] & 0xf) << 2;
 	u_int32_t sum, usum;
-	static int ip_packets_seen;
-	static int ip_packets_bad_checksum;
-	static int udp_packets_seen;
-	static int udp_packets_bad_checksum;
-	static int udp_packets_length_checked;
-	static int udp_packets_length_overflow;
-	int len = 0;
+	static unsigned int ip_packets_seen;
+	static unsigned int ip_packets_bad_checksum;
+	static unsigned int udp_packets_seen;
+	static unsigned int udp_packets_bad_checksum;
+	static unsigned int udp_packets_length_checked;
+	static unsigned int udp_packets_length_overflow;
+	int len;
 
 	ip = (struct ip *)(buf + bufix);
 	udp = (struct udphdr *)(buf + bufix + ip_len);
@@ -201,7 +200,7 @@ decode_udp_ip_header(struct interface_info *interface, unsigned char *buf,
 		ip_packets_bad_checksum++;
 		if (ip_packets_seen > 4 && ip_packets_bad_checksum != 0 &&
 		    (ip_packets_seen / ip_packets_bad_checksum) < 2) {
-			note("%d bad IP checksums seen in %d packets",
+			note("%u bad IP checksums seen in %u packets",
 			    ip_packets_bad_checksum, ip_packets_seen);
 			ip_packets_seen = ip_packets_bad_checksum = 0;
 		}
@@ -216,30 +215,28 @@ decode_udp_ip_header(struct interface_info *interface, unsigned char *buf,
 
 	/*
 	 * Compute UDP checksums, including the ``pseudo-header'', the
-	 * UDP header and the data.   If the UDP checksum field is zero,
+	 * UDP header and the data. If the UDP checksum field is zero,
 	 * we're not supposed to do a checksum.
 	 */
-	if (!data) {
-		data = buf + bufix + ip_len + sizeof(*udp);
-		len = ntohs(udp->uh_ulen) - sizeof(*udp);
-		udp_packets_length_checked++;
-		if ((len < 0) || (len + data > buf + bufix + buflen)) {
-			udp_packets_length_overflow++;
-			if (udp_packets_length_checked > 4 &&
-			    udp_packets_length_overflow != 0 &&
-			    (udp_packets_length_checked /
-			    udp_packets_length_overflow) < 2) {
-				note("%d udp packets in %d too long - dropped",
-				    udp_packets_length_overflow,
-				    udp_packets_length_checked);
-				udp_packets_length_overflow =
-				    udp_packets_length_checked = 0;
-			}
-			return (-1);
+	data = buf + bufix + ip_len + sizeof(*udp);
+	len = ntohs(udp->uh_ulen) - sizeof(*udp);
+	udp_packets_length_checked++;
+	if ((len < 0) || (len + data > buf + bufix + buflen)) {
+		udp_packets_length_overflow++;
+		if (udp_packets_length_checked > 4 &&
+		    udp_packets_length_overflow != 0 &&
+		    (udp_packets_length_checked /
+		    udp_packets_length_overflow) < 2) {
+			note("%u udp packets in %u too long - dropped",
+			    udp_packets_length_overflow,
+			    udp_packets_length_checked);
+			udp_packets_length_overflow =
+			    udp_packets_length_checked = 0;
 		}
-		if (len + data != buf + bufix + buflen)
-			debug("accepting packet with data after udp payload.");
+		return (-1);
 	}
+	if (len + data != buf + bufix + buflen)
+		debug("accepting packet with data after udp payload.");
 
 	usum = udp->uh_sum;
 	udp->uh_sum = 0;
@@ -254,7 +251,7 @@ decode_udp_ip_header(struct interface_info *interface, unsigned char *buf,
 		udp_packets_bad_checksum++;
 		if (udp_packets_seen > 4 && udp_packets_bad_checksum != 0 &&
 		    (udp_packets_seen / udp_packets_bad_checksum) < 2) {
-			note("%d bad udp checksums in %d packets",
+			note("%u bad udp checksums in %u packets",
 			    udp_packets_bad_checksum, udp_packets_seen);
 			udp_packets_seen = udp_packets_bad_checksum = 0;
 		}
