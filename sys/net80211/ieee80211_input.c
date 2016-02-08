@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.158 2016/02/05 19:42:04 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.161 2016/02/08 01:00:47 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -192,7 +192,7 @@ ieee80211_input_print(struct ieee80211com *ic,  struct ifnet *ifp,
 		break;
 	}
 #ifdef IEEE80211_DEBUG
-	doprint += ieee80211_debug;
+	doprint += (ieee80211_debug > 1);
 #endif
 	if (!doprint)
 		return;
@@ -704,7 +704,8 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 	sn = letoh16(*(u_int16_t *)wh->i_seq) >> IEEE80211_SEQ_SEQ_SHIFT;
 
 	/* reset Block Ack inactivity timer */
-	timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
+	if (ba->ba_timeout_val != 0)
+		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
 
 	if (SEQ_LT(sn, ba->ba_winstart)) {	/* SN < WinStartB */
 		ic->ic_stats.is_rx_dup++;
@@ -712,6 +713,37 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 		return;
 	}
 	if (SEQ_LT(ba->ba_winend, sn)) {	/* WinEndB < SN */
+		/* 
+		 * If this frame would move the window outside the range of
+		 * winend + winsize, drop it. This is likely a fluke and the
+		 * next frame will fit into the window again. Allowing the
+		 * window to be moved too far ahead makes us drop frames
+		 * until their sequence numbers catch up with the new window.
+		 *
+		 * However, if the window really did move arbitrarily, we must
+		 * allow it to move forward. We try to detect this condition
+		 * by counting missed consecutive frames.
+		 *
+		 * Works around buggy behaviour observed with Broadcom-based
+		 * APs, which emit "sequence" numbers such as 1888, 1889, 2501,
+		 * 1890, 1891, ... all for the same TID.
+		 */
+		if (((sn - ba->ba_winend) & 0xfff) > IEEE80211_BA_MAX_WINSZ) {
+			if (ba->ba_winmiss < IEEE80211_BA_MAX_WINMISS) { 
+				if (ba->ba_missedsn == sn - 1)
+					ba->ba_winmiss++;
+				else
+					ba->ba_winmiss = 0;
+				ba->ba_missedsn = sn;
+				ifp->if_ierrors++;
+				m_freem(m);	/* discard the MPDU */
+				return;
+			}
+
+			/* It appears the window has moved for real. */
+			ba->ba_winmiss = 0;
+			ba->ba_missedsn = 0;
+		}
 		count = (sn - ba->ba_winend) & 0xfff;
 		if (count > ba->ba_winsize)	/* no overlap */
 			count = ba->ba_winsize;
@@ -1556,7 +1588,7 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 		return;
 
 #ifdef IEEE80211_DEBUG
-	if (ieee80211_debug &&
+	if (ieee80211_debug > 1 &&
 	    (ni == NULL || ic->ic_state == IEEE80211_S_SCAN)) {
 		printf("%s: %s%s on chan %u (bss chan %u) ",
 		    __func__, (ni == NULL ? "new " : ""),
@@ -2457,7 +2489,8 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 	if (ba->ba_state == IEEE80211_BA_AGREED) {
 		/* XXX should we update the timeout value? */
 		/* reset Block Ack inactivity timer */
-		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
+		if (ba->ba_timeout_val != 0)
+			timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
 
 		/* check if it's a Protected Block Ack agreement */
 		if (!(ni->ni_flags & IEEE80211_NODE_MFP) ||
@@ -2494,10 +2527,6 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 	/* setup Block Ack agreement */
 	ba->ba_state = IEEE80211_BA_INIT;
 	ba->ba_timeout_val = timeout * IEEE80211_DUR_TU;
-	if (ba->ba_timeout_val < IEEE80211_BA_MIN_TIMEOUT)
-		ba->ba_timeout_val = IEEE80211_BA_MIN_TIMEOUT;
-	else if (ba->ba_timeout_val > IEEE80211_BA_MAX_TIMEOUT)
-		ba->ba_timeout_val = IEEE80211_BA_MAX_TIMEOUT;
 	ba->ba_ni = ni;
 	timeout_set(&ba->ba_to, ieee80211_rx_ba_timeout, ba);
 	timeout_set(&ba->ba_gap_to, ieee80211_input_ba_gap_timeout, ba);
@@ -2529,7 +2558,8 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 	}
 	ba->ba_state = IEEE80211_BA_AGREED;
 	/* start Block Ack inactivity timer */
-	timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
+	if (ba->ba_timeout_val != 0)
+		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
 	status = IEEE80211_STATUS_SUCCESS;
  resp:
 	/* MLME-ADDBA.response */
@@ -2991,7 +3021,8 @@ ieee80211_bar_tid(struct ieee80211com *ic, struct ieee80211_node *ni,
 		return;	/* PBAC, do not move window */
 	}
 	/* reset Block Ack inactivity timer */
-	timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
+	if (ba->ba_timeout_val != 0)
+		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
 
 	if (SEQ_LT(ba->ba_winstart, ssn))
 		ieee80211_ba_move_window(ic, ni, tid, ssn);

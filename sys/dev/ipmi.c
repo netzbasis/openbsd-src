@@ -1,4 +1,4 @@
-/*	$OpenBSD: ipmi.c,v 1.92 2016/02/05 06:29:01 uebayasi Exp $ */
+/*	$OpenBSD: ipmi.c,v 1.94 2016/02/07 12:19:14 uebayasi Exp $ */
 
 /*
  * Copyright (c) 2015 Masao Uebayashi
@@ -1827,6 +1827,7 @@ ipmiioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *proc)
 		recv->msg.data_len = c->c_rxlen + 1;
 
 		rc = copyout(c->c_data, recv->msg.data + 1, c->c_rxlen);
+		/* Always reset state after command completion. */
 		goto reset;
 	case IPMICTL_SET_MY_ADDRESS_CMD:
 		iv = *(int *)data;
@@ -1879,8 +1880,7 @@ ipmi_watchdog(void *arg, int period)
 			int res;
 
 			t = &sc->sc_wdog_tickle_task;
-			res = task_del(systq, t);
-			KASSERT(res == 0);
+			(void)task_del(systq, t);
 			res = task_add(systq, t);
 			KASSERT(res == 1);
 		}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.h,v 1.56 2016/02/05 16:07:57 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.h,v 1.58 2016/02/08 01:00:47 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.h,v 1.9 2004/04/30 22:57:32 dyoung Exp $	*/
 
 /*-
@@ -112,9 +112,6 @@ struct ieee80211_tx_ba {
 	struct ieee80211_node	*ba_ni;	/* backpointer for callbacks */
 	struct timeout		ba_to;
 	int			ba_timeout_val;
-#define IEEE80211_BA_MIN_TIMEOUT	(1000 * 1000)	/* 1 sec */
-#define IEEE80211_BA_MAX_TIMEOUT	(5000 * 1000)	/* 5 sec */
-
 	int			ba_state;
 #define IEEE80211_BA_INIT	0
 #define IEEE80211_BA_REQUESTED	1
@@ -150,6 +147,12 @@ struct ieee80211_rx_ba {
 	u_int16_t		ba_head;
 	struct timeout		ba_gap_to;
 #define IEEE80211_BA_GAP_TIMEOUT	500 /* msec */
+ 	/* Counter for consecutive frames which missed the BA window. */
+	int			ba_winmiss;
+ 	/* Sequence number of previous frame which missed the BA window. */
+	uint16_t		ba_missedsn;
+ 	/* Window moves forward after this many frames have missed it. */
+#define IEEE80211_BA_MAX_WINMISS	8
 };
 
 /*
