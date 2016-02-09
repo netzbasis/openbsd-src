@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_input.c,v 1.308 2015/11/06 11:20:56 mpi Exp $	*/
+/*	$OpenBSD: tcp_input.c,v 1.313 2016/01/22 11:10:17 jsg Exp $	*/
 /*	$NetBSD: tcp_input.c,v 1.23 1996/02/13 23:43:44 christos Exp $	*/
 
 /*
@@ -580,11 +580,7 @@ tcp_input(struct mbuf *m, ...)
 	 * Locate pcb for segment.
 	 */
 #if NPF > 0
-	if (m->m_pkthdr.pf.statekey) {
-		inp = m->m_pkthdr.pf.statekey->inp;
-		if (inp && inp->inp_pf_sk)
-			KASSERT(m->m_pkthdr.pf.statekey == inp->inp_pf_sk);
-	}
+	inp = pf_inp_lookup(m);
 #endif
 findpcb:
 	if (inp == NULL) {
@@ -602,12 +598,6 @@ findpcb:
 			    m->m_pkthdr.ph_rtableid);
 			break;
 		}
-#if NPF > 0
-		if (m->m_pkthdr.pf.statekey && inp) {
-			m->m_pkthdr.pf.statekey->inp = inp;
-			inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-		}
-#endif
 	}
 	if (inp == NULL) {
 		int	inpl_reverse = 0;
@@ -699,13 +689,13 @@ findpcb:
 			switch (af) {
 #ifdef INET6
 			case AF_INET6:
-				bcopy(ip6, &tcp_saveti6.ti6_i, sizeof(*ip6));
-				bcopy(th, &tcp_saveti6.ti6_t, sizeof(*th));
+				memcpy(&tcp_saveti6.ti6_i, ip6, sizeof(*ip6));
+				memcpy(&tcp_saveti6.ti6_t, th, sizeof(*th));
 				break;
 #endif
 			case AF_INET:
-				bcopy(ip, &tcp_saveti.ti_i, sizeof(*ip));
-				bcopy(th, &tcp_saveti.ti_t, sizeof(*th));
+				memcpy(&tcp_saveti.ti_i, ip, sizeof(*ip));
+				memcpy(&tcp_saveti.ti_t, th, sizeof(*th));
 				break;
 			}
 		}
@@ -880,13 +870,7 @@ findpcb:
 #endif
 
 #if NPF > 0
-	if (m->m_pkthdr.pf.statekey && !m->m_pkthdr.pf.statekey->inp &&
-	    !inp->inp_pf_sk) {
-		m->m_pkthdr.pf.statekey->inp = inp;
-		inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-	}
-	/* The statekey has finished finding the inp, it is no longer needed. */
-	m->m_pkthdr.pf.statekey = NULL;
+	pf_inp_link(m, inp);
 #endif
 
 #ifdef IPSEC
@@ -1294,10 +1278,7 @@ trimthenstep6:
 			 * has already been linked to the socket.  Remove the
 			 * link between old socket and new state.
 			 */
-			if (inp->inp_pf_sk) {
-				inp->inp_pf_sk->inp = NULL;
-				inp->inp_pf_sk = NULL;
-			}
+			pf_inp_unlink(inp);
 #endif
 			/*
 			* Advance the iss by at least 32768, but
@@ -2291,7 +2272,7 @@ tcp_dooptions(struct tcpcb *tp, u_char *cp, int cnt, struct tcphdr *th,
 				continue;
 			if (TCPS_HAVERCVDSYN(tp->t_state))
 				continue;
-			bcopy((char *) cp + 2, (char *) &mss, sizeof(mss));
+			memcpy(&mss, cp + 2, sizeof(mss));
 			mss = ntohs(mss);
 			oi->maxseg = mss;
 			break;
@@ -2311,9 +2292,9 @@ tcp_dooptions(struct tcpcb *tp, u_char *cp, int cnt, struct tcphdr *th,
 			if (optlen != TCPOLEN_TIMESTAMP)
 				continue;
 			oi->ts_present = 1;
-			bcopy(cp + 2, &oi->ts_val, sizeof(oi->ts_val));
+			memcpy(&oi->ts_val, cp + 2, sizeof(oi->ts_val));
 			oi->ts_val = ntohl(oi->ts_val);
-			bcopy(cp + 6, &oi->ts_ecr, sizeof(oi->ts_ecr));
+			memcpy(&oi->ts_ecr, cp + 6, sizeof(oi->ts_ecr));
 			oi->ts_ecr = ntohl(oi->ts_ecr);
 
 			if (!(th->th_flags & TH_SYN))
@@ -2566,10 +2547,9 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 	while (tmp_olen > 0) {
 		struct sackblk sack;
 
-		bcopy(tmp_cp, (char *) &(sack.start), sizeof(tcp_seq));
+		memcpy(&sack.start, tmp_cp, sizeof(tcp_seq));
 		sack.start = ntohl(sack.start);
-		bcopy(tmp_cp + sizeof(tcp_seq),
-		    (char *) &(sack.end), sizeof(tcp_seq));
+		memcpy(&sack.end, tmp_cp + sizeof(tcp_seq), sizeof(tcp_seq));
 		sack.end = ntohl(sack.end);
 		tmp_olen -= TCPOLEN_SACK;
 		tmp_cp += TCPOLEN_SACK;
@@ -2852,7 +2832,7 @@ tcp_pulloutofband(struct socket *so, u_int urgent, struct mbuf *m, int off)
 
 			tp->t_iobc = *cp;
 			tp->t_oobflags |= TCPOOB_HAVEDATA;
-			bcopy(cp+1, cp, (unsigned)(m->m_len - cnt - 1));
+			memmove(cp, cp + 1, m->m_len - cnt - 1);
 			m->m_len--;
 			return;
 		}
@@ -2974,7 +2954,7 @@ int
 tcp_mss(struct tcpcb *tp, int offer)
 {
 	struct rtentry *rt;
-	struct ifnet *ifp;
+	struct ifnet *ifp = NULL;
 	int mss, mssopt;
 	int iphlen;
 	struct inpcb *inp;
@@ -2988,7 +2968,9 @@ tcp_mss(struct tcpcb *tp, int offer)
 	if (rt == NULL)
 		goto out;
 
-	ifp = rt->rt_ifp;
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		goto out;
 
 	switch (tp->pf) {
 #ifdef INET6
@@ -3025,13 +3007,6 @@ tcp_mss(struct tcpcb *tp, int offer)
 			mss = rt->rt_rmx.rmx_mtu - iphlen -
 			    sizeof(struct tcphdr);
 		}
-	} else if (!ifp) {
-		/*
-		 * ifp may be null and rmx_mtu may be zero in certain
-		 * v6 cases (e.g., if ND wasn't able to resolve the
-		 * destination host.
-		 */
-		goto out;
 	} else if (ifp->if_flags & IFF_LOOPBACK) {
 		mss = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
 	} else if (tp->pf == AF_INET) {
@@ -3053,8 +3028,8 @@ tcp_mss(struct tcpcb *tp, int offer)
 		mssopt = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
 		mssopt = max(tcp_mssdflt, mssopt);
 	}
-
  out:
+	if_put(ifp);
 	/*
 	 * The current mss, t_maxseg, is initialized to the default value.
 	 * If we compute a smaller value, reduce the current mss.
@@ -3676,8 +3651,8 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	 */
 	{
 	  struct inpcb *newinp = sotoinpcb(so);
-	  bcopy(inp->inp_seclevel, newinp->inp_seclevel,
-		sizeof(inp->inp_seclevel));
+	  memcpy(newinp->inp_seclevel, inp->inp_seclevel,
+	      sizeof(inp->inp_seclevel));
 	}
 #endif /* IPSEC */
 #ifdef INET6
@@ -3742,7 +3717,7 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	if (am == NULL)
 		goto resetandabort;
 	am->m_len = src->sa_len;
-	bcopy(src, mtod(am, caddr_t), src->sa_len);
+	memcpy(mtod(am, caddr_t), src, src->sa_len);
 
 	switch (src->sa_family) {
 	case AF_INET:
@@ -4033,8 +4008,8 @@ syn_cache_add(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	 * Fill in the cache, and put the necessary IP and TCP
 	 * options into the reply.
 	 */
-	bcopy(src, &sc->sc_src, src->sa_len);
-	bcopy(dst, &sc->sc_dst, dst->sa_len);
+	memcpy(&sc->sc_src, src, src->sa_len);
+	memcpy(&sc->sc_dst, dst, dst->sa_len);
 	sc->sc_rtableid = sotoinpcb(so)->inp_rtableid;
 	sc->sc_flags = 0;
 	sc->sc_ipopts = ipopts;

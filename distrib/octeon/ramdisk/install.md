@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.10 2015/06/02 19:54:06 rpe Exp $
+#	$OpenBSD: install.md,v 1.15 2016/02/08 17:28:09 krw Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -53,10 +53,10 @@ md_prep_fdisk() {
 
 	while :; do
 		_d=whole
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr; then
 			fdisk $_disk
-			if fdisk $_disk | grep -q '^..: A6 '; then
-				_q=", use the (O)penBSD area,"
+			if disk_has $_disk mbr openbsd; then
+				_q=", use the (O)penBSD area"
 				_d=OpenBSD
 			fi
 		else
@@ -64,7 +64,7 @@ md_prep_fdisk() {
 		fi
 		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			echo -n "Creating a FAT partition and an OpenBSD partition for rest of $_disk..."
 			fdisk -e ${_disk} <<__EOT >/dev/null
 reinit
@@ -86,7 +86,7 @@ __EOT
 			disklabel $_disk 2>/dev/null | grep -q "^  i:" || disklabel -w -d $_disk
 			newfs -t msdos ${_disk}i
 			return ;;
-		e*|E*)
+		[eE]*)
 			# Manually configure the MBR.
 			cat <<__EOT
 
@@ -101,9 +101,11 @@ at least 16MB and be the first 'MSDOS' partition on the disk.
 $(fdisk ${_disk})
 __EOT
 			fdisk -e ${_disk}
-			fdisk $_disk | grep -q ' A6 ' && return
+			disk_has $_disk mbr openbsd && return
 			echo No OpenBSD partition in MBR, try again. ;;
-		o*|O*)	return ;;
+		[oO]*)
+			[[ $_d == OpenBSD ]] || continue
+			return ;;
 		esac
 	done
 }
@@ -116,18 +118,8 @@ md_prep_disklabel() {
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD MBR
-partition. The disklabel defines how OpenBSD splits up the MBR partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD MBR partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

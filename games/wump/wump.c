@@ -1,4 +1,4 @@
-/*	$OpenBSD: wump.c,v 1.26 2013/08/29 20:22:22 naddy Exp $	*/
+/*	$OpenBSD: wump.c,v 1.32 2016/01/10 13:35:10 mestre Exp $	*/
 
 /*
  * Copyright (c) 1989, 1993
@@ -39,16 +39,16 @@
  * would care to remember.
  */
 
-#include <sys/types.h>
 #include <sys/wait.h>
+
 #include <err.h>
 #include <fcntl.h>
 #include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
+
 #include "pathnames.h"
 
 /* some defines to spec out what our wumpus cave should look like */
@@ -123,7 +123,7 @@ void	pit_survive(void);
 int	shoot(char *);
 void	shoot_self(void);
 int	take_action(void);
-void	usage(void);
+__dead void	usage(void);
 void	wump_kill(void);
 void	wump_bat_kill(void);
 void	wump_walk_kill(void);
@@ -134,6 +134,9 @@ int
 main(int argc, char *argv[])
 {
 	int c;
+
+	if (pledge("stdio rpath proc exec", NULL) == -1)
+		err(1, "pledge");
 
 #ifdef DEBUG
 	while ((c = getopt(argc, argv, "a:b:hop:r:t:d")) != -1)
@@ -220,6 +223,10 @@ main(int argc, char *argv[])
 "the wumpus refused to enter the cave, claiming it was too dangerous!");
 
 	instructions();
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
+
 	if (oldstyle)
 		dodecahedral_cave_init();
 	else
@@ -248,7 +255,7 @@ quiver holds %d custom super anti-evil Wumpus arrows.  Good luck.\n",
 
 		if (!getans("\nCare to play another game? (y-n) ")) {
 			(void)printf("\n");
-			exit(0);
+			return 0;
 		}
 		clear_things_in_cave();
 		if (!getans("In the same cave? (y-n) ")) {
@@ -258,7 +265,6 @@ quiver holds %d custom super anti-evil Wumpus arrows.  Good luck.\n",
 				cave_init();
 		}
 	}
-	/* NOTREACHED */
 }
 
 void
@@ -795,7 +801,6 @@ getans(const char *prompt)
 		(void)printf(
 "I don't understand your answer; please enter 'y' or 'n'!\n");
 	}
-	/* NOTREACHED */
 }
 
 int

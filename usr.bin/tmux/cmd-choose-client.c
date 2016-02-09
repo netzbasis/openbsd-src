@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-choose-client.c,v 1.25 2015/10/25 22:29:17 nicm Exp $ */
+/* $OpenBSD: cmd-choose-client.c,v 1.29 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,11 +38,16 @@ enum cmd_retval	 cmd_choose_client_exec(struct cmd *, struct cmd_q *);
 void	cmd_choose_client_callback(struct window_choose_data *);
 
 const struct cmd_entry cmd_choose_client_entry = {
-	"choose-client", NULL,
-	"F:t:", 0, 1,
-	CMD_TARGET_WINDOW_USAGE " [-F format] [template]",
-	0,
-	cmd_choose_client_exec
+	.name = "choose-client",
+	.alias = NULL,
+
+	.args = { "F:t:", 0, 1 },
+	.usage = CMD_TARGET_WINDOW_USAGE " [-F format] [template]",
+
+	.tflag = CMD_WINDOW,
+
+	.flags = 0,
+	.exec = cmd_choose_client_exec
 };
 
 struct cmd_choose_client_data {
@@ -53,21 +58,18 @@ enum cmd_retval
 cmd_choose_client_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args			*args = self->args;
-	struct client			*c;
+	struct client			*c = cmdq->state.c;
 	struct client			*c1;
 	struct window_choose_data	*cdata;
-	struct winlink			*wl;
+	struct winlink			*wl = cmdq->state.tflag.wl;
 	const char			*template;
 	char				*action;
 	u_int			 	 idx, cur;
 
-	if ((c = cmd_find_client(cmdq, NULL, 1)) == NULL) {
+	if (c == NULL) {
 		cmdq_error(cmdq, "no client available");
 		return (CMD_RETURN_ERROR);
 	}
-
-	if ((wl = cmd_find_window(cmdq, args_get(args, 't'), NULL)) == NULL)
-		return (CMD_RETURN_ERROR);
 
 	if (window_pane_set_mode(wl->window->active, &window_choose_mode) != 0)
 		return (CMD_RETURN_NORMAL);

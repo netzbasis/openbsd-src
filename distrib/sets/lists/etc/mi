@@ -15,7 +15,6 @@
 ./etc/login.conf
 ./etc/mail.rc
 ./etc/mail/aliases
-./etc/mail/aliases.db
 ./etc/mail/smtpd.conf
 ./etc/mail/spamd.conf
 ./etc/mailer.conf
@@ -43,6 +42,7 @@
 ./etc/ssh/ssh_config
 ./etc/ssh/sshd_config
 ./etc/ssl/cert.pem
+./etc/ssl/ikeca.cnf
 ./etc/ssl/openssl.cnf
 ./etc/ssl/x509v3.cnf
 ./etc/syslog.conf

@@ -1,4 +1,4 @@
-/* 	$OpenBSD: kern_compat.h,v 1.1 2015/11/04 09:45:52 mpi Exp $ */
+/* 	$OpenBSD: kern_compat.h,v 1.3 2015/12/04 12:30:57 mpi Exp $ */
 
 #ifndef _KERN_COMPAT_H_
 #define _KERN_COMPAT_H_
@@ -16,12 +16,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "srp_compat.h"
+
 #define DIAGNOSTIC
 #define INET
 #define INET6
 
 #define KASSERT(x)		assert(x)
 #define KERNEL_ASSERT_LOCKED()	/* nothing */
+#define KERNEL_LOCK()		/* nothing */
+#define KERNEL_UNLOCK()		/* nothing */
 
 #define panic(x...) errx(1, x)
 

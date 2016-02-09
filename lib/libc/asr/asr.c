@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.48 2015/10/28 21:38:45 eric Exp $	*/
+/*	$OpenBSD: asr.c,v 1.50 2015/12/16 16:32:30 deraadt Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -35,10 +35,6 @@
 #include <limits.h>
 
 #include "asr_private.h"
-
-#ifndef ASR_OPT_HOSTALIASES
-#define ASR_OPT_HOSTALIASES 1
-#endif
 
 #include "thread_private.h"
 
@@ -560,9 +556,9 @@ pass0(char **tok, int n, struct asr_ctx *ac)
 					return;
 		ac->ac_dbcount = 0;
 		for (i = 1; i < n && ac->ac_dbcount < ASR_MAXDB; i++) {
-			if (!strcmp(tok[i], "yp"))
-				ac->ac_db[ac->ac_dbcount++] = ASR_DB_YP;
-			else if (!strcmp(tok[i], "bind"))
+			if (!strcmp(tok[i], "yp")) {
+				/* silently deprecated */
+			} else if (!strcmp(tok[i], "bind"))
 				ac->ac_db[ac->ac_dbcount++] = ASR_DB_DNS;
 			else if (!strcmp(tok[i], "file"))
 				ac->ac_db[ac->ac_dbcount++] = ASR_DB_FILE;
@@ -838,47 +834,4 @@ _asr_iter_db(struct asr_query *as)
 	DPRINT("asr_iter_db: %i\n", as->as_db_idx);
 
 	return (0);
-}
-
-/*
- * Check if the hostname "name" is a user-defined alias as per hostname(7).
- * If so, copies the result in the buffer "abuf" of size "abufsz" and
- * return "abuf". Otherwise return NULL.
- */
-char *
-_asr_hostalias(struct asr_ctx *ac, const char *name, char *abuf, size_t abufsz)
-{
-#if ASR_OPT_HOSTALIASES
-	FILE	 *fp;
-	size_t	  len;
-	char	 *file, *buf, *tokens[2];
-	int	  ntok;
-
-	if (ac->ac_options & RES_NOALIASES ||
-	    asr_ndots(name) != 0 ||
-	    issetugid() ||
-	    (file = getenv("HOSTALIASES")) == NULL ||
-	    (fp = fopen(file, "re")) == NULL)
-		return (NULL);
-
-	DPRINT("asr: looking up aliases in \"%s\"\n", file);
-
-	while ((buf = fgetln(fp, &len)) != NULL) {
-		if (buf[len - 1] == '\n')
-			len--;
-		buf[len] = '\0';
-		if ((ntok = strsplit(buf, tokens, 2)) != 2)
-			continue;
-		if (!strcasecmp(tokens[0], name)) {
-			if (strlcpy(abuf, tokens[1], abufsz) > abufsz)
-				continue;
-			DPRINT("asr: found alias \"%s\"\n", abuf);
-			fclose(fp);
-			return (abuf);
-		}
-	}
-
-	fclose(fp);
-#endif
-	return (NULL);
 }

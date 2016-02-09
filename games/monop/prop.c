@@ -1,4 +1,4 @@
-/*	$OpenBSD: prop.c,v 1.9 2015/08/22 14:47:41 deraadt Exp $	*/
+/*	$OpenBSD: prop.c,v 1.11 2016/01/08 18:20:33 mestre Exp $	*/
 /*	$NetBSD: prop.c,v 1.3 1995/03/23 08:35:06 cgd Exp $	*/
 
 /*
@@ -30,8 +30,11 @@
  * SUCH DAMAGE.
  */
 
-#include	<err.h>
-#include	"monop.ext"
+#include <err.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "monop.ext"
 
 static int	value(SQUARE *);
 
@@ -40,9 +43,7 @@ static int	value(SQUARE *);
  * appropriate flags.
  */
 void
-buy(plr, sqrp)
-	int	plr;
-	SQUARE	*sqrp;
+buy(int plr, SQUARE *sqrp)
 {
 	trading = FALSE;
 	sqrp->owner = plr;
@@ -52,10 +53,7 @@ buy(plr, sqrp)
  *	This routine adds an item to the list.
  */
 void
-add_list(plr, head, op_sqr)
-	int	plr;
-	OWN	**head;
-	int	op_sqr;
+add_list(int plr, OWN **head, int op_sqr)
 {
 	int	val;
 	OWN	*tp, *last_tp;
@@ -85,10 +83,7 @@ add_list(plr, head, op_sqr)
  *	This routine deletes property from the list.
  */
 void
-del_list(plr, head, op_sqr)
-	int	plr;
-	OWN	**head;
-	shrt	op_sqr;
+del_list(int plr, OWN **head, shrt op_sqr)
 {
 	OWN	*op, *last_op;
 
@@ -121,8 +116,7 @@ del_list(plr, head, op_sqr)
  * given square.
  */
 static int
-value(sqp)
-	SQUARE	*sqp;
+value(SQUARE *sqp)
 {
 	int	sqr;
 
@@ -147,7 +141,7 @@ value(sqp)
  *	This routine accepts bids for the current piece of property.
  */
 void
-bid()
+bid(void)
 {
 	static bool	in[MAX_PL];
 	int		i, num_in, cur_max;
@@ -197,8 +191,7 @@ bid()
  * of given player.
  */
 int
-prop_worth(plp)
-	PLAY	*plp;
+prop_worth(PLAY *plp)
 {
 	OWN	*op;
 	int	worth;

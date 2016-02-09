@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldapd.c,v 1.14 2015/11/02 06:32:51 jmatthew Exp $ */
+/*	$OpenBSD: ldapd.c,v 1.19 2016/02/04 12:48:06 jca Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -17,6 +17,8 @@
  */
 
 #include <sys/queue.h>
+#include <sys/stat.h>
+#include <sys/un.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -45,9 +47,11 @@ static void	 ldapd_needfd(struct imsgev *iev);
 static void	 ldapd_auth_request(struct imsgev *iev, struct imsg *imsg);
 static void	 ldapd_open_request(struct imsgev *iev, struct imsg *imsg);
 static void	 ldapd_log_verbose(struct imsg *imsg);
+static void	 ldapd_cleanup(char *);
 
 struct ldapd_stats	 stats;
 pid_t			 ldape_pid;
+const char		*datadir = DATADIR;
 
 void
 usage(void)
@@ -55,7 +59,7 @@ usage(void)
 	extern char	*__progname;
 
 	fprintf(stderr, "usage: %s [-dnv] [-D macro=value] "
-	    "[-f file] [-s file]\n", __progname);
+	    "[-f file] [-r directory] [-s file]\n", __progname);
 	exit(1);
 }
 
@@ -114,10 +118,11 @@ main(int argc, char *argv[])
 	struct event		 ev_sigterm;
 	struct event		 ev_sigchld;
 	struct event		 ev_sighup;
+	struct stat		 sb;
 
 	log_init(1);		/* log to stderr until daemonized */
 
-	while ((c = getopt(argc, argv, "dhvD:f:ns:")) != -1) {
+	while ((c = getopt(argc, argv, "dhvD:f:nr:s:")) != -1) {
 		switch (c) {
 		case 'd':
 			debug = 1;
@@ -136,6 +141,9 @@ main(int argc, char *argv[])
 			/* NOTREACHED */
 		case 'n':
 			configtest = 1;
+			break;
+		case 'r':
+			datadir = optarg;
 			break;
 		case 's':
 			csockpath = optarg;
@@ -170,6 +178,11 @@ main(int argc, char *argv[])
 			errx(1, "need root privileges");
 		skip_chroot = 1;
 	}
+
+	if (stat(datadir, &sb) == -1)
+		err(1, "%s", datadir);
+	if (!S_ISDIR(sb.st_mode))
+		errx(1, "%s is not a directory", datadir);
 
 	if (!skip_chroot && (pw = getpwnam(LDAPD_USER)) == NULL)
 		err(1, "%s", LDAPD_USER);
@@ -213,9 +226,30 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 
 	event_dispatch();
+
+	ldapd_cleanup(csockpath);
 	log_debug("ldapd: exiting");
 
 	return 0;
+}
+
+static void
+ldapd_cleanup(char * csockpath)
+{
+	struct listener		*l;
+	struct sockaddr_un	*sun = NULL;
+
+	/* Remove control socket. */
+	(void)unlink(csockpath);
+
+	/* Remove unix listening sockets. */
+	TAILQ_FOREACH(l, &conf->listeners, entry) {
+		if (l->ss.ss_family == AF_UNIX) {
+			sun = (struct sockaddr_un *)&l->ss;
+			log_info("ldapd: removing unix socket %s", sun->sun_path);
+			(void)unlink(sun->sun_path);
+		}
+	}
 }
 
 static void
@@ -314,7 +348,7 @@ ldapd_auth_request(struct imsgev *iev, struct imsg *imsg)
 	ares.ok = ldapd_auth_classful(areq->name, areq->password);
 	ares.fd = areq->fd;
 	ares.msgid = areq->msgid;
-	bzero(areq, sizeof(*areq));
+	memset(areq, 0, sizeof(*areq));
 	imsgev_compose(iev, IMSG_LDAPD_AUTH_RESULT, 0, 0, -1, &ares,
 	    sizeof(ares));
 }
@@ -343,7 +377,7 @@ ldapd_open_request(struct imsgev *iev, struct imsg *imsg)
 	/* make sure path is null-terminated */
 	oreq->path[PATH_MAX] = '\0';
 
-	if (strncmp(oreq->path, DATADIR, strlen(DATADIR)) != 0) {
+	if (strncmp(oreq->path, datadir, strlen(datadir)) != 0) {
 		log_warnx("refusing to open file %s", oreq->path);
 		fatal("ldape sent invalid open request");
 	}

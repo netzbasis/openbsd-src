@@ -20,7 +20,6 @@
 
 #include <machine/intr.h>
 
-#include "ether.h"
 #include "ppp.h"
 #include "bridge.h"
 #include "pppoe.h"
@@ -32,17 +31,13 @@ int	 netisr;
 void	*netisr_intr;
 
 void
-netintr(void *unused) /* ARGSUSED */
+netintr(void *unused)
 {
 	int n, t = 0;
 
 	while ((n = netisr) != 0) {
 		atomic_clearbits_int(&netisr, n);
 
-#if NETHER > 0
-		if (n & (1 << NETISR_ARP))
-			arpintr();
-#endif
 		if (n & (1 << NETISR_IP))
 			ipintr();
 #ifdef INET6
@@ -68,8 +63,6 @@ netintr(void *unused) /* ARGSUSED */
 	if (t & (1 << NETISR_PFSYNC))
 		pfsyncintr();
 #endif
-	if (t & (1 << NETISR_TX))
-		nettxintr();
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ssl_smtpd.c,v 1.10 2015/10/21 16:44:28 jsing Exp $	*/
+/*	$OpenBSD: ssl_smtpd.c,v 1.13 2015/12/30 16:02:08 benno Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -45,12 +45,12 @@
 
 
 void *
-ssl_mta_init(void *pkiname, char *cert, off_t cert_len)
+ssl_mta_init(void *pkiname, char *cert, off_t cert_len, const char *ciphers)
 {
 	SSL_CTX	*ctx = NULL;
 	SSL	*ssl = NULL;
 
-	ctx = ssl_ctx_create(pkiname, cert, cert_len);
+	ctx = ssl_ctx_create(pkiname, cert, cert_len, ciphers);
 
 	if ((ssl = SSL_new(ctx)) == NULL)
 		goto err;
@@ -61,10 +61,8 @@ ssl_mta_init(void *pkiname, char *cert, off_t cert_len)
 	return (void *)(ssl);
 
 err:
-	if (ssl != NULL)
-		SSL_free(ssl);
-	if (ctx != NULL)
-		SSL_CTX_free(ctx);
+	SSL_free(ssl);
+	SSL_CTX_free(ctx);
 	ssl_error("ssl_mta_init");
 	return (NULL);
 }
@@ -82,18 +80,14 @@ dummy_verify(int ok, X509_STORE_CTX *store)
 }
 
 void *
-ssl_smtp_init(void *ssl_ctx, void *sni, int verify)
+ssl_smtp_init(void *ssl_ctx, int verify)
 {
 	SSL	*ssl = NULL;
-	int	(*cb)(SSL *,int *,void *) = sni;
 
 	log_debug("debug: session_start_ssl: switching to SSL");
 
 	if (verify)
 		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, dummy_verify);
-
-	if (cb)
-		SSL_CTX_set_tlsext_servername_callback(ssl_ctx, cb);
 
 	if ((ssl = SSL_new(ssl_ctx)) == NULL)
 		goto err;
@@ -103,8 +97,7 @@ ssl_smtp_init(void *ssl_ctx, void *sni, int verify)
 	return (void *)(ssl);
 
 err:
-	if (ssl != NULL)
-		SSL_free(ssl);
+	SSL_free(ssl);
 	ssl_error("ssl_smtp_init");
 	return (NULL);
 }

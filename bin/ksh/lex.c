@@ -1,12 +1,15 @@
-/*	$OpenBSD: lex.c,v 1.62 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: lex.c,v 1.67 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * lexical analysis and source input
  */
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -193,7 +196,7 @@ yylex(int cf)
 			    c == '!') {
 				char **replace = NULL;
 				int get, i;
-				char match[200], *str = match;
+				char match[200] = { 0 }, *str = match;
 				size_t mlen;
 
 				c2 = getsc();
@@ -247,12 +250,13 @@ yylex(int cf)
 					s->u.freeme = NULL;
 					source = s;
 					continue;
-				} else {
+				} else if (*match != '\0') {
 					/* restore what followed the '!' */
 					mlen = strlen(match);
 					for (i = mlen-1; i >= 0; i--)
 						ungetsc(match[i]);
-				}
+				} else
+					ungetsc(c2);
 			}
 			if (c == '[' && (cf & (VARASN|ARRAYVAR))) {
 				*wp = EOS; /* temporary */
@@ -399,12 +403,12 @@ yylex(int cf)
 						Xcheck(ws, wp);
 						*wp++ = c;
 						c = getsc();
-					} while (ctype(c, C_ALPHA|C_DIGIT));
+					} while (ctype(c, C_ALPHA) || digit(c));
 					*wp++ = '\0';
 					*wp++ = CSUBST;
 					*wp++ = 'X';
 					ungetsc(c);
-				} else if (ctype(c, C_DIGIT|C_VAR1)) {
+				} else if (ctype(c, C_VAR1) || digit(c)) {
 					Xcheck(ws, wp);
 					*wp++ = OSUBST;
 					*wp++ = 'X';
@@ -1120,7 +1124,7 @@ getsc_line(Source *s)
 			char *p = shf_getse(xp, Xnleft(s->xs, xp), s->u.shf);
 
 			if (!p && shf_error(s->u.shf) &&
-			    shf_errno(s->u.shf) == EINTR) {
+			    s->u.shf->errno_ == EINTR) {
 				shf_clearerr(s->u.shf);
 				if (trap)
 					runtraps(0);
@@ -1197,7 +1201,7 @@ set_prompt(int to, Source *s)
 		ps1 = str_save(str_val(global("PS1")), ATEMP);
 		saved_atemp = ATEMP;	/* ps1 is freed by substitute() */
 		newenv(E_ERRH);
-		if (sigsetjmp(e->jbuf, 0)) {
+		if (sigsetjmp(genv->jbuf, 0)) {
 			prompt = safe_prompt;
 			/* Don't print an error - assume it has already
 			 * been printed.  Reason is we may have forked

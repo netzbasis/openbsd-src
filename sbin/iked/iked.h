@@ -1,4 +1,4 @@
-/*	$OpenBSD: iked.h,v 1.91 2015/10/22 15:55:18 reyk Exp $	*/
+/*	$OpenBSD: iked.h,v 1.95 2015/12/07 12:46:37 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -870,9 +870,13 @@ int	 imsg_compose_event(struct imsgev *, uint16_t, uint32_t,
 int	 imsg_composev_event(struct imsgev *, uint16_t, uint32_t,
 	    pid_t, int, const struct iovec *, int);
 int	 proc_compose_imsg(struct privsep *, enum privsep_procid, int,
-	    uint16_t, int, void *, uint16_t);
+	    u_int16_t, u_int32_t, int, void *, u_int16_t);
+int	 proc_compose(struct privsep *, enum privsep_procid,
+	    uint16_t, void *, uint16_t);
 int	 proc_composev_imsg(struct privsep *, enum privsep_procid, int,
-	    uint16_t, int, const struct iovec *, int);
+	    u_int16_t, u_int32_t, int, const struct iovec *, int);
+int	 proc_composev(struct privsep *, enum privsep_procid,
+	    uint16_t, const struct iovec *, int);
 int	 proc_forward_imsg(struct privsep *, struct imsg *,
 	    enum privsep_procid, int);
 struct imsgbuf *
@@ -881,7 +885,6 @@ struct imsgev *
 	 proc_iev(struct privsep *, enum privsep_procid, int);
 
 /* util.c */
-void	 socket_set_blockmode(int, enum blockmodes);
 int	 socket_af(struct sockaddr *, in_port_t);
 in_port_t
 	 socket_getport(struct sockaddr *);
@@ -914,6 +917,10 @@ const char *
 	 print_proto(uint8_t);
 int	 expand_string(char *, size_t, const char *, const char *);
 uint8_t *string2unicode(const char *, size_t *);
+void	 print_debug(const char *, ...)
+	    __attribute__((format(printf, 1, 2)));
+void	 print_verbose(const char *, ...)
+	    __attribute__((format(printf, 1, 2)));
 
 /* imsg_util.c */
 struct ibuf *
@@ -938,16 +945,25 @@ void	*ibuf_advance(struct ibuf *, size_t);
 void	 ibuf_zero(struct ibuf *);
 
 /* log.c */
-void	 log_init(int);
-void	 log_verbose(int);
-void	 log_warn(const char *, ...) __attribute__((format(printf, 1, 2)));
-void	 log_warnx(const char *, ...) __attribute__((format(printf, 1, 2)));
-void	 log_info(const char *, ...) __attribute__((format(printf, 1, 2)));
-void	 log_debug(const char *, ...) __attribute__((format(printf, 1, 2)));
-void	 print_debug(const char *, ...) __attribute__((format(printf, 1, 2)));
-void	 print_verbose(const char *, ...) __attribute__((format(printf, 1, 2)));
-__dead void fatal(const char *);
-__dead void fatalx(const char *);
+void	log_init(int, int);
+void	log_procinit(const char *);
+void	log_verbose(int);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* ocsp.c */
 int	 ocsp_connect(struct iked *env);

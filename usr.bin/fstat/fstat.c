@@ -1,4 +1,4 @@
-/*	$OpenBSD: fstat.c,v 1.83 2015/10/23 13:21:10 deraadt Exp $	*/
+/*	$OpenBSD: fstat.c,v 1.86 2016/01/02 13:22:52 semarie Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -96,10 +96,10 @@ int	nflg;	/* (numerical) display f.s. and rdev as dev_t */
 int	oflg;	/* display file offset */
 int	sflg;	/* display file xfer/bytes counters */
 int	vflg;	/* display errors in locating kernel data objects etc... */
-int 	cflg; 	/* fuser only */
+int	cflg; 	/* fuser only */
 
-int 	fuser;	/* 1 if we are fuser, 0 if we are fstat */
-int 	signo;	/* signal to send (fuser only) */
+int	fuser;	/* 1 if we are fuser, 0 if we are fstat */
+int	signo;	/* signal to send (fuser only) */
 
 kvm_t *kd;
 uid_t uid;
@@ -107,7 +107,7 @@ uid_t uid;
 void fstat_dofile(struct kinfo_file *);
 void fstat_header(void);
 void getinetproto(int);
-void usage(void);
+__dead void usage(void);
 int getfname(char *);
 void kqueuetrans(struct kinfo_file *);
 void pipetrans(struct kinfo_file *);
@@ -276,7 +276,18 @@ main(int argc, char *argv[])
 		errx(1, "%s", kvm_geterr(kd));
 
 	if (fuser) {
-		if (sflg) { /* fuser might call kill(2) */
+		/*
+		 * fuser
+		 *  uflg: need "getpw"
+		 *  sflg: need "proc" (might call kill(2))
+		 */
+		if (uflg && sflg) {
+			if (pledge("stdio rpath getpw proc", NULL) == -1)
+				err(1, "pledge");
+		} else if (uflg) {
+			if (pledge("stdio rpath getpw", NULL) == -1)
+				err(1, "pledge");
+		} else if (sflg) {
 			if (pledge("stdio rpath proc", NULL) == -1)
 				err(1, "pledge");
 		} else {
@@ -284,7 +295,8 @@ main(int argc, char *argv[])
 				err(1, "pledge");
 		}
 	} else {
-		if (pledge("stdio rpath", NULL) == -1)
+		/* fstat */
+		if (pledge("stdio rpath getpw", NULL) == -1)
 			err(1, "pledge");
 	}
 
@@ -827,8 +839,7 @@ socktrans(struct kinfo_file *kf)
  *	print name of protocol number
  */
 void
-getinetproto(number)
-	int number;
+getinetproto(int number)
 {
 	static int isopen;
 	struct protoent *pe;

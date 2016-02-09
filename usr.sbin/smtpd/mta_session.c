@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta_session.c,v 1.74 2015/10/14 22:01:43 gilles Exp $	*/
+/*	$OpenBSD: mta_session.c,v 1.82 2015/12/12 20:02:31 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -129,6 +129,8 @@ struct mta_session {
 	FILE			*datafp;
 
 	size_t			 failures;
+
+	char			 replybuf[2048];
 };
 
 static void mta_session_init(void);
@@ -257,7 +259,6 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 	const char		*name;
 	void			*ssl;
 	int			 dnserror, status;
-	char			*pkiname;
 
 	switch (imsg->hdr.type) {
 
@@ -310,7 +311,7 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 		waitq_run(&h->ptrname, h->ptrname);
 		return;
 
-	case IMSG_MTA_SSL_INIT:
+	case IMSG_MTA_TLS_INIT:
 		resp_ca_cert = imsg->data;
 		s = mta_tree_pop(&wait_ssl_init, resp_ca_cert->reqid);
 		if (s == NULL)
@@ -324,7 +325,7 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 				return;
 			}
 			else {
-				ssl = ssl_mta_init(NULL, NULL, 0);
+				ssl = ssl_mta_init(NULL, NULL, 0, env->sc_tls_ciphers);
 				if (ssl == NULL)
 					fatal("mta: ssl_mta_init");
 				io_start_tls(&s->io, ssl);
@@ -335,12 +336,8 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 		resp_ca_cert = xmemdup(imsg->data, sizeof *resp_ca_cert, "mta:ca_cert");
 		resp_ca_cert->cert = xstrdup((char *)imsg->data +
 		    sizeof *resp_ca_cert, "mta:ca_cert");
-		if (s->relay->pki_name)
-			pkiname = s->relay->pki_name;
-		else
-			pkiname = s->helo;
-		ssl = ssl_mta_init(pkiname,
-		    resp_ca_cert->cert, resp_ca_cert->cert_len);
+		ssl = ssl_mta_init(resp_ca_cert->name,
+		    resp_ca_cert->cert, resp_ca_cert->cert_len, env->sc_tls_ciphers);
 		if (ssl == NULL)
 			fatal("mta: ssl_mta_init");
 		io_start_tls(&s->io, ssl);
@@ -350,7 +347,7 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 		free(resp_ca_cert);
 		return;
 
-	case IMSG_MTA_SSL_VERIFY:
+	case IMSG_MTA_TLS_VERIFY:
 		resp_ca_vrfy = imsg->data;
 		s = mta_tree_pop(&wait_ssl_verify, resp_ca_vrfy->reqid);
 		if (s == NULL)
@@ -437,8 +434,7 @@ mta_free(struct mta_session *s)
 		fatalx("current task should have been deleted already");
 	if (s->datafp)
 		fclose(s->datafp);
-	if (s->helo)
-		free(s->helo);
+	free(s->helo);
 
 	relay = s->relay;
 	route = s->route;
@@ -596,6 +592,8 @@ mta_enter_state(struct mta_session *s, int newstate)
 	    mta_strstate(newstate));
 
 	s->state = newstate;
+
+	memset(s->replybuf, 0, sizeof s->replybuf);
 
 	/* don't try this at home! */
 #define mta_enter_state(_s, _st) do { newstate = _st; goto again; } while (0)
@@ -1229,8 +1227,36 @@ mta_io(struct io *io, int evt)
 				s->ext |= MTA_EXT_DSN;
 		}
 
-		if (cont)
+		/* continuation reply, we parse out the repeating statuses and ESC */
+		if (cont) {
+			if (s->replybuf[0] == '\0')
+				(void)strlcat(s->replybuf, line, sizeof s->replybuf);
+			else {
+				line = line + 4;
+				if (isdigit((int)*line) && *(line + 1) == '.' &&
+				    isdigit((int)*line+2) && *(line + 3) == '.' &&
+				    isdigit((int)*line+4) && isspace((int)*(line + 5)))
+					(void)strlcat(s->replybuf, line+5, sizeof s->replybuf);
+				else
+					(void)strlcat(s->replybuf, line, sizeof s->replybuf);
+			}
 			goto nextline;
+		}
+
+		/* last line of a reply, check if we're on a continuation to parse out status and ESC.
+		 * if we overflow reply buffer or are not on continuation, log entire last line.
+		 */
+		if (s->replybuf[0] != '\0') {
+			p = line + 4;
+			if (isdigit((int)*p) && *(p + 1) == '.' &&
+			    isdigit((int)*p+2) && *(p + 3) == '.' &&
+			    isdigit((int)*p+4) && isspace((int)*(p + 5)))
+				p += 5;
+			if (strlcat(s->replybuf, p, sizeof s->replybuf) >= sizeof s->replybuf)
+				(void)strlcpy(s->replybuf, line, sizeof s->replybuf);
+		}
+		else
+			(void)strlcpy(s->replybuf, line, sizeof s->replybuf);
 
 		if (s->state == MTA_QUIT) {
 			log_info("smtp-out: Closing session %016"PRIx64
@@ -1240,7 +1266,7 @@ mta_io(struct io *io, int evt)
 			return;
 		}
 		io_set_write(io);
-		mta_response(s, line);
+		mta_response(s, s->replybuf);
 		if (s->flags & MTA_FREE) {
 			mta_free(s);
 			return;
@@ -1505,14 +1531,18 @@ mta_start_tls(struct mta_session *s)
 	struct ca_cert_req_msg	req_ca_cert;
 	const char	       *certname;
 
-	if (s->relay->pki_name)
+	if (s->relay->pki_name) {
 		certname = s->relay->pki_name;
-	else
+		req_ca_cert.fallback = 0;
+	}
+	else {
 		certname = s->helo;
+		req_ca_cert.fallback = 1;
+	}
 
 	req_ca_cert.reqid = s->id;
 	(void)strlcpy(req_ca_cert.name, certname, sizeof req_ca_cert.name);
-	m_compose(p_lka, IMSG_MTA_SSL_INIT, 0, 0, -1,
+	m_compose(p_lka, IMSG_MTA_TLS_INIT, 0, 0, -1,
 	    &req_ca_cert, sizeof(req_ca_cert));
 	tree_xset(&wait_ssl_init, s->id, s);
 	s->flags |= MTA_WAIT;
@@ -1528,7 +1558,7 @@ mta_verify_certificate(struct mta_session *s)
 	struct iovec		iov[2];
 	X509		       *x;
 	STACK_OF(X509)	       *xchain;
-	const char	       *pkiname;
+	const char	       *name;
 	unsigned char	       *cert_der[MAX_CERTS];
 	int			cert_len[MAX_CERTS];
 	int			i, cert_count, res;
@@ -1537,12 +1567,17 @@ mta_verify_certificate(struct mta_session *s)
 	memset(cert_der, 0, sizeof(cert_der));
 	memset(&req_ca_vrfy, 0, sizeof req_ca_vrfy);
 
-	if (s->relay->pki_name)
-		pkiname = s->relay->pki_name;
-	else
-		pkiname = s->helo;
-	if (strlcpy(req_ca_vrfy.pkiname, pkiname, sizeof req_ca_vrfy.pkiname)
-	    >= sizeof req_ca_vrfy.pkiname)
+	/* Send the client certificate */
+	if (s->relay->ca_name) {
+		name = s->relay->ca_name;
+		req_ca_vrfy.fallback = 0;
+	}
+	else {
+		name = s->helo;
+		req_ca_vrfy.fallback = 1;
+	}
+	if (strlcpy(req_ca_vrfy.name, name, sizeof req_ca_vrfy.name)
+	    >= sizeof req_ca_vrfy.name)
 		return 0;
 
 	x = SSL_get_peer_certificate(s->io.ssl);
@@ -1562,12 +1597,12 @@ mta_verify_certificate(struct mta_session *s)
 	X509_free(x);
 
 	if (cert_len[0] < 0) {
-		log_warnx("warn: failed to encode certificate");	
+		log_warnx("warn: failed to encode certificate");
 		goto end;
 	}
 	log_debug("debug: certificate 0: len=%d", cert_len[0]);
 	if (cert_len[0] > (int)MAX_CERT_LEN) {
-		log_warnx("warn: certificate too long");	
+		log_warnx("warn: certificate too long");
 		goto end;
 	}
 
@@ -1586,12 +1621,12 @@ mta_verify_certificate(struct mta_session *s)
 		x = sk_X509_value(xchain, i);
 		cert_len[i+1] = i2d_X509(x, &cert_der[i+1]);
 		if (cert_len[i+1] < 0) {
-			log_warnx("warn: failed to encode certificate");	
+			log_warnx("warn: failed to encode certificate");
 			goto end;
 		}
 		log_debug("debug: certificate %i: len=%d", i+1, cert_len[i+1]);
 		if (cert_len[i+1] > (int)MAX_CERT_LEN) {
-			log_warnx("warn: certificate too long");	
+			log_warnx("warn: certificate too long");
 			goto end;
 		}
 	}
@@ -1607,7 +1642,7 @@ mta_verify_certificate(struct mta_session *s)
 	iov[0].iov_len = sizeof(req_ca_vrfy);
 	iov[1].iov_base = cert_der[0];
 	iov[1].iov_len = cert_len[0];
-	m_composev(p_lka, IMSG_MTA_SSL_VERIFY_CERT, 0, 0, -1,
+	m_composev(p_lka, IMSG_MTA_TLS_VERIFY_CERT, 0, 0, -1,
 	    iov, nitems(iov));
 
 	memset(&req_ca_vrfy, 0, sizeof req_ca_vrfy);
@@ -1618,14 +1653,14 @@ mta_verify_certificate(struct mta_session *s)
 		req_ca_vrfy.cert_len = cert_len[i+1];
 		iov[1].iov_base = cert_der[i+1];
 		iov[1].iov_len  = cert_len[i+1];
-		m_composev(p_lka, IMSG_MTA_SSL_VERIFY_CHAIN, 0, 0, -1,
+		m_composev(p_lka, IMSG_MTA_TLS_VERIFY_CHAIN, 0, 0, -1,
 		    iov, nitems(iov));
 	}
 
 	/* Tell lookup process that it can start verifying, we're done */
 	memset(&req_ca_vrfy, 0, sizeof req_ca_vrfy);
 	req_ca_vrfy.reqid = s->id;
-	m_compose(p_lka, IMSG_MTA_SSL_VERIFY, 0, 0, -1,
+	m_compose(p_lka, IMSG_MTA_TLS_VERIFY, 0, 0, -1,
 	    &req_ca_vrfy, sizeof req_ca_vrfy);
 
 	res = 1;

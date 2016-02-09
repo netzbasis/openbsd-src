@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.12 2009/09/03 11:56:49 reyk Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.14 2016/02/07 00:49:28 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -38,37 +38,6 @@
  * see ``http://www.vix.com/isc''.  To learn more about Vixie
  * Enterprises, see ``http://www.vix.com''.
  */
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/sockio.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/wait.h>
-
-#include <net/if.h>
-#include <net/if_dl.h>
-#include <net/route.h>
-
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <netdb.h>
-#include <paths.h>
-#include <pwd.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syslog.h>
-#include <time.h>
-#include <unistd.h>
-
-#include "dhcp.h"
 
 #define	SERVER_PORT	67
 #define	CLIENT_PORT	68
@@ -166,7 +135,7 @@ void assemble_udp_ip_header(struct interface_info *, unsigned char *,
 ssize_t decode_hw_header(struct interface_info *, unsigned char *,
     int, struct hardware *);
 ssize_t decode_udp_ip_header(struct interface_info *, unsigned char *,
-    int, struct sockaddr_in *, unsigned char *, int);
+    int, struct sockaddr_in *, int);
 
 /* dhcrelay.c */
 extern u_int16_t server_port;

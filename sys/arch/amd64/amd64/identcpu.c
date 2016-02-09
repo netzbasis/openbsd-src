@@ -1,4 +1,4 @@
-/*	$OpenBSD: identcpu.c,v 1.65 2015/11/07 01:37:26 naddy Exp $	*/
+/*	$OpenBSD: identcpu.c,v 1.72 2016/02/03 03:25:08 guenther Exp $	*/
 /*	$NetBSD: identcpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*
@@ -39,12 +39,18 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/sysctl.h>
+
+#include "vmm.h"
+
 #include <machine/cpu.h>
 #include <machine/cpufunc.h>
 
 void	replacesmap(void);
 u_int64_t cpu_tsc_freq(struct cpu_info *);
 u_int64_t cpu_tsc_freq_ctr(struct cpu_info *);
+#if NVMM > 0
+void	cpu_check_vmm_cap(struct cpu_info *);
+#endif /* NVMM > 0 */
 
 /* sysctl wants this. */
 char cpu_model[48];
@@ -56,6 +62,7 @@ int amd64_has_pclmul;
 int amd64_has_aesni;
 #endif
 int has_rdrand;
+int has_rdseed;
 
 #include "pvbus.h"
 #if NPVBUS > 0
@@ -156,6 +163,7 @@ const struct {
 	{ CPUIDECX_TOPEXT,	"TOPEXT" },
 }, cpu_seff0_ebxfeatures[] = {
 	{ SEFF0EBX_FSGSBASE,	"FSGSBASE" },
+	{ SEFF0EBX_SGX,		"SGX" },
 	{ SEFF0EBX_BMI1,	"BMI1" },
 	{ SEFF0EBX_HLE,		"HLE" },
 	{ SEFF0EBX_AVX2,	"AVX2" },
@@ -164,9 +172,28 @@ const struct {
 	{ SEFF0EBX_ERMS,	"ERMS" },
 	{ SEFF0EBX_INVPCID,	"INVPCID" },
 	{ SEFF0EBX_RTM,		"RTM" },
+	{ SEFF0EBX_PQM,		"PQM" },
+	{ SEFF0EBX_MPX,		"MPX" },
+	{ SEFF0EBX_AVX512F,	"AVX512F" },
+	{ SEFF0EBX_AVX512DQ,	"AVX512DQ" },
 	{ SEFF0EBX_RDSEED,	"RDSEED" },
 	{ SEFF0EBX_ADX,		"ADX" },
 	{ SEFF0EBX_SMAP,	"SMAP" },
+	{ SEFF0EBX_AVX512IFMA,	"AVX512IFMA" },
+	{ SEFF0EBX_PCOMMIT,	"PCOMMIT" },
+	{ SEFF0EBX_CLFLUSHOPT,	"CLFLUSHOPT" },
+	{ SEFF0EBX_CLWB,	"CLWB" },
+	{ SEFF0EBX_PT,		"PT" },
+	{ SEFF0EBX_AVX512PF,	"AVX512PF" },
+	{ SEFF0EBX_AVX512ER,	"AVX512ER" },
+	{ SEFF0EBX_AVX512CD,	"AVX512CD" },
+	{ SEFF0EBX_SHA,		"SHA" },
+	{ SEFF0EBX_AVX512BW,	"AVX512BW" },
+	{ SEFF0EBX_AVX512VL,	"AVX512VL" },
+}, cpu_seff0_ecxfeatures[] = {
+	{ SEFF0ECX_PREFETCHWT1,	"PREFETCHWT1" },
+	{ SEFF0ECX_AVX512VBMI,	"AVX512VBMI" },
+	{ SEFF0ECX_PKU,		"PKU" },
 }, cpu_tpm_eaxfeatures[] = {
 	{ TPM_SENSOR,		"SENSOR" },
 	{ TPM_ARAT,		"ARAT" },
@@ -406,32 +433,32 @@ cpu_tsc_freq(struct cpu_info *ci)
 void
 identifycpu(struct cpu_info *ci)
 {
-	u_int32_t dummy, val, pnfeatset;
-	u_int32_t brand[12];
+	u_int32_t dummy, val;
 	char mycpu_model[48];
 	int i;
 	char *brandstr_from, *brandstr_to;
 	int skipspace;
 
 	CPUID(1, ci->ci_signature, val, dummy, ci->ci_feature_flags);
-	CPUID(0x80000000, pnfeatset, dummy, dummy, dummy);
-	if (pnfeatset >= 0x80000001) {
-		u_int32_t ecx;
-
-		CPUID(0x80000001, dummy, dummy,
-		    ecx, ci->ci_feature_eflags);
+	CPUID(0x80000000, ci->ci_pnfeatset, dummy, dummy, dummy);
+	if (ci->ci_pnfeatset >= 0x80000001) {
+		CPUID(0x80000001, ci->ci_efeature_eax, dummy,
+		    ci->ci_efeature_ecx, ci->ci_feature_eflags);
 		/* Other bits may clash */
 		ci->ci_feature_flags |= (ci->ci_feature_eflags & CPUID_NXE);
 		if (ci->ci_flags & CPUF_PRIMARY)
-			ecpu_ecxfeature = ecx;
+			ecpu_ecxfeature = ci->ci_efeature_ecx;
 		/* Let cpu_feature be the common bits */
 		cpu_feature &= ci->ci_feature_flags;
 	}
 
-	CPUID(0x80000002, brand[0], brand[1], brand[2], brand[3]);
-	CPUID(0x80000003, brand[4], brand[5], brand[6], brand[7]);
-	CPUID(0x80000004, brand[8], brand[9], brand[10], brand[11]);
-	strlcpy(mycpu_model, (char *)brand, sizeof(mycpu_model));
+	CPUID(0x80000002, ci->ci_brand[0],
+	    ci->ci_brand[1], ci->ci_brand[2], ci->ci_brand[3]);
+	CPUID(0x80000003, ci->ci_brand[4],
+	    ci->ci_brand[5], ci->ci_brand[6], ci->ci_brand[7]);
+	CPUID(0x80000004, ci->ci_brand[8],
+	    ci->ci_brand[9], ci->ci_brand[10], ci->ci_brand[11]);
+	strlcpy(mycpu_model, (char *)ci->ci_brand, sizeof(mycpu_model));
 
 	/* Remove leading, trailing and duplicated spaces from mycpu_model */
 	brandstr_from = brandstr_to = mycpu_model;
@@ -524,19 +551,27 @@ identifycpu(struct cpu_info *ci)
 
 	if (cpuid_level >= 0x07) {
 		/* "Structured Extended Feature Flags" */
-		CPUID_LEAF(0x7, 0, dummy, ci->ci_feature_sefflags, dummy, dummy);
+		CPUID_LEAF(0x7, 0, dummy, ci->ci_feature_sefflags_ebx,
+		    ci->ci_feature_sefflags_ecx, dummy);
 		for (i = 0; i < nitems(cpu_seff0_ebxfeatures); i++)
-			if (ci->ci_feature_sefflags &
+			if (ci->ci_feature_sefflags_ebx &
 			    cpu_seff0_ebxfeatures[i].bit)
 				printf(",%s", cpu_seff0_ebxfeatures[i].str);
+		for (i = 0; i < nitems(cpu_seff0_ecxfeatures); i++)
+			if (ci->ci_feature_sefflags_ecx &
+			    cpu_seff0_ecxfeatures[i].bit)
+				printf(",%s", cpu_seff0_ecxfeatures[i].str);
 	}
 
-	if (!strcmp(cpu_vendor, "GenuineIntel") && cpuid_level >= 0x06 ) {
+	if (!strcmp(cpu_vendor, "GenuineIntel") && cpuid_level >= 0x06) {
 		CPUID(0x06, ci->ci_feature_tpmflags, dummy, dummy, dummy);
 		for (i = 0; i < nitems(cpu_tpm_eaxfeatures); i++)
 			if (ci->ci_feature_tpmflags &
 			    cpu_tpm_eaxfeatures[i].bit)
 				printf(",%s", cpu_tpm_eaxfeatures[i].str);
+	} else if (!strcmp(cpu_vendor, "AuthenticAMD")) {
+		if (ci->ci_family >= 0x12)
+			ci->ci_feature_tpmflags |= TPM_ARAT;
 	}
 
 	printf("\n");
@@ -546,10 +581,10 @@ identifycpu(struct cpu_info *ci)
 #ifndef SMALL_KERNEL
 	if (ci->ci_flags & CPUF_PRIMARY) {
 		if (!strcmp(cpu_vendor, "AuthenticAMD") &&
-		    pnfeatset >= 0x80000007) {
-			CPUID(0x80000007, dummy, dummy, dummy, pnfeatset);
+		    ci->ci_pnfeatset >= 0x80000007) {
+			CPUID(0x80000007, dummy, dummy, dummy, val);
 
-			if (pnfeatset & 0x06) {
+			if (val & 0x06) {
 				if ((ci->ci_signature & 0xF00) == 0xF00)
 					setperf_setup = k8_powernow_init;
 			}
@@ -571,12 +606,10 @@ identifycpu(struct cpu_info *ci)
 		if (cpu_ecxfeature & CPUIDECX_RDRAND)
 			has_rdrand = 1;
 
-#if NPVBUS > 0
-		if (cpu_ecxfeature & CPUIDECX_HV)
-			has_hv_cpuid = 1;
-#endif
+		if (ci->ci_feature_sefflags_ebx & SEFF0EBX_RDSEED)
+			has_rdseed = 1;
 
-		if (ci->ci_feature_sefflags & SEFF0EBX_SMAP)
+		if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 			replacesmap();
 	}
 	if (!strncmp(mycpu_model, "Intel", 5)) {
@@ -614,6 +647,9 @@ identifycpu(struct cpu_info *ci)
 	}
 
 	cpu_topology(ci);
+#if NVMM > 0
+	cpu_check_vmm_cap(ci);
+#endif /* NVMM > 0 */
 }
 
 #ifndef SMALL_KERNEL
@@ -664,8 +700,7 @@ cpu_topology(struct cpu_info *ci)
 	u_int32_t smt_mask = 0, core_mask, pkg_mask = 0;
 
 	/* We need at least apicid at CPUID 1 */
-	CPUID(0, eax, ebx, ecx, edx);
-	if (eax < 1)
+	if (cpuid_level < 1)
 		goto no_topology;
 
 	/* Initial apicid */
@@ -674,8 +709,7 @@ cpu_topology(struct cpu_info *ci)
 
 	if (strcmp(cpu_vendor, "AuthenticAMD") == 0) {
 		/* We need at least apicid at CPUID 0x80000008 */
-		CPUID(0x80000000, eax, ebx, ecx, edx);
-		if (eax < 0x80000008)
+		if (ci->ci_pnfeatset < 0x80000008)
 			goto no_topology;
 
 		CPUID(0x80000008, eax, ebx, ecx, edx);
@@ -691,8 +725,7 @@ cpu_topology(struct cpu_info *ci)
 		ci->ci_pkg_id >>= core_bits;
 	} else if (strcmp(cpu_vendor, "GenuineIntel") == 0) {
 		/* We only support leaf 1/4 detection */
-		CPUID(0, eax, ebx, ecx, edx);
-		if (eax < 4)
+		if (cpuid_level < 4)
 			goto no_topology;
 		/* Get max_apicid */
 		CPUID(1, eax, ebx, ecx, edx);
@@ -736,3 +769,97 @@ no_topology:
 	ci->ci_core_id = ci->ci_cpuid;
 	ci->ci_pkg_id  = 0;
 }
+
+#if NVMM > 0
+/*
+ * cpu_check_vmm_cap
+ *
+ * Checks for VMM capabilities for 'ci'. Initializes certain per-cpu VMM
+ * state in 'ci' if virtualization extensions are found.
+ *
+ * Parameters:
+ *  ci: the cpu being checked
+ */
+void
+cpu_check_vmm_cap(struct cpu_info *ci)
+{
+	uint64_t msr;
+	uint32_t cap, dummy;
+
+	/*
+	 * Check for workable VMX
+	 */
+	if (cpu_ecxfeature & CPUIDECX_VMX) {
+		msr = rdmsr(MSR_IA32_FEATURE_CONTROL);
+
+		if (!(msr & IA32_FEATURE_CONTROL_LOCK))
+			ci->ci_vmm_flags |= CI_VMM_VMX;
+		else {
+			if (msr & IA32_FEATURE_CONTROL_VMX_EN)
+				ci->ci_vmm_flags |= CI_VMM_VMX;
+		}
+	}
+
+	/*
+	 * Check for EPT (Intel Nested Paging)
+	 */
+	if (ci->ci_vmm_flags & CI_VMM_VMX) {
+		/* Secondary controls available? */
+		/* XXX should we check true procbased ctls here if avail? */
+		msr = rdmsr(IA32_VMX_PROCBASED_CTLS);
+		if (msr & (IA32_VMX_ACTIVATE_SECONDARY_CONTROLS) << 32) {
+			msr = rdmsr(IA32_VMX_PROCBASED2_CTLS);
+			/* EPT available? */
+			if (msr & (IA32_VMX_ENABLE_EPT) << 32)
+				ci->ci_vmm_flags |= CI_VMM_EPT;
+		}
+	}
+
+	/*
+	 * Check startup config (VMX)
+	 */
+	if (ci->ci_vmm_flags & CI_VMM_VMX) {
+		/* CR0 fixed and flexible bits */
+		msr = rdmsr(IA32_VMX_CR0_FIXED0);
+		ci->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0 = msr;
+		msr = rdmsr(IA32_VMX_CR0_FIXED1);
+		ci->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1 = msr;
+
+		/* CR4 fixed and flexible bits */
+		msr = rdmsr(IA32_VMX_CR4_FIXED0);
+		ci->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed0 = msr;
+		msr = rdmsr(IA32_VMX_CR4_FIXED1);
+		ci->ci_vmm_cap.vcc_vmx.vmx_cr4_fixed1 = msr;
+
+		/* VMXON region revision ID (bits 30:0 of IA32_VMX_BASIC) */
+		msr = rdmsr(IA32_VMX_BASIC);
+		ci->ci_vmm_cap.vcc_vmx.vmx_vmxon_revision =
+			(uint32_t)(msr & 0x7FFFFFFF);
+
+		/* MSR save / load table size */
+		msr = rdmsr(IA32_VMX_MISC);
+		ci->ci_vmm_cap.vcc_vmx.vmx_msr_table_size =
+			(uint32_t)(msr & IA32_VMX_MSR_LIST_SIZE_MASK) >> 25;
+	}
+
+	/*
+	 * Check for workable SVM
+	 */
+	if (ecpu_ecxfeature & CPUIDECX_SVM) {
+		msr = rdmsr(MSR_AMD_VM_CR);
+
+		if (!(msr & AMD_SVMDIS))
+			ci->ci_vmm_flags |= CI_VMM_SVM;
+	}
+
+	/*
+	 * Check for SVM Nested Paging
+	 */
+	if ((ci->ci_vmm_flags & CI_VMM_SVM) &&
+	    ci->ci_pnfeatset >= CPUID_AMD_SVM_CAP) {
+		CPUID(CPUID_AMD_SVM_CAP, dummy, dummy, dummy, cap);
+		if (cap & AMD_SVM_NESTED_PAGING_CAP)
+			ci->ci_vmm_flags |= CI_VMM_RVI;
+	}
+}
+#endif /* NVMM > 0 */

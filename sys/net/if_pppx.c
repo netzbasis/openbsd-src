@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pppx.c,v 1.45 2015/11/03 12:02:59 dlg Exp $ */
+/*	$OpenBSD: if_pppx.c,v 1.50 2016/01/31 13:54:13 stefan Exp $ */
 
 /*
  * Copyright (c) 2010 Claudio Jeker <claudio@openbsd.org>
@@ -149,6 +149,7 @@ struct pppx_if {
 
 	int			pxi_unit;
 	struct ifnet		pxi_if;
+	struct pppx_dev		*pxi_dev;
 	struct pipex_session	pxi_session;
 	struct pipex_iface_context	pxi_ifcontext;
 };
@@ -272,7 +273,8 @@ pppxread(dev_t dev, struct uio *uio, int ioflag)
 	struct pppx_dev *pxd = pppx_dev2pxd(dev);
 	struct mbuf *m, *m0;
 	int error = 0;
-	int len, s;
+	int s;
+	size_t len;
 
 	if (!pxd)
 		return (ENXIO);
@@ -291,9 +293,9 @@ pppxread(dev_t dev, struct uio *uio, int ioflag)
 	}
 
 	while (m0 != NULL && uio->uio_resid > 0 && error == 0) {
-		len = min(uio->uio_resid, m0->m_len);
+		len = ulmin(uio->uio_resid, m0->m_len);
 		if (len != 0)
-			error = uiomovei(mtod(m0, caddr_t), len, uio);
+			error = uiomove(mtod(m0, caddr_t), len, uio);
 		m = m_free(m0);
 		m0 = m;
 	}
@@ -306,14 +308,21 @@ pppxread(dev_t dev, struct uio *uio, int ioflag)
 int
 pppxwrite(dev_t dev, struct uio *uio, int ioflag)
 {
-/*	struct pppx_dev *pxd = pppx_dev2pxd(dev);	*/
+	struct pppx_dev *pxd = pppx_dev2pxd(dev);
 	struct pppx_hdr *th;
+	struct pppx_if	*pxi;
+	uint32_t proto;
 	struct mbuf *top, **mp, *m;
 	struct niqueue *ifq;
-	int tlen, mlen;
+	int tlen;
 	int error = 0;
+	size_t mlen;
+#if NBPFILTER > 0
+	int s;
+#endif
 
-	if (uio->uio_resid < sizeof(*th) || uio->uio_resid > MCLBYTES)
+	if (uio->uio_resid < sizeof(*th) + sizeof(uint32_t) ||
+	    uio->uio_resid > MCLBYTES)
 		return (EMSGSIZE);
 
 	tlen = uio->uio_resid;
@@ -335,8 +344,8 @@ pppxwrite(dev_t dev, struct uio *uio, int ioflag)
 	mp = &top;
 
 	while (error == 0 && uio->uio_resid > 0) {
-		m->m_len = min(mlen, uio->uio_resid);
-		error = uiomovei(mtod (m, caddr_t), m->m_len, uio);
+		m->m_len = ulmin(mlen, uio->uio_resid);
+		error = uiomove(mtod (m, caddr_t), m->m_len, uio);
 		*mp = m;
 		mp = &m->m_next;
 		if (error == 0 && uio->uio_resid > 0) {
@@ -365,11 +374,28 @@ pppxwrite(dev_t dev, struct uio *uio, int ioflag)
 
 	top->m_pkthdr.len = tlen;
 
-	/* strip the tunnel header */
+	/* Find the interface */
 	th = mtod(top, struct pppx_hdr *);
 	m_adj(top, sizeof(struct pppx_hdr));
+	pxi = pppx_if_find(pxd, th->pppx_id, th->pppx_proto);
+	if (pxi == NULL) {
+		m_freem(top);
+		return (EINVAL);
+	}
+	top->m_pkthdr.ph_ifidx = pxi->pxi_if.if_index;
 
-	switch (ntohl(th->pppx_proto)) {
+#if NBPFILTER > 0
+	if (pxi->pxi_if.if_bpf) {
+		s = splnet();
+		bpf_mtap(pxi->pxi_if.if_bpf, top, BPF_DIRECTION_IN);
+		splx(s);
+	}
+#endif
+	/* strip the tunnel header */
+	proto = ntohl(*(uint32_t *)(th + 1));
+	m_adj(top, sizeof(uint32_t));
+
+	switch (proto) {
 	case AF_INET:
 		ifq = &ipintrq;
 		break;
@@ -383,7 +409,7 @@ pppxwrite(dev_t dev, struct uio *uio, int ioflag)
 		return (EAFNOSUPPORT);
 	}
 
-	if (niq_enqueue(ifq, m) != 0)
+	if (niq_enqueue(ifq, top) != 0)
 		return (ENOBUFS);
 
 	return (error);
@@ -800,6 +826,7 @@ pppx_add_session(struct pppx_dev *pxd, struct pipex_session_req *req)
 	pxi->pxi_unit = unit;
 	pxi->pxi_key.pxik_session_id = req->pr_session_id;
 	pxi->pxi_key.pxik_protocol = req->pr_protocol;
+	pxi->pxi_dev = pxd;
 
 	/* this is safe without splnet since we're not modifying it */
 	if (RB_FIND(pppx_ifs, &pppx_ifs, pxi) != NULL) {
@@ -970,38 +997,19 @@ pppx_if_start(struct ifnet *ifp)
 {
 	struct pppx_if *pxi = (struct pppx_if *)ifp->if_softc;
 	struct mbuf *m;
-	int proto, s;
+	int proto;
 
-	if (ISSET(ifp->if_flags, IFF_OACTIVE))
-		return;
 	if (!ISSET(ifp->if_flags, IFF_RUNNING))
 		return;
 
 	for (;;) {
-		s = splnet();
 		IFQ_DEQUEUE(&ifp->if_snd, m);
-		splx(s);
 
 		if (m == NULL)
 			break;
 
 		proto = *mtod(m, int *);
 		m_adj(m, sizeof(proto));
-
-#if NBPFILTER > 0
-		if (ifp->if_bpf) {
-			switch (proto) {
-			case PPP_IP:
-				bpf_mtap_af(ifp->if_bpf, AF_INET, m,
-					BPF_DIRECTION_OUT);
-				break;
-			case PPP_IPV6:
-				bpf_mtap_af(ifp->if_bpf, AF_INET6, m,
-					BPF_DIRECTION_OUT);
-				break;
-			}
-		}
-#endif
 
 		ifp->if_obytes += m->m_pkthdr.len;
 		ifp->if_opackets++;
@@ -1014,8 +1022,13 @@ int
 pppx_if_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
     struct rtentry *rt)
 {
+	struct pppx_if *pxi = (struct pppx_if *)ifp->if_softc;
+	struct pppx_hdr *th;
 	int error = 0;
 	int proto;
+#if NBPFILTER > 0
+	int s;
+#endif
 
 	if (!ISSET(ifp->if_flags, IFF_UP)) {
 		m_freem(m);
@@ -1023,15 +1036,25 @@ pppx_if_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 		goto out;
 	}
 
-	switch (dst->sa_family) {
-	case AF_INET:
-		proto = PPP_IP;
-		break;
-	default:
-		m_freem(m);
-		error = EPFNOSUPPORT;
-		goto out;
+#if NBPFILTER > 0
+	if (ifp->if_bpf) {
+		s = splnet();
+		bpf_mtap_af(ifp->if_bpf, dst->sa_family, m, BPF_DIRECTION_OUT);
+		splx(s);
 	}
+#endif
+	if (pipex_enable) {
+		switch (dst->sa_family) {
+		case AF_INET:
+			proto = PPP_IP;
+			break;
+		default:
+			m_freem(m);
+			error = EPFNOSUPPORT;
+			goto out;
+		}
+	} else
+		proto = htonl(dst->sa_family);
 
 	M_PREPEND(m, sizeof(int), M_DONTWAIT);
 	if (m == NULL) {
@@ -1040,7 +1063,31 @@ pppx_if_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	}
 	*mtod(m, int *) = proto;
 
-	error = if_enqueue(ifp, m);
+	if (pipex_enable)
+		error = if_enqueue(ifp, m);
+	else {
+		M_PREPEND(m, sizeof(struct pppx_hdr), M_DONTWAIT);
+		if (m == NULL) {
+			error = ENOBUFS;
+			goto out;
+		}
+		th = mtod(m, struct pppx_hdr *);
+		th->pppx_proto = 0;	/* not used */
+		th->pppx_id = pxi->pxi_session.ppp_id;
+		rw_enter_read(&pppx_devs_lk);
+		error = mq_enqueue(&pxi->pxi_dev->pxd_svcq, m);
+		if (error == 0) {
+			s = splnet();
+			if (pxi->pxi_dev->pxd_waiting) {
+				wakeup((caddr_t)pxi->pxi_dev);
+				pxi->pxi_dev->pxd_waiting = 0;
+			}
+			splx(s);
+			selwakeup(&pxi->pxi_dev->pxd_rsel);
+		}
+		rw_exit_read(&pppx_devs_lk);
+	}
+
 out:
 	if (error)
 		ifp->if_oerrors++;

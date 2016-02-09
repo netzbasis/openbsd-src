@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.216 2015/10/18 04:45:21 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.221 2016/02/02 07:02:32 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -37,7 +37,7 @@ stripcom() {
 }
 
 sm_error() {
-	(($#)) && echo "---- Error: $@"
+	(($#)) && echo "!!!! $@"
 	rm -rf ${_TMPROOT}
 	exit 1
 }
@@ -50,11 +50,11 @@ sm_trap() {
 trap "sm_trap" 1 2 3 13 15
 
 sm_info() {
-	(($#)) && echo "---- Info: $@" || true
+	(($#)) && echo "---- $@" || true
 }
 
 sm_warn() {
-	(($#)) && echo "---- Warning: $@" || true
+	(($#)) && echo "**** $@" || true
 }
 
 sm_extract_sets() {
@@ -240,7 +240,6 @@ sm_run() {
 	# files we don't want/need to deal with
 	_ignorefiles="/etc/group
 		      /etc/localtime
-		      /etc/mail/aliases.db
 		      /etc/master.passwd
 		      /etc/motd
 		      /etc/passwd
@@ -337,8 +336,12 @@ sm_install() {
 		fi
 		;;
 	/etc/mail/aliases)
-		echo " (running newaliases(8))"
-		sm_warn $(newaliases 2>&1 >/dev/null)
+		if [[ -f /etc/mail/aliases.db ]]; then
+			echo " (running newaliases(8))"
+			sm_warn $(newaliases 2>&1 >/dev/null)
+		else
+			echo
+		fi
 		;;
 	*)
 		echo
@@ -365,7 +368,7 @@ sm_add_user_grp() {
 		if [[ ${_u} != root ]]; then
 			if ! grep -Eq "^${_u}:" /etc/master.passwd; then
 				echo "===> Adding the ${_u} user"
-				chpass -la "${_l}"
+				chpass -a "${_l}"
 			fi
 		fi
 	done <${_pw}
@@ -569,7 +572,7 @@ sm_check_an_eg() {
 		_i=${_i##*/}
 		# only check files we care about
 		[[ -f /etc/${_i} ]] && \
-			sm_info "updated /etc/examples/${_i}, syntax may have changed"
+			sm_info "Updated /etc/examples/${_i}, syntax may have changed"
 	done
 	mv ./var/sysmerge/examplessum \
 		/var/sysmerge/examplessum

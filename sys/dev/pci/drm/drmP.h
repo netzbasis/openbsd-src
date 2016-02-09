@@ -1,4 +1,4 @@
-/* $OpenBSD: drmP.h,v 1.198 2015/09/26 19:52:16 kettenis Exp $ */
+/* $OpenBSD: drmP.h,v 1.201 2016/02/05 10:05:12 kettenis Exp $ */
 /* drmP.h -- Private header for Direct Rendering Manager -*- linux-c -*-
  * Created: Mon Jan  4 10:05:05 1999 by faith@precisioninsight.com
  */
@@ -521,7 +521,6 @@ struct drm_driver_info {
 	 *
 	 * Returns 0 on success.
 	 */
-	int (*gem_init_object) (struct drm_gem_object *obj);
 	void (*gem_free_object) (struct drm_gem_object *obj);
 	int (*gem_open_object) (struct drm_gem_object *, struct drm_file *);
 	void (*gem_close_object) (struct drm_gem_object *, struct drm_file *);
@@ -607,7 +606,7 @@ struct drm_device {
 
 	struct drm_driver_info *driver;
 
-	struct pci_dev	 drm_pci;
+	struct pci_dev	_pdev;
 	struct pci_dev	*pdev;
 	u_int16_t	 pci_device;
 	u_int16_t	 pci_vendor;
@@ -644,7 +643,6 @@ struct drm_device {
 	struct drm_device_dma  *dma;		/* Optional pointer for DMA support */
 
 				/* Context support */
-	int		  irq;		/* Interrupt used by board	   */
 	int		  irq_enabled;	/* True if the irq handler is enabled */
 
 	/** \name VBLANK IRQ support */
@@ -707,7 +705,6 @@ struct drm_attach_args {
 	bus_space_tag_t			 bst;
 	size_t				 busid_len;
 	int				 is_agp;
-	u_int8_t			 irq;
 	u_int16_t			 pci_vendor;
 	u_int16_t			 pci_device;
 	u_int16_t			 pci_subvendor;
@@ -846,8 +843,6 @@ drm_sysfs_hotplug_event(struct drm_device *dev)
 
 /* Graphics Execution Manager library functions (drm_gem.c) */
 void drm_gem_object_release(struct drm_gem_object *obj);
-struct drm_gem_object *drm_gem_object_alloc(struct drm_device *dev,
-					    size_t size);
 int drm_gem_object_init(struct drm_device *dev,
 			struct drm_gem_object *obj, size_t size);
 
@@ -904,7 +899,7 @@ static __inline__ int drm_core_check_feature(struct drm_device *dev,
 
 static inline int drm_dev_to_irq(struct drm_device *dev)
 {
-	return dev->irq;
+	return -1;
 }
 
 #define DRM_PCIE_SPEED_25 1

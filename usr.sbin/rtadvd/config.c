@@ -1,10 +1,10 @@
-/*	$OpenBSD: config.c,v 1.44 2015/10/25 22:11:34 jca Exp $	*/
+/*	$OpenBSD: config.c,v 1.50 2016/02/09 00:39:13 jca Exp $	*/
 /*	$KAME: config.c,v 1.62 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -111,13 +111,17 @@ getconfig(char *intface)
 	TAILQ_INIT(&tmp->rtinfos);
 	TAILQ_INIT(&tmp->rdnsss);
 	TAILQ_INIT(&tmp->dnssls);
-	SLIST_INIT(&tmp->soliciters);
 
 	/* check if we are allowed to forward packets (if not determined) */
 	if (forwarding < 0) {
 		if ((forwarding = getinet6sysctl(IPV6CTL_FORWARDING)) < 0)
 			exit(1);
 	}
+
+	/* make sure that the user-specified interface name fits */
+	if (strlcpy(tmp->ifname, intface,
+	    sizeof(tmp->ifname)) >= sizeof(tmp->ifname))
+		fatalx("invalid interface name");
 
 	/* get interface information */
 	if (agetflag("nolladdr"))
@@ -132,7 +136,6 @@ getconfig(char *intface)
 		tmp->ifindex = tmp->sdl->sdl_index;
 	} else
 		tmp->ifindex = if_nametoindex(intface);
-	strncpy(tmp->ifname, intface, sizeof(tmp->ifname));
 	if ((tmp->phymtu = if_getmtu(intface)) == 0) {
 		tmp->phymtu = IPV6_MMTU;
 		log_warn("can't get interface mtu of %s. Treat as %d",
@@ -186,7 +189,7 @@ getconfig(char *intface)
 	 * useful to allow hosts to advertise some parameters such as prefix
 	 * information and link MTU. Thus, we allow hosts to invoke rtadvd
 	 * only when router lifetime (on every advertising interface) is
-	 * explicitly set zero. (see also the above section)
+	 * explicitely set to zero. (see also the above section)
 	 */
 	if (val && forwarding == 0) {
 		log_warnx("non zero router lifetime is specified for %s, "
@@ -618,8 +621,8 @@ makeentry(char *buf, size_t len, int id, char *string)
  * Add a prefix to the list of specified interface and reconstruct
  * the outgoing packet.
  * The prefix must not be in the list.
- * XXX: other parameter of the prefix(e.g. lifetime) shoule be
- * able to be specified.
+ * XXX: other parameters of the prefix (e.g. lifetime) ought
+ * to be specified.
  */
 static void
 add_prefix(struct rainfo *rai, struct in6_prefixreq *ipr)
@@ -674,7 +677,7 @@ delete_prefix(struct rainfo *rai, struct prefix *prefix)
 
 	TAILQ_REMOVE(&rai->prefixes, prefix, entry);
 	log_debug("prefix %s/%d was deleted on %s",
-	    inet_ntop(AF_INET6, &prefix->prefix, ntopbuf, INET6_ADDRSTRLEN), 
+	    inet_ntop(AF_INET6, &prefix->prefix, ntopbuf, INET6_ADDRSTRLEN),
 	    prefix->prefixlen, rai->ifname);
 	free(prefix);
 	rai->pfxs--;
@@ -807,11 +810,8 @@ make_packet(struct rainfo *rainfo)
 	/* allocate memory for the packet */
 	if ((buf = malloc(packlen)) == NULL)
 		fatal("malloc");
-	if (rainfo->ra_data) {
-		/* free the previous packet */
-		free(rainfo->ra_data);
-		rainfo->ra_data = NULL;
-	}
+	/* free the previous packet */
+	free(rainfo->ra_data);
 	rainfo->ra_data = buf;
 	/* XXX: what if packlen > 576? */
 	rainfo->ra_datalen = packlen;
@@ -878,11 +878,11 @@ make_packet(struct rainfo *rainfo)
 		if (pfx->pltimeexpire == 0)
 			pltime = pfx->preflifetime;
 		else
-			pltime = (u_int32_t)(pfx->pltimeexpire > now.tv_sec ? 
+			pltime = (u_int32_t)(pfx->pltimeexpire > now.tv_sec ?
 				pfx->pltimeexpire - now.tv_sec : 0);
 		if (vltime < pltime) {
 			/*
-			 * this can happen if vltime is decrement but pltime
+			 * this can happen if vltime is decremented but pltime
 			 * is not.
 			 */
 			pltime = vltime;

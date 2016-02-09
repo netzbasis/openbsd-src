@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.172 2015/11/06 11:20:56 mpi Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.176 2015/12/03 21:57:59 mpi Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -586,7 +586,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 	sin6.sin6_len = sizeof(struct sockaddr_in6);
 	sin6.sin6_family = AF_INET6;
 	sin6.sin6_addr = *addr6;
-	flags = (create) ? (RT_REPORT|RT_RESOLVE) : 0;
+	flags = (create) ? RT_RESOLVE : 0;
 
 	rt = rtalloc(sin6tosa(&sin6), flags, rtableid);
 	if (rt != NULL && (rt->rt_flags & RTF_LLINFO) == 0) {
@@ -833,7 +833,7 @@ nd6_free(struct rtentry *rt, int gc)
 	 * caches, and disable the route entry not to be used in already
 	 * cached routes.
 	 */
-	rtdeletemsg(rt, ifp->if_rdomain);
+	rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	splx(s);
 
 	if_put(ifp);
@@ -893,9 +893,7 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 
 	if (req == RTM_DELETE && (rt->rt_flags & RTF_GATEWAY) &&
 	    (IN6_ARE_ADDR_EQUAL(&(satosin6(rt_key(rt)))->sin6_addr,
-	    &in6addr_any) && rt_mask(rt) && (rt_mask(rt)->sa_len == 0 ||
-	    IN6_ARE_ADDR_EQUAL(&(satosin6(rt_mask(rt)))->sin6_addr,
-	    &in6addr_any)))) {
+	    &in6addr_any) && rt_plen(rt) == 0)) {
 		dr = defrouter_lookup(&satosin6(gate)->sin6_addr,
 		    ifp->if_index);
 		if (dr)
@@ -937,13 +935,6 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 
 	switch (req) {
 	case RTM_ADD:
-		/*
-		 * There is no backward compatibility :)
-		 *
-		 * if ((rt->rt_flags & RTF_HOST) == 0 &&
-		 *     SIN(rt_mask(rt))->sin_addr.s_addr != 0xffffffff)
-		 *	   rt->rt_flags |= RTF_CLONING;
-		 */
 		if ((rt->rt_flags & RTF_CLONING) ||
 		    ((rt->rt_flags & (RTF_LLINFO | RTF_LOCAL)) && ln == NULL)) {
 			if (ln != NULL)

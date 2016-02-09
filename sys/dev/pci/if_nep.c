@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nep.c,v 1.20 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_nep.c,v 1.24 2015/11/25 03:09:59 dlg Exp $	*/
 /*
  * Copyright (c) 2014, 2015 Mark Kettenis
  *
@@ -27,7 +27,6 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -977,7 +976,7 @@ nep_rx_proc(struct nep_softc *sc)
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	uint64_t val;
 	uint16_t count;
-	uint16_t pktread, ptrread;
+	uint16_t pktread = 0, ptrread = 0;
 	uint64_t rxd;
 	uint64_t addr;
 	bus_addr_t page;
@@ -1092,7 +1091,7 @@ nep_tx_proc(struct nep_softc *sc)
 			count--;
 		}
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 		sc->sc_tx_cnt--;
 		sc->sc_tx_cons++;
@@ -1649,7 +1648,7 @@ nep_up(struct nep_softc *sc)
 	nep_write(sc, RXDMA_CFIG1(sc->sc_port), val);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	/* Enable interrupts. */
@@ -1686,7 +1685,8 @@ nep_down(struct nep_softc *sc)
 	nep_write(sc, LD_IM0(LDN_RXDMA(sc->sc_port)), 1);
 	nep_write(sc, LD_IM0(LDN_TXDMA(sc->sc_port)), 1);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	nep_disable_rx_mac(sc);
@@ -1870,24 +1870,25 @@ nep_start(struct ifnet *ifp)
 
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
 
 	idx = sc->sc_tx_prod;
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		if (sc->sc_tx_cnt >= (NEP_NTXDESC - NEP_NTXSEGS)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		/* Now we are committed to transmit the packet. */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 		if (nep_encap(sc, &m, &idx))
 			break;

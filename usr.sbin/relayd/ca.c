@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.14 2015/10/10 00:16:23 benno Exp $	*/
+/*	$OpenBSD: ca.c,v 1.16 2015/12/05 13:13:11 claudio Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -217,7 +217,7 @@ ca_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 
 		proc_composev_imsg(env->sc_ps, PROC_RELAY, cko.cko_proc,
-		    imsg->hdr.type, -1, iov, c);
+		    imsg->hdr.type, -1, -1, iov, c);
 
 		free(to);
 		RSA_free(rsa);
@@ -295,7 +295,7 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 	imsg_flush(ibuf);
 
 	while (!done) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatalx("imsg_read");
 		if (n == 0)
 			fatalx("pipe closed");

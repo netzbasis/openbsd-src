@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.85 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.92 2015/12/11 16:07:02 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -34,7 +34,6 @@
 #include <sys/device.h>
 #include <sys/proc.h>
 #include <sys/queue.h>
-#include <sys/atomic.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
@@ -146,9 +145,9 @@ struct myx_softc {
 	u_int32_t		 sc_tx_ring_offset;
 	u_int			 sc_tx_nsegs;
 	u_int32_t		 sc_tx_count; /* shadows ms_txdonecnt */
-	u_int			 sc_tx_ring_idx;
+	u_int			 sc_tx_ring_prod;
+	u_int			 sc_tx_ring_cons;
 
-	u_int			 sc_tx_free;
 	u_int			 sc_tx_prod;
 	u_int			 sc_tx_cons;
 	struct myx_slot		*sc_tx_slots;
@@ -167,7 +166,7 @@ void	 myx_attach(struct device *, struct device *, void *);
 int	 myx_pcie_dc(struct myx_softc *, struct pci_attach_args *);
 int	 myx_query(struct myx_softc *sc, char *, size_t);
 u_int	 myx_ether_aton(char *, u_int8_t *, u_int);
-void	 myx_attachhook(void *);
+void	 myx_attachhook(struct device *);
 int	 myx_loadfirmware(struct myx_softc *, const char *);
 int	 myx_probe_firmware(struct myx_softc *);
 
@@ -312,10 +311,7 @@ myx_attach(struct device *parent, struct device *self, void *aux)
 	if (myx_pcie_dc(sc, pa) != 0)
 		printf("%s: unable to configure PCI Express\n", DEVNAME(sc));
 
-	if (mountroothook_establish(myx_attachhook, sc) == NULL) {
-		printf("%s: unable to establish mountroot hook\n", DEVNAME(sc));
-		goto unmap;
-	}
+	config_mountroot(self, myx_attachhook);
 
 	return;
 
@@ -469,9 +465,9 @@ err:
 }
 
 void
-myx_attachhook(void *arg)
+myx_attachhook(struct device *self)
 {
-	struct myx_softc	*sc = (struct myx_softc *)arg;
+	struct myx_softc	*sc = (struct myx_softc *)self;
 	struct ifnet		*ifp = &sc->sc_ac.ac_if;
 	struct myx_cmd		 mc;
 
@@ -512,6 +508,7 @@ myx_attachhook(void *arg)
 
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = myx_ioctl;
 	ifp->if_start = myx_start;
 	ifp->if_watchdog = myx_watchdog;
@@ -1033,9 +1030,9 @@ myx_up(struct myx_softc *sc)
 		printf("%s: unable to get tx ring size\n", DEVNAME(sc));
 		goto free_pad;
 	}
-	sc->sc_tx_ring_idx = 0;
+	sc->sc_tx_ring_prod = 0;
+	sc->sc_tx_ring_cons = 0;
 	sc->sc_tx_ring_count = r / sizeof(struct myx_tx_desc);
-	sc->sc_tx_free = sc->sc_tx_ring_count - 1;
 	sc->sc_tx_nsegs = min(16, sc->sc_tx_ring_count / 4); /* magic */
 	sc->sc_tx_count = 0;
 	IFQ_SET_MAXLEN(&ifp->if_snd, sc->sc_tx_ring_count - 1);
@@ -1205,10 +1202,10 @@ myx_up(struct myx_softc *sc)
 		goto empty_rx_ring_big;
 	}
 
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 	SET(ifp->if_flags, IFF_RUNNING);
 	myx_iff(sc);
-	myx_start(ifp);
+	if_start(ifp);
 
 	return;
 
@@ -1330,6 +1327,8 @@ myx_down(struct myx_softc *sc)
 	int			 s;
 	int			 ring;
 
+	CLR(ifp->if_flags, IFF_RUNNING);
+
 	bus_dmamap_sync(sc->sc_dmat, map, 0, map->dm_mapsize,
 	    BUS_DMASYNC_POSTREAD|BUS_DMASYNC_POSTWRITE);
 	sc->sc_linkdown = sts->ms_linkdown;
@@ -1361,7 +1360,8 @@ myx_down(struct myx_softc *sc)
 		printf("%s: failed to reset the device\n", DEVNAME(sc));
 	}
 
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
+	ifq_barrier(&ifp->if_snd);
 
 	for (ring = 0; ring < 2; ring++) {
 		struct myx_rx_ring *mrr = &sc->sc_rx_ring[ring];
@@ -1436,18 +1436,21 @@ myx_start(struct ifnet *ifp)
 	u_int				free, used;
 	u_int8_t			flags;
 
-	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ISSET(ifp->if_flags, IFF_OACTIVE) ||
-	    IFQ_IS_EMPTY(&ifp->if_snd))
-		return;
+	idx = sc->sc_tx_ring_prod;
+
+	/* figure out space */
+	free = sc->sc_tx_ring_cons;
+	if (free <= idx)
+		free += sc->sc_tx_ring_count;
+	free -= idx;
 
 	cons = prod = sc->sc_tx_prod;
-	free = sc->sc_tx_free;
+
 	used = 0;
 
 	for (;;) {
-		if (used + sc->sc_tx_nsegs > free) {
-			SET(ifp->if_flags, IFF_OACTIVE);
+		if (used + sc->sc_tx_nsegs + 1 > free) {
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1470,7 +1473,7 @@ myx_start(struct ifnet *ifp)
 
 		map = ms->ms_map;
 		bus_dmamap_sync(sc->sc_dmat, map, 0,
-		    map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
+		    map->dm_mapsize, BUS_DMASYNC_PREWRITE);
 
 		used += map->dm_nsegs + (map->dm_mapsize < 60 ? 1 : 0);
 
@@ -1481,10 +1484,7 @@ myx_start(struct ifnet *ifp)
 	if (cons == prod)
 		return;
 
-	atomic_sub_int(&sc->sc_tx_free, used);
-
 	ms = &sc->sc_tx_slots[cons];
-	idx = sc->sc_tx_ring_idx;
 
 	for (;;) {
 		idx += ms->ms_map->dm_nsegs +
@@ -1531,26 +1531,27 @@ myx_start(struct ifnet *ifp)
 	txd.tx_flags = flags | MYXTXD_FLAGS_FIRST;
 
 	/* make sure the first descriptor is seen after the others */
-	myx_write_txd_tail(sc, ms, flags, offset, sc->sc_tx_ring_idx);
+	myx_write_txd_tail(sc, ms, flags, offset, sc->sc_tx_ring_prod);
 
 	myx_bus_space_write(sc,
-	    offset + sizeof(txd) * sc->sc_tx_ring_idx, &txd,
+	    offset + sizeof(txd) * sc->sc_tx_ring_prod, &txd,
 	    sizeof(txd) - sizeof(myx_bus_t));
 
 	bus_space_barrier(sc->sc_memt, sc->sc_memh, offset,
 	    sizeof(txd) * sc->sc_tx_ring_count, BUS_SPACE_BARRIER_WRITE);
 
 	myx_bus_space_write(sc,
-	    offset + sizeof(txd) * (sc->sc_tx_ring_idx + 1) - sizeof(myx_bus_t),
+	    offset + sizeof(txd) * (sc->sc_tx_ring_prod + 1) -
+	    sizeof(myx_bus_t),
 	    (u_int8_t *)&txd + sizeof(txd) - sizeof(myx_bus_t),
 	    sizeof(myx_bus_t));
 
 	bus_space_barrier(sc->sc_memt, sc->sc_memh,
-	    offset + sizeof(txd) * sc->sc_tx_ring_idx, sizeof(txd),
+	    offset + sizeof(txd) * sc->sc_tx_ring_prod, sizeof(txd),
 	    BUS_SPACE_BARRIER_WRITE);
 
 	/* commit */
-	sc->sc_tx_ring_idx = idx;
+	sc->sc_tx_ring_prod = idx;
 	sc->sc_tx_prod = prod;
 }
 
@@ -1582,11 +1583,10 @@ int
 myx_intr(void *arg)
 {
 	struct myx_softc	*sc = (struct myx_softc *)arg;
-	struct ifnet		*ifp = &sc->sc_ac.ac_if;
 	volatile struct myx_status *sts = sc->sc_sts;
 	enum myx_state		 state;
 	bus_dmamap_t		 map = sc->sc_sts_dma.mxm_map;
-	u_int32_t		 data, start;
+	u_int32_t		 data;
 	u_int8_t		 valid = 0;
 
 	state = sc->sc_state;
@@ -1632,15 +1632,12 @@ myx_intr(void *arg)
 	bus_space_write_raw_region_4(sc->sc_memt, sc->sc_memh,
 	    sc->sc_irqclaimoff + sizeof(data), &data, sizeof(data));
 
-	start = ISSET(ifp->if_flags, IFF_OACTIVE);
-
 	if (sts->ms_statusupdated) {
 		if (state == MYX_S_DOWN &&
 		    sc->sc_linkdown != sts->ms_linkdown) {
 			sc->sc_state = MYX_S_OFF;
 			membar_producer();
 			wakeup(sts);
-			start = 0;
 		} else {
 			data = sts->ms_linkstate;
 			if (data != 0xffffffff) {
@@ -1653,13 +1650,6 @@ myx_intr(void *arg)
 
 	bus_dmamap_sync(sc->sc_dmat, map, 0, map->dm_mapsize,
 	    BUS_DMASYNC_PREREAD|BUS_DMASYNC_PREWRITE);
-
-	if (start) {
-		KERNEL_LOCK();
-		CLR(ifp->if_flags, IFF_OACTIVE);
-		myx_start(ifp);
-		KERNEL_UNLOCK();
-	}
 
 	return (1);
 }
@@ -1682,16 +1672,16 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct myx_slot *ms;
 	bus_dmamap_t map;
-	u_int free = 0;
-	u_int cons;
+	u_int idx, cons;
 
+	idx = sc->sc_tx_ring_cons;
 	cons = sc->sc_tx_cons;
 
 	do {
 		ms = &sc->sc_tx_slots[cons];
 		map = ms->ms_map;
 
-		free += map->dm_nsegs + (map->dm_mapsize < 60 ? 1 : 0);
+		idx += map->dm_nsegs + (map->dm_mapsize < 60 ? 1 : 0);
 
 		bus_dmamap_sync(sc->sc_dmat, map, 0,
 		    map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
@@ -1704,8 +1694,14 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 			cons = 0;
 	} while (++sc->sc_tx_count != done_count);
 
+	if (idx >= sc->sc_tx_ring_count)
+		idx -= sc->sc_tx_ring_count;
+
+	sc->sc_tx_ring_cons = idx;
 	sc->sc_tx_cons = cons;
-	atomic_add_int(&sc->sc_tx_free, free);
+
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
 }
 
 void
@@ -1855,23 +1851,6 @@ destroy:
 	}
 	free(mrr->mrr_slots, M_DEVBUF, sizeof(*ms) * sc->sc_rx_ring_count);
 	return (rv);
-}
-
-static inline int
-myx_rx_ring_enter(struct myx_rx_ring *mrr)
-{
-	return (atomic_inc_int_nv(&mrr->mrr_running) == 1);
-}
-
-static inline int
-myx_rx_ring_leave(struct myx_rx_ring *mrr)
-{
-	if (atomic_cas_uint(&mrr->mrr_running, 1, 0) == 1)
-		return (1);
-
-	mrr->mrr_running = 1;
-
-	return (0);
 }
 
 int

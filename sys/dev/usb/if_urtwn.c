@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urtwn.c,v 1.54 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_urtwn.c,v 1.58 2016/01/05 18:41:16 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -40,10 +40,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -353,7 +351,6 @@ urtwn_attach(struct device *parent, struct device *self, void *aux)
 	    IEEE80211_C_WEP |		/* WEP. */
 	    IEEE80211_C_RSN;		/* WPA/RSN. */
 
-#ifndef IEEE80211_NO_HT
 	/* Set HT capabilities. */
 	ic->ic_htcaps =
 	    IEEE80211_HTCAP_CBW20_40 |
@@ -361,7 +358,6 @@ urtwn_attach(struct device *parent, struct device *self, void *aux)
 	/* Set supported HT rates. */
 	for (i = 0; i < sc->nrxchains; i++)
 		ic->ic_sup_mcs[i] = 0xff;
-#endif
 
 	/* Set supported .11b and .11g rates. */
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -1952,8 +1948,8 @@ urtwn_txeof(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	/* We just released a Tx buffer, notify Tx. */
-	if (ifp->if_flags & IFF_OACTIVE) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+	if (ifq_is_oactive(&ifp->if_snd)) {
+		ifq_clr_oactive(&ifp->if_snd);
 		urtwn_start(ifp);
 	}
 	splx(s);
@@ -2133,12 +2129,12 @@ urtwn_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (TAILQ_EMPTY(&sc->tx_free_list)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* Send pending management frames first. */
@@ -3294,7 +3290,6 @@ urtwn_set_chan(struct urtwn_softc *sc, struct ieee80211_channel *c,
 		urtwn_rf_write(sc, i, R92C_RF_CHNLBW,
 		    RW(sc->rf_chnlbw[i], R92C_RF_CHNLBW_CHNL, chan));
 	}
-#ifndef IEEE80211_NO_HT
 	if (extc != NULL) {
 		uint32_t reg;
 
@@ -3333,9 +3328,7 @@ urtwn_set_chan(struct urtwn_softc *sc, struct ieee80211_channel *c,
 		/* Select 40MHz bandwidth. */
 		urtwn_rf_write(sc, 0, R92C_RF_CHNLBW,
 		    (sc->rf_chnlbw[0] & ~0xfff) | chan);
-	} else
-#endif
-	{
+	} else {
 		urtwn_write_1(sc, R92C_BWOPMODE,
 		    urtwn_read_1(sc, R92C_BWOPMODE) | R92C_BWOPMODE_20MHZ);
 
@@ -3699,8 +3692,8 @@ urtwn_init(struct ifnet *ifp)
 	}
 
 	/* We're ready to go. */
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 #ifdef notyet
 	if (ic->ic_flags & IEEE80211_F_WEPON) {
@@ -3729,7 +3722,8 @@ urtwn_stop(struct ifnet *ifp)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	s = splusb();
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);

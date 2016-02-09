@@ -1,4 +1,4 @@
-/*	$OpenBSD: ne2000.c,v 1.25 2010/04/20 20:42:54 deraadt Exp $	*/
+/*	$OpenBSD: ne2000.c,v 1.27 2015/11/24 17:11:39 mpi Exp $	*/
 /*	$NetBSD: ne2000.c,v 1.12 1998/06/10 01:15:50 thorpej Exp $	*/
 
 /*-
@@ -56,8 +56,6 @@
 #include <sys/syslog.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>

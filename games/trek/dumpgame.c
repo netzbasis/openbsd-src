@@ -1,4 +1,4 @@
-/*	$OpenBSD: dumpgame.c,v 1.9 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: dumpgame.c,v 1.12 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: dumpgame.c,v 1.4 1995/04/24 12:25:54 cgd Exp $	*/
 
 /*
@@ -30,10 +30,11 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
 #include <err.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+
 #include "trek.h"
 
 /***  THIS CONSTANT MUST CHANGE AS THE DATA SPACES CHANGE ***/
@@ -73,15 +74,14 @@ static int readdump(int);
 */
 
 void
-dumpgame(v)
-	int v;
+dumpgame(int v)
 {
 	int		version;
 	int		fd;
 	struct dump	*d;
 	int		i;
 
-	if ((fd = creat("trek.dump", 0644)) < 0)
+	if ((fd = open("trek.dump", O_CREAT | O_TRUNC | O_WRONLY, 0644)) < 0)
 	{
 		warn("cannot open `trek.dump'");
 		return;
@@ -113,7 +113,7 @@ dumpgame(v)
 */
 
 int
-restartgame()
+restartgame(void)
 {
 	int	fd, version;
 
@@ -143,8 +143,7 @@ restartgame()
 */
 
 static int
-readdump(fd1)
-	int	fd1;
+readdump(int fd1)
 {
 	int		fd, i;
 	struct dump	*d;

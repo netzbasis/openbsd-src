@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bnxreg.h,v 1.46 2015/09/11 13:02:28 stsp Exp $	*/
+/*	$OpenBSD: if_bnxreg.h,v 1.49 2015/12/05 16:23:37 jmatthew Exp $	*/
 
 /*-
  * Copyright (c) 2006 Broadcom Corporation
@@ -50,18 +50,13 @@
 #include <sys/pool.h>
 #include <sys/rwlock.h>
 #include <sys/task.h>
+#include <sys/atomic.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -4921,11 +4916,8 @@ struct bnx_softc {
 	int			tx_mbuf_rseg;
 
 	/* S/W maintained mbuf TX chain structure. */
-	struct mutex		tx_pkt_mtx;
-	u_int			tx_pkt_count;
-	struct bnx_pkt_list	tx_free_pkts;
-	struct bnx_pkt_list	tx_used_pkts;
-	struct task		tx_alloc_task;
+	bus_dmamap_t		tx_mbuf_map[TOTAL_TX_BD];
+	struct mbuf		*tx_mbuf_ptr[TOTAL_TX_BD];
 
 	/* S/W maintained mbuf RX chain structure. */
 	bus_dmamap_t		rx_mbuf_map[TOTAL_RX_BD];
@@ -4934,7 +4926,7 @@ struct bnx_softc {
 	/* Track the number of rx_bd and tx_bd's in use. */
 	struct if_rxring	rx_ring;
 	u_int16_t		max_rx_bd;
-	u_int16_t		used_tx_bd;
+	int			used_tx_bd;
 	u_int16_t		max_tx_bd;
 
 	/* Provides access to hardware statistics through sysctl. */

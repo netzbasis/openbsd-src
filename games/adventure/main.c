@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.20 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.22 2016/01/07 16:00:31 tb Exp $	*/
 /*	$NetBSD: main.c,v 1.5 1996/05/21 21:53:09 mrg Exp $	*/
 
 /*-
@@ -52,6 +52,9 @@ main(int argc, char *argv[])
 	int     rval, ll;
 	struct text *kk;
 
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
+	
 	init();		/* Initialize everything */
 	signal(SIGINT, trapdel);
 
@@ -68,7 +71,7 @@ main(int argc, char *argv[])
 			errx(1, "can't open file");	/* So give up */
 		case 2:		/* Oops -- file was altered */
 			rspeak(202);	/* You dissolve */
-			exit(2);	/* File could be non-adventure */
+			return 2;	/* File could be non-adventure */
 		}			/* So don't unlink it. */
 	}
 

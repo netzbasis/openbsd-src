@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.145 2015/10/30 09:39:42 bluhm Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.151 2015/12/09 09:27:40 mpi Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -652,9 +652,8 @@ reflect:
 		    &ip->ip_dst.s_addr))
 			goto freeit;
 #endif
-		rtredirect(sintosa(&sdst), sintosa(&sgw), NULL,
-		    RTF_GATEWAY | RTF_HOST, sintosa(&ssrc),
-		    &newrt, m->m_pkthdr.ph_rtableid);
+		rtredirect(sintosa(&sdst), sintosa(&sgw),
+		    sintosa(&ssrc), &newrt, m->m_pkthdr.ph_rtableid);
 		if (newrt != NULL && icmp_redirtimeout != 0) {
 			(void)rt_timer_add(newrt, icmp_redirect_timeout,
 			    icmp_redirect_timeout_q, m->m_pkthdr.ph_rtableid);
@@ -749,7 +748,7 @@ icmp_reflect(struct mbuf *m, struct mbuf **op, struct in_ifaddr *ia)
 		sin.sin_addr = ip->ip_src;
 
 		/* keep packet in the original virtual instance */
-		rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+		rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
 			ipstat.ips_noroute++;
 			m_freem(m);
@@ -855,7 +854,10 @@ icmp_send(struct mbuf *m, struct mbuf *opts)
 		printf("icmp_send dst %s src %s\n", dst, src);
 	}
 #endif
-	ip_output(m, opts, NULL, 0, NULL, NULL, 0);
+	if (opts != NULL)
+		m = ip_insertoptions(m, opts, &hlen);
+
+	ip_send(m);
 }
 
 u_int32_t
@@ -934,7 +936,7 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	sin.sin_len = sizeof(sin);
 	sin.sin_addr = dst;
 
-	rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE, rtableid);
+	rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 
 	/* Check if the route is actually usable */
 	if (!rtisvalid(rt) || (rt->rt_flags & (RTF_REJECT|RTF_BLACKHOLE))) {
@@ -981,11 +983,18 @@ void
 icmp_mtudisc(struct icmp *icp, u_int rtableid)
 {
 	struct rtentry *rt;
+	struct ifnet *ifp;
 	u_long mtu = ntohs(icp->icmp_nextmtu);  /* Why a long?  IPv6 */
 
 	rt = icmp_mtudisc_clone(icp->icmp_ip.ip_dst, rtableid);
 	if (rt == NULL)
 		return;
+
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL) {
+		rtfree(rt);
+		return;
+	}
 
 	if (mtu == 0) {
 		int i = 0;
@@ -1002,7 +1011,7 @@ icmp_mtudisc(struct icmp *icp, u_int rtableid)
 			/* If no route mtu, default to the interface mtu */
 
 			if (mtu == 0)
-				mtu = rt->rt_ifp->if_mtu;
+				mtu = ifp->if_mtu;
 		}
 
 		for (i = 0; i < nitems(mtu_table); i++)
@@ -1019,34 +1028,35 @@ icmp_mtudisc(struct icmp *icp, u_int rtableid)
 	 *	  on a route.  We should be using a separate flag
 	 *	  for the kernel to indicate this.
 	 */
-
 	if ((rt->rt_rmx.rmx_locks & RTV_MTU) == 0) {
-		if (mtu < 296 || mtu > rt->rt_ifp->if_mtu)
+		if (mtu < 296 || mtu > ifp->if_mtu)
 			rt->rt_rmx.rmx_locks |= RTV_MTU;
-		else if (rt->rt_rmx.rmx_mtu > mtu ||
-		    rt->rt_rmx.rmx_mtu == 0)
+		else if (rt->rt_rmx.rmx_mtu > mtu || rt->rt_rmx.rmx_mtu == 0)
 			rt->rt_rmx.rmx_mtu = mtu;
 	}
 
+	if_put(ifp);
 	rtfree(rt);
 }
 
 void
 icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp_mtudisc_timeout:  bad route to timeout");
+	struct ifnet *ifp;
+	int s;
 
-	if ((rt->rt_flags & (RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_DYNAMIC | RTF_HOST)) {
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
+
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		void *(*ctlfunc)(int, struct sockaddr *, u_int, void *);
 		struct sockaddr_in sin;
-		int s;
 
 		sin = *satosin(rt_key(rt));
 
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 
 		/* Notify TCP layer of increased Path MTU estimate */
 		ctlfunc = inetsw[ip_protox[IPPROTO_TCP]].pr_ctlinput;
@@ -1054,9 +1064,12 @@ icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 			(*ctlfunc)(PRC_MTUINC, sintosa(&sin),
 			    r->rtt_tableid, NULL);
 		splx(s);
-	} else
+	} else {
 		if ((rt->rt_rmx.rmx_locks & RTV_MTU) == 0)
 			rt->rt_rmx.rmx_mtu = 0;
+	}
+
+	if_put(ifp);
 }
 
 /*
@@ -1080,17 +1093,20 @@ icmp_ratelimit(const struct in_addr *dst, const int type, const int code)
 void
 icmp_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp_redirect_timeout:  bad route to timeout");
+	struct ifnet *ifp;
+	int s;
 
-	if ((rt->rt_flags & (RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_DYNAMIC | RTF_HOST)) {
-		int s;
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
 
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 		splx(s);
 	}
+
+	if_put(ifp);
 }
 
 int

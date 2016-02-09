@@ -69,6 +69,9 @@ _file:*:104:
 _radiusd:*:105:
 _eigrpd:*:106:
 _vmd:*:107:
+_tftp_proxy:*:108:
+_ftp_proxy:*:109:
+_sndiop:*:110:
 dialer:*:117:
 nogroup:*:32766:
 nobody:*:32767:

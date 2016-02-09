@@ -98,10 +98,8 @@ expand_linebuf(void)
 	char *new_buf = realloc(linebuf, new_size);
 	char *new_attr = realloc(attr, new_size);
 	if (new_buf == NULL || new_attr == NULL) {
-		if (new_attr != NULL)
-			free(new_attr);
-		if (new_buf != NULL)
-			free(new_buf);
+		free(new_attr);
+		free(new_buf);
 		return (1);
 	}
 	linebuf = new_buf;
@@ -144,7 +142,7 @@ prewind(void)
 void
 plinenum(off_t pos)
 {
-	LINENUM linenum = 0;
+	off_t linenum = 0;
 	int i;
 
 	if (linenums == OPT_ONPLUS) {
@@ -177,10 +175,10 @@ plinenum(off_t pos)
 	 * if the -N option is set.
 	 */
 	if (linenums == OPT_ONPLUS) {
-		char buf[INT_STRLEN_BOUND(pos) + 2];
+		char buf[23];
 		int n;
 
-		linenumtoa(linenum, buf, sizeof (buf));
+		postoa(linenum, buf, sizeof(buf));
 		n = strlen(buf);
 		if (n < MIN_LINENUM_WIDTH)
 			n = MIN_LINENUM_WIDTH;

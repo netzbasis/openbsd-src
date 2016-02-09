@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfd.h,v 1.92 2015/09/27 17:31:50 stsp Exp $ */
+/*	$OpenBSD: ospfd.h,v 1.94 2015/12/05 12:20:13 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
@@ -104,6 +104,7 @@ enum imsg_type {
 	IMSG_NEIGHBOR_CAPA,
 	IMSG_NETWORK_ADD,
 	IMSG_NETWORK_DEL,
+	IMSG_AREA_CHANGE,
 	IMSG_DD,
 	IMSG_DD_END,
 	IMSG_DD_BADLSA,
@@ -335,6 +336,7 @@ struct iface {
 	u_int32_t		 crypt_seq_num;
 	time_t			 uptime;
 	unsigned int		 ifindex;
+	u_int			 rdomain;
 	int			 fd;
 	int			 state;
 	int			 mtu;
@@ -415,7 +417,8 @@ struct kif {
 	u_int64_t		 baudrate;
 	int			 flags;
 	int			 mtu;
-	u_short			 ifindex;
+	unsigned int		 ifindex;
+	u_int			 rdomain;
 	u_int8_t		 if_type;
 	u_int8_t		 link_state;
 	u_int8_t		 nh_reachable;	/* for nexthop verification */
@@ -499,6 +502,7 @@ struct ctl_rt {
 	enum dst_type		 d_type;
 	u_int8_t		 flags;
 	u_int8_t		 prefixlen;
+	u_int8_t		 connected;
 };
 
 struct ctl_sum {
@@ -530,7 +534,7 @@ struct demote_msg {
 struct area	*area_new(void);
 int		 area_del(struct area *);
 struct area	*area_find(struct ospfd_conf *, struct in_addr);
-void		 area_track(struct area *, int);
+void		 area_track(struct area *);
 int		 area_border_router(struct ospfd_conf *);
 u_int8_t	 area_ospf_options(struct area *);
 
@@ -552,6 +556,7 @@ u_int16_t	 iso_cksum(void *, u_int16_t, u_int16_t);
 
 /* kroute.c */
 int		 kif_init(void);
+void		 kif_clear(void);
 int		 kr_init(int, u_int);
 int		 kr_change(struct kroute *, int);
 int		 kr_delete(struct kroute *);

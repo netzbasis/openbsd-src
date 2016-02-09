@@ -1,4 +1,4 @@
-/*	$OpenBSD: parser.c,v 1.2 2015/10/14 13:27:50 jsg Exp $ */
+/*	$OpenBSD: parser.c,v 1.4 2016/01/15 12:57:49 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -67,12 +67,20 @@ static const struct token t_show_topology_af[];
 static const struct token t_show_topology_as[];
 static const struct token t_show_fib[];
 static const struct token t_show_fib_af[];
+static const struct token t_show_stats[];
+static const struct token t_show_stats_af[];
+static const struct token t_show_stats_as[];
 static const struct token t_log[];
+static const struct token t_clear[];
+static const struct token t_clear_nbr[];
+static const struct token t_clear_nbr_af[];
+static const struct token t_clear_nbr_as[];
 
 static const struct token t_main[] = {
 	{KEYWORD,	"reload",	RELOAD,		NULL},
 	{KEYWORD,	"fib",		FIB,		t_fib},
 	{KEYWORD,	"show",		SHOW,		t_show},
+	{KEYWORD,	"clear",	NONE,		t_clear},
 	{KEYWORD,	"log",		NONE,		t_log},
 	{ENDTOKEN,	"",		NONE,		NULL}
 };
@@ -89,6 +97,7 @@ static const struct token t_show[] = {
 	{KEYWORD,	"neighbor",	SHOW_NBR,	t_show_nbr},
 	{KEYWORD,	"topology",	SHOW_TOPOLOGY,	t_show_topology},
 	{KEYWORD,	"fib",		SHOW_FIB,	t_show_fib},
+	{KEYWORD,	"traffic",	SHOW_STATS,	t_show_stats},
 	{ENDTOKEN,	"",		NONE,		NULL}
 };
 
@@ -160,6 +169,47 @@ static const struct token t_show_fib[] = {
 
 static const struct token t_show_fib_af[] = {
 	{FAMILY,	"",		NONE,		t_show_fib},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+
+static const struct token t_show_stats[] = {
+	{NOTOKEN,	"",		NONE,		NULL},
+	{KEYWORD,	"family",	NONE,		t_show_stats_af},
+	{KEYWORD,	"as",		NONE,		t_show_stats_as},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_show_stats_af[] = {
+	{FAMILY,	"",		NONE,		t_show_stats},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_show_stats_as[] = {
+	{ASNUM,		"",		NONE,		t_show_stats},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_clear[] = {
+	{KEYWORD,	"neighbors",	CLEAR_NBR,	t_clear_nbr},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_clear_nbr[] = {
+	{NOTOKEN,	"",		NONE,		NULL},
+	{KEYWORD,	"as",		NONE,		t_clear_nbr_as},
+	{KEYWORD,	"family",	NONE,		t_clear_nbr_af},
+	{ADDRESS,	"",		NONE,		NULL},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_clear_nbr_af[] = {
+	{FAMILY,	"",		NONE,		t_clear_nbr},
+	{ENDTOKEN,	"",		NONE,		NULL}
+};
+
+static const struct token t_clear_nbr_as[] = {
+	{ASNUM,		"",		NONE,		t_clear_nbr},
 	{ENDTOKEN,	"",		NONE,		NULL}
 };
 

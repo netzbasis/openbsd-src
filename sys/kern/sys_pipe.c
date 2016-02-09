@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_pipe.c,v 1.69 2015/02/10 21:56:10 miod Exp $	*/
+/*	$OpenBSD: sys_pipe.c,v 1.72 2016/01/15 18:10:48 stefan Exp $	*/
 
 /*
  * Copyright (c) 1996 John S. Dyson
@@ -292,14 +292,12 @@ pipeselwakeup(struct pipe *cpipe)
 		gsignal(cpipe->pipe_pgid, SIGIO);
 }
 
-/* ARGSUSED */
 int
 pipe_read(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
 {
-	struct pipe *rpipe = (struct pipe *) fp->f_data;
+	struct pipe *rpipe = fp->f_data;
 	int error;
-	int nread = 0;
-	int size;
+	size_t size, nread = 0;
 
 	error = pipelock(rpipe);
 	if (error)
@@ -317,7 +315,7 @@ pipe_read(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
 				size = rpipe->pipe_buffer.cnt;
 			if (size > uio->uio_resid)
 				size = uio->uio_resid;
-			error = uiomovei(&rpipe->pipe_buffer.buffer[rpipe->pipe_buffer.out],
+			error = uiomove(&rpipe->pipe_buffer.buffer[rpipe->pipe_buffer.out],
 					size, uio);
 			if (error) {
 				break;
@@ -414,11 +412,10 @@ int
 pipe_write(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
 {
 	int error = 0;
-	int orig_resid;
-
+	size_t orig_resid;
 	struct pipe *wpipe, *rpipe;
 
-	rpipe = (struct pipe *) fp->f_data;
+	rpipe = fp->f_data;
 	wpipe = rpipe->pipe_peer;
 
 	/*
@@ -462,7 +459,7 @@ pipe_write(struct file *fp, off_t *poff, struct uio *uio, struct ucred *cred)
 	orig_resid = uio->uio_resid;
 
 	while (uio->uio_resid) {
-		int space;
+		size_t space;
 
 retrywrite:
 		if (wpipe->pipe_state & PIPE_EOF) {
@@ -478,8 +475,8 @@ retrywrite:
 
 		if (space > 0) {
 			if ((error = pipelock(wpipe)) == 0) {
-				int size;	/* Transfer size */
-				int segsize;	/* first segment to transfer */
+				size_t size;	/* Transfer size */
+				size_t segsize;	/* first segment to transfer */
 
 				/*
 				 * If a process blocked in uiomove, our
@@ -516,7 +513,7 @@ retrywrite:
 
 				/* Transfer first segment */
 
-				error = uiomovei(&wpipe->pipe_buffer.buffer[wpipe->pipe_buffer.in], 
+				error = uiomove(&wpipe->pipe_buffer.buffer[wpipe->pipe_buffer.in],
 						segsize, uio);
 
 				if (error == 0 && segsize < size) {
@@ -531,7 +528,7 @@ retrywrite:
 						panic("Expected pipe buffer wraparound disappeared");
 #endif
 
-					error = uiomovei(&wpipe->pipe_buffer.buffer[0],
+					error = uiomove(&wpipe->pipe_buffer.buffer[0],
 							size - segsize, uio);
 				}
 				if (error == 0) {
@@ -636,7 +633,7 @@ retrywrite:
 int
 pipe_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 {
-	struct pipe *mpipe = (struct pipe *)fp->f_data;
+	struct pipe *mpipe = fp->f_data;
 
 	switch (cmd) {
 
@@ -670,7 +667,7 @@ pipe_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 int
 pipe_poll(struct file *fp, int events, struct proc *p)
 {
-	struct pipe *rpipe = (struct pipe *)fp->f_data;
+	struct pipe *rpipe = fp->f_data;
 	struct pipe *wpipe;
 	int revents = 0;
 
@@ -707,7 +704,7 @@ pipe_poll(struct file *fp, int events, struct proc *p)
 int
 pipe_stat(struct file *fp, struct stat *ub, struct proc *p)
 {
-	struct pipe *pipe = (struct pipe *)fp->f_data;
+	struct pipe *pipe = fp->f_data;
 
 	memset(ub, 0, sizeof(*ub));
 	ub->st_mode = S_IFIFO;
@@ -729,11 +726,10 @@ pipe_stat(struct file *fp, struct stat *ub, struct proc *p)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 pipe_close(struct file *fp, struct proc *p)
 {
-	struct pipe *cpipe = (struct pipe *)fp->f_data;
+	struct pipe *cpipe = fp->f_data;
 
 	fp->f_ops = NULL;
 	fp->f_data = NULL;
@@ -798,7 +794,7 @@ pipeclose(struct pipe *cpipe)
 int
 pipe_kqfilter(struct file *fp, struct knote *kn)
 {
-	struct pipe *rpipe = (struct pipe *)kn->kn_fp->f_data;
+	struct pipe *rpipe = kn->kn_fp->f_data;
 	struct pipe *wpipe = rpipe->pipe_peer;
 
 	switch (kn->kn_filter) {
@@ -824,7 +820,7 @@ pipe_kqfilter(struct file *fp, struct knote *kn)
 void
 filt_pipedetach(struct knote *kn)
 {
-	struct pipe *rpipe = (struct pipe *)kn->kn_fp->f_data;
+	struct pipe *rpipe = kn->kn_fp->f_data;
 	struct pipe *wpipe = rpipe->pipe_peer;
 
 	switch (kn->kn_filter) {
@@ -839,11 +835,10 @@ filt_pipedetach(struct knote *kn)
 	}
 }
 
-/*ARGSUSED*/
 int
 filt_piperead(struct knote *kn, long hint)
 {
-	struct pipe *rpipe = (struct pipe *)kn->kn_fp->f_data;
+	struct pipe *rpipe = kn->kn_fp->f_data;
 	struct pipe *wpipe = rpipe->pipe_peer;
 
 	kn->kn_data = rpipe->pipe_buffer.cnt;
@@ -856,11 +851,10 @@ filt_piperead(struct knote *kn, long hint)
 	return (kn->kn_data > 0);
 }
 
-/*ARGSUSED*/
 int
 filt_pipewrite(struct knote *kn, long hint)
 {
-	struct pipe *rpipe = (struct pipe *)kn->kn_fp->f_data;
+	struct pipe *rpipe = kn->kn_fp->f_data;
 	struct pipe *wpipe = rpipe->pipe_peer;
 
 	if ((wpipe == NULL) || (wpipe->pipe_state & PIPE_EOF)) {

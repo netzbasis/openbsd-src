@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.150 2015/10/29 16:04:10 tedu Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.154 2016/01/21 11:23:48 mpi Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -77,6 +77,7 @@
 #include <sys/timeout.h>
 #include <sys/kernel.h>
 #include <sys/syslog.h>
+#include <sys/task.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -89,6 +90,7 @@
 #include <netinet/ip.h>
 
 #include <netinet/in_pcb.h>
+#include <netinet/ip_var.h>
 #include <netinet6/in6_var.h>
 #include <netinet/ip6.h>
 #include <netinet6/ip6_var.h>
@@ -123,6 +125,12 @@ int ip6_check_rh0hdr(struct mbuf *, int *);
 int ip6_hopopts_input(u_int32_t *, u_int32_t *, struct mbuf **, int *);
 struct mbuf *ip6_pullexthdr(struct mbuf *, size_t, int);
 
+static struct mbuf_queue	ip6send_mq;
+
+static void ip6_send_dispatch(void *);
+static struct task ip6send_task =
+	TASK_INITIALIZER(ip6_send_dispatch, &ip6send_mq);
+
 /*
  * IP6 initialization: fill in IP6 protocol switch table.
  * All protocols not implemented in kernel go to raw IP6 protocol handler.
@@ -149,6 +157,8 @@ ip6_init(void)
 	nd6_init();
 	frag6_init();
 	ip6_init2((void *)0);
+
+	mq_init(&ip6send_mq, 64, IPL_SOFTNET);
 }
 
 void
@@ -202,7 +212,7 @@ ip6_input(struct mbuf *m)
 	} else {
 		if (m->m_next) {
 			if (m->m_flags & M_LOOP) {
-				ip6stat.ip6s_m2m[lo0ifp->if_index]++;	/*XXX*/
+				ip6stat.ip6s_m2m[lo0ifidx]++;	/*XXX*/
 			} else if (ifp->if_index < nitems(ip6stat.ip6s_m2m))
 				ip6stat.ip6s_m2m[ifp->if_index]++;
 			else
@@ -378,7 +388,6 @@ ip6_input(struct mbuf *m)
 	 * Multicast check
 	 */
 	if (IN6_IS_ADDR_MULTICAST(&ip6->ip6_dst)) {
-		struct	in6_multi *in6m = NULL;
 
 		/*
 		 * Make sure M_MCAST is set.  It should theoretically
@@ -391,8 +400,7 @@ ip6_input(struct mbuf *m)
 		 * See if we belong to the destination multicast group on the
 		 * arrival interface.
 		 */
-		IN6_LOOKUP_MULTI(ip6->ip6_dst, ifp, in6m);
-		if (in6m)
+		if (in6_hasmulti(&ip6->ip6_dst, ifp))
 			ours = 1;
 #ifdef MROUTING
 		else if (!ip6_mforwarding || !ip6_mrouter)
@@ -514,7 +522,7 @@ ip6_input(struct mbuf *m)
 		if (ip6->ip6_plen == 0 && plen == 0) {
 			/*
 			 * Note that if a valid jumbo payload option is
-			 * contained, ip6_hoptops_input() must set a valid
+			 * contained, ip6_hopopts_input() must set a valid
 			 * (non-zero) payload length to the variable plen.
 			 */
 			ip6stat.ip6s_badoptions++;
@@ -1004,7 +1012,7 @@ ip6_savecontrol(struct inpcb *in6p, struct mbuf *m, struct mbuf **mp)
 	 */
 	if ((in6p->inp_flags & IN6P_HOPOPTS) != 0) {
 		/*
-		 * Check if a hop-by-hop options header is contatined in the
+		 * Check if a hop-by-hop options header is contained in the
 		 * received packet, and if so, store the options as ancillary
 		 * data. Note that a hop-by-hop options header must be
 		 * just after the IPv6 header, which is assured through the
@@ -1430,4 +1438,29 @@ ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 		return (EOPNOTSUPP);
 	}
 	/* NOTREACHED */
+}
+
+void
+ip6_send_dispatch(void *xmq)
+{
+	struct mbuf_queue *mq = xmq;
+	struct mbuf *m;
+	struct mbuf_list ml;
+	int s;
+
+	mq_delist(mq, &ml);
+	KERNEL_LOCK();
+	s = splsoftnet();
+	while ((m = ml_dequeue(&ml)) != NULL) {
+		ip6_output(m, NULL, NULL, IPV6_MINMTU, NULL, NULL);
+	}
+	splx(s);
+	KERNEL_UNLOCK();
+}
+
+void
+ip6_send(struct mbuf *m)
+{
+	mq_enqueue(&ip6send_mq, m);
+	task_add(softnettq, &ip6send_task);
 }

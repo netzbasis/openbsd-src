@@ -1,4 +1,4 @@
-/*	$OpenBSD: snake.c,v 1.16 2014/11/16 04:49:49 guenther Exp $	*/
+/*	$OpenBSD: snake.c,v 1.24 2016/02/02 19:18:57 mestre Exp $	*/
 /*	$NetBSD: snake.c,v 1.8 1995/04/29 00:06:41 mycroft Exp $	*/
 
 /*
@@ -41,23 +41,17 @@
  *	cc -O snake.c move.c -o snake -lm -lcurses
  */
 
-#include <sys/types.h>
-#include <sys/ioctl.h>
-
 #include <curses.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
-#include <pwd.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
-#include <time.h>
 #include <unistd.h>
-
-#include "pathnames.h"
 
 #ifdef	DEBUG
 #define	cashvalue	(loot-penalty)/25
@@ -79,7 +73,8 @@ struct point {
 #define TREASURE	'$'
 #define GOAL		'#'
 
-#define TOPN	3	/* top scores to print if you lose */
+#define TOPN	10	/* top scores to print if you lose */
+#define SCORES_ENTRIES (TOPN + 1)
 
 #define pchar(point, c)	mvaddch((point)->line + 1, (point)->col + 1, (c))
 /* Can't use terminal timing to do delay, in light of X */
@@ -91,19 +86,26 @@ struct point money;
 struct point finish;
 struct point snake[6];
 
-int	loot, penalty;
-int	moves;
-int	fast = 1;
+int	 lcnt, ccnt;	/* user's idea of screen size */
+int	 chunk;		/* amount of money given at a time */
+int	 loot, penalty;
+int	 moves;
+int	 fast = 1;
 
-int rawscores;
+struct highscore {
+	char	name[LOGIN_NAME_MAX];
+	short	score;
+} scores[SCORES_ENTRIES];
+int	 nscores;
+
+char	 scorepath[PATH_MAX];
+FILE	*sf;
+int	 rawscores;
+
 #ifdef LOGGING
 FILE	*logfile;
+char	 logpath[PATH_MAX];
 #endif
-
-int	lcnt, ccnt;	/* user's idea of screen size */
-int	chunk;		/* amount of money given at a time */
-
-void	snscore(int, int);
 
 void	chase(struct point *, struct point *);
 int	chk(struct point *);
@@ -112,9 +114,11 @@ void	length(int);
 void	mainloop(void);
 int	post(int, int);
 int	pushsnake(void);
+int	readscores(int);
 void	setup(void);
-void	snrand(struct point *);
 void	snap(void);
+void	snrand(struct point *);
+void	snscore(int, int);
 void	spacewarp(int);
 void	stop(int);
 int	stretch(struct point *);
@@ -132,31 +136,37 @@ int	wantstop;
 int
 main(int argc, char *argv[])
 {
+	struct	sigaction sa;
 	int	ch, i;
-	struct sigaction sa;
-	gid_t	gid;
 
-	/* don't create the score file if it doesn't exist. */
-	rawscores = open(_PATH_RAWSCORES, O_RDWR, 0664);
+	if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+		err(1, "pledge");
+
 #ifdef LOGGING
-	logfile = fopen(_PATH_LOGFILE, "a");
-#endif
+	const char	*home;
 
-	/* revoke privs */
-	gid = getgid();
-	setresgid(gid, gid, gid);
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	snprintf(logpath, sizeof(logpath), "%s/%s", home, ".snake.log");
+	logfile = fopen(logpath, "a");
+#endif
 
 	while ((ch = getopt(argc, argv, "hl:stw:")) != -1)
 		switch ((char)ch) {
 		case 'w':	/* width */
-			ccnt = atoi(optarg);
+			ccnt = strtonum(optarg, 1, INT_MAX, NULL);
 			break;
 		case 'l':	/* length */
-			lcnt = atoi(optarg);
+			lcnt = strtonum(optarg, 1, INT_MAX, NULL);
 			break;
 		case 's': /* score */
-			snscore(rawscores, 0);
-			exit(0);
+			if (readscores(0))
+				snscore(rawscores, 0);
+			else
+				printf("no scores so far\n");
+			return 0;
 			break;
 		case 't': /* slow terminal */
 			fast = 0;
@@ -164,11 +174,12 @@ main(int argc, char *argv[])
 		case '?':
 		case 'h':
 		default:
-			fputs("usage: snake [-st] [-l length] [-w width]\n",
-			    stderr);
-			exit(1);
+			fprintf(stderr, "usage: %s [-st] [-l length] "
+			    "[-w width]\n", getprogname());
+			return 1;
 		}
 
+	readscores(1);
 	penalty = loot = 0;
 	initscr();
 #ifdef KEY_LEFT
@@ -226,8 +237,7 @@ main(int argc, char *argv[])
 		chase(&snake[i], &snake[i - 1]);
 	setup();
 	mainloop();
-	/* NOT REACHED */
-	return(0);
+	return 0;
 }
 
 /* Main command loop */
@@ -493,35 +503,53 @@ snrand(struct point *sp)
 int
 post(int iscore, int flag)
 {
-	short	score = iscore;
+	struct  highscore tmp;
+	int	rank = nscores;
 	short	oldbest = 0;
-	uid_t	uid = getuid();
 
 	/* I want to printf() the scores for terms that clear on endwin(),
 	 * but this routine also gets called with flag == 0 to see if
 	 * the snake should wink.  If (flag) then we're at game end and
 	 * can printf.
 	 */
-	if (rawscores == -1) {
-		if (flag)
-			warnx("Can't open score file %s", _PATH_RAWSCORES);
-		return(1);
+	if (flag == 0) {
+		if (nscores > 0)
+			return (iscore > scores[nscores - 1].score);
+		else
+			return (iscore > 0);
 	}
-	/* Figure out what happened in the past */
-	lseek(rawscores, uid * sizeof(short), SEEK_SET);
-	read(rawscores, &oldbest, sizeof(short));
-	if (!flag)
-		return (score > oldbest ? 1 : 0);
 
-	/* Update this jokers best */
-	if (score > oldbest) {
-		lseek(rawscores, uid * sizeof(short), SEEK_SET);
-		write(rawscores, &score, sizeof(short));
+	if (nscores > 0) {
+		oldbest = scores[0].score;
+		scores[nscores].score = iscore;
+		if (nscores < TOPN)
+			nscores++;
+	} else {
+		nscores = 1;
+		scores[0].score = iscore;
+		oldbest = 0;
+	}
+
+	/* Insert this joker's current score */
+	while (rank-- > 0 && iscore > scores[rank].score) {
+		memcpy(&tmp, &scores[rank], sizeof(struct highscore));
+		memcpy(&scores[rank], &scores[rank + 1],
+		    sizeof(struct highscore));
+		memcpy(&scores[rank + 1], &tmp, sizeof(struct highscore));
+	}
+
+	if (rank++ < 0)
 		printf("\nYou bettered your previous best of $%d\n", oldbest);
-	} else
-		printf("\nYour best to date is $%d\n", oldbest);
+	else if (rank < nscores)
+		printf("\nYour score of $%d is ranked %d of all times!\n",
+		    iscore, rank + 1);
 
-	fsync(rawscores);
+	rewind(sf);
+	if (fwrite(scores, sizeof(scores[0]), nscores, sf) < nscores)
+		err(1, "fwrite");
+	if (fclose(sf))
+		err(1, "fclose");
+
 	/* See if we have a new champ */
 	snscore(rawscores, TOPN);
 	return(1);
@@ -924,6 +952,19 @@ length(int num)
 	printf("You made %d moves.\n", num);
 }
 
+void
+snscore(int fd, int topn)
+{
+	int i;
+
+	if (nscores == 0)
+		return;
+
+	printf("%sSnake scores to date:\n", topn > 0 ? "Top " : "");
+	for (i = 0; i < nscores; i++)
+		printf("%2d.\t$%d\t%s\n", i+1, scores[i].score, scores[i].name);
+}
+
 #ifdef LOGGING
 void
 logit(char *msg)
@@ -938,3 +979,57 @@ logit(char *msg)
 	}
 }
 #endif
+
+int
+readscores(int create)
+{
+	const char	*home;
+	const char	*name;
+	const char	*modstr;
+	int		 modint;
+	int		 ret;
+
+	if (create == 0) {
+		modint = O_RDONLY;
+		modstr = "r";
+	} else {
+		modint = O_RDWR | O_CREAT;
+		modstr = "r+";
+	}
+
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home,
+	    ".snake.scores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".snake.scores");
+
+	rawscores = open(scorepath, modint, 0666);
+	if (rawscores < 0) {
+		if (create == 0)
+			return 0;
+		err(1, "cannot open %s", scorepath);
+	}
+	if ((sf = fdopen(rawscores, modstr)) == NULL)
+		err(1, "cannot fdopen %s", scorepath);
+	nscores = fread(scores, sizeof(scores[0]), TOPN, sf);
+	if (ferror(sf))
+		err(1, "error reading %s", scorepath);
+
+	name = getenv("LOGNAME");
+	if (name == NULL || *name == '\0')
+		name = getenv("USER");
+	if (name == NULL || *name == '\0')
+		name = getlogin();
+	if (name == NULL || *name == '\0')
+		name = "  ???";
+
+	if (nscores > TOPN)
+		nscores = TOPN;
+	strlcpy(scores[nscores].name, name, sizeof(scores[nscores].name));
+	scores[nscores].score = 0;
+
+	return 1;
+}

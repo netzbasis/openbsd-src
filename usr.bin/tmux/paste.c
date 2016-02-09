@@ -1,7 +1,7 @@
-/* $OpenBSD: paste.c,v 1.32 2015/10/27 15:58:42 nicm Exp $ */
+/* $OpenBSD: paste.c,v 1.34 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -275,7 +275,7 @@ paste_set(char *data, size_t size, const char *name, char **cause)
 
 /* Convert start of buffer into a nice string. */
 char *
-paste_make_sample(struct paste_buffer *pb, int utf8flag)
+paste_make_sample(struct paste_buffer *pb)
 {
 	char		*buf;
 	size_t		 len, used;
@@ -287,10 +287,7 @@ paste_make_sample(struct paste_buffer *pb, int utf8flag)
 		len = width;
 	buf = xreallocarray(NULL, len, 4 + 4);
 
-	if (utf8flag)
-		used = utf8_strvis(buf, pb->data, len, flags);
-	else
-		used = strvisx(buf, pb->data, len, flags);
+	used = utf8_strvis(buf, pb->data, len, flags);
 	if (pb->size > width || used > width)
 		strlcpy(buf + width, "...", 4);
 	return (buf);

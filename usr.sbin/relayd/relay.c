@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.198 2015/07/28 10:24:26 reyk Exp $	*/
+/*	$OpenBSD: relay.c,v 1.206 2015/12/30 16:00:57 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -331,6 +331,9 @@ relay_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 	/* Unlimited file descriptors (use system limits) */
 	socket_rlimit(-1);
 
+	if (pledge("stdio recvfd inet", NULL) == -1)
+		fatal("pledge");
+
 	/* Schedule statistics timer */
 	evtimer_set(&env->sc_statev, relay_statistics, NULL);
 	bcopy(&env->sc_statinterval, &tv, sizeof(tv));
@@ -340,14 +343,13 @@ relay_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 void
 relay_session_publish(struct rsession *s)
 {
-	proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_SESS_PUBLISH, -1,
-	    s, sizeof(*s));
+	proc_compose(env->sc_ps, PROC_PFE, IMSG_SESS_PUBLISH, s, sizeof(*s));
 }
 
 void
 relay_session_unpublish(struct rsession *s)
 {
-	proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_SESS_UNPUBLISH, -1,
+	proc_compose(env->sc_ps, PROC_PFE, IMSG_SESS_UNPUBLISH,
 	    &s->se_id, sizeof(s->se_id));
 }
 
@@ -396,7 +398,7 @@ relay_statistics(int fd, short events, void *arg)
 
 		crs.id = rlay->rl_conf.id;
 		crs.proc = proc_id;
-		proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_STATISTICS, -1,
+		proc_compose(env->sc_ps, PROC_PFE, IMSG_STATISTICS,
 		    &crs, sizeof(crs));
 
 		for (con = SPLAY_ROOT(&rlay->rl_sessions);
@@ -525,7 +527,8 @@ relay_socket(struct sockaddr_storage *ss, in_port_t port,
 	if (relay_socket_af(ss, port) == -1)
 		goto bad;
 
-	s = fd == -1 ? socket(ss->ss_family, SOCK_STREAM, IPPROTO_TCP) : fd;
+	s = fd == -1 ? socket(ss->ss_family,
+	    SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP) : fd;
 	if (s == -1)
 		goto bad;
 
@@ -541,8 +544,6 @@ relay_socket(struct sockaddr_storage *ss, in_port_t port,
 			sizeof(int)) == -1)
 			goto bad;
 	}
-	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
-		goto bad;
 	if (proto->tcpflags & TCPFLAG_BUFSIZ) {
 		val = proto->tcpbufsiz;
 		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
@@ -1057,9 +1058,6 @@ relay_accept(int fd, short event, void *arg)
 	    rlay->rl_conf.flags & F_DISABLE)
 		goto err;
 
-	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
-		goto err;
-
 	if ((con = calloc(1, sizeof(*con))) == NULL)
 		goto err;
 
@@ -1157,7 +1155,7 @@ relay_accept(int fd, short event, void *arg)
 			return;
 		}
 
-		proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_NATLOOK, -1,
+		proc_compose(env->sc_ps, PROC_PFE, IMSG_NATLOOK,
 		    cnl, sizeof(*cnl));
 
 		/* Schedule timeout */
@@ -1177,10 +1175,9 @@ relay_accept(int fd, short event, void *arg)
  err:
 	if (s != -1) {
 		close(s);
-		if (con != NULL)
-			free(con);
+		free(con);
 		/*
-		 * the session struct was not completly set up, but still
+		 * the session struct was not completely set up, but still
 		 * counted as an inflight session. account for this.
 		 */
 		relay_inflight--;
@@ -1216,10 +1213,12 @@ int
 relay_from_table(struct rsession *con)
 {
 	struct relay		*rlay = con->se_relay;
-	struct host		*host;
+	struct host		*host = NULL;
 	struct relay_table	*rlt = NULL;
 	struct table		*table = NULL;
 	int			 idx = -1;
+	int			 cnt = 0;
+	int			 maxtries;
 	u_int64_t		 p = 0;
 
 	/* the table is already selected */
@@ -1275,18 +1274,37 @@ relay_from_table(struct rsession *con)
 		/* NOTREACHED */
 	}
 	if (idx == -1) {
+		/* handle all hashing algorithms */
 		p = SipHash24_End(&con->se_siphashctx);
 
 		/* Reset hash context */
 		SipHash24_Init(&con->se_siphashctx,
 		    &rlay->rl_conf.hashkey.siphashkey);
 
-		if ((idx = p % rlt->rlt_nhosts) >= RELAY_MAXHOSTS)
-			return (-1);
+		maxtries = (rlt->rlt_nhosts < RELAY_MAX_HASH_RETRIES ?
+		    rlt->rlt_nhosts : RELAY_MAX_HASH_RETRIES);
+		for (cnt = 0; cnt < maxtries; cnt++) {
+			if ((idx = p % rlt->rlt_nhosts) >= RELAY_MAXHOSTS)
+				return (-1);
+
+			host = rlt->rlt_host[idx];
+
+			DPRINTF("%s: session %d: table %s host %s, "
+			    "p 0x%016llx, idx %d, cnt %d, max %d",
+			    __func__, con->se_id, table->conf.name,
+			    host->conf.name, p, idx, cnt, maxtries);
+
+			if (!table->conf.check || host->up == HOST_UP)
+				goto found;
+			p = p >> 1;
+		}
+	} else {
+		/* handle all non-hashing algorithms */
+		host = rlt->rlt_host[idx];
+		DPRINTF("%s: session %d: table %s host %s, p 0x%016llx, idx %d",
+		    __func__, con->se_id, table->conf.name, host->conf.name, p, idx);
 	}
-	host = rlt->rlt_host[idx];
-	DPRINTF("%s: session %d: table %s host %s, p 0x%016llx, idx %d",
-	    __func__, con->se_id, table->conf.name, host->conf.name, p, idx);
+
 	while (host != NULL) {
 		DPRINTF("%s: session %d: host %s", __func__,
 		    con->se_id, host->conf.name);
@@ -1394,8 +1412,8 @@ relay_bindanyreq(struct rsession *con, in_port_t port, int proto)
 	bnd.bnd_port = port;
 	bnd.bnd_proto = proto;
 	bcopy(&con->se_in.ss, &bnd.bnd_ss, sizeof(bnd.bnd_ss));
-	proc_compose_imsg(env->sc_ps, PROC_PARENT, -1, IMSG_BINDANY,
-	    -1, &bnd, sizeof(bnd));
+	proc_compose(env->sc_ps, PROC_PARENT, IMSG_BINDANY,
+	    &bnd, sizeof(bnd));
 
 	/* Schedule timeout */
 	evtimer_set(&con->se_ev, relay_bindany, con);
@@ -1657,15 +1675,13 @@ relay_close(struct rsession *con, const char *msg)
 		    con->se_tag != 0 ? tag_id2name(con->se_tag) : "0", ibuf,
 		    obuf, ntohs(con->se_out.port), msg, ptr == NULL ? "" : ",",
 		    ptr == NULL ? "" : ptr);
-		if (ptr != NULL)
-			free(ptr);
+		free(ptr);
 	}
 
 	if (proto->close != NULL)
 		(*proto->close)(con);
 
-	if (con->se_priv != NULL)
-		free(con->se_priv);
+	free(con->se_priv);
 	if (con->se_in.bev != NULL)
 		bufferevent_free(con->se_in.bev);
 	else if (con->se_in.output != NULL)
@@ -1690,8 +1706,7 @@ relay_close(struct rsession *con, const char *msg)
 			    __func__, relay_inflight);
 		}
 	}
-	if (con->se_in.buf != NULL)
-		free(con->se_in.buf);
+	free(con->se_in.buf);
 
 	if (con->se_out.bev != NULL)
 		bufferevent_free(con->se_out.bev);
@@ -1716,8 +1731,7 @@ relay_close(struct rsession *con, const char *msg)
 	}
 	con->se_out.state = STATE_INIT;
 
-	if (con->se_out.buf != NULL)
-		free(con->se_out.buf);
+	free(con->se_out.buf);
 
 	if (con->se_log != NULL)
 		evbuffer_free(con->se_log);
@@ -1839,13 +1853,12 @@ relay_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 			    &rlay->rl_sessions) {
 				memcpy(&se, con, sizeof(se));
 				se.se_cid = cid;
-				proc_compose_imsg(env->sc_ps, p->p_id, -1,
-				    IMSG_CTL_SESSION,
-				    -1, &se, sizeof(se));
+				proc_compose(env->sc_ps, p->p_id,
+				    IMSG_CTL_SESSION, &se, sizeof(se));
 			}
 		}
-		proc_compose_imsg(env->sc_ps, p->p_id, -1, IMSG_CTL_END,
-		    -1, &cid, sizeof(cid));
+		proc_compose(env->sc_ps, p->p_id, IMSG_CTL_END,
+		    &cid, sizeof(cid));
 		break;
 	default:
 		return (-1);
@@ -2144,8 +2157,7 @@ relay_tls_ctx_create(struct relay *rlay)
 	return (ctx);
 
  err:
-	if (ctx != NULL)
-		SSL_CTX_free(ctx);
+	SSL_CTX_free(ctx);
 	ssl_error(rlay->rl_conf.name, "relay_tls_ctx_create");
 	return (NULL);
 }
@@ -2207,8 +2219,7 @@ relay_tls_transaction(struct rsession *con, struct ctl_relay_event *cre)
 	return;
 
  err:
-	if (ssl != NULL)
-		SSL_free(ssl);
+	SSL_free(ssl);
 	ssl_error(rlay->rl_conf.name, "relay_tls_transaction");
 	relay_close(con, "session tls failed");
 }
@@ -2654,8 +2665,7 @@ relay_load_file(const char *name, off_t *len)
 	return (buf);
 
  fail:
-	if (buf != NULL)
-		free(buf);
+	free(buf);
 	close(fd);
 	return (NULL);
 }

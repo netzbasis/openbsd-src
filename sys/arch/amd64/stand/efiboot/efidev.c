@@ -1,4 +1,4 @@
-/*	$OpenBSD: efidev.c,v 1.8 2015/11/09 01:07:56 krw Exp $	*/
+/*	$OpenBSD: efidev.c,v 1.16 2016/01/06 02:10:03 krw Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -63,6 +63,7 @@ static EFI_STATUS
 static int	 efid_diskio(int, struct diskinfo *, u_int, int, void *);
 static u_int	 findopenbsd(efi_diskinfo_t, const char **);
 static uint64_t	 findopenbsd_gpt(efi_diskinfo_t, const char **);
+static int	 gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 void
 efid_init(struct diskinfo *dip, void *handle)
@@ -160,6 +161,43 @@ efid_diskio(int rw, struct diskinfo *dip, u_int off, int nsect, void *buf)
 }
 
 /*
+ * Returns 0 if the MBR with the provided partition array is a GPT protective
+ * MBR, and returns 1 otherwise. A GPT protective MBR would have one and only
+ * one MBR partition, an EFI partition that either covers the whole disk or as
+ * much of it as is possible with a 32bit size field.
+ *
+ * Taken from kern/subr_disk.c.
+ *
+ * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
+ */
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
+{
+	struct dos_partition *dp2;
+	int efi, found, i;
+	u_int32_t psize;
+
+	found = efi = 0;
+	for (dp2=dp, i=0; i < NDOSPART; i++, dp2++) {
+		if (dp2->dp_typ == DOSPTYP_UNUSED)
+			continue;
+		found++;
+		if (dp2->dp_typ != DOSPTYP_EFI)
+			continue;
+		psize = letoh32(dp2->dp_size);
+		if (psize == (dsize - 1) ||
+		    psize == UINT32_MAX) {
+			if (letoh32(dp2->dp_start) == 1)
+				efi++;
+		}
+	}
+	if (found == 1 && efi == 1)
+		return (0);
+
+	return (1);
+}
+
+/*
  * Try to read the bsd label on the given BIOS device.
  */
 static u_int
@@ -168,6 +206,7 @@ findopenbsd(efi_diskinfo_t ed, const char **err)
 	EFI_STATUS status;
 	struct dos_mbr mbr;
 	struct dos_partition *dp;
+	uint64_t gptoff;
 	u_int mbroff = DOSBBSECTOR;
 	u_int mbr_eoff = DOSBBSECTOR;	/* Offset of MBR extended partition. */
 	int i, maxebr = DOS_MAXEBR, nextebr;
@@ -190,6 +229,19 @@ again:
 	if (mbr.dmbr_sign != DOSMBR_SIGNATURE) {
 		*err = "bad MBR signature\n";
 		return (-1);
+	}
+
+	/* check for GPT protective MBR. */
+	if (mbroff == DOSBBSECTOR && gpt_chk_mbr(mbr.dmbr_parts,
+	    ed->blkio->Media->LastBlock + 1) == 0) {
+		gptoff = findopenbsd_gpt(ed, err);
+		if (gptoff > UINT_MAX || EFI_SECTOBLK(ed, gptoff) > UINT_MAX) {
+			*err = "Paritition LBA > 2**32";
+			return (-1);
+		}
+		if (gptoff == -1)
+			return (-1);
+		return EFI_SECTOBLK(ed, gptoff);
 	}
 
 	/* Search for OpenBSD partition */
@@ -224,16 +276,6 @@ again:
 			if (mbr_eoff == DOSBBSECTOR)
 				mbr_eoff = dp->dp_start;
 		}
-
-		if (dp->dp_typ == DOSPTYP_EFI) {
-			uint64_t gptoff = findopenbsd_gpt(ed, err);
-			if (gptoff > UINT_MAX ||
-			    EFI_SECTOBLK(ed, gptoff) > UINT_MAX) {
-				*err = "Paritition LBA > 2**32";
-				return (-1);
-			}
-			return EFI_SECTOBLK(ed, gptoff);
-		}
 	}
 
 	if (nextebr && nextebr != (u_int)-1) {
@@ -250,14 +292,14 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 {
 	EFI_STATUS		 status;
 	struct			 gpt_header gh;
-	int			 i, part;
+	int			 i, part, found;
 	uint64_t		 lba;
 	uint32_t		 orig_csum, new_csum;
 	uint32_t		 ghsize, ghpartsize, ghpartnum, ghpartspersec;
+	uint32_t		 gpsectors;
 	const char		 openbsd_uuid_code[] = GPT_UUID_OPENBSD;
+	struct gpt_partition	 gp;
 	static struct uuid	*openbsd_uuid = NULL, openbsd_uuid_space;
-	static struct gpt_partition
-				 gp[NGPTPARTITIONS];
 	static u_char		 buf[4096];
 
 	/* Prepare OpenBSD UUID */
@@ -314,35 +356,43 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 	gh.gh_csum = orig_csum;
 	if (letoh32(orig_csum) != new_csum) {
 		*err = "bad GPT header checksum\n";
-		return (1);
+		return (-1);
 	}
 
 	lba = letoh64(gh.gh_part_lba);
 	ghpartsize = letoh32(gh.gh_part_size);
 	ghpartspersec = ed->blkio->Media->BlockSize / ghpartsize;
 	ghpartnum = letoh32(gh.gh_part_num);
-	for (i = 0; i < (ghpartnum + ghpartspersec - 1) / ghpartspersec;
-	    i++, lba++) {
+	gpsectors = (ghpartnum + ghpartspersec - 1) / ghpartspersec;
+	new_csum = crc32(0L, Z_NULL, 0);
+	found = 0;
+	for (i = 0; i < gpsectors; i++, lba++) {
 		status = efid_io(F_READ, ed, EFI_SECTOBLK(ed, lba),
 		    EFI_BLKSPERSEC(ed), buf);
 		if (EFI_ERROR(status)) {
 			*err = "Disk I/O Error";
 			return (-1);
 		}
-		memcpy(gp + i * ghpartspersec, buf,
-		    ghpartspersec * sizeof(struct gpt_partition));
+		for (part = 0; part < ghpartspersec; part++) {
+			if (ghpartnum == 0)
+				break;
+			new_csum = crc32(new_csum, buf + part * sizeof(gp),
+			    sizeof(gp));
+			ghpartnum--;
+			if (found)
+				continue;
+			memcpy(&gp, buf + part * sizeof(gp), sizeof(gp));
+			if (memcmp(&gp.gp_type, openbsd_uuid,
+			    sizeof(struct uuid)) == 0)
+				found = 1;
+		}
 	}
-	new_csum = crc32(0, (unsigned char *)&gp, ghpartnum * ghpartsize);
 	if (new_csum != letoh32(gh.gh_part_csum)) {
-		*err = "bad GPT partitions checksum\n";
+		*err = "bad GPT entries checksum\n";
 		return (-1);
 	}
-
-	for (part = 0; part < ghpartnum; part++) {
-		if (memcmp(&gp[part].gp_type, openbsd_uuid,
-		    sizeof(struct uuid)) == 0)
-			return letoh64(gp[part].gp_lba_start);
-	}
+	if (found)
+		return (letoh64(gp.gp_lba_start));
 
 	return (-1);
 }
@@ -625,7 +675,8 @@ efi_dump_diskinfo(void)
 		bdi = &dip->bios_info;
 		ed = dip->efi_info;
 
-		siz = ed->blkio->Media->LastBlock * ed->blkio->Media->BlockSize;
+		siz = (ed->blkio->Media->LastBlock + 1) *
+		    ed->blkio->Media->BlockSize;
 		siz /= 1024 * 1024;
 		if (siz < 10000)
 			sizu = "MB";
@@ -633,7 +684,7 @@ efi_dump_diskinfo(void)
 			siz /= 1024;
 			sizu = "GB";
 		}
-		
+
 		printf("hd%d\t%u\t%u\t%u%s\t0x%x\t0x%x\t%s\n",
 		    (bdi->bios_number & 0x7f),
 		    ed->blkio->Media->BlockSize,

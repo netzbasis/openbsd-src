@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.179 2015/10/25 09:37:08 deraadt Exp $	*/
+/*	$OpenBSD: route.c,v 1.182 2015/12/03 08:00:49 claudio Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -226,13 +226,8 @@ main(int argc, char **argv)
 		break;
 	}
 		
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	switch (kw) {
 	case K_GET:
@@ -270,7 +265,7 @@ flushroutes(int argc, char **argv)
 
 	if (uid)
 		errx(1, "must be root to alter routing table");
-	shutdown(s, 0); /* Don't want to read back our messages */
+	shutdown(s, SHUT_RD); /* Don't want to read back our messages */
 	while (--argc > 0) {
 		if (**(++argv) == '-')
 			switch (keyword(*argv + 1)) {
@@ -329,13 +324,8 @@ flushroutes(int argc, char **argv)
 		break;
 	}
 
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	if (verbose) {
 		printf("Examining routing table from sysctl\n");
@@ -450,7 +440,7 @@ newroute(int argc, char **argv)
 		errx(1, "must be root to alter routing table");
 	cmd = argv[0];
 	if (*cmd != 'g')
-		shutdown(s, 0); /* Don't want to read back our messages */
+		shutdown(s, SHUT_RD); /* Don't want to read back our messages */
 	while (--argc > 0) {
 		if (**(++argv)== '-') {
 			switch (key = keyword(1 + *argv)) {
@@ -1329,10 +1319,10 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		printf("\n");
 		break;
 	default:
-		printf(", priority %d, ", rtm->rtm_priority);
-		printf("table %u, pid: %ld, seq %d, errno %d\nflags:",
-		    rtm->rtm_tableid, (long)rtm->rtm_pid, rtm->rtm_seq,
-		    rtm->rtm_errno);
+		printf(", priority %d, table %u, ifidx %u, ",
+		    rtm->rtm_priority, rtm->rtm_tableid, rtm->rtm_index);
+		printf("pid: %ld, seq %d, errno %d\nflags:",
+		    (long)rtm->rtm_pid, rtm->rtm_seq, rtm->rtm_errno);
 		bprintf(stdout, rtm->rtm_flags, routeflags);
 		if (verbose) {
 #define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')

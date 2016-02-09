@@ -1,4 +1,4 @@
-/*	$OpenBSD: client.c,v 1.4 2015/11/06 23:47:42 millert Exp $	*/
+/*	$OpenBSD: client.c,v 1.8 2015/11/12 21:12:05 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -19,15 +19,17 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 
 #include <bitstring.h>		/* for structs.h */
+#include <err.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>		/* for structs.h */
 #include <unistd.h>
-#include <utime.h>
 
 #include "pathnames.h"
 #include "macros.h"
@@ -86,22 +88,24 @@ allowed(const char *username, const char *allow_file, const char *deny_file)
 	return (isallowed);
 }
 
-/* void poke_daemon(const char *spool_dir, unsigned char cookie)
+/* void poke_daemon(unsigned char cookie)
  *	touches spool_dir and sends a poke to the cron daemon if running.
  */
 void
-poke_daemon(const char *spool_dir, unsigned char cookie)
+poke_daemon(unsigned char cookie)
 {
 	int sock = -1;
+	const char *cronsock = _PATH_CRON_SOCK;
+	struct stat sb;
 	struct sockaddr_un s_un;
 
-	(void) utime(spool_dir, NULL);		/* old poke method */
+	if (stat(cronsock, &sb) != 0)
+		cronsock = _PATH_CRON_SOCK_OLD;	/* backwards compatibility */
 
 	bzero(&s_un, sizeof(s_un));
-	if (snprintf(s_un.sun_path, sizeof s_un.sun_path, "%s/%s",
-	      SPOOL_DIR, CRONSOCK) >= sizeof(s_un.sun_path)) {
-		fprintf(stderr, "%s: %s/%s: path too long\n",
-		    __progname, SPOOL_DIR, CRONSOCK);
+	if (strlcpy(s_un.sun_path, cronsock, sizeof(s_un.sun_path)) >=
+	    sizeof(s_un.sun_path)) {
+		warnc(ENAMETOOLONG, "%s", cronsock);
 		return;
 	}
 	s_un.sun_family = AF_UNIX;
@@ -109,8 +113,7 @@ poke_daemon(const char *spool_dir, unsigned char cookie)
 	    connect(sock, (struct sockaddr *)&s_un, sizeof(s_un)) == 0)
 		send(sock, &cookie, 1, MSG_NOSIGNAL);
 	else
-		fprintf(stderr, "%s: warning, cron does not appear to be "
-		    "running.\n", __progname);
+		warnx("warning, cron does not appear to be running");
 	if (sock >= 0)
 		close(sock);
 }

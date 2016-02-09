@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.14 2006/06/30 19:10:23 otto Exp $
+#	$OpenBSD: Makefile,v 1.16 2015/11/25 23:18:11 deraadt Exp $
 
 PROG=	atc
 CFLAGS+=-I${.CURDIR} -I.
@@ -10,7 +10,6 @@ DPADD=	${LIBL} ${LIBM} ${LIBCURSES}
 GAMES=	Game_List Killer crossover default easy game_2 \
 	Atlantis OHare Tic-Tac-Toe airports box crosshatch game_3 \
 	game_4 novice two-corners
-BINMODE=2555
 
 beforeinstall: 
 	@if [ ! -d ${DESTDIR}/usr/share/games/atc ]; then \
@@ -24,11 +23,5 @@ beforeinstall:
 	(cd ${.CURDIR}/games; ${INSTALL} ${INSTALL_COPY} \
 	    -o ${BINOWN} -g ${BINGRP} \
 	    -m 444 ${GAMES} ${DESTDIR}/usr/share/games/atc)
-	@if [ ! -f ${DESTDIR}/var/games/atc_score ]; then \
-	    ${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m 664 \
-		/dev/null ${DESTDIR}/var/games/atc_score ; \
-	else \
-                true ; \
-        fi
 
 .include <bsd.prog.mk>

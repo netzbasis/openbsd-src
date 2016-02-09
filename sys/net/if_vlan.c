@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan.c,v 1.146 2015/10/25 12:05:40 mpi Exp $	*/
+/*	$OpenBSD: if_vlan.c,v 1.151 2016/01/13 03:18:26 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -77,7 +77,7 @@
 #define TAG_HASH_SIZE		(1 << TAG_HASH_BITS) 
 #define TAG_HASH_MASK		(TAG_HASH_SIZE - 1)
 #define TAG_HASH(tag)		(tag & TAG_HASH_MASK)
-struct srpl *vlan_tagh, *svlan_tagh;
+SRPL_HEAD(, ifvlan) *vlan_tagh, *svlan_tagh;
 struct rwlock vlan_tagh_lk = RWLOCK_INITIALIZER("vlantag");
 
 int	vlan_input(struct ifnet *, struct mbuf *, void *);
@@ -106,7 +106,6 @@ void vlan_unref(void *, void *);
 
 struct srpl_rc vlan_tagh_rc = SRPL_RC_INITIALIZER(vlan_ref, vlan_unref, NULL);
 
-/* ARGSUSED */
 void
 vlanattach(int count)
 {
@@ -248,7 +247,6 @@ vlan_start(struct ifnet *ifp)
 
 		if ((p->if_flags & (IFF_UP|IFF_RUNNING)) !=
 		    (IFF_UP|IFF_RUNNING)) {
-			IF_DROP(&p->if_snd);
 			ifp->if_oerrors++;
 			m_freem(m);
 			continue;
@@ -310,7 +308,7 @@ vlan_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 	struct ifvlan			*ifv;
 	struct ether_vlan_header	*evl;
 	struct ether_header		*eh;
-	struct srpl			*tagh, *list;
+	SRPL_HEAD(, ifvlan)		*tagh, *list;
 	struct srpl_iter		 i;
 	u_int				 tag;
 	struct mbuf_list		 ml = MBUF_LIST_INITIALIZER();
@@ -401,7 +399,7 @@ int
 vlan_config(struct ifvlan *ifv, struct ifnet *p, u_int16_t tag)
 {
 	struct sockaddr_dl	*sdl1, *sdl2;
-	struct srpl		*tagh, *list;
+	SRPL_HEAD(, ifvlan)	*tagh, *list;
 	u_int			 flags;
 
 	if (p->if_type != IFT_ETHER)
@@ -432,24 +430,24 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, u_int16_t tag)
 		vlan_set_promisc(&ifv->ifv_if);
 	}
 
-	/*
-	 * If the parent interface can do hardware-assisted
-	 * VLAN encapsulation, then propagate its hardware-
-	 * assisted checksumming flags.
-	 *
-	 * If the card cannot handle hardware tagging, it cannot
-	 * possibly compute the correct checksums for tagged packets.
-	 */
-	if (p->if_capabilities & IFCAP_VLAN_HWTAGGING)
+	if (ifv->ifv_type != ETHERTYPE_VLAN) {
+		/*
+		 * Hardware offload only works with the default VLAN
+		 * ethernet type (0x8100).
+		 */
+		ifv->ifv_if.if_capabilities = 0;
+	} else if (p->if_capabilities & IFCAP_VLAN_HWTAGGING) {
+		/*
+		 * If the parent interface can do hardware-assisted
+		 * VLAN encapsulation, then propagate its hardware-
+		 * assisted checksumming flags.
+		 *
+		 * If the card cannot handle hardware tagging, it cannot
+		 * possibly compute the correct checksums for tagged packets.
+		 */
 		ifv->ifv_if.if_capabilities = p->if_capabilities &
 		    IFCAP_CSUM_MASK;
-
-	/*
-	 * Hardware VLAN tagging only works with the default VLAN
-	 * ethernet type (0x8100).
-	 */
-	if (ifv->ifv_type != ETHERTYPE_VLAN)
-		ifv->ifv_if.if_capabilities &= ~IFCAP_VLAN_HWTAGGING;
+	}
 
 	/*
 	 * Set up our ``Ethernet address'' to reflect the underlying
@@ -492,7 +490,7 @@ vlan_unconfig(struct ifnet *ifp, struct ifnet *newp)
 {
 	struct sockaddr_dl	*sdl;
 	struct ifvlan		*ifv;
-	struct srpl		*tagh, *list;
+	SRPL_HEAD(, ifvlan)	*tagh, *list;
 	struct ifnet		*p;
 
 	ifv = ifp->if_softc;
@@ -599,16 +597,6 @@ vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			ifp->if_flags |= IFF_UP;
 		else
 			error = EINVAL;
-		break;
-
-	case SIOCGIFADDR:
-		{
-			struct sockaddr	*sa;
-
-			sa = (struct sockaddr *)&ifr->ifr_data;
-			bcopy(((struct arpcom *)ifp->if_softc)->ac_enaddr,
-			    (caddr_t) sa->sa_data, ETHER_ADDR_LEN);
-		}
 		break;
 
 	case SIOCSIFMTU:

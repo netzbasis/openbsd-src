@@ -1,4 +1,4 @@
-/*	$OpenBSD: constraint.c,v 1.19 2015/10/12 06:50:08 reyk Exp $	*/
+/*	$OpenBSD: constraint.c,v 1.25 2016/01/27 21:48:34 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -27,6 +27,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -41,7 +42,6 @@
 #include <tls.h>
 #include <pwd.h>
 
-#include "log.h"
 #include "ntpd.h"
 
 int	 constraint_addr_init(struct constraint *);
@@ -58,7 +58,7 @@ int	 constraint_cmp(const void *, const void *);
 
 void	 priv_constraint_close(int, int);
 void	 priv_constraint_child(struct constraint *, struct ntp_addr_msg *,
-	    u_int8_t *, int[2]);
+	    u_int8_t *, int[2], const char *, uid_t, gid_t);
 
 struct httpsdate *
 	 httpsdate_init(const char *, const char *, const char *,
@@ -163,7 +163,10 @@ constraint_query(struct constraint *cstr)
 		}
 
 		/* Timeout, just kill the process to reset it. */
-		kill(cstr->pid, SIGTERM);
+		imsg_compose(ibuf_main, IMSG_CONSTRAINT_KILL,
+		    cstr->id, 0, -1, NULL, 0);
+
+		cstr->state = STATE_TIMEOUT;
 		return (-1);
 	case STATE_INVALID:
 		if (cstr->last + CONSTRAINT_SCAN_INTERVAL > now) {
@@ -207,7 +210,8 @@ constraint_query(struct constraint *cstr)
 }
 
 void
-priv_constraint_msg(u_int32_t id, u_int8_t *data, size_t len)
+priv_constraint_msg(u_int32_t id, u_int8_t *data, size_t len,
+    const char *pw_dir, uid_t pw_uid, gid_t pw_gid)
 {
 	struct ntp_addr_msg	 am;
 	struct ntp_addr		*h;
@@ -257,7 +261,8 @@ priv_constraint_msg(u_int32_t id, u_int8_t *data, size_t len)
 		close(pipes[1]);
 		return;
 	case 0:
-		priv_constraint_child(cstr, &am, data + sizeof(am), pipes);
+		priv_constraint_child(cstr, &am, data + sizeof(am), pipes,
+		    pw_dir, pw_uid, pw_gid);
 
 		_exit(0);
 		/* NOTREACHED */
@@ -273,15 +278,16 @@ priv_constraint_msg(u_int32_t id, u_int8_t *data, size_t len)
 
 void
 priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
-    u_int8_t *data, int pipes[2])
+    u_int8_t *data, int pipes[2], const char *pw_dir, uid_t pw_uid, gid_t pw_gid)
 {
 	static char		 hname[NI_MAXHOST];
 	struct timeval		 rectv, xmttv;
 	struct sigaction	 sa;
-	struct passwd		*pw;
 	void			*ctx;
 	struct iovec		 iov[2];
 	int			 i;
+
+	log_procinit("constraint");
 
 	if (setpriority(PRIO_PROCESS, 0, 0) == -1)
 		log_warn("could not set priority");
@@ -293,18 +299,14 @@ priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
 	    &conf->ca_len, NULL)) == NULL)
 		log_warnx("constraint certificate verification turned off");
 
-	/* Drop privileges */
-	if ((pw = getpwnam(NTPD_USER)) == NULL)
-		fatalx("unknown user %s", NTPD_USER);
-
-	if (chroot(pw->pw_dir) == -1)
+	if (chroot(pw_dir) == -1)
 		fatal("chroot");
 	if (chdir("/") == -1)
 		fatal("chdir(\"/\")");
 
-	if (setgroups(1, &pw->pw_gid) ||
-	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+	if (setgroups(1, &pw_gid) ||
+	    setresgid(pw_gid, pw_gid, pw_gid) ||
+	    setresuid(pw_uid, pw_uid, pw_uid))
 		fatal("can't drop privileges");
 
 	/* Reset all signal handlers */
@@ -381,6 +383,7 @@ priv_constraint_check_child(pid_t pid, int status)
 {
 	struct constraint	*cstr;
 	int			 fail, sig;
+	char			*signame;
 
 	fail = sig = 0;
 	if (WIFSIGNALED(status)) {
@@ -392,13 +395,33 @@ priv_constraint_check_child(pid_t pid, int status)
 		fatalx("unexpected cause of SIGCHLD");
 
 	if ((cstr = constraint_bypid(pid)) != NULL) {
-		if (sig)
-			fatalx("constraint %s, signal %d",
-			    log_sockaddr((struct sockaddr *)
-			    &cstr->addr->ss), sig);
+		if (sig) {
+			if (sig != SIGTERM) {
+				signame = strsignal(sig) ?
+				    strsignal(sig) : "unknown";
+				log_warnx("constraint %s; "
+				    "terminated with signal %d (%s)",
+				    log_sockaddr((struct sockaddr *)
+				    &cstr->addr->ss), sig, signame);
+			}
+			fail = 1;
+		}
 
 		priv_constraint_close(cstr->fd, fail);
 	}
+}
+
+void
+priv_constraint_kill(u_int32_t id)
+{
+	struct constraint	*cstr;
+
+	if ((cstr = constraint_byid(id)) == NULL) {
+		log_warnx("IMSG_CONSTRAINT_KILL for invalid id %d", id);
+		return;
+	}
+
+	kill(cstr->pid, SIGTERM);
 }
 
 struct constraint *
@@ -502,6 +525,7 @@ constraint_remove(struct constraint *cstr)
 		close(cstr->fd);
 	free(cstr->addr_head.name);
 	free(cstr->addr_head.path);
+	free(cstr->addr);
 	free(cstr);
 }
 
@@ -528,7 +552,7 @@ priv_constraint_dispatch(struct pollfd *pfd)
 	if (!(pfd->revents & POLLIN))
 		return (0);
 
-	if ((n = imsg_read(&cstr->ibuf)) == -1 || n == 0) {
+	if (((n = imsg_read(&cstr->ibuf)) == -1 && errno != EAGAIN) || n == 0) {
 		priv_constraint_close(pfd->fd, 1);
 		return (1);
 	}
@@ -978,15 +1002,10 @@ char *
 get_string(u_int8_t *ptr, size_t len)
 {
 	size_t	 i;
-	char	*str;
 
 	for (i = 0; i < len; i++)
 		if (!(isprint(ptr[i]) || isspace(ptr[i])))
 			break;
 
-	if ((str = calloc(1, i + 1)) == NULL)
-		return (NULL);
-	memcpy(str, ptr, i);
-
-	return (str);
+	return strndup(ptr, i);
 }

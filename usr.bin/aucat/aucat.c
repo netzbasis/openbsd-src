@@ -214,7 +214,7 @@ slot_new(char *path, int mode, struct aparams *par, int hdr,
 	if (!afile_open(&s->afile, path, hdr,
 		mode == SIO_PLAY ? AFILE_FREAD : AFILE_FWRITE,
 		par, rate, cmax - cmin + 1)) {
-		xfree(s);
+		free(s);
 		return 0;
 	}
 	s->cmin = cmin;
@@ -307,7 +307,8 @@ slot_init(struct slot *s)
 		    s->cmin, s->cmax,
 		    0, dev_pchan - 1,
 		    0, dev_pchan - 1);
-		if (s->afile.fmt != AFILE_FMT_PCM || !aparams_native(&s->afile.par)) {
+		if (s->afile.fmt != AFILE_FMT_PCM ||
+		    !aparams_native(&s->afile.par)) {
 			dec_init(&s->conv, &s->afile.par, slot_nch);
 			s->convbuf =
 			    xmalloc(s->round * slot_nch * sizeof(adata_t));
@@ -413,18 +414,16 @@ slot_del(struct slot *s)
 		}
 #endif
 		abuf_done(&s->buf);
-		if (s->resampbuf)
-			xfree(s->resampbuf);
-		if (s->convbuf)
-			xfree(s->convbuf);
+		free(s->resampbuf);
+		free(s->convbuf);
 	}
 	for (ps = &slot_list; *ps != s; ps = &(*ps)->next)
 		; /* nothing */
 	*ps = s->next;
-	xfree(s);
+	free(s);
 }
 
-static int 
+static int
 play_filt_resamp(struct slot *s, void *res_in, void *out, int todo)
 {
 	int i, offs, vol, nch;
@@ -454,7 +453,7 @@ play_filt_resamp(struct slot *s, void *res_in, void *out, int todo)
 	return todo;
 }
 
-static int 
+static int
 play_filt_dec(struct slot *s, void *in, void *out, int todo)
 {
 	void *tmp;
@@ -505,7 +504,7 @@ slot_mix_badd(struct slot *s, adata_t *odata)
 	return done;
 }
 
-static int 
+static int
 rec_filt_resamp(struct slot *s, void *in, void *res_out, int todo)
 {
 	int i, vol, offs, nch;
@@ -534,7 +533,7 @@ rec_filt_resamp(struct slot *s, void *in, void *res_out, int todo)
 	return todo;
 }
 
-static int 
+static int
 rec_filt_enc(struct slot *s, void *in, void *out, int todo)
 {
 	void *tmp;
@@ -623,8 +622,8 @@ dev_open(char *dev, int mode, int bufsz, char *port)
 	}
 	if (par.bits != ADATA_BITS ||
 	    par.bps != sizeof(adata_t) ||
-	    par.le != SIO_LE_NATIVE ||
-	    (par.bps != SIO_BPS(par.bits) && par.msb)) {
+	    (par.bps > 1 && par.le != SIO_LE_NATIVE) ||
+	    (par.bps * 8 > par.bits && par.msb)) {
 		log_puts(dev_name);
 		log_puts(": unsupported audio params\n");
 		return 0;
@@ -672,9 +671,9 @@ dev_close(void)
 	if (dev_mh)
 		mio_close(dev_mh);
 	if (dev_mode & SIO_PLAY)
-		xfree(dev_pbuf);
+		free(dev_pbuf);
 	if (dev_mode & SIO_REC)
-		xfree(dev_rbuf);
+		free(dev_rbuf);
 }
 
 static void
@@ -999,7 +998,7 @@ offline(void)
 		slot_list_copy(todo, dev_pchan, dev_pbuf);
 		slot_list_iodo();
 	}
-	xfree(dev_pbuf);
+	free(dev_pbuf);
 	while (slot_list)
 		slot_del(slot_list);
 	return 1;
@@ -1031,7 +1030,8 @@ playrec_cycle(void)
 				n = sio_read(dev_sh, p, todo);
 				if (n == 0) {
 					log_puts(dev_name);
-					log_puts(": failed to read from device\n");
+					log_puts(": failed to read "
+					    "from device\n");
 					return 0;
 				}
 				p += n;
@@ -1113,7 +1113,7 @@ playrec(char *dev, int mode, int bufsz, char *port)
 				continue;
 			log_puts("poll failed\n");
 			panic();
-		}		
+		}
 		if (dev_pstate == DEV_START) {
 			ev = sio_revents(dev_sh, pfds);
 			if (ev & POLLHUP) {
@@ -1148,7 +1148,7 @@ playrec(char *dev, int mode, int bufsz, char *port)
 
 	if (dev_pstate == DEV_START)
 		dev_mmcstop();
-	xfree(pfds);
+	free(pfds);
 	dev_close();
 	while (slot_list)
 		slot_del(slot_list);
@@ -1275,7 +1275,7 @@ main(int argc, char **argv)
 	port = NULL;
 	dev = NULL;
 	mode = 0;
-	
+
 	while ((c = getopt(argc, argv, "b:c:de:f:h:i:j:no:q:r:t:v:")) != -1) {
 		switch (c) {
 		case 'b':
@@ -1358,7 +1358,7 @@ main(int argc, char **argv)
 		if (mode == 0) {
 			log_puts("at least -i or -o required\n");
 			return 1;
-		} 
+		}
 		if (!playrec(dev, mode, bufsz, port))
 			return 1;
 	}

@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.282 2015/10/29 08:05:01 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.284 2016/01/29 02:54:45 dtucker Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -356,6 +356,8 @@ fill_default_server_options(ServerOptions *options)
 	CLEAR_ON_NONE(options->trusted_user_ca_keys);
 	CLEAR_ON_NONE(options->revoked_keys_file);
 	CLEAR_ON_NONE(options->authorized_principals_file);
+	CLEAR_ON_NONE(options->adm_forced_command);
+	CLEAR_ON_NONE(options->chroot_directory);
 	for (i = 0; i < options->num_host_key_files; i++)
 		CLEAR_ON_NONE(options->host_key_files[i]);
 	for (i = 0; i < options->num_host_cert_files; i++)
@@ -1276,16 +1278,12 @@ process_server_config_line(ServerOptions *options, char *line,
 			if (scan_scaled(arg, &val64) == -1)
 				fatal("%.200s line %d: Bad number '%s': %s",
 				    filename, linenum, arg, strerror(errno));
-			/* check for too-large or too-small limits */
-			if (val64 > UINT_MAX)
-				fatal("%.200s line %d: RekeyLimit too large",
-				    filename, linenum);
 			if (val64 != 0 && val64 < 16)
 				fatal("%.200s line %d: RekeyLimit too small",
 				    filename, linenum);
 		}
 		if (*activep && options->rekey_limit == -1)
-			options->rekey_limit = (u_int32_t)val64;
+			options->rekey_limit = val64;
 		if (cp != NULL) { /* optional rekey interval present */
 			if (strcmp(cp, "none") == 0) {
 				(void)strdelim(&cp);	/* discard */
@@ -1982,8 +1980,17 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	if (preauth)
 		return;
 
+	/* These options may be "none" to clear a global setting */
 	M_CP_STROPT(adm_forced_command);
+	if (option_clear_or_none(dst->adm_forced_command)) {
+		free(dst->adm_forced_command);
+		dst->adm_forced_command = NULL;
+	}
 	M_CP_STROPT(chroot_directory);
+	if (option_clear_or_none(dst->chroot_directory)) {
+		free(dst->chroot_directory);
+		dst->chroot_directory = NULL;
+	}
 }
 
 #undef M_CP_INTOPT
@@ -2293,7 +2300,7 @@ dump_config(ServerOptions *o)
 	printf("ipqos %s ", iptos2str(o->ip_qos_interactive));
 	printf("%s\n", iptos2str(o->ip_qos_bulk));
 
-	printf("rekeylimit %lld %d\n", (long long)o->rekey_limit,
+	printf("rekeylimit %llu %d\n", (unsigned long long)o->rekey_limit,
 	    o->rekey_interval);
 
 	channel_print_adm_permitted_opens();

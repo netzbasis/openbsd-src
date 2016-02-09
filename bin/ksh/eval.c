@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.46 2015/10/19 17:15:53 mmcc Exp $	*/
+/*	$OpenBSD: eval.c,v 1.49 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * Expansion - quoting, separation, substitution, globbing
@@ -6,9 +6,13 @@
 
 #include <sys/stat.h>
 
+#include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <pwd.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -729,7 +733,7 @@ varsub(Expand *xp, char *sp, char *word,
 					n++;
 			c = n; /* ksh88/ksh93 go for number, not max index */
 		} else if (c == '*' || c == '@')
-			c = e->loc->argc;
+			c = genv->loc->argc;
 		else {
 			p = str_val(global(sp));
 			zero_ok = p != null;
@@ -775,12 +779,12 @@ varsub(Expand *xp, char *sp, char *word,
 		case '#':
 			return -1;
 		}
-		if (e->loc->argc == 0) {
+		if (genv->loc->argc == 0) {
 			xp->str = null;
 			xp->var = global(sp);
 			state = c == '@' ? XNULLSUB : XSUB;
 		} else {
-			xp->u.strv = (const char **) e->loc->argv + 1;
+			xp->u.strv = (const char **) genv->loc->argv + 1;
 			xp->str = *xp->u.strv++;
 			xp->split = c == '@'; /* $@ */
 			state = XARG;

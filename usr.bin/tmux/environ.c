@@ -1,7 +1,7 @@
-/* $OpenBSD: environ.c,v 1.9 2015/10/28 09:51:55 nicm Exp $ */
+/* $OpenBSD: environ.c,v 1.12 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -83,8 +83,12 @@ environ_copy(struct environ *srcenv, struct environ *dstenv)
 {
 	struct environ_entry	*envent;
 
-	RB_FOREACH(envent, environ, srcenv)
-		environ_set(dstenv, envent->name, envent->value);
+	RB_FOREACH(envent, environ, srcenv) {
+		if (envent->value == NULL)
+			environ_clear(dstenv, envent->name);
+		else
+			environ_set(dstenv, envent->name, "%s", envent->value);
+	}
 }
 
 /* Find an environment variable. */
@@ -99,23 +103,37 @@ environ_find(struct environ *env, const char *name)
 
 /* Set an environment variable. */
 void
-environ_set(struct environ *env, const char *name, const char *value)
+environ_set(struct environ *env, const char *name, const char *fmt, ...)
+{
+	struct environ_entry	*envent;
+	va_list			 ap;
+
+	va_start(ap, fmt);
+	if ((envent = environ_find(env, name)) != NULL) {
+		free(envent->value);
+		xvasprintf(&envent->value, fmt, ap);
+	} else {
+		envent = xmalloc(sizeof *envent);
+		envent->name = xstrdup(name);
+		xvasprintf(&envent->value, fmt, ap);
+		RB_INSERT(environ, env, envent);
+	}
+	va_end(ap);
+}
+
+/* Clear an environment variable. */
+void
+environ_clear(struct environ *env, const char *name)
 {
 	struct environ_entry	*envent;
 
 	if ((envent = environ_find(env, name)) != NULL) {
 		free(envent->value);
-		if (value != NULL)
-			envent->value = xstrdup(value);
-		else
-			envent->value = NULL;
+		envent->value = NULL;
 	} else {
 		envent = xmalloc(sizeof *envent);
 		envent->name = xstrdup(name);
-		if (value != NULL)
-			envent->value = xstrdup(value);
-		else
-			envent->value = NULL;
+		envent->value = NULL;
 		RB_INSERT(environ, env, envent);
 	}
 }
@@ -134,7 +152,7 @@ environ_put(struct environ *env, const char *var)
 	name = xstrdup(var);
 	name[strcspn(name, "=")] = '\0';
 
-	environ_set(env, name, value);
+	environ_set(env, name, "%s", value);
 	free(name);
 }
 
@@ -166,9 +184,9 @@ environ_update(const char *vars, struct environ *srcenv,
 	copyvars = next = xstrdup(vars);
 	while ((var = strsep(&next, " ")) != NULL) {
 		if ((envent = environ_find(srcenv, var)) == NULL)
-			environ_set(dstenv, var, NULL);
+			environ_clear(dstenv, var);
 		else
-			environ_set(dstenv, envent->name, envent->value);
+			environ_set(dstenv, envent->name, "%s", envent->value);
 	}
 	free(copyvars);
 }
@@ -178,10 +196,10 @@ void
 environ_push(struct environ *env)
 {
 	struct environ_entry	 *envent;
-	char			**vp, *v;
+	char			*v;
 
-	for (vp = environ; *vp != NULL; vp++) {
-		v = xstrdup(*vp);
+	while (*environ != NULL) {
+		v = xstrdup(*environ);
 		v[strcspn(v, "=")] = '\0';
 
 		unsetenv(v);

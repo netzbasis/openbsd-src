@@ -1,4 +1,4 @@
-/*	$OpenBSD: in.c,v 1.123 2015/09/12 20:50:17 mpi Exp $	*/
+/*	$OpenBSD: in.c,v 1.126 2016/01/21 11:23:48 mpi Exp $	*/
 /*	$NetBSD: in.c,v 1.26 1996/02/13 23:41:39 christos Exp $	*/
 
 /*
@@ -70,11 +70,6 @@
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/route.h>
-
-#include "carp.h"
-#if NCARP > 0
-#include <net/if_types.h>
-#endif
 
 #include <netinet/in.h>
 #include <netinet/in_var.h>
@@ -885,6 +880,21 @@ in_delmulti(struct in_multi *inm)
 	}
 }
 
+/*
+ * Return 1 if the multicast group represented by ``ap'' has been
+ * joined by interface ``ifp'', 0 otherwise.
+ */
+int
+in_hasmulti(struct in_addr *ap, struct ifnet *ifp)
+{
+	struct in_multi *inm;
+	int joined;
+
+	IN_LOOKUP_MULTI(*ap, ifp, inm);
+	joined = (inm != NULL);
+
+	return (joined);
+}
 
 void
 in_ifdetach(struct ifnet *ifp)
@@ -898,4 +908,13 @@ in_ifdetach(struct ifnet *ifp)
 		in_purgeaddr(ifa);
 		dohooks(ifp->if_addrhooks, 0);
 	}
+}
+
+void
+in_prefixlen2mask(struct in_addr *maskp, int plen)
+{
+	if (plen == 0)
+		maskp->s_addr = 0;
+	else
+		maskp->s_addr = htonl(0xffffffff << (32 - plen));
 }

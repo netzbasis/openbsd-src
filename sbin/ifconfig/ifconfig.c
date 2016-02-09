@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.304 2015/10/24 10:52:05 reyk Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.315 2016/01/13 09:35:45 stsp Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -171,7 +171,6 @@ void	setifwpagroupcipher(const char *, int);
 void	setifwpakey(const char *, int);
 void	setifchan(const char *, int);
 void	setifscan(const char *, int);
-void	setiftxpower(const char *, int);
 void	setifnwflag(const char *, int);
 void	unsetifnwflag(const char *, int);
 void	setifnetmask(const char *, int);
@@ -194,6 +193,7 @@ void	unsetkeepalive(const char *, int);
 void	setmedia(const char *, int);
 void	setmediaopt(const char *, int);
 void	setmediamode(const char *, int);
+void	unsetmediamode(const char *, int);
 void	clone_create(const char *, int);
 void	clone_destroy(const char *, int);
 void	unsetmediaopt(const char *, int);
@@ -237,7 +237,6 @@ void	setcarp_passwd(const char *, int);
 void	setcarp_vhid(const char *, int);
 void	setcarp_state(const char *, int);
 void	setcarpdev(const char *, int);
-void	unsetcarpdev(const char *, int);
 void	setcarp_nodes(const char *, int);
 void	setcarp_balancing(const char *, int);
 void	setpfsync_syncdev(const char *, int);
@@ -264,7 +263,6 @@ void	sppp_printproto(const char *, struct sauthreq *);
 void	setifpriority(const char *, int);
 void	setifpowersave(const char *, int);
 void	setifmetric(const char *, int);
-void	notrailers(const char *, int);
 void	pflow_status(void);
 void	pflow_addr(const char*, struct sockaddr_storage *);
 void	setpflow_sender(const char *, int);
@@ -372,8 +370,6 @@ const struct	cmd {
 #endif /*INET6*/
 #ifndef SMALL
 	{ "hwfeatures", NEXTARG0,	0,		printifhwfeatures },
-	{ "trailers",	-1,		0,		notrailers },
-	{ "-trailers",	1,		0,		notrailers },
 	{ "metric",	NEXTARG,	0,		setifmetric },
 	{ "powersave",	NEXTARG0,	0,		setifpowersave },
 	{ "-powersave",	-1,		0,		setifpowersave },
@@ -399,7 +395,6 @@ const struct	cmd {
 	{ "carpdev",	NEXTARG,	0,		setcarpdev },
 	{ "carpnodes",	NEXTARG,	0,		setcarp_nodes },
 	{ "balancing",	NEXTARG,	0,		setcarp_balancing },
-	{ "-carpdev",	1,		0,		unsetcarpdev },
 	{ "syncdev",	NEXTARG,	0,		setpfsync_syncdev },
 	{ "-syncdev",	1,		0,		unsetpfsync_syncdev },
 	{ "syncif",	NEXTARG,	0,		setpfsync_syncdev },
@@ -423,8 +418,6 @@ const struct	cmd {
 	{ "pppoeac",	NEXTARG,	0,		setpppoe_ac },
 	{ "-pppoeac",	1,		0,		setpppoe_ac },
 	{ "timeslot",	NEXTARG,	0,		settimeslot },
-	{ "txpower",	NEXTARG,	0,		setiftxpower },
-	{ "-txpower",	1,		0,		setiftxpower },
 	{ "authproto",	NEXTARG,	0,		setspppproto },
 	{ "authname",	NEXTARG,	0,		setspppname },
 	{ "authkey",	NEXTARG,	0,		setspppkey },
@@ -501,7 +494,6 @@ const struct	cmd {
 	{ "priority",	NEXTARG,	0,		setignore },
 	{ "rtlabel",	NEXTARG,	0,		setignore },
 	{ "mpls",	IFXF_MPLS,	0,		setignore },
-	{ "txpower",	NEXTARG,	0,		setignore },
 	{ "nwflag",	NEXTARG,	0,		setignore },
 	{ "rdomain",	NEXTARG,	0,		setignore },
 	{ "-inet",	AF_INET,	0,		removeaf },
@@ -526,6 +518,7 @@ const struct	cmd {
 	{ "mediaopt",	NEXTARG,	A_MEDIAOPTSET,	setmediaopt },
 	{ "-mediaopt",	NEXTARG,	A_MEDIAOPTCLR,	unsetmediaopt },
 	{ "mode",	NEXTARG,	A_MEDIAMODE,	setmediamode },
+	{ "-mode",	0,		A_MEDIAMODE,	unsetmediamode },
 	{ "instance",	NEXTARG,	A_MEDIAINST,	setmediainst },
 	{ "inst",	NEXTARG,	A_MEDIAINST,	setmediainst },
 	{ "lladdr",	NEXTARG,	0,		setiflladdr },
@@ -613,7 +606,6 @@ main(int argc, char *argv[])
 	int Cflag = 0;
 	int gflag = 0;
 	int i;
-	int noprint = 0;
 
 	/* If no args at all, print all interfaces.  */
 	if (argc < 2) {
@@ -769,7 +761,7 @@ nextarg:
 		argc--, argv++;
 	}
 
-	if (argc == 0 && actions == 0 && !noprint) {
+	if (argc == 0 && actions == 0) {
 		printif(ifr.ifr_name, aflag ? ifaliases : 1);
 		exit(0);
 	}
@@ -1049,8 +1041,7 @@ printif(char *ifname, int ifaliases)
 		}
 	}
 	freeifaddrs(ifap);
-	if (oname != NULL)
-		free(oname);
+	free(oname);
 	if (count == 0) {
 		fprintf(stderr, "%s: no such interface\n", name);
 		exit(1);
@@ -1217,15 +1208,6 @@ notealias(const char *addr, int param)
 	} else
 		clearaddr = 0;
 }
-
-#ifndef SMALL
-/*ARGSUSED*/
-void
-notrailers(const char *vname, int value)
-{
-	printf("Note: trailers are no longer sent, but always received\n");
-}
-#endif
 
 /*ARGSUSED*/
 void
@@ -1935,28 +1917,6 @@ setifscan(const char *val, int d)
 }
 
 #ifndef SMALL
-void
-setiftxpower(const char *val, int d)
-{
-	const char *errmsg = NULL;
-	struct ieee80211_txpower txpower;
-	int dbm;
-
-	strlcpy(txpower.i_name, name, sizeof(txpower.i_name));
-
-	if (d == 1) {
-		txpower.i_mode = IEEE80211_TXPOWER_MODE_AUTO;
-	} else {
-		dbm = strtonum(val, SHRT_MIN, SHRT_MAX, &errmsg);
-		if (errmsg)
-			errx(1, "txpower %sdBm: %s", val, errmsg);
-		txpower.i_val = (int16_t)dbm;
-		txpower.i_mode = IEEE80211_TXPOWER_MODE_FIXED;
-	}
-
-	if (ioctl(s, SIOCS80211TXPOWER, (caddr_t)&txpower) == -1)
-		warn("SIOCS80211TXPOWER");
-}
 
 void
 setifnwflag(const char *val, int d)
@@ -2038,14 +1998,13 @@ void
 ieee80211_status(void)
 {
 	int len, i, nwkey_verbose, inwid, inwkey, ipsk, ichan, ipwr;
-	int ibssid, itxpower, iwpa;
+	int ibssid, iwpa;
 	struct ieee80211_nwid nwid;
 	struct ieee80211_nwkey nwkey;
 	struct ieee80211_wpapsk psk;
 	struct ieee80211_power power;
 	struct ieee80211chanreq channel;
 	struct ieee80211_bssid bssid;
-	struct ieee80211_txpower txpower;
 	struct ieee80211_wpaparams wpa;
 	struct ieee80211_nodereq nr;
 	u_int8_t zero_bssid[IEEE80211_ADDR_LEN];
@@ -2078,17 +2037,13 @@ ieee80211_status(void)
 	strlcpy(bssid.i_name, name, sizeof(bssid.i_name));
 	ibssid = ioctl(s, SIOCG80211BSSID, &bssid);
 
-	memset(&txpower, 0, sizeof(txpower));
-	strlcpy(txpower.i_name, name, sizeof(txpower.i_name));
-	itxpower = ioctl(s, SIOCG80211TXPOWER, &txpower);
-
 	memset(&wpa, 0, sizeof(wpa));
 	strlcpy(wpa.i_name, name, sizeof(wpa.i_name));
 	iwpa = ioctl(s, SIOCG80211WPAPARMS, &wpa);
 
 	/* check if any ieee80211 option is active */
 	if (inwid == 0 || inwkey == 0 || ipsk == 0 || ipwr == 0 ||
-	    ichan == 0 || ibssid == 0 || iwpa == 0 || itxpower == 0)
+	    ichan == 0 || ibssid == 0 || iwpa == 0)
 		fputs("\tieee80211:", stdout);
 	else
 		return;
@@ -2216,11 +2171,6 @@ ieee80211_status(void)
 
 	if (ipwr == 0 && power.i_enabled)
 		printf(" powersave on (%dms sleep)", power.i_maxsleep);
-
-	if (itxpower == 0)
-		printf(" %ddBm%s", txpower.i_val,
-		    txpower.i_mode == IEEE80211_TXPOWER_MODE_AUTO ?
-		    " (auto)" : "");
 
 	if (ioctl(s, SIOCG80211FLAGS, (caddr_t)&ifr) == 0 &&
 	    ifr.ifr_flags) {
@@ -2419,7 +2369,7 @@ void
 process_media_commands(void)
 {
 
-	if ((actions & (A_MEDIA|A_MEDIAOPT)) == 0) {
+	if ((actions & (A_MEDIA|A_MEDIAOPT|A_MEDIAMODE)) == 0) {
 		/* Nothing to do. */
 		return;
 	}
@@ -2502,6 +2452,27 @@ setmediamode(const char *val, int d)
 	if ((mode = get_media_mode(type, val)) == -1)
 		errx(1, "invalid media mode: %s", val);
 	media_current = IFM_MAKEWORD(type, subtype, options, inst) | mode;
+	/* Media will be set after other processing is complete. */
+}
+
+void
+unsetmediamode(const char *val, int d)
+{
+	uint64_t type, subtype, options, inst;
+
+	init_current_media();
+
+	/* Can only issue `mode' once. */
+	if (actions & A_MEDIAMODE)
+		errx(1, "only one `mode' command may be issued");
+
+	type = IFM_TYPE(media_current);
+	subtype = IFM_SUBTYPE(media_current);
+	options = IFM_OPTIONS(media_current);
+	inst = IFM_INST(media_current);
+
+	media_current = IFM_MAKEWORD(type, subtype, options, inst) |
+	    (IFM_AUTO << IFM_MSHIFT);
 	/* Media will be set after other processing is complete. */
 }
 
@@ -2825,7 +2796,7 @@ print_media_word(uint64_t ifmw, int print_type, int as_syntax)
 		}
 	}
 	if (IFM_INST(ifmw) != 0)
-		printf(" instance %d", IFM_INST(ifmw));
+		printf(" instance %lld", IFM_INST(ifmw));
 }
 
 /* ARGSUSED */
@@ -4057,23 +4028,6 @@ setcarpdev(const char *val, int d)
 		err(1, "SIOCGVH");
 
 	strlcpy(carpr.carpr_carpdev, val, sizeof(carpr.carpr_carpdev));
-
-	if (ioctl(s, SIOCSVH, (caddr_t)&ifr) == -1)
-		err(1, "SIOCSVH");
-}
-
-void
-unsetcarpdev(const char *val, int d)
-{
-	struct carpreq carpr;
-
-	bzero(&carpr, sizeof(struct carpreq));
-	ifr.ifr_data = (caddr_t)&carpr;
-
-	if (ioctl(s, SIOCGVH, (caddr_t)&ifr) == -1)
-		err(1, "SIOCGVH");
-
-	bzero(&carpr.carpr_carpdev, sizeof(carpr.carpr_carpdev));
 
 	if (ioctl(s, SIOCSVH, (caddr_t)&ifr) == -1)
 		err(1, "SIOCSVH");

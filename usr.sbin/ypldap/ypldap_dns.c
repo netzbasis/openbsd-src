@@ -1,4 +1,4 @@
-/*	$OpenBSD: ypldap_dns.c,v 1.8 2015/01/16 06:40:22 deraadt Exp $ */
+/*	$OpenBSD: ypldap_dns.c,v 1.10 2015/12/05 13:15:06 claudio Exp $ */
 
 /*
  * Copyright (c) 2003-2008 Henning Brauer <henning@openbsd.org>
@@ -96,6 +96,9 @@ ypldap_dns(int pipe_ntp[2], struct passwd *pw)
 		fatal("can't drop privileges");
 	endservent();
 
+	if (pledge("stdio dns", NULL) == -1)
+		fatal("pledge");
+
 	event_init();
 	signal_set(&ev_sigint, SIGINT, dns_sig_handler, NULL);
 	signal_set(&ev_sigterm, SIGTERM, dns_sig_handler, NULL);
@@ -138,7 +141,7 @@ dns_dispatch_imsg(int fd, short events, void *p)
 		fatalx("unknown event");
 
 	if (events & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)
 			shut = 1;

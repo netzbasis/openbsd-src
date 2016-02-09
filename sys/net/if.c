@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.404 2015/11/07 12:42:19 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.425 2015/12/09 03:22:39 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -81,6 +81,7 @@
 #include <sys/sysctl.h>
 #include <sys/task.h>
 #include <sys/atomic.h>
+#include <sys/proc.h>
 
 #include <dev/rndvar.h>
 
@@ -152,6 +153,8 @@ void	if_input_process(void *);
 void	ifa_print_all(void);
 #endif
 
+void	if_start_locked(struct ifnet *ifp);
+
 /*
  * interface index map
  *
@@ -174,6 +177,7 @@ void	ifa_print_all(void);
 
 void if_ifp_dtor(void *, void *);
 void if_map_dtor(void *, void *);
+struct ifnet *if_ref(struct ifnet *);
 
 /*
  * struct if_map
@@ -249,8 +253,7 @@ struct srp_gc if_ifp_gc = SRP_GC_INITIALIZER(if_ifp_dtor, NULL);
 struct srp_gc if_map_gc = SRP_GC_INITIALIZER(if_map_dtor, NULL);
 
 struct ifnet_head ifnet = TAILQ_HEAD_INITIALIZER(ifnet);
-struct ifnet_head iftxlist = TAILQ_HEAD_INITIALIZER(iftxlist);
-struct ifnet *lo0ifp;
+unsigned int lo0ifidx;
 
 void
 if_idxmap_init(unsigned int limit)
@@ -377,7 +380,7 @@ if_map_dtor(void *null, void *m)
 	unsigned int i;
 
 	/*
-	 * dont need the kernel lock to use update_locked since this is
+	 * dont need to serialize the use of update_locked since this is
 	 * the last reference to this map. there's nothing to race against.
 	 */
 	for (i = 0; i < if_map->limit; i++)
@@ -396,9 +399,6 @@ if_attachsetup(struct ifnet *ifp)
 	TAILQ_INIT(&ifp->if_groups);
 
 	if_addgroup(ifp, IFG_ALL);
-
-	if (ifp->if_snd.ifq_maxlen == 0)
-		IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 
 	if_attachdomain(ifp);
 #if NPF > 0
@@ -510,6 +510,8 @@ if_attach_common(struct ifnet *ifp)
 	TAILQ_INIT(&ifp->if_addrlist);
 	TAILQ_INIT(&ifp->if_maddrlist);
 
+	ifq_init(&ifp->if_snd, ifp);
+
 	ifp->if_addrhooks = malloc(sizeof(*ifp->if_addrhooks),
 	    M_TEMP, M_WAITOK);
 	TAILQ_INIT(ifp->if_addrhooks);
@@ -535,59 +537,55 @@ if_attach_common(struct ifnet *ifp)
 void
 if_start(struct ifnet *ifp)
 {
+	if (ISSET(ifp->if_xflags, IFXF_MPSAFE))
+		ifq_start(&ifp->if_snd);
+	else
+		if_start_locked(ifp);
+}
 
-	splassert(IPL_NET);
+void
+if_start_locked(struct ifnet *ifp)
+{
+	int s;
 
-	if (ifp->if_snd.ifq_len >= min(8, ifp->if_snd.ifq_maxlen) &&
-	    !ISSET(ifp->if_flags, IFF_OACTIVE)) {
-		if (ISSET(ifp->if_xflags, IFXF_TXREADY)) {
-			TAILQ_REMOVE(&iftxlist, ifp, if_txlist);
-			CLR(ifp->if_xflags, IFXF_TXREADY);
-		}
-		ifp->if_start(ifp);
-		return;
-	}
-
-	if (!ISSET(ifp->if_xflags, IFXF_TXREADY)) {
-		SET(ifp->if_xflags, IFXF_TXREADY);
-		TAILQ_INSERT_TAIL(&iftxlist, ifp, if_txlist);
-		schednetisr(NETISR_TX);
-	}
+	KERNEL_LOCK();
+	s = splnet();
+	ifp->if_start(ifp);
+	splx(s);
+	KERNEL_UNLOCK();
 }
 
 int
 if_enqueue(struct ifnet *ifp, struct mbuf *m)
 {
-	int s, length, error = 0;
+	int length, error = 0;
 	unsigned short mflags;
 
 #if NBRIDGE > 0
-	if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0)
-		return (bridge_output(ifp, m, NULL, NULL));
+	if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0) {
+		KERNEL_LOCK();
+		error = bridge_output(ifp, m, NULL, NULL);
+		KERNEL_UNLOCK();
+		return (error);
+	}
 #endif
 
 	length = m->m_pkthdr.len;
 	mflags = m->m_flags;
-
-	s = splnet();
 
 	/*
 	 * Queue message on interface, and start output if interface
 	 * not yet active.
 	 */
 	IFQ_ENQUEUE(&ifp->if_snd, m, error);
-	if (error) {
-		splx(s);
+	if (error)
 		return (error);
-	}
 
 	ifp->if_obytes += length;
 	if (mflags & M_MCAST)
 		ifp->if_omcasts++;
 
 	if_start(ifp);
-
-	splx(s);
 
 	return (0);
 }
@@ -663,7 +661,7 @@ if_input_local(struct ifnet *ifp, struct mbuf *m, sa_family_t af)
 	case AF_MPLS:
 		ifp->if_ipackets++;
 		ifp->if_ibytes += m->m_pkthdr.len;
-		mpls_input(ifp, m);
+		mpls_input(m);
 		return (0);
 #endif /* MPLS */
 	default:
@@ -682,7 +680,7 @@ if_input_local(struct ifnet *ifp, struct mbuf *m, sa_family_t af)
 }
 
 struct ifih {
-	struct srpl_entry	  ifih_next;
+	SRPL_ENTRY(ifih)	  ifih_next;
 	int			(*ifih_input)(struct ifnet *, struct mbuf *,
 				      void *);
 	void			 *ifih_cookie;
@@ -783,8 +781,6 @@ if_input_process(void *xmq)
 
 	s = splnet();
 	while ((m = ml_dequeue(&ml)) != NULL) {
-		sched_pause();
-
 		ifp = if_get(m->m_pkthdr.ph_ifidx);
 		if (ifp == NULL) {
 			m_freem(m);
@@ -805,21 +801,6 @@ if_input_process(void *xmq)
 			m_freem(m);
 
 		if_put(ifp);
-	}
-	splx(s);
-}
-
-void
-nettxintr(void)
-{
-	struct ifnet *ifp;
-	int s;
-
-	s = splnet();
-	while ((ifp = TAILQ_FIRST(&iftxlist)) != NULL) {
-		TAILQ_REMOVE(&iftxlist, ifp, if_txlist);
-		CLR(ifp->if_xflags, IFXF_TXREADY);
-		ifp->if_start(ifp);
 	}
 	splx(s);
 }
@@ -868,8 +849,12 @@ if_detach(struct ifnet *ifp)
 	/* Undo pseudo-driver changes. */
 	if_deactivate(ifp);
 
+	ifq_clr_oactive(&ifp->if_snd);
+
 	s = splnet();
-	ifp->if_flags &= ~IFF_OACTIVE;
+	/* Other CPUs must not have a reference before we start destroying. */
+	if_idxmap_remove(ifp);
+
 	ifp->if_start = if_detached_start;
 	ifp->if_ioctl = if_detached_ioctl;
 	ifp->if_watchdog = NULL;
@@ -887,8 +872,8 @@ if_detach(struct ifnet *ifp)
 	rt_if_remove(ifp);
 	rti_delete(ifp);
 #if NETHER > 0 && defined(NFSCLIENT)
-	if (ifp == revarp_ifp)
-		revarp_ifp = NULL;
+	if (ifp->if_index == revarp_ifidx)
+		revarp_ifidx = 0;
 #endif
 #ifdef MROUTING
 	vif_delete(ifp);
@@ -903,8 +888,6 @@ if_detach(struct ifnet *ifp)
 
 	/* Remove the interface from the list of all interfaces.  */
 	TAILQ_REMOVE(&ifnet, ifp, if_list);
-	if (ISSET(ifp->if_xflags, IFXF_TXREADY))
-		TAILQ_REMOVE(&iftxlist, ifp, if_txlist);
 
 	while ((ifg = TAILQ_FIRST(&ifp->if_groups)) != NULL)
 		if_delgroup(ifp, ifg->ifgl_group->ifg_group);
@@ -939,9 +922,39 @@ if_detach(struct ifnet *ifp)
 
 	/* Announce that the interface is gone. */
 	rt_ifannouncemsg(ifp, IFAN_DEPARTURE);
-
-	if_idxmap_remove(ifp);
 	splx(s);
+
+	ifq_destroy(&ifp->if_snd);
+}
+
+/*
+ * Returns true if ``ifp0'' is connected to the interface with index ``ifidx''.
+ */
+int
+if_isconnected(const struct ifnet *ifp0, unsigned int ifidx)
+{
+	struct ifnet *ifp;
+	int connected = 0;
+
+	ifp = if_get(ifidx);
+	if (ifp == NULL)
+		return (0);
+
+	if (ifp0->if_index == ifp->if_index)
+		connected = 1;
+
+#if NBRIDGE > 0
+	if (SAME_BRIDGE(ifp0->if_bridgeport, ifp->if_bridgeport))
+		connected = 1;
+#endif
+#if NCARP > 0
+	if ((ifp0->if_type == IFT_CARP && ifp0->if_carpdev == ifp) ||
+	    (ifp->if_type == IFT_CARP && ifp->if_carpdev == ifp0))
+	    	connected = 1;
+#endif
+
+	if_put(ifp);
+	return (connected);
 }
 
 /*
@@ -1135,6 +1148,7 @@ ifa_ifwithaddr(struct sockaddr *addr, u_int rtableid)
 	struct ifaddr *ifa;
 	u_int rdomain;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rtableid);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)
@@ -1146,13 +1160,6 @@ ifa_ifwithaddr(struct sockaddr *addr, u_int rtableid)
 
 			if (equal(addr, ifa->ifa_addr))
 				return (ifa);
-
-			/* IPv6 doesn't have broadcast */
-			if ((ifp->if_flags & IFF_BROADCAST) &&
-			    ifa->ifa_broadaddr &&
-			    ifa->ifa_broadaddr->sa_len != 0 &&
-			    equal(ifa->ifa_broadaddr, addr))
-				return (ifa);
 		}
 	}
 	return (NULL);
@@ -1161,13 +1168,13 @@ ifa_ifwithaddr(struct sockaddr *addr, u_int rtableid)
 /*
  * Locate the point to point interface with a given destination address.
  */
-/*ARGSUSED*/
 struct ifaddr *
 ifa_ifwithdstaddr(struct sockaddr *addr, u_int rdomain)
 {
 	struct ifnet *ifp;
 	struct ifaddr *ifa;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rdomain);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)
@@ -1196,6 +1203,7 @@ ifa_ifwithnet(struct sockaddr *sa, u_int rtableid)
 	char *cplim, *addr_data = sa->sa_data;
 	u_int rdomain;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rtableid);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)
@@ -1275,11 +1283,12 @@ if_rtrequest_dummy(struct ifnet *ifp, int req, struct rtentry *rt)
 void
 p2p_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 {
+	struct ifnet *lo0ifp;
 	struct ifaddr *ifa, *lo0ifa;
 
 	switch (req) {
 	case RTM_ADD:
-		if ((rt->rt_flags & RTF_LOCAL) == 0)
+		if (!ISSET(rt->rt_flags, RTF_LOCAL))
 			break;
 
 		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
@@ -1298,10 +1307,14 @@ p2p_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		 * (ab)use it for any route related to an interface of a
 		 * different rdomain.
 		 */
-		TAILQ_FOREACH(lo0ifa, &lo0ifp->if_addrlist, ifa_list)
+		lo0ifp = if_get(lo0ifidx);
+		KASSERT(lo0ifp != NULL);
+		TAILQ_FOREACH(lo0ifa, &lo0ifp->if_addrlist, ifa_list) {
 			if (lo0ifa->ifa_addr->sa_family ==
 			    ifa->ifa_addr->sa_family)
 				break;
+		}
+		if_put(lo0ifp);
 
 		if (lo0ifa == NULL)
 			break;
@@ -1377,7 +1390,7 @@ if_up(struct ifnet *ifp)
 
 #ifdef INET6
 	/* Userland expects the kernel to set ::1 on lo0. */
-	if (ifp == lo0ifp)
+	if (ifp->if_index == lo0ifidx)
 		in6_ifattach(ifp);
 #endif
 
@@ -1599,6 +1612,8 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 
 	case SIOCGIFFLAGS:
 		ifr->ifr_flags = ifp->if_flags;
+		if (ifq_is_oactive(&ifp->if_snd))
+			ifr->ifr_flags |= IFF_OACTIVE;
 		break;
 
 	case SIOCGIFXFLAGS:
@@ -1945,7 +1960,6 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
  * in later ioctl's (above) to get
  * other information.
  */
-/*ARGSUSED*/
 int
 ifconf(u_long cmd, caddr_t data)
 {

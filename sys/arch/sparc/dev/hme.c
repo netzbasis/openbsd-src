@@ -1,4 +1,4 @@
-/*	$OpenBSD: hme.c,v 1.72 2015/10/25 13:22:09 mpi Exp $	*/
+/*	$OpenBSD: hme.c,v 1.78 2015/12/08 13:34:22 tedu Exp $	*/
 
 /*
  * Copyright (c) 1998 Jason L. Wright (jason@thought.net)
@@ -51,9 +51,6 @@
 #include <sys/malloc.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -61,7 +58,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/autoconf.h>
@@ -239,7 +235,7 @@ hmeattach(parent, self, aux)
 	ifp->if_ioctl = hmeioctl;
 	ifp->if_watchdog = hmewatchdog;
 	ifp->if_flags =
-		IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+		IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 	IFQ_SET_MAXLEN(&ifp->if_snd, HME_TX_RING_SIZE);
 	IFQ_SET_READY(&ifp->if_snd);
@@ -275,7 +271,7 @@ hmestart(ifp)
 	struct mbuf *m;
 	int bix, len;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_last_td;
@@ -310,7 +306,7 @@ hmestart(ifp)
 			bix = 0;
 
 		if (++sc->sc_no_td == HME_TX_RING_SIZE) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -332,7 +328,8 @@ hmestop(sc)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	mii_down(&sc->sc_mii);
@@ -574,7 +571,7 @@ hmeinit(sc)
 	timeout_add_sec(&sc->sc_tick, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 void
@@ -672,7 +669,7 @@ hme_tint(sc)
 		if (txd.tx_flags & HME_TXD_OWN)
 			break;
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_opackets++;
 
 		if (++bix == HME_TX_RING_SIZE)

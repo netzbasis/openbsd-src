@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_kue.c,v 1.81 2015/10/25 12:11:56 mpi Exp $ */
+/*	$OpenBSD: if_kue.c,v 1.84 2015/12/11 16:07:02 mpi Exp $ */
 /*	$NetBSD: if_kue.c,v 1.50 2002/07/16 22:00:31 augustss Exp $	*/
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -178,7 +178,7 @@ usbd_status kue_ctl(struct kue_softc *, int, u_int8_t,
 			   u_int16_t, void *, u_int32_t);
 usbd_status kue_setword(struct kue_softc *, u_int8_t, u_int16_t);
 int kue_load_fw(struct kue_softc *);
-void kue_attachhook(void *);
+void kue_attachhook(struct device *);
 
 usbd_status
 kue_setword(struct kue_softc *sc, u_int8_t breq, u_int16_t word)
@@ -399,9 +399,9 @@ kue_match(struct device *parent, void *match, void *aux)
 }
 
 void
-kue_attachhook(void *xsc)
+kue_attachhook(struct device *self)
 {
-	struct kue_softc *sc = xsc;
+	struct kue_softc	*sc = (struct kue_softc *)self;
 	int			s;
 	struct ifnet		*ifp;
 	struct usbd_device	*dev = sc->kue_udev;
@@ -526,10 +526,7 @@ kue_attach(struct device *parent, struct device *self, void *aux)
 	sc->kue_product = uaa->product;
 	sc->kue_vendor = uaa->vendor;
 
-	if (rootvp == NULL)
-		mountroothook_establish(kue_attachhook, sc);
-	else
-		kue_attachhook(sc);
+	config_mountroot(self, kue_attachhook);
 }
 
 int
@@ -773,7 +770,7 @@ kue_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		    __func__, status));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -855,19 +852,20 @@ kue_start(struct ifnet *ifp)
 	if (usbd_is_dying(sc->kue_udev))
 		return;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
-	IFQ_POLL(&ifp->if_snd, m_head);
+	m_head = ifq_deq_begin(&ifp->if_snd);
 	if (m_head == NULL)
 		return;
 
 	if (kue_send(sc, m_head, 0)) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_deq_rollback(&ifp->if_snd, m_head);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
-	IFQ_DEQUEUE(&ifp->if_snd, m_head);
+	ifq_deq_commit(&ifp->if_snd, m_head);
 
 #if NBPFILTER > 0
 	/*
@@ -878,7 +876,7 @@ kue_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * Set a timeout in case the chip goes out to lunch.
@@ -948,7 +946,7 @@ kue_init(void *xsc)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -1099,7 +1097,8 @@ kue_stop(struct kue_softc *sc)
 
 	ifp = GET_IFP(sc);
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop transfers. */
 	if (sc->kue_ep[KUE_ENDPT_RX] != NULL) {

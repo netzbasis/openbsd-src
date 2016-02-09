@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptosoft.c,v 1.76 2015/11/03 01:35:16 mikeb Exp $	*/
+/*	$OpenBSD: cryptosoft.c,v 1.80 2015/12/10 21:00:51 naddy Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -463,11 +463,6 @@ swcr_authcompute(struct cryptop *crp, struct cryptodesc *crd,
 		axf->Update(&ctx, aalg, axf->hashsize);
 		axf->Final(aalg, &ctx);
 		break;
-
-	case CRYPTO_MD5:
-	case CRYPTO_SHA1:
-		axf->Final(aalg, &ctx);
-		break;
 	}
 
 	/* Inject the authentication data */
@@ -794,9 +789,6 @@ swcr_newsession(u_int32_t *sid, struct cryptoini *cri)
 		}
 
 		switch (cri->cri_alg) {
-		case CRYPTO_DES_CBC:
-			txf = &enc_xform_des;
-			goto enccommon;
 		case CRYPTO_3DES_CBC:
 			txf = &enc_xform_3des;
 			goto enccommon;
@@ -862,6 +854,7 @@ swcr_newsession(u_int32_t *sid, struct cryptoini *cri)
 			goto authcommon;
 		case CRYPTO_SHA2_512_HMAC:
 			axf = &auth_hash_hmac_sha2_512_256;
+			goto authcommon;
 		authcommon:
 			(*swd)->sw_ictx = malloc(axf->ctxsize, M_CRYPTO_DATA,
 			    M_NOWAIT);
@@ -900,39 +893,19 @@ swcr_newsession(u_int32_t *sid, struct cryptoini *cri)
 			(*swd)->sw_axf = axf;
 			break;
 
-		case CRYPTO_MD5:
-			axf = &auth_hash_md5;
-			goto auth3common;
-
-		case CRYPTO_SHA1:
-			axf = &auth_hash_sha1;
-		auth3common:
-			(*swd)->sw_ictx = malloc(axf->ctxsize, M_CRYPTO_DATA,
-			    M_NOWAIT);
-			if ((*swd)->sw_ictx == NULL) {
-				swcr_freesession(i);
-				return ENOBUFS;
-			}
-
-			axf->Init((*swd)->sw_ictx);
-			(*swd)->sw_axf = axf;
-			break;
-
 		case CRYPTO_AES_128_GMAC:
 			axf = &auth_hash_gmac_aes_128;
-			goto auth4common;
-
+			goto authenccommon;
 		case CRYPTO_AES_192_GMAC:
 			axf = &auth_hash_gmac_aes_192;
-			goto auth4common;
-
+			goto authenccommon;
 		case CRYPTO_AES_256_GMAC:
 			axf = &auth_hash_gmac_aes_256;
-			goto auth4common;
-
+			goto authenccommon;
 		case CRYPTO_CHACHA20_POLY1305_MAC:
 			axf = &auth_hash_chacha20_poly1305;
-		auth4common:
+			goto authenccommon;
+		authenccommon:
 			(*swd)->sw_ictx = malloc(axf->ctxsize, M_CRYPTO_DATA,
 			    M_NOWAIT);
 			if ((*swd)->sw_ictx == NULL) {
@@ -987,7 +960,6 @@ swcr_freesession(u_int64_t tid)
 		swcr_sessions[sid] = swd->sw_next;
 
 		switch (swd->sw_alg) {
-		case CRYPTO_DES_CBC:
 		case CRYPTO_3DES_CBC:
 		case CRYPTO_BLF_CBC:
 		case CRYPTO_CAST_CBC:
@@ -1028,8 +1000,6 @@ swcr_freesession(u_int64_t tid)
 		case CRYPTO_AES_192_GMAC:
 		case CRYPTO_AES_256_GMAC:
 		case CRYPTO_CHACHA20_POLY1305_MAC:
-		case CRYPTO_MD5:
-		case CRYPTO_SHA1:
 			axf = swd->sw_axf;
 
 			if (swd->sw_ictx) {
@@ -1101,7 +1071,6 @@ swcr_process(struct cryptop *crp)
 		switch (sw->sw_alg) {
 		case CRYPTO_NULL:
 			break;
-		case CRYPTO_DES_CBC:
 		case CRYPTO_3DES_CBC:
 		case CRYPTO_BLF_CBC:
 		case CRYPTO_CAST_CBC:
@@ -1118,8 +1087,6 @@ swcr_process(struct cryptop *crp)
 		case CRYPTO_SHA2_256_HMAC:
 		case CRYPTO_SHA2_384_HMAC:
 		case CRYPTO_SHA2_512_HMAC:
-		case CRYPTO_MD5:
-		case CRYPTO_SHA1:
 			if ((crp->crp_etype = swcr_authcompute(crp, crd, sw,
 			    crp->crp_buf, type)) != 0)
 				goto done;
@@ -1162,8 +1129,7 @@ void
 swcr_init(void)
 {
 	int algs[CRYPTO_ALGORITHM_MAX + 1];
-	int flags = CRYPTOCAP_F_SOFTWARE | CRYPTOCAP_F_ENCRYPT_MAC |
-	    CRYPTOCAP_F_MAC_ENCRYPT;
+	int flags = CRYPTOCAP_F_SOFTWARE;
 
 	swcr_id = crypto_get_driverid(flags);
 	if (swcr_id < 0) {
@@ -1173,15 +1139,12 @@ swcr_init(void)
 
 	bzero(algs, sizeof(algs));
 
-	algs[CRYPTO_DES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_3DES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_BLF_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_CAST_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_MD5_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_SHA1_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_RIPEMD160_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
-	algs[CRYPTO_MD5] = CRYPTO_ALG_FLAG_SUPPORTED;
-	algs[CRYPTO_SHA1] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_RIJNDAEL128_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_AES_CTR] = CRYPTO_ALG_FLAG_SUPPORTED;
 	algs[CRYPTO_AES_XTS] = CRYPTO_ALG_FLAG_SUPPORTED;

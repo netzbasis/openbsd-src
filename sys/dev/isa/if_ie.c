@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ie.c,v 1.44 2015/10/25 13:13:06 mpi Exp $	*/
+/*	$OpenBSD: if_ie.c,v 1.49 2015/12/08 13:34:22 tedu Exp $	*/
 /*	$NetBSD: if_ie.c,v 1.51 1996/05/12 23:52:48 mycroft Exp $	*/
 
 /*-
@@ -121,10 +121,6 @@ iomem, and to make 16-pointers, we subtract sc_maddr and and with 0xffff.
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
-#include <net/if_dl.h>
-#include <net/netisr.h>
-#include <net/route.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -778,7 +774,7 @@ ieattach(parent, self, aux)
 	ifp->if_ioctl = ieioctl;
 	ifp->if_watchdog = iewatchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Attach the interface. */
@@ -937,7 +933,7 @@ ietint(sc)
 	int status;
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	status = sc->xmit_cmds[sc->xctail]->ie_xmit_status;
 
@@ -1359,12 +1355,12 @@ iestart(ifp)
 	u_char *buffer;
 	u_short len;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->xmit_busy == NTXBUF) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1981,7 +1977,7 @@ ieinit(sc)
 	iememinit(ptr, sc);
 
 	sc->sc_arpcom.ac_if.if_flags |= IFF_RUNNING;
-	sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 
 	sc->scb->ie_recv_list = MK_16(MEM, sc->rframes[0]);
 	command_and_wait(sc, IE_RU_START, 0, 0);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pvvar.h,v 1.4 2015/07/28 09:48:52 reyk Exp $	*/
+/*	$OpenBSD: pvvar.h,v 1.7 2016/01/27 09:04:19 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -19,25 +19,48 @@
 #ifndef _DEV_PV_PVVAR_H_
 #define _DEV_PV_PVVAR_H_
 
+struct pvbus_req {
+	size_t			 pvr_keylen;
+	char			*pvr_key;
+	size_t			 pvr_valuelen;
+	char			*pvr_value;
+};
+
+#define PVBUSIOC_KVREAD		_IOWR('V', 1, struct pvbus_req)
+#define PVBUSIOC_KVWRITE	_IOWR('V', 2, struct pvbus_req)
+#define PVBUSIOC_TYPE		_IOWR('V', 3, struct pvbus_req)
+
+#ifdef _KERNEL
 enum {
 	PVBUS_KVM,
 	PVBUS_HYPERV,
 	PVBUS_VMWARE,
 	PVBUS_XEN,
 	PVBUS_BHYVE,
+	PVBUS_OPENBSD,
 
 	PVBUS_MAX
+};
+
+enum {
+	PVBUS_KVREAD,
+	PVBUS_KVWRITE,
+	PVBUS_KVLS
 };
 
 struct pvbus_hv {
 	uint32_t		 hv_base;
 	uint32_t		 hv_features;
-	uint32_t		 hv_version;
+	uint16_t		 hv_major;
+	uint16_t		 hv_minor;
+
+	void			*hv_arg;
+	int			(*hv_kvop)(void *, int, char *, char *, size_t);
 };
 
 struct pvbus_softc {
 	struct device		 pvbus_dev;
-	struct pvbus_hv		 pvbus_hv[PVBUS_MAX];
+	struct pvbus_hv		*pvbus_hv;
 };
 
 struct pvbus_attach_args {
@@ -49,8 +72,8 @@ struct pv_attach_args {
 	struct pvbus_hv		*pva_hv;
 };
 
-extern int has_hv_cpuid;
-
+void	 pvbus_identify(void);
 int	 pvbus_probe(void);
 
+#endif /* _KERNEL */
 #endif /* _DEV_PV_PVBUS_H_ */

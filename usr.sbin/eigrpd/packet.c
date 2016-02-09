@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.4 2015/10/10 05:03:39 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.8 2016/01/15 12:43:02 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -118,6 +118,7 @@ static int
 send_packet_v6(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 {
 	struct sockaddr_in6	 sa6;
+	struct in6_addr		 maddr = AllEIGRPRouters_v6;
 
 	/* setup sockaddr */
 	memset(&sa6, 0, sizeof(sa6));
@@ -126,7 +127,7 @@ send_packet_v6(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 	if (nbr)
 		sa6.sin6_addr = nbr->addr.v6;
 	else
-		inet_pton(AF_INET6, AllEIGRPRouters_v6, &sa6.sin6_addr);
+		memcpy(&sa6.sin6_addr, &maddr, sizeof(sa6.sin6_addr));
 	addscope(&sa6, iface->ifindex);
 
 	/* set outgoing interface for multicast traffic */
@@ -190,13 +191,41 @@ send_packet(struct eigrp_iface *ei, struct nbr *nbr, uint32_t flags,
 
 	switch (eigrp->af) {
 	case AF_INET:
-		send_packet_v4(iface, nbr, buf);
+		if (send_packet_v4(iface, nbr, buf) < 0)
+			return (-1);
 		break;
 	case AF_INET6:
-		send_packet_v6(iface, nbr, buf);
+		if (send_packet_v6(iface, nbr, buf) < 0)
+			return (-1);
 		break;
 	default:
 		fatalx("send_packet: unknown af");
+	}
+
+	switch (eigrp_hdr->opcode) {
+	case EIGRP_OPC_HELLO:
+		if (ntohl(eigrp_hdr->ack_num) == 0)
+			ei->eigrp->stats.hellos_sent++;
+		else
+			ei->eigrp->stats.acks_sent++;
+		break;
+	case EIGRP_OPC_UPDATE:
+		ei->eigrp->stats.updates_sent++;
+		break;
+	case EIGRP_OPC_QUERY:
+		ei->eigrp->stats.queries_sent++;
+		break;
+	case EIGRP_OPC_REPLY:
+		ei->eigrp->stats.replies_sent++;
+		break;
+	case EIGRP_OPC_SIAQUERY:
+		ei->eigrp->stats.squeries_sent++;
+		break;
+	case EIGRP_OPC_SIAREPLY:
+		ei->eigrp->stats.sreplies_sent++;
+		break;
+	default:
+		break;
 	}
 
 	return (0);
@@ -218,20 +247,6 @@ recv_packet_nbr(struct nbr *nbr, struct eigrp_hdr *eigrp_hdr,
 	 * the hold time period, then the Hold Time period will be reset."
 	 */
 	nbr_start_timeout(nbr);
-
-	/* ack processing */
-	if (ack != 0)
-		rtp_process_ack(nbr, ack);
-	if (seq != 0) {
-		/* check for sequence wraparound */
-		if (nbr->recv_seq >= seq &&
-		   !(nbr->recv_seq == UINT32_MAX && seq == 1)) {
-			log_debug("%s: duplicate packet", __func__);
-			rtp_send_ack(nbr);
-			return (-1);
-		}
-		nbr->recv_seq = seq;
-	}
 
 	/* handle the sequence tlv */
 	if (eigrp_hdr->opcode == EIGRP_OPC_HELLO &&
@@ -259,14 +274,29 @@ recv_packet_nbr(struct nbr *nbr, struct eigrp_hdr *eigrp_hdr,
 			}
 		}
 		if (tm)
-			nbr->next_mcast_seq = tm->seq;
+			nbr->next_mcast_seq = ntohl(tm->seq);
 	}
 
 	if ((ntohl(eigrp_hdr->flags) & EIGRP_HDR_FLAG_CR)) {
 		if (!(nbr->flags & F_EIGRP_NBR_CR_MODE))
 			return (-1);
+		nbr->flags &= ~F_EIGRP_NBR_CR_MODE;
 		if (ntohl(eigrp_hdr->seq_num) != nbr->next_mcast_seq)
 			return (-1);
+	}
+
+	/* ack processing */
+	if (ack != 0)
+		rtp_process_ack(nbr, ack);
+	if (seq != 0) {
+		/* check for sequence wraparound */
+		if (nbr->recv_seq >= seq &&
+		   !(nbr->recv_seq == UINT32_MAX && seq == 1)) {
+			log_debug("%s: duplicate packet", __func__);
+			rtp_send_ack(nbr);
+			return (-1);
+		}
+		nbr->recv_seq = seq;
 	}
 
 	return (0);
@@ -283,7 +313,6 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	struct tlv_mcast_seq	*tm = NULL;
 	struct rinfo		 ri;
 	struct rinfo_entry	*re;
-	enum route_type		 route_type = 0;
 	struct seq_addr_head	 seq_addr_list;
 	struct rinfo_head	 rinfo_list;
 
@@ -298,6 +327,7 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	TAILQ_INIT(&rinfo_list);
 	while (len > 0) {
 		struct tlv 	tlv;
+		uint16_t	tlv_type;
 
 		if (len < sizeof(tlv)) {
 			log_debug("%s: malformed packet (bad length)",
@@ -312,7 +342,8 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 			goto error;
 		}
 
-		switch (ntohs(tlv.type)) {
+		tlv_type = ntohs(tlv.type);
+		switch (tlv_type) {
 		case TLV_TYPE_PARAMETER:
 			if ((tp = tlv_decode_parameter(&tlv, buf)) == NULL)
 				goto error;
@@ -334,28 +365,14 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 		case TLV_TYPE_IPV6_INTERNAL:
 		case TLV_TYPE_IPV6_EXTERNAL:
 			/* silently ignore TLV from different address-family */
-			if (af != AF_INET &&
-			    (ntohs(tlv.type) == TLV_TYPE_IPV4_INTERNAL  ||
-			    ntohs(tlv.type) == TLV_TYPE_IPV4_EXTERNAL))
+			if ((tlv_type & TLV_PROTO_MASK) == TLV_PROTO_IPV4 &&
+			    af != AF_INET)
 				break;
-			if (af != AF_INET6 &&
-			    (ntohs(tlv.type) == TLV_TYPE_IPV6_INTERNAL  ||
-			    ntohs(tlv.type) == TLV_TYPE_IPV6_EXTERNAL))
+			if ((tlv_type & TLV_PROTO_MASK) == TLV_PROTO_IPV6 &&
+			    af != AF_INET6)
 				break;
 
-			switch (ntohs(tlv.type)) {
-			case TLV_TYPE_IPV4_INTERNAL:
-			case TLV_TYPE_IPV6_INTERNAL:
-				route_type = EIGRP_ROUTE_INTERNAL;
-				break;
-			case TLV_TYPE_IPV4_EXTERNAL:
-			case TLV_TYPE_IPV6_EXTERNAL:
-				route_type = EIGRP_ROUTE_EXTERNAL;
-				break;
-			}
-
-			if (tlv_decode_route(af, route_type, &tlv, buf,
-			    &ri) < 0)
+			if (tlv_decode_route(af, &tlv, buf, &ri) < 0)
 				goto error;
 			if ((re = calloc(1, sizeof(*re))) == NULL)
 				fatal("recv_packet");
@@ -402,23 +419,31 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	/* switch EIGRP packet type */
 	switch (eigrp_hdr->opcode) {
 	case EIGRP_OPC_HELLO:
-		if (ntohl(eigrp_hdr->ack_num) == 0)
+		if (ntohl(eigrp_hdr->ack_num) == 0) {
 			recv_hello(ei, src, nbr, tp);
+			ei->eigrp->stats.hellos_recv++;
+		} else
+			ei->eigrp->stats.acks_recv++;
 		break;
 	case EIGRP_OPC_UPDATE:
 		recv_update(nbr, &rinfo_list, ntohl(eigrp_hdr->flags));
+		ei->eigrp->stats.updates_recv++;
 		break;
 	case EIGRP_OPC_QUERY:
 		recv_query(nbr, &rinfo_list, 0);
+		ei->eigrp->stats.queries_recv++;
 		break;
 	case EIGRP_OPC_REPLY:
 		recv_reply(nbr, &rinfo_list, 0);
+		ei->eigrp->stats.replies_recv++;
 		break;
 	case EIGRP_OPC_SIAQUERY:
 		recv_query(nbr, &rinfo_list, 1);
+		ei->eigrp->stats.squeries_recv++;
 		break;
 	case EIGRP_OPC_SIAREPLY:
 		recv_reply(nbr, &rinfo_list, 1);
+		ei->eigrp->stats.sreplies_recv++;
 		break;
 	default:
 		log_debug("%s: unknown EIGRP packet type, interface %s",
@@ -540,7 +565,6 @@ recv_packet_v6(int fd, short event, void *bula)
 	} cmsgbuf;
 	struct msghdr		 msg;
 	struct iovec		 iov;
-	struct in6_addr		 maddr;
 	struct sockaddr_in6	 sin6;
 	struct eigrp_hdr	*eigrp_hdr;
 	struct iface		*iface;
@@ -550,6 +574,7 @@ recv_packet_v6(int fd, short event, void *bula)
 	uint16_t		 len;
 	unsigned int		 ifindex = 0;
 	union eigrpd_addr	 src, dest;
+	struct in6_addr		 maddr = AllEIGRPRouters_v6;
 
 	if (event != EV_READ)
 		return;
@@ -592,8 +617,6 @@ recv_packet_v6(int fd, short event, void *bula)
 	 * Packet needs to be sent to AllEIGRPRouters_v6 or to the
 	 * link local address of the interface.
 	 */
-	inet_pton(AF_INET6, AllEIGRPRouters_v6, &maddr);
-
 	if (!IN6_ARE_ADDR_EQUAL(&dest.v6, &maddr) &&
 	    !IN6_ARE_ADDR_EQUAL(&dest.v6, &iface->linklocal)) {
 		log_debug("%s: packet sent to wrong address %s, interface %s",

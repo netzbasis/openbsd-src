@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.251 2015/11/02 09:21:48 dlg Exp $
+#	$OpenBSD: Makefile,v 1.271 2015/12/20 08:10:36 sf Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -9,23 +9,23 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	audio.9 autoconf.9 \
 	bemtoh32.9 bio_register.9 boot.9 buffercache.9 bufq_init.9 bus_dma.9 \
 	bus_space.9 \
-	copy.9 config_attach.9 crypto.9 delay.9 \
-	disk.9 disklabel.9 dma_alloc.9 dohooks.9 dopowerhooks.9 \
-	domountroothooks.9 dostartuphooks.9 \
+	copy.9 config_attach.9 config_defer.9 crypto.9 delay.9 \
+	disk.9 disklabel.9 dma_alloc.9 dohooks.9 \
+	dostartuphooks.9 \
 	evcount.9 extent.9 fb_setup.9 file.9 fork1.9 \
 	getdevvp.9 getnewvnode.9 hash.9 hashinit.9 \
 	hardclock.9 hook_establish.9 hz.9 idgen32.9 \
 	ieee80211.9 ieee80211_crypto.9 ieee80211_input.9 ieee80211_ioctl.9 \
 	ieee80211_node.9 ieee80211_output.9 ieee80211_proto.9 \
-	ieee80211_radiotap.9 \
-	if_rxr_init.9 iic.9 intro.9 inittodr.9 intr_barrier.9 \
+	ieee80211_radiotap.9 if_get.9 if_rxr_init.9 ifq_enqueue.9 \
+	ifq_deq_begin.9 iic.9 intro.9 inittodr.9 intr_barrier.9 \
 	kern.9 km_alloc.9 knote.9 kthread.9 ktrace.9 \
 	loadfirmware.9 lock.9 log.9 \
 	malloc.9 membar_sync.9 mbuf.9 mbuf_tags.9 md5.9 mi_switch.9 \
-	microtime.9 ml_init.9 mountroothook_establish.9 mq_init.9 mutex.9 \
+	microtime.9 ml_init.9 mq_init.9 mutex.9 \
 	namei.9 \
 	panic.9 pci_conf_read.9 pci_intr_map.9 pfind.9 physio.9 pmap.9 \
-	pool.9 powerhook_establish.9 ppsratecheck.9 printf.9 psignal.9 \
+	pool.9 ppsratecheck.9 printf.9 psignal.9 \
 	radio.9 arc4random.9 rasops.9 ratecheck.9 refcnt_init.9 resettodr.9 \
 	rssadapt.9 route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
 	rtlabel_id2name.9 rtrequest.9 rwlock.9 SipHash24.9 sensor_attach.9 \
@@ -36,7 +36,7 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	vfs.9 vfs_busy.9 \
 	vfs_cache.9 vaccess.9 vclean.9 vcount.9 vdevgone.9 vfinddev.9 vflush.9 \
 	vflushbuf.9 vget.9 vgone.9 vhold.9 vinvalbuf.9 vnode.9 vnsubr.9 \
-	VOP_GETATTR.9 VOP_LOOKUP.9 vput.9 vrecycle.9 vref.9 vrele.9 \
+	VOP_LOOKUP.9 vput.9 vrecycle.9 vref.9 vrele.9 \
 	vwaitforio.9 vwakeup.9 wdog_register.9
 
 MLINKS+=aml_evalnode.9 aml_evalname.9 aml_evalnode.9 aml_find_node.9 \
@@ -60,8 +60,7 @@ MLINKS+=atomic_swap_uint.9 atomic_swap_ulong.9 \
 	atomic_swap_uint.9 atomic_swap_ptr.9
 MLINKS+=autoconf.9 config_search.9 \
 	autoconf.9 config_rootsearch.9 autoconf.9 config_found_sm.9 \
-	autoconf.9 config_found.9 autoconf.9 config_rootfound.9 \
-	autoconf.9 config_defer.9
+	autoconf.9 config_found.9 autoconf.9 config_rootfound.9
 MLINKS+=bemtoh32.9 bemtoh16.9 bemtoh32.9 bemtoh64.9 \
 	bemtoh32.9 htobem16.9 bemtoh32.9 htobem32.9 bemtoh32.9 htobem64.9 \
 	bemtoh32.9 lemtoh16.9 bemtoh32.9 lemtoh32.9 bemtoh32.9 lemtoh64.9 \
@@ -139,6 +138,7 @@ MLINKS+=bus_space.9 bus_space_alloc.9 bus_space.9 bus_space_barrier.9 \
 	bus_space.9 bus_space_write_raw_region_4.9 \
 	bus_space.9 bus_space_write_raw_region_8.9
 MLINKS+=config_attach.9 config_detach.9 config_attach.9 config_detach_children.9
+MLINKS+=config_defer.9 config_mountroot.9
 MLINKS+=copy.9 copyin.9 copy.9 copyout.9 copy.9 copystr.9 \
 	copy.9 copyinstr.9 copy.9 copyoutstr.9 \
 	copy.9 kcopy.9
@@ -207,23 +207,29 @@ MLINKS+=ieee80211_node.9 ieee80211_node_attach.9 \
 MLINKS+=ieee80211_output.9 ieee80211_encap.9 \
 	ieee80211_output.9 ieee80211_add_rates.9 \
 	ieee80211_output.9 ieee80211_add_xrates.9 \
-	ieee80211_output.9 ieee80211_compute_duration.9 \
 	ieee80211_output.9 ieee80211_send_mgmt.9
 MLINKS+=ieee80211_proto.9 ieee80211_proto_attach.9 \
 	ieee80211_proto.9 ieee80211_proto_detach.9 \
 	ieee80211_proto.9 ieee80211_print_essid.9 \
 	ieee80211_proto.9 ieee80211_dump_pkt.9 \
 	ieee80211_proto.9 ieee80211_fix_rate.9
+MLINKS+=if_get.9 if_put.9
 MLINKS+=if_rxr_init.9 if_rxr_get.9 if_rxr_init.9 if_rxr_put.9 \
 	if_rxr_init.9 if_rxr_inuse.9 if_rxr_init.9 if_rxr_ioctl.9 \
 	if_rxr_init.9 if_rxr_info_ioctl.9
+MLINKS+=ifq_enqueue.9 ifq_dequeue.9 ifq_enqueue.9 ifq_purge.9 \
+	ifq_enqueue.9 ifq_len.9 ifq_enqueue.9 ifq_empty.9 \
+	ifq_enqueue.9 ifq_set_oactive.9 ifq_enqueue.9 ifq_clr_oactive.9 \
+	ifq_enqueue.9 ifq_is_oactive.9 ifq_enqueue.9 ifq_restart.9 \
+	ifq_enqueue.9 ifq_barrier.9
+MLINKS+=ifq_deq_begin.9 ifq_deq_commit.9 ifq_deq_begin.9 ifq_deq_rollback.9
 MLINKS+=iic.9 iic_acquire_bus.9 iic.9 iic_release_bus.9 iic.9 iic_exec.9 \
 	iic.9 iic_smbus_write_byte.9 iic.9 iic_smbus_read_byte.9 \
 	iic.9 iic_smbus_receive_byte.9
 MLINKS+=kern.9 imax.9 kern.9 imin.9 kern.9 lmax.9 kern.9 lmin.9 \
 	kern.9 max.9 kern.9 min.9 kern.9 ulmax.9 kern.9 ulmin.9 kern.9 abs.9 \
 	kern.9 assert.9 kern.9 KASSERT.9 kern.9 KDASSERT.9 \
-	kern.9 KASSERTMSG.9 kern.9 KDASSERTMSG.9 \
+	kern.9 KASSERTMSG.9 kern.9 KDASSERTMSG.9 kern.9 CTASSERT.9 \
 	kern.9 skpc.9 kern.9 scanc.9 kern.9 bcmp.9 \
 	kern.9 memchr.9 kern.9 memcmp.9 kern.9 ffs.9 kern.9 fls.9 kern.9 flsl.9 \
 	kern.9 strlen.9 kern.9 strncpy.9 kern.9 strlcpy.9 kern.9 strlcat.9 \
@@ -266,17 +272,17 @@ MLINKS+=microtime.9 getmicrotime.9 microtime.9 microuptime.9 \
 	microtime.9 getnanotime.9 microtime.9 nanouptime.9 \
 	microtime.9 getnanouptime.9 microtime.9 bintime.9 \
 	microtime.9 binuptime.9
-MLINKS+=ml_init.9 ml_enqueue.9 ml_init.9 ml_dequeue.9 ml_init.9 ml_requeue.9 \
+MLINKS+=ml_init.9 ml_enqueue.9 ml_init.9 ml_dequeue.9 \
 	ml_init.9 ml_enlist.9 ml_init.9 ml_dechain.9 \
 	ml_init.9 ml_filter.9 ml_init.9 ml_len.9 ml_init.9 ml_empty.9 \
 	ml_init.9 ml_purge.9 \
-	ml_init.9 MBUF_LIST_INITIALIZER.9 ml_init.9 MBUF_LIST_FOREACH.9
-MLINKS+=mountroothook_establish.9 mountroothook_disestablish.9
+	ml_init.9 MBUF_LIST_INITIALIZER.9 ml_init.9 MBUF_LIST_FIRST.9 \
+	ml_init.9 MBUF_LIST_NEXT.9 ml_init.9 MBUF_LIST_FOREACH.9
 MLINKS+=mutex.9 mtx_init.9 mutex.9 mtx_enter.9 mutex.9 mtx_leave.9 \
 	mutex.9 MUTEX_ASSERT_LOCKED.9 mutex.9 MUTEX_ASSERT_UNLOCKED.9 \
 	mutex.9 MUTEX_INITIALIZER.9
 MLINKS+=mutex.9 mtx_enter_try.9
-MLINKS+=mq_init.9 mq_enqueue.9 mq_init.9 mq_dequeue.9 mq_init.9 mq_requeue.9 \
+MLINKS+=mq_init.9 mq_enqueue.9 mq_init.9 mq_dequeue.9 \
 	mq_init.9 mq_enlist.9 mq_init.9 mq_delist.9 \
 	mq_init.9 mq_dechain.9 mq_init.9 mq_filter.9 mq_init.9 mq_purge.9 \
 	mq_init.9 mq_len.9 mq_init.9 mq_empty.9 mq_init.9 mq_drops.9 \
@@ -304,7 +310,6 @@ MLINKS+=pool.9 pool_init.9 pool.9 pool_destroy.9 \
 	pool.9 pool_sethiwat.9 pool.9 pool_setipl.9 pool.9 pool_setlowat.9 \
 	pool.9 pool_sethardlimit.9
 MLINKS+=dma_alloc.9 dma_free.9
-MLINKS+=powerhook_establish.9 powerhook_disestablish.9
 MLINKS+=printf.9 snprintf.9 printf.9 vsnprintf.9 printf.9 vprintf.9 \
 	printf.9 uprintf.9 printf.9 ttyprintf.9 printf.9 db_printf.9 \
 	printf.9 db_vprintf.9
@@ -319,7 +324,8 @@ MLINKS+=arc4random.9 add_true_randomness.9 \
 	arc4random.9 arc4random_buf.9 \
 	arc4random.9 arc4random_uniform.9
 MLINKS+=rasops.9 rasops_init.9 rasops.9 rasops_reconfig.9
-MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_rele.9 \
+MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_take_n.9 \
+	refcnt_init.9 refcnt_rele.9 \
 	refcnt_init.9 refcnt_rele_wake.9 refcnt_init.9 refcnt_finalize.9 \
 	refcnt_init.9 REFCNT_INITIALIZER.9
 MLINKS+=rssadapt.9 ieee80211_rssadapt_choose.9 \
@@ -374,12 +380,13 @@ MLINKS+=srp_enter.9 srp_init.9 srp_enter.9 srp_gc_init.9 \
 	srp_enter.9 srp_follow.9 srp_enter.9 srp_leave.9 \
 	srp_enter.9 srp_get_locked.9 srp_enter.9 srp_finalize.9 \
 	srp_enter.9 SRP_INITIALIZER.9 srp_enter.9 SRP_GC_INITIALIZER.9
-MLINKS+=srpl_rc_init.9 SRPL_HEAD_INIT.9 srpl_rc_init.9 SRPL_HEAD_INIT.9 \
-	srpl_rc_init.9 SRPL_ENTRY_INIT.9 srpl_rc_init.9 SRPL_ENTER.9 \
+MLINKS+=srpl_rc_init.9 SRPL_ENTER.9 \
+	srpl_rc_init.9 SRPL_HEAD.9 srpl_rc_init.9 SRPL_ENTRY.9\
 	srpl_rc_init.9 SRPL_NEXT.9 srpl_rc_init.9 SRPL_FOREACH.9 \
 	srpl_rc_init.9 SRPL_LEAVE.9 srpl_rc_init.9 SRPL_EMPTY_LOCKED.9 \
 	srpl_rc_init.9 SRPL_FIRST_LOCKED.9 srpl_rc_init.9 SRPL_NEXT_LOCKED.9 \
 	srpl_rc_init.9 SRPL_FOREACH_LOCKED.9 \
+	srpl_rc_init.9 SRPL_FOREACH_SAFE_LOCKED.9 \
 	srpl_rc_init.9 SRPL_INSERT_HEAD_LOCKED.9 \
 	srpl_rc_init.9 SRPL_INSERT_AFTER_LOCKED.9 \
 	srpl_rc_init.9 SRPL_REMOVE_LOCKED.9 \
@@ -389,7 +396,7 @@ MLINKS+=sysctl_int.9 sysctl_int_arr.9 sysctl_int.9 sysctl_quad.9 \
 	sysctl_int.9 sysctl_string.9 sysctl_int.9 sysctl_tstring.9 \
 	sysctl_int.9 sysctl_rdint.9 sysctl_int.9 sysctl_rdquad.9 \
 	sysctl_int.9 sysctl_rdstring.9 sysctl_int.9 sysctl_rdstruct.9 \
-	sysctl_int.9 sysctl_struct.9 sysctl_int.9 ctlname.9
+	sysctl_int.9 sysctl_struct.9
 MLINKS+=systrace.9 systrace_redirect.9 \
 	systrace.9 systrace_fork.9 systrace.9 systrace_exit.9
 MLINKS+=task_add.9 taskq_create.9 \
@@ -420,7 +427,8 @@ MLINKS+=uvm.9 uvm_init.9 uvm.9 uvm_init_limits.9 uvm.9 uvm_setpagesize.9 \
 	uvm.9 uvm_map_pageable_all.9 uvm.9 uvm_map_checkprot.9 \
 	uvm.9 uvm_map_protect.9 uvm.9 uvm_deallocate.9 uvm.9 uvmspace_alloc.9 \
 	uvm.9 uvmspace_exec.9 uvm.9 uvmspace_fork.9 uvm.9 uvmspace_free.9 \
-	uvm.9 uvmspace_share.9 uvm.9 UVM_MAPFLAG.9 uvm.9 uvm_fault.9 \
+	uvm.9 uvmspace_share.9 uvm.9 uvm_uarea_alloc.9 \
+	uvm.9 uvm_uarea_free.9 uvm.9 UVM_MAPFLAG.9 uvm.9 uvm_fault.9 \
 	uvm.9 uvn_attach.9 uvm.9 uvm_vnp_setsize.9 uvm.9 uvm_vnp_sync.9 \
 	uvm.9 uvm_vnp_terminate.9 uvm.9 uvm_vnp_uncache.9 uvm.9 uvm_io.9 \
 	uvm.9 uvm_km_alloc.9 uvm.9 uvm_km_zalloc.9 uvm.9 uvm_km_alloc1.9 \
@@ -444,11 +452,11 @@ MLINKS+=vnsubr.9 vn_close.9 vnsubr.9 vn_default_error.9 \
 	vnsubr.9 vn_isunder.9 vnsubr.9 vn_lock.9 vnsubr.9 vn_open.9 \
 	vnsubr.9 vn_rdwr.9 vnsubr.9 vn_stat.9 vnsubr.9 vn_writechk.9 \
 	vnsubr.9 vn_marktext.9
-MLINKS+=VOP_GETATTR.9 VOP_SETATTR.9
 MLINKS+=VOP_LOOKUP.9 VOP_ABORTOP.9 VOP_LOOKUP.9 VOP_ACCESS.9 \
 	VOP_LOOKUP.9 VOP_ADVLOCK.9 VOP_LOOKUP.9 VOP_BMAP.9 \
 	VOP_LOOKUP.9 VOP_BWRITE.9 VOP_LOOKUP.9 VOP_CLOSE.9 \
 	VOP_LOOKUP.9 VOP_CREATE.9 VOP_LOOKUP.9 VOP_FSYNC.9 \
+	VOP_LOOKUP.9 VOP_GETATTR.9 VOP_LOOKUP.9 VOP_SETATTR.9 \
 	VOP_LOOKUP.9 VOP_INACTIVE.9 VOP_LOOKUP.9 VOP_IOCTL.9 \
 	VOP_LOOKUP.9 VOP_ISLOCKED.9 VOP_LOOKUP.9 VOP_KQFILTER.9 \
 	VOP_LOOKUP.9 VOP_LINK.9 \

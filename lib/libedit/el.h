@@ -1,4 +1,4 @@
-/*	$OpenBSD: el.h,v 1.9 2014/10/17 06:07:50 deraadt Exp $	*/
+/*	$OpenBSD: el.h,v 1.12 2016/01/30 00:06:39 schwarze Exp $	*/
 /*	$NetBSD: el.h,v 1.21 2009/12/31 15:58:26 christos Exp $	*/
 
 /*-
@@ -94,8 +94,8 @@ typedef struct el_state_t {
 
 #include "tty.h"
 #include "prompt.h"
-#include "key.h"
-#include "term.h"
+#include "keymacro.h"
+#include "terminal.h"
 #include "refresh.h"
 #include "chared.h"
 #include "common.h"
@@ -123,14 +123,14 @@ struct editline {
 	void		 *el_data;	/* Client data			*/
 	el_line_t	  el_line;	/* The current line information	*/
 	el_state_t	  el_state;	/* Current editor state		*/
-	el_term_t	  el_term;	/* Terminal dependent stuff	*/
+	el_terminal_t	  el_terminal;	/* Terminal dependent stuff	*/
 	el_tty_t	  el_tty;	/* Tty dependent stuff		*/
 	el_refresh_t	  el_refresh;	/* Refresh stuff		*/
 	el_prompt_t	  el_prompt;	/* Prompt stuff			*/
 	el_prompt_t	  el_rprompt;	/* Prompt stuff			*/
 	el_chared_t	  el_chared;	/* Characted editor stuff	*/
 	el_map_t	  el_map;	/* Key mapping stuff		*/
-	el_key_t	  el_key;	/* Key binding stuff		*/
+	el_keymacro_t	  el_keymacro;	/* Key binding stuff		*/
 	el_history_t	  el_history;	/* History stuff		*/
 	el_search_t	  el_search;	/* Search stuff			*/
 	el_signal_t	  el_signal;	/* Signal handling stuff	*/

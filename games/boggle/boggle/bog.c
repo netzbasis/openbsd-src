@@ -1,4 +1,4 @@
-/*	$OpenBSD: bog.c,v 1.25 2015/10/24 17:23:14 mmcc Exp $	*/
+/*	$OpenBSD: bog.c,v 1.29 2016/01/10 13:18:07 mestre Exp $	*/
 /*	$NetBSD: bog.c,v 1.5 1995/04/24 12:22:32 cgd Exp $	*/
 
 /*-
@@ -36,10 +36,10 @@
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "bog.h"
@@ -69,7 +69,6 @@ int nmwords, maxmwords = MAXMWORDS, maxmspace = MAXMSPACE;
 int ngames = 0;
 int tnmwords = 0, tnpwords = 0;
 
-#include <setjmp.h>
 jmp_buf env;
 
 time_t start_t;
@@ -89,6 +88,9 @@ main(int argc, char *argv[])
 {
 	int ch, done;
 	char *bspec, *p;
+
+	if (pledge("stdio rpath tty", NULL) == -1)
+		err(1, "pledge");
 
 	batch = debug = reuse = selfuse;
 	bspec = NULL;
@@ -158,20 +160,20 @@ main(int argc, char *argv[])
 		newgame(bspec);
 		while ((p = batchword(stdin)) != NULL)
 			(void) printf("%s\n", p);
-		exit(0);
+		return 0;
 	}
 	setup();
 	prompt("Loading the dictionary...");
 	if ((dictfp = opendict(DICT)) == NULL) {
 		warn("%s", DICT);
 		cleanup();
-		exit(1);
+		return 1;
 	}
 #ifdef LOADDICT
 	if (loaddict(dictfp) < 0) {
 		warnx("can't load %s", DICT);
 		cleanup();
-		exit(1);
+		return 1;
 	}
 	(void)fclose(dictfp);
 	dictfp = NULL;
@@ -179,7 +181,7 @@ main(int argc, char *argv[])
 	if (loadindex(DICTINDEX) < 0) {
 		warnx("can't load %s", DICTINDEX);
 		cleanup();
-		exit(1);
+		return 1;
 	}
 
 	prompt("Type <space> to begin...");
@@ -209,7 +211,7 @@ main(int argc, char *argv[])
 		}
 	}
 	cleanup();
-	exit(0);
+	return 0;
 }
 
 /*

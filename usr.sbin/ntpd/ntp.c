@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntp.c,v 1.139 2015/10/30 16:41:53 reyk Exp $ */
+/*	$OpenBSD: ntp.c,v 1.141 2015/12/19 17:55:29 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -28,6 +28,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 #include <err.h>
@@ -101,10 +102,12 @@ ntp_main(int pipe_prnt[2], int fd_ctl, struct ntpd_conf *nconf,
 
 	/* in this case the parent didn't init logging and didn't daemonize */
 	if (nconf->settime && !nconf->debug) {
-		log_init(nconf->debug);
+		log_init(nconf->debug, LOG_DAEMON);
 		if (setsid() == -1)
 			fatal("setsid");
 	}
+	log_procinit("ntp");
+
 	if ((se = getservbyname("ntp", "udp")) == NULL)
 		fatal("getservbyname");
 
@@ -428,7 +431,7 @@ ntp_dispatch_imsg(void)
 	struct imsg		 imsg;
 	int			 n;
 
-	if ((n = imsg_read(ibuf_main)) == -1)
+	if ((n = imsg_read(ibuf_main)) == -1 && errno != EAGAIN)
 		return (-1);
 
 	if (n == 0) {	/* connection closed */

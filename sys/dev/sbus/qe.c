@@ -1,4 +1,4 @@
-/*	$OpenBSD: qe.c,v 1.32 2015/10/25 13:13:06 mpi Exp $	*/
+/*	$OpenBSD: qe.c,v 1.38 2015/12/08 13:34:22 tedu Exp $	*/
 /*	$NetBSD: qe.c,v 1.16 2001/03/30 17:30:18 christos Exp $	*/
 
 /*-
@@ -80,9 +80,6 @@
 #include <sys/malloc.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -296,7 +293,7 @@ qeattach(parent, self, aux)
 	ifp->if_start = qestart;
 	ifp->if_ioctl = qeioctl;
 	ifp->if_watchdog = qewatchdog;
-	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS |
+	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX |
 	    IFF_MULTICAST;
 	IFQ_SET_READY(&ifp->if_snd);
 
@@ -444,17 +441,16 @@ qestart(ifp)
 	unsigned int bix, len;
 	unsigned int ntbuf = sc->sc_rb.rb_ntbuf;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_rb.rb_tdhead;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*
@@ -482,7 +478,7 @@ qestart(ifp)
 			bix = 0;
 
 		if (++sc->sc_rb.rb_td_nbusy == ntbuf) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -631,7 +627,7 @@ qe_tint(sc)
 		if (txflags & QEC_XD_OWN)
 			break;
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_opackets++;
 
 		if (++bix == QEC_XD_RING_MAXSIZE)
@@ -645,8 +641,8 @@ qe_tint(sc)
 
 	if (sc->sc_rb.rb_tdtail != bix) {
 		sc->sc_rb.rb_tdtail = bix;
-		if (ifp->if_flags & IFF_OACTIVE) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			qestart(ifp);
 		}
 	}
@@ -1042,7 +1038,7 @@ qeinit(sc)
 	qe_mcreset(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	splx(s);
 }
 

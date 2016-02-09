@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.19 2015/08/01 00:25:14 jsg Exp $
+#	$OpenBSD: install.md,v 1.24 2016/02/08 17:28:08 krw Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -35,25 +35,23 @@
 # This code runs when the script is initally sourced to set up 
 # MDSETS, SANESETS and DEFAULTSETS 
 
-dmesg | grep "^omap0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
+if dmesg | grep -q '^omap0 at mainbus0:'; then
         MDPLAT=OMAP
 	LOADADDR=0x82800000
 fi
-dmesg | grep "^imx0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
+
+if dmesg | grep -q '^imx0 at mainbus0:'; then
         MDPLAT=IMX
 	LOADADDR=0x18800000
 fi
-dmesg | grep "^sunxi0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
+
+if dmesg | grep '^sunxi0 at mainbus0:'; then
 	MDPLAT=SUNXI
 	LOADADDR=0x40200000
 fi
-dmesg | grep "^vexpress0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
-	dmesg | grep "^cpu0 at mainbus0: ARM Cortex A9 " >/dev/null
-	if [[ $? == 0 ]]; then
+
+if dmesg | grep -q '^vexpress0 at mainbus0:'; then
+	if dmesg | grep -q '^cpu0 at mainbus0: ARM Cortex A9 '; then
 		MDPLAT=VEXPRESSA9
 		LOADADDR=0x60300000
 	else
@@ -141,7 +139,7 @@ __EOT
 }
 
 md_prep_fdisk() {
-	local _disk=$1 _q _d
+	local _disk=$1 _d
 
 	local bootparttype="C"
 	local bootsectorstart="64"
@@ -166,14 +164,14 @@ md_prep_fdisk() {
 
 	while :; do
 		_d=whole
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr; then
 			fdisk $_disk
 		else
 			echo "MBR has invalid signature; not showing it."
 		fi
-		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
+		ask "Use (W)hole disk$ or (E)dit the MBR?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			echo -n "Creating a ${bootfstype} partition and an OpenBSD partition for rest of $_disk..."
 			fdisk -e ${_disk} <<__EOT >/dev/null
 reinit
@@ -195,7 +193,7 @@ __EOT
 			disklabel $_disk 2>/dev/null | grep -q "^  i:" || disklabel -w -d $_disk
 			newfs -t ${bootfstype} ${newfs_args} ${_disk}i
 			return ;;
-		e*|E*)
+		[eE]*)
 			# Manually configure the MBR.
 			cat <<__EOT
 
@@ -210,9 +208,8 @@ at least 16MB and be the first 'MSDOS' partition on the disk.
 $(fdisk ${_disk})
 __EOT
 			fdisk -e ${_disk}
-			fdisk $_disk | grep -q ' A6 ' && return
+			disk_has $_disk mbr openbsd && return
 			echo No OpenBSD partition in MBR, try again. ;;
-		o*|O*)	return ;;
 		esac
 	done
 }
@@ -225,18 +222,8 @@ md_prep_disklabel() {
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD MBR
-partition. The disklabel defines how OpenBSD splits up the MBR partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD MBR partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

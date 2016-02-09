@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd_module.c,v 1.7 2015/10/27 04:18:36 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd_module.c,v 1.9 2015/12/05 13:22:32 claudio Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -300,7 +300,7 @@ module_recv_imsg(struct module_base *base)
 	ssize_t		 n;
 	struct imsg	 imsg;
 
-	if ((n = imsg_read(&base->ibuf)) == -1 || n == 0) {
+	if (((n = imsg_read(&base->ibuf)) == -1 && errno != EAGAIN) || n == 0) {
 		if (n != 0)
 			syslog(LOG_ERR, "%s: imsg_read(): %m", __func__);
 		module_stop(base);
@@ -373,13 +373,13 @@ module_imsg_handler(struct module_base *base, struct imsg *imsg)
 			module_start_module(base->ctx);
 			if (!base->priv_dropped) {
 				syslog(LOG_ERR, "Module tried to start with "
-				    "root priviledge");
+				    "root privileges");
 				abort();
 			}
 		} else {
 			if (!base->priv_dropped) {
 				syslog(LOG_ERR, "Module tried to start with "
-				    "root priviledge");
+				    "root privileges");
 				abort();
 			}
 			module_send_message(base, IMSG_OK, NULL);

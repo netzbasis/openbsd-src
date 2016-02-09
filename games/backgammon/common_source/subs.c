@@ -1,4 +1,4 @@
-/*	$OpenBSD: subs.c,v 1.20 2015/06/26 19:18:03 otto Exp $	*/
+/*	$OpenBSD: subs.c,v 1.22 2015/12/02 20:05:01 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -41,8 +41,7 @@ static const char plwhite[] = "Player is white, computer is red.";
 static const char nocomp[] = "(No computer play.)";
 
 void
-errexit(s)
-	const char *s;
+errexit(const char *s)
 {
 	write(STDERR_FILENO, "\n", 1);
 	perror(s);
@@ -50,7 +49,7 @@ errexit(s)
 }
 
 int
-readc()
+readc(void)
 {
 	int    c;
 
@@ -71,7 +70,7 @@ readc()
 }
 
 void
-proll()
+proll(void)
 {
 	if (d0)
 		swap;
@@ -84,7 +83,7 @@ proll()
 }
 
 void
-gwrite()
+gwrite(void)
 {
 	int     r, c;
 
@@ -120,7 +119,7 @@ gwrite()
 }
 
 int
-quit()
+quit(void)
 {
 	move(20, 0);
 	clrtobot();
@@ -138,8 +137,7 @@ quit()
 }
 
 int
-yorn(special)
-	char    special;	/* special response */
+yorn(char special)
 {
 	char    c;
 	int     i;
@@ -166,14 +164,13 @@ yorn(special)
 }
 
 void
-wrhit(i)
-	int     i;
+wrhit(int i)
 {
 	printw("Blot hit on %d.\n", i);
 }
 
 void
-nexturn()
+nexturn(void)
 {
 	int     c;
 
@@ -190,9 +187,7 @@ nexturn()
 }
 
 void
-getarg(argc,argv)
-	int     argc;
-	char  **argv;
+getarg(int argc, char **argv)
 {
 	int     ch;
 
@@ -202,7 +197,6 @@ getarg(argc,argv)
 			if (rflag)
 				break;
 			aflag = 0;
-			args[acnt++] = 'n';
 			break;
 
 		case 'b':	/* player is both red and white */
@@ -210,7 +204,6 @@ getarg(argc,argv)
 				break;
 			pnum = 0;
 			aflag = 0;
-			args[acnt++] = 'b';
 			break;
 
 		case 'r':	/* player is red */
@@ -218,7 +211,6 @@ getarg(argc,argv)
 				break;
 			pnum = -1;
 			aflag = 0;
-			args[acnt++] = 'r';
 			break;
 
 		case 'w':	/* player is white */
@@ -226,7 +218,6 @@ getarg(argc,argv)
 				break;
 			pnum = 1;
 			aflag = 0;
-			args[acnt++] = 'w';
 			break;
 
 		case 's':	/* restore saved game */
@@ -235,6 +226,7 @@ getarg(argc,argv)
 
 		case 'd':	/* disable doubling */
 			dflag = 0;
+			aflag = 0;
 			break;
 
 		default:	/* print cmdline options */
@@ -252,7 +244,7 @@ usage(void)
 }
 
 void
-init()
+init(void)
 {
 	int     i;
 
@@ -271,15 +263,14 @@ init()
 }
 
 void
-wrscore()
+wrscore(void)
 {
 	printw("Score:  %s %d, %s %d", color[1], rscore, color[0], wscore);
 }
 
 
 void
-getout(dummy)
-	int     dummy;
+getout(int dummy)
 {
 	/* go to bottom of screen */
 	move(23, 0);
@@ -290,7 +281,7 @@ getout(dummy)
 }
 
 void
-roll()
+roll(void)
 {
 	char    c;
 	int     row;

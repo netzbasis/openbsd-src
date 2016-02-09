@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.138 2015/09/26 19:52:16 kettenis Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.145 2016/02/05 10:05:12 kettenis Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -44,6 +44,7 @@
 #include <sys/fcntl.h>
 #include <sys/filio.h>
 #include <sys/limits.h>
+#include <sys/pledge.h>
 #include <sys/poll.h>
 #include <sys/specdev.h>
 #include <sys/systm.h>
@@ -246,6 +247,41 @@ static struct drm_ioctl_desc drm_ioctls[] = {
 #define DRM_CORE_IOCTL_COUNT	ARRAY_SIZE( drm_ioctls )
 
 int
+pledge_ioctl_drm(struct proc *p, long com, dev_t device)
+{
+	struct drm_device *dev = drm_get_device_from_kdev(device);
+	unsigned int nr = DRM_IOCTL_NR(com);
+	const struct drm_ioctl_desc *ioctl;
+
+	if (dev == NULL)
+		return EPERM;
+
+	if (nr < DRM_CORE_IOCTL_COUNT &&
+	    ((nr < DRM_COMMAND_BASE || nr >= DRM_COMMAND_END)))
+		ioctl = &drm_ioctls[nr];
+	else if (nr >= DRM_COMMAND_BASE && nr < DRM_COMMAND_END &&
+	    nr < DRM_COMMAND_BASE + dev->driver->num_ioctls)
+		ioctl = &dev->driver->ioctls[nr - DRM_COMMAND_BASE];
+	else
+		return EPERM;
+
+	if (ioctl->flags & DRM_RENDER_ALLOW)
+		return 0;
+
+	/*
+	 * These are dangerous, but we have to allow them until we
+	 * have prime/dma-buf support.
+	 */
+	switch (com) {
+	case DRM_IOCTL_GET_MAGIC:
+	case DRM_IOCTL_GEM_OPEN:
+		return 0;
+	}
+
+	return EPERM;
+}
+
+int
 drm_setunique(struct drm_device *dev, void *data,
     struct drm_file *file_priv)
 {
@@ -280,7 +316,6 @@ drm_attach_pci(struct drm_driver_info *driver, struct pci_attach_args *pa,
 	arg.driver = driver;
 	arg.dmat = pa->pa_dmat;
 	arg.bst = pa->pa_memt;
-	arg.irq = pa->pa_intrline;
 	arg.is_agp = is_agp;
 	arg.console = console;
 
@@ -364,27 +399,33 @@ drm_probe(struct device *parent, void *match, void *aux)
 void
 drm_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct drm_device	*dev = (struct drm_device *)self;
-	struct drm_attach_args	*da = aux;
+	struct drm_device *dev = (struct drm_device *)self;
+	struct drm_attach_args *da = aux;
+	int bus, slot, func;
 
 	dev->dev_private = parent;
 	dev->driver = da->driver;
 
 	dev->dmat = da->dmat;
 	dev->bst = da->bst;
-	dev->irq = da->irq;
 	dev->unique = da->busid;
 	dev->unique_len = da->busid_len;
-	dev->pdev = &dev->drm_pci;
+	dev->pdev = &dev->_pdev;
 	dev->pci_vendor = dev->pdev->vendor = da->pci_vendor;
 	dev->pci_device = dev->pdev->device = da->pci_device;
 	dev->pdev->subsystem_vendor = da->pci_subvendor;
 	dev->pdev->subsystem_device = da->pci_subdevice;
 
+	pci_decompose_tag(da->pc, da->tag, &bus, &slot, &func);
+	dev->pdev->bus = &dev->pdev->_bus;
+	dev->pdev->bus->number = bus;
+	dev->pdev->devfn = PCI_DEVFN(slot, func);
+
 	dev->pc = da->pc;
 	dev->pdev->pc = da->pc;
 	dev->bridgetag = da->bridgetag;
 	dev->pdev->tag = da->tag;
+	dev->pdev->pci = (struct pci_softc *)parent->dv_parent;
 
 	rw_init(&dev->struct_mutex, "drmdevlk");
 	mtx_init(&dev->event_lock, IPL_TTY);
@@ -913,7 +954,7 @@ drmread(dev_t kdev, struct uio *uio, int ioflag)
 	while (drm_dequeue_event(dev, file_priv, uio->uio_resid, &ev)) {
 		MUTEX_ASSERT_UNLOCKED(&dev->event_lock);
 		/* XXX we always destroy the event on error. */
-		error = uiomovei(ev->event, ev->event->length, uio);
+		error = uiomove(ev->event, ev->event->length, uio);
 		ev->destroy(ev);
 		if (error)
 			break;
@@ -1182,7 +1223,7 @@ drm_setclientcap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 #define DRM_IF_MAJOR	1
-#define DRM_IF_MINOR	2
+#define DRM_IF_MINOR	4
 
 int
 drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -1469,34 +1510,6 @@ drm_fault(struct uvm_faultinfo *ufi, vaddr_t vaddr, vm_page_t *pps,
  * Code to support memory managers based on the GEM (Graphics
  * Execution Manager) api.
  */
-struct drm_gem_object *
-drm_gem_object_alloc(struct drm_device *dev, size_t size)
-{
-	struct drm_gem_object	*obj;
-
-	KASSERT((size & (PAGE_SIZE -1)) == 0);
-
-	if ((obj = pool_get(&dev->objpl, PR_WAITOK | PR_ZERO)) == NULL)
-		return (NULL);
-
-	obj->dev = dev;
-
-	/* uao create can't fail in the 0 case, it just sleeps */
-	obj->uao = uao_create(size, 0);
-	obj->size = size;
-	uvm_objinit(&obj->uobj, &drm_pgops, 1);
-
-	if (dev->driver->gem_init_object != NULL &&
-	    dev->driver->gem_init_object(obj) != 0) {
-		uao_detach(obj->uao);
-		pool_put(&dev->objpl, obj);
-		return (NULL);
-	}
-	atomic_inc(&dev->obj_count);
-	atomic_add(obj->size, &dev->obj_memory);
-	return (obj);
-}
-
 int
 drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size)
 {

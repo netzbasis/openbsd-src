@@ -1,4 +1,4 @@
-/*	$OpenBSD: aic79xx.c,v 1.57 2015/07/17 21:42:49 krw Exp $	*/
+/*	$OpenBSD: aic79xx.c,v 1.59 2015/12/17 19:35:24 tedu Exp $	*/
 
 /*
  * Copyright (c) 2004 Milos Urbanek, Kenneth R. Westerback & Marco Peereboom
@@ -2026,7 +2026,7 @@ ahd_handle_lqiphase_error(struct ahd_softc *ahd, u_int lqistat1)
 		ahd_outb(ahd, CLRINT, CLRSCSIINT);
 		ahd_unpause(ahd);
 	} else {
-		printf("Reseting Channel for LQI Phase error\n");
+		printf("Resetting Channel for LQI Phase error\n");
 		ahd_dump_card_state(ahd);
 		ahd_reset_channel(ahd, 'A', /*Initiate Reset*/TRUE);
 	}
@@ -6068,9 +6068,7 @@ ahd_alloc_scbs(struct ahd_softc *ahd)
 	for (i = 0; i < newcount; i++) {
 		struct scb_platform_data *pdata = NULL;
 		u_int col_tag;
-#ifndef __linux__
 		int error;
-#endif
 
 		next_scb = (struct scb *)malloc(sizeof(*next_scb),
 						M_DEVBUF, M_NOWAIT);

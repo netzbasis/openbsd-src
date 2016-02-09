@@ -7,8 +7,6 @@
  */
 
 /* symbols that no one should be using currently */
-_init
-_fini
 __data_start
 __bss_start
 _edata
@@ -230,6 +228,7 @@ _thread_sys_symlinkat
 _thread_sys_sync
 _thread_sys_sysarch
 _thread_sys_sysctl
+_thread_sys_thrkill
 _thread_sys_truncate
 _thread_sys_umask
 _thread_sys_unlink
@@ -432,6 +431,7 @@ timer_delete
 timer_getoverrun
 timer_gettime
 timer_settime
+thrkill
 truncate
 umask
 unlink
@@ -645,8 +645,10 @@ getprogname
 getpwent
 getpwnam
 getpwnam_r
+getpwnam_shadow
 getpwuid
 getpwuid_r
+getpwuid_shadow
 getttyent
 getttynam
 getusershell
@@ -935,8 +937,6 @@ __mb_cur_max
 __mb_len_max_runtime
 __mlocale_changed
 __nlocale_changed
-_towctrans_ext
-_wctrans_init
 btowc
 iswalnum
 iswalpha
@@ -1434,6 +1434,7 @@ __isthreaded
 a64l
 abort
 abs
+atexit
 atof
 atoi
 atol
@@ -1456,6 +1457,17 @@ hcreate
 hdestroy
 heapsort
 hsearch
+icdb_new
+icdb_open
+icdb_lookup
+icdb_get
+icdb_nentries
+icdb_entries
+icdb_update
+icdb_add
+icdb_rehash
+icdb_save
+icdb_close
 imaxabs
 imaxdiv
 initstate
@@ -1622,6 +1634,7 @@ _thread_mutex_unlock
 _thread_tag_lock
 _thread_tag_storage
 _thread_tag_unlock
+pthread_atfork
 
 /* time */
 asctime

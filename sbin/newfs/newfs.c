@@ -1,4 +1,4 @@
-/*	$OpenBSD: newfs.c,v 1.100 2015/09/29 03:19:24 guenther Exp $	*/
+/*	$OpenBSD: newfs.c,v 1.104 2015/12/06 11:56:47 tobias Exp $	*/
 /*	$NetBSD: newfs.c,v 1.20 1996/05/16 07:13:03 thorpej Exp $	*/
 
 /*
@@ -88,6 +88,7 @@ void	fatal(const char *fmt, ...)
 	    __attribute__((__nonnull__ (1)));
 __dead void	usage(void);
 void	mkfs(struct partition *, char *, int, int, mode_t, uid_t, gid_t);
+void	getphysmem(void);
 void	rewritelabel(char *, int, struct disklabel *);
 u_short	dkcksum(struct disklabel *);
 
@@ -147,6 +148,18 @@ static void copy(char *, char *, struct mfs_args *);
 static int gettmpmnt(char *, size_t);
 #endif
 
+int64_t physmem;
+
+void
+getphysmem(void)
+{
+	int mib[] = { CTL_HW, HW_PHYSMEM64 };
+	size_t len = sizeof(physmem);
+	
+	if (sysctl(mib, 2, &physmem, &len, NULL, 0) != 0)
+		err(1, "can't get physmem");
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -182,6 +195,7 @@ main(int argc, char *argv[])
 	if (strstr(__progname, "mfs"))
 		mfs = Nflag = quiet = 1;
 
+	getphysmem();
 	maxpartitions = getmaxpartitions();
 	if (maxpartitions > 26)
 		fatal("insane maxpartitions value %d", maxpartitions);
@@ -409,13 +423,18 @@ main(int argc, char *argv[])
 				warnx("%s: not a character-special device",
 				    special);
 		}
-		cp = strchr(argv[0], '\0') - 1;
-		if (cp == NULL ||
-		    ((*cp < 'a' || *cp > ('a' + maxpartitions - 1))
-		    && !isdigit((unsigned char)*cp)))
+		if (*argv[0] == '\0')
+			fatal("empty partition name supplied");
+		cp = argv[0] + strlen(argv[0]) - 1;
+		if ((*cp < 'a' || *cp > ('a' + maxpartitions - 1))
+		    && !isdigit((unsigned char)*cp))
 			fatal("%s: can't figure out file system partition",
 			    argv[0]);
 		lp = getdisklabel(special, fsi);
+		if (!mfs) {
+			if (pledge("stdio disklabel tty", NULL) == -1)
+				err(1, "pledge");
+		}
 		if (isdigit((unsigned char)*cp))
 			pp = &lp->d_partitions[0];
 		else
@@ -613,8 +632,9 @@ rewritelabel(char *s, int fd, struct disklabel *lp)
 		/*
 		 * Make name for 'c' partition.
 		 */
-		strncpy(specname, s, sizeof(specname) - 1);
-		specname[sizeof(specname) - 1] = '\0';
+		if (*s == '\0' ||
+		    strlcpy(specname, s, sizeof(specname)) >= sizeof(specname))
+			fatal("%s: invalid partition name supplied", s);
 		cp = specname + strlen(specname) - 1;
 		if (!isdigit((unsigned char)*cp))
 			*cp = 'c';
@@ -792,14 +812,10 @@ copy(char *src, char *dst, struct mfs_args *args)
 static int
 gettmpmnt(char *mountpoint, size_t len)
 {
-	const char *tmp;
+	const char *tmp = _PATH_TMP;
 	const char *mnt = _PATH_MNT;
 	struct statfs fs;
 	size_t n;
-
-	tmp = getenv("TMPDIR");
-	if (tmp == NULL || *tmp == '\0')
-		tmp = _PATH_TMP;
 
 	if (statfs(tmp, &fs) != 0)
 		err(1, "statfs %s", tmp);

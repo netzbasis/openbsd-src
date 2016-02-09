@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftp-proxy.c,v 1.30 2015/01/21 21:50:33 deraadt Exp $ */
+/*	$OpenBSD: ftp-proxy.c,v 1.33 2015/12/22 08:35:17 mmcc Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Camiel Dobbelaar, <cd@sentia.nl>
@@ -52,7 +52,7 @@
 #define TCP_BACKLOG	10
 
 #define CHROOT_DIR	"/var/empty"
-#define NOPRIV_USER	"proxy"
+#define NOPRIV_USER	"_ftp_proxy"
 
 /* pfctl standard NAT range. */
 #define PF_NAT_PROXY_PORT_LOW	50001
@@ -300,7 +300,7 @@ end_session(struct session *s)
 	if (s->server_bufev)
 		bufferevent_free(s->server_bufev);
 
-	/* Remove rulesets by commiting empty ones. */
+	/* Remove rulesets by committing empty ones. */
 	err = 0;
 	if (prepare_commit(s->id) == -1)
 		err = errno;

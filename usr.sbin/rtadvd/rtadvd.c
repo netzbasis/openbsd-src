@@ -1,10 +1,10 @@
-/*	$OpenBSD: rtadvd.c,v 1.58 2015/10/25 22:11:34 jca Exp $	*/
+/*	$OpenBSD: rtadvd.c,v 1.68 2016/02/09 00:40:00 jca Exp $	*/
 /*	$KAME: rtadvd.c,v 1.66 2002/05/29 14:18:36 itojun Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -58,7 +58,6 @@
 #include <pwd.h>
 
 #include "rtadvd.h"
-#include "rrenum.h"
 #include "advcap.h"
 #include "timer.h"
 #include "if.h"
@@ -78,11 +77,8 @@ struct iovec rcviov[2];
 struct iovec sndiov[2];
 struct sockaddr_in6 from;
 struct sockaddr_in6 sin6_allnodes = {sizeof(sin6_allnodes), AF_INET6};
-struct in6_addr in6a_site_allrouters;
-static char *mcastif;
 int sock;
 int rtsock = -1;
-int accept_rr = 0;
 int dflag = 0, sflag = 0;
 int log_perror = 0;
 
@@ -134,9 +130,9 @@ u_int32_t ndopt_flags[] = {
 	[ND_OPT_DNSSL]			= NDOPT_FLAG_DNSSL,
 };
 
-int main(int, char *[]);
+static __dead void usage(void);
 static void set_die(int);
-static void die(void);
+static __dead void die(void);
 static void sock_open(void);
 static void rtsock_open(void);
 static void rtadvd_input(void);
@@ -166,9 +162,7 @@ main(int argc, char *argv[])
 	closefrom(3);
 
 	/* get command line options and arguments */
-#define OPTIONS "c:dM:Rs"
-	while ((ch = getopt(argc, argv, OPTIONS)) != -1) {
-#undef OPTIONS
+	while ((ch = getopt(argc, argv, "c:ds")) != -1) {
 		switch (ch) {
 		case 'c':
 			conffile = optarg;
@@ -176,28 +170,17 @@ main(int argc, char *argv[])
 		case 'd':
 			dflag = 1;
 			break;
-		case 'M':
-			mcastif = optarg;
-			break;
-		case 'R':
-			fprintf(stderr, "rtadvd: "
-				"the -R option is currently ignored.\n");
-			/* accept_rr = 1; */
-			/* run anyway... */
-			break;
 		case 's':
 			sflag = 1;
 			break;
+		default:
+			usage();
 		}
 	}
 	argc -= optind;
 	argv += optind;
-	if (argc == 0) {
-		fprintf(stderr,
-			"usage: rtadvd [-dMRs] [-c configfile] "
-			"interface ...\n");
-		exit(1);
-	}
+	if (argc == 0)
+		usage();
 
 	SLIST_INIT(&ralist);
 
@@ -277,7 +260,7 @@ main(int argc, char *argv[])
 		    timeout->tv_sec * 1000 + timeout->tv_usec / 1000)) < 0) {
 			/* EINTR would occur upon SIGUSR1 for status dump */
 			if (errno != EINTR)
-				log_warn("select");
+				log_warn("poll");
 			continue;
 		}
 		if (i == 0)	/* timeout */
@@ -288,6 +271,14 @@ main(int argc, char *argv[])
 			rtadvd_input();
 	}
 	exit(0);		/* NOTREACHED */
+}
+
+static void
+usage(void)
+{
+	fprintf(stderr, "usage: %s [-ds] [-c configfile] interface ...\n",
+	    getprogname());
+	exit(1);
 }
 
 static void
@@ -343,7 +334,7 @@ rtmsg_input(void)
 		    "(type = %d, len = %d)", rtmsg_type(msg), n);
 	if (n > rtmsg_len(msg)) {
 		/*
-		 * This usually won't happen for messages received on 
+		 * This usually won't happen for messages received on
 		 * a routing socket.
 		 */
 		if (dflag)
@@ -361,12 +352,8 @@ rtmsg_input(void)
 	for (next = msg; next < lim; next += len) {
 		int oldifflags;
 
-		next = get_next_msg(next, lim, 0, &len,
-				    RTADV_TYPE2BITMASK(RTM_ADD) |
-				    RTADV_TYPE2BITMASK(RTM_DELETE) |
-				    RTADV_TYPE2BITMASK(RTM_NEWADDR) |
-				    RTADV_TYPE2BITMASK(RTM_DELADDR) |
-				    RTADV_TYPE2BITMASK(RTM_IFINFO));
+		next = get_next_msg(next, lim, &len);
+
 		if (len == 0)
 			break;
 		type = rtmsg_type(next);
@@ -601,7 +588,7 @@ rtadvd_input(void)
 	case ND_ROUTER_ADVERT:
 		/*
 		 * Message verification - RFC-2461 6.1.2
-		 * XXX: there's a same dilemma as above... 
+		 * XXX: there's a same dilemma as above...
 		 */
 		if (*hlimp != 255) {
 			log_info("RA with invalid hop limit(%d) "
@@ -630,15 +617,6 @@ rtadvd_input(void)
 			return;
 		}
 		ra_input(i, (struct nd_router_advert *)icp, pi, &from);
-		break;
-	case ICMP6_ROUTER_RENUMBERING:
-		if (accept_rr == 0) {
-			log_warnx("received a router renumbering "
-			    "message, but not allowed to be accepted");
-			break;
-		}
-		rr_input(i, (struct icmp6_router_renum *)icp, pi, &from,
-			 &dst);
 		break;
 	default:
 		/*
@@ -712,18 +690,6 @@ rs_input(int len, struct nd_router_solicit *rs,
 	{
 		long delay;	/* must not be greater than 1000000 */
 		struct timeval interval, now, min_delay, tm_tmp, *rest;
-		struct soliciter *sol;
-
-		/*
-		 * record sockaddr waiting for RA, if possible
-		 */
-		sol = malloc(sizeof(*sol));
-		if (sol) {
-			sol->addr = *from;
-			/*XXX RFC2553 need clarification on flowinfo */
-			sol->addr.sin6_flowinfo = 0;	
-			SLIST_INSERT_HEAD(&ra->soliciters, sol, entry);
-		}
 
 		/*
 		 * If there is already a waiting RS packet, don't
@@ -788,7 +754,7 @@ ra_input(int len, struct nd_router_advert *ra,
 	    inet_ntop(AF_INET6, &from->sin6_addr,
 		ntopbuf, INET6_ADDRSTRLEN),
 	    if_indextoname(pi->ipi6_ifindex, ifnamebuf));
-	
+
 	/* ND option check */
 	memset(&ndopts, 0, sizeof(ndopts));
 	SLIST_INIT(&ndopts.nd_opts_list);
@@ -811,7 +777,7 @@ ra_input(int len, struct nd_router_advert *ra,
 		goto done;	/* not our interface */
 
 	rai->rainput++;		/* increment statistics */
-	
+
 	/* Cur Hop Limit value */
 	if (ra->nd_ra_curhoplimit && rai->hoplimit &&
 	    ra->nd_ra_curhoplimit != rai->hoplimit) {
@@ -850,7 +816,7 @@ ra_input(int len, struct nd_router_advert *ra,
 	    reachabletime != rai->reachabletime) {
 		log_info("ReachableTime inconsistent on %s:"
 		    " %d from %s, %d from us",
-		    rai->ifname, reachabletime, 
+		    rai->ifname, reachabletime,
 		    inet_ntop(AF_INET6, &from->sin6_addr,
 			ntopbuf, INET6_ADDRSTRLEN),
 		    rai->reachabletime);
@@ -860,7 +826,7 @@ ra_input(int len, struct nd_router_advert *ra,
 	retranstimer = ntohl(ra->nd_ra_retransmit);
 	if (retranstimer && rai->retranstimer &&
 	    retranstimer != rai->retranstimer) {
-		log_info("RetranceTimer inconsistent on %s:"
+		log_info("RetransTimer inconsistent on %s:"
 		    " %d from %s, %d from us",
 		    rai->ifname, retranstimer,
 		    inet_ntop(AF_INET6, &from->sin6_addr,
@@ -897,7 +863,7 @@ ra_input(int len, struct nd_router_advert *ra,
 
 	if (inconsistent)
 		rai->rainconsistent++;
-	
+
   done:
 	free_ndopts(&ndopts);
 	return;
@@ -1034,7 +1000,7 @@ find_prefix(struct rainfo *rai, struct in6_addr *prefix, int plen)
 		if (memcmp((void *)prefix, (void *)&pp->prefix, bytelen))
 			continue;
 		if (bitlen == 0 ||
-		    ((prefix->s6_addr[bytelen] & bitmask) == 
+		    ((prefix->s6_addr[bytelen] & bitmask) ==
 		     (pp->prefix.s6_addr[bytelen] & bitmask))) {
 			return(pp);
 		}
@@ -1060,7 +1026,7 @@ prefix_match(struct in6_addr *p0, int plen0,
 		return(0);
 	if (bitlen == 0 ||
 	    ((p0->s6_addr[bytelen] & bitmask) ==
-	     (p1->s6_addr[bytelen] & bitmask))) { 
+	     (p1->s6_addr[bytelen] & bitmask))) {
 		return(1);
 	}
 
@@ -1140,7 +1106,7 @@ nd6_options(struct nd_opt_hdr *hdr, int limit,
 		case ND_OPT_PREFIX_INFORMATION:
 		{
 			struct nd_opt	*pfx;
-		
+
 			if (ndopts->nd_opts_pi == 0) {
 				ndopts->nd_opts_pi =
 				    (struct nd_opt_prefix_info *)hdr;
@@ -1197,7 +1163,7 @@ sock_open(void)
 	if (rcvcmsgbuf == NULL)
 		fatal("malloc");
 
-	sndcmsgbuflen = CMSG_SPACE(sizeof(struct in6_pktinfo)) + 
+	sndcmsgbuflen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
 	    CMSG_SPACE(sizeof(int));
 	sndcmsgbuf = malloc(sndcmsgbuflen);
 	if (sndcmsgbuf == NULL)
@@ -1221,11 +1187,9 @@ sock_open(void)
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
-	if (accept_rr)
-		ICMP6_FILTER_SETPASS(ICMP6_ROUTER_RENUMBERING, &filt);
 	if (setsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt))
 	    < 0)
-		fatal("IICMP6_FILTER");
+		fatal("ICMP6_FILTER");
 
 	/*
 	 * join all routers multicast address on each advertising interface.
@@ -1244,31 +1208,6 @@ sock_open(void)
 
 	ra = SLIST_FIRST(&ralist);
 
-	/*
-	 * When attending router renumbering, join all-routers site-local
-	 * multicast group. 
-	 */
-	if (accept_rr) {
-		if (inet_pton(AF_INET6, ALLROUTERS_SITE,
-		    &in6a_site_allrouters) != 1)
-			fatal("inet_pton failed(library bug?)");
-		mreq.ipv6mr_multiaddr = in6a_site_allrouters;
-		if (mcastif) {
-			if ((mreq.ipv6mr_interface = if_nametoindex(mcastif))
-			    == 0) {
-				log_warn("invalid interface: %s", mcastif);
-				exit(1);
-			}
-		} else
-			mreq.ipv6mr_interface = ra->ifindex;
-		if (setsockopt(sock, IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreq,
-		    sizeof(mreq)) < 0) {
-			log_warn("IPV6_JOIN_GROUP(site) on %s", mcastif ?
-			    mcastif : ra->ifname);
-			exit(1);
-		}
-	}
-	
 	/* initialize msghdr for receiving packets */
 	rcviov[0].iov_base = (caddr_t)answer;
 	rcviov[0].iov_len = sizeof(answer);
@@ -1293,8 +1232,21 @@ sock_open(void)
 static void
 rtsock_open(void)
 {
+	unsigned int rtfilter;
+
 	if ((rtsock = socket(PF_ROUTE, SOCK_RAW, 0)) < 0)
 		fatal("socket");
+
+	rtfilter =
+	    ROUTE_FILTER(RTM_ADD) |
+	    ROUTE_FILTER(RTM_DELETE) |
+	    ROUTE_FILTER(RTM_NEWADDR) |
+	    ROUTE_FILTER(RTM_DELADDR) |
+	    ROUTE_FILTER(RTM_IFINFO);
+
+	if (setsockopt(rtsock, PF_ROUTE, ROUTE_MSGFILTER,
+	    &rtfilter, sizeof(rtfilter)) == -1)
+		fatal("setsockopt(ROUTE_MSGFILTER)");
 }
 
 struct rainfo *
@@ -1316,7 +1268,6 @@ ra_output(struct rainfo *rainfo)
 	int i;
 	struct cmsghdr *cm;
 	struct in6_pktinfo *pi;
-	struct soliciter *sol;
 
 	if ((iflist[rainfo->ifindex]->ifm_flags & IFF_UP) == 0) {
 		log_debug("%s is not up, skip sending RA", rainfo->ifname);
@@ -1350,32 +1301,13 @@ ra_output(struct rainfo *rainfo)
 	}
 
 	log_debug("send RA on %s, # of waitings = %d",
-	    rainfo->ifname, rainfo->waiting); 
+	    rainfo->ifname, rainfo->waiting);
 
 	i = sendmsg(sock, &sndmhdr, 0);
 
 	if (i < 0 || i != rainfo->ra_datalen)
 		if (i < 0)
 			log_warn("sendmsg on %s", rainfo->ifname);
-
-	/*
-	 * unicast advertisements
-	 * XXX commented out.  reason: though spec does not forbit it, unicast
-	 * advert does not really help
-	 */
-	while (!SLIST_EMPTY(&rainfo->soliciters)) {
-		sol = SLIST_FIRST(&rainfo->soliciters);
-		SLIST_REMOVE_HEAD(&rainfo->soliciters, entry);
-#if 0
-		sndmhdr.msg_name = (caddr_t)&sol->addr;
-		i = sendmsg(sock, &sndmhdr, 0);
-		if (i < 0 || i != rainfo->ra_datalen)
-			if (i < 0)
-				log_warn("unicast sendmsg on %s",
-				    rainfo->ifname);
-#endif
-		free(sol);
-	}
 
 	/* update counter */
 	if (rainfo->initcounter < MAX_INITIAL_RTR_ADVERTISEMENTS)
@@ -1385,7 +1317,7 @@ ra_output(struct rainfo *rainfo)
 	/* update timestamp */
 	gettimeofday(&rainfo->lastsent, NULL);
 
-	/* reset waiting conter */
+	/* reset waiting counter */
 	rainfo->waiting = 0;
 }
 
@@ -1417,7 +1349,7 @@ ra_timer_update(void *data, struct timeval *tm)
 	 * between the interface's configured MinRtrAdvInterval and
 	 * MaxRtrAdvInterval (RFC2461 6.2.4).
 	 */
-	interval = rai->mininterval; 
+	interval = rai->mininterval;
 	interval += arc4random_uniform(rai->maxinterval - rai->mininterval);
 
 	/*

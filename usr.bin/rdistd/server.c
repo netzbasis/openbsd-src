@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.37 2015/01/21 04:08:37 guenther Exp $	*/
+/*	$OpenBSD: server.c,v 1.40 2015/12/22 08:48:39 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -106,29 +106,37 @@ cattarget(char *string)
 static int
 setownership(char *file, int fd, uid_t uid, gid_t gid, int islink)
 {
+	static int is_root = -1;
 	int status = -1;
 
 	/*
 	 * We assume only the Superuser can change uid ownership.
 	 */
-	if (getuid() != 0) 
+	switch (is_root) {
+	case -1:
+		is_root = getuid() == 0;
+		if (is_root)
+			break;
+		/* FALLTHROUGH */
+	case 0:
 		uid = -1;
-
-	if (islink)
-		status = lchown(file, uid, gid);
+		break;
+	case 1:
+		break;
+	}
 
 	if (fd != -1 && !islink)
 		status = fchown(fd, uid, gid);
-
-	if (status < 0 && !islink)
-		status = chown(file, uid, gid);
+	else
+		status = fchownat(AT_FDCWD, file, uid, gid,
+		    AT_SYMLINK_NOFOLLOW);
 
 	if (status < 0) {
 		if (uid == (uid_t)-1)
 			message(MT_NOTICE, "%s: chgrp %d failed: %s",
 				target, gid, SYSERR);
 		else
-			message(MT_NOTICE, "%s: chown %d.%d failed: %s", 
+			message(MT_NOTICE, "%s: chown %d:%d failed: %s", 
 				target, uid, gid, SYSERR);
 		return(-1);
 	}
@@ -509,12 +517,12 @@ docmdspecial(void)
 		case RC_FILE:
 			if (env == NULL) {
 				len = (2 * sizeof(E_FILES)) + strlen(cp) + 10;
-				env = (char *) xmalloc(len);
+				env = xmalloc(len);
 				(void) snprintf(env, len, "export %s;%s=%s", 
 					       E_FILES, E_FILES, cp);
 			} else {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ":", len);
 				(void) strlcat(env, cp, len);
 			}
@@ -524,7 +532,7 @@ docmdspecial(void)
 		case RC_COMMAND:
 			if (env) {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ";", len);
 				(void) strlcat(env, cp, len);
 				cmd = env;
@@ -693,7 +701,7 @@ savetarget(char *file, opt_t opts)
 		for (i = 1; i < 1000; i++) {
 			(void) snprintf(savefile, sizeof(savefile),
 					"%s;%.3d", file, i);
-			if (stat(savefile, &st) == -1 && errno == ENOENT)
+			if (lstat(savefile, &st) == -1 && errno == ENOENT)
 				break;
 
 		}
@@ -1271,7 +1279,7 @@ hardlink(char *cmd)
 		error("%s: unlink failed: %s", target, SYSERR);
 		return;
 	}
-	if (link(expbuf, target) < 0) {
+	if (linkat(AT_FDCWD, expbuf, AT_FDCWD, target, 0) < 0) {
 		error("%s: cannot link to %s: %s", target, oldname, SYSERR);
 		return;
 	}

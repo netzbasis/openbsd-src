@@ -1,4 +1,4 @@
-/*	$OpenBSD: athn.c,v 1.88 2015/11/04 12:11:59 dlg Exp $	*/
+/*	$OpenBSD: athn.c,v 1.92 2016/01/05 18:41:15 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -47,7 +47,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -286,7 +285,6 @@ athn_attach(struct athn_softc *sc)
 	    IEEE80211_C_SHPREAMBLE |	/* Short preamble supported. */
 	    IEEE80211_C_PMGT;		/* Power saving supported. */
 
-#ifndef IEEE80211_NO_HT
 	if (sc->flags & ATHN_FLAG_11N) {
 		int i, ntxstreams, nrxstreams;
 
@@ -313,15 +311,12 @@ athn_attach(struct athn_softc *sc)
 		/* Set supported HT rates. */
 		for (i = 0; i < nrxstreams; i++)
 			ic->ic_sup_mcs[i] = 0xff;
-		/* Set the "Tx MCS Set Defined" bit. */
-		ic->ic_sup_mcs[12] |= 0x01;
+		ic->ic_tx_mcs_set |= IEEE80211_TX_MCS_SET_DEFINED;
 		if (ntxstreams != nrxstreams) {
-			/* Set "Tx Rx MCS Set Not Equal" bit. */
-			ic->ic_sup_mcs[12] |= 0x02;
-			ic->ic_sup_mcs[12] |= (ntxstreams - 1) << 2;
+			ic->ic_tx_mcs_set |= IEEE80211_TX_RX_MCS_NOT_EQUAL;
+			ic->ic_tx_mcs_set |= (ntxstreams - 1) << 2;
 		}
 	}
-#endif
 
 	/* Set supported rates. */
 	if (sc->flags & ATHN_FLAG_11G) {
@@ -454,10 +449,8 @@ athn_rx_start(struct athn_softc *sc)
 
 	/* Set Rx filter. */
 	rfilt = AR_RX_FILTER_UCAST | AR_RX_FILTER_BCAST | AR_RX_FILTER_MCAST;
-#ifndef IEEE80211_NO_HT
 	/* Want Compressed Block Ack Requests. */
 	rfilt |= AR_RX_FILTER_COMPR_BAR;
-#endif
 	rfilt |= AR_RX_FILTER_BEACON;
 	if (ic->ic_opmode != IEEE80211_M_STA) {
 		rfilt |= AR_RX_FILTER_PROBEREQ;
@@ -2514,10 +2507,9 @@ athn_clock_rate(struct athn_softc *sc)
 		clockrate = AR_CLOCK_RATE_CCK;
 	} else
 		clockrate = AR_CLOCK_RATE_2GHZ_OFDM;
-#ifndef IEEE80211_NO_HT
 	if (sc->curchanext != NULL)
 		clockrate *= 2;
-#endif
+
 	return (clockrate);
 }
 
@@ -2540,12 +2532,12 @@ athn_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (SIMPLEQ_EMPTY(&sc->txbufs)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* Send pending management frames first. */
@@ -2791,7 +2783,7 @@ athn_init(struct ifnet *ifp)
 		athn_btcoex_enable(sc);
 #endif
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 #ifdef notyet
@@ -2820,7 +2812,8 @@ athn_stop(struct ifnet *ifp, int disable)
 	int qid;
 
 	ifp->if_timer = sc->sc_tx_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->scan_to);
 	/* In case we were scanning, release the scan "lock". */

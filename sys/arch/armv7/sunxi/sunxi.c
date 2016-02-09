@@ -1,4 +1,4 @@
-/* $OpenBSD: sunxi.c,v 1.6 2015/05/20 00:14:56 jsg Exp $ */
+/* $OpenBSD: sunxi.c,v 1.8 2016/02/02 03:31:22 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  *
@@ -67,9 +67,6 @@ struct board_dev sun4i_devs[] = {
 struct board_dev sun7i_devs[] = {
 	{ "sxipio",	0 },
 	{ "sxiccmu",	0 },
-	{ "sxitimer",	0 },
-	{ "sxitimer",	1 },
-	{ "sxitimer",	2 },
 	{ "sxidog",	0 },
 	{ "sxirtc",	0 },
 	{ "sxiuart",	0 },
@@ -149,10 +146,8 @@ sunxi_board_name(void)
 	int i;
 
 	for (i = 0; sunxi_boards[i].name != NULL; i++) {
-		if (sunxi_boards[i].board_id == board_id) {
+		if (sunxi_boards[i].board_id == board_id)
 			return (sunxi_boards[i].name);
-			break;
-		}
 	}
 	return (NULL);
 }

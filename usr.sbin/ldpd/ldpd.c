@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpd.c,v 1.26 2015/07/21 05:04:12 renato Exp $ */
+/*	$OpenBSD: ldpd.c,v 1.28 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -206,9 +206,6 @@ main(int argc, char *argv[])
 	ldpe_pid = ldpe(ldpd_conf, pipe_parent2ldpe, pipe_ldpe2lde,
 	    pipe_parent2lde);
 
-	/* show who we are */
-	setproctitle("parent");
-
 	event_init();
 
 	/* setup signal handler */
@@ -325,7 +322,7 @@ main_dispatch_ldpe(int fd, short event, void *bula)
 	int			 shut = 0, verbose;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -402,7 +399,7 @@ main_dispatch_lde(int fd, short event, void *bula)
 	struct kpw	*kpw;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

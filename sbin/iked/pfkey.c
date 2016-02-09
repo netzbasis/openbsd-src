@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.47 2015/11/04 12:40:49 mikeb Exp $	*/
+/*	$OpenBSD: pfkey.c,v 1.50 2015/12/10 17:23:34 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -69,16 +69,9 @@ struct pfkey_constmap {
 };
 
 static const struct pfkey_constmap pfkey_encr[] = {
-	{ SADB_X_EALG_DES_IV64,	IKEV2_XFORMENCR_DES_IV64 },
-	{ SADB_EALG_DESCBC,	IKEV2_XFORMENCR_DES },
 	{ SADB_EALG_3DESCBC,	IKEV2_XFORMENCR_3DES },
-	{ SADB_X_EALG_RC5,	IKEV2_XFORMENCR_RC5 },
-	{ SADB_X_EALG_IDEA,	IKEV2_XFORMENCR_IDEA },
 	{ SADB_X_EALG_CAST,	IKEV2_XFORMENCR_CAST },
 	{ SADB_X_EALG_BLF,	IKEV2_XFORMENCR_BLOWFISH },
-	{ SADB_X_EALG_3IDEA,	IKEV2_XFORMENCR_3IDEA },
-	{ SADB_X_EALG_DES_IV32,	IKEV2_XFORMENCR_DES_IV32 },
-	{ SADB_X_EALG_RC4,	IKEV2_XFORMENCR_RC4 },
 	{ SADB_EALG_NULL,	IKEV2_XFORMENCR_NULL },
 	{ SADB_X_EALG_AES,	IKEV2_XFORMENCR_AES_CBC },
 	{ SADB_X_EALG_AESCTR,	IKEV2_XFORMENCR_AES_CTR },
@@ -91,7 +84,6 @@ static const struct pfkey_constmap pfkey_encr[] = {
 static const struct pfkey_constmap pfkey_integr[] = {
 	{ SADB_AALG_MD5HMAC,	IKEV2_XFORMAUTH_HMAC_MD5_96 },
 	{ SADB_AALG_SHA1HMAC,	IKEV2_XFORMAUTH_HMAC_SHA1_96 },
-	{ SADB_X_AALG_DES,	IKEV2_XFORMAUTH_DES_MAC },
 	{ SADB_X_AALG_SHA2_256,	IKEV2_XFORMAUTH_HMAC_SHA2_256_128 },
 	{ SADB_X_AALG_SHA2_384,	IKEV2_XFORMAUTH_HMAC_SHA2_384_192 },
 	{ SADB_X_AALG_SHA2_512,	IKEV2_XFORMAUTH_HMAC_SHA2_512_256 },
@@ -1579,7 +1571,7 @@ pfkey_timer_cb(int unused, short event, void *arg)
 
 /*
  * pfkey_process returns 0 if the message has been processed and -1 if
- * the system is busy and the the message should be passed again, later.
+ * the system is busy and the message should be passed again, later.
  */
 int
 pfkey_process(struct iked *env, struct pfkey_message *pm)

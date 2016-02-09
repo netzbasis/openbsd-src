@@ -1,4 +1,4 @@
-/*	$OpenBSD: strlen.S,v 1.5 2015/08/31 02:53:56 guenther Exp $	*/
+/*	$OpenBSD: strlen.S,v 1.7 2015/12/11 00:05:46 mmcc Exp $	*/
 /*	$NetBSD: strlen.S,v 1.6 2014/03/22 19:16:34 jakllsch Exp $	*/
 
 /*-
@@ -35,7 +35,7 @@
  * (Only the long comment really remains his work!)
  */
 
-#include "SYS.h"
+#include "DEFS.h"
 
 /*
  * There are many well known branch-free sequences which are used
@@ -97,7 +97,7 @@
  * presented above, code that uses it will be faster as long as
  * the rate of false positives is low.
  *
- * This is likely, because the the false positive can only occur
+ * This is likely, because the false positive can only occur
  * if the most siginificant bit of a byte within the word is set.
  * The expression will never fail for typical 7-bit ASCII strings.
  *

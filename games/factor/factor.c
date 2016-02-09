@@ -1,4 +1,4 @@
-/*	$OpenBSD: factor.c,v 1.22 2015/10/24 17:31:00 mmcc Exp $	*/
+/*	$OpenBSD: factor.c,v 1.26 2016/01/07 16:00:32 tb Exp $	*/
 /*	$NetBSD: factor.c,v 1.5 1995/03/23 08:28:07 cgd Exp $	*/
 
 /*
@@ -52,11 +52,9 @@
  * If no args are given, the list of numbers are read from stdin.
  */
 
-#include <sys/types.h>
-#include <err.h>
 #include <ctype.h>
+#include <err.h>
 #include <errno.h>
-#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,7 +76,7 @@ extern const int pattern_size;
 
 void	pr_fact(u_int64_t);		/* print factors of a value */
 void	pr_bigfact(u_int64_t);
-void	usage(void);
+__dead void	usage(void);
 
 int
 main(int argc, char *argv[])
@@ -106,7 +104,7 @@ main(int argc, char *argv[])
 			if (fgets(buf, sizeof(buf), stdin) == NULL) {
 				if (ferror(stdin))
 					err(1, "stdin");
-				exit (0);
+				return 0;
 			}
 			buf[strcspn(buf, "\n")] = '\0';
 			for (p = buf; isblank((unsigned char)*p); ++p)
@@ -139,21 +137,20 @@ main(int argc, char *argv[])
 			pr_fact(val);
 		}
 	}
-	exit(0);
+	return 0;
 }
 
 /*
- * pr_fact - print the factors of a number
+ * pr_fact - print the prime factors of a number
  *
  * If the number is 0 or 1, then print the number and return.
  * If the number is < 0, print -1, negate the number and continue
  * processing.
  *
  * Print the factors of the number, from the lowest to the highest.
- * A factor will be printed multiple times if it divides the value
- * multiple times.
+ * A prime factor will be printed as often as it divides the value.
  *
- * Factors are printed with leading tabs.
+ * Prime factors are printed with leading spaces.
  */
 void
 pr_fact(u_int64_t val)		/* Factor this value. */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread.h,v 1.53 2015/10/18 08:02:58 guenther Exp $ */
+/*	$OpenBSD: rthread.h,v 1.55 2016/01/27 08:40:05 kettenis Exp $ */
 /*
  * Copyright (c) 2004,2005 Ted Unangst <tedu@openbsd.org>
  * All Rights Reserved.
@@ -162,6 +162,7 @@ struct pthread {
 	pid_t tid;
 	unsigned int flags;
 	struct _spinlock flags_lock;
+	void *tcb;
 	void *retval;
 	void *(*fn)(void *);
 	void *arg;
@@ -222,6 +223,7 @@ void	_rthread_debug_init(void);
 #ifndef NO_PIC
 void	_rthread_dl_lock(int what);
 #endif
+void	_thread_malloc_reinit(void);
 
 /* rthread_cancel.c */
 void	_enter_cancel(pthread_t);
@@ -241,4 +243,5 @@ int	sched_yield(void);
 int	_thread_sys_sigaction(int, const struct sigaction *,
 	    struct sigaction *);
 int	_thread_sys_sigprocmask(int, const sigset_t *, sigset_t *);
+int	_thread_sys_thrkill(pid_t _tid, int _signum, void *_tcb);
 

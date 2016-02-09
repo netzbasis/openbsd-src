@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.94 2015/09/02 21:59:29 kettenis Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.96 2015/11/27 15:34:01 kettenis Exp $	*/
 /*	$NetBSD: pmap.c,v 1.107 2001/08/31 16:47:41 eeh Exp $	*/
 #undef	NO_VCACHE /* Don't forget the locked TLB in dostart */
 /*
@@ -305,7 +305,6 @@ pmap_enter_kpage(vaddr_t va, int64_t data)
 			prom_printf("pmap_enter_kpage: out of pages\n");
 			panic("pmap_enter_kpage");
 		}
-		atomic_inc_long(&pmap_kernel()->pm_stats.resident_count);
 
 		BDPRINTF(PDB_BOOT1, 
 			 ("pseg_set: pm=%p va=%p data=%lx newp %lx\r\n",
@@ -1718,8 +1717,6 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 	if (pseg_set(pm, va, tte.data, 0) != 0)
 		panic("%s: no pseg", __func__);
 
-	atomic_inc_long(&pm->pm_stats.resident_count);
-
 	/* this is correct */
 	dcache_flush_page(pa);
 }
@@ -1756,7 +1753,6 @@ pmap_kremove(vaddr_t va, vsize_t size)
 				/* panic? */
 			}
 
-			atomic_dec_long(&pm->pm_stats.resident_count);
 			tsb_invalidate(pm->pm_ctx, va);
 			/* Here we assume nothing can get into the TLB unless it has a PTE */
 			tlb_flush_pte(va, pm->pm_ctx);
@@ -1787,6 +1783,8 @@ pmap_enter(struct pmap *pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	KDASSERT(pm != pmap_kernel() || va < kdata || va > ekdata);
 
 	npv = pool_get(&pv_pool, PR_NOWAIT);
+	if (npv == NULL && (flags & PMAP_CANFAIL))
+		return (ENOMEM);
 
 	/*
 	 * XXXX If a mapping at this address already exists, remove it.
@@ -2568,6 +2566,7 @@ pmap_page_protect(struct vm_page *pg, vm_prot_t prot)
 				    pv->pv_pmap->pm_ctx);
 			}
 			atomic_dec_long(&pv->pv_pmap->pm_stats.resident_count);
+
 			KASSERT(pv->pv_next == NULL);
 			/* dump the first pv */
 			pv->pv_pmap = NULL;

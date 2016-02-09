@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_extern.h,v 1.12 2014/11/20 08:50:53 bentley Exp $	*/
+/*	$OpenBSD: ex_extern.h,v 1.14 2016/01/20 08:43:27 bentley Exp $	*/
 
 int ex(SCR **);
 int ex_cmd(SCR *);
@@ -26,9 +26,6 @@ int argv_free(SCR *);
 int ex_at(SCR *, EXCMD *);
 int ex_bang(SCR *, EXCMD *);
 int ex_cd(SCR *, EXCMD *);
-int ex_cscope(SCR *, EXCMD *);
-int cscope_display(SCR *);
-int cscope_search(SCR *, TAGQ *, TAG *);
 int ex_delete(SCR *, EXCMD *);
 int ex_display(SCR *, EXCMD *);
 int ex_edit(SCR *, EXCMD *);
@@ -103,7 +100,7 @@ int tagq_free(SCR *, TAGQ *);
 void tag_msg(SCR *, tagmsg_t, char *);
 int ex_tagf_alloc(SCR *, char *);
 int ex_tag_free(SCR *);
-int ex_txt(SCR *, TEXTH *, ARG_CHAR_T, u_int32_t);
+int ex_txt(SCR *, TEXTH *, CHAR_T, u_int32_t);
 int ex_undo(SCR *, EXCMD *);
 int ex_help(SCR *, EXCMD *);
 int ex_usage(SCR *, EXCMD *);

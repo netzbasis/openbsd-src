@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.343 2015/11/06 16:23:26 phessler Exp $ */
+/*	$OpenBSD: rde.c,v 1.345 2015/12/22 21:36:57 mmcc Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -187,7 +187,7 @@ rde_main(int debug, int verbose)
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio unix route recvfd", NULL) == -1)
+	if (pledge("stdio route recvfd", NULL) == -1)
 		fatal("pledge");
 
 	signal(SIGTERM, rde_sighdlr);
@@ -2445,7 +2445,7 @@ rde_send_kroute(struct prefix *new, struct prefix *old, u_int16_t ribid)
 	enum imsg_type		 type;
 
 	/*
-	 * Make sure that self announce prefixes are not commited to the
+	 * Make sure that self announce prefixes are not committed to the
 	 * FIB. If both prefixes are unreachable no update is needed.
 	 */
 	if ((old == NULL || old->aspath->flags & F_PREFIX_ANNOUNCED) &&

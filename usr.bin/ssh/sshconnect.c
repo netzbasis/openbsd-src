@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.265 2015/09/04 04:55:24 djm Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.271 2016/01/14 22:56:56 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -49,12 +49,12 @@
 #include "readconf.h"
 #include "atomicio.h"
 #include "dns.h"
-#include "roaming.h"
 #include "monitor_fdpass.h"
 #include "ssh2.h"
 #include "version.h"
 #include "authfile.h"
 #include "ssherr.h"
+#include "authfd.h"
 
 char *client_version_string = NULL;
 char *server_version_string = NULL;
@@ -157,6 +157,7 @@ ssh_proxy_fdpass_connect(const char *host, u_short port,
 
 	if ((sock = mm_receive_fd(sp[1])) == -1)
 		fatal("proxy dialer did not pass back a connection");
+	close(sp[1]);
 
 	while (waitpid(pid, NULL, 0) == -1)
 		if (errno != EINTR)
@@ -423,6 +424,8 @@ ssh_connect_direct(const char *host, struct addrinfo *aitop,
 	struct addrinfo *ai;
 
 	debug2("%s: needpriv %d", __func__, needpriv);
+	memset(ntop, 0, sizeof(ntop));
+	memset(strport, 0, sizeof(strport));
 
 	for (attempt = 0; attempt < connection_attempts; attempt++) {
 		if (attempt > 0) {
@@ -519,7 +522,7 @@ send_client_banner(int connection_out, int minor1)
 		xasprintf(&client_version_string, "SSH-%d.%d-%.100s\n",
 		    PROTOCOL_MAJOR_1, minor1, SSH_VERSION);
 	}
-	if (roaming_atomicio(vwrite, connection_out, client_version_string,
+	if (atomicio(vwrite, connection_out, client_version_string,
 	    strlen(client_version_string)) != strlen(client_version_string))
 		fatal("write: %.100s", strerror(errno));
 	chop(client_version_string);
@@ -579,7 +582,7 @@ ssh_exchange_identification(int timeout_ms)
 				}
 			}
 
-			len = roaming_atomicio(read, connection_in, &buf[i], 1);
+			len = atomicio(read, connection_in, &buf[i], 1);
 
 			if (len != 1 && errno == EPIPE)
 				fatal("ssh_exchange_identification: "
@@ -1210,8 +1213,9 @@ fail:
 int
 verify_host_key(char *host, struct sockaddr *hostaddr, Key *host_key)
 {
+	u_int i;
 	int r = -1, flags = 0;
-	char *fp = NULL;
+	char valid[64], *fp = NULL, *cafp = NULL;
 	struct sshkey *plain = NULL;
 
 	if ((fp = sshkey_fingerprint(host_key,
@@ -1221,8 +1225,31 @@ verify_host_key(char *host, struct sockaddr *hostaddr, Key *host_key)
 		goto out;
 	}
 
-	debug("Server host key: %s %s",
-	    compat20 ? sshkey_ssh_name(host_key) : sshkey_type(host_key), fp);
+	if (sshkey_is_cert(host_key)) {
+		if ((cafp = sshkey_fingerprint(host_key->cert->signature_key,
+		    options.fingerprint_hash, SSH_FP_DEFAULT)) == NULL) {
+			error("%s: fingerprint CA key: %s",
+			    __func__, ssh_err(r));
+			r = -1;
+			goto out;
+		}
+		sshkey_format_cert_validity(host_key->cert,
+		    valid, sizeof(valid));
+		debug("Server host certificate: %s %s, serial %llu "
+		    "ID \"%s\" CA %s %s valid %s",
+		    sshkey_ssh_name(host_key), fp,
+		    (unsigned long long)host_key->cert->serial,
+		    host_key->cert->key_id,
+		    sshkey_ssh_name(host_key->cert->signature_key), cafp,
+		    valid);
+		for (i = 0; i < host_key->cert->nprincipals; i++) {
+			debug2("Server host certificate hostname: %s",
+			    host_key->cert->principals[i]);
+		}
+	} else {
+		debug("Server host key: %s %s", compat20 ?
+		    sshkey_ssh_name(host_key) : sshkey_type(host_key), fp);
+	}
 
 	if (sshkey_equal(previous_host_key, host_key)) {
 		debug2("%s: server host key %s %s matches cached key",
@@ -1287,6 +1314,7 @@ verify_host_key(char *host, struct sockaddr *hostaddr, Key *host_key)
 out:
 	sshkey_free(plain);
 	free(fp);
+	free(cafp);
 	if (r == 0 && host_key != NULL) {
 		key_free(previous_host_key);
 		previous_host_key = key_from_private(host_key);
@@ -1460,4 +1488,31 @@ ssh_local_cmd(const char *args)
 		return (1);
 
 	return (WEXITSTATUS(status));
+}
+
+void
+maybe_add_key_to_agent(char *authfile, Key *private, char *comment,
+    char *passphrase)
+{
+	int auth_sock = -1, r;
+
+	if (options.add_keys_to_agent == 0)
+		return;
+
+	if ((r = ssh_get_authentication_socket(&auth_sock)) != 0) {
+		debug3("no authentication agent, not adding key");
+		return;
+	}
+
+	if (options.add_keys_to_agent == 2 &&
+	    !ask_permission("Add key %s (%s) to agent?", authfile, comment)) {
+		debug3("user denied adding this key");
+		return;
+	}
+
+	if ((r = ssh_add_identity_constrained(auth_sock, private, comment, 0,
+	    (options.add_keys_to_agent == 3))) == 0)
+		debug("identity added to agent: %s", authfile);
+	else
+		debug("could not add identity to agent: %s (%d)", authfile, r);
 }

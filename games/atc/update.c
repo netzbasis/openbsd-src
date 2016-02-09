@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.16 2014/12/09 05:01:14 deraadt Exp $	*/
+/*	$OpenBSD: update.c,v 1.19 2016/01/08 13:40:05 tb Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -41,7 +41,10 @@
  * For more info on this and all of my stuff, mail edjames@berkeley.edu.
  */
 
-#include "include.h"
+#include <stdlib.h>
+#include <string.h>
+
+#include "extern.h"
 
 void
 setseed(const char *seed)
@@ -51,12 +54,21 @@ setseed(const char *seed)
 }
 
 uint32_t
-atcrandom()
+atcrandom(void)
 {
 	if (seeded)
 		return random();
 	else
 		return arc4random();
+}
+
+uint32_t
+atcrandom_uniform(uint32_t upper_bound)
+{
+	if (seeded)
+		return random() % upper_bound;
+	else
+		return arc4random_uniform(upper_bound);
 }
 
 void
@@ -212,7 +224,7 @@ update(int dummy)
 	 * Otherwise, prop jobs show up *on* entrance.  Remember that
 	 * we don't update props on odd updates.
 	 */
-	if ((atcrandom() % sp->newplane_time) == 0)
+	if (atcrandom_uniform(sp->newplane_time) == 0)
 		addplane();
 }
 
@@ -308,10 +320,10 @@ addplane(void)
 	memset(&p, 0, sizeof (p));
 
 	p.status = S_MARKED;
-	p.plane_type = atcrandom() % 2;
+	p.plane_type = atcrandom_uniform(2);
 
 	num_starts = sp->num_exits + sp->num_airports;
-	rnd = atcrandom() % num_starts;
+	rnd = atcrandom_uniform(num_starts);
 
 	if (rnd < sp->num_exits) {
 		p.dest_type = T_EXIT;
@@ -324,7 +336,7 @@ addplane(void)
 	/* loop until we get a plane not near another */
 	for (i = 0; i < num_starts; i++) {
 		/* loop till we get a different start point */
-		while ((rnd2 = atcrandom() % num_starts) == rnd)
+		while ((rnd2 = atcrandom_uniform(num_starts)) == rnd)
 			;
 		if (rnd2 < sp->num_exits) {
 			p.orig_type = T_EXIT;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.11 2015/03/28 12:54:37 bcallah Exp $	*/
+/*	$OpenBSD: util.c,v 1.13 2016/01/30 21:31:08 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -42,7 +42,7 @@ binc(SCR *sp, void *bp, size_t *bsizep, size_t min)
 		return (bp);
 
 	csize = *bsizep + MAXIMUM(min, 256);
-	REALLOC(sp, bp, void *, csize);
+	REALLOC(sp, bp, csize);
 
 	if (bp == NULL) {
 		/*
@@ -97,22 +97,6 @@ nonblank(SCR *sp, recno_t lno, size_t *cnop)
 }
 
 /*
- * tail --
- *	Return tail of a path.
- *
- * PUBLIC: char *tail(char *);
- */
-char *
-tail(char *path)
-{
-	char *p;
-
-	if ((p = strrchr(path, '/')) == NULL)
-		return (path);
-	return (p + 1);
-}
-
-/*
  * v_strdup --
  *	Strdup for wide character strings with an associated length.
  *
@@ -123,7 +107,7 @@ v_strdup(SCR *sp, const CHAR_T *str, size_t len)
 {
 	CHAR_T *copy;
 
-	MALLOC(sp, copy, CHAR_T *, len + 1);
+	MALLOC(sp, copy, len + 1);
 	if (copy == NULL)
 		return (NULL);
 	memcpy(copy, str, len * sizeof(CHAR_T));

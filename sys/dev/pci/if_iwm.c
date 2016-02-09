@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.63 2015/11/04 12:11:59 dlg Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.77 2016/02/05 16:08:44 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -129,15 +129,10 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
-#include <netinet/in_systm.h>
 #include <netinet/if_ether.h>
-#include <netinet/ip.h>
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_amrr.h>
@@ -175,25 +170,40 @@ const uint8_t iwm_nvm_channels[] = {
 const struct iwm_rate {
 	uint8_t rate;
 	uint8_t plcp;
+	uint8_t ht_plcp;
 } iwm_rates[] = {
-	{   2,	IWM_RATE_1M_PLCP  },
-	{   4,	IWM_RATE_2M_PLCP  },
-	{  11,	IWM_RATE_5M_PLCP  },
-	{  22,	IWM_RATE_11M_PLCP },
-	{  12,	IWM_RATE_6M_PLCP  },
-	{  18,	IWM_RATE_9M_PLCP  },
-	{  24,	IWM_RATE_12M_PLCP },
-	{  36,	IWM_RATE_18M_PLCP },
-	{  48,	IWM_RATE_24M_PLCP },
-	{  72,	IWM_RATE_36M_PLCP },
-	{  96,	IWM_RATE_48M_PLCP },
-	{ 108,	IWM_RATE_54M_PLCP },
+		/* Legacy */		/* HT */
+	{   2,	IWM_RATE_1M_PLCP,	IWM_RATE_HT_SISO_MCS_INV_PLCP  },
+	{   4,	IWM_RATE_2M_PLCP,	IWM_RATE_HT_SISO_MCS_INV_PLCP },
+	{  11,	IWM_RATE_5M_PLCP,	IWM_RATE_HT_SISO_MCS_INV_PLCP  },
+	{  22,	IWM_RATE_11M_PLCP,	IWM_RATE_HT_SISO_MCS_INV_PLCP },
+	{  12,	IWM_RATE_6M_PLCP,	IWM_RATE_HT_SISO_MCS_0_PLCP },
+	{  18,	IWM_RATE_9M_PLCP,	IWM_RATE_HT_SISO_MCS_INV_PLCP  },
+	{  24,	IWM_RATE_12M_PLCP,	IWM_RATE_HT_SISO_MCS_1_PLCP },
+	{  36,	IWM_RATE_18M_PLCP,	IWM_RATE_HT_SISO_MCS_2_PLCP },
+	{  48,	IWM_RATE_24M_PLCP,	IWM_RATE_HT_SISO_MCS_3_PLCP },
+	{  72,	IWM_RATE_36M_PLCP,	IWM_RATE_HT_SISO_MCS_4_PLCP },
+	{  96,	IWM_RATE_48M_PLCP,	IWM_RATE_HT_SISO_MCS_5_PLCP },
+	{ 108,	IWM_RATE_54M_PLCP,	IWM_RATE_HT_SISO_MCS_6_PLCP },
+	{ 128,	IWM_RATE_INVM_PLCP,	IWM_RATE_HT_SISO_MCS_7_PLCP },
 };
 #define IWM_RIDX_CCK	0
 #define IWM_RIDX_OFDM	4
 #define IWM_RIDX_MAX	(nitems(iwm_rates)-1)
 #define IWM_RIDX_IS_CCK(_i_) ((_i_) < IWM_RIDX_OFDM)
 #define IWM_RIDX_IS_OFDM(_i_) ((_i_) >= IWM_RIDX_OFDM)
+
+/* Convert an MCS index into an iwm_rates[] index. */
+const int iwm_mcs2ridx[] = {
+	IWM_RATE_MCS_0_INDEX,
+	IWM_RATE_MCS_1_INDEX,
+	IWM_RATE_MCS_2_INDEX,
+	IWM_RATE_MCS_3_INDEX,
+	IWM_RATE_MCS_4_INDEX,
+	IWM_RATE_MCS_5_INDEX,
+	IWM_RATE_MCS_6_INDEX,
+	IWM_RATE_MCS_7_INDEX,
+};
 
 int	iwm_store_cscheme(struct iwm_softc *, uint8_t *, size_t);
 int	iwm_firmware_store_section(struct iwm_softc *, enum iwm_ucode_type,
@@ -277,12 +287,29 @@ int	iwm_mvm_send_time_event_cmd(struct iwm_softc *,
 int	iwm_mvm_time_event_send_add(struct iwm_softc *, struct iwm_node *,
 					void *, struct iwm_time_event_cmd_v2 *);
 void	iwm_mvm_protect_session(struct iwm_softc *, struct iwm_node *,
-				uint32_t, uint32_t, uint32_t);
+				uint32_t, uint32_t);
 int	iwm_nvm_read_chunk(struct iwm_softc *, uint16_t, uint16_t, uint16_t,
 				uint8_t *, uint16_t *);
 int	iwm_nvm_read_section(struct iwm_softc *, uint16_t, uint8_t *,
 				uint16_t *);
 void	iwm_init_channel_map(struct iwm_softc *, const uint16_t * const);
+void	iwm_setup_ht_rates(struct iwm_softc *);
+void	iwm_htprot_task(void *);
+void	iwm_update_htprot(struct ieee80211com *, struct ieee80211_node *);
+int	iwm_ampdu_rx_start(struct ieee80211com *,
+		    struct ieee80211_node *, uint8_t);
+void	iwm_ampdu_rx_stop(struct ieee80211com *,
+		    struct ieee80211_node *, uint8_t);
+void	iwm_mvm_sta_rx_agg(struct iwm_softc *, struct ieee80211_node *,
+				uint8_t, uint16_t, int);
+#ifdef notyet
+int	iwm_ampdu_tx_start(struct ieee80211com *,
+		    struct ieee80211_node *, uint8_t);
+void	iwm_ampdu_tx_stop(struct ieee80211com *,
+		    struct ieee80211_node *, uint8_t);
+#endif
+void	iwm_ba_task(void *);
+
 int	iwm_parse_nvm_data(struct iwm_softc *, const uint16_t *,
 				const uint16_t *, const uint16_t *, uint8_t,
 				uint8_t);
@@ -415,7 +442,7 @@ void	iwm_notif_intr(struct iwm_softc *);
 int	iwm_intr(void *);
 int	iwm_match(struct device *, void *, void *);
 int	iwm_preinit(struct iwm_softc *);
-void	iwm_attach_hook(void *);
+void	iwm_attach_hook(struct device *);
 void	iwm_attach(struct device *, struct device *, void *);
 void	iwm_init_task(void *);
 int	iwm_activate(struct device *, int);
@@ -2221,7 +2248,7 @@ iwm_mvm_time_event_send_add(struct iwm_softc *sc, struct iwm_node *in,
 
 void
 iwm_mvm_protect_session(struct iwm_softc *sc, struct iwm_node *in,
-	uint32_t duration, uint32_t min_duration, uint32_t max_delay)
+	uint32_t duration, uint32_t max_delay)
 {
 	struct iwm_time_event_cmd_v2 time_cmd;
 
@@ -2375,6 +2402,13 @@ iwm_nvm_read_section(struct iwm_softc *sc,
  * BEGIN IWM_NVM_PARSE
  */
 
+#define IWM_FW_VALID_TX_ANT(sc) \
+    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_TX_CHAIN) \
+    >> IWM_FW_PHY_CFG_TX_CHAIN_POS)
+#define IWM_FW_VALID_RX_ANT(sc) \
+    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_RX_CHAIN) \
+    >> IWM_FW_PHY_CFG_RX_CHAIN_POS)
+
 /* NVM offsets (in words) definitions */
 enum wkp_nvm_offsets {
 	/* NVM HW-Section offset (in words) definitions */
@@ -2399,6 +2433,7 @@ enum nvm_sku_bits {
 	IWM_NVM_SKU_CAP_BAND_52GHZ	= (1 << 1),
 	IWM_NVM_SKU_CAP_11N_ENABLE	= (1 << 2),
 	IWM_NVM_SKU_CAP_11AC_ENABLE	= (1 << 3),
+	IWM_NVM_SKU_CAP_MIMO_DISABLE	= (1 << 5),
 };
 
 /* radio config bits (actual values from NVM definition) */
@@ -2482,7 +2517,168 @@ iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 
 		if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
 			channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
+
+		if (data->sku_cap_11n_enable)
+			channel->ic_flags |= IEEE80211_CHAN_HT;
 	}
+}
+
+void
+iwm_setup_ht_rates(struct iwm_softc *sc)
+{
+	struct ieee80211com *ic = &sc->sc_ic;
+
+	/* TX is supported with the same MCS as RX. */
+	ic->ic_tx_mcs_set = IEEE80211_TX_MCS_SET_DEFINED;
+
+	ic->ic_sup_mcs[0] = 0xff;		/* MCS 0-7 */
+
+#ifdef notyet
+	if (sc->sc_nvm.sku_cap_mimo_disable)
+		return;
+
+	if (IWM_FW_VALID_RX_ANT(sc) > 1)
+		ic->ic_sup_mcs[1] = 0xff;	/* MCS 8-15 */
+	if (IWM_FW_VALID_RX_ANT(sc) > 2)
+		ic->ic_sup_mcs[2] = 0xff;	/* MCS 16-23 */
+#endif
+}
+
+#define IWM_MAX_RX_BA_SESSIONS 16
+
+void
+iwm_mvm_sta_rx_agg(struct iwm_softc *sc, struct ieee80211_node *ni,
+    uint8_t tid, uint16_t ssn, int start)
+{
+	struct iwm_mvm_add_sta_cmd_v6 cmd;
+	struct iwm_node *in = (void *)ni;
+	int ret, s;
+	uint32_t status;
+
+	if (start && sc->sc_rx_ba_sessions >= IWM_MAX_RX_BA_SESSIONS)
+		return;
+
+	memset(&cmd, 0, sizeof(cmd));
+
+	cmd.sta_id = IWM_STATION_ID;
+	cmd.mac_id_n_color
+	    = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id, in->in_color));
+	cmd.add_modify = IWM_STA_MODE_MODIFY;
+
+	if (start) {
+		cmd.add_immediate_ba_tid = (uint8_t)tid;
+		cmd.add_immediate_ba_ssn = ssn;
+	} else {
+		cmd.remove_immediate_ba_tid = (uint8_t)tid;
+	}
+	cmd.modify_mask = start ? IWM_STA_MODIFY_ADD_BA_TID :
+	    IWM_STA_MODIFY_REMOVE_BA_TID;
+
+	status = IWM_ADD_STA_SUCCESS;
+	ret = iwm_mvm_send_add_sta_cmd_status(sc, &cmd, &status);
+	if (ret)
+		return;
+
+	switch (status) {
+	case IWM_ADD_STA_SUCCESS:
+		DPRINTF(("RX BA Session %sed in fw\n",
+		    start ? "start" : "stopp"));
+		s = splnet();
+		if (start)
+			sc->sc_rx_ba_sessions++;
+		else if (sc->sc_rx_ba_sessions > 0)
+			/* check that restart flow didn't zero counter */
+			sc->sc_rx_ba_sessions--;
+		splx(s);
+		break;
+	case IWM_ADD_STA_IMMEDIATE_BA_FAILURE:
+		ret = EIO;
+		DPRINTF(("RX BA Session refused by fw\n"));
+		break;
+	default:
+		ret = EIO;
+		DPRINTF(("RX BA Session failed %sing, status 0x%x\n",
+		    start ? "start" : "stopp", status));
+		break;
+	}
+}
+
+void
+iwm_htprot_task(void *arg)
+{
+	struct iwm_softc *sc = arg;
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct iwm_node *in = (void *)ic->ic_bss;
+	int error;
+
+	/* This call updates HT protection based on in->in_ni.ni_htop1. */
+	error = iwm_mvm_mac_ctxt_changed(sc, in);
+	if (error != 0)
+		printf("%s: could not change HT protection: error %d\n",
+		    DEVNAME(sc), error);
+}
+
+/*
+ * This function is called by upper layer when HT protection settings in
+ * beacons have changed.
+ */
+void
+iwm_update_htprot(struct ieee80211com *ic, struct ieee80211_node *ni)
+{
+	struct iwm_softc *sc = ic->ic_softc;
+
+	/* assumes that ni == ic->ic_bss */
+	task_add(systq, &sc->htprot_task);
+}
+
+void
+iwm_ba_task(void *arg)
+{
+	struct iwm_softc *sc = arg;
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct ieee80211_node *ni = ic->ic_bss;
+	
+	if (sc->ba_start)
+		iwm_mvm_sta_rx_agg(sc, ni, sc->ba_tid, sc->ba_ssn, 1);
+	else
+		iwm_mvm_sta_rx_agg(sc, ni, sc->ba_tid, 0, 0);
+}
+
+/*
+ * This function is called by upper layer when an ADDBA request is received
+ * from another STA and before the ADDBA response is sent.
+ */
+int
+iwm_ampdu_rx_start(struct ieee80211com *ic, struct ieee80211_node *ni,
+    uint8_t tid)
+{
+	struct ieee80211_rx_ba *ba = &ni->ni_rx_ba[tid];
+	struct iwm_softc *sc = IC2IFP(ic)->if_softc;
+
+	if (sc->sc_rx_ba_sessions >= IWM_MAX_RX_BA_SESSIONS)
+		return ENOSPC;
+
+	sc->ba_start = 1;
+	sc->ba_tid = tid;
+	sc->ba_ssn = htole16(ba->ba_winstart);
+	task_add(systq, &sc->ba_task);
+
+	return 0; /* XXX firmware may still fail to add BA agreement... */
+}
+
+/*
+ * This function is called by upper layer on teardown of an HT-immediate
+ * Block Ack agreement (eg. upon receipt of a DELBA frame).
+ */
+void
+iwm_ampdu_rx_stop(struct ieee80211com *ic, struct ieee80211_node *ni,
+    uint8_t tid)
+{
+	struct iwm_softc *sc = IC2IFP(ic)->if_softc;
+
+	sc->ba_start = 0;
+	sc->ba_tid = tid;
+	task_add(systq, &sc->ba_task);
 }
 
 int
@@ -2507,7 +2703,8 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
 	sku = le16_to_cpup(nvm_sw + IWM_SKU);
 	data->sku_cap_band_24GHz_enable = sku & IWM_NVM_SKU_CAP_BAND_24GHZ;
 	data->sku_cap_band_52GHz_enable = sku & IWM_NVM_SKU_CAP_BAND_52GHZ;
-	data->sku_cap_11n_enable = 0;
+	data->sku_cap_11n_enable = sku & IWM_NVM_SKU_CAP_11N_ENABLE;
+	data->sku_cap_mimo_disable = sku & IWM_NVM_SKU_CAP_MIMO_DISABLE;
 
 	if (!data->valid_tx_ant || !data->valid_rx_ant) {
 		DPRINTF(("%s: invalid antennas (0x%x, 0x%x)\n",
@@ -2548,13 +2745,6 @@ struct iwm_nvm_section {
 	uint16_t length;
 	const uint8_t *data;
 };
-
-#define IWM_FW_VALID_TX_ANT(sc) \
-    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_TX_CHAIN) \
-    >> IWM_FW_PHY_CFG_TX_CHAIN_POS)
-#define IWM_FW_VALID_RX_ANT(sc) \
-    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_RX_CHAIN) \
-    >> IWM_FW_PHY_CFG_RX_CHAIN_POS)
 
 int
 iwm_parse_nvm_sections(struct iwm_softc *sc, struct iwm_nvm_section *sections)
@@ -3080,23 +3270,35 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		tap->wr_dbm_antsignal = (int8_t)rssi;
 		tap->wr_dbm_antnoise = (int8_t)sc->sc_noise;
 		tap->wr_tsft = phy_info->system_timestamp;
-		switch (phy_info->rate) {
-		/* CCK rates. */
-		case  10: tap->wr_rate =   2; break;
-		case  20: tap->wr_rate =   4; break;
-		case  55: tap->wr_rate =  11; break;
-		case 110: tap->wr_rate =  22; break;
-		/* OFDM rates. */
-		case 0xd: tap->wr_rate =  12; break;
-		case 0xf: tap->wr_rate =  18; break;
-		case 0x5: tap->wr_rate =  24; break;
-		case 0x7: tap->wr_rate =  36; break;
-		case 0x9: tap->wr_rate =  48; break;
-		case 0xb: tap->wr_rate =  72; break;
-		case 0x1: tap->wr_rate =  96; break;
-		case 0x3: tap->wr_rate = 108; break;
-		/* Unknown rate: should not happen. */
-		default:  tap->wr_rate =   0;
+		if (phy_info->phy_flags &
+		    htole16(IWM_RX_RES_PHY_FLAGS_OFDM_HT)) {
+#ifdef notyet
+			uint8_t mcs = (phy_info->rate_n_flags &
+			    htole32(IWM_RATE_HT_MCS_RATE_CODE_MSK));
+#endif
+			/* XXX need a way to pass current MCS in 11n mode */
+			tap->wr_rate = 0;
+		} else {
+			uint8_t rate = (phy_info->rate_n_flags &
+			    htole32(IWM_RATE_LEGACY_RATE_MSK));
+			switch (rate) {
+			/* CCK rates. */
+			case  10: tap->wr_rate =   2; break;
+			case  20: tap->wr_rate =   4; break;
+			case  55: tap->wr_rate =  11; break;
+			case 110: tap->wr_rate =  22; break;
+			/* OFDM rates. */
+			case 0xd: tap->wr_rate =  12; break;
+			case 0xf: tap->wr_rate =  18; break;
+			case 0x5: tap->wr_rate =  24; break;
+			case 0x7: tap->wr_rate =  36; break;
+			case 0x9: tap->wr_rate =  48; break;
+			case 0xb: tap->wr_rate =  72; break;
+			case 0x1: tap->wr_rate =  96; break;
+			case 0x3: tap->wr_rate = 108; break;
+			/* Unknown rate: should not happen. */
+			default:  tap->wr_rate =   0;
+			}
 		}
 
 		mb.m_data = (caddr_t)tap;
@@ -3180,8 +3382,8 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 
 	if (--ring->queued < IWM_TX_RING_LOMARK) {
 		sc->qfullmsk &= ~(1 << ring->qid);
-		if (sc->qfullmsk == 0 && (ifp->if_flags & IFF_OACTIVE)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (sc->qfullmsk == 0 && ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			/*
 			 * Well, we're in interrupt context, but then again
 			 * I guess net80211 does all sorts of stunts in
@@ -3665,7 +3867,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211_node *ni = &in->in_ni;
 	const struct iwm_rate *rinfo;
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
-	int ridx, rate_flags;
+	int ridx, rate_flags, i;
 	int nrates = ni->ni_rates.rs_nrates;
 
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
@@ -3673,16 +3875,29 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 
 	if (type != IEEE80211_FC0_TYPE_DATA) {
 		/* for non-data, use the lowest supported rate */
-		ridx = (ic->ic_curmode == IEEE80211_MODE_11A) ?
+		ridx = (IEEE80211_IS_CHAN_5GHZ(ni->ni_chan)) ?
 		    IWM_RIDX_OFDM : IWM_RIDX_CCK;
+	} else if (ic->ic_fixed_mcs != -1) {
+		ridx = sc->sc_fixed_ridx;
 	} else if (ic->ic_fixed_rate != -1) {
 		ridx = sc->sc_fixed_ridx;
 	} else {
 		/* for data frames, use RS table */
-		tx->initial_rate_index = (nrates - 1) - ni->ni_txrate;
+		tx->initial_rate_index = 0;
 		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
 		DPRINTFN(12, ("start with txrate %d\n", tx->initial_rate_index));
-		ridx = in->in_ridx[ni->ni_txrate];
+		if (ni->ni_flags & IEEE80211_NODE_HT) {
+			ridx = iwm_mcs2ridx[ni->ni_txmcs];
+			return &iwm_rates[ridx];
+		}
+		ridx = 0;
+		for (i = 0; i < nrates; i++) {
+			if (iwm_rates[i].rate == (ni->ni_txrate &
+			    IEEE80211_RATE_VAL)) {
+				ridx = i;
+				break;
+			}
+		}
 		return &iwm_rates[ridx];
 	}
 
@@ -3690,7 +3905,12 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	rate_flags = 1 << IWM_RATE_MCS_ANT_POS;
 	if (IWM_RIDX_IS_CCK(ridx))
 		rate_flags |= IWM_RATE_MCS_CCK_MSK;
-	tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
+	if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+	    rinfo->ht_plcp != IWM_RATE_HT_SISO_MCS_INV_PLCP) {
+		rate_flags |= IWM_RATE_MCS_HT_MSK; 
+		tx->rate_n_flags = htole32(rate_flags | rinfo->ht_plcp);
+	} else
+		tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
 
 	return rinfo;
 }
@@ -3755,7 +3975,11 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		tap->wt_flags = 0;
 		tap->wt_chan_freq = htole16(ni->ni_chan->ic_freq);
 		tap->wt_chan_flags = htole16(ni->ni_chan->ic_flags);
-		tap->wt_rate = rinfo->rate;
+		if (rinfo->plcp == IWM_RATE_INVM_PLCP) {
+			/* XXX need a way to pass current MCS in 11n mode */
+			tap->wt_rate = 0;
+		} else
+			tap->wt_rate = rinfo->rate;
 		tap->wt_hwqueue = ac;
 		if ((ic->ic_flags & IEEE80211_F_WEPON) &&
 		    (wh->i_fc[1] & IEEE80211_FC1_PROTECTED))
@@ -4242,6 +4466,7 @@ iwm_mvm_sta_send_to_fw(struct iwm_softc *sc, struct iwm_node *in, int update)
 	struct iwm_mvm_add_sta_cmd_v6 add_sta_cmd;
 	int ret;
 	uint32_t status;
+	struct ieee80211com *ic = &sc->sc_ic;
 
 	memset(&add_sta_cmd, 0, sizeof(add_sta_cmd));
 
@@ -4255,6 +4480,35 @@ iwm_mvm_sta_send_to_fw(struct iwm_softc *sc, struct iwm_node *in, int update)
 	add_sta_cmd.add_modify = update ? 1 : 0;
 	add_sta_cmd.station_flags_msk
 	    |= htole32(IWM_STA_FLG_FAT_EN_MSK | IWM_STA_FLG_MIMO_EN_MSK);
+
+	if (in->in_ni.ni_flags & IEEE80211_NODE_HT) {
+		add_sta_cmd.station_flags_msk
+		    |= htole32(IWM_STA_FLG_MAX_AGG_SIZE_MSK |
+		    IWM_STA_FLG_AGG_MPDU_DENS_MSK);
+
+		add_sta_cmd.station_flags
+		    |= htole32(IWM_STA_FLG_MAX_AGG_SIZE_64K);
+		switch (ic->ic_ampdu_params & IEEE80211_AMPDU_PARAM_SS) {
+		case IEEE80211_AMPDU_PARAM_SS_2:
+			add_sta_cmd.station_flags
+			    |= htole32(IWM_STA_FLG_AGG_MPDU_DENS_2US);
+			break;
+		case IEEE80211_AMPDU_PARAM_SS_4:
+			add_sta_cmd.station_flags
+			    |= htole32(IWM_STA_FLG_AGG_MPDU_DENS_4US);
+			break;
+		case IEEE80211_AMPDU_PARAM_SS_8:
+			add_sta_cmd.station_flags
+			    |= htole32(IWM_STA_FLG_AGG_MPDU_DENS_8US);
+			break;
+		case IEEE80211_AMPDU_PARAM_SS_16:
+			add_sta_cmd.station_flags
+			    |= htole32(IWM_STA_FLG_AGG_MPDU_DENS_16US);
+			break;
+		default:
+			break;
+		}
+	}
 
 	status = IWM_ADD_STA_SUCCESS;
 	ret = iwm_mvm_send_add_sta_cmd_status(sc, &add_sta_cmd, &status);
@@ -4751,6 +5005,28 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 		cmd->ac[txf].edca_txop = 0;
 	}
 
+	if (ni->ni_flags & IEEE80211_NODE_HT) {
+		enum ieee80211_htprot htprot =
+		    (ni->ni_htop1 & IEEE80211_HTOP1_PROT_MASK);
+		switch (htprot) {
+		case IEEE80211_HTPROT_NONE:
+			break;
+		case IEEE80211_HTPROT_NONMEMBER:
+		case IEEE80211_HTPROT_NONHT_MIXED:
+			cmd->protection_flags |=
+			    htole32(IWM_MAC_PROT_FLG_HT_PROT);
+		case IEEE80211_HTPROT_20MHZ:
+			cmd->protection_flags |=
+			    htole32(IWM_MAC_PROT_FLG_HT_PROT |
+			    IWM_MAC_PROT_FLG_FAT_PROT);
+			break;
+		default:
+			DPRINTF(("Unknown protection mode %d\n", htprot));
+			break;
+		}
+
+		cmd->qos_flags |= htole32(IWM_MAC_QOS_FLG_TGN);
+	}
 	if (ic->ic_flags & IEEE80211_F_USEPROT)
 		cmd->protection_flags |= htole32(IWM_MAC_PROT_FLG_TGG_PROTECT);
 
@@ -4993,7 +5269,6 @@ iwm_auth(struct iwm_softc *sc)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct iwm_node *in = (void *)ic->ic_bss;
 	uint32_t duration;
-	uint32_t min_duration;
 	int error;
 
 	in->in_assoc = 0;
@@ -5019,32 +5294,14 @@ iwm_auth(struct iwm_softc *sc)
 		return error;
 	}
 
-	/* a bit superfluous? */
-	while (sc->sc_auth_prot)
-		tsleep(&sc->sc_auth_prot, 0, "iwmauth", 0);
-	sc->sc_auth_prot = 1;
-
-	duration = min(IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS,
-	    200 + in->in_ni.ni_intval);
-	min_duration = min(IWM_MVM_TE_SESSION_PROTECTION_MIN_TIME_MS,
-	    100 + in->in_ni.ni_intval);
-	iwm_mvm_protect_session(sc, in, duration, min_duration, 500);
-
-	while (sc->sc_auth_prot != 2) {
-		/*
-		 * well, meh, but if the kernel is sleeping for half a
-		 * second, we have bigger problems
-		 */
-		if (sc->sc_auth_prot == 0) {
-			DPRINTF(("%s: missed auth window!\n", DEVNAME(sc)));
-			return ETIMEDOUT;
-		} else if (sc->sc_auth_prot == -1) {
-			DPRINTF(("%s: no time event, denied!\n", DEVNAME(sc)));
-			sc->sc_auth_prot = 0;
-			return EAUTH;
-		}
-		tsleep(&sc->sc_auth_prot, 0, "iwmau2", 0);
-	}
+	/*
+	 * Prevent the FW from wandering off channel during association
+	 * by "protecting" the session with a time event.
+	 */
+	/* XXX duration is in units of TU, not MS */
+	duration = IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS;
+	iwm_mvm_protect_session(sc, in, duration, 500 /* XXX magic number */);
+	DELAY(100);
 
 	return 0;
 }
@@ -5139,18 +5396,43 @@ iwm_calib_timeout(void *arg)
 {
 	struct iwm_softc *sc = arg;
 	struct ieee80211com *ic = &sc->sc_ic;
-	int s;
+	struct iwm_node *in = (void *)ic->ic_bss;
+	struct ieee80211_node *ni = &in->in_ni;
+	int s, otxrate;
 
 	s = splnet();
-	if (ic->ic_fixed_rate == -1
-	    && ic->ic_opmode == IEEE80211_M_STA
-	    && ic->ic_bss) {
-		struct iwm_node *in = (void *)ic->ic_bss;
+	if ((ic->ic_fixed_rate == -1 || ic->ic_fixed_mcs == -1) &&
+	    ic->ic_opmode == IEEE80211_M_STA && ic->ic_bss) {
+		if (ni->ni_flags & IEEE80211_NODE_HT)
+			otxrate = ni->ni_txmcs;
+		else
+			otxrate = ni->ni_txrate;
 		ieee80211_amrr_choose(&sc->sc_amrr, &in->in_ni, &in->in_amn);
+
+		/* 
+		 * If AMRR has chosen a new TX rate we must update
+		 * the firwmare's LQ rate table from process context.
+		 */
+		if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+		    otxrate != ni->ni_txmcs)
+			task_add(systq, &sc->setrates_task);
+		else if (otxrate != ni->ni_txrate)
+			task_add(systq, &sc->setrates_task);
 	}
 	splx(s);
 
 	timeout_add_msec(&sc->sc_calib_to, 500);
+}
+
+void
+iwm_setrates_task(void *arg)
+{
+	struct iwm_softc *sc = arg;
+	struct ieee80211com *ic = &sc->sc_ic;
+	struct iwm_node *in = (struct iwm_node *)ic->ic_bss;
+
+	/* Update rates table based on new TX rate determined by AMRR. */
+	iwm_setrates(in);
 }
 
 void
@@ -5160,77 +5442,79 @@ iwm_setrates(struct iwm_node *in)
 	struct ieee80211com *ic = ni->ni_ic;
 	struct iwm_softc *sc = IC2IFP(ic)->if_softc;
 	struct iwm_lq_cmd *lq = &in->in_lq;
-	int nrates = ni->ni_rates.rs_nrates;
-	int i, ridx, tab = 0;
-	int txant = 0;
+	struct ieee80211_rateset *rs = &ni->ni_rates;
+	int i, ridx, j, tab = 0;
+	struct iwm_host_cmd cmd = {
+		.id = IWM_LQ_CMD,
+		.len = { sizeof(in->in_lq), },
+		.flags = IWM_CMD_SYNC,
+	};
 
-	if (nrates > nitems(lq->rs_table)) {
-		DPRINTF(("%s: node supports %d rates, driver handles "
-		    "only %zu\n", DEVNAME(sc), nrates, nitems(lq->rs_table)));
-		return;
-	}
-
-	/* first figure out which rates we should support */
-	memset(&in->in_ridx, -1, sizeof(in->in_ridx));
-	for (i = 0; i < nrates; i++) {
-		int rate = ni->ni_rates.rs_rates[i] & IEEE80211_RATE_VAL;
-
-		/* Map 802.11 rate to HW rate index. */
-		for (ridx = 0; ridx <= IWM_RIDX_MAX; ridx++)
-			if (iwm_rates[ridx].rate == rate)
-				break;
-		if (ridx > IWM_RIDX_MAX)
-			DPRINTF(("%s: WARNING: device rate for %d not found!\n",
-			    DEVNAME(sc), rate));
-		else
-			in->in_ridx[i] = ridx;
-	}
-
-	/* then construct a lq_cmd based on those */
 	memset(lq, 0, sizeof(*lq));
 	lq->sta_id = IWM_STATION_ID;
 
 	/*
-	 * are these used? (we don't do SISO or MIMO)
-	 * need to set them to non-zero, though, or we get an error.
+	 * Fill the LQ rate selection table with legacy and/or HT rates
+	 * in descending order, i.e. with the node's current TX rate first.
+	 * In cases where throughput of an HT rate corresponds to a legacy
+	 * rate it makes no sense to add both. We rely on the fact that
+	 * iwm_rates is laid out such that equivalent HT/legacy rates share
+	 * the same IWM_RATE_*_INDEX value. Also, rates not applicable to
+	 * legacy/HT are assumed to be marked with an 'invalid' PLCP value.
 	 */
-	lq->single_stream_ant_msk = 1;
-	lq->dual_stream_ant_msk = 1;
+	j = 0;
+	for (ridx = IWM_RIDX_MAX; ridx >= 0; ridx--) {
+		if (j >= nitems(lq->rs_table))
+			break;
+		tab = 0;
+		if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+		    iwm_rates[ridx].ht_plcp != IWM_RATE_HT_SISO_MCS_INV_PLCP) {
+			for (i = ni->ni_txmcs; i >= 0; i--) {
+				if (isclr(ni->ni_rxmcs, i))
+					continue;
+				if (ridx == iwm_mcs2ridx[i]) {
+					tab = iwm_rates[ridx].ht_plcp;
+					tab |= IWM_RATE_MCS_HT_MSK;
+					break;
+				}
+			}
+		}
+		if (tab == 0 && iwm_rates[ridx].plcp != IWM_RATE_INVM_PLCP) {
+			for (i = ni->ni_txrate; i >= 0; i--) {
+				if (iwm_rates[ridx].rate == (rs->rs_rates[i] &
+				    IEEE80211_RATE_VAL)) {
+					tab = iwm_rates[ridx].plcp;
+					break;
+				}
+			}
+		}
 
-	/*
-	 * Build the actual rate selection table.
-	 * The lowest bits are the rates.  Additionally,
-	 * CCK needs bit 9 to be set.  The rest of the bits
-	 * we add to the table select the tx antenna
-	 * Note that we add the rates in the highest rate first
-	 * (opposite of ni_rates).
-	 */
-	for (i = 0; i < nrates; i++) {
-		int nextant;
+		if (tab == 0)
+			continue;
 
-		if (txant == 0)
-			txant = IWM_FW_VALID_TX_ANT(sc);
-		nextant = 1<<(ffs(txant)-1);
-		txant &= ~nextant;
-
-		ridx = in->in_ridx[(nrates-1)-i];
-		tab = iwm_rates[ridx].plcp;
-		tab |= nextant << IWM_RATE_MCS_ANT_POS;
+		tab |= 1 << IWM_RATE_MCS_ANT_POS;
 		if (IWM_RIDX_IS_CCK(ridx))
 			tab |= IWM_RATE_MCS_CCK_MSK;
-		DPRINTFN(2, ("station rate %d %x\n", i, tab));
-		lq->rs_table[i] = htole32(tab);
-	}
-	/* then fill the rest with the lowest possible rate */
-	for (i = nrates; i < nitems(lq->rs_table); i++) {
-		KASSERT(tab != 0);
-		lq->rs_table[i] = htole32(tab);
+		DPRINTFN(2, ("station rate %d %x\n", j, tab));
+		lq->rs_table[j++] = htole32(tab);
 	}
 
-	/* init amrr */
-	ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
-	/* Start at lowest available bit-rate, AMRR will raise. */
-	ni->ni_txrate = 0;
+	/* Fill the rest with the lowest possible rate */
+	i = j > 0 ? j - 1 : 0;
+	while (j < nitems(lq->rs_table))
+		lq->rs_table[j++] = lq->rs_table[i];
+
+	lq->single_stream_ant_msk = IWM_ANT_A;
+	lq->dual_stream_ant_msk = IWM_ANT_AB;
+
+	lq->agg_time_limit = htole16(4000);	/* 4ms */
+	lq->agg_disable_start_th = 3;
+	lq->agg_frame_cnt_limit = 0x3f;
+
+	cmd.data[0] = &in->in_lq;
+	if (iwm_send_cmd(sc, &cmd) != 0) {
+		DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
+	}
 }
 
 int
@@ -5245,7 +5529,9 @@ iwm_media_change(struct ifnet *ifp)
 	if (error != ENETRESET)
 		return error;
 
-	if (ic->ic_fixed_rate != -1) {
+	if (ic->ic_fixed_mcs != -1)
+		sc->sc_fixed_ridx = iwm_mcs2ridx[ic->ic_fixed_mcs];
+	else if (ic->ic_fixed_rate != -1) {
 		rate = ic->ic_sup_rates[ic->ic_curmode].
 		    rs_rates[ic->ic_fixed_rate] & IEEE80211_RATE_VAL;
 		/* Map 802.11 rate to HW rate index. */
@@ -5351,22 +5637,18 @@ iwm_newstate_task(void *psc)
 		break;
 
 	case IEEE80211_S_RUN: {
-		struct iwm_host_cmd cmd = {
-			.id = IWM_LQ_CMD,
-			.len = { sizeof(in->in_lq), },
-			.flags = IWM_CMD_SYNC,
-		};
-
 		in = (struct iwm_node *)ic->ic_bss;
 		iwm_mvm_power_mac_update_mode(sc, in);
 		iwm_mvm_enable_beacon_filter(sc, in);
 		iwm_mvm_update_quotas(sc, in);
-		iwm_setrates(in);
 
-		cmd.data[0] = &in->in_lq;
-		if ((error = iwm_send_cmd(sc, &cmd)) != 0) {
-			DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
-		}
+		/* init amrr */
+		ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
+
+		/* Start at lowest available bit-rate, AMRR will raise. */
+		in->in_ni.ni_txrate = 0;
+		in->in_ni.ni_txmcs = 0;
+		iwm_setrates(in);
 
 		timeout_add_msec(&sc->sc_calib_to, 500);
 		iwm_mvm_led_enable(sc);
@@ -5557,7 +5839,7 @@ iwm_init(struct ifnet *ifp)
  	 * Ok, firmware loaded and we are jogging
 	 */
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	ieee80211_begin_scan(ifp);
@@ -5580,13 +5862,13 @@ iwm_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int ac = EDCA_AC_BE; /* XXX */
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		/* why isn't this done per-queue? */
 		if (sc->qfullmsk != 0) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -5647,13 +5929,17 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_flags |= IWM_FLAG_STOPPED;
 	sc->sc_generation++;
 	sc->sc_scanband = 0;
-	sc->sc_auth_prot = 0;
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	task_del(systq, &sc->init_task);
 	task_del(sc->sc_nswq, &sc->newstate_task);
 	task_del(sc->sc_eswq, &sc->sc_eswk);
+	task_del(systq, &sc->setrates_task);
+	task_del(systq, &sc->ba_task);
+	task_del(systq, &sc->htprot_task);
+
 	sc->sc_newstate(ic, IEEE80211_S_INIT, -1);
 
 	timeout_del(&sc->sc_calib_to);
@@ -6086,16 +6372,8 @@ iwm_notif_intr(struct iwm_softc *sc)
 			struct iwm_time_event_notif *notif;
 			SYNC_RESP_STRUCT(notif, pkt);
 
-			if (notif->status) {
-				if (le32toh(notif->action) &
-				    IWM_TE_V2_NOTIF_HOST_EVENT_START)
-					sc->sc_auth_prot = 2;
-				else
-					sc->sc_auth_prot = 0;
-			} else {
-				sc->sc_auth_prot = -1;
-			}
-			wakeup(&sc->sc_auth_prot);
+			DPRINTF(("%s: TE notif status = 0x%x action = 0x%x\n",
+			    DEVNAME(sc), notif->status, notif->action));
 			break; }
 
 		case IWM_MCAST_FILTER_CMD:
@@ -6347,6 +6625,9 @@ iwm_preinit(struct iwm_softc *sc)
 	    IWM_UCODE_API(sc->sc_fwver),
 	    ether_sprintf(sc->sc_nvm.hw_addr));
 
+	if (sc->sc_nvm.sku_cap_11n_enable)
+		iwm_setup_ht_rates(sc);
+
 	/* not all hardware can do 5GHz band */
 	if (!sc->sc_nvm.sku_cap_band_52GHz_enable)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
@@ -6366,15 +6647,22 @@ iwm_preinit(struct iwm_softc *sc)
 	/* Override 802.11 state transition machine. */
 	sc->sc_newstate = ic->ic_newstate;
 	ic->ic_newstate = iwm_newstate;
+	ic->ic_update_htprot = iwm_update_htprot;
+	ic->ic_ampdu_rx_start = iwm_ampdu_rx_start;
+	ic->ic_ampdu_rx_stop = iwm_ampdu_rx_stop;
+#ifdef notyet
+	ic->ic_ampdu_tx_start = iwm_ampdu_tx_start;
+	ic->ic_ampdu_tx_stop = iwm_ampdu_tx_stop;
+#endif
 	ieee80211_media_init(ifp, iwm_media_change, ieee80211_media_status);
 
 	return 0;
 }
 
 void
-iwm_attach_hook(void *arg)
+iwm_attach_hook(struct device *self)
 {
-	struct iwm_softc *sc = arg;
+	struct iwm_softc *sc = (void *)self;
 
 	KASSERT(!cold);
 
@@ -6551,6 +6839,13 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE;	/* short preamble supported */
 
+	/* No optional HT features supported for now, */
+	ic->ic_htcaps = 0;
+	ic->ic_htxcaps = 0;
+	ic->ic_txbfcaps = 0;
+	ic->ic_aselcaps = 0;
+	ic->ic_ampdu_params = (IEEE80211_AMPDU_PARAM_SS_4 | 0x3 /* 64k */);
+
 	ic->ic_sup_rates[IEEE80211_MODE_11A] = ieee80211_std_rateset_11a;
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
 	ic->ic_sup_rates[IEEE80211_MODE_11G] = ieee80211_std_rateset_11g;
@@ -6587,15 +6882,15 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	timeout_set(&sc->sc_led_blink_to, iwm_led_blink_timeout, sc);
 	task_set(&sc->init_task, iwm_init_task, sc);
 	task_set(&sc->newstate_task, iwm_newstate_task, sc);
+	task_set(&sc->setrates_task, iwm_setrates_task, sc);
+	task_set(&sc->ba_task, iwm_ba_task, sc);
+	task_set(&sc->htprot_task, iwm_htprot_task, sc);
 
 	/*
 	 * We cannot read the MAC address without loading the
 	 * firmware from disk. Postpone until mountroot is done.
 	 */
-	if (rootvp == NULL)
-		mountroothook_establish(iwm_attach_hook, sc);
-	else
-		iwm_attach_hook(sc);
+	config_mountroot(self, iwm_attach_hook);
 
 	return;
 

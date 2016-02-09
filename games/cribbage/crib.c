@@ -1,4 +1,4 @@
-/*	$OpenBSD: crib.c,v 1.18 2015/03/12 02:19:10 bentley Exp $	*/
+/*	$OpenBSD: crib.c,v 1.22 2016/01/07 16:00:32 tb Exp $	*/
 /*	$NetBSD: crib.c,v 1.7 1997/07/10 06:47:29 mikel Exp $	*/
 
 /*-
@@ -30,24 +30,22 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <curses.h>
 #include <err.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
-#include "deck.h"
 #include "cribbage.h"
 #include "cribcur.h"
-#include "pathnames.h"
 
 int
 main(int argc, char *argv[])
 {
 	bool playing;
 	int ch;
+
+	if (pledge("stdio rpath tty proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "emqr")) != -1)
 		switch (ch) {
@@ -66,7 +64,7 @@ main(int argc, char *argv[])
 		case '?':
 		default:
 			(void) fprintf(stderr, "usage: cribbage [-emqr]\n");
-			exit(1);
+			return 1;
 		}
 
 	initscr();
@@ -99,6 +97,10 @@ main(int argc, char *argv[])
 			msg("For cribbage rules, use \"man cribbage\"");
 		}
 	}
+
+	if (pledge("stdio tty", NULL) == -1)
+		err(1, "pledge");
+
 	playing = TRUE;
 	do {
 		wclrtobot(Msgwin);
@@ -113,7 +115,7 @@ main(int argc, char *argv[])
 	} while (playing);
 
 	bye();
-	exit(0);
+	return 0;
 }
 
 /*

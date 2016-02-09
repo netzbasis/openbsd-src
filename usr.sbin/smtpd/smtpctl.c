@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.136 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.145 2016/02/03 08:03:21 gilles Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -84,8 +84,6 @@ struct queue_backend queue_backend_ram;
 __dead void
 usage(void)
 {
-	extern char *__progname;
-
 	if (sendmail)
 		fprintf(stderr, "usage: %s [-tv] [-f from] [-F name] to ...\n",
 		    __progname);
@@ -142,7 +140,7 @@ offline_file(void)
 	int	fd;
 	FILE   *fp;
 
-	if (! bsnprintf(path, sizeof(path), "%s%s/%lld.XXXXXXXXXX", PATH_SPOOL,
+	if (!bsnprintf(path, sizeof(path), "%s%s/%lld.XXXXXXXXXX", PATH_SPOOL,
 		PATH_OFFLINE, (long long int) time(NULL)))
 		err(EX_UNAVAILABLE, "snprintf");
 
@@ -198,7 +196,7 @@ srv_recv(int type)
 			break;
 		}
 
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			errx(1, "imsg_read error");
 		if (n == 0)
 			errx(1, "pipe closed");
@@ -295,6 +293,9 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 	static uint32_t	currmsgid = 0;
 	static uint64_t	from = 0;
 	static int	done = 0, need_send = 1, found;
+	char		buf[sizeof(*evp)];
+	size_t		buflen;
+	uint64_t	evpid;
 
 	if (currmsgid != msgid) {
 		if (currmsgid != 0 && !done)
@@ -327,7 +328,12 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 		goto again;
 	}
 
-	srv_read(evp, sizeof(*evp));
+	srv_read(&evpid, sizeof evpid);
+	buflen = rlen;
+	srv_read(buf, rlen);
+	envelope_load_buffer(evp, buf, buflen - 1);
+	evp->id = evpid;
+
 	srv_end();
 	from = evp->id + 1;
 	found++;
@@ -614,7 +620,7 @@ do_show_envelope(int argc, struct parameter *argv)
 {
 	char	 buf[PATH_MAX];
 
-	if (! bsnprintf(buf, sizeof(buf), "%s%s/%02x/%08x/%016" PRIx64,
+	if (!bsnprintf(buf, sizeof(buf), "%s%s/%02x/%08x/%016" PRIx64,
 	    PATH_SPOOL,
 	    PATH_QUEUE,
 	    (evpid_to_msgid(argv[0].u.u_evpid) & 0xff000000) >> 24,
@@ -646,7 +652,7 @@ do_show_message(int argc, struct parameter *argv)
 	else
 		msgid = argv[0].u.u_msgid;
 
-	if (! bsnprintf(buf, sizeof(buf), "%s%s/%02x/%08x/message",
+	if (!bsnprintf(buf, sizeof(buf), "%s%s/%02x/%08x/message",
 		PATH_SPOOL,
 		PATH_QUEUE,
 		(msgid & 0xff000000) >> 24,
@@ -937,7 +943,7 @@ do_discover(int argc, struct parameter *argv)
 		srv_read(&n_evp, sizeof n_evp);
 		srv_end();
 	}
-	
+
 	printf("%zu envelope%s discovered\n", n_evp, (n_evp != 1) ? "s" : "");
 	return (0);
 }
@@ -970,13 +976,57 @@ do_uncorrupt(int argc, struct parameter *argv)
 int
 main(int argc, char **argv)
 {
+	arglist		 args;
 	gid_t		 gid;
 	char		*argv_mailq[] = { "show", "queue", NULL };
+	char		*aliases_path = NULL, *p;
 	FILE		*offlinefp = NULL;
+	int		 ch, i, sendmail_makemap = 0;
 
 	gid = getgid();
 	if (strcmp(__progname, "sendmail") == 0 ||
 	    strcmp(__progname, "send-mail") == 0) {
+		/*
+		 * determine whether we are called with flags
+		 * that should invoke makemap/newaliases.
+		 */
+		opterr = 0;
+		while ((ch = getopt(argc, argv, "b:C:O:")) != -1) {
+			switch (ch) {
+			case 'b':
+				if (strcmp(optarg, "i") == 0)
+					sendmail_makemap = 1;
+				break;
+			case 'C':
+				break; /* compatibility, not required */
+			case 'O':
+				if (strncmp(optarg, "AliasFile=", 10) != 0)
+					break;
+				p = strchr(optarg, '=');
+				aliases_path = ++p;
+				break;
+			}
+		}
+		opterr = 1;
+
+		if (sendmail_makemap) {
+			argc -= optind;
+			argv += optind;
+			optind = 0;
+
+			memset(&args, 0, sizeof args);
+			addargs(&args, "%s", "makemap");
+			for (i = 0; i < argc; i++)
+				addargs(&args, "%s", argv[i]);
+
+			addargs(&args, "%s", "-taliases");
+			if (aliases_path)
+				addargs(&args, "%s", aliases_path);
+
+			return makemap(args.num, args.list);
+		}
+		optind = 0;
+
 		if (!srv_connect())
 			offlinefp = offline_file();
 
@@ -987,10 +1037,12 @@ main(int argc, char **argv)
 		if (pledge("stdio rpath wpath cpath tmppath flock "
 			"dns getpw recvfd", NULL) == -1)
 			err(1, "pledge");
-		
+
 		sendmail = 1;
 		return (enqueue(argc, argv, offlinefp));
-	}
+	} else if (strcmp(__progname, "makemap") == 0 ||
+	    strcmp(__progname, "newaliases") == 0)
+		return makemap(argc, argv);
 
 	if (geteuid())
 		errx(1, "need root privileges");
@@ -1075,8 +1127,8 @@ show_queue_envelope(struct envelope *e, int online)
 			(void)snprintf(runstate, sizeof runstate, "pending|%zd",
 			    (ssize_t)(e->nexttry - now));
 		else if (e->flags & EF_INFLIGHT)
-			(void)snprintf(runstate, sizeof runstate, "inflight|%zd",
-			    (ssize_t)(now - e->lasttry));
+			(void)snprintf(runstate, sizeof runstate,
+			    "inflight|%zd", (ssize_t)(now - e->lasttry));
 		else
 			(void)snprintf(runstate, sizeof runstate, "invalid|");
 		e->flags &= ~(EF_PENDING|EF_INFLIGHT);
@@ -1148,7 +1200,7 @@ show_offline_envelope(uint64_t evpid)
 
 	struct envelope	evp;
 
-	if (! bsnprintf(pathname, sizeof pathname,
+	if (!bsnprintf(pathname, sizeof pathname,
 		"/queue/%02x/%08x/%016"PRIx64,
 		(evpid_to_msgid(evpid) & 0xff000000) >> 24,
 		evpid_to_msgid(evpid), evpid))
@@ -1172,7 +1224,7 @@ show_offline_envelope(uint64_t evpid)
 		goto end;
 	}
 
-	if (! envelope_load_buffer(&evp, p, plen))
+	if (!envelope_load_buffer(&evp, p, plen))
 		goto end;
 	evp.id = evpid;
 	show_queue_envelope(&evp, 0);
@@ -1196,7 +1248,7 @@ display(const char *s)
 	if (is_encrypted_fp(fp)) {
 		int	i;
 		int	fd;
-		FILE   *ofp;
+		FILE   *ofp = NULL;
 		char	sfn[] = "/tmp/smtpd.XXXXXXXXXX";
 
 		if ((fd = mkstemp(sfn)) == -1 ||
@@ -1218,7 +1270,7 @@ display(const char *s)
 		if (i == 3)
 			errx(1, "crypto-setup: invalid key");
 
-		if (! crypto_decrypt_file(fp, ofp)) {
+		if (!crypto_decrypt_file(fp, ofp)) {
 			printf("object is encrypted: %s\n", key);
 			exit(1);
 		}
@@ -1330,7 +1382,7 @@ static int
 is_encrypted_fp(FILE *fp)
 {
 	uint8_t	magic;
-	int    	ret = 0;
+	int	ret = 0;
 
 	if (fread(&magic, 1, sizeof magic, fp) != sizeof magic)
 		goto end;

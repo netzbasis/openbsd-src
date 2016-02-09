@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.c,v 1.3 2015/10/21 03:52:12 renato Exp $ */
+/*	$OpenBSD: eigrpd.c,v 1.5 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -227,9 +227,6 @@ main(int argc, char *argv[])
 	eigrpe_pid = eigrpe(eigrpd_conf, pipe_parent2eigrpe, pipe_eigrpe2rde,
 	    pipe_parent2rde);
 
-	/* show who we are */
-	setproctitle("parent");
-
 	event_init();
 
 	/* setup signal handler */
@@ -349,7 +346,7 @@ main_dispatch_eigrpe(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -426,7 +423,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

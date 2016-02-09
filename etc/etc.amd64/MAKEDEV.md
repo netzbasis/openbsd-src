@@ -1,6 +1,6 @@
 define(MACHINE,amd64)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.60 2015/10/23 15:14:11 claudio Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.64 2016/02/05 06:29:45 uebayasi Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -39,6 +39,7 @@ _DEV(st, 14, 5)
 _TITLE(term)
 _DEV(com, 8)
 _DEV(ttyc, 38)
+_DEV(ttyVI, 94)
 _TITLE(pty)
 _DEV(ptm, 81)
 _DEV(pty, 6)
@@ -73,6 +74,7 @@ _DEV(fuse, 92)
 _DEV(gpio, 88)
 _DEV(gpr, 80)
 _DEV(hotplug, 82)
+_DEV(ipmi, 96)
 dnl _DEV(joy, 26)
 _DEV(nvram, 85)
 _DEV(pci, 72)
@@ -89,7 +91,9 @@ _DEV(tap, 93)
 _DEV(tuner, 49)
 _DEV(uk, 20)
 _DEV(vi, 44)
+_DEV(vmm, 10)
 _DEV(vscsi, 89)
+_DEV(pvbus, 95)
 dnl
 divert(__mddivert)dnl
 dnl
@@ -129,5 +133,7 @@ target(all, bktr, 0)dnl
 target(all, gpio, 0, 1, 2)dnl
 target(all, nvram)dnl
 target(all, drm, 0, 1, 2, 3)dnl
+target(all, ttyVI, 00, 10, 20, 30, 40)dnl
+target(all, ipmi, 0)dnl
 twrget(ramd, wsdisp, ttyC, 0)dnl
 target(ramd, fd, 0)dnl

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kqueue.c,v 1.36 2014/10/30 16:45:37 bluhm Exp $	*/
+/*	$OpenBSD: kqueue.c,v 1.38 2015/12/25 17:10:05 tedu Exp $	*/
 
 /*
  * Copyright 2000-2002 Niels Provos <provos@citi.umich.edu>

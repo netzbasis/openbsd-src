@@ -1,4 +1,4 @@
-/*	$OpenBSD: key.c,v 1.14 2015/01/16 06:40:14 deraadt Exp $	*/
+/*	$OpenBSD: key.c,v 1.16 2016/01/20 08:43:27 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -139,7 +139,7 @@ v_key_init(SCR *sp)
 			break;
 		}
 	if (ch != gp->noprint) {
-		msgq(sp, M_ERR, "079|No non-printable character found");
+		msgq(sp, M_ERR, "No non-printable character found");
 		return (1);
 	}
 	return (0);
@@ -205,10 +205,10 @@ v_key_ilookup(SCR *sp)
  *	Return the length of the string that will display the key.
  *	This routine is the backup for the KEY_LEN() macro.
  *
- * PUBLIC: size_t v_key_len(SCR *, ARG_CHAR_T);
+ * PUBLIC: size_t v_key_len(SCR *, CHAR_T);
  */
 size_t
-v_key_len(SCR *sp, ARG_CHAR_T ch)
+v_key_len(SCR *sp, CHAR_T ch)
 {
 	(void)v_key_name(sp, ch);
 	return (sp->clen);
@@ -219,18 +219,16 @@ v_key_len(SCR *sp, ARG_CHAR_T ch)
  *	Return the string that will display the key.  This routine
  *	is the backup for the KEY_NAME() macro.
  *
- * PUBLIC: CHAR_T *v_key_name(SCR *, ARG_CHAR_T);
+ * PUBLIC: CHAR_T *v_key_name(SCR *, CHAR_T);
  */
 CHAR_T *
-v_key_name(SCR *sp, ARG_CHAR_T ach)
+v_key_name(SCR *sp, CHAR_T ch)
 {
 	static const CHAR_T hexdigit[] = "0123456789abcdef";
 	static const CHAR_T octdigit[] = "01234567";
-	CHAR_T ch, *chp, mask;
+	CHAR_T *chp, mask;
 	size_t len;
 	int cnt, shift;
-
-	ch = ach;
 
 	/* See if the character was explicitly declared printable or not. */
 	if ((chp = O_STR(sp, O_PRINT)) != NULL)
@@ -298,10 +296,10 @@ done:	sp->cname[sp->clen = len] = '\0';
  *	Fill in the value for a key.  This routine is the backup
  *	for the KEY_VAL() macro.
  *
- * PUBLIC: int v_key_val(SCR *, ARG_CHAR_T);
+ * PUBLIC: int v_key_val(SCR *, CHAR_T);
  */
 int
-v_key_val(SCR *sp, ARG_CHAR_T ch)
+v_key_val(SCR *sp, CHAR_T ch)
 {
 	KEYLIST k, *kp;
 
@@ -733,31 +731,31 @@ v_event_err(SCR *sp, EVENT *evp)
 {
 	switch (evp->e_event) {
 	case E_CHARACTER:
-		msgq(sp, M_ERR, "276|Unexpected character event");
+		msgq(sp, M_ERR, "Unexpected character event");
 		break;
 	case E_EOF:
-		msgq(sp, M_ERR, "277|Unexpected end-of-file event");
+		msgq(sp, M_ERR, "Unexpected end-of-file event");
 		break;
 	case E_INTERRUPT:
-		msgq(sp, M_ERR, "279|Unexpected interrupt event");
+		msgq(sp, M_ERR, "Unexpected interrupt event");
 		break;
 	case E_QUIT:
-		msgq(sp, M_ERR, "280|Unexpected quit event");
+		msgq(sp, M_ERR, "Unexpected quit event");
 		break;
 	case E_REPAINT:
-		msgq(sp, M_ERR, "281|Unexpected repaint event");
+		msgq(sp, M_ERR, "Unexpected repaint event");
 		break;
 	case E_STRING:
-		msgq(sp, M_ERR, "285|Unexpected string event");
+		msgq(sp, M_ERR, "Unexpected string event");
 		break;
 	case E_TIMEOUT:
-		msgq(sp, M_ERR, "286|Unexpected timeout event");
+		msgq(sp, M_ERR, "Unexpected timeout event");
 		break;
 	case E_WRESIZE:
-		msgq(sp, M_ERR, "316|Unexpected resize event");
+		msgq(sp, M_ERR, "Unexpected resize event");
 		break;
 	case E_WRITE:
-		msgq(sp, M_ERR, "287|Unexpected write event");
+		msgq(sp, M_ERR, "Unexpected write event");
 		break;
 
 	/*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmreg.h,v 1.5 2015/10/16 10:04:56 stsp Exp $	*/
+/*	$OpenBSD: if_iwmreg.h,v 1.10 2016/02/07 12:16:24 stsp Exp $	*/
 
 /******************************************************************************
  *
@@ -2008,6 +2008,43 @@ struct iwm_time_event_cmd_v1 {
 
 /* Time event - defines for command API v2 */
 
+/**
+ * DOC: Time Events - what is it?
+ *
+ * Time Events are a fw feature that allows the driver to control the presence
+ * of the device on the channel. Since the fw supports multiple channels
+ * concurrently, the fw may choose to jump to another channel at any time.
+ * In order to make sure that the fw is on a specific channel at a certain time
+ * and for a certain duration, the driver needs to issue a time event.
+ *
+ * The simplest example is for BSS association. The driver issues a time event,
+ * waits for it to start, and only then tells mac80211 that we can start the
+ * association. This way, we make sure that the association will be done
+ * smoothly and won't be interrupted by channel switch decided within the fw.
+ */
+
+ /**
+ * DOC: The flow against the fw
+ *
+ * When the driver needs to make sure we are in a certain channel, at a certain
+ * time and for a certain duration, it sends a Time Event. The flow against the
+ * fw goes like this:
+ *	1) Driver sends a TIME_EVENT_CMD to the fw
+ *	2) Driver gets the response for that command. This response contains the
+ *	   Unique ID (UID) of the event.
+ *	3) The fw sends notification when the event starts.
+ *
+ * Of course the API provides various options that allow to cover parameters
+ * of the flow.
+ *	What is the duration of the event?
+ *	What is the start time of the event?
+ *	Is there an end-time for the event?
+ *	How much can the event be delayed?
+ *	Can the event be split?
+ *	If yes what is the maximal number of chunks?
+ *	etc...
+ */
+
 /*
  * @IWM_TE_V2_FRAG_NONE: fragmentation of the time event is NOT allowed.
  * @IWM_TE_V2_FRAG_SINGLE: fragmentation of the time event is allowed, but only
@@ -2361,9 +2398,7 @@ struct iwm_rx_phy_info {
 #define IWM_PHY_INFO_FLAG_SHPREAMBLE	(1 << 2)
 	uint16_t channel;
 	uint32_t non_cfg_phy[IWM_RX_INFO_PHY_CNT];
-	uint8_t rate;
-	uint8_t rflags;
-	uint16_t xrflags;
+	uint32_t rate_n_flags;
 	uint32_t byte_count;
 	uint16_t mac_active_msk;
 	uint16_t frame_time;
@@ -3424,10 +3459,56 @@ struct iwm_beacon_filter_cmd {
 	.bf_escape_timer = htole32(IWM_BF_ESCAPE_TIMER_DEFAULT),	     \
 	.ba_escape_timer = htole32(IWM_BA_ESCAPE_TIMER_DEFAULT)
 
+/* uCode API values for HT/VHT bit rates */
+enum {
+	IWM_RATE_HT_SISO_MCS_0_PLCP = 0,
+	IWM_RATE_HT_SISO_MCS_1_PLCP = 1,
+	IWM_RATE_HT_SISO_MCS_2_PLCP = 2,
+	IWM_RATE_HT_SISO_MCS_3_PLCP = 3,
+	IWM_RATE_HT_SISO_MCS_4_PLCP = 4,
+	IWM_RATE_HT_SISO_MCS_5_PLCP = 5,
+	IWM_RATE_HT_SISO_MCS_6_PLCP = 6,
+	IWM_RATE_HT_SISO_MCS_7_PLCP = 7,
+	IWM_RATE_HT_MIMO2_MCS_0_PLCP = 0x8,
+	IWM_RATE_HT_MIMO2_MCS_1_PLCP = 0x9,
+	IWM_RATE_HT_MIMO2_MCS_2_PLCP = 0xA,
+	IWM_RATE_HT_MIMO2_MCS_3_PLCP = 0xB,
+	IWM_RATE_HT_MIMO2_MCS_4_PLCP = 0xC,
+	IWM_RATE_HT_MIMO2_MCS_5_PLCP = 0xD,
+	IWM_RATE_HT_MIMO2_MCS_6_PLCP = 0xE,
+	IWM_RATE_HT_MIMO2_MCS_7_PLCP = 0xF,
+	IWM_RATE_VHT_SISO_MCS_0_PLCP = 0,
+	IWM_RATE_VHT_SISO_MCS_1_PLCP = 1,
+	IWM_RATE_VHT_SISO_MCS_2_PLCP = 2,
+	IWM_RATE_VHT_SISO_MCS_3_PLCP = 3,
+	IWM_RATE_VHT_SISO_MCS_4_PLCP = 4,
+	IWM_RATE_VHT_SISO_MCS_5_PLCP = 5,
+	IWM_RATE_VHT_SISO_MCS_6_PLCP = 6,
+	IWM_RATE_VHT_SISO_MCS_7_PLCP = 7,
+	IWM_RATE_VHT_SISO_MCS_8_PLCP = 8,
+	IWM_RATE_VHT_SISO_MCS_9_PLCP = 9,
+	IWM_RATE_VHT_MIMO2_MCS_0_PLCP = 0x10,
+	IWM_RATE_VHT_MIMO2_MCS_1_PLCP = 0x11,
+	IWM_RATE_VHT_MIMO2_MCS_2_PLCP = 0x12,
+	IWM_RATE_VHT_MIMO2_MCS_3_PLCP = 0x13,
+	IWM_RATE_VHT_MIMO2_MCS_4_PLCP = 0x14,
+	IWM_RATE_VHT_MIMO2_MCS_5_PLCP = 0x15,
+	IWM_RATE_VHT_MIMO2_MCS_6_PLCP = 0x16,
+	IWM_RATE_VHT_MIMO2_MCS_7_PLCP = 0x17,
+	IWM_RATE_VHT_MIMO2_MCS_8_PLCP = 0x18,
+	IWM_RATE_VHT_MIMO2_MCS_9_PLCP = 0x19,
+	IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_HT_MIMO2_MCS_INV_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_VHT_SISO_MCS_INV_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_VHT_MIMO2_MCS_INV_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_HT_SISO_MCS_8_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_HT_SISO_MCS_9_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_HT_MIMO2_MCS_8_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+	IWM_RATE_HT_MIMO2_MCS_9_PLCP = IWM_RATE_HT_SISO_MCS_INV_PLCP,
+};
+
 /*
- * These serve as indexes into
- * struct iwm_rate_info fw_rate_idx_to_plcp[IWM_RATE_COUNT];
- * TODO: avoid overlap between legacy and HT rates
+ * These serve as indexes into struct iwm_rate iwm_rates[IWM_RIDX_MAX].
  */
 enum {
 	IWM_RATE_1M_INDEX = 0,
@@ -3481,7 +3562,7 @@ enum {
 	IWM_RATE_2M_PLCP  = 20,
 	IWM_RATE_5M_PLCP  = 55,
 	IWM_RATE_11M_PLCP = 110,
-	IWM_RATE_INVM_PLCP = -1,
+	IWM_RATE_INVM_PLCP = 0xff,
 };
 
 /*
@@ -3666,6 +3747,15 @@ enum {
 #define IWM_LQ_FLAG_DYNAMIC_BW_POS          6
 #define IWM_LQ_FLAG_DYNAMIC_BW_MSK          (1 << IWM_LQ_FLAG_DYNAMIC_BW_POS)
 
+/* Antenna flags. */
+#define IWM_ANT_A	(1 << 0)
+#define IWM_ANT_B	(1 << 1)
+#define IWM_ANT_C	(1 << 2)
+/* Shortcuts. */
+#define IWM_ANT_AB	(IWM_ANT_A | IWM_ANT_B)
+#define IWM_ANT_BC	(IWM_ANT_B | IWM_ANT_C)
+#define IWM_ANT_ABC	(IWM_ANT_A | IWM_ANT_B | IWM_ANT_C)
+
 /**
  * struct iwm_lq_cmd - link quality command
  * @sta_id: station to update
@@ -3674,8 +3764,8 @@ enum {
  * @mimo_delim: the first SISO index in rs_table, which separates MIMO
  *	and SISO rates
  * @single_stream_ant_msk: best antenna for SISO (can be dual in CDD).
- *	Should be ANT_[ABC]
- * @dual_stream_ant_msk: best antennas for MIMO, combination of ANT_[ABC]
+ *	Should be IWM_ANT_[ABC]
+ * @dual_stream_ant_msk: best antennas for MIMO, combination of IWM_ANT_[ABC]
  * @initial_rate_index: first index from rs_table per AC category
  * @agg_time_limit: aggregation max time threshold in usec/100, meaning
  *	value of 100 is one usec. Range is 100 to 8000
@@ -3841,7 +3931,7 @@ enum iwm_tx_flags {
  *	cleared. Combination of IWM_RATE_MCS_*
  * @sta_id: index of destination station in FW station table
  * @sec_ctl: security control, IWM_TX_CMD_SEC_*
- * @initial_rate_index: index into the the rate table for initial TX attempt.
+ * @initial_rate_index: index into the rate table for initial TX attempt.
  *	Applied if IWM_TX_CMD_FLG_STA_RATE_MSK is set, normally 0 for data frames.
  * @key: security key
  * @next_frame_flags: IWM_TX_CMD_SEC_* and IWM_TX_CMD_NEXT_FRAME_*
@@ -4192,7 +4282,7 @@ struct iwm_beacon_notif {
 
 /**
  * enum iwm_dump_control - dump (flush) control flags
- * @IWM_DUMP_TX_FIFO_FLUSH: Dump MSDUs until the the FIFO is empty
+ * @IWM_DUMP_TX_FIFO_FLUSH: Dump MSDUs until the FIFO is empty
  *	and the TFD queues are empty.
  */
 enum iwm_dump_control {
@@ -5141,7 +5231,7 @@ enum iwm_power_scheme {
 };
 
 #define IWM_DEF_CMD_PAYLOAD_SIZE 320
-#define IWM_MAX_CMD_PAYLOAD_SIZE (4096 - sizeof(struct iwm_cmd_header))
+#define IWM_MAX_CMD_PAYLOAD_SIZE ((4096 - 4) - sizeof(struct iwm_cmd_header))
 #define IWM_CMD_FAILED_MSK 0x40
 
 struct iwm_device_cmd {

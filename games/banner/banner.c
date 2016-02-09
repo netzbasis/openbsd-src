@@ -1,4 +1,4 @@
-/*	$OpenBSD: banner.c,v 1.18 2015/10/14 08:12:12 doug Exp $	*/
+/*	$OpenBSD: banner.c,v 1.20 2016/01/07 16:00:31 tb Exp $	*/
 /*	$NetBSD: banner.c,v 1.4 1995/04/22 11:55:15 cgd Exp $	*/
 
 /*
@@ -1016,6 +1016,7 @@ int
 main(int argc, char *argv[])
 { 
 	int ch;
+	const char *errstr;
 
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
@@ -1029,15 +1030,15 @@ main(int argc, char *argv[])
 			trace = 1;
 			break;
 		case 'w':
-			width = atoi(optarg);
-			if (width <= 0 || width > DWIDTH)
-				errx(1, "illegal argument for -w option");
+			width = strtonum(optarg, 1, DWIDTH, &errstr);
+			if (errstr)
+				errx(1, "width is %s: %s", errstr, optarg);
 			break;
 		case '?': case 'h':
 		default:
 			(void)fprintf(stderr,
 			    "usage: banner [-w width] message ...\n");
-			exit(1);
+			return 1;
 		}
 	argc -= optind;
 	argv += optind;
@@ -1097,7 +1098,7 @@ main(int argc, char *argv[])
 			j++;
 		}
 	if (j)
-		exit(1);
+		return 1;
 
 	if (trace)
 		printf("Message '%s' is OK\n",message);
@@ -1114,7 +1115,7 @@ main(int argc, char *argv[])
 		while (!term) {
 			if (pc < 0 || pc >= NBYTES) {
 				printf("bad pc: %d\n",pc);
-				exit(1);
+				return 1;
 			}
 			x = data_table[pc] & 0377;
 			if (trace)
@@ -1149,5 +1150,5 @@ main(int argc, char *argv[])
 		}
 	}
 
-	exit(0);
+	return 0;
 }

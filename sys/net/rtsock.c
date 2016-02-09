@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.181 2015/11/02 14:40:09 mpi Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.186 2016/01/12 09:27:46 mpi Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -76,6 +76,8 @@
 #include <net/if_var.h>
 #include <net/route.h>
 #include <net/raw_cb.h>
+
+#include <netinet/in.h>
 
 #ifdef MPLS
 #include <netmpls/mpls.h>
@@ -450,12 +452,13 @@ route_output(struct mbuf *m, ...)
 	struct rtentry		*rt = NULL;
 	struct rtentry		*saved_nrt = NULL;
 	struct rt_addrinfo	 info;
-	int			 len, newgate, error = 0;
+	int			 plen, len, newgate, error = 0;
 	struct ifnet		*ifp = NULL;
 	struct ifaddr		*ifa = NULL;
 	struct socket		*so;
 	struct rawcb		*rp = NULL;
 	struct sockaddr_rtlabel	 sa_rl;
+	struct sockaddr_in6	 sa_mask;
 #ifdef MPLS
 	struct sockaddr_mpls	 sa_mpls, *psa_mpls;
 #endif
@@ -652,16 +655,11 @@ route_output(struct mbuf *m, ...)
 		}
 
 		/*
-		 * RTM_CHANGE/LOCK need a perfect match, rn_lookup()
-		 * returns a perfect match in case a netmask is specified.
-		 * For host routes only a longest prefix match is returned
-		 * so it is necessary to compare the existence of the netmaks.
-		 * If both have a netmask rn_lookup() did a perfect match and
-		 * if none of them have a netmask both are host routes which is
-		 * also a perfect match.
+		 * RTM_CHANGE/LOCK need a perfect match.
 		 */
-		if (rtm->rtm_type != RTM_GET &&
-		    !rt_mask(rt) != !info.rti_info[RTAX_NETMASK]) {
+		plen = rtable_satoplen(info.rti_info[RTAX_DST]->sa_family,
+		    info.rti_info[RTAX_NETMASK]);
+		if (rtm->rtm_type != RTM_GET && rt_plen(rt) != plen ) {
 			error = ESRCH;
 			goto flush;
 		}
@@ -671,7 +669,8 @@ route_output(struct mbuf *m, ...)
 report:
 			info.rti_info[RTAX_DST] = rt_key(rt);
 			info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-			info.rti_info[RTAX_NETMASK] = rt_mask(rt);
+			info.rti_info[RTAX_NETMASK] =
+			    rt_plen2mask(rt, &sa_mask);
 			info.rti_info[RTAX_LABEL] =
 			    rtlabel_id2sa(rt->rt_labelid, &sa_rl);
 #ifdef MPLS
@@ -745,21 +744,23 @@ report:
 					goto flush;
 				ifa = info.rti_ifa;
 			}
-			if (info.rti_info[RTAX_GATEWAY] != NULL &&
-			    (error = rt_setgate(rt, info.rti_info[RTAX_GATEWAY],
-			     tableid)))
+			if (info.rti_info[RTAX_GATEWAY] != NULL && (error =
+			    rt_setgate(rt, info.rti_info[RTAX_GATEWAY])))
 				goto flush;
 			if (ifa) {
 				if (rt->rt_ifa != ifa) {
-					rt->rt_ifp->if_rtrequest(
-					    rt->rt_ifp, RTM_DELETE, rt);
+					ifp = if_get(rt->rt_ifidx);
+					KASSERT(ifp != NULL);
+					ifp->if_rtrequest(ifp, RTM_DELETE, rt);
 					ifafree(rt->rt_ifa);
-					rt->rt_ifa = ifa;
+					if_put(ifp);
+
 					ifa->ifa_refcnt++;
-					rt->rt_ifp = ifa->ifa_ifp;
+					rt->rt_ifa = ifa;
+					rt->rt_ifidx = ifa->ifa_ifp->if_index;
 #ifndef SMALL_KERNEL
 					/* recheck link state after ifp change*/
-					rt_if_linkstate_change(rt, rt->rt_ifp,
+					rt_if_linkstate_change(rt, ifa->ifa_ifp,
 					    tableid);
 #endif
 				}
@@ -816,13 +817,17 @@ report:
 			rtm->rtm_index = rt->rt_ifidx;
 			rtm->rtm_priority = rt->rt_priority & RTP_MASK;
 			rtm->rtm_flags = rt->rt_flags;
-			rt->rt_ifp->if_rtrequest(rt->rt_ifp, RTM_ADD, rt);
+
+			ifp = if_get(rt->rt_ifidx);
+			KASSERT(ifp != NULL);
+			ifp->if_rtrequest(ifp, RTM_ADD, rt);
+			if_put(ifp);
+
 			if (info.rti_info[RTAX_LABEL] != NULL) {
 				char *rtlabel = ((struct sockaddr_rtlabel *)
 				    info.rti_info[RTAX_LABEL])->sr_label;
 				rtlabel_unref(rt->rt_labelid);
-				rt->rt_labelid =
-				    rtlabel_name2id(rtlabel);
+				rt->rt_labelid = rtlabel_name2id(rtlabel);
 			}
 			if_group_routechange(info.rti_info[RTAX_DST],
 			    info.rti_info[RTAX_NETMASK]);
@@ -1187,6 +1192,7 @@ sysctl_dumpentry(struct rtentry *rt, void *v, unsigned int id)
 	struct sockaddr_mpls	 sa_mpls;
 #endif
 	struct sockaddr_rtlabel	 sa_rl;
+	struct sockaddr_in6	 sa_mask;
 
 	if (w->w_op == NET_RT_FLAGS && !(rt->rt_flags & w->w_arg))
 		return 0;
@@ -1206,7 +1212,7 @@ sysctl_dumpentry(struct rtentry *rt, void *v, unsigned int id)
 	bzero(&info, sizeof(info));
 	info.rti_info[RTAX_DST] = rt_key(rt);
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
+	info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp != NULL) {
 		info.rti_info[RTAX_IFP] = sdltosa(ifp->if_sadl);
@@ -1239,6 +1245,9 @@ sysctl_dumpentry(struct rtentry *rt, void *v, unsigned int id)
 		rt_getmetrics(&rt->rt_rmx, &rtm->rtm_rmx);
 		/* Do not account the routing table's reference. */
 		rtm->rtm_rmx.rmx_refcnt = rt->rt_refcnt - 1;
+#ifdef ART
+		rtm->rtm_rmx.rmx_refcnt--;
+#endif
 		rtm->rtm_index = rt->rt_ifidx;
 		rtm->rtm_addrs = info.rti_addrs;
 		rtm->rtm_tableid = id;

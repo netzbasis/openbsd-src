@@ -1,10 +1,10 @@
-/*	$OpenBSD: rtadvd.h,v 1.17 2014/01/07 14:58:40 gsoares Exp $	*/
+/*	$OpenBSD: rtadvd.h,v 1.21 2016/02/09 00:39:13 jca Exp $	*/
 /*	$KAME: rtadvd.h,v 1.20 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -47,16 +47,12 @@
 #define DEF_ADVVALIDLIFETIME 2592000
 #define DEF_ADVPREFERREDLIFETIME 604800
 
-/*XXX int-to-double comparison for INTERVAL items */
-#define mobileip6 0
-
+/* XXX int-to-double comparison for INTERVAL items */
 #define MAXROUTERLIFETIME 9000
-#define MIN_MAXINTERVAL (mobileip6 ? 1.5 : 4.0)
+#define MIN_MAXINTERVAL 4.0
 #define MAX_MAXINTERVAL 1800
-#define MIN_MININTERVAL	(mobileip6 ? 0.05 : 3.0)
+#define MIN_MININTERVAL	3.0
 #define MAXREACHABLETIME 3600000
-
-#undef miobileip6
 
 #define MAX_INITIAL_RTR_ADVERT_INTERVAL  16
 #define MAX_INITIAL_RTR_ADVERTISEMENTS    3
@@ -78,7 +74,7 @@ struct prefix {
 	u_int onlinkflg;	/* bool: AdvOnLinkFlag */
 	u_int autoconfflg;	/* bool: AdvAutonomousFlag */
 	int prefixlen;
-	int origin;		/* from kernel or cofig */
+	int origin;		/* from kernel or config */
 	struct in6_addr prefix;
 };
 
@@ -121,11 +117,6 @@ struct dnssl {
 	TAILQ_HEAD(dnssldomlist, dnssldom) dnssldoms;
 };
 
-struct soliciter {
-	SLIST_ENTRY(soliciter) entry;
-	struct sockaddr_in6 addr;
-};
-
 struct	rainfo {
 	/* pointer for list */
 	SLIST_ENTRY(rainfo) entry;
@@ -162,7 +153,7 @@ struct	rainfo {
 	int	rdnsscnt;	/* number of rdnss entries */
 	TAILQ_HEAD(dnssllist, dnssl) dnssls;
 	int	dnsslcnt;
-	long	clockskew;	/* used for consisitency check of lifetimes */
+	long	clockskew;	/* used for consistency check of lifetimes */
 
 
 	/* actual RA packet data and its length */
@@ -174,9 +165,6 @@ struct	rainfo {
 	u_quad_t rainput;	/* number of RAs received */
 	u_quad_t rainconsistent; /* number of RAs inconsistent with ours */
 	u_quad_t rsinput;	/* number of RSs received */
-
-	/* info about soliciter */
-	SLIST_HEAD(, soliciter) soliciters; /* recent solication source */
 };
 SLIST_HEAD(ralist, rainfo);
 

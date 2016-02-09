@@ -1,4 +1,4 @@
-/* $OpenBSD: if_cpsw.c,v 1.28 2015/10/27 15:07:56 mpi Exp $ */
+/* $OpenBSD: if_cpsw.c,v 1.32 2016/01/07 04:41:17 canacar Exp $ */
 /*	$NetBSD: if_cpsw.c,v 1.3 2013/04/17 14:36:34 bouyer Exp $	*/
 
 /*
@@ -450,7 +450,7 @@ cpsw_start(struct ifnet *ifp)
 	u_int mlen;
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ISSET(ifp->if_flags, IFF_OACTIVE) ||
+	    ifq_is_oactive(&ifp->if_snd) ||
 	    IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
 
@@ -461,15 +461,13 @@ cpsw_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (txfree <= CPSW_TXFRAGS) {
-			SET(ifp->if_flags, IFF_OACTIVE);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 		dm = rdp->tx_dm[sc->sc_txnext];
 		error = bus_dmamap_load_mbuf(sc->sc_bdt, dm, m, BUS_DMA_NOWAIT);
@@ -869,7 +867,7 @@ cpsw_init(struct ifnet *ifp)
 	sc->sc_txeoq = true;
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->sc_tick, 1);
 
@@ -937,8 +935,9 @@ cpsw_stop(struct ifnet *ifp)
 		rdp->tx_mb[i] = NULL;
 	}
 
-	ifp->if_flags &= ~(IFF_RUNNING|IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
 	ifp->if_timer = 0;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* XXX Not sure what this is doing calling disable here
 	    where is disable set?
@@ -979,6 +978,8 @@ cpsw_rxintr(void *arg)
 	u_int i;
 	u_int len, off;
 
+	sc->sc_rxeoq = false;
+	
 	for (;;) {
 		KASSERT(sc->sc_rxhead < CPSW_NRXDESCS);
 
@@ -999,18 +1000,22 @@ cpsw_rxintr(void *arg)
 			goto done;
 		}
 
-		if ((bd.flags & (CPDMA_BD_SOP|CPDMA_BD_EOP)) !=
-		    (CPDMA_BD_SOP|CPDMA_BD_EOP)) {
-			/* Debugger(); */
-		}
-
 		bus_dmamap_sync(sc->sc_bdt, dm, 0, dm->dm_mapsize,
 		    BUS_DMASYNC_POSTREAD);
-		bus_dmamap_unload(sc->sc_bdt, dm);
 
 		if (cpsw_new_rxbuf(sc, i) != 0) {
 			/* drop current packet, reuse buffer for new */
 			ifp->if_ierrors++;
+			goto next;
+		}
+
+		if ((bd.flags & (CPDMA_BD_SOP|CPDMA_BD_EOP)) !=
+		    (CPDMA_BD_SOP|CPDMA_BD_EOP)) {
+			if (bd.flags & CPDMA_BD_SOP) {
+				printf("cpsw: rx packet too large\n");
+				ifp->if_ierrors++;
+			}
+			m_freem(m);
 			goto next;
 		}
 
@@ -1029,17 +1034,17 @@ next:
 		sc->sc_rxhead = RXDESC_NEXT(sc->sc_rxhead);
 		if (bd.flags & CPDMA_BD_EOQ) {
 			sc->sc_rxeoq = true;
-			break;
-		} else {
-			sc->sc_rxeoq = false;
+			sc->sc_rxrun = false;
 		}
 		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_CP(0),
 		    cpsw_rxdesc_paddr(sc, i));
 	}
 
 	if (sc->sc_rxeoq) {
-		printf("rxeoq\n");
-		/* Debugger(); */
+		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_HDP(0),
+				  cpsw_rxdesc_paddr(sc, sc->sc_rxhead));
+		sc->sc_rxrun = true;
+		sc->sc_rxeoq = false;
 	}
 
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_CPDMA_EOI_VECTOR,
@@ -1124,7 +1129,7 @@ cpsw_txintr(void *arg)
 
 		handled = true;
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 next:
 		if ((bd.flags & (CPDMA_BD_EOP|CPDMA_BD_EOQ)) ==

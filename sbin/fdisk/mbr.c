@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.56 2015/10/26 15:08:26 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.65 2015/12/30 17:21:39 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -17,64 +17,56 @@
  */
 
 #include <sys/param.h>	/* DEV_BSIZE */
-#include <sys/fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
-#include <err.h>
-#include <errno.h>
-#include <util.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
+
 #include <stdint.h>
-#include <memory.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "disk.h"
 #include "part.h"
 #include "misc.h"
 #include "mbr.h"
+#include "gpt.h"
 
 struct mbr initial_mbr;
+
+static int gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 int
 MBR_protective_mbr(struct mbr *mbr)
 {
-	u_int64_t dsize;
-	int efi, found, i;
-	u_int32_t psize;
+	struct dos_partition dp[NDOSPART], dos_partition;
+	int i;
 
-	found = efi = 0;
 	for (i = 0; i < NDOSPART; i++) {
-		if (mbr->part[i].id == DOSPTYP_UNUSED)
-			continue;
-		found++;
-		if (mbr->part[i].id != DOSPTYP_EFI)
-			continue;
-		dsize = DL_GETDSIZE(&dl);
-		psize = mbr->part[i].ns;
-		if (psize == (dsize - 1) || psize == UINT32_MAX) {
-			if (mbr->part[i].bs == 1)
-				efi++;
-		}
+		PRT_make(&mbr->part[i], mbr->offset, mbr->reloffset,
+		    &dos_partition);
+		memcpy(&dp[i], &dos_partition, sizeof(dp[i]));
 	}
-	if (found == 1 && efi == 1)
-		return (0);
 
-	return (1);
+	return (gpt_chk_mbr(dp, DL_GETDSIZE(&dl)));
 }
 
 void
 MBR_init_GPT(struct mbr *mbr)
 {
-	/* Initialize a protective MBR for GPT. */
-	bzero(&mbr->part, sizeof(mbr->part));
+	u_int64_t sz;
+
+	sz = DL_GETDSIZE(&dl);
+
+	memset(&mbr->part, 0, sizeof(mbr->part));
 
 	/* Use whole disk, starting after MBR. */
 	mbr->part[0].id = DOSPTYP_EFI;
 	mbr->part[0].bs = 1;
-	mbr->part[0].ns = disk.size - 1;
+	if (sz > UINT32_MAX)
+		mbr->part[0].ns = UINT32_MAX;
+	else
+		mbr->part[0].ns = sz - 1;
 
 	/* Fix up start/length fields. */
 	PRT_fix_CHS(&mbr->part[0]);
@@ -87,10 +79,17 @@ MBR_init(struct mbr *mbr)
 	u_int64_t adj;
 	daddr_t i;
 
-	/* Fix up given mbr for this disk */
+	/*
+	 * XXX Do *NOT* zap all MBR parts! Some archs still read initmbr
+	 * from disk!! Just mark them inactive until -b goodness spreads
+	 * further.
+	 */
 	mbr->part[0].flag = 0;
 	mbr->part[1].flag = 0;
 	mbr->part[2].flag = 0;
+
+	memset(&gh, 0, sizeof(gh));
+	memset(&gp, 0, sizeof(gp));
 
 	mbr->part[3].flag = DOSACTIVE;
 	mbr->signature = DOSMBR_SIGNATURE;
@@ -208,11 +207,11 @@ MBR_print(struct mbr *mbr, char *units)
 }
 
 int
-MBR_read(int fd, off_t where, struct dos_mbr *dos_mbr)
+MBR_read(off_t where, struct dos_mbr *dos_mbr)
 {
 	char *secbuf;
 
-	secbuf = DISK_readsector(fd, where);
+	secbuf = DISK_readsector(where);
 	if (secbuf == NULL)
 		return (-1);
 
@@ -223,11 +222,11 @@ MBR_read(int fd, off_t where, struct dos_mbr *dos_mbr)
 }
 
 int
-MBR_write(int fd, off_t where, struct dos_mbr *dos_mbr)
+MBR_write(off_t where, struct dos_mbr *dos_mbr)
 {
 	char *secbuf;
 
-	secbuf = DISK_readsector(fd, where);
+	secbuf = DISK_readsector(where);
 	if (secbuf == NULL)
 		return (-1);
 
@@ -236,36 +235,14 @@ MBR_write(int fd, off_t where, struct dos_mbr *dos_mbr)
 	 * write the sector back to "disk".
 	 */
 	memcpy(secbuf, dos_mbr, sizeof(*dos_mbr));
-	DISK_writesector(fd, secbuf, where);
-	ioctl(fd, DIOCRLDINFO, 0);
+	DISK_writesector(secbuf, where);
+
+	/* Refresh in-kernel disklabel from the updated disk information. */
+	ioctl(disk.fd, DIOCRLDINFO, 0);
 
 	free(secbuf);
 
 	return (0);
-}
-
-/*
- * Parse the MBR partition table into 'mbr', leaving the rest of 'mbr'
- * untouched.
- */
-void
-MBR_pcopy(struct mbr *mbr)
-{
-	struct dos_partition dos_parts[NDOSPART];
-	struct dos_mbr dos_mbr;
-	int i, fd, error;
-
-	fd = DISK_open(disk.name, O_RDONLY);
-	error = MBR_read(fd, 0, &dos_mbr);
-	close(fd);
-
-	if (error == -1)
-		return;
-
-	memcpy(dos_parts, dos_mbr.dmbr_parts, sizeof(dos_parts));
-
-	for (i = 0; i < NDOSPART; i++)
-		PRT_parse(&dos_parts[i], 0, 0, &mbr->part[i]);
 }
 
 /*
@@ -275,7 +252,7 @@ MBR_pcopy(struct mbr *mbr)
  * confused.
  */
 void
-MBR_zapgpt(int fd, struct dos_mbr *dos_mbr, uint64_t lastsec)
+MBR_zapgpt(struct dos_mbr *dos_mbr, uint64_t lastsec)
 {
 	struct dos_partition dos_parts[NDOSPART];
 	char *secbuf;
@@ -289,25 +266,63 @@ MBR_zapgpt(int fd, struct dos_mbr *dos_mbr, uint64_t lastsec)
 		    (dos_parts[i].dp_typ == DOSPTYP_EFISYS))
 			return;
 
-	secbuf = DISK_readsector(fd, GPTSECTOR);
+	secbuf = DISK_readsector(GPTSECTOR);
 	if (secbuf == NULL)
 		return;
 
 	memcpy(&sig, secbuf, sizeof(sig));
 	if (letoh64(sig) == GPTSIGNATURE) {
 		memset(secbuf, 0, sizeof(sig));
-		DISK_writesector(fd, secbuf, GPTSECTOR);
+		DISK_writesector(secbuf, GPTSECTOR);
 	}
 	free(secbuf);
 
-	secbuf = DISK_readsector(fd, lastsec);
+	secbuf = DISK_readsector(lastsec);
 	if (secbuf == NULL)
 		return;
 
 	memcpy(&sig, secbuf, sizeof(sig));
 	if (letoh64(sig) == GPTSIGNATURE) {
 		memset(secbuf, 0, sizeof(sig));
-		DISK_writesector(fd, secbuf, lastsec);
+		DISK_writesector(secbuf, lastsec);
 	}
 	free(secbuf);
 }
+
+/*
+ * Returns 0 if the MBR with the provided partition array is a GPT protective
+ * MBR, and returns 1 otherwise. A GPT protective MBR would have one and only
+ * one MBR partition, an EFI partition that either covers the whole disk or as
+ * much of it as is possible with a 32bit size field.
+ *
+ * Taken from kern/subr_disk.c.
+ *
+ * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
+ */
+int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
+{
+	struct dos_partition *dp2;
+	int efi, found, i;
+	u_int32_t psize;
+
+	found = efi = 0;
+	for (dp2=dp, i=0; i < NDOSPART; i++, dp2++) {
+		if (dp2->dp_typ == DOSPTYP_UNUSED)
+			continue;
+		found++;
+		if (dp2->dp_typ != DOSPTYP_EFI)
+			continue;
+		psize = letoh32(dp2->dp_size);
+		if (psize == (dsize - 1) ||
+		    psize == UINT32_MAX) {
+			if (letoh32(dp2->dp_start) == 1)
+				efi++;
+		}
+	}
+	if (found == 1 && efi == 1)
+		return (0);
+
+	return (1);
+}
+

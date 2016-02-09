@@ -1,4 +1,4 @@
-/*	$OpenBSD: queue.c,v 1.171 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: queue.c,v 1.176 2016/01/27 12:46:03 sunil Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -72,8 +72,9 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 	uint64_t		 reqid, evpid, holdq;
 	uint32_t		 msgid;
 	time_t			 nexttry;
-	size_t			 n_evp;
+	size_t			 buflen, id_sz, n_evp;
 	int			 fd, mta_ext, ret, v, flags, code;
+	char			 buf[sizeof(evp)];
 
 	memset(&bounce, 0, sizeof(struct delivery_bounce));
 	if (p->proc == PROC_PONY) {
@@ -237,6 +238,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			return;
 
 		case IMSG_SCHED_ENVELOPE_BOUNCE:
+			CHECK_IMSG_DATA_SIZE(imsg, sizeof *req_bounce);
 			req_bounce = imsg->data;
 			evpid = req_bounce->evpid;
 
@@ -328,8 +330,13 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 				 */
 				evp.lasttry = nexttry;
 			}
+
+			id_sz = sizeof evp.id;
+			(void)memcpy(buf, &evp.id, id_sz);
+			buflen = envelope_dump_buffer(&evp, buf + id_sz,
+			    sizeof(buf) - id_sz);
 			m_compose(p_control, IMSG_CTL_LIST_ENVELOPES,
-			    imsg->hdr.peerid, 0, -1, &evp, sizeof evp);
+			    imsg->hdr.peerid, 0, -1, buf, id_sz + buflen + 1);
 			return;
 		}
 	}
@@ -362,7 +369,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			if (evp.dsn_notify & DSN_SUCCESS) {
 				bounce.type = B_DSN;
 				bounce.dsn_ret = evp.dsn_ret;
-
+				envelope_set_esc_class(&evp, ESC_STATUS_OK);
 				if (imsg->hdr.type == IMSG_MDA_DELIVERY_OK)
 					queue_bounce(&evp, &bounce);
 				else if (imsg->hdr.type == IMSG_MTA_DELIVERY_OK &&
@@ -702,7 +709,7 @@ queue(void)
 		log_info("queue: queue compression enabled");
 
 	if (env->sc_queue_key) {
-		if (! crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
+		if (!crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
 			fatalx("crypto_setup: invalid key for queue encryption");
 		log_info("queue: queue encryption enabled");
 	}
@@ -788,13 +795,13 @@ static void
 queue_log(const struct envelope *e, const char *prefix, const char *status)
 {
 	char rcpt[LINE_MAX];
-	
+
 	(void)strlcpy(rcpt, "-", sizeof rcpt);
 	if (strcmp(e->rcpt.user, e->dest.user) ||
 	    strcmp(e->rcpt.domain, e->dest.domain))
 		(void)snprintf(rcpt, sizeof rcpt, "%s@%s",
 		    e->rcpt.user, e->rcpt.domain);
-	
+
 	log_info("%s: %s for %016" PRIx64 ": from=<%s@%s>, to=<%s@%s>, "
 	    "rcpt=<%s>, delay=%s, stat=%s",
 	    e->type == D_MDA ? "delivery" : "relay",

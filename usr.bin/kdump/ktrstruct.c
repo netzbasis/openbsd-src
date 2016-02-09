@@ -1,4 +1,4 @@
-/*	$OpenBSD: ktrstruct.c,v 1.13 2015/10/18 05:03:22 guenther Exp $	*/
+/*	$OpenBSD: ktrstruct.c,v 1.16 2016/01/14 05:27:42 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -34,6 +34,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/event.h>
 #include <sys/un.h>
 #include <ufs/ufs/quota.h>
 #include <netinet/in.h>
@@ -369,9 +370,11 @@ static void
 ktrmsghdr(const struct msghdr *msg)
 {
 	printf("struct msghdr { name=%p, namelen=%u, iov=%p, iovlen=%u,"
-	    " control=%p, controllen=%u, flags=%d }\n",
+	    " control=%p, controllen=%u, flags=",
 	    msg->msg_name, msg->msg_namelen, msg->msg_iov, msg->msg_iovlen,
-	    msg->msg_control, msg->msg_controllen, msg->msg_flags);
+	    msg->msg_control, msg->msg_controllen);
+	sendrecvflagsname(msg->msg_flags);
+	printf(" }\n");
 }
 
 static void
@@ -387,6 +390,33 @@ ktriovec(const char *data, int count)
 		memcpy(&iov, data, sizeof(iov));
 		data += sizeof(iov);
 		printf(" { base=%p, len=%lu }", iov.iov_base, iov.iov_len);
+	}
+	printf("\n");
+}
+
+static void
+ktrevent(const char *data, int count)
+{
+	struct kevent kev;
+	int i;
+
+	printf("struct kevent");
+	if (count > 1)
+		printf(" [%d]", count);
+	for (i = 0; i < count; i++) {
+		memcpy(&kev, data, sizeof(kev));
+		data += sizeof(kev);
+		printf(" { ident=%lu, filter=", kev.ident);
+		evfiltername(kev.filter);
+		printf(", flags=");
+		evflagsname(kev.flags);
+		printf(", fflags=");
+		evfflagsname(kev.filter, kev.fflags);
+		printf(", data=%llu", kev.data);
+		if ((kev.flags & EV_ERROR) && fancy) {
+			printf("<\"%s\">", strerror(kev.data));
+		}
+		printf(", udata=%p }", kev.udata);
 	}
 	printf("\n");
 }
@@ -552,6 +582,10 @@ ktrstruct(char *buf, size_t buflen)
 		if (datalen % sizeof(struct iovec))
 			goto invalid;
 		ktriovec(data, datalen / sizeof(struct iovec));
+	} else if (strcmp(name, "kevent") == 0) {
+		if (datalen % sizeof(struct kevent))
+			goto invalid;
+		ktrevent(data, datalen / sizeof(struct kevent));
 	} else if (strcmp(name, "cmsghdr") == 0) {
 		char *cmsg;
 

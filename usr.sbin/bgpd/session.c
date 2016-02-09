@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.c,v 1.345 2015/10/25 18:49:01 claudio Exp $ */
+/*	$OpenBSD: session.c,v 1.347 2015/11/20 23:26:08 florian Exp $ */
 
 /*
  * Copyright (c) 2003, 2004, 2005 Henning Brauer <henning@openbsd.org>
@@ -487,9 +487,11 @@ session_main(int debug, int verbose)
 		if (pauseaccept && getmonotime() > pauseaccept + 1)
 			pauseaccept = 0;
 
-		if (handle_pollfd(&pfd[PFD_PIPE_MAIN], ibuf_main) == -1)
-			fatalx("SE: Lost connection to parent");
-		else
+		if (handle_pollfd(&pfd[PFD_PIPE_MAIN], ibuf_main) == -1) {
+			log_warnx("SE: Lost connection to parent");
+			session_quit = 1;
+			continue;
+		} else
 			session_dispatch_imsg(ibuf_main, PFD_PIPE_MAIN,
 			    &listener_cnt);
 
@@ -2658,11 +2660,9 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 			if (restricted) {
 				control_shutdown(rcsock);
 				rcsock = imsg.fd;
-				control_listen(rcsock);
 			} else {
 				control_shutdown(csock);
 				csock = imsg.fd;
-				control_listen(csock);
 			}
 			break;
 		case IMSG_RECONF_DONE:

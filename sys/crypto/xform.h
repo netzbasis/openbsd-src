@@ -1,4 +1,4 @@
-/*	$OpenBSD: xform.h,v 1.25 2015/11/03 01:31:36 mikeb Exp $	*/
+/*	$OpenBSD: xform.h,v 1.28 2015/12/10 21:00:51 naddy Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -76,7 +76,6 @@ union authctx {
 	AES_GMAC_CTX aes_gmac_ctx;
 };
 
-extern struct enc_xform enc_xform_des;
 extern struct enc_xform enc_xform_3des;
 extern struct enc_xform enc_xform_blf;
 extern struct enc_xform enc_xform_cast5;
@@ -86,11 +85,8 @@ extern struct enc_xform enc_xform_aes_gcm;
 extern struct enc_xform enc_xform_aes_gmac;
 extern struct enc_xform enc_xform_aes_xts;
 extern struct enc_xform enc_xform_chacha20_poly1305;
-extern struct enc_xform enc_xform_arc4;
 extern struct enc_xform enc_xform_null;
 
-extern struct auth_hash auth_hash_md5;
-extern struct auth_hash auth_hash_sha1;
 extern struct auth_hash auth_hash_hmac_md5_96;
 extern struct auth_hash auth_hash_hmac_sha1_96;
 extern struct auth_hash auth_hash_hmac_ripemd_160_96;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: random.c,v 1.14 2015/11/04 21:22:10 tedu Exp $	*/
+/*	$OpenBSD: random.c,v 1.19 2016/01/10 13:35:10 mestre Exp $	*/
 /*	$NetBSD: random.c,v 1.3 1995/04/22 07:44:05 cgd Exp $	*/
 
 /*
@@ -33,19 +33,13 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-
-#include <dev/rndvar.h>
-
 #include <err.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
-#include <limits.h>
 
-void usage(void);
+__dead void usage(void);
 
 int
 main(int argc, char *argv[])
@@ -69,7 +63,6 @@ main(int argc, char *argv[])
 		default:
 		case '?': case 'h':
 			usage();
-			/* NOTREACHED */
 		}
 
 	argc -= optind;
@@ -89,7 +82,6 @@ main(int argc, char *argv[])
 		break;
 	default:
 		usage(); 
-		/* NOTREACHED */
 	}
 
 	/* Compute a random exit status between 0 and denom - 1. */
@@ -124,7 +116,7 @@ main(int argc, char *argv[])
 	}
 	if (ferror(stdin))
 		err(2, "stdin");
-	exit (0);
+	return 0;
 }
 
 void

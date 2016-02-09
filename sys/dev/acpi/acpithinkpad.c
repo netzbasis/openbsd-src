@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpithinkpad.c,v 1.45 2015/09/11 07:25:04 guenther Exp $	*/
+/*	$OpenBSD: acpithinkpad.c,v 1.51 2016/01/10 16:30:43 stsp Exp $	*/
 /*
  * Copyright (c) 2008 joshua stein <jcs@openbsd.org>
  *
@@ -23,6 +23,7 @@
 #include <dev/acpi/acpidev.h>
 #include <dev/acpi/amltypes.h>
 #include <dev/acpi/dsdt.h>
+#include <dev/wscons/wsconsio.h>
 
 #include <machine/apmvar.h>
 
@@ -54,6 +55,8 @@
 #define	THINKPAD_BUTTON_EXTERNAL_SCREEN	0x1007
 #define	THINKPAD_BUTTON_POINTER_SWITCH	0x1008
 #define	THINKPAD_BUTTON_EJECT		0x1009
+#define	THINKPAD_BUTTON_FN_F11		0x100b
+#define	THINKPAD_BUTTON_HIBERNATE	0x100c
 #define	THINKPAD_BUTTON_BRIGHTNESS_UP	0x1010
 #define	THINKPAD_BUTTON_BRIGHTNESS_DOWN	0x1011
 #define	THINKPAD_BUTTON_THINKLIGHT	0x1012
@@ -64,8 +67,6 @@
 #define	THINKPAD_BUTTON_THINKVANTAGE	0x1018
 #define	THINKPAD_BUTTON_BLACK		0x101a
 #define	THINKPAD_BUTTON_MICROPHONE_MUTE	0x101b
-#define	THINKPAD_BUTTON_FN_F11		0x100b
-#define	THINKPAD_BUTTON_HIBERNATE	0x100c
 #define	THINKPAD_KEYLIGHT_CHANGED	0x101c
 #define	THINKPAD_BUTTON_CONFIG		0x101d
 #define	THINKPAD_BUTTON_FIND		0x101e
@@ -83,6 +84,8 @@
 #define	THINKPAD_ADAPTIVE_BACK		0x1111
 #define THINKPAD_PORT_REPL_DOCKED	0x4010
 #define THINKPAD_PORT_REPL_UNDOCKED	0x4011
+#define	THINKPAD_TABLET_DOCKED		0x4012
+#define	THINKPAD_TABLET_UNDOCKED	0x4013
 #define	THINKPAD_LID_OPEN		0x5001
 #define	THINKPAD_LID_CLOSED		0x5002
 #define	THINKPAD_TABLET_SCREEN_NORMAL	0x500a
@@ -117,6 +120,12 @@ struct acpithinkpad_softc {
 
 	struct ksensor		 sc_sens[THINKPAD_NSENSORS];
 	struct ksensordev	 sc_sensdev;
+
+	uint64_t		 sc_thinklight;
+	const char		*sc_thinklight_get;
+	const char		*sc_thinklight_set;
+
+	uint64_t		 sc_brightness;
 };
 
 extern void acpiec_read(struct acpiec_softc *, u_int8_t, int, u_int8_t *);
@@ -135,6 +144,20 @@ int	thinkpad_brightness_up(struct acpithinkpad_softc *);
 int	thinkpad_brightness_down(struct acpithinkpad_softc *);
 int	thinkpad_adaptive_change(struct acpithinkpad_softc *);
 int	thinkpad_activate(struct device *, int);
+
+/* wscons hook functions */
+void	thinkpad_get_thinklight(struct acpithinkpad_softc *);
+void	thinkpad_set_thinklight(void *, int);
+int	thinkpad_get_backlight(struct wskbd_backlight *);
+int	thinkpad_set_backlight(struct wskbd_backlight *);
+extern int (*wskbd_get_backlight)(struct wskbd_backlight *);
+extern int (*wskbd_set_backlight)(struct wskbd_backlight *);
+void	thinkpad_get_brightness(struct acpithinkpad_softc *);
+void	thinkpad_set_brightness(void *, int);
+int	thinkpad_get_param(struct wsdisplay_param *);
+int	thinkpad_set_param(struct wsdisplay_param *);
+extern int (*ws_get_param)(struct wsdisplay_param *);
+extern int (*ws_set_param)(struct wsdisplay_param *);
 
 void    thinkpad_sensor_attach(struct acpithinkpad_softc *sc);
 void    thinkpad_sensor_refresh(void *);
@@ -238,6 +261,27 @@ thinkpad_attach(struct device *parent, struct device *self, void *aux)
 	/* Set event mask to receive everything */
 	thinkpad_enable_events(sc);
 	thinkpad_sensor_attach(sc);
+
+	/* Check for ThinkLight or keyboard backlight */
+	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "KLCG",
+	    0, NULL, &sc->sc_thinklight) == 0) {
+		sc->sc_thinklight_get = "KLCG";
+		sc->sc_thinklight_set = "KLCS";
+		wskbd_get_backlight = thinkpad_get_backlight;
+		wskbd_set_backlight = thinkpad_set_backlight;
+	} else if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "MLCG",
+	    0, NULL, &sc->sc_thinklight) == 0) {
+		sc->sc_thinklight_get = "MLCG";
+		sc->sc_thinklight_set = "MLCS";
+		wskbd_get_backlight = thinkpad_get_backlight;
+		wskbd_set_backlight = thinkpad_set_backlight;
+	}
+
+	if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "PBLG",
+	    0, NULL, &sc->sc_brightness) == 0) {
+		ws_get_param = thinkpad_get_param;
+		ws_set_param = thinkpad_set_param;
+	}
 
 	/* Run thinkpad_hotkey on button presses */
 	aml_register_notify(sc->sc_devnode, aa->aaa_dev,
@@ -355,10 +399,16 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 #endif
 			handled = 1;
 			break;
+		case THINKPAD_BUTTON_THINKLIGHT:
+			thinkpad_get_thinklight(sc);
+			break;
 		case THINKPAD_ADAPTIVE_NEXT:
 		case THINKPAD_ADAPTIVE_QUICK:
 			thinkpad_adaptive_change(sc);
 			handled = 1;
+			break;
+		case THINKPAD_BACKLIGHT_CHANGED:
+			thinkpad_get_brightness(sc);
 			break;
 		case THINKPAD_ADAPTIVE_BACK:
 		case THINKPAD_ADAPTIVE_GESTURES:
@@ -367,7 +417,6 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 		case THINKPAD_ADAPTIVE_SNIP:
 		case THINKPAD_ADAPTIVE_TAB:
 		case THINKPAD_ADAPTIVE_VOICE:
-		case THINKPAD_BACKLIGHT_CHANGED:
 		case THINKPAD_KEYLIGHT_CHANGED:
 		case THINKPAD_BRIGHTNESS_CHANGED:
 		case THINKPAD_BUTTON_BATTERY_INFO:
@@ -380,7 +429,6 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 		case THINKPAD_BUTTON_FN_TOGGLE:
 		case THINKPAD_BUTTON_LOCK_SCREEN:
 		case THINKPAD_BUTTON_POINTER_SWITCH:
-		case THINKPAD_BUTTON_THINKLIGHT:
 		case THINKPAD_BUTTON_THINKVANTAGE:
 		case THINKPAD_BUTTON_BLACK:
 		case THINKPAD_BUTTON_CONFIG:
@@ -391,6 +439,8 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 		case THINKPAD_LID_OPEN:
 		case THINKPAD_PORT_REPL_DOCKED:
 		case THINKPAD_PORT_REPL_UNDOCKED:
+		case THINKPAD_TABLET_DOCKED:
+		case THINKPAD_TABLET_UNDOCKED:
 		case THINKPAD_POWER_CHANGED:
 		case THINKPAD_SWITCH_WIRELESS:
 		case THINKPAD_TABLET_PEN_INSERTED:
@@ -548,4 +598,120 @@ thinkpad_activate(struct device *self, int act)
 		break;
 	}
 	return (0);
+}
+
+void
+thinkpad_get_thinklight(struct acpithinkpad_softc *sc)
+{
+	if (sc->sc_thinklight_get)
+		aml_evalinteger(sc->sc_acpi, sc->sc_devnode,
+		    sc->sc_thinklight_get, 0, NULL, &sc->sc_thinklight);
+}
+
+void
+thinkpad_set_thinklight(void *arg0, int arg1)
+{
+	struct acpithinkpad_softc *sc = arg0;
+	struct aml_value arg;
+
+	memset(&arg, 0, sizeof(arg));
+	arg.type = AML_OBJTYPE_INTEGER;
+	arg.v_integer = sc->sc_thinklight & 0x0f;
+	aml_evalname(sc->sc_acpi, sc->sc_devnode,
+	    sc->sc_thinklight_set, 1, &arg, NULL);
+}
+
+int
+thinkpad_get_backlight(struct wskbd_backlight *kbl)
+{
+	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
+
+	KASSERT(sc != NULL);
+
+	kbl->min = 0;
+	kbl->max = (sc->sc_thinklight >> 8) & 0x0f;
+	kbl->curval = sc->sc_thinklight & 0x0f;
+	return 0;
+}
+
+int
+thinkpad_set_backlight(struct wskbd_backlight *kbl)
+{
+	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
+	int maxval = (sc->sc_thinklight >> 8) & 0x0f;
+
+	KASSERT(sc != NULL);
+
+	if (kbl->curval > maxval)
+		return EINVAL;
+
+	sc->sc_thinklight &= ~0xff;
+	sc->sc_thinklight |= kbl->curval;
+	acpi_addtask(sc->sc_acpi, thinkpad_set_thinklight, sc, 0);
+	acpi_wakeup(sc->sc_acpi);
+	return 0;
+}
+
+void
+thinkpad_get_brightness(struct acpithinkpad_softc *sc)
+{
+	aml_evalinteger(sc->sc_acpi, sc->sc_devnode,
+	    "PBLG", 0, NULL, &sc->sc_brightness);
+}
+
+void
+thinkpad_set_brightness(void *arg0, int arg1)
+{
+	struct acpithinkpad_softc *sc = arg0;
+	struct aml_value arg;
+
+	memset(&arg, 0, sizeof(arg));
+	arg.type = AML_OBJTYPE_INTEGER;
+	arg.v_integer = sc->sc_brightness & 0xff;
+	aml_evalname(sc->sc_acpi, sc->sc_devnode,
+	    "PBLS", 1, &arg, NULL);
+}
+
+int
+thinkpad_get_param(struct wsdisplay_param *dp)
+{
+	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
+
+	if (sc == NULL)
+		return -1;
+
+	switch (dp->param) {
+	case WSDISPLAYIO_PARAM_BRIGHTNESS:
+		dp->min = 0;
+		dp->max = (sc->sc_brightness >> 8) & 0xff;
+		dp->curval = sc->sc_brightness & 0xff;
+		return 0;
+	default:
+		return -1;
+	}
+}
+
+int
+thinkpad_set_param(struct wsdisplay_param *dp)
+{
+	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
+	int maxval = (sc->sc_brightness >> 8) & 0xff;
+
+	if (sc == NULL)
+		return -1;
+
+	switch (dp->param) {
+	case WSDISPLAYIO_PARAM_BRIGHTNESS:
+		if (dp->curval < 0)
+			dp->curval = 0;
+		if (dp->curval > maxval)
+			dp->curval = maxval;
+		sc->sc_brightness &= ~0xff;
+		sc->sc_brightness |= dp->curval;
+		acpi_addtask(sc->sc_acpi, thinkpad_set_brightness, sc, 0);
+		acpi_wakeup(sc->sc_acpi);
+		return 0;
+	default:
+		return -1;
+	}
 }

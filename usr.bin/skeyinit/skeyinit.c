@@ -1,4 +1,4 @@
-/*	$OpenBSD: skeyinit.c,v 1.61 2015/10/09 21:59:34 tim Exp $	*/
+/*	$OpenBSD: skeyinit.c,v 1.68 2015/11/29 19:10:44 deraadt Exp $	*/
 
 /* OpenBSD S/Key (skeyinit.c)
  *
@@ -55,6 +55,10 @@ main(int argc, char **argv)
 	struct skey skey;
 	struct passwd *pp;
 
+	if (pledge("stdio rpath wpath cpath fattr flock tty proc exec getpw",
+	    NULL) == -1)
+		err(1, "pledge");
+
 	n = rmkey = hexmode = enable = 0;
 	defaultsetup = 1;
 	ht = auth_type = NULL;
@@ -73,9 +77,6 @@ main(int argc, char **argv)
 	if ((pp = getpwuid(getuid())) == NULL)
 		err(1, "no user with uid %u", getuid());
 	(void)strlcpy(me, pp->pw_name, sizeof me);
-
-	if ((pp = getpwnam(me)) == NULL)
-		err(1, "Who are you?");
 
 	for (i = 1; i < argc && argv[i][0] == '-' && strcmp(argv[i], "--");) {
 		if (argv[i][2] == '\0') {
@@ -185,6 +186,9 @@ main(int argc, char **argv)
 			errx(1, "Password incorrect");
 	}
 
+	if (pledge("stdio rpath wpath cpath fattr flock tty", NULL) == -1)
+		err(1, "pledge");
+
 	/*
 	 * Lookup and lock the record we are about to modify.
 	 * If this is a new entry this will prevent other users
@@ -268,7 +272,7 @@ main(int argc, char **argv)
 	if (fchown(fileno(skey.keyfile), pp->pw_uid, -1) != 0 ||
 	    fchmod(fileno(skey.keyfile), S_IRUSR | S_IWUSR) != 0)
 		err(1, "can't set owner/mode for %s", pp->pw_name);
-	if (n == 0)
+	if (defaultsetup && n == 0)
 		n = 100;
 
 	/* Set hash type if asked to */
@@ -305,22 +309,27 @@ secure_mode(int *count, char *key, char *seed, size_t seedlen,
 {
 	char *p, newseed[SKEY_MAX_SEED_LEN + 2];
 	const char *errstr;
-	int i, n;
+	int i, n = *count;
 
 	(void)puts("You need the 6 words generated from the \"skey\" command.");
-	for (i = 0; ; i++) {
-		if (i >= 2)
-			exit(1);
+	if (n == 0) {
+		for (i = 0; ; i++) {
+			if (i >= 2)
+				exit(1);
 
-		(void)printf("Enter sequence count from 1 to %d: ",
-		    SKEY_MAX_SEQ);
-		(void)fgets(buf, bufsiz, stdin);
-		clearerr(stdin);
-		n = strtonum(buf, 1, SKEY_MAX_SEQ-1, &errstr);
-		if (!errstr)
-			break;	/* Valid range */
-		fprintf(stderr, "ERROR: Count must be between 1 and %d\n",
-		    SKEY_MAX_SEQ - 1);
+			(void)printf("Enter sequence count from 1 to %d: ",
+			    SKEY_MAX_SEQ);
+			(void)fgets(buf, bufsiz, stdin);
+			clearerr(stdin);
+			rip(buf);
+			n = strtonum(buf, 1, SKEY_MAX_SEQ-1, &errstr);
+			if (!errstr)
+				break;	/* Valid range */
+			fprintf(stderr,
+			    "ERROR: Count must be between 1 and %d\n",
+			    SKEY_MAX_SEQ - 1);
+		}
+		*count= n;
 	}
 
 	for (i = 0; ; i++) {
@@ -378,7 +387,6 @@ secure_mode(int *count, char *key, char *seed, size_t seedlen,
 		(void)fputs("ERROR: Invalid format - try again with the 6 words.\n",
 		    stderr);
 	}
-	*count= n;
 }
 
 void

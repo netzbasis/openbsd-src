@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.18 2015/10/11 07:32:06 guenther Exp $ */
+/*	$OpenBSD: privsep.c,v 1.21 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2010 Yasuoka Masahiko <yasuoka@openbsd.org>
@@ -188,7 +188,6 @@ privsep_init(void)
 		_exit(0);
 		/* NOTREACHED */
 	}
-	setproctitle("main");
 	close(pairsock[0]);
 	privsep_sock = pairsock[1];
 	privsep_pid = pid;
@@ -729,10 +728,8 @@ privsep_priv_dispatch_imsg(struct imsgbuf *ibuf)
 			} else if (retval == -1) {
 				buf = NULL;
 on_broken_entry:
-				if (buf != NULL)
-					free(buf);
-				if (str != NULL)
-					free(str);
+				free(buf);
+				free(str);
 				r.retval = -1;
 				r.rerrno = ENOENT;
 			} else {
@@ -956,7 +953,7 @@ imsg_read_and_get(struct imsgbuf *ibuf, struct imsg *imsg)
 
 	for (;;) {
 		if ((n = imsg_read(ibuf)) <= 0) {
-			if (n == 0 && (errno == EAGAIN || errno == EINTR))
+			if (n == -1 && (errno == EAGAIN || errno == EINTR))
 				continue;
 			return (-1);
 		}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vs_split.c,v 1.12 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: vs_split.c,v 1.14 2016/01/06 22:28:52 millert Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -47,7 +47,7 @@ vs_split(SCR *sp, SCR *new, int ccl)
 	/* XXX: The IS_ONELINE fix will change this, too. */
 	if (sp->rows < 4) {
 		msgq(sp, M_ERR,
-		    "222|Screen must be larger than %d lines to split", 4 - 1);
+		    "Screen must be larger than %d lines to split", 4 - 1);
 		return (1);
 	}
 
@@ -59,7 +59,7 @@ vs_split(SCR *sp, SCR *new, int ccl)
 		half = 6;
 
 	/* Get a new screen map. */
-	CALLOC(sp, _HMAP(new), SMAP *, SIZE_HMAP(sp), sizeof(SMAP));
+	CALLOC(sp, _HMAP(new), SIZE_HMAP(sp), sizeof(SMAP));
 	if (_HMAP(new) == NULL)
 		return (1);
 	_HMAP(new)->lno = sp->lno;
@@ -299,8 +299,8 @@ vs_fg(SCR *sp, SCR **nspp, CHAR_T *name, int newscreen)
 	if ((*nspp = nsp) == NULL) {
 		msgq_str(sp, M_ERR, name,
 		    name == NULL ?
-		    "223|There are no background screens" :
-		    "224|There's no background screen editing a file named %s");
+		    "There are no background screens" :
+		    "There's no background screen editing a file named %s");
 		return (1);
 	}
 
@@ -340,7 +340,7 @@ vs_bg(SCR *sp)
 		return (1);
 	if (nsp == NULL) {
 		msgq(sp, M_ERR,
-		    "225|You may not background your only displayed screen");
+		    "You may not background your only displayed screen");
 		return (1);
 	}
 
@@ -422,7 +422,7 @@ vs_swap(SCR *sp, SCR **nspp, char *name)
 	nsp->defscroll = nsp->t_maxrows / 2;
 
 	/* Allocate a new screen map. */
-	CALLOC_RET(nsp, _HMAP(nsp), SMAP *, SIZE_HMAP(nsp), sizeof(SMAP));
+	CALLOC_RET(nsp, _HMAP(nsp), SIZE_HMAP(nsp), sizeof(SMAP));
 	_TMAP(nsp) = _HMAP(nsp) + (nsp->t_rows - 1);
 
 	/* Fill the map. */
@@ -507,13 +507,13 @@ vs_resize(SCR *sp, long count, adj_t adj)
 		if (s == NULL) {
 			if ((s = TAILQ_PREV(sp, _dqh, q)) == NULL) {
 toobig:				msgq(sp, M_BERR, adj == A_DECREASE ?
-				    "227|The screen cannot shrink" :
-				    "228|The screen cannot grow");
+				    "The screen cannot shrink" :
+				    "The screen cannot grow");
 				return (1);
 			}
 			if (s->t_maxrows < MINIMUM_SCREEN_ROWS + count) {
 toosmall:			msgq(sp, M_BERR,
-				    "226|The screen can only shrink to %d rows",
+				    "The screen can only shrink to %d rows",
 				    MINIMUM_SCREEN_ROWS);
 				return (1);
 			}

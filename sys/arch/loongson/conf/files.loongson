@@ -1,4 +1,4 @@
-#	$OpenBSD: files.loongson,v 1.20 2015/08/15 22:31:38 miod Exp $
+#	$OpenBSD: files.loongson,v 1.22 2016/01/12 17:17:33 deraadt Exp $
 
 # Standard stanzas config(8) can't run without
 maxpartitions 16
@@ -33,6 +33,7 @@ file	arch/loongson/loongson/yeeloong_machdep.c	cpu_loongson2
 
 include "dev/ata/files.ata"
 include "dev/atapiscsi/files.atapiscsi"
+include	"dev/hid/files.hid"
 include	"dev/i2c/files.i2c"
 include	"dev/gpio/files.gpio"
 include	"dev/isa/files.isa"

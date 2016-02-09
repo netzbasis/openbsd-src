@@ -66,7 +66,7 @@ opt_o(int type, char *s)
 	PARG parg;
 
 	if (secure) {
-		error("log file support is not available", NULL_PARG);
+		error("log file support is not available", NULL);
 		return;
 	}
 	switch (type) {
@@ -75,11 +75,11 @@ opt_o(int type, char *s)
 		break;
 	case TOGGLE:
 		if (ch_getflags() & CH_CANSEEK) {
-			error("Input is not a pipe", NULL_PARG);
+			error("Input is not a pipe", NULL);
 			return;
 		}
 		if (logfile >= 0) {
-			error("Log file is already in use", NULL_PARG);
+			error("Log file is already in use", NULL);
 			return;
 		}
 		s = skipsp(s);
@@ -89,7 +89,7 @@ opt_o(int type, char *s)
 		break;
 	case QUERY:
 		if (logfile < 0) {
-			error("No log file", NULL_PARG);
+			error("No log file", NULL);
 		} else {
 			parg.p_string = namelogfile;
 			error("Log file \"%s\"", &parg);
@@ -126,13 +126,13 @@ opt_j(int type, char *s)
 			s++;
 			jump_sline_fraction = getfraction(&s, "j", &err);
 			if (err)
-				error("Invalid line fraction", NULL_PARG);
+				error("Invalid line fraction", NULL);
 			else
 				calc_jump_sline();
 		} else {
 			int sline = getnum(&s, "j", &err);
 			if (err) {
-				error("Invalid line number", NULL_PARG);
+				error("Invalid line number", NULL);
 			} else {
 				jump_sline = sline;
 				jump_sline_fraction = -1;
@@ -183,13 +183,13 @@ opt_shift(int type, char *s)
 			s++;
 			shift_count_fraction = getfraction(&s, "#", &err);
 			if (err)
-				error("Invalid column fraction", NULL_PARG);
+				error("Invalid column fraction", NULL);
 			else
 				calc_shift_count();
 		} else {
 			int hs = getnum(&s, "#", &err);
 			if (err) {
-				error("Invalid column number", NULL_PARG);
+				error("Invalid column number", NULL);
 			} else {
 				shift_count = hs;
 				shift_count_fraction = -1;
@@ -254,7 +254,7 @@ opt_t(int type, char *s)
 		break;
 	case TOGGLE:
 		if (secure) {
-			error("tags support is not available", NULL_PARG);
+			error("tags support is not available", NULL);
 			break;
 		}
 		findtag(skipsp(s));
@@ -359,7 +359,6 @@ opt__P(int type, char *s)
 /*
  * Handler for the -b option.
  */
-/*ARGSUSED*/
 void
 opt_b(int type, char *s)
 {
@@ -379,7 +378,6 @@ opt_b(int type, char *s)
 /*
  * Handler for the -i option.
  */
-/*ARGSUSED*/
 void
 opt_i(int type, char *s)
 {
@@ -396,7 +394,6 @@ opt_i(int type, char *s)
 /*
  * Handler for the -V option.
  */
-/*ARGSUSED*/
 void
 opt__V(int type, char *s)
 {
@@ -438,7 +435,7 @@ opt_x(int type, char *s)
 	extern int tabstops[];
 	extern int ntabstops;
 	extern int tabdefault;
-	char msg[60+(4*TABSTOP_MAX)];
+	char tabs[60+(4*TABSTOP_MAX)];
 	int i;
 	PARG p;
 
@@ -463,20 +460,21 @@ opt_x(int type, char *s)
 		tabdefault = tabstops[ntabstops-1] - tabstops[ntabstops-2];
 		break;
 	case QUERY:
-		(void) strlcpy(msg, "Tab stops ", sizeof(msg));
+		(void) strlcpy(tabs, "Tab stops ", sizeof(tabs));
 		if (ntabstops > 2) {
 			for (i = 1;  i < ntabstops;  i++) {
 				if (i > 1)
-					strlcat(msg, ",", sizeof(msg));
-				(void) snprintf(msg+strlen(msg),
-				    sizeof(msg)-strlen(msg), "%d", tabstops[i]);
+					strlcat(tabs, ",", sizeof(tabs));
+				(void) snprintf(tabs+strlen(tabs),
+				    sizeof(tabs)-strlen(tabs),
+				    "%d", tabstops[i]);
 			}
-			(void) snprintf(msg+strlen(msg), sizeof(msg)-strlen(msg),
-			    " and then ");
+			(void) snprintf(tabs+strlen(tabs),
+			    sizeof(tabs)-strlen(tabs), " and then ");
 		}
-		(void) snprintf(msg+strlen(msg), sizeof(msg)-strlen(msg),
+		(void) snprintf(tabs+strlen(tabs), sizeof(tabs)-strlen(tabs),
 		    "every %d spaces", tabdefault);
-		p.p_string = msg;
+		p.p_string = tabs;
 		error("%s", &p);
 		break;
 	}
@@ -501,7 +499,7 @@ opt_quote(int type, char *s)
 		}
 		if (s[1] != '\0' && s[2] != '\0') {
 			error("-\" must be followed by 1 or 2 chars",
-			    NULL_PARG);
+			    NULL);
 			return;
 		}
 		openquote = s[0];
@@ -524,14 +522,13 @@ opt_quote(int type, char *s)
  * "-?" means display a help message.
  * If from the command line, exit immediately.
  */
-/*ARGSUSED*/
 void
 opt_query(int type, char *s)
 {
 	switch (type) {
 	case QUERY:
 	case TOGGLE:
-		error("Use \"h\" for help", NULL_PARG);
+		error("Use \"h\" for help", NULL);
 		break;
 	case INIT:
 		dohelp = 1;

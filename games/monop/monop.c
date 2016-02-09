@@ -1,4 +1,4 @@
-/*	$OpenBSD: monop.c,v 1.13 2015/08/22 14:47:41 deraadt Exp $	*/
+/*	$OpenBSD: monop.c,v 1.16 2016/01/08 18:20:33 mestre Exp $	*/
 /*	$NetBSD: monop.c,v 1.3 1995/03/23 08:34:52 cgd Exp $	*/
 
 /*
@@ -30,10 +30,13 @@
  * SUCH DAMAGE.
  */
 
-#include	<err.h>
-#include	<stdlib.h>
-#include	<unistd.h>
-#include	"monop.def"
+#include <err.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "monop.def"
 
 static void	getplayers(void);
 static void	init_players(void);
@@ -43,13 +46,15 @@ static void	init_monops(void);
  *	This program implements a monopoly game
  */
 int
-main(ac, av)
-	int	ac;
-	char	*av[];
+main(int ac, char *av[])
 {
 	num_luck = sizeof lucky_mes / sizeof (char *);
+
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
+
 	init_decks();
-		init_monops();
+	init_monops();
 	if (ac > 1) {
 		if (!rest_f(av[1]))
 			restore();
@@ -71,7 +76,7 @@ main(ac, av)
  *	This routine gets the names of the players
  */
 static void
-getplayers()
+getplayers(void)
 {
 	int	i, j;
 	char	buf[257];
@@ -120,7 +125,7 @@ blew_it:
  *	This routine figures out who goes first
  */
 static void
-init_players()
+init_players(void)
 {
 	int	i, rl, cur_max;
 	bool	over = 0;
@@ -151,7 +156,7 @@ again:
  *	This routine initializes the monopoly structures.
  */
 static void
-init_monops()
+init_monops(void)
 {
 	MON	*mp;
 	int	i;

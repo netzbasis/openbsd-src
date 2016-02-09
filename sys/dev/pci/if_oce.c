@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_oce.c,v 1.88 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_oce.c,v 1.92 2016/01/06 06:41:57 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2012 Mike Belopuhov
@@ -81,11 +81,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#endif
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
 #endif
 
 #include <dev/pci/pcireg.h>
@@ -370,7 +365,7 @@ struct oce_softc {
 int 	oce_match(struct device *, void *, void *);
 void	oce_attach(struct device *, struct device *, void *);
 int 	oce_pci_alloc(struct oce_softc *, struct pci_attach_args *);
-void	oce_attachhook(void *);
+void	oce_attachhook(struct device *);
 void	oce_attach_ifp(struct oce_softc *);
 int 	oce_ioctl(struct ifnet *, u_long, caddr_t);
 int	oce_rxrinfo(struct oce_softc *, struct if_rxrinfo *);
@@ -602,8 +597,8 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	intrstr = pci_intr_string(pa->pa_pc, ih);
-	sc->sc_ih = pci_intr_establish(pa->pa_pc, ih, IPL_NET | IPL_MPSAFE,
-	    oce_intr, sc, sc->sc_dev.dv_xname);
+	sc->sc_ih = pci_intr_establish(pa->pa_pc, ih, IPL_NET, oce_intr, sc,
+	    sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(": couldn't establish interrupt\n");
 		if (intrstr != NULL)
@@ -626,7 +621,7 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 	timeout_set(&sc->sc_tick, oce_tick, sc);
 	timeout_set(&sc->sc_rxrefill, oce_refill_rx, sc);
 
-	mountroothook_establish(oce_attachhook, sc);
+	config_mountroot(self, oce_attachhook);
 
 	printf(", address %s\n", ether_sprintf(sc->sc_ac.ac_enaddr));
 
@@ -784,9 +779,9 @@ oce_intr_disable(struct oce_softc *sc)
 }
 
 void
-oce_attachhook(void *arg)
+oce_attachhook(struct device *self)
 {
-	struct oce_softc *sc = arg;
+	struct oce_softc *sc = (struct oce_softc *)self;
 
 	oce_get_link_status(sc);
 
@@ -1113,7 +1108,7 @@ oce_init(void *arg)
 		oce_link_status(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->sc_tick, 1);
 
@@ -1137,14 +1132,11 @@ oce_stop(struct oce_softc *sc)
 	timeout_del(&sc->sc_tick);
 	timeout_del(&sc->sc_rxrefill);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop intrs and finish any bottom halves pending */
 	oce_intr_disable(sc);
-
-	intr_barrier(sc->sc_ih);
-
-	KASSERT((ifp->if_flags & IFF_RUNNING) == 0);
 
 	/* Invalidate any pending cq and eq entries */
 	OCE_EQ_FOREACH(sc, eq, i)
@@ -1180,7 +1172,7 @@ oce_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int pkts = 0;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
@@ -1189,7 +1181,7 @@ oce_start(struct ifnet *ifp)
 			break;
 
 		if (oce_encap(sc, &m, 0)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1444,7 +1436,6 @@ oce_intr_wq(void *arg)
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	int ncqe = 0;
 
-	KERNEL_LOCK();
 	oce_dma_sync(&cq->ring->dma, BUS_DMASYNC_POSTREAD);
 	OCE_RING_FOREACH(cq->ring, cqe, WQ_CQE_VALID(cqe)) {
 		oce_txeof(wq);
@@ -1453,16 +1444,14 @@ oce_intr_wq(void *arg)
 	}
 	oce_dma_sync(&cq->ring->dma, BUS_DMASYNC_PREWRITE);
 
-	if (ifp->if_flags & IFF_OACTIVE) {
+	if (ifq_is_oactive(&ifp->if_snd)) {
 		if (wq->ring->nused < (wq->ring->nitems / 2)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 			oce_start(ifp);
 		}
 	}
 	if (wq->ring->nused == 0)
 		ifp->if_timer = 0;
-
-	KERNEL_UNLOCK();
 
 	if (ncqe)
 		oce_arm_cq(cq, ncqe, FALSE);
@@ -1555,9 +1544,6 @@ oce_rxeof(struct oce_rq *rq, struct oce_nic_rx_cqe *cqe)
 	struct mbuf *m = NULL, *tail = NULL;
 	int i, len, frag_len;
 	uint16_t vtag;
-
-	if (if_rxr_inuse(&rq->rxring) == 0)
-		return;
 
 	len = cqe->u0.s.pkt_size;
 
@@ -1899,14 +1885,12 @@ oce_intr_mq(void *arg)
 void
 oce_link_event(struct oce_softc *sc, struct oce_async_cqe_link_state *acqe)
 {
-	KERNEL_LOCK();
 	/* Update Link status */
 	sc->sc_link_up = ((acqe->u0.s.link_status & ~ASYNC_EVENT_LOGICAL) ==
 	    ASYNC_EVENT_LINK_UP);
 	/* Update speed */
 	sc->sc_link_speed = acqe->u0.s.speed;
 	oce_link_status(sc);
-	KERNEL_UNLOCK();
 }
 
 int

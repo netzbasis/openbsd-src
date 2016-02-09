@@ -1,4 +1,4 @@
-/*	$OpenBSD: regfree.c,v 1.9 2015/09/14 12:22:49 guenther Exp $ */
+/*	$OpenBSD: regfree.c,v 1.11 2015/12/28 22:27:03 mmcc Exp $ */
 /*-
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
  * Copyright (c) 1992, 1993, 1994
@@ -60,14 +60,10 @@ regfree(regex_t *preg)
 	preg->re_magic = 0;		/* mark it invalid */
 	g->magic = 0;			/* mark it invalid */
 
-	if (g->strip != NULL)
-		free((char *)g->strip);
-	if (g->sets != NULL)
-		free((char *)g->sets);
-	if (g->setbits != NULL)
-		free((char *)g->setbits);
-	if (g->must != NULL)
-		free(g->must);
-	free((char *)g);
+	free(g->strip);
+	free(g->sets);
+	free(g->setbits);
+	free(g->must);
+	free(g);
 }
 DEF_WEAK(regfree);

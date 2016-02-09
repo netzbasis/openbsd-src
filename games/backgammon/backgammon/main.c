@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.18 2015/06/26 19:18:03 otto Exp $	*/
+/*	$OpenBSD: main.c,v 1.23 2016/01/03 14:38:16 mestre Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -30,7 +30,7 @@
  */
 
 #include <err.h>
-#include <time.h>
+
 #include "back.h"
 #include "backlocal.h"
 
@@ -81,12 +81,13 @@ static const char again[] = ".\nWould you like to play again?";
 static const char svpromt[] = "Would you like to save this game?";
 
 int
-main (argc,argv)
-	int     argc;
-	char  **argv;
+main (int argc, char **argv)
 {
 	int     i,l;		/* non-descript indices */
 	char    c;		/* non-descript character storage */
+
+	if (pledge("stdio rpath wpath cpath tty exec", NULL) == -1)
+		err(1, "pledge");
 
 	signal(SIGINT, getout);	/* trap interrupts */
 
@@ -102,12 +103,14 @@ main (argc,argv)
 	begscr = 0;
 
 	getarg(argc, argv);
-	args[acnt] = '\0';
 
 	initcurses();
 
 	/* check if restored game and save flag for later */
 	if ((rfl = rflag)) {
+		if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+			err(1, "pledge");
+
 		wrboard();	/* print board */
 		/* if new game, pretend to be a non-restored game */
 		if (cturn == 0)
@@ -119,7 +122,7 @@ main (argc,argv)
 			addstr(rules);
 			if (yorn(0)) {
 				endwin();
-				execl(TEACH, "teachgammon", args, (char *)NULL);
+				execl(TEACH, "teachgammon", (char *)NULL);
 
 				err(1, "%s", noteach);
 			} else {/* if not rules, then instructions */
@@ -130,6 +133,10 @@ main (argc,argv)
 				}
 			}
 		}
+
+		if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+			err(1, "pledge");
+
 		init();		/* initialize board */
 
 		if (pnum == 2) {/* ask for color(s) */

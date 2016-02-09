@@ -1,4 +1,4 @@
-vers(a, {-$OpenBSD: MAKEDEV.common,v 1.79 2015/10/23 15:14:11 claudio Exp $-})dnl
+vers(a, {-$OpenBSD: MAKEDEV.common,v 1.85 2016/02/05 06:29:45 uebayasi Exp $-})dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
 dnl
@@ -167,6 +167,8 @@ target(all, ptm)dnl
 target(all, hotplug)dnl
 target(all, pppx)dnl
 target(all, fuse)dnl
+target(all, vmm)dnl
+target(all, pvbus, 0)dnl
 dnl
 _mkdev(all, {-all-}, {-dnl
 show_target(all)dnl
@@ -382,6 +384,8 @@ _mkdev(com, {-tty[0-7][0-9a-f]-}, {-U=${i#tty*}
 	M tty$U c major_com_c $o 660 dialer uucp
 	M cua$U c major_com_c Add($o, 128) 660 dialer uucp-})dnl
 __devitem(ttyc, ttyc*, Cyclades serial ports,cy)dnl
+__devitem(ttyVI, ttyVI*, Virtio serial ports,viocon)dnl
+_mkdev(ttyVI, ttyVI*, {-M ttyVI$U c major_ttyVI_c $U 660 dialer uucp-})dnl
 __devitem(tzs, tty[a-z]*, Zilog 8530 Serial Port,zs)dnl
 _mkdev(tzs, {-tty[a-z]-}, {-u=${i#tty*}
 	case $u in
@@ -520,6 +524,12 @@ __devitem(gpr, gpr*, GPR400 smartcard reader)dnl
 _mcdev(gpr, gpr*, gpr, {-major_gpr_c-})dnl
 __devitem(hotplug, hotplug, devices hot plugging)dnl
 _mkdev(hotplug, hotplug, {-M hotplug c major_hotplug_c $U 400-})dnl
+__devitem(ipmi, ipmi*, IPMI BMC access)dnl
+_mkdev(ipmi, ipmi*, {-M ipmi$U c major_ipmi_c $U 600-})dnl
 __devitem(gpio, gpio*, General Purpose Input/Output)dnl
 _mcdev(gpio, gpio*, gpio, {-major_gpio_c-}, 600)dnl
+__devitem(vmm, vmm, Virtual Machine Monitor)dnl
+_mkdev(vmm, vmm, {-M vmm c major_vmm_c 0 600-})dnl
+__devitem(pvbus, pvbus*, paravirtual device tree root)dnl
+_mkdev(pvbus, {-pvbus*-}, {-M pvbus$U c major_pvbus_c $U 640-}, 640)dnl
 _mkdev(local, local, {-test -s $T.local && sh $T.local-})dnl

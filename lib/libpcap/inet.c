@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.c,v 1.21 2015/10/24 05:26:00 mmcc Exp $	*/
+/*	$OpenBSD: inet.c,v 1.24 2015/12/22 19:51:04 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995, 1996, 1997, 1998
@@ -50,7 +50,6 @@ struct rtentry;
 
 #include <ctype.h>
 #include <errno.h>
-#include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,14 +82,10 @@ pcap_freealldevs(pcap_if_t *alldevs)
 		for (curaddr = curdev->addresses; curaddr != NULL;
 		    curaddr = nextaddr) {
 			nextaddr = curaddr->next;
-			if (curaddr->addr)
-				free(curaddr->addr);
-			if (curaddr->netmask)
-				free(curaddr->netmask);
-			if (curaddr->broadaddr)
-				free(curaddr->broadaddr);
-			if (curaddr->dstaddr)
-				free(curaddr->dstaddr);
+			free(curaddr->addr);
+			free(curaddr->netmask);
+			free(curaddr->broadaddr);
+			free(curaddr->dstaddr);
 			free(curaddr);
 		}
 
@@ -102,8 +97,7 @@ pcap_freealldevs(pcap_if_t *alldevs)
 		/*
 		 * Free the description string, if any.
 		 */
-		if (curdev->description != NULL)
-			free(curdev->description);
+		free(curdev->description);
 
 		/*
 		 * Free the interface.
@@ -119,7 +113,7 @@ pcap_freealldevs(pcap_if_t *alldevs)
  */
 char *
 pcap_lookupdev(errbuf)
-	register char *errbuf;
+	char *errbuf;
 {
 #ifdef HAVE_IFADDRS_H
 	struct ifaddrs *ifap, *ifa, *mp;
@@ -159,9 +153,9 @@ pcap_lookupdev(errbuf)
 	freeifaddrs(ifap);
 	return (device);
 #else
-	register int fd, minunit, n;
-	register char *cp;
-	register struct ifreq *ifrp, *ifend, *ifnext, *mp;
+	int fd, minunit, n;
+	char *cp;
+	struct ifreq *ifrp, *ifend, *ifnext, *mp;
 	struct ifconf ifc;
 	struct ifreq ibuf[16], ifr;
 	static char device[sizeof(ifrp->ifr_name) + 1];

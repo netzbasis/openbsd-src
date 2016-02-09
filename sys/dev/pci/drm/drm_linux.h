@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.42 2015/10/17 21:41:12 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.45 2016/02/05 15:51:10 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  *
@@ -975,13 +975,23 @@ struct resource {
 	u_long	start;
 };
 
+struct pci_bus {
+	unsigned char	number;
+};
+
 struct pci_dev {
+	struct pci_bus	_bus;
+	struct pci_bus	*bus;
+
+	unsigned int	devfn;
 	uint16_t	vendor;
 	uint16_t	device;
 	uint16_t	subsystem_vendor;
 	uint16_t	subsystem_device;
+
 	pci_chipset_tag_t pc;
 	pcitag_t	tag;
+	struct pci_softc *pci;
 };
 #define PCI_ANY_ID (uint16_t) (~0U)
 
@@ -997,6 +1007,8 @@ struct pci_dev {
 #define PCI_DEVICE_ID_ATI_RADEON_QY	PCI_PRODUCT_ATI_RADEON_QY
 
 #define PCI_DEVFN(slot, func)	((slot) << 3 | (func))
+#define PCI_SLOT(devfn)		((devfn) >> 3)
+#define PCI_FUNC(devfn)		((devfn) & 0x7)
 
 static inline void
 pci_read_config_dword(struct pci_dev *pdev, int reg, u32 *val)
@@ -1078,6 +1090,11 @@ pci_dma_mapping_error(struct pci_dev *pdev, dma_addr_t dma_addr)
 {
 	return 0;
 }
+
+#define VGA_RSRC_LEGACY_IO	0x01
+
+void vga_get_uninterruptible(struct pci_dev *, int);
+void vga_put(struct pci_dev *, int);
 
 #endif
 
@@ -1359,3 +1376,18 @@ struct fb_info {
 
 #define framebuffer_alloc(flags, device) \
 	kzalloc(sizeof(struct fb_info), GFP_KERNEL)
+
+/*
+ * ACPI types and interfaces.
+ */
+
+typedef size_t acpi_size;
+typedef int acpi_status;
+
+struct acpi_table_header;
+
+#define ACPI_SUCCESS(x) ((x) == 0)
+
+#define AE_NOT_FOUND	0x0005
+
+acpi_status acpi_get_table_with_size(const char *, int, struct acpi_table_header **, acpi_size *);

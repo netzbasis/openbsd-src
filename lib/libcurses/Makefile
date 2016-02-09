@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.64 2014/07/16 10:35:53 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.66 2015/12/03 11:29:55 nicm Exp $
 
 # Uncomment this to enable tracing in libcurses
 #CURSESTRACE=-DTRACE
@@ -44,7 +44,7 @@ SRCS+=	access.c add_tries.c alloc_entry.c alloc_ttype.c captoinfo.c \
 	lib_napms.c lib_options.c lib_print.c lib_raw.c lib_setup.c \
 	lib_termcap.c lib_termname.c lib_tgoto.c lib_ti.c lib_tparm.c \
 	lib_tputs.c lib_ttyflags.c name_match.c parse_entry.c \
-	read_bsd_terminfo.c read_entry.c read_termcap.c setbuf.c strings.c \
+	read_entry.c read_termcap.c setbuf.c strings.c \
 	trim_sgr0.c use_screen.c write_entry.c
 # trace
 SRCS+=	lib_trace.c lib_traceatr.c lib_tracebits.c lib_tracechr.c \
@@ -207,7 +207,7 @@ MLINKS+= curs_extend.3 curses_version.3 curs_extend.3 use_extended_names.3 \
 	default_colors.3 use_default_colors.3
 MLINKS+= terminfo.3 setupterm.3 terminfo.3 setterm.3 terminfo.3 set_curterm.3 \
 	terminfo.3 del_curterm.3 terminfo.3 restartterm.3 terminfo.3 tparm.3 \
-	terminfo.3 tparam.3 terminfo.3 tputs.3 terminfo.3 putp.3 \
+	terminfo.3 tputs.3 terminfo.3 putp.3 \
 	terminfo.3 vidputs.3 terminfo.3 vidattr.3 terminfo.3 mvcur.3 \
 	terminfo.3 tigetflag.3 terminfo.3 tigetnum.3 terminfo.3 tigetstr.3
 MLINKS+= termcap.3 tgetent.3 termcap.3 tgetflag.3 termcap.3 tgetnum.3 \

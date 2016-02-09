@@ -1,4 +1,4 @@
-/*	$OpenBSD: apmd.c,v 1.77 2015/10/11 20:23:49 guenther Exp $	*/
+/*	$OpenBSD: apmd.c,v 1.79 2015/11/16 17:35:05 tedu Exp $	*/
 
 /*
  *  Copyright (c) 1995, 1996 John T. Kohl
@@ -219,7 +219,7 @@ bind_socket(const char *sockname)
 
 	old_umask = umask(077);
 	if (bind(sock, (struct sockaddr *)&s_un, sizeof(s_un)) == -1)
-		error("cannot connect to APM socket", NULL);
+		error("cannot bind on APM socket", NULL);
 	umask(old_umask);
 	if (chmod(sockname, 0660) == -1 || chown(sockname, 0, 0) == -1)
 		error("cannot set socket mode/owner/group to 660/0/0", NULL);
@@ -277,7 +277,7 @@ handle_client(int sock_fd, int ctl_fd)
 	case SETPERF_LOW:
 		doperf = PERF_MANUAL;
 		reply.newstate = NORMAL;
-		syslog(LOG_NOTICE, "setting hw.perfpolicy to manual");
+		syslog(LOG_NOTICE, "setting hw.perfpolicy to low");
 		setperfpolicy("low");
 		break;
 	case SETPERF_HIGH:
@@ -305,7 +305,7 @@ handle_client(int sock_fd, int ctl_fd)
 	reply.perfmode = doperf;
 	reply.vno = APMD_VNO;
 	if (send(cli_fd, &reply, sizeof(reply), 0) != sizeof(reply))
-		syslog(LOG_INFO, "client reply botch");
+		syslog(LOG_INFO, "reply to client botched");
 	close(cli_fd);
 
 	return reply.newstate;

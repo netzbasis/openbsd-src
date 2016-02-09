@@ -1,4 +1,4 @@
-#	$OpenBSD: files.acpi,v 1.27 2013/11/06 10:40:36 mpi Exp $
+#	$OpenBSD: files.acpi,v 1.30 2016/01/12 01:11:15 jcs Exp $
 #
 # Config file and device description for machine-independent ACPI code.
 # Included by ports that need it.
@@ -111,3 +111,12 @@ file	dev/acpi/acpipwrres.c		acpipwrres needs-flag
 device	aibs
 attach	aibs at acpi
 file	dev/acpi/atk0110.c		aibs
+
+# SD Host Controller
+attach	sdhc at acpi with sdhc_acpi
+file	dev/acpi/sdhc_acpi.c		sdhc_acpi
+
+# Synopsys DesignWare I2C controller
+device	dwiic: i2cbus
+attach	dwiic at acpi
+file	dev/acpi/dwiic.c		dwiic

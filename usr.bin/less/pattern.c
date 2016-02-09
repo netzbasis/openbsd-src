@@ -32,7 +32,7 @@ compile_pattern2(char *pattern, int search_type, regex_t **comp_pattern)
 	comp = ecalloc(1, sizeof (regex_t));
 	if (regcomp(comp, pattern, less_is_more ? 0 : REGCOMP_FLAG)) {
 		free(comp);
-		error("Invalid pattern", NULL_PARG);
+		error("Invalid pattern", NULL);
 		return (-1);
 	}
 	if (*comp_pattern != NULL)
@@ -71,15 +71,6 @@ uncompile_pattern(regex_t **pattern)
 	if (*pattern != NULL)
 		regfree(*pattern);
 	*pattern = NULL;
-}
-
-/*
- * Is a compiled pattern null?
- */
-int
-is_null_pattern(void *pattern)
-{
-	return (pattern == NULL);
 }
 
 /*

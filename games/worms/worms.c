@@ -1,4 +1,4 @@
-/*	$OpenBSD: worms.c,v 1.22 2015/02/18 23:16:08 tedu Exp $	*/
+/*	$OpenBSD: worms.c,v 1.25 2016/01/07 16:00:34 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -46,12 +46,9 @@
  *				 October, 1980
  *
  */
-#include <sys/types.h>
-
 #include <curses.h>
 #include <err.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
@@ -183,6 +180,9 @@ main(int argc, char *argv[])
 	speed_t speed;
 	time_t delay = 0;
 
+	if (pledge("stdio rpath tty", NULL) == -1)
+		err(1, "pledge");
+
 	/* set default delay based on terminal baud rate */
 	if (tcgetattr(STDOUT_FILENO, &term) == 0 &&
 	    (speed = cfgetospeed(&term)) > B9600)
@@ -218,7 +218,7 @@ main(int argc, char *argv[])
 		default:
 			(void)fprintf(stderr,
 			    "usage: worms [-ft] [-d delay] [-l length] [-n number]\n");
-			exit(1);
+			return 1;
 		}
 
 	/* Convert delay from ms -> ns */
@@ -286,7 +286,7 @@ main(int argc, char *argv[])
 		refresh();
 		if (sig_caught) {
 			endwin();
-			exit(0);
+			return 0;
 		}
 		nanosleep(&sleeptime, NULL);
 		for (n = 0, w = &worm[0]; n < number; n++, w++) {

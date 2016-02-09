@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfd.c,v 1.86 2015/09/27 17:31:50 stsp Exp $ */
+/*	$OpenBSD: ospfd.c,v 1.89 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -192,13 +192,12 @@ main(int argc, char *argv[])
 		opts |= OSPFD_OPT_STUB_ROUTER;
 	}
 
-
 	/* fetch interfaces early */
 	kif_init();
 
 	/* parse config file */
 	if ((ospfd_conf = parse_config(conffile, opts)) == NULL) {
-		kr_shutdown();
+		kif_clear();
 		exit(1);
 	}
 	ospfd_conf->csock = sockname;
@@ -208,7 +207,7 @@ main(int argc, char *argv[])
 			print_config(ospfd_conf);
 		else
 			fprintf(stderr, "configuration OK\n");
-		kr_shutdown();
+		kif_clear();
 		exit(0);
 	}
 
@@ -243,9 +242,6 @@ main(int argc, char *argv[])
 	    pipe_parent2ospfe);
 	ospfe_pid = ospfe(ospfd_conf, pipe_parent2ospfe, pipe_ospfe2rde,
 	    pipe_parent2rde);
-
-	/* show who we are */
-	setproctitle("parent");
 
 	event_init();
 
@@ -373,7 +369,7 @@ main_dispatch_ospfe(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -460,7 +456,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

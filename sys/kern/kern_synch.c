@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.125 2015/09/28 21:02:12 deraadt Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.128 2016/02/01 23:34:31 dlg Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -49,6 +49,7 @@
 #include <sys/syscallargs.h>
 #include <sys/pool.h>
 #include <sys/refcnt.h>
+#include <sys/atomic.h>
 #include <ddb/db_output.h>
 
 #include <machine/spinlock.h>
@@ -595,6 +596,36 @@ sys___thrwakeup(struct proc *p, void *v, register_t *retval)
 	}
 
 	return (0);
+}
+
+void
+refcnt_init(struct refcnt *r)
+{
+	r->refs = 1;
+}
+
+void
+refcnt_take(struct refcnt *r)
+{
+#ifdef DIAGNOSTIC
+	u_int refcnt;
+
+	refcnt = atomic_inc_int_nv(&r->refs);
+	KASSERT(refcnt != 0);
+#else
+	atomic_inc_int(&r->refs);
+#endif
+}
+
+int
+refcnt_rele(struct refcnt *r)
+{
+	u_int refcnt;
+
+	refcnt = atomic_dec_int_nv(&r->refs);
+	KASSERT(refcnt != ~0);
+
+	return (refcnt == 0);
 }
 
 void

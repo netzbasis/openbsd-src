@@ -1,7 +1,7 @@
-/* $OpenBSD: utf8.c,v 1.14 2015/11/05 16:44:25 schwarze Exp $ */
+/* $OpenBSD: utf8.c,v 1.27 2016/01/31 09:57:41 nicm Exp $ */
 
 /*
- * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,7 +35,7 @@ struct utf8_width_entry {
 };
 
 /* Sorted, then repeatedly split in the middle to balance the tree. */
-struct utf8_width_entry utf8_width_table[] = {
+static struct utf8_width_entry utf8_width_table[] = {
 	{ 0x00b41, 0x00b44, 0, NULL, NULL },
 	{ 0x008e4, 0x00902, 0, NULL, NULL },
 	{ 0x006d6, 0x006dd, 0, NULL, NULL },
@@ -264,7 +264,7 @@ struct utf8_width_entry utf8_width_table[] = {
 	{ 0x0abe5, 0x0abe5, 0, NULL, NULL },
 	{ 0x0abed, 0x0abed, 0, NULL, NULL },
 	{ 0x0f900, 0x0fa6d, 2, NULL, NULL },
-	{ 0x0d800, 0x0f8ff, 0, NULL, NULL },
+	{ 0x0d800, 0x0dfff, 0, NULL, NULL },
 	{ 0x0fa70, 0x0fad9, 2, NULL, NULL },
 	{ 0x0fff9, 0x0fffb, 0, NULL, NULL },
 	{ 0x0fe30, 0x0fe52, 2, NULL, NULL },
@@ -344,21 +344,36 @@ struct utf8_width_entry utf8_width_table[] = {
 	{ 0xe0100, 0xe01ef, 0, NULL, NULL },
 	{ 0x100000, 0x10fffd, 0, NULL, NULL },
 };
+static struct utf8_width_entry	*utf8_width_root = NULL;
 
-struct utf8_width_entry	*utf8_width_root = NULL;
-
-int	utf8_overlap(struct utf8_width_entry *, struct utf8_width_entry *);
-u_int	utf8_combine(const struct utf8_data *);
-u_int	utf8_width(const struct utf8_data *);
+static void	utf8_build(void);
 
 /* Set a single character. */
 void
-utf8_set(struct utf8_data *utf8data, u_char ch)
+utf8_set(struct utf8_data *ud, u_char ch)
 {
-	*utf8data->data = ch;
-	utf8data->size = 1;
+	u_int	i;
 
-	utf8data->width = 1;
+	*ud->data = ch;
+	ud->have = 1;
+	ud->size = 1;
+
+	ud->width = 1;
+
+	for (i = ud->size; i < sizeof ud->data; i++)
+		ud->data[i] = '\0';
+}
+
+/* Copy UTF-8 character. */
+void
+utf8_copy(struct utf8_data *to, const struct utf8_data *from)
+{
+	u_int	i;
+
+	memcpy(to, from, sizeof *to);
+
+	for (i = to->size; i < sizeof to->data; i++)
+		to->data[i] = '\0';
 }
 
 /*
@@ -367,75 +382,54 @@ utf8_set(struct utf8_data *utf8data, u_char ch)
  * 11000010-11011111 C2-DF start of 2-byte sequence
  * 11100000-11101111 E0-EF start of 3-byte sequence
  * 11110000-11110100 F0-F4 start of 4-byte sequence
- *
- * Returns 1 if more UTF-8 to come, 0 if not UTF-8.
  */
-int
-utf8_open(struct utf8_data *utf8data, u_char ch)
+enum utf8_state
+utf8_open(struct utf8_data *ud, u_char ch)
 {
-	memset(utf8data, 0, sizeof *utf8data);
+	memset(ud, 0, sizeof *ud);
 	if (ch >= 0xc2 && ch <= 0xdf)
-		utf8data->size = 2;
+		ud->size = 2;
 	else if (ch >= 0xe0 && ch <= 0xef)
-		utf8data->size = 3;
+		ud->size = 3;
 	else if (ch >= 0xf0 && ch <= 0xf4)
-		utf8data->size = 4;
+		ud->size = 4;
 	else
-		return (0);
-	utf8_append(utf8data, ch);
-	return (1);
+		return (UTF8_ERROR);
+	utf8_append(ud, ch);
+	return (UTF8_MORE);
 }
 
-/*
- * Append character to UTF-8, closing if finished.
- *
- * Returns 1 if more UTF-8 data to come, 0 if finished.
- */
-int
-utf8_append(struct utf8_data *utf8data, u_char ch)
+/* Append character to UTF-8, closing if finished. */
+enum utf8_state
+utf8_append(struct utf8_data *ud, u_char ch)
 {
-	if (utf8data->have >= utf8data->size)
+	if (ud->have >= ud->size)
 		fatalx("UTF-8 character overflow");
-	if (utf8data->size > sizeof utf8data->data)
+	if (ud->size > sizeof ud->data)
 		fatalx("UTF-8 character size too large");
 
-	utf8data->data[utf8data->have++] = ch;
-	if (utf8data->have != utf8data->size)
-		return (1);
+	if (ud->have != 0 && (ch & 0xc0) != 0x80)
+		ud->width = 0xff;
 
-	utf8data->width = utf8_width(utf8data);
-	return (0);
-}
+	ud->data[ud->have++] = ch;
+	if (ud->have != ud->size)
+		return (UTF8_MORE);
 
-/* Check if two width tree entries overlap. */
-int
-utf8_overlap(struct utf8_width_entry *item1, struct utf8_width_entry *item2)
-{
-	if (item1->first >= item2->first && item1->first <= item2->last)
-		return (1);
-	if (item1->last >= item2->first && item1->last <= item2->last)
-		return (1);
-	if (item2->first >= item1->first && item2->first <= item1->last)
-		return (1);
-	if (item2->last >= item1->first && item2->last <= item1->last)
-		return (1);
-	return (0);
+	if (ud->width == 0xff)
+		return (UTF8_ERROR);
+	ud->width = utf8_width(utf8_combine(ud));
+	return (UTF8_DONE);
 }
 
 /* Build UTF-8 width tree. */
-void
+static void
 utf8_build(void)
 {
 	struct utf8_width_entry	**ptr, *item, *node;
-	u_int			  i, j;
+	u_int			  i;
 
 	for (i = 0; i < nitems(utf8_width_table); i++) {
 		item = &utf8_width_table[i];
-
-		for (j = 0; j < nitems(utf8_width_table); j++) {
-			if (i != j && utf8_overlap(item, &utf8_width_table[j]))
-				log_fatalx("utf8 overlap: %u %u", i, j);
-		}
 
 		ptr = &utf8_width_root;
 		while (*ptr != NULL) {
@@ -449,34 +443,83 @@ utf8_build(void)
 	}
 }
 
+/* Lookup width of UTF-8 data in tree. */
+u_int
+utf8_width(u_int uc)
+{
+	struct utf8_width_entry	*item;
+
+	if (utf8_width_root == NULL)
+		utf8_build();
+
+	item = utf8_width_root;
+	while (item != NULL) {
+		if (uc < item->first)
+			item = item->left;
+		else if (uc > item->last)
+			item = item->right;
+		else
+			return (item->width);
+	}
+	return (1);
+}
+
 /* Combine UTF-8 into 32-bit Unicode. */
 u_int
-utf8_combine(const struct utf8_data *utf8data)
+utf8_combine(const struct utf8_data *ud)
 {
-	u_int	value;
+	u_int	uc;
 
-	value = 0xff;
-	switch (utf8data->size) {
+	uc = 0xfffd;
+	switch (ud->size) {
 	case 1:
-		value = utf8data->data[0];
+		uc = ud->data[0];
 		break;
 	case 2:
-		value = utf8data->data[1] & 0x3f;
-		value |= (utf8data->data[0] & 0x1f) << 6;
+		uc = ud->data[1] & 0x3f;
+		uc |= (ud->data[0] & 0x1f) << 6;
 		break;
 	case 3:
-		value = utf8data->data[2] & 0x3f;
-		value |= (utf8data->data[1] & 0x3f) << 6;
-		value |= (utf8data->data[0] & 0x0f) << 12;
+		uc = ud->data[2] & 0x3f;
+		uc |= (ud->data[1] & 0x3f) << 6;
+		uc |= (ud->data[0] & 0xf) << 12;
 		break;
 	case 4:
-		value = utf8data->data[3] & 0x3f;
-		value |= (utf8data->data[2] & 0x3f) << 6;
-		value |= (utf8data->data[1] & 0x3f) << 12;
-		value |= (utf8data->data[0] & 0x07) << 18;
+		uc = ud->data[3] & 0x3f;
+		uc |= (ud->data[2] & 0x3f) << 6;
+		uc |= (ud->data[1] & 0x3f) << 12;
+		uc |= (ud->data[0] & 0x7) << 18;
 		break;
 	}
-	return (value);
+	return (uc);
+}
+
+/* Split 32-bit Unicode into UTF-8. */
+enum utf8_state
+utf8_split(u_int uc, struct utf8_data *ud)
+{
+	if (uc < 0x7f) {
+		ud->size = 1;
+		ud->data[0] = uc;
+	} else if (uc < 0x7ff) {
+		ud->size = 2;
+		ud->data[0] = 0xc0 | ((uc >> 6) & 0x1f);
+		ud->data[1] = 0x80 | (uc & 0x3f);
+	} else if (uc < 0xffff) {
+		ud->size = 3;
+		ud->data[0] = 0xe0 | ((uc >> 12) & 0xf);
+		ud->data[1] = 0x80 | ((uc >> 6) & 0x3f);
+		ud->data[2] = 0x80 | (uc & 0x3f);
+	} else if (uc < 0x1fffff) {
+		ud->size = 4;
+		ud->data[0] = 0xf0 | ((uc >> 18) & 0x7);
+		ud->data[1] = 0x80 | ((uc >> 12) & 0x3f);
+		ud->data[2] = 0x80 | ((uc >> 6) & 0x3f);
+		ud->data[3] = 0x80 | (uc & 0x3f);
+	} else
+		return (UTF8_ERROR);
+	ud->width = utf8_width(uc);
+	return (UTF8_DONE);
 }
 
 /* Split a two-byte UTF-8 character. */
@@ -492,27 +535,6 @@ utf8_split2(u_int uc, u_char *ptr)
 	return (1);
 }
 
-/* Lookup width of UTF-8 data in tree. */
-u_int
-utf8_width(const struct utf8_data *utf8data)
-{
-	struct utf8_width_entry	*item;
-	u_int			 value;
-
-	value = utf8_combine(utf8data);
-
-	item = utf8_width_root;
-	while (item != NULL) {
-		if (value < item->first)
-			item = item->left;
-		else if (value > item->last)
-			item = item->right;
-		else
-			return (item->width);
-	}
-	return (1);
-}
-
 /*
  * Encode len characters from src into dst, which is guaranteed to have four
  * bytes available for each character from src (for \abc or UTF-8) plus space
@@ -521,28 +543,26 @@ utf8_width(const struct utf8_data *utf8data)
 int
 utf8_strvis(char *dst, const char *src, size_t len, int flag)
 {
-	struct utf8_data	 utf8data;
+	struct utf8_data	 ud;
 	const char		*start, *end;
-	int			 more;
+	enum utf8_state		 more;
 	size_t			 i;
 
 	start = dst;
 	end = src + len;
 
 	while (src < end) {
-		if (utf8_open(&utf8data, *src)) {
-			more = 1;
-			while (++src < end && more)
-				more = utf8_append(&utf8data, *src);
-			if (!more) {
+		if ((more = utf8_open(&ud, *src)) == UTF8_MORE) {
+			while (++src < end && more == UTF8_MORE)
+				more = utf8_append(&ud, *src);
+			if (more == UTF8_DONE) {
 				/* UTF-8 character finished. */
-				for (i = 0; i < utf8data.size; i++)
-					*dst++ = utf8data.data[i];
+				for (i = 0; i < ud.size; i++)
+					*dst++ = ud.data[i];
 				continue;
-			} else if (utf8data.have > 0) {
-				/* Not a complete UTF-8 character. */
-				src -= utf8data.have;
 			}
+			/* Not a complete, valid UTF-8 character. */
+			src -= ud.have;
 		}
 		if (src < end - 1)
 			dst = vis(dst, src[0], flag, src[1]);
@@ -556,6 +576,49 @@ utf8_strvis(char *dst, const char *src, size_t len, int flag)
 }
 
 /*
+ * Sanitize a string, changing any UTF-8 characters to '_'. Caller should free
+ * the returned string. Anything not valid printable ASCII or UTF-8 is
+ * stripped.
+ */
+char *
+utf8_sanitize(const char *src)
+{
+	char			*dst;
+	size_t			 n;
+	enum utf8_state		 more;
+	struct utf8_data	 ud;
+	u_int			 i;
+
+	dst = NULL;
+
+	n = 0;
+	while (*src != '\0') {
+		dst = xreallocarray(dst, n + 1, sizeof *dst);
+		if ((more = utf8_open(&ud, *src)) == UTF8_MORE) {
+			while (*++src != '\0' && more == UTF8_MORE)
+				more = utf8_append(&ud, *src);
+			if (more == UTF8_DONE) {
+				dst = xreallocarray(dst, n + ud.width,
+				    sizeof *dst);
+				for (i = 0; i < ud.width; i++)
+					dst[n++] = '_';
+				continue;
+			}
+			src -= ud.have;
+		}
+		if (*src > 0x1f && *src < 0x7f)
+			dst[n++] = *src;
+		else
+			dst[n++] = '_';
+		src++;
+	}
+
+	dst = xreallocarray(dst, n + 1, sizeof *dst);
+	dst[n] = '\0';
+	return (dst);
+}
+
+/*
  * Convert a string into a buffer of UTF-8 characters. Terminated by size == 0.
  * Caller frees.
  */
@@ -564,27 +627,25 @@ utf8_fromcstr(const char *src)
 {
 	struct utf8_data	*dst;
 	size_t			 n;
-	int			 more;
+	enum utf8_state		 more;
 
 	dst = NULL;
 
 	n = 0;
 	while (*src != '\0') {
 		dst = xreallocarray(dst, n + 1, sizeof *dst);
-		if (utf8_open(&dst[n], *src)) {
-			more = 1;
-			while (*++src != '\0' && more)
+		if ((more = utf8_open(&dst[n], *src)) == UTF8_MORE) {
+			while (*++src != '\0' && more == UTF8_MORE)
 				more = utf8_append(&dst[n], *src);
-			if (!more) {
+			if (more == UTF8_DONE) {
 				n++;
 				continue;
 			}
 			src -= dst[n].have;
 		}
 		utf8_set(&dst[n], *src);
-		src++;
-
 		n++;
+		src++;
 	}
 
 	dst = xreallocarray(dst, n + 1, sizeof *dst);
@@ -619,21 +680,21 @@ utf8_cstrwidth(const char *s)
 {
 	struct utf8_data	tmp;
 	u_int			width;
-	int			more;
+	enum utf8_state		more;
 
 	width = 0;
 	while (*s != '\0') {
-		if (utf8_open(&tmp, *s)) {
-			more = 1;
-			while (*++s != '\0' && more)
+		if ((more = utf8_open(&tmp, *s)) == UTF8_MORE) {
+			while (*++s != '\0' && more == UTF8_MORE)
 				more = utf8_append(&tmp, *s);
-			if (!more) {
+			if (more == UTF8_DONE) {
 				width += tmp.width;
 				continue;
 			}
 			s -= tmp.have;
 		}
-		width++;
+		if (*s > 0x1f && *s != 0x7f)
+			width++;
 		s++;
 	}
 	return (width);
@@ -660,5 +721,63 @@ utf8_trimcstr(const char *s, u_int width)
 
 	out = utf8_tocstr(tmp);
 	free(tmp);
+	return (out);
+}
+
+/* Trim UTF-8 string to width. Caller frees. */
+char *
+utf8_rtrimcstr(const char *s, u_int width)
+{
+	struct utf8_data	*tmp, *next, *end;
+	char			*out;
+	u_int			 at;
+
+	tmp = utf8_fromcstr(s);
+
+	for (end = tmp; end->size != 0; end++)
+		/* nothing */;
+	if (end == tmp) {
+		free(tmp);
+		return (xstrdup(""));
+	}
+	next = end - 1;
+
+	at = 0;
+	for (;;)
+	{
+		if (at + next->width > width) {
+			next++;
+			break;
+		}
+		at += next->width;
+
+		if (next == tmp)
+			break;
+		next--;
+	}
+
+	out = utf8_tocstr(next);
+	free(tmp);
+	return (out);
+}
+
+/* Pad UTF-8 string to width. Caller frees. */
+char *
+utf8_padcstr(const char *s, u_int width)
+{
+	size_t	 slen;
+	char	*out;
+	u_int	  n, i;
+
+	n = utf8_cstrwidth(s);
+	if (n >= width)
+		return (xstrdup(s));
+
+	slen = strlen(s);
+	out = xmalloc(slen + 1 + (width - n));
+	memcpy(out, s, slen);
+	for (i = n; i < width; i++)
+		out[slen++] = ' ';
+	out[slen] = '\0';
 	return (out);
 }

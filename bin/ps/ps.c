@@ -1,4 +1,4 @@
-/*	$OpenBSD: ps.c,v 1.67 2015/10/25 09:39:00 deraadt Exp $	*/
+/*	$OpenBSD: ps.c,v 1.69 2016/01/10 14:04:16 schwarze Exp $	*/
 /*	$NetBSD: ps.c,v 1.15 1995/05/18 20:33:25 mycroft Exp $	*/
 
 /*-
@@ -44,6 +44,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <kvm.h>
+#include <locale.h>
 #include <nlist.h>
 #include <paths.h>
 #include <pwd.h>
@@ -98,6 +99,8 @@ main(int argc, char *argv[])
 	int all, ch, flag, i, fmt, lineno, nentries;
 	int prtheader, showthreads, wflag, kflag, what, Uflag, xflg;
 	char *nlistf, *memf, *swapf, *cols, errbuf[_POSIX2_LINE_MAX];
+
+	setlocale(LC_CTYPE, "");
 
 	if ((cols = getenv("COLUMNS")) != NULL && *cols != '\0') {
 		const char *errstr;
@@ -279,7 +282,7 @@ main(int argc, char *argv[])
 		errx(1, "%s", errbuf);
 
 	if (pledge("stdio rpath getpw ps", NULL) == -1)
-		err(1, "abort pledge");
+		err(1, "pledge");
 
 	if (!fmt) {
 		if (showthreads)

@@ -1,4 +1,4 @@
-$OpenBSD: usbdevs,v 1.659 2015/09/29 09:01:00 jung Exp $
+$OpenBSD: usbdevs,v 1.662 2016/01/08 09:31:32 mpi Exp $
 /* $NetBSD: usbdevs,v 1.322 2003/05/10 17:47:14 hamajima Exp $ */
 
 /*
@@ -602,6 +602,7 @@ vendor LONGCHEER	0x1c9e	Longcheer Technology
 vendor DRESDENELEC	0x1cf1	Dresden Elektronic
 vendor DREAMLINK	0x1d34	Dream Link
 vendor PEGATRON		0x1d4d	Pegatron
+vendor OPENMOKO2	0x1d50	OpenMoko
 vendor SELUXIT		0x1d6f	Seluxit
 vendor METAGEEK		0x1dd5	MetaGeek
 vendor FESTO		0x1e29	Festo
@@ -983,6 +984,7 @@ product APPLE IPHONE_4_CDMA	0x129c	iPhone 4 CDMA
 product APPLE IPOD_TOUCH_4G	0x129e	iPod Touch 4G
 product APPLE IPAD2		0x129f	iPad 2
 product APPLE IPHONE_4S		0x12a0	iPhone 4S
+product APPLE IPHONE_6		0x12a8	iPhone 6
 product APPLE ETHERNET		0x1402	Ethernet A1277
 product APPLE BLUETOOTH2	0x8205	Bluetooth
 product APPLE BLUETOOTH		0x8300	Bluetooth
@@ -3246,6 +3248,12 @@ product OQO BT01		0x0003	model 01 Bluetooth
 product OQO ETHER01PLUS		0x7720	model 01+ Ethernet
 product OQO ETHER01		0x8150	model 01 Ethernet
 
+/*
+ * OpenMoko permits other open hardware products to use their
+ * product ID allocations
+ */
+product OPENMOKO2 ONERNG	0x6086	Moonbase Otago OneRNG
+
 /* Oregon Scientific */
 product OREGONSCI OWL_CM160	0xca05	OWL CM-160
 
@@ -3562,6 +3570,7 @@ product REALTEK RTL8192CE_VAU	0x8186	RTL8192CE
 product REALTEK RTL8187		0x8187	RTL8187
 product REALTEK RTL8187B_0	0x8189	RTL8187B
 product REALTEK RTL8188CUS	0x818a	RTL8188CUS
+product REALTEK RTL8192EU	0x818b	RTL8192EU
 product REALTEK RTL8188CU_3	0x8191	RTL8188CU
 product REALTEK RTL8187B_1	0x8197	RTL8187B
 product REALTEK RTL8192U	0x8192	RTL8192U

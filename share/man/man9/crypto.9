@@ -1,4 +1,4 @@
-.\"	$OpenBSD: crypto.9,v 1.38 2015/05/05 11:17:34 mikeb Exp $
+.\"	$OpenBSD: crypto.9,v 1.42 2015/12/10 21:00:51 naddy Exp $
 .\"
 .\" The author of this man page is Angelos D. Keromytis (angelos@cis.upenn.edu)
 .\"
@@ -15,11 +15,19 @@
 .\" MERCHANTABILITY OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR
 .\" PURPOSE.
 .\"
-.Dd $Mdocdate: May 5 2015 $
-.Dt CRYPTO 9
+.Dd $Mdocdate: December 10 2015 $
+.Dt CRYPTO_GET_DRIVERID 9
 .Os
 .Sh NAME
-.Nm crypto
+.Nm crypto_get_driverid ,
+.Nm crypto_register ,
+.Nm crypto_unregister ,
+.Nm crypto_done ,
+.Nm crypto_newsession ,
+.Nm crypto_freesession ,
+.Nm crypto_dispatch ,
+.Nm crypto_getreq ,
+.Nm crypto_freereq
 .Nd API for cryptographic services in the kernel
 .Sh SYNOPSIS
 .In crypto/cryptodev.h
@@ -130,21 +138,31 @@ structure are:
 .Bl -tag -width foobarmoocow
 .It Fa cri_alg
 Contains an algorithm identifier.
-Currently supported algorithms are:
+Currently supported encryption algorithms are:
 .Bd -literal
-CRYPTO_DES_CBC
 CRYPTO_3DES_CBC
 CRYPTO_BLF_CBC
 CRYPTO_CAST_CBC
-CRYPTO_MD5_HMAC
-CRYPTO_SHA1_HMAC
-CRYPTO_RIPEMD160_HMAC
 CRYPTO_AES_CBC
 CRYPTO_AES_CTR
 CRYPTO_AES_XTS
-CRYPTO_ARC4
-CRYPTO_MD5
-CRYPTO_SHA1
+.Ed
+.Pp
+Authentication algorithms are:
+.Bd -literal
+CRYPTO_MD5_HMAC
+CRYPTO_SHA1_HMAC
+CRYPTO_RIPEMD160_HMAC
+CRYPTO_SHA2_256_HMAC
+CRYPTO_SHA2_384_HMAC
+CRYPTO_SHA2_512_HMAC
+.Ed
+.Pp
+Algorithms performing authenticated encryption are:
+.Bd -literal
+CRYPTO_AES_GCM_16
+CRYPTO_AES_GMAC
+CRYPTO_CHACHA20_POLY1305
 .Ed
 .It Fa cri_klen
 Specifies the length of the key in bits, for variable-size key
@@ -492,9 +510,6 @@ Some type of benchmarking is in order here.
 .Pp
 Multiple instances of the same algorithm in the same session are not
 supported.
-Note that 3DES is considered one algorithm (and not three
-instances of DES).
-Thus, 3DES and DES could be mixed in the same request.
 .Pp
 A queue for completed operations should be implemented and processed
 at some software

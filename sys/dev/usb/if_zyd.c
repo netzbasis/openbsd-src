@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_zyd.c,v 1.110 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_zyd.c,v 1.114 2015/12/11 16:07:02 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2006 by Damien Bergamini <damien.bergamini@free.fr>
@@ -39,10 +39,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -161,7 +159,7 @@ const struct cfattach zyd_ca = {
 	sizeof(struct zyd_softc), zyd_match, zyd_attach, zyd_detach
 };
 
-void		zyd_attachhook(void *);
+void		zyd_attachhook(struct device *);
 int		zyd_complete_attach(struct zyd_softc *);
 int		zyd_open_pipes(struct zyd_softc *);
 void		zyd_close_pipes(struct zyd_softc *);
@@ -248,9 +246,9 @@ zyd_match(struct device *parent, void *match, void *aux)
 }
 
 void
-zyd_attachhook(void *xsc)
+zyd_attachhook(struct device *self)
 {
-	struct zyd_softc *sc = xsc;
+	struct zyd_softc *sc = (struct zyd_softc *)self;
 	const char *fwname;
 	u_char *fw;
 	size_t size;
@@ -295,10 +293,7 @@ zyd_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	if (rootvp == NULL)
-		mountroothook_establish(zyd_attachhook, sc);
-	else
-		zyd_attachhook(sc);
+	config_mountroot(self, zyd_attachhook);
 }
 
 int
@@ -2088,7 +2083,7 @@ zyd_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	ifp->if_opackets++;
 
 	sc->tx_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	zyd_start(ifp);
 
 	splx(s);
@@ -2233,12 +2228,12 @@ zyd_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->tx_queued >= ZYD_TX_LIST_CNT) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* send pending management frames first */
@@ -2457,7 +2452,7 @@ zyd_init(struct ifnet *ifp)
 		}
 	}
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	if (ic->ic_opmode == IEEE80211_M_MONITOR)
@@ -2479,7 +2474,8 @@ zyd_stop(struct ifnet *ifp, int disable)
 
 	sc->tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);	/* free all nodes */
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: grey.c,v 1.59 2015/05/18 16:04:21 reyk Exp $	*/
+/*	$OpenBSD: grey.c,v 1.62 2015/12/10 16:06:29 beck Exp $	*/
 
 /*
  * Copyright (c) 2004-2006 Bob Beck.  All rights reserved.
@@ -162,8 +162,11 @@ configure_pf(char **addrs, int count)
 
 	if (debug)
 		fprintf(stderr, "configure_pf - device on fd %d\n", pfdev);
+
+	/* Because /dev/fd/ only contains device nodes for 0-63 */
 	if (pfdev < 1 || pfdev > 63)
 		return(-1);
+
 	if (asprintf(&fdpath, "/dev/fd/%d", pfdev) == -1)
 		return(-1);
 	pargv[2] = fdpath;
@@ -1015,7 +1018,7 @@ drop_privs(void)
 	}
 }
 
-static void
+void
 check_spamd_db(void)
 {
 	HASHINFO hashinfo;
@@ -1042,7 +1045,6 @@ check_spamd_db(void)
 				exit(1);
 			}
 			close(i);
-			drop_privs();
 			return;
 			break;
 		default:
@@ -1053,7 +1055,6 @@ check_spamd_db(void)
 	}
 	db->sync(db, 0);
 	db->close(db);
-	drop_privs();
 }
 
 
@@ -1062,8 +1063,13 @@ greywatcher(void)
 {
 	struct sigaction sa;
 
-	check_spamd_db();
+	drop_privs();
 
+	if (pledge("stdio rpath wpath inet flock proc exec", NULL) == -1) {
+		syslog_r(LOG_ERR, &sdata, "pledge failed (%m)");
+		exit(1);
+	}
+		
 	startup = time(NULL);
 	db_pid = fork();
 	switch (db_pid) {

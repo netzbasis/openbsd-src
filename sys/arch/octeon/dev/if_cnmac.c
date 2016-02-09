@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.29 2015/10/28 14:04:17 visa Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.37 2015/12/18 13:36:12 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -47,7 +47,6 @@
 #include <sys/queue.h>
 #include <sys/conf.h>
 #include <sys/stdint.h> /* uintptr_t */
-#include <sys/sysctl.h>
 #include <sys/syslog.h>
 #include <sys/endian.h>
 #ifdef MBUF_TIMESTAMP
@@ -55,7 +54,6 @@
 #endif
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -193,13 +191,8 @@ void	octeon_eth_recv_intr(void *, uint64_t *);
 struct	octeon_eth_softc *octeon_eth_gsc[GMX_PORT_NUNITS];
 void	*octeon_eth_pow_recv_ih;
 
-/* sysctl'able parameters */
+/* device parameters */
 int	octeon_eth_param_pko_cmd_w0_n2 = 1;
-int	octeon_eth_param_pip_dyn_rs = 1;
-int	octeon_eth_param_redir = 0;
-int	octeon_eth_param_pktbuf = 0;
-int	octeon_eth_param_rate = 0;
-int	octeon_eth_param_intr = 0;
 
 const struct cfattach cnmac_ca =
     { sizeof(struct octeon_eth_softc), octeon_eth_match, octeon_eth_attach };
@@ -677,11 +670,8 @@ void
 octeon_eth_buf_ext_free_m(caddr_t buf, u_int size, void *arg)
 {
 	uint64_t *work = (void *)arg;
-	int s = splnet();
 
 	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
-
-	splx(s);
 }
 
 void
@@ -689,12 +679,9 @@ octeon_eth_buf_ext_free_ext(caddr_t buf, u_int size,
     void *arg)
 {
 	uint64_t *work = (void *)arg;
-	int s = splnet();
 
 	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
 	cn30xxfpa_buf_put_paddr(octeon_eth_fb_pkt, XKPHYS_TO_PHYS(buf));
-
-	splx(s);
 }
 
 /* ---- ifnet interfaces */
@@ -789,8 +776,6 @@ octeon_eth_send_makecmd_w1(int size, paddr_t addr)
 		size, addr);			/* size, addr */
 }
 
-/* TODO: use bus_dma(9) */
-
 #define KVTOPHYS(addr)	if_cnmac_kvtophys((vaddr_t)(addr))
 paddr_t if_cnmac_kvtophys(vaddr_t);
 
@@ -804,8 +789,7 @@ if_cnmac_kvtophys(vaddr_t kva)
 	else if (kva >= CKSEG1_BASE && kva < CKSEG1_BASE + CKSEG_SIZE)
 		return CKSEG1_TO_PHYS(kva);
 
-	printf("kva %lx is not able to convert physical address\n", kva);
-	panic("if_cnmac_kvtophys");
+	panic("%s: non-direct mapped address %p", __func__, (void *)kva);
 }
 
 int
@@ -814,48 +798,17 @@ octeon_eth_send_makecmd_gbuf(struct octeon_eth_softc *sc, struct mbuf *m0,
 {
 	struct mbuf *m;
 	int segs = 0;
-	uint32_t laddr, rlen, nlen;
 
 	for (m = m0; m != NULL; m = m->m_next) {
-
 		if (__predict_false(m->m_len == 0))
 			continue;
 
-#if 0	
-		OCTEON_ETH_KASSERT(((uint32_t)m->m_data & (PAGE_SIZE - 1))
-		   == (kvtophys((vaddr_t)m->m_data) & (PAGE_SIZE - 1)));
-#endif
-
-		/*
-		 * aligned 4k
-		 */
-		laddr = (uintptr_t)m->m_data & (PAGE_SIZE - 1);
-
-		if (laddr + m->m_len > PAGE_SIZE) {
-			/* XXX */
-			rlen = PAGE_SIZE - laddr;
-			nlen = m->m_len - rlen;
-			*(gbuf + segs) = octeon_eth_send_makecmd_w1(rlen,
-			    KVTOPHYS(m->m_data));
-			segs++;
-			if (segs > 63) {
-				return 1;
-			}
-			/* XXX */
-		} else {
-			rlen = 0;
-			nlen = m->m_len;
-		}
-
-		*(gbuf + segs) = octeon_eth_send_makecmd_w1(nlen,
-		    KVTOPHYS((caddr_t)m->m_data + rlen));
-		segs++;
-		if (segs > 63) {
+		if (segs >= OCTEON_POOL_SIZE_SG / sizeof(uint64_t))
 			return 1;
-		}
+		gbuf[segs] = octeon_eth_send_makecmd_w1(m->m_len,
+		    KVTOPHYS(m->m_data));
+		segs++;
 	}
-
-	OCTEON_ETH_KASSERT(m == NULL);
 
 	*rsegs = segs;
 
@@ -1013,33 +966,13 @@ octeon_eth_start(struct ifnet *ifp)
 	 */
 	octeon_eth_send_queue_flush_prefetch(sc);
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		goto last;
 
-	/* XXX assume that OCTEON doesn't buffer packets */
-	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port))) {
-		/* dequeue and drop them */
-		while (1) {
-			IFQ_DEQUEUE(&ifp->if_snd, m);
-			if (m == NULL)
-				break;
-#if 0
-#ifdef DDB
-			m_print(m, "cd", printf);
-#endif
-			printf("%s: drop\n", sc->sc_dev.dv_xname);
-#endif
-			m_freem(m);
-			IF_DROP(&ifp->if_snd);
-		}
+	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port)))
 		goto last;
-	}
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
-		if (__predict_false(m == NULL))
-			break;
-
 		octeon_eth_send_queue_flush_fetch(sc); /* XXX */
 
 		/*
@@ -1053,6 +986,8 @@ octeon_eth_start(struct ifnet *ifp)
 		/* XXX */
 
 		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == NULL)
+			return;
 
 		OCTEON_ETH_TAP(ifp, m, BPF_DIRECTION_OUT);
 
@@ -1074,24 +1009,6 @@ octeon_eth_start(struct ifnet *ifp)
 		octeon_eth_send_queue_flush_prefetch(sc);
 	}
 
-/*
- * XXXSEIL
- * Don't schedule send-buffer-free callout every time - those buffers are freed
- * by "free tick".  This makes some packets like NFS slower, but it normally
- * doesn't happen on SEIL.
- */
-#ifdef OCTEON_ETH_USENFS
-	if (__predict_false(sc->sc_ext_callback_cnt > 0)) {
-		int timo;
-
-		/* ??? */
-		timo = hz - (100 * sc->sc_ext_callback_cnt);
-		if (timo < 10)
-			timo = 10;
-		callout_schedule(&sc->sc_tick_free_ch, timo);
-	}
-#endif
-
 last:
 	octeon_eth_send_queue_flush_fetch(sc);
 }
@@ -1106,7 +1023,7 @@ octeon_eth_watchdog(struct ifnet *ifp)
 	octeon_eth_configure(sc);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	octeon_eth_start(ifp);
@@ -1140,7 +1057,7 @@ octeon_eth_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_free_ch, 1);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1159,7 +1076,8 @@ octeon_eth_stop(struct ifnet *ifp, int disable)
 	cn30xxgmx_port_enable(sc->sc_gmx_port, 0);
 
 	/* Mark the interface as down and cancel the watchdog timer. */
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE);
+	CLR(ifp->if_flags, IFF_RUNNING);
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	intr_barrier(octeon_eth_pow_recv_ih);
@@ -1240,7 +1158,7 @@ octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
 	void (*ext_free)(caddr_t, u_int, void *);
 	void *ext_buf;
 	size_t ext_size;
-	void *data;
+	caddr_t data;
 	uint64_t word1 = work[1];
 	uint64_t word2 = work[2];
 	uint64_t word3 = work[3];
@@ -1256,7 +1174,14 @@ octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
 		ext_buf = &work[4];
 		ext_size = 96;
 
-		data = &work[4 + sc->sc_ip_offset / sizeof(uint64_t)];
+		/*
+		 * If the packet is IP, the hardware has padded it so that the
+		 * IP source address starts on the next 64-bit word boundary.
+		 */
+		data = (caddr_t)&work[4] + ETHER_ALIGN;
+		if (!ISSET(word2, PIP_WQE_WORD2_IP_NI) &&
+		    !ISSET(word2, PIP_WQE_WORD2_IP_V6))
+			data += 4;
 	} else {
 		vaddr_t addr;
 		vaddr_t start_buffer;

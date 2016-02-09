@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptodev.h,v 1.62 2015/11/03 01:55:28 mikeb Exp $	*/
+/*	$OpenBSD: cryptodev.h,v 1.67 2015/12/10 21:00:51 naddy Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -72,7 +72,6 @@
 #define HMAC_OPAD_VAL		0x5C
 
 /* Encryption algorithm block sizes */
-#define DES_BLOCK_LEN		8
 #define DES3_BLOCK_LEN		8
 #define BLOWFISH_BLOCK_LEN	8
 #define CAST128_BLOCK_LEN	8
@@ -83,35 +82,31 @@
 /* Maximum hash algorithm result length */
 #define AALG_MAX_RESULT_LEN	64 /* Keep this updated */
 
-#define CRYPTO_DES_CBC		1
-#define CRYPTO_3DES_CBC		2
-#define CRYPTO_BLF_CBC		3
-#define CRYPTO_CAST_CBC		4
-#define CRYPTO_MD5_HMAC		6
-#define CRYPTO_SHA1_HMAC	7
-#define CRYPTO_RIPEMD160_HMAC	8
-#define CRYPTO_RIJNDAEL128_CBC	11 /* 128 bit blocksize */
-#define CRYPTO_AES_CBC		11 /* 128 bit blocksize -- the same as above */
-#define CRYPTO_ARC4		12
-#define CRYPTO_MD5		13
-#define CRYPTO_SHA1		14
-#define CRYPTO_DEFLATE_COMP	15 /* Deflate compression algorithm */
-#define CRYPTO_NULL		16
-#define CRYPTO_LZS_COMP		17 /* LZS compression algorithm */
-#define CRYPTO_SHA2_256_HMAC	18
-#define CRYPTO_SHA2_384_HMAC	19
-#define CRYPTO_SHA2_512_HMAC	20
-#define CRYPTO_AES_CTR		21
-#define CRYPTO_AES_XTS		22
-#define CRYPTO_AES_GCM_16	23
-#define CRYPTO_AES_128_GMAC	24
-#define CRYPTO_AES_192_GMAC	25
-#define CRYPTO_AES_256_GMAC	26
-#define CRYPTO_AES_GMAC		27
-#define CRYPTO_CHACHA20_POLY1305	28
-#define CRYPTO_CHACHA20_POLY1305_MAC	29
-#define CRYPTO_ESN		30 /* Support for Extended Sequence Numbers */
-#define CRYPTO_ALGORITHM_MAX	30 /* Keep updated */
+#define CRYPTO_3DES_CBC		1
+#define CRYPTO_BLF_CBC		2
+#define CRYPTO_CAST_CBC		3
+#define CRYPTO_MD5_HMAC		4
+#define CRYPTO_SHA1_HMAC	5
+#define CRYPTO_RIPEMD160_HMAC	6
+#define CRYPTO_RIJNDAEL128_CBC	7  /* 128 bit blocksize */
+#define CRYPTO_AES_CBC		7  /* 128 bit blocksize -- the same as above */
+#define CRYPTO_DEFLATE_COMP	8  /* Deflate compression algorithm */
+#define CRYPTO_NULL		9
+#define CRYPTO_LZS_COMP		10 /* LZS compression algorithm */
+#define CRYPTO_SHA2_256_HMAC	11
+#define CRYPTO_SHA2_384_HMAC	12
+#define CRYPTO_SHA2_512_HMAC	13
+#define CRYPTO_AES_CTR		14
+#define CRYPTO_AES_XTS		15
+#define CRYPTO_AES_GCM_16	16
+#define CRYPTO_AES_128_GMAC	17
+#define CRYPTO_AES_192_GMAC	18
+#define CRYPTO_AES_256_GMAC	19
+#define CRYPTO_AES_GMAC		20
+#define CRYPTO_CHACHA20_POLY1305	21
+#define CRYPTO_CHACHA20_POLY1305_MAC	22
+#define CRYPTO_ESN		23 /* Support for Extended Sequence Numbers */
+#define CRYPTO_ALGORITHM_MAX	23 /* Keep updated */
 
 /* Algorithm flags */
 #define	CRYPTO_ALG_FLAG_SUPPORTED	0x01 /* Algorithm is supported */
@@ -142,7 +137,6 @@ struct cryptodesc {
 #define	CRD_F_IV_PRESENT	0x02	/* When encrypting, IV is already in
 					   place, so don't copy. */
 #define	CRD_F_IV_EXPLICIT	0x04	/* IV explicitly provided */
-#define	CRD_F_DSA_SHA_NEEDED	0x08	/* Compute SHA-1 of buffer for DSA */
 #define CRD_F_COMP		0x10    /* Set when doing compression */
 #define CRD_F_ESN		0x20	/* Set when ESN field is provided */
 
@@ -180,7 +174,6 @@ struct cryptop {
 
 #define CRYPTO_F_IMBUF	0x0001	/* Input/output are mbuf chains, otherwise contig */
 #define CRYPTO_F_IOV	0x0002	/* Input/output are uio */
-#define CRYPTO_F_REL	0x0004	/* Must return data in same place */
 #define CRYPTO_F_NOQUEUE	0x0008	/* Don't use crypto queue/thread */
 #define CRYPTO_F_DONE	0x0010	/* request completed */
 
@@ -215,8 +208,6 @@ struct cryptocap {
 	u_int8_t	cc_flags;
 #define CRYPTOCAP_F_CLEANUP     0x01
 #define CRYPTOCAP_F_SOFTWARE    0x02
-#define CRYPTOCAP_F_ENCRYPT_MAC 0x04 /* Can do encrypt-then-MAC (IPsec) */
-#define CRYPTOCAP_F_MAC_ENCRYPT 0x08 /* Can do MAC-then-encrypt (TLS) */
 
 	int		(*cc_newsession) (u_int32_t *, struct cryptoini *);
 	int		(*cc_process) (struct cryptop *);
@@ -227,7 +218,7 @@ struct cryptocap {
  * ioctl parameter to request creation of a session.
  */
 struct session_op {
-	u_int32_t	cipher;		/* ie. CRYPTO_DES_CBC */
+	u_int32_t	cipher;		/* ie. CRYPTO_AES_CBC */
 	u_int32_t	mac;		/* ie. CRYPTO_MD5_HMAC */
 
 	u_int32_t	keylen;		/* cipher key */

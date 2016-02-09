@@ -1,4 +1,4 @@
-/*	$OpenBSD: pl_main.c,v 1.14 2015/08/22 14:47:41 deraadt Exp $	*/
+/*	$OpenBSD: pl_main.c,v 1.16 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: pl_main.c,v 1.5 1995/04/24 12:25:25 cgd Exp $	*/
 
 /*
@@ -30,16 +30,18 @@
  * SUCH DAMAGE.
  */
 
-#include "player.h"
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <err.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
-/*ARGSUSED*/
+#include "extern.h"
+#include "player.h"
+
 void
-pl_main()
+pl_main(void)
 {
 	initialize();
 	Msg("Aye aye, Sir");
@@ -47,7 +49,7 @@ pl_main()
 }
 
 void
-initialize()
+initialize(void)
 {
 	struct File *fp;
 	struct ship *sp;

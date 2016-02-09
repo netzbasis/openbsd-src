@@ -1,4 +1,4 @@
-/*	$OpenBSD: fish.c,v 1.17 2015/02/18 23:20:45 tedu Exp $	*/
+/*	$OpenBSD: fish.c,v 1.22 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: fish.c,v 1.3 1995/03/23 08:28:18 cgd Exp $	*/
 
 /*-
@@ -33,16 +33,16 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/wait.h>
+
 #include <err.h>
 #include <fcntl.h>
 #include <paths.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <time.h>
+#include <unistd.h>
+
 #include "pathnames.h"
 
 #define	RANKS		13
@@ -79,13 +79,16 @@ int	nrandom(int);
 void	printhand(const int *);
 void	printplayer(int);
 int	promove(void);
-void	usage(void);
+__dead void	usage(void);
 int	usermove(void);
 
 int
 main(int argc, char *argv[])
 {
 	int ch, move;
+
+	if (pledge("stdio rpath proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "ph")) != -1)
 		switch(ch) {
@@ -99,6 +102,10 @@ main(int argc, char *argv[])
 		}
 
 	instructions();
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
+
 	init();
 
 	if (nrandom(2) == 1) {
@@ -128,7 +135,6 @@ istart:		for (;;) {
 				goodmove(COMPUTER, move, comphand, userhand);
 		}
 	}
-	/* NOTREACHED */
 }
 
 int
@@ -183,7 +189,6 @@ usermove(void)
 			(void)printf("No cheating!\n");
 		(void)printf("Guess again.\n");
 	}
-	/* NOTREACHED */
 }
 
 int
@@ -240,7 +245,6 @@ promove(void)
 		for (i = 0; i < RANKS; ++i)
 			asked[i] = 0;
 	}
-	/* NOTREACHED */
 }
 
 int
@@ -438,7 +442,6 @@ getans(const char *prompt)
 		(void)printf(
 "I don't understand your answer; please enter 'y' or 'n'!\n");
 	}
-	/* NOTREACHED */
 }
 
 void

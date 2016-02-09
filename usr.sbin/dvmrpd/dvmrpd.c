@@ -1,4 +1,4 @@
-/*	$OpenBSD: dvmrpd.c,v 1.19 2015/02/10 08:49:30 claudio Exp $ */
+/*	$OpenBSD: dvmrpd.c,v 1.21 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -231,9 +231,6 @@ main(int argc, char *argv[])
 	if (mrt_init(conf->mroute_socket))
 		fatal("multicast routing not enabled in kernel");
 
-	/* show who we are */
-	setproctitle("parent");
-
 	event_init();
 
 	/* setup signal handler */
@@ -356,7 +353,7 @@ main_dispatch_dvmrpe(int fd, short event, void *bula)
 	int		 verbose;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			fatalx("pipe closed");
@@ -409,7 +406,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	ssize_t		 n;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			fatalx("pipe closed");

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.97 2015/03/14 02:22:09 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.100 2015/12/05 12:20:13 claudio Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -111,6 +111,9 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 		return (pid);
 	}
 
+	/* cleanup a bit */
+	kif_clear();
+
 	rdeconf = xconf;
 
 	if ((pw = getpwnam(OSPFD_USER)) == NULL)
@@ -128,6 +131,9 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	if (pledge("stdio", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 	rde_nbr_init(NBR_HASHSIZE);
@@ -211,7 +217,6 @@ rde_shutdown(void)
 	}
 	rde_asext_free();
 	rde_nbr_free();
-	kr_shutdown();
 
 	msgbuf_clear(&iev_ospfe->ibuf.w);
 	free(iev_ospfe);
@@ -255,7 +260,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -272,7 +277,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("rde_dispatch_imsg: imsg_read error");
+			fatal("rde_dispatch_imsg: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -298,11 +303,6 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 			if (nbr == NULL)
 				break;
 
-			if (state != nbr->state &&
-			    (nbr->state & NBR_STA_FULL ||
-			    state & NBR_STA_FULL))
-				area_track(nbr->area, state);
-
 			nbr->state = state;
 			if (nbr->state & NBR_STA_FULL)
 				rde_req_list_free(nbr);
@@ -314,6 +314,19 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 			if (nbr == NULL)
 				break;
 			nbr->capa_options = *(u_int8_t *)imsg.data;
+			break;
+		case IMSG_AREA_CHANGE:
+			if (imsg.hdr.len - IMSG_HEADER_SIZE != sizeof(state))
+				fatalx("invalid size of OE request");
+
+			LIST_FOREACH(area, &rdeconf->area_list, entry) {
+				if (area->id.s_addr == imsg.hdr.peerid)
+					break;
+			}
+			if (area == NULL)
+				break;
+			memcpy(&state, imsg.data, sizeof(state));
+			area->active = state;
 			break;
 		case IMSG_DB_SNAPSHOT:
 			nbr = rde_nbr_find(imsg.hdr.peerid);
@@ -620,7 +633,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 	ibuf = &iev->ibuf;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -634,7 +647,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("rde_dispatch_parent: imsg_read error");
+			fatal("rde_dispatch_parent: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -771,6 +784,9 @@ rde_send_change_kroute(struct rt_node *r)
 	TAILQ_FOREACH(rn, &r->nexthop, entry) {
 		if (rn->invalid)
 			continue;
+		if (rn->connected)
+			/* skip self-originated routes */
+			continue;
 		krcount++;
 
 		bzero(&kr, sizeof(kr));
@@ -780,8 +796,12 @@ rde_send_change_kroute(struct rt_node *r)
 		kr.ext_tag = r->ext_tag;
 		imsg_add(wbuf, &kr, sizeof(kr));
 	}
-	if (krcount == 0)
-		fatalx("rde_send_change_kroute: no valid nexthop found");
+	if (krcount == 0) {
+		/* no valid nexthop or self originated, so remove */
+		ibuf_free(wbuf);
+		rde_send_delete_kroute(r);
+		return;
+	}
 	imsg_close(&iev_main->ibuf, wbuf);
 	imsg_event_add(iev_main);
 }
@@ -1352,6 +1372,9 @@ rde_summary_update(struct rt_node *rte, struct area *area)
 	/* first check if we actually need to announce this route */
 	if (!(rte->d_type == DT_NET || rte->flags & OSPF_RTR_E))
 		return;
+	/* route is invalid, lsa_remove_invalid_sums() will do the cleanup */
+	if (rte->cost >= LS_INFINITY)
+		return;
 	/* never create summaries for as-ext LSA */
 	if (rte->p_type == PT_TYPE1_EXT || rte->p_type == PT_TYPE2_EXT)
 		return;
@@ -1363,16 +1386,17 @@ rde_summary_update(struct rt_node *rte, struct area *area)
 		return;
 	/* nexthop check, nexthop part of area -> no summary */
 	TAILQ_FOREACH(rn, &rte->nexthop, entry) {
+		if (rn->invalid)
+			continue;
 		nr = rt_lookup(DT_NET, rn->nexthop.s_addr);
 		if (nr && nr->area.s_addr == area->id.s_addr)
 			continue;
 		break;
 	}
-	if (rn == NULL)	/* all nexthops belong to this area */
+	if (rn == NULL)
+		/* all nexthops belong to this area or are invalid */
 		return;
 
-	if (rte->cost >= LS_INFINITY)
-		return;
 	/* TODO AS border router specific checks */
 	/* TODO inter-area network route stuff */
 	/* TODO intra-area stuff -- condense LSA ??? */

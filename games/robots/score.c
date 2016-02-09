@@ -1,4 +1,4 @@
-/*	$OpenBSD: score.c,v 1.11 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: score.c,v 1.14 2016/01/04 17:33:24 mestre Exp $	*/
 /*	$NetBSD: score.c,v 1.3 1995/04/22 10:09:12 cgd Exp $	*/
 
 /*
@@ -30,10 +30,14 @@
  * SUCH DAMAGE.
  */
 
-#include	"robots.h"
-#include	"pathnames.h"
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
-char	*Scorefile = _PATH_SCORE;
+#include "robots.h"
+
+char	Scorefile[PATH_MAX];
 
 #ifndef MAX_PER_UID
 #define MAX_PER_UID	5
@@ -130,11 +134,17 @@ score(int score_wfd)
 void
 set_name(SCORE *scp)
 {
-	PASSWD	*pp;
+	const char	*name;
 
-	if ((pp = getpwuid(scp->s_uid)) == NULL)
-		pp->pw_name = "???";
-	strlcpy(scp->s_name, pp->pw_name, LOGIN_NAME_MAX);
+	name = getenv("LOGNAME");
+	if (name == NULL || *name == '\0')
+		name = getenv("USER");
+	if (name == NULL || *name == '\0')
+		name = getlogin();
+	if (name == NULL || *name == '\0')
+		name = "  ???";
+
+	strlcpy(scp->s_name, name, LOGIN_NAME_MAX);
 }
 
 /*

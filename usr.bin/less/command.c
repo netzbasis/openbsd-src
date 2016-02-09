@@ -52,7 +52,7 @@ extern int forw_prompt;
 
 static int mca;			/* The multicharacter command (action) */
 static int search_type;		/* The previous type of search */
-static LINENUM number;		/* The number typed by the user */
+static off_t number;		/* The number typed by the user */
 static long fraction;		/* The fractional part of the number */
 static struct loption *curropt;
 static int opt_lower;
@@ -69,7 +69,7 @@ struct ungot {
 static struct ungot *ungot = NULL;
 static int unget_end = 0;
 
-static void multi_search();
+static void multi_search(char *, int);
 
 /*
  * Move the cursor to start of prompt line before executing a command.
@@ -81,7 +81,7 @@ cmd_exec(void)
 {
 	clear_attn();
 	clear_bot();
-	flush();
+	flush(0);
 }
 
 /*
@@ -198,8 +198,7 @@ exec_mca(void)
 		 */
 		while (*cbuf == '+' || *cbuf == ' ')
 			cbuf++;
-		if (every_first_cmd != NULL)
-			free(every_first_cmd);
+		free(every_first_cmd);
 		if (*cbuf == '\0')
 			every_first_cmd = NULL;
 		else
@@ -228,11 +227,11 @@ exec_mca(void)
 		/* POSIX behavior - probably not generally useful */
 		if (less_is_more && (strcmp(cbuf, "#") == 0)) {
 			if (ntags()) {
-				error("No previous file", NULL_PARG);
+				error("No previous file", NULL);
 				break;
 			}
 			if (edit_prev(1)) {
-				error("No previous file", NULL_PARG);
+				error("No previous file", NULL);
 			} else {
 				jump_back(1);
 			}
@@ -246,7 +245,7 @@ exec_mca(void)
 		if (secure)
 			break;
 		(void) pipe_mark(pipec, cbuf);
-		error("|done", NULL_PARG);
+		error("|done", NULL);
 		break;
 	}
 }
@@ -638,7 +637,7 @@ prompt(void)
 	 */
 	if (get_quit_at_eof() == OPT_ONPLUS &&
 	    eof_displayed() && !(ch_getflags() & CH_HELPFILE) &&
-	    next_ifile(curr_ifile) == NULL_IFILE)
+	    next_ifile(curr_ifile) == NULL)
 		quit(QUIT_OK);
 
 	/*
@@ -646,7 +645,7 @@ prompt(void)
 	 */
 	if (quit_if_one_screen &&
 	    entire_file_displayed() && !(ch_getflags() & CH_HELPFILE) &&
-	    next_ifile(curr_ifile) == NULL_IFILE)
+	    next_ifile(curr_ifile) == NULL)
 		quit(QUIT_OK);
 
 	/*
@@ -858,7 +857,7 @@ multi_search(char *pattern, int n)
 	 * Print an error message if we haven't already.
 	 */
 	if (n > 0)
-		error("Pattern not found", NULL_PARG);
+		error("Pattern not found", NULL);
 
 	if (changed_file) {
 		/*
@@ -1269,7 +1268,7 @@ again:
 			/*
 			 * Exit.
 			 */
-			if (curr_ifile != NULL_IFILE &&
+			if (curr_ifile != NULL &&
 			    ch_getflags() & CH_HELPFILE) {
 				/*
 				 * Quit while viewing the help file
@@ -1376,7 +1375,7 @@ again:
 				error(less_is_more
 				    ? "Invalid option -p h"
 				    : "Invalid option ++h",
-				    NULL_PARG);
+				    NULL);
 				break;
 			}
 			cmd_exec();
@@ -1390,7 +1389,7 @@ again:
 			 * Edit a new file.  Get the filename.
 			 */
 			if (secure) {
-				error("Command not available", NULL_PARG);
+				error("Command not available", NULL);
 				break;
 			}
 			start_mca(A_EXAMINE, "Examine: ", ml_examine, 0);
@@ -1402,18 +1401,18 @@ again:
 			 * Invoke an editor on the input file.
 			 */
 			if (secure) {
-				error("Command not available", NULL_PARG);
+				error("Command not available", NULL);
 				break;
 			}
 			if (ch_getflags() & CH_HELPFILE)
 				break;
 			if (strcmp(get_filename(curr_ifile), "-") == 0) {
-				error("Cannot edit standard input", NULL_PARG);
+				error("Cannot edit standard input", NULL);
 				break;
 			}
 			if (curr_altfilename != NULL) {
 				error("WARNING: This file was viewed via "
-				    "LESSOPEN", NULL_PARG);
+				    "LESSOPEN", NULL);
 			}
 			/*
 			 * Expand the editor prototype string
@@ -1431,7 +1430,7 @@ again:
 			 * Examine next file.
 			 */
 			if (ntags()) {
-				error("No next file", NULL_PARG);
+				error("No next file", NULL);
 				break;
 			}
 			if (number <= 0)
@@ -1450,7 +1449,7 @@ again:
 			 * Examine previous file.
 			 */
 			if (ntags()) {
-				error("No previous file", NULL_PARG);
+				error("No previous file", NULL);
 				break;
 			}
 			if (number <= 0)
@@ -1466,7 +1465,7 @@ again:
 				number = 1;
 			tagfile = nexttag((int)number);
 			if (tagfile == NULL) {
-				error("No next tag", NULL_PARG);
+				error("No next tag", NULL);
 				break;
 			}
 			if (edit(tagfile) == 0) {
@@ -1481,7 +1480,7 @@ again:
 				number = 1;
 			tagfile = prevtag((int)number);
 			if (tagfile == NULL) {
-				error("No previous tag", NULL_PARG);
+				error("No previous tag", NULL);
 				break;
 			}
 			if (edit(tagfile) == 0) {
@@ -1498,7 +1497,7 @@ again:
 			if (number <= 0)
 				number = 1;
 			if (edit_index((int)number))
-				error("No such file", NULL_PARG);
+				error("No such file", NULL);
 			break;
 
 		case A_REMOVE_FILE:
@@ -1506,7 +1505,7 @@ again:
 				break;
 			old_ifile = curr_ifile;
 			new_ifile = getoff_ifile(curr_ifile);
-			if (new_ifile == NULL_IFILE) {
+			if (new_ifile == NULL) {
 				ring_bell();
 				break;
 			}
@@ -1571,7 +1570,7 @@ again:
 
 		case A_PIPE:
 			if (secure) {
-				error("Command not available", NULL_PARG);
+				error("Command not available", NULL);
 				break;
 			}
 			start_mca(A_PIPE, "|mark: ", (void*)NULL, 0);

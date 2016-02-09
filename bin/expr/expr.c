@@ -1,4 +1,4 @@
-/*	$OpenBSD: expr.c,v 1.22 2015/10/09 01:37:06 deraadt Exp $	*/
+/*	$OpenBSD: expr.c,v 1.25 2016/01/07 21:17:05 tedu Exp $	*/
 /*	$NetBSD: expr.c,v 1.3.6.1 1996/06/04 20:41:47 cgd Exp $	*/
 
 /*
@@ -7,6 +7,7 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -16,10 +17,10 @@
 #include <regex.h>
 #include <err.h>
 
-struct val	*make_int(int);
+struct val	*make_int(int64_t);
 struct val	*make_str(char *);
 void		 free_value(struct val *);
-int		 is_integer(struct val *, int *);
+int		 is_integer(struct val *, int64_t *);
 int		 to_integer(struct val *);
 void		 to_string(struct val *);
 int		 is_zero_or_null(struct val *);
@@ -46,7 +47,7 @@ struct val {
 
 	union {
 		char	       *s;
-		int		i;
+		int64_t		i;
 	} u;
 };
 
@@ -55,7 +56,7 @@ struct val     *tokval;
 char	      **av;
 
 struct val *
-make_int(int i)
+make_int(int64_t i)
 {
 	struct val     *vp;
 
@@ -94,11 +95,11 @@ free_value(struct val *vp)
 
 /* determine if vp is an integer; if so, return it's value in *r */
 int
-is_integer(struct val *vp, int *r)
+is_integer(struct val *vp, int64_t *r)
 {
 	char	       *s;
 	int		neg;
-	int		i;
+	int64_t		i;
 
 	if (vp->type == integer) {
 		*r = vp->u.i;
@@ -138,7 +139,7 @@ is_integer(struct val *vp, int *r)
 int
 to_integer(struct val *vp)
 {
-	int		r;
+	int64_t		r;
 
 	if (vp->type == integer)
 		return 1;
@@ -163,7 +164,7 @@ to_string(struct val *vp)
 	if (vp->type == string)
 		return;
 
-	if (asprintf(&tmp, "%d", vp->u.i) == -1)
+	if (asprintf(&tmp, "%lld", vp->u.i) == -1)
 		err(3, NULL);
 
 	vp->type = string;
@@ -287,7 +288,7 @@ eval5(void)
 				v = make_str(l->u.s + rm[1].rm_so);
 
 			} else {
-				v = make_int((int)(rm[0].rm_eo - rm[0].rm_so));
+				v = make_int(rm[0].rm_eo - rm[0].rm_so);
 			}
 		} else {
 			if (rp.re_nsub == 0) {
@@ -331,10 +332,10 @@ eval4(void)
 				errx(2, "division by zero");
 			}
 			if (op == DIV) {
-				if (l->u.i != INT_MIN || r->u.i != -1)
+				if (l->u.i != INT64_MIN || r->u.i != -1)
 					l->u.i /= r->u.i;
 			} else {
-				if (l->u.i != INT_MIN || r->u.i != -1)
+				if (l->u.i != INT64_MIN || r->u.i != -1)
 					l->u.i %= r->u.i;
 				else
 					l->u.i = 0;
@@ -381,7 +382,7 @@ eval2(void)
 {
 	struct val     *l, *r;
 	enum token	op;
-	int		v = 0, li, ri;
+	int64_t		v = 0, li, ri;
 
 	l = eval3();
 	while ((op = token) == EQ || op == NE || op == LT || op == GT ||
@@ -502,7 +503,7 @@ main(int argc, char *argv[])
 	(void) setlocale(LC_ALL, "");
 
 	if (pledge("stdio", NULL) == -1)
-		err(1, "pledge");
+		err(2, "pledge");
 
 	if (argc > 1 && !strcmp(argv[1], "--"))
 		argv++;
@@ -518,7 +519,7 @@ main(int argc, char *argv[])
 	}
 
 	if (vp->type == integer)
-		printf("%d\n", vp->u.i);
+		printf("%lld\n", vp->u.i);
 	else
 		printf("%s\n", vp->u.s);
 

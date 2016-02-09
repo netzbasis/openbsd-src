@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.c,v 1.15 2015/02/16 06:35:17 ratchov Exp $	*/
+/*	$OpenBSD: sock.c,v 1.17 2016/01/08 16:17:31 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -152,6 +152,7 @@ sock_close(struct sock *f)
 	}
 	file_del(f->file);
 	close(f->fd);
+	file_slowaccept = 0;
 	xfree(f);
 }
 
@@ -336,7 +337,7 @@ sock_fdwrite(struct sock *f, void *data, int count)
 			}
 			sock_close(f);
 		} else {
-#ifdef DEBUG			
+#ifdef DEBUG
 			if (log_level >= 4) {
 				sock_log(f);
 				log_puts(": write blocked\n");
@@ -377,7 +378,7 @@ sock_fdread(struct sock *f, void *data, int count)
 			}
 			sock_close(f);
 		} else {
-#ifdef DEBUG			
+#ifdef DEBUG
 			if (log_level >= 4) {
 				sock_log(f);
 				log_puts(": read blocked\n");
@@ -1095,7 +1096,7 @@ sock_execmsg(struct sock *f)
 				f->ralign = s->round * s->mix.bpf;
 			}
 		}
-		slot_stop(s);		
+		slot_stop(s);
 		break;
 	case AMSG_SETPAR:
 #ifdef DEBUG
@@ -1283,7 +1284,7 @@ sock_execmsg(struct sock *f)
 int
 sock_buildmsg(struct sock *f)
 {
-	unsigned int size;	
+	unsigned int size;
 
 	/*
 	 * If pos changed (or initial tick), build a MOVE message.
@@ -1313,7 +1314,7 @@ sock_buildmsg(struct sock *f)
 
 	if (f->fillpending > 0) {
 		AMSG_INIT(&f->wmsg);
-		f->wmsg.cmd = htonl(AMSG_FLOWCTL);	       
+		f->wmsg.cmd = htonl(AMSG_FLOWCTL);
 		f->wmsg.u.ts.delta = htonl(f->fillpending);
 		size = f->fillpending;
 		if (f->slot)
@@ -1357,7 +1358,7 @@ sock_buildmsg(struct sock *f)
 	}
 
 	if (f->midi != NULL && f->midi->obuf.used > 0) {
-		size = f->midi->obuf.used;		
+		size = f->midi->obuf.used;
 		if (size > AMSG_DATAMAX)
 			size = AMSG_DATAMAX;
 		AMSG_INIT(&f->wmsg);

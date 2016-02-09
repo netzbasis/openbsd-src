@@ -1,4 +1,4 @@
-/*	$OpenBSD: buf.h,v 1.99 2015/07/19 16:21:11 beck Exp $	*/
+/*	$OpenBSD: buf.h,v 1.101 2015/12/06 23:42:30 guenther Exp $	*/
 /*	$NetBSD: buf.h,v 1.25 1997/04/09 21:12:17 mycroft Exp $	*/
 
 /*
@@ -292,6 +292,7 @@ void	brelse(struct buf *);
 void	bufinit(void);
 void	buf_dirty(struct buf *);
 void    buf_undirty(struct buf *);
+void	buf_adjcnt(struct buf *, long);
 int	bwrite(struct buf *);
 struct buf *getblk(struct vnode *, daddr_t, int, int, int);
 struct buf *geteblk(int);
@@ -339,7 +340,6 @@ void  bgetvp(struct vnode *, struct buf *);
 void  buf_replacevnode(struct buf *, struct vnode *);
 void  buf_daemon(struct proc *);
 void  buf_replacevnode(struct buf *, struct vnode *);
-void  buf_daemon(struct proc *);
 int bread_cluster(struct vnode *, daddr_t, int, struct buf **);
 
 #ifdef DEBUG

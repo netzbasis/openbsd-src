@@ -1,4 +1,4 @@
-/*	$OpenBSD: mark.c,v 1.9 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: mark.c,v 1.12 2016/01/20 08:43:27 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -23,7 +23,7 @@
 
 #include "common.h"
 
-static LMARK *mark_find(SCR *, ARG_CHAR_T);
+static LMARK *mark_find(SCR *, CHAR_T);
 
 /*
  * Marks are maintained in a key sorted doubly linked list.  We can't
@@ -101,10 +101,10 @@ mark_end(SCR *sp, EXF *ep)
  * mark_get --
  *	Get the location referenced by a mark.
  *
- * PUBLIC: int mark_get(SCR *, ARG_CHAR_T, MARK *, mtype_t);
+ * PUBLIC: int mark_get(SCR *, CHAR_T, MARK *, mtype_t);
  */
 int
-mark_get(SCR *sp, ARG_CHAR_T key, MARK *mp, mtype_t mtype)
+mark_get(SCR *sp, CHAR_T key, MARK *mp, mtype_t mtype)
 {
 	LMARK *lmp;
 
@@ -113,12 +113,12 @@ mark_get(SCR *sp, ARG_CHAR_T key, MARK *mp, mtype_t mtype)
 
 	lmp = mark_find(sp, key);
 	if (lmp == NULL || lmp->name != key) {
-		msgq(sp, mtype, "017|Mark %s: not set", KEY_NAME(sp, key));
+		msgq(sp, mtype, "Mark %s: not set", KEY_NAME(sp, key));
                 return (1);
 	}
 	if (F_ISSET(lmp, MARK_DELETED)) {
 		msgq(sp, mtype,
-		    "018|Mark %s: the line was deleted", KEY_NAME(sp, key));
+		    "Mark %s: the line was deleted", KEY_NAME(sp, key));
                 return (1);
 	}
 
@@ -129,7 +129,7 @@ mark_get(SCR *sp, ARG_CHAR_T key, MARK *mp, mtype_t mtype)
 	 */
 	if ((lmp->lno != 1 || lmp->cno != 0) && !db_exist(sp, lmp->lno)) {
 		msgq(sp, mtype,
-		    "019|Mark %s: cursor position no longer exists",
+		    "Mark %s: cursor position no longer exists",
 		    KEY_NAME(sp, key));
 		return (1);
 	}
@@ -142,10 +142,10 @@ mark_get(SCR *sp, ARG_CHAR_T key, MARK *mp, mtype_t mtype)
  * mark_set --
  *	Set the location referenced by a mark.
  *
- * PUBLIC: int mark_set(SCR *, ARG_CHAR_T, MARK *, int);
+ * PUBLIC: int mark_set(SCR *, CHAR_T, MARK *, int);
  */
 int
-mark_set(SCR *sp, ARG_CHAR_T key, MARK *value, int userset)
+mark_set(SCR *sp, CHAR_T key, MARK *value, int userset)
 {
 	LMARK *lmp, *lmt;
 
@@ -160,7 +160,7 @@ mark_set(SCR *sp, ARG_CHAR_T key, MARK *value, int userset)
 	 */
 	lmp = mark_find(sp, key);
 	if (lmp == NULL || lmp->name != key) {
-		MALLOC_RET(sp, lmt, LMARK *, sizeof(LMARK));
+		MALLOC_RET(sp, lmt, sizeof(LMARK));
 		if (lmp == NULL) {
 			LIST_INSERT_HEAD(&sp->ep->marks, lmt, q);
 		} else
@@ -183,7 +183,7 @@ mark_set(SCR *sp, ARG_CHAR_T key, MARK *value, int userset)
  *	where it would go.
  */
 static LMARK *
-mark_find(SCR *sp, ARG_CHAR_T key)
+mark_find(SCR *sp, CHAR_T key)
 {
 	LMARK *lmp, *lastlmp;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ixgbe.h,v 1.17 2014/11/18 02:37:30 tedu Exp $	*/
+/*	$OpenBSD: ixgbe.h,v 1.21 2015/12/18 19:08:36 kettenis Exp $	*/
 
 /******************************************************************************
 
@@ -52,11 +52,10 @@
 #include <sys/timeout.h>
 #include <sys/pool.h>
 #include <sys/rwlock.h>
+#include <sys/atomic.h>
 
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/bpf.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -68,7 +67,6 @@
 #endif
 
 #if NVLAN > 0
-#include <net/if_types.h>
 #include <net/if_vlan_var.h>
 #endif
 

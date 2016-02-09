@@ -1,4 +1,4 @@
-/*	$OpenBSD: ypldap.c,v 1.16 2015/11/02 10:06:06 jmatthew Exp $ */
+/*	$OpenBSD: ypldap.c,v 1.18 2015/12/05 13:15:06 claudio Exp $ */
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -359,7 +359,7 @@ main_dispatch_client(int fd, short events, void *p)
 		fatalx("unknown event");
 
 	if (events & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)
 			shut = 1;
@@ -607,6 +607,9 @@ main(int argc, char *argv[])
 #else
 #warning disabling privilege revocation in debug mode
 #endif
+
+	if (pledge("stdio inet", NULL) == -1)
+		fatal("pledge");
 
 	bzero(&tv, sizeof(tv));
 	evtimer_set(&ev_timer, main_init_timer, &env);

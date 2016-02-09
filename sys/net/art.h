@@ -1,4 +1,4 @@
-/* $OpenBSD: art.h,v 1.5 2015/11/06 17:44:45 mpi Exp $ */
+/* $OpenBSD: art.h,v 1.10 2016/01/18 18:27:12 mpi Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -19,7 +19,7 @@
 #ifndef _NET_ART_H_
 #define _NET_ART_H_
 
-#define ART_MAXLVL	16	/* We currently use 16 levels for IPv6. */
+#define ART_MAXLVL	32	/* We currently use 32 levels for IPv6. */
 
 /*
  * Root of the ART tables, equivalent to the radix head.
@@ -43,14 +43,14 @@ struct rtentry;
  * A node is the internal representation of a route entry.
  */
 struct art_node {
+	SRPL_HEAD(, rtentry)	 an_rtlist;	/* Route related to this node */
 	struct sockaddr		*an_dst;	/* Destination address (key) */
-	int			 an_plen;	/* Prefix length */
-
-	SLIST_HEAD(, rtentry)	 an_rtlist;	/* Route related to this node */
+	uint8_t			 an_plen;	/* Prefix length */
 };
 
 void		 art_init(void);
-struct art_root	*art_alloc(unsigned int, int);
+struct art_root	*art_alloc(unsigned int, unsigned int, unsigned int);
+void		 art_free(struct art_root *);
 struct art_node *art_insert(struct art_root *, struct art_node *, uint8_t *,
 		     int);
 struct art_node *art_delete(struct art_root *, struct art_node *, uint8_t *,

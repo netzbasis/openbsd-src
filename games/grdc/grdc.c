@@ -1,4 +1,4 @@
-/*	$OpenBSD: grdc.c,v 1.19 2014/11/19 03:27:45 schwarze Exp $	*/
+/*	$OpenBSD: grdc.c,v 1.25 2016/01/07 16:00:32 tb Exp $	*/
 /*
  *
  * Copyright 2002 Amos Shapir.  Public domain.
@@ -11,14 +11,13 @@
  * 10-18-89 added signal handling
  */
 
-#include <sys/types.h>
 #include <sys/ioctl.h>
+
 #include <curses.h>
+#include <err.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <stdio.h>
-#include <time.h>
 #include <unistd.h>
 
 #define XLENGTH 58
@@ -41,7 +40,7 @@ int hascolor = 0;
 void set(int, int);
 void standt(int);
 void getwinsize(int *, int *);
-void usage(void);
+__dead void usage(void);
 
 void
 sighndl(int signo)
@@ -69,6 +68,9 @@ main(int argc, char *argv[])
 	int xbase;
 	int ybase;
 	int wintoosmall;
+
+	if (pledge("stdio rpath tty", NULL) == -1)
+		err(1, "pledge");
 
 	scrol = wintoosmall = 0;
 	while ((i = getopt(argc, argv, "sh")) != -1)
@@ -232,14 +234,14 @@ main(int argc, char *argv[])
 			refresh();
 			endwin();
 			fprintf(stderr, "grdc terminated by signal %d\n", sigtermed);
-			exit(1);
+			return 1;
 		}
 	} while (n == 0 || nowtv.tv_sec < endtv.tv_sec);
 	standend();
 	clear();
 	refresh();
 	endwin();
-	return(0);
+	return 0;
 }
 
 void

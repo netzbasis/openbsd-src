@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.141 2015/11/01 01:05:31 deraadt Exp $ */
+/* $OpenBSD: netcat.c,v 1.150 2016/01/04 02:18:31 bcook Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -34,7 +34,6 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/uio.h>
 #include <sys/un.h>
 
@@ -53,12 +52,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <tls.h>
 #include "atomicio.h"
 
 #define PORT_MAX	65535
-#define PORT_MAX_LEN	6
 #define UNIX_DG_TMP_SOCKET_SIZE	19
 
 #define POLL_STDIN 0
@@ -105,6 +104,12 @@ int	tls_cachanged;				/* Using non-default CA file */
 int     TLSopt;					/* TLS options */
 char	*tls_expectname;			/* required name in peer cert */
 char	*tls_expecthash;			/* required hash of peer cert */
+uint8_t *cacert;
+size_t  cacertlen;
+uint8_t *privkey;
+size_t  privkeylen;
+uint8_t *pubcert;
+size_t  pubcertlen;
 
 int timeout = -1;
 int family = AF_UNSPEC;
@@ -310,26 +315,20 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (rtableid >= 0) {
-		/*
-		 * XXX No pledge if doing rtable manipulation!
-		 * XXX the routing table stuff is dangerous and can't be pledged.
-		 * XXX rtable should really have a better interface than sockopt
-		 */
-	}
-	else if (family == AF_UNIX) {
+	if (rtableid >= 0)
+		if (setrtable(rtableid) == -1)
+			err(1, "setrtable");
+
+	if (family == AF_UNIX) {
 		if (pledge("stdio rpath wpath cpath tmppath unix", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (Fflag) {
+	} else if (Fflag) {
 		if (pledge("stdio inet dns sendfd", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (usetls) {
+	} else if (usetls) {
 		if (pledge("stdio rpath inet dns", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (pledge("stdio inet dns", NULL) == -1)
+	} else if (pledge("stdio inet dns", NULL) == -1)
 		err(1, "pledge");
 
 	/* Cruft to make sure options are clean, and used properly. */
@@ -428,16 +427,26 @@ main(int argc, char *argv[])
 	}
 
 	if (usetls) {
+		if (Rflag && (cacert = tls_load_file(Rflag, &cacertlen, NULL)) == NULL)
+			errx(1, "unable to load root CA file %s", Rflag);
+		if (Cflag && (pubcert = tls_load_file(Cflag, &pubcertlen, NULL)) == NULL)
+			errx(1, "unable to load TLS certificate file %s", Cflag);
+		if (Kflag && (privkey = tls_load_file(Kflag, &privkeylen, NULL)) == NULL)
+			errx(1, "unable to load TLS key file %s", Kflag);
+
+		if (pledge("stdio inet dns", NULL) == -1)
+			err(1, "pledge");
+
 		if (tls_init() == -1)
 			errx(1, "unable to initialize TLS");
 		if ((tls_cfg = tls_config_new()) == NULL)
 			errx(1, "unable to allocate TLS config");
-		if (Cflag && (tls_config_set_cert_file(tls_cfg, Cflag) == -1))
-			errx(1, "unable to set TLS certificate file %s", Cflag);
-		if (Kflag && (tls_config_set_key_file(tls_cfg, Kflag) == -1))
-			errx(1, "unable to set TLS key file %s", Kflag);
-		if (Rflag && (tls_config_set_ca_file(tls_cfg, Rflag) == -1))
+		if (Rflag && tls_config_set_ca_mem(tls_cfg, cacert, cacertlen) == -1)
 			errx(1, "unable to set root CA file %s", Rflag);
+		if (Cflag && tls_config_set_cert_mem(tls_cfg, pubcert, pubcertlen) == -1)
+			errx(1, "unable to set TLS certificate file %s", Cflag);
+		if (Kflag && tls_config_set_key_mem(tls_cfg, privkey, privkeylen) == -1)
+			errx(1, "unable to set TLS key file %s", Kflag);
 		if (TLSopt & TLS_LEGACY) {
 			tls_config_set_protocols(tls_cfg, TLS_PROTOCOLS_ALL);
 			tls_config_set_ciphers(tls_cfg, "legacy");
@@ -649,7 +658,7 @@ main(int argc, char *argv[])
 int
 unix_bind(char *path, int flags)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un s_un;
 	int s;
 
 	/* Create unix domain socket. */
@@ -657,17 +666,17 @@ unix_bind(char *path, int flags)
 	    0)) < 0)
 		return (-1);
 
-	memset(&sun, 0, sizeof(struct sockaddr_un));
-	sun.sun_family = AF_UNIX;
+	memset(&s_un, 0, sizeof(struct sockaddr_un));
+	s_un.sun_family = AF_UNIX;
 
-	if (strlcpy(sun.sun_path, path, sizeof(sun.sun_path)) >=
-	    sizeof(sun.sun_path)) {
+	if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >=
+	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
 
-	if (bind(s, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
+	if (bind(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		close(s);
 		return (-1);
 	}
@@ -743,7 +752,7 @@ tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 int
 unix_connect(char *path)
 {
-	struct sockaddr_un sun;
+	struct sockaddr_un s_un;
 	int s;
 
 	if (uflag) {
@@ -754,16 +763,16 @@ unix_connect(char *path)
 			return (-1);
 	}
 
-	memset(&sun, 0, sizeof(struct sockaddr_un));
-	sun.sun_family = AF_UNIX;
+	memset(&s_un, 0, sizeof(struct sockaddr_un));
+	s_un.sun_family = AF_UNIX;
 
-	if (strlcpy(sun.sun_path, path, sizeof(sun.sun_path)) >=
-	    sizeof(sun.sun_path)) {
+	if (strlcpy(s_un.sun_path, path, sizeof(s_un.sun_path)) >=
+	    sizeof(s_un.sun_path)) {
 		close(s);
 		errno = ENAMETOOLONG;
 		return (-1);
 	}
-	if (connect(s, (struct sockaddr *)&sun, sizeof(sun)) < 0) {
+	if (connect(s, (struct sockaddr *)&s_un, sizeof(s_un)) < 0) {
 		close(s);
 		return (-1);
 	}
@@ -809,10 +818,6 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 		    SOCK_NONBLOCK, res0->ai_protocol)) < 0)
 			continue;
 
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
-
 		/* Bind to a local port or source address if specified. */
 		if (sflag || pflag) {
 			struct addrinfo ahints, *ares;
@@ -837,7 +842,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 		if (timeout_connect(s, res0->ai_addr, res0->ai_addrlen) == 0)
 			break;
-		else if (vflag)
+		if (vflag)
 			warn("connect to %s port %s (%s) failed", host, port,
 			    uflag ? "udp" : "tcp");
 
@@ -908,10 +913,6 @@ local_listen(char *host, char *port, struct addrinfo hints)
 		if ((s = socket(res0->ai_family, res0->ai_socktype,
 		    res0->ai_protocol)) < 0)
 			continue;
-
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
 
 		ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
 		if (ret == -1)
@@ -1303,25 +1304,22 @@ build_ports(char *p)
 			lo = cp;
 		}
 
-		/* Load ports sequentially. */
-		for (cp = lo; cp <= hi; cp++) {
-			portlist[x] = calloc(1, PORT_MAX_LEN);
-			if (portlist[x] == NULL)
-				err(1, NULL);
-			snprintf(portlist[x], PORT_MAX_LEN, "%d", cp);
-			x++;
-		}
-
-		/* Randomly swap ports. */
+		/*
+		 * Initialize portlist with a random permutation.  Based on
+		 * Knuth, as in ip_randomid() in sys/netinet/ip_id.c.
+		 */
 		if (rflag) {
-			int y;
-			char *c;
-
-			for (x = 0; x <= (hi - lo); x++) {
-				y = (arc4random() & 0xFFFF) % (hi - lo);
-				c = portlist[x];
-				portlist[x] = portlist[y];
-				portlist[y] = c;
+			for (x = 0; x <= hi - lo; x++) {
+				cp = arc4random_uniform(x + 1);
+				portlist[x] = portlist[cp];
+				if (asprintf(&portlist[cp], "%d", x + lo) < 0)
+					err(1, "asprintf");
+			}
+		} else { /* Load ports sequentially. */
+			for (cp = lo; cp <= hi; cp++) {
+				if (asprintf(&portlist[x], "%d", cp) < 0)
+					err(1, "asprintf");
+				x++;
 			}
 		}
 	} else {
@@ -1468,10 +1466,10 @@ map_tls(char *s, int *val)
 void
 report_tls(struct tls * tls_ctx, char * host, char *tls_expectname)
 {
-	char *subject = NULL, *issuer = NULL;
+	time_t t;
 	fprintf(stderr, "TLS handshake negotiated %s/%s with host %s\n",
 	    tls_conn_version(tls_ctx), tls_conn_cipher(tls_ctx), host);
-	fprintf(stderr, "Peer name %s\n",
+	fprintf(stderr, "Peer name: %s\n",
 	    tls_expectname ? tls_expectname : host);
 	if (tls_peer_cert_subject(tls_ctx))
 		fprintf(stderr, "Subject: %s\n",
@@ -1479,12 +1477,15 @@ report_tls(struct tls * tls_ctx, char * host, char *tls_expectname)
 	if (tls_peer_cert_issuer(tls_ctx))
 		fprintf(stderr, "Issuer: %s\n",
 		    tls_peer_cert_issuer(tls_ctx));
+	if ((t = tls_peer_cert_notbefore(tls_ctx)) != -1)
+		fprintf(stderr, "Valid From: %s", ctime(&t));
+	if ((t = tls_peer_cert_notafter(tls_ctx)) != -1)
+		fprintf(stderr, "Valid Until: %s", ctime(&t));
 	if (tls_peer_cert_hash(tls_ctx))
 		fprintf(stderr, "Cert Hash: %s\n",
 		    tls_peer_cert_hash(tls_ctx));
-	free(subject);
-	free(issuer);
 }
+
 void
 report_connect(const struct sockaddr *sa, socklen_t salen)
 {

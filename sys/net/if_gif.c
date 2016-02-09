@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gif.c,v 1.81 2015/10/25 11:58:11 mpi Exp $	*/
+/*	$OpenBSD: if_gif.c,v 1.84 2016/01/14 09:20:31 mpi Exp $	*/
 /*	$KAME: if_gif.c,v 1.43 2001/02/20 08:51:07 itojun Exp $	*/
 
 /*
@@ -95,7 +95,6 @@ struct gif_softc_head gif_softc_list;
 struct if_clone gif_cloner =
     IF_CLONE_INITIALIZER("gif", gif_clone_create, gif_clone_destroy);
 
-/* ARGSUSED */
 void
 gifattach(int count)
 {
@@ -165,18 +164,14 @@ gif_start(struct ifnet *ifp)
 {
 	struct gif_softc *sc = (struct gif_softc*)ifp;
 	struct mbuf *m;
-	int s;
 
-	while (1) {
-		s = splnet();
+	for (;;) {
 		IFQ_DEQUEUE(&ifp->if_snd, m);
-		splx(s);
-
 		if (m == NULL)
 			break;
 
 		/* is interface up and usable? */
-		if ((ifp->if_flags & (IFF_OACTIVE | IFF_UP)) != IFF_UP ||
+		if (!(ifp->if_flags & IFF_UP) ||
 		    sc->gif_psrc == NULL || sc->gif_pdst == NULL ||
 		    sc->gif_psrc->sa_family != sc->gif_pdst->sa_family) {
 			m_freem(m);

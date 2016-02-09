@@ -1,4 +1,4 @@
-/*    $OpenBSD: if_el.c,v 1.28 2015/10/25 13:13:06 mpi Exp $       */
+/*    $OpenBSD: if_el.c,v 1.32 2015/12/08 13:34:22 tedu Exp $       */
 /*	$NetBSD: if_el.c,v 1.39 1996/05/12 23:52:32 mycroft Exp $	*/
 
 /*
@@ -31,8 +31,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -180,7 +178,7 @@ elattach(parent, self, aux)
 	ifp->if_start = elstart;
 	ifp->if_ioctl = elioctl;
 	ifp->if_watchdog = elwatchdog;
-	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS;
+	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX;
 	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Now we can attach the interface. */
@@ -274,7 +272,7 @@ elinit(sc)
 
 	/* Set flags appropriately. */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* And start output. */
 	elstart(ifp);
@@ -298,12 +296,12 @@ elstart(ifp)
 	s = splnet();
 
 	/* Don't do anything if output is active. */
-	if ((ifp->if_flags & IFF_OACTIVE) != 0) {
+	if (ifq_is_oactive(&ifp->if_snd) != 0) {
 		splx(s);
 		return;
 	}
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * The main loop.  They warned me against endless loops, but would I
@@ -386,7 +384,7 @@ elstart(ifp)
 
 	(void)inb(iobase+EL_AS);
 	outb(iobase+EL_AC, EL_AC_IRQE | EL_AC_RX);
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	splx(s);
 }
 

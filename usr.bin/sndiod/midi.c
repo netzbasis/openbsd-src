@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.10 2013/09/28 18:49:32 ratchov Exp $	*/
+/*	$OpenBSD: midi.c,v 1.15 2016/01/08 16:17:31 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -249,7 +249,7 @@ midi_tickets(struct midi *iep)
 	}
 
 	/*
-	 * in the worst case output message is twice the 
+	 * in the worst case output message is twice the
 	 * input message (2-byte messages with running status)
 	 */
 	tickets = maxavail / 2 - iep->tickets;
@@ -332,14 +332,14 @@ midi_in(struct midi *iep, unsigned char *idata, int icount)
  * store the given message in the output buffer
  */
 void
-midi_out(struct midi *oep, unsigned char *idata, int icount)	
+midi_out(struct midi *oep, unsigned char *idata, int icount)
 {
 	unsigned char *odata;
 	int ocount;
 #ifdef DEBUG
 	int i;
 #endif
-	
+
 	while (icount > 0) {
 		if (oep->obuf.used == oep->obuf.len) {
 #ifdef DEBUG
@@ -375,13 +375,11 @@ midi_out(struct midi *oep, unsigned char *idata, int icount)
 	}
 }
 
-#ifdef DEBUG
 void
 port_log(struct port *p)
 {
 	midi_log(p->midi);
 }
-#endif
 
 void
 port_imsg(void *arg, unsigned char *msg, int size)
@@ -426,18 +424,16 @@ port_exit(void *arg)
 struct port *
 port_new(char *path, unsigned int mode, int hold)
 {
-	struct port *c, **pc;
+	struct port *c;
 
 	c = xmalloc(sizeof(struct port));
-	c->path = path;
+	c->path = xstrdup(path);
 	c->state = PORT_CFG;
 	c->hold = hold;
 	c->midi = midi_new(&port_midiops, c, mode);
-	midi_portnum++;
-	for (pc = &port_list; *pc != NULL; pc = &(*pc)->next)
-		; /* nothing */
-	c->next = NULL;
-	*pc = c;
+	c->num = midi_portnum++;
+	c->next = port_list;
+	port_list = c;
 	return c;
 }
 
@@ -461,6 +457,7 @@ port_del(struct port *c)
 #endif
 	}
 	*p = c->next;
+	xfree(c->path);
 	xfree(c);
 }
 
@@ -502,7 +499,7 @@ port_bynum(int num)
 	struct port *p;
 
 	for (p = port_list; p != NULL; p = p->next) {
-		if (num-- == 0)
+		if (p->num == num)
 			return p;
 	}
 	return NULL;
@@ -534,9 +531,9 @@ port_close(struct port *c)
 		panic();
 	}
 #endif
-	c->state = PORT_CFG;	
+	c->state = PORT_CFG;
 	port_mio_close(c);
-	
+
 	for (i = 0; i < MIDI_NEP; i++) {
 		ep = midi_ep + i;
 		if ((ep->txmask & c->midi->self) ||

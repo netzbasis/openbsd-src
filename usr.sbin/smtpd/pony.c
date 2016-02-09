@@ -1,4 +1,4 @@
-/*	$OpenBSD: pony.c,v 1.8 2015/10/14 19:39:16 gilles Exp $	*/
+/*	$OpenBSD: pony.c,v 1.12 2016/01/01 12:37:14 jung Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -35,6 +35,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
+#include <grp.h>
 #include <vis.h>
 
 #include "smtpd.h"
@@ -57,7 +58,7 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_CONF_START:
 		return;
 	case IMSG_CONF_END:
-		smtp_configure();
+		filter_configure();
 		return;
 	case IMSG_CTL_VERBOSE:
 		m_msg(&m, imsg);
@@ -74,11 +75,12 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 
 	/* smtp imsg */
 	case IMSG_SMTP_DNS_PTR:
+	case IMSG_SMTP_CHECK_SENDER:
 	case IMSG_SMTP_EXPAND_RCPT:
 	case IMSG_SMTP_LOOKUP_HELO:
 	case IMSG_SMTP_AUTHENTICATE:
-	case IMSG_SMTP_SSL_INIT:
-	case IMSG_SMTP_SSL_VERIFY:
+	case IMSG_SMTP_TLS_INIT:
+	case IMSG_SMTP_TLS_VERIFY:
 	case IMSG_SMTP_MESSAGE_COMMIT:
 	case IMSG_SMTP_MESSAGE_CREATE:
 	case IMSG_SMTP_MESSAGE_OPEN:
@@ -101,8 +103,8 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_MTA_DNS_HOST_END:
 	case IMSG_MTA_DNS_MX_PREFERENCE:
 	case IMSG_MTA_DNS_PTR:
-	case IMSG_MTA_SSL_INIT:
-	case IMSG_MTA_SSL_VERIFY:
+	case IMSG_MTA_TLS_INIT:
+	case IMSG_MTA_TLS_VERIFY:
 	case IMSG_CTL_RESUME_ROUTE:
 	case IMSG_CTL_MTA_SHOW_HOSTS:
 	case IMSG_CTL_MTA_SHOW_RELAYS:
@@ -170,6 +172,7 @@ pony(void)
 	mda_postfork();
 	mta_postfork();
 	smtp_postfork();
+	filter_postfork();
 
 	/* do not purge listeners and pki, they are purged
 	 * in smtp_configure()

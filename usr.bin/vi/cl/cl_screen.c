@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_screen.c,v 1.23 2015/04/10 18:05:51 brynet Exp $	*/
+/*	$OpenBSD: cl_screen.c,v 1.25 2016/01/06 22:28:52 millert Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -190,7 +190,7 @@ cl_vi_init(SCR *sp)
 	/* Curses vi always reads from (and writes to) a terminal. */
 	if (!F_ISSET(clp, CL_STDIN_TTY) || !isatty(STDOUT_FILENO)) {
 		msgq(sp, M_ERR,
-		    "016|Vi's standard input and output must be a terminal");
+		    "Vi's standard input and output must be a terminal");
 		return (1);
 	}
 
@@ -502,7 +502,7 @@ cl_getcap(SCR *sp, char *name, char **elementp)
 
 	if ((t = tigetstr(name)) != NULL &&
 	    t != (char *)-1 && (len = strlen(t)) != 0) {
-		MALLOC_RET(sp, *elementp, char *, len + 1);
+		MALLOC_RET(sp, *elementp, len + 1);
 		memmove(*elementp, t, len + 1);
 	}
 	return (0);

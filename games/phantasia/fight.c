@@ -1,11 +1,20 @@
-/*	$OpenBSD: fight.c,v 1.11 2014/07/12 03:41:04 deraadt Exp $	*/
+/*	$OpenBSD: fight.c,v 1.14 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: fight.c,v 1.2 1995/03/24 03:58:39 cgd Exp $	*/
 
 /*
  * fight.c   Phantasia monster fighting routines
  */
 
-#include "include.h"
+#include <curses.h>
+#include <math.h>
+#include <setjmp.h>
+#include <string.h>
+
+#include "macros.h"
+#include "phantdefs.h"
+#include "phantglobs.h"
+
+static jmp_buf Fightenv;	/* used to jump into fight routine */
 
 /************************************************************************
 /
@@ -38,8 +47,7 @@
 *************************************************************************/
 
 void
-encounter(particular)
-	int     particular;
+encounter(int particular)
 {
 	int flockcnt = 1;	/* how many time flocked */
 	volatile bool firsthit = Player.p_blessing;	/* set if player gets
@@ -156,7 +164,6 @@ encounter(particular)
 		more(Lines);
 		++flockcnt;
 		longjmp(Fightenv, 1);
-		/* NOTREACHED */
 	} else
 		if (Circle > 1.0
 		    && Curmonster.m_treasuretype > 0
@@ -207,7 +214,7 @@ encounter(particular)
 *************************************************************************/
 
 int
-pickmonster()
+pickmonster(void)
 {
 	if (Player.p_specialtype == SC_VALAR)
 		/* even chance of any monster */
@@ -264,7 +271,7 @@ pickmonster()
 *************************************************************************/
 
 void
-playerhits()
+playerhits(void)
 {
 	double  inflict;	/* damage inflicted */
 	int     ch;		/* input */
@@ -435,7 +442,7 @@ playerhits()
 *************************************************************************/
 
 void
-monsthits()
+monsthits(void)
 {
 	double  inflict;	/* damage inflicted */
 	int     ch;		/* input */
@@ -455,7 +462,6 @@ monsthits()
 		more(Lines);
 		Whichmonster = (int) ROLL(70.0, 30.0);
 		longjmp(Fightenv, 1);
-		/* NOTREACHED */
 
 	case SM_BALROG:
 		/* take experience away */
@@ -647,7 +653,6 @@ monsthits()
 			    Enemyname);
 			Whichmonster = 55 + ((drandom() > 0.5) ? 22 : 0);
 			longjmp(Fightenv, 1);
-			/* NOTREACHED */
 
 		case SM_TROLL:
 			/* partially regenerate monster */
@@ -709,7 +714,7 @@ SPECIALHIT:
 *************************************************************************/
 
 void
-cancelmonster()
+cancelmonster(void)
 {
     Curmonster.m_energy = 0.0;
     Curmonster.m_experience = 0.0;
@@ -743,8 +748,7 @@ cancelmonster()
 *************************************************************************/
 
 void
-hitmonster(inflict)
-	double  inflict;
+hitmonster(double inflict)
 {
 	mvprintw(Lines++, 0, "You hit %s %.0f times!", Enemyname, inflict);
 	Curmonster.m_energy -= inflict;
@@ -797,7 +801,7 @@ hitmonster(inflict)
 *************************************************************************/
 
 void
-throwspell()
+throwspell(void)
 {
 	double  inflict;	/* damage inflicted */
 	double  dtemp;		/* for dtemporary calculations */
@@ -910,7 +914,6 @@ throwspell()
 				Player.p_mana -= MM_XFORM;
 				Whichmonster = (int) ROLL(0.0, 100.0);
 				longjmp(Fightenv, 1);
-				/* NOTREACHED */
 				}
 			break;
 
@@ -993,7 +996,6 @@ throwspell()
 				Whichmonster = (int) infloat();
 				Whichmonster = MAX(0, MIN(99, Whichmonster));
 				longjmp(Fightenv, 1);
-				/* NOTREACHED */
 			}
 			break;
 		}
@@ -1028,8 +1030,7 @@ throwspell()
 *************************************************************************/
 
 void
-callmonster(which)
-	int     which;
+callmonster(int which)
 {
 	struct monster Othermonster;	/* to find a name for mimics */
 
@@ -1136,7 +1137,7 @@ callmonster(which)
 *************************************************************************/
 
 void
-awardtreasure()
+awardtreasure(void)
 {
 	int	whichtreasure;	/* calculated treasure to grant */
 	int	temp;		/* temporary */
@@ -1294,7 +1295,6 @@ awardtreasure()
 					(Player.p_maxenergy + Player.p_energy) * 5.5 + Circle * 50.0;
 				    Whichmonster = pickmonster();
 				    longjmp(Fightenv, 1);
-				    /* NOTREACHED */
 
 				case 2:
 				    addstr("It makes you invisible for you next monster.\n");
@@ -1303,7 +1303,6 @@ awardtreasure()
 				    Player.p_speed = 1e6;
 				    Whichmonster = pickmonster();
 				    longjmp(Fightenv, 1);
-				    /* NOTREACHED */
 
 				case 3:
 				    addstr("It increases your strength ten fold to fight your next monster.\n");
@@ -1312,7 +1311,6 @@ awardtreasure()
 				    Player.p_might *= 10.0;
 				    Whichmonster = pickmonster();
 				    longjmp(Fightenv, 1);
-				    /* NOTREACHED */
 
 				case 4:
 				    addstr("It is a general knowledge scroll.\n");
@@ -1573,7 +1571,7 @@ awardtreasure()
 *************************************************************************/
 
 void
-cursedtreasure()
+cursedtreasure(void)
 {
 	if (Player.p_charms > 0) {
 		addstr("But your charm saved you!\n");
@@ -1613,7 +1611,7 @@ cursedtreasure()
 *************************************************************************/
 
 void
-scramblestats()
+scramblestats(void)
 {
 	double  dbuf[6];	/* to put statistic in */
 	double  dtemp1, dtemp2;	/* for swapping values */

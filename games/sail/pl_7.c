@@ -1,4 +1,4 @@
-/*	$OpenBSD: pl_7.c,v 1.11 2015/09/27 05:09:01 guenther Exp $	*/
+/*	$OpenBSD: pl_7.c,v 1.13 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: pl_7.c,v 1.6 1995/04/22 10:37:17 cgd Exp $	*/
 
 /*
@@ -30,11 +30,14 @@
  * SUCH DAMAGE.
  */
 
-#include "player.h"
-#include <stdarg.h>
-#include <unistd.h>
 #include <err.h>
+#include <signal.h>
+#include <string.h>
+#include <unistd.h>
 
+#include "extern.h"
+#include "machdep.h"
+#include "player.h"
 
 /*
  * Display interface
@@ -62,7 +65,7 @@ struct File *mf;		/* ms->file */
 struct shipspecs *mc;		/* ms->specs */
 
 void
-initscreen()
+initscreen(void)
 {
 	if (!SCREENTEST())
 		errx(1, "can't sail on this terminal.");
@@ -82,7 +85,7 @@ initscreen()
 }
 
 void
-cleanupscreen()
+cleanupscreen(void)
 {
 	/* alarm already turned off */
 	if (done_curses) {
@@ -93,10 +96,8 @@ cleanupscreen()
 	}
 }
 
-/* ARGSUSED */
 void
-newturn(n)
-	int n;
+newturn(int n)
 {
 	repaired = loaded = fired = changed = 0;
 	movebuf[0] = '\0';
@@ -187,7 +188,7 @@ Msg(char *fmt, ...)
 }
 
 void
-Scroll()
+Scroll(void)
 {
 	if (++sc_line >= SCROLL_Y)
 		sc_line = 0;
@@ -196,9 +197,7 @@ Scroll()
 }
 
 void
-prompt(p, ship)
-	const char *p;
-	struct ship *ship;
+prompt(const char *p, struct ship *ship)
 {
 	static char buf[BUFSIZ];
 
@@ -210,8 +209,7 @@ prompt(p, ship)
 }
 
 void
-endprompt(flag)
-	char flag;
+endprompt(int flag)
 {
 	sc_hasprompt = 0;
 	if (flag)
@@ -219,10 +217,7 @@ endprompt(flag)
 }
 
 int
-sgetch(p, ship, flag)
-	const char *p;
-	struct ship *ship;
-	char flag;
+sgetch(const char *p, struct ship *ship, int flag)
 {
 	int c;
 
@@ -239,10 +234,7 @@ sgetch(p, ship, flag)
 }
 
 void
-sgetstr(pr, buf, n)
-	const char *pr;
-	char *buf;
-	int n;
+sgetstr(const char *pr, char *buf, int n)
 {
 	int c;
 	char *p = buf;
@@ -278,7 +270,7 @@ sgetstr(pr, buf, n)
 }
 
 void
-draw_screen()
+draw_screen(void)
 {
 	draw_view();
 	draw_turn();
@@ -288,7 +280,7 @@ draw_screen()
 }
 
 void
-draw_view()
+draw_view(void)
 {
 	struct ship *sp;
 
@@ -312,7 +304,7 @@ draw_view()
 }
 
 void
-draw_turn()
+draw_turn(void)
 {
 	(void) wmove(turn_w, 0, 0);
 	(void) wprintw(turn_w, "%cTurn %d", dont_adjust?'*':'-', turn);
@@ -320,7 +312,7 @@ draw_turn()
 }
 
 void
-draw_stat()
+draw_stat(void)
 {
 	(void) wmove(stat_w, STAT_1, 0);
 	(void) wprintw(stat_w, "Points  %3d\n", mf->points);
@@ -361,7 +353,7 @@ draw_stat()
 }
 
 void
-draw_slot()
+draw_slot(void)
 {
 	if (!boarding(ms, 0)) {
 		(void) mvwaddstr(slot_w, 0, 0, "   ");
@@ -425,7 +417,7 @@ draw_slot()
 }
 
 void
-draw_board()
+draw_board(void)
 {
 	int n;
 
@@ -473,38 +465,38 @@ draw_board()
 }
 
 void
-centerview()
+centerview(void)
 {
 	viewrow = mf->row - VIEW_Y / 2;
 	viewcol = mf->col - VIEW_X / 2;
 }
 
 void
-upview()
+upview(void)
 {
 	viewrow -= VIEW_Y / 3;
 }
 
 void
-downview()
+downview(void)
 {
 	viewrow += VIEW_Y / 3;
 }
 
 void
-leftview()
+leftview(void)
 {
 	viewcol -= VIEW_X / 5;
 }
 
 void
-rightview()
+rightview(void)
 {
 	viewcol += VIEW_X / 5;
 }
 
 void
-adjustview()
+adjustview(void)
 {
 	if (dont_adjust)
 		return;

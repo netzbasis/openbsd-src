@@ -1,4 +1,4 @@
-/*	$OpenBSD: vax_installboot.c,v 1.2 2015/10/15 19:27:30 miod Exp $	*/
+/*	$OpenBSD: vax_installboot.c,v 1.4 2015/11/30 17:34:57 jsing Exp $	*/
 
 /*
  * Copyright (c) 2013 Joel Sing <jsing@openbsd.org>

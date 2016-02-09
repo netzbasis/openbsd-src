@@ -1,10 +1,10 @@
-/*	$OpenBSD: if.c,v 1.30 2015/11/03 15:59:31 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.37 2016/02/08 23:19:00 jca Exp $	*/
 /*	$KAME: if.c,v 1.17 2001/01/21 15:27:30 itojun Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -71,7 +71,7 @@ static void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 {
 	int i;
-	
+
 	for (i = 0; i < RTAX_MAX; i++) {
 		if (addrs & (1 << i)) {
 			rti_info[i] = sa;
@@ -137,9 +137,11 @@ if_getmtu(char *name)
 		if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0)
 			return(0);
 
+		memset(&ifr, 0, sizeof(ifr));
 		ifr.ifr_addr.sa_family = AF_INET6;
-		strncpy(ifr.ifr_name, name,
-			sizeof(ifr.ifr_name));
+		if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+		    sizeof(ifr.ifr_name))
+			fatalx("strlcpy");
 		if (ioctl(s, SIOCGIFMTU, (caddr_t)&ifr) < 0) {
 			close(s);
 			return(0);
@@ -212,15 +214,13 @@ lladdropt_fill(struct sockaddr_dl *sdl, struct nd_opt_hdr *ndopt)
 	return;
 }
 
-#define FILTER_MATCH(type, filter) ((0x1 << type) & filter)
 #define SIN6(s) ((struct sockaddr_in6 *)(s))
-#define SDL(s) ((struct sockaddr_dl *)(s))
 char *
-get_next_msg(char *buf, char *lim, int ifindex, size_t *lenp, int filter)
+get_next_msg(char *buf, char *lim, size_t *lenp)
 {
 	struct rt_msghdr *rtm;
 	struct ifa_msghdr *ifam;
-	struct sockaddr *sa, *dst, *gw, *ifa, *rti_info[RTAX_MAX];
+	struct sockaddr *sa, *dst, *ifa, *rti_info[RTAX_MAX];
 
 	*lenp = 0;
 	for (rtm = (struct rt_msghdr *)buf;
@@ -234,11 +234,8 @@ get_next_msg(char *buf, char *lim, int ifindex, size_t *lenp, int filter)
 		}
 		if (rtm->rtm_version != RTM_VERSION)
 			continue;
-		if (FILTER_MATCH(rtm->rtm_type, filter) == 0)
-			continue;
 
 		switch (rtm->rtm_type) {
-		case RTM_GET:
 		case RTM_ADD:
 		case RTM_DELETE:
 			if (rtm->rtm_tableid != 0)
@@ -255,12 +252,6 @@ get_next_msg(char *buf, char *lim, int ifindex, size_t *lenp, int filter)
 			    IN6_IS_ADDR_MULTICAST(&SIN6(dst)->sin6_addr))
 				continue;
 
-			if ((gw = rti_info[RTAX_GATEWAY]) == NULL ||
-			    gw->sa_family != AF_LINK)
-				continue;
-			if (ifindex && SDL(gw)->sdl_index != ifindex)
-				continue;
-
 			if (rti_info[RTAX_NETMASK] == NULL)
 				continue;
 
@@ -271,8 +262,6 @@ get_next_msg(char *buf, char *lim, int ifindex, size_t *lenp, int filter)
 		case RTM_NEWADDR:
 		case RTM_DELADDR:
 			ifam = (struct ifa_msghdr *)rtm;
-			if (ifindex && ifam->ifam_index != ifindex)
-				continue;
 
 			/* address related checks */
 			sa = (struct sockaddr *)((char *)rtm + rtm->rtm_hdrlen);
@@ -301,7 +290,6 @@ get_next_msg(char *buf, char *lim, int ifindex, size_t *lenp, int filter)
 
 	return (char *)rtm;
 }
-#undef FILTER_MATCH
 
 struct in6_addr *
 get_addr(char *buf)
@@ -319,12 +307,8 @@ int
 get_rtm_ifindex(char *buf)
 {
 	struct rt_msghdr *rtm = (struct rt_msghdr *)buf;
-	struct sockaddr *sa, *rti_info[RTAX_MAX];
 
-	sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
-	get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
-
-	return(((struct sockaddr_dl *)rti_info[RTAX_GATEWAY])->sdl_index);
+	return rtm->rtm_index;
 }
 
 int
@@ -357,7 +341,7 @@ get_prefixlen(char *buf)
 	struct rt_msghdr *rtm = (struct rt_msghdr *)buf;
 	struct sockaddr *sa, *rti_info[RTAX_MAX];
 	u_char *p, *lim;
-	
+
 	sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
 	get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
 	sa = rti_info[RTAX_NETMASK];
@@ -521,8 +505,7 @@ init_iflist(void)
 		free(ifblock);
 		ifblock_size = 0;
 	}
-	if (iflist)
-		free(iflist);
+	free(iflist);
 	/* get iflist block from kernel */
 	get_iflist(&ifblock, &ifblock_size);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp6_output.c,v 1.39 2015/10/24 16:08:48 mpi Exp $	*/
+/*	$OpenBSD: udp6_output.c,v 1.41 2015/12/02 22:13:44 vgross Exp $	*/
 /*	$KAME: udp6_output.c,v 1.21 2001/02/07 11:51:54 itojun Exp $	*/
 
 /*
@@ -74,7 +74,6 @@
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/route.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet6/in6_var.h>
@@ -161,9 +160,13 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 		if (error)
 			goto release;
 
-		if (in6p->inp_lport == 0 &&
-		    (error = in6_pcbsetport(laddr, in6p, p)) != 0)
-			goto release;
+		if (in6p->inp_lport == 0){
+			int s = splsoftnet();
+			error = in6_pcbbind(in6p, NULL, p);
+			splx(s);
+			if (error)
+				goto release;
+		}
 	} else {
 		if (IN6_IS_ADDR_UNSPECIFIED(&in6p->inp_faddr6)) {
 			error = ENOTCONN;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uslhcom.c,v 1.2 2015/01/22 14:33:01 krw Exp $	*/
+/*	$OpenBSD: uslhcom.c,v 1.4 2016/01/09 04:14:42 jcs Exp $	*/
 
 /*
  * Copyright (c) 2015 SASANO Takayoshi <uaa@openbsd.org>
@@ -33,7 +33,6 @@
 #include <dev/usb/usbdi_util.h>
 #include <dev/usb/usbdevs.h>
 
-#include <dev/usb/hid.h>
 #include <dev/usb/usbhid.h>
 #include <dev/usb/uhidev.h>
 

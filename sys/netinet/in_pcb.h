@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.h,v 1.91 2015/10/24 16:08:48 mpi Exp $	*/
+/*	$OpenBSD: in_pcb.h,v 1.93 2015/12/03 10:34:24 tedu Exp $	*/
 /*	$NetBSD: in_pcb.h,v 1.14 1996/02/13 23:42:00 christos Exp $	*/
 
 /*
@@ -196,7 +196,6 @@ struct inpcbtable {
 #define IN6P_HOPOPTS		0x040000 /* receive hop-by-hop options */
 #define IN6P_DSTOPTS		0x080000 /* receive dst options after rthdr */
 #define IN6P_RTHDR		0x100000 /* receive routing header */
-#define IN6P_RTHDRDSTOPTS	0x200000 /* receive dstoptions before rthdr */
 #define IN6P_TCLASS		0x400000 /* receive traffic class value */
 #define IN6P_AUTOFLOWLABEL	0x800000 /* attach flowlabel automatically */
 
@@ -207,7 +206,7 @@ struct inpcbtable {
 #define IN6P_MINMTU		0x20000000 /* use minimum MTU */
 
 #define IN6P_CONTROLOPTS	(IN6P_PKTINFO|IN6P_HOPLIMIT|IN6P_HOPOPTS|\
-				 IN6P_DSTOPTS|IN6P_RTHDR|IN6P_RTHDRDSTOPTS|\
+				 IN6P_DSTOPTS|IN6P_RTHDR|\
 				 IN6P_TCLASS|IN6P_AUTOFLOWLABEL|IN6P_RFC2292|\
 				 IN6P_MTU|IN6P_RECVDSTPORT)
 
@@ -288,6 +287,6 @@ int	in6_pcbnotify(struct inpcbtable *, struct sockaddr_in6 *,
 	u_int, const struct sockaddr_in6 *, u_int, u_int, int, void *,
 	void (*)(struct inpcb *, int));
 int	in6_selecthlim(struct inpcb *);
-int	in6_pcbsetport(struct in6_addr *, struct inpcb *, struct proc *);
+int	in_pcbpickport(u_int16_t *, int, struct inpcb *, struct proc *);
 #endif /* _KERNEL */
 #endif /* _NETINET_IN_PCB_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.101 2015/10/13 08:33:06 sunil Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.103 2015/12/07 20:30:17 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -102,26 +102,18 @@ server_httpdesc_free(struct http_descriptor *desc)
 {
 	if (desc == NULL)
 		return;
-	if (desc->http_path != NULL) {
-		free(desc->http_path);
-		desc->http_path = NULL;
-	}
-	if (desc->http_path_alias != NULL) {
-		free(desc->http_path_alias);
-		desc->http_path_alias = NULL;
-	}
-	if (desc->http_query != NULL) {
-		free(desc->http_query);
-		desc->http_query = NULL;
-	}
-	if (desc->http_version != NULL) {
-		free(desc->http_version);
-		desc->http_version = NULL;
-	}
-	if (desc->http_host != NULL) {
-		free(desc->http_host);
-		desc->http_host = NULL;
-	}
+
+	free(desc->http_path);
+	desc->http_path = NULL;
+	free(desc->http_path_alias);
+	desc->http_path_alias = NULL;
+	free(desc->http_query);
+	desc->http_query = NULL;
+	free(desc->http_version);
+	desc->http_version = NULL;
+	free(desc->http_host);
+	desc->http_host = NULL;
+
 	kv_purge(&desc->http_headers);
 	desc->http_lastheader = NULL;
 	desc->http_method = 0;
@@ -598,8 +590,7 @@ server_read_httpchunks(struct bufferevent *bev, void *arg)
 	case 0:
 		/* Chunk is terminated by an empty newline */
 		line = evbuffer_readln(src, NULL, EVBUFFER_EOL_CRLF_STRICT);
-		if (line != NULL)
-			free(line);
+		free(line);
 		if (server_bufferevent_print(clt, "\r\n") == -1)
 			goto fail;
 		clt->clt_toread = TOREAD_HTTP_CHUNK_LENGTH;

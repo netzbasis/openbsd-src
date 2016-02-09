@@ -1,4 +1,4 @@
-/*	$OpenBSD: sunxireg.h,v 1.6 2013/11/06 19:03:07 syl Exp $	*/
+/*	$OpenBSD: sunxireg.h,v 1.8 2016/02/02 21:40:47 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Artturi Alm
  *
@@ -65,12 +65,12 @@
 #define	TIMER2_IRQ		24
 #define	STATTIMER_IRQ		TIMER1_IRQ /* XXX */
 
-#define	WDOG_ADDR		0x90
+#define	WDOG_ADDR		0x01c20c90
 #define	WDOG_SIZE		0x08
 #define	WDOG_IRQ		24
 
-#define	RTC_ADDR		0x0104
-#define	RTC_SIZE		0x08
+#define	RTC_ADDR		0x01c20d00
+#define	RTC_SIZE		0x20
 
 /* Clock Control Module/Unit */
 #define	CCMU_ADDR		0x01c20000

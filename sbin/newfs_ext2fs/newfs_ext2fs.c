@@ -1,4 +1,4 @@
-/* $OpenBSD: newfs_ext2fs.c,v 1.17 2015/10/14 15:54:49 deraadt Exp $ */
+/* $OpenBSD: newfs_ext2fs.c,v 1.22 2015/12/06 11:56:47 tobias Exp $ */
 /*	$NetBSD: newfs_ext2fs.c,v 1.8 2009/03/02 10:38:13 tsutsui Exp $	*/
 
 /*
@@ -101,6 +101,7 @@ uint	bsize = 0;		/* block size */
 uint	minfree = MINFREE;	/* free space threshold */
 uint	density;		/* number of bytes per inode */
 uint	num_inodes;		/* number of inodes (overrides density) */
+int	max_cols;
 char	*volname = NULL;	/* volume name */
 
 static char *disktype = NULL;
@@ -121,6 +122,16 @@ main(int argc, char *argv[])
 	uint blocks;			/* number of blocks */
 	struct partition *pp = NULL;
 	struct disklabel *lp;
+	struct winsize winsize;
+
+	/* Get terminal width */
+	if (ioctl(fileno(stdout), TIOCGWINSZ, &winsize) == 0)
+		max_cols = winsize.ws_col;
+	else
+		max_cols = 80;
+
+	if (pledge("stdio rpath wpath disklabel", NULL) == -1)
+		err(1, "pledge");
 
 	cp = NULL;
 	fsi = fso = -1;
@@ -518,9 +529,11 @@ getpartition(int fsi, const char *special, char *argv[], struct disklabel **dl)
 		errx(EXIT_FAILURE, "%s: block device", special);
 	if (!S_ISCHR(st.st_mode))
 		warnx("%s: not a character-special device", special);
-	cp = strchr(argv[0], '\0') - 1;
-	if (cp == NULL || ((*cp < 'a' || *cp > ('a' + getmaxpartitions() - 1))
-	    && !isdigit((unsigned char)*cp)))
+	if (*argv[0] == '\0')
+		errx(EXIT_FAILURE, "empty partition name supplied");
+	cp = argv[0] + strlen(argv[0]) - 1;
+	if ((*cp < 'a' || *cp > ('a' + getmaxpartitions() - 1))
+	    && !isdigit((unsigned char)*cp))
 		errx(EXIT_FAILURE, "%s: can't figure out file system partition", argv[0]);
 	lp = getdisklabel(special, fsi);
 	if (isdigit((unsigned char)*cp))

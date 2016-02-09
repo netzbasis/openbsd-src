@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_an_pcmcia.c,v 1.24 2015/03/14 03:38:49 jsg Exp $	*/
+/*	$OpenBSD: if_an_pcmcia.c,v 1.26 2015/11/24 17:11:40 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999 Michael Shalayeff
@@ -34,8 +34,6 @@
 #include <sys/tree.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>

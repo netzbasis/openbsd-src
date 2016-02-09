@@ -1,4 +1,4 @@
-/*	$OpenBSD: landisk_installboot.c,v 1.5 2015/10/15 19:27:30 miod Exp $	*/
+/*	$OpenBSD: landisk_installboot.c,v 1.8 2016/01/15 22:19:29 tobiasu Exp $	*/
 
 /*
  * Copyright (c) 2013 Joel Sing <jsing@openbsd.org>
@@ -17,6 +17,7 @@
  */
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "installboot.h"
 

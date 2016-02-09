@@ -1,4 +1,4 @@
-/*	$OpenBSD: fortune.c,v 1.44 2015/10/24 18:02:28 mmcc Exp $	*/
+/*	$OpenBSD: fortune.c,v 1.51 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: fortune.c,v 1.8 1995/03/23 08:28:40 cgd Exp $	*/
 
 /*-
@@ -35,18 +35,19 @@
 
 #include <sys/stat.h>
 
+#include <assert.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
-#include <assert.h>
-#include <unistd.h>
+#include <limits.h>
 #include <stdio.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <regex.h>
-#include "strfile.h"
+#include <unistd.h>
+
 #include "pathnames.h"
+#include "strfile.h"
 
 #define	bool	short
 
@@ -136,7 +137,7 @@ void	 print_file_list(void);
 void	 print_list(FILEDESC *, int);
 void	 sum_noprobs(FILEDESC *);
 void	 sum_tbl(STRFILE *, STRFILE *);
-void	 usage(void);
+__dead void	 usage(void);
 void	 zero_tbl(STRFILE *);
 
 char	*conv_pat(char *);
@@ -149,15 +150,20 @@ regex_t regex;
 int
 main(int ac, char *av[])
 {
+	if (pledge("stdio rpath", NULL) == -1) {
+		perror("pledge");
+		return 1;
+	}
+
 	getargs(ac, av);
 
 	if (Match)
-		exit(find_matches() != 0);
+		return find_matches() != 0;
 
 	init_prob();
 	if ((Short_only && minlen_in_list(File_list) > SLEN) ||
 	    (Long_only && maxlen_in_list(File_list) <= SLEN))
-		exit(0);
+		return 0;
 
 	do {
 		get_fort();
@@ -171,7 +177,7 @@ main(int ac, char *av[])
 			(void) fortlen();
 		sleep((unsigned int) max(Fort_len / CPERS, MINW));
 	}
-	exit(0);
+	return 0;
 }
 
 void
@@ -408,7 +414,7 @@ add_file(int percent, char *file, char *dir, FILEDESC **head, FILEDESC **tail,
 
 	DPRINTF(1, (stderr, "adding file \"%s\"\n", path));
 over:
-	if ((fd = open(path, 0)) < 0) {
+	if ((fd = open(path, O_RDONLY)) < 0) {
 		/*
 		 * This is a sneak.  If the user said -a, and if the
 		 * file we're given isn't a file, we check to see if
@@ -551,7 +557,7 @@ all_forts(FILEDESC *fp, char *offensive)
 		return;
 	if (!is_fortfile(offensive, &datfile, &posfile, 0))
 		return;
-	if ((fd = open(offensive, 0)) < 0)
+	if ((fd = open(offensive, O_RDONLY)) < 0)
 		return;
 	DPRINTF(1, (stderr, "adding \"%s\" because of -a\n", offensive));
 	scene = new_fp();
@@ -641,7 +647,6 @@ is_dir(char *file)
  *	overhead.  Files which start with ".", or which have "illegal"
  *	suffixes, as contained in suflist[], are ruled out.
  */
-/* ARGSUSED */
 int
 is_fortfile(char *file, char **datp, char **posp, int check_for_offend)
 {
@@ -957,7 +962,7 @@ open_fp(FILEDESC *fp)
 void
 open_dat(FILEDESC *fp)
 {
-	if (fp->datfd < 0 && (fp->datfd = open(fp->datfile, 0)) < 0) {
+	if (fp->datfd < 0 && (fp->datfd = open(fp->datfile, O_RDONLY)) < 0) {
 		perror(fp->datfile);
 		exit(1);
 	}
@@ -993,7 +998,7 @@ get_tbl(FILEDESC *fp)
 	if (fp->read_tbl)
 		return;
 	if (fp->child == NULL) {
-		if ((fd = open(fp->datfile, 0)) < 0) {
+		if ((fd = open(fp->datfile, O_RDONLY)) < 0) {
 			perror(fp->datfile);
 			exit(1);
 		}

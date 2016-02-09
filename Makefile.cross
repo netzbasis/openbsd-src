@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile.cross,v 1.78 2015/06/05 21:48:35 tobiasu Exp $
+# $OpenBSD: Makefile.cross,v 1.83 2015/12/08 16:04:41 tobiasu Exp $
 
 cross-tools:	cross-includes cross-binutils cross-gcc cross-lib
 cross-distrib:	cross-tools cross-bin cross-share cross-sys cross-etc-root-var
@@ -9,15 +9,13 @@ cross-distrib:	cross-tools cross-bin cross-share cross-sys cross-etc-root-var
 .if	(${TARGET} == "armish" || ${TARGET} == "armv7" || \
 	 ${TARGET} == "zaurus")
 TARGET_ARCH=	arm
-.elif	(${TARGET} == "aviion" || ${TARGET} == "luna88k")
+.elif	(${TARGET} == "luna88k")
 TARGET_ARCH=	m88k
 .elif	(${TARGET} == "sgi" || ${TARGET} == "octeon")
 TARGET_ARCH=	mips64
 .elif	(${TARGET} == "loongson")
 TARGET_ARCH=	mips64el
 TARGET_CPU=	mips64
-.elif	(${TARGET} == "solbourne")
-TARGET_ARCH=	sparc
 .elif	(${TARGET} == "macppc" || ${TARGET} == "socppc")
 TARGET_ARCH=	powerpc
 .elif	(${TARGET} == "landisk")
@@ -301,10 +299,10 @@ cross-lib:	${CROSSGCC}
 		    ${MAKE} install); \
 	    done; \
 	    eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
-	        SKIPDIR=\"${NO_CROSS} libocurses/PSD.doc\" \
+	        SKIPDIR=\"${NO_CROSS}\" \
 	        ${MAKE} depend all ; \
 	    eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} DESTDIR=${CROSSDIR} \
-	        SKIPDIR=\"${NO_CROSS} libocurses/PSD.doc\" \
+	        SKIPDIR=\"${NO_CROSS}\" \
 	        ${MAKE} install)
 
 cross-bin:	${CROSSOBJ}
@@ -343,6 +341,7 @@ cross-share:   ${CROSSOBJ}
 	    (cd ${.CURDIR}/$$i; \
 	        eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
 		SKIPDIR=\"${NO_CROSS}\" \
+		DESTDIR=${CROSSDIR} \
 		${MAKE} depend all install); \
 	done
 
@@ -354,6 +353,7 @@ cross-sys:   ${CROSSOBJ}
 	    (cd ${.CURDIR}/$$i; \
 	        eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
 		SKIPDIR=\"${NO_CROSS}\" \
+		DESTDIR=${CROSSDIR} \
 		${MAKE} depend all install); \
 	done
 

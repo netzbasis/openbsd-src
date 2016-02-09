@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.71 2015/11/04 12:12:00 dlg Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.76 2015/12/11 16:07:02 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -35,10 +35,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -82,7 +80,7 @@ int upgt_debug = 2;
  */
 int		upgt_match(struct device *, void *, void *);
 void		upgt_attach(struct device *, struct device *, void *);
-void		upgt_attach_hook(void *);
+void		upgt_attach_hook(struct device *);
 int		upgt_detach(struct device *, int);
 
 int		upgt_device_type(struct upgt_softc *, uint16_t, uint16_t);
@@ -301,10 +299,7 @@ upgt_attach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * We need the firmware loaded to complete the attach.
 	 */
-	if (rootvp == NULL)
-		mountroothook_establish(upgt_attach_hook, sc);
-	else
-		upgt_attach_hook(sc);
+	config_mountroot(self, upgt_attach_hook);
 
 	return;
 fail:
@@ -312,9 +307,9 @@ fail:
 }
 
 void
-upgt_attach_hook(void *arg)
+upgt_attach_hook(struct device *self)
 {
-	struct upgt_softc *sc = arg;
+	struct upgt_softc *sc = (struct upgt_softc *)self;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
 	usbd_status error;
@@ -1216,7 +1211,7 @@ upgt_init(struct ifnet *ifp)
 	upgt_setup_rates(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	upgt_set_macfilter(sc, IEEE80211_S_SCAN);
 
@@ -1239,7 +1234,8 @@ upgt_stop(struct upgt_softc *sc)
 
 	/* device down */
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	upgt_set_led(sc, UPGT_LED_OFF);
 
@@ -1369,7 +1365,7 @@ upgt_start(struct ifnet *ifp)
 	int i;
 
 	/* don't transmit packets if interface is busy or down */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	DPRINTF(2, "%s: %s\n", sc->sc_dev.dv_xname, __func__);
@@ -1398,11 +1394,10 @@ upgt_start(struct ifnet *ifp)
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
 
-			IFQ_POLL(&ifp->if_snd, m);
+			IFQ_DEQUEUE(&ifp->if_snd, m);
 			if (m == NULL)
 				break;
 
-			IFQ_DEQUEUE(&ifp->if_snd, m);
 #if NBPFILTER > 0
 			if (ifp->if_bpf != NULL)
 				bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
@@ -1430,7 +1425,7 @@ upgt_start(struct ifnet *ifp)
 		    sc->sc_dev.dv_xname, sc->tx_queued);
 		/* process the TX queue in process context */
 		ifp->if_timer = 5;
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		usb_rem_task(sc->sc_udev, &sc->sc_task_tx);
 		usb_add_task(sc->sc_udev, &sc->sc_task_tx);
 	}
@@ -1632,7 +1627,7 @@ upgt_tx_done(struct upgt_softc *sc, uint8_t *data)
 	if (sc->tx_queued == 0) {
 		/* TX queued was processed, continue */
 		ifp->if_timer = 0;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		upgt_start(ifp);
 	}
 

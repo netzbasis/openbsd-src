@@ -1,4 +1,4 @@
-/*	$OpenBSD: robots.h,v 1.9 2015/08/26 00:29:24 rzalamena Exp $	*/
+/*	$OpenBSD: robots.h,v 1.14 2016/01/04 17:33:24 mestre Exp $	*/
 /*	$NetBSD: robots.h,v 1.5 1995/04/24 12:24:54 cgd Exp $	*/
 
 /*
@@ -32,21 +32,8 @@
  *	@(#)robots.h	8.1 (Berkeley) 5/31/93
  */
 
-#include	<sys/types.h>
-#include	<sys/time.h>
-#include	<ctype.h>
-#include	<curses.h>
-#include	<err.h>
-#include	<errno.h>
-#include	<fcntl.h>
-#include	<limits.h>
-#include	<pwd.h>
-#include	<signal.h>
-#include	<string.h>
-#include	<stdlib.h>
-#include	<termios.h>
-#include	<unistd.h>
-#include	<poll.h>
+#include <curses.h>
+#include <limits.h>
 
 /*
  * miscellaneous constants
@@ -88,8 +75,6 @@ typedef struct {
 	char	s_name[LOGIN_NAME_MAX];
 } SCORE;
 
-typedef struct passwd	PASSWD;
-
 /*
  * global variables
  */
@@ -129,7 +114,7 @@ void	move_robots(void);
 bool	must_telep(void);
 void	play_level(void);
 int	query(char *);
-void	quit(int);
+__dead void	quit(int);
 void	reset_count(void);
 int	rnd(int);
 COORD	*rnd_pos(void);
@@ -137,4 +122,4 @@ void	score(int);
 void	set_name(SCORE *);
 void	show_score(void);
 int	sign(int);
-void	usage(void);
+__dead void	usage(void);

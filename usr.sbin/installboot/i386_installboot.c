@@ -1,4 +1,4 @@
-/*	$OpenBSD: i386_installboot.c,v 1.16 2015/11/03 11:38:41 jsg Exp $	*/
+/*	$OpenBSD: i386_installboot.c,v 1.26 2015/12/28 23:00:29 krw Exp $	*/
 /*	$NetBSD: installboot.c,v 1.5 1995/11/17 23:23:50 gwr Exp $ */
 
 /*
@@ -38,7 +38,6 @@
 #define ELFSIZE 32
 
 #include <sys/param.h>	/* DEV_BSIZE */
-#include <sys/types.h>
 #include <sys/disklabel.h>
 #include <sys/dkio.h>
 #include <sys/ioctl.h>
@@ -62,6 +61,7 @@
 #include <nlist.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 #include <util.h>
@@ -90,6 +90,7 @@ static void	devread(int, void *, daddr_t, size_t, char *);
 static u_int	findopenbsd(int, struct disklabel *);
 static int	getbootparams(char *, int, struct disklabel *);
 static char	*loadproto(char *, long *);
+static int	gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 /*
  * Read information about /boot's inode and filesystem parameters, then
@@ -203,16 +204,14 @@ write_bootblocks(int devfd, char *dev, struct disklabel *dl)
 		    stage1, BOOTBIOS_MAXSEC);
 
 	if (!nowrite) {
-		if (lseek(devfd, (off_t)start * dl->d_secsize, SEEK_SET) < 0)
-			err(1, "seek boot sector");
 		secbuf = calloc(1, dl->d_secsize);
-		if (read(devfd, secbuf, dl->d_secsize) != dl->d_secsize)
-			err(1, "read boot sector");
+		if (pread(devfd, secbuf, dl->d_secsize, (off_t)start *
+		    dl->d_secsize) != dl->d_secsize)
+			err(1, "pread boot sector");
 		bcopy(blkstore, secbuf, blksize);
-		if (lseek(devfd, (off_t)start * dl->d_secsize, SEEK_SET) < 0)
-			err(1, "seek bootstrap");
-		if (write(devfd, secbuf, dl->d_secsize) != dl->d_secsize)
-			err(1, "write bootstrap");
+		if (pwrite(devfd, secbuf, dl->d_secsize, (off_t)start *
+		    dl->d_secsize) != dl->d_secsize)
+			err(1, "pwrite bootstrap");
 		free(secbuf);
 	}
 }
@@ -220,8 +219,8 @@ write_bootblocks(int devfd, char *dev, struct disklabel *dl)
 void
 write_efisystem(struct disklabel *dl, char part)
 {
-	static char *fsckfmt = "/sbin/fsck_msdos -f %s >/dev/null";
-	static char *newfsfmt ="/sbin/newfs_msdos -t msdos %s >/dev/null";
+	static char *fsckfmt = "/sbin/fsck_msdos %s >/dev/null";
+	static char *newfsfmt ="/sbin/newfs_msdos %s >/dev/null";
 	struct msdosfs_args args;
 	char cmd[60];
 	char dst[50];	/* /tmp/installboot.XXXXXXXXXX/efi/BOOT/BOOTIA32.EFI */
@@ -369,8 +368,7 @@ rmdir:
 	if (rmdir(dst) == -1)
 		err(1, "rmdir('%s') failed", dst);
 
-	if (src)
-		free(src);
+	free(src);
 
 	if (rslt == -1)
 		exit(1);
@@ -402,9 +400,9 @@ again:
 
 	if ((secbuf = malloc(dl->d_secsize)) == NULL)
 		err(1, NULL);
-	if (lseek(devfd, (off_t)mbroff * dl->d_secsize, SEEK_SET) < 0 ||
-	    read(devfd, secbuf, dl->d_secsize) < (ssize_t)sizeof(mbr))
-		err(4, "can't read boot record");
+	if (pread(devfd, secbuf, dl->d_secsize, (off_t)mbroff * dl->d_secsize)
+	    < (ssize_t)sizeof(mbr))
+		err(4, "can't pread boot record");
 	bcopy(secbuf, &mbr, sizeof(mbr));
 	free(secbuf);
 
@@ -447,11 +445,47 @@ again:
 	return ((u_int)-1);
 }
 
+/*
+ * Returns 0 if the MBR with the provided partition array is a GPT protective
+ * MBR, and returns 1 otherwise. A GPT protective MBR would have one and only
+ * one MBR partition, an EFI partition that either covers the whole disk or as
+ * much of it as is possible with a 32bit size field.
+ *
+ * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
+ */
+static int
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
+{
+	struct dos_partition *dp2;
+	int efi, found, i;
+	u_int32_t psize;
+
+	found = efi = 0;
+	for (dp2=dp, i=0; i < NDOSPART; i++, dp2++) {
+		if (dp2->dp_typ == DOSPTYP_UNUSED)
+			continue;
+		found++;
+		if (dp2->dp_typ != DOSPTYP_EFI)
+			continue;
+		psize = letoh32(dp2->dp_size);
+		if (psize == (dsize - 1) ||
+		    psize == UINT32_MAX) {
+			if (letoh32(dp2->dp_start) == 1)
+				efi++;
+		}
+	}
+	if (found == 1 && efi == 1)
+		return (0);
+
+	return (1);
+}
+
 int
 findgptefisys(int devfd, struct disklabel *dl)
 {
 	struct gpt_partition	 gp[NGPTPARTITIONS];
 	struct gpt_header	 gh;
+	struct dos_partition	 dp[NDOSPART];
 	struct uuid		 efisys_uuid;
 	const char		 efisys_uuid_code[] = GPT_UUID_EFI_SYSTEM;
 	off_t			 off;
@@ -467,10 +501,22 @@ findgptefisys(int devfd, struct disklabel *dl)
 
 	if ((secbuf = malloc(dl->d_secsize)) == NULL)
 		err(1, NULL);
+
+	/* Check that there is a protective MBR. */
+	len = pread(devfd, secbuf, dl->d_secsize, 0);
+	if (len != dl->d_secsize)
+		err(4, "can't read mbr");
+	memcpy(dp, &secbuf[DOSPARTOFF], sizeof(dp));
+	if (gpt_chk_mbr(dp, DL_GETDSIZE(dl))) {
+		free(secbuf);
+		return (-1);
+	}
+
+	/* Check GPT Header. */
 	off = dl->d_secsize;	/* Read header from sector 1. */
 	len = pread(devfd, secbuf, dl->d_secsize, off);
 	if (len != dl->d_secsize)
-		err(4, "can't read gpt header");
+		err(4, "can't pread gpt header");
 
 	memcpy(&gh, secbuf, sizeof(gh));
 	free(secbuf);
@@ -572,10 +618,9 @@ loadproto(char *fname, long *size)
 	if (ph == NULL)
 		err(1, NULL);
 	phsize = eh.e_phnum * sizeof(Elf_Phdr);
-	lseek(fd, eh.e_phoff, SEEK_SET);
 
-	if (read(fd, ph, phsize) != phsize)
-		errx(1, "%s: can't read header", fname);
+	if (pread(fd, ph, phsize, eh.e_phoff) != phsize)
+		errx(1, "%s: can't pread header", fname);
 
 	tdsize = ph->p_filesz;
 
@@ -588,9 +633,8 @@ loadproto(char *fname, long *size)
 		err(1, NULL);
 
 	/* Read the rest of the file. */
-	lseek(fd, ph->p_offset, SEEK_SET);
-	if (read(fd, bp, tdsize) != (ssize_t)tdsize)
-		errx(1, "%s: read failed", fname);
+	if (pread(fd, bp, tdsize, ph->p_offset) != (ssize_t)tdsize)
+		errx(1, "%s: pread failed", fname);
 
 	*size = tdsize;	/* not aligned to DEV_BSIZE */
 
@@ -601,11 +645,8 @@ loadproto(char *fname, long *size)
 static void
 devread(int fd, void *buf, daddr_t blk, size_t size, char *msg)
 {
-	if (lseek(fd, dbtob((off_t)blk), SEEK_SET) != dbtob((off_t)blk))
-		err(1, "%s: devread: lseek", msg);
-
-	if (read(fd, buf, size) != (ssize_t)size)
-		err(1, "%s: devread: read", msg);
+	if (pread(fd, buf, size, dbtob((off_t)blk)) != (ssize_t)size)
+		err(1, "%s: devread: pread", msg);
 }
 
 static char sblock[SBSIZE];

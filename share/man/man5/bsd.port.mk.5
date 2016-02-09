@@ -1,4 +1,4 @@
-.\" $OpenBSD: bsd.port.mk.5,v 1.427 2015/10/12 10:27:22 sthen Exp $
+.\" $OpenBSD: bsd.port.mk.5,v 1.432 2016/01/02 08:29:26 jmc Exp $
 .\"
 .\" Copyright (c) 2000-2008 Marc Espie
 .\"
@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: October 12 2015 $
+.Dd $Mdocdate: January 2 2016 $
 .Dt BSD.PORT.MK 5
 .Os
 .Sh NAME
@@ -1702,7 +1702,9 @@ to limit ports to architectures where they compile.
 Support for GitHub-hosted projects.
 Leave empty for non hosted projects.
 Yields a suitable default for
-.Ev MASTER_SITES_GITHUB .
+.Ev MASTER_SITES_GITHUB
+and
+.Ev DISTNAME .
 .It Ev GH_ACCOUNT
 Account name of the GitHub user hosting the project.
 .It Ev GH_COMMIT
@@ -1854,7 +1856,7 @@ Read-only.
 Use with
 .Ev NOT_FOR_ARCHS .
 .It Ev MAINTAINER
-E-mail address with full name of the port's maintainer.
+Email address with full name of the port's maintainer.
 Defaults to
 .Mt ports@openbsd.org .
 .It Ev MAKE_ENV
@@ -2962,9 +2964,9 @@ scripts invocations.
 .It Ev USE_MFS
 Set to
 .Sq Yes
-to build ports under an
-.Xr mfs 8
-filesystem.
+to build ports under an MFS filesystem
+(see
+.Xr mount_mfs 8 ) .
 Mostly for use by
 .Xr dpb 1
 and not intended to be a user setting.
@@ -3074,9 +3076,7 @@ If explicitly unset (WRKOBJDIR=), the working directory is
 created within the port directory.
 .It Ev WRKOBJDIR_MFS
 Alternate location for the port working directory.
-The intent is to use an
-.Xr mfs 8
-based filesystem for small ports with
+The intent is to use an MFS based filesystem for small ports with
 .Xr dpb 1 .
 Active when
 .Ev USE_MFS
@@ -3640,7 +3640,7 @@ should be built:
 .Ed
 .Pp
 The
-.Pa lang/gcc/4.2
+.Pa lang/gcc/4.9
 or
 .Pa print/poppler
 ports should provide examples of proper use.

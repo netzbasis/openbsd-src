@@ -1,4 +1,4 @@
-/*	$OpenBSD: jobs.c,v 1.50 2015/10/19 14:42:16 mmcc Exp $	*/
+/*	$OpenBSD: jobs.c,v 1.54 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * Process and job control
@@ -20,8 +20,13 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "tty.h"
@@ -519,7 +524,7 @@ exchild(struct op *t, int flags, volatile int *xerrok,
 			setsig(&sigtraps[SIGQUIT], SIG_IGN,
 			    SS_RESTORE_IGN|SS_FORCE);
 			if (!(flags & (XPIPEI | XCOPROC))) {
-				int fd = open("/dev/null", 0);
+				int fd = open("/dev/null", O_RDONLY);
 				if (fd != 0) {
 					(void) ksh_dup2(fd, 0, true);
 					close(fd);
@@ -1288,7 +1293,7 @@ check_job(Job *j)
 				struct env *ep;
 				int fd = 2;
 
-				for (ep = e; ep; ep = ep->oenv)
+				for (ep = genv; ep; ep = ep->oenv)
 					if (ep->savefd && ep->savefd[2])
 						fd = ep->savefd[2];
 				shf_reopen(fd, SHF_WR, shl_j);

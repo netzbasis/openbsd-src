@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip27_machdep.c,v 1.66 2015/09/08 10:21:50 deraadt Exp $	*/
+/*	$OpenBSD: ip27_machdep.c,v 1.71 2016/01/02 05:49:36 visa Exp $	*/
 
 /*
  * Copyright (c) 2008, 2009 Miodrag Vallat.
@@ -24,14 +24,17 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
 #include <sys/device.h>
 #include <sys/malloc.h>
+#include <sys/proc.h>
 #include <sys/reboot.h>
+#include <sys/timetc.h>
 #include <sys/tty.h>
-#include <sys/atomic.h>
 
 #include <mips64/arcbios.h>
 #include <mips64/archtype.h>
+#include <mips64/cache.h>
 
 #include <machine/autoconf.h>
 #include <machine/bus.h>
@@ -89,6 +92,38 @@ void	ip27_attach_node(struct device *, int16_t);
 int	ip27_print(void *, const char *);
 void	ip27_nmi(void *);
 
+#ifdef MULTIPROCESSOR
+
+#define IP27_SLICE_IPI(slice) ((slice) + HUBPI_ISR0_IPI_A)
+
+unsigned int	ip27_ncpus;
+
+int	ip27_kl_launch_cpu(klinfo_t *, void *);
+int	ip27_kl_launch_cpu_board(lboard_t *, void *);
+int	ip27_kl_attach_cpu(klinfo_t *, void *);
+int	ip27_kl_attach_cpu_board(lboard_t *, void *);
+
+uint	ip27_hub_get_timecount(struct timecounter *);
+
+struct timecounter ip27_hub_timecounter = {
+	.tc_get_timecount = ip27_hub_get_timecount,
+	.tc_poll_pps = NULL,
+	.tc_counter_mask = 0xffffffff,	/* truncated to 32 bits. */
+	.tc_frequency = 1250000,
+	.tc_name = "hubrt",
+	.tc_quality = 100
+};
+
+volatile uint64_t	ip27_spinup_a0;
+volatile uint64_t	ip27_spinup_sp;
+volatile uint32_t	ip27_spinup_turn = ~0;
+
+#define SPINUP_TICKET(nasid, slice)	(((nasid) << 8) | (slice))
+
+void ip27_cpu_spinup_trampoline(uint64_t);
+
+#endif /* MULTIPROCESSOR */
+
 /*
  * IP27 interrupt handling declarations: 128 hw sources, plus timers and
  * hub error sources; 5 levels.
@@ -109,16 +144,20 @@ struct intrhand *hubpi_intrhand1[HUBPI_NINTS];
 
 struct {
 	uint64_t hw[2];
-} hubpi_intem, hubpi_imask[NIPLS];
+} hubpi_intem[MAXCPUS], hubpi_imask[MAXCPUS][NIPLS];
 
 void
 ip27_setup()
 {
+	struct cpu_info *ci = curcpu();
 	struct ip27_config *ip27_config;
 	uint64_t synergy0_0;
 	console_t *cons;
 	nmi_t *nmi;
 	static char unknown_model[20];
+
+	ci->ci_nasid = masternasid;
+	ci->ci_slice = IP27_LHUB_L(HUBPI_CPU_NUMBER);
 
 	io_base = PHYS_TO_XKPHYS_UNCACHED(0, SP_IO);
 
@@ -197,6 +236,17 @@ ip27_setup()
 	kl_init(ip35);
 	if (kl_n_mode != 0)
 		xbow_long_shift = 28;
+
+#ifdef MULTIPROCESSOR
+	/*
+	 * Pre-launch secondary CPUs with the help of the PROM. This has to be
+	 * done now, before tearing down the PROM TLB and disabling interrupts
+	 * on the secondary CPUs. The CPUs will wait in the spinup trampoline
+	 * until the system launches them for real.
+	 */
+	ip27_ncpus = 1;
+	kl_scan_all_nodes(IP27_BC_NODE, ip27_kl_launch_cpu_board, NULL);
+#endif
 
 	/*
 	 * Initialize the early console parameters.
@@ -304,6 +354,10 @@ ip27_setup()
 	     IP27_NODE_IO_BASE(0)) /* HUB register offset */;
 
 	_device_register = dksc_device_register;
+
+#ifdef MULTIPROCESSOR
+	tc_init(&ip27_hub_timecounter);
+#endif
 }
 
 /*
@@ -329,6 +383,7 @@ ip27_autoconf(struct device *parent)
 	bzero(&u, sizeof u);
 	u.maa.maa_name = "cpu";
 	u.maa.maa_nasid = currentnasid = masternasid;
+	u.maa.maa_physid = IP27_LHUB_L(HUBPI_CPU_NUMBER);
 	u.caa.caa_hw = &bootcpu_hwinfo;
 	config_found(parent, &u, ip27_print);
 	u.maa.maa_name = "clock";
@@ -338,6 +393,9 @@ ip27_autoconf(struct device *parent)
 	 * Now attach all nodes' I/O devices.
 	 */
 
+#ifdef MULTIPROCESSOR
+	ip27_ncpus = 1;
+#endif
 	ip27_attach_node(parent, masternasid);
 	for (node = 0; node < maxnodes; node++) {
 		if (gda->nasid[node] < 0)
@@ -360,6 +418,24 @@ ip27_attach_node(struct device *parent, int16_t nasid)
 
 	currentnasid = nasid;
 	bzero(&u, sizeof u);
+
+	/*
+	 * IRIX performs this extra initialization on Origin 200 systems.
+	 * This seems to properly initialize on-board devices on the
+	 * second node.
+	 */
+	if (sys_config.system_type == SGI_IP27 &&
+	    sys_config.system_subtype == IP27_O200) {
+		IP27_RHUB_S(nasid, HUBMDBASE_IP27 | HUBMD_LED0,
+		    nasid == masternasid ? 1 : 9);
+		IP27_RHUB_S(nasid, HUBMDBASE_IP27 | HUBMD_LED0,
+		    nasid == masternasid ? 1 : 9);
+	}
+
+#ifdef MULTIPROCESSOR
+	kl_scan_node(nasid, IP27_BC_NODE, ip27_kl_attach_cpu_board, parent);
+#endif
+
 	if (ip35) {
 		l1_display(nasid, TRUE, "OpenBSD/sgi");
 
@@ -606,7 +682,7 @@ ip27_halt(int howto)
 	} else
 		promop = GDA_PROMOP_REBOOT;
 
-	promop |= GDA_PROMOP_MAGIC | /* GDA_PROMOP_NO_DIAGS | */
+	promop |= GDA_PROMOP_MAGIC | GDA_PROMOP_NO_DIAGS |
 	    GDA_PROMOP_NO_MEMINIT;
 
 #if 0
@@ -662,13 +738,14 @@ ip27_halt(int howto)
 int
 ip27_hub_intr_register(int widget, int level, int *intrbit)
 {
+	u_long cpuid = cpu_number();
 	int bit;
 
 	/*
 	 * Try to allocate a bit on hardware level 0 first.
 	 */
 	for (bit = HUBPI_INTR0_WIDGET_MAX; bit >= HUBPI_INTR0_WIDGET_MIN; bit--)
-		if ((hubpi_intem.hw[0] & (1UL << bit)) == 0)
+		if ((hubpi_intem[cpuid].hw[0] & (1UL << bit)) == 0)
 			goto found;
 
 	/*
@@ -676,7 +753,7 @@ ip27_hub_intr_register(int widget, int level, int *intrbit)
 	 * level 1.
 	 */
 	for (bit = HUBPI_INTR1_WIDGET_MAX; bit >= HUBPI_INTR1_WIDGET_MIN; bit--)
-		if ((hubpi_intem.hw[1] & (1UL << bit)) == 0) {
+		if ((hubpi_intem[cpuid].hw[1] & (1UL << bit)) == 0) {
 			bit += HUBPI_NINTS;
 			goto found;
 		}
@@ -696,6 +773,7 @@ ip27_hub_intr_establish(int (*func)(void *), void *arg, int intrbit,
     int level, const char *name, struct intrhand *ihstore)
 {
 	struct intrhand *ih, **anchor;
+	u_long cpuid = cpu_number();
 	int s;
 
 #ifdef DIAGNOSTIC
@@ -740,7 +818,8 @@ ip27_hub_intr_establish(int (*func)(void *), void *arg, int intrbit,
 
 	*anchor = ih;
 
-	hubpi_intem.hw[intrbit / HUBPI_NINTS] |= 1UL << (intrbit % HUBPI_NINTS);
+	hubpi_intem[cpuid].hw[intrbit / HUBPI_NINTS] |=
+	    1UL << (intrbit % HUBPI_NINTS);
 	if (intrbit / HUBPI_NINTS != 0)
 		ip27_hub_intr_makemasks1();
 	else
@@ -755,6 +834,7 @@ void
 ip27_hub_intr_disestablish(int intrbit)
 {
 	struct intrhand *ih, **anchor;
+	u_long cpuid = cpu_number();
 	int s;
 
 #ifdef DIAGNOSTIC
@@ -776,7 +856,7 @@ ip27_hub_intr_disestablish(int intrbit)
 
 	*anchor = NULL;
 
-	hubpi_intem.hw[intrbit / HUBPI_NINTS] &=
+	hubpi_intem[cpuid].hw[intrbit / HUBPI_NINTS] &=
 	    ~(1UL << (intrbit % HUBPI_NINTS));
 	if (intrbit / HUBPI_NINTS != 0)
 		ip27_hub_intr_makemasks1();
@@ -792,13 +872,21 @@ ip27_hub_intr_disestablish(int intrbit)
 void
 ip27_hub_intr_clear(int intrbit)
 {
-	IP27_RHUB_PI_S(masternasid, 0, HUBPI_IR_CHANGE, PI_IR_CLR | intrbit);
+	struct cpu_info *ci = curcpu();
+
+	IP27_RHUB_PI_S(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR_CHANGE, PI_IR_CLR | intrbit);
+	(void)IP27_RHUB_PI_L(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR0);
 }
 
 void
 ip27_hub_intr_set(int intrbit)
 {
-	IP27_RHUB_PI_S(masternasid, 0, HUBPI_IR_CHANGE, PI_IR_SET | intrbit);
+	struct cpu_info *ci = curcpu();
+
+	IP27_RHUB_PI_S(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR_CHANGE, PI_IR_SET | intrbit);
 }
 
 void
@@ -811,8 +899,8 @@ ip27_hub_splx(int newipl)
 	ci->ci_ipl = newipl;
 	mips_sync();
 	__asm__ (".set reorder\n");
-	if (CPU_IS_PRIMARY(ci))
-		ip27_hub_setintrmask(newipl);
+	ip27_hub_setintrmask(newipl);
+
 	/* If we still have softints pending trigger processing. */
 	if (ci->ci_softpending && newipl < IPL_SOFTINT)
 		setsoftintr0();
@@ -825,20 +913,35 @@ ip27_hub_splx(int newipl)
 #define	INTR_FUNCTIONNAME	hubpi_intr0
 #define	MASK_FUNCTIONNAME	ip27_hub_intr_makemasks0
 #define	INTR_LOCAL_DECLS
-#define	MASK_LOCAL_DECLS
+#define	MASK_LOCAL_DECLS \
+	struct cpu_info *ci = curcpu();
 #define	INTR_GETMASKS \
 do { \
-	/* XXX this assumes we run on cpu0 */ \
 	isr = IP27_LHUB_L(HUBPI_IR0); \
-	imr = IP27_LHUB_L(HUBPI_CPU0_IMR0); \
+	imr = IP27_LHUB_L(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR0 : HUBPI_CPU1_IMR0); \
 	bit = HUBPI_INTR0_WIDGET_MAX; \
 } while (0)
 #define	INTR_MASKPENDING \
 do { \
-	IP27_LHUB_S(HUBPI_CPU0_IMR0, imr & ~isr); \
+	IP27_LHUB_S(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR0 : HUBPI_CPU1_IMR0, imr & ~isr); \
 	(void)IP27_LHUB_L(HUBPI_IR0); \
 } while (0)
-#define	INTR_IMASK(ipl)		hubpi_imask[ipl].hw[0]
+#define	INTR_IMASK(ipl)		hubpi_imask[ci->ci_cpuid][ipl].hw[0]
+#ifdef MULTIPROCESSOR
+#define	INTR_IPI_HOOK(ipl) \
+do { \
+	unsigned long ipibit = IP27_SLICE_IPI(ci->ci_slice); \
+	unsigned long ipimask = 1 << ipibit; \
+	if ((isr & ipimask) && \
+	    !(hubpi_imask[ci->ci_cpuid][ipl].hw[0] & ipimask)) { \
+		struct intrhand *ih = hubpi_intrhand0[ipibit]; \
+		ih->ih_fun(ih->ih_arg); \
+		isr &= ~ipimask; \
+	} \
+} while (0)
+#endif /* MULTIPROCESSOR */
 #define	INTR_HANDLER(bit)	hubpi_intrhand0[bit]
 #define	INTR_SPURIOUS(bit) \
 do { \
@@ -846,7 +949,8 @@ do { \
 } while (0)
 #define	INTR_MASKRESTORE \
 do { \
-	IP27_LHUB_S(HUBPI_CPU0_IMR0, imr); \
+	IP27_LHUB_S(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR0 : HUBPI_CPU1_IMR0, imr); \
 	(void)IP27_LHUB_L(HUBPI_IR0); \
 } while (0)
 #define	INTR_MASKSIZE	HUBPI_NINTS
@@ -856,20 +960,22 @@ do { \
 #define	INTR_FUNCTIONNAME	hubpi_intr1
 #define	MASK_FUNCTIONNAME	ip27_hub_intr_makemasks1
 #define	INTR_LOCAL_DECLS
-#define	MASK_LOCAL_DECLS
+#define	MASK_LOCAL_DECLS \
+	struct cpu_info *ci = curcpu();
 #define	INTR_GETMASKS \
 do { \
-	/* XXX this assumes we run on cpu0 */ \
 	isr = IP27_LHUB_L(HUBPI_IR1); \
-	imr = IP27_LHUB_L(HUBPI_CPU0_IMR1); \
+	imr = IP27_LHUB_L(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR1 : HUBPI_CPU1_IMR1); \
 	bit = HUBPI_INTR1_WIDGET_MAX; \
 } while (0)
 #define	INTR_MASKPENDING \
 do { \
-	IP27_LHUB_S(HUBPI_CPU0_IMR1, imr & ~isr); \
+	IP27_LHUB_S(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR1 : HUBPI_CPU1_IMR1, imr & ~isr); \
 	(void)IP27_LHUB_L(HUBPI_IR1); \
 } while (0)
-#define	INTR_IMASK(ipl)		hubpi_imask[ipl].hw[1]
+#define	INTR_IMASK(ipl)		hubpi_imask[ci->ci_cpuid][ipl].hw[1]
 #define	INTR_HANDLER(bit)	hubpi_intrhand1[bit]
 #define	INTR_SPURIOUS(bit) \
 do { \
@@ -877,7 +983,8 @@ do { \
 } while (0)
 #define	INTR_MASKRESTORE \
 do { \
-	IP27_LHUB_S(HUBPI_CPU0_IMR1, imr); \
+	IP27_LHUB_S(IP27_SLICE_LCPU(ci->ci_slice) == 0 ? \
+	    HUBPI_CPU0_IMR1 : HUBPI_CPU1_IMR1, imr); \
 	(void)IP27_LHUB_L(HUBPI_IR1); \
 } while (0)
 #define	INTR_MASKSIZE	HUBPI_NINTS
@@ -887,12 +994,22 @@ do { \
 void
 ip27_hub_setintrmask(int level)
 {
-	/* XXX this assumes we run on cpu0 */
-	IP27_LHUB_S(HUBPI_CPU0_IMR0,
-	    hubpi_intem.hw[0] & ~hubpi_imask[level].hw[0]);
+	struct cpu_info *ci = curcpu();
+	u_long imr0, imr1;
+
+	if (IP27_SLICE_LCPU(ci->ci_slice) == 0) {
+		imr0 = HUBPI_CPU0_IMR0;
+		imr1 = HUBPI_CPU0_IMR1;
+	} else {
+		imr0 = HUBPI_CPU1_IMR0;
+		imr1 = HUBPI_CPU1_IMR1;
+	}
+
+	IP27_LHUB_S(imr0, hubpi_intem[ci->ci_cpuid].hw[0] &
+	    ~hubpi_imask[ci->ci_cpuid][level].hw[0]);
 	(void)IP27_LHUB_L(HUBPI_IR0);
-	IP27_LHUB_S(HUBPI_CPU0_IMR1,
-	    hubpi_intem.hw[1] & ~hubpi_imask[level].hw[1]);
+	IP27_LHUB_S(imr1, hubpi_intem[ci->ci_cpuid].hw[1] &
+	    ~hubpi_imask[ci->ci_cpuid][level].hw[1]);
 	(void)IP27_LHUB_L(HUBPI_IR1);
 }
 
@@ -938,3 +1055,192 @@ ip27_nmi(void *arg)
 	panic("NMI");
 	/* NOTREACHED */
 }
+
+#ifdef MULTIPROCESSOR
+
+int
+ip27_kl_launch_cpu(klinfo_t *comp, void *arg)
+{
+	struct cpu_info *ci = curcpu();
+
+	/* Skip the running CPU. */
+	if (comp->nasid == ci->ci_nasid &&
+	    comp->physid == ci->ci_slice)
+		return 0;
+
+	/* XXX Skip CPUs on other nodes. */
+	if (comp->nasid != ci->ci_nasid)
+		return 0;
+
+	if (ip27_ncpus >= MAXCPUS)
+		return 0;
+
+	ip27_prom_launch_slave(comp->nasid, comp->physid,
+	    ip27_cpu_spinup_trampoline,
+	    SPINUP_TICKET(comp->nasid, comp->physid), 0, 0);
+	ip27_ncpus++;
+
+	return 0;
+}
+
+int
+ip27_kl_launch_cpu_board(lboard_t *board, void *arg)
+{
+	kl_scan_board(board, KLSTRUCT_CPU, ip27_kl_launch_cpu, arg);
+	return 0;
+}
+
+int
+ip27_kl_attach_cpu(klinfo_t *comp, void *arg)
+{
+	struct cpu_attach_args caa;
+	struct cpu_hwinfo hw;
+	struct cpu_info *ci = curcpu();
+	struct device *parent = arg;
+	klcpu_t *cpucomp;
+
+	/* Skip the running CPU. */
+	if (comp->nasid == ci->ci_nasid &&
+	    comp->physid == ci->ci_slice)
+		return 0;
+
+	/* XXX Skip CPUs on other nodes. */
+	if (comp->nasid != ci->ci_nasid)
+		return 0;
+
+	if (ip27_ncpus >= MAXCPUS)
+		return 0;
+
+	cpucomp = (klcpu_t *)comp;
+
+	hw.c0prid = cpucomp->cpu_prid;
+	hw.c1prid = cpucomp->cpu_prid;
+	hw.clock = cpucomp->cpu_speed * 1000000;
+	hw.tlbsize = 64;
+	hw.type = (cpucomp->cpu_prid >> 8) & 0xff;
+
+	caa.caa_maa.maa_name = "cpu";
+	caa.caa_maa.maa_nasid = comp->nasid;
+	caa.caa_maa.maa_physid = comp->physid;
+	caa.caa_hw = &hw;
+	config_found(parent, &caa, ip27_print);
+	ip27_ncpus++;
+
+	return 0;
+}
+
+int
+ip27_kl_attach_cpu_board(lboard_t *board, void *arg)
+{
+	kl_scan_board(board, KLSTRUCT_CPU, ip27_kl_attach_cpu, arg);
+	return 0;
+}
+
+uint
+ip27_hub_get_timecount(struct timecounter *tc)
+{
+	return IP27_RHUB_L(masternasid, HUBPI_RT_COUNT);
+}
+
+void
+hw_ipi_intr_set(u_long cpuid)
+{
+	struct cpu_info *ci = get_cpu_info(cpuid);
+	int intr;
+
+	intr = IP27_SLICE_IPI(ci->ci_slice);
+	IP27_RHUB_PI_S(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR_CHANGE, PI_IR_SET | intr);
+}
+
+void
+hw_ipi_intr_clear(u_long cpuid)
+{
+	struct cpu_info *ci = get_cpu_info(cpuid);
+	int intr;
+
+	intr = IP27_SLICE_IPI(ci->ci_slice);
+	IP27_RHUB_PI_S(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR_CHANGE, PI_IR_CLR | intr);
+	(void)IP27_RHUB_PI_L(ci->ci_nasid, IP27_SLICE_SUBNODE(ci->ci_slice),
+	    HUBPI_IR0);
+}
+
+int
+hw_ipi_intr_establish(int (*func)(void *), u_long cpuid)
+{
+	struct cpu_info *ci = get_cpu_info(cpuid);
+	int intr;
+
+	intr = IP27_SLICE_IPI(ci->ci_slice);
+	return ip27_hub_intr_establish(func, (void *)cpuid, intr, IPL_IPI,
+	    NULL, &ci->ci_ipiih);
+}
+
+void
+hw_cpu_hatch(struct cpu_info *ci)
+{
+	int s;
+
+	setcurcpu(ci);
+
+	/*
+	 * Make sure we can access the extended address space.
+	 * Note that r10k and later do not allow XUSEG accesses
+	 * from kernel mode unless SR_UX is set.
+	 */
+	setsr(getsr() | SR_KX | SR_UX);
+
+	tlb_init(64);
+	tlb_set_pid(0);
+
+	/*
+	 * Turn off bootstrap exception vectors.
+	 */
+	setsr(getsr() & ~SR_BOOT_EXC_VEC);
+
+	/*
+	 * Clear out the I and D caches.
+	 */
+	Mips10k_ConfigCache(ci);
+	Mips_SyncCache(ci);
+
+	printf("cpu%lu launched\n", cpu_number());
+
+	(*md_startclock)(ci);
+
+	ncpus++;
+	cpuset_add(&cpus_running, ci);
+
+	mips64_ipi_init();
+	ip27_hub_setintrmask(0);
+
+	spl0();
+	(void)updateimask(0);
+
+	SCHED_LOCK(s);
+	cpu_switchto(NULL, sched_chooseproc());
+}
+
+void
+hw_cpu_boot_secondary(struct cpu_info *ci)
+{
+	vaddr_t kstack;
+
+	kstack = alloc_contiguous_pages(USPACE);
+	if (kstack == 0)
+		panic("unable to allocate idle stack\n");
+
+	__asm__ (".set noreorder\n");
+	ci->ci_curprocpaddr = (void *)kstack;
+	ip27_spinup_a0 = (uint64_t)ci;
+	ip27_spinup_sp = (uint64_t)(kstack + USPACE);
+	mips_sync();
+	__asm__ (".set reorder\n");
+	ip27_spinup_turn = SPINUP_TICKET(ci->ci_nasid, ci->ci_slice);
+
+	while (!cpuset_isset(&cpus_running, ci))
+		;
+}
+
+#endif /* MULTIPROCESSOR */

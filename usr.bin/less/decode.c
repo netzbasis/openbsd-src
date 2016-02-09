@@ -345,7 +345,7 @@ void
 add_fcmd_table(char *buf, int len)
 {
 	if (add_cmd_table(&list_fcmd_tables, buf, len) < 0)
-		error("Warning: some commands disabled", NULL_PARG);
+		error("Warning: some commands disabled", NULL);
 }
 
 /*
@@ -355,7 +355,7 @@ void
 add_ecmd_table(char *buf, int len)
 {
 	if (add_cmd_table(&list_ecmd_tables, buf, len) < 0)
-		error("Warning: some edit commands disabled", NULL_PARG);
+		error("Warning: some edit commands disabled", NULL);
 }
 
 /*
@@ -366,7 +366,7 @@ add_var_table(struct tablelist **tlist, char *buf, int len)
 {
 	if (add_cmd_table(tlist, buf, len) < 0)
 		error("Warning: environment variables from "
-		    "lesskey file unavailable", NULL_PARG);
+		    "lesskey file unavailable", NULL);
 }
 
 /*
@@ -647,7 +647,7 @@ lesskey(char *filename, int sysvar)
 		(void) close(f);
 		return (-1);
 	}
-	if (lseek(f, (off_t)0, SEEK_SET) == BAD_LSEEK) {
+	if (lseek(f, (off_t)0, SEEK_SET) == (off_t)-1) {
 		free(buf);
 		(void) close(f);
 		return (-1);

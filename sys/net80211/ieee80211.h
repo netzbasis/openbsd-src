@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211.h,v 1.53 2015/10/10 07:51:47 stsp Exp $	*/
+/*	$OpenBSD: ieee80211.h,v 1.57 2016/01/25 12:51:14 stsp Exp $	*/
 /*	$NetBSD: ieee80211.h,v 1.6 2004/04/30 23:51:53 dyoung Exp $	*/
 
 /*-
@@ -504,6 +504,8 @@ enum {
 #define	IEEE80211_RATE_SIZE			8	/* 802.11 standard */
 #define	IEEE80211_RATE_MAXSIZE			15	/* max rates we'll handle */
 
+#define	IEEE80211_HT_NUM_MCS			77
+
 /*
  * BlockAck/BlockAckReq Control field (see 802.11-2012 8.3.1.9 Figure 8-25).
  */
@@ -512,6 +514,16 @@ enum {
 #define IEEE80211_BA_COMPRESSED		0x0004
 #define IEEE80211_BA_TID_INFO_MASK	0xf000
 #define IEEE80211_BA_TID_INFO_SHIFT	12
+
+/*
+ * ADDBA Parameter Set field (see 802.11-2012 8.4.1.14 Figure 8-48).
+ */
+#define IEEE80211_ADDBA_AMSDU		0x0001 /* A-MSDU in A-MPDU supported */
+#define IEEE80211_ADDBA_BA_POLICY	0x0002 /* 1=immediate BA 0=delayed BA */
+#define IEEE80211_ADDBA_TID_MASK	0x003c
+#define IEEE80211_ADDBA_TID_SHIFT	2
+#define IEEE80211_ADDBA_BUFSZ_MASK	0xffc0
+#define IEEE80211_ADDBA_BUFSZ_SHIFT	6
 
 /*
  * DELBA Parameter Set field (see 802.11-2012 8.4.1.16 Figure 8-50).
@@ -576,11 +588,21 @@ enum {
  */
 #define IEEE80211_AMPDU_PARAM_LE	0x03
 #define IEEE80211_AMPDU_PARAM_SS	0x1c
+#define IEEE80211_AMPDU_PARAM_SS_NONE	(0 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_0_25	(1 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_0_5	(2 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_1	(3 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_2	(4 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_4	(5 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_8	(6 << 2)
+#define IEEE80211_AMPDU_PARAM_SS_16	(7 << 2)
+/* bits 5-7 reserved */
 
 /*
  * HT Supported MCS Set (see 802.11-2012 8.4.2.58.4).
  * This field is 16 bytes in size. Bitmasks given below
- * operate on 8 or 16 bit integer subsets of this field.
+ * operate on 8 or 16 bit integer subsets of this field
+ * for use with ieee80211com and ieee80211_node.
  */
 /* Bits 0-76: Supported Rx MCS bitmask */
 /* Bits 77-79: Reserved */
@@ -661,6 +683,7 @@ enum {
 /*
  * HT Operation element (see 802.11-2012 8.4.2.59).
  */
+/* Byte 0 contains primary channel number. */
 /* Byte 1. */
 #define IEEE80211_HTOP0_SCO_MASK	0x03
 #define IEEE80211_HTOP0_SCO_SHIFT	0
@@ -987,6 +1010,16 @@ enum {
 	IEEE80211_KDE_LIFETIME	= 7,
 	IEEE80211_KDE_ERROR	= 8,
 	IEEE80211_KDE_IGTK	= 9	/* 11w */
+};
+
+/*
+ * HT protection modes (see 802.11-2012 8.4.2.59)
+ */
+enum ieee80211_htprot {
+	IEEE80211_HTPROT_NONE = 0,	/* only 20/40MHz HT STAs exist */
+	IEEE80211_HTPROT_NONMEMBER,	/* non-HT STA overlaps our channel */ 
+	IEEE80211_HTPROT_20MHZ,		/* 20MHz HT STA on a 40MHz channel */
+	IEEE80211_HTPROT_NONHT_MIXED,	/* non-HT STA associated to our BSS */
 };
 
 #endif /* _NET80211_IEEE80211_H_ */

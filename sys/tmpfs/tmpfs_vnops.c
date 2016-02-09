@@ -1,4 +1,4 @@
-/*	$OpenBSD: tmpfs_vnops.c,v 1.22 2015/04/17 04:43:21 guenther Exp $	*/
+/*	$OpenBSD: tmpfs_vnops.c,v 1.24 2016/02/06 16:10:23 stefan Exp $	*/
 /*	$NetBSD: tmpfs_vnops.c,v 1.100 2012/11/05 17:27:39 dholland Exp $	*/
 
 /*
@@ -1017,8 +1017,8 @@ tmpfs_readlink(void *v)
 	KASSERT(vp->v_type == VLNK);
 
 	node = VP_TO_TMPFS_NODE(vp);
-	error = uiomovei(node->tn_spec.tn_lnk.tn_link,
-	    MIN(node->tn_size, uio->uio_resid), uio);
+	error = uiomove(node->tn_spec.tn_lnk.tn_link,
+	    MIN((size_t)node->tn_size, uio->uio_resid), uio);
 	tmpfs_update(node, TMPFS_NODE_ACCESSED);
 
 	return error;
@@ -1335,9 +1335,9 @@ tmpfs_rename(void *v)
 	 */
 	if ((fcnp->cn_namelen == 1 && fcnp->cn_nameptr[0] == '.') ||
 	    (fcnp->cn_namelen == 2 && fcnp->cn_nameptr[0] == '.' &&
-	     fcnp->cn_nameptr[1] == '.')) {
-	     	tmpfs_rename_abort(v);
-	     	return EINVAL;
+	    fcnp->cn_nameptr[1] == '.')) {
+		tmpfs_rename_abort(v);
+		return EINVAL;
 	}
 
 	/*
@@ -2636,13 +2636,13 @@ filt_tmpfsread(struct knote *kn, long hint)
 		return (1);
 	}
 
-        kn->kn_data = node->tn_size - kn->kn_fp->f_offset;
+	kn->kn_data = node->tn_size - kn->kn_fp->f_offset;
 	if (kn->kn_data == 0 && kn->kn_sfflags & NOTE_EOF) {
 		kn->kn_fflags |= NOTE_EOF;
 		return (1);
 	}
 
-        return (kn->kn_data != 0);
+	return (kn->kn_data != 0);
 }
 
 int
@@ -2657,8 +2657,8 @@ filt_tmpfswrite(struct knote *kn, long hint)
 		return (1);
 	}
 
-        kn->kn_data = 0;
-        return (1);
+	kn->kn_data = 0;
+	return (1);
 }
 
 int

@@ -76,7 +76,7 @@ get_meta_escape(void)
 
 	s = lgetenv("LESSMETAESCAPE");
 	if (s == NULL)
-		s = DEF_METAESCAPE;
+		s = "\\";
 	return (s);
 }
 
@@ -225,7 +225,7 @@ fexpand(char *s)
 	IFILE ifile;
 
 #define	fchar_ifile(c) \
-	((c) == '%' ? curr_ifile : (c) == '#' ? old_ifile : NULL_IFILE)
+	((c) == '%' ? curr_ifile : (c) == '#' ? old_ifile : NULL)
 
 	/*
 	 * Make one pass to see how big a buffer we
@@ -247,7 +247,7 @@ fexpand(char *s)
 				 * Single char (not repeated).  Treat specially.
 				 */
 				ifile = fchar_ifile(*fr);
-				if (ifile == NULL_IFILE)
+				if (ifile == NULL)
 					n++;
 				else
 					n += strlen(get_filename(ifile));
@@ -277,7 +277,7 @@ fexpand(char *s)
 				*to++ = *fr;
 			} else if (fr[1] != *fr) {
 				ifile = fchar_ifile(*fr);
-				if (ifile == NULL_IFILE) {
+				if (ifile == NULL) {
 					*to++ = *fr;
 				} else {
 					(void) strlcpy(to, get_filename(ifile),
@@ -341,7 +341,7 @@ bin_file(int f)
 
 	if (!seekable(f))
 		return (0);
-	if (lseek(f, (off_t)0, SEEK_SET) == BAD_LSEEK)
+	if (lseek(f, (off_t)0, SEEK_SET) == (off_t)-1)
 		return (0);
 	n = read(f, data, sizeof (data));
 	pend = &data[n];
@@ -370,7 +370,7 @@ seek_filesize(int f)
 	off_t spos;
 
 	spos = lseek(f, (off_t)0, SEEK_END);
-	if (spos == BAD_LSEEK)
+	if (spos == (off_t)-1)
 		return (-1);
 	return (spos);
 }
@@ -611,7 +611,7 @@ open_altfile(char *filename, int *pf, void **pfd)
 	}
 
 	if ((cmd = expand_pct_s(lessopen, filename, NULL)) == NULL) {
-		error("Invalid LESSOPEN variable", NULL_PARG);
+		error("Invalid LESSOPEN variable", NULL);
 		return (NULL);
 	}
 	fd = shellcmd(cmd);
@@ -681,7 +681,7 @@ close_altfile(char *altfilename, char *filename, void *pipefd)
 		return;
 	cmd = expand_pct_s(lessclose, filename, altfilename, NULL);
 	if (cmd == NULL) {
-		error("Invalid LESSCLOSE variable", NULL_PARG);
+		error("Invalid LESSCLOSE variable", NULL);
 		return;
 	}
 	fd = shellcmd(cmd);

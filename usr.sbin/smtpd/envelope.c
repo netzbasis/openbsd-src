@@ -1,4 +1,4 @@
-/*	$OpenBSD: envelope.c,v 1.32 2015/10/14 20:57:17 gilles Exp $	*/
+/*	$OpenBSD: envelope.c,v 1.36 2015/12/28 22:08:30 jung Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -65,7 +65,8 @@ envelope_set_errormsg(struct envelope *e, char *fmt, ...)
 		err(1, "vsnprintf");
 
 	if ((size_t)ret >= sizeof(e->errorline))
-		(void)strlcpy(e->errorline + (sizeof(e->errorline) - 4), "...", 4);
+		(void)strlcpy(e->errorline + (sizeof(e->errorline) - 4),
+		    "...", 4);
 }
 
 void
@@ -101,7 +102,7 @@ envelope_buffer_to_dict(struct dict *d,  const char *ibuf, size_t buflen)
 		field = buf;
 		while (*buf && (isalnum((unsigned char)*buf) || *buf == '-'))
 			buf++;
-		if (! *buf)
+		if (!*buf)
 			goto err;
 
 		/* skip whitespaces before separator */
@@ -132,10 +133,10 @@ envelope_load_buffer(struct envelope *ep, const char *ibuf, size_t buflen)
 	struct dict	 d;
 	const char	*val, *errstr;
 	long long	 version;
-	int	 	 ret = 0;
+	int		 ret = 0;
 
 	dict_init(&d);
-	if (! envelope_buffer_to_dict(&d, ibuf, buflen)) {
+	if (!envelope_buffer_to_dict(&d, ibuf, buflen)) {
 		log_debug("debug: cannot parse envelope to dict");
 		goto end;
 	}
@@ -155,7 +156,8 @@ envelope_load_buffer(struct envelope *ep, const char *ibuf, size_t buflen)
 	case 1:
 		log_debug("debug: upgrading envelope to version 1");
 		if (!envelope_upgrade_v1(&d)) {
-			log_debug("debug: failed to upgrade envelope to version 1");
+			log_debug("debug: failed to upgrade "
+			    "envelope to version 1");
 			goto end;
 		}
 		/* FALLTRHOUGH */
@@ -214,11 +216,13 @@ envelope_dump_buffer(const struct envelope *ep, char *dest, size_t len)
 		envelope_ascii_dump(ep, &dest, &len, "mda-method");
 		envelope_ascii_dump(ep, &dest, &len, "mda-user");
 		envelope_ascii_dump(ep, &dest, &len, "mda-usertable");
+		envelope_ascii_dump(ep, &dest, &len, "mda-delivery-user");
 		break;
 	case D_MTA:
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-auth");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-cert");
+		envelope_ascii_dump(ep, &dest, &len, "mta-relay-ca");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-flags");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-heloname");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-helotable");
@@ -355,7 +359,7 @@ ascii_load_mda_method(enum action_type *dest, char *buf)
 static int
 ascii_load_mailaddr(struct mailaddr *dest, char *buf)
 {
-	if (! text_to_mailaddr(dest, buf))
+	if (!text_to_mailaddr(dest, buf))
 		return 0;
 	return 1;
 }
@@ -383,7 +387,7 @@ ascii_load_flags(enum envelope_flags *dest, char *buf)
 static int
 ascii_load_mta_relay_url(struct relayhost *relay, char *buf)
 {
-	if (! text_to_relayhost(relay, buf))
+	if (!text_to_relayhost(relay, buf))
 		return 0;
 	return 1;
 }
@@ -487,11 +491,15 @@ ascii_load_field(const char *field, struct envelope *ep, char *buf)
 		return ascii_load_string(ep->agent.mda.usertable, buf,
 		    sizeof ep->agent.mda.usertable);
 
+	if (strcasecmp("mda-delivery-user", field) == 0)
+		return ascii_load_string(ep->agent.mda.delivery_user, buf,
+		    sizeof ep->agent.mda.delivery_user);
+
 	if (strcasecmp("mta-relay", field) == 0) {
 		int ret;
 		uint16_t flags = ep->agent.mta.relay.flags;
 		ret = ascii_load_mta_relay_url(&ep->agent.mta.relay, buf);
-		if (! ret)
+		if (!ret)
 			return (0);
 		ep->agent.mta.relay.flags |= flags;
 		return ret;
@@ -505,8 +513,13 @@ ascii_load_field(const char *field, struct envelope *ep, char *buf)
 		return ascii_load_string(ep->agent.mta.relay.pki_name, buf,
 		    sizeof ep->agent.mta.relay.pki_name);
 
+	if (strcasecmp("mta-relay-ca", field) == 0)
+		return ascii_load_string(ep->agent.mta.relay.ca_name, buf,
+		    sizeof ep->agent.mta.relay.ca_name);
+
 	if (strcasecmp("mta-relay-flags", field) == 0)
-		return ascii_load_mta_relay_flags(&ep->agent.mta.relay.flags, buf);
+		return ascii_load_mta_relay_flags(&ep->agent.mta.relay.flags,
+		    buf);
 
 	if (strcasecmp("mta-relay-heloname", field) == 0)
 		return ascii_load_string(ep->agent.mta.relay.heloname, buf,
@@ -530,7 +543,8 @@ ascii_load_field(const char *field, struct envelope *ep, char *buf)
 		return ascii_load_mailaddr(&ep->sender, buf);
 
 	if (strcasecmp("smtpname", field) == 0)
-		return ascii_load_string(ep->smtpname, buf, sizeof(ep->smtpname));
+		return ascii_load_string(ep->smtpname, buf,
+		    sizeof(ep->smtpname));
 
 	if (strcasecmp("sockaddr", field) == 0)
 		return ascii_load_sockaddr(&ep->ss, buf);
@@ -554,7 +568,8 @@ ascii_load_field(const char *field, struct envelope *ep, char *buf)
 		return ascii_load_dsn_ret(&ep->dsn_ret, buf);
 
 	if (strcasecmp("dsn-envid", field) == 0)
-		return ascii_load_string(ep->dsn_envid, buf, sizeof(ep->dsn_envid));
+		return ascii_load_string(ep->dsn_envid, buf,
+		    sizeof(ep->dsn_envid));
 
 	if (strcasecmp("esc-class", field) == 0)
 		return ascii_load_uint8(&ep->esc_class, buf);
@@ -574,7 +589,7 @@ envelope_ascii_load(struct envelope *ep, struct dict *d)
 
 	hdl = NULL;
 	while (dict_iter(d, &hdl, &field, (void **)&value))
-		if (! ascii_load_field(field, ep, value))
+		if (!ascii_load_field(field, ep, value))
 			goto err;
 
 	return (1);
@@ -748,15 +763,15 @@ ascii_dump_bounce_type(enum bounce_type type, char *dest, size_t len)
 static int
 ascii_dump_dsn_ret(enum dsn_ret flag, char *dest, size_t len)
 {
-        size_t cpylen = 0;
+	size_t cpylen = 0;
 
-        dest[0] = '\0';
-        if (flag == DSN_RETFULL)
-                cpylen = strlcat(dest, "FULL", len);
-        else if (flag == DSN_RETHDRS)
-                cpylen = strlcat(dest, "HDRS", len);
+	dest[0] = '\0';
+	if (flag == DSN_RETFULL)
+		cpylen = strlcat(dest, "FULL", len);
+	else if (flag == DSN_RETHDRS)
+		cpylen = strlcat(dest, "HDRS", len);
 
-        return cpylen < len ? 1 : 0;
+	return cpylen < len ? 1 : 0;
 }
 
 static int
@@ -814,12 +829,16 @@ ascii_dump_field(const char *field, const struct envelope *ep,
 	if (strcasecmp(field, "mda-user") == 0)
 		return ascii_dump_string(ep->agent.mda.username, buf, len);
 
+	if (strcasecmp(field, "mda-delivery-user") == 0)
+		return ascii_dump_string(ep->agent.mda.delivery_user, buf, len);
+
 	if (strcasecmp(field, "mda-usertable") == 0)
 		return ascii_dump_string(ep->agent.mda.usertable, buf, len);
 
 	if (strcasecmp(field, "mta-relay") == 0) {
 		if (ep->agent.mta.relay.hostname[0])
-			return ascii_dump_mta_relay_url(&ep->agent.mta.relay, buf, len);
+			return ascii_dump_mta_relay_url(&ep->agent.mta.relay,
+			    buf, len);
 		return (1);
 	}
 
@@ -829,6 +848,10 @@ ascii_dump_field(const char *field, const struct envelope *ep,
 
 	if (strcasecmp(field, "mta-relay-cert") == 0)
 		return ascii_dump_string(ep->agent.mta.relay.pki_name,
+		    buf, len);
+
+	if (strcasecmp(field, "mta-relay-ca") == 0)
+		return ascii_dump_string(ep->agent.mta.relay.ca_name,
 		    buf, len);
 
 	if (strcasecmp(field, "mta-relay-flags") == 0)
@@ -903,7 +926,8 @@ ascii_dump_field(const char *field, const struct envelope *ep,
 }
 
 static void
-envelope_ascii_dump(const struct envelope *ep, char **dest, size_t *len, const char *field)
+envelope_ascii_dump(const struct envelope *ep, char **dest, size_t *len,
+    const char *field)
 {
 	char	buf[8192];
 	int	l;
@@ -912,7 +936,7 @@ envelope_ascii_dump(const struct envelope *ep, char **dest, size_t *len, const c
 		return;
 
 	memset(buf, 0, sizeof buf);
-	if (! ascii_dump_field(field, ep, buf, sizeof buf))
+	if (!ascii_dump_field(field, ep, buf, sizeof buf))
 		goto err;
 	if (buf[0] == '\0')
 		return;
@@ -952,12 +976,14 @@ envelope_upgrade_v1(struct dict *d)
 	 */
 	if ((val = dict_get(d, "mta-relay"))) {
 		if (strncasecmp("ssl://", val, 6) == 0) {
-			if (! bsnprintf(buf_relay, sizeof(buf_relay), "secure://%s", val+6))
+			if (!bsnprintf(buf_relay, sizeof(buf_relay),
+			    "secure://%s", val+6))
 				return (0);
 			dict_set(d, "mta-relay", buf_relay);
 		}
 		else if (strncasecmp("ssl+auth://", val, 11) == 0) {
-			if (! bsnprintf(buf_relay, sizeof(buf_relay), "secure+auth://%s", val+11))
+			if (!bsnprintf(buf_relay, sizeof(buf_relay),
+			    "secure+auth://%s", val+11))
 				return (0);
 			dict_set(d, "mta-relay", buf_relay);
 		}

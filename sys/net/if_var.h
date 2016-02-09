@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.51 2015/10/25 11:58:11 mpi Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.69 2015/12/18 14:02:15 visa Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -36,13 +36,16 @@
 #ifndef _NET_IF_VAR_H_
 #define _NET_IF_VAR_H_
 
+#ifdef _KERNEL
+
 #include <sys/queue.h>
 #include <sys/mbuf.h>
 #include <sys/srp.h>
 #include <sys/refcnt.h>
-#ifdef _KERNEL
-#include <net/hfsc.h>
-#endif
+#include <sys/task.h>
+#include <sys/time.h>
+
+#include <net/ifq.h>
 
 /*
  * Structures defining a network interface, providing a packet
@@ -69,17 +72,9 @@
  * interfaces.  These routines live in the files if.c and route.c
  */
 
-#include <sys/time.h>
-
-struct proc;
 struct rtentry;
-struct socket;
 struct timeout;
-struct ether_header;
-struct arpcom;
-struct rt_addrinfo;
 struct ifnet;
-struct hfsc_if;
 struct task;
 
 /*
@@ -99,20 +94,6 @@ struct if_clone {
 
 /*
  * Structure defining a queue for a network interface.
- */
-struct	ifqueue {
-	struct {
-		struct	mbuf *head;
-		struct	mbuf *tail;
-	}			 ifq_q[IFQ_NQUEUES];
-	int			 ifq_len;
-	int			 ifq_maxlen;
-	int			 ifq_drops;
-	struct hfsc_if		*ifq_hfsc;
-};
-
-/*
- * Structure defining a queue for a network interface.
  *
  * (Would like to call this struct ``if'', but C isn't PL/1.)
  */
@@ -122,7 +103,6 @@ struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
 	struct	refcnt if_refcnt;
 	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
-	TAILQ_ENTRY(ifnet) if_txlist;	/* list of ifnets ready to tx */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
 	TAILQ_HEAD(, ifmaddr) if_maddrlist; /* list of multicast records */
 	TAILQ_HEAD(, ifg_list) if_groups; /* linked list of groups per if */
@@ -156,7 +136,7 @@ struct ifnet {				/* and the entries */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
-	struct	srpl if_inputs;		/* input routines (dequeue) */
+	SRPL_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
 
 					/* output routine (enqueue) */
 	int	(*if_output)(struct ifnet *, struct mbuf *, struct sockaddr *,
@@ -169,8 +149,6 @@ struct ifnet {				/* and the entries */
 	void	(*if_start)(struct ifnet *);
 					/* ioctl routine */
 	int	(*if_ioctl)(struct ifnet *, u_long, caddr_t);
-					/* stop routine */
-	int	(*if_stop)(struct ifnet *, int);
 					/* timer routine */
 	void	(*if_watchdog)(struct ifnet *);
 	int	(*if_wol)(struct ifnet *, int);
@@ -255,122 +233,31 @@ struct ifg_list {
 	TAILQ_ENTRY(ifg_list)	 ifgl_next;
 };
 
-#ifdef _KERNEL
-#define	IFQ_MAXLEN	256
 #define	IFNET_SLOWHZ	1		/* granularity is 1 second */
 
 /*
- * Output queues (ifp->if_snd) and internetwork datagram level (pup level 1)
- * input routines have queues of messages stored on ifqueue structures
- * (defined above).  Entries are added to and deleted from these structures
- * by these macros, which should be called with ipl raised to splnet().
+ * IFQ compat on ifq API
  */
-#define	IF_QFULL(ifq)		((ifq)->ifq_len >= (ifq)->ifq_maxlen)
-#define	IF_DROP(ifq)		((ifq)->ifq_drops++)
-#define	IF_ENQUEUE(ifq, m)						\
-do {									\
-	(m)->m_nextpkt = NULL;						\
-	if ((ifq)->ifq_q[(m)->m_pkthdr.pf.prio].tail == NULL)		\
-		(ifq)->ifq_q[(m)->m_pkthdr.pf.prio].head = m;		\
-	else								\
-		(ifq)->ifq_q[(m)->m_pkthdr.pf.prio].tail->m_nextpkt = m; \
-	(ifq)->ifq_q[(m)->m_pkthdr.pf.prio].tail = m;			\
-	(ifq)->ifq_len++;						\
-} while (/* CONSTCOND */0)
-#define	IF_PREPEND(ifq, m)						\
-do {									\
-	(m)->m_nextpkt = (ifq)->ifq_q[(m)->m_pkthdr.pf.prio].head;	\
-	if ((ifq)->ifq_q[(m)->m_pkthdr.pf.prio].tail == NULL)		\
-		(ifq)->ifq_q[(m)->m_pkthdr.pf.prio].tail = (m);		\
-	(ifq)->ifq_q[(m)->m_pkthdr.pf.prio].head = (m);			\
-	(ifq)->ifq_len++;						\
-} while (/* CONSTCOND */0)
-
-#define	IF_POLL(ifq, m)							\
-do {									\
-	int	if_dequeue_prio = IFQ_MAXPRIO;				\
-	do {								\
-		(m) = (ifq)->ifq_q[if_dequeue_prio].head;		\
-	} while (!(m) && --if_dequeue_prio >= 0); 			\
-} while (/* CONSTCOND */0)
-
-#define	IF_DEQUEUE(ifq, m)						\
-do {									\
-	int	if_dequeue_prio = IFQ_MAXPRIO;				\
-	do {								\
-		(m) = (ifq)->ifq_q[if_dequeue_prio].head;		\
-		if (m) {						\
-			if (((ifq)->ifq_q[if_dequeue_prio].head =	\
-			    (m)->m_nextpkt) == NULL)			\
-				(ifq)->ifq_q[if_dequeue_prio].tail = NULL; \
-			(m)->m_nextpkt = NULL;				\
-			(ifq)->ifq_len--;				\
-		}							\
-	} while (!(m) && --if_dequeue_prio >= 0);			\
-} while (/* CONSTCOND */0)
-
-#define	IF_PURGE(ifq)							\
-do {									\
-	struct mbuf *__m0;						\
-									\
-	for (;;) {							\
-		IF_DEQUEUE((ifq), __m0);				\
-		if (__m0 == NULL)					\
-			break;						\
-		else							\
-			m_freem(__m0);					\
-	}								\
-} while (/* CONSTCOND */0)
-#define	IF_LEN(ifq)		((ifq)->ifq_len)
-#define	IF_IS_EMPTY(ifq)	((ifq)->ifq_len == 0)
 
 #define	IFQ_ENQUEUE(ifq, m, err)					\
 do {									\
-	if (HFSC_ENABLED(ifq))						\
-		(err) = hfsc_enqueue(((struct ifqueue *)(ifq)), m);	\
-	else {								\
-		if (IF_QFULL((ifq))) {					\
-			(err) = ENOBUFS;				\
-		} else {						\
-			IF_ENQUEUE((ifq), (m));				\
-			(err) = 0;					\
-		}							\
-	}								\
-	if ((err)) {							\
-		m_freem((m));						\
-		(ifq)->ifq_drops++;					\
-	}								\
+	(err) = ifq_enqueue((ifq), (m));				\
 } while (/* CONSTCOND */0)
 
 #define	IFQ_DEQUEUE(ifq, m)						\
 do {									\
-	if (HFSC_ENABLED((ifq)))					\
-		(m) = hfsc_dequeue(((struct ifqueue *)(ifq)), 1);	\
-	else								\
-		IF_DEQUEUE((ifq), (m));					\
-} while (/* CONSTCOND */0)
-
-#define	IFQ_POLL(ifq, m)						\
-do {									\
-	if (HFSC_ENABLED((ifq)))					\
-		(m) = hfsc_dequeue(((struct ifqueue *)(ifq)), 0);	\
-	else								\
-		IF_POLL((ifq), (m));					\
+	(m) = ifq_dequeue(ifq);						\
 } while (/* CONSTCOND */0)
 
 #define	IFQ_PURGE(ifq)							\
 do {									\
-	if (HFSC_ENABLED((ifq)))					\
-		hfsc_purge(((struct ifqueue *)(ifq)));			\
-	else								\
-		IF_PURGE((ifq));					\
+	(void)ifq_purge(ifq);						\
 } while (/* CONSTCOND */0)
 
-#define	IFQ_SET_READY(ifq)	/* nothing */
-
-#define	IFQ_LEN(ifq)			IF_LEN(ifq)
-#define	IFQ_IS_EMPTY(ifq)		((ifq)->ifq_len == 0)
-#define	IFQ_SET_MAXLEN(ifq, len)	((ifq)->ifq_maxlen = (len))
+#define	IFQ_LEN(ifq)			ifq_len(ifq)
+#define	IFQ_IS_EMPTY(ifq)		ifq_empty(ifq)
+#define	IFQ_SET_MAXLEN(ifq, len)	ifq_set_maxlen(ifq, len)
+#define	IFQ_SET_READY(ifq)		do { } while (0)
 
 /* default interface priorities */
 #define IF_WIRED_DEFAULT_PRIORITY	0
@@ -402,29 +289,24 @@ int		niq_enlist(struct niqueue *, struct mbuf_list *);
     sysctl_mq((_n), (_l), (_op), (_olp), (_np), (_nl), &(_niq)->ni_q)
 
 extern struct ifnet_head ifnet;
-extern struct ifnet *lo0ifp;
+extern unsigned int lo0ifidx;
+extern struct taskq *softnettq;
 
 void	if_start(struct ifnet *);
+int	if_enqueue_try(struct ifnet *, struct mbuf *);
 int	if_enqueue(struct ifnet *, struct mbuf *);
 void	if_input(struct ifnet *, struct mbuf_list *);
 int	if_input_local(struct ifnet *, struct mbuf *, sa_family_t);
 void	if_rtrequest_dummy(struct ifnet *, int, struct rtentry *);
 void	p2p_rtrequest(struct ifnet *, int, struct rtentry *);
 
-void	ether_ifattach(struct ifnet *);
-void	ether_ifdetach(struct ifnet *);
-int	ether_ioctl(struct ifnet *, struct arpcom *, u_long, caddr_t);
-int	ether_input(struct ifnet *, struct mbuf *, void *);
-int	ether_output(struct ifnet *,
-	    struct mbuf *, struct sockaddr *, struct rtentry *);
-void	ether_rtrequest(struct ifnet *, int, struct rtentry *);
-char	*ether_sprintf(u_char *);
-
 struct	ifaddr *ifa_ifwithaddr(struct sockaddr *, u_int);
 struct	ifaddr *ifa_ifwithdstaddr(struct sockaddr *, u_int);
 struct	ifaddr *ifa_ifwithnet(struct sockaddr *, u_int);
 struct	ifaddr *ifaof_ifpforaddr(struct sockaddr *, struct ifnet *);
 void	ifafree(struct ifaddr *);
+
+int	if_isconnected(const struct ifnet *, unsigned int);
 
 void	if_clone_attach(struct if_clone *);
 void	if_clone_detach(struct if_clone *);
@@ -437,12 +319,6 @@ struct if_clone *
 
 int     sysctl_mq(int *, u_int, void *, size_t *, void *, size_t,
 	    struct mbuf_queue *);
-
-int	loioctl(struct ifnet *, u_long, caddr_t);
-void	loopattach(int);
-int	looutput(struct ifnet *,
-	    struct mbuf *, struct sockaddr *, struct rtentry *);
-void	lortrequest(struct ifnet *, int, struct rtentry *);
 
 void	ifa_add(struct ifnet *, struct ifaddr *);
 void	ifa_del(struct ifnet *, struct ifaddr *);

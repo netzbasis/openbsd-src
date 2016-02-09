@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_disk.c,v 1.220 2015/09/25 11:56:21 krw Exp $	*/
+/*	$OpenBSD: subr_disk.c,v 1.223 2016/02/08 22:12:51 krw Exp $	*/
 /*	$NetBSD: subr_disk.c,v 1.17 1996/03/16 23:17:08 christos Exp $	*/
 
 /*
@@ -104,7 +104,7 @@ void disk_attach_callback(void *);
 
 int spoofgptlabel(struct buf *, void (*)(struct buf *), struct disklabel *);
 
-int gpt_chk_mbr(struct dos_partition *, struct disklabel *);
+int gpt_chk_mbr(struct dos_partition *, u_int64_t);
 int gpt_chk_hdr(struct gpt_header *, struct disklabel *);
 int gpt_chk_parts(struct gpt_header *, struct gpt_partition *);
 int gpt_get_fstype(struct uuid *);
@@ -371,7 +371,7 @@ readdoslabel(struct buf *bp, void (*strat)(struct buf *),
 			if (mbrtest != 0x55aa)
 				goto notmbr;
 
-			if (gpt_chk_mbr(dp, lp) != 0)
+			if (gpt_chk_mbr(dp, DL_GETDSIZE(lp)) != 0)
 				goto notgpt;
 
 			gptlp = malloc(sizeof(struct disklabel), M_DEVBUF,
@@ -592,10 +592,9 @@ notfat:
  * NOTE: MS always uses a size of UINT32_MAX for the EFI partition!**
  */
 int
-gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
+gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 {
 	struct dos_partition *dp2;
-	u_int64_t dsize;
 	int efi, found, i;
 	u_int32_t psize;
 
@@ -606,7 +605,6 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 		found++;
 		if (dp2->dp_typ != DOSPTYP_EFI)
 			continue;
-		dsize = DL_GETDSIZE(lp);
 		psize = letoh32(dp2->dp_size);
 		if (psize == (dsize - 1) ||
 		    psize == UINT32_MAX) {
@@ -617,7 +615,7 @@ gpt_chk_mbr(struct dos_partition *dp, struct disklabel *lp)
 	if (found == 1 && efi == 1)
 		return (0);
 
-	return (EINVAL);
+	return (1);
 }
 
 int
@@ -965,7 +963,7 @@ bounds_check_with_label(struct buf *bp, struct disklabel *lp)
 	if (bp->b_blkno == partblocks || bp->b_bcount == 0)
 		goto done;
 
-	/* Truncate request if it exceeds past the end of the partition. */
+	/* Truncate request if it extends past the end of the partition. */
 	sz = bp->b_bcount >> DEV_BSHIFT;
 	if (sz > partblocks - bp->b_blkno) {
 		sz = partblocks - bp->b_blkno;

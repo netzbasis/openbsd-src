@@ -1,4 +1,4 @@
-/*	$OpenBSD: dr_main.c,v 1.6 2015/08/22 14:47:41 deraadt Exp $	*/
+/*	$OpenBSD: dr_main.c,v 1.8 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: dr_main.c,v 1.4 1995/04/22 10:36:52 cgd Exp $	*/
 
 /*
@@ -30,13 +30,17 @@
  * SUCH DAMAGE.
  */
 
-#include "driver.h"
+#include <err.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <err.h>
+
+#include "driver.h"
+#include "extern.h"
+#include "player.h"
 
 int
-dr_main()
+dr_main(void)
 {
 	int n;
 	struct ship *sp;

@@ -1,10 +1,10 @@
-/*	$OpenBSD: ftp.c,v 1.92 2015/09/27 05:25:01 guenther Exp $	*/
+/*	$OpenBSD: ftp.c,v 1.95 2015/12/05 22:28:40 krw Exp $	*/
 /*	$NetBSD: ftp.c,v 1.27 1997/08/18 10:20:23 lukem Exp $	*/
 
 /*
  * Copyright (C) 1997 and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -113,7 +113,10 @@ hookup(char *host, char *port)
 {
 	int s, tos, error;
 	static char hostnamebuf[HOST_NAME_MAX+1];
-	struct addrinfo hints, *res, *res0, *ares;
+	struct addrinfo hints, *res, *res0;
+#ifndef SMALL
+	struct addrinfo *ares;
+#endif
 	char hbuf[NI_MAXHOST];
 	char *cause = "unknown";
 	socklen_t namelen;
@@ -181,7 +184,7 @@ hookup(char *host, char *port)
 		}
 	}
 #endif /* !SMALL */
-	
+
 	s = -1;
 	for (res = res0; res; res = res->ai_next) {
 		if (res0->ai_next)	/* if we have multiple possibilities */
@@ -280,7 +283,7 @@ hookup(char *host, char *port)
 	}
 	if (verbose)
 		fprintf(ttyout, "Connected to %s.\n", hostname);
-	if (getreply(0) > 2) { 	/* read startup message from server */
+	if (getreply(0) > 2) {	/* read startup message from server */
 		if (cin)
 			(void)fclose(cin);
 		if (cout)
@@ -392,7 +395,7 @@ may_reset_noop_timeout(void)
 		last_timestamp = time(NULL);
 }
 
-static void 
+static void
 may_receive_noop_ack(void)
 {
 	int i;
@@ -421,7 +424,7 @@ may_receive_noop_ack(void)
 	full_noops_sent = 0;
 }
 
-static void 
+static void
 may_send_noop_char(void)
 {
 	if (keep_alive_timeout != 0) {
@@ -431,7 +434,7 @@ may_send_noop_char(void)
 			if (t - last_timestamp >= keep_alive_timeout) {
 				last_timestamp = t;
 				send_noop_char();
-			} 
+			}
 		} else {
 			last_timestamp = time(NULL);
 		}
@@ -746,6 +749,7 @@ sendrequest(const char *cmd, const char *local, const char *remote,
 	progressmeter(-1, remote);
 	may_reset_noop_timeout();
 	oldintp = signal(SIGPIPE, SIG_IGN);
+	serrno = 0;
 	switch (curtype) {
 
 	case TYPE_I:
@@ -1055,6 +1059,7 @@ recvrequest(const char *cmd, const char * volatile local, const char *remote,
 	}
 	progressmeter(-1, remote);
 	may_reset_noop_timeout();
+	serrno = 0;
 	switch (curtype) {
 
 	case TYPE_I:
@@ -1272,7 +1277,9 @@ initconn(void)
 	u_int af, hal, pal;
 	char *pasvcmd = NULL;
 	socklen_t namelen;
+#ifndef SMALL
 	struct addrinfo *ares;
+#endif
 
 	if (myctladdr.su_family == AF_INET6
 	 && (IN6_IS_ADDR_LINKLOCAL(&myctladdr.su_sin6.sin6_addr)
@@ -1326,7 +1333,7 @@ reinit:
 				ov = verbose;
 				verbose = -1;
 				result = command(pasvcmd = "EPSV");
-				/* 
+				/*
 				 * now back to whatever verbosity we had before
 				 * and we can try PASV
 				 */
@@ -1653,7 +1660,7 @@ noport:
 			result = COMPLETE + 1; /* xxx */
 		}
 	skip_port:
-		
+
 		if (result == ERROR && sendport == -1) {
 			sendport = 0;
 			tmpno = 1;
@@ -2015,7 +2022,7 @@ gunique(const char *local)
 }
 
 jmp_buf forceabort;
- 
+
 /* ARGSUSED */
 static void
 abortforce(int signo)

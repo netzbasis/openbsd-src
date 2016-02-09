@@ -1,4 +1,4 @@
-/*	$OpenBSD: l2tpd.c,v 1.16 2015/06/23 06:59:54 yasuoka Exp $ */
+/*	$OpenBSD: l2tpd.c,v 1.18 2015/12/17 08:09:20 tb Exp $ */
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -26,7 +26,7 @@
  * SUCH DAMAGE.
  */
 /**@file L2TP(Layer Two Tunneling Protocol "L2TP") / RFC2661 */
-/* $Id: l2tpd.c,v 1.16 2015/06/23 06:59:54 yasuoka Exp $ */
+/* $Id: l2tpd.c,v 1.18 2015/12/17 08:09:20 tb Exp $ */
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -113,11 +113,11 @@ l2tpd_init(l2tpd *_this)
 		    __func__);
 		return 1;
 	}
-	off = arc4random() % L2TP_SESSION_ID_MASK;
+	off = arc4random() & L2TP_SESSION_ID_MASK;
 	for (i = 0; i < L2TP_NCALL; i++) {
-		id = (i + off) % L2TP_SESSION_ID_MASK;
+		id = (i + off) & L2TP_SESSION_ID_MASK;
 		if (id == 0)
-			id = (off - 1) % L2TP_SESSION_ID_MASK;
+			id = (off - 1) & L2TP_SESSION_ID_MASK;
 		if (slist_add(&_this->free_session_id_list,
 		    (void *)(uintptr_t)id) == NULL) {
 			l2tpd_log(_this, LOG_ERR,
@@ -186,8 +186,7 @@ l2tpd_add_listener(l2tpd *_this, int idx, struct l2tp_conf *conf,
 	}
 	return 0;
 fail:
-	if (plistener != NULL)
-		free(plistener);
+	free(plistener);
 	return 1;
 }
 
@@ -377,10 +376,8 @@ l2tpd_listener_start(l2tpd_listener *_this)
 			    "setsockopt(,,IP_IPSEC_POLICY(out)) failed "
 			    "in %s(): %m", __func__);
 		}
-		if (ipsec_policy_in != NULL)
-			free(ipsec_policy_in);
-		if (ipsec_policy_out != NULL)
-			free(ipsec_policy_out);
+		free(ipsec_policy_in);
+		free(ipsec_policy_out);
 #elif defined(IP_ESP_TRANS_LEVEL)
 		opt = (af == AF_INET)
 		    ? IP_ESP_TRANS_LEVEL : IPV6_ESP_TRANS_LEVEL;

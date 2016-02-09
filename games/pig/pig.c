@@ -1,4 +1,4 @@
-/*	$OpenBSD: pig.c,v 1.13 2015/10/24 18:29:15 mmcc Exp $	*/
+/*	$OpenBSD: pig.c,v 1.16 2016/01/07 16:00:33 tb Exp $	*/
 /*	$NetBSD: pig.c,v 1.2 1995/03/23 08:41:40 cgd Exp $	*/
 
 /*-
@@ -30,8 +30,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-
 #include <ctype.h>
 #include <err.h>
 #include <stdio.h>
@@ -40,7 +38,7 @@
 #include <unistd.h>
 
 void pigout(char *, int);
-void usage(void);
+__dead void usage(void);
 
 int
 main(int argc, char *argv[])
@@ -74,7 +72,7 @@ main(int argc, char *argv[])
 		}
 		(void)putchar(ch);
 	}
-	exit(0);
+	return 0;
 }
 
 void

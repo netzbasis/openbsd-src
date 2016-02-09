@@ -1,4 +1,4 @@
-/*	$OpenBSD: unstr.c,v 1.11 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: unstr.c,v 1.14 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: unstr.c,v 1.3 1995/03/23 08:29:00 cgd Exp $	*/
 
 /*-
@@ -46,12 +46,15 @@
  *	Ken Arnold		Aug 13, 1978
  */
 
-#include	<ctype.h>
-#include	<err.h>
-#include	<limits.h>
-#include	<stdio.h>
-#include	<string.h>
-#include	"strfile.h"
+#include <ctype.h>
+#include <err.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "strfile.h"
 
 char	*Infile,			/* name of input file */
 	Datafile[PATH_MAX],		/* name of data file */
@@ -62,17 +65,23 @@ FILE	*Inf, *Dataf;
 void getargs(char *[]);
 void order_unstr(STRFILE *);
 
-/* ARGSUSED */
 int
 main(int ac, char *av[])
 {
 	static STRFILE	tbl;		/* description table */
+
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
 
 	getargs(av);
 	if ((Inf = fopen(Infile, "r")) == NULL)
 		err(1, "fopen `%s'", Infile);
 	if ((Dataf = fopen(Datafile, "r")) == NULL)
 		err(1, "fopen `%s'", Datafile);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
+
 	(void) fread(&tbl.str_version,  sizeof(tbl.str_version),  1, Dataf);
 	(void) fread(&tbl.str_numstr,   sizeof(tbl.str_numstr),   1, Dataf);
 	(void) fread(&tbl.str_longlen,  sizeof(tbl.str_longlen),  1, Dataf);
@@ -85,7 +94,7 @@ main(int ac, char *av[])
 	order_unstr(&tbl);
 	(void) fclose(Inf);
 	(void) fclose(Dataf);
-	exit(0);
+	return 0;
 }
 
 void

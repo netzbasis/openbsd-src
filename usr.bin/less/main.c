@@ -21,8 +21,8 @@
 char	*every_first_cmd = NULL;
 int	new_file;
 int	is_tty;
-IFILE	curr_ifile = NULL_IFILE;
-IFILE	old_ifile = NULL_IFILE;
+IFILE	curr_ifile = NULL;
+IFILE	old_ifile = NULL;
 struct scrpos initial_scrpos;
 int	any_display = FALSE;
 off_t	start_attnpos = -1;
@@ -75,10 +75,9 @@ main(int argc, char *argv[])
 	 * act like LESS_IS_MORE is set.  We have to set this as early
 	 * as possible for POSIX.
 	 */
-	if ((strcmp(progname, "more") == 0) ||
-	    (strcmp(progname, "page") == 0)) {
+	if (strcmp(progname, "more") == 0)
 		less_is_more = 1;
-	} else {
+	else {
 		s = lgetenv("LESS_IS_MORE");
 		if (s != NULL && *s != '\0')
 			less_is_more = 1;
@@ -88,6 +87,18 @@ main(int argc, char *argv[])
 	s = lgetenv("LESSSECURE");
 	if (s != NULL && *s != '\0')
 		secure = 1;
+
+	if (secure) {
+		if (pledge("stdio rpath wpath tty", NULL) == -1) {
+			perror("pledge");
+			exit(1);
+		}
+	} else {
+		if (pledge("stdio rpath wpath cpath fattr proc exec tty", NULL) == -1) {
+			perror("pledge");
+			exit(1);
+		}
+	}
 
 	/*
 	 * Process command line arguments and LESS environment arguments.
@@ -177,7 +188,7 @@ main(int argc, char *argv[])
 	 * Call get_ifile with all the command line filenames
 	 * to "register" them with the ifile system.
 	 */
-	ifile = NULL_IFILE;
+	ifile = NULL;
 	if (dohelp)
 		ifile = get_ifile(helpfile(), ifile);
 	while (argc-- > 0) {
@@ -187,7 +198,7 @@ main(int argc, char *argv[])
 			filename = *argv;
 		argv++;
 		(void) get_ifile(filename, ifile);
-		ifile = prev_ifile(NULL_IFILE);
+		ifile = prev_ifile(NULL);
 		free(filename);
 	}
 	/*
@@ -210,9 +221,16 @@ main(int argc, char *argv[])
 	}
 
 	if (missing_cap && !know_dumb)
-		error("WARNING: terminal is not fully functional", NULL_PARG);
+		error("WARNING: terminal is not fully functional", NULL);
 	init_mark();
 	open_getchr();
+
+	if (secure)
+		if (pledge("stdio rpath tty", NULL) == -1) {
+			perror("pledge");
+			exit(1);
+		}
+
 	raw_mode(1);
 	init_signals(1);
 
@@ -227,7 +245,7 @@ main(int argc, char *argv[])
 		 * and search for the proper line in the file.
 		 */
 		if (nifile() > 0) {
-			error("No filenames allowed with -t option", NULL_PARG);
+			error("No filenames allowed with -t option", NULL);
 			quit(QUIT_ERROR);
 		}
 		findtag(tagoption);
@@ -252,7 +270,6 @@ main(int argc, char *argv[])
 	init();
 	commands();
 	quit(QUIT_OK);
-	/*NOTREACHED*/
 	return (0);
 }
 
@@ -268,9 +285,8 @@ ecalloc(int count, unsigned int size)
 	p = calloc(count, size);
 	if (p != NULL)
 		return (p);
-	error("Cannot allocate memory", NULL_PARG);
+	error("Cannot allocate memory", NULL);
 	quit(QUIT_ERROR);
-	/*NOTREACHED*/
 	return (NULL);
 }
 
@@ -286,9 +302,8 @@ easprintf(const char *fmt, ...)
 	va_end(ap);
 
 	if (p == NULL || rv < 0) {
-		error("Cannot allocate memory", NULL_PARG);
+		error("Cannot allocate memory", NULL);
 		quit(QUIT_ERROR);
-		/*NOTREACHED*/
 	}
 	return (p);
 }
@@ -297,10 +312,10 @@ char *
 estrdup(const char *str)
 {
 	char *n;
-	
+
 	n = strdup(str);
 	if (n == NULL) {
-		error("Cannot allocate memory", NULL_PARG);
+		error("Cannot allocate memory", NULL);
 		quit(QUIT_ERROR);
 	}
 	return (n);
@@ -332,13 +347,12 @@ sprefix(char *ps, char *s, int uppercase)
 	for (; *s != '\0';  s++, ps++) {
 		c = *ps;
 		if (uppercase) {
-			if (len == 0 && isupper(c))
+			if (len == 0 && islower(c))
 				return (-1);
-			if (isupper(c))
-				c = tolower(c);
+			c = tolower(c);
 		}
 		sc = *s;
-		if (len > 0 && isupper(sc))
+		if (len > 0)
 			sc = tolower(sc);
 		if (c != sc)
 			break;
@@ -365,11 +379,12 @@ quit(int status)
 		save_status = status;
 	quitting = 1;
 	edit(NULL);
-	save_cmdhist();
+	if (!secure)
+		save_cmdhist();
 	if (any_display && is_tty)
 		clear_bot();
 	deinit();
-	flush();
+	flush(1);
 	raw_mode(0);
 	exit(status);
 }

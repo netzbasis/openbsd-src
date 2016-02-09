@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.68 2015/11/06 02:49:06 jsg Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.71 2016/02/03 03:25:07 guenther Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -375,10 +375,10 @@ cpu_init(struct cpu_info *ci)
 	if (cpu_feature & CPUID_PGE)
 		cr4 |= CR4_PGE;	/* enable global TLB caching */
 
-	if (ci->ci_feature_sefflags & SEFF0EBX_SMEP)
+	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
 		cr4 |= CR4_SMEP;
 #ifndef SMALL_KERNEL
-	if (ci->ci_feature_sefflags & SEFF0EBX_SMAP)
+	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
 #endif
 
@@ -445,17 +445,24 @@ rdrand(void *v)
 {
 	struct timeout *tmo = v;
 	extern int      has_rdrand;
-	uint32_t r, valid;
+	extern int      has_rdseed;
+	uint32_t r;
+	uint8_t valid;
 	int i;
 
-	if (has_rdrand == 0)
+	if (has_rdrand == 0 && has_rdseed == 0)
 		return;
 	for (i = 0; i < 4; i++) {
-		__asm volatile(
-		    "xor        %1, %1\n\t"
-		    "rdrand     %0\n\t"
-		    "rcl        $1, %1\n"
-		    : "=r" (r), "=r" (valid) );
+		if (has_rdseed)
+			__asm volatile(
+			    "rdseed	%0\n\t"
+			    "setc	%1\n"
+			    : "=r" (r), "=qm" (valid) );
+		if (has_rdseed == 0 || valid == 0)
+			__asm volatile(
+			    "rdrand	%0\n\t"
+			    "setc	%1\n"
+			    : "=r" (r), "=qm" (valid) );
 		if (valid)
 			add_true_randomness(r);
 	}
@@ -777,7 +784,7 @@ cpu_init_mwait(struct device *dv)
 {
 	unsigned int smallest, largest, extensions, c_substates;
 
-	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0)
+	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0 || cpuid_level < 0x5)
 		return;
 
 	/* get the monitor granularity */

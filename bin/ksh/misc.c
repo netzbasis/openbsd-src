@@ -1,12 +1,16 @@
-/*	$OpenBSD: misc.c,v 1.50 2015/10/19 17:15:53 mmcc Exp $	*/
+/*	$OpenBSD: misc.c,v 1.53 2015/12/21 04:57:50 mmcc Exp $	*/
 
 /*
  * Miscellaneous functions
  */
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "charclass.h"
@@ -44,7 +48,6 @@ initctypes(void)
 	for (c = 'A'; c <= 'Z'; c++)
 		ctypes[c] |= C_ALPHA;
 	ctypes['_'] |= C_ALPHA;
-	setctypes("0123456789", C_DIGIT);
 	setctypes(" \t\n|&;<>()", C_LEX1); /* \0 added automatically */
 	setctypes("*@#!$-?", C_VAR1);
 	setctypes(" \t\n", C_IFSWS);
@@ -983,7 +986,7 @@ print_value_quoted(const char *s)
 	}
 	for (p = s; *p; p++) {
 		if (*p == '\'') {
-			shprintf("'\\'" + 1 - inquote);
+			shprintf(inquote ? "'\\'" : "\\'");
 			inquote = 0;
 		} else {
 			if (!inquote) {

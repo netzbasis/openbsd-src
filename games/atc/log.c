@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.19 2014/12/09 05:01:14 deraadt Exp $	*/
+/*	$OpenBSD: log.c,v 1.21 2015/12/31 16:50:29 mestre Exp $	*/
 /*	$NetBSD: log.c,v 1.3 1995/03/21 15:04:21 cgd Exp $	*/
 
 /*-
@@ -42,7 +42,17 @@
  * For more info on this and all of my stuff, mail edjames@berkeley.edu.
  */
 
-#include "include.h"
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "extern.h"
 #include "pathnames.h"
 
 static FILE *score_fp;
@@ -94,23 +104,30 @@ int
 open_score_file(void)
 {
 	mode_t old_mode;
+	char *home;
+	char scorefile[PATH_MAX];
+	int ret;
 	int score_fd;
 
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+	ret = snprintf(scorefile, sizeof(scorefile), "%s/%s", home,
+	    ".atc.scores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".atc.scores");
+
 	old_mode = umask(0);
-	score_fd = open(_PATH_SCORE, O_CREAT|O_RDWR, 0664);
-	if (score_fd < 0) {
-		perror(_PATH_SCORE);
-		return (-1);
-	}
+	score_fd = open(scorefile, O_CREAT|O_RDWR, 0644);
+	if (score_fd < 0)
+		err(1, "open");
 	/*
 	 * This is done to take advantage of stdio, while still 
 	 * allowing a O_CREAT during the open(2) of the log file.
 	 */
 	score_fp = fdopen(score_fd, "r+");
-	if (score_fp == NULL) {
-		perror(_PATH_SCORE);
-		return (-1);
-	}
+	if (score_fp == NULL)
+		err(1, "fdopen");
 	umask(old_mode);
 	return (0);
 }
@@ -119,17 +136,15 @@ int
 log_score(int list_em)
 {
 	int		i, num_scores = 0, good, changed = 0, found = 0;
-	struct passwd	*pw;
+	const char	*name;
 	char		*cp;
 	char		scanstr[50];
 	SCORE		score[NUM_SCORES], thisscore;
 
 	if (score_fp == NULL)
 		return (-1);
-	if (flock(fileno(score_fp), LOCK_EX) < 0) {
-		perror("flock");
-		return (-1);
-	}
+	if (flock(fileno(score_fp), LOCK_EX) < 0)
+		err(1, "flock");
 	snprintf(scanstr, 50, "%%%zus %%%zus %%d %%d %%d", sizeof(score[0].name)-1,
 	    sizeof(score[0].game)-1);
 	for (;;) {
@@ -143,13 +158,14 @@ log_score(int list_em)
 			break;
 	}
 	if (!test_mode && !list_em) {
-		if ((pw = (struct passwd *) getpwuid(getuid())) == NULL) {
-			fprintf(stderr, 
-				"getpwuid failed for uid %u.  Who are you?\n",
-				getuid());
-			return (-1);
-		}
-		strlcpy(thisscore.name, pw->pw_name, sizeof(thisscore.name));
+		name = getenv("LOGNAME");
+		if (name == NULL || *name == '\0')
+			name = getenv("USER");
+		if (name == NULL || *name == '\0')
+			name = getlogin();
+		if (name == NULL || *name == '\0')
+			name = "  ???";
+		strlcpy(thisscore.name, name, sizeof(thisscore.name));
 
 		cp = strrchr(file, '/');
 		if (cp == NULL) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sgec.c,v 1.31 2015/11/07 12:01:22 dlg Exp $	*/
+/*	$OpenBSD: sgec.c,v 1.35 2016/01/25 00:18:55 dlg Exp $	*/
 /*      $NetBSD: sgec.c,v 1.5 2000/06/04 02:14:14 matt Exp $ */
 /*
  * Copyright (c) 1999 Ludd, University of Lule}, Sweden. All rights reserved.
@@ -55,7 +55,6 @@
 #include <sys/sockio.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -63,7 +62,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/bus.h>
@@ -319,7 +317,7 @@ zeinit(sc)
 	    ZE_NICSR6_SR | ZE_NICSR6_DC);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Send a setup frame.
@@ -384,7 +382,7 @@ zestart(ifp)
 			continue;
 		}
 		idx = sc->sc_nexttx;
-		IF_POLL(&sc->sc_if.if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			goto out;
 		/*
@@ -399,10 +397,11 @@ zestart(ifp)
 			panic("zestart"); /* XXX */
 
 		if ((i + sc->sc_inq) >= (TXDESCS - 1)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
+			ifq_deq_rollback(&ifp->if_snd, m);
 			goto out;
 		}
-		IFQ_DEQUEUE(&sc->sc_if.if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 		
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
@@ -452,7 +451,7 @@ zestart(ifp)
 		sc->sc_nexttx = idx;
 	}
 	if (sc->sc_inq == (TXDESCS - 1))
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 
 out:	if (old_inq < sc->sc_inq)
 		ifp->if_timer = 5; /* If transmit logic dies */
@@ -568,7 +567,7 @@ sgec_txintr(struct ze_softc *sc)
 
 	if (sc->sc_inq == 0)
 		ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	zestart(ifp); /* Put in more in queue */
 }
 
