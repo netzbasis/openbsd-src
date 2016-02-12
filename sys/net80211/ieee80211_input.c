@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.162 2016/02/09 13:48:31 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.167 2016/02/11 19:36:48 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -257,6 +257,7 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 
 	dir = wh->i_fc[1] & IEEE80211_FC1_DIR_MASK;
 	type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
+	subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
 
 	if (type != IEEE80211_FC0_TYPE_CTL) {
 		hdrlen = ieee80211_get_hdrlen(wh);
@@ -275,6 +276,7 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 	}
 
 	if (type == IEEE80211_FC0_TYPE_DATA && hasqos &&
+	    (subtype & IEEE80211_FC0_SUBTYPE_NODATA) == 0 &&
 	    !(rxi->rxi_flags & IEEE80211_RXI_AMPDU_DONE)) {
 		int ba_state = ni->ni_rx_ba[tid].ba_state;
 
@@ -723,19 +725,15 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 		 * However, if the window really did move arbitrarily, we must
 		 * allow it to move forward. We try to detect this condition
 		 * by counting missed consecutive frames.
-		 *
-		 * Works around buggy behaviour observed with Broadcom-based
-		 * APs, which emit "sequence" numbers such as 1888, 1889, 2501,
-		 * 1890, 1891, ... all for the same TID.
 		 */
+		count = (sn - ba->ba_winend) & 0xfff;
 #ifdef DIAGNOSTIC
-		if ((ifp->if_flags & IFF_DEBUG) &&
-		    ((sn - ba->ba_winend) & 0xfff) > 1)
+		if ((ifp->if_flags & IFF_DEBUG) && count > 1)
 			printf("%s: received frame with bad sequence number "
 			    "%d, expecting %d:%d\n", __func__,
 			    sn, ba->ba_winstart, ba->ba_winend);
 #endif
-		if (((sn - ba->ba_winend) & 0xfff) > IEEE80211_BA_MAX_WINSZ) {
+		if (count > ba->ba_winsize) {
 			if (ba->ba_winmiss < IEEE80211_BA_MAX_WINMISS) { 
 				if (ba->ba_missedsn == sn - 1)
 					ba->ba_winmiss++;
@@ -750,10 +748,9 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 			/* It appears the window has moved for real. */
 			ba->ba_winmiss = 0;
 			ba->ba_missedsn = 0;
+
+			count = ba->ba_winsize;	/* no overlap */
 		}
-		count = (sn - ba->ba_winend) & 0xfff;
-		if (count > ba->ba_winsize)	/* no overlap */
-			count = ba->ba_winsize;
 		while (count-- > 0) {
 			/* gaps may exist */
 			if (ba->ba_buf[ba->ba_head].m != NULL) {

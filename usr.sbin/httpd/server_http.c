@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.103 2015/12/07 20:30:17 mmcc Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.105 2016/02/11 19:30:04 tim Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
