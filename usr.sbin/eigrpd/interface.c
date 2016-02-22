@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.12 2016/01/15 12:41:50 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.15 2016/02/21 19:01:12 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -24,7 +24,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <ctype.h>
-#include <err.h>
 #include <string.h>
 
 #include "eigrpd.h"
@@ -61,7 +60,7 @@ if_new(struct eigrpd_conf *xconf, struct kif *kif)
 	struct iface		*iface;
 
 	if ((iface = calloc(1, sizeof(*iface))) == NULL)
-		err(1, "if_new: calloc");
+		fatal("if_new: calloc");
 
 	TAILQ_INIT(&iface->ei_list);
 	TAILQ_INIT(&iface->addr_list);
@@ -106,6 +105,18 @@ if_del(struct iface *iface)
 	free(iface);
 }
 
+struct iface *
+if_lookup(struct eigrpd_conf *xconf, unsigned int ifindex)
+{
+	struct iface	*iface;
+
+	TAILQ_FOREACH(iface, &xconf->iface_list, entry)
+		if (iface->ifindex == ifindex)
+			return (iface);
+
+	return (NULL);
+}
+
 void
 if_init(struct eigrpd_conf *xconf, struct iface *iface)
 {
@@ -126,34 +137,22 @@ if_init(struct eigrpd_conf *xconf, struct iface *iface)
 		fatalx("interface rdomain mismatch");
 }
 
-struct iface *
-if_lookup(struct eigrpd_conf *xconf, unsigned int ifindex)
-{
-	struct iface	*iface;
-
-	TAILQ_FOREACH(iface, &xconf->iface_list, entry)
-		if (iface->ifindex == ifindex)
-			return (iface);
-
-	return (NULL);
-}
-
-struct if_addr *
-if_addr_new(struct iface *iface, struct kaddr *kaddr)
+void
+if_addr_new(struct iface *iface, struct kaddr *ka)
 {
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
 
-	if (if_addr_lookup(&iface->addr_list, kaddr) != NULL)
-		return (NULL);
+	if (if_addr_lookup(&iface->addr_list, ka) != NULL)
+		return;
 
 	if ((if_addr = calloc(1, sizeof(*if_addr))) == NULL)
-		fatal("if_addr_new");
+		fatal("if_addr_new: calloc");
 
-	if_addr->af = kaddr->af;
-	memcpy(&if_addr->addr, &kaddr->addr, sizeof(if_addr->addr));
-	if_addr->prefixlen = kaddr->prefixlen;
-	memcpy(&if_addr->dstbrd, &kaddr->dstbrd, sizeof(if_addr->dstbrd));
+	if_addr->af = ka->af;
+	if_addr->addr = ka->addr;
+	if_addr->prefixlen = ka->prefixlen;
+	if_addr->dstbrd = ka->dstbrd;
 
 	TAILQ_INSERT_TAIL(&iface->addr_list, if_addr, entry);
 
@@ -162,17 +161,15 @@ if_addr_new(struct iface *iface, struct kaddr *kaddr)
 			eigrpe_orig_local_route(ei, if_addr, 0);
 
 	if_update(iface, if_addr->af);
-
-	return (if_addr);
 }
 
 void
-if_addr_del(struct iface *iface, struct kaddr *kaddr)
+if_addr_del(struct iface *iface, struct kaddr *ka)
 {
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
 
-	if_addr = if_addr_lookup(&iface->addr_list, kaddr);
+	if_addr = if_addr_lookup(&iface->addr_list, ka);
 	if (if_addr == NULL)
 		return;
 
@@ -186,15 +183,15 @@ if_addr_del(struct iface *iface, struct kaddr *kaddr)
 }
 
 struct if_addr *
-if_addr_lookup(struct if_addr_head *addr_list, struct kaddr *kaddr)
+if_addr_lookup(struct if_addr_head *addr_list, struct kaddr *ka)
 {
 	struct if_addr	*if_addr;
-	int		 af = kaddr->af;
+	int		 af = ka->af;
 
 	TAILQ_FOREACH(if_addr, addr_list, entry)
-		if (!eigrp_addrcmp(af, &if_addr->addr, &kaddr->addr) &&
-		    if_addr->prefixlen == kaddr->prefixlen &&
-		    !eigrp_addrcmp(af, &if_addr->dstbrd, &kaddr->dstbrd))
+		if (!eigrp_addrcmp(af, &if_addr->addr, &ka->addr) &&
+		    if_addr->prefixlen == ka->prefixlen &&
+		    !eigrp_addrcmp(af, &if_addr->dstbrd, &ka->dstbrd))
 			return (if_addr);
 
 	return (NULL);
@@ -291,11 +288,11 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 		iface = if_new(xconf, kif);
 
 	if ((ei = calloc(1, sizeof(*ei))) == NULL)
-		err(1, "eigrp_if_new: calloc");
+		fatal("eigrp_if_new: calloc");
 
 	ei->state = IF_STA_DOWN;
 	/* get next unused ifaceid */
-	while (eigrp_iface_find_id(ifacecnt++))
+	while (eigrp_if_lookup_id(ifacecnt++))
 		;
 	ei->ifaceid = ifacecnt;
 	ei->eigrp = eigrp;
@@ -340,6 +337,27 @@ eigrp_if_del(struct eigrp_iface *ei)
 		if_del(ei->iface);
 
 	free(ei);
+}
+
+struct eigrp_iface *
+eigrp_if_lookup(struct iface *iface, int af, uint16_t as)
+{
+	struct eigrp_iface	*ei;
+
+	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
+		if (ei->eigrp->af == af &&
+		    ei->eigrp->as == as)
+			return (ei);
+
+	return (NULL);
+}
+
+struct eigrp_iface *
+eigrp_if_lookup_id(uint32_t ifaceid)
+{
+	struct eigrp_iface	 e;
+	e.ifaceid = ifaceid;
+	return (RB_FIND(iface_id_head, &ifaces_by_id, &e));
 }
 
 void
@@ -422,27 +440,6 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	eigrp_if_stop_hello_timer(ei);
 }
 
-struct eigrp_iface *
-eigrp_iface_find_id(uint32_t ifaceid)
-{
-	struct eigrp_iface	 e;
-	e.ifaceid = ifaceid;
-	return (RB_FIND(iface_id_head, &ifaces_by_id, &e));
-}
-
-struct eigrp_iface *
-eigrp_if_lookup(struct iface *iface, int af, uint16_t as)
-{
-	struct eigrp_iface	*ei;
-
-	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
-		if (ei->eigrp->af == af &&
-		    ei->eigrp->as == as)
-			return (ei);
-
-	return (NULL);
-}
-
 /* timers */
 /* ARGSUSED */
 void
@@ -496,8 +493,7 @@ if_to_ctl(struct eigrp_iface *ei)
 		ictl.prefixlen = if_primary_addr_prefixlen(ei->iface);
 		break;
 	case AF_INET6:
-		memcpy(&ictl.addr.v6, &ei->iface->linklocal,
-		    sizeof(ictl.addr.v6));
+		ictl.addr.v6 = ei->iface->linklocal;
 		ictl.prefixlen = 64;
 		break;
 	default:
@@ -726,7 +722,7 @@ if_set_ipv6_mcast(struct iface *iface)
 {
 	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_MULTICAST_IF,
 	    &iface->ifindex, sizeof(iface->ifindex)) < 0) {
-		log_debug("%s: error setting IPV6_MULTICAST_IF, interface %s",
+		log_warn("%s: error setting IPV6_MULTICAST_IF, interface %s",
 		    __func__, iface->name);
 		return (-1);
 	}

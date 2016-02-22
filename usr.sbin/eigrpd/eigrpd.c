@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.c,v 1.5 2016/02/02 17:51:11 sthen Exp $ */
+/*	$OpenBSD: eigrpd.c,v 1.7 2016/02/21 18:56:49 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -171,7 +171,7 @@ main(int argc, char *argv[])
 	mib[3] = IPCTL_FORWARDING;
 	len = sizeof(ipforwarding);
 	if (sysctl(mib, 4, &ipforwarding, &len, NULL, 0) == -1)
-		err(1, "sysctl");
+		log_warn("sysctl");
 
 	if (ipforwarding != 1)
 		log_warnx("WARNING: IP forwarding NOT enabled");
@@ -650,7 +650,7 @@ config_clear(struct eigrpd_conf *conf)
 
 	/* merge current config with an empty config */
 	xconf = malloc(sizeof(*xconf));
-	memcpy(xconf, conf, sizeof(*xconf));
+	*xconf = *conf;
 	TAILQ_INIT(&xconf->instances);
 	merge_config(conf, xconf);
 

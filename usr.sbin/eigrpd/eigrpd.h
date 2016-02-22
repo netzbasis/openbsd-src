@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.h,v 1.8 2016/01/15 12:41:09 renato Exp $ */
+/*	$OpenBSD: eigrpd.h,v 1.10 2016/02/21 18:53:54 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -120,10 +120,15 @@ union eigrpd_addr {
 	struct in6_addr	v6;
 };
 
+#define IN6_IS_SCOPE_EMBED(a)   \
+	((IN6_IS_ADDR_LINKLOCAL(a)) ||  \
+	 (IN6_IS_ADDR_MC_LINKLOCAL(a)) || \
+	 (IN6_IS_ADDR_MC_INTFACELOCAL(a)))
+
 /* interface types */
 enum iface_type {
 	IF_TYPE_POINTOPOINT,
-	IF_TYPE_BROADCAST,
+	IF_TYPE_BROADCAST
 };
 
 struct if_addr {
@@ -461,6 +466,9 @@ int		 eigrp_addrcmp(int, const union eigrpd_addr *,
 int		 eigrp_addrisset(int, const union eigrpd_addr *);
 int		 eigrp_prefixcmp(int, const union eigrpd_addr *,
     const union eigrpd_addr *, uint8_t);
+int		 bad_addr_v4(struct in_addr);
+int		 bad_addr_v6(struct in6_addr *);
+int		 bad_addr(int, union eigrpd_addr *);
 void		 embedscope(struct sockaddr_in6 *);
 void		 recoverscope(struct sockaddr_in6 *);
 void		 addscope(struct sockaddr_in6 *, uint32_t);
