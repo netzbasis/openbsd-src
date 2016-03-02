@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_sym.c,v 1.47 2016/02/28 14:43:03 mpi Exp $	*/
+/*	$OpenBSD: db_sym.c,v 1.49 2016/03/01 21:32:02 mpi Exp $	*/
 /*	$NetBSD: db_sym.c,v 1.24 2000/08/11 22:50:47 tv Exp $	*/
 
 /*
@@ -91,28 +91,6 @@ db_eqname(char *src, char *dst, int c)
 	return (FALSE);
 }
 
-boolean_t
-db_value_of_name(char *name, db_expr_t *valuep)
-{
-	db_sym_t	sym;
-
-	sym = db_lookup(name);
-	if (sym == DB_SYM_NULL)
-	    return (FALSE);
-	db_symbol_values(sym, &name, valuep);
-	return (TRUE);
-}
-
-
-/*
- * Lookup a symbol.
- */
-db_sym_t
-db_lookup(char *symstr)
-{
-	return db_elf_sym_lookup(symstr);
-}
-
 /*
  * Find the closest symbol to val, and return its name
  * and the difference between val and the symbol found.
@@ -122,7 +100,7 @@ db_search_symbol(db_addr_t val, db_strategy_t strategy, db_expr_t *offp)
 {
 	unsigned int	diff;
 	db_expr_t	newdiff;
-	db_sym_t	ret = DB_SYM_NULL, sym;
+	db_sym_t	ret = NULL, sym;
 
 	newdiff = diff = ~0;
 	sym = db_elf_sym_search(val, strategy, &newdiff);
@@ -142,7 +120,7 @@ db_symbol_values(db_sym_t sym, char **namep, db_expr_t *valuep)
 {
 	db_expr_t	value;
 
-	if (sym == DB_SYM_NULL) {
+	if (sym == NULL) {
 		*namep = NULL;
 		return;
 	}

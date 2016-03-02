@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.14 2016/02/26 09:29:20 mpi Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.16 2016/03/01 21:35:13 mpi Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /* 
@@ -106,29 +106,9 @@ db_x86_64_regop(struct db_variable *vp, db_expr_t *val, int opcode)
 #define	INTERRUPT	3
 #define	AST		4
 
-db_addr_t	db_trap_symbol_value = 0;
-db_addr_t	db_syscall_symbol_value = 0;
-db_addr_t	db_kdintr_symbol_value = 0;
-boolean_t	db_trace_symbols_found = FALSE;
-
-void db_find_trace_symbols(void);
 int db_numargs(struct callframe *);
 void db_nextframe(struct callframe **, db_addr_t *, long *, int,
     int (*) (const char *, ...));
-
-void
-db_find_trace_symbols(void)
-{
-	db_expr_t	value;
-
-	if (db_value_of_name("_trap", &value))
-		db_trap_symbol_value = (db_addr_t) value;
-	if (db_value_of_name("_kdintr", &value))
-		db_kdintr_symbol_value = (db_addr_t) value;
-	if (db_value_of_name("_syscall", &value))
-		db_syscall_symbol_value = (db_addr_t) value;
-	db_trace_symbols_found = TRUE;
-}
 
 /*
  * Figure out how many arguments were passed into the frame at "fp".
@@ -202,11 +182,6 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 	boolean_t	kernel_only = TRUE;
 	boolean_t	trace_proc = FALSE;
 
-#if 0
-	if (!db_trace_symbols_found)
-		db_find_trace_symbols();
-#endif
-
 	{
 		char *cp = modif;
 		char c;
@@ -244,8 +219,6 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		char *	name;
 		db_expr_t	offset;
 		db_sym_t	sym;
-#define MAXNARG	16
-		char	*argnames[MAXNARG], **argnp = NULL;
 
 		sym = db_search_symbol(callpc, DB_STGY_ANY, &offset);
 		db_symbol_values(sym, &name, NULL);
@@ -284,11 +257,7 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		} else {
 		normal:
 			is_trap = NONE;
-			narg = MAXNARG;
-			if (db_sym_numargs(sym, &narg, argnames))
-				argnp = argnames;
-			else
-				narg = db_numargs(frame);
+			narg = db_numargs(frame);
 		}
 
 		(*pr)("%s(", name);
@@ -304,8 +273,6 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		}
 
 		while (narg) {
-			if (argnp)
-				(*pr)("%s=", *argnp++);
 			(*pr)("%lx", db_get_value((db_addr_t)argp, 8, FALSE));
 			argp++;
 			if (--narg != 0)
