@@ -33,12 +33,8 @@
 #include <string.h>
 #include <unistd.h>
 
-/* Distinctly different from _PATH_NOLOGIN. */
-#define _PATH_NOLOGIN_TXT	"/etc/nologin.txt"
-
 #define DEFAULT_MESG	"This account is currently not available.\n"
 
-/*ARGSUSED*/
 int
 main(int argc, char *argv[])
 {
@@ -49,15 +45,21 @@ main(int argc, char *argv[])
 	if (pledge("stdio rpath", NULL) == -1)
 		err(1, "pledge");
 
-	nfd = open(_PATH_NOLOGIN_TXT, O_RDONLY);
+	close(STDIN_FILENO);
+	close(STDERR_FILENO);
+
+	nfd = open("/etc/nologin.txt", O_RDONLY);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
+
 	if (nfd < 0) {
 		write(STDOUT_FILENO, DEFAULT_MESG, strlen(DEFAULT_MESG));
-		exit (1);
+	} else {
+		while ((nrd = read(nfd, nbuf, sizeof(nbuf))) != -1 && nrd != 0)
+			write(STDOUT_FILENO, nbuf, nrd);
+		close (nfd);
 	}
 
-	while ((nrd = read(nfd, nbuf, sizeof(nbuf))) != -1 && nrd != 0)
-		write(STDOUT_FILENO, nbuf, nrd);
-	close (nfd);
-
-	exit (1);
+	return (1);
 }
