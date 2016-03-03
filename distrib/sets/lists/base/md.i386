@@ -1566,7 +1566,6 @@
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/kcore.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/kvm86.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/limits.ph
-./usr/libdata/perl5/site_perl/i386-openbsd/i386/linux_machdep.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/loadfile_machdep.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/lock.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/i386/mouse.ph
@@ -2015,7 +2014,6 @@
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/hotplug.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/ioccom.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/ioctl.ph
-./usr/libdata/perl5/site_perl/i386-openbsd/sys/ioctl_compat.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/ipc.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/kcore.ph
 ./usr/libdata/perl5/site_perl/i386-openbsd/sys/kernel.ph
