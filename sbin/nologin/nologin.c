@@ -44,9 +44,10 @@ main(int argc, char *argv[])
 	if (pledge("stdio rpath", NULL) == -1)
 		return (1);
 
-	if ((nfd = open("/etc/nologin.txt", O_RDONLY)) < 0) {
+	nfd = open("/etc/nologin.txt", O_RDONLY);
+	if (nfd < 0)
 		write(STDOUT_FILENO, DEFAULT_MESG, strlen(DEFAULT_MESG));
-	} else {
+	else {
 		while ((nrd = read(nfd, nbuf, sizeof(nbuf))) != -1 && nrd != 0)
 			write(STDOUT_FILENO, nbuf, nrd);
 		close (nfd);

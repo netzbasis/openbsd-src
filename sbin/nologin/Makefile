@@ -3,6 +3,4 @@
 PROG=	nologin
 MAN=	nologin.8
 
-CFLAGS+= -Wall
-
 .include <bsd.prog.mk>
