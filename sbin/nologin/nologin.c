@@ -26,7 +26,6 @@
  */
 
 #include <sys/types.h>
-#include <err.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,17 +42,9 @@ main(int argc, char *argv[])
 	char nbuf[BUFSIZ];
 
 	if (pledge("stdio rpath", NULL) == -1)
-		err(1, "pledge");
+		return (1);
 
-	close(STDIN_FILENO);
-	close(STDERR_FILENO);
-
-	nfd = open("/etc/nologin.txt", O_RDONLY);
-
-	if (pledge("stdio", NULL) == -1)
-		err(1, "pledge");
-
-	if (nfd < 0) {
+	if ((nfd = open("/etc/nologin.txt", O_RDONLY)) < 0) {
 		write(STDOUT_FILENO, DEFAULT_MESG, strlen(DEFAULT_MESG));
 	} else {
 		while ((nrd = read(nfd, nbuf, sizeof(nbuf))) != -1 && nrd != 0)
