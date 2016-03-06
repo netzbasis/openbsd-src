@@ -1,4 +1,4 @@
-/*	$OpenBSD: partition_map.c,v 1.87 2016/01/29 22:51:43 krw Exp $	*/
+/*	$OpenBSD: partition_map.c,v 1.98 2016/02/01 12:53:37 krw Exp $	*/
 
 /*
  * partition_map.c - partition map routines
@@ -35,7 +35,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "dpme.h"
 #include "partition_map.h"
 #include "io.h"
 #include "file_media.h"
@@ -47,16 +46,9 @@ const char     *kMapType = "Apple_partition_map";
 const char     *kUnixType = "OpenBSD";
 const char     *kHFSType = "Apple_HFS";
 
-enum add_action {
-	kReplace = 0,
-	kAdd = 1,
-	kSplit = 2
-};
-
-int		add_data_to_map(struct dpme *, long, struct partition_map *);
-int		contains_driver(struct entry *);
 void		combine_entry(struct entry *);
-struct dpme    *create_dpme(const char *, const char *, uint32_t, uint32_t);
+struct entry   *create_entry(struct partition_map *, long, const char *,
+    const char *, uint32_t, uint32_t);
 void		delete_entry(struct entry *);
 void		insert_in_base_order(struct entry *);
 void		insert_in_disk_order(struct entry *);
@@ -71,10 +63,8 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 	int ok;
 
 	map = malloc(sizeof(struct partition_map));
-	if (map == NULL) {
-		warn("can't allocate memory for open partition map");
-		return NULL;
-	}
+	if (map == NULL)
+		errx(1, "No memory to open partition map");
 
 	map->fd = fd;
 	map->name = name;
@@ -82,7 +72,6 @@ open_partition_map(int fd, char *name, uint64_t mediasz, uint32_t sectorsz)
 	map->changed = 0;
 	LIST_INIT(&map->disk_order);
 	LIST_INIT(&map->base_order);
-	map->physical_block = sectorsz;
 	map->blocks_in_map = 0;
 	map->maximum_in_map = -1;
 
@@ -138,73 +127,86 @@ free_partition_map(struct partition_map *map)
 {
 	struct entry *entry;
 
-	if (map) {
-		while (!LIST_EMPTY(&map->disk_order)) {
-			entry = LIST_FIRST(&map->disk_order);
-			LIST_REMOVE(entry, disk_entry);
-			free(entry->dpme);
-			free(entry);
-		}
-		free(map);
+	if (map == NULL)
+		return;
+
+	while (!LIST_EMPTY(&map->disk_order)) {
+		entry = LIST_FIRST(&map->disk_order);
+		LIST_REMOVE(entry, disk_entry);
+		free(entry);
 	}
+
+	free(map);
 }
 
 int
 read_partition_map(struct partition_map *map)
 {
 	struct entry *cur, *nextcur;
-	struct dpme *dpme;
+	struct entry *entry;
 	int ix;
 	uint32_t limit, base, next, nextbase;
 
-	limit = 1; /* There has to be at least one, which has actual value. */
+	limit = 1; /* There has to be at least one, which has the real limit. */
 	for (ix = 1; ix <= limit; ix++) {
-		dpme = malloc(sizeof(struct dpme));
-		if (dpme == NULL) {
-			warn("can't allocate memory for partition entry");
-			return 1;
-		}
-		if (read_dpme(map->fd, ix, dpme) == 0) {
+		entry = malloc(sizeof(struct entry));
+		if (entry == NULL)
+			errx(1, "No memory for partition entry");
+		if (read_dpme(map->fd, ix, entry) == 0) {
 			warnx("Can't read block %u from '%s'", ix, map->name);
-			free(dpme);
+			free(entry);
 			return 1;
 		}
-		if (dpme->dpme_signature != DPME_SIGNATURE) {
+		if (entry->dpme_signature != DPME_SIGNATURE) {
 			warnx("Invalid signature on block %d. Expected %x, "
 			    "got %x", ix, DPME_SIGNATURE,
-			    dpme->dpme_signature);
-			free(dpme);
+			    entry->dpme_signature);
+			free(entry);
 			return 1;
 		}
-		if (ix == 1)
-			limit = dpme->dpme_map_entries;
-		if (limit != dpme->dpme_map_entries) {
+		if (ix == 1) {
+			if (entry->dpme_map_entries > entry->dpme_pblocks) {
+				warnx("Map entry count (%u) > # of physical "
+				    "blocks (%u)", entry->dpme_map_entries,
+				    entry->dpme_pblocks);
+				free(entry);
+				return 1;
+			}
+			if (entry->dpme_map_entries == 0) {
+				warnx("Map entry count ==  0. Must be > 0");
+				free(entry);
+				return 1;
+			}
+			map->maximum_in_map = entry->dpme_pblocks;
+			limit = entry->dpme_map_entries;
+		}
+		if (limit != entry->dpme_map_entries) {
 			warnx("Invalid entry count on block %d. "
 			    "Expected %d, got %d", ix, limit,
-			    dpme->dpme_map_entries);
-			free(dpme);
+			    entry->dpme_map_entries);
+			free(entry);
 			return 1;
 		}
-		if (dpme->dpme_lblock_start >= dpme->dpme_pblocks) {
+		if (entry->dpme_lblock_start >= entry->dpme_pblocks) {
 			warnx("\tlogical start (%u) >= block count"
-			    "count (%u).", dpme->dpme_lblock_start,
-			    dpme->dpme_pblocks);
-			free(dpme);
+			    "count (%u).", entry->dpme_lblock_start,
+			    entry->dpme_pblocks);
+			free(entry);
 			return 1;
 		}
-		if (dpme->dpme_lblocks > dpme->dpme_pblocks -
-			dpme->dpme_lblock_start) {
+		if (entry->dpme_lblocks > entry->dpme_pblocks -
+			entry->dpme_lblock_start) {
 			warnx("\tlogical blocks (%u) > available blocks (%u).",
-			    dpme->dpme_lblocks,
-			    dpme->dpme_pblocks - dpme->dpme_lblock_start);
-			free(dpme);
+			    entry->dpme_lblocks,
+			    entry->dpme_pblocks - entry->dpme_lblock_start);
+			free(entry);
 			return 1;
 		}
-
-		if (add_data_to_map(dpme, ix, map) == 0) {
-			free(dpme);
-			return 1;
-		}
+		entry->the_map = map;
+		entry->disk_address = ix;
+		insert_in_disk_order(entry);
+		insert_in_base_order(entry);
+		map->blocks_in_map++;
 	}
 
 	/* Traverse base_order looking for
@@ -213,8 +215,8 @@ read_partition_map(struct partition_map *map)
 	 * 2) Unmapped space
 	 */
 	LIST_FOREACH(cur, &map->base_order, base_entry) {
-		base = cur->dpme->dpme_pblock_start;
-		next = base + cur->dpme->dpme_pblocks;
+		base = cur->dpme_pblock_start;
+		next = base + cur->dpme_pblocks;
 		if (base >= map->media_size ||
 		    next < base ||
 		    next > map->media_size) {
@@ -223,7 +225,7 @@ read_partition_map(struct partition_map *map)
 		}
 		nextcur = LIST_NEXT(cur, base_entry);
 		if (nextcur)
-			nextbase = nextcur->dpme->dpme_pblock_start;
+			nextbase = nextcur->dpme_pblock_start;
 		else
 			nextbase = map->media_size;
 		if (next != nextbase)
@@ -248,88 +250,45 @@ write_partition_map(struct partition_map *map)
 		warn("Unable to write block zero");
 
 	LIST_FOREACH(entry, &map->disk_order, disk_entry) {
-		result = write_dpme(map->fd, entry->disk_address, entry->dpme);
+		result = write_dpme(map->fd, entry->disk_address, entry);
 		if (result == 0)
 			warn("Unable to write block %ld", entry->disk_address);
 	}
 }
 
 
-int
-add_data_to_map(struct dpme *dpme, long ix, struct partition_map *map)
-{
-	struct entry *entry;
-
-	entry = malloc(sizeof(struct entry));
-	if (entry == NULL) {
-		warn("can't allocate memory for map entries");
-		return 0;
-	}
-	entry->disk_address = ix;
-	entry->the_map = map;
-	entry->dpme = dpme;
-	entry->contains_driver = contains_driver(entry);
-
-	insert_in_disk_order(entry);
-	insert_in_base_order(entry);
-
-	map->blocks_in_map++;
-	if (map->maximum_in_map < 0) {
-		if (strncasecmp(dpme->dpme_type, kMapType, DPISTRLEN) == 0)
-			map->maximum_in_map = dpme->dpme_pblocks;
-	}
-	return 1;
-}
-
 struct partition_map *
 create_partition_map(int fd, char *name, u_int64_t mediasz, uint32_t sectorsz)
 {
 	struct partition_map *map;
-	struct dpme *dpme;
+	struct entry *entry;
 
 	map = malloc(sizeof(struct partition_map));
-	if (map == NULL) {
-		warn("can't allocate memory for open partition map");
-		return NULL;
-	}
+	if (map == NULL)
+		errx(1, "No memory to create partition map");
+
 	map->name = name;
 	map->fd = fd;
 	map->changed = 1;
 	LIST_INIT(&map->disk_order);
 	LIST_INIT(&map->base_order);
 
-	map->physical_block = sectorsz;
-
 	map->blocks_in_map = 0;
 	map->maximum_in_map = -1;
 	map->media_size = mediasz;
 
 	map->sbSig = BLOCK0_SIGNATURE;
-	map->sbBlkSize = map->physical_block;
+	map->sbBlkSize = sectorsz;
 	map->sbBlkCount = map->media_size;
 
-	dpme = calloc(1, sizeof(struct dpme));
-	if (dpme == NULL) {
-		warn("can't allocate memory for initial dpme");
-	} else {
-		dpme->dpme_signature = DPME_SIGNATURE;
-		dpme->dpme_map_entries = 1;
-		dpme->dpme_pblock_start = 1;
-		dpme->dpme_pblocks = map->media_size - 1;
-		strlcpy(dpme->dpme_type, kFreeType, sizeof(dpme->dpme_type));
-		dpme_init_flags(dpme);
+	entry = create_entry(map, 1, "", kFreeType, 1, mediasz - 1);
+	if (entry == NULL)
+		errx(1, "No memory for new dpme");
 
-		if (add_data_to_map(dpme, 1, map) == 0) {
-			free(dpme);
-		} else {
-			add_partition_to_map("Apple", kMapType, 1,
-			    (map->media_size <= 128 ? 2 : 63), map);
-			return map;
-		}
-	}
+	add_partition_to_map("Apple", kMapType, 1,
+	    (map->media_size <= 128 ? 2 : 63), map);
 
-	free_partition_map(map);
-	return NULL;
+	return map;
 }
 
 
@@ -338,132 +297,136 @@ add_partition_to_map(const char *name, const char *dptype, uint32_t base,
     uint32_t length, struct partition_map *map)
 {
 	struct entry *cur;
-	struct dpme *dpme;
-	enum add_action act;
-	int limit;
-	uint32_t adjusted_base = 0;
-	uint32_t adjusted_length = 0;
-	uint32_t new_base = 0;
-	uint32_t new_length = 0;
+	int limit, new_entries;
+	uint32_t old_base, old_length, old_address;
+	uint32_t new_base, new_length;
 
-	/* find a block that starts includes base and length */
-	LIST_FOREACH(cur, &map->base_order, base_entry) {
-		if (cur->dpme->dpme_pblock_start <= base &&
-		    (base + length) <=
-		    (cur->dpme->dpme_pblock_start + cur->dpme->dpme_pblocks))
-			break;
-	}
-	/* if it is not Extra then punt */
-	if (cur == NULL ||
-	    strncasecmp(cur->dpme->dpme_type, kFreeType, DPISTRLEN) != 0) {
-		printf("requested base and length is not "
-		       "within an existing free partition\n");
-		return 0;
-	}
-	/* figure out what to do and sizes */
-	dpme = cur->dpme;
-	if (dpme->dpme_pblock_start == base) {
-		/* replace or add */
-		if (dpme->dpme_pblocks == length) {
-			act = kReplace;
-		} else {
-			act = kAdd;
-			adjusted_base = base + length;
-			adjusted_length = dpme->dpme_pblocks - length;
-		}
-	} else {
-		/* split or add */
-		if (dpme->dpme_pblock_start + dpme->dpme_pblocks == base +
-		    length) {
-			act = kAdd;
-			adjusted_base = dpme->dpme_pblock_start;
-			adjusted_length = base - adjusted_base;
-		} else {
-			act = kSplit;
-			new_base = dpme->dpme_pblock_start;
-			new_length = base - new_base;
-			adjusted_base = base + length;
-			adjusted_length = dpme->dpme_pblocks - (length +
-			    new_length);
-		}
-	}
-	/* if the map will overflow then punt */
 	if (map->maximum_in_map < 0)
 		limit = map->media_size;
 	else
 		limit = map->maximum_in_map;
-	if (map->blocks_in_map + act > limit) {
+
+	/* find a block of free space that starts includes base and length */
+	LIST_FOREACH(cur, &map->base_order, base_entry) {
+		if (strncasecmp(cur->dpme_type, kFreeType, DPISTRLEN))
+		    continue;
+		if (cur->dpme_pblock_start <= base &&
+		    (base + length) <=
+		    (cur->dpme_pblock_start + cur->dpme_pblocks))
+			break;
+	}
+	if (cur == NULL) {
+		printf("requested base and length is not "
+		       "within an existing free partition\n");
+		return 0;
+	}
+	old_base = cur->dpme_pblock_start;
+	old_length = cur->dpme_pblocks;
+	old_address = cur->disk_address;
+
+	/* Check that there is enough room in the map for the new entries! */
+	if (base == old_base && length == old_length)
+		new_entries = 0;
+	else if (base == old_base)
+		new_entries = 1;
+	else if (base - old_base < old_length - length)
+		new_entries = 2;
+	else
+		new_entries = 1;
+	if (map->blocks_in_map + new_entries > limit) {
 		printf("the map is not big enough\n");
 		return 0;
 	}
-	dpme = create_dpme(name, dptype, base, length);
-	if (dpme == NULL)
-		return 0;
 
-	if (act == kReplace) {
-		free(cur->dpme);
-		cur->dpme = dpme;
-	} else {
-		/* adjust this block's size */
-		cur->dpme->dpme_pblock_start = adjusted_base;
-		cur->dpme->dpme_pblocks = adjusted_length;
-		cur->dpme->dpme_lblocks = adjusted_length;
-		/* insert new with block address equal to this one */
-		if (add_data_to_map(dpme, cur->disk_address, map) == 0) {
-			free(dpme);
-		} else if (act == kSplit) {
-			dpme = create_dpme("", kFreeType, new_base, new_length);
-			if (dpme != NULL) {
-				/*
-				 * insert new with block address equal to
-				 * this one
-				 */
-				if (add_data_to_map(dpme, cur->disk_address,
-				    map) == 0)
-					free(dpme);
-			}
-		}
+	/*
+	 * Delete old free entry from map and add back 1 to 3 new entries.
+	 *
+	 * 1) Empty space from base+len to old end.
+	 * 2) New entry from specified base for length.
+	 * 3) Empty space from old base to new base.
+	 *
+	 *  All with the same disk address, so they must be added in that
+	 *  order!
+	 */
+	delete_entry(cur);
+
+	new_base = base + length;
+	new_length = (old_base + old_length) - new_base;
+	if (new_length > 0) {
+		/* New free space entry *after* new partition. */
+		cur = create_entry(map, old_address, "", kFreeType, new_base,
+		    new_length);
+		if (cur == NULL)
+			errx(1, "No memory for new dpme");
 	}
+
+	cur = create_entry(map, old_address, name, dptype, base, length);
+	if (cur == NULL)
+		errx(1, "No memory for new entry");
+
+	new_length = base - old_base;
+	if (new_length > 0) {
+		/* New free space entry *before* new partition. */
+		cur = create_entry(map, old_address, "", kFreeType, old_base,
+		    new_length);
+		if (cur == NULL)
+			errx(1, "No memory for new entry");
+	}
+
 	renumber_disk_addresses(map);
 	map->changed = 1;
 	return 1;
 }
 
 
-struct dpme*
-create_dpme(const char *name, const char *dptype, uint32_t base,
-    uint32_t length)
+struct entry*
+create_entry(struct partition_map *map, long ix, const char *name,
+    const char *dptype, uint32_t base, uint32_t length)
 {
-	struct dpme *dpme;
+	struct entry *entry;
 
-	dpme = calloc(1, sizeof(struct dpme));
-	if (dpme == NULL) {
-		warn("can't allocate memory for disk buffers");
-	} else {
-		dpme->dpme_signature = DPME_SIGNATURE;
-		dpme->dpme_map_entries = 1;
-		dpme->dpme_pblock_start = base;
-		dpme->dpme_pblocks = length;
-		strlcpy(dpme->dpme_name, name, sizeof(dpme->dpme_name));
-		strlcpy(dpme->dpme_type, dptype, sizeof(dpme->dpme_type));
-		dpme->dpme_lblock_start = 0;
-		dpme->dpme_lblocks = dpme->dpme_pblocks;
-		dpme_init_flags(dpme);
+	entry = calloc(1, sizeof(struct entry));
+	if (entry == NULL)
+		errx(1, "No memory for new entry");
+
+	entry->dpme_signature = DPME_SIGNATURE;
+	entry->dpme_map_entries = 1;
+	entry->dpme_pblock_start = base;
+	entry->dpme_pblocks = length;
+	strlcpy(entry->dpme_name, name, sizeof(entry->dpme_name));
+	strlcpy(entry->dpme_type, dptype, sizeof(entry->dpme_type));
+	if (strncasecmp(dptype, kFreeType, DPISTRLEN)) {
+		/* Only non-kFreeType entries get lblock info != 0. */
+		entry->dpme_lblocks = entry->dpme_pblocks;
 	}
-	return dpme;
+	dpme_init_flags(entry);
+
+	entry->disk_address = ix;
+	entry->the_map = map;
+
+	insert_in_disk_order(entry);
+	insert_in_base_order(entry);
+
+	map->blocks_in_map++;
+	if (map->maximum_in_map < 0) {
+		if (strncasecmp(entry->dpme_type, kMapType, DPISTRLEN) == 0)
+			map->maximum_in_map = entry->dpme_pblocks;
+	}
+
+	return entry;
 }
 
 void
-dpme_init_flags(struct dpme *dpme)
+dpme_init_flags(struct entry *entry)
 {
-	if (strncasecmp(dpme->dpme_type, kFreeType, DPISTRLEN) == 0)
-		dpme->dpme_flags = 0;
-	else if (strncasecmp(dpme->dpme_type, kMapType, DPISTRLEN) == 0)
-		dpme->dpme_flags = DPME_VALID | DPME_ALLOCATED;
-	else if (strncasecmp(dpme->dpme_type, kHFSType, DPISTRLEN) == 0)
-		dpme->dpme_flags = APPLE_HFS_FLAGS_VALUE;
+	if (strncasecmp(entry->dpme_type, kFreeType, DPISTRLEN) == 0)
+		entry->dpme_flags = 0;
+	else if (strncasecmp(entry->dpme_type, kMapType, DPISTRLEN) == 0)
+		entry->dpme_flags = DPME_VALID | DPME_ALLOCATED;
+	else if (strncasecmp(entry->dpme_type, kHFSType, DPISTRLEN) == 0)
+		entry->dpme_flags = APPLE_HFS_FLAGS_VALUE;
 	else
-		dpme->dpme_flags = DPME_VALID | DPME_ALLOCATED |
+		entry->dpme_flags = DPME_VALID | DPME_ALLOCATED |
 		    DPME_READABLE | DPME_WRITABLE;
 }
 
@@ -477,24 +440,25 @@ renumber_disk_addresses(struct partition_map *map)
 	ix = 1;
 	LIST_FOREACH(cur, &map->disk_order, disk_entry) {
 		cur->disk_address = ix++;
-		cur->dpme->dpme_map_entries = map->blocks_in_map;
+		cur->dpme_map_entries = map->blocks_in_map;
 	}
 }
 
 void
 delete_partition_from_map(struct entry *entry)
 {
-	struct dpme *dpme;
+	struct partition_map *map;
+	uint32_t base, length, address;
 
-	if (strncasecmp(entry->dpme->dpme_type, kMapType, DPISTRLEN) == 0) {
+	if (strncasecmp(entry->dpme_type, kMapType, DPISTRLEN) == 0) {
 		printf("Can't delete entry for the map itself\n");
 		return;
 	}
-	if (strncasecmp(entry->dpme->dpme_type, kFreeType, DPISTRLEN) == 0) {
+	if (strncasecmp(entry->dpme_type, kFreeType, DPISTRLEN) == 0) {
 		printf("Can't delete entry for free space\n");
 		return;
 	}
-	if (entry->contains_driver) {
+	if (contains_driver(entry)) {
 		printf("This program can't install drivers\n");
 		if (get_okay("are you sure you want to delete this driver? "
 		    "[n/y]: ", 0) != 1) {
@@ -503,12 +467,13 @@ delete_partition_from_map(struct entry *entry)
 		remove_driver(entry);	/* update block0 if necessary */
 	}
 
-	dpme = entry->dpme;
-	memset(dpme->dpme_name, 0, sizeof(dpme->dpme_name));
-	memset(dpme->dpme_type, 0, sizeof(dpme->dpme_type));
-	strlcpy(dpme->dpme_type, kFreeType, sizeof(dpme->dpme_type));
-	dpme_init_flags(dpme);
+	map = entry->the_map;
+	base = entry->dpme_pblock_start;
+	length = entry->dpme_pblocks;
+	address = entry->disk_address;
 
+	delete_entry(entry);
+	entry = create_entry(map, address, "" , kFreeType, base, length);
 	combine_entry(entry);
 	renumber_disk_addresses(entry->the_map);
 	entry->the_map->changed = 1;
@@ -524,18 +489,15 @@ contains_driver(struct entry *entry)
 	uint32_t start;
 
 	map = entry->the_map;
-
-	if (map->sbDrvrCount > 0) {
-		m = map->sbDDMap;
-		for (i = 0; i < map->sbDrvrCount; i++) {
-			start = m[i].ddBlock;
-			if (entry->dpme->dpme_pblock_start <= start &&
-			    (start + m[i].ddSize) <=
-			    (entry->dpme->dpme_pblock_start +
-			    entry->dpme->dpme_pblocks))
-				return 1;
-		}
+	m = map->sbDDMap;
+	for (i = 0; i < map->sbDrvrCount; i++) {
+		start = m[i].ddBlock;
+		if (entry->dpme_pblock_start <= start &&
+		    (start + m[i].ddSize) <= (entry->dpme_pblock_start +
+		    entry->dpme_pblocks))
+			return 1;
 	}
+
 	return 0;
 }
 
@@ -547,32 +509,29 @@ combine_entry(struct entry *entry)
 	uint32_t end;
 
 	if (entry == NULL ||
-	    strncasecmp(entry->dpme->dpme_type, kFreeType, DPISTRLEN) != 0)
+	    strncasecmp(entry->dpme_type, kFreeType, DPISTRLEN) != 0)
 		return;
 
 	p = LIST_NEXT(entry, base_entry);
 	if (p != NULL) {
-		if (strncasecmp(p->dpme->dpme_type, kFreeType, DPISTRLEN) !=
+		if (strncasecmp(p->dpme_type, kFreeType, DPISTRLEN) !=
 		    0) {
 			/* next is not free */
-		} else if (entry->dpme->dpme_pblock_start +
-		    entry->dpme->dpme_pblocks != p->dpme->dpme_pblock_start) {
+		} else if (entry->dpme_pblock_start +
+		    entry->dpme_pblocks != p->dpme_pblock_start) {
 			/* next is not contiguous (XXX this is bad) */
 			printf("next entry is not contiguous\n");
 			/* start is already minimum */
 			/* new end is maximum of two ends */
-			end = p->dpme->dpme_pblock_start +
-			    p->dpme->dpme_pblocks;
-			if (end > entry->dpme->dpme_pblock_start +
-			    entry->dpme->dpme_pblocks) {
-				entry->dpme->dpme_pblocks = end -
-				    entry->dpme->dpme_pblock_start;
+			end = p->dpme_pblock_start + p->dpme_pblocks;
+			if (end > entry->dpme_pblock_start +
+			    entry->dpme_pblocks) {
+				entry->dpme_pblocks = end -
+				    entry->dpme_pblock_start;
 			}
-			entry->dpme->dpme_lblocks = entry->dpme->dpme_pblocks;
 			delete_entry(p);
 		} else {
-			entry->dpme->dpme_pblocks += p->dpme->dpme_pblocks;
-			entry->dpme->dpme_lblocks = entry->dpme->dpme_pblocks;
+			entry->dpme_pblocks += p->dpme_pblocks;
 			delete_entry(p);
 		}
 	}
@@ -582,37 +541,28 @@ combine_entry(struct entry *entry)
 			break;
 	}
 	if (p != NULL) {
-		if (strncasecmp(p->dpme->dpme_type, kFreeType, DPISTRLEN) !=
-		    0) {
+		if (strncasecmp(p->dpme_type, kFreeType, DPISTRLEN) != 0) {
 			/* previous is not free */
-		} else if (p->dpme->dpme_pblock_start + p->dpme->dpme_pblocks !=
-		    entry->dpme->dpme_pblock_start) {
+		} else if (p->dpme_pblock_start + p->dpme_pblocks !=
+		    entry->dpme_pblock_start) {
 			/* previous is not contiguous (XXX this is bad) */
 			printf("previous entry is not contiguous\n");
 			/* new end is maximum of two ends */
-			end = p->dpme->dpme_pblock_start +
-			    p->dpme->dpme_pblocks;
-			if (end < entry->dpme->dpme_pblock_start +
-			    entry->dpme->dpme_pblocks) {
-				end = entry->dpme->dpme_pblock_start +
-				    entry->dpme->dpme_pblocks;
+			end = p->dpme_pblock_start + p->dpme_pblocks;
+			if (end < entry->dpme_pblock_start +
+			    entry->dpme_pblocks) {
+				end = entry->dpme_pblock_start +
+				    entry->dpme_pblocks;
 			}
-			entry->dpme->dpme_pblocks = end -
-			    p->dpme->dpme_pblock_start;
-			/* new start is previous entry's start */
-			entry->dpme->dpme_pblock_start =
-			    p->dpme->dpme_pblock_start;
-			entry->dpme->dpme_lblocks = entry->dpme->dpme_pblocks;
+			entry->dpme_pblocks = end - p->dpme_pblock_start;
+			entry->dpme_pblock_start = p->dpme_pblock_start;
 			delete_entry(p);
 		} else {
-			entry->dpme->dpme_pblock_start =
-			    p->dpme->dpme_pblock_start;
-			entry->dpme->dpme_pblocks += p->dpme->dpme_pblocks;
-			entry->dpme->dpme_lblocks = entry->dpme->dpme_pblocks;
+			entry->dpme_pblock_start = p->dpme_pblock_start;
+			entry->dpme_pblocks += p->dpme_pblocks;
 			delete_entry(p);
 		}
 	}
-	entry->contains_driver = contains_driver(entry);
 }
 
 
@@ -627,7 +577,6 @@ delete_entry(struct entry *entry)
 	LIST_REMOVE(entry, disk_entry);
 	LIST_REMOVE(entry, base_entry);
 
-	free(entry->dpme);
 	free(entry);
 }
 
@@ -651,8 +600,7 @@ find_entry_by_type(const char *type_name, struct partition_map *map)
 	struct entry *cur;
 
 	LIST_FOREACH(cur, &map->base_order, base_entry) {
-		if (strncasecmp(cur->dpme->dpme_type, type_name, DPISTRLEN) ==
-		    0)
+		if (strncasecmp(cur->dpme_type, type_name, DPISTRLEN) == 0)
 			break;
 	}
 	return cur;
@@ -664,7 +612,7 @@ find_entry_by_base(uint32_t base, struct partition_map *map)
 	struct entry *cur;
 
 	LIST_FOREACH(cur, &map->base_order, base_entry) {
-		if (cur->dpme->dpme_pblock_start == base)
+		if (cur->dpme_pblock_start == base)
 			break;
 	}
 	return cur;
@@ -748,9 +696,9 @@ insert_in_base_order(struct entry *entry)
 		return;
 	}
 
-	start = entry->dpme->dpme_pblock_start;
+	start = entry->dpme_pblock_start;
 	LIST_FOREACH(cur, &map->base_order, base_entry) {
-		if (start <= cur->dpme->dpme_pblock_start) {
+		if (start <= cur->dpme_pblock_start) {
 			LIST_INSERT_BEFORE(cur, entry, base_entry);
 			return;
 		}
@@ -775,16 +723,15 @@ resize_map(long new_size, struct partition_map *map)
 		printf("Couldn't find entry for map!\n");
 		return;
 	}
-	if (new_size == entry->dpme->dpme_pblocks)
+	if (new_size == entry->dpme_pblocks)
 		return;
 
 	next = LIST_NEXT(entry, base_entry);
 
-	if (new_size < entry->dpme->dpme_pblocks) {
+	if (new_size < entry->dpme_pblocks) {
 		/* make it smaller */
 		if (next == NULL ||
-		    strncasecmp(next->dpme->dpme_type, kFreeType, DPISTRLEN) !=
-		    0)
+		    strncasecmp(next->dpme_type, kFreeType, DPISTRLEN) != 0)
 			incr = 1;
 		else
 			incr = 0;
@@ -796,21 +743,21 @@ resize_map(long new_size, struct partition_map *map)
 	}
 	/* make it larger */
 	if (next == NULL ||
-	    strncasecmp(next->dpme->dpme_type, kFreeType, DPISTRLEN) != 0) {
+	    strncasecmp(next->dpme_type, kFreeType, DPISTRLEN) != 0) {
 		printf("No free space to expand into\n");
 		return;
 	}
-	if (entry->dpme->dpme_pblock_start + entry->dpme->dpme_pblocks
-	    != next->dpme->dpme_pblock_start) {
+	if (entry->dpme_pblock_start + entry->dpme_pblocks
+	    != next->dpme_pblock_start) {
 		printf("No contiguous free space to expand into\n");
 		return;
 	}
-	if (new_size > entry->dpme->dpme_pblocks + next->dpme->dpme_pblocks) {
+	if (new_size > entry->dpme_pblocks + next->dpme_pblocks) {
 		printf("No enough free space\n");
 		return;
 	}
 doit:
-	entry->dpme->dpme_type[0] = 0;
+	entry->dpme_type[0] = 0;
 	delete_partition_from_map(entry);
 	add_partition_to_map("Apple", kMapType, 1, new_size, map);
 	map->maximum_in_map = new_size;
@@ -830,37 +777,31 @@ remove_driver(struct entry *entry)
 	 * into partition map block numbers.
 	 */
 	map = entry->the_map;
-	if (map->sbDrvrCount > 0) {
-		m = map->sbDDMap;
-		for (i = 0; i < map->sbDrvrCount; i++) {
-			start = m[i].ddBlock;
-
+	m = map->sbDDMap;
+	for (i = 0; i < map->sbDrvrCount; i++) {
+		start = m[i].ddBlock;
+		/*
+		 * zap the driver if it is wholly contained in the
+		 * partition
+		 */
+		if (entry->dpme_pblock_start <= start && (start +
+		    m[i].ddSize) <= (entry->dpme_pblock_start +
+		    entry->dpme_pblocks)) {
 			/*
-			 * zap the driver if it is wholly contained in the
-			 * partition
+			 * Delete this driver by copying down later ones and
+			 * zapping the last one.
 			 */
-			if (entry->dpme->dpme_pblock_start <= start &&
-			    (start + m[i].ddSize) <=
-			    (entry->dpme->dpme_pblock_start
-				+ entry->dpme->dpme_pblocks)) {
-				/* delete this driver */
-				/*
-				 * by copying down later ones and zapping the
-				 * last
-				 */
-				for (j = i + 1; j < map->sbDrvrCount; j++,
-				    i++) {
-					m[i].ddBlock = m[i].ddBlock;
-					m[i].ddSize = m[j].ddSize;
-					m[i].ddType = m[j].ddType;
-				}
-				m[i].ddBlock = 0;
-				m[i].ddSize = 0;
-				m[i].ddType = 0;
-				map->sbDrvrCount -= 1;
-				return;	/* XXX if we continue we will delete
-					 * other drivers? */
+			for (j = i + 1; j < map->sbDrvrCount; j++, i++) {
+				m[i].ddBlock = m[i].ddBlock;
+				m[i].ddSize = m[j].ddSize;
+				m[i].ddType = m[j].ddType;
 			}
+			m[i].ddBlock = 0;
+			m[i].ddSize = 0;
+			m[i].ddType = 0;
+			map->sbDrvrCount -= 1;
+			return;	/* XXX if we continue we will delete
+				 * other drivers? */
 		}
 	}
 }

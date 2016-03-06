@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.49 2016/01/24 13:19:21 gsoares Exp $ */
+/* $OpenBSD: doas.c,v 1.51 2016/02/15 19:56:11 martijn Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -425,10 +425,16 @@ main(int argc, char **argv, char **envp)
 			if (gethostname(host, sizeof(host)))
 				snprintf(host, sizeof(host), "?");
 			snprintf(cbuf, sizeof(cbuf),
-			    "doas (%.32s@%.32s) password: ", myname, host);
+			    "\rdoas (%.32s@%.32s) password: ", myname, host);
 			challenge = cbuf;
 		}
-		response = readpassphrase(challenge, rbuf, sizeof(rbuf), 0);
+		response = readpassphrase(challenge, rbuf, sizeof(rbuf),
+		    RPP_REQUIRE_TTY);
+		if (response == NULL && errno == ENOTTY) {
+			syslog(LOG_AUTHPRIV | LOG_NOTICE,
+			    "tty required for %s", myname);
+			errx(1, "a tty is required");
+		}
 		if (!auth_userresponse(as, response, 0)) {
 			syslog(LOG_AUTHPRIV | LOG_NOTICE,
 			    "failed auth for %s", myname);

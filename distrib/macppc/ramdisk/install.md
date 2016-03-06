@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.66 2015/12/29 11:16:14 rpe Exp $
+#	$OpenBSD: install.md,v 1.68 2016/02/23 02:34:09 krw Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -60,7 +60,7 @@ md_prep_MBR() {
 
 WARNING: Putting an MBR partition table on $_disk will DESTROY the existing HFS
          partitions and HFS partition table:
-$(pdisk -l /dev/${_disk}c)
+$(pdisk -l $_disk)
 
 __EOT
 		ask_yn "Are you *sure* you want an MBR partition table on $_disk?"
@@ -127,12 +127,12 @@ md_prep_HFS() {
 		_d=Modify
 		disk_has $_disk hfs openbsd &&
 			{ _q="Use the (O)penBSD partition, "; _d=OpenBSD; }
-		pdisk -l /dev/${_disk}c
+		pdisk -l $_disk
 		ask "$_q(M)odify a partition or (A)bort?" "$_d"
 		case $resp in
 		[aA]*)	return 1 ;;
 		[oO]*)	return 0 ;;
-		[mM]*)	pdisk /dev/${_disk}c
+		[mM]*)	pdisk $_disk
 			disk_has $_disk hfs openbsd && break
 			echo "\nNo 'OpenBSD'-type partition named 'OpenBSD'!"
 		esac
@@ -157,18 +157,8 @@ md_prep_disklabel() {
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD $PARTTABLE
-partition. The disklabel defines how OpenBSD splits up the $PARTTABLE partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD $PARTTABLE partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

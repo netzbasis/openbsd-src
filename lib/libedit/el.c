@@ -1,4 +1,4 @@
-/*	$OpenBSD: el.c,v 1.22 2016/01/30 00:06:39 schwarze Exp $	*/
+/*	$OpenBSD: el.c,v 1.25 2016/02/02 00:43:12 schwarze Exp $	*/
 /*	$NetBSD: el.c,v 1.61 2011/01/27 23:11:40 christos Exp $	*/
 
 /*-
@@ -43,9 +43,12 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <ctype.h>
-#include <locale.h>
 #include <limits.h>
+#ifdef WIDECHAR
+#include <locale.h>
 #include <langinfo.h>
+#endif
+
 #include "el.h"
 
 /* el_init():
@@ -57,7 +60,7 @@ el_init(const char *prog, FILE *fin, FILE *fout, FILE *ferr)
 	EditLine *el = (EditLine *) malloc(sizeof(EditLine));
 
 	if (el == NULL)
-		return (NULL);
+		return NULL;
 
 	memset(el, 0, sizeof(EditLine));
 
@@ -79,12 +82,10 @@ el_init(const char *prog, FILE *fin, FILE *fout, FILE *ferr)
          * Initialize all the modules. Order is important!!!
          */
 	el->el_flags = 0;
-#ifdef WIDECHAR
 	if (setlocale(LC_CTYPE, NULL) != NULL){
 		if (strcmp(nl_langinfo(CODESET), "UTF-8") == 0)
 			el->el_flags |= CHARSET_IS_UTF8;
 	}
-#endif
 
 	if (terminal_init(el) == -1) {
 		free(el->el_prog);
@@ -102,7 +103,7 @@ el_init(const char *prog, FILE *fin, FILE *fout, FILE *ferr)
 	(void) sig_init(el);
 	(void) read_init(el);
 
-	return (el);
+	return el;
 }
 
 
@@ -128,14 +129,14 @@ el_end(EditLine *el)
 	prompt_end(el);
 	sig_end(el);
 
-	free((ptr_t) el->el_prog);
+	free(el->el_prog);
 #ifdef WIDECHAR
-	free((ptr_t) el->el_scratch.cbuff);
-	free((ptr_t) el->el_scratch.wbuff);
-	free((ptr_t) el->el_lgcyconv.cbuff);
-	free((ptr_t) el->el_lgcyconv.wbuff);
+	free(el->el_scratch.cbuff);
+	free(el->el_scratch.wbuff);
+	free(el->el_lgcyconv.cbuff);
+	free(el->el_lgcyconv.wbuff);
 #endif
-	free((ptr_t) el);
+	free(el);
 }
 
 
@@ -161,7 +162,7 @@ FUN(el,set)(EditLine *el, int op, ...)
 	int rv = 0;
 
 	if (el == NULL)
-		return (-1);
+		return -1;
 	va_start(ap, op);
 
 	switch (op) {
@@ -264,7 +265,7 @@ FUN(el,set)(EditLine *el, int op, ...)
 	case EL_HIST:
 	{
 		hist_fun_t func = va_arg(ap, hist_fun_t);
-		ptr_t ptr = va_arg(ap, ptr_t);
+		void *ptr = va_arg(ap, void *);
 
 		rv = hist_set(el, func, ptr);
 		if (!(el->el_flags & CHARSET_IS_UTF8))
@@ -354,7 +355,7 @@ FUN(el,set)(EditLine *el, int op, ...)
 	}
 
 	va_end(ap);
-	return (rv);
+	return rv;
 }
 
 
@@ -476,7 +477,7 @@ FUN(el,get)(EditLine *el, int op, ...)
 	}
 	va_end(ap);
 
-	return (rv);
+	return rv;
 }
 
 
@@ -487,7 +488,7 @@ public const TYPE(LineInfo) *
 FUN(el,line)(EditLine *el)
 {
 
-	return (const TYPE(LineInfo) *) (void *) &el->el_line;
+	return (const TYPE(LineInfo) *)(void *)&el->el_line;
 }
 
 
@@ -511,13 +512,13 @@ el_source(EditLine *el, const char *fname)
 		static const char elpath[] = "/.editrc";
 
 		if (issetugid())
-			return (-1);
+			return -1;
 		if ((ptr = getenv("HOME")) == NULL)
-			return (-1);
+			return -1;
 		if (strlcpy(path, ptr, sizeof(path)) >= sizeof(path))
-			return (-1);
+			return -1;
 		if (strlcat(path, elpath, sizeof(path)) >= sizeof(path))
-			return (-1);
+			return -1;
 		fname = path;
 #else
 		/*
@@ -525,13 +526,13 @@ el_source(EditLine *el, const char *fname)
 		 * to keep from inadvertently opening up the user to a security
 		 * hole.
 		 */
-		return (-1);
+		return -1;
 #endif
 	}
 	if (fp == NULL)
 		fp = fopen(fname, "r");
 	if (fp == NULL)
-		return (-1);
+		return -1;
 
 	while ((ptr = fgetln(fp, &len)) != NULL) {
 		if (ptr[len - 1] == '\n')
@@ -539,7 +540,7 @@ el_source(EditLine *el, const char *fname)
 		else {
 			if ((lptr = (char *)malloc(len + 1)) == NULL) {
 				(void) fclose(fp);
-				return (-1);
+				return -1;
 			}
 			memcpy(lptr, ptr, len);
 			lptr[len] = '\0';
@@ -558,12 +559,12 @@ el_source(EditLine *el, const char *fname)
 		if (parse_line(el, dptr) == -1) {
 			free(lptr);
 			(void) fclose(fp);
-			return (-1);
+			return -1;
 		}
 	}
 	free(lptr);
 	(void) fclose(fp);
-	return (0);
+	return 0;
 }
 
 
@@ -609,7 +610,7 @@ el_editmode(EditLine *el, int argc, const Char **argv)
 	const Char *how;
 
 	if (argv == NULL || argc != 2 || argv[1] == NULL)
-		return (-1);
+		return -1;
 
 	how = argv[1];
 	if (Strcmp(how, STR("on")) == 0) {
@@ -622,7 +623,7 @@ el_editmode(EditLine *el, int argc, const Char **argv)
 	else {
 		(void) fprintf(el->el_errfile, "edit: Bad value `" FSTR "'.\n",
 		    how);
-		return (-1);
+		return -1;
 	}
-	return (0);
+	return 0;
 }

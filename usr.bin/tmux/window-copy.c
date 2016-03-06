@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.144 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.146 2016/03/01 12:04:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1775,11 +1775,13 @@ void
 window_copy_cursor_left(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
+	u_int				 py;
 
-	if (data->cx == 0) {
+	py = screen_hsize(data->backing) + data->cy - data->oy;
+	if (data->cx == 0 && py > 0) {
 		window_copy_cursor_up(wp, 0);
 		window_copy_cursor_end_of_line(wp);
-	} else {
+	} else if (data->cx > 0) {
 		window_copy_update_cursor(wp, data->cx - 1, data->cy);
 		if (window_copy_update_selection(wp, 1))
 			window_copy_redraw_lines(wp, data->cy, 1);
@@ -1790,19 +1792,20 @@ void
 window_copy_cursor_right(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
-	u_int				 px, py;
+	u_int				 px, py, yy;
 
+	py = screen_hsize(data->backing) + data->cy - data->oy;
+	yy = screen_hsize(data->backing) + screen_size_y(data->backing) - 1;
 	if (data->screen.sel.flag && data->rectflag)
 		px = screen_size_x(&data->screen);
 	else {
-		py = screen_hsize(data->backing) + data->cy - data->oy;
 		px = window_copy_find_length(wp, py);
 	}
 
-	if (data->cx >= px) {
+	if (data->cx >= px && py < yy) {
 		window_copy_cursor_start_of_line(wp);
 		window_copy_cursor_down(wp, 0);
-	} else {
+	} else if (data->cx < px) {
 		window_copy_update_cursor(wp, data->cx + 1, data->cy);
 		if (window_copy_update_selection(wp, 1))
 			window_copy_redraw_lines(wp, data->cy, 1);
@@ -2245,7 +2248,7 @@ window_copy_start_drag(struct client *c, struct mouse_event *m)
 		return;
 
 	c->tty.mouse_drag_update = window_copy_drag_update;
-	c->tty.mouse_drag_release = window_copy_drag_release;
+	c->tty.mouse_drag_release = NULL; /* will fire MouseUp key */
 
 	window_copy_update_cursor(wp, x, y);
 	window_copy_start_selection(wp);
@@ -2271,17 +2274,4 @@ window_copy_drag_update(__unused struct client *c, struct mouse_event *m)
 	window_copy_update_cursor(wp, x, y);
 	if (window_copy_update_selection(wp, 1))
 		window_copy_redraw_selection(wp, old_cy);
-}
-
-void
-window_copy_drag_release(__unused struct client *c, struct mouse_event *m)
-{
-	struct window_pane	*wp;
-
-	wp = cmd_mouse_pane(m, NULL, NULL);
-	if (wp == NULL || wp->mode != &window_copy_mode)
-		return;
-
-	window_copy_copy_selection(wp, NULL);
-	window_pane_reset_mode(wp);
 }

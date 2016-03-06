@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.478 2016/01/29 11:13:56 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.480 2016/03/01 11:58:45 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 29 2016 $
+.Dd $Mdocdate: March 1 2016 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -717,7 +717,7 @@ will set the session working directory (used for new windows) to
 .Pp
 If
 .Fl E
-is used,
+is used, the
 .Ic update-environment
 option will not be applied.
 .It Xo Ic detach-client
@@ -853,13 +853,12 @@ with
 .Ar target-session .
 This means they share the same set of windows - all windows from
 .Ar target-session
-are linked to the new session and any subsequent new windows or windows being
-closed are applied to both sessions.
+are linked to the new session, any new windows are linked to both sessions and
+any windows closed removed from both sessions.
 The current and previous window and any session options remain independent and
 either session may be killed without affecting the other.
-Giving
 .Fl n
-or
+and
 .Ar shell-command
 are invalid if
 .Fl t
@@ -875,7 +874,7 @@ but a different format may be specified with
 .Pp
 If
 .Fl E
-is used,
+is used, the
 .Ic update-environment
 option will not be applied.
 .It Xo Ic refresh-client
@@ -1250,7 +1249,7 @@ Commands related to windows and panes are as follows:
 .Op Fl dP
 .Op Fl F Ar format
 .Op Fl s Ar src-pane
-.Op Fl t Ar dst-pane
+.Op Fl t Ar dst-window
 .Xc
 .D1 (alias: Ic breakp )
 Break
@@ -3377,9 +3376,13 @@ if not.
 A limit may be placed on the length of the resultant string by prefixing it
 by an
 .Ql = ,
-a number and a colon, so
-.Ql #{=10:pane_title}
-will include at most the first 10 characters of the pane title.
+a number and a colon.
+Positive numbers count from the start of the string and negative from the end,
+so
+.Ql #{=5:pane_title}
+will include at most the first 5 characters of the pane title, or
+.Ql #{=-5:pane_title}
+the last 5 characters.
 Prefixing a time variable with
 .Ql t:
 will convert it to a string, so if

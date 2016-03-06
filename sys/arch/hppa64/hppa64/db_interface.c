@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.4 2014/07/13 12:11:01 jasper Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.6 2016/03/01 21:35:13 mpi Exp $	*/
 
 /*
  * Copyright (c) 2005 Michael Shalayeff
@@ -156,10 +156,10 @@ kdbprinttrap(int type, int code)
 }
 
 /*
- *  kdb_trap - field a BPT trap
+ *  db_ktrap - field a BPT trap
  */
 int
-kdb_trap(int type, int code, db_regs_t *regs)
+db_ktrap(int type, int code, db_regs_t *regs)
 {
 	extern label_t *db_recover;
 	int s;
@@ -213,7 +213,6 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 	db_sym_t sym;
 	db_expr_t off;
 	char *name;
-	char **argnp, *argnames[8];
 	int nargs;
 
 	if (count < 0)
@@ -244,18 +243,11 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 
 		/* args */
 		nargs = 8;
-		argnp = NULL;
-		if (db_sym_numargs(sym, &nargs, argnames))
-			argnp = argnames;
-		else
-			nargs = 4;
 		/*
 		 * XXX first eight args are passed on registers, and may not
 		 * be stored on stack, dunno how to recover their values yet
 		 */
 		for (argp = &fp[-9]; nargs--; argp--) {
-			if (argnp)
-				(*pr)("%s=", *argnp++);
 			(*pr)("%x%s", db_get_value((long)argp, 8, FALSE),
 				  nargs? ",":"");
 		}

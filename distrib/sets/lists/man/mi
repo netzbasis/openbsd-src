@@ -1314,6 +1314,7 @@
 ./usr/share/man/man4/divert.4
 ./usr/share/man/man4/dpt.4
 ./usr/share/man/man4/drm.4
+./usr/share/man/man4/dwctwo.4
 ./usr/share/man/man4/dwiic.4
 ./usr/share/man/man4/eap.4
 ./usr/share/man/man4/ec.4
@@ -2319,6 +2320,7 @@
 ./usr/share/man/man8/amd64/boot_amd64.8
 ./usr/share/man/man8/amd64/cdboot.8
 ./usr/share/man/man8/amd64/gpioctl.8
+./usr/share/man/man8/amd64/hostctl.8
 ./usr/share/man/man8/amd64/memconfig.8
 ./usr/share/man/man8/amd64/pxeboot.8
 ./usr/share/man/man8/amd64/wsmoused.8
@@ -2347,7 +2349,6 @@
 ./usr/share/man/man8/chown.8
 ./usr/share/man/man8/chroot.8
 ./usr/share/man/man8/clri.8
-./usr/share/man/man8/compat_linux.8
 ./usr/share/man/man8/comsat.8
 ./usr/share/man/man8/config.8
 ./usr/share/man/man8/crash.8
@@ -2413,6 +2414,7 @@
 ./usr/share/man/man8/i386/boot_i386.8
 ./usr/share/man/man8/i386/cdboot.8
 ./usr/share/man/man8/i386/gpioctl.8
+./usr/share/man/man8/i386/hostctl.8
 ./usr/share/man/man8/i386/memconfig.8
 ./usr/share/man/man8/i386/pxeboot.8
 ./usr/share/man/man8/i386/wsmoused.8

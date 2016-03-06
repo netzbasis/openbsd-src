@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.24 2016/01/29 19:04:30 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.27 2016/02/05 10:30:37 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -58,8 +58,7 @@
  * notably the XenBus used to discover and manage Xen devices.
  */
 
-const struct
-{
+const struct {
 	const char		*xse_errstr;
 	int			 xse_errnum;
 } xs_errors[] = {
@@ -80,8 +79,7 @@ const struct
 	{ NULL,		-1 },
 };
 
-struct xs_msghdr
-{
+struct xs_msghdr {
 	/* Message type */
 	uint32_t		 xmh_type;
 	/* Request identifier, echoed in daemon's response.  */
@@ -590,9 +588,7 @@ xs_intr(void *arg)
 	if (xsm->xsm_read == xsm->xsm_hdr.xmh_len) {
 		xs->xs_rmsg = NULL;
 		if (xsm->xsm_hdr.xmh_type == XS_EVENT) {
-			if (xs_event(xs, xsm))
-				printf("%s: no watchers for node \"%s\"\n",
-				    sc->sc_dev.dv_xname, xsm->xsm_data);
+			xs_event(xs, xsm);
 		} else {
 			mtx_enter(&xs->xs_rsplck);
 			TAILQ_INSERT_TAIL(&xs->xs_rsps, xsm, xsm_link);
@@ -691,7 +687,7 @@ int
 xs_event(struct xs_softc *xs, struct xs_msg *xsm)
 {
 	struct xs_watch *xsw;
-	char *token;
+	char *token = NULL;
 	int i;
 
 	for (i = 0; i < xsm->xsm_read; i++) {
@@ -699,6 +695,11 @@ xs_event(struct xs_softc *xs, struct xs_msg *xsm)
 			token = &xsm->xsm_data[i+1];
 			break;
 		}
+	}
+	if (token == NULL) {
+		printf("%s: event on \"%s\" without token\n",
+		    xs->xs_sc->sc_dev.dv_xname, xsm->xsm_data);
+		return (-1);
 	}
 
 	mtx_enter(&xs->xs_watchlck);
@@ -710,6 +711,9 @@ xs_event(struct xs_softc *xs, struct xs_msg *xsm)
 		return (0);
 	}
 	mtx_leave(&xs->xs_watchlck);
+
+	printf("%s: no watchers for node \"%s\"\n",
+	    xs->xs_sc->sc_dev.dv_xname, xsm->xsm_data);
 	return (-1);
 }
 
@@ -850,14 +854,21 @@ xs_watch(struct xen_softc *sc, const char *path, const char *property,
 	iov.iov_len = sizeof(xsw->xsw_token);
 	iov_cnt = 1;
 
-	if ((error = xs_cmd(&xst, XS_WATCH, key, &iovp, &iov_cnt)) != 0) {
-		free(xsw, M_DEVBUF, sizeof(*xsw));
-		return (error);
-	}
-
+	/*
+	 * xs_watches must be prepared pre-emptively because a xenstore
+	 * event is raised immediately after a watch is established.
+	 */
 	mtx_enter(&xs->xs_watchlck);
 	TAILQ_INSERT_TAIL(&xs->xs_watches, xsw, xsw_entry);
 	mtx_leave(&xs->xs_watchlck);
+
+	if ((error = xs_cmd(&xst, XS_WATCH, key, &iovp, &iov_cnt)) != 0) {
+		mtx_enter(&xs->xs_watchlck);
+		TAILQ_REMOVE(&xs->xs_watches, xsw, xsw_entry);
+		mtx_leave(&xs->xs_watchlck);
+		free(xsw, M_DEVBUF, sizeof(*xsw));
+		return (error);
+	}
 
 	return (0);
 }
@@ -867,9 +878,9 @@ xs_getprop(struct xen_softc *sc, const char *path, const char *property,
     char *value, int size)
 {
 	struct xs_transaction xst;
-	struct iovec *iovp;
+	struct iovec *iovp = NULL;
 	char key[256];
-	int error, iov_cnt, ret;
+	int error, ret, iov_cnt = 0;
 
 	if (!property)
 		return (-1);
@@ -890,7 +901,8 @@ xs_getprop(struct xen_softc *sc, const char *path, const char *property,
 	if ((error = xs_cmd(&xst, XS_READ, key, &iovp, &iov_cnt)) != 0)
 		return (error);
 
-	strlcpy(value, (char *)iovp->iov_base, size);
+	if (iov_cnt > 0)
+		strlcpy(value, (char *)iovp->iov_base, size);
 
 	xs_resfree(&xst, iovp, iov_cnt);
 
@@ -904,7 +916,7 @@ xs_setprop(struct xen_softc *sc, const char *path, const char *property,
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
 	char key[256];
-	int error, iov_cnt, ret;
+	int error, ret, iov_cnt = 0;
 
 	if (!property)
 		return (-1);
@@ -937,7 +949,7 @@ xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
 	struct xen_softc *sc = arg;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
-	int error = 0, iov_cnt, cmd, i;
+	int error = 0, iov_cnt = 0, cmd, i;
 
 	switch (op) {
 	case PVBUS_KVWRITE:

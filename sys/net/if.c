@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.425 2015/12/09 03:22:39 dlg Exp $	*/
+/*	$OpenBSD: if.c,v 1.427 2016/03/02 00:00:16 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -1548,9 +1548,6 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	switch (cmd) {
 
 	case SIOCGIFCONF:
-#ifdef COMPAT_LINUX
-	case OSIOCGIFCONF:
-#endif
 		return (ifconf(cmd, data));
 	}
 	ifr = (struct ifreq *)data;
@@ -1757,6 +1754,8 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCSIFMEDIA:
 	case SIOCSVNETID:
 	case SIOCSIFPAIR:
+	case SIOCSIFPARENT:
+	case SIOCDIFPARENT:
 		if ((error = suser(p, 0)) != 0)
 			return (error);
 		/* FALLTHROUGH */
@@ -1768,6 +1767,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCGIFMEDIA:
 	case SIOCGVNETID:
 	case SIOCGIFPAIR:
+	case SIOCGIFPARENT:
 		if (ifp->if_ioctl == 0)
 			return (EOPNOTSUPP);
 		error = (*ifp->if_ioctl)(ifp, cmd, data);
@@ -1980,9 +1980,6 @@ ifconf(u_long cmd, caddr_t data)
 				TAILQ_FOREACH(ifa,
 				    &ifp->if_addrlist, ifa_list) {
 					sa = ifa->ifa_addr;
-#ifdef COMPAT_LINUX
-					if (cmd != OSIOCGIFCONF)
-#endif
 					if (sa->sa_len > sizeof(*sa))
 						space += sa->sa_len -
 						    sizeof(*sa);
@@ -2011,16 +2008,6 @@ ifconf(u_long cmd, caddr_t data)
 
 				if (space < sizeof(ifr))
 					break;
-#ifdef COMPAT_LINUX
-				if (cmd == OSIOCGIFCONF) {
-					ifr.ifr_addr = *sa;
-					*(u_int16_t *)&ifr.ifr_addr =
-					    sa->sa_family;
-					error = copyout((caddr_t)&ifr,
-					    (caddr_t)ifrp, sizeof (ifr));
-					ifrp++;
-				} else
-#endif
 				if (sa->sa_len <= sizeof(*sa)) {
 					ifr.ifr_addr = *sa;
 					error = copyout((caddr_t)&ifr,

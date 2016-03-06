@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.80 2016/01/29 20:18:17 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.84 2016/02/02 15:23:07 krw Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -44,9 +44,8 @@
 #include <unistd.h>
 #include <util.h>
 
-#include "dpme.h"
-#include "io.h"
 #include "partition_map.h"
+#include "io.h"
 #include "dump.h"
 
 int	lflag;	/* list the device */
@@ -77,13 +76,20 @@ main(int argc, char **argv)
 	struct partition_map *map;
 	int c, fd;
 
+	if (pledge("stdio rpath wpath disklabel", NULL) == -1)
+		err(1, "pledge");
+
 	while ((c = getopt(argc, argv, "lr")) != -1) {
 		switch (c) {
 		case 'l':
 			lflag = 1;
+			if (pledge("stdio rpath disklabel", NULL) == -1)
+				err(1, "pledge");
 			break;
 		case 'r':
 			rflag = 1;
+			if (pledge("stdio rpath disklabel", NULL) == -1)
+				err(1, "pledge");
 			break;
 		default:
 			usage();
@@ -97,18 +103,27 @@ main(int argc, char **argv)
 	if (argc != 1)
 		usage();
 
-	fd = opendev(*argv, (rflag ? O_RDONLY:O_RDWR), OPENDEV_PART, NULL);
+	fd = opendev(*argv, ((rflag || lflag) ? O_RDONLY:O_RDWR), OPENDEV_PART,
+	    NULL);
 	if (fd == -1)
 		err(1, "can't open file '%s'", *argv);
+
+	if (pledge("stdio disklabel", NULL) == -1)
+		err(1, "pledge");
+
 	if (fstat(fd, &st) == -1)
 		err(1, "can't fstat %s", *argv);
 	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
 		errx(1, "%s is not a character device or a regular file",
 		    *argv);
+
 	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
 		err(1, "can't get disklabel for %s", *argv);
 	if (dl.d_secsize != DEV_BSIZE)
 		errx(1, "disk sector size (%d) != 512\n", dl.d_secsize);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	map = open_partition_map(fd, *argv, DL_GETDSIZE(&dl), dl.d_secsize);
 	if (map != NULL) {
@@ -194,7 +209,7 @@ edit(struct partition_map **mapp)
 				oldmap = map;
 				map = create_partition_map(oldmap->fd,
 				    oldmap->name, oldmap->media_size,
-				    oldmap->physical_block);
+				    oldmap->sbBlkSize);
 				if (map == NULL)
 					break;
 				*mapp = map;
@@ -296,7 +311,7 @@ get_base_argument(long *number, struct partition_map *map)
 				bad_input("Bad partition number");
 				result = 0;
 			} else {
-				*number = entry->dpme->dpme_pblock_start;
+				*number = entry->dpme_pblock_start;
 			}
 		}
 	}
@@ -314,7 +329,7 @@ get_size_argument(long *number, struct partition_map *map)
 	if (get_number_argument("Length in blocks: ", number) == 0) {
 		bad_input("Bad length");
 	} else {
-		multiple = get_multiplier(map->physical_block);
+		multiple = get_multiplier(map->sbBlkSize);
 		if (multiple == 0) {
 			bad_input("Bad multiplier");
 		} else if (multiple != 1) {
@@ -325,7 +340,7 @@ get_size_argument(long *number, struct partition_map *map)
 			if (entry == NULL) {
 				bad_input("Bad partition number");
 			} else {
-				*number = entry->dpme->dpme_pblocks;
+				*number = entry->dpme_pblocks;
 				result = 1;
 			}
 		} else {
@@ -353,7 +368,7 @@ do_rename_partition(struct partition_map *map)
 		return;
 	}
 
-	printf("Existing partition name ``%s''.\n", entry->dpme->dpme_name);
+	printf("Existing partition name ``%s''.\n", entry->dpme_name);
 	name = get_dpistr_argument("New name of partition: ");
 	if (name == NULL) {
 		bad_input("Bad name");
@@ -364,8 +379,8 @@ do_rename_partition(struct partition_map *map)
 	 * Since dpme_name is supposed to be NUL-filled, make sure
 	 * current contents are zapped before copying in new name!
 	 */
-	memset(entry->dpme->dpme_name, 0, sizeof(entry->dpme->dpme_name));
-	strlcpy(entry->dpme->dpme_name, name, sizeof(entry->dpme->dpme_name));
+	memset(entry->dpme_name, 0, sizeof(entry->dpme_name));
+	strlcpy(entry->dpme_name, name, sizeof(entry->dpme_name));
 	map->changed = 1;
 
 	free(name);
@@ -389,7 +404,7 @@ do_change_type(struct partition_map *map)
 		return;
 	}
 
-	printf("Existing partition type ``%s''.\n", entry->dpme->dpme_type);
+	printf("Existing partition type ``%s''.\n", entry->dpme_type);
 	type = get_dpistr_argument("New type of partition: ");
 	if (type == NULL) {
 		bad_input("Bad type");
@@ -400,8 +415,8 @@ do_change_type(struct partition_map *map)
 	 * Since dpme_type is supposed to be NUL-filled, make sure
          * current contents are zapped before copying in new type!
 	 */
-	memset(entry->dpme->dpme_type, 0, sizeof(entry->dpme->dpme_type));
-	strncpy(entry->dpme->dpme_type, type, sizeof(entry->dpme->dpme_type));
+	memset(entry->dpme_type, 0, sizeof(entry->dpme_type));
+	strncpy(entry->dpme_type, type, sizeof(entry->dpme_type));
 	map->changed = 1;
 
 	free(type);

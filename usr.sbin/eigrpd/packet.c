@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.8 2016/01/15 12:43:02 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.12 2016/02/21 18:56:49 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -124,11 +124,11 @@ send_packet_v6(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 	memset(&sa6, 0, sizeof(sa6));
 	sa6.sin6_family = AF_INET6;
 	sa6.sin6_len = sizeof(struct sockaddr_in6);
-	if (nbr)
+	if (nbr) {
 		sa6.sin6_addr = nbr->addr.v6;
-	else
-		memcpy(&sa6.sin6_addr, &maddr, sizeof(sa6.sin6_addr));
-	addscope(&sa6, iface->ifindex);
+		addscope(&sa6, iface->ifindex);
+	} else
+		sa6.sin6_addr = maddr;
 
 	/* set outgoing interface for multicast traffic */
 	if (IN6_IS_ADDR_MULTICAST(&sa6.sin6_addr))
@@ -376,7 +376,7 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 				goto error;
 			if ((re = calloc(1, sizeof(*re))) == NULL)
 				fatal("recv_packet");
-			memcpy(&re->rinfo, &ri, sizeof(re->rinfo));
+			re->rinfo = ri;
 			TAILQ_INSERT_TAIL(&rinfo_list, re, entry);
 			break;
 		case TLV_TYPE_AUTH:
@@ -515,11 +515,11 @@ recv_packet_v4(int fd, short event, void *bula)
 	memcpy(&ip_hdr, buf, sizeof(ip_hdr));
 	if ((l = ip_hdr_sanity_check(&ip_hdr, len)) == -1)
 		return;
-	src.v4.s_addr = ip_hdr.ip_src.s_addr;
-	dest.v4.s_addr = ip_hdr.ip_dst.s_addr;
-
 	buf += l;
 	len -= l;
+
+	src.v4.s_addr = ip_hdr.ip_src.s_addr;
+	dest.v4.s_addr = ip_hdr.ip_dst.s_addr;
 
 	/* find a matching interface */
 	if ((iface = find_iface(ifindex, AF_INET, &src)) == NULL)
@@ -609,6 +609,13 @@ recv_packet_v6(int fd, short event, void *bula)
 	}
 	src.v6 = sin6.sin6_addr;
 
+	/* validate source address */
+	if (bad_addr_v6(&src.v6)) {
+		log_debug("%s: invalid source address: %s", __func__,
+		    log_addr(AF_INET, &src));
+		return;
+	}
+
 	/* find a matching interface */
 	if ((iface = find_iface(ifindex, AF_INET6, &src)) == NULL)
 		return;
@@ -637,19 +644,15 @@ recv_packet_v6(int fd, short event, void *bula)
 int
 ip_hdr_sanity_check(const struct ip *ip_hdr, uint16_t len)
 {
-	in_addr_t	 ipv4;
-
 	if (ntohs(ip_hdr->ip_len) != len) {
 		log_debug("%s: invalid IP packet length %u", __func__,
 		    ntohs(ip_hdr->ip_len));
 		return (-1);
 	}
 
-	ipv4 = ntohl(ip_hdr->ip_src.s_addr);
-	if (((ipv4 >> IN_CLASSA_NSHIFT) == 0)
-	    || ((ipv4 >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET)
-	    || IN_MULTICAST(ipv4) || IN_BADCLASS(ipv4)) {
-		log_debug("%s: invalid IP source address %s", __func__,
+	/* validate source address */
+	if (bad_addr_v4(ip_hdr->ip_src)) {
+		log_debug("%s: invalid source address: %s", __func__,
 		    inet_ntoa(ip_hdr->ip_src));
 		return (-1);
 	}
@@ -713,7 +716,7 @@ find_iface(unsigned int ifindex, int af, union eigrpd_addr *src)
 {
 	struct iface	*iface;
 	struct if_addr	*if_addr;
-	uint32_t	 mask;
+	in_addr_t	 mask;
 
 	iface = if_lookup(econf, ifindex);
 	if (iface == NULL)

@@ -865,6 +865,7 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ic/z8530reg.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ic/z8530sc.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ic/z8536reg.ph
+./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ipmi.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ipmivar.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/isa
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/isa/ad1848var.ph
@@ -948,6 +949,7 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/mii/xmphyreg.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/mulaw.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ofw
+./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ofw/fdt.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ofw/ofw_pci.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/ofw/openfirm.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/dev/onewire
@@ -2023,7 +2025,6 @@
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/hotplug.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/ioccom.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/ioctl.ph
-./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/ioctl_compat.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/ipc.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/kcore.ph
 ./usr/libdata/perl5/site_perl/powerpc-openbsd/sys/kernel.ph

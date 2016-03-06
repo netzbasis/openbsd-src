@@ -1,10 +1,10 @@
-/*	$OpenBSD: rtadvd.h,v 1.18 2015/11/30 21:04:15 jca Exp $	*/
+/*	$OpenBSD: rtadvd.h,v 1.24 2016/03/01 12:51:34 jca Exp $	*/
 /*	$KAME: rtadvd.h,v 1.20 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -34,9 +34,6 @@
 
 #define ALLNODES "ff02::1"
 #define ALLROUTERS_LINK "ff02::2"
-#define ALLROUTERS_SITE "ff05::2"
-#define ANY "::"
-#define RTSOLLEN 8
 
 /* protocol constants and default values */
 #define DEF_MAXRTRADVINTERVAL 600
@@ -74,7 +71,7 @@ struct prefix {
 	u_int onlinkflg;	/* bool: AdvOnLinkFlag */
 	u_int autoconfflg;	/* bool: AdvAutonomousFlag */
 	int prefixlen;
-	int origin;		/* from kernel or cofig */
+	int origin;		/* from kernel or config */
 	struct in6_addr prefix;
 };
 
@@ -117,11 +114,6 @@ struct dnssl {
 	TAILQ_HEAD(dnssldomlist, dnssldom) dnssldoms;
 };
 
-struct soliciter {
-	SLIST_ENTRY(soliciter) entry;
-	struct sockaddr_in6 addr;
-};
-
 struct	rainfo {
 	/* pointer for list */
 	SLIST_ENTRY(rainfo) entry;
@@ -153,12 +145,9 @@ struct	rainfo {
 	TAILQ_HEAD(prefixlist, prefix) prefixes; /* AdvPrefixList(link head) */
 	int	pfxs;		/* number of prefixes */
 	TAILQ_HEAD(rtinfolist, rtinfo) rtinfos;
-	int     rtinfocnt;
 	TAILQ_HEAD(rdnsslist, rdnss) rdnsss; /* advertised recursive dns servers */
-	int	rdnsscnt;	/* number of rdnss entries */
 	TAILQ_HEAD(dnssllist, dnssl) dnssls;
-	int	dnsslcnt;
-	long	clockskew;	/* used for consisitency check of lifetimes */
+	long	clockskew;	/* used for consistency check of lifetimes */
 
 
 	/* actual RA packet data and its length */
@@ -170,17 +159,11 @@ struct	rainfo {
 	u_quad_t rainput;	/* number of RAs received */
 	u_quad_t rainconsistent; /* number of RAs inconsistent with ours */
 	u_quad_t rsinput;	/* number of RSs received */
-
-	/* info about soliciter */
-	SLIST_HEAD(, soliciter) soliciters; /* recent solication source */
 };
 SLIST_HEAD(ralist, rainfo);
 
 void ra_timeout(void *);
 void ra_timer_update(void *, struct timeval *);
 
-int prefix_match(struct in6_addr *, int, struct in6_addr *, int);
 struct rainfo *if_indextorainfo(int);
 struct prefix *find_prefix(struct rainfo *, struct in6_addr *, int);
-
-extern struct in6_addr in6a_site_allrouters;

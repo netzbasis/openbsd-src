@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.c,v 1.4 2015/12/05 15:49:01 claudio Exp $ */
+/*	$OpenBSD: eigrpd.c,v 1.8 2016/02/23 14:51:13 gsoares Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -171,7 +171,7 @@ main(int argc, char *argv[])
 	mib[3] = IPCTL_FORWARDING;
 	len = sizeof(ipforwarding);
 	if (sysctl(mib, 4, &ipforwarding, &len, NULL, 0) == -1)
-		err(1, "sysctl");
+		log_warn("sysctl");
 
 	if (ipforwarding != 1)
 		log_warnx("WARNING: IP forwarding NOT enabled");
@@ -227,9 +227,6 @@ main(int argc, char *argv[])
 	eigrpe_pid = eigrpe(eigrpd_conf, pipe_parent2eigrpe, pipe_eigrpe2rde,
 	    pipe_parent2rde);
 
-	/* show who we are */
-	setproctitle("parent");
-
 	event_init();
 
 	/* setup signal handler */
@@ -275,7 +272,7 @@ main(int argc, char *argv[])
 	    eigrpd_conf->rdomain) == -1)
 		fatalx("kr_init failed");
 
-	if (pledge("stdio proc", NULL) == -1)
+	if (pledge("inet rpath stdio proc", NULL) == -1)
 		fatal("pledge");
 
 	event_dispatch();
@@ -653,7 +650,7 @@ config_clear(struct eigrpd_conf *conf)
 
 	/* merge current config with an empty config */
 	xconf = malloc(sizeof(*xconf));
-	memcpy(xconf, conf, sizeof(*xconf));
+	*xconf = *conf;
 	TAILQ_INIT(&xconf->instances);
 	merge_config(conf, xconf);
 

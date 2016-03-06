@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.33 2016/01/29 00:47:51 jsg Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.40 2016/03/03 18:45:42 stefan Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -64,7 +64,6 @@ struct vm {
 	uint32_t		 vm_id;
 	pid_t			 vm_creator_pid;
 	uint32_t		 vm_memory_size;
-	size_t			 vm_used_size;
 	char			 vm_name[VMM_MAX_NAME_LEN];
 
 	struct vcpu_head	 vm_vcpu_list;
@@ -111,6 +110,7 @@ int vm_get_info(struct vm_info_params *);
 int vm_writepage(struct vm_writepage_params *);
 int vm_readpage(struct vm_readpage_params *);
 int vm_resetcpu(struct vm_resetcpu_params *);
+int vm_intr_pending(struct vm_intr_params *);
 int vcpu_reset_regs(struct vcpu *, struct vcpu_init_state *);
 int vcpu_reset_regs_vmx(struct vcpu *, struct vcpu_init_state *);
 int vcpu_reset_regs_svm(struct vcpu *, struct vcpu_init_state *);
@@ -148,7 +148,6 @@ int svm_get_guest_faulttype(void);
 int vmx_get_exit_qualification(uint64_t *);
 int vmx_fault_page(struct vcpu *, paddr_t);
 int vmx_handle_np_fault(struct vcpu *);
-int vmx_fix_ept_pte(struct pmap *, vaddr_t);
 const char *vmx_exit_reason_decode(uint32_t);
 const char *vmx_instruction_error_decode(uint32_t);
 void dump_vcpu(struct vcpu *);
@@ -350,6 +349,9 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case VMM_IOC_RESETCPU:
 		ret = vm_resetcpu((struct vm_resetcpu_params *)data);
 		break;
+	case VMM_IOC_INTR:
+		ret = vm_intr_pending((struct vm_intr_params *)data);
+		break;
 	default:
 		ret = ENOTTY;
 	}
@@ -534,6 +536,54 @@ vm_resetcpu(struct vm_resetcpu_params *vrp)
 }
 
 /*
+ * vm_intr_pending
+ *
+ * IOCTL handler routine for VMM_IOC_INTR messages, sent from vmd when an
+ * interrupt is pending and needs acknowledgment.
+ *
+ * Parameters:
+ *  vip: Describes the vm/vcpu for which the interrupt is pending
+ *
+ * Return values:
+ *  0: if successful
+ *  ENOENT: if the VM/VCPU defined by 'vip' cannot be found
+ */
+int
+vm_intr_pending(struct vm_intr_params *vip)
+{
+	struct vm *vm;
+	struct vcpu *vcpu;
+	
+	/* Find the desired VM */
+	rw_enter_read(&vmm_softc->vm_lock);
+	SLIST_FOREACH(vm, &vmm_softc->vm_list, vm_link) {
+		if (vm->vm_id == vip->vip_vm_id)
+			break;
+	}
+
+	/* Not found? exit. */
+	if (vm == NULL) {
+		rw_exit_read(&vmm_softc->vm_lock);
+		return (ENOENT);
+	}
+
+	rw_enter_read(&vm->vm_vcpu_lock);
+	SLIST_FOREACH(vcpu, &vm->vm_vcpu_list, vc_vcpu_link) {
+		if (vcpu->vc_id == vip->vip_vcpu_id)
+			break;
+	}
+	rw_exit_read(&vm->vm_vcpu_lock);
+	rw_exit_read(&vmm_softc->vm_lock);
+
+	if (vcpu == NULL)
+		return (ENOENT);
+
+	vcpu->vc_intr = vip->vip_intr;
+
+	return (0);
+}
+
+/*
  * vm_writepage
  *
  * Writes a region (PAGE_SIZE max) of guest physical memory using the parameters
@@ -634,13 +684,6 @@ vm_writepage(struct vm_writepage_params *vwp)
 
 	free(pagedata, M_DEVBUF, PAGE_SIZE);
 
-	/* Fixup the EPT map for this page */
-	if (vmx_fix_ept_pte(vm->vm_map->pmap, vw_page)) {
-		DPRINTF("vm_writepage: cant fixup ept pte for gpa 0x%llx\n",
-		    (uint64_t)vwp->vwp_paddr);
-		rw_exit_read(&vmm_softc->vm_lock);
-		return (EFAULT);
-	}
 	rw_exit_read(&vmm_softc->vm_lock);
 
 	return (0);
@@ -972,7 +1015,7 @@ vm_impl_init_vmx(struct vm *vm)
 	    PROT_READ | PROT_WRITE | PROT_EXEC,
 	    MAP_INHERIT_NONE,
 	    MADV_NORMAL,
-	    UVM_FLAG_FIXED | UVM_FLAG_OVERLAY));
+	    UVM_FLAG_FIXED | UVM_FLAG_COPYONW));
 	if (ret) {
 		printf("vm_impl_init_vmx: uvm_mapanon failed (%d)\n", ret);
 		/* uvm_map_deallocate calls pmap_destroy for us */
@@ -1429,19 +1472,47 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 	}
 
 	/*
-	 * Determine default CR0 as per Intel SDM A.7
-	 * All flexible bits are set to 0
+	 * Determine which bits in CR0 have to be set to a fixed
+	 * value as per Intel SDM A.7.
+	 * CR0 bits in the vis parameter must match these.
 	 */
-	cr0 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0) &
-	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1);
-	cr0 |= (CR0_CD | CR0_NW | CR0_ET);
 
+	want1 = (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0) &
+	    (curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1);
+	want0 = ~(curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed0) &
+	    ~(curcpu()->ci_vmm_cap.vcc_vmx.vmx_cr0_fixed1);
+
+	/*
+	 * CR0_FIXED0 and CR0_FIXED1 may report the CR0_PG and CR0_PE bits as
+	 * fixed to 1 even if the CPU supports the unrestricted guest
+	 * feature. Update want1 and want0 accordingly to allow
+	 * any value for CR0_PG and CR0_PE in vis->vis_cr0 if the CPU has
+	 * the unrestricted guest capability.
+	 */
 	if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED_CTLS,
 	    IA32_VMX_ACTIVATE_SECONDARY_CONTROLS, 1)) {
 		if (vcpu_vmx_check_cap(vcpu, IA32_VMX_PROCBASED2_CTLS,
 		    IA32_VMX_UNRESTRICTED_GUEST, 1))
-//			cr0 &= ~(CR0_PG);
-			cr0 &= ~(CR0_PG | CR0_PE);
+			want1 &= ~(CR0_PG | CR0_PE);
+			want0 &= ~(CR0_PG | CR0_PE);
+	}
+
+	cr0 = vis->vis_cr0;
+
+	/*
+	 * VMX may require some bits to be set that userland should not have
+	 * to care about. Set those here.
+	 */
+	if (want1 & CR0_NE)
+		cr0 |= CR0_NE;
+
+	if ((cr0 & want1) != want1) {
+		ret = EINVAL;
+		goto exit;
+	}
+	if ((~cr0 & want0) != want0) {
+		ret = EINVAL;
+		goto exit;
 	}
 
 	if (vmwrite(VMCS_GUEST_IA32_CR0, cr0)) {
@@ -1928,6 +1999,9 @@ exit:
 		if (vcpu->vc_control_va)
 			km_free((void *)vcpu->vc_control_va, PAGE_SIZE,
 			    &kv_page, &kp_zero);
+		if (vcpu->vc_msr_bitmap_va)
+			km_free((void *)vcpu->vc_msr_bitmap_va, PAGE_SIZE,
+			    &kv_page, &kp_zero);
 		if (vcpu->vc_vmx_msr_exit_save_va)
 			km_free((void *)vcpu->vc_vmx_msr_exit_save_va,
 			    PAGE_SIZE, &kv_page, &kp_zero);
@@ -2382,7 +2456,8 @@ vm_get_info(struct vm_info_params *vip)
 	vip->vip_info_ct = vmm_softc->vm_ct;
 	SLIST_FOREACH(vm, &vmm_softc->vm_list, vm_link) {
 		out[i].vir_memory_size = vm->vm_memory_size;
-		out[i].vir_used_size = vm->vm_used_size;
+		out[i].vir_used_size =
+		    pmap_resident_count(vm->vm_map->pmap) * PAGE_SIZE;
 		out[i].vir_ncpus = vm->vm_vcpu_ct;
 		out[i].vir_id = vm->vm_id;
 		out[i].vir_creator_pid = vm->vm_creator_pid;
@@ -3069,7 +3144,6 @@ int
 vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 {
 	int fault_type, ret;
-	struct pmap *pmap;
 
 	fault_type = vmx_get_guest_faulttype();
 	if (fault_type == -1) {
@@ -3079,15 +3153,8 @@ vmx_fault_page(struct vcpu *vcpu, paddr_t gpa)
 
 	ret = uvm_fault(vcpu->vc_parent->vm_map, gpa, fault_type,
 	    PROT_READ | PROT_WRITE | PROT_EXEC);
-	if (!ret) {
-		pmap = vcpu->vc_parent->vm_map->pmap;
-		if (vmx_fix_ept_pte(pmap, gpa)) {
-			printf("vmx_fault_page: ept fixup failure\n");
-			ret = EINVAL;
-		}
-	} else {
+	if (ret)
 		printf("vmx_fault_page: uvm_fault returns %d\n", ret);
-	}
 
 	return (ret);
 }
@@ -3459,22 +3526,6 @@ int
 vcpu_run_svm(struct vcpu *vcpu, uint8_t from_exit)
 {
 	/* XXX removed due to rot */
-	return (0);
-}
-
-/*
- * vmx_fix_ept_pte
- *
- * Fixes up the pmap PTE entry for 'addr' to reflect proper EPT format
- */
-int
-vmx_fix_ept_pte(struct pmap *pmap, vaddr_t addr)
-{
-	int offs, level;
-
-	level = pmap_fix_ept(pmap, addr, &offs);
-	KASSERT(level == 0);
-
 	return (0);
 }
 

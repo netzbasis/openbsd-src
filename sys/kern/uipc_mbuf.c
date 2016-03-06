@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.217 2016/01/07 22:23:13 sashan Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.219 2016/02/23 01:39:14 dlg Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -72,8 +72,6 @@
  * Research Laboratory (NRL).
  */
 
-#include "pf.h"
-
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -87,9 +85,6 @@
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <net/if.h>
-#if NPF > 0
-#include <net/pfvar.h>
-#endif	/* NPF > 0 */
 
 
 #include <uvm/uvm_extern.h>
@@ -266,10 +261,6 @@ m_resethdr(struct mbuf *m)
 	/* delete all mbuf tags to reset the state */
 	m_tag_delete_chain(m);
 
-#if NPF > 0
-	pf_pkt_unlink_state_key(m);
-#endif	/* NPF > 0 */
-
 	/* like m_inithdr(), but keep any associated data and mbufs */
 	memset(&m->m_pkthdr, 0, sizeof(m->m_pkthdr));
 	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
@@ -359,12 +350,8 @@ m_free(struct mbuf *m)
 		if (n)
 			n->m_flags |= M_ZEROIZE;
 	}
-	if (m->m_flags & M_PKTHDR) {
+	if (m->m_flags & M_PKTHDR)
 		m_tag_delete_chain(m);
-#if NPF > 0
-		pf_pkt_unlink_state_key(m);
-#endif	/* NPF > 0 */
-	}
 	if (m->m_flags & M_EXT)
 		m_extfree(m);
 
@@ -1215,10 +1202,6 @@ m_dup_pkthdr(struct mbuf *to, struct mbuf *from, int wait)
 	to->m_flags |= (from->m_flags & M_COPYFLAGS);
 	to->m_pkthdr = from->m_pkthdr;
 
-#if NPF > 0
-	pf_pkt_state_key_ref(to);
-#endif /* NPF > 0 */
-
 	SLIST_INIT(&to->m_pkthdr.ph_tags);
 
 	if ((error = m_tag_copy_chain(to, from, wait)) != 0)
@@ -1228,6 +1211,40 @@ m_dup_pkthdr(struct mbuf *to, struct mbuf *from, int wait)
 		to->m_data = to->m_pktdat;
 
 	return (0);
+}
+
+struct mbuf *
+m_dup_pkt(struct mbuf *m0, unsigned int adj, int wait)
+{
+	struct mbuf *m;
+	int len;
+
+	len = m0->m_pkthdr.len + adj;
+	if (len > MAXMCLBYTES) /* XXX */
+		return (NULL);
+
+	m = m_get(m0->m_type, wait);
+	if (m == NULL)
+		return (NULL);
+
+	if (m_dup_pkthdr(m, m0, wait) != 0)
+		goto fail;
+
+	if (len > MHLEN) {
+		MCLGETI(m, len, NULL, wait);
+		if (!ISSET(m->m_flags, M_EXT))
+			goto fail;
+	}
+
+	m->m_len = m->m_pkthdr.len = len;
+	m_adj(m, adj);
+	m_copydata(m0, 0, m0->m_pkthdr.len, mtod(m, caddr_t));
+
+	return (m);
+
+fail:
+	m_freem(m);
+	return (NULL);
 }
 
 #ifdef DDB

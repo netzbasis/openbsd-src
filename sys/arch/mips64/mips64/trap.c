@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.112 2016/01/10 10:22:56 visa Exp $	*/
+/*	$OpenBSD: trap.c,v 1.115 2016/03/01 11:56:00 mpi Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -127,7 +127,7 @@ uint64_t kdbpeekd(vaddr_t);
 #endif	/* DDB || DEBUG */
 
 #if defined(DDB)
-extern int kdb_trap(int, db_regs_t *);
+extern int db_ktrap(int, db_regs_t *);
 #endif
 
 void	ast(void);
@@ -281,73 +281,26 @@ itsa(struct trap_frame *trapframe, struct cpu_info *ci, struct proc *p,
 	case T_TLB_MOD:
 		/* check for kernel address */
 		if (trapframe->badvaddr < 0) {
-			pt_entry_t *pte, entry;
-			paddr_t pa;
-			vm_page_t pg;
-
-			pte = kvtopte(trapframe->badvaddr);
-			entry = *pte;
-#ifdef DIAGNOSTIC
-			if (!(entry & PG_V) || (entry & PG_M))
-				panic("trap: ktlbmod: invalid pte");
-#endif
-			if (pmap_is_page_ro(pmap_kernel(),
-			    trunc_page(trapframe->badvaddr), entry)) {
+			if (pmap_emulate_modify(pmap_kernel(),
+			    trapframe->badvaddr)) {
 				/* write to read only page in the kernel */
 				ftype = PROT_WRITE;
 				pcb = &p->p_addr->u_pcb;
 				goto kernel_fault;
 			}
-			entry |= PG_M;
-			*pte = entry;
-			KERNEL_LOCK();
-			pmap_update_kernel_page(trapframe->badvaddr & ~PGOFSET,
-			    entry);
-			pa = pfn_to_pad(entry);
-			pg = PHYS_TO_VM_PAGE(pa);
-			if (pg == NULL)
-				panic("trap: ktlbmod: unmanaged page");
-			pmap_set_modify(pg);
-			KERNEL_UNLOCK();
 			return;
 		}
 		/* FALLTHROUGH */
 
 	case T_TLB_MOD+T_USER:
-	    {
-		pt_entry_t *pte, entry;
-		paddr_t pa;
-		vm_page_t pg;
-		pmap_t pmap = p->p_vmspace->vm_map.pmap;
-
-		if (!(pte = pmap_segmap(pmap, trapframe->badvaddr)))
-			panic("trap: utlbmod: invalid segmap");
-		pte += uvtopte(trapframe->badvaddr);
-		entry = *pte;
-#ifdef DIAGNOSTIC
-		if (!(entry & PG_V) || (entry & PG_M))
-			panic("trap: utlbmod: invalid pte");
-#endif
-		if (pmap_is_page_ro(pmap,
-		    trunc_page(trapframe->badvaddr), entry)) {
+		if (pmap_emulate_modify(p->p_vmspace->vm_map.pmap,
+		    trapframe->badvaddr)) {
 			/* write to read only page */
 			ftype = PROT_WRITE;
 			pcb = &p->p_addr->u_pcb;
 			goto fault_common_no_miss;
 		}
-		entry |= PG_M;
-		*pte = entry;
-		KERNEL_LOCK();
-		pmap_update_user_page(pmap, (trapframe->badvaddr & ~PGOFSET), 
-		    entry);
-		pa = pfn_to_pad(entry);
-		pg = PHYS_TO_VM_PAGE(pa);
-		if (pg == NULL)
-			panic("trap: utlbmod: unmanaged page");
-		pmap_set_modify(pg);
-		KERNEL_UNLOCK();
 		return;
-	    }
 
 	case T_TLB_LD_MISS:
 	case T_TLB_ST_MISS:
@@ -584,7 +537,7 @@ fault_common_no_miss:
 
 	case T_BREAK:
 #ifdef DDB
-		kdb_trap(type, trapframe);
+		db_ktrap(type, trapframe);
 #endif
 		/* Reenable interrupts if necessary */
 		if (trapframe->sr & SR_INT_ENAB) {
@@ -835,7 +788,7 @@ fault_common_no_miss:
 		    (void *)trapframe->badvaddr);
 #ifdef DDB
 		stacktrace(!USERMODE(trapframe->sr) ? trapframe : p->p_md.md_regs);
-		kdb_trap(type, trapframe);
+		db_ktrap(type, trapframe);
 #endif
 		panic("trap");
 	}
@@ -1251,17 +1204,17 @@ loop:
 	 * Watch out for function tail optimizations.
 	 */
 	sym = db_search_symbol(pc, DB_STGY_ANY, &diff);
-	if (sym != DB_SYM_NULL && diff == 0) {
+	if (sym != NULL && diff == 0) {
 		instr = kdbpeek(pc - 2 * sizeof(int));
 		i.word = instr;
 		if (i.JType.op == OP_JAL) {
 			sym = db_search_symbol(pc - sizeof(int),
 			    DB_STGY_ANY, &diff);
-			if (sym != DB_SYM_NULL && diff != 0)
+			if (sym != NULL && diff != 0)
 				diff += sizeof(int);
 		}
 	}
-	if (sym != DB_SYM_NULL) {
+	if (sym != NULL) {
 		db_symbol_values(sym, &symname, 0);
 		subr = pc - (vaddr_t)diff;
 	}

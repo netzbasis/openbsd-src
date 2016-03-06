@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_dual.c,v 1.19 2016/01/28 13:25:14 jsg Exp $ */
+/*	$OpenBSD: rde_dual.c,v 1.24 2016/02/21 19:03:58 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -145,26 +145,11 @@ dual_fsm(struct rt_node *rn, enum dual_event event)
 static int
 rt_compare(struct rt_node *a, struct rt_node *b)
 {
-	switch (a->eigrp->af) {
-	case AF_INET:
-		if (ntohl(a->prefix.v4.s_addr) <
-		    ntohl(b->prefix.v4.s_addr))
-			return (-1);
-		if (ntohl(a->prefix.v4.s_addr) >
-		    ntohl(b->prefix.v4.s_addr))
-			return (1);
-		break;
-	case AF_INET6:
-		if (memcmp(a->prefix.v6.s6_addr,
-		    b->prefix.v6.s6_addr, 16) < 0)
-			return (-1);
-		if (memcmp(a->prefix.v6.s6_addr,
-		    b->prefix.v6.s6_addr, 16) > 0)
-			return (1);
-		break;
-	default:
-		fatalx("rt_compare: unknown af");
-	}
+	int		 addrcmp;
+
+	addrcmp = eigrp_addrcmp(a->eigrp->af, &a->prefix, &b->prefix);
+	if (addrcmp != 0)
+		return (addrcmp);
 
 	if (a->prefixlen < b->prefixlen)
 		return (-1);
@@ -180,7 +165,7 @@ rt_find(struct eigrp *eigrp, struct rinfo *ri)
 	struct rt_node	 rn;
 
 	rn.eigrp = eigrp;
-	memcpy(&rn.prefix, &ri->prefix, sizeof(rn.prefix));
+	rn.prefix = ri->prefix;
 	rn.prefixlen = ri->prefixlen;
 
 	return (RB_FIND(rt_tree, &eigrp->topology, &rn));
@@ -195,7 +180,7 @@ rt_new(struct eigrp *eigrp, struct rinfo *ri)
 		fatal("rt_new");
 
 	rn->eigrp = eigrp;
-	memcpy(&rn->prefix, &ri->prefix, sizeof(rn->prefix));
+	rn->prefix = ri->prefix;
 	rn->prefixlen = ri->prefixlen;
 	rn->state = DUAL_STA_PASSIVE;
 	TAILQ_INIT(&rn->routes);
@@ -268,30 +253,16 @@ route_new(struct rt_node *rn, struct rde_nbr *nbr, struct rinfo *ri)
 	route->nbr = nbr;
 	route->type = ri->type;
 	if (eigrp_addrisset(eigrp->af, &ri->nexthop))
-		memcpy(&route->nexthop, &ri->nexthop, sizeof(route->nexthop));
+		route->nexthop = ri->nexthop;
 	else
-		memcpy(&route->nexthop, &nbr->addr, sizeof(route->nexthop));
+		route->nexthop = nbr->addr;
 	route_update_metrics(eigrp, route, ri);
 
 	/* order by nexthop */
-	TAILQ_FOREACH(tmp, &rn->routes, entry) {
-		switch (eigrp->af) {
-		case AF_INET:
-			if (ntohl(tmp->nexthop.v4.s_addr) >
-			    ntohl(route->nexthop.v4.s_addr))
-				goto insert;
+	TAILQ_FOREACH(tmp, &rn->routes, entry)
+		if (eigrp_addrcmp(eigrp->af, &tmp->nexthop,
+		    &route->nexthop) > 0)
 			break;
-		case AF_INET6:
-			if (memcmp(&tmp->nexthop.v6.s6_addr[0],
-			    &route->nexthop.v6.s6_addr[0],
-			    sizeof(struct in6_addr)) > 0)
-				goto insert;
-			break;
-		default:
-			fatalx("route_new: unknown af");
-		}
-	}
-insert:
 	if (tmp)
 		TAILQ_INSERT_BEFORE(tmp, route, entry);
 	else
@@ -420,8 +391,8 @@ route_update_metrics(struct eigrp *eigrp, struct eigrp_route *route,
 	uint32_t		 delay, bandwidth;
 	int			 mtu;
 
-	memcpy(&route->metric, &ri->metric, sizeof(route->metric));
-	memcpy(&route->emetric, &ri->emetric, sizeof(route->emetric));
+	route->metric = ri->metric;
+	route->emetric = ri->emetric;
 	route->flags |= F_EIGRP_ROUTE_M_CHANGED;
 
 	delay = eigrp_real_delay(route->metric.delay);
@@ -472,8 +443,10 @@ reply_outstanding_add(struct rt_node *rn, struct rde_nbr *nbr)
 	TAILQ_INSERT_TAIL(&rn->rijk, reply, rn_entry);
 	TAILQ_INSERT_TAIL(&nbr->rijk, reply, nbr_entry);
 
-	reply_active_start_timer(reply);
-	reply_sia_start_timer(reply);
+	if (rn->eigrp->active_timeout > 0) {
+		reply_active_start_timer(reply);
+		reply_sia_start_timer(reply);
+	}
 }
 
 struct reply_node *
@@ -516,9 +489,6 @@ reply_active_start_timer(struct reply_node *reply)
 {
 	struct eigrp		*eigrp = reply->nbr->eigrp;
 	struct timeval		 tv;
-
-	if (eigrp->active_timeout == 0)
-		return;
 
 	timerclear(&tv);
 	tv.tv_sec = eigrp->active_timeout * 60;
@@ -573,7 +543,6 @@ reply_sia_timer(int fd, short event, void *arg)
 	rinfo_fill_successor(rn, &ri);
 	ri.metric.flags |= F_METRIC_ACTIVE;
 	rde_send_siaquery(nbr, &ri);
-
 }
 
 void
@@ -581,9 +550,6 @@ reply_sia_start_timer(struct reply_node *reply)
 {
 	struct eigrp		*eigrp = reply->nbr->eigrp;
 	struct timeval		 tv;
-
-	if (eigrp->active_timeout == 0)
-		return;
 
 	/*
 	 * draft-savage-eigrp-04 - Section 4.4.1.1:
@@ -615,12 +581,11 @@ rinfo_fill_successor(struct rt_node *rn, struct rinfo *ri)
 	memset(ri, 0, sizeof(*ri));
 	ri->af = rn->eigrp->af;
 	ri->type = rn->successor.type;
-	memcpy(&ri->prefix, &rn->prefix, sizeof(ri->prefix));
+	ri->prefix = rn->prefix;
 	ri->prefixlen = rn->prefixlen;
-	memcpy(&ri->metric, &rn->successor.metric, sizeof(ri->metric));
+	ri->metric = rn->successor.metric;
 	if (ri->type == EIGRP_ROUTE_EXTERNAL)
-		memcpy(&ri->emetric, &rn->successor.emetric,
-		    sizeof(ri->emetric));
+		ri->emetric = rn->successor.emetric;
 }
 
 void
@@ -629,7 +594,7 @@ rinfo_fill_infinite(struct rt_node *rn, enum route_type type, struct rinfo *ri)
 	memset(ri, 0, sizeof(*ri));
 	ri->af = rn->eigrp->af;
 	ri->type = type;
-	memcpy(&ri->prefix, &rn->prefix, sizeof(ri->prefix));
+	ri->prefix = rn->prefix;
 	ri->prefixlen = rn->prefixlen;
 	ri->metric.delay = EIGRP_INFINITE_METRIC;
 }
@@ -650,8 +615,12 @@ rt_update_fib(struct rt_node *rn)
 			return;
 
 		TAILQ_FOREACH(route, &rn->routes, entry) {
+			/* skip redistributed routes */
+			if (route->nbr->flags & F_RDE_NBR_REDIST)
+				continue;
+
 			/*
-			 * only feasible successors and the successor itself
+			 * Only feasible successors and the successor itself
 			 * are elegible to be installed.
 			 */
 			if (route->rdistance > rn->successor.fdistance)
@@ -706,10 +675,8 @@ rt_set_successor(struct rt_node *rn, struct eigrp_route *successor)
 		rn->successor.type = successor->type;
 		rn->successor.fdistance = successor->distance;
 		rn->successor.rdistance = successor->rdistance;
-		memcpy(&rn->successor.metric, &successor->metric,
-		    sizeof(rn->successor.metric));
-		memcpy(&rn->successor.emetric, &successor->emetric,
-		    sizeof(rn->successor.emetric));
+		rn->successor.metric = successor->metric;
+		rn->successor.emetric = successor->emetric;
 	}
 
 	TAILQ_FOREACH(ei, &eigrp->ei_list, e_entry) {
@@ -976,7 +943,7 @@ rde_check_query(struct rde_nbr *nbr, struct rinfo *ri, int siaquery)
 	 */
 	rn = rt_find(eigrp, ri);
 	if (rn == NULL) {
-		memcpy(&sri, ri, sizeof(sri));
+		sri = *ri;
 		sri.metric.delay = EIGRP_INFINITE_METRIC;
 		rde_send_reply(nbr, &sri, 0);
 
@@ -1313,8 +1280,8 @@ rde_nbr_new(uint32_t peerid, struct rde_nbr *new)
 
 	nbr->peerid = peerid;
 	nbr->ifaceid = new->ifaceid;
-	memcpy(&nbr->addr,  &new->addr, sizeof(nbr->addr));
-	nbr->ei = eigrp_iface_find_id(nbr->ifaceid);
+	nbr->addr = new->addr;
+	nbr->ei = eigrp_if_lookup_id(nbr->ifaceid);
 	if (nbr->ei)
 		nbr->eigrp = nbr->ei->eigrp;
 	TAILQ_INIT(&nbr->rijk);

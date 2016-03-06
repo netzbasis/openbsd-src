@@ -1,10 +1,10 @@
-/*	$OpenBSD: if.c,v 1.35 2015/12/11 20:15:52 mmcc Exp $	*/
+/*	$OpenBSD: if.c,v 1.39 2016/03/01 20:51:05 jca Exp $	*/
 /*	$KAME: if.c,v 1.17 2001/01/21 15:27:30 itojun Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -71,7 +71,7 @@ static void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 {
 	int i;
-	
+
 	for (i = 0; i < RTAX_MAX; i++) {
 		if (addrs & (1 << i)) {
 			rti_info[i] = sa;
@@ -137,9 +137,11 @@ if_getmtu(char *name)
 		if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0)
 			return(0);
 
+		memset(&ifr, 0, sizeof(ifr));
 		ifr.ifr_addr.sa_family = AF_INET6;
-		strncpy(ifr.ifr_name, name,
-			sizeof(ifr.ifr_name));
+		if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+		    sizeof(ifr.ifr_name))
+			fatalx("strlcpy");
 		if (ioctl(s, SIOCGIFMTU, (caddr_t)&ifr) < 0) {
 			close(s);
 			return(0);
@@ -208,8 +210,6 @@ lladdropt_fill(struct sockaddr_dl *sdl, struct nd_opt_hdr *ndopt)
 		log_warn("unsupported link type(%d)", sdl->sdl_type);
 		exit(1);
 	}
-
-	return;
 }
 
 #define SIN6(s) ((struct sockaddr_in6 *)(s))
@@ -339,7 +339,7 @@ get_prefixlen(char *buf)
 	struct rt_msghdr *rtm = (struct rt_msghdr *)buf;
 	struct sockaddr *sa, *rti_info[RTAX_MAX];
 	u_char *p, *lim;
-	
+
 	sa = (struct sockaddr *)(buf + rtm->rtm_hdrlen);
 	get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
 	sa = rti_info[RTAX_NETMASK];
@@ -427,7 +427,7 @@ get_iflist(char **buf, size_t *size)
 		if (*size == 0)
 			break;
 		if ((*buf = realloc(*buf, *size)) == NULL)
-			fatal("malloc");
+			fatal(NULL);
 		if (sysctl(mib, 6, *buf, size, NULL, 0) == -1) {
 			if (errno == ENOMEM)
 				continue;
@@ -457,7 +457,7 @@ parse_iflist(struct if_msghdr ***ifmlist_p, char *buf, size_t bufsize)
 	/* roughly estimate max list size of pointers to each if_msghdr */
 	malloc_size = (bufsize/iflentry_size) * sizeof(size_t);
 	if ((*ifmlist_p = malloc(malloc_size)) == NULL)
-		fatal("malloc");
+		fatal(NULL);
 
 	lim = buf + bufsize;
 	for (ifm = (struct if_msghdr *)buf; ifm < (struct if_msghdr *)lim;) {

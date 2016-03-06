@@ -1,4 +1,4 @@
-/* $OpenBSD: pmap.h,v 1.37 2015/10/01 16:03:48 kettenis Exp $ */
+/* $OpenBSD: pmap.h,v 1.39 2016/02/22 07:50:37 deraadt Exp $ */
 /* $NetBSD: pmap.h,v 1.37 2000/11/19 03:16:35 thorpej Exp $ */
 
 /*-
@@ -75,6 +75,7 @@
 #ifdef _KERNEL
 
 #include <sys/queue.h>
+#include <sys/mutex.h>
 
 /*
  * Machine-dependent virtual memory state.

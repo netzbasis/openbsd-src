@@ -1,4 +1,4 @@
-#	$OpenBSD: install.sub,v 1.875 2016/01/25 23:46:54 rpe Exp $
+#	$OpenBSD: install.sub,v 1.883 2016/03/05 17:18:27 rpe Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -295,7 +295,7 @@ disk_has() {
 	[[ -n $_disk && -n $_pttype ]] || exit
 
 	# Commands to inspect disk. Default: "fdisk $_disk"
-	local _c_hfs="pdisk -l /dev/${_disk}c"
+	local _c_hfs="pdisk -l $_disk"
 	local _c_sr="bioctl -q $_disk"
 
 	# Patterns for partition-table-types and partition-types.
@@ -450,7 +450,7 @@ unlock() {
 
 # Add trap to kill the listener process.
 retrap() {
-	trap 'kill -KILL $cppid 2>/dev/null; echo; stty echo; exit 0' \
+	trap 'kill -KILL $CPPID 2>/dev/null; echo; stty echo; exit 0' \
 		INT EXIT TERM
 }
 
@@ -790,14 +790,10 @@ v4_info() {
 		/inet/s///p'
 }
 
-# Convert a hex value passed as argument $1 to dotted decimal format.
+# Convert a netmask in hex format ($1) to dotted decimal format.
 hextodec() {
-	local _d _b
-
-	for _b in $(echo ${1#0x} | sed 's/\(..\)/\1 /g'); do
-		_d=$_d.$((0x$_b))
-	done
-	echo ${_d#.}
+	set -- $(echo ${1#0x} | sed 's/\(..\)/0x\1 /g')
+	echo $(($1)).$(($2)).$(($3)).$(($4))
 }
 
 # Create an entry in the hosts file. If an entry with the same symbolic name and
@@ -814,9 +810,8 @@ addhostent() {
 	[[ -z $_addr || -z $_name ]] && return
 
 	[[ $_addr == *:* ]] && _delim=":"
-	sed "/^[0-9a-fA-F]*[$_delim].*[ 	]$_name\$/d" /tmp/hosts \
-		>/tmp/hosts.new 2>/dev/null
-	mv /tmp/hosts.new /tmp/hosts
+	sed -i "/^[0-9a-fA-F]*[$_delim].*[ 	]$_name\$/d" \
+		/tmp/hosts 2>/dev/null
 
 	echo "$_addr $_name" >>/tmp/hosts
 }
@@ -1248,7 +1243,7 @@ install_files() {
 	# installation.  So, to minimize user confusion display the sets in the
 	# order in which they will be installed.
 	for _f in $THESETS; do
-		isin $_f $_files || continue;
+		isin $_f $_files || continue
 		_sets=$(addel $_f $_sets)
 		isin $_f $DEFAULTSETS "site$VERSION-$(hostname -s).tgz" &&
 			_get_sets=$(addel $_f $_get_sets)
@@ -1467,8 +1462,7 @@ install_http() {
 	# Get list of files from the server.
 	# Assumes index file is "index.txt" for http (or proxy).
 	# We can't use index.html since the format is server-dependent.
-	_file_list=$(ftp -Vo - "$_url_base/index.txt" |
-		sed 's/^.* //' | sed 's///')
+	_file_list=$(ftp -Vo - "$_url_base/index.txt" | sed 's/^.* //;s///')
 
 	install_files "$_url_base" "$_file_list"
 
@@ -1710,9 +1704,7 @@ user_setup() {
 		y|yes)	_q="No really, what is the lower-case loginname, or 'no'?"
 			continue
 			;;
-		root|daemon|operator|bin|smmsp|popa3d)
-			;;
-		sshd|uucp|www|named|proxy|nobody|ftp)
+		root|daemon|operator|bin|sshd|uucp|www|nobody|ftp)
 			;;
 		[a-z]*([a-z0-9_]))
 			((${#resp} <= 31)) && break
@@ -2158,7 +2150,7 @@ feed_random() {
 # selects from that location. Repeat as many times as the user needs to get all
 # desired sets.
 install_sets() {
-	local _cddevs=$(get_cddevs) _d _locs="disk http" _d=$CGI_METHOD
+	local _cddevs=$(get_cddevs) _d=$CGI_METHOD _locs="disk http" _src
 
 	echo
 
@@ -2168,8 +2160,8 @@ install_sets() {
 	: ${_d:=http}
 
 	if ! isin "$_d" $_cddevs $_locs; then
-		for a in http $_cddevs nfs disk; do
-			isin $a $_cddevs $_locs && _d=$a && break
+		for _src in http $_cddevs nfs disk; do
+			isin $_src $_cddevs $_locs && _d=$_src && break
 		done
 	fi
 
@@ -2400,7 +2392,7 @@ if ! $AUTO; then
 			sleep .5
 		done
 	) |&
-	cppid=$!
+	CPPID=$!
 
 	# Kill the child on exit.
 	retrap
