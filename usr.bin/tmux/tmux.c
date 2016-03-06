@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.166 2016/03/01 12:02:54 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.168 2016/03/05 16:08:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,6 +24,7 @@
 #include <event.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <langinfo.h>
 #include <locale.h>
 #include <paths.h>
 #include <pwd.h>
@@ -188,9 +189,16 @@ main(int argc, char **argv)
 	const char	*s;
 	int		 opt, flags, keys;
 
-	setlocale(LC_CTYPE, "en_US.UTF-8");
-	setlocale(LC_TIME, "");
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) {
+		if (setlocale(LC_CTYPE, "") == NULL)
+			errx(1, "invalid LC_ALL, LC_CTYPE or LANG");
+		s = nl_langinfo(CODESET);
+		if (strcasecmp(s, "UTF-8") != 0 &&
+		    strcasecmp(s, "UTF8") != 0)
+			errx(1, "need UTF-8 locale (LC_CTYPE) but have %s", s);
+	}
 
+	setlocale(LC_TIME, "");
 	tzset();
 
 	if (**argv == '-')
