@@ -67,14 +67,13 @@ main(int argc, char *argv[])
 	    (speed = cfgetospeed(&term)) > B9600)
 		delay = (speed / B9600) - 1;
 
-	while ((ch = getopt(argc, argv, "d:h")) != -1)
+	while ((ch = getopt(argc, argv, "d:")) != -1)
 		switch(ch) {
 		case 'd':
 			delay = (time_t)strtonum(optarg, 0, 1000, &errstr);
 			if (errstr)
 			    errx(1, "delay (0-1000) is %s: %s", errstr, optarg);
 			break;
-		case 'h':
 		default:
 			(void)fprintf(stderr, "usage: rain [-d delay]\n");
 			return 1;

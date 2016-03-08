@@ -1,4 +1,4 @@
-/*	$OpenBSD: factor.c,v 1.26 2016/01/07 16:00:32 tb Exp $	*/
+/*	$OpenBSD: factor.c,v 1.27 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: factor.c,v 1.5 1995/03/23 08:28:07 cgd Exp $	*/
 
 /*
@@ -87,15 +87,6 @@ main(int argc, char *argv[])
 
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
-
-	while ((ch = getopt(argc, argv, "")) != -1) {
-		switch (ch) {
-		default:
-			usage();
-		}
-	}
-	argc -= optind;
-	argv += optind;
 
 	/* No args supplied, read numbers from stdin. */
 	if (argc == 0) {
@@ -285,6 +276,6 @@ pr_bigfact(u_int64_t val)	/* Factor this value. */
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: factor [number ...]\n");
+	(void)fprintf(stderr, "usage: %s [number ...]\n", getprogname());
 	exit (1);
 }

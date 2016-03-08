@@ -1,4 +1,4 @@
-/*	$OpenBSD: fish.c,v 1.22 2016/01/10 13:35:09 mestre Exp $	*/
+/*	$OpenBSD: fish.c,v 1.23 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: fish.c,v 1.3 1995/03/23 08:28:18 cgd Exp $	*/
 
 /*-
@@ -487,6 +487,6 @@ instructions(void)
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: fish [-p]\n");
+	(void)fprintf(stderr, "usage: %s [-p]\n", getprogname());
 	exit(1);
 }

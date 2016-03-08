@@ -1,4 +1,4 @@
-/*	$OpenBSD: banner.c,v 1.20 2016/01/07 16:00:31 tb Exp $	*/
+/*	$OpenBSD: banner.c,v 1.21 2016/03/07 12:07:55 mestre Exp $	*/
 /*	$NetBSD: banner.c,v 1.4 1995/04/22 11:55:15 cgd Exp $	*/
 
 /*
@@ -1036,7 +1036,8 @@ main(int argc, char *argv[])
 			break;
 		default:
 			(void)fprintf(stderr,
-			    "usage: banner [-w width] message ...\n");
+			    "usage: %s [-w width] message ...\n",
+			    getprogname());
 			return 1;
 		}
 	argc -= optind;

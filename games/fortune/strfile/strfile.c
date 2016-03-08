@@ -1,4 +1,4 @@
-/*	$OpenBSD: strfile.c,v 1.27 2016/01/07 16:00:32 tb Exp $	*/
+/*	$OpenBSD: strfile.c,v 1.28 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: strfile.c,v 1.4 1995/04/24 12:23:09 cgd Exp $	*/
 
 /*-
@@ -307,7 +307,7 @@ void
 usage(void)
 {
 	(void) fprintf(stderr,
-	    "strfile [-iorsx] [-c char] sourcefile [datafile]\n");
+	    "%s [-iorsx] [-c char] sourcefile [datafile]\n", getprogname());
 	exit(1);
 }
 

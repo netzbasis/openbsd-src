@@ -1,4 +1,4 @@
-/*	$OpenBSD: bog.c,v 1.29 2016/01/10 13:18:07 mestre Exp $	*/
+/*	$OpenBSD: bog.c,v 1.30 2016/03/07 12:07:55 mestre Exp $	*/
 /*	$NetBSD: bog.c,v 1.5 1995/04/24 12:22:32 cgd Exp $	*/
 
 /*-

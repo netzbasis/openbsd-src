@@ -1,4 +1,4 @@
-/*	$OpenBSD: bs.c,v 1.38 2016/01/10 14:10:39 mestre Exp $	*/
+/*	$OpenBSD: bs.c,v 1.39 2016/03/07 12:07:55 mestre Exp $	*/
 /*
  * Copyright (c) 1986, Bruce Holloway
  * All rights reserved.
@@ -1266,7 +1266,7 @@ playagain(void)
 __dead void
 usage(void)
 {
-	(void) fprintf(stderr, "usage: bs [-b | -s] [-c]\n");
+	(void) fprintf(stderr, "usage: %s [-b | -s] [-c]\n", getprogname());
 	(void) fprintf(stderr, "\tWhere the options are:\n");
 	(void) fprintf(stderr, "\t-b : play a blitz game\n");
 	(void) fprintf(stderr, "\t-s : play a salvo game\n");
@@ -1279,7 +1279,7 @@ do_options(int c, char *op[])
 {
     int ch;
 
-    while ((ch = getopt(c, op, "bchs")) != -1) {
+    while ((ch = getopt(c, op, "bcs")) != -1) {
 	switch (ch) {
 	case 'b':
 	    blitz = 1;
@@ -1302,7 +1302,6 @@ do_options(int c, char *op[])
 	case 'c':
 	    closepack = 1;
 	    break;
-	case 'h':
 	default:
 	    (void) usage();
 	    exit(1);

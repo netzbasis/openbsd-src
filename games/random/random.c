@@ -1,4 +1,4 @@
-/*	$OpenBSD: random.c,v 1.19 2016/01/10 13:35:10 mestre Exp $	*/
+/*	$OpenBSD: random.c,v 1.20 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: random.c,v 1.3 1995/04/22 07:44:05 cgd Exp $	*/
 
 /*
@@ -52,7 +52,7 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 
 	random_exit = unbuffer_output = 0;
-	while ((ch = getopt(argc, argv, "erh")) != -1)
+	while ((ch = getopt(argc, argv, "er")) != -1)
 		switch (ch) {
 		case 'e':
 			random_exit = 1;
@@ -61,7 +61,6 @@ main(int argc, char *argv[])
 			unbuffer_output = 1;
 			break;
 		default:
-		case '?': case 'h':
 			usage();
 		}
 
@@ -123,6 +122,6 @@ void
 usage(void)
 {
 
-	(void)fprintf(stderr, "usage: random [-er] [denominator]\n");
+	(void)fprintf(stderr, "usage: %s [-er] [denominator]\n", getprogname());
 	exit(1);
 }

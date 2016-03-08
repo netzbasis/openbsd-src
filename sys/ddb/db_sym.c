@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_sym.c,v 1.49 2016/03/01 21:32:02 mpi Exp $	*/
+/*	$OpenBSD: db_sym.c,v 1.51 2016/03/07 11:26:43 mpi Exp $	*/
 /*	$NetBSD: db_sym.c,v 1.24 2000/08/11 22:50:47 tv Exp $	*/
 
 /*
@@ -74,21 +74,21 @@ ddb_init(void)
 
 	if (xesym != NULL && xesym != xssym) {
 		if (db_elf_sym_init((vaddr_t)xesym - (vaddr_t)xssym, xssym,
-		    xesym, name) == TRUE)
+		    xesym, name) == 1)
 			return;
 	}
 
 	printf("[ no symbol table formats found ]\n");
 }
 
-boolean_t
+int
 db_eqname(char *src, char *dst, int c)
 {
 	if (!strcmp(src, dst))
-	    return (TRUE);
+	    return (1);
 	if (src[0] == c)
 	    return (!strcmp(src+1,dst));
-	return (FALSE);
+	return (0);
 }
 
 /*
@@ -111,26 +111,6 @@ db_search_symbol(db_addr_t val, db_strategy_t strategy, db_expr_t *offp)
 	*offp = diff;
 	return ret;
 }
-
-/*
- * Return name and value of a symbol
- */
-void
-db_symbol_values(db_sym_t sym, char **namep, db_expr_t *valuep)
-{
-	db_expr_t	value;
-
-	if (sym == NULL) {
-		*namep = NULL;
-		return;
-	}
-
-	db_elf_sym_values(sym, namep, &value);
-
-	if (valuep)
-		*valuep = value;
-}
-
 
 /*
  * Print a the closest symbol to value

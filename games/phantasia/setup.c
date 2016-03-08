@@ -1,4 +1,4 @@
-/*	$OpenBSD: setup.c,v 1.18 2016/01/10 13:35:10 mestre Exp $	*/
+/*	$OpenBSD: setup.c,v 1.19 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: setup.c,v 1.4 1995/04/24 12:24:41 cgd Exp $	*/
 
 /*

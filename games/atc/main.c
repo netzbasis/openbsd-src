@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.27 2016/01/07 16:00:31 tb Exp $	*/
+/*	$OpenBSD: main.c,v 1.29 2016/03/07 13:48:25 jmc Exp $	*/
 /*	$NetBSD: main.c,v 1.4 1995/04/27 21:22:25 mycroft Exp $	*/
 
 /*-
@@ -71,7 +71,7 @@ main(int argc, char *argv[])
 	makenoise = 1;
 	seed = NULL;
 
-	while ((ch = getopt(argc, argv, "f:g:lpqr:stu?")) != -1) {
+	while ((ch = getopt(argc, argv, "f:g:lpqr:st")) != -1) {
 		switch (ch) {
 		case 'f':
 		case 'g':
@@ -93,8 +93,6 @@ main(int argc, char *argv[])
 		case 't':
 			f_showscore = 1;
 			break;
-		case 'u':
-		case '?':
 		default:
 			f_usage = 1;
 			break;
@@ -111,7 +109,7 @@ main(int argc, char *argv[])
 
 	if (f_usage)
 		fprintf(stderr, 
-		    "usage: %s [-lpqstu?] [-f game] [-g game] [-r seed]\n",
+		    "usage: %s [-lpqst] [-f game] [-g game] [-r seed]\n",
 		    getprogname());
 	if (f_showscore)
 		log_score(1);
