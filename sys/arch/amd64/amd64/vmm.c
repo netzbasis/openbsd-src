@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.40 2016/03/03 18:45:42 stefan Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.43 2016/03/08 08:43:50 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -148,6 +148,7 @@ int svm_get_guest_faulttype(void);
 int vmx_get_exit_qualification(uint64_t *);
 int vmx_fault_page(struct vcpu *, paddr_t);
 int vmx_handle_np_fault(struct vcpu *);
+const char *vcpu_state_decode(u_int);
 const char *vmx_exit_reason_decode(uint32_t);
 const char *vmx_instruction_error_decode(uint32_t);
 void dump_vcpu(struct vcpu *);
@@ -353,6 +354,7 @@ vmmioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 		ret = vm_intr_pending((struct vm_intr_params *)data);
 		break;
 	default:
+		DPRINTF("vmmioctl: unknown ioctl code 0x%lx\n", cmd);
 		ret = ENOTTY;
 	}
 
@@ -510,8 +512,11 @@ vm_resetcpu(struct vm_resetcpu_params *vrp)
 	rw_exit_read(&vmm_softc->vm_lock);
 
 	/* Not found? exit. */
-	if (vm == NULL)
+	if (vm == NULL) {
+		DPRINTF("vm_resetcpu: vm id %u not found\n",
+		    vrp->vrp_vm_id);
 		return (ENOENT);
+	}
 
 	rw_enter_read(&vm->vm_vcpu_lock);
 	SLIST_FOREACH(vcpu, &vm->vm_vcpu_list, vc_vcpu_link) {
@@ -520,11 +525,20 @@ vm_resetcpu(struct vm_resetcpu_params *vrp)
 	}
 	rw_exit_read(&vm->vm_vcpu_lock);
 
-	if (vcpu == NULL)
+	if (vcpu == NULL) {
+		DPRINTF("vm_resetcpu: vcpu id %u of vm %u not found\n",
+		    vrp->vrp_vcpu_id, vrp->vrp_vm_id);
 		return (ENOENT);
+	}
 
-	if (vcpu->vc_state != VCPU_STATE_STOPPED)
+	if (vcpu->vc_state != VCPU_STATE_STOPPED) {
+		DPRINTF("vm_resetcpu: reset of vcpu %u on vm %u attempted "
+		    "while vcpu was in state %u (%s)\n", vrp->vrp_vcpu_id,
+		    vrp->vrp_vm_id, vcpu->vc_state,
+		    vcpu_state_decode(vcpu->vc_state));
+		
 		return (EBUSY);
+	}
 
 	DPRINTF("vm_resetcpu: resetting vm %d vcpu %d to power on defaults\n",
 	    vm->vm_id, vcpu->vc_id);
@@ -1460,10 +1474,6 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 	 * here) but that would require us to have proper resume
 	 * handling (resume=1) in the exit handler, so for now we
 	 * will just end up doing an extra vmwrite here.
-	 *
-	 * This can now change from the hardcoded value of 0x1000160
-	 * to the marks[start] from vmd's bootloader. That needs to
-	 * be hoisted up into vcpu create parameters via vm create params.
 	 */
 	vcpu->vc_gueststate.vg_rip = vis->vis_rip;
 	if (vmwrite(VMCS_GUEST_IA32_RIP, vis->vis_rip)) {
@@ -2703,6 +2713,8 @@ vcpu_run_vmx(struct vcpu *vcpu, uint8_t from_exit, int16_t *injint)
 			ci = curcpu();
 			setregion(&gdt, ci->ci_gdt, GDT_SIZE - 1);
 
+			vcpu->vc_last_pcpu = ci;
+
 			if (vmptrld(&vcpu->vc_control_pa)) {
 				ret = EINVAL;
 				break;
@@ -2750,7 +2762,7 @@ vcpu_run_vmx(struct vcpu *vcpu, uint8_t from_exit, int16_t *injint)
 			case VMX_EXIT_TRIPLE_FAULT:
 				break;
 			default:
-				printf("vmx_enter_guest: returning from exit "
+				printf("vcpu_run_vmx: returning from exit "
 				    "with unknown reason %d\n",
 				    vcpu->vc_gueststate.vg_exit_reason);
 				break;
@@ -2827,7 +2839,6 @@ vcpu_run_vmx(struct vcpu *vcpu, uint8_t from_exit, int16_t *injint)
 		/* If we exited successfully ... */
 		if (ret == 0) {
 			resume = 1;
-			vcpu->vc_last_pcpu = ci;
 			if (!(exitinfo & VMX_EXIT_INFO_HAVE_RIP)) {
 				printf("vcpu_run_vmx: cannot read guest rip\n");
 				ret = EINVAL;
@@ -2880,17 +2891,17 @@ vcpu_run_vmx(struct vcpu *vcpu, uint8_t from_exit, int16_t *injint)
 				yield();
 			}
 		} else if (ret == VMX_FAIL_LAUNCH_INVALID_VMCS) {
-			printf("vmx_enter_guest: failed launch with invalid "
+			printf("vcpu_run_vmx: failed launch with invalid "
 			    "vmcs\n");
 			ret = EINVAL;
 		} else if (ret == VMX_FAIL_LAUNCH_VALID_VMCS) {
 			exit_reason = vcpu->vc_gueststate.vg_exit_reason;
-			printf("vmx_enter_guest: failed launch with valid "
+			printf("vcpu_run_vmx: failed launch with valid "
 			    "vmcs, code=%lld (%s)\n", exit_reason,
 			    vmx_instruction_error_decode(exit_reason));
 			ret = EINVAL;
 		} else {
-			printf("vmx_enter_guest: failed launch for unknown "
+			printf("vcpu_run_vmx: failed launch for unknown "
 			    "reason\n");
 			ret = EINVAL;
 		}
@@ -3627,6 +3638,24 @@ vmx_instruction_error_decode(uint32_t code)
 	case 26: return "VM entry: blocked by MOV SS";
 	case 28: return "Invalid operand to INVEPT/INVVPID";
 	default: return "unknown";
+	}
+}
+
+/*
+ * vcpu_state_decode
+ *
+ * Returns a human readable string describing the vcpu state in 'state'.
+ */
+const char *
+vcpu_state_decode(u_int state)
+{
+	switch (state) {
+	case VCPU_STATE_STOPPED: return "stopped";
+	case VCPU_STATE_RUNNING: return "running";
+	case VCPU_STATE_REQTERM: return "requesting termination";
+	case VCPU_STATE_TERMINATED: return "terminated";
+	case VCPU_STATE_UNKNOWN: return "unknown";
+	default: return "invalid";
 	}
 }
 
