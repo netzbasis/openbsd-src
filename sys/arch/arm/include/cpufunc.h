@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.16 2016/01/31 00:14:50 jsg Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.18 2016/03/18 13:16:02 jsg Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.29 2003/09/06 09:08:35 rearnsha Exp $	*/
 
 /*
@@ -213,31 +213,6 @@ u_int	cpufunc_dfar		(void);
 u_int	cpufunc_ifsr		(void);
 u_int	cpufunc_ifar		(void);
 
-#ifdef CPU_ARM8
-void	arm8_setttb		(u_int ttb);
-void	arm8_tlb_flushID	(void);
-void	arm8_tlb_flushID_SE	(u_int va);
-void	arm8_cache_flushID	(void);
-void	arm8_cache_flushID_E	(u_int entry);
-void	arm8_cache_cleanID	(void);
-void	arm8_cache_cleanID_E	(u_int entry);
-void	arm8_cache_purgeID	(void);
-void	arm8_cache_purgeID_E	(u_int entry);
-
-void	arm8_cache_syncI	(void);
-void	arm8_cache_cleanID_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_cleanD_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_purgeID_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_purgeD_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_syncI_rng	(vaddr_t start, vsize_t end);
-
-void	arm8_context_switch	(u_int);
-
-void	arm8_setup		(void);
-
-u_int	arm8_clock_config	(u_int, u_int);
-#endif
-
 #if defined(CPU_SA1100) || defined(CPU_SA1110)
 void	sa11x0_drain_readbuf	(void);
 
@@ -273,32 +248,6 @@ void	sa1_cache_purgeID_rng	(vaddr_t start, vsize_t end);
 void	sa1_cache_purgeD_rng	(vaddr_t start, vsize_t end);
 void	sa1_cache_syncI_rng	(vaddr_t start, vsize_t end);
 
-#endif
-
-#ifdef CPU_ARM9
-void	arm9_setttb			(u_int);
-
-void	arm9_tlb_flushID_SE		(u_int);
-
-void	arm9_icache_sync_all		(void);
-void	arm9_icache_sync_range		(vaddr_t, vsize_t);
-
-void	arm9_dcache_wbinv_all		(void);
-void	arm9_dcache_wbinv_range		(vaddr_t, vsize_t);
-void	arm9_dcache_inv_range		(vaddr_t, vsize_t);
-void	arm9_dcache_wb_range		(vaddr_t, vsize_t);
-
-void	arm9_idcache_wbinv_all		(void);
-void	arm9_idcache_wbinv_range	(vaddr_t, vsize_t);
-
-void	arm9_context_switch		(u_int);
-
-void	arm9_setup			(void);
-
-extern unsigned arm9_dcache_sets_max;
-extern unsigned arm9_dcache_sets_inc;
-extern unsigned arm9_dcache_index_max;
-extern unsigned arm9_dcache_index_inc;
 #endif
 
 #if defined(CPU_ARM9E) || defined(CPU_ARM10)
@@ -402,7 +351,7 @@ extern unsigned armv7_dcache_index_inc;
 #endif
 
 
-#if defined(CPU_ARM9) || defined(CPU_ARM9E) || defined(CPU_ARM10) || \
+#if defined(CPU_ARM9E) || defined(CPU_ARM10) || \
     defined(CPU_SA1100) || defined(CPU_SA1110) || \
     defined(CPU_XSCALE_80200) || defined(CPU_XSCALE_80321) || \
     defined(CPU_XSCALE_PXA2X0) || defined(CPU_XSCALE_IXP425)
