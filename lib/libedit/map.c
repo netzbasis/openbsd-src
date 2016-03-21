@@ -1,4 +1,4 @@
-/*	$OpenBSD: map.c,v 1.16 2016/01/30 17:32:52 schwarze Exp $	*/
+/*	$OpenBSD: map.c,v 1.19 2016/03/20 23:48:27 schwarze Exp $	*/
 /*	$NetBSD: map.c,v 1.25 2009/12/30 22:37:40 christos Exp $	*/
 
 /*-
@@ -38,11 +38,16 @@
 /*
  * map.c: Editor function definitions
  */
+#include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include "el.h"
+#include "help.h"
+#include "parse.h"
 
 private void	map_print_key(EditLine *, el_action_t *, const Char *);
-private void	map_print_some_keys(EditLine *, el_action_t *, Int, Int);
+private void	map_print_some_keys(EditLine *, el_action_t *, wint_t, wint_t);
 private void	map_print_all_keys(EditLine *);
 private void	map_init_nls(EditLine *);
 private void	map_init_meta(EditLine *);
@@ -1137,7 +1142,7 @@ map_print_key(EditLine *el, el_action_t *map, const Char *in)
  *	Print keys from first to last
  */
 private void
-map_print_some_keys(EditLine *el, el_action_t *map, Int first, Int last)
+map_print_some_keys(EditLine *el, el_action_t *map, wint_t first, wint_t last)
 {
 	el_bindings_t *bp, *ep;
 	Char firstbuf[2], lastbuf[2];
@@ -1149,7 +1154,7 @@ map_print_some_keys(EditLine *el, el_action_t *map, Int first, Int last)
 	lastbuf[1] = 0;
 	if (map[first] == ED_UNASSIGNED) {
 		if (first == last) {
-			(void) keymacro__decode_str(firstbuf, unparsbuf, 
+			(void) keymacro__decode_str(firstbuf, unparsbuf,
 			    sizeof(unparsbuf), STRQQ);
 			(void) fprintf(el->el_outfile,
 			    "%-15s->  is undefined\n", unparsbuf);
@@ -1160,14 +1165,14 @@ map_print_some_keys(EditLine *el, el_action_t *map, Int first, Int last)
 	for (bp = el->el_map.help; bp < ep; bp++) {
 		if (bp->func == map[first]) {
 			if (first == last) {
-				(void) keymacro__decode_str(firstbuf, unparsbuf, 
+				(void) keymacro__decode_str(firstbuf, unparsbuf,
 				    sizeof(unparsbuf), STRQQ);
 				(void) fprintf(el->el_outfile, "%-15s->  " FSTR "\n",
 				    unparsbuf, bp->name);
 			} else {
-				(void) keymacro__decode_str(firstbuf, unparsbuf, 
+				(void) keymacro__decode_str(firstbuf, unparsbuf,
 				    sizeof(unparsbuf), STRQQ);
-				(void) keymacro__decode_str(lastbuf, extrabuf, 
+				(void) keymacro__decode_str(lastbuf, extrabuf,
 				    sizeof(extrabuf), STRQQ);
 				(void) fprintf(el->el_outfile,
 				    "%-4s to %-7s->  " FSTR "\n",
@@ -1178,14 +1183,14 @@ map_print_some_keys(EditLine *el, el_action_t *map, Int first, Int last)
 	}
 #ifdef MAP_DEBUG
 	if (map == el->el_map.key) {
-		(void) keymacro__decode_str(firstbuf, unparsbuf, 
+		(void) keymacro__decode_str(firstbuf, unparsbuf,
 		    sizeof(unparsbuf), STRQQ);
 		(void) fprintf(el->el_outfile,
 		    "BUG!!! %s isn't bound to anything.\n", unparsbuf);
 		(void) fprintf(el->el_outfile, "el->el_map.key[%d] == %d\n",
 		    first, el->el_map.key[first]);
 	} else {
-		(void) keymacro__decode_str(firstbuf, unparsbuf, 
+		(void) keymacro__decode_str(firstbuf, unparsbuf,
 		    sizeof(unparsbuf), STRQQ);
 		(void) fprintf(el->el_outfile,
 		    "BUG!!! %s isn't bound to anything.\n", unparsbuf);
@@ -1295,8 +1300,8 @@ map_bind(EditLine *el, int argc, const Char **argv)
 				return 0;
 			default:
 				(void) fprintf(el->el_errfile,
-				    "" FSTR ": Invalid switch `%c'.\n",
-				    argv[0], p[1]);
+				    "" FSTR ": Invalid switch `%lc'.\n",
+				    argv[0], (wint_t)p[1]);
 			}
 		else
 			break;

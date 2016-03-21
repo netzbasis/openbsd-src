@@ -1,4 +1,4 @@
-/*	$OpenBSD: el.c,v 1.25 2016/02/02 00:43:12 schwarze Exp $	*/
+/*	$OpenBSD: el.c,v 1.28 2016/03/20 23:48:27 schwarze Exp $	*/
 /*	$NetBSD: el.c,v 1.61 2011/01/27 23:11:40 christos Exp $	*/
 
 /*-
@@ -39,17 +39,18 @@
  * el.c: EditLine interface functions
  */
 #include <sys/types.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdarg.h>
 #include <ctype.h>
 #include <limits.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef WIDECHAR
 #include <locale.h>
 #include <langinfo.h>
 #endif
 
 #include "el.h"
+#include "parse.h"
 
 /* el_init():
  *	Initialize editline and set default parameters.
@@ -414,7 +415,7 @@ FUN(el,get)(EditLine *el, int op, ...)
 		char *argv[20];
 		int i;
 
- 		for (i = 1; i < (int)(sizeof(argv) / sizeof(argv[0])); i++)
+		for (i = 1; i < (int)(sizeof(argv) / sizeof(argv[0])); i++)
 			if ((argv[i] = va_arg(ap, char *)) == NULL)
 				break;
 
@@ -500,7 +501,8 @@ el_source(EditLine *el, const char *fname)
 {
 	FILE *fp;
 	size_t len;
-	char *ptr, *lptr = NULL;
+	ssize_t slen;
+	char *ptr;
 #ifdef HAVE_ISSETUGID
 	char path[PATH_MAX];
 #endif
@@ -534,35 +536,29 @@ el_source(EditLine *el, const char *fname)
 	if (fp == NULL)
 		return -1;
 
-	while ((ptr = fgetln(fp, &len)) != NULL) {
-		if (ptr[len - 1] == '\n')
-			ptr[len - 1] = '\0';
-		else {
-			if ((lptr = (char *)malloc(len + 1)) == NULL) {
-				(void) fclose(fp);
-				return -1;
-			}
-			memcpy(lptr, ptr, len);
-			lptr[len] = '\0';
-			ptr = lptr;
-		}
+	ptr = NULL;
+	len = 0;
+	while ((slen = getline(&ptr, &len, fp)) != -1) {
+		if (*ptr == '\n')
+			continue;	/* Empty line. */
+		if (slen > 0 && ptr[--slen] == '\n')
+			ptr[slen] = '\0';
 
 		dptr = ct_decode_string(ptr, &el->el_scratch);
 		if (!dptr)
 			continue;
-
 		/* loop until first non-space char or EOL */
 		while (*dptr != '\0' && Isspace(*dptr))
 			dptr++;
 		if (*dptr == '#')
 			continue;   /* ignore, this is a comment line */
 		if (parse_line(el, dptr) == -1) {
-			free(lptr);
+			free(ptr);
 			(void) fclose(fp);
 			return -1;
 		}
 	}
-	free(lptr);
+	free(ptr);
 	(void) fclose(fp);
 	return 0;
 }

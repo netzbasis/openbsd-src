@@ -1,5 +1,5 @@
-/*	$OpenBSD: search.c,v 1.16 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: search.c,v 1.24 2010/04/15 00:57:33 christos Exp $	*/
+/*	$OpenBSD: search.c,v 1.19 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$NetBSD: search.c,v 1.38 2016/02/16 22:53:14 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -39,12 +39,15 @@
  * search.c: History and character search functions
  */
 #include <stdlib.h>
+#include <string.h>
 #if defined(REGEX)
 #include <regex.h>
 #elif defined(REGEXP)
 #include <regexp.h>
 #endif
+
 #include "el.h"
+#include "common.h"
 
 /*
  * Adjust cursor in vi mode to include the character under it
@@ -558,7 +561,7 @@ ce_search_line(EditLine *el, int dir)
  *	Vi repeat search
  */
 protected el_action_t
-cv_repeat_srch(EditLine *el, Int c)
+cv_repeat_srch(EditLine *el, wint_t c)
 {
 
 #ifdef SDEBUG
@@ -584,14 +587,14 @@ cv_repeat_srch(EditLine *el, Int c)
  *	Vi character search
  */
 protected el_action_t
-cv_csearch(EditLine *el, int direction, Int ch, int count, int tflag)
+cv_csearch(EditLine *el, int direction, wint_t ch, int count, int tflag)
 {
 	Char *cp;
 
 	if (ch == 0)
 		return CC_ERROR;
 
-	if (ch == -1) {
+	if (ch == (wint_t)-1) {
 		Char c;
 		if (FUN(el,getc)(el, &c) != 1)
 			return ed_end_of_file(el, 0);
@@ -605,14 +608,14 @@ cv_csearch(EditLine *el, int direction, Int ch, int count, int tflag)
 
 	cp = el->el_line.cursor;
 	while (count--) {
-		if (*cp == ch)
+		if ((wint_t)*cp == ch)
 			cp += direction;
 		for (;;cp += direction) {
 			if (cp >= el->el_line.lastchar)
 				return CC_ERROR;
 			if (cp < el->el_line.buffer)
 				return CC_ERROR;
-			if (*cp == ch)
+			if ((wint_t)*cp == ch)
 				break;
 		}
 	}

@@ -1,5 +1,5 @@
-/*	$OpenBSD: tokenizer.c,v 1.15 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: tokenizer.c,v 1.18 2010/01/03 18:27:10 christos Exp $	*/
+/*	$OpenBSD: tokenizer.c,v 1.17 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$NetBSD: tokenizer.c,v 1.23 2016/02/15 15:37:20 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -39,8 +39,9 @@
 /*
  * tokenize.c: Bourne shell like tokenizer
  */
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+
 #include "histedit.h"
 #include "chartype.h"
 
@@ -403,8 +404,10 @@ FUN(tok,line)(TYPE(Tokenizer) *tok, const TYPE(LineInfo) *line,
 			Char **p;
 			tok->amax += AINCR;
 			p = reallocarray(tok->argv, tok->amax, sizeof(*p));
-			if (p == NULL)
+			if (p == NULL) {
+				tok->amax -= AINCR;
 				return -1;
+			}
 			tok->argv = p;
 		}
 	}

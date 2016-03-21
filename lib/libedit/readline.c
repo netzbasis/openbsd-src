@@ -1,4 +1,4 @@
-/*	$OpenBSD: readline.c,v 1.16 2016/03/20 00:01:21 krw Exp $	*/
+/*	$OpenBSD: readline.c,v 1.18 2016/03/20 23:48:27 schwarze Exp $	*/
 /*	$NetBSD: readline.c,v 1.91 2010/08/28 15:44:59 christos Exp $	*/
 
 /*-
@@ -34,18 +34,18 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <dirent.h>
-#include <string.h>
-#include <pwd.h>
 #include <ctype.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <pwd.h>
 #include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #ifdef HAVE_VIS_H
 #include <vis.h>
 #else
@@ -53,8 +53,6 @@
 #endif
 #include "readline/readline.h"
 #include "el.h"
-#include "fcns.h"		/* for EL_NUM_FCNS */
-#include "histedit.h"
 #include "filecomplete.h"
 
 void rl_prep_terminal(int);
@@ -257,7 +255,7 @@ rl_set_prompt(const char *prompt)
 
 	if (!prompt)
 		prompt = "";
-	if (rl_prompt != NULL && strcmp(rl_prompt, prompt) == 0) 
+	if (rl_prompt != NULL && strcmp(rl_prompt, prompt) == 0)
 		return 0;
 	if (rl_prompt)
 		free(rl_prompt);
@@ -351,7 +349,7 @@ rl_initialize(void)
 	    "ReadLine compatible suspend function",
 	    _el_rl_tstp);
 	el_set(e, EL_BIND, "^Z", "rl_tstp", NULL);
-		
+
 	/* read settings from configuration file */
 	el_source(e, NULL);
 
@@ -1941,7 +1939,7 @@ rl_callback_read_char()
 	}
 }
 
-void 
+void
 rl_callback_handler_install(const char *prompt, VCPFunction *linefunc)
 {
 	if (e == NULL) {
@@ -1950,9 +1948,9 @@ rl_callback_handler_install(const char *prompt, VCPFunction *linefunc)
 	(void)rl_set_prompt(prompt);
 	rl_linefunc = linefunc;
 	el_set(e, EL_UNBUFFERED, 1);
-}   
+}
 
-void 
+void
 rl_callback_handler_remove(void)
 {
 	el_set(e, EL_UNBUFFERED, 0);
@@ -2152,7 +2150,7 @@ rl_completion_matches(const char *str, rl_compentry_func_t *fun)
 		list[0][min] = '\0';
 	}
 	return list;
-		
+
 out:
 	free(list);
 	return NULL;
@@ -2248,7 +2246,7 @@ rl_on_new_line(void)
 
 int
 /*ARGSUSED*/
-rl_set_keyboard_input_timeout(int u)
+rl_set_keyboard_input_timeout(int u __attribute__((__unused__)))
 {
 	return 0;
 }

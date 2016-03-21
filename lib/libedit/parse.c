@@ -1,5 +1,5 @@
-/*	$OpenBSD: parse.c,v 1.14 2016/01/30 12:22:20 schwarze Exp $	*/
-/*	$NetBSD: parse.c,v 1.23 2009/12/30 22:37:40 christos Exp $	*/
+/*	$OpenBSD: parse.c,v 1.17 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$NetBSD: parse.c,v 1.35 2016/02/17 19:47:49 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -48,16 +48,19 @@
  *	settc
  *	setty
  */
-#include "el.h"
 #include <stdlib.h>
+#include <string.h>
+
+#include "el.h"
+#include "parse.h"
 
 private const struct {
 	const Char *name;
 	int (*func)(EditLine *, int, const Char **);
 } cmds[] = {
-	{ STR("bind"),  	map_bind	},
+	{ STR("bind"),		map_bind	},
 	{ STR("echotc"),	terminal_echotc	},
-	{ STR("edit"),  	el_editmode	},
+	{ STR("edit"),		el_editmode	},
 	{ STR("history"),	hist_command	},
 	{ STR("telltc"),	terminal_telltc	},
 	{ STR("settc"),	        terminal_settc	},
@@ -133,7 +136,7 @@ protected int
 parse__escape(const Char **ptr)
 {
 	const Char *p;
-	Int c;
+	wint_t c;
 
 	p = *ptr;
 

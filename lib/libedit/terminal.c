@@ -1,5 +1,5 @@
-/*	$OpenBSD: terminal.c,v 1.6 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: term.c,v 1.57 2009/12/30 22:37:40 christos Exp $	*/
+/*	$OpenBSD: terminal.c,v 1.9 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$NetBSD: terminal.c,v 1.17 2016/02/15 15:35:03 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -40,12 +40,14 @@
  *	       We have to declare a static variable here, since the
  *	       termcap putchar routine does not take an argument!
  */
-#include <stdio.h>
-#include <signal.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #ifdef HAVE_TERMCAP_H
 #include <termcap.h>
 #endif
@@ -59,8 +61,6 @@
 #if defined(HAVE_TERM_H) && !defined(__sun)
 #include <term.h>
 #endif
-#include <sys/types.h>
-#include <sys/ioctl.h>
 
 #ifdef _REENTRANT
 #include <pthread.h>
@@ -262,7 +262,7 @@ terminal_init(EditLine *el)
 
 	el->el_terminal.t_buf = (char *)malloc(TC_BUFSIZE);
 	if (el->el_terminal.t_buf == NULL)
-		goto fail;
+		goto fail1;
 	el->el_terminal.t_cap = (char *)malloc(TC_BUFSIZE);
 	if (el->el_terminal.t_cap == NULL)
 		goto fail2;
@@ -294,7 +294,7 @@ fail3:
 fail2:
 	free(el->el_terminal.t_buf);
 	el->el_terminal.t_buf = NULL;
-fail:
+fail1:
 	return -1;
 }
 
@@ -410,7 +410,7 @@ terminal_rebuffer_display(EditLine *el)
 private int
 terminal_alloc_display(EditLine *el)
 {
-	int i, rv = -1;
+	int i;
 	Char **b;
 	coord_t *c = &el->el_terminal.t_size;
 
@@ -443,12 +443,10 @@ terminal_alloc_display(EditLine *el)
 	}
 	b[c->v] = NULL;
 	el->el_vdisplay = b;
-
-	rv = 0;
+	return 0;
 done:
-	if (rv)
-		terminal_free_display(el);
-	return rv;
+	terminal_free_display(el);
+	return -1;
 }
 
 
@@ -480,7 +478,7 @@ terminal_free_display(EditLine *el)
 
 /* terminal_move_to_line():
  *	move to line <where> (first line == 0)
- * 	as efficiently as possible
+ *	as efficiently as possible
  */
 protected void
 terminal_move_to_line(EditLine *el, int where)
@@ -596,7 +594,7 @@ mc_again:
 						    i < (where & ~0x7);
 						    i += 8)
 							terminal__putc(el,
-							    '\t');	
+							    '\t');
 							/* then tab over */
 						el->el_cursor.h = where & ~0x7;
 					}
@@ -1236,11 +1234,11 @@ terminal_tputs(EditLine *el, const char *cap, int affcnt)
  *	Add a character
  */
 protected int
-terminal__putc(EditLine *el, Int c)
+terminal__putc(EditLine *el, wint_t c)
 {
 	char buf[MB_LEN_MAX +1];
 	ssize_t i;
-	if (c == MB_FILL_CHAR)
+	if (c == (wint_t)MB_FILL_CHAR)
 		return 0;
 	i = ct_encode_char(buf, MB_LEN_MAX, c);
 	if (i <= 0)
@@ -1263,7 +1261,7 @@ terminal__flush(EditLine *el)
  *	Write the given character out, in a human readable form
  */
 protected void
-terminal_writec(EditLine *el, Int c)
+terminal_writec(EditLine *el, wint_t c)
 {
 	Char visbuf[VISUAL_WIDTH_MAX +1];
 	ssize_t vcnt = ct_visual_char(visbuf, VISUAL_WIDTH_MAX, c);
@@ -1278,7 +1276,7 @@ terminal_writec(EditLine *el, Int c)
  */
 protected int
 /*ARGSUSED*/
-terminal_telltc(EditLine *el, int argc __attribute__((__unused__)), 
+terminal_telltc(EditLine *el, int argc __attribute__((__unused__)),
     const Char **argv __attribute__((__unused__)))
 {
 	const struct termcapstr *t;

@@ -1,5 +1,5 @@
-/*	$OpenBSD: hist.h,v 1.10 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: hist.h,v 1.14 2014/05/11 01:05:17 christos Exp $	*/
+/*	$OpenBSD: hist.h,v 1.12 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$NetBSD: hist.h,v 1.18 2016/02/17 19:47:49 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -41,8 +41,6 @@
 #ifndef _h_el_hist
 #define	_h_el_hist
 
-#include "histedit.h"
-
 typedef int (*hist_fun_t)(void *, TYPE(HistEvent) *, int, ...);
 
 typedef struct el_history_t {
@@ -83,7 +81,7 @@ protected int		hist_set(EditLine *, hist_fun_t, void *);
 protected int		hist_command(EditLine *, int, const Char **);
 protected int		hist_enlargebuf(EditLine *, size_t, size_t);
 #ifdef WIDECHAR
-protected wchar_t 	*hist_convert(EditLine *, int, void *);
+protected wchar_t	*hist_convert(EditLine *, int, void *);
 #endif
 
 #endif /* _h_el_hist */
