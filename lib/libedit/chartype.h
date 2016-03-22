@@ -1,4 +1,4 @@
-/*	$OpenBSD: chartype.h,v 1.10 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$OpenBSD: chartype.h,v 1.12 2016/03/21 18:40:25 schwarze Exp $	*/
 /*	$NetBSD: chartype.h,v 1.5 2010/04/15 00:55:57 christos Exp $	*/
 
 /*-
@@ -13,13 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *        This product includes software developed by the NetBSD
- *        Foundation, Inc. and its contributors.
- * 4. Neither the name of The NetBSD Foundation nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
  * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
@@ -109,7 +102,7 @@
 
 #else /* NARROW */
 
-size_t	ct_mbrtowc(char *, const char *, size_t, void *);
+size_t	ct_mbrtowc(wchar_t *, const char *, size_t, void *);
 #define ct_wctob(w)          ((int)(w))
 #define ct_wctomb            error
 #define ct_wctomb_reset

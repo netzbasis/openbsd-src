@@ -1,4 +1,4 @@
-/*	$OpenBSD: chartype.c,v 1.8 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$OpenBSD: chartype.c,v 1.10 2016/03/21 18:40:25 schwarze Exp $	*/
 /*	$NetBSD: chartype.c,v 1.6 2011/07/28 00:48:21 christos Exp $	*/
 
 /*-
@@ -13,13 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *        This product includes software developed by the NetBSD
- *        Foundation, Inc. and its contributors.
- * 4. Neither the name of The NetBSD Foundation nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
  * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
@@ -209,7 +202,7 @@ ct_encode_char(char *dst, size_t len, Char c)
 
 size_t
 /*ARGSUSED*/
-ct_mbrtowc(char *wc, const char *s, size_t n,
+ct_mbrtowc(wchar_t *wc, const char *s, size_t n,
     void *mbs __attribute__((__unused__))) {
 	if (s == NULL)
 		return 0;
