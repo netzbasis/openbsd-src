@@ -1,4 +1,4 @@
-/*	$OpenBSD: terminal.c,v 1.9 2016/03/20 23:48:27 schwarze Exp $	*/
+/*	$OpenBSD: terminal.c,v 1.11 2016/03/22 11:32:18 schwarze Exp $	*/
 /*	$NetBSD: terminal.c,v 1.17 2016/02/15 15:35:03 christos Exp $	*/
 
 /*-
@@ -363,7 +363,7 @@ terminal_alloc(EditLine *el, const struct termcapstr *t, const char *cap)
          */
 	tlen = 0;
 	for (tmp = tlist; tmp < &tlist[T_str]; tmp++)
-		if (*tmp != NULL && *tmp != '\0' && *tmp != *str) {
+		if (*tmp != NULL && **tmp != '\0' && *tmp != *str) {
 			char *ptr;
 
 			for (ptr = *tmp; *ptr != '\0'; termbuf[tlen++] = *ptr++)
@@ -652,7 +652,7 @@ terminal_overwrite(EditLine *el, const Char *cp, size_t n)
 	if (n > (size_t)el->el_terminal.t_size.h) {
 #ifdef DEBUG_SCREEN
 		(void) fprintf(el->el_errfile,
-		    "terminal_overwrite: n is riduculous: %d\r\n", n);
+		    "terminal_overwrite: n is riduculous: %zu\r\n", n);
 #endif /* DEBUG_SCREEN */
 		return;
 	}

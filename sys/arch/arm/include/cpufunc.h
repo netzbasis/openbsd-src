@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.21 2016/03/19 09:51:24 patrick Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.24 2016/03/22 23:35:01 patrick Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.29 2003/09/06 09:08:35 rearnsha Exp $	*/
 
 /*
@@ -213,70 +213,6 @@ u_int	cpufunc_dfar		(void);
 u_int	cpufunc_ifsr		(void);
 u_int	cpufunc_ifar		(void);
 
-#if defined(CPU_ARM9E) || defined(CPU_ARM10)
-void	arm10_tlb_flushID_SE	(u_int);
-void	arm10_tlb_flushI_SE	(u_int);
-
-void	arm10_context_switch	(u_int);
-
-void	arm9e_setup		(void);
-void	arm10_setup		(void);
-#endif
-
-#if defined(CPU_ARM9E) || defined (CPU_ARM10)
-void	armv5_ec_setttb			(u_int);
-
-void	armv5_ec_icache_sync_all	(void);
-void	armv5_ec_icache_sync_range	(vaddr_t, vsize_t);
-
-void	armv5_ec_dcache_wbinv_all	(void);
-void	armv5_ec_dcache_wbinv_range	(vaddr_t, vsize_t);
-void	armv5_ec_dcache_inv_range	(vaddr_t, vsize_t);
-void	armv5_ec_dcache_wb_range	(vaddr_t, vsize_t);
-
-void	armv5_ec_idcache_wbinv_all	(void);
-void	armv5_ec_idcache_wbinv_range	(vaddr_t, vsize_t);
-#endif
-
-#ifdef CPU_ARM11
-void	arm11_setttb		(u_int);
-
-void	arm11_tlb_flushID_SE	(u_int);
-void	arm11_tlb_flushI_SE	(u_int);
-
-void	arm11_context_switch	(u_int);
-
-void	arm11_setup		(void);
-void	arm11_tlb_flushID	(void);
-void	arm11_tlb_flushI	(void);
-void	arm11_tlb_flushD	(void);
-void	arm11_tlb_flushD_SE	(u_int	va);
-
-void	arm11_drain_writebuf	(void);
-void	arm11_cpu_sleep		(int	mode);
-#endif
-
-
-#if defined (CPU_ARM10) || defined(CPU_ARM11)
-void	armv5_setttb			(u_int);
-
-void	armv5_icache_sync_all		(void);
-void	armv5_icache_sync_range		(vaddr_t, vsize_t);
-
-void	armv5_dcache_wbinv_all		(void);
-void	armv5_dcache_wbinv_range	(vaddr_t, vsize_t);
-void	armv5_dcache_inv_range		(vaddr_t, vsize_t);
-void	armv5_dcache_wb_range		(vaddr_t, vsize_t);
-
-void	armv5_idcache_wbinv_all		(void);
-void	armv5_idcache_wbinv_range	(vaddr_t, vsize_t);
-
-extern unsigned armv5_dcache_sets_max;
-extern unsigned armv5_dcache_sets_inc;
-extern unsigned armv5_dcache_index_max;
-extern unsigned armv5_dcache_index_inc;
-#endif
-
 #ifdef CPU_ARMv7
 void	armv7_setttb		(u_int);
 
@@ -314,9 +250,7 @@ extern unsigned armv7_dcache_index_inc;
 #endif
 
 
-#if defined(CPU_ARM9E) || defined(CPU_ARM10) || \
-    defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
-
+#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
 void	armv4_tlb_flushID	(void);
 void	armv4_tlb_flushI	(void);
 void	armv4_tlb_flushD	(void);

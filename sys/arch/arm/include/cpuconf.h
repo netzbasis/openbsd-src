@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpuconf.h,v 1.13 2016/03/19 09:51:24 patrick Exp $	*/
+/*	$OpenBSD: cpuconf.h,v 1.16 2016/03/22 23:35:01 patrick Exp $	*/
 /*	$NetBSD: cpuconf.h,v 1.7 2003/05/23 00:57:24 ichiro Exp $	*/
 
 /*
@@ -48,17 +48,10 @@
 /*
  * Determine which ARM architecture versions are configured.
  */
-#if (defined(CPU_ARM9E) || defined(CPU_ARM10) || 			\
-     defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0))
+#if (defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0))
 #define	ARM_ARCH_5	1
 #else
 #define	ARM_ARCH_5	0
-#endif
-
-#if defined(CPU_ARM11)
-#define ARM_ARCH_6     1
-#else 
-#define ARM_ARCH_6     0
 #endif
 
 #if defined(CPU_ARMv7)
@@ -79,8 +72,7 @@
  *				protection is not used, TEX/AP is used instead.
  */
 
-#if (defined(CPU_ARM9E) || defined(CPU_ARM10) || \
-     defined(CPU_ARM11) || defined(CPU_ARMv7) )
+#if defined(CPU_ARMv7)
 #define	ARM_MMU_GENERIC		1
 #else
 #define	ARM_MMU_GENERIC		0
