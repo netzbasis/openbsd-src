@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.24 2016/02/08 17:28:08 krw Exp $
+#	$OpenBSD: install.md,v 1.26 2016/03/27 00:40:38 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -91,11 +91,11 @@ md_installboot() {
 	if [[ ${MDPLAT} == "OMAP" ]]; then
 
 		if [[ -n $BEAGLE ]]; then
-			cp /mnt/usr/mdec/beagle/{mlo,u-boot.img} /mnt/mnt/
+			cp /mnt/usr/mdec/beagle/{MLO,u-boot.img} /mnt/mnt/
 		elif [[ -n $BEAGLEBONE ]]; then
-			cp /mnt/usr/mdec/am335x/{mlo,u-boot.img} /mnt/mnt/
+			cp /mnt/usr/mdec/am335x/{MLO,u-boot.img} /mnt/mnt/
 		elif [[ -n $PANDA ]]; then
-			cp /mnt/usr/mdec/panda/{mlo,u-boot.img} /mnt/mnt/
+			cp /mnt/usr/mdec/panda/{MLO,u-boot.img} /mnt/mnt/
 		fi
 		cat > /mnt/mnt/uenv.txt<<__EOT
 bootcmd=mmc rescan ; setenv loadaddr ${LOADADDR}; setenv bootargs sd0i:/bsd.umg ; fatload mmc \${mmcdev} \${loadaddr} bsd.umg ; bootm \${loadaddr} ;
@@ -111,7 +111,7 @@ __EOT
 			dd if=/mnt/usr/mdec/cubox/SPL \
 			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
 			dd if=/mnt/usr/mdec/cubox/u-boot.img \
-			    of=/dev/${_disk}c bs=1024 seek=42 >/dev/null
+			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
 		elif [[ -n $NITROGEN ]]; then
 			cat > /tmp/6x_bootscript.scr<<__EOT
 	; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in sata mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg 

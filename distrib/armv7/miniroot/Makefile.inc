@@ -40,7 +40,7 @@ ${IMAGE}: rd_setup do_files rd_teardown
 
 do_files:
 .if ${PLATFORM} == "OMAP"
-	cp /usr/mdec/${BOARD}/mlo ${MOUNT_POINT}/mlo
+	cp /usr/mdec/${BOARD}/MLO ${MOUNT_POINT}/MLO
 	echo "bootcmd=mmc rescan ; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; fatload mmc \$${mmcdev} \$${loadaddr} bsd.umg ; bootm \$${loadaddr} ;\nuenvcmd=boot" > ${MOUNT_POINT}/uenv.txt
 	cp /usr/mdec/${BOARD}/u-boot.* ${MOUNT_POINT}/
 	mkdir ${MOUNT_POINT}/u-boots
@@ -56,7 +56,7 @@ do_files:
 	${MKUBOOT} -t script -a arm -o linux boot.cmd boot.scr
 	cp boot.scr ${MOUNT_POINT}/boot.scr
 	dd if=/usr/mdec/cubox/SPL of=${VND_CDEV} bs=1024 seek=1
-	dd if=/usr/mdec/cubox/u-boot.img of=${VND_CDEV} bs=1024 seek=42
+	dd if=/usr/mdec/cubox/u-boot.img of=${VND_CDEV} bs=1024 seek=69
 .endif
 .if ${BOARD} == "wandboard"
 	echo "; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in mmc ; do for disk in 0 1 ; do \$${dtype} dev \$${disk} ; for fs in fat ext2 ; do if \$${fs}load \$${dtype} \$${disk}:1 \$${loadaddr} bsd.umg ; then bootm \$${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg" > boot.cmd
