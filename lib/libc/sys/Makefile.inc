@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.138 2016/03/21 22:41:28 bluhm Exp $
+#	$OpenBSD: Makefile.inc,v 1.141 2016/03/30 07:55:36 guenther Exp $
 #	$NetBSD: Makefile.inc,v 1.35 1995/10/16 23:49:07 jtc Exp $
 #	@(#)Makefile.inc	8.1 (Berkeley) 6/17/93
 
@@ -52,7 +52,7 @@ ASM=	__get_tcb.o __getcwd.o __semctl.o __set_tcb.o __syscall.o \
 	recvfrom.o recvmsg.o rename.o renameat.o revoke.o rmdir.o \
 	sched_yield.o select.o semget.o semop.o sendmsg.o sendsyslog.o \
 	sendto.o \
-	setegid.o seteuid.o setgid.o setgroups.o setitimer.o \
+	setegid.o seteuid.o setgid.o setgroups.o setitimer.o setlogin.o \
 	setpgid.o setpriority.o setregid.o setresgid.o setresuid.o \
 	setreuid.o setrlimit.o setrtable.o setsid.o setsockopt.o \
 	settimeofday.o setuid.o shmat.o shmctl.o shmdt.o \
@@ -71,19 +71,19 @@ PASM=	${ASM:.o=.po}
 SASM=	${ASM:.o=.so}
 DASM=	${ASM:.o=.do}
 
-PSEUDO=	_getlogin.o _setlogin.o _ptrace.o
+PSEUDO=
 GPSEUDO=${PSEUDO:.o=.go}
 PPSEUDO=${PSEUDO:.o=.po}
 SPSEUDO=${PSEUDO:.o=.so}
 DPSEUDO=${PSEUDO:.o=.do}
 
-PSEUDO_NOERR=	_exit.o
+PSEUDO_NOERR=	_exit.o getlogin_r.o
 GPSEUDO_NOERR=${PSEUDO_NOERR:.o=.go}
 PPSEUDO_NOERR=${PSEUDO_NOERR:.o=.po}
 SPSEUDO_NOERR=${PSEUDO_NOERR:.o=.so}
 DPSEUDO_NOERR=${PSEUDO_NOERR:.o=.do}
 
-HIDDEN= sigaction.o
+HIDDEN= sigaction.o _ptrace.o
 GHIDDEN=${HIDDEN:.o=.go}
 PHIDDEN=${HIDDEN:.o=.po}
 SHIDDEN=${HIDDEN:.o=.so}
@@ -104,13 +104,13 @@ GENERATE.rsyscall=\
 	printf '\#include "SYS.h"\nRSYSCALL(${.PREFIX})\n'
 GENERATE.pseudo=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nPSEUDO(${.PREFIX},${.PREFIX:S/_//})\n'
+	printf '\#include "SYS.h"\nPSEUDO(${.PREFIX},${.PREFIX:S/^_//})\n'
 GENERATE.pseudo_noerr=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX:S/_//})\n'
+	printf '\#include "SYS.h"\nPSEUDO_NOERROR(${.PREFIX},${.PREFIX:S/^_//})\n'
 GENERATE.rsyscall_hidden=\
 	echo creating ${.TARGET} && \
-	printf '\#include "SYS.h"\nRSYSCALL_HIDDEN(${.PREFIX:S/_//})\n'
+	printf '\#include "SYS.h"\nRSYSCALL_HIDDEN(${.PREFIX:S/^_//})\n'
 
 # ...and one of these to control how it's compiled
 FINISH=	${COMPILE.S} ${CFLAGS:M-[ID]*} ${AINC} -x assembler-with-cpp -
@@ -169,77 +169,3 @@ MAN+=	__get_tcb.2 __thrsigdivert.2 __thrsleep.2 _exit.2 accept.2 \
 	socketpair.2 stat.2 statfs.2 swapctl.2 symlink.2 \
 	sync.2 sysarch.2 syscall.2 thrkill.2 truncate.2 umask.2 unlink.2 \
 	utimes.2 utrace.2 vfork.2 wait.2 write.2
-
-MLINKS+=__get_tcb.2 __set_tcb.2
-MLINKS+=__thrsleep.2 __thrwakeup.2
-MLINKS+=_exit.2 _Exit.2
-MLINKS+=accept.2 accept4.2
-MLINKS+=access.2 faccessat.2
-MLINKS+=brk.2 sbrk.2
-MLINKS+=chdir.2 fchdir.2
-MLINKS+=chflags.2 chflagsat.2 chflags.2 fchflags.2
-MLINKS+=chmod.2 fchmod.2 chmod.2 fchmodat.2
-MLINKS+=chown.2 fchown.2 chown.2 fchownat.2 chown.2 lchown.2
-MLINKS+=clock_gettime.2 clock_getres.2
-MLINKS+=clock_gettime.2 clock_settime.2
-MLINKS+=dup.2 dup2.2
-MLINKS+=dup.2 dup3.2
-MLINKS+=fhopen.2 fhstat.2 fhopen.2 fhstatfs.2
-MLINKS+=fsync.2 fdatasync.2
-MLINKS+=getgid.2 getegid.2
-MLINKS+=getitimer.2 setitimer.2
-MLINKS+=getitimer.2 timeradd.3
-MLINKS+=getitimer.2 timerclear.3
-MLINKS+=getitimer.2 timercmp.3
-MLINKS+=getitimer.2 timerisset.3
-MLINKS+=getitimer.2 timersub.3
-MLINKS+=getlogin.2 getlogin_r.2 getlogin.2 setlogin.2
-MLINKS+=getpgrp.2 getpgid.2
-MLINKS+=getpid.2 getppid.2
-MLINKS+=getpriority.2 setpriority.2
-MLINKS+=getrlimit.2 setrlimit.2
-MLINKS+=getrtable.2 setrtable.2
-MLINKS+=getsockopt.2 setsockopt.2
-MLINKS+=gettimeofday.2 settimeofday.2
-MLINKS+=getuid.2 geteuid.2
-MLINKS+=intro.2 errno.2
-MLINKS+=kqueue.2 kevent.2 kqueue.2 EV_SET.2
-MLINKS+=link.2 linkat.2
-MLINKS+=madvise.2 posix_madvise.2
-MLINKS+=mkdir.2 mkdirat.2
-MLINKS+=mkfifo.2 mkfifoat.2
-MLINKS+=mknod.2 mknodat.2
-MLINKS+=mlock.2 munlock.2
-MLINKS+=mlockall.2 munlockall.2
-MLINKS+=mount.2 unmount.2
-MLINKS+=open.2 openat.2
-MLINKS+=pathconf.2 fpathconf.2
-MLINKS+=pipe.2 pipe2.2
-MLINKS+=poll.2 ppoll.2
-MLINKS+=read.2 readv.2 read.2 pread.2 read.2 preadv.2
-MLINKS+=readlink.2 readlinkat.2
-MLINKS+=recv.2 recvfrom.2 recv.2 recvmsg.2
-MLINKS+=rename.2 renameat.2
-MLINKS+=select.2 pselect.2
-MLINKS+=select.2 FD_ISSET.3 select.2 FD_ZERO.3
-MLINKS+=select.2 FD_SET.3 select.2 FD_CLR.3
-MLINKS+=send.2 sendmsg.2 send.2 sendto.2
-MLINKS+=setpgid.2 setpgrp.2
-MLINKS+=setresuid.2 getresgid.2 setresuid.2 getresuid.2
-MLINKS+=setresuid.2 setresgid.2
-MLINKS+=setuid.2 setegid.2 setuid.2 seteuid.2 setuid.2 setgid.2
-MLINKS+=shmat.2 shmdt.2
-MLINKS+=stat.2 S_ISBLK.2 stat.2 S_ISCHR.2 stat.2 S_ISDIR.2
-MLINKS+=stat.2 S_ISFIFO.2 stat.2 S_ISLNK.2 stat.2 S_ISREG.2 stat.2 S_ISSOCK.2
-MLINKS+=stat.2 fstat.2 stat.2 fstatat.2 stat.2 lstat.2
-MLINKS+=statfs.2 fstatfs.2
-MLINKS+=symlink.2 symlinkat.2
-MLINKS+=syscall.2 __syscall.2
-MLINKS+=truncate.2 ftruncate.2
-MLINKS+=unlink.2 unlinkat.2
-MLINKS+=utimes.2 futimens.2 utimes.2 futimes.2 utimes.2 utimensat.2
-MLINKS+=wait.2 WEXITSTATUS.2 wait.2 WCOREDUMP.2 wait.2 WSTOPSIG.2
-MLINKS+=wait.2 WIFCONTINUED.2 wait.2 WIFEXITED.2
-MLINKS+=wait.2 WIFSIGNALED.2 wait.2 WIFSTOPPED.2 wait.2 WTERMSIG.2
-MLINKS+=wait.2 wait3.2 wait.2 wait4.2 wait.2 waitpid.2
-MLINKS+=write.2 writev.2 write.2 pwrite.2 write.2 pwritev.2

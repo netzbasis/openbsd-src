@@ -1,7 +1,6 @@
-/*	$OpenBSD: sdhcvar.h,v 1.8 2016/03/30 09:58:01 kettenis Exp $	*/
-
+/*	$OpenBSD: ptrace.h,v 1.1 2016/03/30 07:55:36 guenther Exp $	*/
 /*
- * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
+ * Copyright (c) 2016 Philip Guenther <guenther@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,32 +15,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _SDHCVAR_H_
-#define _SDHCVAR_H_
+#ifndef	_LIBC_SYS_PTRACE_H_
+#define	_LIBC_SYS_PTRACE_H_
 
-#include <machine/bus.h>
+#include_next <sys/ptrace.h>
 
-struct sdhc_host;
+PROTO_WRAP(ptrace);
 
-struct sdhc_softc {
-	struct device sc_dev;
-	struct sdhc_host **sc_host;
-	int sc_nhosts;
-	u_int sc_flags;
-
-	int (*sc_card_detect)(struct sdhc_softc *);
-};
-
-/* Host controller functions called by the attachment driver. */
-int	sdhc_host_found(struct sdhc_softc *, bus_space_tag_t,
-	    bus_space_handle_t, bus_size_t, int, u_int32_t);
-int	sdhc_activate(struct device *, int);
-void	sdhc_shutdown(void *);
-int	sdhc_intr(void *);
-
-void	sdhc_needs_discover(struct sdhc_softc *);
-
-/* flag values */
-#define SDHC_F_NOPWR0		(1 << 0)
-
-#endif
+#endif	/* _LIBC_SYS_PTRACE_H_ */
