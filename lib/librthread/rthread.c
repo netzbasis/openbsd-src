@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread.c,v 1.88 2016/03/20 02:30:28 guenther Exp $ */
+/*	$OpenBSD: rthread.c,v 1.90 2016/04/02 19:56:53 guenther Exp $ */
 /*
  * Copyright (c) 2004,2005 Ted Unangst <tedu@openbsd.org>
  * All Rights Reserved.
@@ -46,6 +46,21 @@
 #include "thread_private.h"	/* in libc/include */
 #include "rthread.h"
 #include "tcb.h"
+
+/*
+ * Call nonstandard functions via names in the reserved namespace:
+ *	NOT YET dlctl() -> _dlctl()
+ *	getthrid -> _thread_sys_getthrid
+ */
+REDIRECT_SYSCALL(getthrid);
+
+/*
+ * libc's signal wrappers hide SIGTHR; we need to call the real syscall
+ * stubs _thread_sys_* directly.
+ */
+REDIRECT_SYSCALL(sigaction);
+REDIRECT_SYSCALL(sigprocmask);
+REDIRECT_SYSCALL(thrkill);
 
 static int concurrency_level;	/* not used */
 
@@ -207,9 +222,9 @@ _rthread_init(void)
 	memset(&sa, 0, sizeof(sa));
 	sigemptyset(&sa.sa_mask);
 	sa.sa_handler = sigthr_handler;
-	_thread_sys_sigaction(SIGTHR, &sa, NULL);
+	sigaction(SIGTHR, &sa, NULL);
 	sigaddset(&sa.sa_mask, SIGTHR);
-	_thread_sys_sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
+	sigprocmask(SIG_UNBLOCK, &sa.sa_mask, NULL);
 
 	return (0);
 }
@@ -257,6 +272,7 @@ pthread_self(void)
 
 	return (TCB_THREAD());
 }
+DEF_STD(pthread_self);
 
 static void
 _rthread_reaper(void)
@@ -323,6 +339,7 @@ pthread_exit(void *retval)
 	__threxit(&thread->tid);
 	for(;;);
 }
+DEF_STD(pthread_exit);
 
 int
 pthread_join(pthread_t thread, void **retval)
@@ -463,7 +480,7 @@ pthread_kill(pthread_t thread, int sig)
 {
 	if (sig == SIGTHR)
 		return (EINVAL);
-	if (_thread_sys_thrkill(thread->tid, sig, thread->tcb))
+	if (thrkill(thread->tid, sig, thread->tcb))
 		return (errno);
 	return (0);
 }
@@ -487,7 +504,7 @@ pthread_cancel(pthread_t thread)
 
 		if (thread->flags & THREAD_CANCEL_ENABLE) {
 			_spinunlock(&thread->flags_lock);
-			_thread_sys_thrkill(tid, SIGTHR, thread->tcb);
+			thrkill(tid, SIGTHR, thread->tcb);
 			return (0);
 		}
 	}
@@ -524,6 +541,7 @@ pthread_setcancelstate(int state, int *oldstatep)
 
 	return (0);
 }
+DEF_STD(pthread_setcancelstate);
 
 int
 pthread_setcanceltype(int type, int *oldtypep)
