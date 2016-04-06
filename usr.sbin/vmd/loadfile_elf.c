@@ -1,5 +1,5 @@
 /* $NetBSD: loadfile.c,v 1.10 2000/12/03 02:53:04 tsutsui Exp $ */
-/* $OpenBSD: loadfile_elf.c,v 1.11 2016/03/13 13:11:47 stefan Exp $ */
+/* $OpenBSD: loadfile_elf.c,v 1.13 2016/04/05 09:33:05 mlarkin Exp $ */
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -100,13 +100,10 @@
 #include <machine/vmmvar.h>
 #include <machine/biosvar.h>
 #include <machine/segments.h>
+#include <machine/pte.h>
 
 #include "loadfile.h"
 #include "vmd.h"
-
-#define BOOTARGS_PAGE 0x2000
-#define GDT_PAGE 0x10000
-#define STACK_PAGE 0xF000
 
 union {
 	Elf32_Ehdr elf32;
@@ -191,7 +188,38 @@ push_gdt(void)
 	setsegment(&sd[1], 0, 0xffffffff, SDT_MEMERA, SEL_KPL, 1, 1);
 	setsegment(&sd[2], 0, 0xffffffff, SDT_MEMRWA, SEL_KPL, 1, 1);
 
-	write_mem(GDT_PAGE, gdtpage, PAGE_SIZE, 1);
+	write_mem(GDT_PAGE, gdtpage, PAGE_SIZE);
+}
+
+/*
+ * push_pt
+ *
+ * Create an identity-mapped page directory hierarchy mapping the first
+ * 1GB of physical memory. This is used during bootstrapping VMs on
+ * CPUs without unrestricted guest capability.
+ */
+static void
+push_pt(void)
+{
+	pt_entry_t ptes[NPTE_PG];
+	uint64_t i;
+
+	/* PML3 [0] - first 1GB */
+	memset(ptes, 0, sizeof(ptes));
+	ptes[0] = PG_V | PML3_PAGE;
+	write_mem(PML4_PAGE, ptes, PAGE_SIZE);
+
+	/* PML3 [0] - first 1GB */
+	memset(ptes, 0, sizeof(ptes));
+	ptes[0] = PG_V | PG_RW | PG_u | PML2_PAGE;
+	write_mem(PML3_PAGE, ptes, PAGE_SIZE);
+
+	/* PML2 [0..511] - first 1GB (in 2MB pages) */
+	memset(ptes, 0, sizeof(ptes));
+	for (i = 0 ; i < NPTE_PG; i++) {
+		ptes[i] = PG_V | PG_RW | PG_u | PG_PS | (NBPD_L2 * i);
+	}
+	write_mem(PML2_PAGE, ptes, PAGE_SIZE);
 }
 
 /*
@@ -234,6 +262,7 @@ loadelf_main(int fd, struct vm_create_params *vcp, struct vcpu_init_state *vis)
 		return (r);
 
 	push_gdt();
+	push_pt();
 	n = create_bios_memmap(vcp, memmap);
 	bootargsz = push_bootargs(memmap, n);
 	stacksize = push_stack(bootargsz, marks[MARK_END]);
@@ -338,7 +367,7 @@ push_bootargs(bios_memmap_t *memmap, size_t n)
 	ba[i + 2] = consdev_sz;
 	memcpy(&ba[i + 3], &consdev, sizeof(bios_consdev_t));
 
-	write_mem(BOOTARGS_PAGE, ba, PAGE_SIZE, 1);
+	write_mem(BOOTARGS_PAGE, ba, PAGE_SIZE);
 
 	return (memmap_sz + consdev_sz);
 }
@@ -386,7 +415,7 @@ push_stack(uint32_t bootargsz, uint32_t end)
 	stack[--loc] = MAKEBOOTDEV(0x4, 0, 0, 0, 0); /* bootdev: sd0a */
 	stack[--loc] = 0x0;
 
-	write_mem(STACK_PAGE, &stack, PAGE_SIZE, 1);
+	write_mem(STACK_PAGE, &stack, PAGE_SIZE);
 
 	return (1024 - (loc - 1)) * sizeof(uint32_t);
 }
@@ -432,7 +461,7 @@ mread(int fd, paddr_t addr, size_t sz)
 		}
 		rd += ct;
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return (0);
 
 		addr += ct;
@@ -456,7 +485,7 @@ mread(int fd, paddr_t addr, size_t sz)
 		}
 		rd += ct;
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return (0);
 	}
 
@@ -493,7 +522,7 @@ marc4random_buf(paddr_t addr, int sz)
 
 		arc4random_buf(buf, ct);
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return;
 
 		addr += ct;
@@ -508,7 +537,7 @@ marc4random_buf(paddr_t addr, int sz)
 
 		arc4random_buf(buf, ct);
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return;
 	}
 }
@@ -541,7 +570,7 @@ mbzero(paddr_t addr, int sz)
 	if (addr % PAGE_SIZE != 0) {
 		ct = PAGE_SIZE - (addr % PAGE_SIZE);
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return;
 
 		addr += ct;
@@ -553,7 +582,7 @@ mbzero(paddr_t addr, int sz)
 		else
 			ct = PAGE_SIZE;
 
-		if (write_mem(addr, buf, ct, 1))
+		if (write_mem(addr, buf, ct))
 			return;
 	}
 }
@@ -665,8 +694,7 @@ elf64_exec(int fd, Elf64_Ehdr *elf, u_long *marks, int flags)
 				free(phdr);
 				return 1;
 			}
-			if (mread(fd, (phdr[i].p_paddr -
-			    0xffffffff80000000ULL), phdr[i].p_filesz) !=
+			if (mread(fd, phdr[i].p_paddr, phdr[i].p_filesz) !=
 			    phdr[i].p_filesz) {
 				free(phdr);
 				return 1;
@@ -687,8 +715,7 @@ elf64_exec(int fd, Elf64_Ehdr *elf, u_long *marks, int flags)
 
 		/* Zero out BSS. */
 		if (IS_BSS(phdr[i]) && (flags & LOAD_BSS)) {
-			mbzero((phdr[i].p_paddr -
-			    0xffffffff80000000 + phdr[i].p_filesz),
+			mbzero((phdr[i].p_paddr + phdr[i].p_filesz),
 			    phdr[i].p_memsz - phdr[i].p_filesz);
 		}
 		if (IS_BSS(phdr[i]) && (flags & (LOAD_BSS|COUNT_BSS))) {
