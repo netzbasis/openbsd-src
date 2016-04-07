@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_crtc.h,v 1.6 2015/09/27 11:09:26 jsg Exp $	*/
+/*	$OpenBSD: drm_crtc.h,v 1.8 2016/04/06 21:12:40 kettenis Exp $	*/
 /*
  * Copyright © 2006 Keith Packard
  * Copyright © 2007-2008 Dave Airlie

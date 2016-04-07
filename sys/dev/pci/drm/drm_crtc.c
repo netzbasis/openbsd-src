@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_crtc.c,v 1.19 2015/09/27 11:09:26 jsg Exp $	*/
+/*	$OpenBSD: drm_crtc.c,v 1.21 2016/04/06 21:12:40 kettenis Exp $	*/
 /*
  * Copyright (c) 2006-2008 Intel Corporation
  * Copyright (c) 2007 Dave Airlie <airlied@linux.ie>
