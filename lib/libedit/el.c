@@ -1,4 +1,4 @@
-/*	$OpenBSD: el.c,v 1.29 2016/03/21 17:28:10 schwarze Exp $	*/
+/*	$OpenBSD: el.c,v 1.31 2016/04/09 20:15:26 schwarze Exp $	*/
 /*	$NetBSD: el.c,v 1.61 2011/01/27 23:11:40 christos Exp $	*/
 
 /*-
@@ -40,14 +40,12 @@
  */
 #include <sys/types.h>
 #include <ctype.h>
+#include <langinfo.h>
 #include <limits.h>
+#include <locale.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef WIDECHAR
-#include <locale.h>
-#include <langinfo.h>
-#endif
 
 #include "el.h"
 #include "parse.h"
@@ -131,12 +129,10 @@ el_end(EditLine *el)
 	sig_end(el);
 
 	free(el->el_prog);
-#ifdef WIDECHAR
 	free(el->el_scratch.cbuff);
 	free(el->el_scratch.wbuff);
 	free(el->el_lgcyconv.cbuff);
 	free(el->el_lgcyconv.wbuff);
-#endif
 	free(el);
 }
 
@@ -547,7 +543,7 @@ el_source(EditLine *el, const char *fname)
 		if (!dptr)
 			continue;
 		/* loop until first non-space char or EOL */
-		while (*dptr != '\0' && Isspace(*dptr))
+		while (*dptr != '\0' && iswspace(*dptr))
 			dptr++;
 		if (*dptr == '#')
 			continue;   /* ignore, this is a comment line */
@@ -616,7 +612,7 @@ el_editmode(EditLine *el, int argc, const Char **argv)
 		el->el_flags |= EDIT_DISABLED;
 	}
 	else {
-		(void) fprintf(el->el_errfile, "edit: Bad value `" FSTR "'.\n",
+		(void) fprintf(el->el_errfile, "edit: Bad value `%ls'.\n",
 		    how);
 		return -1;
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: terminal.c,v 1.11 2016/03/22 11:32:18 schwarze Exp $	*/
+/*	$OpenBSD: terminal.c,v 1.13 2016/04/09 20:15:26 schwarze Exp $	*/
 /*	$NetBSD: terminal.c,v 1.17 2016/02/15 15:35:03 christos Exp $	*/
 
 /*-
@@ -501,13 +501,11 @@ terminal_move_to_line(EditLine *el, int where)
 			if (EL_HAS_AUTO_MARGINS &&
 			    el->el_display[el->el_cursor.v][0] != '\0') {
                                 size_t h = el->el_terminal.t_size.h - 1;
-#ifdef WIDECHAR
                                 for (; h > 0 &&
                                          el->el_display[el->el_cursor.v][h] ==
                                                  MB_FILL_CHAR;
                                          h--)
                                                 continue;
-#endif
 				/* move without newline */
 				terminal_move_to_char(el, (int)h);
 				terminal_overwrite(el, &el->el_display
@@ -582,11 +580,9 @@ mc_again:
 				if (EL_CAN_TAB) {
 					if ((el->el_cursor.h & 0370) !=
 					    (where & ~0x7)
-#ifdef WIDECHAR
 					    && (el->el_display[
 					    el->el_cursor.v][where & 0370] !=
 					    MB_FILL_CHAR)
-#endif
 					    ) {
 						/* if not within tab stop */
 						for (i =
@@ -674,11 +670,9 @@ terminal_overwrite(EditLine *el, const Char *cp, size_t n)
 				if ((c = el->el_display[el->el_cursor.v]
 				    [el->el_cursor.h]) != '\0') {
 					terminal_overwrite(el, &c, 1);
-#ifdef WIDECHAR
 					while (el->el_display[el->el_cursor.v]
 					    [el->el_cursor.h] == MB_FILL_CHAR)
 						el->el_cursor.h++;
-#endif
 				} else {
 					terminal__putc(el, ' ');
 					el->el_cursor.h = 1;
@@ -1363,7 +1357,7 @@ terminal_settc(EditLine *el, int argc __attribute__((__unused__)),
 			el->el_terminal.t_val[tv - tval] = 0;
 		else {
 			(void) fprintf(el->el_errfile,
-			    "" FSTR ": Bad value `%s'.\n", argv[0], how);
+			    "%ls: Bad value `%s'.\n", argv[0], how);
 			return -1;
 		}
 		terminal_setflags(el);
@@ -1377,7 +1371,7 @@ terminal_settc(EditLine *el, int argc __attribute__((__unused__)),
 		i = strtol(how, &ep, 10);
 		if (*ep != '\0') {
 			(void) fprintf(el->el_errfile,
-			    "" FSTR ": Bad value `%s'.\n", argv[0], how);
+			    "%ls: Bad value `%s'.\n", argv[0], how);
 			return -1;
 		}
 		el->el_terminal.t_val[tv - tval] = (int) i;
@@ -1528,7 +1522,7 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 	if (!scap || scap[0] == '\0') {
 		if (!silent)
 			(void) fprintf(el->el_errfile,
-			    "echotc: Termcap parameter `" FSTR "' not found.\n",
+			    "echotc: Termcap parameter `%ls' not found.\n",
 			    *argv);
 		return -1;
 	}
@@ -1571,7 +1565,7 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
+				    "echotc: Warning: Extra argument `%ls'.\n",
 				    *argv);
 			return -1;
 		}
@@ -1586,11 +1580,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 			return -1;
 		}
 		arg_cols = 0;
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for rows.\n",
+				    "echotc: Bad value `%ls' for rows.\n",
 				    *argv);
 			return -1;
 		}
@@ -1599,8 +1593,8 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
-				    *argv);
+				    "echotc: Warning: Extra argument `%ls"
+				    "'.\n", *argv);
 			return -1;
 		}
 		terminal_tputs(el, tgoto(scap, arg_cols, arg_rows), 1);
@@ -1620,11 +1614,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 				    "echotc: Warning: Missing argument.\n");
 			return -1;
 		}
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for cols.\n",
+				    "echotc: Bad value `%ls' for cols.\n",
 				    *argv);
 			return -1;
 		}
@@ -1636,11 +1630,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 				    "echotc: Warning: Missing argument.\n");
 			return -1;
 		}
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for rows.\n",
+				    "echotc: Bad value `%ls' for rows.\n",
 				    *argv);
 			return -1;
 		}
@@ -1648,15 +1642,15 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*ep != '\0') {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "'.\n", *argv);
+				    "echotc: Bad value `%ls'.\n", *argv);
 			return -1;
 		}
 		argv++;
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
-				    *argv);
+				    "echotc: Warning: Extra argument `%ls"
+				    "'.\n", *argv);
 			return -1;
 		}
 		terminal_tputs(el, tgoto(scap, arg_cols, arg_rows), arg_rows);

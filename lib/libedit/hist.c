@@ -1,5 +1,5 @@
-/*	$OpenBSD: hist.c,v 1.13 2016/03/20 23:48:27 schwarze Exp $	*/
-/*	$NetBSD: hist.c,v 1.17 2009/12/30 23:54:52 christos Exp $	*/
+/*	$OpenBSD: hist.c,v 1.15 2016/04/09 20:15:26 schwarze Exp $	*/
+/*	$NetBSD: hist.c,v 1.26 2016/04/09 18:43:17 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -172,7 +172,7 @@ hist_command(EditLine *el, int argc, const Char **argv)
 	if (argc != 3)
 		return -1;
 
-	num = (int)Strtol(argv[2], NULL, 0);
+	num = (int)wcstol(argv[2], NULL, 0);
 
 	if (Strcmp(argv[1], STR("size")) == 0)
 		return history(el->el_history.ref, &ev, H_SETSIZE, num);
@@ -207,7 +207,6 @@ hist_enlargebuf(EditLine *el, size_t oldsz, size_t newsz)
 	return 1;
 }
 
-#ifdef WIDECHAR
 protected wchar_t *
 hist_convert(EditLine *el, int fn, void *arg)
 {
@@ -217,4 +216,3 @@ hist_convert(EditLine *el, int fn, void *arg)
 	return ct_decode_string((const char *)(const void *)ev.str,
 	    &el->el_scratch);
 }
-#endif

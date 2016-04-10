@@ -1,4 +1,4 @@
-/*	$OpenBSD: chartype.h,v 1.13 2016/03/22 11:32:18 schwarze Exp $	*/
+/*	$OpenBSD: chartype.h,v 1.15 2016/04/09 20:15:26 schwarze Exp $	*/
 /*	$NetBSD: chartype.h,v 1.5 2010/04/15 00:55:57 christos Exp $	*/
 
 /*-
@@ -30,9 +30,7 @@
 #ifndef _h_chartype_f
 #define _h_chartype_f
 
-
-
-#ifdef WIDECHAR
+#ifndef NARROWCHAR
 
 /* Ideally we should also test the value of the define to see if it
  * supports non-BMP code points without requiring UTF-16, but nothing
@@ -54,107 +52,40 @@
 #warning Build environment does not support non-BMP characters
 #endif
 
-#define ct_mbrtowc           mbrtowc
-#define ct_wctob             wctob
-#define ct_wctomb            wctomb
-#define ct_wctomb_reset      wctomb(0,0)
-#define ct_wcstombs          wcstombs
-#define ct_mbstowcs          mbstowcs
-
 #define Char			wchar_t
 #define FUN(prefix,rest)	prefix ## _w ## rest
 #define FUNW(type)		type ## _w
 #define TYPE(type)		type ## W
-#define FSTR			"%ls"
-#define FSTARSTR		"%.*ls"
 #define STR(x)			L ## x
-#define UC(c)			c
-#define Isalpha(x)  iswalpha(x)
-#define Isalnum(x)  iswalnum(x)
-#define Isgraph(x)  iswgraph(x)
-#define Isspace(x)  iswspace(x)
-#define Isdigit(x)  iswdigit(x)
-#define Iscntrl(x)  iswcntrl(x)
-#define Isprint(x)  iswprint(x)
-
-#define Isupper(x)  iswupper(x)
-#define Islower(x)  iswlower(x)
-#define Toupper(x)  towupper(x)
-#define Tolower(x)  towlower(x)
-
-#define IsASCII(x)  (x < 0x100)
 
 #define Strlen(x)       wcslen(x)
 #define Strchr(s,c)     wcschr(s,c)
-#define Strrchr(s,c)    wcsrchr(s,c)
-#define Strstr(s,v)     wcsstr(s,v)
 #define Strdup(x)       wcsdup(x)
-/* #define Strcpy(d,s)     wcscpy(d,s) */
 #define Strncpy(d,s,n)  wcsncpy(d,s,n)
 #define Strncat(d,s,n)  wcsncat(d,s,n)
-
 #define Strcmp(s,v)     wcscmp(s,v)
 #define Strncmp(s,v,n)  wcsncmp(s,v,n)
-#define Strcspn(s,r)    wcscspn(s,r)
-
-#define Strtol(p,e,b)   wcstol(p,e,b)
-
-#define Width(c)	(wcwidth(c) == -1 ? 0 : wcwidth(c))
 
 #else /* NARROW */
-
-size_t	ct_mbrtowc(wchar_t *, const char *, size_t, void *);
-#define ct_wctob(w)          ((int)(w))
-#define ct_wctomb            error
-#define ct_wctomb_reset
-#define ct_wcstombs(a, b, c)    (strncpy(a, b, c), strlen(a))
-#define ct_mbstowcs(a, b, c)    (strncpy(a, b, c), strlen(a))
 
 #define Char			char
 #define FUN(prefix,rest)	prefix ## _ ## rest
 #define FUNW(type)		type
 #define TYPE(type)		type
-#define FSTR			"%s"
-#define FSTARSTR		"%.*s"
 #define STR(x)			x
-#define UC(c)			(unsigned char)(c)
-
-#define Isalpha(x)  isalpha((unsigned char)x)
-#define Isalnum(x)  isalnum((unsigned char)x)
-#define Isgraph(x)  isgraph((unsigned char)x)
-#define Isspace(x)  isspace((unsigned char)x)
-#define Isdigit(x)  isdigit((unsigned char)x)
-#define Iscntrl(x)  iscntrl((unsigned char)x)
-#define Isprint(x)  isprint((unsigned char)x)
-
-#define Isupper(x)  isupper((unsigned char)x)
-#define Islower(x)  islower((unsigned char)x)
-#define Toupper(x)  toupper((unsigned char)x)
-#define Tolower(x)  tolower((unsigned char)x)
-
-#define IsASCII(x)  isascii((unsigned char)x)
 
 #define Strlen(x)       strlen(x)
 #define Strchr(s,c)     strchr(s,c)
-#define Strrchr(s,c)    strrchr(s,c)
-#define Strstr(s,v)     strstr(s,v)
 #define Strdup(x)       strdup(x)
-/* #define Strcpy(d,s)     strcpy(d,s) */
 #define Strncpy(d,s,n)  strncpy(d,s,n)
 #define Strncat(d,s,n)  strncat(d,s,n)
 
 #define Strcmp(s,v)     strcmp(s,v)
 #define Strncmp(s,v,n)  strncmp(s,v,n)
-#define Strcspn(s,r)    strcspn(s,r)
-
-#define Strtol(p,e,b)   strtol(p,e,b)
-
-#define Width(c)	1
-
 #endif
 
 
-#ifdef WIDECHAR
+#ifndef NARROWCHAR
 /*
  * Conversion buffer
  */
@@ -182,15 +113,9 @@ protected void ct_conv_buff_resize(ct_buffer_t *, size_t, size_t);
 protected ssize_t ct_encode_char(char *, size_t, Char);
 protected size_t ct_enc_width(Char);
 
-#define ct_free_argv(s)	free(s)
-
 #else
 #define	ct_encode_string(s, b)	(s)
 #define ct_decode_string(s, b)	(s)
-#define ct_decode_argv(l, s, b)	(s)
-#define ct_conv_buff_resize(b, os, ns)
-#define ct_encode_char(d, l, s)	(*d = s, 1)
-#define ct_free_argv(s)
 #endif
 
 #ifndef NARROWCHAR
@@ -234,6 +159,5 @@ protected const Char *ct_visual_string(const Char *);
 /* classification of character c, as one of the above defines */
 protected int ct_chr_class(Char c);
 #endif
-
 
 #endif /* _chartype_f */

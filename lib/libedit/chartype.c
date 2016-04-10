@@ -1,4 +1,4 @@
-/*	$OpenBSD: chartype.c,v 1.10 2016/03/21 18:40:25 schwarze Exp $	*/
+/*	$OpenBSD: chartype.c,v 1.12 2016/04/09 20:15:26 schwarze Exp $	*/
 /*	$NetBSD: chartype.c,v 1.6 2011/07/28 00:48:21 christos Exp $	*/
 
 /*-
@@ -40,7 +40,6 @@
 
 #define CT_BUFSIZ 1024
 
-#ifdef WIDECHAR
 protected void
 ct_conv_buff_resize(ct_buffer_t *conv, size_t mincsize, size_t minwsize)
 {
@@ -114,14 +113,15 @@ ct_decode_string(const char *s, ct_buffer_t *conv)
 	if (!conv->wbuff)
 		return NULL;
 
-	len = ct_mbstowcs(NULL, s, 0);
+	len = mbstowcs(NULL, s, 0);
 	if (len == (size_t)-1)
 		return NULL;
 	if (len > conv->wsize)
 		ct_conv_buff_resize(conv, 0, len + 1);
 	if (!conv->wbuff)
 		return NULL;
-	ct_mbstowcs(conv->wbuff, s, conv->wsize);
+
+	mbstowcs(conv->wbuff, s, conv->wsize);
 	return conv->wbuff;
 }
 
@@ -189,30 +189,14 @@ ct_encode_char(char *dst, size_t len, Char c)
 	ssize_t l = 0;
 	if (len < ct_enc_width(c))
 		return -1;
-	l = ct_wctomb(dst, c);
+	l = wctomb(dst, c);
 
 	if (l < 0) {
-		ct_wctomb_reset;
+		wctomb(NULL, L'\0');
 		l = 0;
 	}
 	return l;
 }
-
-#else
-
-size_t
-/*ARGSUSED*/
-ct_mbrtowc(wchar_t *wc, const char *s, size_t n,
-    void *mbs __attribute__((__unused__))) {
-	if (s == NULL)
-		return 0;
-	if (n == 0)
-		return (size_t)-2;
-	if (wc != NULL)
-		*wc = *s;
-	return *s != '\0';
-}
-#endif
 
 protected const Char *
 ct_visual_string(const Char *s)
@@ -268,9 +252,7 @@ protected int
 ct_visual_width(Char c)
 {
 	int t = ct_chr_class(c);
-#ifdef WIDECHAR
 	int w;
-#endif
 	switch (t) {
 	case CHTYPE_ASCIICTL:
 		return 2; /* ^@ ^? etc. */
@@ -278,7 +260,6 @@ ct_visual_width(Char c)
 		return 1; /* Hmm, this really need to be handled outside! */
 	case CHTYPE_NL:
 		return 0; /* Should this be 1 instead? */
-#ifdef WIDECHAR
 	case CHTYPE_PRINT:
 		w = wcwidth(c);
 		return (w == -1 ? 0 : w);
@@ -287,12 +268,6 @@ ct_visual_width(Char c)
 			return 8; /* \U+12345 */
 		else
 			return 7; /* \U+1234 */
-#else
-	case CHTYPE_PRINT:
-		return 1;
-	case CHTYPE_NONPRINT:
-		return 4; /* \123 */
-#endif
 	default:
 		return 0; /* should not happen */
 	}
@@ -325,7 +300,6 @@ ct_visual_char(Char *dst, size_t len, Char c)
 		 * so this is right */
 		if ((ssize_t)len < ct_visual_width(c))
 			return -1;   /* insufficient space */
-#ifdef WIDECHAR
 		*dst++ = '\\';
 		*dst++ = 'U';
 		*dst++ = '+';
@@ -337,13 +311,6 @@ ct_visual_char(Char *dst, size_t len, Char c)
 		*dst++ = tohexdigit(((unsigned int) c >>  4) & 0xf);
 		*dst   = tohexdigit(((unsigned int) c      ) & 0xf);
 		return (c > 0xffff) ? 8 : 7;
-#else
-		*dst++ = '\\';
-#define tooctaldigit(v) ((v) + '0')
-		*dst++ = tooctaldigit(((unsigned int) c >> 6) & 0x7);
-		*dst++ = tooctaldigit(((unsigned int) c >> 3) & 0x7);
-		*dst++ = tooctaldigit(((unsigned int) c     ) & 0x7);
-#endif
 		/*FALLTHROUGH*/
 	/* these two should be handled outside this function */
 	default:            /* we should never hit the default */
@@ -361,9 +328,9 @@ ct_chr_class(Char c)
 		return CHTYPE_TAB;
 	else if (c == '\n')
 		return CHTYPE_NL;
-	else if (IsASCII(c) && Iscntrl(c))
+	else if (c < 0x100 && iswcntrl(c))
 		return CHTYPE_ASCIICTL;
-	else if (Isprint(c))
+	else if (iswprint(c))
 		return CHTYPE_PRINT;
 	else
 		return CHTYPE_NONPRINT;

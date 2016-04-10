@@ -1,5 +1,5 @@
-/*	$OpenBSD: search.c,v 1.20 2016/03/21 15:25:39 schwarze Exp $	*/
-/*	$NetBSD: search.c,v 1.39 2016/02/24 14:25:38 christos Exp $	*/
+/*	$OpenBSD: search.c,v 1.22 2016/04/09 20:15:26 schwarze Exp $	*/
+/*	$NetBSD: search.c,v 1.41 2016/04/09 18:43:17 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -106,9 +106,7 @@ regerror(const char *msg)
 protected int
 el_match(const Char *str, const Char *pat)
 {
-#ifdef WIDECHAR
 	static ct_buffer_t conv;
-#endif
 #if defined (REGEX)
 	regex_t re;
 	int rv;
@@ -120,7 +118,7 @@ el_match(const Char *str, const Char *pat)
 	extern int	 re_exec(const char *);
 #endif
 
-	if (Strstr(str, pat) != 0)
+	if (wcsstr(str, pat) != 0)
 		return 1;
 
 #if defined(REGEX)
