@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.c,v 1.3 2015/05/19 03:30:54 jsg Exp $	*/
+/*	$OpenBSD: autoconf.c,v 1.5 2016/04/10 12:32:46 jsg Exp $	*/
 /*	$NetBSD: autoconf.c,v 1.2 2001/09/05 16:17:36 matt Exp $	*/
 
 /*
@@ -48,16 +48,12 @@
 #include <sys/device.h>
 #include <sys/conf.h>
 #include <sys/kernel.h>
-#include <sys/malloc.h>
 
 #include <machine/bootconfig.h>
 #include <machine/intr.h>
 #include <machine/bus.h>
 
-#include <armv7/armv7/armv7_machdep.h>
-
 struct device *bootdv = NULL;
-extern char *hw_prod;
 
 void dumpconf(void);
 
@@ -75,15 +71,6 @@ device_register(struct device *dev, void *aux)
 void
 cpu_configure(void)
 {
-	int len;
-	const char *name = platform_board_name();
-	if (name) {
-		len = strlen(name) + 1;
-		hw_prod = malloc(len, M_DEVBUF, M_NOWAIT);
-		if (hw_prod)
-			strlcpy(hw_prod, name, len);
-	}
-
 	softintr_init();
 
 	/*
