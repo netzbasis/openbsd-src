@@ -1,5 +1,5 @@
-/*	$OpenBSD: chartype.h,v 1.15 2016/04/09 20:15:26 schwarze Exp $	*/
-/*	$NetBSD: chartype.h,v 1.5 2010/04/15 00:55:57 christos Exp $	*/
+/*	$OpenBSD: chartype.h,v 1.19 2016/04/11 21:17:29 schwarze Exp $	*/
+/*	$NetBSD: chartype.h,v 1.31 2016/04/11 18:56:31 christos Exp $	*/
 
 /*-
  * Copyright (c) 2009 The NetBSD Foundation, Inc.
@@ -30,8 +30,6 @@
 #ifndef _h_chartype_f
 #define _h_chartype_f
 
-#ifndef NARROWCHAR
-
 /* Ideally we should also test the value of the define to see if it
  * supports non-BMP code points without requiring UTF-16, but nothing
  * seems to actually advertise this properly, despite Unicode 3.1 having
@@ -52,76 +50,31 @@
 #warning Build environment does not support non-BMP characters
 #endif
 
-#define Char			wchar_t
-#define FUN(prefix,rest)	prefix ## _w ## rest
-#define FUNW(type)		type ## _w
-#define TYPE(type)		type ## W
-#define STR(x)			L ## x
-
-#define Strlen(x)       wcslen(x)
-#define Strchr(s,c)     wcschr(s,c)
-#define Strdup(x)       wcsdup(x)
-#define Strncpy(d,s,n)  wcsncpy(d,s,n)
-#define Strncat(d,s,n)  wcsncat(d,s,n)
-#define Strcmp(s,v)     wcscmp(s,v)
-#define Strncmp(s,v,n)  wcsncmp(s,v,n)
-
-#else /* NARROW */
-
-#define Char			char
-#define FUN(prefix,rest)	prefix ## _ ## rest
-#define FUNW(type)		type
-#define TYPE(type)		type
-#define STR(x)			x
-
-#define Strlen(x)       strlen(x)
-#define Strchr(s,c)     strchr(s,c)
-#define Strdup(x)       strdup(x)
-#define Strncpy(d,s,n)  strncpy(d,s,n)
-#define Strncat(d,s,n)  strncat(d,s,n)
-
-#define Strcmp(s,v)     strcmp(s,v)
-#define Strncmp(s,v,n)  strncmp(s,v,n)
-#endif
-
-
-#ifndef NARROWCHAR
 /*
  * Conversion buffer
  */
 typedef struct ct_buffer_t {
         char    *cbuff;
         size_t  csize;
-        Char *wbuff;
+        wchar_t *wbuff;
         size_t  wsize;
 } ct_buffer_t;
 
-#define ct_encode_string __ct_encode_string
 /* Encode a wide-character string and return the UTF-8 encoded result. */
-public char *ct_encode_string(const Char *, ct_buffer_t *);
+char *ct_encode_string(const wchar_t *, ct_buffer_t *);
 
-#define ct_decode_string __ct_decode_string
 /* Decode a (multi)?byte string and return the wide-character string result. */
-public Char *ct_decode_string(const char *, ct_buffer_t *);
+wchar_t *ct_decode_string(const char *, ct_buffer_t *);
 
 /* Decode a (multi)?byte argv string array.
  * The pointer returned must be free()d when done. */
-protected Char **ct_decode_argv(int, const char *[],  ct_buffer_t *);
+protected wchar_t **ct_decode_argv(int, const char *[],  ct_buffer_t *);
 
-/* Resizes the conversion buffer(s) if needed. */
-protected void ct_conv_buff_resize(ct_buffer_t *, size_t, size_t);
-protected ssize_t ct_encode_char(char *, size_t, Char);
-protected size_t ct_enc_width(Char);
-
-#else
-#define	ct_encode_string(s, b)	(s)
-#define ct_decode_string(s, b)	(s)
-#endif
-
-#ifndef NARROWCHAR
 /* Encode a characted into the destination buffer, provided there is sufficent
  * buffer space available. Returns the number of bytes used up (zero if the
  * character cannot be encoded, -1 if there was not enough space available). */
+protected ssize_t ct_encode_char(char *, size_t, wchar_t);
+protected size_t ct_enc_width(wchar_t);
 
 /* The maximum buffer size to hold the most unwieldly visual representation,
  * in this case \U+nnnnn. */
@@ -130,20 +83,20 @@ protected size_t ct_enc_width(Char);
 /* The terminal is thought of in terms of X columns by Y lines. In the cases
  * where a wide character takes up more than one column, the adjacent
  * occupied column entries will contain this faux character. */
-#define MB_FILL_CHAR ((Char)-1)
+#define MB_FILL_CHAR ((wchar_t)-1)
 
 /* Visual width of character c, taking into account ^? , \0177 and \U+nnnnn
  * style visual expansions. */
-protected int ct_visual_width(Char);
+protected int ct_visual_width(wchar_t);
 
 /* Turn the given character into the appropriate visual format, matching
  * the width given by ct_visual_width(). Returns the number of characters used
- * up, or -1 if insufficient space. Buffer length is in count of Char's. */
-protected ssize_t ct_visual_char(Char *, size_t, Char);
+ * up, or -1 if insufficient space. Buffer length is in count of wchar_t's. */
+protected ssize_t ct_visual_char(wchar_t *, size_t, wchar_t);
 
 /* Convert the given string into visual format, using the ct_visual_char()
  * function. Uses a static buffer, so not threadsafe. */
-protected const Char *ct_visual_string(const Char *);
+protected const wchar_t *ct_visual_string(const wchar_t *);
 
 
 /* printable character, use ct_visual_width() to find out display width */
@@ -157,7 +110,6 @@ protected const Char *ct_visual_string(const Char *);
 /* non-printable character */
 #define CHTYPE_NONPRINT     (-4)
 /* classification of character c, as one of the above defines */
-protected int ct_chr_class(Char c);
-#endif
+protected int ct_chr_class(wchar_t c);
 
 #endif /* _chartype_f */

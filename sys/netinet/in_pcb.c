@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.c,v 1.201 2016/04/08 14:34:21 vgross Exp $	*/
+/*	$OpenBSD: in_pcb.c,v 1.203 2016/04/11 21:39:18 vgross Exp $	*/
 /*	$NetBSD: in_pcb.c,v 1.25 1996/02/13 23:41:53 christos Exp $	*/
 
 /*
@@ -415,14 +415,13 @@ in_pcbaddrisavail(struct inpcb *inp, struct sockaddr_in *sin, int wild,
 		struct inpcb *t;
 
 		if (so->so_euid) {
-			t = in_pcblookup(table, &zeroin_addr, 0,
-			    &sin->sin_addr, lport, INPLOOKUP_WILDCARD,
-			    inp->inp_rtableid);
+			t = in_pcblookup_local(table, &sin->sin_addr, lport,
+			    INPLOOKUP_WILDCARD, inp->inp_rtableid);
 			if (t && (so->so_euid != t->inp_socket->so_euid))
 				return (EADDRINUSE);
 		}
-		t = in_pcblookup(table, &zeroin_addr, 0,
-		    &sin->sin_addr, lport, wild, inp->inp_rtableid);
+		t = in_pcblookup_local(table, &sin->sin_addr, lport,
+		    wild, inp->inp_rtableid);
 		if (t && (reuseport & t->inp_socket->so_options) == 0)
 			return (EADDRINUSE);
 	}
@@ -475,8 +474,8 @@ in_pcbpickport(u_int16_t *lport, void *laddr, int wild, struct inpcb *inp,
 			candidate = lower;
 		localport = htons(candidate);
 	} while (in_baddynamic(localport, so->so_proto->pr_protocol) ||
-	    in_pcblookup(table, &zeroin46_addr, 0,
-	    laddr, localport, wild, inp->inp_rtableid));
+	    in_pcblookup_local(table, laddr, localport, wild,
+	    inp->inp_rtableid));
 	*lport = localport;
 
 	return (0);
@@ -734,14 +733,14 @@ in_rtchange(struct inpcb *inp, int errno)
 }
 
 struct inpcb *
-in_pcblookup(struct inpcbtable *table, void *faddrp, u_int fport_arg,
-    void *laddrp, u_int lport_arg, int flags, u_int rdomain)
+in_pcblookup_local(struct inpcbtable *table, void *laddrp, u_int lport_arg,
+    int flags, u_int rdomain)
 {
 	struct inpcb *inp, *match = NULL;
 	int matchwild = 3, wildcard;
-	u_int16_t fport = fport_arg, lport = lport_arg;
-	struct in_addr faddr = *(struct in_addr *)faddrp;
+	u_int16_t lport = lport_arg;
 	struct in_addr laddr = *(struct in_addr *)laddrp;
+	struct in6_addr *laddr6 = (struct in6_addr *)laddrp;
 	struct inpcbhead *head;
 
 	rdomain = rtable_l2(rdomain);	/* convert passed rtableid to rdomain */
@@ -753,60 +752,40 @@ in_pcblookup(struct inpcbtable *table, void *faddrp, u_int fport_arg,
 			continue;
 		wildcard = 0;
 #ifdef INET6
-		if (flags & INPLOOKUP_IPV6) {
-			struct in6_addr *laddr6 = (struct in6_addr *)laddrp;
-			struct in6_addr *faddr6 = (struct in6_addr *)faddrp;
-
-			if (!(inp->inp_flags & INP_IPV6))
+		if (ISSET(flags, INPLOOKUP_IPV6)) {
+			if (!ISSET(inp->inp_flags, INP_IPV6))
 				continue;
 
-			if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6)) {
-				if (IN6_IS_ADDR_UNSPECIFIED(laddr6))
+			if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_faddr6))
+				wildcard++;
+
+			if (!IN6_ARE_ADDR_EQUAL(&inp->inp_laddr6, laddr6)) {
+				if (IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6) ||
+				    IN6_IS_ADDR_UNSPECIFIED(laddr6))
 					wildcard++;
-				else if (!IN6_ARE_ADDR_EQUAL(&inp->inp_laddr6, laddr6))
+				else
 					continue;
-			} else {
-				if (!IN6_IS_ADDR_UNSPECIFIED(laddr6))
-					wildcard++;
 			}
 
-			if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_faddr6)) {
-				if (IN6_IS_ADDR_UNSPECIFIED(faddr6))
-					wildcard++;
-				else if (!IN6_ARE_ADDR_EQUAL(&inp->inp_faddr6,
-				    faddr6) || inp->inp_fport != fport)
-					continue;
-			} else {
-				if (!IN6_IS_ADDR_UNSPECIFIED(faddr6))
-					wildcard++;
-			}
 		} else
 #endif /* INET6 */
 		{
 #ifdef INET6
-			if (inp->inp_flags & INP_IPV6)
+			if (ISSET(inp->inp_flags, INP_IPV6))
 				continue;
 #endif /* INET6 */
 
-			if (inp->inp_faddr.s_addr != INADDR_ANY) {
-				if (faddr.s_addr == INADDR_ANY)
+			if (inp->inp_faddr.s_addr != INADDR_ANY)
+				wildcard++;
+
+			if (inp->inp_laddr.s_addr != laddr.s_addr) {
+				if (inp->inp_laddr.s_addr == INADDR_ANY ||
+				    laddr.s_addr == INADDR_ANY)
 					wildcard++;
-				else if (inp->inp_faddr.s_addr != faddr.s_addr ||
-				    inp->inp_fport != fport)
+				else
 					continue;
-			} else {
-				if (faddr.s_addr != INADDR_ANY)
-					wildcard++;
 			}
-			if (inp->inp_laddr.s_addr != INADDR_ANY) {
-				if (laddr.s_addr == INADDR_ANY)
-					wildcard++;
-				else if (inp->inp_laddr.s_addr != laddr.s_addr)
-					continue;
-			} else {
-				if (laddr.s_addr != INADDR_ANY)
-					wildcard++;
-			}
+
 		}
 		if ((!wildcard || (flags & INPLOOKUP_WILDCARD)) &&
 		    wildcard < matchwild) {

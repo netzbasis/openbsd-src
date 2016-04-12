@@ -1,4 +1,4 @@
-/*	$OpenBSD: filecomplete.c,v 1.10 2016/04/09 20:28:27 schwarze Exp $ */
+/*	$OpenBSD: filecomplete.c,v 1.12 2016/04/11 20:43:33 schwarze Exp $ */
 /*	$NetBSD: filecomplete.c,v 1.22 2010/12/02 04:42:46 dholland Exp $	*/
 
 /*-
@@ -47,9 +47,7 @@
 #include "el.h"
 #include "filecomplete.h"
 
-static const Char break_chars[] = { ' ', '\t', '\n', '"', '\\', '\'', '`', '@',
-    '$', '>', '<', '=', ';', '|', '&', '{', '(', '\0' };
-
+static const wchar_t break_chars[] = L" \t\n\"\\'`@$><=;|&{(";
 
 /********************************/
 /* completion functions */
@@ -390,14 +388,14 @@ int
 fn_complete(EditLine *el,
 	char *(*complet_func)(const char *, int),
 	char **(*attempted_completion_function)(const char *, int, int),
-	const Char *word_break, const Char *special_prefixes,
+	const wchar_t *word_break, const wchar_t *special_prefixes,
 	const char *(*app_func)(const char *), size_t query_items,
 	int *completion_type, int *over, int *point, int *end)
 {
-	const TYPE(LineInfo) *li;
-	Char *temp;
+	const LineInfoW *li;
+	wchar_t *temp;
         char **matches;
-	const Char *ctemp;
+	const wchar_t *ctemp;
 	size_t len;
 	int what_to_do = '\t';
 	int retval = CC_NORM;
@@ -415,16 +413,16 @@ fn_complete(EditLine *el,
 		app_func = append_char_function;
 
 	/* We now look backwards for the start of a filename/variable word */
-	li = FUN(el,line)(el);
+	li = el_wline(el);
 	ctemp = li->cursor;
 	while (ctemp > li->buffer
-	    && !Strchr(word_break, ctemp[-1])
-	    && (!special_prefixes || !Strchr(special_prefixes, ctemp[-1]) ) )
+	    && !wcschr(word_break, ctemp[-1])
+	    && (!special_prefixes || !wcschr(special_prefixes, ctemp[-1]) ) )
 		ctemp--;
 
 	len = li->cursor - ctemp;
 	temp = reallocarray(NULL, len + 1, sizeof(*temp));
-	(void)Strncpy(temp, ctemp, len);
+	(void)wcsncpy(temp, ctemp, len);
 	temp[len] = '\0';
 
 	/* these can be used by function called in completion_matches() */
@@ -460,7 +458,7 @@ fn_complete(EditLine *el,
 		 */
 		if (matches[0][0] != '\0') {
 			el_deletestr(el, (int) len);
-			FUN(el,insertstr)(el,
+			el_winsertstr(el,
 			    ct_decode_string(matches[0], &el->el_scratch));
 		}
 
@@ -473,7 +471,7 @@ fn_complete(EditLine *el,
 			 * it, unless we do filename completion and the
 			 * object is a directory.
 			 */
-			FUN(el,insertstr)(el,
+			el_winsertstr(el,
 			    ct_decode_string((*app_func)(matches[0]),
 			    &el->el_scratch));
 		} else if (what_to_do == '!') {
