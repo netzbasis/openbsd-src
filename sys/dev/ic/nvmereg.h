@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvmereg.h,v 1.6 2016/01/15 03:39:13 dlg Exp $ */
+/*	$OpenBSD: nvmereg.h,v 1.9 2016/04/13 12:49:24 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -131,6 +131,66 @@ struct nvme_sqe {
 	u_int32_t	cdw15;
 } __packed __aligned(8);
 
+struct nvme_sqe_q {
+	u_int8_t	opcode;
+	u_int8_t	flags;
+	u_int16_t	cid;
+
+	u_int8_t	_reserved1[20];
+
+	u_int64_t	prp1;
+
+	u_int8_t	_reserved2[8];
+
+	u_int16_t	qid;
+	u_int16_t	qsize;
+
+	u_int8_t	qflags;
+#define NVM_SQE_SQ_QPRIO_URG	(0x0 << 1)
+#define NVM_SQE_SQ_QPRIO_HI	(0x1 << 1)
+#define NVM_SQE_SQ_QPRIO_MED	(0x2 << 1)
+#define NVM_SQE_SQ_QPRIO_LOW	(0x3 << 1)
+#define NVM_SQE_CQ_IEN		(1 << 1) /* interrupt enable */
+#define NVM_SQE_Q_PC		(1 << 0)
+	u_int8_t	_reserved3;
+	u_int16_t	cqid; /* XXX interrupt vector for cq */
+
+	u_int8_t	_reserved4[16];
+} __packed __aligned(8);
+
+struct nvme_sqe_io {
+	u_int8_t	opcode;
+	u_int8_t	flags;
+	u_int16_t	cid;
+
+	u_int32_t	nsid;
+
+	u_int8_t	_reserved[8];
+
+	u_int64_t	mptr;
+
+	union {
+		u_int64_t	prp[2];
+		struct nvme_sge	sge;
+	} __packed	entry;
+
+	u_int64_t	slba;	/* Starting LBA */
+
+	u_int16_t	nlb;	/* Number of Logical Blocks */
+	u_int16_t	ioflags;
+
+	u_int8_t	dsm;	/* Dataset Management */
+	u_int8_t	_reserved2[3];
+
+	u_int32_t	eilbrt;	/* Expected Initial Logical Block
+				   Reference Tag */
+
+	u_int16_t	elbat;	/* Expected Logical Block
+				   Application Tag */
+	u_int16_t	elbatm;	/* Expected Logical Block
+				   Application Tag Mask */
+} __packed __aligned(8);
+
 struct nvme_cqe {
 	u_int32_t	cdw0;
 
@@ -186,6 +246,13 @@ struct nvme_cqe {
 #define NVM_ADMIN_ASYNC_EV_REQ	0x0c /* Asynchronous Event Request */
 #define NVM_ADMIN_FW_ACTIVATE	0x10 /* Firmware Activate */
 #define NVM_ADMIN_FW_DOWNLOAD	0x11 /* Firmware Image Download */
+
+#define NVM_CMD_FLUSH		0x00 /* Flush */
+#define NVM_CMD_WRITE		0x01 /* Write */
+#define NVM_CMD_READ		0x02 /* Read */
+#define NVM_CMD_WR_UNCOR	0x04 /* Write Uncorrectable */
+#define NVM_CMD_COMPARE		0x05 /* Compare */
+#define NVM_CMD_DSM		0x09 /* Dataset Management */
 
 /* Power State Descriptor Data */
 struct nvm_identify_psd {
@@ -279,4 +346,38 @@ struct nvm_identify_controller {
 	/* Vendor Specific */
 
 	u_int8_t	_reserved8[1024];
+} __packed __aligned(8);
+
+struct nvm_namespace_format {
+	u_int16_t	ms;		/* Metadata Size */
+	u_int8_t	lbads;		/* LBA Data Size */
+	u_int8_t	rp;		/* Relative Performance */
+} __packed __aligned(4);
+
+struct nvm_identify_namespace {
+	u_int64_t	nsze;		/* Namespace Size */
+
+	u_int64_t	ncap;		/* Namespace Capacity */
+
+	u_int64_t	nuse;		/* Namespace Utilization */
+
+	u_int8_t	nsfeat;		/* Namespace Features */
+	u_int8_t	nlbaf;		/* Number of LBA Formats */
+	u_int8_t	flbas;		/* Formatted LBA Size */
+#define NVME_ID_NS_FLBAS(_f)			((_f) & 0x0f)
+#define NVME_ID_NS_FLBAS_MD			0x10
+	u_int8_t	mc;		/* Metadata Capabilities */
+	u_int8_t	dpc;		/* End-to-end Data Protection
+					   Capabilities */
+	u_int8_t	dps;		/* End-to-end Data Protection
+					   Type Settings */
+
+	u_int8_t	_reserved1[98];
+
+	struct nvm_namespace_format
+			lbaf[16];	/* LBA Format Support */
+
+	u_int8_t	_reserved2[192];
+
+	u_int8_t	vs[3712];
 } __packed __aligned(8);
