@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.c,v 1.8 2016/02/23 14:51:13 gsoares Exp $ */
+/*	$OpenBSD: eigrpd.c,v 1.12 2016/04/15 13:31:03 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -112,11 +112,13 @@ usage(void)
 	exit(1);
 }
 
+struct eigrpd_global global;
+
 int
 main(int argc, char *argv[])
 {
 	struct event		 ev_sigint, ev_sigterm, ev_sigchld, ev_sighup;
-	int			 ch, opts = 0;
+	int			 ch;
 	int			 debug = 0;
 	int			 ipforwarding;
 	int			 mib[4];
@@ -144,15 +146,15 @@ main(int argc, char *argv[])
 			conffile = optarg;
 			break;
 		case 'n':
-			opts |= EIGRPD_OPT_NOACTION;
+			global.cmd_opts |= EIGRPD_OPT_NOACTION;
 			break;
 		case 's':
 			sockname = optarg;
 			break;
 		case 'v':
-			if (opts & EIGRPD_OPT_VERBOSE)
-				opts |= EIGRPD_OPT_VERBOSE2;
-			opts |= EIGRPD_OPT_VERBOSE;
+			if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
+				global.cmd_opts |= EIGRPD_OPT_VERBOSE2;
+			global.cmd_opts |= EIGRPD_OPT_VERBOSE;
 			break;
 		default:
 			usage();
@@ -180,14 +182,14 @@ main(int argc, char *argv[])
 	kif_init();
 
 	/* parse config file */
-	if ((eigrpd_conf = parse_config(conffile, opts)) == NULL) {
+	if ((eigrpd_conf = parse_config(conffile)) == NULL) {
 		kif_clear();
 		exit(1);
 	}
-	eigrpd_conf->csock = sockname;
+	global.csock = sockname;
 
-	if (eigrpd_conf->opts & EIGRPD_OPT_NOACTION) {
-		if (eigrpd_conf->opts & EIGRPD_OPT_VERBOSE)
+	if (global.cmd_opts & EIGRPD_OPT_NOACTION) {
+		if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
 			print_config(eigrpd_conf);
 		else
 			fprintf(stderr, "configuration OK\n");
@@ -204,7 +206,7 @@ main(int argc, char *argv[])
 		errx(1, "unknown user %s", EIGRPD_USER);
 
 	log_init(debug);
-	log_verbose(eigrpd_conf->opts & EIGRPD_OPT_VERBOSE);
+	log_verbose(global.cmd_opts & EIGRPD_OPT_VERBOSE);
 
 	if (!debug)
 		daemon(1, 0);
@@ -404,9 +406,8 @@ main_dispatch_eigrpe(int fd, short event, void *bula)
 	if (!shut)
 		imsg_event_add(iev);
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
+		eigrpe_pid = 0;
+		eigrpd_shutdown();
 	}
 }
 
@@ -468,9 +469,8 @@ main_dispatch_rde(int fd, short event, void *bula)
 	if (!shut)
 		imsg_event_add(iev);
 	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
+		rde_pid = 0;
+		eigrpd_shutdown();
 	}
 }
 
@@ -537,7 +537,7 @@ eigrp_reload(void)
 	struct eigrp_iface	*ei;
 	struct eigrpd_conf	*xconf;
 
-	if ((xconf = parse_config(conffile, eigrpd_conf->opts)) == NULL)
+	if ((xconf = parse_config(conffile)) == NULL)
 		return (-1);
 
 	if (eigrp_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
@@ -650,6 +650,9 @@ config_clear(struct eigrpd_conf *conf)
 
 	/* merge current config with an empty config */
 	xconf = malloc(sizeof(*xconf));
+	if (xconf == NULL)
+		fatal(NULL);
+
 	*xconf = *conf;
 	TAILQ_INIT(&xconf->instances);
 	merge_config(conf, xconf);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cgi.c,v 1.65 2016/04/15 01:33:48 schwarze Exp $ */
+/*	$OpenBSD: cgi.c,v 1.68 2016/04/15 21:14:03 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2016 Ingo Schwarze <schwarze@usta.de>
@@ -19,6 +19,7 @@
 #include <sys/time.h>
 
 #include <ctype.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -56,14 +57,12 @@ struct	req {
 	int		  isquery; /* QUERY_STRING used, not PATH_INFO */
 };
 
-static	void		 catman(const struct req *, const char *);
-static	void		 format(const struct req *, const char *);
 static	void		 html_print(const char *);
 static	void		 html_putchar(char);
 static	int		 http_decode(char *);
-static	void		 http_parse(struct req *, const char *);
-static	void		 pathgen(struct req *);
-static	void		 path_parse(struct req *req, const char *path);
+static	void		 parse_manpath_conf(struct req *);
+static	void		 parse_path_info(struct req *req, const char *path);
+static	void		 parse_query_string(struct req *, const char *);
 static	void		 pg_error_badrequest(const char *);
 static	void		 pg_error_internal(void);
 static	void		 pg_index(const struct req *);
@@ -74,8 +73,10 @@ static	void		 pg_searchres(const struct req *,
 static	void		 pg_show(struct req *, const char *);
 static	void		 resp_begin_html(int, const char *);
 static	void		 resp_begin_http(int, const char *);
+static	void		 resp_catman(const struct req *, const char *);
 static	void		 resp_copy(const char *);
 static	void		 resp_end_html(void);
+static	void		 resp_format(const struct req *, const char *);
 static	void		 resp_searchform(const struct req *);
 static	void		 resp_show(const struct req *, const char *);
 static	void		 set_query_attr(char **, char **);
@@ -182,7 +183,7 @@ set_query_attr(char **attr, char **val)
  * and store the values into the query structure.
  */
 static void
-http_parse(struct req *req, const char *qs)
+parse_query_string(struct req *req, const char *qs)
 {
 	char		*key, *val;
 	size_t		 keysz, valsz;
@@ -562,7 +563,7 @@ pg_searchres(const struct req *req, struct manpage *r, size_t sz)
 	for (i = 0; i < sz; i++) {
 		if (validate_filename(r[i].file))
 			continue;
-		fprintf(stderr, "invalid filename %s in %s database\n",
+		warnx("invalid filename %s in %s database",
 		    r[i].file, req->q.manpath);
 		pg_error_internal();
 		return;
@@ -658,7 +659,7 @@ pg_searchres(const struct req *req, struct manpage *r, size_t sz)
 }
 
 static void
-catman(const struct req *req, const char *file)
+resp_catman(const struct req *req, const char *file)
 {
 	FILE		*f;
 	char		*p;
@@ -795,7 +796,7 @@ catman(const struct req *req, const char *file)
 }
 
 static void
-format(const struct req *req, const char *file)
+resp_format(const struct req *req, const char *file)
 {
 	struct manoutput conf;
 	struct mparse	*mp;
@@ -822,8 +823,7 @@ format(const struct req *req, const char *file)
 
 	mparse_result(mp, &man, NULL);
 	if (man == NULL) {
-		fprintf(stderr, "fatal mandoc error: %s/%s\n",
-		    req->q.manpath, file);
+		warnx("fatal mandoc error: %s/%s", req->q.manpath, file);
 		pg_error_internal();
 		mparse_free(mp);
 		mchars_free();
@@ -854,9 +854,9 @@ resp_show(const struct req *req, const char *file)
 		file += 2;
 
 	if ('c' == *file)
-		catman(req, file);
+		resp_catman(req, file);
 	else
-		format(req, file);
+		resp_format(req, file);
 }
 
 static void
@@ -887,8 +887,7 @@ pg_show(struct req *req, const char *fullpath)
 	 */
 
 	if (chdir(manpath) == -1) {
-		fprintf(stderr, "chdir %s: %s\n",
-		    manpath, strerror(errno));
+		warn("chdir %s", manpath);
 		pg_error_internal();
 		free(manpath);
 		return;
@@ -929,9 +928,8 @@ pg_search(const struct req *req)
 	 * relative to the manpath root.
 	 */
 
-	if (-1 == (chdir(req->q.manpath))) {
-		fprintf(stderr, "chdir %s: %s\n",
-		    req->q.manpath, strerror(errno));
+	if (chdir(req->q.manpath) == -1) {
+		warn("chdir %s", req->q.manpath);
 		pg_error_internal();
 		return;
 	}
@@ -1006,7 +1004,7 @@ main(void)
 	itimer.it_interval.tv_sec = 2;
 	itimer.it_interval.tv_usec = 0;
 	if (setitimer(ITIMER_VIRTUAL, &itimer, NULL) == -1) {
-		fprintf(stderr, "setitimer: %s\n", strerror(errno));
+		warn("setitimer");
 		pg_error_internal();
 		return EXIT_FAILURE;
 	}
@@ -1017,16 +1015,15 @@ main(void)
 	 * relative to the same position.
 	 */
 
-	if (-1 == chdir(MAN_DIR)) {
-		fprintf(stderr, "MAN_DIR: %s: %s\n",
-		    MAN_DIR, strerror(errno));
+	if (chdir(MAN_DIR) == -1) {
+		warn("MAN_DIR: %s", MAN_DIR);
 		pg_error_internal();
 		return EXIT_FAILURE;
 	}
 
 	memset(&req, 0, sizeof(struct req));
 	req.q.equal = 1;
-	pathgen(&req);
+	parse_manpath_conf(&req);
 
 	/* Parse the path info and the query string. */
 
@@ -1036,11 +1033,11 @@ main(void)
 		path++;
 
 	if (*path != '\0') {
-		path_parse(&req, path);
+		parse_path_info(&req, path);
 		if (access(path, F_OK) == -1)
 			path = "";
 	} else if ((querystring = getenv("QUERY_STRING")) != NULL)
-		http_parse(&req, querystring);
+		parse_query_string(&req, querystring);
 
 	/* Validate parsed data and add defaults. */
 
@@ -1081,9 +1078,9 @@ main(void)
  * If PATH_INFO is not a file name, translate it to a query.
  */
 static void
-path_parse(struct req *req, const char *path)
+parse_path_info(struct req *req, const char *path)
 {
-	int	 dir_done;
+	char	*dir;
 
 	req->isquery = 0;
 	req->q.equal = 1;
@@ -1113,23 +1110,19 @@ path_parse(struct req *req, const char *path)
 	req->q.query = mandoc_strdup(req->q.query);
 
 	/* Optional architecture. */
-	dir_done = 0;
-	for (;;) {
-		if ((req->q.arch = strrchr(req->q.manpath, '/')) == NULL)
-			break;
-		*req->q.arch++ = '\0';
-		if (dir_done || strncmp(req->q.arch, "man", 3)) {
-			req->q.arch = mandoc_strdup(req->q.arch);
-			break;
-		}
+	dir = strrchr(req->q.manpath, '/');
+	if (dir != NULL && strncmp(dir + 1, "man", 3) != 0) {
+		*dir++ = '\0';
+		req->q.arch = mandoc_strdup(dir);
+		dir = strrchr(req->q.manpath, '/');
+	} else
+		req->q.arch = NULL;
 
-		/* Optional directory name. */
-		req->q.arch += 3;
-		if (*req->q.arch != '\0') {
-			free(req->q.sec);
-			req->q.sec = mandoc_strdup(req->q.arch);
-		}
-		dir_done = 1;
+	/* Optional directory name. */
+	if (dir != NULL && strncmp(dir + 1, "man", 3) == 0) {
+		*dir++ = '\0';
+		free(req->q.sec);
+		req->q.sec = mandoc_strdup(dir + 3);
 	}
 }
 
@@ -1137,16 +1130,15 @@ path_parse(struct req *req, const char *path)
  * Scan for indexable paths.
  */
 static void
-pathgen(struct req *req)
+parse_manpath_conf(struct req *req)
 {
 	FILE	*fp;
 	char	*dp;
 	size_t	 dpsz;
 	ssize_t	 len;
 
-	if (NULL == (fp = fopen("manpath.conf", "r"))) {
-		fprintf(stderr, "%s/manpath.conf: %s\n",
-			MAN_DIR, strerror(errno));
+	if ((fp = fopen("manpath.conf", "r")) == NULL) {
+		warn("%s/manpath.conf", MAN_DIR);
 		pg_error_internal();
 		exit(EXIT_FAILURE);
 	}
@@ -1160,14 +1152,14 @@ pathgen(struct req *req)
 		req->p = mandoc_realloc(req->p,
 		    (req->psz + 1) * sizeof(char *));
 		if ( ! validate_urifrag(dp)) {
-			fprintf(stderr, "%s/manpath.conf contains "
-			    "unsafe path \"%s\"\n", MAN_DIR, dp);
+			warnx("%s/manpath.conf contains "
+			    "unsafe path \"%s\"", MAN_DIR, dp);
 			pg_error_internal();
 			exit(EXIT_FAILURE);
 		}
-		if (NULL != strchr(dp, '/')) {
-			fprintf(stderr, "%s/manpath.conf contains "
-			    "path with slash \"%s\"\n", MAN_DIR, dp);
+		if (strchr(dp, '/') != NULL) {
+			warnx("%s/manpath.conf contains "
+			    "path with slash \"%s\"", MAN_DIR, dp);
 			pg_error_internal();
 			exit(EXIT_FAILURE);
 		}
@@ -1177,8 +1169,8 @@ pathgen(struct req *req)
 	}
 	free(dp);
 
-	if ( req->p == NULL ) {
-		fprintf(stderr, "%s/manpath.conf is empty\n", MAN_DIR);
+	if (req->p == NULL) {
+		warnx("%s/manpath.conf is empty", MAN_DIR);
 		pg_error_internal();
 		exit(EXIT_FAILURE);
 	}

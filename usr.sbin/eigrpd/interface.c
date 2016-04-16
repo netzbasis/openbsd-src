@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.15 2016/02/21 19:01:12 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.17 2016/04/15 13:21:45 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -37,22 +37,19 @@ void		 eigrp_if_hello_timer(int, short, void *);
 void		 eigrp_if_start_hello_timer(struct eigrp_iface *);
 void		 eigrp_if_stop_hello_timer(struct eigrp_iface *);
 
-static __inline int iface_id_compare(struct eigrp_iface *,
-    struct eigrp_iface *);
-
-RB_HEAD(iface_id_head, eigrp_iface);
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-RB_GENERATE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-
 static __inline int
 iface_id_compare(struct eigrp_iface *a, struct eigrp_iface *b)
 {
 	return (a->ifaceid - b->ifaceid);
 }
 
+RB_HEAD(iface_id_head, eigrp_iface);
+RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
+RB_GENERATE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
+
 struct iface_id_head ifaces_by_id = RB_INITIALIZER(&ifaces_by_id);
 
-uint32_t	ifacecnt = 1;
+static uint32_t	ifacecnt = 1;
 
 struct iface *
 if_new(struct eigrpd_conf *xconf, struct kif *kif)
@@ -125,11 +122,11 @@ if_init(struct eigrpd_conf *xconf, struct iface *iface)
 
 	/* set rdomain */
 	strlcpy(ifr.ifr_name, iface->name, sizeof(ifr.ifr_name));
-	if (ioctl(econf->eigrp_socket_v4, SIOCGIFRDOMAIN, (caddr_t)&ifr) == -1)
+	if (ioctl(global.eigrp_socket_v4, SIOCGIFRDOMAIN, (caddr_t)&ifr) == -1)
 		rdomain = 0;
 	else {
 		rdomain = ifr.ifr_rdomainid;
-		if (setsockopt(econf->eigrp_socket_v4, SOL_SOCKET, SO_RTABLE,
+		if (setsockopt(global.eigrp_socket_v4, SOL_SOCKET, SO_RTABLE,
 		    &rdomain, sizeof(rdomain)) == -1)
 			fatal("failed to set rdomain");
 	}
@@ -494,7 +491,10 @@ if_to_ctl(struct eigrp_iface *ei)
 		break;
 	case AF_INET6:
 		ictl.addr.v6 = ei->iface->linklocal;
-		ictl.prefixlen = 64;
+		if (!IN6_IS_ADDR_UNSPECIFIED(&ei->iface->linklocal))
+			ictl.prefixlen = 64;
+		else
+			ictl.prefixlen = 0;
 		break;
 	default:
 		fatalx("if_to_ctl: unknown af");
@@ -561,10 +561,10 @@ if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 	log_debug("%s: interface %s addr %s", __func__, iface->name,
 	    inet_ntoa(*addr));
 
-	mreq.imr_multiaddr.s_addr = addr->s_addr;
+	mreq.imr_multiaddr = *addr;
 	mreq.imr_interface.s_addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IP_ADD_MEMBERSHIP, interface %s address %s",
 		    __func__, iface->name, inet_ntoa(*addr));
@@ -586,10 +586,10 @@ if_leave_ipv4_group(struct iface *iface, struct in_addr *addr)
 	log_debug("%s: interface %s addr %s", __func__, iface->name,
 	    inet_ntoa(*addr));
 
-	mreq.imr_multiaddr.s_addr = addr->s_addr;
+	mreq.imr_multiaddr = *addr;
 	mreq.imr_interface.s_addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_DROP_MEMBERSHIP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IP_DROP_MEMBERSHIP, interface %s "
 		    "address %s", iface->name, __func__, inet_ntoa(*addr));
@@ -619,7 +619,7 @@ if_set_ipv4_mcast(struct iface *iface)
 
 	addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_MULTICAST_IF,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_MULTICAST_IF,
 	    &addr, sizeof(addr)) < 0) {
 		log_warn("%s: error setting IP_MULTICAST_IF, interface %s",
 		    __func__, iface->name);
@@ -682,7 +682,7 @@ if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	mreq.ipv6mr_multiaddr = *addr;
 	mreq.ipv6mr_interface = iface->ifindex;
 
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_JOIN_GROUP,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_JOIN_GROUP,
 	    &mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IPV6_JOIN_GROUP, interface %s address %s",
 		    __func__, iface->name, log_in6addr(addr));
@@ -707,7 +707,7 @@ if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	mreq.ipv6mr_multiaddr = *addr;
 	mreq.ipv6mr_interface = iface->ifindex;
 
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_LEAVE_GROUP,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_LEAVE_GROUP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IPV6_LEAVE_GROUP, interface %s address %s",
 		    __func__, iface->name, log_in6addr(addr));
@@ -720,7 +720,7 @@ if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 int
 if_set_ipv6_mcast(struct iface *iface)
 {
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_MULTICAST_IF,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_MULTICAST_IF,
 	    &iface->ifindex, sizeof(iface->ifindex)) < 0) {
 		log_warn("%s: error setting IPV6_MULTICAST_IF, interface %s",
 		    __func__, iface->name);
@@ -749,7 +749,7 @@ if_set_ipv6_pktinfo(int fd, int enable)
 {
 	if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &enable,
 	    sizeof(enable)) < 0) {
-		log_warn("%s: error setting IPV6_PKTINFO", __func__);
+		log_warn("%s: error setting IPV6_RECVPKTINFO", __func__);
 		return (-1);
 	}
 

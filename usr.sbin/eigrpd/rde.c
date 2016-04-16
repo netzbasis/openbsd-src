@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.11 2016/02/21 18:56:49 renato Exp $ */
+/*	$OpenBSD: rde.c,v 1.14 2016/04/15 13:31:03 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -146,7 +146,7 @@ rde(struct eigrpd_conf *xconf, int pipe_parent2rde[2], int pipe_eigrpe2rde[2],
 	event_add(&iev_main->ev, NULL);
 
 	gettimeofday(&now, NULL);
-	rdeconf->uptime = now.tv_sec;
+	global.uptime = now.tv_sec;
 
 	TAILQ_FOREACH(eigrp, &rdeconf->instances, entry)
 		rde_instance_init(eigrp);
@@ -315,11 +315,8 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	}
 	if (!shut)
 		imsg_event_add(iev);
-	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
-	}
+	else
+		rde_shutdown();
 }
 
 /* ARGSUSED */
@@ -407,6 +404,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 				fatal(NULL);
 			memcpy(niface, imsg.data, sizeof(struct iface));
 
+			TAILQ_INIT(&niface->ei_list);
 			TAILQ_INIT(&niface->addr_list);
 			TAILQ_INSERT_TAIL(&nconf->iface_list, niface, entry);
 			break;
@@ -443,11 +441,8 @@ rde_dispatch_parent(int fd, short event, void *bula)
 	}
 	if (!shut)
 		imsg_event_add(iev);
-	else {
-		/* this pipe is dead, so remove the event handler */
-		event_del(&iev->ev);
-		event_loopexit(NULL);
-	}
+	else
+		rde_shutdown();
 }
 
 void

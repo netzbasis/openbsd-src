@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.9 2016/02/21 19:01:12 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.14 2016/04/15 13:34:08 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -197,7 +197,7 @@ eigrp_af	: IPV4	{ $$ = AF_INET; }
 		;
 
 varset		: STRING '=' string {
-			if (conf->opts & EIGRPD_OPT_VERBOSE)
+			if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
@@ -355,7 +355,7 @@ interfaceopts_l	: interfaceopts_l interfaceoptsl nl
 
 interfaceoptsl	: PASSIVE { ei->passive = 1; }
 		| SUMMARY_ADDR STRING {
-			struct summary_addr	*s;
+			struct summary_addr	*s, *tmp;
 
 			if ((s = calloc(1, sizeof(*s))) == NULL)
 				fatal(NULL);
@@ -365,8 +365,19 @@ interfaceoptsl	: PASSIVE { ei->passive = 1; }
 				free(s);
 				YYERROR;
 			}
-
 			free($2);
+
+			TAILQ_FOREACH(tmp, &ei->summary_list, entry) {
+				if (eigrp_prefixcmp(af, &s->prefix,
+				    &tmp->prefix, min(s->prefixlen,
+				    tmp->prefixlen)) == 0) {
+					yyerror("summary-address conflicts "
+					    "with another summary-address "
+					    "already configured");
+					YYERROR;
+				}
+			}
+
 			TAILQ_INSERT_TAIL(&ei->summary_list, s, entry);
 		}
 		| iface_defaults
@@ -936,13 +947,12 @@ popfile(void)
 }
 
 struct eigrpd_conf *
-parse_config(char *filename, int opts)
+parse_config(char *filename)
 {
 	struct sym	*sym, *next;
 
 	if ((conf = calloc(1, sizeof(struct eigrpd_conf))) == NULL)
 		fatal("parse_config");
-	conf->opts = opts;
 	conf->rdomain = 0;
 	conf->fib_priority_internal = RTP_EIGRP;
 	conf->fib_priority_external = RTP_EIGRP;
@@ -960,7 +970,8 @@ parse_config(char *filename, int opts)
 	defs->bandwidth = DEFAULT_BANDWIDTH;
 	defs->splithorizon = 1;
 
-	if ((file = pushfile(filename, !(conf->opts & EIGRPD_OPT_NOACTION))) == NULL) {
+	if ((file = pushfile(filename,
+	    !(global.cmd_opts & EIGRPD_OPT_NOACTION))) == NULL) {
 		free(conf);
 		return (NULL);
 	}
@@ -976,7 +987,7 @@ parse_config(char *filename, int opts)
 	/* Free macros and check which have not been used. */
 	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
 		next = TAILQ_NEXT(sym, entry);
-		if ((conf->opts & EIGRPD_OPT_VERBOSE2) && !sym->used)
+		if ((global.cmd_opts & EIGRPD_OPT_VERBOSE2) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
 		if (!sym->persist) {
@@ -1084,6 +1095,9 @@ conf_get_instance(uint16_t as)
 	}
 
 	e = calloc(1, sizeof(struct eigrp));
+	if (e == NULL)
+		fatal(NULL);
+
 	e->af = af;
 	e->as = as;
 	SIMPLEQ_INIT(&e->redist_list);
@@ -1126,9 +1140,43 @@ conf_get_if(struct kif *kif)
 	return (e);
 }
 
+extern struct iface_id_head ifaces_by_id;
+RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
+
 void
 clear_config(struct eigrpd_conf *xconf)
 {
+	struct eigrp		*e;
+	struct redistribute	*r;
+	struct eigrp_iface	*i;
+	struct summary_addr	*s;
+
+	while ((e = TAILQ_FIRST(&xconf->instances)) != NULL) {
+		while (!SIMPLEQ_EMPTY(&e->redist_list)) {
+			r = SIMPLEQ_FIRST(&e->redist_list);
+			SIMPLEQ_REMOVE_HEAD(&e->redist_list, entry);
+			free(r);
+		}
+
+		while ((i = TAILQ_FIRST(&e->ei_list)) != NULL) {
+			RB_REMOVE(iface_id_head, &ifaces_by_id, i);
+			TAILQ_REMOVE(&e->ei_list, i, e_entry);
+			TAILQ_REMOVE(&e->ei_list, i, i_entry);
+			while ((s = TAILQ_FIRST(&i->summary_list)) != NULL) {
+				TAILQ_REMOVE(&i->summary_list, s, entry);
+				free(s);
+			}
+			if (TAILQ_EMPTY(&i->iface->ei_list)) {
+				TAILQ_REMOVE(&xconf->iface_list, i->iface, entry);
+				free(i->iface);
+			}
+			free(i);
+		}
+
+		TAILQ_REMOVE(&xconf->instances, e, entry);
+		free(e);
+	}
+
 	free(xconf);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pthread.h,v 1.1 2016/04/02 19:56:53 guenther Exp $	*/
+/*	$OpenBSD: pthread.h,v 1.3 2016/04/15 21:06:23 guenther Exp $	*/
 /*
  * Copyright (c) 2016 Philip Guenther <guenther@openbsd.org>
  *
@@ -19,6 +19,11 @@
 #define	_LIBPTHREAD_PTHREAD_H_
 
 #include_next <pthread.h>
+
+/*
+ * Functions with PROTO_NORMAL() here MUST have matching
+ * DEF_STD() or DEF_NONSTD() in the file where they are defined!
+ */
 
 PROTO_STD_DEPRECATED(pthread_attr_destroy);
 PROTO_STD_DEPRECATED(pthread_attr_getdetachstate);
@@ -51,7 +56,7 @@ PROTO_STD_DEPRECATED(pthread_cleanup_push);
 PROTO_NORMAL(pthread_cond_broadcast);
 PROTO_NORMAL(pthread_cond_destroy);
 PROTO_NORMAL(pthread_cond_init);
-PROTO_STD_DEPRECATED(pthread_cond_signal);
+PROTO_NORMAL(pthread_cond_signal);
 PROTO_STD_DEPRECATED(pthread_cond_timedwait);
 PROTO_NORMAL(pthread_cond_wait);
 PROTO_STD_DEPRECATED(pthread_condattr_destroy);
