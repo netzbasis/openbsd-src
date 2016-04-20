@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.29 2016/02/02 17:52:46 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.32 2016/04/19 18:15:41 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -89,17 +89,9 @@ struct xen_attach_args {
 	char			 xa_name[16];
 	char			 xa_node[64];
 	char			 xa_backend[128];
+	int			 xa_domid;
 	bus_dma_tag_t		 xa_dmat;
 };
-
-/*
- * Grant table references don't convey the information about an actual
- * offset of the data within the page, however Xen needs to know it.
- * We (ab)use bus_dma_segment's _ds_boundary member to store it.  Please
- * note that we don't save or restore it's original value atm because
- * neither i386 nor amd64 bus_dmamap_unload(9) code needs it.
- */
-#define ds_offset		 _ds_boundary
 
 /*
  *  Hypercalls
@@ -122,8 +114,8 @@ typedef uint32_t xen_intr_handle_t;
 void	xen_intr(void);
 void	xen_intr_ack(void);
 void	xen_intr_signal(xen_intr_handle_t);
-int	xen_intr_establish(evtchn_port_t, xen_intr_handle_t *, void (*)(void *),
-	    void *, char *);
+int	xen_intr_establish(evtchn_port_t, xen_intr_handle_t *, int,
+	    void (*)(void *), void *, char *);
 int	xen_intr_disestablish(xen_intr_handle_t);
 void	xen_intr_enable(void);
 void	xen_intr_mask(xen_intr_handle_t);

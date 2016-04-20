@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.51 2016/04/01 15:41:12 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.55 2016/04/19 18:15:41 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -66,7 +66,8 @@ struct xen_gntent *
 	xen_grant_table_grow(struct xen_softc *);
 int	xen_grant_table_alloc(struct xen_softc *, grant_ref_t *);
 void	xen_grant_table_free(struct xen_softc *, grant_ref_t);
-void	xen_grant_table_enter(struct xen_softc *, grant_ref_t, paddr_t, int);
+void	xen_grant_table_enter(struct xen_softc *, grant_ref_t, paddr_t,
+	    int, int);
 void	xen_grant_table_remove(struct xen_softc *, grant_ref_t);
 void	xen_disable_emulated_devices(struct xen_softc *);
 
@@ -661,7 +662,7 @@ xen_intr_signal(xen_intr_handle_t xih)
 }
 
 int
-xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
+xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
     void (*handler)(void *), void *arg, char *name)
 {
 	struct xen_softc *sc = xen_sc;
@@ -692,6 +693,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih,
 		/* We're being asked to allocate a new event port */
 		memset(&eau, 0, sizeof(eau));
 		eau.dom = DOMID_SELF;
+		eau.remote_dom = domain;
 		if (xen_evtchn_hypercall(sc, EVTCHNOP_alloc_unbound, &eau,
 		    sizeof(eau)) != 0) {
 			DPRINTF("%s: failed to allocate new event port\n",
@@ -1039,7 +1041,7 @@ xen_grant_table_free(struct xen_softc *sc, grant_ref_t ref)
 
 void
 xen_grant_table_enter(struct xen_softc *sc, grant_ref_t ref, paddr_t pa,
-    int flags)
+    int domain, int flags)
 {
 	struct xen_gntent *ge;
 
@@ -1057,7 +1059,7 @@ xen_grant_table_enter(struct xen_softc *sc, grant_ref_t ref, paddr_t pa,
 #endif
 	ref -= ge->ge_start;
 	ge->ge_table[ref].frame = atop(pa);
-	ge->ge_table[ref].domid = 0;
+	ge->ge_table[ref].domid = domain;
 	virtio_membar_sync();
 	ge->ge_table[ref].flags = GTF_permit_access | flags;
 	virtio_membar_sync();
@@ -1160,19 +1162,17 @@ xen_bus_dmamap_load(bus_dma_tag_t t, bus_dmamap_t map, void *buf,
 {
 	struct xen_softc *sc = t->_cookie;
 	struct xen_gntmap *gm = map->_dm_cookie;
-	int i, error;
+	int i, domain, error;
 
+	domain = flags >> 16;
+	flags &= 0xffff;
 	error = _bus_dmamap_load(t, map, buf, buflen, p, flags);
 	if (error)
 		return (error);
 	for (i = 0; i < map->dm_nsegs; i++) {
 		xen_grant_table_enter(sc, gm[i].gm_ref, map->dm_segs[i].ds_addr,
-		    flags & BUS_DMA_WRITE ? GTF_readonly : 0);
+		    domain, flags & BUS_DMA_WRITE ? GTF_readonly : 0);
 		gm[i].gm_paddr = map->dm_segs[i].ds_addr;
-		map->dm_segs[i].ds_offset = map->dm_segs[i].ds_addr &
-		    PAGE_MASK;
-		KASSERT(map->dm_segs[i].ds_offset +
-		    map->dm_segs[i].ds_len <= PAGE_SIZE);
 		map->dm_segs[i].ds_addr = gm[i].gm_ref;
 	}
 	return (0);
@@ -1184,19 +1184,17 @@ xen_bus_dmamap_load_mbuf(bus_dma_tag_t t, bus_dmamap_t map, struct mbuf *m0,
 {
 	struct xen_softc *sc = t->_cookie;
 	struct xen_gntmap *gm = map->_dm_cookie;
-	int i, error;
+	int i, domain, error;
 
+	domain = flags >> 16;
+	flags &= 0xffff;
 	error = _bus_dmamap_load_mbuf(t, map, m0, flags);
 	if (error)
 		return (error);
 	for (i = 0; i < map->dm_nsegs; i++) {
 		xen_grant_table_enter(sc, gm[i].gm_ref, map->dm_segs[i].ds_addr,
-		    flags & BUS_DMA_WRITE ? GTF_readonly : 0);
+		    domain, flags & BUS_DMA_WRITE ? GTF_readonly : 0);
 		gm[i].gm_paddr = map->dm_segs[i].ds_addr;
-		map->dm_segs[i].ds_offset = map->dm_segs[i].ds_addr &
-		    PAGE_MASK;
-		KASSERT(map->dm_segs[i].ds_offset +
-		    map->dm_segs[i].ds_len <= PAGE_SIZE);
 		map->dm_segs[i].ds_addr = gm[i].gm_ref;
 	}
 	return (0);
@@ -1229,6 +1227,19 @@ xen_bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t map, bus_addr_t addr,
 }
 
 static int
+atoi(char *cp, int *res)
+{
+	*res = 0;
+	do {
+		if (*cp < '0' || *cp > '9')
+			return (-1);
+		*res *= 10;
+		*res += *cp - '0';
+	} while (*(++cp) != '\0');
+	return (0);
+}
+
+static int
 xen_attach_print(void *aux, const char *name)
 {
 	struct xen_attach_args *xa = aux;
@@ -1246,6 +1257,7 @@ xen_probe_devices(struct xen_softc *sc)
 	struct xs_transaction xst;
 	struct iovec *iovp1 = NULL, *iovp2 = NULL;
 	int i, j, error = 0, iov1_cnt = 0, iov2_cnt = 0;
+	char domid[16];
 	char path[256];
 
 	memset(&xst, 0, sizeof(xst));
@@ -1274,11 +1286,17 @@ xen_probe_devices(struct xen_softc *sc)
 			snprintf(xa.xa_node, sizeof(xa.xa_node), "device/%s/%s",
 			    (char *)iovp1[i].iov_base,
 			    (char *)iovp2[j].iov_base);
-			if (xs_getprop(sc, xa.xa_node, "backend", xa.xa_backend,
+			if (xs_getprop(sc, xa.xa_node, "backend-id", domid,
+			    sizeof(domid)) ||
+			    xs_getprop(sc, xa.xa_node, "backend", xa.xa_backend,
 			    sizeof(xa.xa_backend))) {
 				printf("%s: failed to identify \"backend\" "
 				    "for \"%s\"\n", sc->sc_dev.dv_xname,
 				    xa.xa_node);
+			} else if (atoi(domid, &xa.xa_domid)) {
+				printf("%s: non-numeric backend domain id "
+				    "\"%s\" for \"%s\"\n", sc->sc_dev.dv_xname,
+				    domid, xa.xa_node);
 			}
 			config_found((struct device *)sc, &xa,
 			    xen_attach_print);

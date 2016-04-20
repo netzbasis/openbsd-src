@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid.c,v 1.368 2016/04/12 16:26:54 krw Exp $ */
+/* $OpenBSD: softraid.c,v 1.371 2016/04/19 21:47:56 krw Exp $ */
 /*
  * Copyright (c) 2007, 2008, 2009 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Chris Kuethe <ckuethe@openbsd.org>
@@ -3008,21 +3008,16 @@ sr_hotspare_rebuild(struct sr_discipline *sd)
 	struct sr_chunk		*hotspare, *chunk = NULL;
 	struct sr_workunit	*wu;
 	struct sr_ccb		*ccb;
-	int			i, s, chunk_no, busy;
+	int			i, s, cid, busy;
 
-	/*
-	 * Attempt to locate a hotspare and initiate rebuild.
-	 */
-
-	for (i = 0; i < sd->sd_meta->ssdi.ssd_chunk_no; i++) {
-		if (sd->sd_vol.sv_chunks[i]->src_meta.scm_status ==
+	/* Find first offline chunk. */
+	for (cid = 0; cid < sd->sd_meta->ssdi.ssd_chunk_no; cid++) {
+		if (sd->sd_vol.sv_chunks[cid]->src_meta.scm_status ==
 		    BIOC_SDOFFLINE) {
-			chunk_no = i;
-			chunk = sd->sd_vol.sv_chunks[i];
+			chunk = sd->sd_vol.sv_chunks[cid];
 			break;
 		}
 	}
-
 	if (chunk == NULL) {
 		printf("%s: no offline chunk found on %s!\n",
 		    DEVNAME(sc), sd->sd_meta->ssd_devname);
@@ -3053,13 +3048,13 @@ sr_hotspare_rebuild(struct sr_discipline *sd)
 			s = splbio();
 			TAILQ_FOREACH(wu, &sd->sd_wu_pendq, swu_link) {
 				TAILQ_FOREACH(ccb, &wu->swu_ccb, ccb_link) {
-					if (ccb->ccb_target == chunk_no)
+					if (ccb->ccb_target == cid)
 						busy = 1;
 				}
 			}
 			TAILQ_FOREACH(wu, &sd->sd_wu_defq, swu_link) {
 				TAILQ_FOREACH(ccb, &wu->swu_ccb, ccb_link) {
-					if (ccb->ccb_target == chunk_no)
+					if (ccb->ccb_target == cid)
 						busy = 1;
 				}
 			}

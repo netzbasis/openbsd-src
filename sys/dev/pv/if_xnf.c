@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_xnf.c,v 1.18 2016/04/13 11:36:00 mpi Exp $	*/
+/*	$OpenBSD: if_xnf.c,v 1.22 2016/04/19 18:15:41 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015, 2016 Mike Belopuhov
@@ -152,6 +152,7 @@ struct xnf_softc {
 	struct xen_attach_args	 sc_xa;
 	struct xen_softc	*sc_xen;
 	bus_dma_tag_t		 sc_dmat;
+	int			 sc_domid;
 
 	struct arpcom		 sc_ac;
 	struct ifmedia		 sc_media;
@@ -243,6 +244,7 @@ xnf_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_xa = *xa;
 	sc->sc_xen = xa->xa_parent;
 	sc->sc_dmat = xa->xa_dmat;
+	sc->sc_domid = xa->xa_domid;
 
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
@@ -251,14 +253,15 @@ xnf_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	if (xen_intr_establish(0, &sc->sc_xih, xnf_intr, sc, ifp->if_xname)) {
+	if (xen_intr_establish(0, &sc->sc_xih, sc->sc_domid, xnf_intr, sc,
+	    ifp->if_xname)) {
 		printf(": failed to establish an interrupt\n");
 		return;
 	}
 	xen_intr_mask(sc->sc_xih);
 
-	printf(": event channel %u, address %s\n", sc->sc_xih,
-	    ether_sprintf(sc->sc_ac.ac_enaddr));
+	printf(": backend %d, event channel %u, address %s\n", sc->sc_domid,
+	    sc->sc_xih, ether_sprintf(sc->sc_ac.ac_enaddr));
 
 	if (xnf_capabilities(sc)) {
 		xen_intr_disestablish(sc->sc_xih);
@@ -529,7 +532,7 @@ xnf_encap(struct xnf_softc *sc, struct mbuf *m_head, uint32_t *prod)
 	struct mbuf *m;
 	bus_dmamap_t dmap;
 	uint32_t oprod = *prod;
-	int i, id, n = 0;
+	int i, id, flags, n = 0;
 
 	if ((XNF_TX_DESC - (*prod - sc->sc_tx_cons)) < sc->sc_tx_frags)
 		return (ENOENT);
@@ -550,8 +553,9 @@ xnf_encap(struct xnf_softc *sc, struct mbuf *m_head, uint32_t *prod)
 			    ifp->if_xname, txr->txr_cons, sc->sc_tx_cons,
 			    txr->txr_prod, *prod, n, dmap->dm_nsegs - 1);
 
+		flags = (sc->sc_domid << 16) | BUS_DMA_WRITE | BUS_DMA_WAITOK;
 		if (bus_dmamap_load(sc->sc_dmat, dmap, m->m_data, m->m_len,
-		    NULL, BUS_DMA_WRITE | BUS_DMA_NOWAIT))
+		    NULL, flags))
 			goto unroll;
 
 		if (m == m_head) {
@@ -567,7 +571,7 @@ xnf_encap(struct xnf_softc *sc, struct mbuf *m_head, uint32_t *prod)
 			txd->txd_req.txq_flags |= XNF_TXF_CHUNK;
 
 		txd->txd_req.txq_ref = dmap->dm_segs[0].ds_addr;
-		txd->txd_req.txq_offset = dmap->dm_segs[0].ds_offset;
+		txd->txd_req.txq_offset = mtod(m, vaddr_t) & PAGE_MASK;
 		sc->sc_tx_buf[i] = m;
 		(*prod)++;
 	}
@@ -791,7 +795,7 @@ xnf_rx_ring_fill(void *arg)
 	struct mbuf *m;
 	uint32_t cons, prod;
 	static int timer = 0;
-	int i, n;
+	int i, flags, n;
 
 	cons = rxr->rxr_cons;
 	prod = rxr->rxr_prod;
@@ -816,8 +820,8 @@ xnf_rx_ring_fill(void *arg)
 			break;
 		m->m_len = m->m_pkthdr.len = XNF_MCLEN;
 		dmap = sc->sc_rx_dmap[i];
-		if (bus_dmamap_load_mbuf(sc->sc_dmat, dmap, m, BUS_DMA_READ |
-		    BUS_DMA_NOWAIT)) {
+		flags = (sc->sc_domid << 16) | BUS_DMA_READ |BUS_DMA_NOWAIT;
+		if (bus_dmamap_load_mbuf(sc->sc_dmat, dmap, m, flags)) {
 			m_freem(m);
 			break;
 		}
@@ -839,7 +843,7 @@ xnf_rx_ring_fill(void *arg)
 int
 xnf_rx_ring_create(struct xnf_softc *sc)
 {
-	int i, rsegs;
+	int i, flags, rsegs;
 
 	/* Allocate a page of memory for the ring */
 	if (bus_dmamem_alloc(sc->sc_dmat, PAGE_SIZE, PAGE_SIZE, 0,
@@ -863,8 +867,9 @@ xnf_rx_ring_create(struct xnf_softc *sc)
 		goto errout;
 	}
 	/* Load the ring into the ring map to extract the PA */
+	flags = (sc->sc_domid << 16) | BUS_DMA_WAITOK;
 	if (bus_dmamap_load(sc->sc_dmat, sc->sc_rx_rmap, sc->sc_rx_ring,
-	    PAGE_SIZE, NULL, BUS_DMA_WAITOK)) {
+	    PAGE_SIZE, NULL, flags)) {
 		printf("%s: failed to load the rx ring map\n",
 		    sc->sc_dev.dv_xname);
 		goto errout;
@@ -945,7 +950,7 @@ xnf_rx_ring_destroy(struct xnf_softc *sc)
 int
 xnf_tx_ring_create(struct xnf_softc *sc)
 {
-	int i, rsegs;
+	int i, flags, rsegs;
 
 	sc->sc_tx_frags = sc->sc_caps & XNF_CAP_SG ? XNF_TX_FRAG : 1;
 
@@ -971,8 +976,9 @@ xnf_tx_ring_create(struct xnf_softc *sc)
 		goto errout;
 	}
 	/* Load the ring into the ring map to extract the PA */
+	flags = (sc->sc_domid << 16) | BUS_DMA_WAITOK;
 	if (bus_dmamap_load(sc->sc_dmat, sc->sc_tx_rmap, sc->sc_tx_ring,
-	    PAGE_SIZE, NULL, BUS_DMA_WAITOK)) {
+	    PAGE_SIZE, NULL, flags)) {
 		printf("%s: failed to load the tx ring map\n",
 		    sc->sc_dev.dv_xname);
 		goto errout;
