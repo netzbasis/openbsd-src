@@ -1,4 +1,4 @@
-/* $OpenBSD: dwiic.c,v 1.14 2016/04/10 16:43:17 kettenis Exp $ */
+/* $OpenBSD: dwiic.c,v 1.16 2016/04/23 10:23:44 kettenis Exp $ */
 /*
  * Synopsys DesignWare I2C controller
  *
@@ -175,6 +175,7 @@ int		dwiic_intr(void *);
 
 void *		dwiic_i2c_intr_establish(void *, void *, int,
 		    int (*)(void *), void *, const char *);
+const char *	dwiic_i2c_intr_string(void *, void *);
 
 int		dwiic_acpi_parse_crs(union acpi_resource *, void *);
 int		dwiic_acpi_foundhid(struct aml_node *, void *);
@@ -209,6 +210,7 @@ const char *dwiic_hids[] = {
 	"INT3432",
 	"INT3433",
 	"80860F41",
+	"808622C1",
 	NULL
 };
 
@@ -311,6 +313,7 @@ dwiic_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_i2c_tag.ic_release_bus = dwiic_i2c_release_bus;
 	sc->sc_i2c_tag.ic_exec = dwiic_i2c_exec;
 	sc->sc_i2c_tag.ic_intr_establish = dwiic_i2c_intr_establish;
+	sc->sc_i2c_tag.ic_intr_string = dwiic_i2c_intr_string;
 
 	bzero(&sc->sc_iba, sizeof(sc->sc_iba));
 	sc->sc_iba.iba_name = "iic";
@@ -502,6 +505,20 @@ dwiic_i2c_intr_establish(void *cookie, void *ih, int level,
 
 	return acpi_intr_establish(crs->irq_int, crs->irq_flags,
 	    level, func, arg, name);
+}
+
+const char *
+dwiic_i2c_intr_string(void *cookie, void *ih)
+{
+	struct dwiic_crs *crs = ih;
+	static char irqstr[64];
+
+	if (crs->gpio_int_node && crs->gpio_int_node->gpio)
+		snprintf(irqstr, sizeof(irqstr), "gpio %d", crs->gpio_int_pin);
+	else
+		snprintf(irqstr, sizeof(irqstr), "irq %d", crs->irq_int);
+
+	return irqstr;
 }
 
 int
