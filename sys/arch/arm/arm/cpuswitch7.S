@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpuswitch7.S,v 1.7 2016/04/24 01:31:02 patrick Exp $	*/
+/*	$OpenBSD: cpuswitch7.S,v 1.10 2016/04/25 12:16:20 jsg Exp $	*/
 /*	$NetBSD: cpuswitch.S,v 1.41 2003/11/15 08:44:18 scw Exp $	*/
 
 /*
@@ -83,6 +83,7 @@
 #include <machine/frame.h>
 #include <machine/intr.h>
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 
 /* LINTSTUB: include <sys/param.h> */
 	
@@ -94,14 +95,10 @@
  * XXX: This is not necessary if the vector table is relocated.
  */
 #define IRQdisableALL \
-	mrs	r14, cpsr ; \
-	orr	r14, r14, #(PSR_I | PSR_F) ; \
-	msr	cpsr_c, r14
+	cpsid	if
 
 #define IRQenableALL \
-	mrs	r14, cpsr ; \
-	bic	r14, r14, #(PSR_I | PSR_F) ; \
-	msr	cpsr_c, r14
+	cpsie	if
 
 	.text
 
@@ -161,7 +158,7 @@ ENTRY(cpu_switchto)
 	sub	sp, sp, #4
 
 	/* Get curcpu from TPIDRPRW. */
-	mrc	p15, 0, r3, c13, c0, 4
+	mrc	CP15_TPIDRPRW(r3)
 #ifdef MULTIPROCESSOR
 	str	r3, [r1, #(P_CPU)]
 #else
@@ -210,14 +207,8 @@ ENTRY(cpu_switchto)
 	/* Get the user structure for the new process in r9 */
 	ldr	r9, [r6, #(P_ADDR)]
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE | PSR_I)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cpsid	i, #(PSR_UND32_MODE)
 
 #ifdef notworthit
 	teq	r0, #0x00000000
@@ -226,7 +217,7 @@ ENTRY(cpu_switchto)
 	str	sp, [r8, #(PCB_UND_SP)]
 #endif
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* rem: r0 = old proc */
 	/* rem: r1 = r6 = new process */
@@ -287,7 +278,7 @@ ENTRY(cpu_switchto)
 	cmp	r7, #0			/* No need to fixup vector table? */
 	ldrne	r2, [r7]		/* But if yes, fetch current value */
 	ldrne	r0, [r9, #(PCB_L1VEC)]	/* Fetch new vector_page value */
-	mcr	p15, 0, r1, c3, c0, 0	/* Update DACR for new context */
+	mcr	CP15_DACR(r1)		/* Update DACR for new context */
 	cmpne	r2, r0			/* Stuffing the same value? */
 #ifndef PMAP_INCLUDE_PTE_SYNC
 	strne	r0, [r7]		/* Nope, update it */
@@ -339,18 +330,12 @@ ENTRY(cpu_switchto)
 	/* rem: r6 = new proc */
 	/* rem: r9 = new PCB */
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cps	#(PSR_UND32_MODE)
 
 	ldr	sp, [r9, #(PCB_UND_SP)]
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* Restore all the save registers */
 	add	r7, r9, #PCB_R8
@@ -406,9 +391,7 @@ ENTRY(proc_trampoline)
 	mov	pc, r4
 
 	/* Kill irq's */
-        mrs     r0, cpsr
-        orr     r0, r0, #(PSR_I)
-        msr     cpsr_c, r0
+	cpsid	i
 
 	PULLFRAME
 

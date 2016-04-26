@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.121 2016/04/16 11:00:42 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.123 2016/04/25 10:53:13 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -577,16 +577,23 @@ our @ISA=qw(OpenBSD::PackageRepository::Distant);
 
 our %distant = ();
 
-sub try_drop
+sub drop_privileges_and_setup_env
 {
-	my ($self, $user) = @_;
-	if (my (undef, undef, $uid, $gid) = getpwnam($user)) {
-		$( = $gid;
-		$) = "$gid $gid";
-		$< = $uid;
-		$> = $uid;
+	my $self = shift;
+	my $user = '_pkgfetch';
+	if ($< == 0) {
+		# we can't cache anything, we happen after the fork, 
+		# right before exec
+		if (my (undef, undef, $uid, $gid) = getpwnam($user)) {
+			$( = $gid;
+			$) = "$gid $gid";
+			$< = $uid;
+			$> = $uid;
+		} else {
+			$self->{state}->fatal("Couldn't change identity: can't find #1 user", $user);
+		}
 	} else {
-		return 0;
+		($user) = getpwuid($<);
 	}
 	# create sanitized env for ftp
 	my %newenv = (
@@ -618,17 +625,6 @@ sub try_drop
 	}
 	# don't forget to swap!
 	%ENV = %newenv;
-	return 1;
-}
-	
-sub drop_privileges_and_setup_env
-{
-	my $self = shift;
-	my $u1 = '_pkgfetch';
-	my $u2 = '_pfetch';
-	$self->try_drop($u1) or $self->try_drop($u2) or
-	    $self->{state}->fatal(
-	    	"Couldn't change identity: missing #1 and #2 users", $u1, $u2);
 }
 
 
