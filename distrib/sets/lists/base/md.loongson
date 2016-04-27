@@ -34,6 +34,11 @@
 ./etc/firmware/zd1211b
 ./sbin/kbd
 ./sbin/wsconsctl
+./usr/lib/gcc-lib/mips64el-unknown-openbsd5.9
+./usr/lib/gcc-lib/mips64el-unknown-openbsd5.9/4.2.1
+./usr/lib/gcc-lib/mips64el-unknown-openbsd5.9/4.2.1/collect2
+./usr/lib/gcc-lib/mips64el-unknown-openbsd5.9/4.2.1/libgcc.a
+./usr/lib/gcc-lib/mips64el-unknown-openbsd5.9/4.2.1/specs
 ./usr/libdata/perl5/mips64el-openbsd
 ./usr/libdata/perl5/mips64el-openbsd/5.20.2
 ./usr/libdata/perl5/mips64el-openbsd/5.20.2/.packlist
@@ -1109,7 +1114,6 @@
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/sun/sunkbdvar.ph
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/sun/sunmsvar.ph
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/sun/uperfio.ph
-./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/systrace.ph
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/tc
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/tc/ascvar.ph
 ./usr/libdata/perl5/site_perl/mips64el-openbsd/dev/tc/if_levar.ph

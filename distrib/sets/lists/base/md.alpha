@@ -61,6 +61,11 @@
 ./sbin/kbd
 ./sbin/mount_ntfs
 ./sbin/wsconsctl
+./usr/lib/gcc-lib/alpha-unknown-openbsd5.9
+./usr/lib/gcc-lib/alpha-unknown-openbsd5.9/4.2.1
+./usr/lib/gcc-lib/alpha-unknown-openbsd5.9/4.2.1/collect2
+./usr/lib/gcc-lib/alpha-unknown-openbsd5.9/4.2.1/libgcc.a
+./usr/lib/gcc-lib/alpha-unknown-openbsd5.9/4.2.1/specs
 ./usr/libdata/perl5/alpha-openbsd
 ./usr/libdata/perl5/alpha-openbsd/5.20.2
 ./usr/libdata/perl5/alpha-openbsd/5.20.2/.packlist
@@ -1190,7 +1195,6 @@
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/sun/sunkbdvar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/sun/sunmsvar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/sun/uperfio.ph
-./usr/libdata/perl5/site_perl/alpha-openbsd/dev/systrace.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/tc
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/tc/ascvar.ph
 ./usr/libdata/perl5/site_perl/alpha-openbsd/dev/tc/if_levar.ph
