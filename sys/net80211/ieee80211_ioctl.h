@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.h,v 1.24 2016/04/27 11:58:10 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.h,v 1.26 2016/04/28 14:46:10 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.h,v 1.7 2004/04/30 22:51:04 dyoung Exp $	*/
 
 /*-
@@ -103,6 +103,7 @@ struct ieee80211_stats {
 	u_int32_t	is_ht_tx_ba_agreements;
 	u_int32_t	is_ht_rx_frame_below_ba_winstart;
 	u_int32_t	is_ht_rx_frame_above_ba_winend;
+	u_int32_t	is_ht_rx_ba_window_slide;
 	u_int32_t	is_ht_rx_ba_window_jump;
 	u_int32_t	is_ht_rx_ba_no_buf;
 	u_int32_t	is_ht_rx_ba_frame_lost;
@@ -332,6 +333,12 @@ struct ieee80211_nodereq {
 
 	/* Node flags */
 	u_int8_t	nr_flags;
+
+	/* HT */
+	uint16_t		nr_htcaps;
+	uint8_t			nr_rxmcs[howmany(80,NBBY)];
+	uint16_t		nr_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
+	uint8_t			nr_tx_mcs_set;
 };
 
 #define IEEE80211_NODEREQ_STATE(_s)	(1 << _s)
