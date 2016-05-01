@@ -1,4 +1,4 @@
-/* $OpenBSD: magic-test.c,v 1.16 2016/02/20 15:29:37 nicm Exp $ */
+/* $OpenBSD: magic-test.c,v 1.19 2016/04/30 22:03:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -936,8 +936,10 @@ magic_test_type_regex(struct magic_line *ml, struct magic_state *ms)
 
 	result = (regexec(&re, ms->base, 1, &m, REG_STARTEND) == 0);
 	if (result == !ml->test_not) {
-		if (ml->result != NULL)
-			magic_add_result(ms, ml, "%s", "");
+		if (ml->result != NULL) {
+			magic_add_string(ms, ml, ms->base + m.rm_so,
+			    m.rm_eo - m.rm_so);
+		}
 		if (result) {
 			if (sflag)
 				ms->offset = m.rm_so;
@@ -1049,10 +1051,9 @@ magic_test_type_search(struct magic_line *ml, struct magic_state *ms)
 }
 
 static int
-magic_test_type_default(__unused struct magic_line *ml,
-    __unused struct magic_state *ms)
+magic_test_type_default(__unused struct magic_line *ml, struct magic_state *ms)
 {
-	return (1);
+	return (!ms->matched);
 }
 
 static int (*magic_test_functions[])(struct magic_line *,
@@ -1217,11 +1218,14 @@ magic_test_line(struct magic_line *ml, struct magic_state *ms)
 	    ml->type_string, ml->test_operator, offset, ms->offset,
 	    ml->result == NULL ? "" : ml->result);
 
+	ms->matched = 0;
 	offset = ms->offset;
 	TAILQ_FOREACH(child, &ml->children, entry) {
 		ms->offset = offset;
 		magic_test_line(child, ms);
 	}
+
+	ms->matched = 1;
 	return (ml->result != NULL);
 }
 
