@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc.c,v 1.40 2016/04/30 11:32:23 kettenis Exp $	*/
+/*	$OpenBSD: sdmmc.c,v 1.42 2016/05/01 22:07:42 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -60,7 +60,6 @@ int	sdmmc_enable(struct sdmmc_softc *);
 void	sdmmc_disable(struct sdmmc_softc *);
 int	sdmmc_scan(struct sdmmc_softc *);
 int	sdmmc_init(struct sdmmc_softc *);
-int	sdmmc_set_bus_width(struct sdmmc_function *);
 #ifdef SDMMC_IOCTL
 int	sdmmc_ioctl(struct device *, u_long, caddr_t);
 #endif
@@ -99,6 +98,18 @@ sdmmc_attach(struct device *parent, struct device *self, void *aux)
 	struct sdmmcbus_attach_args *saa = aux;
 	int error;
 
+	if (ISSET(saa->caps, SMC_CAPS_8BIT_MODE))
+		printf(": 8-bit");
+	else if (ISSET(saa->caps, SMC_CAPS_4BIT_MODE))
+		printf(": 4-bit");
+	else
+		printf(": 1-bit");
+	if (ISSET(saa->caps, SMC_CAPS_SD_HIGHSPEED))
+		printf(", sd high-speed");
+	if (ISSET(saa->caps, SMC_CAPS_MMC_HIGHSPEED))
+		printf(", mmc high-speed");
+	if (ISSET(saa->caps, SMC_CAPS_DMA))
+		printf(", dma");
 	printf("\n");
 
 	sc->sct = saa->sct;
@@ -698,37 +709,6 @@ sdmmc_set_relative_addr(struct sdmmc_softc *sc,
 	if (ISSET(sc->sc_flags, SMF_SD_MODE))
 		sf->rca = SD_R6_RCA(cmd.c_resp);
 	return 0;
-}
-
-/*
- * Switch card and host to the maximum supported bus width.
- */
-int
-sdmmc_set_bus_width(struct sdmmc_function *sf)
-{
-	struct sdmmc_softc *sc = sf->sc;
-	struct sdmmc_command cmd;
-	int error;
-
-	rw_enter_write(&sc->sc_lock);
-
-	if (!ISSET(sc->sc_flags, SMF_SD_MODE)) {
-		rw_exit(&sc->sc_lock);
-		return EOPNOTSUPP;
-	}
-
-	if ((error = sdmmc_select_card(sc, sf)) != 0) {
-		rw_exit(&sc->sc_lock);
-		return error;
-	}
-
-	bzero(&cmd, sizeof cmd);
-	cmd.c_opcode = SD_APP_SET_BUS_WIDTH;
-	cmd.c_arg = SD_ARG_BUS_WIDTH_4;
-	cmd.c_flags = SCF_CMD_AC | SCF_RSP_R1;
-	error = sdmmc_app_command(sc, &cmd);
-	rw_exit(&sc->sc_lock);
-	return error;
 }
 
 int

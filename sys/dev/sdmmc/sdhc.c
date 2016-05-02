@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdhc.c,v 1.45 2016/04/30 13:33:35 kettenis Exp $	*/
+/*	$OpenBSD: sdhc.c,v 1.49 2016/05/01 22:06:32 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -87,6 +87,7 @@ int	sdhc_host_maxblklen(sdmmc_chipset_handle_t);
 int	sdhc_card_detect(sdmmc_chipset_handle_t);
 int	sdhc_bus_power(sdmmc_chipset_handle_t, u_int32_t);
 int	sdhc_bus_clock(sdmmc_chipset_handle_t, int);
+int	sdhc_bus_width(sdmmc_chipset_handle_t, int);
 void	sdhc_card_intr_mask(sdmmc_chipset_handle_t, int);
 void	sdhc_card_intr_ack(sdmmc_chipset_handle_t);
 void	sdhc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
@@ -117,6 +118,7 @@ struct sdmmc_chip_functions sdhc_functions = {
 	/* bus power and clock frequency */
 	sdhc_bus_power,
 	sdhc_bus_clock,
+	sdhc_bus_width,
 	/* command execution */
 	sdhc_exec_command,
 	/* card interrupt */
@@ -207,6 +209,8 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 		goto err;
 	}
 
+	printf("%s: %d MHz base clock\n", DEVNAME(sc), hp->clkbase / 1000);
+
 	/*
 	 * XXX Set the data timeout counter value according to
 	 * capabilities. (2.2.15)
@@ -289,6 +293,7 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 	saa.saa_busname = "sdmmc";
 	saa.sct = &sdhc_functions;
 	saa.sch = hp;
+	saa.caps = SMC_CAPS_4BIT_MODE;
 	saa.dmat = sc->sc_dmat;
 	if (ISSET(hp->flags, SHF_USE_DMA))
 		saa.caps |= SMC_CAPS_DMA;
@@ -297,6 +302,11 @@ sdhc_host_found(struct sdhc_softc *sc, bus_space_tag_t iot,
 		saa.caps |= SMC_CAPS_SD_HIGHSPEED;
 	if (ISSET(caps, SDHC_HIGH_SPEED_SUPP))
 		saa.caps |= SMC_CAPS_MMC_HIGHSPEED;
+
+	if (SDHC_SPEC_VERSION(hp->version) >= SDHC_SPEC_V3) {
+		if (ISSET(caps, SDHC_8BIT_MODE_SUPP))
+			saa.caps |= SMC_CAPS_8BIT_MODE;
+	}
 
 	hp->sdmmc = config_found(&sc->sc_dev, &saa, NULL);
 	if (hp->sdmmc == NULL) {
@@ -599,6 +609,36 @@ ret:
 	return error;
 }
 
+int
+sdhc_bus_width(sdmmc_chipset_handle_t sch, int width)
+{
+	struct sdhc_host *hp = (struct sdhc_host *)sch;
+	int reg;
+	int s;
+
+	if (width != 1 && width != 4 && width != 8)
+		return 1;
+
+	s = splsdmmc();
+
+	reg = HREAD1(hp, SDHC_HOST_CTL);
+	reg &= ~SDHC_4BIT_MODE;
+	if (SDHC_SPEC_VERSION(hp->version) >= SDHC_SPEC_V3) {
+		reg &= ~SDHC_8BIT_MODE;
+	}
+	if (width == 4) {
+		reg |= SDHC_4BIT_MODE;
+	} else if (width == 8) {
+		KASSERT(SDHC_SPEC_VERSION(hp->version) >= SDHC_SPEC_V3);
+		reg |= SDHC_8BIT_MODE;
+	}
+	HWRITE1(hp, SDHC_HOST_CTL, reg);
+
+	splx(s);
+
+	return 0;
+}
+
 void
 sdhc_card_intr_mask(sdmmc_chipset_handle_t sch, int enable)
 {
@@ -824,8 +864,7 @@ sdhc_start_command(struct sdhc_host *hp, struct sdmmc_command *cmd)
 	 */
 	HWRITE2(hp, SDHC_TRANSFER_MODE, mode);
 	HWRITE2(hp, SDHC_BLOCK_SIZE, blksize);
-	if (blkcount > 1)
-		HWRITE2(hp, SDHC_BLOCK_COUNT, blkcount);
+	HWRITE2(hp, SDHC_BLOCK_COUNT, blkcount);
 	HWRITE4(hp, SDHC_ARGUMENT, cmd->c_arg);
 	HWRITE2(hp, SDHC_COMMAND, command);
 
