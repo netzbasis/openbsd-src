@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.466 2016/03/07 19:02:43 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.469 2016/05/02 14:10:58 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -807,8 +807,8 @@ list_hostkey_types(void)
 			break;
 		}
 	}
-	buffer_append(&b, "\0", 1);
-	ret = xstrdup(buffer_ptr(&b));
+	if ((ret = sshbuf_dup_string(&b)) == NULL)
+		fatal("%s: sshbuf_dup_string failed", __func__);
 	buffer_free(&b);
 	debug("list_hostkey_types: %s", ret);
 	return ret;
@@ -989,12 +989,13 @@ usage(void)
 }
 
 static void
-send_rexec_state(int fd, Buffer *conf)
+send_rexec_state(int fd, struct sshbuf *conf)
 {
-	Buffer m;
+	struct sshbuf *m;
+	int r;
 
-	debug3("%s: entering fd = %d config len %d", __func__, fd,
-	    buffer_len(conf));
+	debug3("%s: entering fd = %d config len %zu", __func__, fd,
+	    sshbuf_len(conf));
 
 	/*
 	 * Protocol from reexec master to child:
@@ -1007,27 +1008,37 @@ send_rexec_state(int fd, Buffer *conf)
 	 *	bignum	p			"
 	 *	bignum	q			"
 	 */
-	buffer_init(&m);
-	buffer_put_cstring(&m, buffer_ptr(conf));
+	if ((m = sshbuf_new()) == NULL)
+		fatal("%s: sshbuf_new failed", __func__);
+	if ((r = sshbuf_put_stringb(m, conf)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
 
 #ifdef WITH_SSH1
 	if (sensitive_data.server_key != NULL &&
 	    sensitive_data.server_key->type == KEY_RSA1) {
-		buffer_put_int(&m, 1);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->e);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->n);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->d);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->iqmp);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->p);
-		buffer_put_bignum(&m, sensitive_data.server_key->rsa->q);
+		if ((r = sshbuf_put_u32(m, 1)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->e)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->n)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->d)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->iqmp)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->p)) != 0 ||
+		    (r = sshbuf_put_bignum1(m,
+		    sensitive_data.server_key->rsa->q)) != 0)
+			fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	} else
 #endif
-		buffer_put_int(&m, 0);
+		if ((r = sshbuf_put_u32(m, 1)) != 0)
+			fatal("%s: buffer error: %s", __func__, ssh_err(r));
 
-	if (ssh_msg_send(fd, 0, &m) == -1)
+	if (ssh_msg_send(fd, 0, m) == -1)
 		fatal("%s: ssh_msg_send failed", __func__);
 
-	buffer_free(&m);
+	sshbuf_free(m);
 
 	debug3("%s: done", __func__);
 }
@@ -1050,7 +1061,7 @@ recv_rexec_state(int fd, Buffer *conf)
 
 	cp = buffer_get_string(&m, &len);
 	if (conf != NULL)
-		buffer_append(conf, cp, len + 1);
+		buffer_append(conf, cp, len);
 	free(cp);
 
 	if (buffer_get_int(&m)) {
@@ -2446,6 +2457,9 @@ do_ssh2_kex(void)
 #ifdef WITH_OPENSSL
 	kex->kex[KEX_DH_GRP1_SHA1] = kexdh_server;
 	kex->kex[KEX_DH_GRP14_SHA1] = kexdh_server;
+	kex->kex[KEX_DH_GRP14_SHA256] = kexdh_server;
+	kex->kex[KEX_DH_GRP16_SHA512] = kexdh_server;
+	kex->kex[KEX_DH_GRP18_SHA512] = kexdh_server;
 	kex->kex[KEX_DH_GEX_SHA1] = kexgex_server;
 	kex->kex[KEX_DH_GEX_SHA256] = kexgex_server;
 	kex->kex[KEX_ECDH_SHA2] = kexecdh_server;
