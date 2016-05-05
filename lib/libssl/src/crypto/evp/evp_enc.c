@@ -1,4 +1,4 @@
-/* $OpenBSD: evp_enc.c,v 1.28 2016/05/03 12:38:53 tedu Exp $ */
+/* $OpenBSD: evp_enc.c,v 1.30 2016/05/04 15:05:13 tedu Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

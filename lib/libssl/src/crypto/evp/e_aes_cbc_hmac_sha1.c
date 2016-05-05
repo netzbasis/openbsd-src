@@ -1,4 +1,4 @@
-/* $OpenBSD: e_aes_cbc_hmac_sha1.c,v 1.10 2016/05/03 12:38:53 tedu Exp $ */
+/* $OpenBSD: e_aes_cbc_hmac_sha1.c,v 1.12 2016/05/04 15:01:33 tedu Exp $ */
 /* ====================================================================
  * Copyright (c) 2011-2013 The OpenSSL Project.  All rights reserved.
  *
