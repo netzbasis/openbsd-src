@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.210 2016/03/09 16:28:46 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.212 2016/05/07 21:58:24 tedu Exp $
 #	$NetBSD: Makefile,v 1.59 1996/05/15 21:36:43 jtc Exp $
 
 #	@(#)Makefile	5.45.1.1 (Berkeley) 5/6/91
@@ -10,7 +10,7 @@
 .include <bsd.own.mk>
 
 FILES=	a.out.h ar.h asr.h assert.h bitstring.h blf.h bsd_auth.h \
-	complex.h cpio.h ctype.h curses.h db.h dbm.h dirent.h disktab.h \
+	complex.h cpio.h ctype.h curses.h db.h dirent.h disktab.h \
 	dlfcn.h elf_abi.h err.h errno.h fenv.h float.h fnmatch.h fstab.h fts.h \
 	ftw.h getopt.h glob.h grp.h icdb.h ieeefp.h ifaddrs.h inttypes.h \
 	iso646.h kvm.h langinfo.h libgen.h limits.h link.h link_elf.h \
@@ -18,7 +18,7 @@ FILES=	a.out.h ar.h asr.h assert.h bitstring.h blf.h bsd_auth.h \
 	nlist.h nl_types.h paths.h poll.h pwd.h ranlib.h readpassphrase.h \
 	regex.h resolv.h rmd160.h search.h setjmp.h sha1.h sha2.h signal.h \
 	siphash.h sndio.h spawn.h stdbool.h stddef.h stdio.h stdlib.h \
-	string.h strings.h struct.h sysexits.h tar.h tgmath.h time.h \
+	string.h strings.h struct.h sysexits.h tar.h tgmath.h tib.h time.h \
 	ttyent.h unistd.h utime.h utmp.h uuid.h vis.h wchar.h wctype.h
 
 MFILES=	frame.h

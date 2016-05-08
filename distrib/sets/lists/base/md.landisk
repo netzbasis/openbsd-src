@@ -254,7 +254,6 @@
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Math/BigInt/FastCalc.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/NDBM_File.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/O.pm
-./usr/libdata/perl5/sh-openbsd/5.20.2/ODBM_File.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Opcode.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/OpenBSD
 ./usr/libdata/perl5/sh-openbsd/5.20.2/OpenBSD/MkTemp.pm
@@ -274,6 +273,8 @@
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Sys
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Sys/Hostname.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Sys/Syslog.pm
+./usr/libdata/perl5/sh-openbsd/5.20.2/Term
+./usr/libdata/perl5/sh-openbsd/5.20.2/Term/ReadKey.pm
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Tie
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Tie/Hash
 ./usr/libdata/perl5/sh-openbsd/5.20.2/Tie/Hash/NamedCapture.pm
@@ -368,8 +369,6 @@
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Math/BigInt/FastCalc/FastCalc.so
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/NDBM_File
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/NDBM_File/NDBM_File.so
-./usr/libdata/perl5/sh-openbsd/5.20.2/auto/ODBM_File
-./usr/libdata/perl5/sh-openbsd/5.20.2/auto/ODBM_File/ODBM_File.so
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Opcode
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Opcode/Opcode.so
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/OpenBSD
@@ -399,6 +398,10 @@
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Sys/Hostname/Hostname.so
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Sys/Syslog
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Sys/Syslog/Syslog.so
+./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Term
+./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Term/ReadKey
+./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Term/ReadKey/ReadKey.so
+./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Term/ReadKey/autosplit.ix
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Tie
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Tie/Hash
 ./usr/libdata/perl5/sh-openbsd/5.20.2/auto/Tie/Hash/NamedCapture
@@ -482,7 +485,6 @@
 ./usr/libdata/perl5/site_perl/sh-openbsd/ctype.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/curses.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/db.ph
-./usr/libdata/perl5/site_perl/sh-openbsd/dbm.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/ddb
 ./usr/libdata/perl5/site_perl/sh-openbsd/ddb/db_access.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/ddb/db_break.ph
@@ -2057,6 +2059,7 @@
 ./usr/libdata/perl5/site_perl/sh-openbsd/termcap.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/termios.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/tgmath.ph
+./usr/libdata/perl5/site_perl/sh-openbsd/tib.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/time.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/tls.ph
 ./usr/libdata/perl5/site_perl/sh-openbsd/ttyent.ph
