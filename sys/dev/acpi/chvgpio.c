@@ -1,4 +1,4 @@
-/*	$OpenBSD: chvgpio.c,v 1.1 2016/05/07 23:10:50 kettenis Exp $	*/
+/*	$OpenBSD: chvgpio.c,v 1.5 2016/05/08 18:18:42 kettenis Exp $	*/
 /*
  * Copyright (c) 2016 Mark Kettenis
  *
@@ -31,6 +31,7 @@
 #define CHVGPIO_PAD_CFG1		0x4404
 
 #define CHVGPIO_PAD_CFG0_GPIORXSTATE		0x00000001
+#define CHVGPIO_PAD_CFG0_GPIOTXSTATE		0x00000002
 #define CHVGPIO_PAD_CFG0_INTSEL_MASK		0xf0000000
 #define CHVGPIO_PAD_CFG0_INTSEL_SHIFT		28
 
@@ -39,6 +40,8 @@
 #define CHVGPIO_PAD_CFG1_INTWAKECFG_RISING	0x00000002
 #define CHVGPIO_PAD_CFG1_INTWAKECFG_BOTH	0x00000003
 #define CHVGPIO_PAD_CFG1_INTWAKECFG_LEVEL	0x00000004
+#define CHVGPIO_PAD_CFG1_INVRXTX_MASK		0x000000f0
+#define CHVGPIO_PAD_CFG1_INVRXTX_RXDATA		0x00000040
 
 struct chvgpio_intrhand {
 	int (*ih_func)(void *);
@@ -143,6 +146,7 @@ const int chv_southeast_pins[] = {
 int	chvgpio_parse_resources(union acpi_resource *, void *);
 int	chvgpio_check_pin(struct chvgpio_softc *, int);
 int	chvgpio_read_pin(void *, int);
+void	chvgpio_write_pin(void *, int, int);
 void	chvgpio_intr_establish(void *, int, int, int (*)(), void *);
 int	chvgpio_intr(void *);
 
@@ -161,6 +165,8 @@ chvgpio_attach(struct device *parent, struct device *self, void *aux)
 	struct acpi_attach_args *aaa = aux;
 	struct chvgpio_softc *sc = (struct chvgpio_softc *)self;
 	struct aml_value res;
+	struct aml_value arg[2];
+	struct aml_node *node;
 	int64_t uid;
 	int i;
 
@@ -209,6 +215,7 @@ chvgpio_attach(struct device *parent, struct device *self, void *aux)
 		printf("\n");
 		return;
 	}
+	aml_freevalue(&res);
 
 	printf(" irq %d", sc->sc_irq);
 
@@ -216,18 +223,19 @@ chvgpio_attach(struct device *parent, struct device *self, void *aux)
 	if (bus_space_map(sc->sc_memt, sc->sc_addr, sc->sc_size, 0,
 	    &sc->sc_memh)) {
 		printf(", can't map registers\n");
-		goto fail;
+		return;
 	}
 
 	sc->sc_ih = acpi_intr_establish(sc->sc_irq, sc->sc_irq_flags, IPL_BIO,
 	    chvgpio_intr, sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(", can't establish interrupt\n");
-		goto fail;
+		goto unmap;
 	}
 
 	sc->sc_gpio.cookie = sc;
 	sc->sc_gpio.read_pin = chvgpio_read_pin;
+	sc->sc_gpio.write_pin = chvgpio_write_pin;
 	sc->sc_gpio.intr_establish = chvgpio_intr_establish;
 	sc->sc_node->gpio = &sc->sc_gpio;
 
@@ -238,10 +246,21 @@ chvgpio_attach(struct device *parent, struct device *self, void *aux)
 	    CHVGPIO_INTERRUPT_STATUS, 0xffff);
 
 	printf(", %d pins\n", sc->sc_npins);
+
+	/* Register address space. */
+	memset(&arg, 0, sizeof(arg));
+	arg[0].type = AML_OBJTYPE_INTEGER;
+	arg[0].v_integer = ACPI_OPREG_GPIO;
+	arg[1].type = AML_OBJTYPE_INTEGER;
+	arg[1].v_integer = 1;
+	node = aml_searchname(sc->sc_node, "_REG");
+	if (node && aml_evalnode(sc->sc_acpi, node, 2, arg, NULL))
+		printf("%s: _REG failed\n", sc->sc_dev.dv_xname);
+
 	return;
 
-fail:
-	free(sc->sc_pin_ih, M_DEVBUF, sc->sc_npins * sizeof(*sc->sc_pin_ih));
+unmap:
+	bus_space_unmap(sc->sc_memt, sc->sc_memh, sc->sc_size);
 }
 
 int
@@ -293,6 +312,22 @@ chvgpio_read_pin(void *cookie, int pin)
 }
 
 void
+chvgpio_write_pin(void *cookie, int pin, int value)
+{
+	struct chvgpio_softc *sc = cookie;
+	uint32_t reg;
+
+	KASSERT(chvgpio_check_pin(sc, pin) == 0);
+
+	reg = chvgpio_read_pad_cfg0(sc, pin);
+	if (value)
+		reg |= CHVGPIO_PAD_CFG0_GPIOTXSTATE;
+	else
+		reg &= ~CHVGPIO_PAD_CFG0_GPIOTXSTATE;
+	chvgpio_write_pad_cfg0(sc, pin, reg);
+}
+
+void
 chvgpio_intr_establish(void *cookie, int pin, int flags,
     int (*func)(void *), void *arg)
 {
@@ -311,7 +346,11 @@ chvgpio_intr_establish(void *cookie, int pin, int flags,
 
 	reg = chvgpio_read_pad_cfg1(sc, pin);
 	reg &= ~CHVGPIO_PAD_CFG1_INTWAKECFG_MASK;
+	reg &= ~CHVGPIO_PAD_CFG1_INVRXTX_MASK;
 	switch (flags & (LR_GPIO_MODE | LR_GPIO_POLARITY)) {
+	case LR_GPIO_LEVEL | LR_GPIO_ACTLO:
+		reg |= CHVGPIO_PAD_CFG1_INVRXTX_RXDATA;
+		/* FALLTHROUGH */
 	case LR_GPIO_LEVEL | LR_GPIO_ACTHI:
 		reg |= CHVGPIO_PAD_CFG1_INTWAKECFG_LEVEL;
 		break;

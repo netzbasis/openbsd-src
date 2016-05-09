@@ -1,4 +1,4 @@
-/*	$OpenBSD: bytgpio.c,v 1.9 2016/05/07 18:08:27 kettenis Exp $	*/
+/*	$OpenBSD: bytgpio.c,v 1.11 2016/05/08 11:08:01 kettenis Exp $	*/
 /*
  * Copyright (c) 2016 Mark Kettenis
  *
@@ -106,6 +106,7 @@ const int byt_sus_pins[] = {
 
 int	bytgpio_parse_resources(union acpi_resource *, void *);
 int	bytgpio_read_pin(void *, int);
+void	bytgpio_write_pin(void *, int, int);
 void	bytgpio_intr_establish(void *, int, int, int (*)(), void *);
 int	bytgpio_intr(void *);
 
@@ -170,6 +171,7 @@ bytgpio_attach(struct device *parent, struct device *self, void *aux)
 		printf("\n");
 		return;
 	}
+	aml_freevalue(&res);
 
 	sc->sc_pin_ih = mallocarray(sc->sc_npins, sizeof(*sc->sc_pin_ih),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
@@ -184,18 +186,19 @@ bytgpio_attach(struct device *parent, struct device *self, void *aux)
 	if (bus_space_map(sc->sc_memt, sc->sc_addr, sc->sc_size, 0,
 	    &sc->sc_memh)) {
 		printf(", can't map registers\n");
-		goto fail;
+		goto free;
 	}
 
 	sc->sc_ih = acpi_intr_establish(sc->sc_irq, sc->sc_irq_flags, IPL_BIO,
 	    bytgpio_intr, sc, sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(", can't establish interrupt\n");
-		goto fail;
+		goto unmap;
 	}
 
 	sc->sc_gpio.cookie = sc;
 	sc->sc_gpio.read_pin = bytgpio_read_pin;
+	sc->sc_gpio.write_pin = bytgpio_write_pin;
 	sc->sc_gpio.intr_establish = bytgpio_intr_establish;
 	sc->sc_node->gpio = &sc->sc_gpio;
 
@@ -228,7 +231,9 @@ bytgpio_attach(struct device *parent, struct device *self, void *aux)
 		
 	return;
 
-fail:
+unmap:
+	bus_space_unmap(sc->sc_memt, sc->sc_memh, sc->sc_size);
+free:
 	free(sc->sc_pin_ih, M_DEVBUF, sc->sc_npins * sizeof(*sc->sc_pin_ih));
 }
 
@@ -263,6 +268,20 @@ bytgpio_read_pin(void *cookie, int pin)
 
 	reg = bus_space_read_4(sc->sc_memt, sc->sc_memh, sc->sc_pins[pin] * 16 + 8);
 	return (reg & BYTGPIO_PAD_VAL);
+}
+
+void
+bytgpio_write_pin(void *cookie, int pin, int value)
+{
+	struct bytgpio_softc *sc = cookie;
+	uint32_t reg;
+
+	reg = bus_space_read_4(sc->sc_memt, sc->sc_memh, sc->sc_pins[pin] * 16 + 8);
+	if (value)
+		reg |= BYTGPIO_PAD_VAL;
+	else
+		reg &= ~BYTGPIO_PAD_VAL;
+	bus_space_write_4(sc->sc_memt, sc->sc_memh, sc->sc_pins[pin] * 16 + 8, reg);
 }
 
 void
