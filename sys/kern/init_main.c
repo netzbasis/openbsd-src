@@ -1,4 +1,4 @@
-/*	$OpenBSD: init_main.c,v 1.250 2016/05/03 14:52:39 mpi Exp $	*/
+/*	$OpenBSD: init_main.c,v 1.252 2016/05/10 23:54:00 bluhm Exp $	*/
 /*	$NetBSD: init_main.c,v 1.84.4.1 1996/06/02 09:08:06 mrg Exp $	*/
 
 /*
@@ -120,7 +120,7 @@ struct	proc *reaperproc;
 
 extern	struct user *proc0paddr;
 
-struct	vnode *rootvp, *swapdev_vp;
+struct	vnode *rootvp, *swapdev_vp, *consolevp;
 int	boothowto;
 struct	timespec boottime;
 int	ncpus =  1;
@@ -133,7 +133,7 @@ long	__guard_local __attribute__((section(".openbsd.randomdata")));
 
 /* XXX return int so gcc -Werror won't complain */
 int	main(void *);
-void	check_console(struct proc *);
+void	open_console(struct proc *);
 void	start_init(void *);
 void	start_cleaner(void *);
 void	start_update(void *);
@@ -144,7 +144,7 @@ void	kqueue_init(void);
 void	taskq_init(void);
 void	pool_gc_pages(void *);
 
-extern char sigcode[], esigcode[];
+extern char sigcode[], esigcode[], sigcoderet[];
 #ifdef SYSCALL_DEBUG
 extern char *syscallnames[];
 #endif
@@ -168,6 +168,7 @@ struct emul emul_native = {
 	NULL,		/* coredump */
 	sigcode,
 	esigcode,
+	sigcoderet,
 	EMUL_ENABLED | EMUL_NATIVE,
 };
 
@@ -569,20 +570,30 @@ static char *initpaths[] = {
 };
 
 void
-check_console(struct proc *p)
+open_console(struct proc *p)
 {
 	struct nameidata nd;
+	struct vnode *vp;
 	int error;
 
 	NDINIT(&nd, LOOKUP, FOLLOW, UIO_SYSSPACE, "/dev/console", p);
-	error = namei(&nd);
+	error = vn_open(&nd, FWRITE, 0);
 	if (error) {
 		if (error == ENOENT)
 			printf("warning: /dev/console does not exist\n");
 		else
 			printf("warning: /dev/console error %d\n", error);
-	} else
-		vrele(nd.ni_vp);
+		return;
+	}
+	vp = nd.ni_vp;
+	VOP_UNLOCK(vp, p);
+	if (!ISSET(vp->v_flag, VISTTY)) {
+		printf("warning: /dev/console is not a tty device\n");
+		vn_close(vp, FWRITE, p->p_ucred, p);
+		return;
+	}
+
+	consolevp = vp;
 }
 
 /*
@@ -615,7 +626,7 @@ start_init(void *arg)
 	while (start_init_exec == 0)
 		(void) tsleep((void *)&start_init_exec, PWAIT, "initexec", 0);
 
-	check_console(p);
+	open_console(p);
 
 	/* process 0 ignores SIGCHLD, but we can't */
 	p->p_p->ps_sigacts->ps_flags = 0;
