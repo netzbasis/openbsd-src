@@ -1,7 +1,7 @@
-/*	$OpenBSD: tfork_thread.S,v 1.7 2016/05/15 00:15:10 guenther Exp $	*/
+/*	$OpenBSD: efiboot.h,v 1.1 2016/05/14 17:55:15 kettenis Exp $	*/
 
 /*
- * Copyright (c) 2005 Tim Wiess <tim@nop.cx>
+ * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,30 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "SYS.h"
-
-ENTRY(__tfork_thread)
-	/* call __tfork */
-	li	%r0, SYS___tfork
-	sc
-	cmpwi	%r0, 0
-	bne	1f
-	
-	/* check if we are parent or child */
-	cmpwi	%r3, 0
-	bnelr
-	
-	/* child */
-	mtlr	%r5		/* fp */
-	mr	%r3, %r6	/* arg */
-	subi	%r1, %r1, 16	/* fixup sp to get headroom */
-	blrl
-	
-	/* child returned, call __threxit */
-	li	%r0, SYS___threxit
-	sc
-1:
-	stw	0, R2_OFFSET_ERRNO(%r2)
-	li	%r3, -1
-	blr
-END(__tfork_thread)
+void	 efi_cleanup(void);
+void	 efi_cons_probe (struct consdev *);
+void	 efi_memprobe (void);
+void	 efi_hardprobe (void);
+void	 efi_diskprobe (void);
+void	 efi_cons_init (struct consdev *);
+int	 efi_cons_getc (dev_t);
+void	 efi_cons_putc (dev_t, int);
+int	 efi_cons_getshifts(dev_t dev);
