@@ -1,6 +1,7 @@
-.\" $OpenBSD: fuse.4,v 1.12 2016/05/16 17:55:57 jmc Exp $
+.\"	$OpenBSD: pcfrtc.4,v 1.1 2016/05/16 14:58:29 kettenis Exp $
 .\"
-.\" Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
+.\" Copyright (c) 2006 Theo de Raadt <deraadt@openbsd.org>
+.\" Copyright (c) 2016 Mark Kettenis <ketttenis@openbsd.org>
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
 .\" purpose with or without fee is hereby granted, provided that the above
@@ -15,33 +16,28 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: May 16 2016 $
-.Dt FUSE 4
+.Dt PCFRTC 4
 .Os
 .Sh NAME
-.Nm fuse
-.Nd file system in userland
+.Nm pcfrtc
+.Nd NXP PCF8523 Real Time Clock
 .Sh SYNOPSIS
-.Cd "option FUSE"
-.Cd "pseudo-device fuse"
+.Cd "pcfrtc* at iic? addr 0x68"
 .Sh DESCRIPTION
 The
 .Nm
-device provides a FUSE interface for implementing a file system in userland.
-.Pp
-This device does not support partial reads and writes.
-.Sh FILES
-.Bl -tag -width /dev/fuse* -compact
-.It Pa /dev/fuse0
-.Nm
-device special file
-.El
+driver provides support for the NXP PCF8523 Real Time Clock chip.
 .Sh SEE ALSO
-.Xr fuse_main 3 ,
-.Xr intro 4 ,
-.Xr fb_setup 9
+.Xr iic 4 ,
+.Xr intro 4
 .Sh HISTORY
 The
 .Nm
-driver
-first appeared in
-.Ox 5.4 .
+driver first appeared in
+.Ox 6.0 .
+.Sh AUTHORS
+.An -nosplit
+The
+.Nm
+driver was written by
+.An Mark Kettenis Aq Mt kettenis@openbsd.org .
