@@ -1,9 +1,9 @@
-#	$OpenBSD: Makefile,v 1.1 2016/05/14 17:55:15 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.3 2016/05/17 22:41:20 kettenis Exp $
 
 PROG=		BOOTARM.EFI
 NOMAN=		#
 OBJFMT=		binary
-SRCS=		start.S self_reloc.c efiboot.c conf.c exec.c efidev.c
+SRCS=		start.S self_reloc.c efiboot.c conf.c exec.c efidev.c fdt.c
 
 S=		${.CURDIR}/../../../..
 EFIDIR=		${S}/stand/efi
@@ -17,9 +17,9 @@ LDFLAGS+=-nostdlib -T ${.CURDIR}/ldscript.arm -Bsymbolic -shared
 SRCS+=	boot.c cmd.c vars.c
 
 .PATH:	${S}/lib/libsa
-SRCS+=	alloc.c ctime.c exit.c getchar.c memcmp.o memcpy.o memset.c printf.c \
-	putchar.c snprintf.c strchr.c strcmp.c strerror.c strncmp.c strncpy.c \
-	strtol.c
+SRCS+=	alloc.c ctime.c exit.c getchar.c memcmp.o memcpy.o memmove.c memset.c \
+	printf.c putchar.c snprintf.c strchr.c strcmp.c strerror.c strncmp.c \
+	strncpy.c strtol.c
 SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
 	lseek.c open.c read.c readdir.c stat.c
 SRCS+=	loadfile.c
@@ -39,6 +39,7 @@ CPPFLAGS+=	-DSMALL -DSLOW -DNOBYFOUR -D__INTERNAL_LIBSA_CREAD
 CPPFLAGS+=	-DNEEDS_HEAP_H
 COPTS+=		-ffreestanding -fno-stack-protector
 COPTS+=		-fshort-wchar -fPIC -fno-builtin
+COPTS+=		-Wall -Werror
 
 PROG.elf=	${PROG:S/.EFI/.elf/}
 CLEANFILES+=	${PROG.elf} ${PROG.elf}.tmp

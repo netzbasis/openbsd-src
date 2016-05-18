@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.4 2016/05/14 21:22:56 kettenis Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.6 2016/05/17 22:41:20 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -27,7 +27,11 @@
 #include <efiprot.h>
 #include <eficonsctl.h>
 
+#include <lib/libkern/libkern.h>
+#include <stand/boot/cmd.h>
+
 #include "eficall.h"
+#include "fdt.h"
 #include "libsa.h"
 
 EFI_SYSTEM_TABLE	*ST;
@@ -215,6 +219,66 @@ next:
 	free(handles, sz);
 }
 
+struct board_id {
+	const char *name;
+	uint32_t board_id;
+};
+
+struct board_id board_id_table[] = {
+	{ "phytec,imx6q-pbab01",	3529 },
+	{ "fsl,imx6q-sabrelite",	3769 },
+	{ "fsl,imx6q-sabresd",		3980 },
+	{ "kosagi,imx6q-novena",	4269 },
+	{ "solidrun,hummingboard/q",	4773 },
+	{ "solidrun,cubox-i/q",		4821 },
+	{ "wand,imx6q-wandboard",	4412 },
+	{ "udoo,imx6q-udoo",		4800 },
+};
+
+static EFI_GUID fdt_guid = FDT_TABLE_GUID;
+
+#define	efi_guidcmp(_a, _b)	memcmp((_a), (_b), sizeof(EFI_GUID))
+
+void *
+efi_makebootargs(char *bootargs, uint32_t *board_id)
+{
+	void *fdt = NULL;
+	char *dummy;
+	void *node;
+	size_t len;
+	int i;
+
+	for (i = 0; i < ST->NumberOfTableEntries; i++) {
+		if (efi_guidcmp(&fdt_guid,
+		    &ST->ConfigurationTable[i].VendorGuid) == 0)
+			fdt = ST->ConfigurationTable[i].VendorTable;
+	}
+
+	if (!fdt_init(fdt))
+		return NULL;
+
+	node = fdt_find_node("/chosen");
+	if (!node)
+		return NULL;
+
+	len = strlen(bootargs) + 1;
+	if (fdt_node_property(node, "bootargs", &dummy))
+		fdt_node_set_property(node, "bootargs", bootargs, len);
+	else
+		fdt_node_add_property(node, "bootargs", bootargs, len);
+	fdt_finalize();
+
+	node = fdt_find_node("/");
+	for (i = 0; i < nitems(board_id_table); i++) {
+		if (fdt_node_is_compatible(node, board_id_table[i].name)) {
+			*board_id = board_id_table[i].board_id;
+			break;
+		}
+	}
+
+	return fdt;
+}
+
 u_long efi_loadaddr;
 
 void
@@ -356,7 +420,7 @@ devparse(const char *fname, int *dev, int *unit, int *part, const char **file)
 	s = strchr(fname, ':');
 	if (s != NULL) {
 		int devlen;
-		int i, u, p;
+		int i, u, p = 0;
 		struct devsw *dp;
 		char devname[MAXDEVNAME];
 
