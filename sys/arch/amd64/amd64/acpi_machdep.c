@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpi_machdep.c,v 1.73 2016/05/16 01:19:27 mlarkin Exp $	*/
+/*	$OpenBSD: acpi_machdep.c,v 1.75 2016/05/18 04:42:49 mlarkin Exp $	*/
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  *
@@ -287,9 +287,10 @@ acpi_attach_machdep(struct acpi_softc *sc)
 #ifndef SMALL_KERNEL
 	/*
 	 * Sanity check before setting up trampoline.
-	 * Ensure the trampoline size is < PAGE_SIZE
+	 * Ensure the trampoline page sizes are < PAGE_SIZE
 	 */
 	KASSERT(acpi_resume_end - acpi_real_mode_resume < PAGE_SIZE);
+	KASSERT(acpi_tramp_data_end - acpi_tramp_data_start < PAGE_SIZE);
 
 	/* Map ACPI tramp code and data pages RW for copy */
 	pmap_kenter_pa(ACPI_TRAMPOLINE, ACPI_TRAMPOLINE,
@@ -380,7 +381,7 @@ acpi_sleep_cpu(struct acpi_softc *sc, int state)
 	/* Map trampoline and data page */
 	pmap_kenter_pa(ACPI_TRAMPOLINE, ACPI_TRAMPOLINE, PROT_READ | PROT_EXEC);
 	pmap_kenter_pa(ACPI_TRAMP_DATA, ACPI_TRAMP_DATA,
-		PROT_READ | PROT_WRITE);
+	    PROT_READ | PROT_WRITE);
 
 	/*
 	 * Copy the current cpu registers into a safe place for resume.

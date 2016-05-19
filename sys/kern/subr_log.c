@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.41 2016/05/17 23:43:47 bluhm Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.43 2016/05/18 23:42:12 bluhm Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -82,7 +82,7 @@ struct	file *syslogf;
 
 void filt_logrdetach(struct knote *kn);
 int filt_logread(struct knote *kn, long hint);
-   
+
 struct filterops logread_filtops =
 	{ 1, NULL, filt_logrdetach, filt_logread};
 
@@ -114,7 +114,7 @@ initmsgbuf(caddr_t buf, size_t bufsize)
 		mbp->msg_magic = MSG_MAGIC;
 		mbp->msg_bufs = new_bufs;
 	}
-	
+
 	/* Always start new buffer data on a new line. */
 	if (mbp->msg_bufx > 0 && mbp->msg_bufc[mbp->msg_bufx - 1] != '\n')
 		msgbuf_putchar(msgbufp, '\n');
@@ -138,7 +138,7 @@ initconsbuf(void)
 }
 
 void
-msgbuf_putchar(struct msgbuf *mbp, const char c) 
+msgbuf_putchar(struct msgbuf *mbp, const char c)
 {
 	if (mbp->msg_magic != MSG_MAGIC)
 		/* Nothing we can do */
@@ -465,11 +465,25 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 #endif
 
 	len = auio.uio_resid;
-	if (syslogf)
+	if (syslogf) {
 		error = sosend(syslogf->f_data, NULL, &auio, NULL, NULL, 0);
-	else if (cn_devvp)
+		if (error == 0)
+			len -= auio.uio_resid;
+	} else if (constty || cn_devvp) {
 		error = cnwrite(0, &auio, 0);
-	else {
+		if (error == 0)
+			len -= auio.uio_resid;
+		aiov.iov_base = "\r\n";
+		aiov.iov_len = 2;
+		auio.uio_iov = &aiov;
+		auio.uio_iovcnt = 1;
+		auio.uio_segflg = UIO_SYSSPACE;
+		auio.uio_rw = UIO_WRITE;
+		auio.uio_procp = p;
+		auio.uio_offset = 0;
+		auio.uio_resid = aiov.iov_len;
+		cnwrite(0, &auio, 0);
+	} else {
 		/* XXX console redirection breaks down... */
 		if (sflg == UIO_USERSPACE) {
 			kbuf = malloc(len, M_TEMP, M_WAITOK);
@@ -487,26 +501,10 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 			}
 		if (sflg == UIO_USERSPACE)
 			free(kbuf, M_TEMP, len);
-	}
-
-	if (error == 0)
-		len -= auio.uio_resid;
-
-	if (syslogf)
-		;
-	else if (cn_devvp) {
-		aiov.iov_base = "\r\n";
-		aiov.iov_len = 2;
-		auio.uio_iov = &aiov;
-		auio.uio_iovcnt = 1;
-		auio.uio_segflg = UIO_SYSSPACE;
-		auio.uio_rw = UIO_WRITE;
-		auio.uio_procp = p;
-		auio.uio_offset = 0;
-		auio.uio_resid = aiov.iov_len;
-		cnwrite(0, &auio, 0);
-	} else
+		if (error == 0)
+			len -= auio.uio_resid;
 		cnputc('\n');
+	}
 
 #ifdef KTRACE
 	if (ktriov != NULL) {
