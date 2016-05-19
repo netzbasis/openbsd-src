@@ -35,11 +35,10 @@
 #include <unistd.h>
 #include <err.h>
 
-/* ARGSUSED */
 int
 main(int argc, char *argv[])
 {
-	int nflag;
+	int nflag = 0;
 
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
@@ -49,8 +48,6 @@ main(int argc, char *argv[])
 		++argv;
 		nflag = 1;
 	}
-	else
-		nflag = 0;
 
 	while (*argv) {
 		(void)fputs(*argv, stdout);
