@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.28 2016/05/21 07:19:24 jsg Exp $
+#	$OpenBSD: install.md,v 1.30 2016/05/22 08:01:04 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -37,26 +37,21 @@
 
 if dmesg | grep -q '^omap0 at mainbus0:'; then
         MDPLAT=OMAP
-	LOADADDR=0x82800000
 fi
 
 if dmesg | grep -q '^imx0 at mainbus0:'; then
         MDPLAT=IMX
-	LOADADDR=0x18800000
 fi
 
 if dmesg | grep -q '^sunxi0 at mainbus0:'; then
 	MDPLAT=SUNXI
-	LOADADDR=0x40200000
 fi
 
 if dmesg | grep -q '^vexpress0 at mainbus0:'; then
 	if dmesg | grep -q '^cpu0 at mainbus0: ARM Cortex A9 '; then
 		MDPLAT=VEXPRESSA9
-		LOADADDR=0x60300000
 	else
 		MDPLAT=VEXPRESSA15
-		LOADADDR=0x80300000
 	fi
 fi
 
@@ -66,10 +61,12 @@ DEFAULTSETS="bsd bsd.rd ${MDSETS}"
 
 NEWFSARGS_msdos="-F 16 -L boot"
 NEWFSARGS_ext2fs="-v boot"
+MOUNT_ARGS_msdos="-o-l"
+MOUNT_ARGS_ext2fs=
 
 md_installboot() {
 	local _disk=$1
-	mount /dev/${_disk}i /mnt/mnt
+	local mount_args=${MOUNT_ARGS_msdos}
 
 	BEAGLE=$(scan_dmesg '/^omap0 at mainbus0: TI OMAP3 \(BeagleBoard\).*/s//\1/p')
 	BEAGLEBONE=$(scan_dmesg '/^omap0 at mainbus0: TI AM335x \(BeagleBone\).*/s//\1/p')
@@ -77,6 +74,12 @@ md_installboot() {
 	CUBOX=$(scan_dmesg '/^imx0 at mainbus0: \(SolidRun.*\)/s//CUBOX/p')
 	NITROGEN=$(scan_dmesg '/^imx0 at mainbus0: \(Freescale i.MX6 SABRE Lite.*\)/s//NITROGEN/p')
 	WANDBOARD=$(scan_dmesg '/^imx0 at mainbus0: \(Wandboard i.MX6.*\)/s//WANDBOARD/p')
+
+	if [[ ${MDPLAT} == "IMX" && ! -n $WANDBOARD ]]; then
+		mount_args=${MOUNT_ARGS_ext2fs}
+	fi
+
+	mount ${mount_args} /dev/${_disk}i /mnt/mnt
 
         if [[ -f /mnt/bsd.${MDPLAT}.umg ]]; then
                 mv /mnt/bsd.${MDPLAT}.umg /mnt/mnt/bsd.umg
@@ -87,6 +90,17 @@ md_installboot() {
 
 	# extracted on all machines, so make snap works.
 	tar -C /mnt/ -xf /usr/mdec/u-boots.tgz 
+
+	cat > /tmp/boot.cmd<<__EOT
+setenv bootargs sd0a:/bsd ;
+mmc rescan ;
+usb start ;
+run findfdt ;
+load mmc \${mmcdev}:1 \${loadaddr} bsd.umg ;
+load mmc \${mmcdev}:1 \${fdt_addr_r} \${fdtfile} ;
+bootm \${loadaddr} - \${fdt_addr_r} ;
+__EOT
+	mkuboot -t script -a arm -o linux /tmp/boot.cmd /mnt/mnt/boot.scr
 
 	if [[ ${MDPLAT} == "OMAP" ]]; then
 
@@ -100,33 +114,16 @@ md_installboot() {
 			cp /mnt/usr/mdec/panda/{MLO,u-boot.img} /mnt/mnt/
 			cp /mnt/usr/mdec/panda/*.dtb /mnt/mnt/
 		fi
-		cat > /mnt/mnt/uenv.txt<<__EOT
-bootcmd=mmc rescan ; setenv loadaddr ${LOADADDR}; setenv bootargs sd0i:/bsd.umg ; fatload mmc \${mmcdev} \${loadaddr} bsd.umg ; bootm \${loadaddr} ;
-uenvcmd=boot
-__EOT
 	elif [[ ${MDPLAT} == "IMX" ]]; then
 		if [[ -n $CUBOX ]]; then
-			cat > /tmp/boot.cmd<<__EOT
-; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in usb mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/boot.cmd \
-			    /mnt/mnt/boot.scr
 			cp /mnt/usr/mdec/cubox/*.dtb /mnt/mnt/
 			dd if=/mnt/usr/mdec/cubox/SPL \
 			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
 			dd if=/mnt/usr/mdec/cubox/u-boot.img \
 			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
 		elif [[ -n $NITROGEN ]]; then
-			cat > /tmp/6x_bootscript.scr<<__EOT
-	; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in sata mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg 
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/6x_bootscript.scr /mnt/mnt/6x_bootscript
+			mv /mnt/mnt/boot.scr /mnt/mnt/6x_bootscript
 		elif [[ -n $WANDBOARD ]]; then
-			cat > /tmp/boot.cmd<<__EOT
-; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/boot.cmd \
-			    /mnt/mnt/boot.scr
 			cp /mnt/usr/mdec/wandboard/*.dtb /mnt/mnt/
 			dd if=/mnt/usr/mdec/wandboard/SPL \
 			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
@@ -134,11 +131,6 @@ __EOT
 			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
 		fi
 	elif [[ ${MDPLAT} == "SUNXI" ]]; then
-		cat > /mnt/mnt/uenv.txt<<__EOT
-bootargs=sd0i:/bsd
-mmcboot=mmc rescan ; fatload mmc 0 ${LOADADDR} bsd.umg && bootm ${LOADADDR};
-uenvcmd=run mmcboot;
-__EOT
 		cp /mnt/usr/mdec/cubie/u-boot-sunxi-with-spl.bin /mnt/mnt/
 		cp /mnt/usr/mdec/cubie/*.dtb /mnt/mnt/
 	fi
