@@ -1,6 +1,7 @@
-/*	$OpenBSD: packet.c,v 1.41 2015/07/21 04:43:28 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.58 2016/05/23 19:14:03 renato Exp $ */
 
 /*
+ * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
  *
@@ -18,64 +19,53 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-
 #include <netinet/in.h>
-#include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <net/if_dl.h>
-#include <fcntl.h>
 #include <unistd.h>
-
 #include <errno.h>
-#include <event.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "ldpd.h"
-#include "ldp.h"
-#include "log.h"
 #include "ldpe.h"
+#include "log.h"
 
-extern struct ldpd_conf        *leconf;
-extern struct ldpd_sysdep	sysdep;
-
-struct iface	*disc_find_iface(unsigned int, struct in_addr);
-ssize_t		 session_get_pdu(struct ibuf_read *, char **);
-
-static int	 msgcnt = 0;
+static struct iface		*disc_find_iface(unsigned int, int,
+				    union ldpd_addr *, int);
+static void			 session_read(int, short, void *);
+static void			 session_write(int, short, void *);
+static ssize_t			 session_get_pdu(struct ibuf_read *, char **);
+static void			 tcp_close(struct tcp_conn *);
+static struct pending_conn	*pending_conn_new(int, int, union ldpd_addr *);
+static void			 pending_conn_timeout(int, short, void *);
 
 int
-gen_ldp_hdr(struct ibuf *buf, u_int16_t size)
+gen_ldp_hdr(struct ibuf *buf, uint16_t size)
 {
 	struct ldp_hdr	ldp_hdr;
 
-	bzero(&ldp_hdr, sizeof(ldp_hdr));
+	memset(&ldp_hdr, 0, sizeof(ldp_hdr));
 	ldp_hdr.version = htons(LDP_VERSION);
-
-	/* We want just the size of the value */
-	size -= TLV_HDR_LEN;
-
-	ldp_hdr.length = htons(size);
-	ldp_hdr.lsr_id = ldpe_router_id();
+	/* exclude the 'Version' and 'PDU Length' fields from the total */
+	ldp_hdr.length = htons(size - LDP_HDR_DEAD_LEN);
+	ldp_hdr.lsr_id = leconf->rtr_id.s_addr;
 	ldp_hdr.lspace_id = 0;
 
 	return (ibuf_add(buf, &ldp_hdr, LDP_HDR_SIZE));
 }
 
 int
-gen_msg_tlv(struct ibuf *buf, u_int32_t type, u_int16_t size)
+gen_msg_hdr(struct ibuf *buf, uint32_t type, uint16_t size)
 {
+	static int	msgcnt = 0;
 	struct ldp_msg	msg;
 
-	/* We want just the size of the value */
-	size -= TLV_HDR_LEN;
-
-	bzero(&msg, sizeof(msg));
+	memset(&msg, 0, sizeof(msg));
 	msg.type = htons(type);
-	msg.length = htons(size);
+	/* exclude the 'Type' and 'Length' fields from the total */
+	msg.length = htons(size - LDP_MSG_DEAD_LEN);
 	if (type != MSG_TYPE_HELLO)
 		msg.msgid = htonl(++msgcnt);
 
@@ -84,21 +74,40 @@ gen_msg_tlv(struct ibuf *buf, u_int32_t type, u_int16_t size)
 
 /* send packets */
 int
-send_packet(int fd, struct iface *iface, void *pkt, size_t len,
-    struct sockaddr_in *dst)
+send_packet(int fd, int af, union ldpd_addr *dst, struct iface_af *ia,
+    void *pkt, size_t len)
 {
-	/* set outgoing interface for multicast traffic */
-	if (iface && IN_MULTICAST(ntohl(dst->sin_addr.s_addr)))
-		if (if_set_mcast(iface) == -1) {
-			log_warn("send_packet: error setting multicast "
-			    "interface, %s", iface->name);
-			return (-1);
-		}
+	struct sockaddr		*sa;
 
-	if (sendto(fd, pkt, len, 0, (struct sockaddr *)dst,
-	    sizeof(*dst)) == -1) {
-		log_warn("send_packet: error sending packet to %s",
-		    inet_ntoa(dst->sin_addr));
+	switch (af) {
+	case AF_INET:
+		if (ia && IN_MULTICAST(ntohl(dst->v4.s_addr))) {
+			/* set outgoing interface for multicast traffic */
+			if (sock_set_ipv4_mcast(ia->iface) == -1) {
+				log_debug("%s: error setting multicast "
+				    "interface, %s", __func__, ia->iface->name);
+				return (-1);
+			}
+		}
+		break;
+	case AF_INET6:
+		if (ia && IN6_IS_ADDR_MULTICAST(&dst->v6)) {
+			/* set outgoing interface for multicast traffic */
+			if (sock_set_ipv6_mcast(ia->iface) == -1) {
+				log_debug("%s: error setting multicast "
+				    "interface, %s", __func__, ia->iface->name);
+				return (-1);
+			}
+		}
+		break;
+	default:
+		fatalx("send_packet: unknown af");
+	}
+
+	sa = addr2sa(af, dst, LDP_PORT);
+	if (sendto(fd, pkt, len, 0, sa, sa->sa_len) == -1) {
+		log_warn("%s: error sending packet to %s", __func__,
+		    log_sockaddr(sa));
 		return (-1);
 	}
 
@@ -106,34 +115,41 @@ send_packet(int fd, struct iface *iface, void *pkt, size_t len,
 }
 
 /* Discovery functions */
+#define CMSG_MAXLEN max(sizeof(struct sockaddr_dl), sizeof(struct in6_pktinfo))
 void
 disc_recv_packet(int fd, short event, void *bula)
 {
 	union {
-		struct cmsghdr hdr;
-		char	buf[CMSG_SPACE(sizeof(struct sockaddr_dl))];
+		struct	cmsghdr hdr;
+		char	buf[CMSG_SPACE(CMSG_MAXLEN)];
 	} cmsgbuf;
-	struct sockaddr_in	 src;
 	struct msghdr		 msg;
+	struct sockaddr_storage	 from;
 	struct iovec		 iov;
-	struct ldp_hdr		 ldp_hdr;
-	struct ldp_msg		 ldp_msg;
-	struct iface		*iface = NULL;
 	char			*buf;
 	struct cmsghdr		*cmsg;
 	ssize_t			 r;
-	u_int16_t		 len;
+	int			 multicast;
+	int			 af;
+	union ldpd_addr		 src;
 	unsigned int		 ifindex = 0;
+	struct iface		*iface;
+	uint16_t		 len;
+	struct ldp_hdr		 ldp_hdr;
+	uint16_t		 pdu_len;
+	struct ldp_msg		 ldp_msg;
+	uint16_t		 msg_len;
+	struct in_addr		 lsr_id;
 
 	if (event != EV_READ)
 		return;
 
 	/* setup buffer */
-	bzero(&msg, sizeof(msg));
+	memset(&msg, 0, sizeof(msg));
 	iov.iov_base = buf = pkt_ptr;
 	iov.iov_len = IBUF_READ_SIZE;
-	msg.msg_name = &src;
-	msg.msg_namelen = sizeof(src);
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof(from);
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
 	msg.msg_control = &cmsgbuf.buf;
@@ -141,135 +157,167 @@ disc_recv_packet(int fd, short event, void *bula)
 
 	if ((r = recvmsg(fd, &msg, 0)) == -1) {
 		if (errno != EAGAIN && errno != EINTR)
-			log_debug("disc_recv_packet: read error: %s",
+			log_debug("%s: read error: %s", __func__,
 			    strerror(errno));
 		return;
 	}
+
+	multicast = (msg.msg_flags & MSG_MCAST) ? 1 : 0;
+	sa2addr((struct sockaddr *)&from, &af, &src);
+	if (bad_addr(af, &src)) {
+		log_debug("%s: invalid source address: %s", __func__,
+		    log_addr(af, &src));
+		return;
+	}
+
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL;
 	    cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == IPPROTO_IP &&
+		if (af == AF_INET && cmsg->cmsg_level == IPPROTO_IP &&
 		    cmsg->cmsg_type == IP_RECVIF) {
 			ifindex = ((struct sockaddr_dl *)
 			    CMSG_DATA(cmsg))->sdl_index;
 			break;
 		}
+		if (af == AF_INET6 && cmsg->cmsg_level == IPPROTO_IPV6 &&
+		    cmsg->cmsg_type == IPV6_PKTINFO) {
+			ifindex = ((struct in6_pktinfo *)
+			    CMSG_DATA(cmsg))->ipi6_ifindex;
+			break;
+		}
 	}
 
-	len = (u_int16_t)r;
-
 	/* find a matching interface */
-	if ((fd == leconf->ldp_discovery_socket) &&
-	    (iface = disc_find_iface(ifindex, src.sin_addr)) == NULL) {
-		log_debug("disc_recv_packet: cannot find a matching subnet "
-		    "on interface index %d for %s", ifindex,
-		    inet_ntoa(src.sin_addr));
+	iface = disc_find_iface(ifindex, af, &src, multicast);
+	if (iface == NULL)
+		return;
+
+	/* check packet size */
+	len = (uint16_t)r;
+	if (len < (LDP_HDR_SIZE + LDP_MSG_SIZE) || len > LDP_MAX_LEN) {
+		log_debug("%s: bad packet size, source %s", __func__,
+		    log_addr(af, &src));
 		return;
 	}
 
 	/* LDP header sanity checks */
-	if (len < LDP_HDR_SIZE || len > LDP_MAX_LEN) {
-		log_debug("disc_recv_packet: bad packet size");
-		return;
-	}
-	bcopy(buf, &ldp_hdr, sizeof(ldp_hdr));
-
+	memcpy(&ldp_hdr, buf, sizeof(ldp_hdr));
 	if (ntohs(ldp_hdr.version) != LDP_VERSION) {
-		log_debug("dsc_recv_packet: invalid LDP version %d",
-		    ldp_hdr.version);
+		log_debug("%s: invalid LDP version %d, source %s", __func__,
+		    ntohs(ldp_hdr.version), log_addr(af, &src));
 		return;
 	}
-
-	if (ntohs(ldp_hdr.length) >
-	    len - sizeof(ldp_hdr.version) - sizeof(ldp_hdr.length)) {
-		log_debug("disc_recv_packet: invalid LDP packet length %u",
-		    ntohs(ldp_hdr.length));
+	if (ntohs(ldp_hdr.lspace_id) != 0) {
+		log_debug("%s: invalid label space %u, source %s", __func__,
+		    ntohs(ldp_hdr.lspace_id), log_addr(af, &src));
 		return;
 	}
-
-	if (len < LDP_HDR_SIZE + LDP_MSG_LEN) {
-		log_debug("disc_recv_packet: invalid LDP packet length %d",
-		    ntohs(ldp_hdr.length));
+	/* check "PDU Length" field */
+	pdu_len = ntohs(ldp_hdr.length);
+	if ((pdu_len < (LDP_HDR_PDU_LEN + LDP_MSG_SIZE)) ||
+	    (pdu_len > (len - LDP_HDR_DEAD_LEN))) {
+		log_debug("%s: invalid LDP packet length %u, source %s",
+		    __func__, ntohs(ldp_hdr.length), log_addr(af, &src));
 		return;
 	}
+	buf += LDP_HDR_SIZE;
+	len -= LDP_HDR_SIZE;
 
-	bcopy(buf + LDP_HDR_SIZE, &ldp_msg, sizeof(ldp_msg));
+	lsr_id.s_addr = ldp_hdr.lsr_id;
+
+	/*
+	 * For UDP, we process only the first message of each packet. This does
+	 * not impose any restrictions since LDP uses UDP only for sending Hello
+	 * packets.
+	 */
+	memcpy(&ldp_msg, buf, sizeof(ldp_msg));
+
+	/* check "Message Length" field */
+	msg_len = ntohs(ldp_msg.length);
+	if (msg_len < LDP_MSG_LEN || ((msg_len + LDP_MSG_DEAD_LEN) > pdu_len)) {
+		log_debug("%s: invalid LDP message length %u, source %s",
+		    __func__, ntohs(ldp_msg.length), log_addr(af, &src));
+		return;
+	}
+	buf += LDP_MSG_SIZE;
+	len -= LDP_MSG_SIZE;
 
 	/* switch LDP packet type */
 	switch (ntohs(ldp_msg.type)) {
 	case MSG_TYPE_HELLO:
-		recv_hello(iface, src.sin_addr, buf, len);
+		recv_hello(lsr_id, &ldp_msg, af, &src, iface, multicast,
+		    buf, len);
 		break;
 	default:
-		log_debug("recv_packet: unknown LDP packet type, source %s",
-		    inet_ntoa(src.sin_addr));
+		log_debug("%s: unknown LDP packet type, source %s", __func__,
+		    log_addr(af, &src));
 	}
 }
 
-struct iface *
-disc_find_iface(unsigned int ifindex, struct in_addr src)
+static struct iface *
+disc_find_iface(unsigned int ifindex, int af, union ldpd_addr *src,
+    int multicast)
 {
 	struct iface	*iface;
+	struct iface_af	*ia;
 	struct if_addr	*if_addr;
+	in_addr_t	 mask;
 
-	LIST_FOREACH(iface, &leconf->iface_list, entry)
-		LIST_FOREACH(if_addr, &iface->addr_list, entry)
+	iface = if_lookup(leconf, ifindex);
+	if (iface == NULL)
+		return (NULL);
+
+	/*
+	 * For unicast packets, we just need to make sure that the interface
+	 * is enabled for the given address-family.
+	 */
+	if (!multicast) {
+		ia = iface_af_get(iface, af);
+		if (ia->enabled)
+			return (iface);
+		return (NULL);
+	}
+
+	switch (af) {
+	case AF_INET:
+		LIST_FOREACH(if_addr, &iface->addr_list, entry) {
+			if (if_addr->af != AF_INET)
+				continue;
+
 			switch (iface->type) {
 			case IF_TYPE_POINTOPOINT:
-				if (ifindex == iface->ifindex &&
-				    if_addr->dstbrd.s_addr == src.s_addr)
+				if (if_addr->dstbrd.v4.s_addr == src->v4.s_addr)
 					return (iface);
 				break;
 			default:
-				if (ifindex == iface->ifindex &&
-				    (if_addr->addr.s_addr &
-					if_addr->mask.s_addr) ==
-				    (src.s_addr & if_addr->mask.s_addr))
+				mask = prefixlen2mask(if_addr->prefixlen);
+				if ((if_addr->addr.v4.s_addr & mask) ==
+				    (src->v4.s_addr & mask))
 					return (iface);
 				break;
 			}
+		}
+		break;
+	case AF_INET6:
+		if (IN6_IS_ADDR_LINKLOCAL(&src->v6))
+			return (iface);
+		break;
+	default:
+		fatalx("disc_find_iface: unknown af");
+	}
 
 	return (NULL);
-}
-
-struct tcp_conn *
-tcp_new(int fd, struct nbr *nbr)
-{
-	struct tcp_conn *tcp;
-
-	if ((tcp = calloc(1, sizeof(*tcp))) == NULL)
-		fatal("tcp_new");
-	if ((tcp->rbuf = calloc(1, sizeof(struct ibuf_read))) == NULL)
-		fatal("tcp_new");
-
-	if (nbr)
-		tcp->nbr = nbr;
-
-	tcp->fd = fd;
-	evbuf_init(&tcp->wbuf, tcp->fd, session_write, tcp);
-	event_set(&tcp->rev, tcp->fd, EV_READ | EV_PERSIST, session_read, tcp);
-	event_add(&tcp->rev, NULL);
-
-	return (tcp);
-}
-
-void
-tcp_close(struct tcp_conn *tcp)
-{
-	evbuf_clear(&tcp->wbuf);
-	event_del(&tcp->rev);
-	close(tcp->fd);
-	free(tcp->rbuf);
-	free(tcp);
 }
 
 void
 session_accept(int fd, short event, void *bula)
 {
-	struct sockaddr_in	 src;
-	int			 newfd;
+	struct sockaddr_storage	 src;
 	socklen_t		 len = sizeof(src);
-	struct nbr_params	*nbrp;
-	int			 opt;
+	int			 newfd;
+	int			 af;
+	union ldpd_addr		 addr;
+	struct nbr		*nbr;
+	struct pending_conn	*pconn;
 
 	if (!(event & EV_READ))
 		return;
@@ -285,59 +333,102 @@ session_accept(int fd, short event, void *bula)
 			accept_pause();
 		} else if (errno != EWOULDBLOCK && errno != EINTR &&
 		    errno != ECONNABORTED)
-			log_debug("sess_recv_packet: accept error: %s",
+			log_debug("%s: accept error: %s", __func__,
 			    strerror(errno));
 		return;
 	}
 
-	nbrp = nbr_params_find(leconf, src.sin_addr);
+	sa2addr((struct sockaddr *)&src, &af, &addr);
+
+	/*
+	 * Since we don't support label spaces, we can identify this neighbor
+	 * just by its source address. This way we don't need to wait for its
+	 * Initialization message to know who we are talking to.
+	 */
+	nbr = nbr_find_addr(af, &addr);
+	if (nbr == NULL) {
+		/*
+		 * According to RFC 5036, we would need to send a No Hello
+		 * Error Notification message and close this TCP connection
+		 * right now. But doing so would trigger the backoff exponential
+		 * timer in the remote peer, which would considerably slow down
+		 * the session establishment process. The trick here is to wait
+		 * five seconds before sending the Notification Message. There's
+		 * a good chance that the remote peer will send us a Hello
+		 * message within this interval, so it's worth waiting before
+		 * taking a more drastic measure.
+		 */
+		pconn = pending_conn_find(af, &addr);
+		if (pconn)
+			close(newfd);
+		else
+			pending_conn_new(newfd, af, &addr);
+		return;
+	}
+	/* protection against buggy implementations */
+	if (nbr_session_active_role(nbr)) {
+		close(newfd);
+		return;
+	}
+	if (nbr->state != NBR_STA_PRESENT) {
+		log_debug("%s: lsr-id %s: rejecting additional transport "
+		    "connection", __func__, inet_ntoa(nbr->id));
+		close(newfd);
+		return;
+	}
+
+	session_accept_nbr(nbr, newfd);
+}
+
+void
+session_accept_nbr(struct nbr *nbr, int fd)
+{
+	struct nbr_params	*nbrp;
+	int			 opt;
+	socklen_t		 len;
+
+	nbrp = nbr_params_find(leconf, nbr->id);
 	if (nbrp && nbrp->auth.method == AUTH_MD5SIG) {
 		if (sysdep.no_pfkey || sysdep.no_md5sig) {
 			log_warnx("md5sig configured but not available");
-			close(newfd);
+			close(fd);
 			return;
 		}
 
 		len = sizeof(opt);
-		if (getsockopt(newfd, IPPROTO_TCP, TCP_MD5SIG,
-		    &opt, &len) == -1)
+		if (getsockopt(fd, IPPROTO_TCP, TCP_MD5SIG, &opt, &len) == -1)
 			fatal("getsockopt TCP_MD5SIG");
 		if (!opt) {	/* non-md5'd connection! */
-			log_warnx(
-			    "connection attempt without md5 signature");
-			close(newfd);
+			log_warnx("connection attempt without md5 signature");
+			close(fd);
 			return;
 		}
 	}
 
-	tcp_new(newfd, NULL);
+	nbr->tcp = tcp_new(fd, nbr);
+	nbr_fsm(nbr, NBR_EVT_MATCH_ADJ);
 }
 
-void
+static void
 session_read(int fd, short event, void *arg)
 {
-	struct tcp_conn	*tcp = arg;
-	struct nbr	*nbr = tcp->nbr;
+	struct nbr	*nbr = arg;
+	struct tcp_conn	*tcp = nbr->tcp;
 	struct ldp_hdr	*ldp_hdr;
 	struct ldp_msg	*ldp_msg;
 	char		*buf, *pdu;
 	ssize_t		 n, len;
-	int		 msg_size;
-	u_int16_t	 pdu_len;
+	uint16_t	 pdu_len, msg_len, msg_size, max_pdu_len;
+	int		 ret;
 
-	if (event != EV_READ) {
-		log_debug("session_read: spurious event");
+	if (event != EV_READ)
 		return;
-	}
 
 	if ((n = read(fd, tcp->rbuf->buf + tcp->rbuf->wpos,
 	    sizeof(tcp->rbuf->buf) - tcp->rbuf->wpos)) == -1) {
 		if (errno != EINTR && errno != EAGAIN) {
-			log_warn("session_read: read error");
-			if (nbr)
-				nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
-			else
-				tcp_close(tcp);
+			log_warn("%s: read error", __func__);
+			nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
 			return;
 		}
 		/* retry read */
@@ -345,11 +436,8 @@ session_read(int fd, short event, void *arg)
 	}
 	if (n == 0) {
 		/* connection closed */
-		log_debug("session_read: connection closed by remote end");
-		if (nbr)
-			nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
-		else
-			tcp_close(tcp);
+		log_debug("%s: connection closed by remote end", __func__);
+		nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
 		return;
 	}
 	tcp->rbuf->wpos += n;
@@ -358,57 +446,34 @@ session_read(int fd, short event, void *arg)
 		pdu = buf;
 		ldp_hdr = (struct ldp_hdr *)pdu;
 		if (ntohs(ldp_hdr->version) != LDP_VERSION) {
-			if (nbr)
-				session_shutdown(nbr, S_BAD_PROTO_VER, 0, 0);
-			else {
-				send_notification(S_BAD_PROTO_VER, tcp, 0, 0);
-				msgbuf_write(&tcp->wbuf.wbuf);
-				tcp_close(tcp);
-			}
+			session_shutdown(nbr, S_BAD_PROTO_VER, 0, 0);
 			free(buf);
 			return;
 		}
 
 		pdu_len = ntohs(ldp_hdr->length);
-		if (pdu_len < (LDP_HDR_PDU_LEN + LDP_MSG_LEN) ||
-		    pdu_len > LDP_MAX_LEN) {
-			if (nbr)
-				session_shutdown(nbr, S_BAD_PDU_LEN, 0, 0);
-			else {
-				send_notification(S_BAD_PDU_LEN, tcp, 0, 0);
-				msgbuf_write(&tcp->wbuf.wbuf);
-				tcp_close(tcp);
-			}
+		/*
+	 	 * RFC 5036 - Section 3.5.3:
+		 * "Prior to completion of the negotiation, the maximum
+		 * allowable length is 4096 bytes".
+		 */
+		if (nbr->state == NBR_STA_OPER)
+			max_pdu_len = nbr->max_pdu_len;
+		else
+			max_pdu_len = LDP_MAX_LEN;
+		if (pdu_len < (LDP_HDR_PDU_LEN + LDP_MSG_SIZE) ||
+		    pdu_len > max_pdu_len) {
+			session_shutdown(nbr, S_BAD_PDU_LEN, 0, 0);
 			free(buf);
 			return;
 		}
+		pdu_len -= LDP_HDR_PDU_LEN;
 
-		if (nbr) {
-			if (ldp_hdr->lsr_id != nbr->id.s_addr ||
-			    ldp_hdr->lspace_id != 0) {
-				session_shutdown(nbr, S_BAD_LDP_ID, 0, 0);
-				free(buf);
-				return;
-			}
-		} else {
-			nbr = nbr_find_ldpid(ldp_hdr->lsr_id);
-			if (!nbr) {
-				send_notification(S_NO_HELLO, tcp, 0, 0);
-				msgbuf_write(&tcp->wbuf.wbuf);
-				tcp_close(tcp);
-				free(buf);
-				return;
-			}
-			/* handle duplicate SYNs */
-			if (nbr->tcp) {
-				tcp_close(tcp);
-				free(buf);
-				return;
-			}
-
-			nbr->tcp = tcp;
-			tcp->nbr = nbr;
-			nbr_fsm(nbr, NBR_EVT_MATCH_ADJ);
+		if (ldp_hdr->lsr_id != nbr->id.s_addr ||
+		    ldp_hdr->lspace_id != 0) {
+			session_shutdown(nbr, S_BAD_LDP_ID, 0, 0);
+			free(buf);
+			return;
 		}
 
 		pdu += LDP_HDR_SIZE;
@@ -417,20 +482,20 @@ session_read(int fd, short event, void *arg)
 		if (nbr->state == NBR_STA_OPER)
 			nbr_fsm(nbr, NBR_EVT_PDU_RCVD);
 
-		while (len >= LDP_MSG_LEN) {
-			u_int16_t type;
+		while (len >= LDP_MSG_SIZE) {
+			uint16_t type;
 
 			ldp_msg = (struct ldp_msg *)pdu;
 			type = ntohs(ldp_msg->type);
-
-			pdu_len = ntohs(ldp_msg->length) + TLV_HDR_LEN;
-			if (pdu_len > len ||
-			    pdu_len < LDP_MSG_LEN - TLV_HDR_LEN) {
+			msg_len = ntohs(ldp_msg->length);
+			msg_size = msg_len + LDP_MSG_DEAD_LEN;
+			if (msg_len < LDP_MSG_LEN || msg_size > pdu_len) {
 				session_shutdown(nbr, S_BAD_TLV_LEN,
 				    ldp_msg->msgid, ldp_msg->type);
 				free(buf);
 				return;
 			}
+			pdu_len -= msg_size;
 
 			/* check for error conditions earlier */
 			switch (type) {
@@ -452,7 +517,6 @@ session_read(int fd, short event, void *arg)
 					return;
 				}
 				break;
-			case MSG_TYPE_NOTIFICATION:
 			case MSG_TYPE_ADDR:
 			case MSG_TYPE_ADDRWITHDRAW:
 			case MSG_TYPE_LABELMAPPING:
@@ -460,7 +524,6 @@ session_read(int fd, short event, void *arg)
 			case MSG_TYPE_LABELWITHDRAW:
 			case MSG_TYPE_LABELRELEASE:
 			case MSG_TYPE_LABELABORTREQ:
-			default:
 				if (nbr->state != NBR_STA_OPER) {
 					session_shutdown(nbr, S_SHUTDOWN,
 					    ldp_msg->msgid, ldp_msg->type);
@@ -468,34 +531,36 @@ session_read(int fd, short event, void *arg)
 					return;
 				}
 				break;
+			default:
+				break;
 			}
 
 			/* switch LDP packet type */
 			switch (type) {
 			case MSG_TYPE_NOTIFICATION:
-				msg_size = recv_notification(nbr, pdu, pdu_len);
+				ret = recv_notification(nbr, pdu, msg_size);
 				break;
 			case MSG_TYPE_INIT:
-				msg_size = recv_init(nbr, pdu, pdu_len);
+				ret = recv_init(nbr, pdu, msg_size);
 				break;
 			case MSG_TYPE_KEEPALIVE:
-				msg_size = recv_keepalive(nbr, pdu, pdu_len);
+				ret = recv_keepalive(nbr, pdu, msg_size);
 				break;
 			case MSG_TYPE_ADDR:
 			case MSG_TYPE_ADDRWITHDRAW:
-				msg_size = recv_address(nbr, pdu, pdu_len);
+				ret = recv_address(nbr, pdu, msg_size);
 				break;
 			case MSG_TYPE_LABELMAPPING:
 			case MSG_TYPE_LABELREQUEST:
 			case MSG_TYPE_LABELWITHDRAW:
 			case MSG_TYPE_LABELRELEASE:
 			case MSG_TYPE_LABELABORTREQ:
-				msg_size = recv_labelmessage(nbr, pdu,
-				    pdu_len, type);
+				ret = recv_labelmessage(nbr, pdu, msg_size,
+				    type);
 				break;
 			default:
-				log_debug("session_read: unknown LDP packet "
-				    "from nbr %s", inet_ntoa(nbr->id));
+				log_debug("%s: unknown LDP packet from nbr %s",
+				    __func__, inet_ntoa(nbr->id));
 				if (!(ntohs(ldp_msg->type) & UNKNOWN_FLAG)) {
 					session_shutdown(nbr, S_UNKNOWN_MSG,
 					    ldp_msg->msgid, ldp_msg->type);
@@ -503,19 +568,19 @@ session_read(int fd, short event, void *arg)
 					return;
 				}
 				/* unknown flag is set, ignore the message */
-				msg_size = ntohs(ldp_msg->length);
+				ret = 0;
 				break;
 			}
 
-			if (msg_size == -1) {
+			if (ret == -1) {
 				/* parser failed, giving up */
 				free(buf);
 				return;
 			}
 
 			/* Analyse the next message */
-			pdu += msg_size + TLV_HDR_LEN;
-			len -= msg_size + TLV_HDR_LEN;
+			pdu += msg_size;
+			len -= msg_size;
 		}
 		free(buf);
 		if (len != 0) {
@@ -525,28 +590,39 @@ session_read(int fd, short event, void *arg)
 	}
 }
 
-void
+static void
 session_write(int fd, short event, void *arg)
 {
 	struct tcp_conn *tcp = arg;
-	struct nbr *nbr = tcp->nbr;
+	struct nbr	*nbr = tcp->nbr;
 
-	if (event & EV_WRITE) {
-		if (msgbuf_write(&tcp->wbuf.wbuf) <= 0 && errno != EAGAIN) {
-			if (nbr)
-				nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
-		}
-	} else
-		log_debug("session_write: spurious event");
+	if (!(event & EV_WRITE))
+		return;
+
+	if (msgbuf_write(&tcp->wbuf.wbuf) <= 0)
+		if (errno != EAGAIN && nbr)
+			nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
+
+	if (nbr == NULL && !tcp->wbuf.wbuf.queued) {
+		/*
+		 * We are done sending the notification message, now we can
+		 * close the socket.
+		 */
+		tcp_close(tcp);
+		return;
+	}
 
 	evbuf_event_add(&tcp->wbuf);
 }
 
 void
-session_shutdown(struct nbr *nbr, u_int32_t status, u_int32_t msgid,
-    u_int32_t type)
+session_shutdown(struct nbr *nbr, uint32_t status, uint32_t msgid,
+    uint32_t type)
 {
-	log_debug("session_shutdown: nbr ID %s", inet_ntoa(nbr->id));
+	if (nbr->tcp == NULL)
+		return;
+
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
 	send_notification_nbr(nbr, status, msgid, type);
 
@@ -559,19 +635,15 @@ session_shutdown(struct nbr *nbr, u_int32_t status, u_int32_t msgid,
 void
 session_close(struct nbr *nbr)
 {
-	log_debug("session_close: closing session with nbr ID %s",
+	log_debug("%s: closing session with lsr-id %s", __func__,
 	    inet_ntoa(nbr->id));
 
 	tcp_close(nbr->tcp);
-	nbr->tcp = NULL;
-
 	nbr_stop_ktimer(nbr);
 	nbr_stop_ktimeout(nbr);
-
-	accept_unpause();
 }
 
-ssize_t
+static ssize_t
 session_get_pdu(struct ibuf_read *r, char **b)
 {
 	struct ldp_hdr	l;
@@ -582,7 +654,7 @@ session_get_pdu(struct ibuf_read *r, char **b)
 		return (0);
 
 	memcpy(&l, r->buf, sizeof(l));
-	dlen = ntohs(l.length) + TLV_HDR_LEN;
+	dlen = ntohs(l.length) + LDP_HDR_DEAD_LEN;
 	if (dlen > av)
 		return (0);
 
@@ -598,4 +670,111 @@ session_get_pdu(struct ibuf_read *r, char **b)
 		r->wpos = 0;
 
 	return (dlen);
+}
+
+struct tcp_conn *
+tcp_new(int fd, struct nbr *nbr)
+{
+	struct tcp_conn *tcp;
+
+	if ((tcp = calloc(1, sizeof(*tcp))) == NULL)
+		fatal(__func__);
+
+	tcp->fd = fd;
+	evbuf_init(&tcp->wbuf, tcp->fd, session_write, tcp);
+
+	if (nbr) {
+		if ((tcp->rbuf = calloc(1, sizeof(struct ibuf_read))) == NULL)
+			fatal(__func__);
+
+		event_set(&tcp->rev, tcp->fd, EV_READ | EV_PERSIST,
+		    session_read, nbr);
+		event_add(&tcp->rev, NULL);
+		tcp->nbr = nbr;
+	}
+
+	return (tcp);
+}
+
+static void
+tcp_close(struct tcp_conn *tcp)
+{
+	evbuf_clear(&tcp->wbuf);
+
+	if (tcp->nbr) {
+		event_del(&tcp->rev);
+		free(tcp->rbuf);
+		tcp->nbr->tcp = NULL;
+	}
+
+	close(tcp->fd);
+	accept_unpause();
+	free(tcp);
+}
+
+static struct pending_conn *
+pending_conn_new(int fd, int af, union ldpd_addr *addr)
+{
+	struct pending_conn	*pconn;
+	struct timeval		 tv;
+
+	if ((pconn = calloc(1, sizeof(*pconn))) == NULL)
+		fatal(__func__);
+
+	pconn->fd = fd;
+	pconn->af = af;
+	pconn->addr = *addr;
+	evtimer_set(&pconn->ev_timeout, pending_conn_timeout, pconn);
+	TAILQ_INSERT_TAIL(&global.pending_conns, pconn, entry);
+
+	timerclear(&tv);
+	tv.tv_sec = PENDING_CONN_TIMEOUT;
+	if (evtimer_add(&pconn->ev_timeout, &tv) == -1)
+		fatal(__func__);
+
+	return (pconn);
+}
+
+void
+pending_conn_del(struct pending_conn *pconn)
+{
+	if (evtimer_pending(&pconn->ev_timeout, NULL) &&
+	    evtimer_del(&pconn->ev_timeout) == -1)
+		fatal(__func__);
+
+	TAILQ_REMOVE(&global.pending_conns, pconn, entry);
+	free(pconn);
+}
+
+struct pending_conn *
+pending_conn_find(int af, union ldpd_addr *addr)
+{
+	struct pending_conn	*pconn;
+
+	TAILQ_FOREACH(pconn, &global.pending_conns, entry)
+		if (af == pconn->af &&
+		    ldp_addrcmp(af, addr, &pconn->addr) == 0)
+			return (pconn);
+
+	return (NULL);
+}
+
+static void
+pending_conn_timeout(int fd, short event, void *arg)
+{
+	struct pending_conn	*pconn = arg;
+	struct tcp_conn		*tcp;
+
+	log_debug("%s: no adjacency with remote end: %s", __func__,
+	    log_addr(pconn->af, &pconn->addr));
+
+	/*
+	 * Create a write buffer detached from any neighbor to send a
+	 * notification message reliably.
+	 */
+	tcp = tcp_new(pconn->fd, NULL);
+	send_notification(S_NO_HELLO, tcp, 0, 0);
+	msgbuf_write(&tcp->wbuf.wbuf);
+
+	pending_conn_del(pconn);
 }

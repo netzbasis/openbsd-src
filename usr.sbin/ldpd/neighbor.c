@@ -1,6 +1,7 @@
-/*	$OpenBSD: neighbor.c,v 1.52 2015/07/21 05:02:57 renato Exp $ */
+/*	$OpenBSD: neighbor.c,v 1.72 2016/05/23 19:20:55 renato Exp $ */
 
 /*
+ * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
@@ -19,62 +20,34 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/time.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
-#include <net/if.h>
-
-#include <ctype.h>
-#include <err.h>
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <event.h>
 #include <unistd.h>
 
 #include "ldpd.h"
-#include "ldp.h"
 #include "ldpe.h"
-#include "control.h"
-#include "log.h"
 #include "lde.h"
+#include "log.h"
 
-void	nbr_send_labelmappings(struct nbr *);
-int	nbr_act_session_operational(struct nbr *);
+static __inline int	 nbr_id_compare(struct nbr *, struct nbr *);
+static __inline int	 nbr_addr_compare(struct nbr *, struct nbr *);
+static __inline int	 nbr_pid_compare(struct nbr *, struct nbr *);
+static void		 nbr_update_peerid(struct nbr *);
+static void		 nbr_ktimer(int, short, void *);
+static void		 nbr_start_ktimer(struct nbr *);
+static void		 nbr_ktimeout(int, short, void *);
+static void		 nbr_start_ktimeout(struct nbr *);
+static void		 nbr_idtimer(int, short, void *);
+static int		 nbr_act_session_operational(struct nbr *);
+static void		 nbr_send_labelmappings(struct nbr *);
 
-static __inline int nbr_id_compare(struct nbr *, struct nbr *);
-static __inline int nbr_pid_compare(struct nbr *, struct nbr *);
-
-RB_HEAD(nbr_id_head, nbr);
-RB_PROTOTYPE(nbr_id_head, nbr, id_tree, nbr_id_compare)
 RB_GENERATE(nbr_id_head, nbr, id_tree, nbr_id_compare)
-RB_HEAD(nbr_pid_head, nbr);
-RB_PROTOTYPE(nbr_pid_head, nbr, pid_tree, nbr_pid_compare)
+RB_GENERATE(nbr_addr_head, nbr, addr_tree, nbr_addr_compare)
 RB_GENERATE(nbr_pid_head, nbr, pid_tree, nbr_pid_compare)
-
-static __inline int
-nbr_id_compare(struct nbr *a, struct nbr *b)
-{
-	return (ntohl(a->id.s_addr) - ntohl(b->id.s_addr));
-}
-
-static __inline int
-nbr_pid_compare(struct nbr *a, struct nbr *b)
-{
-	return (a->peerid - b->peerid);
-}
-
-struct nbr_id_head nbrs_by_id = RB_INITIALIZER(&nbrs_by_id);
-struct nbr_pid_head nbrs_by_pid = RB_INITIALIZER(&nbrs_by_pid);
-
-u_int32_t	peercnt = 1;
-
-extern struct ldpd_conf		*leconf;
-extern struct ldpd_sysdep	 sysdep;
 
 struct {
 	int		state;
@@ -123,6 +96,33 @@ const char * const nbr_action_names[] = {
 	"CLOSE SESSION"
 };
 
+struct nbr_id_head nbrs_by_id = RB_INITIALIZER(&nbrs_by_id);
+struct nbr_addr_head nbrs_by_addr = RB_INITIALIZER(&nbrs_by_addr);
+struct nbr_pid_head nbrs_by_pid = RB_INITIALIZER(&nbrs_by_pid);
+
+static __inline int
+nbr_id_compare(struct nbr *a, struct nbr *b)
+{
+	return (ntohl(a->id.s_addr) - ntohl(b->id.s_addr));
+}
+
+static __inline int
+nbr_addr_compare(struct nbr *a, struct nbr *b)
+{
+	if (a->af < b->af)
+		return (-1);
+	if (a->af > b->af)
+		return (1);
+
+	return (ldp_addrcmp(a->af, &a->raddr, &b->raddr));
+}
+
+static __inline int
+nbr_pid_compare(struct nbr *a, struct nbr *b)
+{
+	return (a->peerid - b->peerid);
+}
+
 int
 nbr_fsm(struct nbr *nbr, enum nbr_event event)
 {
@@ -141,10 +141,9 @@ nbr_fsm(struct nbr *nbr, enum nbr_event event)
 
 	if (nbr_fsm_tbl[i].state == -1) {
 		/* event outside of the defined fsm, ignore it. */
-		log_warnx("nbr_fsm: neighbor ID %s, "
-		    "event %s not expected in state %s",
-		    inet_ntoa(nbr->id), nbr_event_names[event],
-		    nbr_state_name(old_state));
+		log_warnx("%s: lsr-id %s, event %s not expected in "
+		    "state %s", __func__, inet_ntoa(nbr->id),
+		    nbr_event_names[event], nbr_state_name(old_state));
 		return (0);
 	}
 
@@ -152,9 +151,9 @@ nbr_fsm(struct nbr *nbr, enum nbr_event event)
 		nbr->state = new_state;
 
 	if (old_state != nbr->state) {
-		log_debug("nbr_fsm: event %s resulted in action %s and "
-		    "changing state for neighbor ID %s from %s to %s",
-		    nbr_event_names[event],
+		log_debug("%s: event %s resulted in action %s and "
+		    "changing state for lsr-id %s from %s to %s",
+		    __func__, nbr_event_names[event],
 		    nbr_action_names[nbr_fsm_tbl[i].action],
 		    inet_ntoa(nbr->id), nbr_state_name(old_state),
 		    nbr_state_name(nbr->state));
@@ -176,7 +175,10 @@ nbr_fsm(struct nbr *nbr, enum nbr_event event)
 		nbr_act_session_operational(nbr);
 		nbr_start_ktimer(nbr);
 		nbr_start_ktimeout(nbr);
-		send_address(nbr, NULL);
+		if (nbr->v4_enabled)
+			send_address(nbr, AF_INET, NULL, 0);
+		if (nbr->v6_enabled)
+			send_address(nbr, AF_INET6, NULL, 0);
 		nbr_send_labelmappings(nbr);
 		break;
 	case NBR_ACT_CONNECT_SETUP:
@@ -208,24 +210,45 @@ nbr_fsm(struct nbr *nbr, enum nbr_event event)
 }
 
 struct nbr *
-nbr_new(struct in_addr id, struct in_addr addr)
+nbr_new(struct in_addr id, int af, int ds_tlv, union ldpd_addr *addr,
+    uint32_t scope_id)
 {
 	struct nbr		*nbr;
 	struct nbr_params	*nbrp;
+	struct adj		*adj;
+	struct pending_conn	*pconn;
 
-	log_debug("nbr_new: LSR ID %s", inet_ntoa(id));
+	log_debug("%s: lsr-id %s transport-address %s", __func__,
+	    inet_ntoa(id), log_addr(af, addr));
 
 	if ((nbr = calloc(1, sizeof(*nbr))) == NULL)
-		fatal("nbr_new");
+		fatal(__func__);
 
 	LIST_INIT(&nbr->adj_list);
 	nbr->state = NBR_STA_PRESENT;
-	nbr->id.s_addr = id.s_addr;
-	nbr->addr.s_addr = addr.s_addr;
 	nbr->peerid = 0;
+	nbr->af = af;
+	nbr->ds_tlv = ds_tlv;
+	if (af == AF_INET || ds_tlv)
+		nbr->v4_enabled = 1;
+	if (af == AF_INET6 || ds_tlv)
+		nbr->v6_enabled = 1;
+	nbr->id = id;
+	nbr->laddr = (ldp_af_conf_get(leconf, af))->trans_addr;
+	nbr->raddr = *addr;
+	nbr->raddr_scope = scope_id;
+
+	LIST_FOREACH(adj, &global.adj_list, global_entry) {
+		if (adj->lsr_id.s_addr == nbr->id.s_addr) {
+			adj->nbr = nbr;
+			LIST_INSERT_HEAD(&nbr->adj_list, adj, nbr_entry);
+		}
+	}
 
 	if (RB_INSERT(nbr_id_head, &nbrs_by_id, nbr) != NULL)
 		fatalx("nbr_new: RB_INSERT(nbrs_by_id) failed");
+	if (RB_INSERT(nbr_addr_head, &nbrs_by_addr, nbr) != NULL)
+		fatalx("nbr_new: RB_INSERT(nbrs_by_addr) failed");
 
 	TAILQ_INIT(&nbr->mapping_list);
 	TAILQ_INIT(&nbr->withdraw_list);
@@ -238,11 +261,15 @@ nbr_new(struct in_addr id, struct in_addr addr)
 	evtimer_set(&nbr->keepalive_timer, nbr_ktimer, nbr);
 	evtimer_set(&nbr->initdelay_timer, nbr_idtimer, nbr);
 
-	/* init pfkey - remove old if any, load new ones */
-	pfkey_remove(nbr);
-	nbrp = nbr_params_find(leconf, nbr->addr);
+	nbrp = nbr_params_find(leconf, nbr->id);
 	if (nbrp && pfkey_establish(nbr, nbrp) == -1)
 		fatalx("pfkey setup failed");
+
+	pconn = pending_conn_find(nbr->af, &nbr->raddr);
+	if (pconn) {
+		session_accept_nbr(nbr, pconn->fd);
+		pending_conn_del(pconn);
+	}
 
 	return (nbr);
 }
@@ -250,12 +277,12 @@ nbr_new(struct in_addr id, struct in_addr addr)
 void
 nbr_del(struct nbr *nbr)
 {
-	log_debug("nbr_del: LSR ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
 	nbr_fsm(nbr, NBR_EVT_CLOSE_SESSION);
 	pfkey_remove(nbr);
 
-	if (event_pending(&nbr->ev_connect, EV_WRITE, NULL))
+	if (nbr_pending_connect(nbr))
 		event_del(&nbr->ev_connect);
 	nbr_stop_ktimer(nbr);
 	nbr_stop_ktimeout(nbr);
@@ -270,13 +297,16 @@ nbr_del(struct nbr *nbr)
 	if (nbr->peerid)
 		RB_REMOVE(nbr_pid_head, &nbrs_by_pid, nbr);
 	RB_REMOVE(nbr_id_head, &nbrs_by_id, nbr);
+	RB_REMOVE(nbr_addr_head, &nbrs_by_addr, nbr);
 
 	free(nbr);
 }
 
-void
+static void
 nbr_update_peerid(struct nbr *nbr)
 {
+	static uint32_t	 peercnt = 1;
+
 	if (nbr->peerid)
 		RB_REMOVE(nbr_pid_head, &nbrs_by_pid, nbr);
 
@@ -286,29 +316,51 @@ nbr_update_peerid(struct nbr *nbr)
 	nbr->peerid = peercnt;
 
 	if (RB_INSERT(nbr_pid_head, &nbrs_by_pid, nbr) != NULL)
-		fatalx("nbr_new: RB_INSERT(nbrs_by_pid) failed");
+		fatalx("nbr_update_peerid: RB_INSERT(nbrs_by_pid) failed");
 }
 
 struct nbr *
-nbr_find_peerid(u_int32_t peerid)
+nbr_find_ldpid(uint32_t lsr_id)
+{
+	struct nbr	n;
+	n.id.s_addr = lsr_id;
+	return (RB_FIND(nbr_id_head, &nbrs_by_id, &n));
+}
+
+struct nbr *
+nbr_find_addr(int af, union ldpd_addr *addr)
+{
+	struct nbr	n;
+	n.af = af;
+	n.raddr = *addr;
+	return (RB_FIND(nbr_addr_head, &nbrs_by_addr, &n));
+}
+
+struct nbr *
+nbr_find_peerid(uint32_t peerid)
 {
 	struct nbr	n;
 	n.peerid = peerid;
 	return (RB_FIND(nbr_pid_head, &nbrs_by_pid, &n));
 }
 
-struct nbr *
-nbr_find_ldpid(u_int32_t rtr_id)
+int
+nbr_adj_count(struct nbr *nbr, int af)
 {
-	struct nbr	n;
-	n.id.s_addr = rtr_id;
-	return (RB_FIND(nbr_id_head, &nbrs_by_id, &n));
+	struct adj	*adj;
+	int		 total = 0;
+
+	LIST_FOREACH(adj, &nbr->adj_list, nbr_entry)
+		if (adj_get_af(adj) == af)
+			total++;
+
+	return (total);
 }
 
 int
 nbr_session_active_role(struct nbr *nbr)
 {
-	if (ntohl(ldpe_router_id()) > ntohl(nbr->addr.s_addr))
+	if (ldp_addrcmp(nbr->af, &nbr->laddr, &nbr->raddr) > 0)
 		return (1);
 
 	return (0);
@@ -318,32 +370,25 @@ nbr_session_active_role(struct nbr *nbr)
 
 /* Keepalive timer: timer to send keepalive message to neighbors */
 
-void
+static void
 nbr_ktimer(int fd, short event, void *arg)
 {
 	struct nbr	*nbr = arg;
-	struct timeval	 tv;
 
 	send_keepalive(nbr);
-
-	timerclear(&tv);
-	tv.tv_sec = (time_t)(nbr->keepalive / KEEPALIVE_PER_PERIOD);
-	if (evtimer_add(&nbr->keepalive_timer, &tv) == -1)
-		fatal("nbr_ktimer");
+	nbr_start_ktimer(nbr);
 }
 
-void
+static void
 nbr_start_ktimer(struct nbr *nbr)
 {
-	struct timeval	tv;
+	struct timeval	 tv;
 
+	/* send three keepalives per period */
 	timerclear(&tv);
-
-	/* XXX: just to be sure it will send three keepalives per period */
 	tv.tv_sec = (time_t)(nbr->keepalive / KEEPALIVE_PER_PERIOD);
-
 	if (evtimer_add(&nbr->keepalive_timer, &tv) == -1)
-		fatal("nbr_start_ktimer");
+		fatal(__func__);
 }
 
 void
@@ -351,22 +396,22 @@ nbr_stop_ktimer(struct nbr *nbr)
 {
 	if (evtimer_pending(&nbr->keepalive_timer, NULL) &&
 	    evtimer_del(&nbr->keepalive_timer) == -1)
-		fatal("nbr_stop_ktimer");
+		fatal(__func__);
 }
 
 /* Keepalive timeout: if the nbr hasn't sent keepalive */
 
-void
+static void
 nbr_ktimeout(int fd, short event, void *arg)
 {
 	struct nbr *nbr = arg;
 
-	log_debug("nbr_ktimeout: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
 	session_shutdown(nbr, S_KEEPALIVE_TMR, 0, 0);
 }
 
-void
+static void
 nbr_start_ktimeout(struct nbr *nbr)
 {
 	struct timeval	tv;
@@ -375,7 +420,7 @@ nbr_start_ktimeout(struct nbr *nbr)
 	tv.tv_sec = nbr->keepalive;
 
 	if (evtimer_add(&nbr->keepalive_timeout, &tv) == -1)
-		fatal("nbr_start_ktimeout");
+		fatal(__func__);
 }
 
 void
@@ -383,22 +428,19 @@ nbr_stop_ktimeout(struct nbr *nbr)
 {
 	if (evtimer_pending(&nbr->keepalive_timeout, NULL) &&
 	    evtimer_del(&nbr->keepalive_timeout) == -1)
-		fatal("nbr_stop_ktimeout");
+		fatal(__func__);
 }
 
 /* Init delay timer: timer to retry to iniziatize session */
 
-void
+static void
 nbr_idtimer(int fd, short event, void *arg)
 {
 	struct nbr *nbr = arg;
 
-	log_debug("nbr_idtimer: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
-	if (nbr_session_active_role(nbr))
-		nbr_establish_connection(nbr);
-	else if (nbr->state == NBR_STA_INITIAL)
-		nbr_fsm(nbr, NBR_EVT_INIT_RCVD);
+	nbr_establish_connection(nbr);
 }
 
 void
@@ -426,7 +468,7 @@ nbr_start_idtimer(struct nbr *nbr)
 	}
 
 	if (evtimer_add(&nbr->initdelay_timer, &tv) == -1)
-		fatal("nbr_start_idtimer");
+		fatal(__func__);
 }
 
 void
@@ -434,7 +476,7 @@ nbr_stop_idtimer(struct nbr *nbr)
 {
 	if (evtimer_pending(&nbr->initdelay_timer, NULL) &&
 	    evtimer_del(&nbr->initdelay_timer) == -1)
-		fatal("nbr_stop_idtimer");
+		fatal(__func__);
 }
 
 int
@@ -464,17 +506,16 @@ nbr_connect_cb(int fd, short event, void *arg)
 	socklen_t	 len;
 
 	len = sizeof(error);
-	if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
-		log_warn("nbr_connect_cb getsockopt SOL_SOCKET SO_ERROR");
+	if (getsockopt(nbr->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+		log_warn("%s: getsockopt SOL_SOCKET SO_ERROR", __func__);
 		return;
 	}
 
 	if (error) {
 		close(nbr->fd);
 		errno = error;
-		log_debug("nbr_connect_cb: error while "
-		    "connecting to %s: %s", inet_ntoa(nbr->addr),
-		    strerror(errno));
+		log_debug("%s: error while connecting to %s: %s", __func__,
+		    log_addr(nbr->af, &nbr->raddr), strerror(errno));
 		return;
 	}
 
@@ -484,68 +525,66 @@ nbr_connect_cb(int fd, short event, void *arg)
 int
 nbr_establish_connection(struct nbr *nbr)
 {
-	struct sockaddr_in	 local_sa;
-	struct sockaddr_in	 remote_sa;
+	struct sockaddr_storage	 local_sa;
+	struct sockaddr_storage	 remote_sa;
 	struct adj		*adj;
 	struct nbr_params	*nbrp;
 	int			 opt = 1;
 
-	nbr->fd = socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+	nbr->fd = socket(nbr->af,
+	    SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 	if (nbr->fd == -1) {
-		log_warn("nbr_establish_connection: error while "
-		    "creating socket");
+		log_warn("%s: error while creating socket", __func__);
 		return (-1);
 	}
 
-	nbrp = nbr_params_find(leconf, nbr->addr);
+	nbrp = nbr_params_find(leconf, nbr->id);
 	if (nbrp && nbrp->auth.method == AUTH_MD5SIG) {
 		if (sysdep.no_pfkey || sysdep.no_md5sig) {
 			log_warnx("md5sig configured but not available");
+			close(nbr->fd);
 			return (-1);
 		}
 		if (setsockopt(nbr->fd, IPPROTO_TCP, TCP_MD5SIG,
 		    &opt, sizeof(opt)) == -1) {
 			log_warn("setsockopt md5sig");
+			close(nbr->fd);
 			return (-1);
 		}
 	}
 
-	bzero(&local_sa, sizeof(local_sa));
-	local_sa.sin_family = AF_INET;
-	local_sa.sin_port = htons(0);
-	local_sa.sin_addr.s_addr = ldpe_router_id();
+	memcpy(&local_sa, addr2sa(nbr->af, &nbr->laddr, 0), sizeof(local_sa));
+	memcpy(&remote_sa, addr2sa(nbr->af, &nbr->raddr, LDP_PORT),
+	    sizeof(local_sa));
+	if (nbr->af == AF_INET6 && nbr->raddr_scope)
+		addscope((struct sockaddr_in6 *)&remote_sa, nbr->raddr_scope);
 
-	if (bind(nbr->fd, (struct sockaddr *) &local_sa,
-	    sizeof(struct sockaddr_in)) == -1) {
-		log_warn("nbr_establish_connection: error while "
-		    "binding socket to %s", inet_ntoa(local_sa.sin_addr));
+	if (bind(nbr->fd, (struct sockaddr *)&local_sa,
+	    local_sa.ss_len) == -1) {
+		log_warn("%s: error while binding socket to %s", __func__,
+		    log_sockaddr((struct sockaddr *)&local_sa));
 		close(nbr->fd);
 		return (-1);
 	}
-
-	bzero(&remote_sa, sizeof(remote_sa));
-	remote_sa.sin_family = AF_INET;
-	remote_sa.sin_port = htons(LDP_PORT);
-	remote_sa.sin_addr.s_addr = nbr->addr.s_addr;
 
 	/*
 	 * Send an extra hello to guarantee that the remote peer has formed
 	 * an adjacency as well.
 	 */
 	LIST_FOREACH(adj, &nbr->adj_list, nbr_entry)
-		send_hello(adj->source.type, adj->source.link.iface,
+		send_hello(adj->source.type, adj->source.link.ia,
 		    adj->source.target);
 
 	if (connect(nbr->fd, (struct sockaddr *)&remote_sa,
-	    sizeof(remote_sa)) == -1) {
+	    remote_sa.ss_len) == -1) {
 		if (errno == EINPROGRESS) {
 			event_set(&nbr->ev_connect, nbr->fd, EV_WRITE,
 			    nbr_connect_cb, nbr);
 			event_add(&nbr->ev_connect, NULL);
 			return (0);
 		}
-		log_warn("nbr_establish_connection: error while "
-		    "connecting to %s", inet_ntoa(nbr->addr));
+		log_warn("%s: error while connecting to %s", __func__,
+		    log_sockaddr((struct sockaddr *)&remote_sa));
 		close(nbr->fd);
 		return (-1);
 	}
@@ -556,19 +595,25 @@ nbr_establish_connection(struct nbr *nbr)
 	return (0);
 }
 
-int
+static int
 nbr_act_session_operational(struct nbr *nbr)
 {
+	struct lde_nbr	 lde_nbr;
+
 	nbr->idtimer_cnt = 0;
 
 	/* this is necessary to avoid ipc synchronization issues */
 	nbr_update_peerid(nbr);
 
+	memset(&lde_nbr, 0, sizeof(lde_nbr));
+	lde_nbr.id = nbr->id;
+	lde_nbr.v4_enabled = nbr->v4_enabled;
+	lde_nbr.v6_enabled = nbr->v6_enabled;
 	return (ldpe_imsg_compose_lde(IMSG_NEIGHBOR_UP, nbr->peerid, 0,
-	    &nbr->id, sizeof(nbr->id)));
+	    &lde_nbr, sizeof(lde_nbr)));
 }
 
-void
+static void
 nbr_send_labelmappings(struct nbr *nbr)
 {
 	ldpe_imsg_compose_lde(IMSG_LABEL_MAPPING_FULL, nbr->peerid, 0,
@@ -576,29 +621,41 @@ nbr_send_labelmappings(struct nbr *nbr)
 }
 
 struct nbr_params *
-nbr_params_new(struct in_addr addr)
+nbr_params_new(struct in_addr lsr_id)
 {
 	struct nbr_params	*nbrp;
 
 	if ((nbrp = calloc(1, sizeof(*nbrp))) == NULL)
-		fatal("nbr_params_new");
+		fatal(__func__);
 
-	nbrp->addr.s_addr = addr.s_addr;
+	nbrp->lsr_id = lsr_id;
 	nbrp->auth.method = AUTH_NONE;
 
 	return (nbrp);
 }
 
 struct nbr_params *
-nbr_params_find(struct ldpd_conf *xconf, struct in_addr addr)
+nbr_params_find(struct ldpd_conf *xconf, struct in_addr lsr_id)
 {
 	struct nbr_params *nbrp;
 
 	LIST_FOREACH(nbrp, &xconf->nbrp_list, entry)
-		if (nbrp->addr.s_addr == addr.s_addr)
+		if (nbrp->lsr_id.s_addr == lsr_id.s_addr)
 			return (nbrp);
 
 	return (NULL);
+}
+
+uint16_t
+nbr_get_keepalive(int af, struct in_addr lsr_id)
+{
+	struct nbr_params	*nbrp;
+
+	nbrp = nbr_params_find(leconf, lsr_id);
+	if (nbrp && (nbrp->flags & F_NBRP_KEEPALIVE))
+		return (nbrp->keepalive);
+
+	return ((ldp_af_conf_get(leconf, af))->keepalive);
 }
 
 struct ctl_nbr *
@@ -607,8 +664,10 @@ nbr_to_ctl(struct nbr *nbr)
 	static struct ctl_nbr	 nctl;
 	struct timeval		 now;
 
-	memcpy(&nctl.id, &nbr->id, sizeof(nctl.id));
-	memcpy(&nctl.addr, &nbr->addr, sizeof(nctl.addr));
+	nctl.af = nbr->af;
+	nctl.id = nbr->id;
+	nctl.laddr = nbr->laddr;
+	nctl.raddr = nbr->raddr;
 	nctl.nbr_state = nbr->state;
 
 	gettimeofday(&now, NULL);
@@ -621,15 +680,17 @@ nbr_to_ctl(struct nbr *nbr)
 }
 
 void
-ldpe_nbr_ctl(struct ctl_conn *c)
+nbr_clear_ctl(struct ctl_nbr *nctl)
 {
-	struct nbr	*nbr;
-	struct ctl_nbr	*nctl;
+	struct nbr		*nbr;
 
-	RB_FOREACH(nbr, nbr_pid_head, &nbrs_by_pid) {
-		nctl = nbr_to_ctl(nbr);
-		imsg_compose_event(&c->iev, IMSG_CTL_SHOW_NBR, 0, 0, -1, nctl,
-		    sizeof(struct ctl_nbr));
+	RB_FOREACH(nbr, nbr_addr_head, &nbrs_by_addr) {
+		if (ldp_addrisset(nctl->af, &nctl->raddr) &&
+		    ldp_addrcmp(nctl->af, &nctl->raddr, &nbr->raddr))
+			continue;
+
+		log_debug("%s: neighbor %s manually cleared", __func__,
+		    log_addr(nbr->af, &nbr->raddr));
+		session_shutdown(nbr, S_SHUTDOWN, 0, 0);
 	}
-	imsg_compose_event(&c->iev, IMSG_CTL_END, 0, 0, -1, NULL, 0);
 }

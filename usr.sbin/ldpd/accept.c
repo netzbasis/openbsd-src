@@ -1,4 +1,4 @@
-/*	$OpenBSD: accept.c,v 1.3 2013/10/31 16:56:22 deraadt Exp $ */
+/*	$OpenBSD: accept.c,v 1.7 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2012 Claudio Jeker <claudio@openbsd.org>
@@ -16,9 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/queue.h>
-#include <sys/time.h>
-#include <event.h>
+#include <sys/types.h>
 #include <stdlib.h>
 
 #include "ldpd.h"
@@ -38,10 +36,10 @@ struct {
 	struct event		evt;
 } accept_queue;
 
-void	accept_arm(void);
-void	accept_unarm(void);
-void	accept_cb(int, short, void *);
-void	accept_timeout(int, short, void *);
+static void	accept_arm(void);
+static void	accept_unarm(void);
+static void	accept_cb(int, short, void *);
+static void	accept_timeout(int, short, void *);
 
 void
 accept_init(void)
@@ -65,7 +63,7 @@ accept_add(int fd, void (*cb)(int, short, void *), void *arg)
 	event_set(&av->ev, av->fd, EV_READ, accept_cb, av);
 	event_add(&av->ev, NULL);
 
-	log_debug("accept_add: accepting on fd %d", fd);
+	log_debug("%s: accepting on fd %d", __func__, fd);
 
 	return (0);
 }
@@ -77,7 +75,7 @@ accept_del(int fd)
 
 	LIST_FOREACH(av, &accept_queue.queue, entry)
 		if (av->fd == fd) {
-			log_debug("accept_del: %d removed from queue", fd);
+			log_debug("%s: %d removed from queue", __func__, fd);
 			event_del(&av->ev);
 			LIST_REMOVE(av, entry);
 			free(av);
@@ -90,7 +88,7 @@ accept_pause(void)
 {
 	struct timeval evtpause = { 1, 0 };
 
-	log_debug("accept_pause");
+	log_debug(__func__);
 	accept_unarm();
 	evtimer_add(&accept_queue.evt, &evtpause);
 }
@@ -99,13 +97,13 @@ void
 accept_unpause(void)
 {
 	if (evtimer_pending(&accept_queue.evt, NULL)) {
-		log_debug("accept_unpause");
+		log_debug(__func__);
 		evtimer_del(&accept_queue.evt);
 		accept_arm();
 	}
 }
 
-void
+static void
 accept_arm(void)
 {
 	struct accept_ev	*av;
@@ -113,7 +111,7 @@ accept_arm(void)
 		event_add(&av->ev, NULL);
 }
 
-void
+static void
 accept_unarm(void)
 {
 	struct accept_ev	*av;
@@ -121,7 +119,7 @@ accept_unarm(void)
 		event_del(&av->ev);
 }
 
-void
+static void
 accept_cb(int fd, short event, void *arg)
 {
 	struct accept_ev	*av = arg;
@@ -129,9 +127,9 @@ accept_cb(int fd, short event, void *arg)
 	av->accept_cb(fd, event, av->arg);
 }
 
-void
+static void
 accept_timeout(int fd, short event, void *bula)
 {
-	log_debug("accept_timeout");
+	log_debug(__func__);
 	accept_arm();
 }

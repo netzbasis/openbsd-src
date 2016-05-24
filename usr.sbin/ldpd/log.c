@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.15 2015/07/21 04:52:29 renato Exp $ */
+/*	$OpenBSD: log.c,v 1.27 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,20 +16,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-
 #include <errno.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <netdb.h>
 
 #include "ldpd.h"
+#include "ldpe.h"
 #include "lde.h"
 #include "log.h"
 
@@ -39,8 +36,10 @@ static const char * const procnames[] = {
 	"lde"
 };
 
-int	debug;
-int	verbose;
+static void	 vlog(int, const char *, va_list);
+
+static int	 debug;
+static int	 verbose;
 
 void
 log_init(int n_debug)
@@ -71,7 +70,7 @@ logit(int pri, const char *fmt, ...)
 	va_end(ap);
 }
 
-void
+static void
 vlog(int pri, const char *fmt, va_list ap)
 {
 	char	*nfmt;
@@ -173,7 +172,106 @@ fatalx(const char *emsg)
 	fatal(emsg);
 }
 
+#define NUM_LOGS	4
+const char *
+log_sockaddr(void *vp)
+{
+	static char	 buf[NUM_LOGS][NI_MAXHOST];
+	static int	 round = 0;
+	struct sockaddr	*sa = vp;
+
+	round = (round + 1) % NUM_LOGS;
+
+	if (getnameinfo(sa, sa->sa_len, buf[round], NI_MAXHOST, NULL, 0,
+	    NI_NUMERICHOST))
+		return ("(unknown)");
+	else
+		return (buf[round]);
+}
+
+const char *
+log_in6addr(const struct in6_addr *addr)
+{
+	struct sockaddr_in6	sa_in6;
+
+	memset(&sa_in6, 0, sizeof(sa_in6));
+	sa_in6.sin6_len = sizeof(sa_in6);
+	sa_in6.sin6_family = AF_INET6;
+	sa_in6.sin6_addr = *addr;
+
+	recoverscope(&sa_in6);
+
+	return (log_sockaddr(&sa_in6));
+}
+
+const char *
+log_in6addr_scope(const struct in6_addr *addr, unsigned int ifindex)
+{
+	struct sockaddr_in6	sa_in6;
+
+	memset(&sa_in6, 0, sizeof(sa_in6));
+	sa_in6.sin6_len = sizeof(sa_in6);
+	sa_in6.sin6_family = AF_INET6;
+	sa_in6.sin6_addr = *addr;
+
+	addscope(&sa_in6, ifindex);
+
+	return (log_sockaddr(&sa_in6));
+}
+
+const char *
+log_addr(int af, const union ldpd_addr *addr)
+{
+	static char	 buf[NUM_LOGS][INET6_ADDRSTRLEN];
+	static int	 round = 0;
+
+	switch (af) {
+	case AF_INET:
+		round = (round + 1) % NUM_LOGS;
+		if (inet_ntop(AF_INET, &addr->v4, buf[round],
+		    sizeof(buf[round])) == NULL)
+			return ("???");
+		return (buf[round]);
+	case AF_INET6:
+		return (log_in6addr(&addr->v6));
+	default:
+		break;
+	}
+
+	return ("???");
+}
+
 /* names */
+const char *
+af_name(int af)
+{
+	switch (af) {
+	case AF_INET:
+		return ("ipv4");
+	case AF_INET6:
+		return ("ipv6");
+	case AF_MPLS:
+		return ("mpls");
+	default:
+		return ("UNKNOWN");
+	}
+}
+
+const char *
+socket_name(int type)
+{
+	switch (type) {
+	case LDP_SOCKET_DISC:
+		return ("discovery");
+	case LDP_SOCKET_EDISC:
+		return ("extended discovery");
+	case LDP_SOCKET_SESSION:
+		return ("session");
+	default:
+		return ("UNKNOWN");
+	}
+}
+
 const char *
 nbr_state_name(int state)
 {
@@ -189,7 +287,7 @@ nbr_state_name(int state)
 	case NBR_STA_OPER:
 		return ("OPERATIONAL");
 	default:
-		return ("UNKNW");
+		return ("UNKNOWN");
 	}
 }
 
@@ -202,7 +300,7 @@ if_state_name(int state)
 	case IF_STA_ACTIVE:
 		return ("ACTIVE");
 	default:
-		return ("UNKNW");
+		return ("UNKNOWN");
 	}
 }
 
@@ -220,7 +318,7 @@ if_type_name(enum iface_type type)
 }
 
 const char *
-notification_name(u_int32_t status)
+notification_name(uint32_t status)
 {
 	static char buf[16];
 
@@ -293,6 +391,10 @@ notification_name(u_int32_t status)
 		return ("Generic Misconfiguration Error");
 	case S_WITHDRAW_MTHD:
 		return ("Label Withdraw PW Status Method");
+	case S_TRANS_MISMTCH:
+		return ("Transport Connection Mismatch");
+	case S_DS_NONCMPLNCE:
+		return ("Dual-Stack Noncompliance");
 	default:
 		snprintf(buf, sizeof(buf), "[%08x]", status);
 		return (buf);
@@ -300,7 +402,7 @@ notification_name(u_int32_t status)
 }
 
 const char *
-pw_type_name(u_int16_t pw_type)
+pw_type_name(uint16_t pw_type)
 {
 	static char buf[64];
 
@@ -315,24 +417,54 @@ pw_type_name(u_int16_t pw_type)
 	}
 }
 
+char *
+log_hello_src(const struct hello_source *src)
+{
+	static char buffer[64];
+
+	switch (src->type) {
+	case HELLO_LINK:
+		snprintf(buffer, sizeof(buffer), "iface %s",
+		    src->link.ia->iface->name);
+		break;
+	case HELLO_TARGETED:
+		snprintf(buffer, sizeof(buffer), "source %s",
+		    log_addr(src->target->af, &src->target->addr));
+		break;
+	}
+
+	return (buffer);
+}
+
 const char *
-log_map(struct map *map)
+log_map(const struct map *map)
 {
 	static char	buf[64];
-	char		pstr[64];
+	int		af;
 
 	switch (map->type) {
-	case FEC_WILDCARD:
-		if (snprintf(buf, sizeof(buf), "wildcard"))
+	case MAP_TYPE_WILDCARD:
+		if (snprintf(buf, sizeof(buf), "wildcard") < 0)
 			return ("???");
 		break;
-	case FEC_PREFIX:
+	case MAP_TYPE_PREFIX:
+		switch (map->fec.prefix.af) {
+		case AF_IPV4:
+			af = AF_INET;
+			break;
+		case AF_IPV6:
+			af = AF_INET6;
+			break;
+		default:
+			return ("???");
+		}
+
 		if (snprintf(buf, sizeof(buf), "%s/%u",
-		    inet_ntop(AF_INET, &map->fec.ipv4.prefix, pstr,
-		    sizeof(pstr)), map->fec.ipv4.prefixlen) == -1)
+		    log_addr(af, &map->fec.prefix.prefix),
+		    map->fec.prefix.prefixlen) == -1)
 			return ("???");
 		break;
-	case FEC_PWID:
+	case MAP_TYPE_PWID:
 		if (snprintf(buf, sizeof(buf), "pwid %u (%s)",
 		    map->fec.pwid.pwid,
 		    pw_type_name(map->fec.pwid.type)) == -1)
@@ -346,23 +478,29 @@ log_map(struct map *map)
 }
 
 const char *
-log_fec(struct fec *fec)
+log_fec(const struct fec *fec)
 {
 	static char	buf[64];
-	char		pstr[32];
+	union ldpd_addr	addr;
 
 	switch (fec->type) {
 	case FEC_TYPE_IPV4:
-		if (snprintf(buf, sizeof(buf), "%s/%u",
-		    inet_ntop(AF_INET, &fec->u.ipv4.prefix, pstr,
-		    sizeof(pstr)), fec->u.ipv4.prefixlen) == -1)
+		addr.v4 = fec->u.ipv4.prefix;
+		if (snprintf(buf, sizeof(buf), "ipv4 %s/%u",
+		    log_addr(AF_INET, &addr), fec->u.ipv4.prefixlen) == -1)
+			return ("???");
+		break;
+	case FEC_TYPE_IPV6:
+		addr.v6 = fec->u.ipv6.prefix;
+		if (snprintf(buf, sizeof(buf), "ipv6 %s/%u",
+		    log_addr(AF_INET6, &addr), fec->u.ipv6.prefixlen) == -1)
 			return ("???");
 		break;
 	case FEC_TYPE_PWID:
 		if (snprintf(buf, sizeof(buf),
 		    "pwid %u (%s) - %s",
 		    fec->u.pwid.pwid, pw_type_name(fec->u.pwid.type),
-		    inet_ntoa(fec->u.pwid.nexthop)) == -1)
+		    inet_ntoa(fec->u.pwid.lsr_id)) == -1)
 			return ("???");
 		break;
 	default:
@@ -393,15 +531,15 @@ static char *msgtypes[] = {
 };
 
 void
-log_rtmsg(u_char rtm_type)
+log_rtmsg(unsigned char rtm_type)
 {
 	if (!(verbose & LDPD_OPT_VERBOSE2))
 		return;
 
 	if (rtm_type > 0 &&
 	    rtm_type < sizeof(msgtypes)/sizeof(msgtypes[0]))
-		log_debug("rtmsg_process: %s", msgtypes[rtm_type]);
+		log_debug("kernel message: %s", msgtypes[rtm_type]);
 	else
-		log_debug("rtmsg_process: rtm_type %d out of range",
+		log_debug("kernel message: rtm_type %d out of range",
 		    rtm_type);
 }

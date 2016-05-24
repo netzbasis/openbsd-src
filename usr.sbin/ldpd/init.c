@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.15 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: init.c,v 1.27 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -17,77 +17,61 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-
-#include <netinet/in.h>
-#include <netinet/ip.h>
 #include <arpa/inet.h>
-#include <net/if_dl.h>
-#include <unistd.h>
-
-#include <errno.h>
-#include <event.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "ldpd.h"
-#include "ldp.h"
-#include "log.h"
 #include "ldpe.h"
+#include "log.h"
 
-extern struct ldpd_conf        *leconf;
-
-int	gen_init_prms_tlv(struct ibuf *, struct nbr *, u_int16_t);
-int	tlv_decode_opt_init_prms(char *, u_int16_t);
+static int	gen_init_prms_tlv(struct ibuf *, struct nbr *, uint16_t);
+static int	tlv_decode_opt_init_prms(char *, uint16_t);
 
 void
 send_init(struct nbr *nbr)
 {
 	struct ibuf		*buf;
-	u_int16_t		 size;
+	uint16_t		 size;
 
-	log_debug("send_init: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
-	if ((buf = ibuf_open(LDP_MAX_LEN)) == NULL)
-		fatal("send_init");
-
-	size = LDP_HDR_SIZE + sizeof(struct ldp_msg) + SESS_PRMS_SIZE;
+	size = LDP_HDR_SIZE + LDP_MSG_SIZE + SESS_PRMS_SIZE;
+	if ((buf = ibuf_open(size)) == NULL)
+		fatal(__func__);
 
 	gen_ldp_hdr(buf, size);
-
 	size -= LDP_HDR_SIZE;
-
-	gen_msg_tlv(buf, MSG_TYPE_INIT, size);
-
-	size -= sizeof(struct ldp_msg);
-
+	gen_msg_hdr(buf, MSG_TYPE_INIT, size);
+	size -= LDP_MSG_SIZE;
 	gen_init_prms_tlv(buf, nbr, size);
 
 	evbuf_enqueue(&nbr->tcp->wbuf, buf);
 }
 
 int
-recv_init(struct nbr *nbr, char *buf, u_int16_t len)
+recv_init(struct nbr *nbr, char *buf, uint16_t len)
 {
 	struct ldp_msg		init;
 	struct sess_prms_tlv	sess;
+	uint16_t		max_pdu_len;
 
-	log_debug("recv_init: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
-	bcopy(buf, &init, sizeof(init));
-
-	buf += sizeof(struct ldp_msg);
-	len -= sizeof(struct ldp_msg);
+	memcpy(&init, buf, sizeof(init));
+	buf += LDP_MSG_SIZE;
+	len -= LDP_MSG_SIZE;
 
 	if (len < SESS_PRMS_SIZE) {
 		session_shutdown(nbr, S_BAD_MSG_LEN, init.msgid, init.type);
 		return (-1);
 	}
-	bcopy(buf, &sess, sizeof(sess));
+	memcpy(&sess, buf, sizeof(sess));
+	if (ntohs(sess.keepalive_time) < MIN_KEEPALIVE) {
+		session_shutdown(nbr, S_KEEPALIVE_BAD, init.msgid, init.type);
+		return (-1);
+	}
 
-	if (ntohs(sess.length) != SESS_PRMS_SIZE - TLV_HDR_LEN ||
-	    ntohs(sess.length) > len - TLV_HDR_LEN) {
+	if (ntohs(sess.length) != SESS_PRMS_SIZE - TLV_HDR_LEN) {
 		session_shutdown(nbr, S_BAD_TLV_LEN, init.msgid, init.type);
 		return (-1);
 	}
@@ -106,27 +90,34 @@ recv_init(struct nbr *nbr, char *buf, u_int16_t len)
 		return (-1);
 	}
 
-	nbr->keepalive = min(leconf->keepalive, ntohs(sess.keepalive_time));
+	nbr->keepalive = min(nbr_get_keepalive(nbr->af, nbr->id),
+	    ntohs(sess.keepalive_time));
 
-	if (!nbr_pending_idtimer(nbr))
-		nbr_fsm(nbr, NBR_EVT_INIT_RCVD);
+	max_pdu_len = ntohs(sess.max_pdu_len);
+	/*
+	 * RFC 5036 - Section 3.5.3:
+	 * "A value of 255 or less specifies the default maximum length of
+	 * 4096 octets".
+	 */
+	if (max_pdu_len <= 255)
+		max_pdu_len = LDP_MAX_LEN;
+	nbr->max_pdu_len = min(max_pdu_len, LDP_MAX_LEN);
 
-	return (ntohs(init.length));
+	nbr_fsm(nbr, NBR_EVT_INIT_RCVD);
+
+	return (0);
 }
 
-int
-gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr, u_int16_t size)
+static int
+gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr, uint16_t size)
 {
 	struct sess_prms_tlv	parms;
 
-	/* We want just the size of the value */
-	size -= TLV_HDR_LEN;
-
-	bzero(&parms, sizeof(parms));
+	memset(&parms, 0, sizeof(parms));
 	parms.type = htons(TLV_TYPE_COMMONSESSION);
-	parms.length = htons(size);
+	parms.length = htons(size - TLV_HDR_LEN);
 	parms.proto_version = htons(LDP_VERSION);
-	parms.keepalive_time = htons(leconf->keepalive);
+	parms.keepalive_time = htons(nbr_get_keepalive(nbr->af, nbr->id));
 	parms.reserved = 0;
 	parms.pvlim = 0;
 	parms.max_pdu_len = 0;
@@ -136,15 +127,15 @@ gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr, u_int16_t size)
 	return (ibuf_add(buf, &parms, SESS_PRMS_SIZE));
 }
 
-int
-tlv_decode_opt_init_prms(char *buf, u_int16_t len)
+static int
+tlv_decode_opt_init_prms(char *buf, uint16_t len)
 {
 	struct tlv	tlv;
-	int		cons = 0;
-	u_int16_t	tlv_len;
+	uint16_t	tlv_len;
+	int		total = 0;
 
 	 while (len >= sizeof(tlv)) {
-		bcopy(buf, &tlv, sizeof(tlv));
+		memcpy(&tlv, buf, sizeof(tlv));
 		tlv_len = ntohs(tlv.length);
 		switch (ntohs(tlv.type)) {
 		case TLV_TYPE_ATMSESSIONPAR:
@@ -161,8 +152,8 @@ tlv_decode_opt_init_prms(char *buf, u_int16_t len)
 		}
 		buf += TLV_HDR_LEN + tlv_len;
 		len -= TLV_HDR_LEN + tlv_len;
-		cons += TLV_HDR_LEN + tlv_len;
+		total += TLV_HDR_LEN + tlv_len;
 	}
 
-	return (cons);
+	return (total);
 }

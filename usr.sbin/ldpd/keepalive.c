@@ -1,4 +1,4 @@
-/*	$OpenBSD: keepalive.c,v 1.12 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: keepalive.c,v 1.16 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -17,53 +17,36 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <arpa/inet.h>
-#include <net/if_dl.h>
-#include <unistd.h>
-
-#include <errno.h>
-#include <event.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "ldpd.h"
-#include "ldp.h"
-#include "log.h"
 #include "ldpe.h"
+#include "log.h"
 
 void
 send_keepalive(struct nbr *nbr)
 {
 	struct ibuf	*buf;
-	u_int16_t	 size;
+	uint16_t	 size;
 
-	if ((buf = ibuf_open(LDP_MAX_LEN)) == NULL)
-		fatal("send_keepalive");
-
-	size = LDP_HDR_SIZE + sizeof(struct ldp_msg);
+	size = LDP_HDR_SIZE + LDP_MSG_SIZE;
+	if ((buf = ibuf_open(size)) == NULL)
+		fatal(__func__);
 
 	gen_ldp_hdr(buf, size);
-
 	size -= LDP_HDR_SIZE;
-
-	gen_msg_tlv(buf, MSG_TYPE_KEEPALIVE, size);
+	gen_msg_hdr(buf, MSG_TYPE_KEEPALIVE, size);
 
 	evbuf_enqueue(&nbr->tcp->wbuf, buf);
 }
 
 int
-recv_keepalive(struct nbr *nbr, char *buf, u_int16_t len)
+recv_keepalive(struct nbr *nbr, char *buf, uint16_t len)
 {
 	struct ldp_msg ka;
 
-	bcopy(buf, &ka, sizeof(ka));
-
-	if (len != LDP_MSG_LEN) {
+	memcpy(&ka, buf, sizeof(ka));
+	if (len != LDP_MSG_SIZE) {
 		session_shutdown(nbr, S_BAD_MSG_LEN, ka.msgid, ka.type);
 		return (-1);
 	}
@@ -71,5 +54,5 @@ recv_keepalive(struct nbr *nbr, char *buf, u_int16_t len)
 	if (nbr->state != NBR_STA_OPER)
 		nbr_fsm(nbr, NBR_EVT_KEEPALIVE_RCVD);
 
-	return (ntohs(ka.length));
+	return (0);
 }
