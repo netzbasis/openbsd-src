@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.46 2016/05/23 15:22:45 tedu Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.49 2016/05/24 14:06:39 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -138,6 +138,7 @@ void	octeon_eth_send_queue_del(struct octeon_eth_softc *,
 	    struct mbuf **, uint64_t **);
 int	octeon_eth_buf_free_work(struct octeon_eth_softc *,
 	    uint64_t *, uint64_t);
+void	octeon_eth_buf_ext_free(caddr_t, u_int, void *);
 
 int	octeon_eth_ioctl(struct ifnet *, u_long, caddr_t);
 void	octeon_eth_watchdog(struct ifnet *);
@@ -755,7 +756,7 @@ octeon_eth_send_makecmd_w1(int size, paddr_t addr)
 {
 	return cn30xxpko_cmd_word1(
 		0, 0,				/* i, back */
-		FPA_GATHER_BUFFER_POOL,		/* pool */
+		OCTEON_POOL_NO_SG,		/* pool */
 		size, addr);			/* size, addr */
 }
 
@@ -787,7 +788,7 @@ octeon_eth_send_makecmd_gbuf(struct octeon_eth_softc *sc, struct mbuf *m0,
 			continue;
 
 		if (segs >= OCTEON_POOL_SIZE_SG / sizeof(uint64_t))
-			return 1;
+			goto defrag;
 		gbuf[segs] = octeon_eth_send_makecmd_w1(m->m_len,
 		    KVTOPHYS(m->m_data));
 		segs++;
@@ -795,6 +796,13 @@ octeon_eth_send_makecmd_gbuf(struct octeon_eth_softc *sc, struct mbuf *m0,
 
 	*rsegs = segs;
 
+	return 0;
+
+defrag:
+	if (m_defrag(m0, M_DONTWAIT) != 0)
+		return 1;
+	gbuf[0] = octeon_eth_send_makecmd_w1(m0->m_len, KVTOPHYS(m0->m_data));
+	*rsegs = 1;
 	return 0;
 }
 
