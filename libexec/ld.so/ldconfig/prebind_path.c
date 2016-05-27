@@ -30,10 +30,7 @@ _dl_reallocarray(void *ptr, size_t cnt, size_t num)
 void *
 _dl_malloc(size_t need)
 {
-	void *ret = malloc(need);
-	if (ret != NULL)
-		memset(ret, 0, need);
-	return (ret);
+	return calloc(1, need);
 }
 
 void
