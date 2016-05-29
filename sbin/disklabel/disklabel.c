@@ -1,4 +1,4 @@
-/*	$OpenBSD: disklabel.c,v 1.214 2015/11/25 17:17:38 krw Exp $	*/
+/*	$OpenBSD: disklabel.c,v 1.218 2016/05/28 23:38:30 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1987, 1993
@@ -191,6 +191,14 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if (argv[0] == NULL)
+		usage();
+	dkname = argv[0];
+	f = opendev(dkname, (op == READ ? O_RDONLY : O_RDWR), OPENDEV_PART,
+	    &specname);
+	if (f < 0)
+		err(4, "%s", specname);
+
 	if (op == EDIT || op == EDITOR || aflag) {
 		if (pledge("stdio rpath wpath cpath disklabel proc exec", NULL) == -1)
 			err(1, "pledge");
@@ -205,12 +213,6 @@ main(int argc, char *argv[])
 	if (argc < 1 || (fstabfile && !(op == EDITOR || op == RESTORE ||
 		    aflag)))
 		usage();
-
-	dkname = argv[0];
-	f = opendev(dkname, (op == READ ? O_RDONLY : O_RDWR), OPENDEV_PART,
-	    &specname);
-	if (f < 0)
-		err(4, "%s", specname);
 
 	if (autotable != NULL)
 		parse_autotable(autotable);
