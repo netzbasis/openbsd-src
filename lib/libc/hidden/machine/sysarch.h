@@ -1,6 +1,6 @@
-/*	$OpenBSD: ypclnt.h,v 1.2 2016/05/30 02:53:29 guenther Exp $	*/
+/*	$OpenBSD: sysarch.h,v 1.1 2016/05/29 20:49:39 guenther Exp $	*/
 /*
- * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
+ * Copyright (c) 2016 Philip Guenther <guenther@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,27 +15,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _LIBC_RPCSVC_YPCLNT_H_
-#define _LIBC_RPCSVC_YPCLNT_H_
+#ifndef _LIBC_MACHINE_SYSARCH_H_
+#define	_LIBC_MACHINE_SYSARCH_H_
 
-#include_next <rpcsvc/ypclnt.h>
+#include_next <machine/sysarch.h>
 
-__BEGIN_HIDDEN_DECLS
-struct dom_binding;
-int	_yp_dobind(const char *, struct dom_binding **);
-__END_HIDDEN_DECLS
+PROTO_NORMAL(sysarch);
 
-PROTO_DEPRECATED(yp_all);
-PROTO_NORMAL(yp_bind);
-PROTO_NORMAL(yp_first);
-PROTO_NORMAL(yp_get_default_domain);
-PROTO_DEPRECATED(yp_maplist);
-PROTO_DEPRECATED(yp_master);
-PROTO_NORMAL(yp_match);
-PROTO_NORMAL(yp_next);
-PROTO_DEPRECATED(yp_order);
-PROTO_DEPRECATED(yp_unbind);
-PROTO_DEPRECATED(yperr_string);
-PROTO_NORMAL(ypprot_err);
-
-#endif /* _LIBC_RPCSVC_YPCLNT_H_ */
+#endif /* !_LIBC_MACHINE_SYSARCH_H_ */
