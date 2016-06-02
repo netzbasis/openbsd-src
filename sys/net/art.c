@@ -1,4 +1,4 @@
-/*	$OpenBSD: art.c,v 1.14 2016/04/13 08:04:14 mpi Exp $ */
+/*	$OpenBSD: art.c,v 1.17 2016/06/02 00:39:22 dlg Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -89,11 +89,18 @@ void
 art_init(void)
 {
 	pool_init(&an_pool, sizeof(struct art_node), 0, 0, 0, "art_node", NULL);
+	pool_setipl(&an_pool, IPL_SOFTNET);
+
 	pool_init(&at_pool, sizeof(struct art_table), 0, 0, 0, "art_table",
 	    NULL);
+	pool_setipl(&at_pool, IPL_SOFTNET);
+
 	pool_init(&at_heap_4_pool, AT_HEAPSIZE(4), 0, 0, 0, "art_heap4", NULL);
+	pool_setipl(&at_heap_4_pool, IPL_SOFTNET);
+
 	pool_init(&at_heap_8_pool, AT_HEAPSIZE(8), 0, 0, 0, "art_heap8",
 	    &pool_allocator_single);
+	pool_setipl(&at_heap_8_pool, IPL_SOFTNET);
 }
 
 /*
@@ -490,10 +497,6 @@ art_table_delete(struct art_root *ar, struct art_table *at, int i,
 	KASSERT(prev == node);
 #endif
 
-	/* We are removing an entry from this table. */
-	if (art_table_free(ar, at))
-		return (node);
-
 	/* Get the next most specific route for the index `i'. */
 	if ((i >> 1) > 1)
 		next = at->at_heap[i >> 1].node;
@@ -511,6 +514,9 @@ art_table_delete(struct art_root *ar, struct art_table *at, int i,
 		SUBTABLE(at->at_heap[i])->at_default = next;
 	else
 		at->at_heap[i].node = next;
+
+	/* We have removed an entry from this table. */
+	art_table_free(ar, at);
 
 	return (node);
 }
@@ -803,6 +809,7 @@ art_get(struct sockaddr *dst, uint8_t plen)
 
 	an->an_dst = dst;
 	an->an_plen = plen;
+	SRPL_INIT(&an->an_rtlist);
 
 	return (an);
 }
