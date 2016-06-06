@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.37 2016/06/03 23:50:21 jsg Exp $
+#	$OpenBSD: install.md,v 1.40 2016/06/05 15:35:38 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -55,11 +55,10 @@ md_installboot() {
 
 	# Mount MSDOS partition, extract U-Boot and copy UEFI boot program
 	mount ${MOUNT_ARGS_msdos} ${_disk}i /mnt/mnt
-	tar -C /mnt/ -xf /usr/mdec/u-boots.tgz 
 	mkdir -p /mnt/mnt/efi/boot
 	cp /mnt/usr/mdec/BOOTARM.EFI /mnt/mnt/efi/boot/bootarm.efi
 
-	_mdec=/mnt/usr/mdec/$_plat
+	_mdec=/usr/mdec/$_plat
 
 	case $_plat in
 	am335x|beagle|panda)
@@ -67,14 +66,18 @@ md_installboot() {
 		;;
 	cubox|wandboard)
 		cp $_mdec/*.dtb /mnt/mnt/
-		dd if=$_mdec/SPL of=${_disk}c bs=1024 seek=1 >/dev/null
-		dd if=$_mdec/u-boot.img of=${_disk}c bs=1024 seek=69 >/dev/null
+		dd if=$_mdec/SPL of=${_disk}c bs=1024 seek=1 \
+		    >/dev/null 2>&1
+		dd if=$_mdec/u-boot.img of=${_disk}c bs=1024 seek=69 \
+		    >/dev/null 2>&1
 		;;
 	nitrogen)
 		cp $_mdec/*.dtb /mnt/mnt/
 		;;
 	cubie)
-		cp $_mdec/{u-boot-sunxi-with-spl.bin,*.dtb} /mnt/mnt/
+		cp $_mdec/*.dtb /mnt/mnt/
+		dd if=$_mdec/u-boot-sunxi-with-spl.bin of=${_disk}c \
+		    bs=1024 seek=8 >/dev/null 2>&1
 		;;
 	esac
 }
