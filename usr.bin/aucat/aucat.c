@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <sndio.h>
@@ -90,6 +91,8 @@ struct slot {
 #define SLOT_RUN	2		/* playing/recording */
 #define SLOT_STOP	3		/* draining (play only) */
 	int pstate;			/* one of above */
+	long long skip;			/* frames to skip at the beginning */
+	long long pos;			/* start position (at device rate) */
 	struct afile afile;		/* file desc & friends */
 };
 
@@ -134,8 +137,9 @@ unsigned int voice_len[] = { 3, 3, 3, 3, 2, 2, 3 };
 unsigned int common_len[] = { 0, 2, 3, 2, 0, 0, 1, 1 };
 
 char usagestr[] = "usage: aucat [-dn] [-b size] "
-    "[-c min:max] [-e enc] [-f device] [-h fmt]\n\t"
-    "[-i file] [-j flag] [-o file] [-q port] [-r rate] [-v volume]\n";
+    "[-c min:max] [-e enc] [-f device] [-g position]\n\t"
+    "[-h fmt] [-i file] [-j flag] [-o file] [-p position] [-q port]\n\t"
+    "[-r rate] [-v volume]\n";
 
 static void
 slot_log(struct slot *s)
@@ -202,7 +206,7 @@ slot_fill(struct slot *s)
 
 static int
 slot_new(char *path, int mode, struct aparams *par, int hdr,
-    int cmin, int cmax, int rate, int dup, int vol)
+    int cmin, int cmax, int rate, int dup, int vol, long long pos)
 {
 	struct slot *s;
 
@@ -219,6 +223,7 @@ slot_new(char *path, int mode, struct aparams *par, int hdr,
 	s->vol = MIDI_TO_ADATA(vol);
 	s->mode = mode;
 	s->pstate = SLOT_CFG;
+	s->pos = pos;
 	if (log_level >= 2) {
 		slot_log(s);
 		log_puts(": ");
@@ -359,6 +364,13 @@ slot_start(struct slot *s, long long pos)
 		panic();
 	}
 #endif
+	pos -= s->pos;
+	if (pos < 0) {
+		s->skip = -pos;
+		pos = 0;
+	} else
+		s->skip = 0;
+
 	/*
 	 * convert pos to slot sample rate
 	 *
@@ -415,8 +427,10 @@ slot_del(struct slot *s)
 		}
 #endif
 		abuf_done(&s->buf);
-		free(s->resampbuf);
-		free(s->convbuf);
+		if (s->resampbuf)
+			free(s->resampbuf);
+		if (s->convbuf)
+			free(s->convbuf);
 	}
 	for (ps = &slot_list; *ps != s; ps = &(*ps)->next)
 		; /* nothing */
@@ -424,16 +438,18 @@ slot_del(struct slot *s)
 	free(s);
 }
 
-static int
-slot_ocnt(struct slot *s, int icnt)
+static void
+slot_getcnt(struct slot *s, int *icnt, int *ocnt)
 {
-	return s->resampbuf ? resamp_ocnt(&s->resamp, icnt) : icnt;
-}
+	int cnt;
 
-static int
-slot_icnt(struct slot *s, int ocnt)
-{
-	return s->resampbuf ? resamp_icnt(&s->resamp, ocnt) : ocnt;
+	if (s->resampbuf)
+		resamp_getcnt(&s->resamp, icnt, ocnt);
+	else {
+		cnt = (*icnt < *ocnt) ? *icnt : *ocnt;
+		*icnt = cnt;
+		*ocnt = cnt;
+	}
 }
 
 static void
@@ -503,15 +519,20 @@ slot_mix_badd(struct slot *s, adata_t *odata)
 
 	odone = 0;
 	otodo = dev_round;
+	if (s->skip > 0) {		
+		ocnt = otodo;
+		if (ocnt > s->skip)
+			ocnt = s->skip;
+		s->skip -= ocnt;
+		odata += dev_pchan * ocnt;
+		otodo -= ocnt;
+		odone += ocnt;
+	}
 	while (otodo > 0) {
 		idata = (adata_t *)abuf_rgetblk(&s->buf, &len);
-
 		icnt = len / s->bpf;
-		ocnt = slot_ocnt(s, icnt);
-		if (ocnt > otodo) {
-			ocnt = otodo;
-			icnt = slot_icnt(s, ocnt);
-		}
+		ocnt = otodo;
+		slot_getcnt(s, &icnt, &ocnt);
 		if (icnt == 0)
 			break;
 		play_filt_dec(s, idata, odata, icnt, ocnt);
@@ -572,15 +593,20 @@ slot_sub_bcopy(struct slot *s, adata_t *idata, int itodo)
 	adata_t *odata;
 	int len, icnt, ocnt;
 
+	if (s->skip > 0) {
+		icnt = itodo;
+		if (icnt > s->skip)
+			icnt = s->skip;
+		s->skip -= icnt;
+		idata += dev_rchan * icnt;
+		itodo -= icnt;
+	}
+
 	while (itodo > 0) {
 		odata = (adata_t *)abuf_wgetblk(&s->buf, &len);
-
 		ocnt = len / s->bpf;
-		icnt = slot_icnt(s, ocnt);
-		if (icnt > itodo) {
-			icnt = itodo;
-			ocnt = slot_ocnt(s, icnt);
-		}
+		icnt = itodo;
+		slot_getcnt(s, &icnt, &ocnt);
 		if (ocnt == 0)
 			break;
 		rec_filt_enc(s, idata, odata, icnt, ocnt);
@@ -664,7 +690,6 @@ dev_open(char *dev, int mode, int bufsz, char *port)
 		dev_rchan = par.rchan;
 		dev_rbuf = xmalloc(sizeof(adata_t) * dev_rchan * dev_round);
 	}
-	dev_pos = 0;
 	dev_pstate = DEV_STOP;
 	if (log_level >= 2) {
 		log_puts(dev_name);
@@ -1024,7 +1049,6 @@ offline(void)
 	dev_pchan = dev_rchan = cmax + 1;
 	dev_pbuf = dev_rbuf = xmalloc(sizeof(adata_t) * dev_pchan * dev_round);
 	dev_pstate = DEV_STOP;
-	dev_pos = 0;
 	for (s = slot_list; s != NULL; s = s->next)
 		slot_init(s);
 	for (s = slot_list; s != NULL; s = s->next)
@@ -1293,6 +1317,20 @@ opt_num(char *s, int min, int max, int *num)
 	return 1;
 }
 
+static int
+opt_pos(char *s, long long *pos)
+{
+	const char *errstr;
+
+	*pos = strtonum(s, 0, LLONG_MAX, &errstr);
+	if (errstr) {
+		log_puts(s);
+		log_puts(": positive number of samples expected\n");
+		return 0;
+	}
+	return 1;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1300,6 +1338,7 @@ main(int argc, char **argv)
 	char *port, *dev;
 	struct aparams par;
 	int n_flag, c;
+	long long pos;
 
 	vol = 127;
 	dup = 0;
@@ -1313,8 +1352,10 @@ main(int argc, char **argv)
 	port = NULL;
 	dev = NULL;
 	mode = 0;
+	pos = 0;
 
-	while ((c = getopt(argc, argv, "b:c:de:f:h:i:j:no:q:r:t:v:")) != -1) {
+	while ((c = getopt(argc, argv,
+		"b:c:de:f:g:h:i:j:no:p:q:r:t:v:")) != -1) {
 		switch (c) {
 		case 'b':
 			if (!opt_num(optarg, 1, RATE_MAX, &bufsz))
@@ -1334,13 +1375,17 @@ main(int argc, char **argv)
 		case 'f':
 			dev = optarg;
 			break;
+		case 'g':
+			if (!opt_pos(optarg, &dev_pos))
+				return 1;
+			break;
 		case 'h':
 			if (!opt_hdr(optarg, &hdr))
 				return 1;
 			break;
 		case 'i':
 			if (!slot_new(optarg, SIO_PLAY,
-				&par, hdr, cmin, cmax, rate, dup, vol))
+				&par, hdr, cmin, cmax, rate, dup, vol, pos))
 				return 1;
 			mode |= SIO_PLAY;
 			break;
@@ -1353,9 +1398,13 @@ main(int argc, char **argv)
 			break;
 		case 'o':
 			if (!slot_new(optarg, SIO_REC,
-				&par, hdr, cmin, cmax, rate, dup, 0))
+				&par, hdr, cmin, cmax, rate, dup, 0, pos))
 				return 1;
 			mode |= SIO_REC;
+			break;
+		case 'p':
+			if (!opt_pos(optarg, &pos))
+				return 1;
 			break;
 		case 'q':
 			port = optarg;
