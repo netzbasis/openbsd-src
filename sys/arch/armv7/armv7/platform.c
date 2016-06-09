@@ -1,4 +1,4 @@
-/*	$OpenBSD: platform.c,v 1.6 2016/06/04 18:09:16 jsg Exp $	*/
+/*	$OpenBSD: platform.c,v 1.8 2016/06/08 15:56:29 jsg Exp $	*/
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -21,6 +21,7 @@
 
 #include <machine/bus.h>
 
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 #include <armv7/armv7/armv7_machdep.h>
 #include <arm/cortex/smc.h>
@@ -32,6 +33,12 @@
 #include "vexpress.h"
 
 static struct armv7_platform *platform;
+
+void	exuart_init_cons(void);
+void	imxuart_init_cons(void);
+void	omapuart_init_cons(void);
+void	sxiuart_init_cons(void);
+void	pl011_init_cons(void);
 
 struct armv7_platform *imx_platform_match(void);
 struct armv7_platform *omap_platform_match(void);
@@ -57,6 +64,10 @@ struct armv7_platform * (*plat_match[])(void) = {
 #endif
 };
 
+struct board_dev no_devs[] = {
+	{ NULL,	0 }
+};
+
 void
 platform_init(void)
 {
@@ -67,51 +78,69 @@ platform_init(void)
 		if (platform != NULL)
 			break;
 	}
-	if (platform == NULL)
-		panic("no matching armv7 platform");
-	platform->board_init();
+	if (platform && platform->board_init)
+		platform->board_init();
 }
 
 void
 platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
     uint32_t op, uint32_t val)
 {
-	platform->smc_write(iot, ioh, off, op, val);
+	if (platform && platform->smc_write)
+		platform->smc_write(iot, ioh, off, op, val);
+	else
+		bus_space_write_4(iot, ioh, off, val);
 }
 
 void
 platform_init_cons(void)
 {
-	platform->init_cons();
+	if (platform && platform->init_cons) {
+		platform->init_cons();
+		return;
+	}
+	exuart_init_cons();
+	imxuart_init_cons();
+	omapuart_init_cons();
+	sxiuart_init_cons();
+	pl011_init_cons();
 }
 
 void
 platform_init_mainbus(struct device *self)
 {
-	if (platform->init_mainbus)
+	if (platform && platform->init_mainbus)
 		platform->init_mainbus(self);
+	else
+		mainbus_legacy_found(self, "cortex");
 }
 
 void
 platform_watchdog_reset(void)
 {
-	platform->watchdog_reset();
+	if (platform && platform->watchdog_reset)
+		platform->watchdog_reset();
 }
 
 void
 platform_powerdown(void)
 {
-	platform->powerdown();
+	if (platform && platform->powerdown)
+		platform->powerdown();
 }
 
 void
 platform_disable_l2_if_needed(void)
 {
-	platform->disable_l2_if_needed();
+	if (platform && platform->disable_l2_if_needed)
+		platform->disable_l2_if_needed();
 }
 
 struct board_dev *
 platform_board_devs()
 {
-	return (platform->devs);
+	if (platform && platform->devs)
+		return (platform->devs);
+	else
+		return (no_devs);
 }
