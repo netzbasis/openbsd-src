@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.59 2016/06/06 15:30:59 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.61 2016/06/09 17:57:55 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -66,8 +66,7 @@ gen_msg_hdr(struct ibuf *buf, uint32_t type, uint16_t size)
 	msg.type = htons(type);
 	/* exclude the 'Type' and 'Length' fields from the total */
 	msg.length = htons(size - LDP_MSG_DEAD_LEN);
-	if (type != MSG_TYPE_HELLO)
-		msg.msgid = htonl(++msgcnt);
+	msg.msgid = htonl(++msgcnt);
 
 	return (ibuf_add(buf, &msg, sizeof(msg)));
 }
@@ -559,15 +558,13 @@ session_read(int fd, short event, void *arg)
 				    type);
 				break;
 			default:
-				log_debug("%s: unknown LDP packet from nbr %s",
+				log_debug("%s: unknown LDP message from nbr %s",
 				    __func__, inet_ntoa(nbr->id));
-				if (!(ntohs(ldp_msg->type) & UNKNOWN_FLAG)) {
-					session_shutdown(nbr, S_UNKNOWN_MSG,
-					    ldp_msg->msgid, ldp_msg->type);
-					free(buf);
-					return;
-				}
-				/* unknown flag is set, ignore the message */
+				if (!(ntohs(ldp_msg->type) & UNKNOWN_FLAG))
+					send_notification_nbr(nbr,
+					    S_UNKNOWN_MSG, ldp_msg->msgid,
+					    ldp_msg->type);
+				/* ignore the message */
 				ret = 0;
 				break;
 			}
