@@ -1,4 +1,4 @@
-/*	$OpenBSD: labelmapping.c,v 1.46 2016/05/23 19:14:03 renato Exp $ */
+/*	$OpenBSD: labelmapping.c,v 1.50 2016/06/11 02:01:46 renato Exp $ */
 
 /*
  * Copyright (c) 2014, 2015 Renato Westphal <renato@openbsd.org>
@@ -193,7 +193,7 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 			case MSG_TYPE_LABELMAPPING:
 			case MSG_TYPE_LABELREQUEST:
 			case MSG_TYPE_LABELABORTREQ:
-				session_shutdown(nbr, S_BAD_TLV_VAL, lm.msgid,
+				session_shutdown(nbr, S_UNKNOWN_FEC, lm.msgid,
 				    lm.type);
 				goto err;
 			default:
@@ -232,6 +232,7 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 	/* Optional Parameters */
 	while (len > 0) {
 		struct tlv 	tlv;
+		uint16_t	tlv_len;
 		uint32_t	reqbuf, labelbuf, statusbuf;
 
 		if (len < sizeof(tlv)) {
@@ -240,21 +241,17 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 			goto err;
 		}
 
-		memcpy(&tlv, buf, sizeof(tlv));
-		if (ntohs(tlv.length) != len - TLV_HDR_LEN) {
-			session_shutdown(nbr, S_BAD_TLV_LEN, lm.msgid,
-			    lm.type);
-			goto err;
-		}
+		memcpy(&tlv, buf, TLV_HDR_LEN);
 		buf += TLV_HDR_LEN;
 		len -= TLV_HDR_LEN;
+		tlv_len = ntohs(tlv.length);
 
-		switch (ntohs(tlv.type) & ~UNKNOWN_FLAG) {
+		switch (ntohs(tlv.type)) {
 		case TLV_TYPE_LABELREQUEST:
 			switch (type) {
 			case MSG_TYPE_LABELMAPPING:
 			case MSG_TYPE_LABELREQUEST:
-				if (ntohs(tlv.length) != 4) {
+				if (tlv_len != 4) {
 					session_shutdown(nbr, S_BAD_TLV_LEN,
 					    lm.msgid, lm.type);
 					goto err;
@@ -277,7 +274,7 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 			switch (type) {
 			case MSG_TYPE_LABELWITHDRAW:
 			case MSG_TYPE_LABELRELEASE:
-				if (ntohs(tlv.length) != 4) {
+				if (tlv_len != 4) {
 					session_shutdown(nbr, S_BAD_TLV_LEN,
 					    lm.msgid, lm.type);
 					goto err;
@@ -309,7 +306,7 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 		case TLV_TYPE_PW_STATUS:
 			switch (type) {
 			case MSG_TYPE_LABELMAPPING:
-				if (ntohs(tlv.length) != 4) {
+				if (tlv_len != 4) {
 					session_shutdown(nbr, S_BAD_TLV_LEN,
 					    lm.msgid, lm.type);
 					goto err;
@@ -332,8 +329,8 @@ recv_labelmessage(struct nbr *nbr, char *buf, uint16_t len, uint16_t type)
 			/* ignore unknown tlv */
 			break;
 		}
-		buf += ntohs(tlv.length);
-		len -= ntohs(tlv.length);
+		buf += tlv_len;
+		len -= tlv_len;
 	}
 
 	/* notify lde about the received message. */
