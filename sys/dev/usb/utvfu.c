@@ -1,4 +1,4 @@
-/*	$OpenBSD: utvfu.c,v 1.3 2016/06/02 17:39:37 mglocker Exp $ */
+/*	$OpenBSD: utvfu.c,v 1.6 2016/06/13 19:52:21 mglocker Exp $ */
 /*
  * Copyright (c) 2013 Lubomir Rintel
  * Copyright (c) 2013 Federico Simoncelli
@@ -102,8 +102,6 @@ utvfu_set_regs(struct utvfu_softc *sc, const uint16_t regs[][2], int size)
 	usbd_status error;
 	usb_device_request_t req;
 
-	DPRINTF(1, "%s: %s: size=%d enter\n", DEVNAME(sc), __func__, size);
-
 	req.bmRequestType = UT_WRITE_VENDOR_DEVICE;
 	req.bRequest = UTVFU_REQUEST_REG;
 	USETW(req.wLength, 0);
@@ -119,8 +117,6 @@ utvfu_set_regs(struct utvfu_softc *sc, const uint16_t regs[][2], int size)
 			return (EINVAL);
 		}
 	}
-
-	DPRINTF(1, "%s: %s: exit OK\n", DEVNAME(sc), __func__);
 
 	return (0);
 }
@@ -456,9 +452,11 @@ int
 utvfu_start_capture(struct utvfu_softc *sc)
 {
 	usbd_status error;
+	int restart_au;
 
 	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
 
+	restart_au = ISSET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING);
 	utvfu_audio_stop(sc);
 
 	/* default video stream interface */
@@ -474,7 +472,8 @@ utvfu_start_capture(struct utvfu_softc *sc)
 	if (error != USBD_NORMAL_COMPLETION)
 		return (EINVAL);
 
-	utvfu_audio_start(sc);
+	if (restart_au)
+		utvfu_audio_start(sc);
 
 	return (0);
 }
@@ -790,10 +789,6 @@ int		utvfu_audio_trigger_input(void *, void *, void *, int,
 void		utvfu_audio_get_default_params(void *, int,
 		    struct audio_params *);
 
-#define	UTVFU_AUDIO_HAS_CLIENT(sc)	((sc)->sc_flags & UTVFU_FLAG_AUDIO_CLI)
-#define	UTVFU_VIDEO_HAS_CLIENT(sc)	((sc)->sc_flags & UTVFU_FLAG_VIDEO_CLI)
-
-
 struct cfdriver utvfu_cd = {
 	NULL, "utvfu", DV_DULL
 };
@@ -876,12 +871,14 @@ int
 utvfu_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
-	struct usb_descriptor const *ud;
+	const struct usb_descriptor *ud;
 	struct usbd_desc_iter iter;
 	struct usb_interface_descriptor *uid = NULL;
+	const struct usb_endpoint_descriptor *ued = NULL;
 	usb_device_descriptor_t *dd;
 	int ret = UMATCH_NONE;
 	int nep, nalt;
+	uint16_t psize = 0;
 
 	if (uaa->iface == NULL)
 		return ret;
@@ -897,6 +894,8 @@ utvfu_match(struct device *parent, void *match, void *aux)
 	 * setting 1 has four endpoints.
 	 *
 	 * Comment says "Checks that the device is what we think it is."
+	 *
+	 * Adding check that wMaxPacketSize for the video endpoint is > 0.
 	 */
 	nep = nalt = 0;
 	usbd_desc_iter_init(uaa->device, &iter);
@@ -910,15 +909,19 @@ utvfu_match(struct device *parent, void *match, void *aux)
 				nalt++;
 			break;
 		case UDESC_ENDPOINT:
-			if (uid->bAlternateSetting == 1)
+			if (uid->bAlternateSetting == 1) {
+				ued = (void *)ud;
+				if (ued->bEndpointAddress == UTVFU_VIDEO_ENDP)
+					psize = UGETW(ued->wMaxPacketSize);
 				nep++;
+			}
 			break;
 		}
 		if (uid != NULL && uid->bInterfaceNumber > 0)
 			break;
 	}
 
-	if (nalt != 2 || nep != 4)
+	if (nalt != 2 || nep != 4 || psize == 0)
 		ret = UMATCH_NONE;
 
 	return (ret);
@@ -974,9 +977,10 @@ utvfu_detach(struct device *self, int flags)
 	if (sc->sc_audiodev != NULL)
 		rv += config_detach(sc->sc_audiodev, flags);
 
-	sc->sc_flags = 0;
 	utvfu_as_free(sc);
 	utvfu_vs_free(sc);
+
+	sc->sc_flags = 0;
 
 	return (rv);
 }
@@ -1003,31 +1007,34 @@ utvfu_parse_desc(struct utvfu_softc *sc)
 		if (uid->bAlternateSetting == 1)
 			break;
 	}
-	if (uid == NULL || uid->bInterfaceNumber != 0 ||
-	    uid->bAlternateSetting != 1)
-		goto bad;
 
-	/* now looking for endpoint with maximum bandwidth */
+	/* this should not fail as it was ensured during match */
+	if (uid == NULL || uid->bInterfaceNumber != 0 ||
+	    uid->bAlternateSetting != 1) {
+		printf("%s: no valid alternate interface found!\n",
+		    DEVNAME(sc));
+		return (USBD_INVAL);
+	}
+
+	/* bInterfaceNumber = 0 */
+	sc->sc_uifaceh = &sc->sc_udev->ifaces[0];
+
+	/* looking for video endpoint to on alternate setting 1 */
 	while ((ud = usbd_desc_iter_next(&iter)) != NULL) {
 		if (ud->bDescriptorType != UDESC_ENDPOINT)
 			break;
 
 		ued = (void *)ud;
+		if (ued->bEndpointAddress != UTVFU_VIDEO_ENDP)
+			continue;
+
 		psize = UGETW(ued->wMaxPacketSize);
 		psize = UE_GET_SIZE(psize) * (1 + UE_GET_TRANS(psize));
-		if (psize > sc->sc_iface.psize) {
-			/* bInterfaceNumber = 0 */
-			sc->sc_uifaceh = &sc->sc_udev->ifaces[0];
-			sc->sc_iface.endpoint = ued->bEndpointAddress;
-			sc->sc_iface.psize = psize;
-		}
+		sc->sc_iface.psize = psize;
+		break;
 	}
 
-	if (sc->sc_uifaceh != NULL)
-		return (USBD_NORMAL_COMPLETION);
-bad:
-	printf("%s: no valid alternate interface found!\n", DEVNAME(sc));
-	return (USBD_INVAL);
+	return (USBD_NORMAL_COMPLETION);
 }
 
 int
@@ -1042,7 +1049,7 @@ utvfu_open(void *addr, int flags, int *size, uint8_t *buffer,
 	if (usbd_is_dying(sc->sc_udev))
 		return (EIO);
 
-	if ((rv = utvfu_vs_init(sc)) != 0 || (rv = utvfu_as_init(sc)) != 0)
+	if ((rv = utvfu_vs_init(sc)) != 0)
 		return (rv);
 
 	/* pointers to upper video layer */
@@ -1051,7 +1058,6 @@ utvfu_open(void *addr, int flags, int *size, uint8_t *buffer,
 	sc->sc_uplayer_fbuffer = buffer;
 	sc->sc_uplayer_intr = intr;
 
-	sc->sc_flags |= UTVFU_FLAG_VIDEO_CLI;
 	sc->sc_flags &= ~UTVFU_FLAG_MMAP;
 
 	return (0);
@@ -1066,10 +1072,6 @@ utvfu_close(void *addr)
 
 	/* free & clean up video stream */
 	utvfu_vs_free(sc);
-	sc->sc_flags &= ~UTVFU_FLAG_VIDEO_CLI;
-
-	if (!UTVFU_AUDIO_HAS_CLIENT(sc))
-		utvfu_as_free(sc);
 
 	return (0);
 }
@@ -1088,8 +1090,7 @@ utvfu_as_open(struct utvfu_softc *sc)
 		return (USBD_INVAL);
 	}
 
-	ed = usbd_get_endpoint_descriptor(sc->sc_uifaceh,
-	    UTVFU_AUDIO_ENDP);
+	ed = usbd_get_endpoint_descriptor(sc->sc_uifaceh, UTVFU_AUDIO_ENDP);
 	if (ed == NULL) {
 		printf("%s: no endpoint descriptor for AS iface\n",
 		    DEVNAME(sc));
@@ -1101,7 +1102,8 @@ utvfu_as_open(struct utvfu_softc *sc)
 	    UE_GET_ADDR(ed->bEndpointAddress),
 	    UTVFU_AUDIO_ENDP,
 	    UGETW(ed->wMaxPacketSize),
-	    sc->sc_iface.psize);
+	    UE_GET_SIZE(UGETW(ed->wMaxPacketSize))
+	    * (1 + UE_GET_TRANS(UGETW(ed->wMaxPacketSize))));
 
 	error = usbd_open_pipe(
 	    sc->sc_uifaceh,
@@ -1130,8 +1132,7 @@ utvfu_vs_open(struct utvfu_softc *sc)
 		return (USBD_INVAL);
 	}
 
-	ed = usbd_get_endpoint_descriptor(sc->sc_uifaceh,
-	    sc->sc_iface.endpoint);
+	ed = usbd_get_endpoint_descriptor(sc->sc_uifaceh, UTVFU_VIDEO_ENDP);
 	if (ed == NULL) {
 		printf("%s: no endpoint descriptor for VS iface\n",
 		    DEVNAME(sc));
@@ -1141,13 +1142,13 @@ utvfu_vs_open(struct utvfu_softc *sc)
 	DPRINTF(1, "bEndpointAddress=0x%02x (0x%02x), wMaxPacketSize="
 	    "0x%04x (%d)\n",
 	    UE_GET_ADDR(ed->bEndpointAddress),
-	    sc->sc_iface.endpoint,
+	    UTVFU_VIDEO_ENDP,
 	    UGETW(ed->wMaxPacketSize),
 	    sc->sc_iface.psize);
 
 	error = usbd_open_pipe(
 	    sc->sc_uifaceh,
-	    sc->sc_iface.endpoint,
+	    UTVFU_VIDEO_ENDP,
 	    USBD_EXCLUSIVE_USE,
 	    &sc->sc_iface.pipeh);
 	if (error != USBD_NORMAL_COMPLETION) {
@@ -1161,8 +1162,15 @@ utvfu_vs_open(struct utvfu_softc *sc)
 void
 utvfu_as_close(struct utvfu_softc *sc)
 {
+	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
+
+	CLR(sc->sc_flags, UTVFU_FLAG_AS_RUNNING);
+
 	if (sc->sc_audio.iface.pipeh != NULL) {
 		usbd_abort_pipe(sc->sc_audio.iface.pipeh);
+
+		tsleep(&sc->sc_flags, 0, "audioclose", hz/2+1);
+
 		usbd_close_pipe(sc->sc_audio.iface.pipeh);
 		sc->sc_audio.iface.pipeh = NULL;
 	}
@@ -1205,15 +1213,15 @@ utvfu_as_start_bulk(struct utvfu_softc *sc)
 {
 	int error;
 
-	if (sc->sc_as_running == 1)
+	if (ISSET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING))
 		return (0);
 	if (sc->sc_audio.iface.pipeh == NULL)
 		return (ENXIO);
 
-	sc->sc_as_running = 1;
+	SET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING);
 	error = kthread_create(utvfu_as_bulk_thread, sc, NULL, DEVNAME(sc));
 	if (error) {
-		sc->sc_as_running = 0;
+		CLR(sc->sc_flags, UTVFU_FLAG_AS_RUNNING);
 		printf("%s: can't create kernel thread!", DEVNAME(sc));
 	}
 
@@ -1228,8 +1236,10 @@ utvfu_as_bulk_thread(void *arg)
 	usbd_status error;
 	uint32_t actlen;
 
+	DPRINTF(1, "%s %s\n", DEVNAME(sc), __func__);
+
 	iface = &sc->sc_audio.iface;
-	while (sc->sc_as_running) {
+	while (ISSET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING)) {
 		usbd_setup_xfer(
 		    iface->xfer,
 		    iface->pipeh,
@@ -1240,6 +1250,7 @@ utvfu_as_bulk_thread(void *arg)
 		    0,
 		    NULL);
 		error = usbd_transfer(iface->xfer);
+
 		if (error != USBD_NORMAL_COMPLETION) {
 			DPRINTF(1, "%s: error in bulk xfer: %s!\n",
 			    DEVNAME(sc), usbd_errstr(error));
@@ -1250,14 +1261,13 @@ utvfu_as_bulk_thread(void *arg)
 		    NULL);
 		DPRINTF(2, "%s: *** buffer len = %d\n", DEVNAME(sc), actlen);
 
-		if (UTVFU_AUDIO_HAS_CLIENT(sc)) {
-			rw_enter_read(&sc->sc_audio.rwlock);
-			utvfu_audio_decode(sc, actlen);
-			rw_exit_read(&sc->sc_audio.rwlock);
-		}
+		rw_enter_read(&sc->sc_audio.rwlock);
+		utvfu_audio_decode(sc, actlen);
+		rw_exit_read(&sc->sc_audio.rwlock);
 	}
 
-	sc->sc_as_running = 0;
+	CLR(sc->sc_flags, UTVFU_FLAG_AS_RUNNING);
+	wakeup(&sc->sc_flags);
 
 	DPRINTF(1, "%s %s: exiting\n", DEVNAME(sc), __func__);
 
@@ -1451,8 +1461,6 @@ utvfu_start_read(void *v)
 void
 utvfu_audio_clear_client(struct utvfu_softc *sc)
 {
-	sc->sc_flags &= ~UTVFU_FLAG_AUDIO_CLI;
-
 	rw_enter_write(&sc->sc_audio.rwlock);
 
 	sc->sc_audio.intr = NULL;
@@ -1629,6 +1637,8 @@ utvfu_vs_free_isoc(struct utvfu_softc *sc)
 void
 utvfu_as_free_bulk(struct utvfu_softc *sc)
 {
+	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
+
 	if (sc->sc_audio.iface.xfer != NULL) {
 		usbd_free_xfer(sc->sc_audio.iface.xfer);
 		sc->sc_audio.iface.xfer = NULL;
@@ -1855,7 +1865,7 @@ utvfu_audio_open(void *v, int flags)
 	if ((flags & FWRITE))
 		return (ENXIO);
 
-	if (UTVFU_AUDIO_HAS_CLIENT(sc))
+	if (ISSET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING))
 		return (EBUSY);
 
 	return utvfu_as_init(sc);
@@ -1866,10 +1876,9 @@ utvfu_audio_close(void *v)
 {
 	struct utvfu_softc *sc = v;
 
-	/* Leave the audio thread running if video is streaming */
-	if (!UTVFU_VIDEO_HAS_CLIENT(sc))
-		utvfu_as_free(sc);
+	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
 
+	utvfu_audio_stop(sc);
 	utvfu_audio_clear_client(sc);
 }
 
@@ -1937,9 +1946,7 @@ utvfu_audio_halt_in(void *v)
 
 	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
 
-	if (!UTVFU_VIDEO_HAS_CLIENT(sc))
-		utvfu_audio_stop(sc);
-
+	utvfu_audio_stop(sc);
 	utvfu_audio_clear_client(sc);
 
 	return (0);
@@ -2069,8 +2076,6 @@ utvfu_audio_trigger_input(void *v, void *start, void *end, int blksize,
 
 	rw_exit_write(&sc->sc_audio.rwlock);
 
-	sc->sc_flags |= UTVFU_FLAG_AUDIO_CLI;
-
 	DPRINTF(1, "%s %s: start=%p end=%p diff=%lu blksize=%d\n",
 	    DEVNAME(sc), __func__, start, end,
 	    ((u_char *)end - (u_char *)start), blksize);
@@ -2081,11 +2086,15 @@ utvfu_audio_trigger_input(void *v, void *start, void *end, int blksize,
 int
 utvfu_audio_start(struct utvfu_softc *sc)
 {
-	if (sc->sc_as_running == 1)
+	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
+
+	if (ISSET(sc->sc_flags, UTVFU_FLAG_AS_RUNNING))
 		return (0);
 
 	utvfu_audio_start_chip(sc);
 
+	if (utvfu_as_init(sc) != 0)
+		return (ENOMEM);
 	if (sc->sc_audio.iface.pipeh == NULL) {
 		if (utvfu_as_open(sc) != USBD_NORMAL_COMPLETION)
 			return (ENOMEM);
@@ -2097,9 +2106,10 @@ utvfu_audio_start(struct utvfu_softc *sc)
 int
 utvfu_audio_stop(struct utvfu_softc *sc)
 {
-	if (sc->sc_as_running == 1) {
-		utvfu_audio_stop_chip(sc);
-		utvfu_as_close(sc);
-	}
+	DPRINTF(1, "%s: %s\n", DEVNAME(sc), __func__);
+
+	utvfu_audio_stop_chip(sc);
+	utvfu_as_free(sc);
+
 	return (0);
 }

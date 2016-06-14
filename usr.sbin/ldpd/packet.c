@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.61 2016/06/09 17:57:55 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.63 2016/06/13 20:19:40 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -624,7 +624,7 @@ session_shutdown(struct nbr *nbr, uint32_t status, uint32_t msgid,
 	case NBR_STA_INITIAL:
 	case NBR_STA_OPENREC:
 	case NBR_STA_OPENSENT:
-	case NBR_STA_OPER:	
+	case NBR_STA_OPER:
 		log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
 		send_notification_nbr(nbr, status, msgid, type);
@@ -648,6 +648,7 @@ session_close(struct nbr *nbr)
 	tcp_close(nbr->tcp);
 	nbr_stop_ktimer(nbr);
 	nbr_stop_ktimeout(nbr);
+	nbr_stop_itimeout(nbr);
 }
 
 static ssize_t
