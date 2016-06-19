@@ -2715,7 +2715,6 @@
 ./usr/share/man/man9/kthread.9
 ./usr/share/man/man9/ktrace.9
 ./usr/share/man/man9/loadfirmware.9
-./usr/share/man/man9/lock.9
 ./usr/share/man/man9/log.9
 ./usr/share/man/man9/malloc.9
 ./usr/share/man/man9/mbuf.9
@@ -2771,6 +2770,7 @@
 ./usr/share/man/man9/uiomove.9
 ./usr/share/man/man9/usbd_close_pipe.9
 ./usr/share/man/man9/usbd_open_pipe.9
+./usr/share/man/man9/usbd_ref_wait.9
 ./usr/share/man/man9/usbd_transfer.9
 ./usr/share/man/man9/uvm.9
 ./usr/share/man/man9/vaccess.9
