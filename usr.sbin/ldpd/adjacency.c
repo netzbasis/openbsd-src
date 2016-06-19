@@ -1,4 +1,4 @@
-/*	$OpenBSD: adjacency.c,v 1.24 2016/06/13 20:13:34 renato Exp $ */
+/*	$OpenBSD: adjacency.c,v 1.26 2016/06/18 17:31:32 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2015 Renato Westphal <renato@openbsd.org>
@@ -28,6 +28,7 @@
 #include "ldpe.h"
 #include "log.h"
 
+static void	 adj_del_single(struct adj *);
 static void	 adj_itimer(int, short, void *);
 static void	 tnbr_del(struct tnbr *);
 static void	 tnbr_hello_timer(int, short, void *);
@@ -67,39 +68,47 @@ adj_new(struct in_addr lsr_id, struct hello_source *source,
 	return (adj);
 }
 
-void
-adj_del(struct adj *adj, int send_notif, uint32_t notif_status)
+static void
+adj_del_single(struct adj *adj)
 {
-	struct nbr	*nbr = adj->nbr;
-	struct adj	*atmp;
-
-	log_debug("%s: lsr-id %s, %s", __func__, inet_ntoa(adj->lsr_id),
-	    log_hello_src(&adj->source));
+	log_debug("%s: lsr-id %s, %s (%s)", __func__, inet_ntoa(adj->lsr_id),
+	    log_hello_src(&adj->source), af_name(adj_get_af(adj)));
 
 	adj_stop_itimer(adj);
 
 	LIST_REMOVE(adj, global_entry);
 	if (adj->nbr)
 		LIST_REMOVE(adj, nbr_entry);
-	if (adj->source.type == HELLO_LINK)
+	switch (adj->source.type) {
+	case HELLO_LINK:
 		LIST_REMOVE(adj, ia_entry);
-	free(adj);
-
-	/* last adjacency deleted */
-	if (nbr && LIST_EMPTY(&nbr->adj_list)) {
-		if (send_notif)
-			session_shutdown(nbr, notif_status, 0, 0);
-		nbr_del(nbr);
-		nbr = NULL;
+		break;
+	case HELLO_TARGETED:
+		adj->source.target->adj = NULL;
+		break;
 	}
 
+	free(adj);
+}
+
+void
+adj_del(struct adj *adj, uint32_t notif_status)
+{
+	struct nbr	*nbr = adj->nbr;
+	struct adj	*atmp;
+
+	adj_del_single(adj);
+
 	/*
-	 * If the neighbor still exists but none of its remaining adjacencies
-	 * are from the preferred address-family, then delete it.
+	 * If the neighbor still exists but none of its remaining
+	 * adjacencies (if any) are from the preferred address-family,
+	 * then delete it.
 	 */
 	if (nbr && nbr_adj_count(nbr, nbr->af) == 0) {
 		LIST_FOREACH_SAFE(adj, &nbr->adj_list, nbr_entry, atmp)
-			adj_del(adj, 0, 0);
+			adj_del_single(adj);
+		session_shutdown(nbr, notif_status, 0, 0);
+		nbr_del(nbr);
 	}
 }
 
@@ -162,7 +171,7 @@ adj_itimer(int fd, short event, void *arg)
 		adj->source.target->adj = NULL;
 	}
 
-	adj_del(adj, 1, S_HOLDTIME_EXP);
+	adj_del(adj, S_HOLDTIME_EXP);
 }
 
 void
@@ -208,7 +217,7 @@ tnbr_del(struct tnbr *tnbr)
 {
 	tnbr_stop_hello_timer(tnbr);
 	if (tnbr->adj)
-		adj_del(tnbr->adj, 1, S_SHUTDOWN);
+		adj_del(tnbr->adj, S_SHUTDOWN);
 	LIST_REMOVE(tnbr, entry);
 	free(tnbr);
 }
