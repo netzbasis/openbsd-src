@@ -18,6 +18,8 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
+pledge "stdio rpath wpath cpath proc exec"
+
 umask 0022
 
 usage() {
