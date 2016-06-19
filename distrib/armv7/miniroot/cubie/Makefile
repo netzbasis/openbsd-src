@@ -1,5 +1,7 @@
 BOARD=	cubie
 PLATFORM=SUNXI
-LOADADDR=0x40200000
+UBOOT=	Cubieboard
+DTBS=\
+	sun4i-a10-cubieboard.dtb
 
 .include "${.CURDIR}/../Makefile.inc"

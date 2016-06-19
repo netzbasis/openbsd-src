@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.106 2015/09/12 16:10:07 doug Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.108 2016/04/28 16:39:45 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1810,11 +1810,11 @@ SSL_CIPHER ssl3_ciphers[] = {
 	/* Cipher CC13 */
 	{
 		.valid = 1,
-		.name = TLS1_TXT_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-		.id = TLS1_CK_ECDHE_RSA_CHACHA20_POLY1305,
+		.name = TLS1_TXT_ECDHE_RSA_WITH_CHACHA20_POLY1305_OLD,
+		.id = TLS1_CK_ECDHE_RSA_CHACHA20_POLY1305_OLD,
 		.algorithm_mkey = SSL_kECDHE,
 		.algorithm_auth = SSL_aRSA,
-		.algorithm_enc = SSL_CHACHA20POLY1305,
+		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
 		.algorithm_mac = SSL_AEAD,
 		.algorithm_ssl = SSL_TLSV1_2,
 		.algo_strength = SSL_HIGH,
@@ -1827,11 +1827,11 @@ SSL_CIPHER ssl3_ciphers[] = {
 	/* Cipher CC14 */
 	{
 		.valid = 1,
-		.name = TLS1_TXT_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-		.id = TLS1_CK_ECDHE_ECDSA_CHACHA20_POLY1305,
+		.name = TLS1_TXT_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_OLD,
+		.id = TLS1_CK_ECDHE_ECDSA_CHACHA20_POLY1305_OLD,
 		.algorithm_mkey = SSL_kECDHE,
 		.algorithm_auth = SSL_aECDSA,
-		.algorithm_enc = SSL_CHACHA20POLY1305,
+		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
 		.algorithm_mac = SSL_AEAD,
 		.algorithm_ssl = SSL_TLSV1_2,
 		.algo_strength = SSL_HIGH,
@@ -1844,6 +1844,57 @@ SSL_CIPHER ssl3_ciphers[] = {
 	/* Cipher CC15 */
 	{
 		.valid = 1,
+		.name = TLS1_TXT_DHE_RSA_WITH_CHACHA20_POLY1305_OLD,
+		.id = TLS1_CK_DHE_RSA_CHACHA20_POLY1305_OLD,
+		.algorithm_mkey = SSL_kDHE,
+		.algorithm_auth = SSL_aRSA,
+		.algorithm_enc = SSL_CHACHA20POLY1305_OLD,
+		.algorithm_mac = SSL_AEAD,
+		.algorithm_ssl = SSL_TLSV1_2,
+		.algo_strength = SSL_HIGH,
+		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
+		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(0),
+		.strength_bits = 256,
+		.alg_bits = 256,
+	},
+
+	/* Cipher CCA8 */
+	{
+		.valid = 1,
+		.name = TLS1_TXT_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+		.id = TLS1_CK_ECDHE_RSA_CHACHA20_POLY1305,
+		.algorithm_mkey = SSL_kECDHE,
+		.algorithm_auth = SSL_aRSA,
+		.algorithm_enc = SSL_CHACHA20POLY1305,
+		.algorithm_mac = SSL_AEAD,
+		.algorithm_ssl = SSL_TLSV1_2,
+		.algo_strength = SSL_HIGH,
+		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
+		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(12),
+		.strength_bits = 256,
+		.alg_bits = 256,
+	},
+
+	/* Cipher CCA9 */
+	{
+		.valid = 1,
+		.name = TLS1_TXT_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		.id = TLS1_CK_ECDHE_ECDSA_CHACHA20_POLY1305,
+		.algorithm_mkey = SSL_kECDHE,
+		.algorithm_auth = SSL_aECDSA,
+		.algorithm_enc = SSL_CHACHA20POLY1305,
+		.algorithm_mac = SSL_AEAD,
+		.algorithm_ssl = SSL_TLSV1_2,
+		.algo_strength = SSL_HIGH,
+		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
+		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(12),
+		.strength_bits = 256,
+		.alg_bits = 256,
+	},
+
+	/* Cipher CCAA */
+	{
+		.valid = 1,
 		.name = TLS1_TXT_DHE_RSA_WITH_CHACHA20_POLY1305,
 		.id = TLS1_CK_DHE_RSA_CHACHA20_POLY1305,
 		.algorithm_mkey = SSL_kDHE,
@@ -1853,7 +1904,7 @@ SSL_CIPHER ssl3_ciphers[] = {
 		.algorithm_ssl = SSL_TLSV1_2,
 		.algo_strength = SSL_HIGH,
 		.algorithm2 = SSL_HANDSHAKE_MAC_SHA256|TLS1_PRF_SHA256|
-		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(0),
+		    SSL_CIPHER_ALGORITHM2_AEAD|FIXED_NONCE_LEN(12),
 		.strength_bits = 256,
 		.alg_bits = 256,
 	},
@@ -2141,14 +2192,6 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 				    ERR_R_DH_LIB);
 				return (ret);
 			}
-			if (!(s->options & SSL_OP_SINGLE_DH_USE)) {
-				if (!DH_generate_key(dh)) {
-					DH_free(dh);
-					SSLerr(SSL_F_SSL3_CTRL,
-					    ERR_R_DH_LIB);
-					return (ret);
-				}
-			}
 			DH_free(s->cert->dh_tmp);
 			s->cert->dh_tmp = dh;
 			ret = 1;
@@ -2331,14 +2374,6 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 				SSLerr(SSL_F_SSL3_CTX_CTRL,
 				    ERR_R_DH_LIB);
 				return 0;
-			}
-			if (!(ctx->options & SSL_OP_SINGLE_DH_USE)) {
-				if (!DH_generate_key(new)) {
-					SSLerr(SSL_F_SSL3_CTX_CTRL,
-					    ERR_R_DH_LIB);
-					DH_free(new);
-					return 0;
-				}
 			}
 			DH_free(cert->dh_tmp);
 			cert->dh_tmp = new;

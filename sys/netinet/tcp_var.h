@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_var.h,v 1.109 2015/08/27 20:56:16 bluhm Exp $	*/
+/*	$OpenBSD: tcp_var.h,v 1.113 2016/06/18 10:36:13 vgross Exp $	*/
 /*	$NetBSD: tcp_var.h,v 1.17 1996/02/13 23:44:24 christos Exp $	*/
 
 /*
@@ -251,6 +251,10 @@ struct tcp_opt_info {
 /*
  * Data for the TCP compressed state engine.
  */
+
+#define	TCP_SYN_HASH_SIZE	293
+#define	TCP_SYN_BUCKET_SIZE	35
+
 union syn_cache_sa {
 	struct sockaddr sa;
 	struct sockaddr_in sin;
@@ -271,7 +275,8 @@ struct syn_cache {
 #define sc_route6	sc_route_u.route6
 #endif
 	long sc_win;				/* advertised window */
-	int sc_bucketidx;			/* our bucket index */
+	struct syn_cache_head *sc_buckethead;	/* our bucket index */
+	struct syn_cache_set *sc_set;		/* our syn cache set */
 	u_int32_t sc_hash;
 	u_int32_t sc_timestamp;			/* timestamp from SYN */
 	u_int32_t sc_modulate;			/* our timestamp modulator */
@@ -308,6 +313,13 @@ struct syn_cache {
 struct syn_cache_head {
 	TAILQ_HEAD(, syn_cache) sch_bucket;	/* bucket entries */
 	u_short sch_length;			/* # entries in bucket */
+};
+
+struct syn_cache_set {
+        struct		syn_cache_head scs_buckethead[TCP_SYN_HASH_SIZE];
+        int		scs_count;
+        int		scs_use;
+        u_int32_t	scs_random[5];
 };
 
 #endif /* _KERNEL */
@@ -440,6 +452,7 @@ struct	tcpstat {
 	u_int64_t tcps_sc_dropped;	/* # of SYNs dropped (no route/mem) */
 	u_int64_t tcps_sc_collisions;	/* # of hash collisions */
 	u_int64_t tcps_sc_retransmitted;/* # of retransmissions */
+	u_int64_t tcps_sc_seedrandom;	/* # of syn cache seeds with random */
 
 	u_int64_t tcps_conndrained;	/* # of connections drained */
 
@@ -476,7 +489,9 @@ struct	tcpstat {
 #define	TCPCTL_SACKHOLE_LIMIT  20 /* max entries for tcp sack queues */
 #define	TCPCTL_STATS	       21 /* TCP statistics */
 #define	TCPCTL_ALWAYS_KEEPALIVE 22 /* assume SO_KEEPALIVE is always set */
-#define	TCPCTL_MAXID	       23
+#define	TCPCTL_SYN_USE_LIMIT   23 /* number of uses before reseeding hash */
+#define TCPCTL_ROOTONLY	       24 /* return root only port bitmap */
+#define	TCPCTL_MAXID	       25
 
 #define	TCPCTL_NAMES { \
 	{ 0, 0 }, \
@@ -501,7 +516,9 @@ struct	tcpstat {
 	{ "drop", 	CTLTYPE_STRUCT }, \
 	{ "sackholelimit", 	CTLTYPE_INT }, \
 	{ "stats",	CTLTYPE_STRUCT }, \
-	{ "always_keepalive",	CTLTYPE_INT } \
+	{ "always_keepalive",	CTLTYPE_INT }, \
+	{ "synuselimit", 	CTLTYPE_INT }, \
+	{ "rootonly", CTLTYPE_STRUCT }, \
 }
 
 #define	TCPCTL_VARS { \
@@ -523,6 +540,9 @@ struct	tcpstat {
 	&tcp_syn_cache_limit, \
 	&tcp_syn_bucket_limit, \
 	&tcp_do_rfc3390, \
+	NULL, \
+	NULL, \
+	NULL, \
 	NULL, \
 	NULL, \
 	NULL, \
@@ -557,6 +577,8 @@ extern	int tcp_reass_limit;	/* max entries for tcp reass queues */
 
 extern	int tcp_syn_cache_limit; /* max entries for compressed state engine */
 extern	int tcp_syn_bucket_limit;/* max entries per hash bucket */
+extern	int tcp_syn_use_limit;   /* number of uses before reseeding hash */
+extern	struct syn_cache_set tcp_syn_cache[];
 
 int	 tcp_attach(struct socket *);
 void	 tcp_canceltimers(struct tcpcb *);

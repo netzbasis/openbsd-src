@@ -1,4 +1,4 @@
-/*	$OpenBSD: rusers.c,v 1.35 2015/08/20 22:32:41 deraadt Exp $	*/
+/*	$OpenBSD: rusers.c,v 1.38 2016/03/28 11:06:09 chl Exp $	*/
 
 /*
  * Copyright (c) 2001, 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -113,7 +113,7 @@ int
 main(int argc, char **argv)
 {
 	struct winsize win;
-	char *cp, *ep;
+	char *cp;
 	int ch;
 	
 	while ((ch = getopt(argc, argv, "ahilu")) != -1)
@@ -141,21 +141,15 @@ main(int argc, char **argv)
 	if (hflag + iflag + uflag > 1)
 		usage();
 
-	if (isatty(STDOUT_FILENO)) {
-		if ((cp = getenv("COLUMNS")) != NULL && *cp != '\0') {
-			termwidth = strtol(cp, &ep, 10);
-			if (*ep != '\0' || termwidth >= INT_MAX ||
-			    termwidth < 0)
-				termwidth = 0;
-		}
-		if (termwidth == 0 &&
-		    ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
-		    win.ws_col > 0)
-			termwidth = win.ws_col;
-		else
-			termwidth = 80;
-	} else
+	termwidth = 0;
+	if ((cp = getenv("COLUMNS")) != NULL)
+		termwidth = strtonum(cp, 1, LONG_MAX, NULL);
+	if (termwidth == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
+	    win.ws_col > 0)
+		termwidth = win.ws_col;
+	if (termwidth == 0)
 		termwidth = 80;
+
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	if (argc == optind) {
@@ -625,8 +619,7 @@ allhosts(void)
 cleanup:
 	if (ifap != NULL)
 		freeifaddrs(ifap);
-	if (fds != NULL)
-		free(fds);
+	free(fds);
 	if (sock[0] >= 0)
 		(void)close(sock[0]);
 	if (sock[1] >= 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmacvar.h,v 1.7 2015/10/08 14:24:32 visa Exp $	*/
+/*	$OpenBSD: if_cnmacvar.h,v 1.12 2016/05/30 15:41:28 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -34,9 +34,8 @@
 #define FREE_QUEUE_SIZE		GATHER_QUEUE_SIZE
 #define RECV_QUEUE_SIZE		(GATHER_QUEUE_SIZE * 2)
 
-#ifdef OCTEON_ETH_FIXUP_ODD_NIBBLE_DYNAMIC
-#define PROC_NIBBLE_SOFT_THRESHOLD 2000
-#endif
+/* Number of mbufs per port to keep in the packet pool */
+#define OCTEON_ETH_MBUFS_PER_PORT	256
 
 struct _send_queue_entry;
 struct cn30xxpow_softc;
@@ -61,7 +60,6 @@ struct octeon_eth_softc {
 	struct cn30xxpip_softc	*sc_pip;
 	struct cn30xxipd_softc	*sc_ipd;
 	struct cn30xxpko_softc	*sc_pko;
-	struct cn30xxasx_softc	*sc_asx;
 	struct cn30xxsmi_softc	*sc_smi;
 	struct cn30xxgmx_softc	*sc_gmx;
 	struct cn30xxgmx_port_softc
@@ -74,7 +72,8 @@ struct octeon_eth_softc {
 
 	struct timeout		sc_tick_misc_ch;
 	struct timeout		sc_tick_free_ch;
-	struct timeout		sc_resume_ch;
+
+	struct task		sc_free_task;
 
 	int64_t			sc_soft_req_thresh;
 	int64_t			sc_hard_done_cnt;

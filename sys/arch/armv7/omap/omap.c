@@ -1,4 +1,4 @@
-/* $OpenBSD: omap.c,v 1.7 2015/05/20 00:14:56 jsg Exp $ */
+/* $OpenBSD: omap.c,v 1.11 2016/06/18 05:59:26 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  *
@@ -20,6 +20,7 @@
 
 #include <machine/bus.h>
 
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 
 int	omap_match(struct device *, void *, void *);
@@ -47,7 +48,6 @@ struct board_dev beagleboard_devs[] = {
 	{ "omgpio",	3 },
 	{ "omgpio",	4 },
 	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
 	{ "com",	2 },		/* UART3 */
 	{ NULL,		0 }
 };
@@ -67,8 +67,6 @@ struct board_dev beaglebone_devs[] = {
 	{ "tiiic",	0 },
 	{ "tiiic",	1 },
 	{ "tiiic",	2 },
-	{ "ommmc",	0 },		/* HSMMC0 */
-	{ "ommmc",	1 },		/* HSMMC1 */
 	{ "com",	0 },		/* UART0 */
 	{ "cpsw",	0 },
 	{ NULL,		0 }
@@ -86,7 +84,6 @@ struct board_dev overo_devs[] = {
 	{ "omgpio",	3 },
 	{ "omgpio",	4 },
 	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
 	{ "com",	2 },		/* UART3 */
 	{ NULL,		0 }
 };
@@ -101,7 +98,6 @@ struct board_dev pandaboard_devs[] = {
 	{ "omgpio",	3 },
 	{ "omgpio",	4 },
 	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
 	{ "com",	2 },		/* UART3 */
 	{ "ehci",	0 },
 	{ NULL,		0 }
@@ -110,29 +106,25 @@ struct board_dev pandaboard_devs[] = {
 struct armv7_board omap_boards[] = {
 	{
 		BOARD_ID_OMAP3_BEAGLE,
-		"TI OMAP3 BeagleBoard",
 		beagleboard_devs,
 		omap3_init,
 	},
 	{
 		BOARD_ID_AM335X_BEAGLEBONE,
-		"TI AM335x BeagleBone",
 		beaglebone_devs,
 		am335x_init,
 	},
 	{
 		BOARD_ID_OMAP3_OVERO,
-		"Gumstix OMAP3 Overo",
 		overo_devs,
 		omap3_init,
 	},
 	{
 		BOARD_ID_OMAP4_PANDA,
-		"TI OMAP4 PandaBoard",
 		pandaboard_devs,
 		omap4_init,
 	},
-	{ 0, NULL, NULL, NULL },
+	{ 0, NULL, NULL },
 };
 
 struct board_dev *
@@ -140,7 +132,7 @@ omap_board_devs(void)
 {
 	int i;
 
-	for (i = 0; omap_boards[i].name != NULL; i++) {
+	for (i = 0; omap_boards[i].board_id != 0; i++) {
 		if (omap_boards[i].board_id == board_id)
 			return (omap_boards[i].devs);
 	}
@@ -152,7 +144,7 @@ omap_board_init(void)
 {
 	int i;
 
-	for (i = 0; omap_boards[i].name != NULL; i++) {
+	for (i = 0; omap_boards[i].board_id != 0; i++) {
 		if (omap_boards[i].board_id == board_id) {
 			omap_boards[i].init();
 			break;
@@ -160,22 +152,17 @@ omap_board_init(void)
 	}
 }
 
-const char *
-omap_board_name(void)
-{
-	int i;
-
-	for (i = 0; omap_boards[i].name != NULL; i++) {
-		if (omap_boards[i].board_id == board_id) {
-			return (omap_boards[i].name);
-			break;
-		}
-	}
-	return (NULL);
-}
-
 int
 omap_match(struct device *parent, void *cfdata, void *aux)
 {
+	union mainbus_attach_args *ma = (union mainbus_attach_args *)aux;
+	struct cfdata *cf = (struct cfdata *)cfdata;
+
+	if (ma->ma_name == NULL)
+		return (0);
+
+	if (strcmp(cf->cf_driver->cd_name, ma->ma_name) != 0)
+		return (0);
+
 	return (omap_board_devs() != NULL);
 }

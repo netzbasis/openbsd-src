@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vnops.c,v 1.61 2015/09/23 15:37:26 tedu Exp $	*/
+/*	$OpenBSD: udf_vnops.c,v 1.64 2016/06/19 11:54:33 natano Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -445,13 +445,12 @@ udf_read(void *v)
 
 	while (uio->uio_offset < fsize && uio->uio_resid > 0) {
 		offset = uio->uio_offset;
-		if (uio->uio_resid + offset <= fsize)
-			size = uio->uio_resid;
-		else
+		size = ulmin(uio->uio_resid, MAXBSIZE);
+		if (size > fsize - offset)
 			size = fsize - offset;
 		error = udf_readatoffset(up, &size, offset, &bp, &data);
 		if (error == 0)
-			error = uiomovei(data, size, uio);
+			error = uiomove(data, (size_t)size, uio);
 		if (bp != NULL) {
 			brelse(bp);
 			bp = NULL;
@@ -543,7 +542,7 @@ struct udf_uiodir {
 static int
 udf_uiodir(struct udf_uiodir *uiodir, struct uio *uio, long off)
 {
-	int de_size = DIRENT_SIZE(uiodir->dirent);
+	size_t de_size = DIRENT_SIZE(uiodir->dirent);
 
 	if (uio->uio_resid < de_size) {
 		uiodir->eofflag = 0;
@@ -552,7 +551,7 @@ udf_uiodir(struct udf_uiodir *uiodir, struct uio *uio, long off)
 	uiodir->dirent->d_off = off;
 	uiodir->dirent->d_reclen = de_size;
 
-	return (uiomovei(uiodir->dirent, de_size, uio));
+	return (uiomove(uiodir->dirent, de_size, uio));
 }
 
 static struct udf_dirstream *
@@ -899,20 +898,19 @@ int
 udf_lock(void *v)
 {
 	struct vop_lock_args *ap = v;
-
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOU(vp)->u_lock, ap->a_flags, NULL));
+	return rrw_enter(&VTOU(vp)->u_lock, ap->a_flags & LK_RWFLAGS);
 }
 
 int
 udf_unlock(void *v)
 {
 	struct vop_unlock_args *ap = v;
-
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOU(vp)->u_lock, ap->a_flags | LK_RELEASE, NULL));
+	rrw_exit(&VTOU(vp)->u_lock);
+	return 0;
 }
 
 int
@@ -920,7 +918,7 @@ udf_islocked(void *v)
 {
 	struct vop_islocked_args *ap = v;
 
-	return (lockstatus(&VTOU(ap->a_vp)->u_lock));
+	return rrw_status(&VTOU(ap->a_vp)->u_lock);
 }
 
 int
@@ -1106,7 +1104,7 @@ lookloop:
 				nchstats.ncs_pass2++;
 			if (!(flags & LOCKPARENT) || !(flags & ISLASTCN)) {
 				ap->a_cnp->cn_flags |= PDIRUNLOCK;
-				VOP_UNLOCK(dvp, 0, p);
+				VOP_UNLOCK(dvp, p);
 			}
 
 			*vpp = tdp;
@@ -1153,7 +1151,7 @@ udf_inactive(void *v)
 	/*
 	 * No need to sync anything, so just unlock the vnode and return.
 	 */
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	return (0);
 }

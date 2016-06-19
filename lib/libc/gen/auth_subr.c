@@ -1,4 +1,4 @@
-/*	$OpenBSD: auth_subr.c,v 1.48 2015/11/02 17:03:29 mmcc Exp $	*/
+/*	$OpenBSD: auth_subr.c,v 1.50 2015/12/28 22:08:18 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2000-2002,2004 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -313,10 +313,8 @@ auth_challenge(auth_session_t *as)
 
 	as->state = 0;
 
-	if (as->challenge) {
-		free(as->challenge);
-		as->challenge = NULL;
-	}
+	free(as->challenge);
+	as->challenge = NULL;
 
 	auth_call(as, path, as->style, "-s", "challenge", as->name,
 	    as->class, (char *)NULL);
@@ -616,7 +614,8 @@ DEF_WEAK(auth_setdata);
 int
 auth_setpwd(auth_session_t *as, struct passwd *pwd)
 {
-	char *instance;
+	struct passwd pwstore;
+	char *instance, pwbuf[_PW_BUF_LEN];
 
 	if (pwd == NULL && as->pwd == NULL && as->name == NULL)
 		return (-1);		/* true failure */
@@ -633,12 +632,15 @@ auth_setpwd(auth_session_t *as, struct passwd *pwd)
 		 */
 		if (as->name == NULL)
 			return (0);
-		if ((pwd = getpwnam(as->name)) == NULL) {
+		getpwnam_r(as->name, &pwstore, pwbuf, sizeof(pwbuf), &pwd);
+		if (pwd == NULL) {
 			instance = strchr(as->name, '/');
 			if (instance == NULL)
 				return (as->pwd ? 0 : 1);
-			if (strcmp(instance, "/root") == 0)
-				pwd = getpwnam(instance + 1);
+			if (strcmp(instance, "/root") == 0) {
+				getpwnam_r(instance + 1, &pwstore, pwbuf,
+				    sizeof(pwbuf), &pwd);
+			}
 			if (pwd == NULL)
 				return (as->pwd ? 0 : 1);
 		}

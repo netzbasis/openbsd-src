@@ -1,4 +1,4 @@
-/* $OpenBSD: dsdt.h,v 1.64 2015/06/13 21:41:42 guenther Exp $ */
+/* $OpenBSD: dsdt.h,v 1.71 2016/05/08 00:03:12 kettenis Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  *
@@ -53,7 +53,7 @@ void			aml_showvalue(struct aml_value *, int);
 void			aml_walkroot(void);
 void			aml_walktree(struct aml_node *);
 
-int			aml_find_node(struct aml_node *, const char *,
+void			aml_find_node(struct aml_node *, const char *,
 			    int (*)(struct aml_node *, void *), void *);
 int			acpi_parse_aml(struct acpi_softc *, u_int8_t *,
 			    u_int32_t);
@@ -83,7 +83,7 @@ const char		*aml_nodename(struct aml_node *);
 #define SRT_ENDDEP		0x38
 #define SRT_IOPORT		0x47
 #define SRT_FIXEDPORT		0x4B
-#define SRT_ENDTAG		0x78
+#define SRT_ENDTAG		0x79
 
 #define SR_IRQ			0x04
 #define SR_DMA			0x05
@@ -95,14 +95,16 @@ const char		*aml_nodename(struct aml_node *);
 /* byte zero of small resources combines the tag above a length [1..7] */
 #define	SR_TAG(tag,len)		((tag << 3) + (len))
 
-#define LR_24BIT		0x81
+#define LR_MEM24		0x81
 #define LR_GENREGISTER		0x82
-#define LR_32BIT		0x85
-#define LR_32BITFIXED		0x86
+#define LR_MEM32		0x85
+#define LR_MEM32FIXED		0x86
 #define LR_DWORD		0x87
 #define LR_WORD			0x88
 #define LR_EXTIRQ		0x89
 #define LR_QWORD		0x8A
+#define LR_GPIO			0x8C
+#define LR_SERBUS		0x8E
 
 #define __amlflagbit(v,s,l)
 union acpi_resource {
@@ -169,6 +171,13 @@ union acpi_resource {
 	struct {
 		uint8_t  typecode;
 		uint16_t length;
+		uint8_t  _info;
+		uint32_t _bas;
+		uint32_t _len;
+	}  __packed lr_m32fixed;
+	struct {
+		uint8_t  typecode;
+		uint16_t length;
 		uint8_t  flags;
 #define LR_EXTIRQ_SHR		(1L << 3)
 #define LR_EXTIRQ_POLARITY	(1L << 2)
@@ -218,6 +227,59 @@ union acpi_resource {
 		uint8_t		src_index;
 		char		src[1];
 	} __packed lr_qword;
+	struct {
+		uint8_t		typecode;
+		uint16_t	length;
+		uint8_t		revid;
+		uint8_t		type;
+#define LR_GPIO_INT	0x00
+#define LR_GPIO_IO	0x01
+		uint16_t	flags;
+		uint16_t	tflags;
+#define LR_GPIO_SHR		(3L << 3)
+#define LR_GPIO_POLARITY	(3L << 1)
+#define  LR_GPIO_ACTHI		(0L << 1)
+#define  LR_GPIO_ACTLO		(1L << 1)
+#define  LR_GPIO_ACTBOTH	(2L << 1)
+#define LR_GPIO_MODE		(1L << 0)
+#define  LR_GPIO_LEVEL		(0L << 0)
+#define  LR_GPIO_EDGE		(1L << 0)
+		uint8_t		_ppi;
+		uint16_t	_drs;
+		uint16_t	_dbt;
+		uint16_t	pin_off;
+		uint8_t		residx;
+		uint16_t	res_off;
+		uint16_t	vd_off;
+		uint16_t	vd_len;
+	} __packed lr_gpio;
+	struct {
+		uint8_t		typecode;
+		uint16_t	length;
+		uint8_t		revid;
+		uint8_t		residx;
+		uint8_t		type;
+#define LR_SERBUS_I2C	1
+		uint8_t		flags;
+		uint16_t	tflags;
+		uint8_t		trevid;
+		uint16_t	tlength;
+		uint8_t		tdata[1];
+	} __packed lr_serbus;
+	struct {
+		uint8_t		typecode;
+		uint16_t	length;
+		uint8_t		revid;
+		uint8_t		residx;
+		uint8_t		type;
+		uint8_t		flags;
+		uint16_t	tflags;
+		uint8_t		trevid;
+		uint16_t	tlength;
+		uint32_t	_spe;
+		uint16_t	_adr;
+		uint8_t		vdata[1];
+	} __packed lr_i2cbus;
 	uint8_t		pad[64];
 } __packed;
 

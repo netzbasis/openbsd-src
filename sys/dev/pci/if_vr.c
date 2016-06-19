@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vr.c,v 1.145 2015/11/09 00:22:57 dlg Exp $	*/
+/*	$OpenBSD: if_vr.c,v 1.152 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998
@@ -76,13 +76,7 @@
 #include <sys/device.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -629,7 +623,6 @@ vr_attach(struct device *parent, struct device *self, void *aux)
 	if (sc->vr_quirks & VR_Q_BABYJUMBO)
 		ifp->if_hardmtu = VR_RXLEN_BABYJUMBO -
 		    ETHER_HDR_LEN - ETHER_CRC_LEN;
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -1046,7 +1039,7 @@ vr_txeof(struct vr_softc *sc)
 
 		m_freem(cur_tx->vr_mbuf);
 		cur_tx->vr_mbuf = NULL;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 next:
 		cur_tx = cur_tx->vr_nextdesc;
@@ -1311,7 +1304,7 @@ vr_start(struct ifnet *ifp)
 
 	sc = ifp->if_softc;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	if (sc->vr_link == 0)
@@ -1321,17 +1314,18 @@ vr_start(struct ifnet *ifp)
 	for (;;) {
 		if (sc->vr_cdata.vr_tx_cnt + VR_MAXFRAGS >=
 		    VR_TX_LIST_CNT - 1) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		IFQ_DEQUEUE(&ifp->if_snd, m);
-		if (m== NULL)
+		if (m == NULL)
 			break;
 
 		/* Pack the data into the descriptor. */
 		head_tx = cur_tx;
 		if (vr_encap(sc, &cur_tx, m)) {
+			m_freem(m);
 			ifp->if_oerrors++;
 			continue;
 		}
@@ -1482,7 +1476,7 @@ vr_init(void *xsc)
 	mii_mediachg(mii);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (!timeout_pending(&sc->sc_to))
 		timeout_add_sec(&sc->sc_to, 1);
@@ -1610,7 +1604,8 @@ vr_stop(struct vr_softc *sc)
 
 	timeout_del(&sc->sc_to);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	VR_SETBIT16(sc, VR_COMMAND, VR_CMD_STOP);
 	VR_CLRBIT16(sc, VR_COMMAND, (VR_CMD_RX_ON|VR_CMD_TX_ON));

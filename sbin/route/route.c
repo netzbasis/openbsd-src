@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.180 2015/11/20 17:26:56 jca Exp $	*/
+/*	$OpenBSD: route.c,v 1.183 2016/06/07 01:29:38 tedu Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -226,13 +226,8 @@ main(int argc, char **argv)
 		break;
 	}
 		
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	switch (kw) {
 	case K_GET:
@@ -329,13 +324,8 @@ flushroutes(int argc, char **argv)
 		break;
 	}
 
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	if (verbose) {
 		printf("Examining routing table from sysctl\n");
@@ -773,7 +763,7 @@ inet_makenetandmask(u_int32_t net, struct sockaddr_in *sin, int bits)
 	sin->sin_family = 0;
 	cp = (char *)(&sin->sin_addr + 1);
 	while (*--cp == '\0' && cp > (char *)sin)
-		;
+		continue;
 	sin->sin_len = 1 + cp - (char *)sin;
 }
 
@@ -1329,10 +1319,10 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		printf("\n");
 		break;
 	default:
-		printf(", priority %d, ", rtm->rtm_priority);
-		printf("table %u, pid: %ld, seq %d, errno %d\nflags:",
-		    rtm->rtm_tableid, (long)rtm->rtm_pid, rtm->rtm_seq,
-		    rtm->rtm_errno);
+		printf(", priority %d, table %u, ifidx %u, ",
+		    rtm->rtm_priority, rtm->rtm_tableid, rtm->rtm_index);
+		printf("pid: %ld, seq %d, errno %d\nflags:",
+		    (long)rtm->rtm_pid, rtm->rtm_seq, rtm->rtm_errno);
 		bprintf(stdout, rtm->rtm_flags, routeflags);
 		if (verbose) {
 #define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')

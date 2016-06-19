@@ -1,4 +1,4 @@
-/*	$OpenBSD: number.c,v 1.16 2015/10/24 18:37:23 mmcc Exp $	*/
+/*	$OpenBSD: number.c,v 1.20 2016/03/07 12:07:56 mestre Exp $	*/
 
 /*
  * Copyright (c) 1988, 1993, 1994
@@ -28,8 +28,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/types.h>
 
 #include <ctype.h>
 #include <err.h>
@@ -67,9 +65,8 @@ void	convert(char *);
 void	convertexp(char *);
 int	number(const char *, int);
 void	pfract(int);
-void	toobig(void);
 int	unit(int, const char *);
-void	usage(void);
+__dead void	usage(void);
 
 int lflag;
 
@@ -88,7 +85,6 @@ main(int argc, char *argv[])
 		case 'l':
 			lflag = 1;
 			break;
-		case '?':
 		case 'h':
 		default:
 			usage();
@@ -115,7 +111,7 @@ main(int argc, char *argv[])
 			if (lflag)
 				(void)printf("\n");
 		}
-	exit(0);
+	return 0;
 }
 
 void
@@ -331,6 +327,6 @@ pfract(int len)
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: number [-l] [--] [# ...]\n");
+	(void)fprintf(stderr, "usage: %s [-l] [--] [# ...]\n", getprogname());
 	exit(1);
 }

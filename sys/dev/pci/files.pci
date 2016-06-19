@@ -1,4 +1,4 @@
-#	$OpenBSD: files.pci,v 1.319 2015/09/11 13:35:15 claudio Exp $
+#	$OpenBSD: files.pci,v 1.324 2016/03/17 04:02:00 jsg Exp $
 #	$NetBSD: files.pci,v 1.20 1996/09/24 17:47:15 christos Exp $
 #
 # Config file and device description for machine-independent PCI code.
@@ -677,9 +677,8 @@ attach	rtw at pci with rtw_pci
 file	dev/pci/if_rtw_pci.c		rtw_pci
 
 # Realtek RTL8188CE Mini-PCI
-device	rtwn: ifnet, wlan, firmload
-attach	rtwn at pci
-file	dev/pci/if_rtwn.c		rtwn
+attach	rtwn at pci with rtwn_pci
+file	dev/pci/if_rtwn.c		rtwn_pci
 
 # Ralink RT2500 PCI/Mini-PCI
 attach	ral at pci with ral_pci
@@ -766,7 +765,7 @@ file	dev/pci/nviic.c			nviic
 
 # SD Host Controller
 attach	sdhc at pci with sdhc_pci
-file	dev/pci/sdhc_pci.c		sdhc
+file	dev/pci/sdhc_pci.c		sdhc_pci
 
 # AMD NPT Family 0Fh Processors, Function 3 -- Miscellaneous Control
 device	kate
@@ -793,6 +792,11 @@ device	itherm
 attach	itherm at pci
 file	dev/pci/itherm.c		itherm
 
+# Intel C610 temperature sensor
+device	pchtemp
+attach	pchtemp at pci
+file	dev/pci/pchtemp.c		pchtemp
+
 # AMD Geode CS5536 PCI-ISA bridge
 device	glxpcib{}: isabus, gpiobus, i2cbus
 attach	glxpcib at pci
@@ -801,6 +805,11 @@ file	dev/pci/glxpcib.c		glxpcib
 # Realtek RTS5209 Card Reader
 attach	rtsx at pci with rtsx_pci
 file	dev/pci/rtsx_pci.c		rtsx
+
+# XenSource Platform Device
+device	xspd
+attach	xspd at pci
+file	dev/pci/xspd.c			xspd
 
 # VirtIO
 device	virtio {}
@@ -816,6 +825,10 @@ file	dev/pci/if_vio.c		vio
 device	vioblk: scsi
 attach	vioblk at virtio
 file	dev/pci/vioblk.c		vioblk
+
+device	viocon
+attach	viocon at virtio
+file	dev/pci/viocon.c		viocon		needs-flag
 
 device	viomb
 attach	viomb at virtio

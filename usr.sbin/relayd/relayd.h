@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.215 2015/10/27 12:27:54 benno Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.222 2016/01/11 21:31:42 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -76,6 +76,7 @@
 #define RELAY_BACKLOG		10
 #define RELAY_MAXLOOKUPLEVELS	5
 #define RELAY_OUTOF_FD_RETRIES	5
+#define RELAY_MAX_HASH_RETRIES	5
 
 #define CONFIG_RELOAD		0x00
 #define CONFIG_TABLES		0x01
@@ -427,6 +428,7 @@ struct host {
 	int			 retry_cnt;
 	int			 idx;
 	u_int16_t		 he;
+	int			 code;
 	struct ctl_tcp_event	 cte;
 };
 TAILQ_HEAD(hostlist, host);
@@ -874,11 +876,6 @@ struct {
 	int		 fd;
 } control_state;
 
-enum blockmodes {
-	BM_NORMAL,
-	BM_NONBLOCK
-};
-
 struct imsgev {
 	struct imsgbuf		 ibuf;
 	void			(*handler)(int, short, void *);
@@ -1057,6 +1054,7 @@ struct relayd {
 	u_int16_t		 sc_prefork_relay;
 	char			 sc_demote_group[IFNAMSIZ];
 	u_int16_t		 sc_id;
+	int			 sc_rtable;
 
 	struct event		 sc_statev;
 	struct timeval		 sc_statinterval;
@@ -1094,7 +1092,6 @@ void	 control_dispatch_imsg(int, short, void *);
 void	 control_imsg_forward(struct imsg *);
 struct ctl_conn	*
 	 control_connbyfd(int);
-void	 socket_set_blockmode(int, enum blockmodes);
 
 extern  struct ctl_connlist ctl_conns;
 
@@ -1103,7 +1100,7 @@ int	 parse_config(const char *, struct relayd *);
 int	 load_config(const char *, struct relayd *);
 int	 cmdline_symset(char *);
 
-/* log.c */
+/* util.c */
 const char *host_error(enum host_error);
 const char *host_status(enum host_status);
 const char *table_check(enum table_check);
@@ -1332,16 +1329,25 @@ void		shuffle_init(struct shuffle *);
 u_int16_t	shuffle_generate16(struct shuffle *);
 
 /* log.c */
-void	log_init(int);
+void	log_init(int, int);
+void	log_procinit(const char *);
 void	log_verbose(int);
-void	log_warn(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_warnx(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_info(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	log_debug(const char *, ...) __attribute__((__format__ (printf, 1, 2)));
-void	logit(int, const char *, ...) __attribute__((__format__ (printf, 2, 3)));
-void	vlog(int, const char *, va_list) __attribute__((__format__ (printf, 2, 0)));
-__dead void fatal(const char *);
-__dead void fatalx(const char *);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* proc.c */
 void	 proc_init(struct privsep *, struct privsep_proc *, u_int);
@@ -1353,11 +1359,15 @@ pid_t	 proc_run(struct privsep *, struct privsep_proc *,
 	    void (*)(struct privsep *, struct privsep_proc *, void *), void *);
 void	 proc_range(struct privsep *, enum privsep_procid, int *, int *);
 int	 proc_compose_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, void *, u_int16_t);
+	    u_int16_t, u_int32_t, int, void *, u_int16_t);
+int	 proc_compose(struct privsep *, enum privsep_procid,
+	    uint16_t, void *, uint16_t);
 int	 proc_composev_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, const struct iovec *, int);
+	    u_int16_t, u_int32_t, int, const struct iovec *, int);
 int	 proc_forward_imsg(struct privsep *, struct imsg *,
 	    enum privsep_procid, int);
+int	 proc_composev(struct privsep *, enum privsep_procid,
+	    uint16_t, const struct iovec *, int);
 struct imsgbuf *
 	 proc_ibuf(struct privsep *, enum privsep_procid, int);
 struct imsgev *

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ipw.c,v 1.111 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_ipw.c,v 1.115 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -45,10 +45,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -265,7 +263,6 @@ ipw_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = ipw_ioctl;
 	ifp->if_start = ipw_start;
 	ifp->if_watchdog = ipw_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -1035,7 +1032,7 @@ ipw_tx_intr(struct ipw_softc *sc)
 	sc->txold = (r == 0) ? IPW_NTBD - 1 : r - 1;
 
 	/* call start() since some buffer descriptors have been released */
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	(*ifp->if_start)(ifp);
 }
 
@@ -1300,7 +1297,7 @@ ipw_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (sc->txfree < 1 + IPW_MAX_NSEG) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -2023,7 +2020,7 @@ ipw_init(struct ifnet *ifp)
 		goto fail1;
 	}
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
@@ -2050,7 +2047,8 @@ ipw_stop(struct ifnet *ifp, int disable)
 	CSR_WRITE_4(sc, IPW_CSR_RST, IPW_RST_SW_RESET);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Release tx buffers.

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vexpress_machdep.c,v 1.1 2015/06/08 06:33:16 jsg Exp $	*/
+/*	$OpenBSD: vexpress_machdep.c,v 1.4 2016/06/08 15:27:05 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -28,18 +28,16 @@
 
 #include <arm/cortex/smc.h>
 #include <arm/armv7/armv7var.h>
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 #include <armv7/vexpress/pl011var.h>
 #include <armv7/armv7/armv7_machdep.h>
 
 extern void sysconf_reboot(void);
 extern void sysconf_shutdown(void);
-extern char *vexpress_board_name(void);
 extern struct board_dev *vexpress_board_devs(void);
 extern void vexpress_board_init(void);
 extern int vexpress_legacy_map(void);
-extern int comcnspeed;
-extern int comcnmode;
 
 void
 vexpress_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_size_t off,
@@ -49,20 +47,10 @@ vexpress_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh, bus_siz
 }
 
 void
-vexpress_platform_init_cons(void)
+vexpress_platform_init_mainbus(struct device *self)
 {
-	paddr_t paddr;
-
-	switch (board_id) {
-	default:
-	case BOARD_ID_VEXPRESS:
-		if (vexpress_legacy_map())
-			paddr = 0x10009000;
-		else
-			paddr = 0x1c090000;
-		break;
-	}
-	pl011cnattach(&armv7_bs_tag, paddr, comcnspeed, comcnmode);
+	mainbus_legacy_found(self, "cortex");
+	mainbus_legacy_found(self, "vexpress");
 }
 
 void
@@ -75,12 +63,6 @@ void
 vexpress_platform_powerdown(void)
 {
 	sysconf_shutdown();
-}
-
-const char *
-vexpress_platform_board_name(void)
-{
-	return (vexpress_board_name());
 }
 
 void
@@ -96,14 +78,12 @@ vexpress_platform_board_init(void)
 }
 
 struct armv7_platform vexpress_platform = {
-	.boot_name = "OpenBSD/vexpress",
-	.board_name = vexpress_platform_board_name,
 	.board_init = vexpress_platform_board_init,
 	.smc_write = vexpress_platform_smc_write,
-	.init_cons = vexpress_platform_init_cons,
 	.watchdog_reset = vexpress_platform_watchdog_reset,
 	.powerdown = vexpress_platform_powerdown,
 	.disable_l2_if_needed = vexpress_platform_disable_l2_if_needed,
+	.init_mainbus = vexpress_platform_init_mainbus,
 };
 
 struct armv7_platform *

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cue.c,v 1.73 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_cue.c,v 1.75 2016/04/13 11:03:37 mpi Exp $ */
 /*	$NetBSD: if_cue.c,v 1.40 2002/07/11 21:14:26 augustss Exp $	*/
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -518,8 +518,6 @@ cue_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_watchdog = cue_watchdog;
 	strlcpy(ifp->if_xname, sc->cue_dev.dv_xname, IFNAMSIZ);
 
-	IFQ_SET_READY(&ifp->if_snd);
-
 	/* Attach the interface. */
 	if_attach(ifp);
 	ether_ifattach(ifp);
@@ -764,7 +762,7 @@ cue_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		    __func__, status));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -884,7 +882,7 @@ cue_start(struct ifnet *ifp)
 
 	DPRINTFN(10,("%s: %s: enter\n", sc->cue_dev.dv_xname,__func__));
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	m_head = ifq_deq_begin(&ifp->if_snd);
@@ -893,7 +891,7 @@ cue_start(struct ifnet *ifp)
 
 	if (cue_send(sc, m_head, 0)) {
 		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -908,7 +906,7 @@ cue_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * Set a timeout in case the chip goes out to lunch.
@@ -995,7 +993,7 @@ cue_init(void *xsc)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -1132,7 +1130,8 @@ cue_stop(struct cue_softc *sc)
 
 	ifp = GET_IFP(sc);
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	cue_csr_write_1(sc, CUE_ETHCTL, 0);
 	cue_reset(sc);

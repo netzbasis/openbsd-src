@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.101 2015/10/13 08:33:06 sunil Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.108 2016/05/27 11:24:13 krw Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -102,26 +102,18 @@ server_httpdesc_free(struct http_descriptor *desc)
 {
 	if (desc == NULL)
 		return;
-	if (desc->http_path != NULL) {
-		free(desc->http_path);
-		desc->http_path = NULL;
-	}
-	if (desc->http_path_alias != NULL) {
-		free(desc->http_path_alias);
-		desc->http_path_alias = NULL;
-	}
-	if (desc->http_query != NULL) {
-		free(desc->http_query);
-		desc->http_query = NULL;
-	}
-	if (desc->http_version != NULL) {
-		free(desc->http_version);
-		desc->http_version = NULL;
-	}
-	if (desc->http_host != NULL) {
-		free(desc->http_host);
-		desc->http_host = NULL;
-	}
+
+	free(desc->http_path);
+	desc->http_path = NULL;
+	free(desc->http_path_alias);
+	desc->http_path_alias = NULL;
+	free(desc->http_query);
+	desc->http_query = NULL;
+	free(desc->http_version);
+	desc->http_version = NULL;
+	free(desc->http_host);
+	desc->http_host = NULL;
+
 	kv_purge(&desc->http_headers);
 	desc->http_lastheader = NULL;
 	desc->http_method = 0;
@@ -304,8 +296,10 @@ server_read_http(struct bufferevent *bev, void *arg)
 				goto fail;
 
 			desc->http_version = strchr(desc->http_path, ' ');
-			if (desc->http_version == NULL)
-				goto fail;
+			if (desc->http_version == NULL) {
+				server_abort_http(clt, 400, "malformed");
+				goto abort;
+			}
 
 			*desc->http_version++ = '\0';
 			desc->http_query = strchr(desc->http_path, '?');
@@ -598,8 +592,7 @@ server_read_httpchunks(struct bufferevent *bev, void *arg)
 	case 0:
 		/* Chunk is terminated by an empty newline */
 		line = evbuffer_readln(src, NULL, EVBUFFER_EOL_CRLF_STRICT);
-		if (line != NULL)
-			free(line);
+		free(line);
 		if (server_bufferevent_print(clt, "\r\n") == -1)
 			goto fail;
 		clt->clt_toread = TOREAD_HTTP_CHUNK_LENGTH;
@@ -825,6 +818,8 @@ server_abort_http(struct client *clt, unsigned int code, const char *msg)
 	    "<!DOCTYPE html>\n"
 	    "<html>\n"
 	    "<head>\n"
+	    "<meta http-equiv=\"Content-Type\" content=\"text/html; "
+	    "charset=utf-8\"/>\n"
 	    "<title>%03d %s</title>\n"
 	    "<style type=\"text/css\"><!--\n%s\n--></style>\n"
 	    "</head>\n"
@@ -833,8 +828,10 @@ server_abort_http(struct client *clt, unsigned int code, const char *msg)
 	    "<hr>\n<address>%s</address>\n"
 	    "</body>\n"
 	    "</html>\n",
-	    code, httperr, style, code, httperr, HTTPD_SERVERNAME)) == -1)
+	    code, httperr, style, code, httperr, HTTPD_SERVERNAME)) == -1) {
+		body = NULL;
 		goto done;
+	}
 
 	if (srv_conf->flags & SRVFLAG_SERVER_HSTS) {
 		if (asprintf(&hstsheader, "Strict-Transport-Security: "
@@ -842,8 +839,10 @@ server_abort_http(struct client *clt, unsigned int code, const char *msg)
 		    srv_conf->hsts_flags & HSTSFLAG_SUBDOMAINS ?
 		    "; includeSubDomains" : "",
 		    srv_conf->hsts_flags & HSTSFLAG_PRELOAD ?
-		    "; preload" : "") == -1)
+		    "; preload" : "") == -1) {
+			hstsheader = NULL;
 			goto done;
+		}
 	}
 
 	/* Add basic HTTP headers */

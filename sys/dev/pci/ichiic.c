@@ -1,4 +1,4 @@
-/*	$OpenBSD: ichiic.c,v 1.36 2015/01/09 07:29:45 jsg Exp $	*/
+/*	$OpenBSD: ichiic.c,v 1.39 2016/04/24 06:50:58 jsg Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006 Alexander Yurchenko <grange@openbsd.org>
@@ -119,7 +119,9 @@ const struct pci_matchid ichiic_ids[] = {
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_C610_MS_SMB_2 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_C610_MS_SMB_3 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_DH8900_SMB },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_EP80579_SMBUS }
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_EP80579_SMBUS },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_SMB },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_LP_SMB }
 };
 
 int
@@ -339,17 +341,19 @@ ichiic_intr(void *arg)
 
 	/* Read status */
 	st = bus_space_read_1(sc->sc_iot, sc->sc_ioh, ICH_SMB_HS);
+
+	/* Clear status bits */
+	bus_space_write_1(sc->sc_iot, sc->sc_ioh, ICH_SMB_HS, st);
+
+	/* XXX Ignore SMBALERT# for now */
 	if ((st & ICH_SMB_HS_BUSY) != 0 || (st & (ICH_SMB_HS_INTR |
 	    ICH_SMB_HS_DEVERR | ICH_SMB_HS_BUSERR | ICH_SMB_HS_FAILED |
-	    ICH_SMB_HS_SMBAL | ICH_SMB_HS_BDONE)) == 0)
+	    ICH_SMB_HS_BDONE)) == 0)
 		/* Interrupt was not for us */
 		return (0);
 
 	DPRINTF(("%s: intr st 0x%b\n", sc->sc_dev.dv_xname, st,
 	    ICH_SMB_HS_BITS));
-
-	/* Clear status bits */
-	bus_space_write_1(sc->sc_iot, sc->sc_ioh, ICH_SMB_HS, st);
 
 	/* Check for errors */
 	if (st & (ICH_SMB_HS_DEVERR | ICH_SMB_HS_BUSERR | ICH_SMB_HS_FAILED)) {

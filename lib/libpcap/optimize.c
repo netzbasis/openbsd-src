@@ -1,4 +1,4 @@
-/*	$OpenBSD: optimize.c,v 1.17 2015/11/17 21:39:23 mmcc Exp $	*/
+/*	$OpenBSD: optimize.c,v 1.19 2016/02/05 16:58:39 canacar Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1993, 1994, 1995, 1996
@@ -1902,7 +1902,7 @@ fail2:
 	 */
 	maxval = 3 * max_stmts;
 	vmap = reallocarray(NULL, maxval, sizeof(*vmap));
-	vnode_base = reallocarray(NULL, maxval, sizeof(*vmap));
+	vnode_base = reallocarray(NULL, maxval, sizeof(*vnode_base));
 	if (vmap == NULL || vnode_base == NULL)
 		bpf_error("malloc");
 }
@@ -2032,8 +2032,7 @@ filled:
 		++dst;
 		++off;
 	}
-	if (offset)
-		free(offset);
+	free(offset);
 
 #ifdef BDEBUG
 	bids[dst - fstart] = p->id + 1;

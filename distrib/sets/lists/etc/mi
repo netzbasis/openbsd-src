@@ -15,7 +15,6 @@
 ./etc/login.conf
 ./etc/mail.rc
 ./etc/mail/aliases
-./etc/mail/aliases.db
 ./etc/mail/smtpd.conf
 ./etc/mail/spamd.conf
 ./etc/mailer.conf
@@ -47,7 +46,6 @@
 ./etc/ssl/openssl.cnf
 ./etc/ssl/x509v3.cnf
 ./etc/syslog.conf
-./etc/systrace/usr_sbin_lpd
 ./etc/ttys
 ./root/.Xdefaults
 ./root/.cshrc
@@ -74,7 +72,6 @@
 ./var/mail/root
 ./var/nsd/etc/nsd.conf
 ./var/sysmerge/etcsum
-./var/sysmerge/examplessum
 ./var/unbound/etc/unbound.conf
 ./var/www/conf/bgplg.css
 ./var/www/conf/bgplg.foot

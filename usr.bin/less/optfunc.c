@@ -359,7 +359,6 @@ opt__P(int type, char *s)
 /*
  * Handler for the -b option.
  */
-/*ARGSUSED*/
 void
 opt_b(int type, char *s)
 {
@@ -379,7 +378,6 @@ opt_b(int type, char *s)
 /*
  * Handler for the -i option.
  */
-/*ARGSUSED*/
 void
 opt_i(int type, char *s)
 {
@@ -396,7 +394,6 @@ opt_i(int type, char *s)
 /*
  * Handler for the -V option.
  */
-/*ARGSUSED*/
 void
 opt__V(int type, char *s)
 {
@@ -438,7 +435,7 @@ opt_x(int type, char *s)
 	extern int tabstops[];
 	extern int ntabstops;
 	extern int tabdefault;
-	char msg[60+(4*TABSTOP_MAX)];
+	char tabs[60+(4*TABSTOP_MAX)];
 	int i;
 	PARG p;
 
@@ -463,20 +460,21 @@ opt_x(int type, char *s)
 		tabdefault = tabstops[ntabstops-1] - tabstops[ntabstops-2];
 		break;
 	case QUERY:
-		(void) strlcpy(msg, "Tab stops ", sizeof(msg));
+		(void) strlcpy(tabs, "Tab stops ", sizeof(tabs));
 		if (ntabstops > 2) {
 			for (i = 1;  i < ntabstops;  i++) {
 				if (i > 1)
-					strlcat(msg, ",", sizeof(msg));
-				(void) snprintf(msg+strlen(msg),
-				    sizeof(msg)-strlen(msg), "%d", tabstops[i]);
+					strlcat(tabs, ",", sizeof(tabs));
+				(void) snprintf(tabs+strlen(tabs),
+				    sizeof(tabs)-strlen(tabs),
+				    "%d", tabstops[i]);
 			}
-			(void) snprintf(msg+strlen(msg), sizeof(msg)-strlen(msg),
-			    " and then ");
+			(void) snprintf(tabs+strlen(tabs),
+			    sizeof(tabs)-strlen(tabs), " and then ");
 		}
-		(void) snprintf(msg+strlen(msg), sizeof(msg)-strlen(msg),
+		(void) snprintf(tabs+strlen(tabs), sizeof(tabs)-strlen(tabs),
 		    "every %d spaces", tabdefault);
-		p.p_string = msg;
+		p.p_string = tabs;
 		error("%s", &p);
 		break;
 	}
@@ -524,7 +522,6 @@ opt_quote(int type, char *s)
  * "-?" means display a help message.
  * If from the command line, exit immediately.
  */
-/*ARGSUSED*/
 void
 opt_query(int type, char *s)
 {

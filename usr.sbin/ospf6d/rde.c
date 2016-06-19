@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.64 2015/09/27 17:31:50 stsp Exp $ */
+/*	$OpenBSD: rde.c,v 1.66 2016/06/06 15:57:44 benno Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -261,7 +261,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	u_int16_t		 l;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -278,7 +278,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("rde_dispatch_imsg: imsg_read error");
+			fatal("rde_dispatch_imsg: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -356,7 +356,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				}
 			}
 			if (l != 0)
-				log_warnx("rde_dispatch_imsg: peerid %lu, "
+				log_warnx("rde_dispatch_imsg: peerid %u, "
 				    "trailing garbage in Database Description "
 				    "packet", imsg.hdr.peerid);
 
@@ -387,7 +387,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				    ntohs(v->lsa->hdr.len));
 			}
 			if (l != 0)
-				log_warnx("rde_dispatch_imsg: peerid %lu, "
+				log_warnx("rde_dispatch_imsg: peerid %u, "
 				    "trailing garbage in LS Request "
 				    "packet", imsg.hdr.peerid);
 			break;
@@ -635,7 +635,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 	unsigned int		 ifindex;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -649,7 +649,7 @@ rde_dispatch_parent(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("rde_dispatch_parent: imsg_read error");
+			fatal("rde_dispatch_parent: imsg_get error");
 		if (n == 0)
 			break;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rusersd.c,v 1.16 2009/10/27 23:59:31 deraadt Exp $	*/
+/*	$OpenBSD: rusersd.c,v 1.18 2016/04/25 15:43:34 deraadt Exp $	*/
 
 /*-
  *  Copyright (c) 1993 John Brezak
@@ -75,8 +75,10 @@ main(int argc, char *argv[])
 	openlog("rpc.rusersd", LOG_NDELAY|LOG_CONS|LOG_PID, LOG_DAEMON);
 
 	pw = getpwnam("_rusersd");
-	if (!pw)
-		pw = getpwnam("nobody");
+	if (!pw) {
+		syslog(LOG_ERR, "no such user _rusersd");
+		exit(1);
+	}
 	if (chroot("/var/empty") == -1) {
 		syslog(LOG_ERR, "cannot chdir to /var/empty.");
 		exit(1);
@@ -85,10 +87,8 @@ main(int argc, char *argv[])
 
 	if (pw) {
 		setgroups(1, &pw->pw_gid);
-		setegid(pw->pw_gid);
-		setgid(pw->pw_gid);
-		seteuid(pw->pw_uid);
-		setuid(pw->pw_uid);
+		setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid);
+		setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid);
 	}
 
 	/*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_elf.h,v 1.56 2015/10/13 04:29:50 guenther Exp $	*/
+/*	$OpenBSD: exec_elf.h,v 1.58 2016/05/29 00:48:05 deraadt Exp $	*/
 /*
  * Copyright (c) 1995, 1996 Erik Theisen.  All rights reserved.
  *
@@ -427,6 +427,7 @@ typedef struct {
 #define PT_HIPROC	0x7fffffff	/*  specific segment types */
 
 #define PT_OPENBSD_RANDOMIZE	0x65a3dbe6	/* fill with random data */
+#define PT_OPENBSD_WXNEEDED	0x65a3dbe7	/* program performs W^X violations */
 #define PT_OPENBSD_BOOTDATA	0x65a41be6	/* section for boot arguments */
 
 /* Segment flags - p_flags */
@@ -619,7 +620,7 @@ typedef struct {
 
 typedef struct {
 	Elf64_Shalf	au_id;				/* 32-bit id */
-	Elf64_Xword	au_v;				/* 64-bit id */
+	Elf64_Xword	au_v;				/* 64-bit value */
 } Aux64Info;
 
 enum AuxID {

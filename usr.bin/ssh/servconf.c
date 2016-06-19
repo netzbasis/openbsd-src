@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.283 2015/11/13 04:38:06 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.291 2016/06/17 05:03:40 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -339,9 +339,9 @@ fill_default_server_options(ServerOptions *options)
 
 	assemble_algorithms(options);
 
-	/* Turn privilege separation on by default */
+	/* Turn privilege separation and sandboxing on by default */
 	if (use_privsep == -1)
-		use_privsep = PRIVSEP_NOSANDBOX;
+		use_privsep = PRIVSEP_ON;
 
 #define CLEAR_ON_NONE(v) \
 	do { \
@@ -363,6 +363,15 @@ fill_default_server_options(ServerOptions *options)
 	for (i = 0; i < options->num_host_cert_files; i++)
 		CLEAR_ON_NONE(options->host_cert_files[i]);
 #undef CLEAR_ON_NONE
+
+	/* Similar handling for AuthenticationMethods=any */
+	if (options->num_auth_methods == 1 &&
+	    strcmp(options->auth_methods[0], "any") == 0) {
+		free(options->auth_methods[0]);
+		options->auth_methods[0] = NULL;
+		options->num_auth_methods = 0;
+	}
+
 }
 
 /* Keyword tokens. */
@@ -660,14 +669,15 @@ process_queued_listen_addrs(ServerOptions *options)
 struct connection_info *
 get_connection_info(int populate, int use_dns)
 {
+	struct ssh *ssh = active_state; /* XXX */
 	static struct connection_info ci;
 
 	if (!populate)
 		return &ci;
-	ci.host = get_canonical_hostname(use_dns);
-	ci.address = get_remote_ipaddr();
-	ci.laddress = get_local_ipaddr(packet_get_connection_in());
-	ci.lport = get_local_port();
+	ci.host = auth_get_canonical_hostname(ssh, use_dns);
+	ci.address = ssh_remote_ipaddr(ssh);
+	ci.laddress = ssh_local_ipaddr(ssh);
+	ci.lport = ssh_local_port(ssh);
 	return &ci;
 }
 
@@ -1278,16 +1288,12 @@ process_server_config_line(ServerOptions *options, char *line,
 			if (scan_scaled(arg, &val64) == -1)
 				fatal("%.200s line %d: Bad number '%s': %s",
 				    filename, linenum, arg, strerror(errno));
-			/* check for too-large or too-small limits */
-			if (val64 > UINT_MAX)
-				fatal("%.200s line %d: RekeyLimit too large",
-				    filename, linenum);
 			if (val64 != 0 && val64 < 16)
 				fatal("%.200s line %d: RekeyLimit too small",
 				    filename, linenum);
 		}
 		if (*activep && options->rekey_limit == -1)
-			options->rekey_limit = (u_int32_t)val64;
+			options->rekey_limit = val64;
 		if (cp != NULL) { /* optional rekey interval present */
 			if (strcmp(cp, "none") == 0) {
 				(void)strdelim(&cp);	/* discard */
@@ -1755,20 +1761,38 @@ process_server_config_line(ServerOptions *options, char *line,
 
 	case sAuthenticationMethods:
 		if (options->num_auth_methods == 0) {
+			value = 0; /* seen "any" pseudo-method */
 			while ((arg = strdelim(&cp)) && *arg != '\0') {
 				if (options->num_auth_methods >=
 				    MAX_AUTH_METHODS)
 					fatal("%s line %d: "
 					    "too many authentication methods.",
 					    filename, linenum);
-				if (auth2_methods_valid(arg, 0) != 0)
+				if (strcmp(arg, "any") == 0) {
+					if (options->num_auth_methods > 0) {
+						fatal("%s line %d: \"any\" "
+						    "must appear alone in "
+						    "AuthenticationMethods",
+						    filename, linenum);
+					}
+					value = 1;
+				} else if (value) {
+					fatal("%s line %d: \"any\" must appear "
+					    "alone in AuthenticationMethods",
+					    filename, linenum);
+				} else if (auth2_methods_valid(arg, 0) != 0) {
 					fatal("%s line %d: invalid "
 					    "authentication method list.",
 					    filename, linenum);
+				}
 				if (!*activep)
 					continue;
 				options->auth_methods[
 				    options->num_auth_methods++] = xstrdup(arg);
+			}
+			if (options->num_auth_methods == 0) {
+				fatal("%s line %d: no AuthenticationMethods "
+				    "specified", filename, linenum);
 			}
 		}
 		return 0;
@@ -1945,6 +1969,7 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(allow_agent_forwarding);
 	M_CP_INTOPT(permit_tun);
 	M_CP_INTOPT(fwd_opts.gateway_ports);
+	M_CP_INTOPT(fwd_opts.streamlocal_bind_unlink);
 	M_CP_INTOPT(x11_display_offset);
 	M_CP_INTOPT(x11_forwarding);
 	M_CP_INTOPT(x11_use_localhost);
@@ -1956,6 +1981,16 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(ip_qos_bulk);
 	M_CP_INTOPT(rekey_limit);
 	M_CP_INTOPT(rekey_interval);
+
+	/*
+	 * The bind_mask is a mode_t that may be unsigned, so we can't use
+	 * M_CP_INTOPT - it does a signed comparison that causes compiler
+	 * warnings.
+	 */
+	if (src->fwd_opts.streamlocal_bind_mask != (mode_t)-1) {
+		dst->fwd_opts.streamlocal_bind_mask =
+		    src->fwd_opts.streamlocal_bind_mask;
+	}
 
 	/* M_CP_STROPT and M_CP_STRARRAYOPT should not appear before here */
 #define M_CP_STROPT(n) do {\
@@ -2010,7 +2045,8 @@ parse_server_config(ServerOptions *options, const char *filename, Buffer *conf,
 
 	debug2("%s: config %s len %d", __func__, filename, buffer_len(conf));
 
-	obuf = cbuf = xstrdup(buffer_ptr(conf));
+	if ((obuf = cbuf = sshbuf_dup_string(conf)) == NULL)
+		fatal("%s: sshbuf_dup_string failed", __func__);
 	active = connectinfo ? 0 : 1;
 	linenum = 1;
 	while ((cp = strsep(&cbuf, "\n")) != NULL) {
@@ -2134,11 +2170,13 @@ dump_cfg_strarray_oneline(ServerOpCodes code, u_int count, char **vals)
 {
 	u_int i;
 
-	if (count <= 0)
+	if (count <= 0 && code != sAuthenticationMethods)
 		return;
 	printf("%s", lookup_opcode_name(code));
 	for (i = 0; i < count; i++)
 		printf(" %s",  vals[i]);
+	if (code == sAuthenticationMethods && count == 0)
+		printf(" any");
 	printf("\n");
 }
 
@@ -2236,6 +2274,7 @@ dump_config(ServerOptions *o)
 	dump_cfg_fmtint(sAllowTcpForwarding, o->allow_tcp_forwarding);
 	dump_cfg_fmtint(sAllowAgentForwarding, o->allow_agent_forwarding);
 	dump_cfg_fmtint(sAllowStreamLocalForwarding, o->allow_streamlocal_forwarding);
+	dump_cfg_fmtint(sStreamLocalBindUnlink, o->fwd_opts.streamlocal_bind_unlink);
 	dump_cfg_fmtint(sUsePrivilegeSeparation, use_privsep);
 	dump_cfg_fmtint(sFingerprintHash, o->fingerprint_hash);
 
@@ -2304,7 +2343,7 @@ dump_config(ServerOptions *o)
 	printf("ipqos %s ", iptos2str(o->ip_qos_interactive));
 	printf("%s\n", iptos2str(o->ip_qos_bulk));
 
-	printf("rekeylimit %lld %d\n", (long long)o->rekey_limit,
+	printf("rekeylimit %llu %d\n", (unsigned long long)o->rekey_limit,
 	    o->rekey_interval);
 
 	channel_print_adm_permitted_opens();

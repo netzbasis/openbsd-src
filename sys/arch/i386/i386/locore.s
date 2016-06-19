@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.161 2015/08/25 04:57:31 mlarkin Exp $	*/
+/*	$OpenBSD: locore.s,v 1.169 2016/05/23 20:11:49 deraadt Exp $	*/
 /*	$NetBSD: locore.s,v 1.145 1996/05/03 19:41:19 christos Exp $	*/
 
 /*-
@@ -41,15 +41,11 @@
 #include "apm.h"
 #include "lapic.h"
 #include "ioapic.h"
-#include "pctr.h"
 #include "ksyms.h"
 #include "acpi.h"
 
 #include <sys/errno.h>
 #include <sys/syscall.h>
-#ifdef COMPAT_LINUX
-#include <compat/linux/linux_syscall.h>
-#endif
 
 #include <machine/codepatch.h>
 #include <machine/cputypes.h>
@@ -507,7 +503,7 @@ try586:	/* Use the `cpuid' instruction. */
 
 	/* Find end of kernel image. */
 	movl	$RELOC(_C_LABEL(end)),%edi
-#if (defined(DDB) || NKSYMS > 0) && !defined(SYMTAB_SPACE)
+#if (NKSYMS || defined(DDB))
 	/* Save the symbols (if loaded). */
 	movl	RELOC(_C_LABEL(esym)),%eax
 	testl	%eax,%eax
@@ -693,7 +689,9 @@ _C_LABEL(codepatch_end):
 /*
  * Signal trampoline; copied to top of user stack.
  */
-NENTRY(sigcode)
+	.section .rodata
+	.globl	_C_LABEL(sigcode)
+_C_LABEL(sigcode):
 	call	*SIGF_HANDLER(%esp)
 	leal	SIGF_SC(%esp),%eax	# scp (the call may have clobbered the
 					# copy at SIGF_SCP(%esp))
@@ -701,31 +699,24 @@ NENTRY(sigcode)
 	pushl	%eax			# junk to fake return address
 	movl	$SYS_sigreturn,%eax
 	int	$0x80			# enter kernel with args on stack
+	.globl	_C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	movl	$SYS_exit,%eax
 	int	$0x80			# exit if sigreturn fails
 	.globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
 
-/*****************************************************************************/
+	.globl	_C_LABEL(sigfill)
+_C_LABEL(sigfill):
+	int3
+_C_LABEL(esigfill):
 
-/*****************************************************************************/
+	.data
+	.globl	_C_LABEL(sigfillsiz)
+_C_LABEL(sigfillsiz):
+	.long	_C_LABEL(esigfill) - _C_LABEL(sigfill)
 
-#ifdef COMPAT_LINUX
-/*
- * Signal trampoline; copied to top of user stack.
- */
-NENTRY(linux_sigcode)
-	call	*LINUX_SIGF_HANDLER(%esp)
-	leal	LINUX_SIGF_SC(%esp),%ebx # scp (the call may have clobbered the
-					# copy at SIGF_SCP(%esp))
-	pushl	%eax			# junk to fake return address
-	movl	$LINUX_SYS_sigreturn,%eax
-	int	$0x80			# enter kernel with args on stack
-	movl	$LINUX_SYS_exit,%eax
-	int	$0x80			# exit if sigreturn fails
-	.globl	_C_LABEL(linux_esigcode)
-_C_LABEL(linux_esigcode):
-#endif
+	.text
 
 /*****************************************************************************/
 
@@ -1212,8 +1203,8 @@ switch_exited:
 	movl	%ebx, CPUVAR(CURPCB)
 
 	/*
-	 * Activate the address space.  The pcb copy of %cr3 and the
-	 * LDT will be refreshed from the pmap, and because we're
+	 * Activate the address space.  The pcb copy of %cr3 will
+	 * be refreshed from the pmap, and because we're
 	 * curproc they'll both be reloaded into the CPU.
 	 */
 	pushl	%edi
@@ -1307,16 +1298,12 @@ ENTRY(savectx)
  * (possibly the next clock tick).  Thus, we disable interrupt before checking,
  * and only enable them again on the final `iret' or before calling the AST
  * handler.
- *
- * XXX - debugger traps are now interrupt gates so at least bdb doesn't lose
- * control.  The sti's give the standard losing behaviour for ddb and kgdb.
  */
 #define	IDTVEC(name)	ALIGN_TEXT; .globl X##name; X##name:
 
 #define	TRAP(a)		pushl $(a) ; jmp _C_LABEL(alltraps)
 #define	ZTRAP(a)	pushl $0 ; TRAP(a)
-#define	BPTTRAP(a)	testb $(PSL_I>>8),13(%esp) ; jz 1f ; sti ; 1: ; \
-			TRAP(a)
+
 
 	.text
 IDTVEC(div)
@@ -1329,12 +1316,11 @@ IDTVEC(dbg)
 	andb	$~0xf,%al
 	movl	%eax,%dr6
 	popl	%eax
-	BPTTRAP(T_TRCTRAP)
+	TRAP(T_TRCTRAP)
 IDTVEC(nmi)
 	ZTRAP(T_NMI)
 IDTVEC(bpt)
-	pushl	$0
-	BPTTRAP(T_BPTFLT)
+	ZTRAP(T_BPTFLT)
 IDTVEC(ofl)
 	ZTRAP(T_OFLOW)
 IDTVEC(bnd)
@@ -1429,7 +1415,6 @@ IDTVEC(align)
  * This will cause the process to get a SIGBUS.
  */
 NENTRY(resume_iret)
-	sti
 	ZTRAP(T_PROTFLT)
 NENTRY(resume_pop_ds)
 	pushl	%es
@@ -1448,8 +1433,13 @@ NENTRY(resume_pop_fs)
 	sti
 	jmp	calltrap
 
+/*
+ * All traps go through here. Call the generic trap handler, and
+ * check for ASTs afterwards.
+ */
 NENTRY(alltraps)
 	INTRENTRY
+	sti
 calltrap:
 #ifdef DIAGNOSTIC
 	movl	CPL,%ebx

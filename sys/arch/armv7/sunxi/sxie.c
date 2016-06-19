@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxie.c,v 1.11 2015/11/20 03:35:22 dlg Exp $	*/
+/*	$OpenBSD: sxie.c,v 1.16 2016/06/12 06:58:39 jsg Exp $	*/
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2013 Artturi Alm
@@ -30,11 +30,11 @@
 #include <sys/mbuf.h>
 #include <machine/intr.h>
 #include <machine/bus.h>
+#include <machine/fdt.h>
 
 #include "bpfilter.h"
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -50,6 +50,8 @@
 #include <armv7/sunxi/sunxireg.h>
 #include <armv7/sunxi/sxiccmuvar.h>
 #include <armv7/sunxi/sxipiovar.h>
+
+#include <dev/ofw/openfirm.h>
 
 /* configuration registers */
 #define	SXIE_CR			0x0000
@@ -165,6 +167,7 @@ struct sxie_softc {
 
 struct sxie_softc *sxie_sc;
 
+int	sxie_match(struct device *, void *, void *);
 void	sxie_attach(struct device *, struct device *, void *);
 void	sxie_setup_interface(struct sxie_softc *, struct device *);
 void	sxie_socware_init(struct sxie_softc *);
@@ -185,26 +188,42 @@ int	sxie_ifm_change(struct ifnet *);
 void	sxie_ifm_status(struct ifnet *, struct ifmediareq *);
 
 struct cfattach sxie_ca = {
-	sizeof (struct sxie_softc), NULL, sxie_attach
+	sizeof (struct sxie_softc), sxie_match, sxie_attach
 };
 
 struct cfdriver sxie_cd = {
 	NULL, "sxie", DV_IFNET
 };
 
-void
-sxie_attach(struct device *parent, struct device *self, void *args)
+int
+sxie_match(struct device *parent, void *match, void *aux)
 {
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "allwinner,sun4i-a10-emac");
+}
+
+void
+sxie_attach(struct device *parent, struct device *self, void *aux)
+{
 	struct sxie_softc *sc = (struct sxie_softc *) self;
+	struct fdt_attach_args *faa = aux;
 	struct mii_data *mii;
 	struct ifnet *ifp;
-	int s;
+	int s, irq;
 
-	sc->sc_iot = aa->aa_iot;
+	if (faa->fa_nreg != 2 || (faa->fa_nintr != 1 && faa->fa_nintr != 3))
+		return;
 
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
+	if (faa->fa_nintr == 1)
+		irq = faa->fa_intr[0];
+	else
+		irq = faa->fa_intr[1];
+
+	sc->sc_iot = faa->fa_iot;
+
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
+	    faa->fa_reg[1], 0, &sc->sc_ioh))
 		panic("sxie_attach: bus_space_map ioh failed!");
 
 	if (bus_space_map(sc->sc_iot, SID_ADDR, SID_SIZE, 0, &sc->sc_sid_ioh))
@@ -213,7 +232,7 @@ sxie_attach(struct device *parent, struct device *self, void *args)
 	sxie_socware_init(sc);
 	sc->txf_inuse = 0;
 
-	sc->sc_ih = arm_intr_establish(aa->aa_dev->irq[0], IPL_NET,
+	sc->sc_ih = arm_intr_establish(irq, IPL_NET,
 	    sxie_intr, sc, sc->sc_dev.dv_xname);
 
 	s = splnet();
@@ -231,7 +250,6 @@ sxie_attach(struct device *parent, struct device *self, void *args)
 	ifp->if_capabilities = IFCAP_VLAN_MTU; /* XXX status check in recv? */
 
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Initialize MII/media info. */
 	mii = &sc->sc_mii;
@@ -397,7 +415,7 @@ sxie_init(struct sxie_softc *sc)
 
 	/* Indicate we are up and running. */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	SXISET4(sc, SXIE_INTCR, SXIE_INTR_ENABLE);
 
@@ -427,7 +445,7 @@ sxie_intr(void *arg)
 	pending &= 3;
 
 	if (pending) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->txf_inuse--;
 		ifp->if_opackets++;
 		if (pending == 3) { /* 2 packets got sent */
@@ -462,9 +480,9 @@ sxie_start(struct ifnet *ifp)
 	uint32_t txbuf[SXIE_MAX_PKT_SIZE / sizeof(uint32_t)]; /* XXX !!! */
 
 	if (sc->txf_inuse > 1)
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 
-	if ((ifp->if_flags & (IFF_OACTIVE | IFF_RUNNING)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	td = (uint8_t *)&txbuf[0];
@@ -485,7 +503,7 @@ trynext:
 	if (sc->txf_inuse > 1) {
 		ifq_deq_rollback(&ifp->if_snd, m);
 		printf("sxie_start: tx fifos in use.\n");
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -525,8 +543,9 @@ sxie_stop(struct sxie_softc *sc)
 
 	sxie_reset(sc);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
 	ifp->if_timer = 0;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 void

@@ -13,10 +13,10 @@
  * Routines to search a file for a pattern.
  */
 
+#include "charset.h"
 #include "less.h"
 #include "pattern.h"
 #include "position.h"
-#include "charset.h"
 
 #define	MINPOS(a, b)	(((a) < (b)) ? (a) : (b))
 #define	MAXPOS(a, b)	(((a) > (b)) ? (a) : (b))
@@ -121,8 +121,7 @@ set_pattern(struct pattern_info *info, char *pattern, int search_type)
 static void
 clear_pattern(struct pattern_info *info)
 {
-	if (info->text != NULL)
-		free(info->text);
+	free(info->text);
 	info->text = NULL;
 	uncompile_pattern(&info->compiled);
 }
@@ -177,7 +176,7 @@ static int
 prev_pattern(struct pattern_info *info)
 {
 	if ((info->search_type & SRCH_NO_REGEX) == 0)
-		return (!is_null_pattern(info->compiled));
+		return (info->compiled != NULL);
 	return (info->text != NULL);
 }
 
@@ -659,7 +658,7 @@ search_range(off_t pos, off_t endpos, int search_type, int matches,
 	char *line;
 	char *cline;
 	int line_len;
-	LINENUM linenum;
+	off_t linenum;
 	char *sp, *ep;
 	int line_match;
 	int cvt_ops;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.124 2015/11/01 19:03:33 semarie Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.132 2016/05/29 13:51:53 natano Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -215,7 +215,6 @@ fd_getfile_mode(struct filedesc *fdp, int fd, int mode)
 /*
  * Duplicate a file descriptor.
  */
-/* ARGSUSED */
 int
 sys_dup(struct proc *p, void *v, register_t *retval)
 {
@@ -331,7 +330,6 @@ out:
 /*
  * The file control system call.
  */
-/* ARGSUSED */
 int
 sys_fcntl(struct proc *p, void *v, register_t *retval)
 {
@@ -403,7 +401,7 @@ restart:
 		break;
 
 	case F_ISATTY:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 	        if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
 			*retval = 1;
 		else {
@@ -444,7 +442,7 @@ restart:
 
 	case F_SETOWN:
 		if (fp->f_type == DTYPE_SOCKET) {
-			struct socket *so = (struct socket *)fp->f_data;
+			struct socket *so = fp->f_data;
 
 			so->so_pgid = (long)SCARG(uap, arg);
 			so->so_siguid = p->p_ucred->cr_ruid;
@@ -452,7 +450,7 @@ restart:
 			break;
 		}
 		if (fp->f_type == DTYPE_PIPE) {
-			struct pipe *mpipe = (struct pipe *)fp->f_data;
+			struct pipe *mpipe = fp->f_data;
 
 			mpipe->pipe_pgid = (long)SCARG(uap, arg);
 			break;
@@ -484,7 +482,7 @@ restart:
 			error = EBADF;
 			break;
 		}
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		/* Copy in the lock structure */
 		error = copyin((caddr_t)SCARG(uap, arg), (caddr_t)&fl,
 		    sizeof (fl));
@@ -551,7 +549,7 @@ restart:
 			error = EBADF;
 			break;
 		}
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		/* Copy in the lock structure */
 		error = copyin((caddr_t)SCARG(uap, arg), (caddr_t)&fl,
 		    sizeof (fl));
@@ -664,7 +662,6 @@ fdrelease(struct proc *p, int fd)
 /*
  * Close a file descriptor.
  */
-/* ARGSUSED */
 int
 sys_close(struct proc *p, void *v, register_t *retval)
 {
@@ -724,7 +721,6 @@ sys_fstat(struct proc *p, void *v, register_t *retval)
 /*
  * Return pathconf information about a file descriptor.
  */
-/* ARGSUSED */
 int
 sys_fpathconf(struct proc *p, void *v, register_t *retval)
 {
@@ -753,10 +749,10 @@ sys_fpathconf(struct proc *p, void *v, register_t *retval)
 		break;
 
 	case DTYPE_VNODE:
-		vp = (struct vnode *)fp->f_data;
+		vp = fp->f_data;
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
 		error = VOP_PATHCONF(vp, SCARG(uap, name), retval);
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		break;
 
 	default:
@@ -854,7 +850,7 @@ fdexpand(struct proc *p)
 	memset(newofileflags + copylen, 0, nfiles * sizeof(char) - copylen);
 
 	if (fdp->fd_nfiles > NDFILE)
-		free(fdp->fd_ofiles, M_FILEDESC, 0);
+		free(fdp->fd_ofiles, M_FILEDESC, fdp->fd_nfiles * OFILESIZE);
 
 	if (NDHISLOTS(nfiles) > NDHISLOTS(fdp->fd_nfiles)) {
 		newhimap = mallocarray(NDHISLOTS(nfiles), sizeof(u_int),
@@ -873,8 +869,10 @@ fdexpand(struct proc *p)
 		    NDLOSLOTS(nfiles) * sizeof(u_int) - copylen);
 
 		if (NDHISLOTS(fdp->fd_nfiles) > NDHISLOTS(NDFILE)) {
-			free(fdp->fd_himap, M_FILEDESC, 0);
-			free(fdp->fd_lomap, M_FILEDESC, 0);
+			free(fdp->fd_himap, M_FILEDESC,
+			    NDHISLOTS(fdp->fd_nfiles) * sizeof(u_int));
+			free(fdp->fd_lomap, M_FILEDESC,
+			    NDLOSLOTS(fdp->fd_nfiles) * sizeof(u_int));
 		}
 		fdp->fd_himap = newhimap;
 		fdp->fd_lomap = newlomap;
@@ -1040,13 +1038,12 @@ fdcopy(struct process *pr)
 			 * XXX Gruesome hack. If count gets too high, fail
 			 * to copy an fd, since fdcopy()'s callers do not
 			 * permit it to indicate failure yet.
-			 * Meanwhile, kqueue and systrace files have to be
+			 * Meanwhile, kqueue files have to be
 			 * tied to the process that opened them to enforce
 			 * their internal consistency, so close them here.
 			 */
 			if ((*fpp)->f_count == LONG_MAX-2 ||
-			    (*fpp)->f_type == DTYPE_KQUEUE ||
-			    (*fpp)->f_type == DTYPE_SYSTRACE)
+			    (*fpp)->f_type == DTYPE_KQUEUE)
 				fdremove(newfdp, i);
 			else
 				(*fpp)->f_count++;
@@ -1087,19 +1084,19 @@ fdfree(struct proc *p)
 	}
 	p->p_fd = NULL;
 	if (fdp->fd_nfiles > NDFILE)
-		free(fdp->fd_ofiles, M_FILEDESC, 0);
+		free(fdp->fd_ofiles, M_FILEDESC, fdp->fd_nfiles * OFILESIZE);
 	if (NDHISLOTS(fdp->fd_nfiles) > NDHISLOTS(NDFILE)) {
-		free(fdp->fd_himap, M_FILEDESC, 0);
-		free(fdp->fd_lomap, M_FILEDESC, 0);
+		free(fdp->fd_himap, M_FILEDESC,
+		    NDHISLOTS(fdp->fd_nfiles) * sizeof(u_int));
+		free(fdp->fd_lomap, M_FILEDESC,
+		    NDLOSLOTS(fdp->fd_nfiles) * sizeof(u_int));
 	}
 	if (fdp->fd_cdir)
 		vrele(fdp->fd_cdir);
 	if (fdp->fd_rdir)
 		vrele(fdp->fd_rdir);
-	if (fdp->fd_knlist)
-		free(fdp->fd_knlist, M_TEMP, 0);
-	if (fdp->fd_knhash)
-		free(fdp->fd_knhash, M_TEMP, 0);
+	free(fdp->fd_knlist, M_TEMP, fdp->fd_knlistsize * sizeof(struct klist));
+	free(fdp->fd_knhash, M_TEMP, 0);
 	pool_put(&fdesc_pool, fdp);
 }
 
@@ -1180,7 +1177,6 @@ fdrop(struct file *fp, struct proc *p)
  * Just attempt to get a record lock of the requested type on
  * the entire file (l_whence = SEEK_SET, l_start = 0, l_len = 0).
  */
-/* ARGSUSED */
 int
 sys_flock(struct proc *p, void *v, register_t *retval)
 {
@@ -1201,7 +1197,7 @@ sys_flock(struct proc *p, void *v, register_t *retval)
 	if (fp->f_type != DTYPE_VNODE)
 		return (EOPNOTSUPP);
 	FREF(fp);
-	vp = (struct vnode *)fp->f_data;
+	vp = fp->f_data;
 	lf.l_whence = SEEK_SET;
 	lf.l_start = 0;
 	lf.l_len = 0;
@@ -1237,7 +1233,6 @@ out:
  * consists of only the ``open()'' routine, because all subsequent
  * references to this file will be direct to the other driver.
  */
-/* ARGSUSED */
 int
 filedescopen(dev_t dev, int mode, int type, struct proc *p)
 {

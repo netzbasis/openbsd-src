@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.121 2015/11/09 10:26:26 mpi Exp $	*/
+/*	$OpenBSD: route.h,v 1.138 2016/06/14 09:48:52 mpi Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -96,14 +96,11 @@ struct rtentry {
 #ifndef ART
 	struct	radix_node rt_nodes[2];	/* tree glue, and other values */
 #else
-	struct art_node	*rt_node;	/* ART entry */
 	struct sockaddr	*rt_dest;	/* destination */
-	struct sockaddr *rt_mask;	/* mask (radix tree compat) */
-	SLIST_ENTRY(rtentry)  rt_next;	/* Next multipath entry to our dst. */
+	SRPL_ENTRY(rtentry) rt_next;	/* Next multipath entry to our dst. */
 #endif
+	struct sockaddr *rt_addr;	/* the answer: address to use */
 	struct sockaddr	*rt_gateway;	/* value */
-	struct ifnet	*rt_ifp;	/* the answer: interface to use */
-#define rt_ifidx rt_ifp->if_index
 	struct ifaddr	*rt_ifa;	/* the answer: interface addr to use */
 	caddr_t		 rt_llinfo;	/* pointer to link level info cache or
 					   to an MPLS structure */ 
@@ -111,9 +108,12 @@ struct rtentry {
 	struct rtentry	*rt_parent;	/* If cloned, parent of this route. */
 	LIST_HEAD(, rttimer) rt_timer;  /* queue of timeouts for misc funcs */
 	struct rt_kmetrics rt_rmx;	/* metrics used by rx'ing protocols */
+	unsigned int	 rt_ifidx;	/* the answer: interface to use */
 	unsigned int	 rt_flags;	/* up/down?, host/net */
-	unsigned int	 rt_tableid;	/* routing table ID  */
 	int		 rt_refcnt;	/* # held references */
+#ifdef ART
+	int		 rt_plen;	/* prefix length */
+#endif
 	uint16_t	 rt_labelid;	/* route label ID */
 	uint8_t		 rt_priority;	/* routing priority to use */
 };
@@ -137,6 +137,7 @@ struct rtentry {
 #define RTF_BLACKHOLE	0x1000		/* just discard pkts (during updates) */
 #define RTF_PROTO3	0x2000		/* protocol specific routing flag */
 #define RTF_PROTO2	0x4000		/* protocol specific routing flag */
+#define RTF_ANNOUNCE	RTF_PROTO2	/* announce L2 entry */
 #define RTF_PROTO1	0x8000		/* protocol specific routing flag */
 #define RTF_CLONED	0x10000		/* this is a cloned route */
 #define RTF_MPATH	0x40000		/* multipath route or operation */
@@ -340,16 +341,17 @@ void		 rtlabel_unref(u_int16_t);
 /*
  * Values for additional argument to rtalloc()
  */
-#define	RT_REPORT	0x1
-#define	RT_RESOLVE	0x2
+#define	RT_RESOLVE	1
 
 extern struct rtstat rtstat;
 extern const struct sockaddr_rtin rt_defmask4;
 
-struct	mbuf;
-struct	socket;
-void	 route_init(void);
+struct mbuf;
+struct socket;
+struct ifnet;
+struct sockaddr_in6;
 
+void	 route_init(void);
 int	 route_output(struct mbuf *, ...);
 int	 route_usrreq(struct socket *, int, struct mbuf *,
 			   struct mbuf *, struct mbuf *, struct proc *);
@@ -357,14 +359,14 @@ void	 rt_ifmsg(struct ifnet *);
 void	 rt_ifannouncemsg(struct ifnet *, int);
 void	 rt_maskedcopy(struct sockaddr *,
 	    struct sockaddr *, struct sockaddr *);
+struct sockaddr *rt_plen2mask(struct rtentry *, struct sockaddr_in6 *);
 void	 rt_sendmsg(struct rtentry *, int, u_int);
-void	 rt_sendaddrmsg(struct rtentry *, int);
-void	 rt_missmsg(int, struct rt_addrinfo *, int, u_int, int, u_int);
+void	 rt_sendaddrmsg(struct rtentry *, int, struct ifaddr *);
+void	 rt_missmsg(int, struct rt_addrinfo *, int, uint8_t, u_int, int, u_int);
 int	 rt_setgate(struct rtentry *, struct sockaddr *);
-int	 rt_checkgate(struct ifnet *, struct rtentry *, struct sockaddr *,
-	    unsigned int, struct rtentry **);
-void	 rt_setmetrics(u_long, struct rt_metrics *, struct rt_kmetrics *);
-void	 rt_getmetrics(struct rt_kmetrics *, struct rt_metrics *);
+int	 rt_checkgate(struct rtentry *, struct rtentry **);
+void	 rt_setmetrics(u_long, const struct rt_metrics *, struct rt_kmetrics *);
+void	 rt_getmetrics(const struct rt_kmetrics *, struct rt_metrics *);
 
 int			 rt_timer_add(struct rtentry *,
 		             void(*)(struct rtentry *, struct rttimer *),
@@ -377,8 +379,9 @@ unsigned long		 rt_timer_queue_count(struct rttimer_queue *);
 void			 rt_timer_timer(void *);
 
 int	 rtisvalid(struct rtentry *);
+int	 rt_hash(struct rtentry *, struct sockaddr *, uint32_t *);
 #ifdef SMALL_KERNEL
-#define	 rtalloc_mpath(dst, s, rid) rtalloc((dst), RT_REPORT|RT_RESOLVE, (rid))
+#define	 rtalloc_mpath(dst, s, rid) rtalloc((dst), RT_RESOLVE, (rid))
 #else
 struct	 rtentry *rtalloc_mpath(struct sockaddr *, uint32_t *, u_int);
 #endif
@@ -392,9 +395,7 @@ int	 rt_ifa_del(struct ifaddr *, int, struct sockaddr *);
 int	 rt_ifa_addlocal(struct ifaddr *);
 int	 rt_ifa_dellocal(struct ifaddr *);
 int	 rtioctl(u_long, caddr_t, struct proc *);
-void	 rtredirect(struct sockaddr *, struct sockaddr *,
-			 struct sockaddr *, int, struct sockaddr *,
-			 struct rtentry **, u_int);
+void	 rtredirect(struct sockaddr *, struct sockaddr *, struct sockaddr *, struct rtentry **, unsigned int);
 int	 rtrequest(int, struct rt_addrinfo *, u_int8_t, struct rtentry **,
 	     u_int);
 void	 rt_if_remove(struct ifnet *);
@@ -402,7 +403,7 @@ void	 rt_if_remove(struct ifnet *);
 void	 rt_if_track(struct ifnet *);
 int	 rt_if_linkstate_change(struct rtentry *, void *, u_int);
 #endif
-int	 rtdeletemsg(struct rtentry *, u_int);
+int	 rtdeletemsg(struct rtentry *, struct ifnet *, u_int);
 #endif /* _KERNEL */
 
 #endif /* _NET_ROUTE_H_ */

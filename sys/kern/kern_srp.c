@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_srp.c,v 1.6 2015/09/11 20:21:01 dlg Exp $ */
+/*	$OpenBSD: kern_srp.c,v 1.10 2016/06/01 03:34:32 dlg Exp $ */
 
 /*
  * Copyright (c) 2014 Jonathan Matthew <jmatthew@openbsd.org>
@@ -21,6 +21,7 @@
 #include <sys/systm.h>
 #include <sys/timeout.h>
 #include <sys/srp.h>
+#include <sys/atomic.h>
 
 void	srp_v_gc_start(struct srp_gc *, struct srp *, void *);
 
@@ -46,13 +47,10 @@ srp_init(struct srp *srp)
 	srp->ref = NULL;
 }
 
-void
-srp_update_locked(struct srp_gc *srp_gc, struct srp *srp, void *nv)
+void *
+srp_swap_locked(struct srp *srp, void *nv)
 {
 	void *ov;
-
-	if (nv != NULL)
-		refcnt_take(&srp_gc->srp_gc_refcnt);
 
 	/*
 	 * this doesn't have to be as careful as the caller has already
@@ -62,8 +60,20 @@ srp_update_locked(struct srp_gc *srp_gc, struct srp *srp, void *nv)
 
 	ov = srp->ref;
 	srp->ref = nv;
-	if (ov != NULL)
-		srp_v_gc_start(srp_gc, srp, ov);
+
+	return (ov);
+}
+
+void
+srp_update_locked(struct srp_gc *srp_gc, struct srp *srp, void *v)
+{
+	if (v != NULL)
+		refcnt_take(&srp_gc->srp_gc_refcnt);
+
+	v = srp_swap_locked(srp, v);
+
+	if (v != NULL)
+		srp_v_gc_start(srp_gc, srp, v);
 }
 
 void *
@@ -73,7 +83,7 @@ srp_get_locked(struct srp *srp)
 }
 
 void
-srp_finalize(struct srp_gc *srp_gc)
+srp_gc_finalize(struct srp_gc *srp_gc)
 {
 	refcnt_finalize(&srp_gc->srp_gc_refcnt, "srpfini");
 }
@@ -173,13 +183,19 @@ srp_v_gc(void *x)
 	pool_put(&srp_gc_ctx_pool, ctx);
 }
 
+void *
+srp_swap(struct srp *srp, void *v)
+{
+	return (atomic_swap_ptr(&srp->ref, v));
+}
+
 void
 srp_update(struct srp_gc *srp_gc, struct srp *srp, void *v)
 {
 	if (v != NULL)
 		refcnt_take(&srp_gc->srp_gc_refcnt);
 
-	v = atomic_swap_ptr(&srp->ref, v);
+	v = srp_swap(srp, v);
 	if (v != NULL)
 		srp_v_gc_start(srp_gc, srp, v);
 }
@@ -206,7 +222,7 @@ srp_v(struct srp_hazard *hzrd, struct srp *srp)
 }
 
 void *
-srp_enter(struct srp *srp)
+srp_enter(struct srp_ref *sr, struct srp *srp)
 {
 	struct cpu_info *ci = curcpu();
 	struct srp_hazard *hzrd;
@@ -214,8 +230,10 @@ srp_enter(struct srp *srp)
 
 	for (i = 0; i < nitems(ci->ci_srp_hazards); i++) {
 		hzrd = &ci->ci_srp_hazards[i];
-		if (hzrd->sh_p == NULL)
+		if (hzrd->sh_p == NULL) {
+			sr->hz = hzrd;
 			return (srp_v(hzrd, srp));
+		}
 	}
 
 	panic("%s: not enough srp hazard records", __func__);
@@ -225,38 +243,42 @@ srp_enter(struct srp *srp)
 }
 
 void *
-srp_follow(struct srp *srp, void *v, struct srp *next)
+srp_follow(struct srp_ref *sr, struct srp *srp)
 {
-	struct cpu_info *ci = curcpu();
-	struct srp_hazard *hzrd;
-
-	hzrd = ci->ci_srp_hazards + nitems(ci->ci_srp_hazards);
-	while (hzrd-- != ci->ci_srp_hazards) {
-		if (hzrd->sh_p == srp && hzrd->sh_v == v)
-			return (srp_v(hzrd, next));
-	}
-
-	panic("%s: unexpected ref %p via %p", __func__, v, srp);
-
-	/* NOTREACHED */
-	return (NULL);
+	return (srp_v(sr->hz, srp));
 }
 
 void
-srp_leave(struct srp *srp, void *v)
+srp_leave(struct srp_ref *sr)
 {
-	struct cpu_info *ci = curcpu();
+	sr->hz->sh_p = NULL;
+}
+
+static inline int
+srp_referenced(void *v)
+{
+	struct cpu_info *ci;
+	CPU_INFO_ITERATOR cii;
+	u_int i;
 	struct srp_hazard *hzrd;
 
-	hzrd = ci->ci_srp_hazards + nitems(ci->ci_srp_hazards);
-	while (hzrd-- != ci->ci_srp_hazards) {
-		if (hzrd->sh_p == srp && hzrd->sh_v == v) {
-			hzrd->sh_p = NULL;
-			return;
+	CPU_INFO_FOREACH(cii, ci) {
+		for (i = 0; i < nitems(ci->ci_srp_hazards); i++) {
+			hzrd = &ci->ci_srp_hazards[i];
+
+			if (hzrd->sh_p != NULL && hzrd->sh_v == v)
+				return (1);
 		}
 	}
 
-	panic("%s: unexpected ref %p via %p", __func__, v, srp);
+	return (0);
+}
+
+void
+srp_finalize(void *v, const char *wmesg)
+{
+	while (srp_referenced(v))
+		tsleep(v, PWAIT, wmesg, 1);
 }
 
 #else /* MULTIPROCESSOR */

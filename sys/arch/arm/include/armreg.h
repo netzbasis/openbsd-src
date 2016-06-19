@@ -1,4 +1,4 @@
-/*	$OpenBSD: armreg.h,v 1.16 2015/05/29 05:48:07 jsg Exp $	*/
+/*	$OpenBSD: armreg.h,v 1.30 2016/04/04 09:06:28 patrick Exp $	*/
 /*	$NetBSD: armreg.h,v 1.27 2003/09/06 08:43:02 rearnsha Exp $	*/
 
 /*
@@ -63,18 +63,19 @@
  */
 
 #define PSR_FLAGS 0xf0000000	/* flags */
-#define PSR_N_bit (1U << 31)	/* negative */
-#define PSR_Z_bit (1 << 30)	/* zero */
-#define PSR_C_bit (1 << 29)	/* carry */
-#define PSR_V_bit (1 << 28)	/* overflow */
+#define PSR_N	(1U << 31)	/* negative */
+#define PSR_Z	(1 << 30)	/* zero */
+#define PSR_C	(1 << 29)	/* carry */
+#define PSR_V	(1 << 28)	/* overflow */
 
-#define PSR_Q_bit (1 << 27)	/* saturation */
+#define PSR_Q	(1 << 27)	/* saturation */
 
-#define I32_bit (1 << 7)	/* IRQ disable */
-#define F32_bit (1 << 6)	/* FIQ disable */
+#define PSR_A	(1 << 8)	/* Asynchronous abort disable */
+#define PSR_I	(1 << 7)	/* IRQ disable */
+#define PSR_F	(1 << 6)	/* FIQ disable */
 
-#define PSR_T_bit (1 << 5)	/* Thumb state */
-#define PSR_J_bit (1 << 24)	/* Java mode */
+#define PSR_T	(1 << 5)	/* Thumb state */
+#define PSR_J	(1 << 24)	/* Java mode */
 
 #define PSR_MODE	0x0000001f	/* mode mask */
 #define PSR_USR26_MODE	0x00000000
@@ -85,7 +86,9 @@
 #define PSR_FIQ32_MODE	0x00000011
 #define PSR_IRQ32_MODE	0x00000012
 #define PSR_SVC32_MODE	0x00000013
+#define PSR_MON32_MODE	0x00000016
 #define PSR_ABT32_MODE	0x00000017
+#define PSR_HYP32_MODE	0x0000001a
 #define PSR_UND32_MODE	0x0000001b
 #define PSR_SYS32_MODE	0x0000001f
 #define PSR_32_MODE	0x00000010
@@ -106,35 +109,13 @@
 /* The high-order byte is always the implementor */
 #define CPU_ID_IMPLEMENTOR_MASK	0xff000000
 #define CPU_ID_ARM_LTD		0x41000000 /* 'A' */
-#define CPU_ID_DEC		0x44000000 /* 'D' */
 #define CPU_ID_INTEL		0x69000000 /* 'i' */
-#define CPU_ID_TI		0x54000000 /* 'T' */
 
-/* How to decide what format the CPUID is in. */
-#define CPU_ID_ISOLD(x)		(((x) & 0x0000f000) == 0x00000000)
-#define CPU_ID_IS7(x)		(((x) & 0x0000f000) == 0x00007000)
-#define CPU_ID_ISNEW(x)		(!CPU_ID_ISOLD(x) && !CPU_ID_IS7(x))
-
-/* On ARM3 and ARM6, this byte holds the foundry ID. */
-#define CPU_ID_FOUNDRY_MASK	0x00ff0000
-#define CPU_ID_FOUNDRY_VLSI	0x00560000
-
-/* On ARM7 it holds the architecture and variant (sub-model) */
-#define CPU_ID_7ARCH_MASK	0x00800000
-#define CPU_ID_7ARCH_V3		0x00000000
-#define CPU_ID_7ARCH_V4T	0x00800000
-#define CPU_ID_7VARIANT_MASK	0x007f0000
-
-/* On more recent ARMs, it does the same, but in a different format */
 #define CPU_ID_ARCH_MASK	0x000f0000
-#define CPU_ID_ARCH_V3		0x00000000
-#define CPU_ID_ARCH_V4		0x00010000
-#define CPU_ID_ARCH_V4T		0x00020000
-#define CPU_ID_ARCH_V5		0x00030000
-#define CPU_ID_ARCH_V5T		0x00040000
 #define CPU_ID_ARCH_V5TE	0x00050000
+#define CPU_ID_ARCH_V5TEJ	0x00060000
 #define CPU_ID_ARCH_V6		0x00070000
-#define CPU_ID_ARCH_V7		0x00080000
+#define CPU_ID_ARCH_CPUID	0x000f0000
 #define CPU_ID_VARIANT_MASK	0x00f00000
 
 /* Next three nybbles are part number */
@@ -150,48 +131,6 @@
 
 /* Individual CPUs are probably best IDed by everything but the revision. */
 #define CPU_ID_CPU_MASK		0xfffffff0
-
-/* Fake CPU IDs for ARMs without CP15 */
-#define CPU_ID_ARM2		0x41560200
-#define CPU_ID_ARM250		0x41560250
-
-/* Pre-ARM7 CPUs -- [15:12] == 0 */
-#define CPU_ID_ARM3		0x41560300
-#define CPU_ID_ARM600		0x41560600
-#define CPU_ID_ARM610		0x41560610
-#define CPU_ID_ARM620		0x41560620
-
-/* ARM7 CPUs -- [15:12] == 7 */
-#define CPU_ID_ARM700		0x41007000 /* XXX This is a guess. */
-#define CPU_ID_ARM710		0x41007100
-#define CPU_ID_ARM7500		0x41027100 /* XXX This is a guess. */
-#define CPU_ID_ARM710A		0x41047100 /* inc ARM7100 */
-#define CPU_ID_ARM7500FE	0x41077100
-#define CPU_ID_ARM710T		0x41807100
-#define CPU_ID_ARM720T		0x41807200
-#define CPU_ID_ARM740T8K	0x41807400 /* XXX no MMU, 8KB cache */
-#define CPU_ID_ARM740T4K	0x41817400 /* XXX no MMU, 4KB cache */
-
-/* Post-ARM7 CPUs */
-#define CPU_ID_ARM810		0x41018100
-#define CPU_ID_ARM920T		0x41129200
-#define CPU_ID_ARM922T		0x41029220
-#define CPU_ID_ARM926EJS	0x41069260
-#define CPU_ID_ARM940T		0x41029400 /* XXX no MMU */
-#define CPU_ID_ARM946ES		0x41049460 /* XXX no MMU */
-#define CPU_ID_ARM966ES		0x41049660 /* XXX no MMU */
-#define CPU_ID_ARM966ESR1	0x41059660 /* XXX no MMU */
-#define CPU_ID_ARM1020E		0x4115a200 /* (AKA arm10 rev 1) */
-#define CPU_ID_ARM1022ES	0x4105a220
-#define CPU_ID_ARM1026EJS	0x4106a260
-#define CPU_ID_ARM1136JS	0x4107b360
-#define CPU_ID_ARM1136JSR1	0x4117b360
-#define CPU_ID_SA110		0x4401a100
-#define CPU_ID_SA1100		0x4401a110
-#define CPU_ID_TI925T		0x54029250
-#define CPU_ID_SA1110		0x6901b110
-#define CPU_ID_IXP1200		0x6901c120
-#define CPU_ID_80200		0x69052000
 #define CPU_ID_PXA250		0x69052100 /* sans core revision */
 #define CPU_ID_PXA210		0x69052120
 #define CPU_ID_PXA250A		0x69052100 /* 1st version Core */
@@ -207,9 +146,7 @@
 #define CPU_ID_80321_600	0x69052430
 #define CPU_ID_80321_400_B0	0x69052c20
 #define CPU_ID_80321_600_B0	0x69052c30
-#define CPU_ID_IXP425_533	0x690541c0
-#define CPU_ID_IXP425_400	0x690541d0
-#define CPU_ID_IXP425_266	0x690541f0
+#define CPU_ID_CORTEX_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A5	0x410fc050
 #define CPU_ID_CORTEX_A5_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A7	0x410fc070
@@ -242,19 +179,7 @@
 #define CPU_ID_CORTEX_A57_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A72	0x410fd080
 #define CPU_ID_CORTEX_A72_R1	0x411fd080
-#define CPU_ID_CORTEX_A57_MASK	0xff0ffff0
-
-/* ARM3-specific coprocessor 15 registers */
-#define ARM3_CP15_FLUSH		1
-#define ARM3_CP15_CONTROL	2
-#define ARM3_CP15_CACHEABLE	3
-#define ARM3_CP15_UPDATEABLE	4
-#define ARM3_CP15_DISRUPTIVE	5	
-
-/* ARM3 Control register bits */
-#define ARM3_CTL_CACHE_ON	0x00000001
-#define ARM3_CTL_SHARED		0x00000002
-#define ARM3_CTL_MONITOR	0x00000004
+#define CPU_ID_CORTEX_A72_MASK	0xff0ffff0
 
 /*
  * Post-ARM3 CP15 registers:
@@ -338,6 +263,9 @@
 #define CPU_CT_DSIZE(x)		(((x) >> 12) & 0xfff)	/* D$ info */
 #define CPU_CT_S		(1U << 24)		/* split cache */
 #define CPU_CT_CTYPE(x)		(((x) >> 25) & 0xf)	/* cache type */
+/* Cache type register definitions for ARM v7 */
+#define CPU_CT_IMINLINE(x)	((x) & 0xf)		/* I$ min line size */
+#define CPU_CT_DMINLINE(x)	(((x) >> 16) & 0xf)	/* D$ min line size */
 
 #define CPU_CT_CTYPE_WT		0	/* write-through */
 #define CPU_CT_CTYPE_WB1	1	/* write-back, clean w/ read */

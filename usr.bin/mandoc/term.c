@@ -1,4 +1,4 @@
-/*	$OpenBSD: term.c,v 1.115 2015/10/23 14:49:13 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.117 2016/03/20 16:50:30 krw Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -158,7 +158,7 @@ term_flushln(struct termp *p)
 			if (' ' == p->buf[j] || '\t' == p->buf[j])
 				break;
 
-			/* Back over the the last printed character. */
+			/* Back over the last printed character. */
 			if (8 == p->buf[j]) {
 				assert(j);
 				vend -= (*p->width)(p, p->buf[j - 1]);
@@ -363,7 +363,7 @@ term_fontpush(struct termp *p, enum termfont f)
 	if (++p->fonti == p->fontsz) {
 		p->fontsz += 8;
 		p->fontq = mandoc_reallocarray(p->fontq,
-		    p->fontsz, sizeof(enum termfont *));
+		    p->fontsz, sizeof(*p->fontq));
 	}
 	p->fontq[p->fonti] = f;
 }

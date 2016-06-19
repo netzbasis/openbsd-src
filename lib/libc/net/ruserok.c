@@ -48,15 +48,11 @@
 #include <syslog.h>
 #include <unistd.h>
 
-int	__ivaliduser(FILE *, in_addr_t, const char *, const char *);
-int	__ivaliduser_sa(FILE *, struct sockaddr *, socklen_t,
+static int __ivaliduser_sa(FILE *, struct sockaddr *, socklen_t,
 	    const char *, const char *);
-PROTO_NORMAL(__ivaliduser_sa);
 static int __icheckhost(struct sockaddr *, socklen_t, const char *);
 static char *__gethostloop(struct sockaddr *, socklen_t);
-
-int	__check_rhosts_file = 1;
-char	*__rcmd_errstr;
+static int iruserok_sa(const void *, int, int, const char *, const char *);
 
 int
 ruserok(const char *rhost, int superuser, const char *ruser, const char *luser)
@@ -82,28 +78,6 @@ ruserok(const char *rhost, int superuser, const char *ruser, const char *luser)
 	return (-1);
 }
 
-/*
- * New .rhosts strategy: We are passed an ip address. We spin through
- * hosts.equiv and .rhosts looking for a match. When the .rhosts only
- * has ip addresses, we don't have to trust a nameserver.  When it
- * contains hostnames, we spin through the list of addresses the nameserver
- * gives us and look for a match.
- *
- * Returns 0 if ok, -1 if not ok.
- */
-int
-iruserok(u_int32_t raddr, int superuser, const char *ruser, const char *luser)
-{
-	struct sockaddr_in sin;
-
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_len = sizeof(struct sockaddr_in);
-	memcpy(&sin.sin_addr, &raddr, sizeof(sin.sin_addr));
-	return iruserok_sa(&sin, sizeof(struct sockaddr_in), superuser, ruser,
-		    luser);
-}
-
 int
 iruserok_sa(const void *raddr, int rlen, int superuser, const char *ruser,
     const char *luser)
@@ -111,11 +85,11 @@ iruserok_sa(const void *raddr, int rlen, int superuser, const char *ruser,
 	struct sockaddr *sa;
 	char *cp;
 	struct stat sbuf;
-	struct passwd *pwd;
+	struct passwd pwstore, *pwd;
 	FILE *hostf;
 	uid_t uid;
 	int first;
-	char pbuf[PATH_MAX];
+	char pbuf[PATH_MAX], pwbuf[_PW_BUF_LEN];
 
 	sa = (struct sockaddr *)raddr;
 	first = 1;
@@ -128,11 +102,13 @@ again:
 		}
 		(void)fclose(hostf);
 	}
-	if (first == 1 && (__check_rhosts_file || superuser)) {
+	if (first == 1) {
 		int len;
 
 		first = 0;
-		if ((pwd = getpwnam(luser)) == NULL)
+		pwd = NULL;
+		getpwnam_r(luser, &pwstore, pwbuf, sizeof(pwbuf), &pwd);
+		if (pwd == NULL)
 			return (-1);
 		len = snprintf(pbuf, sizeof pbuf, "%s/.rhosts", pwd->pw_dir);
 		if (len < 0 || len >= sizeof pbuf)
@@ -167,34 +143,12 @@ again:
 			cp = ".rhosts writable by other than owner";
 		/* If there were any problems, quit. */
 		if (cp) {
-			__rcmd_errstr = cp;
 			(void)fclose(hostf);
 			return (-1);
 		}
 		goto again;
 	}
 	return (-1);
-}
-DEF_WEAK(iruserok_sa);
-
-/*
- * XXX
- * Don't make static, used by lpd(8).
- *
- * Returns 0 if ok, -1 if not ok.
- */
-int
-__ivaliduser(FILE *hostf, in_addr_t raddrl, const char *luser,
-    const char *ruser)
-{
-	struct sockaddr_in sin;
-
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_len = sizeof(struct sockaddr_in);
-	memcpy(&sin.sin_addr, &raddrl, sizeof(sin.sin_addr));
-	return __ivaliduser_sa(hostf, (struct sockaddr *)&sin, sin.sin_len,
-		    luser, ruser);
 }
 
 int
@@ -337,7 +291,6 @@ __ivaliduser_sa(FILE *hostf, struct sockaddr *raddr, socklen_t salen,
 bail:
 	return (-1);
 }
-DEF_STRONG(__ivaliduser_sa);
 
 /*
  * Returns "true" if match, 0 if no match.  If we do not find any
@@ -434,8 +387,6 @@ __gethostloop(struct sockaddr *raddr, socklen_t salen)
 	 * either the DNS adminstrator has made a configuration
 	 * mistake, or someone has attempted to spoof us
 	 */
-	syslog(LOG_NOTICE, "rcmd: address %s not listed for host %s",
-	    h1, res->ai_canonname ? res->ai_canonname : remotehost);
 	freeaddrinfo(res);
 	return (NULL);
 }

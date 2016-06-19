@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.152 2015/10/26 16:32:33 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.154 2016/02/06 19:30:52 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -39,39 +39,6 @@
  * Enterprises, see ``http://www.vix.com''.
  */
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/sockio.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/wait.h>
-#include <sys/queue.h>
-
-#include <net/if.h>
-#include <net/if_dl.h>
-#include <net/route.h>
-
-#include <netinet/in.h>
-#include <netinet/if_ether.h>
-#include <arpa/inet.h>
-
-#include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <netdb.h>
-#include <paths.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <syslog.h>
-#include <time.h>
-#include <unistd.h>
-
-#include "dhcp.h"
-
 #define	LOCAL_PORT	68
 #define	REMOTE_PORT	67
 #define	INTERNALSIG	INT_MAX
@@ -102,8 +69,9 @@ struct client_lease {
 	char			*server_name;
 	char			*filename;
 	char			*resolv_conf;
-	unsigned int		 is_static : 1;
-	unsigned int		 is_bootp : 1;
+	unsigned int		 is_static;
+	unsigned int		 is_bootp;
+	unsigned int		 is_invalid;
 	struct option_data	 options[256];
 };
 

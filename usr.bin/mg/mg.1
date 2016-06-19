@@ -1,7 +1,7 @@
-.\"	$OpenBSD: mg.1,v 1.95 2015/11/18 17:41:09 reyk Exp $
+.\"	$OpenBSD: mg.1,v 1.104 2016/04/14 17:05:32 lum Exp $
 .\" This file is in the public domain.
 .\"
-.Dd $Mdocdate: November 18 2015 $
+.Dd $Mdocdate: April 14 2016 $
 .Dt MG 1
 .Os
 .Sh NAME
@@ -9,7 +9,7 @@
 .Nd emacs-like text editor
 .Sh SYNOPSIS
 .Nm mg
-.Op Fl n
+.Op Fl nR
 .Op Fl f Ar mode
 .Op + Ns Ar number
 .Op Ar
@@ -40,6 +40,8 @@ arguments on the command line, including the
 scratch buffer and all files.
 .It Fl n
 Turn off backup file generation.
+.It Fl R
+Files specified on the command line will be opened read-only.
 .El
 .Sh WINDOWS AND BUFFERS
 When a file is loaded into
@@ -304,6 +306,8 @@ fill-paragraph
 search-backward
 .It M-s
 search-forward
+.It M-t
+transpose-words
 .It M-u
 upcase-word
 .It M-v
@@ -371,11 +375,14 @@ Register an auto-execute hook; that is, specify a filename pattern
 function to execute when a file matching the specified pattern
 is read into a buffer.
 .It auto-fill-mode
-Toggle auto-fill mode (sometimes called mail-mode),
+Toggle auto-fill mode (sometimes called mail-mode) in the current buffer,
 where text inserted past the fill column is automatically wrapped
 to a new line.
+Can be set globally with set-default-mode.
 .It auto-indent-mode
-Toggle indent mode, where indentation is preserved after a newline.
+Toggle indent mode in the current buffer,
+where indentation is preserved after a newline.
+Can be set globally with set-default-mode.
 .It back-to-indentation
 Move the dot to the first non-whitespace character on the current line.
 .It backup-to-home-directory
@@ -713,8 +720,9 @@ window.
 There are no real errors, although the command does nothing if
 there is only 1 window on the screen.
 .It overwrite-mode
-Toggle overwrite mode, where typing in a buffer overwrites
-existing characters rather than inserting them.
+Toggle overwrite mode in the current buffer,
+where typing overwrites existing characters rather than inserting them.
+Can be set globally with set-default-mode.
 .It prefix-region
 Inserts a prefix string before each line of a region.
 The prefix string is settable by using 'set-prefix-string'.
@@ -830,6 +838,10 @@ If found, dot gets moved to just after the matched
 characters, if not found, print a message.
 .It self-insert-command
 Insert a character.
+.It sentence-end-double-space
+Toggle double or single spaces for end of sentences.
+Double is the default.
+Currently only affects fill-paragraph.
 .It set-case-fold-search
 Set case-fold searching, causing case not to matter
 in regular expression searches.
@@ -837,7 +849,7 @@ This is the default.
 .It set-default-mode
 Append the supplied mode to the list of default modes
 used by subsequent buffer creation.
-Built in modes include: fill, indent, overwrite, and notab.
+Built in modes include: fill, indent and overwrite.
 .It set-fill-column
 Prompt the user for a fill column.
 Used by auto-fill-mode.
@@ -879,6 +891,8 @@ If multiple iterations are requested, the current paragraph will
 be moved
 .Va n
 paragraphs forward.
+.It transpose-words
+Transpose adjacent words.
 .It undo
 Undo the most recent action.
 If invoked again without an intervening command,
@@ -935,21 +949,23 @@ It is not a ring.
 .Sh MG DIRED KEY BINDINGS
 Specific key bindings are available in dired mode.
 .Pp
-.Bl -tag -width xxxxxxxxxxxx -offset indent -compact
+.Bl -tag -width xxxxxxxxxxxxxxxxxx -offset indent -compact
 .It DEL
 dired-unmark-backward
+.It RET, e, f and C-m
+dired-find-file
 .It SPC
 dired-next-line
 .It !
 dired-shell-command
 .It +
 dired-create-directory
+.It a
+dired-find-alternate-file
 .It c
 dired-do-copy
 .It d and C-d
 dired-flag-file-deletion
-.It e, f and C-m
-dired-find-file
 .It g
 dired-revert
 .It n
@@ -982,6 +998,9 @@ Copy the file listed on the current line of the dired buffer.
 Delete the files that have been flagged for deletion.
 .It dired-do-rename
 Rename the file listed on the current line of the dired buffer.
+.It dired-find-alternate-file
+Replace the current dired buffer with an alternate one as specified
+by the position of the cursor in the dired buffer.
 .It dired-find-file
 Open the file on the current line of the dired buffer.
 If the cursor is on a directory it will be opened in dired mode.

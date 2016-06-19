@@ -1,4 +1,4 @@
-/*	$OpenBSD: queue_backend.c,v 1.59 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: queue_backend.c,v 1.62 2016/02/04 12:46:28 eric Exp $	*/
 
 /*
  * Copyright (c) 2011 Gilles Chehade <gilles@poolp.org>
@@ -127,7 +127,7 @@ queue_init(const char *name, int server)
 	gr = getgrnam(SMTPD_QUEUE_GROUP);
 	if (gr == NULL)
 		errx(1, "unknown group %s", SMTPD_QUEUE_GROUP);
-	
+
 	tree_init(&evpcache_tree);
 	TAILQ_INIT(&evpcache_list);
 
@@ -190,6 +190,8 @@ int
 queue_message_delete(uint32_t msgid)
 {
 	char	msgpath[PATH_MAX];
+	uint64_t evpid;
+	void   *iter;
 	int	r;
 
 	profile_enter("queue_message_delete");
@@ -199,6 +201,17 @@ queue_message_delete(uint32_t msgid)
 	/* in case the message is incoming */
 	queue_message_path(msgid, msgpath, sizeof(msgpath));
 	unlink(msgpath);
+
+	/* remove remaining envelopes from the cache if any (on rollback) */
+	evpid = msgid_to_evpid(msgid);
+	for (;;) {
+		iter = NULL;
+		if (!tree_iterfrom(&evpcache_tree, &iter, evpid, &evpid, NULL))
+			break;
+		if (evpid_to_msgid(evpid) != msgid)
+			break;
+		queue_envelope_cache_del(evpid);
+	}
 
 	log_trace(TRACE_QUEUE,
 	    "queue-backend: queue_message_delete(%08"PRIx32") -> %d", msgid, r);
@@ -225,7 +238,7 @@ queue_message_commit(uint32_t msgid)
 		ofp = fopen(tmppath, "w+");
 		if (ifp == NULL || ofp == NULL)
 			goto err;
-		if (! compress_file(ifp, ofp))
+		if (!compress_file(ifp, ofp))
 			goto err;
 		fclose(ifp);
 		fclose(ofp);
@@ -247,7 +260,7 @@ queue_message_commit(uint32_t msgid)
 		ofp = fopen(tmppath, "w+");
 		if (ifp == NULL || ofp == NULL)
 			goto err;
-		if (! crypto_encrypt_file(ifp, ofp))
+		if (!crypto_encrypt_file(ifp, ofp))
 			goto err;
 		fclose(ifp);
 		fclose(ofp);
@@ -333,7 +346,7 @@ queue_message_fd_r(uint32_t msgid)
 		if ((ofp = fdopen(fdout, "w+")) == NULL)
 			goto err;
 
-		if (! crypto_decrypt_file(ifp, ofp))
+		if (!crypto_decrypt_file(ifp, ofp))
 			goto err;
 
 		fclose(ifp);
@@ -355,7 +368,7 @@ queue_message_fd_r(uint32_t msgid)
 		if ((ofp = fdopen(fdout, "w+")) == NULL)
 			goto err;
 
-		if (! uncompress_file(ifp, ofp))
+		if (!uncompress_file(ifp, ofp))
 			goto err;
 
 		fclose(ifp);
@@ -653,7 +666,7 @@ queue_message_walk(struct envelope *ep, uint32_t msgid, int *done, void **data)
 			/*
 			 * do not cache the envelope here, while discovering
 			 * envelopes one could re-run discover on already
-			 * scheduled envelopes which leads to triggering of 
+			 * scheduled envelopes which leads to triggering of
 			 * strict checks in caching. Envelopes could anyway
 			 * be loaded from backend if it isn't cached.
 			 */

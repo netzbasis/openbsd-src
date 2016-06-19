@@ -1,28 +1,28 @@
-/*	$OpenBSD: db_watch.c,v 1.14 2015/03/14 03:38:46 jsg Exp $ */
+/*	$OpenBSD: db_watch.c,v 1.16 2016/04/19 10:24:42 mpi Exp $ */
 /*	$NetBSD: db_watch.c,v 1.9 1996/03/30 22:30:12 christos Exp $	*/
 
-/* 
+/*
  * Mach Operating System
  * Copyright (c) 1993,1992,1991,1990 Carnegie Mellon University
  * All Rights Reserved.
- * 
+ *
  * Permission to use, copy, modify and distribute this software and its
  * documentation is hereby granted, provided that both the copyright
  * notice and this permission notice appear in all copies of the
  * software, derivative works or modified versions, and any portions
  * thereof, and that both notices appear in supporting documentation.
- * 
+ *
  * CARNEGIE MELLON ALLOWS FREE USE OF THIS SOFTWARE IN ITS "AS IS"
  * CONDITION.  CARNEGIE MELLON DISCLAIMS ANY LIABILITY OF ANY KIND FOR
  * ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
- * 
+ *
  * Carnegie Mellon requests users of this software to return to
- * 
+ *
  *  Software Distribution Coordinator  or  Software.Distribution@CS.CMU.EDU
  *  School of Computer Science
  *  Carnegie Mellon University
  *  Pittsburgh PA 15213-3890
- * 
+ *
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  *
@@ -48,7 +48,7 @@
  * Watchpoints.
  */
 
-boolean_t	db_watchpoints_inserted = TRUE;
+int db_watchpoints_inserted = 1;
 
 #define	NWATCHPOINTS	100
 struct db_watchpoint	db_watch_table[NWATCHPOINTS];
@@ -109,7 +109,7 @@ db_set_watchpoint(db_addr_t addr, vsize_t size)
 	watch->link = db_watchpoint_list;
 	db_watchpoint_list = watch;
 
-	db_watchpoints_inserted = FALSE;
+	db_watchpoints_inserted = 0;
 }
 
 void
@@ -189,12 +189,12 @@ db_set_watchpoints(void)
 			pmap_protect(pmap_kernel(), trunc_page(watch->loaddr),
 			    round_page(watch->hiaddr), PROT_READ);
 		pmap_update(pmap_kernel());
-		db_watchpoints_inserted = TRUE;
+		db_watchpoints_inserted = 1;
 	}
 }
 
 void
 db_clear_watchpoints(void)
 {
-	db_watchpoints_inserted = FALSE;
+	db_watchpoints_inserted = 0;
 }

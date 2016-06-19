@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mc.c,v 1.24 2015/11/14 17:26:40 mpi Exp $	*/
+/*	$OpenBSD: if_mc.c,v 1.28 2016/04/13 11:34:00 mpi Exp $	*/
 /*	$NetBSD: if_mc.c,v 1.9.16.1 2006/06/21 14:53:13 yamt Exp $	*/
 
 /*-
@@ -47,7 +47,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -457,10 +456,9 @@ mc_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = mc_ioctl;
 	ifp->if_start = mc_start;
 	ifp->if_flags =
-		IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+		IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_watchdog = mc_watchdog;
 	ifp->if_timer = 0;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if_attach(ifp);
 	ether_ifattach(ifp);
@@ -547,11 +545,11 @@ mc_start(struct ifnet *ifp)
 	struct mc_softc	*sc = ifp->if_softc;
 	struct mbuf	*m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	while (1) {
-		if (ifp->if_flags & IFF_OACTIVE)
+		if (ifq_is_oactive(&ifp->if_snd))
 			return;
 
 		IFQ_DEQUEUE(&ifp->if_snd, m);
@@ -570,7 +568,7 @@ mc_start(struct ifnet *ifp)
 		/*
 		 * Copy the mbuf chain into the transmit buffer.
 		 */
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		maceput(sc, m);
 
 		ifp->if_opackets++;		/* # of pkts */
@@ -648,7 +646,7 @@ mc_init(struct mc_softc *sc)
 
 	/* flag interface as "running" */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -670,7 +668,8 @@ mc_stop(struct mc_softc *sc)
 	DELAY(100);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 	return (0);
@@ -776,7 +775,7 @@ mc_tint(struct mc_softc *sc)
 		ifp->if_oerrors++;
 	}
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 	mc_start(ifp);
 }

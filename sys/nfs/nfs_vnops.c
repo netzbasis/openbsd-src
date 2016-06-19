@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_vnops.c,v 1.164 2015/05/03 02:02:15 guenther Exp $	*/
+/*	$OpenBSD: nfs_vnops.c,v 1.170 2016/06/13 19:00:22 tedu Exp $	*/
 /*	$NetBSD: nfs_vnops.c,v 1.62.4.1 1996/07/08 20:26:52 jtc Exp $	*/
 
 /*
@@ -783,7 +783,7 @@ nfs_lookup(void *v)
 				cnp->cn_flags |= SAVENAME;
 			if ((!lockparent || !(flags & ISLASTCN)) &&
 			     newvp != dvp)
-				VOP_UNLOCK(dvp, 0, p);
+				VOP_UNLOCK(dvp, p);
 			return (0);
 		}
 		cache_purge(newvp);
@@ -840,7 +840,7 @@ dorpc:
 		m_freem(info.nmi_mrep);
 		cnp->cn_flags |= SAVENAME;
 		if (!lockparent) {
-			VOP_UNLOCK(dvp, 0, p);
+			VOP_UNLOCK(dvp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 		return (0);
@@ -861,7 +861,7 @@ dorpc:
 		} else
 			nfsm_loadattr(newvp, NULL);
 	} else if (flags & ISDOTDOT) {
-		VOP_UNLOCK(dvp, 0, p);
+		VOP_UNLOCK(dvp, p);
 		cnp->cn_flags |= PDIRUNLOCK;
 
 		error = nfs_nget(dvp->v_mount, fhp, fhsize, &np);
@@ -901,7 +901,7 @@ dorpc:
 		} else
 			nfsm_loadattr(newvp, NULL);
 		if (!lockparent || !(flags & ISLASTCN)) {
-			VOP_UNLOCK(dvp, 0, p);
+			VOP_UNLOCK(dvp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 	}
@@ -931,7 +931,7 @@ nfsmout:
 		if (newvp != NULLVP) {
 			vrele(newvp);
 			if (newvp != dvp)
-				VOP_UNLOCK(newvp, 0, p);
+				VOP_UNLOCK(newvp, p);
 		}
 		if ((cnp->cn_nameiop == CREATE || cnp->cn_nameiop == RENAME) &&
 		    (flags & ISLASTCN) && error == ENOENT) {
@@ -2008,7 +2008,7 @@ nfs_readdir(void *v)
 
 		if (nmp->nm_flag & NFSMNT_RDIRPLUS) {
 			error = nfs_readdirplusrpc(vp, &readdir_uio, cred,
-			    &eof);
+			    &eof, p);
 			if (error == NFSERR_NOTSUPP)
 				nmp->nm_flag &= ~NFSMNT_RDIRPLUS;
 		}
@@ -2032,7 +2032,7 @@ nfs_readdir(void *v)
 				break;
 			}
 
-			if ((error = uiomovei(dp, dp->d_reclen, uio)))
+			if ((error = uiomove(dp, dp->d_reclen, uio)))
 				break;
 
 			newoff = fxdr_hyper(&ndp->cookie[0]);
@@ -2260,7 +2260,7 @@ nfsmout:
  */
 int
 nfs_readdirplusrpc(struct vnode *vp, struct uio *uiop, struct ucred *cred,
-    int *end_of_directory)
+    int *end_of_directory, struct proc *p)
 {
 	int len, left;
 	struct nfs_dirent *ndirp = NULL;
@@ -2287,6 +2287,7 @@ nfs_readdirplusrpc(struct vnode *vp, struct uio *uiop, struct ucred *cred,
 		(uiop->uio_resid & (NFS_DIRBLKSIZ - 1)))
 		panic("nfs readdirplusrpc bad uio");
 #endif
+	NDINIT(ndp, 0, 0, UIO_SYSSPACE, NULL, p);
 	ndp->ni_dvp = vp;
 	newvp = NULLVP;
 
@@ -2561,7 +2562,7 @@ nfs_lookitup(struct vnode *dvp, char *name, int len, struct ucred *cred,
 	struct vnode *newvp = NULL;
 	struct nfsnode *np, *dnp = VTONFS(dvp);
 	caddr_t cp2;
-	int error = 0, fhlen, attrflag;
+	int error = 0, fhlen, attrflag = 0;
 	nfsfh_t *nfhp;
 
 	info.nmi_v3 = NFS_ISV3(dvp);
@@ -3059,7 +3060,7 @@ nfs_writebp(struct buf *bp, int force)
 		}
 
 		/*
-		 * If it's already been commited by somebody else,
+		 * If it's already been committed by somebody else,
 		 * bail.
 		 */
 		if (!nfs_in_committed_range(vp, bp)) {
@@ -3102,6 +3103,7 @@ nfs_writebp(struct buf *bp, int force)
 			nfs_clearcommit(bp->b_vp->v_mount);
 	}
 	if (retv) {
+		buf_flip_dma(bp);
 		if (force)
 			bp->b_flags |= B_WRITEINPROG;
 		VOP_STRATEGY(bp);

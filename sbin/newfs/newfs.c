@@ -1,4 +1,4 @@
-/*	$OpenBSD: newfs.c,v 1.101 2015/11/10 07:38:19 deraadt Exp $	*/
+/*	$OpenBSD: newfs.c,v 1.106 2016/05/31 16:41:08 deraadt Exp $	*/
 /*	$NetBSD: newfs.c,v 1.20 1996/05/16 07:13:03 thorpej Exp $	*/
 
 /*
@@ -77,6 +77,7 @@
 
 struct mntopt mopts[] = {
 	MOPT_STDOPTS,
+	MOPT_WXALLOWED,
 	MOPT_ASYNC,
 	MOPT_UPDATE,
 	MOPT_FORCE,
@@ -88,6 +89,7 @@ void	fatal(const char *fmt, ...)
 	    __attribute__((__nonnull__ (1)));
 __dead void	usage(void);
 void	mkfs(struct partition *, char *, int, int, mode_t, uid_t, gid_t);
+void	getphysmem(void);
 void	rewritelabel(char *, int, struct disklabel *);
 u_short	dkcksum(struct disklabel *);
 
@@ -147,6 +149,18 @@ static void copy(char *, char *, struct mfs_args *);
 static int gettmpmnt(char *, size_t);
 #endif
 
+int64_t physmem;
+
+void
+getphysmem(void)
+{
+	int mib[] = { CTL_HW, HW_PHYSMEM64 };
+	size_t len = sizeof(physmem);
+	
+	if (sysctl(mib, 2, &physmem, &len, NULL, 0) != 0)
+		err(1, "can't get physmem");
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -182,6 +196,7 @@ main(int argc, char *argv[])
 	if (strstr(__progname, "mfs"))
 		mfs = Nflag = quiet = 1;
 
+	getphysmem();
 	maxpartitions = getmaxpartitions();
 	if (maxpartitions > 26)
 		fatal("insane maxpartitions value %d", maxpartitions);
@@ -409,13 +424,18 @@ main(int argc, char *argv[])
 				warnx("%s: not a character-special device",
 				    special);
 		}
-		cp = strchr(argv[0], '\0') - 1;
-		if (cp == NULL ||
-		    ((*cp < 'a' || *cp > ('a' + maxpartitions - 1))
-		    && !isdigit((unsigned char)*cp)))
+		if (*argv[0] == '\0')
+			fatal("empty partition name supplied");
+		cp = argv[0] + strlen(argv[0]) - 1;
+		if ((*cp < 'a' || *cp > ('a' + maxpartitions - 1))
+		    && !isdigit((unsigned char)*cp))
 			fatal("%s: can't figure out file system partition",
 			    argv[0]);
 		lp = getdisklabel(special, fsi);
+		if (!mfs) {
+			if (pledge("stdio disklabel tty", NULL) == -1)
+				err(1, "pledge");
+		}
 		if (isdigit((unsigned char)*cp))
 			pp = &lp->d_partitions[0];
 		else
@@ -601,43 +621,6 @@ rewritelabel(char *s, int fd, struct disklabel *lp)
 		warn("ioctl (WDINFO)");
 		fatal("%s: can't rewrite disk label", s);
 	}
-#ifdef __vax__
-	if (lp->d_type == DTYPE_SMD && lp->d_flags & D_BADSECT) {
-		int i;
-		int cfd;
-		u_int64_t alt;
-		char specname[64];
-		char blk[1024];
-		char *cp;
-
-		/*
-		 * Make name for 'c' partition.
-		 */
-		strncpy(specname, s, sizeof(specname) - 1);
-		specname[sizeof(specname) - 1] = '\0';
-		cp = specname + strlen(specname) - 1;
-		if (!isdigit((unsigned char)*cp))
-			*cp = 'c';
-		cfd = open(specname, O_WRONLY);
-		if (cfd < 0)
-			fatal("%s: %s", specname, strerror(errno));
-		memset(blk, 0, sizeof(blk));
-		*(struct disklabel *)(blk + LABELOFFSET) = *lp;
-		alt = lp->d_ncylinders * lp->d_secpercyl - lp->d_nsectors;
-		for (i = 1; i < 11 && i < lp->d_nsectors; i += 2) {
-			off_t offset;
-
-			offset = alt + i;
-			offset *= lp->d_secsize;
-			if (lseek(cfd, offset, SEEK_SET) == -1)
-				fatal("lseek to badsector area: %s",
-				    strerror(errno));
-			if (write(cfd, blk, lp->d_secsize) != lp->d_secsize)
-				warn("alternate label %d write", i/2);
-		}
-		close(cfd);
-	}
-#endif	/*__vax__*/
 }
 
 void

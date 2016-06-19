@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.18 2015/09/05 11:19:20 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.26 2016/05/25 05:34:23 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -27,7 +27,7 @@
 #include "utils.h"
 
 void zomb_onmove(void *);
-void zomb_onvol(void *, unsigned int);
+void zomb_onvol(void *);
 void zomb_fill(void *);
 void zomb_flush(void *);
 void zomb_eof(void *);
@@ -59,7 +59,7 @@ void dev_cycle(struct dev *);
 int dev_getpos(struct dev *);
 struct dev *dev_new(char *, struct aparams *, unsigned int, unsigned int,
     unsigned int, unsigned int, unsigned int, unsigned int);
-void dev_adjpar(struct dev *, int, int, int, int, int);
+void dev_adjpar(struct dev *, int, int, int);
 int dev_open(struct dev *);
 void dev_close(struct dev *);
 int dev_ref(struct dev *);
@@ -159,7 +159,7 @@ zomb_onmove(void *arg)
 }
 
 void
-zomb_onvol(void *arg, unsigned int vol)
+zomb_onvol(void *arg)
 {
 }
 
@@ -547,12 +547,12 @@ slot_skip(struct slot *s)
 		if (s->mode & MODE_PLAY) {
 			abuf_rdiscard(&s->mix.buf, s->round * s->mix.bpf);
 		}
-		s->skip--;		
+		s->skip--;
 	}
 	return max - s->skip;
 }
 
-int 
+int
 play_filt_resamp(struct slot *s, void *res_in, void *out, int todo)
 {
 	int i, offs, vol, nch;
@@ -582,7 +582,7 @@ play_filt_resamp(struct slot *s, void *res_in, void *out, int todo)
 	return todo;
 }
 
-int 
+int
 play_filt_dec(struct slot *s, void *in, void *out, int todo)
 {
 	void *tmp;
@@ -663,7 +663,7 @@ dev_mix_adjvol(struct dev *d)
 	}
 }
 
-int 
+int
 rec_filt_resamp(struct slot *s, void *in, void *res_out, int todo)
 {
 	int i, vol, offs, nch;
@@ -692,7 +692,7 @@ rec_filt_resamp(struct slot *s, void *in, void *res_out, int todo)
 	return todo;
 }
 
-int 
+int
 rec_filt_enc(struct slot *s, void *in, void *out, int todo)
 {
 	void *tmp;
@@ -847,11 +847,11 @@ dev_cycle(struct dev *d)
 			dev_mix_adjvol(d);
 			continue;
 		}
-		
+
 		/*
 		 * check for xruns
 		 */
-		if (((s->mode & MODE_PLAY) && 
+		if (((s->mode & MODE_PLAY) &&
 			s->mix.buf.used < s->round * s->mix.bpf) ||
 		    ((s->mode & MODE_RECMASK) &&
 			s->sub.buf.len - s->sub.buf.used <
@@ -917,7 +917,7 @@ void
 dev_onmove(struct dev *d, int delta)
 {
 	long long pos;
-	struct slot *s, *snext;	
+	struct slot *s, *snext;
 
 	d->delta += delta;
 
@@ -976,6 +976,7 @@ dev_new(char *path, struct aparams *par,
 		return NULL;
 	}
 	d = xmalloc(sizeof(struct dev));
+	d->path = xstrdup(path);
 	d->num = dev_sndnum++;
 
 	/*
@@ -987,7 +988,6 @@ dev_new(char *path, struct aparams *par,
 	 */
 	d->midi = midi_new(&dev_midiops, d, MODE_MIDIIN | MODE_MIDIOUT);
 	midi_tag(d->midi, d->num);
-	d->path = path;
 	d->reqpar = *par;
 	d->reqmode = mode;
 	d->reqpchan = d->reqrchan = 0;
@@ -1005,7 +1005,7 @@ dev_new(char *path, struct aparams *par,
 		d->slot[i].vol = MIDI_MAXCTL;
 		d->slot[i].tstate = MMC_OFF;
 		d->slot[i].serial = d->serial++;
-		d->slot[i].name[0] = '\0';
+		strlcpy(d->slot[i].name, "prog", SLOT_NAMEMAX);
 	}
 	d->slot_list = NULL;
 	d->master = MIDI_MAXCTL;
@@ -1021,7 +1021,7 @@ dev_new(char *path, struct aparams *par,
  */
 void
 dev_adjpar(struct dev *d, int mode,
-    int pmin, int pmax, int rmin, int rmax)
+    int pmax, int rmax)
 {
 	d->reqmode |= mode & MODE_AUDIOMASK;
 	if (mode & MODE_PLAY) {
@@ -1213,6 +1213,8 @@ dev_done(struct dev *d)
 		log_puts(": draining\n");
 	}
 #endif
+	if (d->tstate != MMC_STOP)
+		dev_mmcstop(d);
 	if (d->hold)
 		dev_unref(d);
 }
@@ -1223,7 +1225,7 @@ dev_bynum(int num)
 	struct dev *d;
 
 	for (d = dev_list; d != NULL; d = d->next) {
-		if (num-- == 0)
+		if (d->num == num)
 			return d;
 	}
 	return NULL;
@@ -1256,6 +1258,7 @@ dev_del(struct dev *d)
 	}
 	midi_del(d->midi);
 	*p = d->next;
+	xfree(d->path);
 	xfree(d);
 }
 
@@ -1283,11 +1286,11 @@ dev_wakeup(struct dev *d)
 		}
 		d->poffs = 0;
 
-		/* 
+		/*
 		 * empty cycles don't increment delta, so it's ok to
 		 * start at 0
 		 **/
-		d->delta = 0; 
+		d->delta = 0;
 
 		d->pstate = DEV_RUN;
 		dev_sio_start(d);
@@ -1605,7 +1608,7 @@ slot_attach(struct slot *s)
 	 * start the device if not started
 	 */
 	dev_wakeup(d);
-	
+
 	/*
 	 * get the current position, the origin is when the first sample
 	 * played and/or recorded
@@ -1639,7 +1642,7 @@ slot_attach(struct slot *s)
 #ifdef DEBUG
 	if ((s->mode & d->mode) != s->mode) {
 		slot_log(s);
-	    	log_puts(": mode beyond device mode, not attaching\n");
+		log_puts(": mode beyond device mode, not attaching\n");
 		panic();
 	}
 #endif
@@ -1707,7 +1710,7 @@ slot_attach(struct slot *s)
 			s->sub.encbuf =
 			    xmalloc(s->round * slot_nch * sizeof(adata_t));
 		}
-	
+
 		/*
 		 * N-th recorded block is the N-th played block
 		 */
@@ -1725,7 +1728,7 @@ slot_ready(struct slot *s)
 	/*
 	 * device may be disconnected, and if so we're called from
 	 * slot->ops->exit() on a closed device
-	 */	
+	 */
 	if (s->dev->pstate == DEV_CFG)
 		return;
 	if (s->tstate == MMC_OFF)
@@ -1766,7 +1769,7 @@ slot_start(struct slot *s)
 			log_puts("\n");
 		}
 #endif
-		s->mix.bpf = s->par.bps * 
+		s->mix.bpf = s->par.bps *
 		    (s->mix.slot_cmax - s->mix.slot_cmin + 1);
 		abuf_init(&s->mix.buf, bufsz * s->mix.bpf);
 	}
@@ -1781,7 +1784,7 @@ slot_start(struct slot *s)
 			log_puts("\n");
 	}
 #endif
-		s->sub.bpf = s->par.bps * 
+		s->sub.bpf = s->par.bps *
 		    (s->sub.slot_cmax - s->sub.slot_cmin + 1);
 		abuf_init(&s->sub.buf, bufsz * s->sub.bpf);
 	}
@@ -1826,7 +1829,7 @@ slot_detach(struct slot *s)
 			panic();
 		}
 #endif
-	}	
+	}
 	*ps = s->next;
 	if (s->mode & MODE_RECMASK) {
 		if (s->sub.encbuf)

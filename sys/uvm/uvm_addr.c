@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_addr.c,v 1.14 2015/07/17 21:56:14 kettenis Exp $	*/
+/*	$OpenBSD: uvm_addr.c,v 1.16 2016/06/02 18:48:01 tedu Exp $	*/
 
 /*
  * Copyright (c) 2011 Ariane van der Steldt <ariane@stack.nl>
@@ -442,10 +442,10 @@ uvm_addr_invoke(struct vm_map *map, struct uvm_addr_state *uaddr,
 		    *addr_out, sz)) {
 			panic("uvm_addr_invoke: address selector %p "
 			    "(%s 0x%lx-0x%lx) "
-			    "returned unavailable address 0x%lx",
+			    "returned unavailable address 0x%lx sz 0x%lx",
 			    uaddr, uaddr->uaddr_functions->uaddr_name,
 			    uaddr->uaddr_minaddr, uaddr->uaddr_maxaddr,
-			    *addr_out);
+			    *addr_out, sz);
 		}
 	}
 
@@ -1019,7 +1019,7 @@ const struct uvm_addr_functions uaddr_pivot_functions = {
  * The random function has a slightly higher change to return a small number.
  */
 vsize_t
-uaddr_pivot_random()
+uaddr_pivot_random(void)
 {
 	int			r;
 

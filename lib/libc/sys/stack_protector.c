@@ -1,4 +1,4 @@
-/*	$OpenBSD: stack_protector.c,v 1.19 2015/11/10 04:30:59 guenther Exp $	*/
+/*	$OpenBSD: stack_protector.c,v 1.23 2016/03/21 22:41:28 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2002 Hiroaki Etoh, Federico G. Schwindt, and Miodrag Vallat.
@@ -28,6 +28,7 @@
  */
 
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
@@ -49,17 +50,25 @@ long __guard_local __dso_hidden __attribute__((section(".openbsd.randomdata")));
 void
 __stack_smash_handler(const char func[], int damaged)
 {
-	struct syslog_data sdata = SYSLOG_DATA_INIT;
-	const char message[] = "stack overflow in function %s";
 	struct sigaction sa;
 	sigset_t mask;
+	char buf[1024];
 
 	/* Immediately block all signal handlers from running code */
 	sigfillset(&mask);
 	sigdelset(&mask, SIGABRT);
 	sigprocmask(SIG_SETMASK, &mask, NULL);
 
-	syslog_r(LOG_CRIT, &sdata, message, func);
+	/* <10> is LOG_CRIT */
+	strlcpy(buf, "<10>", sizeof buf);
+
+	/* Make sure progname does not fill the whole buffer */
+	strlcat(buf, __progname, sizeof(buf) / 2 );
+
+	strlcat(buf, ": stack overflow in function ", sizeof buf);
+	strlcat(buf, func, sizeof buf);
+
+	sendsyslog(buf, strlen(buf), LOG_CONS);
 
 	memset(&sa, 0, sizeof(sa));
 	sigemptyset(&sa.sa_mask);

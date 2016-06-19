@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Term.pm,v 1.32 2015/05/18 10:41:20 espie Exp $
+# $OpenBSD: Term.pm,v 1.36 2016/06/15 15:31:09 espie Exp $
 #
 # Copyright (c) 2004-2007 Marc Espie <espie@openbsd.org>
 #
@@ -84,6 +84,13 @@ package OpenBSD::ProgressMeter::Term;
 our @ISA = qw(OpenBSD::ProgressMeter::Real);
 use POSIX;
 use Term::Cap;
+use Term::ReadKey;
+
+sub forked
+{
+	my $self = shift;
+	$self->{lastdisplay} = ' 'x($self->{width}-1);
+}
 
 sub init
 {
@@ -101,7 +108,7 @@ sub init
 	$termios->getattr(0);
 	my $terminal = Term::Cap->Tgetent({ OSPEED =>
 	    $termios->getospeed});
-	$self->{glitch} = $terminal->Tputs("xn", 1);
+	$self->{glitch} = $terminal->{_xn};
 	$self->{cleareol} = $terminal->Tputs("ce", 1);
 	$self->{hpa} = $terminal->Tputs("ch", 1);
 	if (!defined $self->{hpa}) {
@@ -113,23 +120,15 @@ sub init
 	}
 }
 
-my $wsz_format = 'SSSS';
-our %sizeof;
-
 sub find_window_size
 {
 	my $self = shift;
-	# try to get exact window width
-	my $r;
-	$r = pack($wsz_format, 0, 0, 0, 0);
-	$sizeof{'struct winsize'} = 8;
-	require 'sys/ttycom.ph';
-	if (ioctl(STDOUT, &TIOCGWINSZ, $r)) {
-		my ($rows, $cols, $xpix, $ypix) =
-		    unpack($wsz_format, $r);
-		$self->{width} = $cols;
-	} else {
+
+	my @l = Term::ReadKey::GetTermSizeGWINSZ(\*STDOUT);
+	if (@l != 4) {
 		$self->{width} = 80;
+	} else {
+		$self->{width} = $l[0];
 	}
 }
 

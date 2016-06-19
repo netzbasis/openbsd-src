@@ -1,4 +1,4 @@
-/*	$OpenBSD: systm.h,v 1.108 2015/06/11 16:03:04 mikeb Exp $	*/
+/*	$OpenBSD: systm.h,v 1.113 2016/05/17 23:28:03 bluhm Exp $	*/
 /*	$NetBSD: systm.h,v 1.50 1996/06/09 04:55:09 briggs Exp $	*/
 
 /*-
@@ -85,13 +85,6 @@ extern int nblkdev;		/* number of entries in bdevsw */
 extern int nchrdev;		/* number of entries in cdevsw */
 
 extern int selwait;		/* select timeout address */
-
-#ifdef MULTIPROCESSOR
-#define curpriority (curcpu()->ci_schedstate.spc_curpriority)
-#else
-extern u_char curpriority;	/* priority of current process */
-#endif
-
 extern int maxmem;		/* max memory per process */
 extern int physmem;		/* physical memory */
 
@@ -273,7 +266,7 @@ struct hook_desc {
 };
 TAILQ_HEAD(hook_desc_head, hook_desc);
 
-extern struct hook_desc_head startuphook_list, mountroothook_list;
+extern struct hook_desc_head startuphook_list;
 
 void	*hook_establish(struct hook_desc_head *, int, void (*)(void *), void *);
 void	hook_disestablish(struct hook_desc_head *, void *);
@@ -288,15 +281,8 @@ void	dohooks(struct hook_desc_head *, int);
 	hook_disestablish(&startuphook_list, (vhook))
 #define dostartuphooks() dohooks(&startuphook_list, HOOK_REMOVE|HOOK_FREE)
 
-#define mountroothook_establish(fn, arg) \
-	hook_establish(&mountroothook_list, 1, (fn), (arg))
-#define mountroothook_disestablish(vhook) \
-	hook_disestablish(&mountroothook_list, (vhook))
-#define domountroothooks() dohooks(&mountroothook_list, HOOK_REMOVE|HOOK_FREE)
-
 struct uio;
 int	uiomove(void *, size_t, struct uio *);
-int	uiomovei(void *, int, struct uio *);
 
 #if defined(_KERNEL)
 __returns_twice int	setjmp(label_t *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sendbug.c,v 1.73 2015/10/26 13:12:10 deraadt Exp $	*/
+/*	$OpenBSD: sendbug.c,v 1.76 2016/05/18 19:10:26 jca Exp $	*/
 
 /*
  * Written by Ray Lai <ray@cyth.net>.
@@ -30,7 +30,7 @@
 #define BEGIN64 "begin-base64 "
 #define END64 "===="
 
-int	checkfile(const char *);
+void	checkfile(const char *);
 void	debase(void);
 void	dmesg(FILE *);
 int	editit(const char *);
@@ -164,8 +164,7 @@ main(int argc, char *argv[])
 		errx(1, "report unchanged, nothing sent");
 
  prompt:
-	if (!checkfile(tmppath))
-		fprintf(stderr, "fields are blank, must be filled in\n");
+	checkfile(tmppath);
 	c = prompt();
 	switch (c) {
 	case 'a':
@@ -337,7 +336,7 @@ sendmail(const char *pathname)
 		}
 		close(filedes[0]);
 		execl(_PATH_SENDMAIL, "sendmail",
-		    "-oi", "-t", (void *)NULL);
+		    "-oi", "-t", (char *)NULL);
 		warn("sendmail error: unsent report in %s",
 		    pathname);
 		return (-1);
@@ -508,26 +507,37 @@ matchline(const char *s, const char *line, size_t linelen)
 /*
  * Are all required fields filled out?
  */
-int
+void
 checkfile(const char *pathname)
 {
 	FILE *fp;
 	size_t len;
-	int category = 0, synopsis = 0;
+	int category = 0, synopsis = 0, subject = 0;
 	char *buf;
 
 	if ((fp = fopen(pathname, "r")) == NULL) {
 		warn("%s", pathname);
-		return (0);
+		return;
 	}
 	while ((buf = fgetln(fp, &len))) {
 		if (matchline(">Category:", buf, len))
 			category = 1;
 		else if (matchline(">Synopsis:", buf, len))
 			synopsis = 1;
+		else if (matchline("Subject:", buf, len))
+			subject = 1;
 	}
 	fclose(fp);
-	return (category && synopsis);
+	if (!category || !synopsis || !subject) {
+		fprintf(stderr, "Some fields are blank, please fill them in: ");
+		if (!subject)
+			fprintf(stderr, "Subject ");
+		if (!synopsis)
+			fprintf(stderr, "Synopsis ");
+		if (!category)
+			fprintf(stderr, "Category ");
+		fputc('\n', stderr);
+	}
 }
 
 void

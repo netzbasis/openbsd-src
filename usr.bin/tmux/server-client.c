@@ -1,7 +1,7 @@
-/* $OpenBSD: server-client.c,v 1.171 2015/11/19 22:46:46 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.187 2016/06/16 10:55:47 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -32,7 +32,6 @@
 
 #include "tmux.h"
 
-void		server_client_key_table(struct client *, const char *);
 void		server_client_free(int, short, void *);
 void		server_client_check_focus(struct window_pane *);
 void		server_client_check_resize(struct window_pane *);
@@ -72,11 +71,30 @@ server_client_check_nested(struct client *c)
 
 /* Set client key table. */
 void
-server_client_key_table(struct client *c, const char *name)
+server_client_set_key_table(struct client *c, const char *name)
 {
+	if (name == NULL)
+		name = server_client_get_key_table(c);
+
 	key_bindings_unref_table(c->keytable);
 	c->keytable = key_bindings_get_table(name, 1);
 	c->keytable->references++;
+}
+
+/* Get default key table. */
+const char *
+server_client_get_key_table(struct client *c)
+{
+	struct session	*s = c->session;
+	const char	*name;
+
+	if (s == NULL)
+		return ("root");
+
+	name = options_get_string(s->options, "key-table");
+	if (*name == '\0')
+		return ("root");
+	return (name);
 }
 
 /* Create a new client. */
@@ -166,6 +184,7 @@ server_client_lost(struct client *c)
 
 	c->flags |= CLIENT_DEAD;
 
+	server_clear_identify(c, NULL);
 	status_prompt_clear(c);
 	status_message_clear(c);
 
@@ -256,6 +275,19 @@ server_client_free(__unused int fd, __unused short events, void *arg)
 		free(c);
 }
 
+/* Detach a client. */
+void
+server_client_detach(struct client *c, enum msgtype msgtype)
+{
+	struct session	*s = c->session;
+
+	if (s == NULL)
+		return;
+
+	hooks_run(c->session->hooks, c, NULL, "client-detached");
+	proc_send_s(c->peer, msgtype, s->name);
+}
+
 /* Check for mouse keys. */
 key_code
 server_client_check_mouse(struct client *c)
@@ -296,7 +328,7 @@ server_client_check_mouse(struct client *c)
 		log_debug("down at %u,%u", x, y);
 	}
 	if (type == NOTYPE)
-		return (KEYC_NONE);
+		return (KEYC_UNKNOWN);
 
 	/* Always save the session. */
 	m->s = s->id;
@@ -306,7 +338,7 @@ server_client_check_mouse(struct client *c)
 	if (m->statusat != -1 && y == (u_int)m->statusat) {
 		w = status_get_window_at(c, x);
 		if (w == NULL)
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 		m->w = w->id;
 		where = STATUS;
 	} else
@@ -332,13 +364,14 @@ server_client_check_mouse(struct client *c)
 			where = BORDER;
 		else {
 			wp = window_get_active_at(s->curw->window, x, y);
-			if (wp != NULL)
+			if (wp != NULL) {
 				where = PANE;
-			log_debug("mouse at %u,%u is on pane %%%u", x, y,
-			    wp->id);
+				log_debug("mouse at %u,%u is on pane %%%u",
+				    x, y, wp->id);
+			}
 		}
 		if (where == NOWHERE)
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 		m->wp = wp->id;
 		m->w = wp->window->id;
 	} else
@@ -352,12 +385,46 @@ server_client_check_mouse(struct client *c)
 		c->tty.mouse_drag_update = NULL;
 		c->tty.mouse_drag_release = NULL;
 
+		/*
+		 * End a mouse drag by passing a MouseDragEnd key corresponding
+		 * to the button that started the drag.
+		 */
+		switch (c->tty.mouse_drag_flag) {
+		case 1:
+			if (where == PANE)
+				key = KEYC_MOUSEDRAGEND1_PANE;
+			if (where == STATUS)
+				key = KEYC_MOUSEDRAGEND1_STATUS;
+			if (where == BORDER)
+				key = KEYC_MOUSEDRAGEND1_BORDER;
+			break;
+		case 2:
+			if (where == PANE)
+				key = KEYC_MOUSEDRAGEND2_PANE;
+			if (where == STATUS)
+				key = KEYC_MOUSEDRAGEND2_STATUS;
+			if (where == BORDER)
+				key = KEYC_MOUSEDRAGEND2_BORDER;
+			break;
+		case 3:
+			if (where == PANE)
+				key = KEYC_MOUSEDRAGEND3_PANE;
+			if (where == STATUS)
+				key = KEYC_MOUSEDRAGEND3_STATUS;
+			if (where == BORDER)
+				key = KEYC_MOUSEDRAGEND3_BORDER;
+			break;
+		default:
+			key = KEYC_MOUSE;
+			break;
+		}
 		c->tty.mouse_drag_flag = 0;
-		return (KEYC_MOUSE); /* not a key, but still may want to pass */
+
+		return (key);
 	}
 
 	/* Convert to a key binding. */
-	key = KEYC_NONE;
+	key = KEYC_UNKNOWN;
 	switch (type) {
 	case NOTYPE:
 		break;
@@ -393,7 +460,11 @@ server_client_check_mouse(struct client *c)
 			}
 		}
 
-		c->tty.mouse_drag_flag = 1;
+		/*
+		 * Begin a drag by setting the flag to a non-zero value that
+		 * corresponds to the mouse button in use.
+		 */
+		c->tty.mouse_drag_flag = MOUSE_BUTTONS(b) + 1;
 		break;
 	case WHEEL:
 		if (MOUSE_BUTTONS(b) == MOUSE_WHEEL_UP) {
@@ -469,8 +540,8 @@ server_client_check_mouse(struct client *c)
 		}
 		break;
 	}
-	if (key == KEYC_NONE)
-		return (KEYC_NONE);
+	if (key == KEYC_UNKNOWN)
+		return (KEYC_UNKNOWN);
 
 	/* Apply modifiers if any. */
 	if (b & MOUSE_MASK_META)
@@ -536,16 +607,16 @@ server_client_handle_key(struct client *c, key_code key)
 			return;
 		window_unzoom(w);
 		wp = window_pane_at_index(w, key - '0');
-		if (wp != NULL && window_pane_visible(wp))
-			window_set_active_pane(w, wp);
-		server_clear_identify(c);
+		if (wp != NULL && !window_pane_visible(wp))
+			wp = NULL;
+		server_clear_identify(c, wp);
 		return;
 	}
 
 	/* Handle status line. */
 	if (!(c->flags & CLIENT_READONLY)) {
 		status_message_clear(c);
-		server_clear_identify(c);
+		server_clear_identify(c, NULL);
 	}
 	if (c->prompt_string != NULL) {
 		if (!(c->flags & CLIENT_READONLY))
@@ -558,7 +629,7 @@ server_client_handle_key(struct client *c, key_code key)
 		if (c->flags & CLIENT_READONLY)
 			return;
 		key = server_client_check_mouse(c);
-		if (key == KEYC_NONE)
+		if (key == KEYC_UNKNOWN)
 			return;
 
 		m->valid = 1;
@@ -584,7 +655,7 @@ retry:
 		 * again in the root table.
 		 */
 		if ((c->flags & CLIENT_REPEAT) && !bd->can_repeat) {
-			server_client_key_table(c, "root");
+			server_client_set_key_table(c, NULL);
 			c->flags &= ~CLIENT_REPEAT;
 			server_status_client(c);
 			goto retry;
@@ -611,7 +682,7 @@ retry:
 			evtimer_add(&c->repeat_timer, &tv);
 		} else {
 			c->flags &= ~CLIENT_REPEAT;
-			server_client_key_table(c, "root");
+			server_client_set_key_table(c, NULL);
 		}
 		server_status_client(c);
 
@@ -626,15 +697,15 @@ retry:
 	 * root table and try again.
 	 */
 	if (c->flags & CLIENT_REPEAT) {
-		server_client_key_table(c, "root");
+		server_client_set_key_table(c, NULL);
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
 		goto retry;
 	}
 
 	/* If no match and we're not in the root table, that's it. */
-	if (strcmp(c->keytable->name, "root") != 0) {
-		server_client_key_table(c, "root");
+	if (strcmp(c->keytable->name, server_client_get_key_table(c)) != 0) {
+		server_client_set_key_table(c, NULL);
 		server_status_client(c);
 		return;
 	}
@@ -645,7 +716,7 @@ retry:
 	 */
 	if (key == (key_code)options_get_number(s->options, "prefix") ||
 	    key == (key_code)options_get_number(s->options, "prefix2")) {
-		server_client_key_table(c, "prefix");
+		server_client_set_key_table(c, "prefix");
 		server_status_client(c);
 		return;
 	}
@@ -784,10 +855,7 @@ server_client_reset_state(struct client *c)
 	struct options		*oo = c->session->options;
 	int			 status, mode, o;
 
-	if (c->flags & CLIENT_SUSPENDED)
-		return;
-
-	if (c->flags & CLIENT_CONTROL)
+	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
 
 	tty_region(&c->tty, 0, c->tty.sy - 1);
@@ -808,17 +876,6 @@ server_client_reset_state(struct client *c)
 	if (options_get_number(oo, "mouse"))
 		mode = (mode & ~ALL_MOUSE_MODES) | MODE_MOUSE_BUTTON;
 
-	/*
-	 * Set UTF-8 mouse input if required. If the terminal is UTF-8 and any
-	 * mouse mode is in effect, turn on UTF-8 mouse input. If the receiving
-	 * terminal hasn't requested it (that is, it isn't in s->mode), then
-	 * it'll be converted in input_mouse.
-	 */
-	if ((c->tty.flags & TTY_UTF8) && (mode & ALL_MOUSE_MODES))
-		mode |= MODE_MOUSE_UTF8;
-	else
-		mode &= ~MODE_MOUSE_UTF8;
-
 	/* Set the terminal mode and reset attributes. */
 	tty_update_mode(&c->tty, mode, s);
 	tty_reset(&c->tty);
@@ -831,7 +888,7 @@ server_client_repeat_timer(__unused int fd, __unused short events, void *data)
 	struct client	*c = data;
 
 	if (c->flags & CLIENT_REPEAT) {
-		server_client_key_table(c, "root");
+		server_client_set_key_table(c, NULL);
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
 	}
@@ -862,7 +919,7 @@ server_client_check_redraw(struct client *c)
 	struct session		*s = c->session;
 	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
-	int		 	 flags, redraw;
+	int		 	 flags, masked, redraw;
 
 	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
@@ -902,15 +959,15 @@ server_client_check_redraw(struct client *c)
 		}
 	}
 
-	if (c->flags & CLIENT_BORDERS) {
+	masked = c->flags & (CLIENT_BORDERS|CLIENT_STATUS);
+	if (masked != 0)
 		tty_update_mode(tty, tty->mode, NULL);
+	if (masked == CLIENT_BORDERS)
 		screen_redraw_screen(c, 0, 0, 1);
-	}
-
-	if (c->flags & CLIENT_STATUS) {
-		tty_update_mode(tty, tty->mode, NULL);
+	else if (masked == CLIENT_STATUS)
 		screen_redraw_screen(c, 0, 1, 0);
-	}
+	else if (masked != 0)
+		screen_redraw_screen(c, 0, 1, 1);
 
 	tty->flags = (tty->flags & ~(TTY_FREEZE|TTY_NOCURSOR)) | flags;
 	tty_update_mode(tty, tty->mode, NULL);
@@ -930,7 +987,7 @@ server_client_set_title(struct client *c)
 
 	template = options_get_string(s->options, "set-titles-string");
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 
 	title = format_expand_time(ft, template, time(NULL));
@@ -1005,6 +1062,8 @@ server_client_dispatch(struct imsg *imsg, void *arg)
 			recalculate_sizes();
 			server_redraw_client(c);
 		}
+		if (c->session != NULL)
+			hooks_run(c->session->hooks, c, NULL, "client-resized");
 		break;
 	case MSG_EXITING:
 		if (datalen != 0)
@@ -1029,12 +1088,13 @@ server_client_dispatch(struct imsg *imsg, void *arg)
 
 		if (gettimeofday(&c->activity_time, NULL) != 0)
 			fatal("gettimeofday failed");
-		if (s != NULL)
-			session_update_activity(s, &c->activity_time);
 
 		tty_start_tty(&c->tty);
 		server_redraw_client(c);
 		recalculate_sizes();
+
+		if (s != NULL)
+			session_update_activity(s, &c->activity_time);
 		break;
 	case MSG_SHELL:
 		if (datalen != 0)

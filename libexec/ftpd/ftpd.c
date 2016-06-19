@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftpd.c,v 1.211 2015/11/16 17:31:14 tedu Exp $	*/
+/*	$OpenBSD: ftpd.c,v 1.216 2016/05/04 19:48:08 jca Exp $	*/
 /*	$NetBSD: ftpd.c,v 1.15 1995/06/03 22:46:47 mycroft Exp $	*/
 
 /*
@@ -939,8 +939,7 @@ pass(char *passwd)
 		}
 	} else if (lc != NULL) {
 		/* Save anonymous' password. */
-		if (guestpw != NULL)
-			free(guestpw);
+		free(guestpw);
 		guestpw = strdup(passwd);
 		if (guestpw == NULL) {
 			kill_slave("out of mem");
@@ -1078,11 +1077,11 @@ pass(char *passwd)
 		} else
 			lreply(230, "No directory! Logging in with home=/");
 	}
-	if (setegid(pw->pw_gid) < 0 || setgid(pw->pw_gid) < 0) {
+	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) < 0) {
 		reply(550, "Can't set gid.");
 		goto bad;
 	}
-	if (seteuid(pw->pw_uid) < 0 || setuid(pw->pw_uid) < 0) {
+	if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) < 0) {
 		reply(550, "Can't set uid.");
 		goto bad;
 	}
@@ -1113,8 +1112,7 @@ pass(char *passwd)
 		(void) fflush(stdout);
 		(void) fclose(fp);
 	}
-	if (motd != NULL)
-		free(motd);
+	free(motd);
 	if (guest) {
 		reply(230, "Guest login ok, access restrictions apply.");
 		snprintf(proctitle, sizeof(proctitle),
@@ -1153,7 +1151,7 @@ retrieve(char *cmd, char *name)
 	pid_t pid;
 	time_t start;
 
-	if (cmd == 0) {
+	if (cmd == NULL) {
 		fin = fopen(name, "r");
 		st.st_size = 0;
 	} else {
@@ -1168,14 +1166,15 @@ retrieve(char *cmd, char *name)
 	if (fin == NULL) {
 		if (errno != 0) {
 			perror_reply(550, name);
-			if (cmd == 0) {
+			if (cmd == NULL) {
 				LOGCMD("get", name);
 			}
 		}
 		return;
 	}
 	byte_count = -1;
-	if (cmd == 0 && (fstat(fileno(fin), &st) < 0 || !S_ISREG(st.st_mode))) {
+	if (cmd == NULL &&
+	    (fstat(fileno(fin), &st) < 0 || !S_ISREG(st.st_mode))) {
 		reply(550, "%s: not a plain file.", name);
 		goto done;
 	}
@@ -1207,8 +1206,8 @@ retrieve(char *cmd, char *name)
 		goto done;
 	time(&start);
 	send_data(fin, dout, (off_t)st.st_blksize, st.st_size,
-	    (restart_point == 0 && cmd == 0 && S_ISREG(st.st_mode)));
-	if ((cmd == 0) && stats)
+	    (restart_point == 0 && cmd == NULL && S_ISREG(st.st_mode)));
+	if ((cmd == NULL) && stats)
 		logxfer(name, byte_count, start);
 	(void) fclose(dout);
 	data = -1;
@@ -1216,7 +1215,7 @@ done:
 	if (pdata >= 0)
 		(void) close(pdata);
 	pdata = -1;
-	if (cmd == 0) {
+	if (cmd == NULL) {
 		LOGBYTES("get", name, byte_count);
 		fclose(fin);
 	} else {
@@ -2142,7 +2141,7 @@ renamefrom(char *name)
 
 	if (stat(name, &st) < 0) {
 		perror_reply(550, name);
-		return ((char *)0);
+		return (NULL);
 	}
 	reply(350, "File exists, ready for destination name");
 	return (name);
@@ -2319,9 +2318,7 @@ epsvproto2af(int proto)
 
 	switch (proto) {
 	case 1:	return AF_INET;
-#ifdef INET6
 	case 2:	return AF_INET6;
-#endif
 	default: return -1;
 	}
 }
@@ -2332,9 +2329,7 @@ af2epsvproto(int af)
 
 	switch (af) {
 	case AF_INET:	return 1;
-#ifdef INET6
 	case AF_INET6:	return 2;
-#endif
 	default:	return -1;
 	}
 }
@@ -2533,8 +2528,7 @@ extended_port(const char *arg)
 	}
 	reply(200, "EPRT command successful.");
 
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return 0;
@@ -2542,8 +2536,7 @@ extended_port(const char *arg)
 parsefail:
 	reply(500, "Invalid argument, rejected.");
 	usedefault = 1;
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return -1;
@@ -2551,8 +2544,7 @@ parsefail:
 protounsupp:
 	epsv_protounsupp("Protocol not supported");
 	usedefault = 1;
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return -1;

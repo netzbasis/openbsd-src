@@ -562,12 +562,12 @@ ip6_mrouter_done(void)
 				struct rtdetq *n = rte->next;
 
 				m_freem(rte->m);
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				rte = n;
 			}
 			frt = rt;
 			rt = rt->mf6c_next;
-			free(frt, M_MRTABLE, 0);
+			free(frt, M_MRTABLE, sizeof(*frt));
 		}
 	}
 
@@ -825,7 +825,7 @@ add_m6fc(struct mf6cctl *mfccp)
 					ip6_mdq(rte->m, rte->ifp, rt);
 				}
 				m_freem(rte->m);
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				rte = n;
 			}
 			rt->mf6c_stall = NULL;
@@ -922,7 +922,7 @@ del_m6fc(struct mf6cctl *mfccp)
 	}
 
 	*nptr = rt->mf6c_next;
-	free(rt, M_MRTABLE, 0);
+	free(rt, M_MRTABLE, sizeof(*rt));
 
 	splx(s);
 
@@ -1035,7 +1035,7 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 		    (M_READONLY(mb0) || mb0->m_len < sizeof(struct ip6_hdr)))
 			mb0 = m_pullup(mb0, sizeof(struct ip6_hdr));
 		if (mb0 == NULL) {
-			free(rte, M_MRTABLE, 0);
+			free(rte, M_MRTABLE, sizeof(*rte));
 			splx(s);
 			return ENOBUFS;
 		}
@@ -1057,7 +1057,7 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 			/* no upcall, so make a new entry */
 			rt = malloc(sizeof(*rt), M_MRTABLE, M_NOWAIT);
 			if (rt == NULL) {
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				m_freem(mb0);
 				splx(s);
 				return ENOBUFS;
@@ -1069,9 +1069,9 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 			mm = m_copym(mb0, 0, sizeof(struct ip6_hdr), M_NOWAIT);
 
 			if (mm == NULL) {
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				m_freem(mb0);
-				free(rt, M_MRTABLE, 0);
+				free(rt, M_MRTABLE, sizeof(*rt));
 				splx(s);
 				return ENOBUFS;
 			}
@@ -1092,9 +1092,9 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 				im->im6_mbz = 0;
 				break;
 			default:
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				m_freem(mb0);
-				free(rt, M_MRTABLE, 0);
+				free(rt, M_MRTABLE, sizeof(*rt));
 				splx(s);
 				return EINVAL;
 			}
@@ -1115,9 +1115,9 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 				log(LOG_WARNING, "ip6_mforward: ip6_mrouter "
 				    "socket queue full\n");
 				mrt6stat.mrt6s_upq_sockfull++;
-				free(rte, M_MRTABLE, 0);
+				free(rte, M_MRTABLE, sizeof(*rte));
 				m_freem(mb0);
-				free(rt, M_MRTABLE, 0);
+				free(rt, M_MRTABLE, sizeof(*rt));
 				splx(s);
 				return ENOBUFS;
 			}
@@ -1149,7 +1149,7 @@ ip6_mforward(struct ip6_hdr *ip6, struct ifnet *ifp, struct mbuf *m)
 			for (p = &rt->mf6c_stall; *p != NULL; p = &(*p)->next)
 				if (++npkts > MAX_UPQ6) {
 					mrt6stat.mrt6s_upq_ovflw++;
-					free(rte, M_MRTABLE, 0);
+					free(rte, M_MRTABLE, sizeof(*rte));
 					m_freem(mb0);
 					splx(s);
 					return 0;
@@ -1203,14 +1203,14 @@ expire_upcalls6(void *unused)
 				do {
 					struct rtdetq *n = rte->next;
 					m_freem(rte->m);
-					free(rte, M_MRTABLE, 0);
+					free(rte, M_MRTABLE, sizeof(*rte));
 					rte = n;
 				} while (rte != NULL);
 				mrt6stat.mrt6s_cache_cleanups++;
 				n6expire[i]--;
 
 				*nptr = mfc->mf6c_next;
-				free(mfc, M_MRTABLE, 0);
+				free(mfc, M_MRTABLE, sizeof(*mfc));
 			} else {
 				nptr = &mfc->mf6c_next;
 			}
@@ -1372,7 +1372,6 @@ phyint_send6(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 	int error = 0;
 	int s = splsoftnet();
 	static struct route_in6 ro;
-	struct	in6_multi *in6m;
 	struct sockaddr_in6 *dst6;
 
 	/*
@@ -1416,8 +1415,7 @@ phyint_send6(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 	 * on the outgoing interface, loop back a copy.
 	 */
 	dst6 = &ro.ro_dst;
-	IN6_LOOKUP_MULTI(ip6->ip6_dst, ifp, in6m);
-	if (in6m != NULL) {
+	if (in6_hasmulti(&ip6->ip6_dst, ifp)) {
 		dst6->sin6_len = sizeof(struct sockaddr_in6);
 		dst6->sin6_family = AF_INET6;
 		dst6->sin6_addr = ip6->ip6_dst;
@@ -1431,10 +1429,6 @@ phyint_send6(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 		dst6->sin6_len = sizeof(struct sockaddr_in6);
 		dst6->sin6_family = AF_INET6;
 		dst6->sin6_addr = ip6->ip6_dst;
-		/*
-		 * We just call if_output instead of nd6_output here, since
-		 * we need no ND for a multicast forwarded packet...right?
-		 */
 		error = ifp->if_output(ifp, mb_copy, sin6tosa(&ro.ro_dst),
 		    NULL);
 	} else {

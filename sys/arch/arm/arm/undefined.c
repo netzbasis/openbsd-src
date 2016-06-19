@@ -1,4 +1,4 @@
-/*	$OpenBSD: undefined.c,v 1.6 2014/07/12 18:44:41 tedu Exp $	*/
+/*	$OpenBSD: undefined.c,v 1.8 2016/06/10 06:32:36 jsg Exp $	*/
 /*	$NetBSD: undefined.c,v 1.22 2003/11/29 22:21:29 bjh21 Exp $	*/
 
 /*
@@ -154,8 +154,8 @@ undefinedinstruction(trapframe_t *frame)
 	union sigval sv;
 
 	/* Enable interrupts if they were enabled before the exception. */
-	if (!(frame->tf_spsr & I32_bit))
-		enable_interrupts(I32_bit);
+	if (!(frame->tf_spsr & PSR_I))
+		enable_interrupts(PSR_I);
 
 	frame->tf_pc -= INSN_SIZE;
 	fault_pc = frame->tf_pc;
@@ -192,7 +192,7 @@ undefinedinstruction(trapframe_t *frame)
 
 	/*
 	 * According to the datasheets you only need to look at bit 27 of the
-	 * instruction to tell the difference between and undefined
+	 * instruction to tell the difference between an undefined
 	 * instruction and a coprocessor instruction following an undefined
 	 * instruction trap.
 	 */

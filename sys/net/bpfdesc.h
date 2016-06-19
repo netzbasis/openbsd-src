@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpfdesc.h,v 1.28 2015/09/09 11:55:37 dlg Exp $	*/
+/*	$OpenBSD: bpfdesc.h,v 1.30 2016/03/30 12:33:10 dlg Exp $	*/
 /*	$NetBSD: bpfdesc.h,v 1.11 1995/09/27 18:30:42 thorpej Exp $	*/
 
 /*
@@ -48,7 +48,7 @@
  * Descriptor associated with each open bpf file.
  */
 struct bpf_d {
-	struct srpl_entry bd_next;	/* Linked list of descriptors */
+	SRPL_ENTRY(bpf_d) bd_next;	/* Linked list of descriptors */
 	/*
 	 * Buffer slots: two mbuf clusters buffer the incoming packets.
 	 *   The model has three slots.  Sbuf is always occupied.
@@ -80,7 +80,6 @@ struct bpf_d {
 	u_char		bd_locked;	/* true if descriptor is locked */
 	u_char		bd_fildrop;	/* true if filtered packets will be dropped */
 	u_char		bd_dirfilt;	/* direction filter */
-	u_int		bd_queue;	/* the queue the user wants to watch (0 == all) */
 	int		bd_hdrcmplt;	/* false to fill in src lladdr automatically */
 	int		bd_async;	/* non-zero if packet reception should generate signal */
 	int		bd_sig;		/* signal to send upon packet reception */
@@ -98,7 +97,7 @@ struct bpf_d {
  */
 struct bpf_if {
 	struct bpf_if *bif_next;	/* list of all interfaces */
-	struct srpl bif_dlist;		/* descriptor list */
+	SRPL_HEAD(, bpf_d) bif_dlist;		/* descriptor list */
 	struct bpf_if **bif_driverp;	/* pointer into softc */
 	u_int bif_dlt;			/* link layer type */
 	u_int bif_hdrlen;		/* length of header (with padding) */

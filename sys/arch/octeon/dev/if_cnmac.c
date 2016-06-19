@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmac.c,v 1.32 2015/11/20 15:16:06 visa Exp $	*/
+/*	$OpenBSD: if_cnmac.c,v 1.51 2016/05/30 15:41:28 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -47,15 +47,14 @@
 #include <sys/queue.h>
 #include <sys/conf.h>
 #include <sys/stdint.h> /* uintptr_t */
-#include <sys/sysctl.h>
 #include <sys/syslog.h>
 #include <sys/endian.h>
+#include <sys/atomic.h>
 #ifdef MBUF_TIMESTAMP
 #include <sys/time.h>
 #endif
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -72,7 +71,6 @@
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 
-#include <octeon/dev/cn30xxasxreg.h>
 #include <octeon/dev/cn30xxciureg.h>
 #include <octeon/dev/cn30xxnpireg.h>
 #include <octeon/dev/cn30xxgmxreg.h>
@@ -89,7 +87,6 @@
 #include <octeon/dev/cn30xxipdvar.h>
 #include <octeon/dev/cn30xxpipvar.h>
 #include <octeon/dev/cn30xxpkovar.h>
-#include <octeon/dev/cn30xxasxvar.h>
 #include <octeon/dev/cn30xxsmivar.h>
 #include <octeon/dev/iobusvar.h>
 #include <octeon/dev/if_cnmacvar.h>
@@ -110,17 +107,6 @@
 	    (((uint32_t)OCTEON_POOL_SIZE_CMD / sizeof(uint64_t)) - 1)
 #define FPA_COMMAND_BUFFER_POOL_NWORDS	OCTEON_POOL_NWORDS_CMD	/* XXX */
 
-#if NBPFILTER > 0
-#define	OCTEON_ETH_TAP(ifp, m, dir) \
-	do { \
-		/* Pass this up to any BPF listeners. */ \
-		if ((ifp)->if_bpf) \
-			bpf_mtap((ifp)->if_bpf, (m), (dir)); \
-	} while (0/* CONSTCOND */)
-#else
-#define	OCTEON_ETH_TAP(ifp, m, dir)
-#endif /* NBPFILTER > 0 */
-
 void	octeon_eth_buf_init(struct octeon_eth_softc *);
 
 int	octeon_eth_match(struct device *, void *, void *);
@@ -128,7 +114,6 @@ void	octeon_eth_attach(struct device *, struct device *, void *);
 void	octeon_eth_pip_init(struct octeon_eth_softc *);
 void	octeon_eth_ipd_init(struct octeon_eth_softc *);
 void	octeon_eth_pko_init(struct octeon_eth_softc *);
-void	octeon_eth_asx_init(struct octeon_eth_softc *);
 void	octeon_eth_smi_init(struct octeon_eth_softc *);
 
 void	octeon_eth_board_mac_addr(uint8_t *);
@@ -151,8 +136,7 @@ void	octeon_eth_send_queue_del(struct octeon_eth_softc *,
 	    struct mbuf **, uint64_t **);
 int	octeon_eth_buf_free_work(struct octeon_eth_softc *,
 	    uint64_t *, uint64_t);
-void	octeon_eth_buf_ext_free_m(caddr_t, u_int, void *);
-void	octeon_eth_buf_ext_free_ext(caddr_t, u_int, void *);
+void	octeon_eth_buf_ext_free(caddr_t, u_int, void *);
 
 int	octeon_eth_ioctl(struct ifnet *, u_long, caddr_t);
 void	octeon_eth_watchdog(struct ifnet *);
@@ -175,11 +159,12 @@ int	octeon_eth_reset(struct octeon_eth_softc *);
 int	octeon_eth_configure(struct octeon_eth_softc *);
 int	octeon_eth_configure_common(struct octeon_eth_softc *);
 
+void	octeon_eth_free_task(void *);
 void	octeon_eth_tick_free(void *arg);
 void	octeon_eth_tick_misc(void *);
 
 int	octeon_eth_recv_mbuf(struct octeon_eth_softc *,
-	    uint64_t *, struct mbuf **);
+	    uint64_t *, struct mbuf **, int *);
 int	octeon_eth_recv_check_code(struct octeon_eth_softc *, uint64_t);
 #if 0 /* not used */
 int      octeon_eth_recv_check_jumbo(struct octeon_eth_softc *, uint64_t);
@@ -189,17 +174,14 @@ int	octeon_eth_recv_check(struct octeon_eth_softc *, uint64_t);
 int	octeon_eth_recv(struct octeon_eth_softc *, uint64_t *);
 void	octeon_eth_recv_intr(void *, uint64_t *);
 
+int	octeon_eth_mbuf_alloc(int);
+
 /* device driver context */
 struct	octeon_eth_softc *octeon_eth_gsc[GMX_PORT_NUNITS];
 void	*octeon_eth_pow_recv_ih;
 
-/* sysctl'able parameters */
+/* device parameters */
 int	octeon_eth_param_pko_cmd_w0_n2 = 1;
-int	octeon_eth_param_pip_dyn_rs = 1;
-int	octeon_eth_param_redir = 0;
-int	octeon_eth_param_pktbuf = 0;
-int	octeon_eth_param_rate = 0;
-int	octeon_eth_param_intr = 0;
 
 const struct cfattach cnmac_ca =
     { sizeof(struct octeon_eth_softc), octeon_eth_match, octeon_eth_attach };
@@ -214,20 +196,20 @@ const struct octeon_eth_pool_param {
 	size_t			nelems;
 } octeon_eth_pool_params[] = {
 #define	_ENTRY(x)	{ OCTEON_POOL_NO_##x, OCTEON_POOL_SIZE_##x, OCTEON_POOL_NELEMS_##x }
-	_ENTRY(PKT),
 	_ENTRY(WQE),
 	_ENTRY(CMD),
 	_ENTRY(SG)
 #undef	_ENTRY
 };
 struct cn30xxfpa_buf	*octeon_eth_pools[8/* XXX */];
-#define	octeon_eth_fb_pkt	octeon_eth_pools[OCTEON_POOL_NO_PKT]
 #define	octeon_eth_fb_wqe	octeon_eth_pools[OCTEON_POOL_NO_WQE]
 #define	octeon_eth_fb_cmd	octeon_eth_pools[OCTEON_POOL_NO_CMD]
 #define	octeon_eth_fb_sg	octeon_eth_pools[OCTEON_POOL_NO_SG]
 
 uint64_t octeon_eth_mac_addr = 0;
 uint32_t octeon_eth_mac_addr_offset = 0;
+
+int	octeon_eth_mbufs_to_alloc;
 
 void
 octeon_eth_buf_init(struct octeon_eth_softc *sc)
@@ -244,7 +226,7 @@ octeon_eth_buf_init(struct octeon_eth_softc *sc)
 	for (i = 0; i < (int)nitems(octeon_eth_pool_params); i++) {
 		pp = &octeon_eth_pool_params[i];
 		cn30xxfpa_buf_init(pp->poolno, pp->size, pp->nelems, &fb);
-		octeon_eth_pools[i] = fb;
+		octeon_eth_pools[pp->poolno] = fb;
 	}
 }
 
@@ -269,6 +251,11 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	struct cn30xxgmx_attach_args *ga = aux;
 	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
 	uint8_t enaddr[ETHER_ADDR_LEN];
+
+	KASSERT(MCLBYTES >= OCTEON_POOL_SIZE_PKT + CACHE_LINE_SIZE);
+
+	atomic_add_int(&octeon_eth_mbufs_to_alloc,
+	    octeon_eth_mbuf_alloc(OCTEON_ETH_MBUFS_PER_PORT));
 
 	sc->sc_regt = ga->ga_regt;
 	sc->sc_dmat = ga->ga_dmat;
@@ -297,6 +284,7 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 
 	cn30xxgmx_stats_init(sc->sc_gmx_port);
 
+	task_set(&sc->sc_free_task, octeon_eth_free_task, sc);
 	timeout_set(&sc->sc_tick_misc_ch, octeon_eth_tick_misc, sc);
 	timeout_set(&sc->sc_tick_free_ch, octeon_eth_tick_free, sc);
 
@@ -308,11 +296,9 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	octeon_eth_pip_init(sc);
 	octeon_eth_ipd_init(sc);
 	octeon_eth_pko_init(sc);
-	octeon_eth_asx_init(sc);
 	octeon_eth_smi_init(sc);
 
 	sc->sc_gmx_port->sc_ipd = sc->sc_ipd;
-	sc->sc_gmx_port->sc_port_asx = sc->sc_asx;
 	sc->sc_gmx_port->sc_port_mii = &sc->sc_mii;
 	sc->sc_gmx_port->sc_port_ac = &sc->sc_arpcom;
 
@@ -324,11 +310,11 @@ octeon_eth_attach(struct device *parent, struct device *self, void *aux)
 	strncpy(ifp->if_xname, sc->sc_dev.dv_xname, sizeof(ifp->if_xname));
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = octeon_eth_ioctl;
 	ifp->if_start = octeon_eth_start;
 	ifp->if_watchdog = octeon_eth_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, max(GATHER_QUEUE_SIZE, IFQ_MAXLEN));
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_TCPv4 |
 	    IFCAP_CSUM_UDPv4 | IFCAP_CSUM_TCPv6 | IFCAP_CSUM_UDPv6;
@@ -380,7 +366,7 @@ octeon_eth_ipd_init(struct octeon_eth_softc *sc)
 
 	ipd_aa.aa_port = sc->sc_port;
 	ipd_aa.aa_regt = sc->sc_regt;
-	ipd_aa.aa_first_mbuff_skip = 184/* XXX */;
+	ipd_aa.aa_first_mbuff_skip = 0/* XXX */;
 	ipd_aa.aa_not_first_mbuff_skip = 0/* XXX */;
 	cn30xxipd_init(&ipd_aa, &sc->sc_ipd);
 }
@@ -397,17 +383,6 @@ octeon_eth_pko_init(struct octeon_eth_softc *sc)
 	pko_aa.aa_cmd_buf_pool = OCTEON_POOL_NO_CMD;
 	pko_aa.aa_cmd_buf_size = OCTEON_POOL_NWORDS_CMD;
 	cn30xxpko_init(&pko_aa, &sc->sc_pko);
-}
-
-/* XXX */
-void
-octeon_eth_asx_init(struct octeon_eth_softc *sc)
-{
-	struct cn30xxasx_attach_args asx_aa;
-
-	asx_aa.aa_port = sc->sc_port;
-	asx_aa.aa_regt = sc->sc_regt;
-	cn30xxasx_init(&asx_aa, &sc->sc_asx);
 }
 
 void
@@ -632,7 +607,7 @@ octeon_eth_send_queue_add(struct octeon_eth_softc *sc, struct mbuf *m,
 	m->m_pkthdr.ph_cookie = gbuf;
 	ml_enqueue(&sc->sc_sendq, m);
 
-	if (m->m_ext.ext_free != NULL)
+	if (m->m_ext.ext_free_fn != 0)
 		sc->sc_ext_callback_cnt++;
 }
 
@@ -647,7 +622,7 @@ octeon_eth_send_queue_del(struct octeon_eth_softc *sc, struct mbuf **rm,
 	*rm = m;
 	*rgbuf = m->m_pkthdr.ph_cookie;
 
-	if (m->m_ext.ext_free != NULL) {
+	if (m->m_ext.ext_free_fn != 0) {
 		sc->sc_ext_callback_cnt--;
 		OCTEON_ETH_KASSERT(sc->sc_ext_callback_cnt >= 0);
 	}
@@ -657,44 +632,23 @@ int
 octeon_eth_buf_free_work(struct octeon_eth_softc *sc, uint64_t *work,
     uint64_t word2)
 {
-	/* XXX when jumbo frame */
+	paddr_t addr, pktbuf;
+	unsigned int back;
+
 	if (ISSET(word2, PIP_WQE_WORD2_IP_BUFS)) {
-		paddr_t addr;
-		paddr_t start_buffer;
+		addr = work[3] & PIP_WQE_WORD3_ADDR, CCA_CACHED;
+		back = (work[3] & PIP_WQE_WORD3_BACK) >>
+		    PIP_WQE_WORD3_BACK_SHIFT;
+		pktbuf = (addr & ~(CACHE_LINE_SIZE - 1)) -
+		    back * CACHE_LINE_SIZE;
 
-		addr = XKPHYS_TO_PHYS(work[3] & PIP_WQE_WORD3_ADDR);
-		start_buffer = addr & ~(2048 - 1);
-
-		cn30xxfpa_buf_put_paddr(octeon_eth_fb_pkt, start_buffer);
+		cn30xxfpa_store(pktbuf, OCTEON_POOL_NO_PKT,
+		    OCTEON_POOL_SIZE_PKT / CACHE_LINE_SIZE);
 	}
 
 	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
 
 	return 0;
-}
-
-void
-octeon_eth_buf_ext_free_m(caddr_t buf, u_int size, void *arg)
-{
-	uint64_t *work = (void *)arg;
-	int s = splnet();
-
-	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
-
-	splx(s);
-}
-
-void
-octeon_eth_buf_ext_free_ext(caddr_t buf, u_int size,
-    void *arg)
-{
-	uint64_t *work = (void *)arg;
-	int s = splnet();
-
-	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
-	cn30xxfpa_buf_put_paddr(octeon_eth_fb_pkt, XKPHYS_TO_PHYS(buf));
-
-	splx(s);
 }
 
 /* ---- ifnet interfaces */
@@ -756,7 +710,7 @@ octeon_eth_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = 0;
 	}
 
-	octeon_eth_start(ifp);
+	if_start(ifp);
 
 	splx(s);
 	return (error);
@@ -785,11 +739,9 @@ octeon_eth_send_makecmd_w1(int size, paddr_t addr)
 {
 	return cn30xxpko_cmd_word1(
 		0, 0,				/* i, back */
-		FPA_GATHER_BUFFER_POOL,		/* pool */
+		OCTEON_POOL_NO_SG,		/* pool */
 		size, addr);			/* size, addr */
 }
-
-/* TODO: use bus_dma(9) */
 
 #define KVTOPHYS(addr)	if_cnmac_kvtophys((vaddr_t)(addr))
 paddr_t if_cnmac_kvtophys(vaddr_t);
@@ -804,8 +756,7 @@ if_cnmac_kvtophys(vaddr_t kva)
 	else if (kva >= CKSEG1_BASE && kva < CKSEG1_BASE + CKSEG_SIZE)
 		return CKSEG1_TO_PHYS(kva);
 
-	printf("kva %lx is not able to convert physical address\n", kva);
-	panic("if_cnmac_kvtophys");
+	panic("%s: non-direct mapped address %p", __func__, (void *)kva);
 }
 
 int
@@ -814,51 +765,27 @@ octeon_eth_send_makecmd_gbuf(struct octeon_eth_softc *sc, struct mbuf *m0,
 {
 	struct mbuf *m;
 	int segs = 0;
-	uint32_t laddr, rlen, nlen;
 
 	for (m = m0; m != NULL; m = m->m_next) {
-
 		if (__predict_false(m->m_len == 0))
 			continue;
 
-#if 0	
-		OCTEON_ETH_KASSERT(((uint32_t)m->m_data & (PAGE_SIZE - 1))
-		   == (kvtophys((vaddr_t)m->m_data) & (PAGE_SIZE - 1)));
-#endif
-
-		/*
-		 * aligned 4k
-		 */
-		laddr = (uintptr_t)m->m_data & (PAGE_SIZE - 1);
-
-		if (laddr + m->m_len > PAGE_SIZE) {
-			/* XXX */
-			rlen = PAGE_SIZE - laddr;
-			nlen = m->m_len - rlen;
-			*(gbuf + segs) = octeon_eth_send_makecmd_w1(rlen,
-			    KVTOPHYS(m->m_data));
-			segs++;
-			if (segs > 63) {
-				return 1;
-			}
-			/* XXX */
-		} else {
-			rlen = 0;
-			nlen = m->m_len;
-		}
-
-		*(gbuf + segs) = octeon_eth_send_makecmd_w1(nlen,
-		    KVTOPHYS((caddr_t)m->m_data + rlen));
+		if (segs >= OCTEON_POOL_SIZE_SG / sizeof(uint64_t))
+			goto defrag;
+		gbuf[segs] = octeon_eth_send_makecmd_w1(m->m_len,
+		    KVTOPHYS(m->m_data));
 		segs++;
-		if (segs > 63) {
-			return 1;
-		}
 	}
-
-	OCTEON_ETH_KASSERT(m == NULL);
 
 	*rsegs = segs;
 
+	return 0;
+
+defrag:
+	if (m_defrag(m0, M_DONTWAIT) != 0)
+		return 1;
+	gbuf[0] = octeon_eth_send_makecmd_w1(m0->m_len, KVTOPHYS(m0->m_data));
+	*rsegs = 1;
 	return 0;
 }
 
@@ -1007,17 +934,16 @@ octeon_eth_start(struct ifnet *ifp)
 	struct octeon_eth_softc *sc = ifp->if_softc;
 	struct mbuf *m;
 
+	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port))) {
+		ifq_purge(&ifp->if_snd);
+		return;
+	}
+
 	/*
 	 * performance tuning
 	 * presend iobdma request 
 	 */
 	octeon_eth_send_queue_flush_prefetch(sc);
-
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
-		goto last;
-
-	if (__predict_false(!cn30xxgmx_link_status(sc->sc_gmx_port)))
-		goto last;
 
 	for (;;) {
 		octeon_eth_send_queue_flush_fetch(sc); /* XXX */
@@ -1028,15 +954,19 @@ octeon_eth_start(struct ifnet *ifp)
 		 * and bail out.
 		 */
 		if (octeon_eth_send_queue_is_full(sc)) {
+			ifq_set_oactive(&ifp->if_snd);
+			timeout_add(&sc->sc_tick_free_ch, 1);
 			return;
 		}
-		/* XXX */
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		m = ifq_dequeue(&ifp->if_snd);
 		if (m == NULL)
 			return;
 
-		OCTEON_ETH_TAP(ifp, m, BPF_DIRECTION_OUT);
+#if NBPFILTER > 0
+		if (ifp->if_bpf != NULL)
+			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+#endif
 
 		/* XXX */
 		if (ml_len(&sc->sc_sendq) > sc->sc_soft_req_thresh)
@@ -1056,7 +986,6 @@ octeon_eth_start(struct ifnet *ifp)
 		octeon_eth_send_queue_flush_prefetch(sc);
 	}
 
-last:
 	octeon_eth_send_queue_flush_fetch(sc);
 }
 
@@ -1067,13 +996,14 @@ octeon_eth_watchdog(struct ifnet *ifp)
 
 	printf("%s: device timeout\n", sc->sc_dev.dv_xname);
 
+	octeon_eth_stop(ifp, 0);
+
 	octeon_eth_configure(sc);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
 	ifp->if_timer = 0;
 
-	octeon_eth_start(ifp);
+	ifq_restart(&ifp->if_snd);
 }
 
 int
@@ -1104,7 +1034,7 @@ octeon_eth_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_free_ch, 1);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1114,19 +1044,20 @@ octeon_eth_stop(struct ifnet *ifp, int disable)
 {
 	struct octeon_eth_softc *sc = ifp->if_softc;
 
+	CLR(ifp->if_flags, IFF_RUNNING);
+
 	timeout_del(&sc->sc_tick_misc_ch);
 	timeout_del(&sc->sc_tick_free_ch);
-	timeout_del(&sc->sc_resume_ch);
 
 	mii_down(&sc->sc_mii);
 
 	cn30xxgmx_port_enable(sc->sc_gmx_port, 0);
 
-	/* Mark the interface as down and cancel the watchdog timer. */
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE);
-	ifp->if_timer = 0;
-
 	intr_barrier(octeon_eth_pow_recv_ih);
+	ifq_barrier(&ifp->if_snd);
+
+	ifq_clr_oactive(&ifp->if_snd);
+	ifp->if_timer = 0;
 
 	return 0;
 }
@@ -1197,66 +1128,67 @@ octeon_eth_configure_common(struct octeon_eth_softc *sc)
 }
 
 int
-octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
-    struct mbuf **rm)
+octeon_eth_mbuf_alloc(int n)
 {
 	struct mbuf *m;
-	void (*ext_free)(caddr_t, u_int, void *);
-	void *ext_buf;
-	size_t ext_size;
-	caddr_t data;
+	paddr_t pktbuf;
+
+	while (n > 0) {
+		m = MCLGETI(NULL, M_NOWAIT, NULL,
+		    OCTEON_POOL_SIZE_PKT + CACHE_LINE_SIZE);
+		if (m == NULL || !ISSET(m->m_flags, M_EXT)) {
+			m_freem(m);
+			break;
+		}
+
+		m->m_data = (void *)(((vaddr_t)m->m_data + CACHE_LINE_SIZE) &
+		    ~(CACHE_LINE_SIZE - 1));
+		((struct mbuf **)m->m_data)[-1] = m;
+
+		pktbuf = KVTOPHYS(m->m_data);
+		m->m_pkthdr.ph_cookie = (void *)pktbuf;
+		cn30xxfpa_store(pktbuf, OCTEON_POOL_NO_PKT,
+		    OCTEON_POOL_SIZE_PKT / CACHE_LINE_SIZE);
+
+		n--;
+	}
+	return n;
+}
+
+int
+octeon_eth_recv_mbuf(struct octeon_eth_softc *sc, uint64_t *work,
+    struct mbuf **rm, int *nmbuf)
+{
+	struct mbuf *m, **pm;
+	paddr_t addr, pktbuf;
 	uint64_t word1 = work[1];
 	uint64_t word2 = work[2];
 	uint64_t word3 = work[3];
+	unsigned int back;
 
-	MGETHDR(m, M_NOWAIT, MT_DATA);
-	if (m == NULL)
-		return 1;
-	OCTEON_ETH_KASSERT(m != NULL);
+	cn30xxfpa_buf_put_paddr(octeon_eth_fb_wqe, XKPHYS_TO_PHYS(work));
 
-	if ((word2 & PIP_WQE_WORD2_IP_BUFS) == 0) {
-		/* Dynamic short */
-		ext_free = octeon_eth_buf_ext_free_m;
-		ext_buf = &work[4];
-		ext_size = 96;
+	if ((word2 >> PIP_WQE_WORD2_IP_BUFS_SHIFT) != 1)
+		panic("%s: expected one buffer, got %llu", __func__,
+		    word2 >> PIP_WQE_WORD2_IP_BUFS_SHIFT);
 
-		/*
-		 * If the packet is IP, the hardware has padded it so that the
-		 * IP source address starts on the next 64-bit word boundary.
-		 */
-		data = (caddr_t)&work[4] + ETHER_ALIGN;
-		if (!ISSET(word2, PIP_WQE_WORD2_IP_NI) &&
-		    !ISSET(word2, PIP_WQE_WORD2_IP_V6))
-			data += 4;
-	} else {
-		vaddr_t addr;
-		vaddr_t start_buffer;
+	addr = word3 & PIP_WQE_WORD3_ADDR;
+	back = (word3 & PIP_WQE_WORD3_BACK) >> PIP_WQE_WORD3_BACK_SHIFT;
+	pktbuf = (addr & ~(CACHE_LINE_SIZE - 1)) - back * CACHE_LINE_SIZE;
+	pm = (struct mbuf **)PHYS_TO_XKPHYS(pktbuf, CCA_CACHED) - 1;
+	m = *pm;
+	*pm = NULL;
+	if ((paddr_t)m->m_pkthdr.ph_cookie != pktbuf)
+		panic("%s: packet pool is corrupted, mbuf cookie %p != "
+		    "pktbuf %p", __func__, m->m_pkthdr.ph_cookie,
+		    (void *)pktbuf);
 
-		addr = PHYS_TO_XKPHYS(word3 & PIP_WQE_WORD3_ADDR, CCA_CACHED);
-		start_buffer = addr & ~(2048 - 1);
-
-		ext_free = octeon_eth_buf_ext_free_ext;
-		ext_buf = (void *)start_buffer;
-		ext_size = 2048;
-
-		data = (void *)addr;
-	}
-
-	MEXTADD(m, ext_buf, ext_size, 0, ext_free, work);
-	OCTEON_ETH_KASSERT(ISSET(m->m_flags, M_EXT));
-
-	m->m_data = data;
+	m->m_pkthdr.ph_cookie = NULL;
+	m->m_data += addr - pktbuf;
 	m->m_len = m->m_pkthdr.len = (word1 & PIP_WQE_WORD1_LEN) >> 48;
-#if 0
-	/*
-	 * not readonly buffer
-	 */
-	m->m_flags |= M_EXT_RW;
-#endif
 
 	*rm = m;
-
-	OCTEON_ETH_KASSERT(*rm != NULL);
+	*nmbuf = 1;
 
 	return 0;
 }
@@ -1346,6 +1278,7 @@ octeon_eth_recv(struct octeon_eth_softc *sc, uint64_t *work)
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct mbuf *m;
 	uint64_t word2;
+	int nmbuf;
 
 	OCTEON_ETH_KASSERT(sc != NULL);
 	OCTEON_ETH_KASSERT(work != NULL);
@@ -1363,7 +1296,7 @@ octeon_eth_recv(struct octeon_eth_softc *sc, uint64_t *work)
 		goto drop;
 	}
 
-	if (__predict_false(octeon_eth_recv_mbuf(sc, work, &m) != 0)) {
+	if (__predict_false(octeon_eth_recv_mbuf(sc, work, &m, &nmbuf) != 0)) {
 		ifp->if_ierrors++;
 		goto drop;
 	}
@@ -1376,6 +1309,10 @@ octeon_eth_recv(struct octeon_eth_softc *sc, uint64_t *work)
 
 	ml_enqueue(&ml, m);
 	if_input(ifp, &ml);
+
+	nmbuf = octeon_eth_mbuf_alloc(nmbuf);
+	if (nmbuf != 0)
+		atomic_add_int(&octeon_eth_mbufs_to_alloc, nmbuf);
 
 	return 0;
 
@@ -1408,6 +1345,35 @@ octeon_eth_recv_intr(void *data, uint64_t *work)
 
 /* ---- tick */
 
+void
+octeon_eth_free_task(void *arg)
+{
+	struct octeon_eth_softc *sc = arg;
+	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
+	int resched = 1;
+	int timeout;
+
+	if (ml_len(&sc->sc_sendq) > 0) {
+		octeon_eth_send_queue_flush_prefetch(sc);
+		octeon_eth_send_queue_flush_fetch(sc);
+		octeon_eth_send_queue_flush(sc);
+	}
+
+	if (ifq_is_oactive(&ifp->if_snd)) {
+		ifq_clr_oactive(&ifp->if_snd);
+		octeon_eth_start(ifp);
+
+		if (ifq_is_oactive(&ifp->if_snd))
+			/* The start routine did rescheduling already. */
+			resched = 0;
+	}
+
+	if (resched) {
+		timeout = (sc->sc_ext_callback_cnt > 0) ? 1 : hz;
+		timeout_add(&sc->sc_tick_free_ch, timeout);
+	}
+}
+
 /*
  * octeon_eth_tick_free
  *
@@ -1418,25 +1384,17 @@ void
 octeon_eth_tick_free(void *arg)
 {
 	struct octeon_eth_softc *sc = arg;
-	int timo;
-	int s;
+	struct ifnet *ifp = &sc->sc_arpcom.ac_if;
+	int to_alloc;
 
-	s = splnet();
-	/* XXX */
-	if (ml_len(&sc->sc_sendq) > 0) {
-		octeon_eth_send_queue_flush_prefetch(sc);
-		octeon_eth_send_queue_flush_fetch(sc);
-		octeon_eth_send_queue_flush(sc);
+	ifq_serialize(&ifp->if_snd, &sc->sc_free_task);
+
+	if (octeon_eth_mbufs_to_alloc != 0) {
+		to_alloc = atomic_swap_uint(&octeon_eth_mbufs_to_alloc, 0);
+		to_alloc = octeon_eth_mbuf_alloc(to_alloc);
+		if (to_alloc != 0)
+			atomic_add_int(&octeon_eth_mbufs_to_alloc, to_alloc);
 	}
-	/* XXX */
-
-	/* XXX ??? */
-	timo = hz - (100 * sc->sc_ext_callback_cnt);
-	if (timo < 10)
-		 timo = 10;
-	timeout_add_msec(&sc->sc_tick_free_ch, 1000 * timo / hz);
-	/* XXX */
-	splx(s);
 }
 
 /*
@@ -1474,24 +1432,6 @@ octeon_eth_tick_misc(void *arg)
 
 	mii_tick(&sc->sc_mii);
 
-#ifdef OCTEON_ETH_FIXUP_ODD_NIBBLE_DYNAMIC
-	if (sc->sc_gmx_port->sc_proc_nibble_by_soft &&
-	    sc->sc_gmx_port->sc_even_nibble_cnt > PROC_NIBBLE_SOFT_THRESHOLD) {
-#ifdef OCTEON_ETH_DEBUG
-		log(LOG_DEBUG, "%s: even nibble preamble count %d\n",
-		    sc->sc_dev.dv_xname, sc->sc_gmx_port->sc_even_nibble_cnt);
-#endif
-		if (OCTEON_ETH_FIXUP_ODD_NIBBLE_MODEL_P(sc) &&
-		    OCTEON_ETH_FIXUP_ODD_NIBBLE_DYNAMIC_SPEED_P(sc->sc_gmx_port, ifp)) {
-			log(LOG_NOTICE, 
-			    "%s: the preamble processing switched to hardware\n", 
-			    sc->sc_dev.dv_xname);
-		}
-		sc->sc_gmx_port->sc_proc_nibble_by_soft = 0;
-		octeon_eth_mii_statchg((struct device *)sc);
-		sc->sc_gmx_port->sc_even_nibble_cnt = 0;
-	}
-#endif
 	splx(s);
 
 	timeout_add_sec(&sc->sc_tick_misc_ch, 1);

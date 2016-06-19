@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.18 2015/11/05 12:35:58 jung Exp $	*/
+/*	$OpenBSD: ca.c,v 1.22 2016/05/28 21:21:20 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -59,10 +59,6 @@ static int	 rsae_bn_mod_exp(BIGNUM *, const BIGNUM *, const BIGNUM *,
 		    const BIGNUM *, BN_CTX *, BN_MONT_CTX *);
 static int	 rsae_init(RSA *);
 static int	 rsae_finish(RSA *);
-static int	 rsae_sign(int, const unsigned char *, unsigned int,
-		    unsigned char *, unsigned int *, const RSA *);
-static int	 rsae_verify(int dtype, const unsigned char *m, unsigned int,
-		    const unsigned char *, unsigned int, const RSA *);
 static int	 rsae_keygen(RSA *, int, BIGNUM *, BN_GENCB *);
 
 static uint64_t	 rsae_reqid = 0;
@@ -87,23 +83,12 @@ ca_sig_handler(int sig, short event, void *p)
 	}
 }
 
-pid_t
+int
 ca(void)
 {
-	pid_t		 pid;
 	struct passwd	*pw;
 	struct event	 ev_sigint;
 	struct event	 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("ca: cannot fork");
-	case 0:
-		post_fork(PROC_CA);
-		break;
-	default:
-		return (pid);
-	}
 
 	purge_config(PURGE_LISTENERS|PURGE_TABLES|PURGE_RULES);
 
@@ -213,7 +198,7 @@ ca_X509_verify(void *certificate, void *chain, const char *CAfile,
 	if ((store = X509_STORE_new()) == NULL)
 		goto end;
 
-	if (! X509_STORE_load_locations(store, CAfile, NULL)) {
+	if (!X509_STORE_load_locations(store, CAfile, NULL)) {
 		log_warn("warn: unable to load CA file %s", CAfile);
 		goto end;
 	}
@@ -356,8 +341,8 @@ static RSA_METHOD rsae_method = {
 	rsae_finish,
 	0,
 	NULL,
-	rsae_sign,
-	rsae_verify,
+	NULL,
+	NULL,
 	rsae_keygen
 };
 
@@ -394,7 +379,7 @@ rsae_send_imsg(int flen, const unsigned char *from, unsigned char *to,
 	ibuf = &p_ca->imsgbuf;
 
 	while (!done) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatalx("imsg_read");
 		if (n == 0)
 			fatalx("pipe closed");
@@ -510,24 +495,6 @@ rsae_finish(RSA *rsa)
 	if (rsa_default->finish == NULL)
 		return (1);
 	return (rsa_default->finish(rsa));
-}
-
-static int
-rsae_sign(int type, const unsigned char *m, unsigned int m_length,
-    unsigned char *sigret, unsigned int *siglen, const RSA *rsa)
-{
-	log_debug("debug: %s: %s", proc_name(smtpd_process), __func__);
-	return (rsa_default->rsa_sign(type, m, m_length,
-	    sigret, siglen, rsa));
-}
-
-static int
-rsae_verify(int dtype, const unsigned char *m, unsigned int m_length,
-    const unsigned char *sigbuf, unsigned int siglen, const RSA *rsa)
-{
-	log_debug("debug: %s: %s", proc_name(smtpd_process), __func__);
-	return (rsa_default->rsa_verify(dtype, m, m_length,
-	    sigbuf, siglen, rsa));
 }
 
 static int

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.3 2014/03/18 22:36:28 miod Exp $
+#	$OpenBSD: Makefile,v 1.6 2016/05/11 21:52:48 deraadt Exp $
 
 .PATH: ${.CURDIR}/../../../usr.sbin/installboot
 
@@ -28,18 +28,9 @@ SRCS += stubs.c
 SRCS += stubs.c
 .endif
 
-.if ${MACHINE} == "aviion"
-SRCS += stubs.c
-.endif
-
 .if ${MACHINE} == "hppa"
 CFLAGS += -DBOOTSTRAP
 SRCS += hppa_installboot.c
-.endif
-
-.if ${MACHINE} == "hppa64"
-CFLAGS += -DBOOTSTRAP
-SRCS += hppa64_installboot.c
 .endif
 
 .if ${MACHINE} == "i386"
@@ -86,11 +77,6 @@ SRCS += stubs.c
 CFLAGS += -DSOFTRAID
 SRCS += sparc64_installboot.c
 SRCS += sparc64_softraid.c
-.endif
-
-.if ${MACHINE} == "vax"
-CFLAGS += -DBOOTSTRAP
-SRCS += vax_installboot.c
 .endif
 
 .if ${MACHINE} == "zaurus"

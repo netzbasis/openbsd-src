@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.128 2015/11/20 23:16:00 deraadt Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.132 2016/05/18 01:13:13 millert Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -149,7 +149,6 @@ dns_portcheck(struct proc *p, struct socket *so, void *nam, size_t namelen)
 	return (EINVAL);	
 }
 
-/* ARGSUSED */
 int
 sys_bind(struct proc *p, void *v, register_t *retval)
 {
@@ -185,7 +184,6 @@ out:
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_listen(struct proc *p, void *v, register_t *retval)
 {
@@ -200,11 +198,7 @@ sys_listen(struct proc *p, void *v, register_t *retval)
 	if ((error = getsock(p, SCARG(uap, s), &fp)) != 0)
 		return (error);
 	so = fp->f_data;
-	error = pledge_socket(p, -1, so->so_state);
-	if (error)
-		goto out;
 	error = solisten(so, SCARG(uap, backlog));
-out:
 	FRELE(fp, p);
 	return (error);
 }
@@ -260,9 +254,6 @@ doaccept(struct proc *p, int sock, struct sockaddr *name, socklen_t *anamelen,
 	headfp = fp;
 	head = fp->f_data;
 
-	error = pledge_socket(p, -1, head->so_state);
-	if (error)
-		goto bad;
 	if (isdnssocket((struct socket *)fp->f_data)) {
 		error = EINVAL;
 		goto bad;
@@ -365,7 +356,6 @@ bad:
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_connect(struct proc *p, void *v, register_t *retval)
 {
@@ -875,10 +865,6 @@ recvit(struct proc *p, int s, struct msghdr *mp, caddr_t namelenp,
 			struct mbuf *m = control;
 			caddr_t cp = mp->msg_control;
 
-#ifdef KTRACE
-			if (KTRPOINT(p, KTR_STRUCT) && len)
-				ktrcmsghdr(p, mtod(control, char *), len);
-#endif
 			do {
 				i = m->m_len;
 				if (len < i) {
@@ -892,6 +878,10 @@ recvit(struct proc *p, int s, struct msghdr *mp, caddr_t namelenp,
 				len -= i;
 				if (error != 0 || len <= 0)
 					break;
+#ifdef KTRACE
+				if (KTRPOINT(p, KTR_STRUCT) && i)
+					ktrcmsghdr(p, mtod(m, char *), i);
+#endif
 			} while ((m = m->m_next) != NULL);
 			len = cp - (caddr_t)mp->msg_control;
 		}
@@ -910,7 +900,6 @@ out:
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_shutdown(struct proc *p, void *v, register_t *retval)
 {
@@ -928,7 +917,6 @@ sys_shutdown(struct proc *p, void *v, register_t *retval)
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_setsockopt(struct proc *p, void *v, register_t *retval)
 {
@@ -982,7 +970,6 @@ bad:
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_getsockopt(struct proc *p, void *v, register_t *retval)
 {
@@ -1030,7 +1017,6 @@ out:
 /*
  * Get socket name.
  */
-/* ARGSUSED */
 int
 sys_getsockname(struct proc *p, void *v, register_t *retval)
 {
@@ -1069,7 +1055,6 @@ bad:
 /*
  * Get name of peer for connected socket.
  */
-/* ARGSUSED */
 int
 sys_getpeername(struct proc *p, void *v, register_t *retval)
 {
@@ -1125,7 +1110,7 @@ sockargs(struct mbuf **mp, const void *buf, size_t buflen, int type)
 
 	/* Allocate an mbuf to hold the arguments. */
 	m = m_get(M_WAIT, type);
-	if ((u_int)buflen > MLEN) {
+	if (buflen > MLEN) {
 		MCLGET(m, M_WAITOK);
 		if ((m->m_flags & M_EXT) == 0) {
 			m_free(m);
@@ -1161,7 +1146,6 @@ getsock(struct proc *p, int fdes, struct file **fpp)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 sys_setrtable(struct proc *p, void *v, register_t *retval)
 {
@@ -1183,7 +1167,6 @@ sys_setrtable(struct proc *p, void *v, register_t *retval)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 sys_getrtable(struct proc *p, void *v, register_t *retval)
 {

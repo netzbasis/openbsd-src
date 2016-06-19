@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.6 2015/07/17 17:02:52 jsg Exp $
+#	$OpenBSD: GENERIC,v 1.22 2016/06/18 05:59:26 jsg Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -20,7 +20,6 @@ option		CPU_ARMv7		# Support the ARMv7
 #option WSDISPLAY_COMPAT_USL		# VT handling
 option WSDISPLAY_COMPAT_RAWKBD		# can get raw scancodes
 option WSDISPLAY_DEFAULTSCREENS=1
-#option WSDISPLAY_COMPAT_PCVT		# emulate some ioctls
 
 option		CONF_HAVE_GPIO
 option		USBVERBOSE
@@ -29,6 +28,7 @@ config		bsd	swap generic
 
 # The main bus device
 mainbus0	at root
+simplebus*	at fdt?
 cpu0		at mainbus?
 
 # Cortex-A9
@@ -42,16 +42,16 @@ armliicc*	at cortex?
 imx0		at mainbus?		# iMX SoC
 imxccm*		at imx?			# clock control module
 imxiomuxc*	at imx?			# iomux controller
-imxdog*		at imx?			# watchdog timer
+imxdog*		at fdt?			# watchdog timer
 imxocotp*	at imx?			# on-chip otp controller
 imxgpio*	at imx?			# user-visible GPIO pins?
-imxenet*	at imx?			# ethernet
-imxuart*	at imx?			# onboard uarts
-imxiic*		at imx?			# i2c
+fec*		at fdt?			# Ethernet
+imxuart*	at fdt?			# onboard uarts
+imxiic*		at fdt?			# i2c
 iic*		at imxiic?
-imxesdhc*	at imx?			# SDHC controller
+imxesdhc*	at fdt?			# SDHC controller
 sdmmc*		at imxesdhc?		# SD/MMC bus
-ahci*		at imx?			# AHCI/SATA
+ahci*		at fdt?			# AHCI/SATA
 ehci*		at imx?			# EHCI (shim)
 usb*		at ehci?
 
@@ -74,7 +74,7 @@ dmtimer*	at omap?		# am335x dual mode timers
 omusbtll*	at omap?
 cpsw*		at omap?
 com*		at omap?		# onboard uarts
-ommmc*		at omap?		# SD/MMC card controller
+ommmc*		at fdt?			# SD/MMC card controller
 sdmmc*		at ommmc?		# SD/MMC bus
 
 ehci*		at omap?		# EHCI (shim)
@@ -91,8 +91,8 @@ sxiccmu*	at sunxi?		# Clock Control Module/Unit
 sxitimer*	at sunxi?
 sxidog*		at sunxi?		# watchdog timer
 sxirtc*		at sunxi?		# Real Time Clock
-sxiuart*	at sunxi?		# onboard UARTs
-sxie*		at sunxi?
+sxiuart*	at fdt?			# onboard UARTs
+sxie*		at fdt?
 ahci*		at sunxi?		# AHCI/SATA (shim)
 ehci*		at sunxi?		# EHCI (shim)
 usb*		at ehci?	#flags 0x1
@@ -126,6 +126,7 @@ exuart*		at exynos?
 
 crosec*		at iic?
 wskbd*		at crosec? mux 1
+pcfrtc*		at iic?
 tpspmic*	at iic?
 
 # virtio devices
@@ -142,6 +143,7 @@ usb*		at ehci?	flags 0x1
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
 ualea*	at uhub?		# Araneus Alea II TRNG
+uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?		# Handspring Visor
@@ -233,6 +235,9 @@ uoakv*	at uhidev?		# Toradex OAK 10V sensor
 onewire* at uow?
 uvideo*	at uhub?		# USB Video
 video*	at uvideo?
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
 
@@ -262,7 +267,8 @@ owtemp*		at onewire?		# Temperature
 owctr*		at onewire?		# Counter device
 
 # Pseudo-Devices
-pseudo-device hotplug         1       # devices hot plugging
+pseudo-device	openprom
+pseudo-device	hotplug         1       # devices hot plugging
 
 # mouse & keyboard multiplexor pseudo-devices
 pseudo-device   wsmux           2

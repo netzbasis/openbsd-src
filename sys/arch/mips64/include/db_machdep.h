@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.15 2014/03/21 23:05:41 miod Exp $ */
+/*	$OpenBSD: db_machdep.h,v 1.17 2016/04/27 11:10:48 mpi Exp $ */
 
 /*
  * Copyright (c) 1998-2003 Opsycon AB (www.opsycon.se)
@@ -35,7 +35,7 @@
 
 #define DB_MACHINE_COMMANDS	/* We have machine specific commands */
 
-typedef struct trap_frame db_regs_t;
+typedef struct trapframe db_regs_t;
 extern db_regs_t	ddb_regs;
 
 typedef	long		db_expr_t;
@@ -53,7 +53,6 @@ db_addr_t	next_instr_address(db_addr_t, boolean_t);
 
 #define	PC_REGS(regs)	((db_addr_t)(regs)->pc)
 #define	SET_PC_REGS(regs, value)	(regs)->pc = (register_t)(value)
-#define DDB_REGS	(&ddb_regs)
 
 /*
  *  Test of instructions to see class.

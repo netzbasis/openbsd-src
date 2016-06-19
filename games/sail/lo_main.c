@@ -1,4 +1,4 @@
-/*	$OpenBSD: lo_main.c,v 1.8 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: lo_main.c,v 1.11 2016/01/13 13:10:26 gsoares Exp $	*/
 /*	$NetBSD: lo_main.c,v 1.3 1995/04/22 10:36:59 cgd Exp $	*/
 
 /*
@@ -35,10 +35,11 @@
  *
  * -l force a long listing (print out real usernames)
  */
-#include <sys/types.h>
 #include <limits.h>
 #include <pwd.h>
+#include <stdio.h>
 #include <stdlib.h>
+
 #include "extern.h"
 #include "pathnames.h"
 
@@ -49,7 +50,7 @@ const char *const title[] = {
 };
 
 int
-lo_main()
+lo_main(void)
 {
 	FILE *fp;
 	char sbuf[20+LOGIN_NAME_MAX];
@@ -85,5 +86,6 @@ lo_main()
 			(float) log.l_netpoints / ship->specs->pts);
 	}
 	printf("\n%d people have played.\n", people);
+	fclose(fp);
 	return 0;
 }

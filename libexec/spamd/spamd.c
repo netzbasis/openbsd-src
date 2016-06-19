@@ -1,4 +1,4 @@
-/*	$OpenBSD: spamd.c,v 1.130 2015/09/10 13:56:12 beck Exp $	*/
+/*	$OpenBSD: spamd.c,v 1.142 2016/05/17 17:51:47 jca Exp $	*/
 
 /*
  * Copyright (c) 2015 Henning Brauer <henning@openbsd.org>
@@ -84,7 +84,16 @@ struct con {
 	int stutter;
 	int badcmd;
 	int sr;
+	int tlsaction;
 } *con;
+
+#define	SPAMD_TLS_ACT_NONE		0
+#define	SPAMD_TLS_ACT_READ_POLLIN	1
+#define	SPAMD_TLS_ACT_READ_POLLOUT	2
+#define	SPAMD_TLS_ACT_WRITE_POLLIN	3
+#define	SPAMD_TLS_ACT_WRITE_POLLOUT	4
+
+#define	SPAMD_USER			"_spamd"
 
 void     usage(void);
 char    *grow_obuf(struct con *, int);
@@ -104,7 +113,8 @@ char    *loglists(struct con *);
 void     getcaddr(struct con *);
 void     gethelo(char *, size_t, char *);
 int      read_configline(FILE *);
-void	 spamd_tls_init(char *, char *);
+void	 spamd_tls_init(void);
+void	 check_spamd_db(void);
 
 char hostname[HOST_NAME_MAX+1];
 struct syslog_data sdata = SYSLOG_DATA_INIT;
@@ -124,6 +134,12 @@ u_short cfg_port;
 u_short sync_port;
 struct tls_config *tlscfg;
 struct tls *tlsctx;
+uint8_t	*pubcert;
+size_t	 pubcertlen;
+uint8_t	*privkey;
+size_t	 privkeylen;
+char 	*tlskeyfile = NULL;
+char 	*tlscertfile = NULL;
 
 extern struct sdlist *blacklists;
 extern int pfdev;
@@ -425,11 +441,11 @@ read_configline(FILE *config)
 }
 
 void
-spamd_tls_init(char *keyfile, char *certfile)
+spamd_tls_init()
 {
-	if (keyfile == NULL && certfile == NULL)
+	if (tlskeyfile == NULL && tlscertfile == NULL)
 		return;
-	if (keyfile == NULL || certfile == NULL)
+	if (tlskeyfile == NULL || tlscertfile == NULL)
 		errx(1, "need key and certificate for TLS");
 
 	if (tls_init() != 0)
@@ -445,10 +461,10 @@ spamd_tls_init(char *keyfile, char *certfile)
 	if (tls_config_set_ciphers(tlscfg, "compat") != 0)
 		errx(1, "failed to set tls ciphers");
 
-	if (tls_config_set_cert_file(tlscfg, certfile) != 0)
-		err(1, "could not load certificate %s", certfile);
-	if (tls_config_set_key_file(tlscfg, keyfile) != 0)
-		err(1, "could not load key %s", keyfile);
+	if (tls_config_set_cert_mem(tlscfg, pubcert, pubcertlen) == -1)
+		errx(1, "unable to set TLS certificate file %s", tlscertfile);
+	if (tls_config_set_key_mem(tlscfg, privkey, privkeylen) == -1)
+		errx(1, "unable to set TLS key file %s", tlskeyfile);
 	if (tls_configure(tlsctx, tlscfg) != 0)
 		errx(1, "failed to configure TLS - %s", tls_error(tlsctx));
 
@@ -763,10 +779,8 @@ closecon(struct con *cp)
 	if (debug > 0)
 		printf("%s connected for %lld seconds.\n", cp->addr,
 		    (long long)(tt - cp->s));
-	if (cp->lists != NULL) {
-		free(cp->lists);
-		cp->lists = NULL;
-	}
+	free(cp->lists);
+	cp->lists = NULL;
 	if (cp->blacklists != NULL) {
 		blackcount--;
 		free(cp->blacklists);
@@ -811,6 +825,7 @@ nextstate(struct con *cp)
 	}
 	switch (cp->state) {
 	case 0:
+	tlsinitdone:
 		/* banner sent; wait for input */
 		cp->ip = cp->ibuf;
 		cp->il = sizeof(cp->ibuf) - 1;
@@ -830,10 +845,13 @@ nextstate(struct con *cp)
 				snprintf(cp->obuf, cp->osize,
 				    "501 helo requires domain name.\r\n");
 			} else {
-				if (tlsctx != NULL && cp->blacklists == NULL &&
+				if (cp->cctx == NULL && tlsctx != NULL &&
+				    cp->blacklists == NULL &&
 				    match(cp->ibuf, "EHLO")) {
 					snprintf(cp->obuf, cp->osize,
-					    "250 STARTTLS\r\n");
+					    "250-%s\r\n"
+					    "250 STARTTLS\r\n",
+					    hostname);
 					nextstate = 7;
 				} else {
 					snprintf(cp->obuf, cp->osize,
@@ -850,7 +868,6 @@ nextstate(struct con *cp)
 		}
 		goto mail;
 	case 2:
-	tlsinitdone:
 		/* sent 250 Hello, wait for input */
 		cp->ip = cp->ibuf;
 		cp->il = sizeof(cp->ibuf) - 1;
@@ -1066,9 +1083,16 @@ handler(struct con *cp)
 	int end = 0;
 	ssize_t n;
 
-	if (cp->r) {
+	if (cp->r || cp->tlsaction != SPAMD_TLS_ACT_NONE) {
 		if (cp->cctx) {
+			cp->tlsaction = SPAMD_TLS_ACT_NONE;
 			n = tls_read(cp->cctx, cp->ip, cp->il);
+			if (n == TLS_WANT_POLLIN)
+				cp->tlsaction = SPAMD_TLS_ACT_READ_POLLIN;
+			if (n == TLS_WANT_POLLOUT)
+				cp->tlsaction = SPAMD_TLS_ACT_READ_POLLOUT;
+			if (cp->tlsaction != SPAMD_TLS_ACT_NONE)
+				return;
 		} else
 			n = read(cp->pfd->fd, cp->ip, cp->il);
 
@@ -1077,10 +1101,6 @@ handler(struct con *cp)
 		else if (n == -1) {
 			if (debug > 0)
 				warn("read");
-			closecon(cp);
-		} if (n < 0) {
-			if (debug > 0)
-				warn("tls_read unexpected POLLIN/POLLOUT");
 			closecon(cp);
 		} else {
 			cp->ip[n] = '\0';
@@ -1111,11 +1131,20 @@ handlew(struct con *cp, int one)
 	    (t - cp->s) > grey_stutter)
 		cp->stutter=0;
 
-	if (cp->w) {
+	if (cp->w || cp->tlsaction != SPAMD_TLS_ACT_NONE) {
 		if (*cp->op == '\n' && !cp->sr) {
 			/* insert \r before \n */
 			if (cp->cctx) {
+				cp->tlsaction = SPAMD_TLS_ACT_NONE;
 				n = tls_write(cp->cctx, "\r", 1);
+				if (n == TLS_WANT_POLLIN)
+					cp->tlsaction =
+					    SPAMD_TLS_ACT_WRITE_POLLIN;
+				if (n == TLS_WANT_POLLOUT)
+					cp->tlsaction =
+					    SPAMD_TLS_ACT_WRITE_POLLOUT;
+				if (cp->tlsaction != SPAMD_TLS_ACT_NONE)
+					return;
 			} else
 				n = write(cp->pfd->fd, "\r", 1);
 
@@ -1127,11 +1156,6 @@ handlew(struct con *cp, int one)
 					warn("write");
 				closecon(cp);
 				goto handled;
-			} else if (n < 0) {
-				if (debug > 0)
-					warn("tls_read unexpected POLLIN/POLLOUT");
-				closecon(cp);
-				goto handled;
 			}
 		}
 		if (*cp->op == '\r')
@@ -1139,7 +1163,14 @@ handlew(struct con *cp, int one)
 		else
 			cp->sr = 0;
 		if (cp->cctx) {
+			cp->tlsaction = SPAMD_TLS_ACT_NONE;
 			n = tls_write(cp->cctx, cp->op, cp->ol);
+			if (n == TLS_WANT_POLLIN)
+				cp->tlsaction = SPAMD_TLS_ACT_WRITE_POLLIN;
+			if (n == TLS_WANT_POLLOUT)
+				cp->tlsaction = SPAMD_TLS_ACT_WRITE_POLLOUT;
+			if (cp->tlsaction != SPAMD_TLS_ACT_NONE)
+				return;
 		} else
 			n = write(cp->pfd->fd, cp->op,
 			   (one && cp->stutter) ? 1 : cp->ol);
@@ -1149,10 +1180,6 @@ handlew(struct con *cp, int one)
 		else if (n == -1) {
 			if (debug > 0 && errno != EPIPE)
 				warn("write");
-			closecon(cp);
-		} else if (n < 0) {
-			if (debug > 0)
-				warn("tls_read unexpected POLLIN/POLLOUT");
 			closecon(cp);
 		} else {
 			cp->op += n;
@@ -1208,8 +1235,6 @@ main(int argc, char *argv[])
 	const char *errstr;
 	char *sync_iface = NULL;
 	char *sync_baddr = NULL;
-	char *tlskeyfile = NULL;
-	char *tlscertfile = NULL;
 
 	tzset();
 	openlog_r("spamd", LOG_PID | LOG_NDELAY, LOG_DAEMON, &sdata);
@@ -1335,10 +1360,29 @@ main(int argc, char *argv[])
 	    greylist ? " (greylist)" : "",
 	    (syncrecv || syncsend) ? " (sync)" : "");
 
-	if (!greylist)
+	if (syncsend || syncrecv) {
+		syncfd = sync_init(sync_iface, sync_baddr, sync_port);
+		if (syncfd == -1)
+			err(1, "sync init");
+	}
+
+	if (geteuid())
+		errx(1, "need root privileges");
+
+	if ((pw = getpwnam(SPAMD_USER)) == NULL)
+		errx(1, "no such user %s", SPAMD_USER);
+
+	if (!greylist) {
 		maxblack = maxcon;
-	else if (maxblack > maxcon)
+	} else if (maxblack > maxcon)
 		usage();
+
+	if (tlscertfile &&
+		(pubcert=tls_load_file(tlscertfile, &pubcertlen, NULL)) == NULL)
+		errx(1, "unable to load TLS certificate file %s", tlscertfile);
+	if (tlskeyfile &&
+		(privkey=tls_load_file(tlskeyfile, &privkeylen, NULL)) == NULL)
+		errx(1, "unable to load TLS key file %s", tlskeyfile);
 
 	rlp.rlim_cur = rlp.rlim_max = maxcon + 15;
 	if (setrlimit(RLIMIT_NOFILE, &rlp) == -1)
@@ -1403,15 +1447,6 @@ main(int argc, char *argv[])
 	if (bind(conflisten, (struct sockaddr *)&lin, sizeof lin) == -1)
 		err(1, "bind local");
 
-	if (syncsend || syncrecv) {
-		syncfd = sync_init(sync_iface, sync_baddr, sync_port);
-		if (syncfd == -1)
-			err(1, "sync init");
-	}
-
-	if ((pw = getpwnam("_spamd")) == NULL)
-		errx(1, "no such user _spamd");
-
 	if (debug == 0) {
 		if (daemon(1, 1) == -1)
 			err(1, "daemon");
@@ -1424,6 +1459,8 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 
+		check_spamd_db();
+
 		maxblack = (maxblack >= maxcon) ? maxcon - 100 : maxblack;
 		if (maxblack < 0)
 			maxblack = 0;
@@ -1433,7 +1470,7 @@ main(int argc, char *argv[])
 			syslog(LOG_ERR, "pipe (%m)");
 			exit(1);
 		}
-		/* open pipe to recieve spamtrap configs */
+		/* open pipe to receive spamtrap configs */
 		if (pipe(trappipe) == -1) {
 			syslog(LOG_ERR, "pipe (%m)");
 			exit(1);
@@ -1459,6 +1496,21 @@ main(int argc, char *argv[])
 				_exit(1);
 			}
 			close(trappipe[1]);
+
+			if (chroot("/var/empty") == -1) {
+				syslog(LOG_ERR, "cannot chroot to /var/empty.");
+				exit(1);
+			}			
+ 			if (chdir("/") == -1) {
+				syslog(LOG_ERR, "cannot chdir to /");
+				exit(1);
+			}
+
+			if (setgroups(1, &pw->pw_gid) ||
+			    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+			    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+				err(1, "failed to drop privs");
+
 			goto jail;
 		}
 		/* parent - run greylister */
@@ -1475,22 +1527,13 @@ main(int argc, char *argv[])
 		}
 		close(trappipe[0]);
 		return (greywatcher());
-		/* NOTREACHED */
 	}
 
 jail:
-	spamd_tls_init(tlskeyfile, tlscertfile);
+	if (pledge("stdio inet", NULL) == -1)
+		err(1, "pledge");
 
-	if (chroot("/var/empty") == -1 || chdir("/") == -1) {
-		syslog(LOG_ERR, "cannot chdir to /var/empty.");
-		exit(1);
-	}
-
-	if (pw)
-		if (setgroups(1, &pw->pw_gid) ||
-		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-			err(1, "failed to drop privs");
+	spamd_tls_init();
 
 	if (listen(smtplisten, 10) == -1)
 		err(1, "listen");
@@ -1548,6 +1591,12 @@ jail:
 					con[i].pfd->events |= POLLOUT;
 				writers = 1;
 			}
+			if (con[i].tlsaction == SPAMD_TLS_ACT_READ_POLLIN ||
+			    con[i].tlsaction == SPAMD_TLS_ACT_WRITE_POLLIN)
+				con[i].pfd->events = POLLIN;
+			if (con[i].tlsaction == SPAMD_TLS_ACT_READ_POLLOUT ||
+			    con[i].tlsaction == SPAMD_TLS_ACT_WRITE_POLLOUT)
+				con[i].pfd->events = POLLOUT;
 			if (i + 1 > numcon)
 				numcon = i + 1;
 		}
@@ -1589,10 +1638,20 @@ jail:
 				closecon(&con[i]);
 				continue;
 			}
-			if (pfd[PFD_FIRSTCON + i].revents & POLLIN)
-				handler(&con[i]);
-			if (pfd[PFD_FIRSTCON + i].revents & POLLOUT)
-				handlew(&con[i], clients + 5 < maxcon);
+			if (pfd[PFD_FIRSTCON + i].revents & POLLIN) {
+				if (con[i].tlsaction ==
+				    SPAMD_TLS_ACT_WRITE_POLLIN)
+					handlew(&con[i], clients + 5 < maxcon);
+				else
+					handler(&con[i]);
+			}
+			if (pfd[PFD_FIRSTCON + i].revents & POLLOUT) {
+				if (con[i].tlsaction ==
+				    SPAMD_TLS_ACT_READ_POLLOUT)
+					handler(&con[i]);
+				else
+					handlew(&con[i], clients + 5 < maxcon);
+			}
 		}
 		if (pfd[PFD_SMTPLISTEN].revents & (POLLIN|POLLHUP)) {
 			socklen_t sinlen;

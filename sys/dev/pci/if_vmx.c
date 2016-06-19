@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vmx.c,v 1.35 2015/11/14 17:54:57 mpi Exp $	*/
+/*	$OpenBSD: if_vmx.c,v 1.44 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 2013 Tsubai Masanari
@@ -17,7 +17,6 @@
  */
 
 #include "bpfilter.h"
-#include "vlan.h"
 
 #include <sys/param.h>
 #include <sys/device.h>
@@ -25,12 +24,11 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
 
 #include <net/bpf.h>
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -168,7 +166,7 @@ int vmxnet3_init(struct vmxnet3_softc *);
 int vmxnet3_ioctl(struct ifnet *, u_long, caddr_t);
 void vmxnet3_start(struct ifnet *);
 int vmxnet3_load_mbuf(struct vmxnet3_softc *, struct vmxnet3_txring *,
-    struct mbuf *);
+    struct mbuf **);
 void vmxnet3_watchdog(struct ifnet *);
 void vmxnet3_media_status(struct ifnet *, struct ifmediareq *);
 int vmxnet3_media_change(struct ifnet *);
@@ -276,7 +274,6 @@ vmxnet3_attach(struct device *parent, struct device *self, void *aux)
 		ifp->if_capabilities |= IFCAP_VLAN_HWTAGGING;
 
 	IFQ_SET_MAXLEN(&ifp->if_snd, NTXDESC);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifmedia_init(&sc->sc_media, IFM_IMASK, vmxnet3_media_change,
 	    vmxnet3_media_status);
@@ -694,9 +691,9 @@ vmxnet3_txintr(struct vmxnet3_softc *sc, struct vmxnet3_txqueue *tq)
 	if (atomic_add_int_nv(&ring->free, free) == NTXDESC)
 		ifp->if_timer = 0;
 
-	if (ISSET(ifp->if_flags, IFF_OACTIVE)) {
+	if (ifq_is_oactive(&ifp->if_snd)) {
 		KERNEL_LOCK();
-		CLR(ifp->if_flags, IFF_OACTIVE);
+		ifq_clr_oactive(&ifp->if_snd);
 		vmxnet3_start(ifp);
 		KERNEL_UNLOCK();
 	}
@@ -925,7 +922,8 @@ vmxnet3_stop(struct ifnet *ifp)
 	struct vmxnet3_softc *sc = ifp->if_softc;
 	int queue;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	vmxnet3_disable_all_intrs(sc);
@@ -987,7 +985,7 @@ vmxnet3_init(struct vmxnet3_softc *sc)
 	vmxnet3_link_state(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1046,11 +1044,12 @@ vmxnet3_start(struct ifnet *ifp)
 	struct vmxnet3_softc *sc = ifp->if_softc;
 	struct vmxnet3_txqueue *tq = sc->sc_txq;
 	struct vmxnet3_txring *ring = &tq->cmd_ring;
+	struct vmxnet3_txdesc *txd;
 	struct mbuf *m;
 	u_int free, used;
 	int n;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	free = ring->free;
@@ -1058,7 +1057,7 @@ vmxnet3_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (used + NTXSEGS > free) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1066,7 +1065,9 @@ vmxnet3_start(struct ifnet *ifp)
 		if (m == NULL)
 			break;
 
-		n = vmxnet3_load_mbuf(sc, ring, m);
+		txd = &ring->txd[ring->prod];
+
+		n = vmxnet3_load_mbuf(sc, ring, &m);
 		if (n == -1) {
 			ifp->if_oerrors++;
 			continue;
@@ -1076,6 +1077,9 @@ vmxnet3_start(struct ifnet *ifp)
 		if (ifp->if_bpf)
 			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
+
+		/* Change the ownership by flipping the "generation" bit */
+		txd->tx_word2 ^= htole32(VMXNET3_TX_GEN_M << VMXNET3_TX_GEN_S);
 
 		ifp->if_opackets++;
 		used += n;
@@ -1090,9 +1094,10 @@ vmxnet3_start(struct ifnet *ifp)
 
 int
 vmxnet3_load_mbuf(struct vmxnet3_softc *sc, struct vmxnet3_txring *ring,
-    struct mbuf *m)
+    struct mbuf **mp)
 {
 	struct vmxnet3_txdesc *txd, *sop;
+	struct mbuf *n, *m = *mp;
 	bus_dmamap_t map;
 	u_int hlen = ETHER_HDR_LEN, csum_off;
 	u_int prod;
@@ -1108,7 +1113,6 @@ vmxnet3_load_mbuf(struct vmxnet3_softc *sc, struct vmxnet3_txring *ring,
 	}
 #endif
 	if (m->m_pkthdr.csum_flags & (M_TCP_CSUM_OUT|M_UDP_CSUM_OUT)) {
-		struct mbuf *mp;
 		struct ip *ip;
 		int offp;
 
@@ -1117,16 +1121,17 @@ vmxnet3_load_mbuf(struct vmxnet3_softc *sc, struct vmxnet3_txring *ring,
 		else
 			csum_off = offsetof(struct udphdr, uh_sum);
 
-		mp = m_pulldown(m, hlen, sizeof(*ip), &offp);
-		if (mp == NULL)
+		n = m_pulldown(m, hlen, sizeof(*ip), &offp);
+		if (n == NULL)
 			return (-1);
 
-		ip = (struct ip *)(mp->m_data + offp);
+		ip = (struct ip *)(n->m_data + offp);
 		hlen += ip->ip_hl << 2;
 
-		mp = m_pulldown(m, 0, hlen + csum_off + 2, &offp);
-		if (mp == NULL)
+		*mp = m_pullup(m, hlen + csum_off + 2);
+		if (*mp == NULL)
 			return (-1);
+		m = *mp;
 	}
 
 	switch (bus_dmamap_load_mbuf(sc->sc_dmat, map, m, BUS_DMA_NOWAIT)) {
@@ -1181,9 +1186,6 @@ vmxnet3_load_mbuf(struct vmxnet3_softc *sc, struct vmxnet3_txring *ring,
 	/* dmamap_sync map */
 
 	ring->prod = prod;
-
-	/* Change the ownership by flipping the "generation" bit */
-	sop->tx_word2 ^= htole32(VMXNET3_TX_GEN_M << VMXNET3_TX_GEN_S);
 
 	return (map->dm_nsegs);
 }

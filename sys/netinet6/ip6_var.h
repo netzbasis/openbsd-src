@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_var.h,v 1.56 2015/10/25 14:43:06 florian Exp $	*/
+/*	$OpenBSD: ip6_var.h,v 1.60 2016/06/01 11:11:44 jca Exp $	*/
 /*	$KAME: ip6_var.h,v 1.33 2000/06/11 14:59:20 jinmei Exp $	*/
 
 /*
@@ -219,10 +219,7 @@ extern int	ip6_mforwarding;	/* act as multicast router? */
 extern int	ip6_multipath;		/* use multipath routes */
 extern int	ip6_sendredirect;	/* send ICMPv6 redirect? */
 extern int	ip6_use_deprecated;	/* allow deprecated addr as source */
-extern int	ip6_rr_prune;		/* router renumbering prefix
-					 * walk list every 5 sec.    */
 extern int	ip6_mcast_pmtu;		/* path MTU discovery for multicast */
-extern const int	ip6_v6only;
 extern int	ip6_neighborgcthresh; /* Threshold # of NDP entries for GC */
 extern int	ip6_maxifprefixes; /* Max acceptable prefixes via RA per IF */
 extern int	ip6_maxifdefrouters; /* Max acceptable def routers via RA */
@@ -275,6 +272,7 @@ int	ip6_setpktopts(struct mbuf *, struct ip6_pktopts *,
 void	ip6_clearpktopts(struct ip6_pktopts *, int);
 void	ip6_randomid_init(void);
 u_int32_t ip6_randomid(void);
+void	ip6_send(struct mbuf *);
 
 int	route6_input(struct mbuf **, int *, int);
 
@@ -303,6 +301,14 @@ struct rtentry *in6_selectroute(struct sockaddr_in6 *, struct ip6_pktopts *,
 	    struct route_in6 *, unsigned int rtableid);
 
 u_int32_t ip6_randomflowlabel(void);
+
+#ifdef IPSEC
+struct tdb;
+struct tdb *
+	ip6_output_ipsec_lookup(struct mbuf *, int *, struct inpcb *);
+int	ip6_output_ipsec_send(struct tdb *, struct mbuf *, int, int);
+#endif /* IPSEC */
+
 #endif /* _KERNEL */
 
 #endif /* !_NETINET6_IP6_VAR_H_ */

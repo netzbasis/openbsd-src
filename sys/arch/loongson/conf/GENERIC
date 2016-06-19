@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.50 2015/04/16 09:09:49 mpi Exp $
+#	$OpenBSD: GENERIC,v 1.52 2016/06/01 11:39:59 mglocker Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -96,6 +96,7 @@ usb*		at ehci?
 uhub*		at usb?		# USB Hubs
 uhub*		at uhub?	# USB Hubs
 ualea*		at uhub?	# Araneus Alea II TRNG
+uonerng*	at uhub?	# Moonbase Otago OneRNG
 umodem*		at uhub?	# USB Modems/Serial
 ucom*		at umodem?
 uvisor*		at uhub?	# Handspring Visor
@@ -177,6 +178,10 @@ midi*		at umidi?
 # USB Video
 uvideo*		at uhub?
 video*		at uvideo?
+
+utvfu*		at uhub?	# Fushicai Audio-Video Grabber
+video*		at utvfu?
+audio*		at utvfu?
 
 udl*		at uhub?
 wsdisplay*	at udl?

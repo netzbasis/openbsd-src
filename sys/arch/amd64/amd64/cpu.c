@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.90 2015/11/16 10:08:41 mpi Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.100 2016/06/08 01:00:18 tedu Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -91,6 +91,7 @@
 #include <machine/segments.h>
 #include <machine/gdt.h>
 #include <machine/pio.h>
+#include <machine/vmmvar.h>
 
 #if NLAPIC > 0
 #include <machine/apicvar.h>
@@ -115,9 +116,9 @@ int     cpu_match(struct device *, void *, void *);
 void    cpu_attach(struct device *, struct device *, void *);
 int     cpu_activate(struct device *, int);
 void	patinit(struct cpu_info *ci);
-#ifdef VMM
+#if NVMM > 0
 void	cpu_init_vmm(struct cpu_info *ci);
-#endif /* VMM */
+#endif /* NVMM > 0 */
 
 struct cpu_softc {
 	struct device sc_dev;		/* device tree glue */
@@ -252,7 +253,7 @@ cpu_idle_mwait_cycle(void)
 		panic("idle with interrupts blocked!");
 
 	/* something already queued? */
-	if (ci->ci_schedstate.spc_whichqs != 0)
+	if (!cpu_is_idle(ci))
 		return;
 
 	/*
@@ -266,7 +267,7 @@ cpu_idle_mwait_cycle(void)
 	 * the check in sched_idle() and here.
 	 */
 	atomic_setbits_int(&ci->ci_mwait, MWAIT_IDLING | MWAIT_ONLY);
-	if (ci->ci_schedstate.spc_whichqs == 0) {
+	if (cpu_is_idle(ci)) {
 		monitor(&ci->ci_mwait, 0, 0);
 		if ((ci->ci_mwait & MWAIT_IDLING) == MWAIT_IDLING)
 			mwait(0, 0);
@@ -281,7 +282,7 @@ cpu_init_mwait(struct cpu_softc *sc)
 {
 	unsigned int smallest, largest, extensions, c_substates;
 
-	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0)
+	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0 || cpuid_level < 0x5)
 		return;
 
 	/* get the monitor granularity */
@@ -467,9 +468,9 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		    sc->sc_dev.dv_xname, pcb, pcb->pcb_rsp);
 	}
 #endif
-#ifdef VMM
+#if NVMM > 0
 	cpu_init_vmm(ci);
-#endif /* VMM */
+#endif /* NVMM > 0 */
 }
 
 /*
@@ -504,7 +505,7 @@ cpu_init(struct cpu_info *ci)
 		cr4 |= CR4_OSXSAVE;
 	lcr4(cr4);
 
-	if (cpu_ecxfeature & CPUIDECX_XSAVE) {
+	if ((cpu_ecxfeature & CPUIDECX_XSAVE) && cpuid_level >= 0xd) {
 		u_int32_t eax, ebx, ecx, edx;
 
 		xsave_mask = XCR0_X87 | XCR0_SSE;
@@ -516,13 +517,19 @@ cpu_init(struct cpu_info *ci)
 		fpu_save_len = ebx;
 	}
 
+#if NVMM > 0
+	/* Re-enable VMM if needed */
+	if (ci->ci_flags & CPUF_VMM)
+		start_vmm_on_cpu(ci);
+#endif /* NVMM > 0 */
+
 #ifdef MULTIPROCESSOR
 	ci->ci_flags |= CPUF_RUNNING;
 	tlbflushg();
 #endif
 }
 
-#ifdef VMM
+#if NVMM > 0
 /*
  * cpu_init_vmm
  *
@@ -545,7 +552,7 @@ cpu_init_vmm(struct cpu_info *ci)
 			panic("Can't locate VMXON region in phys mem\n");
 	}
 }
-#endif /* VMM */
+#endif /* NVMM > 0 */
 
 #ifdef MULTIPROCESSOR
 void
@@ -868,28 +875,30 @@ void
 rdrand(void *v)
 {
 	struct timeout *tmo = v;
-	extern int	has_rdrand;
+	extern int	has_rdrand, has_rdseed;
 	union {
 		uint64_t u64;
 		uint32_t u32[2];
-	} r;
-	uint64_t valid;
-	int i;
+	} r, t;
+	uint8_t valid = 0;
 
-	if (has_rdrand == 0)
-		return;
-	for (i = 0; i < 2; i++) {
+	if (has_rdseed)
 		__asm volatile(
-		    "xor	%1, %1\n\t"
+		    "rdseed	%0\n\t"
+		    "setc	%1\n"
+		    : "=r" (r.u64), "=qm" (valid) );
+	if (has_rdrand && (has_rdseed == 0 || valid == 0))
+		__asm volatile(
 		    "rdrand	%0\n\t"
-		    "rcl	$1, %1\n"
-		    : "=r" (r.u64), "=r" (valid) );
+		    "setc	%1\n"
+		    : "=r" (r.u64), "=qm" (valid) );
 
-		if (valid) {
-			add_true_randomness(r.u32[0]);
-			add_true_randomness(r.u32[1]);
-		}
-	}
+	t.u64 = rdtsc();
+
+	if (valid)
+		t.u64 ^= r.u64;
+	add_true_randomness(t.u32[0]);
+	add_true_randomness(t.u32[1]);
 
 	if (tmo)
 		timeout_add_msec(tmo, 10);

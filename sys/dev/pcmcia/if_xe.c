@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_xe.c,v 1.54 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_xe.c,v 1.58 2016/04/13 10:49:26 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999 Niklas Hallqvist, Brandon Creighton, Job de Haas
@@ -58,7 +58,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -359,11 +358,10 @@ xe_pcmcia_attach(parent, self, aux)
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 	ifp->if_softc = sc;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_NOTRAILERS | IFF_SIMPLEX | IFF_MULTICAST;
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = xe_ioctl;
 	ifp->if_start = xe_start;
 	ifp->if_watchdog = xe_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Establish the interrupt. */
 	sc->sc_ih = pcmcia_intr_establish(pa->pf, IPL_NET, xe_intr, sc,
@@ -1065,7 +1063,7 @@ xe_init(sc)
 	mii_mediachg(&sc->sc_mii);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	splx(s);
 }
 
@@ -1086,7 +1084,7 @@ xe_start(ifp)
 	u_int16_t space;
 
 	/* Don't transmit if interface is busy or not running. */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/* Peek at the next packet. */

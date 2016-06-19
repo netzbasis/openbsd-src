@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.h,v 1.112 2015/11/15 22:26:49 jcs Exp $ */
+/* $OpenBSD: readconf.h,v 1.116 2016/06/03 03:14:41 dtucker Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -101,6 +101,7 @@ typedef struct {
 	struct sshkey *certificates[SSH_MAX_CERTIFICATE_FILES];
 
 	int	add_keys_to_agent;
+	char   *identity_agent;		/* Optional path to ssh-agent socket */
 
 	/* Local TCP/IP forward requests. */
 	int     num_local_forwards;
@@ -110,6 +111,10 @@ typedef struct {
 	int     num_remote_forwards;
 	struct Forward *remote_forwards;
 	int	clear_forwardings;
+
+	/* stdio forwarding (-W) host and port */
+	char   *stdio_forward_host;
+	int	stdio_forward_port;
 
 	int	enable_ssh_keysign;
 	int64_t rekey_limit;
@@ -136,8 +141,6 @@ typedef struct {
 	char	*local_command;
 	int	permit_local_command;
 	int	visual_host_key;
-
-	int	use_roaming;
 
 	int	request_tty;
 
@@ -181,6 +184,7 @@ typedef struct {
 #define SSHCONF_CHECKPERM	1  /* check permissions on config file */
 #define SSHCONF_USERCONF	2  /* user provided config file not system */
 #define SSHCONF_POSTCANON	4  /* After hostname canonicalisation */
+#define SSHCONF_NEVERMATCH	8  /* Match/Host never matches; internal only */
 
 #define SSH_UPDATE_HOSTKEYS_NO	0
 #define SSH_UPDATE_HOSTKEYS_YES	1

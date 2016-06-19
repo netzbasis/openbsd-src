@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vnops.c,v 1.25 2015/09/23 15:37:26 tedu Exp $ */
+/* $OpenBSD: fuse_vnops.c,v 1.28 2016/06/19 11:54:33 natano Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -606,7 +606,7 @@ fusefs_link(void *v)
 
 out1:
 	if (dvp != vp)
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 out2:
 	vput(dvp);
 	return (error);
@@ -728,7 +728,7 @@ fusefs_readdir(void *v)
 			break;
 		}
 
-		if ((error = uiomovei(fbuf->fb_dat, fbuf->fb_len, uio))) {
+		if ((error = uiomove(fbuf->fb_dat, fbuf->fb_len, uio))) {
 			fb_delete(fbuf);
 			break;
 		}
@@ -767,7 +767,7 @@ fusefs_inactive(void *v)
 
 	error = VOP_GETATTR(vp, &vattr, cred, p);
 
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	if (error)
 		vrecycle(vp, p);
@@ -810,7 +810,7 @@ fusefs_readlink(void *v)
 		return (error);
 	}
 
-	error = uiomovei(fbuf->fb_dat, fbuf->fb_len, uio);
+	error = uiomove(fbuf->fb_dat, fbuf->fb_len, uio);
 	fb_delete(fbuf);
 
 	return (error);
@@ -1058,7 +1058,7 @@ fusefs_read(void *v)
 		if (error)
 			break;
 
-		error = uiomovei(fbuf->fb_dat, MIN(size, fbuf->fb_len), uio);
+		error = uiomove(fbuf->fb_dat, ulmin(size, fbuf->fb_len), uio);
 		if (error)
 			break;
 
@@ -1112,7 +1112,7 @@ fusefs_write(void *v)
 		fbuf->fb_io_off = uio->uio_offset;
 		fbuf->fb_io_len = len;
 
-		if ((error = uiomovei(fbuf->fb_dat, len, uio))) {
+		if ((error = uiomove(fbuf->fb_dat, len, uio))) {
 			printf("fusefs: uio error %i\n", error);
 			break;
 		}
@@ -1219,7 +1219,7 @@ abortit:
 		    dp == ip ||
 		    (fcnp->cn_flags & ISDOTDOT) ||
 		    (tcnp->cn_flags & ISDOTDOT)) {
-			VOP_UNLOCK(fvp, 0, p);
+			VOP_UNLOCK(fvp, p);
 			error = EINVAL;
 			goto abortit;
 		}
@@ -1228,13 +1228,13 @@ abortit:
 
 	if (!fmp->sess_init) {
 		error = ENXIO;
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		goto abortit;
 	}
 
 	if (fmp->undef_op & UNDEF_RENAME) {
 		error = ENOSYS;
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		goto abortit;
 	}
 
@@ -1256,14 +1256,14 @@ abortit:
 		}
 
 		fb_delete(fbuf);
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		goto abortit;
 	}
 
 	fb_delete(fbuf);
 	VN_KNOTE(fvp, NOTE_RENAME);
 
-	VOP_UNLOCK(fvp, 0, p);
+	VOP_UNLOCK(fvp, p);
 	if (tdvp == tvp)
 		vrele(tdvp);
 	else
@@ -1473,7 +1473,7 @@ fusefs_lock(void *v)
 	struct vop_lock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->ufs_ino.i_lock, ap->a_flags, NULL));
+	return rrw_enter(&VTOI(vp)->ufs_ino.i_lock, ap->a_flags & LK_RWFLAGS);
 }
 
 int
@@ -1482,8 +1482,8 @@ fusefs_unlock(void *v)
 	struct vop_unlock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->ufs_ino.i_lock, ap->a_flags | LK_RELEASE,
-	    NULL));
+	rrw_exit(&VTOI(vp)->ufs_ino.i_lock);
+	return 0;
 }
 
 int
@@ -1491,7 +1491,7 @@ fusefs_islocked(void *v)
 {
 	struct vop_islocked_args *ap = v;
 
-	return (lockstatus(&VTOI(ap->a_vp)->ufs_ino.i_lock));
+	return rrw_status(&VTOI(ap->a_vp)->ufs_ino.i_lock);
 }
 
 int

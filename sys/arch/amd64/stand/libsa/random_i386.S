@@ -1,3 +1,5 @@
+/*	$OpenBSD: random_i386.S,v 1.10 2016/02/12 21:36:33 naddy Exp $	*/
+
 /*
  * Copyright (c) 2013 Joel Sing <jsing@openbsd.org>
  *
@@ -21,7 +23,7 @@
 
 /*
  * Random data is xored into the buffer in 4 byte blocks. If the buffer size
- * is not a multiple of 4, the remaining bytes will be left untouched.
+ * is not a multiple of 4, the remaining bytes may be left untouched.
  */
 ENTRY(mdrandom)
 	pushal
@@ -40,17 +42,6 @@ ENTRY(mdrandom)
 	andl	$PSL_ID, %eax
 	jz	done
 
-	// CPUID leaf = 0, subleaf = 0
-	movl	$0, %eax
-	movl	$0, %ecx
-	cpuid
-	cmpl	$0x756e6547, %ebx	// "Genu"
-	jne	done
-	cmpl	$0x6c65746e, %ecx	// "ineI"
-	jne	done
-	cmpl	$0x49656e69, %edx	// "ntel"
-	jne	done
-
 	// CPUID leaf = 1, subleaf = 0
 	movl	$1, %eax
 	movl	$0, %ecx
@@ -59,7 +50,6 @@ ENTRY(mdrandom)
 
 	movl	36(%esp), %ebx
 	movl	40(%esp), %edx
-	shrl	$2, %edx
 	xorl	%edi, %edi
 
 	andl	$CPUIDECX_RDRAND, %ecx	// See if we have rdrand.
@@ -72,17 +62,40 @@ ENTRY(mdrandom)
 	jmp	done
 
 userand:
+	shrl	$2, %edx		// 4 bytes at a time
+1:
 	rdrand	%eax
 	xorl	%eax, (%ebx,%edi,4)
 	incl	%edi
 	cmpl	%edi, %edx
-	jne	userand
+	jne	1b
 	jmp	done
 
 usetsc:
 	rdtsc				// Populates edx:eax.
+
+	/*
+	 *   Cope with high=0
+	 * high = (high << 1) | 1;		
+	 *   Spread bits
+	 * bits = low * high;
+	 *   Accumulate spread bits into a byte
+	 * bits = bits ^ (bits>>8) ^ (bits>>16) ^ (bits>>24);
+	 * buf[i] ^= (u_char) bits;
+	 */
+	shll	$1, %edx
+	orl	$1, %edx
 	mull	%edx
-	xorl	%eax, (%ebx,%edi,4)
+	movl	%eax, %edx
+	shrl	$8, %edx
+	xorl	%edx, %eax
+	shrl	$8, %edx
+	xorl	%edx, %eax
+	shrl	$8, %edx
+	xorl	%edx, %eax
+
+	xorb	%al, (%ebx,%edi)
+
 	incl	%edi
 	cmpl	%edi, %ecx
 	jne	usetsc

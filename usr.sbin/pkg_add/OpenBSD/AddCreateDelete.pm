@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: AddCreateDelete.pm,v 1.34 2015/04/06 11:07:24 espie Exp $
+# $OpenBSD: AddCreateDelete.pm,v 1.37 2016/06/15 15:40:13 espie Exp $
 #
 # Copyright (c) 2007-2014 Marc Espie <espie@openbsd.org>
 #
@@ -55,29 +55,42 @@ sub sync_display
 	$self->progress->clear;
 }
 
+sub add_interactive_options
+{
+	my $self = shift;
+	$self->{has_interactive_options} = 1;
+	return $self;
+}
+
 sub handle_options
 {
 	my ($state, $opt_string, @usage) = @_;
 
 	my $i;
-	$state->{opt}{i} //= sub {
-		$i++;
+
+	if ($state->{has_interactive_options}) {
+		$opt_string .= 'iI';
+		$state->{opt}{i} = sub {
+			$i++;
+		};
 	};
-	$state->SUPER::handle_options($opt_string.'IiL:mnx', @usage);
+
+	$state->SUPER::handle_options($opt_string.'L:mnx', @usage);
 
 	$state->progress->setup($state->opt('x'), $state->opt('m'), $state);
 	$state->{not} = $state->opt('n');
-	if ($state->opt('I')) {
-		$i = 0;
-	} elsif (!defined $i) {
-		$i = -t STDIN;
+	if ($state->{has_interactive_options}) {
+		if ($state->opt('I')) {
+			$i = 0;
+		} elsif (!defined $i) {
+			$i = -t STDIN;
+		}
 	}
 	if ($i) {
 		require OpenBSD::Interactive;
 		$state->{interactive} = OpenBSD::Interactive->new($state, $i);
-	} else {
-		$state->{interactive} = OpenBSD::InteractiveStub->new($state);
 	}
+	$state->{interactive} //= OpenBSD::InteractiveStub->new($state);
 }
 
 

@@ -12,8 +12,6 @@ __bss_start
 _edata
 _end
 __end
-_SDA2_BASE
-_SDA_BASE
 
 /* needed by ld.so unless/until we switch to RELRO */
 __got_start
@@ -22,8 +20,6 @@ __plt_start
 __plt_end
 
 /* sys */
-___cerror
-__cerror
 __get_tcb
 __semctl
 __set_tcb
@@ -35,7 +31,6 @@ __thrsigdivert
 __thrsleep
 __thrwakeup
 _exit
-_thread_fork
 _thread_sys___get_tcb
 _thread_sys___getcwd
 _thread_sys___semctl
@@ -46,9 +41,6 @@ _thread_sys___thrsigdivert
 _thread_sys___thrsleep
 _thread_sys___thrwakeup
 _thread_sys__exit
-_thread_sys__getlogin
-_thread_sys__ptrace
-_thread_sys__setlogin
 _thread_sys_accept4
 _thread_sys_accept
 _thread_sys_access
@@ -103,6 +95,7 @@ _thread_sys_getfsstat
 _thread_sys_getgid
 _thread_sys_getgroups
 _thread_sys_getitimer
+_thread_sys_getlogin_r
 _thread_sys_getpeername
 _thread_sys_getpgid
 _thread_sys_getpgrp
@@ -169,6 +162,7 @@ _thread_sys_pread
 _thread_sys_preadv
 _thread_sys_profil
 _thread_sys_pselect
+_thread_sys_ptrace
 _thread_sys_pwrite
 _thread_sys_pwritev
 _thread_sys_quotactl
@@ -195,6 +189,7 @@ _thread_sys_seteuid
 _thread_sys_setgid
 _thread_sys_setgroups
 _thread_sys_setitimer
+_thread_sys_setlogin
 _thread_sys_setpgid
 _thread_sys_setpriority
 _thread_sys_setregid
@@ -216,7 +211,6 @@ _thread_sys_sigaction
 _thread_sys_sigaltstack
 _thread_sys_sigpending
 _thread_sys_sigprocmask
-_thread_sys_sigreturn
 _thread_sys_sigsuspend
 _thread_sys_socket
 _thread_sys_socketpair
@@ -414,7 +408,6 @@ sigaction
 sigaltstack
 sigpending
 sigprocmask
-sigreturn
 sigsuspend
 socket
 socketpair
@@ -457,16 +450,13 @@ dbm_nextkey
 dbm_open
 dbm_rdonly
 dbm_store
-dbmclose
-dbminit
 dbopen
-delete
-fetch
-firstkey
-nextkey
-store
 
 /* dlfcn */
+__progname
+_csu_finish
+_dl_allocate_tib
+_dl_free_tib
 dl_iterate_phdr
 dladdr
 dlclose
@@ -474,6 +464,7 @@ dlctl
 dlerror
 dlopen
 dlsym
+environ
 
 /* compat-43 */
 creat
@@ -489,7 +480,6 @@ sigsetmask
 sigvec
 
 /* gen */
-___errno
 __assert
 __assert2
 __errno
@@ -589,7 +579,6 @@ endpwent
 endttyent
 endusershell
 err
-errno
 errx
 execl
 execle
@@ -687,7 +676,6 @@ login_getcaptime
 login_getclass
 login_getstyle
 longjmp
-longjmperror
 modf
 nftw
 nice
@@ -848,7 +836,9 @@ strtof
 strtold
 
 /* gmon */
+_gmonparam
 _mcleanup
+_monstartup
 moncontrol
 monstartup
 
@@ -923,20 +913,7 @@ SipHash_Init
 SipHash_Update
 
 /* locale */
-_CurrentMessagesLocale
-_CurrentMonetaryLocale
-_CurrentNumericLocale
-_CurrentRuneLocale
-_CurrentTimeLocale
-_DefaultMessagesLocale
-_DefaultMonetaryLocale
-_DefaultNumericLocale
-_DefaultRuneLocale
-_DefaultTimeLocale
 __mb_cur_max
-__mb_len_max_runtime
-__mlocale_changed
-__nlocale_changed
 btowc
 iswalnum
 iswalpha
@@ -1019,18 +996,14 @@ res_send_async
 /* net */
 __b64_ntop
 __b64_pton
-__check_rhosts_file
 __dn_comp
 __dn_skipname
-__ivaliduser
-__ivaliduser_sa
 __p_class
 __p_class_syms
 __p_type
 __p_type_syms
 __putlong
 __putshort
-__rcmd_errstr
 __res_dnok
 __res_hnok
 __res_mailok
@@ -1116,8 +1089,6 @@ inet_network
 inet_ntoa
 inet_ntop
 inet_pton
-iruserok
-iruserok_sa
 link_ntoa
 ntohl
 ntohs
@@ -1300,8 +1271,6 @@ xprt_unregister
 __sF
 __srget
 __swbuf
-_cleanup
-_fwalk
 asprintf
 clearerr
 dprintf
@@ -1619,21 +1588,8 @@ tcsetattr
 tcsetpgrp
 
 /* thread */
-_thread_arc4_lock
-_thread_arc4_unlock
-_thread_atexit_lock
-_thread_atexit_unlock
 _thread_atfork
-_thread_atfork_lock
-_thread_atfork_unlock
-_thread_malloc_lock
-_thread_malloc_unlock
-_thread_mutex_destroy
-_thread_mutex_lock
-_thread_mutex_unlock
-_thread_tag_lock
-_thread_tag_storage
-_thread_tag_unlock
+_thread_set_callbacks
 pthread_atfork
 
 /* time */

@@ -1,4 +1,4 @@
-#	$OpenBSD: 4.4BSD.dist,v 1.275 2015/11/05 23:38:07 bluhm Exp $
+#	$OpenBSD: 4.4BSD.dist,v 1.282 2016/05/11 21:52:48 deraadt Exp $
 
 /set type=dir uname=root gname=wheel mode=0755
 
@@ -111,9 +111,6 @@ etc
         ..
     ..
 
-    # ./etc/systrace
-    systrace
-    ..
 ..
 
 # ./home
@@ -184,8 +181,6 @@ usr
         lpr
         ..
         radiusd			type=dir uname=root gname=wheel mode=0755
-        ..
-        smtpd			type=dir uname=root gname=wheel mode=0755
         ..
     ..
 
@@ -485,8 +480,6 @@ usr
                 ..
                 sgi
                 ..
-                vax
-                ..
             ..
 
             # ./usr/share/man/man3p
@@ -502,8 +495,6 @@ usr
                 armish
                 ..
                 armv7
-                ..
-                aviion
                 ..
                 hppa
                 ..
@@ -527,8 +518,6 @@ usr
                 ..
                 sparc64
                 ..
-                vax
-                ..
                 zaurus
                 ..
             ..
@@ -540,8 +529,6 @@ usr
                 armish
                 ..
                 hppa
-                ..
-                hppa64
                 ..
                 i386
                 ..
@@ -571,11 +558,7 @@ usr
                 ..
                 armv7
                 ..
-                aviion
-                ..
                 hppa
-                ..
-                hppa64
                 ..
                 i386
                 ..
@@ -596,8 +579,6 @@ usr
                 sparc
                 ..
                 sparc64
-                ..
-                vax
                 ..
                 zaurus
                 ..
@@ -622,12 +603,6 @@ usr
 
         # ./usr/share/tabset
         tabset
-        ..
-
-        # ./usr/share/vi
-        vi
-            catalog
-            ..
         ..
 
         # ./usr/share/zoneinfo
@@ -769,7 +744,9 @@ var
         # ./var/spool/lock
         lock			uname=uucp gname=dialer mode=1775
         ..
-        output			gname=daemon mode=0775
+        output
+            lpd			gname=daemon mode=0775
+	    ..
         ..
         # ./var/spool/smtpd
         smtpd			type=dir uname=root gname=wheel mode=0711

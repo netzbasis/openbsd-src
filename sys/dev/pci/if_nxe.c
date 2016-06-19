@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nxe.c,v 1.69 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_nxe.c,v 1.73 2016/04/13 10:34:32 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -41,7 +41,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -751,7 +750,7 @@ int			nxe_board_info(struct nxe_softc *);
 int			nxe_user_info(struct nxe_softc *);
 int			nxe_init(struct nxe_softc *);
 void			nxe_uninit(struct nxe_softc *);
-void			nxe_mountroot(void *);
+void			nxe_mountroot(struct device *);
 
 /* chip state */
 void			nxe_tick(void *);
@@ -921,7 +920,6 @@ nxe_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_hardmtu = MCLBYTES - ETHER_HDR_LEN - ETHER_CRC_LEN;
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, 512); /* XXX */
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifmedia_init(&sc->sc_media, 0, nxe_media_change, nxe_media_status);
 	ifmedia_add(&sc->sc_media, IFM_ETHER|IFM_AUTO, 0, NULL);
@@ -973,7 +971,7 @@ nxe_pci_map(struct nxe_softc *sc, struct pci_attach_args *pa)
 		goto unmap_mem;
 	}
 
-	mountroothook_establish(nxe_mountroot, sc);
+	config_mountroot(&sc->sc_dev, nxe_mountroot);
 	return (0);
 
 unmap_mem:
@@ -1171,7 +1169,7 @@ nxe_up(struct nxe_softc *sc)
 	nxe_crb_set(sc, 1);
 
 	SET(ifp->if_flags, IFF_RUNNING);
-	CLR(ifp->if_flags, IFF_OACTIVE);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* enable interrupts */
 	intr_scheme = nxe_crb_read(sc, NXE_1_SW_NIC_CAP_FW);
@@ -1271,7 +1269,8 @@ nxe_down(struct nxe_softc *sc)
 	struct ifnet			*ifp = &sc->sc_ac.ac_if;
 	int				i;
 
-	CLR(ifp->if_flags, IFF_RUNNING | IFF_OACTIVE | IFF_ALLMULTI);
+	CLR(ifp->if_flags, IFF_RUNNING | IFF_ALLMULTI);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* XXX turn the chip off */
 
@@ -1308,12 +1307,12 @@ nxe_start(struct ifnet *ifp)
 	int				nsegs;
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ISSET(ifp->if_flags, IFF_OACTIVE) ||
+	    ifq_is_oactive(&ifp->if_snd) ||
 	    IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
 
 	if (nxe_ring_writeable(nr, sc->sc_cmd_consumer_cur) < NXE_TXD_DESCS) {
-		SET(ifp->if_flags, IFF_OACTIVE);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -1329,7 +1328,7 @@ nxe_start(struct ifnet *ifp)
 		pkt = nxe_pkt_get(sc->sc_tx_pkts);
 		if (pkt == NULL) {
 			ifq_deq_rollback(&ifp->if_snd, m);
-			SET(ifp->if_flags, IFF_OACTIVE);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1437,7 +1436,7 @@ nxe_complete(struct nxe_softc *sc)
 
 	if (rv == 1) {
 		sc->sc_cmd_consumer_cur = cur_cons;
-		CLR(sc->sc_ac.ac_if.if_flags, IFF_OACTIVE);
+		ifq_clr_oactive(&sc->sc_ac.ac_if.if_snd);
 	}
 
 	return (rv);
@@ -1765,9 +1764,9 @@ nxe_uninit(struct nxe_softc *sc)
 }
 
 void
-nxe_mountroot(void *arg)
+nxe_mountroot(struct device *self)
 {
-	struct nxe_softc		*sc = arg;
+	struct nxe_softc		*sc = (struct nxe_softc *)self;
 
 	DASSERT(sc->sc_window == 1);
 

@@ -13,10 +13,10 @@
  * User-level command processor.
  */
 
-#include "less.h"
-#include "position.h"
-#include "option.h"
 #include "cmd.h"
+#include "less.h"
+#include "option.h"
+#include "position.h"
 
 extern int erase_char, erase2_char, kill_char;
 extern volatile sig_atomic_t sigs;
@@ -52,7 +52,7 @@ extern int forw_prompt;
 
 static int mca;			/* The multicharacter command (action) */
 static int search_type;		/* The previous type of search */
-static LINENUM number;		/* The number typed by the user */
+static off_t number;		/* The number typed by the user */
 static long fraction;		/* The fractional part of the number */
 static struct loption *curropt;
 static int opt_lower;
@@ -69,7 +69,7 @@ struct ungot {
 static struct ungot *ungot = NULL;
 static int unget_end = 0;
 
-static void multi_search();
+static void multi_search(char *, int);
 
 /*
  * Move the cursor to start of prompt line before executing a command.

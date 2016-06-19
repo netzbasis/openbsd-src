@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_norm.c,v 1.182 2015/09/10 08:28:31 mpi Exp $ */
+/*	$OpenBSD: pf_norm.c,v 1.188 2016/06/15 11:49:34 mpi Exp $ */
 
 /*
  * Copyright 2001 Niels Provos <provos@citi.umich.edu>
@@ -51,7 +51,6 @@
 
 #include <net/if.h>
 #include <net/if_var.h>
-#include <net/if_types.h>
 #include <net/if_pflog.h>
 
 #ifdef INET6
@@ -688,6 +687,7 @@ pf_refragment6(struct mbuf **m0, struct m_tag *mtag, struct sockaddr_in6 *dst,
 {
 	struct mbuf		*m = *m0, *t;
 	struct pf_fragment_tag	*ftag = (struct pf_fragment_tag *)(mtag + 1);
+	struct rtentry		*rt = NULL;
 	u_int32_t		 mtu;
 	u_int16_t		 hdrlen, extoff, maxlen;
 	u_int8_t		 proto;
@@ -743,6 +743,16 @@ pf_refragment6(struct mbuf **m0, struct m_tag *mtag, struct sockaddr_in6 *dst,
 		DPFPRINTF(LOG_NOTICE, "refragment error %d", error);
 		action = PF_DROP;
 	}
+
+	if (ifp != NULL) {
+		rt = rtalloc(sin6tosa(dst), RT_RESOLVE,
+		    m->m_pkthdr.ph_rtableid);
+		if (rt == NULL) {
+			ip6stat.ip6s_noroute++;
+			error = -1;
+		}
+	}
+
 	for (t = m; m; m = t) {
 		t = m->m_nextpkt;
 		m->m_nextpkt = NULL;
@@ -751,7 +761,7 @@ pf_refragment6(struct mbuf **m0, struct m_tag *mtag, struct sockaddr_in6 *dst,
 			if (ifp == NULL) {
 				ip6_forward(m, 0);
 			} else if ((u_long)m->m_pkthdr.len <= ifp->if_mtu) {
-				nd6_output(ifp, m, dst, NULL);
+				ifp->if_output(ifp, m, sin6tosa(dst), rt);
 			} else {
 				icmp6_error(m, ICMP6_PACKET_TOO_BIG, 0,
 				    ifp->if_mtu);
@@ -760,6 +770,7 @@ pf_refragment6(struct mbuf **m0, struct m_tag *mtag, struct sockaddr_in6 *dst,
 			m_freem(m);
 		}
 	}
+	rtfree(rt);
 
 	return (action);
 }
@@ -952,8 +963,7 @@ pf_normalize_tcp_init(struct pf_pdesc *pd, struct pf_state_peer *src)
 				if (opt[1] >= TCPOLEN_TIMESTAMP) {
 					src->scrub->pfss_flags |=
 					    PFSS_TIMESTAMP;
-					src->scrub->pfss_ts_mod =
-					    htonl(arc4random());
+					src->scrub->pfss_ts_mod = arc4random();
 
 					/* note PFSS_PAWS not set yet */
 					memcpy(&tsval, &opt[2],

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.59 2015/10/15 19:31:15 miod Exp $
+#	$OpenBSD: Makefile,v 1.61 2016/03/09 16:28:47 deraadt Exp $
 
 PROG=	disklabel
 SRCS=	disklabel.c dkcksum.c editor.c manual.c
@@ -37,10 +37,6 @@ CFLAGS+= -DSEEALSO="\"fdisk(8), installboot(8)\""
 CFLAGS+= -DSEEALSO="\"fdisk(8)\""
 .endif
 
-.if (${MACHINE} == "vax")
-CFLAGS+= -DSEEALSO="\"installboot(8)\""
-.endif
-
 .if (${MACHINE} == "landisk")
 CFLAGS+= -DSEEALSO="\"fdisk(8), installboot(8)\""
 .endif
@@ -49,8 +45,7 @@ CFLAGS+= -DSEEALSO="\"fdisk(8), installboot(8)\""
 CFLAGS+= -DSEEALSO="\"fdisk(8), pdisk(8)\""
 .endif
 
-.if (${MACHINE} == "solbourne") || (${MACHINE} == "sparc") || \
-    (${MACHINE} == "sparc64")
+.if (${MACHINE} == "sparc") || (${MACHINE} == "sparc64")
 CFLAGS+= -DSEEALSO="\"installboot(8)\"" -DSUN_CYLCHECK -DSUN_AAT0
 .endif
 

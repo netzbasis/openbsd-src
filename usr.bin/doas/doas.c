@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.45 2015/10/24 19:23:48 miod Exp $ */
+/* $OpenBSD: doas.c,v 1.56 2016/06/16 17:40:30 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -21,6 +21,7 @@
 #include <limits.h>
 #include <login_cap.h>
 #include <bsd_auth.h>
+#include <readpassphrase.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +37,8 @@
 static void __dead
 usage(void)
 {
-	fprintf(stderr, "usage: doas [-ns] [-C config] [-u user] command [args]\n");
+	fprintf(stderr, "usage: doas [-ns] [-a style] [-C config] [-u user]"
+	    " command [args]\n");
 	exit(1);
 }
 
@@ -180,105 +182,6 @@ parseconfig(const char *filename, int checkperms)
 		exit(1);
 }
 
-/*
- * Copy the environment variables in safeset from oldenvp to envp.
- */
-static int
-copyenvhelper(const char **oldenvp, const char **safeset, int nsafe,
-    char **envp, int ei)
-{
-	int i;
-
-	for (i = 0; i < nsafe; i++) {
-		const char **oe = oldenvp;
-		while (*oe) {
-			size_t len = strlen(safeset[i]);
-			if (strncmp(*oe, safeset[i], len) == 0 &&
-			    (*oe)[len] == '=') {
-				if (!(envp[ei++] = strdup(*oe)))
-					err(1, "strdup");
-				break;
-			}
-			oe++;
-		}
-	}
-	return ei;
-}
-
-static char **
-copyenv(const char **oldenvp, struct rule *rule)
-{
-	const char *safeset[] = {
-		"DISPLAY", "HOME", "LOGNAME", "MAIL",
-		"PATH", "TERM", "USER", "USERNAME",
-		NULL
-	};
-	const char *badset[] = {
-		"ENV",
-		NULL
-	};
-	char **envp;
-	const char **extra;
-	int ei;
-	int nsafe, nbad;
-	int nextras = 0;
-
-	/* if there was no envvar whitelist, pass all except badset ones */
-	nbad = arraylen(badset);
-	if ((rule->options & KEEPENV) && !rule->envlist) {
-		size_t iold, inew;
-		size_t oldlen = arraylen(oldenvp);
-		envp = reallocarray(NULL, oldlen + 1, sizeof(char *));
-		if (!envp)
-			err(1, "reallocarray");
-		for (inew = iold = 0; iold < oldlen; iold++) {
-			size_t ibad;
-			for (ibad = 0; ibad < nbad; ibad++) {
-				size_t len = strlen(badset[ibad]);
-				if (strncmp(oldenvp[iold], badset[ibad], len) == 0 &&
-				    oldenvp[iold][len] == '=') {
-					break;
-				}
-			}
-			if (ibad == nbad) {
-				if (!(envp[inew] = strdup(oldenvp[iold])))
-					err(1, "strdup");
-				inew++;
-			}
-		}
-		envp[inew] = NULL;
-		return envp;
-	}
-
-	nsafe = arraylen(safeset);
-	if ((extra = rule->envlist)) {
-		size_t isafe;
-		nextras = arraylen(extra);
-		for (isafe = 0; isafe < nsafe; isafe++) {
-			size_t iextras;
-			for (iextras = 0; iextras < nextras; iextras++) {
-				if (strcmp(extra[iextras], safeset[isafe]) == 0) {
-					nextras--;
-					extra[iextras] = extra[nextras];
-					extra[nextras] = NULL;
-					iextras--;
-				}
-			}
-		}
-	}
-
-	envp = reallocarray(NULL, nsafe + nextras + 1, sizeof(char *));
-	if (!envp)
-		err(1, "can't allocate new environment");
-
-	ei = 0;
-	ei = copyenvhelper(oldenvp, safeset, nsafe, envp, ei);
-	ei = copyenvhelper(oldenvp, rule->envlist, nextras, envp, ei);
-	envp[ei] = NULL;
-
-	return envp;
-}
-
 static void __dead
 checkconfig(const char *confpath, int argc, char **argv,
     uid_t uid, gid_t *groups, int ngroups, uid_t target)
@@ -309,6 +212,7 @@ main(int argc, char **argv, char **envp)
 	char *shargv[] = { NULL, NULL };
 	char *sh;
 	const char *cmd;
+	struct env *env;
 	char cmdline[LINE_MAX];
 	char myname[_PW_NAME_LEN + 1];
 	struct passwd *pw;
@@ -322,16 +226,22 @@ main(int argc, char **argv, char **envp)
 	int nflag = 0;
 	char cwdpath[PATH_MAX];
 	const char *cwd;
+	char *login_style = NULL;
 
-	if (pledge("stdio rpath getpw proc exec id", NULL) == -1)
+	setprogname("doas");
+
+	if (pledge("stdio rpath getpw tty proc exec id", NULL) == -1)
 		err(1, "pledge");
 
 	closefrom(STDERR_FILENO + 1);
 
 	uid = getuid();
 
-	while ((ch = getopt(argc, argv, "C:nsu:")) != -1) {
+	while ((ch = getopt(argc, argv, "a:C:nsu:")) != -1) {
 		switch (ch) {
+		case 'a':
+			login_style = optarg;
+			break;
 		case 'C':
 			confpath = optarg;
 			break;
@@ -405,13 +315,36 @@ main(int argc, char **argv, char **envp)
 	}
 
 	if (!(rule->options & NOPASS)) {
+		char *challenge = NULL, *response, rbuf[1024], cbuf[128];
+		auth_session_t *as;
+
 		if (nflag)
 			errx(1, "Authorization required");
-		if (!auth_userokay(myname, NULL, "auth-doas", NULL)) {
+
+		if (!(as = auth_userchallenge(myname, login_style, "auth-doas",
+		    &challenge)))
+			errx(1, "Authorization failed");
+		if (!challenge) {
+			char host[HOST_NAME_MAX + 1];
+			if (gethostname(host, sizeof(host)))
+				snprintf(host, sizeof(host), "?");
+			snprintf(cbuf, sizeof(cbuf),
+			    "\rdoas (%.32s@%.32s) password: ", myname, host);
+			challenge = cbuf;
+		}
+		response = readpassphrase(challenge, rbuf, sizeof(rbuf),
+		    RPP_REQUIRE_TTY);
+		if (response == NULL && errno == ENOTTY) {
 			syslog(LOG_AUTHPRIV | LOG_NOTICE,
-			    "failed password for %s", myname);
+			    "tty required for %s", myname);
+			errx(1, "a tty is required");
+		}
+		if (!auth_userresponse(as, response, 0)) {
+			syslog(LOG_AUTHPRIV | LOG_NOTICE,
+			    "failed auth for %s", myname);
 			errc(1, EPERM, NULL);
 		}
+		explicit_bzero(rbuf, sizeof(rbuf));
 	}
 
 	if (pledge("stdio rpath getpw exec id", NULL) == -1)
@@ -440,7 +373,9 @@ main(int argc, char **argv, char **envp)
 	syslog(LOG_AUTHPRIV | LOG_INFO, "%s ran command %s as %s from %s",
 	    myname, cmdline, pw->pw_name, cwd);
 
-	envp = copyenv((const char **)envp, rule);
+	env = createenv(envp);
+	env = filterenv(env, rule);
+	envp = flattenenv(env);
 
 	if (rule->cmd) {
 		if (setenv("PATH", safepath, 1) == -1)

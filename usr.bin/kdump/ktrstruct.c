@@ -1,4 +1,4 @@
-/*	$OpenBSD: ktrstruct.c,v 1.13 2015/10/18 05:03:22 guenther Exp $	*/
+/*	$OpenBSD: ktrstruct.c,v 1.21 2016/06/07 06:12:37 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -34,6 +34,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/event.h>
 #include <sys/un.h>
 #include <ufs/ufs/quota.h>
 #include <netinet/in.h>
@@ -53,6 +54,7 @@
 #include <grp.h>
 #include <pwd.h>
 #include <unistd.h>
+#include <vis.h>
 
 #include "kdump.h"
 #include "kdump_subr.h"
@@ -62,12 +64,11 @@
 static void
 ktrsockaddr(struct sockaddr *sa)
 {
-/*
- TODO: Support additional address families
-	#include <netmpls/mpls.h>
-	struct sockaddr_mpls	*mpls;
-*/
-	char addr[64];
+	/*
+	 * TODO: Support additional address families
+	 *	#include <netmpls/mpls.h>
+	 *	struct sockaddr_mpls	*mpls;
+	 */
 
 	/*
 	 * note: ktrstruct() has already verified that sa points to a
@@ -87,6 +88,7 @@ ktrsockaddr(struct sockaddr *sa)
 	switch(sa->sa_family) {
 	case AF_INET: {
 		struct sockaddr_in	*sa_in;
+		char addr[64];
 
 		sa_in = (struct sockaddr_in *)sa;
 		check_sockaddr_len(in);
@@ -96,6 +98,7 @@ ktrsockaddr(struct sockaddr *sa)
 	}
 	case AF_INET6: {
 		struct sockaddr_in6	*sa_in6;
+		char addr[64];
 
 		sa_in6 = (struct sockaddr_in6 *)sa;
 		check_sockaddr_len(in6);
@@ -103,28 +106,27 @@ ktrsockaddr(struct sockaddr *sa)
 		printf("[%s]:%u", addr, htons(sa_in6->sin6_port));
 		break;
 	}
-#ifdef IPX
-	case AF_IPX: {
-		struct sockaddr_ipx	*sa_ipx;
-
-		sa_ipx = (struct sockaddr_ipx *)sa;
-		check_sockaddr_len(ipx);
-		/* XXX wish we had ipx_ntop */
-		printf("%s", ipx_ntoa(sa_ipx->sipx_addr));
-		break;
-	}
-#endif
 	case AF_UNIX: {
 		struct sockaddr_un *sa_un;
+		char path[4 * sizeof(sa_un->sun_path) + 1];
+		size_t len;
 
 		sa_un = (struct sockaddr_un *)sa;
-		if (sa_un->sun_len <= offsetof(struct sockaddr_un, sun_path)) {
+		len = sa_un->sun_len;
+		if (len <= offsetof(struct sockaddr_un, sun_path)) {
 			printf("invalid");
 			break;
 		}
-		printf("\"%.*s\"", (int)(sa_un->sun_len -
-		    offsetof(struct sockaddr_un, sun_path)),
-		    sa_un->sun_path);
+		len -= offsetof(struct sockaddr_un, sun_path);
+		if (len > sizeof(sa_un->sun_path)) {
+			printf("too long");
+			break;
+		}
+		/* format, stopping at first NUL */
+		len = strnlen(sa_un->sun_path, len);
+		strvisx(path, sa_un->sun_path, len,
+		    VIS_CSTYLE | VIS_DQ | VIS_TAB | VIS_NL);
+		printf("\"%s\"", path);
 		break;
 	}
 	default:
@@ -145,7 +147,8 @@ print_time(time_t t, int relative, int have_subsec)
 	} else
 		printf("%jd", (intmax_t)t);
 
-	if (!relative) {
+	/* 1970s times are probably relative */
+	if (!relative && t > (10 * 365 * 24 * 3600)) {
 		tm = localtime(&t);
 		if (tm != NULL) {
 			(void)strftime(timestr, sizeof(timestr), TIME_FORMAT,
@@ -264,10 +267,16 @@ ktrsigaction(const struct sigaction *sa)
 	 * note: ktrstruct() has already verified that sa points to a
 	 * buffer exactly sizeof(struct sigaction) bytes long.
 	 */
+	/*
+	 * Fuck!  Comparison of function pointers on hppa assumes you can
+	 * dereference them if they're plabels!  Cast everything to void *
+	 * to suppress that extra logic; sorry folks, the address we report
+	 * here might not match what you see in your executable...
+	 */
 	printf("struct sigaction { ");
-	if (sa->sa_handler == SIG_DFL)
+	if ((void *)sa->sa_handler == (void *)SIG_DFL)
 		printf("handler=SIG_DFL");
-	else if (sa->sa_handler == SIG_IGN)
+	else if ((void *)sa->sa_handler == (void *)SIG_IGN)
 		printf("handler=SIG_IGN");
 	else if (sa->sa_flags & SA_SIGINFO)
 		printf("sigaction=%p", (void *)sa->sa_sigaction);
@@ -308,7 +317,7 @@ ktrtfork(const struct __tfork *tf)
 }
 
 static void
-ktrfdset(const struct fd_set *fds, int len)
+ktrfdset(struct fd_set *fds, int len)
 {
 	int nfds, i, start = -1;
 	char sep = ' ';
@@ -369,9 +378,11 @@ static void
 ktrmsghdr(const struct msghdr *msg)
 {
 	printf("struct msghdr { name=%p, namelen=%u, iov=%p, iovlen=%u,"
-	    " control=%p, controllen=%u, flags=%d }\n",
+	    " control=%p, controllen=%u, flags=",
 	    msg->msg_name, msg->msg_namelen, msg->msg_iov, msg->msg_iovlen,
-	    msg->msg_control, msg->msg_controllen, msg->msg_flags);
+	    msg->msg_control, msg->msg_controllen);
+	sendrecvflagsname(msg->msg_flags);
+	printf(" }\n");
 }
 
 static void
@@ -387,6 +398,54 @@ ktriovec(const char *data, int count)
 		memcpy(&iov, data, sizeof(iov));
 		data += sizeof(iov);
 		printf(" { base=%p, len=%lu }", iov.iov_base, iov.iov_len);
+	}
+	printf("\n");
+}
+
+static void
+ktrevent(const char *data, int count)
+{
+	struct kevent kev;
+	int i;
+
+	printf("struct kevent");
+	if (count > 1)
+		printf(" [%d]", count);
+	for (i = 0; i < count; i++) {
+		memcpy(&kev, data, sizeof(kev));
+		data += sizeof(kev);
+		printf(" { ident=%lu, filter=", kev.ident);
+		evfiltername(kev.filter);
+		printf(", flags=");
+		evflagsname(kev.flags);
+		printf(", fflags=");
+		evfflagsname(kev.filter, kev.fflags);
+		printf(", data=%llu", kev.data);
+		if ((kev.flags & EV_ERROR) && fancy) {
+			printf("<\"%s\">", strerror(kev.data));
+		}
+		printf(", udata=%p }", kev.udata);
+	}
+	printf("\n");
+}
+
+static void
+ktrpollfd(const char *data, int count)
+{
+	struct pollfd pfd;
+	int i;
+
+	printf("struct pollfd");
+	if (count > 1)
+		printf(" [%d]", count);
+	for (i = 0; i < count; i++) {
+		memcpy(&pfd, data, sizeof(pfd));
+		data += sizeof(pfd);
+		printf(" { fd=%d, events=", pfd.fd);
+		pollfdeventname(pfd.events);
+		printf(", revents=");
+		pollfdeventname(pfd.revents);
+		printf(" }");
 	}
 	printf("\n");
 }
@@ -552,6 +611,14 @@ ktrstruct(char *buf, size_t buflen)
 		if (datalen % sizeof(struct iovec))
 			goto invalid;
 		ktriovec(data, datalen / sizeof(struct iovec));
+	} else if (strcmp(name, "kevent") == 0) {
+		if (datalen % sizeof(struct kevent))
+			goto invalid;
+		ktrevent(data, datalen / sizeof(struct kevent));
+	} else if (strcmp(name, "pollfd") == 0) {
+		if (datalen % sizeof(struct pollfd))
+			goto invalid;
+		ktrpollfd(data, datalen / sizeof(struct pollfd));
 	} else if (strcmp(name, "cmsghdr") == 0) {
 		char *cmsg;
 
@@ -563,11 +630,11 @@ ktrstruct(char *buf, size_t buflen)
 	} else if (strcmp(name, "pledgereq") == 0) {
 		printf("pledge request=");
 		showbufc(basecol + sizeof("pledge request=") - 1,
-		    (unsigned char *)data, datalen);
+		    (unsigned char *)data, datalen, VIS_DQ | VIS_TAB | VIS_NL);
 	} else if (strcmp(name, "pledgepath") == 0) {
 		printf("pledge path=");
 		showbufc(basecol + sizeof("pledge path=") - 1,
-		    (unsigned char *)data, datalen);
+		    (unsigned char *)data, datalen, VIS_DQ | VIS_TAB | VIS_NL);
 	} else {
 		printf("unknown structure %s\n", name);
 	}

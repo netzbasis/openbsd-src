@@ -1,4 +1,4 @@
-/*	$OpenBSD: route6d.c,v 1.81 2015/10/26 00:37:44 jca Exp $	*/
+/*	$OpenBSD: route6d.c,v 1.86 2016/01/25 05:15:43 jca Exp $	*/
 /*	$KAME: route6d.c,v 1.111 2006/10/25 06:38:13 jinmei Exp $	*/
 
 /*
@@ -30,37 +30,35 @@
  * SUCH DAMAGE.
  */
 
-#include <stdio.h>
-
-#include <time.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <stdarg.h>
-#include <syslog.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <errno.h>
-#include <util.h>
-#include <poll.h>
-
 #include <sys/types.h>
-#include <sys/file.h>
-#include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/uio.h>
+
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
-#include <netinet6/in6_var.h>
 #include <netinet/ip6.h>
 #include <netinet/udp.h>
-#include <netdb.h>
-#include <ifaddrs.h>
+#include <netinet6/in6_var.h>
 
 #include <arpa/inet.h>
+#include <errno.h>
+#include <ifaddrs.h>
+#include <netdb.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>
+#include <unistd.h>
+#include <util.h>
 
 #include "route6d.h"
 
@@ -190,7 +188,6 @@ volatile sig_atomic_t seenusr1;
 #define RRTF_SENDANYWAY		0x40000000
 #define	RRTF_CHANGED		0x80000000
 
-int main(int, char **);
 void sighandler(int);
 void ripalarm(void);
 void riprecv(void);
@@ -331,9 +328,8 @@ main(int argc, char *argv[])
 
 	openlog(progname, LOG_NDELAY|LOG_PID, LOG_DAEMON);
 
-	if ((ripbuf = malloc(RIP6_MAXMTU)) == NULL)
-		fatal("malloc");
-	memset(ripbuf, 0, RIP6_MAXMTU);
+	if ((ripbuf = calloc(RIP6_MAXMTU, 1)) == NULL)
+		fatal("calloc");
 	ripbuf->rip6_cmd = RIP6_RESPONSE;
 	ripbuf->rip6_vers = RIP6_VERSION;
 	ripbuf->rip6_res1[0] = 0;
@@ -414,7 +410,7 @@ main(int argc, char *argv[])
 		{
 		case -1:
 			if (errno != EINTR) {
-				fatal("select");
+				fatal("poll");
 				/*NOTREACHED*/
 			}
 			continue;
@@ -1266,11 +1262,10 @@ riprecv(void)
 			 */
 		} else if (np->rip6_metric < HOPCNT_INFINITY6) {
 			/* Got a new valid route */
-			if ((rrt = malloc(sizeof(struct riprt))) == NULL) {
-				fatal("malloc: struct riprt");
+			if ((rrt = calloc(1, sizeof(struct riprt))) == NULL) {
+				fatal("calloc: struct riprt");
 				/*NOTREACHED*/
 			}
-			memset(rrt, 0, sizeof(*rrt));
 			nq = &rrt->rrt_info;
 
 			rrt->rrt_same = NULL;
@@ -1396,11 +1391,10 @@ ifconfig(void)
 			continue;
 		if (!ifcp) {
 			/* new interface */
-			if ((ifcp = malloc(sizeof(struct ifc))) == NULL) {
-				fatal("malloc: struct ifc");
+			if ((ifcp = calloc(1, sizeof(struct ifc))) == NULL) {
+				fatal("calloc: struct ifc");
 				/*NOTREACHED*/
 			}
-			memset(ifcp, 0, sizeof(*ifcp));
 			ifcp->ifc_index = -1;
 			ifcp->ifc_next = ifc;
 			ifc = ifcp;
@@ -1469,11 +1463,10 @@ ifconfig1(const char *name, const struct sockaddr *sa, struct ifc *ifcp, int s)
 	/*
 	 * New address is found
 	 */
-	if ((ifa = malloc(sizeof(struct ifac))) == NULL) {
-		fatal("malloc: struct ifac");
+	if ((ifa = calloc(1, sizeof(struct ifac))) == NULL) {
+		fatal("calloc: struct ifac");
 		/*NOTREACHED*/
 	}
-	memset(ifa, 0, sizeof(*ifa));
 	ifa->ifa_conf = ifcp;
 	ifa->ifa_next = ifcp->ifc_addr;
 	ifcp->ifc_addr = ifa;
@@ -1994,9 +1987,8 @@ ifrt(struct ifc *ifcp, int again)
 			continue;
 		}
 		if (ifcp->ifc_flags & IFF_UP) {
-			if ((rrt = malloc(sizeof(struct riprt))) == NULL)
-				fatal("malloc: struct riprt");
-			memset(rrt, 0, sizeof(*rrt));
+			if ((rrt = calloc(1, sizeof(struct riprt))) == NULL)
+				fatal("calloc: struct riprt");
 			rrt->rrt_same = NULL;
 			rrt->rrt_index = ifcp->ifc_index;
 			rrt->rrt_t = 0;	/* don't age */
@@ -2058,8 +2050,7 @@ ifrt(struct ifc *ifcp, int again)
 			}
                 }
 	next:
-		if (rrt)
-			free(rrt);
+		free(rrt);
 	}
 	return need_trigger;
 }
@@ -2150,11 +2141,10 @@ ifrt_p2p(struct ifc *ifcp, int again)
 		for (i = 1; i <= P2PADVERT_MAX; i *= 2) {
 			if ((ignore & i) != 0)
 				continue;
-			if ((rrt = malloc(sizeof(struct riprt))) == NULL) {
-				fatal("malloc: struct riprt");
+			if ((rrt = calloc(1, sizeof(struct riprt))) == NULL) {
+				fatal("calloc: struct riprt");
 				/*NOTREACHED*/
 			}
-			memset(rrt, 0, sizeof(*rrt));
 			rrt->rrt_same = NULL;
 			rrt->rrt_index = ifcp->ifc_index;
 			rrt->rrt_t = 0;	/* don't age */
@@ -2523,11 +2513,10 @@ rt_entry(struct rt_msghdr *rtm, int again)
 	if (IN6_IS_ADDR_MULTICAST(&sin6_dst->sin6_addr))
 		return;
 
-	if ((rrt = malloc(sizeof(struct riprt))) == NULL) {
-		fatal("malloc: struct riprt");
+	if ((rrt = calloc(1, sizeof(struct riprt))) == NULL) {
+		fatal("calloc: struct riprt");
 		/*NOTREACHED*/
 	}
-	memset(rrt, 0, sizeof(*rrt));
 	np = &rrt->rrt_info;
 	rrt->rrt_same = NULL;
 	rrt->rrt_t = time(NULL);
@@ -3031,12 +3020,11 @@ ifonly:
 		if (filtertype[i] != 'A')
 			continue;
 		/* put the aggregate to the kernel routing table */
-		rrt = malloc(sizeof(struct riprt));
+		rrt = calloc(1, sizeof(struct riprt));
 		if (rrt == NULL) {
-			fatal("malloc: rrt");
+			fatal("calloc: rrt");
 			/*NOTREACHED*/
 		}
-		memset(rrt, 0, sizeof(struct riprt));
 		rrt->rrt_info.rip6_dest = ftmp.iff_addr;
 		rrt->rrt_info.rip6_plen = ftmp.iff_plen;
 		rrt->rrt_info.rip6_metric = 1;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_tty.c,v 1.15 2015/05/01 01:30:58 millert Exp $	*/
+/*	$OpenBSD: tty_tty.c,v 1.18 2016/03/19 12:04:15 natano Exp $	*/
 /*	$NetBSD: tty_tty.c,v 1.13 1996/03/30 22:24:46 christos Exp $	*/
 
 /*-
@@ -49,7 +49,6 @@
 	((p)->p_p->ps_flags & PS_CONTROLT ? \
 	    (p)->p_p->ps_session->s_ttyvp : NULL)
 
-/*ARGSUSED*/
 int
 cttyopen(dev_t dev, int flag, int mode, struct proc *p)
 {
@@ -59,25 +58,11 @@ cttyopen(dev_t dev, int flag, int mode, struct proc *p)
 	if (ttyvp == NULL)
 		return (ENXIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
-#ifdef PARANOID
-	/*
-	 * Since group is tty and mode is 620 on most terminal lines
-	 * and since sessions protect terminals from processes outside
-	 * your session, this check is probably no longer necessary.
-	 * Since it inhibits setuid root programs that later switch 
-	 * to another user from accessing /dev/tty, we have decided
-	 * to delete this test. (mckusick 5/93)
-	 */
-	error = VOP_ACCESS(ttyvp,
-	  (flag&FREAD ? VREAD : 0) | (flag&FWRITE ? VWRITE : 0), p->p_ucred, p);
-	if (!error)
-#endif /* PARANOID */
-		error = VOP_OPEN(ttyvp, flag, NOCRED, p);
-	VOP_UNLOCK(ttyvp, 0, p);
+	error = VOP_OPEN(ttyvp, flag, NOCRED, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttyread(dev_t dev, struct uio *uio, int flag)
 {
@@ -89,11 +74,10 @@ cttyread(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_READ(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttywrite(dev_t dev, struct uio *uio, int flag)
 {
@@ -105,11 +89,10 @@ cttywrite(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_WRITE(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 {
@@ -129,7 +112,6 @@ cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	return (VOP_IOCTL(ttyvp, cmd, addr, flag, NOCRED, p));
 }
 
-/*ARGSUSED*/
 int
 cttypoll(dev_t dev, int events, struct proc *p)
 {
@@ -140,7 +122,6 @@ cttypoll(dev_t dev, int events, struct proc *p)
 	return (VOP_POLL(ttyvp, FREAD|FWRITE, events, p));
 }
 
-/*ARGSUSED*/
 int
 cttykqfilter(dev_t dev, struct knote *kn)
 {

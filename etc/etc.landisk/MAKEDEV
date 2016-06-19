@@ -3,9 +3,9 @@
 # THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
 # generated from:
 #
-#	OpenBSD: etc.landisk/MAKEDEV.md,v 1.38 2015/10/23 15:14:11 claudio Exp 
-#	OpenBSD: MAKEDEV.common,v 1.81 2015/11/10 21:49:18 sthen Exp 
-#	OpenBSD: MAKEDEV.mi,v 1.81 2012/11/05 08:07:09 jasper Exp 
+#	OpenBSD: etc.landisk/MAKEDEV.md,v 1.40 2016/04/28 18:17:31 natano Exp 
+#	OpenBSD: MAKEDEV.common,v 1.88 2016/05/21 15:17:49 deraadt Exp 
+#	OpenBSD: MAKEDEV.mi,v 1.82 2016/03/12 17:58:59 espie Exp 
 #	OpenBSD: MAKEDEV.sub,v 1.14 2005/02/07 06:14:18 david Exp 
 #
 #
@@ -60,7 +60,7 @@
 # Special purpose devices:
 #	audio*	Audio devices
 #	bio	ioctl tunnel pseudo-device
-#	bpf*	Berkeley Packet Filter
+#	bpf	Berkeley Packet Filter
 #	diskmap	Disk mapper
 #	fd	fd/* nodes
 #	fuse	Userland Filesystem
@@ -71,7 +71,6 @@
 #	radio*	FM tuner devices
 #	*random	In-kernel random data source
 #	rmidi*	Raw MIDI devices
-#	systrace*	System call tracing device
 #	tun*	Network tunnel driver
 #	tap*	Ethernet tunnel driver
 #	uk*	Unknown SCSI devices
@@ -168,7 +167,8 @@ dodisk2()
 RMlist[0]="rm -f"
 
 mkl() {
-	mklist[${#mklist[*]}]=";mknod -m $1 $2 $3 $4 $5"
+	: ${mklist[0]:=";mknod"}
+	mklist[${#mklist[*]}]=" -m $1 $2 $3 $4 $5"
 }
 
 M() {
@@ -203,7 +203,7 @@ U=`unt $i`
 
 case $i in
 ramdisk)
-	R std bpf0 wd0 wd1 sd0 rd0 wsmouse
+	R std bpf wd0 wd1 sd0 rd0 wsmouse
 	R st0 ttyC0 wskbd0 bio diskmap random
 	;;
 
@@ -226,7 +226,7 @@ vscsi*)
 	;;
 
 video*)
-	M video$U  c 77 $U
+	M video$U  c 77 $U 600 
 	MKlist[${#MKlist[*]}]=";[ -e video ] || ln -s video$U video"
 	;;
 
@@ -240,10 +240,6 @@ tap*)
 
 tun*)
 	M tun$U c 33 $U 600
-	;;
-
-systrace)
-	M systrace c 50 0 644
 	;;
 
 rmidi*)
@@ -295,8 +291,9 @@ diskmap)
 	M diskmap c 101 0 640 operator
 	;;
 
-bpf*)
-	M bpf$U c 22 $U 600
+bpf)
+	M bpf c 22 0 600
+	M bpf0 c 22 0 600
 	;;
 
 bio)
@@ -448,12 +445,11 @@ local)
 
 all)
 	R vnd0 vnd1 vnd2 vnd3 sd0 sd1 sd2 sd3 sd4 sd5 sd6 sd7 sd8 sd9
-	R cd0 cd1 rd0 tap0 tap1 tap2 tap3 tun0 tun1 tun2 tun3 bio bpf0
-	R bpf1 bpf2 bpf3 bpf4 bpf5 bpf6 bpf7 bpf8 bpf9 pty0 diskmap
-	R vscsi0 ch0 ttya audio0 audio1 audio2 fuse pppx hotplug ptm
-	R local wscons pci0 pci1 pci2 pci3 uall rmidi0 rmidi1 rmidi2
-	R rmidi3 rmidi4 rmidi5 rmidi6 rmidi7 radio0 video0 video1 uk0
-	R random pf systrace wd0 wd1 wd2 wd3 std st0 st1 fd
+	R cd0 cd1 rd0 tap0 tap1 tap2 tap3 tun0 tun1 tun2 tun3 bio pty0
+	R diskmap vscsi0 ch0 ttya audio0 audio1 audio2 bpf fuse pppx
+	R hotplug ptm local wscons pci0 pci1 pci2 pci3 uall rmidi0
+	R rmidi1 rmidi2 rmidi3 rmidi4 rmidi5 rmidi6 rmidi7 radio0
+	R video0 video1 uk0 random pf wd0 wd1 wd2 wd3 std st0 st1 fd
 	;;
 
 wd*|sd*)

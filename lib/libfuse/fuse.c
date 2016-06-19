@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse.c,v 1.26 2015/07/07 13:56:45 ajacoutot Exp $ */
+/* $OpenBSD: fuse.c,v 1.28 2016/05/24 19:24:46 okan Exp $ */
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -424,6 +424,8 @@ fuse_parse_cmdline(struct fuse_args *args, char **mp, int *mt, unused int *fg)
 	}
 
 	*mp = strdup(opt.mp);
+	if (*mp == NULL)
+		return (-1);
 	*mt = 0;
 
 	return (0);
@@ -478,8 +480,7 @@ fuse_setup(int argc, char **argv, const struct fuse_operations *ops,
 
 	return (fuse);
 err:
-	if (*mp)
-		free(*mp);
+	free(*mp);
 	return (NULL);
 }
 

@@ -1,7 +1,7 @@
-/* $OpenBSD: status.c,v 1.142 2015/11/20 12:01:19 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.149 2016/06/06 07:23:36 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -257,16 +257,19 @@ status_get_window_at(struct client *c, u_int x)
 	struct session	*s = c->session;
 	struct winlink	*wl;
 	struct options	*oo;
-	size_t		 len;
+	const char	*sep;
+	size_t		 seplen;
 
 	x += c->wlmouse;
 	RB_FOREACH(wl, winlinks, &s->windows) {
 		oo = wl->window->options;
-		len = strlen(options_get_string(oo, "window-status-separator"));
+
+		sep = options_get_string(oo, "window-status-separator");
+		seplen = screen_write_cstrlen("%s", sep);
 
 		if (x < wl->status_width)
 			return (wl->window);
-		x -= wl->status_width + len;
+		x -= wl->status_width + seplen;
 	}
 	return (NULL);
 }
@@ -344,7 +347,7 @@ status_redraw(struct client *c)
 
 		oo = wl->window->options;
 		sep = options_get_string(oo, "window-status-separator");
-		seplen = screen_write_strlen("%s", sep);
+		seplen = screen_write_cstrlen("%s", sep);
 		wlwidth += wl->status_width + seplen;
 	}
 
@@ -359,7 +362,7 @@ status_redraw(struct client *c)
 
 		oo = wl->window->options;
 		sep = options_get_string(oo, "window-status-separator");
-		screen_write_nputs(&ctx, -1, &stdgc, "%s", sep);
+		screen_write_cnputs(&ctx, -1, &stdgc, "%s", sep);
 	}
 	screen_write_stop(&ctx);
 
@@ -500,9 +503,9 @@ status_replace(struct client *c, struct winlink *wl, const char *fmt, time_t t)
 		return (xstrdup(""));
 
 	if (c->flags & CLIENT_STATUSFORCE)
-		ft = format_create_flags(FORMAT_STATUS|FORMAT_FORCE);
+		ft = format_create(NULL, FORMAT_STATUS|FORMAT_FORCE);
 	else
-		ft = format_create_flags(FORMAT_STATUS);
+		ft = format_create(NULL, FORMAT_STATUS);
 	format_defaults(ft, c, NULL, wl, NULL);
 
 	expanded = format_expand_time(ft, fmt, t);
@@ -547,7 +550,7 @@ status_message_set(struct client *c, const char *fmt, ...)
 	struct message_entry	*msg, *msg1;
 	va_list			 ap;
 	int			 delay;
-	u_int			 first, limit;
+	u_int			 limit;
 
 	limit = options_get_number(global_options, "message-limit");
 
@@ -564,23 +567,24 @@ status_message_set(struct client *c, const char *fmt, ...)
 	msg->msg = xstrdup(c->message_string);
 	TAILQ_INSERT_TAIL(&c->message_log, msg, entry);
 
-	first = c->message_next - limit;
 	TAILQ_FOREACH_SAFE(msg, &c->message_log, entry, msg1) {
-		if (msg->msg_num >= first)
-			continue;
+		if (msg->msg_num + limit >= c->message_next)
+			break;
 		free(msg->msg);
 		TAILQ_REMOVE(&c->message_log, msg, entry);
 		free(msg);
 	}
 
 	delay = options_get_number(c->session->options, "display-time");
-	tv.tv_sec = delay / 1000;
-	tv.tv_usec = (delay % 1000) * 1000L;
+	if (delay > 0) {
+		tv.tv_sec = delay / 1000;
+		tv.tv_usec = (delay % 1000) * 1000L;
 
-	if (event_initialized(&c->message_timer))
-		evtimer_del(&c->message_timer);
-	evtimer_set(&c->message_timer, status_message_callback, c);
-	evtimer_add(&c->message_timer, &tv);
+		if (event_initialized(&c->message_timer))
+			evtimer_del(&c->message_timer);
+		evtimer_set(&c->message_timer, status_message_callback, c);
+		evtimer_add(&c->message_timer, &tv);
+	}
 
 	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
 	c->flags |= CLIENT_STATUS;
@@ -659,7 +663,7 @@ status_prompt_set(struct client *c, const char *msg, const char *input,
 	int			 keys;
 	time_t			 t;
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -720,7 +724,7 @@ status_prompt_update(struct client *c, const char *msg, const char *input)
 	struct format_tree	*ft;
 	time_t			 t;
 
-	ft = format_create();
+	ft = format_create(NULL, 0);
 	format_defaults(ft, c, NULL, NULL, NULL);
 	t = time(NULL);
 
@@ -1122,8 +1126,8 @@ status_prompt_key(struct client *c, key_code key)
 		}
 
 		if (c->prompt_flags & PROMPT_SINGLE) {
-			if (c->prompt_callbackfn(
-			    c->prompt_data, c->prompt_buffer) == 0)
+			if (c->prompt_callbackfn(c->prompt_data,
+			    c->prompt_buffer) == 0)
 				status_prompt_clear(c);
 		}
 

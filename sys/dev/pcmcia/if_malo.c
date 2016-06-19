@@ -1,4 +1,4 @@
-/*      $OpenBSD: if_malo.c,v 1.88 2015/11/20 03:35:23 dlg Exp $ */
+/*      $OpenBSD: if_malo.c,v 1.91 2016/04/13 10:49:26 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -70,7 +70,7 @@ int	malo_pcmcia_detach(struct device *, int);
 int	malo_pcmcia_activate(struct device *, int);
 void	malo_pcmcia_wakeup(struct malo_softc *);
 
-void	cmalo_attach(void *);
+void	cmalo_attach(struct device *);
 int	cmalo_ioctl(struct ifnet *, u_long, caddr_t);
 int	cmalo_fw_alloc(struct malo_softc *);
 void	cmalo_fw_free(struct malo_softc *);
@@ -206,11 +206,7 @@ malo_pcmcia_attach(struct device *parent, struct device *self, void *aux)
 	}
 	printf("\n");
 
-	/* attach device */
-	if (rootvp == NULL)
-		mountroothook_establish(cmalo_attach, sc);
-	else
-		cmalo_attach(sc);
+	config_mountroot(self, cmalo_attach);
 }
 
 int
@@ -289,9 +285,9 @@ malo_pcmcia_wakeup(struct malo_softc *sc)
  * Driver.
  */
 void
-cmalo_attach(void *arg)
+cmalo_attach(struct device *self)
 {
-	struct malo_softc *sc = arg;
+	struct malo_softc *sc = (struct malo_softc *)self;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int i;
@@ -330,7 +326,6 @@ cmalo_attach(void *arg)
 	ifp->if_watchdog = cmalo_watchdog;
 	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ic->ic_opmode = IEEE80211_M_STA;
 	ic->ic_state = IEEE80211_S_INIT;
@@ -716,7 +711,7 @@ cmalo_init(struct ifnet *ifp)
 
 	/* device up */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* start network */
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
@@ -739,7 +734,8 @@ cmalo_stop(struct malo_softc *sc)
 	struct ifnet *ifp = &ic->ic_if;
 
 	/* device down */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* change device back to initial state */
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
@@ -989,7 +985,7 @@ cmalo_start(struct ifnet *ifp)
 	struct mbuf *m;
 
 	/* don't transmit packets if interface is busy or down */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	IFQ_DEQUEUE(&ifp->if_snd, m);
@@ -1011,7 +1007,7 @@ cmalo_watchdog(struct ifnet *ifp)
 	DPRINTF(2, "watchdog timeout\n");
 
 	/* accept TX packets again */
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 int
@@ -1051,7 +1047,7 @@ cmalo_tx(struct malo_softc *sc, struct mbuf *m)
 	MALO_WRITE_1(sc, MALO_REG_HOST_STATUS, MALO_VAL_TX_DL_OVER);
 	MALO_WRITE_2(sc, MALO_REG_CARD_INTR_CAUSE, MALO_VAL_TX_DL_OVER);
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 	ifp->if_timer = 5;
 
 	DPRINTF(2, "%s: TX status=%d, pkglen=%d, pkgoffset=%d\n",
@@ -1071,7 +1067,7 @@ cmalo_tx_done(struct malo_softc *sc)
 	DPRINTF(2, "%s: TX done\n", sc->sc_dev.dv_xname);
 
 	ifp->if_opackets++;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 	cmalo_start(ifp);
 }

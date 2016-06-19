@@ -1,4 +1,4 @@
-/*	$OpenBSD: pptpd.c,v 1.27 2015/06/23 07:07:33 yasuoka Exp $	*/
+/*	$OpenBSD: pptpd.c,v 1.31 2016/04/16 18:32:29 krw Exp $	*/
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -25,12 +25,12 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-/* $Id: pptpd.c,v 1.27 2015/06/23 07:07:33 yasuoka Exp $ */
+/* $Id: pptpd.c,v 1.31 2016/04/16 18:32:29 krw Exp $ */
 
 /**@file
  * This file provides a implementation of PPTP daemon.  Currently it
  * provides functions for PAC (PPTP Access Concentrator) only.
- * $Id: pptpd.c,v 1.27 2015/06/23 07:07:33 yasuoka Exp $
+ * $Id: pptpd.c,v 1.31 2016/04/16 18:32:29 krw Exp $
  */
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -122,7 +122,7 @@ pptpd_init(pptpd *_this)
 	for (i = 0; i < countof(call) ; i++)
 		call[i] = i + 1;
 	for (i = countof(call); i > 1; i--) {
-		m = arc4random() % i;
+		m = arc4random_uniform(i);
 		call0 = call[m];
 		call[m] = call[i - 1];
 		call[i - 1] = call0;
@@ -213,8 +213,7 @@ pptpd_add_listener(pptpd *_this, int idx, struct pptp_conf *conf,
 	}
 	return 0;
 fail:
-	if (plistener != NULL)
-		free(plistener);
+	free(plistener);
 	return 1;
 }
 
@@ -301,7 +300,8 @@ pptpd_listener_start(pptpd_listener *_this)
 	memcpy(&bind_sin, &_this->bind_sin, sizeof(bind_sin));
 	memcpy(&bind_sin_gre, &_this->bind_sin_gre, sizeof(bind_sin_gre));
 
-	if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
+	if ((sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP))
+	    < 0) {
 		pptpd_log(_this->self, LOG_ERR, "socket() failed at %s(): %m",
 		    __func__);
 		goto fail;
@@ -318,15 +318,6 @@ pptpd_listener_start(pptpd_listener *_this)
 		pptpd_log(_this->self, LOG_WARNING,
 		    "%s(): setsockopt(IP_STRICT_RCVIF) failed: %m", __func__);
 #endif
-	if ((ival = fcntl(sock, F_GETFL, 0)) < 0) {
-		pptpd_log(_this->self, LOG_ERR,
-		    "fcntl(F_GET_FL) failed at %s(): %m", __func__);
-		goto fail;
-	} else if (fcntl(sock, F_SETFL, ival | O_NONBLOCK) < 0) {
-		pptpd_log(_this->self, LOG_ERR,
-		    "fcntl(F_SET_FL) failed at %s(): %m", __func__);
-		goto fail;
-	}
 	if (bind(sock, (struct sockaddr *)&_this->bind_sin,
 	    _this->bind_sin.sin_len) != 0) {
 		pptpd_log(_this->self, LOG_ERR,
@@ -367,7 +358,7 @@ pptpd_listener_start(pptpd_listener *_this)
 		pptpd_log(_this->self, LOG_WARNING,
 		    "%s(): setsockopt(IP_PIPEX) failed: %m", __func__);
 #endif
-	if ((ival = fcntl(sock_gre, F_GETFL, 0)) < 0) {
+	if ((ival = fcntl(sock_gre, F_GETFL)) < 0) {
 		pptpd_log(_this->self, LOG_ERR,
 		    "fcntl(F_GET_FL) failed at %s(): %m", __func__);
 		goto fail;

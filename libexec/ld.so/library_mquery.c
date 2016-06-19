@@ -1,4 +1,4 @@
-/*	$OpenBSD: library_mquery.c,v 1.50 2015/11/06 05:12:30 guenther Exp $ */
+/*	$OpenBSD: library_mquery.c,v 1.53 2016/05/07 19:05:23 guenther Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -103,11 +103,12 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	int libfile, i;
 	struct load_list *ld, *lowld = NULL;
 	elf_object_t *object;
-	Elf_Dyn *dynp = 0;
+	Elf_Dyn *dynp = NULL;
 	Elf_Ehdr *ehdr;
 	Elf_Phdr *phdp;
 	Elf_Addr load_end = 0;
 	Elf_Addr align = _dl_pagesz - 1, off, size;
+	Elf_Phdr *ptls = NULL;
 	struct stat sb;
 	void *prebind_data;
 	char hbuf[4096];
@@ -205,8 +206,19 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 			dynp = (Elf_Dyn *)phdp->p_vaddr;
 			break;
 		case PT_TLS:
+			if (phdp->p_filesz > phdp->p_memsz) {
+				_dl_printf("%s: invalid tls data in %s.\n",
+				    __progname, libname);
+				_dl_close(libfile);
+				_dl_errno = DL_CANT_LOAD_OBJ;
+				return(0);
+			}
+			if (!_dl_tib_static_done) {
+				ptls = phdp;
+				break;
+			}
 			_dl_printf("%s: unsupported TLS program header in %s\n",
-			    _dl_progname, libname);
+			    __progname, libname);
 			_dl_close(libfile);
 			_dl_errno = DL_CANT_LOAD_OBJ;
 			return(0);
@@ -309,13 +321,15 @@ retry:
 		object->inode = sb.st_ino;
 		object->obj_flags |= flags;
 		_dl_set_sod(object->load_name, &object->sod);
+		if (ptls != NULL && ptls->p_memsz)
+			_dl_set_tls(object, ptls, (Elf_Addr)lowld->start,
+			    libname);
 	} else {
 		_dl_load_list_free(lowld);
 	}
 	return(object);
 fail:
-	_dl_printf("%s: rtld mmap failed mapping %s.\n",
-	    _dl_progname, libname);
+	_dl_printf("%s: rtld mmap failed mapping %s.\n", __progname, libname);
 	_dl_close(libfile);
 	_dl_errno = DL_CANT_MMAP;
 	_dl_load_list_free(lowld);

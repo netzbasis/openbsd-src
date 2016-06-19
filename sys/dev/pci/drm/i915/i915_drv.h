@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.h,v 1.72 2015/11/01 14:07:43 jsg Exp $ */
+/* $OpenBSD: i915_drv.h,v 1.74 2016/04/05 21:22:02 kettenis Exp $ */
 /* i915_drv.h -- Private header for the I915 driver -*- linux-c -*-
  */
 /*
@@ -784,12 +784,6 @@ struct i915_hw_context {
 	struct i915_ctx_hang_stats hang_stats;
 
 	struct list_head link;
-};
-
-struct i915_ctx_handle {
-	SPLAY_ENTRY(i915_ctx_handle)	 entry;
-	struct i915_hw_context		*ctx;
-	uint32_t			 handle;
 };
 
 struct i915_fbc {
@@ -1906,8 +1900,7 @@ struct drm_i915_file_private {
 		struct list_head request_list;
 		struct delayed_work idle_work;
 	} mm;
-	SPLAY_HEAD(i915_ctx_tree, i915_ctx_handle) ctx_tree;
-	uint32_t ctx_id;
+	struct idr context_idr;
 
 	struct i915_ctx_hang_stats hang_stats;
 	atomic_t rps_wait_boost;
@@ -1954,6 +1947,9 @@ struct drm_i915_file_private {
 #define IS_ULT(dev)		(IS_HSW_ULT(dev) || IS_BDW_ULT(dev))
 #define IS_HSW_GT3(dev)		(IS_HASWELL(dev) && \
 				 ((dev)->pdev->device & 0x00F0) == 0x0020)
+/* ULX machines are also considered ULT. */
+#define IS_HSW_ULX(dev)		((dev)->pdev->device == 0x0A0E || \
+				 (dev)->pdev->device == 0x0A1E)
 #define IS_PRELIMINARY_HW(intel_info) ((intel_info)->is_preliminary)
 
 /*

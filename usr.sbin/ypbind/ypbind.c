@@ -1,4 +1,4 @@
-/*	$OpenBSD: ypbind.c,v 1.64 2015/08/20 22:39:30 deraadt Exp $ */
+/*	$OpenBSD: ypbind.c,v 1.66 2016/03/21 00:49:36 guenther Exp $ */
 
 /*
  * Copyright (c) 1992, 1993, 1996, 1997, 1998 Theo de Raadt <deraadt@openbsd.org>
@@ -475,7 +475,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if ((rpcsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+	if ((rpcsock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0) {
 		perror("socket");
 		return -1;
 	}
@@ -485,7 +485,7 @@ main(int argc, char *argv[])
 	sin.sin_port = 0;
 	bindresvport(rpcsock, &sin);
 
-	if ((pingsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+	if ((pingsock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0) {
 		perror("socket");
 		return -1;
 	}
@@ -495,8 +495,6 @@ main(int argc, char *argv[])
 	sin.sin_port = 0;
 	bindresvport(pingsock, &sin);
 
-	fcntl(rpcsock, F_SETFL, fcntl(rpcsock, F_GETFL, 0) | FNDELAY);
-	fcntl(pingsock, F_SETFL, fcntl(pingsock, F_GETFL, 0) | FNDELAY);
 	setsockopt(rpcsock, SOL_SOCKET, SO_BROADCAST, &one,
 	    (socklen_t)sizeof(one));
 	rmtca.prog = YPPROG;
@@ -536,8 +534,7 @@ main(int argc, char *argv[])
 		extern void *__svc_fdset;
 
 		if (fdsrp == NULL || fdsrl != __svc_fdsetsize) {
-			if (fdsrp)
-				free(fdsrp);
+			free(fdsrp);
 
 			fdsrl = __svc_fdsetsize;
 			width = __svc_fdsetsize;

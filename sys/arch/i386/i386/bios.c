@@ -1,4 +1,4 @@
-/*	$OpenBSD: bios.c,v 1.113 2015/09/16 04:18:52 daniel Exp $	*/
+/*	$OpenBSD: bios.c,v 1.115 2016/03/07 05:32:46 naddy Exp $	*/
 
 /*
  * Copyright (c) 1997-2001 Michael Shalayeff
@@ -170,7 +170,7 @@ biosattach(struct device *parent, struct device *self, void *aux)
 	struct smbtable bios;
 	volatile u_int8_t *va;
 	char scratch[64], *str;
-	int flags, smbiosrev = 0, ncpu = 0;
+	int flags, smbiosrev = 0, ncpu = 0, isa_hole_exec = 0;
 #if NACPI > 0
 	int usingacpi = 0;
 #endif
@@ -404,6 +404,7 @@ biosattach(struct device *parent, struct device *self, void *aux)
 		ba.ba_iot = bia->ba_iot;
 		ba.ba_apmp = apm;
 		config_found(self, &ba, bios_print);
+		isa_hole_exec = 1;
 	}
 #endif
 
@@ -478,16 +479,24 @@ biosattach(struct device *parent, struct device *self, void *aux)
 			    (paddr_t)off, len, EX_NOWAIT)))
 				printf(":%d", i);
 
+			isa_hole_exec = 1;
 			va += len - 512;
 		}
 		if (str)
 			printf("\n");
 	}
 
+	/*
+	 * If we had no BIOS / proms that need exec permission in the ISA
+	 * hole, remove X permissions.
+	 */
+	if (!isa_hole_exec)
+		pmap_write_protect(pmap_kernel(), (vaddr_t)atdevbase,
+		    (vaddr_t)atdevbase + IOM_SIZE, PROT_READ | PROT_WRITE);
 }
 
 void
-bios_getopt()
+bios_getopt(void)
 {
 	bootarg_t *q;
 	bios_ddb_t *bios_ddb;

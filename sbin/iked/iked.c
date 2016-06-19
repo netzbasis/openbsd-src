@@ -1,4 +1,4 @@
-/*	$OpenBSD: iked.c,v 1.28 2015/10/22 15:55:18 reyk Exp $	*/
+/*	$OpenBSD: iked.c,v 1.30 2015/12/07 12:46:37 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -27,6 +27,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <signal.h>
+#include <syslog.h>
 #include <errno.h>
 #include <err.h>
 #include <pwd.h>
@@ -69,7 +70,7 @@ main(int argc, char *argv[])
 	struct iked	*env = NULL;
 	struct privsep	*ps;
 
-	log_init(1);
+	log_init(1, LOG_DAEMON);
 
 	while ((c = getopt(argc, argv, "6dD:nf:vSTt")) != -1) {
 		switch (c) {
@@ -138,7 +139,7 @@ main(int argc, char *argv[])
 	/* Configure the control socket */
 	ps->ps_csock.cs_name = IKED_SOCKET;
 
-	log_init(debug);
+	log_init(debug, LOG_DAEMON);
 	log_verbose(verbose);
 
 	if (!debug && daemon(0, 0) == -1)
@@ -150,6 +151,7 @@ main(int argc, char *argv[])
 	proc_init(ps, procs, nitems(procs));
 
 	setproctitle("parent");
+	log_procinit("parent");
 
 	event_init();
 
@@ -381,8 +383,7 @@ parent_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_CTL_DECOUPLE:
 	case IMSG_CTL_ACTIVE:
 	case IMSG_CTL_PASSIVE:
-		proc_compose_imsg(&env->sc_ps, PROC_IKEV2, -1,
-		    type, -1, NULL, 0);
+		proc_compose(&env->sc_ps, PROC_IKEV2, type, NULL, 0);
 		break;
 	case IMSG_CTL_RELOAD:
 		if (IMSG_DATA_SIZE(imsg) > 0)

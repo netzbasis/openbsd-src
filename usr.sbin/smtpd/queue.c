@@ -1,4 +1,4 @@
-/*	$OpenBSD: queue.c,v 1.171 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: queue.c,v 1.178 2016/05/28 21:21:20 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -237,6 +237,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			return;
 
 		case IMSG_SCHED_ENVELOPE_BOUNCE:
+			CHECK_IMSG_DATA_SIZE(imsg, sizeof *req_bounce);
 			req_bounce = imsg->data;
 			evpid = req_bounce->evpid;
 
@@ -317,9 +318,6 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			 * its way back to the scheduler.  We need to detect
 			 * this properly and report that state.
 			 */
-			evp.flags |= flags;
-			/* In the past if running or runnable */
-			evp.nexttry = nexttry;
 			if (flags & EF_INFLIGHT) {
 				/*
 				 * Not exactly correct but pretty close: The
@@ -328,8 +326,13 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 				 */
 				evp.lasttry = nexttry;
 			}
-			m_compose(p_control, IMSG_CTL_LIST_ENVELOPES,
-			    imsg->hdr.peerid, 0, -1, &evp, sizeof evp);
+
+			m_create(p_control, IMSG_CTL_LIST_ENVELOPES,
+			    imsg->hdr.peerid, 0, -1);
+			m_add_int(p_control, flags);
+			m_add_time(p_control, nexttry);
+			m_add_envelope(p_control, &evp);
+			m_close(p_control);
 			return;
 		}
 	}
@@ -362,7 +365,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			if (evp.dsn_notify & DSN_SUCCESS) {
 				bounce.type = B_DSN;
 				bounce.dsn_ret = evp.dsn_ret;
-
+				envelope_set_esc_class(&evp, ESC_STATUS_OK);
 				if (imsg->hdr.type == IMSG_MDA_DELIVERY_OK)
 					queue_bounce(&evp, &bounce);
 				else if (imsg->hdr.type == IMSG_MTA_DELIVERY_OK &&
@@ -662,25 +665,14 @@ queue_shutdown(void)
 	_exit(0);
 }
 
-pid_t
+int
 queue(void)
 {
-	pid_t		 pid;
 	struct passwd	*pw;
 	struct timeval	 tv;
 	struct event	 ev_qload;
 	struct event	 ev_sigint;
 	struct event	 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("queue: cannot fork");
-	case 0:
-		post_fork(PROC_QUEUE);
-		break;
-	default:
-		return (pid);
-	}
 
 	purge_config(PURGE_EVERYTHING);
 
@@ -702,7 +694,7 @@ queue(void)
 		log_info("queue: queue compression enabled");
 
 	if (env->sc_queue_key) {
-		if (! crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
+		if (!crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
 			fatalx("crypto_setup: invalid key for queue encryption");
 		log_info("queue: queue encryption enabled");
 	}
@@ -788,13 +780,13 @@ static void
 queue_log(const struct envelope *e, const char *prefix, const char *status)
 {
 	char rcpt[LINE_MAX];
-	
+
 	(void)strlcpy(rcpt, "-", sizeof rcpt);
 	if (strcmp(e->rcpt.user, e->dest.user) ||
 	    strcmp(e->rcpt.domain, e->dest.domain))
 		(void)snprintf(rcpt, sizeof rcpt, "%s@%s",
 		    e->rcpt.user, e->rcpt.domain);
-	
+
 	log_info("%s: %s for %016" PRIx64 ": from=<%s@%s>, to=<%s@%s>, "
 	    "rcpt=<%s>, delay=%s, stat=%s",
 	    e->type == D_MDA ? "delivery" : "relay",

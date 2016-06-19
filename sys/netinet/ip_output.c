@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.307 2015/11/19 13:40:46 mpi Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.323 2016/05/31 07:33:22 mpi Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -72,11 +72,19 @@
 #endif
 #endif /* IPSEC */
 
-struct mbuf *ip_insertoptions(struct mbuf *, struct mbuf *, int *);
 void ip_mloopback(struct ifnet *, struct mbuf *, struct sockaddr_in *);
 static __inline u_int16_t __attribute__((__unused__))
     in_cksum_phdr(u_int32_t, u_int32_t, u_int32_t);
 void in_delayed_cksum(struct mbuf *);
+
+#ifdef IPSEC
+struct tdb *
+ip_output_ipsec_lookup(struct mbuf *m, int hlen, int *error, struct inpcb *inp,
+    int ipsecflowinfo);
+int
+ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct ifnet *ifp,
+    struct route *ro);
+#endif /* IPSEC */
 
 /*
  * IP output.  The packet in mbuf chain m contains a skeletal IP
@@ -95,21 +103,11 @@ ip_output(struct mbuf *m0, struct mbuf *opt, struct route *ro, int flags,
 	int len, error = 0;
 	struct route iproute;
 	struct sockaddr_in *dst;
-	struct in_ifaddr *ia;
-	u_int8_t sproto = 0;
+	struct tdb *tdb = NULL;
 	u_long mtu;
-#ifdef IPSEC
-	u_int32_t icmp_mtu = 0;
-	union sockaddr_union sdst;
-	u_int32_t sspi;
-	struct m_tag *mtag;
-	struct tdb_ident *tdbi;
-
-	struct tdb *tdb;
-#if NPF > 0
-	struct ifnet *encif;
+#if defined(MROUTING)
+	int rv;
 #endif
-#endif /* IPSEC */
 
 #ifdef IPSEC
 	if (inp && (inp->inp_flags & INP_IPV6) != 0)
@@ -187,9 +185,20 @@ reroute:
 	if ((IN_MULTICAST(ip->ip_dst.s_addr) ||
 	    (ip->ip_dst.s_addr == INADDR_BROADCAST)) &&
 	    imo != NULL && (ifp = if_get(imo->imo_ifidx)) != NULL) {
+
 		mtu = ifp->if_mtu;
-		IFP_TO_IA(ifp, ia);
+		if (ip->ip_src.s_addr == INADDR_ANY) {
+			struct in_ifaddr *ia;
+
+			KERNEL_LOCK();
+			IFP_TO_IA(ifp, ia);
+			if (ia != NULL)
+				ip->ip_src = ia->ia_addr.sin_addr;
+			KERNEL_UNLOCK();
+		}
 	} else {
+		struct in_ifaddr *ia;
+
 		if (ro->ro_rt == NULL)
 			ro->ro_rt = rtalloc_mpath(&ro->ro_dst,
 			    &ip->ip_src.s_addr, ro->ro_tableid);
@@ -210,82 +219,43 @@ reroute:
 
 		if (ro->ro_rt->rt_flags & RTF_GATEWAY)
 			dst = satosin(ro->ro_rt->rt_gateway);
+
+		/* Set the source IP address */
+		if (ip->ip_src.s_addr == INADDR_ANY && ia)
+			ip->ip_src = ia->ia_addr.sin_addr;
 	}
 
-	/* Set the source IP address */
-	if (ip->ip_src.s_addr == INADDR_ANY && ia)
-		ip->ip_src = ia->ia_addr.sin_addr;
-
 #ifdef IPSEC
-	if (!ipsec_in_use && inp == NULL)
-		goto done_spd;
-
-	/* Do we have any pending SAs to apply ? */
-	tdb = ipsp_spd_lookup(m, AF_INET, hlen, &error,
-	    IPSP_DIRECTION_OUT, NULL, inp, ipsecflowinfo);
-
-	if (tdb == NULL) {
-		if (error == 0) {
-			/*
-			 * No IPsec processing required, we'll just send the
-			 * packet out.
-			 */
-			sproto = 0;
-
-			/* Fall through to routing/multicast handling */
-		} else {
-			/*
-			 * -EINVAL is used to indicate that the packet should
-			 * be silently dropped, typically because we've asked
-			 * key management for an SA.
-			 */
-			if (error == -EINVAL) /* Should silently drop packet */
-			  error = 0;
-
+	if (ipsec_in_use || inp != NULL) {
+		KERNEL_LOCK();
+		/* Do we have any pending SAs to apply ? */
+		tdb = ip_output_ipsec_lookup(m, hlen, &error, inp,
+		    ipsecflowinfo);
+		KERNEL_UNLOCK();
+		if (error != 0) {
+			/* Should silently drop packet */
+			if (error == -EINVAL)
+				error = 0;
 			m_freem(m);
 			goto done;
 		}
-	} else {
-		/* Loop detection */
-		for (mtag = m_tag_first(m); mtag != NULL;
-		    mtag = m_tag_next(m, mtag)) {
-			if (mtag->m_tag_id != PACKET_TAG_IPSEC_OUT_DONE)
-				continue;
-			tdbi = (struct tdb_ident *)(mtag + 1);
-			if (tdbi->spi == tdb->tdb_spi &&
-			    tdbi->proto == tdb->tdb_sproto &&
-			    tdbi->rdomain == tdb->tdb_rdomain &&
-			    !memcmp(&tdbi->dst, &tdb->tdb_dst,
-			    sizeof(union sockaddr_union))) {
-				sproto = 0; /* mark as no-IPsec-needed */
-				goto done_spd;
+		if (tdb != NULL) {
+			/*
+			 * If it needs TCP/UDP hardware-checksumming, do the
+			 * computation now.
+			 */
+			in_proto_cksum_out(m, NULL);
+
+			/* If it's not a multicast packet, try to fast-path */
+			if (!IN_MULTICAST(ip->ip_dst.s_addr)) {
+				goto sendit;
 			}
 		}
-
-		/* We need to do IPsec */
-		bcopy(&tdb->tdb_dst, &sdst, sizeof(sdst));
-		sspi = tdb->tdb_spi;
-		sproto = tdb->tdb_sproto;
-
-		/*
-		 * If it needs TCP/UDP hardware-checksumming, do the
-		 * computation now.
-		 */
-		in_proto_cksum_out(m, NULL);
-
-		/* If it's not a multicast packet, try to fast-path */
-		if (!IN_MULTICAST(ip->ip_dst.s_addr)) {
-			goto sendit;
-		}
 	}
-
-	/* Fall through to the routing/multicast handling code */
- done_spd:
 #endif /* IPSEC */
 
 	if (IN_MULTICAST(ip->ip_dst.s_addr) ||
 	    (ip->ip_dst.s_addr == INADDR_BROADCAST)) {
-		struct in_multi *inm;
 
 		m->m_flags |= (ip->ip_dst.s_addr == INADDR_BROADCAST) ?
 			M_BCAST : M_MCAST;
@@ -323,7 +293,7 @@ reroute:
 		if ((((m->m_flags & M_MCAST) &&
 		      (ifp->if_flags & IFF_MULTICAST) == 0) ||
 		     ((m->m_flags & M_BCAST) &&
-		      (ifp->if_flags & IFF_BROADCAST) == 0)) && (sproto == 0)) {
+		      (ifp->if_flags & IFF_BROADCAST) == 0)) && (tdb == NULL)) {
 			ipstat.ips_noroute++;
 			error = ENETUNREACH;
 			goto bad;
@@ -334,14 +304,17 @@ reroute:
 		 * of outgoing interface.
 		 */
 		if (ip->ip_src.s_addr == INADDR_ANY) {
+			struct in_ifaddr *ia;
+
+			KERNEL_LOCK();
 			IFP_TO_IA(ifp, ia);
 			if (ia != NULL)
 				ip->ip_src = ia->ia_addr.sin_addr;
+			KERNEL_UNLOCK();
 		}
 
-		IN_LOOKUP_MULTI(ip->ip_dst, ifp, inm);
-		if (inm != NULL &&
-		   (imo == NULL || imo->imo_loop)) {
+		if ((imo == NULL || imo->imo_loop) &&
+		    in_hasmulti(&ip->ip_dst, ifp)) {
 			/*
 			 * If we belong to the destination multicast group
 			 * on the outgoing interface, and the caller did not
@@ -368,8 +341,6 @@ reroute:
 			 */
 			if (ipmforwarding && ip_mrouter &&
 			    (flags & IP_FORWARDING) == 0) {
-				int rv;
-
 				KERNEL_LOCK();
 				rv = ip_mforward(m, ifp);
 				KERNEL_UNLOCK();
@@ -401,7 +372,7 @@ reroute:
 	 * such a packet; if the packet is going in an IPsec tunnel, skip
 	 * this check.
 	 */
-	if ((sproto == 0) && ((dst->sin_addr.s_addr == INADDR_BROADCAST) ||
+	if ((tdb == NULL) && ((dst->sin_addr.s_addr == INADDR_BROADCAST) ||
 	    (ro && ro->ro_rt && ISSET(ro->ro_rt->rt_flags, RTF_BROADCAST)))) {
 		if ((ifp->if_flags & IFF_BROADCAST) == 0) {
 			error = EADDRNOTAVAIL;
@@ -434,93 +405,12 @@ sendit:
 	/*
 	 * Check if the packet needs encapsulation.
 	 */
-	if (sproto != 0) {
-		tdb = gettdb(rtable_l2(m->m_pkthdr.ph_rtableid),
-		    sspi, &sdst, sproto);
-		if (tdb == NULL) {
-			DPRINTF(("ip_output: unknown TDB"));
-			error = EHOSTUNREACH;
-			m_freem(m);
-			goto done;
-		}
-
-		/*
-		 * Packet filter
-		 */
-#if NPF > 0
-		if ((encif = enc_getif(tdb->tdb_rdomain,
-		    tdb->tdb_tap)) == NULL ||
-		    pf_test(AF_INET, PF_OUT, encif, &m) != PF_PASS) {
-			error = EACCES;
-			m_freem(m);
-			goto done;
-		}
-		if (m == NULL) {
-			goto done;
-		}
-		ip = mtod(m, struct ip *);
-		hlen = ip->ip_hl << 2;
-		/*
-		 * PF_TAG_REROUTE handling or not...
-		 * Packet is entering IPsec so the routing is
-		 * already overruled by the IPsec policy.
-		 * Until now the change was not reconsidered.
-		 * What's the behaviour?
-		 */
-		in_proto_cksum_out(m, encif);
-#endif
-
-		/* Check if we are allowed to fragment */
-		if (ip_mtudisc && (ip->ip_off & htons(IP_DF)) && tdb->tdb_mtu &&
-		    ntohs(ip->ip_len) > tdb->tdb_mtu &&
-		    tdb->tdb_mtutimeout > time_second) {
-			struct rtentry *rt = NULL;
-			int rt_mtucloned = 0;
-			int transportmode = 0;
-
-			transportmode = (tdb->tdb_dst.sa.sa_family == AF_INET) &&
-			    (tdb->tdb_dst.sin.sin_addr.s_addr ==
-			    ip->ip_dst.s_addr);
-			icmp_mtu = tdb->tdb_mtu;
-
-			/* Find a host route to store the mtu in */
-			if (ro != NULL)
-				rt = ro->ro_rt;
-			/* but don't add a PMTU route for transport mode SAs */
-			if (transportmode)
-				rt = NULL;
-			else if (rt == NULL || (rt->rt_flags & RTF_HOST) == 0) {
-				rt = icmp_mtudisc_clone(ip->ip_dst,
-				    m->m_pkthdr.ph_rtableid);
-				rt_mtucloned = 1;
-			}
-			DPRINTF(("ip_output: spi %08x mtu %d rt %p cloned %d\n",
-			    ntohl(tdb->tdb_spi), icmp_mtu, rt, rt_mtucloned));
-			if (rt != NULL) {
-				rt->rt_rmx.rmx_mtu = icmp_mtu;
-				if (ro && ro->ro_rt != NULL) {
-					rtfree(ro->ro_rt);
-					ro->ro_rt = rtalloc(&ro->ro_dst,
-					    RT_REPORT|RT_RESOLVE,
-					    m->m_pkthdr.ph_rtableid);
-				}
-				if (rt_mtucloned)
-					rtfree(rt);
-			}
-			error = EMSGSIZE;
-			goto bad;
-		}
-
-		/*
-		 * Clear these -- they'll be set in the recursive invocation
-		 * as needed.
-		 */
-		m->m_flags &= ~(M_MCAST | M_BCAST);
-
+	if (tdb != NULL) {
+		KERNEL_LOCK();
 		/* Callee frees mbuf */
-		error = ipsp_process_packet(m, tdb, AF_INET, 0);
-		if_put(ifp);
-		return error;  /* Nothing more to be done */
+		error = ip_output_ipsec_send(tdb, m, ifp, ro);
+		KERNEL_UNLOCK();
+		goto done;
 	}
 #endif /* IPSEC */
 
@@ -546,6 +436,7 @@ sendit:
 		m->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
 		ro = NULL;
 		if_put(ifp); /* drop reference since target changed */
+		ifp = NULL;
 		goto reroute;
 	}
 #endif
@@ -583,7 +474,8 @@ sendit:
 	 */
 	if (ip->ip_off & htons(IP_DF)) {
 #ifdef IPSEC
-		icmp_mtu = ifp->if_mtu;
+		if (ip_mtudisc)
+			ipsec_adjust_mtu(m, ifp->if_mtu);
 #endif
 		error = EMSGSIZE;
 		/*
@@ -627,13 +519,121 @@ done:
 	if_put(ifp);
 	return (error);
 bad:
-#ifdef IPSEC
-	if (error == EMSGSIZE && ip_mtudisc && icmp_mtu != 0 && m != NULL)
-		ipsec_adjust_mtu(m, icmp_mtu);
-#endif
 	m_freem(m0);
 	goto done;
 }
+
+#ifdef IPSEC
+struct tdb *
+ip_output_ipsec_lookup(struct mbuf *m, int hlen, int *error, struct inpcb *inp,
+    int ipsecflowinfo)
+{
+	struct m_tag *mtag;
+	struct tdb_ident *tdbi;
+	struct tdb *tdb;
+
+	/* Do we have any pending SAs to apply ? */
+	tdb = ipsp_spd_lookup(m, AF_INET, hlen, error, IPSP_DIRECTION_OUT,
+	    NULL, inp, ipsecflowinfo);
+	if (tdb == NULL)
+		return NULL;
+	/* Loop detection */
+	for (mtag = m_tag_first(m); mtag != NULL; mtag = m_tag_next(m, mtag)) {
+		if (mtag->m_tag_id != PACKET_TAG_IPSEC_OUT_DONE)
+			continue;
+		tdbi = (struct tdb_ident *)(mtag + 1);
+		if (tdbi->spi == tdb->tdb_spi &&
+		    tdbi->proto == tdb->tdb_sproto &&
+		    tdbi->rdomain == tdb->tdb_rdomain &&
+		    !memcmp(&tdbi->dst, &tdb->tdb_dst,
+		    sizeof(union sockaddr_union))) {
+			/* no IPsec needed */
+			return NULL;
+		}
+	}
+	return tdb;
+}
+
+int
+ip_output_ipsec_send(struct tdb *tdb, struct mbuf *m, struct ifnet *ifp,
+    struct route *ro)
+{
+#if NPF > 0
+	struct ifnet *encif;
+#endif
+	struct ip *ip;
+
+#if NPF > 0
+	/*
+	 * Packet filter
+	 */
+	if ((encif = enc_getif(tdb->tdb_rdomain, tdb->tdb_tap)) == NULL ||
+	    pf_test(AF_INET, PF_OUT, encif, &m) != PF_PASS) {
+		m_freem(m);
+		return EACCES;
+	}
+	if (m == NULL)
+		return 0;
+	/*
+	 * PF_TAG_REROUTE handling or not...
+	 * Packet is entering IPsec so the routing is
+	 * already overruled by the IPsec policy.
+	 * Until now the change was not reconsidered.
+	 * What's the behaviour?
+	 */
+	in_proto_cksum_out(m, encif);
+#endif
+
+	/* Check if we are allowed to fragment */
+	ip = mtod(m, struct ip *);
+	if (ip_mtudisc && (ip->ip_off & htons(IP_DF)) && tdb->tdb_mtu &&
+	    ntohs(ip->ip_len) > tdb->tdb_mtu &&
+	    tdb->tdb_mtutimeout > time_second) {
+		struct rtentry *rt = NULL;
+		int rt_mtucloned = 0;
+		int transportmode = 0;
+
+		transportmode = (tdb->tdb_dst.sa.sa_family == AF_INET) &&
+		    (tdb->tdb_dst.sin.sin_addr.s_addr == ip->ip_dst.s_addr);
+
+		/* Find a host route to store the mtu in */
+		if (ro != NULL)
+			rt = ro->ro_rt;
+		/* but don't add a PMTU route for transport mode SAs */
+		if (transportmode)
+			rt = NULL;
+		else if (rt == NULL || (rt->rt_flags & RTF_HOST) == 0) {
+			rt = icmp_mtudisc_clone(ip->ip_dst,
+			    m->m_pkthdr.ph_rtableid);
+			rt_mtucloned = 1;
+		}
+		DPRINTF(("%s: spi %08x mtu %d rt %p cloned %d\n", __func__,
+		    ntohl(tdb->tdb_spi), tdb->tdb_mtu, rt, rt_mtucloned));
+		if (rt != NULL) {
+			rt->rt_rmx.rmx_mtu = tdb->tdb_mtu;
+			if (ro && ro->ro_rt != NULL) {
+				rtfree(ro->ro_rt);
+				ro->ro_rt = rtalloc(&ro->ro_dst, RT_RESOLVE,
+				    m->m_pkthdr.ph_rtableid);
+			}
+			if (rt_mtucloned)
+				rtfree(rt);
+		}
+		ipsec_adjust_mtu(m, tdb->tdb_mtu);
+		m_freem(m);
+		return EMSGSIZE;
+	}
+
+	/*
+	 * Clear these -- they'll be set in the recursive invocation
+	 * as needed.
+	 */
+	m->m_flags &= ~(M_MCAST | M_BCAST);
+
+	/* Callee frees mbuf */
+	return ipsp_process_packet(m, tdb, AF_INET, 0);
+}
+#endif /* IPSEC */
 
 int
 ip_fragment(struct mbuf *m, struct ifnet *ifp, u_long mtu)
@@ -681,9 +681,10 @@ ip_fragment(struct mbuf *m, struct ifnet *ifp, u_long mtu)
 		m->m_data += max_linkhdr;
 		mhip = mtod(m, struct ip *);
 		*mhip = *ip;
-		/* we must inherit MCAST and BCAST flags and routing table */
+		/* we must inherit MCAST/BCAST flags, routing table and prio */
 		m->m_flags |= m0->m_flags & (M_MCAST|M_BCAST);
 		m->m_pkthdr.ph_rtableid = m0->m_pkthdr.ph_rtableid;
+		m->m_pkthdr.pf.prio = m0->m_pkthdr.pf.prio;
 		if (hlen > sizeof (struct ip)) {
 			mhlen = ip_optcopy(ip, mhip) + sizeof (struct ip);
 			mhip->ip_hl = mhlen >> 2;
@@ -779,7 +780,7 @@ ip_insertoptions(struct mbuf *m, struct mbuf *opt, int *phlen)
 		m = n;
 		m->m_len = optlen + sizeof(struct ip);
 		m->m_data += max_linkhdr;
-		bcopy((caddr_t)ip, mtod(m, caddr_t), sizeof(struct ip));
+		memcpy(mtod(m, caddr_t), ip, sizeof(struct ip));
 	} else {
 		m->m_data -= optlen;
 		m->m_len += optlen;
@@ -787,7 +788,7 @@ ip_insertoptions(struct mbuf *m, struct mbuf *opt, int *phlen)
 		memmove(mtod(m, caddr_t), (caddr_t)ip, sizeof(struct ip));
 	}
 	ip = mtod(m, struct ip *);
-	bcopy((caddr_t)p->ipopt_list, (caddr_t)(ip + 1), optlen);
+	memcpy(ip + 1, p->ipopt_list, optlen);
 	*phlen = sizeof(struct ip) + optlen;
 	ip->ip_len = htons(ntohs(ip->ip_len) + optlen);
 	return (m);
@@ -829,7 +830,7 @@ ip_optcopy(struct ip *ip, struct ip *jp)
 		if (optlen > cnt)
 			optlen = cnt;
 		if (IPOPT_COPIED(opt)) {
-			bcopy((caddr_t)cp, (caddr_t)dp, optlen);
+			memcpy(dp, cp, optlen);
 			dp += optlen;
 		}
 	}
@@ -1042,7 +1043,7 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 			rtid = *mtod(m, u_int *);
 			if (inp->inp_rtableid == rtid)
 				break;
-			/* needs priviledges to switch when already set */
+			/* needs privileges to switch when already set */
 			if (p->p_p->ps_rtableid != rtid &&
 			    p->p_p->ps_rtableid != 0 &&
 			    (error = suser(p, 0)) != 0)
@@ -1052,7 +1053,12 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 				error = EINVAL;
 				break;
 			}
+			if (inp->inp_lport) {
+				error = EBUSY;
+				break;
+			}
 			inp->inp_rtableid = rtid;
+			in_pcbrehash(inp);
 			break;
 		case IP_PIPEX:
 			if (m != NULL && m->m_len == sizeof(int))
@@ -1076,8 +1082,8 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 			*mp = m = m_get(M_WAIT, MT_SOOPTS);
 			if (inp->inp_options) {
 				m->m_len = inp->inp_options->m_len;
-				bcopy(mtod(inp->inp_options, caddr_t),
-				    mtod(m, caddr_t), m->m_len);
+				memcpy(mtod(m, caddr_t),
+				    mtod(inp->inp_options, caddr_t), m->m_len);
 			} else
 				m->m_len = 0;
 			break;
@@ -1298,7 +1304,7 @@ ip_pcbopts(struct mbuf **pcbopt, struct mbuf *m)
 			/*
 			 * Move first hop before start of options.
 			 */
-			bcopy((caddr_t)&cp[IPOPT_OFFSET+1], mtod(m, caddr_t),
+			memcpy(mtod(m, caddr_t), &cp[IPOPT_OFFSET+1],
 			    sizeof(struct in_addr));
 			/*
 			 * Then copy rest of options back
@@ -1387,13 +1393,12 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 		sin.sin_family = AF_INET;
 		sin.sin_addr = addr;
 		ia = ifatoia(ifa_ifwithaddr(sintosa(&sin), rtableid));
-		if (ia && in_hosteq(sin.sin_addr, ia->ia_addr.sin_addr))
-			ifp = ia->ia_ifp;
-		if (ifp == NULL || (ifp->if_flags & IFF_MULTICAST) == 0) {
+		if (ia == NULL ||
+		    (ia->ia_ifp->if_flags & IFF_MULTICAST) == 0) {
 			error = EADDRNOTAVAIL;
 			break;
 		}
-		imo->imo_ifidx = ifp->if_index;
+		imo->imo_ifidx = ia->ia_ifp->if_index;
 		break;
 
 	case IP_MULTICAST_TTL:
@@ -1443,29 +1448,34 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 			sin.sin_len = sizeof(sin);
 			sin.sin_family = AF_INET;
 			sin.sin_addr = mreq->imr_multiaddr;
-			rt = rtalloc(sintosa(&sin), RT_REPORT|RT_RESOLVE,
-			    rtableid);
-			if (rt == NULL) {
+			rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
+			if (!rtisvalid(rt)) {
+				rtfree(rt);
 				error = EADDRNOTAVAIL;
 				break;
 			}
-			ifp = rt->rt_ifp;
-			rtfree(rt);
 		} else {
 			memset(&sin, 0, sizeof(sin));
 			sin.sin_len = sizeof(sin);
 			sin.sin_family = AF_INET;
 			sin.sin_addr = mreq->imr_interface;
-			ia = ifatoia(ifa_ifwithaddr(sintosa(&sin), rtableid));
-			if (ia && in_hosteq(sin.sin_addr, ia->ia_addr.sin_addr))
-				ifp = ia->ia_ifp;
+			rt = rtalloc(sintosa(&sin), 0, rtableid);
+			if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_LOCAL)) {
+				rtfree(rt);
+				error = EADDRNOTAVAIL;
+				break;
+			}
 		}
+		ifp = if_get(rt->rt_ifidx);
+		rtfree(rt);
+
 		/*
 		 * See if we found an interface, and confirm that it
 		 * supports multicast.
 		 */
 		if (ifp == NULL || (ifp->if_flags & IFF_MULTICAST) == 0) {
 			error = EADDRNOTAVAIL;
+			if_put(ifp);
 			break;
 		}
 		/*
@@ -1481,6 +1491,7 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 		}
 		if (i < imo->imo_num_memberships) {
 			error = EADDRINUSE;
+			if_put(ifp);
 			break;
 		}
 		if (imo->imo_num_memberships == imo->imo_max_memberships) {
@@ -1499,7 +1510,7 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 				    sizeof(*nmships) * newmax, M_IPMOPTS,
 				    M_NOWAIT|M_ZERO);
 				if (nmships != NULL) {
-					bcopy(omships, nmships,
+					memcpy(nmships, omships,
 					    sizeof(*omships) *
 					    imo->imo_max_memberships);
 					free(omships, M_IPMOPTS,
@@ -1510,7 +1521,8 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 				}
 			}
 			if (nmships == NULL) {
-				error = ETOOMANYREFS;
+				error = ENOBUFS;
+				if_put(ifp);
 				break;
 			}
 		}
@@ -1521,9 +1533,11 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 		if ((imo->imo_membership[i] =
 		    in_addmulti(&mreq->imr_multiaddr, ifp)) == NULL) {
 			error = ENOBUFS;
+			if_put(ifp);
 			break;
 		}
 		++imo->imo_num_memberships;
+		if_put(ifp);
 		break;
 
 	case IP_DROP_MEMBERSHIP:
@@ -1552,12 +1566,11 @@ ip_setmoptions(int optname, struct ip_moptions **imop, struct mbuf *m,
 			sin.sin_family = AF_INET;
 			sin.sin_addr = mreq->imr_interface;
 			ia = ifatoia(ifa_ifwithaddr(sintosa(&sin), rtableid));
-			if (ia && in_hosteq(sin.sin_addr, ia->ia_addr.sin_addr))
-				ifp = ia->ia_ifp;
-			else {
+			if (ia == NULL) {
 				error = EADDRNOTAVAIL;
 				break;
 			}
+			ifp = ia->ia_ifp;
 		}
 		/*
 		 * Find the membership in the membership array.

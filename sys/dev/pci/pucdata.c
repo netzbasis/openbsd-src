@@ -1,4 +1,4 @@
-/*	$OpenBSD: pucdata.c,v 1.99 2015/11/14 14:47:56 miod Exp $	*/
+/*	$OpenBSD: pucdata.c,v 1.104 2016/04/24 06:47:56 jsg Exp $	*/
 /*	$NetBSD: pucdata.c,v 1.6 1999/07/03 05:55:23 cgd Exp $	*/
 
 /*
@@ -84,6 +84,20 @@ const struct puc_device_description puc_devs[] = {
 	},
 	{	/* 9 Series LP KT */
 	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_9SERIES_LP_KT, 0x0000, 0x0000 },
+	    {	0xffff, 0xffff,					0x0000, 0x0000 },
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+	    },
+	},
+	{	/* 100 Series KT */
+	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_KT, 0x0000, 0x0000 },
+	    {	0xffff, 0xffff,					0x0000, 0x0000 },
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+	    },
+	},
+	{	/* 100 Series LP KT */
+	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_LP_KT, 0x0000, 0x0000 },
 	    {	0xffff, 0xffff,					0x0000, 0x0000 },
 	    {
 		{ PUC_COM_POW2(0), 0x10, 0x0000 },
@@ -1423,6 +1437,22 @@ const struct puc_device_description puc_devs[] = {
 	    },
 	},
 
+	/* Moxa Technologies Co., Ltd. PCI I/O Card 8S RS232 */
+	{   /* "Moxa Technologies, CP-168U" */
+	    {	PCI_VENDOR_MOXA, PCI_PRODUCT_MOXA_CP168U,	0, 0	},
+	    {	0xffff, 0xffff,					0, 0	},
+	    {
+		{ PUC_COM_POW2(3), 0x18, 0x0000 },
+		{ PUC_COM_POW2(3), 0x18, 0x0008 },
+		{ PUC_COM_POW2(3), 0x18, 0x0010 },
+		{ PUC_COM_POW2(3), 0x18, 0x0018 },
+		{ PUC_COM_POW2(3), 0x18, 0x0020 },
+		{ PUC_COM_POW2(3), 0x18, 0x0028 },
+		{ PUC_COM_POW2(3), 0x18, 0x0030 },
+		{ PUC_COM_POW2(3), 0x18, 0x0038 },
+	    },
+	},
+
 	/* NetMos 1P PCI: 1P */
 	{   /* "NetMos NM9805 1284 Printer Port" */
 	    {   PCI_VENDOR_NETMOS, PCI_PRODUCT_NETMOS_NM9805,	0, 0	},
@@ -1547,6 +1577,35 @@ const struct puc_device_description puc_devs[] = {
 	    {	0xffff,	0xffff,				      0xffff, 0xffff },
 	    {
 		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+	    },
+	},
+
+	/*
+	 * Perle Speed8 LE.
+	 * Based on an Oxford Semiconductor OX16PCI954 chip, using the
+	 * 8-bit pass-through Local Bus function to hook up 4
+	 * additional UARTs.
+	 */
+	{   /* OX16PCI954 internal UARTs */
+	    {   PCI_VENDOR_PERLE, PCI_PRODUCT_PERLE_SPEED8_LE,
+		PCI_VENDOR_OXFORD2, PCI_PRODUCT_OXFORD2_OX16PCI954   },
+	    {   0xffff, 0xffff, 0xffff, 0xffff   },
+	    {
+		{ PUC_COM_POW2(3), 0x10, 0x0000 },
+		{ PUC_COM_POW2(3), 0x10, 0x0008 },
+		{ PUC_COM_POW2(3), 0x10, 0x0010 },
+		{ PUC_COM_POW2(3), 0x10, 0x0018 },
+	     },
+	},
+	{   /* OX16PCI954 8-bit pass-through Local Bus */
+	    {   PCI_VENDOR_PERLE, PCI_PRODUCT_PERLE_SPEED8_LE,
+		PCI_VENDOR_OXFORD2, 0x9511   },
+	    {   0xffff, 0xffff, 0xffff, 0xffff   },
+	    {
+		{ PUC_COM_POW2(3), 0x10, 0x0000 },
+		{ PUC_COM_POW2(3), 0x10, 0x0008 },
+		{ PUC_COM_POW2(3), 0x10, 0x0010 },
+		{ PUC_COM_POW2(3), 0x10, 0x0018 },
 	    },
 	},
 
@@ -1987,6 +2046,17 @@ const struct puc_device_description puc_devs[] = {
 	    },
 	},
 
+	{   /* Exar XR17V354 Quad UART */
+	    {   PCI_VENDOR_EXAR, PCI_PRODUCT_EXAR_XR17V354,	0, 0 },
+	    {   0xffff, 0xffff,					0, 0 },
+	    {
+		{ PUC_COM_POW2(3), 0x10, 0x0000 },
+		{ PUC_COM_POW2(3), 0x10, 0x0400 },
+		{ PUC_COM_POW2(3), 0x10, 0x0800 },
+		{ PUC_COM_POW2(3), 0x10, 0x0C00 },
+	    },
+	},
+
 	{   /* Dell DRAC 3 Virtual UART */
 	    {   PCI_VENDOR_DELL, PCI_PRODUCT_DELL_DRAC_3_VUART,	0, 0 },
 	    {   0xffff, 0xffff,					0, 0 },
@@ -2109,6 +2179,14 @@ const struct puc_device_description puc_devs[] = {
 		{ PUC_COM_POW2(0), 0x10, 0x00c0 },
 		{ PUC_COM_POW2(0), 0x10, 0x00c8 },
 	    },
+	},
+	{   /* "TXIC TX382B (2S)", */
+	    {	PCI_VENDOR_TXIC, PCI_PRODUCT_TXIC_TX382B,	0, 0	},
+	    {	0xffff, 0xffff,					0, 0	},
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+		{ PUC_COM_POW2(0), 0x14, 0x0000 },
+	    }
 	},
 	{   /* "NetMos NM9820 UART" */
 	    {   PCI_VENDOR_NETMOS, PCI_PRODUCT_NETMOS_NM9820,	0, 0	},

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_et.c,v 1.31 2015/11/14 17:54:57 mpi Exp $	*/
+/*	$OpenBSD: if_et.c,v 1.34 2016/04/13 10:34:32 mpi Exp $	*/
 /*
  * Copyright (c) 2007 The DragonFly Project.  All rights reserved.
  * 
@@ -36,7 +36,6 @@
  */
 
 #include "bpfilter.h"
-#include "vlan.h"
 
 #include <sys/param.h>
 #include <sys/endian.h>
@@ -248,7 +247,6 @@ et_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = et_start;
 	ifp->if_watchdog = et_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, ET_TX_NDESC);
-	IFQ_SET_READY(&ifp->if_snd);
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -471,7 +469,8 @@ et_stop(struct et_softc *sc)
 	sc->sc_tx_intr = 0;
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 int
@@ -992,7 +991,7 @@ et_init(struct ifnet *ifp)
 	CSR_WRITE_4(sc, ET_TIMER, sc->sc_timer);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 back:
 	if (error)
 		et_stop(sc);
@@ -1067,7 +1066,7 @@ et_start(struct ifnet *ifp)
 	int trans;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	trans = 0;
@@ -1077,13 +1076,13 @@ et_start(struct ifnet *ifp)
 			break;
 
 		if ((tbd->tbd_used + ET_NSEG_SPARE) > ET_TX_NDESC) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		if (et_encap(sc, &m)) {
 			ifp->if_oerrors++;
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1930,7 +1929,7 @@ et_txeof(struct et_softc *sc)
 		ifp->if_timer = 0;
 	}
 	if (tbd->tbd_used + ET_NSEG_SPARE <= ET_TX_NDESC)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	et_start(ifp);
 }

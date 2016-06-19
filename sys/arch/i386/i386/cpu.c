@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.68 2015/11/06 02:49:06 jsg Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.77 2016/05/18 03:45:11 mlarkin Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -152,7 +152,7 @@ void	cpu_copy_trampoline(void);
  * Called from mpbios_scan();
  */
 void
-cpu_init_first()
+cpu_init_first(void)
 {
 	cpu_copy_trampoline();
 }
@@ -171,6 +171,8 @@ void	replacesmap(void);
 
 extern int _stac;
 extern int _clac;
+
+u_int32_t mp_pdirpa;
 
 void
 replacesmap(void)
@@ -272,8 +274,6 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	    sizeof (struct trapframe);
 	pcb->pcb_pmap = pmap_kernel();
 	pcb->pcb_cr3 = pcb->pcb_pmap->pm_pdirpa;
-
-	cpu_default_ldt(ci);	/* Use the `global' ldt until one alloc'd */
 #endif
 	ci->ci_curpmap = pmap_kernel();
 
@@ -323,7 +323,6 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 
 #ifdef MULTIPROCESSOR
 		gdt_alloc_cpu(ci);
-		cpu_alloc_ldt(ci);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_AP;
 		identifycpu(ci);
 		sched_init_cpu(ci);
@@ -375,10 +374,10 @@ cpu_init(struct cpu_info *ci)
 	if (cpu_feature & CPUID_PGE)
 		cr4 |= CR4_PGE;	/* enable global TLB caching */
 
-	if (ci->ci_feature_sefflags & SEFF0EBX_SMEP)
+	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
 		cr4 |= CR4_SMEP;
 #ifndef SMALL_KERNEL
-	if (ci->ci_feature_sefflags & SEFF0EBX_SMAP)
+	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
 #endif
 
@@ -445,17 +444,24 @@ rdrand(void *v)
 {
 	struct timeout *tmo = v;
 	extern int      has_rdrand;
-	uint32_t r, valid;
+	extern int      has_rdseed;
+	uint32_t r;
+	uint8_t valid;
 	int i;
 
-	if (has_rdrand == 0)
+	if (has_rdrand == 0 && has_rdseed == 0)
 		return;
 	for (i = 0; i < 4; i++) {
-		__asm volatile(
-		    "xor        %1, %1\n\t"
-		    "rdrand     %0\n\t"
-		    "rcl        $1, %1\n"
-		    : "=r" (r), "=r" (valid) );
+		if (has_rdseed)
+			__asm volatile(
+			    "rdseed	%0\n\t"
+			    "setc	%1\n"
+			    : "=r" (r), "=qm" (valid) );
+		if (has_rdseed == 0 || valid == 0)
+			__asm volatile(
+			    "rdrand	%0\n\t"
+			    "setc	%1\n"
+			    : "=r" (r), "=qm" (valid) );
 		if (valid)
 			add_true_randomness(r);
 	}
@@ -481,7 +487,7 @@ cpu_activate(struct device *self, int act)
 
 #ifdef MULTIPROCESSOR
 void
-cpu_boot_secondary_processors()
+cpu_boot_secondary_processors(void)
 {
 	struct cpu_info *ci;
 	u_long i;
@@ -502,7 +508,7 @@ cpu_boot_secondary_processors()
 }
 
 void
-cpu_init_idle_pcbs()
+cpu_init_idle_pcbs(void)
 {
 	struct cpu_info *ci;
 	u_long i;
@@ -515,7 +521,7 @@ cpu_init_idle_pcbs()
 			continue;
 		if ((ci->ci_flags & CPUF_PRESENT) == 0)
 			continue;
-		i386_init_pcb_tss_ldt(ci);
+		i386_init_pcb_tss(ci);
 	}
 }
 
@@ -525,7 +531,6 @@ cpu_boot_secondary(struct cpu_info *ci)
 	struct pcb *pcb;
 	int i;
 	struct pmap *kpm = pmap_kernel();
-	extern u_int32_t mp_pdirpa;
 
 	if (mp_verbose)
 		printf("%s: starting", ci->ci_dev.dv_xname);
@@ -572,9 +577,8 @@ cpu_hatch(void *v)
 	lapic_startclock();
 	lapic_set_lvt();
 	gdt_init_cpu(ci);
-	cpu_init_ldt(ci);
 
-	lldt(GSEL(GLDT_SEL, SEL_KPL));
+	lldt(0);
 
 	npxinit(ci);
 
@@ -598,16 +602,23 @@ cpu_hatch(void *v)
 }
 
 void
-cpu_copy_trampoline()
+cpu_copy_trampoline(void)
 {
 	/*
 	 * Copy boot code.
 	 */
 	extern u_char cpu_spinup_trampoline[];
 	extern u_char cpu_spinup_trampoline_end[];
+	extern u_char mp_tramp_data_start[];
+	extern u_char mp_tramp_data_end[];
 
-	bcopy(cpu_spinup_trampoline, (caddr_t)MP_TRAMPOLINE,
+	memcpy((caddr_t)MP_TRAMPOLINE, cpu_spinup_trampoline,
 	    cpu_spinup_trampoline_end - cpu_spinup_trampoline);
+	memcpy((caddr_t)MP_TRAMP_DATA, mp_tramp_data_start,
+	    mp_tramp_data_end - mp_tramp_data_start);
+
+	pmap_write_protect(pmap_kernel(), (vaddr_t)MP_TRAMPOLINE,
+	    (vaddr_t)(MP_TRAMPOLINE + NBPG), PROT_READ | PROT_EXEC);
 }
 
 #endif
@@ -625,7 +636,7 @@ cpu_init_tss(struct i386tss *tss, void *stack, void *func)
 	    tss->__tss_ss = GSEL(GDATA_SEL, SEL_KPL);
 	tss->tss_cr3 = pmap_kernel()->pm_pdirpa;
 	tss->tss_esp = (int)((char *)stack + USPACE - 16);
-	tss->tss_ldt = GSEL(GLDT_SEL, SEL_KPL);
+	tss->tss_ldt = 0;
 	tss->__tss_eflags = PSL_MBO | PSL_NT;	/* XXX not needed? */
 	tss->__tss_eip = (int)func;
 }
@@ -748,7 +759,7 @@ cpu_idle_mwait_cycle(void)
 		panic("idle with interrupts blocked!");
 
 	/* something already queued? */
-	if (ci->ci_schedstate.spc_whichqs != 0)
+	if (!cpu_is_idle(ci))
 		return;
 
 	/*
@@ -762,7 +773,7 @@ cpu_idle_mwait_cycle(void)
 	 * the check in sched_idle() and here.
 	 */
 	atomic_setbits_int(&ci->ci_mwait, MWAIT_IDLING | MWAIT_ONLY);
-	if (ci->ci_schedstate.spc_whichqs == 0) {
+	if (cpu_is_idle(ci)) {
 		monitor(&ci->ci_mwait, 0, 0);
 		if ((ci->ci_mwait & MWAIT_IDLING) == MWAIT_IDLING)
 			mwait(0, 0);
@@ -777,7 +788,7 @@ cpu_init_mwait(struct device *dv)
 {
 	unsigned int smallest, largest, extensions, c_substates;
 
-	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0)
+	if ((cpu_ecxfeature & CPUIDECX_MWAIT) == 0 || cpuid_level < 0x5)
 		return;
 
 	/* get the monitor granularity */

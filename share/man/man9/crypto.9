@@ -1,4 +1,4 @@
-.\"	$OpenBSD: crypto.9,v 1.40 2015/11/13 15:29:55 naddy Exp $
+.\"	$OpenBSD: crypto.9,v 1.42 2015/12/10 21:00:51 naddy Exp $
 .\"
 .\" The author of this man page is Angelos D. Keromytis (angelos@cis.upenn.edu)
 .\"
@@ -15,11 +15,19 @@
 .\" MERCHANTABILITY OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR
 .\" PURPOSE.
 .\"
-.Dd $Mdocdate: November 13 2015 $
-.Dt CRYPTO 9
+.Dd $Mdocdate: December 10 2015 $
+.Dt CRYPTO_GET_DRIVERID 9
 .Os
 .Sh NAME
-.Nm crypto
+.Nm crypto_get_driverid ,
+.Nm crypto_register ,
+.Nm crypto_unregister ,
+.Nm crypto_done ,
+.Nm crypto_newsession ,
+.Nm crypto_freesession ,
+.Nm crypto_dispatch ,
+.Nm crypto_getreq ,
+.Nm crypto_freereq
 .Nd API for cryptographic services in the kernel
 .Sh SYNOPSIS
 .In crypto/cryptodev.h
@@ -132,7 +140,6 @@ structure are:
 Contains an algorithm identifier.
 Currently supported encryption algorithms are:
 .Bd -literal
-CRYPTO_DES_CBC
 CRYPTO_3DES_CBC
 CRYPTO_BLF_CBC
 CRYPTO_CAST_CBC
@@ -503,9 +510,6 @@ Some type of benchmarking is in order here.
 .Pp
 Multiple instances of the same algorithm in the same session are not
 supported.
-Note that 3DES is considered one algorithm (and not three
-instances of DES).
-Thus, 3DES and DES could be mixed in the same request.
 .Pp
 A queue for completed operations should be implemented and processed
 at some software

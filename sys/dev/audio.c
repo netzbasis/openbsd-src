@@ -1,4 +1,4 @@
-/*	$OpenBSD: audio.c,v 1.139 2015/09/04 16:02:19 ratchov Exp $	*/
+/*	$OpenBSD: audio.c,v 1.149 2016/06/18 07:59:30 ratchov Exp $	*/
 /*
  * Copyright (c) 2015 Alexandre Ratchov <alex@caoua.org>
  *
@@ -95,7 +95,7 @@ struct audio_softc {
 	int quiesce;			/* device suspended */
 	struct audio_buf play, rec;
 	unsigned int sw_enc;		/* user exposed AUDIO_ENCODING_* */
-	unsigned int hw_enc;		/* harware AUDIO_ENCODING_* */
+	unsigned int hw_enc;		/* hardware AUDIO_ENCODING_* */
 	unsigned int bits;		/* bits per sample */
 	unsigned int bps;		/* bytes-per-sample */
 	unsigned int msb;		/* sample are MSB aligned */
@@ -594,6 +594,7 @@ audio_setpar(struct audio_softc *sc)
 {
 	struct audio_params p, r;
 	unsigned int nr, np, max, min, mult;
+	unsigned int blk_mult, blk_max;
 	int error;
 
 	DPRINTF("%s: setpar: req enc=%d bits=%d, bps=%d, msb=%d "
@@ -756,24 +757,24 @@ audio_setpar(struct audio_softc *sc)
 	 * get least multiplier of the number of frames per block
 	 */
 	if (sc->ops->round_blocksize) {
-		mult = sc->ops->round_blocksize(sc->arg, 1);
-		if (mult == 0) {
+		blk_mult = sc->ops->round_blocksize(sc->arg, 1);
+		if (blk_mult == 0) {
 			printf("%s: 0x%x: bad block size multiplier\n",
-			    DEVNAME(sc), mult);
+			    DEVNAME(sc), blk_mult);
 			return ENODEV;
 		}
 	} else
-		mult = 1;
-	DPRINTF("%s: hw block size multiplier: %u\n", DEVNAME(sc), mult);
+		blk_mult = 1;
+	DPRINTF("%s: hw block size multiplier: %u\n", DEVNAME(sc), blk_mult);
 	if (sc->mode & AUMODE_PLAY) {
-		np = mult / audio_gcd(sc->pchan * sc->bps, mult);
+		np = blk_mult / audio_gcd(sc->pchan * sc->bps, blk_mult);
 		if (!(sc->mode & AUMODE_RECORD))
 			nr = np;
 		DPRINTF("%s: play number of frames multiplier: %u\n",
 		    DEVNAME(sc), np);
 	}
 	if (sc->mode & AUMODE_RECORD) {
-		nr = mult / audio_gcd(sc->rchan * sc->bps, mult);
+		nr = blk_mult / audio_gcd(sc->rchan * sc->bps, blk_mult);
 		if (!(sc->mode & AUMODE_PLAY))
 			np = nr;
 		DPRINTF("%s: record number of frames multiplier: %u\n",
@@ -786,13 +787,21 @@ audio_setpar(struct audio_softc *sc)
 	/*
 	 * get minumum and maximum frames per block
 	 */
+	if (sc->ops->round_blocksize)
+		blk_max = sc->ops->round_blocksize(sc->arg, AUDIO_BUFSZ);
+	else
+		blk_max = AUDIO_BUFSZ;
+	if ((sc->mode & AUMODE_PLAY) && blk_max > sc->play.datalen / 2)
+		blk_max = sc->play.datalen / 2;
+	if ((sc->mode & AUMODE_RECORD) && blk_max > sc->rec.datalen / 2)
+		blk_max = sc->rec.datalen / 2;
 	if (sc->mode & AUMODE_PLAY) {
-		np = sc->play.datalen / (sc->pchan * sc->bps * 2);
+		np = blk_max / (sc->pchan * sc->bps);
 		if (!(sc->mode & AUMODE_RECORD))
 			nr = np;
 	}
 	if (sc->mode & AUMODE_RECORD) {
-		nr = sc->rec.datalen / (sc->rchan * sc->bps * 2);
+		nr = blk_max / (sc->rchan * sc->bps);
 		if (!(sc->mode & AUMODE_PLAY))
 			np = nr;
 	}
@@ -1023,6 +1032,144 @@ audio_getinfo(struct audio_softc *sc, struct audio_info *ai)
 }
 
 int
+audio_ioc_start(struct audio_softc *sc)
+{
+	if (!sc->pause) {
+		DPRINTF("%s: can't start: already started\n", DEVNAME(sc));
+		return EBUSY;
+	}
+	if ((sc->mode & AUMODE_PLAY) && sc->play.used != sc->play.len) {
+		DPRINTF("%s: play buffer not ready\n", DEVNAME(sc));
+		return EBUSY;
+	}
+	if ((sc->mode & AUMODE_RECORD) && sc->rec.used != 0) {
+		DPRINTF("%s: record buffer not ready\n", DEVNAME(sc));
+		return EBUSY;
+	}
+	sc->pause = 0;
+	return audio_start(sc);
+}
+
+int
+audio_ioc_stop(struct audio_softc *sc)
+{
+	if (sc->pause) {
+		DPRINTF("%s: can't stop: not started\n", DEVNAME(sc));
+		return EBUSY;
+	}
+	sc->pause = 1;
+	if (sc->active)
+		return audio_stop(sc);
+	return 0;
+}
+
+int
+audio_ioc_getpar(struct audio_softc *sc, struct audio_swpar *p)
+{
+	p->rate = sc->rate;
+	p->sig = sc->sw_enc == AUDIO_ENCODING_SLINEAR_LE ||
+	    sc->sw_enc == AUDIO_ENCODING_SLINEAR_BE;
+	p->le = sc->sw_enc == AUDIO_ENCODING_SLINEAR_LE ||
+	    sc->sw_enc == AUDIO_ENCODING_ULINEAR_LE;
+	p->bits = sc->bits;
+	p->bps = sc->bps;
+	p->msb = sc->msb;
+	p->pchan = sc->pchan;
+	p->rchan = sc->rchan;
+	p->nblks = sc->nblks;
+	p->round = sc->round;
+	return 0;
+}
+
+int
+audio_ioc_setpar(struct audio_softc *sc, struct audio_swpar *p)
+{
+	int error, le, sig;
+
+	if (sc->active) {
+		DPRINTF("%s: can't change params during dma\n",
+		    DEVNAME(sc));
+		return EBUSY;
+	}
+
+	/*
+	 * copy desired parameters into the softc structure
+	 */
+	if (p->sig != ~0U || p->le != ~0U || p->bits != ~0U) {
+		sig = 1;
+		le = (BYTE_ORDER == LITTLE_ENDIAN);
+		sc->bits = 16;
+		sc->bps = 2;
+		sc->msb = 1;
+		if (p->sig != ~0U)
+			sig = p->sig;
+		if (p->le != ~0U)
+			le = p->le;
+		if (p->bits != ~0U) {
+			sc->bits = p->bits;
+			sc->bps = sc->bits <= 8 ?
+			    1 : (sc->bits <= 16 ? 2 : 4);
+			if (p->bps != ~0U)
+				sc->bps = p->bps;
+			if (p->msb != ~0U)
+				sc->msb = p->msb ? 1 : 0;
+		}
+		sc->sw_enc = (sig) ?
+		    (le ? AUDIO_ENCODING_SLINEAR_LE :
+			AUDIO_ENCODING_SLINEAR_BE) :
+		    (le ? AUDIO_ENCODING_ULINEAR_LE :
+			AUDIO_ENCODING_ULINEAR_BE);
+	}
+	if (p->rate != ~0)
+		sc->rate = p->rate;
+	if (p->pchan != ~0)
+		sc->pchan = p->pchan;
+	if (p->rchan != ~0)
+		sc->rchan = p->rchan;
+	if (p->round != ~0)
+		sc->round = p->round;
+	if (p->nblks != ~0)
+		sc->nblks = p->nblks;
+
+	/*
+	 * if the device is not opened for playback or recording don't
+	 * touch the hardware yet (ex. if this is /dev/audioctlN)
+	 */
+	if (sc->mode == 0)
+		return 0;
+
+	/*
+	 * negociate parameters with the hardware
+	 */
+	error = audio_setpar(sc);
+	if (error)
+		return error;
+	audio_clear(sc);
+	if ((sc->mode & AUMODE_PLAY) && sc->ops->init_output) {
+		error = sc->ops->init_output(sc->arg,
+		    sc->play.data, sc->play.len);
+		if (error)
+			return error;
+	}
+	if ((sc->mode & AUMODE_RECORD) && sc->ops->init_input) {
+		error = sc->ops->init_input(sc->arg,
+		    sc->rec.data, sc->rec.len);
+		if (error)
+			return error;
+	}
+	return 0;
+}
+
+int
+audio_ioc_getstatus(struct audio_softc *sc, struct audio_status *p)
+{
+	p->mode = sc->mode;
+	p->pause = sc->pause;
+	p->active = sc->active;
+	return 0;
+}
+
+int
 audio_match(struct device *parent, void *match, void *aux)
 {
 	struct audio_attach_args *sa = aux;
@@ -1083,7 +1230,11 @@ audio_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	/* set defaults */
-	sc->sw_enc = AUDIO_ENCODING_SLINEAR;
+#if BYTE_ORDER == LITTLE_ENDIAN
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_LE;
+#else
+	sc->sw_enc = AUDIO_ENCODING_SLINEAR_BE;
+#endif
 	sc->bits = 16;
 	sc->bps = 2;
 	sc->msb = 1;
@@ -1202,6 +1353,14 @@ audio_detach(struct device *self, int flags)
 	return 0;
 }
 
+int
+audio_submatch(struct device *parent, void *match, void *aux)
+{
+        struct cfdata *cf = match;
+
+	return (cf->cf_driver == &audio_cd);
+}
+
 struct device *
 audio_attach_mi(struct audio_hw_if *ops, void *arg, struct device *dev)
 {
@@ -1215,7 +1374,7 @@ audio_attach_mi(struct audio_hw_if *ops, void *arg, struct device *dev)
 	 * attach this driver to the caller (hardware driver), this
 	 * checks the kernel config and possibly calls audio_attach()
 	 */
-	return config_found(dev, &aa, audioprint);
+	return config_found_sm(dev, &aa, audioprint, audio_submatch);
 }
 
 int
@@ -1528,6 +1687,16 @@ audio_write(struct audio_softc *sc, struct uio *uio, int ioflag)
 }
 
 int
+audio_getdev(struct audio_softc *sc, struct audio_device *adev)
+{
+	memset(adev, 0, sizeof(struct audio_device));
+	if (sc->dev.dv_parent == NULL)
+		return EIO;
+	strlcpy(adev->name, sc->dev.dv_parent->dv_xname, MAX_AUDIO_DEV_LEN);
+	return 0;
+}
+
+int
 audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 {
 	struct audio_offset *ao;
@@ -1573,6 +1742,19 @@ audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 		ap->rec_xrun = sc->rec.xrun;
 		mtx_leave(&audio_lock);
 		break;
+	case AUDIO_START:
+		return audio_ioc_start(sc);
+	case AUDIO_STOP:
+		return audio_ioc_stop(sc);
+	case AUDIO_SETPAR:
+		error = audio_ioc_setpar(sc, (struct audio_swpar *)addr);
+		break;
+	case AUDIO_GETPAR:
+		error = audio_ioc_getpar(sc, (struct audio_swpar *)addr);
+		break;
+	case AUDIO_GETSTATUS:
+		error = audio_ioc_getstatus(sc, (struct audio_status *)addr);
+		break;
 	case AUDIO_SETINFO:
 		error = audio_setinfo(sc, (struct audio_info *)addr);
 		break;
@@ -1580,7 +1762,7 @@ audio_ioctl(struct audio_softc *sc, unsigned long cmd, void *addr)
 		error = audio_getinfo(sc, (struct audio_info *)addr);
 		break;
 	case AUDIO_GETDEV:
-		error = sc->ops->getdev(sc->arg, (audio_device_t *)addr);
+		error = audio_getdev(sc, (struct audio_device *)addr);
 		break;
 	case AUDIO_GETENC:
 		error = sc->ops->query_encoding(sc->arg,
@@ -1704,6 +1886,7 @@ audioclose(dev_t dev, int flags, int ifmt, struct proc *p)
 	case AUDIO_DEV_MIXER:
 	case AUDIO_DEV_AUDIOCTL:
 		error = 0;
+		break;
 	default:
 		error = ENXIO;
 	}
@@ -1778,6 +1961,14 @@ audioioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	case AUDIO_DEV_AUDIOCTL:
 		if (cmd == AUDIO_SETINFO && sc->mode != 0) {
 			error = EBUSY;
+			break;
+		}
+		if (cmd == AUDIO_SETPAR && sc->mode != 0) {
+			error = EBUSY;
+			break;
+		}
+		if (cmd == AUDIO_START || cmd == AUDIO_STOP) {
+			error = ENXIO;
 			break;
 		}
 		error = audio_ioctl(sc, cmd, addr);

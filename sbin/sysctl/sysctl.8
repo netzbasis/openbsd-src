@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sysctl.8,v 1.190 2015/11/05 12:50:53 sthen Exp $
+.\"	$OpenBSD: sysctl.8,v 1.199 2016/06/18 10:36:13 vgross Exp $
 .\"	$NetBSD: sysctl.8,v 1.4 1995/09/30 07:12:49 thorpej Exp $
 .\"
 .\" Copyright (c) 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)sysctl.8	8.2 (Berkeley) 5/9/95
 .\"
-.Dd $Mdocdate: November 5 2015 $
+.Dd $Mdocdate: June 18 2016 $
 .Dt SYSCTL 8
 .Os
 .Sh NAME
@@ -187,8 +187,6 @@ and a few require a kernel compiled with non-standard
 .It kern.shminfo.shmall Ta integer Ta yes
 .It kern.watchdog.period Ta integer Ta yes
 .It kern.watchdog.auto Ta integer Ta yes
-.It kern.emul.nemuls Ta integer Ta no
-.It kern.emul.other Ta integer Ta yes
 .It kern.maxclusters Ta integer Ta yes
 .It kern.timecounter.tick Ta integer Ta no
 .It kern.timecounter.timestepwarnings Ta integer Ta yes
@@ -196,6 +194,7 @@ and a few require a kernel compiled with non-standard
 .It kern.timecounter.choice Ta string Ta no
 .It kern.maxlocksperuid Ta integer Ta yes
 .It kern.bufcachepercent Ta integer Ta yes
+.It kern.wxabort Ta integer Ta yes
 .It kern.consdev Ta string Ta no
 .It kern.global_ptrace Ta integer Ta yes
 .It vm.vmmeter Ta struct Ta no
@@ -268,12 +267,15 @@ and a few require a kernel compiled with non-standard
 .It net.inet.tcp.ecn Ta integer Ta yes
 .It net.inet.tcp.syncachelimit Ta integer Ta yes
 .It net.inet.tcp.synbucketlimit Ta integer Ta yes
+.It net.inet.tcp.synuselimit Ta integer Ta yes
 .It net.inet.tcp.rfc3390 Ta integer Ta yes
 .It net.inet.tcp.reasslimit Ta integer Ta yes
+.It net.inet.tcp.rootonly Ta array Ta yes
 .It net.inet.udp.checksum Ta integer Ta yes
 .It net.inet.udp.baddynamic Ta array Ta yes
 .It net.inet.udp.recvspace Ta integer Ta yes
 .It net.inet.udp.sendspace Ta integer Ta yes
+.It net.inet.udp.rootonly Ta array Ta yes
 .It net.inet.gre.allow Ta integer Ta yes
 .It net.inet.gre.wccp Ta integer Ta yes
 .It net.inet.esp.enable Ta integer Ta yes
@@ -296,8 +298,6 @@ and a few require a kernel compiled with non-standard
 .It net.inet6.ip6.auto_flowlabel Ta integer Ta yes
 .It net.inet6.ip6.defmcasthlim Ta integer Ta yes
 .It net.inet6.ip6.use_deprecated Ta integer Ta yes
-.It net.inet6.ip6.rr_prune Ta integer Ta yes
-.It net.inet6.ip6.v6only Ta integer Ta no
 .It net.inet6.ip6.maxfrags Ta integer Ta yes
 .It net.inet6.ip6.mforwarding Ta integer Ta yes
 .It net.inet6.ip6.multipath Ta integer Ta yes
@@ -337,11 +337,6 @@ and a few require a kernel compiled with non-standard
 .It net.pipex.outq.drops=0 Ta integer Ta no
 .It debug.syncprt Ta integer Ta yes
 .It debug.busyprt Ta integer Ta yes
-.It debug.doclusterread Ta integer Ta yes
-.It debug.doclusterwrite Ta integer Ta yes
-.It debug.doreallocblks Ta integer Ta yes
-.It debug.doasyncfree Ta integer Ta yes
-.It debug.prtrealloc Ta integer Ta yes
 .It hw.machine Ta string Ta no
 .It hw.model Ta string Ta no
 .It hw.ncpu Ta integer Ta no
@@ -370,7 +365,6 @@ and a few require a kernel compiled with non-standard
 .It machdep.apmwarn Ta integer Ta yes
 .It machdep.apmhalt Ta integer Ta yes
 .It machdep.kbdreset Ta integer Ta yes
-.It machdep.userldt Ta integer Ta yes
 .It machdep.osfxsr Ta integer Ta no
 .It machdep.sse Ta integer Ta no
 .It machdep.sse2 Ta integer Ta no
@@ -388,10 +382,6 @@ and a few require a kernel compiled with non-standard
 .It ddb.log Ta integer Ta yes
 .It ddb.trigger Ta integer Ta yes
 .It vfs.mounts.* Ta struct Ta no
-.It vfs.ffs.doclusterread Ta integer Ta yes
-.It vfs.ffs.doclusterwrite Ta integer Ta yes
-.It vfs.ffs.doreallocblks Ta integer Ta yes
-.It vfs.ffs.doasyncfree Ta integer Ta yes
 .It vfs.ffs.max_softdeps Ta integer Ta yes
 .It vfs.ffs.sd_tickdelay Ta integer Ta yes
 .It vfs.ffs.sd_worklist_push Ta integer Ta no
@@ -428,45 +418,45 @@ Use of the
 flag lists all the filesystems compiled into the running kernel.
 .Sh FILES
 .Bl -tag -width <uvm/uvm_swap_encrypt.h> -compact
-.It Aq Pa sys/sysctl.h
+.It In sys/sysctl.h
 definitions for top level identifiers and second level kernel and hardware
 identifiers
-.It Aq Pa dev/rndvar.h
+.It In dev/rndvar.h
 definitions for
 .Xr random 4
 device's statistics structure
-.It Aq Pa sys/socket.h
+.It In sys/socket.h
 definitions for second level network identifiers
-.It Aq Pa sys/gmon.h
+.It In sys/gmon.h
 definitions for third level profiling identifiers
-.It Aq Pa uvm/uvm_param.h
+.It In uvm/uvm_param.h
 definitions for second level virtual memory identifiers
-.It Aq Pa uvm/uvm_swap_encrypt.h
+.It In uvm/uvm_swap_encrypt.h
 definitions for third level virtual memory identifiers
-.It Aq Pa netinet/in.h
+.It In netinet/in.h
 definitions for third level IPv4/v6 identifiers and
 fourth level IPv4/v6 identifiers
-.It Aq Pa netinet/ip_divert.h
+.It In netinet/ip_divert.h
 definitions for fourth level divert identifiers
-.It Aq Pa netinet/icmp_var.h
+.It In netinet/icmp_var.h
 definitions for fourth level ICMP identifiers
-.It Aq Pa netinet6/icmp6.h
+.It In netinet6/icmp6.h
 definitions for fourth level ICMPv6 identifiers
-.It Aq Pa netinet/tcp_var.h
+.It In netinet/tcp_var.h
 definitions for fourth level TCP identifiers
-.It Aq Pa netinet/udp_var.h
+.It In netinet/udp_var.h
 definitions for fourth level UDP identifiers
-.It Aq Pa ddb/db_var.h
+.It In ddb/db_var.h
 definitions for second level ddb identifiers
-.It Aq Pa sys/mount.h
+.It In sys/mount.h
 definitions for second level vfs identifiers
-.It Aq Pa nfs/nfs.h
+.It In nfs/nfs.h
 definitions for third level NFS identifiers
-.It Aq Pa miscfs/fuse/fusefs.h
+.It In miscfs/fuse/fusefs.h
 definitions for third level fusefs identifiers
-.It Aq Pa ufs/ffs/ffs_extern.h
+.It In ufs/ffs/ffs_extern.h
 definitions for third level FFS identifiers
-.It Aq Pa machine/cpu.h
+.It In machine/cpu.h
 definitions for second level CPU identifiers
 .El
 .Sh EXAMPLES

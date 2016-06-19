@@ -15,9 +15,10 @@
  * both forward and backward from the current read pointer.
  */
 
+#include <sys/stat.h>
+
 #include "less.h"
 
-#include <sys/stat.h>
 extern dev_t curr_dev;
 extern ino_t curr_ino;
 extern int less_is_more;
@@ -81,7 +82,7 @@ struct filestate {
  * Macros to manipulate the list of buffers in thisfile->buflist.
  */
 #define	FOR_BUFS(bn) \
-	for (bn = ch_bufhead;  bn != END_OF_CHAIN;  bn = bn->next)
+	for ((bn) = ch_bufhead;  (bn) != END_OF_CHAIN;  (bn) = (bn)->next)
 
 #define	BUF_RM(bn) \
 	(bn)->next->prev = (bn)->prev; \
@@ -103,8 +104,8 @@ struct filestate {
  * Macros to manipulate the list of buffers in thisfile->hashtbl[n].
  */
 #define	FOR_BUFS_IN_CHAIN(h, bn) \
-	for (bn = thisfile->hashtbl[h].hnext;  \
-	    bn != END_OF_HCHAIN(h);  bn = bn->hnext)
+	for ((bn) = thisfile->hashtbl[h].hnext;  \
+	    (bn) != END_OF_HCHAIN(h); (bn) = (bn)->hnext)
 
 #define	BUF_HASH_RM(bn) \
 	(bn)->hnext->hprev = (bn)->hprev; \

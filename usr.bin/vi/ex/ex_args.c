@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_args.c,v 1.10 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: ex_args.c,v 1.12 2016/01/06 22:28:52 millert Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -49,7 +49,7 @@ ex_next(SCR *sp, EXCMD *cmdp)
 
 	/* Check for file to move to. */
 	if (cmdp->argc == 0 && (sp->cargv == NULL || sp->cargv[1] == NULL)) {
-		msgq(sp, M_ERR, "111|No more files to edit");
+		msgq(sp, M_ERR, "No more files to edit");
 		return (1);
 	}
 
@@ -82,7 +82,7 @@ ex_next(SCR *sp, EXCMD *cmdp)
 
 		/* Create a new list. */
 		CALLOC_RET(sp,
-		    sp->argv, char **, cmdp->argc + 1, sizeof(char *));
+		    sp->argv, cmdp->argc + 1, sizeof(char *));
 		for (ap = sp->argv,
 		    argv = cmdp->argv; argv[0]->len != 0; ++ap, ++argv)
 			if ((*ap =
@@ -168,7 +168,7 @@ ex_prev(SCR *sp, EXCMD *cmdp)
 	FREF *frp;
 
 	if (sp->cargv == sp->argv) {
-		msgq(sp, M_ERR, "112|No previous files to edit");
+		msgq(sp, M_ERR, "No previous files to edit");
 		return (1);
 	}
 
@@ -217,7 +217,7 @@ ex_rew(SCR *sp, EXCMD *cmdp)
 	 * Historic practice -- you can rewind to the current file.
 	 */
 	if (sp->argv == NULL) {
-		msgq(sp, M_ERR, "113|No previous files to rewind");
+		msgq(sp, M_ERR, "No previous files to rewind");
 		return (1);
 	}
 
@@ -252,7 +252,7 @@ ex_args(SCR *sp, EXCMD *cmdp)
 	char **ap;
 
 	if (sp->argv == NULL) {
-		(void)msgq(sp, M_ERR, "114|No file list to display");
+		(void)msgq(sp, M_ERR, "No file list to display");
 		return (0);
 	}
 
@@ -292,7 +292,7 @@ ex_buildargv(SCR *sp, EXCMD *cmdp, char *name)
 	char **ap, **s_argv;
 
 	argc = cmdp == NULL ? 1 : cmdp->argc;
-	CALLOC(sp, s_argv, char **, argc + 1, sizeof(char *));
+	CALLOC(sp, s_argv, argc + 1, sizeof(char *));
 	if ((ap = s_argv) == NULL)
 		return (NULL);
 

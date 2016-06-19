@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rsu.c,v 1.29 2015/11/15 01:05:25 stsp Exp $	*/
+/*	$OpenBSD: if_rsu.c,v 1.34 2016/04/13 11:03:37 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -39,10 +39,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -111,13 +109,11 @@ static const struct usb_devno rsu_devs[] = {
 	{ USB_VENDOR_SWEEX2,		USB_PRODUCT_SWEEX2_LW154 }
 };
 
-#ifndef IEEE80211_NO_HT
 /* List of devices that have HT support disabled. */
 static const struct usb_devno rsu_devs_noht[] = {
 	{ USB_VENDOR_ASUS,		USB_PRODUCT_ASUS_RTL8192SU_1 },
 	{ USB_VENDOR_AZUREWAVE,		USB_PRODUCT_AZUREWAVE_RTL8192SU_4 }
 };
-#endif
 
 int		rsu_match(struct device *, void *, void *);
 void		rsu_attach(struct device *, struct device *, void *);
@@ -248,7 +244,6 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 	    IEEE80211_C_SHSLOT |	/* Short slot time supported. */
 	    IEEE80211_C_WEP |		/* WEP. */
 	    IEEE80211_C_RSN;		/* WPA/RSN. */
-#ifndef IEEE80211_NO_HT
 	/* Check if HT support is present. */
 	if (usb_lookup(rsu_devs_noht, uaa->vendor, uaa->product) == NULL) {
 		/* Set HT capabilities. */
@@ -259,7 +254,6 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 		for (i = 0; i < 2; i++)
 			ic->ic_sup_mcs[i] = 0xff;
 	}
-#endif
 
 	/* Set supported .11b and .11g rates. */
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -279,7 +273,6 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = rsu_ioctl;
 	ifp->if_start = rsu_start;
 	ifp->if_watchdog = rsu_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -1029,10 +1022,8 @@ rsu_join_bss(struct rsu_softc *sc, struct ieee80211_node *ni)
 		frm = ieee80211_add_rsn(frm, ic, ni);
 	if (ni->ni_flags & IEEE80211_NODE_QOS)
 		frm = ieee80211_add_qos_capability(frm, ic);
-#ifndef IEEE80211_NO_HT
 	if (ni->ni_flags & IEEE80211_NODE_HT)
 		frm = ieee80211_add_htcaps(frm, ic);
-#endif
 	if ((ic->ic_flags & IEEE80211_F_RSNON) &&
 	    (ni->ni_rsnprotos & IEEE80211_PROTO_WPA))
 		frm = ieee80211_add_wpa(frm, ic, ni);
@@ -1463,8 +1454,8 @@ rsu_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	ifp->if_opackets++;
 
 	/* We just released a Tx buffer, notify Tx. */
-	if (ifp->if_flags & IFF_OACTIVE) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+	if (ifq_is_oactive(&ifp->if_snd)) {
+		ifq_clr_oactive(&ifp->if_snd);
 		rsu_start(ifp);
 	}
 	splx(s);
@@ -1603,12 +1594,12 @@ rsu_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (TAILQ_EMPTY(&sc->tx_free_list)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		if (ic->ic_state != IEEE80211_S_RUN)
@@ -1982,9 +1973,7 @@ rsu_fw_loadsection(struct rsu_softc *sc, uint8_t *buf, int len)
 int
 rsu_load_firmware(struct rsu_softc *sc)
 {
-#ifndef IEEE80211_NO_HT
 	struct ieee80211com *ic = &sc->sc_ic;
-#endif
 	struct r92s_fw_hdr *hdr;
 	struct r92s_fw_priv *dmem;
 	uint8_t *imem, *emem;
@@ -2115,9 +2104,7 @@ rsu_load_firmware(struct rsu_softc *sc)
 	dmem->rf_config = 0x12;	/* 1T2R */
 	dmem->vcs_type = R92S_VCS_TYPE_AUTO;
 	dmem->vcs_mode = R92S_VCS_MODE_RTS_CTS;
-#ifndef IEEE80211_NO_HT
 	dmem->bw40_en = (ic->ic_htcaps & IEEE80211_HTCAP_CBW20_40) != 0;
-#endif
 	dmem->turbo_mode = 1;
 	/* Load DMEM section. */
 	error = rsu_fw_loadsection(sc, (uint8_t *)dmem, sizeof(*dmem));
@@ -2258,7 +2245,6 @@ rsu_init(struct ifnet *ifp)
 		goto fail;
 	}
 
-#ifndef IEEE80211_NO_HT
 	if (ic->ic_htcaps & IEEE80211_HTCAP_CBW20_40) {
 		/* Enable 40MHz mode. */
 		error = rsu_fw_iocmd(sc,
@@ -2271,13 +2257,13 @@ rsu_init(struct ifnet *ifp)
 			goto fail;
 		}
 	}
-#endif
+
 	/* Set default channel. */
 	ic->ic_bss->ni_chan = ic->ic_ibss_chan;
 
 	/* We're ready to go. */
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_set_oactive(&ifp->if_snd);
 
 #ifdef notyet
 	if (ic->ic_flags & IEEE80211_F_WEPON) {
@@ -2305,7 +2291,8 @@ rsu_stop(struct ifnet *ifp)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* In case we were scanning, release the scan "lock". */
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: beep.c,v 1.5 2010/07/31 16:04:50 miod Exp $	*/
+/*	$OpenBSD: beep.c,v 1.7 2016/03/19 11:34:22 mpi Exp $	*/
 
 /*
  * Copyright (c) 2006 Jason L. Wright (jason@thought.net)
@@ -47,7 +47,7 @@
 
 #include "hidkbd.h"
 #if NHIDKBD > 0
-#include <dev/usb/hidkbdvar.h>
+#include <dev/hid/hidkbdvar.h>
 #endif
 
 #define	BEEP_CTRL		0
@@ -219,11 +219,11 @@ void
 beep_bell(void *vsc, u_int pitch, u_int period, u_int volume, int poll)
 {
 	struct beep_softc *sc = vsc;
-	int s, ticks;
+	int s, nticks;
 
-	ticks = (period * hz) / 1000;
-	if (ticks <= 0)
-		ticks = 1;
+	nticks = (period * hz) / 1000;
+	if (nticks <= 0)
+		nticks = 1;
 
 	s = spltty();
 	if (sc->sc_bellactive) {
@@ -240,7 +240,7 @@ beep_bell(void *vsc, u_int pitch, u_int period, u_int volume, int poll)
 		sc->sc_belltimeout = 1;
 		bus_space_write_1(sc->sc_iot, sc->sc_ioh, BEEP_CTRL,
 	    	    BEEP_CTRL_ON);
-		timeout_add(&sc->sc_to, ticks);
+		timeout_add(&sc->sc_to, nticks);
 	}
 	splx(s);
 }

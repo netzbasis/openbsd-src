@@ -1,4 +1,4 @@
-/*	$OpenBSD: pgt.c,v 1.80 2015/11/20 03:35:22 dlg Exp $  */
+/*	$OpenBSD: pgt.c,v 1.87 2016/04/13 10:49:26 mpi Exp $  */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -63,11 +63,8 @@
 #include <machine/intr.h>
 
 #include <net/if.h>
-#include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_llc.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -551,14 +548,15 @@ trying_again:
 			    ic->ic_opmode != IEEE80211_M_MONITOR);
 	}
 
-	ic->ic_if.if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ic->ic_if.if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ic->ic_if.if_snd);
 	ieee80211_new_state(&sc->sc_ic, IEEE80211_S_INIT, -1);
 }
 
 void
-pgt_attach(void *xsc)
+pgt_attach(struct device *self)
 {
-	struct pgt_softc *sc = xsc;
+	struct pgt_softc *sc = (struct pgt_softc *)self;
 	int error;
 
 	/* debug flags */
@@ -749,8 +747,8 @@ pgt_update_intr(struct pgt_softc *sc, int hack)
 			if (qdirty > npend) {
 				if (pgt_queue_is_data(pqs[i])) {
 					sc->sc_ic.ic_if.if_timer = 0;
-					sc->sc_ic.ic_if.if_flags &=
-					    ~IFF_OACTIVE;
+					ifq_clr_oactive(
+					    &sc->sc_ic.ic_if.if_snd);
 				}
 				while (qdirty-- > npend)
 					pgt_txdone(sc, pqs[i]);
@@ -1880,7 +1878,6 @@ pgt_net_attach(struct pgt_softc *sc)
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Set channels
@@ -2527,7 +2524,7 @@ pgt_init(struct ifnet *ifp)
 		    ic->ic_opmode != IEEE80211_M_MONITOR);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Begin background scanning */
 	ieee80211_new_state(&sc->sc_ic, IEEE80211_S_SCAN, -1);
@@ -2637,8 +2634,6 @@ badopmode:
 		preamble = PGT_OID_PREAMBLE_MODE_SHORT;
 		DPRINTF(("IEEE80211_MODE_11G\n"));
 		break;
-	case IEEE80211_MODE_TURBO: /* not handled */
-		/* FALLTHROUGH */
 	case IEEE80211_MODE_AUTO:
 		profile = PGT_PROFILE_MIXED_G_WIFI;
 		preamble = PGT_OID_PREAMBLE_MODE_DYNAMIC;

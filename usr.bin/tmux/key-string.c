@@ -1,7 +1,7 @@
-/* $OpenBSD: key-string.c,v 1.32 2015/11/14 11:45:43 nicm Exp $ */
+/* $OpenBSD: key-string.c,v 1.38 2016/05/26 14:49:48 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,8 +22,8 @@
 
 #include "tmux.h"
 
-key_code	key_string_search_table(const char *);
-key_code	key_string_get_modifiers(const char **);
+static key_code	key_string_search_table(const char *);
+static key_code	key_string_get_modifiers(const char **);
 
 const struct {
 	const char     *string;
@@ -93,12 +93,15 @@ const struct {
 	KEYC_MOUSE_STRING(MOUSEDRAG1, MouseDrag1),
 	KEYC_MOUSE_STRING(MOUSEDRAG2, MouseDrag2),
 	KEYC_MOUSE_STRING(MOUSEDRAG3, MouseDrag3),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND1, MouseDragEnd1),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND2, MouseDragEnd2),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND3, MouseDragEnd3),
 	KEYC_MOUSE_STRING(WHEELUP, WheelUp),
 	KEYC_MOUSE_STRING(WHEELDOWN, WheelDown),
 };
 
 /* Find key string in table. */
-key_code
+static key_code
 key_string_search_table(const char *string)
 {
 	u_int	i;
@@ -107,11 +110,11 @@ key_string_search_table(const char *string)
 		if (strcasecmp(string, key_string_table[i].string) == 0)
 			return (key_string_table[i].key);
 	}
-	return (KEYC_NONE);
+	return (KEYC_UNKNOWN);
 }
 
 /* Find modifiers. */
-key_code
+static key_code
 key_string_get_modifiers(const char **string)
 {
 	key_code	modifiers;
@@ -143,17 +146,23 @@ key_string_lookup_string(const char *string)
 {
 	static const char	*other = "!#()+,-.0123456789:;<=>?'\r\t";
 	key_code		 key;
-	u_short			 u;
-	int			 size;
+	u_int			 u;
 	key_code		 modifiers;
 	struct utf8_data	 ud;
 	u_int			 i;
 	enum utf8_state		 more;
+	wchar_t			 wc;
+
+	/* Is this no key? */
+	if (strcasecmp(string, "None") == 0)
+		return (KEYC_NONE);
 
 	/* Is this a hexadecimal value? */
 	if (string[0] == '0' && string[1] == 'x') {
-	        if (sscanf(string + 2, "%hx%n", &u, &size) != 1 || size > 4)
-	                return (KEYC_NONE);
+	        if (sscanf(string + 2, "%x", &u) != 1)
+	                return (KEYC_UNKNOWN);
+		if (u > 0x1fffff)
+	                return (KEYC_UNKNOWN);
 	        return (u);
 	}
 
@@ -165,30 +174,31 @@ key_string_lookup_string(const char *string)
 	}
 	modifiers |= key_string_get_modifiers(&string);
 	if (string[0] == '\0')
-		return (KEYC_NONE);
+		return (KEYC_UNKNOWN);
 
 	/* Is this a standard ASCII key? */
 	if (string[1] == '\0' && (u_char)string[0] <= 127) {
 		key = (u_char)string[0];
 		if (key < 32 || key == 127)
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 	} else {
 		/* Try as a UTF-8 key. */
 		if ((more = utf8_open(&ud, (u_char)*string)) == UTF8_MORE) {
 			if (strlen(string) != ud.size)
-				return (KEYC_NONE);
+				return (KEYC_UNKNOWN);
 			for (i = 1; i < ud.size; i++)
 				more = utf8_append(&ud, (u_char)string[i]);
 			if (more != UTF8_DONE)
-				return (KEYC_NONE);
-			key = utf8_combine(&ud);
-			return (key | modifiers);
+				return (KEYC_UNKNOWN);
+			if (utf8_combine(&ud, &wc) != UTF8_DONE)
+				return (KEYC_UNKNOWN);
+			return (wc | modifiers);
 		}
 
 		/* Otherwise look the key up in the table. */
 		key = key_string_search_table(string);
-		if (key == KEYC_NONE)
-			return (KEYC_NONE);
+		if (key == KEYC_UNKNOWN)
+			return (KEYC_UNKNOWN);
 	}
 
 	/* Convert the standard control keys. */
@@ -202,7 +212,7 @@ key_string_lookup_string(const char *string)
 		else if (key == 63)
 			key = KEYC_BSPACE;
 		else
-			return (KEYC_NONE);
+			return (KEYC_UNKNOWN);
 		modifiers &= ~KEYC_CTRL;
 	}
 
@@ -217,14 +227,19 @@ key_string_lookup_key(key_code key)
 	char			tmp[8];
 	u_int			i;
 	struct utf8_data	ud;
+	size_t			off;
 
 	*out = '\0';
 
 	/* Handle no key. */
 	if (key == KEYC_NONE)
-		return ("<NONE>");
+		return ("None");
+
+	/* Handle special keys. */
+	if (key == KEYC_UNKNOWN)
+		return ("Unknown");
 	if (key == KEYC_MOUSE)
-		return ("<MOUSE>");
+		return ("Mouse");
 
 	/*
 	 * Special case: display C-@ as C-Space. Could do this below in
@@ -257,15 +272,16 @@ key_string_lookup_key(key_code key)
 	/* Is this a UTF-8 key? */
 	if (key > 127 && key < KEYC_BASE) {
 		if (utf8_split(key, &ud) == UTF8_DONE) {
-			memcpy(out, ud.data, ud.size);
-			out[ud.size] = '\0';
+			off = strlen(out);
+			memcpy(out + off, ud.data, ud.size);
+			out[off + ud.size] = '\0';
 			return (out);
 		}
 	}
 
 	/* Invalid keys are errors. */
 	if (key == 127 || key > 255) {
-		snprintf(out, sizeof out, "<INVALID#%llx>", key);
+		snprintf(out, sizeof out, "Invalid#%llx", key);
 		return (out);
 	}
 

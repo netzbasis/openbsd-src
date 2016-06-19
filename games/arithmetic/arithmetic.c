@@ -1,4 +1,4 @@
-/*	$OpenBSD: arithmetic.c,v 1.21 2015/10/24 17:13:27 mmcc Exp $	*/
+/*	$OpenBSD: arithmetic.c,v 1.26 2016/01/27 13:42:08 gsoares Exp $	*/
 
 /*
  * Copyright (c) 1989, 1993
@@ -60,23 +60,22 @@
  * properly.
  */
 
-#include <sys/types.h>
 #include <err.h>
 #include <ctype.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 int	getrandom(int, int, int);
-void	intr(int);
+__dead void	intr(int);
 int	opnum(int);
 void	penalise(int, int, int);
 int	problem(void);
 void	showstats(void);
-void	usage(void);
+__dead void	usage(void);
 
 const char keylist[] = "+-x/";
 const char defaultkeys[] = "+-";
@@ -97,9 +96,8 @@ time_t qtime;
 int
 main(int argc, char *argv[])
 {
-	extern char *optarg;
-	extern int optind;
 	int ch, cnt;
+	const char *errstr;
 
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
@@ -116,10 +114,10 @@ main(int argc, char *argv[])
 			break;
 		}
 		case 'r':
-			if ((rangemax = atoi(optarg)) <= 0)
-				errx(1, "invalid range.");
+			rangemax = strtonum(optarg, 1, INT_MAX, &errstr);
+			if (errstr)
+				errx(1, "invalid range, %s: %s", errstr, optarg);
 			break;
-		case '?':
 		case 'h':
 		default:
 			usage();
@@ -136,7 +134,6 @@ main(int argc, char *argv[])
 				intr(0);   /* Print score and exit */
 		showstats();
 	}
-	/* NOTREACHED */
 }
 
 /* Handle interrupt character.  Print score and exit. */
@@ -144,7 +141,7 @@ void
 intr(int dummy)
 {
 	showstats();
-	exit(0);
+	_exit(0);
 }
 
 /* Print score.  Original `arithmetic' had a delay after printing it. */
@@ -341,7 +338,6 @@ getrandom(int maxval, int op, int operand)
 	 * obscure message.
 	 */
 	errx(1, "bug: inconsistent penalties.");
-	/* NOTREACHED */
 }
 
 /* Return an index for the character op, which is one of [+-x/]. */
@@ -359,6 +355,7 @@ opnum(int op)
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: arithmetic [-o +-x/] [-r range]\n");
+	extern char *__progname;
+	(void)fprintf(stderr, "usage: %s [-o +-x/] [-r range]\n",  __progname);
 	exit(1);
 }

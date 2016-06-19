@@ -1,4 +1,4 @@
-/*	$OpenBSD: newsyslog.c,v 1.98 2015/11/19 08:23:48 sthen Exp $	*/
+/*	$OpenBSD: newsyslog.c,v 1.101 2016/06/01 16:57:48 tedu Exp $	*/
 
 /*
  * Copyright (c) 1999, 2002, 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -71,24 +71,12 @@
  *
  */
 
-#ifndef CONF
-#define CONF "/etc/newsyslog.conf" /* Configuration file */
-#endif
-#ifndef PIDFILE
-#define PIDFILE "/etc/syslog.pid"
-#endif
-#ifndef COMPRESS
-#define COMPRESS "/usr/bin/compress" /* File compression program */
-#endif
-#ifndef COMPRESS_POSTFIX
-#define COMPRESS_POSTFIX ".Z"
-#endif
-#ifndef STATS_DIR
-#define STATS_DIR "/etc"
-#endif
-#ifndef SENDMAIL
-#define SENDMAIL "/usr/lib/sendmail"
-#endif
+#define CONF "/etc/newsyslog.conf"
+#define PIDFILE "/var/run/syslog.pid"
+#define COMPRESS "/usr/bin/gzip"
+#define COMPRESS_POSTFIX ".gz"
+#define STATS_DIR "/var/run"
+#define SENDMAIL "/usr/sbin/sendmail"
 
 #include <sys/param.h>	/* DEV_BSIZE */
 #include <sys/stat.h>
@@ -117,7 +105,7 @@
 #define CE_FOLLOW	0x10		/* Follow symbolic links */
 #define CE_TRIMAT	0x20		/* Trim at a specific time */
 
-#define	MIN_PID		4		/* Don't touch pids lower than this */
+#define	MIN_PID		2		/* Don't touch pids lower than this */
 #define	MIN_SIZE	256		/* Don't rotate if smaller (in bytes) */
 
 #define	DPRINTF(x)	do { if (verbose) printf x ; } while (0)
@@ -1002,11 +990,7 @@ domonitor(struct conf_entry *ent)
 		warn("%s", fname);
 		goto cleanup;
 	}
-#ifdef QUAD_OFF_T
 	if (fscanf(fp, "%lld\n", &osize) != 1) {
-#else
-	if (fscanf(fp, "%ld\n", &osize) != 1) {
-#endif	/* QUAD_OFF_T */
 		fclose(fp);
 		goto update;
 	}
@@ -1060,17 +1044,12 @@ update:
 		warn("%s", fname);
 		goto cleanup;
 	}
-#ifdef QUAD_OFF_T
 	fprintf(fp, "%lld\n", (long long)sb.st_size);
-#else
-	fprintf(fp, "%ld\n", (long)sb.st_size);
-#endif	/* QUAD_OFF_T */
 	fclose(fp);
 
 cleanup:
 	free(flog);
-	if (rb != NULL)
-		free(rb);
+	free(rb);
 	return (1);
 }
 

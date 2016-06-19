@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pflog.c,v 1.72 2015/11/10 06:36:14 dlg Exp $	*/
+/*	$OpenBSD: if_pflog.c,v 1.74 2016/04/29 08:55:03 krw Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and 
@@ -205,11 +205,10 @@ int
 pflogoutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	struct rtentry *rt)
 {
-	m_freem(m);
-	return (0);
+	m_freem(m);	/* drop packet */
+	return (EAFNOSUPPORT);
 }
 
-/* ARGSUSED */
 int
 pflogioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ssl.c,v 1.79 2015/11/05 12:35:58 jung Exp $	*/
+/*	$OpenBSD: ssl.c,v 1.86 2016/04/21 14:27:41 jsing Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -65,13 +65,13 @@ ssl_init(void)
 }
 
 int
-ssl_setup(SSL_CTX **ctxp, struct pki *pki)
+ssl_setup(SSL_CTX **ctxp, struct pki *pki,
+    int (*sni_cb)(SSL *,int *,void *), const char *ciphers)
 {
-	DH	*dh;
 	SSL_CTX	*ctx;
 	uint8_t sid[SSL_MAX_SID_CTX_LENGTH];
 
-	ctx = ssl_ctx_create(pki->pki_name, pki->pki_cert, pki->pki_cert_len);
+	ctx = ssl_ctx_create(pki->pki_name, pki->pki_cert, pki->pki_cert_len, ciphers);
 
 	/*
 	 * Set session ID context to a random value.  We don't support
@@ -82,13 +82,10 @@ ssl_setup(SSL_CTX **ctxp, struct pki *pki)
 	if (!SSL_CTX_set_session_id_context(ctx, sid, sizeof(sid)))
 		goto err;
 
-	if (pki->pki_dhparams_len == 0)
-		dh = get_dh1024();
-	else
-		dh = get_dh_from_memory(pki->pki_dhparams,
-		    pki->pki_dhparams_len);
-	ssl_set_ephemeral_key_exchange(ctx, dh);
-	DH_free(dh);
+	if (sni_cb)
+		SSL_CTX_set_tlsext_servername_callback(ctx, sni_cb);
+
+	SSL_CTX_set_dh_auto(ctx, pki->pki_dhe);
 
 	SSL_CTX_set_ecdh_auto(ctx, 1);
 
@@ -137,8 +134,7 @@ ssl_load_file(const char *name, off_t *len, mode_t perm)
 	return (buf);
 
 fail:
-	if (buf != NULL)
-		free(buf);
+	free(buf);
 	saved_errno = errno;
 	close(fd);
 	errno = saved_errno;
@@ -254,7 +250,7 @@ fail:
 }
 
 SSL_CTX *
-ssl_ctx_create(const char *pkiname, char *cert, off_t cert_len)
+ssl_ctx_create(const char *pkiname, char *cert, off_t cert_len, const char *ciphers)
 {
 	SSL_CTX	*ctx;
 	size_t	 pkinamelen = 0;
@@ -272,7 +268,9 @@ ssl_ctx_create(const char *pkiname, char *cert, off_t cert_len)
 	SSL_CTX_set_options(ctx,
 	    SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
 
-	if (!SSL_CTX_set_cipher_list(ctx, SSL_CIPHERS)) {
+	if (ciphers == NULL)
+		ciphers = SSL_CIPHERS;
+	if (!SSL_CTX_set_cipher_list(ctx, ciphers)) {
 		ssl_error("ssl_ctx_create");
 		fatal("ssl_ctx_create: could not set cipher list");
 	}
@@ -310,31 +308,18 @@ ssl_load_keyfile(struct pki *p, const char *pathname, const char *pkiname)
 {
 	char	pass[1024];
 
-	p->pki_key = ssl_load_key(pathname, &p->pki_key_len, pass, 0700, pkiname);
+	p->pki_key = ssl_load_key(pathname, &p->pki_key_len, pass, 0740, pkiname);
 	if (p->pki_key == NULL)
 		return 0;
 	return 1;
 }
 
 int
-ssl_load_cafile(struct pki *p, const char *pathname)
+ssl_load_cafile(struct ca *c, const char *pathname)
 {
-	p->pki_ca = ssl_load_file(pathname, &p->pki_ca_len, 0755);
-	if (p->pki_ca == NULL)
+	c->ca_cert = ssl_load_file(pathname, &c->ca_cert_len, 0755);
+	if (c->ca_cert == NULL)
 		return 0;
-	return 1;
-}
-
-int
-ssl_load_dhparams(struct pki *p, const char *pathname)
-{
-	p->pki_dhparams = ssl_load_file(pathname, &p->pki_dhparams_len, 0755);
-	if (p->pki_dhparams == NULL) {
-		if (errno == EACCES)
-			return 0;
-		log_info("info: No DH parameters found in %s: "
-		    "using built-in parameters", pathname);
-	}
 	return 1;
 }
 
@@ -360,87 +345,6 @@ ssl_error(const char *where)
 	for (; (code = ERR_get_error()) != 0 ;) {
 		ERR_error_string_n(code, errbuf, sizeof(errbuf));
 		log_debug("debug: SSL library error: %s: %s", where, errbuf);
-	}
-}
-
-/* From OpenSSL's documentation:
- *
- * If "strong" primes were used to generate the DH parameters, it is
- * not strictly necessary to generate a new key for each handshake
- * but it does improve forward secrecy.
- *
- * -- gilles@
- */
-DH *
-get_dh1024(void)
-{
-	DH *dh;
-	unsigned char dh1024_p[] = {
-		0xAD,0x37,0xBB,0x26,0x75,0x01,0x27,0x75,
-		0x06,0xB5,0xE7,0x1E,0x1F,0x2B,0xBC,0x51,
-		0xC0,0xF4,0xEB,0x42,0x7A,0x2A,0x83,0x1E,
-		0xE8,0xD1,0xD8,0xCC,0x9E,0xE6,0x15,0x1D,
-		0x06,0x46,0x50,0x94,0xB9,0xEE,0xB6,0x89,
-		0xB7,0x3C,0xAC,0x07,0x5E,0x29,0x37,0xCC,
-		0x8F,0xDF,0x48,0x56,0x85,0x83,0x26,0x02,
-		0xB8,0xB6,0x63,0xAF,0x2D,0x4A,0x57,0x93,
-		0x6B,0x54,0xE1,0x8F,0x28,0x76,0x9C,0x5D,
-		0x90,0x65,0xD1,0x07,0xFE,0x5B,0x05,0x65,
-		0xDA,0xD2,0xE2,0xAF,0x23,0xCA,0x2F,0xD6,
-		0x4B,0xD2,0x04,0xFE,0xDF,0x21,0x2A,0xE1,
-		0xCD,0x1B,0x70,0x76,0xB3,0x51,0xA4,0xC9,
-		0x2B,0x68,0xE3,0xDD,0xCB,0x97,0xDA,0x59,
-		0x50,0x93,0xEE,0xDB,0xBF,0xC7,0xFA,0xA7,
-		0x47,0xC4,0x4D,0xF0,0xC6,0x09,0x4A,0x4B
-	};
-	unsigned char dh1024_g[] = {
-		0x02
-	};
-
-	if ((dh = DH_new()) == NULL)
-		return NULL;
-
-	dh->p = BN_bin2bn(dh1024_p, sizeof(dh1024_p), NULL);
-	dh->g = BN_bin2bn(dh1024_g, sizeof(dh1024_g), NULL);
-	if (dh->p == NULL || dh->g == NULL) {
-		DH_free(dh);
-		return NULL;
-	}
-
-	return dh;
-}
-
-DH *
-get_dh_from_memory(char *params, size_t len)
-{
-	BIO *mem;
-	DH *dh;
-
-	mem = BIO_new_mem_buf(params, len);
-	if (mem == NULL)
-		return NULL;
-	dh = PEM_read_bio_DHparams(mem, NULL, NULL, NULL);
-	if (dh == NULL)
-		goto err;
-	if (dh->p == NULL || dh->g == NULL)
-		goto err;
-	return dh;
-
-err:
-	if (mem != NULL)
-		BIO_free(mem);
-	if (dh != NULL)
-		DH_free(dh);
-	return NULL;
-}
-
-
-void
-ssl_set_ephemeral_key_exchange(SSL_CTX *ctx, DH *dh)
-{
-	if (dh == NULL || !SSL_CTX_set_tmp_dh(ctx, dh)) {
-		ssl_error("ssl_set_ephemeral_key_exchange");
-		fatal("ssl_set_ephemeral_key_exchange: cannot set tmp dh");
 	}
 }
 

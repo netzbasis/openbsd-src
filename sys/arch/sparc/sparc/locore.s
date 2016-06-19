@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.99 2015/03/18 20:49:40 miod Exp $	*/
+/*	$OpenBSD: locore.s,v 1.101 2016/05/23 20:11:49 deraadt Exp $	*/
 /*	$NetBSD: locore.s,v 1.73 1997/09/13 20:36:48 pk Exp $	*/
 
 /*
@@ -3916,7 +3916,6 @@ Lgandul:	nop
  * work out.
  */
 	.globl	_C_LABEL(sigcode)
-	.globl	_C_LABEL(esigcode)
 _C_LABEL(sigcode):
 	/*
 	 * XXX  the `save' and `restore' below are unnecessary: should
@@ -4009,6 +4008,8 @@ _C_LABEL(sigcode):
 
 	restore	%g0, SYS_sigreturn, %g1	! get registers back & set syscall #
 	add	%sp, 64 + 16, %o0	! compute scp
+	.globl  _C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	t	ST_SYSCALL		! sigreturn(scp)
 	! sigreturn does not return unless it fails
 	mov	SYS_exit, %g1		! exit(errno)
@@ -4020,7 +4021,19 @@ _C_LABEL(suicide):
 	mov	139, %g1		! obsolete syscall, puke...
 	t	ST_SYSCALL
 #endif
+	.globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
+
+	.globl	_C_LABEL(sigfill)
+_C_LABEL(sigfill):
+	unimp
+_C_LABEL(esigfill):
+
+	.globl	_C_LABEL(sigfillsiz)
+_C_LABEL(sigfillsiz):
+	.word	_C_LABEL(esigfill) - _C_LABEL(sigfill)
+
+	.text
 
 /*
  * Primitives

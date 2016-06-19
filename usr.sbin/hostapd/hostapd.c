@@ -1,4 +1,4 @@
-/*	$OpenBSD: hostapd.c,v 1.35 2015/01/16 06:40:17 deraadt Exp $	*/
+/*	$OpenBSD: hostapd.c,v 1.37 2016/05/28 07:00:18 natano Exp $	*/
 
 /*
  * Copyright (c) 2004, 2005 Reyk Floeter <reyk@openbsd.org>
@@ -91,8 +91,7 @@ hostapd_log(u_int level, const char *fmt, ...)
 		vsyslog(LOG_INFO, fmt, ap);
 	va_end(ap);
 
-	if (nfmt != NULL)
-		free(nfmt);
+	free(nfmt);
 }
 
 void
@@ -171,28 +170,13 @@ hostapd_check_file_secrecy(int fd, const char *fname)
 int
 hostapd_bpf_open(u_int flags)
 {
-	u_int i;
 	int fd = -1;
-	char *dev;
 	struct bpf_version bpv;
 
-	/*
-	 * Try to open the next available BPF device
-	 */
-	for (i = 0; i < 255; i++) {
-		if (asprintf(&dev, "/dev/bpf%u", i) == -1)
-			hostapd_fatal("failed to allocate buffer\n");
-
-		if ((fd = open(dev, flags)) != -1) {
-			free(dev);
-			break;
-		}
-
-		free(dev);
+	if ((fd = open("/dev/bpf0", flags)) == -1) {
+		hostapd_fatal("unable to open BPF device: %s\n",
+		    strerror(errno));
 	}
-
-	if (fd == -1)
-		hostapd_fatal("unable to open BPF device\n");
 
 	/*
 	 * Get and validate the BPF version

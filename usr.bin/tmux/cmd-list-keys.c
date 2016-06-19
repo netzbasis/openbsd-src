@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-list-keys.c,v 1.30 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: cmd-list-keys.c,v 1.35 2016/06/15 08:54:11 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -27,28 +27,34 @@
  * List key bindings.
  */
 
-enum cmd_retval	 cmd_list_keys_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	 cmd_list_keys_exec(struct cmd *, struct cmd_q *);
 
-enum cmd_retval	 cmd_list_keys_table(struct cmd *, struct cmd_q *);
-enum cmd_retval	 cmd_list_keys_commands(struct cmd_q *);
+static enum cmd_retval	 cmd_list_keys_table(struct cmd *, struct cmd_q *);
+static enum cmd_retval	 cmd_list_keys_commands(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_list_keys_entry = {
-	"list-keys", "lsk",
-	"t:T:", 0, 0,
-	"[-t mode-table] [-T key-table]",
-	0,
-	cmd_list_keys_exec
+	.name = "list-keys",
+	.alias = "lsk",
+
+	.args = { "t:T:", 0, 0 },
+	.usage = "[-t mode-table] [-T key-table]",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_list_keys_exec
 };
 
 const struct cmd_entry cmd_list_commands_entry = {
-	"list-commands", "lscm",
-	"", 0, 0,
-	"",
-	0,
-	cmd_list_keys_exec
+	.name = "list-commands",
+	.alias = "lscm",
+
+	.args = { "F:", 0, 0 },
+	.usage = "[-F format]",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_list_keys_exec
 };
 
-enum cmd_retval
+static enum cmd_retval
 cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
@@ -56,11 +62,10 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 	struct key_binding	*bd;
 	const char		*key, *tablename, *r;
 	char			*cp, tmp[BUFSIZ];
-	size_t			 used;
 	int			 repeat, width, tablewidth, keywidth;
 
 	if (self->entry == &cmd_list_commands_entry)
-		return (cmd_list_keys_commands(cmdq));
+		return (cmd_list_keys_commands(self, cmdq));
 
 	if (args_has(args, 't'))
 		return (cmd_list_keys_table(self, cmdq));
@@ -115,11 +120,9 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 			strlcat(tmp, " ", sizeof tmp);
 			free(cp);
 
-			used = strlen(tmp);
-			if (used < (sizeof tmp) - 1) {
-				cmd_list_print(bd->cmdlist, tmp + used,
-				    (sizeof tmp) - used);
-			}
+			cp = cmd_list_print(bd->cmdlist);
+			strlcat(tmp, cp, sizeof tmp);
+			free(cp);
 
 			cmdq_print(cmdq, "bind-key %s", tmp);
 		}
@@ -128,7 +131,7 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_q *cmdq)
 	return (CMD_RETURN_NORMAL);
 }
 
-enum cmd_retval
+static enum cmd_retval
 cmd_list_keys_table(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args			*args = self->args;
@@ -177,21 +180,44 @@ cmd_list_keys_table(struct cmd *self, struct cmd_q *cmdq)
 	return (CMD_RETURN_NORMAL);
 }
 
-enum cmd_retval
-cmd_list_keys_commands(struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_list_keys_commands(struct cmd *self, struct cmd_q *cmdq)
 {
+	struct args		*args = self->args;
 	const struct cmd_entry	**entryp;
 	const struct cmd_entry	 *entry;
+	struct format_tree	 *ft;
+	const char		 *template;
+	char			 *line;
+
+	if ((template = args_get(args, 'F')) == NULL) {
+		template = "#{command_list_name}"
+		    "#{?command_list_alias, (#{command_list_alias}),} "
+		    "#{command_list_usage}";
+	}
+
+	ft = format_create(cmdq, 0);
+	format_defaults(ft, NULL, NULL, NULL, NULL);
 
 	for (entryp = cmd_table; *entryp != NULL; entryp++) {
 		entry = *entryp;
-		if (entry->alias == NULL) {
-			cmdq_print(cmdq, "%s %s", entry->name, entry->usage);
-			continue;
+
+		format_add(ft, "command_list_name", "%s", entry->name);
+		if (entry->alias != NULL) {
+			format_add(ft, "command_list_alias", "%s",
+			    entry->alias);
 		}
-		cmdq_print(cmdq, "%s (%s) %s", entry->name, entry->alias,
-		    entry->usage);
+		if (entry->alias != NULL) {
+			format_add(ft, "command_list_usage", "%s",
+			    entry->usage);
+		}
+
+		line = format_expand(ft, template);
+		if (*line != '\0')
+			cmdq_print(cmdq, "%s", line);
+		free(line);
 	}
 
+	format_free(ft);
 	return (CMD_RETURN_NORMAL);
 }

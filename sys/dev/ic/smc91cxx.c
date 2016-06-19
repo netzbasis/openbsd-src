@@ -1,4 +1,4 @@
-/*	$OpenBSD: smc91cxx.c,v 1.43 2015/11/20 03:35:22 dlg Exp $	*/
+/*	$OpenBSD: smc91cxx.c,v 1.47 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: smc91cxx.c,v 1.11 1998/08/08 23:51:41 mycroft Exp $	*/
 
 /*-
@@ -249,8 +249,7 @@ smc91cxx_attach(sc, myea)
 	ifp->if_ioctl = smc91cxx_ioctl;
 	ifp->if_watchdog = smc91cxx_watchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 
 	/* Attach the interface. */
 	if_attach(ifp);
@@ -508,7 +507,7 @@ smc91cxx_init(sc)
 
 	/* Interface is now running, with no output active. */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (sc->sc_flags & SMC_FLAGS_HAS_MII) {
 		/* Start the one second clock. */
@@ -541,7 +540,7 @@ smc91cxx_start(ifp)
 	u_int8_t packetno;
 	int timo, pad;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
  again:
@@ -618,9 +617,8 @@ smc91cxx_start(ifp)
 		    bus_space_read_1(bst, bsh, INTR_MASK_REG_B) | IM_ALLOC_INT);
 
 		ifp->if_timer = 5;
-		ifp->if_flags |= IFF_OACTIVE;
-
 		ifq_deq_rollback(&ifp->if_snd, m);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -704,7 +702,7 @@ smc91cxx_start(ifp)
 
  readcheck:
 	/*
-	 * Check for incoming pcakets.  We don't want to overflow the small
+	 * Check for incoming packets.  We don't want to overflow the small
 	 * RX FIFO.  If nothing has arrived, attempt to queue another
 	 * transmit packet.
 	 */
@@ -791,7 +789,7 @@ smc91cxx_intr(arg)
 			/* XXX bound this loop! */ ;
 		bus_space_write_2(bst, bsh, MMU_CMD_REG_W, MMUCR_FREEPKT);
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_timer = 0;
 	}
 

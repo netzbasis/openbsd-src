@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.conf.5,v 1.139 2015/10/11 19:30:12 phessler Exp $
+.\" $OpenBSD: bgpd.conf.5,v 1.143 2016/06/11 11:43:02 tobias Exp $
 .\"
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 11 2015 $
+.Dd $Mdocdate: June 11 2016 $
 .Dt BGPD.CONF 5
 .Os
 .Sh NAME
@@ -412,7 +412,7 @@ is used and no restricted socket is created.
 If set to
 .Ic yes ,
 .Em AS paths
-to EBGP neighbors are not prepended with their own AS.
+to EBGP neighbors are not prepended with the local AS.
 The default is
 .Ic no .
 .El
@@ -951,7 +951,7 @@ tcp md5sig key deadbeef
 If set to
 .Ic yes ,
 .Em AS paths
-to EBGP neighbors are not prepended with their own AS.
+to EBGP neighbors are not prepended with the local AS.
 The default is inherited from the global
 .Ic transparent-as
 setting.
@@ -1027,7 +1027,10 @@ If a parameter is specified, the rule only applies to packets with
 matching attributes.
 .Pp
 .Bl -tag -width Ds -compact
-.It Ar as-type as-number
+.It Xo
+.Ar as-type Op Ar operator
+.Ar as-number
+.Xc
 This rule applies only to
 .Em UPDATES
 where the
@@ -1038,13 +1041,7 @@ The
 is matched against a part of the
 .Em AS path
 specified by the
-.Ar as-type .
-.Ar as-number
-may be set to
-.Ic neighbor-as ,
-which is expanded to the current neighbor remote AS number.
-.Ar as-type
-is one of the following operators:
+.Ar as-type :
 .Pp
 .Bl -tag -width transmit-as -compact
 .It Ic AS
@@ -1056,6 +1053,29 @@ is one of the following operators:
 .It Ic transit-as
 (all but the rightmost AS number)
 .El
+.Pp
+.Ar as-number
+is an AS number as explained above under
+.Sx GLOBAL CONFIGURATION .
+It may be set to
+.Ic neighbor-as ,
+which is expanded to the current neighbor remote AS number.
+.Pp
+The
+.Ar operator
+can be unspecified (this case is identical to the equality operator), or one of the numerical operators
+.Bd -literal -offset indent
+=	(equal)
+!=	(unequal)
+-	(range including boundaries)
+><	(except range)
+.Ed
+.Pp
+>< and -
+are binary operators (they take two arguments); with these,
+.Ar as-number
+cannot be set to
+.Ic neighbor-as .
 .Pp
 Multiple
 .Ar as-number
@@ -1368,7 +1388,7 @@ Communities are encoded as
 .Ar as-number : Ns Ar local .
 Four-octet encoding is used if the
 .Ar as-number
-is bigger then 65535 or if the AS_DOT encoding is used.
+is bigger than 65535 or if the AS_DOT encoding is used.
 IPv4 Address Specific Extended Communities are encoded as
 .Ar IP : Ns Ar local .
 Opaque Extended Communities are encoded with a single numeric value.

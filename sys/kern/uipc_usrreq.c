@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.94 2015/11/03 20:33:30 deraadt Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.97 2016/04/25 20:18:31 tedu Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -97,7 +97,6 @@ uipc_setaddr(const struct unpcb *unp, struct mbuf *nam)
 	}
 }
 
-/*ARGSUSED*/
 int
 uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
     struct mbuf *control, struct proc *p)
@@ -469,7 +468,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	unp->unp_connid.gid = p->p_ucred->cr_gid;
 	unp->unp_connid.pid = p->p_p->ps_pid;
 	unp->unp_flags |= UNP_FEIDSBIND;
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 	return (0);
 }
 
@@ -853,9 +852,8 @@ morespace:
 		if (error)
 			goto fail;
 		    
-		/* kq and systrace descriptors cannot be copied */
-		if (fp->f_type == DTYPE_KQUEUE ||
-		    fp->f_type == DTYPE_SYSTRACE) {
+		/* kqueue descriptors cannot be copied */
+		if (fp->f_type == DTYPE_KQUEUE) {
 			error = EINVAL;
 			goto fail;
 		}

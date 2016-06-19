@@ -1,4 +1,4 @@
-/*	$OpenBSD: vexpress.c,v 1.2 2015/06/14 05:01:31 jsg Exp $	*/
+/*	$OpenBSD: vexpress.c,v 1.5 2016/06/04 18:09:16 jsg Exp $	*/
 
 /*
  * Copyright (c) 2015 Jonathan Gray <jsg@openbsd.org>
@@ -22,6 +22,7 @@
 #include <machine/bus.h>
 
 #include <arm/cpufunc.h>
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 
 int	vexpress_match(struct device *, void *, void *);
@@ -51,11 +52,10 @@ struct board_dev vexpress_devs[] = {
 struct armv7_board vexpress_boards[] = {
 	{
 		BOARD_ID_VEXPRESS,
-		"ARM Versatile Express",
 		vexpress_devs,
 		NULL,
 	},
-	{ 0, NULL, NULL, NULL },
+	{ 0, NULL, NULL },
 };
 
 struct board_dev *
@@ -63,7 +63,7 @@ vexpress_board_devs(void)
 {
 	int i;
 
-	for (i = 0; vexpress_boards[i].name != NULL; i++) {
+	for (i = 0; vexpress_boards[i].board_id != 0; i++) {
 		if (vexpress_boards[i].board_id == board_id)
 			return (vexpress_boards[i].devs);
 	}
@@ -90,22 +90,17 @@ vexpress_board_init(void)
 		vexpress_a15_init();
 }
 
-const char *
-vexpress_board_name(void)
-{
-	int i;
-
-	for (i = 0; vexpress_boards[i].name != NULL; i++) {
-		if (vexpress_boards[i].board_id == board_id) {
-			return (vexpress_boards[i].name);
-			break;
-		}
-	}
-	return (NULL);
-}
-
 int
 vexpress_match(struct device *parent, void *cfdata, void *aux)
 {
+	union mainbus_attach_args *ma = (union mainbus_attach_args *)aux;
+	struct cfdata *cf = (struct cfdata *)cfdata;
+
+	if (ma->ma_name == NULL)
+		return (0);
+
+	if (strcmp(cf->cf_driver->cd_name, ma->ma_name) != 0)
+		return (0);
+
 	return (vexpress_board_devs() != NULL);
 }

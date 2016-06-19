@@ -1,4 +1,4 @@
-/*	$OpenBSD: funmap.c,v 1.51 2015/09/26 15:03:15 lum Exp $	*/
+/*	$OpenBSD: funmap.c,v 1.53 2016/04/14 17:05:32 lum Exp $	*/
 
 /* This file is in the public domain */
 
@@ -180,6 +180,7 @@ static struct funmap functnames[] = {
 	{backsearch, "search-backward",},
 	{forwsearch, "search-forward",},
 	{selfinsert, "self-insert-command",},
+	{sentencespace, "sentence-end-double-space",},
 #ifdef REGEX
 	{setcasefold, "set-case-fold-search",},
 #endif /* REGEX */
@@ -201,6 +202,7 @@ static struct funmap functnames[] = {
 	{togglereadonly, "toggle-read-only" },
 	{twiddle, "transpose-chars",},
 	{transposepara, "transpose-paragraphs",},
+	{transposeword, "transpose-words",},
 	{undo, "undo",},
 	{undo_add_boundary, "undo-boundary",},
 	{undo_boundary_enable, "undo-boundary-toggle",},

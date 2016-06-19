@@ -1,4 +1,4 @@
-/*	$OpenBSD: exesdhc.c,v 1.3 2015/05/30 02:17:36 jsg Exp $	*/
+/*	$OpenBSD: exesdhc.c,v 1.7 2016/05/05 11:01:08 kettenis Exp $	*/
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -18,8 +18,6 @@
  */
 
 /* i.MX SD/MMC support derived from /sys/dev/sdmmc/sdhc.c */
-
-#include "fdt.h"
 
 #include <sys/param.h>
 #include <sys/device.h>
@@ -199,7 +197,7 @@ uint32_t exesdhc_host_ocr(sdmmc_chipset_handle_t);
 int	exesdhc_host_maxblklen(sdmmc_chipset_handle_t);
 int	exesdhc_card_detect(sdmmc_chipset_handle_t);
 int	exesdhc_bus_power(sdmmc_chipset_handle_t, uint32_t);
-int	exesdhc_bus_clock(sdmmc_chipset_handle_t, int);
+int	exesdhc_bus_clock(sdmmc_chipset_handle_t, int, int);
 void	exesdhc_card_intr_mask(sdmmc_chipset_handle_t, int);
 void	exesdhc_card_intr_ack(sdmmc_chipset_handle_t);
 void	exesdhc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
@@ -230,6 +228,7 @@ struct sdmmc_chip_functions exesdhc_functions = {
 	/* bus power and clock frequency */
 	exesdhc_bus_power,
 	exesdhc_bus_clock,
+	NULL,
 	/* command execution */
 	exesdhc_exec_command,
 	/* card interrupt */
@@ -331,7 +330,7 @@ exesdhc_attach(struct device *parent, struct device *self, void *args)
 	 * Determine SD bus voltage levels supported by the controller.
 	 */
 	if (caps & SDHC_HOST_CTRL_CAP_VS18)
-		SET(sc->ocr, MMC_OCR_1_7V_1_8V | MMC_OCR_1_8V_1_9V);
+		SET(sc->ocr, MMC_OCR_1_65V_1_95V);
 	if (caps & SDHC_HOST_CTRL_CAP_VS30)
 		SET(sc->ocr, MMC_OCR_2_9V_3_0V | MMC_OCR_3_0V_3_1V);
 	if (caps & SDHC_HOST_CTRL_CAP_VS33)
@@ -518,7 +517,7 @@ exesdhc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
  * Return zero on success.
  */
 int
-exesdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq)
+exesdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 {
 	struct exesdhc_softc *sc = sch;
 	int div, pre_div, cur_freq, s;

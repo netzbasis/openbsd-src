@@ -1,4 +1,4 @@
-/*	$OpenBSD: netisr.h,v 1.42 2015/07/20 21:16:39 rzalamena Exp $	*/
+/*	$OpenBSD: netisr.h,v 1.45 2016/05/03 14:52:39 mpi Exp $	*/
 /*	$NetBSD: netisr.h,v 1.12 1995/08/12 23:59:24 mycroft Exp $	*/
 
 /*
@@ -53,7 +53,6 @@
 #define	NETISR_IP	2		/* same as AF_INET */
 #define	NETISR_TX	3		/* for if_snd processing */
 #define	NETISR_PFSYNC	5		/* for pfsync "immediate" tx */
-#define	NETISR_ARP	18		/* same as AF_LINK */
 #define	NETISR_IPV6	24		/* same as AF_INET6 */
 #define	NETISR_ISDN	26		/* same as AF_E164 */
 #define	NETISR_PPP	28		/* for PPP processing */
@@ -62,10 +61,13 @@
 
 #ifndef _LOCORE
 #ifdef _KERNEL
-extern int	netisr;			/* scheduling bits for network */
 
-void	nettxintr(void);
-void	arpintr(void);
+#include <sys/task.h>
+#include <sys/atomic.h>
+
+extern int	netisr;			/* scheduling bits for network */
+extern struct task if_input_task_locked;
+
 void	ipintr(void);
 void	ip6intr(void);
 void	pppintr(void);
@@ -73,16 +75,11 @@ void	bridgeintr(void);
 void	pppoeintr(void);
 void	pfsyncintr(void);
 
-#include <machine/atomic.h>
-
-extern void *netisr_intr;
 #define	schednetisr(anisr)						\
 do {									\
 	atomic_setbits_int(&netisr, (1 << (anisr)));			\
-	softintr_schedule(netisr_intr);					\
+	task_add(softnettq, &if_input_task_locked);			\
 } while (/* CONSTCOND */0)
-
-void	netisr_init(void);
 
 #endif /* _KERNEL */
 #endif /*_LOCORE */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: process.c,v 1.21 2015/01/16 06:39:51 deraadt Exp $	*/
+/*	$OpenBSD: process.c,v 1.23 2016/03/16 15:41:10 krw Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -37,18 +37,20 @@
  *		  in the table for the local user
  *	DELETE - delete invitation
  */
-#include <sys/stat.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <protocols/talkd.h>
+
+#include <ctype.h>
+#include <limits.h>
 #include <netdb.h>
-#include <syslog.h>
+#include <paths.h>
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
-#include <paths.h>
-#include <limits.h>
+#include <syslog.h>
+#include <utmp.h>
+
 #include "talkd.h"
 
 #define	satosin(sa)	((struct sockaddr_in *)(sa))
@@ -110,7 +112,7 @@ process_request(CTL_MSG *mp, CTL_RESPONSE *rp)
 
 	case LEAVE_INVITE:
 		ptr = find_request(mp);
-		if (ptr != (CTL_MSG *)0) {
+		if (ptr != NULL) {
 			rp->id_num = htonl(ptr->id_num);
 			rp->answer = SUCCESS;
 		} else
@@ -119,7 +121,7 @@ process_request(CTL_MSG *mp, CTL_RESPONSE *rp)
 
 	case LOOK_UP:
 		ptr = find_match(mp);
-		if (ptr != (CTL_MSG *)0) {
+		if (ptr != NULL) {
 			rp->id_num = htonl(ptr->id_num);
 			rp->addr = ptr->addr;
 			rp->addr.sa_family = ptr->addr.sa_family;
@@ -155,7 +157,7 @@ do_announce(CTL_MSG *mp, CTL_RESPONSE *rp)
 	}
 	hp = gethostbyaddr((char *)&satosin(&mp->ctl_addr)->sin_addr,
 		sizeof(struct in_addr), AF_INET);
-	if (hp == (struct hostent *)0) {
+	if (hp == NULL) {
 		rp->answer = MACHINE_UNKNOWN;
 		return;
 	}
@@ -179,8 +181,6 @@ do_announce(CTL_MSG *mp, CTL_RESPONSE *rp)
 		rp->answer = SUCCESS;
 	}
 }
-
-#include <utmp.h>
 
 /*
  * Search utmp for the local user

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap7.c,v 1.21 2015/09/08 21:28:36 kettenis Exp $	*/
+/*	$OpenBSD: pmap7.c,v 1.25 2016/06/07 06:23:19 dlg Exp $	*/
 /*	$NetBSD: pmap.c,v 1.147 2004/01/18 13:03:50 scw Exp $	*/
 
 /*
@@ -1105,11 +1105,9 @@ pmap_clean_page(struct vm_page *pg, int isync)
 			 * now while we still have a valid mapping for it.
 			 */
 			if (!wb) {
-				paddr_t pa;
 				cpu_dcache_wb_range(pv->pv_va, PAGE_SIZE);
-				if (pmap_extract(pm, (vaddr_t)pv->pv_va, &pa))
-					cpu_sdcache_wb_range(pv->pv_va, pa,
-					    PAGE_SIZE);
+				cpu_sdcache_wb_range(pv->pv_va,
+				    VM_PAGE_TO_PHYS(pg), PAGE_SIZE);
 				wb = TRUE;
 			}
 		}
@@ -1126,10 +1124,8 @@ pmap_clean_page(struct vm_page *pg, int isync)
 		PTE_SYNC(cwb_pte);
 		cpu_tlb_flushD_SE(cwbp);
 		cpu_cpwait();
-		paddr_t pa;
 		cpu_dcache_wb_range(cwbp, PAGE_SIZE);
-		if (pmap_extract(pmap_kernel(), (vaddr_t)cwbp, &pa))
-			cpu_sdcache_wb_range(cwbp, pa, PAGE_SIZE);
+		cpu_sdcache_wb_range(cwbp, VM_PAGE_TO_PHYS(pg), PAGE_SIZE);
 	}
 }
 
@@ -2177,7 +2173,7 @@ pmap_activate(struct proc *p)
 		}
 
 		s = splhigh();
-		disable_interrupts(I32_bit | F32_bit);
+		disable_interrupts(PSR_I | PSR_F);
 
 		/*
 		 * We MUST, I repeat, MUST fix up the L1 entry corresponding
@@ -2197,7 +2193,7 @@ pmap_activate(struct proc *p)
 		cpu_domains(pcb->pcb_dacr);
 		cpu_setttb(pcb->pcb_pagedir);
 
-		enable_interrupts(I32_bit | F32_bit);
+		enable_interrupts(PSR_I | PSR_F);
 
 		splx(s);
 	}
@@ -2790,26 +2786,30 @@ pmap_bootstrap(pd_entry_t *kernel_l1pt, vaddr_t vstart, vaddr_t vend)
 	/*
 	 * Initialize the pmap pool.
 	 */
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0, "pmappl",
-	    &pool_allocator_single);
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	    "pmappl", &pool_allocator_single);
+	pool_setipl(&pmap_pmap_pool, IPL_NONE);
 
 	/*
 	 * Initialize the pv pool.
 	 */
 	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvepl",
 	    &pmap_bootstrap_pv_allocator);
+	pool_setipl(&pmap_pv_pool, IPL_VM);
 
 	/*
 	 * Initialize the L2 dtable pool.
 	 */
 	pool_init(&pmap_l2dtable_pool, sizeof(struct l2_dtable), 0, 0, 0,
 	    "l2dtblpl", NULL);
+	pool_setipl(&pmap_l2dtable_pool, IPL_VM);
 
 	/*
 	 * Initialise the L2 descriptor table pool.
 	 */
 	pool_init(&pmap_l2ptp_pool, L2_TABLE_SIZE_REAL, L2_TABLE_SIZE_REAL, 0,
 	    0, "l2ptppl", &pool_allocator_single);
+	pool_setipl(&pmap_l2ptp_pool, IPL_VM);
 
 	cpu_dcache_wbinv_all();
 	cpu_sdcache_wbinv_all();
@@ -3337,6 +3337,12 @@ pt_entry_t	pte_l1_s_prot_kr;
 pt_entry_t	pte_l1_s_prot_kw;
 pt_entry_t	pte_l1_s_prot_mask;
 
+pt_entry_t	pte_l2_l_prot_ur;
+pt_entry_t	pte_l2_l_prot_uw;
+pt_entry_t	pte_l2_l_prot_kr;
+pt_entry_t	pte_l2_l_prot_kw;
+pt_entry_t	pte_l2_l_prot_mask;
+
 pt_entry_t	pte_l2_s_prot_ur;
 pt_entry_t	pte_l2_s_prot_uw;
 pt_entry_t	pte_l2_s_prot_kr;
@@ -3388,6 +3394,12 @@ pmap_pte_init_generic(void)
 	pte_l1_s_prot_kw = L1_S_PROT_KW_generic;
 	pte_l1_s_prot_mask = L1_S_PROT_MASK_generic;
 
+	pte_l2_l_prot_ur = L2_L_PROT_UR_generic;
+	pte_l2_l_prot_uw = L2_L_PROT_UW_generic;
+	pte_l2_l_prot_kr = L2_L_PROT_KR_generic;
+	pte_l2_l_prot_kw = L2_L_PROT_KW_generic;
+	pte_l2_l_prot_mask = L2_L_PROT_MASK_generic;
+
 	pte_l2_s_prot_ur = L2_S_PROT_UR_generic;
 	pte_l2_s_prot_uw = L2_S_PROT_UW_generic;
 	pte_l2_s_prot_kr = L2_S_PROT_KR_generic;
@@ -3436,6 +3448,12 @@ pmap_pte_init_armv7(void)
 	pte_l1_s_prot_kr = L1_S_PROT_KR_v7;
 	pte_l1_s_prot_kw = L1_S_PROT_KW_v7;
 	pte_l1_s_prot_mask = L1_S_PROT_MASK_v7;
+
+	pte_l2_l_prot_ur = L2_L_PROT_UR_v7;
+	pte_l2_l_prot_uw = L2_L_PROT_UW_v7;
+	pte_l2_l_prot_kr = L2_L_PROT_KR_v7;
+	pte_l2_l_prot_kw = L2_L_PROT_KW_v7;
+	pte_l2_l_prot_mask = L2_L_PROT_MASK_v7;
 
 	pte_l2_s_prot_ur = L2_S_PROT_UR_v7;
 	pte_l2_s_prot_uw = L2_S_PROT_UW_v7;

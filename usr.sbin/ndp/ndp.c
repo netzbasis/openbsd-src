@@ -1,4 +1,4 @@
-/*	$OpenBSD: ndp.c,v 1.67 2015/10/28 12:14:25 florian Exp $	*/
+/*	$OpenBSD: ndp.c,v 1.71 2016/04/05 18:09:30 jca Exp $	*/
 /*	$KAME: ndp.c,v 1.101 2002/07/17 08:46:33 itojun Exp $	*/
 
 /*
@@ -240,6 +240,11 @@ main(int argc, char *argv[])
 			/*NOTREACHED*/
 		}
 		delete(arg);
+		break;
+	case 'f':
+		if (argc != 0)
+			usage();
+		file(arg);
 		break;
 	case 'p':
 		if (argc != 0) {
@@ -795,7 +800,7 @@ usage(void)
 	printf("usage: ndp [-nrt] [-a | -c | -p] [-H | -P | -R] ");
 	printf("[-A wait] [-d hostname]\n");
 	printf("\t[-f filename] [-i interface [flag ...]]\n");
-	printf("\t[-s nodename etheraddr [temp] [proxy]] ");
+	printf("\t[-s nodename ether_addr [temp] [proxy]] ");
 	printf("[-V rdomain] [hostname]\n");
 	exit(1);
 }
@@ -879,7 +884,7 @@ rtget(struct sockaddr_in6 **sinp, struct sockaddr_dl **sdlp)
 	struct sockaddr_dl *sdl = NULL;
 	struct sockaddr *sa;
 	char *cp;
-	int i;
+	unsigned int i;
 
 	if (rtmsg(RTM_GET) < 0)
 		return (1);
@@ -1055,6 +1060,8 @@ plist(void)
 		err(1, "sysctl(ICMPV6CTL_ND6_PRLIST)");
 		/*NOTREACHED*/
 	}
+	if (l == 0)
+		return;
 	buf = malloc(l);
 	if (buf == NULL) {
 		err(1, "malloc");

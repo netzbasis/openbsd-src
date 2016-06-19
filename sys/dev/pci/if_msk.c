@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_msk.c,v 1.119 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_msk.c,v 1.123 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999, 2000
@@ -100,8 +100,6 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -960,7 +958,6 @@ msk_attach(struct device *parent, struct device *self, void *aux)
 	    sc->sk_type != SK_YUKON_FE_P)
 		ifp->if_hardmtu = SK_JUMBO_MTU;
 	IFQ_SET_MAXLEN(&ifp->if_snd, MSK_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc_if->sk_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -1555,7 +1552,7 @@ msk_start(struct ifnet *ifp)
 		 */
 		if (msk_encap(sc_if, m_head, &idx)) {
 			ifq_deq_rollback(&ifp->if_snd, m_head);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1722,7 +1719,7 @@ msk_txeof(struct sk_if_softc *sc_if)
 	ifp->if_timer = sc_if->sk_cdata.sk_tx_cnt > 0 ? 5 : 0;
 
 	if (sc_if->sk_cdata.sk_tx_cnt < MSK_TX_RING_CNT - 2)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	sc_if->sk_cdata.sk_tx_cons = idx;
 }
@@ -2091,7 +2088,7 @@ msk_init(void *xsc_if)
 	CSR_WRITE_4(sc, SK_IMR, sc->sk_intrmask);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc_if->sk_tick_ch, 1);
 
@@ -2110,7 +2107,8 @@ msk_stop(struct sk_if_softc *sc_if, int softonly)
 
 	timeout_del(&sc_if->sk_tick_ch);
 
-	ifp->if_flags &= ~(IFF_RUNNING|IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop transfer of Tx descriptors */
 

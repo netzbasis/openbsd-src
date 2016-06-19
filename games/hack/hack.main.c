@@ -1,4 +1,4 @@
-/*	$OpenBSD: hack.main.c,v 1.18 2015/11/04 21:22:10 tedu Exp $	*/
+/*	$OpenBSD: hack.main.c,v 1.22 2016/01/09 21:54:11 mestre Exp $	*/
 
 /*
  * Copyright (c) 1985, Stichting Centrum voor Wiskunde en Informatica,
@@ -61,13 +61,13 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <stdlib.h>
+
 #include <stdio.h>
-#include <stdarg.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+
 #include "hack.h"
 
 #ifdef QUEST
@@ -90,7 +90,6 @@ int locknum;				/* max num of players */
 char *catmore;				/* default pager */
 #endif
 char SAVEF[PL_NSIZ + 11] = "save/";	/* save/99999player */
-char *hname;		/* name of the game (argv[0] of call) */
 char obuf[BUFSIZ];	/* BUFSIZ is defined in stdio.h */
 
 extern char *nomovemsg;
@@ -103,12 +102,12 @@ static void chdirx(char *, boolean);
 int
 main(int argc, char **argv)
 {
+	extern char *__progname;
 	int fd;
 #ifdef CHDIR
 	char *dir;
 #endif
 
-	hname = argv[0];
 	hackpid = getpid();
 
 #ifdef CHDIR			/* otherwise no chdir() */
@@ -167,7 +166,7 @@ main(int argc, char **argv)
 		chdirx(dir,0);
 #endif
 		prscore(argc, argv);
-		exit(0);
+		return 0;
 	}
 
 	/*
@@ -187,7 +186,7 @@ main(int argc, char **argv)
 	 * Find the creation date of this game,
 	 * so as to avoid restoring outdated savefiles.
 	 */
-	gethdate(hname);
+	gethdate(__progname);
 
 	/*
 	 * We cannot do chdir earlier, otherwise gethdate will fail.
@@ -453,7 +452,7 @@ not_recovered:
 #ifdef MAIL
 			ckmailstatus();
 #endif
-			rhack((char *) 0);
+			rhack(NULL);
 		}
 		if(multi && multi%7 == 0)
 			(void) fflush(stdout);
@@ -477,7 +476,7 @@ glo(int foo)
  * It may still contain a suffix denoting pl_character.
  */
 void
-askname()
+askname(void)
 {
 	int c,ct;
 
@@ -556,7 +555,7 @@ chdirx(char *dir, boolean wr)
 #endif
 
 void
-stop_occupation()
+stop_occupation(void)
 {
 	if(occupation) {
 		pline("You stop %s.", occtxt);

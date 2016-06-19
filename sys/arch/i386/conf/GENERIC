@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.808 2015/10/29 07:47:02 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.816 2016/06/15 19:39:34 gerhard Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -17,14 +17,11 @@ option		USER_PCICONF	# user-space PCI configuration
 
 #option		VM86		# Virtual 8086 emulation
 option		KVM86		# Kernel Virtual 8086 emulation
-option		USER_LDT	# user-settable LDT; see i386_set_ldt(2)
 option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
 
 #option		KGDB		# Remote debugger support; exclusive of DDB
 #option		"KGDB_DEVNAME=\"com\"",KGDBADDR=0x2f8,KGDBRATE=9600
-
-option		COMPAT_LINUX	# binary compatibility with Linux
 
 option		NTFS		# NTFS support
 option		HIBERNATE	# Hibernate support
@@ -100,6 +97,7 @@ iic*	at glxpcib?
 kate*	at pci?			# AMD K8 temperature sensor
 km*	at pci?			# AMD K10 temperature sensor
 amas*	at pci? disable		# AMD memory configuration
+pchtemp* at pci?		# Intel C610 termperature sensor
 
 # power management and other environmental stuff
 elansc*	at pci?			# AMD Elan SC520 System Controller
@@ -232,6 +230,7 @@ usb*	at ohci?
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
 ualea*	at uhub?		# Araneus Alea II TRNG
+uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?		# Handspring Visor
@@ -315,6 +314,7 @@ rsu*	at uhub?		# Realtek RTL8188SU/RTL8191SU/RTL8192SU
 urtwn*	at uhub?		# Realtek RTL8188CU/RTL8192CU
 udcf*	at uhub?		# Gude Expert mouseCLOCK
 umbg*	at uhub?		# Meinberg Funkuhren USB5131
+umb*	at uhub?		# Mobile Broadband Interface Model
 uthum*	at uhidev?		# TEMPerHUM sensor
 ugold*	at uhidev?		# gold TEMPer sensor
 utrh*	at uhidev?		# USBRH sensor
@@ -326,6 +326,9 @@ uoakv*	at uhidev?		# Toradex OAK 10V sensor
 onewire* at uow?
 uvideo* at uhub?		# USB video
 video*  at uvideo?
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
 
@@ -344,7 +347,6 @@ isapnp0	at isa?
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 pckbc0		at isa? flags 0x00	# PC keyboard controller
 pckbd*		at pckbc?	# PC keyboard
@@ -378,12 +380,12 @@ agp*		at intagp?
 drm0		at inteldrm? console 1
 drm*		at inteldrm?
 wsdisplay0	at inteldrm? console 1
-wsdisplay*	at inteldrm?
+wsdisplay*	at inteldrm? mux -1
 radeondrm*	at pci? 	# ATI Radeon DRM driver
 drm0		at radeondrm? console 1
 drm*		at radeondrm?
 wsdisplay0	at radeondrm? console 1
-wsdisplay*	at radeondrm?
+wsdisplay*	at radeondrm? mux -1
 
 pcppi0		at isa?
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.28 2015/11/19 21:32:53 mmcc Exp $	*/
+/*	$OpenBSD: util.c,v 1.30 2015/11/23 19:28:34 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -35,22 +35,9 @@
 #include "iked.h"
 #include "ikev2.h"
 
-void
-socket_set_blockmode(int fd, enum blockmodes bm)
-{
-	int	flags;
-
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
-		fatal("fcntl F_GETFL");
-
-	if (bm == BM_NONBLOCK)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
-
-	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
-		fatal("fcntl F_SETFL");
-}
+/* log.c */
+extern int	 debug;
+extern int	 verbose;
 
 int
 socket_af(struct sockaddr *sa, in_port_t port)
@@ -183,7 +170,8 @@ udp_bind(struct sockaddr *sa, in_port_t port)
 		return (-1);
 	}
 
-	if ((s = socket(sa->sa_family, SOCK_DGRAM, IPPROTO_UDP)) == -1) {
+	if ((s = socket(sa->sa_family,
+	    SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP)) == -1) {
 		log_warn("%s: failed to get UDP socket", __func__);
 		return (-1);
 	}
@@ -712,4 +700,28 @@ string2unicode(const char *ascii, size_t *outlen)
 	*outlen = len * 2;
 
 	return (uc);
+}
+
+void
+print_debug(const char *emsg, ...)
+{
+	va_list	 ap;
+
+	if (debug && verbose > 2) {
+		va_start(ap, emsg);
+		vfprintf(stderr, emsg, ap);
+		va_end(ap);
+	}
+}
+
+void
+print_verbose(const char *emsg, ...)
+{
+	va_list	 ap;
+
+	if (verbose) {
+		va_start(ap, emsg);
+		vfprintf(stderr, emsg, ap);
+		va_end(ap);
+	}
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upl.c,v 1.68 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_upl.c,v 1.71 2016/04/13 11:03:37 mpi Exp $ */
 /*	$NetBSD: if_upl.c,v 1.19 2002/07/11 21:14:26 augustss Exp $	*/
 /*
  * Copyright (c) 2000 The NetBSD Foundation, Inc.
@@ -48,7 +48,6 @@
 
 #include <net/if.h>
 #include <net/if_types.h>
-#include <net/netisr.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -274,7 +273,6 @@ upl_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_hdrlen = 0;
 	ifp->if_output = upl_output;
 	ifp->if_baudrate = IF_Mbps(12);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Attach the interface. */
 	if_attach(ifp);
@@ -500,7 +498,7 @@ upl_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 		    __func__, status));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -577,7 +575,7 @@ upl_start(struct ifnet *ifp)
 
 	DPRINTFN(10,("%s: %s: enter\n", sc->sc_dev.dv_xname,__func__));
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	m_head = ifq_deq_begin(&ifp->if_snd);
@@ -586,7 +584,7 @@ upl_start(struct ifnet *ifp)
 
 	if (upl_send(sc, m_head, 0)) {
 		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -601,7 +599,7 @@ upl_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * Set a timeout in case the chip goes out to lunch.
@@ -645,7 +643,7 @@ upl_init(void *xsc)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -826,7 +824,8 @@ upl_stop(struct upl_softc *sc)
 
 	ifp = &sc->sc_if;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop transfers. */
 	if (sc->sc_ep[UPL_ENDPT_RX] != NULL) {

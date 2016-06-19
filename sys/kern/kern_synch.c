@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.125 2015/09/28 21:02:12 deraadt Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.131 2016/03/29 02:43:47 jsg Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -49,6 +49,7 @@
 #include <sys/syscallargs.h>
 #include <sys/pool.h>
 #include <sys/refcnt.h>
+#include <sys/atomic.h>
 #include <ddb/db_output.h>
 
 #include <machine/spinlock.h>
@@ -58,7 +59,7 @@
 #endif
 
 int	thrsleep(struct proc *, struct sys___thrsleep_args *);
-
+int	thrsleep_unlock(void *, int);
 
 /*
  * We're only looking at 7 bits of the address; everything is
@@ -431,11 +432,27 @@ wakeup(const volatile void *chan)
 int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
-	yield();
+	struct proc *q;
+	int s;
+
+	SCHED_LOCK(s);
+	/*
+	 * If one of the threads of a multi-threaded process called
+	 * sched_yield(2), drop its priority to ensure its siblings
+	 * can make some progress.
+	 */
+	p->p_priority = p->p_usrpri;
+	TAILQ_FOREACH(q, &p->p_p->ps_threads, p_thr_link)
+		p->p_priority = max(p->p_priority, q->p_priority);
+	p->p_stat = SRUN;
+	setrunqueue(p);
+	p->p_ru.ru_nvcsw++;
+	mi_switch();
+	SCHED_UNLOCK(s);
+
 	return (0);
 }
 
-int thrsleep_unlock(void *, int);
 int
 thrsleep_unlock(void *lock, int lockflags)
 {
@@ -595,6 +612,36 @@ sys___thrwakeup(struct proc *p, void *v, register_t *retval)
 	}
 
 	return (0);
+}
+
+void
+refcnt_init(struct refcnt *r)
+{
+	r->refs = 1;
+}
+
+void
+refcnt_take(struct refcnt *r)
+{
+#ifdef DIAGNOSTIC
+	u_int refcnt;
+
+	refcnt = atomic_inc_int_nv(&r->refs);
+	KASSERT(refcnt != 0);
+#else
+	atomic_inc_int(&r->refs);
+#endif
+}
+
+int
+refcnt_rele(struct refcnt *r)
+{
+	u_int refcnt;
+
+	refcnt = atomic_dec_int_nv(&r->refs);
+	KASSERT(refcnt != ~0);
+
+	return (refcnt == 0);
 }
 
 void

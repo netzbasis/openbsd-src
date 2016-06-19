@@ -1,4 +1,4 @@
-/*	$OpenBSD: msg.c,v 1.23 2015/11/19 07:53:31 bentley Exp $	*/
+/*	$OpenBSD: msg.c,v 1.26 2016/01/06 22:29:38 millert Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -115,7 +115,8 @@ retry:		FREE_SPACE(sp, bp, blen);
 	mp = bp;
 	mlen = 0;
 	if (mt == M_SYSERR) {
-		p = msg_cat(sp, "020|Error: ", &len);
+		p = "Error: ";
+		len = strlen(p);
 		if (REM < len)
 			goto retry;
 		memcpy(mp, p, len);
@@ -146,7 +147,6 @@ retry:		FREE_SPACE(sp, bp, blen);
 		len = 0;
 		goto nofmt;
 	}
-	fmt = msg_cat(sp, fmt, NULL);
 
 	/* Format the arguments into the string. */
         va_start(ap, fmt);
@@ -233,17 +233,17 @@ void
 mod_rpt(SCR *sp)
 {
 	static char * const action[] = {
-		"293|added",
-		"294|changed",
-		"295|deleted",
-		"296|joined",
-		"297|moved",
-		"298|shifted",
-		"299|yanked",
+		"added",
+		"changed",
+		"deleted",
+		"joined",
+		"moved",
+		"shifted",
+		"yanked",
 	};
 	static char * const lines[] = {
-		"300|line",
-		"301|lines",
+		"line",
+		"lines",
 	};
 	recno_t total;
 	u_long rptval;
@@ -303,15 +303,15 @@ mod_rpt(SCR *sp)
 			len = snprintf(p, MAXNUM, "%u ", sp->rptlines[cnt]);
 			p += len;
 			tlen += len;
-			t = msg_cat(sp,
-			    lines[sp->rptlines[cnt] == 1 ? 0 : 1], &len);
+			t = lines[sp->rptlines[cnt] == 1 ? 0 : 1];
+			len = strlen(t);
 			memcpy(p, t, len);
 			p += len;
 			tlen += len;
 			*p++ = ' ';
 			++tlen;
-			t = msg_cat(sp, *ap, &len);
-			memcpy(p, t, len);
+			len = strlen(*ap);
+			memcpy(p, *ap, len);
 			p += len;
 			tlen += len;
 			sp->rptlines[cnt] = 0;
@@ -367,8 +367,7 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 	if (F_ISSET(sp, SC_STATUS_CNT) && sp->argv != NULL) {
 		for (cnt = 0, ap = sp->argv; *ap != NULL; ++ap, ++cnt);
 		if (cnt > 1) {
-			(void)snprintf(p, ep - p,
-			    msg_cat(sp, "317|%d files to edit", NULL), cnt);
+			(void)snprintf(p, ep - p, "%d files to edit", cnt);
 			p += strlen(p);
 			*p++ = ':';
 			*p++ = ' ';
@@ -386,14 +385,14 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 	needsep = 0;
 	if (F_ISSET(sp->frp, FR_NEWFILE)) {
 		F_CLR(sp->frp, FR_NEWFILE);
-		t = msg_cat(sp, "021|new file", &len);
-		memcpy(p, t, len);
+		len = strlen("new file");
+		memcpy(p, "new file", len);
 		p += len;
 		needsep = 1;
 	} else {
 		if (F_ISSET(sp->frp, FR_NAMECHANGE)) {
-			t = msg_cat(sp, "022|name changed", &len);
-			memcpy(p, t, len);
+			len = strlen("name changed");
+			memcpy(p, "name changed", len);
 			p += len;
 			needsep = 1;
 		}
@@ -401,10 +400,8 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 			*p++ = ',';
 			*p++ = ' ';
 		}
-		if (F_ISSET(sp->ep, F_MODIFIED))
-			t = msg_cat(sp, "023|modified", &len);
-		else
-			t = msg_cat(sp, "024|unmodified", &len);
+		t = (F_ISSET(sp->ep, F_MODIFIED)) ? "modified" : "unmodified";
+		len = strlen(t);
 		memcpy(p, t, len);
 		p += len;
 		needsep = 1;
@@ -414,8 +411,8 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 			*p++ = ',';
 			*p++ = ' ';
 		}
-		t = msg_cat(sp, "025|UNLOCKED", &len);
-		memcpy(p, t, len);
+		len = strlen("UNLOCKED");
+		memcpy(p, "UNLOCKED", len);
 		p += len;
 		needsep = 1;
 	}
@@ -424,8 +421,8 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 			*p++ = ',';
 			*p++ = ' ';
 		}
-		t = msg_cat(sp, "026|readonly", &len);
-		memcpy(p, t, len);
+		len = strlen("readonly");
+		memcpy(p, "readonly", len);
 		p += len;
 		needsep = 1;
 	}
@@ -437,18 +434,16 @@ msgq_status(SCR *sp, recno_t lno, u_int flags)
 		if (db_last(sp, &last))
 			return;
 		if (last == 0) {
-			t = msg_cat(sp, "028|empty file", &len);
-			memcpy(p, t, len);
+			len = strlen("emptry file");
+			memcpy(p, "empty file", len);
 			p += len;
 		} else {
-			t = msg_cat(sp, "027|line %lu of %lu [%ld%%]", &len);
-			(void)snprintf(p, ep - p, t, lno, last,
-			    (lno * 100) / last);
+			(void)snprintf(p, ep - p, "line %lu of %lu [%ld%%]",
+			    lno, last, (lno * 100) / last);
 			p += strlen(p);
 		}
 	} else {
-		t = msg_cat(sp, "029|line %lu", &len);
-		(void)snprintf(p, ep - p, t, lno);
+		(void)snprintf(p, ep - p, "line %lu", lno);
 		p += strlen(p);
 	}
 #ifdef DEBUG
@@ -497,88 +492,6 @@ alloc_err:
 }
 
 /*
- * msg_open --
- *	Open the message catalogs.
- *
- * PUBLIC: int msg_open(SCR *, char *);
- */
-int
-msg_open(SCR *sp, char *file)
-{
-	/*
-	 * !!!
-	 * Assume that the first file opened is the system default, and that
-	 * all subsequent ones user defined.  Only display error messages
-	 * if we can't open the user defined ones -- it's useful to know if
-	 * the system one wasn't there, but if nvi is being shipped with an
-	 * installed system, the file will be there, if it's not, then the
-	 * message will be repeated every time nvi is started up.
-	 */
-	static int first = 1;
-	DB *db;
-	DBT data, key;
-	recno_t msgno;
-	char *p, *t, buf[PATH_MAX];
-
-	if ((p = strrchr(file, '/')) != NULL && p[1] == '\0' &&
-	    (((t = getenv("LC_MESSAGES")) != NULL && t[0] != '\0') ||
-	    ((t = getenv("LANG")) != NULL && t[0] != '\0'))) {
-		(void)snprintf(buf, sizeof(buf), "%s%s", file, t);
-		p = buf;
-	} else
-		p = file;
-	if ((db = dbopen(p,
-	    O_NONBLOCK | O_RDONLY, 0, DB_RECNO, NULL)) == NULL) {
-		if (first) {
-			first = 0;
-			return (1);
-		}
-		msgq_str(sp, M_SYSERR, p, "%s");
-		return (1);
-	}
-
-	/*
-	 * Test record 1 for the magic string.  The msgq call is here so
-	 * the message catalog build finds it.
-	 */
-#define	VMC	"VI_MESSAGE_CATALOG"
-	key.data = &msgno;
-	key.size = sizeof(recno_t);
-	msgno = 1;
-	if (db->get(db, &key, &data, 0) != 0 ||
-	    data.size != sizeof(VMC) - 1 ||
-	    memcmp(data.data, VMC, sizeof(VMC) - 1)) {
-		(void)db->close(db);
-		if (first) {
-			first = 0;
-			return (1);
-		}
-		msgq_str(sp, M_ERR, p,
-		    "030|The file %s is not a message catalog");
-		return (1);
-	}
-	first = 0;
-
-	if (sp->gp->msg != NULL)
-		(void)sp->gp->msg->close(sp->gp->msg);
-	sp->gp->msg = db;
-	return (0);
-}
-
-/*
- * msg_close --
- *	Close the message catalogs.
- *
- * PUBLIC: void msg_close(GS *);
- */
-void
-msg_close(GS *gp)
-{
-	if (gp->msg != NULL)
-		(void)gp->msg->close(gp->msg);
-}
-
-/*
  * msg_cont --
  *	Return common continuation messages.
  *
@@ -587,77 +500,31 @@ msg_close(GS *gp)
 const char *
 msg_cmsg(SCR *sp, cmsg_t which, size_t *lenp)
 {
+	const char *s;
 	switch (which) {
 	case CMSG_CONF:
-		return (msg_cat(sp, "268|confirm? [ynq]", lenp));
+		s = "confirm? [ynq]";
+		break;
 	case CMSG_CONT:
-		return (msg_cat(sp, "269|Press any key to continue: ", lenp));
+		s = "Press any key to continue: ";
+		break;
 	case CMSG_CONT_EX:
-		return (msg_cat(sp,
-	    "270|Press any key to continue [: to enter more ex commands]: ",
-		    lenp));
+		s = "Press any key to continue [: to enter more ex commands]: ";
+		break;
 	case CMSG_CONT_R:
-		return (msg_cat(sp, "161|Press Enter to continue: ", lenp));
+		s = "Press Enter to continue: ";
+		break;
 	case CMSG_CONT_S:
-		return (msg_cat(sp, "275| cont?", lenp));
+		s = " cont?";
+		break;
 	case CMSG_CONT_Q:
-		return (msg_cat(sp,
-		    "271|Press any key to continue [q to quit]: ", lenp));
+		s = "Press any key to continue [q to quit]: ";
+		break;
 	default:
 		abort();
 	}
-	/* NOTREACHED */
-}
-
-/*
- * msg_cat --
- *	Return a single message from the catalog, plus its length.
- *
- * !!!
- * Only a single catalog message can be accessed at a time, if multiple
- * ones are needed, they must be copied into local memory.
- *
- * PUBLIC: const char *msg_cat(SCR *, const char *, size_t *);
- */
-const char *
-msg_cat(SCR *sp, const char *str, size_t *lenp)
-{
-	GS *gp;
-	DBT data, key;
-	recno_t msgno;
-
-	/*
-	 * If it's not a catalog message, i.e. has doesn't have a leading
-	 * number and '|' symbol, we're done.
-	 */
-	if (isdigit(str[0]) &&
-	    isdigit(str[1]) && isdigit(str[2]) && str[3] == '|') {
-		key.data = &msgno;
-		key.size = sizeof(recno_t);
-		msgno = atoi(str);
-
-		/*
-		 * XXX
-		 * Really sleazy hack -- we put an extra character on the
-		 * end of the format string, and then we change it to be
-		 * the nul termination of the string.  There ought to be
-		 * a better way.  Once we can allocate multiple temporary
-		 * memory buffers, maybe we can use one of them instead.
-		 */
-		gp = sp == NULL ? NULL : sp->gp;
-		if (gp != NULL && gp->msg != NULL &&
-		    gp->msg->get(gp->msg, &key, &data, 0) == 0 &&
-		    data.size != 0) {
-			if (lenp != NULL)
-				*lenp = data.size - 1;
-			((char *)data.data)[data.size - 1] = '\0';
-			return (data.data);
-		}
-		str = &str[4];
-	}
-	if (lenp != NULL)
-		*lenp = strlen(str);
-	return (str);
+	*lenp = strlen(s);
+	return s;
 }
 
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_io.c,v 1.22 2015/03/14 03:38:49 jsg Exp $	*/
+/*	$OpenBSD: sdmmc_io.c,v 1.26 2016/05/12 15:26:42 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -171,21 +171,23 @@ sdmmc_io_init(struct sdmmc_softc *sc, struct sdmmc_function *sf)
 {
 	rw_assert_wrlock(&sc->sc_lock);
 
-	if (sf->number == 0) {
-		sdmmc_io_write_1(sf, SD_IO_CCCR_BUS_WIDTH,
-		    CCCR_BUS_WIDTH_1);
-
-		if (sdmmc_read_cis(sf, &sf->cis) != 0) {
-			printf("%s: can't read CIS\n", DEVNAME(sc));
-			SET(sf->flags, SFF_ERROR);
-			return 1;
-		}
-
-		sdmmc_check_cis_quirks(sf);
-
-		if (sdmmc_verbose)
-			sdmmc_print_cis(sf);
+	if (sdmmc_read_cis(sf, &sf->cis) != 0) {
+		printf("%s: can't read CIS\n", DEVNAME(sc));
+		SET(sf->flags, SFF_ERROR);
+		return 1;
 	}
+
+	sdmmc_check_cis_quirks(sf);
+
+	if (sdmmc_verbose)
+		sdmmc_print_cis(sf);
+
+	if (sf->number == 0) {
+		/* XXX respect host and card capabilities */
+		(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
+		    25000, SDMMC_TIMING_LEGACY);
+	}
+
 	return 0;
 }
 
@@ -422,7 +424,7 @@ sdmmc_io_rw_extended(struct sdmmc_softc *sc, struct sdmmc_function *sf,
 		cmd.c_flags |= SCF_CMD_READ;
 
 	error = sdmmc_mmc_command(sc, &cmd);
-	rw_exit(&sc->sc_lock);
+
 	return error;
 }
 

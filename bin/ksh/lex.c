@@ -1,12 +1,15 @@
-/*	$OpenBSD: lex.c,v 1.64 2015/11/18 15:31:21 nicm Exp $	*/
+/*	$OpenBSD: lex.c,v 1.69 2016/04/27 12:46:23 naddy Exp $	*/
 
 /*
  * lexical analysis and source input
  */
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -424,40 +427,22 @@ yylex(int cf)
 				/* Need to know if we are inside double quotes
 				 * since sh/at&t-ksh translate the \" to " in
 				 * "`..\"..`".
-				 * This is not done in posix mode (section
-				 * 3.2.3, Double Quotes: "The backquote shall
-				 * retain its special meaning introducing the
-				 * other form of command substitution (see
-				 * 3.6.3). The portion of the quoted string
-				 * from the initial backquote and the
-				 * characters up to the next backquote that
-				 * is not preceded by a backslash (having
-				 * escape characters removed) defines that
-				 * command whose output replaces `...` when
-				 * the word is expanded."
-				 * Section 3.6.3, Command Substitution:
-				 * "Within the backquoted style of command
-				 * substitution, backslash shall retain its
-				 * literal meaning, except when followed by
-				 * $ ` \.").
 				 */
 				statep->ls_sbquote.indquotes = 0;
-				if (!Flag(FPOSIX)) {
-					Lex_state *s = statep;
-					Lex_state *base = state_info.base;
-					while (1) {
-						for (; s != base; s--) {
-							if (s->ls_state == SDQUOTE) {
-								statep->ls_sbquote.indquotes = 1;
-								break;
-							}
+				Lex_state *s = statep;
+				Lex_state *base = state_info.base;
+				while (1) {
+					for (; s != base; s--) {
+						if (s->ls_state == SDQUOTE) {
+							statep->ls_sbquote.indquotes = 1;
+							break;
 						}
-						if (s != base)
-							break;
-						if (!(s = s->ls_info.base))
-							break;
-						base = s-- - STATE_BSIZE;
 					}
+					if (s != base)
+						break;
+					if (!(s = s->ls_info.base))
+						break;
+					base = s-- - STATE_BSIZE;
 				}
 				break;
 			default:
@@ -579,6 +564,15 @@ yylex(int cf)
 			break;
 
 		case SBRACEQ:
+			/*{*/
+			if (c == '}') {
+				POP_STATE();
+				*wp++ = CSUBST;
+				*wp++ = /*{*/ '}';
+			} else
+				goto Sbase2;
+			break;
+
 		case SBRACE:
 			/*{*/
 			if (c == '}') {
@@ -1121,7 +1115,7 @@ getsc_line(Source *s)
 			char *p = shf_getse(xp, Xnleft(s->xs, xp), s->u.shf);
 
 			if (!p && shf_error(s->u.shf) &&
-			    shf_errno(s->u.shf) == EINTR) {
+			    s->u.shf->errno_ == EINTR) {
 				shf_clearerr(s->u.shf);
 				if (trap)
 					runtraps(0);
@@ -1198,7 +1192,7 @@ set_prompt(int to, Source *s)
 		ps1 = str_save(str_val(global("PS1")), ATEMP);
 		saved_atemp = ATEMP;	/* ps1 is freed by substitute() */
 		newenv(E_ERRH);
-		if (sigsetjmp(e->jbuf, 0)) {
+		if (sigsetjmp(genv->jbuf, 0)) {
 			prompt = safe_prompt;
 			/* Don't print an error - assume it has already
 			 * been printed.  Reason is we may have forked

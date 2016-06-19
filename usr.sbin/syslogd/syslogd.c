@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.201 2015/10/24 12:49:37 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.205 2016/04/02 19:55:10 krw Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -321,12 +321,14 @@ void	die(int);
 void	markit(void);
 void	fprintlog(struct filed *, int, char *);
 void	init(void);
+void	logevent(int, const char *);
 void	logerror(const char *);
 void	logerrorx(const char *);
 void	logerrorctx(const char *, struct tls *);
 void	logerror_reason(const char *, const char *);
 void	logmsg(int, char *, char *, int);
 struct filed *find_dup(struct filed *);
+size_t	parsepriority(const char *, int *);
 void	printline(char *, char *);
 void	printsys(char *);
 void	usage(void);
@@ -434,10 +436,12 @@ main(int argc, char *argv[])
 		logerror("Couldn't open /dev/null");
 		die(0);
 	}
-	for (fd = nullfd + 1; fd <= 2; fd++) {
-		if (fcntl(fd, F_GETFL, 0) == -1)
-			if (dup2(nullfd, fd) == -1)
+	for (fd = nullfd + 1; fd <= STDERR_FILENO; fd++) {
+		if (fcntl(fd, F_GETFL) == -1 && errno == EBADF)
+			if (dup2(nullfd, fd) == -1) {
 				logerror("dup2");
+				die(0);
+			}
 	}
 
 	consfile.f_type = F_CONSOLE;
@@ -709,6 +713,8 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 
 	/* Process is now unprivileged and inside a chroot */
+	if (Debug)
+		event_set_log_callback(logevent);
 	event_init();
 
 	if ((ev_ctlaccept = malloc(sizeof(struct event))) == NULL ||
@@ -1484,6 +1490,33 @@ usage(void)
 }
 
 /*
+ * Parse a priority code of the form "<123>" into pri, and return the
+ * length of the priority code including the surrounding angle brackets.
+ */
+size_t
+parsepriority(const char *msg, int *pri)
+{
+	size_t nlen;
+	char buf[11];
+	const char *errstr;
+	int maybepri;
+
+	if (*msg++ == '<') {
+		nlen = strspn(msg, "1234567890");
+		if (nlen > 0 && nlen < sizeof(buf) && msg[nlen] == '>') {
+			strlcpy(buf, msg, nlen + 1);
+			maybepri = strtonum(buf, 0, INT_MAX, &errstr);
+			if (errstr == NULL) {
+				*pri = maybepri;
+				return nlen + 2;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/*
  * Take a raw input line, decode the message, and print the message
  * on the appropriate log files.
  */
@@ -1496,13 +1529,7 @@ printline(char *hname, char *msg)
 	/* test for special codes */
 	pri = DEFUPRI;
 	p = msg;
-	if (*p == '<') {
-		pri = 0;
-		while (isdigit((unsigned char)*++p))
-			pri = 10 * pri + (*p - '0');
-		if (*p == '>')
-			++p;
-	}
+	p += parsepriority(p, &pri);
 	if (pri &~ (LOG_FACMASK|LOG_PRIMASK))
 		pri = DEFUPRI;
 
@@ -1533,19 +1560,16 @@ printsys(char *msg)
 {
 	int c, pri, flags;
 	char *lp, *p, *q, line[MAXLINE + 1];
+	size_t prilen;
 
 	(void)snprintf(line, sizeof line, "%s: ", _PATH_UNIX);
 	lp = line + strlen(line);
 	for (p = msg; *p != '\0'; ) {
 		flags = SYNC_FILE | ADDDATE;	/* fsync file after write */
 		pri = DEFSPRI;
-		if (*p == '<') {
-			pri = 0;
-			while (isdigit((unsigned char)*++p))
-				pri = 10 * pri + (*p - '0');
-			if (*p == '>')
-				++p;
-		} else {
+		prilen = parsepriority(p, &pri);
+		p += prilen;
+		if (prilen == 0) {
 			/* kernel printf's come out on console */
 			flags |= IGN_CONS;
 		}
@@ -1995,7 +2019,14 @@ die_signalcb(int signum, short event, void *arg)
 void
 mark_timercb(int unused, short event, void *arg)
 {
+	struct event		*ev = arg;
+	struct timeval		 to;
+
 	markit();
+
+	to.tv_sec = TIMERINTVL;
+	to.tv_usec = 0;
+	evtimer_add(ev, &to);
 }
 
 void
@@ -2016,6 +2047,12 @@ init_signalcb(int signum, short event, void *arg)
 		tcpbuf_dropped = 0;
 		logmsg(LOG_SYSLOG|LOG_WARNING, ebuf, LocalHostName, ADDDATE);
 	}
+}
+
+void
+logevent(int severity, const char *msg)
+{
+	logdebug("libevent: [%d] %s\n", severity, msg);
 }
 
 void
@@ -2616,7 +2653,7 @@ cfline(char *line, char *progblock, char *hostblock)
 				f->f_type = F_FILE;
 
 				/* Clear O_NONBLOCK flag on f->f_file */
-				if ((i = fcntl(f->f_file, F_GETFL, 0)) != -1) {
+				if ((i = fcntl(f->f_file, F_GETFL)) != -1) {
 					i &= ~O_NONBLOCK;
 					fcntl(f->f_file, F_SETFL, i);
 				}

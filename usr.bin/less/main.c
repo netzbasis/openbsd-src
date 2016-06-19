@@ -13,9 +13,11 @@
  * Entry point, initialization, miscellaneous routines.
  */
 
+#include <sys/types.h>
+
 #include <libgen.h>
 #include <stdarg.h>
-#include <sys/types.h>
+
 #include "less.h"
 
 char	*every_first_cmd = NULL;
@@ -270,7 +272,6 @@ main(int argc, char *argv[])
 	init();
 	commands();
 	quit(QUIT_OK);
-	/*NOTREACHED*/
 	return (0);
 }
 
@@ -288,7 +289,6 @@ ecalloc(int count, unsigned int size)
 		return (p);
 	error("Cannot allocate memory", NULL);
 	quit(QUIT_ERROR);
-	/*NOTREACHED*/
 	return (NULL);
 }
 
@@ -306,7 +306,6 @@ easprintf(const char *fmt, ...)
 	if (p == NULL || rv < 0) {
 		error("Cannot allocate memory", NULL);
 		quit(QUIT_ERROR);
-		/*NOTREACHED*/
 	}
 	return (p);
 }

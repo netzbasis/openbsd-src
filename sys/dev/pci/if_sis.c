@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sis.c,v 1.129 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_sis.c,v 1.134 2016/04/13 10:34:32 mpi Exp $ */
 /*
  * Copyright (c) 1997, 1998, 1999
  *	Bill Paul <wpaul@ctr.columbia.edu>.  All rights reserved.
@@ -72,8 +72,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1188,7 +1186,6 @@ sis_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = sis_start;
 	ifp->if_watchdog = sis_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, SIS_TX_LIST_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 	ifp->if_hardmtu = 1518; /* determined experimentally on DP83815 */
 
@@ -1391,6 +1388,18 @@ sis_rxeof(struct sis_softc *sc)
 		if_rxr_put(&sc->sis_cdata.sis_rx_ring, 1);
 
 		/*
+		 * DP83816A sometimes produces zero-length packets
+		 * shortly after initialisation.
+		 */
+		if (total_len == 0) {
+			m_freem(m);
+			continue;
+		}
+
+		/* The ethernet CRC is always included */
+		total_len -= ETHER_CRC_LEN;
+
+		/*
 		 * If an error occurs, update stats, clear the
 		 * status word and leave the mbuf cluster in place:
 		 * it should simply get re-used next time this descriptor
@@ -1506,7 +1515,7 @@ sis_txeof(struct sis_softc *sc)
 	if (idx != sc->sis_cdata.sis_tx_cons) {
 		/* we freed up some buffers */
 		sc->sis_cdata.sis_tx_cons = idx;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	}
 
 	ifp->if_timer = (sc->sis_cdata.sis_tx_cnt == 0) ? 0 : 5;
@@ -1673,7 +1682,7 @@ sis_start(struct ifnet *ifp)
 
 	idx = sc->sis_cdata.sis_tx_prod;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	while(sc->sis_ldata->sis_tx_list[idx].sis_mbuf == NULL) {
@@ -1683,7 +1692,7 @@ sis_start(struct ifnet *ifp)
 
 		if (sis_encap(sc, m_head, &idx)) {
 			ifq_deq_rollback(&ifp->if_snd, m_head);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1840,7 +1849,7 @@ sis_init(void *xsc)
 
 	sc->sis_stopped = 0;
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -1981,7 +1990,8 @@ sis_stop(struct sis_softc *sc)
 
 	timeout_del(&sc->sis_timeout);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	sc->sis_stopped = 1;
 
 	CSR_WRITE_4(sc, SIS_IER, 0);

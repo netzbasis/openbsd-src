@@ -1,4 +1,4 @@
-/*	$OpenBSD: edit.c,v 1.50 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: edit.c,v 1.53 2016/03/17 23:33:23 mmcc Exp $	*/
 
 /*
  * Command line editing - common code
@@ -12,8 +12,11 @@
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "edit.h"
@@ -50,7 +53,6 @@ x_init(void)
 #endif /* EMACS */
 }
 
-/* ARGSUSED */
 static void
 x_sigwinch(int sig)
 {
@@ -451,7 +453,7 @@ x_command_glob(int flags, const char *str, int slen, char ***wordsp)
 	glob_table(pat, &w, &keywords);
 	glob_table(pat, &w, &aliases);
 	glob_table(pat, &w, &builtins);
-	for (l = e->loc; l; l = l->next)
+	for (l = genv->loc; l; l = l->next)
 		glob_table(pat, &w, &l->funs);
 
 	glob_path(flags, pat, &w, path);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntfs_vfsops.c,v 1.44 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ntfs_vfsops.c,v 1.52 2016/06/19 11:54:33 natano Exp $	*/
 /*	$NetBSD: ntfs_vfsops.c,v 1.7 2003/04/24 07:50:19 christos Exp $	*/
 
 /*-
@@ -196,7 +196,7 @@ ntfs_mount(struct mount *mp, const char *path, void *data,
 		amode = (mp->mnt_flag & MNT_RDONLY) ? VREAD : (VREAD | VWRITE);
 		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 		err = VOP_ACCESS(devvp, amode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
+		VOP_UNLOCK(devvp, p);
 		if (err)
 			goto error_2;
 	}
@@ -299,7 +299,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
@@ -436,7 +436,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 
 	mp->mnt_stat.f_fsid.val[0] = dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
-	mp->mnt_maxsymlinklen = 0;
+	mp->mnt_stat.f_namemax = NTFS_MAXFILENAME;
 	mp->mnt_flag |= MNT_LOCAL;
 	devvp->v_specmountpoint = mp;
 	return (0);
@@ -450,7 +450,8 @@ out1:
 		DPRINTF("ntfs_mountfs: vflush failed\n");
 
 out:
-	devvp->v_specmountpoint = NULL;
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 
@@ -464,7 +465,7 @@ out:
 	/* lock the device vnode before calling VOP_CLOSE() */
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	(void)VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, NOCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	
 	return (error);
 }
@@ -521,23 +522,21 @@ ntfs_unmount(struct mount *mp, int mntflags, struct proc *p)
 		ntmp->ntm_devvp->v_specmountpoint = NULL;
 
 	/* lock the device vnode before calling VOP_CLOSE() */
-	VOP_LOCK(ntmp->ntm_devvp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(ntmp->ntm_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	vinvalbuf(ntmp->ntm_devvp, V_SAVE, NOCRED, p, 0, 0);
-
-	error = VOP_CLOSE(ntmp->ntm_devvp, ronly ? FREAD : FREAD|FWRITE,
-		NOCRED, p);
-
+	(void)VOP_CLOSE(ntmp->ntm_devvp, ronly ? FREAD : FREAD|FWRITE,
+	    NOCRED, p);
 	vput(ntmp->ntm_devvp);
 
 	/* free the toupper table, if this has been last mounted ntfs volume */
 	ntfs_toupper_unuse(p);
 
 	DPRINTF("ntfs_unmount: freeing memory...\n");
-	mp->mnt_data = NULL;
-	mp->mnt_flag &= ~MNT_LOCAL;
 	free(ntmp->ntm_ad, M_NTFSMNT, 0);
 	free(ntmp, M_NTFSMNT, 0);
-	return (error);
+	mp->mnt_data = NULL;
+	mp->mnt_flag &= ~MNT_LOCAL;
+	return (0);
 }
 
 int
@@ -612,17 +611,10 @@ ntfs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	sbp->f_iosize = ntmp->ntm_bps * ntmp->ntm_spc;
 	sbp->f_blocks = ntmp->ntm_bootfile.bf_spv;
 	sbp->f_bfree = sbp->f_bavail = ntfs_cntobn(ntmp->ntm_cfree);
-	sbp->f_ffree = sbp->f_bfree / ntmp->ntm_bpmftrec;
+	sbp->f_ffree = sbp->f_favail = sbp->f_bfree / ntmp->ntm_bpmftrec;
 	sbp->f_files = mftallocated / ntfs_bntob(ntmp->ntm_bpmftrec) +
 		       sbp->f_ffree;
-	sbp->f_flags = mp->mnt_flag;
-	if (sbp != &mp->mnt_stat) {
-		bcopy(mp->mnt_stat.f_mntonname, sbp->f_mntonname, MNAMELEN);
-		bcopy(mp->mnt_stat.f_mntfromname, sbp->f_mntfromname, MNAMELEN);
-		bcopy(&mp->mnt_stat.mount_info.msdosfs_args,
-		    &sbp->mount_info.msdosfs_args, sizeof(struct msdosfs_args));
-	}
-	strncpy(sbp->f_fstypename, mp->mnt_vfc->vfc_name, MFSNAMELEN);
+	copy_statfs_info(sbp, mp);
 
 	return (0);
 }

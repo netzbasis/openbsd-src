@@ -1,4 +1,4 @@
-/*	$OpenBSD: agp_apple.c,v 1.5 2014/03/29 18:09:30 guenther Exp $	*/
+/*	$OpenBSD: agp_apple.c,v 1.8 2016/05/07 22:46:54 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2012 Martin Pieuchot <mpi@openbsd.org>
@@ -51,6 +51,7 @@ int	agp_apple_set_aperture(void *sc, bus_size_t);
 void	agp_apple_bind_page(void *, bus_addr_t, paddr_t, int);
 void	agp_apple_unbind_page(void *, bus_addr_t);
 void	agp_apple_flush_tlb(void *);
+int	agp_apple_enable(void *, uint32_t);
 
 const struct cfattach appleagp_ca = {
 	sizeof(struct agp_apple_softc), agp_apple_match, agp_apple_attach,
@@ -64,6 +65,7 @@ const struct agp_methods agp_apple_methods = {
 	agp_apple_bind_page,
 	agp_apple_unbind_page,
 	agp_apple_flush_tlb,
+	agp_apple_enable,
 };
 
 int
@@ -81,6 +83,8 @@ agp_apple_match(struct device *parent, void *match, void *aux)
 		case PCI_PRODUCT_APPLE_UNINORTH2_AGP:
 		case PCI_PRODUCT_APPLE_UNINORTH_AGP3:
 		case PCI_PRODUCT_APPLE_INTREPID2_AGP:
+			/* XXX until KMS works with these bridges */
+			return (0);
 		case PCI_PRODUCT_APPLE_U3_AGP:
 		case PCI_PRODUCT_APPLE_U3L_AGP:
 		case PCI_PRODUCT_APPLE_K2_AGP:
@@ -183,8 +187,9 @@ agp_apple_bind_page(void *v, bus_addr_t off, paddr_t pa, int flags)
 	else
 		entry = htole32(pa | 0x01);
 
-	asc->gatt->ag_virtual[off >> AGP_PAGE_SHIFT] = entry;
+	flushdcache((void *)pa, PAGE_SIZE);
 
+	asc->gatt->ag_virtual[off >> AGP_PAGE_SHIFT] = entry;
 	flushd(&asc->gatt->ag_virtual[off >> AGP_PAGE_SHIFT]);
 }
 
@@ -219,9 +224,24 @@ agp_apple_flush_tlb(void *v)
 		    AGP_APPLE_GART_ENABLE | AGP_APPLE_GART_INVALIDATE);
 		pci_conf_write(asc->asc_pc, asc->asc_tag, AGP_APPLE_GARTCTRL,
 		    AGP_APPLE_GART_ENABLE);
+	}
+}
+
+int
+agp_apple_enable(void *v, uint32_t mode)
+{
+	struct agp_apple_softc *asc = v;
+
+	if ((asc->asc_flags & AGP_APPLE_ISU3) == 0) {
+		/*
+		 * GART invalidate/SBA reset?  Linux and Darwin do something
+		 * similar and it prevents GPU lockups with KMS.
+		 */
 		pci_conf_write(asc->asc_pc, asc->asc_tag, AGP_APPLE_GARTCTRL,
 		    AGP_APPLE_GART_ENABLE | AGP_APPLE_GART_2XRESET);
-		pci_conf_write(asc->asc_pc, asc->asc_tag, AGP_APPLE_GARTCTRL,
-		    AGP_APPLE_GART_ENABLE);
+		pci_conf_write(asc->asc_pc, asc->asc_tag,
+		    AGP_APPLE_GARTCTRL, AGP_APPLE_GART_ENABLE);
 	}
+
+	return (agp_generic_enable(asc->agpdev, mode));
 }

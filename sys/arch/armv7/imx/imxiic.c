@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiic.c,v 1.2 2013/11/06 19:03:07 syl Exp $ */
+/* $OpenBSD: imxiic.c,v 1.7 2016/06/09 12:35:46 kettenis Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -22,11 +22,14 @@
 #include <sys/malloc.h>
 #include <sys/systm.h>
 #include <machine/bus.h>
+#include <machine/fdt.h>
 
 #include <armv7/armv7/armv7var.h>
 #include <armv7/imx/imxiomuxcvar.h>
 #include <armv7/imx/imxccmvar.h>
 #include <armv7/imx/imxiicvar.h>
+
+#include <dev/ofw/openfirm.h>
 
 /* registers */
 #define I2C_IADR	0x00
@@ -51,6 +54,7 @@ struct imxiic_softc {
 	bus_space_handle_t	sc_ioh;
 	bus_size_t		sc_ios;
 	void			*sc_ih;
+	int			sc_node;
 	int			unit;
 
 	struct rwlock		sc_buslock;
@@ -61,15 +65,16 @@ struct imxiic_softc {
 	uint16_t		stopped;
 };
 
+int imxiic_match(struct device *, void *, void *);
 void imxiic_attach(struct device *, struct device *, void *);
 int imxiic_detach(struct device *, int);
 void imxiic_setspeed(struct imxiic_softc *, u_int);
 int imxiic_intr(void *);
 int imxiic_wait_intr(struct imxiic_softc *, int, int);
 int imxiic_wait_state(struct imxiic_softc *, uint32_t, uint32_t);
-int imxiic_start(struct imxiic_softc *, int, int, void *, int);
-int imxiic_read(struct imxiic_softc *, int, int, void *, int);
-int imxiic_write(struct imxiic_softc *, int, int, const void *, int);
+int imxiic_read(struct imxiic_softc *, int, void *, int);
+int imxiic_write(struct imxiic_softc *, int, const void *, int,
+    const void *, int);
 
 int imxiic_i2c_acquire_bus(void *, int);
 void imxiic_i2c_release_bus(void *, int);
@@ -85,26 +90,40 @@ int imxiic_i2c_exec(void *, i2c_op_t, i2c_addr_t, const void *, size_t,
 #define HCLR2(sc, reg, bits)						\
 	HWRITE2((sc), (reg), HREAD2((sc), (reg)) & ~(bits))
 
+void imxiic_scan(struct device *, struct i2cbus_attach_args *, void *);
 
 struct cfattach imxiic_ca = {
-	sizeof(struct imxiic_softc), NULL, imxiic_attach, imxiic_detach
+	sizeof(struct imxiic_softc), imxiic_match, imxiic_attach,
+	imxiic_detach
 };
 
 struct cfdriver imxiic_cd = {
 	NULL, "imxiic", DV_DULL
 };
 
+int
+imxiic_match(struct device *parent, void *match, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "fsl,imx21-i2c");
+}
+
 void
-imxiic_attach(struct device *parent, struct device *self, void *args)
+imxiic_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct imxiic_softc *sc = (struct imxiic_softc *)self;
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
 
-	sc->sc_iot = aa->aa_iot;
-	sc->sc_ios = aa->aa_dev->mem[0].size;
-	sc->unit = aa->aa_dev->unit;
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
+	if (faa->fa_nreg < 2)
+		return;
+
+	sc->sc_iot = faa->fa_iot;
+	sc->sc_ios = faa->fa_reg[1];
+	sc->sc_node = faa->fa_node;
+	sc->unit = (faa->fa_reg[0] & 0xc000) >> 14;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
+	    faa->fa_reg[1], 0, &sc->sc_ioh))
 		panic("imxiic_attach: bus_space_map failed!");
 
 #if 0
@@ -137,7 +156,9 @@ imxiic_attach(struct device *parent, struct device *self, void *args)
 	bzero(&iba, sizeof iba);
 	iba.iba_name = "iic";
 	iba.iba_tag = &sc->i2c_tag;
-	config_found(&sc->sc_dev, &iba, NULL);
+	iba.iba_bus_scan = imxiic_scan;
+	iba.iba_bus_scan_arg = &sc->sc_node;
+	config_found(&sc->sc_dev, &iba, iicbus_print);
 }
 
 void
@@ -223,20 +244,20 @@ imxiic_wait_state(struct imxiic_softc *sc, uint32_t mask, uint32_t value)
 }
 
 int
-imxiic_read(struct imxiic_softc *sc, int addr, int subaddr, void *data, int len)
+imxiic_read(struct imxiic_softc *sc, int addr, void *data, int len)
 {
 	int i;
 
-	HWRITE2(sc, I2C_I2DR, addr | 1);
+	HWRITE2(sc, I2C_I2DR, (addr << 1) | 1);
 
 	if (imxiic_wait_state(sc, I2C_I2SR_IIF, I2C_I2SR_IIF))
 		return (EIO);
-	while(!(HREAD2(sc, I2C_I2SR) & I2C_I2SR_IIF));
+	HCLR2(sc, I2C_I2SR, I2C_I2SR_IIF);
 	if (HREAD2(sc, I2C_I2SR) & I2C_I2SR_RXAK)
 		return (EIO);
 
 	HCLR2(sc, I2C_I2CR, I2C_I2CR_MTX);
-	if (len)
+	if (len - 1)
 		HCLR2(sc, I2C_I2CR, I2C_I2CR_TXAK);
 
 	/* dummy read */
@@ -245,6 +266,8 @@ imxiic_read(struct imxiic_softc *sc, int addr, int subaddr, void *data, int len)
 	for (i = 0; i < len; i++) {
 		if (imxiic_wait_state(sc, I2C_I2SR_IIF, I2C_I2SR_IIF))
 			return (EIO);
+		HCLR2(sc, I2C_I2SR, I2C_I2SR_IIF);
+
 		if (i == (len - 1)) {
 			HCLR2(sc, I2C_I2CR, I2C_I2CR_MSTA | I2C_I2CR_MTX);
 			imxiic_wait_state(sc, I2C_I2SR_IBB, 0);
@@ -259,21 +282,33 @@ imxiic_read(struct imxiic_softc *sc, int addr, int subaddr, void *data, int len)
 }
 
 int
-imxiic_write(struct imxiic_softc *sc, int addr, int subaddr, const void *data, int len)
+imxiic_write(struct imxiic_softc *sc, int addr, const void *cmd, int cmdlen,
+    const void *data, int len)
 {
 	int i;
 
-	HWRITE2(sc, I2C_I2DR, addr);
+	HWRITE2(sc, I2C_I2DR, addr << 1);
 
 	if (imxiic_wait_state(sc, I2C_I2SR_IIF, I2C_I2SR_IIF))
 		return (EIO);
+	HCLR2(sc, I2C_I2SR, I2C_I2SR_IIF);
 	if (HREAD2(sc, I2C_I2SR) & I2C_I2SR_RXAK)
 		return (EIO);
+
+	for (i = 0; i < cmdlen; i++) {
+		HWRITE2(sc, I2C_I2DR, ((uint8_t*)cmd)[i]);
+		if (imxiic_wait_state(sc, I2C_I2SR_IIF, I2C_I2SR_IIF))
+			return (EIO);
+		HCLR2(sc, I2C_I2SR, I2C_I2SR_IIF);
+		if (HREAD2(sc, I2C_I2SR) & I2C_I2SR_RXAK)
+			return (EIO);
+	}
 
 	for (i = 0; i < len; i++) {
 		HWRITE2(sc, I2C_I2DR, ((uint8_t*)data)[i]);
 		if (imxiic_wait_state(sc, I2C_I2SR_IIF, I2C_I2SR_IIF))
 			return (EIO);
+		HCLR2(sc, I2C_I2SR, I2C_I2SR_IIF);
 		if (HREAD2(sc, I2C_I2SR) & I2C_I2SR_RXAK)
 			return (EIO);
 	}
@@ -285,32 +320,7 @@ imxiic_i2c_acquire_bus(void *cookie, int flags)
 {
 	struct imxiic_softc *sc = cookie;
 
-	return (rw_enter(&sc->sc_buslock, RW_WRITE));
-}
-
-void
-imxiic_i2c_release_bus(void *cookie, int flags)
-{
-	struct imxiic_softc *sc = cookie;
-
-	(void) rw_exit(&sc->sc_buslock);
-}
-
-int
-imxiic_i2c_exec(void *cookie, i2c_op_t op, i2c_addr_t addr,
-    const void *cmdbuf, size_t cmdlen, void *buf, size_t len, int flags)
-{
-	struct imxiic_softc *sc = cookie;
-	uint32_t ret = 0;
-	u_int8_t cmd = 0;
-
-	if (!I2C_OP_STOP_P(op) || cmdlen > 1)
-		return (EINVAL);
-
-	if (cmdlen > 0)
-		cmd = *(u_int8_t *)cmdbuf;
-
-	addr &= 0x7f;
+	rw_enter(&sc->sc_buslock, RW_WRITE);
 
 	/* clock gating */
 	imxccm_enable_i2c(sc->unit);
@@ -325,11 +335,36 @@ imxiic_i2c_exec(void *cookie, i2c_op_t op, i2c_addr_t addr,
 	/* wait for it to be stable */
 	delay(50);
 
+	return 0;
+}
+
+void
+imxiic_i2c_release_bus(void *cookie, int flags)
+{
+	struct imxiic_softc *sc = cookie;
+
+	HWRITE2(sc, I2C_I2CR, 0);
+
+	rw_exit(&sc->sc_buslock);
+}
+
+int
+imxiic_i2c_exec(void *cookie, i2c_op_t op, i2c_addr_t addr,
+    const void *cmdbuf, size_t cmdlen, void *buf, size_t len, int flags)
+{
+	struct imxiic_softc *sc = cookie;
+	int ret = 0;
+
+	if (!I2C_OP_STOP_P(op))
+		return EINVAL;
+	if (I2C_OP_READ_P(op) && cmdlen > 0)
+		return EINVAL;
+
 	/* start transaction */
 	HSET2(sc, I2C_I2CR, I2C_I2CR_MSTA);
 
 	if (imxiic_wait_state(sc, I2C_I2SR_IBB, I2C_I2SR_IBB)) {
-		ret = (EIO);
+		ret = EIO;
 		goto fail;
 	}
 
@@ -338,11 +373,9 @@ imxiic_i2c_exec(void *cookie, i2c_op_t op, i2c_addr_t addr,
 	HSET2(sc, I2C_I2CR, I2C_I2CR_IIEN | I2C_I2CR_MTX | I2C_I2CR_TXAK);
 
 	if (I2C_OP_READ_P(op)) {
-		if (imxiic_read(sc, (addr << 1), cmd, buf, len) != 0)
-			ret = (EIO);
+		ret = imxiic_read(sc, addr, buf, len);
 	} else {
-		if (imxiic_write(sc, (addr << 1), cmd, buf, len) != 0)
-			ret = (EIO);
+		ret = imxiic_write(sc, addr, cmdbuf, cmdlen, buf, len);
 	}
 
 fail:
@@ -351,8 +384,6 @@ fail:
 		imxiic_wait_state(sc, I2C_I2SR_IBB, 0);
 		sc->stopped = 1;
 	}
-
-	HWRITE2(sc, I2C_I2CR, 0);
 
 	return ret;
 }
@@ -369,4 +400,36 @@ imxiic_detach(struct device *self, int flags)
 
 	bus_space_unmap(sc->sc_iot, sc->sc_ioh, sc->sc_ios);
 	return 0;
+}
+
+void
+imxiic_scan(struct device *self, struct i2cbus_attach_args *iba, void *aux)
+{
+	int iba_node = *(int *)aux;
+	extern int iic_print(void *, const char *);
+	struct i2c_attach_args ia;
+	char name[32];
+	uint32_t reg[1];
+	int node;
+
+	for (node = OF_child(iba_node); node; node = OF_peer(node)) {
+		memset(name, 0, sizeof(name));
+		memset(reg, 0, sizeof(reg));
+
+		if (OF_getprop(node, "compatible", name, sizeof(name)) == -1)
+			continue;
+		if (name[0] == '\0')
+			continue;
+
+		if (OF_getprop(node, "reg", &reg, sizeof(reg)) != sizeof(reg))
+			continue;
+
+		memset(&ia, 0, sizeof(ia));
+		ia.ia_tag = iba->iba_tag;
+		ia.ia_addr = bemtoh32(&reg[0]);
+		ia.ia_name = name;
+		ia.ia_cookie = &node;
+	
+		config_found(self, &ia, iic_print);
+	}
 }

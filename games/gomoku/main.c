@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.28 2015/11/04 21:22:10 tedu Exp $	*/
+/*	$OpenBSD: main.c,v 1.32 2016/01/08 21:38:33 mestre Exp $	*/
 /*
  * Copyright (c) 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -45,10 +45,11 @@
 #define PROGRAM	1		/* get input from program */
 #define INPUTF	2		/* get input from a file */
 
+extern char *__progname;	/* name of program */
+
 int	interactive = 1;	/* true if interactive */
 int	debug;			/* true if debugging */
 int	test;			/* both moves come from 1: input, 2: computer */
-char	*prog;			/* name of program */
 FILE	*debugfp;		/* file for debug output */
 FILE	*inputfp;		/* file for debug input */
 
@@ -67,9 +68,7 @@ char	*plyr[2];			/* who's who */
 static char you[LOGIN_NAME_MAX];	/* username */
 
 int
-main(argc, argv)
-	int argc;
-	char **argv;
+main(int argc, char **argv)
 {
 	char buf[128];
 	char fname[PATH_MAX];
@@ -81,11 +80,8 @@ main(argc, argv)
 	};
 	char *tmpname;
 
-	prog = strrchr(argv[0], '/');
-	if (prog)
-		prog++;
-	else
-		prog = argv[0];
+	if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+		err(1, "pledge");
 
 	if ((tmpname = getlogin()) != NULL)
 		strlcpy(you, tmpname, sizeof(you));
@@ -114,8 +110,8 @@ main(argc, argv)
 		default:
 			fprintf(stderr,
 			    "usage: %s [-bcdu] [-D debugfile] [inputfile]\n",
-			    prog);
-			exit(1);
+			    __progname);
+			return 1;
 		}
 	}
 	argc -= optind;
@@ -191,8 +187,8 @@ again:
 		}
 	}
 	if (interactive) {
-		plyr[BLACK] = input[BLACK] == USER ? you : prog;
-		plyr[WHITE] = input[WHITE] == USER ? you : prog;
+		plyr[BLACK] = input[BLACK] == USER ? you : __progname;
+		plyr[WHITE] = input[WHITE] == USER ? you : __progname;
 		bdwho(1);
 	}
 
@@ -219,8 +215,8 @@ again:
 				input[WHITE] = PROGRAM;
 				break;
 			}
-			plyr[BLACK] = input[BLACK] == USER ? you : prog;
-			plyr[WHITE] = input[WHITE] == USER ? you : prog;
+			plyr[BLACK] = input[BLACK] == USER ? you : __progname;
+			plyr[WHITE] = input[WHITE] == USER ? you : __progname;
 			bdwho(1);
 			goto top;
 
@@ -322,12 +318,10 @@ again:
 		}
 	}
 	quit(0);
-	/* NOTREACHED */
 }
 
 int
-readinput(fp)
-	FILE *fp;
+readinput(FILE *fp)
 {
 	char *cp;
 	int c;
@@ -344,8 +338,7 @@ readinput(fp)
  * Handle strange situations.
  */
 void
-whatsup(signum)
-	int signum;
+whatsup(int signum)
 {
 	int i, pnum, n, s1, s2, d1, d2;
 	struct spotstr *sp;
@@ -493,8 +486,7 @@ syntax:
  * Display debug info.
  */
 void
-dlog(str)
-	char *str;
+dlog(char *str)
 {
 
 	if (debugfp)
@@ -506,8 +498,7 @@ dlog(str)
 }
 
 void
-logit(str)
-	char *str;
+logit(char *str)
 {
 
 	if (debugfp)
@@ -522,8 +513,7 @@ logit(str)
  * Deal with a fatal error.
  */
 void
-qlog(str)
-	char *str;
+qlog(char *str)
 {
 	dlog(str);
 	if (interactive)
@@ -532,10 +522,8 @@ qlog(str)
 	quit(0);
 }
 
-/* ARGSUSED */
 void
-quit(sig)
-	int sig;
+quit(int sig)
 {
 	if (interactive) {
 		bdisp();		/* show final board */
@@ -548,10 +536,9 @@ quit(sig)
  * Die gracefully.
  */
 void
-panic(str)
-	char *str;
+panic(char *str)
 {
-	fprintf(stderr, "%s: %s\n", prog, str);
+	fprintf(stderr, "%s: %s\n", __progname, str);
 	fputs("resign\n", stdout);
 	quit(0);
 }

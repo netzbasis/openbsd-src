@@ -1,4 +1,4 @@
-/*	$OpenBSD: sunxi_machdep.c,v 1.8 2015/05/19 03:30:54 jsg Exp $	*/
+/*	$OpenBSD: sunxi_machdep.c,v 1.11 2016/06/08 15:27:05 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -28,16 +28,14 @@
 
 #include <arm/cortex/smc.h>
 #include <arm/armv7/armv7var.h>
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 #include <armv7/armv7/armv7_machdep.h>
 
 extern int sxiuartcnattach(bus_space_tag_t, bus_addr_t, int, long, tcflag_t);
 extern void sxidog_reset(void);
-extern char *sunxi_board_name(void);
 extern struct board_dev *sunxi_board_devs(void);
 extern void sunxi_board_init(void);
-extern int comcnspeed;
-extern int comcnmode;
 
 void
 sunxi_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
@@ -47,23 +45,10 @@ sunxi_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
 }
 
 void
-sunxi_platform_init_cons(void)
+sunxi_platform_init_mainbus(struct device *self)
 {
-	paddr_t paddr;
-
-	switch (board_id) {
-	case BOARD_ID_SUN4I_A10:
-	case BOARD_ID_SUN7I_A20:
-		paddr = 0x01c28000;	/* UART0 */
-		break;
-	default:
-		sxiuartcnattach(&armv7_a4x_bs_tag, paddr, comcnspeed,
-		    24000000, comcnmode);
-		panic("board type %x unknown", board_id);
-	}
-
-	sxiuartcnattach(&armv7_a4x_bs_tag, paddr, comcnspeed, 24000000,
-	    comcnmode);
+	mainbus_legacy_found(self, "cortex");
+	mainbus_legacy_found(self, "sunxi");
 }
 
 void
@@ -76,12 +61,6 @@ void
 sunxi_platform_powerdown(void)
 {
 
-}
-
-const char *
-sunxi_platform_board_name(void)
-{
-	return (sunxi_board_name());
 }
 
 void
@@ -97,14 +76,12 @@ sunxi_platform_board_init(void)
 }
 
 struct armv7_platform sunxi_platform = {
-	.boot_name = "OpenBSD/sunxi",
-	.board_name = sunxi_platform_board_name,
 	.board_init = sunxi_platform_board_init,
 	.smc_write = sunxi_platform_smc_write,
-	.init_cons = sunxi_platform_init_cons,
 	.watchdog_reset = sunxi_platform_watchdog_reset,
 	.powerdown = sunxi_platform_powerdown,
 	.disable_l2_if_needed = sunxi_platform_disable_l2_if_needed,
+	.init_mainbus = sunxi_platform_init_mainbus,
 };
 
 struct armv7_platform *

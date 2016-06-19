@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.113 2015/11/06 18:41:02 espie Exp $	*/
+/*	$OpenBSD: parse.c,v 1.116 2016/05/13 12:18:11 espie Exp $	*/
 /*	$NetBSD: parse.c,v 1.29 1997/03/10 21:20:04 christos Exp $	*/
 
 /*
@@ -100,6 +100,8 @@
  * set as persistent arrays for performance reasons.
  */
 static struct growableArray gsources, gtargets;
+static struct ohash htargets;
+static bool htargets_setup = false;
 #define SOURCES_SIZE	128
 #define TARGETS_SIZE	32
 
@@ -147,7 +149,7 @@ static bool handle_undef(const char *);
 #define ParseReadLoopLine(linebuf) Parse_ReadUnparsedLine(linebuf, "for loop")
 static bool handle_bsd_command(Buffer, Buffer, const char *);
 static char *strip_comments(Buffer, const char *);
-static char *resolve_include_filename(const char *, bool);
+static char *resolve_include_filename(const char *, const char *, bool);
 static void handle_include_file(const char *, const char *, bool, bool);
 static bool lookup_bsd_include(const char *);
 static void lookup_sysv_style_include(const char *, const char *, bool);
@@ -166,6 +168,9 @@ static void create_special_nodes(void);
 static bool found_delimiter(const char *);
 static unsigned int handle_special_targets(Lst);
 static void dump_targets(void);
+static void dedup_targets(struct growableArray *);
+static void build_target_group(struct growableArray *, struct ohash *t);
+static void reset_target_hash(void);
 
 
 #define P(k) k, sizeof(k), K_##k
@@ -811,21 +816,27 @@ ParseDoDependency(const char *line)	/* the line to parse */
 			 	* a list of .PATH targets */
 	unsigned int tOp;		/* operator from special target */
 
-
 	waiting = 0;
 	Lst_Init(&paths);
 
 	Array_Reset(&gsources);
 
 	cp = parse_do_targets(&paths, &tOp, line);
-	if (cp == NULL || specType == SPECIAL_ERROR)
+	if (cp == NULL || specType == SPECIAL_ERROR) {
+		/* invalidate targets for further processing */
+		Array_Reset(&gtargets); 
 		return;
+	}
 
 	op = parse_operator(&cp);
-	if (op == OP_ERROR)
+	if (op == OP_ERROR) {
+		/* invalidate targets for further processing */
+		Array_Reset(&gtargets); 
 		return;
+	}
 
 	Array_FindP(&gtargets, ParseDoOp, op);
+	dedup_targets(&gtargets);
 
 	line = cp;
 
@@ -1070,13 +1081,13 @@ Parse_AddIncludeDir(const char	*dir)
 }
 
 static char *
-resolve_include_filename(const char *file, bool isSystem)
+resolve_include_filename(const char *file, const char *efile, bool isSystem)
 {
 	char *fullname;
 
 	/* Look up system files on the system path first */
 	if (isSystem) {
-		fullname = Dir_FindFileNoDot(file, systemIncludePath);
+		fullname = Dir_FindFileNoDoti(file, efile, systemIncludePath);
 		if (fullname)
 			return fullname;
 	}
@@ -1096,8 +1107,7 @@ resolve_include_filename(const char *file, bool isSystem)
 		if (slash != NULL) {
 			char *newName;
 
-			newName = Str_concati(fname, slash, file,
-			    strchr(file, '\0'), '/');
+			newName = Str_concati(fname, slash, file, efile, '/');
 			fullname = Dir_FindFile(newName, userIncludePath);
 			if (fullname == NULL)
 				fullname = Dir_FindFile(newName, defaultPath);
@@ -1110,10 +1120,10 @@ resolve_include_filename(const char *file, bool isSystem)
 	/* Now look first on the -I search path, then on the .PATH
 	 * search path, if not found in a -I directory.
 	 * XXX: Suffix specific?  */
-	fullname = Dir_FindFile(file, userIncludePath);
+	fullname = Dir_FindFilei(file, efile, userIncludePath);
 	if (fullname)
 		return fullname;
-	fullname = Dir_FindFile(file, defaultPath);
+	fullname = Dir_FindFilei(file, efile, defaultPath);
 	if (fullname)
 		return fullname;
 
@@ -1122,25 +1132,19 @@ resolve_include_filename(const char *file, bool isSystem)
 	if (isSystem)
 		return NULL;
 	else
-		return Dir_FindFile(file, systemIncludePath);
+		return Dir_FindFilei(file, efile, systemIncludePath);
 }
 
 static void
-handle_include_file(const char *name, const char *ename, bool isSystem,
+handle_include_file(const char *file, const char *efile, bool isSystem,
     bool errIfNotFound)
 {
-	char *file;
 	char *fullname;
 
-	/* Substitute for any variables in the file name before trying to
-	 * find the thing. */
-	file = Var_Substi(name, ename, NULL, false);
-
-	fullname = resolve_include_filename(file, isSystem);
+	fullname = resolve_include_filename(file, efile, isSystem);
 	if (fullname == NULL && errIfNotFound)
-		Parse_Error(PARSE_FATAL, "Could not find %s", file);
-	free(file);
-
+		Parse_Error(PARSE_FATAL, "Could not find %.*s", 
+		    (int)(efile - file), file);
 
 	if (fullname != NULL) {
 		FILE *f;
@@ -1159,6 +1163,7 @@ lookup_bsd_include(const char *file)
 {
 	char endc;
 	const char *efile;
+	char *file2;
 	bool isSystem;
 
 	/* find starting delimiter */
@@ -1186,30 +1191,48 @@ lookup_bsd_include(const char *file)
 			return false;
 		}
 	}
-	handle_include_file(file, efile, isSystem, true);
+	/* Substitute for any variables in the file name before trying to
+	 * find the thing. */
+	file2 = Var_Substi(file, efile, NULL, false);
+	handle_include_file(file2, strchr(file2, '\0'), isSystem, true);
+	free(file2);
 	return true;
 }
 
 
 static void
-lookup_sysv_style_include(const char *file, const char *directive,
+lookup_sysv_style_include(const char *line, const char *directive,
     bool errIfMissing)
 {
-	const char *efile;
+	char *file;
+	char *name;
+	char *ename;
+	bool okay = false;
 
-	/* find beginning of name */
-	while (ISSPACE(*file))
-		file++;
-	if (*file == '\0') {
-		Parse_Error(PARSE_FATAL, "Filename missing from \"%s\"",
-		    directive);
-		return;
+	/* Substitute for any variables in the file name before trying to
+	 * find the thing. */
+	file = Var_Subst(line, NULL, false);
+
+	/* sys5 allows for list of files separated by spaces */
+	name = file;
+	while (1) {
+		/* find beginning of name */
+		while (ISSPACE(*name))
+			name++;
+		if (*name == '\0')
+			break;
+		for (ename = name; *ename != '\0' && !ISSPACE(*ename);)
+			ename++;
+		handle_include_file(name, ename, true, errIfMissing);
+		okay = true;
+		name = ename;
 	}
-	/* sys5 delimits file up to next blank character or end of line */
-	for (efile = file; *efile != '\0' && !ISSPACE(*efile);)
-		efile++;
 
-	handle_include_file(file, efile, true, errIfMissing);
+	free(file);
+	if (!okay) {
+		Parse_Error(PARSE_FATAL, "Filename missing from \"%s\"",
+		directive);
+	}
 }
 
 
@@ -1381,12 +1404,9 @@ handle_bsd_command(Buffer linebuf, Buffer copy, const char *line)
 	return false;
 }
 
-/***
- *** handle a group of commands
- ***/
-
-static void
-register_for_groupling(GNode *gn, struct ohash *temp)
+/* postprocess group of targets prior to linking stuff with them */
+bool 
+register_target(GNode *gn, struct ohash *t)
 {
 	unsigned int slot;
 	uint32_t hv;
@@ -1395,15 +1415,18 @@ register_for_groupling(GNode *gn, struct ohash *temp)
 
 	hv = ohash_interval(gn->name, &ename);
 
-	slot = ohash_lookup_interval(temp, gn->name, ename, hv);
-	gn2 = ohash_find(temp, slot);
+	slot = ohash_lookup_interval(t, gn->name, ename, hv);
+	gn2 = ohash_find(t, slot);
 
-	if (gn2 == NULL)
-		ohash_insert(temp, slot, gn);
+	if (gn2 == NULL) {
+		ohash_insert(t, slot, gn);
+		return true;
+	} else
+		return false;
 }
 
 static void
-build_target_group(struct growableArray *targets)
+build_target_group(struct growableArray *targets, struct ohash *t)
 {
 	LstNode ln;
 	bool seen_target = false;
@@ -1412,9 +1435,12 @@ build_target_group(struct growableArray *targets)
 	/* may be 0 if wildcard expansion resulted in zero match */
 	if (targets->n <= 1)
 		return;
+
+	/* Perform checks to see if we must tie targets together */
 	/* XXX */
 	if (targets->a[0]->type & OP_TRANSFORM)
 		return;
+
 	for (ln = Lst_First(&targets->a[0]->commands); ln != NULL; 
 	    ln = Lst_Adv(ln)) {
 	    	struct command *cmd = Lst_Datum(ln);
@@ -1434,39 +1460,71 @@ build_target_group(struct growableArray *targets)
 	if (seen_target)
 		return;
 
-	/* target list MAY hold duplicates AND targets may already participate
-	 * in groupling lists, so rebuild the circular list "from scratch"
-	 */
-
-	struct ohash t;
 	GNode *gn, *gn2;
-
-	ohash_init(&t, 5, &gnode_info);
+	/* targets may already participate in groupling lists, 
+	 * so rebuild the circular list "from scratch"
+	 */
 
 	for (i = 0; i < targets->n; i++) {
 		gn = targets->a[i];
-		register_for_groupling(gn, &t);
 		for (gn2 = gn->groupling; gn2 != gn; gn2 = gn2->groupling) {	
 			if (!gn2)
 				break;
-		    	register_for_groupling(gn2, &t);
+		    	register_target(gn2, t);
 		}
 	}
 
-	for (gn = ohash_first(&t, &i); gn != NULL; gn = ohash_next(&t, &i)) {
+	for (gn = ohash_first(t, &i); gn != NULL; gn = ohash_next(t, &i)) {
 		gn->groupling = gn2;
 		gn2 = gn;
 	}
-	gn = ohash_first(&t, &i);
+	gn = ohash_first(t, &i);
 	gn->groupling = gn2;
-
-	ohash_delete(&t);
 }
+
+static void
+reset_target_hash()
+{
+	if (htargets_setup)
+		ohash_delete(&htargets);
+	ohash_init(&htargets, 5, &gnode_info);
+	htargets_setup = true;
+}
+
+void
+Parse_End()
+{
+	if (htargets_setup)
+		ohash_delete(&htargets);
+}
+
+static void
+dedup_targets(struct growableArray *targets)
+{
+	unsigned int i, j;
+
+	if (targets->n <= 1)
+		return;
+
+	reset_target_hash();
+	/* first let's de-dup the list */
+	for (i = 0, j = 0; i < targets->n; i++) {
+		GNode *gn = targets->a[i];
+		if (register_target(gn, &htargets))
+			targets->a[j++] = targets->a[i];
+	}
+	targets->n = j;
+}
+
+
+/***
+ *** handle a group of commands
+ ***/
 
 static void
 finish_commands(struct growableArray *targets)
 {
-	build_target_group(targets);
+	build_target_group(targets, &htargets);
 	Array_Every(targets, ParseHasCommands);
 }
 
@@ -1596,7 +1654,6 @@ Parse_File(const char *filename, FILE *stream)
 				    	if (commands_seen)
 						finish_commands(&gtargets);
 					commands_seen = false;
-					Array_Reset(&gtargets);
 					if (Parse_As_Var_Assignment(stripped))
 						expectingCommands = false;
 					else {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_tag.c,v 1.22 2015/11/19 07:53:31 bentley Exp $	*/
+/*	$OpenBSD: ex_tag.c,v 1.24 2016/01/06 22:28:52 millert Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -117,7 +117,7 @@ ex_tag_push(SCR *sp, EXCMD *cmdp)
 		break;
 	case 0:
 		if (exp->tag_last == NULL) {
-			msgq(sp, M_ERR, "158|No previous tag entered");
+			msgq(sp, M_ERR, "No previous tag entered");
 			return (1);
 		}
 		break;
@@ -137,11 +137,11 @@ ex_tag_push(SCR *sp, EXCMD *cmdp)
 	rtqp = NULL;
 	if (TAILQ_EMPTY(&exp->tq)) {
 		/* Initialize the `local context' tag queue structure. */
-		CALLOC_GOTO(sp, rtqp, TAGQ *, 1, sizeof(TAGQ));
+		CALLOC_GOTO(sp, rtqp, 1, sizeof(TAGQ));
 		TAILQ_INIT(&rtqp->tagq);
 
 		/* Initialize and link in its tag structure. */
-		CALLOC_GOTO(sp, rtp, TAG *, 1, sizeof(TAG));
+		CALLOC_GOTO(sp, rtp, 1, sizeof(TAG));
 		TAILQ_INSERT_HEAD(&rtqp->tagq, rtp, q);
 		rtqp->current = rtp;
 	}
@@ -235,7 +235,7 @@ ex_tag_next(SCR *sp, EXCMD *cmdp)
 		return (1);
 	}
 	if ((tp = TAILQ_NEXT(tqp->current, q)) == NULL) {
-		msgq(sp, M_ERR, "282|Already at the last tag of this group");
+		msgq(sp, M_ERR, "Already at the last tag of this group");
 		return (1);
 	}
 	if (ex_tag_nswitch(sp, tp, FL_ISSET(cmdp->iflags, E_C_FORCE)))
@@ -266,7 +266,7 @@ ex_tag_prev(SCR *sp, EXCMD *cmdp)
 		return (0);
 	}
 	if ((tp = TAILQ_PREV(tqp->current, _tagqh, q)) == NULL) {
-		msgq(sp, M_ERR, "255|Already at the first tag of this group");
+		msgq(sp, M_ERR, "Already at the first tag of this group");
 		return (1);
 	}
 	if (ex_tag_nswitch(sp, tp, FL_ISSET(cmdp->iflags, E_C_FORCE)))
@@ -408,7 +408,7 @@ ex_tag_pop(SCR *sp, EXCMD *cmdp)
 		}
 		if (tqp == NULL) {
 			msgq(sp, M_ERR,
-	"159|Less than %s entries on the tags stack; use :display t[ags]",
+	"Less than %s entries on the tags stack; use :display t[ags]",
 			    arg);
 			return (1);
 		}
@@ -432,7 +432,7 @@ filearg:	arglen = strlen(arg);
 		}
 		if (tqp == NULL) {
 			msgq_str(sp, M_ERR, arg,
-	"160|No file %s on the tags stack to return to; use :display t[ags]");
+	"No file %s on the tags stack to return to; use :display t[ags]");
 			return (1);
 		}
 		if (tqp == TAILQ_FIRST(&exp->tq))
@@ -560,7 +560,7 @@ ex_tag_display(SCR *sp)
 #define	L_SPACE	 5		/* Spaces after name, before tag. */
 #define	L_TAG	20		/* Tag. */
 	if (sp->cols <= L_NAME + L_SLOP) {
-		msgq(sp, M_ERR, "292|Display too small.");
+		msgq(sp, M_ERR, "Display too small.");
 		return (0);
 	}
 
@@ -661,7 +661,7 @@ tagf_copy(SCR *sp, TAGF *otfp, TAGF **tfpp)
 {
 	TAGF *tfp;
 
-	MALLOC_RET(sp, tfp, TAGF *, sizeof(TAGF));
+	MALLOC_RET(sp, tfp, sizeof(TAGF));
 	*tfp = *otfp;
 
 	/* XXX: Allocate as part of the TAGF structure!!! */
@@ -687,7 +687,7 @@ tagq_copy(SCR *sp, TAGQ *otqp, TAGQ **tqpp)
 	len = sizeof(TAGQ);
 	if (otqp->tag != NULL)
 		len += otqp->tlen + 1;
-	MALLOC_RET(sp, tqp, TAGQ *, len);
+	MALLOC_RET(sp, tqp, len);
 	memcpy(tqp, otqp, len);
 
 	TAILQ_INIT(&tqp->tagq);
@@ -714,7 +714,7 @@ tag_copy(SCR *sp, TAG *otp, TAG **tpp)
 		len += otp->fnlen + 1;
 	if (otp->search != NULL)
 		len += otp->slen + 1;
-	MALLOC_RET(sp, tp, TAG *, len);
+	MALLOC_RET(sp, tp, len);
 	memcpy(tp, otp, len);
 
 	if (otp->fname != NULL)
@@ -787,13 +787,13 @@ tag_msg(SCR *sp, tagmsg_t msg, char *tag)
 	switch (msg) {
 	case TAG_BADLNO:
 		msgq_str(sp, M_ERR, tag,
-	    "164|%s: the tag's line number is past the end of the file");
+	    "%s: the tag's line number is past the end of the file");
 		break;
 	case TAG_EMPTY:
-		msgq(sp, M_INFO, "165|The tags stack is empty");
+		msgq(sp, M_INFO, "The tags stack is empty");
 		break;
 	case TAG_SEARCH:
-		msgq_str(sp, M_ERR, tag, "166|%s: search pattern not found");
+		msgq_str(sp, M_ERR, tag, "%s: search pattern not found");
 		break;
 	default:
 		abort();
@@ -823,8 +823,8 @@ ex_tagf_alloc(SCR *sp, char *str)
 	for (p = t = str;; ++p) {
 		if (*p == '\0' || isblank(*p)) {
 			if ((len = p - t) > 1) {
-				MALLOC_RET(sp, tfp, TAGF *, sizeof(TAGF));
-				MALLOC(sp, tfp->name, char *, len + 1);
+				MALLOC_RET(sp, tfp, sizeof(TAGF));
+				MALLOC(sp, tfp->name, len + 1);
 				if (tfp->name == NULL) {
 					free(tfp);
 					return (1);
@@ -943,7 +943,7 @@ ctag_slist(SCR *sp, char *tag)
 
 	/* Allocate and initialize the tag queue structure. */
 	len = strlen(tag);
-	CALLOC_GOTO(sp, tqp, TAGQ *, 1, sizeof(TAGQ) + len + 1);
+	CALLOC_GOTO(sp, tqp, 1, sizeof(TAGQ) + len + 1);
 	TAILQ_INIT(&tqp->tagq);
 	tqp->tag = tqp->buf;
 	memcpy(tqp->tag, tag, (tqp->tlen = len) + 1);
@@ -962,7 +962,7 @@ ctag_slist(SCR *sp, char *tag)
 
 	/* Check to see if we found anything. */
 	if (TAILQ_EMPTY(&tqp->tagq)) {
-		msgq_str(sp, M_ERR, tag, "162|%s: tag not found");
+		msgq_str(sp, M_ERR, tag, "%s: tag not found");
 		if (echk)
 			TAILQ_FOREACH(tfp, &exp->tagfq, q)
 				if (F_ISSET(tfp, TAGF_ERR) &&
@@ -1073,7 +1073,7 @@ ctag_sfile(SCR *sp, TAGF *tfp, TAGQ *tqp, char *tname)
 		if ((slen = strlen(p)) == 0) {
 corrupt:		p = msg_print(sp, tname, &nf1);
 			t = msg_print(sp, tfp->name, &nf2);
-			msgq(sp, M_ERR, "163|%s: corrupted tag in %s", p, t);
+			msgq(sp, M_ERR, "%s: corrupted tag in %s", p, t);
 			if (nf1)
 				FREE_SPACE(sp, p, 0);
 			if (nf2)
@@ -1089,7 +1089,7 @@ corrupt:		p = msg_print(sp, tname, &nf1);
 		ctag_file(sp, tfp, name, &dname, &dlen);
 
 		CALLOC_GOTO(sp, tp,
-		    TAG *, 1, sizeof(TAG) + dlen + 2 + nlen + 1 + slen + 1);
+		    1, sizeof(TAG) + dlen + 2 + nlen + 1 + slen + 1);
 		tp->fname = tp->buf;
 		if (dlen != 0) {
 			memcpy(tp->fname, dname, dlen);

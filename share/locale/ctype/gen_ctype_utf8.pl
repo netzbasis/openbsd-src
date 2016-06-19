@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-#	$OpenBSD: gen_ctype_utf8.pl,v 1.2 2015/10/31 20:45:47 afresh1 Exp $	#
+#	$OpenBSD: gen_ctype_utf8.pl,v 1.4 2016/03/03 16:18:48 afresh1 Exp $	#
 use 5.022;
 use warnings;
 
@@ -47,7 +47,7 @@ my @maps = qw(
 
 my ( $blocks_ranges_ref, $blocks_maps_ref ) = prop_invmap("Block");
 
-print "/*\t\$" . 'OpenBSD' . "\$	*/\n";
+print "/*\t\$" . 'OpenBSD' . "\$\t*/\n";
 print <<'EOL';
 
 /*
@@ -252,12 +252,15 @@ sub print_info
 {
 	my (%info) = @_;
 
+	my $printed = 0;
+
 	foreach my $list (@lists) {
 		next unless $info{$list};
+		$printed = 1;
 		print_list( $list => $info{$list} );
 	}
 
-	print "\n";
+	print "\n" if $printed;
 
 	foreach my $map (@maps) {
 		next unless $info{$map};
@@ -400,13 +403,20 @@ sub codepoint_columns
 	my ( $code, $charinfo ) = @_;
 	return undef unless defined $code;
 
+	# Several fonts provide glyphs in this range
+	return 1 if $code >= 0xe000 and $code <= 0xf8ff;
+
 	return 0 if $charinfo->{category} eq 'Mn';
 	return 0 if $charinfo->{category} eq 'Me';
 	return 0 if index( $charinfo->{category}, 'C' ) == 0;
 
 	return 2 if $charinfo->{block} eq 'Hangul Jamo';
-	return 2 if $charinfo->{block} eq 'Hangul Jamo Extended B';
-	return 2 if charprop( $code, 'East_Asian_Width' ) eq 'Wide';
+	return 2 if $charinfo->{block} eq 'Hangul Jamo Extended-B';
+
+	{
+		my $eaw = charprop( $code, 'East_Asian_Width' );
+		return 2 if $eaw eq 'Wide' or $eaw eq 'Fullwidth';
+	}
 
 	return 1;
 }

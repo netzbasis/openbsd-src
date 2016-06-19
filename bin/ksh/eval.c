@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.47 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: eval.c,v 1.50 2016/03/05 12:30:17 czarkoff Exp $	*/
 
 /*
  * Expansion - quoting, separation, substitution, globbing
@@ -8,8 +8,11 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <pwd.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -704,6 +707,7 @@ varsub(Expand *xp, char *sp, char *word,
 	int slen;
 	char *p;
 	struct tbl *vp;
+	int zero_ok = 0;
 
 	if (sp[0] == '\0')	/* Bad variable name */
 		return -1;
@@ -712,8 +716,6 @@ varsub(Expand *xp, char *sp, char *word,
 
 	/* ${#var}, string length or array size */
 	if (sp[0] == '#' && (c = sp[1]) != '\0') {
-		int zero_ok = 0;
-
 		/* Can't have any modifiers for ${#...} */
 		if (*word != CSUBST)
 			return -1;
@@ -730,7 +732,7 @@ varsub(Expand *xp, char *sp, char *word,
 					n++;
 			c = n; /* ksh88/ksh93 go for number, not max index */
 		} else if (c == '*' || c == '@')
-			c = e->loc->argc;
+			c = genv->loc->argc;
 		else {
 			p = str_val(global(sp));
 			zero_ok = p != null;
@@ -776,16 +778,17 @@ varsub(Expand *xp, char *sp, char *word,
 		case '#':
 			return -1;
 		}
-		if (e->loc->argc == 0) {
+		if (genv->loc->argc == 0) {
 			xp->str = null;
 			xp->var = global(sp);
 			state = c == '@' ? XNULLSUB : XSUB;
 		} else {
-			xp->u.strv = (const char **) e->loc->argv + 1;
+			xp->u.strv = (const char **) genv->loc->argv + 1;
 			xp->str = *xp->u.strv++;
 			xp->split = c == '@'; /* $@ */
 			state = XARG;
 		}
+		zero_ok = 1;	/* exempt "$@" and "$*" from 'set -u' */
 	} else {
 		if ((p=strchr(sp,'[')) && (p[1]=='*'||p[1]=='@') && p[2]==']') {
 			XPtrV wv;
@@ -832,7 +835,7 @@ varsub(Expand *xp, char *sp, char *word,
 	    (((stype&0x80) ? *xp->str=='\0' : xp->str==null) ? /* undef? */
 	    c == '=' || c == '-' || c == '?' : c == '+'))
 		state = XBASE;	/* expand word instead of variable value */
-	if (Flag(FNOUNSET) && xp->str == null &&
+	if (Flag(FNOUNSET) && xp->str == null && !zero_ok &&
 	    (ctype(c, C_SUBOP2) || (state != XBASE && c != '+')))
 		errorf("%s: parameter not set", sp);
 	return state;

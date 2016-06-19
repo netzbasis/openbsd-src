@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.89 2015/11/21 02:12:09 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.95 2016/03/30 23:40:54 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -65,7 +65,7 @@ Xreinit(char *args, struct mbr *mbr)
 	if (dogpt) {
 		MBR_init_GPT(mbr);
 		GPT_init();
-		GPT_print("s");
+		GPT_print("s", 0);
 	} else {
 		MBR_init(mbr);
 		MBR_print(mbr, "s");
@@ -187,10 +187,10 @@ Xgedit(char *args)
 		goto done;
 	}
 
-	bs = getuint64("Partition offset", letoh64(gh.gh_lba_start),
-	    letoh64(gh.gh_lba_end));
-	ns = getuint64("Partition size", letoh64(gh.gh_lba_end) - bs + 1,
-	    letoh64(gh.gh_lba_end) - bs + 1);
+	bs = getuint64("Partition offset", letoh64(gg->gp_lba_start),
+	    letoh64(gh.gh_lba_start), letoh64(gh.gh_lba_end));
+	ns = getuint64("Partition size", letoh64(gg->gp_lba_end) - bs + 1,
+	    1, letoh64(gh.gh_lba_end) - bs + 1);
 
 	gg->gp_lba_start = htole64(bs);
 	gg->gp_lba_end = htole64(bs + ns - 1);
@@ -255,21 +255,21 @@ Xedit(char *args, struct mbr *mbr)
 		pp->ssect = ask_num("BIOS Starting sector",  pp->ssect, 1,
 		    disk.sectors);
 
-		pp->ecyl = ask_num("BIOS Ending cylinder",   pp->ecyl,  0,
-		    disk.cylinders - 1);
-		pp->ehead = ask_num("BIOS Ending head",      pp->ehead, 0,
-		    disk.heads - 1);
-		pp->esect = ask_num("BIOS Ending sector",    pp->esect, 1,
-		    disk.sectors);
+		pp->ecyl = ask_num("BIOS Ending cylinder",   pp->ecyl,
+		    pp->scyl, disk.cylinders - 1);
+		pp->ehead = ask_num("BIOS Ending head",      pp->ehead,
+		    (pp->scyl == pp->ecyl) ? pp->shead : 0, disk.heads - 1);
+		pp->esect = ask_num("BIOS Ending sector",    pp->esect,
+		    (pp->scyl == pp->ecyl && pp->shead == pp->ehead) ? pp->ssect
+		    : 1, disk.sectors);
 
 		/* Fix up off/size values */
 		PRT_fix_BN(pp, pn);
 		/* Fix up CHS values for LBA */
 		PRT_fix_CHS(pp);
 	} else {
-		pp->bs = getuint64("Partition offset", pp->bs,
-		    disk.size);
-		pp->ns = getuint64("Partition size",   pp->ns,
+		pp->bs = getuint64("Partition offset", pp->bs, 0, disk.size);
+		pp->ns = getuint64("Partition size",   pp->ns, 1,
 		    disk.size - pp->bs);
 
 		/* Fix up CHS values */
@@ -299,11 +299,12 @@ Xgsetpid(char *args)
 	gg = &gp[pn];
 
 	/* Print out current table entry */
-	GPT_print_parthdr();
-	GPT_print_part(pn, "s");
+	GPT_print_parthdr(0);
+	GPT_print_part(pn, "s", 0);
 
 	/* Ask for partition type or GUID. */
-	num = ask_pid(0, &guid);
+	uuid_dec_le(&gg->gp_type, &guid);
+	num = ask_pid(PRT_uuid_to_type(&guid), &guid);
 	if (num <= 0xff)
 		guid = *(PRT_type_to_uuid(num));
 	uuid_enc_le(&gg->gp_type, &guid);
@@ -396,7 +397,7 @@ Xprint(char *args, struct mbr *mbr)
 {
 
 	if (MBR_protective_mbr(mbr) == 0 && letoh64(gh.gh_sig) == GPTSIGNATURE)
-		GPT_print(args);
+		GPT_print(args, 1);
 	else
 		MBR_print(mbr, args);
 
@@ -464,24 +465,20 @@ Xexit(char *args, struct mbr *mbr)
 int
 Xhelp(char *args, struct mbr *mbr)
 {
-	char *mbrstr, *gpthelp;
+	char help[80];
+	char *mbrstr;
 	int i;
 
 	for (i = 0; cmd_table[i].cmd != NULL; i++) {
+		strlcpy(help, cmd_table[i].help, sizeof(help));
 		if (letoh64(gh.gh_sig) == GPTSIGNATURE) {
 			if (cmd_table[i].gpt == 0)
 				continue;
-			gpthelp = strdup(cmd_table[i].help);
-			mbrstr = strstr(gpthelp, "MBR");
-			if (mbrstr) {
+			mbrstr = strstr(help, "MBR");
+			if (mbrstr)
 				memcpy(mbrstr, "GPT", 3);
-				printf("\t%s\t\t%s\n", cmd_table[i].cmd,
-				    gpthelp);
-				free(gpthelp);
-				continue;
-			}
 		}
-		printf("\t%s\t\t%s\n", cmd_table[i].cmd, cmd_table[i].help);
+		printf("\t%s\t\t%s\n", cmd_table[i].cmd, help);
 	}
 
 	return (CMD_CONT);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: task.h,v 1.8 2015/02/09 03:15:41 dlg Exp $ */
+/*	$OpenBSD: task.h,v 1.11 2016/06/07 07:53:33 mpi Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -16,8 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _SYS_TASKQ_H_
-#define _SYS_TASKQ_H_
+#ifndef _SYS_TASK_H_
+#define _SYS_TASK_H_
 
 #include <sys/queue.h>
 
@@ -30,8 +30,12 @@ struct task {
 	unsigned int	t_flags;
 };
 
+TAILQ_HEAD(task_list, task);
+
 #define TASKQ_MPSAFE		(1 << 0)
 #define TASKQ_CANTSLEEP		(1 << 1)
+
+#define TASK_INITIALIZER(_f, _a)  {{ NULL, NULL }, (_f), (_a), 0 }
 
 #ifdef _KERNEL
 extern struct taskq *const systq;
@@ -44,9 +48,6 @@ void		 task_set(struct task *, void (*)(void *), void *);
 int		 task_add(struct taskq *, struct task *);
 int		 task_del(struct taskq *, struct task *);
 
-#define TASK_INITIALIZER(_f, _a) \
-	{ { NULL, NULL }, (_f), (_a), 0 }
-
 #endif /* _KERNEL */
 
-#endif /* _SYS_TASKQ_H_ */
+#endif /* _SYS_TASK_H_ */

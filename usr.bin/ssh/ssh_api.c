@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh_api.c,v 1.4 2015/02/16 22:13:32 djm Exp $ */
+/* $OpenBSD: ssh_api.c,v 1.7 2016/05/04 14:22:33 markus Exp $ */
 /*
  * Copyright (c) 2012 Markus Friedl.  All rights reserved.
  *
@@ -15,14 +15,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ssh1.h" /* For SSH_MSG_NONE */
 #include "ssh_api.h"
 #include "compat.h"
 #include "log.h"
 #include "authfile.h"
 #include "sshkey.h"
 #include "misc.h"
-#include "ssh1.h"
 #include "ssh2.h"
 #include "version.h"
 #include "myproposal.h"
@@ -38,8 +36,8 @@ int	_ssh_order_hostkeyalgs(struct ssh *);
 int	_ssh_verify_host_key(struct sshkey *, struct ssh *);
 struct sshkey *_ssh_host_public_key(int, int, struct ssh *);
 struct sshkey *_ssh_host_private_key(int, int, struct ssh *);
-int	_ssh_host_key_sign(struct sshkey *, struct sshkey *, u_char **,
-    size_t *, const u_char *, size_t, u_int);
+int	_ssh_host_key_sign(struct sshkey *, struct sshkey *,
+    u_char **, size_t *, const u_char *, size_t, const char *, u_int);
 
 /*
  * stubs for the server side implementation of kex.
@@ -47,7 +45,7 @@ int	_ssh_host_key_sign(struct sshkey *, struct sshkey *, u_char **,
  */
 int	use_privsep = 0;
 int	mm_sshkey_sign(struct sshkey *, u_char **, u_int *,
-    u_char *, u_int, u_int);
+    u_char *, u_int, char *, u_int);
 DH	*mm_choose_dh(int, int, int);
 
 /* Define these two variables here so that they are part of the library */
@@ -56,7 +54,7 @@ u_int session_id2_len = 0;
 
 int
 mm_sshkey_sign(struct sshkey *key, u_char **sigp, u_int *lenp,
-    u_char *data, u_int datalen, u_int compat)
+    u_char *data, u_int datalen, char *alg, u_int compat)
 {
 	return (-1);
 }
@@ -99,6 +97,9 @@ ssh_init(struct ssh **sshp, int is_server, struct kex_params *kex_params)
 #ifdef WITH_OPENSSL
 		ssh->kex->kex[KEX_DH_GRP1_SHA1] = kexdh_server;
 		ssh->kex->kex[KEX_DH_GRP14_SHA1] = kexdh_server;
+		ssh->kex->kex[KEX_DH_GRP14_SHA256] = kexdh_server;
+		ssh->kex->kex[KEX_DH_GRP16_SHA512] = kexdh_server;
+		ssh->kex->kex[KEX_DH_GRP18_SHA512] = kexdh_server;
 		ssh->kex->kex[KEX_DH_GEX_SHA1] = kexgex_server;
 		ssh->kex->kex[KEX_DH_GEX_SHA256] = kexgex_server;
 		ssh->kex->kex[KEX_ECDH_SHA2] = kexecdh_server;
@@ -111,6 +112,9 @@ ssh_init(struct ssh **sshp, int is_server, struct kex_params *kex_params)
 #ifdef WITH_OPENSSL
 		ssh->kex->kex[KEX_DH_GRP1_SHA1] = kexdh_client;
 		ssh->kex->kex[KEX_DH_GRP14_SHA1] = kexdh_client;
+		ssh->kex->kex[KEX_DH_GRP14_SHA256] = kexdh_client;
+		ssh->kex->kex[KEX_DH_GRP16_SHA512] = kexdh_client;
+		ssh->kex->kex[KEX_DH_GRP18_SHA512] = kexdh_client;
 		ssh->kex->kex[KEX_DH_GEX_SHA1] = kexgex_client;
 		ssh->kex->kex[KEX_DH_GEX_SHA256] = kexgex_client;
 		ssh->kex->kex[KEX_ECDH_SHA2] = kexecdh_client;
@@ -522,8 +526,8 @@ _ssh_order_hostkeyalgs(struct ssh *ssh)
 
 int
 _ssh_host_key_sign(struct sshkey *privkey, struct sshkey *pubkey,
-    u_char **signature, size_t *slen,
-    const u_char *data, size_t dlen, u_int compat)
+    u_char **signature, size_t *slen, const u_char *data, size_t dlen,
+    const char *alg, u_int compat)
 {
-	return sshkey_sign(privkey, signature, slen, data, dlen, compat);
+	return sshkey_sign(privkey, signature, slen, data, dlen, alg, compat);
 }

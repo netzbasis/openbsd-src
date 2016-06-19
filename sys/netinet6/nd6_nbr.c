@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_nbr.c,v 1.100 2015/11/18 13:58:02 mpi Exp $	*/
+/*	$OpenBSD: nd6_nbr.c,v 1.104 2016/06/15 11:49:35 mpi Exp $	*/
 /*	$KAME: nd6_nbr.c,v 1.61 2001/02/10 16:06:14 jinmei Exp $	*/
 
 /*
@@ -50,6 +50,7 @@
 #include <net/route.h>
 
 #include <netinet/in.h>
+#include <netinet/if_ether.h>
 #include <netinet6/in6_var.h>
 #include <netinet/ip6.h>
 #include <netinet6/ip6_var.h>
@@ -728,11 +729,11 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			ln->ln_byhint = 0;
 			if (!ND6_LLINFO_PERMANENT(ln)) {
 				nd6_llinfo_settimer(ln,
-				    (long)ND_IFINFO(ifp)->reachable * hz);
+				    ND_IFINFO(ifp)->reachable);
 			}
 		} else {
 			ln->ln_state = ND6_LLINFO_STALE;
-			nd6_llinfo_settimer(ln, (long)nd6_gctimer * hz);
+			nd6_llinfo_settimer(ln, nd6_gctimer);
 		}
 		if ((ln->ln_router = is_router) != 0) {
 			/*
@@ -788,7 +789,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 			 */
 			if (ln->ln_state == ND6_LLINFO_REACHABLE) {
 				ln->ln_state = ND6_LLINFO_STALE;
-				nd6_llinfo_settimer(ln, (long)nd6_gctimer * hz);
+				nd6_llinfo_settimer(ln, nd6_gctimer);
 			}
 			goto freeit;
 		} else if (is_override				   /* (2a) */
@@ -819,13 +820,12 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 				ln->ln_byhint = 0;
 				if (!ND6_LLINFO_PERMANENT(ln)) {
 					nd6_llinfo_settimer(ln,
-					    (long)ND_IFINFO(ifp)->reachable * hz);
+					    ND_IFINFO(ifp)->reachable);
 				}
 			} else {
 				if (lladdr && llchange) {
 					ln->ln_state = ND6_LLINFO_STALE;
-					nd6_llinfo_settimer(ln,
-					    (long)nd6_gctimer * hz);
+					nd6_llinfo_settimer(ln, nd6_gctimer);
 				}
 			}
 		}
@@ -875,7 +875,7 @@ nd6_na_input(struct mbuf *m, int off, int icmp6len)
 		 * we assume ifp is not a loopback here, so just set the 2nd
 		 * argument as the 1st one.
 		 */
-		nd6_output(ifp, n, satosin6(rt_key(rt)), rt);
+		ifp->if_output(ifp, n, rt_key(rt), rt);
 		if (ln->ln_hold == n) {
 			/* n is back in ln_hold. Discard. */
 			m_freem(ln->ln_hold);
@@ -1374,16 +1374,12 @@ nd6_dad_ns_output(struct dadq *dp, struct ifaddr *ifa)
 void
 nd6_dad_ns_input(struct ifaddr *ifa)
 {
-	struct in6_ifaddr *ia6;
-	struct in6_addr *taddr6;
 	struct dadq *dp;
 	int duplicate;
 
 	if (!ifa)
 		panic("ifa == NULL in nd6_dad_ns_input");
 
-	ia6 = ifatoia6(ifa);
-	taddr6 = &ia6->ia_addr.sin6_addr;
 	duplicate = 0;
 	dp = nd6_dad_find(ifa);
 

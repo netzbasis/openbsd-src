@@ -1,4 +1,4 @@
-/* $OpenBSD: exynos.c,v 1.8 2015/07/17 17:33:50 jsg Exp $ */
+/* $OpenBSD: exynos.c,v 1.12 2016/06/04 18:09:16 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
@@ -16,16 +16,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "fdt.h"
-
 #include <sys/param.h>
 #include <sys/systm.h>
 
 #include <machine/bus.h>
-#if NFDT > 0
-#include <machine/fdt.h>
-#endif
 
+#include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 
 int	exynos_match(struct device *, void *, void *);
@@ -114,23 +110,20 @@ struct board_dev smdkc210_devs[] = {
 struct armv7_board exynos_boards[] = {
 	{
 		BOARD_ID_EXYNOS5_CHROMEBOOK,
-		"Exynos 5 Chromebook",
 		chromebook_devs,
 		exynos5_init,
 	},
 	{
 		BOARD_ID_EXYNOS4_NURI,
-		"Samsung NURI",
 		nuri_devs,
 		exynos4_init,
 	},
 	{
 		BOARD_ID_EXYNOS4_SMDKC210,
-		"Samsung SMDKC210",
 		smdkc210_devs,
 		exynos4_init,
 	},
-	{ 0, NULL, NULL, NULL },
+	{ 0, NULL, NULL },
 };
 
 struct board_dev *
@@ -138,7 +131,7 @@ exynos_board_devs(void)
 {
 	int i;
 
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
+	for (i = 0; exynos_boards[i].board_id != 0; i++) {
 		if (exynos_boards[i].board_id == board_id)
 			return (exynos_boards[i].devs);
 	}
@@ -150,7 +143,7 @@ exynos_board_init(void)
 {
 	int i;
 
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
+	for (i = 0; exynos_boards[i].board_id != 0; i++) {
 		if (exynos_boards[i].board_id == board_id) {
 			exynos_boards[i].init();
 			break;
@@ -158,29 +151,17 @@ exynos_board_init(void)
 	}
 }
 
-const char *
-exynos_board_name(void)
-{
-	int i;
-
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
-		if (exynos_boards[i].board_id == board_id) {
-			return (exynos_boards[i].name);
-			break;
-		}
-	}
-	return (NULL);
-}
-
 int
 exynos_match(struct device *parent, void *cfdata, void *aux)
 {
-#if NFDT > 0
-	/* If we're running with fdt, do not attach. */
-	/* XXX: Find a better way. */
-	if (fdt_next_node(0))
+	union mainbus_attach_args *ma = (union mainbus_attach_args *)aux;
+	struct cfdata *cf = (struct cfdata *)cfdata;
+
+	if (ma->ma_name == NULL)
 		return (0);
-#endif
+
+	if (strcmp(cf->cf_driver->cd_name, ma->ma_name) != 0)
+		return (0);
 
 	return (exynos_board_devs() != NULL);
 }

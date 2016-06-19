@@ -1729,6 +1729,9 @@ cpan/OpenBSD-MkTemp/lib/OpenBSD/MkTemp.pm	OpenBSD::MkTemp
 cpan/OpenBSD-MkTemp/MkTemp.xs	OpenBSD::MkTemp
 cpan/OpenBSD-MkTemp/README	OpenBSD::MkTemp Readme
 cpan/OpenBSD-MkTemp/t/OpenBSD-MkTemp.t	OpenBSD::MkTemp test file
+cpan/OpenBSD-Pledge/lib/OpenBSD/Pledge.pm	OpenBSD::Pledge
+cpan/OpenBSD-Pledge/Pledge.xs	OpenBSD::Pledge
+cpan/OpenBSD-Pledge/t/OpenBSD-Pledge.t	OpenBSD::Pledge test file
 cpan/Package-Constants/lib/Package/Constants.pm	Package::Constants
 cpan/Package-Constants/t/01_list.t		Package::Constants tests
 cpan/Params-Check/lib/Params/Check.pm	Params::Check
@@ -2160,6 +2163,17 @@ cpan/Term-ANSIColor/t/stringify.t		Tests for Term::ANSIColor
 cpan/Term-ANSIColor/t/taint.t
 cpan/Term-Cap/Cap.pm			Perl module supporting termcap usage
 cpan/Term-Cap/test.pl			See if Term::Cap works
+cpan/Term-ReadKey/Changes		Term::ReadKey
+cpan/Term-ReadKey/Configure.pm		Term::ReadKey
+cpan/Term-ReadKey/example/test.pl	Term::ReadKey
+cpan/Term-ReadKey/genchars.pl		Term::ReadKey
+cpan/Term-ReadKey/Makefile.PL		Term::ReadKey
+cpan/Term-ReadKey/ppport.h		Term::ReadKey
+cpan/Term-ReadKey/ReadKey.pm		Term::ReadKey
+cpan/Term-ReadKey/ReadKey.xs		Term::ReadKey
+cpan/Term-ReadKey/README		Term::ReadKey
+cpan/Term-ReadKey/t/01_basic.t		Term::ReadKey
+cpan/Term-ReadKey/t/02_terminal_functions.t	Term::ReadKey
 cpan/Test-Harness/bin/prove				The prove harness utility
 cpan/Test-Harness/lib/App/Prove.pm			Gubbins for the prove utility
 cpan/Test-Harness/lib/App/Prove/State.pm		Gubbins for the prove utility

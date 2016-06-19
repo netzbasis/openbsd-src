@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipip.c,v 1.67 2015/09/11 07:42:35 claudio Exp $ */
+/*	$OpenBSD: ip_ipip.c,v 1.69 2016/03/07 18:44:00 naddy Exp $ */
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -293,8 +293,9 @@ ipip_input(struct mbuf *m, int iphlen, struct ifnet *gifp, int proto)
 	}
 
 	/* Check for local address spoofing. */
-	if (((ifp = if_get(m->m_pkthdr.ph_ifidx)) == NULL ||
-	    !(ifp->if_flags & IFF_LOOPBACK)) && ipip_allow != 2) {
+	ifp = if_get(m->m_pkthdr.ph_ifidx);
+	if (((ifp == NULL) || !(ifp->if_flags & IFF_LOOPBACK)) &&
+	    ipip_allow != 2) {
 		struct sockaddr_storage ss;
 		struct rtentry *rt;
 
@@ -324,7 +325,9 @@ ipip_input(struct mbuf *m, int iphlen, struct ifnet *gifp, int proto)
 			return;
  		}
 		rtfree(rt);
- 	}
+ 	} else {
+		if_put(ifp);
+	}
 
 	/* Statistics */
 	ipipstat.ipips_ibytes += m->m_pkthdr.len - iphlen;
@@ -589,7 +592,7 @@ ipip_output(struct mbuf *m, struct tdb *tdb, struct mbuf **mp, int dummy,
 
 #ifdef IPSEC
 int
-ipe4_attach()
+ipe4_attach(void)
 {
 	return 0;
 }

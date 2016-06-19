@@ -1,4 +1,4 @@
-/*	$OpenBSD: audioio.h,v 1.23 2015/07/28 20:45:02 ratchov Exp $	*/
+/*	$OpenBSD: audioio.h,v 1.25 2016/06/18 07:59:30 ratchov Exp $	*/
 /*	$NetBSD: audioio.h,v 1.24 1998/08/13 06:28:41 mrg Exp $	*/
 
 /*
@@ -37,6 +37,36 @@
 
 #ifndef _SYS_AUDIOIO_H_
 #define _SYS_AUDIOIO_H_
+
+#define AUDIO_INITPAR(p) \
+	(void)memset((void *)(p), 0xff, sizeof(struct audio_swpar))
+
+/*
+ * argument to AUDIO_SETPAR and AUDIO_GETPAR ioctls
+ */
+struct audio_swpar {
+	unsigned int sig;		/* if 1, encoding is signed */
+	unsigned int le;		/* if 1, encoding is little-endian */
+	unsigned int bits;		/* bits per sample */
+	unsigned int bps;		/* bytes per sample */
+	unsigned int msb;		/* if 1, bits are msb-aligned */
+	unsigned int rate;		/* common play & rec sample rate */
+	unsigned int pchan;		/* play channels */
+	unsigned int rchan;		/* rec channels */
+	unsigned int nblks;		/* number of blocks in play buffer */
+	unsigned int round;		/* common frames per block */
+	unsigned int _spare[6];
+};
+
+/*
+ * argument to AUDIO_GETSTATUS
+ */
+struct audio_status {
+	int mode;
+	int pause;
+	int active;
+	int _spare[5];
+};
 
 /*
  * Audio device
@@ -149,6 +179,11 @@ typedef struct audio_encoding {
 #define AUDIO_GETOOFFS	_IOR('A', 33, struct audio_offset)
 #define AUDIO_GETPROPS	_IOR('A', 34, int)
 #define AUDIO_GETPOS	_IOR('A', 35, struct audio_pos)
+#define AUDIO_GETPAR	_IOR('A', 36, struct audio_swpar)
+#define AUDIO_SETPAR	_IOWR('A', 37, struct audio_swpar)
+#define AUDIO_START	_IO('A', 38)
+#define AUDIO_STOP	_IO('A', 39)
+#define AUDIO_GETSTATUS	_IOR('A', 40, struct audio_status)
 #define  AUDIO_PROP_FULLDUPLEX	0x01
 #define  AUDIO_PROP_MMAP	0x02
 #define  AUDIO_PROP_INDEPENDENT	0x04

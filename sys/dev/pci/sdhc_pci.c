@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdhc_pci.c,v 1.17 2014/09/30 18:09:23 stsp Exp $	*/
+/*	$OpenBSD: sdhc_pci.c,v 1.20 2016/04/30 11:32:23 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -106,6 +106,7 @@ sdhc_pci_attach(struct device *parent, struct device *self, void *aux)
 	int nslots;
 	int usedma;
 	int reg;
+	pcireg_t type;
 	bus_space_tag_t iot;
 	bus_space_handle_t ioh;
 	bus_size_t size;
@@ -148,6 +149,7 @@ sdhc_pci_attach(struct device *parent, struct device *self, void *aux)
 
 	/* Enable use of DMA if supported by the interface. */
 	usedma = PCI_INTERFACE(pa->pa_class) == SDHC_PCI_INTERFACE_DMA;
+	sc->sc.sc_dmat = pa->pa_dmat;
 
 	/*
 	 * Map and attach all hosts supported by the host controller.
@@ -160,27 +162,25 @@ sdhc_pci_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc.sc_host = mallocarray(nslots, sizeof(struct sdhc_host *),
 	    M_DEVBUF, M_WAITOK);
 
-	/* XXX: handle 64-bit BARs */
-	for (reg = SDHC_PCI_BAR_START + SDHC_PCI_FIRST_BAR(slotinfo) *
-		 sizeof(u_int32_t);
+	for (reg = SDHC_PCI_BAR_START + SDHC_PCI_FIRST_BAR(slotinfo) * 4;
 	     reg < SDHC_PCI_BAR_END && nslots > 0;
-	     reg += sizeof(u_int32_t), nslots--) {
+	     reg += 4, nslots--) {
+		if (!pci_mapreg_probe(pa->pa_pc, pa->pa_tag, reg, &type))
+			break;
 
-		if (pci_mem_find(pa->pa_pc, pa->pa_tag, reg,
-		    NULL, NULL, NULL) != 0)
-			continue;
-
-		if (pci_mapreg_map(pa, reg, PCI_MAPREG_TYPE_MEM, 0,
-		    &iot, &ioh, NULL, &size, 0)) {
+		if (type == PCI_MAPREG_TYPE_IO || pci_mapreg_map(pa, reg,
+		    type, 0, &iot, &ioh, NULL, &size, 0)) {
 			printf("%s at 0x%x: can't map registers\n",
 			    sc->sc.sc_dev.dv_xname, reg);
-			continue;
+			break;
 		}
 
 		if (sdhc_host_found(&sc->sc, iot, ioh, size, usedma, caps) != 0)
-			/* XXX: sc->sc_host leak */
 			printf("%s at 0x%x: can't initialize host\n",
 			    sc->sc.sc_dev.dv_xname, reg);
+
+		if (type & PCI_MAPREG_MEM_TYPE_64BIT)
+			reg += 4;
 	}
 }
 

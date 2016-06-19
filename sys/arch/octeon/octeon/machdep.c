@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.68 2015/08/20 13:41:41 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.73 2016/03/21 14:20:57 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Miodrag Vallat.
@@ -131,7 +131,7 @@ static void	process_bootargs(void);
 static uint64_t	get_ncpusfound(void);
 
 #ifdef MULTIPROCESSOR
-uint32_t	ipi_intr(uint32_t, struct trap_frame *);
+uint32_t	ipi_intr(uint32_t, struct trapframe *);
 #endif
 
 extern void 	parse_uboot_root(void);
@@ -151,83 +151,56 @@ struct timecounter ipdclock_timecounter = {
 					 * by cp0 counter */
 };
 
-#define btoc(x) (((x)+PAGE_MASK)>>PAGE_SHIFT)
-
-#define OCTEON_DRAM_FIRST_256_END	0xfffffffull
-
 void
 octeon_memory_init(struct boot_info *boot_info)
 {
-	uint64_t phys_avail[10 + 2] = {0,};
-	uint64_t startpfn, endpfn;
-	uint32_t realmem;
-	extern char end[];
+	struct octeon_bootmem_block *block;
+	struct octeon_bootmem_desc *memdesc;
+	paddr_t blockaddr;
+	uint64_t fp, lp;
 	int i;
-	uint32_t realmem_bytes;
 
-	startpfn = atop(CKSEG0_TO_PHYS((vaddr_t)&end) + PAGE_SIZE);
-	endpfn = atop(96 << 20);
-	mem_layout[0].mem_first_page = startpfn;
-	mem_layout[0].mem_last_page = endpfn;
+	physmem = atop((uint64_t)boot_info->dram_size << 20);
 
-	physmem = endpfn - startpfn;
+	if (boot_info->phys_mem_desc_addr == 0)
+		panic("bootmem desc is missing");
+	memdesc = (struct octeon_bootmem_desc *)PHYS_TO_XKPHYS(
+	    boot_info->phys_mem_desc_addr, CCA_CACHED);
+	printf("bootmem desc 0x%x version %d.%d\n",
+	    boot_info->phys_mem_desc_addr, memdesc->major_version,
+	    memdesc->minor_version);
+	if (memdesc->major_version > 3)
+		panic("unhandled bootmem desc version %d.%d",
+		    memdesc->major_version, memdesc->minor_version);
 
-	realmem_bytes = ((boot_info->dram_size << 20) - PAGE_SIZE);
-	realmem_bytes &= ~(PAGE_SIZE - 1);
+	blockaddr = memdesc->head_addr;
+	if (blockaddr == 0)
+		panic("bootmem list is empty");
+	for (i = 0; i < MAXMEMSEGS && blockaddr != 0; blockaddr = block->next) {
+		block = (struct octeon_bootmem_block *)PHYS_TO_XKPHYS(
+		    blockaddr, CCA_CACHED);
+		printf("avail phys mem 0x%016lx - 0x%016lx\n", blockaddr,
+		    (paddr_t)(blockaddr + block->size));
 
-	/* phys_avail regions are in bytes */
-	phys_avail[0] =
-	    (CKSEG0_TO_PHYS((uint64_t)&end) + PAGE_SIZE) & ~(PAGE_SIZE - 1);
+		fp = atop(round_page(blockaddr));
+		lp = atop(trunc_page(blockaddr + block->size));
 
-	if (realmem_bytes > OCTEON_DRAM_FIRST_256_END) {
-		phys_avail[1] = OCTEON_DRAM_FIRST_256_END;
-		realmem_bytes -= OCTEON_DRAM_FIRST_256_END;
-		realmem_bytes &= ~(PAGE_SIZE - 1);
-	} else
-		phys_avail[1] = realmem_bytes;
+		/* Clamp to the range of the pmap. */
+		if (fp > atop(pfn_to_pad(PG_FRAME)))
+			continue;
+		if (lp > atop(pfn_to_pad(PG_FRAME)) + 1)
+			lp = atop(pfn_to_pad(PG_FRAME)) + 1;
+		if (fp >= lp)
+			continue;
 
-	mem_layout[0].mem_last_page = atop(phys_avail[1]);
-
-	/*-
-	 * Octeon Memory looks as follows:
-         *   PA
-	 * First 256 MB DR0
-	 * 0000 0000 0000 0000     to  0000 0000 0FFF FFFF
-	 * Second 256 MB DR1
-	 * 0000 0004 1000 0000     to  0000 0004 1FFF FFFF
-	 * Over 512MB Memory DR2  15.5GB
-	 * 0000 0000 2000 0000     to  0000 0003 FFFF FFFF
-	 */
-	physmem = atop(phys_avail[1] - phys_avail[0]);
-
-	if (realmem_bytes > OCTEON_DRAM_FIRST_256_END) {
-		/* take out the upper non-cached 1/2 */
-		phys_avail[2] = 0x410000000ULL;
-		phys_avail[3] =
-		    (0x410000000ULL + OCTEON_DRAM_FIRST_256_END);
-		physmem += btoc(phys_avail[3] - phys_avail[2]);
-		mem_layout[2].mem_first_page = atop(phys_avail[2]);
-		mem_layout[2].mem_last_page = atop(phys_avail[3] - 1);
-		realmem_bytes -= OCTEON_DRAM_FIRST_256_END;
-
-		/* Now map the rest of the memory */
-		phys_avail[4] = 0x20000000ULL;
-		phys_avail[5] = (0x20000000ULL + realmem_bytes);
-		physmem += btoc(phys_avail[5] - phys_avail[4]);
-		mem_layout[1].mem_first_page = atop(phys_avail[4]);
-		mem_layout[1].mem_last_page = atop(phys_avail[5] - 1);
-		realmem_bytes = 0;
+		mem_layout[i].mem_first_page = fp;
+		mem_layout[i].mem_last_page = lp;
+		i++;
 	}
 
- 	realmem = physmem;
+	printf("Total DRAM Size 0x%016llX\n",
+	    (uint64_t)boot_info->dram_size << 20);
 
-	printf("Total DRAM Size 0x%016X\n",
-	    (uint32_t)(boot_info->dram_size << 20));
-
-	for (i = 0; phys_avail[i]; i += 2) {
-		printf("Bank %d = 0x%016lX   ->  0x%016lX\n", i >> 1,
-		    (long)phys_avail[i], (long)phys_avail[i + 1]);
-	}
 	for (i = 0; mem_layout[i].mem_last_page; i++) {
 		printf("mem_layout[%d] page 0x%016llX -> 0x%016llX\n", i,
 		    mem_layout[i].mem_first_page, mem_layout[i].mem_last_page);
@@ -437,6 +410,15 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 #endif
 
 	/*
+	 * It is possible to launch the kernel from the bootloader without
+	 * physical CPU 0. That does not really work, however, because of the
+	 * way how the kernel assigns and uses cpuids. Moreover, cnmac(4) is
+	 * hard coded to use CPU 0 for packet reception.
+	 */
+	if (!(octeon_boot_info->core_mask & 1))
+		panic("cannot run without physical CPU 0");
+
+	/*
 	 * Init message buffer.
 	 */
 	msgbufbase = (caddr_t)pmap_steal_memory(MSGBUFSIZE, NULL,NULL);
@@ -448,7 +430,7 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 
 	proc0.p_addr = proc0paddr = curcpu()->ci_curprocpaddr =
 	    (struct user *)pmap_steal_memory(USPACE, NULL, NULL);
-	proc0.p_md.md_regs = (struct trap_frame *)&proc0paddr->u_pcb.pcb_regs;
+	proc0.p_md.md_regs = (struct trapframe *)&proc0paddr->u_pcb.pcb_regs;
 	tlb_set_pid(MIN_USER_ASID);
 
 	/*
@@ -853,7 +835,7 @@ hw_cpu_hatch(struct cpu_info *ci)
  * IPI dispatcher.
  */
 uint32_t
-ipi_intr(uint32_t hwpend, struct trap_frame *frame)
+ipi_intr(uint32_t hwpend, struct trapframe *frame)
 {
 	u_long cpuid = cpu_number();
 

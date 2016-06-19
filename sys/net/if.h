@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.h,v 1.173 2015/11/20 12:27:42 mpi Exp $	*/
+/*	$OpenBSD: if.h,v 1.177 2016/06/10 20:33:29 vgross Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -206,14 +206,14 @@ struct if_status_description {
 	(IFF_BROADCAST|IFF_POINTOPOINT|IFF_RUNNING|IFF_OACTIVE|\
 	    IFF_SIMPLEX|IFF_MULTICAST|IFF_ALLMULTI)
 
-#define IFXF_TXREADY		0x1		/* interface is ready to tx */
+#define IFXF_MPSAFE		0x1		/* if_start is mpsafe */
 #define	IFXF_INET6_NOPRIVACY	0x4		/* don't autoconf privacy */
 #define	IFXF_MPLS		0x8		/* supports MPLS */
 #define	IFXF_WOL		0x10		/* wake on lan enabled */
 #define	IFXF_AUTOCONF6		0x20		/* v6 autoconf enabled */
 
 #define	IFXF_CANTCHANGE \
-	(IFXF_TXREADY)
+	(IFXF_MPSAFE)
 
 /*
  * Some convenience macros used for setting ifi_baudrate.
@@ -378,6 +378,7 @@ struct	ifreq {
 #define ifr_ttl		ifr_ifru.ifru_metric	/* tunnel TTL (overload) */
 #define	ifr_data	ifr_ifru.ifru_data	/* for use by interface */
 #define ifr_index	ifr_ifru.ifru_index	/* interface index */
+#define ifr_llprio	ifr_ifru.ifru_metric	/* link layer priority */
 };
 
 struct ifaliasreq {
@@ -400,8 +401,7 @@ struct ifmediareq {
 	uint64_t	ifm_mask;		/* don't care mask */
 	uint64_t	ifm_status;		/* media status */
 	uint64_t	ifm_active;		/* active options */ 
-	int		ifm_count;		/* # entries in ifm_ulist
-						array */
+	int		ifm_count;		/* # entries in ifm_ulist array */
 	uint64_t	*ifm_ulist;		/* media words */
 };
 
@@ -443,6 +443,12 @@ struct if_laddrreq {
 struct if_afreq {
 	char		ifar_name[IFNAMSIZ];
 	sa_family_t	ifar_af;
+};
+
+/* SIOC[SG]IFPARENT */
+struct if_parent {
+	char		ifp_name[IFNAMSIZ];
+	char		ifp_parent[IFNAMSIZ];
 };
 
 #include <net/if_arp.h>

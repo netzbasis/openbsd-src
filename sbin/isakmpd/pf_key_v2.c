@@ -1,4 +1,4 @@
-/* $OpenBSD: pf_key_v2.c,v 1.195 2015/08/20 22:02:21 deraadt Exp $  */
+/* $OpenBSD: pf_key_v2.c,v 1.197 2015/12/10 17:27:00 mmcc Exp $  */
 /* $EOM: pf_key_v2.c,v 1.79 2000/12/12 00:33:19 niklas Exp $	 */
 
 /*
@@ -812,8 +812,7 @@ pf_key_v2_get_kernel_sa(u_int8_t *spi, size_t spi_sz, u_int8_t proto,
 	return &ksa;
 
   cleanup:
-	if (addr)
-		free (addr);
+	free(addr);
 	if (gettdb)
 		pf_key_v2_msg_free(gettdb);
 	if (ret)
@@ -901,12 +900,6 @@ pf_key_v2_set_spi(struct sa *sa, struct proto *proto, int incoming,
 		hashlen = ipsec_esp_authkeylength(proto);
 
 		switch (proto->id) {
-		case IPSEC_ESP_DES:
-		case IPSEC_ESP_DES_IV32:
-		case IPSEC_ESP_DES_IV64:
-			ssa.sadb_sa_encrypt = SADB_EALG_DESCBC;
-			break;
-
 		case IPSEC_ESP_3DES:
 			ssa.sadb_sa_encrypt = SADB_EALG_3DESCBC;
 			break;

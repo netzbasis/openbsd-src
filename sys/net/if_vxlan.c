@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vxlan.c,v 1.33 2015/10/25 12:05:40 mpi Exp $	*/
+/*	$OpenBSD: if_vxlan.c,v 1.38 2016/04/13 11:41:15 mpi Exp $	*/
 
 /*
  * Copyright (c) 2013 Reyk Floeter <reyk@openbsd.org>
@@ -56,6 +56,25 @@
 #endif
 
 #include <net/if_vxlan.h>
+
+struct vxlan_softc {
+	struct arpcom		 sc_ac;
+	struct ifmedia		 sc_media;
+
+	struct ip_moptions	 sc_imo;
+	void			*sc_ahcookie;
+	void			*sc_lhcookie;
+	void			*sc_dhcookie;
+
+	struct sockaddr_storage	 sc_src;
+	struct sockaddr_storage	 sc_dst;
+	in_port_t		 sc_dstport;
+	u_int			 sc_rdomain;
+	int			 sc_vnetid;
+	u_int8_t		 sc_ttl;
+
+	LIST_ENTRY(vxlan_softc)	 sc_entry;
+};
 
 void	 vxlanattach(int);
 int	 vxlanioctl(struct ifnet *, u_long, caddr_t);
@@ -119,7 +138,6 @@ vxlan_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_ioctl = vxlanioctl;
 	ifp->if_start = vxlanstart;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_hardmtu = 0xffff;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -256,15 +274,12 @@ void
 vxlanstart(struct ifnet *ifp)
 {
 	struct mbuf		*m;
-	int			 s;
 
 	for (;;) {
-		s = splnet();
 		IFQ_DEQUEUE(&ifp->if_snd, m);
-		splx(s);
-
 		if (m == NULL)
 			return;
+
 		ifp->if_opackets++;
 
 #if NBPFILTER > 0
@@ -323,7 +338,6 @@ vxlan_config(struct ifnet *ifp, struct sockaddr *src, struct sockaddr *dst)
 	return (0);
 }
 
-/* ARGSUSED */
 int
 vxlanioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
@@ -492,7 +506,7 @@ vxlan_lookup(struct mbuf *m, struct udphdr *uh, int iphlen,
 		return (0);
 
 	vni = ntohl(v.vxlan_id) >> VXLAN_VNI_S;
-	if ((v.vxlan_flags & htonl(VXLAN_FLAGS_VNI)) != 0) {
+	if ((v.vxlan_flags & htonl(VXLAN_FLAGS_VNI)) == 0) {
 		if (vni != 0)
 			return (0);
 

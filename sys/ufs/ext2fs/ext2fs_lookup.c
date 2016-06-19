@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_lookup.c,v 1.39 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ext2fs_lookup.c,v 1.42 2016/03/19 12:04:16 natano Exp $	*/
 /*	$NetBSD: ext2fs_lookup.c,v 1.16 2000/08/03 20:29:26 thorpej Exp $	*/
 
 /*
@@ -177,7 +177,7 @@ ext2fs_readdir(void *v)
 				break;
 			}
 			dstd.d_off = off + e2d_reclen;
-			if ((error = uiomovei((caddr_t)&dstd, dstd.d_reclen, uio)) != 0) {
+			if ((error = uiomove((caddr_t)&dstd, dstd.d_reclen, uio)) != 0) {
 				break;
 			}
 			off = off + e2d_reclen;
@@ -429,7 +429,7 @@ searchloop:
 		 */
 		cnp->cn_flags |= SAVENAME;
 		if (!lockparent) {
-			VOP_UNLOCK(vdp, 0, p);
+			VOP_UNLOCK(vdp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 		return (EJUSTRETURN);
@@ -512,7 +512,7 @@ found:
 		}
 		*vpp = tdp;
 		if (!lockparent) {
-			VOP_UNLOCK(vdp, 0, p);
+			VOP_UNLOCK(vdp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 		return (0);
@@ -538,7 +538,7 @@ found:
 		*vpp = tdp;
 		cnp->cn_flags |= SAVENAME;
 		if (!lockparent) {
-			VOP_UNLOCK(vdp, 0, p);
+			VOP_UNLOCK(vdp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 		return (0);
@@ -565,7 +565,7 @@ found:
 	 */
 	pdp = vdp;
 	if (flags & ISDOTDOT) {
-		VOP_UNLOCK(pdp, 0, p);	/* race to get the inode */
+		VOP_UNLOCK(pdp, p);	/* race to get the inode */
 		cnp->cn_flags |= PDIRUNLOCK;
 		if ((error = VFS_VGET(vdp->v_mount, dp->i_ino, &tdp)) != 0) {
 			if (vn_lock(pdp, LK_EXCLUSIVE | LK_RETRY, p) == 0)
@@ -587,7 +587,7 @@ found:
 		if ((error = VFS_VGET(vdp->v_mount, dp->i_ino, &tdp)) != 0)
 			return (error);
 		if (!lockparent || !(flags & ISLASTCN)) {
-			VOP_UNLOCK(pdp, 0, p);
+			VOP_UNLOCK(pdp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 		*vpp = tdp;
@@ -794,7 +794,7 @@ ext2fs_direnter(struct inode *ip, struct vnode *dvp,
 		auio.uio_iovcnt = 1;
 		auio.uio_rw = UIO_WRITE;
 		auio.uio_segflg = UIO_SYSSPACE;
-		auio.uio_procp = (struct proc *)0;
+		auio.uio_procp = NULL;
 		error = VOP_WRITE(dvp, &auio, IO_SYNC, cnp->cn_cred);
 		if (dirblksize >
 			VFSTOUFS(dvp->v_mount)->um_mountp->mnt_stat.f_bsize)

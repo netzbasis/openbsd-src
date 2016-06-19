@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.38 2015/11/15 06:18:19 guenther Exp $	*/
+/*	$OpenBSD: server.c,v 1.42 2016/03/30 20:51:59 millert Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -517,12 +517,12 @@ docmdspecial(void)
 		case RC_FILE:
 			if (env == NULL) {
 				len = (2 * sizeof(E_FILES)) + strlen(cp) + 10;
-				env = (char *) xmalloc(len);
+				env = xmalloc(len);
 				(void) snprintf(env, len, "export %s;%s=%s", 
 					       E_FILES, E_FILES, cp);
 			} else {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ":", len);
 				(void) strlcat(env, cp, len);
 			}
@@ -532,7 +532,7 @@ docmdspecial(void)
 		case RC_COMMAND:
 			if (env) {
 				len = strlen(env) + 1 + strlen(cp) + 1;
-				env = (char *) xrealloc(env, len);
+				env = xrealloc(env, len);
 				(void) strlcat(env, ";", len);
 				(void) strlcat(env, cp, len);
 				cmd = env;
@@ -750,12 +750,9 @@ recvfile(char *new, opt_t opts, int mode, char *owner, char *group,
 	/*
 	 * Create temporary file
 	 */
-	if ((f = mkstemp(new)) < 0) {
-		if (errno != ENOENT || chkparent(new, opts) < 0 ||
-		    (f = mkstemp(new)) < 0) {
-			error("%s: create failed: %s", new, SYSERR);
-			return;
-		}
+	if (chkparent(new, opts) < 0 || (f = mkstemp(new)) < 0) {
+		error("%s: create failed: %s", new, SYSERR);
+		return;
 	}
 
 	/*
@@ -842,7 +839,7 @@ recvfile(char *new, opt_t opts, int mode, char *owner, char *group,
 				 * need to indicate to the master that
 				 * the file was not updated.
 				 */
-				error("");
+				error(NULL);
 				return;
 			}
 		debugmsg(DM_MISC, "Files are different '%s' '%s'.",
@@ -1147,7 +1144,7 @@ recvlink(char *new, opt_t opts, int mode, off_t size)
 
 	if (IS_ON(opts, DO_VERIFY) || uptodate) {
 		if (uptodate)
-			message(MT_REMOTE|MT_INFO, "");
+			message(MT_REMOTE|MT_INFO, NULL);
 		else
 			message(MT_REMOTE|MT_INFO, "%s: need to update",
 				target);
@@ -1161,13 +1158,10 @@ recvlink(char *new, opt_t opts, int mode, off_t size)
 	/*
 	 * Make new symlink using a temporary name
 	 */
-	if (mktemp(new) == NULL || symlink(dbuf, new) < 0) {
-		if (errno != ENOENT || chkparent(new, opts) < 0 ||
-		    mktemp(new) == NULL || symlink(dbuf, new) < 0) {
-			error("%s -> %s: symlink failed: %s", new, dbuf,
-			    SYSERR);
-			return;
-		}
+	if (chkparent(new, opts) < 0 || mktemp(new) == NULL ||
+	    symlink(dbuf, new) < 0) {
+		error("%s -> %s: symlink failed: %s", new, dbuf, SYSERR);
+		return;
 	}
 
 	/*

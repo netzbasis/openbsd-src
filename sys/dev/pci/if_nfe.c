@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nfe.c,v 1.114 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_nfe.c,v 1.117 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2006, 2007 Damien Bergamini <damien.bergamini@free.fr>
@@ -37,7 +37,6 @@
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -323,7 +322,6 @@ nfe_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = nfe_start;
 	ifp->if_watchdog = nfe_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, NFE_IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -853,7 +851,7 @@ skip:		sc->txq.queued--;
 	}
 
 	if (data != NULL) {	/* at least one slot freed */
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		nfe_start(ifp);
 	}
 }
@@ -970,7 +968,7 @@ nfe_start(struct ifnet *ifp)
 	int old = sc->txq.cur;
 	struct mbuf *m0;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
@@ -980,7 +978,7 @@ nfe_start(struct ifnet *ifp)
 
 		if (nfe_encap(sc, m0) != 0) {
 			ifq_deq_rollback(&ifp->if_snd, m0);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1121,7 +1119,7 @@ nfe_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1134,7 +1132,8 @@ nfe_stop(struct ifnet *ifp, int disable)
 	timeout_del(&sc->sc_tick_ch);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	mii_down(&sc->sc_mii);
 

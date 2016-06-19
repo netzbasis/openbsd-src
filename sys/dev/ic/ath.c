@@ -1,4 +1,4 @@
-/*      $OpenBSD: ath.c,v 1.107 2015/11/04 12:11:59 dlg Exp $  */
+/*      $OpenBSD: ath.c,v 1.111 2016/04/13 10:49:26 mpi Exp $  */
 /*	$NetBSD: ath.c,v 1.37 2004/08/18 21:59:39 dyoung Exp $	*/
 
 /*-
@@ -299,7 +299,6 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 	ath_rate_setup(sc, IEEE80211_MODE_11A);
 	ath_rate_setup(sc, IEEE80211_MODE_11B);
 	ath_rate_setup(sc, IEEE80211_MODE_11G);
-	ath_rate_setup(sc, IEEE80211_MODE_TURBO);
 
 	error = ath_desc_alloc(sc);
 	if (error != 0) {
@@ -350,8 +349,7 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 	}
 
 	ifp->if_softc = sc;
-	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST
-	    | IFF_NOTRAILERS;
+	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
 	ifp->if_start = ath_start;
 	ifp->if_watchdog = ath_watchdog;
 	ifp->if_ioctl = ath_ioctl;
@@ -359,7 +357,6 @@ ath_attach(u_int16_t devid, struct ath_softc *sc)
 	ifp->if_stop = ath_stop;		/* XXX */
 #endif
 	IFQ_SET_MAXLEN(&ifp->if_snd, ATH_TXBUF * ATH_TXDESC);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ic->ic_softc = sc;
 	ic->ic_newassoc = ath_newassoc;
@@ -618,8 +615,6 @@ ath_chan2flags(struct ieee80211com *ic, struct ieee80211_channel *chan)
 		return CHANNEL_B;
 	case IEEE80211_MODE_11G:
 		return CHANNEL_G;
-	case IEEE80211_MODE_TURBO:
-		return CHANNEL_T;
 	default:
 		panic("%s: unsupported mode %d", __func__, mode);
 		return 0;
@@ -834,7 +829,7 @@ ath_start(struct ifnet *ifp)
 	struct ieee80211_frame *wh;
 	int s;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING ||
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd) ||
 	    sc->sc_invalid)
 		return;
 	for (;;) {
@@ -850,7 +845,7 @@ ath_start(struct ifnet *ifp)
 			DPRINTF(ATH_DEBUG_ANY, ("%s: out of xmit buffers\n",
 			    __func__));
 			sc->sc_stats.ast_tx_qstop++;
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/*
@@ -2507,7 +2502,7 @@ ath_tx_proc(void *arg, int npending)
 		TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
 		splx(s);
 	}
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	sc->sc_tx_timer = 0;
 
 	ath_start(ifp);
@@ -2572,7 +2567,7 @@ ath_draintxq(struct ath_softc *sc)
 		TAILQ_INSERT_TAIL(&sc->sc_txbuf, bf, bf_list);
 		splx(s);
 	}
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	sc->sc_tx_timer = 0;
 }
 
@@ -3053,9 +3048,6 @@ ath_rate_setup(struct ath_softc *sc, u_int mode)
 		break;
 	case IEEE80211_MODE_11G:
 		sc->sc_rates[mode] = ath_hal_get_rate_table(ah, HAL_MODE_11G);
-		break;
-	case IEEE80211_MODE_TURBO:
-		sc->sc_rates[mode] = ath_hal_get_rate_table(ah, HAL_MODE_TURBO);
 		break;
 	default:
 		DPRINTF(ATH_DEBUG_ANY,

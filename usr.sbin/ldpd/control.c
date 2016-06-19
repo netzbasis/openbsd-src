@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.16 2015/07/21 04:52:29 renato Exp $ */
+/*	$OpenBSD: control.c,v 1.27 2016/05/23 19:20:55 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -18,27 +18,28 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "ldpd.h"
-#include "ldp.h"
 #include "ldpe.h"
 #include "log.h"
 #include "control.h"
 
 #define	CONTROL_BACKLOG	5
 
-struct ctl_conn	*control_connbyfd(int);
-struct ctl_conn	*control_connbypid(pid_t);
-void		 control_close(int);
+static void		 control_accept(int, short, void *);
+static struct ctl_conn	*control_connbyfd(int);
+static struct ctl_conn	*control_connbypid(pid_t);
+static void		 control_close(int);
+static void		 control_dispatch_imsg(int, short, void *);
 
-int control_fd;
+struct ctl_conns	 ctl_conns;
+
+static int		 control_fd;
 
 int
 control_init(void)
@@ -49,24 +50,24 @@ control_init(void)
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 	    0)) == -1) {
-		log_warn("control_init: socket");
+		log_warn("%s: socket", __func__);
 		return (-1);
 	}
 
-	bzero(&sun, sizeof(sun));
+	memset(&sun, 0, sizeof(sun));
 	sun.sun_family = AF_UNIX;
 	strlcpy(sun.sun_path, LDPD_SOCKET, sizeof(sun.sun_path));
 
 	if (unlink(LDPD_SOCKET) == -1)
 		if (errno != ENOENT) {
-			log_warn("control_init: unlink %s", LDPD_SOCKET);
+			log_warn("%s: unlink %s", __func__, LDPD_SOCKET);
 			close(fd);
 			return (-1);
 		}
 
 	old_umask = umask(S_IXUSR|S_IXGRP|S_IWOTH|S_IROTH|S_IXOTH);
 	if (bind(fd, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
-		log_warn("control_init: bind: %s", LDPD_SOCKET);
+		log_warn("%s: bind: %s", __func__, LDPD_SOCKET);
 		close(fd);
 		umask(old_umask);
 		return (-1);
@@ -74,7 +75,7 @@ control_init(void)
 	umask(old_umask);
 
 	if (chmod(LDPD_SOCKET, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP) == -1) {
-		log_warn("control_init: chmod");
+		log_warn("%s: chmod", __func__);
 		close(fd);
 		(void)unlink(LDPD_SOCKET);
 		return (-1);
@@ -88,9 +89,8 @@ control_init(void)
 int
 control_listen(void)
 {
-
 	if (listen(control_fd, CONTROL_BACKLOG) == -1) {
-		log_warn("control_listen: listen");
+		log_warn("%s: listen", __func__);
 		return (-1);
 	}
 
@@ -100,11 +100,13 @@ control_listen(void)
 void
 control_cleanup(void)
 {
+	accept_del(control_fd);
+	close(control_fd);
 	unlink(LDPD_SOCKET);
 }
 
 /* ARGSUSED */
-void
+static void
 control_accept(int listenfd, short event, void *bula)
 {
 	int			 connfd;
@@ -123,12 +125,12 @@ control_accept(int listenfd, short event, void *bula)
 			accept_pause();
 		else if (errno != EWOULDBLOCK && errno != EINTR &&
 		    errno != ECONNABORTED)
-			log_warn("control_accept: accept");
+			log_warn("%s: accept4", __func__);
 		return;
 	}
 
 	if ((c = calloc(1, sizeof(struct ctl_conn))) == NULL) {
-		log_warn("control_accept");
+		log_warn(__func__);
 		close(connfd);
 		return;
 	}
@@ -143,7 +145,7 @@ control_accept(int listenfd, short event, void *bula)
 	TAILQ_INSERT_TAIL(&ctl_conns, c, entry);
 }
 
-struct ctl_conn *
+static struct ctl_conn *
 control_connbyfd(int fd)
 {
 	struct ctl_conn	*c;
@@ -155,7 +157,7 @@ control_connbyfd(int fd)
 	return (c);
 }
 
-struct ctl_conn *
+static struct ctl_conn *
 control_connbypid(pid_t pid)
 {
 	struct ctl_conn	*c;
@@ -167,13 +169,13 @@ control_connbypid(pid_t pid)
 	return (c);
 }
 
-void
+static void
 control_close(int fd)
 {
 	struct ctl_conn	*c;
 
 	if ((c = control_connbyfd(fd)) == NULL) {
-		log_warn("control_close: fd %d: not found", fd);
+		log_warnx("%s: fd %d: not found", __func__, fd);
 		return;
 	}
 
@@ -182,27 +184,28 @@ control_close(int fd)
 
 	event_del(&c->iev.ev);
 	close(c->iev.ibuf.fd);
-	free(c);
 	accept_unpause();
+	free(c);
 }
 
 /* ARGSUSED */
-void
+static void
 control_dispatch_imsg(int fd, short event, void *bula)
 {
 	struct ctl_conn	*c;
 	struct imsg	 imsg;
-	int		 n;
+	ssize_t		 n;
 	unsigned int	 ifidx;
 	int		 verbose;
 
 	if ((c = control_connbyfd(fd)) == NULL) {
-		log_warn("control_dispatch_imsg: fd %d: not found", fd);
+		log_warnx("%s: fd %d: not found", __func__, fd);
 		return;
 	}
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(&c->iev.ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read(&c->iev.ibuf)) == -1 && errno != EAGAIN) ||
+		    n == 0) {
 			control_close(fd);
 			return;
 		}
@@ -260,6 +263,13 @@ control_dispatch_imsg(int fd, short event, void *bula)
 		case IMSG_CTL_SHOW_NBR:
 			ldpe_nbr_ctl(c);
 			break;
+		case IMSG_CTL_CLEAR_NBR:
+			if (imsg.hdr.len != IMSG_HEADER_SIZE +
+			    sizeof(struct ctl_nbr))
+				break;
+
+			nbr_clear_ctl(imsg.data);
+			break;
 		case IMSG_CTL_LOG_VERBOSE:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
 			    sizeof(verbose))
@@ -275,8 +285,8 @@ control_dispatch_imsg(int fd, short event, void *bula)
 			log_verbose(verbose);
 			break;
 		default:
-			log_debug("control_dispatch_imsg: "
-			    "error handling imsg %d", imsg.hdr.type);
+			log_debug("%s: error handling imsg %d", __func__,
+			    imsg.hdr.type);
 			break;
 		}
 		imsg_free(&imsg);

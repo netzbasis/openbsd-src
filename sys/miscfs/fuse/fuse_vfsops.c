@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vfsops.c,v 1.16 2015/07/19 14:21:14 tedu Exp $ */
+/* $OpenBSD: fuse_vfsops.c,v 1.23 2016/06/19 11:54:33 natano Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -111,7 +111,9 @@ fusefs_mount(struct mount *mp, const char *path, void *data,
 	bzero(mp->mnt_stat.f_mntonname, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntonname, path, MNAMELEN);
 	bzero(mp->mnt_stat.f_mntfromname, MNAMELEN);
-	bcopy("fusefs", mp->mnt_stat.f_mntfromname, sizeof("fusefs"));
+	strlcpy(mp->mnt_stat.f_mntfromname, "fusefs", MNAMELEN);
+	bzero(mp->mnt_stat.f_mntfromspec, MNAMELEN);
+	strlcpy(mp->mnt_stat.f_mntfromspec, "fusefs", MNAMELEN);
 
 	fuse_device_set_fmp(fmp, 1);
 	fbuf = fb_setup(0, 0, FBT_INIT, p);
@@ -133,19 +135,13 @@ fusefs_unmount(struct mount *mp, int mntflags, struct proc *p)
 {
 	struct fusefs_mnt *fmp;
 	struct fusebuf *fbuf;
-	extern int doforce;
 	int flags = 0;
 	int error;
 
 	fmp = VFSTOFUSEFS(mp);
 
-	if (mntflags & MNT_FORCE) {
-		/* fusefs can never be rootfs so don't check for it */
-		if (!doforce)
-			return (EINVAL);
-
+	if (mntflags & MNT_FORCE)
 		flags |= FORCECLOSE;
-	}
 
 	if ((error = vflush(mp, NULLVP, flags)))
 		return (error);
@@ -165,8 +161,9 @@ fusefs_unmount(struct mount *mp, int mntflags, struct proc *p)
 	fuse_device_cleanup(fmp->dev, NULL);
 	fuse_device_set_fmp(fmp, 0);
 	free(fmp, M_FUSEFS, 0);
+	mp->mnt_data = NULL;
 
-	return (error);
+	return (0);
 }
 
 int
@@ -203,6 +200,8 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 
 	fmp = VFSTOFUSEFS(mp);
 
+	copy_statfs_info(sbp, mp);
+
 	if (fmp->sess_init) {
 		fbuf = fb_setup(0, FUSE_ROOT_ID, FBT_STATFS, p);
 
@@ -218,7 +217,9 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 		sbp->f_blocks = fbuf->fb_stat.f_blocks;
 		sbp->f_files = fbuf->fb_stat.f_files;
 		sbp->f_ffree = fbuf->fb_stat.f_ffree;
+		sbp->f_favail = fbuf->fb_stat.f_favail;
 		sbp->f_bsize = fbuf->fb_stat.f_frsize;
+		sbp->f_iosize = fbuf->fb_stat.f_bsize;
 		sbp->f_namemax = fbuf->fb_stat.f_namemax;
 		fb_delete(fbuf);
 	} else {
@@ -226,8 +227,10 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 		sbp->f_bfree = 0;
 		sbp->f_blocks = 0;
 		sbp->f_ffree = 0;
+		sbp->f_favail = 0;
 		sbp->f_files = 0;
 		sbp->f_bsize = 0;
+		sbp->f_iosize = 0;
 		sbp->f_namemax = 0;
 	}
 
@@ -267,7 +270,7 @@ retry:
 	}
 
 	ip = malloc(sizeof(*ip), M_FUSEFS, M_WAITOK | M_ZERO);
-	lockinit(&ip->ufs_ino.i_lock, PINOD, "fuseinode", 0, 0);
+	rrw_init(&ip->ufs_ino.i_lock, "fuseinode");
 	nvp->v_data = ip;
 	ip->ufs_ino.i_vnode = nvp;
 	ip->ufs_ino.i_dev = fmp->dev;
@@ -304,7 +307,7 @@ fusefs_fhtovp(struct mount *mp, struct fid *fhp, struct vnode **vpp)
 
 	ufhp = (struct ufid *)fhp;
 	if (ufhp->ufid_len != sizeof(struct ufid) ||
-	    ufhp->ufid_ino < ROOTINO)
+	    ufhp->ufid_ino < FUSE_ROOTINO)
 		return (ESTALE);
 
 	return (VFS_VGET(mp, ufhp->ufid_ino, vpp));
@@ -363,5 +366,5 @@ int
 fusefs_checkexp(struct mount *mp, struct mbuf *nam, int *extflagsp,
     struct ucred **credanonp)
 {
-	return (0);
+	return (EOPNOTSUPP);
 }

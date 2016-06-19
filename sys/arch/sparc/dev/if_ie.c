@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ie.c,v 1.56 2015/11/14 17:26:40 mpi Exp $	*/
+/*	$OpenBSD: if_ie.c,v 1.63 2016/03/29 13:39:53 dlg Exp $	*/
 /*	$NetBSD: if_ie.c,v 1.33 1997/07/29 17:55:38 fair Exp $	*/
 
 /*-
@@ -113,10 +113,6 @@ Mode of operation:
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
-#include <net/if_dl.h>
-#include <net/netisr.h>
-#include <net/route.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -643,7 +639,7 @@ ieattach(parent, self, aux)
 	ifp->if_ioctl = ieioctl;
 	ifp->if_watchdog = iewatchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 
 	/* Attach the interface. */
 	if_attach(ifp);
@@ -821,7 +817,7 @@ ietint(sc)
 	int status;
 
 	sc->sc_arpcom.ac_if.if_timer = 0;
-	sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 
 	status = sc->xmit_cmds[sc->xctail]->ie_xmit_status;
 
@@ -1002,19 +998,6 @@ static __inline void
 iexmit(sc)
 	struct ie_softc *sc;
 {
-
-#if NBPFILTER > 0
-	/*
-	 * If BPF is listening on this interface, let it see the packet before
-	 * we push it on the wire.
-	 */
-	if (sc->sc_arpcom.ac_if.if_bpf)
-		bpf_tap(sc->sc_arpcom.ac_if.if_bpf,
-		    sc->xmit_cbuffs[sc->xctail],
-		    SWAP(sc->xmit_buffs[sc->xctail]->ie_xmit_flags),
-		    BPF_DIRECTION_OUT);
-#endif
-
 	sc->xmit_buffs[sc->xctail]->ie_xmit_flags |= IE_XMIT_LAST;
 	sc->xmit_buffs[sc->xctail]->ie_xmit_next = SWAP(0xffff);
 	ST_24(sc->xmit_buffs[sc->xctail]->ie_xmit_buf,
@@ -1308,7 +1291,7 @@ iestart(ifp)
 		return;
 
 	if (sc->xmit_free == 0) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		if (!sc->xmit_busy)
 			iexmit(sc);
 		return;
@@ -1318,6 +1301,11 @@ iestart(ifp)
 		IFQ_DEQUEUE(&sc->sc_arpcom.ac_if.if_snd, m);
 		if (!m)
 			break;
+
+#if NBPFILTER > 0
+		if (ifp->if_bpf)
+			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+#endif
 
 		len = 0;
 		buffer = sc->xmit_cbuffs[sc->xchead];
@@ -1408,7 +1396,8 @@ iereset(sc)
 	printf("%s: reset\n", sc->sc_dev.dv_xname);
 
 	/* Clear OACTIVE in case we're called from watchdog (frozen xmit). */
-	sc->sc_arpcom.ac_if.if_flags &= ~(IFF_UP | IFF_OACTIVE);
+	sc->sc_arpcom.ac_if.if_flags &= ~IFF_UP;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 	ieioctl(&sc->sc_arpcom.ac_if, SIOCSIFFLAGS, 0);
 
 	/*
@@ -1909,7 +1898,7 @@ mc_reset(sc)
 
 	if (ac->ac_multirangecnt > 0) {
 		ac->ac_if.if_flags |= IFF_ALLMULTI;
-		ieioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+		ieioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 		goto setflag;
 	}
 
@@ -1921,7 +1910,7 @@ mc_reset(sc)
 	while (enm) {
 		if (sc->mcast_count >= MAXMCAST) {
 			ac->ac_if.if_flags |= IFF_ALLMULTI;
-			ieioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+			ieioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 			goto setflag;
 		}
 

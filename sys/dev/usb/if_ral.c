@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ral.c,v 1.135 2015/11/13 10:36:29 mpi Exp $	*/
+/*	$OpenBSD: if_ral.c,v 1.139 2016/04/13 11:03:37 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -41,10 +41,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -312,7 +310,6 @@ ural_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = ural_ioctl;
 	ifp->if_start = ural_start;
 	ifp->if_watchdog = ural_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -695,7 +692,7 @@ ural_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	DPRINTFN(10, ("tx done\n"));
 
 	sc->sc_tx_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ural_start(ifp);
 
 	splx(s);
@@ -1234,12 +1231,12 @@ ural_start(struct ifnet *ifp)
 	 * net80211 may still try to send management frames even if the
 	 * IFF_RUNNING flag is not set...
 	 */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if ((ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->tx_queued >= RAL_TX_LIST_COUNT - 1) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -2058,7 +2055,7 @@ ural_init(struct ifnet *ifp)
 	}
 	ural_write(sc, RAL_TXRX_CSR2, tmp);
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	if (ic->ic_opmode == IEEE80211_M_MONITOR)
@@ -2080,7 +2077,8 @@ ural_stop(struct ifnet *ifp, int disable)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);	/* free all nodes */
 

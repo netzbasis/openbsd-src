@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_loop.c,v 1.73 2015/11/11 10:23:23 mpi Exp $	*/
+/*	$OpenBSD: if_loop.c,v 1.76 2016/04/13 11:41:15 mpi Exp $	*/
 /*	$NetBSD: if_loop.c,v 1.15 1996/05/07 02:40:33 thorpej Exp $	*/
 
 /*
@@ -139,13 +139,18 @@
 
 #define	LOMTU	32768
 
+int	loioctl(struct ifnet *, u_long, caddr_t);
+void	loopattach(int);
+void	lortrequest(struct ifnet *, int, struct rtentry *);
+int	looutput(struct ifnet *,
+	    struct mbuf *, struct sockaddr *, struct rtentry *);
+
 int	loop_clone_create(struct if_clone *, int);
 int	loop_clone_destroy(struct ifnet *);
 
 struct if_clone loop_cloner =
     IF_CLONE_INITIALIZER("lo", loop_clone_create, loop_clone_destroy);
 
-/* ARGSUSED */
 void
 loopattach(int n)
 {
@@ -174,7 +179,6 @@ loop_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_type = IFT_LOOP;
 	ifp->if_hdrlen = sizeof(u_int32_t);
 	ifp->if_addrlen = 0;
-	IFQ_SET_READY(&ifp->if_snd);
 	if (unit == 0) {
 		if_attachhead(ifp);
 		if_addgroup(ifp, ifc->ifc_name);
@@ -216,7 +220,6 @@ looutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	return (if_input_local(ifp, m, dst->sa_family));
 }
 
-/* ARGSUSED */
 void
 lortrequest(struct ifnet *ifp, int cmd, struct rtentry *rt)
 {
@@ -227,7 +230,6 @@ lortrequest(struct ifnet *ifp, int cmd, struct rtentry *rt)
 /*
  * Process an ioctl request.
  */
-/* ARGSUSED */
 int
 loioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {

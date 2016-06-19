@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.130 2015/10/07 08:41:01 mpi Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.142 2016/06/10 20:33:29 vgross Exp $	*/
 /*	$NetBSD: bpf.c,v 1.33 1997/02/21 23:59:35 thorpej Exp $	*/
 
 /*
@@ -56,6 +56,7 @@
 #include <sys/rwlock.h>
 #include <sys/atomic.h>
 #include <sys/srp.h>
+#include <sys/specdev.h>
 
 #include <net/if.h>
 #include <net/bpf.h>
@@ -92,7 +93,7 @@ LIST_HEAD(, bpf_d) bpf_d_list;
 void	bpf_allocbufs(struct bpf_d *);
 void	bpf_freed(struct bpf_d *);
 void	bpf_ifname(struct ifnet *, struct ifreq *);
-void	_bpf_mtap(caddr_t, struct mbuf *, u_int,
+int	_bpf_mtap(caddr_t, const struct mbuf *, u_int,
 	    void (*)(const void *, void *, size_t));
 void	bpf_mcopy(const void *, void *, size_t);
 int	bpf_movein(struct uio *, u_int, struct mbuf **,
@@ -212,7 +213,7 @@ bpf_movein(struct uio *uio, u_int linktype, struct mbuf **mp,
 	m->m_len = len;
 	*mp = m;
 
-	error = uiomovei(mtod(m, caddr_t), len, uio);
+	error = uiomove(mtod(m, caddr_t), len, uio);
 	if (error)
 		goto bad;
 
@@ -318,7 +319,6 @@ bpf_detachd(struct bpf_d *d)
 	d->bd_bif = NULL;
 }
 
-/* ARGSUSED */
 void
 bpfilterattach(int n)
 {
@@ -329,11 +329,13 @@ bpfilterattach(int n)
  * Open ethernet device.  Returns ENXIO for illegal minor device number,
  * EBUSY if file is open by another process.
  */
-/* ARGSUSED */
 int
 bpfopen(dev_t dev, int flag, int mode, struct proc *p)
 {
 	struct bpf_d *d;
+
+	if (minor(dev) & ((1 << CLONE_SHIFT) - 1))
+		return (ENXIO);
 
 	/* create on demand */
 	if ((d = bpfilter_create(minor(dev))) == NULL)
@@ -342,6 +344,9 @@ bpfopen(dev_t dev, int flag, int mode, struct proc *p)
 	/* Mark "free" and do most initialization. */
 	d->bd_bufsize = bpf_bufsize;
 	d->bd_sig = SIGIO;
+
+	if (flag & FNONBLOCK)
+		d->bd_rtout = -1;
 
 	D_GET(d);
 
@@ -352,7 +357,6 @@ bpfopen(dev_t dev, int flag, int mode, struct proc *p)
  * Close the descriptor by detaching it from its interface,
  * deallocating its buffers, and marking it free.
  */
-/* ARGSUSED */
 int
 bpfclose(dev_t dev, int flag, int mode, struct proc *p)
 {
@@ -488,7 +492,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 	 * We know the entire buffer is transferred since
 	 * we checked above that the read buffer is bpf_bufsize bytes.
 	 */
-	error = uiomovei(d->bd_hbuf, d->bd_hlen, uio);
+	error = uiomove(d->bd_hbuf, d->bd_hlen, uio);
 
 	s = splnet();
 	d->bd_fbuf = d->bd_hbuf;
@@ -557,6 +561,7 @@ bpfwrite(dev_t dev, struct uio *uio, int ioflag)
 	}
 
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
+	m->m_pkthdr.pf.prio = ifp->if_llprio;
 
 	if (d->bd_hdrcmplt && dst.ss_family == AF_UNSPEC)
 		dst.ss_family = pseudo_AF_HDRCMPLT;
@@ -607,7 +612,6 @@ bpf_reset_d(struct bpf_d *d)
  *  BIOCGHDRCMPLT	Get "header already complete" flag
  *  BIOCSHDRCMPLT	Set "header already complete" flag
  */
-/* ARGSUSED */
 int
 bpfioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 {
@@ -858,14 +862,6 @@ bpfioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	case BIOCSDIRFILT:	/* set direction filter */
 		d->bd_dirfilt = (*(u_int *)addr) &
 		    (BPF_DIRECTION_IN|BPF_DIRECTION_OUT);
-		break;
-
-	case BIOCGQUEUE:	/* get queue */
-		*(u_int *)addr = d->bd_queue;
-		break;
-
-	case BIOCSQUEUE:	/* set queue */
-		d->bd_queue = *(u_int *)addr;
 		break;
 
 	case FIONBIO:		/* Non-blocking I/O */
@@ -1139,26 +1135,31 @@ int
 bpf_tap(caddr_t arg, u_char *pkt, u_int pktlen, u_int direction)
 {
 	struct bpf_if *bp = (struct bpf_if *)arg;
-	struct srpl_iter i;
+	struct srp_ref sr;
 	struct bpf_d *d;
 	size_t slen;
 	struct timeval tv;
 	int drop = 0, gottime = 0;
+	int s;
 
-	SRPL_FOREACH(d, &bp->bif_dlist, &i, bd_next) {
+	if (bp == NULL)
+		return (0);
+
+	SRPL_FOREACH(d, &sr, &bp->bif_dlist, bd_next) {
 		atomic_inc_long(&d->bd_rcount);
 
 		if ((direction & d->bd_dirfilt) != 0)
 			slen = 0;
 		else {
+			struct srp_ref sr;
 			struct bpf_program *bf;
 			struct bpf_insn *fcode = NULL;
 
-			bf = srp_enter(&d->bd_rfilter);
+			bf = srp_enter(&sr, &d->bd_rfilter);
 			if (bf != NULL)
 				fcode = bf->bf_insns;
-			slen = bpf_filter(fcode, pkt, pktlen, 0);
-			srp_leave(&d->bd_rfilter, bf);
+			slen = bpf_filter(fcode, pkt, pktlen, pktlen);
+			srp_leave(&sr);
 		}
 
 		if (slen > 0) {
@@ -1166,17 +1167,19 @@ bpf_tap(caddr_t arg, u_char *pkt, u_int pktlen, u_int direction)
 				microtime(&tv);
 
 			KERNEL_LOCK();
+			s = splnet();
 			if (d->bd_bif != NULL) {
 				bpf_catchpacket(d, pkt, pktlen, slen,
 				    bcopy, &tv);
 			}
+			splx(s);
 			KERNEL_UNLOCK();
 
 			if (d->bd_fildrop)
-				drop++;
+				drop = 1;
 		}
 	}
-	SRPL_LEAVE(&i, d);
+	SRPL_LEAVE(&sr);
 
 	return (drop);
 }
@@ -1208,44 +1211,48 @@ bpf_mcopy(const void *src_arg, void *dst_arg, size_t len)
 /*
  * like bpf_mtap, but copy fn can be given. used by various bpf_mtap*
  */
-void
-_bpf_mtap(caddr_t arg, struct mbuf *m, u_int direction,
+int
+_bpf_mtap(caddr_t arg, const struct mbuf *m, u_int direction,
     void (*cpfn)(const void *, void *, size_t))
 {
 	struct bpf_if *bp = (struct bpf_if *)arg;
-	struct srpl_iter i;
+	struct srp_ref sr;
 	struct bpf_d *d;
 	size_t pktlen, slen;
-	struct mbuf *m0;
+	const struct mbuf *m0;
 	struct timeval tv;
 	int gottime = 0;
+	int drop = 0;
+	int s;
 
 	if (m == NULL)
-		return;
+		return (0);
 
 	if (cpfn == NULL)
 		cpfn = bpf_mcopy;
+
+	if (bp == NULL)
+		return (0);
 
 	pktlen = 0;
 	for (m0 = m; m0 != NULL; m0 = m0->m_next)
 		pktlen += m0->m_len;
 
-	SRPL_FOREACH(d, &bp->bif_dlist, &i, bd_next) {
+	SRPL_FOREACH(d, &sr, &bp->bif_dlist, bd_next) {
 		atomic_inc_long(&d->bd_rcount);
 
 		if ((direction & d->bd_dirfilt) != 0)
 			slen = 0;
-		else if (d->bd_queue && m->m_pkthdr.pf.qid != d->bd_queue)
-			slen = 0;
 		else {
+			struct srp_ref bsr;
 			struct bpf_program *bf;
 			struct bpf_insn *fcode = NULL;
 
-			bf = srp_enter(&d->bd_rfilter);
+			bf = srp_enter(&bsr, &d->bd_rfilter);
 			if (bf != NULL)
 				fcode = bf->bf_insns;
-			slen = bpf_filter(fcode, (u_char *)m, pktlen, 0);
-			srp_leave(&d->bd_rfilter, bf);
+			slen = bpf_mfilter(fcode, m, pktlen);
+			srp_leave(&bsr);
 		}
 
 		if (slen > 0) {
@@ -1253,26 +1260,30 @@ _bpf_mtap(caddr_t arg, struct mbuf *m, u_int direction,
 				microtime(&tv);
 
 			KERNEL_LOCK();
+			s = splnet();
 			if (d->bd_bif != NULL) {
 				bpf_catchpacket(d, (u_char *)m, pktlen, slen,
 				    cpfn, &tv);
 			}
+			splx(s);
 			KERNEL_UNLOCK();
 
 			if (d->bd_fildrop)
-				m->m_flags |= M_FILDROP;
+				drop = 1;
 		}
 	}
-	SRPL_LEAVE(&i, d);
+	SRPL_LEAVE(&sr);
+
+	return (drop);
 }
 
 /*
  * Incoming linkage from device drivers, when packet is in an mbuf chain.
  */
-void
-bpf_mtap(caddr_t arg, struct mbuf *m, u_int direction)
+int
+bpf_mtap(caddr_t arg, const struct mbuf *m, u_int direction)
 {
-	_bpf_mtap(arg, m, direction, NULL);
+	return _bpf_mtap(arg, m, direction, NULL);
 }
 
 /*
@@ -1284,25 +1295,23 @@ bpf_mtap(caddr_t arg, struct mbuf *m, u_int direction)
  * fields in this header that we initialize, and will not try to free
  * it or keep a pointer to it.
  */
-void
-bpf_mtap_hdr(caddr_t arg, caddr_t data, u_int dlen, struct mbuf *m,
+int
+bpf_mtap_hdr(caddr_t arg, caddr_t data, u_int dlen, const struct mbuf *m,
     u_int direction, void (*cpfn)(const void *, void *, size_t))
 {
-	struct m_hdr	 mh;
-	struct mbuf	*m0;
+	struct m_hdr mh;
+	const struct mbuf *m0;
 
 	if (dlen > 0) {
 		mh.mh_flags = 0;
-		mh.mh_next = m;
+		mh.mh_next = (struct mbuf *)m;
 		mh.mh_len = dlen;
 		mh.mh_data = data;
 		m0 = (struct mbuf *)&mh;
 	} else 
 		m0 = m;
 
-	_bpf_mtap(arg, m0, direction, cpfn);
-	if (m0 != m)
-		m->m_flags |= m0->m_flags & M_FILDROP;
+	return _bpf_mtap(arg, m0, direction, cpfn);
 }
 
 /*
@@ -1314,13 +1323,15 @@ bpf_mtap_hdr(caddr_t arg, caddr_t data, u_int dlen, struct mbuf *m,
  * fields in this header that we initialize, and will not try to free
  * it or keep a pointer to it.
  */
-void
-bpf_mtap_af(caddr_t arg, u_int32_t af, struct mbuf *m, u_int direction)
+int
+bpf_mtap_af(caddr_t arg, u_int32_t af, const struct mbuf *m, u_int direction)
 {
 	u_int32_t    afh;
 
 	afh = htonl(af);
-	bpf_mtap_hdr(arg, (caddr_t)&afh, sizeof(afh), m, direction, NULL);
+
+	return bpf_mtap_hdr(arg, (caddr_t)&afh, sizeof(afh),
+	    m, direction, NULL);
 }
 
 /*
@@ -1332,31 +1343,40 @@ bpf_mtap_af(caddr_t arg, u_int32_t af, struct mbuf *m, u_int direction)
  * fields in this header that we initialize, and will not try to free
  * it or keep a pointer to it.
  */
-void
-bpf_mtap_ether(caddr_t arg, struct mbuf *m, u_int direction)
+int
+bpf_mtap_ether(caddr_t arg, const struct mbuf *m, u_int direction)
 {
 #if NVLAN > 0
 	struct ether_vlan_header evh;
+	struct m_hdr mh;
+	uint8_t prio;
 
 	if ((m->m_flags & M_VLANTAG) == 0)
 #endif
 	{
-		bpf_mtap(arg, m, direction);
-		return;
+		return bpf_mtap(arg, m, direction);
 	}
 
 #if NVLAN > 0
-	bcopy(mtod(m, char *), &evh, ETHER_HDR_LEN);
+	KASSERT(m->m_len >= ETHER_HDR_LEN);
+
+	prio = m->m_pkthdr.pf.prio;
+	if (prio <= 1)
+		prio = !prio;
+
+	memcpy(&evh, mtod(m, char *), ETHER_HDR_LEN);
 	evh.evl_proto = evh.evl_encap_proto;
 	evh.evl_encap_proto = htons(ETHERTYPE_VLAN);
-	evh.evl_tag = htons(m->m_pkthdr.ether_vtag);
-	m->m_len -= ETHER_HDR_LEN;
-	m->m_data += ETHER_HDR_LEN;
+	evh.evl_tag = htons(m->m_pkthdr.ether_vtag |
+	    (prio << EVL_PRIO_BITS));
 
-	bpf_mtap_hdr(arg, (caddr_t)&evh, sizeof(evh), m, direction, NULL);
+	mh.mh_flags = 0;
+	mh.mh_data = m->m_data + ETHER_HDR_LEN;
+	mh.mh_len = m->m_len - ETHER_HDR_LEN;
+	mh.mh_next = m->m_next;
 
-	m->m_len += ETHER_HDR_LEN;
-	m->m_data -= ETHER_HDR_LEN;
+	return bpf_mtap_hdr(arg, (caddr_t)&evh, sizeof(evh),
+	    (struct mbuf *)&mh, direction, NULL);
 #endif
 }
 
@@ -1622,8 +1642,8 @@ bpfilter_create(int unit)
 {
 	struct bpf_d *bd;
 
-	if ((bd = bpfilter_lookup(unit)) != NULL)
-		return (NULL);
+	KASSERT(bpfilter_lookup(unit) == NULL);
+
 	if ((bd = malloc(sizeof(*bd), M_DEVBUF, M_NOWAIT|M_ZERO)) != NULL) {
 		bd->bd_unit = unit;
 		LIST_INSERT_HEAD(&bpf_d_list, bd, bd_list);
@@ -1716,4 +1736,104 @@ bpf_insn_dtor(void *null, void *f)
 
 	free(insns, M_DEVBUF, bf->bf_len * sizeof(*insns));
 	free(bf, M_DEVBUF, sizeof(*bf));
+}
+
+u_int32_t	bpf_mbuf_ldw(const void *, u_int32_t, int *);
+u_int32_t	bpf_mbuf_ldh(const void *, u_int32_t, int *);
+u_int32_t	bpf_mbuf_ldb(const void *, u_int32_t, int *);
+
+int		bpf_mbuf_copy(const struct mbuf *, u_int32_t,
+		    void *, u_int32_t);
+
+const struct bpf_ops bpf_mbuf_ops = {
+	bpf_mbuf_ldw,
+	bpf_mbuf_ldh,
+	bpf_mbuf_ldb,
+};
+
+int
+bpf_mbuf_copy(const struct mbuf *m, u_int32_t off, void *buf, u_int32_t len)
+{
+	u_int8_t *cp = buf;
+	u_int32_t count;
+
+	while (off >= m->m_len) {
+		off -= m->m_len;
+
+		m = m->m_next;
+		if (m == NULL)
+			return (-1);
+	}
+
+	for (;;) {
+		count = min(m->m_len - off, len);
+		
+		memcpy(cp, m->m_data + off, count);
+		len -= count;
+
+		if (len == 0)
+			return (0);
+
+		m = m->m_next;
+		if (m == NULL)
+			break;
+
+		cp += count;
+		off = 0;
+	}
+
+	return (-1);
+}
+
+u_int32_t
+bpf_mbuf_ldw(const void *m0, u_int32_t k, int *err)
+{
+	u_int32_t v;
+
+	if (bpf_mbuf_copy(m0, k, &v, sizeof(v)) != 0) {
+		*err = 1;
+		return (0);
+	}
+
+	*err = 0;
+	return ntohl(v);
+}
+
+u_int32_t
+bpf_mbuf_ldh(const void *m0, u_int32_t k, int *err)
+{
+	u_int16_t v;
+
+	if (bpf_mbuf_copy(m0, k, &v, sizeof(v)) != 0) {
+		*err = 1;
+		return (0);
+	}
+
+	*err = 0;
+	return ntohs(v);
+}
+
+u_int32_t
+bpf_mbuf_ldb(const void *m0, u_int32_t k, int *err)
+{
+	const struct mbuf *m = m0;
+
+	while (k >= m->m_len) {
+		k -= m->m_len;
+
+		m = m->m_next;
+		if (m == NULL) {
+			*err = 1;
+			return (0);
+		}
+	}
+
+	*err = 0;
+	return (m->m_data[k]);
+}
+
+u_int
+bpf_mfilter(const struct bpf_insn *pc, const struct mbuf *m, u_int wirelen)
+{
+	return _bpf_filter(pc, &bpf_mbuf_ops, m, wirelen);
 }

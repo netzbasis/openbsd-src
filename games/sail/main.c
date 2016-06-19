@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.8 2014/03/11 07:42:55 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.11 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: main.c,v 1.3 1995/04/22 10:37:01 cgd Exp $	*/
 
 /*
@@ -30,19 +30,18 @@
  * SUCH DAMAGE.
  */
 
-#include "extern.h"
+#include <err.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <err.h>
+#include <unistd.h>
 
-/*ARGSUSED*/
+#include "extern.h"
+
 int
-main(argc, argv)
-	int argc;
-	char **argv;
+main(int argc, char **argv)
 {
+	extern char *__progname;
 	char *p;
 	int i;
 	int fd;
@@ -53,13 +52,10 @@ main(argc, argv)
 
 	fd = open("/dev/null", O_RDONLY);
 	if (fd < 3)
-		exit(1);
+		return 1;
 	close(fd);
 
-	if ((p = strrchr(*argv, '/')))
-		p++;
-	else
-		p = *argv;
+	p = __progname;
 	if (strcmp(p, "driver") == 0 || strcmp(p, "saildriver") == 0)
 		mode = MODE_DRIVER;
 	else if (strcmp(p, "sail.log") == 0)

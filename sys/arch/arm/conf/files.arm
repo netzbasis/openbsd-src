@@ -1,4 +1,4 @@
-#	$OpenBSD: files.arm,v 1.28 2015/07/17 22:52:28 tedu Exp $
+#	$OpenBSD: files.arm,v 1.37 2016/05/23 00:05:35 deraadt Exp $
 #	$NetBSD: files.arm,v 1.76 2003/11/05 12:53:15 scw Exp $
 
 # generic networking files
@@ -16,15 +16,24 @@ file	arch/arm/arm/disassem.c			ddb
 file	arch/arm/arm/fiq.c			fiq
 file	arch/arm/arm/fiq_subr.S			fiq
 
+define	fdt {}
+
 # mainbus files
-device	mainbus {}
+device	mainbus: fdt
 attach	mainbus at root
 file	arch/arm/mainbus/mainbus.c		mainbus
+
+device	simplebus: fdt
+attach	simplebus at fdt
+file	arch/arm/simplebus/simplebus.c		simplebus
+
+# FDT support
+file	dev/ofw/fdt.c
 
 include "arch/arm/cortex/files.cortex"
 
 device	cpu {}
-attach	cpu at mainbus with cpu_mainbus
+attach	cpu at fdt with cpu_mainbus
 file	arch/arm/mainbus/cpu_mainbus.c		cpu_mainbus
 
 
@@ -39,31 +48,11 @@ file	arch/arm/arm/bcopyinout.S
 file	arch/arm/arm/copystr.S
 file	arch/arm/arm/cpufunc.c
 file	arch/arm/arm/cpufunc_asm.S
-file	arch/arm/arm/cpufunc_asm_arm8.S		cpu_arm8
-file	arch/arm/arm/cpufunc_asm_arm9.S		cpu_arm9
-file	arch/arm/arm/cpufunc_asm_arm10.S	cpu_arm9e | cpu_arm10
-file	arch/arm/arm/cpufunc_asm_armv4.S	cpu_arm9 | cpu_arm9e |
-							cpu_arm10 |
-							cpu_sa110 |
-							cpu_sa1100 |
-							cpu_sa1110 |
-							cpu_ixp12x0 |
-							cpu_xscale_80200 |
-							cpu_xscale_80321 |
-							cpu_xscale_ixp425 |
+file	arch/arm/arm/cpufunc_asm_armv4.S	cpu_xscale_80321 |
 							cpu_xscale_pxa2x0
-file	arch/arm/arm/cpufunc_asm_armv5.S	cpu_arm10
-file	arch/arm/arm/cpufunc_asm_armv5_ec.S	cpu_arm9e | cpu_arm10
 file	arch/arm/arm/cpufunc_asm_armv7.S	cpu_armv7
-file	arch/arm/arm/cpufunc_asm_sa1.S		cpu_sa110 | cpu_sa1100 |
-							cpu_sa1110 |
-							cpu_ixp12x0
-file	arch/arm/arm/cpufunc_asm_sa11x0.S	cpu_sa1100 | cpu_sa1110
-file	arch/arm/arm/cpufunc_asm_xscale.S	cpu_xscale_80200 |
-							cpu_xscale_80321 |
-							cpu_xscale_ixp425 |
+file	arch/arm/arm/cpufunc_asm_xscale.S	cpu_xscale_80321 |
 							cpu_xscale_pxa2x0
-file	arch/arm/arm/cpufunc_asm_ixp12x0.S	cpu_ixp12x0
 file	arch/arm/arm/process_machdep.c
 file	arch/arm/arm/sig_machdep.c
 file	arch/arm/arm/sigcode.S
@@ -92,6 +81,9 @@ file	arch/arm/armv7/armv7_a4x_space.c	cpu_armv7
 file	arch/arm/armv7/armv7_a4x_io.S		cpu_armv7
 file	arch/arm/armv7/armv7_mutex.c		cpu_armv7
 file	arch/arm/armv7/bus_space_asm_armv7.S	cpu_armv7
+
+pseudo-device	openprom
+file	arch/arm/arm/openprom.c			openprom needs-flag
 
 # arm library functions
 file	arch/arm/arm/bcopy_page.S

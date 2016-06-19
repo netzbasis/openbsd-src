@@ -56,7 +56,7 @@
 
 static const char copyright[] =
     #include "version.h"
-    "@(#) $Author: deraadt $\n"
+    "@(#) $Author: mmcc $\n"
     "@(#) $URL: http://dotat.at/prog/unifdef $\n"
 ;
 
@@ -425,7 +425,7 @@ processinout(const char *ifn, const char *ofn)
 
 	process();
 
-	if (backext != NULL) {
+	if (backext != NULL && *backext != '\0') {
 		char *backname = astrcat(ofn, backext);
 		if (rename(ofn, backname) < 0)
 			err(2, "can't rename \"%s\" to \"%s\"", ofn, backname);
@@ -1138,10 +1138,14 @@ skiphash(void)
 static const char *
 skipline(const char *cp)
 {
+	const char *pcp;
 	if (*cp != '\0')
 		linestate = LS_DIRTY;
-	while (*cp != '\0')
-		cp = skipcomment(cp + 1);
+	while (*cp != '\0') {
+		cp = skipcomment(pcp = cp);
+		if (pcp == cp)
+			cp++;
+	}
 	return (cp);
 }
 
@@ -1217,9 +1221,9 @@ skipcomment(const char *cp)
 					cp += 2;
 			} else if (strncmp(cp, "\n", 1) == 0) {
 				if (incomment == CHAR_LITERAL)
-					error("unterminated char literal");
+					error("Unterminated char literal");
 				else
-					error("unterminated string literal");
+					error("Unterminated string literal");
 			} else
 				cp += 1;
 			continue;
@@ -1493,7 +1497,7 @@ defundef(void)
 	if ((cp = matchsym("define", kw)) != NULL) {
 		sym = getsym(&cp);
 		if (sym == NULL)
-			error("missing macro name in #define");
+			error("Missing macro name in #define");
 		if (*cp == '(') {
 			val = "1";
 		} else {
@@ -1505,12 +1509,12 @@ defundef(void)
 	} else if ((cp = matchsym("undef", kw)) != NULL) {
 		sym = getsym(&cp);
 		if (sym == NULL)
-			error("missing macro name in #undef");
+			error("Missing macro name in #undef");
 		cp = skipcomment(cp);
 		debug("#undef");
 		addsym2(false, sym, NULL);
 	} else {
-		error("unrecognized preprocessor directive");
+		error("Unrecognized preprocessor directive");
 	}
 	skipline(cp);
 done:
@@ -1533,7 +1537,7 @@ astrcat(const char *s1, const char *s2)
 	if (len < 0)
 		err(2, "snprintf");
 	size = (size_t)len + 1;
-	s = malloc(size);
+	s = (char *)malloc(size);
 	if (s == NULL)
 		err(2, "malloc");
 	snprintf(s, size, "%s%s", s1, s2);
@@ -1551,7 +1555,7 @@ xstrdup(const char *start, const char *end)
 
 	if (end < start) abort(); /* bug */
 	n = (size_t)(end - start) + 1;
-	s = malloc(n);
+	s = (char *)malloc(n);
 	if (s == NULL)
 		err(2, "malloc");
 	snprintf(s, n, "%s", start);
@@ -1582,7 +1586,7 @@ error(const char *msg)
 		warnx("%s: %d: %s (#if line %d depth %d)",
 		    filename, linenum, msg, stifline[depth], depth);
 	closeio();
-	errx(2, "output may be truncated");
+	errx(2, "Output may be truncated");
 }
 
 static FILE *

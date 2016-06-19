@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.75 2015/02/10 04:20:26 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.79 2016/02/06 19:30:52 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -16,17 +16,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/sysctl.h>
+
+#include <arpa/inet.h>
+
+#include <net/if.h>
+#include <net/if_types.h>
+#include <net/route.h>
+
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+
+#include <errno.h>
+#include <ifaddrs.h>
+#include <imsg.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dhcp.h"
 #include "dhcpd.h"
 #include "privsep.h"
-
-#include <sys/ioctl.h>
-#include <sys/sysctl.h>
-#include <sys/uio.h>
-
-#include <net/if_types.h>
-
-#include <ifaddrs.h>
-#include <signal.h>
 
 struct in_addr active_addr;
 
@@ -186,6 +201,8 @@ add_route(struct in_addr dest, struct in_addr netmask,
 void
 priv_add_route(struct imsg_add_route *imsg)
 {
+	char destbuf[INET_ADDRSTRLEN], gatewaybuf[INET_ADDRSTRLEN];
+	char maskbuf[INET_ADDRSTRLEN], ifabuf[INET_ADDRSTRLEN];
 	struct rt_msghdr rtm;
 	struct sockaddr_in dest, gateway, mask, ifa;
 	struct sockaddr_rtlabel label;
@@ -194,6 +211,11 @@ priv_add_route(struct imsg_add_route *imsg)
 
 	if ((s = socket(AF_ROUTE, SOCK_RAW, 0)) == -1)
 		error("Routing Socket open failed: %s", strerror(errno));
+
+	memset(destbuf, 0, sizeof(destbuf));
+	memset(maskbuf, 0, sizeof(maskbuf));
+	memset(gatewaybuf, 0, sizeof(gatewaybuf));
+	memset(ifabuf, 0, sizeof(ifabuf));
 
 	/* Build RTM header */
 
@@ -211,6 +233,7 @@ priv_add_route(struct imsg_add_route *imsg)
 	iov[iovcnt++].iov_len = sizeof(rtm);
 
 	if (imsg->addrs & RTA_DST) {
+		strlcpy(destbuf, inet_ntoa(imsg->dest), sizeof(destbuf));
 		memset(&dest, 0, sizeof(dest));
 
 		dest.sin_len = sizeof(dest);
@@ -224,6 +247,8 @@ priv_add_route(struct imsg_add_route *imsg)
 	}
 
 	if (imsg->addrs & RTA_GATEWAY) {
+		strlcpy(gatewaybuf, inet_ntoa(imsg->gateway),
+		    sizeof(gatewaybuf));
 		memset(&gateway, 0, sizeof(gateway));
 
 		gateway.sin_len = sizeof(gateway);
@@ -237,6 +262,7 @@ priv_add_route(struct imsg_add_route *imsg)
 	}
 
 	if (imsg->addrs & RTA_NETMASK) {
+		strlcpy(maskbuf, inet_ntoa(imsg->netmask), sizeof(maskbuf));
 		memset(&mask, 0, sizeof(mask));
 
 		mask.sin_len = sizeof(mask);
@@ -250,6 +276,7 @@ priv_add_route(struct imsg_add_route *imsg)
 	}
 
 	if (imsg->addrs & RTA_IFA) {
+		strlcpy(ifabuf, inet_ntoa(imsg->ifa), sizeof(ifabuf));
 		memset(&ifa, 0, sizeof(ifa));
 
 		ifa.sin_len = sizeof(ifa);
@@ -274,10 +301,12 @@ priv_add_route(struct imsg_add_route *imsg)
 	for (i = 0; i < 5; i++) {
 		if (writev(s, iov, iovcnt) != -1)
 			break;
-		if (errno != EEXIST && errno != ENETUNREACH)
-			error("failed to add default route: %s",
+		if (i == 4)
+			warning("failed to add route (%s/%s via %s/%s): %s",
+			    destbuf, maskbuf, gatewaybuf, ifabuf,
 			    strerror(errno));
-		sleep(1);
+		else if (errno == EEXIST || errno == ENETUNREACH)
+			sleep(1);
 	}
 
 	close(s);
@@ -363,8 +392,6 @@ priv_delete_address(struct imsg_delete_address *imsg)
 		if (errno != EADDRNOTAVAIL)
 			warning("SIOCDIFADDR failed (%s): %s",
 			    inet_ntoa(imsg->addr), strerror(errno));
-		close(s);
-		return;
 	}
 
 	close(s);
@@ -404,8 +431,9 @@ priv_set_interface_mtu(struct imsg_set_interface_mtu *imsg)
 
 	if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 		error("socket open failed: %s", strerror(errno));
-	if (ioctl(s, SIOCSIFMTU, &ifr) < 0)
-		warning("SIOCSIFMTU failed (%d): %s", imsg->mtu, strerror(errno));
+	if (ioctl(s, SIOCSIFMTU, &ifr) == -1)
+		warning("SIOCSIFMTU failed (%d): %s", imsg->mtu,
+		    strerror(errno));
 	close(s);
 }
 

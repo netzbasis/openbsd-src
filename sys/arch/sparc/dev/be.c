@@ -1,4 +1,4 @@
-/*	$OpenBSD: be.c,v 1.54 2015/11/14 17:26:40 mpi Exp $	*/
+/*	$OpenBSD: be.c,v 1.60 2016/04/13 11:34:00 mpi Exp $	*/
 
 /*
  * Copyright (c) 1998 Theo de Raadt and Jason L. Wright.
@@ -38,9 +38,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -212,11 +209,10 @@ beattach(parent, self, aux)
 	ifp->if_start = bestart;
 	ifp->if_ioctl = beioctl;
 	ifp->if_watchdog = bewatchdog;
-	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS |
+	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX |
 	    IFF_MULTICAST;
 
 	IFQ_SET_MAXLEN(&ifp->if_snd, BE_TX_RING_SIZE);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Attach the interface. */
 	if_attach(ifp);
@@ -253,7 +249,7 @@ bestart(ifp)
 		be_tx_harvest(sc);
 	}
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	bix = sc->sc_last_td;
@@ -290,7 +286,7 @@ bestart(ifp)
 			bix = 0;
 
 		if (++cnt == BE_TX_RING_SIZE) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 	}
@@ -471,7 +467,7 @@ be_tx_harvest(sc)
 	if (sc->sc_no_td != cnt) {
 		sc->sc_first_td = bix;
 		sc->sc_no_td = cnt;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_no_td < BE_TX_LOW_WATER) {
@@ -716,7 +712,7 @@ beinit(sc)
 	br->rx_cfg |= BE_BR_RXCFG_ENABLE;
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	splx(s);
 
 	timeout_add_sec(&sc->sc_tick, 1);

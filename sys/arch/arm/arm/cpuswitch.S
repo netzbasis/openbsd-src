@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpuswitch.S,v 1.14 2013/09/12 11:43:51 patrick Exp $	*/
+/*	$OpenBSD: cpuswitch.S,v 1.18 2016/04/25 06:49:46 jsg Exp $	*/
 /*	$NetBSD: cpuswitch.S,v 1.41 2003/11/15 08:44:18 scw Exp $	*/
 
 /*
@@ -83,6 +83,7 @@
 #include <machine/frame.h>
 #include <machine/intr.h>
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 
 /* LINTSTUB: include <sys/param.h> */
 	
@@ -95,12 +96,12 @@
  */
 #define IRQdisableALL \
 	mrs	r14, cpsr ; \
-	orr	r14, r14, #(I32_bit | F32_bit) ; \
+	orr	r14, r14, #(PSR_I | PSR_F) ; \
 	msr	cpsr_c, r14
 
 #define IRQenableALL \
 	mrs	r14, cpsr ; \
-	bic	r14, r14, #(I32_bit | F32_bit) ; \
+	bic	r14, r14, #(PSR_I | PSR_F) ; \
 	msr	cpsr_c, r14
 
 	.text
@@ -171,6 +172,7 @@ ENTRY(cpu_idle_leave)
 
 ENTRY(cpu_switchto)
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
 #ifdef MULTIPROCESSOR
 	/* XXX use curcpu() */
@@ -234,10 +236,10 @@ ENTRY(cpu_switchto)
 	 * This can be optimised... We know we want to go from SVC32
 	 * mode to UND32 mode
 	 */
-        mrs	r3, cpsr
+	mrs	r3, cpsr
 	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE | I32_bit)
-        msr	cpsr_c, r2
+	orr	r2, r2, #(PSR_UND32_MODE | PSR_I)
+	msr	cpsr_c, r2
 
 #ifdef notworthit
 	teq	r0, #0x00000000
@@ -246,7 +248,7 @@ ENTRY(cpu_switchto)
 	str	sp, [r8, #(PCB_UND_SP)]
 #endif
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* rem: r0 = old proc */
 	/* rem: r1 = r6 = new process */
@@ -337,7 +339,7 @@ ENTRY(cpu_switchto)
 	cmp	r7, #0			/* No need to fixup vector table? */
 	ldrne	r2, [r7]		/* But if yes, fetch current value */
 	ldrne	r0, [r9, #(PCB_L1VEC)]	/* Fetch new vector_page value */
-	mcr	p15, 0, r1, c3, c0, 0	/* Update DACR for new context */
+	mcr	CP15_DACR(r1)		/* Update DACR for new context */
 	cmpne	r2, r0			/* Stuffing the same value? */
 #ifndef PMAP_INCLUDE_PTE_SYNC
 	strne	r0, [r7]		/* Nope, update it */
@@ -412,14 +414,14 @@ ENTRY(cpu_switchto)
 	 * This can be optimised... We know we want to go from SVC32
 	 * mode to UND32 mode
 	 */
-        mrs	r3, cpsr
+	mrs	r3, cpsr
 	bic	r2, r3, #(PSR_MODE)
 	orr	r2, r2, #(PSR_UND32_MODE)
-        msr	cpsr_c, r2
+	msr	cpsr_c, r2
 
 	ldr	sp, [r9, #(PCB_UND_SP)]
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* Restore all the save registers */
 #ifndef __XSCALE__
@@ -451,6 +453,7 @@ ENTRY(cpu_switchto)
 	 * Pull the registers that got pushed when either savectx() or
 	 * cpu_switch() was called and return.
 	 */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 /* LINTSTUB: Func: void savectx(struct pcb *pcb) */
@@ -461,6 +464,7 @@ ENTRY(savectx)
 
 	/* Push registers.*/
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
 	/* Store all the registers in the process's pcb */
 #ifndef __XSCALE__
@@ -473,6 +477,7 @@ ENTRY(savectx)
 #endif
 
 	/* Pull the regs of the stack */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 ENTRY(proc_trampoline)
@@ -488,9 +493,9 @@ ENTRY(proc_trampoline)
 	mov	pc, r4
 
 	/* Kill irq's */
-        mrs     r0, cpsr
-        orr     r0, r0, #(I32_bit)
-        msr     cpsr_c, r0
+	mrs	r0, cpsr
+	orr	r0, r0, #(PSR_I)
+	msr	cpsr_c, r0
 
 	PULLFRAME
 

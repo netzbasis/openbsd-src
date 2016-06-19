@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.c,v 1.145 2015/11/19 21:32:53 mmcc Exp $	*/
+/*	$OpenBSD: relayd.c,v 1.153 2016/02/02 17:51:11 sthen Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <fnmatch.h>
+#include <syslog.h>
 #include <err.h>
 #include <errno.h>
 #include <event.h>
@@ -191,7 +192,8 @@ main(int argc, char *argv[])
 		}
 	}
 
-	log_init(debug ? debug : 1);	/* log to stderr until daemonized */
+	/* log to stderr until daemonized */
+	log_init(debug ? debug : 1, LOG_DAEMON);
 
 	argc -= optind;
 	if (argc > 0)
@@ -209,6 +211,7 @@ main(int argc, char *argv[])
 	env->sc_opts = opts;
 	TAILQ_INIT(&env->sc_hosts);
 	TAILQ_INIT(&env->sc_sessions);
+	env->sc_rtable = getrtable();
 
 	if (parse_config(env->sc_conffile, env) == -1)
 		exit(1);
@@ -225,7 +228,7 @@ main(int argc, char *argv[])
 	/* Configure the control socket */
 	ps->ps_csock.cs_name = RELAYD_SOCKET;
 
-	log_init(debug);
+	log_init(debug, LOG_DAEMON);
 	log_verbose(verbose);
 
 	if (!debug && daemon(1, 0) == -1)
@@ -241,8 +244,7 @@ main(int argc, char *argv[])
 	ps->ps_ninstances = env->sc_prefork_relay;
 
 	proc_init(ps, procs, nitems(procs));
-
-	setproctitle("parent");
+	log_procinit("parent");
 
 	event_init();
 
@@ -341,8 +343,8 @@ parent_configure(struct relayd *env)
 		} else
 			s = -1;
 
-		proc_compose_imsg(env->sc_ps, id, -1, IMSG_CFG_DONE, s,
-		    &cf, sizeof(cf));
+		proc_compose_imsg(env->sc_ps, id, -1, IMSG_CFG_DONE, -1,
+		    s, &cf, sizeof(cf));
 	}
 
 	ret = 0;
@@ -401,8 +403,7 @@ parent_configure_done(struct relayd *env)
 			if (id == privsep_process)
 				continue;
 
-			proc_compose_imsg(env->sc_ps, id, -1, IMSG_CTL_START,
-			    -1, NULL, 0);
+			proc_compose(env->sc_ps, id, IMSG_CTL_START, NULL, 0);
 		}
 	}
 }
@@ -454,8 +455,7 @@ parent_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 		if (IMSG_DATA_SIZE(imsg) > 0)
 			str = get_string(imsg->data, IMSG_DATA_SIZE(imsg));
 		parent_reload(env, CONFIG_RELOAD, str);
-		if (str != NULL)
-			free(str);
+		free(str);
 		break;
 	case IMSG_CTL_SHUTDOWN:
 		parent_shutdown(env);
@@ -485,8 +485,7 @@ parent_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 		IMSG_SIZE_CHECK(imsg, &scr);
 		bcopy(imsg->data, &scr, sizeof(scr));
 		scr.retval = script_exec(env, &scr);
-		proc_compose_imsg(ps, PROC_HCE, -1, IMSG_SCRIPT,
-		    -1, &scr, sizeof(scr));
+		proc_compose(ps, PROC_HCE, IMSG_SCRIPT, &scr, sizeof(scr));
 		break;
 	case IMSG_CFG_DONE:
 		parent_configure_done(env);
@@ -524,7 +523,7 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 		s = bindany(&bnd);
 		proc_compose_imsg(ps, PROC_RELAY, bnd.bnd_proc,
-		    IMSG_BINDANY, s, &bnd.bnd_id, sizeof(bnd.bnd_id));
+		    IMSG_BINDANY, -1, s, &bnd.bnd_id, sizeof(bnd.bnd_id));
 		break;
 	case IMSG_CFG_DONE:
 		parent_configure_done(env);
@@ -564,14 +563,11 @@ purge_table(struct relayd *env, struct tablelist *head, struct table *table)
 			event_del(&host->cte.ev);
 			close(host->cte.s);
 		}
-		if (host->cte.buf != NULL)
-			ibuf_free(host->cte.buf);
-		if (host->cte.ssl != NULL)
-			SSL_free(host->cte.ssl);
+		ibuf_free(host->cte.buf);
+		SSL_free(host->cte.ssl);
 		free(host);
 	}
-	if (table->sendbuf != NULL)
-		free(table->sendbuf);
+	free(table->sendbuf);
 	if (table->conf.flags & F_TLS)
 		SSL_CTX_free(table->ssl_ctx);
 
@@ -639,8 +635,7 @@ purge_relay(struct relayd *env, struct relay *rlay)
 		rlay->rl_tls_capkey = NULL;
 	}
 
-	if (rlay->rl_ssl_ctx != NULL)
-		SSL_CTX_free(rlay->rl_ssl_ctx);
+	SSL_CTX_free(rlay->rl_ssl_ctx);
 
 	while ((rlt = TAILQ_FIRST(&rlay->rl_tables))) {
 		TAILQ_REMOVE(&rlay->rl_tables, rlt, rlt_entry);
@@ -700,8 +695,7 @@ kv_set(struct kv *kv, char *fmt, ...)
 	}
 
 	/* Set the new value */
-	if (kv->kv_value != NULL)
-		free(kv->kv_value);
+	free(kv->kv_value);
 	kv->kv_value = value;
 
 	return (0);
@@ -718,8 +712,7 @@ kv_setkey(struct kv *kv, char *fmt, ...)
 		return (-1);
 	va_end(ap);
 
-	if (kv->kv_key != NULL)
-		free(kv->kv_key);
+	free(kv->kv_key);
 	kv->kv_key = key;
 
 	return (0);
@@ -931,8 +924,7 @@ rule_add(struct protocol *proto, struct relay_rule *rule, const char *rulefile)
 			kv = &r->rule_kv[i];
 			if (kv->kv_type != i)
 				continue;
-			if (kv->kv_key != NULL)
-				free(kv->kv_key);
+			free(kv->kv_key);
 			if ((kv->kv_key = strdup(buf)) == NULL) {
 				rule_free(r);
 				free(r);
@@ -1622,7 +1614,7 @@ accept_reserve(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
 		return (-1);
 	}
 
-	if ((ret = accept(sockfd, addr, addrlen)) > -1) {
+	if ((ret = accept4(sockfd, addr, addrlen, SOCK_NONBLOCK)) > -1) {
 		(*counter)++;
 		DPRINTF("%s: inflight incremented, now %d",__func__, *counter);
 	}

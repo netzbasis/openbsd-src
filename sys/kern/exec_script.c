@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_script.c,v 1.36 2015/09/10 18:10:35 deraadt Exp $	*/
+/*	$OpenBSD: exec_script.c,v 1.39 2016/04/25 20:00:33 tedu Exp $	*/
 /*	$NetBSD: exec_script.c,v 1.13 1996/02/04 02:15:06 christos Exp $	*/
 
 /*
@@ -44,12 +44,6 @@
 #include <sys/exec.h>
 
 #include <sys/exec_script.h>
-
-#include "systrace.h"
-
-#if NSYSTRACE > 0
-#include <dev/systrace.h>
-#endif
 
 
 /*
@@ -165,7 +159,7 @@ check_shell:
 	 */
 	vn_lock(scriptvp, LK_EXCLUSIVE|LK_RETRY, p);
 	error = VOP_ACCESS(scriptvp, VREAD, p->p_ucred, p);
-	VOP_UNLOCK(scriptvp, 0, p);
+	VOP_UNLOCK(scriptvp, p);
 	if (error == EACCES || script_sbits) {
 		struct file *fp;
 
@@ -205,27 +199,15 @@ check_shell:
 	}
 	*tmpsap = malloc(MAXPATHLEN, M_EXEC, M_WAITOK);
 	if ((epp->ep_flags & EXEC_HASFD) == 0) {
-#if NSYSTRACE > 0
-		if (ISSET(p->p_flag, P_SYSTRACE)) {
-			error = systrace_scriptname(p, *tmpsap);
-			if (error == 0)
-				tmpsap++;
-			else
-				/*
-				 * Since systrace_scriptname() provides a
-				 * convenience, not a security issue, we are
-				 * safe to do this.
-				 */
-				error = copystr(epp->ep_name, *tmpsap++,
-				    MAXPATHLEN, NULL);
-		} else
-#endif
-			error = copyinstr(epp->ep_name, *tmpsap++, MAXPATHLEN,
-			    NULL);
-		if (error != 0)
+		error = copyinstr(epp->ep_name, *tmpsap, MAXPATHLEN,
+		    NULL);
+		if (error != 0) {
+			*(tmpsap + 1) = NULL;
 			goto fail;
+		}
 	} else
-		snprintf(*tmpsap++, MAXPATHLEN, "/dev/fd/%d", epp->ep_fd);
+		snprintf(*tmpsap, MAXPATHLEN, "/dev/fd/%d", epp->ep_fd);
+	tmpsap++;
 	*tmpsap = NULL;
 
 	/*

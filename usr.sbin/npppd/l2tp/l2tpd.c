@@ -1,4 +1,4 @@
-/*	$OpenBSD: l2tpd.c,v 1.16 2015/06/23 06:59:54 yasuoka Exp $ */
+/*	$OpenBSD: l2tpd.c,v 1.19 2016/03/21 00:49:36 guenther Exp $ */
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -26,7 +26,7 @@
  * SUCH DAMAGE.
  */
 /**@file L2TP(Layer Two Tunneling Protocol "L2TP") / RFC2661 */
-/* $Id: l2tpd.c,v 1.16 2015/06/23 06:59:54 yasuoka Exp $ */
+/* $Id: l2tpd.c,v 1.19 2016/03/21 00:49:36 guenther Exp $ */
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -113,11 +113,11 @@ l2tpd_init(l2tpd *_this)
 		    __func__);
 		return 1;
 	}
-	off = arc4random() % L2TP_SESSION_ID_MASK;
+	off = arc4random() & L2TP_SESSION_ID_MASK;
 	for (i = 0; i < L2TP_NCALL; i++) {
-		id = (i + off) % L2TP_SESSION_ID_MASK;
+		id = (i + off) & L2TP_SESSION_ID_MASK;
 		if (id == 0)
-			id = (off - 1) % L2TP_SESSION_ID_MASK;
+			id = (off - 1) & L2TP_SESSION_ID_MASK;
 		if (slist_add(&_this->free_session_id_list,
 		    (void *)(uintptr_t)id) == NULL) {
 			l2tpd_log(_this, LOG_ERR,
@@ -186,8 +186,7 @@ l2tpd_add_listener(l2tpd *_this, int idx, struct l2tp_conf *conf,
 	}
 	return 0;
 fail:
-	if (plistener != NULL)
-		free(plistener);
+	free(plistener);
 	return 1;
 }
 
@@ -273,7 +272,7 @@ l2tpd_listener_start(l2tpd_listener *_this)
 		strlcpy(_this->tun_name, L2TPD_DEFAULT_LAYER2_LABEL,
 		    sizeof(_this->tun_name));
 	if ((sock = socket(_this->bind.sin6.sin6_family,
-	    SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+	    SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP)) < 0) {
 		l2tpd_log(_l2tpd, LOG_ERR,
 		    "socket() failed in %s(): %m", __func__);
 		goto fail;
@@ -285,15 +284,6 @@ l2tpd_listener_start(l2tpd_listener *_this)
 		l2tpd_log(_l2tpd, LOG_WARNING,
 		    "%s(): setsockopt(IP_STRICT_RCVIF) failed: %m", __func__);
 #endif
-	if ((ival = fcntl(sock, F_GETFL, 0)) < 0) {
-		l2tpd_log(_l2tpd, LOG_ERR,
-		    "fcntl(,F_GETFL) failed in %s(): %m", __func__);
-		goto fail;
-	} else if (fcntl(sock, F_SETFL, ival | O_NONBLOCK) < 0) {
-		l2tpd_log(_l2tpd, LOG_ERR, "fcntl(,F_SETFL,O_NONBLOCK) failed "
-		    "in %s(): %m", __func__);
-		goto fail;
-	}
 	ival = 1;
 	if (setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &ival, sizeof(ival))
 	    != 0) {
@@ -377,10 +367,8 @@ l2tpd_listener_start(l2tpd_listener *_this)
 			    "setsockopt(,,IP_IPSEC_POLICY(out)) failed "
 			    "in %s(): %m", __func__);
 		}
-		if (ipsec_policy_in != NULL)
-			free(ipsec_policy_in);
-		if (ipsec_policy_out != NULL)
-			free(ipsec_policy_out);
+		free(ipsec_policy_in);
+		free(ipsec_policy_out);
 #elif defined(IP_ESP_TRANS_LEVEL)
 		opt = (af == AF_INET)
 		    ? IP_ESP_TRANS_LEVEL : IPV6_ESP_TRANS_LEVEL;

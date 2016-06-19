@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.102 2015/05/18 14:59:42 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.105 2016/02/06 19:30:52 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -39,15 +39,35 @@
  * Enterprises, see ``http://www.vix.com''.
  */
 
+#include <sys/ioctl.h>
+#include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <net/if_dl.h>
+#include <net/if_media.h>
+#include <net/if_types.h>
+
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+
+#include <errno.h>
+#include <ifaddrs.h>
+#include <imsg.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dhcp.h"
 #include "dhcpd.h"
 #include "privsep.h"
 
-#include <sys/ioctl.h>
-
-#include <net/if_media.h>
-#include <net/if_types.h>
-#include <ifaddrs.h>
-#include <poll.h>
 
 struct dhcp_timeout timeout;
 
@@ -105,12 +125,6 @@ dispatch(void)
 	void (*func)(void);
 
 	while (quit == 0) {
-		if (ifi->rdomain != get_rdomain(ifi->name)) {
-			warning("%s rdomain changed; exiting", ifi->name);
-			quit = INTERNALSIG;
-			continue;
-		}
-
 		if (timeout.func) {
 			time(&cur_time);
 			if (timeout.when <= cur_time) {
@@ -167,7 +181,6 @@ dispatch(void)
 		if ((fds[2].revents & (POLLIN | POLLHUP))) {
 			/* Pipe to [priv] closed. Assume it emitted error. */
 			quit = INTERNALSIG;
-			continue;
 		}
 	}
 

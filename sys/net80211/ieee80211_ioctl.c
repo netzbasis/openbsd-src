@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.c,v 1.39 2015/03/14 03:38:51 jsg Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.c,v 1.41 2016/04/28 13:50:14 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.c,v 1.15 2004/05/06 02:58:16 dyoung Exp $	*/
 
 /*-
@@ -106,6 +106,12 @@ ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
 		nr->nr_flags |= IEEE80211_NODEREQ_AP;
 	if (ni == ic->ic_bss)
 		nr->nr_flags |= IEEE80211_NODEREQ_AP_BSS;
+
+	/* HT */
+	nr->nr_htcaps = ni->ni_htcaps;
+	memcpy(nr->nr_rxmcs, ni->ni_rxmcs, sizeof(nr->nr_rxmcs));
+	nr->nr_max_rxrate = ni->ni_max_rxrate;
+	nr->nr_tx_mcs_set = ni->ni_tx_mcs_set;
 }
 
 void
@@ -647,6 +653,19 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			ic->ic_scan_lock |= IEEE80211_SCAN_REQUEST;
 			if (ic->ic_state != IEEE80211_S_SCAN) {
 				ieee80211_clean_cached(ic);
+				if (ic->ic_opmode == IEEE80211_M_STA &&
+				    ic->ic_state == IEEE80211_S_RUN &&
+				    IFM_MODE(ic->ic_media.ifm_cur->ifm_media)
+				    == IFM_AUTO) {
+					/* 
+					 * We're already associated to an AP.
+					 * Make the scanning loop start off in
+					 * auto mode so all supported bands
+					 * get scanned.
+					 */
+					ieee80211_setmode(ic,
+					    IEEE80211_MODE_AUTO);
+				}
 				ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 			}
 		}

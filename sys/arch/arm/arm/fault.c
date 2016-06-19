@@ -1,4 +1,4 @@
-/*	$OpenBSD: fault.c,v 1.18 2014/11/16 12:30:56 deraadt Exp $	*/
+/*	$OpenBSD: fault.c,v 1.20 2016/02/27 13:08:06 mpi Exp $	*/
 /*	$NetBSD: fault.c,v 1.46 2004/01/21 15:39:21 skrll Exp $	*/
 
 /*
@@ -100,7 +100,7 @@
 #include <sys/kgdb.h>
 #endif
 #if !defined(DDB)
-#define kdb_trap	kgdb_trap
+#define db_ktrap	kgdb_trap
 #endif
 #endif
 
@@ -221,8 +221,8 @@ data_abort_handler(trapframe_t *tf)
 	uvmexp.traps++;
 
 	/* Re-enable interrupts if they were enabled previously */
-	if (__predict_true((tf->tf_spsr & I32_bit) == 0))
-		enable_interrupts(I32_bit);
+	if (__predict_true((tf->tf_spsr & PSR_I) == 0))
+		enable_interrupts(PSR_I);
 
 	/* Get the current proc structure or proc0 if there is none */
 	p = (curproc != NULL) ? curproc : &proc0;
@@ -496,7 +496,7 @@ dab_fatal(trapframe_t *tf, u_int fsr, u_int far, struct proc *p,
 	printf(", pc =%08lx\n\n", tf->tf_pc);
 
 #if defined(DDB) || defined(KGDB)
-	kdb_trap(T_FAULT, tf);
+	db_ktrap(T_FAULT, tf);
 #endif
 	panic("Fatal abort");
 	/*NOTREACHED*/
@@ -665,8 +665,8 @@ prefetch_abort_handler(trapframe_t *tf)
 	 * from user mode so we know interrupts were not disabled.
 	 * But we check anyway.
 	 */
-	if (__predict_true((tf->tf_spsr & I32_bit) == 0))
-		enable_interrupts(I32_bit);
+	if (__predict_true((tf->tf_spsr & PSR_I) == 0))
+		enable_interrupts(PSR_I);
 
 	/* Get fault address */
 	p = curproc;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: hack.rumors.c,v 1.8 2015/09/27 05:13:11 guenther Exp $	*/
+/*	$OpenBSD: hack.rumors.c,v 1.10 2016/03/16 15:00:35 mestre Exp $	*/
 
 /*
  * Copyright (c) 1985, Stichting Centrum voor Wiskunde en Informatica,
@@ -61,8 +61,11 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include	<stdio.h>
-#include	"hack.h"		/* for RUMORFILE and BSD (index) */
+#include <err.h>
+#include <stdio.h>
+
+#include "hack.h"		/* for RUMORFILE and BSD (index) */
+
 #define	CHARSZ	8			/* number of bits in a char */
 int n_rumors = 0;
 int n_used_rumors = -1;
@@ -80,7 +83,8 @@ init_rumors(FILE *rumf)
 
 	n_used_rumors = 0;
 	while(skipline(rumf)) n_rumors++;
-	rewind(rumf);
+	if (fseek(rumf, 0L, SEEK_SET) == -1)
+		err(1, "fseek");
 	i = n_rumors/CHARSZ;
 	usedbits = (char *) alloc((unsigned)(i+1));
 	for( ; i>=0; i--) usedbits[i] = 0;
@@ -109,7 +113,7 @@ outline(FILE *rumf)
 }
 
 void
-outrumor()
+outrumor(void)
 {
 	int rn,i;
 	FILE *rumf;

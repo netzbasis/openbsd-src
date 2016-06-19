@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_ioreg.h,v 1.4 2007/06/02 01:48:37 uwe Exp $	*/
+/*	$OpenBSD: sdmmc_ioreg.h,v 1.6 2016/04/23 14:15:59 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -69,8 +69,9 @@
 #define SD_IO_CCCR_CTL			0x06
 #define  CCCR_CTL_RES			(1<<3)
 #define SD_IO_CCCR_BUS_WIDTH		0x07
-#define  CCCR_BUS_WIDTH_4		(1<<1)
-#define  CCCR_BUS_WIDTH_1		(1<<0)
+#define  CCCR_BUS_WIDTH_1		(0<<0)
+#define  CCCR_BUS_WIDTH_4		(2<<0)
+#define  CCCR_BUS_WIDTH_8		(3<<0)
 #define SD_IO_CCCR_CISPTR		0x09 /* XXX 9-10, 10-11, or 9-12 */
 
 /* Function Basic Registers (FBR) */
@@ -82,12 +83,14 @@
 #define SD_IO_CIS_SIZE			0x17000
 
 /* CIS tuple codes (based on PC Card 16) */
+#define SD_IO_CISTPL_NULL		0x00
 #define SD_IO_CISTPL_VERS_1		0x15
 #define SD_IO_CISTPL_MANFID		0x20
 #define SD_IO_CISTPL_FUNCID		0x21
 #define SD_IO_CISTPL_FUNCE		0x22
+#define SD_IO_CISTPL_END		0xff
 
 /* CISTPL_FUNCID codes */
-#define SDMMC_FUNCTION_WLAN		0x0c
+#define TPLFID_FUNCTION_SDIO		0x0c
 
 #endif

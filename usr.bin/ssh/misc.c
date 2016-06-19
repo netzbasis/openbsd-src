@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.99 2015/10/24 08:34:09 sthen Exp $ */
+/* $OpenBSD: misc.c,v 1.104 2016/04/06 06:42:17 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005,2006 Damien Miller.  All rights reserved.
@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 
 #include <net/if.h>
@@ -74,9 +75,9 @@ set_nonblock(int fd)
 {
 	int val;
 
-	val = fcntl(fd, F_GETFL, 0);
+	val = fcntl(fd, F_GETFL);
 	if (val < 0) {
-		error("fcntl(%d, F_GETFL, 0): %s", fd, strerror(errno));
+		error("fcntl(%d, F_GETFL): %s", fd, strerror(errno));
 		return (-1);
 	}
 	if (val & O_NONBLOCK) {
@@ -98,9 +99,9 @@ unset_nonblock(int fd)
 {
 	int val;
 
-	val = fcntl(fd, F_GETFL, 0);
+	val = fcntl(fd, F_GETFL);
 	if (val < 0) {
-		error("fcntl(%d, F_GETFL, 0): %s", fd, strerror(errno));
+		error("fcntl(%d, F_GETFL): %s", fd, strerror(errno));
 		return (-1);
 	}
 	if (!(val & O_NONBLOCK)) {
@@ -587,6 +588,8 @@ percent_expand(const char *string, ...)
 		/* %% case */
 		if (*string == '%')
 			goto append;
+		if (*string == '\0')
+			fatal("%s: invalid format", __func__);
 		for (j = 0; j < num_keys; j++) {
 			if (strchr(keys[j].key, *string) != NULL) {
 				i = strlcat(buf, keys[j].repl, sizeof(buf));
@@ -702,16 +705,16 @@ sanitise_stdfd(void)
 		    strerror(errno));
 		exit(1);
 	}
-	while (++dupfd <= 2) {
-		/* Only clobber closed fds */
-		if (fcntl(dupfd, F_GETFL, 0) >= 0)
-			continue;
-		if (dup2(nullfd, dupfd) == -1) {
-			fprintf(stderr, "dup2: %s\n", strerror(errno));
-			exit(1);
+	while (++dupfd <= STDERR_FILENO) {
+		/* Only populate closed fds. */
+		if (fcntl(dupfd, F_GETFL) == -1 && errno == EBADF) {
+			if (dup2(nullfd, dupfd) == -1) {
+				fprintf(stderr, "dup2: %s\n", strerror(errno));
+				exit(1);
+			}
 		}
 	}
-	if (nullfd > 2)
+	if (nullfd > STDERR_FILENO)
 		close(nullfd);
 }
 
@@ -866,6 +869,17 @@ monotime(void)
 		fatal("clock_gettime: %s", strerror(errno));
 
 	return (ts.tv_sec);
+}
+
+double
+monotime_double(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		fatal("clock_gettime: %s", strerror(errno));
+
+	return (ts.tv_sec + (double)ts.tv_nsec / 1000000000);
 }
 
 void
@@ -1066,3 +1080,41 @@ unix_listener(const char *path, int backlog, int unlink_first)
 	}
 	return sock;
 }
+
+/*
+ * Compares two strings that maybe be NULL. Returns non-zero if strings
+ * are both NULL or are identical, returns zero otherwise.
+ */
+static int
+strcmp_maybe_null(const char *a, const char *b)
+{
+	if ((a == NULL && b != NULL) || (a != NULL && b == NULL))
+		return 0;
+	if (a != NULL && strcmp(a, b) != 0)
+		return 0;
+	return 1;
+}
+
+/*
+ * Compare two forwards, returning non-zero if they are identical or
+ * zero otherwise.
+ */
+int
+forward_equals(const struct Forward *a, const struct Forward *b)
+{
+	if (strcmp_maybe_null(a->listen_host, b->listen_host) == 0)
+		return 0;
+	if (a->listen_port != b->listen_port)
+		return 0;
+	if (strcmp_maybe_null(a->listen_path, b->listen_path) == 0)
+		return 0;
+	if (strcmp_maybe_null(a->connect_host, b->connect_host) == 0)
+		return 0;
+	if (a->connect_port != b->connect_port)
+		return 0;
+	if (strcmp_maybe_null(a->connect_path, b->connect_path) == 0)
+		return 0;
+	/* allocated_port and handle are not checked */
+	return 1;
+}
+

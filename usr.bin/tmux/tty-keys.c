@@ -1,7 +1,7 @@
-/* $OpenBSD: tty-keys.c,v 1.81 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.89 2016/04/29 10:42:16 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,14 +33,17 @@
  * into a ternary tree.
  */
 
-void		tty_keys_add1(struct tty_key **, const char *, key_code);
-void		tty_keys_add(struct tty *, const char *, key_code);
-void		tty_keys_free1(struct tty_key *);
-struct tty_key *tty_keys_find1(struct tty_key *, const char *, size_t,
+static void	tty_keys_add1(struct tty_key **, const char *, key_code);
+static void	tty_keys_add(struct tty *, const char *, key_code);
+static void	tty_keys_free1(struct tty_key *);
+static struct tty_key *tty_keys_find1(struct tty_key *, const char *, size_t,
 		    size_t *);
-struct tty_key *tty_keys_find(struct tty *, const char *, size_t, size_t *);
-void		tty_keys_callback(int, short, void *);
-int		tty_keys_mouse(struct tty *, const char *, size_t, size_t *);
+static struct tty_key *tty_keys_find(struct tty *, const char *, size_t,
+		    size_t *);
+static int	tty_keys_next1(struct tty *, const char *, size_t, key_code *,
+		    size_t *, int);
+static void	tty_keys_callback(int, short, void *);
+static int	tty_keys_mouse(struct tty *, const char *, size_t, size_t *);
 
 /* Default raw keys. */
 struct tty_default_key_raw {
@@ -316,7 +319,7 @@ const struct tty_default_key_code tty_default_code_keys[] = {
 };
 
 /* Add key to tree. */
-void
+static void
 tty_keys_add(struct tty *tty, const char *s, key_code key)
 {
 	struct tty_key	*tk;
@@ -334,7 +337,7 @@ tty_keys_add(struct tty *tty, const char *s, key_code key)
 }
 
 /* Add next node to the tree. */
-void
+static void
 tty_keys_add1(struct tty_key **tkp, const char *s, key_code key)
 {
 	struct tty_key	*tk;
@@ -344,7 +347,7 @@ tty_keys_add1(struct tty_key **tkp, const char *s, key_code key)
 	if (tk == NULL) {
 		tk = *tkp = xcalloc(1, sizeof *tk);
 		tk->ch = *s;
-		tk->key = KEYC_NONE;
+		tk->key = KEYC_UNKNOWN;
 	}
 
 	/* Find the next entry. */
@@ -409,7 +412,7 @@ tty_keys_free(struct tty *tty)
 }
 
 /* Free a single key. */
-void
+static void
 tty_keys_free1(struct tty_key *tk)
 {
 	if (tk->next != NULL)
@@ -422,7 +425,7 @@ tty_keys_free1(struct tty_key *tk)
 }
 
 /* Lookup a key in the tree. */
-struct tty_key *
+static struct tty_key *
 tty_keys_find(struct tty *tty, const char *buf, size_t len, size_t *size)
 {
 	*size = 0;
@@ -430,7 +433,7 @@ tty_keys_find(struct tty *tty, const char *buf, size_t len, size_t *size)
 }
 
 /* Find the next node. */
-struct tty_key *
+static struct tty_key *
 tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 {
 	/* If the node is NULL, this is the end of the tree. No match. */
@@ -444,7 +447,7 @@ tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 		(*size)++;
 
 		/* At the end of the string, return the current node. */
-		if (len == 0 || (tk->next == NULL && tk->key != KEYC_NONE))
+		if (len == 0 || (tk->next == NULL && tk->key != KEYC_UNKNOWN))
 			return (tk);
 
 		/* Move into the next tree for the following character. */
@@ -460,6 +463,58 @@ tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 	return (tty_keys_find1(tk, buf, len, size));
 }
 
+/* Look up part of the next key. */
+static int
+tty_keys_next1(struct tty *tty, const char *buf, size_t len, key_code *key,
+    size_t *size, int expired)
+{
+	struct tty_key		*tk, *tk1;
+	struct utf8_data	 ud;
+	enum utf8_state		 more;
+	u_int			 i;
+	wchar_t			 wc;
+
+	log_debug("next key is %zu (%.*s) (expired=%d)", len, (int)len, buf,
+	    expired);
+
+	/* Is this a known key? */
+	tk = tty_keys_find(tty, buf, len, size);
+	if (tk != NULL && tk->key != KEYC_UNKNOWN) {
+		tk1 = tk;
+		do
+			log_debug("keys in list: %#llx", tk1->key);
+		while ((tk1 = tk1->next) != NULL);
+		if (tk->next != NULL && !expired)
+			return (1);
+		*key = tk->key;
+		return (0);
+	}
+
+	/* Is this valid UTF-8? */
+	more = utf8_open(&ud, (u_char)*buf);
+	if (more == UTF8_MORE) {
+		*size = ud.size;
+		if (len < ud.size) {
+			if (!expired)
+				return (1);
+			return (-1);
+		}
+		for (i = 1; i < ud.size; i++)
+			more = utf8_append(&ud, (u_char)buf[i]);
+		if (more != UTF8_DONE)
+			return (-1);
+
+		if (utf8_combine(&ud, &wc) != UTF8_DONE)
+			return (-1);
+		*key = wc;
+
+		log_debug("UTF-8 key %.*s %#llx", (int)ud.size, buf, *key);
+		return (0);
+	}
+
+	return (-1);
+}
+
 /*
  * Process at least one key in the buffer and invoke tty->key_callback. Return
  * 0 if there are no further keys, or 1 if there could be more in the buffer.
@@ -467,23 +522,20 @@ tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 key_code
 tty_keys_next(struct tty *tty)
 {
-	struct tty_key		*tk;
-	struct timeval		 tv;
-	const char		*buf;
-	size_t			 len, size;
-	cc_t			 bspace;
-	int			 delay, expired = 0;
-	key_code		 key;
-	struct utf8_data	 ud;
-	enum utf8_state		 more;
-	u_int			 i;
+	struct timeval	 tv;
+	const char	*buf;
+	size_t		 len, size;
+	cc_t		 bspace;
+	int		 delay, expired = 0, n;
+	key_code	 key;
 
 	/* Get key buffer. */
 	buf = EVBUFFER_DATA(tty->event->input);
 	len = EVBUFFER_LENGTH(tty->event->input);
+
 	if (len == 0)
 		return (0);
-	log_debug("keys are %zu (%.*s)", len, (int) len, buf);
+	log_debug("keys are %zu (%.*s)", len, (int)len, buf);
 
 	/* Is this a mouse key press? */
 	switch (tty_keys_mouse(tty, buf, len, &size)) {
@@ -499,80 +551,49 @@ tty_keys_next(struct tty *tty)
 		goto partial_key;
 	}
 
-	/* Look for matching key string and return if found. */
-	tk = tty_keys_find(tty, buf, len, &size);
-	if (tk != NULL) {
-		if (tk->next != NULL)
-			goto partial_key;
-		key = tk->key;
-		goto complete_key;
-	}
-
-	/* Try to parse a key with an xterm-style modifier. */
-	switch (xterm_keys_find(buf, len, &size, &key)) {
-	case 0:		/* found */
-		goto complete_key;
-	case -1:	/* not found */
-		break;
-	case 1:
-		goto partial_key;
-	}
-
 first_key:
-	/* Is this a meta key? */
-	if (len >= 2 && buf[0] == '\033') {
-		if (buf[1] != '\033') {
-			key = buf[1] | KEYC_ESCAPE;
-			size = 2;
+	/* Handle keys starting with escape. */
+	if (*buf == '\033') {
+		/* Look for a key without the escape. */
+		n = tty_keys_next1(tty, buf + 1, len - 1, &key, &size, expired);
+		if (n == 0) {	/* found */
+			key |= KEYC_ESCAPE;
+			size++;
 			goto complete_key;
 		}
-
-		tk = tty_keys_find(tty, buf + 1, len - 1, &size);
-		if (tk != NULL && (!expired || tk->next == NULL)) {
-			size++;	/* include escape */
-			if (tk->next != NULL)
-				goto partial_key;
-			key = tk->key;
-			if (key != KEYC_NONE)
-				key |= KEYC_ESCAPE;
-			goto complete_key;
-		}
-	}
-
-	/* Is this valid UTF-8? */
-	if ((more = utf8_open(&ud, (u_char)*buf) == UTF8_MORE)) {
-		size = ud.size;
-		if (len < size) {
-			if (expired)
-				goto discard_key;
+		if (n == 1)	/* partial */
 			goto partial_key;
-		}
-		for (i = 1; i < size; i++)
-			more = utf8_append(&ud, (u_char)buf[i]);
-		if (more != UTF8_DONE)
-			goto discard_key;
-		key = utf8_combine(&ud);
-		log_debug("UTF-8 key %.*s %#llx", (int)size, buf, key);
-		goto complete_key;
 	}
 
-	/* No key found, take first. */
-	key = (u_char)*buf;
-	size = 1;
+	/* Try to lookup key. */
+	n = tty_keys_next1(tty, buf, len, &key, &size, expired);
+	if (n == 0)	/* found */
+		goto complete_key;
+	if (n == 1)
+		goto partial_key;
+
+	/* Is this an an xterm(1) key? */
+	n = xterm_keys_find(buf, len, &size, &key);
+	if (n == 0)
+		goto complete_key;
+	if (n == 1 && !expired)
+		goto partial_key;
 
 	/*
-	 * Check for backspace key using termios VERASE - the terminfo
-	 * kbs entry is extremely unreliable, so cannot be safely
-	 * used. termios should have a better idea.
+	 * At this point, we know the key is not partial (with or without
+	 * escape). So pass it through even if the timer has not expired.
 	 */
-	bspace = tty->tio.c_cc[VERASE];
-	if (bspace != _POSIX_VDISABLE && key == bspace)
-		key = KEYC_BSPACE;
-
+	if (*buf == '\033' && len >= 2) {
+		key = (u_char)buf[1] | KEYC_ESCAPE;
+		size = 2;
+	} else {
+		key = (u_char)buf[0];
+		size = 1;
+	}
 	goto complete_key;
 
 partial_key:
-	log_debug("partial key %.*s", (int) len, buf);
+	log_debug("partial key %.*s", (int)len, buf);
 
 	/* If timer is going, check for expiration. */
 	if (tty->flags & TTY_TIMER) {
@@ -601,6 +622,15 @@ partial_key:
 complete_key:
 	log_debug("complete key %.*s %#llx", (int)size, buf, key);
 
+	/*
+	 * Check for backspace key using termios VERASE - the terminfo
+	 * kbs entry is extremely unreliable, so cannot be safely
+	 * used. termios should have a better idea.
+	 */
+	bspace = tty->tio.c_cc[VERASE];
+	if (bspace != _POSIX_VDISABLE && (key & KEYC_MASK_KEY) == bspace)
+		key = (key & KEYC_MASK_MOD) | KEYC_BSPACE;
+
 	/* Remove data from buffer. */
 	evbuffer_drain(tty->event->input, size);
 
@@ -619,7 +649,7 @@ complete_key:
 	}
 
 	/* Fire the key. */
-	if (key != KEYC_NONE)
+	if (key != KEYC_UNKNOWN)
 		server_client_handle_key(tty->client, key);
 
 	return (1);
@@ -634,7 +664,7 @@ discard_key:
 }
 
 /* Key timer callback. */
-void
+static void
 tty_keys_callback(__unused int fd, __unused short events, void *data)
 {
 	struct tty	*tty = data;
@@ -649,14 +679,12 @@ tty_keys_callback(__unused int fd, __unused short events, void *data)
  * Handle mouse key input. Returns 0 for success, -1 for failure, 1 for partial
  * (probably a mouse sequence but need more data).
  */
-int
+static int
 tty_keys_mouse(struct tty *tty, const char *buf, size_t len, size_t *size)
 {
 	struct mouse_event	*m = &tty->mouse;
-	struct utf8_data	 ud;
-	u_int			 i, value, x, y, b, sgr_b;
+	u_int			 i, x, y, b, sgr_b;
 	u_char			 sgr_type, c;
-	enum utf8_state		 more;
 
 	/*
 	 * Standard mouse sequences are \033[M followed by three characters
@@ -686,8 +714,8 @@ tty_keys_mouse(struct tty *tty, const char *buf, size_t len, size_t *size)
 		return (1);
 
 	/*
-	 * Third byte is M in old standard and UTF-8 extension, < in SGR
-	 * extension.
+	 * Third byte is M in old standard (and UTF-8 extension which we do not
+	 * support), < in SGR extension.
 	 */
 	if (buf[2] == 'M') {
 		/* Read the three inputs. */
@@ -695,32 +723,13 @@ tty_keys_mouse(struct tty *tty, const char *buf, size_t len, size_t *size)
 		for (i = 0; i < 3; i++) {
 			if (len <= *size)
 				return (1);
-
-			if (tty->mode & MODE_MOUSE_UTF8) {
-				if (utf8_open(&ud, buf[*size]) == UTF8_MORE) {
-					if (ud.size != 2)
-						return (-1);
-					(*size)++;
-					if (len <= *size)
-						return (1);
-					more = utf8_append(&ud, buf[*size]);
-					if (more != UTF8_DONE)
-						return (-1);
-					value = utf8_combine(&ud);
-				} else
-					value = (u_char)buf[*size];
-				(*size)++;
-			} else {
-				value = (u_char)buf[*size];
-				(*size)++;
-			}
-
+			c = (u_char)buf[(*size)++];
 			if (i == 0)
-				b = value;
+				b = c;
 			else if (i == 1)
-				x = value;
+				x = c;
 			else
-				y = value;
+				y = c;
 		}
 		log_debug("mouse input: %.*s", (int)*size, buf);
 

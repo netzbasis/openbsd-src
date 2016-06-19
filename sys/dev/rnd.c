@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.176 2015/10/27 11:13:06 mikeb Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.181 2016/05/23 15:48:59 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -227,10 +227,9 @@ struct rand_event {
 	u_int re_val;
 } rnd_event_space[QEVLEN];
 /* index of next free slot */
-int rnd_event_idx;
+u_int rnd_event_idx;
 
 struct timeout rnd_timeout;
-struct rndstats rndstats;
 
 u_int32_t entropy_pool[POOLWORDS] __attribute__((section(".openbsd.randomdata")));
 u_int	entropy_add_ptr;
@@ -257,6 +256,9 @@ rnd_get(void)
 {
 	if (rnd_event_idx == 0)
 		return NULL;
+	/* if it wrapped around, start dequeuing at the end */
+	if (rnd_event_idx > QEVLEN)
+		rnd_event_idx = QEVLEN;
 
 	return &rnd_event_space[--rnd_event_idx];
 }
@@ -264,13 +266,15 @@ rnd_get(void)
 static __inline struct rand_event *
 rnd_put(void)
 {
-	if (rnd_event_idx == QEVLEN)
-		return NULL;
+	u_int idx = rnd_event_idx++;
+	
+	/* allow wrapping. caller will use xor. */
+	idx = idx % QEVLEN;
 
-	return &rnd_event_space[rnd_event_idx++];
+	return &rnd_event_space[idx];
 }
 
-static __inline int
+static __inline u_int
 rnd_qlen(void)
 {
 	return rnd_event_idx;
@@ -284,11 +288,9 @@ rnd_qlen(void)
  * The number "val" is also added to the pool - it should somehow describe
  * the type of event which just happened.  Currently the values of 0-255
  * are for keyboard scan codes, 256 and upwards - for interrupts.
- * On the i386, this is assumed to be at most 16 bits, and the high bits
- * are used for a high-resolution timer.
  */
 void
-enqueue_randomness(int state, int val)
+enqueue_randomness(u_int state, u_int val)
 {
 	int	delta, delta2, delta3;
 	struct timer_rand_state *p;
@@ -297,7 +299,7 @@ enqueue_randomness(int state, int val)
 	u_int	time, nbits;
 
 #ifdef DIAGNOSTIC
-	if (state < 0 || state >= RND_SRC_NUM)
+	if (state >= RND_SRC_NUM)
 		return;
 #endif
 
@@ -362,38 +364,22 @@ enqueue_randomness(int state, int val)
 
 	mtx_enter(&entropylock);
 	if (!p->dont_count_entropy) {
-		/*
-		 * the logic is to drop low-entropy entries,
-		 * in hope for dequeuing to be more randomfull
-		 */
-		if (rnd_qlen() > QEVSLOW && nbits < QEVSBITS) {
-			rndstats.rnd_drople++;
-			goto done;
-		}
 		p->last_time = time;
 		p->last_delta  = delta3;
 		p->last_delta2 = delta2;
 	}
 
-	if ((rep = rnd_put()) == NULL) {
-		rndstats.rnd_drops++;
-		goto done;
-	}
+	rep = rnd_put();
 
 	rep->re_state = p;
 	rep->re_nbits = nbits;
-	rep->re_time = ts.tv_nsec ^ (ts.tv_sec << 20);
-	rep->re_val = val;
-
-	rndstats.rnd_enqs++;
-	rndstats.rnd_ed[nbits]++;
-	rndstats.rnd_sc[state]++;
-	rndstats.rnd_sb[state] += nbits;
+	rep->re_time += ts.tv_nsec ^ (ts.tv_sec << 20);
+	rep->re_val += val;
 
 	if (rnd_qlen() > QEVSLOW/2 && timeout_initialized(&rnd_timeout) &&
 	    !timeout_pending(&rnd_timeout))
 		timeout_add(&rnd_timeout, 1);
-done:
+
 	mtx_leave(&entropylock);
 }
 
@@ -421,7 +407,7 @@ add_entropy_words(const u_int32_t *buf, u_int n)
 
 	for (; n--; buf++) {
 		u_int32_t w = (*buf << entropy_input_rotate) |
-		    (*buf >> (32 - entropy_input_rotate));
+		    (*buf >> ((32 - entropy_input_rotate) & 31));
 		u_int i = entropy_add_ptr =
 		    (entropy_add_ptr - 1) & POOLMASK;
 		/*
@@ -462,7 +448,6 @@ dequeue_randomness(void *v)
 	if (timeout_initialized(&rnd_timeout))
 		timeout_del(&rnd_timeout);
 
-	rndstats.rnd_deqs++;
 	while ((rep = rnd_get())) {
 		buf[0] = rep->re_time;
 		buf[1] = rep->re_val;
@@ -472,7 +457,6 @@ dequeue_randomness(void *v)
 		add_entropy_words(buf, 2);
 
 		mtx_enter(&entropylock);
-		rndstats.rnd_total += nbits;
 	}
 	mtx_leave(&entropylock);
 }
@@ -606,7 +590,6 @@ _rs_stir(int do_lock)
 	if (do_lock)
 		mtx_enter(&rndlock);
 	_rs_seed(buf, sizeof(buf));
-	rndstats.arc4_nstirs++;
 	if (do_lock)
 		mtx_leave(&rndlock);
 
@@ -689,7 +672,6 @@ arc4random(void)
 
 	mtx_enter(&rndlock);
 	_rs_random_u32(&ret);
-	rndstats.arc4_reads += sizeof(ret);
 	mtx_leave(&rndlock);
 	return ret;
 }
@@ -702,7 +684,6 @@ arc4random_buf(void *buf, size_t n)
 {
 	mtx_enter(&rndlock);
 	_rs_random_buf(buf, n);
-	rndstats.arc4_reads += n;
 	mtx_leave(&rndlock);
 }
 
@@ -840,7 +821,7 @@ randomread(dev_t dev, struct uio *uio, int ioflag)
 	}
 
 	while (ret == 0 && uio->uio_resid > 0) {
-		int	n = min(POOLBYTES, uio->uio_resid);
+		size_t	n = ulmin(POOLBYTES, uio->uio_resid);
 
 		if (myctx) {
 #ifndef KEYSTREAM_ONLY
@@ -849,7 +830,7 @@ randomread(dev_t dev, struct uio *uio, int ioflag)
 			chacha_encrypt_bytes(&lctx, buf, buf, n);
 		} else
 			arc4random_buf(buf, n);
-		ret = uiomovei(buf, n, uio);
+		ret = uiomove(buf, n, uio);
 		if (ret == 0 && uio->uio_resid > 0)
 			yield();
 	}
@@ -872,9 +853,9 @@ randomwrite(dev_t dev, struct uio *uio, int flags)
 	buf = malloc(POOLBYTES, M_TEMP, M_WAITOK);
 
 	while (ret == 0 && uio->uio_resid > 0) {
-		int	n = min(POOLBYTES, uio->uio_resid);
+		size_t	n = ulmin(POOLBYTES, uio->uio_resid);
 
-		ret = uiomovei(buf, n, uio);
+		ret = uiomove(buf, n, uio);
 		if (ret != 0)
 			break;
 		while (n % sizeof(u_int32_t))

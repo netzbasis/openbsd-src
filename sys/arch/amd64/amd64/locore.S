@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.73 2015/11/09 01:08:56 mlarkin Exp $	*/
+/*	$OpenBSD: locore.S,v 1.80 2016/06/06 06:02:02 deraadt Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -109,6 +109,7 @@
 #include "ioapic.h"
 #include "ksyms.h"
 #include "acpi.h"
+#include "xen.h"
 
 #include <sys/errno.h>
 #include <sys/syscall.h>
@@ -152,7 +153,7 @@
 	.data
 
 #if NLAPIC > 0 
-	.align  NBPG
+	.align  NBPG, 0xcc
 	.globl _C_LABEL(local_apic), _C_LABEL(lapic_id), _C_LABEL(lapic_tpr)
 _C_LABEL(local_apic):
 	.space  LAPIC_ID
@@ -175,7 +176,8 @@ _C_LABEL(lapic_isr):
 	.globl	_C_LABEL(cpu_perf_ebx)
 	.globl	_C_LABEL(cpu_perf_edx)
 	.globl	_C_LABEL(cpu_apmi_edx)
-	.globl	_C_LABEL(ssym),_C_LABEL(esym),_C_LABEL(boothowto),_C_LABEL(bootdev)
+	.globl	_C_LABEL(ssym),_C_LABEL(esym),_C_LABEL(boothowto)
+	.globl	_C_LABEL(bootdev)
 	.globl	_C_LABEL(bootinfo), _C_LABEL(bootinfo_size), _C_LABEL(atdevbase)
 	.globl	_C_LABEL(proc0paddr),_C_LABEL(PTDpaddr)
 	.globl	_C_LABEL(biosbasemem),_C_LABEL(biosextmem)
@@ -222,7 +224,7 @@ _C_LABEL(pg_nx):	.quad	0	# NX PTE bit (if CPU supports)
 gdt64:
 	.word	gdt64_end-gdt64_start-1
 	.quad	_RELOC(gdt64_start)
-.align 64
+.align 64, 0xcc
 
 gdt64_start:
 	.quad 0x0000000000000000	/* always empty */
@@ -418,7 +420,7 @@ cont:
 
 	/* Find end of kernel image. */
 	movl	$RELOC(end),%edi
-#if (NKSYMS || defined(DDB)) && !defined(SYMTAB_SPACE)
+#if (NKSYMS || defined(DDB))
 	/* Save the symbols (if loaded). */
 	movl	RELOC(esym),%eax
 	testl	%eax,%eax
@@ -754,18 +756,31 @@ longmode_hi:
  * Signal trampoline; copied to top of user stack.
  * gdb's backtrace logic matches against the instructions in this.
  */
-NENTRY(sigcode)
+	.section .rodata
+	.globl	_C_LABEL(sigcode)
+_C_LABEL(sigcode):
 	call	*%rax
 
 	movq	%rsp,%rdi
 	pushq	%rdi			/* fake return address */
 	movq	$SYS_sigreturn,%rax
 	syscall
+	.globl	_C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	movq	$SYS_exit,%rax
 	syscall
 	.globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
 
+	.globl	_C_LABEL(sigfill)
+_C_LABEL(sigfill):
+	int3
+_C_LABEL(esigfill):
+	.globl	_C_LABEL(sigfillsiz)
+_C_LABEL(sigfillsiz):
+	.long	_C_LABEL(esigfill) - _C_LABEL(sigfill)
+
+	.text
 /*
  * void lgdt(struct region_descriptor *rdp);
  * Change the global descriptor table.
@@ -1162,7 +1177,7 @@ ENTRY(pagezero)
 	ret
 
 	.section .codepatch,"a"
-	.align  8
+	.align  8, 0xcc
 	.globl _C_LABEL(codepatch_begin)
 _C_LABEL(codepatch_begin):
 	.previous
@@ -1171,3 +1186,12 @@ _C_LABEL(codepatch_begin):
 	.globl _C_LABEL(codepatch_end)
 _C_LABEL(codepatch_end):
 	.previous
+
+#if NXEN > 0
+	/* Hypercall page needs to be page aligned */
+	.text
+	.align	NBPG, 0xcc
+	.globl	_C_LABEL(xen_hypercall_page)
+_C_LABEL(xen_hypercall_page):
+	.skip	0x1000, 0xcc
+#endif /* NXEN > 0 */

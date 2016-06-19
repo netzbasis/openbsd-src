@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount_ffs.c,v 1.21 2015/01/16 06:39:59 deraadt Exp $	*/
+/*	$OpenBSD: mount_ffs.c,v 1.23 2016/05/27 19:45:04 deraadt Exp $	*/
 /*	$NetBSD: mount_ffs.c,v 1.3 1996/04/13 01:31:19 jtc Exp $	*/
 
 /*-
@@ -47,6 +47,7 @@ void	ffs_usage(void);
 
 static const struct mntopt mopts[] = {
 	MOPT_STDOPTS,
+	MOPT_WXALLOWED,
 	MOPT_ASYNC,
 	MOPT_SYNC,
 	MOPT_UPDATE,
@@ -80,7 +81,7 @@ main(int argc, char *argv[])
 	if (argc != 2)
 		ffs_usage();
 
-        args.fspec = argv[0];		/* The name of the device file. */
+	args.fspec = argv[0];		/* The name of the device file. */
 	if (realpath(argv[1], fs_name) == NULL) 	/* The mount point. */
 		err(1, "realpath %s", argv[1]);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: neighbor.c,v 1.3 2015/10/27 03:25:55 renato Exp $ */
+/*	$OpenBSD: neighbor.c,v 1.7 2016/02/21 18:56:49 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -38,40 +38,12 @@ RB_GENERATE(nbr_pid_head, nbr, pid_tree, nbr_pid_compare)
 static __inline int
 nbr_compare(struct nbr *a, struct nbr *b)
 {
-	int		 i;
-
-	if (a->ei->eigrp->af < b->ei->eigrp->af)
-		return (-1);
-	if (a->ei->eigrp->af > b->ei->eigrp->af)
-		return (1);
 	if (a->ei->iface->ifindex < b->ei->iface->ifindex)
 		return (-1);
 	if (a->ei->iface->ifindex > b->ei->iface->ifindex)
 		return (1);
-	if (a->ei->eigrp->as < b->ei->eigrp->as)
-		return (-1);
-	if (a->ei->eigrp->as > b->ei->eigrp->as)
-		return (1);
 
-	switch (a->ei->eigrp->af) {
-	case AF_INET:
-		if (ntohl(a->addr.v4.s_addr) < ntohl(b->addr.v4.s_addr))
-			return (-1);
-		if (ntohl(a->addr.v4.s_addr) > ntohl(b->addr.v4.s_addr))
-			return (1);
-		break;
-	case AF_INET6:
-		i = memcmp(&a->addr.v6, &b->addr.v6, sizeof(struct in6_addr));
-		if (i > 0)
-			return (1);
-		if (i < 0)
-			return (-1);
-		break;
-	default:
-		fatalx("nbr_compare: unknown af");
-	}
-
-	return (0);
+	return (eigrp_addrcmp(a->ei->eigrp->af, &a->addr, &b->addr));
 }
 
 static __inline int
@@ -102,7 +74,7 @@ nbr_new(struct eigrp_iface *ei, union eigrpd_addr *addr, uint16_t holdtime,
 
 	nbr->ei = ei;
 	TAILQ_INSERT_TAIL(&ei->nbr_list, nbr, entry);
-	memcpy(&nbr->addr, addr, sizeof(nbr->addr));
+	nbr->addr = *addr;
 	nbr->peerid = 0;
 	nbr->hello_holdtime = holdtime;
 	nbr->flags = F_EIGRP_NBR_PENDING;
@@ -140,7 +112,7 @@ nbr_init(struct nbr *nbr)
 	nbr_update_peerid(nbr);
 
 	memset(&rnbr, 0, sizeof(rnbr));
-	memcpy(&rnbr.addr, &nbr->addr, sizeof(rnbr.addr));
+	rnbr.addr = nbr->addr;
 	rnbr.ifaceid = nbr->ei->ifaceid;
 	if (nbr->flags & F_EIGRP_NBR_SELF)
 		rnbr.flags = F_RDE_NBR_SELF|F_RDE_NBR_LOCAL;
@@ -203,7 +175,7 @@ nbr_find(struct eigrp_iface *ei, union eigrpd_addr *addr)
 	i.eigrp = &e;
 	i.iface = ei->iface;
 	n.ei = &i;
-	memcpy(&n.addr, addr, sizeof(n.addr));
+	n.addr = *addr;
 
 	return (RB_FIND(nbr_addr_head, &ei->eigrp->nbrs, &n));
 }
@@ -225,12 +197,39 @@ nbr_to_ctl(struct nbr *nbr)
 	nctl.af = nbr->ei->eigrp->af;
 	nctl.as = nbr->ei->eigrp->as;
 	memcpy(nctl.ifname, nbr->ei->iface->name, sizeof(nctl.ifname));
-	memcpy(&nctl.addr, &nbr->addr, sizeof(nctl.addr));
+	nctl.addr = nbr->addr;
 	nctl.hello_holdtime = nbr->hello_holdtime;
 	gettimeofday(&now, NULL);
 	nctl.uptime = now.tv_sec - nbr->uptime;
 
 	return (&nctl);
+}
+
+void
+nbr_clear_ctl(struct ctl_nbr *nctl)
+{
+	struct eigrp		*eigrp;
+	struct nbr		*nbr, *safe;
+
+	TAILQ_FOREACH(eigrp, &econf->instances, entry) {
+		if (nctl->af && nctl->af != eigrp->af)
+			continue;
+		if (nctl->as && nctl->as != eigrp->as)
+			continue;
+
+		RB_FOREACH_SAFE(nbr, nbr_addr_head, &eigrp->nbrs, safe) {
+			if (nbr->flags & (F_EIGRP_NBR_PENDING|F_EIGRP_NBR_SELF))
+				continue;
+			if (eigrp_addrisset(nctl->af, &nctl->addr) &&
+			    eigrp_addrcmp(nctl->af, &nctl->addr, &nbr->addr))
+				continue;
+
+			log_debug("%s: neighbor %s manually cleared", __func__,
+			    log_addr(nbr->ei->eigrp->af, &nbr->addr));
+			send_peerterm(nbr);
+			nbr_del(nbr);
+		}
+	}
 }
 
 /* timers */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pstat.c,v 1.100 2015/08/28 04:38:47 guenther Exp $	*/
+/*	$OpenBSD: pstat.c,v 1.106 2016/06/03 20:38:48 deraadt Exp $	*/
 /*	$NetBSD: pstat.c,v 1.27 1996/10/23 22:50:06 cgd Exp $	*/
 
 /*-
@@ -187,13 +187,13 @@ main(int argc, char *argv[])
 	if (dformat && getuid())
 		errx(1, "Only root can use -d");
 
-	if ((dformat == 0 && argc > 0) || (dformat && argc == 0))
+	if ((dformat == NULL && argc > 0) || (dformat && argc == 0))
 		usage();
 
 	need_nlist = vnodeflag || dformat;
 
 	if (nlistf != NULL || memf != NULL) {
-		if (fileflag)
+		if (fileflag || totalflag)
 			need_nlist = 1;
 	}
 
@@ -723,9 +723,9 @@ mount_print(struct mount *mp)
 			flags &= ~MNT_EXPORTANON;
 			comma = ",";
 		}
-		if (flags & MNT_EXKERB) {
-			(void)printf("%sexkerb", comma);
-			flags &= ~MNT_EXKERB;
+		if (flags & MNT_WXALLOWED) {
+			(void)printf("%swxallowed", comma);
+			flags &= ~MNT_WXALLOWED;
 			comma = ",";
 		}
 		if (flags & MNT_LOCAL) {
@@ -976,7 +976,7 @@ filemode(void)
 {
 	struct kinfo_file *kf;
 	char flagbuf[16], *fbp;
-	static char *dtypes[] = { "???", "inode", "socket", "pipe", "kqueue", "???", "systrace" };
+	static char *dtypes[] = { "???", "inode", "socket", "pipe", "kqueue", "???", "???" };
 	int mib[2], maxfile, nfile;
 	size_t len;
 
@@ -1154,6 +1154,6 @@ void
 usage(void)
 {
 	(void)fprintf(stderr, "usage: "
-	    "pstat [-fknsTtv] [-d format] [-M core] [-N system] [symbols]\n");
+	    "pstat [-fknsTtv] [-M core] [-N system] [-d format symbol ...]\n");
 	exit(1);
 }

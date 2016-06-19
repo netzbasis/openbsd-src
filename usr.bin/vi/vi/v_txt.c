@@ -1,4 +1,4 @@
-/*	$OpenBSD: v_txt.c,v 1.28 2015/01/16 06:40:14 deraadt Exp $	*/
+/*	$OpenBSD: v_txt.c,v 1.33 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -59,10 +59,10 @@ static void	 txt_unmap(SCR *, TEXT *, u_int32_t *);
  * v_tcmd --
  *	Fill a buffer from the terminal for vi.
  *
- * PUBLIC: int v_tcmd(SCR *, VICMD *, ARG_CHAR_T, u_int);
+ * PUBLIC: int v_tcmd(SCR *, VICMD *, CHAR_T, u_int);
  */
 int
-v_tcmd(SCR *sp, VICMD *vp, ARG_CHAR_T prompt, u_int flags)
+v_tcmd(SCR *sp, VICMD *vp, CHAR_T prompt, u_int flags)
 {
 	/* Normally, we end up where we started. */
 	vp->m_final.lno = sp->lno;
@@ -235,11 +235,11 @@ txt_map_end(SCR *sp)
  *	Vi text input.
  *
  * PUBLIC: int v_txt(SCR *, VICMD *, MARK *,
- * PUBLIC:    const char *, size_t, ARG_CHAR_T, recno_t, u_long, u_int32_t);
+ * PUBLIC:    const char *, size_t, CHAR_T, recno_t, u_long, u_int32_t);
  */
 int
 v_txt(SCR *sp, VICMD *vp, MARK *tm, const char *lp, size_t len,
-    ARG_CHAR_T prompt, recno_t ai_line, u_long rcount, u_int32_t flags)
+    CHAR_T prompt, recno_t ai_line, u_long rcount, u_int32_t flags)
 {
 	EVENT ev, *evp = NULL;	/* Current event. */
 	EVENT fc;		/* File name completion event. */
@@ -586,7 +586,7 @@ next:	if (v_event_get(sp, evp, 0, ec_flags))
 		if (++abcnt > MAX_ABBREVIATION_EXPANSION) {
 			if (v_event_flush(sp, CH_ABBREVIATED))
 				msgq(sp, M_ERR,
-"191|Abbreviation exceeded expansion limit: characters discarded");
+"Abbreviation exceeded expansion limit: characters discarded");
 			abcnt = 0;
 			if (LF_ISSET(TXT_REPLAY))
 				goto done;
@@ -618,30 +618,21 @@ replay:	if (LF_ISSET(TXT_REPLAY))
 
 	/*
 	 * !!!
-	 * If this character was quoted by a K_VLNEXT or a backslash, replace
-	 * the placeholder (a carat or a backslash) with the new character.
-	 * If it was quoted by a K_VLNEXT, we've already adjusted the cursor
-	 * because it has to appear on top of the placeholder character.  If
-	 * it was quoted by a backslash, adjust the cursor now, the cursor
-	 * doesn't appear on top of it.  Historic practice in both cases.
+	 * If this character was quoted by a K_VLNEXT, replace the placeholder
+	 * (a carat) with the new character.  We've already adjusted the cursor
+	 * because it has to appear on top of the placeholder character.
+	 * Historic practice.
 	 *
 	 * Skip tests for abbreviations; ":ab xa XA" followed by "ixa^V<space>"
 	 * doesn't perform an abbreviation.  Special case, ^V^J (not ^V^M) is
 	 * the same as ^J, historically.
 	 */
-	if (quote == Q_BTHIS || quote == Q_VTHIS) {
+	if (quote == Q_VTHIS) {
 		FL_CLR(ec_flags, EC_QUOTED);
 		if (LF_ISSET(TXT_MAPINPUT))
 			FL_SET(ec_flags, EC_MAPINPUT);
 
-		if (quote == Q_BTHIS &&
-		    (evp->e_value == K_VERASE || evp->e_value == K_VKILL)) {
-			quote = Q_NOTSET;
-			--tp->cno;
-			++tp->owrite;
-			goto insl_ch;
-		}
-		if (quote == Q_VTHIS && evp->e_value != K_NL) {
+		if (evp->e_value != K_NL) {
 			quote = Q_NOTSET;
 			goto insl_ch;
 		}
@@ -1201,31 +1192,6 @@ leftmargin:		tp->lb[tp->cno - 1] = ' ';
 		if (LF_ISSET(TXT_SHOWMATCH))
 			showmatch = 1;
 		goto ins_ch;
-	case K_BACKSLASH:		/* Quote next erase/kill. */
-		/*
-		 * !!!
-		 * Historic vi tried to make abbreviations after a backslash
-		 * escape work.  If you did ":ab x y", and inserted "x\^H",
-		 * (assuming the erase character was ^H) you got "x^H", and
-		 * no abbreviation was done.  If you inserted "x\z", however,
-		 * it tried to back up and do the abbreviation, i.e. replace
-		 * 'x' with 'y'.  The problem was it got it wrong, and you
-		 * ended up with "zy\".
-		 *
-		 * This is really hard to do (you have to remember the
-		 * word/non-word state, for example), and doesn't make any
-		 * sense to me.  Both backslash and the characters it
-		 * (usually) escapes will individually trigger the
-		 * abbreviation, so I don't see why the combination of them
-		 * wouldn't.  I don't expect to get caught on this one,
-		 * particularly since it never worked right, but I've been
-		 * wrong before.
-		 *
-		 * Do the tests for abbreviations, so ":ab xa XA",
-		 * "ixa\<K_VERASE>" performs the abbreviation.
-		 */
-		quote = Q_BNEXT;
-		goto insq_ch;
 	case K_VLNEXT:			/* Quote next character. */
 		evp->e_c = '^';
 		quote = Q_VNEXT;
@@ -1264,7 +1230,7 @@ ins_ch:		/*
 		if (LF_ISSET(TXT_BEAUTIFY) && iscntrl(evp->e_c) &&
 		    evp->e_value != K_FORMFEED && evp->e_value != K_TAB) {
 			msgq(sp, M_BERR,
-			    "192|Illegal character; quote to enter");
+			    "Illegal character; quote to enter");
 			if (LF_ISSET(TXT_REPLAY))
 				goto done;
 			break;
@@ -1363,8 +1329,6 @@ ebuf_chk:	if (tp->cno >= tp->len) {
 
 		/* Step the quote state forward. */
 		if (quote != Q_NOTSET) {
-			if (quote == Q_BNEXT)
-				quote = Q_BTHIS;
 			if (quote == Q_VNEXT)
 				quote = Q_VTHIS;
 		}
@@ -1817,7 +1781,7 @@ txt_backup(SCR *sp, TEXTH *tiqh, TEXT *tp, u_int32_t *flagsp)
 	if ((ntp = TAILQ_PREV(tp, _texth, q)) == NULL) {
 		if (!FL_ISSET(*flagsp, TXT_REPLAY))
 			msgq(sp, M_BERR,
-			    "193|Already at the beginning of the insert");
+			    "Already at the beginning of the insert");
 		return (tp);
 	}
 
@@ -2881,5 +2845,5 @@ txt_Rresolve(SCR *sp, TEXTH *tiqh, TEXT *tp, const size_t orig_len)
 static void
 txt_nomorech(SCR *sp)
 {
-	msgq(sp, M_BERR, "194|No more characters to erase");
+	msgq(sp, M_BERR, "No more characters to erase");
 }

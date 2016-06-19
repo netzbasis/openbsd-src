@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.c,v 1.91 2015/11/15 11:14:17 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.c,v 1.103 2016/05/21 09:07:11 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.c,v 1.14 2004/05/09 09:18:47 dyoung Exp $	*/
 
 /*-
@@ -47,7 +47,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_arp.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -69,18 +68,15 @@ u_int8_t ieee80211_node_getrssi(struct ieee80211com *,
 void ieee80211_setup_node(struct ieee80211com *, struct ieee80211_node *,
     const u_int8_t *);
 void ieee80211_free_node(struct ieee80211com *, struct ieee80211_node *);
+void ieee80211_ba_del(struct ieee80211_node *);
 struct ieee80211_node *ieee80211_alloc_node_helper(struct ieee80211com *);
 void ieee80211_node_cleanup(struct ieee80211com *, struct ieee80211_node *);
 void ieee80211_needs_auth(struct ieee80211com *, struct ieee80211_node *);
 #ifndef IEEE80211_STA_ONLY
-#ifndef IEEE80211_NO_HT
 void ieee80211_node_join_ht(struct ieee80211com *, struct ieee80211_node *);
-#endif
 void ieee80211_node_join_rsn(struct ieee80211com *, struct ieee80211_node *);
 void ieee80211_node_join_11g(struct ieee80211com *, struct ieee80211_node *);
-#ifndef IEEE80211_NO_HT
 void ieee80211_node_leave_ht(struct ieee80211com *, struct ieee80211_node *);
-#endif
 void ieee80211_node_leave_rsn(struct ieee80211com *, struct ieee80211_node *);
 void ieee80211_node_leave_11g(struct ieee80211com *, struct ieee80211_node *);
 void ieee80211_inact_timeout(void *);
@@ -554,7 +550,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 		 * The passive scan to look for existing AP's completed,
 		 * select a channel to camp on.  Identify the channels
 		 * that already have one or more AP's and try to locate
-		 * an unnoccupied one.  If that fails, pick a random
+		 * an unoccupied one.  If that fails, pick a random
 		 * channel from the active set.
 		 */
 		memset(occupied, 0, sizeof(occupied));
@@ -589,14 +585,17 @@ ieee80211_end_scan(struct ifnet *ifp)
 		 * Scan the next mode if nothing has been found. This
 		 * is necessary if the device supports different
 		 * incompatible modes in the same channel range, like
-		 * like 11b and "pure" 11G mode. This will loop
-		 * forever except for user-initiated scans.
+		 * like 11b and "pure" 11G mode.
+		 * If the device scans all bands in one fell swoop, return
+		 * current scan results to userspace regardless of mode.
+		 * This will loop forever except for user-initiated scans.
 		 */
-		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO) {
+		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO ||
+		    (ic->ic_caps & IEEE80211_C_SCANALLBAND)) {
 			if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST &&
 			    ic->ic_scan_lock & IEEE80211_SCAN_RESUME) {
 				ic->ic_scan_lock = IEEE80211_SCAN_LOCKED;
-				/* Return from an user-initiated scan */
+				/* Return from a user-initiated scan. */
 				wakeup(&ic->ic_scan_lock);
 			} else if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
 				goto wakeup;
@@ -635,13 +634,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 	(*ic->ic_node_copy)(ic, ic->ic_bss, selbs);
 	ni = ic->ic_bss;
 
-	/*
-	 * Set the erp state (mostly the slot time) to deal with
-	 * the auto-select case; this should be redundant if the
-	 * mode is locked.
-	 */
 	ic->ic_curmode = ieee80211_chan2mode(ic, ni->ni_chan);
-	ieee80211_reset_erp(ic);
 
 	if (ic->ic_flags & IEEE80211_F_RSNON)
 		ieee80211_choose_rsnparams(ic);
@@ -662,7 +655,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 
  wakeup:
 	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST) {
-		/* Return from an user-initiated scan */
+		/* Return from a user-initiated scan. */
 		wakeup(&ic->ic_scan_lock);
 	}
 
@@ -758,6 +751,7 @@ ieee80211_node_cleanup(struct ieee80211com *ic, struct ieee80211_node *ni)
 		free(ni->ni_rsnie, M_DEVBUF, 0);
 		ni->ni_rsnie = NULL;
 	}
+	ieee80211_ba_del(ni);
 }
 
 void
@@ -1067,6 +1061,32 @@ ieee80211_find_node_for_beacon(struct ieee80211com *ic,
 }
 
 void
+ieee80211_ba_del(struct ieee80211_node *ni)
+{
+	int tid;
+
+	for (tid = 0; tid < nitems(ni->ni_rx_ba); tid++) {
+		struct ieee80211_rx_ba *ba = &ni->ni_rx_ba[tid];
+		if (ba->ba_state != IEEE80211_BA_INIT) {
+			if (timeout_pending(&ba->ba_to))
+				timeout_del(&ba->ba_to);
+			if (timeout_pending(&ba->ba_gap_to))
+				timeout_del(&ba->ba_gap_to);
+			ba->ba_state = IEEE80211_BA_INIT;
+		}
+	}
+
+	for (tid = 0; tid < nitems(ni->ni_tx_ba); tid++) {
+		struct ieee80211_tx_ba *ba = &ni->ni_tx_ba[tid];
+		if (ba->ba_state != IEEE80211_BA_INIT) {
+			if (timeout_pending(&ba->ba_to))
+				timeout_del(&ba->ba_to);
+			ba->ba_state = IEEE80211_BA_INIT;
+		}
+	}
+}
+
+void
 ieee80211_free_node(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	if (ni == ic->ic_bss)
@@ -1080,6 +1100,7 @@ ieee80211_free_node(struct ieee80211com *ic, struct ieee80211_node *ni)
 	timeout_del(&ni->ni_sa_query_to);
 	IEEE80211_AID_CLR(ni->ni_associd, ic->ic_aid_bitmap);
 #endif
+	ieee80211_ba_del(ni);
 	RB_REMOVE(ieee80211_tree, &ic->ic_tree, ni);
 	ic->ic_nnodes--;
 #ifndef IEEE80211_STA_ONLY
@@ -1256,7 +1277,6 @@ ieee80211_iterate_nodes(struct ieee80211com *ic, ieee80211_iter_func *f,
 }
 
 
-#ifndef IEEE80211_NO_HT
 /*
  * Install received HT caps information in the node's state block.
  */
@@ -1293,12 +1313,12 @@ ieee80211_setup_htcaps(struct ieee80211_node *ni, const uint8_t *data,
 /*
  * Install received HT op information in the node's state block.
  */
-void
+int
 ieee80211_setup_htop(struct ieee80211_node *ni, const uint8_t *data,
     uint8_t len)
 {
 	if (len != 22)
-		return;
+		return 0;
 
 	ni->ni_primary_chan = data[0]; /* XXX corresponds to ni_chan */
 
@@ -1307,8 +1327,9 @@ ieee80211_setup_htop(struct ieee80211_node *ni, const uint8_t *data,
 	ni->ni_htop2 = (data[3] | (data[4] << 8));
 
 	memcpy(ni->ni_basic_mcs, &data[6], sizeof(ni->ni_basic_mcs));
+
+	return 1;
 }
-#endif /* IEEE80211_NO_HT */
 
 /*
  * Install received rate set information in the node's state block.
@@ -1383,7 +1404,6 @@ ieee80211_needs_auth(struct ieee80211com *ic, struct ieee80211_node *ni)
 	 */
 }
 
-#ifndef IEEE80211_NO_HT
 /*
  * Handle an HT STA joining an HT network.
  */
@@ -1392,7 +1412,6 @@ ieee80211_node_join_ht(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	/* TBD */
 }
-#endif	/* !IEEE80211_NO_HT */
 
 /*
  * Handle a station joining an RSN network.
@@ -1480,7 +1499,7 @@ void
 ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
     int resp)
 {
-	int newassoc;
+	int newassoc = (ni->ni_state != IEEE80211_STA_ASSOC);
 
 	if (ni->ni_associd == 0) {
 		u_int16_t aid;
@@ -1502,11 +1521,11 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 		}
 		ni->ni_associd = aid | 0xc000;
 		IEEE80211_AID_SET(ni->ni_associd, ic->ic_aid_bitmap);
-		newassoc = 1;
-		if (ic->ic_curmode == IEEE80211_MODE_11G)
+		if (ic->ic_curmode == IEEE80211_MODE_11G ||
+		    (ic->ic_curmode == IEEE80211_MODE_11N &&
+		    IEEE80211_IS_CHAN_2GHZ(ic->ic_bss->ni_chan)))
 			ieee80211_node_join_11g(ic, ni);
-	} else
-		newassoc = 0;
+	}
 
 	DPRINTF(("station %s %s associated at aid %d\n",
 	    ether_sprintf(ni->ni_macaddr), newassoc ? "newly" : "already",
@@ -1524,11 +1543,9 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 	} else
 		ieee80211_node_join_rsn(ic, ni);
 
-#ifndef IEEE80211_NO_HT
 	ieee80211_ht_negotiate(ic, ni);
 	if (ni->ni_flags & IEEE80211_NODE_HT)
 		ieee80211_node_join_ht(ic, ni);
-#endif
 
 #if NBRIDGE > 0
 	/*
@@ -1541,7 +1558,6 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 #endif
 }
 
-#ifndef IEEE80211_NO_HT
 /*
  * Handle an HT STA leaving an HT network.
  */
@@ -1563,7 +1579,6 @@ ieee80211_node_leave_ht(struct ieee80211com *ic, struct ieee80211_node *ni)
 		}
 	}
 }
-#endif	/* !IEEE80211_NO_HT */
 
 /*
  * Handle a station leaving an RSN network.
@@ -1674,19 +1689,17 @@ ieee80211_node_leave(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if (ic->ic_flags & IEEE80211_F_RSNON)
 		ieee80211_node_leave_rsn(ic, ni);
 
-	if (ic->ic_curmode == IEEE80211_MODE_11G)
+	if (ic->ic_curmode == IEEE80211_MODE_11G ||
+	    (ic->ic_curmode == IEEE80211_MODE_11N &&
+	    IEEE80211_IS_CHAN_2GHZ(ic->ic_bss->ni_chan)))
 		ieee80211_node_leave_11g(ic, ni);
 
-#ifndef IEEE80211_NO_HT
 	if (ni->ni_flags & IEEE80211_NODE_HT)
 		ieee80211_node_leave_ht(ic, ni);
-#endif
 
 	if (ic->ic_node_leave != NULL)
 		(*ic->ic_node_leave)(ic, ni);
 
-	IEEE80211_AID_CLR(ni->ni_associd, ic->ic_aid_bitmap);
-	ni->ni_associd = 0;
 	ieee80211_node_newstate(ni, IEEE80211_STA_COLLECT);
 
 #if NBRIDGE > 0
@@ -1833,7 +1846,7 @@ ieee80211_notify_dtim(struct ieee80211com *ic)
 			wh->i_fc[1] |= IEEE80211_FC1_MORE_DATA;
 		}
 		mq_enqueue(&ic->ic_pwrsaveq, m);
-		(*ifp->if_start)(ifp);
+		if_start(ifp);
 	}
 	/* XXX assumes everything has been sent */
 	ic->ic_tim_mcast_pending = 0;

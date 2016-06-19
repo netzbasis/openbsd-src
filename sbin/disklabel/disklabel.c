@@ -1,4 +1,4 @@
-/*	$OpenBSD: disklabel.c,v 1.211 2015/10/17 13:27:08 krw Exp $	*/
+/*	$OpenBSD: disklabel.c,v 1.222 2016/06/19 13:42:56 tb Exp $	*/
 
 /*
  * Copyright (c) 1987, 1993
@@ -33,6 +33,7 @@
  */
 
 #include <sys/param.h>	/* DEV_BSIZE */
+#include <sys/sysctl.h>
 #include <sys/ioctl.h>
 #include <sys/dkio.h>
 #include <sys/stat.h>
@@ -100,12 +101,26 @@ int	cmplabel(struct disklabel *, struct disklabel *);
 void	usage(void);
 u_int64_t getnum(char *, u_int64_t, u_int64_t, const char **);
 
+int64_t physmem;
+
+void
+getphysmem(void)
+{
+	size_t sz = sizeof(physmem);
+	int mib[] = { CTL_HW, HW_PHYSMEM64 };
+
+	if (sysctl(mib, 2, &physmem, &sz, NULL, (size_t)0) == -1)
+		errx(4, "can't get mem size");
+}
+
 int
 main(int argc, char *argv[])
 {
 	int ch, f, error = 0;
 	FILE *t;
 	char *autotable = NULL;
+
+	getphysmem();
 
 	while ((ch = getopt(argc, argv, "AEf:F:hRcdenp:tT:vw")) != -1)
 		switch (ch) {
@@ -159,7 +174,7 @@ main(int argc, char *argv[])
 			if (strchr("bckmgtBCKMGT", optarg[0]) == NULL ||
 			    optarg[1] != '\0') {
 				fprintf(stderr, "Valid units are bckmgt\n");
-				exit(1);
+				return 1;
 			}
 			print_unit = tolower((unsigned char)optarg[0]);
 			break;
@@ -183,32 +198,59 @@ main(int argc, char *argv[])
 		    aflag)))
 		usage();
 
+	if (argv[0] == NULL)
+		usage();
 	dkname = argv[0];
 	f = opendev(dkname, (op == READ ? O_RDONLY : O_RDWR), OPENDEV_PART,
 	    &specname);
 	if (f < 0)
 		err(4, "%s", specname);
 
-	if (autotable != NULL)
-		parse_autotable(autotable);
+	if (op != WRITE || aflag || dflag) {
+		readlabel(f);
+
+		if (op == EDIT || op == EDITOR || aflag) {
+			if (pledge("stdio rpath wpath cpath disklabel proc "
+			    "exec", NULL) == -1)
+				err(1, "pledge");
+		} else if (fstabfile) {
+			if (pledge("stdio rpath wpath cpath disklabel", NULL)
+			    == -1)
+				err(1, "pledge");
+		} else {
+			if (pledge("stdio rpath wpath disklabel", NULL) == -1)
+				err(1, "pledge");
+		}
+
+		if (autotable != NULL)
+			parse_autotable(autotable);
+		parselabel();
+	} else if (argc == 2 || argc == 3) {
+		/* Ensure f is a disk device before pledging. */
+		if (ioctl(f, DIOCGDINFO, &lab) < 0)
+			err(4, "ioctl DIOCGDINFO");
+
+		if (pledge("stdio rpath wpath disklabel", NULL) == -1)
+			err(1, "pledge");
+
+		makelabel(argv[1], argc == 3 ? argv[2] : NULL, &lab);
+	} else
+		usage();
 
 	switch (op) {
 	case EDIT:
 		if (argc != 1)
 			usage();
-		readlabel(f);
 		error = edit(&lab, f);
 		break;
 	case EDITOR:
 		if (argc != 1)
 			usage();
-		readlabel(f);
 		error = editor(f);
 		break;
 	case READ:
 		if (argc != 1)
 			usage();
-		readlabel(f);
 
 		if (pledge("stdio", NULL) == -1)
 			err(1, "pledge");
@@ -222,7 +264,6 @@ main(int argc, char *argv[])
 	case RESTORE:
 		if (argc < 2 || argc > 3)
 			usage();
-		readlabel(f);
 		if (!(t = fopen(argv[1], "r")))
 			err(4, "%s", argv[1]);
 		error = getasciilabel(t, &lab);
@@ -238,12 +279,6 @@ main(int argc, char *argv[])
 		fclose(t);
 		break;
 	case WRITE:
-		if (dflag || aflag) {
-			readlabel(f);
-		} else if (argc < 2 || argc > 3)
-			usage();
-		else
-			makelabel(argv[1], argc == 3 ? argv[2] : NULL, &lab);
 		error = checklabel(&lab);
 		if (error == 0)
 			error = writelabel(f, &lab);
@@ -251,7 +286,7 @@ main(int argc, char *argv[])
 	default:
 		break;
 	}
-	exit(error);
+	return error;
 }
 
 /*
@@ -331,9 +366,6 @@ l_perror(char *s)
 void
 readlabel(int f)
 {
-	char *partname, *partduid;
-	struct fstab *fsent;
-	int i;
 
 	if (cflag && ioctl(f, DIOCRLDINFO) < 0)
 		err(4, "ioctl DIOCRLDINFO");
@@ -345,6 +377,14 @@ readlabel(int f)
 		if (ioctl(f, DIOCGDINFO, &lab) < 0)
 			err(4, "ioctl DIOCGDINFO");
 	}
+}
+
+void
+parselabel(void)
+{
+	char *partname, *partduid;
+	struct fstab *fsent;
+	int i;
 
 	i = asprintf(&partname, "/dev/%s%c", dkname, 'a');
 	if (i == -1)

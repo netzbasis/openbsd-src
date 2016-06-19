@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.24 2015/10/23 15:10:52 claudio Exp $ */
+/*	$OpenBSD: conf.c,v 1.26 2016/04/25 20:09:14 tedu Exp $ */
 
 /*
  * Copyright (c) 1997 Per Fogelstrom
@@ -96,8 +96,6 @@ cdev_decl(pci);
 
 #include "pf.h"
 
-#include "systrace.h"
-
 #include "ksyms.h"
 #include "usb.h"
 #include "uhid.h"
@@ -161,7 +159,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),			/* 47: was: /dev/crypto */
 	cdev_notdef(),			/* 48 */
 	cdev_notdef(),			/* 49 */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 	cdev_notdef(),			/* 52 */
 	cdev_notdef(),			/* 53 */
@@ -262,40 +260,6 @@ int chrtoblktbl[] = {
 	/* 18 */	NODEV,
 	/* 19 */	14,		/* vnd */
 	/* 20 */	5,		/* st */
-	/* 21 */	NODEV,
-	/* 22 */	NODEV,
-	/* 23 */	NODEV,
-	/* 24 */	NODEV,
-	/* 25 */	NODEV,
-	/* 26 */	NODEV,
-	/* 27 */	NODEV,
-	/* 28 */	NODEV,
-	/* 29 */	NODEV,
-	/* 30 */	NODEV,
-	/* 31 */	NODEV,
-	/* 32 */	NODEV,
-	/* 33 */	NODEV,
-	/* 34 */	NODEV,
-	/* 35 */	NODEV,
-	/* 36 */	NODEV,
-	/* 37 */	NODEV,
-	/* 38 */	NODEV,
-	/* 39 */	NODEV,
-	/* 40 */	NODEV,
-	/* 41 */	NODEV,
-	/* 42 */	NODEV,
-	/* 43 */	NODEV,
-	/* 44 */	NODEV,
-	/* 45 */	NODEV,
-	/* 46 */	NODEV,
-	/* 47 */	NODEV,
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
-	/* 52 */	NODEV,
-	/* 53 */	NODEV,
-	/* 54 */	19,		/* raid */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);
 

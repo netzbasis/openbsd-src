@@ -1,4 +1,4 @@
-/*	$OpenBSD: cut.h,v 1.7 2013/11/25 23:27:11 krw Exp $	*/
+/*	$OpenBSD: cut.h,v 1.9 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994

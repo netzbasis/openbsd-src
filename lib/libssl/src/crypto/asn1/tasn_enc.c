@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_enc.c,v 1.16 2015/02/14 15:23:57 miod Exp $ */
+/* $OpenBSD: tasn_enc.c,v 1.20 2016/05/04 15:00:24 tedu Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -134,7 +134,7 @@ ASN1_item_ex_i2d(ASN1_VALUE **pval, unsigned char **out, const ASN1_ITEM *it,
 	int i, seqcontlen, seqlen, ndef = 1;
 	const ASN1_EXTERN_FUNCS *ef;
 	const ASN1_AUX *aux = it->funcs;
-	ASN1_aux_cb *asn1_cb = 0;
+	ASN1_aux_cb *asn1_cb = NULL;
 
 	if ((it->itype != ASN1_ITYPE_PRIMITIVE) && !*pval)
 		return 0;
@@ -603,9 +603,7 @@ asn1_ex_i2c(ASN1_VALUE **pval, unsigned char *cout, int *putype,
 		break;
 
 	case V_ASN1_INTEGER:
-	case V_ASN1_NEG_INTEGER:
 	case V_ASN1_ENUMERATED:
-	case V_ASN1_NEG_ENUMERATED:
 		/* These are all have the same content format
 		 * as ASN1_INTEGER
 		 */

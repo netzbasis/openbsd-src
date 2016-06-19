@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.6 2014/06/09 20:47:10 miod Exp $
+#	$OpenBSD: Makefile.inc,v 1.8 2016/05/16 16:20:58 guenther Exp $
 #	$NetBSD: Makefile.inc,v 1.4 1996/10/17 02:58:18 cgd Exp $
 
 # `source' files built from m4 source

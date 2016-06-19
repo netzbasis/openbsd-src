@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.37 2014/12/03 18:47:03 krw Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.40 2016/05/08 08:20:50 natano Exp $	*/
 
 /* BPF socket interface code, originally contributed by Archie Cobbs. */
 
@@ -40,15 +40,29 @@
  * Enterprises, see ``http://www.vix.com''.
  */
 
-#include "dhcpd.h"
 #include <sys/ioctl.h>
-#include <sys/uio.h>
+#include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include <net/bpf.h>
+#include <net/if.h>
+
+#include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#include <netinet/if_ether.h>
 
-#define BPF_FORMAT "/dev/bpf%d"
+#include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dhcp.h"
+#include "dhcpd.h"
 
 int if_register_bpf(void);
 
@@ -60,29 +74,17 @@ int if_register_bpf(void);
 int
 if_register_bpf(void)
 {
-	char filename[50];
 	struct ifreq ifr;
-	int sock, b;
+	int sock;
 
-	/* Open a BPF device */
-	for (b = 0; 1; b++) {
-		snprintf(filename, sizeof(filename), BPF_FORMAT, b);
-		sock = open(filename, O_RDWR | O_CLOEXEC, 0);
-		if (sock < 0) {
-			if (errno == EBUSY)
-				continue;
-			else
-				error("Can't find free bpf: %s",
-				    strerror(errno));
-		} else
-			break;
-	}
+	if ((sock = open("/dev/bpf0", O_RDWR | O_CLOEXEC)) == -1)
+		error("Can't open bpf: %s", strerror(errno));
 
 	/* Set the BPF device to point at this interface. */
 	strlcpy(ifr.ifr_name, ifi->name, IFNAMSIZ);
 	if (ioctl(sock, BIOCSETIF, &ifr) < 0)
-		error("Can't attach interface %s to %s: %s",
-		    ifi->name, filename, strerror(errno));
+		error("Can't attach interface %s to /dev/bpf0: %s",
+		    ifi->name, strerror(errno));
 
 	return (sock);
 }

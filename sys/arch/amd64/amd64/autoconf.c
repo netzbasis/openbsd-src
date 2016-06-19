@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.c,v 1.44 2015/11/07 01:37:26 naddy Exp $	*/
+/*	$OpenBSD: autoconf.c,v 1.47 2016/06/08 17:24:44 tedu Exp $	*/
 /*	$NetBSD: autoconf.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $	*/
 
 /*-
@@ -91,6 +91,7 @@ void		viac3_rnd(void *);
 
 extern struct timeout rdrand_tmo;
 extern int	has_rdrand;
+extern int	has_rdseed;
 void		rdrand(void *);
 
 #ifdef CRYPTO
@@ -138,10 +139,8 @@ cpu_configure(void)
 		timeout_set(&viac3_rnd_tmo, viac3_rnd, &viac3_rnd_tmo);
 		viac3_rnd(&viac3_rnd_tmo);
 	}
-	if (has_rdrand) {
-		timeout_set(&rdrand_tmo, rdrand, &rdrand_tmo);
-		rdrand(&rdrand_tmo);
-	}
+	timeout_set(&rdrand_tmo, rdrand, &rdrand_tmo);
+	rdrand(&rdrand_tmo);
 #ifdef CRYPTO
 	/*
 	 * Also, if the chip has crypto available, enable it.
@@ -226,6 +225,5 @@ struct nam2blk nam2blk[] = {
 	{ "cd",		6 },
 	{ "vnd",	14 },
 	{ "rd",		17 },
-	{ "raid",	19 },
 	{ NULL,		-1 }
 };

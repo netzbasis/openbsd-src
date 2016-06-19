@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.38 2015/01/20 19:51:00 deraadt Exp $	*/
+/*	$OpenBSD: util.c,v 1.41 2016/03/21 22:41:28 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -27,7 +27,9 @@
  */
 
 #include <sys/types.h>
+#include <syslog.h>
 #include "archdep.h"
+#include "resolve.h"
 
 /*
  * Stack protector dummies.
@@ -41,19 +43,18 @@ void __stack_smash_handler(char [], int);
 void
 __stack_smash_handler(char func[], int damaged)
 {
-	extern const char *_dl_progname;
 	char message[256];
 
 	/* <10> indicates LOG_CRIT */
 	_dl_strlcpy(message, "<10>ld.so:", sizeof message);
-	_dl_strlcat(message, _dl_progname, sizeof message);
+	_dl_strlcat(message, __progname, sizeof message);
 	if (_dl_strlen(message) > sizeof(message)/2)
 		_dl_strlcpy(message + sizeof(message)/2, "...",
 		    sizeof(message) - sizeof(message)/2);
 	_dl_strlcat(message, "stack overflow in function ", sizeof message);
 	_dl_strlcat(message, func, sizeof message);
 
-	_dl_sendsyslog(message, _dl_strlen(message));
+	_dl_sendsyslog(message, _dl_strlen(message), LOG_CONS);
 	_dl_exit(127);
 }
 

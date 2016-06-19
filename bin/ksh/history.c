@@ -1,4 +1,4 @@
-/*	$OpenBSD: history.c,v 1.53 2015/11/02 16:38:35 mmcc Exp $	*/
+/*	$OpenBSD: history.c,v 1.56 2015/12/30 09:07:00 tedu Exp $	*/
 
 /*
  * command history
@@ -15,7 +15,12 @@
 
 #include <sys/stat.h>
 
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -204,7 +209,7 @@ c_fc(char **wp)
 
 	/* Run editor on selected lines, then run resulting commands */
 
-	tf = maketemp(ATEMP, TT_HIST_EDIT, &e->temps);
+	tf = maketemp(ATEMP, TT_HIST_EDIT, &genv->temps);
 	if (!(shf = tf->shf)) {
 		bi_errorf("cannot create temp file %s - %s",
 		    tf->name, strerror(errno));
@@ -253,7 +258,7 @@ c_fc(char **wp)
 		}
 		if (n < 0) {
 			bi_errorf("error reading temp file %s - %s",
-			    tf->name, strerror(shf_errno(shf)));
+			    tf->name, strerror(shf->errno_));
 			shf_close(shf);
 			return 1;
 		}

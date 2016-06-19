@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.151 2015/11/11 10:23:23 mpi Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.160 2016/05/19 11:34:40 jca Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -77,6 +77,7 @@
 #include <sys/timeout.h>
 #include <sys/kernel.h>
 #include <sys/syslog.h>
+#include <sys/task.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -89,6 +90,7 @@
 #include <netinet/ip.h>
 
 #include <netinet/in_pcb.h>
+#include <netinet/ip_var.h>
 #include <netinet6/in6_var.h>
 #include <netinet/ip6.h>
 #include <netinet6/ip6_var.h>
@@ -123,6 +125,12 @@ int ip6_check_rh0hdr(struct mbuf *, int *);
 int ip6_hopopts_input(u_int32_t *, u_int32_t *, struct mbuf **, int *);
 struct mbuf *ip6_pullexthdr(struct mbuf *, size_t, int);
 
+static struct mbuf_queue	ip6send_mq;
+
+static void ip6_send_dispatch(void *);
+static struct task ip6send_task =
+	TASK_INITIALIZER(ip6_send_dispatch, &ip6send_mq);
+
 /*
  * IP6 initialization: fill in IP6 protocol switch table.
  * All protocols not implemented in kernel go to raw IP6 protocol handler.
@@ -148,7 +156,9 @@ ip6_init(void)
 	ip6_randomid_init();
 	nd6_init();
 	frag6_init();
-	ip6_init2((void *)0);
+	ip6_init2(NULL);
+
+	mq_init(&ip6send_mq, 64, IPL_SOFTNET);
 }
 
 void
@@ -378,7 +388,6 @@ ip6_input(struct mbuf *m)
 	 * Multicast check
 	 */
 	if (IN6_IS_ADDR_MULTICAST(&ip6->ip6_dst)) {
-		struct	in6_multi *in6m = NULL;
 
 		/*
 		 * Make sure M_MCAST is set.  It should theoretically
@@ -391,8 +400,7 @@ ip6_input(struct mbuf *m)
 		 * See if we belong to the destination multicast group on the
 		 * arrival interface.
 		 */
-		IN6_LOOKUP_MULTI(ip6->ip6_dst, ifp, in6m);
-		if (in6m)
+		if (in6_hasmulti(&ip6->ip6_dst, ifp))
 			ours = 1;
 #ifdef MROUTING
 		else if (!ip6_mforwarding || !ip6_mrouter)
@@ -408,14 +416,13 @@ ip6_input(struct mbuf *m)
 		goto hbhcheck;
 	}
 
-#if NPF > 0
 	rtableid = m->m_pkthdr.ph_rtableid;
-#endif
 
 	/*
 	 *  Unicast check
 	 */
 	if (rtisvalid(ip6_forward_rt.ro_rt) &&
+	    !ISSET(ip6_forward_rt.ro_rt->rt_flags, RTF_MPATH) &&
 	    IN6_ARE_ADDR_EQUAL(&ip6->ip6_dst,
 			       &ip6_forward_rt.ro_dst.sin6_addr) &&
 	    rtableid == ip6_forward_rt.ro_tableid)
@@ -514,7 +521,7 @@ ip6_input(struct mbuf *m)
 		if (ip6->ip6_plen == 0 && plen == 0) {
 			/*
 			 * Note that if a valid jumbo payload option is
-			 * contained, ip6_hoptops_input() must set a valid
+			 * contained, ip6_hopopts_input() must set a valid
 			 * (non-zero) payload length to the variable plen.
 			 */
 			ip6stat.ip6s_badoptions++;
@@ -593,21 +600,6 @@ ip6_input(struct mbuf *m)
 	ip6 = mtod(m, struct ip6_hdr *);
 
 	/*
-	 * Malicious party may be able to use IPv4 mapped addr to confuse
-	 * tcp/udp stack and bypass security checks (act as if it was from
-	 * 127.0.0.1 by using IPv6 src ::ffff:127.0.0.1).  Be cautious.
-	 *
-	 * For SIIT end node behavior, you may want to disable the check.
-	 * However, you will  become vulnerable to attacks using IPv4 mapped
-	 * source.
-	 */
-	if (IN6_IS_ADDR_V4MAPPED(&ip6->ip6_src) ||
-	    IN6_IS_ADDR_V4MAPPED(&ip6->ip6_dst)) {
-		ip6stat.ip6s_badscope++;
-		goto bad;
-	}
-
-	/*
 	 * Tell launch routine the next header
 	 */
 	ip6stat.ip6s_delivered++;
@@ -631,7 +623,6 @@ ip6_input(struct mbuf *m)
 		/* draft-itojun-ipv6-tcp-to-anycast */
 		if (isanycast && nxt == IPPROTO_TCP) {
 			if (m->m_len >= sizeof(struct ip6_hdr)) {
-				ip6 = mtod(m, struct ip6_hdr *);
 				icmp6_error(m, ICMP6_DST_UNREACH,
 					ICMP6_DST_UNREACH_ADDR,
 					offsetof(struct ip6_hdr, ip6_dst));
@@ -1004,7 +995,7 @@ ip6_savecontrol(struct inpcb *in6p, struct mbuf *m, struct mbuf **mp)
 	 */
 	if ((in6p->inp_flags & IN6P_HOPOPTS) != 0) {
 		/*
-		 * Check if a hop-by-hop options header is contatined in the
+		 * Check if a hop-by-hop options header is contained in the
 		 * received packet, and if so, store the options as ancillary
 		 * data. Note that a hop-by-hop options header must be
 		 * just after the IPv6 header, which is assured through the
@@ -1378,8 +1369,6 @@ ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 		return (ENOTDIR);
 
 	switch (name[0]) {
-	case IPV6CTL_V6ONLY:
-		return sysctl_rdint(oldp, oldlenp, newp, ip6_v6only);
 	case IPV6CTL_DAD_PENDING:
 		return sysctl_rdint(oldp, oldlenp, newp, ip6_dad_pending);
 	case IPV6CTL_STATS:
@@ -1430,4 +1419,29 @@ ip6_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 		return (EOPNOTSUPP);
 	}
 	/* NOTREACHED */
+}
+
+void
+ip6_send_dispatch(void *xmq)
+{
+	struct mbuf_queue *mq = xmq;
+	struct mbuf *m;
+	struct mbuf_list ml;
+	int s;
+
+	mq_delist(mq, &ml);
+	KERNEL_LOCK();
+	s = splsoftnet();
+	while ((m = ml_dequeue(&ml)) != NULL) {
+		ip6_output(m, NULL, NULL, IPV6_MINMTU, NULL, NULL);
+	}
+	splx(s);
+	KERNEL_UNLOCK();
+}
+
+void
+ip6_send(struct mbuf *m)
+{
+	mq_enqueue(&ip6send_mq, m);
+	task_add(softnettq, &ip6send_task);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mproc.c,v 1.15 2015/10/14 21:27:29 gilles Exp $	*/
+/*	$OpenBSD: mproc.c,v 1.20 2016/06/06 20:48:15 eric Exp $	*/
 
 /*
  * Copyright (c) 2012 Eric Faurot <eric@faurot.net>
@@ -52,8 +52,8 @@ mproc_fork(struct mproc *p, const char *path, char *argv[])
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) < 0)
 		return (-1);
 
-	session_socket_blockmode(sp[0], BM_NONBLOCK);
-	session_socket_blockmode(sp[1], BM_NONBLOCK);
+	io_set_nonblocking(sp[0]);
+	io_set_nonblocking(sp[1]);
 
 	if ((p->pid = fork()) == -1)
 		goto err;
@@ -157,14 +157,15 @@ mproc_dispatch(int fd, short event, void *arg)
 		else
 			n = imsg_read(&p->imsgbuf);
 
-		if (n == -1) {
+		switch (n) {
+		case -1:
+			if (errno == EAGAIN)
+				break;
 			log_warn("warn: %s -> %s: imsg_read",
 			    proc_name(smtpd_process),  p->name);
-			if (errno == EAGAIN)
-				return;
 			fatal("exiting");
-		}
-		if (n == 0) {
+			/* NOTREACHED */
+		case 0:
 			/* this pipe is dead, so remove the event handler */
 			if (smtpd_process != PROC_CONTROL ||
 			    p->proc != PROC_CLIENT)
@@ -172,8 +173,10 @@ mproc_dispatch(int fd, short event, void *arg)
 				    proc_name(smtpd_process),  p->name);
 			p->handler(p, NULL);
 			return;
+		default:
+			p->bytes_in += n;
+			break;
 		}
-		p->bytes_in += n;
 	}
 
 	if (event & EV_WRITE) {

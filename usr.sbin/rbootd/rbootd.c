@@ -1,4 +1,4 @@
-/*	$OpenBSD: rbootd.c,v 1.28 2015/10/26 10:08:14 jung Exp $	*/
+/*	$OpenBSD: rbootd.c,v 1.31 2016/05/29 02:19:02 guenther Exp $	*/
 /*	$NetBSD: rbootd.c,v 1.5 1995/10/06 05:12:17 thorpej Exp $	*/
 
 /*
@@ -45,10 +45,8 @@
 
 #include <sys/time.h>
 
-#include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,7 +81,6 @@ int
 main(int argc, char *argv[])
 {
 	int c, fd;
-	sigset_t hmask, omask;
 	struct passwd *pw;
 	struct pollfd pfd[1];
 
@@ -142,7 +139,6 @@ main(int argc, char *argv[])
 		char *errmsg;
 
 		if ((IntfName = BpfGetIntfName(&errmsg)) == NULL) {
-			syslog(LOG_NOTICE, "restarted (??)");
 			/* BpfGetIntfName() returns safe names, using %m */
 			syslog(LOG_ERR, "%s", errmsg);
 			DoExit();
@@ -171,9 +167,6 @@ main(int argc, char *argv[])
 	/*
 	 *  Initial configuration.
 	 */
-	sigemptyset(&hmask);
-	sigaddset(&hmask, SIGHUP);
-	sigprocmask(SIG_BLOCK, &hmask, &omask);	/* prevent reconfig's */
 	if (GetBootFiles() == 0)		/* get list of boot files */
 		DoExit();
 	if (ParseConfig() == 0)			/* parse config file */
@@ -194,8 +187,6 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 	endpwent();
-
-	sigprocmask(SIG_SETMASK, &omask, NULL);	/* allow reconfig's */
 
 	/*
 	 *  Main loop: receive a packet, determine where it came from,
@@ -245,8 +236,6 @@ main(int argc, char *argv[])
 				if (DbgFp != NULL)	/* display packet */
 					DispPkt(&rconn,DIR_RCVD);
 
-				sigprocmask(SIG_BLOCK, &hmask, &omask);
-
 				/*
 				 *  If we do not restrict service, set the
 				 *  client to NULL (ProcessPacket() handles
@@ -260,13 +249,10 @@ main(int argc, char *argv[])
 					syslog(LOG_INFO,
 					    "%s: boot packet ignored",
 					    EnetStr(&rconn));
-					sigprocmask(SIG_SETMASK, &omask, NULL);
 					continue;
 				}
 
 				ProcessPacket(&rconn,client);
-
-				sigprocmask(SIG_SETMASK, &omask, NULL);
 			}
 		}
 	}
@@ -290,7 +276,7 @@ DoTimeout(void)
 	RMPCONN *rtmp;
 	struct timeval now;
 
-	(void) gettimeofday(&now, (struct timezone *)0);
+	(void) gettimeofday(&now, NULL);
 
 	/*
 	 *  For each active connection, if RMP_TIMEOUT seconds have passed

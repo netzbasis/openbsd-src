@@ -1,4 +1,4 @@
-/*	$OpenBSD: commands.c,v 1.80 2015/11/20 12:43:37 jca Exp $	*/
+/*	$OpenBSD: commands.c,v 1.84 2016/05/03 02:06:54 awolk Exp $	*/
 /*	$NetBSD: commands.c,v 1.14 1996/03/24 22:03:48 jtk Exp $	*/
 
 /*
@@ -1445,14 +1445,6 @@ env_init(void)
 
 		gethostname(hbuf, sizeof hbuf);
 
-		/* If this is not the full name, try to get it via DNS */
-		if (strchr(hbuf, '.') == 0) {
-			struct hostent *he = gethostbyname(hbuf);
-			if (he != 0)
-				strncpy(hbuf, he->h_name, sizeof hbuf-1);
-			hbuf[sizeof hbuf-1] = '\0';
-		}
-
 		if (asprintf (&cp, "%s%s", hbuf, cp2) == -1)
 			err(1, "asprintf");
 
@@ -1479,10 +1471,8 @@ env_define(const char *var, const char *value)
 	struct env_lst *ep;
 
 	if ((ep = env_find(var))) {
-		if (ep->var)
-			free(ep->var);
-		if (ep->value)
-			free(ep->value);
+		free(ep->var);
+		free(ep->value);
 	} else {
 		if ((ep = malloc(sizeof(struct env_lst))) == NULL)
 			err(1, "malloc");
@@ -1510,10 +1500,8 @@ env_undefine(const char *var)
 		ep->prev->next = ep->next;
 		if (ep->next)
 			ep->next->prev = ep->prev;
-		if (ep->var)
-			free(ep->var);
-		if (ep->value)
-			free(ep->value);
+		free(ep->var);
+		free(ep->value);
 		free(ep);
 	}
 }
@@ -1751,6 +1739,10 @@ tn(int argc, char *argv[])
 
     if (connected) {
 	printf("?Already connected to %s\r\n", hostname);
+	return 0;
+    }
+    if (connections) {
+	printf("Repeated connections not supported\r\n");
 	return 0;
     }
     if (argc < 2) {
@@ -2078,7 +2070,7 @@ help(int argc, char *argv[])
 		c = getcmd(arg);
 		if (Ambiguous(c))
 			printf("?Ambiguous help command %s\r\n", arg);
-		else if (c == (Command *)0)
+		else if (c == NULL)
 			printf("?Invalid help command %s\r\n", arg);
 		else
 			printf("%s\r\n", c->help);

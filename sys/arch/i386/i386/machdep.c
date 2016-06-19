@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.576 2015/10/21 07:59:18 mpi Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.587 2016/05/21 01:06:53 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.214 1996/11/10 03:16:17 thorpej Exp $	*/
 
 /*-
@@ -189,10 +189,6 @@ void (*cpu_idle_enter_fcn)(void) = NULL;
 int	cpu_apmhalt = 0;	/* sysctl'd to 1 for halt -p hack */
 #endif
 
-#ifdef USER_LDT
-int	user_ldt_enable = 0;	/* sysctl'd to 1 to enable */
-#endif
-
 struct uvm_constraint_range  isa_constraint = { 0x0, 0x00ffffffUL };
 struct uvm_constraint_range  dma_constraint = { 0x0, 0xffffffffUL };
 struct uvm_constraint_range *uvm_md_constraints[] = {
@@ -314,6 +310,7 @@ int allowaperture = 0;
 #endif
 
 int has_rdrand;
+int has_rdseed;
 
 #include "pvbus.h"
 #if NPVBUS > 0
@@ -383,7 +380,7 @@ cpuid(u_int32_t ax, u_int32_t *regs)
  * Machine-dependent startup code
  */
 void
-cpu_startup()
+cpu_startup(void)
 {
 	unsigned i;
 	vaddr_t minaddr, maxaddr, va;
@@ -457,24 +454,16 @@ cpu_startup()
 }
 
 /*
- * Set up proc0's TSS and LDT.
+ * Set up proc0's TSS
  */
 void
-i386_proc0_tss_ldt_init()
+i386_proc0_tss_init(void)
 {
-	int x;
 	struct pcb *pcb;
 
 	curpcb = pcb = &proc0.p_addr->u_pcb;
 
-	pcb->pcb_tss.tss_ioopt =
-	    ((caddr_t)pcb->pcb_iomap - (caddr_t)&pcb->pcb_tss) << 16;
-	for (x = 0; x < sizeof(pcb->pcb_iomap) / 4; x++)
-		pcb->pcb_iomap[x] = 0xffffffff;
-	pcb->pcb_iomap_pad = 0xff;
-
-	pcb->pcb_ldt_sel = pmap_kernel()->pm_ldt_sel = GSEL(GLDT_SEL, SEL_KPL);
-	pcb->pcb_ldt = ldt;
+	pcb->pcb_tss.tss_ioopt = sizeof(pcb->pcb_tss) << 16;
 	pcb->pcb_cr0 = rcr0();
 	pcb->pcb_tss.tss_ss0 = GSEL(GDATA_SEL, SEL_KPL);
 	pcb->pcb_tss.tss_esp0 = (int)proc0.p_addr + USPACE - 16;
@@ -482,24 +471,16 @@ i386_proc0_tss_ldt_init()
 	proc0.p_md.md_tss_sel = tss_alloc(pcb);
 
 	ltr(proc0.p_md.md_tss_sel);
-	lldt(pcb->pcb_ldt_sel);
+	lldt(0);
 }
 
 #ifdef MULTIPROCESSOR
 void
-i386_init_pcb_tss_ldt(struct cpu_info *ci)
+i386_init_pcb_tss(struct cpu_info *ci)
 {
-	int x;
 	struct pcb *pcb = ci->ci_idle_pcb;
 
-	pcb->pcb_tss.tss_ioopt =
-	    ((caddr_t)pcb->pcb_iomap - (caddr_t)&pcb->pcb_tss) << 16;
-	for (x = 0; x < sizeof(pcb->pcb_iomap) / 4; x++)
-		pcb->pcb_iomap[x] = 0xffffffff;
-	pcb->pcb_iomap_pad = 0xff;
-
-	pcb->pcb_ldt_sel = pmap_kernel()->pm_ldt_sel = GSEL(GLDT_SEL, SEL_KPL);
-	pcb->pcb_ldt = ci->ci_ldt;
+	pcb->pcb_tss.tss_ioopt = sizeof(pcb->pcb_tss) << 16;
 	pcb->pcb_cr0 = rcr0();
 	ci->ci_idle_tss_sel = tss_alloc(pcb);
 }
@@ -1068,6 +1049,7 @@ const struct cpu_cpuid_feature i386_ecpuid_ecxfeatures[] = {
 
 const struct cpu_cpuid_feature cpu_seff0_ebxfeatures[] = {
 	{ SEFF0EBX_FSGSBASE,	"FSGSBASE" },
+	{ SEFF0EBX_SGX,		"SGX" },
 	{ SEFF0EBX_BMI1,	"BMI1" },
 	{ SEFF0EBX_HLE,		"HLE" },
 	{ SEFF0EBX_AVX2,	"AVX2" },
@@ -1076,9 +1058,30 @@ const struct cpu_cpuid_feature cpu_seff0_ebxfeatures[] = {
 	{ SEFF0EBX_ERMS,	"ERMS" },
 	{ SEFF0EBX_INVPCID,	"INVPCID" },
 	{ SEFF0EBX_RTM,		"RTM" },
+	{ SEFF0EBX_PQM,		"PQM" },
+	{ SEFF0EBX_MPX,		"MPX" },
+	{ SEFF0EBX_AVX512F,	"AVX512F" },
+	{ SEFF0EBX_AVX512DQ,	"AVX512DQ" },
 	{ SEFF0EBX_RDSEED,	"RDSEED" },
 	{ SEFF0EBX_ADX,		"ADX" },
 	{ SEFF0EBX_SMAP,	"SMAP" },
+	{ SEFF0EBX_AVX512IFMA,	"AVX512IFMA" },
+	{ SEFF0EBX_PCOMMIT,	"PCOMMIT" },
+	{ SEFF0EBX_CLFLUSHOPT,	"CLFLUSHOPT" },
+	{ SEFF0EBX_CLWB,	"CLWB" },
+	{ SEFF0EBX_PT,		"PT" },
+	{ SEFF0EBX_AVX512PF,	"AVX512PF" },
+	{ SEFF0EBX_AVX512ER,	"AVX512ER" },
+	{ SEFF0EBX_AVX512CD,	"AVX512CD" },
+	{ SEFF0EBX_SHA,		"SHA" },
+	{ SEFF0EBX_AVX512BW,	"AVX512BW" },
+	{ SEFF0EBX_AVX512VL,	"AVX512VL" },
+};
+
+const struct cpu_cpuid_feature cpu_seff0_ecxfeatures[] = {
+	{ SEFF0ECX_PREFETCHWT1,	"PREFETCHWT1" },
+	{ SEFF0ECX_AVX512VBMI,	"AVX512VBMI" },
+	{ SEFF0ECX_PKU,		"PKU" },
 };
 
 const struct cpu_cpuid_feature cpu_tpm_eaxfeatures[] = {
@@ -1980,15 +1983,20 @@ identifycpu(struct cpu_info *ci)
 
 				/* "Structured Extended Feature Flags" */
 				CPUID_LEAF(0x7, 0, dummy,
-				    ci->ci_feature_sefflags, dummy, dummy);
-				max = sizeof(cpu_seff0_ebxfeatures) /
-				    sizeof(cpu_seff0_ebxfeatures[0]);
-				for (i = 0; i < max; i++)
-					if (ci->ci_feature_sefflags &
+				    ci->ci_feature_sefflags_ebx,
+				    ci->ci_feature_sefflags_ecx, dummy);
+				for (i = 0; i < nitems(cpu_seff0_ebxfeatures); i++)
+					if (ci->ci_feature_sefflags_ebx &
 					    cpu_seff0_ebxfeatures[i].feature_bit)
 						printf("%s%s",
 						    (numbits == 0 ? "" : ","),
 						    cpu_seff0_ebxfeatures[i].feature_name);
+				for (i = 0; i < nitems(cpu_seff0_ecxfeatures); i++)
+					if (ci->ci_feature_sefflags_ecx &
+					    cpu_seff0_ecxfeatures[i].feature_bit)
+						printf("%s%s",
+						    (numbits == 0 ? "" : ","),
+						    cpu_seff0_ecxfeatures[i].feature_name);
 			}
 
 			if (!strcmp(cpu_vendor, "GenuineIntel") &&
@@ -2011,14 +2019,11 @@ identifycpu(struct cpu_info *ci)
 	if (ci->ci_flags & CPUF_PRIMARY) {
 		if (cpu_ecxfeature & CPUIDECX_RDRAND)
 			has_rdrand = 1;
+		if (ci->ci_feature_sefflags_ebx & SEFF0EBX_RDSEED)
+			has_rdseed = 1;
 #ifndef SMALL_KERNEL
-		if (ci->ci_feature_sefflags & SEFF0EBX_SMAP)
+		if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 			replacesmap();
-#endif
-
-#if NPVBUS > 0
-		if (cpu_ecxfeature & CPUIDECX_HV)
-			has_hv_cpuid = 1;
 #endif
 	}
 
@@ -2435,6 +2440,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	}
 
 	/* XXX don't copyout siginfo if not needed? */
+	frame.sf_sc.sc_cookie = (long)&fp->sf_sc ^ p->p_p->ps_sigcookie;
 	if (copyout(&frame, fp, sizeof(frame)) != 0) {
 		/*
 		 * Process has trashed its stack; give it an illegal
@@ -2474,29 +2480,38 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext *scp, context;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf = p->p_md.md_regs;
 	int error;
 
-	/*
-	 * The trampoline code hands us the context.
-	 * It is unsafe to keep track of it ourselves, in the event that a
-	 * program jumps out of a signal handler.
-	 */
-	scp = SCARG(uap, sigcntxp);
-	if (copyin((caddr_t)scp, &context, sizeof(*scp)) != 0)
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
+
+	if ((error = copyin((caddr_t)scp, &ksc, sizeof(*scp))))
+		return (error);
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
 		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
 	/*
-	 * Restore signal context.
+	 * Restore signal ksc.
 	 */
 #ifdef VM86
-	if (context.sc_eflags & PSL_VM) {
-		tf->tf_vm86_gs = context.sc_gs;
-		tf->tf_vm86_fs = context.sc_fs;
-		tf->tf_vm86_es = context.sc_es;
-		tf->tf_vm86_ds = context.sc_ds;
-		set_vflags(p, context.sc_eflags);
+	if (ksc.sc_eflags & PSL_VM) {
+		tf->tf_vm86_gs = ksc.sc_gs;
+		tf->tf_vm86_fs = ksc.sc_fs;
+		tf->tf_vm86_es = ksc.sc_es;
+		tf->tf_vm86_ds = ksc.sc_ds;
+		set_vflags(p, ksc.sc_eflags);
 	} else
 #endif
 	{
@@ -2506,42 +2521,42 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 		 * automatically and generate a trap on violations.  We handle
 		 * the trap, rather than doing all of the checking here.
 		 */
-		if (((context.sc_eflags ^ tf->tf_eflags) & PSL_USERSTATIC) != 0 ||
-		    !USERMODE(context.sc_cs, context.sc_eflags))
+		if (((ksc.sc_eflags ^ tf->tf_eflags) & PSL_USERSTATIC) != 0 ||
+		    !USERMODE(ksc.sc_cs, ksc.sc_eflags))
 			return (EINVAL);
 
-		tf->tf_fs = context.sc_fs;
-		tf->tf_gs = context.sc_gs;
-		tf->tf_es = context.sc_es;
-		tf->tf_ds = context.sc_ds;
-		tf->tf_eflags = context.sc_eflags;
+		tf->tf_fs = ksc.sc_fs;
+		tf->tf_gs = ksc.sc_gs;
+		tf->tf_es = ksc.sc_es;
+		tf->tf_ds = ksc.sc_ds;
+		tf->tf_eflags = ksc.sc_eflags;
 	}
-	tf->tf_edi = context.sc_edi;
-	tf->tf_esi = context.sc_esi;
-	tf->tf_ebp = context.sc_ebp;
-	tf->tf_ebx = context.sc_ebx;
-	tf->tf_edx = context.sc_edx;
-	tf->tf_ecx = context.sc_ecx;
-	tf->tf_eax = context.sc_eax;
-	tf->tf_eip = context.sc_eip;
-	tf->tf_cs = context.sc_cs;
-	tf->tf_esp = context.sc_esp;
-	tf->tf_ss = context.sc_ss;
+	tf->tf_edi = ksc.sc_edi;
+	tf->tf_esi = ksc.sc_esi;
+	tf->tf_ebp = ksc.sc_ebp;
+	tf->tf_ebx = ksc.sc_ebx;
+	tf->tf_edx = ksc.sc_edx;
+	tf->tf_ecx = ksc.sc_ecx;
+	tf->tf_eax = ksc.sc_eax;
+	tf->tf_eip = ksc.sc_eip;
+	tf->tf_cs = ksc.sc_cs;
+	tf->tf_esp = ksc.sc_esp;
+	tf->tf_ss = ksc.sc_ss;
 
 	if (p->p_md.md_flags & MDP_USEDFPU)
 		npxsave_proc(p, 0);
 
-	if (context.sc_fpstate) {
+	if (ksc.sc_fpstate) {
 		union savefpu *sfp = &p->p_addr->u_pcb.pcb_savefpu;
 
-		if ((error = copyin(context.sc_fpstate, sfp, sizeof(*sfp))))
+		if ((error = copyin(ksc.sc_fpstate, sfp, sizeof(*sfp))))
 			return (error);
 		if (i386_use_fxsave)
 			sfp->sv_xmm.sv_env.en_mxcsr &= fpu_mxcsr_mask;
 		p->p_md.md_flags |= MDP_USEDFPU;
 	}
 
-	p->p_sigmask = context.sc_mask & ~sigcantmask;
+	p->p_sigmask = ksc.sc_mask & ~sigcantmask;
 
 	return (EJUSTRETURN);
 }
@@ -2739,7 +2754,7 @@ dumpconf(void)
  * cpu_dump: dump machine-dependent kernel core dump headers.
  */
 int
-cpu_dump()
+cpu_dump(void)
 {
 	int (*dump)(dev_t, daddr_t, caddr_t, size_t);
 	long buf[dbtob(1) / sizeof (long)];
@@ -2774,7 +2789,7 @@ reserve_dumppages(vaddr_t p)
 }
 
 void
-dumpsys()
+dumpsys(void)
 {
 	u_int i, j, npg;
 	int maddr;
@@ -2882,10 +2897,6 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
 	p->p_md.md_flags &= ~MDP_USEDFPU;
 #endif
 
-#ifdef USER_LDT
-	pmap_ldt_cleanup(p);
-#endif
-
 	/*
 	 * Reset the code segment limit to I386_MAX_EXE_ADDR in the pmap;
 	 * this gets copied into the GDT for GUCODE_SEL by pmap_activate().
@@ -2937,7 +2948,6 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
  * Initialize segments and descriptor tables
  */
 
-union descriptor ldt[NLDT];
 struct gate_descriptor idt_region[NIDT];
 struct gate_descriptor *idt = idt_region;
 
@@ -3039,39 +3049,13 @@ fix_f00f(void)
 
 #ifdef MULTIPROCESSOR
 void
-cpu_init_idt()
+cpu_init_idt(void)
 {
 	struct region_descriptor region;
 	setregion(&region, idt, NIDT * sizeof(idt[0]) - 1);
 	lidt(&region);
 }
-
-void
-cpu_default_ldt(struct cpu_info *ci)
-{
-	ci->ci_ldt = ldt;
-	ci->ci_ldt_len = sizeof(ldt);
-}
-
-void
-cpu_alloc_ldt(struct cpu_info *ci)
-{
-	union descriptor *cpu_ldt;
-	size_t len = sizeof(ldt);
-
-	cpu_ldt = (union descriptor *)uvm_km_alloc(kernel_map, len);
-	bcopy(ldt, cpu_ldt, len);
-	ci->ci_ldt = cpu_ldt;
-	ci->ci_ldt_len = len;
-}
-
-void
-cpu_init_ldt(struct cpu_info *ci)
-{
-	setsegment(&ci->ci_gdt[GLDT_SEL].sd, ci->ci_ldt, ci->ci_ldt_len - 1,
-	    SDT_SYSLDT, SEL_KPL, 0, 0);
-}
-#endif	/* MULTIPROCESSOR */
+#endif /* MULTIPROCESSOR */
 
 void
 init386(paddr_t first_avail)
@@ -3088,8 +3072,6 @@ init386(paddr_t first_avail)
 	setsegment(&gdt[GCODE_SEL].sd, 0, 0xfffff, SDT_MEMERA, SEL_KPL, 1, 1);
 	setsegment(&gdt[GICODE_SEL].sd, 0, 0xfffff, SDT_MEMERA, SEL_KPL, 1, 1);
 	setsegment(&gdt[GDATA_SEL].sd, 0, 0xfffff, SDT_MEMRWA, SEL_KPL, 1, 1);
-	setsegment(&gdt[GLDT_SEL].sd, ldt, sizeof(ldt) - 1, SDT_SYSLDT,
-	    SEL_KPL, 0, 0);
 	setsegment(&gdt[GUCODE_SEL].sd, 0, atop(I386_MAX_EXE_ADDR) - 1,
 	    SDT_MEMERA, SEL_UPL, 1, 1);
 	setsegment(&gdt[GUDATA_SEL].sd, 0, atop(VM_MAXUSER_ADDRESS) - 1,
@@ -3240,12 +3222,20 @@ init386(paddr_t first_avail)
 			/* skip MP trampoline code page */
 			if (a < MP_TRAMPOLINE + NBPG)
 				a = MP_TRAMPOLINE + NBPG;
+
+			/* skip MP trampoline data page */
+			if (a < MP_TRAMP_DATA + NBPG)
+				a = MP_TRAMP_DATA + NBPG;
 #endif /* MULTIPROCESSOR */
 
 #if NACPI > 0 && !defined(SMALL_KERNEL)
 			/* skip ACPI resume trampoline code page */
 			if (a < ACPI_TRAMPOLINE + NBPG)
 				a = ACPI_TRAMPOLINE + NBPG;
+
+			/* skip ACPI resume trampoline data page */
+			if (a < ACPI_TRAMP_DATA + NBPG)
+				a = ACPI_TRAMP_DATA + NBPG;
 #endif /* ACPI */
 
 #ifdef HIBERNATE
@@ -3390,14 +3380,14 @@ init386(paddr_t first_avail)
  * initialize the system console.
  */
 void
-consinit()
+consinit(void)
 {
 	/* Already done in init386(). */
 }
 
 #ifdef KGDB
 void
-kgdb_port_init()
+kgdb_port_init(void)
 {
 
 #if NCOM > 0
@@ -3411,7 +3401,7 @@ kgdb_port_init()
 #endif /* KGDB */
 
 void
-cpu_reset()
+cpu_reset(void)
 {
 	struct region_descriptor region;
 
@@ -3560,11 +3550,6 @@ cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		else
 			return (sysctl_int(oldp, oldlenp, newp, newlen,
 			    &kbd_reset));
-#ifdef USER_LDT
-	case CPU_USERLDT:
-		return (sysctl_int(oldp, oldlenp, newp, newlen,
-		    &user_ldt_enable));
-#endif
 	case CPU_OSFXSR:
 		return (sysctl_rdint(oldp, oldlenp, newp, i386_use_fxsave));
 	case CPU_SSE:

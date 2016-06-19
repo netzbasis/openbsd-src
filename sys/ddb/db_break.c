@@ -1,28 +1,28 @@
-/*	$OpenBSD: db_break.c,v 1.17 2015/03/14 03:38:46 jsg Exp $	*/
+/*	$OpenBSD: db_break.c,v 1.20 2016/04/19 12:23:25 mpi Exp $	*/
 /*	$NetBSD: db_break.c,v 1.7 1996/03/30 22:30:03 christos Exp $	*/
 
-/* 
+/*
  * Mach Operating System
  * Copyright (c) 1993,1992,1991,1990 Carnegie Mellon University
  * All Rights Reserved.
- * 
+ *
  * Permission to use, copy, modify and distribute this software and its
  * documentation is hereby granted, provided that both the copyright
  * notice and this permission notice appear in all copies of the
  * software, derivative works or modified versions, and any portions
  * thereof, and that both notices appear in supporting documentation.
- * 
+ *
  * CARNEGIE MELLON ALLOWS FREE USE OF THIS SOFTWARE IN ITS "AS IS"
  * CONDITION.  CARNEGIE MELLON DISCLAIMS ANY LIABILITY OF ANY KIND FOR
  * ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
- * 
+ *
  * Carnegie Mellon requests users of this software to return to
- * 
+ *
  *  Software Distribution Coordinator  or  Software.Distribution@CS.CMU.EDU
  *  School of Computer Science
  *  Carnegie Mellon University
  *  Pittsburgh PA 15213-3890
- * 
+ *
  * any improvements or extensions that they make and grant Carnegie Mellon
  * the rights to redistribute these changes.
  *
@@ -48,6 +48,12 @@ struct db_breakpoint	db_break_table[NBREAKPOINTS];
 db_breakpoint_t		db_next_free_breakpoint = &db_break_table[0];
 db_breakpoint_t		db_free_breakpoints = 0;
 db_breakpoint_t		db_breakpoint_list = 0;
+
+db_breakpoint_t db_breakpoint_alloc(void);
+void db_breakpoint_free(db_breakpoint_t);
+void db_set_breakpoint(db_addr_t, int);
+void db_delete_breakpoint(db_addr_t);
+void db_list_breakpoints(void);
 
 db_breakpoint_t
 db_breakpoint_alloc(void)
@@ -89,7 +95,7 @@ db_set_breakpoint(db_addr_t addr, int count)
 	if (!DB_VALID_BREAKPOINT(addr)) {
 		db_printf("Not a valid address for a breakpoint.\n");
 		return;
-	}	
+	}
 #endif
 
 	bkpt = db_breakpoint_alloc();
@@ -140,7 +146,7 @@ db_find_breakpoint(db_addr_t addr)
 	return (0);
 }
 
-boolean_t	db_breakpoints_inserted = TRUE;
+int db_breakpoints_inserted = 1;
 
 void
 db_set_breakpoints(void)
@@ -150,11 +156,11 @@ db_set_breakpoints(void)
 	if (!db_breakpoints_inserted) {
 		for (bkpt = db_breakpoint_list; bkpt != 0; bkpt = bkpt->link) {
 			bkpt->bkpt_inst =
-			    db_get_value(bkpt->address, BKPT_SIZE, FALSE);
+			    db_get_value(bkpt->address, BKPT_SIZE, 0);
 			db_put_value(bkpt->address, BKPT_SIZE,
 			    BKPT_SET(bkpt->bkpt_inst));
 		}
-		db_breakpoints_inserted = TRUE;
+		db_breakpoints_inserted = 1;
 	}
 }
 
@@ -166,7 +172,7 @@ db_clear_breakpoints(void)
 	if (db_breakpoints_inserted) {
 		for (bkpt = db_breakpoint_list; bkpt != 0; bkpt = bkpt->link)
 			db_put_value(bkpt->address, BKPT_SIZE, bkpt->bkpt_inst);
-		db_breakpoints_inserted = FALSE;
+		db_breakpoints_inserted = 0;
 	}
 }
 
@@ -184,7 +190,7 @@ db_set_temp_breakpoint(db_addr_t addr)
 	if (!DB_VALID_BREAKPOINT(addr)) {
 		db_printf("Not a valid address for a breakpoint.\n");
 		return (0);
-	}	
+	}
 #endif
 
 	bkpt = db_breakpoint_alloc();
@@ -198,7 +204,7 @@ db_set_temp_breakpoint(db_addr_t addr)
 	bkpt->init_count = 1;
 	bkpt->count = 1;
 
-	bkpt->bkpt_inst = db_get_value(bkpt->address, BKPT_SIZE, FALSE);
+	bkpt->bkpt_inst = db_get_value(bkpt->address, BKPT_SIZE, 0);
 	db_put_value(bkpt->address, BKPT_SIZE, BKPT_SET(bkpt->bkpt_inst));
 	return bkpt;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp_usrreq.c,v 1.207 2015/09/11 07:42:35 claudio Exp $	*/
+/*	$OpenBSD: udp_usrreq.c,v 1.213 2016/06/18 10:36:13 vgross Exp $	*/
 /*	$NetBSD: udp_usrreq.c,v 1.28 1996/03/16 23:54:03 christos Exp $	*/
 
 /*
@@ -140,7 +140,7 @@ void	udp_notify(struct inpcb *, int);
 #endif
 
 void
-udp_init()
+udp_init(void)
 {
 	in_pcbinit(&udbtable, UDB_INITIAL_HASH_SIZE);
 }
@@ -527,12 +527,8 @@ udp_input(struct mbuf *m, ...)
 	/*
 	 * Locate pcb for datagram.
 	 */
-#if 0
-	if (m->m_pkthdr.pf.statekey) {
-		inp = m->m_pkthdr.pf.statekey->inp;
-		if (inp && inp->inp_pf_sk)
-			KASSERT(m->m_pkthdr.pf.statekey == inp->inp_pf_sk);
-	}
+#if NPF > 0 && 0  /* currently disabled */
+	inp = pf_inp_lookup(m);
 #endif
 	if (inp == NULL) {
 #ifdef INET6
@@ -544,12 +540,6 @@ udp_input(struct mbuf *m, ...)
 #endif /* INET6 */
 		inp = in_pcbhashlookup(&udbtable, ip->ip_src, uh->uh_sport,
 		    ip->ip_dst, uh->uh_dport, m->m_pkthdr.ph_rtableid);
-#if NPF > 0
-		if (m->m_pkthdr.pf.statekey && inp) {
-			m->m_pkthdr.pf.statekey->inp = inp;
-			inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-		}
-#endif
 	}
 	if (inp == 0) {
 		int	inpl_reverse = 0;
@@ -591,13 +581,8 @@ udp_input(struct mbuf *m, ...)
 	KASSERT(sotoinpcb(inp->inp_socket) == inp);
 
 #if NPF > 0
-	if (m->m_pkthdr.pf.statekey && !m->m_pkthdr.pf.statekey->inp &&
-	    !inp->inp_pf_sk && (inp->inp_socket->so_state & SS_ISCONNECTED)) {
-		m->m_pkthdr.pf.statekey->inp = inp;
-		inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-	}
-	/* The statekey has finished finding the inp, it is no longer needed. */
-	m->m_pkthdr.pf.statekey = NULL;
+	if (inp->inp_socket->so_state & SS_ISCONNECTED)
+		pf_inp_link(m, inp);
 #endif
 
 #ifdef IPSEC
@@ -921,6 +906,47 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 		goto release;
 	}
 
+	if (control) {
+		u_int clen;
+		struct cmsghdr *cm;
+		caddr_t cmsgs;
+
+		/*
+		 * XXX: Currently, we assume all the optional information is
+		 * stored in a single mbuf.
+		 */
+		if (control->m_next) {
+			error = EINVAL;
+			goto release;
+		}
+
+		clen = control->m_len;
+		cmsgs = mtod(control, caddr_t);
+		do {
+			if (clen < CMSG_LEN(0)) {
+				error = EINVAL;
+				goto release;
+			}
+			cm = (struct cmsghdr *)cmsgs;
+			if (cm->cmsg_len < CMSG_LEN(0) ||
+			    CMSG_ALIGN(cm->cmsg_len) > clen) {
+				error = EINVAL;
+				goto release;
+			}
+#ifdef IPSEC
+			if ((inp->inp_flags & INP_IPSECFLOWINFO) != 0 &&
+			    cm->cmsg_len == CMSG_LEN(sizeof(ipsecflowinfo)) &&
+			    cm->cmsg_level == IPPROTO_IP &&
+			    cm->cmsg_type == IP_IPSECFLOWINFO) {
+				ipsecflowinfo = *(u_int32_t *)CMSG_DATA(cm);
+				break;
+			}
+#endif
+			clen -= CMSG_ALIGN(cm->cmsg_len);
+			cmsgs += CMSG_ALIGN(cm->cmsg_len);
+		} while (clen);
+	}
+
 	if (addr) {
 		sin = mtod(addr, struct sockaddr_in *);
 
@@ -962,45 +988,6 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 		laddr = &inp->inp_laddr;
 	}
 
-#ifdef IPSEC
-	if (control && (inp->inp_flags & INP_IPSECFLOWINFO) != 0) {
-		u_int clen;
-		struct cmsghdr *cm;
-		caddr_t cmsgs;
-
-		/*
-		 * XXX: Currently, we assume all the optional information is stored
-		 * in a single mbuf.
-		 */
-		if (control->m_next) {
-			error = EINVAL;
-			goto release;
-		}
-
-		clen = control->m_len;
-		cmsgs = mtod(control, caddr_t);
-		do {
-			if (clen < CMSG_LEN(0)) {
-				error = EINVAL;
-				goto release;
-			}
-			cm = (struct cmsghdr *)cmsgs;
-			if (cm->cmsg_len < CMSG_LEN(0) ||
-			    CMSG_ALIGN(cm->cmsg_len) > clen) {
-				error = EINVAL;
-				goto release;
-			}
-			if (cm->cmsg_len == CMSG_LEN(sizeof(ipsecflowinfo)) &&
-			    cm->cmsg_level == IPPROTO_IP &&
-			    cm->cmsg_type == IP_IPSECFLOWINFO) {
-				ipsecflowinfo = *(u_int32_t *)CMSG_DATA(cm);
-				break;
-			}
-			clen -= CMSG_ALIGN(cm->cmsg_len);
-			cmsgs += CMSG_ALIGN(cm->cmsg_len);
-		} while (clen);
-	}
-#endif
 	/*
 	 * Calculate data length and get a mbuf
 	 * for UDP and IP headers.
@@ -1109,12 +1096,7 @@ udp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 		break;
 
 	case PRU_BIND:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			error = in6_pcbbind(inp, addr, p);
-		else
-#endif
-			error = in_pcbbind(inp, addr, p);
+		error = in_pcbbind(inp, addr, p);
 		break;
 
 	case PRU_LISTEN:
@@ -1293,6 +1275,12 @@ udp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case UDPCTL_BADDYNAMIC:
 		return (sysctl_struct(oldp, oldlenp, newp, newlen,
 		    baddynamicports.udp, sizeof(baddynamicports.udp)));
+
+	case UDPCTL_ROOTONLY:
+		if (newp && securelevel > 0)
+			return (EPERM);
+		return (sysctl_struct(oldp, oldlenp, newp, newlen,
+		    rootonlyports.udp, sizeof(rootonlyports.udp)));
 
 	case UDPCTL_STATS:
 		if (newp != NULL)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.20 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.23 2016/03/08 10:48:39 mestre Exp $	*/
 /*	$NetBSD: main.c,v 1.5 1996/05/21 21:53:09 mrg Exp $	*/
 
 /*-
@@ -38,12 +38,12 @@
 /*	Re-coding of advent in C: main program				*/
 
 #include <err.h>
-#include <signal.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
-#include "hdr.h"
+
 #include "extern.h"
+#include "hdr.h"
 
 int
 main(int argc, char *argv[])
@@ -52,6 +52,9 @@ main(int argc, char *argv[])
 	int     rval, ll;
 	struct text *kk;
 
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
+	
 	init();		/* Initialize everything */
 	signal(SIGINT, trapdel);
 
@@ -68,7 +71,7 @@ main(int argc, char *argv[])
 			errx(1, "can't open file");	/* So give up */
 		case 2:		/* Oops -- file was altered */
 			rspeak(202);	/* You dissolve */
-			exit(2);	/* File could be non-adventure */
+			return 2;	/* File could be non-adventure */
 		}			/* So don't unlink it. */
 	}
 

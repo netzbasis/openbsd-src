@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.17 2014/11/16 04:49:48 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.21 2016/01/10 13:35:09 mestre Exp $	*/
 /*	$NetBSD: main.c,v 1.3 1995/04/24 12:24:37 cgd Exp $	*/
 
 /*
@@ -28,12 +28,21 @@
  * AT&T is in no way connected with this game.
  */
 
-#include <sys/types.h>
-#include <limits.h>
+#include <curses.h>
+#include <err.h>
+#include <math.h>
 #include <pwd.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef TERMIOS
 #include <termios.h>
 #endif
+#include <unistd.h>
+
+#include "macros.h"
+#include "pathnames.h"
+#include "phantdefs.h"
+#include "phantglobs.h"
 
 /*
  * The program allocates as much file space as it needs to store characters,
@@ -58,8 +67,6 @@
 /*
  * main.c	Main routines for Phantasia
  */
-
-#include "include.h"
 
 /***************************************************************************
 / FUNCTION NAME: main()
@@ -95,9 +102,7 @@
 ****************************************************************************/
 
 int
-main(argc, argv)
-	int     argc;
-	char  **argv;
+main(int argc, char **argv)
 {
 	bool    noheader = FALSE;	/* set if don't want header */
 	bool    headeronly = FALSE;	/* set if only want header */
@@ -121,12 +126,10 @@ main(argc, argv)
 		case 'a':	/* all users */
 			activelist();
 			cleanup(TRUE);
-			/* NOTREACHED */
 
 		case 'p':	/* purge old players */
 			purgeoldplayers();
 			cleanup(TRUE);
-			/* NOTREACHED */
 
 		case 'S':	/* set 'Wizard' */
 			Wizard = !getuid();
@@ -139,24 +142,20 @@ main(argc, argv)
 		case 'm':	/* monsters */
 			monstlist();
 			cleanup(TRUE);
-			/* NOTREACHED */
 
 		case 'b':	/* scoreboard */
 			scorelist();
 			cleanup(TRUE);
-			/* NOTREACHED */
 		}
 
 	if (!isatty(0))		/* don't let non-tty's play */
 		cleanup(TRUE);
-	/* NOTREACHED */
 
 	playinit();		/* set up to catch signals, init curses */
 
 	if (examine) {
 		changestats(FALSE);
 		cleanup(TRUE);
-		/* NOTREACHED */
 	}
 	if (!noheader) {
 		titlelist();
@@ -164,7 +163,6 @@ main(argc, argv)
 	}
 	if (headeronly)
 		cleanup(TRUE);
-	/* NOTREACHED */
 
 	do
 		/* get the player structure filled */
@@ -180,7 +178,6 @@ main(argc, argv)
 
 		case 'Q':
 			cleanup(TRUE);
-			/* NOTREACHED */
 
 		default:
 			Fileloc = rollnewplayer();
@@ -313,7 +310,7 @@ main(argc, argv)
 *************************************************************************/
 
 void
-initialstate()
+initialstate(void)
 {
 #ifdef TERMIOS
     struct termios tty;
@@ -357,19 +354,15 @@ initialstate()
 	/* open some files */
 	if ((Playersfp = fopen(_PATH_PEOPLE, "r+")) == NULL)
 		error(_PATH_PEOPLE);
-	/* NOTREACHED */
 
 	if ((Monstfp = fopen(_PATH_MONST, "r+")) == NULL)
 		error(_PATH_MONST);
-	/* NOTREACHED */
 
 	if ((Messagefp = fopen(_PATH_MESS, "r")) == NULL)
 		error(_PATH_MESS);
-	/* NOTREACHED */
 
 	if ((Energyvoidfp = fopen(_PATH_VOID, "r+")) == NULL)
 		error(_PATH_VOID);
-	/* NOTREACHED */
 }
 /**/
 /************************************************************************
@@ -398,7 +391,7 @@ initialstate()
 *************************************************************************/
 
 long
-rollnewplayer()
+rollnewplayer(void)
 {
 	int     chartype;	/* character type */
 	int     ch;		/* input */
@@ -515,7 +508,7 @@ rollnewplayer()
 *************************************************************************/
 
 void
-procmain()
+procmain(void)
 {
 	int     ch;		/* input */
 	double  x;		/* desired new x coordinate */
@@ -623,7 +616,6 @@ procmain()
 
 	case '5':		/* good-bye */
 		leavegame();
-		/* NOTREACHED */
 
 	case '6':		/* cloak */
 		if (Player.p_level < MEL_CLOAK || Player.p_magiclvl < ML_CLOAK)
@@ -749,7 +741,7 @@ procmain()
 *************************************************************************/
 
 void
-titlelist()
+titlelist(void)
 {
 	FILE   *fp;		/* used for opening various files */
 	bool    councilfound = FALSE;	/* set if we find a member of the
@@ -883,7 +875,7 @@ titlelist()
 *************************************************************************/
 
 long
-recallplayer()
+recallplayer(void)
 {
 	long    loc = 0L;	/* location in player file */
 	int     loop;		/* loop counter */
@@ -923,10 +915,8 @@ recallplayer()
 						Player.p_status = S_HUNGUP;
 						writerecord(&Player, loc);
 						cleanup(TRUE);
-						/* NOTREACHED */
 					}
 					death("Stupidity");
-					/* NOTREACHED */
 				}
 				return (loc);
 			} else
@@ -966,7 +956,7 @@ recallplayer()
 *************************************************************************/
 
 void
-neatstuff()
+neatstuff(void)
 {
 	double  temp;		/* for temporary calculations */
 	int     ch;		/* input */
@@ -1090,8 +1080,7 @@ neatstuff()
 *************************************************************************/
 
 void
-genchar(type)
-	int     type;
+genchar(int type)
 {
 	int     subscript;	/* used for subscripting into Stattable */
 	struct charstats *statptr;	/* for pointing into Stattable */
@@ -1151,7 +1140,7 @@ genchar(type)
 *************************************************************************/
 
 void
-playinit()
+playinit(void)
 {
 	initscr();		/* turn on curses */
 	noecho();		/* do not echo input */
@@ -1188,8 +1177,7 @@ playinit()
 *************************************************************************/
 
 void
-cleanup(doexit)
-	int	doexit;
+cleanup(int doexit)
 {
 	if (Windows) {
 		move(LINES - 2, 0);

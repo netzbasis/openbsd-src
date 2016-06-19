@@ -9,8 +9,9 @@
  * For more information, see the README file.
  */
 
-#include "less.h"
 #include <sys/stat.h>
+
+#include "less.h"
 
 static int fd0 = 0;
 
@@ -699,7 +700,6 @@ loop:
 		return;
 	case 'q':
 		quit(QUIT_OK);
-		/*NOTREACHED*/
 	default:
 		/*
 		 * Eh?

@@ -1,7 +1,7 @@
-/* $OpenBSD: screen.c,v 1.35 2015/10/27 09:28:31 nicm Exp $ */
+/* $OpenBSD: screen.c,v 1.38 2016/06/10 11:46:15 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -94,10 +94,10 @@ screen_set_cursor_style(struct screen *s, u_int style)
 
 /* Set screen cursor colour. */
 void
-screen_set_cursor_colour(struct screen *s, const char *colour_string)
+screen_set_cursor_colour(struct screen *s, const char *colour)
 {
 	free(s->ccolour);
-	s->ccolour = xstrdup(colour_string);
+	s->ccolour = xstrdup(colour);
 }
 
 /* Set screen title. */
@@ -146,7 +146,7 @@ screen_resize_x(struct screen *s, u_int sx)
 	/*
 	 * Treat resizing horizontally simply: just ensure the cursor is
 	 * on-screen and change the size. Don't bother to truncate any lines -
-	 * then the data should be accessible if the size is then incrased.
+	 * then the data should be accessible if the size is then increased.
 	 *
 	 * The only potential wrinkle is if UTF-8 double-width characters are
 	 * left in the last column, but UTF-8 terminals should deal with this

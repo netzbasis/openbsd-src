@@ -1,4 +1,4 @@
-/*	$OpenBSD: sshbuf.h,v 1.5 2015/11/11 04:56:39 djm Exp $	*/
+/*	$OpenBSD: sshbuf.h,v 1.7 2016/05/02 08:49:03 djm Exp $	*/
 /*
  * Copyright (c) 2011 Damien Miller
  *
@@ -116,12 +116,12 @@ size_t	sshbuf_len(const struct sshbuf *buf);
 size_t	sshbuf_avail(const struct sshbuf *buf);
 
 /*
- * Returns a read-only pointer to the start of the the data in buf
+ * Returns a read-only pointer to the start of the data in buf
  */
 const u_char *sshbuf_ptr(const struct sshbuf *buf);
 
 /*
- * Returns a mutable pointer to the start of the the data in buf, or
+ * Returns a mutable pointer to the start of the data in buf, or
  * NULL if the buffer is read-only.
  */
 u_char *sshbuf_mutable_ptr(const struct sshbuf *buf);
@@ -230,6 +230,13 @@ char	*sshbuf_dtob64(struct sshbuf *buf);
 
 /* Decode base64 data and append it to the buffer */
 int	sshbuf_b64tod(struct sshbuf *buf, const char *b64);
+
+/*
+ * Duplicate the contents of a buffer to a string (caller to free).
+ * Returns NULL on buffer error, or if the buffer contains a premature
+ * nul character.
+ */
+char *sshbuf_dup_string(struct sshbuf *buf);
 
 /* Macros for decoding/encoding integers */
 #define PEEK_U64(p) \

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.128 2015/06/16 11:09:40 mpi Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.131 2016/04/29 14:40:36 beck Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -712,8 +712,8 @@ nfsm_uiotombuf(struct mbuf **mp, struct uio *uiop, size_t len)
 	uiop->uio_rw = UIO_WRITE;
 
 	while (len) {
-		xfer = min(len, M_TRAILINGSPACE(mb));
-		uiomovei(mb_offset(mb), xfer, uiop);
+		xfer = ulmin(len, M_TRAILINGSPACE(mb));
+		uiomove(mb_offset(mb), xfer, uiop);
 		mb->m_len += xfer;
 		len -= xfer;
 		if (len > 0) {
@@ -1244,6 +1244,13 @@ nfs_namei(struct nameidata *ndp, fhandle_t *fhp, int len,
 		cnp->cn_flags |= (NOCROSSMOUNT | RDONLY);
 	else
 		cnp->cn_flags |= NOCROSSMOUNT;
+
+	/*
+	 * Should be 0, if not someone didn't init ndp with NDINIT,
+	 * go find and murder the offender messily.
+	 */
+	KASSERT (ndp->ni_p_path == NULL && ndp->ni_p_size == 0);
+
 	/*
 	 * And call lookup() to do the real work
 	 */
@@ -1470,7 +1477,7 @@ nfsrv_fhtovp(fhandle_t *fhp, int lockflag, struct vnode **vpp,
 	else
 		*rdonlyp = 0;
 	if (!lockflag)
-		VOP_UNLOCK(*vpp, 0, p);
+		VOP_UNLOCK(*vpp, p);
 
 	return (0);
 }

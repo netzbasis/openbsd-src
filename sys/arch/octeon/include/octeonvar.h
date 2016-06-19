@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeonvar.h,v 1.24 2015/07/20 19:44:32 pirofti Exp $	*/
+/*	$OpenBSD: octeonvar.h,v 1.27 2016/05/30 15:41:28 visa Exp $	*/
 /*	$NetBSD: maltavar.h,v 1.3 2002/03/18 10:10:16 simonb Exp $	*/
 
 /*-
@@ -96,10 +96,10 @@ struct octeon_config {
 #define	OCTEON_POOL_NO_XXX_6	6
 #define	OCTEON_POOL_NO_DUMP	7	/* FPA debug dump */
 
-#define	OCTEON_POOL_SIZE_PKT	2048	/* 128 x 16 */
+#define	OCTEON_POOL_SIZE_PKT	1920	/* 128 x 15 */
 #define	OCTEON_POOL_SIZE_WQE	128	/* 128 x 1 */
 #define	OCTEON_POOL_SIZE_CMD	1024	/* 128 x 8 */
-#define	OCTEON_POOL_SIZE_SG	512	/* 128 x 4 */
+#define	OCTEON_POOL_SIZE_SG	128	/* 128 x 1 */
 #define	OCTEON_POOL_SIZE_XXX_4	0
 #define	OCTEON_POOL_SIZE_XXX_5	0
 #define	OCTEON_POOL_SIZE_XXX_6	0
@@ -108,7 +108,7 @@ struct octeon_config {
 #define	OCTEON_POOL_NELEMS_PKT		4096
 #define	OCTEON_POOL_NELEMS_WQE		4096
 #define	OCTEON_POOL_NELEMS_CMD		32
-#define	OCTEON_POOL_NELEMS_SG		1024
+#define	OCTEON_POOL_NELEMS_SG		4096
 #define	OCTEON_POOL_NELEMS_XXX_4	0
 #define	OCTEON_POOL_NELEMS_XXX_5	0
 #define	OCTEON_POOL_NELEMS_XXX_6	0
@@ -271,6 +271,24 @@ struct boot_info {
 	uint64_t led_display_addr;
 	uint32_t dfaclock;
 	uint32_t config_flags;
+};
+
+struct octeon_bootmem_desc {
+	uint32_t	lock;
+	uint32_t	flags;
+	uint64_t	head_addr;
+	uint32_t	major_version;
+	uint32_t	minor_version;
+	uint64_t	app_data_addr;
+	uint64_t	app_data_size;
+	uint32_t	named_block_num_blocks;
+	uint32_t	named_block_name_len;
+	uint64_t	named_block_array_addr;
+};
+
+struct octeon_bootmem_block {
+	uint64_t	next;
+	uint64_t	size;
 };
 
 extern struct boot_desc *octeon_boot_desc;

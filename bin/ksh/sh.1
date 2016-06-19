@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sh.1,v 1.130 2015/10/12 12:34:42 jmc Exp $
+.\"	$OpenBSD: sh.1,v 1.133 2016/05/04 08:31:00 schwarze Exp $
 .\"
 .\" Copyright (c) 2015 Jason McIntyre <jmc@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 12 2015 $
+.Dd $Mdocdate: May 4 2016 $
 .Dt SH 1
 .Os
 .Sh NAME
@@ -329,6 +329,9 @@ but identify how the shell will interpret it
 Do not invoke
 .Ar command ,
 but identify the pathname the shell will use to run it.
+For aliases, a command to define that alias is printed.
+For shell reserved words, shell functions, and built-in utilities,
+just the name is printed.
 .El
 .Pp
 The exit status is that of
@@ -939,7 +942,7 @@ at the end of a bigword.
 Move to the start of the current word,
 or the start of the next word if the cursor is currently
 at the start of a word.
-.It Oo Ar count Oc Ns Ic b
+.It Oo Ar count Oc Ns Ic B
 Move to the start of the current bigword,
 or the start of the next bigword if the cursor is currently
 at the start of a bigword.
@@ -1377,7 +1380,7 @@ greater than, and greater than or equal to, respectively.
 The result is 1 if true, or 0 otherwise.
 .It == !=
 Equal (the result is 1 if both arguments are equal, and 0 otherwise)
-and not equal (the result is 1 if both arguments are non-zero, and 0 otherwise),
+and not equal (the result is 0 if both arguments are equal, and 1 otherwise),
 respectively.
 .It &
 Bitwise AND.

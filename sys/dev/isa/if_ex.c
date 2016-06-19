@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ex.c,v 1.42 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_ex.c,v 1.44 2016/04/13 10:49:26 mpi Exp $	*/
 /*
  * Copyright (c) 1997, Donald A. Schmidt
  * Copyright (c) 1996, Javier Martín Rueda (jmrueda@diatel.upm.es)
@@ -252,7 +252,6 @@ ex_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = ex_ioctl;
 	ifp->if_watchdog = ex_watchdog;
 	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifmedia_init(&sc->ifmedia, 0, ex_ifmedia_upd, ex_ifmedia_sts);
 
@@ -355,7 +354,7 @@ ex_init(struct ex_softc *sc)
 	sc->tx_head = sc->tx_tail = sc->tx_lower_limit;
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	DODEBUG(Status, printf("OIDLE init\n"););
 
 	ex_setmulti(sc);
@@ -388,7 +387,7 @@ ex_start(struct ifnet *ifp)
  	 * Main loop: send outgoing packets to network card until there are no
  	 * more packets left, or the card cannot accept any more yet.
  	 */
-	while (!(ifp->if_flags & IFF_OACTIVE)) {
+	while (!ifq_is_oactive(&ifp->if_snd)) {
 		opkt = ifq_deq_begin(&ifp->if_snd);
 		if (opkt == NULL)
 			break;
@@ -520,7 +519,7 @@ ex_start(struct ifnet *ifp)
 			m_freem(opkt);
 		} else {
 			ifq_deq_rollback(&ifp->if_snd, opkt);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			DODEBUG(Status, printf("OACTIVE start\n"););
 		}
 	}
@@ -630,7 +629,7 @@ ex_tx_intr(struct ex_softc *sc)
 	}
 
 	/* The card should be ready to accept more packets now. */
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	DODEBUG(Status, printf("OIDLE tx_intr\n"););
 
 	DODEBUG(Start_End, printf("ex_tx_intr: finish\n"););
@@ -889,7 +888,7 @@ ex_watchdog(struct ifnet *ifp)
 
 	DODEBUG(Start_End, printf("ex_watchdog: start\n"););
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	DODEBUG(Status, printf("OIDLE watchdog\n"););
 	ifp->if_oerrors++;
 	ex_reset(sc);

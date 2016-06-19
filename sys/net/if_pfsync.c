@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.c,v 1.222 2015/11/10 06:36:14 dlg Exp $	*/
+/*	$OpenBSD: if_pfsync.c,v 1.229 2016/04/29 08:55:03 krw Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff
@@ -523,6 +523,7 @@ pfsync_state_import(struct pfsync_state *sp, int flags)
 	skw->port[0] = sp->key[PF_SK_WIRE].port[0];
 	skw->port[1] = sp->key[PF_SK_WIRE].port[1];
 	skw->rdomain = ntohs(sp->key[PF_SK_WIRE].rdomain);
+	PF_REF_INIT(skw->refcnt);
 	skw->proto = sp->proto;
 	if (!(skw->af = sp->key[PF_SK_WIRE].af))
 		skw->af = sp->af;
@@ -532,6 +533,7 @@ pfsync_state_import(struct pfsync_state *sp, int flags)
 		sks->port[0] = sp->key[PF_SK_STACK].port[0];
 		sks->port[1] = sp->key[PF_SK_STACK].port[1];
 		sks->rdomain = ntohs(sp->key[PF_SK_STACK].rdomain);
+		PF_REF_INIT(sks->refcnt);
 		if (!(sks->af = sp->key[PF_SK_STACK].af))
 			sks->af = sp->af;
 		if (sks->af != skw->af) {
@@ -752,7 +754,7 @@ pfsync_in_clr(caddr_t buf, int len, int count, int flags)
 			if (st->creatorid == creatorid &&
 			    ((kif && st->kif == kif) || !kif)) {
 				SET(st->state_flags, PFSTATE_NOSYNC);
-				pf_unlink_state(st);
+				pf_remove_state(st);
 			}
 		}
 	}
@@ -1056,7 +1058,7 @@ pfsync_in_del(caddr_t buf, int len, int count, int flags)
 			continue;
 		}
 		SET(st->state_flags, PFSTATE_NOSYNC);
-		pf_unlink_state(st);
+		pf_remove_state(st);
 	}
 
 	return (0);
@@ -1083,7 +1085,7 @@ pfsync_in_del_c(caddr_t buf, int len, int count, int flags)
 		}
 
 		SET(st->state_flags, PFSTATE_NOSYNC);
-		pf_unlink_state(st);
+		pf_remove_state(st);
 	}
 
 	return (0);
@@ -1222,11 +1224,10 @@ int
 pfsyncoutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	struct rtentry *rt)
 {
-	m_freem(m);
-	return (0);
+	m_freem(m);	/* drop packet */
+	return (EAFNOSUPPORT);
 }
 
-/* ARGSUSED */
 int
 pfsyncioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
@@ -1747,7 +1748,7 @@ pfsync_undefer(struct pfsync_deferral *pd, int drop)
 			switch (pd->pd_st->key[PF_SK_WIRE]->af) {
 			case AF_INET:
 				pf_route(&pd->pd_m, pd->pd_st->rule.ptr,
-				    pd->pd_st->direction, 
+				    pd->pd_st->direction,
 				    pd->pd_st->rt_kif->pfik_ifp, pd->pd_st);
 				break;
 #ifdef INET6
@@ -1765,13 +1766,13 @@ pfsync_undefer(struct pfsync_deferral *pd, int drop)
 				    0);
 				break;
 #ifdef INET6
-	                case AF_INET6:
-		                ip6_output(pd->pd_m, NULL, NULL, 0,
+			case AF_INET6:
+				ip6_output(pd->pd_m, NULL, NULL, 0,
 				    NULL, NULL);
 				break;
 #endif /* INET6 */
 			}
-                }
+		}
 	}
 
 	pool_put(&sc->sc_pool, pd);

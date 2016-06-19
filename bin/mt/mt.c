@@ -1,4 +1,4 @@
-/*	$OpenBSD: mt.c,v 1.36 2013/11/12 04:36:02 deraadt Exp $	*/
+/*	$OpenBSD: mt.c,v 1.38 2015/12/30 14:59:10 tedu Exp $	*/
 /*	$NetBSD: mt.c,v 1.14.2.1 1996/05/27 15:12:11 mrg Exp $	*/
 
 /*
@@ -83,31 +83,33 @@ void printreg(char *, u_int, char *);
 void status(struct mtget *);
 void usage(void);
 
-int		_rmtopendev(char *path, int oflags, int dflags, char **realpath);
-int		_rmtmtioctop(int fd, struct mtop *com);
+int		_rmtopendev(char *path, int oflags, int dflags, char **realp);
+int		_rmtmtioctop(int fd, struct mtop *cmd);
 struct mtget	*_rmtstatus(int fd);
 void		_rmtclose(void);
+
+extern char	*__progname;
 
 char	*host = NULL;	/* remote host (if any) */
 
 int
-_rmtopendev(char *path, int oflags, int dflags, char **realpath)
+_rmtopendev(char *path, int oflags, int dflags, char **realp)
 {
 #ifdef RMT
 	if (host)
 		return rmtopen(path, oflags);
 #endif
-	return opendev(path, oflags, dflags, realpath);
+	return opendev(path, oflags, dflags, realp);
 }
 
 int
-_rmtmtioctop(int fd, struct mtop *com)
+_rmtmtioctop(int fd, struct mtop *cmd)
 {
 #ifdef RMT
 	if (host)
-		return rmtioctl(com->mt_op, com->mt_count);
+		return rmtioctl(cmd->mt_op, cmd->mt_count);
 #endif
-	return ioctl(fd, MTIOCTOP, com);
+	return ioctl(fd, MTIOCTOP, cmd);
 }
 
 struct mtget *
@@ -133,7 +135,6 @@ _rmtclose(void)
 #endif
 }
 
-char	*progname;
 int	eject = 0;
 
 int
@@ -145,12 +146,7 @@ main(int argc, char *argv[])
 	char *p, *tape, *realtape, *opts;
 	size_t len;
 
-	if ((progname = strrchr(argv[0], '/')))
-		progname++;
-	else
-		progname = argv[0];
-
-	if (strcmp(progname, "eject") == 0) {
+	if (strcmp(__progname, "eject") == 0) {
 		opts = "t";
 		eject = 1;
 		tape = NULL;
@@ -320,9 +316,9 @@ void
 usage(void)
 {
 	if (eject)
-		(void)fprintf(stderr, "usage: %s [-t] device\n", progname);
+		(void)fprintf(stderr, "usage: %s [-t] device\n", __progname);
 	else
 		(void)fprintf(stderr,
-		    "usage: %s [-f device] command [count]\n", progname);
+		    "usage: %s [-f device] command [count]\n", __progname);
 	exit(X_USAGE);
 }

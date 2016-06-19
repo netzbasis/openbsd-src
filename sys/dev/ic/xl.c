@@ -1,4 +1,4 @@
-/*	$OpenBSD: xl.c,v 1.127 2015/10/25 12:48:46 mpi Exp $	*/
+/*	$OpenBSD: xl.c,v 1.131 2016/04/13 10:49:26 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -114,8 +114,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -1291,7 +1289,7 @@ xl_txeof(struct xl_softc *sc)
 	}
 
 	if (sc->xl_cdata.xl_tx_head == NULL) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		/* Clear the timeout timer. */
 		ifp->if_timer = 0;
 		sc->xl_cdata.xl_tx_tail = NULL;
@@ -1345,7 +1343,7 @@ xl_txeof_90xB(struct xl_softc *sc)
 	sc->xl_cdata.xl_tx_cons = idx;
 
 	if (cur_tx != NULL)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	if (sc->xl_cdata.xl_tx_cnt == 0)
 		ifp->if_timer = 0;
 }
@@ -1660,7 +1658,7 @@ xl_start(struct ifnet *ifp)
 		xl_txeoc(sc);
 		xl_txeof(sc);
 		if (sc->xl_cdata.xl_tx_free == NULL) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			return;
 		}
 	}
@@ -1784,7 +1782,7 @@ xl_start_90xB(struct ifnet *ifp)
 
 	sc = ifp->if_softc;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	idx = sc->xl_cdata.xl_tx_prod;
@@ -1793,7 +1791,7 @@ xl_start_90xB(struct ifnet *ifp)
 	while (sc->xl_cdata.xl_tx_chain[idx].xl_mbuf == NULL) {
 
 		if ((XL_TX_LIST_CNT - sc->xl_cdata.xl_tx_cnt) < 3) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -2037,7 +2035,7 @@ xl_init(void *xsc)
 	XL_SEL_WIN(7);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -2298,7 +2296,8 @@ xl_stop(struct xl_softc *sc)
 
 	ifp = &sc->sc_arpcom.ac_if;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	CSR_WRITE_2(sc, XL_COMMAND, XL_CMD_RX_DISABLE);
@@ -2466,7 +2465,6 @@ xl_attach(struct xl_softc *sc)
 	ifp->if_watchdog = xl_watchdog;
 	ifp->if_baudrate = 10000000;
 	IFQ_SET_MAXLEN(&ifp->if_snd, XL_TX_LIST_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;

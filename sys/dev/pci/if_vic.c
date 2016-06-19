@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vic.c,v 1.93 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_vic.c,v 1.96 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 2006 Reyk Floeter <reyk@openbsd.org>
@@ -38,7 +38,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -482,7 +481,6 @@ vic_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_hardmtu = VIC_JUMBO_MTU;
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, sc->sc_ntxbuf - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 
@@ -911,7 +909,7 @@ vic_tx_proc(struct vic_softc *sc)
 
 		m_freem(txb->txb_m);
 		txb->txb_m = NULL;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 		sc->sc_txpending--;
 		sc->sc_data->vd_tx_stopped = 0;
@@ -1036,7 +1034,7 @@ vic_start(struct ifnet *ifp)
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
@@ -1049,7 +1047,7 @@ vic_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (VIC_TXURN(sc)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1268,7 +1266,7 @@ vic_init(struct ifnet *ifp)
 	vic_write(sc, VIC_DATA_LENGTH, sc->sc_dma_size);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	vic_iff(sc);
 	vic_write(sc, VIC_CMD, VIC_CMD_INTR_ENABLE);
@@ -1288,7 +1286,8 @@ vic_stop(struct ifnet *ifp)
 
 	timeout_del(&sc->sc_tick);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	bus_dmamap_sync(sc->sc_dmat, sc->sc_dma_map, 0, sc->sc_dma_size,
 	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);

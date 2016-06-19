@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ef_isapnp.c,v 1.32 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_ef_isapnp.c,v 1.38 2016/04/13 10:49:26 mpi Exp $	*/
 
 /*
  * Copyright (c) 1999 Jason L. Wright (jason@thought.net)
@@ -42,9 +42,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -202,8 +199,7 @@ ef_isapnp_attach(parent, self, aux)
 	ifp->if_ioctl = efioctl;
 	ifp->if_watchdog = efwatchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 
 	sc->sc_mii.mii_ifp = ifp;
 	sc->sc_mii.mii_readreg = ef_miibus_readreg;
@@ -239,7 +235,7 @@ efstart(ifp)
 	int fillcnt = 0;
 	u_int32_t filler = 0;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 startagain:
@@ -263,7 +259,7 @@ startagain:
 		bus_space_write_2(iot, ioh, EP_COMMAND,
 		    SET_TX_AVAIL_THRESH | ((len + pad) >> 2));
 		ifq_deq_rollback(&ifp->if_snd, m0);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	} else {
 		bus_space_write_2(iot, ioh, EP_COMMAND,
@@ -441,7 +437,7 @@ efinit(sc)
 	mii_mediachg(&sc->sc_mii);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -471,7 +467,8 @@ efstop(sc)
 	bus_space_handle_t ioh = sc->sc_ioh;
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->sc_tick_tmo);
 
@@ -525,7 +522,7 @@ efintr(vsc)
 		if (status & S_TX_AVAIL) {
 			bus_space_write_2(iot, ioh, EP_STATUS, C_TX_AVAIL);
 			r = 1;
-			sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 			efstart(&sc->sc_arpcom.ac_if);
 		}
 		if (status & S_CARD_FAILURE) {
@@ -588,7 +585,7 @@ eftxstat(sc)
 		else if (i & TXS_MAX_COLLISION) {
 			sc->sc_arpcom.ac_if.if_collisions++;
 			bus_space_write_2(iot, ioh, EP_COMMAND, TX_ENABLE);
-			sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 		}
 		else
 			sc->sc_tx_succ_ok = (sc->sc_tx_succ_ok + 1) & 127;

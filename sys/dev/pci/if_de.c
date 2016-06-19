@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_de.c,v 1.127 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_de.c,v 1.135 2016/04/13 10:34:32 mpi Exp $	*/
 /*	$NetBSD: if_de.c,v 1.58 1998/01/12 09:39:58 thorpej Exp $	*/
 
 /*-
@@ -53,9 +53,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
-#include <net/if_dl.h>
-#include <net/netisr.h>
 
 #include "bpfilter.h"
 #if NBPFILTER > 0
@@ -412,7 +409,7 @@ tulip_linkup(tulip_softc_t * const sc, tulip_media_t media)
     if ((sc->tulip_flags & TULIP_LINKUP) == 0)
 	sc->tulip_flags |= TULIP_PRINTLINKUP;
     sc->tulip_flags |= TULIP_LINKUP;
-    sc->tulip_if.if_flags &= ~IFF_OACTIVE;
+    ifq_clr_oactive(&sc->tulip_if.if_snd);
     if (sc->tulip_media != media) {
 #ifdef TULIP_DEBUG
 	sc->tulip_dbg.dbg_last_media = sc->tulip_media;
@@ -620,7 +617,7 @@ tulip_media_poll(tulip_softc_t * const sc, tulip_mediapoll_event_t event)
     }
 
     if (event == TULIP_MEDIAPOLL_START) {
-	sc->tulip_if.if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&sc->tulip_if.if_snd);
 	if (sc->tulip_probe_state != TULIP_PROBE_INACTIVE)
 	    return;
 	sc->tulip_probe_mediamask = 0;
@@ -969,7 +966,7 @@ tulip_21041_media_poll(tulip_softc_t * const sc, const tulip_mediapoll_event_t e
      * restart the probe (and reset the tulip to a known state).
      */
     if (event == TULIP_MEDIAPOLL_START) {
-	sc->tulip_if.if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&sc->tulip_if.if_snd);
 	sc->tulip_cmdmode &= ~(TULIP_CMD_FULLDUPLEX|TULIP_CMD_RXRUN);
 	TULIP_CSR_WRITE(sc, csr_command, sc->tulip_cmdmode);
 	sc->tulip_probe_state = TULIP_PROBE_MEDIATEST;
@@ -2888,7 +2885,6 @@ tulip_addr_filter(tulip_softc_t * const sc)
     sc->tulip_cmdmode &= ~TULIP_CMD_RXRUN;
     sc->tulip_intrmask &= ~TULIP_STS_RXSTOPPED;
     sc->tulip_if.if_flags &= ~IFF_ALLMULTI;
-    sc->tulip_if.if_start = tulip_ifstart;	/* so the setup packet gets queued */
     if (sc->tulip_multicnt > 14) {
 	u_int32_t *sp = sc->tulip_setupdata;
 	unsigned hash;
@@ -3037,8 +3033,7 @@ tulip_reset(tulip_softc_t * const sc)
     if (!inreset) {
 	sc->tulip_flags |= TULIP_INRESET;
 	sc->tulip_flags &= ~(TULIP_NEEDRESET|TULIP_RXBUFSLOW);
-	sc->tulip_if.if_flags &= ~IFF_OACTIVE;
-	sc->tulip_if.if_start = tulip_ifstart;
+	ifq_clr_oactive(&sc->tulip_if.if_snd);
     }
 
     TULIP_CSR_WRITE(sc, csr_txlist, sc->tulip_txdescmap->dm_segs[0].ds_addr);
@@ -3160,7 +3155,7 @@ tulip_init(tulip_softc_t * const sc)
 	    sc->tulip_cmdmode |= TULIP_CMD_RXRUN;
 	    sc->tulip_intrmask |= TULIP_STS_RXSTOPPED;
 	} else {
-	    sc->tulip_if.if_flags |= IFF_OACTIVE;
+	    ifq_set_oactive(&sc->tulip_if.if_snd);
 	    sc->tulip_cmdmode &= ~TULIP_CMD_RXRUN;
 	    sc->tulip_intrmask &= ~TULIP_STS_RXSTOPPED;
 	}
@@ -3259,9 +3254,6 @@ tulip_rx_intr(tulip_softc_t * const sc)
 		TULIP_RXMAP_POSTSYNC(sc, map);
 		bus_dmamap_unload(sc->tulip_dmatag, map);
 		tulip_free_rxmap(sc, map);
-#if defined(DIAGNOSTIC)
-		TULIP_SETCTX(me, NULL);
-#endif
 		me->m_len = TULIP_RX_BUFLEN;
 		last_offset += TULIP_RX_BUFLEN;
 		me->m_next = ml_dequeue(&sc->tulip_rxq);
@@ -3282,9 +3274,6 @@ tulip_rx_intr(tulip_softc_t * const sc)
 			    BUS_DMASYNC_POSTREAD|BUS_DMASYNC_POSTWRITE);
 	    bus_dmamap_unload(sc->tulip_dmatag, map);
 	    tulip_free_rxmap(sc, map);
-#if defined(DIAGNOSTIC)
-	    TULIP_SETCTX(me, NULL);
-#endif
 	    sc->tulip_flags |= TULIP_RXACT;
 	    accept = 1;
 	} else {
@@ -3320,9 +3309,6 @@ tulip_rx_intr(tulip_softc_t * const sc)
 	    map = TULIP_GETCTX(me, bus_dmamap_t);
 	    bus_dmamap_unload(sc->tulip_dmatag, map);
 	    tulip_free_rxmap(sc, map);
-#if defined(DIAGNOSTIC)
-	    TULIP_SETCTX(me, NULL);
-#endif
 	}
 #if defined(TULIP_DEBUG)
 	cnt++;
@@ -3561,7 +3547,7 @@ tulip_tx_intr(tulip_softc_t * const sc)
 	    ri->ri_nextin = ri->ri_first;
 
 	if ((sc->tulip_flags & TULIP_TXPROBE_ACTIVE) == 0)
-	    sc->tulip_if.if_flags &= ~IFF_OACTIVE;
+	    ifq_clr_oactive(&sc->tulip_if.if_snd);
     }
     /*
      * If nothing left to transmit, disable the timer.
@@ -3914,8 +3900,6 @@ tulip_txput(tulip_softc_t * const sc, struct mbuf *m, int notonqueue)
 	    nextout = ri->ri_first;
     }
     TULIP_TXMAP_PRESYNC(sc, map);
-    TULIP_SETCTX(m, map);
-    map = NULL;
 
     /*
      * The descriptors have been filled in.  Now get ready
@@ -3923,6 +3907,9 @@ tulip_txput(tulip_softc_t * const sc, struct mbuf *m, int notonqueue)
      */
     if (!notonqueue)
 	ifq_deq_commit(&ifp->if_snd, m);
+
+    TULIP_SETCTX(m, map);
+    map = NULL;
 
     ml_enqueue(&sc->tulip_txq, m);
     m = NULL;
@@ -3969,8 +3956,7 @@ tulip_txput(tulip_softc_t * const sc, struct mbuf *m, int notonqueue)
 
     if (sc->tulip_flags & TULIP_TXPROBE_ACTIVE) {
 	TULIP_CSR_WRITE(sc, csr_txpoll, 1);
-	sc->tulip_if.if_flags |= IFF_OACTIVE;
-	sc->tulip_if.if_start = tulip_ifstart;
+	ifq_set_oactive(&sc->tulip_if.if_snd);
 	TULIP_PERFEND(txput);
 	return (NULL);
     }
@@ -3999,8 +3985,7 @@ tulip_txput(tulip_softc_t * const sc, struct mbuf *m, int notonqueue)
     sc->tulip_dbg.dbg_txput_finishes[6]++;
 #endif
     if (sc->tulip_flags & (TULIP_WANTTXSTART|TULIP_DOINGSETUP)) {
-	sc->tulip_if.if_flags |= IFF_OACTIVE;
-	sc->tulip_if.if_start = tulip_ifstart;
+	ifq_set_oactive(&sc->tulip_if.if_snd);
 	if ((sc->tulip_intrmask & TULIP_STS_TXINTR) == 0) {
 	    sc->tulip_intrmask |= TULIP_STS_TXINTR;
 	    TULIP_CSR_WRITE(sc, csr_intr, sc->tulip_intrmask);
@@ -4031,7 +4016,6 @@ tulip_txput_setup(tulip_softc_t * const sc)
 	printf(TULIP_PRINTF_FMT ": txput_setup: tx not running\n",
 	       TULIP_PRINTF_ARGS);
 	sc->tulip_flags |= TULIP_WANTTXSTART;
-	sc->tulip_if.if_start = tulip_ifstart;
 	return;
     }
 #endif
@@ -4042,7 +4026,6 @@ tulip_txput_setup(tulip_softc_t * const sc)
 	tulip_tx_intr(sc);
     if ((sc->tulip_flags & TULIP_DOINGSETUP) || ri->ri_free == 1) {
 	sc->tulip_flags |= TULIP_WANTTXSTART;
-	sc->tulip_if.if_start = tulip_ifstart;
 	return;
     }
     bcopy(sc->tulip_setupdata, sc->tulip_setupbuf,
@@ -4588,7 +4571,7 @@ tulip_attach(struct device * const parent, struct device * const self, void * co
 		   intrstr, ether_sprintf(sc->tulip_enaddr));
 	}
 
-	ifp->if_flags = IFF_BROADCAST|IFF_SIMPLEX|IFF_NOTRAILERS|IFF_MULTICAST;
+	ifp->if_flags = IFF_BROADCAST|IFF_SIMPLEX|IFF_MULTICAST;
 	ifp->if_ioctl = tulip_ifioctl;
 	ifp->if_start = tulip_ifstart;
 	ifp->if_watchdog = tulip_ifwatchdog;
@@ -4602,7 +4585,6 @@ tulip_attach(struct device * const parent, struct device * const self, void * co
 
 	tulip_reset(sc);
 
-	IFQ_SET_READY(&ifp->if_snd);
 	if_attach(ifp);
 	ether_ifattach(ifp);
     }

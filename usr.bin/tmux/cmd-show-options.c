@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-show-options.c,v 1.25 2015/11/20 12:01:19 nicm Exp $ */
+/* $OpenBSD: cmd-show-options.c,v 1.31 2016/03/03 14:15:22 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -35,30 +35,41 @@ enum cmd_retval cmd_show_options_all(struct cmd *, struct cmd_q *,
 	    	    struct options *, enum options_table_scope);
 
 const struct cmd_entry cmd_show_options_entry = {
-	"show-options", "show",
-	"gqst:vw", 0, 1,
-	"[-gqsvw] [-t target-session|target-window] [option]",
-	0,
-	cmd_show_options_exec
+	.name = "show-options",
+	.alias = "show",
+
+	.args = { "gqst:vw", 0, 1 },
+	.usage = "[-gqsvw] [-t target-session|target-window] [option]",
+
+	.tflag = CMD_WINDOW_CANFAIL,
+
+	.flags = 0,
+	.exec = cmd_show_options_exec
 };
 
 const struct cmd_entry cmd_show_window_options_entry = {
-	"show-window-options", "showw",
-	"gvt:", 0, 1,
-	"[-gv] " CMD_TARGET_WINDOW_USAGE " [option]",
-	0,
-	cmd_show_options_exec
+	.name = "show-window-options",
+	.alias = "showw",
+
+	.args = { "gvt:", 0, 1 },
+	.usage = "[-gv] " CMD_TARGET_WINDOW_USAGE " [option]",
+
+	.tflag = CMD_WINDOW_CANFAIL,
+
+	.flags = 0,
+	.exec = cmd_show_options_exec
 };
 
 enum cmd_retval
 cmd_show_options_exec(struct cmd *self, struct cmd_q *cmdq)
 {
-	struct args		*args = self->args;
-	struct session		*s;
-	struct winlink		*wl;
-	struct options		*oo;
-	int			 quiet;
-	enum options_table_scope scope;
+	struct args			*args = self->args;
+	struct session			*s = cmdq->state.tflag.s;
+	struct winlink			*wl = cmdq->state.tflag.wl;
+	struct options			*oo;
+	enum options_table_scope	 scope;
+	int				 quiet;
+	const char			*target;
 
 	if (args_has(self->args, 's')) {
 		oo = global_options;
@@ -68,22 +79,28 @@ cmd_show_options_exec(struct cmd *self, struct cmd_q *cmdq)
 		scope = OPTIONS_TABLE_WINDOW;
 		if (args_has(self->args, 'g'))
 			oo = global_w_options;
-		else {
-			wl = cmd_find_window(cmdq, args_get(args, 't'), NULL);
-			if (wl == NULL)
-				return (CMD_RETURN_ERROR);
+		else if (wl == NULL) {
+			target = args_get(args, 't');
+			if (target != NULL) {
+				cmdq_error(cmdq, "no such window: %s", target);
+			} else
+				cmdq_error(cmdq, "no current window");
+			return (CMD_RETURN_ERROR);
+		} else
 			oo = wl->window->options;
-		}
 	} else {
 		scope = OPTIONS_TABLE_SESSION;
 		if (args_has(self->args, 'g'))
 			oo = global_s_options;
-		else {
-			s = cmd_find_session(cmdq, args_get(args, 't'), 0);
-			if (s == NULL)
-				return (CMD_RETURN_ERROR);
+		else if (s == NULL) {
+			target = args_get(args, 't');
+			if (target != NULL) {
+				cmdq_error(cmdq, "no such session: %s", target);
+			} else
+				cmdq_error(cmdq, "no current session");
+			return (CMD_RETURN_ERROR);
+		} else
 			oo = s->options;
-		}
 	}
 
 	quiet = args_has(self->args, 'q');

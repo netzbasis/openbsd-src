@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ale.c,v 1.41 2015/11/09 00:29:06 dlg Exp $	*/
+/*	$OpenBSD: if_ale.c,v 1.44 2016/04/13 10:34:32 mpi Exp $	*/
 /*-
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -55,8 +55,6 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -503,7 +501,6 @@ ale_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = ale_start;
 	ifp->if_watchdog = ale_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, ALE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->ale_eaddr, sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
@@ -986,7 +983,7 @@ ale_start(struct ifnet *ifp)
 	if (sc->ale_cdata.ale_tx_cnt >= ALE_TX_DESC_HIWAT)
 		ale_txeof(sc);
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 	if ((sc->ale_flags & ALE_FLAG_LINK) == 0)
 		return;
@@ -998,7 +995,7 @@ ale_start(struct ifnet *ifp)
 		/* Check descriptor overrun. */
 		if (sc->ale_cdata.ale_tx_cnt + ALE_MAXTXSEGS >=
 		    ALE_TX_RING_CNT - 2) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1320,7 +1317,7 @@ ale_txeof(struct ale_softc *sc)
 		if (sc->ale_cdata.ale_tx_cnt <= 0)
 			break;
 		prog++;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->ale_cdata.ale_tx_cnt--;
 		txd = &sc->ale_cdata.ale_txdesc[cons];
 		if (txd->tx_m != NULL) {
@@ -1826,7 +1823,7 @@ ale_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->ale_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return 0;
 }
@@ -1842,7 +1839,8 @@ ale_stop(struct ale_softc *sc)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	timeout_del(&sc->ale_tick_ch);

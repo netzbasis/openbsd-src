@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_generic.c,v 1.109 2015/11/01 19:03:33 semarie Exp $	*/
+/*	$OpenBSD: sys_generic.c,v 1.111 2016/06/07 06:12:37 deraadt Exp $	*/
 /*	$NetBSD: sys_generic.c,v 1.24 1996/03/29 00:25:32 cgd Exp $	*/
 
 /*
@@ -74,7 +74,6 @@ int doppoll(struct proc *, struct pollfd *, u_int, const struct timespec *,
 /*
  * Read system call.
  */
-/* ARGSUSED */
 int
 sys_read(struct proc *p, void *v, register_t *retval)
 {
@@ -382,7 +381,6 @@ dofilewritev(struct proc *p, int fd, struct file *fp, const struct iovec *iovp,
 /*
  * Ioctl system call
  */
-/* ARGSUSED */
 int
 sys_ioctl(struct proc *p, void *v, register_t *retval)
 {
@@ -734,7 +732,7 @@ selscan(struct proc *p, fd_set *ibits, fd_set *obits, int nfd, int ni,
 	fd_mask bits;
 	struct file *fp;
 	int n = 0;
-	static const int flag[3] = { POLLIN, POLLOUT|POLLNOHUP, POLLPRI };
+	static const int flag[3] = { POLLIN, POLLOUT|POLL_NOHUP, POLLPRI };
 
 	for (msk = 0; msk < 3; msk++) {
 		fd_set *pibits = (fd_set *)&cibits[msk*ni];
@@ -759,7 +757,6 @@ selscan(struct proc *p, fd_set *ibits, fd_set *obits, int nfd, int ni,
 	return (0);
 }
 
-/*ARGSUSED*/
 int
 seltrue(dev_t dev, int events, struct proc *p)
 {
@@ -963,7 +960,7 @@ doppoll(struct proc *p, struct pollfd *fds, u_int nfds,
 		goto bad;
 
 	for (i = 0; i < nfds; i++) {
-		pl[i].events &= ~POLLNOHUP;
+		pl[i].events &= ~POLL_NOHUP;
 		pl[i].revents = 0;
 	}
 
@@ -1021,6 +1018,10 @@ done:
 		error = pollout(pl, fds, nfds);
 		break;
 	}
+#ifdef KTRACE
+	if (KTRPOINT(p, KTR_STRUCT))
+		ktrpollfd(p, pl, nfds);
+#endif /* KTRACE */
 bad:
 	if (pl != pfds)
 		free(pl, M_TEMP, sz);
@@ -1030,7 +1031,6 @@ bad:
 /*
  * utrace system call
  */
-/* ARGSUSED */
 int
 sys_utrace(struct proc *curp, void *v, register_t *retval)
 {

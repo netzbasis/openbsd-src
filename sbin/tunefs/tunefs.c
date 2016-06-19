@@ -1,4 +1,4 @@
-/*	$OpenBSD: tunefs.c,v 1.38 2015/10/12 02:01:15 deraadt Exp $	*/
+/*	$OpenBSD: tunefs.c,v 1.41 2016/05/28 23:44:27 tb Exp $	*/
 /*	$NetBSD: tunefs.c,v 1.33 2005/01/19 20:46:16 xtraeme Exp $	*/
 
 /*

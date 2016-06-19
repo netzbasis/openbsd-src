@@ -1,4 +1,4 @@
-/*	$OpenBSD: getpwent.c,v 1.57 2015/11/18 16:44:46 tedu Exp $ */
+/*	$OpenBSD: getpwent.c,v 1.61 2016/05/07 21:52:29 tedu Exp $ */
 /*
  * Copyright (c) 2008 Theo de Raadt
  * Copyright (c) 1988, 1993
@@ -553,10 +553,8 @@ __yppwlookup(int lookup, char *name, uid_t uid, struct passwd *pw,
 
 			switch (pw->pw_name[1]) {
 			case '\0':
-				if (ypcurrent) {
-					free(ypcurrent);
-					ypcurrent = NULL;
-				}
+				free(ypcurrent);
+				ypcurrent = NULL;
 				r = yp_match(__ypdomain, map,
 				    name, strlen(name),
 				    &ypcurrent, &ypcurrentlen);
@@ -568,10 +566,8 @@ __yppwlookup(int lookup, char *name, uid_t uid, struct passwd *pw,
 				break;
 			case '@':
 pwnam_netgrp:
-				if (ypcurrent) {
-					free(ypcurrent);
-					ypcurrent = NULL;
-				}
+				free(ypcurrent);
+				ypcurrent = NULL;
 				if (s == -1)	/* first time */
 					setnetgrent(pw->pw_name + 2);
 				s = getnetgrent(&host, &user, &dom);
@@ -599,10 +595,8 @@ pwnam_netgrp:
 				}
 				break;
 			default:
-				if (ypcurrent) {
-					free(ypcurrent);
-					ypcurrent = NULL;
-				}
+				free(ypcurrent);
+				ypcurrent = NULL;
 				user = pw->pw_name + 1;
 				r = yp_match(__ypdomain, map,
 				    user, strlen(user),
@@ -749,8 +743,7 @@ int
 getpwnam_r(const char *name, struct passwd *pw, char *buf, size_t buflen,
     struct passwd **pwretp)
 {
-	/* XXX shadow should be 0 XXX */
-	return getpwnam_internal(name, pw, buf, buflen, pwretp, 1);
+	return getpwnam_internal(name, pw, buf, buflen, pwretp, 0);
 }
 DEF_WEAK(getpwnam_r);
 
@@ -768,7 +761,6 @@ getpwnam(const char *name)
 	}
 	return (pw);
 }
-DEF_WEAK(getpwnam);
 
 struct passwd *
 getpwnam_shadow(const char *name)
@@ -835,8 +827,7 @@ int
 getpwuid_r(uid_t uid, struct passwd *pw, char *buf, size_t buflen,
     struct passwd **pwretp)
 {
-	/* XXX shadow should be 0 XXX */
-	return getpwuid_internal(uid, pw, buf, buflen, pwretp, 1);
+	return getpwuid_internal(uid, pw, buf, buflen, pwretp, 0);
 }
 DEF_WEAK(getpwuid_r);
 
@@ -854,7 +845,6 @@ getpwuid(uid_t uid)
 	}
 	return (pw);
 }
-DEF_WEAK(getpwuid);
 
 struct passwd *
 getpwuid_shadow(uid_t uid)
@@ -926,6 +916,11 @@ __initdb(int shadow)
 	int saved_errno = errno;
 
 #ifdef YP
+	/*
+	 * Hint to the kernel that a passwd database operation is happening.
+	 */
+	(void)access("/var/run/ypbind.lock", R_OK);
+
 	__ypmode = YPMODE_NONE;
 	__getpwent_has_yppw = -1;
 #endif
@@ -939,7 +934,6 @@ __initdb(int shadow)
 	}
 	if (!warned) {
 		saved_errno = errno;
-		syslog(LOG_ERR, "%s: %m", _PATH_MP_DB);
 		errno = saved_errno;
 		warned = 1;
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_script.c,v 1.21 2014/11/12 16:29:04 millert Exp $	*/
+/*	$OpenBSD: ex_script.c,v 1.26 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -44,7 +44,6 @@ static int	sscr_getprompt(SCR *);
 static int	sscr_init(SCR *);
 static int	sscr_insert(SCR *);
 static int	sscr_matchprompt(SCR *, char *, size_t, size_t *);
-static int	sscr_pty(int *, int *, char *, size_t, struct termios *, void *);
 static int	sscr_setprompt(SCR *, char *, size_t);
 
 /*
@@ -59,7 +58,7 @@ ex_script(SCR *sp, EXCMD *cmdp)
 	/* Vi only command. */
 	if (!F_ISSET(sp, SC_VI)) {
 		msgq(sp, M_ERR,
-		    "150|The script command is only available in vi mode");
+		    "The script command is only available in vi mode");
 		return (1);
 	}
 
@@ -88,7 +87,7 @@ sscr_init(SCR *sp)
 	if (opts_empty(sp, O_SHELL, 0))
 		return (1);
 
-	MALLOC_RET(sp, sc, SCRIPT *, sizeof(SCRIPT));
+	MALLOC_RET(sp, sc, sizeof(SCRIPT));
 	sp->script = sc;
 	sc->sh_prompt = NULL;
 	sc->sh_prompt_len = 0;
@@ -308,7 +307,7 @@ sscr_exec(SCR *sp, recno_t lno)
 	/* Delete any prompt. */
 	if (sscr_matchprompt(sp, p, len, &tlen)) {
 		if (tlen == len) {
-empty:			msgq(sp, M_BERR, "151|No command to execute");
+empty:			msgq(sp, M_BERR, "No command to execute");
 			goto err1;
 		}
 		p += (len - tlen);
@@ -572,7 +571,7 @@ sscr_setprompt(SCR *sp, char *buf, size_t len)
 	sc = sp->script;
 	if (sc->sh_prompt)
 		free(sc->sh_prompt);
-	MALLOC(sp, sc->sh_prompt, char *, len + 1);
+	MALLOC(sp, sc->sh_prompt, len + 1);
 	if (sc->sh_prompt == NULL) {
 		sscr_end(sp);
 		return (1);

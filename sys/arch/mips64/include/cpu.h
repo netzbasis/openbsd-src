@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.106 2015/09/23 21:18:38 miod Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.110 2016/03/06 19:42:27 mpi Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -175,6 +175,8 @@ struct cpu_info {
 	void		(*ci_SyncICache)(struct cpu_info *);
 	void		(*ci_SyncDCachePage)(struct cpu_info *, vaddr_t,
 			    paddr_t);
+	void		(*ci_HitSyncDCachePage)(struct cpu_info *, vaddr_t,
+			    paddr_t);
 	void		(*ci_HitSyncDCache)(struct cpu_info *, vaddr_t, size_t);
 	void		(*ci_HitInvalidateDCache)(struct cpu_info *, vaddr_t,
 			    size_t);
@@ -193,6 +195,12 @@ struct cpu_info {
 	u_int32_t	ci_cpu_counter_interval; /* # of counter ticks/tick */
 
 	u_int32_t	ci_pendingticks;
+
+#ifdef TGT_ORIGIN
+	u_int16_t	ci_nasid;
+	u_int16_t	ci_slice;
+#endif
+
 	struct pmap	*ci_curpmap;
 	uint		ci_intrdepth;		/* interrupt depth */
 #ifdef MULTIPROCESSOR
@@ -273,7 +281,7 @@ void	cp0_calibrate(struct cpu_info *);
  * Arguments to hardclock encapsulate the previous machine state in
  * an opaque clockframe.
  */
-#define	clockframe trap_frame	/* Use normal trap frame */
+#define	clockframe trapframe	/* Use normal trap frame */
 
 #define	SR_KSU_USER		0x00000010
 #define	CLKF_USERMODE(framep)	((framep)->sr & SR_KSU_USER)
@@ -310,12 +318,12 @@ void	cp0_calibrate(struct cpu_info *);
  * process as soon as possible.
  */
 #ifdef MULTIPROCESSOR
-#define	signotify(p)		(aston(p), cpu_unidle(p->p_cpu))
+#define	signotify(p)		(aston(p), cpu_unidle((p)->p_cpu))
 #else
 #define	signotify(p)		aston(p)
 #endif
 
-#define	aston(p)		p->p_md.md_astpending = 1
+#define	aston(p)		((p)->p_md.md_astpending = 1)
 
 #ifdef CPU_R8000
 #define	mips_sync()		__asm__ volatile ("lw $0, 0(%0)" :: \
@@ -423,20 +431,20 @@ void	savectx(struct user *, int);
 
 void	enable_fpu(struct proc *);
 void	save_fpu(void);
-int	fpe_branch_emulate(struct proc *, struct trap_frame *, uint32_t,
+int	fpe_branch_emulate(struct proc *, struct trapframe *, uint32_t,
 	    vaddr_t);
 void	MipsSaveCurFPState(struct proc *);
 void	MipsSaveCurFPState16(struct proc *);
-void	MipsSwitchFPState(struct proc *, struct trap_frame *);
-void	MipsSwitchFPState16(struct proc *, struct trap_frame *);
+void	MipsSwitchFPState(struct proc *, struct trapframe *);
+void	MipsSwitchFPState16(struct proc *, struct trapframe *);
 
 int	guarded_read_1(paddr_t, uint8_t *);
 int	guarded_read_2(paddr_t, uint16_t *);
 int	guarded_read_4(paddr_t, uint32_t *);
 int	guarded_write_4(paddr_t, uint32_t);
 
-void	MipsFPTrap(struct trap_frame *);
-register_t MipsEmulateBranch(struct trap_frame *, vaddr_t, uint32_t, uint32_t);
+void	MipsFPTrap(struct trapframe *);
+register_t MipsEmulateBranch(struct trapframe *, vaddr_t, uint32_t, uint32_t);
 
 int	classify_insn(uint32_t);
 #define	INSNCLASS_NEUTRAL	0
@@ -450,9 +458,9 @@ int	classify_insn(uint32_t);
 extern int r4000_errata;
 u_int	eop_page_check(paddr_t);
 void	eop_tlb_flush_addr(struct pmap *, vaddr_t, u_long);
-int	eop_tlb_miss_handler(struct trap_frame *, struct cpu_info *,
+int	eop_tlb_miss_handler(struct trapframe *, struct cpu_info *,
 	    struct proc *);
-void	eop_cleanup(struct trap_frame *, struct proc *);
+void	eop_cleanup(struct trapframe *, struct proc *);
 
 /*
  * Low level access routines to CPU registers
@@ -502,6 +510,10 @@ u_int	cp1_get_prid(void);
 #ifndef	Mips_SyncDCachePage
 #define	Mips_SyncDCachePage(ci, va, pa) \
 	((ci)->ci_SyncDCachePage)(ci, va, pa)
+#endif
+#ifndef	Mips_HitSyncDCachePage
+#define	Mips_HitSyncDCachePage(ci, va, pa) \
+	((ci)->ci_HitSyncDCachePage)(ci, va, pa)
 #endif
 #ifndef	Mips_HitSyncDCache
 #define	Mips_HitSyncDCache(ci, va, l) \

@@ -1,4 +1,4 @@
-/*	$OpenBSD: crib.c,v 1.18 2015/03/12 02:19:10 bentley Exp $	*/
+/*	$OpenBSD: crib.c,v 1.23 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: crib.c,v 1.7 1997/07/10 06:47:29 mikel Exp $	*/
 
 /*-
@@ -30,18 +30,13 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
-#include <curses.h>
 #include <err.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
-#include "deck.h"
 #include "cribbage.h"
 #include "cribcur.h"
-#include "pathnames.h"
 
 int
 main(int argc, char *argv[])
@@ -49,7 +44,10 @@ main(int argc, char *argv[])
 	bool playing;
 	int ch;
 
-	while ((ch = getopt(argc, argv, "emqr")) != -1)
+	if (pledge("stdio rpath tty proc exec", NULL) == -1)
+		err(1, "pledge");
+
+	while ((ch = getopt(argc, argv, "ehmqr")) != -1)
 		switch (ch) {
 		case 'e':
 			explain = TRUE;
@@ -63,10 +61,11 @@ main(int argc, char *argv[])
 		case 'r':
 			rflag = TRUE;
 			break;
-		case '?':
+		case 'h':
 		default:
-			(void) fprintf(stderr, "usage: cribbage [-emqr]\n");
-			exit(1);
+			(void) fprintf(stderr, "usage: %s [-emqr]\n",
+			    getprogname());
+			return 1;
 		}
 
 	initscr();
@@ -99,6 +98,10 @@ main(int argc, char *argv[])
 			msg("For cribbage rules, use \"man cribbage\"");
 		}
 	}
+
+	if (pledge("stdio tty", NULL) == -1)
+		err(1, "pledge");
+
 	playing = TRUE;
 	do {
 		wclrtobot(Msgwin);
@@ -113,7 +116,7 @@ main(int argc, char *argv[])
 	} while (playing);
 
 	bye();
-	exit(0);
+	return 0;
 }
 
 /*

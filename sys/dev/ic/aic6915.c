@@ -1,4 +1,4 @@
-/*	$OpenBSD: aic6915.c,v 1.19 2015/11/20 03:35:22 dlg Exp $	*/
+/*	$OpenBSD: aic6915.c,v 1.21 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: aic6915.c,v 1.15 2005/12/24 20:27:29 perry Exp $	*/
 
 /*-
@@ -290,7 +290,6 @@ sf_attach(struct sf_softc *sc)
 	ifp->if_start = sf_start;
 	ifp->if_watchdog = sf_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, SF_NTXDESC_MASK);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Attach the interface.
@@ -461,7 +460,7 @@ sf_start(struct ifnet *ifp)
 
 	if (sc->sc_txpending == (SF_NTXDESC - 1)) {
 		/* No more slots left; notify upper layer. */
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_txpending != opending) {
@@ -659,7 +658,7 @@ sf_txintr(struct sf_softc *sc)
 	if (consumer == producer)
 		return;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	while (consumer != producer) {
 		SF_CDTXCSYNC(sc, consumer, BUS_DMASYNC_POSTREAD);
@@ -1106,11 +1105,12 @@ sf_init(struct ifnet *ifp)
 	 * Note that the interface is now running.
 	 */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
  out:
 	if (error) {
-		ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+		ifp->if_flags &= ~IFF_RUNNING;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_timer = 0;
 		printf("%s: interface not running\n", sc->sc_dev.dv_xname);
 	}
@@ -1181,7 +1181,8 @@ sf_stop(struct ifnet *ifp, int disable)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 }
 

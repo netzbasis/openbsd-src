@@ -1,4 +1,4 @@
-/*	$OpenBSD: mptramp.s,v 1.17 2015/04/26 09:48:29 kettenis Exp $	*/
+/*	$OpenBSD: mptramp.s,v 1.19 2016/05/24 02:15:38 mlarkin Exp $	*/
 
 /*-
  * Copyright (c) 2000 The NetBSD Foundation, Inc.
@@ -90,24 +90,9 @@
 
 #define _TRMP_LABEL(a)  a = . - _C_LABEL(cpu_spinup_trampoline) + MP_TRAMPOLINE
 #define _TRMP_OFFSET(a)  a = . - _C_LABEL(cpu_spinup_trampoline)
-
-/*
- * Debug code to stop aux. processors in various stages based on the
- * value in cpu_trace.
- *
- * %edi points at cpu_trace;  cpu_trace[0] is the "hold point";
- * cpu_trace[1] is the point which the cpu has reached.
- * cpu_trace[2] is the last value stored by HALTT.
- */
-
-
-#ifdef MPDEBUG
-#define HALT(x)	1: movl (%edi),%ebx;cmpl $ x,%ebx ; jle 1b ; movl $x,4(%edi)
-#define HALTT(x,y)	movl y,8(%edi); HALT(x)
-#else
-#define HALT(x)
-#define HALTT(x,y)
-#endif
+#define _TRMP_DATA_LABEL(a)  a = . - _C_LABEL(mp_tramp_data_start) + \
+				MP_TRAMP_DATA
+#define _TRMP_DATA_OFFSET(a)  a = . - _C_LABEL(mp_tramp_data_start)
 
 	.globl	_C_LABEL(cpu),_C_LABEL(cpu_id),_C_LABEL(cpu_vendor)
 	.globl	_C_LABEL(cpuid_level),_C_LABEL(cpu_feature)
@@ -116,15 +101,18 @@
 	.global _C_LABEL(cpu_spinup_trampoline_end)
 	.global _C_LABEL(cpu_hatch)
 	.global _C_LABEL(mp_pdirpa)
+	.global _C_LABEL(mp_tramp_data_start)
+	.global _C_LABEL(mp_tramp_data_end)
 	.global _C_LABEL(gdt), _C_LABEL(local_apic)
 
 	.text
-	.align 4,0x0
+	.align 4, 0xcc
 	.code16
 _C_LABEL(cpu_spinup_trampoline):
 	cli
-	movw	%cs, %ax
+	movw	$(MP_TRAMP_DATA >> 4), %ax
 	movw	%ax, %ds
+	movw	%cs, %ax
 	movw	%ax, %es
 	movw	%ax, %ss
 	data32 addr32 lgdt	(gdt_desc)	# load flat descriptor table
@@ -142,20 +130,14 @@ _TRMP_LABEL(mp_startup)
 	movw	%ax, %es
 	movw	%ax, %fs
 	movw	%ax, %gs
-	movl	$(MP_TRAMPOLINE+NBPG-16),%esp	# bootstrap stack end,
+	movl	$(MP_TRAMP_DATA+NBPG-16),%esp	# bootstrap stack end,
 						# with scratch space..
 
-#ifdef MPDEBUG
-	leal	RELOC(cpu_trace),%edi
-#endif
-
-	HALT(0x1)
 	/* First, reset the PSL. */
 	pushl	$PSL_MBO
 	popfl
 
 	movl	RELOC(mp_pdirpa),%ecx
-	HALTT(0x5,%ecx)
 
 	/* Load base of page directory and enable mapping. */
 	movl	%ecx,%cr3		# load ptd addr into mmu
@@ -180,11 +162,6 @@ nopae:
 	orl	$(CR0_PE|CR0_PG|CR0_NE|CR0_TS|CR0_EM|CR0_MP|CR0_WP),%eax
 	movl	%eax,%cr0		# and let's page NOW!
 
-#ifdef MPDEBUG
-	leal	_C_LABEL(cpu_trace),%edi
-#endif
-	HALT(0x6)
-
 # ok, we're now running with paging enabled and sharing page tables with cpu0.
 # figure out which processor we really are, what stack we should be on, etc.
 
@@ -199,40 +176,22 @@ nopae:
 	cmpl	%eax,%edx
 	jne 1b
 
-	HALTT(0x7, %ecx)
-
 # %ecx points at our cpu_info structure..
 
 	movw	$(MAXGDTSIZ-1), 6(%esp)		# prepare segment descriptor
 	movl	CPU_INFO_GDT(%ecx), %eax	# for real gdt
 	movl	%eax, 8(%esp)
-	HALTT(0x8, %eax)
 	lgdt	6(%esp)
-	HALT(0x9)
 	jmp	1f
 	nop
 1:
-	HALT(0xa)
 	movl	$GSEL(GDATA_SEL, SEL_KPL),%eax	#switch to new segment
-	HALTT(0x10, %eax)
 	movw	%ax,%ds
-	HALT(0x11)
 	movw	%ax,%es
-	HALT(0x12)
 	movw	%ax,%ss
-	HALT(0x13)
 	pushl	$GSEL(GCODE_SEL, SEL_KPL)
 	pushl	$mp_cont
-	HALT(0x14)
 	lret
-	.align 4,0x0
-_TRMP_LABEL(gdt_table)
-	.word	0x0,0x0,0x0,0x0			# null GDTE
-	 GDTE(0x9f,0xcf)			# Kernel text
-	 GDTE(0x93,0xcf)			# Kernel data
-_TRMP_OFFSET(gdt_desc)
-	.word	0x17				# limit 3 entries
-	.long	gdt_table			# where is gdt
 
 _C_LABEL(cpu_spinup_trampoline_end):	#end of code copied to MP_TRAMPOLINE
 mp_cont:
@@ -241,39 +200,30 @@ mp_cont:
 
 # %esi now points at our PCB.
 
-	HALTT(0x19, %esi)
-
 	movl	PCB_ESP(%esi),%esp
 	movl	PCB_EBP(%esi),%ebp
 
-	HALT(0x20)
 	/* Switch address space. */
 	movl	PCB_CR3(%esi),%eax
-	HALTT(0x22, %eax)
 	movl	%eax,%cr3
-	HALT(0x25)
 	/* Load segment registers. */
 	movl	$GSEL(GCPU_SEL, SEL_KPL),%eax
-	HALTT(0x26,%eax)
 	movl	%eax,%fs
 	xorl	%eax,%eax
-	HALTT(0x27,%eax)
 	movl	%eax,%gs
 	movl	PCB_CR0(%esi),%eax
-	HALTT(0x28,%eax)
 	movl	%eax,%cr0
-	HALTT(0x30,%ecx)
 	pushl	%ecx
 	call	_C_LABEL(cpu_hatch)
 	/* NOTREACHED */
 
-	.data
-_C_LABEL(mp_pdirpa):
-	.long	0
-#ifdef MPDEBUG
-	.global _C_LABEL(cpu_trace)
-_C_LABEL(cpu_trace):
-	.long	0x40
-	.long	0xff
-	.long	0xff
-#endif
+	.section .rodata
+_C_LABEL(mp_tramp_data_start):
+_TRMP_DATA_LABEL(gdt_table)
+	.word	0x0,0x0,0x0,0x0			# null GDTE
+	 GDTE(0x9f,0xcf)			# Kernel text
+	 GDTE(0x93,0xcf)			# Kernel data
+_TRMP_DATA_OFFSET(gdt_desc)
+	.word	0x17				# limit 3 entries
+	.long	gdt_table			# where is gdt
+_C_LABEL(mp_tramp_data_end):

@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.58 2015/11/19 16:14:08 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.61 2015/11/26 08:15:07 tim Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -151,7 +151,7 @@ ask_pid(int dflt, struct uuid *guid)
 			continue;
 		}
 
-		if (guid) {
+		if (guid && strlen(lbuf) == UUID_STR_LEN) {
 			uuid_from_string(lbuf, guid, &status);
 			if (status == uuid_s_ok)
 				return (0x100);
@@ -203,7 +203,7 @@ ask_yn(const char *str)
  * adapted from sbin/disklabel/editor.c
  */
 u_int64_t
-getuint64(char *prompt, u_int64_t oval, u_int64_t maxval)
+getuint64(char *prompt, u_int64_t oval, u_int64_t minval, u_int64_t maxval)
 {
 	const int secsize = unit_types[SECTORS].conversion;
 	char buf[BUFSIZ], *endptr, *p, operator = '\0';
@@ -215,11 +215,14 @@ getuint64(char *prompt, u_int64_t oval, u_int64_t maxval)
 
 	if (oval > maxval)
 		oval = maxval;
+	if (oval < minval)
+		oval = minval;
 
 	secpercyl = disk.sectors * disk.heads;
 
 	do {
-		printf("%s: [%llu] ", prompt, oval);
+		printf("%s [%llu - %llu]: [%llu] ", prompt, minval, maxval,
+		    oval);
 
 		if (string_from_line(buf, sizeof(buf)))
 			errx(1, "eof");
@@ -304,7 +307,7 @@ getuint64(char *prompt, u_int64_t oval, u_int64_t maxval)
 			d2 = d;
 		}
 
-		if (saveerr == ERANGE || d > maxval || d < 0 || d < d2) {
+		if (saveerr == ERANGE || d > maxval || d < minval || d < d2) {
 			printf("%s is out of range: %c%s%c\n", prompt, operator,
 			    p, unit);
 		} else if (*endptr != '\0') {

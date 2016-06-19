@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.13 2015/10/22 05:28:42 doug Exp $	*/
+/*	$OpenBSD: main.c,v 1.19 2016/02/28 06:24:06 tb Exp $	*/
 /*	$NetBSD: main.c,v 1.3 1995/03/23 08:32:50 cgd Exp $	*/
 
 /*
@@ -30,10 +30,16 @@
  * SUCH DAMAGE.
  */
 
-# include	"hangman.h"
+#include <curses.h>
+#include <err.h>
 #include <paths.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-void	usage();
+#include "hangman.h"
+
+__dead void	usage(void);
 
 /*
  * This game written by Ken Arnold.
@@ -59,7 +65,6 @@ main(int argc, char *argv[])
 			Dict_name = _PATH_KSYMS;
 			break;
 		case 'h':
-		case '?':
 		default:
 			usage();
 		}
@@ -81,7 +86,6 @@ main(int argc, char *argv[])
 		playgame();
 		Average = (Average * (Wordnum - 1) + Errors) / Wordnum;
 	}
-	/* NOTREACHED */
 }
 
 /*
@@ -98,8 +102,8 @@ die(int dummy)
 }
 
 __dead void
-usage()
+usage(void)
 {
-	(void)fprintf(stderr, "usage: hangman [-k] [-d wordlist]\n");
+	(void)fprintf(stderr, "usage: %s [-k] [-d wordlist]\n", getprogname());
 	exit(1);
 }

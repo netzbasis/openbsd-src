@@ -1,7 +1,7 @@
-/* $OpenBSD: proc.c,v 1.4 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: proc.c,v 1.8 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2015 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2015 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
+#include <sys/utsname.h>
 
 #include <errno.h>
 #include <event.h>
@@ -60,7 +61,8 @@ proc_event_cb(__unused int fd, short events, void *arg)
 	struct imsg	 imsg;
 
 	if (!(peer->flags & PEER_BAD) && (events & EV_READ)) {
-		if ((n = imsg_read(&peer->ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read(&peer->ibuf)) == -1 && errno != EAGAIN) ||
+		    n == 0) {
 			peer->dispatchcb(NULL, peer->arg);
 			return;
 		}
@@ -170,6 +172,7 @@ proc_start(const char *name, struct event_base *base, int forkflag,
     void (*signalcb)(int))
 {
 	struct tmuxproc	*tp;
+	struct utsname	 u;
 
 	if (forkflag) {
 		switch (fork()) {
@@ -188,11 +191,16 @@ proc_start(const char *name, struct event_base *base, int forkflag,
 			fatalx("event_reinit failed");
 	}
 
-	logfile(name);
+	log_open(name);
 	setproctitle("%s (%s)", name, socket_path);
+
+	if (uname(&u) < 0)
+		memset(&u, 0, sizeof u);
 
 	log_debug("%s started (%ld): socket %s, protocol %d", name,
 	    (long)getpid(), socket_path, PROTOCOL_VERSION);
+	log_debug("on %s %s %s; libevent %s (%s)", u.sysname, u.release,
+	    u.version, event_get_version(), event_get_method());
 
 	tp = xcalloc(1, sizeof *tp);
 	tp->name = xstrdup(name);

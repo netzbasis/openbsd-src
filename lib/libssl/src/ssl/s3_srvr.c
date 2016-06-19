@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_srvr.c,v 1.123 2015/09/13 12:39:16 jsing Exp $ */
+/* $OpenBSD: s3_srvr.c,v 1.126 2016/05/30 13:42:54 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1236,25 +1236,10 @@ ssl3_send_server_key_exchange(SSL *s)
 				goto err;
 			}
 			s->s3->tmp.dh = dh;
-
-			if ((dhp->pub_key == NULL || dhp->priv_key == NULL ||
-			    (s->options & SSL_OP_SINGLE_DH_USE))) {
-				if (!DH_generate_key(dh)) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,
-					    ERR_R_DH_LIB);
-					goto err;
-				}
-			} else {
-				dh->pub_key = BN_dup(dhp->pub_key);
-				dh->priv_key = BN_dup(dhp->priv_key);
-				if ((dh->pub_key == NULL) ||
-					(dh->priv_key == NULL)) {
-					SSLerr(
-					    SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,
-					    ERR_R_DH_LIB);
-					goto err;
-				}
+			if (!DH_generate_key(dh)) {
+				SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,
+				    ERR_R_DH_LIB);
+				goto err;
 			}
 			r[0] = dh->p;
 			r[1] = dh->g;
@@ -2391,8 +2376,7 @@ ssl3_get_client_certificate(SSL *s)
 		}
 	}
 
-	if (s->session->peer != NULL) /* This should not be needed */
-		X509_free(s->session->peer);
+	X509_free(s->session->peer);
 	s->session->peer = sk_X509_shift(sk);
 	s->session->verify_result = s->verify_result;
 
@@ -2429,8 +2413,7 @@ f_err:
 		ssl3_send_alert(s, SSL3_AL_FATAL, al);
 	}
 err:
-	if (x != NULL)
-		X509_free(x);
+	X509_free(x);
 	if (sk != NULL)
 		sk_X509_pop_free(sk, X509_free);
 	return (ret);
@@ -2575,7 +2558,7 @@ ssl3_send_newsession_ticket(SSL *s)
 		/* Encrypt session data */
 		EVP_EncryptUpdate(&ctx, p, &len, senc, slen);
 		p += len;
-		EVP_EncryptFinal(&ctx, p, &len);
+		EVP_EncryptFinal_ex(&ctx, p, &len);
 		p += len;
 		EVP_CIPHER_CTX_cleanup(&ctx);
 

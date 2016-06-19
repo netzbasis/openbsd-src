@@ -1,4 +1,4 @@
-/* $OpenBSD: i80321_intr.c,v 1.16 2014/04/03 10:17:34 mpi Exp $ */
+/* $OpenBSD: i80321_intr.c,v 1.18 2016/04/03 10:29:41 jsg Exp $ */
 
 /*
  * Copyright (c) 2006 Dale Rahn <drahn@openbsd.org>
@@ -104,7 +104,7 @@ i80321intc_setipl(int new)
 {
 	int psw;
 
-	psw = disable_interrupts(I32_bit);
+	psw = disable_interrupts(PSR_I);
 	current_ipl_level = new;
 	i80321intc_write_intctl(i80321intc_imask[new]);
 	restore_interrupts(psw);
@@ -174,17 +174,11 @@ i80321intc_calc_mask(void)
 void
 i80321intc_do_pending(void)
 {
-	static int processing = 0;
 	int oldirqstate, spl_save;
 
-	oldirqstate = disable_interrupts(I32_bit);
+	oldirqstate = disable_interrupts(PSR_I);
 
 	spl_save = current_ipl_level;
-
-	if (processing == 1) {
-		restore_interrupts(oldirqstate);
-		return;
-	}
 
 #define DO_SOFTINT(si, ipl) \
 	if ((softint_pending & i80321intc_smask[current_ipl_level]) &	\
@@ -194,7 +188,7 @@ i80321intc_do_pending(void)
 			i80321intc_setipl(ipl);				\
 		restore_interrupts(oldirqstate);			\
 		softintr_dispatch(si);					\
-		oldirqstate = disable_interrupts(I32_bit);		\
+		oldirqstate = disable_interrupts(PSR_I);		\
 		i80321intc_setipl(spl_save);				\
 	}
 
@@ -205,8 +199,6 @@ i80321intc_do_pending(void)
 		DO_SOFTINT(SI_SOFT, IPL_SOFT);
 	} while (softint_pending & i80321intc_smask[current_ipl_level]);
 		
-
-	processing = 0;
 	restore_interrupts(oldirqstate);
 }
 
@@ -253,7 +245,7 @@ _setsoftintr(int si)
 {
 	int oldirqstate;
 
-        oldirqstate = disable_interrupts(I32_bit);
+        oldirqstate = disable_interrupts(PSR_I);
 	softint_pending |= SI_TO_IRQBIT(si);
 	restore_interrupts(oldirqstate);
 
@@ -296,7 +288,7 @@ i80321intc_init(void)
 	i80321intc_calc_mask();
       
 	/* Enable IRQs (don't yet use FIQs). */
-	enable_interrupts(I32_bit);
+	enable_interrupts(PSR_I);
 }
 
 void *
@@ -328,7 +320,7 @@ i80321_intr_establish(int irq, int ipl, int (*func)(void *), void *arg,
 	/* All IOP321 interrupts are level-triggered. */
 	iq->iq_ist = IST_LEVEL;
 
-	oldirqstate = disable_interrupts(I32_bit);
+	oldirqstate = disable_interrupts(PSR_I);
 	
 	TAILQ_INSERT_TAIL(&iq->iq_list, ih, ih_list);
  
@@ -347,7 +339,7 @@ i80321_intr_disestablish(void *cookie)
 	struct intrq *iq = &i80321_handler[ih->ih_irq];
 	int oldirqstate;
 		
-	oldirqstate = disable_interrupts(I32_bit);
+	oldirqstate = disable_interrupts(PSR_I);
 
 	TAILQ_REMOVE(&iq->iq_list, ih, ih_list);
 	if (ih->ih_name != NULL)
@@ -380,14 +372,14 @@ i80321_irq_handler(void *arg)
 			i80321intc_setipl(i80321_handler[irq].iq_irq);
 
 		/* Enable interrupt */
-		enable_interrupts(I32_bit);
+		enable_interrupts(PSR_I);
 		TAILQ_FOREACH(ih, &i80321_handler[irq].iq_list, ih_list) {
 			if ((ih->ih_func)( ih->ih_arg == 0
 			    ? frame : ih->ih_arg))
 				ih->ih_count.ec_count++;
 		}
 		/* Disable interrupt */
-		disable_interrupts(I32_bit);
+		disable_interrupts(PSR_I);
 		hwpend &= ~(1<<irq);
 	}
 	uvmexp.intrs++;

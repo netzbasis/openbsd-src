@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.157 2015/10/23 10:22:30 claudio Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.163 2016/05/27 19:45:04 deraadt Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -131,7 +131,7 @@ struct ctlname {
 #define	KERN_SOMAXCONN		28	/* int: listen queue maximum */
 #define	KERN_SOMINCONN		29	/* int: half-open controllable param */
 #define	KERN_USERMOUNT		30	/* int: users may mount filesystems */
-#define	KERN_RND		31	/* struct: rnd(4) statistics */
+/* was KERN_RND	31			*/
 #define	KERN_NOSUIDCOREDUMP	32	/* int: no setuid coredumps ever */ 
 #define	KERN_FSYNC		33	/* int: file synchronization support */
 #define	KERN_SYSVMSG		34	/* int: SysV message queue suppoprt */
@@ -152,7 +152,7 @@ struct ctlname {
 #define	KERN_POOL		49	/* struct: pool information */
 #define	KERN_STACKGAPRANDOM	50	/* int: stackgap_random */
 #define	KERN_SYSVIPC_INFO	51	/* struct: SysV sem/shm/msg info */
-/* was KERN_USERCRYPTO	52	*/
+/* was KERN_USERCRYPTO		52	*/
 /* was KERN_CRYPTODEVALLOWSOFT	53	*/
 #define KERN_SPLASSERT		54	/* int: splassert */
 #define KERN_PROC_ARGS		55	/* node: proc args and env */
@@ -165,7 +165,7 @@ struct ctlname {
 #define	KERN_SHMINFO		62	/* struct: SysV struct shminfo */
 #define KERN_INTRCNT		63	/* node: interrupt counters */
 #define	KERN_WATCHDOG		64	/* node: watchdog */
-#define	KERN_EMUL		65	/* node: emuls */
+/* was KERN_EMUL		65	*/
 #define	KERN_PROC		66	/* struct: process entries */
 #define	KERN_MAXCLUSTERS	67	/* number of mclusters */
 #define KERN_EVCOUNT		68	/* node: event counters */
@@ -174,7 +174,7 @@ struct ctlname {
 #define	KERN_CPTIME2		71	/* array: cp_time2 */
 #define	KERN_CACHEPCT		72	/* buffer cache % of physmem */
 #define	KERN_FILE		73	/* struct: file entries */
-/* was KERN_RTHREADS	74	*/
+#define	KERN_WXABORT		74	/* int: w^x sigabrt & core */
 #define	KERN_CONSDEV		75	/* dev_t: console terminal device */
 #define	KERN_NETLIVELOCKS	76	/* int: number of network livelocks */
 #define	KERN_POOL_DEBUG		77	/* int: enable pool_debug */
@@ -252,7 +252,7 @@ struct ctlname {
 	{ "shminfo", CTLTYPE_STRUCT }, \
 	{ "intrcnt", CTLTYPE_NODE }, \
  	{ "watchdog", CTLTYPE_NODE }, \
- 	{ "emul", CTLTYPE_NODE }, \
+ 	{ "gap", 0 }, \
  	{ "proc", CTLTYPE_STRUCT }, \
  	{ "maxclusters", CTLTYPE_INT }, \
 	{ "evcount", CTLTYPE_NODE }, \
@@ -261,7 +261,7 @@ struct ctlname {
  	{ "cp_time2", CTLTYPE_STRUCT }, \
 	{ "bufcachepercent", CTLTYPE_INT }, \
 	{ "file", CTLTYPE_STRUCT }, \
-	{ "gap", 0 }, \
+	{ "wxabort", CTLTYPE_INT }, \
 	{ "consdev", CTLTYPE_STRUCT }, \
 	{ "netlivelocks", CTLTYPE_INT }, \
 	{ "pool_debug", CTLTYPE_INT }, \
@@ -270,15 +270,6 @@ struct ctlname {
 	{ "proc_vmmap", CTLTYPE_NODE }, \
 	{ "global_ptrace", CTLTYPE_INT }, \
 }
-
-/*
- * KERN_EMUL subtypes.
- */
-#define	KERN_EMUL_NUM		0
-/* Fourth level sysctl names */
-#define KERN_EMUL_NAME		0
-#define KERN_EMUL_ENABLED	1
-
 
 /*
  * KERN_PROC subtypes
@@ -386,7 +377,7 @@ struct kinfo_proc {
 
 	int8_t	p_stat;			/* CHAR: S* process status (from LWP). */
 	u_int8_t p_priority;		/* U_CHAR: Process priority. */
-	u_int8_t p_usrpri;		/* U_CHAR: User-priority based on p_cpu and ps_nice. */
+	u_int8_t p_usrpri;		/* U_CHAR: User-priority based on p_estcpu and ps_nice. */
 	u_int8_t p_nice;		/* U_CHAR: Process "nice" value. */
 
 	u_int16_t p_xstat;		/* U_SHORT: Exit status for wait; also stop signal. */
@@ -730,8 +721,7 @@ struct kinfo_file {
 	uint32_t	kq_count;	/* INT: number of pending events */
 	uint32_t	kq_state;	/* INT: kqueue status information */
 
-	/* systrace information */
-	uint32_t	str_npolicies;	/* INT: number systrace policies */
+	uint32_t	__unused1;	/* INT: unused */
 
 	/* process information when retrieved via KERN_FILE_BY[PU]ID */
 	uint32_t	p_pid;		/* PID_T: process id */

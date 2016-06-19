@@ -1,4 +1,4 @@
-/*	$OpenBSD: buf.h,v 1.99 2015/07/19 16:21:11 beck Exp $	*/
+/*	$OpenBSD: buf.h,v 1.103 2016/05/23 09:31:28 natano Exp $	*/
 /*	$NetBSD: buf.h,v 1.25 1997/04/09 21:12:17 mycroft Exp $	*/
 
 /*
@@ -229,20 +229,6 @@ struct bufcache {
     "\025SCANNED\026DAEMON\027RELEASED\030WARM\031COLD\032BC\033DMA"
 
 /*
- * This structure describes a clustered I/O.  It is stored in the b_saveaddr
- * field of the buffer on which I/O is done.  At I/O completion, cluster
- * callback uses the structure to parcel I/O's to individual buffers, and
- * then free's this structure.
- */
-struct cluster_save {
-	long	bs_bcount;		/* Saved b_bcount. */
-	long	bs_bufsize;		/* Saved b_bufsize. */
-	void	*bs_saveaddr;		/* Saved b_addr. */
-	int	bs_nchildren;		/* Number of associated buffers. */
-	struct buf **bs_children;	/* List of associated buffers. */
-};
-
-/*
  * Zero out the buffer's data area.
  */
 #define	clrbuf(bp) {							\
@@ -292,6 +278,7 @@ void	brelse(struct buf *);
 void	bufinit(void);
 void	buf_dirty(struct buf *);
 void    buf_undirty(struct buf *);
+void	buf_adjcnt(struct buf *, long);
 int	bwrite(struct buf *);
 struct buf *getblk(struct vnode *, daddr_t, int, int, int);
 struct buf *geteblk(int);
@@ -305,7 +292,7 @@ void bufcache_release(struct buf *);
 
 void buf_flip_high(struct buf *);
 void buf_flip_dma(struct buf *);
-struct buf *bufcache_getcleanbuf(int);
+struct buf *bufcache_getcleanbuf(int, int);
 struct buf *bufcache_getanycleanbuf(void);
 struct buf *bufcache_getdirtybuf(void);
 
@@ -339,7 +326,6 @@ void  bgetvp(struct vnode *, struct buf *);
 void  buf_replacevnode(struct buf *, struct vnode *);
 void  buf_daemon(struct proc *);
 void  buf_replacevnode(struct buf *, struct vnode *);
-void  buf_daemon(struct proc *);
 int bread_cluster(struct vnode *, daddr_t, int, struct buf **);
 
 #ifdef DEBUG

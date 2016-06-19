@@ -1,4 +1,4 @@
-/*	$OpenBSD: move.c,v 1.15 2015/11/04 21:22:10 tedu Exp $	*/
+/*	$OpenBSD: move.c,v 1.17 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: move.c,v 1.4 1995/03/24 05:01:57 cgd Exp $	*/
 
 /*
@@ -30,19 +30,21 @@
  * SUCH DAMAGE.
  */
 
-#include	<limits.h>
-#include	<termios.h>
-#include	"mille.h"
+#include <ctype.h>
+#ifdef DEBUG
+#include <err.h>
+#include <limits.h>
+#endif
+#include <string.h>
+
+#include "mille.h"
 
 /*
  * @(#)move.c	1.2 (Berkeley) 3/28/83
  */
 
-#undef	CTRL
-#define	CTRL(c)		(c - 'A' + 1)
-
 void
-domove()
+domove(void)
 {
 	PLAY	*pp;
 	int	i, j;
@@ -146,7 +148,7 @@ acc:
  * the game is over
  */
 void
-check_go()
+check_go(void)
 {
 	CARD	card;
 	PLAY	*pp, *op;
@@ -177,8 +179,7 @@ check_go()
 }
 
 int
-playcard(pp)
-	PLAY	*pp;
+playcard(PLAY *pp)
 {
 	int	v;
 	CARD	card;
@@ -324,7 +325,7 @@ protected:
 }
 
 void
-getmove()
+getmove(void)
 {
 	char	c;
 #ifdef DEBUG
@@ -460,8 +461,7 @@ ret:
  * return whether or not the player has picked
  */
 int
-haspicked(pp)
-	const PLAY	*pp;
+haspicked(const PLAY *pp)
 {
 	int	card;
 
@@ -480,8 +480,7 @@ haspicked(pp)
 }
 
 void
-account(card)
-	CARD	card;
+account(CARD card)
 {
 	CARD	oppos;
 
@@ -506,8 +505,7 @@ account(card)
 }
 
 void
-prompt(promptno)
-	int	promptno;
+prompt(int promptno)
 {
 	static const char	*const names[] = {
 				">>:Move:",
@@ -538,8 +536,7 @@ prompt(promptno)
 }
 
 void
-sort(hand)
-	CARD	*hand;
+sort(CARD *hand)
 {
 	CARD	*cp, *tp;
 	CARD	temp;

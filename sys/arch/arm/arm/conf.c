@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.42 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.46 2016/05/23 00:05:34 deraadt Exp $	*/
 /*	$NetBSD: conf.c,v 1.10 2002/04/19 01:04:38 wiz Exp $	*/
 
 /*
@@ -253,12 +253,11 @@ struct bdevsw bdevsw[] = {
 #define ptctty          ptytty
 #define ptcioctl        ptyioctl
 
-#include "systrace.h"
-
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "openprom.h"
 
 #ifdef CONF_HAVE_GPIO
 #include "gpio.h"
@@ -323,7 +322,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),				/* 47: was: /dev/crypto */
 	cdev_notdef(),				/* 48: reserved */
 	cdev_notdef(),				/* 49: reserved */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50: system call tracing */
+	cdev_notdef(),				/* 50: reserved */
 	cdev_notdef(),				/* 51: reserved */
  	cdev_bio_init(NBIO,bio),		/* 52: ioctl tunnel */
 	cdev_notdef(),				/* 53: reserved */
@@ -355,7 +354,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),                          /* 79: removed device */
 	cdev_notdef(),                          /* 80: removed device */
 	cdev_notdef(),                          /* 81: removed device */
-	cdev_notdef(),                          /* 82: removed device */
+	cdev_openprom_init(NOPENPROM,openprom),	/* 82: /dev/openprom */
 	cdev_notdef(),                          /* 83: removed device */
 	cdev_notdef(),                          /* 84: removed device */
 	cdev_notdef(),                          /* 85: removed device */
@@ -450,51 +449,6 @@ int chrtoblktbl[] = {
     /* 24 */        24,		/* sd */
     /* 25 */        25,		/* st */
     /* 26 */        26,		/* cd */
-    /* 27 */        NODEV,
-    /* 28 */        NODEV,
-    /* 29 */        NODEV,
-    /* 30 */        NODEV,
-    /* 31 */        NODEV,
-    /* 32 */        NODEV,
-    /* 33 */        NODEV,
-    /* 34 */        NODEV,
-    /* 35 */        NODEV,
-    /* 36 */        NODEV,
-    /* 37 */        NODEV,
-    /* 38 */        NODEV,
-    /* 39 */        NODEV,
-    /* 40 */        NODEV,
-    /* 41 */        NODEV,
-    /* 42 */        NODEV,
-    /* 43 */        NODEV,
-    /* 44 */        NODEV,
-    /* 45 */        NODEV,
-    /* 46 */        NODEV,
-    /* 47 */        NODEV,
-    /* 48 */        NODEV,
-    /* 49 */        NODEV,
-    /* 50 */        NODEV,
-    /* 51 */        NODEV,
-    /* 52 */        NODEV,
-    /* 53 */        NODEV,
-    /* 54 */        NODEV,
-    /* 55 */        NODEV,
-    /* 56 */	    NODEV,
-    /* 57 */	    NODEV,
-    /* 58 */	    NODEV,
-    /* 59 */        NODEV,
-    /* 60 */        NODEV,
-    /* 61 */        NODEV,
-    /* 62 */        NODEV,
-    /* 63 */        NODEV,
-    /* 64 */        NODEV,
-    /* 65 */        NODEV,
-    /* 66 */	    NODEV,
-    /* 67 */	    NODEV,
-    /* 68 */	    NODEV,
-    /* 69 */	    NODEV,
-    /* 70 */	    NODEV,
-    /* 71 */	    71,		/* raid */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);
 

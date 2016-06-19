@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.38 2015/11/13 07:52:20 mlarkin Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.43 2016/04/26 15:57:09 mlarkin Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.1 2003/04/26 18:39:48 fvdl Exp $	*/
 /*	$NetBSD: x86/specialreg.h,v 1.2 2003/04/25 21:54:30 fvdl Exp $	*/
 
@@ -70,6 +70,12 @@
 /* the remaining 7 bits of this register are reserved */
 
 /*
+ * bits in CR3
+ */
+#define CR3_PWT		(1ULL << 3)
+#define CR3_PCD		(1ULL << 4)
+
+/*
  * bits in the pentiums %cr4 register:
  */
 
@@ -91,6 +97,7 @@
 #define	CR4_OSXSAVE	0x00040000	/* enable XSAVE and extended states */
 #define	CR4_SMEP	0x00100000	/* supervisor mode exec protection */
 #define	CR4_SMAP	0x00200000	/* supervisor mode access prevention */
+#define CR4_PKE		0x00400000	/* protection key enable */
 
 /*
  * Extended Control Register XCR0
@@ -173,6 +180,7 @@
  * EBX bits
  */
 #define	SEFF0EBX_FSGSBASE	0x00000001 /* {RD,WR}[FG]SBASE instructions */
+#define	SEFF0EBX_SGX		0x00000004 /* Software Guard Extensions */
 #define	SEFF0EBX_BMI1		0x00000008 /* advanced bit manipulation */
 #define	SEFF0EBX_HLE		0x00000010 /* Hardware Lock Elision */
 #define	SEFF0EBX_AVX2		0x00000020 /* Advanced Vector Extensions 2 */
@@ -181,11 +189,27 @@
 #define	SEFF0EBX_ERMS		0x00000200 /* Enhanced REP MOVSB/STOSB */
 #define	SEFF0EBX_INVPCID	0x00000400 /* INVPCID instruction */
 #define	SEFF0EBX_RTM		0x00000800 /* Restricted Transactional Memory */
+#define	SEFF0EBX_PQM		0x00001000 /* Quality of Service Monitoring */
+#define	SEFF0EBX_MPX		0x00004000 /* Memory Protection Extensions */
+#define	SEFF0EBX_AVX512F	0x00010000 /* AVX-512 foundation inst */
+#define	SEFF0EBX_AVX512DQ	0x00020000 /* AVX-512 double/quadword */
 #define	SEFF0EBX_RDSEED		0x00040000 /* RDSEED instruction */
 #define	SEFF0EBX_ADX		0x00080000 /* ADCX/ADOX instructions */
 #define	SEFF0EBX_SMAP		0x00100000 /* Supervisor mode access prevent */
+#define	SEFF0EBX_AVX512IFMA	0x00200000 /* AVX-512 integer mult-add */
+#define	SEFF0EBX_PCOMMIT	0x00400000 /* Persistent commit inst */
+#define	SEFF0EBX_CLFLUSHOPT	0x00800000 /* cache line flush */
+#define	SEFF0EBX_CLWB		0x01000000 /* cache line write back */
+#define	SEFF0EBX_PT		0x02000000 /* Processor Trace */
+#define	SEFF0EBX_AVX512PF	0x04000000 /* AVX-512 prefetch */
+#define	SEFF0EBX_AVX512ER	0x08000000 /* AVX-512 exp/reciprocal */
+#define	SEFF0EBX_AVX512CD	0x10000000 /* AVX-512 conflict detection */
+#define	SEFF0EBX_SHA		0x20000000 /* SHA Extensions */
+#define	SEFF0EBX_AVX512BW	0x40000000 /* AVX-512 byte/word inst */
+#define	SEFF0EBX_AVX512VL	0x80000000 /* AVX-512 vector len inst */
 /* SEFF ECX bits */
 #define SEFF0ECX_PREFETCHWT1	0x00000001 /* PREFETCHWT1 instruction */
+#define SEFF0ECX_AVX512VBMI	0x00000002 /* AVX-512 vector bit inst */
 #define SEFF0ECX_PKU		0x00000008 /* Page prot keys for user mode */
 
 /*
@@ -284,7 +308,9 @@
 #define	MSR_CTR0		0x012	/* P5 only (trap on P6) */
 #define	MSR_CTR1		0x013	/* P5 only (trap on P6) */
 #define MSR_APICBASE		0x01b
+#define APICBASE_BSP		0x100
 #define APICBASE_ENABLE_X2APIC	0x400
+#define APICBASE_GLOBAL_ENABLE	0x800
 #define MSR_EBL_CR_POWERON	0x02a
 #define MSR_EBC_FREQUENCY_ID    0x02c   /* Pentium 4 only */
 #define	MSR_TEST_CTL		0x033
@@ -311,6 +337,9 @@
 #define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
 #define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_MTRRcap		0x0fe
+#define MTRRcap_FIXED		0x100	/* bit 8 - fixed MTRRs supported */
+#define MTRRcap_WC		0x400	/* bit 10 - WC type supported */
+#define MTRRcap_SMRR		0x800	/* bit 11 - SMM range reg supported */
 #define	MSR_BBL_CR_ADDR		0x116	/* PII+ only */
 #define	MSR_BBL_CR_DECC		0x118	/* PII+ only */
 #define	MSR_BBL_CR_CTL		0x119	/* PII+ only */
@@ -327,6 +356,7 @@
 #define MSR_EVNTSEL1		0x187
 #define MSR_PERF_STATUS		0x198	/* Pentium M */
 #define MSR_PERF_CTL		0x199	/* Pentium M */
+#define PERF_CTL_TURBO		0x100000000ULL /* bit 32 - turbo mode */
 #define MSR_THERM_CONTROL	0x19a
 #define MSR_THERM_INTERRUPT	0x19b
 #define MSR_THERM_STATUS	0x19c
@@ -345,6 +375,8 @@
 #define	MSR_MTRRfix4K_C0000	0x268
 #define MSR_CR_PAT		0x277
 #define MSR_MTRRdefType		0x2ff
+#define MTRRdefType_FIXED_ENABLE	0x400 /* bit 10 - fixed MTRR enabled */
+#define MTRRdefType_ENABLE	0x800 /* bit 11 - MTRRs enabled */
 #define MSR_PERF_FIXED_CTR1	0x30a	/* CPU_CLK_Unhalted.Core */
 #define MSR_PERF_FIXED_CTR2	0x30b	/* CPU_CLK.Unhalted.Ref */
 #define MSR_PERF_FIXED_CTR_CTRL 0x38d
@@ -808,6 +840,8 @@
 #define IA32_FEATURE_CONTROL_LOCK	0x01
 #define IA32_FEATURE_CONTROL_SMX_EN	0x02
 #define IA32_FEATURE_CONTROL_VMX_EN	0x04
+#define IA32_FEATURE_CONTROL_SENTER_EN (1ULL << 15)
+#define IA32_FEATURE_CONTROL_SENTER_PARAM_MASK 0x7f00
 #define IA32_VMX_BASIC			0x480
 #define IA32_VMX_PINBASED_CTLS		0x481
 #define IA32_VMX_PROCBASED_CTLS		0x482
@@ -1002,6 +1036,10 @@
 #define IA32_VMX_EPT_FAULT_READ		(1ULL << 0)
 #define IA32_VMX_EPT_FAULT_WRITE	(1ULL << 1)
 #define IA32_VMX_EPT_FAULT_EXEC		(1ULL << 2)
+
+#define IA32_VMX_EPT_FAULT_WAS_READABLE (1ULL << 3)
+#define IA32_VMX_EPT_FAULT_WAS_WRITABLE	(1ULL << 4)
+#define IA32_VMX_EPT_FAULT_WAS_EXECABLE (1ULL << 5)
 
 #define IA32_VMX_MSR_LIST_SIZE_MASK	(3ULL << 25)
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: library.c,v 1.72 2015/11/06 05:12:30 guenther Exp $ */
+/*	$OpenBSD: library.c,v 1.76 2016/06/08 11:58:59 kettenis Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -101,9 +101,10 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	Elf_Addr libaddr, loff, align = _dl_pagesz - 1;
 	elf_object_t *object;
 	char	hbuf[4096];
-	Elf_Dyn *dynp = 0;
+	Elf_Dyn *dynp = NULL;
 	Elf_Ehdr *ehdr;
 	Elf_Phdr *phdp;
+	Elf_Phdr *ptls = NULL;
 	struct stat sb;
 	void *prebind_data;
 
@@ -164,8 +165,19 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 			dynp = (Elf_Dyn *)phdp->p_vaddr;
 			break;
 		case PT_TLS:
+			if (phdp->p_filesz > phdp->p_memsz) {
+				_dl_printf("%s: invalid tls data in %s.\n",
+				    __progname, libname);
+				_dl_close(libfile);
+				_dl_errno = DL_CANT_LOAD_OBJ;
+				return(0);
+			}
+			if (!_dl_tib_static_done) {
+				ptls = phdp;
+				break;
+			}
 			_dl_printf("%s: unsupported TLS program header in %s\n",
-			    _dl_progname, libname);
+			    __progname, libname);
 			_dl_close(libfile);
 			_dl_errno = DL_CANT_LOAD_OBJ;
 			return(0);
@@ -188,7 +200,7 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	    MAP_PRIVATE|MAP_FILE, libfile, 0);
 	if (_dl_mmap_error(libaddr)) {
 		_dl_printf("%s: rtld mmap failed mapping %s.\n",
-		    _dl_progname, libname);
+		    __progname, libname);
 		_dl_close(libfile);
 		_dl_errno = DL_CANT_MMAP;
 		return(0);
@@ -203,11 +215,22 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 			char *start = (char *)(TRUNC_PG(phdp->p_vaddr)) + loff;
 			Elf_Addr off = (phdp->p_vaddr & align);
 			Elf_Addr size = off + phdp->p_filesz;
+			int flags = PFLAGS(phdp->p_flags);
 			void *res;
 
+			/*
+			 * Initially map W|X segments without X
+			 * permission.  After we're done with the
+			 * initial relocation processing, we will make
+			 * these segments read-only and add back the X
+			 * permission.  This way we maintain W^X at
+			 * all times.
+			 */
+			if ((flags & PROT_WRITE) && (flags & PROT_EXEC))
+				flags &= ~PROT_EXEC;
+
 			if (size != 0) {
-				res = _dl_mmap(start, ROUND_PG(size),
-				    PFLAGS(phdp->p_flags),
+				res = _dl_mmap(start, ROUND_PG(size), flags,
 				    MAP_FIXED|MAP_PRIVATE, libfile,
 				    TRUNC_PG(phdp->p_offset));
 			} else
@@ -222,7 +245,7 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 			next_load->prot = PFLAGS(phdp->p_flags);
 			if (size != 0 && _dl_mmap_error(res)) {
 				_dl_printf("%s: rtld mmap failed mapping %s.\n",
-				    _dl_progname, libname);
+				    __progname, libname);
 				_dl_close(libfile);
 				_dl_errno = DL_CANT_MMAP;
 				_dl_munmap((void *)libaddr, maxva - minva);
@@ -240,12 +263,11 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 				start = start + ROUND_PG(size);
 				size = ROUND_PG(off + phdp->p_memsz) -
 				    ROUND_PG(size);
-				res = _dl_mmap(start, size,
-				    PFLAGS(phdp->p_flags),
+				res = _dl_mmap(start, size, flags,
 				    MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0);
 				if (_dl_mmap_error(res)) {
 					_dl_printf("%s: rtld mmap failed mapping %s.\n",
-					    _dl_progname, libname);
+					    __progname, libname);
 					_dl_close(libfile);
 					_dl_errno = DL_CANT_MMAP;
 					_dl_munmap((void *)libaddr, maxva - minva);
@@ -283,6 +305,8 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 		object->inode = sb.st_ino;
 		object->obj_flags |= flags;
 		_dl_set_sod(object->load_name, &object->sod);
+		if (ptls != NULL && ptls->p_memsz)
+			_dl_set_tls(object, ptls, libaddr, libname);
 	} else {
 		_dl_munmap((void *)libaddr, maxva - minva);
 		_dl_load_list_free(load_list);

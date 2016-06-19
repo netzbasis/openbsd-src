@@ -1,4 +1,4 @@
-/* $OpenBSD: lemac.c,v 1.23 2015/11/20 03:35:22 dlg Exp $ */
+/* $OpenBSD: lemac.c,v 1.29 2016/04/13 10:49:26 mpi Exp $ */
 /* $NetBSD: lemac.c,v 1.20 2001/06/13 10:46:02 wiz Exp $ */
 
 /*-
@@ -45,9 +45,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
-#include <net/if_dl.h>
-#include <net/route.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -168,7 +165,7 @@ lemac_tne_intr(struct lemac_softc *sc)
 				sc->sc_if.if_collisions++;
 		}
 	}
-	sc->sc_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_if.if_snd);
 	lemac_ifstart(&sc->sc_if);
 }
 
@@ -191,7 +188,7 @@ lemac_txd_intr(struct lemac_softc *sc, unsigned cs_value)
 
 	/* Turn back on transmitter if disabled */
 	LEMAC_OUTB(sc, LEMAC_REG_CS, cs_value & ~LEMAC_CS_TXD);
-	sc->sc_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_if.if_snd);
 }
 
 int
@@ -506,7 +503,7 @@ lemac_reset(struct lemac_softc *const sc)
 	 * Initialize board..
 	 */
 	sc->sc_flags &= ~LEMAC_LINKUP;
-	sc->sc_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_if.if_snd);
 	LEMAC_INTR_DISABLE(sc);
 
 	LEMAC_OUTB(sc, LEMAC_REG_IOP, LEMAC_IOP_EEINIT);
@@ -649,7 +646,7 @@ lemac_ifstart(struct ifnet *ifp)
 		    lemac_txmax) {
 			sc->sc_cntrs.cntr_txfull++;
 			ifq_deq_rollback(&ifp->if_snd, m);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -664,7 +661,7 @@ lemac_ifstart(struct ifnet *ifp)
 		if (tx_pg == 0 || tx_pg > sc->sc_lastpage) {
 			sc->sc_cntrs.cntr_txnospc++;
 			ifq_deq_rollback(&ifp->if_snd, m);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -992,16 +989,10 @@ lemac_ifattach(struct lemac_softc *sc)
 	ifp->if_start = lemac_ifstart;
 	ifp->if_ioctl = lemac_ifioctl;
 
-	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX
-#ifdef IFF_NOTRAILERS
-		| IFF_NOTRAILERS
-#endif
-		| IFF_MULTICAST;
+	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 
 	if (sc->sc_flags & LEMAC_ALIVE) {
 		uint64_t media;
-
-		IFQ_SET_READY(&ifp->if_snd);
 
 		if_attach(ifp);
 		ether_ifattach(ifp);

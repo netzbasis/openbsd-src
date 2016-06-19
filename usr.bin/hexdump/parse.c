@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.17 2009/10/27 23:59:39 deraadt Exp $	*/
+/*	$OpenBSD: parse.c,v 1.20 2016/03/15 04:19:13 mmcc Exp $	*/
 /*	$NetBSD: parse.c,v 1.12 2001/12/07 13:37:39 bjh21 Exp $	*/
 
 /*
@@ -45,6 +45,12 @@
 
 FU *endfu;					/* format at end-of-data */
 
+static __dead void	 badcnt(char *);
+static __dead void	 badconv(char *);
+static __dead void	 badfmt(const char *);
+static __dead void	 badsfmt(void);
+static void		 escape(char *);
+
 void
 addfile(char *name)
 {
@@ -86,7 +92,8 @@ add(const char *fmt)
 	const char *savep;
 
 	/* start new linked list of format units */
-	tfs = emalloc(sizeof(FS));
+	if ((tfs = calloc(1, sizeof(FS))) == NULL)
+		err(1, NULL);
 	if (!fshead)
 		fshead = tfs;
 	else
@@ -102,7 +109,8 @@ add(const char *fmt)
 			break;
 
 		/* allocate a new format unit and link it in */
-		tfu = emalloc(sizeof(FU));
+		if ((tfu = calloc(1, sizeof(FU))) == NULL)
+			err(1, NULL);
 		*nextfu = tfu;
 		nextfu = &tfu->nextfu;
 		tfu->reps = 1;
@@ -139,10 +147,9 @@ add(const char *fmt)
 		for (savep = ++p; *p != '"';)
 			if (*p++ == 0)
 				badfmt(fmt);
-		if (!(tfu->fmt = malloc(p - savep + 1)))
-			nomem();
-		(void) strncpy(tfu->fmt, savep, p - savep);
-		tfu->fmt[p - savep] = '\0';
+		tfu->fmt = strndup(savep, p - savep);
+		if (tfu->fmt == NULL)
+			err(1, NULL);
 		escape(tfu->fmt);
 		p++;
 	}
@@ -222,7 +229,8 @@ rewrite(FS *fs)
 		 * character gets its own.
 		 */
 		for (nconv = 0, fmtp = fu->fmt; *fmtp; nextpr = &pr->nextpr) {
-			pr = emalloc(sizeof(PR));
+			if ((pr = calloc(1, sizeof(PR))) == NULL)
+				err(1, NULL);
 			if (!fu->nextpr)
 				fu->nextpr = pr;
 			else
@@ -399,7 +407,8 @@ rewrite(FS *fs)
 			savech = *p2;
 			p1[0] = '\0';
 			len = strlen(fmtp) + strlen(cs) + 1;
-			pr->fmt = emalloc(len);
+			if ((pr->fmt = calloc(1, len)) == NULL)
+				err(1, NULL);
 			snprintf(pr->fmt, len, "%s%s", fmtp, cs);
 			*p2 = savech;
 			pr->cchar = pr->fmt + (p1 - fmtp);
@@ -453,7 +462,7 @@ rewrite(FS *fs)
 #endif
 }
 
-void
+static void
 escape(char *p1)
 {
 	char *p2;
@@ -501,25 +510,25 @@ escape(char *p1)
 	}
 }
 
-void
+static __dead void
 badcnt(char *s)
 {
 	errx(1, "%s: bad byte count", s);
 }
 
-void
+static __dead void
 badsfmt(void)
 {
 	errx(1, "%%s: requires a precision or a byte count");
 }
 
-void
+static __dead void
 badfmt(const char *fmt)
 {
 	errx(1, "\"%s\": bad format", fmt);
 }
 
-void
+static __dead void
 badconv(char *ch)
 {
 	errx(1, "%%%s: bad conversion character", ch);

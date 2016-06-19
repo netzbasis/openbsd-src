@@ -1,4 +1,4 @@
-/*	$OpenBSD: login.c,v 1.65 2015/10/26 15:29:17 zhuk Exp $	*/
+/*	$OpenBSD: login.c,v 1.67 2015/12/26 20:51:35 guenther Exp $	*/
 /*	$NetBSD: login.c,v 1.13 1996/05/15 23:50:16 jtc Exp $	*/
 
 /*-
@@ -394,8 +394,7 @@ main(int argc, char *argv[])
 		}
 		if ((style = strchr(username, ':')) != NULL)
 			*style++ = '\0';
-		if (fullname)
-			free(fullname);
+		free(fullname);
 		if (auth_setitem(as, AUTHV_NAME, username) < 0 ||
 		    (fullname = strdup(username)) == NULL) {
 			syslog(LOG_ERR, "%m");
@@ -840,12 +839,13 @@ void
 dolastlog(int quiet)
 {
 	struct lastlog ll;
+	off_t pos;
 	int fd;
 
 	if ((fd = open(_PATH_LASTLOG, O_RDWR, 0)) >= 0) {
-		(void)lseek(fd, (off_t)pwd->pw_uid * sizeof(ll), SEEK_SET);
+		pos = (off_t)pwd->pw_uid * sizeof(ll);
 		if (!quiet) {
-			if (read(fd, (char *)&ll, sizeof(ll)) == sizeof(ll) &&
+			if (pread(fd, &ll, sizeof(ll), pos) == sizeof(ll) &&
 			    ll.ll_time != 0) {
 				(void)printf("Last login: %.*s ",
 				    24-5, (char *)ctime(&ll.ll_time));
@@ -858,15 +858,13 @@ dolastlog(int quiet)
 					    ll.ll_host);
 				(void)putchar('\n');
 			}
-			(void)lseek(fd, (off_t)pwd->pw_uid * sizeof(ll),
-			    SEEK_SET);
 		}
-		memset((void *)&ll, 0, sizeof(ll));
+		memset(&ll, 0, sizeof(ll));
 		(void)time(&ll.ll_time);
 		(void)strncpy(ll.ll_line, tty, sizeof(ll.ll_line));
 		if (hostname)
 			(void)strncpy(ll.ll_host, hostname, sizeof(ll.ll_host));
-		(void)write(fd, (char *)&ll, sizeof(ll));
+		(void)pwrite(fd, &ll, sizeof(ll), pos);
 		(void)close(fd);
 	}
 }

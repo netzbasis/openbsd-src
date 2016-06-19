@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.81 2015/11/05 18:00:43 florian Exp $	*/
+/*	$OpenBSD: server.c,v 1.85 2016/04/28 17:18:06 jsing Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -165,15 +165,15 @@ server_tls_init(struct server *srv)
 	log_debug("%s: setting up TLS for %s", __func__, srv->srv_conf.name);
 
 	if (tls_init() != 0) {
-		log_warn("%s: failed to initialise tls", __func__);
+		log_warnx("%s: failed to initialise tls", __func__);
 		return (-1);
 	}
 	if ((srv->srv_tls_config = tls_config_new()) == NULL) {
-		log_warn("%s: failed to get tls config", __func__);
+		log_warnx("%s: failed to get tls config", __func__);
 		return (-1);
 	}
 	if ((srv->srv_tls_ctx = tls_server()) == NULL) {
-		log_warn("%s: failed to get tls server", __func__);
+		log_warnx("%s: failed to get tls server", __func__);
 		return (-1);
 	}
 
@@ -182,33 +182,33 @@ server_tls_init(struct server *srv)
 
 	if (tls_config_set_ciphers(srv->srv_tls_config,
 	    srv->srv_conf.tls_ciphers) != 0) {
-		log_warn("%s: failed to set tls ciphers", __func__);
+		log_warnx("%s: failed to set tls ciphers: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
 		return (-1);
 	}
 	if (tls_config_set_dheparams(srv->srv_tls_config,
 	    srv->srv_conf.tls_dhe_params) != 0) {
-		log_warn("%s: failed to set tls dhe params", __func__);
+		log_warnx("%s: failed to set tls dhe params: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
 		return (-1);
 	}
 	if (tls_config_set_ecdhecurve(srv->srv_tls_config,
 	    srv->srv_conf.tls_ecdhe_curve) != 0) {
-		log_warn("%s: failed to set tls ecdhe curve", __func__);
+		log_warnx("%s: failed to set tls ecdhe curve: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
 		return (-1);
 	}
 
-	if (tls_config_set_cert_mem(srv->srv_tls_config,
-	    srv->srv_conf.tls_cert, srv->srv_conf.tls_cert_len) != 0) {
-		log_warn("%s: failed to set tls cert", __func__);
-		return (-1);
-	}
-	if (tls_config_set_key_mem(srv->srv_tls_config,
+	if (tls_config_set_keypair_mem(srv->srv_tls_config,
+	    srv->srv_conf.tls_cert, srv->srv_conf.tls_cert_len,
 	    srv->srv_conf.tls_key, srv->srv_conf.tls_key_len) != 0) {
-		log_warn("%s: failed to set tls key", __func__);
+		log_warnx("%s: failed to set tls certificate/key: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
 		return (-1);
 	}
 
 	if (tls_configure(srv->srv_tls_ctx, srv->srv_tls_config) != 0) {
-		log_warn("%s: failed to configure TLS - %s", __func__,
+		log_warnx("%s: failed to configure TLS - %s", __func__,
 		    tls_error(srv->srv_tls_ctx));
 		return (-1);
 	}
@@ -441,7 +441,8 @@ server_socket(struct sockaddr_storage *ss, in_port_t port,
 	if (server_socket_af(ss, port) == -1)
 		goto bad;
 
-	s = fd == -1 ? socket(ss->ss_family, SOCK_STREAM, IPPROTO_TCP) : fd;
+	s = fd == -1 ? socket(ss->ss_family, SOCK_STREAM | SOCK_NONBLOCK,
+	    IPPROTO_TCP) : fd;
 	if (s == -1)
 		goto bad;
 
@@ -457,8 +458,6 @@ server_socket(struct sockaddr_storage *ss, in_port_t port,
 		    sizeof(int)) == -1)
 			goto bad;
 	}
-	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
-		goto bad;
 	if (srv_conf->tcpflags & TCPFLAG_BUFSIZ) {
 		val = srv_conf->tcpbufsiz;
 		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
@@ -859,9 +858,6 @@ server_accept(int fd, short event, void *arg)
 	if (server_clients >= SERVER_MAX_CLIENTS)
 		goto err;
 
-	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
-		goto err;
-
 	if ((clt = calloc(1, sizeof(*clt))) == NULL)
 		goto err;
 
@@ -1024,8 +1020,7 @@ server_sendlog(struct server_config *srv_conf, int cmd, const char *emsg, ...)
 	iov[1].iov_base = msg;
 	iov[1].iov_len = strlen(msg) + 1;
 
-	if (proc_composev_imsg(env->sc_ps, PROC_LOGGER, -1, cmd, -1, iov,
-	    2) != 0) {
+	if (proc_composev(env->sc_ps, PROC_LOGGER, cmd, iov, 2) != 0) {
 		log_warn("%s: failed to compose imsg", __func__);
 		return;
 	}

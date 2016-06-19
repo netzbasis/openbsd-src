@@ -1,4 +1,4 @@
-/*	$OpenBSD: ripd.c,v 1.25 2015/02/09 12:13:42 claudio Exp $ */
+/*	$OpenBSD: ripd.c,v 1.27 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2006 Michele Marchetto <mydecay@openbeer.it>
@@ -221,9 +221,6 @@ main(int argc, char *argv[])
 	rde_pid = rde(conf, pipe_parent2rde, pipe_ripe2rde, pipe_parent2ripe);
 	ripe_pid = ripe(conf, pipe_parent2ripe, pipe_ripe2rde, pipe_parent2rde);
 
-	/* show who we are */
-	setproctitle("parent");
-
 	event_init();
 
 	/* setup signal handler */
@@ -342,7 +339,7 @@ main_dispatch_ripe(int fd, short event, void *bula)
 	int			 shut = 0, verbose;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -421,7 +418,7 @@ main_dispatch_rde(int fd, short event, void *bula)
 	int		 shut = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;

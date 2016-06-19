@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_input.c,v 1.309 2015/11/20 10:45:29 mpi Exp $	*/
+/*	$OpenBSD: tcp_input.c,v 1.319 2016/06/09 23:09:51 bluhm Exp $	*/
 /*	$NetBSD: tcp_input.c,v 1.23 1996/02/13 23:43:44 christos Exp $	*/
 
 /*
@@ -580,11 +580,7 @@ tcp_input(struct mbuf *m, ...)
 	 * Locate pcb for segment.
 	 */
 #if NPF > 0
-	if (m->m_pkthdr.pf.statekey) {
-		inp = m->m_pkthdr.pf.statekey->inp;
-		if (inp && inp->inp_pf_sk)
-			KASSERT(m->m_pkthdr.pf.statekey == inp->inp_pf_sk);
-	}
+	inp = pf_inp_lookup(m);
 #endif
 findpcb:
 	if (inp == NULL) {
@@ -602,12 +598,6 @@ findpcb:
 			    m->m_pkthdr.ph_rtableid);
 			break;
 		}
-#if NPF > 0
-		if (m->m_pkthdr.pf.statekey && inp) {
-			m->m_pkthdr.pf.statekey->inp = inp;
-			inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-		}
-#endif
 	}
 	if (inp == NULL) {
 		int	inpl_reverse = 0;
@@ -699,13 +689,13 @@ findpcb:
 			switch (af) {
 #ifdef INET6
 			case AF_INET6:
-				bcopy(ip6, &tcp_saveti6.ti6_i, sizeof(*ip6));
-				bcopy(th, &tcp_saveti6.ti6_t, sizeof(*th));
+				memcpy(&tcp_saveti6.ti6_i, ip6, sizeof(*ip6));
+				memcpy(&tcp_saveti6.ti6_t, th, sizeof(*th));
 				break;
 #endif
 			case AF_INET:
-				bcopy(ip, &tcp_saveti.ti_i, sizeof(*ip));
-				bcopy(th, &tcp_saveti.ti_t, sizeof(*th));
+				memcpy(&tcp_saveti.ti_i, ip, sizeof(*ip));
+				memcpy(&tcp_saveti.ti_t, th, sizeof(*th));
 				break;
 			}
 		}
@@ -880,13 +870,7 @@ findpcb:
 #endif
 
 #if NPF > 0
-	if (m->m_pkthdr.pf.statekey && !m->m_pkthdr.pf.statekey->inp &&
-	    !inp->inp_pf_sk) {
-		m->m_pkthdr.pf.statekey->inp = inp;
-		inp->inp_pf_sk = m->m_pkthdr.pf.statekey;
-	}
-	/* The statekey has finished finding the inp, it is no longer needed. */
-	m->m_pkthdr.pf.statekey = NULL;
+	pf_inp_link(m, inp);
 #endif
 
 #ifdef IPSEC
@@ -1294,10 +1278,7 @@ trimthenstep6:
 			 * has already been linked to the socket.  Remove the
 			 * link between old socket and new state.
 			 */
-			if (inp->inp_pf_sk) {
-				inp->inp_pf_sk->inp = NULL;
-				inp->inp_pf_sk = NULL;
-			}
+			pf_inp_unlink(inp);
 #endif
 			/*
 			* Advance the iss by at least 32768, but
@@ -2291,7 +2272,7 @@ tcp_dooptions(struct tcpcb *tp, u_char *cp, int cnt, struct tcphdr *th,
 				continue;
 			if (TCPS_HAVERCVDSYN(tp->t_state))
 				continue;
-			bcopy((char *) cp + 2, (char *) &mss, sizeof(mss));
+			memcpy(&mss, cp + 2, sizeof(mss));
 			mss = ntohs(mss);
 			oi->maxseg = mss;
 			break;
@@ -2311,9 +2292,9 @@ tcp_dooptions(struct tcpcb *tp, u_char *cp, int cnt, struct tcphdr *th,
 			if (optlen != TCPOLEN_TIMESTAMP)
 				continue;
 			oi->ts_present = 1;
-			bcopy(cp + 2, &oi->ts_val, sizeof(oi->ts_val));
+			memcpy(&oi->ts_val, cp + 2, sizeof(oi->ts_val));
 			oi->ts_val = ntohl(oi->ts_val);
-			bcopy(cp + 6, &oi->ts_ecr, sizeof(oi->ts_ecr));
+			memcpy(&oi->ts_ecr, cp + 6, sizeof(oi->ts_ecr));
 			oi->ts_ecr = ntohl(oi->ts_ecr);
 
 			if (!(th->th_flags & TH_SYN))
@@ -2566,10 +2547,9 @@ tcp_sack_option(struct tcpcb *tp, struct tcphdr *th, u_char *cp, int optlen)
 	while (tmp_olen > 0) {
 		struct sackblk sack;
 
-		bcopy(tmp_cp, (char *) &(sack.start), sizeof(tcp_seq));
+		memcpy(&sack.start, tmp_cp, sizeof(tcp_seq));
 		sack.start = ntohl(sack.start);
-		bcopy(tmp_cp + sizeof(tcp_seq),
-		    (char *) &(sack.end), sizeof(tcp_seq));
+		memcpy(&sack.end, tmp_cp + sizeof(tcp_seq), sizeof(tcp_seq));
 		sack.end = ntohl(sack.end);
 		tmp_olen -= TCPOLEN_SACK;
 		tmp_cp += TCPOLEN_SACK;
@@ -2852,7 +2832,7 @@ tcp_pulloutofband(struct socket *so, u_int urgent, struct mbuf *m, int off)
 
 			tp->t_iobc = *cp;
 			tp->t_oobflags |= TCPOOB_HAVEDATA;
-			bcopy(cp+1, cp, (unsigned)(m->m_len - cnt - 1));
+			memmove(cp, cp + 1, m->m_len - cnt - 1);
 			m->m_len--;
 			return;
 		}
@@ -2974,7 +2954,7 @@ int
 tcp_mss(struct tcpcb *tp, int offer)
 {
 	struct rtentry *rt;
-	struct ifnet *ifp;
+	struct ifnet *ifp = NULL;
 	int mss, mssopt;
 	int iphlen;
 	struct inpcb *inp;
@@ -2986,6 +2966,10 @@ tcp_mss(struct tcpcb *tp, int offer)
 	rt = in_pcbrtentry(inp);
 
 	if (rt == NULL)
+		goto out;
+
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
 		goto out;
 
 	switch (tp->pf) {
@@ -3002,7 +2986,6 @@ tcp_mss(struct tcpcb *tp, int offer)
 		goto out;
 	}
 
-	ifp = if_get(rt->rt_ifidx);
 	/*
 	 * if there's an mtu associated with the route and we support
 	 * path MTU discovery for the underlying protocol family, use it.
@@ -3024,13 +3007,6 @@ tcp_mss(struct tcpcb *tp, int offer)
 			mss = rt->rt_rmx.rmx_mtu - iphlen -
 			    sizeof(struct tcphdr);
 		}
-	} else if (ifp == NULL) {
-		/*
-		 * ifp may be null and rmx_mtu may be zero in certain
-		 * v6 cases (e.g., if ND wasn't able to resolve the
-		 * destination host.
-		 */
-		goto out;
 	} else if (ifp->if_flags & IFF_LOOPBACK) {
 		mss = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
 	} else if (tp->pf == AF_INET) {
@@ -3052,8 +3028,8 @@ tcp_mss(struct tcpcb *tp, int offer)
 		mssopt = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
 		mssopt = max(tcp_mssdflt, mssopt);
 	}
-	if_put(ifp);
  out:
+	if_put(ifp);
 	/*
 	 * The current mss, t_maxseg, is initialized to the default value.
 	 * If we compute a smaller value, reduce the current mss.
@@ -3279,45 +3255,44 @@ tcp_mss_adv(struct mbuf *m, int af)
  */
 
 /* syn hash parameters */
-#define	TCP_SYN_HASH_SIZE	293
-#define	TCP_SYN_BUCKET_SIZE	35
 int	tcp_syn_cache_size = TCP_SYN_HASH_SIZE;
 int	tcp_syn_cache_limit = TCP_SYN_HASH_SIZE*TCP_SYN_BUCKET_SIZE;
 int	tcp_syn_bucket_limit = 3*TCP_SYN_BUCKET_SIZE;
-int	tcp_syn_cache_count;
-struct	syn_cache_head tcp_syn_cache[TCP_SYN_HASH_SIZE];
-u_int32_t tcp_syn_hash[5];
+int	tcp_syn_use_limit = 100000;
 
-#define SYN_HASH(sa, sp, dp) \
-	(((sa)->s_addr ^ tcp_syn_hash[0]) *				\
-	(((((u_int32_t)(dp))<<16) + ((u_int32_t)(sp))) ^ tcp_syn_hash[4]))
+struct syn_cache_set tcp_syn_cache[2];
+int tcp_syn_cache_active;
+
+#define SYN_HASH(sa, sp, dp, rand) \
+	(((sa)->s_addr ^ (rand)[0]) *				\
+	(((((u_int32_t)(dp))<<16) + ((u_int32_t)(sp))) ^ (rand)[4]))
 #ifndef INET6
-#define	SYN_HASHALL(hash, src, dst) \
+#define	SYN_HASHALL(hash, src, dst, rand) \
 do {									\
 	hash = SYN_HASH(&satosin(src)->sin_addr,			\
 		satosin(src)->sin_port,					\
-		satosin(dst)->sin_port);				\
+		satosin(dst)->sin_port, (rand));			\
 } while (/*CONSTCOND*/ 0)
 #else
-#define SYN_HASH6(sa, sp, dp) \
-	(((sa)->s6_addr32[0] ^ tcp_syn_hash[0]) *			\
-	((sa)->s6_addr32[1] ^ tcp_syn_hash[1]) *			\
-	((sa)->s6_addr32[2] ^ tcp_syn_hash[2]) *			\
-	((sa)->s6_addr32[3] ^ tcp_syn_hash[3]) *			\
-	(((((u_int32_t)(dp))<<16) + ((u_int32_t)(sp))) ^ tcp_syn_hash[4]))
+#define SYN_HASH6(sa, sp, dp, rand) \
+	(((sa)->s6_addr32[0] ^ (rand)[0]) *			\
+	((sa)->s6_addr32[1] ^ (rand)[1]) *			\
+	((sa)->s6_addr32[2] ^ (rand)[2]) *			\
+	((sa)->s6_addr32[3] ^ (rand)[3]) *			\
+	(((((u_int32_t)(dp))<<16) + ((u_int32_t)(sp))) ^ (rand)[4]))
 
-#define SYN_HASHALL(hash, src, dst) \
+#define SYN_HASHALL(hash, src, dst, rand) \
 do {									\
 	switch ((src)->sa_family) {					\
 	case AF_INET:							\
 		hash = SYN_HASH(&satosin(src)->sin_addr,		\
 			satosin(src)->sin_port,				\
-			satosin(dst)->sin_port);			\
+			satosin(dst)->sin_port, (rand));		\
 		break;							\
 	case AF_INET6:							\
 		hash = SYN_HASH6(&satosin6(src)->sin6_addr,		\
 			satosin6(src)->sin6_port,			\
-			satosin6(dst)->sin6_port);			\
+			satosin6(dst)->sin6_port, (rand));		\
 		break;							\
 	default:							\
 		hash = 0;						\
@@ -3329,13 +3304,12 @@ void
 syn_cache_rm(struct syn_cache *sc)
 {
 	sc->sc_flags |= SCF_DEAD;
-	TAILQ_REMOVE(&tcp_syn_cache[sc->sc_bucketidx].sch_bucket,
-	    sc, sc_bucketq);
+	TAILQ_REMOVE(&sc->sc_buckethead->sch_bucket, sc, sc_bucketq);
 	sc->sc_tp = NULL;
 	LIST_REMOVE(sc, sc_tpq);
-	tcp_syn_cache[sc->sc_bucketidx].sch_length--;
+	sc->sc_buckethead->sch_length--;
 	timeout_del(&sc->sc_timer);
-	tcp_syn_cache_count--;
+	sc->sc_set->scs_count--;
 }
 
 void
@@ -3370,13 +3344,15 @@ do {									\
 #define	SYN_CACHE_TIMESTAMP(sc)	tcp_now + (sc)->sc_modulate
 
 void
-syn_cache_init()
+syn_cache_init(void)
 {
 	int i;
 
 	/* Initialize the hash buckets. */
-	for (i = 0; i < tcp_syn_cache_size; i++)
-		TAILQ_INIT(&tcp_syn_cache[i].sch_bucket);
+	for (i = 0; i < tcp_syn_cache_size; i++) {
+		TAILQ_INIT(&tcp_syn_cache[0].scs_buckethead[i].sch_bucket);
+		TAILQ_INIT(&tcp_syn_cache[1].scs_buckethead[i].sch_bucket);
+	}
 
 	/* Initialize the syn cache pool. */
 	pool_init(&syn_cache_pool, sizeof(struct syn_cache), 0, 0, 0,
@@ -3387,28 +3363,40 @@ syn_cache_init()
 void
 syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 {
+	struct syn_cache_set *set = &tcp_syn_cache[tcp_syn_cache_active];
 	struct syn_cache_head *scp;
 	struct syn_cache *sc2;
 	int s;
 
+	s = splsoftnet();
+
 	/*
 	 * If there are no entries in the hash table, reinitialize
-	 * the hash secrets.
+	 * the hash secrets.  To avoid useless cache swaps and
+	 * reinitialization, use it until the limit is reached.
 	 */
-	if (tcp_syn_cache_count == 0)
-		arc4random_buf(tcp_syn_hash, sizeof(tcp_syn_hash));
+	if (set->scs_count == 0 && set->scs_use <= 0) {
+		arc4random_buf(set->scs_random, sizeof(set->scs_random));
+		set->scs_use = tcp_syn_use_limit;
+		tcpstat.tcps_sc_seedrandom++;
+	}
 
-	SYN_HASHALL(sc->sc_hash, &sc->sc_src.sa, &sc->sc_dst.sa);
-	sc->sc_bucketidx = sc->sc_hash % tcp_syn_cache_size;
-	scp = &tcp_syn_cache[sc->sc_bucketidx];
+	SYN_HASHALL(sc->sc_hash, &sc->sc_src.sa, &sc->sc_dst.sa,
+	    set->scs_random);
+	scp = &set->scs_buckethead[sc->sc_hash % tcp_syn_cache_size];
+	sc->sc_buckethead = scp;
 
 	/*
 	 * Make sure that we don't overflow the per-bucket
 	 * limit or the total cache size limit.
 	 */
-	s = splsoftnet();
 	if (scp->sch_length >= tcp_syn_bucket_limit) {
 		tcpstat.tcps_sc_bucketoverflow++;
+		/*
+		 * Someone might attack our bucket hash function.  Reseed
+		 * with random as soon as the passive syn cache gets empty.
+		 */
+		set->scs_use = 0;
 		/*
 		 * The bucket is full.  Toss the oldest element in the
 		 * bucket.  This will be the first entry in the bucket.
@@ -3424,7 +3412,7 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 #endif
 		syn_cache_rm(sc2);
 		syn_cache_put(sc2);
-	} else if (tcp_syn_cache_count >= tcp_syn_cache_limit) {
+	} else if (set->scs_count >= tcp_syn_cache_limit) {
 		struct syn_cache_head *scp2, *sce;
 
 		tcpstat.tcps_sc_overflowed++;
@@ -3438,10 +3426,10 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 		 */
 		scp2 = scp;
 		if (TAILQ_EMPTY(&scp2->sch_bucket)) {
-			sce = &tcp_syn_cache[tcp_syn_cache_size];
+			sce = &set->scs_buckethead[tcp_syn_cache_size];
 			for (++scp2; scp2 != scp; scp2++) {
 				if (scp2 >= sce)
-					scp2 = &tcp_syn_cache[0];
+					scp2 = &set->scs_buckethead[0];
 				if (! TAILQ_EMPTY(&scp2->sch_bucket))
 					break;
 			}
@@ -3473,9 +3461,20 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 	/* Put it into the bucket. */
 	TAILQ_INSERT_TAIL(&scp->sch_bucket, sc, sc_bucketq);
 	scp->sch_length++;
-	tcp_syn_cache_count++;
+	sc->sc_set = set;
+	set->scs_count++;
+	set->scs_use--;
 
 	tcpstat.tcps_sc_added++;
+
+	/*
+	 * If the active cache has exceeded its use limit and
+	 * the passive syn cache is empty, exchange their roles.
+	 */
+	if (set->scs_use <= 0 &&
+	    tcp_syn_cache[!tcp_syn_cache_active].scs_count == 0)
+		tcp_syn_cache_active = !tcp_syn_cache_active;
+
 	splx(s);
 }
 
@@ -3570,25 +3569,31 @@ struct syn_cache *
 syn_cache_lookup(struct sockaddr *src, struct sockaddr *dst,
     struct syn_cache_head **headp, u_int rtableid)
 {
+	struct syn_cache_set *sets[2];
 	struct syn_cache *sc;
 	struct syn_cache_head *scp;
 	u_int32_t hash;
+	int i;
 
 	splsoftassert(IPL_SOFTNET);
 
-	if (tcp_syn_cache_count == 0)
-		return (NULL);
-
-	SYN_HASHALL(hash, src, dst);
-	scp = &tcp_syn_cache[hash % tcp_syn_cache_size];
-	*headp = scp;
-	TAILQ_FOREACH(sc, &scp->sch_bucket, sc_bucketq) {
-		if (sc->sc_hash != hash)
+	/* Check the active cache first, the passive cache is likely emtpy. */
+	sets[0] = &tcp_syn_cache[tcp_syn_cache_active];
+	sets[1] = &tcp_syn_cache[!tcp_syn_cache_active];
+	for (i = 0; i < 2; i++) {
+		if (sets[i]->scs_count == 0)
 			continue;
-		if (!bcmp(&sc->sc_src, src, src->sa_len) &&
-		    !bcmp(&sc->sc_dst, dst, dst->sa_len) &&
-		    rtable_l2(rtableid) == rtable_l2(sc->sc_rtableid))
-			return (sc);
+		SYN_HASHALL(hash, src, dst, sets[i]->scs_random);
+		scp = &sets[i]->scs_buckethead[hash % tcp_syn_cache_size];
+		*headp = scp;
+		TAILQ_FOREACH(sc, &scp->sch_bucket, sc_bucketq) {
+			if (sc->sc_hash != hash)
+				continue;
+			if (!bcmp(&sc->sc_src, src, src->sa_len) &&
+			    !bcmp(&sc->sc_dst, dst, dst->sa_len) &&
+			    rtable_l2(rtableid) == rtable_l2(sc->sc_rtableid))
+				return (sc);
+		}
 	}
 	return (NULL);
 }
@@ -3675,8 +3680,8 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	 */
 	{
 	  struct inpcb *newinp = sotoinpcb(so);
-	  bcopy(inp->inp_seclevel, newinp->inp_seclevel,
-		sizeof(inp->inp_seclevel));
+	  memcpy(newinp->inp_seclevel, inp->inp_seclevel,
+	      sizeof(inp->inp_seclevel));
 	}
 #endif /* IPSEC */
 #ifdef INET6
@@ -3741,7 +3746,7 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	if (am == NULL)
 		goto resetandabort;
 	am->m_len = src->sa_len;
-	bcopy(src, mtod(am, caddr_t), src->sa_len);
+	memcpy(mtod(am, caddr_t), src, src->sa_len);
 
 	switch (src->sa_family) {
 	case AF_INET:
@@ -4032,8 +4037,8 @@ syn_cache_add(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	 * Fill in the cache, and put the necessary IP and TCP
 	 * options into the reply.
 	 */
-	bcopy(src, &sc->sc_src, src->sa_len);
-	bcopy(dst, &sc->sc_dst, dst->sa_len);
+	memcpy(&sc->sc_src, src, src->sa_len);
+	memcpy(&sc->sc_dst, dst, dst->sa_len);
 	sc->sc_rtableid = sotoinpcb(so)->inp_rtableid;
 	sc->sc_flags = 0;
 	sc->sc_ipopts = ipopts;

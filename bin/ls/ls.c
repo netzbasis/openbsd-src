@@ -1,4 +1,4 @@
-/*	$OpenBSD: ls.c,v 1.43 2015/10/09 01:37:06 deraadt Exp $	*/
+/*	$OpenBSD: ls.c,v 1.46 2016/03/28 11:25:35 chl Exp $	*/
 /*	$NetBSD: ls.c,v 1.18 1996/07/09 09:16:29 mycroft Exp $	*/
 
 /*
@@ -48,6 +48,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <locale.h>
 #include <util.h>
 
 #include "ls.h"
@@ -65,7 +66,7 @@ static int (*sortfcn)(const FTSENT *, const FTSENT *);
 #define	BY_TIME	2
 
 long blocksize;			/* block size units */
-int termwidth = 80;		/* default terminal width */
+int termwidth;			/* default terminal width */
 int sortkey = BY_NAME;
 
 /* flags */
@@ -100,28 +101,28 @@ ls_main(int argc, char *argv[])
 	static char dot[] = ".", *dotav[] = { dot, NULL };
 	struct winsize win;
 	int ch, fts_options, notused;
-	int kflag = 0, width = 0;
+	int kflag = 0;
 	char *p;
+
+#ifndef SMALL
+	setlocale(LC_CTYPE, "");
+#endif
 
 	/* Terminal defaults to -Cq, non-terminal defaults to -1. */
 	if (isatty(STDOUT_FILENO)) {
-		if ((p = getenv("COLUMNS")) != NULL)
-			width = strtonum(p, 1, INT_MAX, NULL);
-		if (width == 0 &&
-		    ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
-		    win.ws_col > 0)
-			width = win.ws_col;
-		if (width)
-			termwidth = width;
 		f_column = f_nonprint = 1;
 	} else {
 		f_singlecol = 1;
-		/* retrieve environment variable, in case of explicit -C */
-		if ((p = getenv("COLUMNS")) != NULL)
-			width = strtonum(p, 0, INT_MAX, NULL);
-		if (width)
-			termwidth = width;
 	}
+
+	termwidth = 0;
+	if ((p = getenv("COLUMNS")) != NULL)
+		termwidth = strtonum(p, 1, INT_MAX, NULL);
+	if (termwidth == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
+	    win.ws_col > 0)
+		termwidth = win.ws_col;
+	if (termwidth == 0)
+		termwidth = 80;
 
 	if (pledge("stdio rpath getpw", NULL) == -1)
 		err(1, "pledge");
@@ -428,6 +429,7 @@ display(FTSENT *p, FTSENT *list)
 	ino_t maxinode;
 	int bcfile, flen, glen, ulen, maxflags, maxgroup, maxuser;
 	int entries, needstats;
+	int width;
 	char *user, *group, buf[21];	/* 64 bits == 20 digits */
 	char nuser[12], ngroup[12];
 	char *flags = NULL;
@@ -474,8 +476,8 @@ display(FTSENT *p, FTSENT *list)
 				continue;
 			}
 		}
-		if (cur->fts_namelen > maxlen)
-			maxlen = cur->fts_namelen;
+		if ((width = mbsprint(cur->fts_name, 0)) > maxlen)
+			maxlen = width;
 		if (needstats) {
 			sp = cur->fts_statp;
 			if (sp->st_blocks > maxblock)

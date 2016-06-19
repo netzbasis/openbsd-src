@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.15 2012/10/03 11:18:23 miod Exp $ */
+/*	$OpenBSD: locore.S,v 1.17 2015/12/25 09:02:57 visa Exp $ */
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -89,7 +89,7 @@ LEAF(hw_cpu_spinup_trampoline, 0)
 	 NOP
 END(hw_cpu_spinup_trampoline)
 
-#ifdef TGT_OCTANE
+#if defined(TGT_OCTANE)
 
 LEAF(hw_getcurcpu, 0)
 	GET_CPU_INFO(v0, v1)
@@ -112,5 +112,46 @@ LEAF(hw_setcurcpu, 0)
 	j	ra
 	 PTR_S	a0, (MPCONF_LEN - REGSZ)(v1)
 END(hw_setcurcpu)
-#endif
+
+#elif defined(TGT_ORIGIN)
+
+LEAF(hw_getcurcpu, 0)
+	GET_CPU_INFO(v0, v1)
+	j	ra
+	 NOP
+END(hw_getcurcpu)
+
+LEAF(hw_setcurcpu, 0)
+	DMTC0	a0, COP_0_ERROR_PC
+	j	ra
+	 NOP
+END(hw_setcurcpu)
+
+LEAF(ip27_cpu_spinup_trampoline, 0)
+	MFC0	v0, COP_0_STATUS_REG
+	LI	v1, ~SR_INT_ENAB
+	and	v0, v1
+	MTC0	v0, COP_0_STATUS_REG		# Disable all interrupts.
+	MTC0	zero, COP_0_CAUSE_REG		# Clear soft interrupts.
+	LA	gp, _gp
+
+	/* Wait the turn of this CPU. */
+1:	ll	v0, ip27_spinup_turn
+	bne	v0, a0, 1b
+	 not	v0, zero
+	sc	v0, ip27_spinup_turn
+	beqz	v0, 1b
+	 nop
+
+	LA	v0, ip27_spinup_a0
+	ld	a0, 0(v0)
+	LA	v0, ip27_spinup_sp
+	ld	sp, 0(v0)
+	jal	hw_cpu_hatch
+	 nop
+	PANIC("secondary CPU start failed")
+END(ip27_cpu_spinup_trampoline)
+
+#endif /* TGT_ORIGIN */
+
 #endif /* MULTIPROCESSOR */

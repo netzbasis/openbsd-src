@@ -1,4 +1,4 @@
-/*	$OpenBSD: mfs_vfsops.c,v 1.48 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: mfs_vfsops.c,v 1.50 2016/04/26 18:37:03 natano Exp $	*/
 /*	$NetBSD: mfs_vfsops.c,v 1.10 1996/02/09 22:31:28 christos Exp $	*/
 
 /*
@@ -65,7 +65,7 @@ const struct vfsops mfs_vfsops = {
 	ffs_unmount,
 	ufs_root,
 	ufs_quotactl,
-	mfs_statfs,
+	ffs_statfs,
 	ffs_sync,
 	ffs_vget,
 	ffs_fhtovp,
@@ -128,7 +128,7 @@ mfs_mount(struct mount *mp, const char *path, void *data,
 	if (error)
 		return (error);
 	devvp->v_type = VBLK;
-	if (checkalias(devvp, makedev(255, mfs_minor), (struct mount *)0))
+	if (checkalias(devvp, makedev(255, mfs_minor), NULL))
 		panic("mfs_mount: dup dev");
 	mfs_minor++;
 	mfsp = malloc(sizeof *mfsp, M_MFSNODE, M_WAITOK | M_ZERO);
@@ -207,22 +207,6 @@ mfs_start(struct mount *mp, int flags, struct proc *p)
 		sleepreturn = tsleep((caddr_t)vp, mfs_pri, "mfsidl", 0);
 	}
 	return (0);
-}
-
-/*
- * Get file system statistics.
- */
-int
-mfs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
-{
-	int error;
-
-	error = ffs_statfs(mp, sbp, p);
-	strncpy(&sbp->f_fstypename[0], mp->mnt_vfc->vfc_name, MFSNAMELEN);
-	if (sbp != &mp->mnt_stat)
-		memcpy(&sbp->mount_info.mfs_args,
-		    &mp->mnt_stat.mount_info.mfs_args, sizeof(struct mfs_args));
-	return (error);
 }
 
 /*

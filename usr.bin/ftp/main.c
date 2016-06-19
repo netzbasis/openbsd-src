@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.105 2015/11/04 17:54:06 jca Exp $	*/
+/*	$OpenBSD: main.c,v 1.108 2016/05/27 15:16:16 jsing Exp $	*/
 /*	$NetBSD: main.c,v 1.24 1997/08/18 10:20:26 lukem Exp $	*/
 
 /*
@@ -143,11 +143,7 @@ main(volatile int argc, char *argv[])
 	marg_sl = sl_init();
 #endif /* !SMALL */
 	mark = HASHBYTES;
-#ifdef INET6
 	epsv4 = 1;
-#else
-	epsv4 = 0;
-#endif
 	epsv4bad = 0;
 
 	/* Set default operation mode based on FTPMODE environment variable */
@@ -198,6 +194,8 @@ main(volatile int argc, char *argv[])
 
 #ifndef SMALL
 	cookiefile = getenv("http_cookies");
+	if (tls_init() != 0)
+		errx(1, "tls init failed");
 	if (tls_config == NULL) {
 		tls_config = tls_config_new();
 		if (tls_config == NULL)
@@ -852,7 +850,7 @@ OUT:
 		default:
 			break;
 	}
-	return ((char *)0);
+	return (NULL);
 }
 
 /*
@@ -887,7 +885,7 @@ help(int argc, char *argv[])
 		c = getcmd(arg);
 		if (c == (struct cmd *)-1)
 			fprintf(ttyout, "?Ambiguous help command %s\n", arg);
-		else if (c == (struct cmd *)0)
+		else if (c == NULL)
 			fprintf(ttyout, "?Invalid help command %s\n", arg);
 		else
 			fprintf(ttyout, "%-*s\t%s\n", HELPINDENT,

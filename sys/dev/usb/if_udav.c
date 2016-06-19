@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_udav.c,v 1.74 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_udav.c,v 1.78 2016/04/13 11:03:37 mpi Exp $ */
 /*	$NetBSD: if_udav.c,v 1.3 2004/04/23 17:25:25 itojun Exp $	*/
 /*	$nabe: if_udav.c,v 1.3 2003/08/21 16:57:19 nabe Exp $	*/
 /*
@@ -57,8 +57,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_arp.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -258,8 +256,6 @@ udav_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = udav_start;
 	ifp->if_ioctl = udav_ioctl;
 	ifp->if_watchdog = udav_watchdog;
-
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/*
 	 * Do ifmedia setup.
@@ -648,7 +644,7 @@ udav_init(struct ifnet *ifp)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -915,7 +911,7 @@ udav_start(struct ifnet *ifp)
 	if (!sc->sc_link)
 		return;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	m_head = ifq_deq_begin(&ifp->if_snd);
@@ -924,7 +920,7 @@ udav_start(struct ifnet *ifp)
 
 	if (udav_send(sc, m_head, 0)) {
 		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -935,7 +931,7 @@ udav_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/* Set a timeout in case the chip goes out to lunch. */
 	ifp->if_timer = 5;
@@ -1009,7 +1005,7 @@ udav_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	DPRINTF(("%s: %s: enter\n", sc->sc_dev.dv_xname, __func__));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -1222,7 +1218,8 @@ udav_stop(struct ifnet *ifp, int disable)
 	DPRINTF(("%s: %s: enter\n", sc->sc_dev.dv_xname, __func__));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	udav_reset(sc);
 

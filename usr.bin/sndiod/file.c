@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.15 2015/08/27 07:38:38 ratchov Exp $	*/
+/*	$OpenBSD: file.c,v 1.21 2016/05/25 05:37:12 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -46,7 +46,6 @@
 
 #include <sys/types.h>
 
-#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -259,7 +258,7 @@ file_del(struct file *f)
 		log_puts("bad state in file_del()\n");
 		panic();
 	}
-#endif	
+#endif
 	file_nfds -= f->max_nfds;
 	f->state = FILE_ZOMB;
 #ifdef DEBUG
@@ -283,7 +282,7 @@ file_process(struct file *f, struct pollfd *pfd)
 	if (log_level >= 3)
 		clock_gettime(CLOCK_MONOTONIC, &ts0);
 #endif
-	revents = (f->state != FILE_ZOMB) ? 
+	revents = (f->state != FILE_ZOMB) ?
 	    f->ops->revents(f->arg, pfd) : 0;
 	if ((revents & POLLHUP) && (f->state != FILE_ZOMB))
 		f->ops->hup(f->arg);
@@ -318,8 +317,6 @@ file_poll(void)
 #endif
 	long long delta_nsec;
 	int nfds, res, timo;
-
-	log_flush();
 
 	/*
 	 * cleanup zombies
@@ -356,8 +353,6 @@ file_poll(void)
 		log_puts("poll:");
 		pfd = pfds;
 		for (f = file_list; f != NULL; f = f->next) {
-			if (f->nfds == 0)
-				continue;
 			log_puts(" ");
 			log_puts(f->ops->name);
 			log_puts(":");
@@ -397,10 +392,13 @@ file_poll(void)
 			timo = TIMER_MSEC;
 	} else
 		timo = -1;
+	log_flush();
 	res = poll(pfds, nfds, timo);
 	if (res < 0) {
-		if (errno != EINTR)
-			err(1, "poll");
+		if (errno != EINTR) {
+			log_puts("poll failed");
+			panic();
+		}
 		return 1;
 	}
 
@@ -412,19 +410,17 @@ file_poll(void)
 	file_wtime += 1000000000LL * (ts.tv_sec - sleepts.tv_sec);
 	file_wtime += ts.tv_nsec - sleepts.tv_nsec;
 #endif
-	delta_nsec = 1000000000LL * (ts.tv_sec - file_ts.tv_sec);
-	delta_nsec += ts.tv_nsec - file_ts.tv_nsec;
-#ifdef DEBUG
-	if (delta_nsec < 0)
-		log_puts("file_poll: negative time interval\n");
-#endif
-	file_ts = ts;
-	if (delta_nsec >= 0 && delta_nsec < 1000000000LL)
-		timo_update(delta_nsec / 1000);
-	else {
-		if (log_level >= 2)
-			log_puts("ignored huge clock delta\n");
+	if (timo_queue) {
+		delta_nsec = 1000000000LL * (ts.tv_sec - file_ts.tv_sec);
+		delta_nsec += ts.tv_nsec - file_ts.tv_nsec;
+		if (delta_nsec >= 0 && delta_nsec < 60000000000LL)
+			timo_update(delta_nsec / 1000);
+		else {
+			if (log_level >= 2)
+				log_puts("out-of-bounds clock delta\n");
+		}
 	}
+	file_ts = ts;
 
 	/*
 	 * process files that rely on poll
@@ -444,15 +440,14 @@ filelist_init(void)
 {
 	sigset_t set;
 
-	sigemptyset(&set);
-	(void)sigaddset(&set, SIGPIPE);
-	if (sigprocmask(SIG_BLOCK, &set, NULL))
-		err(1, "sigprocmask");
-	file_list = NULL;
 	if (clock_gettime(CLOCK_MONOTONIC, &file_ts) < 0) {
-		perror("clock_gettime");
-		exit(1);
+		log_puts("filelist_init: CLOCK_MONOTONIC unsupported\n");
+		panic();
 	}
+	sigemptyset(&set);
+	sigaddset(&set, SIGPIPE);
+	sigprocmask(SIG_BLOCK, &set, NULL);
+	file_list = NULL;
 	log_sync = 0;
 	timo_init();
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_ksh.c,v 1.46 2015/10/21 15:20:37 mmcc Exp $	*/
+/*	$OpenBSD: c_ksh.c,v 1.50 2016/03/21 13:35:00 tb Exp $	*/
 
 /*
  * built-in Korn commands: c_*
@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -454,23 +455,23 @@ c_whence(char **wp)
 
 	fcflags = FC_BI | FC_PATH | FC_FUNC;
 	if (!iam_whence) {
-		/* Note that -p on its own is deal with in comexec() */
+		/* Note that -p on its own is dealt with in comexec() */
 		if (pflag)
 			fcflags |= FC_DEFPATH;
-		/* Convert command options to whence options - note that
-		 * command -pV uses a different path search than whence -v
-		 * or whence -pv.  This should be considered a feature.
+		/* Convert command options to whence options.  Note that
+		 * command -pV and command -pv use a different path search
+		 * than whence -v or whence -pv.  This should be considered
+		 * a feature.
 		 */
 		vflag = Vflag;
-	}
-	if (pflag)
+	} else if (pflag)
 		fcflags &= ~(FC_BI | FC_FUNC);
 
 	while ((vflag || ret == 0) && (id = *wp++) != NULL) {
 		tp = NULL;
-		if ((iam_whence || vflag) && !pflag)
+		if (!iam_whence || !pflag)
 			tp = ktsearch(&keywords, id, hash(id));
-		if (!tp && !pflag) {
+		if (!tp && (!iam_whence || !pflag)) {
 			tp = ktsearch(&aliases, id, hash(id));
 			if (tp && !(tp->flag & ISSET))
 				tp = NULL;
@@ -731,7 +732,7 @@ c_typeset(char **wp)
 	/* list variables and attributes */
 	flag = fset | fclr; /* no difference at this point.. */
 	if (func) {
-		for (l = e->loc; l; l = l->next) {
+		for (l = genv->loc; l; l = l->next) {
 			for (p = ktsort(&l->funs); (vp = *p++); ) {
 				if (flag && (vp->flag & flag) == 0)
 					continue;
@@ -744,7 +745,7 @@ c_typeset(char **wp)
 			}
 		}
 	} else {
-		for (l = e->loc; l; l = l->next) {
+		for (l = genv->loc; l; l = l->next) {
 			for (p = ktsort(&l->vars); (vp = *p++); ) {
 				struct tbl *tvp;
 				int any_set = 0;
@@ -1205,13 +1206,15 @@ c_kill(char **wp)
 					shprintf("%s%s", p, sigtraps[i].name);
 			shprintf("\n");
 		} else {
-			int w, i;
-			int mess_width;
-			struct kill_info ki;
+			int mess_width = 0, w, i;
+			struct kill_info ki = {
+				.num_width = 1,
+				.name_width = 0,
+			};
 
-			for (i = NSIG, ki.num_width = 1; i >= 10; i /= 10)
+			for (i = NSIG; i >= 10; i /= 10)
 				ki.num_width++;
-			ki.name_width = mess_width = 0;
+
 			for (i = 0; i < NSIG; i++) {
 				w = sigtraps[i].name ? strlen(sigtraps[i].name) :
 				    ki.num_width;
@@ -1292,15 +1295,15 @@ c_getopts(char **wp)
 		return 1;
 	}
 
-	if (e->loc->next == NULL) {
+	if (genv->loc->next == NULL) {
 		internal_errorf(0, "c_getopts: no argv");
 		return 1;
 	}
 	/* Which arguments are we parsing... */
 	if (*wp == NULL)
-		wp = e->loc->next->argv;
+		wp = genv->loc->next->argv;
 	else
-		*--wp = e->loc->next->argv[0];
+		*--wp = genv->loc->next->argv[0];
 
 	/* Check that our saved state won't cause a core dump... */
 	for (argc = 0; wp[argc]; argc++)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fsirand.c,v 1.36 2015/11/18 15:36:32 deraadt Exp $	*/
+/*	$OpenBSD: fsirand.c,v 1.38 2016/05/28 17:16:39 tb Exp $	*/
 
 /*
  * Copyright (c) 1997 Todd C. Miller <Todd.Miller@courtesan.com>

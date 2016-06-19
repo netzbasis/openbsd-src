@@ -26,6 +26,8 @@ _unbound:*:53:
 _dpb:*:54:
 _pbuild:*:55:
 _pfetch:*:56:
+_pkgfetch:*:57:
+_pkguntar:*:58:
 _spamd:*:62:
 _radius:*:63:
 _token:*:64:
@@ -69,6 +71,9 @@ _file:*:104:
 _radiusd:*:105:
 _eigrpd:*:106:
 _vmd:*:107:
+_tftp_proxy:*:108:
+_ftp_proxy:*:109:
+_sndiop:*:110:
 dialer:*:117:
 nogroup:*:32766:
 nobody:*:32767:

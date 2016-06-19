@@ -1,4 +1,4 @@
-/*	$OpenBSD: display.c,v 1.21 2015/01/16 06:40:08 deraadt Exp $	*/
+/*	$OpenBSD: display.c,v 1.24 2016/03/15 04:19:13 mmcc Exp $	*/
 /*	$NetBSD: display.c,v 1.12 2001/12/07 15:14:29 bjh21 Exp $	*/
 
 /*
@@ -49,7 +49,10 @@ enum _vflag vflag = FIRST;
 static off_t address;			/* address/offset in stream */
 static off_t eaddress;			/* end address */
 
-static __inline void print(PR *, u_char *);
+static void		 bpad(PR *);
+static void		 doskip(const char *, int);
+static u_char		*get(void);
+static __inline void	 print(PR *, u_char *);
 
 void
 display(void)
@@ -196,7 +199,7 @@ print(PR *pr, u_char *bp)
 	}
 }
 
-void
+static void
 bpad(PR *pr)
 {
 	static const char *spec = " -0+#";
@@ -216,7 +219,7 @@ bpad(PR *pr)
 
 static char **_argv;
 
-u_char *
+static u_char *
 get(void)
 {
 	static int ateof = 1;
@@ -226,8 +229,9 @@ get(void)
 	u_char *tmpp;
 
 	if (!curp) {
-		curp = emalloc(blocksize);
-		savp = emalloc(blocksize);
+		if ((curp = calloc(1, blocksize)) == NULL ||
+		    (savp = calloc(1, blocksize)) == NULL)
+			err(1, NULL);
 	} else {
 		tmpp = curp;
 		curp = savp;
@@ -319,7 +323,7 @@ next(char **argv)
 	/* NOTREACHED */
 }
 
-void
+static void
 doskip(const char *fname, int statok)
 {
 	off_t cnt;
@@ -329,7 +333,7 @@ doskip(const char *fname, int statok)
 		if (fstat(fileno(stdin), &sb))
 			err(1, "fstat %s", fname);
 		if (S_ISREG(sb.st_mode)) {
-			if (skip >= sb.st_size) {
+			if (skip > sb.st_size) {
 				address += sb.st_size;
 				skip -= sb.st_size;
 			} else {
@@ -347,21 +351,4 @@ doskip(const char *fname, int statok)
 			break;
 	address += cnt;
 	skip -= cnt;
-}
-
-void *
-emalloc(int allocsize)
-{
-	void *p;
-
-	if ((p = malloc((u_int)allocsize)) == NULL)
-		nomem();
-	memset(p, 0, allocsize);
-	return(p);
-}
-
-void
-nomem(void)
-{
-	err(1, NULL);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cdcef.c,v 1.39 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_cdcef.c,v 1.43 2016/04/13 11:03:37 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 Dale Rahn <drahn@openbsd.org>
@@ -121,8 +121,6 @@ struct usbf_function_methods cdcef_methods = {
 
 #define DEVNAME(sc)	((sc)->sc_dev.bdev.dv_xname)
 
-extern int ticks;
-
 /*
  * USB function match/attach/detach
  */
@@ -139,11 +137,10 @@ cdcef_attach(struct device *parent, struct device *self, void *aux)
 	struct cdcef_softc *sc = (struct cdcef_softc *)self;
 	struct usbf_attach_arg *uaa = aux;
 	struct usbf_device *dev = uaa->device;
-	struct ifnet *ifp;
+	struct ifnet *ifp = GET_IFP(sc);
 	usbf_status err;
 	struct usb_cdc_union_descriptor udesc;
 	int s;
-	u_int16_t macaddr_hi;
 
 
 	/* Set the device identification according to the function. */
@@ -237,22 +234,15 @@ cdcef_attach(struct device *parent, struct device *self, void *aux)
 
 	s = splnet();
 
-	macaddr_hi = htons(0x2acb);
-	bcopy(&macaddr_hi, &sc->sc_arpcom.ac_enaddr[0], sizeof(u_int16_t));
-	bcopy(&ticks, &sc->sc_arpcom.ac_enaddr[2], sizeof(u_int32_t));
-	sc->sc_arpcom.ac_enaddr[5] = (u_int8_t)(sc->sc_dev.bdev.dv_unit);
-
+	ether_fakeaddr(ifp);
 	printf(": address %s\n", ether_sprintf(sc->sc_arpcom.ac_enaddr));
 
-	ifp = GET_IFP(sc);
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = cdcef_ioctl;
 	ifp->if_start = cdcef_start;
 	ifp->if_watchdog = cdcef_watchdog;
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
-
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if_attach(ifp);
 	ether_ifattach(ifp);
@@ -274,10 +264,10 @@ cdcef_start(struct ifnet *ifp)
 	struct cdcef_softc	*sc = ifp->if_softc;
 	struct mbuf		*m_head = NULL;
 
-	if(ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
-	m_head = ifq_deq_begin(&ifp->if_snd, m_head);
+	m_head = ifq_deq_begin(&ifp->if_snd);
 	if (m_head == NULL) {
 		return;
 	}
@@ -294,7 +284,7 @@ cdcef_start(struct ifnet *ifp)
 
 	if (cdcef_encap(sc, m_head, 0)) {
 		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -305,7 +295,7 @@ cdcef_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 					
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	ifp->if_timer = 6;
 }
@@ -325,7 +315,7 @@ cdcef_txeof(struct usbf_xfer *xfer, void *priv,
 #endif
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (sc->sc_xmit_mbuf != NULL) {
 		m_freem(sc->sc_xmit_mbuf);
@@ -504,7 +494,7 @@ cdcef_watchdog(struct ifnet *ifp)
 
 	s = splusb();
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* cancel receive pipe? */
 	usbf_abort_pipe(sc->sc_pipe_in); /* in is tx pipe */
@@ -520,7 +510,7 @@ cdcef_init(struct cdcef_softc *sc)
 	s = splnet();
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -555,7 +545,8 @@ cdcef_stop(struct cdcef_softc *sc)
 	struct ifnet    *ifp = GET_IFP(sc);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* cancel receive pipe? */
 

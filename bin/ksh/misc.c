@@ -1,12 +1,16 @@
-/*	$OpenBSD: misc.c,v 1.51 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: misc.c,v 1.55 2016/03/20 00:01:21 krw Exp $	*/
 
 /*
  * Miscellaneous functions
  */
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "charclass.h"
@@ -236,8 +240,10 @@ printoptions(int verbose)
 		/* short version ala ksh93 */
 		shprintf("set");
 		for (i = 0; i < NELEM(options); i++)
-			if (Flag(i) && options[i].name)
-				shprintf(" -o %s", options[i].name);
+			if (options[i].name)
+				shprintf(" %co %s",
+					 Flag(i) ? '-' : '+',
+					 options[i].name);
 		shprintf("\n");
 	}
 }
@@ -982,7 +988,7 @@ print_value_quoted(const char *s)
 	}
 	for (p = s; *p; p++) {
 		if (*p == '\'') {
-			shprintf("'\\'" + 1 - inquote);
+			shprintf(inquote ? "'\\'" : "\\'");
 			inquote = 0;
 		} else {
 			if (!inquote) {
@@ -1107,7 +1113,7 @@ reset_nonblock(int fd)
 {
 	int flags;
 
-	if ((flags = fcntl(fd, F_GETFL, 0)) < 0)
+	if ((flags = fcntl(fd, F_GETFL)) < 0)
 		return -1;
 	if (!(flags & O_NONBLOCK))
 		return 0;

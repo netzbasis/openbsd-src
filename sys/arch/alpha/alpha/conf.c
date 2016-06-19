@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.79 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.81 2016/04/25 20:09:14 tedu Exp $	*/
 /*	$NetBSD: conf.c,v 1.16 1996/10/18 21:26:57 cgd Exp $	*/
 
 /*-
@@ -120,7 +120,6 @@ cdev_decl(cy);
 cdev_decl(pci);
 #endif
 
-#include "systrace.h"
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
@@ -178,7 +177,7 @@ struct cdevsw	cdevsw[] =
 	cdev_ulpt_init(NULPT,ulpt),	/* 47: USB printer */
 	cdev_usbdev_init(NUGEN,ugen),	/* 48: USB generic driver */
 	cdev_tty_init(NUCOM, ucom),	/* 49: USB tty */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 #ifdef USER_PCICONF
 	cdev_pci_init(NPCI,pci),	/* 52: PCI user */
@@ -285,19 +284,5 @@ int chrtoblktbl[] = {
 	/* 35 */	NODEV,
 	/* 36 */	0,
 	/* 37 */	4,		/* fd */
-	/* 38 */	NODEV,
-	/* 39 */	NODEV,
-	/* 40 */	NODEV,
-	/* 41 */	NODEV,
-	/* 42 */	NODEV,
-	/* 43 */	16,		/* raid */
-	/* 44 */	NODEV,
-	/* 45 */	NODEV,
-	/* 46 */	NODEV,
-	/* 47 */	NODEV,
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
 };
 int nchrtoblktbl = nitems(chrtoblktbl);

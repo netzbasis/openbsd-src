@@ -1,7 +1,7 @@
-/* $OpenBSD: format.c,v 1.99 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.107 2016/05/23 20:39:26 nicm Exp $ */
 
 /*
- * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -465,16 +465,10 @@ format_cb_pane_tabs(struct format_tree *ft, struct format_entry *fe)
 
 /* Create a new tree. */
 struct format_tree *
-format_create(void)
-{
-	return (format_create_flags(0));
-}
-
-/* Create a new tree for the status line. */
-struct format_tree *
-format_create_flags(int flags)
+format_create(struct cmd_q *cmdq, int flags)
 {
 	struct format_tree	*ft;
+	struct cmd		*cmd;
 
 	if (!event_initialized(&format_job_event)) {
 		evtimer_set(&format_job_event, format_job_timer, NULL);
@@ -488,6 +482,15 @@ format_create_flags(int flags)
 	format_add_cb(ft, "host", format_cb_host);
 	format_add_cb(ft, "host_short", format_cb_host_short);
 	format_add_cb(ft, "pid", format_cb_pid);
+	format_add(ft, "socket_path", "%s", socket_path);
+	format_add_tv(ft, "start_time", &start_time);
+
+	if (cmdq != NULL && cmdq->cmd != NULL)
+		format_add(ft, "command_name", "%s", cmdq->cmd->entry->name);
+	if (cmdq != NULL && cmdq->parent != NULL) {
+		cmd = cmdq->parent->cmd;
+		format_add(ft, "command_hooked", "%s", cmd->entry->name);
+	}
 
 	return (ft);
 }
@@ -686,7 +689,7 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	char		*copy, *copy0, *endptr, *ptr, *found, *new, *value;
 	char		*from = NULL, *to = NULL;
 	size_t		 valuelen, newlen, fromlen, tolen, used;
-	u_long		 limit = 0;
+	long		 limit = 0;
 	int		 modifiers = 0, brackets;
 
 	/* Make a copy of the key. */
@@ -698,8 +701,8 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	switch (copy[0]) {
 	case '=':
 		errno = 0;
-		limit = strtoul(copy + 1, &endptr, 10);
-		if (errno == ERANGE && limit == ULONG_MAX)
+		limit = strtol(copy + 1, &endptr, 10);
+		if (errno == ERANGE && (limit == LONG_MIN || limit == LONG_MAX))
 			break;
 		if (*endptr != ':')
 			break;
@@ -815,8 +818,12 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	}
 
 	/* Truncate the value if needed. */
-	if (limit != 0) {
+	if (limit > 0) {
 		new = utf8_trimcstr(value, limit);
+		free(value);
+		value = new;
+	} else if (limit < 0) {
+		new = utf8_rtrimcstr(value, -limit);
 		free(value);
 		value = new;
 	}
@@ -843,27 +850,18 @@ fail:
 char *
 format_expand_time(struct format_tree *ft, const char *fmt, time_t t)
 {
-	char		*tmp, *expanded;
-	size_t		 tmplen;
 	struct tm	*tm;
+	char		 s[2048];
 
 	if (fmt == NULL || *fmt == '\0')
 		return (xstrdup(""));
 
 	tm = localtime(&t);
 
-	tmp = NULL;
-	tmplen = strlen(fmt);
+	if (strftime(s, sizeof s, fmt, tm) == 0)
+		return (xstrdup(""));
 
-	do {
-		tmp = xreallocarray(tmp, 2, tmplen);
-		tmplen *= 2;
-	} while (strftime(tmp, tmplen, fmt, tm) == 0);
-
-	expanded = format_expand(ft, tmp);
-	free(tmp);
-
-	return (expanded);
+	return (format_expand(ft, s));
 }
 
 /* Expand keys in a template. */
@@ -1037,6 +1035,7 @@ void
 format_defaults_client(struct format_tree *ft, struct client *c)
 {
 	struct session	*s;
+	const char	*name;
 
 	if (ft->s == NULL)
 		ft->s = c->session;
@@ -1054,7 +1053,8 @@ format_defaults_client(struct format_tree *ft, struct client *c)
 	format_add_tv(ft, "client_created", &c->creation_time);
 	format_add_tv(ft, "client_activity", &c->activity_time);
 
-	if (strcmp(c->keytable->name, "root") == 0)
+	name = server_client_get_key_table(c);
+	if (strcmp(c->keytable->name, name) == 0)
 		format_add(ft, "client_prefix", "%d", 0);
 	else
 		format_add(ft, "client_prefix", "%d", 1);

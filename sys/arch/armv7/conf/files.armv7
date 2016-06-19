@@ -1,4 +1,4 @@
-#	$OpenBSD: files.armv7,v 1.13 2015/06/08 06:33:16 jsg Exp $
+#	$OpenBSD: files.armv7,v 1.19 2016/05/23 00:05:35 deraadt Exp $
 
 maxpartitions	16
 maxusers	2 8 64
@@ -7,9 +7,6 @@ major	{wd = 16}
 major	{sd = 24}
 major	{cd = 26}
 major	{rd = 18}
-
-define	fdt {}
-file	arch/armv7/fdt/fdt_machdep.c	fdt	needs-flag
 
 file	arch/arm/arm/conf.c
 
@@ -34,6 +31,9 @@ include "dev/sdmmc/files.sdmmc"
 
 # Media Independent Interface (mii)
 include "dev/mii/files.mii"
+
+# Machine-independent HID support
+include "dev/hid/files.hid"
 
 # Machine-independent I2C drivers
 include "dev/i2c/files.i2c"

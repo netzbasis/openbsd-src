@@ -1,4 +1,4 @@
-/*	$OpenBSD: table.c,v 1.16 2015/01/16 06:39:51 deraadt Exp $	*/
+/*	$OpenBSD: table.c,v 1.18 2016/03/16 15:41:10 krw Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -37,15 +37,15 @@
  *
  * Consider this a mis-guided attempt at modularity
  */
-#include <sys/time.h>
-#include <sys/socket.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
 #include <protocols/talkd.h>
-#include <syslog.h>
-#include <unistd.h>
-#include <stdio.h>
+
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
+#include <unistd.h>
+
 #include "talkd.h"
 
 #define MAX_ID 16000	/* << 2^15 so I don't have sign troubles */
@@ -107,7 +107,7 @@ find_match(CTL_MSG *request)
 	if (debug)
 		syslog(LOG_DEBUG, "find_match: not found");
 
-	return ((CTL_MSG *)0);
+	return (NULL);
 }
 
 /*
@@ -149,7 +149,7 @@ find_request(CTL_MSG *request)
 			return (&ptr->request);
 		}
 	}
-	return ((CTL_MSG *)0);
+	return (NULL);
 }
 
 void

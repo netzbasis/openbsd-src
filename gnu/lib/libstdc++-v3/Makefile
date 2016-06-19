@@ -1,5 +1,5 @@
 # $FreeBSD: src/gnu/lib/libstdc++/Makefile,v 1.63.2.1 2009/08/03 08:13:06 kensmith Exp $
-# $OpenBSD: Makefile,v 1.8 2015/05/14 02:56:01 jsg Exp $
+# $OpenBSD: Makefile,v 1.10 2016/03/28 00:04:26 deraadt Exp $
 
 .include "${.CURDIR}/Makefile.common"
 
@@ -17,6 +17,9 @@ CFLAGS+=	-frandom-seed=RepeatabilityConsideredGood
 CXXFLAGS+=	-frandom-seed=RepeatabilityConsideredGood
 CXXFLAGS+=	-fno-implicit-templates -ffunction-sections -fdata-sections \
 		-Wno-deprecated
+.if ${MACHINE_ARCH} == "arm"
+CXXFLAGS+=	-fno-stack-protector
+.endif
 
 DPADD=		${LIBM}
 LDADD=		-lm
@@ -35,16 +38,7 @@ SRCS+=	bitmap_allocator.cc pool_allocator.cc \
 	wlocale-inst.cc wstring-inst.cc atomicity.cc \
 	codecvt_members.cc collate_members.cc ctype_members.cc \
 	messages_members.cc monetary_members.cc numeric_members.cc \
-	time_members.cc basic_file_stdio.cc c_locale.cc \
-#	compatibility-ldbl.cc
-
-# target sources
-SRCS+=  atomicity.cc codecvt_members.cc collate_members.cc ctype_members.cc \
-	messages_members.cc monetary_members.cc numeric_members.cc \
-	time_members.cc
-
-# target sources extra
-SRCS+=  basic_file_stdio.cc c_locale.cc
+	time_members.cc basic_file_stdio.cc c_locale.cc
 
 # C parts of math
 SRCS+=	stubs.c

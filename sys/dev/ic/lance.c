@@ -1,4 +1,4 @@
-/*	$OpenBSD: lance.c,v 1.9 2015/10/25 12:48:46 mpi Exp $	*/
+/*	$OpenBSD: lance.c,v 1.13 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: lance.c,v 1.46 2012/02/02 19:43:03 tls Exp $	*/
 
 /*-
@@ -145,7 +145,7 @@ ether_cmp(void *one, void *two)
 	diff |= *a++ - *b++;
 #else
 	/*
-	 * Most modern CPUs do better with a single expresion.
+	 * Most modern CPUs do better with a single expression.
 	 * Note that short-cut evaluation is NOT helpful here,
 	 * because it just makes the code longer, not faster!
 	 */
@@ -175,12 +175,11 @@ lance_config(struct lance_softc *sc)
 	ifp->if_ioctl = lance_ioctl;
 	ifp->if_watchdog = lance_watchdog;
 	ifp->if_flags =
-	    IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
+	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 #ifdef LANCE_REVC_BUG
 	ifp->if_flags &= ~IFF_MULTICAST;
 #endif
 	ifp->if_baudrate = IF_Mbps(10);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Initialize ifmedia structures. */
 	ifmedia_init(&sc->sc_ifmedia, 0, lance_mediachange, lance_mediastatus);
@@ -309,7 +308,7 @@ lance_init(struct lance_softc *sc)
 		/* Start the LANCE. */
 		(*sc->sc_wrcsr)(sc, LE_CSR0, LE_C0_INEA | LE_C0_STRT);
 		ifp->if_flags |= IFF_RUNNING;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_timer = 0;
 		(*sc->sc_start)(ifp);
 	} else

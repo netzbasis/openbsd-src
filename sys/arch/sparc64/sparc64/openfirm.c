@@ -1,4 +1,4 @@
-/*	$OpenBSD: openfirm.c,v 1.15 2014/03/29 18:09:30 guenther Exp $	*/
+/*	$OpenBSD: openfirm.c,v 1.19 2016/05/19 09:15:28 kettenis Exp $	*/
 /*	$NetBSD: openfirm.c,v 1.13 2001/06/21 00:08:02 eeh Exp $	*/
 
 /*
@@ -611,7 +611,7 @@ OF_boot(bootspec)
 }
 
 void
-OF_enter()
+OF_enter(void)
 {
 	struct {
 		cell_t name;
@@ -626,7 +626,7 @@ OF_enter()
 }
 
 void
-OF_exit()
+OF_exit(void)
 {
 	struct {
 		cell_t name;
@@ -642,7 +642,7 @@ OF_exit()
 }
 
 void
-OF_poweroff()
+OF_poweroff(void)
 {
 	struct {
 		cell_t name;
@@ -731,13 +731,13 @@ OF_interpret(char *cmd, int nreturns, ...)
 }
 
 int
-OF_milliseconds()
+OF_milliseconds(void)
 {
 	struct {
 		cell_t name;
 		cell_t nargs;
 		cell_t nreturns;
-		cell_t ticks;
+		cell_t nticks;
 	} args;
 	
 	args.name = ADR2CELL("milliseconds");
@@ -745,7 +745,7 @@ OF_milliseconds()
 	args.nreturns = 1;
 	if (openfirmware(&args) == -1)
 		return -1;
-	return (args.ticks);
+	return (args.nticks);
 }
 
 #ifdef DDB
@@ -827,7 +827,7 @@ void OF_val2sym(cells)
 	if (obp_symbol_debug)
 		prom_printf("looking up value %ld\r\n", value);
 	symbol = db_search_symbol(value, 0, &offset);
-	if (symbol == DB_SYM_NULL) {
+	if (symbol == NULL) {
 		if (obp_symbol_debug)
 			prom_printf("OF_val2sym: not found\r\n");
 		args->nreturns = 1;
@@ -839,3 +839,28 @@ void OF_val2sym(cells)
        
 }
 #endif
+
+int
+OF_is_compatible(int handle, const char *name)
+{
+	char compat[256];
+	char *str;
+	int len;
+
+	len = OF_getprop(handle, "compatible", &compat, sizeof(compat));
+	if (len <= 0)
+		return 0;
+
+	/* Guarantee that the buffer is null-terminated. */
+	compat[sizeof(compat) - 1] = 0;
+
+	str = compat;
+	while (len > 0) {
+		if (strcmp(str, name) == 0)
+			return 1;
+		len -= strlen(str) + 1;
+		str += strlen(str) + 1;
+	}
+
+	return 0;
+}

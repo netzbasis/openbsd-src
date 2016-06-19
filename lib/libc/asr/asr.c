@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.48 2015/10/28 21:38:45 eric Exp $	*/
+/*	$OpenBSD: asr.c,v 1.54 2016/06/18 15:25:28 reyk Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -35,10 +35,6 @@
 #include <limits.h>
 
 #include "asr_private.h"
-
-#ifndef ASR_OPT_HOSTALIASES
-#define ASR_OPT_HOSTALIASES 1
-#endif
 
 #include "thread_private.h"
 
@@ -173,15 +169,30 @@ int
 asr_run_sync(struct asr_query *as, struct asr_result *ar)
 {
 	struct pollfd	 fds[1];
-	int		 r, saved_errno = errno;
+	struct timespec	 pollstart, pollend, elapsed;
+	int		 timeout, r, p, saved_errno = errno;
 
 	while ((r = asr_run(as, ar)) == ASYNC_COND) {
 		fds[0].fd = ar->ar_fd;
 		fds[0].events = (ar->ar_cond == ASR_WANT_READ) ? POLLIN:POLLOUT;
+
+		timeout = ar->ar_timeout;
 	again:
-		r = poll(fds, 1, ar->ar_timeout);
-		if (r == -1 && errno == EINTR)
+		if (clock_gettime(CLOCK_MONOTONIC, &pollstart))
+			break;
+		p = poll(fds, 1, timeout);
+		if (p == -1 && errno == EINTR) {
+			if (clock_gettime(CLOCK_MONOTONIC, &pollend))
+				break;
+
+			timespecsub(&pollend, &pollstart, &elapsed);
+			timeout -= (elapsed.tv_sec * 1000) +
+			    (elapsed.tv_nsec / 1000000);
+			if (timeout < 1)
+				break;
 			goto again;
+		}
+
 		/*
 		 * Otherwise, just ignore the error and let asr_run()
 		 * catch the failure.
@@ -560,17 +571,19 @@ pass0(char **tok, int n, struct asr_ctx *ac)
 					return;
 		ac->ac_dbcount = 0;
 		for (i = 1; i < n && ac->ac_dbcount < ASR_MAXDB; i++) {
-			if (!strcmp(tok[i], "yp"))
-				ac->ac_db[ac->ac_dbcount++] = ASR_DB_YP;
-			else if (!strcmp(tok[i], "bind"))
+			if (!strcmp(tok[i], "yp")) {
+				/* silently deprecated */
+			} else if (!strcmp(tok[i], "bind"))
 				ac->ac_db[ac->ac_dbcount++] = ASR_DB_DNS;
 			else if (!strcmp(tok[i], "file"))
 				ac->ac_db[ac->ac_dbcount++] = ASR_DB_FILE;
 		}
 	} else if (!strcmp(tok[0], "search")) {
 		/* resolv.conf says the last line wins */
-		for (i = 0; i < ASR_MAXDOM; i++)
+		for (i = 0; i < ASR_MAXDOM; i++) {
 			free(ac->ac_dom[i]);
+			ac->ac_dom[i] = NULL;
+		}
 		ac->ac_domcount = 0;
 		for (i = 1; i < n; i++)
 			asr_ctx_add_searchdomain(ac, tok[i]);
@@ -702,7 +715,7 @@ asr_ctx_parse(struct asr_ctx *ac, const char *str)
 
 /*
  * Check for environment variables altering the configuration as described
- * in resolv.conf(5).  Altough not documented there, this feature is disabled
+ * in resolv.conf(5).  Although not documented there, this feature is disabled
  * for setuid/setgid programs.
  */
 static void
@@ -719,7 +732,6 @@ asr_ctx_envopts(struct asr_ctx *ac)
 	if ((e = getenv("RES_OPTIONS")) != NULL) {
 		strlcpy(buf, "options ", sizeof buf);
 		strlcat(buf, e, sizeof buf);
-		s = strlcat(buf, "\n", sizeof buf);
 		s = strlcat(buf, "\n", sizeof buf);
 		if (s < sizeof buf)
 			asr_ctx_parse(ac, buf);
@@ -838,47 +850,4 @@ _asr_iter_db(struct asr_query *as)
 	DPRINT("asr_iter_db: %i\n", as->as_db_idx);
 
 	return (0);
-}
-
-/*
- * Check if the hostname "name" is a user-defined alias as per hostname(7).
- * If so, copies the result in the buffer "abuf" of size "abufsz" and
- * return "abuf". Otherwise return NULL.
- */
-char *
-_asr_hostalias(struct asr_ctx *ac, const char *name, char *abuf, size_t abufsz)
-{
-#if ASR_OPT_HOSTALIASES
-	FILE	 *fp;
-	size_t	  len;
-	char	 *file, *buf, *tokens[2];
-	int	  ntok;
-
-	if (ac->ac_options & RES_NOALIASES ||
-	    asr_ndots(name) != 0 ||
-	    issetugid() ||
-	    (file = getenv("HOSTALIASES")) == NULL ||
-	    (fp = fopen(file, "re")) == NULL)
-		return (NULL);
-
-	DPRINT("asr: looking up aliases in \"%s\"\n", file);
-
-	while ((buf = fgetln(fp, &len)) != NULL) {
-		if (buf[len - 1] == '\n')
-			len--;
-		buf[len] = '\0';
-		if ((ntok = strsplit(buf, tokens, 2)) != 2)
-			continue;
-		if (!strcasecmp(tokens[0], name)) {
-			if (strlcpy(abuf, tokens[1], abufsz) > abufsz)
-				continue;
-			DPRINT("asr: found alias \"%s\"\n", abuf);
-			fclose(fp);
-			return (abuf);
-		}
-	}
-
-	fclose(fp);
-#endif
-	return (NULL);
 }

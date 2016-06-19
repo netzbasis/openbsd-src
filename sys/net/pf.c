@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.951 2015/11/20 10:42:51 mpi Exp $ */
+/*	$OpenBSD: pf.c,v 1.977 2016/06/15 11:49:34 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -99,6 +99,10 @@
 #include <netinet6/ip6_divert.h>
 #endif /* INET6 */
 
+#ifdef DDB
+#include <machine/db_machdep.h>
+#include <ddb/db_interface.h>
+#endif
 
 /*
  * Global variables
@@ -148,17 +152,14 @@ void			 pf_add_threshold(struct pf_threshold *);
 int			 pf_check_threshold(struct pf_threshold *);
 
 void			 pf_change_ap(struct pf_pdesc *, struct pf_addr *,
-			    u_int16_t *, struct pf_addr *, u_int16_t,
-			    sa_family_t);
+			    u_int16_t *, struct pf_addr *, u_int16_t);
 int			 pf_modulate_sack(struct pf_pdesc *,
 			    struct pf_state_peer *);
-void			 pf_change_a6(struct pf_pdesc *, struct pf_addr *a,
-			    struct pf_addr *an);
 int			 pf_icmp_mapping(struct pf_pdesc *, u_int8_t, int *,
 			    u_int16_t *, u_int16_t *);
 void			 pf_change_icmp(struct pf_pdesc *, struct pf_addr *,
 			    u_int16_t *, struct pf_addr *, struct pf_addr *,
-			    u_int16_t, sa_family_t);
+			    u_int16_t);
 int			 pf_change_icmp_af(struct mbuf *, int,
 			    struct pf_pdesc *, struct pf_pdesc *,
 			    struct pf_addr *, struct pf_addr *, sa_family_t,
@@ -178,7 +179,7 @@ void			 pf_rule_to_actions(struct pf_rule *,
 			    struct pf_rule_actions *);
 int			 pf_test_rule(struct pf_pdesc *, struct pf_rule **,
 			    struct pf_state **, struct pf_rule **,
-			    struct pf_ruleset **);
+			    struct pf_ruleset **, u_short *);
 static __inline int	 pf_create_state(struct pf_pdesc *, struct pf_rule *,
 			    struct pf_rule *, struct pf_rule *,
 			    struct pf_state_key **, struct pf_state_key **,
@@ -234,6 +235,11 @@ int			 pf_step_out_of_anchor(int *, struct pf_ruleset **,
 void			 pf_counters_inc(int, struct pf_pdesc *,
 			    struct pf_state *, struct pf_rule *,
 			    struct pf_rule *);
+void			 pf_state_key_link(struct pf_state_key *,
+			    struct pf_state_key *);
+void			 pf_inpcb_unlink_state_key(struct inpcb *);
+void			 pf_state_key_unlink_reverse(struct pf_state_key *);
+
 #if NPFLOG > 0
 void			 pf_log_matches(struct pf_pdesc *, struct pf_rule *,
 			    struct pf_rule *, struct pf_ruleset *,
@@ -668,7 +674,7 @@ pf_state_key_attach(struct pf_state_key *sk, struct pf_state *s, int idx)
 				    si->s->dst.state >= TCPS_FIN_WAIT_2) {
 					si->s->src.state = si->s->dst.state =
 					    TCPS_CLOSED;
-					/* unlink late or sks can go away */
+					/* remove late or sks can go away */
 					olds = si->s;
 				} else {
 					if (pf_status.debug >= LOG_NOTICE) {
@@ -713,7 +719,7 @@ pf_state_key_attach(struct pf_state_key *sk, struct pf_state *s, int idx)
 		TAILQ_INSERT_HEAD(&s->key[idx]->states, si, entry);
 
 	if (olds)
-		pf_unlink_state(olds);
+		pf_remove_state(olds);
 
 	return (0);
 }
@@ -735,6 +741,7 @@ void
 pf_state_key_detach(struct pf_state *s, int idx)
 {
 	struct pf_state_item	*si;
+	struct pf_state_key	*sk;
 
 	if (s->key[idx] == NULL)
 		return;
@@ -748,15 +755,15 @@ pf_state_key_detach(struct pf_state *s, int idx)
 		pool_put(&pf_state_item_pl, si);
 	}
 
-	if (TAILQ_EMPTY(&s->key[idx]->states)) {
-		RB_REMOVE(pf_state_tree, &pf_statetbl, s->key[idx]);
-		if (s->key[idx]->reverse)
-			s->key[idx]->reverse->reverse = NULL;
-		if (s->key[idx]->inp)
-			s->key[idx]->inp->inp_pf_sk = NULL;
-		pool_put(&pf_state_key_pl, s->key[idx]);
-	}
+	sk = s->key[idx];
 	s->key[idx] = NULL;
+	if (TAILQ_EMPTY(&sk->states)) {
+		RB_REMOVE(pf_state_tree, &pf_statetbl, sk);
+		sk->removed = 1;
+		pf_state_key_unlink_reverse(sk);
+		pf_inpcb_unlink_state_key(sk->inp);
+		pf_state_key_unref(sk);
+	}
 }
 
 struct pf_state_key *
@@ -843,6 +850,8 @@ pf_state_key_setup(struct pf_pdesc *pd, struct pf_state_key **skw,
 	sk1->proto = pd->proto;
 	sk1->af = pd->af;
 	sk1->rdomain = pd->rdomain;
+	PF_REF_INIT(sk1->refcnt);
+	sk1->removed = 0;
 	if (rtableid >= 0)
 		wrdom = rtable_l2(rtableid);
 
@@ -874,6 +883,8 @@ pf_state_key_setup(struct pf_pdesc *pd, struct pf_state_key **skw,
 			sk2->proto = pd->proto;
 		sk2->af = pd->naf;
 		sk2->rdomain = wrdom;
+		PF_REF_INIT(sk2->refcnt);
+		sk2->removed = 0;
 	} else
 		sk2 = sk1;
 
@@ -989,7 +1000,7 @@ struct pf_state *
 pf_find_state(struct pfi_kif *kif, struct pf_state_key_cmp *key, u_int dir,
     struct mbuf *m)
 {
-	struct pf_state_key	*sk;
+	struct pf_state_key	*sk, *pkt_sk, *inp_sk;
 	struct pf_state_item	*si;
 
 	pf_status.fcounters[FCNT_STATE_SEARCH]++;
@@ -999,31 +1010,47 @@ pf_find_state(struct pfi_kif *kif, struct pf_state_key_cmp *key, u_int dir,
 		addlog("\n");
 	}
 
-	if (dir == PF_OUT && m->m_pkthdr.pf.statekey &&
-	    m->m_pkthdr.pf.statekey->reverse)
-		sk = m->m_pkthdr.pf.statekey->reverse;
-	else if (dir == PF_OUT && m->m_pkthdr.pf.inp &&
-	    m->m_pkthdr.pf.inp->inp_pf_sk)
-		sk = m->m_pkthdr.pf.inp->inp_pf_sk;
-	else {
-		if ((sk = RB_FIND(pf_state_tree, &pf_statetbl,
-		    (struct pf_state_key *)key)) == NULL)
-			return (NULL);
-		if (dir == PF_OUT && m->m_pkthdr.pf.statekey &&
-		    pf_compare_state_keys(m->m_pkthdr.pf.statekey, sk,
-		    kif, dir) == 0) {
-			m->m_pkthdr.pf.statekey->reverse = sk;
-			sk->reverse = m->m_pkthdr.pf.statekey;
-		} else if (dir == PF_OUT && m->m_pkthdr.pf.inp && !sk->inp) {
-			m->m_pkthdr.pf.inp->inp_pf_sk = sk;
-			sk->inp = m->m_pkthdr.pf.inp;
+	inp_sk = NULL;
+	pkt_sk = NULL;
+	sk = NULL;
+	if (dir == PF_OUT) {
+		/* first if block deals with outbound forwarded packet */
+		pkt_sk = m->m_pkthdr.pf.statekey;
+		if (pf_state_key_isvalid(pkt_sk) &&
+		    pf_state_key_isvalid(pkt_sk->reverse)) {
+			sk = pkt_sk->reverse;
+		} else {
+			pf_pkt_unlink_state_key(m);
+			pkt_sk = NULL;
+		}
+
+		if (pkt_sk == NULL) {
+			/* here we deal with local outbound packet */
+			if (m->m_pkthdr.pf.inp != NULL) {
+				inp_sk = m->m_pkthdr.pf.inp->inp_pf_sk;
+				if (pf_state_key_isvalid(inp_sk))
+					sk = inp_sk;
+				else
+					pf_inpcb_unlink_state_key(
+					    m->m_pkthdr.pf.inp);
+			}
 		}
 	}
 
-	if (dir == PF_OUT) {
-		m->m_pkthdr.pf.statekey = NULL;
-		m->m_pkthdr.pf.inp = NULL;
+	if (sk == NULL) {
+		if ((sk = RB_FIND(pf_state_tree, &pf_statetbl,
+		    (struct pf_state_key *)key)) == NULL)
+			return (NULL);
+		if (dir == PF_OUT && pkt_sk &&
+		    pf_compare_state_keys(pkt_sk, sk, kif, dir) == 0)
+			pf_state_key_link(sk, pkt_sk);
+		else if (dir == PF_OUT)
+			pf_inp_link(m, m->m_pkthdr.pf.inp);
 	}
+
+	/* remove firewall data from outbound packet */
+	if (dir == PF_OUT)
+		pf_pkt_addr_changed(m);
 
 	/* list is sorted, if-bound states before floating ones */
 	TAILQ_FOREACH(si, &sk->states, entry)
@@ -1249,7 +1276,7 @@ pf_src_tree_remove_state(struct pf_state *s)
 
 /* callers should be at splsoftnet */
 void
-pf_unlink_state(struct pf_state *cur)
+pf_remove_state(struct pf_state *cur)
 {
 	splsoftassert(IPL_SOFTNET);
 
@@ -1277,6 +1304,20 @@ pf_unlink_state(struct pf_state *cur)
 	cur->timeout = PFTM_UNLINKED;
 	pf_src_tree_remove_state(cur);
 	pf_detach_state(cur);
+}
+
+void
+pf_remove_divert_state(struct pf_state_key *sk)
+{
+	struct pf_state_item	*si;
+
+	TAILQ_FOREACH(si, &sk->states, entry) {
+		if (sk == si->s->key[PF_SK_STACK] && si->s->rule.ptr &&
+		    si->s->rule.ptr->divert.port) {
+			pf_remove_state(si->s);
+			break;
+		}
+	}
 }
 
 /* callers should be at splsoftnet and hold the
@@ -1335,15 +1376,15 @@ pf_purge_expired_states(u_int32_t maxcheck)
 		next = TAILQ_NEXT(cur, entry_list);
 
 		if (cur->timeout == PFTM_UNLINKED) {
-			/* free unlinked state */
+			/* free removed state */
 			if (! locked) {
 				rw_enter_write(&pf_consistency_lock);
 				locked = 1;
 			}
 			pf_free_state(cur);
 		} else if (pf_state_expires(cur) <= time_uptime) {
-			/* unlink and free expired state */
-			pf_unlink_state(cur);
+			/* remove and free expired state */
+			pf_remove_state(cur);
 			if (! locked) {
 				rw_enter_write(&pf_consistency_lock);
 				locked = 1;
@@ -1645,13 +1686,13 @@ pf_addr_wrap_neq(struct pf_addr_wrap *aw1, struct pf_addr_wrap *aw2)
 
 void
 pf_change_ap(struct pf_pdesc *pd, struct pf_addr *a, u_int16_t *p,
-    struct pf_addr *an, u_int16_t pn, sa_family_t naf)
+    struct pf_addr *an, u_int16_t pn)
 {
 	if (pd->csum_status == PF_CSUM_UNKNOWN)
 		pf_check_proto_cksum(pd, pd->off, pd->tot_len - pd->off,
 		    pd->proto, pd->af);
-	if (pd->af == naf)
-		PF_ACPY(a, an, naf);
+	if (pd->af == pd->naf)
+		PF_ACPY(a, an, pd->naf);
 	if (p != NULL)
 		*p = pn;
 }
@@ -1665,17 +1706,6 @@ pf_change_a(struct pf_pdesc *pd, void *a, u_int32_t an)
 		    pd->proto, pd->af);
 	memcpy(a, &an, sizeof(u_int32_t));
 }
-
-#ifdef INET6
-void
-pf_change_a6(struct pf_pdesc *pd, struct pf_addr *a, struct pf_addr *an)
-{
-	if (pd->csum_status == PF_CSUM_UNKNOWN)
-		pf_check_proto_cksum(pd, pd->off, pd->tot_len - pd->off,
-		    pd->proto, pd->af);
-	PF_ACPY(a, an, AF_INET6);
-}
-#endif /* INET6 */
 
 int
 pf_icmp_mapping(struct pf_pdesc *pd, u_int8_t type, int *icmp_dir,
@@ -1869,7 +1899,7 @@ pf_icmp_mapping(struct pf_pdesc *pd, u_int8_t type, int *icmp_dir,
 
 void
 pf_change_icmp(struct pf_pdesc *pd, struct pf_addr *ia, u_int16_t *ip,
-    struct pf_addr *oa, struct pf_addr *na, u_int16_t np, sa_family_t af)
+    struct pf_addr *oa, struct pf_addr *na, u_int16_t np)
 {
 	if (pd->csum_status == PF_CSUM_UNKNOWN)
 		pf_check_proto_cksum(pd, pd->off, pd->tot_len - pd->off,
@@ -1880,11 +1910,11 @@ pf_change_icmp(struct pf_pdesc *pd, struct pf_addr *ia, u_int16_t *ip,
 		*ip = np;
 
 	/* Change inner ip address */
-	PF_ACPY(ia, na, af);
+	PF_ACPY(ia, na, pd->af);
 
 	/* Outer ip address, fix outer icmpv6 checksum, if necessary. */
 	if (oa)
-		PF_ACPY(oa, na, af);
+		PF_ACPY(oa, na, pd->af);
 }
 
 #if INET6
@@ -2410,11 +2440,11 @@ pf_send_tcp(const struct pf_rule *r, sa_family_t af,
 
 	switch (af) {
 	case AF_INET:
-		ip_output(m, NULL, NULL, 0, NULL, NULL, 0);
+		ip_send(m);
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ip6_output(m, NULL, NULL, 0, NULL, NULL);
+		ip6_send(m);
 		break;
 #endif /* INET6 */
 	}
@@ -2600,7 +2630,7 @@ pf_match_rcvif(struct mbuf *m, struct pf_rule *r)
 	if (ifp->if_type == IFT_CARP && ifp->if_carpdev)
 		kif = (struct pfi_kif *)ifp->if_carpdev->if_pf_kif;
 	else
-#endif
+#endif /* NCARP */
 		kif = (struct pfi_kif *)ifp->if_pf_kif;
 
 	if_put(ifp);
@@ -2934,7 +2964,7 @@ pf_calc_mss(struct pf_addr *addr, sa_family_t af, int rtableid, u_int16_t offer)
 		dst->sin_family = AF_INET;
 		dst->sin_len = sizeof(*dst);
 		dst->sin_addr = addr->v4;
-		rt = rtalloc(sintosa(dst), RT_REPORT, rtableid);
+		rt = rtalloc(sintosa(dst), 0, rtableid);
 		break;
 #ifdef INET6
 	case AF_INET6:
@@ -2943,7 +2973,7 @@ pf_calc_mss(struct pf_addr *addr, sa_family_t af, int rtableid, u_int16_t offer)
 		dst6->sin6_family = AF_INET6;
 		dst6->sin6_len = sizeof(*dst6);
 		dst6->sin6_addr = addr->v6;
-		rt = rtalloc(sin6tosa(dst6), RT_REPORT, rtableid);
+		rt = rtalloc(sin6tosa(dst6), 0, rtableid);
 		break;
 #endif /* INET6 */
 	}
@@ -3068,7 +3098,7 @@ pf_rule_to_actions(struct pf_rule *r, struct pf_rule_actions *a)
 
 int
 pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
-    struct pf_rule **am, struct pf_ruleset **rsm)
+    struct pf_rule **am, struct pf_ruleset **rsm, u_short *reason)
 {
 	struct pf_rule		*r;
 	struct pf_rule		*nr = NULL;
@@ -3082,7 +3112,6 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 	struct tcphdr		*th = pd->hdr.tcp;
 	struct pf_state_key	*skw = NULL, *sks = NULL;
 	struct pf_rule_actions	 act;
-	u_short			 reason;
 	int			 rewrite = 0;
 	int			 tag = -1;
 	int			 asd = 0;
@@ -3098,7 +3127,7 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 	SLIST_INIT(&rules);
 
 	if (pd->dir == PF_IN && if_congested()) {
-		REASON_SET(&reason, PFRES_CONGEST);
+		REASON_SET(reason, PFRES_CONGEST);
 		return (PF_DROP);
 	}
 
@@ -3249,7 +3278,7 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 			if (r->action == PF_MATCH) {
 				if ((ri = pool_get(&pf_rule_item_pl,
 				    PR_NOWAIT)) == NULL) {
-					REASON_SET(&reason, PFRES_MEMORY);
+					REASON_SET(reason, PFRES_MEMORY);
 					goto cleanup;
 				}
 				ri->r = r;
@@ -3259,13 +3288,13 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 				if (r->rule_flag & PFRULE_AFTO)
 					pd->naf = r->naf;
 				if (pf_get_transaddr(r, pd, sns, &nr) == -1) {
-					REASON_SET(&reason, PFRES_TRANSLATE);
+					REASON_SET(reason, PFRES_TRANSLATE);
 					goto cleanup;
 				}
 #if NPFLOG > 0 
 				if (r->log) {
-					REASON_SET(&reason, PFRES_MATCH);
-					PFLOG_PACKET(pd, reason, r, a, ruleset,
+					REASON_SET(reason, PFRES_MATCH);
+					PFLOG_PACKET(pd, *reason, r, a, ruleset,
 					    NULL);
 				}
 #endif	/* NPFLOG > 0 */
@@ -3305,14 +3334,14 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 	if (r->rule_flag & PFRULE_AFTO)
 		pd->naf = r->naf;
 	if (pf_get_transaddr(r, pd, sns, &nr) == -1) {
-		REASON_SET(&reason, PFRES_TRANSLATE);
+		REASON_SET(reason, PFRES_TRANSLATE);
 		goto cleanup;
 	}
-	REASON_SET(&reason, PFRES_MATCH);
+	REASON_SET(reason, PFRES_MATCH);
 
 #if NPFLOG > 0
 	if (r->log)
-		PFLOG_PACKET(pd, reason, r, a, ruleset, NULL);
+		PFLOG_PACKET(pd, *reason, r, a, ruleset, NULL);
 	if (act.log & PF_LOG_MATCHES)
 		pf_log_matches(pd, r, a, ruleset, &rules);
 #endif	/* NPFLOG > 0 */
@@ -3330,7 +3359,7 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 
 			if (pf_check_proto_cksum(pd, pd->off,
 			    pd->tot_len - pd->off, IPPROTO_TCP, pd->af))
-				REASON_SET(&reason, PFRES_PROTCKSUM);
+				REASON_SET(reason, PFRES_PROTCKSUM);
 			else {
 				if (th->th_flags & TH_SYN)
 					ack++;
@@ -3363,7 +3392,7 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 		pd->destchg = 1;
 
 	if (r->action == PF_PASS && pd->badopts && ! r->allow_opts) {
-		REASON_SET(&reason, PFRES_IPOPTIONS);
+		REASON_SET(reason, PFRES_IPOPTIONS);
 #if NPFLOG > 0
 		pd->pflog |= PF_LOG_FORCE;
 #endif	/* NPFLOG > 0 */
@@ -3372,19 +3401,21 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 		goto cleanup;
 	}
 
+	action = PF_PASS;
+
 	if (pd->virtual_proto != PF_VPROTO_FRAGMENT
 	    && !state_icmp && r->keep_state) {
 
 		if (r->rule_flag & PFRULE_SRCTRACK &&
 		    pf_insert_src_node(&sns[PF_SN_NONE], r, PF_SN_NONE, pd->af,
 		    pd->src, NULL) != 0) {
-			REASON_SET(&reason, PFRES_SRCLIMIT);
+			REASON_SET(reason, PFRES_SRCLIMIT);
 			goto cleanup;
 		}
 
 		if (r->max_states && (r->states_cur >= r->max_states)) {
 			pf_status.lcounters[LCNT_STATES]++;
-			REASON_SET(&reason, PFRES_MAXSTATES);
+			REASON_SET(reason, PFRES_MAXSTATES);
 			goto cleanup;
 		}
 
@@ -3407,6 +3438,12 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 			    sk->port[pd->af == pd->naf ? pd->didx : pd->sidx],
 			    virtual_type, icmp_dir);
 		}
+
+#ifdef INET6
+		if (rewrite && skw->af != sks->af)
+			action = PF_AFRT;
+#endif /* INET6 */
+
 	} else {
 		while ((ri = SLIST_FIRST(&rules))) {
 			SLIST_REMOVE_HEAD(&rules, entry);
@@ -3437,12 +3474,7 @@ pf_test_rule(struct pf_pdesc *pd, struct pf_rule **rm, struct pf_state **sm,
 	if (r->rule_flag & PFRULE_ONCE)
 		pf_purge_rule(ruleset, r, aruleset, a);
 
-#ifdef INET6
-	if (rewrite && skw->af != sks->af)
-		return (PF_AFRT);
-#endif /* INET6 */
-
-	return (PF_PASS);
+	return (action);
 
 cleanup:
 	while ((ri = SLIST_FIRST(&rules))) {
@@ -3618,7 +3650,7 @@ pf_create_state(struct pf_pdesc *pd, struct pf_rule *r, struct pf_rule *a,
 		if (act->rtableid >= 0)
 			rtid = act->rtableid;
 		s->src.state = PF_TCPS_PROXY_SRC;
-		s->src.seqhi = htonl(arc4random());
+		s->src.seqhi = arc4random();
 		/* Find mss option */
 		mss = pf_get_mss(pd);
 		mss = pf_calc_mss(pd->src, pd->af, rtid, mss);
@@ -3667,14 +3699,12 @@ pf_translate(struct pf_pdesc *pd, struct pf_addr *saddr, u_int16_t sport,
 	case IPPROTO_TCP:
 		if (afto || PF_ANEQ(saddr, pd->src, pd->af) ||
 		    *pd->sport != sport) {
-			pf_change_ap(pd, pd->src, pd->sport, saddr, sport,
-			    pd->naf);
+			pf_change_ap(pd, pd->src, pd->sport, saddr, sport);
 			rewrite = 1;
 		}
 		if (afto || PF_ANEQ(daddr, pd->dst, pd->af) ||
 		    *pd->dport != dport) {
-			pf_change_ap(pd, pd->dst, pd->dport, daddr, dport,
-			    pd->naf);
+			pf_change_ap(pd, pd->dst, pd->dport, daddr, dport);
 			rewrite = 1;
 		}
 		break;
@@ -3682,14 +3712,12 @@ pf_translate(struct pf_pdesc *pd, struct pf_addr *saddr, u_int16_t sport,
 	case IPPROTO_UDP:
 		if (afto || PF_ANEQ(saddr, pd->src, pd->af) ||
 		    *pd->sport != sport) {
-			pf_change_ap(pd, pd->src, pd->sport, saddr, sport,
-			    pd->naf);
+			pf_change_ap(pd, pd->src, pd->sport, saddr, sport);
 			rewrite = 1;
 		}
 		if (afto || PF_ANEQ(daddr, pd->dst, pd->af) ||
 		    *pd->dport != dport) {
-			pf_change_ap(pd, pd->dst, pd->dport, daddr, dport,
-			    pd->naf);
+			pf_change_ap(pd, pd->dst, pd->dport, daddr, dport);
 			rewrite = 1;
 		}
 		break;
@@ -3746,11 +3774,11 @@ pf_translate(struct pf_pdesc *pd, struct pf_addr *saddr, u_int16_t sport,
 			rewrite = 1;
 		} else {
 			if (PF_ANEQ(saddr, pd->src, pd->af)) {
-				pf_change_a6(pd, pd->src, saddr);
+				pf_change_ap(pd, pd->src, NULL, saddr, 0);
 				rewrite = 1;
 			}
 			if (PF_ANEQ(daddr, pd->dst, pd->af)) {
-				pf_change_a6(pd, pd->dst, daddr);
+				pf_change_ap(pd, pd->dst, NULL, daddr, 0);
 				rewrite = 1;
 			}
 		}
@@ -3786,11 +3814,11 @@ pf_translate(struct pf_pdesc *pd, struct pf_addr *saddr, u_int16_t sport,
 #ifdef INET6
 		case AF_INET6:
 			if (!afto && PF_ANEQ(saddr, pd->src, pd->af)) {
-				pf_change_a6(pd, pd->src, saddr);
+				pf_change_ap(pd, pd->src, NULL, saddr, 0);
 				rewrite = 1;
 			}
 			if (!afto && PF_ANEQ(daddr, pd->dst, pd->af)) {
-				pf_change_a6(pd, pd->dst, daddr);
+				pf_change_ap(pd, pd->dst, NULL, daddr, 0);
 				rewrite = 1;
 			}
 			break;
@@ -3839,7 +3867,7 @@ pf_tcp_track_full(struct pf_pdesc *pd, struct pf_state_peer *src,
 		if (dst->seqdiff && !src->seqdiff) {
 			/* use random iss for the TCP server */
 			while ((src->seqdiff = arc4random() - seq) == 0)
-				;
+				continue;
 			ack = ntohl(th->th_ack) - dst->seqdiff;
 			pf_change_a(pd, &th->th_seq, htonl(seq + src->seqdiff));
 			pf_change_a(pd, &th->th_ack, htonl(ack));
@@ -4243,7 +4271,7 @@ pf_synproxy(struct pf_pdesc *pd, struct pf_state **state, u_short *reason)
 			}
 			(*state)->src.max_win = MAX(ntohs(th->th_win), 1);
 			if ((*state)->dst.seqhi == 1)
-				(*state)->dst.seqhi = htonl(arc4random());
+				(*state)->dst.seqhi = arc4random();
 			pf_send_tcp((*state)->rule.ptr, pd->af,
 			    &sk->addr[pd->sidx], &sk->addr[pd->didx],
 			    sk->port[pd->sidx], sk->port[pd->didx],
@@ -4332,7 +4360,7 @@ pf_test_state(struct pf_pdesc *pd, struct pf_state **state, u_short *reason)
 			}
 			/* XXX make sure it's the same direction ?? */
 			(*state)->src.state = (*state)->dst.state = TCPS_CLOSED;
-			pf_unlink_state(*state);
+			pf_remove_state(*state);
 			*state = NULL;
 			pd->m->m_pkthdr.pf.inp = inp;
 			return (PF_DROP);
@@ -4401,20 +4429,6 @@ pf_test_state(struct pf_pdesc *pd, struct pf_state **state, u_short *reason)
 		sidx = afto ? pd->didx : pd->sidx;
 		didx = afto ? pd->sidx : pd->didx;
 
-		if (afto || PF_ANEQ(pd->src, &nk->addr[sidx], pd->af) ||
-		    nk->port[sidx] != pd->osport)
-			pf_change_ap(pd, pd->src, pd->sport,
-			    &nk->addr[sidx], nk->port[sidx], nk->af);
-
-		if (afto || PF_ANEQ(pd->dst, &nk->addr[didx], pd->af) ||
-		    pd->rdomain != nk->rdomain)
-			pd->destchg = 1;
-
-		if (afto || PF_ANEQ(pd->dst, &nk->addr[didx], pd->af) ||
-		    nk->port[didx] != pd->odport)
-			pf_change_ap(pd, pd->dst, pd->dport,
-			    &nk->addr[didx], nk->port[didx], nk->af);
-
 #ifdef INET6
 		if (afto) {
 			PF_ACPY(&pd->nsaddr, &nk->addr[sidx], nk->af);
@@ -4423,6 +4437,20 @@ pf_test_state(struct pf_pdesc *pd, struct pf_state **state, u_short *reason)
 			action = PF_AFRT;
 		}
 #endif /* INET6 */
+
+		if (afto || PF_ANEQ(pd->src, &nk->addr[sidx], pd->af) ||
+		    nk->port[sidx] != pd->osport)
+			pf_change_ap(pd, pd->src, pd->sport,
+			    &nk->addr[sidx], nk->port[sidx]);
+
+		if (afto || PF_ANEQ(pd->dst, &nk->addr[didx], pd->af) ||
+		    pd->rdomain != nk->rdomain)
+			pd->destchg = 1;
+
+		if (afto || PF_ANEQ(pd->dst, &nk->addr[didx], pd->af) ||
+		    nk->port[didx] != pd->odport)
+			pf_change_ap(pd, pd->dst, pd->dport,
+			    &nk->addr[didx], nk->port[didx]);
 
 		pd->m->m_pkthdr.ph_rtableid = nk->rdomain;
 		copyback = 1;
@@ -4592,13 +4620,13 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 				}
 				if (!afto && PF_ANEQ(pd->src,
 				    &nk->addr[sidx], AF_INET6))
-					pf_change_a6(pd, saddr,
-					    &nk->addr[sidx]);
+					pf_change_ap(pd, saddr, NULL,
+					    &nk->addr[sidx], 0);
 
 				if (!afto && PF_ANEQ(pd->dst,
 				    &nk->addr[didx], AF_INET6)) {
-					pf_change_a6(pd, daddr,
-					    &nk->addr[didx]);
+					pf_change_ap(pd, daddr, NULL,
+					    &nk->addr[didx], 0);
 					pd->destchg = 1;
 				}
 
@@ -4814,22 +4842,10 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					m_copyback(pd->m, pd->off,
 					    sizeof(struct icmp6_hdr),
 					    pd->hdr.icmp6, M_NOWAIT);
-					if (pf_change_icmp_af(pd->m, ipoff2,
-					    pd, &pd2, &nk->addr[sidx],
-					    &nk->addr[didx], pd->af, nk->af))
-						return (PF_DROP);
 					if (nk->af == AF_INET)
 						pd->proto = IPPROTO_ICMP;
 					else
 						pd->proto = IPPROTO_ICMPV6;
-					pf_change_ap(pd, pd2.src, &th.th_sport,
-					    &nk->addr[pd2.sidx], nk->port[sidx],
-					    nk->af);
-					pf_change_ap(pd, pd2.dst, &th.th_dport,
-					    &nk->addr[pd2.didx], nk->port[didx],
-					    nk->af);
-					m_copyback(pd2.m, pd2.off, 8, &th,
-					    M_NOWAIT);
 					pd->m->m_pkthdr.ph_rtableid =
 					    nk->rdomain;
 					pd->destchg = 1;
@@ -4838,6 +4854,19 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					PF_ACPY(&pd->ndaddr,
 					    &nk->addr[pd2.didx], nk->af);
 					pd->naf = nk->af;
+
+					if (pf_change_icmp_af(pd->m, ipoff2,
+					    pd, &pd2, &nk->addr[sidx],
+					    &nk->addr[didx], pd->af, nk->af))
+						return (PF_DROP);
+					pf_change_ap(pd, pd2.src, &th.th_sport,
+					    &nk->addr[pd2.sidx],
+					    nk->port[sidx]);
+					pf_change_ap(pd, pd2.dst, &th.th_dport,
+					    &nk->addr[pd2.didx],
+					    nk->port[didx]);
+					m_copyback(pd2.m, pd2.off, 8, &th,
+					    M_NOWAIT);
 					return (PF_AFRT);
 				}
 #endif	/* INET6 */
@@ -4847,7 +4876,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					pf_change_icmp(pd, pd2.src,
 					    &th.th_sport, daddr,
 					    &nk->addr[pd2.sidx],
-					    nk->port[pd2.sidx], pd2.af);
+					    nk->port[pd2.sidx]);
 
 				if (PF_ANEQ(pd2.dst, &nk->addr[pd2.didx],
 				    pd2.af) || pd2.rdomain != nk->rdomain)
@@ -4860,7 +4889,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					pf_change_icmp(pd, pd2.dst,
 					    &th.th_dport, saddr,
 					    &nk->addr[pd2.didx],
-					    nk->port[pd2.didx], pd2.af);
+					    nk->port[pd2.didx]);
 				copyback = 1;
 			}
 
@@ -4929,22 +4958,10 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					m_copyback(pd->m, pd->off,
 					    sizeof(struct icmp6_hdr),
 					    pd->hdr.icmp6, M_NOWAIT);
-					if (pf_change_icmp_af(pd->m, ipoff2,
-					    pd, &pd2, &nk->addr[sidx],
-					    &nk->addr[didx], pd->af, nk->af))
-						return (PF_DROP);
 					if (nk->af == AF_INET)
 						pd->proto = IPPROTO_ICMP;
 					else
 						pd->proto = IPPROTO_ICMPV6;
-					pf_change_ap(pd, pd2.src, &uh.uh_sport,
-					    &nk->addr[pd2.sidx], nk->port[sidx],
-					    nk->af);
-					pf_change_ap(pd, pd2.dst, &uh.uh_dport,
-					    &nk->addr[pd2.didx], nk->port[didx],
-					    nk->af);
-					m_copyback(pd2.m, pd2.off, sizeof(uh),
-					    &uh, M_NOWAIT);
 					pd->m->m_pkthdr.ph_rtableid =
 					    nk->rdomain;
 					pd->destchg = 1;
@@ -4953,6 +4970,19 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					PF_ACPY(&pd->ndaddr,
 					    &nk->addr[pd2.didx], nk->af);
 					pd->naf = nk->af;
+
+					if (pf_change_icmp_af(pd->m, ipoff2,
+					    pd, &pd2, &nk->addr[sidx],
+					    &nk->addr[didx], pd->af, nk->af))
+						return (PF_DROP);
+					pf_change_ap(pd, pd2.src, &uh.uh_sport,
+					    &nk->addr[pd2.sidx],
+					    nk->port[sidx]);
+					pf_change_ap(pd, pd2.dst, &uh.uh_dport,
+					    &nk->addr[pd2.didx],
+					    nk->port[didx]);
+					m_copyback(pd2.m, pd2.off, sizeof(uh),
+					    &uh, M_NOWAIT);
 					return (PF_AFRT);
 				}
 #endif /* INET6 */
@@ -4963,7 +4993,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					pf_change_icmp(pd, pd2.src,
 					    &uh.uh_sport, daddr,
 					    &nk->addr[pd2.sidx],
-					    nk->port[pd2.sidx], pd2.af);
+					    nk->port[pd2.sidx]);
 
 				if (PF_ANEQ(pd2.dst, &nk->addr[pd2.didx],
 				    pd2.af) || pd2.rdomain != nk->rdomain)
@@ -4976,7 +5006,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					pf_change_icmp(pd, pd2.dst,
 					    &uh.uh_dport, saddr,
 					    &nk->addr[pd2.didx],
-					    nk->port[pd2.didx], pd2.af);
+					    nk->port[pd2.didx]);
 
 				switch (pd2.af) {
 				case AF_INET:
@@ -5085,7 +5115,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					    &iih.icmp_id : NULL,
 					    daddr, &nk->addr[pd2.sidx],
 					    (virtual_type == htons(ICMP_ECHO)) ?
-					    nk->port[iidx] : 0, AF_INET);
+					    nk->port[iidx] : 0);
 
 				if (PF_ANEQ(pd2.dst, &nk->addr[pd2.didx],
 				    pd2.af) || pd2.rdomain != nk->rdomain)
@@ -5095,8 +5125,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 				if (PF_ANEQ(pd2.dst,
 				    &nk->addr[pd2.didx], pd2.af))
 					pf_change_icmp(pd, pd2.dst, NULL,
-					    saddr, &nk->addr[pd2.didx], 0,
-					    AF_INET);
+					    saddr, &nk->addr[pd2.didx], 0);
 
 				m_copyback(pd->m, pd->off, ICMP_MINLEN,
 				    pd->hdr.icmp, M_NOWAIT);
@@ -5200,7 +5229,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 					    daddr, &nk->addr[pd2.sidx],
 					    (virtual_type ==
 					    htons(ICMP6_ECHO_REQUEST))
-					    ? nk->port[iidx] : 0, AF_INET6);
+					    ? nk->port[iidx] : 0);
 
 				if (PF_ANEQ(pd2.dst, &nk->addr[pd2.didx],
 				    pd2.af) || pd2.rdomain != nk->rdomain)
@@ -5210,8 +5239,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 				if (PF_ANEQ(pd2.dst,
 				    &nk->addr[pd2.didx], pd2.af))
 					pf_change_icmp(pd, pd2.dst, NULL,
-					    saddr, &nk->addr[pd2.didx], 0,
-					    AF_INET6);
+					    saddr, &nk->addr[pd2.didx], 0);
 
 				m_copyback(pd->m, pd->off,
 				    sizeof(struct icmp6_hdr), pd->hdr.icmp6,
@@ -5244,8 +5272,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 				if (PF_ANEQ(pd2.src,
 				    &nk->addr[pd2.sidx], pd2.af))
 					pf_change_icmp(pd, pd2.src, NULL,
-					    daddr, &nk->addr[pd2.sidx], 0,
-					    pd2.af);
+					    daddr, &nk->addr[pd2.sidx], 0);
 
 				if (PF_ANEQ(pd2.dst, &nk->addr[pd2.didx],
 				    pd2.af) || pd2.rdomain != nk->rdomain)
@@ -5255,8 +5282,7 @@ pf_test_state_icmp(struct pf_pdesc *pd, struct pf_state **state,
 				if (PF_ANEQ(pd2.dst,
 				    &nk->addr[pd2.didx], pd2.af))
 					pf_change_icmp(pd, pd2.dst, NULL,
-					    saddr, &nk->addr[pd2.didx], 0,
-					    pd2.af);
+					    saddr, &nk->addr[pd2.didx], 0);
 
 				switch (pd2.af) {
 				case AF_INET:
@@ -5384,7 +5410,7 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 	if (kif != NULL && kif->pfik_ifp->if_type == IFT_ENC)
 		goto out;
 
-	rt0 = rtalloc((struct sockaddr *)&ss, RT_REPORT, rtableid);
+	rt0 = rtalloc((struct sockaddr *)&ss, 0, rtableid);
 	if (rt0 != NULL) {
 		/* No interface given, this is a no-route check */
 		if (kif == NULL)
@@ -5410,14 +5436,14 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 				    ifp->if_carpdev == kif->pfik_ifp)
 					ret = 1;
 				if_put(ifp);
-#endif
+#endif /* NCARP */
 			}
 
 #ifndef SMALL_KERNEL
 			rt = rtable_mpath_next(rt);
 #else
 			rt = NULL;
-#endif
+#endif /* SMALL_KERNEL */
 		} while (check_mpath == 1 && rt != NULL && ret == 0);
 	} else
 		ret = 0;
@@ -5456,7 +5482,7 @@ pf_rtlabel_match(struct pf_addr *addr, sa_family_t af, struct pf_addr_wrap *aw,
 #endif /* INET6 */
 	}
 
-	rt = rtalloc((struct sockaddr *)&ss, RT_REPORT|RT_RESOLVE, rtableid);
+	rt = rtalloc((struct sockaddr *)&ss, RT_RESOLVE, rtableid);
 	if (rt != NULL) {
 		if (rt->rt_labelid == aw->v.rtlabel)
 			ret = 1;
@@ -5491,7 +5517,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	}
 
 	if (r->rt == PF_DUPTO) {
-		if ((m0 = m_copym2(*m, 0, M_COPYALL, M_NOWAIT)) == NULL)
+		if ((m0 = m_dup_pkt(*m, max_linkhdr, M_NOWAIT)) == NULL)
 			return;
 	} else {
 		if ((r->rt == PF_REPLYTO) == (r->direction == dir))
@@ -5515,7 +5541,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	rtableid = m0->m_pkthdr.ph_rtableid;
 
 	if (!r->rt) {
-		rt = rtalloc(sintosa(dst), RT_REPORT|RT_RESOLVE, rtableid);
+		rt = rtalloc(sintosa(dst), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
 			ipstat.ips_noroute++;
 			goto bad;
@@ -5548,6 +5574,12 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 				    s->rt_addr.v4.s_addr;
 			ifp = s->rt_kif ? s->rt_kif->pfik_ifp : NULL;
 		}
+
+		rt = rtalloc(sintosa(dst), RT_RESOLVE, rtableid);
+		if (rt == NULL) {
+			ipstat.ips_noroute++;
+			goto bad;
+		}
 	}
 	if (ifp == NULL)
 		goto bad;
@@ -5576,7 +5608,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 			ipstat.ips_outswcsum++;
 			ip->ip_sum = in_cksum(m0, ip->ip_hl << 2);
 		}
-		error = ifp->if_output(ifp, m0, sintosa(dst), NULL);
+		error = ifp->if_output(ifp, m0, sintosa(dst), rt);
 		goto done;
 	}
 
@@ -5605,7 +5637,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		m1 = m0->m_nextpkt;
 		m0->m_nextpkt = 0;
 		if (error == 0)
-			error = ifp->if_output(ifp, m0, sintosa(dst), NULL);
+			error = ifp->if_output(ifp, m0, sintosa(dst), rt);
 		else
 			m_freem(m0);
 	}
@@ -5633,11 +5665,13 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 {
 	struct mbuf		*m0;
 	struct sockaddr_in6	*dst, sin6;
+	struct rtentry		*rt = NULL;
 	struct ip6_hdr		*ip6;
 	struct ifnet		*ifp = NULL;
 	struct pf_addr		 naddr;
 	struct pf_src_node	*sns[PF_SN_MAX];
 	struct m_tag		*mtag;
+	unsigned int		 rtableid;
 
 	if (m == NULL || *m == NULL || r == NULL ||
 	    (dir != PF_IN && dir != PF_OUT) || oifp == NULL)
@@ -5650,7 +5684,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	}
 
 	if (r->rt == PF_DUPTO) {
-		if ((m0 = m_copym2(*m, 0, M_COPYALL, M_NOWAIT)) == NULL)
+		if ((m0 = m_dup_pkt(*m, max_linkhdr, M_NOWAIT)) == NULL)
 			return;
 	} else {
 		if ((r->rt == PF_REPLYTO) == (r->direction == dir))
@@ -5670,6 +5704,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	dst->sin6_family = AF_INET6;
 	dst->sin6_len = sizeof(*dst);
 	dst->sin6_addr = ip6->ip6_dst;
+	rtableid = m0->m_pkthdr.ph_rtableid;
 
 	if (!r->rt) {
 		m0->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
@@ -5722,7 +5757,13 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	if ((mtag = m_tag_find(m0, PACKET_TAG_PF_REASSEMBLED, NULL))) {
 		(void) pf_refragment6(&m0, mtag, dst, ifp);
 	} else if ((u_long)m0->m_pkthdr.len <= ifp->if_mtu) {
-		nd6_output(ifp, m0, dst, NULL);
+		rt = rtalloc(sin6tosa(dst), RT_RESOLVE, rtableid);
+		if (rt == NULL) {
+			ip6stat.ip6s_noroute++;
+			goto bad;
+		}
+		ifp->if_output(ifp, m0, sin6tosa(dst), rt);
+		rtfree(rt);
 	} else {
 		icmp6_error(m0, ICMP6_PACKET_TOO_BIG, 0, ifp->if_mtu);
 	}
@@ -6327,7 +6368,7 @@ pf_test(sa_family_t af, int fwdir, struct ifnet *ifp, struct mbuf **m0)
 	if (ifp->if_type == IFT_CARP && ifp->if_carpdev)
 		kif = (struct pfi_kif *)ifp->if_carpdev->if_pf_kif;
 	else
-#endif
+#endif /* NCARP */
 		kif = (struct pfi_kif *)ifp->if_pf_kif;
 
 	if (kif == NULL) {
@@ -6404,7 +6445,7 @@ pf_test(sa_family_t af, int fwdir, struct ifnet *ifp, struct mbuf **m0)
 		 * handle fragments that aren't reassembled by
 		 * normalization
 		 */
-		action = pf_test_rule(&pd, &r, &s, &a, &ruleset);
+		action = pf_test_rule(&pd, &r, &s, &a, &ruleset, &reason);
 		if (action != PF_PASS)
 			REASON_SET(&reason, PFRES_FRAG);
 		break;
@@ -6429,7 +6470,8 @@ pf_test(sa_family_t af, int fwdir, struct ifnet *ifp, struct mbuf **m0)
 			pd.pflog |= s->log;
 #endif	/* NPFLOG > 0 */
 		} else if (s == NULL)
-			action = pf_test_rule(&pd, &r, &s, &a, &ruleset);
+			action = pf_test_rule(&pd, &r, &s, &a, &ruleset,
+			    &reason);
 		break;
 	}
 
@@ -6453,7 +6495,8 @@ pf_test(sa_family_t af, int fwdir, struct ifnet *ifp, struct mbuf **m0)
 			pd.pflog |= s->log;
 #endif	/* NPFLOG > 0 */
 		} else if (s == NULL)
-			action = pf_test_rule(&pd, &r, &s, &a, &ruleset);
+			action = pf_test_rule(&pd, &r, &s, &a, &ruleset,
+			    &reason);
 		break;
 	}
 #endif /* INET6 */
@@ -6477,7 +6520,8 @@ pf_test(sa_family_t af, int fwdir, struct ifnet *ifp, struct mbuf **m0)
 			pd.pflog |= s->log;
 #endif	/* NPFLOG > 0 */
 		} else if (s == NULL)
-			action = pf_test_rule(&pd, &r, &s, &a, &ruleset);
+			action = pf_test_rule(&pd, &r, &s, &a, &ruleset,
+			    &reason);
 
 		if (pd.virtual_proto == IPPROTO_TCP) {
 			if (s) {
@@ -6534,12 +6578,26 @@ done:
 
 	if (action == PF_PASS && qid)
 		pd.m->m_pkthdr.pf.qid = qid;
-	if (pd.dir == PF_IN && s && s->key[PF_SK_STACK])
-		pd.m->m_pkthdr.pf.statekey = s->key[PF_SK_STACK];
+	if (pd.dir == PF_IN && s && s->key[PF_SK_STACK]) {
+		/*
+		 * Check below fires whenever caller forgets to call
+		 * pf_pkt_addr_changed(). This might happen when we
+		 * deal with IP tunnels.
+		 */
+		if (pd.m->m_pkthdr.pf.statekey != NULL) {
+#ifdef DDB
+			m_print(pd.m, printf);
+#endif
+			panic("incoming mbuf already has a statekey");
+		}
+		pd.m->m_pkthdr.pf.statekey =
+		    pf_state_key_ref(s->key[PF_SK_STACK]);
+	}
 	if (pd.dir == PF_OUT &&
 	    pd.m->m_pkthdr.pf.inp && !pd.m->m_pkthdr.pf.inp->inp_pf_sk &&
 	    s && s->key[PF_SK_STACK] && !s->key[PF_SK_STACK]->inp) {
-		pd.m->m_pkthdr.pf.inp->inp_pf_sk = s->key[PF_SK_STACK];
+		pd.m->m_pkthdr.pf.inp->inp_pf_sk =
+		    pf_state_key_ref(s->key[PF_SK_STACK]);
 		s->key[PF_SK_STACK]->inp = pd.m->m_pkthdr.pf.inp;
 	}
 
@@ -6710,8 +6768,68 @@ pf_cksum(struct pf_pdesc *pd, struct mbuf *m)
 void
 pf_pkt_addr_changed(struct mbuf *m)
 {
-	m->m_pkthdr.pf.statekey = NULL;
+	pf_pkt_unlink_state_key(m);
 	m->m_pkthdr.pf.inp = NULL;
+}
+
+struct inpcb *
+pf_inp_lookup(struct mbuf *m)
+{
+	struct inpcb *inp = NULL;
+	struct pf_state_key *sk = m->m_pkthdr.pf.statekey;
+
+	if (!pf_state_key_isvalid(sk))
+		pf_pkt_unlink_state_key(m);
+	else
+		inp = m->m_pkthdr.pf.statekey->inp;
+
+	if (inp && inp->inp_pf_sk)
+		KASSERT(m->m_pkthdr.pf.statekey == inp->inp_pf_sk);
+
+	return (inp);
+}
+
+void
+pf_inp_link(struct mbuf *m, struct inpcb *inp)
+{
+	struct pf_state_key *sk = m->m_pkthdr.pf.statekey;
+
+	if (!pf_state_key_isvalid(sk)) {
+		pf_pkt_unlink_state_key(m);
+		return;
+	}
+
+	/*
+	 * we don't need to grab PF-lock here. At worst case we link inp to
+	 * state, which might be just being marked as deleted by another
+	 * thread.
+	 */
+	if (inp && !sk->inp && !inp->inp_pf_sk) {
+		sk->inp = inp;
+		inp->inp_pf_sk = pf_state_key_ref(sk);
+	}
+	/* The statekey has finished finding the inp, it is no longer needed. */
+	pf_pkt_unlink_state_key(m);
+}
+
+void
+pf_inp_unlink(struct inpcb *inp)
+{
+	if (inp->inp_pf_sk) {
+		inp->inp_pf_sk->inp = NULL;
+		pf_inpcb_unlink_state_key(inp);
+	}
+}
+
+void
+pf_state_key_link(struct pf_state_key *sk, struct pf_state_key *pkt_sk)
+{
+	/*
+	 * Assert will not wire as long as we are called by pf_find_state()
+	 */
+	KASSERT((pkt_sk->reverse == NULL) && (sk->reverse == NULL));
+	pkt_sk->reverse = pf_state_key_ref(sk);
+	sk->reverse = pf_state_key_ref(pkt_sk);
 }
 
 #if NPFLOG > 0
@@ -6730,3 +6848,66 @@ pf_log_matches(struct pf_pdesc *pd, struct pf_rule *rm, struct pf_rule *am,
 			PFLOG_PACKET(pd, PFRES_MATCH, rm, am, ruleset, ri->r);
 }
 #endif	/* NPFLOG > 0 */
+
+struct pf_state_key *
+pf_state_key_ref(struct pf_state_key *sk)
+{
+	if (sk != NULL)
+		PF_REF_TAKE(sk->refcnt);
+
+	return (sk);
+}
+
+void
+pf_state_key_unref(struct pf_state_key *sk)
+{
+	if ((sk != NULL) && PF_REF_RELE(sk->refcnt)) {
+		/* state key must be removed from tree */
+		KASSERT(!pf_state_key_isvalid(sk));
+		/* state key must be unlinked from reverse key */
+		KASSERT(sk->reverse == NULL);
+		/* state key must be unlinked from socket */
+		KASSERT((sk->inp == NULL) || (sk->inp->inp_pf_sk == NULL));
+		sk->inp = NULL;
+		pool_put(&pf_state_key_pl, sk);
+	}
+}
+
+int
+pf_state_key_isvalid(struct pf_state_key *sk)
+{
+	return ((sk != NULL) && (sk->removed == 0));
+}
+
+void
+pf_pkt_unlink_state_key(struct mbuf *m)
+{
+	pf_state_key_unref(m->m_pkthdr.pf.statekey);
+	m->m_pkthdr.pf.statekey = NULL;
+}
+
+void
+pf_pkt_state_key_ref(struct mbuf *m)
+{
+	pf_state_key_ref(m->m_pkthdr.pf.statekey);
+}
+
+void
+pf_inpcb_unlink_state_key(struct inpcb *inp)
+{
+	if (inp != NULL) {
+		pf_state_key_unref(inp->inp_pf_sk);
+		inp->inp_pf_sk = NULL;
+	}
+}
+
+void
+pf_state_key_unlink_reverse(struct pf_state_key *sk)
+{
+	if ((sk != NULL) && (sk->reverse != NULL)) {
+		pf_state_key_unref(sk->reverse->reverse);
+		sk->reverse->reverse = NULL;
+		pf_state_key_unref(sk->reverse);
+		sk->reverse = NULL;
+	}
+}

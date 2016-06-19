@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.39 2015/11/14 09:41:06 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.42 2016/03/05 07:47:52 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -35,11 +35,14 @@ enum cmd_retval	 cmd_load_buffer_exec(struct cmd *, struct cmd_q *);
 void		 cmd_load_buffer_callback(struct client *, int, void *);
 
 const struct cmd_entry cmd_load_buffer_entry = {
-	"load-buffer", "loadb",
-	"b:", 1, 1,
-	CMD_BUFFER_USAGE " path",
-	0,
-	cmd_load_buffer_exec
+	.name = "load-buffer",
+	.alias = "loadb",
+
+	.args = { "b:", 1, 1 },
+	.usage = CMD_BUFFER_USAGE " path",
+
+	.flags = 0,
+	.exec = cmd_load_buffer_exec
 };
 
 enum cmd_retval
@@ -70,9 +73,9 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 		return (CMD_RETURN_WAIT);
 	}
 
-	if (c != NULL && c->session == NULL)
+	if (c != NULL && c->session == NULL && c->cwd != NULL)
 		cwd = c->cwd;
-	else if ((s = cmd_find_current(cmdq)) != NULL)
+	else if ((s = c->session) != NULL && s->cwd != NULL)
 		cwd = s->cwd;
 	else
 		cwd = ".";

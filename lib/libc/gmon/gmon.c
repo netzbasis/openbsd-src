@@ -1,4 +1,4 @@
-/*	$OpenBSD: gmon.c,v 1.25 2015/09/14 14:17:10 guenther Exp $ */
+/*	$OpenBSD: gmon.c,v 1.29 2016/05/07 19:30:52 guenther Exp $ */
 /*-
  * Copyright (c) 1983, 1992, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -48,11 +48,9 @@ static int	s_scale;
 
 #define ERR(s) write(STDERR_FILENO, s, sizeof(s))
 
-void	moncontrol(int);
 PROTO_NORMAL(moncontrol);
+PROTO_DEPRECATED(monstartup);
 static int hertz(void);
-void	monstartup(u_long lowpc, u_long highpc);
-void	_mcleanup(void);
 
 void
 monstartup(u_long lowpc, u_long highpc)
@@ -78,19 +76,19 @@ monstartup(u_long lowpc, u_long highpc)
 		p->tolimit = MAXARCS;
 	p->tossize = p->tolimit * sizeof(struct tostruct);
 
-	addr = mmap((void *)0, p->kcountsize,  PROT_READ|PROT_WRITE,
+	addr = mmap(NULL, p->kcountsize,  PROT_READ|PROT_WRITE,
 	    MAP_ANON|MAP_PRIVATE, -1, (off_t)0);
 	if (addr == MAP_FAILED)
 		goto mapfailed;
 	p->kcount = addr;
 
-	addr = mmap((void *)0, p->fromssize,  PROT_READ|PROT_WRITE,
+	addr = mmap(NULL, p->fromssize,  PROT_READ|PROT_WRITE,
 	    MAP_ANON|MAP_PRIVATE, -1, (off_t)0);
 	if (addr == MAP_FAILED)
 		goto mapfailed;
 	p->froms = addr;
 
-	addr = mmap((void *)0, p->tossize,  PROT_READ|PROT_WRITE,
+	addr = mmap(NULL, p->tossize,  PROT_READ|PROT_WRITE,
 	    MAP_ANON|MAP_PRIVATE, -1, (off_t)0);
 	if (addr == MAP_FAILED)
 		goto mapfailed;
@@ -134,6 +132,7 @@ mapfailed:
 	}
 	ERR("monstartup: out of memory\n");
 }
+__strong_alias(_monstartup,monstartup);
 
 void
 _mcleanup(void)
@@ -178,7 +177,6 @@ _mcleanup(void)
 	moncontrol(0);
 
 	if (issetugid() == 0 && (profdir = getenv("PROFDIR")) != NULL) {
-		extern char *__progname;
 		char *s, *t, *limit;
 		pid_t pid;
 		long divisor;
@@ -303,7 +301,7 @@ moncontrol(int mode)
 		p->state = GMON_PROF_ON;
 	} else {
 		/* stop */
-		profil((char *)0, 0, 0, 0);
+		profil(NULL, 0, 0, 0);
 		p->state = GMON_PROF_OFF;
 	}
 }

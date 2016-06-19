@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon_bios.c,v 1.6 2015/04/12 12:14:30 jsg Exp $	*/
+/*	$OpenBSD: radeon_bios.c,v 1.9 2016/02/06 11:59:51 kettenis Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -144,6 +144,8 @@ static bool radeon_read_bios(struct radeon_device *rdev)
 	pci_conf_write(rdev->pc, rdev->pa_tag, PCI_ROM_REG, address);
 
 	size = PCI_ROM_SIZE(mask);
+	if (size == 0)
+		return false;
 	rc = bus_space_map(rdev->memt, PCI_ROM_ADDR(address), size,
 	    BUS_SPACE_MAP_LINEAR, &romh);
 	if (rc != 0) {
@@ -631,6 +633,14 @@ static bool radeon_read_disabled_bios(struct radeon_device *rdev)
 		return legacy_read_disabled_bios(rdev);
 }
 
+#if defined(__amd64__) || defined(__i386__)
+#include "acpi.h"
+#endif
+
+#if NACPI > 0
+#define CONFIG_ACPI
+#endif
+
 #ifdef CONFIG_ACPI
 static bool radeon_acpi_vfct_bios(struct radeon_device *rdev)
 {
@@ -664,7 +674,7 @@ static bool radeon_acpi_vfct_bios(struct radeon_device *rdev)
 	    vhdr->PCIDevice != PCI_SLOT(rdev->pdev->devfn) ||
 	    vhdr->PCIFunction != PCI_FUNC(rdev->pdev->devfn) ||
 	    vhdr->VendorID != rdev->pdev->vendor ||
-	    vhdr->DeviceID != ddev->pci_device) {
+	    vhdr->DeviceID != rdev->pdev->device) {
 		DRM_INFO("ACPI VFCT table is not for this card\n");
 		goto out_unmap;
 	};

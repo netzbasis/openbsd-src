@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_append.c,v 1.10 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: ex_append.c,v 1.14 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -218,9 +218,7 @@ ex_aci(SCR *sp, EXCMD *cmdp, enum which cmd)
 		 * when they enter append mode, and can't seem to get out of
 		 * it.  Give them an informational message.
 		 */
-		(void)ex_puts(sp,
-		    msg_cat(sp, "273|Entering ex input mode.", NULL));
-		(void)ex_puts(sp, "\n");
+		(void)ex_puts(sp, "Entering ex input mode.\n");
 		(void)ex_fflush(sp);
 	}
 

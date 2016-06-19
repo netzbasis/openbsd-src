@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.54 2014/07/15 15:54:14 millert Exp $ */
+/* $OpenBSD: misc.h,v 1.56 2016/04/06 06:42:17 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -26,6 +26,8 @@ struct Forward {
 	int	  allocated_port;	/* Dynamically allocated listen port */
 	int	  handle;		/* Handle for dynamic listen ports */
 };
+
+int forward_equals(const struct Forward *, const struct Forward *);
 
 /* Common server and client forwarding options. */
 struct ForwardOptions {
@@ -55,6 +57,7 @@ void	 sanitise_stdfd(void);
 void	 ms_subtract_diff(struct timeval *, int *);
 void	 ms_to_timeval(struct timeval *, int);
 time_t	 monotime(void);
+double	 monotime_double(void);
 void	 lowercase(char *s);
 int	 unix_listener(const char *, int, int);
 

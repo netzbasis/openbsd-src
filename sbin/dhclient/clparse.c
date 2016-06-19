@@ -1,4 +1,4 @@
-/*	$OpenBSD: clparse.c,v 1.93 2015/10/26 16:32:33 krw Exp $	*/
+/*	$OpenBSD: clparse.c,v 1.95 2016/06/03 02:31:17 tedu Exp $	*/
 
 /* Parser for dhclient config and lease files. */
 
@@ -40,6 +40,22 @@
  * Enterprises, see ``http://www.vix.com''.
  */
 
+#include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+
+#include <net/if.h>
+#include <net/if_arp.h>
+
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "dhcp.h"
 #include "dhcpd.h"
 #include "dhctoken.h"
 
@@ -70,7 +86,7 @@ read_client_conf(void)
 	config->link_timeout = 10;
 	config->timeout = 60;
 	config->select_interval = 0;
-	config->reboot_timeout = 10;
+	config->reboot_timeout = 1;
 	config->retry_interval = 300;
 	config->backoff_cutoff = 15;
 	config->initial_interval = 3;

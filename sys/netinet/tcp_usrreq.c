@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.128 2015/09/11 07:42:35 claudio Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.131 2016/06/18 10:36:13 vgross Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -220,28 +220,15 @@ tcp_usrreq(so, req, m, nam, control, p)
 	 * Give the socket an address.
 	 */
 	case PRU_BIND:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			error = in6_pcbbind(inp, nam, p);
-		else
-#endif
-			error = in_pcbbind(inp, nam, p);
-		if (error)
-			break;
+		error = in_pcbbind(inp, nam, p);
 		break;
 
 	/*
 	 * Prepare to accept connections.
 	 */
 	case PRU_LISTEN:
-		if (inp->inp_lport == 0) {
-#ifdef INET6
-			if (inp->inp_flags & INP_IPV6)
-				error = in6_pcbbind(inp, NULL, p);
-			else
-#endif
-				error = in_pcbbind(inp, NULL, p);
-		}
+		if (inp->inp_lport == 0)
+			error = in_pcbbind(inp, NULL, p);
 		/* If the in_pcbbind() above is called, the tp->pf
 		   should still be whatever it was before. */
 		if (error == 0)
@@ -898,6 +885,12 @@ tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
 		return (sysctl_struct(oldp, oldlenp, newp, newlen,
 		    baddynamicports.tcp, sizeof(baddynamicports.tcp)));
 
+	case TCPCTL_ROOTONLY:
+		if (newp && securelevel > 0)
+			return (EPERM);
+		return (sysctl_struct(oldp, oldlenp, newp, newlen,
+		    rootonlyports.tcp, sizeof(rootonlyports.tcp)));
+
 	case TCPCTL_IDENT:
 		return (tcp_ident(oldp, oldlenp, newp, newlen, 0));
 
@@ -945,6 +938,23 @@ tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
 			return (EPERM);
 		return (sysctl_struct(oldp, oldlenp, newp, newlen,
 		    &tcpstat, sizeof(tcpstat)));
+
+	case TCPCTL_SYN_USE_LIMIT:
+		error = sysctl_int(oldp, oldlenp, newp, newlen,
+		    &tcp_syn_use_limit);
+		if (error)
+			return (error);
+		if (newp != NULL) {
+			/*
+			 * Global tcp_syn_use_limit is used when reseeding a
+			 * new cache.  Also update the value in active cache.
+			 */
+			if (tcp_syn_cache[0].scs_use > tcp_syn_use_limit)
+				tcp_syn_cache[0].scs_use = tcp_syn_use_limit;
+			if (tcp_syn_cache[1].scs_use > tcp_syn_use_limit)
+				tcp_syn_cache[1].scs_use = tcp_syn_use_limit;
+		}
+		return (0);
 
 	default:
 		if (name[0] < TCPCTL_MAXID)

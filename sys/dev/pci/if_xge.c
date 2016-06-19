@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_xge.c,v 1.65 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_xge.c,v 1.73 2016/05/16 04:34:25 dlg Exp $	*/
 /*	$NetBSD: if_xge.c,v 1.1 2005/09/09 10:30:27 ragge Exp $	*/
 
 /*
@@ -53,7 +53,6 @@
 #include <sys/endian.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -121,7 +120,7 @@
  * Magic to fix a bug when the MAC address cannot be read correctly.
  * This came from the Linux driver.
  */
-static uint64_t fix_mac[] = {
+static const uint64_t xge_fix_mac[] = {
 	0x0060000000000000ULL, 0x0060600000000000ULL,
 	0x0040600000000000ULL, 0x0000600000000000ULL,
 	0x0020600000000000ULL, 0x0060600000000000ULL,
@@ -142,8 +141,7 @@ static uint64_t fix_mac[] = {
  * Constants to be programmed into Hercules's registers, to configure
  * the XGXS transciever.
  */
-#define END_SIGN 0x0
-static uint64_t herc_dtx_cfg[] = {
+static const uint64_t xge_herc_dtx_cfg[] = {
 	0x8000051536750000ULL, 0x80000515367500E0ULL,
 	0x8000051536750004ULL, 0x80000515367500E4ULL,
 
@@ -155,9 +153,18 @@ static uint64_t herc_dtx_cfg[] = {
 
 	0x80020515F2100000ULL, 0x80020515F21000E0ULL,
 	0x80020515F2100004ULL, 0x80020515F21000E4ULL,
-
-	END_SIGN
 };
+
+static const uint64_t xge_xena_dtx_cfg[] = {
+	0x8000051500000000ULL, 0x80000515000000E0ULL,
+	0x80000515D9350004ULL, 0x80000515D93500E4ULL,
+
+	0x8001051500000000ULL, 0x80010515000000E0ULL,
+	0x80010515001E0004ULL, 0x80010515001E00E4ULL,
+
+	0x8002051500000000ULL, 0x80020515000000E0ULL,
+	0x80020515F2100004ULL, 0x80020515F21000E4ULL,
+ };
 
 struct xge_softc {
 	struct device		sc_dev;
@@ -231,42 +238,74 @@ int xge_intr(void  *);
 static inline void
 pif_wcsr(struct xge_softc *sc, bus_size_t csr, uint64_t val)
 {
+#if defined(__LP64__)
+	bus_space_write_raw_8(sc->sc_st, sc->sc_sh, csr, val);
+#else
 	uint32_t lval, hval;
 
 	lval = val&0xffffffff;
 	hval = val>>32;
 
-	bus_space_write_4(sc->sc_st, sc->sc_sh, csr, lval); 
-	bus_space_write_4(sc->sc_st, sc->sc_sh, csr+4, hval);
+#if BYTE_ORDER == LITTLE_ENDIAN
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr, lval);
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr+4, hval);
+#else
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr+4, lval);
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr, hval);
+#endif
+#endif
 }
 
 static inline uint64_t
 pif_rcsr(struct xge_softc *sc, bus_size_t csr)
 {
-	uint64_t val, val2;
+	uint64_t val;
+#if defined(__LP64__)
+	val = bus_space_read_raw_8(sc->sc_st, sc->sc_sh, csr);
+#else
+	uint64_t val2;
 
-	val = bus_space_read_4(sc->sc_st, sc->sc_sh, csr);
-	val2 = bus_space_read_4(sc->sc_st, sc->sc_sh, csr+4);
+	val = bus_space_read_raw_4(sc->sc_st, sc->sc_sh, csr);
+	val2 = bus_space_read_raw_4(sc->sc_st, sc->sc_sh, csr+4);
+#if BYTE_ORDER == LITTLE_ENDIAN
 	val |= (val2 << 32);
+#else
+	val = (val << 32 | val2);
+#endif
+#endif
 	return (val);
 }
 
 static inline void
 txp_wcsr(struct xge_softc *sc, bus_size_t csr, uint64_t val)
 {
+#if defined(__LP64__)
+	bus_space_write_raw_8(sc->sc_txt, sc->sc_txh, csr, val);
+#else
 	uint32_t lval, hval;
 
 	lval = val&0xffffffff;
 	hval = val>>32;
 
-	bus_space_write_4(sc->sc_txt, sc->sc_txh, csr, lval); 
-	bus_space_write_4(sc->sc_txt, sc->sc_txh, csr+4, hval);
+#if BYTE_ORDER == LITTLE_ENDIAN
+	bus_space_write_raw_4(sc->sc_txt, sc->sc_txh, csr, lval);
+	bus_space_write_raw_4(sc->sc_txt, sc->sc_txh, csr+4, hval);
+#else
+	bus_space_write_raw_4(sc->sc_txt, sc->sc_txh, csr, hval);
+	bus_space_write_raw_4(sc->sc_txt, sc->sc_txh, csr+4, lval);
+#endif
+#endif
 }
-
 
 static inline void
 pif_wkey(struct xge_softc *sc, bus_size_t csr, uint64_t val)
 {
+#if defined(__LP64__)
+	if (sc->xge_type == XGE_TYPE_XENA)
+		PIF_WCSR(RMAC_CFG_KEY, RMAC_KEY_VALUE);
+
+	bus_space_write_raw_8(sc->sc_st, sc->sc_sh, csr, val);
+#else
 	uint32_t lval, hval;
 
 	lval = val&0xffffffff;
@@ -275,12 +314,20 @@ pif_wkey(struct xge_softc *sc, bus_size_t csr, uint64_t val)
 	if (sc->xge_type == XGE_TYPE_XENA)
 		PIF_WCSR(RMAC_CFG_KEY, RMAC_KEY_VALUE);
 
-	bus_space_write_4(sc->sc_st, sc->sc_sh, csr, lval);
+#if BYTE_ORDER == LITTLE_ENDIAN
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr, lval);
+#else
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr, hval);
+#endif
 
 	if (sc->xge_type == XGE_TYPE_XENA)
 		PIF_WCSR(RMAC_CFG_KEY, RMAC_KEY_VALUE);
-
-	bus_space_write_4(sc->sc_st, sc->sc_sh, csr+4, hval);
+#if BYTE_ORDER == LITTLE_ENDIAN
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr+4, hval);
+#else
+	bus_space_write_raw_4(sc->sc_st, sc->sc_sh, csr+4, lval);
+#endif
+#endif
 }
 
 struct cfattach xge_ca = {
@@ -361,6 +408,7 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 		/* Save PCI config space */
 		for (i = 0; i < XGE_PCISIZE_XENA; i += 4)
 			sc->sc_pciregs[i/4] = pci_conf_read(pa->pa_pc, pa->pa_tag, i);
+			sc->sc_pciregs[i/4] = pci_conf_read(pa->pa_pc, pa->pa_tag, i);
 	}
 
 #if BYTE_ORDER == LITTLE_ENDIAN
@@ -369,25 +417,29 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 	PIF_WCSR(SWAPPER_CTRL, val);
 	PIF_WCSR(SWAPPER_CTRL, val);
 #endif
-
 	if ((val = PIF_RCSR(PIF_RD_SWAPPER_Fb)) != SWAPPER_MAGIC) {
-		printf(": failed configuring endian, %llx != %llx!\n",
+		printf(": failed configuring endian (read), %llx != %llx!\n",
 		    (unsigned long long)val, SWAPPER_MAGIC);
-		return;
 	}
+
+	PIF_WCSR(XMSI_ADDRESS, SWAPPER_MAGIC);
+	if ((val = PIF_RCSR(XMSI_ADDRESS)) != SWAPPER_MAGIC) {
+		printf(": failed configuring endian (write), %llx != %llx!\n",
+			(unsigned long long)val, SWAPPER_MAGIC);
+	} 
 
 	/*
 	 * Fix for all "FFs" MAC address problems observed on
 	 * Alpha platforms. Not needed for Herc.
-	 */ 
+	 */
 	if (sc->xge_type == XGE_TYPE_XENA) {
 		/*
 		 * The MAC addr may be all FF's, which is not good.
-		 * Resolve it by writing some magics to GPIO_CONTROL and 
+		 * Resolve it by writing some magics to GPIO_CONTROL and
 		 * force a chip reset to read in the serial eeprom again.
 		 */
-		for (i = 0; i < nitems(fix_mac); i++) {
-			PIF_WCSR(GPIO_CONTROL, fix_mac[i]);
+		for (i = 0; i < nitems(xge_fix_mac); i++) {
+			PIF_WCSR(GPIO_CONTROL, xge_fix_mac[i]);
 			PIF_RCSR(GPIO_CONTROL);
 		}
 
@@ -410,7 +462,14 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 #endif
 
 		if ((val = PIF_RCSR(PIF_RD_SWAPPER_Fb)) != SWAPPER_MAGIC) {
-			printf(": failed configuring endian2, %llx != %llx!\n",
+			printf(": failed configuring endian2 (read), %llx != %llx!\n",
+			    (unsigned long long)val, SWAPPER_MAGIC);
+			return;
+		}
+
+		PIF_WCSR(XMSI_ADDRESS, SWAPPER_MAGIC);
+		if ((val = PIF_RCSR(XMSI_ADDRESS)) != SWAPPER_MAGIC) {
+			printf(": failed configuring endian2 (write), %llx != %llx!\n",
 			    (unsigned long long)val, SWAPPER_MAGIC);
 			return;
 		}
@@ -497,7 +556,8 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 	/* Create transmit DMA maps */
 	for (i = 0; i < NTXDESCS; i++) {
 		if (bus_dmamap_create(sc->sc_dmat, XGE_MAX_FRAMELEN,
-		    NTXFRAGS, MCLBYTES, 0, BUS_DMA_NOWAIT, &sc->sc_txm[i])) {
+		    NTXFRAGS, XGE_MAX_FRAMELEN, 0, BUS_DMA_NOWAIT,
+		    &sc->sc_txm[i])) {
 			printf(": cannot create TX DMA maps\n");
 			return;
 		}
@@ -518,7 +578,8 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 	/* Create receive buffer DMA maps */
 	for (i = 0; i < NRXREAL; i++) {
 		if (bus_dmamap_create(sc->sc_dmat, XGE_MAX_FRAMELEN,
-		    NRXFRAGS, MCLBYTES, 0, BUS_DMA_NOWAIT, &sc->sc_rxm[i])) {
+		    NRXFRAGS, XGE_MAX_FRAMELEN, 0, BUS_DMA_NOWAIT,
+		    &sc->sc_rxm[i])) {
 			printf(": cannot create RX DMA maps\n");
 			return;
 		}
@@ -620,14 +681,11 @@ xge_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_ioctl = xge_ioctl;
 	ifp->if_start = xge_start;
-#ifdef XGE_JUMBO
 	ifp->if_hardmtu = XGE_MAX_MTU;
-#endif
 	IFQ_SET_MAXLEN(&ifp->if_snd, NTXDESCS - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_IPv4 |
-			       IFCAP_CSUM_TCPv4 | IFCAP_CSUM_UDPv4;
+	    IFCAP_CSUM_TCPv4 | IFCAP_CSUM_UDPv4;
 
 #if NVLAN > 0
 	ifp->if_capabilities |= IFCAP_VLAN_HWTAGGING;
@@ -666,7 +724,7 @@ xge_ifmedia_status(struct ifnet *ifp, struct ifmediareq *ifmr)
 	ifmr->ifm_active = IFM_ETHER|IFM_10G_SR;
 
 	reg = PIF_RCSR(ADAPTER_STATUS);
-	if ((reg & (RMAC_REMOTE_FAULT|RMAC_LOCAL_FAULT)) == 0)	
+	if ((reg & (RMAC_REMOTE_FAULT|RMAC_LOCAL_FAULT)) == 0)
 		ifmr->ifm_status |= IFM_ACTIVE;
 }
 
@@ -695,7 +753,7 @@ xge_enable(struct xge_softc *sc)
 #endif
 }
 
-int 
+int
 xge_init(struct ifnet *ifp)
 {
 	struct xge_softc *sc = ifp->if_softc;
@@ -739,11 +797,7 @@ xge_init(struct ifnet *ifp)
 	}
 
 	/* set MRU */
-#ifdef XGE_JUMBO
 	PIF_WCSR(RMAC_MAX_PYLD_LEN, RMAC_PYLD_LEN(XGE_MAX_FRAMELEN));
-#else
-	PIF_WCSR(RMAC_MAX_PYLD_LEN, RMAC_PYLD_LEN(ETHER_MAX_LEN + ETHER_VLAN_ENCAP_LEN));
-#endif
 
 	/* 56, enable the transmit laser */
 	val = PIF_RCSR(ADAPTER_CONTROL);
@@ -757,12 +811,13 @@ xge_init(struct ifnet *ifp)
 	 */
 	PIF_WCSR(TX_TRAFFIC_MASK, 0);
 	PIF_WCSR(RX_TRAFFIC_MASK, 0);
-	PIF_WCSR(GENERAL_INT_MASK, 0);
 	PIF_WCSR(TXPIC_INT_MASK, 0);
 	PIF_WCSR(RXPIC_INT_MASK, 0);
 
 	PIF_WCSR(MAC_INT_MASK, MAC_TMAC_INT); /* only from RMAC */
+	PIF_WCSR(MAC_RMAC_ERR_REG, RMAC_LINK_STATE_CHANGE_INT);
 	PIF_WCSR(MAC_RMAC_ERR_MASK, ~RMAC_LINK_STATE_CHANGE_INT);
+	PIF_WCSR(GENERAL_INT_MASK, 0);
 
 	xge_setpromisc(sc);
 
@@ -770,7 +825,7 @@ xge_init(struct ifnet *ifp)
 
 	/* Done... */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -783,7 +838,8 @@ xge_stop(struct ifnet *ifp, int disable)
 	struct xge_softc *sc = ifp->if_softc;
 	uint64_t val;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	val = PIF_RCSR(ADAPTER_CONTROL);
 	val &= ~ADAPTER_EN;
@@ -818,7 +874,7 @@ xge_intr(void *pv)
 		while ((PIF_RCSR(ADAPTER_STATUS) & QUIESCENT) != QUIESCENT)
 			;
 		PIF_WCSR(MAC_RMAC_ERR_REG, RMAC_LINK_STATE_CHANGE_INT);
-			
+
 		val = PIF_RCSR(ADAPTER_STATUS);
 		if ((val & (RMAC_REMOTE_FAULT|RMAC_LOCAL_FAULT)) == 0)
 			xge_enable(sc); /* Only if link restored */
@@ -850,7 +906,7 @@ xge_intr(void *pv)
 	}
 
 	if (sc->sc_lasttx != lasttx)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	/* Try to get more packets on the wire */
 	xge_start(ifp);
@@ -932,7 +988,7 @@ xge_intr(void *pv)
 	return (1);
 }
 
-int 
+int
 xge_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct xge_softc *sc = ifp->if_softc;
@@ -958,7 +1014,7 @@ xge_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 				if (!(ifp->if_flags & IFF_RUNNING))
 					xge_init(ifp);
 			}
-                } else {
+		} else {
 			if (ifp->if_flags & IFF_RUNNING)
 				xge_stop(ifp, 1);
 		}
@@ -1053,7 +1109,7 @@ xge_setpromisc(struct xge_softc *sc)
 	PIF_WCSR(MAC_CFG, val);
 }
 
-void 
+void
 xge_start(struct ifnet *ifp)
 {
 	struct xge_softc *sc = ifp->if_softc;
@@ -1063,7 +1119,7 @@ xge_start(struct ifnet *ifp)
 	uint64_t par, lcr;
 	int nexttx = 0, ntxd, error, i;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	par = lcr = 0;
@@ -1239,7 +1295,7 @@ xge_alloc_rxmem(struct xge_softc *sc)
 		rxpp->r4_next = (uint64_t)sc->sc_rxmap->dm_segs[0].ds_addr +
 		    (i*sizeof(struct rxd_4k)) + sizeof(struct rxd_4k);
 	}
-	sc->sc_rxd_4k[NRXPAGES-1]->r4_next = 
+	sc->sc_rxd_4k[NRXPAGES-1]->r4_next =
 	    (uint64_t)sc->sc_rxmap->dm_segs[0].ds_addr;
 
 	return (0);
@@ -1283,12 +1339,12 @@ xge_add_rxbuf(struct xge_softc *sc, int id)
 	MGETHDR(m[0], M_DONTWAIT, MT_DATA);
 	if (m[0] == NULL)
 		return (ENOBUFS);
-	MCLGET(m[0], M_DONTWAIT);
+	MCLGETI(m[0], M_DONTWAIT, NULL, XGE_MAX_FRAMELEN + ETHER_ALIGN);
 	if ((m[0]->m_flags & M_EXT) == 0) {
 		m_freem(m[0]);
 		return (ENOBUFS);
 	}
-	m[0]->m_len = m[0]->m_pkthdr.len = m[0]->m_ext.ext_size;
+	m[0]->m_len = m[0]->m_pkthdr.len = XGE_MAX_FRAMELEN + ETHER_ALIGN;
 #elif RX_MODE == RX_MODE_3
 #error missing rxmode 3.
 #elif RX_MODE == RX_MODE_5
@@ -1300,7 +1356,7 @@ xge_add_rxbuf(struct xge_softc *sc, int id)
 		MCLGET(m[3], M_DONTWAIT);
 	if (m[4])
 		MCLGET(m[4], M_DONTWAIT);
-	if (!m[0] || !m[1] || !m[2] || !m[3] || !m[4] || 
+	if (!m[0] || !m[1] || !m[2] || !m[3] || !m[4] ||
 	    ((m[3]->m_flags & M_EXT) == 0) || ((m[4]->m_flags & M_EXT) == 0)) {
 		/* Out of something */
 		for (i = 0; i < 5; i++)
@@ -1320,6 +1376,8 @@ xge_add_rxbuf(struct xge_softc *sc, int id)
 	if (sc->sc_rxb[id])
 		bus_dmamap_unload(sc->sc_dmat, sc->sc_rxm[id]);
 	sc->sc_rxb[id] = m[0];
+
+	m_adj(m[0], ETHER_ALIGN);
 
 	error = bus_dmamap_load_mbuf(sc->sc_dmat, sc->sc_rxm[id], m[0],
 	    BUS_DMA_READ|BUS_DMA_NOWAIT);
@@ -1354,100 +1412,24 @@ xge_add_rxbuf(struct xge_softc *sc, int id)
 int
 xge_setup_xgxs_xena(struct xge_softc *sc)
 {
-	/* The magic numbers are described in the users guide */
+	int i;
 
-	/* Writing to MDIO 0x8000 (Global Config 0) */
-	PIF_WCSR(DTX_CONTROL, 0x8000051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80000515000000E0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80000515D93500E4ULL); DELAY(50);
-
-	/* Writing to MDIO 0x8000 (Global Config 1) */
-	PIF_WCSR(DTX_CONTROL, 0x8001051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80010515000000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80010515001e00e4ULL); DELAY(50);
-
-	/* Reset the Gigablaze */
-	PIF_WCSR(DTX_CONTROL, 0x8002051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80020515000000E0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80020515F21000E4ULL); DELAY(50);
-
-	/* read the pole settings */
-	PIF_WCSR(DTX_CONTROL, 0x8000051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80000515000000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80000515000000ecULL); DELAY(50);
-
-	PIF_WCSR(DTX_CONTROL, 0x8001051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80010515000000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80010515000000ecULL); DELAY(50);
-
-	PIF_WCSR(DTX_CONTROL, 0x8002051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80020515000000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x80020515000000ecULL); DELAY(50);
-
-	/* Workaround for TX Lane XAUI initialization error.
-	   Read Xpak PHY register 24 for XAUI lane status */
-	PIF_WCSR(DTX_CONTROL, 0x0018040000000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00180400000000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00180400000000ecULL); DELAY(50);
-
-	/* 
-	 * Reading the MDIO control with value 0x1804001c0F001c
-	 * means the TxLanes were already in sync
-	 * Reading the MDIO control with value 0x1804000c0x001c
-	 * means some TxLanes are not in sync where x is a 4-bit
-	 * value representing each lanes
-	 */
-#if 0
-	val = PIF_RCSR(MDIO_CONTROL);
-	if (val != 0x1804001c0F001cULL) {
-		printf("%s: MDIO_CONTROL: %llx != %llx\n", 
-		    XNAME, val, 0x1804001c0F001cULL);
-		return (1);
+	for (i = 0; i < nitems(xge_xena_dtx_cfg); i++) {
+		PIF_WCSR(DTX_CONTROL, xge_xena_dtx_cfg[i]);
+		DELAY(100);
 	}
-#endif
 
-	/* Set and remove the DTE XS INTLoopBackN */
-	PIF_WCSR(DTX_CONTROL, 0x0000051500000000ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00000515604000e0ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00000515604000e4ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00000515204000e4ULL); DELAY(50);
-	PIF_WCSR(DTX_CONTROL, 0x00000515204000ecULL); DELAY(50);
-
-#if 0
-	/* Reading the DTX control register Should be 0x5152040001c */
-	val = PIF_RCSR(DTX_CONTROL);
-	if (val != 0x5152040001cULL) {
-		printf("%s: DTX_CONTROL: %llx != %llx\n", 
-		    XNAME, val, 0x5152040001cULL);
-		return (1);
-	}
-#endif
-
-	PIF_WCSR(MDIO_CONTROL, 0x0018040000000000ULL); DELAY(50);
-	PIF_WCSR(MDIO_CONTROL, 0x00180400000000e0ULL); DELAY(50);
-	PIF_WCSR(MDIO_CONTROL, 0x00180400000000ecULL); DELAY(50);
-
-#if 0
-	/* Reading the MIOD control should be 0x1804001c0f001c */
-	val = PIF_RCSR(MDIO_CONTROL);
-	if (val != 0x1804001c0f001cULL) {
-		printf("%s: MDIO_CONTROL2: %llx != %llx\n",
-		    XNAME, val, 0x1804001c0f001cULL);
-		return (1);
-	}
-#endif
 	return (0);
 }
 
 int
 xge_setup_xgxs_herc(struct xge_softc *sc)
 {
-	int dtx_cnt = 0;
+	int i;
 
-	while (herc_dtx_cfg[dtx_cnt] != END_SIGN) {
-		PIF_WCSR(DTX_CONTROL, herc_dtx_cfg[dtx_cnt]);
+	for (i = 0; i < nitems(xge_herc_dtx_cfg); i++) {
+		PIF_WCSR(DTX_CONTROL, xge_herc_dtx_cfg[i]);
 		DELAY(100);
-		dtx_cnt++;
 	}
 
 	return (0);

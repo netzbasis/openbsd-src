@@ -1,4 +1,4 @@
-/*	$OpenBSD: uoakrh.c,v 1.11 2015/03/14 03:38:50 jsg Exp $   */
+/*	$OpenBSD: uoakrh.c,v 1.14 2016/03/11 18:41:33 mmcc Exp $   */
 
 /*
  * Copyright (c) 2012 Yojiro UO <yuo@nui.org>
@@ -32,7 +32,7 @@
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdevs.h>
 #include <dev/usb/uhidev.h>
-#include <dev/usb/hid.h>
+
 #include "uoak.h"
 
 #ifdef OARKRH_DEBUG
@@ -215,10 +215,8 @@ uoakrh_detach(struct device *self, int flags)
 	wakeup(&sc->sc_sensortask);
 	sensordev_deinstall(&sc->sc_sensordev);
 
-	if (&sc->sc_sensordev != NULL) {
-		sensor_detach(&sc->sc_sensordev, &sc->sc_sensor.temp);
-		sensor_detach(&sc->sc_sensordev, &sc->sc_sensor.humi);
-	}
+	sensor_detach(&sc->sc_sensordev, &sc->sc_sensor.temp);
+	sensor_detach(&sc->sc_sensordev, &sc->sc_sensor.humi);
 
 	if (sc->sc_sensortask != NULL)
 		sensor_task_unregister(sc->sc_sensortask);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sig.c,v 1.190 2015/11/10 04:30:59 guenther Exp $	*/
+/*	$OpenBSD: kern_sig.c,v 1.198 2016/06/11 21:41:50 tedu Exp $	*/
 /*	$NetBSD: kern_sig.c,v 1.54 1996/04/22 01:38:32 christos Exp $	*/
 
 /*
@@ -227,7 +227,6 @@ sigactsfree(struct process *pr)
 	pool_put(&sigacts_pool, ps);
 }
 
-/* ARGSUSED */
 int
 sys_sigaction(struct proc *p, void *v, register_t *retval)
 {
@@ -466,7 +465,6 @@ sys_sigprocmask(struct proc *p, void *v, register_t *retval)
 	return (error);
 }
 
-/* ARGSUSED */
 int
 sys_sigpending(struct proc *p, void *v, register_t *retval)
 {
@@ -494,7 +492,6 @@ dosigsuspend(struct proc *p, sigset_t newmask)
  * in the meantime.  Note nonstandard calling convention:
  * libc stub passes mask, not pointer, to save a copyin.
  */
-/* ARGSUSED */
 int
 sys_sigsuspend(struct proc *p, void *v, register_t *retval)
 {
@@ -560,63 +557,6 @@ sys_sigaltstack(struct proc *p, void *v, register_t *retval)
 		return (ENOMEM);
 	p->p_sigstk = ss;
 	return (0);
-}
-
-int
-sys_o58_kill(struct proc *cp, void *v, register_t *retval)
-{
-	struct sys_o58_kill_args /* {
-		syscallarg(int) pid;
-		syscallarg(int) signum;
-	} */ *uap = v;
-	struct proc *p;
-	int pid = SCARG(uap, pid);
-	int signum = SCARG(uap, signum);
-	int error;
-
-	if (pid <= THREAD_PID_OFFSET && (error = pledge_kill(cp, pid)) != 0)
-		return (error);
-	if (((u_int)signum) >= NSIG)
-		return (EINVAL);
-	if (pid > 0) {
-		enum signal_type type = SPROCESS;
-
-		/*
-		 * If the target pid is > THREAD_PID_OFFSET then this
-		 * must be a kill of another thread in the same process.
-		 * Otherwise, this is a process kill and the target must
-		 * be a main thread.
-		 */
-		if (pid > THREAD_PID_OFFSET) {
-			if ((p = pfind(pid - THREAD_PID_OFFSET)) == NULL)
-				return (ESRCH);
-			if (p->p_p != cp->p_p)
-				return (ESRCH);
-			type = STHREAD;
-		} else {
-			/* XXX use prfind() */
-			if ((p = pfind(pid)) == NULL)
-				return (ESRCH);
-			if (p->p_flag & P_THREAD)
-				return (ESRCH);
-			if (!cansignal(cp, p->p_p, signum))
-				return (EPERM);
-		}
-
-		/* kill single process or thread */
-		if (signum)
-			ptsignal(p, signum, type);
-		return (0);
-	}
-	switch (pid) {
-	case -1:		/* broadcast signal */
-		return (killpg1(cp, signum, 0, 1));
-	case 0:			/* signal own process group */
-		return (killpg1(cp, signum, 0, 0));
-	default:		/* negative explicit process group */
-		return (killpg1(cp, signum, -pid, 0));
-	}
-	/* NOTREACHED */
 }
 
 int
@@ -899,7 +839,7 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 		panic("psignal signal number");
 #endif
 
-	/* Ignore signal if we are exiting */
+	/* Ignore signal if the target process is exiting */
 	if (pr->ps_flags & PS_EXITING)
 		return;
 
@@ -983,7 +923,7 @@ ptsignal(struct proc *p, int signum, enum signal_type type)
 		} else {
 			action = SIG_DFL;
 
-			if (prop & SA_KILL &&  pr->ps_nice > NZERO)
+			if (prop & SA_KILL && pr->ps_nice > NZERO)
 				 pr->ps_nice = NZERO;
 
 			/*
@@ -1498,8 +1438,7 @@ sigexit(struct proc *p, int signum)
 		p->p_sisig = signum;
 
 		/* if there are other threads, pause them */
-		if (TAILQ_FIRST(&p->p_p->ps_threads) != p ||
-		    TAILQ_NEXT(p, p_thr_link) != NULL)
+		if (P_HASSIBLING(p))
 			single_thread_set(p, SINGLE_SUSPEND, 0);
 
 		if (coredump(p) == 0)
@@ -1599,7 +1538,6 @@ coredump(struct proc *p)
 	}
 
 	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, p);
-	nd.ni_pledge = PLEDGE_COREDUMP;
 
 	error = vn_open(&nd, O_CREAT | FWRITE | O_NOFOLLOW, S_IRUSR | S_IWUSR);
 
@@ -1612,7 +1550,7 @@ coredump(struct proc *p)
 	 */
 	vp = nd.ni_vp;
 	if ((error = VOP_GETATTR(vp, &vattr, cred, p)) != 0) {
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		vn_close(vp, FWRITE, cred, p);
 		goto out;
 	}
@@ -1620,7 +1558,7 @@ coredump(struct proc *p)
 	    vattr.va_mode & ((VREAD | VWRITE) >> 3 | (VREAD | VWRITE) >> 6) ||
 	    vattr.va_uid != cred->cr_uid) {
 		error = EACCES;
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		vn_close(vp, FWRITE, cred, p);
 		goto out;
 	}
@@ -1633,7 +1571,7 @@ coredump(struct proc *p)
 	io.io_vp = vp;
 	io.io_cred = cred;
 	io.io_offset = 0;
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 	vref(vp);
 	error = vn_close(vp, FWRITE, cred, p);
 	if (error == 0)
@@ -1669,10 +1607,10 @@ coredump_write(void *cookie, enum uio_seg segflg, const void *data, size_t len)
 		    IO_UNIT, io->io_cred, NULL, io->io_proc);
 		if (error) {
 			if (error == ENOSPC)
-				log(LOG_ERR, "coredump of %s(%d) failed, filesystem full",
+				log(LOG_ERR, "coredump of %s(%d) failed, filesystem full\n",
 				    io->io_proc->p_comm, io->io_proc->p_pid);
 			else
-				log(LOG_ERR, "coredump of %s(%d), write failed: errno %d",
+				log(LOG_ERR, "coredump of %s(%d), write failed: errno %d\n",
 				    io->io_proc->p_comm, io->io_proc->p_pid, error);
 			return (error);
 		}
@@ -1699,7 +1637,6 @@ coredump_unmap(void *cookie, vaddr_t start, vaddr_t end)
  * Nonexistent system call-- signal process (may want to handle it).
  * Flag error in case process won't see signal immediately (blocked or ignored).
  */
-/* ARGSUSED */
 int
 sys_nosys(struct proc *p, void *v, register_t *retval)
 {
@@ -1742,6 +1679,8 @@ sys___thrsigdivert(struct proc *p, void *v, register_t *retval)
 			    ts.tv_nsec / (tick * 1000);
 			if (to_ticks > INT_MAX)
 				to_ticks = INT_MAX;
+			if (to_ticks == 0 && ts.tv_nsec)
+				to_ticks = 1;
 		}
 	}
 
@@ -1768,6 +1707,9 @@ sys___thrsigdivert(struct proc *p, void *v, register_t *retval)
 		/* per-POSIX, delay this error until after the above */
 		if (timeinvalid)
 			error = EINVAL;
+
+		if (SCARG(uap, timeout) != NULL && to_ticks == 0)
+			error = EAGAIN;
 
 		if (error != 0)
 			break;

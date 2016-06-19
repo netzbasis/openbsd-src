@@ -1,4 +1,4 @@
-/* $OpenBSD: cpu.h,v 1.55 2015/07/02 01:33:59 dlg Exp $ */
+/* $OpenBSD: cpu.h,v 1.57 2016/03/30 15:39:46 afresh1 Exp $ */
 /* $NetBSD: cpu.h,v 1.45 2000/08/21 02:03:12 thorpej Exp $ */
 
 /*-
@@ -320,7 +320,7 @@ do {									\
 #define signotify(p)	aston(p)
 #endif
 
-#define	aston(p)	(p)->p_md.md_astpending = 1
+#define	aston(p)	((p)->p_md.md_astpending = 1)
 #endif /* _KERNEL */
 
 /*
@@ -393,6 +393,7 @@ u_int64_t alpha_read_fp_c(struct proc *);
 void alpha_write_fp_c(struct proc *, u_int64_t);
 
 int alpha_fp_complete(u_long, u_long, struct proc *, u_int64_t *);
+int alpha_fp_complete_at(u_long, struct proc *, u_int64_t *);
 #endif
 
 void alpha_enable_fp(struct proc *, int);

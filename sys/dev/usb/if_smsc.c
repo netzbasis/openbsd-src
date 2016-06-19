@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_smsc.c,v 1.22 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_smsc.c,v 1.27 2016/04/13 11:03:37 mpi Exp $	*/
 /* $FreeBSD: src/sys/dev/usb/net/if_smsc.c,v 1.1 2012/08/15 04:03:55 gonzo Exp $ */
 /*-
  * Copyright (c) 2012
@@ -59,7 +59,6 @@
  */
 
 #include "bpfilter.h"
-#include "vlan.h"
 
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -74,7 +73,6 @@
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -591,7 +589,7 @@ smsc_init(void *xsc)
 
 	/* Indicate we are up and running. */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->sc_stat_ch, 1);
 
@@ -606,7 +604,7 @@ smsc_start(struct ifnet *ifp)
 
 	/* Don't send anything if there is no link or controller is busy. */
 	if ((sc->sc_flags & SMSC_FLAG_LINK) == 0 ||
-		(ifp->if_flags & IFF_OACTIVE) != 0) {
+		ifq_is_oactive(&ifp->if_snd)) {
 		return;
 	}
 
@@ -616,7 +614,7 @@ smsc_start(struct ifnet *ifp)
 
 	if (smsc_encap(sc, m_head, 0)) {
 		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 	ifq_deq_commit(&ifp->if_snd, m_head);
@@ -625,7 +623,7 @@ smsc_start(struct ifnet *ifp)
 	if (ifp->if_bpf)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 }
 
 void
@@ -653,7 +651,8 @@ smsc_stop(struct smsc_softc *sc)
 
 	ifp = &sc->sc_ac.ac_if;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->sc_stat_ch);
 
@@ -1002,8 +1001,6 @@ smsc_attach(struct device *parent, struct device *self, void *aux)
 	/* Initialise the chip for the first time */
 	smsc_chip_init(sc);
 
-	IFQ_SET_READY(&ifp->if_snd);
-
 	/* Initialize MII/media info. */
 	mii = &sc->sc_mii;
 	mii->mii_ifp = ifp;
@@ -1092,7 +1089,6 @@ smsc_tick_task(void *xsc)
 {
 	int			 s;
 	struct smsc_softc	*sc = xsc;
-	struct ifnet		*ifp;
 	struct mii_data		*mii;
 
 	if (sc == NULL)
@@ -1100,7 +1096,6 @@ smsc_tick_task(void *xsc)
 
 	if (usbd_is_dying(sc->sc_udev))
 		return;
-	ifp = &sc->sc_ac.ac_if;
 	mii = &sc->sc_mii;
 	if (mii == NULL)
 		return;
@@ -1265,7 +1260,7 @@ smsc_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	}
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	m_freem(c->sc_mbuf);
 	c->sc_mbuf = NULL;

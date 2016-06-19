@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpuswitch7.S,v 1.3 2013/09/12 11:43:51 patrick Exp $	*/
+/*	$OpenBSD: cpuswitch7.S,v 1.10 2016/04/25 12:16:20 jsg Exp $	*/
 /*	$NetBSD: cpuswitch.S,v 1.41 2003/11/15 08:44:18 scw Exp $	*/
 
 /*
@@ -83,6 +83,7 @@
 #include <machine/frame.h>
 #include <machine/intr.h>
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 
 /* LINTSTUB: include <sys/param.h> */
 	
@@ -94,23 +95,12 @@
  * XXX: This is not necessary if the vector table is relocated.
  */
 #define IRQdisableALL \
-	mrs	r14, cpsr ; \
-	orr	r14, r14, #(I32_bit | F32_bit) ; \
-	msr	cpsr_c, r14
+	cpsid	if
 
 #define IRQenableALL \
-	mrs	r14, cpsr ; \
-	bic	r14, r14, #(I32_bit | F32_bit) ; \
-	msr	cpsr_c, r14
+	cpsie	if
 
 	.text
-
-.Lcpu_info_primary:
-	.word	_C_LABEL(cpu_info_primary)
-.Lcurproc:
-	.word	_C_LABEL(cpu_info_primary) + CI_CURPROC
-.Lcurpcb:
-	.word	_C_LABEL(cpu_info_primary) + CI_CURPCB
 
 .Lcpufuncs:
 	.word	_C_LABEL(cpufuncs)
@@ -165,11 +155,12 @@ ENTRY(cpu_idle_leave)
 
 ENTRY(cpu_switchto)
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
+	/* Get curcpu from TPIDRPRW. */
+	mrc	CP15_TPIDRPRW(r3)
 #ifdef MULTIPROCESSOR
-	/* XXX use curcpu() */
-	ldr	r2, .Lcpu_info_primary
-	str	r2, [r1, #(P_CPU)]
+	str	r3, [r1, #(P_CPU)]
 #else
 	/* p->p_cpu initialized in fork1() for single-processor */
 #endif
@@ -179,14 +170,12 @@ ENTRY(cpu_switchto)
 	strb	r2, [r1, #(P_STAT)]
 
 	/* We have a new curproc now so make a note it */
-	ldr	r7, .Lcurproc
-	str	r1, [r7]
+	str	r1, [r3, #(CI_CURPROC)]
 
 	/* Hook in a new pcb */
-	ldr	r7, .Lcurpcb
-	ldr	r6, [r7]			/* Remember the old PCB */
+	ldr	r6, [r3, #(CI_CURPCB)]		/* Remember the old PCB */
 	ldr	r2, [r1, #(P_ADDR)]
-	str	r2, [r7]
+	str	r2, [r3, #(CI_CURPCB)]
 
 	/*
 	 * If the old proc on entry to cpu_switch was zero then the
@@ -200,14 +189,8 @@ ENTRY(cpu_switchto)
 	/* Stage two: Save old context */
 
 	/* Save all the registers in the old proc's pcb */
-#ifndef __XSCALE__
 	add	r7, r6, #(PCB_R8)
 	stmia	r7, {r8-r13}
-#else
-	strd	r8, [r6, #(PCB_R8)]
-	strd	r10, [r6, #(PCB_R10)]
-	strd	r12, [r6, #(PCB_R12)]
-#endif
 
 .Lswitch_exited:
 	/*
@@ -224,14 +207,8 @@ ENTRY(cpu_switchto)
 	/* Get the user structure for the new process in r9 */
 	ldr	r9, [r6, #(P_ADDR)]
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE | I32_bit)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cpsid	i, #(PSR_UND32_MODE)
 
 #ifdef notworthit
 	teq	r0, #0x00000000
@@ -240,7 +217,7 @@ ENTRY(cpu_switchto)
 	str	sp, [r8, #(PCB_UND_SP)]
 #endif
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* rem: r0 = old proc */
 	/* rem: r1 = r6 = new process */
@@ -301,7 +278,7 @@ ENTRY(cpu_switchto)
 	cmp	r7, #0			/* No need to fixup vector table? */
 	ldrne	r2, [r7]		/* But if yes, fetch current value */
 	ldrne	r0, [r9, #(PCB_L1VEC)]	/* Fetch new vector_page value */
-	mcr	p15, 0, r1, c3, c0, 0	/* Update DACR for new context */
+	mcr	CP15_DACR(r1)		/* Update DACR for new context */
 	cmpne	r2, r0			/* Stuffing the same value? */
 #ifndef PMAP_INCLUDE_PTE_SYNC
 	strne	r0, [r7]		/* Nope, update it */
@@ -353,34 +330,18 @@ ENTRY(cpu_switchto)
 	/* rem: r6 = new proc */
 	/* rem: r9 = new PCB */
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cps	#(PSR_UND32_MODE)
 
 	ldr	sp, [r9, #(PCB_UND_SP)]
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* Restore all the save registers */
-#ifndef __XSCALE__
 	add	r7, r9, #PCB_R8
 	ldmia	r7, {r8-r13}
 
 	sub	r7, r7, #PCB_R8		/* restore PCB pointer */
-#else
-	mov	r7, r9
-	ldr	r8, [r7, #(PCB_R8)]
-	ldr	r9, [r7, #(PCB_R9)]
-	ldr	r10, [r7, #(PCB_R10)]
-	ldr	r11, [r7, #(PCB_R11)]
-	ldr	r12, [r7, #(PCB_R12)]
-	ldr	r13, [r7, #(PCB_SP)]
-#endif
 
 	/* rem: r6 = new proc */
 	/* rem: r7 = new pcb */
@@ -396,6 +357,7 @@ ENTRY(cpu_switchto)
 	 * Pull the registers that got pushed when either savectx() or
 	 * cpu_switch() was called and return.
 	 */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 /* LINTSTUB: Func: void savectx(struct pcb *pcb) */
@@ -406,18 +368,14 @@ ENTRY(savectx)
 
 	/* Push registers.*/
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
 	/* Store all the registers in the process's pcb */
-#ifndef __XSCALE__
 	add	r2, r0, #(PCB_R8)
 	stmia	r2, {r8-r13}
-#else
-	strd	r8, [r0, #(PCB_R8)]
-	strd	r10, [r0, #(PCB_R10)]
-	strd	r12, [r0, #(PCB_R12)]
-#endif
 
 	/* Pull the regs of the stack */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 ENTRY(proc_trampoline)
@@ -433,9 +391,7 @@ ENTRY(proc_trampoline)
 	mov	pc, r4
 
 	/* Kill irq's */
-        mrs     r0, cpsr
-        orr     r0, r0, #(I32_bit)
-        msr     cpsr_c, r0
+	cpsid	i
 
 	PULLFRAME
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tetris.c,v 1.26 2015/11/20 07:40:23 tb Exp $	*/
+/*	$OpenBSD: tetris.c,v 1.31 2016/06/10 13:07:07 tb Exp $	*/
 /*	$NetBSD: tetris.c,v 1.2 1995/04/22 07:42:47 cgd Exp $	*/
 
 /*-
@@ -39,9 +39,6 @@
  * Tetris (or however it is spelled).
  */
 
-#include <sys/time.h>
-#include <sys/types.h>
-
 #include <err.h>
 #include <limits.h>
 #include <signal.h>
@@ -64,11 +61,11 @@ int	score;
 char	key_msg[100];
 int	showpreview, classic;
 
-static void	elide(void);
-static void	setup_board(void);
-const struct shape *randshape(void);
-void	onintr(int);
-void	usage(void);
+static void		 elide(void);
+void			 onintr(int);
+const struct shape	*randshape(void);
+static void		 setup_board(void);
+__dead void		 usage(void);
 
 /*
  * Set up the initial board.  The bottom display row is completely set,
@@ -108,6 +105,7 @@ elide(void)
 				tsleep();
 				while (--base != 0)
 					board[base + B_COLS] = board[base];
+				memset(&board[1], 0, B_COLS - 2);
 				scr_update();
 				tsleep();
 				break;
@@ -188,7 +186,7 @@ main(int argc, char *argv[])
 			break;
 		case 's':
 			showscores(0);
-			exit(0);
+			return 0;
 		default:
 			usage();
 		}
@@ -345,7 +343,7 @@ main(int argc, char *argv[])
 
 	showscores(level);
 
-	exit(0);
+	return 0;
 }
 
 void
@@ -359,6 +357,7 @@ onintr(int signo)
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: tetris [-cps] [-k keys] [-l level]\n");
+	(void)fprintf(stderr, "usage: %s [-cps] [-k keys] "
+	    "[-l level]\n", getprogname());
 	exit(1);
 }

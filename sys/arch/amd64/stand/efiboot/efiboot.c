@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.9 2015/11/08 00:17:29 yasuoka Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.13 2016/06/10 18:36:06 jcs Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -108,7 +108,11 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	/* can't use sa_cleanup since printf is used after sa_cleanup() */
 	/* sa_cleanup = efi_cleanup; */
 
-	progname = "EFIBOOT";
+#ifdef __amd64__
+	progname = "BOOTX64";
+#else
+	progname = "BOOTIA32";
+#endif
 
 	/*
 	 * Move the stack before calling boot().  UEFI on some machines
@@ -462,7 +466,7 @@ efi_cons_getshifts(dev_t dev)
 	return (0);
 }
 
-/* XXX: serial console is not supporte yet */
+/* XXX: serial console is not supported yet */
 int comspeed = 9600;
 int com_addr = -1;
 int com_speed = -1;
@@ -473,7 +477,7 @@ int com_speed = -1;
 /*
  * ACPI GUID is confusing in UEFI spec.
  * {EFI_,}_ACPI_20_TABLE_GUID or EFI_ACPI_TABLE_GUID means
- * ACPI 2.0 or abobe.
+ * ACPI 2.0 or above.
  */
 static EFI_GUID acpi_guid = ACPI_20_TABLE_GUID;
 static EFI_GUID smbios_guid = SMBIOS_TABLE_GUID;
@@ -528,8 +532,8 @@ efi_makebootargs(void)
 		}
 		if (bestmode >= 0) {
 			status = EFI_CALL(gop->SetMode, gop, bestmode);
-			if (EFI_ERROR(status))
-				panic("GOP setmode failed(%d)", status);
+			if (EFI_ERROR(status) && gop->Mode->Mode != bestmode)
+				printf("GOP setmode failed(%d)\n", status);
 		}
 
 		gopi = gop->Mode->Info;

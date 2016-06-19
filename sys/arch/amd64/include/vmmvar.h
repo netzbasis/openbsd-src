@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmvar.h,v 1.2 2015/11/16 10:08:41 mpi Exp $	*/
+/*	$OpenBSD: vmmvar.h,v 1.15 2016/06/10 16:37:16 stefan Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -23,6 +23,7 @@
 
 #define VMM_HV_SIGNATURE 	"OpenBSDVMM58"
 
+#define VMM_MAX_MEM_RANGES	16
 #define VMM_MAX_DISKS_PER_VM	2
 #define VMM_MAX_PATH_DISK	128
 #define VMM_MAX_NAME_LEN	32
@@ -96,22 +97,30 @@
 #define VMX_EXIT_RDRAND				57
 #define VMX_EXIT_INVPCID			58
 #define VMX_EXIT_VMFUNC				59
+#define VMX_EXIT_RDSEED				61
+#define VMX_EXIT_XSAVES				63
+#define VMX_EXIT_XRSTORS			64
 
 #define VM_EXIT_TERMINATED			0xFFFE
 #define VM_EXIT_NONE				0xFFFF
 
+/*
+ * VCPU state values. Note that there is a conversion function in vmm.c
+ * (vcpu_state_decode) that converts these to human readable strings,
+ * so this enum and vcpu_state_decode should be kept in sync.
+ */
 enum {
 	VCPU_STATE_STOPPED,
 	VCPU_STATE_RUNNING,
-	VCPU_STATE_REQSTOP,
-	VCPU_STATE_UNKNOWN
+	VCPU_STATE_REQTERM,
+	VCPU_STATE_TERMINATED,
+	VCPU_STATE_UNKNOWN,
 };
 
 enum {
 	VEI_DIR_OUT,
 	VEI_DIR_IN
 };
-
 
 /*
  * vm exit data
@@ -131,17 +140,60 @@ union vm_exit {
 	struct vm_exit_inout	vei;		/* IN/OUT exit */
 };
 
+/*
+ * struct vcpu_segment_info describes a segment + selector set, used
+ * in constructing the initial vcpu register content
+ */
+struct vcpu_segment_info {
+	uint16_t vsi_sel;
+	uint32_t vsi_limit;
+	uint32_t vsi_ar;
+	uint64_t vsi_base;
+};
+
+/*
+ * struct vcpu_init_state describes the set of vmd-settable registers
+ * that the VM's vcpus will be set to during VM boot or reset. Certain
+ * registers are always set to 0 (eg, the GP regs) and certain registers
+ * have fixed values based on hardware requirements and calculated by
+ * vmm (eg, CR0/CR4)
+ */
+struct vcpu_init_state {
+	uint64_t			vis_rflags;
+	uint64_t			vis_rip;
+	uint64_t			vis_rsp;
+	uint64_t			vis_cr0;
+	uint64_t			vis_cr3;
+
+	struct vcpu_segment_info	vis_cs;
+	struct vcpu_segment_info	vis_ds;
+	struct vcpu_segment_info	vis_es;
+	struct vcpu_segment_info	vis_fs;
+	struct vcpu_segment_info	vis_gs;
+	struct vcpu_segment_info	vis_ss;
+	struct vcpu_segment_info	vis_gdtr;
+	struct vcpu_segment_info	vis_idtr;
+	struct vcpu_segment_info	vis_ldtr;
+	struct vcpu_segment_info	vis_tr;
+};
+
+struct vm_mem_range {
+	paddr_t	vmr_gpa;
+	vaddr_t vmr_va;
+	size_t	vmr_size;
+};
 
 struct vm_create_params {
 	/* Input parameters to VMM_IOC_CREATE */
-	size_t		vcp_memory_size;
-	size_t		vcp_ncpus;
-	size_t		vcp_ndisks;
-	size_t		vcp_nnics;
-	char		vcp_disks[VMM_MAX_DISKS_PER_VM][VMM_MAX_PATH_DISK];
-	char		vcp_name[VMM_MAX_NAME_LEN];
-	char		vcp_kernel[VMM_MAX_KERNEL_PATH];
-	uint8_t		vcp_macs[VMM_MAX_NICS_PER_VM][6];
+	size_t			vcp_nmemranges;
+	size_t			vcp_ncpus;
+	size_t			vcp_ndisks;
+	size_t			vcp_nnics;
+	struct vm_mem_range	vcp_memranges[VMM_MAX_MEM_RANGES];
+	char			vcp_disks[VMM_MAX_DISKS_PER_VM][VMM_MAX_PATH_DISK];
+	char			vcp_name[VMM_MAX_NAME_LEN];
+	char			vcp_kernel[VMM_MAX_KERNEL_PATH];
+	uint8_t			vcp_macs[VMM_MAX_NICS_PER_VM][6];
 
 	/* Output parameter from VMM_IOC_CREATE */
 	uint32_t	vcp_id;
@@ -164,6 +216,7 @@ struct vm_run_params {
 struct vm_info_result {
 	/* Output parameters from VMM_IOC_INFO */
 	size_t		vir_memory_size;
+	size_t		vir_used_size;
 	size_t		vir_ncpus;
 	uint8_t		vir_vcpu_state[VMM_MAX_VCPUS_PER_VM];
 	pid_t		vir_creator_pid;
@@ -185,39 +238,35 @@ struct vm_terminate_params {
 	uint32_t		vtp_vm_id;
 };
 
-struct vm_writepage_params {
-	/* Input parameters to VMM_IOC_WRITEPAGE */
-	uint32_t		vwp_vm_id; /* VM ID */
-	paddr_t			vwp_paddr; /* Phys Addr */
-	char			*vwp_data; /* Page Data */
-	uint32_t		vwp_len;   /* Length */
+struct vm_resetcpu_params {
+	/* Input parameters to VMM_IOC_RESETCPU */
+	uint32_t		vrp_vm_id;
+	uint32_t		vrp_vcpu_id;
+	struct vcpu_init_state	vrp_init_state;
 };
 
-struct vm_readpage_params {
-	/* Input parameters to VMM_IOC_READPAGE */
-	uint32_t		vrp_vm_id; /* VM ID */
-	paddr_t			vrp_paddr; /* Phys Addr */
-	uint32_t		vrp_len;   /* Length */
-
-	/* Output parameters from VMM_IOC_READPAGE */
-	char			*vrp_data; /* Page Data */
+struct vm_intr_params {
+	/* Input parameters to VMM_IOC_INTR */
+	uint32_t		vip_vm_id;
+	uint32_t		vip_vcpu_id;
+	uint16_t		vip_intr;
 };
 
 /* IOCTL definitions */
-#define VMM_IOC_START _IO('V', 1)	/* Start virtualization */
-#define VMM_IOC_STOP _IO('V', 2)	/* Stop virtualization */
-#define VMM_IOC_CREATE _IOWR('V', 3, struct vm_create_params) /* Create VM */
-#define VMM_IOC_RUN _IOWR('V', 4, struct vm_run_params) /* Run VCPU */
-#define VMM_IOC_INFO _IOWR('V', 5, struct vm_info_params) /* Get VM Info */
-#define VMM_IOC_TERM _IOW('V', 6, struct vm_terminate_params) /* Terminate VM */
-#define VMM_IOC_WRITEPAGE _IOW('V', 7, struct vm_writepage_params) /* Wr Pg */
-#define VMM_IOC_READPAGE _IOW('V', 8, struct vm_readpage_params) /* Rd Pg */
+#define VMM_IOC_CREATE _IOWR('V', 1, struct vm_create_params) /* Create VM */
+#define VMM_IOC_RUN _IOWR('V', 2, struct vm_run_params) /* Run VCPU */
+#define VMM_IOC_INFO _IOWR('V', 3, struct vm_info_params) /* Get VM Info */
+#define VMM_IOC_TERM _IOW('V', 4, struct vm_terminate_params) /* Terminate VM */
+#define VMM_IOC_RESETCPU _IOW('V', 5, struct vm_resetcpu_params) /* Reset */
+#define VMM_IOC_INTR _IOW('V', 6, struct vm_intr_params) /* Intr pending */
 
 #ifdef _KERNEL
 
 #define VMX_FAIL_LAUNCH_UNKNOWN 1
 #define VMX_FAIL_LAUNCH_INVALID_VMCS 2
 #define VMX_FAIL_LAUNCH_VALID_VMCS 3
+
+#define VMX_NUM_MSR_STORE 7
 
 enum {
 	VMM_MODE_UNKNOWN,
@@ -316,14 +365,16 @@ struct vcpu {
 
 	struct vm *vc_parent;
 	uint32_t vc_id;
+	u_int vc_state;
 	SLIST_ENTRY(vcpu) vc_vcpu_link;
 	vaddr_t vc_hsa_stack_va;
 
 	uint8_t vc_virt_mode;
-	uint8_t vc_state;
 
 	struct cpu_info *vc_last_pcpu;
 	union vm_exit vc_exit;
+
+	uint16_t vc_intr;
 
 	/* VMX only */
 	uint64_t vc_vmx_basic;

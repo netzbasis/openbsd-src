@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.99 2015/04/16 09:09:49 mpi Exp $
+#	$OpenBSD: GENERIC,v 1.102 2016/06/01 11:40:00 mglocker Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -28,7 +28,6 @@ makeoptions	CPUFLAGS="-mcpu=xscale"
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=2	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 option USBVERBOSE
 
@@ -71,6 +70,7 @@ usb*		at ohci?
 uhub*		at usb?			# USB Root Hub
 uhub*		at uhub?		# USB Hub
 ualea*		at uhub?		# Araneus Alea II TRNG
+uonerng*	at uhub?		# Moonbase Otago OneRNG
 umodem*		at uhub?		# USB Modems/Serial
 ucom*		at umodem?
 uvisor*		at uhub?		# Handspring Visor
@@ -211,6 +211,10 @@ sdmmc*		at pxammc?		# SD/MMC bus
 # USB Video
 uvideo* at uhub?
 video*  at uvideo?
+
+utvfu*	at uhub?			# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 
 # 1-Wire devices
 option ONEWIREVERBOSE

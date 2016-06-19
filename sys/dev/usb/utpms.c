@@ -1,4 +1,4 @@
-/*	$OpenBSD: utpms.c,v 1.5 2014/05/26 07:46:16 mpi Exp $	*/
+/*	$OpenBSD: utpms.c,v 1.7 2016/06/05 20:02:36 bru Exp $	*/
 
 /*
  * Copyright (c) 2005, Johan Wallén
@@ -368,15 +368,14 @@ int
 utpms_activate(struct device *self, int act)
 {
 	struct utpms_softc *sc = (struct utpms_softc *)self;
-	int ret;
+	int rv = 0;
 
 	if (act == DVACT_DEACTIVATE) {
-		ret = 0;
 		if (sc->sc_wsmousedev != NULL)
-			ret = config_deactivate(sc->sc_wsmousedev);
-		return (ret);
+			rv = config_deactivate(sc->sc_wsmousedev);
 	}
-	return (EOPNOTSUPP);
+
+	return (rv);
 }
 
 int
@@ -469,8 +468,7 @@ utpms_intr(struct uhidev *addr, void *ibuf, unsigned int len)
 	if ((dx != 0 || dy != 0 || dz != 0 || buttons != sc->sc_buttons) &&
 	    sc->sc_wsmousedev != NULL) {
 		s = spltty();
-		wsmouse_input(sc->sc_wsmousedev, buttons, dx, -dy, dz, 0,
-		    WSMOUSE_INPUT_DELTA);
+		WSMOUSE_INPUT(sc->sc_wsmousedev, buttons, dx, -dy, dz, 0);
 		splx(s);
 	}
 	sc->sc_buttons = buttons;

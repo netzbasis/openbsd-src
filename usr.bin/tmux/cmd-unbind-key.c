@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-unbind-key.c,v 1.22 2015/11/12 11:05:34 nicm Exp $ */
+/* $OpenBSD: cmd-unbind-key.c,v 1.25 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,11 +31,14 @@ enum cmd_retval	cmd_unbind_key_mode_table(struct cmd *, struct cmd_q *,
 		    key_code);
 
 const struct cmd_entry cmd_unbind_key_entry = {
-	"unbind-key", "unbind",
-	"acnt:T:", 0, 1,
-	"[-acn] [-t mode-table] [-T key-table] key",
-	0,
-	cmd_unbind_key_exec
+	.name = "unbind-key",
+	.alias = "unbind",
+
+	.args = { "acnt:T:", 0, 1 },
+	.usage = "[-acn] [-t mode-table] [-T key-table] key",
+
+	.flags = 0,
+	.exec = cmd_unbind_key_exec
 };
 
 enum cmd_retval
@@ -51,7 +54,7 @@ cmd_unbind_key_exec(struct cmd *self, struct cmd_q *cmdq)
 			return (CMD_RETURN_ERROR);
 		}
 		key = key_string_lookup_string(args->argv[0]);
-		if (key == KEYC_NONE) {
+		if (key == KEYC_NONE || key == KEYC_UNKNOWN) {
 			cmdq_error(cmdq, "unknown key: %s", args->argv[0]);
 			return (CMD_RETURN_ERROR);
 		}
@@ -60,13 +63,13 @@ cmd_unbind_key_exec(struct cmd *self, struct cmd_q *cmdq)
 			cmdq_error(cmdq, "key given with -a");
 			return (CMD_RETURN_ERROR);
 		}
-		key = KEYC_NONE;
+		key = KEYC_UNKNOWN;
 	}
 
 	if (args_has(args, 't'))
 		return (cmd_unbind_key_mode_table(self, cmdq, key));
 
-	if (key == KEYC_NONE) {
+	if (key == KEYC_UNKNOWN) {
 		tablename = args_get(args, 'T');
 		if (tablename == NULL) {
 			key_bindings_remove_table("root");
@@ -109,7 +112,7 @@ cmd_unbind_key_mode_table(struct cmd *self, struct cmd_q *cmdq, key_code key)
 		return (CMD_RETURN_ERROR);
 	}
 
-	if (key == KEYC_NONE) {
+	if (key == KEYC_UNKNOWN) {
 		while (!RB_EMPTY(mtab->tree)) {
 			mbind = RB_ROOT(mtab->tree);
 			RB_REMOVE(mode_key_tree, mtab->tree, mbind);

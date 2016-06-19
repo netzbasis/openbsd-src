@@ -1,7 +1,7 @@
-/* $OpenBSD: options-table.c,v 1.67 2015/11/20 12:01:19 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.73 2016/05/04 21:29:47 nicm Exp $ */
 
 /*
- * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,6 +50,9 @@ const char *options_table_status_position_list[] = {
 };
 const char *options_table_bell_action_list[] = {
 	"none", "any", "current", "other", NULL
+};
+const char *options_table_pane_status_list[] = {
+	"off", "top", "bottom", NULL
 };
 
 /* Server options. */
@@ -198,7 +201,7 @@ const struct options_table_entry options_table[] = {
 	{ .name = "display-time",
 	  .type = OPTIONS_TABLE_NUMBER,
 	  .scope = OPTIONS_TABLE_SESSION,
-	  .minimum = 1,
+	  .minimum = 0,
 	  .maximum = INT_MAX,
 	  .default_num = 750
 	},
@@ -209,6 +212,12 @@ const struct options_table_entry options_table[] = {
 	  .minimum = 0,
 	  .maximum = INT_MAX,
 	  .default_num = 2000
+	},
+
+	{ .name = "key-table",
+	  .type = OPTIONS_TABLE_STRING,
+	  .scope = OPTIONS_TABLE_SESSION,
+	  .default_str = "root"
 	},
 
 	{ .name = "lock-after-time",
@@ -687,6 +696,20 @@ const struct options_table_entry options_table[] = {
 	  .style = "pane-border-style"
 	},
 
+	{ .name = "pane-border-format",
+	  .type = OPTIONS_TABLE_STRING,
+	  .scope = OPTIONS_TABLE_WINDOW,
+	  .default_str = "#{?pane_active,#[reverse],}#{pane_index}#[default] "
+	                 "\"#{pane_title}\""
+	},
+
+	{ .name = "pane-border-status",
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .scope = OPTIONS_TABLE_WINDOW,
+	  .choices = options_table_pane_status_list,
+	  .default_num = 0
+	},
+
 	{ .name = "pane-border-style",
 	  .type = OPTIONS_TABLE_STYLE,
 	  .scope = OPTIONS_TABLE_WINDOW,
@@ -892,6 +915,8 @@ options_table_populate_tree(enum options_table_scope scope, struct options *oo)
 	const struct options_table_entry	*oe;
 
 	for (oe = options_table; oe->name != NULL; oe++) {
+		if (oe->scope == OPTIONS_TABLE_NONE)
+			fatalx("no scope for %s", oe->name);
 		if (oe->scope != scope)
 			continue;
 		switch (oe->type) {

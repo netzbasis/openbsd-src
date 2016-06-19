@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_ip6.c,v 1.86 2015/10/24 16:08:48 mpi Exp $	*/
+/*	$OpenBSD: raw_ip6.c,v 1.90 2016/04/11 15:28:03 vgross Exp $	*/
 /*	$KAME: raw_ip6.c,v 1.69 2001/03/04 15:55:44 itojun Exp $	*/
 
 /*
@@ -76,7 +76,6 @@
 #include <net/if.h>
 #include <net/if_var.h>
 #include <net/route.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet6/in6_var.h>
@@ -110,7 +109,7 @@ struct rip6stat rip6stat;
  * Initialize raw connection block queue.
  */
 void
-rip6_init()
+rip6_init(void)
 {
 
 	in_pcbinit(&rawin6pcbtable, 1);
@@ -286,21 +285,6 @@ rip6_ctlinput(int cmd, struct sockaddr *sa, u_int rdomain, void *d)
 		 */
 		in6p = in6_pcbhashlookup(&rawin6pcbtable, &sa6->sin6_addr, 0,
 		    &sa6_src->sin6_addr, 0, rdomain);
-#if 0
-		if (!in6p) {
-			/*
-			 * As the use of sendto(2) is fairly popular,
-			 * we may want to allow non-connected pcb too.
-			 * But it could be too weak against attacks...
-			 * We should at least check if the local
-			 * address (= s) is really ours.
-			 */
-			in6p = in_pcblookup(&rawin6pcbtable, &sa6->sin6_addr, 0,
-			    (struct in6_addr *)&sa6_src->sin6_addr, 0,
-			    INPLOOKUP_WILDCARD | INPLOOKUP_IPV6,
-			    rdomain);
-		}
-#endif
 
 		if (in6p && in6p->inp_ipv6.ip6_nxt &&
 		    in6p->inp_ipv6.ip6_nxt == nxt)
@@ -344,7 +328,7 @@ rip6_output(struct mbuf *m, ...)
 	u_int	plen = m->m_pkthdr.len;
 	int error = 0;
 	struct ip6_pktopts opt, *optp = NULL, *origoptp;
-	int type, code;		/* for ICMPv6 output statistics only */
+	int type;		/* for ICMPv6 output statistics only */
 	int priv = 0;
 	va_list ap;
 	int flags;
@@ -383,7 +367,6 @@ rip6_output(struct mbuf *m, ...)
 		}
 		icmp6 = mtod(m, struct icmp6_hdr *);
 		type = icmp6->icmp6_type;
-		code = icmp6->icmp6_code;
 	}
 
 	M_PREPEND(m, sizeof(*ip6), M_DONTWAIT);

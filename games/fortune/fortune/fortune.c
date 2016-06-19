@@ -1,4 +1,4 @@
-/*	$OpenBSD: fortune.c,v 1.47 2015/11/10 15:29:11 deraadt Exp $	*/
+/*	$OpenBSD: fortune.c,v 1.55 2016/03/07 22:49:45 tb Exp $	*/
 /*	$NetBSD: fortune.c,v 1.8 1995/03/23 08:28:40 cgd Exp $	*/
 
 /*-
@@ -35,18 +35,20 @@
 
 #include <sys/stat.h>
 
-#include <dirent.h>
-#include <fcntl.h>
 #include <assert.h>
-#include <unistd.h>
-#include <stdio.h>
 #include <ctype.h>
+#include <dirent.h>
+#include <err.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <regex.h>
-#include "strfile.h"
+#include <unistd.h>
+
 #include "pathnames.h"
+#include "strfile.h"
 
 #define	bool	short
 
@@ -72,9 +74,8 @@ typedef struct fd {
 	FILE		*inf;
 	char		*name;
 	char		*path;
-	char		*datfile, *posfile;
+	char		*datfile;
 	bool		read_tbl;
-	bool		was_pos_file;
 	STRFILE		tbl;
 	int		num_children;
 	struct fd	*child, *parent;
@@ -112,8 +113,6 @@ int	 add_file(int,
 void	 all_forts(FILEDESC *, char *);
 char	*copy(char *, char *);
 void	 display(FILEDESC *);
-void	 do_free(void *);
-void	*do_malloc(size_t);
 int	 form_file_list(char **, int);
 int	 fortlen(void);
 void	 get_fort(void);
@@ -122,7 +121,7 @@ void	 get_tbl(FILEDESC *);
 void	 getargs(int, char *[]);
 void	 init_prob(void);
 int	 is_dir(char *);
-int	 is_fortfile(char *, char **, char **, int);
+int	 is_fortfile(char *, char **, int);
 int	 is_off_name(char *);
 int	 max(int, int);
 FILEDESC *
@@ -136,7 +135,7 @@ void	 print_file_list(void);
 void	 print_list(FILEDESC *, int);
 void	 sum_noprobs(FILEDESC *);
 void	 sum_tbl(STRFILE *, STRFILE *);
-void	 usage(void);
+__dead void	 usage(void);
 void	 zero_tbl(STRFILE *);
 
 char	*conv_pat(char *);
@@ -151,18 +150,18 @@ main(int ac, char *av[])
 {
 	if (pledge("stdio rpath", NULL) == -1) {
 		perror("pledge");
-		exit(1);
+		return 1;
 	}
 
 	getargs(ac, av);
 
 	if (Match)
-		exit(find_matches() != 0);
+		return find_matches() != 0;
 
 	init_prob();
 	if ((Short_only && minlen_in_list(File_list) > SLEN) ||
 	    (Long_only && maxlen_in_list(File_list) <= SLEN))
-		exit(0);
+		return 0;
 
 	do {
 		get_fort();
@@ -176,7 +175,7 @@ main(int ac, char *av[])
 			(void) fortlen();
 		sleep((unsigned int) max(Fort_len / CPERS, MINW));
 	}
-	exit(0);
+	return 0;
 }
 
 void
@@ -245,9 +244,9 @@ getargs(int argc, char *argv[])
 	ignore_case = 0;
 
 #ifdef DEBUG
-	while ((ch = getopt(argc, argv, "aDefilm:osw")) != -1)
+	while ((ch = getopt(argc, argv, "aDefhilm:osw")) != -1)
 #else
-	while ((ch = getopt(argc, argv, "aefilm:osw")) != -1)
+	while ((ch = getopt(argc, argv, "aefhilm:osw")) != -1)
 #endif /* DEBUG */
 		switch(ch) {
 		case 'a':		/* any fortune */
@@ -285,7 +284,7 @@ getargs(int argc, char *argv[])
 		case 'i':			/* case-insensitive match */
 			ignore_case = 1;
 			break;
-		case '?':
+		case 'h':
 		default:
 			usage();
 		}
@@ -329,37 +328,34 @@ form_file_list(char **files, int file_cnt)
 	}
 	for (i = 0; i < file_cnt; i++) {
 		percent = NO_PROB;
-		if (!isdigit((unsigned char)files[i][0]))
-			sp = files[i];
-		else {
-			percent = 0;
-			for (sp = files[i]; isdigit((unsigned char)*sp); sp++)
-				percent = percent * 10 + *sp - '0';
-			if (percent > 100) {
-				fprintf(stderr, "percentages must be <= 100\n");
-				return 0;
-			}
-			if (*sp == '.') {
-				fprintf(stderr, "percentages must be integers\n");
-				return 0;
-			}
+
+		if (isdigit((unsigned char)files[i][0])) {
+			int pos = strspn(files[i], "0123456789.");
+
 			/*
-			 * If the number isn't followed by a '%', then
-			 * it was not a percentage, just the first part
-			 * of a file name which starts with digits.
+			 * Only try to interpret files[i] as a percentage if
+			 * it ends in '%'. Otherwise assume it's a file name.
 			 */
-			if (*sp != '%') {
-				percent = NO_PROB;
-				sp = files[i];
-			}
-			else if (*++sp == '\0') {
-				if (++i >= file_cnt) {
-					fprintf(stderr, "percentages must precede files\n");
-					return 0;
-				}
-				sp = files[i];
+			if (files[i][pos] == '%' && files[i][pos+1] == '\0') {
+				const char *errstr;
+				char *prefix;
+
+				if ((prefix = strndup(files[i], pos)) == NULL)
+					err(1, NULL);
+				if (strchr(prefix, '.') != NULL)
+					errx(1, "percentages must be integers");
+				percent = strtonum(prefix, 0, 100, &errstr);
+				if (errstr != NULL)
+					errx(1, "percentage is %s: %s", errstr,
+					    prefix);
+				free(prefix);
+
+				if (++i >= file_cnt)
+					errx(1,
+					    "percentages must precede files");
 			}
 		}
+		sp = files[i];
 		if (strcmp(sp, "all") == 0)
 			sp = FORTDIR;
 		if (!add_file(percent, sp, NULL, &File_list, &File_tail, NULL))
@@ -386,11 +382,8 @@ add_file(int percent, char *file, char *dir, FILEDESC **head, FILEDESC **tail,
 		path = file;
 		was_malloc = 0;
 	} else {
-		size_t len;
-
-		len = strlen(dir) + strlen(file) + 2;
-		path = do_malloc(len);
-		snprintf(path, len, "%s/%s", dir, file);
+		if (asprintf(&path, "%s/%s", dir, file) == -1)
+			err(1, NULL);
 		was_malloc = 1;
 	}
 	if ((isdir = is_dir(path)) && parent != NULL) {
@@ -453,7 +446,7 @@ over:
 
 	if ((isdir && !add_dir(fp)) ||
 	    (!isdir &&
-	     !is_fortfile(path, &fp->datfile, &fp->posfile, (parent != NULL))))
+	     !is_fortfile(path, &fp->datfile, (parent != NULL))))
 	{
 		if (parent == NULL)
 			fprintf(stderr,
@@ -461,10 +454,9 @@ over:
 				path);
 		if (was_malloc)
 			free(path);
-		do_free(fp->datfile);
-		do_free(fp->posfile);
+		free(fp->datfile);
 		free((char *) fp);
-		do_free(offensive);
+		free(offensive);
 		return 0;
 	}
 	/*
@@ -500,7 +492,8 @@ new_fp(void)
 {
 	FILEDESC	*fp;
 
-	fp = do_malloc(sizeof *fp);
+	if ((fp = malloc(sizeof *fp)) == NULL)
+		err(1, NULL);
 	fp->datfd = -1;
 	fp->pos = POS_UNKNOWN;
 	fp->inf = NULL;
@@ -512,7 +505,6 @@ new_fp(void)
 	fp->child = NULL;
 	fp->parent = NULL;
 	fp->datfile = NULL;
-	fp->posfile = NULL;
 	return fp;
 }
 
@@ -550,11 +542,11 @@ all_forts(FILEDESC *fp, char *offensive)
 	char		*sp;
 	FILEDESC	*scene, *obscene;
 	int		fd;
-	char		*datfile, *posfile;
+	char		*datfile;
 
 	if (fp->child != NULL)	/* this is a directory, not a file */
 		return;
-	if (!is_fortfile(offensive, &datfile, &posfile, 0))
+	if (!is_fortfile(offensive, &datfile, 0))
 		return;
 	if ((fd = open(offensive, O_RDONLY)) < 0)
 		return;
@@ -581,7 +573,6 @@ all_forts(FILEDESC *fp, char *offensive)
 	else
 		obscene->name = ++sp;
 	obscene->datfile = datfile;
-	obscene->posfile = posfile;
 	obscene->read_tbl = 0;
 }
 
@@ -646,9 +637,8 @@ is_dir(char *file)
  *	overhead.  Files which start with ".", or which have "illegal"
  *	suffixes, as contained in suflist[], are ruled out.
  */
-/* ARGSUSED */
 int
-is_fortfile(char *file, char **datp, char **posp, int check_for_offend)
+is_fortfile(char *file, char **datp, int check_for_offend)
 {
 	int	i;
 	char	*sp;
@@ -715,33 +705,6 @@ copy(char *str, char *suf)
 	if (asprintf(&new, "%s%s", str, suf ? suf : "") == -1)
 		return NULL;
 	return new;
-}
-
-/*
- * do_malloc:
- *	Do a malloc, checking for NULL return.
- */
-void *
-do_malloc(size_t size)
-{
-	void	*new;
-
-	if ((new = malloc(size)) == NULL) {
-		(void) fprintf(stderr, "fortune: out of memory.\n");
-		exit(1);
-	}
-	return new;
-}
-
-/*
- * do_free:
- *	Free malloc'ed space, if any.
- */
-void
-do_free(void *ptr)
-{
-	if (ptr != NULL)
-		free(ptr);
 }
 
 /*
@@ -1113,8 +1076,8 @@ print_list(FILEDESC *list, int lev)
 		else
 			fprintf(stderr, "%3d%%", list->percent);
 		fprintf(stderr, " %s", STR(list->name));
-		DPRINTF(1, (stderr, " (%s, %s, %s)\n", STR(list->path),
-			    STR(list->datfile), STR(list->posfile)));
+		DPRINTF(1, (stderr, " (%s, %s)\n", STR(list->path),
+			    STR(list->datfile)));
 		putc('\n', stderr);
 		if (list->child != NULL)
 			print_list(list->child, lev + 1);
@@ -1133,7 +1096,8 @@ find_matches(void)
 	Fort_len = maxlen_in_list(File_list);
 	DPRINTF(2, (stderr, "Maximum length is %zu\n", Fort_len));
 	/* extra length, "%\n" is appended */
-	Fortbuf = do_malloc(Fort_len + 10);
+	if ((Fortbuf = malloc(Fort_len + 10)) == NULL)
+		err(1, NULL);
 
 	Found_one = 0;
 	matches_in_list(File_list);

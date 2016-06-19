@@ -1,4 +1,4 @@
-/* $OpenBSD: x509_vfy.c,v 1.47 2015/10/19 16:32:37 beck Exp $ */
+/* $OpenBSD: x509_vfy.c,v 1.49 2016/03/11 07:08:45 mmcc Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -388,8 +388,7 @@ end:
 	}
 	if (sktmp != NULL)
 		sk_X509_free(sktmp);
-	if (chain_ss != NULL)
-		X509_free(chain_ss);
+	X509_free(chain_ss);
 	return ok;
 }
 
@@ -685,7 +684,7 @@ check_cert(X509_STORE_CTX *ctx)
 {
 	X509_CRL *crl = NULL, *dcrl = NULL;
 	X509 *x;
-	int ok, cnum;
+	int ok = 0, cnum;
 	unsigned int last_reasons;
 
 	cnum = ctx->error_depth;

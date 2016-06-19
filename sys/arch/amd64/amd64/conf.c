@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.52 2015/11/13 07:52:20 mlarkin Exp $	*/
+/*	$OpenBSD: conf.c,v 1.58 2016/04/25 20:09:14 tedu Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995 Charles M. Hannum.  All rights reserved.
@@ -117,7 +117,6 @@ int	nblkdev = nitems(bdevsw);
 #define	mmwrite	mmrw
 cdev_decl(mm);
 cdev_decl(wd);
-#include "systrace.h"
 #include "bio.h"
 #include "pty.h"
 #include "com.h"
@@ -163,8 +162,8 @@ cdev_decl(cztty);
 cdev_decl(nvram);
 #include "drm.h"
 cdev_decl(drm);
-#include "vmm.h"
-cdev_decl(vmm);
+#include "viocon.h"
+cdev_decl(viocon);
 
 #include "wsdisplay.h"
 #include "wskbd.h"
@@ -182,6 +181,8 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "pvbus.h"
+#include "ipmi.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -275,7 +276,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),
 	cdev_radio_init(NRADIO, radio), /* 76: generic radio I/O */
 	cdev_notdef(),			/* 77: was USB scanners */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 78: system call tracing */
+	cdev_notdef(),			/* 78 */
 	cdev_bio_init(NBIO,bio),	/* 79: ioctl tunnel */
 	cdev_notdef(),			/* 80: gpr? XXX */
 	cdev_ptm_init(NPTY,ptm),	/* 81: pseudo-tty ptm device */
@@ -291,6 +292,9 @@ struct cdevsw	cdevsw[] =
 	cdev_pppx_init(NPPPX,pppx),     /* 91: pppx */
 	cdev_fuse_init(NFUSE,fuse),	/* 92: fuse */
 	cdev_tun_init(NTUN,tap),	/* 93: Ethernet network tunnel */
+	cdev_tty_init(NVIOCON,viocon),  /* 94: virtio console */
+	cdev_pvbus_init(NPVBUS,pvbus),	/* 95: pvbus(4) control interface */
+	cdev_ipmi_init(NIPMI,ipmi),	/* 96: ipmi */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -383,13 +387,6 @@ int chrtoblktbl[] = {
 	/* 45 */	NODEV,
 	/* 46 */	NODEV,
 	/* 47 */	17,		/* rd */
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
-	/* 52 */	NODEV,
-	/* 53 */	NODEV,
-	/* 54 */	19,		/* raid */
 };
 
 int nchrtoblktbl = nitems(chrtoblktbl);

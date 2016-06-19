@@ -1,4 +1,4 @@
-/* $OpenBSD: prebind.c,v 1.31 2015/10/14 17:29:44 tobias Exp $ */
+/* $OpenBSD: prebind.c,v 1.34 2016/05/11 21:52:49 deraadt Exp $ */
 /*
  * Copyright (c) 2006 Dale Rahn <drahn@dalerahn.com>
  *
@@ -53,9 +53,6 @@ char *shstrtab;
 #endif
 #ifdef __hppa__
 #define RELOC_JMP_SLOT	RELOC_IPLT
-#endif
-#ifdef __hppa64__
-#define RELOC_JMP_SLOT	RELOC_JMPSLOT
 #endif
 #ifdef __i386__
 #define RELOC_JMP_SLOT	RELOC_JUMP_SLOT
@@ -257,7 +254,7 @@ load_dir(char *name)
 
 	dirp = opendir(name);
 
-	/* if dir failes to open, skip */
+	/* if dir failed to open, skip */
 	if (dirp == NULL)
 		return;
 
@@ -712,14 +709,11 @@ void
 elf_free_object(struct elf_object *object)
 {
 	free(object->load_name);
-	if (object->dyn.hash != NULL)
-		free(object->dyn.hash);
+	free(object->dyn.hash);
 	free((void *)object->dyn.strtab);
 	free((void *)object->dyn.symtab);
-	if (object->dyn.rel != NULL)
-		free(object->dyn.rel);
-	if (object->dyn.rela != NULL)
-		free(object->dyn.rela);
+	free(object->dyn.rel);
+	free(object->dyn.rela);
 	if (object->dyn.rpath != NULL)
 		free((void *)object->dyn.rpath);
 	free(object);

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: kdump.1,v 1.27 2015/10/02 19:12:45 jmc Exp $
+.\"	$OpenBSD: kdump.1,v 1.31 2016/06/02 22:47:13 tedu Exp $
 .\"
 .\" Copyright (c) 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -29,7 +29,7 @@
 .\"
 .\"	from: @(#)kdump.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: October 2 2015 $
+.Dd $Mdocdate: June 2 2016 $
 .Dt KDUMP 1
 .Os
 .Sh NAME
@@ -38,11 +38,10 @@
 .Sh SYNOPSIS
 .Nm kdump
 .Op Fl dHlnRTXx
-.Op Fl e Ar emulation
 .Op Fl f Ar file
 .Op Fl m Ar maxdata
 .Op Fl p Ar pid
-.Op Fl t Op Cm ceinstuxX+
+.Op Fl t Op Cm cinstuxX+
 .Sh DESCRIPTION
 .Nm
 displays the kernel trace files produced with
@@ -59,11 +58,6 @@ The options are as follows:
 .It Fl d
 Display all numbers in decimal.
 By default, values are printed out in hexadecimal.
-.It Fl e Ar emulation
-Interpret system call maps assuming the named emulation instead of
-.Qq bsd .
-For example, to view trace output from a Linux binary, use
-.Fl e Ar linux .
 .It Fl f Ar file
 Display the specified file instead of
 .Pa ktrace.out .
@@ -98,7 +92,9 @@ specified.
 Display relative timestamps (time since previous entry).
 .It Fl T
 Display absolute timestamps for each entry (seconds since the Epoch).
-.It Fl t Op Cm ceinstuxX+
+.It Fl TR
+If both options are specified, display timestamps relative to trace start.
+.It Fl t Op Cm cinstuxX+
 Selects which tracepoints to display.
 See the
 .Fl t

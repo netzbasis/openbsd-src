@@ -1,4 +1,4 @@
-/*	$OpenBSD: ber.c,v 1.9 2015/02/12 00:30:38 pelikan Exp $ */
+/*	$OpenBSD: ber.c,v 1.12 2016/04/06 13:04:10 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@vantronix.net>
@@ -25,7 +25,7 @@
 #include <stdlib.h>
 #include <err.h>	/* XXX for debug output */
 #include <stdio.h>	/* XXX for debug output */
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
 #include <stdarg.h>
 
@@ -420,7 +420,7 @@ ber_string2oid(const char *oidstr, struct ber_oid *o)
 
 	if (strlcpy(str, oidstr, sizeof(str)) >= sizeof(str))
 		return (-1);
-	bzero(o, sizeof(*o));
+	memset(o, 0, sizeof(*o));
 
 	/* Parse OID strings in the common forms n.n.n, n_n_n_n, or n-n-n */
 	for (p = sp = str; p != NULL; sp = p) {
@@ -505,7 +505,7 @@ ber_get_oid(struct ber_element *elm, struct ber_oid *o)
 	if (!buf[i])
 		return (-1);
 
-	bzero(o, sizeof(*o));
+	memset(o, 0, sizeof(*o));
 	o->bo_id[j++] = buf[i] / 40;
 	o->bo_id[j++] = buf[i++] % 40;
 	for (; i < len && j < BER_MAX_OID_LEN; i++) {
@@ -638,7 +638,7 @@ ber_scanf_elements(struct ber_element *ber, char *fmt, ...)
 	struct ber_oid		*o;
 	struct ber_element	*parent[_MAX_SEQ], **e;
 
-	bzero(parent, sizeof(struct ber_element *) * _MAX_SEQ);
+	memset(parent, 0, sizeof(struct ber_element *) * _MAX_SEQ);
 
 	va_start(ap, fmt);
 	while (*fmt) {
@@ -1082,6 +1082,13 @@ ber_read_element(struct ber *ber, struct ber_element *elm)
 	DPRINTF("ber read element size %zd\n", len);
 	totlen += r + len;
 
+	/* If using an external buffer and the total size of the element
+	 * is larger then the external buffer don't bother to continue. */
+	if (ber->fd == -1 && len > ber->br_rend - ber->br_rptr) {
+		errno = ECANCELED;
+		return -1;
+	}
+
 	elm->be_type = type;
 	elm->be_len = len;
 	elm->be_class = class;
@@ -1217,8 +1224,7 @@ ber_set_application(struct ber *b, unsigned long (*cb)(struct ber_element *))
 void
 ber_free(struct ber *b)
 {
-	if (b->br_wbuf != NULL)
-		free (b->br_wbuf);
+	free(b->br_wbuf);
 }
 
 static ssize_t

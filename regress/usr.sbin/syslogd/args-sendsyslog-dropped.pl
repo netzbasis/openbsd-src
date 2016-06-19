@@ -22,7 +22,7 @@ our %args = (
 		or die "syslogd started not in syslogd.log";
 	})},
 	ktrace => {
-	    qr/CALL  sendsyslog/ => '>=2',
+	    qr/CALL  sendsyslog\(/ => '>=2',
 	    qr/RET   sendsyslog -1 errno $errno / => '>=1',
 	},
     },

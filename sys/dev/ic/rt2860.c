@@ -1,4 +1,4 @@
-/*	$OpenBSD: rt2860.c,v 1.83 2015/11/04 12:11:59 dlg Exp $	*/
+/*	$OpenBSD: rt2860.c,v 1.90 2016/04/13 10:49:26 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -45,7 +45,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -68,7 +67,7 @@ int rt2860_debug = 0;
 #define DPRINTFN(n, x)
 #endif
 
-void		rt2860_attachhook(void *);
+void		rt2860_attachhook(struct device *);
 int		rt2860_alloc_tx_ring(struct rt2860_softc *,
 		    struct rt2860_tx_ring *);
 void		rt2860_reset_tx_ring(struct rt2860_softc *,
@@ -259,10 +258,7 @@ rt2860_attach(void *xsc, int id)
 	sc->mgtqid = (sc->mac_ver == 0x2860 && sc->mac_rev == 0x0100) ?
 	    EDCA_AC_VO : 5;
 
-	if (rootvp == NULL)
-		mountroothook_establish(rt2860_attachhook, sc);
-	else
-		rt2860_attachhook(sc);
+	config_mountroot(xsc, rt2860_attachhook);
 
 	return 0;
 
@@ -273,9 +269,9 @@ fail1:	while (--qid >= 0)
 }
 
 void
-rt2860_attachhook(void *xsc)
+rt2860_attachhook(struct device *self)
 {
-	struct rt2860_softc *sc = xsc;
+	struct rt2860_softc *sc = (struct rt2860_softc *)self;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
 	int i, error;
@@ -339,7 +335,6 @@ rt2860_attachhook(void *xsc)
 	ifp->if_ioctl = rt2860_ioctl;
 	ifp->if_start = rt2860_start;
 	ifp->if_watchdog = rt2860_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -349,10 +344,8 @@ rt2860_attachhook(void *xsc)
 #ifndef IEEE80211_STA_ONLY
 	ic->ic_node_leave = rt2860_node_leave;
 #endif
-#ifndef IEEE80211_NO_HT
 	ic->ic_ampdu_rx_start = rt2860_ampdu_rx_start;
 	ic->ic_ampdu_rx_stop = rt2860_ampdu_rx_stop;
-#endif
 	ic->ic_updateslot = rt2860_updateslot;
 	ic->ic_updateedca = rt2860_updateedca;
 	ic->ic_set_key = rt2860_set_key;
@@ -573,7 +566,7 @@ rt2860_alloc_tx_pool(struct rt2860_softc *sc)
 
 		error = bus_dmamap_create(sc->sc_dmat, MCLBYTES,
 		    RT2860_MAX_SCATTER, MCLBYTES, 0, BUS_DMA_NOWAIT,
-		    &data->map);
+		    &data->map); /* <0> */
 		if (error != 0) {
 			printf("%s: could not create DMA map\n",
 			    sc->sc_dev.dv_xname);
@@ -879,7 +872,6 @@ rt2860_node_leave(struct ieee80211com *ic, struct ieee80211_node *ni)
 }
 #endif
 
-#ifndef IEEE80211_NO_HT
 int
 rt2860_ampdu_rx_start(struct ieee80211com *ic, struct ieee80211_node *ni,
     uint8_t tid)
@@ -908,7 +900,6 @@ rt2860_ampdu_rx_stop(struct ieee80211com *ic, struct ieee80211_node *ni,
 	tmp &= ~((1 << tid) << 16);
 	RAL_WRITE(sc, RT2860_WCID_ENTRY(wcid) + 4, tmp);
 }
-#endif
 
 int
 rt2860_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
@@ -1179,9 +1170,9 @@ rt2860_tx_intr(struct rt2860_softc *sc, int qid)
 	}
 
 	sc->sc_tx_timer = 0;
-	if (ring->queued < RT2860_TX_RING_COUNT)
+	if (ring->queued <= RT2860_TX_RING_ONEMORE)
 		sc->qfullmsk &= ~(1 << qid);
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	rt2860_start(ifp);
 }
 
@@ -1489,12 +1480,11 @@ rt2860_tx(struct rt2860_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	struct rt2860_txd *txd;
 	struct rt2860_txwi *txwi;
 	struct ieee80211_frame *wh;
-	struct mbuf *m1;
 	bus_dma_segment_t *seg;
 	u_int hdrlen;
 	uint16_t qos, dur;
 	uint8_t type, qsel, mcs, pid, tid, qid;
-	int nsegs, ntxds, hasqos, ridx, ctl_ridx, error;
+	int nsegs, hasqos, ridx, ctl_ridx;
 
 	/* the data pool contains at least one element, pick the first */
 	data = SLIST_FIRST(&sc->data_pool);
@@ -1614,63 +1604,27 @@ rt2860_tx(struct rt2860_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	memcpy(txwi + 1, wh, hdrlen);
 	m_adj(m, hdrlen);
 
-	error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
-	    BUS_DMA_NOWAIT);
-	if (__predict_false(error != 0 && error != EFBIG)) {
-		printf("%s: can't map mbuf (error %d)\n",
-		    sc->sc_dev.dv_xname, error);
-		m_freem(m);
-		return error;
+	KASSERT (ring->queued <= RT2860_TX_RING_ONEMORE); /* <1> */
+
+	if (bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m, BUS_DMA_NOWAIT)) {
+		if (m_defrag(m, M_DONTWAIT))
+			return (ENOBUFS);
+		if (bus_dmamap_load_mbuf(sc->sc_dmat,
+		    data->map, m, BUS_DMA_NOWAIT))
+			return (EFBIG);
 	}
-	if (__predict_true(error == 0)) {
-		/* determine how many TXDs are required */
-		ntxds = 1 + (data->map->dm_nsegs / 2);
 
-		if (ring->queued + ntxds >= RT2860_TX_RING_COUNT) {
-			/* not enough free TXDs, force mbuf defrag */
-			bus_dmamap_unload(sc->sc_dmat, data->map);
-			error = EFBIG;
-		}
-	}
-	if (__predict_false(error != 0)) {
-		/* too many fragments, linearize */
-		MGETHDR(m1, M_DONTWAIT, MT_DATA);
-		if (m1 == NULL) {
-			m_freem(m);
-			return ENOBUFS;
-		}
-		if (m->m_pkthdr.len > MHLEN) {
-			MCLGET(m1, M_DONTWAIT);
-			if (!(m1->m_flags & M_EXT)) {
-				m_freem(m);
-				m_freem(m1);
-				return ENOBUFS;
-			}
-		}
-		m_copydata(m, 0, m->m_pkthdr.len, mtod(m1, caddr_t));
-		m1->m_pkthdr.len = m1->m_len = m->m_pkthdr.len;
-		m_freem(m);
-		m = m1;
-
-		error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
-		    BUS_DMA_NOWAIT);
-		if (__predict_false(error != 0)) {
-			printf("%s: can't map mbuf (error %d)\n",
-			    sc->sc_dev.dv_xname, error);
-			m_freem(m);
-			return error;
-		}
-
-		/* determine how many TXDs are now required */
-		ntxds = 1 + (data->map->dm_nsegs / 2);
-
-		if (ring->queued + ntxds >= RT2860_TX_RING_COUNT) {
-			/* this is a hopeless case, drop the mbuf! */
-			bus_dmamap_unload(sc->sc_dmat, data->map);
-			m_freem(m);
-			return ENOBUFS;
-		}
-	}
+	/* The map will fit into the tx ring: (a "full" ring may have a few
+	 * unused descriptors, at most (txds(MAX_SCATTER) - 1))
+	 *
+	 *   ring->queued + txds(data->map->nsegs)
+	 * <=	{ <0> data->map->nsegs <= MAX_SCATTER }
+	 *   ring->queued + txds(MAX_SCATTER)
+	 * <=	{ <1> ring->queued <= TX_RING_MAX - txds(MAX_SCATTER) }
+	 *   TX_RING_MAX - txds(MAX_SCATTER) + txds(MAX_SCATTER)
+	 * <=   { arithmetic }
+	 *   TX_RING_MAX
+	 */
 
 	qsel = (qid < EDCA_NUM_AC) ? RT2860_TX_QSEL_EDCA : RT2860_TX_QSEL_MGMT;
 
@@ -1721,8 +1675,8 @@ rt2860_tx(struct rt2860_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	    qid, txwi->wcid, data->map->dm_nsegs, ridx));
 
 	ring->cur = (ring->cur + 1) % RT2860_TX_RING_COUNT;
-	ring->queued += ntxds;
-	if (ring->queued >= RT2860_TX_RING_COUNT)
+	ring->queued += 1 + (data->map->dm_nsegs / 2);
+	if (ring->queued > RT2860_TX_RING_ONEMORE)
 		sc->qfullmsk |= 1 << qid;
 
 	/* kick Tx */
@@ -1739,12 +1693,12 @@ rt2860_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (SLIST_EMPTY(&sc->data_pool) || sc->qfullmsk != 0) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* send pending management frames first */
@@ -1779,6 +1733,7 @@ sendit:
 			bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_OUT);
 #endif
 		if (rt2860_tx(sc, m, ni) != 0) {
+			m_freem(m);
 			ieee80211_release_node(ic, ni);
 			ifp->if_oerrors++;
 			continue;
@@ -3589,8 +3544,8 @@ rt2860_init(struct ifnet *ifp)
 	if (sc->sc_flags & RT2860_ADVANCED_PS)
 		rt2860_mcu_cmd(sc, RT2860_MCU_CMD_PSLEVEL, sc->pslevel, 0);
 
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (ic->ic_flags & IEEE80211_F_WEPON) {
 		/* install WEP keys */
@@ -3619,7 +3574,8 @@ rt2860_stop(struct ifnet *ifp, int disable)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);	/* free all nodes */
 

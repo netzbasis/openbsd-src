@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.182 2015/11/20 23:26:08 florian Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.184 2016/02/02 17:51:11 sthen Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -213,8 +213,6 @@ main(int argc, char *argv[])
 	    cmd_opts & BGPD_OPT_VERBOSE);
 	io_pid = start_child(PROC_SE, saved_argv0, pipe_m2s[1], debug,
 	    cmd_opts & BGPD_OPT_VERBOSE);
-
-	setproctitle("parent");
 
 	signal(SIGTERM, sighdlr);
 	signal(SIGINT, sighdlr);
@@ -903,21 +901,21 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 
 	if (pfd->revents & POLLOUT)
 		if (msgbuf_write(&i->w) <= 0 && errno != EAGAIN) {
-			log_warn("handle_pollfd: msgbuf_write error");
+			log_warn("imsg write error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
 
 	if (pfd->revents & POLLIN) {
-		if ((n = imsg_read(i)) == -1) {
-			log_warn("handle_pollfd: imsg_read error");
+		if ((n = imsg_read(i)) == -1 && errno != EAGAIN) {
+			log_warn("imsg read error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
-		if (n == 0) { /* connection closed */
-			log_warn("handle_pollfd: poll fd");
+		if (n == 0) {
+			log_warnx("peer closed imsg connection");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mainbus.c,v 1.34 2015/11/13 07:52:20 mlarkin Exp $	*/
+/*	$OpenBSD: mainbus.c,v 1.36 2015/12/12 12:33:49 reyk Exp $	*/
 /*	$NetBSD: mainbus.c,v 1.1 2003/04/26 18:39:29 fvdl Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <sys/device.h>
 
 #include <machine/bus.h>
+#include <machine/specialreg.h>
 
 #include <dev/isa/isavar.h>
 #include <dev/pci/pcivar.h>
@@ -162,6 +163,12 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
+#if NPVBUS > 0
+	/* Detect hypervisors early, attach the paravirtual bus later */
+	if (cpu_ecxfeature & CPUIDECX_HV)
+		pvbus_identify();
+#endif
+
 #if NBIOS > 0
 	{
 		mba.mba_bios.ba_name = "bios";
@@ -240,10 +247,10 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 		config_found(self, &mba_iba, mainbus_print);
 #endif
 
-#ifdef VMM
+#if NVMM > 0
 	mba.mba_busname = "vmm";
 	config_found(self, &mba.mba_busname, mainbus_print);
-#endif /* VMM */
+#endif /* NVMM > 0 */
 
 #if NEFIFB > 0
 	if (bios_efiinfo != NULL) {

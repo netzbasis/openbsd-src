@@ -1,4 +1,4 @@
-/*	$OpenBSD: bus_dma.c,v 1.28 2014/11/16 12:30:56 deraadt Exp $	*/
+/*	$OpenBSD: bus_dma.c,v 1.30 2016/05/16 15:13:50 kettenis Exp $	*/
 /*	$NetBSD: bus_dma.c,v 1.38 2003/10/30 08:44:13 scw Exp $	*/
 
 /*-
@@ -163,15 +163,6 @@ _bus_dmamap_destroy(bus_dma_tag_t t, bus_dmamap_t map)
 #ifdef DEBUG_DMA
 	printf("dmamap_destroy: t=%p map=%p\n", t, map);
 #endif	/* DEBUG_DMA */
-
-	/*
-	 * Explicit unload.
-	 */
-	map->dm_mapsize = 0;
-	map->dm_nsegs = 0;
-	map->_dm_origbuf = NULL;
-	map->_dm_buftype = ARM32_BUFTYPE_INVALID;
-	map->_dm_proc = NULL;
 
 	free(map, M_DEVBUF, 0);
 }
@@ -429,6 +420,19 @@ _bus_dmamap_sync_segment(vaddr_t va, paddr_t pa, vsize_t len, int ops)
 	case BUS_DMASYNC_PREWRITE:
 		cpu_dcache_wb_range(va, len);
 		cpu_sdcache_wb_range(va, pa, len);
+		break;
+
+	/*
+	 * Cortex CPUs can do speculative loads so we need to clean the cache
+	 * after a DMA read to deal with any speculatively loaded cache lines.
+	 * Since these can't be dirty, we can just invalidate them and don't
+	 * have to worry about having to write back their contents.
+	 */
+	case BUS_DMASYNC_POSTREAD:
+	case BUS_DMASYNC_POSTREAD|BUS_DMASYNC_POSTWRITE:
+		membar_sync();
+		cpu_dcache_inv_range(va, len);
+		cpu_sdcache_inv_range(va, pa, len);
 		break;
 	}
 }

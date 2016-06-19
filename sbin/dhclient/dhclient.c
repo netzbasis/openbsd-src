@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.366 2015/11/12 18:46:14 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.373 2016/04/28 17:34:49 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -53,17 +53,41 @@
  * purpose.
  */
 
-#include "dhcpd.h"
-#include "privsep.h"
-
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/uio.h>
+#include <sys/queue.h>
 
+#include <net/if.h>
+#include <net/route.h>
+
+#include <netinet/in.h>
+#include <netinet/if_ether.h>
+
+#include <arpa/inet.h>
+
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <ifaddrs.h>
+#include <imsg.h>
 #include <limits.h>
+#include <paths.h>
 #include <poll.h>
 #include <pwd.h>
 #include <resolv.h>
+#include <signal.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <unistd.h>
+
+#include "dhcp.h"
+#include "dhcpd.h"
+#include "privsep.h"
 
 char *path_dhclient_conf = _PATH_DHCLIENT_CONF;
 char *path_dhclient_db = NULL;
@@ -95,6 +119,7 @@ struct sockaddr	*get_ifa(char *, int);
 void		 usage(void);
 int		 res_hnok(const char *dn);
 int		 res_hnok_list(const char *dn);
+int		 addressinuse(struct in_addr, char *);
 
 void		 fork_privchld(int, int);
 void		 get_ifname(char *);
@@ -155,7 +180,7 @@ int
 findproto(char *cp, int n)
 {
 	struct sockaddr *sa;
-	int i;
+	unsigned int i;
 
 	if (n == 0)
 		return -1;
@@ -185,7 +210,7 @@ struct sockaddr *
 get_ifa(char *cp, int n)
 {
 	struct sockaddr *sa;
-	int i;
+	unsigned int i;
 
 	if (n == 0)
 		return (NULL);
@@ -595,6 +620,14 @@ main(int argc, char *argv[])
 
 	endpwent();
 
+	if (no_daemon) {
+		if (pledge("stdio inet dns route", NULL) == -1)
+			error("pledge");
+	} else {
+		if (pledge("stdio inet dns route proc", NULL) == -1)
+			error("pledge");
+	}
+
 	setproctitle("%s", ifi->name);
 	time(&client->startup_time);
 
@@ -669,6 +702,7 @@ state_preboot(void)
 void
 state_reboot(void)
 {
+	char ifname[IF_NAMESIZE];
 	struct client_lease *lp;
 	struct option_data *opt;
 	time_t cur_time;
@@ -697,11 +731,19 @@ state_reboot(void)
 	}
 
 	time(&cur_time);
-	if (client->active && client->active->expiry <= cur_time)
-		client->active = NULL;
+	if (client->active) {
+		if (client->active->expiry <= cur_time)
+			client->active = NULL;
+		else if (addressinuse(client->active->address, ifname) &&
+		    strncmp(ifname, ifi->name, IF_NAMESIZE))
+			client->active = NULL;
+	}
 
 	/* Run through the list of leases and see if one can be used. */
 	TAILQ_FOREACH(lp, &client->leases, next) {
+		if (addressinuse(lp->address, ifname) &&
+		    strncmp(ifname, ifi->name, IF_NAMESIZE))
+			continue;
 		if (client->active || lp->is_static)
 			break;
 		if (lp->expiry > cur_time) {
@@ -751,21 +793,21 @@ state_init(void)
 void
 state_selecting(void)
 {
-	struct client_lease *lp, *picked;
+	struct client_lease *picked;
 
 	cancel_timeout();
 
-	/* Take the first DHCPOFFER, discard the rest. */
-	picked = TAILQ_FIRST(&client->offered_leases);
-	if (picked)
+	/* Take the first valid DHCPOFFER, discard the rest. */
+	picked = NULL;
+	while (!TAILQ_EMPTY(&client->offered_leases) && !picked) {
+		picked = TAILQ_FIRST(&client->offered_leases);
 		TAILQ_REMOVE(&client->offered_leases, picked, next);
-
-	while (!TAILQ_EMPTY(&client->offered_leases)) {
-		lp = TAILQ_FIRST(&client->offered_leases);
-		TAILQ_REMOVE(&client->offered_leases, lp, next);
-		make_decline(lp);
-		send_decline();
-		free_client_lease(lp);
+		if (picked->is_invalid) {
+			make_decline(picked);
+			send_decline();
+			free_client_lease(picked);
+			picked = NULL;
+		}
 	}
 
 	if (!picked) {
@@ -848,13 +890,18 @@ dhcpack(struct in_addr client_addr, struct option_data *options, char *info)
 		return;
 	}
 
+	note("%s", info);
+
 	lease = packet_to_lease(client_addr, options);
-	if (!lease) {
+	if (lease->is_invalid) {
 		note("Unsatisfactory %s", info);
+		make_decline(lease);
+		send_decline();
+		free_client_lease(lease);
+		client->state = S_INIT;
+		state_init();
 		return;
 	}
-
-	note("%s", info);
 
 	client->new = lease;
 
@@ -1046,6 +1093,8 @@ dhcpoffer(struct in_addr client_addr, struct option_data *options, char *info)
 		return;
 	}
 
+	note("%s", info);
+
 	/* If we've already seen this lease, don't record it again. */
 	TAILQ_FOREACH(lp, &client->offered_leases, next) {
 		if (!memcmp(&lp->address.s_addr, &client->packet.yiaddr,
@@ -1058,10 +1107,6 @@ dhcpoffer(struct in_addr client_addr, struct option_data *options, char *info)
 	}
 
 	lease = packet_to_lease(client_addr, options);
-	if (!lease) {
-		note("Unsatisfactory %s", info);
-		return;
-	}
 
 	/*
 	 * If this lease was acquired through a BOOTREPLY, record that
@@ -1083,12 +1128,40 @@ dhcpoffer(struct in_addr client_addr, struct option_data *options, char *info)
 		TAILQ_INSERT_TAIL(&client->offered_leases, lease, next);
 	}
 
-	note("%s", info);
-
 	if (stop_selecting <= time(NULL))
 		state_selecting();
 	else
 		set_timeout(stop_selecting, state_selecting);
+}
+
+int
+addressinuse(struct in_addr address, char *ifname)
+{
+	struct ifaddrs *ifap, *ifa;
+	struct sockaddr_in *sin;
+	int used = 0;
+
+	if (getifaddrs(&ifap) != 0) {
+		warning("addressinuse: getifaddrs: %s", strerror(errno));
+		return (0);
+	}
+
+	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
+		if (ifa->ifa_addr == NULL ||
+		    ifa->ifa_addr->sa_family != AF_INET)
+			continue;
+
+		sin = (struct sockaddr_in *)ifa->ifa_addr;
+		if (memcmp(&address, &sin->sin_addr, sizeof(address)) == 0) {
+			strlcpy(ifname, ifa->ifa_name, IF_NAMESIZE);
+			used = 1;
+			if (strncmp(ifname, ifi->name, IF_NAMESIZE))
+				break;
+		}
+	}
+
+	freeifaddrs(ifap);
+	return (used);
 }
 
 /*
@@ -1098,13 +1171,14 @@ dhcpoffer(struct in_addr client_addr, struct option_data *options, char *info)
 struct client_lease *
 packet_to_lease(struct in_addr client_addr, struct option_data *options)
 {
+	char ifname[IF_NAMESIZE];
 	struct client_lease *lease;
 	char *pretty, *buf;
 	int i, sz;
 
 	lease = calloc(1, sizeof(struct client_lease));
 	if (!lease) {
-		warning("dhcpoffer: no memory to record lease.");
+		warning("dhcpoffer: no memory to create lease.");
 		return (NULL);
 	}
 
@@ -1115,8 +1189,7 @@ packet_to_lease(struct in_addr client_addr, struct option_data *options)
 		if (!unknown_ok && strncmp("option-",
 		    dhcp_options[i].name, 7)) {
 			warning("dhcpoffer: unknown option %d", i);
-			free_client_lease(lease);
-			return (NULL);
+			lease->is_invalid = 1;
 		}
 		pretty = pretty_print_option(i, &options[i], 0);
 		if (strlen(pretty) == 0)
@@ -1171,12 +1244,24 @@ packet_to_lease(struct in_addr client_addr, struct option_data *options)
 	 */
 	for (i = 0; i < config->required_option_count; i++) {
 		if (!lease->options[config->required_options[i]].len) {
-			free_client_lease(lease);
-			return (NULL);
+			warning("Missing required parameter %s",
+			    dhcp_options[i].name);
+			lease->is_invalid = 1;
 		}
 	}
 
+	/*
+	 * If this lease is trying to sell us an address we are already
+	 * using, blow it off.
+	 */
 	lease->address.s_addr = client->packet.yiaddr.s_addr;
+	memset(ifname, 0, sizeof(ifname));
+	if (addressinuse(lease->address, ifname) &&
+	    strncmp(ifname, ifi->name, IF_NAMESIZE)) {
+		warning("%s already configured on %s",
+		    inet_ntoa(lease->address), ifname);
+		lease->is_invalid = 1;
+	}
 
 	/* Save the siaddr (a.k.a. next-server) info. */
 	lease->next_server.s_addr = client->packet.siaddr.s_addr;
@@ -1188,16 +1273,14 @@ packet_to_lease(struct in_addr client_addr, struct option_data *options)
 		lease->server_name = malloc(DHCP_SNAME_LEN + 1);
 		if (!lease->server_name) {
 			warning("dhcpoffer: no memory for server name.");
-			free_client_lease(lease);
-			return (NULL);
+			lease->is_invalid = 1;
 		}
 		memcpy(lease->server_name, client->packet.sname,
 		    DHCP_SNAME_LEN);
 		lease->server_name[DHCP_SNAME_LEN] = '\0';
 		if (!res_hnok(lease->server_name)) {
 			warning("Bogus server name %s", lease->server_name);
-			free(lease->server_name);
-			lease->server_name = NULL;
+			lease->is_invalid = 1;
 		}
 	}
 
@@ -1209,8 +1292,7 @@ packet_to_lease(struct in_addr client_addr, struct option_data *options)
 		lease->filename = malloc(DHCP_FILE_LEN + 1);
 		if (!lease->filename) {
 			warning("dhcpoffer: no memory for filename.");
-			free_client_lease(lease);
-			return (NULL);
+			lease->is_invalid = 1;
 		}
 		memcpy(lease->filename, client->packet.file, DHCP_FILE_LEN);
 		lease->filename[DHCP_FILE_LEN] = '\0';
@@ -1264,6 +1346,7 @@ void
 send_discover(void)
 {
 	time_t cur_time;
+	ssize_t rslt;
 	int interval;
 
 	time(&cur_time);
@@ -1286,14 +1369,13 @@ send_discover(void)
 	if (!client->interval)
 		client->interval = config->initial_interval;
 	else {
-		client->interval += (arc4random() >> 2) %
-		    (2 * client->interval);
+		client->interval += arc4random_uniform(2 * client->interval);
 	}
 
 	/* Don't backoff past cutoff. */
 	if (client->interval > config->backoff_cutoff)
-		client->interval = ((config->backoff_cutoff / 2) +
-		    ((arc4random() >> 2) % config->backoff_cutoff));
+		client->interval = (config->backoff_cutoff / 2) +
+		    arc4random_uniform(config->backoff_cutoff);
 
 	/* If the backoff would take us to the panic timeout, just use that
 	   as the interval. */
@@ -1312,9 +1394,12 @@ send_discover(void)
 	note("DHCPDISCOVER on %s - interval %lld", ifi->name,
 	    (long long)client->interval);
 
-	send_packet(inaddr_any, inaddr_broadcast);
-
-	set_timeout_interval(client->interval, send_discover);
+	rslt = send_packet(inaddr_any, inaddr_broadcast);
+	if (rslt == -1 && errno == EAFNOSUPPORT) {
+		warning("dhclient cannot be used on %s", ifi->name);
+		quit = INTERNALSIG;
+	} else
+		set_timeout_interval(client->interval, send_discover);
 }
 
 /*
@@ -1324,6 +1409,7 @@ send_discover(void)
 void
 state_panic(void)
 {
+	char ifname[IF_NAMESIZE];
 	struct client_lease *lp;
 	time_t cur_time;
 
@@ -1333,6 +1419,9 @@ state_panic(void)
 	/* Run through the list of leases and see if one can be used. */
 	time(&cur_time);
 	TAILQ_FOREACH(lp, &client->leases, next) {
+		if (addressinuse(lp->address, ifname) &&
+		    strncmp(ifname, ifi->name, IF_NAMESIZE))
+			continue;
 		if (lp->is_static) {
 			set_lease_times(lp);
 			note("Trying static lease %s", inet_ntoa(lp->address));
@@ -1410,13 +1499,12 @@ send_request(void)
 	if (!client->interval)
 		client->interval = config->initial_interval;
 	else
-		client->interval += ((arc4random() >> 2) %
-		    (2 * client->interval));
+		client->interval += arc4random_uniform(2 * client->interval);
 
 	/* Don't backoff past cutoff. */
 	if (client->interval > config->backoff_cutoff)
-		client->interval = ((config->backoff_cutoff / 2) +
-		    ((arc4random() >> 2) % client->interval));
+		client->interval = (config->backoff_cutoff / 2) +
+		    arc4random_uniform(client->interval);
 
 	/*
 	 * If the backoff would take us to the expiry time, just set the
@@ -2014,7 +2102,7 @@ fork_privchld(int fd, int fd2)
 		if (nfds == 0 || !(pfd[0].revents & POLLIN))
 			continue;
 
-		if ((n = imsg_read(priv_ibuf)) == -1) {
+		if ((n = imsg_read(priv_ibuf)) == -1 && errno != EAGAIN) {
 			warning("imsg_read(priv_ibuf): %s", strerror(errno));
 			quit = INTERNALSIG;
 			continue;

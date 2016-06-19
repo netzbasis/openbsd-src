@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.204 2015/11/21 00:32:46 dlg Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.215 2016/06/13 21:24:43 bluhm Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -35,7 +35,6 @@
 #ifndef _SYS_MBUF_H_
 #define _SYS_MBUF_H_
 
-#include <sys/malloc.h>
 #include <sys/queue.h>
 
 /*
@@ -130,6 +129,7 @@ struct	pkthdr {
 	u_int16_t		 ether_vtag;	/* Ethernet 802.1p+Q vlan tag */
 	u_int			 ph_rtableid;	/* routing table id */
 	u_int			 ph_ifidx;	/* rcv interface index */
+	u_int8_t		 ph_loopcnt;	/* mbuf is looping in kernel */
 	struct pkthdr_pf	 pf;
 };
 
@@ -137,8 +137,8 @@ struct	pkthdr {
 struct mbuf_ext {
 	caddr_t	ext_buf;		/* start of buffer */
 					/* free routine if not the usual */
-	void	(*ext_free)(caddr_t, u_int, void *);
 	void	*ext_arg;
+	u_int	ext_free_fn;
 	u_int	ext_size;		/* size of buffer, for ext_free */
 	struct mbuf *ext_nextref;
 	struct mbuf *ext_prevref;
@@ -242,6 +242,7 @@ struct mbuf {
 #define M_FLOWID_MASK	0x7fff	/* flow id to map to path */
 
 /* flags to m_get/MGET */
+#include <sys/malloc.h>
 #define	M_DONTWAIT	M_NOWAIT
 #define	M_WAIT		M_WAITOK
 
@@ -296,17 +297,20 @@ struct mbuf {
  * MCLGET allocates and adds an mbuf cluster to a normal mbuf;
  * the flag M_EXT is set upon success.
  */
-#define	MEXTADD(m, buf, size, mflags, free, arg) do {			\
+#define	MEXTADD(m, buf, size, mflags, freefn, arg) do {			\
 	(m)->m_data = (m)->m_ext.ext_buf = (caddr_t)(buf);		\
 	(m)->m_flags |= M_EXT | (mflags & M_EXTWR);			\
 	(m)->m_ext.ext_size = (size);					\
-	(m)->m_ext.ext_free = (free);					\
+	(m)->m_ext.ext_free_fn = (freefn);					\
 	(m)->m_ext.ext_arg = (arg);					\
 	MCLINITREFERENCE(m);						\
 } while (/* CONSTCOND */ 0)
 
 #define MCLGET(m, how) (void) m_clget((m), (how), MCLBYTES)
 #define MCLGETI(m, how, ifp, l) m_clget((m), (how), (l))
+
+u_int mextfree_register(void (*)(caddr_t, u_int, void *));
+#define	MEXTFREE_POOL 0
 
 /*
  * Move just m_pkthdr from from to to,
@@ -316,6 +320,7 @@ struct mbuf {
 	(to)->m_pkthdr = (from)->m_pkthdr;				\
 	(from)->m_flags &= ~M_PKTHDR;					\
 	SLIST_INIT(&(from)->m_pkthdr.ph_tags);				\
+	(from)->m_pkthdr.pf.statekey = NULL;				\
 } while (/* CONSTCOND */ 0)
 
 /*
@@ -440,13 +445,15 @@ void	m_extref(struct mbuf *, struct mbuf *);
 void	m_extfree_pool(caddr_t, u_int, void *);
 void	m_adj(struct mbuf *, int);
 int	m_copyback(struct mbuf *, int, int, const void *, int);
-void	m_freem(struct mbuf *);
+struct mbuf *m_freem(struct mbuf *);
+void	m_purge(struct mbuf *);
 void	m_reclaim(void *, int);
 void	m_copydata(struct mbuf *, int, int, caddr_t);
 void	m_cat(struct mbuf *, struct mbuf *);
 struct mbuf *m_devget(char *, int, int);
 int	m_apply(struct mbuf *, int, int,
 	    int (*)(caddr_t, caddr_t, unsigned int), caddr_t);
+struct mbuf *m_dup_pkt(struct mbuf *, unsigned int, int);
 int	m_dup_pkthdr(struct mbuf *, struct mbuf *, int);
 
 /* Packet tag routines */
@@ -485,6 +492,9 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
  */
 #define PACKET_TAG_MAXSIZE		52
 
+/* Detect mbufs looping in the kernel when spliced too often. */
+#define M_MAXLOOP	128
+
 /*
  * mbuf lists
  */
@@ -494,11 +504,8 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
 void			ml_init(struct mbuf_list *);
 void			ml_enqueue(struct mbuf_list *, struct mbuf *);
 struct mbuf *		ml_dequeue(struct mbuf_list *);
-void			ml_requeue(struct mbuf_list *, struct mbuf *);
 void			ml_enlist(struct mbuf_list *, struct mbuf_list *);
 struct mbuf *		ml_dechain(struct mbuf_list *);
-struct mbuf *		ml_filter(struct mbuf_list *,
-			    int (*)(void *, const struct mbuf *), void *);
 unsigned int		ml_purge(struct mbuf_list *);
 
 #define	ml_len(_ml)		((_ml)->ml_len)
@@ -522,12 +529,9 @@ unsigned int		ml_purge(struct mbuf_list *);
 void			mq_init(struct mbuf_queue *, u_int, int);
 int			mq_enqueue(struct mbuf_queue *, struct mbuf *);
 struct mbuf *		mq_dequeue(struct mbuf_queue *);
-int			mq_requeue(struct mbuf_queue *, struct mbuf *);
 int			mq_enlist(struct mbuf_queue *, struct mbuf_list *);
 void			mq_delist(struct mbuf_queue *, struct mbuf_list *);
 struct mbuf *		mq_dechain(struct mbuf_queue *);
-struct mbuf *		mq_filter(struct mbuf_queue *,
-			    int (*)(void *, const struct mbuf *), void *);
 unsigned int		mq_purge(struct mbuf_queue *);
 
 #define	mq_len(_mq)		ml_len(&(_mq)->mq_list)

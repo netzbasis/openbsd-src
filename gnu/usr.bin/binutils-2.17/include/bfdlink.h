@@ -264,6 +264,9 @@ struct bfd_link_info
   /* TRUE if ok to have multiple definition.  */
   unsigned int allow_multiple_definition: 1;
 
+  /* TRUE if output program should be marked to request W^X permission */
+  unsigned int wxneeded: 1;
+
   /* TRUE if ok to have version with no definition.  */
   unsigned int allow_undefined_version: 1;
 
@@ -323,6 +326,11 @@ struct bfd_link_info
 
   /* TRUE if unreferenced sections should be removed.  */
   unsigned int gc_sections: 1;
+
+  /* If TRUE reduce memory overheads, at the expense of speed. This will
+     cause map file generation to use an O(N^2) algorithm and disable
+     caching ELF symbol buffer.  */
+  unsigned int reduce_memory_overheads: 1;
 
   /* What to do with unresolved symbols in an object file.
      When producing executables the default is GENERATE_ERROR.

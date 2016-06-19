@@ -1,4 +1,4 @@
-/*	$OpenBSD: gdt.c,v 1.35 2015/02/11 05:54:48 dlg Exp $	*/
+/*	$OpenBSD: gdt.c,v 1.37 2016/03/07 05:32:46 naddy Exp $	*/
 /*	$NetBSD: gdt.c,v 1.28 2002/12/14 09:38:50 junyoung Exp $	*/
 
 /*-
@@ -94,7 +94,7 @@ setgdt(int sel, void *base, size_t limit, int type, int dpl, int def32,
  * Initialize the GDT subsystem.  Called from autoconf().
  */
 void
-gdt_init()
+gdt_init(void)
 {
 	struct vm_page *pg;
 	vaddr_t va;
@@ -169,7 +169,7 @@ gdt_init_cpu(struct cpu_info *ci)
  *    near the end that we can sweep through.
  */
 int
-gdt_get_slot()
+gdt_get_slot(void)
 {
 	int slot;
 
@@ -221,28 +221,3 @@ tss_free(int sel)
 
 	gdt_put_slot(IDXSEL(sel));
 }
-
-#ifdef USER_LDT
-/*
- * Caller must have pmap locked for both of these functions.
- */
-void
-ldt_alloc(struct pmap *pmap, union descriptor *ldt, size_t len)
-{
-	int slot;
-
-	slot = gdt_get_slot();
-	setgdt(slot, ldt, len - 1, SDT_SYSLDT, SEL_KPL, 0, 0);
-	pmap->pm_ldt_sel = GSEL(slot, SEL_KPL);
-}
-
-void
-ldt_free(struct pmap *pmap)
-{
-	int slot;
-
-	slot = IDXSEL(pmap->pm_ldt_sel);
-
-	gdt_put_slot(slot);
-}
-#endif /* USER_LDT */

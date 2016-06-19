@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr_template.c,v 1.15 2015/05/01 11:17:22 miod Exp $	*/
+/*	$OpenBSD: intr_template.c,v 1.17 2016/03/06 19:42:27 mpi Exp $	*/
 
 /*
  * Copyright (c) 2009 Miodrag Vallat.
@@ -36,6 +36,7 @@
  *
  * The following macros are optional:
  * INTR_HANDLER_SKIP(ih)	nonzero to skip intrhand invocation
+ * INTR_IPI_HOOK(ipl)		special case logic for IPIs
  */
 
 /*
@@ -96,7 +97,7 @@ MASK_FUNCTIONNAME()
  * Interrupt dispatcher.
  */
 uint32_t
-INTR_FUNCTIONNAME(uint32_t hwpend, struct trap_frame *frame)
+INTR_FUNCTIONNAME(uint32_t hwpend, struct trapframe *frame)
 {
 	struct cpu_info *ci = curcpu();
 	uint64_t imr, isr, mask;
@@ -111,6 +112,10 @@ INTR_FUNCTIONNAME(uint32_t hwpend, struct trap_frame *frame)
 	isr &= imr;
 	if (isr == 0)
 		return 0;	/* not for us */
+
+#ifdef INTR_IPI_HOOK
+	INTR_IPI_HOOK(frame->ipl);
+#endif
 
 	/*
 	 * Mask all pending interrupts.
@@ -216,3 +221,4 @@ INTR_FUNCTIONNAME(uint32_t hwpend, struct trap_frame *frame)
 #undef	INTR_MASKPENDING
 #undef	INTR_MASKRESTORE
 #undef	INTR_SPURIOUS
+#undef	INTR_IPI_HOOK

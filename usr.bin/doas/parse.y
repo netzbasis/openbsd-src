@@ -1,4 +1,4 @@
-/* $OpenBSD: parse.y,v 1.12 2015/09/01 16:20:55 mikeb Exp $ */
+/* $OpenBSD: parse.y,v 1.18 2016/06/07 16:49:23 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -176,6 +176,7 @@ yyerror(const char *fmt, ...)
 {
 	va_list va;
 
+	fprintf(stderr, "doas: ");
 	va_start(va, fmt);
 	vfprintf(stderr, fmt, va);
 	va_end(va);
@@ -223,12 +224,12 @@ repeat:
 			/* skip comments; NUL is allowed; no continuation */
 			while ((c = getc(yyfp)) != '\n')
 				if (c == EOF)
-					return 0;
+					goto eof;
 			yylval.colno = 0;
 			yylval.lineno++;
 			return c;
 		case EOF:
-			return 0;
+			goto eof;
 	}
 
 	/* parsing next word */
@@ -284,8 +285,10 @@ repeat:
 			}
 		}
 		*p++ = c;
-		if (p == ebuf)
+		if (p == ebuf) {
 			yyerror("too long line");
+			p = buf;
+		}
 		escape = 0;
 	}
 
@@ -300,7 +303,7 @@ eow:
 		 * the main loop.
 		 */
 		if (c == EOF)
-			return 0;
+			goto eof;
 		else if (qpos == -1)    /* accept, e.g., empty args: cmd foo args "" */
 			goto repeat;
 	}
@@ -314,4 +317,9 @@ eow:
 		err(1, "strdup");
 	yylval.str = str;
 	return TSTRING;
+
+eof:
+	if (ferror(yyfp))
+		yyerror("input error reading config");
+	return 0;
 }

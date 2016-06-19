@@ -1,4 +1,4 @@
-/*	$OpenBSD: sockio.h,v 1.62 2015/10/24 10:52:05 reyk Exp $	*/
+/*	$OpenBSD: sockio.h,v 1.66 2016/06/15 19:39:34 gerhard Exp $	*/
 /*	$NetBSD: sockio.h,v 1.5 1995/08/23 00:40:47 thorpej Exp $	*/
 
 /*-
@@ -54,7 +54,6 @@
 #define	SIOCGIFFLAGS	_IOWR('i', 17, struct ifreq)	/* get ifnet flags */
 #define	SIOCGIFBRDADDR	_IOWR('i', 35, struct ifreq)	/* get broadcast addr */
 #define	SIOCSIFBRDADDR	 _IOW('i', 19, struct ifreq)	/* set broadcast addr */
-#define	OSIOCGIFCONF	_IOWR('i', 20, struct ifconf)	/* get ifnet list */
 #define	SIOCGIFCONF	_IOWR('i', 36, struct ifconf)	/* get ifnet list */
 #define	SIOCGIFNETMASK	_IOWR('i', 37, struct ifreq)	/* get net addr mask */
 #define	SIOCSIFNETMASK	 _IOW('i', 22, struct ifreq)	/* set net addr mask */
@@ -198,6 +197,17 @@
 
 #define SIOCSIFPAIR	_IOW('i', 176, struct ifreq)	/* set paired if */ 
 #define SIOCGIFPAIR	_IOWR('i', 177, struct ifreq)	/* get paired if */
+
+#define SIOCSIFPARENT	_IOW('i', 178, struct if_parent) /* set parent if */
+#define SIOCGIFPARENT	_IOWR('i', 179, struct if_parent) /* get parent if */
+#define SIOCDIFPARENT	_IOW('i', 180, struct ifreq)	/* del parent if */
+
+#define	SIOCSIFLLPRIO	_IOW('i', 181, struct ifreq)	/* set ifnet llprio */
+#define	SIOCGIFLLPRIO	_IOWR('i', 182, struct ifreq)	/* get ifnet llprio */
+
+#define	SIOCGUMBINFO	_IOWR('i', 190, struct ifreq)	/* get MBIM info */
+#define	SIOCSUMBPARAM	 _IOW('i', 191, struct ifreq)	/* set MBIM param */
+#define	SIOCGUMBPARAM	_IOWR('i', 192, struct ifreq)	/* get MBIM param */
 
 #define	SIOCSVH		_IOWR('i', 245, struct ifreq)	/* set carp param */
 #define	SIOCGVH		_IOWR('i', 246, struct ifreq)	/* get carp param */

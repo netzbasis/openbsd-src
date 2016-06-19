@@ -14,10 +14,11 @@
  * Used only by command() and related functions.
  */
 
-#include "less.h"
-#include "cmd.h"
-#include "charset.h"
 #include <sys/stat.h>
+
+#include "charset.h"
+#include "cmd.h"
+#include "less.h"
 
 extern int sc_width;
 extern int utf_mode;
@@ -170,11 +171,11 @@ cmd_step_common(char *p, LWCHAR ch, int len, int *pwidth, int *bswidth)
 	if (len == 1) {
 		pr = prchar((int)ch);
 		if (pwidth != NULL || bswidth != NULL) {
-			int len = strlen(pr);
+			int prlen = strlen(pr);
 			if (pwidth != NULL)
-				*pwidth = len;
+				*pwidth = prlen;
 			if (bswidth != NULL)
-				*bswidth = len;
+				*bswidth = prlen;
 		}
 	} else {
 		pr = prutfchar(ch);
@@ -185,11 +186,11 @@ cmd_step_common(char *p, LWCHAR ch, int len, int *pwidth, int *bswidth)
 				if (bswidth != NULL)
 					*bswidth = 0;
 			} else if (is_ubin_char(ch)) {
-				int len = strlen(pr);
+				int prlen = strlen(pr);
 				if (pwidth != NULL)
-					*pwidth = len;
+					*pwidth = prlen;
 				if (bswidth != NULL)
-					*bswidth = len;
+					*bswidth = prlen;
 			} else {
 				LWCHAR prev_ch = step_char(&p, -1, cmdbuf);
 				if (is_combining_char(prev_ch, ch)) {
@@ -1147,11 +1148,11 @@ retry:
 /*
  * Return the number currently in the command buffer.
  */
-LINENUM
+off_t
 cmd_int(long *frac)
 {
 	char *p;
-	LINENUM n = 0;
+	off_t n = 0;
 	int err;
 
 	for (p = cmdbuf;  *p >= '0' && *p <= '9';  p++)

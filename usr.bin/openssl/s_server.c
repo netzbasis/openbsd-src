@@ -1,4 +1,4 @@
-/* $OpenBSD: s_server.c,v 1.22 2015/10/17 15:00:11 doug Exp $ */
+/* $OpenBSD: s_server.c,v 1.24 2015/12/23 20:43:42 mmcc Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -605,7 +605,7 @@ s_server_main(int argc, char *argv[])
 	tlsextalpnctx alpn_ctx = { NULL, 0 };
 
 	if (single_execution) {
-		if (pledge("stdio inet rpath tty", NULL) == -1) {
+		if (pledge("stdio inet dns rpath tty", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}
@@ -2003,8 +2003,7 @@ err:
 	if (ret >= 0)
 		BIO_printf(bio_s_out, "ACCEPT\n");
 
-	if (buf != NULL)
-		free(buf);
+	free(buf);
 	if (io != NULL)
 		BIO_free_all(io);
 /*	if (ssl_bio != NULL) BIO_free(ssl_bio);*/

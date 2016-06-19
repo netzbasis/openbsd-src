@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iec.c,v 1.17 2015/11/20 03:35:22 dlg Exp $	*/
+/*	$OpenBSD: if_iec.c,v 1.21 2016/04/13 11:34:00 mpi Exp $	*/
 
 /*
  * Copyright (c) 2009 Miodrag Vallat.
@@ -94,9 +94,7 @@
 #include <sys/errno.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -408,7 +406,6 @@ iec_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = iec_ioctl;
 	ifp->if_start = iec_start;
 	ifp->if_watchdog = iec_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if_attach(ifp);
 	IFQ_SET_MAXLEN(&ifp->if_snd, IEC_NTXDESC - 1);
@@ -684,7 +681,7 @@ iec_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	iec_start(ifp);
 
@@ -746,7 +743,7 @@ iec_start(struct ifnet *ifp)
 	int error, firstdirty, nexttx, opending;
 	int len;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/*
@@ -956,7 +953,7 @@ iec_start(struct ifnet *ifp)
 
 	if (sc->sc_txpending == IEC_NTXDESC) {
 		/* No more slots; notify upper layer. */
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_txpending != opending) {
@@ -991,7 +988,8 @@ iec_stop(struct ifnet *ifp)
 	DPRINTF(IEC_DEBUG_STOP, ("iec_stop\n"));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->sc_tick);
 	mii_down(&sc->sc_mii);
@@ -1325,7 +1323,7 @@ iec_txintr(struct iec_softc *sc, uint32_t stat)
 	uint32_t tcir;
 	int i, once, last;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	tcir = bus_space_read_4(st, sh, IOC3_ENET_TCIR) & ~IOC3_ENET_TCIR_IDLE;
 	last = (tcir / IEC_TXDESCSIZE) % IEC_NTXDESC_MAX;

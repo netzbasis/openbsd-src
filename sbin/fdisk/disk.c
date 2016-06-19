@@ -1,4 +1,4 @@
-/*	$OpenBSD: disk.c,v 1.52 2015/11/19 16:14:08 krw Exp $	*/
+/*	$OpenBSD: disk.c,v 1.55 2016/03/09 12:55:18 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -38,19 +38,19 @@ struct disk disk;
 struct disklabel dl;
 
 void
-DISK_open(void)
+DISK_open(int rw)
 {
 	struct stat st;
 	u_int64_t sz, spc;
 
-	disk.fd = opendev(disk.name, O_RDWR, OPENDEV_PART, NULL);
+	disk.fd = opendev(disk.name, rw ? O_RDWR : O_RDONLY, OPENDEV_PART,
+	    NULL);
 	if (disk.fd == -1)
 		err(1, "%s", disk.name);
 	if (fstat(disk.fd, &st) == -1)
 		err(1, "%s", disk.name);
-	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
-		errx(1, "%s is not a character device or a regular file",
-		    disk);
+	if (!S_ISCHR(st.st_mode))
+		errx(1, "%s is not a character device", disk.name);
 
 	/* Get label geometry. */
 	if (ioctl(disk.fd, DIOCGPDINFO, &dl) == -1) {

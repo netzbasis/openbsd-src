@@ -1,4 +1,4 @@
-/*	$OpenBSD: i82596.c,v 1.45 2015/10/25 12:48:46 mpi Exp $	*/
+/*	$OpenBSD: i82596.c,v 1.52 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: i82586.c,v 1.18 1998/08/15 04:42:42 mycroft Exp $	*/
 
 /*-
@@ -146,8 +146,6 @@ Mode of operation:
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -292,8 +290,7 @@ i82596_attach(struct ie_softc *sc, const char *name, u_int8_t *etheraddr,
 #ifdef I82596_DEBUG
 		IFF_DEBUG |
 #endif
-		IFF_BROADCAST | IFF_SIMPLEX | IFF_NOTRAILERS | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
+		IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 
         /* Initialize media goo. */
         ifmedia_init(&sc->sc_media, 0, i82596_mediachange, i82596_mediastatus);
@@ -726,7 +723,7 @@ i82596_tint(sc, scbstatus)
 	register int off, status;
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 #ifdef I82596_DEBUG
 	if (sc->xmit_busy <= 0) {
@@ -1216,12 +1213,12 @@ i82596_start(ifp)
 		printf("i82596_start(%p)\n", ifp);
 #endif
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->xmit_busy == NTXBUF) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1355,7 +1352,7 @@ i82596_reset(sc, hard)
 
 	/* Clear OACTIVE in case we're called from watchdog (frozen xmit). */
 	sc->sc_arpcom.ac_if.if_timer = 0;
-	sc->sc_arpcom.ac_if.if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&sc->sc_arpcom.ac_if.if_snd);
 
 	/*
 	 * Stop i82596 dead in its tracks.
@@ -1785,7 +1782,7 @@ i82596_init(sc)
 		(sc->hwinit)(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (NTXBUF < 2)
 		sc->do_xmitnopchain = 0;
@@ -1926,7 +1923,7 @@ ie_mc_reset(sc)
 
 	if (ac->ac_multicnt >= IE_MAXMCAST || ac->ac_multirangecnt > 0) {
 		ac->ac_if.if_flags |= IFF_ALLMULTI;
-		i82596_ioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+		i82596_ioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 		return;
 	}
 

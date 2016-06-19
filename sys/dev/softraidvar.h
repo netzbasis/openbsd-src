@@ -1,4 +1,4 @@
-/* $OpenBSD: softraidvar.h,v 1.161 2015/07/21 03:30:51 krw Exp $ */
+/* $OpenBSD: softraidvar.h,v 1.163 2016/05/31 15:19:12 jsing Exp $ */
 /*
  * Copyright (c) 2006 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Chris Kuethe <ckuethe@openbsd.org>
@@ -19,7 +19,7 @@
 #ifndef SOFTRAIDVAR_H
 #define SOFTRAIDVAR_H
 
-#define SR_META_VERSION		5	/* bump when sr_metadata changes */
+#define SR_META_VERSION		6	/* bump when sr_metadata changes */
 #define SR_META_SIZE		64	/* save space at chunk beginning */
 #define SR_META_OFFSET		16	/* skip 8192 bytes at chunk beginning */
 
@@ -135,7 +135,7 @@ struct sr_metadata {
 
 		/* optional */
 		u_int32_t	ssd_opt_no;	/* nr of optional md elements */
-		u_int32_t	ssd_pad;
+		u_int32_t	ssd_secsize;
 
 		/* volume metadata */
 		u_int32_t	ssd_volid;	/* volume id */
@@ -473,6 +473,7 @@ struct sr_chunk {
 	char			src_devname[32];
 	u_char			src_duid[8];	/* Chunk disklabel UID. */
 	int64_t			src_size;	/* in blocks */
+	u_int32_t		src_secsize;
 
 	SLIST_ENTRY(sr_chunk)	src_link;
 };
@@ -686,6 +687,7 @@ struct sr_workunit	*sr_scsi_wu_get(struct sr_discipline *, int);
 void			sr_scsi_wu_put(struct sr_discipline *,
 			    struct sr_workunit *);
 int			sr_chunk_in_use(struct sr_softc *, dev_t);
+int			sr_rebuild_percent(struct sr_discipline *);
 
 /* discipline functions */
 int			sr_raid_inquiry(struct sr_workunit *);

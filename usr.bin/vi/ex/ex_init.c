@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_init.c,v 1.15 2015/11/19 07:53:31 bentley Exp $	*/
+/*	$OpenBSD: ex_init.c,v 1.17 2016/01/06 22:28:52 millert Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -44,7 +44,7 @@ ex_screen_copy(SCR *orig, SCR *sp)
 	EX_PRIVATE *oexp, *nexp;
 
 	/* Create the private ex structure. */
-	CALLOC_RET(orig, nexp, EX_PRIVATE *, 1, sizeof(EX_PRIVATE));
+	CALLOC_RET(orig, nexp, 1, sizeof(EX_PRIVATE));
 	sp->ex_private = nexp;
 
 	/* Initialize queues. */
@@ -272,7 +272,7 @@ ex_run_str(SCR *sp, char *name, char *str, size_t len, int ex_flags,
 
 	gp = sp->gp;
 	if (EXCMD_RUNNING(gp)) {
-		CALLOC_RET(sp, ecp, EXCMD *, 1, sizeof(EXCMD));
+		CALLOC_RET(sp, ecp, 1, sizeof(EXCMD));
 		LIST_INSERT_HEAD(&gp->ecq, ecp, q);
 	} else
 		ecp = &gp->excmd;
@@ -383,16 +383,16 @@ denied:	a = msg_print(sp, path, &nf1);
 		switch (etype) {
 		case ROOTOWN:
 			msgq(sp, M_ERR,
-			    "125|%s/%s: not sourced: not owned by you or root",
+			    "%s/%s: not sourced: not owned by you or root",
 			    b, a);
 			break;
 		case OWN:
 			msgq(sp, M_ERR,
-			    "126|%s/%s: not sourced: not owned by you", b, a);
+			    "%s/%s: not sourced: not owned by you", b, a);
 			break;
 		case WRITER:
 			msgq(sp, M_ERR,
-    "127|%s/%s: not sourced: writable by a user other than the owner", b, a);
+    "%s/%s: not sourced: writable by a user other than the owner", b, a);
 			break;
 		}
 		if (nf2)
@@ -401,15 +401,15 @@ denied:	a = msg_print(sp, path, &nf1);
 		switch (etype) {
 		case ROOTOWN:
 			msgq(sp, M_ERR,
-			    "128|%s: not sourced: not owned by you or root", a);
+			    "%s: not sourced: not owned by you or root", a);
 			break;
 		case OWN:
 			msgq(sp, M_ERR,
-			    "129|%s: not sourced: not owned by you", a);
+			    "%s: not sourced: not owned by you", a);
 			break;
 		case WRITER:
 			msgq(sp, M_ERR,
-	    "130|%s: not sourced: writable by a user other than the owner", a);
+	    "%s: not sourced: writable by a user other than the owner", a);
 			break;
 		}
 

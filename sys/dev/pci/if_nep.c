@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nep.c,v 1.21 2015/11/20 03:35:23 dlg Exp $	*/
+/*	$OpenBSD: if_nep.c,v 1.25 2016/05/23 15:22:44 tedu Exp $	*/
 /*
  * Copyright (c) 2014, 2015 Mark Kettenis
  *
@@ -27,7 +27,6 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -466,6 +465,8 @@ struct cfdriver nep_cd = {
 	NULL, "nep", DV_DULL
 };
 
+static u_int	nep_mextfree_idx;
+
 int	nep_pci_enaddr(struct nep_softc *, struct pci_attach_args *);
 
 uint64_t nep_read(struct nep_softc *, uint32_t);
@@ -541,6 +542,9 @@ nep_attach(struct device *parent, struct device *self, void *aux)
 	struct mii_data *mii = &sc->sc_mii;
 	pcireg_t memtype;
 	uint64_t val;
+
+	if (nep_mextfree_idx == 0)
+		nep_mextfree_idx = mextfree_register(nep_extfree);
 
 	sc->sc_dmat = pa->pa_dmat;
 
@@ -977,7 +981,7 @@ nep_rx_proc(struct nep_softc *sc)
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	uint64_t val;
 	uint16_t count;
-	uint16_t pktread, ptrread;
+	uint16_t pktread = 0, ptrread = 0;
 	uint64_t rxd;
 	uint64_t addr;
 	bus_addr_t page;
@@ -1025,7 +1029,7 @@ nep_rx_proc(struct nep_softc *sc)
 			ifp->if_ierrors++;
 		} else {
 			MEXTADD(m, block + off, PAGE_SIZE, M_EXTWR,
-			    nep_extfree, block);
+			    nep_mextfree_idx, block);
 			m->m_pkthdr.len = m->m_len = len;
 			m->m_data += ETHER_ALIGN;
 
@@ -1092,7 +1096,7 @@ nep_tx_proc(struct nep_softc *sc)
 			count--;
 		}
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 		sc->sc_tx_cnt--;
 		sc->sc_tx_cons++;
@@ -1649,7 +1653,7 @@ nep_up(struct nep_softc *sc)
 	nep_write(sc, RXDMA_CFIG1(sc->sc_port), val);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	/* Enable interrupts. */
@@ -1686,7 +1690,8 @@ nep_down(struct nep_softc *sc)
 	nep_write(sc, LD_IM0(LDN_RXDMA(sc->sc_port)), 1);
 	nep_write(sc, LD_IM0(LDN_TXDMA(sc->sc_port)), 1);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	nep_disable_rx_mac(sc);
@@ -1870,7 +1875,7 @@ nep_start(struct ifnet *ifp)
 
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
@@ -1883,7 +1888,7 @@ nep_start(struct ifnet *ifp)
 
 		if (sc->sc_tx_cnt >= (NEP_NTXDESC - NEP_NTXSEGS)) {
 			ifq_deq_rollback(&ifp->if_snd, m);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 

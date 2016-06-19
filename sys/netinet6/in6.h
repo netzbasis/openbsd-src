@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.h,v 1.86 2015/10/29 16:04:10 tedu Exp $	*/
+/*	$OpenBSD: in6.h,v 1.89 2016/06/01 11:11:44 jca Exp $	*/
 /*	$KAME: in6.h,v 1.83 2001/03/29 02:55:07 jinmei Exp $	*/
 
 /*
@@ -315,9 +315,6 @@ struct route_in6 {
 #define IPV6_RECVRTHDR		38 /* bool; recv routing header */
 #define IPV6_RECVHOPOPTS	39 /* bool; recv hop-by-hop option */
 #define IPV6_RECVDSTOPTS	40 /* bool; recv dst option after rthdr */
-#ifdef _KERNEL
-#define IPV6_RECVRTHDRDSTOPTS	41 /* bool; recv dst option before rthdr */
-#endif
 
 #define IPV6_USE_MIN_MTU	42 /* bool; send packets at the minimum MTU */
 #define IPV6_RECVPATHMTU	43 /* bool; notify an according MTU */
@@ -579,9 +576,7 @@ ifatoia6(struct ifaddr *ifa)
 #define IPV6CTL_AUTO_FLOWLABEL	17
 #define IPV6CTL_DEFMCASTHLIM	18
 #define IPV6CTL_USE_DEPRECATED	21	/* use deprecated addr (RFC2462 5.5.4) */
-#define IPV6CTL_RR_PRUNE	22	/* walk timer for router renumbering */
-#define IPV6CTL_V6ONLY		24
-/* 25 to 40: resrved */
+/* 24 to 40: reserved */
 #define IPV6CTL_MAXFRAGS	41	/* max fragments */
 #define IPV6CTL_MFORWARDING	42
 #define IPV6CTL_MULTIPATH	43
@@ -623,9 +618,9 @@ ifatoia6(struct ifaddr *ifa)
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ "use_deprecated", CTLTYPE_INT }, \
-	{ "rr_prune", CTLTYPE_INT }, \
 	{ 0, 0 }, \
-	{ "v6only", CTLTYPE_INT }, \
+	{ 0, 0 }, \
+	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
@@ -680,7 +675,7 @@ ifatoia6(struct ifaddr *ifa)
 	NULL, \
 	NULL, \
 	&ip6_use_deprecated, \
-	&ip6_rr_prune, \
+	NULL, \
 	NULL, \
 	NULL, \
 	NULL, \

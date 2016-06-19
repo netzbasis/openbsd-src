@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.179 2015/11/18 13:58:02 mpi Exp $	*/
+/*	$OpenBSD: in6.c,v 1.187 2016/06/13 10:34:40 mpi Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -118,7 +118,8 @@ const struct in6_addr in6mask64 = IN6MASK64;
 const struct in6_addr in6mask96 = IN6MASK96;
 const struct in6_addr in6mask128 = IN6MASK128;
 
-int in6_lifaddr_ioctl(struct socket *, u_long, caddr_t, struct ifnet *);
+int in6_lifaddr_ioctl(u_long, caddr_t, struct ifnet *, int);
+int in6_ioctl(u_long, caddr_t, struct ifnet *, int);
 int in6_ifinit(struct ifnet *, struct in6_ifaddr *, int);
 void in6_unlink_ifa(struct in6_ifaddr *, struct ifnet *);
 
@@ -165,11 +166,7 @@ in6_mask2len(struct in6_addr *mask, u_char *lim0)
 int
 in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 {
-	struct	in6_ifreq *ifr = (struct in6_ifreq *)data;
-	struct	in6_ifaddr *ia6 = NULL;
-	struct	in6_aliasreq *ifra = (struct in6_aliasreq *)data;
-	struct sockaddr_in6 *sa6;
-	int s, privileged;
+	int privileged;
 
 	privileged = 0;
 	if ((so->so_state & SS_PRIV) != 0)
@@ -182,6 +179,18 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		return (mrt6_ioctl(cmd, data));
 	}
 #endif
+
+	return (in6_ioctl(cmd, data, ifp, privileged));
+}
+
+int
+in6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, int privileged)
+{
+	struct	in6_ifreq *ifr = (struct in6_ifreq *)data;
+	struct	in6_ifaddr *ia6 = NULL;
+	struct	in6_aliasreq *ifra = (struct in6_aliasreq *)data;
+	struct sockaddr_in6 *sa6;
+	int s;
 
 	if (ifp == NULL)
 		return (EOPNOTSUPP);
@@ -200,26 +209,13 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 	}
 
 	switch (cmd) {
-	case SIOCSIFPREFIX_IN6:
-	case SIOCDIFPREFIX_IN6:
-	case SIOCAIFPREFIX_IN6:
-	case SIOCCIFPREFIX_IN6:
-	case SIOCSGIFPREFIX_IN6:
-	case SIOCGIFPREFIX_IN6:
-		log(LOG_NOTICE,
-		    "prefix ioctls are now invalidated. "
-		    "please use ifconfig.\n");
-		return (EOPNOTSUPP);
-	}
-
-	switch (cmd) {
 	case SIOCALIFADDR:
 	case SIOCDLIFADDR:
 		if (!privileged)
 			return (EPERM);
 		/* FALLTHROUGH */
 	case SIOCGLIFADDR:
-		return in6_lifaddr_ioctl(so, cmd, data, ifp);
+		return in6_lifaddr_ioctl(cmd, data, ifp, privileged);
 	}
 
 	/*
@@ -239,10 +235,7 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 	case SIOCSIFPHYADDR_IN6:
 		sa6 = &ifra->ifra_addr;
 		break;
-	case SIOCSIFADDR_IN6:
 	case SIOCGIFADDR_IN6:
-	case SIOCSIFDSTADDR_IN6:
-	case SIOCSIFNETMASK_IN6:
 	case SIOCGIFDSTADDR_IN6:
 	case SIOCGIFNETMASK_IN6:
 	case SIOCDIFADDR_IN6:
@@ -253,7 +246,6 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 	case SIOCSPFXFLUSH_IN6:
 	case SIOCSRTRFLUSH_IN6:
 	case SIOCGIFALIFETIME_IN6:
-	case SIOCSIFALIFETIME_IN6:
 	case SIOCGIFSTAT_IN6:
 	case SIOCGIFSTAT_ICMP6:
 		sa6 = &ifr->ifr_addr;
@@ -293,15 +285,6 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		ia6 = NULL;
 
 	switch (cmd) {
-	case SIOCSIFADDR_IN6:
-	case SIOCSIFDSTADDR_IN6:
-	case SIOCSIFNETMASK_IN6:
-		/*
-		 * Since IPv6 allows a node to assign multiple addresses
-		 * on a single interface, SIOCSIFxxx ioctls are deprecated.
-		 */
-		return (EINVAL);
-
 	case SIOCDIFADDR_IN6:
 		/*
 		 * for IPv4, we look for existing in_ifaddr here to allow
@@ -337,26 +320,6 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		if (ia6 == NULL)
 			return (EADDRNOTAVAIL);
 		break;
-	case SIOCSIFALIFETIME_IN6:
-	    {
-		struct in6_addrlifetime *lt;
-
-		if (!privileged)
-			return (EPERM);
-		if (ia6 == NULL)
-			return (EADDRNOTAVAIL);
-		/* sanity for overflow - beware unsigned */
-		lt = &ifr->ifr_ifru.ifru_lifetime;
-		if (lt->ia6t_vltime != ND6_INFINITE_LIFETIME
-		 && lt->ia6t_vltime + time_second < time_second) {
-			return EINVAL;
-		}
-		if (lt->ia6t_pltime != ND6_INFINITE_LIFETIME
-		 && lt->ia6t_pltime + time_second < time_second) {
-			return EINVAL;
-		}
-		break;
-	    }
 	}
 
 	switch (cmd) {
@@ -427,24 +390,9 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		}
 		break;
 
-	case SIOCSIFALIFETIME_IN6:
-		ia6->ia6_lifetime = ifr->ifr_ifru.ifru_lifetime;
-		/* for sanity */
-		if (ia6->ia6_lifetime.ia6t_vltime != ND6_INFINITE_LIFETIME) {
-			ia6->ia6_lifetime.ia6t_expire =
-				time_second + ia6->ia6_lifetime.ia6t_vltime;
-		} else
-			ia6->ia6_lifetime.ia6t_expire = 0;
-		if (ia6->ia6_lifetime.ia6t_pltime != ND6_INFINITE_LIFETIME) {
-			ia6->ia6_lifetime.ia6t_preferred =
-				time_second + ia6->ia6_lifetime.ia6t_pltime;
-		} else
-			ia6->ia6_lifetime.ia6t_preferred = 0;
-		break;
-
 	case SIOCAIFADDR_IN6:
 	{
-		int plen, error = 0;
+		int plen, error = 0, newifaddr = 0;
 
 		/* reject read-only flags */
 		if ((ifra->ifra_flags & IN6_IFF_DUPLICATED) != 0 ||
@@ -454,12 +402,15 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 			return (EINVAL);
 		}
 
+		if (ia6 == NULL)
+			newifaddr = 1;
+
 		/*
 		 * Make the address tentative before joining multicast
 		 * addresses, so that corresponding MLD responses would
 		 * not have a tentative source address.
 		 */
-		if ((ia6 == NULL) && in6if_do_dad(ifp))
+		if (newifaddr && in6if_do_dad(ifp))
 			ifra->ifra_flags |= IN6_IFF_TENTATIVE;
 
 		/*
@@ -477,14 +428,18 @@ in6_control(struct socket *so, u_long cmd, caddr_t data, struct ifnet *ifp)
 		splx(s);
 		if (error != 0)
 			return (error);
-		if ((ia6 = in6ifa_ifpwithaddr(ifp, &ifra->ifra_addr.sin6_addr))
-		    == NULL) {
+
+		ia6 = in6ifa_ifpwithaddr(ifp, &ifra->ifra_addr.sin6_addr);
+		if (ia6 == NULL) {
 			/*
 			 * this can happen when the user specify the 0 valid
 			 * lifetime.
 			 */
 			break;
 		}
+
+		if (!newifaddr)
+			break;
 
 		/* Perform DAD, if needed. */
 		if (ia6->ia6_flags & IN6_IFF_TENTATIVE)
@@ -993,8 +948,7 @@ in6_unlink_ifa(struct in6_ifaddr *ia6, struct ifnet *ifp)
  * address encoding scheme. (see figure on page 8)
  */
 int
-in6_lifaddr_ioctl(struct socket *so, u_long cmd, caddr_t data,
-    struct ifnet *ifp)
+in6_lifaddr_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, int privileged)
 {
 	struct if_laddrreq *iflr = (struct if_laddrreq *)data;
 	struct ifaddr *ifa;
@@ -1101,7 +1055,8 @@ in6_lifaddr_ioctl(struct socket *so, u_long cmd, caddr_t data,
 		in6_prefixlen2mask(&ifra.ifra_prefixmask.sin6_addr, prefixlen);
 
 		ifra.ifra_flags = iflr->flags & ~IFLR_PREFIX;
-		return in6_control(so, SIOCAIFADDR_IN6, (caddr_t)&ifra, ifp);
+		return in6_ioctl(SIOCAIFADDR_IN6, (caddr_t)&ifra, ifp,
+		    privileged);
 	    }
 	case SIOCGLIFADDR:
 	case SIOCDLIFADDR:
@@ -1196,8 +1151,8 @@ in6_lifaddr_ioctl(struct socket *so, u_long cmd, caddr_t data,
 			    ia6->ia_prefixmask.sin6_len);
 
 			ifra.ifra_flags = ia6->ia6_flags;
-			return in6_control(so, SIOCDIFADDR_IN6, (caddr_t)&ifra,
-			    ifp);
+			return in6_ioctl(SIOCDIFADDR_IN6, (caddr_t)&ifra, ifp,
+			    privileged);
 		}
 	    }
 	}
@@ -1223,8 +1178,6 @@ in6_ifinit(struct ifnet *ifp, struct in6_ifaddr *ia6, int newhost)
 	 * and to validate the address if necessary.
 	 */
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		ifacount++;
@@ -1314,7 +1267,7 @@ in6_addmulti(struct in6_addr *maddr6, struct ifnet *ifp, int *errorp)
 		memcpy(&ifr.ifr_addr, &in6m->in6m_sin, sizeof(in6m->in6m_sin));
 		*errorp = (*ifp->if_ioctl)(ifp, SIOCADDMULTI, (caddr_t)&ifr);
 		if (*errorp) {
-			free(in6m, M_IPMADDR, 0);
+			free(in6m, M_IPMADDR, sizeof(*in6m));
 			return (NULL);
 		}
 
@@ -1369,8 +1322,24 @@ in6_delmulti(struct in6_multi *in6m)
 		}
 		if_put(ifp);
 
-		free(in6m, M_IPMADDR, 0);
+		free(in6m, M_IPMADDR, sizeof(*in6m));
 	}
+}
+
+/*
+ * Return 1 if the multicast group represented by ``maddr6'' has been
+ * joined by interface ``ifp'', 0 otherwise.
+ */
+int
+in6_hasmulti(struct in6_addr *maddr6, struct ifnet *ifp)
+{
+	struct in6_multi *in6m;
+	int joined;
+
+	IN6_LOOKUP_MULTI(*maddr6, ifp, in6m);
+	joined = (in6m != NULL);
+
+	return (joined);
 }
 
 struct in6_multi_mship *
@@ -1386,7 +1355,7 @@ in6_joingroup(struct ifnet *ifp, struct in6_addr *addr, int *errorp)
 	imm->i6mm_maddr = in6_addmulti(addr, ifp, errorp);
 	if (!imm->i6mm_maddr) {
 		/* *errorp is alrady set */
-		free(imm, M_IPMADDR, 0);
+		free(imm, M_IPMADDR, sizeof(*imm));
 		return NULL;
 	}
 	return imm;
@@ -1398,7 +1367,7 @@ in6_leavegroup(struct in6_multi_mship *imm)
 
 	if (imm->i6mm_maddr)
 		in6_delmulti(imm->i6mm_maddr);
-	free(imm,  M_IPMADDR, 0);
+	free(imm,  M_IPMADDR, sizeof(*imm));
 	return 0;
 }
 
@@ -1411,8 +1380,6 @@ in6ifa_ifpforlinklocal(struct ifnet *ifp, int ignoreflags)
 	struct ifaddr *ifa;
 
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		if (IN6_IS_ADDR_LINKLOCAL(IFA_IN6(ifa))) {
@@ -1435,8 +1402,6 @@ in6ifa_ifpwithaddr(struct ifnet *ifp, struct in6_addr *addr)
 	struct ifaddr *ifa;
 
 	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr == NULL)
-			continue;	/* just for safety */
 		if (ifa->ifa_addr->sa_family != AF_INET6)
 			continue;
 		if (IN6_ARE_ADDR_EQUAL(addr, IFA_IN6(ifa)))

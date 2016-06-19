@@ -1,4 +1,4 @@
-/*	$OpenBSD: scores.c,v 1.13 2015/11/17 15:27:24 tedu Exp $	*/
+/*	$OpenBSD: scores.c,v 1.21 2016/06/10 15:37:09 tb Exp $	*/
 /*	$NetBSD: scores.c,v 1.2 1995/04/22 07:42:38 cgd Exp $	*/
 
 /*-
@@ -42,22 +42,18 @@
  *
  * Major whacks since then.
  */
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <errno.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <term.h>
 #include <unistd.h>
 
-#include "screen.h"
 #include "scores.h"
+#include "screen.h"
 #include "tetris.h"
 
 /*
@@ -94,8 +90,8 @@ static char *thisuser(void);
 static void
 getscores(FILE **fpp)
 {
-	int sd, mint, mask, i;
-	char *mstr, *human;
+	int sd, mint, i, ret;
+	char *mstr, *human, *home;
 	char scorepath[PATH_MAX];
 	FILE *sf;
 
@@ -109,9 +105,15 @@ getscores(FILE **fpp)
 		mstr = "r";
 		human = "reading";
 	}
-	if (!getenv("HOME"))
-		return;
-	snprintf(scorepath, sizeof(scorepath), "%s/%s", getenv("HOME"), ".tetris.scores");
+
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home, ".tetris.scores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".tetris.scores");
+
 	sd = open(scorepath, mint, 0666);
 	if (sd < 0) {
 		if (fpp == NULL) {
@@ -189,7 +191,8 @@ savescore(int level)
 		 * Sort & clean the scores, then rewrite.
 		 */
 		nscores = checkscores(scores, nscores);
-		rewind(sf);
+		if (fseek(sf, 0L, SEEK_SET) == -1)
+			err(1, "fseek");
 		if (fwrite(scores, sizeof(*sp), nscores, sf) != nscores ||
 		    fflush(sf) == EOF)
 			warnx("error writing scorefile: %s\n\t-- %s",
@@ -211,10 +214,13 @@ thisuser(void)
 
 	if (u[0])
 		return (u);
-	p = getlogin();
-	if (p == NULL || *p == '\0') {
+	p = getenv("LOGNAME");
+	if (p == NULL || *p == '\0')
+		p = getenv("USER");
+	if (p == NULL || *p == '\0')
+		p = getlogin();
+	if (p == NULL || *p == '\0')
 		p = "  ???";
-	}
 	strlcpy(u, p, sizeof(u));
 	return (u);
 }
@@ -258,7 +264,7 @@ static int
 checkscores(struct highscore *hs, int num)
 {
 	struct highscore *sp;
-	int i, j, k, numnames;
+	int i, j, k, nrnames;
 	int levelfound[NLEVELS];
 	struct peruser {
 		char *name;
@@ -275,21 +281,21 @@ checkscores(struct highscore *hs, int num)
 	qsort((void *)hs, nscores, sizeof(*hs), cmpscores);
 	for (i = MINLEVEL; i < NLEVELS; i++)
 		levelfound[i] = 0;
-	numnames = 0;
+	nrnames = 0;
 	for (i = 0, sp = hs; i < num;) {
 		/*
 		 * This is O(n^2), but do you think we care?
 		 */
-		for (j = 0, pu = count; j < numnames; j++, pu++)
+		for (j = 0, pu = count; j < nrnames; j++, pu++)
 			if (strcmp(sp->hs_name, pu->name) == 0)
 				break;
-		if (j == numnames) {
+		if (j == nrnames) {
 			/*
 			 * Add new user, set per-user count to 1.
 			 */
 			pu->name = sp->hs_name;
 			pu->times = 1;
-			numnames++;
+			nrnames++;
 		} else {
 			/*
 			 * Two ways to keep this score:

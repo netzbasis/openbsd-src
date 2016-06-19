@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-kill-server.c,v 1.14 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: cmd-kill-server.c,v 1.16 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,19 +30,25 @@
 enum cmd_retval	 cmd_kill_server_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_kill_server_entry = {
-	"kill-server", NULL,
-	"", 0, 0,
-	"",
-	0,
-	cmd_kill_server_exec
+	.name = "kill-server",
+	.alias = NULL,
+
+	.args = { "", 0, 0 },
+	.usage = "",
+
+	.flags = 0,
+	.exec = cmd_kill_server_exec
 };
 
 const struct cmd_entry cmd_start_server_entry = {
-	"start-server", "start",
-	"", 0, 0,
-	"",
-	CMD_STARTSERVER,
-	cmd_kill_server_exec
+	.name = "start-server",
+	.alias = "start",
+
+	.args = { "", 0, 0 },
+	.usage = "",
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_kill_server_exec
 };
 
 enum cmd_retval

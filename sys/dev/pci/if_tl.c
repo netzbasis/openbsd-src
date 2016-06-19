@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tl.c,v 1.66 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_tl.c,v 1.69 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998
@@ -197,7 +197,6 @@
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -1177,7 +1176,7 @@ tl_intvec_txeoc(void *xsc, u_int32_t type)
 	ifp->if_timer = 0;
 
 	if (sc->tl_cdata.tl_tx_head == NULL) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->tl_cdata.tl_tx_tail = NULL;
 		sc->tl_txeoc = 1;
 	} else {
@@ -1460,7 +1459,7 @@ tl_start(struct ifnet *ifp)
 	 * punt.
 	 */
 	if (sc->tl_cdata.tl_tx_free == NULL) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -1769,7 +1768,8 @@ tl_stop(struct tl_softc *sc)
 	}
 	bzero(&sc->tl_ldata->tl_tx_list, sizeof(sc->tl_ldata->tl_tx_list));
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 int
@@ -1964,7 +1964,6 @@ tl_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = tl_start;
 	ifp->if_watchdog = tl_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, TL_TX_LIST_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -2020,7 +2019,7 @@ tl_wait_up(void *xsc)
 	struct ifnet *ifp = &sc->arpcom.ac_if;
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 }
 
 struct cfattach tl_ca = {

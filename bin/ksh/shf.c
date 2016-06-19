@@ -1,4 +1,4 @@
-/*	$OpenBSD: shf.c,v 1.29 2015/11/12 04:04:31 mmcc Exp $	*/
+/*	$OpenBSD: shf.c,v 1.31 2016/03/20 00:01:21 krw Exp $	*/
 
 /*
  *  Shell file I/O routines
@@ -7,8 +7,12 @@
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -75,7 +79,7 @@ shf_fdopen(int fd, int sflags, struct shf *shf)
 
 	/* use fcntl() to figure out correct read/write flags */
 	if (sflags & SHF_GETFL) {
-		int flags = fcntl(fd, F_GETFL, 0);
+		int flags = fcntl(fd, F_GETFL);
 
 		if (flags < 0)
 			/* will get an error on first read/write */
@@ -132,7 +136,7 @@ shf_reopen(int fd, int sflags, struct shf *shf)
 
 	/* use fcntl() to figure out correct read/write flags */
 	if (sflags & SHF_GETFL) {
-		int flags = fcntl(fd, F_GETFL, 0);
+		int flags = fcntl(fd, F_GETFL);
 
 		if (flags < 0)
 			/* will get an error on first read/write */

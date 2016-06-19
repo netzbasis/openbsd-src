@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.c,v 1.60 2015/01/16 06:39:59 deraadt Exp $	*/
+/*	$OpenBSD: mount.c,v 1.64 2016/05/27 19:45:04 deraadt Exp $	*/
 /*	$NetBSD: mount.c,v 1.24 1995/11/18 03:34:29 cgd Exp $	*/
 
 /*
@@ -80,7 +80,6 @@ static struct opt {
 } optnames[] = {
 	{ MNT_ASYNC,		0,	"asynchronous",		"async" },
 	{ MNT_DEFEXPORTED,	1,	"exported to the world", "" },
-	{ MNT_EXKERB,		1,	"kerberos uid mapping",	"" },
 	{ MNT_EXPORTED,		0,	"NFS exported",		"" },
 	{ MNT_EXPORTANON,	1,	"anon uid mapping",	"" },
 	{ MNT_EXRDONLY,		1,	"exported read-only",	"" },
@@ -89,6 +88,7 @@ static struct opt {
 	{ MNT_NODEV,		0,	"nodev",		"nodev" },
 	{ MNT_NOEXEC,		0,	"noexec",		"noexec" },
 	{ MNT_NOSUID,		0,	"nosuid",		"nosuid" },
+	{ MNT_WXALLOWED,	0,	"wxallowed",		"wxallowed" },
 	{ MNT_QUOTA,		0,	"with quotas",		"" },
 	{ MNT_RDONLY,		0,	"read-only",		"ro" },
 	{ MNT_ROOTFS,		1,	"root file system",	"" },
@@ -107,6 +107,9 @@ main(int argc, char * const argv[])
 	pid_t pid;
 	int all, ch, forceall, i, mntsize, rval, new;
 	char *options, mntpath[PATH_MAX];
+
+	if (pledge("stdio rpath disklabel proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	all = forceall = 0;
 	options = NULL;
@@ -585,8 +588,6 @@ prmount(struct statfs *sf)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "long");
 		if (msdosfs_args->flags & MSDOSFSMNT_NOWIN95)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "nowin95");
-		if (msdosfs_args->flags & MSDOSFSMNT_ALLOWDIRX)
-			(void)printf("%s%s", !f++ ? " (" : ", ", "direxec");
 	} else if (strcmp(sf->f_fstypename, MOUNT_CD9660) == 0) {
 		struct iso_args *iso_args = &sf->mount_info.iso_args;
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.c,v 1.97 2015/11/01 03:42:56 jsg Exp $ */
+/* $OpenBSD: i915_drv.c,v 1.100 2016/04/08 08:27:53 kettenis Exp $ */
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -459,7 +459,6 @@ static struct drm_driver_info inteldrm_driver = {
 	.preclose = i915_driver_preclose,
 	.postclose = i915_driver_postclose,
 
-//	.gem_init_object	= i915_gem_init_object,
 	.gem_free_object	= i915_gem_free_object,
 	.gem_fault		= i915_gem_fault,
 	.gem_size		= sizeof(struct drm_i915_gem_object),
@@ -476,7 +475,9 @@ static struct drm_driver_info inteldrm_driver = {
 	.minor = DRIVER_MINOR,
 	.patchlevel = DRIVER_PATCHLEVEL,
 
-	.flags = DRIVER_HAVE_IRQ | DRIVER_GEM | DRIVER_MODESET,
+	.driver_features =
+	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_GEM |
+	    DRIVER_MODESET,
 };
 
 const struct intel_device_info *
@@ -1116,8 +1117,8 @@ inteldrm_show_screen(void *v, void *cookie, int waitok,
 
 	dev_priv->switchcb = cb;
 	dev_priv->switchcbarg = cbarg;
+	dev_priv->switchcookie = cookie;
 	if (cb) {
-		dev_priv->switchcookie = cookie;
 		task_add(systq, &dev_priv->switchtask);
 		return (EAGAIN);
 	}

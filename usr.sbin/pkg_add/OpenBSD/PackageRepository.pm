@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.114 2015/07/12 14:52:17 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.123 2016/04/25 10:53:13 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -123,6 +123,11 @@ sub parse
 	} elsif ($u =~ m/^pipe\:$/io) {
 		return $class->pipe->parse_fullurl($r, $state);
 	} else {
+		if ($$r =~ m/^([a-z0-9][a-z0-9.]+\.[a-z0-9.]+)(\:|$)/ 
+		    && !-d $1) {
+			$$r =~ s//http:\/\/$1\/%m$2/;
+			return $class->http->parse_fullurl($r, $state);
+		}
 		return $class->file->parse_fullurl($r, $state);
 	}
 }
@@ -572,18 +577,91 @@ our @ISA=qw(OpenBSD::PackageRepository::Distant);
 
 our %distant = ();
 
+sub drop_privileges_and_setup_env
+{
+	my $self = shift;
+	my $user = '_pkgfetch';
+	if ($< == 0) {
+		# we can't cache anything, we happen after the fork, 
+		# right before exec
+		if (my (undef, undef, $uid, $gid) = getpwnam($user)) {
+			$( = $gid;
+			$) = "$gid $gid";
+			$< = $uid;
+			$> = $uid;
+		} else {
+			$self->{state}->fatal("Couldn't change identity: can't find #1 user", $user);
+		}
+	} else {
+		($user) = getpwuid($<);
+	}
+	# create sanitized env for ftp
+	my %newenv = (
+		HOME => '/var/empty',
+		USER => $user,
+		LOGNAME => $user,
+		SHELL => '/bin/sh',
+		LC_ALL => 'C', # especially, laundry error messages
+		PATH => '/bin:/usr/bin'
+	    );
+
+	# copy selected stuff;
+	for my $k (qw(
+	    TERM
+	    FTPMODE 
+	    FTPSERVER
+	    FTPSERVERPORT
+	    ftp_proxy 
+	    http_proxy 
+	    http_cookies
+	    ALL_PROXY
+	    FTP_PROXY
+	    HTTPS_PROXY
+	    HTTP_PROXY
+	    NO_PROXY)) {
+	    	if (exists $ENV{$k}) {
+			$newenv{$k} = $ENV{$k};
+		}
+	}
+	# don't forget to swap!
+	%ENV = %newenv;
+}
+
 
 sub grab_object
 {
 	my ($self, $object) = @_;
 	my ($ftp, @extra) = split(/\s+/, OpenBSD::Paths->ftp);
-	$ENV{LC_ALL} = 'C';
+	$self->drop_privileges_and_setup_env;
 	exec {$ftp}
 	    $ftp,
 	    @extra,
 	    "-o",
 	    "-", $self->url($object->{name})
 	or $self->{state}->fatal("Can't run ".OpenBSD::Paths->ftp.": #1", $!);
+}
+
+sub open_read_ftp
+{
+	my ($self, $cmd, $errors) = @_;
+	my $child_pid = open(my $fh, '-|');
+	if ($child_pid) {
+		$self->{pipe_pid} = $child_pid;
+		return $fh;
+	} else {
+		open STDERR, '>', $errors if defined $errors;
+
+		$self->drop_privileges_and_setup_env;
+		exec($cmd) 
+		or $self->{state}->fatal("Can't run $cmd: #1", $!);
+	}
+}
+
+sub close_read_ftp
+{
+	my ($self, $fh) = @_;
+	close($fh);
+	waitpid $self->{pipe_pid}, 0;
 }
 
 sub maxcount
@@ -735,8 +813,8 @@ sub get_http_list
 
 	my $fullname = $self->url;
 	my $l = [];
-	open(my $fh, '-|', OpenBSD::Paths->ftp." -o - $fullname 2>$error")
-	    or return;
+	my $fh = $self->open_read_ftp(OpenBSD::Paths->ftp." -o - $fullname", 
+	    $error) or return;
 	while(<$fh>) {
 		chomp;
 		for my $pkg (m/\<A\s+HREF=\"(.*?\.tgz)\"\>/gio) {
@@ -746,7 +824,7 @@ sub get_http_list
 			$self->add_to_list($l, $pkg);
 		}
 	}
-	close($fh);
+	$self->close_read_ftp($fh);
 	return $l;
 }
 
@@ -782,9 +860,9 @@ sub urlscheme
 
 sub _list
 {
-	my ($self, $cmd) = @_;
+	my ($self, $cmd, $error) = @_;
 	my $l =[];
-	open(my $fh, '-|', "$cmd") or return;
+	my $fh = $self->open_read_ftp($cmd, $error) or return;
 	while(<$fh>) {
 		chomp;
 		next if m/^\d\d\d\s+\S/;
@@ -794,7 +872,7 @@ sub _list
 		next unless m/^(?:\.\/)?(\S+\.tgz)\s*$/;
 		$self->add_to_list($l, $1);
 	}
-	close($fh);
+	$self->close_read_ftp($fh);
 	return $l;
 }
 
@@ -804,7 +882,7 @@ sub get_ftp_list
 
 	my $fullname = $self->url;
 	return $self->_list("echo 'nlist'| ".OpenBSD::Paths->ftp
-	    ." $fullname 2>$error");
+	    ." $fullname", $error);
 }
 
 sub obtain_list

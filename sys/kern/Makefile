@@ -1,11 +1,11 @@
-#	$OpenBSD: Makefile,v 1.39 2015/07/21 04:14:48 jasper Exp $
+#	$OpenBSD: Makefile,v 1.44 2016/05/11 21:52:51 deraadt Exp $
 
 # Makefile for kernel tags files, init_sysent, etc.
 
-ARCH=	alpha amd64 armish armv7 aviion \
-	hppa hppa64 i386 landisk loongson \
+ARCH=	alpha amd64 armish armv7 \
+	hppa i386 landisk loongson \
 	luna88k macppc octeon sgi socppc \
-	solbourne sparc sparc64 vax zaurus
+	sparc sparc64 zaurus
 
 all:
 	@echo "Doing nothing.  Did you want make syscalls?"
@@ -28,9 +28,7 @@ SYSTAGS=/var/db/sys_tags
 SYSDIR=/sys
 
 # Directories in which to place tags links (other than machine-dependent)
-DGEN=	compat compat/common \
-	compat/linux \
-	conf \
+DGEN=	conf \
 	ddb \
 	dev dev/eisa dev/ic dev/isa dev/pci dev/pcmcia dev/cardbus \
 	dev/sun dev/tc \

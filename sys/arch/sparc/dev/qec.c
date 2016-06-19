@@ -1,4 +1,4 @@
-/*	$OpenBSD: qec.c,v 1.24 2015/03/30 20:30:22 miod Exp $	*/
+/*	$OpenBSD: qec.c,v 1.28 2016/03/07 00:11:11 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1998 Theo de Raadt and Jason L. Wright.
@@ -39,9 +39,6 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
-#include <net/if_types.h>
-#include <net/netisr.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -203,8 +200,7 @@ qec_fix_range(sc, sbp)
 	int rlen, i, j;
 
 	rlen = getproplen(sc->sc_node, "ranges");
-	sc->sc_range =
-		(struct rom_range *)malloc(rlen, M_DEVBUF, M_NOWAIT);
+	sc->sc_range = malloc(rlen, M_DEVBUF, M_NOWAIT);
 	if (sc->sc_range == NULL) {
 		printf(": PROM ranges too large: %d\n", rlen);
 		return EINVAL;

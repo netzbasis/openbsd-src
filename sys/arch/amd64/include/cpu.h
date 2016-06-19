@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.98 2015/11/13 07:52:20 mlarkin Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.101 2016/05/09 22:45:07 deraadt Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -54,7 +54,6 @@
 
 #ifdef _KERNEL
 
-#ifdef VMM
 /* VMXON region (Intel) */
 struct vmxon_region {
         uint32_t        vr_revision;
@@ -82,7 +81,6 @@ union vmm_cpu_cap {
 	struct vmx vcc_vmx;
 	struct svm vcc_svm;
 };
-#endif /* VMM */
 
 struct x86_64_tss;
 struct cpu_info {
@@ -177,7 +175,6 @@ struct cpu_info {
 #ifdef GPROF
 	struct gmonparam	*ci_gmon;
 #endif
-#ifdef VMM
 	u_int32_t	ci_vmm_flags;
 #define	CI_VMM_VMX	(1 << 0)
 #define	CI_VMM_SVM	(1 << 1)
@@ -186,7 +183,6 @@ struct cpu_info {
 	union		vmm_cpu_cap ci_vmm_cap;
 	paddr_t		ci_vmxon_region_pa;
 	struct vmxon_region *ci_vmxon_region;
-#endif /* VMM */
 };
 
 #define CPUF_BSP	0x0001		/* CPU is the original BSP */
@@ -301,11 +297,6 @@ extern struct cpu_info cpu_info_primary;
 #define CLKF_INTR(frame)	(curcpu()->ci_idepth > 1)
 
 /*
- * This is used during profiling to integrate system time.
- */
-#define	PROC_PC(p)		((p)->p_md.md_regs->tf_rip)
-
-/*
  * Give a profiling tick to the current process when the user profiling
  * buffer pages are invalid.  On the i386, request an ast to send us
  * through trap(), marking the proc as needing a profiling tick.
@@ -387,9 +378,6 @@ void	i8259_default_setup(void);
 
 void cpu_init_msrs(struct cpu_info *);
 
-
-/* trap.c */
-void	child_return(void *);
 
 /* dkcsum.c */
 void	dkcsumattach(void);

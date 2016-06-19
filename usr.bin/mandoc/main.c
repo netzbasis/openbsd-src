@@ -1,7 +1,7 @@
-/*	$OpenBSD: main.c,v 1.166 2015/11/20 21:58:32 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.172 2016/04/14 20:54:15 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2012, 2014-2016 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,6 +32,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "mandoc_aux.h"
@@ -112,10 +113,9 @@ main(int argc, char *argv[])
 	unsigned char	*uc;
 	struct manpage	*res, *resp;
 	char		*conf_file, *defpaths;
-	size_t		 isec, i, sz;
+	const char	*sec;
+	size_t		 i, sz;
 	int		 prio, best_prio;
-	char		 sec;
-	enum mandoclevel rctmp;
 	enum outmode	 outmode;
 	int		 fd;
 	int		 show_usage;
@@ -272,8 +272,9 @@ main(int argc, char *argv[])
 	    !isatty(STDOUT_FILENO))
 		use_pager = 0;
 
-	if (!use_pager && pledge("stdio rpath flock", NULL) == -1)
-		err((int)MANDOCLEVEL_SYSERR, "pledge");
+	if (!use_pager)
+		if (pledge("stdio rpath flock", NULL) == -1)
+			err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Parse arguments. */
 
@@ -350,7 +351,7 @@ main(int argc, char *argv[])
 
 		if (outmode == OUTMODE_ONE) {
 			argc = 1;
-			best_prio = 10;
+			best_prio = 20;
 		} else if (outmode == OUTMODE_ALL)
 			argc = (int)sz;
 
@@ -366,11 +367,13 @@ main(int argc, char *argv[])
 				    res[i].output);
 			else if (outmode == OUTMODE_ONE) {
 				/* Search for the best section. */
-				isec = strcspn(res[i].file, "123456789");
-				sec = res[i].file[isec];
-				if ('\0' == sec)
+				sec = res[i].file;
+				sec += strcspn(sec, "123456789");
+				if (sec[0] == '\0')
 					continue;
-				prio = sec_prios[sec - '1'];
+				prio = sec_prios[sec[0] - '1'];
+				if (sec[1] != '/')
+					prio += 10;
 				if (prio >= best_prio)
 					continue;
 				best_prio = prio;
@@ -390,9 +393,13 @@ main(int argc, char *argv[])
 
 	/* mandoc(1) */
 
-	if (pledge(use_pager ? "stdio rpath tmppath tty proc exec" :
-	    "stdio rpath", NULL) == -1)
-		err((int)MANDOCLEVEL_SYSERR, "pledge");
+	if (use_pager) {
+		if (pledge("stdio rpath tmppath tty proc exec", NULL) == -1)
+			err((int)MANDOCLEVEL_SYSERR, "pledge");
+	} else {
+		if (pledge("stdio rpath", NULL) == -1)
+			err((int)MANDOCLEVEL_SYSERR, "pledge");
+	}
 
 	if (search.argmode == ARG_FILE && ! moptions(&options, auxpaths))
 		return (int)MANDOCLEVEL_BADARG;
@@ -413,11 +420,7 @@ main(int argc, char *argv[])
 	}
 
 	while (argc > 0) {
-		rctmp = mparse_open(curp.mp, &fd,
-		    resp != NULL ? resp->file : *argv);
-		if (rc < rctmp)
-			rc = rctmp;
-
+		fd = mparse_open(curp.mp, resp != NULL ? resp->file : *argv);
 		if (fd != -1) {
 			if (use_pager) {
 				tag_files = tag_init();
@@ -436,7 +439,8 @@ main(int argc, char *argv[])
 
 			if (argc > 1 && curp.outtype <= OUTT_UTF8)
 				ascii_sepline(curp.outdata);
-		}
+		} else if (rc < MANDOCLEVEL_ERROR)
+			rc = MANDOCLEVEL_ERROR;
 
 		if (MANDOCLEVEL_OK != rc && curp.wstop)
 			break;
@@ -635,7 +639,7 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 	int argc, char **argv, struct manpage **res, size_t *ressz)
 {
 	const char *const sections[] =
-	    {"1", "8", "6", "2", "3", "3p", "5", "7", "4", "9"};
+	    {"1", "8", "6", "2", "3", "5", "7", "4", "9", "3p"};
 	const size_t nsec = sizeof(sections)/sizeof(sections[0]);
 
 	size_t		 ipath, isec, lastsz;
@@ -674,9 +678,11 @@ parse(struct curparse *curp, int fd, const char *file)
 	/* Begin by parsing the file itself. */
 
 	assert(file);
-	assert(fd >= -1);
+	assert(fd >= 0);
 
 	rctmp = mparse_readfd(curp->mp, fd, file);
+	if (fd != STDIN_FILENO)
+		close(fd);
 	if (rc < rctmp)
 		rc = rctmp;
 
@@ -970,6 +976,7 @@ mmsg(enum mandocerr t, enum mandoclevel lvl,
 static pid_t
 spawn_pager(struct tag_files *tag_files)
 {
+	const struct timespec timeout = { 0, 100000000 };  /* 0.1s */
 #define MAX_PAGER_ARGS 16
 	char		*argv[MAX_PAGER_ARGS];
 	const char	*pager;
@@ -1019,8 +1026,6 @@ spawn_pager(struct tag_files *tag_files)
 	case -1:
 		err((int)MANDOCLEVEL_SYSERR, "fork");
 	case 0:
-		/* Set pgrp in both parent and child to avoid racing exec. */
-		(void)setpgid(0, 0);
 		break;
 	default:
 		(void)setpgid(pager_pid, 0);
@@ -1037,6 +1042,12 @@ spawn_pager(struct tag_files *tag_files)
 		err((int)MANDOCLEVEL_SYSERR, "pager stdout");
 	close(tag_files->ofd);
 	close(tag_files->tfd);
+
+	/* Do not start the pager before controlling the terminal. */
+
+	while (tcgetpgrp(STDIN_FILENO) != getpid())
+		nanosleep(&timeout, NULL);
+
 	execvp(argv[0], argv);
 	err((int)MANDOCLEVEL_SYSERR, "exec %s", argv[0]);
 }

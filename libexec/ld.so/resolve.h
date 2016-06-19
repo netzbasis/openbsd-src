@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.h,v 1.74 2015/11/02 07:02:53 guenther Exp $ */
+/*	$OpenBSD: resolve.h,v 1.77 2016/05/07 19:05:23 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -143,9 +143,15 @@ struct elf_object {
 	dev_t	dev;
 	ino_t inode;
 
-	/* last symbol lookup on this object, to avoid mutiple searches */
-	int lastlookup_head;
-	int lastlookup;
+	/* thread local storage info */
+	Elf_Addr	tls_fsize;
+	Elf_Addr	tls_msize;
+	Elf_Addr	tls_align;
+	const void	*tls_static_data;
+	int		tls_offset;
+
+	/* generation number of last grpsym insert on this object */
+	unsigned int grpsym_gen;
 
 	char **rpath;
 
@@ -158,6 +164,15 @@ struct dep_node {
 	elf_object_t *data;
 };
 
+
+/* Please don't rename or make hidden; gdb(1) knows about these. */
+Elf_Addr _dl_bind(elf_object_t *object, int index);
+void	_dl_debug_state(void);
+
+/* exported to the application */
+extern char *__progname;
+
+__BEGIN_HIDDEN_DECLS
 void _dl_add_object(elf_object_t *object);
 elf_object_t *_dl_finalize_object(const char *objname, Elf_Dyn *dynp,
     Elf_Phdr *phdrp, int phdrc, const int objtype, const long lbase,
@@ -223,13 +238,9 @@ void _dl_unload_dlopen(void);
 
 void _dl_run_all_dtors(void);
 
-/* Please don't rename; gdb(1) knows about this. */
-Elf_Addr _dl_bind(elf_object_t *object, int index);
-
 int	_dl_match_file(struct sod *sodp, const char *name, int namelen);
 char	*_dl_find_shlib(struct sod *sodp, char **searchpath, int nohints);
 void	_dl_load_list_free(struct load_list *load_list);
-void	_dl_debug_state(void);
 
 void	_dl_thread_kern_go(void);
 void	_dl_thread_kern_stop(void);
@@ -241,12 +252,18 @@ void	_dl_trace_setup(char **);
 void	_dl_trace_object_setup(elf_object_t *);
 int	_dl_trace_plt(const elf_object_t *, const char *);
 
+/* tib.c */
+void	_dl_allocate_tls_offsets(void);
+void	_dl_allocate_first_tib(void);
+void	_dl_set_tls(elf_object_t *_object, Elf_Phdr *_ptls, Elf_Addr _libaddr,
+	    const char *_libname);
+extern int _dl_tib_static_done;
+
 extern elf_object_t *_dl_objects;
 extern elf_object_t *_dl_last_object;
 
 extern elf_object_t *_dl_loading_object;
 
-extern const char *_dl_progname;
 extern struct r_debug *_dl_debug_map;
 
 extern int  _dl_pagesz;
@@ -294,10 +311,6 @@ extern int _dl_symcachestat_hits;
 extern int _dl_symcachestat_lookups;
 TAILQ_HEAD(dlochld, dep_node);
 extern struct dlochld _dlopened_child_list;
-
-/* variables used to avoid duplicate node checking */
-extern int _dl_searchnum;
-extern uint32_t _dl_skipnum;
-void _dl_newsymsearch(void);
+__END_HIDDEN_DECLS
 
 #endif /* _RESOLVE_H_ */

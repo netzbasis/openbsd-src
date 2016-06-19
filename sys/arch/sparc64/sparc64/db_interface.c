@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.39 2015/08/28 23:28:39 kettenis Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.42 2016/03/14 23:08:05 krw Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.61 2001/07/31 06:55:47 eeh Exp $ */
 
 /*
@@ -256,15 +256,15 @@ kdb_kbd_trap(tf)
 {
 	if (db_active == 0 /* && (boothowto & RB_KDB) */) {
 		printf("\n\nkernel: keyboard interrupt tf=%p\n", tf);
-		kdb_trap(-1, tf);
+		db_ktrap(-1, tf);
 	}
 }
 
 /*
- *  kdb_trap - field a TRACE or BPT trap
+ *  db_ktrap - field a TRACE or BPT trap
  */
 int
-kdb_trap(type, tf)
+db_ktrap(type, tf)
 	int	type;
 	register struct trapframe64 *tf;
 {
@@ -590,7 +590,7 @@ db_write_bytes(addr, size, data)
 }
 
 void
-Debugger()
+Debugger(void)
 {
 	/* We use the breakpoint to trap into DDB */
 	asm("ta 1; nop");
@@ -1295,7 +1295,7 @@ struct db_command db_machine_command_table[] = {
 	{ "stopcpu",	db_stopproc_cmd,	0,	0 },
 	{ "ddbcpu",	db_ddbproc_cmd,		0,	0 },
 #endif
-	{ (char *)0, }
+	{ NULL, }
 };
 
 /*
@@ -1466,7 +1466,7 @@ db_inst_trap_return(inst)
 }
 
 void
-db_machine_init()
+db_machine_init(void)
 {
 	db_machine_commands_install(db_machine_command_table);
 }

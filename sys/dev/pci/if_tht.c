@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tht.c,v 1.135 2015/11/20 03:35:23 dlg Exp $ */
+/*	$OpenBSD: if_tht.c,v 1.139 2016/04/13 10:34:32 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -47,7 +47,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -499,7 +498,7 @@ struct tht_softc {
 
 int			tht_match(struct device *, void *, void *);
 void			tht_attach(struct device *, struct device *, void *);
-void			tht_mountroot(void *);
+void			tht_mountroot(struct device *);
 int			tht_intr(void *);
 
 struct cfattach tht_ca = {
@@ -784,7 +783,6 @@ tht_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_hardmtu = MCLBYTES - ETHER_HDR_LEN - ETHER_CRC_LEN; /* XXX */
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, 400);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifmedia_init(&sc->sc_media, 0, tht_media_change, tht_media_status);
 	ifmedia_add(&sc->sc_media, IFM_ETHER|IFM_AUTO, 0, NULL);
@@ -795,13 +793,13 @@ tht_attach(struct device *parent, struct device *self, void *aux)
 
 	printf(": address %s\n", ether_sprintf(sc->sc_ac.ac_enaddr));
 
-	mountroothook_establish(tht_mountroot, sc);
+	config_mountroot(self, tht_mountroot);
 }
 
 void
-tht_mountroot(void *arg)
+tht_mountroot(struct device *self)
 {
-	struct tht_softc		*sc = arg;
+	struct tht_softc		*sc = (struct tht_softc *)self;
 
 	if (tht_fifo_alloc(sc, &sc->sc_txt, &tht_txt_desc) != 0)
 		return;
@@ -968,7 +966,7 @@ tht_up(struct tht_softc *sc)
 	tht_iff(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	
 	/* enable interrupts */
 	sc->sc_imr = THT_IMR_UP(sc->sc_port);
@@ -1063,7 +1061,8 @@ tht_down(struct tht_softc *sc)
 		return;
 	}
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE | IFF_ALLMULTI);
+	ifp->if_flags &= ~(IFF_RUNNING | IFF_ALLMULTI);
+	ifq_clr_oactive(&ifp->if_snd);
 
 	while (tht_fifo_writable(sc, &sc->sc_txt) < sc->sc_txt.tf_len &&
 	    tht_fifo_readable(sc, &sc->sc_txf) > 0)
@@ -1098,7 +1097,7 @@ tht_start(struct ifnet *ifp)
 
 	if (!(ifp->if_flags & IFF_RUNNING))
 		return;
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 	if (IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
@@ -1118,7 +1117,7 @@ tht_start(struct ifnet *ifp)
 		pkt = tht_pkt_get(&sc->sc_tx_list);
 		if (pkt == NULL) {
 			ifq_deq_rollback(&ifp->if_snd, m);
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1234,7 +1233,7 @@ tht_txf(struct tht_softc *sc)
 
 	} while (sc->sc_txf.tf_ready >= sizeof(txf));
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	tht_fifo_post(sc, &sc->sc_txf);
 }

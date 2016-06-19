@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.24 2015/11/09 20:54:12 rpe Exp $
+#	$OpenBSD: install.md,v 1.28 2016/02/08 17:28:09 krw Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -48,9 +48,9 @@ md_prep_fdisk() {
 
 	while :; do
 		_d=whole
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr; then
 			fdisk $_disk
-			if fdisk $_disk | grep -q '^..: A6 '; then
+			if disk_has $_disk mbr openbsd; then
 				_q=", use the (O)penBSD area"
 				_d=OpenBSD
 			fi
@@ -59,12 +59,12 @@ md_prep_fdisk() {
 		fi
 		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			echo -n "Setting OpenBSD MBR partition to whole $_disk..."
 			fdisk -iy $_disk >/dev/null
 			echo "done."
 			return ;;
-		e*|E*)
+		[eE]*)
 			# Manually configure the MBR.
 			cat <<__EOT
 
@@ -76,9 +76,11 @@ must be marked as the only active partition.  Inside the fdisk command, the
 $(fdisk ${_disk})
 __EOT
 			fdisk -e ${_disk}
-			fdisk $_disk | grep -q ' A6 ' && return
+			disk_has $_disk mbr openbsd && return
 			echo No OpenBSD partition in MBR, try again. ;;
-		o*|O*)	return ;;
+		[oO]*)
+			[[ $_d == OpenBSD ]] || continue
+			return ;;
 		esac
 	done
 }
@@ -91,18 +93,8 @@ md_prep_disklabel() {
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD MBR
-partition. The disklabel defines how OpenBSD splits up the MBR partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD MBR partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-queue.c,v 1.29 2015/11/14 09:41:06 nicm Exp $ */
+/* $OpenBSD: cmd-queue.c,v 1.36 2016/04/29 14:05:24 nicm Exp $ */
 
 /*
- * Copyright (c) 2013 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2013 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,7 +25,7 @@
 
 #include "tmux.h"
 
-enum cmd_retval	cmdq_continue_one(struct cmd_q *);
+static enum cmd_retval	cmdq_continue_one(struct cmd_q *);
 
 /* Create new command queue. */
 struct cmd_q *
@@ -43,6 +43,9 @@ cmdq_new(struct client *c)
 	TAILQ_INIT(&cmdq->queue);
 	cmdq->item = NULL;
 	cmdq->cmd = NULL;
+
+	cmd_find_clear_state(&cmdq->current, NULL, 0);
+	cmdq->parent = NULL;
 
 	return (cmdq);
 }
@@ -179,36 +182,77 @@ cmdq_append(struct cmd_q *cmdq, struct cmd_list *cmdlist, struct mouse_event *m)
 }
 
 /* Process one command. */
-enum cmd_retval
+static enum cmd_retval
 cmdq_continue_one(struct cmd_q *cmdq)
 {
 	struct cmd	*cmd = cmdq->cmd;
+	const char	*name = cmd->entry->name;
+	struct session	*s;
+	struct hooks	*hooks;
 	enum cmd_retval	 retval;
-	char		 tmp[1024];
+	char		*tmp;
 	int		 flags = !!(cmd->flags & CMD_CONTROL);
 
-	cmd_print(cmd, tmp, sizeof tmp);
+	tmp = cmd_print(cmd);
 	log_debug("cmdq %p: %s", cmdq, tmp);
+	free(tmp);
 
 	cmdq->time = time(NULL);
 	cmdq->number++;
 
-	cmdq_guard(cmdq, "begin", flags);
+	if (~cmdq->flags & CMD_Q_REENTRY)
+		cmdq_guard(cmdq, "begin", flags);
+
+	if (cmd_prepare_state(cmd, cmdq, cmdq->parent) != 0)
+		goto error;
+
+	if (~cmdq->flags & CMD_Q_NOHOOKS) {
+		s = NULL;
+		if (cmdq->state.tflag.s != NULL)
+			s = cmdq->state.tflag.s;
+		else if (cmdq->state.sflag.s != NULL)
+			s = cmdq->state.sflag.s;
+		else if (cmdq->state.c != NULL)
+			s = cmdq->state.c->session;
+		if (s != NULL)
+			hooks = s->hooks;
+		else
+			hooks = global_hooks;
+
+		if (~cmdq->flags & CMD_Q_REENTRY) {
+			cmdq->flags |= CMD_Q_REENTRY;
+			if (hooks_wait(hooks, cmdq, NULL,
+			    "before-%s", name) == 0)
+				return (CMD_RETURN_WAIT);
+			if (cmd_prepare_state(cmd, cmdq, cmdq->parent) != 0)
+				goto error;
+		}
+	} else
+		hooks = NULL;
+	cmdq->flags &= ~CMD_Q_REENTRY;
 
 	retval = cmd->entry->exec(cmd, cmdq);
-
 	if (retval == CMD_RETURN_ERROR)
-		cmdq_guard(cmdq, "error", flags);
-	else
-		cmdq_guard(cmdq, "end", flags);
+		goto error;
+
+	if (hooks != NULL && hooks_wait(hooks, cmdq, NULL,
+	    "after-%s", name) == 0)
+		retval = CMD_RETURN_WAIT;
+	cmdq_guard(cmdq, "end", flags);
+
 	return (retval);
+
+error:
+	cmdq_guard(cmdq, "error", flags);
+	cmdq->flags &= ~CMD_Q_REENTRY;
+	return (CMD_RETURN_ERROR);
 }
 
 /* Continue processing command queue. Returns 1 if finishes empty. */
 int
 cmdq_continue(struct cmd_q *cmdq)
 {
-	struct client           *c = cmdq->client;
+	struct client		*c = cmdq->client;
 	struct cmd_q_item	*next;
 	enum cmd_retval		 retval;
 	int			 empty;
@@ -223,11 +267,18 @@ cmdq_continue(struct cmd_q *cmdq)
 	if (empty)
 		goto empty;
 
-	if (cmdq->item == NULL) {
-		cmdq->item = TAILQ_FIRST(&cmdq->queue);
-		cmdq->cmd = TAILQ_FIRST(&cmdq->item->cmdlist->list);
-	} else
-		cmdq->cmd = TAILQ_NEXT(cmdq->cmd, qentry);
+	/*
+	 * If the command isn't in the middle of running hooks (due to
+	 * CMD_RETURN_WAIT), move onto the next command; otherwise, leave the
+	 * state of the queue as it is.
+	 */
+	if (~cmdq->flags & CMD_Q_REENTRY) {
+		if (cmdq->item == NULL) {
+			cmdq->item = TAILQ_FIRST(&cmdq->queue);
+			cmdq->cmd = TAILQ_FIRST(&cmdq->item->cmdlist->list);
+		} else
+			cmdq->cmd = TAILQ_NEXT(cmdq->cmd, qentry);
+	}
 
 	do {
 		while (cmdq->cmd != NULL) {
@@ -280,3 +331,4 @@ cmdq_flush(struct cmd_q *cmdq)
 	}
 	cmdq->item = NULL;
 }
+

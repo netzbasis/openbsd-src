@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.44 2015/11/16 21:27:42 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.64 2016/06/05 22:41:41 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -23,7 +23,6 @@
 #include <sys/event.h>
 #include <sys/resource.h>
 #include <sys/time.h>
-#include <sys/signal.h>
 #include <sys/wait.h>
 
 #include <signal.h>
@@ -42,6 +41,7 @@ uint16_t randomid(void);
 
 static struct timespec now;
 static int debug;
+static int daemonized;
 
 struct dnspacket {
 	uint16_t id;
@@ -66,7 +66,6 @@ struct dnsrr {
  * until then, the request owns the entry and must free it.
  * after it's on the list, the request must not free it.
  */
-
 struct dnscache {
 	TAILQ_ENTRY(dnscache) fifo;
 	RB_ENTRY(dnscache) cachenode;
@@ -85,7 +84,7 @@ static int cachemax;
 static uint64_t cachehits;
 
 /*
- * requests are kept on both fifo and tree, but only after socket s is set.
+ * requests are kept on a fifo list, but only after socket s is set.
  */
 struct request {
 	int s;
@@ -95,14 +94,11 @@ struct request {
 	socklen_t fromlen;
 	struct timespec ts;
 	TAILQ_ENTRY(request) fifo;
-	RB_ENTRY(request) reqnode;
 	uint16_t clientid;
 	uint16_t reqid;
 	struct dnscache *cacheent;
 };
 static TAILQ_HEAD(, request) reqfifo;
-static RB_HEAD(reqtree, request) reqtree;
-RB_PROTOTYPE_STATIC(reqtree, request, reqnode, reqcmp)
 
 static int conncount;
 static int connmax;
@@ -114,14 +110,17 @@ logmsg(int prio, const char *msg, ...)
 {
 	va_list ap;
 
-	va_start(ap, msg);
-	if (debug) {
+	if (debug || !daemonized) {
+		va_start(ap, msg);
 		vfprintf(stderr, msg, ap);
 		fprintf(stderr, "\n");
-	} else {
-		vsyslog(LOG_DAEMON | prio, msg, ap);
+		va_end(ap);
 	}
-	va_end(ap);
+	if (!debug) {
+		va_start(ap, msg);
+		vsyslog(LOG_DAEMON | prio, msg, ap);
+		va_end(ap);
+	}
 }
 
 static void __dead
@@ -129,14 +128,18 @@ logerr(const char *msg, ...)
 {
 	va_list ap;
 
-	va_start(ap, msg);
-	if (debug) {
+	if (debug || !daemonized) {
+		va_start(ap, msg);
+		fprintf(stderr, "rebound: ");
 		vfprintf(stderr, msg, ap);
 		fprintf(stderr, "\n");
-	} else {
-		vsyslog(LOG_DAEMON | LOG_ERR, msg, ap);
+		va_end(ap);
 	}
-	va_end(ap);
+	if (!debug) {
+		va_start(ap, msg);
+		vsyslog(LOG_DAEMON | LOG_ERR, msg, ap);
+		va_end(ap);
+	}
 	exit(1);
 }
 
@@ -179,7 +182,6 @@ freerequest(struct request *req)
 		conncount -= 1;
 	if (req->s != -1) {
 		TAILQ_REMOVE(&reqfifo, req, fifo);
-		RB_REMOVE(reqtree, &reqtree, req);
 		close(req->s);
 	}
 	if (req->client != -1)
@@ -202,12 +204,16 @@ freecacheent(struct dnscache *ent)
 	free(ent);
 }
 
-static int
-reqcmp(struct request *r1, struct request *r2)
+static void
+servfail(int ud, uint16_t id, struct sockaddr *fromaddr, socklen_t fromlen)
 {
-	return (r1->s < r2->s ? -1 : r1->s > r2->s);
+	struct dnspacket pkt;
+
+	memset(&pkt, 0, sizeof(pkt));
+	pkt.id = id;
+	pkt.flags = htons(1 << 15 | 0x2);
+	sendto(ud, &pkt, sizeof(pkt), 0, fromaddr, fromlen);
 }
-RB_GENERATE_STATIC(reqtree, request, reqnode, reqcmp)
 
 static struct request *
 newrequest(int ud, struct sockaddr *remoteaddr)
@@ -270,10 +276,11 @@ newrequest(int ud, struct sockaddr *remoteaddr)
 		goto fail;
 
 	TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
-	RB_INSERT(reqtree, &reqtree, req);
 
 	if (connect(req->s, remoteaddr, remoteaddr->sa_len) == -1) {
 		logmsg(LOG_NOTICE, "failed to connect (%d)", errno);
+		if (errno == EADDRNOTAVAIL)
+			servfail(ud, req->clientid, &from, fromlen);
 		goto fail;
 	}
 	if (send(req->s, buf, r, 0) != r) {
@@ -348,31 +355,32 @@ static struct request *
 newtcprequest(int ld, struct sockaddr *remoteaddr)
 {
 	struct request *req;
+	int client;
 
-	if (!(req = calloc(1, sizeof(*req))))
+	client = accept(ld, NULL, 0);
+	if (client == -1) {
+		if (errno == ENFILE || errno == EMFILE)
+			stopaccepting = 1;
 		return NULL;
+	}
+
+	if (!(req = calloc(1, sizeof(*req)))) {
+		close(client);
+		return NULL;
+	}
 
 	conntotal += 1;
 	conncount += 2;
 	req->ts = now;
 	req->ts.tv_sec += 30;
 	req->tcp = 1;
-
-	req->s = -1;
-	req->fromlen = sizeof(req->from);
-	req->client = accept(ld, &req->from, &req->fromlen);
-	if (req->client == -1) {
-		if (errno == ENFILE || errno == EMFILE)
-			stopaccepting = 1;
-		goto fail;
-	}
+	req->client = client;
 
 	req->s = socket(remoteaddr->sa_family, SOCK_STREAM | SOCK_NONBLOCK, 0);
 	if (req->s == -1)
 		goto fail;
 
 	TAILQ_INSERT_TAIL(&reqfifo, req, fifo);
-	RB_INSERT(reqtree, &reqtree, req);
 
 	if (connect(req->s, remoteaddr, remoteaddr->sa_len) == -1) {
 		if (errno != EINPROGRESS)
@@ -416,28 +424,23 @@ readconfig(FILE *conf, struct sockaddr_storage *remoteaddr)
 }
 
 static int
-launch(const char *confname, int ud, int ld, int kq)
+launch(FILE *conf, int ud, int ld, int kq)
 {
 	struct sockaddr_storage remoteaddr;
 	struct kevent ch[2], kev[4];
 	struct timespec ts, *timeout = NULL;
-	struct request reqkey, *req;
+	struct request *req;
 	struct dnscache *ent;
 	struct passwd *pwd;
-	FILE *conf;
 	int i, r, af;
 	pid_t parent, child;
 
-	conf = fopen(confname, "r");
-	if (!conf) {
-		logmsg(LOG_ERR, "failed to open config %s", confname);
-		return -1;
-	}
-
 	parent = getpid();
 	if (!debug) {
-		if ((child = fork()))
+		if ((child = fork())) {
+			fclose(conf);
 			return child;
+		}
 		close(kq);
 	}
 
@@ -452,12 +455,15 @@ launch(const char *confname, int ud, int ld, int kq)
 		logerr("chdir failed (%d)", errno);
 
 	setproctitle("worker");
-	EV_SET(&kev[0], parent, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
-	kevent(kq, kev, 1, NULL, 0, NULL);
 	if (setgroups(1, &pwd->pw_gid) ||
 	    setresgid(pwd->pw_gid, pwd->pw_gid, pwd->pw_gid) ||
 	    setresuid(pwd->pw_uid, pwd->pw_uid, pwd->pw_uid))
 		logerr("failed to privdrop");
+
+	/* would need pledge(proc) to do this below */
+	EV_SET(&kev[0], parent, EVFILT_PROC, EV_ADD, NOTE_EXIT, 0, NULL);
+	if (kevent(kq, kev, 1, NULL, 0, NULL) == -1)
+		logerr("kevent1: %d", errno);
 
 	if (pledge("stdio inet", NULL) == -1)
 		logerr("pledge failed");
@@ -465,15 +471,14 @@ launch(const char *confname, int ud, int ld, int kq)
 	af = readconfig(conf, &remoteaddr);
 	fclose(conf);
 	if (af == -1)
-		logerr("failed to read config %s", confname);
+		logerr("parse error in config file");
 
 	EV_SET(&kev[0], ud, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[1], ld, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[2], SIGHUP, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[3], SIGUSR1, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
-	kevent(kq, kev, 4, NULL, 0, NULL);
-	signal(SIGUSR1, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);
+	if (kevent(kq, kev, 4, NULL, 0, NULL) == -1)
+		logerr("kevent4: %d", errno);
 	logmsg(LOG_INFO, "worker process going to work");
 	while (1) {
 		r = kevent(kq, NULL, 0, kev, 4, timeout);
@@ -505,44 +510,34 @@ launch(const char *confname, int ud, int ld, int kq)
 				logmsg(LOG_INFO, "parent died");
 				exit(0);
 			} else if (kev[i].filter == EVFILT_WRITE) {
-				reqkey.s = kev[i].ident;
-				req = RB_FIND(reqtree, &reqtree, &reqkey);
-				if (!req)
-					logerr("lost partial tcp request");
+				req = kev[i].udata;
 				req = tcpphasetwo(req);
 				if (req) {
 					EV_SET(&ch[0], req->s, EVFILT_WRITE,
 					    EV_DELETE, 0, 0, NULL);
 					EV_SET(&ch[1], req->s, EVFILT_READ,
-					    EV_ADD, 0, 0, NULL);
+					    EV_ADD, 0, 0, req);
 					kevent(kq, ch, 2, NULL, 0, NULL);
 				}
 			} else if (kev[i].filter != EVFILT_READ) {
 				logerr("don't know what happened");
 			} else if (kev[i].ident == ud) {
-				while ((req = newrequest(ud,
+				if ((req = newrequest(ud,
 				    (struct sockaddr *)&remoteaddr))) {
 					EV_SET(&ch[0], req->s, EVFILT_READ,
-					    EV_ADD, 0, 0, NULL);
+					    EV_ADD, 0, 0, req);
 					kevent(kq, ch, 1, NULL, 0, NULL);
-					if (conncount > connmax)
-						break;
 				}
 			} else if (kev[i].ident == ld) {
-				while ((req = newtcprequest(ld,
+				if ((req = newtcprequest(ld,
 				    (struct sockaddr *)&remoteaddr))) {
 					EV_SET(&ch[0], req->s,
 					    req->tcp == 1 ? EVFILT_WRITE :
-					    EVFILT_READ, EV_ADD, 0, 0, NULL);
+					    EVFILT_READ, EV_ADD, 0, 0, req);
 					kevent(kq, ch, 1, NULL, 0, NULL);
-					if (conncount > connmax)
-						break;
 				}
 			} else {
-				reqkey.s = kev[i].ident;
-				req = RB_FIND(reqtree, &reqtree, &reqkey);
-				if (!req)
-					logerr("lost request");
+				req = kev[i].udata;
 				if (req->tcp == 0)
 					sendreply(ud, req);
 				freerequest(req);
@@ -599,7 +594,7 @@ launch(const char *confname, int ud, int ld, int kq)
 static void __dead
 usage(void)
 {
-	fprintf(stderr, "usage: rebound [-c config]\n");
+	fprintf(stderr, "usage: rebound [-d] [-c config]\n");
 	exit(1);
 }
 
@@ -614,15 +609,13 @@ main(int argc, char **argv)
 	struct kevent kev;
 	struct rlimit rlim;
 	struct timespec ts, *timeout = NULL;
-	const char *conffile = "/etc/rebound.conf";
-
-	if (pledge("stdio inet proc id rpath", NULL) == -1)
-		logerr("pledge failed");
+	const char *confname = "/etc/rebound.conf";
+	FILE *conf;
 
 	while ((ch = getopt(argc, argv, "c:d")) != -1) {
 		switch (ch) {
 		case 'c':
-			conffile = optarg;
+			confname = optarg;
 			break;
 		case 'd':
 			debug = 1;
@@ -639,10 +632,10 @@ main(int argc, char **argv)
 		usage();
 
 	if (getrlimit(RLIMIT_NOFILE, &rlim) == -1)
-		err(1, "getrlimit");
+		logerr("getrlimit: %s", strerror(errno));
 	rlim.rlim_cur = rlim.rlim_max;
 	if (setrlimit(RLIMIT_NOFILE, &rlim) == -1)
-		err(1, "setrlimit");
+		logerr("setrlimit: %s", strerror(errno));
 	connmax = rlim.rlim_cur - 10;
 	if (connmax > 512)
 		connmax = 512;
@@ -652,12 +645,9 @@ main(int argc, char **argv)
 	tzset();
 	openlog("rebound", LOG_PID | LOG_NDELAY, LOG_DAEMON);
 
-	if (!debug)
-		daemon(0, 0);
-
-	RB_INIT(&reqtree);
 	TAILQ_INIT(&reqfifo);
 	TAILQ_INIT(&cachefifo);
+	RB_INIT(&cachetree);
 
 	memset(&bindaddr, 0, sizeof(bindaddr));
 	bindaddr.sin_len = sizeof(bindaddr);
@@ -665,37 +655,45 @@ main(int argc, char **argv)
 	bindaddr.sin_port = htons(53);
 	inet_aton("127.0.0.1", &bindaddr.sin_addr);
 
-	ud = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+	ud = socket(AF_INET, SOCK_DGRAM, 0);
 	if (ud == -1)
-		err(1, "socket");
+		logerr("socket: %s", strerror(errno));
 	if (bind(ud, (struct sockaddr *)&bindaddr, sizeof(bindaddr)) == -1)
-		err(1, "bind");
+		logerr("bind: %s", strerror(errno));
 
-	ld = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+	ld = socket(AF_INET, SOCK_STREAM, 0);
 	if (ld == -1)
-		err(1, "socket");
+		logerr("socket: %s", strerror(errno));
 	one = 1;
 	setsockopt(ld, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 	if (bind(ld, (struct sockaddr *)&bindaddr, sizeof(bindaddr)) == -1)
-		err(1, "bind");
+		logerr("bind: %s", strerror(errno));
 	if (listen(ld, 10) == -1)
-		err(1, "listen");
+		logerr("listen: %s", strerror(errno));
 
-	if (debug) {
-		launch(conffile, ud, ld, -1);
-		return 1;
-	}
+	conf = fopen(confname, "r");
+	if (!conf)
+		logerr("failed to open config %s", confname);
+
+	signal(SIGPIPE, SIG_IGN);
+	signal(SIGUSR1, SIG_IGN);
+	signal(SIGHUP, SIG_IGN);
+
+	if (debug)
+		return launch(conf, ud, ld, -1);
+
+	if (daemon(0, 0) == -1)
+		logerr("daemon: %s", strerror(errno));
+	daemonized = 1;
 
 	kq = kqueue();
 
 	EV_SET(&kev, SIGHUP, EVFILT_SIGNAL, EV_ADD, 0, 0, NULL);
 	kevent(kq, &kev, 1, NULL, 0, NULL);
-	signal(SIGUSR1, SIG_IGN);
-	signal(SIGHUP, SIG_IGN);
 	while (1) {
 		hupped = 0;
 		childdead = 0;
-		child = launch(conffile, ud, ld, kq);
+		child = launch(conf, ud, ld, kq);
 		if (child == -1)
 			logerr("failed to launch");
 
@@ -719,6 +717,10 @@ main(int argc, char **argv)
 				if (childdead)
 					break;
 				kill(child, SIGHUP);
+				conf = fopen(confname, "r");
+				if (!conf)
+					logerr("failed to open config %s",
+					    confname);
 			} else if (kev.filter == EVFILT_PROC) {
 				/* child died. wait for our own HUP. */
 				logmsg(LOG_INFO, "observed child exit");

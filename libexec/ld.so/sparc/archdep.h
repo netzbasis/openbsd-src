@@ -1,4 +1,4 @@
-/*	$OpenBSD: archdep.h,v 1.11 2015/07/03 11:15:55 miod Exp $ */
+/*	$OpenBSD: archdep.h,v 1.13 2016/05/18 20:40:20 deraadt Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -29,6 +29,8 @@
 #ifndef _SPARC_ARCHDEP_H_
 #define _SPARC_ARCHDEP_H_
 
+#define	RELOC_TAG	DT_RELA
+
 #define	DL_MALLOC_ALIGN	8	/* Arch constraint or otherwise */
 
 #define	MACHID	EM_SPARC	/* ELF e_machine ID value checked */
@@ -44,23 +46,14 @@
 #include "util.h"
 
 static inline void *
-_dl_mmap(void *addr, unsigned int len, unsigned int prot,
-	unsigned int flags, int fd, off_t offset)
+_dl_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
 	return((void *)_dl__syscall((quad_t)SYS_mmap, addr, len, prot,
-		flags, fd, 0, offset));
+	    flags, fd, 0, offset));
 }
 
 static inline void
-RELOC_REL(Elf_Rel *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v)
-{
-	/* SPARC does not use REL type relocations */
-	_dl_exit(20);
-}
-
-static inline void
-RELOC_RELA(Elf_RelA *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v,
-    Elf_Addr *pltgot)
+RELOC_DYN(Elf_RelA *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v)
 {
 	if (ELF_R_TYPE(r->r_info) == R_TYPE(NONE)) {
 	} else if (ELF_R_TYPE(r->r_info) == R_TYPE(RELATIVE)) {

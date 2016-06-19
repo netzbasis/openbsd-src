@@ -1,4 +1,4 @@
-/*	$OpenBSD: morse.c,v 1.17 2015/10/23 02:01:15 jsg Exp $	*/
+/*	$OpenBSD: morse.c,v 1.22 2016/03/07 12:07:56 mestre Exp $	*/
 
 /*
  * Copyright (c) 1988, 1993
@@ -30,11 +30,11 @@
  */
 
 #include <ctype.h>
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <err.h>
 
 static char
 	*digit[] = {
@@ -82,6 +82,7 @@ struct punc {
 	char c;
 	char *morse;
 } other[] = {
+	{ 'e', "..-.." },	/* accented e - only decodes */
 	{ ',', "--..--" },
 	{ '.', ".-.-.-" },
 	{ '?', "..--.." },
@@ -89,15 +90,32 @@ struct punc {
 	{ '-', "-....-" },
 	{ ':', "---..." },
 	{ ';', "-.-.-." },
-	{ '(', "-.--.-." },	/* When converting from Morse, can't tell */
-	{ ')', "-.--.-." },	/* '(' and ')' apart                      */
+	{ '(', "-.--." },	/* KN */
+	{ ')', "-.--.-" },
 	{ '"', ".-..-." },
 	{ '`', ".-..-." },
 	{ '\'', ".----." },
-	{ '+', ".-.-." },	/* AR */
-	{ '=', "-...-" },	/* BT */
-	{ '@', "...-.-" },	/* SK */
+	{ '+', ".-.-." },	/* AR \n\n\n */
+	{ '=', "-...-" },	/* BT \n\n */
+	{ '@', ".--.-." },
+	{ '\n', ".-.-" },	/* AA (will only decode) */
 	{ '\0', NULL }
+};
+
+struct prosign {
+	char *c;
+	char *morse;
+} ps[] = {
+	{ "<AS>", ".-..." },	/* wait */
+	{ "<CL>", "-.-..-.." },
+	{ "<CT>", "-.-.-" },	/* start */
+	{ "<EE5>", "......" },	/* error */
+	{ "<EE5>", "......." },
+	{ "<EE5>", "........" },
+	{ "<SK>", "...-.-" },
+	{ "<SN>", "...-." },	/* understood */
+	{ "<SOS>", "...---..." },
+	{ NULL, NULL }
 };
 
 void	morse(int);
@@ -124,10 +142,11 @@ main(int argc, char *argv[])
 		case 's':
 			sflag = 1;
 			break;
-		case '?': case 'h':
+		case 'h':
 		default:
-			fprintf(stderr, "usage: morse [-d | -s] [string ...]\n");
-			exit(1);
+			fprintf(stderr, "usage: %s [-d | -s] [string ...]\n",
+			    getprogname());
+			return 1;
 		}
 	argc -= optind;
 	argv += optind;
@@ -183,7 +202,7 @@ main(int argc, char *argv[])
 			morse(ch);
 		show("...-.-");	/* SK */
 	}
-	exit(0);
+	return 0;
 }
 
 void
@@ -229,6 +248,15 @@ decode(char *s)
 	while (other[i].c) {
 		if (strcmp(other[i].morse, s) == 0) {
 			putchar(other[i].c);
+			return;
+		}
+		i++;
+	}
+	i = 0;
+	while (ps[i].c) {
+		/* put whitespace around prosigns */
+		if (strcmp(ps[i].morse, s) == 0) {
+			printf(" %s ", ps[i].c);
 			return;
 		}
 		i++;

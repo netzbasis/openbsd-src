@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.55 2015/11/18 19:25:07 tedu Exp $	*/
+/*	$OpenBSD: init.c,v 1.59 2016/05/10 21:54:59 bluhm Exp $	*/
 /*	$NetBSD: init.c,v 1.22 1996/05/15 23:29:33 jtc Exp $	*/
 
 /*-
@@ -192,7 +192,7 @@ DB *session_db;
 int
 main(int argc, char *argv[])
 {
-	int c;
+	int c, fd;
 	struct sigaction sa;
 	sigset_t mask;
 
@@ -206,6 +206,17 @@ main(int argc, char *argv[])
 	if (getpid() != 1) {
 		(void)fprintf(stderr, "init: already running\n");
 		exit (1);
+	}
+
+	/*
+	 * Paranoia.
+	 */
+	if ((fd = open(_PATH_DEVNULL, O_RDWR, 0)) != -1) {
+		(void)dup2(fd, STDIN_FILENO);
+		(void)dup2(fd, STDOUT_FILENO);
+		(void)dup2(fd, STDERR_FILENO);
+		if (fd > 2)
+			(void)close(fd);
 	}
 
 	/*
@@ -268,13 +279,6 @@ main(int argc, char *argv[])
 	sa.sa_handler = SIG_IGN;
 	(void) sigaction(SIGTTIN, &sa, NULL);
 	(void) sigaction(SIGTTOU, &sa, NULL);
-
-	/*
-	 * Paranoia.
-	 */
-	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
 
 	/*
 	 * Start the state machine.
@@ -517,7 +521,7 @@ f_single_user(void)
 	struct passwd *pp;
 	static const char banner[] =
 		"Enter root password, or ^D to go multi-user\n";
-	char *clear, *password;
+	char *clear;
 #endif
 
 	/* Init shell and name */
@@ -694,8 +698,8 @@ f_runcom(void)
 
 		argv[0] = "sh";
 		argv[1] = _PATH_RUNCOM;
-		argv[2] = runcom_mode == AUTOBOOT ? "autoboot" : 0;
-		argv[3] = 0;
+		argv[2] = runcom_mode == AUTOBOOT ? "autoboot" : NULL;
+		argv[3] = NULL;
 
 		sigprocmask(SIG_SETMASK, &sa.sa_mask, NULL);
 
@@ -897,10 +901,10 @@ new_session(session_t *sprev, int session_index, struct ttyent *typ)
 		return (0);
 	}
 
-	sp->se_next = 0;
-	if (sprev == 0) {
+	sp->se_next = NULL;
+	if (sprev == NULL) {
 		sessions = sp;
-		sp->se_prev = 0;
+		sp->se_prev = NULL;
 	} else {
 		sprev->se_next = sp;
 		sp->se_prev = sprev;
@@ -925,12 +929,11 @@ setupargv(session_t *sp, struct ttyent *typ)
 	if (sp->se_getty_argv == 0) {
 		warning("can't parse getty for port %s", sp->se_device);
 		free(sp->se_getty);
-		sp->se_getty = 0;
+		sp->se_getty = NULL;
 		return (0);
 	}
 	if (typ->ty_window) {
-		if (sp->se_window)
-			free(sp->se_window);
+		free(sp->se_window);
 		sp->se_window = strdup(typ->ty_window);
 		if (sp->se_window == NULL) {
 			warning("can't allocate window");
@@ -968,7 +971,7 @@ f_read_ttys(void)
 		snext = sp->se_next;
 		free_session(sp);
 	}
-	sessions = 0;
+	sessions = NULL;
 	if (start_session_db())
 		return single_user;
 
@@ -1239,7 +1242,7 @@ f_clean_ttys(void)
 	while ((typ = getttyent())) {
 		++session_index;
 
-		for (sprev = 0, sp = sessions; sp; sprev = sp, sp = sp->se_next)
+		for (sprev = NULL, sp = sessions; sp; sprev = sp, sp = sp->se_next)
 			if (strcmp(typ->ty_name, sp->se_device + devlen) == 0)
 				break;
 

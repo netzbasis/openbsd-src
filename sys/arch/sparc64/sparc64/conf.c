@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.75 2015/10/23 15:10:53 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.77 2016/04/25 20:09:14 tedu Exp $	*/
 /*	$NetBSD: conf.c,v 1.17 2001/03/26 12:33:26 lukem Exp $ */
 
 /*
@@ -111,7 +111,6 @@ cdev_decl(pci);
 
 #include "ksyms.h"
 
-#include "systrace.h"
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
@@ -200,7 +199,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 47 */
 	cdev_notdef(),			/* 48 */
 	cdev_notdef(),			/* 49 */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 #ifdef USER_PCICONF
 	cdev_pci_init(NPCI,pci),	/* 52: PCI user */
@@ -446,17 +445,5 @@ int chrtoblktbl[] = {
 	/*108 */	NODEV,
 	/*109 */	NODEV,
 	/*110 */	8,
-	/*111 */	NODEV,
-	/*112 */	NODEV,
-	/*113 */	NODEV,
-	/*114 */	NODEV,
-	/*115 */	NODEV,
-	/*116 */	NODEV,
-	/*117 */	NODEV,
-	/*118 */	NODEV,
-	/*119 */	NODEV,
-	/*120 */	NODEV,
-	/*121 */	25,
-	/*122 */	NODEV,
 };
 int nchrtoblktbl = nitems(chrtoblktbl);

@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.216 2015/10/18 04:45:21 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.226 2016/05/14 16:14:40 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -39,7 +39,7 @@ stripcom() {
 }
 
 sm_error() {
-	(($#)) && echo "---- Error: $@"
+	(($#)) && echo "!!!! $@"
 	rm -rf ${_TMPROOT}
 	exit 1
 }
@@ -52,11 +52,11 @@ sm_trap() {
 trap "sm_trap" 1 2 3 13 15
 
 sm_info() {
-	(($#)) && echo "---- Info: $@" || true
+	(($#)) && echo "---- $@" || true
 }
 
 sm_warn() {
-	(($#)) && echo "---- Warning: $@" || true
+	(($#)) && echo "**** $@" || true
 }
 
 sm_extract_sets() {
@@ -186,6 +186,8 @@ sm_run() {
 		cp -fp /usr/share/sysmerge/*sum /var/sysmerge/ 2>/dev/null
 		rm -rf /usr/share/sysmerge
 	fi
+	# XXX remove after OPENBSD_6_1
+	rm -f /var/sysmerge/examplessum
 
 	sm_extract_sets
 	sm_add_user_grp
@@ -242,7 +244,6 @@ sm_run() {
 	# files we don't want/need to deal with
 	_ignorefiles="/etc/group
 		      /etc/localtime
-		      /etc/mail/aliases.db
 		      /etc/master.passwd
 		      /etc/motd
 		      /etc/passwd
@@ -258,10 +259,8 @@ sm_run() {
 		rm -f ./${_i}
 	done
 
-	# aliases(5) needs to be handled last in case mailer.conf(5) changes;
-	# examples are checked later, we don't want to handle examplessum
-	_c1=$(find . -type f -or -type l | \
-		grep -vE '^./(etc/mail/aliases|var/sysmerge/examplessum)$')
+	# aliases(5) needs to be handled last in case mailer.conf(5) changes
+	_c1=$(find . -type f -or -type l | grep -v '^./etc/mail/aliases$')
 	[[ -f ./etc/mail/aliases ]] && _c2="./etc/mail/aliases"
 	for COMPFILE in ${_c1} ${_c2}; do
 		IS_BIN=false
@@ -294,8 +293,6 @@ sm_run() {
 
 		sm_diff_loop
 	done
-
-	sm_check_an_eg
 }
 
 sm_install() {
@@ -339,8 +336,12 @@ sm_install() {
 		fi
 		;;
 	/etc/mail/aliases)
-		echo " (running newaliases(8))"
-		sm_warn $(newaliases 2>&1 >/dev/null)
+		if [[ -f /etc/mail/aliases.db ]]; then
+			echo " (running newaliases(8))"
+			sm_warn $(newaliases 2>&1 >/dev/null)
+		else
+			echo
+		fi
 		;;
 	*)
 		echo
@@ -367,10 +368,37 @@ sm_add_user_grp() {
 		if [[ ${_u} != root ]]; then
 			if ! grep -Eq "^${_u}:" /etc/master.passwd; then
 				echo "===> Adding the ${_u} user"
-				chpass -la "${_l}"
+				chpass -a "${_l}"
 			fi
 		fi
 	done <${_pw}
+}
+
+sm_warn_valid() {
+	# done as a separate function to print a warning with the
+	# filename above output from the check command
+	local _res
+
+	_res=$(eval $* 2>&1)
+	if [[ $? -ne 0 || -n ${_res} ]]; then
+	       sm_warn "${_file} appears to be invalid"
+	       echo "${_res}"
+	fi
+}
+
+sm_check_validity() {
+	local _file=$1.merged
+	local _fail
+
+	case $1 in
+	./etc/ssh/sshd_config)
+		sm_warn_valid sshd -f ${_file} -t ;;
+	./etc/pf.conf)
+		sm_warn_valid pfctl -nf ${_file} ;;
+	./etc/login.conf)
+		sm_warn_valid "cap_mkdb -f ${_TMPROOT}/login.conf.check ${_file} || true"
+		rm -f ${_TMPROOT}/login.conf.check.db ;;
+	esac
 }
 
 sm_merge_loop() {
@@ -393,6 +421,7 @@ sm_merge_loop() {
 			echo "  Use 'x' to delete the merged file and go back to previous menu"
 			echo "  Default is to leave the temporary file to deal with by hand"
 			echo
+			sm_check_validity ${COMPFILE}
 			echo -n "===> How should I deal with the merged file? [Leave it for later] "
 			read _instmerged
 			case ${_instmerged} in
@@ -558,25 +587,6 @@ sm_diff_loop() {
 	done
 }
 
-sm_check_an_eg() {
-	${PKGMODE} && return
-	local _egmods _i _managed
-
-	if [[ -f /var/sysmerge/examplessum ]]; then
-		_egmods=$(cd / && \
-			 sha256 -c /var/sysmerge/examplessum 2>/dev/null | \
-			 sed -n 's/^(SHA256) \(.*\): FAILED$/\1/p')
-	fi
-	for _i in ${_egmods}; do
-		_i=${_i##*/}
-		# only check files we care about
-		[[ -f /etc/${_i} ]] && \
-			sm_info "updated /etc/examples/${_i}, syntax may have changed"
-	done
-	mv ./var/sysmerge/examplessum \
-		/var/sysmerge/examplessum
-}
-
 sm_post() {
 	local _f
 
@@ -587,8 +597,8 @@ sm_post() {
 	if [[ -d ${_TMPROOT} ]]; then
 		for _f in $(find ${_TMPROOT} ! -type d ! -name \*.merged -size +0)
 		do
-			sm_info "${_f} left for comparison"
-			${BATCHMODE} && [[ -f ${_f} ]] && \
+			sm_info "${_f##*${_TMPROOT}} unhandled, re-run ${0##*/} to merge the new version"
+			! ${DIFFMODE} && [[ -f ${_f} ]] && \
 				sed -i "/$(sha256 -q ${_f})/d" /var/sysmerge/*sum
 		done
 	fi

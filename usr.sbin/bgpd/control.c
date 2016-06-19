@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.80 2015/10/25 18:49:01 claudio Exp $ */
+/*	$OpenBSD: control.c,v 1.82 2015/12/05 18:28:04 benno Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -219,7 +219,8 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 	if (!(pfd->revents & POLLIN))
 		return (0);
 
-	if ((n = imsg_read_nofd(&c->ibuf)) == -1 || n == 0) {
+	if (((n = imsg_read_nofd(&c->ibuf)) == -1 && errno != EAGAIN) ||
+	    n == 0) {
 		*ctl_cnt -= control_close(pfd->fd);
 		return (1);
 	}
@@ -370,7 +371,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 						    CTL_RES_BADSTATE);
 					else {
 						/*
-					 	 * Mark as deleted, will be
+						 * Mark as deleted, will be
 						 * collected on next poll loop.
 						 */
 						p->conf.reconf_action =
@@ -427,12 +428,12 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 					}
 					ribreq->peerid = p->conf.id;
 				}
-				if ((ribreq->flags & 
+				if ((ribreq->flags &
 				     (F_CTL_ADJ_OUT | F_CTL_ADJ_IN)) && !p) {
 					/*
 					 * both in and out tables are only
 					 * meaningful if used on a single
-                                         * peer.
+					 * peer.
 					 */
 					control_result(c, CTL_RES_NOSUCHPEER);
 					break;
@@ -529,14 +530,11 @@ imsg_read_nofd(struct imsgbuf *ibuf)
 	buf = ibuf->r.buf + ibuf->r.wpos;
 	len = sizeof(ibuf->r.buf) - ibuf->r.wpos;
 
- again:
-	if ((n = recv(ibuf->fd, buf, len, 0)) == -1) {
-		if (errno != EINTR && errno != EAGAIN)
-			goto fail;
-		goto again;
+	while ((n = recv(ibuf->fd, buf, len, 0)) == -1) {
+		if (errno != EINTR)
+			return (n);
 	}
 
-        ibuf->r.wpos += n;
- fail:
-        return (n);
+	ibuf->r.wpos += n;
+	return (n);
 }
