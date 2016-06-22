@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.650 2016/06/16 15:46:20 henning Exp $	*/
+/*	$OpenBSD: parse.y,v 1.652 2016/06/21 21:35:24 benno Exp $	*/
 
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -712,8 +712,16 @@ numberstring	: NUMBER				{
 		;
 
 varset		: STRING '=' varstring	{
+			char *s = $1;
 			if (pf->opts & PF_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				err(1, "cannot store variable %s", $1);
 			free($1);
@@ -1518,6 +1526,9 @@ pfrule		: action dir logquick interface af proto fromto
 			}
 			if ($8.marker & FOM_AFTO)
 				r.rule_flag |= PFRULE_AFTO;
+			if ($8.marker & FOM_AFTO && r.direction != PF_IN)
+				yyerror("af-to can only be used with direction in");
+				YYERROR;
 			r.af = $5;
 
 			if ($8.tag)
