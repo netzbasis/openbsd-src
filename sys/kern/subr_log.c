@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.46 2016/06/08 11:11:47 bluhm Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.48 2016/06/23 15:41:42 bluhm Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -155,6 +155,7 @@ msgbuf_putchar(struct msgbuf *mbp, const char c)
 	if (mbp->msg_bufr == mbp->msg_bufx) {
 		if (++mbp->msg_bufr >= mbp->msg_bufs)
 			mbp->msg_bufr = 0;
+		mbp->msg_bufd++;
 	}
 	splx(s);
 }
@@ -200,6 +201,19 @@ logread(dev_t dev, struct uio *uio, int flag)
 			goto out;
 	}
 	logsoftc.sc_state &= ~LOG_RDWAIT;
+
+	if (mbp->msg_bufd > 0) {
+		char buf[64];
+
+		l = snprintf(buf, sizeof(buf),
+		    "<%d>klog: dropped %ld byte%s, message buffer full\n",
+		    LOG_KERN|LOG_WARNING, mbp->msg_bufd,
+                    mbp->msg_bufd == 1 ? "" : "s");
+		error = uiomove(buf, ulmin(l, sizeof(buf) - 1), uio);
+		if (error)
+			goto out;
+		mbp->msg_bufd = 0;
+	}
 
 	while (uio->uio_resid > 0) {
 		if (mbp->msg_bufx >= mbp->msg_bufr)
@@ -363,30 +377,27 @@ sys_sendsyslog(struct proc *p, void *v, register_t *retval)
 		syscallarg(int) flags;
 	} */ *uap = v;
 	int error;
-#ifndef SMALL_KERNEL
 	static int dropped_count, orig_error;
-	int len;
-	char buf[64];
 
 	if (dropped_count) {
-		len = snprintf(buf, sizeof(buf),
+		size_t l;
+		char buf[64];
+
+		l = snprintf(buf, sizeof(buf),
 		    "<%d>sendsyslog: dropped %d message%s, error %d",
 		    LOG_KERN|LOG_WARNING, dropped_count,
 		    dropped_count == 1 ? "" : "s", orig_error);
-		error = dosendsyslog(p, buf, MIN((size_t)len, sizeof(buf) - 1),
+		error = dosendsyslog(p, buf, ulmin(l, sizeof(buf) - 1),
 		    0, UIO_SYSSPACE);
 		if (error == 0)
 			dropped_count = 0;
 	}
-#endif
 	error = dosendsyslog(p, SCARG(uap, buf), SCARG(uap, nbyte),
 	    SCARG(uap, flags), UIO_USERSPACE);
-#ifndef SMALL_KERNEL
 	if (error) {
 		dropped_count++;
 		orig_error = error;
 	}
-#endif
 	return (error);
 }
 
