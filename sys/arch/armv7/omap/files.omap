@@ -1,4 +1,4 @@
-#	$OpenBSD: files.omap,v 1.10 2016/06/19 14:27:35 jsg Exp $
+#	$OpenBSD: files.omap,v 1.13 2016/06/26 09:06:35 jsg Exp $
 
 define omap {}
 device omap: omap
@@ -14,7 +14,7 @@ attach ommmc at fdt
 file	arch/armv7/omap/ommmc.c			ommmc
 
 device cpsw: ether, ifnet, mii, ifmedia
-attach cpsw at omap
+attach cpsw at fdt
 file	arch/armv7/omap/if_cpsw.c		cpsw
 
 device prcm
@@ -31,7 +31,7 @@ attach omgpio at omap
 file	arch/armv7/omap/omgpio.c		omgpio
 
 device tiiic: i2cbus
-attach tiiic at omap
+attach tiiic at fdt
 file	arch/armv7/omap/ti_iic.c		tiiic
 
 device edma
@@ -55,7 +55,7 @@ attach omapid at omap
 file	arch/armv7/omap/omapid.c		omapid
 
 device omdog
-attach omdog at omap
+attach omdog at fdt
 file	arch/armv7/omap/omdog.c			omdog
 
 attach ohci at omap with omohci

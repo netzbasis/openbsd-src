@@ -1,4 +1,4 @@
-/*	$OpenBSD: ti_iic.c,v 1.2 2014/03/18 14:23:52 rapha Exp $	*/
+/*	$OpenBSD: ti_iic.c,v 1.5 2016/06/26 07:25:05 jsg Exp $	*/
 /* $NetBSD: ti_iic.c,v 1.4 2013/04/25 13:04:27 rkujawa Exp $ */
 
 /*
@@ -59,6 +59,7 @@
 
 #include <machine/bus.h>
 #include <machine/intr.h>
+#include <machine/fdt.h>
 
 #include <dev/i2c/i2cvar.h>
 
@@ -67,6 +68,8 @@
 #include <armv7/omap/sitara_cm.h>
 #include <armv7/omap/sitara_cmreg.h>
 #include <armv7/omap/ti_iicreg.h>
+
+#include <dev/ofw/openfirm.h>
 
 #ifndef AM335X_I2C_SLAVE_ADDR
 #define AM335X_I2C_SLAVE_ADDR	0x01
@@ -96,6 +99,7 @@ struct ti_iic_softc {
 	bus_space_handle_t	sc_ioh;
 
 	void			*sc_ih;
+	int			sc_node;
 	ti_i2cop_t		sc_op;
 	int			sc_buflen;
 	int			sc_bufidx;
@@ -117,66 +121,96 @@ struct ti_iic_softc {
 
 #define DEVNAME(sc)	((sc)->sc_dev.dv_xname)
 
-static void	ti_iic_attach(struct device *, struct device *, void *);
-static int	ti_iic_intr(void *);
+int	ti_iic_match(struct device *, void *, void *);
+void	ti_iic_attach(struct device *, struct device *, void *);
+int	ti_iic_intr(void *);
 
-static int	ti_iic_acquire_bus(void *, int);
-static void	ti_iic_release_bus(void *, int);
-static int	ti_iic_exec(void *, i2c_op_t, i2c_addr_t, const void *,
-		    size_t, void *, size_t, int);
+int	ti_iic_acquire_bus(void *, int);
+void	ti_iic_release_bus(void *, int);
+int	ti_iic_exec(void *, i2c_op_t, i2c_addr_t, const void *, size_t, void *,
+	    size_t, int);
+void	ti_iic_scan(struct device *, struct i2cbus_attach_args *, void *);
 
-static int	ti_iic_reset(struct ti_iic_softc *);
-static int	ti_iic_op(struct ti_iic_softc *, i2c_addr_t, ti_i2cop_t,
-		    uint8_t *, size_t, int);
-static void	ti_iic_handle_intr(struct ti_iic_softc *, uint32_t);
-static void	ti_iic_do_read(struct ti_iic_softc *, uint32_t);
-static void	ti_iic_do_write(struct ti_iic_softc *, uint32_t);
+int	ti_iic_reset(struct ti_iic_softc *);
+int	ti_iic_op(struct ti_iic_softc *, i2c_addr_t, ti_i2cop_t, uint8_t *,
+	    size_t, int);
+void	ti_iic_handle_intr(struct ti_iic_softc *, uint32_t);
+void	ti_iic_do_read(struct ti_iic_softc *, uint32_t);
+void	ti_iic_do_write(struct ti_iic_softc *, uint32_t);
 
-static int	ti_iic_wait(struct ti_iic_softc *, uint16_t, uint16_t, int);
-static uint32_t	ti_iic_stat(struct ti_iic_softc *, uint32_t);
-static int	ti_iic_flush(struct ti_iic_softc *);
+int	ti_iic_wait(struct ti_iic_softc *, uint16_t, uint16_t, int);
+uint32_t	ti_iic_stat(struct ti_iic_softc *, uint32_t);
+int	ti_iic_flush(struct ti_iic_softc *);
 
 struct cfattach tiiic_ca = {
-	sizeof (struct ti_iic_softc), NULL, ti_iic_attach
+	sizeof (struct ti_iic_softc), ti_iic_match, ti_iic_attach
 };
 
 struct cfdriver tiiic_cd = {
 	NULL, "tiiic", DV_DULL
 };
 
-static void
-ti_iic_attach(struct device *parent, struct device *self, void *args)
+int
+ti_iic_match(struct device *parent, void *match, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "ti,omap4-i2c");
+}
+
+void
+ti_iic_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct ti_iic_softc *sc = (struct ti_iic_softc *)self;
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
 	struct i2cbus_attach_args iba;
 	uint16_t rev;
 	const char *mode;
 	u_int state;
+	int irq, unit, len;
 	char buf[20];
+	char hwmods[128];
 	char *pin;
 	/* BBB specific pin names */
 	char *pins[6] = {"I2C0_SDA", "I2C0_SCL",
 			"SPIO_D1", "SPI0_CS0",
 			"UART1_CTSn", "UART1_RTSn"};
 
-	sc->sc_iot = aa->aa_iot;
+	if (faa->fa_nreg != 2 || (faa->fa_nintr != 1 && faa->fa_nintr != 3))
+		return;
+
+	sc->sc_iot = faa->fa_iot;
+	sc->sc_node = faa->fa_node;
+	
+	if (faa->fa_nintr == 1)
+		irq = faa->fa_intr[0];
+	else
+		irq = faa->fa_intr[1];
+
+	unit = 0;
+	if ((len = OF_getprop(faa->fa_node, "ti,hwmods", hwmods,
+	    sizeof(hwmods))) == 5) {
+		if (!strncmp(hwmods, "i2c", 3) &&
+		    (hwmods[3] > '0') && (hwmods[3] <= '9'))
+			unit = hwmods[3] - '1';
+	}
+
 	rw_init(&sc->sc_buslock, "tiiilk");
 
 	sc->sc_rxthres = sc->sc_txthres = 4;
 
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
-		panic("%s: bus_space_map failed!");
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
+	    faa->fa_reg[1], 0, &sc->sc_ioh))
+		panic("%s: bus_space_map failed!", DEVNAME(sc));
 
-	sc->sc_ih = arm_intr_establish(aa->aa_dev->irq[0], IPL_NET,
+	sc->sc_ih = arm_intr_establish(irq, IPL_NET,
 	    ti_iic_intr, sc, DEVNAME(sc));
 
-	prcm_enablemodule(PRCM_I2C0 + aa->aa_dev->unit);
+	prcm_enablemodule(PRCM_I2C0 + unit);
 
 	if (board_id == BOARD_ID_AM335X_BEAGLEBONE) {
-		pin = pins[aa->aa_dev->unit * 2];
-		snprintf(buf, sizeof buf, "I2C%d_SDA", aa->aa_dev->unit);
+		pin = pins[unit * 2];
+		snprintf(buf, sizeof buf, "I2C%d_SDA", unit);
 		if (sitara_cm_padconf_set(pin, buf,
 		    (0x01 << 4) | (0x01 << 5) | (0x01 << 6)) != 0) {
 			printf(": can't switch %s pad\n", buf);
@@ -186,8 +220,8 @@ ti_iic_attach(struct device *parent, struct device *self, void *args)
 			printf(": %s state %d ", mode, state);
 		}
 
-		pin = pins[aa->aa_dev->unit * 2 + 1];
-		snprintf(buf, sizeof buf, "I2C%d_SCL", aa->aa_dev->unit);
+		pin = pins[unit * 2 + 1];
+		snprintf(buf, sizeof buf, "I2C%d_SCL", unit);
 		if (sitara_cm_padconf_set(pin, buf,
 		    (0x01 << 4) | (0x01 << 5) | (0x01 << 6)) != 0) {
 			printf(": can't switch %s pad\n", buf);
@@ -214,10 +248,12 @@ ti_iic_attach(struct device *parent, struct device *self, void *args)
 	bzero(&iba, sizeof iba);
 	iba.iba_name = "iic";
 	iba.iba_tag = &sc->sc_ic;
+	iba.iba_bus_scan = ti_iic_scan;
+	iba.iba_bus_scan_arg = &sc->sc_node;
 	(void) config_found(&sc->sc_dev, &iba, iicbus_print);
 }
 
-static int
+int
 ti_iic_intr(void *arg)
 {
 	struct ti_iic_softc *sc = arg;
@@ -240,7 +276,7 @@ ti_iic_intr(void *arg)
 	return 1;
 }
 
-static int
+int
 ti_iic_acquire_bus(void *opaque, int flags)
 {
 	struct ti_iic_softc *sc = opaque;
@@ -251,7 +287,7 @@ ti_iic_acquire_bus(void *opaque, int flags)
 	return (rw_enter(&sc->sc_buslock, RW_WRITE));
 }
 
-static void
+void
 ti_iic_release_bus(void *opaque, int flags)
 {
 	struct ti_iic_softc *sc = opaque;
@@ -262,7 +298,7 @@ ti_iic_release_bus(void *opaque, int flags)
 	rw_exit(&sc->sc_buslock);
 }
 
-static int
+int
 ti_iic_exec(void *opaque, i2c_op_t op, i2c_addr_t addr,
     const void *cmdbuf, size_t cmdlen, void *buf, size_t len, int flags)
 {
@@ -304,7 +340,7 @@ done:
 	return err;
 }
 
-static int
+int
 ti_iic_reset(struct ti_iic_softc *sc)
 {
 	uint32_t psc, scll, sclh;
@@ -356,7 +392,7 @@ ti_iic_reset(struct ti_iic_softc *sc)
 	return 0;
 }
 
-static int
+int
 ti_iic_op(struct ti_iic_softc *sc, i2c_addr_t addr, ti_i2cop_t op,
     uint8_t *buf, size_t buflen, int flags)
 {
@@ -451,7 +487,7 @@ ti_iic_op(struct ti_iic_softc *sc, i2c_addr_t addr, ti_i2cop_t op,
 	return (sc->sc_op == TI_I2CDONE) ? 0 : EIO;
 }
 
-static void
+void
 ti_iic_handle_intr(struct ti_iic_softc *sc, uint32_t stat)
 {
 	KASSERT(stat != 0);
@@ -525,7 +561,7 @@ ti_iic_do_write(struct ti_iic_softc *sc, uint32_t stat)
 	DPRINTF(("ti_iic_do_write done\n"));
 }
 
-static int
+int
 ti_iic_wait(struct ti_iic_softc *sc, uint16_t mask, uint16_t val, int flags)
 {
 	int retry = 10;
@@ -549,7 +585,7 @@ ti_iic_wait(struct ti_iic_softc *sc, uint16_t mask, uint16_t val, int flags)
 	return 0;
 }
 
-static uint32_t
+uint32_t
 ti_iic_stat(struct ti_iic_softc *sc, uint32_t mask)
 {
 	uint32_t v;
@@ -565,7 +601,7 @@ ti_iic_stat(struct ti_iic_softc *sc, uint32_t mask)
 	return v;
 }
 
-static int
+int
 ti_iic_flush(struct ti_iic_softc *sc)
 {
 	DPRINTF(("ti_iic_flush\n"));
@@ -586,4 +622,36 @@ ti_iic_flush(struct ti_iic_softc *sc)
 
 	I2C_WRITE_REG(sc, AM335X_I2C_CNT, 0);
 	return 0;
+}
+
+void
+ti_iic_scan(struct device *self, struct i2cbus_attach_args *iba, void *aux)
+{
+	int iba_node = *(int *)aux;
+	extern int iic_print(void *, const char *);
+	struct i2c_attach_args ia;
+	char name[32];
+	uint32_t reg[1];
+	int node;
+
+	for (node = OF_child(iba_node); node; node = OF_peer(node)) {
+		memset(name, 0, sizeof(name));
+		memset(reg, 0, sizeof(reg));
+
+		if (OF_getprop(node, "compatible", name, sizeof(name)) == -1)
+			continue;
+		if (name[0] == '\0')
+			continue;
+
+		if (OF_getprop(node, "reg", &reg, sizeof(reg)) != sizeof(reg))
+			continue;
+
+		memset(&ia, 0, sizeof(ia));
+		ia.ia_tag = iba->iba_tag;
+		ia.ia_addr = bemtoh32(&reg[0]);
+		ia.ia_name = name;
+		ia.ia_cookie = &node;
+	
+		config_found(self, &ia, iic_print);
+	}
 }
