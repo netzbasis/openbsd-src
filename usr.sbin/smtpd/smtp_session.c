@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.278 2016/06/29 06:46:06 eric Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.280 2016/07/01 19:52:31 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -694,7 +694,7 @@ smtp_session(struct listener *listener, int sock,
 	rfc2822_body_callback(&s->tx->rfc2822_parser,
 	    dataline_callback, s);
 
-	if (hostname || listener->local || listener->port == 587) {
+	if (listener->local || listener->port == 587) {
 		rfc2822_missing_header_callback(&s->tx->rfc2822_parser, "date",
 		    header_missing_callback, s);
 		rfc2822_missing_header_callback(&s->tx->rfc2822_parser, "message-id",
@@ -1098,7 +1098,7 @@ smtp_filter_response(uint64_t id, int query, int status, uint32_t code,
 		smtp_reply(s, "250%c%s Hello %s [%s], pleased to meet you",
 		    (s->flags & SF_EHLO) ? '-' : ' ',
 		    s->smtpname,
-		    s->tx->evp.helo,
+		    s->helo,
 		    ss_to_text(&s->ss));
 
 		if (s->flags & SF_EHLO) {
@@ -1214,7 +1214,7 @@ smtp_filter_fd(uint64_t id, int fd)
 	iobuf_fqueue(&s->tx->obuf, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
 		iobuf_fqueue(&s->tx->obuf, "from %s (%s [%s])",
-		    s->tx->evp.helo,
+		    s->helo,
 		    s->hostname,
 		    ss_to_text(&s->ss));
 	}

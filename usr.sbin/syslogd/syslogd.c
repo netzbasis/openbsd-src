@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.205 2016/04/02 19:55:10 krw Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.207 2016/07/01 15:47:15 millert Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -1738,20 +1738,36 @@ fprintlog(struct filed *f, int flags, char *msg)
 		v->iov_base = "";
 		v->iov_len = 0;
 		v++;
-	} else {
+	} else if (f->f_lasttime[0] != '\0') {
 		v->iov_base = f->f_lasttime;
 		v->iov_len = 15;
 		v++;
 		v->iov_base = " ";
 		v->iov_len = 1;
 		v++;
+	} else {
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
 	}
-	v->iov_base = f->f_prevhost;
-	v->iov_len = strlen(v->iov_base);
-	v++;
-	v->iov_base = " ";
-	v->iov_len = 1;
-	v++;
+	if (f->f_prevhost[0] != '\0') {
+		v->iov_base = f->f_prevhost;
+		v->iov_len = strlen(v->iov_base);
+		v++;
+		v->iov_base = " ";
+		v->iov_len = 1;
+		v++;
+	} else {
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+	}
 
 	if (msg) {
 		v->iov_base = msg;
@@ -1897,7 +1913,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 				retryonce = 1;
 				if (f->f_file < 0) {
 					f->f_type = F_UNUSED;
-					logerrorx(f->f_un.f_fname);
+					logerror(f->f_un.f_fname);
 				} else
 					goto again;
 			} else if ((e == EPIPE || e == EBADF) &&
@@ -1906,7 +1922,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 				retryonce = 1;
 				if (f->f_file < 0) {
 					f->f_type = F_UNUSED;
-					logerrorx(f->f_un.f_fname);
+					logerror(f->f_un.f_fname);
 				} else
 					goto again;
 			} else {
@@ -1959,7 +1975,7 @@ wallmsg(struct filed *f, struct iovec *iov)
 	if (reenter++)
 		return;
 	if ((uf = priv_open_utmp()) == NULL) {
-		logerrorx(_PATH_UTMP);
+		logerror(_PATH_UTMP);
 		reenter = 0;
 		return;
 	}
@@ -2638,7 +2654,7 @@ cfline(char *line, char *progblock, char *hostblock)
 			f->f_file = priv_open_log(p);
 		if (f->f_file < 0) {
 			f->f_type = F_UNUSED;
-			logerrorx(p);
+			logerror(p);
 			break;
 		}
 		if (isatty(f->f_file)) {
