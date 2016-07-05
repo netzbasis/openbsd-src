@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.173 2016/03/09 16:28:47 deraadt Exp $
+#	$OpenBSD: bsd.own.mk,v 1.175 2016/07/04 18:01:44 guenther Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -14,8 +14,6 @@ WARNINGS?=	no
 SKEY?=		yes
 # Set `YP' to `yes' to build with support for NIS/YP.
 YP?=		yes
-# Set `DEBUGLIBS' to `yes' to build libraries with debugging symbols
-DEBUGLIBS?=	no
 
 GCC3_ARCH=m88k
 
@@ -44,10 +42,6 @@ NOPIE_FLAGS?=
 PIE_DEFAULT?=
 .endif
 .endfor
-
-.if ${COMPILER_VERSION} == "gcc4"
-VISIBILITY_HIDDEN?=-fvisibility=hidden
-.endif
 
 # where the system object and source trees are kept; can be configurable
 # by the user in case they want them in ~/foosrc and ~/fooobj, for example
