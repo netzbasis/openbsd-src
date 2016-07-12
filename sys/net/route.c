@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.309 2016/06/14 09:48:52 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.311 2016/07/11 13:06:31 bluhm Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -153,7 +153,7 @@ struct pool		rtentry_pool;	/* pool for rtentry structures */
 struct pool		rttimer_pool;	/* pool for rttimer structures */
 
 void	rt_timer_init(void);
-int	rt_setaddr(struct rtentry *, struct sockaddr *);
+void	rt_setgwroute(struct rtentry *, u_int);
 int	rtflushclone1(struct rtentry *, void *, u_int);
 void	rtflushclone(unsigned int, struct rtentry *);
 int	rt_if_remove_rtdelete(struct rtentry *, void *, u_int);
@@ -369,7 +369,7 @@ rtalloc(struct sockaddr *dst, int flags, unsigned int rtableid)
 struct rtentry *
 _rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
 {
-	struct rtentry *rt, *nhrt;
+	struct rtentry *rt;
 
 	rt = rt_match(dst, src, flags, rtableid);
 
@@ -380,6 +380,16 @@ _rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
 	/* Nothing to do if the next hop is valid. */
 	if (rtisvalid(rt->rt_gwroute))
 		return (rt);
+
+	rt_setgwroute(rt, rtableid);
+
+	return (rt);
+}
+
+void
+rt_setgwroute(struct rtentry *rt, u_int rtableid)
+{
+	struct rtentry *nhrt;
 
 	rtfree(rt->rt_gwroute);
 	rt->rt_gwroute = NULL;
@@ -392,10 +402,9 @@ _rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
 	 * this behavior.  But it is safe since rt_checkgate() wont
 	 * allow us to us this route later on.
 	 */
-	nhrt = rt_match(rt->rt_gateway, NULL, flags | RT_RESOLVE,
-	    rtable_l2(rtableid));
+	nhrt = rt_match(rt->rt_gateway, NULL, RT_RESOLVE, rtable_l2(rtableid));
 	if (nhrt == NULL)
-		return (rt);
+		return;
 
 	/*
 	 * Next hop must be reachable, this also prevents rtentry
@@ -403,13 +412,13 @@ _rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
 	 */
 	if (ISSET(nhrt->rt_flags, RTF_CLONING|RTF_GATEWAY)) {
 		rtfree(nhrt);
-		return (rt);
+		return;
 	}
 
 	/* Next hop entry must be UP and on the same interface. */
 	if (!ISSET(nhrt->rt_flags, RTF_UP) || nhrt->rt_ifidx != rt->rt_ifidx) {
 		rtfree(nhrt);
-		return (rt);
+		return;
 	}
 
 	/*
@@ -424,8 +433,6 @@ _rtalloc(struct sockaddr *dst, uint32_t *src, int flags, unsigned int rtableid)
 	 * do the magic for us.
 	 */
 	rt->rt_gwroute = nhrt;
-
-	return (rt);
 }
 
 void
@@ -460,7 +467,6 @@ rtfree(struct rtentry *rt)
 		if (rt->rt_flags & RTF_MPLS)
 			free(rt->rt_llinfo, M_TEMP, sizeof(struct rt_mpls));
 #endif
-		free(rt->rt_addr, M_RTABLE, ROUNDUP(rt->rt_addr->sa_len));
 		free(rt->rt_gateway, M_RTABLE, ROUNDUP(rt->rt_gateway->sa_len));
 		free(rt_key(rt), M_RTABLE, rt_key(rt)->sa_len);
 		KERNEL_UNLOCK();
@@ -486,7 +492,7 @@ rt_sendmsg(struct rtentry *rt, int cmd, u_int rtableid)
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp != NULL) {
 		info.rti_info[RTAX_IFP] = sdltosa(ifp->if_sadl);
-		info.rti_info[RTAX_IFA] = rt->rt_addr;
+		info.rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 	}
 
 	rt_missmsg(cmd, &info, rt->rt_flags, rt->rt_priority, rt->rt_ifidx, 0,
@@ -595,7 +601,7 @@ create:
 			flags |= RTF_MODIFIED;
 			prio = rt->rt_priority;
 			stat = &rtstat.rts_newgateway;
-			rt_setgate(rt, gateway);
+			rt_setgate(rt, gateway, rdomain);
 		}
 	} else
 		error = EHOSTUNREACH;
@@ -956,7 +962,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 			 * will get the new address and interface later.
 			 */
 			info->rti_ifa = NULL;
-			info->rti_info[RTAX_IFA] = rt->rt_addr;
+			info->rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 		}
 
 		info->rti_flags = rt->rt_flags | (RTF_CLONED|RTF_HOST);
@@ -1088,12 +1094,11 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 		 * the routing table because the radix MPATH code use
 		 * it to (re)order routes.
 		 */
-		if ((error = rt_setaddr(rt, ifa->ifa_addr)) ||
-		    (error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY]))) {
+		if ((error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY],
+		    tableid))) {
 			ifafree(ifa);
 			rtfree(rt->rt_parent);
 			rtfree(rt->rt_gwroute);
-			free(rt->rt_addr, M_RTABLE, 0);
 			free(rt->rt_gateway, M_RTABLE, 0);
 			free(ndst, M_RTABLE, dlen);
 			pool_put(&rtentry_pool, rt);
@@ -1124,7 +1129,6 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 			ifafree(ifa);
 			rtfree(rt->rt_parent);
 			rtfree(rt->rt_gwroute);
-			free(rt->rt_addr, M_RTABLE, 0);
 			free(rt->rt_gateway, M_RTABLE, 0);
 			free(ndst, M_RTABLE, dlen);
 			pool_put(&rtentry_pool, rt);
@@ -1151,25 +1155,7 @@ rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
 }
 
 int
-rt_setaddr(struct rtentry *rt, struct sockaddr *addr)
-{
-	int alen = ROUNDUP(addr->sa_len);
-	struct sockaddr *sa;
-
-	KASSERT(rt->rt_addr == NULL);
-
-	sa = malloc(alen, M_RTABLE, M_NOWAIT);
-	if (sa == NULL)
-		return (ENOBUFS);
-
-	memmove(sa, addr, alen);
-	rt->rt_addr = sa;
-
-	return (0);
-}
-
-int
-rt_setgate(struct rtentry *rt, struct sockaddr *gate)
+rt_setgate(struct rtentry *rt, struct sockaddr *gate, u_int rtableid)
 {
 	int glen = ROUNDUP(gate->sa_len);
 	struct sockaddr *sa;
@@ -1183,8 +1169,8 @@ rt_setgate(struct rtentry *rt, struct sockaddr *gate)
 	}
 	memmove(rt->rt_gateway, gate, glen);
 
-	rtfree(rt->rt_gwroute);
-	rt->rt_gwroute = NULL;
+	if (ISSET(rt->rt_flags, RTF_GATEWAY))
+		rt_setgwroute(rt, rtableid);
 
 	return (0);
 }

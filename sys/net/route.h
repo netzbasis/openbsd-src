@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.138 2016/06/14 09:48:52 mpi Exp $	*/
+/*	$OpenBSD: route.h,v 1.140 2016/07/11 13:06:31 bluhm Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -99,7 +99,6 @@ struct rtentry {
 	struct sockaddr	*rt_dest;	/* destination */
 	SRPL_ENTRY(rtentry) rt_next;	/* Next multipath entry to our dst. */
 #endif
-	struct sockaddr *rt_addr;	/* the answer: address to use */
 	struct sockaddr	*rt_gateway;	/* value */
 	struct ifaddr	*rt_ifa;	/* the answer: interface addr to use */
 	caddr_t		 rt_llinfo;	/* pointer to link level info cache or
@@ -363,7 +362,7 @@ struct sockaddr *rt_plen2mask(struct rtentry *, struct sockaddr_in6 *);
 void	 rt_sendmsg(struct rtentry *, int, u_int);
 void	 rt_sendaddrmsg(struct rtentry *, int, struct ifaddr *);
 void	 rt_missmsg(int, struct rt_addrinfo *, int, uint8_t, u_int, int, u_int);
-int	 rt_setgate(struct rtentry *, struct sockaddr *);
+int	 rt_setgate(struct rtentry *, struct sockaddr *, u_int);
 int	 rt_checkgate(struct rtentry *, struct rtentry **);
 void	 rt_setmetrics(u_long, const struct rt_metrics *, struct rt_kmetrics *);
 void	 rt_getmetrics(const struct rt_kmetrics *, struct rt_metrics *);
