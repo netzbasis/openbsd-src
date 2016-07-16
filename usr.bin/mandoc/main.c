@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.173 2016/07/08 22:27:58 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.176 2016/07/15 19:31:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014-2016 Ingo Schwarze <schwarze@openbsd.org>
@@ -75,6 +75,9 @@ struct	curparse {
 	struct manoutput *outopts;	/* output options */
 };
 
+
+int			  mandocdb(int, char *[]);
+
 static	int		  fs_lookup(const struct manpaths *,
 				size_t ipath, const char *,
 				const char *, const char *,
@@ -83,7 +86,6 @@ static	void		  fs_search(const struct mansearch *,
 				const struct manpaths *, int, char**,
 				struct manpage **, size_t *);
 static	int		  koptions(int *, char *);
-int			  mandocdb(int, char**);
 static	int		  moptions(int *, char *);
 static	void		  mmsg(enum mandocerr, enum mandoclevel,
 				const char *, int, int, const char *);
@@ -925,7 +927,7 @@ woptions(struct curparse *curp, char *arg)
 
 	while (*arg) {
 		o = arg;
-		switch (getsubopt(&arg, UNCONST(toks), &v)) {
+		switch (getsubopt(&arg, (char * const *)toks, &v)) {
 		case 0:
 			curp->wstop = 1;
 			break;

@@ -1,4 +1,4 @@
-/* $OpenBSD: environ.c,v 1.13 2016/05/26 12:15:42 nicm Exp $ */
+/* $OpenBSD: environ.c,v 1.15 2016/07/15 09:52:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -201,5 +201,19 @@ environ_push(struct environ *env)
 	RB_FOREACH(envent, environ, env) {
 		if (envent->value != NULL && *envent->name != '\0')
 			setenv(envent->name, envent->value, 1);
+	}
+}
+
+/* Log the environment. */
+void
+environ_log(struct environ *env, const char *prefix)
+{
+	struct environ_entry	*envent;
+
+	RB_FOREACH(envent, environ, env) {
+		if (envent->value != NULL && *envent->name != '\0') {
+			log_debug("%s%s=%s", prefix, envent->name,
+			    envent->value);
+		}
 	}
 }
