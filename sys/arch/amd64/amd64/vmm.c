@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.66 2016/07/13 06:57:35 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.68 2016/07/16 18:36:41 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -100,7 +100,6 @@ struct vmm_softc {
 
 int vmm_probe(struct device *, void *, void *);
 void vmm_attach(struct device *, struct device *, void *);
-int vmm_activate(struct device *, int);
 int vmmopen(dev_t, int, int, struct proc *);
 int vmmioctl(dev_t, u_long, caddr_t, int, struct proc *);
 int vmmclose(dev_t, int, int, struct proc *);
@@ -133,8 +132,7 @@ void vm_impl_deinit_vmx(struct vm *);
 void vm_impl_deinit_svm(struct vm *);
 void vm_teardown(struct vm *);
 int vcpu_vmx_check_cap(struct vcpu *, uint32_t, uint32_t, int);
-int vcpu_vmx_compute_ctrl(struct vcpu *, uint64_t, uint16_t, uint32_t,
-    uint32_t, uint32_t *);
+int vcpu_vmx_compute_ctrl(uint64_t, uint16_t, uint32_t, uint32_t, uint32_t *);
 int vmx_get_exit_info(uint64_t *, uint64_t *);
 int vmx_handle_exit(struct vcpu *);
 int vmx_handle_cpuid(struct vcpu *);
@@ -187,7 +185,7 @@ struct cfdriver vmm_cd = {
 };
 
 const struct cfattach vmm_ca = {
-	sizeof(struct vmm_softc), vmm_probe, vmm_attach, NULL, vmm_activate
+	sizeof(struct vmm_softc), vmm_probe, vmm_attach, NULL, NULL
 };
 
 /* Pools for VMs and VCPUs */
@@ -307,19 +305,6 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 	pool_setipl(&vcpu_pool, IPL_NONE);
 
 	vmm_softc = sc;
-}
-
-/*
- * vmm_activate
- *
- * Autoconf routine used during activate/deactivate.
- *
- * XXX need this for suspend/resume
- */
-int
-vmm_activate(struct device *self, int act)
-{
-	return 0;
 }
 
 /*
@@ -1193,8 +1178,7 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 		ctrlval = vcpu->vc_vmx_pinbased_ctls;
 	}
 
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &pinbased)) {
+	if (vcpu_vmx_compute_ctrl(ctrlval, ctrl, want1, want0, &pinbased)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -1243,8 +1227,7 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 		ctrlval = vcpu->vc_vmx_procbased_ctls;
 	}
 
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &procbased)) {
+	if (vcpu_vmx_compute_ctrl(ctrlval, ctrl, want1, want0, &procbased)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -1293,8 +1276,7 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 	ctrlval = vcpu->vc_vmx_procbased2_ctls;
 	ctrl = IA32_VMX_PROCBASED2_CTLS;
 
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0,
-	    &procbased2)) {
+	if (vcpu_vmx_compute_ctrl(ctrlval, ctrl, want1, want0, &procbased2)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -1324,7 +1306,7 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 		ctrlval = vcpu->vc_vmx_exit_ctls;
 	}
 
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &exit)) {
+	if (vcpu_vmx_compute_ctrl(ctrlval, ctrl, want1, want0, &exit)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -1359,7 +1341,7 @@ vcpu_reset_regs_vmx(struct vcpu *vcpu, struct vcpu_init_state *vis)
 		ctrlval = vcpu->vc_vmx_entry_ctls;
 	}
 
-	if (vcpu_vmx_compute_ctrl(vcpu, ctrlval, ctrl, want1, want0, &entry)) {
+	if (vcpu_vmx_compute_ctrl(ctrlval, ctrl, want1, want0, &entry)) {
 		ret = EINVAL;
 		goto exit;
 	}
@@ -2233,7 +2215,6 @@ vcpu_vmx_check_cap(struct vcpu *vcpu, uint32_t msr, uint32_t cap, int set)
  * are present on the CPU we're on.
  *
  * Parameters:
- *  vcpu: the vcpu for which controls are to be computed. (XXX now unused)
  *  ctrlval: the control value, as read from the CPU MSR
  *  ctrl: which control is being set (eg, pinbased, procbased, etc)
  *  want0: the set of desired 0 bits
@@ -2245,8 +2226,8 @@ vcpu_vmx_check_cap(struct vcpu *vcpu, uint32_t msr, uint32_t cap, int set)
  *     an unworkable control setup.
  */
 int
-vcpu_vmx_compute_ctrl(struct vcpu *vcpu, uint64_t ctrlval, uint16_t ctrl,
-    uint32_t want1, uint32_t want0, uint32_t *out)
+vcpu_vmx_compute_ctrl(uint64_t ctrlval, uint16_t ctrl, uint32_t want1,
+	uint32_t want0, uint32_t *out)
 {
 	int i, set, clear;
 
