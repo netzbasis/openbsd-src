@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.163 2016/07/14 14:39:12 mpi Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.167 2016/07/19 15:57:13 phessler Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -197,8 +197,7 @@ ip6_input(struct mbuf *m)
 #if NPF > 0
 	struct in6_addr odst;
 #endif
-	int srcrt = 0, isanycast = 0;
-	u_int rtableid = 0;
+	int srcrt = 0;
 
 	ifp = if_get(m->m_pkthdr.ph_ifidx);
 	if (ifp == NULL)
@@ -376,10 +375,12 @@ ip6_input(struct mbuf *m)
 		goto hbhcheck;
 	}
 
-	if (m->m_pkthdr.pf.flags & PF_TAG_DIVERTED) {
+#if NPF > 0
+	if (pf_ouraddr(m) == 1) {
 		ours = 1;
 		goto hbhcheck;
 	}
+#endif
 
 	/*
 	 * Multicast check
@@ -413,8 +414,6 @@ ip6_input(struct mbuf *m)
 		goto hbhcheck;
 	}
 
-	rtableid = m->m_pkthdr.ph_rtableid;
-
 	/*
 	 *  Unicast check
 	 */
@@ -422,7 +421,7 @@ ip6_input(struct mbuf *m)
 	    !ISSET(ip6_forward_rt.ro_rt->rt_flags, RTF_MPATH) &&
 	    IN6_ARE_ADDR_EQUAL(&ip6->ip6_dst,
 			       &ip6_forward_rt.ro_dst.sin6_addr) &&
-	    rtableid == ip6_forward_rt.ro_tableid)
+	    m->m_pkthdr.ph_rtableid == ip6_forward_rt.ro_tableid)
 		ip6stat.ip6s_forward_cachehit++;
 	else {
 		if (ip6_forward_rt.ro_rt) {
@@ -436,7 +435,7 @@ ip6_input(struct mbuf *m)
 		ip6_forward_rt.ro_dst.sin6_len = sizeof(struct sockaddr_in6);
 		ip6_forward_rt.ro_dst.sin6_family = AF_INET6;
 		ip6_forward_rt.ro_dst.sin6_addr = ip6->ip6_dst;
-		ip6_forward_rt.ro_tableid = rtableid;
+		ip6_forward_rt.ro_tableid = m->m_pkthdr.ph_rtableid;
 
 		ip6_forward_rt.ro_rt = rtalloc_mpath(
 		    sin6tosa(&ip6_forward_rt.ro_dst),
@@ -453,7 +452,7 @@ ip6_input(struct mbuf *m)
 		struct in6_ifaddr *ia6 =
 			ifatoia6(ip6_forward_rt.ro_rt->rt_ifa);
 		if (ia6->ia6_flags & IN6_IFF_ANYCAST)
-			isanycast = 1;
+			m->m_flags |= M_ACAST;
 		/*
 		 * packets to a tentative, duplicated, or somehow invalid
 		 * address must not be accepted.
@@ -555,7 +554,7 @@ ip6_input(struct mbuf *m)
 		}
 
 		/* draft-itojun-ipv6-tcp-to-anycast */
-		if (isanycast && nxt == IPPROTO_TCP) {
+		if (ISSET(m->m_flags, M_ACAST) && (nxt == IPPROTO_TCP)) {
 			if (m->m_len >= sizeof(struct ip6_hdr)) {
 				icmp6_error(m, ICMP6_DST_UNREACH,
 					ICMP6_DST_UNREACH_ADDR,

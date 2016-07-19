@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.431 2016/03/29 10:34:42 sashan Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.434 2016/07/19 13:30:51 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1381,18 +1381,6 @@ struct pf_queuespec {
 	u_int32_t			 parent_qid;
 };
 
-struct cbq_opts {
-	u_int		minburst;
-	u_int		maxburst;
-	u_int		pktsize;
-	u_int		maxpktsize;
-	u_int		ns_per_byte;
-	u_int		maxidle;
-	int		minidle;
-	u_int		offtime;
-	int		flags;
-};
-
 struct priq_opts {
 	int		flags;
 };
@@ -1667,15 +1655,18 @@ extern struct pf_queuehead		  pf_queues[2];
 extern struct pf_queuehead		 *pf_queues_active, *pf_queues_inactive;
 
 extern u_int32_t		 ticket_pabuf;
+extern struct pool		 pf_src_tree_pl, pf_sn_item_pl, pf_rule_pl;
+extern struct pool		 pf_state_pl, pf_state_key_pl, pf_state_item_pl,
+				    pf_rule_item_pl, pf_queue_pl;
+extern struct pool		 pf_state_scrub_pl;
+extern struct ifnet		*sync_ifp;
+extern struct pf_rule		 pf_default_rule;
+
 extern int			 pf_tbladdr_setup(struct pf_ruleset *,
 				    struct pf_addr_wrap *);
 extern void			 pf_tbladdr_remove(struct pf_addr_wrap *);
 extern void			 pf_tbladdr_copyout(struct pf_addr_wrap *);
 extern void			 pf_calc_skip_steps(struct pf_rulequeue *);
-extern struct pool		 pf_src_tree_pl, pf_sn_item_pl, pf_rule_pl;
-extern struct pool		 pf_state_pl, pf_state_key_pl, pf_state_item_pl,
-				    pf_rule_item_pl, pf_queue_pl;
-extern struct pool		 pf_state_scrub_pl;
 extern void			 pf_purge_thread(void *);
 extern void			 pf_purge_expired_src_nodes(int);
 extern void			 pf_purge_expired_states(u_int32_t);
@@ -1704,9 +1695,6 @@ extern void			 pf_state_export(struct pfsync_state *,
 				    struct pf_state *);
 extern void			 pf_print_state(struct pf_state *);
 extern void			 pf_print_flags(u_int8_t);
-
-extern struct ifnet		*sync_ifp;
-extern struct pf_rule		 pf_default_rule;
 extern void			 pf_addrcpy(struct pf_addr *, struct pf_addr *,
 				    sa_family_t);
 void				 pf_rm_rule(struct pf_rulequeue *,
@@ -1763,6 +1751,7 @@ int	pf_rtlabel_match(struct pf_addr *, sa_family_t, struct pf_addr_wrap *,
 	    int);
 int	pf_socket_lookup(struct pf_pdesc *);
 struct pf_state_key *pf_alloc_state_key(int);
+int	pf_ouraddr(struct mbuf *);
 void	pf_pkt_addr_changed(struct mbuf *);
 struct inpcb *pf_inp_lookup(struct mbuf *);
 void	pf_inp_link(struct mbuf *, struct inpcb *);

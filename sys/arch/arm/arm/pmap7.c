@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap7.c,v 1.25 2016/06/07 06:23:19 dlg Exp $	*/
+/*	$OpenBSD: pmap7.c,v 1.27 2016/07/19 02:26:15 tom Exp $	*/
 /*	$NetBSD: pmap.c,v 1.147 2004/01/18 13:03:50 scw Exp $	*/
 
 /*
@@ -710,13 +710,6 @@ pmap_free_l1(pmap_t pm)
 	vaddr_t va;
 	uint npg;
 
-{
-	u_int cur_ttb;
-
-	__asm volatile("mrc p15, 0, %0, c2, c0, 0" : "=r"(cur_ttb));
-	cur_ttb &= ~(L1_TABLE_SIZE - 1);
-
-}
 	pm->pm_l1 = NULL;
 	TAILQ_REMOVE(&l1_list, l1, l1_link);
 
@@ -1071,7 +1064,6 @@ pmap_clean_page(struct vm_page *pg, int isync)
 	pmap_t pm;
 	struct pv_entry *pv;
 	boolean_t wb = FALSE;
-	uint flags = 0;
 
 	/*
 	 * To save time, we are only walking the pv list if an I$ invalidation
@@ -1088,8 +1080,6 @@ pmap_clean_page(struct vm_page *pg, int isync)
 			if (pv->pv_pmap != pmap_kernel() && pv->pv_pmap != pm)
 				continue;
 
-			flags |= pv->pv_flags;
-
 			/*
 			 * The page is mapped non-cacheable in 
 			 * this map.  No need to flush the cache.
@@ -1097,7 +1087,7 @@ pmap_clean_page(struct vm_page *pg, int isync)
 			if (pv->pv_flags & PVF_NC) /* XXX ought to be pg attr */
 				break;
 
-			if (PV_BEEN_EXECD(flags))
+			if (PV_BEEN_EXECD(pv->pv_flags))
 				cpu_icache_sync_range(pv->pv_va, PAGE_SIZE);
 
 			/*
@@ -1144,7 +1134,6 @@ pmap_page_remove(struct vm_page *pg)
 	pmap_t pm, curpm;
 	pt_entry_t *ptep, pte;
 	boolean_t flush;
-	u_int flags;
 
 	NPDEBUG(PDB_FOLLOW,
 	    printf("pmap_page_remove: pg %p (0x%08lx)\n", pg, pg->phys_addr));
@@ -1154,7 +1143,6 @@ pmap_page_remove(struct vm_page *pg)
 		return;
 
 	flush = FALSE;
-	flags = 0;
 	if (curproc)
 		curpm = curproc->p_vmspace->vm_map.pmap;
 	else
@@ -1194,8 +1182,6 @@ pmap_page_remove(struct vm_page *pg)
 			/* Wired bit */
 			if (pv->pv_flags & PVF_WIRED)
 				--pm->pm_stats.wired_count;
-
-			flags |= pv->pv_flags;
 
 			/*
 			 * Invalidate the PTEs.
