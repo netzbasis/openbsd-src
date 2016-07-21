@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.h,v 1.1 2016/07/19 16:54:26 reyk Exp $	*/
+/*	$OpenBSD: switchd.h,v 1.5 2016/07/20 21:01:06 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -50,7 +50,7 @@ struct packet {
 
 struct macaddr {
 	uint8_t			 mac_addr[ETHER_ADDR_LEN];
-	long			 mac_port;
+	uint32_t			 mac_port;
 	time_t			 mac_age;
 	RB_ENTRY(macaddr)	 mac_entry;
 };
@@ -109,6 +109,7 @@ struct switchd {
 	unsigned int		 sc_cache_max;
 	unsigned int		 sc_cache_timeout;
 	char			 sc_conffile[PATH_MAX];
+	uint8_t			 sc_opts;
 	TAILQ_HEAD(, switch_device)
 				 sc_conns;
 };
@@ -122,6 +123,9 @@ struct ofp_callback {
 			    struct ibuf *);
 };
 
+#define SWITCHD_OPT_VERBOSE		0x01
+#define SWITCHD_OPT_NOACTION		0x04
+
 /* switchd.c */
 int		 switchd_socket(struct sockaddr *, int);
 int		 switchd_listen(struct sockaddr *);
@@ -130,8 +134,8 @@ int		 switchd_tap(void);
 int		 switchd_open_device(struct privsep *, const char *, size_t);
 
 /* packet.c */
-long		 packet_input(struct switchd *, struct switch_control *, long,
-		    struct ibuf *, size_t, struct packet *);
+uint32_t	 packet_input(struct switchd *, struct switch_control *,
+		    uint32_t, struct ibuf *, size_t, struct packet *);
 
 /* switch.c */
 void		 switch_init(struct switchd *);
@@ -143,7 +147,7 @@ void		 switch_remove(struct switchd *, struct switch_control *);
 struct switch_control
 		*switch_get(struct switch_connection *);
 struct macaddr	*switch_learn(struct switchd *, struct switch_control *,
-		    uint8_t *, long);
+		    uint8_t *, uint32_t);
 struct macaddr	*switch_cached(struct switch_control *, uint8_t *);
 RB_PROTOTYPE(switch_head, switch_control, sw_entry, switch_cmp);
 RB_PROTOTYPE(macaddr_head, macaddr, mac_entry, switch_maccmp);
@@ -182,9 +186,6 @@ void		 ofp_accept(int, short, void *);
 /* ofp10.c */
 int		 ofp10_hello(struct switchd *, struct switch_connection *,
 		    struct ofp_header *, struct ibuf *);
-void		 ofp10_debug_header(struct switchd *,
-		    struct sockaddr_storage *, struct sockaddr_storage *,
-		    struct ofp_header *);
 void		 ofp10_debug(struct switchd *,
 		    struct sockaddr_storage *, struct sockaddr_storage *,
 		    struct ofp_header *, struct ibuf *);
@@ -192,15 +193,12 @@ int		 ofp10_input(struct switchd *, struct switch_connection *,
 		    struct ofp_header *, struct ibuf *);
 
 /* ofp13.c */
-void		 ofp13_debug(struct switchd *,
-		    struct sockaddr_storage *, struct sockaddr_storage *,
-		    struct ofp_header *, struct ibuf *);
 int		 ofp13_input(struct switchd *, struct switch_connection *,
 		    struct ofp_header *, struct ibuf *);
 
 /* ofcconn.c */
-pid_t		 ofcconn_proc_init(struct privsep *, struct privsep_proc *);
-void		 ofcconn_proc_shutdown(void);
+pid_t		 ofcconn(struct privsep *, struct privsep_proc *);
+void		 ofcconn_shutdown(void);
 
 /* imsg_util.c */
 struct ibuf	*ibuf_new(void *, size_t);
