@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.h,v 1.5 2016/07/20 21:01:06 reyk Exp $	*/
+/*	$OpenBSD: switchd.h,v 1.7 2016/07/21 08:39:23 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -118,7 +118,7 @@ struct ofp_callback {
 	uint8_t		 cb_type;
 	int		(*cb)(struct switchd *, struct switch_connection *,
 			    struct ofp_header *, struct ibuf *);
-	int		(*debug)(struct switchd *, struct sockaddr_storage *,
+	int		(*validate)(struct switchd *, struct sockaddr_storage *,
 			    struct sockaddr_storage *, struct ofp_header *,
 			    struct ibuf *);
 };
@@ -134,8 +134,9 @@ int		 switchd_tap(void);
 int		 switchd_open_device(struct privsep *, const char *, size_t);
 
 /* packet.c */
-uint32_t	 packet_input(struct switchd *, struct switch_control *,
-		    uint32_t, struct ibuf *, size_t, struct packet *);
+int		 packet_input(struct switchd *, struct switch_control *,
+		    uint32_t, uint32_t *, struct ibuf *, size_t,
+		    struct packet *);
 
 /* switch.c */
 void		 switch_init(struct switchd *);
@@ -182,11 +183,14 @@ void		 ofp_read(int, short, void *);
 int		 ofp_send(struct switch_connection *, struct ofp_header *,
 		    struct ibuf *);
 void		 ofp_accept(int, short, void *);
+int		 ofp_validate_header(struct switchd *,
+		    struct sockaddr_storage *, struct sockaddr_storage *,
+		    struct ofp_header *, uint8_t);
 
 /* ofp10.c */
 int		 ofp10_hello(struct switchd *, struct switch_connection *,
 		    struct ofp_header *, struct ibuf *);
-void		 ofp10_debug(struct switchd *,
+int		 ofp10_validate(struct switchd *,
 		    struct sockaddr_storage *, struct sockaddr_storage *,
 		    struct ofp_header *, struct ibuf *);
 int		 ofp10_input(struct switchd *, struct switch_connection *,
