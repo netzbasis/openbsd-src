@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.217 2016/06/17 10:48:25 dlg Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.219 2016/07/30 16:43:44 kettenis Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -771,6 +771,9 @@ uvm_map_isavail(struct vm_map *map, struct uvm_addr_state *uaddr,
 	struct uvm_map_addr *atree;
 	struct vm_map_entry *i, *i_end;
 
+	if (addr + sz < addr)
+		return 0;
+
 	/*
 	 * Kernel memory above uvm_maxkaddr is considered unavailable.
 	 */
@@ -1033,6 +1036,12 @@ uvm_mapanon(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 			goto unlock;
 	}
 
+	/* Double-check if selected address doesn't cause overflow. */
+	if (*addr + sz < *addr) {
+		error = ENOMEM;
+		goto unlock;
+	}
+
 	/* If we only want a query, return now. */
 	if (flags & UVM_FLAG_QUERY) {
 		error = 0;
@@ -1274,6 +1283,12 @@ uvm_map(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 
 		if (error != 0)
 			goto unlock;
+	}
+
+	/* Double-check if selected address doesn't cause overflow. */
+	if (*addr + sz < *addr) {
+		error = ENOMEM;
+		goto unlock;
 	}
 
 	KASSERT((map->flags & VM_MAP_ISVMSPACE) == VM_MAP_ISVMSPACE ||

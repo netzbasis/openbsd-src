@@ -1,4 +1,4 @@
-/*	$OpenBSD: ndp.c,v 1.71 2016/04/05 18:09:30 jca Exp $	*/
+/*	$OpenBSD: ndp.c,v 1.74 2016/07/31 19:23:24 jca Exp $	*/
 /*	$KAME: ndp.c,v 1.101 2002/07/17 08:46:33 itojun Exp $	*/
 
 /*
@@ -116,7 +116,7 @@ static pid_t pid;
 static int nflag;
 static int tflag;
 static int32_t thiszone;	/* time difference with gmt */
-static int s = -1;
+static int rtsock = -1;
 static int repeat = 0;
 
 char ntop_buf[INET6_ADDRSTRLEN];	/* inet_ntop() */
@@ -139,11 +139,9 @@ void ifinfo(char *, int, char **);
 void rtrlist(void);
 void plist(void);
 void pfx_flush(void);
-void rtrlist(void);
 void rtr_flush(void);
 void harmonize_rtr(void);
 static char *sec2str(time_t);
-static char *ether_str(struct sockaddr_dl *);
 static void ts_print(const struct timeval *);
 static int rdomain = 0;
 
@@ -154,13 +152,12 @@ static char *rtpref_str[] = {
 	"low"			/* 11 */
 };
 
-int mode = 0;
-char *arg = NULL;
-
 int
 main(int argc, char *argv[])
 {
 	int		 ch;
+	int		 mode = 0;
+	char		*arg = NULL;
 	const char	*errstr;
 
 	pid = getpid();
@@ -337,9 +334,9 @@ file(char *name)
 void
 getsocket(void)
 {
-	if (s < 0) {
-		s = socket(PF_ROUTE, SOCK_RAW, 0);
-		if (s < 0) {
+	if (rtsock < 0) {
+		rtsock = socket(PF_ROUTE, SOCK_RAW, 0);
+		if (rtsock < 0) {
 			err(1, "socket");
 			/* NOTREACHED */
 		}
@@ -860,14 +857,14 @@ doit:
 	l = rtm->rtm_msglen;
 	rtm->rtm_seq = ++seq;
 	rtm->rtm_type = cmd;
-	if ((rlen = write(s, (char *)&m_rtmsg, l)) < 0) {
+	if ((rlen = write(rtsock, (char *)&m_rtmsg, l)) < 0) {
 		if (errno != ESRCH || cmd != RTM_DELETE) {
 			err(1, "writing to routing socket");
 			/* NOTREACHED */
 		}
 	}
 	do {
-		l = read(s, (char *)&m_rtmsg, sizeof(m_rtmsg));
+		l = read(rtsock, (char *)&m_rtmsg, sizeof(m_rtmsg));
 	} while (l > 0 && (rtm->rtm_version != RTM_VERSION ||
 	    rtm->rtm_seq != seq || rtm->rtm_pid != pid));
 	if (l < 0)
