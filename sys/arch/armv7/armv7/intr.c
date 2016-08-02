@@ -1,4 +1,4 @@
-/* $OpenBSD: intr.c,v 1.5 2016/04/03 10:29:41 jsg Exp $ */
+/* $OpenBSD: intr.c,v 1.7 2016/08/01 21:08:20 kettenis Exp $ */
 /*
  * Copyright (c) 2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -19,11 +19,14 @@
 #include <sys/systm.h>
 #include <sys/param.h>
 #include <sys/timetc.h>
+#include <sys/malloc.h>
 
 #include <dev/clock_subr.h>
 #include <arm/cpufunc.h>
 #include <machine/cpu.h>
 #include <machine/intr.h>
+
+#include <dev/ofw/openfirm.h>
 
 int arm_dflt_splraise(int);
 int arm_dflt_spllower(int);
@@ -37,6 +40,7 @@ const char *arm_dflt_intr_string(void *cookie);
 void arm_dflt_intr(void *);
 void arm_intr(void *);
 
+uint32_t arm_intr_get_parent(int);
 
 #define SI_TO_IRQBIT(x) (1 << (x))
 uint32_t arm_smask[NIPL];
@@ -78,6 +82,109 @@ void arm_intr_disestablish(void *cookie)
 const char *arm_intr_string(void *cookie)
 {
 	return arm_intr_func.intr_string(cookie);
+}
+
+/*
+ * Find the interrupt parent by walking up the tree.
+ */
+uint32_t
+arm_intr_get_parent(int node)
+{
+	uint32_t phandle = 0;
+
+	while (node && !phandle) {
+		phandle = OF_getpropint(node, "interrupt-parent", 0);
+		node = OF_parent(node);
+	}
+
+	return phandle;
+}
+
+LIST_HEAD(, interrupt_controller) interrupt_controllers =
+	LIST_HEAD_INITIALIZER(interrupt_controllers);
+
+void
+arm_intr_register_fdt(struct interrupt_controller *ic)
+{
+	ic->ic_cells = OF_getpropint(ic->ic_node, "#interrupt-cells", 0);
+	ic->ic_phandle = OF_getpropint(ic->ic_node, "phandle", 0);
+	if (ic->ic_cells == 0 || ic->ic_phandle == 0)
+		return;
+
+	LIST_INSERT_HEAD(&interrupt_controllers, ic, ic_list);
+}
+
+void *
+arm_intr_establish_fdt(int node, int level, int (*func)(void *),
+    void *cookie, char *name)
+{
+	return arm_intr_establish_fdt_idx(node, 0, level, func, cookie, name);
+}
+
+void *
+arm_intr_establish_fdt_idx(int node, int idx, int level, int (*func)(void *),
+    void *cookie, char *name)
+{
+	struct interrupt_controller *ic;
+	int i, len, ncells, extended = 1;
+	uint32_t *cell, *cells, phandle;
+	void *val = NULL;
+
+	len = OF_getproplen(node, "interrupts-extended");
+	if (len <= 0) {
+		len = OF_getproplen(node, "interrupts");
+		extended = 0;
+	}
+	if (len <= 0 || (len % sizeof(uint32_t) != 0))
+		return NULL;
+
+	/* Old style. */
+	if (!extended) {
+		phandle = arm_intr_get_parent(node);
+		LIST_FOREACH(ic, &interrupt_controllers, ic_list) {
+			if (ic->ic_phandle == phandle)
+				break;
+		}
+
+		if (ic == NULL)
+			return NULL;
+	}
+
+	cell = cells = malloc(len, M_TEMP, M_WAITOK);
+	if (extended)
+		OF_getpropintarray(node, "interrupts-extended", cells, len);
+	else
+		OF_getpropintarray(node, "interrupts", cells, len);
+	ncells = len / sizeof(uint32_t);
+
+	for (i = 0; i <= idx && ncells > 0; i++) {
+		if (extended) {
+			phandle = cell[0];
+
+			LIST_FOREACH(ic, &interrupt_controllers, ic_list) {
+				if (ic->ic_phandle == phandle)
+					break;
+			}
+
+			if (ic == NULL)
+				break;
+
+			cell++;
+			ncells--;
+		}
+
+		if (i == idx && ncells >= ic->ic_cells && ic->ic_establish) {
+			val = ic->ic_establish(ic->ic_cookie, cell, level,
+			    func, cookie, name);
+			break;
+		}
+
+		cell += ic->ic_cells;
+		ncells -= ic->ic_cells;
+	}
+
+	free(cells, M_TEMP, len);
+	return val;
 }
 
 int
