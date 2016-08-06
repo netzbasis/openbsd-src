@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.32 2016/08/04 15:52:52 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.39 2016/08/06 00:54:02 jsg Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -85,17 +85,17 @@ usb*		at ehci?
 sunxi0		at mainbus?
 
 # Sunxi on-chip devices
-a1xintc*	at sunxi?		# A1x interrupt controller
+sxiintc*	at fdt?			# A1x interrupt controller
 sxipio*		at sunxi?		# GPIO pins for leds & PHYs
 gpio*		at sxipio?
 sxiccmu*	at sunxi?		# Clock Control Module/Unit
 sxitimer*	at sunxi?
-sxidog*		at sunxi?		# watchdog timer
-sxirtc*		at sunxi?		# Real Time Clock
+sxidog*		at fdt?			# watchdog timer
+sxirtc*		at fdt?			# Real Time Clock
 sxiuart*	at fdt?			# onboard UARTs
 sxie*		at fdt?
-ahci*		at sunxi?		# AHCI/SATA (shim)
-ehci*		at sunxi?		# EHCI (shim)
+sxiahci*	at fdt?			# AHCI/SATA
+ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
 #usb*		at ohci?
@@ -103,9 +103,9 @@ usb*		at ehci?	#flags 0x1
 # ARM Versatile Express
 vexpress0	at mainbus?
 sysreg*		at vexpress?
-pluart*		at vexpress?
-plrtc*		at vexpress?
-virtio*		at vexpress?
+pluart*		at fdt?
+plrtc*		at fdt?
+virtio*		at fdt?
 
 # Exynos
 exynos0		at mainbus?

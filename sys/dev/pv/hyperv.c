@@ -534,7 +534,7 @@ hv_event_intr(struct hv_softc *sc)
 	int cpu = CPU_INFO_UNIT(ci);
 	int bit, dword, maxdword, relid;
 	struct hv_channel *ch;
-	uint32_t *revents;
+	uint32_t *revents, pending;
 
 	evt = (struct hv_synic_event_flags *)sc->sc_siep[cpu] + HV_MESSAGE_SINT;
 	if ((sc->sc_proto == HV_VMBUS_VERSION_WS2008) ||
@@ -559,8 +559,9 @@ hv_event_intr(struct hv_softc *sc)
 	for (dword = 0; dword < maxdword; dword++) {
 		if (revents[dword] == 0)
 			continue;
-		for (bit = 0; bit < 32; bit++) {
-			if (!atomic_clearbit_ptr(&revents[dword], bit))
+		pending = atomic_swap_uint(&revents[dword], 0);
+		for (bit = 0; pending > 0; pending >>= 1, bit++) {
+			if ((pending & 1) == 0)
 				continue;
 			relid = (dword << 5) + bit;
 			/* vmbus channel protocol message */
@@ -693,7 +694,8 @@ hv_vmbus_connect(struct hv_softc *sc)
 	}
 
 	sc->sc_wevents = (uint32_t *)sc->sc_events;
-	sc->sc_revents = (uint32_t *)sc->sc_events + (PAGE_SIZE >> 1);
+	sc->sc_revents = (uint32_t *)((caddr_t)sc->sc_events +
+	    (PAGE_SIZE >> 1));
 
 	sc->sc_monitor[0] = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
 	if (sc->sc_monitor == NULL) {
@@ -1226,7 +1228,7 @@ hv_ring_put(struct hv_ring_data *wrd, uint8_t *data, uint32_t datalen)
 	memcpy(&wrd->rd_ring->buffer[wrd->rd_prod], data, left);
 	memcpy(&wrd->rd_ring->buffer[0], data + left, datalen - left);
 	wrd->rd_prod += datalen;
-	wrd->rd_prod &= wrd->rd_data_size - 1;
+	wrd->rd_prod %= wrd->rd_data_size;
 }
 
 static inline void
@@ -1239,7 +1241,7 @@ hv_ring_get(struct hv_ring_data *rrd, uint8_t *data, uint32_t datalen,
 	memcpy(data + left, &rrd->rd_ring->buffer[0], datalen - left);
 	if (!peek) {
 		rrd->rd_cons += datalen;
-		rrd->rd_cons &= rrd->rd_data_size - 1;
+		rrd->rd_cons %= rrd->rd_data_size;
 	}
 }
 
@@ -1418,7 +1420,7 @@ hv_ring_read(struct hv_ring_data *rrd, void *data, uint32_t datalen,
 
 	if (offset) {
 		rrd->rd_cons += offset;
-		rrd->rd_cons &= rrd->rd_data_size - 1;
+		rrd->rd_cons %= rrd->rd_data_size;
 	}
 
 	hv_ring_get(rrd, (uint8_t *)data, datalen, 0);
@@ -1628,7 +1630,7 @@ hv_attach_internal(struct hv_softc *sc)
 	int i;
 
 	TAILQ_FOREACH(ch, &sc->sc_channels, ch_entry) {
-		if (ch->ch_state != HV_CHANSTATE_OPENED)
+		if (ch->ch_state != HV_CHANSTATE_OFFERED)
 			continue;
 		if (ch->ch_flags & CHF_MONITOR)
 			continue;
@@ -1683,7 +1685,7 @@ hv_service_common(struct hv_channel *ch, uint32_t *rlen, uint64_t *rid,
 	int rv;
 
 	rv = hv_channel_recv(ch, ch->ch_buf, ch->ch_buflen, rlen, rid, 0);
-	if ((rv && rv != EAGAIN) || *rlen == 0)
+	if (rv || *rlen == 0)
 		return (rv);
 	*hdr = (struct hv_icmsg_hdr *)&ch->ch_buf[sizeof(struct hv_pipe_hdr)];
 	if ((*hdr)->icmsgtype == HV_ICMSGTYPE_NEGOTIATE) {

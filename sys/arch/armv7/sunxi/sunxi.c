@@ -1,4 +1,4 @@
-/* $OpenBSD: sunxi.c,v 1.14 2016/07/27 22:03:52 mglocker Exp $ */
+/* $OpenBSD: sunxi.c,v 1.17 2016/08/05 21:45:37 kettenis Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  *
@@ -42,49 +42,24 @@ struct cfdriver sunxi_cd = {
 struct board_dev sun4i_devs[] = {
 	{ "sxipio",	0 },
 	{ "sxiccmu",	0 },
-	{ "a1xintc",	0 },
 	{ "sxitimer",	0 },
 	{ "sxitimer",	1 },
 	{ "sxitimer",	2 },
-	{ "sxidog",	0 },
-	{ "sxirtc",	0 },
-	{ "ahci",	0 },
-	{ "ehci",	0 },
-	{ "ehci",	1 },
-#if 0
-	{ "ohci",	0 },
-	{ "ohci",	1 },
-#endif
 	{ NULL,		0 }
 };
 
 struct board_dev sun5i_devs[] = {
 	{ "sxipio",	0 },
 	{ "sxiccmu",	0 },
-	{ "a1xintc",	0 },
 	{ "sxitimer",	0 },
 	{ "sxitimer",	1 },
 	{ "sxitimer",	2 },
-	{ "sxidog",	0 },
-	{ "ehci",	0 },
-#if 0
-	{ "ohci",	0 },
-#endif
 	{ NULL,		0 }
 };
 
 struct board_dev sun7i_devs[] = {
 	{ "sxipio",	0 },
 	{ "sxiccmu",	0 },
-	{ "sxidog",	0 },
-	{ "sxirtc",	0 },
-	{ "ahci",	0 },
-	{ "ehci",	0 },
-	{ "ehci",	1 },
-#if 0
-	{ "ohci",	0 },
-	{ "ohci",	1 },
-#endif
 	{ NULL,		0 }
 };
 

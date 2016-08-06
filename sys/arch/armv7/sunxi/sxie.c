@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxie.c,v 1.17 2016/07/27 11:45:02 patrick Exp $	*/
+/*	$OpenBSD: sxie.c,v 1.19 2016/08/05 22:19:23 kettenis Exp $	*/
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2013 Artturi Alm
@@ -179,7 +179,6 @@ void	sxie_init(struct sxie_softc *);
 void	sxie_stop(struct sxie_softc *);
 void	sxie_reset(struct sxie_softc *);
 void	sxie_iff(struct sxie_softc *, struct ifnet *);
-struct mbuf * sxie_newbuf(void);
 int	sxie_intr(void *);
 void	sxie_recv(struct sxie_softc *);
 int	sxie_miibus_readreg(struct device *, int, int);
@@ -211,15 +210,10 @@ sxie_attach(struct device *parent, struct device *self, void *aux)
 	struct fdt_attach_args *faa = aux;
 	struct mii_data *mii;
 	struct ifnet *ifp;
-	int s, irq;
+	int s;
 
-	if (faa->fa_nreg != 1 || (faa->fa_nintr != 1 && faa->fa_nintr != 3))
+	if (faa->fa_nreg < 1)
 		return;
-
-	if (faa->fa_nintr == 1)
-		irq = faa->fa_intr[0];
-	else
-		irq = faa->fa_intr[1];
 
 	sc->sc_iot = faa->fa_iot;
 
@@ -233,7 +227,7 @@ sxie_attach(struct device *parent, struct device *self, void *aux)
 	sxie_socware_init(sc);
 	sc->txf_inuse = 0;
 
-	sc->sc_ih = arm_intr_establish(irq, IPL_NET,
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_NET,
 	    sxie_intr, sc, sc->sc_dev.dv_xname);
 
 	s = splnet();
@@ -607,10 +601,6 @@ trynext:
 		goto err_out;
 	}
 	
-	m = sxie_newbuf();
-	if (m == NULL)
-		goto err_out;
-
 	reg = SXIREAD4(sc, SXIE_RXIO);
 	pktstat = (uint16_t)reg >> 16;
 	pktlen = (int16_t)reg; /* length of useful data */
@@ -622,10 +612,6 @@ trynext:
 	if (pktlen > SXIE_MAX_PKT_SIZE)
 		pktlen = SXIE_MAX_PKT_SIZE; /* XXX is truncating ok? */
 
-	m->m_pkthdr.len = m->m_len = pktlen;
-	/* XXX m->m_pkthdr.csum_flags ? */
-	m_adj(m, ETHER_ALIGN);
-
 	/* read the actual packet from fifo XXX through 'align buffer'.. */
 	if (pktlen & 3)
 		rlen = SXIE_ROUNDUP(pktlen, 4);
@@ -633,7 +619,12 @@ trynext:
 		rlen = pktlen;
 	bus_space_read_multi_4(sc->sc_iot, sc->sc_ioh,
 	    SXIE_RXIO, (uint32_t *)&rxbuf[0], rlen >> 2);
-	memcpy(mtod(m, char *), (char *)&rxbuf[0], pktlen);
+
+	m = m_devget(&rxbuf[0], pktlen, ETHER_ALIGN);
+	if (m == NULL) {
+		ifp->if_ierrors++;
+		goto err_out;
+	}
 
 	ml_enqueue(&ml, m);
 	goto trynext;
@@ -683,24 +674,6 @@ sxie_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	splx(s);
 	return error;
-}
-
-struct mbuf *
-sxie_newbuf(void)
-{
-	struct mbuf *m;
-
-	MGETHDR(m, M_DONTWAIT, MT_DATA);
-	if (m == NULL)
-		return (NULL);
-
-	MCLGET(m, M_DONTWAIT);
-	if (!(m->m_flags & M_EXT)) {
-		m_freem(m);
-		return (NULL);
-	}
-
-	return (m);
 }
 
 void

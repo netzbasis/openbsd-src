@@ -1,4 +1,4 @@
-#	$OpenBSD: files.sunxi,v 1.6 2016/06/11 07:07:59 jsg Exp $
+#	$OpenBSD: files.sunxi,v 1.10 2016/08/05 21:45:37 kettenis Exp $
 
 define	sunxi {}
 device	sunxi: sunxi
@@ -16,29 +16,30 @@ device	sxipio {}: gpiobus
 attach	sxipio at sunxi
 file	arch/armv7/sunxi/sxipio.c		sxipio
 
-device	a1xintc
-attach	a1xintc at sunxi
-file	arch/armv7/sunxi/a1xintc.c		a1xintc
+device	sxiintc
+attach	sxiintc at fdt
+file	arch/armv7/sunxi/sxiintc.c		sxiintc
 
 device	sxitimer
 attach	sxitimer at sunxi
 file	arch/armv7/sunxi/sxitimer.c		sxitimer
 
 device	sxidog
-attach	sxidog at sunxi
+attach	sxidog at fdt
 file	arch/armv7/sunxi/sxidog.c		sxidog
 
 device	sxirtc
-attach	sxirtc at sunxi
+attach	sxirtc at fdt
 file	arch/armv7/sunxi/sxirtc.c		sxirtc
 
-attach	ahci at sunxi with sxiahci
+device	sxiahci: scsi, atascsi
+attach	sxiahci at fdt
 file	arch/armv7/sunxi/sxiahci.c		sxiahci
 
 #attach ohci at sunxi with sxiohci
 #file	arch/armv7/sunxi/sxiohci.c		sxiohci
 
-attach	ehci at sunxi with sxiehci
+attach	ehci at fdt with sxiehci
 file	arch/armv7/sunxi/sxiehci.c		sxiehci
 
 device	sxiuart

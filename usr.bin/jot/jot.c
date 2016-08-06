@@ -1,4 +1,4 @@
-/*	$OpenBSD: jot.c,v 1.28 2016/07/17 04:04:46 tb Exp $	*/
+/*	$OpenBSD: jot.c,v 1.31 2016/08/05 13:43:38 tb Exp $	*/
 /*	$NetBSD: jot.c,v 1.3 1994/12/02 20:29:43 pk Exp $	*/
 
 /*-
@@ -54,10 +54,10 @@
 
 #define	is_default(s)	(strcmp((s), "-") == 0)
 
-static double	begin;
-static double	ender;
-static double	s;
-static long	reps;
+static double	begin = BEGIN_DEF;
+static double	ender = ENDER_DEF;
+static double	s = STEP_DEF;
+static long	reps = REPS_DEF;
 static bool	randomize;
 static bool	infinity;
 static bool	boring;
@@ -195,9 +195,9 @@ main(int argc, char *argv[])
 			mask = 015;
 			break;
 		case 006:
-			reps = REPS_DEF;
-			mask = 016;
-			break;
+			s = ender > begin ? 1 : -1;
+			mask = 007;
+			/* FALLTHROUGH */
 		case 007:
 			if (randomize) {
 				reps = REPS_DEF;
@@ -394,8 +394,11 @@ getformat(void)
 	if (boring)				/* no need to bother */
 		return;
 	for (p = format; *p != '\0'; p++)	/* look for '%' */
-		if (*p == '%' && *(p+1) != '%')	/* leave %% alone */
-			break;
+		if (*p == '%') {
+			if (*(p+1) != '%')
+				break;
+			p++;			/* leave %% alone */
+		}
 	sz = sizeof(format) - strlen(format) - 1;
 	if (*p == '\0' && !chardata) {
 		int n;
