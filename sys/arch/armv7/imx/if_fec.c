@@ -1,4 +1,4 @@
-/* $OpenBSD: if_fec.c,v 1.13 2016/08/04 15:52:52 kettenis Exp $ */
+/* $OpenBSD: if_fec.c,v 1.15 2016/08/06 17:18:38 kettenis Exp $ */
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -47,10 +47,10 @@
 #include <armv7/armv7/armv7var.h>
 #include <armv7/imx/imxccmvar.h>
 #include <armv7/imx/imxgpiovar.h>
-#include <armv7/imx/imxiomuxcvar.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_gpio.h>
+#include <dev/ofw/ofw_pinctrl.h>
 #include <dev/ofw/fdt.h>
 
 /* configuration registers */
@@ -136,17 +136,6 @@
 
 #define ENET_MII_CLK		2500
 #define ENET_ALIGNMENT		16
-
-#define ENET_HUMMINGBOARD_PHY_RST		(3*32+15)
-#define ENET_SABRELITE_PHY			6
-#define ENET_SABRELITE_PHY_RST			(2*32+23)
-#define ENET_SABRESD_PHY_RST			(0*32+25)
-#define ENET_NITROGEN6X_PHY_RST			(0*32+27)
-#define ENET_UDOO_PHY				6
-#define ENET_UDOO_PHY_RST			(2*32+23)
-#define ENET_UDOO_PWR				(1*32+31)
-#define ENET_NOVENA_PHY				7
-#define ENET_NOVENA_PHY_RST			(2*32+23)
 
 #define HREAD4(sc, reg)							\
 	(bus_space_read_4((sc)->sc_iot, (sc)->sc_ioh, (reg)))
@@ -309,7 +298,7 @@ fec_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_dma_tag = faa->fa_dmat;
 
-	imxiomuxc_pinctrlbyname(faa->fa_node, "default");
+	pinctrl_byname(faa->fa_node, "default");
 
 	/* power it up */
 	imxccm_enable_enet();

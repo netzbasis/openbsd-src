@@ -1,4 +1,4 @@
-/* $OpenBSD: ampintc.c,v 1.10 2016/08/04 15:52:52 kettenis Exp $ */
+/* $OpenBSD: ampintc.c,v 1.13 2016/08/06 18:18:48 patrick Exp $ */
 /*
  * Copyright (c) 2007,2009,2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -285,6 +285,7 @@ ampintc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ic.ic_node = faa->fa_node;
 	sc->sc_ic.ic_cookie = self;
 	sc->sc_ic.ic_establish = ampintc_intr_establish_fdt;
+	sc->sc_ic.ic_disestablish = ampintc_intr_disestablish;
 	arm_intr_register_fdt(&sc->sc_ic);
 }
 
@@ -552,11 +553,7 @@ ampintc_intr_establish(int irqno, int level, int (*func)(void *),
 		panic("ampintc_intr_establish: bogus irqnumber %d: %s",
 		     irqno, name);
 
-	/* no point in sleeping unless someone can free memory. */
-	ih = (struct intrhand *)malloc (sizeof *ih, M_DEVBUF,
-	    cold ? M_NOWAIT : M_WAITOK);
-	if (ih == NULL)
-		panic("intr_establish: can't malloc handler info");
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
 	ih->ih_func = func;
 	ih->ih_arg = arg;
 	ih->ih_ipl = level;
@@ -583,17 +580,25 @@ ampintc_intr_establish(int irqno, int level, int (*func)(void *),
 void
 ampintc_intr_disestablish(void *cookie)
 {
-#if 0
-	int psw;
-	struct intrhand *ih = cookie;
-	int irqno = ih->ih_irq;
+	struct ampintc_softc	*sc = ampintc;
+	struct intrhand		*ih = cookie;
+	int			 psw;
+
+#ifdef DEBUG_INTC
+	printf("ampintc_intr_disestablish irq %d level %d [%s]\n",
+	    ih->ih_irq, ih->ih_ipl, ih->ih_name);
+#endif
+
 	psw = disable_interrupts(PSR_I);
-	TAILQ_REMOVE(&sc->sc_ampintc_handler[irqno].iq_list, ih, ih_list);
+
+	TAILQ_REMOVE(&sc->sc_ampintc_handler[ih->ih_irq].iq_list, ih, ih_list);
 	if (ih->ih_name != NULL)
 		evcount_detach(&ih->ih_count);
-	free(ih, M_DEVBUF, 0);
+	free(ih, M_DEVBUF, sizeof(*ih));
+
+	ampintc_calc_mask();
+
 	restore_interrupts(psw);
-#endif
 }
 
 const char *

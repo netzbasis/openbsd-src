@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.h,v 1.16 2016/07/05 00:44:41 guenther Exp $ */
+/*	$OpenBSD: boot.h,v 1.21 2016/08/07 02:44:00 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -145,15 +145,7 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 	 * Scan the DYNAMIC section for the loader.
 	 * Cache the data for easier access.
 	 */
-
-#if defined(__alpha__)
-	dynp = (Elf_Dyn *)((long)_DYNAMIC);
-#elif defined(__sparc__) || defined(__sparc64__) || defined(__powerpc__) || \
-    defined(__hppa__) || defined(__sh__)
 	dynp = dynamicp;
-#else
-	dynp = (Elf_Dyn *)((long)_DYNAMIC + loff);
-#endif
 
 	_dl_memset(&dynld, 0, sizeof(dynld));
 	while (dynp->d_tag != DT_NULL) {
