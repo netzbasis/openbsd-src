@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap7.c,v 1.33 2016/08/06 16:46:25 kettenis Exp $	*/
+/*	$OpenBSD: pmap7.c,v 1.35 2016/08/08 14:47:52 kettenis Exp $	*/
 /*	$NetBSD: pmap.c,v 1.147 2004/01/18 13:03:50 scw Exp $	*/
 
 /*
@@ -917,9 +917,6 @@ pmap_l2ptp_ctor(void *v)
 	ptep = &l2b->l2b_kva[l2pte_index(va)];
 	pte = *ptep;
 
-	/* XXX redundant with PTE_SYNC_RANGE() ? */
-	cpu_idcache_wbinv_range(va, PAGE_SIZE);
-	cpu_sdcache_wbinv_range(va, pte & L2_S_FRAME, PAGE_SIZE);
 	if ((pte & L2_S_CACHE_MASK) != pte_l2_s_cache_mode_pt) {
 		*ptep = (pte & ~L2_S_CACHE_MASK) | pte_l2_s_cache_mode_pt;
 		PTE_SYNC(ptep);
@@ -928,30 +925,6 @@ pmap_l2ptp_ctor(void *v)
 	}
 
 	PTE_SYNC_RANGE(v, L2_TABLE_SIZE_REAL / sizeof(pt_entry_t));
-}
-
-/*
- * Make a pmap_kernel() mapping uncached. Used by bus_dma for coherent pages.
- */
-void
-pmap_uncache_page(paddr_t va, vaddr_t pa)
-{
-	struct vm_page *pg;
-	struct pv_entry *pv;
-	pt_entry_t *pte;
-
-	if ((pg = PHYS_TO_VM_PAGE(pa)) != NULL) {
-		pv = pmap_find_pv(pg, pmap_kernel(), va);
-		if (pv != NULL)
-			pv->pv_flags |= PVF_NC;	/* XXX ought to be pg attr */
-	}
-
-	pte = vtopte(va);
-	*pte &= ~L2_S_CACHE_MASK;
-	*pte |= L2_B; /* device memory */
-	PTE_SYNC(pte);
-	cpu_tlb_flushD_SE(va);
-	cpu_cpwait();
 }
 
 /*
@@ -1054,7 +1027,6 @@ pmap_clean_page(struct vm_page *pg, int isync)
 {
 	pmap_t pm;
 	struct pv_entry *pv;
-	boolean_t wb = FALSE;
 
 	/*
 	 * To save time, we are only walking the pv list if an I$ invalidation
@@ -1080,33 +1052,7 @@ pmap_clean_page(struct vm_page *pg, int isync)
 
 			if (PV_BEEN_EXECD(pv->pv_flags))
 				cpu_icache_sync_range(pv->pv_va, PAGE_SIZE);
-
-			/*
-			 * If we have not written back that page yet, do this
-			 * now while we still have a valid mapping for it.
-			 */
-			if (!wb) {
-				cpu_dcache_wb_range(pv->pv_va, PAGE_SIZE);
-				cpu_sdcache_wb_range(pv->pv_va,
-				    VM_PAGE_TO_PHYS(pg), PAGE_SIZE);
-				wb = TRUE;
-			}
 		}
-	}
-
-	/*
-	 * If there is no active mapping left, or we did not bother checking
-	 * for one, this does not mean the page doesn't have stale data. Map
-	 * it in a working page and writeback.
-	 */
-	if (!wb) {
-		*cwb_pte = L2_S_PROTO | VM_PAGE_TO_PHYS(pg) |
-		    L2_S_PROT(PTE_KERNEL, PROT_WRITE) | pte_l2_s_cache_mode;
-		PTE_SYNC(cwb_pte);
-		cpu_tlb_flushD_SE(cwbp);
-		cpu_cpwait();
-		cpu_dcache_wb_range(cwbp, PAGE_SIZE);
-		cpu_sdcache_wb_range(cwbp, VM_PAGE_TO_PHYS(pg), PAGE_SIZE);
 	}
 }
 
@@ -1152,15 +1098,6 @@ pmap_page_remove(struct vm_page *pg)
 			    (pm == curpm || pm == pmap_kernel())) {
 				if (PV_BEEN_EXECD(pv->pv_flags))
 					cpu_icache_sync_range(pv->pv_va, PAGE_SIZE);
-				if (flush == FALSE) {
-					paddr_t pa;
-					cpu_dcache_wb_range(pv->pv_va,
-					    PAGE_SIZE);
-					if (pmap_extract(pm, (vaddr_t)pv->pv_va,
-					    &pa))
-						cpu_sdcache_wb_range(pv->pv_va,
-						    pa, PAGE_SIZE);
-				}
 				flush = TRUE;
 			}
 
@@ -1338,18 +1275,6 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 			oflags = pmap_modify_pv(pg, pm, va,
 			    PVF_WRITE | PVF_EXEC | PVF_WIRED |
 			    PVF_MOD | PVF_REF, nflags);
-
-			/*
-			 * We may need to flush the cache if we're
-			 * doing rw-ro...
-			 */
-			if ((oflags & PVF_NC) == 0 &&
-			    l2pte_is_writeable(opte, pm) &&
-			    (prot & PROT_WRITE) == 0) {
-				cpu_dcache_wb_range(va, PAGE_SIZE);
-				cpu_sdcache_wb_range(va, opte & L2_S_FRAME,
-				    PAGE_SIZE);
-			}
 		} else {
 			/*
 			 * New mapping, or changing the backing page
@@ -1562,6 +1487,7 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 {
 	struct l2_bucket *l2b;
 	pt_entry_t *ptep, opte, npte;
+	pt_entry_t cache_mode = pte_l2_s_cache_mode;
 
 	NPDEBUG(PDB_KENTER,
 	    printf("pmap_kenter_pa: va 0x%08lx, pa 0x%08lx, prot 0x%x\n",
@@ -1573,29 +1499,35 @@ pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot)
 	ptep = &l2b->l2b_kva[l2pte_index(va)];
 	opte = *ptep;
 
-	if (l2pte_valid(opte)) {
-		cpu_dcache_wb_range(va, PAGE_SIZE);
-		cpu_sdcache_wb_range(va, opte & L2_S_FRAME, PAGE_SIZE);
-	} else
 	if (opte == 0)
 		l2b->l2b_occupancy++;
 
-	npte = L2_S_PROTO | pa | L2_S_PROT(PTE_KERNEL, prot) |
-	    pte_l2_s_cache_mode;
+	if (pa & PMAP_DEVICE)
+		cache_mode = L2_B;
+	else if (pa & PMAP_NOCACHE)
+		cache_mode = L2_V7_S_TEX(1);
+
+	npte = L2_S_PROTO | (pa & PMAP_PA_MASK) |
+	    L2_S_PROT(PTE_KERNEL, prot) | cache_mode;
 	*ptep = npte;
 	PTE_SYNC(ptep);
 	if (l2pte_valid(opte)) {
 		cpu_tlb_flushD_SE(va);
 		cpu_cpwait();
 	}
+
+	if (pa & PMAP_NOCACHE) {
+		cpu_dcache_wbinv_range(va, PAGE_SIZE);
+		cpu_sdcache_wbinv_range(va, (pa & PMAP_PA_MASK), PAGE_SIZE);
+	}
 }
 
 void
 pmap_kenter_cache(vaddr_t va, paddr_t pa, vm_prot_t prot, int cacheable)
 {
-	pmap_kenter_pa(va, pa, prot);
 	if (cacheable == 0)
-		pmap_uncache_page(va, pa);
+		pa |= PMAP_NOCACHE;
+	pmap_kenter_pa(va, pa, prot);
 }
 
 void
@@ -1624,11 +1556,6 @@ pmap_kremove(vaddr_t va, vsize_t len)
 
 		while (va < next_bucket) {
 			opte = *ptep;
-			if (l2pte_valid(opte)) {
-				cpu_dcache_wb_range(va, PAGE_SIZE);
-				cpu_sdcache_wb_range(va, opte & L2_S_FRAME,
-				    PAGE_SIZE);
-			}
 			if (opte != 0) {	/* !! not l2pte_valid */
 				*ptep = L2_TYPE_INV;
 				PTE_SYNC(ptep);
@@ -2554,11 +2481,8 @@ pmap_init_l1(struct l1_ttable *l1, pd_entry_t *l1pt)
 	/*
 	 * Copy the kernel's L1 entries to each new L1.
 	 */
-	if (pmap_initialized) {
+	if (pmap_initialized)
 		memcpy(l1pt, pmap_kernel()->pm_l1->l1_kva, L1_TABLE_SIZE);
-/* XXX overkill? */
-		cpu_dcache_wb_range((vaddr_t)l1pt, L1_TABLE_SIZE);
-	}
 
 	if (pmap_extract(pmap_kernel(), (vaddr_t)l1pt,
 	    &l1->l1_physaddr) == FALSE)
