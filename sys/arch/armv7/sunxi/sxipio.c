@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxipio.c,v 1.7 2015/05/20 03:49:23 jsg Exp $	*/
+/*	$OpenBSD: sxipio.c,v 1.9 2016/08/12 19:55:54 kettenis Exp $	*/
 /*
  * Copyright (c) 2010 Miodrag Vallat.
  * Copyright (c) 2013 Artturi Alm
@@ -21,11 +21,15 @@
 #include <sys/device.h>
 #include <sys/gpio.h>
 #include <sys/evcount.h>
+#include <sys/malloc.h>
 
 #include <machine/bus.h>
 #include <machine/intr.h>
 
 #include <dev/gpio/gpiovar.h>
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_gpio.h>
+#include <dev/ofw/ofw_pinctrl.h>
 
 #include <armv7/armv7/armv7var.h>
 #include <armv7/sunxi/sunxireg.h>
@@ -48,7 +52,6 @@
 	SXIPIO_PH_NPIN + SXIPIO_PI_NPIN)
 #define	SXIPIO_PS_NPIN		84 /* for DRAM controller */
 
-
 struct intrhand {
 	int (*ih_func)(void *);		/* handler */
 	void *ih_arg;			/* arg for handler */
@@ -68,6 +71,10 @@ struct sxipio_softc {
 	int 			sc_max_il;
 	int 			sc_min_il;
 	int			sc_irq;
+
+	struct sxipio_pin	*sc_pins;
+	int			sc_npins;
+	struct gpio_controller	sc_gc;
 
 	struct gpio_chipset_tag	 sc_gpio_tag[SXIPIO_NPORT];
 	gpio_pin_t		 sc_gpio_pins[SXIPIO_NPORT][32];
@@ -96,15 +103,48 @@ struct cfdriver sxipio_cd = {
 	NULL, "sxipio", DV_DULL
 };
 
+int	sxipio_pinctrl(uint32_t, void *);
+void	sxipio_config_pin(void *, uint32_t *, int);
+int	sxipio_get_pin(void *, uint32_t *);
+void	sxipio_set_pin(void *, uint32_t *, int);
+
 struct sxipio_softc	*sxipio_sc = NULL;
 bus_space_tag_t		 sxipio_iot;
 bus_space_handle_t	 sxipio_ioh;
+
+#include "sxipio_pins.h"
+
+struct sxipio_pins {
+	const char *compat;
+	struct sxipio_pin *pins;
+	int npins;
+};
+
+struct sxipio_pins sxipio_pins[] = {
+	{
+		"allwinner,sun4i-a10-pinctrl",
+		sun4i_a10_pins, nitems(sun4i_a10_pins)
+	},
+	{
+		"allwinner,sun5i-a13-pinctrl",
+		sun5i_a13_pins, nitems(sun5i_a13_pins)
+	},
+	{
+		"allwinner,sun5i-a10s-pinctrl",
+		sun5i_a10s_pins, nitems(sun5i_a10s_pins)
+	},
+	{
+		"allwinner,sun7i-a20-pinctrl",
+		sun7i_a20_pins, nitems(sun7i_a20_pins)
+	}
+};
 
 void
 sxipio_attach(struct device *parent, struct device *self, void *args)
 {
 	struct sxipio_softc *sc = (struct sxipio_softc *)self;
 	struct armv7_attach_args *aa = args;
+	int node, i;
 
 	/* XXX check unit, bail if != 0 */
 
@@ -118,9 +158,31 @@ sxipio_attach(struct device *parent, struct device *self, void *args)
 
 	sc->sc_irq = aa->aa_dev->irq[0];
 
+	node = OF_finddevice("/soc@01c00000/pinctrl@01c20800");
+	if (node == -1)
+		panic("sxipio: can't find device tree node");
+
+	for (i = 0; i < nitems(sxipio_pins); i++) {
+		if (OF_is_compatible(node, sxipio_pins[i].compat)) {
+			sc->sc_pins = sxipio_pins[i].pins;
+			sc->sc_npins = sxipio_pins[i].npins;
+			break;
+		}
+	}
+
+	KASSERT(sc->sc_pins);
+	pinctrl_register(node, sxipio_pinctrl, sc);
+
+	sc->sc_gc.gc_node = node;
+	sc->sc_gc.gc_cookie = sc;
+	sc->sc_gc.gc_config_pin = sxipio_config_pin;
+	sc->sc_gc.gc_get_pin = sxipio_get_pin;
+	sc->sc_gc.gc_set_pin = sxipio_set_pin;
+	gpio_controller_register(&sc->sc_gc);
+
 	config_defer(self, sxipio_attach_gpio);
 
-	printf("\n");
+	printf(": %d pins\n", sc->sc_npins);
 }
 
 /*
@@ -352,4 +414,136 @@ sxipio_togglepin(int pin)
 	splx(s);
 
 	return data & mask ? GPIO_PIN_HIGH : GPIO_PIN_LOW;
+}
+
+int
+sxipio_pinctrl(uint32_t phandle, void *cookie)
+{
+	struct sxipio_softc *sc = cookie;
+	char func[32];
+	char *names, *name;
+	int port, pin, off;
+	int mux, drive, pull;
+	int node;
+	int len;
+	int i, j;
+	int s;
+
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return -1;
+
+	len = OF_getprop(node, "allwinner,function", func, sizeof(func));
+	if (len <= 0 || len >= sizeof(func))
+		return -1;
+
+	len = OF_getproplen(node, "allwinner,pins");
+	if (len <= 0)
+		return -1;
+
+	names = malloc(len, M_TEMP, M_WAITOK);
+	OF_getprop(node, "allwinner,pins", names, len);
+
+	drive = OF_getpropint(node, "allwinner,drive", 0);
+	pull = OF_getpropint(node, "allwinner,pull", 0);
+
+	name = names;
+	while (len > 0) {
+		/* Lookup the pin. */
+		for (i = 0; i < sc->sc_npins; i++) {
+			if (strcmp(name, sc->sc_pins[i].name) == 0)
+				break;
+		}
+		if (i >= sc->sc_npins)
+			goto err;
+
+		/* Lookup the function of the pin. */
+		for (j = 0; j < nitems(sc->sc_pins[i].funcs); j++) {
+			if (strcmp(func, sc->sc_pins[i].funcs[j].name) == 0)
+				break;
+		}
+		if (j > nitems(sc->sc_pins[i].funcs))
+			goto err;
+
+		port = sc->sc_pins[i].port;
+		pin = sc->sc_pins[i].pin;
+		mux = sc->sc_pins[i].funcs[j].mux;
+
+		s = splhigh();
+		off = (pin & 0x7) << 2;
+		SXICMS4(sc, SXIPIO_CFG(port, pin), 0x7 << off, mux << off);
+		off = (pin & 0xf) << 1;
+		SXICMS4(sc, SXIPIO_DRV(port, pin), 0x3 << off, drive << off);
+		SXICMS4(sc, SXIPIO_PUL(port, pin), 0x3 << off, pull << off);
+		splx(s);
+
+		len -= strlen(name) + 1;
+		name += strlen(name) + 1;
+	}
+
+	free(names, M_TEMP, len);
+	return 0;
+
+err:
+	free(names, M_TEMP, len);
+	return -1;
+}
+
+void
+sxipio_config_pin(void *cookie, uint32_t *cells, int config)
+{
+	struct sxipio_softc *sc = cookie;
+	uint32_t port = cells[0];
+	uint32_t pin = cells[1];
+	int mux, off;
+
+	if (port > SXIPIO_NPORT || pin > 32)
+		return;
+
+	mux = (config & GPIO_CONFIG_OUTPUT) ? 1 : 0;
+	off = (pin & 0x7) << 2;
+	SXICMS4(sc, SXIPIO_CFG(port, pin), 0x7 << off, mux << off);
+}
+
+int
+sxipio_get_pin(void *cookie, uint32_t *cells)
+{
+	struct sxipio_softc *sc = cookie;
+	uint32_t port = cells[0];
+	uint32_t pin = cells[1];
+	uint32_t flags = cells[2];
+	uint32_t reg;
+	int val;
+
+	if (port > SXIPIO_NPORT || pin > 32)
+		return 0;
+
+	reg = SXIREAD4(sc, SXIPIO_DAT(port));
+	reg &= (1 << pin);
+	val = (reg >> pin) & 1;
+	if (flags & GPIO_ACTIVE_LOW)
+		val = !val;
+	return val;
+}
+
+void
+sxipio_set_pin(void *cookie, uint32_t *cells, int val)
+{
+	struct sxipio_softc *sc = cookie;
+	uint32_t port = cells[0];
+	uint32_t pin = cells[1];
+	uint32_t flags = cells[2];
+	uint32_t reg;
+
+	if (port > SXIPIO_NPORT || pin > 32)
+		return;
+
+	reg = SXIREAD4(sc, SXIPIO_DAT(port));
+	if (flags & GPIO_ACTIVE_LOW)
+		val = !val;
+	if (val)
+		reg |= (1 << pin);
+	else
+		reg &= ~(1 << pin);
+	SXIWRITE4(sc, SXIPIO_DAT(port), reg);
 }
