@@ -1,7 +1,6 @@
-/* $OpenBSD: sun7i.c,v 1.5 2016/08/13 13:55:25 kettenis Exp $ */
-
+/*	$OpenBSD: ofw_regulator.h,v 1.1 2016/08/13 10:52:21 kettenis Exp $	*/
 /*
- * Copyright (c) 2011 Uwe Stuehler <uwe@openbsd.org>
+ * Copyright (c) 2016 Mark Kettenis
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,37 +15,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/types.h>
-#include <sys/param.h>
+#ifndef _DEV_OFW_REGULATOR_H_
+#define _DEV_OFW_REGULATOR_H_
 
-#include <machine/bus.h>
+int	regulator_enable(uint32_t);
+int	regulator_disable(uint32_t);
 
-#include <armv7/armv7/armv7var.h>
-#include <armv7/sunxi/sunxireg.h>
-
-struct armv7_dev sxia20_devs[] = {
-
-	/* 'Port IO' */
-	{ .name = "sxipio",
-	  .unit = 0,
-	  .mem = { { PIO_ADDR, PIOx_SIZE } },
-	  .irq = { PIO_IRQ }
-	},
-
-	/* Clock Control Module/Unit */
-	{ .name = "sxiccmu",
-	  .unit = 0,
-	  .mem = { { CCMU_ADDR, CCMU_SIZE } },
-	},
-
-	/* Terminator */
-	{ .name = NULL,
-	  .unit = 0,
-	}
-};
-
-void
-sxia20_init(void)
-{
-	armv7_set_devs(sxia20_devs);
-}
+#endif /* _DEV_OFW_GPIO_H_ */
