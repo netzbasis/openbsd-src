@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.c,v 1.44 2016/08/10 21:22:43 kettenis Exp $	*/
+/*	$OpenBSD: cpufunc.c,v 1.46 2016/08/14 11:30:54 jsg Exp $	*/
 /*	$NetBSD: cpufunc.c,v 1.65 2003/11/05 12:53:15 scw Exp $	*/
 
 /*
@@ -55,15 +55,6 @@
 #include <machine/pmap.h>
 #include <arm/cpuconf.h>
 #include <arm/cpufunc.h>
-
-#ifdef CPU_XSCALE_80321
-#include <arm/xscale/i80321reg.h>
-#include <arm/xscale/i80321var.h>
-#endif
-
-#if defined(CPU_XSCALE_80321)
-#include <arm/xscale/xscalereg.h>
-#endif
 
 #if defined(PERFCTRS)
 struct arm_pmc_funcs *arm_pmc;
@@ -145,7 +136,7 @@ struct cpu_functions armv7_cpufuncs = {
 };
 #endif /* CPU_ARMv7 */
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 struct cpu_functions xscale_cpufuncs = {
 	/* CPU functions */
 
@@ -202,7 +193,7 @@ struct cpu_functions xscale_cpufuncs = {
 	xscale_setup			/* cpu setup		*/
 };
 #endif
-/* CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 */
+/* CPU_XSCALE_PXA2X0 */
 
 /*
  * Global constants also used by locore.s
@@ -216,7 +207,7 @@ int	arm_icache_min_line_size = 32;
 int	arm_dcache_min_line_size = 32;
 int	arm_idcache_min_line_size = 32;
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 static void get_cachetype_cp15 (void);
 
 /* Additional cache information local to this file.  Log2 of some of the
@@ -498,37 +489,6 @@ set_cpufuncs()
 		}
 	}
 #endif /* CPU_ARMv7 */
-#ifdef CPU_XSCALE_80321
-	if (cputype == CPU_ID_80321_400 || cputype == CPU_ID_80321_600 ||
-	    cputype == CPU_ID_80321_400_B0 || cputype == CPU_ID_80321_600_B0 ||
-	    cputype == CPU_ID_80219_400 || cputype == CPU_ID_80219_600) {
-		i80321intc_init();
-
-#ifdef PERFCTRS
-		/*
-		 * Reset the Performance Monitoring Unit to a
-		 * pristine state:
-		 *	- CCNT, PMN0, PMN1 reset to 0
-		 *	- overflow indications cleared
-		 *	- all counters disabled
-		 */
-		__asm volatile("mcr p14, 0, %0, c0, c0, 0"
-			:
-			: "r" (PMNC_P|PMNC_C|PMNC_PMN0_IF|PMNC_PMN1_IF|
-			       PMNC_CC_IF));
-#endif /* PERFCTRS */
-
-		cpufuncs = xscale_cpufuncs;
-#if defined(PERFCTRS)
-		xscale_pmu_init();
-#endif
-
-		cpu_reset_needs_v4_MMU_disable = 1;	/* XScale needs it */
-		get_cachetype_cp15();
-		pmap_pte_init_xscale();
-		return 0;
-	}
-#endif /* CPU_XSCALE_80321 */
 #ifdef CPU_XSCALE_PXA2X0
 	/* ignore core revision to test PXA2xx CPUs */
 	if ((cputype & ~CPU_ID_XSCALE_COREREV_MASK) == CPU_ID_PXA250 ||
@@ -568,6 +528,26 @@ armv7_setup()
 	uint32_t auxctrl, auxctrlmask;
 	uint32_t cpuctrl, cpuctrlmask;
 
+	auxctrl = auxctrlmask = 0;
+
+	switch (cputype & CPU_ID_CORTEX_MASK) {
+	case CPU_ID_CORTEX_A5:
+	case CPU_ID_CORTEX_A9:
+		/* Cache and TLB maintenance broadcast */
+#ifdef notyet
+		auxctrlmask |= CORTEXA9_AUXCTL_FW;
+		auxctrl |= CORTEXA9_AUXCTL_FW;
+#endif
+		/* FALLTHROUGH */
+	case CPU_ID_CORTEX_A7:
+	case CPU_ID_CORTEX_A15:
+	case CPU_ID_CORTEX_A17:
+		/* Set SMP to allow LDREX/STREX */
+		auxctrlmask |= CORTEXA9_AUXCTL_SMP;
+		auxctrl |= CORTEXA9_AUXCTL_SMP;
+		break;
+	}
+
 	cpuctrlmask = CPU_CONTROL_MMU_ENABLE
 	    | CPU_CONTROL_AFLT_ENABLE
 	    | CPU_CONTROL_DC_ENABLE
@@ -590,36 +570,23 @@ armv7_setup()
 	/* Clear out the cache */
 	cpu_idcache_wbinv_all();
 
+	/*
+	 * Set the auxilliary control register first, as the SMP bit
+	 * needs to be set to 1 before the caches and the MMU are
+	 * enabled.
+	 */
+	cpu_auxcontrol(auxctrlmask, auxctrl);
+
 	/* Set the control register */
 	curcpu()->ci_ctrl = cpuctrl;
 	cpu_control(cpuctrlmask, cpuctrl);
-
-	auxctrl = auxctrlmask = 0;
-
-	switch (cputype & CPU_ID_CORTEX_MASK) {
-	case CPU_ID_CORTEX_A5:
-	case CPU_ID_CORTEX_A9:
-		/* Cache and TLB maintenance broadcast */
-#ifdef notyet
-		auxctrl |= (1 << 0);
-#endif
-		/* FALLTHROUGH */
-	case CPU_ID_CORTEX_A7:
-	case CPU_ID_CORTEX_A15:
-	case CPU_ID_CORTEX_A17:
-		/* Set SMP to allow LDREX/STREX */
-		auxctrl |= (1 << 6);
-		break;
-	}
-
-	cpu_auxcontrol(auxctrlmask, auxctrl);
 
 	/* And again. */
 	cpu_idcache_wbinv_all();
 }
 #endif	/* CPU_ARMv7 */
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 void
 xscale_setup()
 {
@@ -670,4 +637,4 @@ xscale_setup()
 	__asm volatile("mcr p15, 0, %0, c1, c0, 1"
 		: : "r" (auxctl));
 }
-#endif	/* CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 */
+#endif	/* CPU_XSCALE_PXA2X0 */

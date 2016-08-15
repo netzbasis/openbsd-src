@@ -1,4 +1,4 @@
-/*	$OpenBSD: armreg.h,v 1.33 2016/08/06 16:46:25 kettenis Exp $	*/
+/*	$OpenBSD: armreg.h,v 1.35 2016/08/14 11:30:54 jsg Exp $	*/
 /*	$NetBSD: armreg.h,v 1.27 2003/09/06 08:43:02 rearnsha Exp $	*/
 
 /*
@@ -139,13 +139,7 @@
 #define CPU_ID_PXA210B		0x69052920 /* 3rd version Core */
 #define CPU_ID_PXA250C		0x69052d00 /* 4th version Core */
 #define CPU_ID_PXA210C		0x69052d20 /* 4th version Core */
-#define CPU_ID_80219_400        0x69052e20
-#define CPU_ID_80219_600        0x69052e30
 #define CPU_ID_PXA27X		0x69054110
-#define CPU_ID_80321_400	0x69052420
-#define CPU_ID_80321_600	0x69052430
-#define CPU_ID_80321_400_B0	0x69052c20
-#define CPU_ID_80321_600_B0	0x69052c30
 #define CPU_ID_CORTEX_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A5	0x410fc050
 #define CPU_ID_CORTEX_A5_MASK	0xff0ffff0
@@ -268,6 +262,16 @@
 #define XSCALE_AUXCTL_MD_WB_RWA	0x00000010 /* mini-D$ wb, read/write-allocate */
 #define XSCALE_AUXCTL_MD_WT	0x00000020 /* mini-D$ wt, read-allocate */
 #define XSCALE_AUXCTL_MD_MASK	0x00000030
+
+/* Cortex-A9 Auxiliary Control Register (CP15 register 1, opcode 1) */
+#define CORTEXA9_AUXCTL_FW	(1 << 0) /* Cache and TLB updates broadcast */
+#define CORTEXA9_AUXCTL_L2PE	(1 << 1) /* Prefetch hint enable */
+#define CORTEXA9_AUXCTL_L1PE	(1 << 2) /* Data prefetch hint enable */
+#define CORTEXA9_AUXCTL_WR_ZERO	(1 << 3) /* Ena. write full line of 0s mode */
+#define CORTEXA9_AUXCTL_SMP	(1 << 6) /* Coherency is active */
+#define CORTEXA9_AUXCTL_EXCL	(1 << 7) /* Exclusive cache bit */
+#define CORTEXA9_AUXCTL_ONEWAY	(1 << 8) /* Allocate in on cache way only */
+#define CORTEXA9_AUXCTL_PARITY	(1 << 9) /* Support parity checking */
 
 /* Cache type register definitions */
 #define CPU_CT_ISIZE(x)		((x) & 0xfff)		/* I$ info */
