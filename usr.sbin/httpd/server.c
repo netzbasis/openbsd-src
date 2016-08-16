@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.85 2016/04/28 17:18:06 jsing Exp $	*/
+/*	$OpenBSD: server.c,v 1.88 2016/08/15 16:12:34 jsing Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -133,6 +133,30 @@ server_privinit(struct server *srv)
 }
 
 int
+server_tls_cmp(struct server *s1, struct server *s2)
+{
+	struct server_config	*sc1, *sc2;
+
+	sc1 = &s1->srv_conf;
+	sc2 = &s2->srv_conf;
+
+	if (sc1->tls_protocols != sc2->tls_protocols)
+		return (-1);
+	if (strcmp(sc1->tls_cert_file, sc2->tls_cert_file) != 0)
+		return (-1);
+	if (strcmp(sc1->tls_key_file, sc2->tls_key_file) != 0)
+		return (-1);
+	if (strcmp(sc1->tls_ciphers, sc2->tls_ciphers) != 0)
+		return (-1);
+	if (strcmp(sc1->tls_dhe_params, sc2->tls_dhe_params) != 0)
+		return (-1);
+	if (strcmp(sc1->tls_ecdhe_curve, sc2->tls_ecdhe_curve) != 0)
+		return (-1);
+
+	return (0);
+}
+
+int
 server_tls_load_keypair(struct server *srv)
 {
 	if ((srv->srv_conf.flags & SRVFLAG_TLS) == 0)
@@ -162,7 +186,7 @@ server_tls_init(struct server *srv)
 	if ((srv->srv_conf.flags & SRVFLAG_TLS) == 0)
 		return (0);
 
-	log_debug("%s: setting up TLS for %s", __func__, srv->srv_conf.name);
+	log_debug("%s: setting up tls for %s", __func__, srv->srv_conf.name);
 
 	if (tls_init() != 0) {
 		log_warnx("%s: failed to initialise tls", __func__);
@@ -208,7 +232,7 @@ server_tls_init(struct server *srv)
 	}
 
 	if (tls_configure(srv->srv_tls_ctx, srv->srv_tls_config) != 0) {
-		log_warnx("%s: failed to configure TLS - %s", __func__,
+		log_warnx("%s: failed to configure tls - %s", __func__,
 		    tls_error(srv->srv_tls_ctx));
 		return (-1);
 	}
@@ -392,6 +416,33 @@ server_foreach(int (*srv_cb)(struct server *,
 	}
 
 	return (0);
+}
+
+struct server *
+server_match(struct server *s2, int match_name)
+{
+	struct server	*s1;
+
+	/* Attempt to find matching server. */
+	TAILQ_FOREACH(s1, env->sc_servers, srv_entry) {
+		if ((s1->srv_conf.flags & SRVFLAG_LOCATION) != 0)
+			continue;
+		if (match_name) {
+			if (strcmp(s1->srv_conf.name, s2->srv_conf.name) != 0)
+				continue;
+		}
+		if (s1->srv_conf.port != s2->srv_conf.port)
+			continue;
+		if (sockaddr_cmp(
+		    (struct sockaddr *)&s1->srv_conf.ss,
+		    (struct sockaddr *)&s2->srv_conf.ss,
+		    s1->srv_conf.prefixlen) != 0)
+			continue;
+
+		return (s1);
+	}
+
+	return (NULL);
 }
 
 int
@@ -948,7 +999,7 @@ server_handshake_tls(int fd, short event, void *arg)
 	int ret;
 
 	if (event == EV_TIMEOUT) {
-		server_close(clt, "TLS handshake timeout");
+		server_close(clt, "tls handshake timeout");
 		return;
 	}
 
@@ -967,9 +1018,9 @@ server_handshake_tls(int fd, short event, void *arg)
 		    server_handshake_tls, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 	} else {
-		log_warnx("%s: TLS handshake failed - %s", __func__,
+		log_warnx("%s: tls handshake failed - %s", __func__,
 		    tls_error(clt->clt_tls_ctx));
-		server_close(clt, "TLS handshake failed");
+		server_close(clt, "tls handshake failed");
 	}
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: omap_com.c,v 1.10 2016/08/12 03:22:41 jsg Exp $ */
+/* $OpenBSD: com_fdt.c,v 1.3 2016/08/15 21:04:32 patrick Exp $ */
 /*
  * Copyright 2003 Wasabi Systems, Inc.
  * All rights reserved.
@@ -59,20 +59,25 @@
 #define com_isr 8
 #define ISR_RECV	(ISR_RXPL | ISR_XMODE | ISR_RCVEIR)
 
-int	omapuart_match(struct device *, void *, void *);
-void	omapuart_attach(struct device *, struct device *, void *);
-int	omapuart_activate(struct device *, int);
+int	com_fdt_match(struct device *, void *, void *);
+void	com_fdt_attach(struct device *, struct device *, void *);
+int	com_fdt_activate(struct device *, int);
 
 extern int comcnspeed;
 extern int comcnmode;
 
-struct cfattach com_omap_ca = {
-	sizeof (struct com_softc), omapuart_match, omapuart_attach, NULL,
-	omapuart_activate
+struct com_fdt_softc {
+	struct com_softc	 sc;
+	struct bus_space	 sc_iot;
+};
+
+struct cfattach com_fdt_ca = {
+	sizeof (struct com_fdt_softc), com_fdt_match, com_fdt_attach, NULL,
+	com_fdt_activate
 };
 
 void
-omapuart_init_cons(void)
+com_fdt_init_cons(void)
 {
 	struct fdt_reg reg;
 	void *node;
@@ -89,7 +94,7 @@ omapuart_init_cons(void)
 }
 
 int
-omapuart_match(struct device *parent, void *match, void *aux)
+com_fdt_match(struct device *parent, void *match, void *aux)
 {
 	struct fdt_attach_args *faa = aux;
 
@@ -98,35 +103,48 @@ omapuart_match(struct device *parent, void *match, void *aux)
 }
 
 void
-omapuart_attach(struct device *parent, struct device *self, void *aux)
+com_fdt_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct com_softc *sc = (struct com_softc *)self;
+	struct com_fdt_softc *sc = (struct com_fdt_softc *)self;
 	struct fdt_attach_args *faa = aux;
 
 	if (faa->fa_nreg < 1)
 		return;
 
-	sc->sc_iot = &armv7_a4x_bs_tag; /* XXX: This sucks */
-	sc->sc_iobase = faa->fa_reg[0].addr;
-	sc->sc_frequency = 48000000;
-	sc->sc_uarttype = COM_UART_TI16750;
+	/*
+	 * XXX This sucks.  We need to get rid of the a4x bus tag
+	 * altogether.  For this we will need to change com(4).
+	 */
+	sc->sc_iot = armv7_a4x_bs_tag;
+	sc->sc_iot.bs_cookie = faa->fa_iot->bs_cookie;
+	sc->sc_iot.bs_map = faa->fa_iot->bs_map;
 
-	if (bus_space_map(sc->sc_iot, sc->sc_iobase,
-	    faa->fa_reg[0].size, 0, &sc->sc_ioh)) {
+	sc->sc.sc_iot = &sc->sc_iot;
+	sc->sc.sc_iobase = faa->fa_reg[0].addr;
+	sc->sc.sc_frequency = 48000000;
+	sc->sc.sc_uarttype = COM_UART_TI16750;
+
+	if (stdout_node == faa->fa_node) {
+		SET(sc->sc.sc_hwflags, COM_HW_CONSOLE);
+		SET(sc->sc.sc_swflags, COM_SW_SOFTCAR);
+	}
+
+	if (bus_space_map(sc->sc.sc_iot, sc->sc.sc_iobase,
+	    faa->fa_reg[0].size, 0, &sc->sc.sc_ioh)) {
 		printf("%s: bus_space_map failed\n", __func__);
 		return;
 	}
 
 	pinctrl_byname(faa->fa_node, "default");
 
-	com_attach_subr(sc);
+	com_attach_subr(&sc->sc);
 
 	(void)arm_intr_establish_fdt(faa->fa_node, IPL_TTY, comintr,
-	    sc, sc->sc_dev.dv_xname);
+	    sc, sc->sc.sc_dev.dv_xname);
 }
 
 int
-omapuart_activate(struct device *self, int act)
+com_fdt_activate(struct device *self, int act)
 {
 	struct com_softc *sc = (struct com_softc *)self;
 	bus_space_tag_t iot = sc->sc_iot;
