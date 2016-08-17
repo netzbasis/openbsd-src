@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.88 2016/08/15 16:12:34 jsing Exp $	*/
+/*	$OpenBSD: server.c,v 1.91 2016/08/16 18:41:57 tedu Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>	/* nitems */
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/time.h>
@@ -63,9 +62,9 @@ int		 server_socket_listen(struct sockaddr_storage *, in_port_t,
 int		 server_tls_init(struct server *);
 void		 server_tls_readcb(int, short, void *);
 void		 server_tls_writecb(int, short, void *);
+void		 server_tls_handshake(int, short, void *);
 
 void		 server_accept(int, short, void *);
-void		 server_handshake_tls(int, short, void *);
 void		 server_input(struct client *);
 void		 server_inflight_dec(struct client *, const char *);
 
@@ -971,7 +970,7 @@ server_accept(int fd, short event, void *arg)
 			return;
 		}
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_READ,
-		    server_handshake_tls, &clt->clt_tv_start,
+		    server_tls_handshake, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 		return;
 	}
@@ -992,7 +991,7 @@ server_accept(int fd, short event, void *arg)
 }
 
 void
-server_handshake_tls(int fd, short event, void *arg)
+server_tls_handshake(int fd, short event, void *arg)
 {
 	struct client *clt = (struct client *)arg;
 	struct server *srv = (struct server *)clt->clt_srv;
@@ -1011,14 +1010,14 @@ server_handshake_tls(int fd, short event, void *arg)
 		server_input(clt);
 	} else if (ret == TLS_WANT_POLLIN) {
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_READ,
-		    server_handshake_tls, &clt->clt_tv_start,
+		    server_tls_handshake, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 	} else if (ret == TLS_WANT_POLLOUT) {
 		event_again(&clt->clt_ev, clt->clt_s, EV_TIMEOUT|EV_WRITE,
-		    server_handshake_tls, &clt->clt_tv_start,
+		    server_tls_handshake, &clt->clt_tv_start,
 		    &srv->srv_conf.timeout, clt);
 	} else {
-		log_warnx("%s: tls handshake failed - %s", __func__,
+		log_debug("%s: tls handshake failed - %s", __func__,
 		    tls_error(clt->clt_tls_ctx));
 		server_close(clt, "tls handshake failed");
 	}
