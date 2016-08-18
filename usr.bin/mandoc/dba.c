@@ -1,4 +1,4 @@
-/*	$OpenBSD: dba.c,v 1.2 2016/08/05 21:37:39 schwarze Exp $ */
+/*	$OpenBSD: dba.c,v 1.5 2016/08/17 20:46:06 schwarze Exp $ */
 /*
  * Copyright (c) 2016 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -128,17 +128,15 @@ dba_write(const char *fname, struct dba *dba)
  * Create a new page and append it to the pages table.
  */
 struct dba_array *
-dba_page_new(struct dba_array *pages, const char *name, const char *sect,
-    const char *arch, const char *desc, const char *file, enum form form)
+dba_page_new(struct dba_array *pages, const char *arch,
+    const char *desc, const char *file, enum form form)
 {
 	struct dba_array *page, *entry;
 
 	page = dba_array_new(DBP_MAX, 0);
 	entry = dba_array_new(1, DBA_STR | DBA_GROW);
-	dba_array_add(entry, prepend(name, NAME_FILE & NAME_MASK));
 	dba_array_add(page, entry);
 	entry = dba_array_new(1, DBA_STR | DBA_GROW);
-	dba_array_add(entry, (void *)sect);
 	dba_array_add(page, entry);
 	if (arch != NULL && *arch != '\0') {
 		entry = dba_array_new(1, DBA_STR | DBA_GROW);
@@ -169,7 +167,7 @@ dba_page_add(struct dba_array *page, int32_t ie, const char *str)
 	if (ie == DBP_ARCH) {
 		if (entries == NULL)
 			return;
-		if (str == NULL) {
+		if (str == NULL || *str == '\0') {
 			dba_array_free(entries);
 			dba_array_set(page, DBP_ARCH, NULL);
 			return;
