@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.h,v 1.42 2016/08/10 21:22:43 kettenis Exp $	*/
+/*	$OpenBSD: pmap.h,v 1.45 2016/08/19 17:31:04 kettenis Exp $	*/
 /*	$NetBSD: pmap.h,v 1.76 2003/09/06 09:10:46 rearnsha Exp $	*/
 
 /*
@@ -482,7 +482,7 @@ extern void (*pmap_zero_page_func)(struct vm_page *);
 
 #define	L1_S_COHERENT_generic	(L1_S_B|L1_S_C)
 #define	L1_S_COHERENT_xscale	(L1_S_B|L1_S_C|L1_S_XSCALE_TEX(TEX_XSCALE_X))
-#define	L1_S_COHERENT_v7	(L1_S_C|L1_S_V7_TEX_MASK)
+#define	L1_S_COHERENT_v7	(L1_S_C)
 
 #define	L2_L_PROT_KR_generic	(L2_AP(0))
 #define	L2_L_PROT_UR_generic	(L2_AP(AP_U))
@@ -508,7 +508,7 @@ extern void (*pmap_zero_page_func)(struct vm_page *);
 
 #define	L2_L_COHERENT_generic	(L2_B|L2_C)
 #define	L2_L_COHERENT_xscale	(L2_B|L2_C|L2_XSCALE_L_TEX(TEX_XSCALE_X))
-#define	L2_L_COHERENT_v7	(L2_C|L2_V7_L_TEX_MASK)
+#define	L2_L_COHERENT_v7	(L2_C)
 
 #define	L2_S_PROT_UR_generic	(L2_AP(AP_U))
 #define	L2_S_PROT_UW_generic	(L2_AP(AP_U|AP_W))
@@ -534,7 +534,7 @@ extern void (*pmap_zero_page_func)(struct vm_page *);
 
 #define	L2_S_COHERENT_generic	(L2_B|L2_C)
 #define	L2_S_COHERENT_xscale	(L2_B|L2_C|L2_XSCALE_T_TEX(TEX_XSCALE_X))
-#define	L2_S_COHERENT_v7	(L2_C|L2_V7_S_TEX_MASK)
+#define	L2_S_COHERENT_v7	(L2_C)
 
 #define	L1_S_PROTO_generic	(L1_TYPE_S | L1_S_IMP)
 #define	L1_S_PROTO_xscale	(L1_TYPE_S)
@@ -703,14 +703,11 @@ L1_S_PROT(int ku, vm_prot_t pr)
 		pte = (pr & PROT_WRITE) ? L1_S_PROT_UW : L1_S_PROT_UR;
 	else
 		pte = (pr & PROT_WRITE) ? L1_S_PROT_KW : L1_S_PROT_KR;
-	/*
-	 * If we set the XN bit, the abort handlers or the vector page
-	 * might be marked as such. Needs Debugging.
-	 */
-	/*
+
+#ifdef CPU_ARMv7
 	if ((pr & PROT_EXEC) == 0)
 		pte |= L1_S_V7_XN;
-	*/
+#endif
 
 	return pte;
 }
@@ -723,14 +720,11 @@ L2_L_PROT(int ku, vm_prot_t pr)
 		pte = (pr & PROT_WRITE) ? L2_L_PROT_UW : L2_L_PROT_UR;
 	else
 		pte = (pr & PROT_WRITE) ? L2_L_PROT_KW : L2_L_PROT_KR;
-	/*
-	 * If we set the XN bit, the abort handlers or the vector page
-	 * might be marked as such. Needs Debugging.
-	 */
-	/*
+
+#ifdef CPU_ARMv7
 	if ((pr & PROT_EXEC) == 0)
 		pte |= L2_V7_L_XN;
-	*/
+#endif
 
 	return pte;
 }
@@ -743,14 +737,11 @@ L2_S_PROT(int ku, vm_prot_t pr)
 		pte = (pr & PROT_WRITE) ? L2_S_PROT_UW : L2_S_PROT_UR;
 	else
 		pte = (pr & PROT_WRITE) ? L2_S_PROT_KW : L2_S_PROT_KR;
-	/*
-	 * If we set the XN bit, the abort handlers or the vector page
-	 * might be marked as such. Needs Debugging.
-	 */
-	/*
+
+#ifdef CPU_ARMv7
 	if ((pr & PROT_EXEC) == 0)
 		pte |= L2_V7_S_XN;
-	*/
+#endif
 
 	return pte;
 }
@@ -758,10 +749,7 @@ L2_S_PROT(int ku, vm_prot_t pr)
 static __inline boolean_t
 l2pte_is_writeable(pt_entry_t pte, struct pmap *pm)
 {
-	/* XXX use of L2_V7_S_XN */
-	return (pte & L2_S_PROT_MASK & ~L2_V7_S_XN) ==
-	    L2_S_PROT(pm == pmap_kernel() ? PTE_KERNEL : PTE_USER,
-	              PROT_WRITE);
+	return (pte & L2_V7_AP(0x4)) == 0;
 }
 #endif
 
