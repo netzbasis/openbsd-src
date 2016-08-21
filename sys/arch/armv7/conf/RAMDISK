@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.44 2016/08/17 13:05:02 patrick Exp $
+#	$OpenBSD: RAMDISK,v 1.47 2016/08/20 19:44:02 kettenis Exp $
 
 machine		armv7 arm
 
@@ -91,10 +91,11 @@ sxiccmu*	at sunxi?		# Clock Control Module/Unit
 sxitimer*	at sunxi?
 sxidog*		at fdt?			# watchdog timer
 sxirtc*		at fdt?			# Real Time Clock
-#sxiuart*	at fdt?			# onboard UARTs
 sxie*		at fdt?
 dwge*		at fdt?
 sxiahci*	at fdt?			# AHCI/SATA
+sximmc*		at fdt?			# SD/MMC card controller
+sdmmc*		at sximmc?		# SD/MMC bus
 ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
@@ -127,7 +128,6 @@ exuart*		at exynos?
 
 # Raspberry Pi 2/3
 bcmintc*	at fdt?
-bcmmuart*	at fdt?
 dwctwo*		at fdt?
 usb*		at dwctwo?
 
