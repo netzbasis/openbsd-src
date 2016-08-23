@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofw_clock.h,v 1.1 2016/08/21 21:38:05 kettenis Exp $	*/
+/*	$OpenBSD: ofw_clock.h,v 1.4 2016/08/22 19:28:27 kettenis Exp $	*/
 /*
  * Copyright (c) 2016 Mark Kettenis
  *
@@ -22,6 +22,7 @@ struct clock_device {
 	int	cd_node;
 	void	*cd_cookie;
 	uint32_t (*cd_get_frequency)(void *, uint32_t *);
+	int	(*cd_set_frequency)(void *, uint32_t *, uint32_t);
 	void	(*cd_enable)(void *, uint32_t *, int);
 
 	LIST_ENTRY(clock_device) cd_list;
@@ -33,7 +34,37 @@ void	clock_register(struct clock_device *);
 
 uint32_t clock_get_frequency(int, const char *);
 uint32_t clock_get_frequency_idx(int, int);
+int	clock_set_frequency(int, const char *, uint32_t);
 void	clock_enable(int, const char *);
 void	clock_enable_idx(int, int);
+void	clock_disable(int, const char *);
+void	clock_disable_idx(int, int);
+
+static inline void
+clock_enable_all(int node)
+{
+	clock_enable_idx(node, -1);
+}
+
+static inline void
+clock_disable_all(int node)
+{
+	clock_disable_idx(node, -1);
+}
+
+struct reset_device {
+	int	rd_node;
+	void	*rd_cookie;
+	void	(*rd_reset)(void *, uint32_t *, int);
+
+	LIST_ENTRY(reset_device) rd_list;
+	uint32_t rd_phandle;
+	uint32_t rd_cells;
+};
+
+void	reset_register(struct reset_device *);
+
+void	reset_assert(int, const char *);
+void	reset_deassert(int, const char *);
 
 #endif /* _DEV_OFW_CLOCK_H_ */

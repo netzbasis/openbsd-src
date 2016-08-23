@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_internal.h,v 1.39 2016/08/15 15:44:58 jsing Exp $ */
+/* $OpenBSD: tls_internal.h,v 1.42 2016/08/22 17:12:35 jsing Exp $ */
 /*
  * Copyright (c) 2014 Jeremie Courreges-Anglas <jca@openbsd.org>
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
@@ -74,6 +74,7 @@ struct tls_config {
 struct tls_conninfo {
 	char *alpn;
 	char *cipher;
+	char *servername;
 	char *version;
 
 	char *hash;
@@ -91,6 +92,13 @@ struct tls_conninfo {
 #define TLS_EOF_NO_CLOSE_NOTIFY	(1 << 0)
 #define TLS_HANDSHAKE_COMPLETE	(1 << 1)
 
+struct tls_sni_ctx {
+	struct tls_sni_ctx *next;
+
+	SSL_CTX *ssl_ctx;
+	X509 *ssl_cert;
+};
+
 struct tls {
 	struct tls_config *config;
 	struct tls_error error;
@@ -103,10 +111,16 @@ struct tls {
 
 	SSL *ssl_conn;
 	SSL_CTX *ssl_ctx;
+
+	struct tls_sni_ctx *sni_ctx;
+
 	X509 *ssl_peer_cert;
 
 	struct tls_conninfo *conninfo;
 };
+
+struct tls_sni_ctx *tls_sni_ctx_new(void);
+void tls_sni_ctx_free(struct tls_sni_ctx *sni_ctx);
 
 struct tls *tls_new(void);
 struct tls *tls_server_conn(struct tls *ctx);
@@ -148,8 +162,8 @@ int tls_set_errorx(struct tls *ctx, const char *fmt, ...)
 int tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret,
     const char *prefix);
 
-int tls_get_conninfo(struct tls *ctx);
-void tls_free_conninfo(struct tls_conninfo *conninfo);
+int tls_conninfo_populate(struct tls *ctx);
+void tls_conninfo_free(struct tls_conninfo *conninfo);
 
 int asn1_time_parse(const char *, size_t, struct tm *, int);
 

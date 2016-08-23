@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.46 2016/08/15 14:04:23 jsing Exp $ */
+/* $OpenBSD: tls.c,v 1.48 2016/08/22 17:12:35 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -175,6 +175,24 @@ tls_set_errorx(struct tls *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	return (rv);
+}
+
+struct tls_sni_ctx *
+tls_sni_ctx_new(void)
+{
+	return (calloc(1, sizeof(struct tls_sni_ctx)));
+}
+
+void
+tls_sni_ctx_free(struct tls_sni_ctx *sni_ctx)
+{
+	if (sni_ctx == NULL)
+		return;
+
+	SSL_CTX_free(sni_ctx->ssl_ctx);
+	X509_free(sni_ctx->ssl_cert);
+
+	free(sni_ctx);
 }
 
 struct tls *
@@ -369,13 +387,17 @@ tls_free(struct tls *ctx)
 {
 	if (ctx == NULL)
 		return;
+
 	tls_reset(ctx);
+
 	free(ctx);
 }
 
 void
 tls_reset(struct tls *ctx)
 {
+	struct tls_sni_ctx *sni, *nsni;
+
 	SSL_CTX_free(ctx->ssl_ctx);
 	SSL_free(ctx->ssl_conn);
 	X509_free(ctx->ssl_peer_cert);
@@ -394,9 +416,14 @@ tls_reset(struct tls *ctx)
 	ctx->error.msg = NULL;
 	ctx->error.num = -1;
 
-	tls_free_conninfo(ctx->conninfo);
-	free(ctx->conninfo);
+	tls_conninfo_free(ctx->conninfo);
 	ctx->conninfo = NULL;
+
+	for (sni = ctx->sni_ctx; sni != NULL; sni = nsni) {
+		nsni = sni->next;
+		tls_sni_ctx_free(sni);
+	}
+	ctx->sni_ctx = NULL;
 }
 
 int
@@ -459,10 +486,6 @@ tls_handshake(struct tls *ctx)
 		goto out;
 	}
 
-	if (ctx->conninfo == NULL &&
-	    (ctx->conninfo = calloc(1, sizeof(*ctx->conninfo))) == NULL)
-		goto out;
-
 	if ((ctx->flags & TLS_CLIENT) != 0)
 		rv = tls_handshake_client(ctx);
 	else if ((ctx->flags & TLS_SERVER_CONN) != 0)
@@ -470,7 +493,7 @@ tls_handshake(struct tls *ctx)
 
 	if (rv == 0) {
 		ctx->ssl_peer_cert =  SSL_get_peer_certificate(ctx->ssl_conn);
-		if (tls_get_conninfo(ctx) == -1)
+		if (tls_conninfo_populate(ctx) == -1)
 		    rv = -1;
 	}
  out:
