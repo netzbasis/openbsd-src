@@ -1,4 +1,4 @@
-/*	$OpenBSD: options.c,v 1.95 2016/08/23 06:00:28 guenther Exp $	*/
+/*	$OpenBSD: options.c,v 1.98 2016/08/25 01:44:55 guenther Exp $	*/
 /*	$NetBSD: options.c,v 1.6 1996/03/26 23:54:18 mrg Exp $	*/
 
 /*-
@@ -126,7 +126,7 @@ FSUB fsub[] = {
 
 /* 5: POSIX USTAR */
 	{"ustar", 10240, BLKMULT, 0, 1, BLKMULT, 0, ustar_id, ustar_strd,
-	ustar_rd, tar_endrd, ustar_stwr, ustar_wr, tar_endwr, tar_trail,
+	ustar_rd, tar_endrd, no_op, ustar_wr, tar_endwr, tar_trail,
 	tar_opt},
 
 #ifdef SMALL
@@ -641,7 +641,6 @@ static void
 tar_options(int argc, char **argv)
 {
 	int c;
-	int fstdin = 0;
 	int Oflag = 0;
 	int nincfiles = 0;
 	int incfiles_max = 0;
@@ -688,15 +687,6 @@ tar_options(int argc, char **argv)
 			/*
 			 * filename where the archive is stored
 			 */
-			if ((optarg[0] == '-') && (optarg[1]== '\0')) {
-				/*
-				 * treat a - as stdin
-				 */
-				fstdin = 1;
-				arcname = NULL;
-				break;
-			}
-			fstdin = 0;
 			arcname = optarg;
 			break;
 		case 'h':
@@ -872,20 +862,19 @@ tar_options(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (!fstdin && ((arcname == NULL) || (*arcname == '\0'))) {
+	if ((arcname == NULL) || (*arcname == '\0')) {
 		arcname = getenv("TAPE");
 		if ((arcname == NULL) || (*arcname == '\0'))
 			arcname = _PATH_DEFTAPE;
-		else if ((arcname[0] == '-') && (arcname[1]== '\0')) {
-			arcname = NULL;
-			fstdin = 1;
-		}
 	}
+	if ((arcname[0] == '-') && (arcname[1]== '\0'))
+		arcname = NULL;
 
-	/* Traditional tar behaviour (pax uses stderr unless in list mode) */
-	if (fstdin == 1 && act == ARCHIVE)
-		listf = stderr;
-	else
+	/*
+	 * Traditional tar behaviour: list-like output goes to stdout unless
+	 * writing the archive there.  (pax uses stderr unless in list mode)
+	 */
+        if (act == LIST || act == EXTRACT || arcname != NULL)
 		listf = stdout;
 
 	/* Traditional tar behaviour (pax wants to read file list from stdin) */
@@ -1090,7 +1079,7 @@ static void
 cpio_options(int argc, char **argv)
 {
 	const char *errstr;
-	int c;
+	int c, list_only = 0;
 	unsigned i;
 	char *str;
 	FILE *fp;
@@ -1188,8 +1177,7 @@ cpio_options(int argc, char **argv)
 				/*
 				 * list contents of archive
 				 */
-				act = LIST;
-				listf = stdout;
+				list_only = 1;
 				break;
 			case 'u':
 				/*
@@ -1322,8 +1310,16 @@ cpio_options(int argc, char **argv)
 	 * process the args as they are interpreted by the operation mode
 	 */
 	switch (act) {
-		case LIST:
 		case EXTRACT:
+			if (list_only) {
+				act = LIST;
+
+				/*
+				 * cpio is like pax: list to stderr
+				 * unless in list mode
+				 */
+				listf = stdout;
+			}
 			while (*argv != NULL)
 				if (pat_add(*argv++, NULL) < 0)
 					cpio_usage();
