@@ -1,7 +1,8 @@
-/*	$OpenBSD: sxiccmu.c,v 1.15 2016/08/26 08:30:24 mglocker Exp $	*/
+/*	$OpenBSD: sxiccmu.c,v 1.17 2016/08/27 16:41:52 kettenis Exp $	*/
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2013 Artturi Alm
+ * Copyright (c) 2016 Mark Kettenis <kettenis@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -31,7 +32,6 @@
 
 #include <armv7/armv7/armv7var.h>
 #include <armv7/sunxi/sunxireg.h>
-#include <armv7/sunxi/sxiccmuvar.h>
 
 #include <dev/ofw/openfirm.h>
 #include <dev/ofw/ofw_clock.h>
@@ -42,21 +42,26 @@
 #define DPRINTF(x)
 #endif
 
-#define CCMU_SDx_CLK(x)			(0x88 + (x) * 4)
-#define CCMU_SDx_CLK_GATING		(1U << 31)
-#define CCMU_SDx_CLK_SRC_GATING_OSC24M	(0 << 24)
-#define CCMU_SDx_CLK_SRC_GATING_PLL6	(1 << 24)
-#define CCMU_SDx_CLK_SRC_GATING_PLL5	(2 << 24)
-#define CCMU_SDx_CLK_SRC_GATING_MASK	(3 << 24)
-#define CCMU_SDx_CLK_FACTOR_N		(3 << 16)
-#define CCMU_SDx_CLK_FACTOR_N_SHIFT	16
-#define CCMU_SDx_CLK_FACTOR_M		(7 << 0)
-#define CCMU_SDx_CLK_FACTOR_M_SHIFT	0
+struct sxiccmu_ccu_bit {
+	uint16_t reg;
+	uint8_t bit;
+	uint8_t parent;
+};
+
+#include "sxiccmu_clocks.h"
 
 struct sxiccmu_softc {
 	struct device		sc_dev;
 	bus_space_tag_t		sc_iot;
 	bus_space_handle_t	sc_ioh;
+
+	struct sxiccmu_ccu_bit	*sc_gates;
+	int			sc_ngates;
+	struct clock_device	sc_cd;
+
+	struct sxiccmu_ccu_bit	*sc_resets;
+	int			sc_nresets;
+	struct reset_device	sc_rd;
 };
 
 void	sxiccmu_attach(struct device *, struct device *, void *);
@@ -70,6 +75,11 @@ struct cfdriver sxiccmu_cd = {
 };
 
 void sxiccmu_attach_clock(struct sxiccmu_softc *, int);
+
+uint32_t sxiccmu_ccu_get_frequency(void *, uint32_t *);
+int	sxiccmu_ccu_set_frequency(void *, uint32_t *, uint32_t);
+void	sxiccmu_ccu_enable(void *, uint32_t *, int);
+void	sxiccmu_ccu_reset(void *, uint32_t *, int);
 
 void
 sxiccmu_attach(struct device *parent, struct device *self, void *args)
@@ -92,7 +102,40 @@ sxiccmu_attach(struct device *parent, struct device *self, void *args)
 
 	for (node = OF_child(node); node; node = OF_peer(node))
 		sxiccmu_attach_clock(sc, node);
+
+	node = OF_finddevice("/soc/clock@01c20000");
+	if (node == -1)
+		return;
+
+	if (OF_is_compatible(node, "allwinner,sun8i-h3-ccu")) {
+		sc->sc_gates = sun8i_h3_gates;
+		sc->sc_ngates = nitems(sun8i_h3_gates);
+		sc->sc_resets = sun8i_h3_resets;
+		sc->sc_nresets = nitems(sun8i_h3_resets);
+	}
+		
+	if (sc->sc_gates) {
+		sc->sc_cd.cd_node = node;
+		sc->sc_cd.cd_cookie = sc;
+		sc->sc_cd.cd_get_frequency = sxiccmu_ccu_get_frequency;
+		sc->sc_cd.cd_set_frequency = sxiccmu_ccu_set_frequency;
+		sc->sc_cd.cd_enable = sxiccmu_ccu_enable;
+		clock_register(&sc->sc_cd);
+	}
+
+	if (sc->sc_resets) {
+		sc->sc_rd.rd_node = node;
+		sc->sc_rd.rd_cookie = sc;
+		sc->sc_rd.rd_reset = sxiccmu_ccu_reset;
+		reset_register(&sc->sc_rd);
+	}
 }
+
+/*
+ * Device trees for the Allwinner SoCs have basically a clock node per
+ * register of the clock control unit.  Attaching a separate driver to
+ * each of them would be crazy, so we handle them here.
+ */
 
 struct sxiccmu_clock {
 	int sc_node;
@@ -117,6 +160,8 @@ uint32_t sxiccmu_pll6_get_frequency(void *, uint32_t *);
 void	sxiccmu_pll6_enable(void *, uint32_t *, int);
 uint32_t sxiccmu_apb1_get_frequency(void *, uint32_t *);
 int	sxiccmu_gmac_set_frequency(void *, uint32_t *, uint32_t);
+int	sxiccmu_mmc_set_frequency(void *, uint32_t *, uint32_t);
+void	sxiccmu_mmc_enable(void *, uint32_t *, int);
 void	sxiccmu_gate_enable(void *, uint32_t *, int);
 void	sxiccmu_reset(void *, uint32_t *, int);
 
@@ -148,6 +193,11 @@ struct sxiccmu_device sxiccmu_devices[] = {
 		.compat = "allwinner,sun4i-a10-apb1-gates-clk",
 		.get_frequency = sxiccmu_gen_get_frequency,
 		.enable = sxiccmu_gate_enable
+	},
+	{
+		.compat = "allwinner,sun4i-a10-mmc-clk",
+		.set_frequency = sxiccmu_mmc_set_frequency,
+		.enable = sxiccmu_mmc_enable
 	},
 	{
 		.compat = "allwinner,sun4i-a10-usb-clk",
@@ -192,6 +242,10 @@ struct sxiccmu_device sxiccmu_devices[] = {
 		.reset = sxiccmu_reset
 	},
 	{
+		.compat = "allwinner,sun6i-a31-ahb1-reset",
+		.reset = sxiccmu_reset
+	},
+	{
 		.compat = "allwinner,sun7i-a20-ahb-gates-clk",
 		.get_frequency = sxiccmu_gen_get_frequency,
 		.enable = sxiccmu_gate_enable
@@ -209,6 +263,11 @@ struct sxiccmu_device sxiccmu_devices[] = {
 	{
 		.compat = "allwinner,sun7i-a20-gmac-clk",
 		.set_frequency = sxiccmu_gmac_set_frequency
+	},
+	{
+		.compat = "allwinner,sun8i-h3-apb0-gates-clk",
+		.get_frequency = sxiccmu_gen_get_frequency,
+		.enable = sxiccmu_gate_enable
 	},
 };
 
@@ -390,6 +449,65 @@ sxiccmu_gmac_set_frequency(void *cookie, uint32_t *cells, uint32_t freq)
 	return 0;
 }
 
+#define CCU_SDx_SCLK_GATING		(1U << 31)
+#define CCU_SDx_CLK_SRC_SEL_OSC24M	(0 << 24)
+#define CCU_SDx_CLK_SRC_SEL_PLL6	(1 << 24)
+#define CCU_SDx_CLK_SRC_SEL_PLL5	(2 << 24)
+#define CCU_SDx_CLK_SRC_SEL_MASK	(3 << 24)
+#define CCU_SDx_CLK_DIV_RATIO_N_MASK	(3 << 16)
+#define CCU_SDx_CLK_DIV_RATIO_N_SHIFT	16
+#define CCU_SDx_CLK_DIV_RATIO_M_MASK	(7 << 0)
+#define CCU_SDx_CLK_DIV_RATIO_M_SHIFT	0
+
+int
+sxiccmu_mmc_set_frequency(void *cookie, uint32_t *cells, uint32_t freq)
+{
+	struct sxiccmu_clock *sc = cookie;
+	uint32_t reg, m, n;
+
+	if (cells[0] != 0)
+		return -1;
+
+	switch (freq) {
+	case 400000:
+		n = 2, m = 15;
+		break;
+	case 25000000:
+	case 26000000:
+	case 50000000:
+		/* XXX OSC24M */
+		n = 0, m = 0;
+		break;
+	default:
+		return -1;
+	}
+
+	reg = SXIREAD4(sc, 0);
+	reg &= ~CCU_SDx_CLK_SRC_SEL_MASK;
+	reg |= CCU_SDx_CLK_SRC_SEL_OSC24M;
+	reg &= ~CCU_SDx_CLK_DIV_RATIO_N_MASK;
+	reg |= n << CCU_SDx_CLK_DIV_RATIO_N_SHIFT;
+	reg &= ~CCU_SDx_CLK_DIV_RATIO_M_MASK;
+	reg |= m << CCU_SDx_CLK_DIV_RATIO_M_SHIFT;
+	SXIWRITE4(sc, 0, reg);
+
+	return 0;
+}
+
+void
+sxiccmu_mmc_enable(void *cookie, uint32_t *cells, int on)
+{
+	struct sxiccmu_clock *sc = cookie;
+
+	if (cells[0] != 0)
+		return;
+
+	if (on)
+		SXISET4(sc, 0, CCU_SDx_SCLK_GATING);
+	else
+		SXICLR4(sc, 0, CCU_SDx_SCLK_GATING);
+}
+
 void
 sxiccmu_gate_enable(void *cookie, uint32_t *cells, int on)
 {
@@ -416,31 +534,93 @@ sxiccmu_reset(void *cookie, uint32_t *cells, int assert)
 		SXISET4(sc, reg * 4, (1U << bit));
 }
 
-void
-sxiccmu_set_sd_clock(int mod, int freq)
-{
-	struct sxiccmu_softc *sc = sxiccmu_cd.cd_devs[0];
-	uint32_t clk;
-	int m, n;
+/*
+ * Device trees for the Allwinner A80 have most of the clock nodes
+ * replaced with a single clock control unit node.
+ */
 
-	if (freq <= 400000) {
-		n = 2;
-		if (freq > 0)
-			m = ((24000000 / (1 << n)) / freq) - 1;
-		else
-			m = 15;
-	} else {
-		n = 0;
-		m = 0;
+uint32_t
+sxiccmu_ccu_get_frequency(void *cookie, uint32_t *cells)
+{
+	struct sxiccmu_softc *sc = cookie;
+	uint32_t idx = cells[0];
+	uint32_t parent;
+
+	if (idx < sc->sc_ngates && sc->sc_gates[idx].parent) {
+		parent = sc->sc_gates[idx].parent;
+		return sxiccmu_ccu_get_frequency(sc, &parent);
 	}
+
+	switch (idx) {
+	case H3_CLK_APB2:
+		/* XXX Controlled by a MUX. */
+		return 24000000;
+	}
+
+	printf("%s: 0x%08x\n", __func__, cells[0]);
+	return 0;
+}
+
+int
+sxiccmu_ccu_set_frequency(void *cookie, uint32_t *cells, uint32_t freq)
+{
+	struct sxiccmu_softc *sc = cookie;
+	struct sxiccmu_clock clock;
+	uint32_t idx = cells[0];
+
+	switch (idx) {
+	case H3_CLK_MMC0:
+	case H3_CLK_MMC1:
+	case H3_CLK_MMC2:
+		idx = 0;
+		clock.sc_iot = sc->sc_iot;
+		bus_space_subregion(sc->sc_iot, sc->sc_ioh,
+		    sc->sc_gates[idx].reg, 4, &clock.sc_ioh);
+		return sxiccmu_mmc_set_frequency(&clock, &idx, freq);
+	}
+
+	printf("%s: 0x%08x\n", __func__, cells[0]);
+	return -1;
+}
+
+void
+sxiccmu_ccu_enable(void *cookie, uint32_t *cells, int on)
+{
+	struct sxiccmu_softc *sc = cookie;
+	uint32_t idx = cells[0];
+	int reg, bit;
+
+	if (idx >= sc->sc_ngates || sc->sc_gates[idx].reg == 0) {
+		printf("%s: 0x%08x\n", __func__, cells[0]);
+		return;
+	}
+
+	reg = sc->sc_gates[idx].reg;
+	bit = sc->sc_gates[idx].bit;
+
+	if (on)
+		SXISET4(sc, reg, (1U << bit));
+	else
+		SXICLR4(sc, reg, (1U << bit));
+}
+
+void
+sxiccmu_ccu_reset(void *cookie, uint32_t *cells, int assert)
+{
+	struct sxiccmu_softc *sc = cookie;
+	uint32_t idx = cells[0];
+	int reg, bit;
+
+	if (idx >= sc->sc_nresets || sc->sc_resets[idx].reg == 0) {
+		printf("%s: 0x%08x\n", __func__, cells[0]);
+		return;
+	}
+
+	reg = sc->sc_resets[idx].reg;
+	bit = sc->sc_resets[idx].bit;
 	
-	clk = SXIREAD4(sc, CCMU_SDx_CLK(mod - CCMU_SDMMC0));
-	clk &= ~CCMU_SDx_CLK_SRC_GATING_MASK;
-	clk |= CCMU_SDx_CLK_SRC_GATING_OSC24M;
-	clk &= ~CCMU_SDx_CLK_FACTOR_N;
-	clk |= n << CCMU_SDx_CLK_FACTOR_N_SHIFT;
-	clk &= ~CCMU_SDx_CLK_FACTOR_M;
-	clk |= m << CCMU_SDx_CLK_FACTOR_M_SHIFT;
-	clk |= CCMU_SDx_CLK_GATING;
-	SXIWRITE4(sc, CCMU_SDx_CLK(mod - CCMU_SDMMC0), clk);
+	if (assert)
+		SXICLR4(sc, reg, (1U << bit));
+	else
+		SXISET4(sc, reg, (1U << bit));
 }
