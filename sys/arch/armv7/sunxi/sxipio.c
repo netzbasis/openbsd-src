@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxipio.c,v 1.11 2016/08/26 21:23:41 kettenis Exp $	*/
+/*	$OpenBSD: sxipio.c,v 1.13 2016/08/28 20:20:37 kettenis Exp $	*/
 /*
  * Copyright (c) 2010 Miodrag Vallat.
  * Copyright (c) 2013 Artturi Alm
@@ -82,11 +82,10 @@ struct sxipio_softc {
 	struct intrhand		*sc_handlers[32];
 };
 
-#define	SXIPIO_CFG(port, pin)	0x00 + ((port) * 0x24) + ((pin) << 2)
-#define	SXIPIO_DAT(port)		0x10 + ((port) * 0x24)
-/* XXX add support for registers below */
-#define	SXIPIO_DRV(port, pin)	0x14 + ((port) * 0x24) + ((pin) << 2)
-#define	SXIPIO_PUL(port, pin)	0x1c + ((port) * 0x24) + ((pin) << 2)
+#define	SXIPIO_CFG(port, pin)	0x00 + ((port) * 0x24) + (((pin) >> 3) * 0x04)
+#define	SXIPIO_DAT(port)	0x10 + ((port) * 0x24)
+#define	SXIPIO_DRV(port, pin)	0x14 + ((port) * 0x24) + (((pin) >> 4) * 0x04)
+#define	SXIPIO_PUL(port, pin)	0x1c + ((port) * 0x24) + (((pin) >> 4) * 0x04)
 #define	SXIPIO_INT_CFG0(port)	0x0200 + ((port) * 0x04)
 #define	SXIPIO_INT_CTL		0x0210
 #define	SXIPIO_INT_STA		0x0214
@@ -109,8 +108,6 @@ int	sxipio_get_pin(void *, uint32_t *);
 void	sxipio_set_pin(void *, uint32_t *, int);
 
 struct sxipio_softc	*sxipio_sc = NULL;
-bus_space_tag_t		 sxipio_iot;
-bus_space_handle_t	 sxipio_ioh;
 
 #include "sxipio_pins.h"
 
@@ -152,11 +149,10 @@ sxipio_attach(struct device *parent, struct device *self, void *args)
 
 	/* XXX check unit, bail if != 0 */
 
-	sc->sc_iot = sxipio_iot = aa->aa_iot;
-	if (bus_space_map(sxipio_iot, aa->aa_dev->mem[0].addr,
+	sc->sc_iot = aa->aa_iot;
+	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
 	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
 		panic("sxipio_attach: bus_space_map failed!");
-	sxipio_ioh = sc->sc_ioh;
 
 	sxipio_sc = sc;
 
@@ -306,7 +302,7 @@ sxipio_getcfg(int pin)
 
 	port = pin >> 5;
 	bit = pin - (port << 5);
-	reg = SXIPIO_CFG(port, bit >> 3);
+	reg = SXIPIO_CFG(port, bit);
 	off = (bit & 7) << 2;
 
 	s = splhigh();
@@ -327,7 +323,7 @@ sxipio_setcfg(int pin, int mux)
 
 	port = pin >> 5;
 	bit = pin - (port << 5);
-	reg = SXIPIO_CFG(port, bit >> 3);
+	reg = SXIPIO_CFG(port, bit);
 	off = (bit & 7) << 2;
 	cmask = 7 << off;
 	mask = mux << off;
