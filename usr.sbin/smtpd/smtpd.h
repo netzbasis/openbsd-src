@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.516 2016/07/24 16:04:53 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.518 2016/08/31 15:24:04 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -395,6 +395,8 @@ struct rule {
 	enum dest_type			r_desttype;
 	struct table		       *r_destination;
 
+	uint8_t				r_wantauth;
+	
 	enum action_type		r_action;
 	union rule_dest {
 		char			buffer[EXPAND_BUFFER];
@@ -633,6 +635,8 @@ struct smtpd {
 	char					sc_enqueue_filter[PATH_MAX];
 
 	char				       *sc_tls_ciphers;
+
+	char				       *sc_subaddressing_delim;
 };
 
 #define	TRACE_DEBUG	0x0001
