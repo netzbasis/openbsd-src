@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.139 2016/03/03 18:30:48 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.142 2016/08/30 14:28:31 deraadt Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -168,11 +168,10 @@ volatile sig_atomic_t seenint;
 volatile sig_atomic_t seeninfo;
 
 void fill(char *, char *);
-void summary(int);
+void summary(void);
 int in_cksum(u_short *, int);
 void onsignal(int);
 void retransmit(void);
-void onint(int);
 int pinger(void);
 char *pr_addr(in_addr_t);
 int check_icmph(struct ip *);
@@ -183,7 +182,7 @@ void pr_iph(struct ip *);
 #ifndef SMALL
 int map_tos(char *, int *);
 #endif	/* SMALL */
-void usage(void);
+__dead void usage(void);
 
 int
 main(int argc, char *argv[])
@@ -543,6 +542,8 @@ main(int argc, char *argv[])
 		int		timeout;
 
 		/* signal handling */
+		if (seenint)
+			break;
 		if (seenalrm) {
 			retransmit();
 			seenalrm = 0;
@@ -554,13 +555,8 @@ main(int argc, char *argv[])
 			}
 			continue;
 		}
-		if (seenint) {
-			onint(SIGINT);
-			seenint = 0;
-			continue;
-		}
 		if (seeninfo) {
-			summary(0);
+			summary();
 			seeninfo = 0;
 			continue;
 		}
@@ -600,7 +596,7 @@ main(int argc, char *argv[])
 		if (npackets && nreceived >= npackets)
 			break;
 	}
-	summary(0);
+	summary();
 	exit(nreceived == 0);
 }
 
@@ -629,6 +625,12 @@ void
 retransmit(void)
 {
 	struct itimerval itimer;
+	static int last_time = 0;
+
+	if (last_time) {
+		seenint = 1;	/* break out of ping event loop */
+		return;
+	}
 
 	if (pinger() == 0)
 		return;
@@ -647,9 +649,10 @@ retransmit(void)
 	itimer.it_interval.tv_sec = 0;
 	itimer.it_interval.tv_usec = 0;
 	itimer.it_value.tv_usec = 0;
-
-	(void)signal(SIGALRM, onint);
 	(void)setitimer(ITIMER_REAL, &itimer, NULL);
+
+	/* When the alarm goes off we are done. */
+	last_time = 1;
 }
 
 /*
@@ -1025,70 +1028,32 @@ in_cksum(u_short *addr, int len)
 	return(answer);
 }
 
-/*
- * onint --
- *	SIGINT handler.
- */
 void
-onint(int signo)
+summary(void)
 {
-	summary(signo);
+	printf("\n--- %s ping statistics ---\n", hostname);
+	printf("%lld packets transmitted, ", ntransmitted);
+	printf("%lld packets received, ", nreceived);
 
-	if (signo)
-		_exit(nreceived ? 0 : 1);
-	else
-		exit(nreceived ? 0 : 1);
-}
-
-void
-summary(int insig)
-{
-	char buf[8192], buft[8192];
-
-	buf[0] = '\0';
-
-	if (!insig) {
-		(void)putchar('\r');
-		(void)fflush(stdout);
-	} else
-		strlcat(buf, "\r", sizeof buf);
-
-
-	snprintf(buft, sizeof buft, "--- %s ping statistics ---\n",
-	    hostname);
-	strlcat(buf, buft, sizeof buf);
-
-	snprintf(buft, sizeof buft, "%lld packets transmitted, ", ntransmitted);
-	strlcat(buf, buft, sizeof buf);
-	snprintf(buft, sizeof buft, "%lld packets received, ", nreceived);
-	strlcat(buf, buft, sizeof buf);
-
-	if (nrepeats) {
-		snprintf(buft, sizeof buft, "%lld duplicates, ", nrepeats);
-		strlcat(buf, buft, sizeof buf);
-	}
+	if (nrepeats)
+		printf("%lld duplicates, ", nrepeats);
 	if (ntransmitted) {
 		if (nreceived > ntransmitted)
-			snprintf(buft, sizeof buft,
-			    "-- somebody's duplicating packets!");
+			printf("-- somebody's duplicating packets!");
 		else
-			snprintf(buft, sizeof buft, "%.1f%% packet loss",
+			printf("%.1f%% packet loss",
 			    ((((double)ntransmitted - nreceived) * 100) /
 			    ntransmitted));
-		strlcat(buf, buft, sizeof buf);
 	}
-	strlcat(buf, "\n", sizeof buf);
+	printf("\n");
 	if (timinginfo) {
 		/* Only display average to microseconds */
 		double num = nreceived + nrepeats;
 		double avg = tsum / num;
 		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
-		snprintf(buft, sizeof(buft),
-		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
 		    tmin, avg, tmax, dev);
-		strlcat(buf, buft, sizeof(buf));
 	}
-	write(STDOUT_FILENO, buf, strlen(buf));		/* XXX atomicio? */
 }
 
 /*
@@ -1445,7 +1410,7 @@ map_tos(char *key, int *val)
 }
 #endif	/* SMALL */
 
-void
+__dead void
 usage(void)
 {
 	(void)fprintf(stderr,

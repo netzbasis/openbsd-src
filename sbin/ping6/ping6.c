@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.146 2016/03/03 18:30:48 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.151 2016/08/30 14:28:31 deraadt Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -203,7 +203,6 @@ int	 get_pathmtu(struct msghdr *);
 struct in6_pktinfo *get_rcvpktinfo(struct msghdr *);
 void	 onsignal(int);
 void	 retransmit(void);
-void	 onint(int);
 int	 pinger(void);
 const char *pr_addr(struct sockaddr *, socklen_t);
 void	 pr_icmph(struct icmp6_hdr *, u_char *);
@@ -213,8 +212,8 @@ void	 pr_exthdrs(struct msghdr *);
 void	 pr_ip6opt(void *);
 void	 pr_rthdr(void *);
 void	 pr_retip(struct ip6_hdr *, u_char *);
-void	 summary(int);
-void	 usage(void);
+void	 summary(void);
+__dead void	 usage(void);
 
 int
 main(int argc, char *argv[])
@@ -355,17 +354,11 @@ main(int argc, char *argv[])
 			break;
 		default:
 			usage();
-			/*NOTREACHED*/
 		}
 	}
 
 	argc -= optind;
 	argv += optind;
-
-	if (argc < 1) {
-		usage();
-		/*NOTREACHED*/
-	}
 
 	if (argc != 1)
 		usage();
@@ -449,7 +442,7 @@ main(int argc, char *argv[])
 	} else
 		timing = 0;
 	/* in F_VERBOSE case, we may get non-echoreply packets*/
-	if (options & F_VERBOSE)
+	if (options & F_VERBOSE && datalen < 2048)
 		packlen = 2048 + IP6LEN + ICMP6ECHOLEN + EXTRA; /* XXX 2048? */
 	else
 		packlen = datalen + IP6LEN + ICMP6ECHOLEN + EXTRA;
@@ -640,6 +633,8 @@ main(int argc, char *argv[])
 		int		timeout;
 
 		/* signal handling */
+		if (seenint)
+			break;
 		if (seenalrm) {
 			retransmit();
 			seenalrm = 0;
@@ -651,13 +646,8 @@ main(int argc, char *argv[])
 			}
 			continue;
 		}
-		if (seenint) {
-			onint(SIGINT);
-			seenint = 0;
-			continue;
-		}
 		if (seeninfo) {
-			summary(0);
+			summary();
 			seeninfo = 0;
 			continue;
 		}
@@ -715,7 +705,7 @@ main(int argc, char *argv[])
 		if (npackets && nreceived >= npackets)
 			break;
 	}
-	summary(0);
+	summary();
 	exit(nreceived == 0);
 }
 
@@ -744,6 +734,12 @@ void
 retransmit(void)
 {
 	struct itimerval itimer;
+	static int last_time = 0;
+
+	if (last_time) {
+		seenint = 1;	/* break out of ping event loop */
+		return;
+	}
 
 	if (pinger() == 0)
 		return;
@@ -762,9 +758,10 @@ retransmit(void)
 	itimer.it_interval.tv_sec = 0;
 	itimer.it_interval.tv_usec = 0;
 	itimer.it_value.tv_usec = 0;
-
-	(void)signal(SIGALRM, onint);
 	(void)setitimer(ITIMER_REAL, &itimer, NULL);
+
+	/* When the alarm goes off we are done. */
+	last_time = 1;
 }
 
 /*
@@ -814,6 +811,7 @@ pinger(void)
 		SipHash24_Update(&ctx, &ident, sizeof(ident));
 		SipHash24_Update(&ctx,
 		    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
+		SipHash24_Update(&ctx, &dst.sin6_addr, sizeof(dst.sin6_addr));
 		SipHash24_Final(&payload.mac, &ctx);
 
 		memcpy(&outpack[ICMP6ECHOLEN],
@@ -920,6 +918,8 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			SipHash24_Update(&ctx, &ident, sizeof(ident));
 			SipHash24_Update(&ctx,
 			    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
+			SipHash24_Update(&ctx, &dst.sin6_addr,
+			    sizeof(dst.sin6_addr));
 			SipHash24_Final(mac, &ctx);
 
 			if (timingsafe_memcmp(mac, &payload.mac,
@@ -1213,69 +1213,35 @@ get_pathmtu(struct msghdr *mhdr)
 }
 
 /*
- * onint --
- *	SIGINT handler.
- */
-void
-onint(int signo)
-{
-	summary(signo);
-
-	if (signo)
-		_exit(nreceived ? 0 : 1);
-	else
-		exit(nreceived ? 0 : 1);
-}
-
-/*
  * summary --
  *	Print out statistics.
  */
 void
-summary(int signo)
+summary(void)
 {
-	char buf[8192], buft[8192];
+	printf("\n--- %s ping6 statistics ---\n", hostname);
+	printf("%lld packets transmitted, ", ntransmitted);
+	printf("%lld packets received, ", nreceived);
 
-	buf[0] = '\0';
-
-	snprintf(buft, sizeof(buft), "--- %s ping6 statistics ---\n",
-	    hostname);
-	strlcat(buf, buft, sizeof(buf));
-	snprintf(buft, sizeof(buft), "%lld packets transmitted, ",
-	    ntransmitted);
-	strlcat(buf, buft, sizeof(buf));
-	snprintf(buft, sizeof(buft), "%lld packets received, ",
-	    nreceived);
-	strlcat(buf, buft, sizeof(buf));
-	if (nrepeats) {
-		snprintf(buft, sizeof(buft), "+%lld duplicates, ",
-		    nrepeats);
-		strlcat(buf, buft, sizeof(buf));
-	}
+	if (nrepeats)
+		printf("+%lld duplicates, ", nrepeats);
 	if (ntransmitted) {
 		if (nreceived > ntransmitted)
-			snprintf(buft, sizeof(buft),
-			    "-- somebody's duplicating packets!");
+			printf("-- somebody's duplicating packets!");
 		else
-			snprintf(buft, sizeof(buft), "%.1lf%% packet loss",
+			printf("%.1lf%% packet loss",
 			    ((((double)ntransmitted - nreceived) * 100) /
 			    ntransmitted));
-		strlcat(buf, buft, sizeof(buf));
 	}
-	strlcat(buf, "\n", sizeof(buf));
+	printf("\n");
 	if (nreceived && timing) {
 		/* Only display average to microseconds */
 		double num = nreceived + nrepeats;
 		double avg = tsum / num;
 		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
-		snprintf(buft, sizeof(buft),
-		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
 		    tmin, avg, tmax, dev);
-		strlcat(buf, buft, sizeof(buf));
 	}
-	write(STDOUT_FILENO, buf, strlen(buf));
-	if (signo == 0)
-		(void)fflush(stdout);
 }
 
 /*
@@ -1561,7 +1527,7 @@ fill(char *bp, char *patp)
 	}
 }
 
-void
+__dead void
 usage(void)
 {
 	(void)fprintf(stderr,
