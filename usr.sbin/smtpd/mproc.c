@@ -1,4 +1,4 @@
-/*	$OpenBSD: mproc.c,v 1.21 2016/08/31 21:49:01 eric Exp $	*/
+/*	$OpenBSD: mproc.c,v 1.24 2016/09/01 15:12:45 eric Exp $	*/
 
 /*
  * Copyright (c) 2012 Eric Faurot <eric@faurot.net>
@@ -41,7 +41,6 @@
 
 static void mproc_dispatch(int, short, void *);
 
-static ssize_t msgbuf_write2(struct msgbuf *);
 static ssize_t imsg_read_nofd(struct imsgbuf *);
 
 int
@@ -174,13 +173,12 @@ mproc_dispatch(int fd, short event, void *arg)
 			p->handler(p, NULL);
 			return;
 		default:
-			p->bytes_in += n;
 			break;
 		}
 	}
 
 	if (event & EV_WRITE) {
-		n = msgbuf_write2(&p->imsgbuf.w);
+		n = msgbuf_write(&p->imsgbuf.w);
 		if (n == 0 || (n == -1 && errno != EAGAIN)) {
 			/* this pipe is dead, so remove the event handler */
 			if (smtpd_process != PROC_CONTROL ||
@@ -189,9 +187,6 @@ mproc_dispatch(int fd, short event, void *arg)
 				    proc_name(smtpd_process),  p->name);
 			p->handler(p, NULL);
 			return;
-		} else if (n != -1) {
-			p->bytes_out += n;
-			p->bytes_queued -= n;
 		}
 	}
 
@@ -212,81 +207,12 @@ mproc_dispatch(int fd, short event, void *arg)
 		if (n == 0)
 			break;
 
-		p->msg_in += 1;
 		p->handler(p, &imsg);
 
 		imsg_free(&imsg);
 	}
 
 	mproc_event_add(p);
-}
-
-/* XXX msgbuf_write() should return n ... */
-static ssize_t
-msgbuf_write2(struct msgbuf *msgbuf)
-{
-	struct iovec	 iov[IOV_MAX];
-	struct ibuf	*buf;
-	unsigned int	 i = 0;
-	ssize_t		 n;
-	struct msghdr	 msg;
-	struct cmsghdr	*cmsg;
-	union {
-		struct cmsghdr	hdr;
-		char		buf[CMSG_SPACE(sizeof(int))];
-	} cmsgbuf;
-
-	memset(&iov, 0, sizeof(iov));
-	memset(&msg, 0, sizeof(msg));
-	TAILQ_FOREACH(buf, &msgbuf->bufs, entry) {
-		if (i >= IOV_MAX)
-			break;
-		iov[i].iov_base = buf->buf + buf->rpos;
-		iov[i].iov_len = buf->wpos - buf->rpos;
-		i++;
-		if (buf->fd != -1)
-			break;
-	}
-
-	msg.msg_iov = iov;
-	msg.msg_iovlen = i;
-
-	if (buf != NULL && buf->fd != -1) {
-		msg.msg_control = (caddr_t)&cmsgbuf.buf;
-		msg.msg_controllen = sizeof(cmsgbuf.buf);
-		cmsg = CMSG_FIRSTHDR(&msg);
-		cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-		cmsg->cmsg_level = SOL_SOCKET;
-		cmsg->cmsg_type = SCM_RIGHTS;
-		*(int *)CMSG_DATA(cmsg) = buf->fd;
-	}
-
-again:
-	if ((n = sendmsg(msgbuf->fd, &msg, 0)) == -1) {
-		if (errno == EINTR)
-			goto again;
-		if (errno == ENOBUFS)
-			errno = EAGAIN;
-		return (-1);
-	}
-
-	if (n == 0) {			/* connection closed */
-		errno = 0;
-		return (0);
-	}
-
-	/*
-	 * assumption: fd got sent if sendmsg sent anything
-	 * this works because fds are passed one at a time
-	 */
-	if (buf != NULL && buf->fd != -1) {
-		close(buf->fd);
-		buf->fd = -1;
-	}
-
-	msgbuf_drain(msgbuf, n);
-
-	return (n);
 }
 
 /* This should go into libutil */
@@ -327,11 +253,6 @@ m_forward(struct mproc *p, struct imsg *imsg)
 		    imsg->hdr.len - sizeof(imsg->hdr),
 		    imsg_to_str(imsg->hdr.type));
 
-	p->msg_out += 1;
-	p->bytes_queued += imsg->hdr.len;
-	if (p->bytes_queued > p->bytes_queued_max)
-		p->bytes_queued_max = p->bytes_queued;
-
 	mproc_event_add(p);
 }
 
@@ -349,11 +270,6 @@ m_compose(struct mproc *p, uint32_t type, uint32_t peerid, pid_t pid, int fd,
 		    len,
 		    imsg_to_str(type));
 
-	p->msg_out += 1;
-	p->bytes_queued += len + IMSG_HEADER_SIZE;
-	if (p->bytes_queued > p->bytes_queued_max)
-		p->bytes_queued_max = p->bytes_queued;
-
 	mproc_event_add(p);
 }
 
@@ -369,11 +285,6 @@ m_composev(struct mproc *p, uint32_t type, uint32_t peerid, pid_t pid,
 	len = 0;
 	for (i = 0; i < n; i++)
 		len += iov[i].iov_len;
-
-	p->msg_out += 1;
-	p->bytes_queued += IMSG_HEADER_SIZE + len;
-	if (p->bytes_queued > p->bytes_queued_max)
-		p->bytes_queued_max = p->bytes_queued;
 
 	if (type != IMSG_STAT_DECREMENT &&
 	    type != IMSG_STAT_INCREMENT)
@@ -452,11 +363,6 @@ m_close(struct mproc *p)
 		    p->m_pos,
 		    imsg_to_str(p->m_type));
 
-	p->msg_out += 1;
-	p->bytes_queued += p->m_pos + IMSG_HEADER_SIZE;
-	if (p->bytes_queued > p->bytes_queued_max)
-		p->bytes_queued_max = p->bytes_queued;
-
 	mproc_event_add(p);
 }
 
@@ -473,7 +379,6 @@ m_flush(struct mproc *p)
 	    p->m_pos,
 	    imsg_to_str(p->m_type));
 
-	p->msg_out += 1;
 	p->m_pos = 0;
 
 	imsg_flush(&p->imsgbuf);
@@ -649,15 +554,11 @@ m_add_mailaddr(struct mproc *m, const struct mailaddr *maddr)
 void
 m_add_envelope(struct mproc *m, const struct envelope *evp)
 {
-#if 0
-	m_add_typed(m, M_ENVELOPE, evp, sizeof(*evp));
-#else
 	char	buf[sizeof(*evp)];
 
 	envelope_dump_buffer(evp, buf, sizeof(buf));
 	m_add_evpid(m, evp->id);
 	m_add_typed_sized(m, M_ENVELOPE, buf, strlen(buf) + 1);
-#endif
 }
 #endif
 
@@ -766,9 +667,6 @@ m_get_mailaddr(struct msg *m, struct mailaddr *maddr)
 void
 m_get_envelope(struct msg *m, struct envelope *evp)
 {
-#if 0
-	m_get_typed(m, M_ENVELOPE, evp, sizeof(*evp));
-#else
 	uint64_t	 evpid;
 	size_t		 s;
 	const void	*d;
@@ -779,7 +677,6 @@ m_get_envelope(struct msg *m, struct envelope *evp)
 	if (!envelope_load_buffer(evp, d, s - 1))
 		fatalx("failed to retrieve envelope");
 	evp->id = evpid;
-#endif
 }
 #endif
 

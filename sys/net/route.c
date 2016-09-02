@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.319 2016/08/31 08:13:17 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.321 2016/09/01 15:40:38 bluhm Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -214,13 +214,12 @@ rtisvalid(struct rtentry *rt)
 	if (rt->rt_ifa == NULL || rt->rt_ifa->ifa_ifp == NULL)
 		return (0);
 
-#ifdef DIAGNOSTIC
 	if (ISSET(rt->rt_flags, RTF_GATEWAY)) {
 		KASSERT(rt->rt_gwroute != NULL);
-	    	KASSERT(ISSET(rt->rt_gwroute->rt_flags, RTF_UP));
 	    	KASSERT(!ISSET(rt->rt_gwroute->rt_flags, RTF_GATEWAY));
+	    	if (!ISSET(rt->rt_gwroute->rt_flags, RTF_UP))
+			return (0);
 	}
-#endif /* DIAGNOSTIC */
 
 	return (1);
 }
@@ -909,17 +908,6 @@ rtrequest_delete(struct rt_addrinfo *info, u_int8_t prio, struct ifnet *ifp,
 		return (ESRCH);
 	}
 #endif
-
-	/*
-	 * Since RTP_LOCAL cannot be set by userland, make
-	 * sure that local routes are only modified by the
-	 * kernel.
-	 */
-	if ((rt->rt_flags & (RTF_LOCAL|RTF_BROADCAST)) &&
-	    (prio & RTP_MASK) != RTP_LOCAL) {
-		rtfree(rt);
-		return (EINVAL);
-	}
 
 	error = rtable_delete(tableid, info->rti_info[RTAX_DST],
 	    info->rti_info[RTAX_NETMASK], rt);
