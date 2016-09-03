@@ -1,4 +1,4 @@
-/*	$OpenBSD: lde.c,v 1.64 2016/08/08 21:42:13 renato Exp $ */
+/*	$OpenBSD: lde.c,v 1.67 2016/09/02 17:10:34 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -40,7 +40,7 @@
 #include "lde.h"
 
 static void		 lde_sig_handler(int sig, short, void *);
-static void		 lde_shutdown(void);
+static __dead void	 lde_shutdown(void);
 static int		 lde_imsg_compose_parent(int, pid_t, void *, uint16_t);
 static void		 lde_dispatch_imsg(int, short, void *);
 static void		 lde_dispatch_parent(int, short, void *);
@@ -50,6 +50,8 @@ static struct lde_nbr	*lde_nbr_new(uint32_t, struct lde_nbr *);
 static void		 lde_nbr_del(struct lde_nbr *);
 static struct lde_nbr	*lde_nbr_find(uint32_t);
 static void		 lde_nbr_clear(void);
+static void		 lde_nbr_addr_update(struct lde_nbr *,
+			    struct lde_addr *, int);
 static void		 lde_map_free(void *);
 static int		 lde_address_add(struct lde_nbr *, struct lde_addr *);
 static int		 lde_address_del(struct lde_nbr *, struct lde_addr *);
@@ -82,7 +84,7 @@ lde_sig_handler(int sig, short event, void *arg)
 }
 
 /* label decision engine */
-pid_t
+void
 lde(int debug, int verbose)
 {
 	struct event		 ev_sigint, ev_sigterm;
@@ -143,23 +145,24 @@ lde(int debug, int verbose)
 	event_dispatch();
 
 	lde_shutdown();
-	/* NOTREACHED */
-
-	return (0);
 }
 
-static void
+static __dead void
 lde_shutdown(void)
 {
+	/* close pipes */
+	msgbuf_clear(&iev_ldpe->ibuf.w);
+	close(iev_ldpe->ibuf.fd);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
+
 	lde_gc_stop_timer();
 	lde_nbr_clear();
 	fec_tree_clear();
 
 	config_clear(ldeconf);
 
-	msgbuf_clear(&iev_ldpe->ibuf.w);
 	free(iev_ldpe);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 
 	log_info("label decision engine exiting");
@@ -1073,6 +1076,47 @@ lde_nbr_clear(void)
 		lde_nbr_del(ln);
 }
 
+static void
+lde_nbr_addr_update(struct lde_nbr *ln, struct lde_addr *lde_addr, int removed)
+{
+	struct fec		*fec;
+	struct fec_node		*fn;
+	struct fec_nh		*fnh;
+	struct lde_map		*me;
+
+	RB_FOREACH(fec, fec_tree, &ln->recv_map) {
+		fn = (struct fec_node *)fec_find(&ft, fec);
+		switch (fec->type) {
+		case FEC_TYPE_IPV4:
+			if (lde_addr->af != AF_INET)
+				continue;
+			break;
+		case FEC_TYPE_IPV6:
+			if (lde_addr->af != AF_INET6)
+				continue;
+			break;
+		default:
+			continue;
+		}
+
+		LIST_FOREACH(fnh, &fn->nexthops, entry) {
+			if (ldp_addrcmp(fnh->af, &fnh->nexthop,
+			    &lde_addr->addr))
+				continue;
+
+			if (removed) {
+				lde_send_delete_klabel(fn, fnh);
+				fnh->remote_label = NO_LABEL;
+			} else {
+				me = (struct lde_map *)fec;
+				fnh->remote_label = me->map.label;
+				lde_send_change_klabel(fn, fnh);
+			}
+			break;
+		}
+	}
+}
+
 struct lde_map *
 lde_map_add(struct lde_nbr *ln, struct fec_node *fn, int sent)
 {
@@ -1244,6 +1288,9 @@ lde_address_add(struct lde_nbr *ln, struct lde_addr *lde_addr)
 	new->addr = lde_addr->addr;
 	TAILQ_INSERT_TAIL(&ln->addr_list, new, entry);
 
+	/* reevaluate the previously received mappings from this neighbor */
+	lde_nbr_addr_update(ln, lde_addr, 0);
+
 	return (0);
 }
 
@@ -1253,6 +1300,9 @@ lde_address_del(struct lde_nbr *ln, struct lde_addr *lde_addr)
 	lde_addr = lde_address_find(ln, lde_addr->af, &lde_addr->addr);
 	if (lde_addr == NULL)
 		return (-1);
+
+	/* reevaluate the previously received mappings from this neighbor */
+	lde_nbr_addr_update(ln, lde_addr, 1);
 
 	TAILQ_REMOVE(&ln->addr_list, lde_addr, entry);
 	free(lde_addr);

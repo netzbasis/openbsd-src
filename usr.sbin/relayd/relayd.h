@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.227 2016/09/01 10:49:48 claudio Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.231 2016/09/02 16:14:09 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -109,11 +109,6 @@ struct shuffle {
 };
 
 typedef u_int32_t objid_t;
-
-struct ctl_flags {
-	u_int8_t	 cf_opts;
-	u_int32_t	 cf_flags;
-};
 
 struct ctl_status {
 	objid_t		 id;
@@ -389,13 +384,15 @@ union hashkey {
 #define F_SCRIPT		0x02000000
 #define F_TLSINSPECT		0x04000000
 #define F_HASHKEY		0x08000000
+#define	F_SNMP_TRAPONLY		0x10000000
 
 #define F_BITS								\
 	"\10\01DISABLE\02BACKUP\03USED\04DOWN\05ADD\06DEL\07CHANGED"	\
 	"\10STICKY-ADDRESS\11CHECK_DONE\12ACTIVE_RULESET\13CHECK_SENT"	\
 	"\14TLS\15NAT_LOOKUP\16DEMOTE\17LOOKUP_PATH\20DEMOTED\21UDP"	\
 	"\22RETURN\23TRAP\24NEEDPF\25PORT\26TLS_CLIENT\27NEEDRT"	\
-	"\30MATCH\31DIVERT\32SCRIPT\33TLS_INSPECT\34HASHKEY"
+	"\30MATCH\31DIVERT\32SCRIPT\33TLS_INSPECT\34HASHKEY"		\
+	"\35SNMP_TRAPONLY"
 
 enum forwardmode {
 	FWD_NORMAL		= 0,
@@ -1000,11 +997,9 @@ struct privsep {
 
 	struct imsgev			*ps_ievs[PROC_MAX];
 	const char			*ps_title[PROC_MAX];
-	pid_t				 ps_pid[PROC_MAX];
 	u_int8_t			 ps_what[PROC_MAX];
 
 	u_int				 ps_instances[PROC_MAX];
-	u_int				 ps_ninstances;
 	u_int				 ps_instance;
 
 	struct control_sock		 ps_csock;
@@ -1028,18 +1023,27 @@ struct privsep_proc {
 	enum privsep_procid	 p_id;
 	int			(*p_cb)(int, struct privsep_proc *,
 				    struct imsg *);
-	pid_t			(*p_init)(struct privsep *,
+	void			(*p_init)(struct privsep *,
 				    struct privsep_proc *);
 	void			(*p_shutdown)(void);
-	u_int			 p_instance;
 	const char		*p_chroot;
 	struct privsep		*p_ps;
 	struct relayd		*p_env;
 };
 
+struct relayd_config {
+	char			 tls_sid[SSL_MAX_SID_CTX_LENGTH];
+	char			 snmp_path[PATH_MAX];
+	struct timeval		 interval;
+	struct timeval		 timeout;
+	struct timeval		 statinterval;
+	u_int16_t		 prefork_relay;
+	u_int16_t		 opts;
+	u_int32_t		 flags;
+};
+
 struct relayd {
-	u_int8_t		 sc_opts;
-	u_int32_t		 sc_flags;
+	struct relayd_config	 sc_conf;
 	const char		*sc_conffile;
 	struct pfdata		*sc_pf;
 	int			 sc_rtsock;
@@ -1050,8 +1054,6 @@ struct relayd {
 	int			 sc_relaycount;
 	int			 sc_routercount;
 	int			 sc_routecount;
-	struct timeval		 sc_interval;
-	struct timeval		 sc_timeout;
 	struct table		 sc_empty_table;
 	struct protocol		 sc_proto_default;
 	struct event		 sc_ev;
@@ -1064,17 +1066,13 @@ struct relayd {
 	struct netroutelist	*sc_routes;
 	struct ca_pkeylist	*sc_pkeys;
 	struct sessionlist	 sc_sessions;
-	u_int16_t		 sc_prefork_relay;
 	char			 sc_demote_group[IFNAMSIZ];
 	u_int16_t		 sc_id;
 	int			 sc_rtable;
 
 	struct event		 sc_statev;
-	struct timeval		 sc_statinterval;
 
 	int			 sc_snmp;
-	const char		*sc_snmp_path;
-	int			 sc_snmp_flags;
 	struct event		 sc_snmpto;
 	struct event		 sc_snmpev;
 
@@ -1088,12 +1086,9 @@ struct relayd {
 	struct privsep		*sc_ps;
 	int			 sc_reload;
 
-	char			 sc_tls_sid[SSL_MAX_SID_CTX_LENGTH];
 	struct tls_ticket	 sc_tls_ticket;
 	struct tls_ticket	 sc_tls_ticket_bak;
 };
-
-#define	FSNMP_TRAPONLY			0x01
 
 #define RELAYD_OPT_VERBOSE		0x01
 #define RELAYD_OPT_NOACTION		0x04
@@ -1106,7 +1101,7 @@ int	 control_init(struct privsep *, struct control_sock *);
 int	 control_listen(struct control_sock *);
 void	 control_cleanup(struct control_sock *);
 void	 control_dispatch_imsg(int, short, void *);
-void	 control_imsg_forward(struct imsg *);
+void	 control_imsg_forward(struct privsep *ps, struct imsg *);
 struct ctl_conn	*
 	 control_connbyfd(int);
 
@@ -1128,7 +1123,7 @@ const char *printb_flags(const u_int32_t, const char *);
 void	 getmonotime(struct timeval *);
 
 /* pfe.c */
-pid_t	 pfe(struct privsep *, struct privsep_proc *);
+void	 pfe(struct privsep *, struct privsep_proc *);
 void	 show(struct ctl_conn *);
 void	 show_sessions(struct ctl_conn *);
 int	 enable_rdr(struct ctl_conn *, struct ctl_id *);
@@ -1155,11 +1150,11 @@ void	 sync_routes(struct relayd *, struct router *);
 int	 pfe_route(struct relayd *, struct ctl_netroute *);
 
 /* hce.c */
-pid_t	 hce(struct privsep *, struct privsep_proc *);
+void	 hce(struct privsep *, struct privsep_proc *);
 void	 hce_notify_done(struct host *, enum host_error);
 
 /* relay.c */
-pid_t	 relay(struct privsep *, struct privsep_proc *);
+void	 relay(struct privsep *, struct privsep_proc *);
 int	 relay_privinit(struct relay *);
 void	 relay_notify_done(struct host *, const char *);
 int	 relay_session_cmp(struct rsession *, struct rsession *);
@@ -1252,7 +1247,7 @@ int	 ssl_ctx_fake_private_key(SSL_CTX *, const void *, size_t,
 	    char *, off_t, X509 **, EVP_PKEY **);
 
 /* ca.c */
-pid_t	 ca(struct privsep *, struct privsep_proc *);
+void	 ca(struct privsep *, struct privsep_proc *);
 void	 ca_engine_init(struct relayd *);
 
 /* relayd.c */
@@ -1372,7 +1367,7 @@ void	 proc_init(struct privsep *, struct privsep_proc *, u_int);
 void	 proc_kill(struct privsep *);
 void	 proc_listen(struct privsep *, struct privsep_proc *, size_t);
 void	 proc_dispatch(int, short event, void *);
-pid_t	 proc_run(struct privsep *, struct privsep_proc *,
+void	 proc_run(struct privsep *, struct privsep_proc *,
 	    struct privsep_proc *, u_int,
 	    void (*)(struct privsep *, struct privsep_proc *, void *), void *);
 void	 proc_range(struct privsep *, enum privsep_procid, int *, int *);

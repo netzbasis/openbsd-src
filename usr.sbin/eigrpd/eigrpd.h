@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.h,v 1.16 2016/08/08 21:38:42 renato Exp $ */
+/*	$OpenBSD: eigrpd.h,v 1.22 2016/09/02 17:59:58 benno Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -22,15 +22,14 @@
 #define _EIGRPD_H_
 
 #include <sys/queue.h>
-#include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/tree.h>
-#include <net/route.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <event.h>
 
+#include <event.h>
 #include <imsg.h>
+
 #include "eigrp.h"
 
 #define CONF_FILE		"/etc/eigrpd.conf"
@@ -62,11 +61,16 @@
 #define	F_CTL_ACTIVE		0x0400
 #define	F_CTL_ALLLINKS		0x0800
 
+static const char * const log_procnames[] = {
+	"parent",
+	"eigrpe",
+	"rde"
+};
+
 struct imsgev {
 	struct imsgbuf		 ibuf;
 	void			(*handler)(int, short, void *);
 	struct event		 ev;
-	void			*data;
 	short			 events;
 };
 
@@ -119,6 +123,17 @@ enum imsg_type {
 	IMSG_RECONF_EIGRP_IFACE,
 	IMSG_RECONF_END
 };
+
+/* forward declarations */
+struct eigrp_iface;
+RB_HEAD(iface_id_head, eigrp_iface);
+struct nbr;
+RB_HEAD(nbr_addr_head, nbr);
+RB_HEAD(nbr_pid_head, nbr);
+struct rde_nbr;
+RB_HEAD(rde_nbr_head, rde_nbr);
+struct rt_node;
+RB_HEAD(rt_tree, rt_node);
 
 union eigrpd_addr {
 	struct in_addr	v4;
@@ -216,6 +231,7 @@ struct eigrp_iface {
 	struct rinfo_head	 query_list;	/* multicast queries */
 	TAILQ_HEAD(, summary_addr) summary_list;
 };
+RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
 
 #define INADDRSZ	4
 #define IN6ADDRSZ	16
@@ -226,12 +242,6 @@ struct seq_addr_entry {
 	union eigrpd_addr	 addr;
 };
 TAILQ_HEAD(seq_addr_head, seq_addr_entry);
-
-struct nbr;
-RB_HEAD(nbr_addr_head, nbr);
-RB_HEAD(nbr_pid_head, nbr);
-struct rt_node;
-RB_HEAD(rt_tree, rt_node);
 
 #define	REDIST_STATIC		0x01
 #define	REDIST_RIP		0x02
@@ -326,6 +336,8 @@ struct eigrpd_global {
 	time_t			 uptime;
 	int			 eigrp_socket_v4;
 	int			 eigrp_socket_v6;
+	struct in_addr		 mcast_addr_v4;
+	struct in6_addr		 mcast_addr_v6;
 	char			*csock;
 };
 
@@ -435,6 +447,10 @@ struct ctl_stats {
 };
 
 #define min(x,y) ((x) <= (y) ? (x) : (y))
+#define max(x,y) ((x) > (y) ? (x) : (y))
+
+extern struct eigrpd_conf	*eigrpd_conf;
+extern struct iface_id_head	 ifaces_by_id;
 
 /* parse.y */
 struct eigrpd_conf	*parse_config(char *);
@@ -445,20 +461,17 @@ uint16_t	 in_cksum(void *, size_t);
 
 /* kroute.c */
 int		 kif_init(void);
-void		 kif_redistribute(void);
 int		 kr_init(int, unsigned int);
+void		 kif_redistribute(void);
 int		 kr_change(struct kroute *);
 int		 kr_delete(struct kroute *);
-void		 kif_clear(void);
 void		 kr_shutdown(void);
 void		 kr_fib_couple(void);
 void		 kr_fib_decouple(void);
-void		 kr_fib_reload(void);
-void		 kr_dispatch_msg(int, short, void *);
 void		 kr_show_route(struct imsg *);
 void		 kr_ifinfo(char *, pid_t);
 struct kif	*kif_findname(char *);
-void		 kr_reload(void);
+void		 kif_clear(void);
 
 /* util.c */
 uint8_t		 mask2prefixlen(in_addr_t);
@@ -479,20 +492,33 @@ void		 embedscope(struct sockaddr_in6 *);
 void		 recoverscope(struct sockaddr_in6 *);
 void		 addscope(struct sockaddr_in6 *, uint32_t);
 void		 clearscope(struct in6_addr *);
+void		 sa2addr(struct sockaddr *, int *, union eigrpd_addr *);
 
 /* eigrpd.c */
 int		 main_imsg_compose_eigrpe(int, pid_t, void *, uint16_t);
 int		 main_imsg_compose_rde(int, pid_t, void *, uint16_t);
-void		 merge_config(struct eigrpd_conf *, struct eigrpd_conf *);
-struct eigrpd_conf *config_new_empty(void);
-void		 config_clear(struct eigrpd_conf *);
 void		 imsg_event_add(struct imsgev *);
 int		 imsg_compose_event(struct imsgev *, uint16_t, uint32_t,
 		    pid_t, int, void *, uint16_t);
-uint32_t	 eigrp_router_id(struct eigrpd_conf *);
 struct eigrp	*eigrp_find(struct eigrpd_conf *, int, uint16_t);
+void		 merge_config(struct eigrpd_conf *, struct eigrpd_conf *);
+struct eigrpd_conf *config_new_empty(void);
+void		 config_clear(struct eigrpd_conf *);
 
 /* printconf.c */
 void		 print_config(struct eigrpd_conf *);
+
+/* logmsg.c */
+const char	*log_in6addr(const struct in6_addr *);
+const char	*log_in6addr_scope(const struct in6_addr *, unsigned int);
+const char	*log_sockaddr(void *);
+const char	*log_addr(int, union eigrpd_addr *);
+const char	*log_prefix(struct rt_node *);
+const char	*log_route_origin(int, struct rde_nbr *);
+const char	*opcode_name(uint8_t);
+const char	*af_name(int);
+const char	*if_type_name(enum iface_type);
+const char	*dual_state_name(int);
+const char	*ext_proto_name(int);
 
 #endif	/* _EIGRPD_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.c,v 1.27 2015/12/07 16:05:56 reyk Exp $	*/
+/*	$OpenBSD: proc.c,v 1.30 2016/09/02 12:14:08 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -61,6 +61,11 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc)
 	unsigned int		 i, j, src, dst;
 	struct privsep_pipes	*pp;
 
+	for (src = 0; src < PROC_MAX; src++)
+		/* Default to 1 process instance */
+		if (ps->ps_instances[src] < 1)
+			ps->ps_instances[src] = 1;
+
 	/*
 	 * Allocate pipes for all process instances (incl. parent)
 	 *
@@ -76,22 +81,22 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc)
 	 */
 	for (src = 0; src < PROC_MAX; src++) {
 		/* Allocate destination array for each process */
-		if ((ps->ps_pipes[src] = calloc(ps->ps_ninstances,
+		if ((ps->ps_pipes[src] = calloc(ps->ps_instances[src],
 		    sizeof(struct privsep_pipes))) == NULL)
 			fatal("proc_init: calloc");
 
-		for (i = 0; i < ps->ps_ninstances; i++) {
+		for (i = 0; i < ps->ps_instances[src]; i++) {
 			pp = &ps->ps_pipes[src][i];
 
 			for (dst = 0; dst < PROC_MAX; dst++) {
 				/* Allocate maximum fd integers */
 				if ((pp->pp_pipes[dst] =
-				    calloc(ps->ps_ninstances,
+				    calloc(ps->ps_instances[dst],
 				    sizeof(int))) == NULL)
 					fatal("proc_init: calloc");
 
 				/* Mark fd as unused */
-				for (j = 0; j < ps->ps_ninstances; j++)
+				for (j = 0; j < ps->ps_instances[dst]; j++)
 					pp->pp_pipes[dst][j] = -1;
 			}
 		}
@@ -103,43 +108,54 @@ proc_init(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc)
 	privsep_process = PROC_PARENT;
 	ps->ps_instances[PROC_PARENT] = 1;
 	ps->ps_title[PROC_PARENT] = "parent";
-	ps->ps_pid[PROC_PARENT] = getpid();
 	ps->ps_pp = &ps->ps_pipes[privsep_process][0];
 
-	for (i = 0; i < nproc; i++) {
-		/* Default to 1 process instance */
-		if (ps->ps_instances[procs[i].p_id] < 1)
-			ps->ps_instances[procs[i].p_id] = 1;
+	for (i = 0; i < nproc; i++)
 		ps->ps_title[procs[i].p_id] = procs[i].p_title;
-	}
 
 	proc_open(ps, NULL, procs, nproc);
 
 	/* Engage! */
 	for (i = 0; i < nproc; i++)
-		ps->ps_pid[procs[i].p_id] = (*procs[i].p_init)(ps, &procs[i]);
+		(*procs[i].p_init)(ps, &procs[i]);
 }
 
 void
 proc_kill(struct privsep *ps)
 {
+	char		*cause;
 	pid_t		 pid;
-	unsigned int	 i;
+	int		 len, status;
 
 	if (privsep_process != PROC_PARENT)
 		return;
 
-	for (i = 0; i < PROC_MAX; i++) {
-		if (ps->ps_pid[i] == 0)
-			continue;
-		killpg(ps->ps_pid[i], SIGTERM);
-	}
+	proc_close(ps);
 
 	do {
-		pid = waitpid(WAIT_ANY, NULL, 0);
-	} while (pid != -1 || (pid == -1 && errno == EINTR));
+		pid = waitpid(WAIT_ANY, &status, 0);
+		if (pid <= 0)
+			continue;
 
-	proc_close(ps);
+		if (WIFSIGNALED(status)) {
+			len = asprintf(&cause, "terminated; signal %d",
+			    WTERMSIG(status));
+		} else if (WIFEXITED(status)) {
+			if (WEXITSTATUS(status) != 0)
+				len = asprintf(&cause, "exited abnormally");
+			else
+				len = 0;
+		} else
+			len = -1;
+
+		if (len == 0) {
+			/* child exited OK, don't print a warning message */
+		} else if (len != -1) {
+			log_warnx("lost child: pid %u %s", pid, cause);
+			free(cause);
+		} else
+			log_warnx("lost child: pid %u", pid);
+	} while (pid != -1 || (pid == -1 && errno == EINTR));
 }
 
 void
@@ -245,7 +261,6 @@ proc_listen(struct privsep *ps, struct privsep_proc *procs, size_t nproc)
 			ps->ps_ievs[dst][n].events = EV_READ;
 			ps->ps_ievs[dst][n].proc = &procs[i];
 			ps->ps_ievs[dst][n].data = &ps->ps_ievs[dst][n];
-			procs[i].p_instance = n;
 
 			event_set(&(ps->ps_ievs[dst][n].ev),
 			    ps->ps_ievs[dst][n].ibuf.fd,
@@ -326,7 +341,7 @@ proc_sig_handler(int sig, short event, void *arg)
 	}
 }
 
-pid_t
+void
 proc_run(struct privsep *ps, struct privsep_proc *p,
     struct privsep_proc *procs, unsigned int nproc,
     void (*run)(struct privsep *, struct privsep_proc *, void *), void *arg)
@@ -338,7 +353,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	unsigned int		 n;
 
 	if (ps->ps_noaction)
-		return (0);
+		return;
 
 	proc_open(ps, p, procs, nproc);
 
@@ -353,7 +368,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 		setpgid(0, 0);
 		break;
 	default:
-		return (pid);
+		return;
 	}
 
 	pw = ps->ps_pw;
@@ -389,7 +404,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	/* Fork child handlers */
 	for (n = 1; n < ps->ps_instances[p->p_id]; n++) {
 		if (fork() == 0) {
-			ps->ps_instance = p->p_instance = n;
+			ps->ps_instance = n;
 			break;
 		}
 	}
@@ -432,8 +447,6 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 	event_dispatch();
 
 	proc_shutdown(p);
-
-	return (0);
 }
 
 void
@@ -476,7 +489,7 @@ proc_dispatch(int fd, short event, void *arg)
 #if DEBUG > 1
 		log_debug("%s: %s %d got imsg %d peerid %d from %s %d",
 		    __func__, title, ps->ps_instance + 1,
-		    imsg.hdr.type, imsg.hdr.peerid, p->p_title, p->p_instance);
+		    imsg.hdr.type, imsg.hdr.peerid, p->p_title, imsg.hdr.pid);
 #endif
 
 		/*
@@ -502,7 +515,7 @@ proc_dispatch(int fd, short event, void *arg)
 			    "from %s %d",
 			    __func__, title, ps->ps_instance + 1,
 			    imsg.hdr.type, imsg.hdr.peerid,
-			    p->p_title, p->p_instance);
+			    p->p_title, imsg.hdr.pid);
 			fatalx(__func__);
 		}
 		imsg_free(&imsg);
@@ -585,7 +598,7 @@ proc_compose_imsg(struct privsep *ps, enum privsep_procid id, int n,
 	proc_range(ps, id, &n, &m);
 	for (; n < m; n++) {
 		if (imsg_compose_event(&ps->ps_ievs[id][n],
-		    type, peerid, 0, fd, data, datalen) == -1)
+		    type, peerid, ps->ps_instance + 1, fd, data, datalen) == -1)
 			return (-1);
 	}
 
@@ -608,7 +621,7 @@ proc_composev_imsg(struct privsep *ps, enum privsep_procid id, int n,
 	proc_range(ps, id, &n, &m);
 	for (; n < m; n++)
 		if (imsg_composev_event(&ps->ps_ievs[id][n],
-		    type, peerid, 0, fd, iov, iovcnt) == -1)
+		    type, peerid, ps->ps_instance + 1, fd, iov, iovcnt) == -1)
 			return (-1);
 
 	return (0);

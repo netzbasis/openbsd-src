@@ -1,4 +1,4 @@
-/*	$OpenBSD: local_passwd.c,v 1.50 2016/08/31 12:41:19 tedu Exp $	*/
+/*	$OpenBSD: local_passwd.c,v 1.52 2016/09/02 18:06:43 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -152,7 +152,7 @@ char *
 getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 {
 	static char hash[_PASSWORD_LEN];
-	char newpass[_PASSWORD_LEN + 1];
+	char newpass[1024];
 	char *p, *pref;
 	int tries, pwd_tries;
 	sig_t saveint, savequit;
@@ -163,7 +163,7 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 	if (!authenticated) {
 		(void)printf("Changing password for %s.\n", pw->pw_name);
 		if (uid != 0 && pw->pw_passwd[0] != '\0') {
-			char oldpass[_PASSWORD_LEN + 1];
+			char oldpass[1024];
 
 			p = readpassphrase("Old password:", oldpass,
 			    sizeof(oldpass), RPP_ECHO_OFF);
@@ -174,15 +174,17 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 			}
 			if (crypt_checkpass(p, pw->pw_passwd) != 0) {
 				errno = EACCES;
+				explicit_bzero(oldpass, sizeof(oldpass));
 				pw_error(NULL, 1, 1);
 			}
+			explicit_bzero(oldpass, sizeof(oldpass));
 		}
 	}
 
 	pwd_tries = pwd_gettries(lc);
 
 	for (newpass[0] = '\0', tries = 0;;) {
-		char repeat[_PASSWORD_LEN + 1];
+		char repeat[1024];
 
 		p = readpassphrase("New password:", newpass, sizeof(newpass),
 		    RPP_ECHO_OFF);
@@ -204,6 +206,7 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 		if (p != NULL && strcmp(newpass, p) == 0)
 			break;
 		(void)printf("Mismatch; try again, EOF to quit.\n");
+		explicit_bzero(newpass, sizeof(newpass));
 	}
 
 	(void)signal(SIGINT, saveint);
@@ -212,8 +215,10 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 	pref = login_getcapstr(lc, "localcipher", NULL, NULL);
 	if (crypt_newhash(newpass, pref, hash, sizeof(hash)) != 0) {
 		(void)printf("Couldn't generate hash.\n");
+		explicit_bzero(newpass, sizeof(newpass));
 		pw_error(NULL, 0, 0);
 	}
+	explicit_bzero(newpass, sizeof(newpass));
 	free(pref);
 	return hash;
 }

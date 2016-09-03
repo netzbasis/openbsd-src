@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.68 2016/08/08 21:42:13 renato Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.70 2016/09/02 17:10:34 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -35,7 +35,7 @@
 #include "log.h"
 
 static void	 ldpe_sig_handler(int, short, void *);
-static void	 ldpe_shutdown(void);
+static __dead void ldpe_shutdown(void);
 static void	 ldpe_dispatch_main(int, short, void *);
 static void	 ldpe_dispatch_lde(int, short, void *);
 static void	 ldpe_dispatch_pfkey(int, short, void *);
@@ -65,7 +65,7 @@ ldpe_sig_handler(int sig, short event, void *bula)
 }
 
 /* label distribution protocol engine */
-pid_t
+void
 ldpe(int debug, int verbose)
 {
 	struct passwd		*pw;
@@ -153,15 +153,21 @@ ldpe(int debug, int verbose)
 	event_dispatch();
 
 	ldpe_shutdown();
-	/* NOTREACHED */
-	return (0);
 }
 
-static void
+static __dead void
 ldpe_shutdown(void)
 {
 	struct if_addr		*if_addr;
 	struct adj		*adj;
+
+	/* close pipes */
+	msgbuf_write(&iev_lde->ibuf.w);
+	msgbuf_clear(&iev_lde->ibuf.w);
+	close(iev_lde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	control_cleanup();
 	config_clear(leconf);
@@ -182,11 +188,7 @@ ldpe_shutdown(void)
 		adj_del(adj, S_SHUTDOWN);
 
 	/* clean up */
-	msgbuf_write(&iev_lde->ibuf.w);
-	msgbuf_clear(&iev_lde->ibuf.w);
 	free(iev_lde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(pkt_ptr);
 
