@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.40 2016/06/05 15:35:38 jsg Exp $
+#	$OpenBSD: install.md,v 1.42 2016/09/04 10:06:11 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -46,7 +46,7 @@ md_installboot() {
 	*AM335x*)			_plat=am335x;;
 	*'OMAP3 BeagleBoard'*)		_plat=beagle;;
 	*OMAP4*)			_plat=panda;;
-	*Cubieboard*)			_plat=cubie;;
+	*'Cubietech Cubieboard2'*)	_plat=cubie;;
 	*Cubox-i*|*HummingBoard*)	_plat=cubox;;
 	*Wandboard*)			_plat=wandboard;;
 	*Nitrogen6*|*'SABRE Lite'*)	_plat=nitrogen;;
@@ -146,7 +146,7 @@ __EOT
 }
 
 md_prep_disklabel() {
-	local _disk=$1 _f=/tmp/fstab.$1
+	local _disk=$1 _f=/tmp/i/fstab.$1
 
 	md_prep_fdisk $_disk
 

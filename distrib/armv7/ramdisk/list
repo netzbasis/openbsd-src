@@ -1,4 +1,4 @@
-#	$OpenBSD: list,v 1.21 2016/06/05 15:12:56 jsg Exp $
+#	$OpenBSD: list,v 1.23 2016/09/04 10:06:11 jsg Exp $
 
 SRCDIRS distrib/special
 
@@ -100,9 +100,9 @@ SPECIAL	pwd_mkdb -p -d etc master.passwd; rm etc/master.passwd
 COPY	${DESTDIR}/etc/signify/openbsd-${REV}-base.pub	etc/signify/openbsd-${REV}-base.pub
 COPY	${CURDIR}/../../miniroot/protocols	etc/protocols
 COPY	${CURDIR}/../../miniroot/services	etc/services
-SYMLINK	/tmp/fstab.shadow			etc/fstab
-SYMLINK	/tmp/resolv.conf.shadow			etc/resolv.conf
-SYMLINK	/tmp/hosts				etc/hosts
+SYMLINK	/tmp/i/fstab.shadow			etc/fstab
+SYMLINK	/tmp/i/resolv.conf.shadow		etc/resolv.conf
+SYMLINK	/tmp/i/hosts				etc/hosts
 TERMCAP	vt100,vt220,dumb			usr/share/misc/termcap
 
 # and the installation tools
@@ -129,8 +129,8 @@ COPY	/usr/local/share/dtb/arm/omap3-beagle-xm-ab.dtb	/usr/mdec/beagle/omap3-beag
 COPY	/usr/local/share/dtb/arm/omap3-beagle-xm.dtb	/usr/mdec/beagle/omap3-beagle-xm.dtb
 COPY	/usr/local/share/dtb/arm/omap3-beagle.dtb	/usr/mdec/beagle/omap3-beagle.dtb
 
-COPY	/usr/local/share/u-boot/Cubieboard/u-boot-sunxi-with-spl.bin	/usr/mdec/cubie/u-boot-sunxi-with-spl.bin
-COPY	/usr/local/share/dtb/arm/sun4i-a10-cubieboard.dtb	/usr/mdec/cubie/sun4i-a10-cubieboard.dtb
+COPY	/usr/local/share/u-boot/Cubieboard2/u-boot-sunxi-with-spl.bin	/usr/mdec/cubie/u-boot-sunxi-with-spl.bin
+COPY	/usr/local/share/dtb/arm/sun7i-a20-cubieboard2.dtb	/usr/mdec/cubie/sun7i-a20-cubieboard2.dtb
 
 COPY	/usr/local/share/u-boot/omap4_panda/MLO		/usr/mdec/panda/MLO
 COPY	/usr/local/share/u-boot/omap4_panda/u-boot.img	/usr/mdec/panda/u-boot.img
