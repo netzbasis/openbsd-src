@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftpd.c,v 1.221 2016/08/31 13:43:36 jca Exp $	*/
+/*	$OpenBSD: ftpd.c,v 1.223 2016/09/03 15:00:48 jca Exp $	*/
 /*	$NetBSD: ftpd.c,v 1.15 1995/06/03 22:46:47 mycroft Exp $	*/
 
 /*
@@ -531,11 +531,18 @@ main(int argc, char *argv[])
 		reply(530, "System not available.");
 		exit(1);
 	}
-	if (his_addr.su_family == AF_INET) {
-		tos = IPTOS_LOWDELAY;
+	tos = IPTOS_LOWDELAY;
+	switch (his_addr.su_family) {
+	case AF_INET:
 		if (setsockopt(0, IPPROTO_IP, IP_TOS, &tos,
 		    sizeof(int)) < 0)
 			syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
+		break;
+	case AF_INET6:
+		if (setsockopt(0, IPPROTO_IPV6, IPV6_TCLASS, &tos,
+		    sizeof(int)) < 0)
+			syslog(LOG_WARNING, "setsockopt (IPV6_TCLASS): %m");
+		break;
 	}
 	data_source.su_port = htons(ntohs(ctrl_addr.su_port) - 1);
 
@@ -1269,7 +1276,7 @@ done:
 static FILE *
 getdatasock(char *mode)
 {
-	int on = 1, s, t, tries;
+	int opt, s, t, tries;
 
 	if (data >= 0)
 		return (fdopen(data, mode));
@@ -1277,8 +1284,9 @@ getdatasock(char *mode)
 	s = monitor_socket(ctrl_addr.su_family);
 	if (s < 0)
 		goto bad;
+	opt = 1;
 	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
-	    &on, sizeof(on)) < 0)
+	    &opt, sizeof(opt)) < 0)
 		goto bad;
 	/* anchor socket to avoid multi-homing problems */
 	data_source = ctrl_addr;
@@ -1293,11 +1301,18 @@ getdatasock(char *mode)
 	}
 	sigprocmask (SIG_UNBLOCK, &allsigs, NULL);
 
-	if (ctrl_addr.su_family == AF_INET) {
-		on = IPTOS_THROUGHPUT;
-		if (setsockopt(s, IPPROTO_IP, IP_TOS, &on,
-		    sizeof(int)) < 0)
+	opt = IPTOS_THROUGHPUT;
+	switch (ctrl_addr.su_family) {
+	case AF_INET:
+		if (setsockopt(s, IPPROTO_IP, IP_TOS, &opt,
+		    sizeof(opt)) < 0)
 			syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
+		break;
+	case AF_INET6:
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, &opt,
+		    sizeof(opt)) < 0)
+			syslog(LOG_WARNING, "setsockopt (IPV6_TCLASS): %m");
+		break;
 	}
 	/*
 	 * Turn off push flag to keep sender TCP from sending short packets
@@ -1305,11 +1320,11 @@ getdatasock(char *mode)
 	 * to set the send buffer size as well, but that may not be desirable
 	 * in heavy-load situations.
 	 */
-	on = 1;
-	if (setsockopt(s, IPPROTO_TCP, TCP_NOPUSH, &on, sizeof(on)) < 0)
+	opt = 1;
+	if (setsockopt(s, IPPROTO_TCP, TCP_NOPUSH, &opt, sizeof(opt)) < 0)
 		syslog(LOG_WARNING, "setsockopt (TCP_NOPUSH): %m");
-	on = 65536;
-	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &on, sizeof(on)) < 0)
+	opt = 65536;
+	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt)) < 0)
 		syslog(LOG_WARNING, "setsockopt (SO_SNDBUF): %m");
 
 	return (fdopen(s, mode));

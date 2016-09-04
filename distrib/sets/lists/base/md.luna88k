@@ -527,7 +527,6 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/i2c/i2c_io.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/i2c/i2cvar.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/i2c/ihidev.ph
-./usr/libdata/perl5/site_perl/m88k-openbsd/dev/i2c/wm8750reg.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/ic
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/ic/aac_tables.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/ic/aacreg.ph
@@ -1024,7 +1023,6 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/cfxgareg.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/gprio.ph
-./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/if_cnwreg.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/if_maloreg.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/if_malovar.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/pcmcia/if_xereg.ph
@@ -1166,8 +1164,6 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbdi.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbdi_util.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbdivar.ph
-./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbf.ph
-./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbfvar.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/usbhid.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/uslhcomreg.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/usb/utvfu.ph
@@ -1508,6 +1504,7 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ndbm.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/net
 ./usr/libdata/perl5/site_perl/m88k-openbsd/net/art.ph
+./usr/libdata/perl5/site_perl/m88k-openbsd/net/bfd.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/net/bpf.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/net/bpfdesc.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/net/ethertypes.ph

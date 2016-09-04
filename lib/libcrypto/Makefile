@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.3 2016/09/02 17:40:28 deraadt Exp $
+# $OpenBSD: Makefile,v 1.2 2016/09/03 12:42:46 beck Exp $
 
 LIB=	crypto
 

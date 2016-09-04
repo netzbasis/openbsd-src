@@ -1,4 +1,4 @@
-/* $OpenBSD: bn_gf2m.c,v 1.22 2016/08/31 13:26:35 bcook Exp $ */
+/* $OpenBSD: bn_gf2m.c,v 1.22 2016/09/03 14:37:00 bcook Exp $ */
 /* ====================================================================
  * Copyright 2002 Sun Microsystems, Inc. ALL RIGHTS RESERVED.
  *

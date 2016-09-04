@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $OpenBSD: generate_pkgconfig.sh,v 1.2 2016/09/02 17:00:22 beck Exp $
+# $OpenBSD: generate_pkgconfig.sh,v 1.2 2016/09/03 12:42:46 beck Exp $
 #
 # Copyright (c) 2010,2011 Jasper Lievisse Adriaanse <jasper@openbsd.org>
 #

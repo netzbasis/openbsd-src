@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.20 2016/09/02 17:00:14 beck Exp $
+# $OpenBSD: Makefile,v 1.20 2016/09/03 12:42:42 beck Exp $
 
 SUBDIR= man
 PC_FILES=openssl.pc libssl.pc

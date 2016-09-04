@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.231 2016/09/02 16:14:09 reyk Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.233 2016/09/03 14:44:21 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -69,7 +69,6 @@
 #define RELAY_TIMEOUT		600
 #define RELAY_CACHESIZE		-1	/* use default size */
 #define RELAY_NUMPROC		3
-#define RELAY_MAXPROC		32
 #define RELAY_MAXHOSTS		32
 #define RELAY_MAXHEADERLENGTH	8192
 #define RELAY_STATINTERVAL	60
@@ -94,6 +93,9 @@
 #define ICMP_RCVBUF_SIZE	262144
 
 #define SNMP_RECONNECT_TIMEOUT	{ 3, 0 }	/* sec, usec */
+
+#define PROC_PARENT_SOCK_FILENO	3
+#define PROC_MAX_INSTANCES	32
 
 #if DEBUG > 1
 #define DPRINTF		log_debug
@@ -805,7 +807,7 @@ struct relay {
 	char			*rl_tls_cakey;
 	EVP_PKEY		*rl_tls_capkey;
 
-	struct ctl_stats	 rl_stats[RELAY_MAXPROC + 1];
+	struct ctl_stats	 rl_stats[PROC_MAX_INSTANCES + 1];
 
 	struct session_tree	 rl_sessions;
 };
@@ -915,6 +917,7 @@ enum imsg_type {
 	IMSG_CTL_OK,		/* answer to relayctl requests */
 	IMSG_CTL_FAIL,
 	IMSG_CTL_VERBOSE,
+	IMSG_CTL_PROCFD,
 	IMSG_CTL_END,
 	IMSG_CTL_RDR,
 	IMSG_CTL_TABLE,
@@ -1029,6 +1032,11 @@ struct privsep_proc {
 	const char		*p_chroot;
 	struct privsep		*p_ps;
 	struct relayd		*p_env;
+};
+
+struct privsep_fd {
+	enum privsep_procid		 pf_procid;
+	unsigned int			 pf_instance;
 };
 
 struct relayd_config {
@@ -1363,12 +1371,15 @@ __dead void fatalx(const char *, ...)
 	    __attribute__((__format__ (printf, 1, 2)));
 
 /* proc.c */
-void	 proc_init(struct privsep *, struct privsep_proc *, u_int);
+enum privsep_procid
+	    proc_getid(struct privsep_proc *, unsigned int, const char *);
+void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int,
+	    int, char **, enum privsep_procid);
 void	 proc_kill(struct privsep *);
-void	 proc_listen(struct privsep *, struct privsep_proc *, size_t);
+void	 proc_connect(struct privsep *);
 void	 proc_dispatch(int, short event, void *);
 void	 proc_run(struct privsep *, struct privsep_proc *,
-	    struct privsep_proc *, u_int,
+	    struct privsep_proc *, unsigned int,
 	    void (*)(struct privsep *, struct privsep_proc *, void *), void *);
 void	 proc_range(struct privsep *, enum privsep_procid, int *, int *);
 int	 proc_compose_imsg(struct privsep *, enum privsep_procid, int,
@@ -1377,18 +1388,18 @@ int	 proc_compose(struct privsep *, enum privsep_procid,
 	    uint16_t, void *, uint16_t);
 int	 proc_composev_imsg(struct privsep *, enum privsep_procid, int,
 	    u_int16_t, u_int32_t, int, const struct iovec *, int);
-int	 proc_forward_imsg(struct privsep *, struct imsg *,
-	    enum privsep_procid, int);
 int	 proc_composev(struct privsep *, enum privsep_procid,
 	    uint16_t, const struct iovec *, int);
+int	 proc_forward_imsg(struct privsep *, struct imsg *,
+	    enum privsep_procid, int);
 struct imsgbuf *
 	 proc_ibuf(struct privsep *, enum privsep_procid, int);
 struct imsgev *
 	 proc_iev(struct privsep *, enum privsep_procid, int);
 void	 imsg_event_add(struct imsgev *);
-int	 imsg_compose_event(struct imsgev *, u_int16_t, u_int32_t,
-	    pid_t, int, void *, u_int16_t);
-int	 imsg_composev_event(struct imsgev *, u_int16_t, u_int32_t,
+int	 imsg_compose_event(struct imsgev *, uint16_t, uint32_t,
+	    pid_t, int, void *, uint16_t);
+int	 imsg_composev_event(struct imsgev *, uint16_t, uint32_t,
 	    pid_t, int, const struct iovec *, int);
 
 /* config.c */

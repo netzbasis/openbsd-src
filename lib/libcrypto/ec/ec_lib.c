@@ -1,4 +1,4 @@
-/* $OpenBSD: ec_lib.c,v 1.21 2016/08/31 10:06:04 beck Exp $ */
+/* $OpenBSD: ec_lib.c,v 1.22 2016/09/03 12:10:40 beck Exp $ */
 /*
  * Originally written by Bodo Moeller for the OpenSSL project.
  */

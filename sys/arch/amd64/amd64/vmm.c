@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.74 2016/09/01 16:04:47 stefan Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.76 2016/09/03 14:01:17 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -2802,12 +2802,55 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 	struct schedstate_percpu *spc;
 	struct vmx_invvpid_descriptor vid;
 	uint64_t eii, procbased;
-	uint8_t from_exit;
 	uint16_t irq;
 
 	resume = 0;
-	from_exit = vrp->vrp_continue;
 	irq = vrp->vrp_irq;
+
+	/*
+	 * If we are returning from userspace (vmd) because we exited
+	 * last time, fix up any needed vcpu state first. Which state
+	 * needs to be fixed up depends on what vmd populated in the
+	 * exit data structure.
+	 */
+	if (vrp->vrp_continue) {
+		switch (vcpu->vc_gueststate.vg_exit_reason) {
+		case VMX_EXIT_IO:
+			vcpu->vc_gueststate.vg_rax =
+			    vcpu->vc_exit.vei.vei_data;
+			break;
+		case VMX_EXIT_HLT:
+			break;
+		case VMX_EXIT_INT_WINDOW:
+			break; 
+#ifdef VMM_DEBUG
+		case VMX_EXIT_TRIPLE_FAULT:
+			DPRINTF("%s: vm %d vcpu %d triple fault\n",
+			    __func__, vcpu->vc_parent->vm_id,
+			    vcpu->vc_id);
+			vmx_vcpu_dump_regs(vcpu);
+			dump_vcpu(vcpu);
+			break;
+		case VMX_EXIT_ENTRY_FAILED_GUEST_STATE:
+			DPRINTF("%s: vm %d vcpu %d failed entry "
+			    "due to invalid guest state\n",
+			    __func__, vcpu->vc_parent->vm_id,
+			    vcpu->vc_id);
+			vmx_vcpu_dump_regs(vcpu);
+			dump_vcpu(vcpu);
+			return EINVAL;
+		default:
+			DPRINTF("%s: unimplemented exit type %d (%s)\n",
+			    __func__,
+			    vcpu->vc_gueststate.vg_exit_reason,
+			    vmx_exit_reason_decode(
+				vcpu->vc_gueststate.vg_exit_reason));
+			vmx_vcpu_dump_regs(vcpu);
+			dump_vcpu(vcpu);
+			break;
+#endif /* VMM_DEBUG */
+		}
+	}
 
 	while (ret == 0) {
 		if (!resume) {
@@ -2848,56 +2891,6 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 			cr3 = rcr3();
 			if (vmwrite(VMCS_HOST_IA32_CR3, cr3)) {
 				ret = EINVAL;
-				break;
-			}
-		}
-
-		/*
-		 * If we are returning from userspace (vmd) because we exited
-		 * last time, fix up any needed vcpu state first. Which state
-		 * needs to be fixed up depends on what vmd populated in the
-		 * exit data structure.
-		 */
-		if (from_exit) {
-			from_exit = 0;
-			switch (vcpu->vc_gueststate.vg_exit_reason) {
-			case VMX_EXIT_IO:
-				vcpu->vc_gueststate.vg_rax =
-				    vcpu->vc_exit.vei.vei_data;
-				break;
-			case VMX_EXIT_HLT:
-				break;
-			case VMX_EXIT_INT_WINDOW:
-				break; 
-			case VMX_EXIT_TRIPLE_FAULT:
-				DPRINTF("%s: vm %d vcpu %d triple fault\n",
-				    __func__, vcpu->vc_parent->vm_id,
-				    vcpu->vc_id);
-#ifdef VMM_DEBUG
-				vmx_vcpu_dump_regs(vcpu);
-				dump_vcpu(vcpu);
-#endif /* VMM_DEBUG */
-				break;
-			case VMX_EXIT_ENTRY_FAILED_GUEST_STATE:
-				DPRINTF("%s: vm %d vcpu %d failed entry "
-				    "due to invalid guest state\n",
-				    __func__, vcpu->vc_parent->vm_id,
-				    vcpu->vc_id);
-#ifdef VMM_DEBUG
-				vmx_vcpu_dump_regs(vcpu);
-				dump_vcpu(vcpu);
-#endif /* VMM_DEBUG */
-				return EINVAL;
-			default:
-				printf("%s: unimplemented exit type %d (%s)\n",
-				    __func__,
-				    vcpu->vc_gueststate.vg_exit_reason,
-				    vmx_exit_reason_decode(
-					vcpu->vc_gueststate.vg_exit_reason));
-#ifdef VMM_DEBUG
-				vmx_vcpu_dump_regs(vcpu);
-				dump_vcpu(vcpu);
-#endif /* VMM_DEBUG */
 				break;
 			}
 		}
@@ -3047,9 +3040,17 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 				}
 			}
 
-			/* Exit to vmd if we are terminating or failed enter */
+			/*
+			 * Exit to vmd if we are terminating, failed to enter,
+			 * or need help (device I/O)
+			 */
 			if (ret || vcpu_must_stop(vcpu))
 				break;
+
+			if (vcpu->vc_intr && vcpu->vc_irqready) {
+				ret = EAGAIN;
+				break;
+			}
 
 			/* Check if we should yield - don't hog the cpu */
 			spc = &ci->ci_schedstate;
@@ -3565,23 +3566,43 @@ vmx_handle_cpuid(struct vcpu *vcpu)
 		*rbx &= (vcpu->vc_id & 0xFF) << 24;
 		/*
 		 * clone host capabilities minus:
-		 *  speedstep (CPUIDECX_EST)
-		 *  vmx (CPUIDECX_VMX)
-		 *  xsave (CPUIDECX_XSAVE)
-		 *  thermal (CPUIDECX_TM2, CPUID_ACPI, CPUID_TM)
-		 *  XXX - timestamp (CPUID_TSC)
+		 *  debug store (CPUIDECX_DTES64, CPUIDECX_DSCPL, CPUID_DS)
 		 *  monitor/mwait (CPUIDECX_MWAIT)
+		 *  vmx (CPUIDECX_VMX)
+		 *  smx (CPUIDECX_SMX)
+		 *  speedstep (CPUIDECX_EST)
+		 *  thermal (CPUIDECX_TM2, CPUID_ACPI, CPUID_TM)
+		 *  context id (CPUIDECX_CNXTID)
+		 *  silicon debug (CPUIDECX_SDBG)
+		 *  xTPR (CPUIDECX_XTPR)
+		 *  perf/debug (CPUIDECX_PDCM)
+		 *  pcid (CPUIDECX_PCID)
+		 *  direct cache access (CPUIDECX_DCA)
+		 *  x2APIC (CPUIDECX_X2APIC)
+		 *  apic deadline (CPUIDECX_DEADLINE)
 		 *  performance monitoring (CPUIDECX_PDCM)
+		 *  timestamp (CPUID_TSC)
+		 *  apic (CPUID_APIC)
+		 *  psn (CPUID_PSN)
+		 *  self snoop (CPUID_SS)
 		 *  hyperthreading (CPUID_HTT)
+		 *  pending break enabled (CPUID_PBE)
 		 * plus:
 		 *  hypervisor (CPUIDECX_HV)
 		 */
 		*rcx = (cpu_ecxfeature | CPUIDECX_HV) &
 		    ~(CPUIDECX_EST | CPUIDECX_TM2 |
 		    CPUIDECX_MWAIT | CPUIDECX_PDCM |
-		    CPUIDECX_VMX | CPUIDECX_XSAVE);
+		    CPUIDECX_VMX | CPUIDECX_DTES64 |
+		    CPUIDECX_DSCPL | CPUIDECX_SMX |
+		    CPUIDECX_CNXTID | CPUIDECX_SDBG |
+		    CPUIDECX_XTPR | CPUIDECX_PDCM |
+		    CPUIDECX_PCID | CPUIDECX_DCA |
+		    CPUIDECX_X2APIC | CPUIDECX_DEADLINE);
 		*rdx = curcpu()->ci_feature_flags &
-		    ~(CPUID_ACPI | CPUID_TM | CPUID_TSC | CPUID_HTT);
+		    ~(CPUID_ACPI | CPUID_TM | CPUID_TSC |
+		      CPUID_HTT | CPUID_DS | CPUID_APIC |
+		      CPUID_PSN | CPUID_SS | CPUID_PBE);
 		break;
 	case 0x02:	/* Cache and TLB information */
 		DPRINTF("vmx_handle_cpuid: function 0x02 (cache/TLB) not"
@@ -3612,16 +3633,29 @@ vmx_handle_cpuid(struct vcpu *vcpu)
 		*rdx = 0;
 		break;
 	case 0x06:	/* Thermal / Power management */
-		/* Only ARAT is exposed in function 0x06 */
-		*rax = TPM_ARAT;
+		*rax = 0;
 		*rbx = 0;
 		*rcx = 0;
 		*rdx = 0;
 		break;
 	case 0x07:	/* SEFF */
 		if (*rcx == 0) {
+			/*
+			 * SEFF flags - copy from host minus:
+			 *  SGX (SEFF0EBX_SGX)
+			 *  HLE (SEFF0EBX_HLE)
+			 *  INVPCID (SEFF0EBX_INVPCID)
+			 *  RTM (SEFF0EBX_RTM)
+			 *  PQM (SEFF0EBX_PQM)
+			 *  MPX (SEFF0EBX_MPX)
+			 *  PCOMMIT (SEFF0EBX_PCOMMIT)
+			 *  PT (SEFF0EBX_PT)
+			 */
 			*rax = 0;	/* Highest subleaf supported */
-			*rbx = curcpu()->ci_feature_sefflags_ebx;
+			*rbx = curcpu()->ci_feature_sefflags_ebx &
+			    ~(SEFF0EBX_SGX | SEFF0EBX_HLE | SEFF0EBX_INVPCID |
+			      SEFF0EBX_RTM | SEFF0EBX_PQM | SEFF0EBX_MPX |
+			      SEFF0EBX_PCOMMIT | SEFF0EBX_PT);
 			*rcx = curcpu()->ci_feature_sefflags_ecx;
 			*rdx = 0;
 		} else {
@@ -3745,7 +3779,7 @@ vmx_handle_cpuid(struct vcpu *vcpu)
 		*rax = 0;	/* Reserved */
 		*rbx = 0;	/* Reserved */
 		*rcx = 0;	/* Reserved */
-		*rdx = cpu_apmi_edx;
+		*rdx = 0;	/* unsupported ITSC */
 		break;
 	case 0x80000008:	/* Phys bits info and topology (AMD) */
 		DPRINTF("vmx_handle_cpuid: function 0x80000008 (phys bits info)"

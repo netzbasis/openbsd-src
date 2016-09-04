@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.144 2016/09/02 21:46:18 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.147 2016/09/03 21:50:52 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -132,7 +132,7 @@ int moptions;
 int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
-struct sockaddr_in whereto;	/* who to ping */
+struct sockaddr_in dst;	/* who to ping */
 unsigned int datalen = DEFDATALEN;
 int s;				/* socket file descriptor */
 u_char outpackhdr[IP_MAXPACKET]; /* Max packet size = 65535 */
@@ -191,7 +191,6 @@ main(int argc, char *argv[])
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
 	struct sockaddr_in  from, from4;
-	struct sockaddr_in *to;
 	int64_t preload;
 	int ch, i, optval = 1, packlen, maxsize, df = 0, tos = 0;
 	int error;
@@ -352,24 +351,23 @@ main(int argc, char *argv[])
 
 	target = *argv;
 
-	memset(&whereto, 0, sizeof(whereto));
-	to = &whereto;
-	to->sin_len = sizeof(struct sockaddr_in);
-	to->sin_family = AF_INET;
-	if (inet_aton(target, &to->sin_addr) != 0)
+	memset(&dst, 0, sizeof(dst));
+	dst.sin_len = sizeof(struct sockaddr_in);
+	dst.sin_family = AF_INET;
+	if (inet_aton(target, &dst.sin_addr) != 0)
 		hostname = target;
 	else {
 		hp = gethostbyname(target);
 		if (!hp)
 			errx(1, "unknown host: %s", target);
-		to->sin_family = hp->h_addrtype;
-		memcpy(&to->sin_addr, hp->h_addr, (size_t)hp->h_length);
+		dst.sin_family = hp->h_addrtype;
+		memcpy(&dst.sin_addr, hp->h_addr, (size_t)hp->h_length);
 		(void)strlcpy(hnamebuf, hp->h_name, sizeof(hnamebuf));
 		hostname = hnamebuf;
 	}
 
 	if (source) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			moptions |= MULTICAST_IF;
 		else {
 			memset(&from4, 0, sizeof(from4));
@@ -418,7 +416,7 @@ main(int argc, char *argv[])
 	ident = getpid() & 0xFFFF;
 
 	if (options & F_TTL) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			moptions |= MULTICAST_TTL;
 		else
 			options |= F_HDRINCL;
@@ -443,12 +441,12 @@ main(int argc, char *argv[])
 			ip->ip_src = from4.sin_addr;
 		else
 			ip->ip_src.s_addr = INADDR_ANY;
-		ip->ip_dst = to->sin_addr;
+		ip->ip_dst = dst.sin_addr;
 	}
 
 	/* record route option */
 	if (options & F_RROUTE) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			errx(1, "record route not valid to multicast destinations");
 		memset(rspace, 0, sizeof(rspace));
 		rspace[IPOPT_OPTVAL] = IPOPT_RR;
@@ -500,12 +498,8 @@ main(int argc, char *argv[])
 		warnx("Could only allocate a receive buffer of %d bytes (default %d)",
 		    bufspace, IP_MAXPACKET);
 
-	if (to->sin_family == AF_INET)
-		(void)printf("PING %s (%s): %d data bytes\n", hostname,
-		    pr_addr((struct sockaddr *)to, sizeof(*to)),
-		    datalen);
-	else
-		(void)printf("PING %s: %d data bytes\n", hostname, datalen);
+	(void)printf("PING %s (%s): %d data bytes\n", hostname,
+	    pr_addr((struct sockaddr *)&dst, sizeof(dst)), datalen);
 
 	if (options & F_HOSTNAME) {
 		if (pledge("stdio inet dns", NULL) == -1)
@@ -702,8 +696,8 @@ pinger(void)
 		SipHash24_Update(&ctx, tv64, sizeof(*tv64));
 		SipHash24_Update(&ctx, &ident, sizeof(ident));
 		SipHash24_Update(&ctx, &icp->icmp_seq, sizeof(icp->icmp_seq));
-		SipHash24_Update(&ctx, &whereto.sin_addr,
-		    sizeof(whereto.sin_addr));
+		SipHash24_Update(&ctx, &dst.sin_addr,
+		    sizeof(dst.sin_addr));
 		SipHash24_Final(&payload.mac, &ctx);
 
 		memcpy(&outpack[8], &payload, sizeof(payload));
@@ -723,8 +717,8 @@ pinger(void)
 		ip->ip_sum = in_cksum((u_short *)outpackhdr, cc);
 	}
 
-	i = sendto(s, packet, cc, 0, (struct sockaddr *)&whereto,
-	    sizeof(whereto));
+	i = sendto(s, packet, cc, 0, (struct sockaddr *)&dst,
+	    sizeof(dst));
 
 	if (i < 0 || i != cc)  {
 		if (i < 0)
@@ -810,8 +804,8 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 			SipHash24_Update(&ctx, &ident, sizeof(ident));
 			SipHash24_Update(&ctx, &icp->icmp_seq,
 			    sizeof(icp->icmp_seq));
-			SipHash24_Update(&ctx, &whereto.sin_addr,
-			    sizeof(whereto.sin_addr));
+			SipHash24_Update(&ctx, &dst.sin_addr,
+			    sizeof(dst.sin_addr));
 			SipHash24_Final(mac, &ctx);
 
 			if (timingsafe_memcmp(mac, &payload.mac,

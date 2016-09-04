@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.637 2016/09/01 10:04:51 jcs Exp $
+#	$OpenBSD: Makefile,v 1.641 2016/09/03 21:37:28 tedu Exp $
 
 MAN=	aac.4 ac97.4 acphy.4 \
 	acpi.4 acpiac.4 acpials.4 acpiasus.4 acpibat.4 \
@@ -8,7 +8,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	acpivout.4 acpitz.4 \
 	acx.4 adc.4 addcom.4 adl.4 admcts.4 admlc.4 admtemp.4 \
 	admtm.4 admtmp.4 admtt.4 adt.4 adtfsm.4 adv.4 age.4 alc.4 ale.4 agp.4 \
-	aha.4 ahb.4 ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
+	ahc.4 ahci.4 ahd.4 aibs.4 aic.4 \
 	akbd.4 alipm.4 amas.4 amdiic.4 amdpm.4 ami.4 amphy.4 \
 	ams.4 an.4 andl.4 aps.4 arc.4 arcofi.4 \
 	asbtm.4 asmc.4 ast.4 atapiscsi.4 atphy.4 ath.4 athn.4 atu.4 atw.4 \
@@ -16,8 +16,8 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	aue.4 auglx.4 auich.4 auixp.4 autri.4 auvia.4 axe.4 axen.4 azalia.4 \
 	bce.4 berkwdt.4 bge.4 bha.4 bio.4 bktr.4 bmtphy.4 bnx.4 \
 	boca.4 bpf.4 brgphy.4 bridge.4 brswphy.4 bwi.4 bytgpio.4 \
-	cac.4 cas.4 cardbus.4 carp.4 cd.4 cdce.4 cdcef.4 cfxga.4 \
-	ch.4 chvgpio.4 ciphy.4 ciss.4 clcs.4 clct.4 cmpci.4 cnw.4 \
+	cac.4 cas.4 cardbus.4 carp.4 cd.4 cdce.4 cfxga.4 \
+	ch.4 chvgpio.4 ciphy.4 ciss.4 clcs.4 clct.4 cmpci.4 \
 	com.4 cue.4 cy.4 cz.4 dc.4 dcphy.4 ddb.4 de.4 \
 	diskmap.4 divert.4 dpt.4 drm.4 dwctwo.4 dwge.4 dwiic.4 \
 	eap.4 ec.4 eephy.4 ef.4 eg.4 ehci.4 eisa.4 el.4 em.4 emc.4 gcu.4 \
@@ -67,7 +67,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 	ukphy.4 ulpt.4 umass.4 umb.4 umbg.4 umcs.4 umct.4 umidi.4 umodem.4 \
 	ums.4 umsm.4 unix.4 uonerng.4 uow.4 uoaklux.4 uoakrh.4 uoakv.4 upd.4 \
 	upgt.4 upl.4 uplcom.4 ural.4 ure.4 url.4 urlphy.4 \
-	urndis.4 urtw.4 urtwn.4 usb.4  usbf.4 uscom.4 uslcom.4 usps.4 \
+	urndis.4 urtw.4 urtwn.4 usb.4 uscom.4 uslcom.4 usps.4 \
 	uthum.4 uticom.4 utpms.4 utwitch.4 utrh.4 uts.4 utvfu.4 uvideo.4 \
 	uvisor.4 uvscom.4 \
 	vether.4 vga.4 vgafb.4 vge.4 \
@@ -83,7 +83,7 @@ MAN=	aac.4 ac97.4 acphy.4 \
 SUBDIR=	man4.alpha man4.amd64 man4.armv7 \
 	man4.hppa man4.i386 man4.landisk man4.loongson man4.luna88k \
 	man4.macppc man4.octeon \
-	man4.sgi man4.socppc man4.sparc64 man4.zaurus
+	man4.sgi man4.socppc man4.sparc64
 
 CLEANFILES+= wi.4
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: getentropy_osx.c,v 1.11 2016/09/02 16:13:57 bcook Exp $	*/
+/*	$OpenBSD: getentropy_osx.c,v 1.11 2016/09/03 15:24:09 bcook Exp $	*/
 
 /*
  * Copyright (c) 2014 Theo de Raadt <deraadt@openbsd.org>

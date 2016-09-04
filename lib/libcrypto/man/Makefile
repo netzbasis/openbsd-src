@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.33 2016/09/02 17:00:25 beck Exp $
+# $OpenBSD: Makefile,v 1.33 2016/09/03 12:42:47 beck Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 

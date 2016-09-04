@@ -134,7 +134,6 @@
 ./usr/include/dev/i2c/i2c_io.h
 ./usr/include/dev/i2c/i2cvar.h
 ./usr/include/dev/i2c/ihidev.h
-./usr/include/dev/i2c/wm8750reg.h
 ./usr/include/dev/ic
 ./usr/include/dev/ic/aac_tables.h
 ./usr/include/dev/ic/aacreg.h
@@ -631,7 +630,6 @@
 ./usr/include/dev/pcmcia
 ./usr/include/dev/pcmcia/cfxgareg.h
 ./usr/include/dev/pcmcia/gprio.h
-./usr/include/dev/pcmcia/if_cnwreg.h
 ./usr/include/dev/pcmcia/if_maloreg.h
 ./usr/include/dev/pcmcia/if_malovar.h
 ./usr/include/dev/pcmcia/if_xereg.h
@@ -773,8 +771,6 @@
 ./usr/include/dev/usb/usbdi.h
 ./usr/include/dev/usb/usbdi_util.h
 ./usr/include/dev/usb/usbdivar.h
-./usr/include/dev/usb/usbf.h
-./usr/include/dev/usb/usbfvar.h
 ./usr/include/dev/usb/usbhid.h
 ./usr/include/dev/usb/uslhcomreg.h
 ./usr/include/dev/usb/utvfu.h
@@ -946,6 +942,7 @@
 ./usr/include/ndbm.h
 ./usr/include/net
 ./usr/include/net/art.h
+./usr/include/net/bfd.h
 ./usr/include/net/bpf.h
 ./usr/include/net/bpfdesc.h
 ./usr/include/net/ethertypes.h
@@ -1602,6 +1599,9 @@
 ./usr/share/man/man2/amd64
 ./usr/share/man/man2/amd64/amd64_get_fsbase.2
 ./usr/share/man/man2/amd64/amd64_iopl.2
+./usr/share/man/man2/armv7
+./usr/share/man/man2/armv7/arm_drain_writebuf.2
+./usr/share/man/man2/armv7/arm_sync_icache.2
 ./usr/share/man/man2/bind.2
 ./usr/share/man/man2/brk.2
 ./usr/share/man/man2/chdir.2
@@ -1734,9 +1734,6 @@
 ./usr/share/man/man2/vfork.2
 ./usr/share/man/man2/wait.2
 ./usr/share/man/man2/write.2
-./usr/share/man/man2/zaurus
-./usr/share/man/man2/zaurus/arm_drain_writebuf.2
-./usr/share/man/man2/zaurus/arm_sync_icache.2
 ./usr/share/man/man3/ASN1_OBJECT_new.3
 ./usr/share/man/man3/ASN1_STRING_length.3
 ./usr/share/man/man3/ASN1_STRING_new.3
@@ -2689,7 +2686,6 @@
 ./usr/share/man/man9/getdevvp.9
 ./usr/share/man/man9/getnewvnode.9
 ./usr/share/man/man9/hardclock.9
-./usr/share/man/man9/hash.9
 ./usr/share/man/man9/hashinit.9
 ./usr/share/man/man9/hook_establish.9
 ./usr/share/man/man9/hz.9
