@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageLocation.pm,v 1.45 2015/04/06 11:13:41 espie Exp $
+# $OpenBSD: PackageLocation.pm,v 1.48 2016/09/04 14:01:31 espie Exp $
 #
 # Copyright (c) 2003-2007 Marc Espie <espie@openbsd.org>
 #
@@ -125,6 +125,7 @@ sub store_end_of_stream
 	    *$sym->{Info}{TrailerLength};
 }
 
+
 sub find_contents
 {
 	my ($self, $extra) = @_;
@@ -132,7 +133,8 @@ sub find_contents
 	while (my $e = $self->next) {
 		if ($e->isFile && is_info_name($e->{name})) {
 			if ($e->{name} eq CONTENTS ) {
-				my $v = $e->contents($extra);
+				my $v = 
+				    $self->{extra_content}.$e->contents($extra);
 				$self->store_end_of_stream;
 				return $v;
 			}
