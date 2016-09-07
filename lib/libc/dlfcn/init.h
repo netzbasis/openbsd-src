@@ -1,6 +1,6 @@
-/*	$OpenBSD: float.h,v 1.2 2016/09/06 19:56:36 guenther Exp $	*/
+/*	$OpenBSD: init.h,v 1.1 2016/09/06 18:49:34 guenther Exp $	*/
 /*
- * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
+ * Copyright (c) 2016 Philip Guenther <guenther@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,16 +15,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _LIBC_FLOAT_H_
-#define _LIBC_FLOAT_H_
+#ifndef INIT_H
+#define	INIT_H
 
-#include_next <float.h>
+__BEGIN_HIDDEN_DECLS
+/* shared between dl_iterate_phdr() and _csu_finish() in static builds */
+extern struct dl_phdr_info	_static_phdr_info;
+__END_HIDDEN_DECLS
 
-/*
- * clang overrides our <float.h>, but libc still need to define __flt_rounds()
- * to support building with gcc
- */
-int	__flt_rounds(void);
-PROTO_NORMAL(__flt_rounds);
-
-#endif	/* _LIBC_FLOAT_H_ */
+#endif /* !INIT_H */
