@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.148 2016/09/04 09:36:37 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.152 2016/09/07 17:56:00 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -423,9 +423,6 @@ main(int argc, char *argv[])
 		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
 		    sizeof(optval));
 
-	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
-	arc4random_buf(&mac_key, sizeof(mac_key));
-
 	if (options & F_FLOOD && options & F_INTERVAL)
 		errx(1, "-f and -i options are incompatible");
 
@@ -526,9 +523,6 @@ main(int argc, char *argv[])
 		warnx("Could only allocate a receive buffer of %d bytes (default %d)",
 		    bufspace, IP_MAXPACKET);
 
-	(void)printf("PING %s (%s): %d data bytes\n", hostname,
-	    pr_addr((struct sockaddr *)&dst, sizeof(dst)), datalen);
-
 	if (options & F_HOSTNAME) {
 		if (pledge("stdio inet dns", NULL) == -1)
 			err(1, "pledge");
@@ -537,7 +531,13 @@ main(int argc, char *argv[])
 			err(1, "pledge");
 	}
 
-	while (preload--)		/* fire off them quickies */
+	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
+	arc4random_buf(&mac_key, sizeof(mac_key));
+
+	printf("PING %s (%s): %d data bytes\n", hostname,
+	    pr_addr((struct sockaddr *)&dst, sizeof(dst)), datalen);
+
+	while (preload--)		/* Fire off them quickies. */
 		pinger();
 
 	(void)signal(SIGINT, onsignal);
@@ -624,7 +624,6 @@ main(int argc, char *argv[])
 	summary();
 	exit(nreceived == 0);
 }
-
 
 void
 onsignal(int sig)
