@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.152 2016/09/07 17:56:00 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.154 2016/09/08 13:59:33 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -54,6 +54,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -114,6 +115,7 @@ int options;
 /*			0x0200 */
 #define	F_HDRINCL	0x0400
 #define	F_TTL		0x0800
+/*			0x1000 */
 #define	F_AUD_RECV	0x2000
 #define	F_AUD_MISS	0x4000
 

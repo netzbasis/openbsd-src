@@ -1,4 +1,4 @@
-/* $OpenBSD: bioctl.c,v 1.131 2016/05/13 19:06:52 tedu Exp $       */
+/* $OpenBSD: bioctl.c,v 1.134 2016/09/08 19:08:14 jsing Exp $       */
 
 /*
  * Copyright (c) 2004, 2005 Marco Peereboom
@@ -66,8 +66,8 @@ int			bio_parse_devlist(char *, dev_t *);
 void			bio_kdf_derive(struct sr_crypto_kdfinfo *,
 			    struct sr_crypto_kdf_pbkdf2 *, char *, int);
 void			bio_kdf_generate(struct sr_crypto_kdfinfo *);
-void			derive_key_pkcs(int, u_int8_t *, size_t, u_int8_t *,
-			    size_t, char *, int);
+void			derive_key_pkcs(u_int32_t, int, u_int8_t *, size_t,
+			    u_int8_t *, size_t, char *, int);
 
 void			bio_inq(char *);
 void			bio_alarm(char *);
@@ -87,7 +87,7 @@ int			devh = -1;
 int			human;
 int			verbose;
 u_int32_t		cflags = 0;
-int			rflag = 8192;
+int			rflag = 0;
 char			*password;
 
 void			*bio_cookie;
@@ -174,7 +174,7 @@ main(int argc, char *argv[])
 		case 'r':
 			rflag = strtonum(optarg, 1000, 1<<30, &errstr);
 			if (errstr != NULL)
-				errx(1, "Number of rounds is %s: %s",
+				errx(1, "number of KDF rounds is %s: %s",
 				    errstr, optarg);
 			break;
 		case 'O':
@@ -947,17 +947,14 @@ bio_kdf_derive(struct sr_crypto_kdfinfo *kdfinfo, struct sr_crypto_kdf_pbkdf2
 
 	if (kdfhint->len != sizeof(*kdfhint))
 		errx(1, "KDF hint has invalid size");
-	if (kdfhint->type != SR_CRYPTOKDFT_PBKDF2)
-		errx(1, "unknown KDF type %d", kdfhint->type);
-	if (kdfhint->rounds < 1000)
-		errx(1, "number of KDF rounds too low: %d", kdfhint->rounds);
 
 	kdfinfo->flags = SR_CRYPTOKDF_KEY;
 	kdfinfo->len = sizeof(*kdfinfo);
 
-	derive_key_pkcs(kdfhint->rounds,
+	derive_key_pkcs(kdfhint->type, kdfhint->rounds,
 	    kdfinfo->maskkey, sizeof(kdfinfo->maskkey),
-	    kdfhint->salt, sizeof(kdfhint->salt), prompt, verify);
+	    kdfhint->salt, sizeof(kdfhint->salt),
+	    prompt, verify);
 }
 
 void
@@ -968,14 +965,15 @@ bio_kdf_generate(struct sr_crypto_kdfinfo *kdfinfo)
 
 	kdfinfo->pbkdf2.len = sizeof(kdfinfo->pbkdf2);
 	kdfinfo->pbkdf2.type = SR_CRYPTOKDFT_PBKDF2;
-	kdfinfo->pbkdf2.rounds = rflag;
-	kdfinfo->len = sizeof(*kdfinfo);
+	kdfinfo->pbkdf2.rounds = rflag ? rflag : 8192;
+
 	kdfinfo->flags = SR_CRYPTOKDF_KEY | SR_CRYPTOKDF_HINT;
+	kdfinfo->len = sizeof(*kdfinfo);
 
 	/* generate salt */
 	arc4random_buf(kdfinfo->pbkdf2.salt, sizeof(kdfinfo->pbkdf2.salt));
 
-	derive_key_pkcs(kdfinfo->pbkdf2.rounds,
+	derive_key_pkcs(kdfinfo->pbkdf2.type, kdfinfo->pbkdf2.rounds,
 	    kdfinfo->maskkey, sizeof(kdfinfo->maskkey),
 	    kdfinfo->pbkdf2.salt, sizeof(kdfinfo->pbkdf2.salt),
 	    "New passphrase: ", 1);
@@ -1107,8 +1105,12 @@ bio_changepass(char *dev)
 	/* Current passphrase. */
 	bio_kdf_derive(&kdfinfo1, &kdfhint, "Old passphrase: ", 0);
 
+	/* Keep the previous number of rounds, unless specified. */
+	if (!rflag)
+		rflag = kdfhint.rounds;
+
 	/* New passphrase. */
-	bio_kdf_derive(&kdfinfo2, &kdfhint, "New passphrase: ", 1);
+	bio_kdf_generate(&kdfinfo2);
 
 	kdfpair.kdfinfo1 = &kdfinfo1;
 	kdfpair.kdfsize1 = sizeof(kdfinfo1);
@@ -1260,8 +1262,8 @@ bio_patrol(char *arg)
 }
 
 void
-derive_key_pkcs(int rounds, u_int8_t *key, size_t keysz, u_int8_t *salt,
-    size_t saltsz, char *prompt, int verify)
+derive_key_pkcs(u_int32_t type, int rounds, u_int8_t *key, size_t keysz,
+    u_int8_t *salt, size_t saltsz, char *prompt, int verify)
 {
 	FILE		*f;
 	size_t		pl;
@@ -1272,8 +1274,11 @@ derive_key_pkcs(int rounds, u_int8_t *key, size_t keysz, u_int8_t *salt,
 		errx(1, "Invalid key");
 	if (!salt)
 		errx(1, "Invalid salt");
+
+	if (type != SR_CRYPTOKDFT_PBKDF2)
+		errx(1, "unknown KDF type %d", type);
 	if (rounds < 1000)
-		errx(1, "Too few rounds: %d", rounds);
+		errx(1, "number of KDF rounds is too small: %d", rounds);
 
 	/* get passphrase */
 	if (password) {
