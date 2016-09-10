@@ -1,5 +1,5 @@
 :
-#	$OpenBSD: ksh.kshrc,v 1.20 2015/02/18 08:39:32 rpe Exp $
+#	$OpenBSD: ksh.kshrc,v 1.22 2016/09/09 16:25:37 rpe Exp $
 #
 # NAME:
 #	ksh.kshrc - global initialization for ksh
@@ -53,6 +53,9 @@ case "$-" in
 	tty=`tty`
 	tty=`basename $tty`
 	TTY=${TTY:-$tty}
+	# $console is the system console device
+	console=$(sysctl machdep.console_device)
+	console=${console#*=}
 
 	set -o emacs
 
@@ -62,7 +65,7 @@ case "$-" in
 	case "$TERM" in
 	sun*-s)
 		# sun console with status line
-		if [ "$tty" != "$console" ]; then
+		if [[ $tty != $console ]]; then
 			# ilabel
 			ILS='\033]L'; ILE='\033\\'
 			# window title bar
@@ -81,7 +84,7 @@ case "$-" in
 	*)	;;
 	esac
 	# do we want window decorations?
-	if [ "$ILS" ]; then
+	if [[ -n $ILS ]]; then
 		function ilabel { print -n "${ILS}$*${ILE}">/dev/tty; }
 		function label { print -n "${WLS}$*${WLE}">/dev/tty; }
 
@@ -136,11 +139,11 @@ function no_path {
 }
 # if $1 exists and is not in path, append it
 function add_path {
-  [ -d ${1:-.} ] && no_path $* && eval ${2:-PATH}="\$${2:-PATH}:$1"
+  [[ -d ${1:-.} ]] && no_path $* && eval ${2:-PATH}="\$${2:-PATH}:$1"
 }
 # if $1 exists and is not in path, prepend it
 function pre_path {
-  [ -d ${1:-.} ] && no_path $* && eval ${2:-PATH}="$1:\$${2:-PATH}"
+  [[ -d ${1:-.} ]] && no_path $* && eval ${2:-PATH}="$1:\$${2:-PATH}"
 }
 # if $1 is in path, remove it
 function del_path {

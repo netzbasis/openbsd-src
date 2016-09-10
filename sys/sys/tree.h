@@ -1,4 +1,4 @@
-/*	$OpenBSD: tree.h,v 1.19 2016/09/09 02:00:14 dlg Exp $	*/
+/*	$OpenBSD: tree.h,v 1.21 2016/09/09 20:31:46 millert Exp $	*/
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
@@ -26,6 +26,8 @@
 
 #ifndef	_SYS_TREE_H_
 #define	_SYS_TREE_H_
+
+#include <sys/_null.h>
 
 /*
  * This file defines data structures for different types of trees:
@@ -762,6 +764,8 @@ name##_RB_MINMAX(struct name *head, int val)				\
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#if 0
+
 struct rb_type {
 	int		(*t_compare)(const void *, const void *);
 	void		(*t_augment)(void *);
@@ -785,9 +789,6 @@ struct _name {								\
 }
 
 #define RBT_ENTRY(_type)	struct rb_entry
-
-#ifdef _LOCORE
-#include <sys/param.h> /* for NULL */
 
 static inline void
 _rb_init(struct rb_tree *rbt)
@@ -965,6 +966,6 @@ RBT_GENERATE_INTERNAL(_name, _type, _field, _cmp, _name##_RBT_AUGMENT)
 	     (_e) != NULL && ((_n) = RBT_PREV(_name, (_e)), 1);	\
 	     (_e) = (_n))
 
-#endif /* _LOCORE */
+#endif /* 0 */
 
 #endif	/* _SYS_TREE_H_ */
