@@ -1,5 +1,5 @@
 #!/bin/ksh
-#	$OpenBSD: install.sub,v 1.912 2016/09/04 12:36:33 halex Exp $
+#	$OpenBSD: install.sub,v 1.917 2016/09/11 03:16:52 deraadt Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -79,9 +79,9 @@ waitcgiinfo() {
 
 	while IFS='=' read -r -- _key _val; do
 		case $_key=$_val in
-		method=+([a-z]))	CGI_METHOD=$_val;;
-		TIME=+([0-9]))		CGI_TIME=$_val;;
-		TZ=+([-_/+[:alnum:]]))	CGI_TZ=$_val;;
+		method=+([a-z])*([0-9]))	CGI_METHOD=$_val;;
+		TIME=+([0-9]))			CGI_TIME=$_val;;
+		TZ=+([-_/+[:alnum:]]))		CGI_TZ=$_val;;
 		esac
 	done <$CGI_INFO
 }
@@ -1182,7 +1182,7 @@ v4_defroute() {
 	[[ -n $1 ]] && _dr=$1
 
 	# Don't ask if a default route exits and is handled by dhclient.
-	[[ -n $_dr && $2 == DHCLIENT && -f /tmp/i/dhclient.conf ]] && return
+	[[ -n $_dr && $2 == \"DHCLIENT && -f /tmp/i/dhclient.conf ]] && return
 
 	while :; do
 		ask_until "Default IPv4 route? (IPv4 address or none)" "$_dr"
@@ -1304,7 +1304,7 @@ do_as() {
 
 	while doas -u "$_user" kill -9 -1 2>/dev/null; do
 		echo "Processes still running for user $_user after: $@"
-		sleep 1 
+		sleep 1
 	done
 
 	[[ -n $_file ]] && chown root "$_file"
@@ -1481,14 +1481,13 @@ install_files() {
 		fi
 		[[ -d $_tmpsrc ]] && rm -f "$_tmpsrc/$_f"
 	done
-	[[ -d $_tmpsrc ]] && rm -rf "$_tmpsrc"
+	[[ -d $_tmpsrc ]] && rm -rf "$_tmpsrc" || true
 }
 
 # Get several parameters from the user, and xfer files from the http server.
 install_http() {
 	local _file_list _prompt _mirror _url_base
 
-	waitcgiinfo
 	# N.B.: 'http_proxy' is an environment variable used by ftp(1). DON'T
 	# change the name or case!
 	ask "HTTP proxy URL? (e.g. 'http://proxy:8080', or 'none')" \
@@ -2284,7 +2283,7 @@ feed_random() {
 # selects from that location. Repeat as many times as the user needs to get all
 # desired sets.
 install_sets() {
-	local _cddevs=$(get_cddevs) _d=$CGI_METHOD _locs="disk http" _src
+	local _cddevs=$(get_cddevs) _d=$CGI_METHOD _im _locs="disk http" _src
 
 	echo
 
@@ -2311,7 +2310,8 @@ install_sets() {
 		[cC]*)	if [[ -n $_cddevs ]]; then
 				set -- $_cddevs
 				[[ $resp == [cC]?([dD]) ]] && resp=$1
-				install_cdrom $resp && INSTALL_METHOD=$resp
+				_im=$resp
+				install_cdrom $resp && INSTALL_METHOD=$_im
 			fi
 			;;
 		[dD]*)	install_disk && INSTALL_METHOD=disk
@@ -2763,6 +2763,9 @@ do_upgrade(){
 
 	# Feed the random pool some entropy before we read from it.
 	feed_random
+
+	# Ensure that previous installer choices (e.g. method) are available.
+	waitcgiinfo
 
 	# Ask the user for locations, and install whatever sets the user selected.
 	install_sets

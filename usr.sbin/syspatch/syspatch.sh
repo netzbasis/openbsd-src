@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.11 2016/09/07 16:01:48 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.13 2016/09/10 16:19:14 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -18,30 +18,28 @@
 
 set -e
 
-trap "syspatch_trap" 2 3 9 13 15 ERR
+trap "rm -rf ${_TMP}; exit 1" 2 3 9 13 15 ERR
+
+sp_err()
+{
+	echo "${@}" 1>&2 && return 1
+}
 
 usage()
 {
-	echo "usage: ${0##*/} [-c | -l | -r]" >&2 && return 1
+	sp_err "usage: ${0##*/} [-c | -l | -r]"
 }
 
 needs_root()
 {
-	[[ $(id -u) -eq 0 ]] || \
-		(echo "${0##*/}: need root privileges"; return 1)
-}
-
-syspatch_trap()
-{
-	rm -rf ${_TMP}
-	exit 1
+	[[ $(id -u) -ne 0 ]] && sp_err "${0##*/}: need root privileges"
 }
 
 apply_patches()
 {
 	needs_root
 	# XXX cleanup mismatch/old rollback patches and sig (installer should as well)
-	local _m _patch _patches="$@"
+	local _m _patch _patches="$(ls_missing)"
 	[[ -n ${_patches} ]] || return 0 # nothing to do
 
 	for _patch in ${_patches}; do
@@ -168,7 +166,8 @@ ls_avail()
 ls_installed()
 {
 	local _p
-	cd ${_PDIR}/${_REL} && set -- * || return 0 # no _REL dir = no patch
+	# no _REL dir = no installed patch
+	cd ${_PDIR}/${_REL} 2>/dev/null && set -- * || return 0
 	for _p; do
 		 [[ ${_p} = rollback-syspatch-${_RELINT}-*.tgz ]] && \
 			_p=${_p#rollback-} && echo ${_p%.tgz}
@@ -245,7 +244,7 @@ shift $(( OPTIND -1 ))
 [[ $# -ne 0 ]] && usage
 
 if [[ ${OPTIND} == 1 ]]; then
-	apply_patches $(ls_missing)
+	apply_patches
 fi
 
 rm -rf ${_TMP}

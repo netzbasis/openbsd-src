@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.154 2016/09/08 13:59:33 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.160 2016/09/10 07:47:00 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -169,22 +169,23 @@ volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
 volatile sig_atomic_t seeninfo;
 
-void fill(char *, char *);
-void summary(void);
-int in_cksum(u_short *, int);
-void onsignal(int);
-void retransmit(void);
-int pinger(void);
-const char *pr_addr(struct sockaddr *, socklen_t);
-int check_icmph(struct ip *);
-void pr_icmph(struct icmp *);
-void pr_pack(char *, int, struct msghdr *);
-void pr_retip(struct ip *);
-void pr_iph(struct ip *);
+void			 fill(char *, char *);
+void			 summary(void);
+void			 onsignal(int);
+void			 retransmit(void);
+int			 pinger(void);
+const char		*pr_addr(struct sockaddr *, socklen_t);
+void			 pr_pack(u_char *, int, struct msghdr *);
+__dead void		 usage(void);
+
+int			 in_cksum(u_short *, int);
+int			 check_icmph(struct ip *);
+void			 pr_icmph(struct icmp *);
+void			 pr_retip(struct ip *);
+void			 pr_iph(struct ip *);
 #ifndef SMALL
-int map_tos(char *, int *);
+int			 map_tos(char *, int *);
 #endif	/* SMALL */
-__dead void usage(void);
 
 int
 main(int argc, char *argv[])
@@ -192,13 +193,14 @@ main(int argc, char *argv[])
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
 	struct sockaddr_in  from, from4;
+	socklen_t maxsizelen;
 	int64_t preload;
-	int ch, i, optval = 1, packlen, maxsize, df = 0, tos = 0;
-	int error;
-	u_char *datap, *packet, ttl = MAXTTL, loop = 1;
+	int ch, i, optval = 1, packlen, maxsize, error;
+	int df = 0, tos = 0;
+	u_char *datap, *packet, loop = 1;
+	u_char ttl = MAXTTL;
 	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
 	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
-	socklen_t maxsizelen;
 	const char *errstr;
 	double intval;
 	uid_t uid;
@@ -215,7 +217,7 @@ main(int argc, char *argv[])
 	preload = 0;
 	datap = &outpack[8 + sizeof(struct payload)];
 	while ((ch = getopt(argc, argv,
-	    "DEI:LRS:c:defHi:l:np:qs:T:t:V:vw:")) != -1)
+	    "DEI:LRS:c:defHi:l:np:qs:T:t:V:vw:")) != -1) {
 		switch(ch) {
 		case 'c':
 			npackets = strtonum(optarg, 0, INT64_MAX, &errstr);
@@ -344,6 +346,8 @@ main(int argc, char *argv[])
 		default:
 			usage();
 		}
+	}
+
 	argc -= optind;
 	argv += optind;
 
@@ -770,7 +774,7 @@ pinger(void)
  * program to be run without having intermingled output (or statistics!).
  */
 void
-pr_pack(char *buf, int cc, struct msghdr *mhdr)
+pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 {
 	struct sockaddr_in *from, s_in;
 	socklen_t fromlen;
@@ -920,7 +924,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 	}
 
 	/* Display any IP options */
-	cp = (u_char *)buf + sizeof(struct ip);
+	cp = buf + sizeof(struct ip);
 
 	for (; hlen > (int)sizeof(struct ip); --hlen, ++cp)
 		switch (*cp) {
@@ -970,7 +974,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 			if (i <= 0)
 				continue;
 			if (i == old_rrlen &&
-			    cp == (u_char *)buf + sizeof(struct ip) + 2 &&
+			    cp == buf + sizeof(struct ip) + 2 &&
 			    !memcmp(cp, old_rr, i) &&
 			    !(options & F_FLOOD)) {
 				(void)printf("\t(same route)");

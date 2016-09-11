@@ -1,4 +1,4 @@
-/*	$OpenBSD: pbkdf2.c,v 1.2 2015/09/02 01:52:26 yasuoka Exp $	*/
+/*	$OpenBSD: pkcs5_pbkdf2.c,v 1.1 2016/09/10 16:38:16 jsing Exp $	*/
 
 /*-
  * Copyright (c) 2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -20,7 +20,7 @@
 
 #include <lib/libsa/stand.h>
 
-#include "pbkdf2.h"
+#include "pkcs5_pbkdf2.h"
 #include "hmac_sha1.h"
 
 /*
