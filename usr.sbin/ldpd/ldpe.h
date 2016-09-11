@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.h,v 1.57 2016/05/23 19:20:55 renato Exp $ */
+/*	$OpenBSD: ldpe.h,v 1.69 2016/09/03 16:07:08 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -68,6 +68,7 @@ struct nbr {
 	struct event		 ev_connect;
 	struct event		 keepalive_timer;
 	struct event		 keepalive_timeout;
+	struct event		 init_timeout;
 	struct event		 initdelay_timer;
 
 	struct mapping_head	 mapping_list;
@@ -88,6 +89,7 @@ struct nbr {
 	time_t			 uptime;
 	int			 fd;
 	int			 state;
+	uint32_t		 conf_seqnum;
 	int			 idtimer_cnt;
 	uint16_t		 keepalive;
 	uint16_t		 max_pdu_len;
@@ -99,7 +101,10 @@ struct nbr {
 		enum auth_method	method;
 		char			md5key[TCP_MD5_KEY_LEN];
 	} auth;
+	int			 flags;
 };
+#define F_NBR_GTSM_NEGOTIATED	 0x01
+
 RB_HEAD(nbr_id_head, nbr);
 RB_PROTOTYPE(nbr_id_head, nbr, id_tree, nbr_id_compare)
 RB_HEAD(nbr_addr_head, nbr);
@@ -155,25 +160,27 @@ int	 recv_keepalive(struct nbr *, char *, uint16_t);
 /* notification.c */
 void	 send_notification_full(struct tcp_conn *, struct notify_msg *);
 void	 send_notification(uint32_t, struct tcp_conn *, uint32_t,
-	    uint32_t);
-void	 send_notification_nbr(struct nbr *, uint32_t, uint32_t, uint32_t);
+	    uint16_t);
+void	 send_notification_nbr(struct nbr *, uint32_t, uint32_t, uint16_t);
 int	 recv_notification(struct nbr *, char *, uint16_t);
+int	 gen_status_tlv(struct ibuf *, uint32_t, uint32_t, uint16_t);
 
 /* address.c */
-void	 send_address(struct nbr *, int, struct if_addr *, int);
+void	 send_address_single(struct nbr *, struct if_addr *, int);
+void	 send_address_all(struct nbr *, int);
 int	 recv_address(struct nbr *, char *, uint16_t);
 
 /* labelmapping.c */
 #define PREFIX_SIZE(x)	(((x) + 7) / 8)
 void	 send_labelmessage(struct nbr *, uint16_t, struct mapping_head *);
 int	 recv_labelmessage(struct nbr *, char *, uint16_t, uint16_t);
-void	 gen_pw_status_tlv(struct ibuf *, uint32_t);
-void	 gen_fec_tlv(struct ibuf *, struct map *);
+int	 gen_pw_status_tlv(struct ibuf *, uint32_t);
+int	 gen_fec_tlv(struct ibuf *, struct map *);
 int	 tlv_decode_fec_elm(struct nbr *, struct ldp_msg *, char *,
 	    uint16_t, struct map *);
 
 /* ldpe.c */
-pid_t		 ldpe(int, int);
+void		 ldpe(int, int);
 int		 ldpe_imsg_compose_parent(int, pid_t, void *,
 		    uint16_t);
 int		 ldpe_imsg_compose_lde(int, uint32_t, pid_t, void *,
@@ -191,7 +198,7 @@ void		 mapping_list_clr(struct mapping_head *);
 
 /* interface.c */
 struct iface	*if_new(struct kif *);
-void		 if_del(struct iface *);
+void		 if_exit(struct iface *);
 struct iface	*if_lookup(struct ldpd_conf *, unsigned short);
 struct iface_af *iface_af_get(struct iface *, int);
 void		 if_addr_add(struct kaddr *);
@@ -204,7 +211,7 @@ in_addr_t	 if_get_ipv4_addr(struct iface *);
 /* adjacency.c */
 struct adj	*adj_new(struct in_addr, struct hello_source *,
 		    union ldpd_addr *);
-void		 adj_del(struct adj *);
+void		 adj_del(struct adj *, uint32_t);
 struct adj	*adj_find(struct hello_source *);
 int		 adj_get_af(struct adj *adj);
 void		 adj_start_itimer(struct adj *);
@@ -228,11 +235,15 @@ int			 nbr_adj_count(struct nbr *, int);
 int			 nbr_session_active_role(struct nbr *);
 void			 nbr_stop_ktimer(struct nbr *);
 void			 nbr_stop_ktimeout(struct nbr *);
+void			 nbr_stop_itimeout(struct nbr *);
 void			 nbr_start_idtimer(struct nbr *);
 void			 nbr_stop_idtimer(struct nbr *);
 int			 nbr_pending_idtimer(struct nbr *);
 int			 nbr_pending_connect(struct nbr *);
 int			 nbr_establish_connection(struct nbr *);
+int			 nbr_gtsm_enabled(struct nbr *, struct nbr_params *);
+int			 nbr_gtsm_setup(int, int, struct nbr_params *);
+int			 nbr_gtsm_check(int, struct nbr *, struct nbr_params *);
 struct nbr_params	*nbr_params_new(struct in_addr);
 struct nbr_params	*nbr_params_find(struct ldpd_conf *, struct in_addr);
 uint16_t		 nbr_get_keepalive(int, struct in_addr);
@@ -241,7 +252,7 @@ void			 nbr_clear_ctl(struct ctl_nbr *);
 
 /* packet.c */
 int			 gen_ldp_hdr(struct ibuf *, uint16_t);
-int			 gen_msg_hdr(struct ibuf *, uint32_t, uint16_t);
+int			 gen_msg_hdr(struct ibuf *, uint16_t, uint16_t);
 int			 send_packet(int, int, union ldpd_addr *,
 			    struct iface_af *, void *, size_t);
 void			 disc_recv_packet(int, short, void *);

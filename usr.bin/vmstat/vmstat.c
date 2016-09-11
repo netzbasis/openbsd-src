@@ -1,5 +1,5 @@
 /*	$NetBSD: vmstat.c,v 1.29.4.1 1996/06/05 00:21:05 cgd Exp $	*/
-/*	$OpenBSD: vmstat.c,v 1.139 2015/12/24 03:25:08 mmcc Exp $	*/
+/*	$OpenBSD: vmstat.c,v 1.141 2016/08/14 22:47:26 guenther Exp $	*/
 
 /*
  * Copyright (c) 1980, 1986, 1991, 1993
@@ -424,9 +424,8 @@ printhdr(void)
 /*
  * Force a header to be prepended to the next output.
  */
-/* ARGSUSED */
 void
-needhdr(int signo)
+needhdr(__unused int signo)
 {
 
 	hdrcnt = 1;
@@ -605,15 +604,15 @@ doforkst(void)
 		kread(X_FORKSTAT, &fks, sizeof(struct forkstat));
 	}
 
-	(void)printf("%d forks, %d pages, average %.2f\n",
+	(void)printf("%u forks, %llu pages, average %.2f\n",
 	    fks.cntfork, fks.sizfork, (double)fks.sizfork / fks.cntfork);
-	(void)printf("%d vforks, %d pages, average %.2f\n",
+	(void)printf("%u vforks, %llu pages, average %.2f\n",
 	    fks.cntvfork, fks.sizvfork,
 	    (double)fks.sizvfork / (fks.cntvfork ? fks.cntvfork : 1));
-	(void)printf("%d __tforks, %d pages, average %.2f\n",
+	(void)printf("%u __tforks, %llu pages, average %.2f\n",
 	    fks.cnttfork, fks.siztfork,
 	    (double)fks.siztfork / (fks.cnttfork ? fks.cnttfork : 1));
-	(void)printf("%d kthread creations, %d pages, average %.2f\n",
+	(void)printf("%u kthread creations, %llu pages, average %.2f\n",
 	    fks.cntkthread, fks.sizkthread,
 	    (double)fks.sizkthread / (fks.cntkthread ? fks.cntkthread : 1));
 }
@@ -689,7 +688,7 @@ dointr(void)
 	inttotal = 0;
 	for (i = 0; i < nintr; i++) {
 		char name[128];
-		u_quad_t cnt;
+		uint64_t cnt;
 		int vector;
 
 		mib[0] = CTL_KERN;
@@ -747,7 +746,7 @@ domem(void)
 	int i, j, len, size, first, mib[4];
 	u_long totuse = 0, totfree = 0;
 	char buf[BUFSIZ], *bufp, *ap;
-	quad_t totreq = 0;
+	unsigned long long totreq = 0;
 	const char *name;
 	size_t siz;
 
@@ -893,7 +892,7 @@ domem(void)
 		totreq += ks->ks_calls;
 	}
 	(void)printf("\nMemory Totals:  In Use    Free    Requests\n");
-	(void)printf("              %7luK %6luK    %8qu\n",
+	(void)printf("              %7luK %6luK    %8llu\n",
 	     (totuse + 1023) / 1024, (totfree + 1023) / 1024, totreq);
 }
 

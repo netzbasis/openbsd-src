@@ -1485,6 +1485,7 @@ get_dynamic_type (unsigned long type)
 
     case DT_VERSYM:	return "VERSYM";
 
+    case DT_GNU_HASH:	return "GNU_HASH";
     case DT_TLSDESC_GOT: return "TLSDESC_GOT";
     case DT_TLSDESC_PLT: return "TLSDESC_PLT";
     case DT_RELACOUNT:	return "RELACOUNT";
@@ -2387,6 +2388,10 @@ get_segment_type (unsigned long p_type)
     case PT_GNU_RELRO:  return "GNU_RELRO";
     case PT_OPENBSD_RANDOMIZE:
 			return "OPENBSD_RANDOMIZE";
+    case PT_OPENBSD_WXNEEDED:
+			return "OPENBSD_WXNEEDED";
+    case PT_OPENBSD_BOOTDATA:
+			return "OPENBSD_BOOTDATA";
 
     default:
       if ((p_type >= PT_LOPROC) && (p_type <= PT_HIPROC))
@@ -6985,7 +6990,7 @@ process_symbol_table (FILE *file)
 
 	      n = print_vma (si, DEC_5);
 	      if (n < 5)
-		fputs ("     " + n, stdout);
+		fputs (&"     "[n], stdout);
 	      printf (" %3lu: ", hn);
 	      print_vma (psym->st_value, LONG_HEX);
 	      putchar (' ');

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_rtr.c,v 1.139 2016/05/02 22:15:49 jmatthew Exp $	*/
+/*	$OpenBSD: nd6_rtr.c,v 1.145 2016/09/08 09:02:42 mpi Exp $	*/
 /*	$KAME: nd6_rtr.c,v 1.97 2001/02/07 11:09:13 itojun Exp $	*/
 
 /*
@@ -75,6 +75,7 @@ int rt6_deleteroute(struct rtentry *, void *, unsigned int);
 void nd6_addr_add(void *);
 
 void nd6_rs_output_timo(void *);
+u_int32_t nd6_rs_next_pltime_timo(struct ifnet *);
 void nd6_rs_output_set_timo(int);
 void nd6_rs_output(struct ifnet *, struct in6_ifaddr *);
 void nd6_rs_dev_state(void *);
@@ -283,30 +284,64 @@ nd6_rs_output_set_timo(int timeout)
 	timeout_add_sec(&nd6_rs_output_timer, nd6_rs_output_timeout);
 }
 
+u_int32_t
+nd6_rs_next_pltime_timo(struct ifnet *ifp)
+{
+	struct ifaddr *ifa;
+	struct in6_ifaddr *ia6;
+	u_int32_t pltime_expires = ND6_INFINITE_LIFETIME;
+
+	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+		if (ifa->ifa_addr->sa_family != AF_INET6)
+			continue;
+
+		ia6 = ifatoia6(ifa);
+		if (ia6->ia6_lifetime.ia6t_pltime == ND6_INFINITE_LIFETIME ||
+		    IFA6_IS_DEPRECATED(ia6) || IFA6_IS_INVALID(ia6))
+			continue;
+
+		pltime_expires = MIN(pltime_expires,
+		    ia6->ia6_lifetime.ia6t_pltime);
+	}
+
+	return pltime_expires;
+}
+
 void
 nd6_rs_output_timo(void *ignored_arg)
 {
 	struct ifnet *ifp;
 	struct in6_ifaddr *ia6;
+	u_int32_t pltime_expire = ND6_INFINITE_LIFETIME, t;
+	int timeout = ND6_RS_OUTPUT_INTERVAL;
 
 	if (nd6_rs_timeout_count == 0)
 		return;
 
 	if (nd6_rs_output_timeout < ND6_RS_OUTPUT_INTERVAL)
 		/* exponential backoff if running quick timeouts */
-		nd6_rs_output_timeout *= 2;
-	if (nd6_rs_output_timeout > ND6_RS_OUTPUT_INTERVAL)
-		nd6_rs_output_timeout = ND6_RS_OUTPUT_INTERVAL;
+		timeout = nd6_rs_output_timeout * 2;
 
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ISSET(ifp->if_flags, IFF_RUNNING) &&
 		    ISSET(ifp->if_xflags, IFXF_AUTOCONF6)) {
-			ia6 = in6ifa_ifpforlinklocal(ifp, IN6_IFF_TENTATIVE);
-			if (ia6 != NULL)
-				nd6_rs_output(ifp, ia6);
+			t = nd6_rs_next_pltime_timo(ifp);
+			if (t == ND6_INFINITE_LIFETIME || t <
+			    ND6_RS_OUTPUT_INTERVAL) {
+				timeout = ND6_RS_OUTPUT_QUICK_INTERVAL;
+				ia6 = in6ifa_ifpforlinklocal(ifp,
+				    IN6_IFF_TENTATIVE);
+				if (ia6 != NULL)
+					nd6_rs_output(ifp, ia6);
+			}
+
+			pltime_expire = MIN(pltime_expire, t);
 		}
 	}
-	timeout_add_sec(&nd6_rs_output_timer, nd6_rs_output_timeout);
+	if (pltime_expire != ND6_INFINITE_LIFETIME)
+		timeout = MAX(timeout, pltime_expire / 2);
+
+	nd6_rs_output_set_timo(timeout);
 }
 
 void
@@ -667,7 +702,7 @@ defrtrlist_del(struct nd_defrouter *dr)
 		    dr->ifp->if_xname);
 	}
 
-	free(dr, M_IP6NDP, 0);
+	free(dr, M_IP6NDP, sizeof(*dr));
 }
 
 /*
@@ -995,7 +1030,7 @@ void
 pfxrtr_del(struct nd_pfxrouter *pfr)
 {
 	LIST_REMOVE(pfr, pfr_entry);
-	free(pfr, M_IP6NDP, 0);
+	free(pfr, M_IP6NDP, sizeof(*pfr));
 }
 
 struct nd_prefix *
@@ -1145,7 +1180,7 @@ prelist_remove(struct nd_prefix *pr)
 
 	/* free list of routers that adversed the prefix */
 	LIST_FOREACH_SAFE(pfr, &pr->ndpr_advrtrs, pfr_entry, next)
-		free(pfr, M_IP6NDP, 0);
+		free(pfr, M_IP6NDP, sizeof(*pfr));
 
 	ext->nprefixes--;
 	if (ext->nprefixes < 0) {
@@ -1153,7 +1188,7 @@ prelist_remove(struct nd_prefix *pr)
 		    pr->ndpr_ifp->if_xname);
 	}
 
-	free(pr, M_IP6NDP, 0);
+	free(pr, M_IP6NDP, sizeof(*pr));
 
 	pfxlist_onlink_check();
 	splx(s);
@@ -1247,19 +1282,6 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 			    new->ndpr_plen, new->ndpr_ifp->if_xname,
 			    error, newpr));
 			goto end; /* we should just give up in this case. */
-		}
-
-		/*
-		 * XXX: from the ND point of view, we can ignore a prefix
-		 * with the on-link bit being zero.  However, we need a
-		 * prefix structure for references from autoconfigured
-		 * addresses.  Thus, we explicitly make sure that the prefix
-		 * itself expires now.
-		 */
-		if (newpr->ndpr_raf_onlink == 0) {
-			newpr->ndpr_vltime = 0;
-			newpr->ndpr_pltime = 0;
-			in6_init_prefix_ltimes(newpr);
 		}
 
 		pr = newpr;
@@ -1877,14 +1899,6 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 	else
 		return NULL;
 
-#if 0 /* don't care link local addr state, and always do DAD */
-	/* if link-local address is not eligible, do not autoconfigure. */
-	if (ifatoia6(ifa)->ia6_flags & IN6_IFF_NOTREADY) {
-		printf("in6_ifadd: link-local address not ready\n");
-		return NULL;
-	}
-#endif
-
 	/* prefixlen + ifidlen must be equal to 128 */
 	plen0 = in6_mask2len(&ia6->ia_prefixmask.sin6_addr, NULL);
 	if (prefixlen != plen0) {
@@ -1958,9 +1972,11 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 
 	ifra.ifra_flags |= IN6_IFF_AUTOCONF|IN6_IFF_TENTATIVE;
 
-	/* allocate ifaddr structure, link into chain, etc. */
+	/* If this address already exists, update it. */
+	ia6 = in6ifa_ifpwithaddr(ifp, &ifra.ifra_addr.sin6_addr);
+
 	s = splsoftnet();
-	error = in6_update_ifa(ifp, &ifra, NULL);
+	error = in6_update_ifa(ifp, &ifra, ia6);
 	splx(s);
 
 	if (error != 0) {

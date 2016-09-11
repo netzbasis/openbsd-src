@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpd.c,v 1.48 2016/05/23 19:16:00 renato Exp $ */
+/*	$OpenBSD: ldpd.c,v 1.58 2016/09/02 17:03:24 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -37,9 +37,8 @@
 
 static void		 main_sig_handler(int, short, void *);
 static __dead void	 usage(void);
-static void		 ldpd_shutdown(void);
+static __dead void	 ldpd_shutdown(void);
 static pid_t		 start_child(enum ldpd_process, char *, int, int, int);
-static int		 check_child(pid_t, const char *);
 static void		 main_dispatch_ldpe(int, short, void *);
 static void		 main_dispatch_lde(int, short, void *);
 static int		 main_imsg_compose_both(enum imsg_type, void *,
@@ -74,29 +73,12 @@ static pid_t		 lde_pid;
 static void
 main_sig_handler(int sig, short event, void *arg)
 {
-	/*
-	 * signal handler rules don't apply, libevent decouples for us
-	 */
-
-	int	die = 0;
-
+	/* signal handler rules don't apply, libevent decouples for us */
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		if (check_child(ldpe_pid, "ldp engine")) {
-			ldpe_pid = 0;
-			die = 1;
-		}
-		if (check_child(lde_pid, "label decision engine")) {
-			lde_pid = 0;
-			die = 1;
-		}
-		if (die)
-			ldpd_shutdown();
-		break;
+		ldpd_shutdown();
+		/* NOTREACHED */
 	case SIGHUP:
 		if (ldp_reload() == -1)
 			log_warnx("configuration reload failed");
@@ -122,7 +104,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	struct event		 ev_sigint, ev_sigterm, ev_sigchld, ev_sighup;
+	struct event		 ev_sigint, ev_sigterm, ev_sighup;
 	char			*saved_argv0;
 	int			 ch;
 	int			 debug = 0, lflag = 0, eflag = 0;
@@ -234,11 +216,9 @@ main(int argc, char *argv[])
 	/* setup signal handler */
 	signal_set(&ev_sigint, SIGINT, main_sig_handler, NULL);
 	signal_set(&ev_sigterm, SIGTERM, main_sig_handler, NULL);
-	signal_set(&ev_sigchld, SIGCHLD, main_sig_handler, NULL);
 	signal_set(&ev_sighup, SIGHUP, main_sig_handler, NULL);
 	signal_add(&ev_sigint, NULL);
 	signal_add(&ev_sigterm, NULL);
-	signal_add(&ev_sigchld, NULL);
 	signal_add(&ev_sighup, NULL);
 	signal(SIGPIPE, SIG_IGN);
 
@@ -272,8 +252,10 @@ main(int argc, char *argv[])
 	if (kr_init(!(ldpd_conf->flags & F_LDPD_NO_FIB_UPDATE)) == -1)
 		fatalx("kr_init failed");
 
-	main_imsg_send_net_sockets(AF_INET);
-	main_imsg_send_net_sockets(AF_INET6);
+	if (ldpd_conf->ipv4.flags & F_LDPD_AF_ENABLED)
+		main_imsg_send_net_sockets(AF_INET);
+	if (ldpd_conf->ipv6.flags & F_LDPD_AF_ENABLED)
+		main_imsg_send_net_sockets(AF_INET6);
 
 	/* remove unneded stuff from config */
 		/* ... */
@@ -285,30 +267,34 @@ main(int argc, char *argv[])
 	return (0);
 }
 
-static void
+static __dead void
 ldpd_shutdown(void)
 {
 	pid_t		 pid;
+	int		 status;
 
-	if (ldpe_pid)
-		kill(ldpe_pid, SIGTERM);
-
-	if (lde_pid)
-		kill(lde_pid, SIGTERM);
+	/* close pipes */
+	msgbuf_clear(&iev_ldpe->ibuf.w);
+	close(iev_ldpe->ibuf.fd);
+	msgbuf_clear(&iev_lde->ibuf.w);
+	close(iev_lde->ibuf.fd);
 
 	kr_shutdown();
-
-	do {
-		if ((pid = wait(NULL)) == -1 &&
-		    errno != EINTR && errno != ECHILD)
-			fatal("wait");
-	} while (pid != -1 || (pid == -1 && errno == EINTR));
-
 	config_clear(ldpd_conf);
 
-	msgbuf_clear(&iev_ldpe->ibuf.w);
+	log_debug("waiting for children to terminate");
+	do {
+		pid = wait(&status);
+		if (pid == -1) {
+			if (errno != EINTR && errno != ECHILD)
+				fatal("wait");
+		} else if (WIFSIGNALED(status))
+			log_warnx("%s terminated; signal %d",
+			    (pid == lde_pid) ? "label decision engine" :
+			    "ldp engine", WTERMSIG(status));
+	} while (pid != -1 || (pid == -1 && errno == EINTR));
+
 	free(iev_ldpe);
-	msgbuf_clear(&iev_lde->ibuf.w);
 	free(iev_lde);
 
 	log_info("terminating");
@@ -356,26 +342,6 @@ start_child(enum ldpd_process p, char *argv0, int fd, int debug, int verbose)
 	fatal("execvp");
 }
 
-static int
-check_child(pid_t pid, const char *pname)
-{
-	int	status;
-
-	if (waitpid(pid, &status, WNOHANG) > 0) {
-		if (WIFEXITED(status)) {
-			log_warnx("lost child: %s exited", pname);
-			return (1);
-		}
-		if (WIFSIGNALED(status)) {
-			log_warnx("lost child: %s terminated; signal %d",
-			    pname, WTERMSIG(status));
-			return (1);
-		}
-	}
-
-	return (0);
-}
-
 /* imsg handling */
 /* ARGSUSED */
 static void
@@ -410,7 +376,7 @@ main_dispatch_ldpe(int fd, short event, void *bula)
 
 		switch (imsg.hdr.type) {
 		case IMSG_REQUEST_SOCKETS:
-			af = imsg.hdr.peerid;
+			af = imsg.hdr.pid;
 			main_imsg_send_net_sockets(af);
 			break;
 		case IMSG_CTL_RELOAD:
@@ -494,21 +460,21 @@ main_dispatch_lde(int fd, short event, void *bula)
 			    sizeof(struct kroute))
 				fatalx("invalid size of IMSG_KLABEL_CHANGE");
 			if (kr_change(imsg.data))
-				log_warn("%s: error changing route", __func__);
+				log_warnx("%s: error changing route", __func__);
 			break;
 		case IMSG_KLABEL_DELETE:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE !=
 			    sizeof(struct kroute))
 				fatalx("invalid size of IMSG_KLABEL_DELETE");
 			if (kr_delete(imsg.data))
-				log_warn("%s: error deleting route", __func__);
+				log_warnx("%s: error deleting route", __func__);
 			break;
 		case IMSG_KPWLABEL_CHANGE:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE !=
 			    sizeof(struct kpw))
 				fatalx("invalid size of IMSG_KPWLABEL_CHANGE");
 			if (kmpw_set(imsg.data))
-				log_warn("%s: error changing pseudowire",
+				log_warnx("%s: error changing pseudowire",
 				    __func__);
 			break;
 		case IMSG_KPWLABEL_DELETE:
@@ -516,7 +482,7 @@ main_dispatch_lde(int fd, short event, void *bula)
 			    sizeof(struct kpw))
 				fatalx("invalid size of IMSG_KPWLABEL_DELETE");
 			if (kmpw_unset(imsg.data))
-				log_warn("%s: error unsetting pseudowire",
+				log_warnx("%s: error unsetting pseudowire",
 				    __func__);
 			break;
 		default:
@@ -810,9 +776,8 @@ merge_global(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 static void
 merge_af(int af, struct ldpd_af_conf *af_conf, struct ldpd_af_conf *xa)
 {
-	struct nbr		*nbr;
-	struct nbr_params	*nbrp;
 	int			 egress_label_changed = 0;
+	int			 update_sockets = 0;
 
 	if (af_conf->keepalive != xa->keepalive) {
 		af_conf->keepalive = xa->keepalive;
@@ -827,6 +792,16 @@ merge_af(int af, struct ldpd_af_conf *af_conf, struct ldpd_af_conf *xa)
 	    (af_conf->flags & F_LDPD_AF_THELLO_ACCEPT) &&
 	    !(xa->flags & F_LDPD_AF_THELLO_ACCEPT))
 		ldpe_remove_dynamic_tnbrs(af);
+
+	if ((af_conf->flags & F_LDPD_AF_NO_GTSM) !=
+	    (xa->flags & F_LDPD_AF_NO_GTSM)) {
+		if (af == AF_INET6)
+			/* need to set/unset IPV6_MINHOPCOUNT */
+			update_sockets = 1;
+		else if (ldpd_process == PROC_LDP_ENGINE)
+			/* for LDPv4 just resetting the neighbors is enough */
+			ldpe_reset_nbrs(af);
+	}
 
 	if ((af_conf->flags & F_LDPD_AF_EXPNULL) !=
 	    (xa->flags & F_LDPD_AF_EXPNULL))
@@ -851,24 +826,12 @@ merge_af(int af, struct ldpd_af_conf *af_conf, struct ldpd_af_conf *xa)
 
 	if (ldp_addrcmp(af, &af_conf->trans_addr, &xa->trans_addr)) {
 		af_conf->trans_addr = xa->trans_addr;
-		if (ldpd_process == PROC_MAIN)
-			imsg_compose_event(iev_ldpe, IMSG_CLOSE_SOCKETS, af,
-			    0, -1, NULL, 0);
-		if (ldpd_process == PROC_LDP_ENGINE) {
-			RB_FOREACH(nbr, nbr_id_head, &nbrs_by_id) {
-				if (nbr->af != af)
-					continue;
-
-				session_shutdown(nbr, S_SHUTDOWN, 0, 0);
-
-				pfkey_remove(nbr);
-				nbr->laddr = af_conf->trans_addr;
-				nbrp = nbr_params_find(leconf, nbr->id);
-				if (nbrp && pfkey_establish(nbr, nbrp) == -1)
-					fatalx("pfkey setup failed");
-			}
-		}
+		update_sockets = 1;
 	}
+
+	if (ldpd_process == PROC_MAIN && update_sockets)
+		imsg_compose_event(iev_ldpe, IMSG_CLOSE_SOCKETS, af, 0, -1,
+		    NULL, 0);
 }
 
 static void
@@ -881,9 +844,8 @@ merge_ifaces(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 		if ((xi = if_lookup(xconf, iface->ifindex)) == NULL) {
 			LIST_REMOVE(iface, entry);
 			if (ldpd_process == PROC_LDP_ENGINE)
-				if_del(iface);
-			else
-				free(iface);
+				if_exit(iface);
+			free(iface);
 		}
 	}
 	LIST_FOREACH_SAFE(xi, &xconf->iface_list, entry, itmp) {
@@ -974,6 +936,8 @@ merge_nbrps(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 				if (nbr) {
 					session_shutdown(nbr, S_SHUTDOWN, 0, 0);
 					pfkey_remove(nbr);
+					if (nbr_session_active_role(nbr))
+						nbr_establish_connection(nbr);
 				}
 			}
 			LIST_REMOVE(nbrp, entry);
@@ -992,13 +956,18 @@ merge_nbrps(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 					session_shutdown(nbr, S_SHUTDOWN, 0, 0);
 					if (pfkey_establish(nbr, xn) == -1)
 						fatalx("pfkey setup failed");
+					if (nbr_session_active_role(nbr))
+						nbr_establish_connection(nbr);
 				}
 			}
 			continue;
 		}
 
 		/* update existing nbrps */
-		if (nbrp->keepalive != xn->keepalive ||
+		if (nbrp->flags != xn->flags ||
+		    nbrp->keepalive != xn->keepalive ||
+		    nbrp->gtsm_enabled != xn->gtsm_enabled ||
+		    nbrp->gtsm_hops != xn->gtsm_hops ||
 		    nbrp->auth.method != xn->auth.method ||
 		    strcmp(nbrp->auth.md5key, xn->auth.md5key) != 0)
 			nbrp_changed = 1;
@@ -1006,6 +975,8 @@ merge_nbrps(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 			nbrp_changed = 0;
 
 		nbrp->keepalive = xn->keepalive;
+		nbrp->gtsm_enabled = xn->gtsm_enabled;
+		nbrp->gtsm_hops = xn->gtsm_hops;
 		nbrp->auth.method = xn->auth.method;
 		strlcpy(nbrp->auth.md5key, xn->auth.md5key,
 		    sizeof(nbrp->auth.md5key));
@@ -1019,6 +990,8 @@ merge_nbrps(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 				pfkey_remove(nbr);
 				if (pfkey_establish(nbr, nbrp) == -1)
 					fatalx("pfkey setup failed");
+				if (nbr_session_active_role(nbr))
+					nbr_establish_connection(nbr);
 			}
 		}
 		LIST_REMOVE(xn, entry);
@@ -1038,16 +1011,15 @@ merge_l2vpns(struct ldpd_conf *conf, struct ldpd_conf *xconf)
 
 			switch (ldpd_process) {
 			case PROC_LDE_ENGINE:
-				l2vpn_del(l2vpn);
+				l2vpn_exit(l2vpn);
 				break;
 			case PROC_LDP_ENGINE:
 				ldpe_l2vpn_exit(l2vpn);
-				free(l2vpn);
 				break;
 			case PROC_MAIN:
-				free(l2vpn);
 				break;
 			}
+			l2vpn_del(l2vpn);
 		}
 	}
 	LIST_FOREACH_SAFE(xl, &xconf->l2vpn_list, entry, ltmp) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.54 2016/05/23 19:16:00 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.57 2016/07/01 23:14:31 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2015, 2016 Renato Westphal <renato@openbsd.org>
@@ -136,7 +136,7 @@ static int			 pushback_index;
 %token	INTERFACE TNEIGHBOR ROUTERID FIBUPDATE EXPNULL
 %token	LHELLOHOLDTIME LHELLOINTERVAL
 %token	THELLOHOLDTIME THELLOINTERVAL
-%token	THELLOACCEPT AF IPV4 IPV6
+%token	THELLOACCEPT AF IPV4 IPV6 GTSMENABLE GTSMHOPS
 %token	KEEPALIVE TRANSADDRESS TRANSPREFERENCE DSCISCOINTEROP
 %token	NEIGHBOR PASSWORD
 %token	L2VPN TYPE VPLS PWTYPE MTU BRIDGE
@@ -208,8 +208,16 @@ pw_type		: ETHERNET		{ $$ = PW_TYPE_ETHERNET; }
 		;
 
 varset		: STRING '=' string {
+			char *s = $1;
 			if (global.cmd_opts & LDPD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -316,6 +324,10 @@ afoptsl		:  TRANSADDRESS STRING {
 				YYERROR;
 			}
 		}
+		| GTSMENABLE yesno {
+			if ($2 == 0)
+				defs->afflags |= F_LDPD_AF_NO_GTSM;
+		}
 		| af_defaults
 		| iface_defaults
 		| tnbr_defaults
@@ -404,6 +416,18 @@ nbr_opts	: KEEPALIVE NUMBER {
 			nbrp->auth.md5key_len = strlen($2);
 			nbrp->auth.method = AUTH_MD5SIG;
 			free($2);
+		}
+		| GTSMENABLE yesno {
+			nbrp->flags |= F_NBRP_GTSM;
+			nbrp->gtsm_enabled = $2;
+		}
+		| GTSMHOPS NUMBER {
+			if ($2 < 1 || $2 > 255) {
+				yyerror("invalid number of hops %lld", $2);
+				YYERROR;
+			}
+			nbrp->gtsm_hops = $2;
+			nbrp->flags |= F_NBRP_GTSM_HOPS;
 		}
 		;
 
@@ -607,14 +631,6 @@ l2vpnopts	: PWTYPE pw_type {
 			}
 			free($2);
 
-			if (kif->if_type == IFT_BRIDGE
-			    || kif->if_type == IFT_LOOP
-			    || kif->if_type == IFT_CARP) {
-				yyerror("unsupported interface type on "
-				    "interface %s", kif->ifname);
-				YYERROR;
-			}
-
 			lif = conf_get_l2vpn_if(l2vpn, kif);
 			if (lif == NULL)
 				YYERROR;
@@ -807,6 +823,8 @@ lookup(char *s)
 		{"ethernet-tagged",		ETHERNETTAGGED},
 		{"explicit-null",		EXPNULL},
 		{"fib-update",			FIBUPDATE},
+		{"gtsm-enable",			GTSMENABLE},
+		{"gtsm-hops",			GTSMHOPS},
 		{"include",			INCLUDE},
 		{"interface",			INTERFACE},
 		{"ipv4",			IPV4},
@@ -1286,18 +1304,27 @@ static struct iface *
 conf_get_if(struct kif *kif)
 {
 	struct iface	*i;
-
-	LIST_FOREACH(i, &conf->iface_list, entry)
-		if (i->ifindex == kif->ifindex)
-			return (i);
+	struct l2vpn	*l;
 
 	if (kif->if_type == IFT_LOOP ||
 	    kif->if_type == IFT_CARP ||
+	    kif->if_type == IFT_BRIDGE ||
 	    kif->if_type == IFT_MPLSTUNNEL) {
 		yyerror("unsupported interface type on interface %s",
 		    kif->ifname);
 		return (NULL);
 	}
+
+	LIST_FOREACH(l, &conf->l2vpn_list, entry)
+		if (l2vpn_if_find(l, kif->ifindex)) {
+			yyerror("interface %s already configured under "
+			    "l2vpn %s", kif->ifname, l->name);
+			return (NULL);
+		}
+
+	LIST_FOREACH(i, &conf->iface_list, entry)
+		if (i->ifindex == kif->ifindex)
+			return (i);
 
 	i = if_new(kif);
 	LIST_INSERT_HEAD(&conf->iface_list, i, entry);
@@ -1362,6 +1389,22 @@ conf_get_l2vpn_if(struct l2vpn *l, struct kif *kif)
 	struct l2vpn	*ltmp;
 	struct l2vpn_if	*f;
 
+	if (kif->if_type == IFT_LOOP ||
+	    kif->if_type == IFT_CARP ||
+	    kif->if_type == IFT_BRIDGE ||
+	    kif->if_type == IFT_MPLSTUNNEL) {
+		yyerror("unsupported interface type on interface %s",
+		    kif->ifname);
+		return (NULL);
+	}
+
+	LIST_FOREACH(ltmp, &conf->l2vpn_list, entry)
+		if (l2vpn_if_find(ltmp, kif->ifindex)) {
+			yyerror("interface %s already configured under "
+			    "l2vpn %s", kif->ifname, ltmp->name);
+			return (NULL);
+		}
+
 	LIST_FOREACH(i, &conf->iface_list, entry) {
 		if (i->ifindex == kif->ifindex) {
 			yyerror("interface %s already configured",
@@ -1369,13 +1412,6 @@ conf_get_l2vpn_if(struct l2vpn *l, struct kif *kif)
 			return (NULL);
 		}
 	}
-
-	LIST_FOREACH(ltmp, &conf->l2vpn_list, entry)
-		if (l2vpn_if_find(ltmp, kif->ifindex)) {
-			yyerror("interface %s is already being "
-			    "used by l2vpn %s", kif->ifname, ltmp->name);
-			return (NULL);
-		}
 
 	f = l2vpn_if_new(l, kif);
 	LIST_INSERT_HEAD(&l2vpn->if_list, f, entry);

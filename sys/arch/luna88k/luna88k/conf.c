@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.28 2016/04/25 20:09:14 tedu Exp $	*/
+/*	$OpenBSD: conf.c,v 1.30 2016/09/04 10:51:23 naddy Exp $	*/
 
 /*-
  * Copyright (c) 1991 The Regents of the University of California.
@@ -70,6 +70,7 @@
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct bdevsw	bdevsw[] =
 {
@@ -78,7 +79,7 @@ struct bdevsw	bdevsw[] =
 	bdev_notdef(),			/* 2 */
 	bdev_swap_init(1,sw),		/* 3: swap pseudo-device */
 	bdev_disk_init(NSD,sd),		/* 4: SCSI disk */
-	bdev_tape_init(NST,st),		/* 5: SCSI tape */
+	bdev_notdef(),			/* 5: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/* 6: SCSI CD-ROM */
 	bdev_disk_init(NRD,rd),		/* 7: ramdisk */
 	bdev_disk_init(NVND,vnd),	/* 8: vnode disk driver */
@@ -156,6 +157,7 @@ struct cdevsw	cdevsw[] =
 	cdev_disk_init(1,diskmap),	/* 54: disk mapper */
 	cdev_pppx_init(NPPPX,pppx),	/* 55: pppx */
 	cdev_tun_init(NTUN,tap),	/* 56: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 57: switch(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -222,6 +224,5 @@ int chrtoblktbl[] = {
 	/* 17 */	NODEV,
 	/* 18 */	7,	/* rd */
 	/* 19 */	8,	/* vnd */
-	/* 20 */	5,	/* st */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);

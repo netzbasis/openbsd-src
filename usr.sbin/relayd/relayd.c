@@ -1,7 +1,7 @@
-/*	$OpenBSD: relayd.c,v 1.153 2016/02/02 17:51:11 sthen Exp $	*/
+/*	$OpenBSD: relayd.c,v 1.160 2016/09/03 14:09:04 reyk Exp $	*/
 
 /*
- * Copyright (c) 2007 - 2014 Reyk Floeter <reyk@openbsd.org>
+ * Copyright (c) 2007 - 2016 Reyk Floeter <reyk@openbsd.org>
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -63,6 +63,7 @@ int		 parent_dispatch_relay(int, struct privsep_proc *,
 int		 parent_dispatch_ca(int, struct privsep_proc *,
 		    struct imsg *);
 int		 bindany(struct ctl_bindany *);
+void		 parent_tls_ticket_rekey(int, short, void *);
 
 struct relayd			*relayd_env;
 
@@ -77,56 +78,11 @@ void
 parent_sig_handler(int sig, short event, void *arg)
 {
 	struct privsep	*ps = arg;
-	int		 die = 0, status, fail, id;
-	pid_t		 pid;
-	char		*cause;
 
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		do {
-			int len;
-
-			pid = waitpid(WAIT_ANY, &status, WNOHANG);
-			if (pid <= 0)
-				continue;
-
-			fail = 0;
-			if (WIFSIGNALED(status)) {
-				fail = 1;
-				len = asprintf(&cause, "terminated; signal %d",
-				    WTERMSIG(status));
-			} else if (WIFEXITED(status)) {
-				if (WEXITSTATUS(status) != 0) {
-					fail = 1;
-					len = asprintf(&cause,
-					    "exited abnormally");
-				} else
-					len = asprintf(&cause, "exited okay");
-			} else
-				fatalx("unexpected cause of SIGCHLD");
-
-			if (len == -1)
-				fatal("asprintf");
-
-			die = 1;
-
-			for (id = 0; id < PROC_MAX; id++)
-				if (pid == ps->ps_pid[id]) {
-					if (fail)
-						log_warnx("lost child: %s %s",
-						    ps->ps_title[id], cause);
-					break;
-				}
-
-			free(cause);
-		} while (pid > 0 || (pid == -1 && errno == EINTR));
-
-		if (die)
-			parent_shutdown(ps->ps_env);
+		parent_shutdown(ps->ps_env);
 		break;
 	case SIGHUP:
 		log_info("%s: reload requested with SIGHUP", __func__);
@@ -165,8 +121,12 @@ main(int argc, char *argv[])
 	struct relayd		*env;
 	struct privsep		*ps;
 	const char		*conffile = CONF_FILE;
+	enum privsep_procid	 proc_id = PROC_PARENT;
+	int			 proc_instance = 0;
+	const char		*errp, *title = NULL;
+	int			 argc0 = argc;
 
-	while ((c = getopt(argc, argv, "dD:nf:v")) != -1) {
+	while ((c = getopt(argc, argv, "dD:nI:P:f:v")) != -1) {
 		switch (c) {
 		case 'd':
 			debug = 2;
@@ -186,6 +146,18 @@ main(int argc, char *argv[])
 		case 'v':
 			verbose++;
 			opts |= RELAYD_OPT_VERBOSE;
+			break;
+		case 'P':
+			title = optarg;
+			proc_id = proc_getid(procs, nitems(procs), title);
+			if (proc_id == PROC_MAX)
+				fatalx("invalid process name");
+			break;
+		case 'I':
+			proc_instance = strtonum(optarg, 0,
+			    PROC_MAX_INSTANCES, &errp);
+			if (errp)
+				fatalx("invalid process instance");
 			break;
 		default:
 			usage();
@@ -208,16 +180,18 @@ main(int argc, char *argv[])
 	ps->ps_env = env;
 	TAILQ_INIT(&ps->ps_rcsocks);
 	env->sc_conffile = conffile;
-	env->sc_opts = opts;
+	env->sc_conf.opts = opts;
 	TAILQ_INIT(&env->sc_hosts);
 	TAILQ_INIT(&env->sc_sessions);
 	env->sc_rtable = getrtable();
+	/* initialize the TLS session id to a random key for all relay procs */
+	arc4random_buf(env->sc_conf.tls_sid, sizeof(env->sc_conf.tls_sid));
 
 	if (parse_config(env->sc_conffile, env) == -1)
 		exit(1);
 
 	if (debug)
-		env->sc_opts |= RELAYD_OPT_LOGUPDATE;
+		env->sc_conf.opts |= RELAYD_OPT_LOGUPDATE;
 
 	if (geteuid())
 		errx(1, "need root privileges");
@@ -231,53 +205,62 @@ main(int argc, char *argv[])
 	log_init(debug, LOG_DAEMON);
 	log_verbose(verbose);
 
+	if (env->sc_conf.opts & RELAYD_OPT_NOACTION)
+		ps->ps_noaction = 1;
+
+	ps->ps_instances[PROC_RELAY] = env->sc_conf.prefork_relay;
+	ps->ps_instances[PROC_CA] = env->sc_conf.prefork_relay;
+	ps->ps_instance = proc_instance;
+	if (title != NULL)
+		ps->ps_title[proc_id] = title;
+
+	if (proc_id == PROC_PARENT) {
+		/* XXX the parent opens too many fds in proc_open() */
+		socket_rlimit(-1);
+	}
+
+	/* only the parent returns */
+	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
+
+	log_procinit("parent");
 	if (!debug && daemon(1, 0) == -1)
 		err(1, "failed to daemonize");
 
-	if (env->sc_opts & RELAYD_OPT_NOACTION)
-		ps->ps_noaction = 1;
-	else
+	if (ps->ps_noaction == 0)
 		log_info("startup");
-
-	ps->ps_instances[PROC_RELAY] = env->sc_prefork_relay;
-	ps->ps_instances[PROC_CA] = env->sc_prefork_relay;
-	ps->ps_ninstances = env->sc_prefork_relay;
-
-	proc_init(ps, procs, nitems(procs));
-	log_procinit("parent");
 
 	event_init();
 
 	signal_set(&ps->ps_evsigint, SIGINT, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, parent_sig_handler, ps);
-	signal_set(&ps->ps_evsigchld, SIGCHLD, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsighup, SIGHUP, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, parent_sig_handler, ps);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
-	signal_add(&ps->ps_evsigchld, NULL);
 	signal_add(&ps->ps_evsighup, NULL);
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
 
-	proc_listen(ps, procs, nitems(procs));
+	proc_connect(ps);
 
 	if (load_config(env->sc_conffile, env) == -1) {
 		proc_kill(env->sc_ps);
 		exit(1);
 	}
 
-	if (env->sc_opts & RELAYD_OPT_NOACTION) {
+	if (env->sc_conf.opts & RELAYD_OPT_NOACTION) {
 		fprintf(stderr, "configuration OK\n");
 		proc_kill(env->sc_ps);
 		exit(0);
 	}
 
-	if (env->sc_flags & (F_TLS|F_TLSCLIENT))
+	if (env->sc_conf.flags & (F_TLS|F_TLSCLIENT))
 		ssl_init(env);
 
+	/* rekey the TLS tickets before pushing the config */
+	parent_tls_ticket_rekey(0, 0, env);
 	if (parent_configure(env) == -1)
 		fatalx("configuration failed");
 
@@ -300,7 +283,6 @@ parent_configure(struct relayd *env)
 	struct protocol		*proto;
 	struct relay		*rlay;
 	int			 id;
-	struct ctl_flags	 cf;
 	int			 s, ret = -1;
 
 	TAILQ_FOREACH(tb, env->sc_tables, entry)
@@ -325,15 +307,13 @@ parent_configure(struct relayd *env)
 	}
 
 	/* HCE, PFE, CA and the relays need to reload their config. */
-	env->sc_reload = 2 + (2 * env->sc_prefork_relay);
+	env->sc_reload = 2 + (2 * env->sc_conf.prefork_relay);
 
 	for (id = 0; id < PROC_MAX; id++) {
 		if (id == privsep_process)
 			continue;
-		cf.cf_opts = env->sc_opts;
-		cf.cf_flags = env->sc_flags;
 
-		if ((env->sc_flags & F_NEEDPF) && id == PROC_PFE) {
+		if ((env->sc_conf.flags & F_NEEDPF) && id == PROC_PFE) {
 			/* Send pf socket to the pf engine */
 			if ((s = open(PF_SOCKET, O_RDWR)) == -1) {
 				log_debug("%s: cannot open pf socket",
@@ -344,7 +324,7 @@ parent_configure(struct relayd *env)
 			s = -1;
 
 		proc_compose_imsg(env->sc_ps, id, -1, IMSG_CFG_DONE, -1,
-		    s, &cf, sizeof(cf));
+		    s, &env->sc_conf, sizeof(env->sc_conf));
 	}
 
 	ret = 0;
@@ -509,7 +489,7 @@ parent_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_BINDANY:
 		IMSG_SIZE_CHECK(imsg, &bnd);
 		bcopy(imsg->data, &bnd, sizeof(bnd));
-		if (bnd.bnd_proc > env->sc_prefork_relay)
+		if (bnd.bnd_proc > env->sc_conf.prefork_relay)
 			fatalx("pfe_dispatch_relay: "
 			    "invalid relay proc");
 		switch (bnd.bnd_proto) {
@@ -645,9 +625,8 @@ purge_relay(struct relayd *env, struct relay *rlay)
 	free(rlay);
 }
 
-
 struct kv *
-kv_add(struct kvtree *keys, char *key, char *value)
+kv_add(struct kvtree *keys, char *key, char *value, int unique)
 {
 	struct kv	*kv, *oldkv;
 
@@ -655,24 +634,30 @@ kv_add(struct kvtree *keys, char *key, char *value)
 		return (NULL);
 	if ((kv = calloc(1, sizeof(*kv))) == NULL)
 		return (NULL);
-	if ((kv->kv_key = strdup(key)) == NULL) {
-		free(kv);
-		return (NULL);
-	}
+	if ((kv->kv_key = strdup(key)) == NULL)
+		goto fail;
 	if (value != NULL &&
-	    (kv->kv_value = strdup(value)) == NULL) {
-		free(kv->kv_key);
-		free(kv);
-		return (NULL);
-	}
+	    (kv->kv_value = strdup(value)) == NULL)
+		goto fail;
 	TAILQ_INIT(&kv->kv_children);
 
 	if ((oldkv = RB_INSERT(kvtree, keys, kv)) != NULL) {
+		/*
+		 * return error if the key should occur only once,
+		 * or add it to a list attached to the key's node.
+		 */
+		if (unique)
+			goto fail;
 		TAILQ_INSERT_TAIL(&oldkv->kv_children, kv, kv_entry);
 		kv->kv_parent = oldkv;
 	}
 
 	return (kv);
+ fail:
+	free(kv->kv_key);
+	free(kv->kv_value);
+	free(kv);
+	return (NULL);
 }
 
 int
@@ -1382,6 +1367,52 @@ canonicalize_host(const char *host, char *name, size_t len)
 }
 
 int
+parse_url(const char *url, char **protoptr, char **hostptr, char **pathptr)
+{
+	char	*p, *proto = NULL, *host = NULL, *path = NULL;
+
+	/* return error if it is not a URL */
+	if ((p = strstr(url, ":/")) == NULL ||
+	    (strcspn(url, ":/") != (size_t)(p - url)))
+		return (-1);
+
+	/* get protocol */
+	if ((proto = strdup(url)) == NULL)
+		goto fail;
+	p = proto + (p - url);
+
+	/* get host */
+	p += strspn(p, ":/");
+	if (*p == '\0' || (host = strdup(p)) == NULL)
+		goto fail;
+	*p = '\0';
+
+	/* find and copy path or default to "/" */
+	if ((p = strchr(host, '/')) == NULL)
+		p = "/";
+	if ((path = strdup(p)) == NULL)
+		goto fail;
+
+	/* strip path after host */
+	host[strcspn(host, "/")] = '\0';
+
+	DPRINTF("%s: %s proto %s, host %s, path %s", __func__,
+	    url, proto, host, path);
+
+	*protoptr = proto;
+	*hostptr = host;
+	*pathptr = path;
+
+	return (0);
+
+ fail:
+	free(proto);
+	free(host);
+	free(path);
+	return (-1);
+}
+
+int
 bindany(struct ctl_bindany *bnd)
 {
 	int	s, v;
@@ -1619,4 +1650,28 @@ accept_reserve(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
 		DPRINTF("%s: inflight incremented, now %d",__func__, *counter);
 	}
 	return (ret);
+}
+
+void
+parent_tls_ticket_rekey(int fd, short events, void *arg)
+{
+	static struct event	 rekeyev;
+	struct relayd		*env = arg;
+	struct timeval		 tv;
+	struct tls_ticket	 key;
+
+	log_debug("relayd_tls_ticket_rekey: rekeying tickets");
+
+	arc4random_buf(key.tt_key_name, sizeof(key.tt_key_name));
+	arc4random_buf(key.tt_hmac_key, sizeof(key.tt_hmac_key));
+	arc4random_buf(key.tt_aes_key, sizeof(key.tt_aes_key));
+	key.tt_backup = 0;
+
+	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_TLSTICKET_REKEY,
+	    -1, -1, &key, sizeof(key));
+
+	evtimer_set(&rekeyev, parent_tls_ticket_rekey, env);
+	timerclear(&tv);
+	tv.tv_sec = TLS_TICKET_REKEY_TIME;
+	evtimer_add(&rekeyev, &tv);
 }

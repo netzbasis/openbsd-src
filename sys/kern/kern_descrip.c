@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.130 2016/04/25 20:18:31 tedu Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.134 2016/08/25 00:00:02 dlg Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -68,7 +68,7 @@
  * Descriptor management.
  */
 struct filelist filehead;	/* head of list of open files */
-int nfiles;			/* actual number of open files */
+int numfiles;			/* actual number of open files */
 
 static __inline void fd_used(struct filedesc *, int);
 static __inline void fd_unused(struct filedesc *, int);
@@ -85,8 +85,10 @@ filedesc_init(void)
 {
 	pool_init(&file_pool, sizeof(struct file), 0, 0, PR_WAITOK,
 	    "filepl", NULL);
+	pool_setipl(&file_pool, IPL_NONE);
 	pool_init(&fdesc_pool, sizeof(struct filedesc0), 0, 0, PR_WAITOK,
 	    "fdescpl", NULL);
+	pool_setipl(&fdesc_pool, IPL_NONE);
 	LIST_INIT(&filehead);
 }
 
@@ -850,7 +852,7 @@ fdexpand(struct proc *p)
 	memset(newofileflags + copylen, 0, nfiles * sizeof(char) - copylen);
 
 	if (fdp->fd_nfiles > NDFILE)
-		free(fdp->fd_ofiles, M_FILEDESC, 0);
+		free(fdp->fd_ofiles, M_FILEDESC, fdp->fd_nfiles * OFILESIZE);
 
 	if (NDHISLOTS(nfiles) > NDHISLOTS(fdp->fd_nfiles)) {
 		newhimap = mallocarray(NDHISLOTS(nfiles), sizeof(u_int),
@@ -869,8 +871,10 @@ fdexpand(struct proc *p)
 		    NDLOSLOTS(nfiles) * sizeof(u_int) - copylen);
 
 		if (NDHISLOTS(fdp->fd_nfiles) > NDHISLOTS(NDFILE)) {
-			free(fdp->fd_himap, M_FILEDESC, 0);
-			free(fdp->fd_lomap, M_FILEDESC, 0);
+			free(fdp->fd_himap, M_FILEDESC,
+			    NDHISLOTS(fdp->fd_nfiles) * sizeof(u_int));
+			free(fdp->fd_lomap, M_FILEDESC,
+			    NDLOSLOTS(fdp->fd_nfiles) * sizeof(u_int));
 		}
 		fdp->fd_himap = newhimap;
 		fdp->fd_lomap = newlomap;
@@ -899,7 +903,7 @@ restart:
 		}
 		return (error);
 	}
-	if (nfiles >= maxfiles) {
+	if (numfiles >= maxfiles) {
 		fd_unused(p->p_fd, i);
 		tablefull("file");
 		return (ENFILE);
@@ -910,7 +914,7 @@ restart:
 	 * of open files at that point, otherwise put it at the front of
 	 * the list of open files.
 	 */
-	nfiles++;
+	numfiles++;
 	fp = pool_get(&file_pool, PR_WAITOK|PR_ZERO);
 	fp->f_iflags = FIF_LARVAL;
 	if ((fq = p->p_fd->fd_ofiles[0]) != NULL) {
@@ -1082,10 +1086,12 @@ fdfree(struct proc *p)
 	}
 	p->p_fd = NULL;
 	if (fdp->fd_nfiles > NDFILE)
-		free(fdp->fd_ofiles, M_FILEDESC, 0);
+		free(fdp->fd_ofiles, M_FILEDESC, fdp->fd_nfiles * OFILESIZE);
 	if (NDHISLOTS(fdp->fd_nfiles) > NDHISLOTS(NDFILE)) {
-		free(fdp->fd_himap, M_FILEDESC, 0);
-		free(fdp->fd_lomap, M_FILEDESC, 0);
+		free(fdp->fd_himap, M_FILEDESC,
+		    NDHISLOTS(fdp->fd_nfiles) * sizeof(u_int));
+		free(fdp->fd_lomap, M_FILEDESC,
+		    NDLOSLOTS(fdp->fd_nfiles) * sizeof(u_int));
 	}
 	if (fdp->fd_cdir)
 		vrele(fdp->fd_cdir);
@@ -1161,7 +1167,7 @@ fdrop(struct file *fp, struct proc *p)
 	/* Free fp */
 	LIST_REMOVE(fp, f_list);
 	crfree(fp->f_cred);
-	nfiles--;
+	numfiles--;
 	pool_put(&file_pool, fp);
 
 	return (error);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.c,v 1.41 2016/04/04 09:06:28 patrick Exp $	*/
+/*	$OpenBSD: cpufunc.c,v 1.48 2016/08/25 08:17:57 kettenis Exp $	*/
 /*	$NetBSD: cpufunc.c,v 1.65 2003/11/05 12:53:15 scw Exp $	*/
 
 /*
@@ -56,15 +56,6 @@
 #include <arm/cpuconf.h>
 #include <arm/cpufunc.h>
 
-#ifdef CPU_XSCALE_80321
-#include <arm/xscale/i80321reg.h>
-#include <arm/xscale/i80321var.h>
-#endif
-
-#if defined(CPU_XSCALE_80321)
-#include <arm/xscale/xscalereg.h>
-#endif
-
 #if defined(PERFCTRS)
 struct arm_pmc_funcs *arm_pmc;
 #endif
@@ -109,8 +100,8 @@ struct cpu_functions armv7_cpufuncs = {
 
 	armv7_tlb_flushID,		/* tlb_flushID		*/
 	armv7_tlb_flushID_SE,		/* tlb_flushID_SE	*/
-	armv7_tlb_flushI,		/* tlb_flushI		*/
-	armv7_tlb_flushI_SE,		/* tlb_flushI_SE	*/
+	armv7_tlb_flushID,		/* tlb_flushI		*/
+	armv7_tlb_flushID_SE,		/* tlb_flushI_SE	*/
 	armv7_tlb_flushD,		/* tlb_flushD		*/
 	armv7_tlb_flushD_SE,		/* tlb_flushD_SE	*/
 
@@ -131,6 +122,7 @@ struct cpu_functions armv7_cpufuncs = {
 	(void *)cpufunc_nullop,		/* sdcache_wbinv_range	*/
 	(void *)cpufunc_nullop,		/* sdcache_inv_range	*/
 	(void *)cpufunc_nullop,		/* sdcache_wb_range	*/
+	(void *)cpufunc_nullop,		/* sdcache_drain_writebuf */
 
 	/* Other functions */
 
@@ -145,7 +137,7 @@ struct cpu_functions armv7_cpufuncs = {
 };
 #endif /* CPU_ARMv7 */
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 struct cpu_functions xscale_cpufuncs = {
 	/* CPU functions */
 
@@ -189,6 +181,7 @@ struct cpu_functions xscale_cpufuncs = {
 	(void *)cpufunc_nullop,		/* sdcache_wbinv_range	*/
 	(void *)cpufunc_nullop,		/* sdcache_inv_range	*/
 	(void *)cpufunc_nullop,		/* sdcache_wb_range	*/
+	(void *)cpufunc_nullop,		/* sdcache_drain_writebuf */
 
 	/* Other functions */
 
@@ -202,7 +195,7 @@ struct cpu_functions xscale_cpufuncs = {
 	xscale_setup			/* cpu setup		*/
 };
 #endif
-/* CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 */
+/* CPU_XSCALE_PXA2X0 */
 
 /*
  * Global constants also used by locore.s
@@ -216,7 +209,7 @@ int	arm_icache_min_line_size = 32;
 int	arm_dcache_min_line_size = 32;
 int	arm_idcache_min_line_size = 32;
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 static void get_cachetype_cp15 (void);
 
 /* Additional cache information local to this file.  Log2 of some of the
@@ -470,62 +463,34 @@ set_cpufuncs()
 	 */
 
 #ifdef CPU_ARMv7
-	if ((cputype & CPU_ID_CORTEX_A5_MASK) == CPU_ID_CORTEX_A5 ||
-	    (cputype & CPU_ID_CORTEX_A7_MASK) == CPU_ID_CORTEX_A7 ||
-	    (cputype & CPU_ID_CORTEX_A8_MASK) == CPU_ID_CORTEX_A8 ||
-	    (cputype & CPU_ID_CORTEX_A9_MASK) == CPU_ID_CORTEX_A9 ||
-	    (cputype & CPU_ID_CORTEX_A15_MASK) == CPU_ID_CORTEX_A15 ||
-	    (cputype & CPU_ID_CORTEX_A17_MASK) == CPU_ID_CORTEX_A17 ||
-	    (cputype & CPU_ID_CORTEX_A53_MASK) == CPU_ID_CORTEX_A53 ||
-	    (cputype & CPU_ID_CORTEX_A57_MASK) == CPU_ID_CORTEX_A57 ||
-	    (cputype & CPU_ID_CORTEX_A72_MASK) == CPU_ID_CORTEX_A72) {
-		cpufuncs = armv7_cpufuncs;
-		cpu_reset_needs_v4_MMU_disable = 1;	/* V4 or higher */
-		arm_get_cachetype_cp15v7();
-		armv7_dcache_sets_inc = 1U << arm_dcache_l2_linesize;
-		armv7_dcache_sets_max =
-		    (1U << (arm_dcache_l2_linesize + arm_dcache_l2_nsets)) -
-		    armv7_dcache_sets_inc;
-		armv7_dcache_index_inc = 1U << (32 - arm_dcache_l2_assoc);
-		armv7_dcache_index_max = 0U - armv7_dcache_index_inc;
-		pmap_pte_init_armv7();
+	if ((cputype & CPU_ID_ARCH_MASK) == CPU_ID_ARCH_CPUID) {
+		uint32_t mmfr0;
 
-		/* Use powersave on this CPU. */
-		cpu_do_powersave = 1;
-		return 0;
+		__asm volatile("mrc p15, 0, %0, c0, c1, 4"
+			: "=r" (mmfr0));
+
+		switch (mmfr0 & ID_MMFR0_VMSA_MASK) {
+		case VMSA_V7:
+		case VMSA_V7_PXN:
+		case VMSA_V7_LDT:
+			cpufuncs = armv7_cpufuncs;
+			/* V4 or higher */
+			cpu_reset_needs_v4_MMU_disable = 1;
+			arm_get_cachetype_cp15v7();
+			armv7_dcache_sets_inc = 1U << arm_dcache_l2_linesize;
+			armv7_dcache_sets_max = (1U << (arm_dcache_l2_linesize +
+			    arm_dcache_l2_nsets)) - armv7_dcache_sets_inc;
+			armv7_dcache_index_inc = 1U << (32 -
+			    arm_dcache_l2_assoc);
+			armv7_dcache_index_max = 0U - armv7_dcache_index_inc;
+			pmap_pte_init_armv7();
+
+			/* Use powersave on this CPU. */
+			cpu_do_powersave = 1;
+			return 0;
+		}
 	}
 #endif /* CPU_ARMv7 */
-#ifdef CPU_XSCALE_80321
-	if (cputype == CPU_ID_80321_400 || cputype == CPU_ID_80321_600 ||
-	    cputype == CPU_ID_80321_400_B0 || cputype == CPU_ID_80321_600_B0 ||
-	    cputype == CPU_ID_80219_400 || cputype == CPU_ID_80219_600) {
-		i80321intc_init();
-
-#ifdef PERFCTRS
-		/*
-		 * Reset the Performance Monitoring Unit to a
-		 * pristine state:
-		 *	- CCNT, PMN0, PMN1 reset to 0
-		 *	- overflow indications cleared
-		 *	- all counters disabled
-		 */
-		__asm volatile("mcr p14, 0, %0, c0, c0, 0"
-			:
-			: "r" (PMNC_P|PMNC_C|PMNC_PMN0_IF|PMNC_PMN1_IF|
-			       PMNC_CC_IF));
-#endif /* PERFCTRS */
-
-		cpufuncs = xscale_cpufuncs;
-#if defined(PERFCTRS)
-		xscale_pmu_init();
-#endif
-
-		cpu_reset_needs_v4_MMU_disable = 1;	/* XScale needs it */
-		get_cachetype_cp15();
-		pmap_pte_init_xscale();
-		return 0;
-	}
-#endif /* CPU_XSCALE_80321 */
 #ifdef CPU_XSCALE_PXA2X0
 	/* ignore core revision to test PXA2xx CPUs */
 	if ((cputype & ~CPU_ID_XSCALE_COREREV_MASK) == CPU_ID_PXA250 ||
@@ -564,6 +529,27 @@ armv7_setup()
 {
 	uint32_t auxctrl, auxctrlmask;
 	uint32_t cpuctrl, cpuctrlmask;
+	uint32_t id_pfr1;
+
+	auxctrl = auxctrlmask = 0;
+
+	switch (cputype & CPU_ID_CORTEX_MASK) {
+	case CPU_ID_CORTEX_A5:
+	case CPU_ID_CORTEX_A9:
+		/* Cache and TLB maintenance broadcast */
+#ifdef notyet
+		auxctrlmask |= CORTEXA9_AUXCTL_FW;
+		auxctrl |= CORTEXA9_AUXCTL_FW;
+#endif
+		/* FALLTHROUGH */
+	case CPU_ID_CORTEX_A7:
+	case CPU_ID_CORTEX_A15:
+	case CPU_ID_CORTEX_A17:
+		/* Set SMP to allow LDREX/STREX */
+		auxctrlmask |= CORTEXA9_AUXCTL_SMP;
+		auxctrl |= CORTEXA9_AUXCTL_SMP;
+		break;
+	}
 
 	cpuctrlmask = CPU_CONTROL_MMU_ENABLE
 	    | CPU_CONTROL_AFLT_ENABLE
@@ -578,44 +564,42 @@ armv7_setup()
 	    | CPU_CONTROL_AFLT_ENABLE
 	    | CPU_CONTROL_DC_ENABLE
 	    | CPU_CONTROL_BPRD_ENABLE
-	    | CPU_CONTROL_IC_ENABLE;
+	    | CPU_CONTROL_IC_ENABLE
+	    | CPU_CONTROL_AFE;
 
 	if (vector_page == ARM_VECTORS_HIGH)
 		cpuctrl |= CPU_CONTROL_VECRELOC;
 
+	/*
+	 * Check for the Virtualization Extensions and enable UWXN of
+	 * those are included.
+	 */
+	__asm volatile("mrc p15, 0, %0, c0, c1, 1" : "=r"(id_pfr1));
+	if ((id_pfr1 & 0x0000f000) == 0x00001000) {
+		cpuctrlmask |= CPU_CONTROL_UWXN;
+		cpuctrl |= CPU_CONTROL_UWXN;
+	}
+
 	/* Clear out the cache */
 	cpu_idcache_wbinv_all();
+
+	/*
+	 * Set the auxilliary control register first, as the SMP bit
+	 * needs to be set to 1 before the caches and the MMU are
+	 * enabled.
+	 */
+	cpu_auxcontrol(auxctrlmask, auxctrl);
 
 	/* Set the control register */
 	curcpu()->ci_ctrl = cpuctrl;
 	cpu_control(cpuctrlmask, cpuctrl);
-
-	auxctrl = auxctrlmask = 0;
-
-	switch (cputype & CPU_ID_CORTEX_MASK) {
-	case CPU_ID_CORTEX_A5:
-	case CPU_ID_CORTEX_A9:
-		/* Cache and TLB maintenance broadcast */
-#ifdef notyet
-		auxctrl |= (1 << 0);
-#endif
-		/* FALLTHROUGH */
-	case CPU_ID_CORTEX_A7:
-	case CPU_ID_CORTEX_A15:
-	case CPU_ID_CORTEX_A17:
-		/* Set SMP to allow LDREX/STREX */
-		auxctrl |= (1 << 6);
-		break;
-	}
-
-	cpu_auxcontrol(auxctrlmask, auxctrl);
 
 	/* And again. */
 	cpu_idcache_wbinv_all();
 }
 #endif	/* CPU_ARMv7 */
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 void
 xscale_setup()
 {
@@ -666,4 +650,4 @@ xscale_setup()
 	__asm volatile("mcr p15, 0, %0, c1, c0, 1"
 		: : "r" (auxctl));
 }
-#endif	/* CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 */
+#endif	/* CPU_XSCALE_PXA2X0 */

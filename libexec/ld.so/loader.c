@@ -1,4 +1,4 @@
-/*	$OpenBSD: loader.c,v 1.159 2016/05/07 19:05:23 guenther Exp $ */
+/*	$OpenBSD: loader.c,v 1.167 2016/08/28 04:33:17 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -44,7 +44,6 @@
 #include "resolve.h"
 #include "sod.h"
 #include "stdlib.h"
-#include "dl_prebind.h"
 
 /*
  * Local decls.
@@ -54,6 +53,7 @@ void _dl_debug_state(void);
 void _dl_setup_env(const char *_argv0, char **_envp);
 void _dl_dtors(void);
 void _dl_fixup_user_env(void);
+void _dl_call_preinit(elf_object_t *);
 void _dl_call_init_recurse(elf_object_t *object, int initfirst);
 
 int  _dl_pagesz;
@@ -65,8 +65,6 @@ char *_dl_bindnow;
 char *_dl_traceld;
 char *_dl_debug;
 char *_dl_showmap;
-char *_dl_noprebind;
-char *_dl_prebind_validate;
 char *_dl_tracefmt1, *_dl_tracefmt2, *_dl_traceprog;
 
 int _dl_trust;
@@ -76,9 +74,31 @@ struct r_debug *_dl_debug_map;
 void _dl_dopreload(char *paths);
 
 /*
+ * Run dtors for a single object.
+ */
+void
+_dl_run_dtors(elf_object_t *obj)
+{
+	if (obj->dyn.fini_array) {
+		int num = obj->dyn.fini_arraysz / sizeof(Elf_Addr);
+		int i;
+
+		DL_DEB(("doing finiarray obj %p @%p: [%s]\n",
+		    obj, obj->dyn.fini_array, obj->load_name));
+		for (i = num; i > 0; i--)
+			(*obj->dyn.fini_array[i-1])();
+	}
+
+	if (obj->dyn.fini) {
+		DL_DEB(("doing dtors obj %p @%p: [%s]\n",
+		    obj, obj->dyn.fini, obj->load_name));
+		(*obj->dyn.fini)();
+	}
+}
+
+/*
  * Run dtors for all objects that are eligible.
  */
-
 void
 _dl_run_all_dtors(void)
 {
@@ -94,10 +114,10 @@ _dl_run_all_dtors(void)
 
 	while (fini_complete == 0) {
 		fini_complete = 1;
-		for (node = _dl_objects->next;
+		for (node = _dl_objects;
 		    node != NULL;
 		    node = node->next) {
-			if ((node->dyn.fini) &&
+			if ((node->dyn.fini || node->dyn.fini_array) &&
 			    (OBJECT_REF_CNT(node) == 0) &&
 			    (node->status & STAT_INIT_DONE) &&
 			    ((node->status & STAT_FINI_DONE) == 0)) {
@@ -108,10 +128,10 @@ _dl_run_all_dtors(void)
 					node->status |= STAT_FINI_READY;
 			    }
 		}
-		for (node = _dl_objects->next;
+		for (node = _dl_objects;
 		    node != NULL;
 		    node = node->next ) {
-			if ((node->dyn.fini) &&
+			if ((node->dyn.fini || node->dyn.fini_array) &&
 			    (OBJECT_REF_CNT(node) == 0) &&
 			    (node->status & STAT_INIT_DONE) &&
 			    ((node->status & STAT_FINI_DONE) == 0) &&
@@ -123,18 +143,14 @@ _dl_run_all_dtors(void)
 		}
 
 
-		for (node = _dl_objects->next;
+		for (node = _dl_objects;
 		    node != NULL;
 		    node = node->next ) {
 			if (node->status & STAT_FINI_READY) {
-				DL_DEB(("doing dtors obj %p @%p: [%s]\n",
-				    node, node->dyn.fini,
-				    node->load_name));
-
 				fini_complete = 0;
 				node->status |= STAT_FINI_DONE;
 				node->status &= ~STAT_FINI_READY;
-				(*node->dyn.fini)();
+				_dl_run_dtors(node);
 			}
 		}
 
@@ -159,11 +175,6 @@ _dl_dtors(void)
 	_dl_unload_dlopen();
 
 	DL_DEB(("doing dtors\n"));
-
-	/* main program runs its dtors itself
-	 * but we want to run dtors on all it's children);
-	 */
-	_dl_objects->status |= STAT_FINI_DONE;
 
 	_dl_objects->opencount--;
 	_dl_notify_unload_shlib(_dl_objects);
@@ -220,8 +231,6 @@ _dl_setup_env(const char *argv0, char **envp)
 	_dl_tracefmt1 = _dl_getenv("LD_TRACE_LOADED_OBJECTS_FMT1", envp);
 	_dl_tracefmt2 = _dl_getenv("LD_TRACE_LOADED_OBJECTS_FMT2", envp);
 	_dl_traceprog = _dl_getenv("LD_TRACE_LOADED_OBJECTS_PROGNAME", envp);
-	_dl_noprebind = _dl_getenv("LD_NOPREBIND", envp);
-	_dl_prebind_validate = _dl_getenv("LD_PREBINDVALIDATE", envp);
 
 	/*
 	 * Don't allow someone to change the search paths if he runs
@@ -313,7 +322,7 @@ _dl_load_dep_libs(elf_object_t *object, int flags, int booting)
 			for (loop = 1; loop < libcount; loop++) {
 				unsigned int rnd;
 				int cur;
-				rnd = _dl_random();
+				rnd = _dl_arc4random();
 				rnd = rnd % (loop+1);
 				cur = randomlist[rnd];
 				randomlist[rnd] = randomlist[loop];
@@ -394,8 +403,6 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 	Elf_Phdr *ptls = NULL;
 	int align;
 
-	_dl_setup_env(argv[0], envp);
-
 	if (dl_data[AUX_pagesz] != 0)
 		_dl_pagesz = dl_data[AUX_pagesz];
 	else
@@ -424,6 +431,8 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 		}
 	}
 #endif
+
+	_dl_setup_env(argv[0], envp);
 
 	DL_DEB(("rtld loading: '%s'\n", __progname));
 
@@ -474,11 +483,6 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 			next_load->start = (char *)TRUNC_PG(phdp->p_vaddr) + exe_loff;
 			next_load->size = (phdp->p_vaddr & align) + phdp->p_filesz;
 			next_load->prot = PFLAGS(phdp->p_flags);
-
-			if (phdp->p_flags & 0x08000000) {
-//				dump_prelink(phdp->p_vaddr + exe_loff, phdp->p_memsz);
-				prebind_load_exe(phdp, exe_obj);
-			}
 			break;
 		case PT_TLS:
 			if (phdp->p_filesz > phdp->p_memsz) {
@@ -487,6 +491,10 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 				_dl_exit(5);
 			}
 			ptls = phdp;
+			break;
+		case PT_GNU_RELRO:
+			exe_obj->relro_addr = phdp->p_vaddr + exe_loff;
+			exe_obj->relro_size = phdp->p_memsz;
 			break;
 		}
 		phdp++;
@@ -534,41 +542,9 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 	_dl_allocate_tls_offsets();
 
 	/*
-	 * Everything should be in place now for doing the relocation
-	 * and binding. Call _dl_rtld to do the job. Fingers crossed.
-	 */
-
-	_dl_prebind_pre_resolve();
-	failed = 0;
-	if (_dl_traceld == NULL)
-		failed = _dl_rtld(_dl_objects);
-
-	_dl_prebind_post_resolve();
-
-	if (_dl_debug || _dl_traceld) {
-		if (_dl_traceld)
-			_dl_pledge("stdio rpath", NULL);
-		_dl_show_objects();
-	}
-
-	DL_DEB(("dynamic loading done, %s.\n",
-	    (failed == 0) ? "success":"failed"));
-
-	if (failed != 0)
-		_dl_exit(1);
-
-	if (_dl_traceld)
-		_dl_exit(0);
-
-	_dl_loading_object = NULL;
-
-	/* set up the TIB for the initial thread */
-	_dl_allocate_first_tib();
-
-	_dl_fixup_user_env();
-
-	/*
-	 * Finally make something to help gdb when poking around in the code.
+	 * Make something to help gdb when poking around in the code.
+	 * Do this poking at the .dynamic section now, before relocation
+	 * renders it read-only
 	 */
 	map_link = NULL;
 #ifdef __mips__
@@ -598,7 +574,7 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 #ifdef __mips__
 		if (dynp->d_tag == DT_DEBUG)
 			_dl_mprotect(map_link, sizeof(*map_link),
-			    PROT_READ|PROT_WRITE|PROT_EXEC);
+			    PROT_READ|PROT_WRITE);
 #endif
 		*map_link = _dl_debug_map;
 #ifdef __mips__
@@ -608,17 +584,45 @@ _dl_boot(const char **argv, char **envp, const long dyn_loff, long *dl_data)
 #endif
 	}
 
+
+	/*
+	 * Everything should be in place now for doing the relocation
+	 * and binding. Call _dl_rtld to do the job. Fingers crossed.
+	 */
+
+	failed = 0;
+	if (_dl_traceld == NULL)
+		failed = _dl_rtld(_dl_objects);
+
+	if (_dl_debug || _dl_traceld) {
+		if (_dl_traceld)
+			_dl_pledge("stdio rpath", NULL);
+		_dl_show_objects();
+	}
+
+	DL_DEB(("dynamic loading done, %s.\n",
+	    (failed == 0) ? "success":"failed"));
+
+	if (failed != 0)
+		_dl_exit(1);
+
+	if (_dl_traceld)
+		_dl_exit(0);
+
+	_dl_loading_object = NULL;
+
+	/* set up the TIB for the initial thread */
+	_dl_allocate_first_tib();
+
+	_dl_fixup_user_env();
+
 	_dl_debug_state();
 
 	/*
-	 * The first object is the executable itself,
-	 * it is responsible for running it's own ctors/dtors
-	 * thus do NOT run the ctors for the executable, all of
-	 * the shared libraries which follow.
 	 * Do not run init code if run from ldd.
 	 */
 	if (_dl_objects->next != NULL) {
-		_dl_objects->status |= STAT_INIT_DONE;
+		_dl_call_preinit(_dl_objects);
 		_dl_call_init(_dl_objects);
 	}
 
@@ -637,6 +641,7 @@ int
 _dl_rtld(elf_object_t *object)
 {
 	size_t sz;
+	struct load_list *llist;
 	int fails = 0;
 
 	if (object->next)
@@ -664,16 +669,24 @@ _dl_rtld(elf_object_t *object)
 			_dl_symcache = NULL;
 		}
 	}
-	prebind_symcache(object, SYM_NOTPLT);
 
 	/*
 	 * Do relocation information first, then GOT.
 	 */
 	fails =_dl_md_reloc(object, DT_REL, DT_RELSZ);
 	fails += _dl_md_reloc(object, DT_RELA, DT_RELASZ);
-	prebind_symcache(object, SYM_PLT);
 	fails += _dl_md_reloc_got(object, !(_dl_bindnow ||
 	    object->obj_flags & DF_1_NOW));
+
+	/*
+	 * Look for W&X segments and make them read-only.
+	 */
+	for (llist = object->load_list; llist != NULL; llist = llist->next) {
+		if ((llist->prot & PROT_WRITE) && (llist->prot & PROT_EXEC)) {
+			_dl_mprotect(llist->start, llist->size,
+			    llist->prot & ~PROT_WRITE);
+		}
+	}
 
 	if (_dl_symcache != NULL) {
 		if (sz != 0)
@@ -684,6 +697,20 @@ _dl_rtld(elf_object_t *object)
 		object->status |= STAT_RELOC_DONE;
 
 	return (fails);
+}
+
+void
+_dl_call_preinit(elf_object_t *object)
+{
+	if (object->dyn.preinit_array) {
+		int num = object->dyn.preinit_arraysz / sizeof(Elf_Addr);
+		int i;
+
+		DL_DEB(("doing preinitarray obj %p @%p: [%s]\n",
+		    object, object->dyn.preinit_array, object->load_name));
+		for (i = 0; i < num; i++)
+			(*object->dyn.preinit_array[i])();
+	}
 }
 
 void
@@ -718,6 +745,16 @@ _dl_call_init_recurse(elf_object_t *object, int initfirst)
 		DL_DEB(("doing ctors obj %p @%p: [%s]\n",
 		    object, object->dyn.init, object->load_name));
 		(*object->dyn.init)();
+	}
+
+	if (object->dyn.init_array) {
+		int num = object->dyn.init_arraysz / sizeof(Elf_Addr);
+		int i;
+
+		DL_DEB(("doing initarray obj %p @%p: [%s]\n",
+		    object, object->dyn.init_array, object->load_name));
+		for (i = 0; i < num; i++)
+			(*object->dyn.init_array[i])();
 	}
 
 	object->status |= STAT_INIT_DONE;

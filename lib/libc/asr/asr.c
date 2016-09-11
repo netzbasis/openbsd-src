@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.52 2016/05/26 06:59:42 jmatthew Exp $	*/
+/*	$OpenBSD: asr.c,v 1.54 2016/06/18 15:25:28 reyk Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -715,7 +715,7 @@ asr_ctx_parse(struct asr_ctx *ac, const char *str)
 
 /*
  * Check for environment variables altering the configuration as described
- * in resolv.conf(5).  Altough not documented there, this feature is disabled
+ * in resolv.conf(5).  Although not documented there, this feature is disabled
  * for setuid/setgid programs.
  */
 static void
@@ -732,7 +732,6 @@ asr_ctx_envopts(struct asr_ctx *ac)
 	if ((e = getenv("RES_OPTIONS")) != NULL) {
 		strlcpy(buf, "options ", sizeof buf);
 		strlcat(buf, e, sizeof buf);
-		s = strlcat(buf, "\n", sizeof buf);
 		s = strlcat(buf, "\n", sizeof buf);
 		if (s < sizeof buf)
 			asr_ctx_parse(ac, buf);

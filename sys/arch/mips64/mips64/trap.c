@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.116 2016/03/06 19:42:27 mpi Exp $	*/
+/*	$OpenBSD: trap.c,v 1.118 2016/08/16 13:03:58 visa Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -69,8 +69,6 @@
 #include <machine/mips_opcode.h>
 #include <machine/regnum.h>
 #include <machine/trap.h>
-
-#include <mips64/rm7000.h>
 
 #ifdef DDB
 #include <mips64/db_machdep.h>
@@ -304,7 +302,25 @@ itsa(struct trapframe *trapframe, struct cpu_info *ci, struct proc *p,
 
 	case T_TLB_LD_MISS:
 	case T_TLB_ST_MISS:
-		ftype = (type == T_TLB_ST_MISS) ? PROT_WRITE : PROT_READ;
+		if (type == T_TLB_LD_MISS) {
+#ifdef CPU_OCTEON
+			vaddr_t pc;
+
+			/*
+			 * Check if the fault was caused by
+			 * an instruction fetch.
+			 */
+			pc = trapframe->pc;
+			if (trapframe->cause & CR_BR_DELAY)
+				pc += 4;
+			if (pc == trapframe->badvaddr)
+				ftype = PROT_EXEC;
+			else
+#endif
+			ftype = PROT_READ;
+		} else
+			ftype = PROT_WRITE;
+
 		pcb = &p->p_addr->u_pcb;
 		/* check for kernel address */
 		if (trapframe->badvaddr < 0) {
@@ -342,10 +358,22 @@ itsa(struct trapframe *trapframe, struct cpu_info *ci, struct proc *p,
 			goto err;
 		}
 
-	case T_TLB_LD_MISS+T_USER:
+	case T_TLB_LD_MISS+T_USER: {
+#ifdef CPU_OCTEON
+		vaddr_t pc;
+
+		/* Check if the fault was caused by an instruction fetch. */
+		pc = trapframe->pc;
+		if (trapframe->cause & CR_BR_DELAY)
+			pc += 4;
+		if (pc == trapframe->badvaddr)
+			ftype = PROT_EXEC;
+		else
+#endif
 		ftype = PROT_READ;
 		pcb = &p->p_addr->u_pcb;
 		goto fault_common;
+	}
 
 	case T_TLB_ST_MISS+T_USER:
 		ftype = PROT_WRITE;
@@ -647,12 +675,6 @@ fault_common_no_miss:
 		if (trapframe->cause & CR_BR_DELAY)
 			va += 4;
 		printf("watch exception @ %p\n", va);
-#ifdef RM7K_PERFCNTR
-		if (rm7k_watchintr(trapframe)) {
-			/* Return to user, don't add any more overhead */
-			return;
-		}
-#endif
 		i = SIGTRAP;
 		typ = TRAP_BRKPT;
 		break;
@@ -676,17 +698,6 @@ fault_common_no_miss:
 			    trapframe->pc, 0, 0);
 		else
 			locr0->pc += 4;
-#ifdef RM7K_PERFCNTR
-		if (instr == 0x040c0000) { /* Performance cntr trap */
-			int result;
-
-			result = rm7k_perfcntr(trapframe->a0, trapframe->a1,
-						trapframe->a2, trapframe->a3);
-			locr0->v0 = -result;
-			/* Return to user, don't add any more overhead */
-			return;
-		} else
-#endif
 		/*
 		 * GCC 4 uses teq with code 7 to signal divide by
 	 	 * zero at runtime. This is one instruction shorter

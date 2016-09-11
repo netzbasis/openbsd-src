@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.225 2016/05/23 15:22:44 tedu Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.227 2016/09/03 14:17:37 bluhm Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -105,7 +105,7 @@ struct	pool mbpool;		/* mbuf pool */
 struct	pool mtagpool;
 
 /* mbuf cluster pools */
-u_int	mclsizes[] = {
+u_int	mclsizes[MCLPOOLS] = {
 	MCLBYTES,	/* must be at slot 0 */
 	4 * 1024,
 	8 * 1024,
@@ -179,15 +179,16 @@ mbinit(void)
 void
 nmbclust_update(void)
 {
-	int i;
+	unsigned int i, n;
+
 	/*
 	 * Set the hard limit on the mclpools to the number of
 	 * mbuf clusters the kernel is to support.  Log the limit
 	 * reached message max once a minute.
 	 */
 	for (i = 0; i < nitems(mclsizes); i++) {
-		(void)pool_sethardlimit(&mclpools[i], nmbclust,
-		    mclpool_warnmsg, 60);
+		n = (unsigned long long)nmbclust * MCLBYTES / mclsizes[i];
+		(void)pool_sethardlimit(&mclpools[i], n, mclpool_warnmsg, 60);
 		/*
 		 * XXX this needs to be reconsidered.
 		 * Setting the high water mark to nmbclust is too high
@@ -195,7 +196,7 @@ nmbclust_update(void)
 		 * allocations in interrupt context don't fail or mclgeti()
 		 * drivers may end up with empty rings.
 		 */
-		pool_sethiwat(&mclpools[i], nmbclust);
+		pool_sethiwat(&mclpools[i], n);
 	}
 	pool_sethiwat(&mbpool, nmbclust);
 }
@@ -265,6 +266,7 @@ void
 m_resethdr(struct mbuf *m)
 {
 	int len = m->m_pkthdr.len;
+	u_int8_t loopcnt = m->m_pkthdr.ph_loopcnt;
 
 	KASSERT(m->m_flags & M_PKTHDR);
 	m->m_flags &= (M_EXT|M_PKTHDR|M_EOR|M_EXTWR|M_ZEROIZE);
@@ -280,6 +282,7 @@ m_resethdr(struct mbuf *m)
 	memset(&m->m_pkthdr, 0, sizeof(m->m_pkthdr));
 	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
 	m->m_pkthdr.len = len;
+	m->m_pkthdr.ph_loopcnt = loopcnt;
 }
 
 struct mbuf *
@@ -1319,7 +1322,8 @@ m_print(void *v,
 		(*pr)("m_ptkhdr.ph_tags: %p\tm_pkthdr.ph_tagsset: %b\n",
 		    SLIST_FIRST(&m->m_pkthdr.ph_tags),
 		    m->m_pkthdr.ph_tagsset, MTAG_BITS);
-		(*pr)("m_pkthdr.ph_flowid: %u\n", m->m_pkthdr.ph_flowid);
+		(*pr)("m_pkthdr.ph_flowid: %u\tm_pkthdr.ph_loopcnt: %u\n",
+		    m->m_pkthdr.ph_flowid, m->m_pkthdr.ph_loopcnt);
 		(*pr)("m_pkthdr.csum_flags: %b\n",
 		    m->m_pkthdr.csum_flags, MCS_BITS);
 		(*pr)("m_pkthdr.ether_vtag: %u\tm_ptkhdr.ph_rtableid: %u\n",

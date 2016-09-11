@@ -60,6 +60,7 @@ struct nsd_options {
 	ip_address_option_t* ip_addresses;
 
 	int ip_transparent;
+	int ip_freebind;
 	int debug_mode;
 	int verbosity;
 	int hide_version;
@@ -73,6 +74,8 @@ struct nsd_options {
 	int tcp_count;
 	int tcp_query_count;
 	int tcp_timeout;
+	int tcp_mss;
+	int outgoing_tcp_mss;
 	size_t ipv4_edns_size;
 	size_t ipv6_edns_size;
 	const char* pidfile;
@@ -151,6 +154,15 @@ struct pattern_options {
 	uint8_t notify_retry_is_default;
 	uint8_t implicit; /* pattern is implicit, part_of_config zone used */
 	uint8_t xfrd_flags;
+	uint32_t max_refresh_time;
+	uint8_t max_refresh_time_is_default;
+	uint32_t min_refresh_time;
+	uint8_t min_refresh_time_is_default;
+	uint32_t max_retry_time;
+	uint8_t max_retry_time_is_default;
+	uint32_t min_retry_time;
+	uint8_t min_retry_time_is_default;
+	uint64_t size_limit_xfr;
 };
 
 #define PATTERN_IMPLICIT_MARKER "_implicit_"

@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vfsops.c,v 1.22 2016/05/26 16:03:29 natano Exp $ */
+/* $OpenBSD: fuse_vfsops.c,v 1.28 2016/09/07 17:53:35 natano Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -24,6 +24,7 @@
 #include <sys/pool.h>
 #include <sys/proc.h>
 #include <sys/specdev.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/sysctl.h>
 #include <sys/vnode.h>
@@ -170,15 +171,12 @@ int
 fusefs_root(struct mount *mp, struct vnode **vpp)
 {
 	struct vnode *nvp;
-	struct fusefs_node *ip;
 	int error;
 
-	if ((error = VFS_VGET(mp, (ino_t)FUSE_ROOTINO, &nvp)) != 0)
+	if ((error = VFS_VGET(mp, FUSE_ROOTINO, &nvp)) != 0)
 		return (error);
 
-	ip = VTOI(nvp);
 	nvp->v_type = VDIR;
-	ip->vtype = VDIR;
 
 	*vpp = nvp;
 	return (0);
@@ -203,7 +201,7 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	copy_statfs_info(sbp, mp);
 
 	if (fmp->sess_init) {
-		fbuf = fb_setup(0, FUSE_ROOT_ID, FBT_STATFS, p);
+		fbuf = fb_setup(0, FUSE_ROOTINO, FBT_STATFS, p);
 
 		error = fb_queue(fmp->dev, fbuf);
 
@@ -270,12 +268,11 @@ retry:
 	}
 
 	ip = malloc(sizeof(*ip), M_FUSEFS, M_WAITOK | M_ZERO);
-	lockinit(&ip->ufs_ino.i_lock, PINOD, "fuseinode", 0, 0);
+	rrw_init(&ip->ufs_ino.i_lock, "fuseinode");
 	nvp->v_data = ip;
 	ip->ufs_ino.i_vnode = nvp;
 	ip->ufs_ino.i_dev = fmp->dev;
 	ip->ufs_ino.i_number = ino;
-	ip->parent = 0;
 
 	for (i = 0; i < FUFH_MAXTYPE; i++)
 		ip->fufh[i].fh_type = FUFH_INVALID;
@@ -303,28 +300,13 @@ retry:
 int
 fusefs_fhtovp(struct mount *mp, struct fid *fhp, struct vnode **vpp)
 {
-	struct ufid *ufhp;
-
-	ufhp = (struct ufid *)fhp;
-	if (ufhp->ufid_len != sizeof(struct ufid) ||
-	    ufhp->ufid_ino < FUSE_ROOTINO)
-		return (ESTALE);
-
-	return (VFS_VGET(mp, ufhp->ufid_ino, vpp));
+	return (EINVAL);
 }
 
 int
 fusefs_vptofh(struct vnode *vp, struct fid *fhp)
 {
-	struct fusefs_node *ip;
-	struct ufid *ufhp;
-
-	ip = VTOI(vp);
-	ufhp = (struct ufid *)fhp;
-	ufhp->ufid_len = sizeof(struct ufid);
-	ufhp->ufid_ino = ip->ufs_ino.i_number;
-
-	return (0);
+	return (EINVAL);
 }
 
 int

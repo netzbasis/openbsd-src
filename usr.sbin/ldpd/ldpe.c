@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpe.c,v 1.61 2016/05/23 19:16:00 renato Exp $ */
+/*	$OpenBSD: ldpe.c,v 1.70 2016/09/02 17:10:34 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -35,7 +35,7 @@
 #include "log.h"
 
 static void	 ldpe_sig_handler(int, short, void *);
-static void	 ldpe_shutdown(void);
+static __dead void ldpe_shutdown(void);
 static void	 ldpe_dispatch_main(int, short, void *);
 static void	 ldpe_dispatch_lde(int, short, void *);
 static void	 ldpe_dispatch_pfkey(int, short, void *);
@@ -65,7 +65,7 @@ ldpe_sig_handler(int sig, short event, void *bula)
 }
 
 /* label distribution protocol engine */
-pid_t
+void
 ldpe(int debug, int verbose)
 {
 	struct passwd		*pw;
@@ -153,15 +153,21 @@ ldpe(int debug, int verbose)
 	event_dispatch();
 
 	ldpe_shutdown();
-	/* NOTREACHED */
-	return (0);
 }
 
-static void
+static __dead void
 ldpe_shutdown(void)
 {
 	struct if_addr		*if_addr;
 	struct adj		*adj;
+
+	/* close pipes */
+	msgbuf_write(&iev_lde->ibuf.w);
+	msgbuf_clear(&iev_lde->ibuf.w);
+	close(iev_lde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	control_cleanup();
 	config_clear(leconf);
@@ -179,19 +185,15 @@ ldpe_shutdown(void)
 		free(if_addr);
 	}
 	while ((adj = LIST_FIRST(&global.adj_list)) != NULL)
-		adj_del(adj);
+		adj_del(adj, S_SHUTDOWN);
 
 	/* clean up */
-	msgbuf_write(&iev_lde->ibuf.w);
-	msgbuf_clear(&iev_lde->ibuf.w);
 	free(iev_lde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(pkt_ptr);
 
 	log_info("ldp engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 /* imesg */
@@ -230,6 +232,8 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 	static int		 disc_socket = -1;
 	static int		 edisc_socket = -1;
 	static int		 session_socket = -1;
+	struct nbr		*nbr;
+	struct nbr_params	*nbrp;
 	int			 n, shut = 0;
 
 	if (event & EV_READ) {
@@ -304,6 +308,12 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 		case IMSG_CLOSE_SOCKETS:
 			af = imsg.hdr.peerid;
 
+			RB_FOREACH(nbr, nbr_id_head, &nbrs_by_id) {
+				if (nbr->af != af)
+					continue;
+				session_shutdown(nbr, S_SHUTDOWN, 0, 0);
+				pfkey_remove(nbr);
+			}
 			ldpe_close_sockets(af);
 			if_update_all(af);
 			tnbr_update_all(af);
@@ -311,8 +321,10 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			disc_socket = -1;
 			edisc_socket = -1;
 			session_socket = -1;
-			ldpe_imsg_compose_parent(IMSG_REQUEST_SOCKETS, 0,
-			    NULL, 0);
+			if ((ldp_af_conf_get(leconf, af))->flags &
+			    F_LDPD_AF_ENABLED)
+				ldpe_imsg_compose_parent(IMSG_REQUEST_SOCKETS,
+				    af, NULL, 0);
 			break;
 		case IMSG_SOCKET_NET:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE +
@@ -349,6 +361,17 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 			    session_socket);
 			if_update_all(af);
 			tnbr_update_all(af);
+			RB_FOREACH(nbr, nbr_id_head, &nbrs_by_id) {
+				if (nbr->af != af)
+					continue;
+				nbr->laddr = (ldp_af_conf_get(leconf,
+				    af))->trans_addr;
+				nbrp = nbr_params_find(leconf, nbr->id);
+				if (nbrp && pfkey_establish(nbr, nbrp) == -1)
+					fatalx("pfkey setup failed");
+				if (nbr_session_active_role(nbr))
+					nbr_establish_connection(nbr);
+			}
 			break;
 		case IMSG_RECONF_CONF:
 			if ((nconf = malloc(sizeof(struct ldpd_conf))) ==
@@ -417,6 +440,7 @@ ldpe_dispatch_main(int fd, short event, void *bula)
 		case IMSG_RECONF_END:
 			merge_config(leconf, nconf);
 			nconf = NULL;
+			global.conf_seqnum++;
 			break;
 		case IMSG_CTL_KROUTE:
 		case IMSG_CTL_KROUTE_ADDR:

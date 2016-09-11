@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.32 2016/05/26 00:34:50 jsg Exp $
+#	$OpenBSD: install.md,v 1.42 2016/09/04 10:06:11 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -32,101 +32,54 @@
 # machine dependent section of installation/upgrade script.
 #
 
-# This code runs when the script is initally sourced to set up 
-# MDSETS, SANESETS and DEFAULTSETS 
-
-if dmesg | grep -q '^omap0 at mainbus0:'; then
-        MDPLAT=OMAP
-fi
-
-if dmesg | grep -q '^imx0 at mainbus0:'; then
-        MDPLAT=IMX
-fi
-
-if dmesg | grep -q '^sunxi0 at mainbus0:'; then
-	MDPLAT=SUNXI
-fi
-
-if dmesg | grep -q '^vexpress0 at mainbus0:'; then
-	if dmesg | grep -q '^cpu0 at mainbus0: ARM Cortex A9 '; then
-		MDPLAT=VEXPRESSA9
-	else
-		MDPLAT=VEXPRESSA15
-	fi
-fi
-
-MDSETS="bsd.${MDPLAT}.umg bsd.rd.${MDPLAT}.umg"
 SANESETS="bsd"
-DEFAULTSETS="bsd bsd.rd ${MDSETS}"
+DEFAULTSETS="bsd bsd.rd"
 
 NEWFSARGS_msdos="-F 16 -L boot"
 MOUNT_ARGS_msdos="-o-l"
 
 md_installboot() {
-	local _disk=$1
-	local mount_args=${MOUNT_ARGS_msdos}
+	local _disk=/dev/$1 _mdec _plat
 
-	BEAGLE=$(scan_dmesg '/^omap0 at mainbus0: TI OMAP3 \(BeagleBoard\).*/s//\1/p')
-	BEAGLEBONE=$(scan_dmesg '/^omap0 at mainbus0: TI AM335x \(BeagleBone\).*/s//\1/p')
-	PANDA=$(scan_dmesg '/^omap0 at mainbus0: TI OMAP4 \(PandaBoard\)/s//\1/p')
-	CUBOX=$(scan_dmesg '/^imx0 at mainbus0: \(SolidRun.*\)/s//CUBOX/p')
-	NITROGEN=$(scan_dmesg '/^imx0 at mainbus0: \(Freescale i.MX6 SABRE Lite.*\)/s//NITROGEN/p')
-	WANDBOARD=$(scan_dmesg '/^imx0 at mainbus0: \(Wandboard i.MX6.*\)/s//WANDBOARD/p')
+	# Identify ARMv7 platform based on dmesg.
+	case $(scan_dmesg 's/^mainbus0 at root: \(.*\)$/\1/p') in
+	*AM335x*)			_plat=am335x;;
+	*'OMAP3 BeagleBoard'*)		_plat=beagle;;
+	*OMAP4*)			_plat=panda;;
+	*'Cubietech Cubieboard2'*)	_plat=cubie;;
+	*Cubox-i*|*HummingBoard*)	_plat=cubox;;
+	*Wandboard*)			_plat=wandboard;;
+	*Nitrogen6*|*'SABRE Lite'*)	_plat=nitrogen;;
+	*)				;; # XXX: Handle unknown platform?
+	esac
 
-	mount ${mount_args} /dev/${_disk}i /mnt/mnt
-
-	# extracted on all machines, so make snap works.
-	tar -C /mnt/ -xf /usr/mdec/u-boots.tgz 
-
+	# Mount MSDOS partition, extract U-Boot and copy UEFI boot program
+	mount ${MOUNT_ARGS_msdos} ${_disk}i /mnt/mnt
 	mkdir -p /mnt/mnt/efi/boot
 	cp /mnt/usr/mdec/BOOTARM.EFI /mnt/mnt/efi/boot/bootarm.efi
 
-	if [[ ${MDPLAT} == "OMAP" ]]; then
+	_mdec=/usr/mdec/$_plat
 
-		if [[ -n $BEAGLE ]]; then
-			cp /mnt/usr/mdec/beagle/{MLO,u-boot.img} /mnt/mnt/
-			cp /mnt/usr/mdec/beagle/*.dtb /mnt/mnt/
-		elif [[ -n $BEAGLEBONE ]]; then
-			cp /mnt/usr/mdec/am335x/{MLO,u-boot.img} /mnt/mnt/
-			cp /mnt/usr/mdec/am335x/*.dtb /mnt/mnt/
-		elif [[ -n $PANDA ]]; then
-			cp /mnt/usr/mdec/panda/{MLO,u-boot.img} /mnt/mnt/
-			cp /mnt/usr/mdec/panda/*.dtb /mnt/mnt/
-		fi
-	elif [[ ${MDPLAT} == "IMX" ]]; then
-		if [[ -n $CUBOX ]]; then
-			cp /mnt/usr/mdec/cubox/*.dtb /mnt/mnt/
-			dd if=/mnt/usr/mdec/cubox/SPL \
-			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
-			dd if=/mnt/usr/mdec/cubox/u-boot.img \
-			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
-		elif [[ -n $NITROGEN ]]; then
-			if [[ -f /mnt/bsd.${MDPLAT}.umg ]]; then
-				mv /mnt/bsd.${MDPLAT}.umg /mnt/mnt/bsd.umg
-			fi
-			if [[ -f /mnt/bsd.rd.${MDPLAT}.umg ]]; then
-				mv /mnt/bsd.rd.${MDPLAT}.umg /mnt/mnt/bsdrd.umg
-			fi
-
-			cat > /tmp/boot.cmd<<__EOT
-setenv bootargs sd0a:/bsd ;
-mmc rescan ;
-load mmc 0:1 \${loadaddr} bsd.umg ;
-bootm \${loadaddr}
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/boot.cmd \
-			    /mnt/mnt/6x_bootscript
-		elif [[ -n $WANDBOARD ]]; then
-			cp /mnt/usr/mdec/wandboard/*.dtb /mnt/mnt/
-			dd if=/mnt/usr/mdec/wandboard/SPL \
-			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
-			dd if=/mnt/usr/mdec/wandboard/u-boot.img \
-			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
-		fi
-	elif [[ ${MDPLAT} == "SUNXI" ]]; then
-		cp /mnt/usr/mdec/cubie/u-boot-sunxi-with-spl.bin /mnt/mnt/
-		cp /mnt/usr/mdec/cubie/*.dtb /mnt/mnt/
-	fi
+	case $_plat in
+	am335x|beagle|panda)
+		cp $_mdec/{MLO,u-boot.img,*.dtb} /mnt/mnt/
+		;;
+	cubox|wandboard)
+		cp $_mdec/*.dtb /mnt/mnt/
+		dd if=$_mdec/SPL of=${_disk}c bs=1024 seek=1 \
+		    >/dev/null 2>&1
+		dd if=$_mdec/u-boot.img of=${_disk}c bs=1024 seek=69 \
+		    >/dev/null 2>&1
+		;;
+	nitrogen)
+		cp $_mdec/*.dtb /mnt/mnt/
+		;;
+	cubie)
+		cp $_mdec/*.dtb /mnt/mnt/
+		dd if=$_mdec/u-boot-sunxi-with-spl.bin of=${_disk}c \
+		    bs=1024 seek=8 >/dev/null 2>&1
+		;;
+	esac
 }
 
 md_prep_fdisk() {
@@ -175,12 +128,13 @@ __EOT
 			cat <<__EOT
 
 You will now create one MBR partition to contain your OpenBSD data
-and one MBR partition on which kernels are located which are loaded
-by U-Boot. Neither partition will overlap any other partition.
+and one MBR partition on which the OpenBSD boot program is located.
+Neither partition will overlap any other partition.
 
 The OpenBSD MBR partition will have an id of 'A6' and the boot MBR
-partition will have an id of '${bootparttype}' (${bootfstype}). The boot partition will be
-at least 16MB and be the first 'MSDOS' partition on the disk.
+partition will have an id of '${bootparttype}' (${bootfstype}).
+The boot partition will be at least 16MB and be the first 'MSDOS'
+partition on the disk.
 
 $(fdisk ${_disk})
 __EOT
@@ -192,7 +146,7 @@ __EOT
 }
 
 md_prep_disklabel() {
-	local _disk=$1 _f=/tmp/fstab.$1
+	local _disk=$1 _f=/tmp/i/fstab.$1
 
 	md_prep_fdisk $_disk
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_machdep.c,v 1.27 2016/05/20 11:21:08 kettenis Exp $ */
+/*	$OpenBSD: armv7_machdep.c,v 1.39 2016/09/01 09:05:37 kettenis Exp $ */
 /*	$NetBSD: lubbock_machdep.c,v 1.2 2003/07/15 00:25:06 lukem Exp $ */
 
 /*
@@ -101,15 +101,8 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * Machine dependant functions for kernel setup for Intel IQ80310 evaluation
- * boards using RedBoot firmware.
- */
-
-/*
- * DIP switches:
- *
- * S19: no-dot: set RB_KDB.  enter kgdb session.
- * S20: no-dot: set RB_SINGLE. don't go multi user mode.
+ * Machine dependant functions for kernel setup for ARMv7 boards using
+ * u-boot/EFI firmware.
  */
 
 #include <sys/param.h>
@@ -131,6 +124,7 @@
 
 #include <dev/cons.h>
 #include <dev/ofw/fdt.h>
+#include <dev/ofw/openfirm.h>
 
 #include <net/if.h>
 
@@ -208,9 +202,7 @@ char	bootargs[MAX_BOOT_STRING];
 int	bootstrap_bs_map(void *, bus_addr_t, bus_size_t, int,
     bus_space_handle_t *);
 void	process_kernel_args(char *);
-void	parse_uboot_tags(void *);
 void	consinit(void);
-void	bootconfig_dram(BootConfig *, psize_t *, psize_t *);
 
 bs_protos(bs_notimpl);
 
@@ -223,6 +215,8 @@ bs_protos(bs_notimpl);
 
 int comcnspeed = CONSPEED;
 int comcnmode = CONMODE;
+
+int stdout_node = 0;
 
 /*
  * void boot(int howto, char *bootstr)
@@ -377,21 +371,25 @@ copy_io_area_map(pd_entry_t *new_pd)
  * It should be responsible for setting up everything that must be
  * in place when main is called.
  * This includes
- *   Taking a copy of the boot configuration structure.
+ *   Taking a copy of the FDT.
  *   Initialising the physical console so characters can be printed.
- *   Setting up page tables for the kernel
- *   Relocating the kernel to the bottom of physical memory
+ *   Setting up page tables for the kernel.
  */
 u_int
 initarm(void *arg0, void *arg1, void *arg2)
 {
-	int loop, loop1, i, physsegs;
+	int loop, loop1, i, physsegs = VM_PHYSSEG_MAX;
 	u_int l1pagetable;
 	pv_addr_t kernel_l1pt;
 	pv_addr_t fdt;
+	paddr_t loadaddr;
+	struct fdt_reg reg;
 	paddr_t memstart;
 	psize_t memsize;
+	paddr_t memend;
 	void *config;
+	size_t size;
+	void *node;
 	extern uint32_t esym; /* &_end if no symbols are loaded */
 
 	/* early bus_space_map support */
@@ -399,6 +397,7 @@ initarm(void *arg0, void *arg1, void *arg2)
 	int	(*map_func_save)(void *, bus_addr_t, bus_size_t, int,
 	    bus_space_handle_t *);
 
+	loadaddr = (paddr_t)arg0;
 	board_id = (uint32_t)arg1;
 	/*
 	 * u-boot has decided the top four bits are
@@ -427,55 +426,44 @@ initarm(void *arg0, void *arg1, void *arg2)
 	tmp_bs_tag.bs_map = bootstrap_bs_map;
 
 	/*
-	 * Now, map the bootconfig/FDT area.
+	 * Now, map the FDT area.
 	 *
 	 * As we don't know the size of a possible FDT, map the size of a
 	 * typical bootstrap bs map.  The FDT might not be aligned, so this
-	 * might take up to two L1_S_SIZEd mappings.  In the unlikely case
-	 * that the FDT is bigger than L1_S_SIZE (0x00100000), we need to
-	 * remap it.
+	 * might take up to two L1_S_SIZEd mappings.
 	 *
 	 * XXX: There's (currently) no way to unmap a bootstrap mapping, so
 	 * we might lose a bit of the bootstrap address space.
 	 */
 	bootstrap_bs_map(NULL, (bus_addr_t)arg2, L1_S_SIZE, 0,
 	    (bus_space_handle_t *)&config);
-	if (fdt_init(config) && fdt_get_size(config) != 0) {
-		uint32_t size = fdt_get_size(config);
-		if (size > L1_S_SIZE)
-			bootstrap_bs_map(NULL, (bus_addr_t)arg2, size, 0,
-			    (bus_space_handle_t *)&config);
+
+	if (!fdt_init(config) || fdt_get_size(config) == 0)
+		panic("initarm: no FDT");
+
+	node = fdt_find_node("/chosen");
+	if (node != NULL) {
+		char *args, *duid;
+		int len;
+
+		len = fdt_node_property(node, "bootargs", &args);
+		if (len > 0)
+			process_kernel_args(args);
+
+		len = fdt_node_property(node, "openbsd,bootduid", &duid);
+		if (len == sizeof(bootduid))
+			memcpy(bootduid, duid, sizeof(bootduid));
 	}
 
-	if (fdt_init(config) && fdt_get_size(config) != 0) {
-		struct fdt_memory mem;
-		void *node;
+	node = fdt_find_node("/memory");
+	if (node == NULL || fdt_get_reg(node, 0, &reg))
+		panic("initarm: no memory specificed");
 
-		node = fdt_find_node("/memory");
-		if (node == NULL || fdt_get_memory_address(node, 0, &mem))
-			panic("initarm: no memory specificed");
+	memstart = reg.addr;
+	memsize = reg.size;
+	physical_start = reg.addr;
+	physical_end = MIN(reg.addr + reg.size, (paddr_t)-PAGE_SIZE);
 
-		memstart = mem.addr;
-		memsize = mem.size;
-		physical_start = mem.addr;
-		physical_end = MIN(mem.addr + mem.size, (paddr_t)-PAGE_SIZE);
-
-		node = fdt_find_node("/chosen");
-		if (node != NULL) {
-			char *args, *duid;
-			int len;
-
-			len = fdt_node_property(node, "bootargs", &args);
-			if (len > 0)
-				process_kernel_args(args);
-
-			len = fdt_node_property(node, "openbsd,bootduid", &duid);
-			if (len == sizeof(bootduid))
-				memcpy(bootduid, duid, sizeof(bootduid));
-		}
-	}
-
-	/* XXX: Use FDT information. */
 	platform_init();
 	platform_disable_l2_if_needed();
 
@@ -483,39 +471,16 @@ initarm(void *arg0, void *arg1, void *arg2)
 	consinit();
 
 	/* Talk to the user */
-	printf("\n%s booting ...\n", platform_boot_name());
+	printf("\nOpenBSD/armv7 booting ...\n");
 
 	printf("arg0 %p arg1 %p arg2 %p\n", arg0, arg1, arg2);
-
-	if (fdt_get_size(config) == 0) {
-		parse_uboot_tags(config);
-
-		/*
-		 * Examine the boot args string for options we need to know about
-		 * now.
-		 */
-		process_kernel_args(bootconfig.bootstring);
-
-		/* normally u-boot will set up bootconfig.dramblocks */
-		bootconfig_dram(&bootconfig, &memstart, &memsize);
-
-		/*
-		 * Set up the variables that define the availablilty of
-		 * physical memory.
-		 *
-		 * XXX pmap_bootstrap() needs an enema.
-		 */
-		physical_start = bootconfig.dram[0].address;
-		physical_end = MIN((uint64_t)physical_start +
-		    (bootconfig.dram[0].pages * PAGE_SIZE), (paddr_t)-PAGE_SIZE);
-	}
 
 #ifdef RAMDISK_HOOKS
 	boothowto |= RB_DFLTROOT;
 #endif /* RAMDISK_HOOKS */
 
-	physical_freestart = (((unsigned long)esym - KERNEL_TEXT_BASE +0xfff) & ~0xfff) + memstart;
-	physical_freeend = MIN((uint64_t)memstart+memsize, (paddr_t)-PAGE_SIZE);
+	physical_freestart = (((unsigned long)esym - KERNEL_TEXT_BASE + 0xfff) & ~0xfff) + loadaddr;
+	physical_freeend = MIN((uint64_t)physical_end, (paddr_t)-PAGE_SIZE);
 
 	physmem = (physical_end - physical_start) / PAGE_SIZE;
 
@@ -557,7 +522,7 @@ initarm(void *arg0, void *arg1, void *arg2)
 	/* Define a macro to simplify memory allocation */
 #define	valloc_pages(var, np)				\
 	alloc_pages((var).pv_pa, (np));			\
-	(var).pv_va = KERNEL_BASE + (var).pv_pa - physical_start;
+	(var).pv_va = KERNEL_BASE + (var).pv_pa - loadaddr;
 
 #define alloc_pages(var, np)				\
 	(var) = physical_freestart;			\
@@ -616,15 +581,12 @@ initarm(void *arg0, void *arg1, void *arg2)
 	/*
 	 * Allocate pages for an FDT copy.
 	 */
-	if (fdt_get_size(config) != 0) {
-		uint32_t size = fdt_get_size(config);
-		valloc_pages(fdt, round_page(size) / PAGE_SIZE);
-		memcpy((void *)fdt.pv_pa, config, size);
-	}
+	size = fdt_get_size(config);
+	valloc_pages(fdt, round_page(size) / PAGE_SIZE);
+	memcpy((void *)fdt.pv_pa, config, size);
 
 	/*
 	 * XXX Defer this to later so that we can reclaim the memory
-	 * XXX used by the RedBoot page tables.
 	 */
 	alloc_pages(msgbufphys, round_page(MSGBUFSIZE) / PAGE_SIZE);
 
@@ -677,10 +639,10 @@ initarm(void *arg0, void *arg1, void *arg2)
 		logical = 0x00000000;	/* offset of kernel in RAM */
 
 		logical += pmap_map_chunk(l1pagetable, KERNEL_BASE + logical,
-		    physical_start + logical, textsize,
-		    PROT_READ | PROT_WRITE | PROT_EXEC, PTE_CACHE);
+		    loadaddr + logical, textsize,
+		    PROT_READ | PROT_EXEC, PTE_CACHE);
 		logical += pmap_map_chunk(l1pagetable, KERNEL_BASE + logical,
-		    physical_start + logical, totalsize - textsize,
+		    loadaddr + logical, totalsize - textsize,
 		    PROT_READ | PROT_WRITE, PTE_CACHE);
 	}
 
@@ -711,13 +673,12 @@ initarm(void *arg0, void *arg1, void *arg2)
 
 	/* Map the vector page. */
 	pmap_map_entry(l1pagetable, vector_page, systempage.pv_pa,
-	    PROT_READ | PROT_WRITE | PROT_EXEC, PTE_CACHE);
+	    PROT_READ | PROT_WRITE, PTE_CACHE);
 
 	/* Map the FDT. */
-	if (fdt.pv_va && fdt.pv_pa)
-		pmap_map_chunk(l1pagetable, fdt.pv_va, fdt.pv_pa,
-		    round_page(fdt_get_size((void *)fdt.pv_pa)),
-		    PROT_READ | PROT_WRITE, PTE_CACHE);
+	pmap_map_chunk(l1pagetable, fdt.pv_va, fdt.pv_pa,
+	    round_page(fdt_get_size((void *)fdt.pv_pa)),
+	    PROT_READ | PROT_WRITE, PTE_CACHE);
 
 	/*
 	 * map integrated peripherals at same address in l1pagetable
@@ -730,15 +691,8 @@ initarm(void *arg0, void *arg1, void *arg2)
 	 * Once this is done we will be running with the REAL kernel page
 	 * tables.
 	 */
-
-	/* be a client to all domains */
-	cpu_domains(0x55555555);
-	/* Switch tables */
-
-	cpu_domains((DOMAIN_CLIENT << (PMAP_DOMAIN_KERNEL*2)) | DOMAIN_CLIENT);
 	setttb(kernel_l1pt.pv_pa);
 	cpu_tlb_flushID();
-	cpu_domains(DOMAIN_CLIENT << (PMAP_DOMAIN_KERNEL*2));
 
 	/*
 	 * Moved from cpu_startup() as data_abort_handler() references
@@ -780,8 +734,7 @@ initarm(void *arg0, void *arg1, void *arg2)
 	undefined_handler_address = (u_int)undefinedinstruction_bounce;
 
 	/* Now we can reinit the FDT, using the virtual address. */
-	if (fdt.pv_va && fdt.pv_pa)
-		fdt_init((void *)fdt.pv_va);
+	fdt_init((void *)fdt.pv_va);
 
 	/* Initialise the undefined instruction handlers */
 #ifdef VERBOSE_INIT_ARM
@@ -797,15 +750,21 @@ initarm(void *arg0, void *arg1, void *arg2)
 	uvm_page_physload(atop(physical_freestart), atop(physical_freeend),
 	    atop(physical_freestart), atop(physical_freeend), 0);
 
-	physsegs = MIN(bootconfig.dramblocks, VM_PHYSSEG_MAX);
+	if (physical_start < loadaddr) {
+		uvm_page_physload(atop(physical_start), atop(loadaddr),
+		    atop(physical_start), atop(loadaddr), 0);
+		physsegs--;
+	}
 
 	for (i = 1; i < physsegs; i++) {
-		paddr_t dramstart = bootconfig.dram[i].address;
-		paddr_t dramend =  MIN((uint64_t)dramstart +
-		    bootconfig.dram[i].pages * PAGE_SIZE, (paddr_t)-PAGE_SIZE);
-		physmem += (dramend - dramstart) / PAGE_SIZE;
-		uvm_page_physload(atop(dramstart), atop(dramend),
-		    atop(dramstart), atop(dramend), 0);
+		if (fdt_get_reg(node, i, &reg))
+			break;
+
+		memstart = reg.addr;
+		memend = MIN(reg.addr + reg.size, (paddr_t)-PAGE_SIZE);
+		physmem += (memend - memstart) / PAGE_SIZE;
+		uvm_page_physload(atop(memstart), atop(memend),
+		    atop(memstart), atop(memend), 0);
 	}
 
 	/* Boot strap pmap telling it where the kernel page table is */
@@ -814,6 +773,8 @@ initarm(void *arg0, void *arg1, void *arg2)
 #endif
 	pmap_bootstrap((pd_entry_t *)kernel_l1pt.pv_va, KERNEL_VM_BASE,
 	    KERNEL_VM_BASE + KERNEL_VM_SIZE);
+
+	vector_page_setprot(PROT_READ | PROT_EXEC);
 
 	/*
 	 * Restore proper bus_space operation, now that pmap is initialized.
@@ -831,6 +792,8 @@ initarm(void *arg0, void *arg1, void *arg2)
 		Debugger();
 #endif
 	printf("board type: %u\n", board_id);
+
+	cpu_setup();
 
 	/* We return the new stack pointer address */
 	return(kernelstack.pv_va + USPACE_SVC_STACK_TOP);
@@ -900,6 +863,52 @@ process_kernel_args(char *args)
 	}
 }
 
+void *
+fdt_find_cons(const char *name)
+{
+	char *alias = "serial0";
+	char buf[128];
+	char *stdout = NULL;
+	char *p;
+	void *node;
+
+	/* First check if "stdout-path" is set. */
+	node = fdt_find_node("/chosen");
+	if (node) {
+		if (fdt_node_property(node, "stdout-path", &stdout) > 0) {
+			if (strchr(stdout, ':') != NULL) {
+				strlcpy(buf, stdout, sizeof(buf));
+				if ((p = strchr(buf, ':')) != NULL)
+					*p = '\0';
+				stdout = buf;
+			}
+			if (stdout[0] != '/') {
+				/* It's an alias. */
+				alias = stdout;
+				stdout = NULL;
+			}
+		}
+	}
+
+	/* Perform alias lookup if necessary. */
+	if (stdout == NULL) {
+		node = fdt_find_node("/aliases");
+		if (node)
+			fdt_node_property(node, alias, &stdout);
+	}
+
+	/* Lookup the physical address of the interface. */
+	if (stdout) {
+		node = fdt_find_node(stdout);
+		if (node && fdt_is_compatible(node, name)) {
+			stdout_node = OF_finddevice(stdout);
+			return (node);
+		}
+	}
+
+	return (NULL);
+}
+
 void
 consinit(void)
 {
@@ -922,23 +931,5 @@ board_startup(void)
 #else
 		printf("kernel does not support -c; continuing..\n");
 #endif
-	}
-}
-
-void
-bootconfig_dram(BootConfig *bootconfig, psize_t *memstart, psize_t *memsize)
-{
-	int loop;
-
-	if (bootconfig->dramblocks == 0) 
-		panic("%s: dramblocks not set up!", __func__);
-
-	*memstart = bootconfig->dram[0].address;
-	*memsize = bootconfig->dram[0].pages * PAGE_SIZE;
-	printf("memory size derived from u-boot\n");
-	for (loop = 0; loop < bootconfig->dramblocks; loop++) {
-		printf("bootconf.mem[%d].address = %08x pages %d/0x%08x\n",
-		    loop, bootconfig->dram[loop].address, bootconfig->dram[loop].pages,
-			bootconfig->dram[loop].pages * PAGE_SIZE);
 	}
 }

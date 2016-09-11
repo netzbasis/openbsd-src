@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/ksh
 #
-# $OpenBSD: rcctl.sh,v 1.95 2016/04/26 18:39:29 ajacoutot Exp $
+# $OpenBSD: rcctl.sh,v 1.105 2016/09/07 13:13:13 ajacoutot Exp $
 #
 # Copyright (c) 2014, 2015 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -53,7 +53,7 @@ ls_rcscripts()
 
 	cd /etc/rc.d && set -- *
 	for _s; do
-		[ "${_s}" = "rc.subr" ] && continue
+		[[ ${_s} = *.* ]] && continue
 		[ ! -d "${_s}" ] && echo "${_s}"
 	done
 }
@@ -139,9 +139,9 @@ rcconf_edit_end()
 svc_is_avail()
 {
 	local _svc=$1
-	[ -n "${_svc}" ] || return
+	_rc_check_name "${_svc}" || return
 
-	[ -x "/etc/rc.d/${_svc}" ] && return 0
+	[ -x "/etc/rc.d/${_svc}" ] && return
 	svc_is_special ${_svc}
 }
 
@@ -150,8 +150,16 @@ svc_is_base()
 	local _svc=$1
 	[ -n "${_svc}" ] || return
 
-	grep -E 'start_daemon[[:space:]]+[[:alnum:]]' /etc/rc | \
-		cut -d ' ' -f2- | grep -qw -- ${_svc}
+	local _cached _ret
+
+	_cached=$(eval echo \${cached_svc_is_base_${_svc}})
+	[ "${_cached}" ] && return "${_cached}"
+
+	grep -qw "^${_svc}_flags" /etc/rc.conf
+	_ret=$?
+
+	set -A cached_svc_is_base_${_svc} -- ${_ret}
+	return ${_ret}
 }
 
 svc_is_meta()
@@ -159,7 +167,16 @@ svc_is_meta()
 	local _svc=$1
 	[ -n "${_svc}" ] || return
 
+	local _cached _ret
+
+	_cached=$(eval echo \${cached_svc_is_meta_${_svc}})
+	[ "${_cached}" ] && return "${_cached}"
+
 	[ -r "/etc/rc.d/${_svc}" ] && ! grep -qw "^rc_cmd" /etc/rc.d/${_svc}
+	_ret=$?
+
+	set -A cached_svc_is_meta_${_svc} -- ${_ret}
+	return ${_ret}
 }
 
 svc_is_special()
@@ -167,7 +184,16 @@ svc_is_special()
 	local _svc=$1
 	[ -n "${_svc}" ] || return
 
+	local _cached _ret
+
+	_cached=$(eval echo \${cached_svc_is_special_${_svc}})
+	[ "${_cached}" ] && return "${_cached}"
+
 	echo ${_special_svcs} | grep -qw -- ${_svc}
+	_ret=$?
+
+	set -A cached_svc_is_special_${_svc} -- ${_ret}
+	return ${_ret}
 }
 
 svc_ls()
@@ -486,9 +512,10 @@ case ${action} in
 		svc=$2
 		var=$3
 		[ -z "${svc}" ] && usage
-		svc_is_avail ${svc} || \
+		[ "${svc}" = "all" ] || svc_is_avail ${svc} || \
 			rcctl_err "service ${svc} does not exist" 2
 		if [ -n "${var}" ]; then
+			[ "${svc}" = "all" ] && usage
 			[[ ${var} != @(class|flags|status|rtable|timeout|user) ]] && usage
 			if svc_is_meta ${svc}; then
 				[ "${var}" != "status" ] && \
@@ -543,11 +570,15 @@ case ${action} in
 		done
 		exit ${ret}
 		;;
-	get)
-		svc_get ${svc} "${var}"
-		;;
-	getdef)
-		( svc_getdef ${svc} "${var}" )
+	get|getdef)
+		if [ "${svc}" = "all" ]; then
+			for svc in $(svc_ls all); do
+				( svc_${action} ${svc} "${var}" )
+			done
+			return 0 # we do not want the svc status
+		else
+			( svc_${action} ${svc} "${var}" )
+		fi
 		;;
 	ls)
 		# some rc.d(8) scripts need root for rc_check()

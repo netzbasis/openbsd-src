@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.418 2016/05/07 23:10:50 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.432 2016/09/04 10:22:05 tedu Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -64,6 +64,9 @@ aibs*		at acpi?
 bytgpio*	at acpi?
 chvgpio*	at acpi?
 sdhc*		at acpi?
+acpicbkbd*	at acpi?
+acpials*	at acpi?
+tpm*		at acpi?
 
 mpbios0		at bios0
 
@@ -73,6 +76,9 @@ vmt0	at pvbus?		# VMware Tools
 
 xen0	at pvbus?		# Xen HVM domU
 xnf*	at xen?			# Xen Netfront
+
+#hyperv0	at pvbus?		# Hyper-V guest
+#hvn*	at hyperv?		# Hyper-V netvsc
 
 option		PCIVERBOSE
 option		USBVERBOSE
@@ -98,7 +104,7 @@ lm0	at isa? port 0x290
 it*	at isa? port 0x2e	# ITE IT8705F, IT8712F, IT8716F, IT8718F,
 it*	at isa? port 0x4e	# IT8726F and SiS SiS950 monitors and
 				# watchdog timer
-				
+
 schsio*	at isa? port 0x2e	# SMSC SCH311x Super I/O
 schsio*	at isa? port 0x4e
 schsio*	at isa? port 0x162e
@@ -159,6 +165,8 @@ ikbd*	at ihidev?		# i2c keyboard
 wskbd*	at ikbd? mux 1
 imt*	at ihidev?		# HID-over-i2c multitouch trackpad
 wsmouse* at imt? mux 0
+iatp* at iic?			# Atmel maXTouch i2c touchpad/touchscreen
+wsmouse* at iatp? mux 0
 
 skgpio0 at isa? port 0x680	# Soekris net6501 GPIO and LEDs
 gpio* at skgpio?
@@ -216,7 +224,7 @@ ucom*	at uslcom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 moscom*	at uhub?		# MosChip MCS7703 serial
-ucom*	at moscom?		
+ucom*	at moscom?
 umcs*	at uhub?		# MosChip MCS78x0 serial
 ucom*	at umcs?
 uipaq*	at uhub?		# iPAQ serial adapter
@@ -262,6 +270,7 @@ ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio
@@ -279,6 +288,7 @@ urtw*	at uhub?		# Realtek 8187
 rsu*	at uhub?		# Realtek RTL8188SU/RTL8191SU/RTL8192SU
 urtwn*	at uhub?		# Realtek RTL8188CU/RTL8192CU
 udcf*	at uhub?		# Gude Expert mouseCLOCK
+umb*	at uhub?		# Mobile Broadband Interface Model
 uthum*	at uhidev?		# TEMPerHUM sensor
 ugold*	at uhidev?		# gold TEMPer sensor
 utrh*	at uhidev?		# USBRH sensor
@@ -290,6 +300,9 @@ uoakv*	at uhidev?		# Toradex OAK 10V sensor
 onewire* at uow?
 uvideo*	at uhub?		# USB Video
 video*	at uvideo?
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
 
@@ -355,7 +368,6 @@ lpt*	at puc?
 efifb0		at mainbus?		# EFI Framebuffer
 wsdisplay0	at efifb? console 1
 
-#bha*	at pci?				# BusLogic [57]4X SCSI controllers
 ahc*	at pci?				# Adaptec 2940 SCSI controllers
 jmb*	at pci?				# JMicron JMB36x controllers
 ahci*	at jmb? flags 0x0000		# flags 0x0001 to force SATA 1 (1.5Gb/s)
@@ -501,7 +513,6 @@ wi*	at pci?				# WaveLAN IEEE 802.11DS
 wi*	at pcmcia?			# WaveLAN IEEE 802.11DS
 an*	at pci?				# Aironet IEEE 802.11DS
 an*	at pcmcia?			# Aironet IEEE 802.11DS
-cnw*	at pcmcia?			# Xircom Netwave
 iwi*	at pci?				# Intel PRO/Wireless 2200BG/2915ABG
 wpi*	at pci?				# Intel PRO/Wireless 3945ABG
 iwn*	at pci?				# Intel WiFi Link 4965/5000/1000/6000

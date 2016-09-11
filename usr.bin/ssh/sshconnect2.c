@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.245 2016/05/24 04:43:45 dtucker Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.247 2016/07/22 05:46:11 dtucker Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -65,6 +65,7 @@
 #include "uidswap.h"
 #include "hostfile.h"
 #include "ssherr.h"
+#include "utf8.h"
 
 #ifdef GSSAPI
 #include "ssh-gss.h"
@@ -487,21 +488,15 @@ input_userauth_error(int type, u_int32_t seq, void *ctxt)
 int
 input_userauth_banner(int type, u_int32_t seq, void *ctxt)
 {
-	char *msg, *raw, *lang;
+	char *msg, *lang;
 	u_int len;
 
-	debug3("input_userauth_banner");
-	raw = packet_get_string(&len);
+	debug3("%s", __func__);
+	msg = packet_get_string(&len);
 	lang = packet_get_string(NULL);
-	if (len > 0 && options.log_level >= SYSLOG_LEVEL_INFO) {
-		if (len > 65536)
-			len = 65536;
-		msg = xmalloc(len * 4 + 1); /* max expansion from strnvis() */
-		strnvis(msg, raw, len * 4 + 1, VIS_SAFE|VIS_OCTAL|VIS_NOSLASH);
-		fprintf(stderr, "%s", msg);
-		free(msg);
-	}
-	free(raw);
+	if (len > 0 && options.log_level >= SYSLOG_LEVEL_INFO)
+		fmprintf(stderr, "%s", msg);
+	free(msg);
 	free(lang);
 	return 0;
 }
@@ -553,7 +548,7 @@ input_userauth_failure(int type, u_int32_t seq, void *ctxt)
 	packet_check_eom();
 
 	if (partial != 0) {
-		logit("Authenticated with partial success.");
+		verbose("Authenticated with partial success.");
 		/* reset state */
 		pubkey_cleanup(authctxt);
 		pubkey_prepare(authctxt);

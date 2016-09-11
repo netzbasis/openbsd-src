@@ -1,4 +1,4 @@
-/*	$OpenBSD: l2vpn.c,v 1.16 2016/05/23 19:11:42 renato Exp $ */
+/*	$OpenBSD: l2vpn.c,v 1.21 2016/07/01 23:36:38 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -74,7 +74,6 @@ l2vpn_del(struct l2vpn *l2vpn)
 		free(lif);
 	}
 	while ((pw = LIST_FIRST(&l2vpn->pw_list)) != NULL) {
-		l2vpn_pw_exit(pw);
 		LIST_REMOVE(pw, entry);
 		free(pw);
 	}
@@ -89,6 +88,15 @@ l2vpn_init(struct l2vpn *l2vpn)
 
 	LIST_FOREACH(pw, &l2vpn->pw_list, entry)
 		l2vpn_pw_init(pw);
+}
+
+void
+l2vpn_exit(struct l2vpn *l2vpn)
+{
+	struct l2vpn_pw		*pw;
+
+	LIST_FOREACH(pw, &l2vpn->pw_list, entry)
+		l2vpn_pw_exit(pw);
 }
 
 struct l2vpn_if *
@@ -155,7 +163,7 @@ l2vpn_pw_init(struct l2vpn_pw *pw)
 	l2vpn_pw_reset(pw);
 
 	l2vpn_pw_fec(pw, &fec);
-	lde_kernel_insert(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id,
+	lde_kernel_insert(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id, 0,
 	    0, (void *)pw);
 }
 
@@ -165,7 +173,7 @@ l2vpn_pw_exit(struct l2vpn_pw *pw)
 	struct fec	 fec;
 
 	l2vpn_pw_fec(pw, &fec);
-	lde_kernel_remove(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id);
+	lde_kernel_remove(&fec, AF_INET, (union ldpd_addr*)&pw->lsr_id, 0);
 }
 
 static void
@@ -250,6 +258,7 @@ int
 l2vpn_pw_negotiate(struct lde_nbr *ln, struct fec_node *fn, struct map *map)
 {
 	struct l2vpn_pw		*pw;
+	struct status_tlv	 st;
 
 	/* NOTE: thanks martini & friends for all this mess */
 
@@ -269,8 +278,11 @@ l2vpn_pw_negotiate(struct lde_nbr *ln, struct fec_node *fn, struct map *map)
 			return (1);
 		} else if (!(map->flags & F_MAP_PW_CWORD) &&
 		    (pw->flags & F_PW_CWORD_CONF)) {
-			/* TODO append a "Wrong C-bit" status code */
-			lde_send_labelwithdraw(ln, fn, NO_LABEL);
+			/* append a "Wrong C-bit" status code */
+			st.status_code = S_WRONG_CBIT;
+			st.msg_id = map->msg_id;
+			st.msg_type = htons(MSG_TYPE_LABELMAPPING);
+			lde_send_labelwithdraw(ln, fn, NO_LABEL, &st);
 
 			pw->flags &= ~F_PW_CWORD;
 			lde_send_labelmapping(ln, fn, 1);
@@ -298,11 +310,9 @@ l2vpn_send_pw_status(uint32_t peerid, uint32_t status, struct fec *fec)
 	struct notify_msg	 nm;
 
 	memset(&nm, 0, sizeof(nm));
-	nm.status = S_PW_STATUS;
-
+	nm.status_code = S_PW_STATUS;
 	nm.pw_status = status;
 	nm.flags |= F_NOTIF_PW_STATUS;
-
 	lde_fec2map(fec, &nm.fec);
 	nm.flags |= F_NOTIF_FEC;
 
@@ -332,7 +342,7 @@ l2vpn_recv_pw_status(struct lde_nbr *ln, struct notify_msg *nm)
 	if (pw == NULL)
 		return;
 
-	fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)&ln->id);
+	fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)&ln->id, 0);
 	if (fnh == NULL)
 		return;
 
@@ -367,7 +377,7 @@ l2vpn_sync_pws(int af, union ldpd_addr *addr)
 			if (fn == NULL)
 				continue;
 			fnh = fec_nh_find(fn, AF_INET, (union ldpd_addr *)
-			    &pw->lsr_id);
+			    &pw->lsr_id, 0);
 			if (fnh == NULL)
 				continue;
 

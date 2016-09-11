@@ -1,4 +1,4 @@
-/*	$OpenBSD: omap_machdep.c,v 1.7 2016/05/20 01:42:56 jsg Exp $	*/
+/*	$OpenBSD: omap_machdep.c,v 1.9 2016/06/08 15:27:05 jsg Exp $	*/
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -35,11 +35,8 @@
 
 extern void omap4_smc_call(uint32_t, uint32_t);
 extern void omdog_reset(void);
-extern char *omap_board_name(void);
 extern struct board_dev *omap_board_devs(void);
 extern void omap_board_init(void);
-extern int comcnspeed;
-extern int comcnmode;
 
 void
 omap_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
@@ -54,28 +51,6 @@ omap_platform_smc_write(bus_space_tag_t iot, bus_space_handle_t ioh,
 	}
 
 	omap4_smc_call(op, val);
-}
-
-void
-omap_platform_init_cons(void)
-{
-	paddr_t paddr;
-
-	switch (board_id) {
-	case BOARD_ID_OMAP3_BEAGLE:
-	case BOARD_ID_OMAP3_OVERO:
-		paddr = 0x49020000;
-		break;
-	case BOARD_ID_AM335X_BEAGLEBONE:
-		paddr = 0x44e09000;
-		break;
-	case BOARD_ID_OMAP4_PANDA:
-		paddr = 0x48020000;
-		break;
-	}
-
-	comcnattach(&armv7_a4x_bs_tag, paddr, comcnspeed, 48000000, comcnmode);
-	comdefaultrate = comcnspeed;
 }
 
 void
@@ -97,12 +72,6 @@ omap_platform_powerdown(void)
 
 }
 
-const char *
-omap_platform_board_name(void)
-{
-	return (omap_board_name());
-}
-
 void
 omap_platform_disable_l2_if_needed(void)
 {
@@ -121,11 +90,8 @@ omap_platform_board_init(void)
 }
 
 struct armv7_platform omap_platform = {
-	.boot_name = "OpenBSD/omap",
-	.board_name = omap_platform_board_name,
 	.board_init = omap_platform_board_init,
 	.smc_write = omap_platform_smc_write,
-	.init_cons = omap_platform_init_cons,
 	.watchdog_reset = omap_platform_watchdog_reset,
 	.powerdown = omap_platform_powerdown,
 	.disable_l2_if_needed = omap_platform_disable_l2_if_needed,

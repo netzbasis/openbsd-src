@@ -1,4 +1,4 @@
-/*	$OpenBSD: lde.c,v 1.58 2016/05/23 19:16:00 renato Exp $ */
+/*	$OpenBSD: lde.c,v 1.67 2016/09/02 17:10:34 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -40,7 +40,7 @@
 #include "lde.h"
 
 static void		 lde_sig_handler(int sig, short, void *);
-static void		 lde_shutdown(void);
+static __dead void	 lde_shutdown(void);
 static int		 lde_imsg_compose_parent(int, pid_t, void *, uint16_t);
 static void		 lde_dispatch_imsg(int, short, void *);
 static void		 lde_dispatch_parent(int, short, void *);
@@ -50,6 +50,8 @@ static struct lde_nbr	*lde_nbr_new(uint32_t, struct lde_nbr *);
 static void		 lde_nbr_del(struct lde_nbr *);
 static struct lde_nbr	*lde_nbr_find(uint32_t);
 static void		 lde_nbr_clear(void);
+static void		 lde_nbr_addr_update(struct lde_nbr *,
+			    struct lde_addr *, int);
 static void		 lde_map_free(void *);
 static int		 lde_address_add(struct lde_nbr *, struct lde_addr *);
 static int		 lde_address_del(struct lde_nbr *, struct lde_addr *);
@@ -82,7 +84,7 @@ lde_sig_handler(int sig, short event, void *arg)
 }
 
 /* label decision engine */
-pid_t
+void
 lde(int debug, int verbose)
 {
 	struct event		 ev_sigint, ev_sigterm;
@@ -143,27 +145,28 @@ lde(int debug, int verbose)
 	event_dispatch();
 
 	lde_shutdown();
-	/* NOTREACHED */
-
-	return (0);
 }
 
-static void
+static __dead void
 lde_shutdown(void)
 {
+	/* close pipes */
+	msgbuf_clear(&iev_ldpe->ibuf.w);
+	close(iev_ldpe->ibuf.fd);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
+
 	lde_gc_stop_timer();
 	lde_nbr_clear();
 	fec_tree_clear();
 
 	config_clear(ldeconf);
 
-	msgbuf_clear(&iev_ldpe->ibuf.w);
 	free(iev_ldpe);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 
 	log_info("label decision engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 /* imesg */
@@ -311,7 +314,7 @@ lde_dispatch_imsg(int fd, short event, void *bula)
 				break;
 			}
 
-			switch (nm.status) {
+			switch (nm.status_code) {
 			case S_PW_STATUS:
 				l2vpn_recv_pw_status(ln, &nm);
 				break;
@@ -436,10 +439,11 @@ lde_dispatch_parent(int fd, short event, void *bula)
 			switch (imsg.hdr.type) {
 			case IMSG_NETWORK_ADD:
 				lde_kernel_insert(&fec, kr.af, &kr.nexthop,
-				    kr.flags & F_CONNECTED, NULL);
+				    kr.priority, kr.flags & F_CONNECTED, NULL);
 				break;
 			case IMSG_NETWORK_DEL:
-				lde_kernel_remove(&fec, kr.af, &kr.nexthop);
+				lde_kernel_remove(&fec, kr.af, &kr.nexthop,
+				    kr.priority);
 				break;
 			}
 			break;
@@ -574,6 +578,7 @@ lde_send_change_klabel(struct fec_node *fn, struct fec_nh *fnh)
 		kr.nexthop.v4 = fnh->nexthop.v4;
 		kr.local_label = fn->local_label;
 		kr.remote_label = fnh->remote_label;
+		kr.priority = fnh->priority;
 
 		lde_imsg_compose_parent(IMSG_KLABEL_CHANGE, 0, &kr,
 		    sizeof(kr));
@@ -590,6 +595,7 @@ lde_send_change_klabel(struct fec_node *fn, struct fec_nh *fnh)
 		kr.nexthop.v6 = fnh->nexthop.v6;
 		kr.local_label = fn->local_label;
 		kr.remote_label = fnh->remote_label;
+		kr.priority = fnh->priority;
 
 		lde_imsg_compose_parent(IMSG_KLABEL_CHANGE, 0, &kr,
 		    sizeof(kr));
@@ -637,6 +643,7 @@ lde_send_delete_klabel(struct fec_node *fn, struct fec_nh *fnh)
 		kr.nexthop.v4 = fnh->nexthop.v4;
 		kr.local_label = fn->local_label;
 		kr.remote_label = fnh->remote_label;
+		kr.priority = fnh->priority;
 
 		lde_imsg_compose_parent(IMSG_KLABEL_DELETE, 0, &kr,
 		    sizeof(kr));
@@ -653,6 +660,7 @@ lde_send_delete_klabel(struct fec_node *fn, struct fec_nh *fnh)
 		kr.nexthop.v6 = fnh->nexthop.v6;
 		kr.local_label = fn->local_label;
 		kr.remote_label = fnh->remote_label;
+		kr.priority = fnh->priority;
 
 		lde_imsg_compose_parent(IMSG_KLABEL_DELETE, 0, &kr,
 		    sizeof(kr));
@@ -690,13 +698,13 @@ lde_fec2map(struct fec *fec, struct map *map)
 	switch (fec->type) {
 	case FEC_TYPE_IPV4:
 		map->type = MAP_TYPE_PREFIX;
-		map->fec.prefix.af = AF_IPV4;
+		map->fec.prefix.af = AF_INET;
 		map->fec.prefix.prefix.v4 = fec->u.ipv4.prefix;
 		map->fec.prefix.prefixlen = fec->u.ipv4.prefixlen;
 		break;
 	case FEC_TYPE_IPV6:
 		map->type = MAP_TYPE_PREFIX;
-		map->fec.prefix.af = AF_IPV6;
+		map->fec.prefix.af = AF_INET6;
 		map->fec.prefix.prefix.v6 = fec->u.ipv6.prefix;
 		map->fec.prefix.prefixlen = fec->u.ipv6.prefixlen;
 		break;
@@ -718,12 +726,12 @@ lde_map2fec(struct map *map, struct in_addr lsr_id, struct fec *fec)
 	switch (map->type) {
 	case MAP_TYPE_PREFIX:
 		switch (map->fec.prefix.af) {
-		case AF_IPV4:
+		case AF_INET:
 			fec->type = FEC_TYPE_IPV4;
 			fec->u.ipv4.prefix = map->fec.prefix.prefix.v4;
 			fec->u.ipv4.prefixlen = map->fec.prefix.prefixlen;
 			break;
-		case AF_IPV6:
+		case AF_INET6:
 			fec->type = FEC_TYPE_IPV6;
 			fec->u.ipv6.prefix = map->fec.prefix.prefix.v6;
 			fec->u.ipv6.prefixlen = map->fec.prefix.prefixlen;
@@ -789,7 +797,7 @@ lde_send_labelmapping(struct lde_nbr *ln, struct fec_node *fn, int single)
 	lre = (struct lde_req *)fec_find(&ln->recv_req, &fn->fec);
 	if (lre) {
 		/* set label request msg id in the mapping response. */
-		map.requestid = lre->msgid;
+		map.requestid = lre->msg_id;
 		map.flags = F_MAP_REQ_ID;
 
 		/* SL.7: delete record of pending request */
@@ -811,7 +819,8 @@ lde_send_labelmapping(struct lde_nbr *ln, struct fec_node *fn, int single)
 }
 
 void
-lde_send_labelwithdraw(struct lde_nbr *ln, struct fec_node *fn, uint32_t label)
+lde_send_labelwithdraw(struct lde_nbr *ln, struct fec_node *fn, uint32_t label,
+    struct status_tlv *st)
 {
 	struct lde_wdraw	*lw;
 	struct map		 map;
@@ -846,6 +855,13 @@ lde_send_labelwithdraw(struct lde_nbr *ln, struct fec_node *fn, uint32_t label)
 		map.label = label;
 	}
 
+	if (st) {
+		map.st.status_code = st->status_code;
+		map.st.msg_id = st->msg_id;
+		map.st.msg_type = st->msg_type;
+		map.flags |= F_MAP_STATUS;
+	}
+
 	/* SWd.1: send label withdraw. */
 	lde_imsg_compose_ldpe(IMSG_WITHDRAW_ADD, ln->peerid, 0,
  	    &map, sizeof(map));
@@ -876,7 +892,7 @@ lde_send_labelwithdraw_all(struct fec_node *fn, uint32_t label)
 	struct lde_nbr		*ln;
 
 	RB_FOREACH(ln, nbr_tree, &lde_nbrs)
-		lde_send_labelwithdraw(ln, fn, label);
+		lde_send_labelwithdraw(ln, fn, label, NULL);
 }
 
 void
@@ -918,16 +934,16 @@ lde_send_labelrelease(struct lde_nbr *ln, struct fec_node *fn, uint32_t label)
 }
 
 void
-lde_send_notification(uint32_t peerid, uint32_t code, uint32_t msgid,
-    uint16_t type)
+lde_send_notification(uint32_t peerid, uint32_t status_code, uint32_t msg_id,
+    uint16_t msg_type)
 {
 	struct notify_msg nm;
 
 	memset(&nm, 0, sizeof(nm));
-	nm.status = code;
-	/* 'msgid' and 'type' should be in network byte order */
-	nm.messageid = msgid;
-	nm.type = type;
+	nm.status_code = status_code;
+	/* 'msg_id' and 'msg_type' should be in network byte order */
+	nm.msg_id = msg_id;
+	nm.msg_type = msg_type;
 
 	lde_imsg_compose_ldpe(IMSG_NOTIFICATION_SEND, peerid, 0,
 	    &nm, sizeof(nm));
@@ -1060,6 +1076,47 @@ lde_nbr_clear(void)
 		lde_nbr_del(ln);
 }
 
+static void
+lde_nbr_addr_update(struct lde_nbr *ln, struct lde_addr *lde_addr, int removed)
+{
+	struct fec		*fec;
+	struct fec_node		*fn;
+	struct fec_nh		*fnh;
+	struct lde_map		*me;
+
+	RB_FOREACH(fec, fec_tree, &ln->recv_map) {
+		fn = (struct fec_node *)fec_find(&ft, fec);
+		switch (fec->type) {
+		case FEC_TYPE_IPV4:
+			if (lde_addr->af != AF_INET)
+				continue;
+			break;
+		case FEC_TYPE_IPV6:
+			if (lde_addr->af != AF_INET6)
+				continue;
+			break;
+		default:
+			continue;
+		}
+
+		LIST_FOREACH(fnh, &fn->nexthops, entry) {
+			if (ldp_addrcmp(fnh->af, &fnh->nexthop,
+			    &lde_addr->addr))
+				continue;
+
+			if (removed) {
+				lde_send_delete_klabel(fn, fnh);
+				fnh->remote_label = NO_LABEL;
+			} else {
+				me = (struct lde_map *)fec;
+				fnh->remote_label = me->map.label;
+				lde_send_change_klabel(fn, fnh);
+			}
+			break;
+		}
+	}
+}
+
 struct lde_map *
 lde_map_add(struct lde_nbr *ln, struct fec_node *fn, int sent)
 {
@@ -1121,7 +1178,7 @@ lde_req_add(struct lde_nbr *ln, struct fec *fec, int sent)
 		lre->fec = *fec;
 
 		if (fec_insert(t, &lre->fec)) {
-			log_warnx("failed to add %s/%u to %s req",
+			log_warnx("failed to add %s to %s req",
 			    log_fec(&lre->fec), sent ? "sent" : "recv");
 			free(lre);
 			return (NULL);
@@ -1177,14 +1234,15 @@ lde_change_egress_label(int af, int was_implicit)
 	RB_FOREACH(ln, nbr_tree, &lde_nbrs) {
 		/* explicit withdraw */
 		if (was_implicit)
-			lde_send_labelwithdraw(ln, NULL, MPLS_LABEL_IMPLNULL);
+			lde_send_labelwithdraw(ln, NULL, MPLS_LABEL_IMPLNULL,
+			    NULL);
 		else {
 			if (ln->v4_enabled)
 				lde_send_labelwithdraw(ln, NULL,
-				    MPLS_LABEL_IPV4NULL);
+				    MPLS_LABEL_IPV4NULL, NULL);
 			if (ln->v6_enabled)
 				lde_send_labelwithdraw(ln, NULL,
-				    MPLS_LABEL_IPV6NULL);
+				    MPLS_LABEL_IPV6NULL, NULL);
 		}
 
 		/* advertise new label of connected prefixes */
@@ -1230,6 +1288,9 @@ lde_address_add(struct lde_nbr *ln, struct lde_addr *lde_addr)
 	new->addr = lde_addr->addr;
 	TAILQ_INSERT_TAIL(&ln->addr_list, new, entry);
 
+	/* reevaluate the previously received mappings from this neighbor */
+	lde_nbr_addr_update(ln, lde_addr, 0);
+
 	return (0);
 }
 
@@ -1239,6 +1300,9 @@ lde_address_del(struct lde_nbr *ln, struct lde_addr *lde_addr)
 	lde_addr = lde_address_find(ln, lde_addr->af, &lde_addr->addr);
 	if (lde_addr == NULL)
 		return (-1);
+
+	/* reevaluate the previously received mappings from this neighbor */
+	lde_nbr_addr_update(ln, lde_addr, 1);
 
 	TAILQ_REMOVE(&ln->addr_list, lde_addr, entry);
 	free(lde_addr);

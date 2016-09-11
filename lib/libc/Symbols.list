@@ -13,12 +13,6 @@ _edata
 _end
 __end
 
-/* needed by ld.so unless/until we switch to RELRO */
-__got_start
-__got_end
-__plt_start
-__plt_end
-
 /* sys */
 __get_tcb
 __semctl
@@ -906,6 +900,15 @@ SHA512Init
 SHA512Pad
 SHA512Transform
 SHA512Update
+SHA512_256Data
+SHA512_256End
+SHA512_256File
+SHA512_256FileChunk
+SHA512_256Final
+SHA512_256Init
+SHA512_256Pad
+SHA512_256Transform
+SHA512_256Update
 SipHash
 SipHash_End
 SipHash_Final
@@ -1450,6 +1453,7 @@ lldiv
 lsearch
 malloc
 malloc_options
+_malloc_init
 mergesort
 optarg
 opterr

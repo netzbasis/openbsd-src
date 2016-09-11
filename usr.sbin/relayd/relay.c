@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.206 2015/12/30 16:00:57 benno Exp $	*/
+/*	$OpenBSD: relay.c,v 1.211 2016/09/02 14:45:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -28,6 +28,7 @@
 #include <arpa/inet.h>
 
 #include <limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -85,6 +86,10 @@ void		 relay_tls_connected(struct ctl_relay_event *);
 void		 relay_tls_readcb(int, short, void *);
 void		 relay_tls_writecb(int, short, void *);
 
+struct tls_ticket	*relay_get_ticket_key(unsigned char [16]);
+int			 relay_tls_session_ticket(SSL *, unsigned char [16],
+			    unsigned char *, EVP_CIPHER_CTX *, HMAC_CTX *, int);
+
 char		*relay_load_file(const char *, off_t *);
 extern void	 bufferevent_read_pressure_cb(struct evbuffer *, size_t,
 		    size_t, void *);
@@ -94,7 +99,6 @@ volatile int relay_inflight = 0;
 objid_t relay_conid;
 
 static struct relayd		*env = NULL;
-int				 proc_id;
 
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	relay_dispatch_parent },
@@ -103,14 +107,12 @@ static struct privsep_proc procs[] = {
 	{ "hce",	PROC_HCE,	relay_dispatch_hce },
 };
 
-pid_t
+void
 relay(struct privsep *ps, struct privsep_proc *p)
 {
-	pid_t	 pid;
 	env = ps->ps_env;
-	pid = proc_run(ps, p, procs, nitems(procs), relay_init, NULL);
+	proc_run(ps, p, procs, nitems(procs), relay_init, NULL);
 	relay_http(env);
-	return (pid);
 }
 
 void
@@ -260,8 +262,8 @@ relay_protodebug(struct relay *rlay)
 	if ((rlay->rl_conf.flags & (F_TLS|F_TLSCLIENT)) && proto->tlsflags)
 		fprintf(stderr, "\ttls flags: %s\n",
 		    printb_flags(proto->tlsflags, TLSFLAG_BITS));
-	if (proto->cache != -1)
-		fprintf(stderr, "\ttls session cache: %d\n", proto->cache);
+	fprintf(stderr, "\ttls session tickets: %s\n",
+	    (proto->tickets > -1) ? "enabled" : "disabled");
 	fprintf(stderr, "\ttype: ");
 	switch (proto->type) {
 	case RELAY_PROTO_TCP:
@@ -322,9 +324,6 @@ relay_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
-	/* Set to current prefork id */
-	proc_id = p->p_instance;
-
 	/* We use a custom shutdown callback */
 	p->p_shutdown = relay_shutdown;
 
@@ -335,8 +334,8 @@ relay_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 		fatal("pledge");
 
 	/* Schedule statistics timer */
-	evtimer_set(&env->sc_statev, relay_statistics, NULL);
-	bcopy(&env->sc_statinterval, &tv, sizeof(tv));
+	evtimer_set(&env->sc_statev, relay_statistics, ps);
+	bcopy(&env->sc_conf.statinterval, &tv, sizeof(tv));
 	evtimer_add(&env->sc_statev, &tv);
 }
 
@@ -356,6 +355,7 @@ relay_session_unpublish(struct rsession *s)
 void
 relay_statistics(int fd, short events, void *arg)
 {
+	struct privsep		*ps = arg;
 	struct relay		*rlay;
 	struct ctl_stats	 crs, *cur;
 	struct timeval		 tv, tv_now;
@@ -374,17 +374,19 @@ relay_statistics(int fd, short events, void *arg)
 		bzero(&crs, sizeof(crs));
 		resethour = resetday = 0;
 
-		cur = &rlay->rl_stats[proc_id];
+		cur = &rlay->rl_stats[ps->ps_instance];
 		cur->cnt += cur->last;
 		cur->tick++;
 		cur->avg = (cur->last + cur->avg) / 2;
 		cur->last_hour += cur->last;
-		if ((cur->tick % (3600 / env->sc_statinterval.tv_sec)) == 0) {
+		if ((cur->tick %
+		    (3600 / env->sc_conf.statinterval.tv_sec)) == 0) {
 			cur->avg_hour = (cur->last_hour + cur->avg_hour) / 2;
 			resethour++;
 		}
 		cur->last_day += cur->last;
-		if ((cur->tick % (86400 / env->sc_statinterval.tv_sec)) == 0) {
+		if ((cur->tick %
+		    (86400 / env->sc_conf.statinterval.tv_sec)) == 0) {
 			cur->avg_day = (cur->last_day + cur->avg_day) / 2;
 			resethour++;
 		}
@@ -397,7 +399,7 @@ relay_statistics(int fd, short events, void *arg)
 			cur->last_day = 0;
 
 		crs.id = rlay->rl_conf.id;
-		crs.proc = proc_id;
+		crs.proc = ps->ps_instance;
 		proc_compose(env->sc_ps, PROC_PFE, IMSG_STATISTICS,
 		    &crs, sizeof(crs));
 
@@ -412,8 +414,8 @@ relay_statistics(int fd, short events, void *arg)
 	}
 
 	/* Schedule statistics timer */
-	evtimer_set(&env->sc_statev, relay_statistics, NULL);
-	bcopy(&env->sc_statinterval, &tv, sizeof(tv));
+	evtimer_set(&env->sc_statev, relay_statistics, ps);
+	bcopy(&env->sc_conf.statinterval, &tv, sizeof(tv));
 	evtimer_add(&env->sc_statev, &tv);
 }
 
@@ -1026,6 +1028,7 @@ relay_error(struct bufferevent *bev, short error, void *arg)
 void
 relay_accept(int fd, short event, void *arg)
 {
+	struct privsep		*ps = env->sc_ps;
 	struct relay		*rlay = arg;
 	struct rsession		*con = NULL;
 	struct ctl_natlook	*cnl = NULL;
@@ -1111,7 +1114,7 @@ relay_accept(int fd, short event, void *arg)
 	relay_session_publish(con);
 
 	/* Increment the per-relay session counter */
-	rlay->rl_stats[proc_id].last++;
+	rlay->rl_stats[ps->ps_instance].last++;
 
 	/* Pre-allocate output buffer */
 	con->se_out.output = evbuffer_new();
@@ -1144,7 +1147,7 @@ relay_accept(int fd, short event, void *arg)
 		bzero(cnl, sizeof(*cnl));
 		cnl->in = -1;
 		cnl->id = con->se_id;
-		cnl->proc = proc_id;
+		cnl->proc = ps->ps_instance;
 		cnl->proto = IPPROTO_TCP;
 
 		bcopy(&con->se_in.ss, &cnl->src, sizeof(cnl->src));
@@ -1402,13 +1405,14 @@ relay_session(struct rsession *con)
 void
 relay_bindanyreq(struct rsession *con, in_port_t port, int proto)
 {
+	struct privsep		*ps = env->sc_ps;
 	struct relay		*rlay = con->se_relay;
 	struct ctl_bindany	 bnd;
 	struct timeval		 tv;
 
 	bzero(&bnd, sizeof(bnd));
 	bnd.bnd_id = con->se_id;
-	bnd.bnd_proc = proc_id;
+	bnd.bnd_proc = ps->ps_instance;
 	bnd.bnd_port = port;
 	bnd.bnd_proto = proto;
 	bcopy(&con->se_in.ss, &bnd.bnd_ss, sizeof(bnd.bnd_ss));
@@ -1661,7 +1665,7 @@ relay_close(struct rsession *con, const char *msg)
 	if (con->se_out.bev != NULL)
 		bufferevent_disable(con->se_out.bev, EV_READ|EV_WRITE);
 
-	if ((env->sc_opts & RELAYD_OPT_LOGUPDATE) && msg != NULL) {
+	if ((env->sc_conf.opts & RELAYD_OPT_LOGUPDATE) && msg != NULL) {
 		bzero(&ibuf, sizeof(ibuf));
 		bzero(&obuf, sizeof(obuf));
 		(void)print_host(&con->se_in.ss, ibuf, sizeof(ibuf));
@@ -1817,7 +1821,7 @@ relay_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 			fatalx("relay_dispatch_pfe: invalid table id");
 
 		DPRINTF("%s: [%d] state %d for "
-		    "host %u %s", __func__, proc_id, st.up,
+		    "host %u %s", __func__, ps->ps_instance, st.up,
 		    host->conf.id, host->conf.name);
 
 		if ((st.up == HOST_UNKNOWN && host->up == HOST_DOWN) ||
@@ -1923,6 +1927,15 @@ relay_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 	case IMSG_CTL_RESET:
 		config_getreset(env, imsg);
+		break;
+	case IMSG_TLSTICKET_REKEY:
+		IMSG_SIZE_CHECK(imsg, (&env->sc_tls_ticket));
+		/* rotate keys */
+		memcpy(&env->sc_tls_ticket_bak, &env->sc_tls_ticket,
+		    sizeof(env->sc_tls_ticket));
+		env->sc_tls_ticket_bak.tt_backup = 1;
+		memcpy(&env->sc_tls_ticket, imsg->data,
+		    sizeof(env->sc_tls_ticket));
 		break;
 	default:
 		return (-1);
@@ -2045,21 +2058,27 @@ relay_tls_ctx_create(struct relay *rlay)
 	struct protocol	*proto = rlay->rl_proto;
 	SSL_CTX		*ctx;
 	EC_KEY		*ecdhkey;
-	u_int8_t	 sid[SSL_MAX_SID_CTX_LENGTH];
 
 	ctx = SSL_CTX_new(SSLv23_method());
 	if (ctx == NULL)
 		goto err;
 
-	/* Modify session timeout and cache size*/
-	SSL_CTX_set_timeout(ctx,
-	    (long)MINIMUM(rlay->rl_conf.timeout.tv_sec, LONG_MAX));
-	if (proto->cache < -1) {
-		SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
-	} else if (proto->cache >= -1) {
-		SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-		if (proto->cache >= 0)
-			SSL_CTX_sess_set_cache_size(ctx, proto->cache);
+	/*
+	 * Disable the session cache by default.
+	 * Everything modern uses tickets
+	 */
+	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+
+	
+	/* Set callback for TLS session tickets if enabled */
+	if (proto->tickets == -1)
+		SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
+	else {
+		if (!SSL_CTX_set_tlsext_ticket_key_cb(ctx,
+		    relay_tls_session_ticket))
+			log_warnx("could not set the TLS ticket callback");
+		/* set timeout to the ticket rekey time */
+		SSL_CTX_set_timeout(ctx, TLS_TICKET_REKEY_TIME);
 	}
 
 	/* Enable all workarounds and set SSL options */
@@ -2142,12 +2161,11 @@ relay_tls_ctx_create(struct relay *rlay)
 	}
 
 	/*
-	 * Set session ID context to a random value.  We don't support
-	 * persistent caching of sessions so it is OK to set a temporary
-	 * session ID context that is valid during run time.
+	 * Set session ID context to a random value. It needs to be the
+	 * same accross all relay processes or session caching will fail.
 	 */
-	arc4random_buf(sid, sizeof(sid));
-	if (!SSL_CTX_set_session_id_context(ctx, sid, sizeof(sid)))
+	if (!SSL_CTX_set_session_id_context(ctx, env->sc_conf.tls_sid,
+	    sizeof(env->sc_conf.tls_sid)))
 		goto err;
 
 	/* The text versions of the keys/certs are not needed anymore */
@@ -2534,6 +2552,54 @@ relay_tls_writecb(int fd, short event, void *arg)
 		cre->buflen = 0;
 	}
 	(*bufev->errorcb)(bufev, what, bufev->cbarg);
+}
+
+struct tls_ticket *
+relay_get_ticket_key(unsigned char keyname[16])
+{
+	if (keyname) {
+		if (timingsafe_memcmp(keyname,
+		    env->sc_tls_ticket_bak.tt_key_name, sizeof(keyname)) == 0)
+			return &env->sc_tls_ticket_bak;
+		if (timingsafe_memcmp(keyname,
+		    env->sc_tls_ticket.tt_key_name, sizeof(keyname)) == 0)
+			return &env->sc_tls_ticket;
+		return NULL;
+	}
+	return &env->sc_tls_ticket;
+}
+
+int
+relay_tls_session_ticket(SSL *ssl, unsigned char keyname[16], unsigned char *iv,
+    EVP_CIPHER_CTX *ctx, HMAC_CTX *hctx, int mode)
+{
+	struct tls_ticket	*key;
+
+	if (mode == 1) {
+		/* create new session */
+		key = relay_get_ticket_key(NULL);
+		memcpy(keyname, key->tt_key_name, 16);
+		arc4random_buf(iv, EVP_MAX_IV_LENGTH);
+		EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL,
+		    key->tt_aes_key, iv);
+		HMAC_Init_ex(hctx, key->tt_hmac_key, 16, EVP_sha256(), NULL);
+		return 0;
+	} else {
+		/* get key by name */
+		key = relay_get_ticket_key(keyname);
+		if  (!key)
+			return 0;
+
+		EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL,
+		    key->tt_aes_key, iv);
+		HMAC_Init_ex(hctx, key->tt_hmac_key, 16, EVP_sha256(), NULL);
+
+		/* time to renew the ticket? */
+		if (key->tt_backup) {
+			return 2;
+		}
+		return 1;
+	}
 }
 
 int

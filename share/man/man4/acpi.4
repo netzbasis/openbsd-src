@@ -1,4 +1,4 @@
-.\"	$OpenBSD: acpi.4,v 1.45 2016/05/07 23:16:09 kettenis Exp $
+.\"	$OpenBSD: acpi.4,v 1.51 2016/08/23 18:58:53 jcs Exp $
 .\"
 .\" Copyright (c) 2006 Alexander Yurchenko <grange@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 7 2016 $
+.Dd $Mdocdate: August 23 2016 $
 .Dt ACPI 4
 .Os
 .Sh NAME
@@ -40,14 +40,16 @@ The following devices can attach to
 .Bl -tag -width "acpithinkpad(4)XXX" -offset indent -compact
 .It Xr acpiac 4
 ACPI AC adapter
+.It Xr acpials 4
+ACPI ambient light sensor
 .It Xr acpiasus 4
 ASUS ACPI hotkeys
 .It Xr acpibat 4
 ACPI control method battery
 .It Xr acpibtn 4
 ACPI button
-.It Xr acpimcfg 4
-ACPI PCI Express configuration space
+.It Xr acpicbkbd 4
+Chromebook keyboard backlight
 .It Xr acpicpu 4
 ACPI processor power and performance state
 .It Xr acpidock 4
@@ -58,6 +60,8 @@ ACPI embedded controller
 ACPI high precision event timer
 .It Xr acpimadt 4
 ACPI APIC configuration
+.It Xr acpimcfg 4
+ACPI PCI Express configuration space
 .It Xr acpiprt 4
 ACPI PCI routing table configuration
 .It Xr acpipwrres 4
@@ -82,6 +86,10 @@ ASUSTeK AI Booster ACPI ATK0110 temperature, voltage, and fan sensor
 Intel Bay Trail GPIO controller
 .It Xr chvgpio 4
 Intel Cherry View GPIO controller
+.It Xr dwiic 4
+Synopsys DesignWare I2C controller
+.It Xr tpm 4
+Trusted Platform Module device
 .El
 .Sh FILES
 .Bl -tag -width "/dev/apmctlXXX"

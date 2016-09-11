@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.9 2016/05/11 21:52:50 deraadt Exp $
+# $OpenBSD: Makefile,v 1.11 2016/08/10 14:27:17 deraadt Exp $
 
 NOPROG=
 NOMAN=
@@ -6,9 +6,10 @@ CC=${HOSTCC}
 
 # PCI capable systems only
 .if (${MACHINE} == "alpha" || ${MACHINE} == "amd64" || \
-     ${MACHINE} == "armish" || ${MACHINE} == "hppa" || \
+     ${MACHINE} == "hppa" || \
      ${MACHINE} == "i386" || \
-     ${MACHINE} == "loongson" || ${MACHINE_ARCH} == "powerpc" || \
+     ${MACHINE} == "loongson" || ${MACHINE} == "octeon" || \
+     ${MACHINE_ARCH} == "powerpc" || \
      ${MACHINE} == "sgi" || ${MACHINE} == "sparc64")
 
 FIRM=	ral-rt2561 ral-rt2561s ral-rt2661 ral-rt2860

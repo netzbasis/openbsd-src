@@ -1,4 +1,4 @@
-/*	$OpenBSD: citrus_none.c,v 1.6 2015/11/01 03:45:28 guenther Exp $ */
+/*	$OpenBSD: citrus_none.c,v 1.9 2016/09/07 17:10:43 schwarze Exp $ */
 /*	$NetBSD: citrus_none.c,v 1.18 2008/06/14 16:01:07 tnozaki Exp $	*/
 
 /*-
@@ -30,65 +30,45 @@
 #include <sys/types.h>
 
 #include <errno.h>
-#include <limits.h>
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
 #include <wchar.h>
 
 #include "citrus_ctype.h"
-#include "citrus_none.h"
 
-_CITRUS_CTYPE_DEF_OPS(none);
+static char	 wrapv(unsigned char);
+
 
 /*
  * Convert an unsigned char value into a char value without relying on
  * signed overflow behavior.
  */
-static inline char
+static char
 wrapv(unsigned char ch)
 {
 	if (ch >= 0x80)
-		return ((int)ch - 0x100);
+		return (int)ch - 0x100;
 	else
-		return (ch);
+		return ch;
 }
 
 size_t
 _citrus_none_ctype_mbrtowc(wchar_t * __restrict pwc,
-			   const char * __restrict s, size_t n,
-			   void * __restrict pspriv)
+    const char * __restrict s, size_t n)
 {
-	/* pwc may be NULL */
-	/* s may be NULL */
-	/* pspriv appears to be unused */
-
 	if (s == NULL)
 		return 0;
 	if (n == 0)
-		return (size_t)-2;
-	if (pwc)
+		return -2;
+	if (pwc != NULL)
 		*pwc = (wchar_t)(unsigned char)*s;
-	return (*s != '\0');
-}
-
-int
-_citrus_none_ctype_mbsinit(const void * __restrict pspriv)
-{
-	return (1);  /* always initial state */
+	return *s != '\0';
 }
 
 size_t
 _citrus_none_ctype_mbsnrtowcs(wchar_t * __restrict dst,
-			      const char ** __restrict src,
-			      size_t nmc, size_t len,
-			      void * __restrict pspriv)
+    const char ** __restrict src, size_t nmc, size_t len)
 {
 	size_t i;
-
-	/* dst may be NULL */
-	/* pspriv appears to be unused */
 
 	if (dst == NULL)
 		return strnlen(*src, nmc);
@@ -96,54 +76,45 @@ _citrus_none_ctype_mbsnrtowcs(wchar_t * __restrict dst,
 	for (i = 0; i < nmc && i < len; i++)
 		if ((dst[i] = (wchar_t)(unsigned char)(*src)[i]) == L'\0') {
 			*src = NULL;
-			return (i);
+			return i;
 		}
 
 	*src += i;
-	return (i);
+	return i;
 }
 
 size_t
-_citrus_none_ctype_wcrtomb(char * __restrict s,
-			   wchar_t wc, void * __restrict pspriv)
+_citrus_none_ctype_wcrtomb(char * __restrict s, wchar_t wc)
 {
-	/* s may be NULL */
-	/* ps appears to be unused */
-
 	if (s == NULL)
-		return (1);
+		return 1;
 
 	if (wc < 0 || wc > 0xff) {
 		errno = EILSEQ;
-		return (-1);
+		return -1;
 	}
 
 	*s = wrapv(wc);
-	return (1);
+	return 1;
 }
 
 size_t
 _citrus_none_ctype_wcsnrtombs(char * __restrict dst,
-			      const wchar_t ** __restrict src,
-			      size_t nwc, size_t len,
-			      void * __restrict pspriv)
+    const wchar_t ** __restrict src, size_t nwc, size_t len)
 {
 	size_t i;
-
-	/* dst may be NULL */
-	/* pspriv appears to be unused */
 
 	if (dst == NULL) {
 		for (i = 0; i < nwc; i++) {
 			wchar_t wc = (*src)[i];
 			if (wc < 0 || wc > 0xff) {
 				errno = EILSEQ;
-				return (-1);
+				return -1;
 			}
 			if (wc == L'\0')
-				return (i);
+				return i;
 		}
-		return (i);
+		return i;
 	}
 
 	for (i = 0; i < nwc && i < len; i++) {
@@ -151,14 +122,14 @@ _citrus_none_ctype_wcsnrtombs(char * __restrict dst,
 		if (wc < 0 || wc > 0xff) {
 			*src += i;
 			errno = EILSEQ;
-			return (-1);
+			return -1;
 		}
 		dst[i] = wrapv(wc);
 		if (wc == L'\0') {
 			*src = NULL;
-			return (i);
+			return i;
 		}
 	}
 	*src += i;
-	return (i);
+	return i;
 }

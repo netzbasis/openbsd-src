@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.209 2016/05/23 09:23:43 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.223 2016/09/07 09:36:49 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -74,16 +74,20 @@ struct llinfo_arp {
 #define LA_HOLD_TOTAL 100
 
 /* timer values */
-int	arpt_prune = (5*60*1);	/* walk list every 5 minutes */
-int	arpt_keep = (20*60);	/* once resolved, good for 20 more minutes */
+int	arpt_prune = (5 * 60);	/* walk list every 5 minutes */
+int	arpt_keep = (20 * 60);	/* once resolved, cache for 20 minutes */
 int	arpt_down = 20;		/* once declared down, don't send for 20 secs */
 
+void arpinvalidate(struct rtentry *);
 void arptfree(struct rtentry *);
 void arptimer(void *);
 struct rtentry *arplookup(struct in_addr *, int, int, unsigned int);
 void in_arpinput(struct ifnet *, struct mbuf *);
 void in_revarpinput(struct ifnet *, struct mbuf *);
 int arpcache(struct ifnet *, struct ether_arp *, struct rtentry *);
+void arpreply(struct ifnet *, struct mbuf *, struct in_addr *, uint8_t *);
+
+struct niqueue arpinq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
 
 LIST_HEAD(, llinfo_arp) arp_list;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
@@ -114,7 +118,7 @@ arptimer(void *arg)
 	LIST_FOREACH_SAFE(la, &arp_list, la_list, nla) {
 		struct rtentry *rt = la->la_rt;
 
-		if (rt->rt_expire && rt->rt_expire <= time_second)
+		if (rt->rt_expire && rt->rt_expire <= time_uptime)
 			arptfree(rt); /* timer has expired; clear */
 	}
 	splx(s);
@@ -133,19 +137,13 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		arpinit_done = 1;
 		pool_init(&arp_pool, sizeof(struct llinfo_arp), 0, 0, 0, "arp",
 		    NULL);
-		/*
-		 * We generate expiration times from time.tv_sec
-		 * so avoid accidently creating permanent routes.
-		 */
-		if (time_second == 0) {
-			time_second++;
-		}
+		pool_setipl(&arp_pool, IPL_SOFTNET);
 
 		timeout_set(&arptimer_to, arptimer, &arptimer_to);
 		timeout_add_sec(&arptimer_to, 1);
 	}
 
-	if (rt->rt_flags & (RTF_GATEWAY|RTF_BROADCAST))
+	if (ISSET(rt->rt_flags, RTF_GATEWAY|RTF_BROADCAST|RTF_MULTICAST))
 		return;
 
 	switch (req) {
@@ -158,7 +156,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 			 * it's a "permanent" route, so that routes cloned
 			 * from it do not need their expiration time set.
 			 */
-			rt->rt_expire = time_second;
+			rt->rt_expire = time_uptime;
 			if ((rt->rt_flags & RTF_CLONING) != 0)
 				break;
 		}
@@ -215,10 +213,16 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		if (la == NULL)
 			break;
 		LIST_REMOVE(la, la_list);
-		rt->rt_llinfo = 0;
+		rt->rt_llinfo = NULL;
 		rt->rt_flags &= ~RTF_LLINFO;
 		la_hold_total -= ml_purge(&la->la_ml);
 		pool_put(&arp_pool, la);
+		break;
+
+	case RTM_INVALIDATE:
+		if (!ISSET(rt->rt_flags, RTF_LOCAL))
+			arpinvalidate(rt);
+		break;
 	}
 }
 
@@ -241,6 +245,7 @@ arprequest(struct ifnet *ifp, u_int32_t *sip, u_int32_t *tip, u_int8_t *enaddr)
 	m->m_len = sizeof(*ea);
 	m->m_pkthdr.len = sizeof(*ea);
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
+	m->m_pkthdr.pf.prio = ifp->if_llprio;
 	MH_ALIGN(m, sizeof(*ea));
 	ea = mtod(m, struct ether_arp *);
 	eh = (struct ether_header *)sa.sa_data;
@@ -259,6 +264,33 @@ arprequest(struct ifnet *ifp, u_int32_t *sip, u_int32_t *tip, u_int8_t *enaddr)
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
 	m->m_flags |= M_BCAST;
+	ifp->if_output(ifp, m, &sa, NULL);
+}
+
+void
+arpreply(struct ifnet *ifp, struct mbuf *m, struct in_addr *sip, uint8_t *eaddr)
+{
+	struct ether_header *eh;
+	struct ether_arp *ea;
+	struct sockaddr sa;
+
+	ea = mtod(m, struct ether_arp *);
+	ea->arp_op = htons(ARPOP_REPLY);
+	ea->arp_pro = htons(ETHERTYPE_IP); /* let's be sure! */
+
+	/* We're replying to a request. */
+	memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
+	memcpy(ea->arp_tpa, ea->arp_spa, sizeof(ea->arp_spa));
+
+	memcpy(ea->arp_sha, eaddr, sizeof(ea->arp_sha));
+	memcpy(ea->arp_spa, sip, sizeof(ea->arp_spa));
+
+	eh = (struct ether_header *)sa.sa_data;
+	memcpy(eh->ether_dhost, ea->arp_tha, sizeof(eh->ether_dhost));
+	memcpy(eh->ether_shost, eaddr, sizeof(eh->ether_shost));
+	eh->ether_type = htons(ETHERTYPE_ARP);
+	sa.sa_family = pseudo_AF_HDRCMPLT;
+	sa.sa_len = sizeof(sa);
 	ifp->if_output(ifp, m, &sa, NULL);
 }
 
@@ -281,9 +313,7 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	struct llinfo_arp *la = NULL;
 	struct sockaddr_dl *sdl;
 	struct rtentry *rt = NULL;
-	struct mbuf *mh;
 	char addr[INET_ADDRSTRLEN];
-	int error, created = 0;
 
 	if (m->m_flags & M_BCAST) {	/* broadcast */
 		memcpy(desten, etherbroadcastaddr, sizeof(etherbroadcastaddr));
@@ -294,41 +324,22 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 		return (0);
 	}
 
-	if (rt0 != NULL) {
-		error = rt_checkgate(rt0, &rt);
-		if (error) {
-			m_freem(m);
-			return (error);
-		}
+	rt = rt_getll(rt0);
 
-		if ((rt->rt_flags & RTF_LLINFO) == 0) {
-			log(LOG_DEBUG, "%s: %s: route contains no arp"
-			    " information\n", __func__, inet_ntop(AF_INET,
-				&satosin(rt_key(rt))->sin_addr, addr,
-				sizeof(addr)));
-			m_freem(m);
-			return (EINVAL);
-		}
-
-		la = (struct llinfo_arp *)rt->rt_llinfo;
-		if (la == NULL)
-			log(LOG_DEBUG, "%s: %s: route without link "
-			    "local address\n", __func__, inet_ntop(AF_INET,
-				&satosin(dst)->sin_addr, addr, sizeof(addr)));
-	} else {
-		rt = arplookup(&satosin(dst)->sin_addr, 1, 0, ifp->if_rdomain);
-		if (rt != NULL) {
-		    	created = 1;
-			la = ((struct llinfo_arp *)rt->rt_llinfo);
-		}
-		if (la == NULL)
-			log(LOG_DEBUG, "%s: %s: can't allocate llinfo\n",
-			    __func__,
-			    inet_ntop(AF_INET, &satosin(dst)->sin_addr,
-				addr, sizeof(addr)));
+	if (ISSET(rt->rt_flags, RTF_REJECT) &&
+	    (rt->rt_expire == 0 || time_uptime < rt->rt_expire)) {
+		m_freem(m);
+		return (rt == rt0 ? EHOSTDOWN : EHOSTUNREACH);
 	}
-	if (la == NULL || rt == NULL)
-		goto bad;
+
+	if (!ISSET(rt->rt_flags, RTF_LLINFO)) {
+		log(LOG_DEBUG, "%s: %s: route contains no arp information\n",
+		    __func__, inet_ntop(AF_INET, &satosin(rt_key(rt))->sin_addr,
+		    addr, sizeof(addr)));
+		m_freem(m);
+		return (EINVAL);
+	}
+
 	sdl = satosdl(rt->rt_gateway);
 	if (sdl->sdl_alen > 0 && sdl->sdl_alen != ETHER_ADDR_LEN) {
 		log(LOG_DEBUG, "%s: %s: incorrect arp information\n", __func__,
@@ -336,17 +347,17 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			addr, sizeof(addr)));
 		goto bad;
 	}
+
 	/*
 	 * Check the address family and length is valid, the address
 	 * is resolved; otherwise, try to resolve.
 	 */
-	if ((rt->rt_expire == 0 || rt->rt_expire > time_second) &&
+	if ((rt->rt_expire == 0 || rt->rt_expire > time_uptime) &&
 	    sdl->sdl_family == AF_LINK && sdl->sdl_alen != 0) {
 		memcpy(desten, LLADDR(sdl), sdl->sdl_alen);
-		if (created)
-			rtfree(rt);
 		return (0);
 	}
+
 	if (ifp->if_flags & IFF_NOARP)
 		goto bad;
 
@@ -355,7 +366,11 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	 * response yet. Insert mbuf in hold queue if below limit
 	 * if above the limit free the queue without queuing the new packet.
 	 */
+	la = (struct llinfo_arp *)rt->rt_llinfo;
+	KASSERT(la != NULL);
 	if (la_hold_total < LA_HOLD_TOTAL && la_hold_total < nmbclust / 64) {
+		struct mbuf *mh;
+
 		if (ml_len(&la->la_ml) >= LA_HOLD_QUEUE) {
 			mh = ml_dequeue(&la->la_ml);
 			la_hold_total--;
@@ -376,13 +391,13 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 		/* This should never happen. (Should it? -gwr) */
 		printf("%s: unresolved and rt_expire == 0\n", __func__);
 		/* Set expiration time to now (expired). */
-		rt->rt_expire = time_second;
+		rt->rt_expire = time_uptime;
 	}
 #endif
 	if (rt->rt_expire) {
 		rt->rt_flags &= ~RTF_REJECT;
-		if (la->la_asked == 0 || rt->rt_expire != time_second) {
-			rt->rt_expire = time_second;
+		if (la->la_asked == 0 || rt->rt_expire != time_uptime) {
+			rt->rt_expire = time_uptime;
 			if (la->la_asked++ < arp_maxtries)
 				arprequest(ifp,
 				    &satosin(rt->rt_ifa->ifa_addr)->sin_addr.s_addr,
@@ -396,14 +411,11 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			}
 		}
 	}
-	if (created)
-		rtfree(rt);
+
 	return (EAGAIN);
 
 bad:
 	m_freem(m);
-	if (created)
-		rtfree(rt);
 	return (EINVAL);
 }
 
@@ -437,7 +449,28 @@ arpinput(struct ifnet *ifp, struct mbuf *m)
 	if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
 		return;
 
-	in_arpinput(ifp, m);
+	niq_enqueue(&arpinq, m);
+}
+
+void
+arpintr(void)
+{
+	struct mbuf_list ml;
+	struct mbuf *m;
+	struct ifnet *ifp;
+
+	niq_delist(&arpinq, &ml);
+
+	while ((m = ml_dequeue(&ml)) != NULL) {
+		ifp = if_get(m->m_pkthdr.ph_ifidx);
+
+		if (ifp != NULL)
+			in_arpinput(ifp, m);
+		else
+			m_freem(m);
+
+		if_put(ifp);
+	}
 }
 
 /*
@@ -449,12 +482,9 @@ void
 in_arpinput(struct ifnet *ifp, struct mbuf *m)
 {
 	struct ether_arp *ea;
-	struct ether_header *eh;
 	struct rtentry *rt = NULL;
-	struct sockaddr sa;
 	struct sockaddr_in sin;
 	struct in_addr isaddr, itaddr;
-	uint8_t enaddr[ETHER_ADDR_LEN];
 	char addr[INET_ADDRSTRLEN];
 	int op, target = 0;
 	unsigned int rdomain;
@@ -480,8 +510,7 @@ in_arpinput(struct ifnet *ifp, struct mbuf *m)
 		goto out;
 	}
 
-	memcpy(enaddr, LLADDR(ifp->if_sadl), ETHER_ADDR_LEN);
-	if (!memcmp(ea->arp_sha, enaddr, sizeof(ea->arp_sha)))
+	if (!memcmp(ea->arp_sha, LLADDR(ifp->if_sadl), sizeof(ea->arp_sha)))
 		goto out;	/* it's from me, ignore it. */
 
 	/* Check target against our interface addresses. */
@@ -495,7 +524,7 @@ in_arpinput(struct ifnet *ifp, struct mbuf *m)
 
 #if NCARP > 0
 	if (target && op == ARPOP_REQUEST && ifp->if_type == IFT_CARP &&
-	    !carp_iamatch(ifp, enaddr))
+	    !carp_iamatch(ifp))
 		goto out;
 #endif
 
@@ -510,46 +539,36 @@ in_arpinput(struct ifnet *ifp, struct mbuf *m)
 		    "address %s\n", addr, ether_sprintf(ea->arp_sha));
 		itaddr = isaddr;
 	} else if (rt != NULL) {
-		if (arpcache(ifp, ea, rt))
+		int error;
+
+		KERNEL_LOCK();
+		error = arpcache(ifp, ea, rt);
+		KERNEL_UNLOCK();
+		if (error)
 			goto out;
 	}
 
-	if (op != ARPOP_REQUEST)
-		goto out;
+	if (op == ARPOP_REQUEST) {
+		uint8_t *eaddr;
 
-	rtfree(rt);
-	if (target) {
-		/* We are the target and already have all info for the reply */
-		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
-		memcpy(ea->arp_sha, LLADDR(ifp->if_sadl), sizeof(ea->arp_sha));
-	} else {
-		struct sockaddr_dl *sdl;
-
-		rt = arplookup(&itaddr, 0, SIN_PROXY, rdomain);
-		if (rt == NULL)
-			goto out;
-		/* protect from possible duplicates only owner should respond */
-		if (rt->rt_ifidx != ifp->if_index)
-			goto out;
-		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
-		sdl = satosdl(rt->rt_gateway);
-		memcpy(ea->arp_sha, LLADDR(sdl), sizeof(ea->arp_sha));
+		if (target) {
+			/* We already have all info for the reply */
+			eaddr = LLADDR(ifp->if_sadl);
+		} else {
+			rtfree(rt);
+			rt = arplookup(&itaddr, 0, SIN_PROXY, rdomain);
+			/*
+			 * Protect from possible duplicates, only owner
+			 * should respond
+			 */
+			if ((rt == NULL) || (rt->rt_ifidx != ifp->if_index))
+				goto out;
+			eaddr = LLADDR(satosdl(rt->rt_gateway));
+		}
+		arpreply(ifp, m, &itaddr, eaddr);
 		rtfree(rt);
+		return;
 	}
-
-	memcpy(ea->arp_tpa, ea->arp_spa, sizeof(ea->arp_spa));
-	memcpy(ea->arp_spa, &itaddr, sizeof(ea->arp_spa));
-	ea->arp_op = htons(ARPOP_REPLY);
-	ea->arp_pro = htons(ETHERTYPE_IP); /* let's be sure! */
-	eh = (struct ether_header *)sa.sa_data;
-	memcpy(eh->ether_dhost, ea->arp_tha, sizeof(eh->ether_dhost));
-	memcpy(eh->ether_shost, enaddr, sizeof(eh->ether_shost));
-
-	eh->ether_type = htons(ETHERTYPE_ARP);
-	sa.sa_family = pseudo_AF_HDRCMPLT;
-	sa.sa_len = sizeof(sa);
-	ifp->if_output(ifp, m, &sa, NULL);
-	return;
 
 out:
 	rtfree(rt);
@@ -567,7 +586,15 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 	unsigned int len;
 	int changed = 0;
 
+	KERNEL_ASSERT_LOCKED();
 	KASSERT(sdl != NULL);
+
+	/*
+	 * This can happen if the entry has been deleted by another CPU
+	 * after we found it.
+	 */
+	if (la == NULL)
+		return (0);
 
 	if (sdl->sdl_alen > 0) {
 		if (memcmp(ea->arp_sha, LLADDR(sdl), sdl->sdl_alen)) {
@@ -618,7 +645,7 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 	sdl->sdl_alen = sizeof(ea->arp_sha);
 	memcpy(LLADDR(sdl), ea->arp_sha, sizeof(ea->arp_sha));
 	if (rt->rt_expire)
-		rt->rt_expire = time_second + arpt_keep;
+		rt->rt_expire = time_uptime + arpt_keep;
 	rt->rt_flags &= ~RTF_REJECT;
 
 	/* Notify userland that an ARP resolution has been done. */
@@ -649,23 +676,31 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 
 	return (0);
 }
+
+void
+arpinvalidate(struct rtentry *rt)
+{
+	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
+	struct sockaddr_dl *sdl = satosdl(rt->rt_gateway);
+
+	la_hold_total -= ml_purge(&la->la_ml);
+	sdl->sdl_alen = 0;
+	la->la_asked = 0;
+}
+
 /*
  * Free an arp entry.
  */
 void
 arptfree(struct rtentry *rt)
 {
-	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
-	struct sockaddr_dl *sdl = satosdl(rt->rt_gateway);
 	struct ifnet *ifp;
 
-	ifp = if_get(rt->rt_ifidx);
-	if ((sdl != NULL) && (sdl->sdl_family == AF_LINK)) {
-		sdl->sdl_alen = 0;
-		la->la_asked = 0;
-	}
+	arpinvalidate(rt);
 
-	if (!ISSET(rt->rt_flags, RTF_STATIC))
+	ifp = if_get(rt->rt_ifidx);
+	KASSERT(ifp != NULL);
+	if (!ISSET(rt->rt_flags, RTF_STATIC|RTF_CACHED))
 		rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	if_put(ifp);
 }
@@ -696,20 +731,15 @@ arplookup(struct in_addr *inp, int create, int proxy, u_int tableid)
 	}
 
 	if (proxy && !ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
-		struct rtentry *mrt = NULL;
-#if defined(ART) && !defined(SMALL_KERNEL)
-		mrt = rt;
+#ifdef ART
 		KERNEL_LOCK();
-		while ((mrt = rtable_mpath_next(mrt)) != NULL) {
-			if (ISSET(mrt->rt_flags, RTF_ANNOUNCE)) {
-				rtref(mrt);
+		while ((rt = rtable_iterate(rt)) != NULL) {
+			if (ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
 				break;
 			}
 		}
 		KERNEL_UNLOCK();
-#endif /* ART && !SMALL_KERNEL */
-		rtfree(rt);
-		return (mrt);
+#endif /* ART */
 	}
 
 	return (rt);
@@ -806,7 +836,7 @@ in_revarpinput(struct ifnet *ifp, struct mbuf *m)
 	switch (op) {
 	case ARPOP_REQUEST:
 	case ARPOP_REPLY:	/* per RFC */
-		in_arpinput(ifp, m);
+		niq_enqueue(&arpinq, m);
 		return;
 	case ARPOP_REVREPLY:
 		break;
@@ -851,6 +881,7 @@ revarprequest(struct ifnet *ifp)
 		return;
 	m->m_len = sizeof(*ea);
 	m->m_pkthdr.len = sizeof(*ea);
+	m->m_pkthdr.pf.prio = ifp->if_llprio;
 	MH_ALIGN(m, sizeof(*ea));
 	ea = mtod(m, struct ether_arp *);
 	eh = (struct ether_header *)sa.sa_data;

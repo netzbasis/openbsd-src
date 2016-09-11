@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK_CD,v 1.228 2015/10/23 05:35:49 mlarkin Exp $
+#	$OpenBSD: RAMDISK_CD,v 1.231 2016/09/04 10:22:06 tedu Exp $
 
 machine		i386
 maxusers	4
@@ -98,6 +98,7 @@ cdce*		at uhub?		# CDC Ethernet
 udav*		at uhub?		# Davicom DM9601 based Ethernet
 mos*		at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*		at uhub?		# Realtek RTL8150L based adapters
+ure*		at uhub?		# Realtek RTL8152 based adapters
 wi*		at uhub?		# WaveLAN IEEE 802.11DS
 ural*		at uhub?		# Ralink RT2500
 rum*		at uhub?		# Ralink RT2501USB/RT2601USB
@@ -126,12 +127,6 @@ com2		at isa? port 0x3e8 irq 5
 com*		at pcmcia?			# PCMCIA modem cards
 com*		at isapnp?
 
-bha0		at isa? port 0x330	# BusLogic [57]4X SCSI controllers
-bha*		at pci?
-aha0		at isa? port 0x330	# Adaptec 154[02] SCSI controllers
-aha1		at isa? port 0x334	# Adaptec 154[02] SCSI controllers
-aha*		at isapnp?
-ahb*		at eisa?		# Adaptec 174[024] SCSI controllers
 ahc*		at eisa?		# Adaptec 274x, aic7770 SCSI controllers
 ahc*		at pci?			# Adaptec 2940/3940/78?? SCSI controllers
 jmb*		at pci?			# JMicron JMB36x controllers

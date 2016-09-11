@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldpd.h,v 1.76 2016/05/23 19:20:55 renato Exp $ */
+/*	$OpenBSD: ldpd.h,v 1.80 2016/07/01 23:36:38 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -191,7 +191,7 @@ TAILQ_HEAD(mapping_head, mapping_entry);
 
 struct map {
 	uint8_t		type;
-	uint32_t	messageid;
+	uint32_t	msg_id;
 	union {
 		struct {
 			uint16_t	af;
@@ -205,21 +205,27 @@ struct map {
 			uint16_t	ifmtu;
 		} pwid;
 	} fec;
+	struct {
+		uint32_t	status_code;
+		uint32_t	msg_id;
+		uint16_t	msg_type;
+	} st;
 	uint32_t	label;
 	uint32_t	requestid;
 	uint32_t	pw_status;
 	uint8_t		flags;
 };
 #define F_MAP_REQ_ID	0x01	/* optional request message id present */
-#define F_MAP_PW_CWORD	0x02	/* pseudowire control word */
-#define F_MAP_PW_ID	0x04	/* pseudowire connection id */
-#define F_MAP_PW_IFMTU	0x08	/* pseudowire interface parameter */
-#define F_MAP_PW_STATUS	0x10	/* pseudowire status */
+#define F_MAP_STATUS	0x02	/* status */
+#define F_MAP_PW_CWORD	0x04	/* pseudowire control word */
+#define F_MAP_PW_ID	0x08	/* pseudowire connection id */
+#define F_MAP_PW_IFMTU	0x10	/* pseudowire interface parameter */
+#define F_MAP_PW_STATUS	0x20	/* pseudowire status */
 
 struct notify_msg {
-	uint32_t	status;
-	uint32_t	messageid;	/* network byte order */
-	uint16_t	type;		/* network byte order */
+	uint32_t	status_code;
+	uint32_t	msg_id;		/* network byte order */
+	uint16_t	msg_type;	/* network byte order */
 	uint32_t	pw_status;
 	struct map	fec;
 	uint8_t		flags;
@@ -288,6 +294,8 @@ struct nbr_params {
 	LIST_ENTRY(nbr_params)	 entry;
 	struct in_addr		 lsr_id;
 	uint16_t		 keepalive;
+	int			 gtsm_enabled;
+	uint8_t			 gtsm_hops;
 	struct {
 		enum auth_method	 method;
 		char			 md5key[TCP_MD5_KEY_LEN];
@@ -296,6 +304,8 @@ struct nbr_params {
 	uint8_t			 flags;
 };
 #define F_NBRP_KEEPALIVE	 0x01
+#define F_NBRP_GTSM		 0x02
+#define F_NBRP_GTSM_HOPS	 0x04
 
 struct l2vpn_if {
 	LIST_ENTRY(l2vpn_if)	 entry;
@@ -368,6 +378,7 @@ struct ldpd_af_conf {
 #define	F_LDPD_AF_ENABLED	0x0001
 #define	F_LDPD_AF_THELLO_ACCEPT	0x0002
 #define	F_LDPD_AF_EXPNULL	0x0004
+#define	F_LDPD_AF_NO_GTSM	0x0008
 
 struct ldpd_conf {
 	struct in_addr		 rtr_id;
@@ -396,6 +407,7 @@ struct ldpd_global {
 	time_t			 uptime;
 	struct ldpd_af_global	 ipv4;
 	struct ldpd_af_global	 ipv6;
+	uint32_t		 conf_seqnum;
 	int			 pfkeysock;
 	struct if_addr_head	 addr_list;
 	LIST_HEAD(, adj)	 adj_list;
@@ -573,13 +585,18 @@ int		 ldp_create_socket(int, enum socket_type);
 void		 sock_set_recvbuf(int);
 int		 sock_set_reuse(int, int);
 int		 sock_set_bindany(int, int);
-int		 sock_set_ipv4_mcast_ttl(int, uint8_t);
 int		 sock_set_ipv4_tos(int, int);
 int		 sock_set_ipv4_recvif(int, int);
+int		 sock_set_ipv4_minttl(int, int);
+int		 sock_set_ipv4_ucast_ttl(int fd, int);
+int		 sock_set_ipv4_mcast_ttl(int, uint8_t);
 int		 sock_set_ipv4_mcast(struct iface *);
 int		 sock_set_ipv4_mcast_loop(int);
 int		 sock_set_ipv6_dscp(int, int);
 int		 sock_set_ipv6_pktinfo(int, int);
+int		 sock_set_ipv6_minhopcount(int, int);
+int		 sock_set_ipv6_ucast_hops(int, int);
+int		 sock_set_ipv6_mcast_hops(int, int);
 int		 sock_set_ipv6_mcast(struct iface *);
 int		 sock_set_ipv6_mcast_loop(int);
 

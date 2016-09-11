@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.79 2016/05/23 20:11:49 deraadt Exp $	*/
+/*	$OpenBSD: locore.S,v 1.83 2016/09/04 09:22:28 mpi Exp $	*/
 /*	$NetBSD: locore.S,v 1.13 2004/03/25 18:33:17 drochner Exp $	*/
 
 /*
@@ -106,12 +106,10 @@
 
 #include "assym.h"
 #include "lapic.h"
-#include "ioapic.h"
 #include "ksyms.h"
-#include "acpi.h"
 #include "xen.h"
+#include "hyperv.h"
 
-#include <sys/errno.h>
 #include <sys/syscall.h>
 
 #include <machine/param.h>
@@ -153,7 +151,7 @@
 	.data
 
 #if NLAPIC > 0 
-	.align  NBPG
+	.align  NBPG, 0xcc
 	.globl _C_LABEL(local_apic), _C_LABEL(lapic_id), _C_LABEL(lapic_tpr)
 _C_LABEL(local_apic):
 	.space  LAPIC_ID
@@ -224,7 +222,7 @@ _C_LABEL(pg_nx):	.quad	0	# NX PTE bit (if CPU supports)
 gdt64:
 	.word	gdt64_end-gdt64_start-1
 	.quad	_RELOC(gdt64_start)
-.align 64
+.align 64, 0xcc
 
 gdt64_start:
 	.quad 0x0000000000000000	/* always empty */
@@ -1155,12 +1153,55 @@ NENTRY(intr_fast_exit)
 	movq	TF_RCX(%rsp),%rcx
 	movq	TF_R11(%rsp),%r11
 	movq	TF_RAX(%rsp),%rax
+
+#if !defined(GPROF) && defined(DDBPROF)
+	/*
+	 * If we are returning from a probe trap we need to fix the
+	 * stack layout and emulate the patched instruction.
+	 *
+	 * The code below does that by trashing %rax, so it MUST be
+	 * restored afterward.
+	 */
+	cmpl	$INTR_FAKE_TRAP, TF_ERR(%rsp)
+	je	.Lprobe_fixup
+#endif /* !defined(GPROF) && defined(DDBPROF) */
+
 	addq	$TF_RIP,%rsp
 
 	.globl	_C_LABEL(doreti_iret)
 _C_LABEL(doreti_iret):
 	iretq
 
+
+#if !defined(GPROF) && defined(DDBPROF)
+.Lprobe_fixup:
+	/* Reserve enough room to emulate "pushq %rbp". */
+	subq	$16, %rsp
+
+	/* Shift hardware-saved registers. */
+	movq	(TF_RIP + 16)(%rsp), %rax
+	movq	%rax, TF_RIP(%rsp)
+	movq	(TF_CS + 16)(%rsp), %rax
+	movq	%rax, TF_CS(%rsp)
+	movq	(TF_RFLAGS + 16)(%rsp), %rax
+	movq	%rax, TF_RFLAGS(%rsp)
+	movq	(TF_RSP + 16)(%rsp), %rax
+	movq	%rax, TF_RSP(%rsp)
+	movq	(TF_SS + 16)(%rsp), %rax
+	movq	%rax, TF_SS(%rsp)
+
+	/* Pull 8 bytes off the stack and store the content of the register. */
+	movq	TF_RSP(%rsp), %rax
+	subq	$8, %rax
+	movq	%rax, TF_RSP(%rsp)
+	movq	%rbp, (%rax)
+
+	/* Write back overwritten %rax */
+	movq	(TF_RAX + 16)(%rsp),%rax
+
+	addq	$TF_RIP,%rsp
+	iretq
+#endif /* !defined(GPROF) && defined(DDBPROF) */
 
 ENTRY(pagezero)
 	movq    $-PAGE_SIZE,%rdx
@@ -1177,7 +1218,7 @@ ENTRY(pagezero)
 	ret
 
 	.section .codepatch,"a"
-	.align  8
+	.align  8, 0xcc
 	.globl _C_LABEL(codepatch_begin)
 _C_LABEL(codepatch_begin):
 	.previous
@@ -1190,8 +1231,17 @@ _C_LABEL(codepatch_end):
 #if NXEN > 0
 	/* Hypercall page needs to be page aligned */
 	.text
-	.align	NBPG
+	.align	NBPG, 0xcc
 	.globl	_C_LABEL(xen_hypercall_page)
 _C_LABEL(xen_hypercall_page):
-	.skip	0x1000, 0xcc	/* Fill with int3 */
+	.skip	0x1000, 0xcc
+#endif /* NXEN > 0 */
+
+#if NHYPERV > 0
+	/* Hypercall page needs to be page aligned */
+	.text
+	.align	NBPG, 0xcc
+	.globl	_C_LABEL(hv_hypercall_page)
+_C_LABEL(hv_hypercall_page):
+	.skip	0x1000, 0xcc
 #endif /* NXEN > 0 */

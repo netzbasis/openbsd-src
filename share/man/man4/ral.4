@@ -1,4 +1,4 @@
-.\" $OpenBSD: ral.4,v 1.108 2016/03/07 13:47:53 stsp Exp $
+.\" $OpenBSD: ral.4,v 1.110 2016/08/17 11:52:29 stsp Exp $
 .\"
 .\" Copyright (c) 2005-2010 Damien Bergamini <damien.bergamini@free.fr>
 .\"
@@ -14,12 +14,12 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 7 2016 $
+.Dd $Mdocdate: August 17 2016 $
 .Dt RAL 4
 .Os
 .Sh NAME
 .Nm ral
-.Nd Ralink Technology IEEE 802.11a/b/g/n wireless network device
+.Nd Ralink Technology/MediaTek IEEE 802.11a/b/g/n wireless network device
 .Sh SYNOPSIS
 .Cd "ral* at cardbus?"
 .Cd "ral* at pci?"
@@ -27,7 +27,7 @@
 The
 .Nm
 driver supports PCI/PCIe/CardBus wireless adapters based on the Ralink RT2500,
-RT2501, RT2600, RT2700, RT2800 and RT3090 chipsets.
+RT2501, RT2600, RT2700, RT2800, RT3090 and RT3900E chipsets.
 .Pp
 The RT2500 chipset is the first generation of 802.11b/g adapters from Ralink.
 It consists of two integrated chips, an RT2560 MAC/BBP and an RT2525 radio
@@ -63,6 +63,13 @@ bandwidth.)
 .Pp
 The RT3090 chipset is the first generation of single-chip 802.11n adapters
 from Ralink.
+.Pp
+The RT3900E chipset is a single-chip 802.11n adapter from Ralink.
+The MAC/Baseband Processor can be an RT5390 or RT5392.
+The RT5390 chip operates in the 2GHz spectrum and supports one transmit path
+and one receiver path (1T1R).
+The RT5392 chip operates in the 2GHz spectrum and supports up to two transmit
+paths and two receiver paths (2T2R).
 .Pp
 These are the modes the
 .Nm
@@ -302,9 +309,6 @@ inet 192.168.1.1 255.255.255.0
 .Xr hostname.if 5 ,
 .Xr hostapd 8 ,
 .Xr ifconfig 8
-.Pp
-Ralink Technology:
-.Lk http://www.ralinktech.com/
 .Sh HISTORY
 The
 .Nm

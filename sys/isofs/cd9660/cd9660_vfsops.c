@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd9660_vfsops.c,v 1.79 2016/05/22 20:27:04 bluhm Exp $	*/
+/*	$OpenBSD: cd9660_vfsops.c,v 1.83 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: cd9660_vfsops.c,v 1.26 1997/06/13 15:38:58 pk Exp $	*/
 
 /*-
@@ -179,19 +179,6 @@ cd9660_mount(mp, path, data, ndp, p)
 		return (ENXIO);
 	}
 
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0) != 0) {
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, VREAD, p->p_ucred, p);
-		if (error) {
-			vput(devvp);
-			return (error);
-		}
-		VOP_UNLOCK(devvp, p);
-	}
 	if ((mp->mnt_flag & MNT_UPDATE) == 0)
 		error = iso_mountfs(devvp, mp, p, &args);
 	else {
@@ -204,7 +191,6 @@ cd9660_mount(mp, path, data, ndp, p)
 		vrele(devvp);
 		return (error);
 	}
-	imp = VFSTOISOFS(mp);
 
 	bzero(mp->mnt_stat.f_mntonname, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntonname, path, MNAMELEN);
@@ -380,7 +366,7 @@ iso_mountfs(devvp, mp, p, argp)
 	brelse(pribp);
 	pribp = NULL;
 
-	mp->mnt_data = (qaddr_t)isomp;
+	mp->mnt_data = isomp;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
 	mp->mnt_stat.f_namemax = NAME_MAX;
@@ -771,7 +757,7 @@ retry:
 		return (error);
 	}
 	ip = malloc(sizeof(*ip), M_ISOFSNODE, M_WAITOK | M_ZERO);
-	lockinit(&ip->i_lock, PINOD, "isoinode", 0, 0);
+	rrw_init(&ip->i_lock, "isoinode");
 	vp->v_data = ip;
 	ip->i_vnode = vp;
 	ip->i_dev = dev;

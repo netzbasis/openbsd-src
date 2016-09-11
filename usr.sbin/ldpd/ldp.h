@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldp.h,v 1.29 2016/05/23 19:14:03 renato Exp $ */
+/*	$OpenBSD: ldp.h,v 1.35 2016/09/03 16:07:08 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -44,6 +44,7 @@
 #define MIN_KEEPALIVE		3
 #define MAX_KEEPALIVE		0xffff
 #define KEEPALIVE_PER_PERIOD	3
+#define INIT_FSM_TIMEOUT	15
 
 #define	DEFAULT_HELLO_INTERVAL	5
 #define	MIN_HELLO_INTERVAL	1
@@ -116,12 +117,12 @@ struct tlv {
 	uint16_t	type;
 	uint16_t	length;
 };
-#define	TLV_HDR_LEN		4
+#define	TLV_HDR_SIZE		4
 
 struct ldp_msg {
 	uint16_t	type;
 	uint16_t	length;
-	uint32_t	msgid;
+	uint32_t	id;
 	/* Mandatory Parameters */
 	/* Optional Parameters */
 } __packed;
@@ -139,9 +140,9 @@ struct hello_prms_tlv {
 	uint16_t	holdtime;
 	uint16_t	flags;
 };
-
-#define TARGETED_HELLO		0x8000
-#define REQUEST_TARG_HELLO	0x4000
+#define F_HELLO_TARGETED	0x8000
+#define F_HELLO_REQ_TARG	0x4000
+#define F_HELLO_GTSM		0x2000
 
 struct hello_prms_opt4_tlv {
 	uint16_t	type;
@@ -214,6 +215,7 @@ struct sess_prms_tlv {
 } __packed;
 
 #define SESS_PRMS_SIZE		18
+#define SESS_PRMS_LEN		14
 
 struct status_tlv {
 	uint16_t	type;
@@ -237,6 +239,8 @@ struct address_list_tlv {
 	/* address entries */
 } __packed;
 
+#define ADDR_LIST_SIZE		6
+
 #define FEC_ELM_WCARD_LEN	1
 #define FEC_ELM_PREFIX_MIN_LEN	4
 #define FEC_PWID_ELM_MIN_LEN	8
@@ -256,37 +260,37 @@ struct subtlv {
 	uint8_t		type;
 	uint8_t		length;
 };
-#define	SUBTLV_HDR_LEN		2
+#define	SUBTLV_HDR_SIZE		2
 
 #define SUBTLV_IFMTU		0x01
 #define SUBTLV_VLANID		0x06
 
-#define FEC_SUBTLV_IFMTU_LEN	4
-#define FEC_SUBTLV_VLANID_LEN	4
+#define FEC_SUBTLV_IFMTU_SIZE	4
+#define FEC_SUBTLV_VLANID_SIZE	4
 
 struct label_tlv {
 	uint16_t	type;
 	uint16_t	length;
 	uint32_t	label;
 };
-
-#define LABEL_TLV_LEN		8
+#define LABEL_TLV_SIZE		8
+#define LABEL_TLV_LEN		4
 
 struct reqid_tlv {
 	uint16_t	type;
 	uint16_t	length;
 	uint32_t	reqid;
 };
-
-#define REQID_TLV_LEN		8
+#define REQID_TLV_SIZE		8
+#define REQID_TLV_LEN		4
 
 struct pw_status_tlv {
 	uint16_t	type;
 	uint16_t	length;
 	uint32_t	value;
 };
-
-#define PW_STATUS_TLV_LEN	8
+#define PW_STATUS_TLV_SIZE	8
+#define PW_STATUS_TLV_LEN	4
 
 #define PW_FORWARDING		0
 #define PW_NOT_FORWARDING	(1 << 0)
@@ -295,6 +299,6 @@ struct pw_status_tlv {
 #define PW_PSN_RX_FAULT		(1 << 3)
 #define PW_PSN_TX_FAULT		(1 << 4)
 
-#define	NO_LABEL		UINT_MAX
+#define	NO_LABEL		UINT32_MAX
 
 #endif /* !_LDP_H_ */

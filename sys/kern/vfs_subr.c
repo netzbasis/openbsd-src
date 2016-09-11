@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.247 2016/05/26 16:03:29 natano Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.250 2016/08/25 00:01:13 dlg Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -145,8 +145,10 @@ vntblinit(void)
 	maxvnodes = 2 * initialvnodes;
 	pool_init(&vnode_pool, sizeof(struct vnode), 0, 0, PR_WAITOK,
 	    "vnodes", NULL);
+	pool_setipl(&vnode_pool, IPL_NONE);
 	pool_init(&uvm_vnode_pool, sizeof(struct uvm_vnode), 0, 0, PR_WAITOK,
 	    "uvmvnodes", NULL);
+	pool_setipl(&uvm_vnode_pool, IPL_NONE);
 	TAILQ_INIT(&vnode_hold_list);
 	TAILQ_INIT(&vnode_free_list);
 	TAILQ_INIT(&mountlist);
@@ -957,7 +959,7 @@ vclean(struct vnode *vp, int flags, struct proc *p)
 	 * For active vnodes, it ensures that no other activity can
 	 * occur while the underlying object is being cleaned out.
 	 */
-	VOP_LOCK(vp, LK_DRAIN, p);
+	VOP_LOCK(vp, LK_DRAIN | LK_EXCLUSIVE, p);
 
 	/*
 	 * Clean out any VM data associated with the vnode.
@@ -1290,7 +1292,7 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			if (vfsp->vfc_typenum == name[0])
 				break;
 
-		if (vfsp == NULL)
+		if (vfsp == NULL || vfsp->vfc_vfsops->vfs_sysctl == NULL)
 			return (EOPNOTSUPP);
 
 		return ((*vfsp->vfc_vfsops->vfs_sysctl)(&name[1], namelen - 1,

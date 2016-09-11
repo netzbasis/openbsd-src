@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.649 2015/09/01 19:12:25 sashan Exp $	*/
+/*	$OpenBSD: parse.y,v 1.655 2016/08/26 06:06:58 guenther Exp $	*/
 
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -181,7 +181,7 @@ struct node_queue {
 	int			 scheduler;
 	struct node_queue	*next;
 	struct node_queue	*tail;
-}	*oqueues = NULL;
+};
 
 struct node_qassign {
 	char		*qname;
@@ -655,7 +655,7 @@ option		: SET REASSEMBLE yesno optnodf		{
 		}
 		| SET DEBUG DEBUG {
 			if (pfctl_set_debug(pf, "debug") != 0) {
-				yyerror("error setting debuglevel debug");
+				yyerror("error setting debuglevel %s", "debug");
 				YYERROR;
 			}
 		}
@@ -712,8 +712,16 @@ numberstring	: NUMBER				{
 		;
 
 varset		: STRING '=' varstring	{
+			char *s = $1;
 			if (pf->opts & PF_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				err(1, "cannot store variable %s", $1);
 			free($1);
@@ -729,6 +737,7 @@ pfa_anchorlist	: /* empty */
 		| pfa_anchorlist '\n'
 		| pfa_anchorlist pfrule '\n'
 		| pfa_anchorlist anchorrule '\n'
+		| pfa_anchorlist include '\n'
 		;
 
 pfa_anchor	: '{'
@@ -1517,6 +1526,10 @@ pfrule		: action dir logquick interface af proto fromto
 			}
 			if ($8.marker & FOM_AFTO)
 				r.rule_flag |= PFRULE_AFTO;
+			if (($8.marker & FOM_AFTO) && r.direction != PF_IN) {
+				yyerror("af-to can only be used with direction in");
+				YYERROR;
+			}
 			r.af = $5;
 
 			if ($8.tag)

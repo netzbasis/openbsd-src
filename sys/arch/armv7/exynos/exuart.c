@@ -1,4 +1,4 @@
-/* $OpenBSD: exuart.c,v 1.3 2016/04/24 00:57:23 patrick Exp $ */
+/* $OpenBSD: exuart.c,v 1.7 2016/08/21 06:36:23 jsg Exp $ */
 /*
  * Copyright (c) 2005 Dale Rahn <drahn@motorola.com>
  *
@@ -31,19 +31,21 @@
 
 #include <dev/cons.h>
 
-
 #ifdef DDB
 #include <ddb/db_var.h>
 #endif
 
 #include <machine/bus.h>
-#if NFDT > 0
 #include <machine/fdt.h>
-#endif
+#include <arm/armv7/armv7var.h>
 #include <armv7/exynos/exuartreg.h>
 #include <armv7/exynos/exuartvar.h>
 #include <armv7/armv7/armv7var.h>
+#include <armv7/armv7/armv7_machdep.h>
 #include <armv7/exynos/exclockvar.h>
+
+#include <dev/ofw/fdt.h>
+#include <dev/ofw/openfirm.h>
 
 #define DEVUNIT(x)      (minor(x) & 0x7f)
 #define DEVCUA(x)       (minor(x) & 0x80)
@@ -89,7 +91,6 @@ struct exuart_softc {
 
 
 int     exuartprobe(struct device *parent, void *self, void *aux);
-int     exuartprobe_fdt(struct device *parent, void *self, void *aux);
 void    exuartattach(struct device *parent, struct device *self, void *aux);
 
 void exuartcnprobe(struct consdev *cp);
@@ -110,6 +111,8 @@ struct exuart_softc *exuart_sc(dev_t dev);
 
 int exuart_intr(void *);
 
+extern int comcnspeed;
+extern int comcnmode;
 
 /* XXX - we imitate 'com' serial ports and take over their entry points */
 /* XXX: These belong elsewhere */
@@ -122,9 +125,6 @@ struct cfdriver exuart_cd = {
 struct cfattach exuart_ca = {
 	sizeof(struct exuart_softc), exuartprobe, exuartattach
 };
-struct cfattach exuart_fdt_ca = {
-	sizeof(struct exuart_softc), exuartprobe_fdt, exuartattach
-};
 
 bus_space_tag_t	exuartconsiot;
 bus_space_handle_t exuartconsioh;
@@ -132,71 +132,70 @@ bus_addr_t	exuartconsaddr;
 tcflag_t	exuartconscflag = TTYDEF_CFLAG;
 int		exuartdefaultrate = B115200;
 
-int
-exuartprobe(struct device *parent, void *self, void *aux)
+void
+exuart_init_cons(void)
 {
-	return 1;
+	struct fdt_reg reg;
+	void *node, *root;
+
+	if ((node = fdt_find_cons("samsung,exynos4210-uart")) == NULL)
+		return;
+
+	/* dtb uses serial2, qemu uses serial0 */
+	root = fdt_find_node("/");
+	if (root == NULL)
+		panic("%s: could not get fdt root node", __func__);
+	if (fdt_is_compatible(root, "samsung,universal_c210")) {
+		if ((node = fdt_find_node("/serial@13800000")) == NULL) {
+			return;
+		}
+		stdout_node = OF_finddevice("/serial@13800000");
+	}
+	
+	if (fdt_get_reg(node, 0, &reg))
+		return;
+
+	exuartcnattach(&armv7_bs_tag, reg.addr, comcnspeed, comcnmode);
 }
 
 int
-exuartprobe_fdt(struct device *parent, void *self, void *aux)
+exuartprobe(struct device *parent, void *self, void *aux)
 {
-#if NFDT > 0
-	struct armv7_attach_args *aa = aux;
+	struct fdt_attach_args *faa = aux;
 
-	if (fdt_node_compatible("samsung,exynos4210-uart", aa->aa_node))
-		return 1;
-#endif
-
-	return 0;
+	return OF_is_compatible(faa->fa_node, "samsung,exynos4210-uart");
 }
 
 struct cdevsw exuartdev =
 	cdev_tty_init(3/*XXX NEXUART */ ,exuart);		/* 12: serial port */
 
 void
-exuartattach(struct device *parent, struct device *self, void *args)
+exuartattach(struct device *parent, struct device *self, void *aux)
 {
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
 	struct exuart_softc *sc = (struct exuart_softc *) self;
-	struct armv7mem mem;
-	int irq;
+	int maj;
 
-	sc->sc_iot = aa->aa_iot;
-#if NFDT > 0
-	if (aa->aa_node) {
-		struct fdt_memory fdtmem;
-		uint32_t ints[3];
+	if (faa->fa_nreg < 1)
+		return;
 
-		if (fdt_get_memory_address(aa->aa_node, 0, &fdtmem))
-			panic("%s: could not extract memory data from FDT",
-			    __func__);
+	sc->sc_iot = faa->fa_iot;
 
-		/* TODO: Add interrupt FDT API. */
-		if (fdt_node_property_ints(aa->aa_node, "interrupts",
-		    ints, 3) != 3)
-			panic("%s: could not extract interrupt data from FDT",
-			    __func__);
-
-		mem.addr = fdtmem.addr;
-		mem.size = fdtmem.size;
-
-		irq = ints[1];
-	} else
-#endif
-	{
-		irq = aa->aa_dev->irq[0];
-		mem.addr = aa->aa_dev->mem[0].addr;
-		mem.size = aa->aa_dev->mem[0].size;
-	}
-
-	sc->sc_irq = arm_intr_establish(irq, IPL_TTY,
+	sc->sc_irq = arm_intr_establish_fdt(faa->fa_node, IPL_TTY,
 	    exuart_intr, sc, sc->sc_dev.dv_xname);
-	if (bus_space_map(sc->sc_iot, mem.addr, mem.size, 0, &sc->sc_ioh))
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr, faa->fa_reg[0].size,
+	    0, &sc->sc_ioh))
 		panic("%s: bus_space_map failed!", __func__);
 
-	if (mem.addr == exuartconsaddr)
-		printf(" console");
+	if (stdout_node == faa->fa_node) {
+		/* Locate the major number. */
+		for (maj = 0; maj < nchrdev; maj++)
+			if (cdevsw[maj].d_open == exuartopen)
+				break;
+		cn_tab->cn_dev = makedev(maj, sc->sc_dev.dv_unit);
+
+		printf(": console");
+	}
 
 	timeout_set(&sc->sc_diag_tmo, exuart_diag, sc);
 	timeout_set(&sc->sc_dtr_tmo, exuart_raisedtr, sc);

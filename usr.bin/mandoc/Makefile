@@ -1,10 +1,10 @@
-#	$OpenBSD: Makefile,v 1.101 2016/03/30 06:38:46 jmc Exp $
+#	$OpenBSD: Makefile,v 1.103 2016/08/01 10:32:39 schwarze Exp $
 
 .include <bsd.own.mk>
 
 CFLAGS  += -W -Wall -Wstrict-prototypes -Wno-unused-parameter
 DPADD += ${LIBUTIL}
-LDADD	+= -lsqlite3 -lutil -lz
+LDADD	+= -lutil -lz
 
 SRCS=	mandoc.c mandoc_aux.c mandoc_ohash.c preconv.c read.c \
 	roff.c tbl.c tbl_opts.c tbl_layout.c tbl_data.c eqn.c
@@ -15,7 +15,8 @@ SRCS+=	main.c mdoc_term.c tag.c chars.c term.c tree.c man_term.c eqn_term.c
 SRCS+=	mdoc_man.c
 SRCS+=	html.c mdoc_html.c man_html.c out.c eqn_html.c
 SRCS+=	term_ps.c term_ascii.c tbl_term.c tbl_html.c
-SRCS+=	manpath.c mandocdb.c mansearch_const.c mansearch.c
+SRCS+=	dbm_map.c dbm.c dba_write.c dba_array.c dba.c dba_read.c
+SRCS+=	manpath.c mandocdb.c mansearch.c
 
 PROG=	mandoc
 
@@ -49,7 +50,7 @@ LIBMANDOC_OBJS = ${LIBMDOC_OBJS} ${LIBMAN_OBJS} ${LIBROFF_OBJS} \
 		chars.o msec.o preconv.o read.o
 HTML_OBJS =	html.o mdoc_html.o man_html.o tbl_html.o eqn_html.o out.o
 CGI_OBJS =	${LIBMANDOC_OBJS} ${HTML_OBJS} \
-		mansearch.o mansearch_const.o cgi.o
+		dbm_map.o dbm.o mansearch.o cgi.o
 
 cgi.o: cgi.h main.h manconf.h mandoc.h mandoc_aux.h mansearch.h \
 	man.h mdoc.h roff.h
@@ -62,11 +63,5 @@ installcgi: man.cgi
 	${INSTALL} ${INSTALL_COPY} -S ${INSTALL_STRIP} \
 	    -o ${BINOWN} -g ${BINGRP} -m ${BINMODE} \
 	    man.cgi ${DESTDIR}/var/www/cgi-bin/man.cgi
-	${INSTALL} -d -o root -g wheel -m 755 ${DESTDIR}/var/www/man/mandoc/man1
-	${INSTALL} -d -o root -g wheel -m 755 ${DESTDIR}/var/www/man/mandoc/man8
-	${INSTALL} ${INSTALL_COPY} -o ${MANOWN} -g ${MANGRP} -m ${MANMODE} \
-	    ${.CURDIR}/apropos.1 ${DESTDIR}/var/www/man/mandoc/man1/apropos.1
-	${INSTALL} ${INSTALL_COPY} -o ${MANOWN} -g ${MANGRP} -m ${MANMODE} \
-	    ${.CURDIR}/man.cgi.8 ${DESTDIR}/var/www/man/mandoc/man8/man.cgi.8
 
 .include <bsd.prog.mk>

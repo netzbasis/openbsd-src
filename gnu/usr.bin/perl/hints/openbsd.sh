@@ -84,6 +84,8 @@ esac
 # around for old NetBSD binaries.
 libswanted=`echo $libswanted | sed 's/ crypt / /'`
 
+libswanted=`echo $libswanted | sed 's/ util / /'`
+
 # Configure can't figure this out non-interactively
 d_suidsafe=$define
 
@@ -129,6 +131,9 @@ $define|true|[yY]*)
         	# Broken up to OpenBSD 3.6, fixed in OpenBSD 3.7
 		d_getservbyname_r=$undef ;;
 	esac
+	;;
+*)
+	libswanted=`echo $libswanted | sed 's/ pthread / /'`
 esac
 EOCBU
 

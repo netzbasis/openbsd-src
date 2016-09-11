@@ -1,4 +1,4 @@
-/*	$OpenBSD: exf.c,v 1.42 2016/05/02 18:24:25 martijn Exp $	*/
+/*	$OpenBSD: exf.c,v 1.44 2016/08/01 18:27:35 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -54,10 +54,10 @@ static int	file_spath(SCR *, FREF *, struct stat *, int *);
  * vi now remembers the last location in any file that it has ever edited,
  * not just the previously edited file.
  *
- * PUBLIC: FREF *file_add(SCR *, char *);
+ * PUBLIC: FREF *file_add(SCR *, CHAR_T *);
  */
 FREF *
-file_add(SCR *sp, char *name)
+file_add(SCR *sp, CHAR_T *name)
 {
 	GS *gp;
 	FREF *frp, *tfrp;
@@ -124,7 +124,7 @@ file_init(SCR *sp, FREF *frp, char *rcv_name, int flags)
 	struct stat sb;
 	size_t psize;
 	int fd, exists, open_err, readonly;
-	char *oname, tname[PATH_MAX];
+	char *oname, tname[] = "/tmp/vi.XXXXXXXXXX";
 
 	open_err = readonly = 0;
 
@@ -180,10 +180,6 @@ file_init(SCR *sp, FREF *frp, char *rcv_name, int flags)
 		 */
 		if (frp->tname != NULL)
 			goto err;
-		if (opts_empty(sp, O_TMP_DIRECTORY, 0))
-			goto err;
-		(void)snprintf(tname, sizeof(tname),
-		    "%s/vi.XXXXXXXXXX", O_STR(sp, O_TMP_DIRECTORY));
 		fd = mkstemp(tname);
 		if (fd == -1 || fstat(fd, &sb) == -1 ||
 		    fchmod(fd, S_IRUSR | S_IWUSR) == -1) {
@@ -446,7 +442,7 @@ oerr:	if (F_ISSET(ep, F_RCV_ON))
 static int
 file_spath(SCR *sp, FREF *frp, struct stat *sbp, int *existsp)
 {
-	char savech;
+	CHAR_T savech;
 	size_t len;
 	int found;
 	char *name, *p, *t, path[PATH_MAX];

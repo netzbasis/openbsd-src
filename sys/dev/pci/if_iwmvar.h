@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.17 2016/05/25 13:35:12 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.22 2016/09/10 09:32:33 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -139,6 +139,7 @@ struct iwm_tx_radiotap_header {
 
 #define IWM_UCODE_SECT_MAX 16
 #define IWM_FWDMASEGSZ (192*1024)
+#define IWM_FWDMASEGSZ_8000 (320*1024)
 /* sanity check value */
 #define IWM_FWMAXSIZE (2*1024*1024)
 
@@ -263,17 +264,9 @@ struct iwm_tx_ring {
 /* Linux driver optionally uses 8k buffer */
 #define IWM_RBUF_SIZE		4096
 
-struct iwm_softc;
-struct iwm_rbuf {
-	struct iwm_softc	*sc;
-	void			*vaddr;
-	bus_addr_t		paddr;
-};
-
 struct iwm_rx_data {
 	struct mbuf	*m;
 	bus_dmamap_t	map;
-	int		wantresp;
 };
 
 struct iwm_rx_ring {
@@ -290,11 +283,11 @@ struct iwm_rx_ring {
 #define IWM_FLAG_HW_INITED	0x02
 #define IWM_FLAG_STOPPED	0x04
 #define IWM_FLAG_RFKILL		0x08
-#define IWM_FLAG_BUSY		0x10
-#define IWM_FLAG_SCANNING	0x20
+#define IWM_FLAG_SCANNING	0x10
 
 struct iwm_ucode_status {
 	uint32_t uc_error_event_table;
+	uint32_t uc_umac_error_event_table;
 	uint32_t uc_log_event_table;
 
 	int uc_ok;
@@ -308,12 +301,12 @@ struct iwm_ucode_status {
 
 /* lower blocks contain EEPROM image and calibration data */
 #define IWM_OTP_LOW_IMAGE_SIZE_FAMILY_7000 	16384
+#define IWM_OTP_LOW_IMAGE_SIZE_FAMILY_8000	32768
 
-#define IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS 1000
-#define IWM_MVM_TE_SESSION_PROTECTION_MIN_TIME_MS 400
+#define IWM_TE_SESSION_PROTECTION_MAX_TIME_MS 1000
+#define IWM_TE_SESSION_PROTECTION_MIN_TIME_MS 400
 
 enum IWM_CMD_MODE {
-	IWM_CMD_SYNC		= 0,
 	IWM_CMD_ASYNC		= (1 << 0),
 	IWM_CMD_WANT_SKB	= (1 << 1),
 	IWM_CMD_SEND_IN_RFKILL	= (1 << 2),
@@ -343,7 +336,7 @@ struct iwm_int_sta {
 	uint32_t tfd_queue_msk;
 };
 
-struct iwm_mvm_phy_ctxt {
+struct iwm_phy_ctxt {
 	uint16_t id;
 	uint16_t color;
 	uint32_t ref;
@@ -395,7 +388,7 @@ struct iwm_softc {
 	uint32_t			sched_base;
 
 	/* TX/RX rings. */
-	struct iwm_tx_ring txq[IWM_MVM_MAX_QUEUES];
+	struct iwm_tx_ring txq[IWM_MAX_QUEUES];
 	struct iwm_rx_ring rxq;
 	int qfullmsk;
 
@@ -406,7 +399,14 @@ struct iwm_softc {
 	int			ict_cur;
 
 	int sc_hw_rev;
+#define IWM_SILICON_A_STEP	0
+#define IWM_SILICON_B_STEP	1
+#define IWM_SILICON_C_STEP	2
+#define IWM_SILICON_D_STEP	3
 	int sc_hw_id;
+	int sc_device_family;
+#define IWM_DEVICE_FAMILY_7000	1
+#define IWM_DEVICE_FAMILY_8000	2
 
 	struct iwm_dma_info kw_dma;
 	struct iwm_dma_info fw_dma;
@@ -438,6 +438,8 @@ struct iwm_softc {
 	 * don't have the luxury of waiting for quiescense.
 	 */
 	int sc_generation;
+
+	struct rwlock ioctl_rwl;
 
 	int sc_cap_off; /* PCIe caps */
 
@@ -474,7 +476,7 @@ struct iwm_softc {
 	struct iwm_int_sta sc_aux_sta;
 
 	/* phy contexts.  we only use the first one */
-	struct iwm_mvm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];
+	struct iwm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];
 
 	struct iwm_notif_statistics sc_stats;
 	int sc_noise;
@@ -502,7 +504,7 @@ struct iwm_softc {
 
 struct iwm_node {
 	struct ieee80211_node in_ni;
-	struct iwm_mvm_phy_ctxt *in_phyctxt;
+	struct iwm_phy_ctxt *in_phyctxt;
 
 	uint16_t in_id;
 	uint16_t in_color;

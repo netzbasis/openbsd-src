@@ -1,4 +1,4 @@
-/* $OpenBSD: acpi.c,v 1.311 2016/05/08 10:09:25 kettenis Exp $ */
+/* $OpenBSD: acpi.c,v 1.315 2016/09/03 14:46:56 naddy Exp $ */
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
@@ -1033,7 +1033,8 @@ acpi_attach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * ACPI is enabled now -- attach timer
 	 */
-	if (!sc->sc_hw_reduced) {
+	if (!sc->sc_hw_reduced &&
+	    (sc->sc_fadt->pm_tmr_blk || sc->sc_fadt->x_pm_tmr_blk.address)) {
 		struct acpi_attach_args aaa;
 
 		memset(&aaa, 0, sizeof(aaa));
@@ -1959,6 +1960,8 @@ acpi_add_device(struct aml_node *node, void *arg)
 	struct acpi_attach_args aaa;
 #ifdef MULTIPROCESSOR
 	struct aml_value res;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
 	int proc_id = -1;
 #endif
 
@@ -1979,8 +1982,11 @@ acpi_add_device(struct aml_node *node, void *arg)
 				proc_id = res.v_processor.proc_id;
 			aml_freevalue(&res);
 		}
-		if (proc_id < -1 || proc_id >= LAPIC_MAP_SIZE ||
-		    (acpi_lapic_flags[proc_id] & ACPI_PROC_ENABLE) == 0)
+		CPU_INFO_FOREACH(cii, ci) {
+			if (ci->ci_acpi_proc_id == proc_id)
+				break;
+		}
+		if (ci == NULL)
 			return 0;
 #endif
 		nacpicpus++;
@@ -2104,6 +2110,13 @@ acpi_foundprw(struct aml_node *node, void *arg)
 {
 	struct acpi_softc *sc = arg;
 	struct acpi_wakeq *wq;
+	int64_t sta;
+
+	if (aml_evalinteger(sc, node->parent, "_STA", 0, NULL, &sta))
+		sta = STA_PRESENT | STA_ENABLED | STA_DEV_OK | 0x1000;
+
+	if ((sta & STA_PRESENT) == 0)
+		return 0;
 
 	wq = malloc(sizeof(struct acpi_wakeq), M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (wq == NULL)
@@ -2370,6 +2383,8 @@ acpi_sleep_state(struct acpi_softc *sc, int state)
 	rw_enter_write(&sc->sc_lck);
 #endif /* NWSDISPLAY > 0 */
 
+	stop_periodic_resettodr();
+
 #ifdef HIBERNATE
 	if (state == ACPI_STATE_S4) {
 		uvmpd_hibernate();
@@ -2469,6 +2484,8 @@ fail_alloc:
 		hibernate_resume_bufcache();
 	}
 #endif /* HIBERNATE */
+
+	start_periodic_resettodr();
 
 #if NWSDISPLAY > 0
 	rw_exit_write(&sc->sc_lck);

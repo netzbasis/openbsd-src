@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxie.c,v 1.14 2016/04/13 11:34:00 mpi Exp $	*/
+/*	$OpenBSD: sxie.c,v 1.21 2016/08/22 19:38:42 kettenis Exp $	*/
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2013 Artturi Alm
@@ -30,6 +30,7 @@
 #include <sys/mbuf.h>
 #include <machine/intr.h>
 #include <machine/bus.h>
+#include <machine/fdt.h>
 
 #include "bpfilter.h"
 
@@ -45,10 +46,12 @@
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 
-#include <armv7/armv7/armv7var.h>
 #include <armv7/sunxi/sunxireg.h>
-#include <armv7/sunxi/sxiccmuvar.h>
-#include <armv7/sunxi/sxipiovar.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_clock.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 /* configuration registers */
 #define	SXIE_CR			0x0000
@@ -164,6 +167,7 @@ struct sxie_softc {
 
 struct sxie_softc *sxie_sc;
 
+int	sxie_match(struct device *, void *, void *);
 void	sxie_attach(struct device *, struct device *, void *);
 void	sxie_setup_interface(struct sxie_softc *, struct device *);
 void	sxie_socware_init(struct sxie_softc *);
@@ -174,7 +178,6 @@ void	sxie_init(struct sxie_softc *);
 void	sxie_stop(struct sxie_softc *);
 void	sxie_reset(struct sxie_softc *);
 void	sxie_iff(struct sxie_softc *, struct ifnet *);
-struct mbuf * sxie_newbuf(void);
 int	sxie_intr(void *);
 void	sxie_recv(struct sxie_softc *);
 int	sxie_miibus_readreg(struct device *, int, int);
@@ -184,35 +187,50 @@ int	sxie_ifm_change(struct ifnet *);
 void	sxie_ifm_status(struct ifnet *, struct ifmediareq *);
 
 struct cfattach sxie_ca = {
-	sizeof (struct sxie_softc), NULL, sxie_attach
+	sizeof (struct sxie_softc), sxie_match, sxie_attach
 };
 
 struct cfdriver sxie_cd = {
 	NULL, "sxie", DV_IFNET
 };
 
-void
-sxie_attach(struct device *parent, struct device *self, void *args)
+int
+sxie_match(struct device *parent, void *match, void *aux)
 {
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "allwinner,sun4i-a10-emac");
+}
+
+void
+sxie_attach(struct device *parent, struct device *self, void *aux)
+{
 	struct sxie_softc *sc = (struct sxie_softc *) self;
+	struct fdt_attach_args *faa = aux;
 	struct mii_data *mii;
 	struct ifnet *ifp;
 	int s;
 
-	sc->sc_iot = aa->aa_iot;
+	if (faa->fa_nreg < 1)
+		return;
 
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
+	pinctrl_byname(faa->fa_node, "default");
+
+	sc->sc_iot = faa->fa_iot;
+
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic("sxie_attach: bus_space_map ioh failed!");
 
 	if (bus_space_map(sc->sc_iot, SID_ADDR, SID_SIZE, 0, &sc->sc_sid_ioh))
 		panic("sxie_attach: bus_space_map sid_ioh failed!");
 
+	clock_enable_all(faa->fa_node);
+
 	sxie_socware_init(sc);
 	sc->txf_inuse = 0;
 
-	sc->sc_ih = arm_intr_establish(aa->aa_dev->irq[0], IPL_NET,
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_NET,
 	    sxie_intr, sc, sc->sc_dev.dv_xname);
 
 	s = splnet();
@@ -258,12 +276,8 @@ sxie_attach(struct device *parent, struct device *self, void *args)
 void
 sxie_socware_init(struct sxie_softc *sc)
 {
-	int i, have_mac = 0;
+	int have_mac = 0;
 	uint32_t reg;
-
-	for (i = 0; i < SXIPIO_EMAC_NPINS; i++)
-		sxipio_setcfg(i, 2); /* mux pins to EMAC */
-	sxiccmu_enablemodule(CCMU_EMAC);
 
 	/* MII clock cfg */
 	SXICMS4(sc, SXIE_MACMCFG, 15 << 2, 13 << 2);
@@ -586,10 +600,6 @@ trynext:
 		goto err_out;
 	}
 	
-	m = sxie_newbuf();
-	if (m == NULL)
-		goto err_out;
-
 	reg = SXIREAD4(sc, SXIE_RXIO);
 	pktstat = (uint16_t)reg >> 16;
 	pktlen = (int16_t)reg; /* length of useful data */
@@ -601,10 +611,6 @@ trynext:
 	if (pktlen > SXIE_MAX_PKT_SIZE)
 		pktlen = SXIE_MAX_PKT_SIZE; /* XXX is truncating ok? */
 
-	m->m_pkthdr.len = m->m_len = pktlen;
-	/* XXX m->m_pkthdr.csum_flags ? */
-	m_adj(m, ETHER_ALIGN);
-
 	/* read the actual packet from fifo XXX through 'align buffer'.. */
 	if (pktlen & 3)
 		rlen = SXIE_ROUNDUP(pktlen, 4);
@@ -612,7 +618,12 @@ trynext:
 		rlen = pktlen;
 	bus_space_read_multi_4(sc->sc_iot, sc->sc_ioh,
 	    SXIE_RXIO, (uint32_t *)&rxbuf[0], rlen >> 2);
-	memcpy(mtod(m, char *), (char *)&rxbuf[0], pktlen);
+
+	m = m_devget(&rxbuf[0], pktlen, ETHER_ALIGN);
+	if (m == NULL) {
+		ifp->if_ierrors++;
+		goto err_out;
+	}
 
 	ml_enqueue(&ml, m);
 	goto trynext;
@@ -662,24 +673,6 @@ sxie_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	splx(s);
 	return error;
-}
-
-struct mbuf *
-sxie_newbuf(void)
-{
-	struct mbuf *m;
-
-	MGETHDR(m, M_DONTWAIT, MT_DATA);
-	if (m == NULL)
-		return (NULL);
-
-	MCLGET(m, M_DONTWAIT);
-	if (!(m->m_flags & M_EXT)) {
-		m_freem(m);
-		return (NULL);
-	}
-
-	return (m);
 }
 
 void

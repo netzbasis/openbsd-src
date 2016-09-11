@@ -1,4 +1,4 @@
-/*	$OpenBSD: library_mquery.c,v 1.53 2016/05/07 19:05:23 guenther Exp $ */
+/*	$OpenBSD: library_mquery.c,v 1.56 2016/08/12 20:39:01 deraadt Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -32,7 +32,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include "dl_prebind.h"
 
 #include "syscall.h"
 #include "archdep.h"
@@ -109,8 +108,8 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	Elf_Addr load_end = 0;
 	Elf_Addr align = _dl_pagesz - 1, off, size;
 	Elf_Phdr *ptls = NULL;
+	Elf_Addr relro_addr = 0, relro_size = 0;
 	struct stat sb;
-	void *prebind_data;
 	char hbuf[4096];
 
 #define ROUND_PG(x) (((x) + align) & ~(align))
@@ -299,12 +298,15 @@ retry:
 	}
 
 	phdp = (Elf_Phdr *)(hbuf + ehdr->e_phoff);
-	for (i = 0; i < ehdr->e_phnum; i++, phdp++)
+	for (i = 0; i < ehdr->e_phnum; i++, phdp++) {
 		if (phdp->p_type == PT_OPENBSD_RANDOMIZE)
-			_dl_randombuf((char *)(phdp->p_vaddr + LOFF),
+			_dl_arc4randombuf((char *)(phdp->p_vaddr + LOFF),
 			    phdp->p_memsz);
-
-	prebind_data = prebind_load_fd(libfile, libname);
+		else if (phdp->p_type == PT_GNU_RELRO) {
+			relro_addr = phdp->p_vaddr + LOFF;
+			relro_size = phdp->p_memsz;
+		}
+	}
 
 	_dl_close(libfile);
 
@@ -313,13 +315,14 @@ retry:
 	    (Elf_Phdr *)((char *)lowld->start + ehdr->e_phoff), ehdr->e_phnum,
 	    type, (Elf_Addr)lowld->start, LOFF);
 	if (object) {
-		object->prebind_data = prebind_data;
 		object->load_size = (Elf_Addr)load_end - (Elf_Addr)lowld->start;
 		object->load_list = lowld;
 		/* set inode, dev from stat info */
 		object->dev = sb.st_dev;
 		object->inode = sb.st_ino;
 		object->obj_flags |= flags;
+		object->relro_addr = relro_addr;
+		object->relro_size = relro_size;
 		_dl_set_sod(object->load_name, &object->sod);
 		if (ptls != NULL && ptls->p_memsz)
 			_dl_set_tls(object, ptls, (Elf_Addr)lowld->start,

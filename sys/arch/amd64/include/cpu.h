@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.101 2016/05/09 22:45:07 deraadt Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.103 2016/09/04 09:22:28 mpi Exp $	*/
 /*	$NetBSD: cpu.h,v 1.1 2003/04/26 18:39:39 fvdl Exp $	*/
 
 /*-
@@ -92,6 +92,7 @@ struct cpu_info {
 	struct proc *ci_curproc;
 	u_int ci_cpuid;
 	u_int ci_apicid;
+	u_int ci_acpi_proc_id;
 	u_int32_t ci_randseed;
 
 	u_int64_t ci_scratch;
@@ -172,7 +173,7 @@ struct cpu_info {
 
 	struct ksensordev	ci_sensordev;
 	struct ksensor		ci_sensor;
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 	struct gmonparam	*ci_gmon;
 #endif
 	u_int32_t	ci_vmm_flags;

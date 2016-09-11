@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.14 2015/11/04 20:02:26 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.17 2016/09/02 21:30:34 bluhm Exp $
 
 # The following ports must be installed for the regression tests:
 # p5-IO-Socket-INET6	object interface for AF_INET and AF_INET6 domain sockets
@@ -22,6 +22,7 @@ PERL_REQUIRE !=	perl -Mstrict -Mwarnings -e ' \
 regress:
 	@echo "${PERL_REQUIRE}"
 	@echo install these perl packages for additional tests
+	@echo SKIPPED
 .endif
 
 # Automatically generate regress targets from test cases in directory.
@@ -36,7 +37,7 @@ REGRESS_TARGETS =	${TARGETS:S/^/run-regress-/}
 LDFLAGS +=		-lutil
 CLEANFILES +=		*.log *.log.? *.conf ktrace.out stamp-*
 CLEANFILES +=		*.out *.sock *.ktrace *.fstat ttylog
-CLEANFILES +=		*.pem *.req *.crt *.key *.srl empty toobig
+CLEANFILES +=		*.pem *.req *.key *.crt *.srl empty toobig
 
 .MAIN: all
 
@@ -74,20 +75,24 @@ run-regress-$a: $a
 
 127.0.0.1.crt:
 	openssl req -batch -new -subj /L=OpenBSD/O=syslogd-regress/OU=syslogd/CN=127.0.0.1/ -nodes -newkey rsa -keyout 127.0.0.1.key -x509 -out $@
-	${SUDO} cp 127.0.0.1.crt /etc/ssl/
-	${SUDO} cp 127.0.0.1.key /etc/ssl/private/
-	${SUDO} cp 127.0.0.1.crt /etc/ssl/localhost.crt
-	${SUDO} cp 127.0.0.1.key /etc/ssl/private/localhost.key
-	${SUDO} cp 127.0.0.1.crt /etc/ssl/::1.crt
+	${SUDO} rm -f /etc/ssl/private/127.0.0.1:6514.key
+	${SUDO} rm -f /etc/ssl/127.0.0.1:6514.crt
+	${SUDO} rm -f /etc/ssl/private/127.0.0.1.key
+	${SUDO} rm -f /etc/ssl/127.0.0.1.crt
+	${SUDO} cp 127.0.0.1.key /etc/ssl/private/127.0.0.1.key
+	${SUDO} cp 127.0.0.1.crt /etc/ssl/127.0.0.1.crt
 	${SUDO} cp 127.0.0.1.key /etc/ssl/private/::1.key
+	${SUDO} cp 127.0.0.1.crt /etc/ssl/::1.crt
+	${SUDO} cp 127.0.0.1.key /etc/ssl/private/localhost.key
+	${SUDO} cp 127.0.0.1.crt /etc/ssl/localhost.crt
 
 ca.crt fake-ca.crt:
 	openssl req -batch -new -subj /L=OpenBSD/O=syslogd-regress/OU=ca/CN=root/ -nodes -newkey rsa -keyout ${@:R}.key -x509 -out $@
 
-server.req:
-	openssl req -batch -new -subj /L=OpenBSD/O=syslogd-regress/OU=server/CN=localhost/ -nodes -newkey rsa -keyout ${@:R}.key -out $@
+client.req server.req:
+	openssl req -batch -new -subj /L=OpenBSD/O=syslogd-regress/OU=${@:R}/CN=localhost/ -nodes -newkey rsa -keyout ${@:R}.key -out $@
 
-server.crt: ca.crt server.req
+client.crt server.crt: ca.crt ${@:R}.req
 	openssl x509 -CAcreateserial -CAkey ca.key -CA ca.crt -req -in ${@:R}.req -out $@
 
 empty:
@@ -96,7 +101,7 @@ empty:
 toobig:
 	dd if=/dev/zero of=$@ bs=1 count=1 seek=50M
 
-${REGRESS_TARGETS:M*tls*}: server.crt 127.0.0.1.crt
+${REGRESS_TARGETS:M*tls*}: client.crt server.crt 127.0.0.1.crt
 ${REGRESS_TARGETS:M*empty*}: empty
 ${REGRESS_TARGETS:M*toobig*}: toobig
 ${REGRESS_TARGETS:M*fake*}: fake-ca.crt

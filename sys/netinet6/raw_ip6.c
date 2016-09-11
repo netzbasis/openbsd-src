@@ -1,4 +1,4 @@
-/*	$OpenBSD: raw_ip6.c,v 1.90 2016/04/11 15:28:03 vgross Exp $	*/
+/*	$OpenBSD: raw_ip6.c,v 1.95 2016/08/22 10:33:22 mpi Exp $	*/
 /*	$KAME: raw_ip6.c,v 1.69 2001/03/04 15:55:44 itojun Exp $	*/
 
 /*
@@ -396,9 +396,7 @@ rip6_output(struct mbuf *m, ...)
 	{
 		struct in6_addr *in6a;
 
-		error = in6_selectsrc(&in6a, dstsock, optp,
-		    in6p->inp_moptions6, &in6p->inp_route6, &in6p->inp_laddr6,
-		    in6p->inp_rtableid);
+		error = in6_pcbselsrc(&in6a, dstsock, in6p, optp);
 		if (error)
 			goto bad;
 
@@ -633,10 +631,9 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		if (so == ip6_mrouter)
 			ip6_mrouter_done();
 #endif
-		if (in6p->inp_icmp6filt) {
-			free(in6p->inp_icmp6filt, M_PCB, 0);
-			in6p->inp_icmp6filt = NULL;
-		}
+		free(in6p->inp_icmp6filt, M_PCB, sizeof(struct icmp6_filter));
+		in6p->inp_icmp6filt = NULL;
+
 		in_pcbdetach(in6p);
 		break;
 
@@ -676,7 +673,7 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			break;
 		}
 		if (ifa && ifatoia6(ifa)->ia6_flags &
-		    (IN6_IFF_ANYCAST|IN6_IFF_NOTREADY|
+		    (IN6_IFF_ANYCAST|IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED|
 		     IN6_IFF_DETACHED|IN6_IFF_DEPRECATED)) {
 			error = EADDRNOTAVAIL;
 			break;
@@ -700,9 +697,7 @@ rip6_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		}
 
 		/* Source address selection. XXX: need pcblookup? */
-		error = in6_selectsrc(&in6a, addr, in6p->inp_outputopts6,
-		    in6p->inp_moptions6, &in6p->inp_route6,
-		    &in6p->inp_laddr6, in6p->inp_rtableid);
+		error = in6_pcbselsrc(&in6a, addr, in6p, in6p->inp_outputopts6);
 		if (error)
 			break;
 		in6p->inp_laddr6 = *in6a;

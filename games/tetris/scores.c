@@ -1,4 +1,4 @@
-/*	$OpenBSD: scores.c,v 1.20 2016/03/16 15:00:35 mestre Exp $	*/
+/*	$OpenBSD: scores.c,v 1.22 2016/08/27 02:00:10 guenther Exp $	*/
 /*	$NetBSD: scores.c,v 1.2 1995/04/22 07:42:38 cgd Exp $	*/
 
 /*-
@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <term.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "scores.h"
@@ -264,7 +265,7 @@ static int
 checkscores(struct highscore *hs, int num)
 {
 	struct highscore *sp;
-	int i, j, k, numnames;
+	int i, j, k, nrnames;
 	int levelfound[NLEVELS];
 	struct peruser {
 		char *name;
@@ -281,21 +282,21 @@ checkscores(struct highscore *hs, int num)
 	qsort((void *)hs, nscores, sizeof(*hs), cmpscores);
 	for (i = MINLEVEL; i < NLEVELS; i++)
 		levelfound[i] = 0;
-	numnames = 0;
+	nrnames = 0;
 	for (i = 0, sp = hs; i < num;) {
 		/*
 		 * This is O(n^2), but do you think we care?
 		 */
-		for (j = 0, pu = count; j < numnames; j++, pu++)
+		for (j = 0, pu = count; j < nrnames; j++, pu++)
 			if (strcmp(sp->hs_name, pu->name) == 0)
 				break;
-		if (j == numnames) {
+		if (j == nrnames) {
 			/*
 			 * Add new user, set per-user count to 1.
 			 */
 			pu->name = sp->hs_name;
 			pu->times = 1;
-			numnames++;
+			nrnames++;
 		} else {
 			/*
 			 * Two ways to keep this score:

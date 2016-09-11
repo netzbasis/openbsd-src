@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.10 2015/12/02 11:05:35 mpi Exp $
+# $OpenBSD: Makefile,v 1.14 2016/09/01 09:57:45 mpi Exp $
 
 RDOMAIN?=	5
 
@@ -40,6 +40,7 @@ netmask:
 .endfor
 .endfor
 
+# check that more specific routes work properly (rn_dupedkey behaviour)
 n=	1
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -54,6 +55,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# can we add multiple pathes
 n=	2
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -62,6 +64,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# but we can not readd the same multipath route twice
 n=	3
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -71,6 +74,7 @@ rttest${n}:
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
 
+# do priorities work
 n=	4
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -80,6 +84,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# priority and multipath
 n=	5
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -90,6 +95,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# priority but failing multipath because of same gateway
 n=	6
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -100,6 +106,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# deletion of priority route in the middle
 n=	7
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -110,6 +117,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# readd of same route fail even if interface is down
 n=	8
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -121,6 +129,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# deletion of priority route in the middle after reprio because of iface down
 n=	9
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -132,6 +141,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# addition of priority route works even if interface is down
 n=	10
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -142,6 +152,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# same as 10 but different order
 n=	11
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -152,6 +163,7 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# change non-mpath route (even though the route was marked as mpath)
 n=	12
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
@@ -160,12 +172,13 @@ rttest${n}:
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# Cannot change the gateway of an mpath route
 n=	13
 RTTEST_TARGETS+:=rttest${n}
 rttest${n}:
 	${RCMD} add -mpath 10.8.1/24 192.0.2.3
 	${RCMD} add -mpath 10.8.1/24 192.0.2.4
-	${RCMD} change -mpath 10.8.1/24 192.0.2.5 && exit 1 || exit 0
+	${RCMD} change -mpath 10.8.1/24 192.0.2.1 && exit 1 || exit 0
 
 # Changing MTU should not change the ifa
 n=	14
@@ -252,6 +265,67 @@ rttest${n}:
 	${RCMD} add 10.8.1/24 -gateway 192.0.2.3 -priority 5
 	${RCMD} show -inet 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
+
+# Can change the MTU of an mpath route that exists
+n=	22
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} add -mpath 10.8.1/24 192.0.2.4
+	${RCMD} change -mpath -mtu 1000 10.8.1/24 192.0.2.4
+	${RCMD} show -inet 2>&1 | \
+		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
+
+# Can't change the MTU of an mpath route without gateway
+n=	23
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} add -mpath 10.8.1/24 192.0.2.4
+	${RCMD} change -mpath -mtu 1000 10.8.1/24 && exit 1 || exit 0
+
+# Can change and lock the MTU of an mpath route that exists
+# (route can't just lock so this is mostly the same as rttest22)
+n=	24
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} add -mpath 10.8.1/24 192.0.2.4
+	${RCMD} change -mpath -lock -mtu 1000 10.8.1/24 192.0.2.4
+	${RCMD} show -inet 2>&1 | \
+		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
+
+# Can't change the MTU of an mpath route that has a wrong gateway
+n=	25
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} add -mpath 10.8.1/24 192.0.2.4
+	${RCMD} change -mpath -mtu 1000 10.8.1/24 192.0.2.1 && exit 1 || exit 0
+
+# Can change the MTU of an non-mpath route without gateway
+n=	26
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} change -mpath -mtu 1000 10.8.1/24
+	${RCMD} show -inet 2>&1 | \
+		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
+
+# Can change the MTU and gateway of an non-mpath route at the same time
+n=	27
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add -mpath 10.8.1/24 192.0.2.3
+	${RCMD} change -mpath -mtu 1000 10.8.1/24 192.0.2.4
+	${RCMD} show -inet 2>&1 | \
+		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
+
+# Can't delete RTF_LOCAL route
+n=	28
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} delete 192.0.2.1 192.0.2.1 && exit 1 || exit 0
 
 REGRESS_TARGETS=netmask ${RTTEST_TARGETS}
 REGRESS_ROOT_TARGETS=${REGRESS_TARGETS}

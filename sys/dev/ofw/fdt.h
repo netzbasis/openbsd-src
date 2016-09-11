@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdt.h,v 1.2 2016/04/03 12:32:13 patrick Exp $	*/
+/*	$OpenBSD: fdt.h,v 1.5 2016/07/26 22:10:10 patrick Exp $	*/
 
 /*
  * Copyright (c) 2009 Dariusz Swiderski <sfires@sfires.net>
@@ -38,7 +38,7 @@ struct fdt {
 	int		strings_size;
 };
 
-struct fdt_memory {
+struct fdt_reg {
 	uint64_t	addr;
 	uint64_t	size;
 };
@@ -60,7 +60,9 @@ char	*fdt_node_name(void *);
 void	*fdt_find_node(char *);
 int	 fdt_node_property(void *, char *, char **);
 void	*fdt_parent_node(void *);
-int	 fdt_get_memory_address(void *, int, struct fdt_memory *);
+void	*fdt_find_phandle(uint32_t);
+int	 fdt_get_reg(void *, int, struct fdt_reg *);
+int	 fdt_is_compatible(void *, const char *);
 #ifdef DEBUG
 void	*fdt_print_property(void *, int);
 void 	 fdt_print_node(void *, int);

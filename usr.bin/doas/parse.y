@@ -1,4 +1,4 @@
-/* $OpenBSD: parse.y,v 1.15 2016/04/27 02:35:55 gsoares Exp $ */
+/* $OpenBSD: parse.y,v 1.21 2016/09/04 15:11:13 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -48,6 +48,7 @@ FILE *yyfp;
 struct rule **rules;
 int nrules, maxrules;
 int parse_errors = 0;
+int obsolete_warned = 0;
 
 void yyerror(const char *, ...);
 int yylex(void);
@@ -56,7 +57,7 @@ int yyparse(void);
 %}
 
 %token TPERMIT TDENY TAS TCMD TARGS
-%token TNOPASS TKEEPENV
+%token TNOPASS TPERSIST TKEEPENV TSETENV
 %token TSTRING
 
 %%
@@ -97,15 +98,23 @@ action:		TPERMIT options {
 			$$.envlist = $2.envlist;
 		} | TDENY {
 			$$.action = DENY;
+			$$.options = 0;
+			$$.envlist = NULL;
 		} ;
 
-options:	/* none */
-		| options option {
+options:	/* none */ {
+			$$.options = 0;
+			$$.envlist = NULL;
+		} | options option {
 			$$.options = $1.options | $2.options;
 			$$.envlist = $1.envlist;
+			if (($$.options & (NOPASS|PERSIST)) == (NOPASS|PERSIST)) {
+				yyerror("can't combine nopass and persist");
+				YYERROR;
+			}
 			if ($2.envlist) {
 				if ($$.envlist) {
-					yyerror("can't have two keepenv sections");
+					yyerror("can't have two setenv sections");
 					YYERROR;
 				} else
 					$$.envlist = $2.envlist;
@@ -113,10 +122,22 @@ options:	/* none */
 		} ;
 option:		TNOPASS {
 			$$.options = NOPASS;
+			$$.envlist = NULL;
+		} | TPERSIST {
+			$$.options = PERSIST;
+			$$.envlist = NULL;
 		} | TKEEPENV {
 			$$.options = KEEPENV;
+			$$.envlist = NULL;
 		} | TKEEPENV '{' envlist '}' {
-			$$.options = KEEPENV;
+			$$.options = 0;
+			if (!obsolete_warned) {
+				warnx("keepenv with list is obsolete");
+				obsolete_warned = 1;
+			}
+			$$.envlist = $3.envlist;
+		} | TSETENV '{' envlist '}' {
+			$$.options = 0;
 			$$.envlist = $3.envlist;
 		} ;
 
@@ -194,7 +215,9 @@ struct keyword {
 	{ "cmd", TCMD },
 	{ "args", TARGS },
 	{ "nopass", TNOPASS },
+	{ "persist", TPERSIST },
 	{ "keepenv", TKEEPENV },
+	{ "setenv", TSETENV },
 };
 
 int

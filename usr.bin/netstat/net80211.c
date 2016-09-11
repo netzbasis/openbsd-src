@@ -1,4 +1,4 @@
-/*	$OpenBSD: net80211.c,v 1.15 2016/04/28 14:46:50 stsp Exp $	*/
+/*	$OpenBSD: net80211.c,v 1.17 2016/08/27 04:13:43 guenther Exp $	*/
 
 /*
  * Copyright (c) 2005 Reyk Floeter <reyk@openbsd.org>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 #include <sys/time.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
@@ -117,7 +118,7 @@ net80211_ifstats(char *ifname)
 	p(is_pbac_errs, "\t%lu pbac error%s\n");
 	p(is_ht_nego_no_mandatory_mcs, "\t%lu HT negotiation failure%s because "
 	    "peer does not support MCS 0-7\n");
-	p(is_ht_nego_no_mandatory_mcs, "\t%lu HT negotiation failure%s because "
+	p(is_ht_nego_no_basic_mcs, "\t%lu HT negotiation failure%s because "
 	    "we do not support basic MCS set\n");
 	p(is_ht_nego_bad_crypto,
 	    "\t%lu HT negotiation failure%s because peer uses bad crypto\n");

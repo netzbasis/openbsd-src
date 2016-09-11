@@ -1,4 +1,4 @@
-/*	$OpenBSD: rm.c,v 1.37 2016/04/15 23:09:57 tedu Exp $	*/
+/*	$OpenBSD: rm.c,v 1.39 2016/06/28 18:00:59 tedu Exp $	*/
 /*	$NetBSD: rm.c,v 1.19 1995/09/07 06:48:50 jtc Exp $	*/
 
 /*-

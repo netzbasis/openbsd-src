@@ -1,4 +1,4 @@
-/*	$OpenBSD: mainbus.c,v 1.36 2015/12/12 12:33:49 reyk Exp $	*/
+/*	$OpenBSD: mainbus.c,v 1.38 2016/07/28 21:57:57 kettenis Exp $	*/
 /*	$NetBSD: mainbus.c,v 1.1 2003/04/26 18:39:29 fvdl Exp $	*/
 
 /*
@@ -194,9 +194,7 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 
 		memset(&caa, 0, sizeof(caa));
 		caa.caa_name = "cpu";
-		caa.cpu_number = 0;
 		caa.cpu_role = CPU_ROLE_SP;
-		caa.cpu_func = 0;
 
 		config_found(self, &caa, mainbus_print);
 	}
@@ -253,7 +251,7 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 #endif /* NVMM > 0 */
 
 #if NEFIFB > 0
-	if (bios_efiinfo != NULL) {
+	if (bios_efiinfo != NULL || efifb_cb_found()) {
 		mba.mba_eaa.eaa_name = "efifb";
 		config_found(self, &mba, mainbus_print);
 	}

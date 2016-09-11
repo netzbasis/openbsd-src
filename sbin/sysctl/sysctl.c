@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.c,v 1.214 2016/05/23 15:48:59 deraadt Exp $	*/
+/*	$OpenBSD: sysctl.c,v 1.220 2016/09/02 11:11:48 deraadt Exp $	*/
 /*	$NetBSD: sysctl.c,v 1.9 1995/09/30 07:12:50 thorpej Exp $	*/
 
 /*
@@ -37,6 +37,7 @@
 #include <sys/shm.h>
 #include <sys/sysctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/malloc.h>
 #include <sys/uio.h>
 #include <sys/tty.h>
@@ -177,6 +178,7 @@ int	Aflag, aflag, nflag, qflag;
 #define	KMEMSTATS	0x00001000
 #define	SENSORS		0x00002000
 #define	SMALLBUF	0x00004000
+#define	HEX		0x00008000
 
 /* prototypes */
 void debuginit(void);
@@ -545,9 +547,11 @@ parse(char *string, int flags)
 				    string);
 				return;
 			} else if ((mib[2] == IPPROTO_TCP &&
-			    mib[3] == TCPCTL_BADDYNAMIC) ||
+			    (mib[3] == TCPCTL_BADDYNAMIC ||
+			    mib[3] == TCPCTL_ROOTONLY)) ||
 			    (mib[2] == IPPROTO_UDP &&
-			    mib[3] == UDPCTL_BADDYNAMIC)) {
+			    (mib[3] == UDPCTL_BADDYNAMIC ||
+			    mib[3] == UDPCTL_ROOTONLY))) {
 
 				special |= BADDYNAMIC;
 
@@ -606,6 +610,10 @@ parse(char *string, int flags)
 #ifdef CPU_CONSDEV
 		if (mib[1] == CPU_CONSDEV)
 			special |= CHRDEV;
+#endif
+#ifdef CPU_CPUFEATURE
+		if (mib[1] == CPU_CPUFEATURE)
+			special |= HEX;
 #endif
 #ifdef CPU_BLK2CHR
 		if (mib[1] == CPU_BLK2CHR) {
@@ -708,8 +716,7 @@ parse(char *string, int flags)
 			break;
 
 		case CTLTYPE_QUAD:
-			/* XXX - assumes sizeof(long long) == sizeof(quad_t) */
-			(void)sscanf(newval, "%lld", (long long *)&quadval);
+			(void)sscanf(newval, "%lld", &quadval);
 			newval = &quadval;
 			newsize = sizeof(quadval);
 			break;
@@ -911,13 +918,19 @@ parse(char *string, int flags)
 		if (newsize == 0) {
 			if (!nflag)
 				(void)printf("%s%s", string, equ);
-			(void)printf("%d\n", *(int *)buf);
+			if (special & HEX)
+				(void)printf("0x%x\n", *(int *)buf);
+			else
+				(void)printf("%d\n", *(int *)buf);
 		} else {
 			if (!qflag) {
 				if (!nflag)
 					(void)printf("%s: %d -> ", string,
 					    *(int *)buf);
-				(void)printf("%d\n", *(int *)newval);
+				if (special & HEX)
+					(void)printf("0x%x\n", *(int *)newval);
+				else
+					(void)printf("%d\n", *(int *)newval);
 			}
 		}
 		return;
@@ -938,20 +951,22 @@ parse(char *string, int flags)
 
 	case CTLTYPE_QUAD:
 		if (newsize == 0) {
-			long long tmp = *(quad_t *)buf;
+			int64_t tmp;
 
+			memcpy(&tmp, buf, sizeof tmp);
 			if (!nflag)
 				(void)printf("%s%s", string, equ);
 			(void)printf("%lld\n", tmp);
 		} else {
-			long long tmp = *(quad_t *)buf;
+			int64_t tmp;
 
+			memcpy(&tmp, buf, sizeof tmp);
 			if (!qflag) {
 				if (!nflag)
 					(void)printf("%s: %lld -> ",
 					    string, tmp);
-				tmp = *(quad_t *)newval;
-				(void)printf("%qd\n", tmp);
+				memcpy(&tmp, newval, sizeof tmp);
+				(void)printf("%lld\n", tmp);
 			}
 		}
 		return;
@@ -1730,28 +1745,28 @@ sysctl_forkstat(char *string, char **bufpp, int mib[], int flags, int *typep)
 		(void)printf("%s%s", string, equ);
 	switch (indx)	{
 	case KERN_FORKSTAT_FORK:
-		(void)printf("%d\n", fks.cntfork);
+		(void)printf("%u\n", fks.cntfork);
 		break;
 	case KERN_FORKSTAT_VFORK:
-		(void)printf("%d\n", fks.cntvfork);
+		(void)printf("%u\n", fks.cntvfork);
 		break;
 	case KERN_FORKSTAT_TFORK:
-		(void)printf("%d\n", fks.cnttfork);
+		(void)printf("%u\n", fks.cnttfork);
 		break;
 	case KERN_FORKSTAT_KTHREAD:
-		(void)printf("%d\n", fks.cntkthread);
+		(void)printf("%u\n", fks.cntkthread);
 		break;
 	case KERN_FORKSTAT_SIZFORK:
-		(void)printf("%d\n", fks.sizfork);
+		(void)printf("%llu\n", fks.sizfork);
 		break;
 	case KERN_FORKSTAT_SIZVFORK:
-		(void)printf("%d\n", fks.sizvfork);
+		(void)printf("%llu\n", fks.sizvfork);
 		break;
 	case KERN_FORKSTAT_SIZTFORK:
-		(void)printf("%d\n", fks.siztfork);
+		(void)printf("%llu\n", fks.siztfork);
 		break;
 	case KERN_FORKSTAT_SIZKTHREAD:
-		(void)printf("%d\n", fks.sizkthread);
+		(void)printf("%llu\n", fks.sizkthread);
 		break;
 	}
 	return (-1);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.51 2016/05/22 20:27:04 bluhm Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.55 2016/09/07 17:30:12 natano Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -104,10 +104,13 @@ udf_init(struct vfsconf *foo)
 {
 	pool_init(&udf_trans_pool, MAXNAMLEN * sizeof(unicode_t), 0, 0,
 	    PR_WAITOK, "udftrpl", NULL);
+	pool_setipl(&udf_trans_pool, IPL_NONE);
 	pool_init(&unode_pool, sizeof(struct unode), 0, 0,
 	    PR_WAITOK, "udfndpl", NULL);
+	pool_setipl(&unode_pool, IPL_NONE);
 	pool_init(&udf_ds_pool, sizeof(struct udf_dirstream), 0, 0,
 	    PR_WAITOK, "udfdspl", NULL);
+	pool_setipl(&udf_ds_pool, IPL_NONE);
 
 	return (0);
 }
@@ -165,17 +168,6 @@ udf_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		vrele(devvp);
 		return (ENXIO);
-	}
-
-	/* Check the access rights on the mount device */
-	if (p->p_ucred->cr_uid) {
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, VREAD, p->p_ucred, p);
-		VOP_UNLOCK(devvp, p);
-		if (error) {
-			vrele(devvp);
-			return (error);
-		}
 	}
 
 	if ((error = udf_mountfs(devvp, mp, args.lastblock, p))) {
@@ -261,7 +253,7 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 
 	ump = malloc(sizeof(*ump), M_UDFMOUNT, M_WAITOK | M_ZERO);
 
-	mp->mnt_data = (qaddr_t) ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = devvp->v_rdev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
 	mp->mnt_stat.f_namemax = NAME_MAX;
@@ -653,7 +645,7 @@ udf_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	vp->v_data = up;
 	vref(ump->um_devvp);
 
-	lockinit(&up->u_lock, PINOD, "unode", 0, 0);
+	rrw_init(&up->u_lock, "unode");
 
 	/*
 	 * udf_hashins() will lock the vnode for us.

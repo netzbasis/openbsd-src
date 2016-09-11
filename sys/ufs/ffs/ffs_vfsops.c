@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vfsops.c,v 1.158 2016/05/23 09:31:28 natano Exp $	*/
+/*	$OpenBSD: ffs_vfsops.c,v 1.163 2016/09/07 17:30:13 natano Exp $	*/
 /*	$NetBSD: ffs_vfsops.c,v 1.19 1996/02/09 22:22:26 christos Exp $	*/
 
 /*
@@ -213,7 +213,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	char fspec[MNAMELEN];
 	int error = 0, flags;
 	int ronly;
-	mode_t accessmode;
 
 	error = copyin(data, &args, sizeof(struct ufs_args));
 	if (error)
@@ -305,19 +304,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 			goto error_1;
 
 		if (ronly && (mp->mnt_flag & MNT_WANTRDWR)) {
-			/*
-			 * If upgrade to read-write by non-root, then verify
-			 * that user has necessary permissions on the device.
-			 */
-			if (suser(p, 0)) {
-				vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-				error = VOP_ACCESS(devvp, VREAD | VWRITE,
-						   p->p_ucred, p);
-				VOP_UNLOCK(devvp, p);
-				if (error)
-					goto error_1;
-			}
-
 			if (fs->fs_clean == 0) {
 #if 0
 				/*
@@ -394,21 +380,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		error = ENXIO;
 		goto error_2;
-	}
-
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0)) {
-		accessmode = VREAD;
-		if ((mp->mnt_flag & MNT_RDONLY) == 0)
-			accessmode |= VWRITE;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, accessmode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, p);
-		if (error)
-			goto error_2;
 	}
 
 	if (mp->mnt_flag & MNT_UPDATE) {
@@ -867,7 +838,7 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		for (i = 0; i < fs->fs_ncg; i++)
 			*lp++ = fs->fs_contigsumsize;
 	}
-	mp->mnt_data = (qaddr_t)ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	/* Use on-disk fsid if it exists, else fake it */
 	if (fs->fs_id[0] != 0 && fs->fs_id[1] != 0)
@@ -1295,7 +1266,7 @@ retry:
 	vp->v_flag |= VLOCKSWORK;
 #endif
 	ip = pool_get(&ffs_ino_pool, PR_WAITOK|PR_ZERO);
-	lockinit(&ip->i_lock, PINOD, "inode", 0, 0);
+	rrw_init(&ip->i_lock, "inode");
 	ip->i_ump = ump;
 	vref(ip->i_devvp);
 	vp->v_data = ip;
@@ -1367,8 +1338,7 @@ retry:
 	 * Initialize the vnode from the inode, check for aliases.
 	 * Note that the underlying vnode may have changed.
 	 */
-	error = ufs_vinit(mp, &ffs_specvops, FFS_FIFOOPS, &vp);
-	if (error) {
+	if ((error = ffs_vinit(mp, &vp)) != 0) {
 		vput(vp);
 		*vpp = NULL;
 		return (error);
@@ -1522,11 +1492,14 @@ ffs_init(struct vfsconf *vfsp)
 
 	pool_init(&ffs_ino_pool, sizeof(struct inode), 0, 0, PR_WAITOK,
 	    "ffsino", NULL);
+	pool_setipl(&ffs_ino_pool, IPL_NONE);
 	pool_init(&ffs_dinode1_pool, sizeof(struct ufs1_dinode), 0, 0,
 	    PR_WAITOK, "dino1pl", NULL);
+	pool_setipl(&ffs_dinode1_pool, IPL_NONE);
 #ifdef FFS2
 	pool_init(&ffs_dinode2_pool, sizeof(struct ufs2_dinode), 0, 0,
 	    PR_WAITOK, "dino2pl", NULL);
+	pool_setipl(&ffs_dinode2_pool, IPL_NONE);
 #endif
 
 	softdep_initialize();

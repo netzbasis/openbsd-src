@@ -1,4 +1,4 @@
-/* $OpenBSD: exynos.c,v 1.11 2016/05/02 15:27:24 patrick Exp $ */
+/* $OpenBSD: exynos.c,v 1.13 2016/08/21 06:36:23 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
@@ -43,7 +43,6 @@ struct board_dev chromebook_devs[] = {
 	{ "exclock",	0 },
 	{ "expower",	0 },
 	{ "exsysreg",	0 },
-//	{ "exuart",	1 },
 	{ "exgpio",	0 },
 	{ "exgpio",	1 },
 	{ "exgpio",	2 },
@@ -65,10 +64,6 @@ struct board_dev nuri_devs[] = {
 //	{ "exclock",	0 },
 	{ "expower",	0 },
 	{ "exsysreg",	0 },
-//	{ "exuart",	0 },
-	{ "exuart",	1 },
-	{ "exuart",	2 },
-	{ "exuart",	3 },
 	{ "exgpio",	0 },
 	{ "exgpio",	1 },
 	{ "exgpio",	2 },
@@ -91,10 +86,6 @@ struct board_dev smdkc210_devs[] = {
 //	{ "exclock",	0 },
 	{ "expower",	0 },
 	{ "exsysreg",	0 },
-//	{ "exuart",	0 },
-	{ "exuart",	1 },
-	{ "exuart",	2 },
-	{ "exuart",	3 },
 	{ "exgpio",	0 },
 	{ "exgpio",	1 },
 	{ "exgpio",	2 },
@@ -110,23 +101,20 @@ struct board_dev smdkc210_devs[] = {
 struct armv7_board exynos_boards[] = {
 	{
 		BOARD_ID_EXYNOS5_CHROMEBOOK,
-		"Exynos 5 Chromebook",
 		chromebook_devs,
 		exynos5_init,
 	},
 	{
 		BOARD_ID_EXYNOS4_NURI,
-		"Samsung NURI",
 		nuri_devs,
 		exynos4_init,
 	},
 	{
 		BOARD_ID_EXYNOS4_SMDKC210,
-		"Samsung SMDKC210",
 		smdkc210_devs,
 		exynos4_init,
 	},
-	{ 0, NULL, NULL, NULL },
+	{ 0, NULL, NULL },
 };
 
 struct board_dev *
@@ -134,7 +122,7 @@ exynos_board_devs(void)
 {
 	int i;
 
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
+	for (i = 0; exynos_boards[i].board_id != 0; i++) {
 		if (exynos_boards[i].board_id == board_id)
 			return (exynos_boards[i].devs);
 	}
@@ -146,24 +134,12 @@ exynos_board_init(void)
 {
 	int i;
 
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
+	for (i = 0; exynos_boards[i].board_id != 0; i++) {
 		if (exynos_boards[i].board_id == board_id) {
 			exynos_boards[i].init();
 			break;
 		}
 	}
-}
-
-const char *
-exynos_board_name(void)
-{
-	int i;
-
-	for (i = 0; exynos_boards[i].name != NULL; i++) {
-		if (exynos_boards[i].board_id == board_id)
-			return (exynos_boards[i].name);
-	}
-	return (NULL);
 }
 
 int

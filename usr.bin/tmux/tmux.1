@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.488 2016/05/12 16:05:33 tim Exp $
+.\" $OpenBSD: tmux.1,v 1.494 2016/09/04 17:37:06 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 12 2016 $
+.Dd $Mdocdate: September 4 2016 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -773,7 +773,9 @@ section.
 If
 .Ar target-session
 is specified, list only clients connected to that session.
-.It Ic list-commands
+.It Xo Ic list-commands
+.Op Fl F Ar format
+.Xc
 .D1 (alias: Ic lscm )
 List the syntax of all commands supported by
 .Nm .
@@ -985,7 +987,7 @@ bind-key -Troot   a switch-client -Ttable1
 .Sh WINDOWS AND PANES
 A
 .Nm
-window may be in one of several modes.
+window may be in one of two modes.
 The default permits direct access to the terminal attached to the window.
 The other is copy mode, which permits a section of a window or its
 history to be copied to a
@@ -1456,7 +1458,11 @@ flag, see the
 .Sx FORMATS
 section.
 This command works only if at least one client is attached.
-.It Ic display-panes Op Fl t Ar target-client
+.It Xo
+.Ic display-panes
+.Op Fl t Ar target-client
+.Op Ar template
+.Xc
 .D1 (alias: Ic displayp )
 Display a visible indicator of each pane shown by
 .Ar target-client .
@@ -1466,11 +1472,18 @@ See the
 and
 .Ic display-panes-active-colour
 session options.
-While the indicator is on screen, a pane may be selected with the
+While the indicator is on screen, a pane may be chosen with the
 .Ql 0
 to
 .Ql 9
-keys.
+keys, which will cause
+.Ar template
+to be executed as a command with
+.Ql %%
+substituted by the pane ID.
+The default
+.Ar template
+is "select-pane -t '%%'".
 .It Xo Ic find-window
 .Op Fl CNT
 .Op Fl F Ar format
@@ -1998,6 +2011,13 @@ The
 .Fl b
 option causes the new pane to be created to the left of or above
 .Ar target-pane .
+The
+.Fl f
+option creates a new pane spanning the full window height (with
+.Fl h )
+or full window width (with
+.Fl v ) ,
+instead of splitting the active pane.
 All other options have the same meaning as for the
 .Ic new-window
 command.
@@ -3474,6 +3494,7 @@ The following variables are available, where appropriate:
 .It Li "alternate_on" Ta "" Ta "If pane is in alternate screen"
 .It Li "alternate_saved_x" Ta "" Ta "Saved cursor X in alternate screen"
 .It Li "alternate_saved_y" Ta "" Ta "Saved cursor Y in alternate screen"
+.It Li "buffer_name" Ta "" Ta "Name of buffer"
 .It Li "buffer_sample" Ta "" Ta "Sample of start of buffer"
 .It Li "buffer_size" Ta "" Ta "Size of the specified buffer in bytes"
 .It Li "client_activity" Ta "" Ta "Integer time client last had activity"
@@ -3492,6 +3513,9 @@ The following variables are available, where appropriate:
 .It Li "client_width" Ta "" Ta "Width of client"
 .It Li "command_hooked" Ta "" Ta "Name of command hooked, if any"
 .It Li "command_name" Ta "" Ta "Name of command in use, if any"
+.It Li "command_list_name" Ta "" Ta "Command name if listing commands"
+.It Li "command_list_alias" Ta "" Ta "Command alias if listing commands"
+.It Li "command_list_usage" Ta "" Ta "Command usage if listing commands"
 .It Li "cursor_flag" Ta "" Ta "Pane cursor flag"
 .It Li "cursor_x" Ta "" Ta "Cursor X position in pane"
 .It Li "cursor_y" Ta "" Ta "Cursor Y position in pane"
@@ -3783,9 +3807,7 @@ Before the command is executed, the first occurrence of the string
 .Ql %%
 and all occurrences of
 .Ql %1
-are replaced by the response to the first prompt, the second
-.Ql %%
-and all
+are replaced by the response to the first prompt, all
 .Ql %2
 are replaced with the response to the second prompt, and so on for further
 prompts.
@@ -3858,7 +3880,7 @@ and so on.
 When the
 .Ic buffer-limit
 option is reached, the oldest automatically named buffer is deleted.
-Explicitly named are not subject to
+Explicitly named buffers are not subject to
 .Ic buffer-limit
 and may be deleted with
 .Ic delete-buffer

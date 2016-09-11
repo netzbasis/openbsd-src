@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.16 2016/05/12 00:15:24 renato Exp $ */
+/*	$OpenBSD: rde.c,v 1.23 2016/09/02 16:46:29 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -19,39 +19,39 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <errno.h>
-#include <signal.h>
-#include <string.h>
-#include <pwd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/route.h>
 
-#include "eigrp.h"
+#include <errno.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "eigrpd.h"
 #include "eigrpe.h"
-#include "log.h"
 #include "rde.h"
+#include "log.h"
 
-void		 rde_sig_handler(int sig, short, void *);
-void		 rde_shutdown(void);
-void		 rde_dispatch_imsg(int, short, void *);
-void		 rde_dispatch_parent(int, short, void *);
+static void		 rde_sig_handler(int sig, short, void *);
+static __dead void	 rde_shutdown(void);
+static void		 rde_dispatch_imsg(int, short, void *);
+static void		 rde_dispatch_parent(int, short, void *);
+static struct redistribute *eigrp_redistribute(struct eigrp *, struct kroute *);
+static void		 rt_redist_set(struct kroute *, int);
+static void		 rt_snap(struct rde_nbr *);
+static struct ctl_rt	*rt_to_ctl(struct rt_node *, struct eigrp_route *);
+static void		 rt_dump(struct ctl_show_topology_req *, pid_t);
 
-struct eigrpd_conf	*rdeconf = NULL, *nconf;
-struct imsgev		*iev_eigrpe;
-struct imsgev		*iev_main;
+struct eigrpd_conf	*rdeconf;
 
-extern struct iface_id_head ifaces_by_id;
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-
-RB_PROTOTYPE(rt_tree, rt_node, entry, rt_compare)
-
-extern struct rde_nbr_head rde_nbrs;
-RB_PROTOTYPE(rde_nbr_head, rde_nbr, entry, rde_nbr_compare)
+static struct imsgev	*iev_eigrpe;
+static struct imsgev	*iev_main;
 
 /* ARGSUSED */
-void
+static void
 rde_sig_handler(int sig, short event, void *arg)
 {
 	/*
@@ -69,27 +69,17 @@ rde_sig_handler(int sig, short event, void *arg)
 }
 
 /* route decision engine */
-pid_t
-rde(struct eigrpd_conf *xconf, int pipe_parent2rde[2], int pipe_eigrpe2rde[2],
-    int pipe_parent2eigrpe[2])
+void
+rde(int debug, int verbose)
 {
 	struct event		 ev_sigint, ev_sigterm;
 	struct timeval		 now;
 	struct passwd		*pw;
-	pid_t			 pid;
-	struct eigrp		*eigrp;
 
-	switch (pid = fork()) {
-	case -1:
-		fatal("cannot fork");
-		/* NOTREACHED */
-	case 0:
-		break;
-	default:
-		return (pid);
-	}
+	rdeconf = config_new_empty();
 
-	rdeconf = xconf;
+	log_init(debug);
+	log_verbose(verbose);
 
 	if ((pw = getpwnam(EIGRPD_USER)) == NULL)
 		fatal("getpwnam");
@@ -107,7 +97,7 @@ rde(struct eigrpd_conf *xconf, int pipe_parent2rde[2], int pipe_eigrpe2rde[2],
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio", NULL) == -1)
+	if (pledge("stdio recvfd", NULL) == -1)
 		fatal("pledge");
 
 	event_init();
@@ -120,26 +110,11 @@ rde(struct eigrpd_conf *xconf, int pipe_parent2rde[2], int pipe_eigrpe2rde[2],
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
-	/* setup pipes */
-	close(pipe_eigrpe2rde[0]);
-	close(pipe_parent2rde[0]);
-	close(pipe_parent2eigrpe[0]);
-	close(pipe_parent2eigrpe[1]);
-
-	if ((iev_eigrpe = malloc(sizeof(struct imsgev))) == NULL ||
-	    (iev_main = malloc(sizeof(struct imsgev))) == NULL)
+	/* setup pipe and event handler to the parent process */
+	if ((iev_main = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
-	imsg_init(&iev_eigrpe->ibuf, pipe_eigrpe2rde[1]);
-	iev_eigrpe->handler = rde_dispatch_imsg;
-	imsg_init(&iev_main->ibuf, pipe_parent2rde[1]);
+	imsg_init(&iev_main->ibuf, 3);
 	iev_main->handler = rde_dispatch_parent;
-
-	/* setup event handler */
-	iev_eigrpe->events = EV_READ;
-	event_set(&iev_eigrpe->ev, iev_eigrpe->ibuf.fd, iev_eigrpe->events,
-	    iev_eigrpe->handler, iev_eigrpe);
-	event_add(&iev_eigrpe->ev, NULL);
-
 	iev_main->events = EV_READ;
 	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
 	    iev_main->handler, iev_main);
@@ -148,29 +123,27 @@ rde(struct eigrpd_conf *xconf, int pipe_parent2rde[2], int pipe_eigrpe2rde[2],
 	gettimeofday(&now, NULL);
 	global.uptime = now.tv_sec;
 
-	TAILQ_FOREACH(eigrp, &rdeconf->instances, entry)
-		rde_instance_init(eigrp);
-
 	event_dispatch();
 
 	rde_shutdown();
-	/* NOTREACHED */
-
-	return (0);
 }
 
-void
+static __dead void
 rde_shutdown(void)
 {
+	/* close pipes */
+	msgbuf_clear(&iev_eigrpe->ibuf.w);
+	close(iev_eigrpe->ibuf.fd);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
+
 	config_clear(rdeconf);
 
-	msgbuf_clear(&iev_eigrpe->ibuf.w);
 	free(iev_eigrpe);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 
 	log_info("route decision engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 int
@@ -189,7 +162,7 @@ rde_imsg_compose_eigrpe(int type, uint32_t peerid, pid_t pid, void *data,
 }
 
 /* ARGSUSED */
-void
+static void
 rde_dispatch_imsg(int fd, short event, void *bula)
 {
 	struct imsgev		*iev = bula;
@@ -323,10 +296,11 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 }
 
 /* ARGSUSED */
-void
+static void
 rde_dispatch_parent(int fd, short event, void *bula)
 {
-	static struct iface	*niface = NULL;
+	static struct eigrpd_conf *nconf;
+	static struct iface	*niface;
 	static struct eigrp	*neigrp;
 	struct eigrp_iface	*nei;
 	struct imsg		 imsg;
@@ -376,6 +350,29 @@ rde_dispatch_parent(int fd, short event, void *bula)
 			    sizeof(struct kroute))
 				fatalx("IMSG_NETWORK_DEL imsg with wrong len");
 			rt_redist_set(imsg.data, 1);
+			break;
+		case IMSG_SOCKET_IPC:
+			if (iev_eigrpe) {
+				log_warnx("%s: received unexpected imsg fd "
+				    "to eigrpe", __func__);
+				break;
+			}
+			if ((fd = imsg.fd) == -1) {
+				log_warnx("%s: expected to receive imsg fd to "
+				    "eigrpe but didn't receive any", __func__);
+				break;
+			}
+
+			iev_eigrpe = malloc(sizeof(struct imsgev));
+			if (iev_eigrpe == NULL)
+				fatal(NULL);
+			imsg_init(&iev_eigrpe->ibuf, fd);
+			iev_eigrpe->handler = rde_dispatch_imsg;
+			iev_eigrpe->events = EV_READ;
+			event_set(&iev_eigrpe->ev, iev_eigrpe->ibuf.fd,
+			    iev_eigrpe->events, iev_eigrpe->handler,
+			    iev_eigrpe);
+			event_add(&iev_eigrpe->ev, NULL);
 			break;
 		case IMSG_RECONF_CONF:
 			if ((nconf = malloc(sizeof(struct eigrpd_conf))) ==
@@ -637,7 +634,7 @@ eigrp_redistribute(struct eigrp *eigrp, struct kroute *kr)
 	return (NULL);
 }
 
-void
+static void
 rt_redist_set(struct kroute *kr, int withdraw)
 {
 	struct eigrp		*eigrp;
@@ -681,7 +678,7 @@ rt_redist_set(struct kroute *kr, int withdraw)
 		ri.metric.flags = 0;
 
 		/* external metric */
-		ri.emetric.routerid = htonl(eigrp_router_id(rdeconf));
+		ri.emetric.routerid = htonl(rdeconf->rtr_id.s_addr);
 		ri.emetric.as = r->emetric.as;
 		ri.emetric.tag = r->emetric.tag;
 		ri.emetric.metric = r->emetric.metric;
@@ -718,7 +715,7 @@ rt_summary_set(struct eigrp *eigrp, struct summary_addr *summary,
 }
 
 /* send all known routing information to new neighbor */
-void
+static void
 rt_snap(struct rde_nbr *nbr)
 {
 	struct eigrp		*eigrp = nbr->eigrp;
@@ -737,7 +734,7 @@ rt_snap(struct rde_nbr *nbr)
 	    NULL, 0);
 }
 
-struct ctl_rt *
+static struct ctl_rt *
 rt_to_ctl(struct rt_node *rn, struct eigrp_route *route)
 {
 	static struct ctl_rt	 rtctl;
@@ -780,7 +777,7 @@ rt_to_ctl(struct rt_node *rn, struct eigrp_route *route)
 	return (&rtctl);
 }
 
-void
+static void
 rt_dump(struct ctl_show_topology_req *treq, pid_t pid)
 {
 	struct eigrp		*eigrp;

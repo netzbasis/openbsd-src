@@ -1,5 +1,5 @@
 /*	$NetBSD: compare.c,v 1.11 1996/09/05 09:56:48 mycroft Exp $	*/
-/*	$OpenBSD: compare.c,v 1.25 2015/12/21 19:37:21 mmcc Exp $	*/
+/*	$OpenBSD: compare.c,v 1.27 2016/08/16 16:41:46 krw Exp $	*/
 
 /*-
  * Copyright (c) 1989, 1993
@@ -182,8 +182,9 @@ typeerr:		LABEL;
 	}
 	if (s->flags & F_SIZE && s->st_size != p->fts_statp->st_size) {
 		LABEL;
-		(void)printf("%ssize (%qd, %qd)\n",
-		    tab, s->st_size, p->fts_statp->st_size);
+		(void)printf("%ssize (%lld, %lld)\n",
+		    tab, (long long)s->st_size,
+		    (long long)p->fts_statp->st_size);
 		tab = "\t";
 	}
 	/*
@@ -211,11 +212,11 @@ typeerr:		LABEL;
 				if (utimes(p->fts_accpath, tv))
 					(void)printf(", not modified: %s)\n",
 					    strerror(errno));
-				else  
-					(void)printf(", modified)\n");  
+				else
+					(void)printf(", modified)\n");
 			} else
 				(void)printf(")\n");
-			tab = "\t";   
+			tab = "\t";
 		}
 	}
 	if (s->flags & F_CKSUM) {
@@ -326,18 +327,18 @@ typeerr:		LABEL;
 			REPLACE_COMMA(cur_flags);
 			printf("%sflags (%s, %s", tab, (*db_flags == '\0') ?
 						  "-" : db_flags,
-						  (*cur_flags == '\0') ? 
+						  (*cur_flags == '\0') ?
 						  "-" : cur_flags);
 				tab = "\t";
 			if (uflag)
 				if (chflags(p->fts_accpath, s->file_flags))
 					(void)printf(", not modified: %s)\n",
 						strerror(errno));
-				else	
+				else
 					(void)printf(", modified)\n");
 			else
 				(void)printf(")\n");
-			tab = "\t"; 
+			tab = "\t";
 
 			free(db_flags);
 			free(cur_flags);
