@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.50 2016/02/09 00:39:13 jca Exp $	*/
+/*	$OpenBSD: config.c,v 1.58 2016/08/02 17:00:09 jca Exp $	*/
 /*	$KAME: config.c,v 1.62 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
@@ -55,10 +55,10 @@
 #include <unistd.h>
 #include <ifaddrs.h>
 #include <stdint.h>
+#include <event.h>
 
 #include "rtadvd.h"
 #include "advcap.h"
-#include "timer.h"
 #include "if.h"
 #include "config.h"
 #include "log.h"
@@ -105,7 +105,7 @@ getconfig(char *intface)
 	}
 
 	if ((tmp = calloc(1, sizeof(*tmp))) == NULL)
-		fatal("malloc");
+		fatal(NULL);
 
 	TAILQ_INIT(&tmp->prefixes);
 	TAILQ_INIT(&tmp->rtinfos);
@@ -243,7 +243,7 @@ getconfig(char *intface)
 
 		/* allocate memory to store prefix information */
 		if ((pfx = calloc(1, sizeof(*pfx))) == NULL)
-			fatal("calloc");
+			fatal(NULL);
 
 		/* link into chain */
 		TAILQ_INSERT_TAIL(&tmp->prefixes, pfx, entry);
@@ -323,7 +323,6 @@ getconfig(char *intface)
 	if (tmp->pfxs == 0 && !agetflag("noifprefix"))
 		get_prefix(tmp);
 
-	tmp->rtinfocnt = 0;
 	for (i = -1; i < MAXRTINFO; i++) {
 		struct rtinfo *rti;
 		char entbuf[256];
@@ -336,7 +335,7 @@ getconfig(char *intface)
 
 		rti = malloc(sizeof(struct rtinfo));
 		if (rti == NULL)
-			fatal("malloc");
+			fatal(NULL);
 
 		if (inet_pton(AF_INET6, addr, &rti->prefix) != 1) {
 			log_warn("inet_pton failed for %s", addr);
@@ -391,10 +390,8 @@ getconfig(char *intface)
 		rti->lifetime = (uint32_t)val64;
 
 		TAILQ_INSERT_TAIL(&tmp->rtinfos, rti, entry);
-		tmp->rtinfocnt++;
 	}
 
-	tmp->rdnsscnt = 0;
 	for (i = -1; i < MAXRDNSS; ++i) {
 		struct rdnss *rds;
 		char entbuf[256];
@@ -414,10 +411,9 @@ getconfig(char *intface)
 
 		rds = malloc(sizeof(struct rdnss) + val * sizeof(struct in6_addr));
 		if (rds == NULL)
-			fatal("malloc");
+			fatal(NULL);
 
 		TAILQ_INSERT_TAIL(&tmp->rdnsss, rds, entry);
-		tmp->rdnsscnt++;
 
 		rds->servercnt = val;
 
@@ -441,7 +437,6 @@ getconfig(char *intface)
 		}
 	}
 
-	tmp->dnsslcnt = 0;
 	for (i = -1; i < MAXDNSSL; ++i) {
 		struct dnssl *dsl;
 		char entbuf[256];
@@ -454,7 +449,7 @@ getconfig(char *intface)
 
 		dsl = malloc(sizeof(struct dnssl));
 		if (dsl == NULL)
-			fatal("malloc");
+			fatal(NULL);
 
 		TAILQ_INIT(&dsl->dnssldoms);
 
@@ -470,7 +465,7 @@ getconfig(char *intface)
 
 			dnsd = malloc(sizeof(struct dnssldom) + len + 1);
 			if (dnsd == NULL)
-				fatal("malloc");
+				fatal(NULL);
 
 			dnsd->length = len;
 			strlcpy(dnsd->domain, tmpsl, len + 1);
@@ -481,7 +476,6 @@ getconfig(char *intface)
 		}
 
 		TAILQ_INSERT_TAIL(&tmp->dnssls, dsl, entry);
-		tmp->dnsslcnt++;
 
 		makeentry(entbuf, sizeof(entbuf), i, "dnsslltime");
 		MAYHAVE(val, entbuf, (tmp->maxinterval * 3) / 2);
@@ -508,10 +502,9 @@ getconfig(char *intface)
 			tmp->linkmtu = tmp->phymtu;
 	}
 	else if (tmp->linkmtu < IPV6_MMTU || tmp->linkmtu > tmp->phymtu) {
-		log_warnx("advertised link mtu (%lu) on %s is invalid (must"
+		log_warnx("advertised link mtu (%u) on %s is invalid (must"
 		    " be between least MTU (%d) and physical link MTU (%d)",
-		    (unsigned long)tmp->linkmtu, intface,
-		    IPV6_MMTU, tmp->phymtu);
+		    tmp->linkmtu, intface, IPV6_MMTU, tmp->phymtu);
 		exit(1);
 	}
 
@@ -527,10 +520,7 @@ getconfig(char *intface)
 	make_packet(tmp);
 
 	/* set timer */
-	tmp->timer = rtadvd_add_timer(ra_timeout, ra_timer_update,
-				      tmp, tmp);
-	ra_timer_update((void *)tmp, &tmp->timer->tm);
-	rtadvd_set_timer(&tmp->timer->tm, tmp->timer);
+	ra_timer_update(tmp);
 }
 
 void
@@ -570,7 +560,7 @@ get_prefix(struct rainfo *rai)
 
 		/* allocate memory to store prefix info. */
 		if ((pp = calloc(1, sizeof(*pp))) == NULL)
-			fatal("calloc");
+			fatal(NULL);
 
 		/* set prefix, sweep bits outside of prefixlen */
 		pp->prefixlen = plen;
@@ -624,30 +614,30 @@ makeentry(char *buf, size_t len, int id, char *string)
  * XXX: other parameters of the prefix (e.g. lifetime) ought
  * to be specified.
  */
-static void
-add_prefix(struct rainfo *rai, struct in6_prefixreq *ipr)
+void
+make_prefix(struct rainfo *rai, int ifindex, struct in6_addr *addr, int plen)
 {
 	struct prefix *prefix;
 	u_char ntopbuf[INET6_ADDRSTRLEN];
 
 	if ((prefix = calloc(1, sizeof(*prefix))) == NULL) {
-		log_warn("calloc");
+		log_warn(NULL);
 		return;		/* XXX: error or exit? */
 	}
-	prefix->prefix = ipr->ipr_prefix.sin6_addr;
-	prefix->prefixlen = ipr->ipr_plen;
-	prefix->validlifetime = ipr->ipr_vltime;
-	prefix->preflifetime = ipr->ipr_pltime;
-	prefix->onlinkflg = ipr->ipr_raf_onlink;
-	prefix->autoconfflg = ipr->ipr_raf_auto;
+	prefix->prefix = *addr;
+	prefix->prefixlen = plen;
+	prefix->validlifetime = DEF_ADVVALIDLIFETIME;
+	prefix->preflifetime = DEF_ADVPREFERREDLIFETIME;
+	prefix->onlinkflg = 1;
+	prefix->autoconfflg = 1;
 	prefix->origin = PREFIX_FROM_DYNAMIC;
 
 	TAILQ_INSERT_TAIL(&rai->prefixes, prefix, entry);
 
 	log_debug("new prefix %s/%d was added on %s",
-	    inet_ntop(AF_INET6, &ipr->ipr_prefix.sin6_addr,
+	    inet_ntop(AF_INET6, &prefix->prefix,
 	       ntopbuf, INET6_ADDRSTRLEN),
-	    ipr->ipr_plen, rai->ifname);
+	    prefix->prefixlen, rai->ifname);
 
 	/* free the previous packet */
 	free(rai->ra_data);
@@ -661,8 +651,7 @@ add_prefix(struct rainfo *rai, struct in6_prefixreq *ipr)
 	 * reset the timer so that the new prefix will be advertised quickly.
 	 */
 	rai->initcounter = 0;
-	ra_timer_update((void *)rai, &rai->timer->tm);
-	rtadvd_set_timer(&rai->timer->tm, rai->timer);
+	ra_timer_update(rai);
 }
 
 /*
@@ -682,75 +671,6 @@ delete_prefix(struct rainfo *rai, struct prefix *prefix)
 	free(prefix);
 	rai->pfxs--;
 	make_packet(rai);
-}
-
-/*
- * Try to get an in6_prefixreq contents for a prefix which matches
- * ipr->ipr_prefix and ipr->ipr_plen and belongs to
- * the interface whose name is ipr->ipr_name[].
- */
-static int
-init_prefix(struct in6_prefixreq *ipr)
-{
-#if 0
-	int s;
-
-	if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
-		log_warn("socket");
-		exit(1);
-	}
-
-	if (ioctl(s, SIOCGIFPREFIX_IN6, (caddr_t)ipr) < 0) {
-		log_warn("ioctl:SIOCGIFFLAGS: failed for %s", ifr.ifr_name);
-
-		ipr->ipr_vltime = DEF_ADVVALIDLIFETIME;
-		ipr->ipr_pltime = DEF_ADVPREFERREDLIFETIME;
-		ipr->ipr_raf_onlink = 1;
-		ipr->ipr_raf_auto = 1;
-		/* omit other field initialization */
-	}
-	else if (ipr->ipr_origin < PR_ORIG_RR) {
-		u_char ntopbuf[INET6_ADDRSTRLEN];
-
-		log_warn("Added prefix(%s)'s origin %d is"
-		    " lower than PR_ORIG_RR(router renumbering)."
-		    " This should not happen if I am router",
-		    inet_ntop(AF_INET6, &ipr->ipr_prefix.sin6_addr, ntopbuf,
-			sizeof(ntopbuf)), ipr->ipr_origin);
-		close(s);
-		return 1;
-	}
-
-	close(s);
-	return 0;
-#else
-	ipr->ipr_vltime = DEF_ADVVALIDLIFETIME;
-	ipr->ipr_pltime = DEF_ADVPREFERREDLIFETIME;
-	ipr->ipr_raf_onlink = 1;
-	ipr->ipr_raf_auto = 1;
-	return 0;
-#endif
-}
-
-void
-make_prefix(struct rainfo *rai, int ifindex, struct in6_addr *addr, int plen)
-{
-	struct in6_prefixreq ipr;
-
-	memset(&ipr, 0, sizeof(ipr));
-	if (if_indextoname(ifindex, ipr.ipr_name) == NULL) {
-		log_warn("Prefix added interface No.%d doesn't"
-		    " exist. This should not happen!", ifindex);
-		exit(1);
-	}
-	ipr.ipr_prefix.sin6_len = sizeof(ipr.ipr_prefix);
-	ipr.ipr_prefix.sin6_family = AF_INET6;
-	ipr.ipr_prefix.sin6_addr = *addr;
-	ipr.ipr_plen = plen;
-
-	if (init_prefix(&ipr))
-		return; /* init failed by some error */
-	add_prefix(rai, &ipr);
 }
 
 void
@@ -809,7 +729,7 @@ make_packet(struct rainfo *rainfo)
 
 	/* allocate memory for the packet */
 	if ((buf = malloc(packlen)) == NULL)
-		fatal("malloc");
+		fatal(NULL);
 	/* free the previous packet */
 	free(rainfo->ra_data);
 	rainfo->ra_data = buf;
@@ -967,8 +887,6 @@ make_packet(struct rainfo *rainfo)
 		while (((uintptr_t)buf) % 8 != 0)
 			*buf++ = '\0';
 	}
-
-	return;
 }
 
 static int
@@ -984,7 +902,6 @@ getinet6sysctl(int code)
 	    < 0) {
 		log_warn("failed to get ip6 sysctl(%d)", code);
 		return(-1);
-	}
-	else
+	} else
 		return(value);
 }

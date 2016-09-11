@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.c,v 1.5 2016/02/02 17:51:11 sthen Exp $ */
+/*	$OpenBSD: eigrpd.c,v 1.21 2016/09/02 17:59:58 benno Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -19,76 +19,57 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/sysctl.h>
-#include <arpa/inet.h>
+
 #include <err.h>
 #include <errno.h>
 #include <pwd.h>
-#include <string.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "eigrpd.h"
-#include "eigrp.h"
 #include "eigrpe.h"
-#include "control.h"
-#include "log.h"
 #include "rde.h"
+#include "log.h"
 
-void		main_sig_handler(int, short, void *);
-__dead void	usage(void);
-void		eigrpd_shutdown(void);
-int		check_child(pid_t, const char *);
+static void		 main_sig_handler(int, short, void *);
+static __dead void	 usage(void);
+static __dead void	 eigrpd_shutdown(void);
+static pid_t		 start_child(enum eigrpd_process, char *, int, int, int,
+			    char *);
+static void		 main_dispatch_eigrpe(int, short, void *);
+static void		 main_dispatch_rde(int, short, void *);
+static int		 main_imsg_send_ipc_sockets(struct imsgbuf *,
+			    struct imsgbuf *);
+static int		 main_imsg_send_config(struct eigrpd_conf *);
+static int		 eigrp_reload(void);
+static int		 eigrp_sendboth(enum imsg_type, void *, uint16_t);
+static void		 merge_instances(struct eigrpd_conf *, struct eigrp *,
+			    struct eigrp *);
 
-void	main_dispatch_eigrpe(int, short, void *);
-void	main_dispatch_rde(int, short, void *);
+struct eigrpd_conf	*eigrpd_conf;
 
-int	eigrp_reload(void);
-int	eigrp_sendboth(enum imsg_type, void *, uint16_t);
-void	merge_instances(struct eigrpd_conf *, struct eigrp *, struct eigrp *);
-
-int	pipe_parent2eigrpe[2];
-int	pipe_parent2rde[2];
-int	pipe_eigrpe2rde[2];
-
-struct eigrpd_conf	*eigrpd_conf = NULL;
-struct imsgev		*iev_eigrpe;
-struct imsgev		*iev_rde;
-char			*conffile;
-
-pid_t			 eigrpe_pid = 0;
-pid_t			 rde_pid = 0;
+static char		*conffile;
+static struct imsgev	*iev_eigrpe;
+static struct imsgev	*iev_rde;
+static pid_t		 eigrpe_pid;
+static pid_t		 rde_pid;
 
 /* ARGSUSED */
-void
+static void
 main_sig_handler(int sig, short event, void *arg)
 {
-	/*
-	 * signal handler rules don't apply, libevent decouples for us
-	 */
-
-	int	die = 0;
-
+	/* signal handler rules don't apply, libevent decouples for us */
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		if (check_child(eigrpe_pid, "eigrp engine")) {
-			eigrpe_pid = 0;
-			die = 1;
-		}
-		if (check_child(rde_pid, "route decision engine")) {
-			rde_pid = 0;
-			die = 1;
-		}
-		if (die)
-			eigrpd_shutdown();
-		break;
+		eigrpd_shutdown();
+		/* NOTREACHED */
 	case SIGHUP:
 		if (eigrp_reload() == -1)
 			log_warnx("configuration reload failed");
@@ -101,7 +82,7 @@ main_sig_handler(int sig, short event, void *arg)
 	}
 }
 
-__dead void
+static __dead void
 usage(void)
 {
 	extern char *__progname;
@@ -112,25 +93,35 @@ usage(void)
 	exit(1);
 }
 
+struct eigrpd_global global;
+
 int
 main(int argc, char *argv[])
 {
-	struct event		 ev_sigint, ev_sigterm, ev_sigchld, ev_sighup;
-	int			 ch, opts = 0;
-	int			 debug = 0;
+	struct event		 ev_sigint, ev_sigterm, ev_sighup;
+	char			*saved_argv0;
+	int			 ch;
+	int			 debug = 0, rflag = 0, eflag = 0;
 	int			 ipforwarding;
 	int			 mib[4];
 	size_t			 len;
 	char			*sockname;
+	int			 pipe_parent2eigrpe[2];
+	int			 pipe_parent2rde[2];
 
 	conffile = CONF_FILE;
 	eigrpd_process = PROC_MAIN;
+	log_procname = log_procnames[eigrpd_process];
 	sockname = EIGRPD_SOCKET;
 
 	log_init(1);	/* log to stderr until daemonized */
 	log_verbose(1);
 
-	while ((ch = getopt(argc, argv, "dD:f:ns:v")) != -1) {
+	saved_argv0 = argv[0];
+	if (saved_argv0 == NULL)
+		saved_argv0 = "eigrpd";
+
+	while ((ch = getopt(argc, argv, "dD:f:ns:vRE")) != -1) {
 		switch (ch) {
 		case 'd':
 			debug = 1;
@@ -144,15 +135,21 @@ main(int argc, char *argv[])
 			conffile = optarg;
 			break;
 		case 'n':
-			opts |= EIGRPD_OPT_NOACTION;
+			global.cmd_opts |= EIGRPD_OPT_NOACTION;
 			break;
 		case 's':
 			sockname = optarg;
 			break;
 		case 'v':
-			if (opts & EIGRPD_OPT_VERBOSE)
-				opts |= EIGRPD_OPT_VERBOSE2;
-			opts |= EIGRPD_OPT_VERBOSE;
+			if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
+				global.cmd_opts |= EIGRPD_OPT_VERBOSE2;
+			global.cmd_opts |= EIGRPD_OPT_VERBOSE;
+			break;
+		case 'R':
+			rflag = 1;
+			break;
+		case 'E':
+			eflag = 1;
 			break;
 		default:
 			usage();
@@ -162,8 +159,13 @@ main(int argc, char *argv[])
 
 	argc -= optind;
 	argv += optind;
-	if (argc > 0)
+	if (argc > 0 || (rflag && eflag))
 		usage();
+
+	if (rflag)
+		rde(debug, global.cmd_opts & EIGRPD_OPT_VERBOSE);
+	else if (eflag)
+		eigrpe(debug, global.cmd_opts & EIGRPD_OPT_VERBOSE, sockname);
 
 	mib[0] = CTL_NET;
 	mib[1] = PF_INET;
@@ -171,7 +173,7 @@ main(int argc, char *argv[])
 	mib[3] = IPCTL_FORWARDING;
 	len = sizeof(ipforwarding);
 	if (sysctl(mib, 4, &ipforwarding, &len, NULL, 0) == -1)
-		err(1, "sysctl");
+		log_warn("sysctl");
 
 	if (ipforwarding != 1)
 		log_warnx("WARNING: IP forwarding NOT enabled");
@@ -180,14 +182,13 @@ main(int argc, char *argv[])
 	kif_init();
 
 	/* parse config file */
-	if ((eigrpd_conf = parse_config(conffile, opts)) == NULL) {
+	if ((eigrpd_conf = parse_config(conffile)) == NULL) {
 		kif_clear();
 		exit(1);
 	}
-	eigrpd_conf->csock = sockname;
 
-	if (eigrpd_conf->opts & EIGRPD_OPT_NOACTION) {
-		if (eigrpd_conf->opts & EIGRPD_OPT_VERBOSE)
+	if (global.cmd_opts & EIGRPD_OPT_NOACTION) {
+		if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
 			print_config(eigrpd_conf);
 		else
 			fprintf(stderr, "configuration OK\n");
@@ -204,7 +205,7 @@ main(int argc, char *argv[])
 		errx(1, "unknown user %s", EIGRPD_USER);
 
 	log_init(debug);
-	log_verbose(eigrpd_conf->opts & EIGRPD_OPT_VERBOSE);
+	log_verbose(global.cmd_opts & EIGRPD_OPT_VERBOSE);
 
 	if (!debug)
 		daemon(1, 0);
@@ -217,35 +218,26 @@ main(int argc, char *argv[])
 	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
 	    PF_UNSPEC, pipe_parent2rde) == -1)
 		fatal("socketpair");
-	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
-	    PF_UNSPEC, pipe_eigrpe2rde) == -1)
-		fatal("socketpair");
 
 	/* start children */
-	rde_pid = rde(eigrpd_conf, pipe_parent2rde, pipe_eigrpe2rde,
-	    pipe_parent2eigrpe);
-	eigrpe_pid = eigrpe(eigrpd_conf, pipe_parent2eigrpe, pipe_eigrpe2rde,
-	    pipe_parent2rde);
+	rde_pid = start_child(PROC_RDE_ENGINE, saved_argv0, pipe_parent2rde[1],
+	    debug, global.cmd_opts & EIGRPD_OPT_VERBOSE, NULL);
+	eigrpe_pid = start_child(PROC_EIGRP_ENGINE, saved_argv0,
+	    pipe_parent2eigrpe[1], debug, global.cmd_opts & EIGRPD_OPT_VERBOSE,
+	    sockname);
 
 	event_init();
 
 	/* setup signal handler */
 	signal_set(&ev_sigint, SIGINT, main_sig_handler, NULL);
 	signal_set(&ev_sigterm, SIGTERM, main_sig_handler, NULL);
-	signal_set(&ev_sigchld, SIGCHLD, main_sig_handler, NULL);
 	signal_set(&ev_sighup, SIGHUP, main_sig_handler, NULL);
 	signal_add(&ev_sigint, NULL);
 	signal_add(&ev_sigterm, NULL);
-	signal_add(&ev_sigchld, NULL);
 	signal_add(&ev_sighup, NULL);
 	signal(SIGPIPE, SIG_IGN);
 
 	/* setup pipes to children */
-	close(pipe_parent2eigrpe[1]);
-	close(pipe_parent2rde[1]);
-	close(pipe_eigrpe2rde[0]);
-	close(pipe_eigrpe2rde[1]);
-
 	if ((iev_eigrpe = malloc(sizeof(struct imsgev))) == NULL ||
 	    (iev_rde = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
@@ -265,6 +257,10 @@ main(int argc, char *argv[])
 	    iev_rde->handler, iev_rde);
 	event_add(&iev_rde->ev, NULL);
 
+	if (main_imsg_send_ipc_sockets(&iev_eigrpe->ibuf, &iev_rde->ibuf))
+		fatal("could not establish imsg links");
+	main_imsg_send_config(eigrpd_conf);
+
 	/* notify eigrpe about existing interfaces and addresses */
 	kif_redistribute();
 
@@ -272,7 +268,7 @@ main(int argc, char *argv[])
 	    eigrpd_conf->rdomain) == -1)
 		fatalx("kr_init failed");
 
-	if (pledge("stdio proc", NULL) == -1)
+	if (pledge("inet rpath stdio sendfd", NULL) == -1)
 		fatal("pledge");
 
 	event_dispatch();
@@ -282,59 +278,89 @@ main(int argc, char *argv[])
 	return (0);
 }
 
-void
+static __dead void
 eigrpd_shutdown(void)
 {
-	pid_t		 	 pid;
+	pid_t		 pid;
+	int		 status;
 
-	if (eigrpe_pid)
-		kill(eigrpe_pid, SIGTERM);
-
-	if (rde_pid)
-		kill(rde_pid, SIGTERM);
+	/* close pipes */
+	msgbuf_clear(&iev_eigrpe->ibuf.w);
+	close(iev_eigrpe->ibuf.fd);
+	msgbuf_clear(&iev_rde->ibuf.w);
+	close(iev_rde->ibuf.fd);
 
 	kr_shutdown();
-
-	do {
-		if ((pid = wait(NULL)) == -1 &&
-		    errno != EINTR && errno != ECHILD)
-			fatal("wait");
-	} while (pid != -1 || (pid == -1 && errno == EINTR));
-
 	config_clear(eigrpd_conf);
 
-	msgbuf_clear(&iev_eigrpe->ibuf.w);
+	log_debug("waiting for children to terminate");
+	do {
+		pid = wait(&status);
+		if (pid == -1) {
+			if (errno != EINTR && errno != ECHILD)
+				fatal("wait");
+		} else if (WIFSIGNALED(status))
+			log_warnx("%s terminated; signal %d",
+			    (pid == rde_pid) ? "route decision engine" :
+			    "eigrp engine", WTERMSIG(status));
+	} while (pid != -1 || (pid == -1 && errno == EINTR));
+
 	free(iev_eigrpe);
-	msgbuf_clear(&iev_rde->ibuf.w);
 	free(iev_rde);
 
 	log_info("terminating");
 	exit(0);
 }
 
-int
-check_child(pid_t pid, const char *pname)
+static pid_t
+start_child(enum eigrpd_process p, char *argv0, int fd, int debug, int verbose,
+    char *sockname)
 {
-	int	status;
+	char	*argv[7];
+	int	 argc = 0;
+	pid_t	 pid;
 
-	if (waitpid(pid, &status, WNOHANG) > 0) {
-		if (WIFEXITED(status)) {
-			log_warnx("lost child: %s exited", pname);
-			return (1);
-		}
-		if (WIFSIGNALED(status)) {
-			log_warnx("lost child: %s terminated; signal %d",
-			    pname, WTERMSIG(status));
-			return (1);
-		}
+	switch (pid = fork()) {
+	case -1:
+		fatal("cannot fork");
+	case 0:
+		break;
+	default:
+		close(fd);
+		return (pid);
 	}
 
-	return (0);
+	if (dup2(fd, 3) == -1)
+		fatal("cannot setup imsg fd");
+
+	argv[argc++] = argv0;
+	switch (p) {
+	case PROC_MAIN:
+		fatalx("Can not start main process");
+	case PROC_RDE_ENGINE:
+		argv[argc++] = "-R";
+		break;
+	case PROC_EIGRP_ENGINE:
+		argv[argc++] = "-E";
+		break;
+	}
+	if (debug)
+		argv[argc++] = "-d";
+	if (verbose)
+		argv[argc++] = "-v";
+	if (sockname) {
+		argv[argc++] = "-s";
+		argv[argc++] = sockname;
+	}
+	argv[argc++] = NULL;
+
+	execvp(argv0, argv);
+	fatal("execvp");
 }
 
 /* imsg handling */
 /* ARGSUSED */
-void
+static void
 main_dispatch_eigrpe(int fd, short event, void *bula)
 {
 	struct imsgev		*iev = bula;
@@ -411,7 +437,7 @@ main_dispatch_eigrpe(int fd, short event, void *bula)
 }
 
 /* ARGSUSED */
-void
+static void
 main_dispatch_rde(int fd, short event, void *bula)
 {
 	struct imsgev	*iev = bula;
@@ -474,18 +500,20 @@ main_dispatch_rde(int fd, short event, void *bula)
 	}
 }
 
-void
+int
 main_imsg_compose_eigrpe(int type, pid_t pid, void *data, uint16_t datalen)
 {
 	if (iev_eigrpe == NULL)
-		return;
-	imsg_compose_event(iev_eigrpe, type, 0, pid, -1, data, datalen);
+		return (-1);
+	return (imsg_compose_event(iev_eigrpe, type, 0, pid, -1, data, datalen));
 }
 
-void
+int
 main_imsg_compose_rde(int type, pid_t pid, void *data, uint16_t datalen)
 {
-	imsg_compose_event(iev_rde, type, 0, pid, -1, data, datalen);
+	if (iev_rde == NULL)
+		return (-1);
+	return (imsg_compose_event(iev_rde, type, 0, pid, -1, data, datalen));
 }
 
 void
@@ -512,10 +540,23 @@ imsg_compose_event(struct imsgev *iev, uint16_t type, uint32_t peerid,
 	return (ret);
 }
 
-uint32_t
-eigrp_router_id(struct eigrpd_conf *xconf)
+static int
+main_imsg_send_ipc_sockets(struct imsgbuf *eigrpe_buf, struct imsgbuf *rde_buf)
 {
-	return (xconf->rtr_id.s_addr);
+	int pipe_eigrpe2rde[2];
+
+	if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+	    PF_UNSPEC, pipe_eigrpe2rde) == -1)
+		return (-1);
+
+	if (imsg_compose(eigrpe_buf, IMSG_SOCKET_IPC, 0, 0, pipe_eigrpe2rde[0],
+	    NULL, 0) == -1)
+		return (-1);
+	if (imsg_compose(rde_buf, IMSG_SOCKET_IPC, 0, 0, pipe_eigrpe2rde[1],
+	    NULL, 0) == -1)
+		return (-1);
+
+	return (0);
 }
 
 struct eigrp *
@@ -530,15 +571,11 @@ eigrp_find(struct eigrpd_conf *xconf, int af, uint16_t as)
 	return (NULL);
 }
 
-int
-eigrp_reload(void)
+static int
+main_imsg_send_config(struct eigrpd_conf *xconf)
 {
 	struct eigrp		*eigrp;
 	struct eigrp_iface	*ei;
-	struct eigrpd_conf	*xconf;
-
-	if ((xconf = parse_config(conffile, eigrpd_conf->opts)) == NULL)
-		return (-1);
 
 	if (eigrp_sendboth(IMSG_RECONF_CONF, xconf, sizeof(*xconf)) == -1)
 		return (-1);
@@ -562,17 +599,31 @@ eigrp_reload(void)
 	if (eigrp_sendboth(IMSG_RECONF_END, NULL, 0) == -1)
 		return (-1);
 
+	return (0);
+}
+
+static int
+eigrp_reload(void)
+{
+	struct eigrpd_conf	*xconf;
+
+	if ((xconf = parse_config(conffile)) == NULL)
+		return (-1);
+
+	if (main_imsg_send_config(xconf) == -1)
+		return (-1);
+
 	merge_config(eigrpd_conf, xconf);
 
 	return (0);
 }
 
-int
+static int
 eigrp_sendboth(enum imsg_type type, void *buf, uint16_t len)
 {
-	if (imsg_compose_event(iev_eigrpe, type, 0, 0, -1, buf, len) == -1)
+	if (main_imsg_compose_eigrpe(type, 0, buf, len) == -1)
 		return (-1);
-	if (imsg_compose_event(iev_rde, type, 0, 0, -1, buf, len) == -1)
+	if (main_imsg_compose_rde(type, 0, buf, len) == -1)
 		return (-1);
 	return (0);
 }
@@ -580,14 +631,34 @@ eigrp_sendboth(enum imsg_type type, void *buf, uint16_t len)
 void
 merge_config(struct eigrpd_conf *conf, struct eigrpd_conf *xconf)
 {
+	struct iface		*iface, *itmp, *xi;
 	struct eigrp		*eigrp, *etmp, *xe;
 
-	/* change of rtr_id needs a restart */
+	conf->rtr_id = xconf->rtr_id;
 	conf->flags = xconf->flags;
 	conf->rdomain= xconf->rdomain;
 	conf->fib_priority_internal = xconf->fib_priority_internal;
 	conf->fib_priority_external = xconf->fib_priority_external;
 	conf->fib_priority_summary = xconf->fib_priority_summary;
+
+	/* merge interfaces */
+	TAILQ_FOREACH_SAFE(iface, &conf->iface_list, entry, itmp) {
+		/* find deleted ifaces */
+		if ((xi = if_lookup(xconf, iface->ifindex)) == NULL) {
+			TAILQ_REMOVE(&conf->iface_list, iface, entry);
+			free(iface);
+		}
+	}
+	TAILQ_FOREACH_SAFE(xi, &xconf->iface_list, entry, itmp) {
+		/* find new ifaces */
+		if ((iface = if_lookup(conf, xi->ifindex)) == NULL) {
+			TAILQ_REMOVE(&xconf->iface_list, xi, entry);
+			TAILQ_INSERT_TAIL(&conf->iface_list, xi, entry);
+			continue;
+		}
+
+		/* TODO update existing ifaces */
+	}
 
 	/* merge instances */
 	TAILQ_FOREACH_SAFE(eigrp, &conf->instances, entry, etmp) {
@@ -630,6 +701,7 @@ merge_config(struct eigrpd_conf *conf, struct eigrpd_conf *xconf)
 		/* update existing instances */
 		merge_instances(conf, eigrp, xe);
 	}
+
 	/* resend addresses to activate new interfaces */
 	if (eigrpd_process == PROC_MAIN)
 		kif_redistribute();
@@ -637,10 +709,25 @@ merge_config(struct eigrpd_conf *conf, struct eigrpd_conf *xconf)
 	free(xconf);
 }
 
-void
+static void
 merge_instances(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct eigrp *xe)
 {
 	/* TODO */
+}
+
+struct eigrpd_conf *
+config_new_empty(void)
+{
+	struct eigrpd_conf	*xconf;
+
+	xconf = calloc(1, sizeof(*xconf));
+	if (xconf == NULL)
+		fatal(NULL);
+
+	TAILQ_INIT(&xconf->instances);
+	TAILQ_INIT(&xconf->iface_list);
+
+	return (xconf);
 }
 
 void
@@ -649,9 +736,7 @@ config_clear(struct eigrpd_conf *conf)
 	struct eigrpd_conf	*xconf;
 
 	/* merge current config with an empty config */
-	xconf = malloc(sizeof(*xconf));
-	memcpy(xconf, conf, sizeof(*xconf));
-	TAILQ_INIT(&xconf->instances);
+	xconf = config_new_empty();
 	merge_config(conf, xconf);
 
 	free(conf);

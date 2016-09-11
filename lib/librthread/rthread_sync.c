@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread_sync.c,v 1.39 2013/06/01 23:06:26 tedu Exp $ */
+/*	$OpenBSD: rthread_sync.c,v 1.44 2016/09/04 10:13:35 akfaew Exp $ */
 /*
  * Copyright (c) 2004,2005 Ted Unangst <tedu@openbsd.org>
  * Copyright (c) 2012 Philip Guenther <guenther@openbsd.org>
@@ -20,7 +20,6 @@
  * Mutexes and conditions - synchronization functions.
  */
 
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,8 +29,9 @@
 #include <pthread.h>
 
 #include "rthread.h"
+#include "cancel.h"		/* in libc/include */
 
-static struct _spinlock static_init_lock = _SPINLOCK_UNLOCKED;
+static _atomic_lock_t static_init_lock = _SPINLOCK_UNLOCKED;
 
 /*
  * mutexen
@@ -44,7 +44,7 @@ pthread_mutex_init(pthread_mutex_t *mutexp, const pthread_mutexattr_t *attr)
 	mutex = calloc(1, sizeof(*mutex));
 	if (!mutex)
 		return (errno);
-	mutex->lock = _SPINLOCK_UNLOCKED_ASSIGN;
+	mutex->lock = _SPINLOCK_UNLOCKED;
 	TAILQ_INIT(&mutex->lockers);
 	if (attr == NULL) {
 		mutex->type = PTHREAD_MUTEX_DEFAULT;
@@ -58,6 +58,7 @@ pthread_mutex_init(pthread_mutex_t *mutexp, const pthread_mutexattr_t *attr)
 
 	return (0);
 }
+DEF_STD(pthread_mutex_init);
 
 int
 pthread_mutex_destroy(pthread_mutex_t *mutexp)
@@ -79,6 +80,7 @@ pthread_mutex_destroy(pthread_mutex_t *mutexp)
 	}
 	return (0);
 }
+DEF_STD(pthread_mutex_destroy);
 
 static int
 _rthread_mutex_lock(pthread_mutex_t *mutexp, int trywait,
@@ -127,9 +129,8 @@ _rthread_mutex_lock(pthread_mutex_t *mutexp, int trywait,
 				abort();
 
 			/* self-deadlock, possibly until timeout */
-			while (__thrsleep(self, CLOCK_REALTIME |
-			    _USING_TICKETS, abstime,
-			    &mutex->lock.ticket, NULL) != EWOULDBLOCK)
+			while (__thrsleep(self, CLOCK_REALTIME, abstime,
+			    &mutex->lock, NULL) != EWOULDBLOCK)
 				_spinlock(&mutex->lock);
 			return (ETIMEDOUT);
 		}
@@ -145,8 +146,8 @@ _rthread_mutex_lock(pthread_mutex_t *mutexp, int trywait,
 		/* add to the wait queue and block until at the head */
 		TAILQ_INSERT_TAIL(&mutex->lockers, self, waiting);
 		while (mutex->owner != self) {
-			ret = __thrsleep(self, CLOCK_REALTIME | _USING_TICKETS,
-			    abstime, &mutex->lock.ticket, NULL);
+			ret = __thrsleep(self, CLOCK_REALTIME, abstime,
+			    &mutex->lock, NULL);
 			_spinlock(&mutex->lock);
 			assert(mutex->owner != NULL);
 			if (ret == EWOULDBLOCK) {
@@ -170,6 +171,7 @@ pthread_mutex_lock(pthread_mutex_t *p)
 {
 	return (_rthread_mutex_lock(p, 0, NULL));
 }
+DEF_STD(pthread_mutex_lock);
 
 int
 pthread_mutex_trylock(pthread_mutex_t *p)
@@ -234,6 +236,7 @@ pthread_mutex_unlock(pthread_mutex_t *mutexp)
 
 	return (0);
 }
+DEF_STD(pthread_mutex_unlock);
 
 /*
  * condition variables
@@ -246,7 +249,7 @@ pthread_cond_init(pthread_cond_t *condp, const pthread_condattr_t *attr)
 	cond = calloc(1, sizeof(*cond));
 	if (!cond)
 		return (errno);
-	cond->lock = _SPINLOCK_UNLOCKED_ASSIGN;
+	cond->lock = _SPINLOCK_UNLOCKED;
 	TAILQ_INIT(&cond->waiters);
 	if (attr == NULL)
 		cond->clock = CLOCK_REALTIME;
@@ -256,6 +259,7 @@ pthread_cond_init(pthread_cond_t *condp, const pthread_condattr_t *attr)
 
 	return (0);
 }
+DEF_STD(pthread_cond_init);
 
 int
 pthread_cond_destroy(pthread_cond_t *condp)
@@ -277,6 +281,7 @@ pthread_cond_destroy(pthread_cond_t *condp)
 
 	return (0);
 }
+DEF_STD(pthread_cond_destroy);
 
 int
 pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
@@ -284,12 +289,14 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 {
 	pthread_cond_t cond;
 	struct pthread_mutex *mutex = (struct pthread_mutex *)*mutexp;
-	pthread_t self = pthread_self();
+	struct tib *tib = TIB_GET();
+	pthread_t self = tib->tib_thread;
 	pthread_t next;
 	int mutex_count;
 	int canceled = 0;
 	int rv = 0;
 	int error;
+	PREP_CANCEL_POINT(tib);
 
 	if (!*condp)
 		if ((error = pthread_cond_init(condp, NULL)))
@@ -316,7 +323,7 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 	    abstime->tv_nsec >= 1000000000)
 		return (EINVAL);
 
-	_enter_delayed_cancel(self);
+	ENTER_DELAYED_CANCEL_POINT(tib, self);
 
 	_spinlock(&cond->lock);
 
@@ -327,7 +334,7 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 	} else if (cond->mutex != mutex) {
 		assert(cond->mutex == mutex);
 		_spinunlock(&cond->lock);
-		_leave_delayed_cancel(self, 1);
+		LEAVE_CANCEL_POINT_INNER(tib, 1);
 		return (EINVAL);
 	} else
 		assert(! TAILQ_EMPTY(&cond->waiters));
@@ -351,8 +358,8 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 
 	/* wait until we're the owner of the mutex again */
 	while (mutex->owner != self) {
-		error = __thrsleep(self, cond->clock | _USING_TICKETS, abstime,
-		    &mutex->lock.ticket, &self->delayed_cancel);
+		error = __thrsleep(self, cond->clock, abstime,
+		    &mutex->lock, &self->delayed_cancel);
 
 		/*
 		 * If abstime == NULL, then we're definitely waiting
@@ -370,7 +377,8 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 		 * cancellation) then we should just go back to
 		 * sleep without changing state (timeouts, etc).
 		 */
-		if (error == EINTR && !IS_CANCELED(self)) {
+		if (error == EINTR && (tib->tib_canceled == 0 ||
+		    (tib->tib_cantcancel & CANCEL_DISABLED))) {
 			_spinlock(&mutex->lock);
 			continue;
 		}
@@ -382,7 +390,7 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 		 * we'll no longer time out or be cancelable.
 		 */
 		abstime = NULL;
-		_leave_delayed_cancel(self, 0);
+		LEAVE_CANCEL_POINT_INNER(tib, 0);
 
 		/*
 		 * If we're no longer in the condvar's queue then
@@ -426,7 +434,7 @@ pthread_cond_timedwait(pthread_cond_t *condp, pthread_mutex_t *mutexp,
 	mutex->count = mutex_count;
 	_spinunlock(&mutex->lock);
 
-	_leave_delayed_cancel(self, canceled);
+	LEAVE_CANCEL_POINT_INNER(tib, canceled);
 
 	return (rv);
 }
@@ -436,11 +444,13 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 {
 	pthread_cond_t cond;
 	struct pthread_mutex *mutex = (struct pthread_mutex *)*mutexp;
-	pthread_t self = pthread_self();
+	struct tib *tib = TIB_GET();
+	pthread_t self = tib->tib_thread;
 	pthread_t next;
 	int mutex_count;
 	int canceled = 0;
 	int error;
+	PREP_CANCEL_POINT(tib);
 
 	if (!*condp)
 		if ((error = pthread_cond_init(condp, NULL)))
@@ -463,7 +473,7 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 			abort();
 	}
 
-	_enter_delayed_cancel(self);
+	ENTER_DELAYED_CANCEL_POINT(tib, self);
 
 	_spinlock(&cond->lock);
 
@@ -474,7 +484,7 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 	} else if (cond->mutex != mutex) {
 		assert(cond->mutex == mutex);
 		_spinunlock(&cond->lock);
-		_leave_delayed_cancel(self, 1);
+		LEAVE_CANCEL_POINT_INNER(tib, 1);
 		return (EINVAL);
 	} else
 		assert(! TAILQ_EMPTY(&cond->waiters));
@@ -498,15 +508,16 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 
 	/* wait until we're the owner of the mutex again */
 	while (mutex->owner != self) {
-		error = __thrsleep(self, 0 | _USING_TICKETS, NULL,
-		    &mutex->lock.ticket, &self->delayed_cancel);
+		error = __thrsleep(self, 0, NULL, &mutex->lock,
+		    &self->delayed_cancel);
 
 		/*
 		 * If we took a normal signal (not from
 		 * cancellation) then we should just go back to
 		 * sleep without changing state (timeouts, etc).
 		 */
-		if (error == EINTR && !IS_CANCELED(self)) {
+		if (error == EINTR && (tib->tib_canceled == 0 ||
+		    (tib->tib_cantcancel & CANCEL_DISABLED))) {
 			_spinlock(&mutex->lock);
 			continue;
 		}
@@ -517,7 +528,7 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 		 * be staying in the condvar queue and we'll no
 		 * longer be cancelable.
 		 */
-		_leave_delayed_cancel(self, 0);
+		LEAVE_CANCEL_POINT_INNER(tib, 0);
 
 		/*
 		 * If we're no longer in the condvar's queue then
@@ -559,10 +570,11 @@ pthread_cond_wait(pthread_cond_t *condp, pthread_mutex_t *mutexp)
 	mutex->count = mutex_count;
 	_spinunlock(&mutex->lock);
 
-	_leave_delayed_cancel(self, canceled);
+	LEAVE_CANCEL_POINT_INNER(tib, canceled);
 
 	return (0);
 }
+DEF_STD(pthread_cond_wait);
 
 
 int
@@ -612,6 +624,7 @@ pthread_cond_signal(pthread_cond_t *condp)
 
 	return (0);
 }
+DEF_STD(pthread_cond_signal);
 
 int
 pthread_cond_broadcast(pthread_cond_t *condp)
@@ -677,3 +690,4 @@ pthread_cond_broadcast(pthread_cond_t *condp)
 
 	return (0);
 }
+DEF_STD(pthread_cond_broadcast);

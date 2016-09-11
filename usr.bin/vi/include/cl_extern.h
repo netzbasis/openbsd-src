@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_extern.h,v 1.7 2014/11/06 10:48:52 bentley Exp $	*/
+/*	$OpenBSD: cl_extern.h,v 1.9 2016/05/27 09:18:12 martijn Exp $	*/
 
 int cl_addstr(SCR *, const char *, size_t);
 int cl_attr(SCR *, scr_attr_t, int);

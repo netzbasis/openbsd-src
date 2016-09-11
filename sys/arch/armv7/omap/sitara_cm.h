@@ -1,4 +1,4 @@
-/* $OpenBSD: sitara_cm.h,v 1.1 2013/09/04 14:38:32 patrick Exp $ */
+/* $OpenBSD: sitara_cm.h,v 1.3 2016/08/12 03:22:41 jsg Exp $ */
 /* $NetBSD: sitara_cm.h,v 1.1 2013/04/17 14:31:02 bouyer Exp $ */
 /*
  * Copyright (c) 2010

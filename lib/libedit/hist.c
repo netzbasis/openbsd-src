@@ -1,5 +1,5 @@
-/*	$OpenBSD: hist.c,v 1.12 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: hist.c,v 1.17 2009/12/30 23:54:52 christos Exp $	*/
+/*	$OpenBSD: hist.c,v 1.17 2016/04/11 20:43:33 schwarze Exp $	*/
+/*	$NetBSD: hist.c,v 1.28 2016/04/11 00:50:13 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -39,6 +39,8 @@
  * hist.c: History access functions
  */
 #include <stdlib.h>
+#include <string.h>
+
 #include "el.h"
 
 /* hist_init():
@@ -92,11 +94,11 @@ hist_set(EditLine *el, hist_fun_t fun, void *ptr)
 protected el_action_t
 hist_get(EditLine *el)
 {
-	const Char *hp;
+	const wchar_t *hp;
 	int h;
 
 	if (el->el_history.eventno == 0) {	/* if really the current line */
-		(void) Strncpy(el->el_line.buffer, el->el_history.buf,
+		(void) wcsncpy(el->el_line.buffer, el->el_history.buf,
 		    el->el_history.sz);
 		el->el_line.lastchar = el->el_line.buffer +
 		    (el->el_history.last - el->el_history.buf);
@@ -123,10 +125,10 @@ hist_get(EditLine *el)
 			el->el_history.eventno = h;
 			return CC_ERROR;
 		}
-	(void) Strncpy(el->el_line.buffer, hp,
+	(void) wcsncpy(el->el_line.buffer, hp,
 			(size_t)(el->el_line.limit - el->el_line.buffer));
 	el->el_line.buffer[el->el_line.limit - el->el_line.buffer - 1] = '\0';
-	el->el_line.lastchar = el->el_line.buffer + Strlen(el->el_line.buffer);
+	el->el_line.lastchar = el->el_line.buffer + wcslen(el->el_line.buffer);
 
 	if (el->el_line.lastchar > el->el_line.buffer
 	    && el->el_line.lastchar[-1] == '\n')
@@ -149,16 +151,16 @@ hist_get(EditLine *el)
  *	process a history command
  */
 protected int
-hist_command(EditLine *el, int argc, const Char **argv)
+hist_command(EditLine *el, int argc, const wchar_t **argv)
 {
-	const Char *str;
+	const wchar_t *str;
 	int num;
 	HistEvent ev;
 
 	if (el->el_history.ref == NULL)
 		return -1;
 
-	if (argc == 1 || Strcmp(argv[1], STR("list")) == 0) {
+	if (argc == 1 || wcscmp(argv[1], L"list") == 0) {
 		 /* List history entries */
 
 		for (str = HIST_LAST(el); str != NULL; str = HIST_PREV(el))
@@ -170,12 +172,12 @@ hist_command(EditLine *el, int argc, const Char **argv)
 	if (argc != 3)
 		return -1;
 
-	num = (int)Strtol(argv[2], NULL, 0);
+	num = (int)wcstol(argv[2], NULL, 0);
 
-	if (Strcmp(argv[1], STR("size")) == 0)
+	if (wcscmp(argv[1], L"size") == 0)
 		return history(el->el_history.ref, &ev, H_SETSIZE, num);
 
-	if (Strcmp(argv[1], STR("unique")) == 0)
+	if (wcscmp(argv[1], L"unique") == 0)
 		return history(el->el_history.ref, &ev, H_SETUNIQUE, num);
 
 	return -1;
@@ -189,7 +191,7 @@ protected int
 /*ARGSUSED*/
 hist_enlargebuf(EditLine *el, size_t oldsz, size_t newsz)
 {
-	Char *newbuf;
+	wchar_t *newbuf;
 
 	newbuf = reallocarray(el->el_history.buf, newsz, sizeof(*newbuf));
 	if (!newbuf)
@@ -205,7 +207,6 @@ hist_enlargebuf(EditLine *el, size_t oldsz, size_t newsz)
 	return 1;
 }
 
-#ifdef WIDECHAR
 protected wchar_t *
 hist_convert(EditLine *el, int fn, void *arg)
 {
@@ -215,4 +216,3 @@ hist_convert(EditLine *el, int fn, void *arg)
 	return ct_decode_string((const char *)(const void *)ev.str,
 	    &el->el_scratch);
 }
-#endif

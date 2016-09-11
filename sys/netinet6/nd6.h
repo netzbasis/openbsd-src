@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.h,v 1.56 2015/12/18 10:55:51 tb Exp $	*/
+/*	$OpenBSD: nd6.h,v 1.63 2016/07/13 01:51:22 dlg Exp $	*/
 /*	$KAME: nd6.h,v 1.95 2002/06/08 11:31:06 itojun Exp $	*/
 
 /*
@@ -34,11 +34,6 @@
 #define _NETINET6_ND6_H_
 
 #include <sys/task.h>
-
-/* see net/route.h, or net/if_inarp.h */
-#ifndef RTF_ANNOUNCE
-#define RTF_ANNOUNCE	RTF_PROTO2
-#endif
 
 #define ND6_LLINFO_PURGE	-3
 #define ND6_LLINFO_NOSTATE	-2
@@ -81,6 +76,13 @@ struct	in6_defrouter {
 	u_char	flags;
 };
 
+struct prf_ra {
+	u_int onlink : 1;
+	u_int autonomous : 1;
+	u_int router : 1;
+	u_int reserved : 5;
+};
+
 struct in6_prefix {
 	struct	sockaddr_in6 prefix;
 	struct	prf_ra raflags;
@@ -93,6 +95,10 @@ struct in6_prefix {
 	u_short	advrtrs; /* number of advertisement routers */
 	u_char	prefixlen;
 	u_char	origin;
+#define PR_ORIG_RA	0
+#define PR_ORIG_RR	1
+#define PR_ORIG_STATIC	2
+#define PR_ORIG_KERNEL	3
 	/* struct sockaddr_in6 advrtr[] */
 };
 
@@ -138,18 +144,16 @@ struct	llinfo_nd6 {
 	TAILQ_ENTRY(llinfo_nd6)	ln_list;
 	struct	rtentry *ln_rt;
 	struct	mbuf *ln_hold;	/* last packet until resolved/timeout */
-	time_t	ln_expire;	/* lifetime for NDP state transition */
 	long	ln_asked;	/* number of queries already sent for addr */
 	int	ln_byhint;	/* # of times we made it reachable by UL hint */
 	short	ln_state;	/* reachability state */
 	short	ln_router;	/* 2^0: ND6 router bit */
 
-	long	ln_ntick;
 	struct	timeout ln_timer_ch;
 };
 
 #define ND6_IS_LLINFO_PROBREACH(n) ((n)->ln_state > ND6_LLINFO_INCOMPLETE)
-#define ND6_LLINFO_PERMANENT(n)	((n)->ln_expire == 0)
+#define ND6_LLINFO_PERMANENT(n)	((n)->ln_rt->rt_expire == 0)
 
 /* node constants */
 #define MAX_REACHABLE_TIME		3600000	/* msec */
@@ -255,18 +259,14 @@ struct nd_opt_hdr *nd6_option(union nd_opts *);
 int nd6_options(union nd_opts *);
 struct	rtentry *nd6_lookup(struct in6_addr *, int, struct ifnet *, u_int);
 void nd6_setmtu(struct ifnet *);
-void nd6_llinfo_settimer(struct llinfo_nd6 *, long);
+void nd6_llinfo_settimer(struct llinfo_nd6 *, int);
 void nd6_timer(void *);
 void nd6_purge(struct ifnet *);
 void nd6_nud_hint(struct rtentry *);
-int nd6_resolve(struct ifnet *, struct rtentry *,
-	struct mbuf *, struct sockaddr *, u_char *);
 void nd6_rtrequest(struct ifnet *, int, struct rtentry *);
 int nd6_ioctl(u_long, caddr_t, struct ifnet *);
 void nd6_cache_lladdr(struct ifnet *, struct in6_addr *, char *, int, int, int);
-int nd6_output(struct ifnet *, struct mbuf *, struct sockaddr_in6 *,
-    struct rtentry *);
-int nd6_storelladdr(struct ifnet *, struct rtentry *, struct mbuf *,
+int nd6_resolve(struct ifnet *, struct rtentry *, struct mbuf *,
 	 struct sockaddr *, u_char *);
 int nd6_sysctl(int, void *, size_t *, void *, size_t);
 int nd6_need_cache(struct ifnet *);

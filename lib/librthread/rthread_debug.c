@@ -1,5 +1,4 @@
-/* $OpenBSD: rthread_debug.c,v 1.3 2012/03/13 05:51:30 guenther Exp $ */
-/* $snafu: rthread_debug.c,v 1.2 2004/12/09 18:41:44 marc Exp $ */
+/* $OpenBSD: rthread_debug.c,v 1.5 2016/09/01 10:56:46 deraadt Exp $ */
 
 /* PUBLIC DOMAIN: No Rights Reserved. Marco S Hyman <marc@snafu.org> */
 
@@ -10,6 +9,8 @@
 #include <unistd.h>
 
 #include "rthread.h"
+
+REDIRECT_SYSCALL(issetugid);
 
 int _rthread_debug_level;
 

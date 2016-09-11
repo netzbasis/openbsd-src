@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.12 2014/03/16 20:31:45 guenther Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.15 2016/09/04 09:22:28 mpi Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.2 2003/04/29 17:06:04 scw Exp $	*/
 
 /* 
@@ -45,7 +45,6 @@ typedef	long		db_expr_t;	/* expression - signed */
 typedef struct trapframe db_regs_t;
 
 extern db_regs_t ddb_regs;	/* register state */
-#define	DDB_REGS	(&ddb_regs)
 
 #define	PC_REGS(regs)	((db_addr_t)(regs)->tf_rip)
 #define	SET_PC_REGS(regs, value) (regs)->tf_rip = (int64_t)(value)
@@ -54,6 +53,9 @@ extern db_regs_t ddb_regs;	/* register state */
 #define	BKPT_INST	0xcc		/* breakpoint instruction */
 #define	BKPT_SIZE	(1)		/* size of breakpoint inst */
 #define	BKPT_SET(inst)	(BKPT_INST)
+
+#define	SSF_INST	0x55
+#define	SSF_SIZE	(1)
 
 #define	FIXUP_PC_AFTER_BREAK(regs)	((regs)->tf_rip -= BKPT_SIZE)
 
@@ -85,7 +87,7 @@ typedef	long		kgdb_reg_t;
 
 /* macro for checking if a thread has used floating-point */
 
-int kdb_trap(int, int, db_regs_t *);
+int db_ktrap(int, int, db_regs_t *);
 
 void db_machine_init(void);
 int db_enter_ddb(void);

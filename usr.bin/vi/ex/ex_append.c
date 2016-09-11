@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_append.c,v 1.12 2016/01/06 22:29:38 millert Exp $	*/
+/*	$OpenBSD: ex_append.c,v 1.14 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

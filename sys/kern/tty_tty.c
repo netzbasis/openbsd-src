@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_tty.c,v 1.17 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: tty_tty.c,v 1.20 2016/09/06 08:13:23 tedu Exp $	*/
 /*	$NetBSD: tty_tty.c,v 1.13 1996/03/30 22:24:46 christos Exp $	*/
 
 /*-
@@ -59,7 +59,7 @@ cttyopen(dev_t dev, int flag, int mode, struct proc *p)
 		return (ENXIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_OPEN(ttyvp, flag, NOCRED, p);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
@@ -74,7 +74,7 @@ cttyread(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_READ(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
@@ -89,7 +89,7 @@ cttywrite(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_WRITE(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
@@ -97,6 +97,8 @@ int
 cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 {
 	struct vnode *ttyvp = cttyvp(p);
+	struct session *sess;
+	int error, secs;
 
 	if (ttyvp == NULL)
 		return (EIO);
@@ -108,6 +110,37 @@ cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 			return (0);
 		} else
 			return (EINVAL);
+	}
+	switch (cmd) {
+	case TIOCSETVERAUTH:
+		if ((error = suser(p, 0)))
+			return error;
+		secs = *(int *)addr;
+		if (secs < 1 || secs > 3600)
+			return EINVAL;
+		sess = p->p_p->ps_pgrp->pg_session;
+		sess->s_verauthuid = p->p_ucred->cr_ruid;
+		sess->s_verauthppid = p->p_p->ps_pptr->ps_pid;
+		timeout_add_sec(&sess->s_verauthto, secs);
+		return 0;
+	case TIOCCLRVERAUTH:
+		sess = p->p_p->ps_pgrp->pg_session;
+		timeout_del(&sess->s_verauthto);
+		zapverauth(sess);
+		return 0;
+	case TIOCCHKVERAUTH:
+		/*
+		 * It's not clear when or what these checks are for.
+		 * How can we reach this code with a differnt ruid?
+		 * The ppid check is also more porous than desired.
+		 * Nevertheless, the checks reflect the original intention;
+		 * namely, that it be the same user using the same shell.
+		 */
+		sess = p->p_p->ps_pgrp->pg_session;
+		if (sess->s_verauthuid == p->p_ucred->cr_ruid &&
+		    sess->s_verauthppid == p->p_p->ps_pptr->ps_pid)
+			return 0;
+		return EPERM;
 	}
 	return (VOP_IOCTL(ttyvp, cmd, addr, flag, NOCRED, p));
 }

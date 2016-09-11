@@ -1,4 +1,4 @@
-/*	$OpenBSD: getcwd.c,v 1.19 2013/09/30 12:02:33 millert Exp $	*/
+/*	$OpenBSD: getcwd.c,v 1.21 2016/05/07 19:48:00 guenther Exp $	*/
 
 /*
  * Copyright (c) 2005 Marius Eriksen <marius@openbsd.org>
@@ -22,6 +22,7 @@
 #include <unistd.h>
 
 int __getcwd(char *buf, size_t len);
+PROTO_NORMAL(__getcwd);
 
 char *
 getcwd(char *buf, size_t size)
@@ -44,3 +45,4 @@ getcwd(char *buf, size_t size)
 
 	return (buf);
 }
+DEF_WEAK(getcwd);

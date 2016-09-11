@@ -1,4 +1,4 @@
-/*	$OpenBSD: pucdata.c,v 1.101 2016/01/15 18:57:27 deraadt Exp $	*/
+/*	$OpenBSD: pucdata.c,v 1.104 2016/04/24 06:47:56 jsg Exp $	*/
 /*	$NetBSD: pucdata.c,v 1.6 1999/07/03 05:55:23 cgd Exp $	*/
 
 /*
@@ -84,6 +84,20 @@ const struct puc_device_description puc_devs[] = {
 	},
 	{	/* 9 Series LP KT */
 	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_9SERIES_LP_KT, 0x0000, 0x0000 },
+	    {	0xffff, 0xffff,					0x0000, 0x0000 },
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+	    },
+	},
+	{	/* 100 Series KT */
+	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_KT, 0x0000, 0x0000 },
+	    {	0xffff, 0xffff,					0x0000, 0x0000 },
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+	    },
+	},
+	{	/* 100 Series LP KT */
+	    {	PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_LP_KT, 0x0000, 0x0000 },
 	    {	0xffff, 0xffff,					0x0000, 0x0000 },
 	    {
 		{ PUC_COM_POW2(0), 0x10, 0x0000 },
@@ -2032,6 +2046,17 @@ const struct puc_device_description puc_devs[] = {
 	    },
 	},
 
+	{   /* Exar XR17V354 Quad UART */
+	    {   PCI_VENDOR_EXAR, PCI_PRODUCT_EXAR_XR17V354,	0, 0 },
+	    {   0xffff, 0xffff,					0, 0 },
+	    {
+		{ PUC_COM_POW2(3), 0x10, 0x0000 },
+		{ PUC_COM_POW2(3), 0x10, 0x0400 },
+		{ PUC_COM_POW2(3), 0x10, 0x0800 },
+		{ PUC_COM_POW2(3), 0x10, 0x0C00 },
+	    },
+	},
+
 	{   /* Dell DRAC 3 Virtual UART */
 	    {   PCI_VENDOR_DELL, PCI_PRODUCT_DELL_DRAC_3_VUART,	0, 0 },
 	    {   0xffff, 0xffff,					0, 0 },
@@ -2154,6 +2179,14 @@ const struct puc_device_description puc_devs[] = {
 		{ PUC_COM_POW2(0), 0x10, 0x00c0 },
 		{ PUC_COM_POW2(0), 0x10, 0x00c8 },
 	    },
+	},
+	{   /* "TXIC TX382B (2S)", */
+	    {	PCI_VENDOR_TXIC, PCI_PRODUCT_TXIC_TX382B,	0, 0	},
+	    {	0xffff, 0xffff,					0, 0	},
+	    {
+		{ PUC_COM_POW2(0), 0x10, 0x0000 },
+		{ PUC_COM_POW2(0), 0x14, 0x0000 },
+	    }
 	},
 	{   /* "NetMos NM9820 UART" */
 	    {   PCI_VENDOR_NETMOS, PCI_PRODUCT_NETMOS_NM9820,	0, 0	},

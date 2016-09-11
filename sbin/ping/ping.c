@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.138 2016/01/30 05:38:26 semarie Exp $	*/
+/*	$OpenBSD: ping.c,v 1.160 2016/09/10 07:47:00 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -54,6 +54,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
@@ -70,6 +71,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <siphash.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -103,7 +105,7 @@ struct payload {
 int options;
 #define	F_FLOOD		0x0001
 #define	F_INTERVAL	0x0002
-#define	F_NUMERIC	0x0004
+#define	F_HOSTNAME	0x0004
 #define	F_PINGFILLED	0x0008
 #define	F_QUIET		0x0010
 #define	F_RROUTE	0x0020
@@ -113,6 +115,7 @@ int options;
 /*			0x0200 */
 #define	F_HDRINCL	0x0400
 #define	F_TTL		0x0800
+/*			0x1000 */
 #define	F_AUD_RECV	0x2000
 #define	F_AUD_MISS	0x4000
 
@@ -131,7 +134,7 @@ int moptions;
 int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
-struct sockaddr_in whereto;	/* who to ping */
+struct sockaddr_in dst;	/* who to ping */
 unsigned int datalen = DEFDATALEN;
 int s;				/* socket file descriptor */
 u_char outpackhdr[IP_MAXPACKET]; /* Max packet size = 65535 */
@@ -142,11 +145,11 @@ char *hostname;
 int ident;			/* process id to identify our packets */
 
 /* counters */
-unsigned long npackets;		/* max packets to transmit */
-unsigned long nreceived;	/* # of packets we got back */
-unsigned long nrepeats;		/* number of duplicates */
-unsigned long ntransmitted;	/* sequence # for outbound packets = #sent */
-unsigned long nmissedmax = 1;	/* max value of ntransmitted - nreceived - 1 */
+int64_t npackets;		/* max packets to transmit */
+int64_t nreceived;		/* # of packets we got back */
+int64_t nrepeats;		/* number of duplicates */
+int64_t ntransmitted;		/* sequence # for outbound packets = #sent */
+int64_t nmissedmax = 1;		/* max value of ntransmitted - nreceived - 1 */
 struct timeval interval = {1, 0}; /* interval between packets */
 
 /* timing */
@@ -166,38 +169,38 @@ volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
 volatile sig_atomic_t seeninfo;
 
-void fill(char *, char *);
-void summary(int);
-int in_cksum(u_short *, int);
-void onsignal(int);
-void retransmit(void);
-void onint(int);
-int pinger(void);
-char *pr_addr(in_addr_t);
-int check_icmph(struct ip *);
-void pr_icmph(struct icmp *);
-void pr_pack(char *, int, struct msghdr *);
-void pr_retip(struct ip *);
-void pr_iph(struct ip *);
+void			 fill(char *, char *);
+void			 summary(void);
+void			 onsignal(int);
+void			 retransmit(void);
+int			 pinger(void);
+const char		*pr_addr(struct sockaddr *, socklen_t);
+void			 pr_pack(u_char *, int, struct msghdr *);
+__dead void		 usage(void);
+
+int			 in_cksum(u_short *, int);
+int			 check_icmph(struct ip *);
+void			 pr_icmph(struct icmp *);
+void			 pr_retip(struct ip *);
+void			 pr_iph(struct ip *);
 #ifndef SMALL
-int map_tos(char *, int *);
+int			 map_tos(char *, int *);
 #endif	/* SMALL */
-void usage(void);
 
 int
 main(int argc, char *argv[])
 {
-	struct hostent *hp;
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
 	struct sockaddr_in  from, from4;
-	struct sockaddr_in *to;
-	int ch, i, optval = 1, packlen, preload, maxsize, df = 0, tos = 0;
-	int error;
-	u_char *datap, *packet, ttl = MAXTTL, loop = 1;
-	char *e, *target, hnamebuf[HOST_NAME_MAX+1], *source = NULL;
-	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
 	socklen_t maxsizelen;
+	int64_t preload;
+	int ch, i, optval = 1, packlen, maxsize, error;
+	int df = 0, tos = 0;
+	u_char *datap, *packet, loop = 1;
+	u_char ttl = MAXTTL;
+	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
+	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
 	const char *errstr;
 	double intval;
 	uid_t uid;
@@ -214,10 +217,10 @@ main(int argc, char *argv[])
 	preload = 0;
 	datap = &outpack[8 + sizeof(struct payload)];
 	while ((ch = getopt(argc, argv,
-	    "DEI:LRS:c:defi:l:np:qs:T:t:V:vw:")) != -1)
+	    "DEI:LRS:c:defHi:l:np:qs:T:t:V:vw:")) != -1) {
 		switch(ch) {
 		case 'c':
-			npackets = strtonum(optarg, 0, INT_MAX, &errstr);
+			npackets = strtonum(optarg, 0, INT64_MAX, &errstr);
 			if (errstr)
 				errx(1,
 				    "number of packets to transmit is %s: %s",
@@ -241,6 +244,9 @@ main(int argc, char *argv[])
 				errx(1, "%s", strerror(EPERM));
 			options |= F_FLOOD;
 			setvbuf(stdout, NULL, _IONBF, 0);
+			break;
+		case 'H':
+			options |= F_HOSTNAME;
 			break;
 		case 'I':
 		case 'S':	/* deprecated */
@@ -273,13 +279,13 @@ main(int argc, char *argv[])
 		case 'l':
 			if (getuid())
 				errx(1, "%s", strerror(EPERM));
-			preload = strtonum(optarg, 1, INT_MAX, &errstr);
+			preload = strtonum(optarg, 1, INT64_MAX, &errstr);
 			if (errstr)
 				errx(1, "preload value is %s: %s", errstr,
 				    optarg);
 			break;
 		case 'n':
-			options |= F_NUMERIC;
+			options &= ~F_HOSTNAME;
 			break;
 		case 'p':		/* fill buffer with user pattern */
 			options |= F_PINGFILLED;
@@ -340,32 +346,62 @@ main(int argc, char *argv[])
 		default:
 			usage();
 		}
+	}
+
 	argc -= optind;
 	argv += optind;
 
 	if (argc != 1)
 		usage();
 
-	target = *argv;
+	memset(&dst, 0, sizeof(dst));
 
-	memset(&whereto, 0, sizeof(whereto));
-	to = &whereto;
-	to->sin_len = sizeof(struct sockaddr_in);
-	to->sin_family = AF_INET;
-	if (inet_aton(target, &to->sin_addr) != 0)
-		hostname = target;
-	else {
-		hp = gethostbyname(target);
-		if (!hp)
-			errx(1, "unknown host: %s", target);
-		to->sin_family = hp->h_addrtype;
-		memcpy(&to->sin_addr, hp->h_addr, (size_t)hp->h_length);
-		(void)strlcpy(hnamebuf, hp->h_name, sizeof(hnamebuf));
-		hostname = hnamebuf;
+	if (inet_aton(*argv, &dst.sin_addr) != 0) {
+		hostname = *argv;
+		if ((target = strdup(inet_ntoa(dst.sin_addr))) == NULL)
+			errx(1, "malloc");
+	} else
+		target = *argv;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = PF_INET;
+	hints.ai_socktype = SOCK_RAW;
+	hints.ai_protocol = 0;
+	hints.ai_flags = AI_CANONNAME;
+	if ((error = getaddrinfo(target, NULL, &hints, &res)))
+		errx(1, "%s", gai_strerror(error));
+
+	switch (res->ai_family) {
+	case AF_INET:
+		if (res->ai_addrlen != sizeof(dst))
+		    errx(1, "size of sockaddr mismatch");
+		break;
+	case AF_INET6:
+	default:
+		errx(1, "unsupported AF: %d", res->ai_family);
+		break;
 	}
 
+	memcpy(&dst, res->ai_addr, res->ai_addrlen);
+
+	if (!hostname) {
+		hostname = res->ai_canonname ? strdup(res->ai_canonname) :
+		    target;
+		if (!hostname)
+			errx(1, "malloc");
+	}
+
+	if (res->ai_next) {
+		if (getnameinfo(res->ai_addr, res->ai_addrlen, hbuf,
+		    sizeof(hbuf), NULL, 0, NI_NUMERICHOST) != 0)
+			strlcpy(hbuf, "?", sizeof(hbuf));
+		warnx("Warning: %s has multiple "
+		    "addresses; using %s", hostname, hbuf);
+	}
+	freeaddrinfo(res);
+
 	if (source) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			moptions |= MULTICAST_IF;
 		else {
 			memset(&from4, 0, sizeof(from4));
@@ -393,9 +429,6 @@ main(int argc, char *argv[])
 		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
 		    sizeof(optval));
 
-	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
-	arc4random_buf(&mac_key, sizeof(mac_key));
-
 	if (options & F_FLOOD && options & F_INTERVAL)
 		errx(1, "-f and -i options are incompatible");
 
@@ -414,7 +447,7 @@ main(int argc, char *argv[])
 	ident = getpid() & 0xFFFF;
 
 	if (options & F_TTL) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			moptions |= MULTICAST_TTL;
 		else
 			options |= F_HDRINCL;
@@ -439,12 +472,12 @@ main(int argc, char *argv[])
 			ip->ip_src = from4.sin_addr;
 		else
 			ip->ip_src.s_addr = INADDR_ANY;
-		ip->ip_dst = to->sin_addr;
+		ip->ip_dst = dst.sin_addr;
 	}
 
 	/* record route option */
 	if (options & F_RROUTE) {
-		if (IN_MULTICAST(ntohl(to->sin_addr.s_addr)))
+		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
 			errx(1, "record route not valid to multicast destinations");
 		memset(rspace, 0, sizeof(rspace));
 		rspace[IPOPT_OPTVAL] = IPOPT_RR;
@@ -496,22 +529,21 @@ main(int argc, char *argv[])
 		warnx("Could only allocate a receive buffer of %d bytes (default %d)",
 		    bufspace, IP_MAXPACKET);
 
-	if (to->sin_family == AF_INET)
-		(void)printf("PING %s (%s): %d data bytes\n", hostname,
-		    inet_ntoa(*(struct in_addr *)&to->sin_addr.s_addr),
-		    datalen);
-	else
-		(void)printf("PING %s: %d data bytes\n", hostname, datalen);
-
-	if (options & F_NUMERIC) {
-		if (pledge("stdio inet", NULL) == -1)
+	if (options & F_HOSTNAME) {
+		if (pledge("stdio inet dns", NULL) == -1)
 			err(1, "pledge");
 	} else {
-		if (pledge("stdio inet dns", NULL) == -1)
+		if (pledge("stdio inet", NULL) == -1)
 			err(1, "pledge");
 	}
 
-	while (preload--)		/* fire off them quickies */
+	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
+	arc4random_buf(&mac_key, sizeof(mac_key));
+
+	printf("PING %s (%s): %d data bytes\n", hostname,
+	    pr_addr((struct sockaddr *)&dst, sizeof(dst)), datalen);
+
+	while (preload--)		/* Fire off them quickies. */
 		pinger();
 
 	(void)signal(SIGINT, onsignal);
@@ -541,6 +573,8 @@ main(int argc, char *argv[])
 		int		timeout;
 
 		/* signal handling */
+		if (seenint)
+			break;
 		if (seenalrm) {
 			retransmit();
 			seenalrm = 0;
@@ -552,13 +586,8 @@ main(int argc, char *argv[])
 			}
 			continue;
 		}
-		if (seenint) {
-			onint(SIGINT);
-			seenint = 0;
-			continue;
-		}
 		if (seeninfo) {
-			summary(0);
+			summary();
 			seeninfo = 0;
 			continue;
 		}
@@ -598,10 +627,9 @@ main(int argc, char *argv[])
 		if (npackets && nreceived >= npackets)
 			break;
 	}
-	summary(0);
+	summary();
 	exit(nreceived == 0);
 }
-
 
 void
 onsignal(int sig)
@@ -627,6 +655,12 @@ void
 retransmit(void)
 {
 	struct itimerval itimer;
+	static int last_time = 0;
+
+	if (last_time) {
+		seenint = 1;	/* break out of ping event loop */
+		return;
+	}
 
 	if (pinger() == 0)
 		return;
@@ -645,9 +679,10 @@ retransmit(void)
 	itimer.it_interval.tv_sec = 0;
 	itimer.it_interval.tv_usec = 0;
 	itimer.it_value.tv_usec = 0;
-
-	(void)signal(SIGALRM, onint);
 	(void)setitimer(ITIMER_REAL, &itimer, NULL);
+
+	/* When the alarm goes off we are done. */
+	last_time = 1;
 }
 
 /*
@@ -694,8 +729,8 @@ pinger(void)
 		SipHash24_Update(&ctx, tv64, sizeof(*tv64));
 		SipHash24_Update(&ctx, &ident, sizeof(ident));
 		SipHash24_Update(&ctx, &icp->icmp_seq, sizeof(icp->icmp_seq));
-		SipHash24_Update(&ctx, &whereto.sin_addr,
-		    sizeof(whereto.sin_addr));
+		SipHash24_Update(&ctx, &dst.sin_addr,
+		    sizeof(dst.sin_addr));
 		SipHash24_Final(&payload.mac, &ctx);
 
 		memcpy(&outpack[8], &payload, sizeof(payload));
@@ -715,8 +750,8 @@ pinger(void)
 		ip->ip_sum = in_cksum((u_short *)outpackhdr, cc);
 	}
 
-	i = sendto(s, packet, cc, 0, (struct sockaddr *)&whereto,
-	    sizeof(whereto));
+	i = sendto(s, packet, cc, 0, (struct sockaddr *)&dst,
+	    sizeof(dst));
 
 	if (i < 0 || i != cc)  {
 		if (i < 0)
@@ -739,9 +774,9 @@ pinger(void)
  * program to be run without having intermingled output (or statistics!).
  */
 void
-pr_pack(char *buf, int cc, struct msghdr *mhdr)
+pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 {
-	struct sockaddr_in *from;
+	struct sockaddr_in *from, s_in;
 	socklen_t fromlen;
 	struct icmp *icp;
 	in_addr_t l;
@@ -755,6 +790,9 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 	double triptime = 0;
 	int hlen, hlen2, dupflag;
 	struct payload payload;
+
+	s_in.sin_len = sizeof(s_in);
+	s_in.sin_family = AF_INET;
 
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1)
 		err(1, "clock_gettime(CLOCK_MONOTONIC)");
@@ -775,7 +813,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 	if (cc < hlen + ICMP_MINLEN) {
 		if (options & F_VERBOSE)
 			warnx("packet too short (%d bytes) from %s", cc,
-			    inet_ntoa(*(struct in_addr *)&from->sin_addr.s_addr));
+			    pr_addr((struct sockaddr*)from, fromlen));
 		return;
 	}
 
@@ -799,8 +837,8 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 			SipHash24_Update(&ctx, &ident, sizeof(ident));
 			SipHash24_Update(&ctx, &icp->icmp_seq,
 			    sizeof(icp->icmp_seq));
-			SipHash24_Update(&ctx, &whereto.sin_addr,
-			    sizeof(whereto.sin_addr));
+			SipHash24_Update(&ctx, &dst.sin_addr,
+			    sizeof(dst.sin_addr));
 			SipHash24_Final(mac, &ctx);
 
 			if (timingsafe_memcmp(mac, &payload.mac,
@@ -808,7 +846,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 				(void)printf("signature mismatch!\n");
 				return;
 			}
-			timinginfo++;
+			timinginfo=1;
 
 			tp.tv_sec = betoh64(tv64->tv64_sec) -
 			    tv64_offset.tv64_sec;
@@ -842,7 +880,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 			(void)write(STDOUT_FILENO, &BSPACE, 1);
 		else {
 			(void)printf("%d bytes from %s: icmp_seq=%u", cc,
-			    inet_ntoa(*(struct in_addr *)&from->sin_addr.s_addr),
+			    pr_addr((struct sockaddr*)from, fromlen),
 			    ntohs(icp->icmp_seq));
 			(void)printf(" ttl=%d", ip->ip_ttl);
 			if (cc >= 8 + sizeof(struct payload))
@@ -881,12 +919,12 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 		if (cc >= hlen2 + 8 && check_icmph(ip2) != 1)
 			return;
 		(void)printf("%d bytes from %s: ", cc,
-		    pr_addr(from->sin_addr.s_addr));
+		    pr_addr((struct sockaddr*)from, fromlen));
 		pr_icmph(icp);
 	}
 
 	/* Display any IP options */
-	cp = (u_char *)buf + sizeof(struct ip);
+	cp = buf + sizeof(struct ip);
 
 	for (; hlen > (int)sizeof(struct ip); --hlen, ++cp)
 		switch (*cp) {
@@ -907,9 +945,12 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 					l = (l<<8) + *++cp;
 					if (l == 0)
 						(void)printf("\t0.0.0.0");
-					else
+					else {
+						s_in.sin_addr.s_addr = ntohl(l);
 						(void)printf("\t%s",
-						    pr_addr(ntohl(l)));
+						    pr_addr((struct sockaddr*)
+						    &s_in, sizeof(s_in)));
+					}
 					hlen -= 4;
 					j -= 4;
 					i += 4;
@@ -933,7 +974,7 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 			if (i <= 0)
 				continue;
 			if (i == old_rrlen &&
-			    cp == (u_char *)buf + sizeof(struct ip) + 2 &&
+			    cp == buf + sizeof(struct ip) + 2 &&
 			    !memcmp(cp, old_rr, i) &&
 			    !(options & F_FLOOD)) {
 				(void)printf("\t(same route)");
@@ -957,8 +998,12 @@ pr_pack(char *buf, int cc, struct msghdr *mhdr)
 				l = (l<<8) + *++cp;
 				if (l == 0)
 					(void)printf("\t0.0.0.0");
-				else
-					(void)printf("\t%s", pr_addr(ntohl(l)));
+				else {
+					s_in.sin_addr.s_addr = ntohl(l);
+					(void)printf("\t%s",
+					    pr_addr((struct sockaddr*)&s_in,
+					    sizeof(s_in)));
+				}
 				hlen -= 4;
 				i -= 4;
 				j += 4;
@@ -1023,70 +1068,32 @@ in_cksum(u_short *addr, int len)
 	return(answer);
 }
 
-/*
- * onint --
- *	SIGINT handler.
- */
 void
-onint(int signo)
+summary(void)
 {
-	summary(signo);
+	printf("\n--- %s ping statistics ---\n", hostname);
+	printf("%lld packets transmitted, ", ntransmitted);
+	printf("%lld packets received, ", nreceived);
 
-	if (signo)
-		_exit(nreceived ? 0 : 1);
-	else
-		exit(nreceived ? 0 : 1);
-}
-
-void
-summary(int insig)
-{
-	char buf[8192], buft[8192];
-
-	buf[0] = '\0';
-
-	if (!insig) {
-		(void)putchar('\r');
-		(void)fflush(stdout);
-	} else
-		strlcat(buf, "\r", sizeof buf);
-
-
-	snprintf(buft, sizeof buft, "--- %s ping statistics ---\n",
-	    hostname);
-	strlcat(buf, buft, sizeof buf);
-
-	snprintf(buft, sizeof buft, "%ld packets transmitted, ", ntransmitted);
-	strlcat(buf, buft, sizeof buf);
-	snprintf(buft, sizeof buft, "%ld packets received, ", nreceived);
-	strlcat(buf, buft, sizeof buf);
-
-	if (nrepeats) {
-		snprintf(buft, sizeof buft, "%ld duplicates, ", nrepeats);
-		strlcat(buf, buft, sizeof buf);
-	}
+	if (nrepeats)
+		printf("%lld duplicates, ", nrepeats);
 	if (ntransmitted) {
 		if (nreceived > ntransmitted)
-			snprintf(buft, sizeof buft,
-			    "-- somebody's duplicating packets!");
+			printf("-- somebody's duplicating packets!");
 		else
-			snprintf(buft, sizeof buft, "%.1f%% packet loss",
+			printf("%.1f%% packet loss",
 			    ((((double)ntransmitted - nreceived) * 100) /
 			    ntransmitted));
-		strlcat(buf, buft, sizeof buf);
 	}
-	strlcat(buf, "\n", sizeof buf);
+	printf("\n");
 	if (timinginfo) {
 		/* Only display average to microseconds */
 		double num = nreceived + nrepeats;
 		double avg = tsum / num;
 		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
-		snprintf(buft, sizeof(buft),
-		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
 		    tmin, avg, tmax, dev);
-		strlcat(buf, buft, sizeof(buf));
 	}
-	write(STDOUT_FILENO, buf, strlen(buf));		/* XXX atomicio? */
 }
 
 /*
@@ -1290,24 +1297,21 @@ pr_iph(struct ip *ip)
 
 /*
  * pr_addr --
- *	Return an ascii host address as a dotted quad and optionally with
- * a hostname.
+ *	Return address in numeric form or a host name
  */
-char *
-pr_addr(in_addr_t a)
+const char *
+pr_addr(struct sockaddr *addr, socklen_t addrlen)
 {
-	struct hostent *hp;
-	struct in_addr in;
-	static char buf[16+3+HOST_NAME_MAX+1];
+	static char buf[NI_MAXHOST];
+	int flag = 0;
 
-	in.s_addr = a;
-	if ((options & F_NUMERIC) ||
-	    !(hp = gethostbyaddr((char *)&in.s_addr, sizeof(in.s_addr), AF_INET)))
-		(void)snprintf(buf, sizeof buf, "%s", inet_ntoa(in));
+	if ((options & F_HOSTNAME) == 0)
+		flag |= NI_NUMERICHOST;
+
+	if (getnameinfo(addr, addrlen, buf, sizeof(buf), NULL, 0, flag) == 0)
+		return (buf);
 	else
-		(void)snprintf(buf, sizeof buf, "%s (%s)", hp->h_name,
-		    inet_ntoa(in));
-	return(buf);
+		return "?";
 }
 
 /*
@@ -1443,11 +1447,11 @@ map_tos(char *key, int *val)
 }
 #endif	/* SMALL */
 
-void
+__dead void
 usage(void)
 {
 	(void)fprintf(stderr,
-	    "usage: ping [-DdEefLnqRv] [-c count] [-I ifaddr] [-i wait]\n"
+	    "usage: ping [-DdEefHLnqRv] [-c count] [-I ifaddr] [-i wait]\n"
 	    "\t[-l preload] [-p pattern] [-s packetsize]"
 #ifndef	SMALL
 	    " [-T toskeyword]"

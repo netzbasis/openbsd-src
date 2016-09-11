@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.9 2014/03/16 20:31:46 guenther Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.11 2016/04/27 11:10:48 mpi Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.5 2001/11/22 18:00:00 thorpej Exp $	*/
 
 /*
@@ -49,7 +49,6 @@ typedef	long		db_expr_t;	/* expression - signed */
 typedef trapframe_t db_regs_t;
 
 extern db_regs_t		ddb_regs;	/* register state */
-#define	DDB_REGS	(&ddb_regs)
 
 #define	PC_REGS(regs)	((db_addr_t)(regs)->tf_pc)
 #define	SET_PC_REGS(regs, value)	(regs)->tf_pc = (register_t)(value)
@@ -95,7 +94,7 @@ extern db_regs_t		ddb_regs;	/* register state */
 #define SOFTWARE_SSTEP
 
 db_addr_t	db_branch_taken(u_int inst, db_addr_t pc, db_regs_t *regs);
-int kdb_trap (int, db_regs_t *);
+int db_ktrap (int, db_regs_t *);
 void db_machine_init (void);
 
 #define branch_taken(ins, pc, fun, regs) \

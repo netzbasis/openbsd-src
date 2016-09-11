@@ -1,4 +1,4 @@
-/*	$OpenBSD: mda.c,v 1.117 2016/02/02 05:45:27 sunil Exp $	*/
+/*	$OpenBSD: mda.c,v 1.120 2016/09/01 15:12:45 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -431,7 +431,7 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			    "for session %016"PRIx64 " evpid %016"PRIx64,
 			    imsg->fd, s->id, s->evp->id);
 
-			io_set_blocking(imsg->fd, 0);
+			io_set_nonblocking(imsg->fd);
 			io_init(&s->io, imsg->fd, s, mda_io, &s->iobuf);
 			io_set_write(&s->io);
 			return;
@@ -532,11 +532,6 @@ mda_io(struct io *io, int evt)
 				free(ln);
 				return;
 			}
-#if 0
-			log_debug("debug: mda: %zu bytes queued "
-			    "for session %016"PRIx64 " evpid %016"PRIx64,
-			    iobuf_queued(&s->iobuf), s->id, s->evp->id);
-#endif
 		}
 
 		free(ln);
@@ -786,9 +781,9 @@ mda_log(const struct mda_envelope *evp, const char *prefix, const char *status)
 	else
 		method = "???";
 
-	log_info("delivery: %s for %016" PRIx64 ": from=<%s>, to=<%s>, "
-	    "%suser=%s, method=%s, delay=%s, stat=%s",
-	    prefix,
+	log_info("%016"PRIx64" mda event=delivery evpid=%016" PRIx64 " from=<%s> to=<%s> "
+	    "%suser=%s method=%s delay=%s result=%s stat=%s",
+	    (uint64_t)0,
 	    evp->id,
 	    evp->sender ? evp->sender : "",
 	    evp->dest,
@@ -796,6 +791,7 @@ mda_log(const struct mda_envelope *evp, const char *prefix, const char *status)
 	    evp->user,
 	    method,
 	    duration_to_text(time(NULL) - evp->creation),
+	    prefix,
 	    status);
 }
 

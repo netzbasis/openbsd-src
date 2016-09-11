@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.105 2016/02/06 19:30:52 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.109 2016/09/02 15:44:26 mpi Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -71,10 +71,10 @@
 
 struct dhcp_timeout timeout;
 
-void packethandler(void);
+void packethandler(struct interface_info *ifi);
 
 void
-get_hw_address(void)
+get_hw_address(struct interface_info *ifi)
 {
 	struct ifaddrs *ifap, *ifa;
 	struct sockaddr_dl *sdl;
@@ -90,7 +90,7 @@ get_hw_address(void)
 		    (!(ifa->ifa_flags & IFF_UP)))
 			continue;
 
-		if (strcmp(ifi->name, ifa->ifa_name))
+		if (strcmp(ifi->name, ifa->ifa_name) != 0)
 			continue;
 		found = 1;
 
@@ -117,20 +117,23 @@ get_hw_address(void)
  * Loop waiting for packets, timeouts or routing messages.
  */
 void
-dispatch(void)
+dispatch(struct interface_info *ifi)
 {
+	struct client_state *client = ifi->client;
 	int count, to_msec;
 	struct pollfd fds[3];
 	time_t cur_time, howlong;
-	void (*func)(void);
+	void (*func)(void *);
+	void *arg;
 
 	while (quit == 0) {
 		if (timeout.func) {
 			time(&cur_time);
 			if (timeout.when <= cur_time) {
 				func = timeout.func;
+				arg = timeout.arg;
 				cancel_timeout();
-				(*(func))();
+				(*(func))(arg);
 				continue;
 			}
 			/*
@@ -173,9 +176,9 @@ dispatch(void)
 		}
 
 		if ((fds[0].revents & (POLLIN | POLLHUP)))
-			packethandler();
+			packethandler(ifi);
 		if ((fds[1].revents & (POLLIN | POLLHUP)))
-			routehandler();
+			routehandler(ifi);
 		if (fds[2].revents & POLLOUT)
 			flush_unpriv_ibuf("dispatch");
 		if ((fds[2].revents & (POLLIN | POLLHUP))) {
@@ -196,14 +199,14 @@ dispatch(void)
 }
 
 void
-packethandler(void)
+packethandler(struct interface_info *ifi)
 {
 	struct sockaddr_in from;
 	struct ether_addr hfrom;
 	struct in_addr ifrom;
 	ssize_t result;
 
-	if ((result = receive_packet(&from, &hfrom)) == -1) {
+	if ((result = receive_packet(ifi, &from, &hfrom)) == -1) {
 		warning("%s receive_packet failed: %s", ifi->name,
 		    strerror(errno));
 		ifi->errors++;
@@ -220,7 +223,7 @@ packethandler(void)
 
 	ifrom.s_addr = from.sin_addr.s_addr;
 
-	do_packet(from.sin_port, ifrom, &hfrom);
+	do_packet(ifi, from.sin_port, ifrom, &hfrom);
 }
 
 void
@@ -262,7 +265,7 @@ interface_link_forceup(char *ifname)
 }
 
 int
-interface_status(char *ifname)
+interface_status(struct interface_info *ifi)
 {
 	struct ifreq ifr;
 	struct ifmediareq ifmr;
@@ -273,9 +276,9 @@ interface_status(char *ifname)
 
 	/* Get interface flags. */
 	memset(&ifr, 0, sizeof(ifr));
-	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
+	strlcpy(ifr.ifr_name, ifi->name, sizeof(ifr.ifr_name));
 	if (ioctl(sock, SIOCGIFFLAGS, &ifr) == -1) {
-		error("ioctl(SIOCGIFFLAGS) on %s: %s", ifname,
+		error("ioctl(SIOCGIFFLAGS) on %s: %s", ifi->name,
 		    strerror(errno));
 	}
 
@@ -286,7 +289,7 @@ interface_status(char *ifname)
 	if (ifi->flags & IFI_NOMEDIA)
 		goto active;
 	memset(&ifmr, 0, sizeof(ifmr));
-	strlcpy(ifmr.ifm_name, ifname, sizeof(ifmr.ifm_name));
+	strlcpy(ifmr.ifm_name, ifi->name, sizeof(ifmr.ifm_name));
 	if (ioctl(sock, SIOCGIFMEDIA, (caddr_t)&ifmr) == -1) {
 		/*
 		 * EINVAL or ENOTTY simply means that the interface does not
@@ -319,17 +322,19 @@ inactive:
 }
 
 void
-set_timeout(time_t when, void (*where)(void))
+set_timeout(time_t when, void (*where)(void *), void *arg)
 {
 	timeout.when = when;
 	timeout.func = where;
+	timeout.arg = arg;
 }
 
 void
-set_timeout_interval(time_t secs, void (*where)(void))
+set_timeout_interval(time_t secs, void (*where)(void *), void *arg)
 {
 	timeout.when = time(NULL) + secs;
 	timeout.func = where;
+	timeout.arg = arg;
 }
 
 void
@@ -337,6 +342,7 @@ cancel_timeout(void)
 {
 	timeout.when = 0;
 	timeout.func = NULL;
+	timeout.arg = NULL;
 }
 
 int

@@ -1,4 +1,4 @@
-.\" $OpenBSD: smtpctl.8,v 1.54 2015/11/05 09:14:31 sunil Exp $
+.\" $OpenBSD: smtpctl.8,v 1.58 2016/09/04 09:33:49 eric Exp $
 .\"
 .\" Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
 .\" Copyright (c) 2012 Gilles Chehade <gilles@poolp.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: November 5 2015 $
+.Dd $Mdocdate: September 4 2016 $
 .Dt SMTPCTL 8
 .Os
 .Sh NAME
@@ -237,7 +237,7 @@ The route is currently disabled.
 The route is new.
 No SMTP session has been established yet.
 .It Q
-The route as a timeout registered to lower its penalty level and possibly
+The route has a timeout registered to lower its penalty level and possibly
 reactivate or discard it.
 .El
 .It Cm show stats
@@ -245,8 +245,6 @@ Displays runtime statistics concerning
 .Xr smtpd 8 .
 .It Cm show status
 Shows if MTA, MDA and SMTP systems are currently running or paused.
-.It Cm stop
-Stop the server.
 .It Cm trace Ar subsystem
 Enables real-time tracing of
 .Ar subsystem .
@@ -260,9 +258,9 @@ io
 .It
 smtp (incoming sessions)
 .It
-filter
+filters
 .It
-transfer (outgoing sessions)
+mta (outgoing sessions)
 .It
 bounce
 .It

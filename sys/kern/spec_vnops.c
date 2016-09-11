@@ -1,4 +1,4 @@
-/*	$OpenBSD: spec_vnops.c,v 1.85 2016/01/19 19:13:38 stefan Exp $	*/
+/*	$OpenBSD: spec_vnops.c,v 1.89 2016/04/05 19:26:15 natano Exp $	*/
 /*	$NetBSD: spec_vnops.c,v 1.29 1996/04/22 01:42:38 christos Exp $	*/
 
 /*
@@ -154,7 +154,7 @@ spec_open(void *v)
 			vp->v_flag |= VISTTY;
 		if (cdevsw[maj].d_flags & D_CLONE)
 			return (spec_open_clone(ap));
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		error = (*cdevsw[maj].d_open)(dev, ap->a_mode, S_IFCHR, p);
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
 		return (error);
@@ -219,7 +219,7 @@ spec_read(void *v)
 	switch (vp->v_type) {
 
 	case VCHR:
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		error = (*cdevsw[major(vp->v_rdev)].d_read)
 			(vp->v_rdev, uio, ap->a_ioflag);
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
@@ -273,7 +273,7 @@ spec_inactive(void *v)
 {
 	struct vop_inactive_args *ap = v;
 
-	VOP_UNLOCK(ap->a_vp, 0, ap->a_p);
+	VOP_UNLOCK(ap->a_vp, ap->a_p);
 	return (0);
 }
 
@@ -306,7 +306,7 @@ spec_write(void *v)
 	switch (vp->v_type) {
 
 	case VCHR:
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		error = (*cdevsw[major(vp->v_rdev)].d_write)
 			(vp->v_rdev, uio, ap->a_ioflag);
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
@@ -525,7 +525,7 @@ spec_close(void *v)
 			vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
 		error = vinvalbuf(vp, V_SAVE, ap->a_cred, p, 0, 0);
 		if (!(vp->v_flag & VXLOCK))
-			VOP_UNLOCK(vp, 0, p);
+			VOP_UNLOCK(vp, p);
 		if (error)
 			return (error);
 		/*
@@ -550,7 +550,7 @@ spec_close(void *v)
 	/* release lock if held and this isn't coming from vclean() */
 	relock = VOP_ISLOCKED(vp) && !(vp->v_flag & VXLOCK);
 	if (relock)
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 	error = (*devclose)(dev, ap->a_fflag, mode, p);
 	if (relock)
 		vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
@@ -582,7 +582,7 @@ spec_setattr(void *v)
 
 	vn_lock(vp->v_specparent, LK_EXCLUSIVE|LK_RETRY, p);
 	error = VOP_SETATTR(vp->v_specparent, ap->a_vap, ap->a_cred, p);
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	return (error);
 }
@@ -707,13 +707,13 @@ spec_open_clone(struct vop_open_args *ap)
 	if (minor(vp->v_rdev) >= (1 << CLONE_SHIFT))
 		return (ENXIO);
 
-	for (i = 1; i < sizeof(vp->v_specbitmap) * NBBY; i++)
+	for (i = 1; i < CLONE_MAPSZ * NBBY; i++)
 		if (isclr(vp->v_specbitmap, i)) {
 			setbit(vp->v_specbitmap, i);
 			break;
 		}
 
-	if (i == sizeof(vp->v_specbitmap) * NBBY)
+	if (i == CLONE_MAPSZ * NBBY)
 		return (EBUSY); /* too many open instances */
 
 	error = cdevvp(makedev(major(vp->v_rdev),
@@ -723,7 +723,7 @@ spec_open_clone(struct vop_open_args *ap)
 		return (error); /* out of vnodes */
 	}
 
-	VOP_UNLOCK(vp, 0, ap->a_p);
+	VOP_UNLOCK(vp, ap->a_p);
 
 	error = cdevsw[major(vp->v_rdev)].d_open(cvp->v_rdev, ap->a_mode,
 	    S_IFCHR, ap->a_p);

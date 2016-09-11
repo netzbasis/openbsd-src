@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_screen.c,v 1.25 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: cl_screen.c,v 1.27 2016/05/28 18:30:35 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -165,7 +165,8 @@ cl_quit(GS *gp)
 	 * implementations get it wrong.  It may discard type-ahead characters
 	 * from the tty queue.
 	 */
-	(void)tcsetattr(STDIN_FILENO, TCSADRAIN | TCSASOFT, &clp->orig);
+	if (F_ISSET(clp, CL_STDIN_TTY))
+		(void)tcsetattr(STDIN_FILENO, TCSADRAIN | TCSASOFT, &clp->orig);
 
 	F_CLR(clp, CL_SCR_EX_INIT | CL_SCR_VI_INIT);
 	return (rval);
@@ -313,8 +314,7 @@ cl_vi_init(SCR *sp)
 	 * it regardless.  It doesn't make much sense to suspend vi at read,
 	 * so I don't think anyone will care.  Alternatively, we could look
 	 * it up in the table of legal command characters and turn it off if
-	 * it matches one.  VDSUSP wasn't in POSIX 1003.1-1990, so we test for
-	 * it.
+	 * it matches one.
 	 *
 	 * XXX
 	 * We don't check to see if the user had signals enabled originally.

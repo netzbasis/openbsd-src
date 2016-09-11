@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslogd.c,v 1.203 2015/12/29 17:51:56 bluhm Exp $	*/
+/*	$OpenBSD: syslogd.c,v 1.212 2016/08/29 20:31:56 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1983, 1988, 1993, 1994
@@ -225,6 +225,8 @@ struct	tls *server_ctx;
 struct	tls_config *client_config, *server_config;
 const char *CAfile = "/etc/ssl/cert.pem"; /* file containing CA certificates */
 int	NoVerify = 0;		/* do not verify TLS server x509 certificate */
+char	*ClientCertfile = NULL;
+char	*ClientKeyfile = NULL;
 int	tcpbuf_dropped = 0;	/* count messages dropped from TCP or TLS */
 
 #define CTL_READING_CMD		1
@@ -325,9 +327,11 @@ void	logevent(int, const char *);
 void	logerror(const char *);
 void	logerrorx(const char *);
 void	logerrorctx(const char *, struct tls *);
+void	logerrortlsconf(const char *, struct tls_config *);
 void	logerror_reason(const char *, const char *);
 void	logmsg(int, char *, char *, int);
 struct filed *find_dup(struct filed *);
+size_t	parsepriority(const char *, int *);
 void	printline(char *, char *);
 void	printsys(char *);
 void	usage(void);
@@ -352,7 +356,8 @@ main(int argc, char *argv[])
 	int		 ch, i;
 	int		 lockpipe[2] = { -1, -1}, pair[2], nullfd, fd;
 
-	while ((ch = getopt(argc, argv, "46a:C:dFf:hm:np:S:s:T:U:uV")) != -1)
+	while ((ch = getopt(argc, argv, "46a:C:c:dFf:hk:m:np:S:s:T:U:uV"))
+	    != -1)
 		switch (ch) {
 		case '4':		/* disable IPv6 */
 			Family = PF_INET;
@@ -368,6 +373,9 @@ main(int argc, char *argv[])
 		case 'C':		/* file containing CA certificates */
 			CAfile = optarg;
 			break;
+		case 'c':		/* file containing client certificate */
+			ClientCertfile = optarg;
+			break;
 		case 'd':		/* debug */
 			Debug++;
 			break;
@@ -379,6 +387,9 @@ main(int argc, char *argv[])
 			break;
 		case 'h':		/* RFC 3164 hostnames */
 			IncludeHostname = 1;
+			break;
+		case 'k':		/* file containing client key */
+			ClientKeyfile = optarg;
 			break;
 		case 'm':		/* mark interval */
 			MarkInterval = strtonum(optarg, 0, 365*24*60, &errstr);
@@ -435,10 +446,12 @@ main(int argc, char *argv[])
 		logerror("Couldn't open /dev/null");
 		die(0);
 	}
-	for (fd = nullfd + 1; fd <= 2; fd++) {
-		if (fcntl(fd, F_GETFL, 0) == -1)
-			if (dup2(nullfd, fd) == -1)
+	for (fd = nullfd + 1; fd <= STDERR_FILENO; fd++) {
+		if (fcntl(fd, F_GETFL) == -1 && errno == EBADF)
+			if (dup2(nullfd, fd) == -1) {
 				logerror("dup2");
+				die(0);
+			}
 	}
 
 	consfile.f_type = F_CONSOLE;
@@ -550,115 +563,74 @@ main(int argc, char *argv[])
 			tls_config_insecure_noverifycert(client_config);
 			tls_config_insecure_noverifyname(client_config);
 		} else {
-			struct stat sb;
-			int fail = 1;
-
-			fd = -1;
-			p = NULL;
-			if ((fd = open(CAfile, O_RDONLY)) == -1) {
-				logerror("open CAfile");
-			} else if (fstat(fd, &sb) == -1) {
-				logerror("fstat CAfile");
-			} else if (sb.st_size > 50*1024*1024) {
-				logerrorx("CAfile larger than 50MB");
-			} else if ((p = calloc(sb.st_size, 1)) == NULL) {
-				logerror("calloc CAfile");
-			} else if (read(fd, p, sb.st_size) != sb.st_size) {
-				logerror("read CAfile");
-			} else if (tls_config_set_ca_mem(client_config, p,
-			    sb.st_size) == -1) {
-				logerrorx("tls_config_set_ca_mem");
-			} else {
-				fail = 0;
-				logdebug("CAfile %s, size %lld\n",
-				    CAfile, sb.st_size);
-			}
-			/* avoid reading default certs in chroot */
-			if (fail)
+			if (tls_config_set_ca_file(client_config,
+			    CAfile) == -1) {
+				logerrortlsconf("Load client TLS CA failed",
+				    client_config);
+				/* avoid reading default certs in chroot */
 				tls_config_set_ca_mem(client_config, "", 0);
-			free(p);
-			close(fd);
+			} else
+				logdebug("CAfile %s\n", CAfile);
+		}
+		if (ClientCertfile && ClientKeyfile) {
+			if (tls_config_set_cert_file(client_config,
+			    ClientCertfile) == -1)
+				logerrortlsconf("Load client TLS cert failed",
+				    client_config);
+			else
+				logdebug("ClientCertfile %s\n", ClientCertfile);
+
+			if (tls_config_set_key_file(client_config,
+			    ClientKeyfile) == -1)
+				logerrortlsconf("Load client TLS key failed",
+				    client_config);
+			else
+				logdebug("ClientKeyfile %s\n", ClientKeyfile);
+		} else if (ClientCertfile || ClientKeyfile) {
+			logerrorx("options -c and -k must be used together");
 		}
 		tls_config_set_protocols(client_config, TLS_PROTOCOLS_ALL);
-		if (tls_config_set_ciphers(client_config, "compat") != 0)
-			logerror("tls set client ciphers");
+		if (tls_config_set_ciphers(client_config, "all") != 0)
+			logerrortlsconf("Set client TLS ciphers failed",
+			    client_config);
 	}
 	if (server_config && server_ctx) {
-		struct stat sb;
-		char *path;
+		const char *names[2];
 
-		fd = -1;
-		p = NULL;
-		path = NULL;
-		if (asprintf(&path, "/etc/ssl/private/%s.key", tls_hostport)
-		    == -1 || (fd = open(path, O_RDONLY)) == -1) {
-			free(path);
-			path = NULL;
-			if (asprintf(&path, "/etc/ssl/private/%s.key", tls_host)
-			    == -1 || (fd = open(path, O_RDONLY)) == -1) {
-				free(path);
-				path = NULL;
-			}
-		}
-		if (fd == -1) {
-			logerror("open keyfile");
-		} else if (fstat(fd, &sb) == -1) {
-			logerror("fstat keyfile");
-		} else if (sb.st_size > 50*1024) {
-			logerrorx("keyfile larger than 50KB");
-		} else if ((p = calloc(sb.st_size, 1)) == NULL) {
-			logerror("calloc keyfile");
-		} else if (read(fd, p, sb.st_size) != sb.st_size) {
-			logerror("read keyfile");
-		} else if (tls_config_set_key_mem(server_config, p,
-		    sb.st_size) == -1) {
-			logerrorx("tls_config_set_key_mem");
-		} else {
-			logdebug("Keyfile %s, size %lld\n", path, sb.st_size);
-		}
-		free(p);
-		close(fd);
-		free(path);
+		names[0] = tls_hostport;
+		names[1] = tls_host;
 
-		fd = -1;
-		p = NULL;
-		path = NULL;
-		if (asprintf(&path, "/etc/ssl/%s.crt", tls_hostport)
-		    == -1 || (fd = open(path, O_RDONLY)) == -1) {
-			free(path);
-			path = NULL;
-			if (asprintf(&path, "/etc/ssl/%s.crt", tls_host)
-			    == -1 || (fd = open(path, O_RDONLY)) == -1) {
-				free(path);
-				path = NULL;
+		for (i = 0; i < 2; i++) {
+			if (asprintf(&p, "/etc/ssl/private/%s.key", names[i])
+			    == -1)
+				continue;
+			if (tls_config_set_key_file(server_config, p) == -1) {
+				logerrortlsconf("Load server TLS key failed",
+				    server_config);
+				free(p);
+				continue;
 			}
+			logdebug("Keyfile %s\n", p);
+			free(p);
+			if (asprintf(&p, "/etc/ssl/%s.crt", names[i]) == -1)
+				continue;
+			if (tls_config_set_cert_file(server_config, p) == -1) {
+				logerrortlsconf("Load server TLS cert failed",
+				    server_config);
+				free(p);
+				continue;
+			}
+			logdebug("Certfile %s\n", p);
+			free(p);
+			break;
 		}
-		if (fd == -1) {
-			logerror("open certfile");
-		} else if (fstat(fd, &sb) == -1) {
-			logerror("fstat certfile");
-		} else if (sb.st_size > 50*1024) {
-			logerrorx("certfile larger than 50KB");
-		} else if ((p = calloc(sb.st_size, 1)) == NULL) {
-			logerror("calloc certfile");
-		} else if (read(fd, p, sb.st_size) != sb.st_size) {
-			logerror("read certfile");
-		} else if (tls_config_set_cert_mem(server_config, p,
-		    sb.st_size) == -1) {
-			logerrorx("tls_config_set_cert_mem");
-		} else {
-			logdebug("Certfile %s, size %lld\n",
-			    path, sb.st_size);
-		}
-		free(p);
-		close(fd);
-		free(path);
 
 		tls_config_set_protocols(server_config, TLS_PROTOCOLS_ALL);
 		if (tls_config_set_ciphers(server_config, "compat") != 0)
-			logerror("tls set server ciphers");
+			logerrortlsconf("Set server TLS ciphers failed",
+			    server_config);
 		if (tls_configure(server_ctx, server_config) != 0) {
-			logerrorx("tls_configure server");
+			logerrorctx("tls_configure server", server_ctx);
 			tls_free(server_ctx);
 			server_ctx = NULL;
 			close(fd_tls);
@@ -1480,10 +1452,38 @@ usage(void)
 {
 
 	(void)fprintf(stderr,
-	    "usage: syslogd [-46dFhnuV] [-a path] [-C CAfile] [-f config_file]\n"
-	    "               [-m mark_interval] [-p log_socket] [-S listen_address]\n"
-	    "               [-s reporting_socket] [-T listen_address] [-U bind_address]\n");
+	    "usage: syslogd [-46dFhnuV] [-a path] [-C CAfile] [-c cert_file]\n"
+	    "\t[-f config_file] [-k key_file] [-m mark_interval]\n"
+	    "\t[-p log_socket] [-S listen_address] [-s reporting_socket]\n"
+	    "\t[-T listen_address] [-U bind_address]\n");
 	exit(1);
+}
+
+/*
+ * Parse a priority code of the form "<123>" into pri, and return the
+ * length of the priority code including the surrounding angle brackets.
+ */
+size_t
+parsepriority(const char *msg, int *pri)
+{
+	size_t nlen;
+	char buf[11];
+	const char *errstr;
+	int maybepri;
+
+	if (*msg++ == '<') {
+		nlen = strspn(msg, "1234567890");
+		if (nlen > 0 && nlen < sizeof(buf) && msg[nlen] == '>') {
+			strlcpy(buf, msg, nlen + 1);
+			maybepri = strtonum(buf, 0, INT_MAX, &errstr);
+			if (errstr == NULL) {
+				*pri = maybepri;
+				return nlen + 2;
+			}
+		}
+	}
+
+	return 0;
 }
 
 /*
@@ -1499,13 +1499,7 @@ printline(char *hname, char *msg)
 	/* test for special codes */
 	pri = DEFUPRI;
 	p = msg;
-	if (*p == '<') {
-		pri = 0;
-		while (isdigit((unsigned char)*++p))
-			pri = 10 * pri + (*p - '0');
-		if (*p == '>')
-			++p;
-	}
+	p += parsepriority(p, &pri);
 	if (pri &~ (LOG_FACMASK|LOG_PRIMASK))
 		pri = DEFUPRI;
 
@@ -1536,19 +1530,16 @@ printsys(char *msg)
 {
 	int c, pri, flags;
 	char *lp, *p, *q, line[MAXLINE + 1];
+	size_t prilen;
 
 	(void)snprintf(line, sizeof line, "%s: ", _PATH_UNIX);
 	lp = line + strlen(line);
 	for (p = msg; *p != '\0'; ) {
 		flags = SYNC_FILE | ADDDATE;	/* fsync file after write */
 		pri = DEFSPRI;
-		if (*p == '<') {
-			pri = 0;
-			while (isdigit((unsigned char)*++p))
-				pri = 10 * pri + (*p - '0');
-			if (*p == '>')
-				++p;
-		} else {
+		prilen = parsepriority(p, &pri);
+		p += prilen;
+		if (prilen == 0) {
 			/* kernel printf's come out on console */
 			flags |= IGN_CONS;
 		}
@@ -1717,20 +1708,36 @@ fprintlog(struct filed *f, int flags, char *msg)
 		v->iov_base = "";
 		v->iov_len = 0;
 		v++;
-	} else {
+	} else if (f->f_lasttime[0] != '\0') {
 		v->iov_base = f->f_lasttime;
 		v->iov_len = 15;
 		v++;
 		v->iov_base = " ";
 		v->iov_len = 1;
 		v++;
+	} else {
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
 	}
-	v->iov_base = f->f_prevhost;
-	v->iov_len = strlen(v->iov_base);
-	v++;
-	v->iov_base = " ";
-	v->iov_len = 1;
-	v++;
+	if (f->f_prevhost[0] != '\0') {
+		v->iov_base = f->f_prevhost;
+		v->iov_len = strlen(v->iov_base);
+		v++;
+		v->iov_base = " ";
+		v->iov_len = 1;
+		v++;
+	} else {
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+		v->iov_base = "";
+		v->iov_len = 0;
+		v++;
+	}
 
 	if (msg) {
 		v->iov_base = msg;
@@ -1876,7 +1883,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 				retryonce = 1;
 				if (f->f_file < 0) {
 					f->f_type = F_UNUSED;
-					logerrorx(f->f_un.f_fname);
+					logerror(f->f_un.f_fname);
 				} else
 					goto again;
 			} else if ((e == EPIPE || e == EBADF) &&
@@ -1885,7 +1892,7 @@ fprintlog(struct filed *f, int flags, char *msg)
 				retryonce = 1;
 				if (f->f_file < 0) {
 					f->f_type = F_UNUSED;
-					logerrorx(f->f_un.f_fname);
+					logerror(f->f_un.f_fname);
 				} else
 					goto again;
 			} else {
@@ -1938,7 +1945,7 @@ wallmsg(struct filed *f, struct iovec *iov)
 	if (reenter++)
 		return;
 	if ((uf = priv_open_utmp()) == NULL) {
-		logerrorx(_PATH_UTMP);
+		logerror(_PATH_UTMP);
 		reenter = 0;
 		return;
 	}
@@ -2062,6 +2069,12 @@ void
 logerrorctx(const char *message, struct tls *ctx)
 {
 	logerror_reason(message, ctx ? tls_error(ctx) : NULL);
+}
+
+void
+logerrortlsconf(const char *message, struct tls_config *config)
+{
+	logerror_reason(message, config ? tls_config_error(config) : NULL);
 }
 
 void
@@ -2417,19 +2430,19 @@ cfline(char *line, char *progblock, char *hostblock)
 		f->f_hostname = strdup(hostblock);
 
 	/* scan through the list of selectors */
-	for (p = line; *p && *p != '\t';) {
+	for (p = line; *p && *p != '\t' && *p != ' ';) {
 
 		/* find the end of this facility name list */
-		for (q = p; *q && *q != '\t' && *q++ != '.'; )
+		for (q = p; *q && *q != '\t' && *q != ' ' && *q++ != '.'; )
 			continue;
 
 		/* collect priority name */
-		for (bp = buf; *q && !strchr("\t,;", *q); )
+		for (bp = buf; *q && !strchr("\t,; ", *q); )
 			*bp++ = *q++;
 		*bp = '\0';
 
 		/* skip cruft */
-		while (*q && strchr(", ;", *q))
+		while (*q && strchr(",;", *q))
 			q++;
 
 		/* decode priority name */
@@ -2452,8 +2465,8 @@ cfline(char *line, char *progblock, char *hostblock)
 		}
 
 		/* scan facilities */
-		while (*p && !strchr("\t.;", *p)) {
-			for (bp = buf; *p && !strchr("\t,;.", *p); )
+		while (*p && !strchr("\t.; ", *p)) {
+			for (bp = buf; *p && !strchr("\t,;. ", *p); )
 				*bp++ = *p++;
 			*bp = '\0';
 			if (*buf == '*')
@@ -2479,7 +2492,7 @@ cfline(char *line, char *progblock, char *hostblock)
 	}
 
 	/* skip to action part */
-	while (*p == '\t')
+	while (*p == '\t' || *p == ' ')
 		p++;
 
 	switch (*p) {
@@ -2617,7 +2630,7 @@ cfline(char *line, char *progblock, char *hostblock)
 			f->f_file = priv_open_log(p);
 		if (f->f_file < 0) {
 			f->f_type = F_UNUSED;
-			logerrorx(p);
+			logerror(p);
 			break;
 		}
 		if (isatty(f->f_file)) {
@@ -2632,7 +2645,7 @@ cfline(char *line, char *progblock, char *hostblock)
 				f->f_type = F_FILE;
 
 				/* Clear O_NONBLOCK flag on f->f_file */
-				if ((i = fcntl(f->f_file, F_GETFL, 0)) != -1) {
+				if ((i = fcntl(f->f_file, F_GETFL)) != -1) {
 					i &= ~O_NONBLOCK;
 					fcntl(f->f_file, F_SETFL, i);
 				}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.45 2016/02/05 15:51:10 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.47 2016/04/05 20:44:03 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  *
@@ -29,6 +29,8 @@ typedef u_int8_t u8;
 
 typedef int32_t s32;
 typedef int64_t s64;
+
+typedef uint64_t __u64;
 
 typedef uint16_t __le16;
 typedef uint16_t __be16;
@@ -677,6 +679,7 @@ ktime_sub_ns(struct timeval tv, int64_t ns)
 }
 
 #define GFP_ATOMIC	M_NOWAIT
+#define GFP_NOWAIT	M_NOWAIT
 #define GFP_KERNEL	(M_WAITOK | M_CANFAIL)
 #define GFP_TEMPORARY	(M_WAITOK | M_CANFAIL)
 #define __GFP_NOWARN	0
@@ -829,6 +832,25 @@ static inline void
 kobject_del(struct kobject *obj)
 {
 }
+
+struct idr_entry {
+	SPLAY_ENTRY(idr_entry) entry;
+	int id;
+	void *ptr;
+};
+
+struct idr {
+	SPLAY_HEAD(idr_tree, idr_entry) tree;
+};
+
+void idr_init(struct idr *);
+void idr_preload(unsigned int);
+int idr_alloc(struct idr *, void *, int, int, unsigned int);
+#define idr_preload_end()
+void *idr_find(struct idr *, int);
+void idr_remove(struct idr *, int);
+void idr_destroy(struct idr *);
+int idr_for_each(struct idr *, int (*)(int, void *, void *), void *);
 
 #define min_t(t, a, b) ({ \
 	t __min_a = (a); \
@@ -1376,6 +1398,9 @@ struct fb_info {
 
 #define framebuffer_alloc(flags, device) \
 	kzalloc(sizeof(struct fb_info), GFP_KERNEL)
+
+struct address_space;
+#define unmap_mapping_range(mapping, holebegin, holeend, even_cows)
 
 /*
  * ACPI types and interfaces.

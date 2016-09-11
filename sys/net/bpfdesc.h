@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpfdesc.h,v 1.29 2015/12/03 16:27:32 mpi Exp $	*/
+/*	$OpenBSD: bpfdesc.h,v 1.31 2016/08/22 10:40:36 mpi Exp $	*/
 /*	$NetBSD: bpfdesc.h,v 1.11 1995/09/27 18:30:42 thorpej Exp $	*/
 
 /*
@@ -42,8 +42,6 @@
 
 #ifdef _KERNEL
 
-#include <sys/selinfo.h>
-
 /*
  * Descriptor associated with each open bpf file.
  */
@@ -80,7 +78,6 @@ struct bpf_d {
 	u_char		bd_locked;	/* true if descriptor is locked */
 	u_char		bd_fildrop;	/* true if filtered packets will be dropped */
 	u_char		bd_dirfilt;	/* direction filter */
-	u_int		bd_queue;	/* the queue the user wants to watch (0 == all) */
 	int		bd_hdrcmplt;	/* false to fill in src lladdr automatically */
 	int		bd_async;	/* non-zero if packet reception should generate signal */
 	int		bd_sig;		/* signal to send upon packet reception */
@@ -91,6 +88,8 @@ struct bpf_d {
 	struct selinfo	bd_sel;		/* bsd select info */
 	int		bd_unit;	/* logical unit number */
 	LIST_ENTRY(bpf_d) bd_list;	/* descriptor list */
+
+	struct task	bd_wake_task;	/* delay csignal() and selwakeup() */
 };
 
 /*

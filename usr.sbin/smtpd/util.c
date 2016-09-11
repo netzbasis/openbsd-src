@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.125 2016/01/12 17:29:43 sunil Exp $	*/
+/*	$OpenBSD: util.c,v 1.128 2016/08/31 10:18:08 gilles Exp $	*/
 
 /*
  * Copyright (c) 2000,2001 Markus Friedl.  All rights reserved.
@@ -455,9 +455,9 @@ mailaddr_match(const struct mailaddr *maddr1, const struct mailaddr *maddr2)
 
 	if (m2.user[0]) {
 		/* if address from table has a tag, we must respect it */
-		if (strchr(m2.user, '+') == NULL) {
+		if (strchr(m2.user, *env->sc_subaddressing_delim) == NULL) {
 			/* otherwise, strip tag from session address if any */
-			p = strchr(m1.user, '+');
+			p = strchr(m1.user, *env->sc_subaddressing_delim);
 			if (p)
 				*p = '\0';
 		}
@@ -662,33 +662,6 @@ generate_uid(void)
 		;
 
 	return (uid);
-}
-
-void
-session_socket_blockmode(int fd, enum blockmodes bm)
-{
-	int	flags;
-
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
-		fatal("fcntl F_GETFL");
-
-	if (bm == BM_NONBLOCK)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
-
-	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
-		fatal("fcntl F_SETFL");
-}
-
-void
-session_socket_no_linger(int fd)
-{
-	struct linger	 lng;
-
-	memset(&lng, 0, sizeof(lng));
-	if (setsockopt(fd, SOL_SOCKET, SO_LINGER, &lng, sizeof(lng)) == -1)
-		fatal("session_socket_no_linger");
 }
 
 int

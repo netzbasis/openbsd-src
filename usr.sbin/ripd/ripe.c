@@ -1,4 +1,4 @@
-/*	$OpenBSD: ripe.c,v 1.19 2015/12/05 13:13:47 claudio Exp $ */
+/*	$OpenBSD: ripe.c,v 1.22 2016/09/03 10:28:08 renato Exp $ */
 
 /*
  * Copyright (c) 2006 Michele Marchetto <mydecay@openbeer.it>
@@ -43,7 +43,7 @@
 #include "control.h"
 
 void		 ripe_sig_handler(int, short, void *);
-void		 ripe_shutdown(void);
+__dead void	 ripe_shutdown(void);
 
 struct ripd_conf	*oeconf = NULL;
 struct imsgev		*iev_main;
@@ -85,7 +85,7 @@ ripe(struct ripd_conf *xconf, int pipe_parent2ripe[2], int pipe_ripe2rde[2],
 	}
 
 	/* create ripd control socket outside chroot */
-	if (control_init() == -1)
+	if (control_init(xconf->csock) == -1)
 		fatalx("control socket setup failed");
 
 	addr.sin_family = AF_INET;
@@ -128,6 +128,7 @@ ripe(struct ripd_conf *xconf, int pipe_parent2ripe[2], int pipe_ripe2rde[2],
 
 	setproctitle("rip engine");
 	ripd_process = PROC_RIP_ENGINE;
+	log_procname = log_procnames[ripd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
@@ -449,10 +450,18 @@ ripe_dispatch_rde(int fd, short event, void *bula)
 	}
 }
 
-void
+__dead void
 ripe_shutdown(void)
 {
 	struct iface	*iface;
+
+	/* close pipes */
+	msgbuf_write(&iev_rde->ibuf.w);
+	msgbuf_clear(&iev_rde->ibuf.w);
+	close(iev_rde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	LIST_FOREACH(iface, &oeconf->iface_list, entry) {
 		if (if_fsm(iface, IF_EVT_DOWN)) {
@@ -468,11 +477,7 @@ ripe_shutdown(void)
 	close(oeconf->rip_socket);
 
 	/* clean up */
-	msgbuf_write(&iev_rde->ibuf.w);
-	msgbuf_clear(&iev_rde->ibuf.w);
 	free(iev_rde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(oeconf);
 	free(pkt_ptr);

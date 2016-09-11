@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.5 2015/12/07 13:30:06 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.7 2016/06/21 21:35:25 benno Exp $	*/
 
 /*
  * Copyright (c) 2007-2015 Reyk Floeter <reyk@openbsd.org>
@@ -129,6 +129,14 @@ include		: INCLUDE string		{
 		;
 
 varset		: STRING '=' STRING		{
+			char *s = $1;
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatalx("cannot store variable");
 			free($1);
@@ -218,7 +226,7 @@ vm_opts		: disable			{
 		}
 		| MEMORY NUMBER			{
 			ssize_t	 res;
-			if (vcp.vcp_memory_size != 0) {
+			if (vcp.vcp_memranges[0].vmr_size != 0) {
 				yyerror("memory specified more than once");
 				YYERROR;
 			}
@@ -226,11 +234,11 @@ vm_opts		: disable			{
 				yyerror("failed to parse size: %lld", $2);
 				YYERROR;
 			}
-			vcp.vcp_memory_size = (size_t)res;
+			vcp.vcp_memranges[0].vmr_size = (size_t)res;
 		}
 		| MEMORY STRING			{
 			ssize_t	 res;
-			if (vcp.vcp_memory_size != 0) {
+			if (vcp.vcp_memranges[0].vmr_size != 0) {
 				yyerror("argument specified more than once");
 				free($2);
 				YYERROR;
@@ -240,7 +248,7 @@ vm_opts		: disable			{
 				free($2);
 				YYERROR;
 			}
-			vcp.vcp_memory_size = (size_t)res;
+			vcp.vcp_memranges[0].vmr_size = (size_t)res;
 		}
 		;
 

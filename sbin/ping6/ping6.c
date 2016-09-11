@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.145 2016/01/30 05:38:26 semarie Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.163 2016/09/10 07:43:49 florian Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -100,6 +100,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <siphash.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -131,17 +132,23 @@ struct payload {
 #define	CLR(bit)	(A(bit) &= (~B(bit)))
 #define	TST(bit)	(A(bit) & B(bit))
 
+/* various options */
+int options;
 #define	F_FLOOD		0x0001
 #define	F_INTERVAL	0x0002
+#define	F_HOSTNAME	0x0004
 #define	F_PINGFILLED	0x0008
 #define	F_QUIET		0x0010
+/*			0x0020 */
 #define	F_SO_DEBUG	0x0040
+/*			0x0080 */
 #define	F_VERBOSE	0x0100
-/*			0x4000 */
-#define F_HOSTNAME	0x10000
-#define F_AUD_RECV	0x200000
-#define F_AUD_MISS	0x400000
-u_int options;
+/*			0x0200 */
+/*			0x0400 */
+/*			0x0800 */
+/*			0x1000 */
+#define	F_AUD_RECV	0x2000
+#define	F_AUD_MISS	0x4000
 
 /* multicast options */
 int moptions;
@@ -170,21 +177,23 @@ int ident;			/* process id to identify our packets */
 int hoplimit = -1;		/* hoplimit */
 
 /* counters */
-long npackets;			/* max packets to transmit */
-long nreceived;			/* # of packets we got back */
-long nrepeats;			/* number of duplicates */
-long ntransmitted;		/* sequence # for outbound packets = #sent */
-unsigned long nmissedmax = 1;	/* max value of ntransmitted - nreceived - 1 */
+int64_t npackets;		/* max packets to transmit */
+int64_t nreceived;		/* # of packets we got back */
+int64_t nrepeats;		/* number of duplicates */
+int64_t ntransmitted;		/* sequence # for outbound packets = #sent */
+int64_t nmissedmax = 1;		/* max value of ntransmitted - nreceived - 1 */
 struct timeval interval = {1, 0}; /* interval between packets */
 
 /* timing */
 int timing;			/* flag to do timing */
+int timinginfo;
 unsigned int maxwait = MAXWAIT_DEFAULT;	/* max seconds to wait for response */
 double tmin = 999999999.0;	/* minimum round trip time */
 double tmax = 0.0;		/* maximum round trip time */
 double tsum = 0.0;		/* sum of all times, for doing average */
 double tsumsq = 0.0;		/* sum of all times squared, for std. dev. */
-struct tv64 tv64_offset;	/* random offset for time values */
+
+struct tv64 tv64_offset;
 SIPHASH_KEY mac_key;
 
 /* for ancillary data(advanced API) */
@@ -195,43 +204,41 @@ volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
 volatile sig_atomic_t seeninfo;
 
-int	 main(int, char *[]);
-void	 fill(char *, char *);
-int	 get_hoplim(struct msghdr *);
-int	 get_pathmtu(struct msghdr *);
-struct in6_pktinfo *get_rcvpktinfo(struct msghdr *);
-void	 onsignal(int);
-void	 retransmit(void);
-void	 onint(int);
-int	 pinger(void);
-const char *pr_addr(struct sockaddr *, socklen_t);
-void	 pr_icmph(struct icmp6_hdr *, u_char *);
-void	 pr_iph(struct ip6_hdr *);
-void	 pr_pack(u_char *, int, struct msghdr *);
-void	 pr_exthdrs(struct msghdr *);
-void	 pr_ip6opt(void *);
-void	 pr_rthdr(void *);
-void	 pr_retip(struct ip6_hdr *, u_char *);
-void	 summary(int);
-void	 usage(void);
+void			 fill(char *, char *);
+void			 summary(void);
+void			 onsignal(int);
+void			 retransmit(void);
+int			 pinger(void);
+const char		*pr_addr(struct sockaddr *, socklen_t);
+void			 pr_pack(u_char *, int, struct msghdr *);
+__dead void		 usage(void);
+
+int			 get_hoplim(struct msghdr *);
+int			 get_pathmtu(struct msghdr *);
+struct in6_pktinfo	*get_rcvpktinfo(struct msghdr *);
+void			 pr_icmph(struct icmp6_hdr *, u_char *);
+void			 pr_iph(struct ip6_hdr *);
+void			 pr_exthdrs(struct msghdr *);
+void			 pr_ip6opt(void *);
+void			 pr_rthdr(void *);
+void			 pr_retip(struct ip6_hdr *, u_char *);
 
 int
 main(int argc, char *argv[])
 {
-	struct addrinfo *res0;
+	struct addrinfo hints, *res;
 	struct itimerval itimer;
 	struct sockaddr_in6 from, from6;
-	struct addrinfo hints;
-	int ch, i, maxsize, packlen, preload, optval, error;
-	socklen_t maxsizelen;
-	u_char *datap, *packet;
-	char *e, *target;
-	char *source = NULL;
-	const char *errstr;
 	struct cmsghdr *scmsg = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
+	socklen_t maxsizelen;
+	int64_t preload;
+	int ch, i, optval = 1, packlen, maxsize, error;
+	u_char *datap, *packet, loop = 1;
+	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
+	const char *errstr;
 	double intval;
-	int mflag = 0, loop = 1;
+	int mflag = 0;
 	uid_t uid;
 	u_int rtableid = 0;
 
@@ -249,7 +256,7 @@ main(int argc, char *argv[])
 	    "c:dEefHh:I:i:Ll:mNnp:qS:s:V:vw:")) != -1) {
 		switch (ch) {
 		case 'c':
-			npackets = strtonum(optarg, 0, INT_MAX, &errstr);
+			npackets = strtonum(optarg, 0, INT64_MAX, &errstr);
 			if (errstr)
 				errx(1,
 				    "number of packets to transmit is %s: %s",
@@ -309,7 +316,7 @@ main(int argc, char *argv[])
 		case 'l':
 			if (getuid())
 				errx(1, "%s", strerror(EPERM));
-			preload = strtonum(optarg, 1, INT_MAX, &errstr);
+			preload = strtonum(optarg, 1, INT64_MAX, &errstr);
 			if (errstr)
 				errx(1, "preload value is %s: %s", errstr,
 				    optarg);
@@ -353,47 +360,63 @@ main(int argc, char *argv[])
 			break;
 		default:
 			usage();
-			/*NOTREACHED*/
 		}
 	}
 
 	argc -= optind;
 	argv += optind;
 
-	if (argc < 1) {
-		usage();
-		/*NOTREACHED*/
-	}
-
 	if (argc != 1)
 		usage();
 
-	target = argv[argc - 1];
+	memset(&dst, 0, sizeof(dst));
 
-	/* getaddrinfo */
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_flags = AI_CANONNAME;
-	hints.ai_family = AF_INET6;
-	hints.ai_socktype = SOCK_RAW;
-	hints.ai_protocol = IPPROTO_ICMPV6;
-
-	error = getaddrinfo(target, NULL, &hints, &res0);
-	if (error)
-		errx(1, "host %s: %s", target, gai_strerror(error));
-	if (res0->ai_canonname) {
-		if ((hostname = strdup(res0->ai_canonname)) == NULL)
-			errx(1, "out of memory");
+#if 0
+	if (inet_aton(*argv, &dst.sin_addr) != 0) {
+		hostname = *argv;
+		if ((target = strdup(inet_ntoa(dst.sin_addr))) == NULL)
+			errx(1, "malloc");
 	} else
-		hostname = target;
-	if (res0->ai_next && (options & F_VERBOSE))
-		warnx("host resolves to multiple addresses");
-	if (res0->ai_family != AF_INET6 || res0->ai_addrlen != sizeof(dst))
-		errx(1, "getaddrinfo failed");
-	memcpy(&dst, res0->ai_addr, sizeof(dst));
+#endif
+		target = *argv;
 
-	freeaddrinfo(res0);
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = PF_INET6;
+	hints.ai_socktype = SOCK_RAW;
+	hints.ai_protocol = 0;
+	hints.ai_flags = AI_CANONNAME;
+	if ((error = getaddrinfo(target, NULL, &hints, &res)))
+		errx(1, "%s", gai_strerror(error));
 
-	/* set the source address if specified. */
+	switch (res->ai_family) {
+	case AF_INET6:
+		if (res->ai_addrlen != sizeof(dst))
+		    errx(1, "size of sockaddr mismatch");
+		break;
+	case AF_INET:
+	default:
+		errx(1, "unsupported AF: %d", res->ai_family);
+		break;
+	}
+
+	memcpy(&dst, res->ai_addr, res->ai_addrlen);
+
+	if (!hostname) {
+		hostname = res->ai_canonname ? strdup(res->ai_canonname) :
+		    target;
+		if (!hostname)
+			errx(1, "malloc");
+	}
+
+	if (res->ai_next) {
+		if (getnameinfo(res->ai_addr, res->ai_addrlen, hbuf,
+		    sizeof(hbuf), NULL, 0, NI_NUMERICHOST) != 0)
+			strlcpy(hbuf, "?", sizeof(hbuf));
+		warnx("Warning: %s has multiple "
+		    "addresses; using %s", hostname, hbuf);
+	}
+	freeaddrinfo(res);
+
 	if (source) {
 		memset(&hints, 0, sizeof(struct addrinfo));
 		hints.ai_flags = AI_NUMERICHOST; /* allow hostname? */
@@ -401,16 +424,16 @@ main(int argc, char *argv[])
 		hints.ai_socktype = SOCK_RAW;
 		hints.ai_protocol = IPPROTO_ICMPV6;
 
-		error = getaddrinfo(source, NULL, &hints, &res0);
+		error = getaddrinfo(source, NULL, &hints, &res);
 		if (error)
 			errx(1, "invalid source address: %s", 
 			     gai_strerror(error));
 
-		if (res0->ai_family != AF_INET6 || res0->ai_addrlen !=
+		if (res->ai_family != AF_INET6 || res->ai_addrlen !=
 		    sizeof(from6))
 			errx(1, "invalid source address");
-		memcpy(&from6, res0->ai_addr, sizeof(from6));
-		freeaddrinfo(res0);
+		memcpy(&from6, res->ai_addr, sizeof(from6));
+		freeaddrinfo(res);
 		if (bind(s, (struct sockaddr *)&from6, sizeof(from6)) != 0)
 			err(1, "bind");
 	}
@@ -447,7 +470,7 @@ main(int argc, char *argv[])
 	} else
 		timing = 0;
 	/* in F_VERBOSE case, we may get non-echoreply packets*/
-	if (options & F_VERBOSE)
+	if (options & F_VERBOSE && datalen < 2048)
 		packlen = 2048 + IP6LEN + ICMP6ECHOLEN + EXTRA; /* XXX 2048? */
 	else
 		packlen = datalen + IP6LEN + ICMP6ECHOLEN + EXTRA;
@@ -609,7 +632,7 @@ main(int argc, char *argv[])
 	    sizeof(dst)), datalen);
 
 	while (preload--)		/* Fire off them quickies. */
-		(void)pinger();
+		pinger();
 
 	(void)signal(SIGINT, onsignal);
 	(void)signal(SIGINFO, onsignal);
@@ -638,6 +661,8 @@ main(int argc, char *argv[])
 		int		timeout;
 
 		/* signal handling */
+		if (seenint)
+			break;
 		if (seenalrm) {
 			retransmit();
 			seenalrm = 0;
@@ -649,13 +674,8 @@ main(int argc, char *argv[])
 			}
 			continue;
 		}
-		if (seenint) {
-			onint(SIGINT);
-			seenint = 0;
-			continue;
-		}
 		if (seeninfo) {
-			summary(0);
+			summary();
 			seeninfo = 0;
 			continue;
 		}
@@ -713,14 +733,13 @@ main(int argc, char *argv[])
 		if (npackets && nreceived >= npackets)
 			break;
 	}
-	summary(0);
+	summary();
 	exit(nreceived == 0);
 }
 
 void
 onsignal(int sig)
 {
-
 	switch (sig) {
 	case SIGALRM:
 		seenalrm++;
@@ -742,6 +761,12 @@ void
 retransmit(void)
 {
 	struct itimerval itimer;
+	static int last_time = 0;
+
+	if (last_time) {
+		seenint = 1;	/* break out of ping event loop */
+		return;
+	}
 
 	if (pinger() == 0)
 		return;
@@ -760,9 +785,10 @@ retransmit(void)
 	itimer.it_interval.tv_sec = 0;
 	itimer.it_interval.tv_usec = 0;
 	itimer.it_value.tv_usec = 0;
-
-	(void)signal(SIGALRM, onint);
 	(void)setitimer(ITIMER_REAL, &itimer, NULL);
+
+	/* When the alarm goes off we are done. */
+	last_time = 1;
 }
 
 /*
@@ -812,6 +838,7 @@ pinger(void)
 		SipHash24_Update(&ctx, &ident, sizeof(ident));
 		SipHash24_Update(&ctx,
 		    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
+		SipHash24_Update(&ctx, &dst.sin6_addr, sizeof(dst.sin6_addr));
 		SipHash24_Final(&payload.mac, &ctx);
 
 		memcpy(&outpack[ICMP6ECHOLEN],
@@ -901,7 +928,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			return;			/* 'Twas not our ECHO */
 		seq = ntohs(icp->icmp6_seq);
 		++nreceived;
-		if (timing) {
+		if (cc >= 8 + sizeof(struct payload)) {
 			SIPHASH_CTX ctx;
 			u_int8_t mac[SIPHASH_DIGEST_LENGTH];
 
@@ -918,6 +945,8 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			SipHash24_Update(&ctx, &ident, sizeof(ident));
 			SipHash24_Update(&ctx,
 			    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
+			SipHash24_Update(&ctx, &dst.sin6_addr,
+			    sizeof(dst.sin6_addr));
 			SipHash24_Final(mac, &ctx);
 
 			if (timingsafe_memcmp(mac, &payload.mac,
@@ -925,6 +954,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 				(void)printf("signature mismatch!\n");
 				return;
 			}
+			timinginfo=1;
 
 			tp.tv_sec = betoh64(tv64->tv64_sec) -
 			    tv64_offset.tv64_sec;
@@ -1210,70 +1240,32 @@ get_pathmtu(struct msghdr *mhdr)
 	return(0);
 }
 
-/*
- * onint --
- *	SIGINT handler.
- */
 void
-onint(int signo)
+summary(void)
 {
-	summary(signo);
+	printf("\n--- %s ping6 statistics ---\n", hostname);
+	printf("%lld packets transmitted, ", ntransmitted);
+	printf("%lld packets received, ", nreceived);
 
-	if (signo)
-		_exit(nreceived ? 0 : 1);
-	else
-		exit(nreceived ? 0 : 1);
-}
-
-/*
- * summary --
- *	Print out statistics.
- */
-void
-summary(int signo)
-{
-	char buf[8192], buft[8192];
-
-	buf[0] = '\0';
-
-	snprintf(buft, sizeof(buft), "--- %s ping6 statistics ---\n",
-	    hostname);
-	strlcat(buf, buft, sizeof(buf));
-	snprintf(buft, sizeof(buft), "%ld packets transmitted, ",
-	    ntransmitted);
-	strlcat(buf, buft, sizeof(buf));
-	snprintf(buft, sizeof(buft), "%ld packets received, ",
-	    nreceived);
-	strlcat(buf, buft, sizeof(buf));
-	if (nrepeats) {
-		snprintf(buft, sizeof(buft), "+%ld duplicates, ",
-		    nrepeats);
-		strlcat(buf, buft, sizeof(buf));
-	}
+	if (nrepeats)
+		printf("%lld duplicates, ", nrepeats);
 	if (ntransmitted) {
 		if (nreceived > ntransmitted)
-			snprintf(buft, sizeof(buft),
-			    "-- somebody's duplicating packets!");
+			printf("-- somebody's duplicating packets!");
 		else
-			snprintf(buft, sizeof(buft), "%.1lf%% packet loss",
+			printf("%.1f%% packet loss",
 			    ((((double)ntransmitted - nreceived) * 100) /
 			    ntransmitted));
-		strlcat(buf, buft, sizeof(buf));
 	}
-	strlcat(buf, "\n", sizeof(buf));
-	if (nreceived && timing) {
+	printf("\n");
+	if (timinginfo) {
 		/* Only display average to microseconds */
 		double num = nreceived + nrepeats;
 		double avg = tsum / num;
 		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
-		snprintf(buft, sizeof(buft),
-		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
 		    tmin, avg, tmax, dev);
-		strlcat(buf, buft, sizeof(buf));
 	}
-	write(STDOUT_FILENO, buf, strlen(buf));
-	if (signo == 0)
-		(void)fflush(stdout);
 }
 
 /*
@@ -1559,7 +1551,7 @@ fill(char *bp, char *patp)
 	}
 }
 
-void
+__dead void
 usage(void)
 {
 	(void)fprintf(stderr,

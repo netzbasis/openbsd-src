@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_event.c,v 1.71 2016/01/06 17:58:46 tedu Exp $	*/
+/*	$OpenBSD: kern_event.c,v 1.75 2016/08/25 00:00:02 dlg Exp $	*/
 
 /*-
  * Copyright (c) 1999,2000,2001 Jonathan Lemon <jlemon@FreeBSD.org>
@@ -32,6 +32,7 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/proc.h>
+#include <sys/pledge.h>
 #include <sys/malloc.h>
 #include <sys/unistd.h>
 #include <sys/file.h>
@@ -164,8 +165,10 @@ kqueue_init(void)
 
 	pool_init(&kqueue_pool, sizeof(struct kqueue), 0, 0, PR_WAITOK,
 	    "kqueuepl", NULL);
+	pool_setipl(&kqueue_pool, IPL_NONE);
 	pool_init(&knote_pool, sizeof(struct knote), 0, 0, PR_WAITOK,
 	    "knotepl", NULL);
+	pool_setipl(&knote_pool, IPL_NONE);
 }
 
 int
@@ -211,6 +214,13 @@ filt_procattach(struct knote *kn)
 {
 	struct process *pr;
 
+	if ((curproc->p_p->ps_flags & PS_PLEDGE) &&
+	    (curproc->p_p->ps_pledge & PLEDGE_PROC) == 0)
+		return pledge_fail(curproc, EPERM, PLEDGE_PROC);
+
+	if (kn->kn_id > PID_MAX)
+		return ESRCH;
+
 	pr = prfind(kn->kn_id);
 	if (pr == NULL)
 		return (ESRCH);
@@ -218,15 +228,6 @@ filt_procattach(struct knote *kn)
 	/* exiting processes can't be specified */
 	if (pr->ps_flags & PS_EXITING)
 		return (ESRCH);
-
-	/*
-	 * Fail if it's not owned by you, or the last exec gave us
-	 * setuid/setgid privs (unless you're root).
-	 */
-	if (pr != curproc->p_p &&
-	    (pr->ps_ucred->cr_ruid != curproc->p_ucred->cr_ruid ||
-	    (pr->ps_flags & PS_SUGID)) && suser(curproc, 0) != 0)
-		return (EACCES);
 
 	kn->kn_ptr.p_process = pr;
 	kn->kn_flags |= EV_CLEAR;		/* automatically set */
@@ -576,6 +577,8 @@ kqueue_register(struct kqueue *kq, struct kevent *kev, struct proc *p)
 
 	if (fops->f_isfd) {
 		/* validate descriptor */
+		if (kev->ident > INT_MAX)
+			return (EBADF);
 		if ((fp = fd_getfile(fdp, kev->ident)) == NULL)
 			return (EBADF);
 		FREF(fp);

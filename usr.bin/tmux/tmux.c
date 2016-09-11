@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.164 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.170 2016/05/27 17:05:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,6 +24,7 @@
 #include <event.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <langinfo.h>
 #include <locale.h>
 #include <paths.h>
 #include <pwd.h>
@@ -52,7 +53,7 @@ usage(void)
 	fprintf(stderr,
 	    "usage: %s [-2Cluv] [-c shell-command] [-f file] [-L socket-name]\n"
 	    "            [-S socket-path] [command [flags]]\n",
-	    __progname);
+	    getprogname());
 	exit(1);
 }
 
@@ -94,7 +95,7 @@ areshell(const char *shell)
 		ptr++;
 	else
 		ptr = shell;
-	progname = __progname;
+	progname = getprogname();
 	if (*progname == '-')
 		progname++;
 	if (strcmp(ptr, progname) == 0)
@@ -187,6 +188,14 @@ main(int argc, char **argv)
 	char		*path, *label, **var, tmp[PATH_MAX], *shellcmd = NULL;
 	const char	*s;
 	int		 opt, flags, keys;
+
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) {
+		if (setlocale(LC_CTYPE, "") == NULL)
+			errx(1, "invalid LC_ALL, LC_CTYPE or LANG");
+		s = nl_langinfo(CODESET);
+		if (strcasecmp(s, "UTF-8") != 0 && strcasecmp(s, "UTF8") != 0)
+			errx(1, "need UTF-8 locale (LC_CTYPE) but have %s", s);
+	}
 
 	setlocale(LC_TIME, "");
 	tzset();

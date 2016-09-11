@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.242 2015/10/21 07:59:18 mpi Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.245 2016/05/21 00:56:43 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1999-2003 Michael Shalayeff
@@ -392,6 +392,7 @@ hppa_init(paddr_t start)
 	proc0paddr->u_pcb.pcb_fpstate = &proc0fpstate;
 	pool_init(&hppa_fppl, sizeof(struct hppa_fpstate), 16, 0, 0,
 	    "hppafp", NULL);
+	pool_setipl(&hppa_fppl, IPL_NONE);
 }
 
 void
@@ -1211,12 +1212,6 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	register_t scp, sip;
 	int sss;
 
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sendsig: %s[%d] sig %d catcher %p\n",
-		    p->p_comm, p->p_pid, sig, catcher);
-#endif
-
 	/* Save the FPU context first. */
 	fpu_proc_save(p);
 
@@ -1235,12 +1230,6 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 		sip = scp + sizeof(ksc);
 		sss += (sizeof(ksi) + 63) & ~63;
 	}
-
-#ifdef DEBUG
-	if ((tf->tf_iioq_head & ~PAGE_MASK) == SYSCALLGATE)
-		printf("sendsig: interrupted syscall at 0x%x:0x%x flags %b\n",
-		    tf->tf_iioq_head, tf->tf_iioq_tail, tf->tf_ipsw, PSL_BITS);
-#endif
 
 	bzero(&ksc, sizeof(ksc));
 	ksc.sc_mask = mask;
@@ -1296,12 +1285,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	tf->tf_iisq_tail = tf->tf_iisq_head = pcb->pcb_space;
 	/* disable tracing in the trapframe */
 
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sendsig(%d): sig %d scp %p fp %p sp 0x%x\n",
-		    p->p_pid, sig, scp, ksc.sc_fp, tf->tf_sp);
-#endif
-
+	ksc.sc_cookie = (long)scp ^ p->p_p->ps_sigcookie;
 	if (copyout(&ksc, (void *)scp, sizeof(ksc)))
 		sigexit(p, SIGILL);
 
@@ -1310,12 +1294,6 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 		if (copyout(&ksi, (void *)sip, sizeof(ksi)))
 			sigexit(p, SIGILL);
 	}
-
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sendsig(%d): pc 0x%x catcher 0x%x\n", p->p_pid,
-		    tf->tf_iioq_head, tf->tf_arg3);
-#endif
 }
 
 int
@@ -1324,21 +1302,30 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext *scp, ksc;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf = p->p_md.md_regs;
 	int error;
 
-	scp = SCARG(uap, sigcntxp);
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sigreturn: pid %d, scp %p\n", p->p_pid, scp);
-#endif
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
 
 	/* Flush the FPU context first. */
 	fpu_proc_flush(p);
 
 	if ((error = copyin((caddr_t)scp, (caddr_t)&ksc, sizeof ksc)))
 		return (error);
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
+		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
 #define PSL_MBS (PSL_C|PSL_Q|PSL_P|PSL_D|PSL_I)
 #define PSL_MBZ (PSL_Y|PSL_Z|PSL_S|PSL_X|PSL_M|PSL_R)
@@ -1394,10 +1381,6 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 		tf->tf_iisq_tail = p->p_addr->u_pcb.pcb_space;
 	tf->tf_ipsw = ksc.sc_ps | (curcpu()->ci_psw & PSL_O);
 
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sigreturn(%d): returns\n", p->p_pid);
-#endif
 	return (EJUSTRETURN);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.5 2014/12/03 20:09:32 krw Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.8 2016/05/18 20:21:13 guenther Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.37 2006/09/06 00:11:49 uwe Exp $	*/
 
 /*-
@@ -108,7 +108,7 @@ kdb_printtrap(u_int type, int code)
 }
 
 int
-kdb_trap(int type, int code, db_regs_t *regs)
+db_ktrap(int type, int code, db_regs_t *regs)
 {
 	extern label_t *db_recover;
 	int s;
@@ -147,7 +147,7 @@ kdb_trap(int type, int code, db_regs_t *regs)
 }
 
 void
-Debugger()
+Debugger(void)
 {
 	__asm volatile("trapa %0" :: "i"(_SH_TRA_BREAK));
 }
@@ -560,6 +560,7 @@ db_frame_cmd(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
 		TF(ubc);
 		TF(spc);
 		TF(ssr);
+		TF(gbr);
 		TF(macl);
 		TF(mach);
 		TF(pr);

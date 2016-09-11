@@ -1,4 +1,4 @@
-/*	$OpenBSD: table.c,v 1.17 2016/02/01 07:25:51 mestre Exp $	*/
+/*	$OpenBSD: table.c,v 1.19 2016/08/26 08:44:04 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -39,6 +39,7 @@
  */
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <protocols/talkd.h>
 
 #include <stdlib.h>
@@ -107,7 +108,7 @@ find_match(CTL_MSG *request)
 	if (debug)
 		syslog(LOG_DEBUG, "find_match: not found");
 
-	return ((CTL_MSG *)0);
+	return (NULL);
 }
 
 /*
@@ -149,7 +150,7 @@ find_request(CTL_MSG *request)
 			return (&ptr->request);
 		}
 	}
-	return ((CTL_MSG *)0);
+	return (NULL);
 }
 
 void

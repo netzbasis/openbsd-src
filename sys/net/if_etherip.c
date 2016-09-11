@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_etherip.c,v 1.5 2016/01/25 05:12:34 jsg Exp $	*/
+/*	$OpenBSD: if_etherip.c,v 1.7 2016/04/13 11:41:15 mpi Exp $	*/
 /*
  * Copyright (c) 2015 Kazuya GODA <goda@openbsd.org>
  *
@@ -119,7 +119,6 @@ etherip_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_ioctl = etherip_ioctl;
 	ifp->if_start = etherip_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 
@@ -499,6 +498,10 @@ ip_etherip_input(struct mbuf *m, ...)
 	}
 	m->m_flags &= ~(M_BCAST|M_MCAST);
 
+#if NPF > 0
+	pf_pkt_addr_changed(m);
+#endif
+
 	ml_enqueue(&ml, m);
 	if_input(ifp, &ml);
 }
@@ -641,6 +644,10 @@ ip6_etherip_input(struct mbuf **mp, int *offp, int proto)
 	}
 
 	m->m_flags &= ~(M_BCAST|M_MCAST);
+
+#if NPF > 0
+	pf_pkt_addr_changed(m);
+#endif
 
 	ml_enqueue(&ml, m);
 	if_input(ifp, &ml);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uplcom.c,v 1.66 2015/03/14 03:38:50 jsg Exp $	*/
+/*	$OpenBSD: uplcom.c,v 1.68 2016/09/02 09:14:59 mpi Exp $	*/
 /*	$NetBSD: uplcom.c,v 1.29 2002/09/23 05:51:23 simonb Exp $	*/
 /*
  * Copyright (c) 2001 The NetBSD Foundation, Inc.
@@ -66,7 +66,6 @@ int	uplcomdebug = 0;
 #endif
 #define DPRINTF(x) DPRINTFN(0, x)
 
-#define	UPLCOM_CONFIG_INDEX	0
 #define	UPLCOM_IFACE_INDEX	0
 #define	UPLCOM_SECOND_IFACE_INDEX	1
 
@@ -119,9 +118,6 @@ void uplcom_rts(struct uplcom_softc *, int);
 void uplcom_break(struct uplcom_softc *, int);
 void uplcom_set_line_state(struct uplcom_softc *);
 void uplcom_get_status(void *, int portno, u_char *lsr, u_char *msr);
-#if TODO
-int  uplcom_ioctl(void *, int, u_long, caddr_t, int, struct proc *);
-#endif
 int  uplcom_param(void *, int, struct termios *);
 int  uplcom_open(void *, int);
 void uplcom_close(void *, int);
@@ -130,7 +126,7 @@ struct	ucom_methods uplcom_methods = {
 	uplcom_get_status,
 	uplcom_set,
 	uplcom_param,
-	NULL, /* uplcom_ioctl, TODO */
+	NULL,
 	uplcom_open,
 	uplcom_close,
 	NULL,
@@ -198,7 +194,7 @@ uplcom_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL)
 		return (UMATCH_NONE);
 
 	return (uplcom_lookup(uaa->vendor, uaa->product) != NULL ?
@@ -228,15 +224,6 @@ uplcom_attach(struct device *parent, struct device *self, void *aux)
 	uca.bulkin = uca.bulkout = -1;
 	sc->sc_intr_number = -1;
 	sc->sc_intr_pipe = NULL;
-
-	/* Move the device into the configured state. */
-	err = usbd_set_config_index(dev, UPLCOM_CONFIG_INDEX, 1);
-	if (err) {
-		printf("%s: failed to set configuration, err=%s\n",
-			devname, usbd_errstr(err));
-		usbd_deactivate(sc->sc_udev);
-		return;
-	}
 
 	/* get the config descriptor */
 	cdesc = usbd_get_config_descriptor(sc->sc_udev);
@@ -788,34 +775,3 @@ uplcom_get_status(void *addr, int portno, u_char *lsr, u_char *msr)
 	if (msr != NULL)
 		*msr = sc->sc_msr;
 }
-
-#if TODO
-int
-uplcom_ioctl(void *addr, int portno, u_long cmd, caddr_t data, int flag,
-	     struct proc *p)
-{
-	struct uplcom_softc *sc = addr;
-	int error = 0;
-
-	if (usbd_is_dying(sc->sc_udev))
-		return (EIO);
-
-	DPRINTF(("uplcom_ioctl: cmd=0x%08lx\n", cmd));
-
-	switch (cmd) {
-	case TIOCNOTTY:
-	case TIOCMGET:
-	case TIOCMSET:
-	case USB_GET_CM_OVER_DATA:
-	case USB_SET_CM_OVER_DATA:
-		break;
-
-	default:
-		DPRINTF(("uplcom_ioctl: unknown\n"));
-		error = ENOTTY;
-		break;
-	}
-
-	return (error);
-}
-#endif

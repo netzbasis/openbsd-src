@@ -29,17 +29,10 @@
  *	Date:	8/90
  */
 
-/*
- * This module can handle multiple symbol tables
- */
-typedef struct {
-	const char	*name;		/* symtab name */
-	char		*start;		/* symtab location */
-	char		*end;
-	char		*private;	/* optional machdep pointer */
-} db_symtab_t;
+#ifndef _DDB_DB_SYM_H_
+#define _DDB_DB_SYM_H_
 
-extern db_symtab_t	*db_last_symtab; /* where last symbol was found */
+#include <sys/stdint.h>
 
 /*
  * Symbol representation is specific to the symtab style:
@@ -47,7 +40,6 @@ extern db_symtab_t	*db_last_symtab; /* where last symbol was found */
  * a different one
  */
 typedef	char *		db_sym_t;	/* opaque handle on symbols */
-#define	DB_SYM_NULL	((db_sym_t)0)
 
 /*
  * Non-stripped symbol tables will have duplicates, for instance
@@ -72,32 +64,15 @@ typedef int		db_strategy_t;	/* search strategy */
  * the type, prefix an initial ignorable function prefix (e.g. "_"
  * in a.out), and arg an opaque argument to be passed in.
  */
-typedef void (db_forall_func_t)(db_symtab_t *, db_sym_t, char *, char *, int, void *);
-
-extern boolean_t	db_qualify_ambiguous_names;
-					/* if TRUE, check across symbol tables
-					 * for multiple occurrences of a name.
-					 * Might slow down quite a bit */
+typedef void (db_forall_func_t)(db_sym_t, char *, char *, int, void *);
 
 extern unsigned int db_maxoff;		/* like gdb's "max-symbolic-offset" */
-/*
- * Functions exported by the symtable module
- */
-int db_add_symbol_table(char *, char *, const char *, char *);
-					/* extend the list of symbol tables */
 
-void db_del_symbol_table(char *);
-					/* remove a symbol table from list */
-
-boolean_t db_eqname(char *, char *, int);
+int db_eqname(char *, char *, int);
 					/* strcmp, modulo leading char */
 
 int db_value_of_name(char *, db_expr_t *);
 					/* find symbol value given name */
-
-db_sym_t db_lookup(char *);
-
-boolean_t db_symbol_is_ambiguous(db_sym_t);
 
 db_sym_t db_search_symbol(db_addr_t, db_strategy_t, db_expr_t *);
 					/* find symbol given value */
@@ -116,13 +91,12 @@ void db_symbol_values(db_sym_t, char **, db_expr_t *);
 void db_printsym(db_expr_t, db_strategy_t, int (*)(const char *, ...));
 					/* print closest symbol to a value */
 
-#define db_sym_numargs(sym, nargp, argnames) (FALSE)
+int db_elf_sym_init(int, void *, void *, const char *);
+db_sym_t db_elf_sym_search(db_addr_t, db_strategy_t, db_expr_t *);
+int db_elf_line_at_pc(db_sym_t, char **, int *, db_expr_t);
+void db_elf_sym_forall(db_forall_func_t db_forall_func, void *);
 
-char *db_qualify(db_sym_t, const char *);
+bool db_dwarf_line_at_pc(const char *, size_t, uintptr_t,
+    const char **, const char **, int *);
 
-boolean_t db_elf_sym_init(int, void *, void *, const char *);
-db_sym_t db_elf_sym_lookup(db_symtab_t *, char *);
-void db_elf_sym_values(db_symtab_t *, db_sym_t, char **, db_expr_t *);
-db_sym_t db_elf_sym_search(db_symtab_t *, db_addr_t, db_strategy_t, db_expr_t *);
-boolean_t db_elf_line_at_pc(db_symtab_t *, db_sym_t, char **, int *, db_expr_t);
-void db_elf_sym_forall(db_symtab_t *, db_forall_func_t db_forall_func, void *);
+#endif /* _DDB_DB_SYM_H_ */

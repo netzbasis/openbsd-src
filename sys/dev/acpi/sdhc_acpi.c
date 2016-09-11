@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdhc_acpi.c,v 1.1 2016/01/11 07:36:10 kettenis Exp $	*/
+/*	$OpenBSD: sdhc_acpi.c,v 1.8 2016/04/30 11:32:23 kettenis Exp $	*/
 /*
  * Copyright (c) 2016 Mark Kettenis
  *
@@ -29,6 +29,8 @@
 #include <dev/sdmmc/sdhcvar.h>
 #include <dev/sdmmc/sdmmcvar.h>
 
+extern struct bus_dma_tag pci_bus_dma_tag;
+
 struct sdhc_acpi_softc {
 	struct sdhc_softc sc;
 	struct acpi_softc *sc_acpi;
@@ -42,6 +44,12 @@ struct sdhc_acpi_softc {
 	int sc_irq;
 	int sc_irq_flags;
 	void *sc_ih;
+
+	struct aml_node *sc_gpio_int_node;
+	struct aml_node *sc_gpio_io_node;
+	uint16_t sc_gpio_int_pin;
+	uint16_t sc_gpio_int_flags;
+	uint16_t sc_gpio_io_pin;
 
 	struct sdhc_host *sc_host;
 };
@@ -58,29 +66,20 @@ const char *sdhc_hids[] = {
 	"INT33BB",
 	"80860F14",
 	"PNP0FFF",
-	0
+	NULL
 };
 
 int	sdhc_acpi_parse_resources(union acpi_resource *, void *);
+int	sdhc_acpi_card_detect(struct sdhc_softc *);
+int	sdhc_acpi_card_detect_intr(void *);
 
 int
 sdhc_acpi_match(struct device *parent, void *match, void *aux)
 {
 	struct acpi_attach_args *aaa = aux;
 	struct cfdata *cf = match;
-	int64_t sta;
 
-	if (!acpi_matchhids(aaa, sdhc_hids, cf->cf_driver->cd_name))
-		return 0;
-
-	if (aml_evalinteger((struct acpi_softc *)parent, aaa->aaa_node,
-	    "_STA", 0, NULL, &sta))
-		sta = STA_PRESENT | STA_ENABLED | STA_DEV_OK | 0x1000;
-
-	if ((sta & STA_PRESENT) == 0)
-		return 0;
-
-	return 1;
+	return acpi_matchhids(aaa, sdhc_hids, cf->cf_driver->cd_name);
 }
 
 void
@@ -122,10 +121,23 @@ sdhc_acpi_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
+	if (sc->sc_gpio_io_node && sc->sc_gpio_io_node->gpio) {
+		sc->sc.sc_card_detect = sdhc_acpi_card_detect;
+		printf(", gpio");
+	}
+
+	if (sc->sc_gpio_int_node && sc->sc_gpio_int_node->gpio) {
+		struct acpi_gpio *gpio = sc->sc_gpio_int_node->gpio;
+
+		gpio->intr_establish(gpio->cookie, sc->sc_gpio_int_pin,
+		    sc->sc_gpio_int_flags, sdhc_acpi_card_detect_intr, sc);
+	}
+
 	printf("\n");
 
 	sc->sc.sc_host = &sc->sc_host;
-	sdhc_host_found(&sc->sc, sc->sc_memt, sc->sc_memh, sc->sc_size, 0, 0);
+	sc->sc.sc_dmat = &pci_bus_dma_tag;
+	sdhc_host_found(&sc->sc, sc->sc_memt, sc->sc_memh, sc->sc_size, 1, 0);
 }
 
 int
@@ -133,6 +145,8 @@ sdhc_acpi_parse_resources(union acpi_resource *crs, void *arg)
 {
 	struct sdhc_acpi_softc *sc = arg;
 	int type = AML_CRSTYPE(crs);
+	struct aml_node *node;
+	uint16_t pin;
 
 	switch (type) {
 	case LR_MEM32FIXED:
@@ -143,13 +157,40 @@ sdhc_acpi_parse_resources(union acpi_resource *crs, void *arg)
 		sc->sc_irq = crs->lr_extirq.irq[0];
 		sc->sc_irq_flags = crs->lr_extirq.flags;
 		break;
-	case 0x8c:
-		/* XXX GPIO; use for card detect. */
-		break;
-	default:
-		printf(" type 0x%x\n", type);
+	case LR_GPIO:
+		node = aml_searchname(sc->sc_node, (char *)&crs->pad[crs->lr_gpio.res_off]);
+		pin = *(uint16_t *)&crs->pad[crs->lr_gpio.pin_off];
+		if (crs->lr_gpio.type == LR_GPIO_INT) {
+			sc->sc_gpio_int_node = node;
+			sc->sc_gpio_int_pin = pin;
+			sc->sc_gpio_int_flags = crs->lr_gpio.tflags;
+		} else if (crs->lr_gpio.type == LR_GPIO_IO) {
+			sc->sc_gpio_io_node = node;
+			sc->sc_gpio_io_pin = pin;
+		}
 		break;
 	}
 
 	return 0;
+}
+
+int
+sdhc_acpi_card_detect(struct sdhc_softc *ssc)
+{
+	struct sdhc_acpi_softc *sc = (struct sdhc_acpi_softc *)ssc;
+	struct acpi_gpio *gpio = sc->sc_gpio_io_node->gpio;
+	uint16_t pin = sc->sc_gpio_io_pin;
+
+	/* Card detect GPIO signal is active-low. */
+	return !gpio->read_pin(gpio->cookie, pin);
+}
+
+int
+sdhc_acpi_card_detect_intr(void *arg)
+{
+	struct sdhc_acpi_softc *sc = arg;
+
+	sdhc_needs_discover(&sc->sc);
+
+	return (1);
 }

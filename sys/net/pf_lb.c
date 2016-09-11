@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_lb.c,v 1.52 2015/11/24 13:37:16 mpi Exp $ */
+/*	$OpenBSD: pf_lb.c,v 1.55 2016/07/19 12:51:19 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -91,11 +91,6 @@
 #include <netinet/icmp6.h>
 #endif /* INET6 */
 
-
-/*
- * Global variables
- */
-
 u_int64_t		 pf_hash(struct pf_addr *, struct pf_addr *,
 			    struct pf_poolhashkey *, sa_family_t);
 int			 pf_get_sport(struct pf_pdesc *, struct pf_rule *,
@@ -155,6 +150,9 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 	struct pf_state_key_cmp	key;
 	struct pf_addr		init_addr;
 	u_int16_t		cut;
+	int			dir = (pd->dir == PF_IN) ? PF_OUT : PF_IN;
+	int			sidx = pd->sidx;
+	int			didx = pd->didx;
 
 	bzero(&init_addr, sizeof(init_addr));
 	if (pf_map_addr(pd->naf, r, &pd->nsaddr, naddr, &init_addr, sn, &r->nat,
@@ -182,9 +180,9 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 		key.af = pd->naf;
 		key.proto = pd->proto;
 		key.rdomain = pd->rdomain;
-		PF_ACPY(&key.addr[0], &pd->ndaddr, key.af);
-		PF_ACPY(&key.addr[1], naddr, key.af);
-		key.port[0] = pd->ndport;
+		PF_ACPY(&key.addr[didx], &pd->ndaddr, key.af);
+		PF_ACPY(&key.addr[sidx], naddr, key.af);
+		key.port[didx] = pd->ndport;
 
 		/*
 		 * port search; start random, step;
@@ -194,20 +192,20 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 		    pd->proto == IPPROTO_ICMP || pd->proto == IPPROTO_ICMPV6)) {
 			/* XXX bug: icmp states dont use the id on both
 			 * XXX sides (traceroute -I through nat) */
-			key.port[1] = pd->nsport;
-			if (pf_find_state_all(&key, PF_IN, NULL) == NULL) {
+			key.port[sidx] = pd->nsport;
+			if (pf_find_state_all(&key, dir, NULL) == NULL) {
 				*nport = pd->nsport;
 				return (0);
 			}
 		} else if (low == 0 && high == 0) {
-			key.port[1] = pd->nsport;
-			if (pf_find_state_all(&key, PF_IN, NULL) == NULL) {
+			key.port[sidx] = pd->nsport;
+			if (pf_find_state_all(&key, dir, NULL) == NULL) {
 				*nport = pd->nsport;
 				return (0);
 			}
 		} else if (low == high) {
-			key.port[1] = htons(low);
-			if (pf_find_state_all(&key, PF_IN, NULL) == NULL) {
+			key.port[sidx] = htons(low);
+			if (pf_find_state_all(&key, dir, NULL) == NULL) {
 				*nport = htons(low);
 				return (0);
 			}
@@ -223,16 +221,16 @@ pf_get_sport(struct pf_pdesc *pd, struct pf_rule *r,
 			cut = arc4random_uniform(1 + high - low) + low;
 			/* low <= cut <= high */
 			for (tmp = cut; tmp <= high; ++(tmp)) {
-				key.port[1] = htons(tmp);
-				if (pf_find_state_all(&key, PF_IN, NULL) ==
+				key.port[sidx] = htons(tmp);
+				if (pf_find_state_all(&key, dir, NULL) ==
 				    NULL && !in_baddynamic(tmp, pd->proto)) {
 					*nport = htons(tmp);
 					return (0);
 				}
 			}
 			for (tmp = cut - 1; tmp >= low; --(tmp)) {
-				key.port[1] = htons(tmp);
-				if (pf_find_state_all(&key, PF_IN, NULL) ==
+				key.port[sidx] = htons(tmp);
+				if (pf_find_state_all(&key, dir, NULL) ==
 				    NULL && !in_baddynamic(tmp, pd->proto)) {
 					*nport = htons(tmp);
 					return (0);
@@ -415,28 +413,24 @@ pf_map_addr(sa_family_t af, struct pf_rule *r, struct pf_addr *saddr,
 		} else if (init_addr != NULL && PF_AZERO(init_addr, af)) {
 			switch (af) {
 			case AF_INET:
-				rpool->counter.addr32[0] = htonl(arc4random());
+				rpool->counter.addr32[0] = arc4random();
 				break;
 #ifdef INET6
 			case AF_INET6:
 				if (rmask->addr32[3] != 0xffffffff)
-					rpool->counter.addr32[3] =
-					    htonl(arc4random());
+					rpool->counter.addr32[3] = arc4random();
 				else
 					break;
 				if (rmask->addr32[2] != 0xffffffff)
-					rpool->counter.addr32[2] =
-					    htonl(arc4random());
+					rpool->counter.addr32[2] = arc4random();
 				else
 					break;
 				if (rmask->addr32[1] != 0xffffffff)
-					rpool->counter.addr32[1] =
-					    htonl(arc4random());
+					rpool->counter.addr32[1] = arc4random();
 				else
 					break;
 				if (rmask->addr32[0] != 0xffffffff)
-					rpool->counter.addr32[0] =
-					    htonl(arc4random());
+					rpool->counter.addr32[0] = arc4random();
 				break;
 #endif /* INET6 */
 			default:

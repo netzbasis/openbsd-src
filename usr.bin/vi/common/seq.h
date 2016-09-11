@@ -1,4 +1,4 @@
-/*	$OpenBSD: seq.h,v 1.3 2001/01/29 01:58:32 niklas Exp $	*/
+/*	$OpenBSD: seq.h,v 1.5 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

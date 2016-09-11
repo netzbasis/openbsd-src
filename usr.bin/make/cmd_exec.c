@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd_exec.c,v 1.8 2010/07/19 19:46:43 espie Exp $ */
+/*	$OpenBSD: cmd_exec.c,v 1.10 2016/03/28 11:27:37 chl Exp $ */
 /*
  * Copyright (c) 2001 Marc Espie.
  *
@@ -42,7 +42,6 @@ Cmd_Exec(const char *cmd, char **err)
 	char	*args[4];	/* Args for invoking the shell */
 	int 	fds[2]; 	/* Pipe streams */
 	pid_t 	cpid;		/* Child PID */
-	pid_t 	pid;		/* PID from wait() */
 	char	*result;	/* Result */
 	int 	status; 	/* Command exit status */
 	BUFFER	buf;		/* Buffer to store the result. */
@@ -107,7 +106,7 @@ Cmd_Exec(const char *cmd, char **err)
 		(void)close(fds[0]);
 
 		/* Wait for the child to exit.  */
-		while ((pid = wait(&status)) != cpid && pid >= 0)
+		while (waitpid(cpid, &status, 0) == -1 && errno == EINTR)
 			continue;
 
 		if (cc == -1)

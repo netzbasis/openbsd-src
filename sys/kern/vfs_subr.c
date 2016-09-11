@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.238 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.250 2016/08/25 00:01:13 dlg Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -84,7 +84,6 @@ int	vttoif_tab[9] = {
 	S_IFSOCK, S_IFIFO, S_IFMT,
 };
 
-int doforce = 1;		/* 1 => permit forcible unmounting */
 int prtactive = 0;		/* 1 => print out reclaim of active vnodes */
 int suid_clear = 1;		/* 1 => clear SUID / SGID on owner change */
 
@@ -146,8 +145,10 @@ vntblinit(void)
 	maxvnodes = 2 * initialvnodes;
 	pool_init(&vnode_pool, sizeof(struct vnode), 0, 0, PR_WAITOK,
 	    "vnodes", NULL);
+	pool_setipl(&vnode_pool, IPL_NONE);
 	pool_init(&uvm_vnode_pool, sizeof(struct uvm_vnode), 0, 0, PR_WAITOK,
 	    "uvmvnodes", NULL);
+	pool_setipl(&uvm_vnode_pool, IPL_NONE);
 	TAILQ_INIT(&vnode_hold_list);
 	TAILQ_INIT(&vnode_free_list);
 	TAILQ_INIT(&mountlist);
@@ -555,7 +556,16 @@ loop:
 		nvp->v_specnext = *vpp;
 		nvp->v_specmountpoint = NULL;
 		nvp->v_speclockf = NULL;
-		memset(nvp->v_specbitmap, 0, sizeof(nvp->v_specbitmap));
+		nvp->v_specbitmap = NULL;
+		if (nvp->v_type == VCHR &&
+		    (cdevsw[major(nvp_rdev)].d_flags & D_CLONE) &&
+		    (minor(nvp_rdev) >> CLONE_SHIFT == 0)) {
+			if (vp != NULLVP)
+				nvp->v_specbitmap = vp->v_specbitmap;
+			else
+				nvp->v_specbitmap = malloc(CLONE_MAPSZ,
+				    M_VNODE, M_WAITOK | M_ZERO);
+		}
 		*vpp = nvp;
 		if (vp != NULLVP) {
 			nvp->v_flag |= VALIASED;
@@ -576,7 +586,7 @@ loop:
 	 * The vnodes created by bdevvp should not be aliased (why?).
 	 */
 
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 	vclean(vp, 0, p);
 	vp->v_op = nvp->v_op;
 	vp->v_tag = nvp->v_tag;
@@ -707,7 +717,7 @@ vput(struct vnode *vp)
 #endif
 	vp->v_usecount--;
 	if (vp->v_usecount > 0) {
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		return;
 	}
 
@@ -890,7 +900,7 @@ vflush_vnode(struct vnode *vp, void *arg) {
 		} else {
 			vclean(vp, 0, p);
 			vp->v_op = &spec_vops;
-			insmntque(vp, (struct mount *)0);
+			insmntque(vp, NULL);
 		}
 		return (0);
 	}
@@ -949,7 +959,7 @@ vclean(struct vnode *vp, int flags, struct proc *p)
 	 * For active vnodes, it ensures that no other activity can
 	 * occur while the underlying object is being cleaned out.
 	 */
-	VOP_LOCK(vp, LK_DRAIN, p);
+	VOP_LOCK(vp, LK_DRAIN | LK_EXCLUSIVE, p);
 
 	/*
 	 * Clean out any VM data associated with the vnode.
@@ -974,7 +984,7 @@ vclean(struct vnode *vp, int flags, struct proc *p)
 		 * Any other processes trying to obtain this lock must first
 		 * wait for VXLOCK to clear, then call the new lock operation.
 		 */
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 	}
 
 	/*
@@ -1059,12 +1069,17 @@ vgonel(struct vnode *vp, struct proc *p)
 	 * Delete from old mount point vnode list, if on one.
 	 */
 	if (vp->v_mount != NULL)
-		insmntque(vp, (struct mount *)0);
+		insmntque(vp, NULL);
 	/*
 	 * If special device, remove it from special device alias list
 	 * if it is on one.
 	 */
 	if ((vp->v_type == VBLK || vp->v_type == VCHR) && vp->v_specinfo != 0) {
+		if ((vp->v_flag & VALIASED) == 0 && vp->v_type == VCHR &&
+		    (cdevsw[major(vp->v_rdev)].d_flags & D_CLONE) &&
+		    (minor(vp->v_rdev) >> CLONE_SHIFT == 0)) {
+			free(vp->v_specbitmap, M_VNODE, CLONE_MAPSZ);
+		}
 		if (*vp->v_hashchain == vp) {
 			*vp->v_hashchain = vp->v_specnext;
 		} else {
@@ -1250,7 +1265,7 @@ printlockedvnodes(void)
 			continue;
 		LIST_FOREACH(vp, &mp->mnt_vnodelist, v_mntvnodes) {
 			if (VOP_ISLOCKED(vp))
-				vprint((char *)0, vp);
+				vprint(NULL, vp);
 		}
 		vfs_unbusy(mp);
  	}
@@ -1277,7 +1292,7 @@ vfs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 			if (vfsp->vfc_typenum == name[0])
 				break;
 
-		if (vfsp == NULL)
+		if (vfsp == NULL || vfsp->vfc_vfsops->vfs_sysctl == NULL)
 			return (EOPNOTSUPP);
 
 		return ((*vfsp->vfc_vfsops->vfs_sysctl)(&name[1], namelen - 1,
@@ -1599,7 +1614,7 @@ vfs_shutdown(void)
 
 	if (panicstr == 0) {
 		/* Sync before unmount, in case we hang on something. */
-		sys_sync(&proc0, (void *)0, (register_t *)0);
+		sys_sync(&proc0, NULL, NULL);
 
 		/* Unmount file systems. */
 		vfs_unmountall();
@@ -1631,7 +1646,7 @@ vfs_syncwait(int verbose)
 #endif
 
 	p = curproc? curproc : &proc0;
-	sys_sync(p, (void *)0, (register_t *)0);
+	sys_sync(p, NULL, NULL);
 
 	/* Wait for sync to finish. */
 	dcount = 10000;
@@ -2149,8 +2164,8 @@ vfs_vnode_print(void *v, int full,
 	struct vnode *vp = v;
 
 	(*pr)("tag %s(%d) type %s(%d) mount %p typedata %p\n",
-	      vp->v_tag > nitems(vtags)? "<unk>":vtags[vp->v_tag], vp->v_tag,
-	      vp->v_type > nitems(vtypes)? "<unk>":vtypes[vp->v_type],
+	      vp->v_tag >= nitems(vtags)? "<unk>":vtags[vp->v_tag], vp->v_tag,
+	      vp->v_type >= nitems(vtypes)? "<unk>":vtypes[vp->v_type],
 	      vp->v_type, vp->v_mount, vp->v_mountedhere);
 
 	(*pr)("data %p usecount %d writecount %d holdcnt %d numoutput %d\n",
@@ -2262,6 +2277,6 @@ copy_statfs_info(struct statfs *sbp, const struct mount *mp)
 	memcpy(sbp->f_mntonname, mp->mnt_stat.f_mntonname, MNAMELEN);
 	memcpy(sbp->f_mntfromname, mp->mnt_stat.f_mntfromname, MNAMELEN);
 	memcpy(sbp->f_mntfromspec, mp->mnt_stat.f_mntfromspec, MNAMELEN);
-	memcpy(&sbp->mount_info.ufs_args, &mp->mnt_stat.mount_info.ufs_args,
-	    sizeof(struct ufs_args));
+	memcpy(&sbp->mount_info, &mp->mnt_stat.mount_info,
+	    sizeof(union mount_info));
 }

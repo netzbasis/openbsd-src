@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.53 2015/12/07 06:34:14 jsg Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.57 2016/09/03 13:35:03 mlarkin Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.7 1994/10/27 04:16:26 cgd Exp $	*/
 
 /*-
@@ -83,6 +83,7 @@
 #define	CR4_PCE	0x00000100	/* enable RDPMC instruction for all cpls */
 #define	CR4_OSFXSR	0x00000200	/* enable fxsave/fxrestor and SSE */
 #define	CR4_OSXMMEXCPT	0x00000400	/* enable unmasked SSE exceptions */
+#define	CR4_UMIP	0x00000800	/* user mode instruction prevention */
 #define	CR4_VMXE	0x00002000	/* enable virtual machine operation */
 #define	CR4_SMXE	0x00004000	/* enable safe mode operation */
 #define	CR4_FSGSBASE	0x00010000	/* enable {RD,WR}{FS,GS}BASE ops */
@@ -101,7 +102,7 @@
 #define	CPUID_DE	0x00000004	/* has debugging extension */
 #define	CPUID_PSE	0x00000008	/* has 4MB page size extension */
 #define	CPUID_TSC	0x00000010	/* has time stamp counter */
-#define	CPUID_MSR	0x00000020	/* has mode specific registers */
+#define	CPUID_MSR	0x00000020	/* has model specific registers */
 #define	CPUID_PAE	0x00000040	/* has phys address extension */
 #define	CPUID_MCE	0x00000080	/* has machine check exception */
 #define	CPUID_CX8	0x00000100	/* has CMPXCHG8B instruction */
@@ -140,6 +141,7 @@
 #define	CPUIDECX_TM2	0x00000100	/* thermal monitor 2 */
 #define	CPUIDECX_SSSE3	0x00000200	/* Supplemental Streaming SIMD Ext. 3 */
 #define	CPUIDECX_CNXTID	0x00000400	/* Context ID */
+#define CPUIDECX_SDBG	0x00000800	/* Silicon debug capability */
 #define	CPUIDECX_FMA3	0x00001000	/* Fused Multiply Add */
 #define	CPUIDECX_CX16	0x00002000	/* has CMPXCHG16B instruction */
 #define	CPUIDECX_XTPR	0x00004000	/* xTPR Update Control */
@@ -195,6 +197,7 @@
 /* SEFF ECX bits */
 #define SEFF0ECX_PREFETCHWT1	0x00000001 /* PREFETCHWT1 instruction */
 #define SEFF0ECX_AVX512VBMI	0x00000002 /* AVX-512 vector bit inst */
+#define SEFF0ECX_UMIP		0x00000004 /* UMIP support */
 #define SEFF0ECX_PKU		0x00000008 /* Page prot keys for user mode */
 
 /*
@@ -318,6 +321,9 @@
 #define MSR_TEMPERATURE_TARGET_UNDOCUMENTED	0x0ee
 #define MSR_TEMPERATURE_TARGET_LOW_BIT_UNDOCUMENTED	0x40000000
 #define MSR_MTRRcap		0x0fe
+#define MTRRcap_FIXED		0x100	/* bit 8 - fixed MTRRs supported */
+#define MTRRcap_WC		0x400	/* bit 10 - WC type supported */
+#define MTRRcap_SMRR		0x800	/* bit 11 - SMM range reg supported */
 #define	MSR_BBL_CR_ADDR		0x116	/* PII+ only */
 #define	MSR_BBL_CR_DECC		0x118	/* PII+ only */
 #define	MSR_BBL_CR_CTL		0x119	/* PII+ only */
@@ -334,6 +340,7 @@
 #define P6MSR_CTRSEL1		0x187
 #define MSR_PERF_STATUS		0x198	/* Pentium M */
 #define MSR_PERF_CTL		0x199	/* Pentium M */
+#define PERF_CTL_TURBO		0x100000000ULL /* bit 32 - turbo mode */
 #define MSR_THERM_CONTROL	0x19a
 #define MSR_THERM_INTERRUPT	0x19b
 #define MSR_THERM_STATUS	0x19c
@@ -353,6 +360,8 @@
 #define MSR_MTRRfix4K_C0000	0x268
 #define MSR_CR_PAT		0x277
 #define MSR_MTRRdefType		0x2ff
+#define MTRRdefType_FIXED_ENABLE	0x400 /* bit 10 - fixed MTRR enabled */
+#define MTRRdefType_ENABLE	0x800 /* bit 11 - MTRRs enabled */
 #define MSR_PERF_FIXED_CTR1	0x30a	/* CPU_CLK_Unhalted.Core */
 #define MSR_PERF_FIXED_CTR2	0x30b	/* CPU_CLK.Unhalted.Ref */
 #define MSR_PERF_FIXED_CTR_CTRL	0x38d

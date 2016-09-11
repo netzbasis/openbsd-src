@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.h,v 1.93 2015/12/03 10:34:24 tedu Exp $	*/
+/*	$OpenBSD: in_pcb.h,v 1.104 2016/09/03 14:18:42 phessler Exp $	*/
 /*	$NetBSD: in_pcb.h,v 1.14 1996/02/13 23:42:00 christos Exp $	*/
 
 /*
@@ -132,6 +132,7 @@ struct inpcb {
 #define SL_ESP_NETWORK    2             /* ESP network (encapsulation) level */
 #define SL_IPCOMP         3             /* Compression level */
 	u_char	inp_ip_minttl;		/* minimum TTL or drop */
+#define inp_ip6_minhlim inp_ip_minttl	/* minimum Hop Limit or drop */
 #define	inp_flowinfo	inp_hu.hu_ipv6.ip6_flow
 
 	int	inp_cksum6;
@@ -228,7 +229,16 @@ struct inpcbtable {
 	587, 749, 750, 751, 871, 2049, \
 	6000, 6001, 6002, 6003, 6004, 6005, 6006, 6007, 6008, 6009, 6010, \
 	0 }
-#define	DEFBADDYNAMICPORTS_UDP	{ 623, 664, 749, 750, 751, 2049, 0 }
+#define	DEFBADDYNAMICPORTS_UDP	{ 623, 664, 749, 750, 751, 2049, \
+	3784, 3785, 7784, /* BFD/S-BFD ports */ \
+	 0 }
+
+#define DEFROOTONLYPORTS_TCP { \
+	2049, \
+	0 }
+#define DEFROOTONLYPORTS_UDP { \
+	2049, \
+	0 }
 
 struct baddynamicports {
 	u_int32_t tcp[DP_MAPSIZE];
@@ -238,12 +248,15 @@ struct baddynamicports {
 #ifdef _KERNEL
 
 extern struct baddynamicports baddynamicports;
+extern struct baddynamicports rootonlyports;
 
 #define sotopf(so)  (so->so_proto->pr_domain->dom_family)
 
 void	 in_losing(struct inpcb *);
 int	 in_pcballoc(struct socket *, struct inpcbtable *);
 int	 in_pcbbind(struct inpcb *, struct mbuf *, struct proc *);
+int	 in_pcbaddrisavail(struct inpcb *, struct sockaddr_in *, int,
+	    struct proc *);
 int	 in_pcbconnect(struct inpcb *, struct mbuf *);
 void	 in_pcbdetach(struct inpcb *);
 void	 in_pcbdisconnect(struct inpcb *);
@@ -261,15 +274,15 @@ struct inpcb *
 	 in6_pcblookup_listen(struct inpcbtable *,
 			       struct in6_addr *, u_int, int, struct mbuf *,
 			       u_int);
-int	 in6_pcbbind(struct inpcb *, struct mbuf *, struct proc *);
+int	 in6_pcbaddrisavail(struct inpcb *, struct sockaddr_in6 *, int,
+	    struct proc *);
 int	 in6_pcbconnect(struct inpcb *, struct mbuf *);
 int	 in6_setsockaddr(struct inpcb *, struct mbuf *);
 int	 in6_setpeeraddr(struct inpcb *, struct mbuf *);
 #endif /* INET6 */
 void	 in_pcbinit(struct inpcbtable *, int);
 struct inpcb *
-	 in_pcblookup(struct inpcbtable *, void *, u_int, void *,
-	    u_int, int, u_int);
+	 in_pcblookup_local(struct inpcbtable *, void *, u_int, int, u_int);
 void	 in_pcbnotifyall(struct inpcbtable *, struct sockaddr *,
 	    u_int, int, void (*)(struct inpcb *, int));
 void	 in_pcbrehash(struct inpcb *);
@@ -277,8 +290,8 @@ void	 in_rtchange(struct inpcb *, int);
 void	 in_setpeeraddr(struct inpcb *, struct mbuf *);
 void	 in_setsockaddr(struct inpcb *, struct mbuf *);
 int	 in_baddynamic(u_int16_t, u_int16_t);
-int	 in_selectsrc(struct in_addr **, struct sockaddr_in *,
-	    struct ip_moptions *, struct route *, struct in_addr *, u_int);
+int	 in_rootonly(u_int16_t, u_int16_t);
+int	 in_pcbselsrc(struct in_addr **, struct sockaddr_in *, struct inpcb *);
 struct rtentry *
 	in_pcbrtentry(struct inpcb *);
 
@@ -287,6 +300,6 @@ int	in6_pcbnotify(struct inpcbtable *, struct sockaddr_in6 *,
 	u_int, const struct sockaddr_in6 *, u_int, u_int, int, void *,
 	void (*)(struct inpcb *, int));
 int	in6_selecthlim(struct inpcb *);
-int	in_pcbpickport(u_int16_t *, int, struct inpcb *, struct proc *);
+int	in_pcbpickport(u_int16_t *, void *, int, struct inpcb *, struct proc *);
 #endif /* _KERNEL */
 #endif /* _NETINET_IN_PCB_H_ */

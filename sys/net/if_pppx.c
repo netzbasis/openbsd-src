@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pppx.c,v 1.50 2016/01/31 13:54:13 stefan Exp $ */
+/*	$OpenBSD: if_pppx.c,v 1.54 2016/09/09 04:48:26 dlg Exp $ */
 
 /*
  * Copyright (c) 2010 Claudio Jeker <claudio@openbsd.org>
@@ -250,6 +250,7 @@ pppxopen(dev_t dev, int flags, int mode, struct proc *p)
 		pppx_if_pl = malloc(sizeof(*pppx_if_pl), M_DEVBUF, M_WAITOK);
 		pool_init(pppx_if_pl, sizeof(struct pppx_if), 0, 0, PR_WAITOK,
 		    "pppxif", NULL);
+		pool_setipl(pppx_if_pl, IPL_NONE);
 	}
 
 	pxd = malloc(sizeof(*pxd), M_DEVBUF, M_WAITOK | M_ZERO);
@@ -844,7 +845,6 @@ pppx_add_session(struct pppx_dev *pxd, struct pipex_session_req *req)
 	ifp->if_rtrequest = p2p_rtrequest;
 	ifp->if_type = IFT_PPP;
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	ifp->if_softc = pxi;
 	/* ifp->if_rdomain = req->pr_rdomain; */
 

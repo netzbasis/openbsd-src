@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.166 2016/01/31 13:54:13 stefan Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.169 2016/09/04 15:46:39 reyk Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -60,6 +60,7 @@
 #include <net/if.h>
 #include <net/if_types.h>
 #include <net/netisr.h>
+#include <net/rtable.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -211,12 +212,11 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 	ifp->if_hardmtu = TUNMRU;
 	ifp->if_link_state = LINK_STATE_DOWN;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if ((flags & TUN_LAYER2) == 0) {
 		tp->tun_flags &= ~TUN_LAYER2;
 		ifp->if_mtu = ETHERMTU;
-		ifp->if_flags = IFF_POINTOPOINT;
+		ifp->if_flags = (IFF_POINTOPOINT|IFF_MULTICAST);
 		ifp->if_type = IFT_TUNNEL;
 		ifp->if_hdrlen = sizeof(u_int32_t);
 		ifp->if_rtrequest = p2p_rtrequest;
@@ -318,7 +318,8 @@ tunopen(dev_t dev, int flag, int mode, struct proc *p)
 		char	xname[IFNAMSIZ];
 
 		snprintf(xname, sizeof(xname), "%s%d", "tun", minor(dev));
-		if ((error = if_clone_create(xname)) != 0)
+		if ((error = if_clone_create(xname,
+		    rtable_l2(p->p_p->ps_rtableid))) != 0)
 			return (error);
 
 		if ((tp = tun_lookup(minor(dev))) == NULL)
@@ -339,7 +340,8 @@ tapopen(dev_t dev, int flag, int mode, struct proc *p)
 		char	xname[IFNAMSIZ];
 
 		snprintf(xname, sizeof(xname), "%s%d", "tap", minor(dev));
-		if ((error = if_clone_create(xname)) != 0)
+		if ((error = if_clone_create(xname,
+		    rtable_l2(p->p_p->ps_rtableid))) != 0)
 			return (error);
 
 		if ((tp = tap_lookup(minor(dev))) == NULL)

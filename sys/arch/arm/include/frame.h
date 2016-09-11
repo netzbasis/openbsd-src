@@ -1,4 +1,4 @@
-/*	$OpenBSD: frame.h,v 1.7 2016/01/31 00:14:50 jsg Exp $	*/
+/*	$OpenBSD: frame.h,v 1.10 2016/04/25 08:00:43 patrick Exp $	*/
 /*	$NetBSD: frame.h,v 1.9 2003/12/01 08:48:33 scw Exp $	*/
 
 /*
@@ -75,6 +75,7 @@ typedef struct trapframe {
 	register_t tf_svc_sp;
 	register_t tf_svc_lr;
 	register_t tf_pc;
+	register_t tf_pad;
 } trapframe_t;
 
 /* Register numbers */
@@ -137,6 +138,7 @@ typedef struct irqframe {
 	unsigned int if_svc_sp;
 	unsigned int if_svc_lr;
 	unsigned int if_pc;
+	unsigned int if_pad;
 } irqframe_t;
 
 #define clockframe irqframe
@@ -146,13 +148,14 @@ typedef struct irqframe {
  */
 
 struct switchframe {
+	u_int	sf_pad;
 	u_int	sf_r4;
 	u_int	sf_r5;
 	u_int	sf_r6;
 	u_int	sf_r7;
 	u_int	sf_pc;
 };
- 
+
 /*
  * Stack frame. Used during stack traces (db_trace.c)
  */
@@ -198,15 +201,33 @@ struct frame {
  */
 
 /*
+ * CLREX - On ARMv7 machines that support atomic instructions, we need
+ * to clear the exclusive monitors on kernel exit, so that a userland
+ * atomic store can't succeed due to an unrelated outstanding atomic
+ * operation. ARM also highly recommends clearing the monitor on data
+ * aborts, as the monitor state after taking a data abort is unknown.
+ * Issuing a clrex on kernel entry and on kernel exit is the easiest
+ * way to take care of both issues and to make sure that the kernel
+ * and userland do not leave any outstanding reserves active.
+ */
+#if defined(CPU_ARMv7)
+#define CLREX clrex
+#else
+#define CLREX
+#endif
+
+/*
  * PUSHFRAME - macro to push a trap frame on the stack in the current mode
  * Since the current mode is used, the SVC lr field is not defined.
  */
 
 #define PUSHFRAME							   \
+	CLREX;								   \
+	sub	sp, sp, #4;		/* Align the stack */		   \
 	str	lr, [sp, #-4]!;		/* Push the return address */	   \
 	sub	sp, sp, #(4*17);	/* Adjust the stack pointer */	   \
 	stmia	sp, {r0-r14}^;		/* Push the user mode registers */ \
-        mov     r0, r0;                 /* NOP for previous instruction */ \
+	mov	r0, r0;			/* NOP for previous instruction */ \
 	mrs	r0, spsr;		/* Put the SPSR on the stack */	   \
 	str	r0, [sp, #-4]!
 
@@ -216,39 +237,44 @@ struct frame {
  */
 
 #define PULLFRAME							   \
-        ldr     r0, [sp], #0x0004;      /* Get the SPSR from stack */	   \
-        msr     spsr_fsxc, r0;						   \
-        ldmia   sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
-        mov     r0, r0;                 /* NOP for previous instruction */ \
+	CLREX;								   \
+	ldr	r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
+	msr	spsr_fsxc, r0;						   \
+	ldmia	sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
+	mov	r0, r0;			/* NOP for previous instruction */ \
 	add	sp, sp, #(4*17);	/* Adjust the stack pointer */	   \
- 	ldr	lr, [sp], #0x0004	/* Pull the return address */
+	ldr	lr, [sp], #0x0004;	/* Pull the return address */	   \
+	add	sp, sp, #4		/* Align the stack */
 
 /*
  * PUSHFRAMEINSVC - macro to push a trap frame on the stack in SVC32 mode
  * This should only be used if the processor is not currently in SVC32
  * mode. The processor mode is switched to SVC mode and the trap frame is
  * stored. The SVC lr field is used to store the previous value of
- * lr in SVC mode.  
+ * lr in SVC mode.
  */
 
 #define PUSHFRAMEINSVC							   \
+	CLREX;								   \
 	stmdb	sp, {r0-r3};		/* Save 4 registers */		   \
 	mov	r0, lr;			/* Save xxx32 r14 */		   \
 	mov	r1, sp;			/* Save xxx32 sp */		   \
 	mrs	r3, spsr;		/* Save xxx32 spsr */		   \
-	mrs     r2, cpsr; 		/* Get the CPSR */		   \
-	bic     r2, r2, #(PSR_MODE);	/* Fix for SVC mode */		   \
-	orr     r2, r2, #(PSR_SVC32_MODE);				   \
-	msr     cpsr_c, r2;		/* Punch into SVC mode */	   \
+	mrs	r2, cpsr; 		/* Get the CPSR */		   \
+	bic	r2, r2, #(PSR_MODE);	/* Fix for SVC mode */		   \
+	orr	r2, r2, #(PSR_SVC32_MODE);				   \
+	msr	cpsr_c, r2;		/* Punch into SVC mode */	   \
 	mov	r2, sp;			/* Save	SVC sp */		   \
+	bic	sp, sp, #7;		/* Align sp to an 8-byte address */   \
+	sub	sp, sp, #4;		/* Pad trapframe to keep alignment */ \
 	str	r0, [sp, #-4]!;		/* Push return address */	   \
 	str	lr, [sp, #-4]!;		/* Push SVC lr */		   \
 	str	r2, [sp, #-4]!;		/* Push SVC sp */		   \
-	msr     spsr_fsxc, r3;		/* Restore correct spsr */	   \
+	msr	spsr_fsxc, r3;		/* Restore correct spsr */	   \
 	ldmdb	r1, {r0-r3};		/* Restore 4 regs from xxx mode */ \
 	sub	sp, sp, #(4*15);	/* Adjust the stack pointer */	   \
 	stmia	sp, {r0-r14}^;		/* Push the user mode registers */ \
-        mov     r0, r0;                 /* NOP for previous instruction */ \
+	mov	r0, r0;			/* NOP for previous instruction */ \
 	mrs	r0, spsr;		/* Put the SPSR on the stack */	   \
 	str	r0, [sp, #-4]!
 
@@ -260,15 +286,16 @@ struct frame {
  */
 
 #define PULLFRAMEFROMSVCANDEXIT						   \
-        ldr     r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
-        msr     spsr_fsxc, r0;		/* restore SPSR */		   \
-        ldmia   sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
-        mov     r0, r0;	  		/* NOP for previous instruction */ \
+	CLREX;								   \
+	ldr	r0, [sp], #0x0004;	/* Get the SPSR from stack */	   \
+	msr	spsr_fsxc, r0;		/* restore SPSR */		   \
+	ldmia	sp, {r0-r14}^;		/* Restore registers (usr mode) */ \
+	mov	r0, r0;			/* NOP for previous instruction */ \
 	add	sp, sp, #(4*15);	/* Adjust the stack pointer */	   \
 	ldmia	sp, {sp, lr, pc}^	/* Restore lr and exit */
 
 #endif /* _LOCORE */
 
 #endif /* _ARM_FRAME_H_ */
-  
+
 /* End of frame.h */

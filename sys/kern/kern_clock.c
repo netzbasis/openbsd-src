@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_clock.c,v 1.88 2015/06/11 16:03:04 mikeb Exp $	*/
+/*	$OpenBSD: kern_clock.c,v 1.91 2016/09/04 09:22:29 mpi Exp $	*/
 /*	$NetBSD: kern_clock.c,v 1.34 1996/06/09 04:51:03 briggs Exp $	*/
 
 /*-
@@ -51,7 +51,7 @@
 #include <sys/timetc.h>
 
 
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 #include <sys/gmon.h>
 #endif
 
@@ -114,6 +114,8 @@ initclocks(void)
 	softclock_si = softintr_establish(IPL_SOFTCLOCK, softclock, NULL);
 	if (softclock_si == NULL)
 		panic("initclocks: unable to register softclock intr");
+
+	ticks = INT_MAX - (15 * 60 * hz);
 
 	/*
 	 * Set divisors to 1 (normal case) and let the machine-specific
@@ -191,6 +193,7 @@ hardclock(struct clockframe *frame)
 		return;
 
 	tc_ticktock();
+	ticks++;
 
 	/*
 	 * Update real-time timeout queue.
@@ -314,7 +317,7 @@ stopprofclock(struct process *pr)
 void
 statclock(struct clockframe *frame)
 {
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 	struct gmonparam *g;
 	u_long i;
 #endif
@@ -353,7 +356,7 @@ statclock(struct clockframe *frame)
 		else
 			spc->spc_cp_time[CP_USER]++;
 	} else {
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 		/*
 		 * Kernel statistics are just like addupc_intr, only easier.
 		 */

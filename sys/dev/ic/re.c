@@ -1,4 +1,4 @@
-/*	$OpenBSD: re.c,v 1.189 2016/01/04 05:41:22 dlg Exp $	*/
+/*	$OpenBSD: re.c,v 1.193 2016/08/10 14:27:17 deraadt Exp $	*/
 /*	$FreeBSD: if_re.c,v 1.31 2004/09/04 07:54:05 ru Exp $	*/
 /*
  * Copyright (c) 1997, 1998-2003
@@ -197,6 +197,8 @@ void	in_delayed_cksum(struct mbuf *);
 struct cfdriver re_cd = {
 	0, "re", DV_IFNET
 };
+
+extern char *hw_vendor, *hw_prod;
 
 #define EE_SET(x)					\
 	CSR_WRITE_1(sc, RL_EECMD,			\
@@ -642,18 +644,6 @@ re_reset(struct rl_softc *sc)
 		CSR_WRITE_1(sc, RL_LDPS, 1);
 }
 
-#ifdef __armish__ 
-/*
- * Thecus N2100 doesn't store the full mac address in eeprom
- * so we read the old mac address from the device before the reset
- * in hopes that the proper mac address is already there.
- */
-union {
-	u_int32_t eaddr_word[2];
-	u_char eaddr[ETHER_ADDR_LEN];
-} boot_eaddr;
-int boot_eaddr_valid;
-#endif /* __armish__ */
 /*
  * Attach the interface. Allocate softc structures, do ifmedia
  * setup and ethernet/BPF attach.
@@ -875,30 +865,6 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 		for (i = 0; i < ETHER_ADDR_LEN / 2; i++)
 			as[i] = letoh16(as[i]);
 		bcopy(as, eaddr, ETHER_ADDR_LEN);
-
-#ifdef __armish__
-		/*
-		 * On the Thecus N2100, the MAC address in the EEPROM is
-		 * always 00:14:fd:10:00:00.  The proper MAC address is
-		 * stored in flash.  Fortunately RedBoot configures the
-		 * proper MAC address (for the first onboard interface)
-		 * which we can read from the IDR.
-		 */
-		if (eaddr[0] == 0x00 && eaddr[1] == 0x14 &&
-		    eaddr[2] == 0xfd && eaddr[3] == 0x10 &&
-		    eaddr[4] == 0x00 && eaddr[5] == 0x00) {
-			if (boot_eaddr_valid == 0) {
-				boot_eaddr.eaddr_word[1] =
-				    letoh32(CSR_READ_4(sc, RL_IDR4));
-				boot_eaddr.eaddr_word[0] =
-				    letoh32(CSR_READ_4(sc, RL_IDR0));
-				boot_eaddr_valid = 1;
-			}
-
-			bcopy(boot_eaddr.eaddr, eaddr, sizeof(eaddr));
-			eaddr[5] += sc->sc_dev.dv_unit;
-		}
-#endif
 	}
 
 	/*
@@ -1048,7 +1014,6 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 	ifp->if_watchdog = re_watchdog;
 	ifp->if_hardmtu = sc->rl_max_mtu;
 	IFQ_SET_MAXLEN(&ifp->if_snd, RL_TX_QLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_TCPv4 |
 	    IFCAP_CSUM_UDPv4;
@@ -1941,6 +1906,21 @@ re_init(struct ifnet *ifp)
 	    htole32(*(u_int32_t *)(&eaddr.eaddr[4])));
 	CSR_WRITE_4(sc, RL_IDR0,
 	    htole32(*(u_int32_t *)(&eaddr.eaddr[0])));
+	/*
+	 * Default on PC Engines APU1 is to have all LEDs off unless
+	 * there is network activity. Override to provide a link status
+	 * LED.
+	 */
+	if (sc->sc_hwrev == RL_HWREV_8168E &&
+	    hw_vendor != NULL && hw_prod != NULL &&
+	    strcmp(hw_vendor, "PC Engines") == 0 &&
+	    strcmp(hw_prod, "APU") == 0) {
+		CSR_SETBIT_1(sc, RL_CFG4, RL_CFG4_CUSTOM_LED);
+		CSR_WRITE_1(sc, RL_LEDSEL, RL_LED_LINK | RL_LED_ACT << 4);
+	}
+	/*
+	 * Protect config register again
+	 */
 	CSR_WRITE_1(sc, RL_EECMD, RL_EEMODE_OFF);
 
 	if ((sc->rl_flags & RL_FLAG_JUMBOV2) != 0)
@@ -2262,15 +2242,15 @@ re_setup_sim_im(struct rl_softc *sc)
 	if (sc->sc_hwrev == RL_HWREV_8139CPLUS)
 		CSR_WRITE_4(sc, RL_TIMERINT, 0x400); /* XXX */
 	else {
-		u_int32_t ticks;
+		u_int32_t nticks;
 
 		/*
 		 * Datasheet says tick decreases at bus speed,
 		 * but it seems the clock runs a little bit
 		 * faster, so we do some compensation here.
 		 */
-		ticks = (sc->rl_sim_time * sc->rl_bus_speed * 8) / 5;
-		CSR_WRITE_4(sc, RL_TIMERINT_8169, ticks);
+		nticks = (sc->rl_sim_time * sc->rl_bus_speed * 8) / 5;
+		CSR_WRITE_4(sc, RL_TIMERINT_8169, nticks);
 	}
 	CSR_WRITE_4(sc, RL_TIMERCNT, 1); /* reload */
 	sc->rl_timerintr = 1;

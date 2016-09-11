@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.54 2014/07/15 15:54:14 millert Exp $ */
+/* $OpenBSD: misc.h,v 1.58 2016/08/27 04:05:12 guenther Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -15,6 +15,8 @@
 #ifndef _MISC_H
 #define _MISC_H
 
+#include <sys/time.h>
+
 /* Data structure for representing a forwarding request. */
 struct Forward {
 	char	 *listen_host;		/* Host (address) to listen on. */
@@ -26,6 +28,8 @@ struct Forward {
 	int	  allocated_port;	/* Dynamically allocated listen port */
 	int	  handle;		/* Handle for dynamic listen ports */
 };
+
+int forward_equals(const struct Forward *, const struct Forward *);
 
 /* Common server and client forwarding options. */
 struct ForwardOptions {
@@ -47,6 +51,7 @@ char	*put_host_port(const char *, u_short);
 char	*hpdelim(char **);
 char	*cleanhostname(char *);
 char	*colon(char *);
+int	 parse_user_host_port(const char *, char **, char **, int *);
 long	 convtime(const char *);
 char	*tilde_expand_filename(const char *, uid_t);
 char	*percent_expand(const char *, ...) __attribute__((__sentinel__));
@@ -55,6 +60,7 @@ void	 sanitise_stdfd(void);
 void	 ms_subtract_diff(struct timeval *, int *);
 void	 ms_to_timeval(struct timeval *, int);
 time_t	 monotime(void);
+double	 monotime_double(void);
 void	 lowercase(char *s);
 int	 unix_listener(const char *, int, int);
 

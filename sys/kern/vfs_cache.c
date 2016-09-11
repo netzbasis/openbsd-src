@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_cache.c,v 1.47 2015/03/14 03:38:51 jsg Exp $	*/
+/*	$OpenBSD: vfs_cache.c,v 1.50 2016/08/25 00:01:13 dlg Exp $	*/
 /*	$NetBSD: vfs_cache.c,v 1.13 1996/02/04 02:18:09 christos Exp $	*/
 
 /*
@@ -202,7 +202,7 @@ cache_lookup(struct vnode *dvp, struct vnode **vpp,
 		vref(dvp);
 		error = 0;
 	} else if (cnp->cn_flags & ISDOTDOT) {
-		VOP_UNLOCK(dvp, 0, p);
+		VOP_UNLOCK(dvp, p);
 		cnp->cn_flags |= PDIRUNLOCK;
 		error = vget(vp, LK_EXCLUSIVE, p);
 		/*
@@ -223,7 +223,7 @@ cache_lookup(struct vnode *dvp, struct vnode **vpp,
 		 * ISLASTCN is set, unlock the directory vnode.
 		 */
 		if (error || (~cnp->cn_flags & (LOCKPARENT|ISLASTCN)) != 0) {
-			VOP_UNLOCK(dvp, 0, p);
+			VOP_UNLOCK(dvp, p);
 			cnp->cn_flags |= PDIRUNLOCK;
 		}
 	}
@@ -413,12 +413,13 @@ done:
  * Name cache initialization, from vfs_init() when we are booting
  */
 void
-nchinit()
+nchinit(void)
 {
 	TAILQ_INIT(&nclruhead);
 	TAILQ_INIT(&nclruneghead);
 	pool_init(&nch_pool, sizeof(struct namecache), 0, 0, PR_WAITOK,
 	    "nchpl", NULL);
+	pool_setipl(&nch_pool, IPL_NONE);
 }
 
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.27 2015/12/07 04:03:27 mmcc Exp $	*/
+/*	$OpenBSD: config.c,v 1.30 2016/09/02 14:45:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2011 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -38,20 +38,20 @@ config_init(struct relayd *env)
 
 	/* Global configuration */
 	if (privsep_process == PROC_PARENT) {
-		env->sc_timeout.tv_sec = CHECK_TIMEOUT / 1000;
-		env->sc_timeout.tv_usec = (CHECK_TIMEOUT % 1000) * 1000;
-		env->sc_interval.tv_sec = CHECK_INTERVAL;
-		env->sc_interval.tv_usec = 0;
-		env->sc_prefork_relay = RELAY_NUMPROC;
-		env->sc_statinterval.tv_sec = RELAY_STATINTERVAL;
-
-		ps->ps_what[PROC_PARENT] = CONFIG_ALL;
-		ps->ps_what[PROC_PFE] = CONFIG_ALL & ~CONFIG_PROTOS;
-		ps->ps_what[PROC_HCE] = CONFIG_TABLES;
-		ps->ps_what[PROC_CA] = CONFIG_RELAYS;
-		ps->ps_what[PROC_RELAY] = CONFIG_RELAYS|
-		    CONFIG_TABLES|CONFIG_PROTOS|CONFIG_CA_ENGINE;
+		env->sc_conf.timeout.tv_sec = CHECK_TIMEOUT / 1000;
+		env->sc_conf.timeout.tv_usec = (CHECK_TIMEOUT % 1000) * 1000;
+		env->sc_conf.interval.tv_sec = CHECK_INTERVAL;
+		env->sc_conf.interval.tv_usec = 0;
+		env->sc_conf.prefork_relay = RELAY_NUMPROC;
+		env->sc_conf.statinterval.tv_sec = RELAY_STATINTERVAL;
 	}
+
+	ps->ps_what[PROC_PARENT] = CONFIG_ALL;
+	ps->ps_what[PROC_PFE] = CONFIG_ALL & ~CONFIG_PROTOS;
+	ps->ps_what[PROC_HCE] = CONFIG_TABLES;
+	ps->ps_what[PROC_CA] = CONFIG_RELAYS;
+	ps->ps_what[PROC_RELAY] = CONFIG_RELAYS|
+	    CONFIG_TABLES|CONFIG_PROTOS|CONFIG_CA_ENGINE;
 
 	/* Other configuration */
 	what = ps->ps_what[privsep_process];
@@ -94,7 +94,6 @@ config_init(struct relayd *env)
 		bzero(&env->sc_proto_default, sizeof(env->sc_proto_default));
 		env->sc_proto_default.id = EMPTY_ID;
 		env->sc_proto_default.flags = F_USED;
-		env->sc_proto_default.cache = RELAY_CACHESIZE;
 		env->sc_proto_default.tcpflags = TCPFLAG_DEFAULT;
 		env->sc_proto_default.tcpbacklog = RELAY_BACKLOG;
 		env->sc_proto_default.tlsflags = TLSFLAG_DEFAULT;
@@ -243,16 +242,13 @@ config_getcfg(struct relayd *env, struct imsg *imsg)
 	struct privsep		*ps = env->sc_ps;
 	struct table		*tb;
 	struct host		*h, *ph;
-	struct ctl_flags	 cf;
 	u_int			 what;
 
-	if (IMSG_DATA_SIZE(imsg) != sizeof(cf))
+	if (IMSG_DATA_SIZE(imsg) != sizeof(struct relayd_config))
 		return (0); /* ignore */
 
 	/* Update runtime flags */
-	memcpy(&cf, imsg->data, sizeof(cf));
-	env->sc_opts = cf.cf_opts;
-	env->sc_flags = cf.cf_flags;
+	memcpy(&env->sc_conf, imsg->data, sizeof(env->sc_conf));
 
 	what = ps->ps_what[privsep_process];
 
@@ -269,7 +265,7 @@ config_getcfg(struct relayd *env, struct imsg *imsg)
 		}
 	}
 
-	if (env->sc_flags & (F_TLS|F_TLSCLIENT)) {
+	if (env->sc_conf.flags & (F_TLS|F_TLSCLIENT)) {
 		ssl_init(env);
 		if (what & CONFIG_CA_ENGINE)
 			ca_engine_init(env);

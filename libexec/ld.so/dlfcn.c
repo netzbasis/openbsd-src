@@ -1,4 +1,4 @@
-/*	$OpenBSD: dlfcn.c,v 1.92 2015/12/22 08:54:16 mmcc Exp $ */
+/*	$OpenBSD: dlfcn.c,v 1.95 2016/03/21 01:52:45 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -251,6 +251,7 @@ dlctl(void *handle, int command, void *data)
 	}
 	return (retval);
 }
+__strong_alias(_dlctl,dlctl);
 
 int
 dlclose(void *handle)
@@ -391,7 +392,7 @@ _dl_tracefmt(int fd, elf_object_t *object, const char *fmt1, const char *fmt2,
 				    _dl_traceprog : "");
 				break;
 			case 'a':
-				_dl_fdprintf(fd, "%s", _dl_progname);
+				_dl_fdprintf(fd, "%s", __progname);
 				break;
 			case 'e':
 				_dl_fdprintf(fd, "%lX",
@@ -599,7 +600,7 @@ dladdr(const void *addr, Dl_info *info)
 	info->dli_fname = (char *)object->load_name;
 	info->dli_fbase = (void *)object->load_base;
 	info->dli_sname = NULL;
-	info->dli_saddr = (void *)0;
+	info->dli_saddr = NULL;
 
 	/*
 	 * Walk the symbol list looking for the symbol whose address is

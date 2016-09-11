@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_types.h,v 1.19 2008/09/09 13:56:39 henning Exp $	*/
+/*	$OpenBSD: if_types.h,v 1.21 2016/06/15 19:39:34 gerhard Exp $	*/
 /*	$NetBSD: if_types.h,v 1.17 2000/10/26 06:51:31 onoe Exp $	*/
 
 /*
@@ -40,7 +40,7 @@
  * This list is derived from the SNMP list of ifTypes, originally
  * documented in RFC1573, now maintained as:
  *
- * <URL:http://www.iana.org/assignments/ianaiftype-mib>
+ * https://www.iana.org/assignments/ianaiftype-mib
  */
 
 #define	IFT_OTHER		   0x01 /* none of the following */
@@ -268,5 +268,6 @@
 #define	IFT_CARP	0xf7		/* Common Address Redundancy Protocol */
 #define IFT_BLUETOOTH	0xf8		/* Bluetooth */
 #define IFT_PFLOW	0xf9		/* pflow */
+#define IFT_MBIM	0xfa		/* Mobile Broadband Interface Model */
 
 #endif /* _NET_IF_TYPES_H_ */

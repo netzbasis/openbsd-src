@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb.h,v 1.53 2015/07/09 05:40:44 mpi Exp $ */
+/*	$OpenBSD: usb.h,v 1.57 2016/06/19 22:13:07 kettenis Exp $ */
 /*	$NetBSD: usb.h,v 1.69 2002/09/22 23:20:50 augustss Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usb.h,v 1.14 1999/11/17 22:33:46 n_hibma Exp $	*/
 
@@ -508,6 +508,8 @@ typedef struct usb_port_status usb_port_status_t;
 #define	 UISUBCLASS_ETHERNET_NETWORKING_CONTROL_MODEL 6
 #define	 UISUBCLASS_ATM_NETWORKING_CONTROL_MODEL 7
 #define	 UISUBCLASS_MOBILE_DIRECT_LINE_MODEL	10
+#define	 UISUBCLASS_NETWORK_CONTROL_MODEL	13
+#define	 UISUBCLASS_MOBILE_BROADBAND_INTERFACE_MODEL 14
 #define   UIPROTO_CDC_AT			1
 
 #define UICLASS_HID		0x03
@@ -545,6 +547,7 @@ typedef struct usb_port_status usb_port_status_t;
 
 #define UICLASS_CDC_DATA	0x0a
 #define  UISUBCLASS_DATA		0
+#define   UIPROTO_DATA_MBIM		0x02    /* MBIM */
 #define   UIPROTO_DATA_ISDNBRI		0x30    /* Physical iface */
 #define   UIPROTO_DATA_HDLC		0x31    /* HDLC */
 #define   UIPROTO_DATA_TRANSPARENT	0x32    /* Transparent */
@@ -752,7 +755,6 @@ struct usb_device_stats {
 /* USB controller */
 #define USB_REQUEST		_IOWR('U', 1, struct usb_ctl_request)
 #define USB_SETDEBUG		_IOW ('U', 2, unsigned int)
-#define USB_DISCOVER		_IO  ('U', 3)
 #define USB_DEVICEINFO		_IOWR('U', 4, struct usb_device_info)
 #define USB_DEVICESTATS		_IOR ('U', 5, struct usb_device_stats)
 #define USB_DEVICE_GET_CDESC	_IOWR('U', 6, struct usb_device_cdesc)
@@ -761,7 +763,6 @@ struct usb_device_stats {
 
 /* Generic HID device */
 #define USB_GET_REPORT_DESC	_IOR ('U', 21, struct usb_ctl_report_desc)
-#define USB_SET_IMMED		_IOW ('U', 22, int)
 #define USB_GET_REPORT		_IOWR('U', 23, struct usb_ctl_report)
 #define USB_SET_REPORT		_IOW ('U', 24, struct usb_ctl_report)
 #define USB_GET_REPORT_ID	_IOR ('U', 25, int)
@@ -777,14 +778,9 @@ struct usb_device_stats {
 #define USB_GET_INTERFACE_DESC	_IOWR('U', 107, struct usb_interface_desc)
 #define USB_GET_ENDPOINT_DESC	_IOWR('U', 108, struct usb_endpoint_desc)
 #define USB_GET_FULL_DESC	_IOWR('U', 109, struct usb_full_desc)
-#define USB_GET_STRING_DESC	_IOWR('U', 110, struct usb_string_desc)
 #define USB_DO_REQUEST		_IOWR('U', 111, struct usb_ctl_request)
 #define USB_GET_DEVICEINFO	_IOR ('U', 112, struct usb_device_info)
 #define USB_SET_SHORT_XFER	_IOW ('U', 113, int)
 #define USB_SET_TIMEOUT		_IOW ('U', 114, int)
-
-/* Modem device */
-#define USB_GET_CM_OVER_DATA	_IOR ('U', 130, int)
-#define USB_SET_CM_OVER_DATA	_IOW ('U', 131, int)
 
 #endif /* _USB_H_ */

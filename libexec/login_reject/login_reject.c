@@ -1,4 +1,4 @@
-/*	$OpenBSD: login_reject.c,v 1.13 2015/11/19 18:37:01 millert Exp $	*/
+/*	$OpenBSD: login_reject.c,v 1.16 2016/09/03 10:51:26 gsoares Exp $	*/
 
 /*-
  * Copyright (c) 1995 Berkeley Software Design, Inc. All rights reserved.
@@ -43,6 +43,7 @@
 #include <errno.h>
 #include <login_cap.h>
 #include <pwd.h>
+#include <readpassphrase.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -65,7 +66,7 @@ main(int argc, char *argv[])
 
 	(void)setpriority(PRIO_PROCESS, 0, 0);
 
-	if (pledge("stdio rpath", NULL) == -1) {
+	if (pledge("stdio rpath tty", NULL) == -1) {
 		syslog(LOG_AUTH|LOG_ERR, "pledge: %m");
 		exit(1);
 	}
@@ -114,7 +115,7 @@ main(int argc, char *argv[])
 	if (mode == 2) {
 		mode = 0;
 		c = -1;
-		while (read(3, passbuf, (size_t)1) == 1) {
+		while (read(3, passbuf, 1) == 1) {
 			if (passbuf[0] == '\0' && ++mode == 2)
 				break;
 		}
@@ -123,7 +124,7 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 	} else
-		getpass("Password:");
+		readpassphrase("Password:", passbuf, sizeof(passbuf), 0);
 
 	crypt_checkpass("password", NULL);
 

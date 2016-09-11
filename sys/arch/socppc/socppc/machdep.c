@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.64 2015/03/31 16:00:38 mpi Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.69 2016/05/23 18:14:47 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -52,7 +52,6 @@
 #include <uvm/uvm_extern.h>
 
 #include <machine/bus.h>
-#include <machine/fdt.h>
 #include <machine/pio.h>
 #include <powerpc/powerpc.h>
 #include <machine/trap.h>
@@ -60,6 +59,8 @@
 #include <dev/cons.h>
 
 #include <dev/ic/comvar.h>
+
+#include <dev/ofw/fdt.h>
 
 #ifdef DDB
 #include <machine/db_machdep.h>
@@ -507,9 +508,9 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 		frame.sf_sip = &fp->sf_si;
 		initsiginfo(&frame.sf_si, sig, code, type, val);
 	}
+	frame.sf_sc.sc_cookie = (long)&fp->sf_sc ^ p->p_p->ps_sigcookie;
 	if (copyout(&frame, fp, sizeof frame) != 0)
 		sigexit(p, SIGILL);
-
 
 	tf->fixreg[1] = (int)fp;
 	tf->lr = (int)catcher;
@@ -534,17 +535,33 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext sc;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf;
 	int error;
 
-	if ((error = copyin(SCARG(uap, sigcntxp), &sc, sizeof sc)))
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
+
+	if ((error = copyin(scp, &ksc, sizeof ksc)))
 		return error;
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
+		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
+
 	tf = trapframe(p);
-	if ((sc.sc_frame.srr1 & PSL_USERSTATIC) != (tf->srr1 & PSL_USERSTATIC))
+	if ((ksc.sc_frame.srr1 & PSL_USERSTATIC) != (tf->srr1 & PSL_USERSTATIC))
 		return EINVAL;
-	bcopy(&sc.sc_frame, tf, sizeof *tf);
-	p->p_sigmask = sc.sc_mask & ~sigcantmask;
+	bcopy(&ksc.sc_frame, tf, sizeof *tf);
+	p->p_sigmask = ksc.sc_mask & ~sigcantmask;
 	return EJUSTRETURN;
 }
 

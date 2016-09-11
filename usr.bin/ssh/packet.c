@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.228 2016/02/08 10:57:07 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.236 2016/09/06 09:22:56 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -46,6 +46,7 @@
 #include <netinet/ip.h>
 
 #include <errno.h>
+#include <netdb.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,10 +116,10 @@ struct session_state {
 	u_int remote_protocol_flags;
 
 	/* Encryption context for receiving data.  Only used for decryption. */
-	struct sshcipher_ctx receive_context;
+	struct sshcipher_ctx *receive_context;
 
 	/* Encryption context for sending data.  Only used for encryption. */
-	struct sshcipher_ctx send_context;
+	struct sshcipher_ctx *send_context;
 
 	/* Buffer for raw input data from the socket. */
 	struct sshbuf *input;
@@ -189,6 +190,7 @@ struct session_state {
 
 	/* XXX discard incoming data after MAC error */
 	u_int packet_discard;
+	size_t packet_discard_mac_already;
 	struct sshmac *packet_discard_mac;
 
 	/* Used in packet_read_poll2() */
@@ -257,8 +259,8 @@ ssh_alloc_session_state(void)
 int
 ssh_packet_is_rekeying(struct ssh *ssh)
 {
-	return ssh->state->rekeying ||
-	    (ssh->kex != NULL && ssh->kex->done == 0);
+	return compat20 &&
+	    (ssh->state->rekeying || (ssh->kex != NULL && ssh->kex->done == 0));
 }
 
 /*
@@ -290,7 +292,7 @@ ssh_packet_set_connection(struct ssh *ssh, int fd_in, int fd_out)
 	    (r = cipher_init(&state->receive_context, none,
 	    (const u_char *)"", 0, NULL, 0, CIPHER_DECRYPT)) != 0) {
 		error("%s: cipher_init failed: %s", __func__, ssh_err(r));
-		free(ssh);
+		free(ssh); /* XXX need ssh_free_session_state? */
 		return NULL;
 	}
 	state->newkeys[MODE_IN] = state->newkeys[MODE_OUT] = NULL;
@@ -326,16 +328,18 @@ ssh_packet_stop_discard(struct ssh *ssh)
 
 	if (state->packet_discard_mac) {
 		char buf[1024];
+		size_t dlen = PACKET_MAX_SIZE;
 
+		if (dlen > state->packet_discard_mac_already)
+			dlen -= state->packet_discard_mac_already;
 		memset(buf, 'a', sizeof(buf));
-		while (sshbuf_len(state->incoming_packet) <
-		    PACKET_MAX_SIZE)
+		while (sshbuf_len(state->incoming_packet) < dlen)
 			if ((r = sshbuf_put(state->incoming_packet, buf,
 			    sizeof(buf))) != 0)
 				return r;
 		(void) mac_compute(state->packet_discard_mac,
 		    state->p_read.seqnr,
-		    sshbuf_ptr(state->incoming_packet), PACKET_MAX_SIZE,
+		    sshbuf_ptr(state->incoming_packet), dlen,
 		    NULL, 0);
 	}
 	logit("Finished discarding for %.200s port %d",
@@ -345,7 +349,7 @@ ssh_packet_stop_discard(struct ssh *ssh)
 
 static int
 ssh_packet_start_discard(struct ssh *ssh, struct sshenc *enc,
-    struct sshmac *mac, u_int packet_length, u_int discard)
+    struct sshmac *mac, size_t mac_already, u_int discard)
 {
 	struct session_state *state = ssh->state;
 	int r;
@@ -355,11 +359,16 @@ ssh_packet_start_discard(struct ssh *ssh, struct sshenc *enc,
 			return r;
 		return SSH_ERR_MAC_INVALID;
 	}
-	if (packet_length != PACKET_MAX_SIZE && mac && mac->enabled)
+	/*
+	 * Record number of bytes over which the mac has already
+	 * been computed in order to minimize timing attacks.
+	 */
+	if (mac && mac->enabled) {
 		state->packet_discard_mac = mac;
-	if (sshbuf_len(state->input) >= discard &&
-	   (r = ssh_packet_stop_discard(ssh)) != 0)
-		return r;
+		state->packet_discard_mac_already = mac_already;
+	}
+	if (sshbuf_len(state->input) >= discard)
+		return ssh_packet_stop_discard(ssh);
 	state->packet_discard = discard - sshbuf_len(state->input);
 	return 0;
 }
@@ -372,6 +381,9 @@ ssh_packet_connection_is_on_socket(struct ssh *ssh)
 	struct session_state *state = ssh->state;
 	struct sockaddr_storage from, to;
 	socklen_t fromlen, tolen;
+
+	if (state->connection_in == -1 || state->connection_out == -1)
+		return 0;
 
 	/* filedescriptors in and out are the same, so it's a socket */
 	if (state->connection_in == state->connection_out)
@@ -457,10 +469,14 @@ ssh_remote_ipaddr(struct ssh *ssh)
 	if (ssh->remote_ipaddr == NULL) {
 		if (ssh_packet_connection_is_on_socket(ssh)) {
 			ssh->remote_ipaddr = get_peer_ipaddr(sock);
-			ssh->remote_port = get_sock_port(sock, 0);
+			ssh->remote_port = get_peer_port(sock);
+			ssh->local_ipaddr = get_local_ipaddr(sock);
+			ssh->local_port = get_local_port(sock);
 		} else {
 			ssh->remote_ipaddr = strdup("UNKNOWN");
-			ssh->remote_port = 0;
+			ssh->remote_port = 65535;
+			ssh->local_ipaddr = strdup("UNKNOWN");
+			ssh->local_port = 65535;
 		}
 	}
 	return ssh->remote_ipaddr;
@@ -475,13 +491,33 @@ ssh_remote_port(struct ssh *ssh)
 	return ssh->remote_port;
 }
 
+/*
+ * Returns the IP-address of the local host as a string.  The returned
+ * string must not be freed.
+ */
+
+const char *
+ssh_local_ipaddr(struct ssh *ssh)
+{
+	(void)ssh_remote_ipaddr(ssh); /* Will lookup and cache. */
+	return ssh->local_ipaddr;
+}
+
+/* Returns the port number of the local host. */
+
+int
+ssh_local_port(struct ssh *ssh)
+{
+	(void)ssh_remote_ipaddr(ssh); /* Will lookup and cache. */
+	return ssh->local_port;
+}
+
 /* Closes the connection and clears and frees internal data structures. */
 
 void
 ssh_packet_close(struct ssh *ssh)
 {
 	struct session_state *state = ssh->state;
-	int r;
 	u_int mode;
 
 	if (!state->initialized)
@@ -525,10 +561,9 @@ ssh_packet_close(struct ssh *ssh)
 				inflateEnd(stream);
 		}
 	}
-	if ((r = cipher_cleanup(&state->send_context)) != 0)
-		error("%s: cipher_cleanup failed: %s", __func__, ssh_err(r));
-	if ((r = cipher_cleanup(&state->receive_context)) != 0)
-		error("%s: cipher_cleanup failed: %s", __func__, ssh_err(r));
+	cipher_free(state->send_context);
+	cipher_free(state->receive_context);
+	state->send_context = state->receive_context = NULL;
 	free(ssh->remote_ipaddr);
 	ssh->remote_ipaddr = NULL;
 	free(ssh->state);
@@ -822,8 +857,8 @@ ssh_packet_set_encryption_key(struct ssh *ssh, const u_char *key, u_int keylen, 
 	    NULL, 0, CIPHER_DECRYPT) != 0))
 		fatal("%s: cipher_init failed: %s", __func__, ssh_err(r));
 	if (!state->cipher_warning_done &&
-	    ((wmsg = cipher_warning_message(&state->send_context)) != NULL ||
-	    (wmsg = cipher_warning_message(&state->send_context)) != NULL)) {
+	    ((wmsg = cipher_warning_message(state->send_context)) != NULL ||
+	    (wmsg = cipher_warning_message(state->send_context)) != NULL)) {
 		error("Warning: %s", wmsg);
 		state->cipher_warning_done = 1;
 	}
@@ -869,7 +904,7 @@ ssh_packet_send1(struct ssh *ssh)
 
 	/* Insert padding. Initialized to zero in packet_start1() */
 	padding = 8 - len % 8;
-	if (!state->send_context.plaintext) {
+	if (!cipher_ctx_is_plaintext(state->send_context)) {
 		cp = sshbuf_mutable_ptr(state->outgoing_packet);
 		if (cp == NULL) {
 			r = SSH_ERR_INTERNAL_ERROR;
@@ -899,7 +934,7 @@ ssh_packet_send1(struct ssh *ssh)
 	if ((r = sshbuf_reserve(state->output,
 	    sshbuf_len(state->outgoing_packet), &cp)) != 0)
 		goto out;
-	if ((r = cipher_crypt(&state->send_context, 0, cp,
+	if ((r = cipher_crypt(state->send_context, 0, cp,
 	    sshbuf_ptr(state->outgoing_packet),
 	    sshbuf_len(state->outgoing_packet), 0, 0)) != 0)
 		goto out;
@@ -930,33 +965,34 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 	struct sshenc *enc;
 	struct sshmac *mac;
 	struct sshcomp *comp;
-	struct sshcipher_ctx *cc;
+	struct sshcipher_ctx **ccp;
+	struct packet_state *ps;
 	u_int64_t *max_blocks;
-	const char *wmsg;
+	const char *wmsg, *dir;
 	int r, crypt_type;
 
 	debug2("set_newkeys: mode %d", mode);
 
 	if (mode == MODE_OUT) {
-		cc = &state->send_context;
+		dir = "output";
+		ccp = &state->send_context;
 		crypt_type = CIPHER_ENCRYPT;
-		state->p_send.packets = state->p_send.blocks = 0;
+		ps = &state->p_send;
 		max_blocks = &state->max_blocks_out;
 	} else {
-		cc = &state->receive_context;
+		dir = "input";
+		ccp = &state->receive_context;
 		crypt_type = CIPHER_DECRYPT;
-		state->p_read.packets = state->p_read.blocks = 0;
+		ps = &state->p_read;
 		max_blocks = &state->max_blocks_in;
 	}
 	if (state->newkeys[mode] != NULL) {
-		debug("set_newkeys: rekeying, input %llu bytes %llu blocks, "
-		   "output %llu bytes %llu blocks",
-		   (unsigned long long)state->p_read.bytes,
-		   (unsigned long long)state->p_read.blocks,
-		   (unsigned long long)state->p_send.bytes,
-		   (unsigned long long)state->p_send.blocks);
-		if ((r = cipher_cleanup(cc)) != 0)
-			return r;
+		debug("%s: rekeying after %llu %s blocks"
+		    " (%llu bytes total)", __func__,
+		    (unsigned long long)ps->blocks, dir,
+		    (unsigned long long)ps->bytes);
+		cipher_free(*ccp);
+		*ccp = NULL;
 		enc  = &state->newkeys[mode]->enc;
 		mac  = &state->newkeys[mode]->mac;
 		comp = &state->newkeys[mode]->comp;
@@ -972,6 +1008,8 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 		free(comp->name);
 		free(state->newkeys[mode]);
 	}
+	/* note that both bytes and the seqnr are not reset */
+	ps->packets = ps->blocks = 0;
 	/* move newkeys from kex to state */
 	if ((state->newkeys[mode] = ssh->kex->newkeys[mode]) == NULL)
 		return SSH_ERR_INTERNAL_ERROR;
@@ -985,11 +1023,11 @@ ssh_set_newkeys(struct ssh *ssh, int mode)
 	}
 	mac->enabled = 1;
 	DBG(debug("cipher_init_context: %d", mode));
-	if ((r = cipher_init(cc, enc->cipher, enc->key, enc->key_len,
+	if ((r = cipher_init(ccp, enc->cipher, enc->key, enc->key_len,
 	    enc->iv, enc->iv_len, crypt_type)) != 0)
 		return r;
 	if (!state->cipher_warning_done &&
-	    (wmsg = cipher_warning_message(cc)) != NULL) {
+	    (wmsg = cipher_warning_message(*ccp)) != NULL) {
 		error("Warning: %s", wmsg);
 		state->cipher_warning_done = 1;
 	}
@@ -1131,7 +1169,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 {
 	struct session_state *state = ssh->state;
 	u_char type, *cp, macbuf[SSH_DIGEST_MAX_LENGTH];
-	u_char padlen, pad = 0;
+	u_char tmp, padlen, pad = 0;
 	u_int authlen = 0, aadlen = 0;
 	u_int len;
 	struct sshenc *enc   = NULL;
@@ -1189,19 +1227,29 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	if (padlen < 4)
 		padlen += block_size;
 	if (state->extra_pad) {
-		/* will wrap if extra_pad+padlen > 255 */
+		tmp = state->extra_pad;
 		state->extra_pad =
 		    roundup(state->extra_pad, block_size);
-		pad = state->extra_pad -
-		    ((len + padlen) % state->extra_pad);
+		/* check if roundup overflowed */
+		if (state->extra_pad < tmp)
+			return SSH_ERR_INVALID_ARGUMENT;
+		tmp = (len + padlen) % state->extra_pad;
+		/* Check whether pad calculation below will underflow */
+		if (tmp > state->extra_pad)
+			return SSH_ERR_INVALID_ARGUMENT;
+		pad = state->extra_pad - tmp;
 		DBG(debug3("%s: adding %d (len %d padlen %d extra_pad %d)",
 		    __func__, pad, len, padlen, state->extra_pad));
+		tmp = padlen;
 		padlen += pad;
+		/* Check whether padlen calculation overflowed */
+		if (padlen < tmp)
+			return SSH_ERR_INVALID_ARGUMENT; /* overflow */
 		state->extra_pad = 0;
 	}
 	if ((r = sshbuf_reserve(state->outgoing_packet, padlen, &cp)) != 0)
 		goto out;
-	if (enc && !state->send_context.plaintext) {
+	if (enc && !cipher_ctx_is_plaintext(state->send_context)) {
 		/* random padding */
 		arc4random_buf(cp, padlen);
 	} else {
@@ -1233,7 +1281,7 @@ ssh_packet_send2_wrapped(struct ssh *ssh)
 	if ((r = sshbuf_reserve(state->output,
 	    sshbuf_len(state->outgoing_packet) + authlen, &cp)) != 0)
 		goto out;
-	if ((r = cipher_crypt(&state->send_context, state->p_send.seqnr, cp,
+	if ((r = cipher_crypt(state->send_context, state->p_send.seqnr, cp,
 	    sshbuf_ptr(state->outgoing_packet),
 	    len - aadlen, aadlen, authlen)) != 0)
 		goto out;
@@ -1547,7 +1595,7 @@ ssh_packet_read_poll1(struct ssh *ssh, u_char *typep)
 	 * (C)1998 CORE-SDI, Buenos Aires Argentina
 	 * Ariel Futoransky(futo@core-sdi.com)
 	 */
-	if (!state->receive_context.plaintext) {
+	if (!cipher_ctx_is_plaintext(state->receive_context)) {
 		emsg = NULL;
 		switch (detect_attack(&state->deattack,
 		    sshbuf_ptr(state->input), padded_len)) {
@@ -1576,7 +1624,7 @@ ssh_packet_read_poll1(struct ssh *ssh, u_char *typep)
 	sshbuf_reset(state->incoming_packet);
 	if ((r = sshbuf_reserve(state->incoming_packet, padded_len, &p)) != 0)
 		goto out;
-	if ((r = cipher_crypt(&state->receive_context, 0, p,
+	if ((r = cipher_crypt(state->receive_context, 0, p,
 	    sshbuf_ptr(state->input), padded_len, 0, 0)) != 0)
 		goto out;
 
@@ -1649,7 +1697,7 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 {
 	struct session_state *state = ssh->state;
 	u_int padlen, need;
-	u_char *cp, macbuf[SSH_DIGEST_MAX_LENGTH];
+	u_char *cp;
 	u_int maclen, aadlen = 0, authlen = 0, block_size;
 	struct sshenc *enc   = NULL;
 	struct sshmac *mac   = NULL;
@@ -1674,7 +1722,7 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 	aadlen = (mac && mac->enabled && mac->etm) || authlen ? 4 : 0;
 
 	if (aadlen && state->packlen == 0) {
-		if (cipher_get_length(&state->receive_context,
+		if (cipher_get_length(state->receive_context,
 		    &state->packlen, state->p_read.seqnr,
 		    sshbuf_ptr(state->input), sshbuf_len(state->input)) != 0)
 			return 0;
@@ -1700,7 +1748,7 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 		if ((r = sshbuf_reserve(state->incoming_packet, block_size,
 		    &cp)) != 0)
 			goto out;
-		if ((r = cipher_crypt(&state->receive_context,
+		if ((r = cipher_crypt(state->receive_context,
 		    state->p_send.seqnr, cp, sshbuf_ptr(state->input),
 		    block_size, 0, 0)) != 0)
 			goto out;
@@ -1714,8 +1762,8 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 			sshbuf_dump(state->incoming_packet, stderr);
 #endif
 			logit("Bad packet length %u.", state->packlen);
-			return ssh_packet_start_discard(ssh, enc, mac,
-			    state->packlen, PACKET_MAX_SIZE);
+			return ssh_packet_start_discard(ssh, enc, mac, 0,
+			    PACKET_MAX_SIZE);
 		}
 		if ((r = sshbuf_consume(state->input, block_size)) != 0)
 			goto out;
@@ -1737,8 +1785,8 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 	if (need % block_size != 0) {
 		logit("padding error: need %d block %d mod %d",
 		    need, block_size, need % block_size);
-		return ssh_packet_start_discard(ssh, enc, mac,
-		    state->packlen, PACKET_MAX_SIZE - block_size);
+		return ssh_packet_start_discard(ssh, enc, mac, 0,
+		    PACKET_MAX_SIZE - block_size);
 	}
 	/*
 	 * check if the entire packet has been received and
@@ -1749,46 +1797,46 @@ ssh_packet_read_poll2(struct ssh *ssh, u_char *typep, u_int32_t *seqnr_p)
 	 * 'maclen' bytes of message authentication code.
 	 */
 	if (sshbuf_len(state->input) < aadlen + need + authlen + maclen)
-		return 0;
+		return 0; /* packet is incomplete */
 #ifdef PACKET_DEBUG
 	fprintf(stderr, "read_poll enc/full: ");
 	sshbuf_dump(state->input, stderr);
 #endif
-	/* EtM: compute mac over encrypted input */
+	/* EtM: check mac over encrypted input */
 	if (mac && mac->enabled && mac->etm) {
-		if ((r = mac_compute(mac, state->p_read.seqnr,
+		if ((r = mac_check(mac, state->p_read.seqnr,
 		    sshbuf_ptr(state->input), aadlen + need,
-		    macbuf, sizeof(macbuf))) != 0)
+		    sshbuf_ptr(state->input) + aadlen + need + authlen,
+		    maclen)) != 0) {
+			if (r == SSH_ERR_MAC_INVALID)
+				logit("Corrupted MAC on input.");
 			goto out;
+		}
 	}
 	if ((r = sshbuf_reserve(state->incoming_packet, aadlen + need,
 	    &cp)) != 0)
 		goto out;
-	if ((r = cipher_crypt(&state->receive_context, state->p_read.seqnr, cp,
+	if ((r = cipher_crypt(state->receive_context, state->p_read.seqnr, cp,
 	    sshbuf_ptr(state->input), need, aadlen, authlen)) != 0)
 		goto out;
 	if ((r = sshbuf_consume(state->input, aadlen + need + authlen)) != 0)
 		goto out;
-	/*
-	 * compute MAC over seqnr and packet,
-	 * increment sequence number for incoming packet
-	 */
 	if (mac && mac->enabled) {
-		if (!mac->etm)
-			if ((r = mac_compute(mac, state->p_read.seqnr,
-			    sshbuf_ptr(state->incoming_packet),
-			    sshbuf_len(state->incoming_packet),
-			    macbuf, sizeof(macbuf))) != 0)
+		/* Not EtM: check MAC over cleartext */
+		if (!mac->etm && (r = mac_check(mac, state->p_read.seqnr,
+		    sshbuf_ptr(state->incoming_packet),
+		    sshbuf_len(state->incoming_packet),
+		    sshbuf_ptr(state->input), maclen)) != 0) {
+			if (r != SSH_ERR_MAC_INVALID)
 				goto out;
-		if (timingsafe_bcmp(macbuf, sshbuf_ptr(state->input),
-		    mac->mac_len) != 0) {
 			logit("Corrupted MAC on input.");
 			if (need > PACKET_MAX_SIZE)
 				return SSH_ERR_INTERNAL_ERROR;
 			return ssh_packet_start_discard(ssh, enc, mac,
-			    state->packlen, PACKET_MAX_SIZE - need);
+			    sshbuf_len(state->incoming_packet),
+			    PACKET_MAX_SIZE - need);
 		}
-
+		/* Remove MAC from input buffer */
 		DBG(debug("MAC #%d ok", state->p_read.seqnr));
 		if ((r = sshbuf_consume(state->input, mac->mac_len)) != 0)
 			goto out;
@@ -2033,24 +2081,19 @@ sshpkt_fatal(struct ssh *ssh, const char *tag, int r)
 {
 	switch (r) {
 	case SSH_ERR_CONN_CLOSED:
-		logit("Connection closed by %.200s port %d",
+		logdie("Connection closed by %.200s port %d",
 		    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh));
-		cleanup_exit(255);
 	case SSH_ERR_CONN_TIMEOUT:
-		logit("Connection %s %.200s port %d timed out",
+		logdie("Connection %s %.200s port %d timed out",
 		    ssh->state->server_side ? "from" : "to",
 		    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh));
-		cleanup_exit(255);
 	case SSH_ERR_DISCONNECTED:
-		logit("Disconnected from %.200s port %d",
+		logdie("Disconnected from %.200s port %d",
 		    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh));
-		cleanup_exit(255);
 	case SSH_ERR_SYSTEM_ERROR:
-		if (errno == ECONNRESET) {
-			logit("Connection reset by %.200s port %d",
+		if (errno == ECONNRESET)
+			logdie("Connection reset by %.200s port %d",
 			    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh));
-			cleanup_exit(255);
-		}
 		/* FALLTHROUGH */
 	case SSH_ERR_NO_CIPHER_ALG_MATCH:
 	case SSH_ERR_NO_MAC_ALG_MATCH:
@@ -2058,14 +2101,14 @@ sshpkt_fatal(struct ssh *ssh, const char *tag, int r)
 	case SSH_ERR_NO_KEX_ALG_MATCH:
 	case SSH_ERR_NO_HOSTKEY_ALG_MATCH:
 		if (ssh && ssh->kex && ssh->kex->failed_choice) {
-			fatal("Unable to negotiate with %.200s port %d: %s. "
+			logdie("Unable to negotiate with %.200s port %d: %s. "
 			    "Their offer: %s", ssh_remote_ipaddr(ssh),
 			    ssh_remote_port(ssh), ssh_err(r),
 			    ssh->kex->failed_choice);
 		}
 		/* FALLTHROUGH */
 	default:
-		fatal("%s%sConnection %s %.200s port %d: %s",
+		logdie("%s%sConnection %s %.200s port %d: %s",
 		    tag != NULL ? tag : "", tag != NULL ? ": " : "",
 		    ssh->state->server_side ? "from" : "to",
 		    ssh_remote_ipaddr(ssh), ssh_remote_port(ssh), ssh_err(r));
@@ -2447,8 +2490,8 @@ newkeys_to_blob(struct sshbuf *m, struct ssh *ssh, int mode)
 	enc = &newkey->enc;
 	mac = &newkey->mac;
 	comp = &newkey->comp;
-	cc = (mode == MODE_OUT) ? &ssh->state->send_context :
-	    &ssh->state->receive_context;
+	cc = (mode == MODE_OUT) ? ssh->state->send_context :
+	    ssh->state->receive_context;
 	if ((r = cipher_get_keyiv(cc, enc->iv, enc->iv_len)) != 0)
 		return r;
 	if ((b = sshbuf_new()) == NULL)
@@ -2487,18 +2530,18 @@ ssh_packet_get_state(struct ssh *ssh, struct sshbuf *m)
 	int r, ssh1cipher;
 
 	if (!compat20) {
-		ssh1cipher = cipher_get_number(state->receive_context.cipher);
-		slen = cipher_get_keyiv_len(&state->send_context);
-		rlen = cipher_get_keyiv_len(&state->receive_context);
+		ssh1cipher = cipher_ctx_get_number(state->receive_context);
+		slen = cipher_get_keyiv_len(state->send_context);
+		rlen = cipher_get_keyiv_len(state->receive_context);
 		if ((r = sshbuf_put_u32(m, state->remote_protocol_flags)) != 0 ||
 		    (r = sshbuf_put_u32(m, ssh1cipher)) != 0 ||
 		    (r = sshbuf_put_string(m, state->ssh1_key, state->ssh1_keylen)) != 0 ||
 		    (r = sshbuf_put_u32(m, slen)) != 0 ||
 		    (r = sshbuf_reserve(m, slen, &p)) != 0 ||
-		    (r = cipher_get_keyiv(&state->send_context, p, slen)) != 0 ||
+		    (r = cipher_get_keyiv(state->send_context, p, slen)) != 0 ||
 		    (r = sshbuf_put_u32(m, rlen)) != 0 ||
 		    (r = sshbuf_reserve(m, rlen, &p)) != 0 ||
-		    (r = cipher_get_keyiv(&state->receive_context, p, rlen)) != 0)
+		    (r = cipher_get_keyiv(state->receive_context, p, rlen)) != 0)
 			return r;
 	} else {
 		if ((r = kex_to_blob(m, ssh->kex)) != 0 ||
@@ -2517,17 +2560,17 @@ ssh_packet_get_state(struct ssh *ssh, struct sshbuf *m)
 			return r;
 	}
 
-	slen = cipher_get_keycontext(&state->send_context, NULL);
-	rlen = cipher_get_keycontext(&state->receive_context, NULL);
+	slen = cipher_get_keycontext(state->send_context, NULL);
+	rlen = cipher_get_keycontext(state->receive_context, NULL);
 	if ((r = sshbuf_put_u32(m, slen)) != 0 ||
 	    (r = sshbuf_reserve(m, slen, &p)) != 0)
 		return r;
-	if (cipher_get_keycontext(&state->send_context, p) != (int)slen)
+	if (cipher_get_keycontext(state->send_context, p) != (int)slen)
 		return SSH_ERR_INTERNAL_ERROR;
 	if ((r = sshbuf_put_u32(m, rlen)) != 0 ||
 	    (r = sshbuf_reserve(m, rlen, &p)) != 0)
 		return r;
-	if (cipher_get_keycontext(&state->receive_context, p) != (int)rlen)
+	if (cipher_get_keycontext(state->receive_context, p) != (int)rlen)
 		return SSH_ERR_INTERNAL_ERROR;
 
 	if ((r = ssh_packet_get_compress_state(m, ssh)) != 0 ||
@@ -2673,11 +2716,11 @@ ssh_packet_set_state(struct ssh *ssh, struct sshbuf *m)
 			return SSH_ERR_KEY_UNKNOWN_CIPHER;
 		ssh_packet_set_encryption_key(ssh, ssh1key, ssh1keylen,
 		    (int)ssh1cipher);
-		if (cipher_get_keyiv_len(&state->send_context) != (int)slen ||
-		    cipher_get_keyiv_len(&state->receive_context) != (int)rlen)
+		if (cipher_get_keyiv_len(state->send_context) != (int)slen ||
+		    cipher_get_keyiv_len(state->receive_context) != (int)rlen)
 			return SSH_ERR_INVALID_FORMAT;
-		if ((r = cipher_set_keyiv(&state->send_context, ivout)) != 0 ||
-		    (r = cipher_set_keyiv(&state->receive_context, ivin)) != 0)
+		if ((r = cipher_set_keyiv(state->send_context, ivout)) != 0 ||
+		    (r = cipher_set_keyiv(state->receive_context, ivin)) != 0)
 			return r;
 	} else {
 		if ((r = kex_from_blob(m, &ssh->kex)) != 0 ||
@@ -2707,11 +2750,11 @@ ssh_packet_set_state(struct ssh *ssh, struct sshbuf *m)
 	if ((r = sshbuf_get_string_direct(m, &keyout, &slen)) != 0 ||
 	    (r = sshbuf_get_string_direct(m, &keyin, &rlen)) != 0)
 		return r;
-	if (cipher_get_keycontext(&state->send_context, NULL) != (int)slen ||
-	    cipher_get_keycontext(&state->receive_context, NULL) != (int)rlen)
+	if (cipher_get_keycontext(state->send_context, NULL) != (int)slen ||
+	    cipher_get_keycontext(state->receive_context, NULL) != (int)rlen)
 		return SSH_ERR_INVALID_FORMAT;
-	cipher_set_keycontext(&state->send_context, keyout);
-	cipher_set_keycontext(&state->receive_context, keyin);
+	cipher_set_keycontext(state->send_context, keyout);
+	cipher_set_keycontext(state->receive_context, keyin);
 
 	if ((r = ssh_packet_set_compress_state(ssh, m)) != 0 ||
 	    (r = ssh_packet_set_postauth(ssh)) != 0)

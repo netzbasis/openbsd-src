@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmcvar.h,v 1.22 2013/09/12 11:54:04 rapha Exp $	*/
+/*	$OpenBSD: sdmmcvar.h,v 1.26 2016/05/05 11:01:08 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -22,6 +22,8 @@
 #include <sys/queue.h>
 #include <sys/rwlock.h>
 
+#include <machine/bus.h>
+
 #include <scsi/scsi_all.h>
 #include <scsi/scsiconf.h>
 
@@ -34,6 +36,7 @@ struct sdmmc_csd {
 	int	capacity;	/* total number of sectors */
 	int	sector_size;	/* sector size in bytes */
 	int	read_bl_len;	/* block length for reads */
+	int	ccc;		/* Card Command Class for SD */
 	/* ... */
 };
 
@@ -44,6 +47,11 @@ struct sdmmc_cid {
 	int	rev;		/* product revision */
 	int	psn;		/* product serial number */
 	int	mdt;		/* manufacturing date */
+};
+
+struct sdmmc_scr {
+	int	sd_spec;
+	int	bus_width;
 };
 
 typedef u_int32_t sdmmc_response[4];
@@ -72,6 +80,7 @@ struct sdmmc_command {
 	u_int16_t	 c_opcode;	/* SD or MMC command index */
 	u_int32_t	 c_arg;		/* SD/MMC command argument */
 	sdmmc_response	 c_resp;	/* response buffer */
+	bus_dmamap_t	 c_dmamap;
 	void		*c_data;	/* buffer to send or read into */
 	int		 c_datalen;	/* length of data buffer */
 	int		 c_blklen;	/* block length */
@@ -146,6 +155,7 @@ struct sdmmc_function {
 	struct sdmmc_csd csd;		/* decoded CSD value */
 	struct sdmmc_cid cid;		/* decoded CID value */
 	sdmmc_response raw_cid;		/* temp. storage for decoding */
+	struct sdmmc_scr scr;		/* decoded SCR value */
 };
 
 /*
@@ -156,6 +166,11 @@ struct sdmmc_softc {
 #define DEVNAME(sc)	((sc)->sc_dev.dv_xname)
 	sdmmc_chipset_tag_t sct;	/* host controller chipset tag */
 	sdmmc_chipset_handle_t sch;	/* host controller chipset handle */
+
+	bus_dma_tag_t sc_dmat;
+	bus_dmamap_t sc_dmap;
+#define SDMMC_MAXNSEGS	((MAXPHYS / PAGE_SIZE) + 1)
+
 	int sc_flags;
 #define SMF_SD_MODE		0x0001	/* host in SD mode (MMC otherwise) */
 #define SMF_IO_MODE		0x0002	/* host in I/O mode (SD mode only) */
@@ -176,6 +191,13 @@ struct sdmmc_softc {
 #define SMC_CAPS_MULTI_SEG_DMA	0x0080	/* multiple segment DMA transfer */
 #define SMC_CAPS_SD_HIGHSPEED	0x0100	/* SD high-speed timing */
 #define SMC_CAPS_MMC_HIGHSPEED	0x0200	/* MMC high-speed timing */
+#define SMC_CAPS_UHS_SDR50	0x0400	/* UHS SDR50 timing */
+#define SMC_CAPS_UHS_SDR104	0x0800	/* UHS SDR104 timing */
+#define SMC_CAPS_UHS_DDR50	0x1000	/* UHS DDR50 timing */
+#define SMC_CAPS_UHS_MASK	0x1c00
+#define SMC_CAPS_MMC_DDR52	0x2000  /* eMMC DDR52 timing */
+#define SMC_CAPS_MMC_HS200	0x4000	/* eMMC HS200 timing */
+#define SMC_CAPS_MMC_HS400	0x8000	/* eMMC HS400 timing */
 
 	int sc_function_count;		/* number of I/O functions (SDIO) */
 	struct sdmmc_function *sc_card;	/* selected card */

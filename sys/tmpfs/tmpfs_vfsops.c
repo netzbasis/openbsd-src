@@ -1,4 +1,4 @@
-/*	$OpenBSD: tmpfs_vfsops.c,v 1.8 2016/01/13 13:01:40 gsoares Exp $	*/
+/*	$OpenBSD: tmpfs_vfsops.c,v 1.11 2016/08/23 04:28:18 dlg Exp $	*/
 /*	$NetBSD: tmpfs_vfsops.c,v 1.52 2011/09/27 01:10:43 christos Exp $	*/
 
 /*
@@ -75,8 +75,10 @@ tmpfs_init(struct vfsconf *vfsp)
 
 	pool_init(&tmpfs_dirent_pool, sizeof(tmpfs_dirent_t), 0, 0, PR_WAITOK,
 	    "tmpfs_dirent", NULL);
+	pool_setipl(&tmpfs_dirent_pool, IPL_NONE);
 	pool_init(&tmpfs_node_pool, sizeof(tmpfs_node_t), 0, 0, PR_WAITOK,
 	    "tmpfs_node", NULL);
+	pool_setipl(&tmpfs_node_pool, IPL_NONE);
 
 	return 0;
 }
@@ -125,6 +127,9 @@ tmpfs_mount(struct mount *mp, const char *path, void *data,
 	error = copyin(data, &args, sizeof(struct tmpfs_args));
 	if (error)
 		return error;
+	if (args.ta_root_uid == VNOVAL || args.ta_root_gid == VNOVAL ||
+	    args.ta_root_mode == VNOVAL)
+		return EINVAL;
 
 	/* Get the memory usage limit for this file-system. */
 	if (args.ta_size_max < PAGE_SIZE) {
@@ -370,6 +375,6 @@ struct vfsops tmpfs_vfsops = {
 	tmpfs_fhtovp,			/* vfs_fhtovp */
 	tmpfs_vptofh,			/* vfs_vptofh */
 	tmpfs_init,			/* vfs_init */
-	NULL,				/* vfs_sysctl */
+	(void *)eopnotsupp,		/* vfs_sysctl */
 	(void *)eopnotsupp,
 };

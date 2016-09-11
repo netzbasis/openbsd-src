@@ -1,4 +1,4 @@
-/*	$OpenBSD: v_txt.c,v 1.31 2016/01/20 08:43:27 bentley Exp $	*/
+/*	$OpenBSD: v_txt.c,v 1.33 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

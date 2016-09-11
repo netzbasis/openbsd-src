@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.23 2015/05/18 19:59:27 guenther Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.25 2016/03/14 23:08:05 krw Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.1 2003/04/26 18:39:27 fvdl Exp $	*/
 
 /*
@@ -80,7 +80,7 @@ long		 db_switch_to_cpu;
 int	db_active;
 db_regs_t ddb_regs;
 
-void kdbprinttrap(int, int);
+void db_printtrap(int, int);
 #ifdef MULTIPROCESSOR
 void db_cpuinfo_cmd(db_expr_t, int, db_expr_t, char *);
 void db_startproc_cmd(db_expr_t, int, db_expr_t, char *);
@@ -92,7 +92,7 @@ void db_ddbproc_cmd(db_expr_t, int, db_expr_t, char *);
  * Print trap reason.
  */
 void
-kdbprinttrap(int type, int code)
+db_printtrap(int type, int code)
 {
 	db_printf("kernel: ");
 	if (type >= trap_types || type < 0)
@@ -103,10 +103,10 @@ kdbprinttrap(int type, int code)
 }
 
 /*
- *  kdb_trap - field a TRACE or BPT trap
+ *  db_ktrap - field a TRACE or BPT trap
  */
 int
-kdb_trap(int type, int code, db_regs_t *regs)
+db_ktrap(int type, int code, db_regs_t *regs)
 {
 	int s;
 
@@ -124,7 +124,7 @@ kdb_trap(int type, int code, db_regs_t *regs)
 		if (!db_panic)
 			return (0);
 
-		kdbprinttrap(type, code);
+		db_printtrap(type, code);
 		if (db_recover != 0) {
 			db_error("Faulted in DDB; continuing...\n");
 			/*NOTREACHED*/
@@ -374,7 +374,7 @@ struct db_command db_machine_command_table[] = {
 #if NACPI > 0
 	{ "acpi",	NULL,			0,	db_acpi_cmds },
 #endif /* NACPI > 0 */
-	{ (char *)0, },
+	{ NULL, },
 };
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.145 2016/02/03 08:03:21 gilles Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.151 2016/09/04 09:33:49 eric Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -67,6 +67,7 @@ static int is_encrypted_fp(FILE *);
 static int is_encrypted_buffer(const char *);
 static int is_gzip_buffer(const char *);
 static FILE *offline_file(void);
+static void sendmail_compat(int, char **);
 
 extern char	*__progname;
 int		 sendmail;
@@ -104,17 +105,17 @@ void stat_decrement(const char *k, size_t v)
 int
 srv_connect(void)
 {
-	struct sockaddr_un	sun;
+	struct sockaddr_un	s_un;
 	int			ctl_sock, saved_errno;
 
 	/* connect to smtpd control socket */
 	if ((ctl_sock = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
 		err(1, "socket");
 
-	memset(&sun, 0, sizeof(sun));
-	sun.sun_family = AF_UNIX;
-	(void)strlcpy(sun.sun_path, SMTPD_SOCKET, sizeof(sun.sun_path));
-	if (connect(ctl_sock, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
+	memset(&s_un, 0, sizeof(s_un));
+	s_un.sun_family = AF_UNIX;
+	(void)strlcpy(s_un.sun_path, SMTPD_SOCKET, sizeof(s_un.sun_path));
+	if (connect(ctl_sock, (struct sockaddr *)&s_un, sizeof(s_un)) == -1) {
 		saved_errno = errno;
 		close(ctl_sock);
 		errno = saved_errno;
@@ -217,6 +218,57 @@ srv_read(void *dst, size_t sz)
 }
 
 static void
+srv_get_int(int *i)
+{
+	srv_read(i, sizeof(*i));
+}
+
+static void
+srv_get_time(time_t *t)
+{
+	srv_read(t, sizeof(*t));
+}
+
+static void
+srv_get_evpid(uint64_t *evpid)
+{
+	srv_read(evpid, sizeof(*evpid));
+}
+
+static void
+srv_get_string(const char **s)
+{
+	const char *end;
+	size_t len;
+
+	if (rlen == 0)
+		errx(1, "message too short");
+
+	end = memchr(rdata, 0, rlen);
+	if (end == NULL)
+		errx(1, "unterminated string");
+
+	len = end + 1 - rdata;
+
+	*s = rdata;
+	rlen -= len;
+	rdata += len;
+}
+
+static void
+srv_get_envelope(struct envelope *evp)
+{
+	uint64_t	 evpid;
+	const char	*str;
+
+	srv_get_evpid(&evpid);
+	srv_get_string(&str);
+
+	envelope_load_buffer(evp, str, strlen(str));
+	evp->id = evpid;
+}
+
+static void
 srv_end(void)
 {
 	if (rlen)
@@ -293,9 +345,8 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 	static uint32_t	currmsgid = 0;
 	static uint64_t	from = 0;
 	static int	done = 0, need_send = 1, found;
-	char		buf[sizeof(*evp)];
-	size_t		buflen;
-	uint64_t	evpid;
+	int		flags;
+	time_t		nexttry;
 
 	if (currmsgid != msgid) {
 		if (currmsgid != 0 && !done)
@@ -328,13 +379,14 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 		goto again;
 	}
 
-	srv_read(&evpid, sizeof evpid);
-	buflen = rlen;
-	srv_read(buf, rlen);
-	envelope_load_buffer(evp, buf, buflen - 1);
-	evp->id = evpid;
-
+	srv_get_int(&flags);
+	srv_get_time(&nexttry);
+	srv_get_envelope(evp);
 	srv_end();
+
+	evp->flags |= flags;
+	evp->nexttry = nexttry;
+
 	from = evp->id + 1;
 	found++;
 	return (1);
@@ -812,13 +864,6 @@ do_show_status(int argc, struct parameter *argv)
 }
 
 static int
-do_stop(int argc, struct parameter *argv)
-{
-	srv_send(IMSG_CTL_SHUTDOWN, NULL, 0);
-	return srv_check_result(1);
-}
-
-static int
 do_trace(int argc, struct parameter *argv)
 {
 	int	v;
@@ -867,7 +912,7 @@ do_encrypt(int argc, struct parameter *argv)
 
 	if (argv)
 		p = argv[0].u.u_str;
-	execl(PATH_ENCRYPT, "encrypt", p, NULL);
+	execl(PATH_ENCRYPT, "encrypt", p, (char *)NULL);
 	errx(1, "execl");
 }
 
@@ -976,77 +1021,14 @@ do_uncorrupt(int argc, struct parameter *argv)
 int
 main(int argc, char **argv)
 {
-	arglist		 args;
 	gid_t		 gid;
 	char		*argv_mailq[] = { "show", "queue", NULL };
-	char		*aliases_path = NULL, *p;
-	FILE		*offlinefp = NULL;
-	int		 ch, i, sendmail_makemap = 0;
 
-	gid = getgid();
-	if (strcmp(__progname, "sendmail") == 0 ||
-	    strcmp(__progname, "send-mail") == 0) {
-		/*
-		 * determine whether we are called with flags
-		 * that should invoke makemap/newaliases.
-		 */
-		opterr = 0;
-		while ((ch = getopt(argc, argv, "b:C:O:")) != -1) {
-			switch (ch) {
-			case 'b':
-				if (strcmp(optarg, "i") == 0)
-					sendmail_makemap = 1;
-				break;
-			case 'C':
-				break; /* compatibility, not required */
-			case 'O':
-				if (strncmp(optarg, "AliasFile=", 10) != 0)
-					break;
-				p = strchr(optarg, '=');
-				aliases_path = ++p;
-				break;
-			}
-		}
-		opterr = 1;
-
-		if (sendmail_makemap) {
-			argc -= optind;
-			argv += optind;
-			optind = 0;
-
-			memset(&args, 0, sizeof args);
-			addargs(&args, "%s", "makemap");
-			for (i = 0; i < argc; i++)
-				addargs(&args, "%s", argv[i]);
-
-			addargs(&args, "%s", "-taliases");
-			if (aliases_path)
-				addargs(&args, "%s", aliases_path);
-
-			return makemap(args.num, args.list);
-		}
-		optind = 0;
-
-		if (!srv_connect())
-			offlinefp = offline_file();
-
-		if (setresgid(gid, gid, gid) == -1)
-			err(1, "setresgid");
-
-		/* we'll reduce further down the road */
-		if (pledge("stdio rpath wpath cpath tmppath flock "
-			"dns getpw recvfd", NULL) == -1)
-			err(1, "pledge");
-
-		sendmail = 1;
-		return (enqueue(argc, argv, offlinefp));
-	} else if (strcmp(__progname, "makemap") == 0 ||
-	    strcmp(__progname, "newaliases") == 0)
-		return makemap(argc, argv);
-
+	sendmail_compat(argc, argv);
 	if (geteuid())
 		errx(1, "need root privileges");
 
+	gid = getgid();
 	if (setresgid(gid, gid, gid) == -1)
 		err(1, "setresgid");
 
@@ -1091,7 +1073,6 @@ main(int argc, char **argv)
 	cmd_install("show routes",		do_show_routes);
 	cmd_install("show stats",		do_show_stats);
 	cmd_install("show status",		do_show_status);
-	cmd_install("stop",			do_stop);
 	cmd_install("trace <str>",		do_trace);
 	cmd_install("uncorrupt <msgid>",	do_uncorrupt);
 	cmd_install("unprofile <str>",		do_unprofile);
@@ -1105,7 +1086,44 @@ main(int argc, char **argv)
 
 	errx(1, "unsupported mode");
 	return (0);
+}
 
+void
+sendmail_compat(int argc, char **argv)
+{
+	FILE	*offlinefp = NULL;
+	gid_t	 gid;
+	int	 i;
+
+	if (strcmp(__progname, "sendmail") == 0 ||
+	    strcmp(__progname, "send-mail") == 0) {
+		/*
+		 * determine whether we are called with flags
+		 * that should invoke makemap/newaliases.
+		 */
+		for (i = 1; i < argc; i++)
+			if (strncmp(argv[i], "-bi", 3) == 0) {
+				__progname = "newaliases";
+				exit(makemap(argc, argv));
+			}
+
+		if (!srv_connect())
+			offlinefp = offline_file();
+
+		gid = getgid();
+		if (setresgid(gid, gid, gid) == -1)
+			err(1, "setresgid");
+
+		/* we'll reduce further down the road */
+		if (pledge("stdio rpath wpath cpath tmppath flock "
+			"dns getpw recvfd", NULL) == -1)
+			err(1, "pledge");
+
+		sendmail = 1;
+		exit(enqueue(argc, argv, offlinefp));
+	} else if (strcmp(__progname, "makemap") == 0 ||
+	    strcmp(__progname, "newaliases") == 0)
+		exit(makemap(argc, argv));
 }
 
 static void
@@ -1284,9 +1302,9 @@ display(const char *s)
 	lseek(fileno(fp), 0, SEEK_SET);
 	(void)dup2(fileno(fp), STDIN_FILENO);
 	if (gzipped)
-		execl(PATH_GZCAT, gzcat_argv0, NULL);
+		execl(PATH_GZCAT, gzcat_argv0, (char *)NULL);
 	else
-		execl(PATH_CAT, "cat", NULL);
+		execl(PATH_CAT, "cat", (char *)NULL);
 	err(1, "execl");
 }
 

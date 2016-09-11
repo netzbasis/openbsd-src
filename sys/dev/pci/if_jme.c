@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_jme.c,v 1.45 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_jme.c,v 1.47 2016/04/13 10:34:32 mpi Exp $	*/
 /*-
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -52,8 +52,6 @@
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -667,7 +665,6 @@ jme_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = jme_start;
 	ifp->if_watchdog = jme_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, JME_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_IPv4 |

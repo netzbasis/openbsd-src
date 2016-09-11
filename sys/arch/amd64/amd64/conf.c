@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.56 2016/02/05 06:29:01 uebayasi Exp $	*/
+/*	$OpenBSD: conf.c,v 1.60 2016/09/04 10:51:23 naddy Exp $	*/
 
 /*
  * Copyright (c) 1994, 1995 Charles M. Hannum.  All rights reserved.
@@ -58,7 +58,7 @@ struct bdevsw	bdevsw[] =
 	bdev_disk_init(NFD,fd),		/* 2: floppy diskette */
 	bdev_notdef(),			/* 3 */
 	bdev_disk_init(NSD,sd),		/* 4: SCSI disk */
-	bdev_tape_init(NST,st),		/* 5: SCSI tape */
+	bdev_notdef(),			/* 5: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/* 6: SCSI CD-ROM */
 	bdev_notdef(),			/* 7 */
 	bdev_notdef(),			/* 8 */
@@ -117,7 +117,6 @@ int	nblkdev = nitems(bdevsw);
 #define	mmwrite	mmrw
 cdev_decl(mm);
 cdev_decl(wd);
-#include "systrace.h"
 #include "bio.h"
 #include "pty.h"
 #include "com.h"
@@ -184,6 +183,7 @@ cdev_decl(pci);
 #include "fuse.h"
 #include "pvbus.h"
 #include "ipmi.h"
+#include "switch.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -277,7 +277,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),
 	cdev_radio_init(NRADIO, radio), /* 76: generic radio I/O */
 	cdev_notdef(),			/* 77: was USB scanners */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 78: system call tracing */
+	cdev_notdef(),			/* 78 */
 	cdev_bio_init(NBIO,bio),	/* 79: ioctl tunnel */
 	cdev_notdef(),			/* 80: gpr? XXX */
 	cdev_ptm_init(NPTY,ptm),	/* 81: pseudo-tty ptm device */
@@ -296,6 +296,7 @@ struct cdevsw	cdevsw[] =
 	cdev_tty_init(NVIOCON,viocon),  /* 94: virtio console */
 	cdev_pvbus_init(NPVBUS,pvbus),	/* 95: pvbus(4) control interface */
 	cdev_ipmi_init(NIPMI,ipmi),	/* 96: ipmi */
+	cdev_switch_init(NSWITCH,switch), /* 97: switch(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -354,7 +355,7 @@ int chrtoblktbl[] = {
 	/* 11 */	NODEV,
 	/* 12 */	NODEV,
 	/* 13 */	4,		/* sd */
-	/* 14 */	5,		/* st */
+	/* 14 */	NODEV,
 	/* 15 */	6,		/* cd */
 	/* 16 */	NODEV,
 	/* 17 */	NODEV,
@@ -388,13 +389,6 @@ int chrtoblktbl[] = {
 	/* 45 */	NODEV,
 	/* 46 */	NODEV,
 	/* 47 */	17,		/* rd */
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
-	/* 52 */	NODEV,
-	/* 53 */	NODEV,
-	/* 54 */	19,		/* raid */
 };
 
 int nchrtoblktbl = nitems(chrtoblktbl);

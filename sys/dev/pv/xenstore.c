@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.27 2016/02/05 10:30:37 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.29 2016/07/29 21:05:26 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -226,7 +226,7 @@ xs_attach(struct xen_softc *sc)
 	pmap_kenter_pa((vaddr_t)xs->xs_ring, pa, PROT_READ | PROT_WRITE);
 	pmap_update(pmap_kernel());
 
-	if (xen_intr_establish(xs->xs_port, &xs->xs_ih, xs_intr, xs,
+	if (xen_intr_establish(xs->xs_port, &xs->xs_ih, 0, xs_intr, xs,
 	    sc->sc_dev.dv_xname))
 		goto fail_2;
 
@@ -530,6 +530,7 @@ xs_intr(void *arg)
 
 	/* Response processing */
 
+ again:
 	if (xs->xs_rmsg == NULL) {
 		if (avail < sizeof(xmh)) {
 			printf("%s: incomplete header: %d\n",
@@ -596,6 +597,9 @@ xs_intr(void *arg)
 			wakeup(xs->xs_rchan);
 		}
 	}
+
+	if ((avail = xs_ring_avail(xsr, 0)) > 0)
+		goto again;
 
  out:
 	/* Wakeup sleeping writes (if any) */

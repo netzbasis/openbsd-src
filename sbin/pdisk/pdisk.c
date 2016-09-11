@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.84 2016/02/02 15:23:07 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.87 2016/05/28 22:26:13 tb Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -74,22 +74,18 @@ main(int argc, char **argv)
 	struct disklabel dl;
 	struct stat st;
 	struct partition_map *map;
-	int c, fd;
+	int c, fd, oflags;
 
-	if (pledge("stdio rpath wpath disklabel", NULL) == -1)
-		err(1, "pledge");
-
+	oflags = O_RDWR;
 	while ((c = getopt(argc, argv, "lr")) != -1) {
 		switch (c) {
 		case 'l':
 			lflag = 1;
-			if (pledge("stdio rpath disklabel", NULL) == -1)
-				err(1, "pledge");
+			oflags = O_RDONLY;
 			break;
 		case 'r':
 			rflag = 1;
-			if (pledge("stdio rpath disklabel", NULL) == -1)
-				err(1, "pledge");
+			oflags = O_RDONLY;
 			break;
 		default:
 			usage();
@@ -103,19 +99,14 @@ main(int argc, char **argv)
 	if (argc != 1)
 		usage();
 
-	fd = opendev(*argv, ((rflag || lflag) ? O_RDONLY:O_RDWR), OPENDEV_PART,
-	    NULL);
+	fd = opendev(*argv, oflags, OPENDEV_PART, NULL);
 	if (fd == -1)
 		err(1, "can't open file '%s'", *argv);
 
-	if (pledge("stdio disklabel", NULL) == -1)
-		err(1, "pledge");
-
 	if (fstat(fd, &st) == -1)
 		err(1, "can't fstat %s", *argv);
-	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
-		errx(1, "%s is not a character device or a regular file",
-		    *argv);
+	if (!S_ISCHR(st.st_mode))
+		errx(1, "%s is not a character device", *argv);
 
 	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
 		err(1, "can't get disklabel for %s", *argv);

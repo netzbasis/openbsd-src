@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.207 2015/12/05 18:28:04 benno Exp $ */
+/*	$OpenBSD: kroute.c,v 1.209 2016/04/08 12:27:05 phessler Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -3178,6 +3178,15 @@ dispatch_rtmsg_addr(struct rt_msghdr *rtm, struct sockaddr *rti_info[RTAX_MAX],
 			sa = NULL;
 			mpath = 0;	/* link local stuff can't be mpath */
 			break;
+		case AF_INET:
+		case AF_INET6:
+			if (rtm->rtm_flags & RTF_CONNECTED) {
+				flags |= F_CONNECTED;
+				ifindex = rtm->rtm_index;
+				sa = NULL;
+				mpath = 0; /* link local stuff can't be mpath */
+			}
+			break;
 		}
 
 	if (rtm->rtm_type == RTM_DELETE) {
@@ -3242,7 +3251,7 @@ dispatch_rtmsg_addr(struct rt_msghdr *rtm, struct sockaddr *rti_info[RTAX_MAX],
 				    (kr = kroute_matchgw(kr, sa_in)) == NULL) {
 					log_warnx("dispatch_rtmsg_addr[change] "
 					    "mpath route not found");
-					return (-1);
+					goto add4;
 				} else if (mpath && rtm->rtm_type == RTM_ADD)
 					goto add4;
 
@@ -3314,7 +3323,7 @@ add4:
 				    NULL) {
 					log_warnx("dispatch_rtmsg[change] "
 					    "IPv6 mpath route not found");
-					return (-1);
+					goto add6;
 				} else if (mpath && rtm->rtm_type == RTM_ADD)
 					goto add6;
 

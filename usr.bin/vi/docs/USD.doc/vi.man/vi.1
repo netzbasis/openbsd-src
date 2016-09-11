@@ -1,4 +1,4 @@
-.\"	$OpenBSD: vi.1,v 1.63 2016/01/06 22:41:53 millert Exp $
+.\"	$OpenBSD: vi.1,v 1.66 2016/08/08 15:09:33 sobrado Exp $
 .\"
 .\" Copyright (c) 1994
 .\"     The Regents of the University of California.  All rights reserved.
@@ -14,7 +14,7 @@
 .\"
 .\"     @(#)vi.1	8.51 (Berkeley) 10/10/96
 .\"
-.Dd $Mdocdate: January 6 2016 $
+.Dd $Mdocdate: August 8 2016 $
 .Dt VI 1
 .Os
 .Sh NAME
@@ -354,7 +354,7 @@ matches the beginning of the word.
 .Sq \e>
 matches the end of the word.
 .It
-.Sq \(a~
+.Sq ~
 matches the replacement part of the last
 .Cm substitute
 command.
@@ -2059,9 +2059,9 @@ If this is the entire
 pattern, the replacement part of the previous
 .Cm substitute
 command.
-.It Sq \e\(sh
+.It Sq \e#
 Where
-.Sq \(sh
+.Sq #
 is an integer from 1 to 9, the text matched by the #'th subexpression in
 .Ar pattern .
 .It Sq \eL
@@ -2285,8 +2285,6 @@ Set the number of columns in the screen.
 .Nm vi
 only.
 Skip leading comments in shell, C and C++ language files.
-.It Cm directory , dir Bq "environment variable TMPDIR, or /tmp"
-The directory where temporary files are created.
 .It Cm edcompatible , ed Bq off
 Remember the values of the
 .Sq c
@@ -2350,9 +2348,9 @@ Display lines in an unambiguous fashion.
 Attempt to get an exclusive lock on any file being edited, read or written.
 .It Cm magic Bq on
 When turned off, all regular expression characters except for
-.Sq \(ha
+.Sq ^
 and
-.Sq \(Do
+.Sq $
 are treated as ordinary characters.
 Preceding individual characters by
 .Sq \e
@@ -2410,7 +2408,7 @@ only.
 Display a command prompt.
 .It Cm readonly , ro Bq off
 Mark the file and session as read-only.
-.It Cm recdir Bq /var/tmp/vi.recover
+.It Cm recdir Bq /tmp/vi.recover
 The directory where recovery files are stored.
 .It Cm redraw , re Bq off
 .Nm vi
@@ -2628,10 +2626,6 @@ runs, or the
 option is explicitly reset by the user,
 .Nm ex Ns / Ns Nm vi
 enters the value into the environment.
-.It Ev TMPDIR
-The location used to stored temporary files (see also the
-.Cm directory
-edit option).
 .El
 .Sh ASYNCHRONOUS EVENTS
 .Bl -tag -width "SIGWINCH" -compact
@@ -2672,7 +2666,7 @@ for more information.
 .\" ignores these signals.
 .El
 .Sh FILES
-.Bl -tag -width "/var/tmp/vi.recover"
+.Bl -tag -width "/tmp/vi.recover"
 .It Pa /bin/sh
 The default user shell.
 .It Pa /etc/vi.exrc
@@ -2686,7 +2680,7 @@ Must be owned by root or the user,
 and writable only by the owner.
 .It Pa /tmp
 Temporary file directory.
-.It Pa /var/tmp/vi.recover
+.It Pa /tmp/vi.recover
 The default recovery file directory.
 .It Pa $HOME/.nexrc
 First choice for user's home directory startup file, read for

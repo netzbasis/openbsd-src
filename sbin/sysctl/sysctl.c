@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.c,v 1.211 2015/04/18 18:28:37 deraadt Exp $	*/
+/*	$OpenBSD: sysctl.c,v 1.220 2016/09/02 11:11:48 deraadt Exp $	*/
 /*	$NetBSD: sysctl.c,v 1.9 1995/09/30 07:12:50 thorpej Exp $	*/
 
 /*
@@ -37,6 +37,7 @@
 #include <sys/shm.h>
 #include <sys/sysctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/malloc.h>
 #include <sys/uio.h>
 #include <sys/tty.h>
@@ -72,13 +73,11 @@
 #include <net/if_pfsync.h>
 #include <net/pipex.h>
 
-#ifdef INET6
 #include <netinet/ip6.h>
 #include <netinet/icmp6.h>
 #include <netinet6/ip6_var.h>
 #include <netinet6/pim6_var.h>
 #include <netinet6/ip6_divert.h>
-#endif
 
 #include <netmpls/mpls.h>
 
@@ -169,7 +168,6 @@ int	Aflag, aflag, nflag, qflag;
 #define	BOOTTIME	0x00000002
 #define	CHRDEV		0x00000004
 #define	BLKDEV		0x00000008
-#define	RNDSTATS	0x00000010
 #define	BADDYNAMIC	0x00000020
 #define	BIOSGEO		0x00000040
 #define	BIOSDEV		0x00000080
@@ -180,6 +178,7 @@ int	Aflag, aflag, nflag, qflag;
 #define	KMEMSTATS	0x00001000
 #define	SENSORS		0x00002000
 #define	SMALLBUF	0x00004000
+#define	HEX		0x00008000
 
 /* prototypes */
 void debuginit(void);
@@ -189,9 +188,7 @@ void parse_baddynamic(int *, size_t, char *, void **, size_t *, int, int);
 void usage(void);
 int findname(char *, char *, char **, struct list *);
 int sysctl_inet(char *, char **, int *, int, int *);
-#ifdef INET6
 int sysctl_inet6(char *, char **, int *, int, int *);
-#endif
 int sysctl_bpf(char *, char **, int *, int, int *);
 int sysctl_mpls(char *, char **, int *, int, int *);
 int sysctl_pipex(char *, char **, int *, int, int *);
@@ -211,7 +208,6 @@ int sysctl_tc(char *, char **, int *, int, int *);
 int sysctl_sensors(char *, char **, int *, int, int *);
 void print_sensordev(char *, int *, u_int, struct sensordev *);
 void print_sensor(struct sensor *);
-int sysctl_emul(char *, char *, int);
 #ifdef CPU_CHIPSET
 int sysctl_chipset(char *, char **, int *, int, int *);
 #endif
@@ -400,9 +396,6 @@ parse(char *string, int flags)
 		case KERN_BOOTTIME:
 			special |= BOOTTIME;
 			break;
-		case KERN_RND:
-			special |= RNDSTATS;
-			break;
 		case KERN_HOSTID:
 		case KERN_ARND:
 			special |= UNSIGNED;
@@ -440,9 +433,6 @@ parse(char *string, int flags)
 			if (len < 0)
 				return;
 			break;
-		case KERN_EMUL:
-			sysctl_emul(string, newval, flags);
-			return;
 		case KERN_FILE:
 			if (flags == 0)
 				return;
@@ -557,9 +547,11 @@ parse(char *string, int flags)
 				    string);
 				return;
 			} else if ((mib[2] == IPPROTO_TCP &&
-			    mib[3] == TCPCTL_BADDYNAMIC) ||
+			    (mib[3] == TCPCTL_BADDYNAMIC ||
+			    mib[3] == TCPCTL_ROOTONLY)) ||
 			    (mib[2] == IPPROTO_UDP &&
-			    mib[3] == UDPCTL_BADDYNAMIC)) {
+			    (mib[3] == UDPCTL_BADDYNAMIC ||
+			    mib[3] == UDPCTL_ROOTONLY))) {
 
 				special |= BADDYNAMIC;
 
@@ -569,7 +561,6 @@ parse(char *string, int flags)
 			}
 			break;
 		}
-#ifdef INET6
 		if (mib[1] == PF_INET6) {
 			len = sysctl_inet6(string, &bufp, mib, flags, &type);
 			if (len < 0)
@@ -587,7 +578,6 @@ parse(char *string, int flags)
 			}
 			break;
 		}
-#endif
 		if (mib[1] == PF_BPF) {
 			len = sysctl_bpf(string, &bufp, mib, flags, &type);
 			if (len < 0)
@@ -620,6 +610,10 @@ parse(char *string, int flags)
 #ifdef CPU_CONSDEV
 		if (mib[1] == CPU_CONSDEV)
 			special |= CHRDEV;
+#endif
+#ifdef CPU_CPUFEATURE
+		if (mib[1] == CPU_CPUFEATURE)
+			special |= HEX;
 #endif
 #ifdef CPU_BLK2CHR
 		if (mib[1] == CPU_BLK2CHR) {
@@ -722,8 +716,7 @@ parse(char *string, int flags)
 			break;
 
 		case CTLTYPE_QUAD:
-			/* XXX - assumes sizeof(long long) == sizeof(quad_t) */
-			(void)sscanf(newval, "%lld", (long long *)&quadval);
+			(void)sscanf(newval, "%lld", &quadval);
 			newval = &quadval;
 			newsize = sizeof(quadval);
 			break;
@@ -869,36 +862,6 @@ parse(char *string, int flags)
 		}
 		return;
 	}
-	if (special & RNDSTATS) {
-		struct rndstats *rndstats = (struct rndstats *)buf;
-		int i;
-
-		if (!nflag)
-			(void)printf("%s%s", string, equ);
-		printf("tot: %llu used: %llu read: %llu stirs: %llu"
-		    " enqs: %llu deqs: %llu drops: %llu ledrops: %llu",
-		    rndstats->rnd_total, rndstats->rnd_used,
-		    rndstats->arc4_reads, rndstats->arc4_nstirs,
-		    rndstats->rnd_enqs, rndstats->rnd_deqs,
-		    rndstats->rnd_drops, rndstats->rnd_drople);
-		printf(" ed:");
-		for (i = 0;
-		    i < sizeof(rndstats->rnd_ed)/sizeof(rndstats->rnd_ed[0]);
-		    i++)
-			printf(" %llu", (unsigned long long)rndstats->rnd_ed[i]);
-		printf(" sc:");
-		for (i = 0;
-		    i < sizeof(rndstats->rnd_sc)/sizeof(rndstats->rnd_sc[0]);
-		    i++)
-			printf(" %llu", (unsigned long long)rndstats->rnd_sc[i]);
-		printf(" sb:");
-		for (i = 0;
-		    i < sizeof(rndstats->rnd_sb)/sizeof(rndstats->rnd_sb[0]);
-		    i++)
-			printf(" %llu", (unsigned long long)rndstats->rnd_sb[i]);
-		printf("\n");
-		return;
-	}
 	if (special & BADDYNAMIC) {
 		u_int port, lastport;
 		u_int32_t *baddynamic = (u_int32_t *)buf;
@@ -955,13 +918,19 @@ parse(char *string, int flags)
 		if (newsize == 0) {
 			if (!nflag)
 				(void)printf("%s%s", string, equ);
-			(void)printf("%d\n", *(int *)buf);
+			if (special & HEX)
+				(void)printf("0x%x\n", *(int *)buf);
+			else
+				(void)printf("%d\n", *(int *)buf);
 		} else {
 			if (!qflag) {
 				if (!nflag)
 					(void)printf("%s: %d -> ", string,
 					    *(int *)buf);
-				(void)printf("%d\n", *(int *)newval);
+				if (special & HEX)
+					(void)printf("0x%x\n", *(int *)newval);
+				else
+					(void)printf("%d\n", *(int *)newval);
 			}
 		}
 		return;
@@ -982,20 +951,22 @@ parse(char *string, int flags)
 
 	case CTLTYPE_QUAD:
 		if (newsize == 0) {
-			long long tmp = *(quad_t *)buf;
+			int64_t tmp;
 
+			memcpy(&tmp, buf, sizeof tmp);
 			if (!nflag)
 				(void)printf("%s%s", string, equ);
 			(void)printf("%lld\n", tmp);
 		} else {
-			long long tmp = *(quad_t *)buf;
+			int64_t tmp;
 
+			memcpy(&tmp, buf, sizeof tmp);
 			if (!qflag) {
 				if (!nflag)
 					(void)printf("%s: %lld -> ",
 					    string, tmp);
-				tmp = *(quad_t *)newval;
-				(void)printf("%qd\n", tmp);
+				memcpy(&tmp, newval, sizeof tmp);
+				(void)printf("%lld\n", tmp);
 			}
 		}
 		return;
@@ -1774,28 +1745,28 @@ sysctl_forkstat(char *string, char **bufpp, int mib[], int flags, int *typep)
 		(void)printf("%s%s", string, equ);
 	switch (indx)	{
 	case KERN_FORKSTAT_FORK:
-		(void)printf("%d\n", fks.cntfork);
+		(void)printf("%u\n", fks.cntfork);
 		break;
 	case KERN_FORKSTAT_VFORK:
-		(void)printf("%d\n", fks.cntvfork);
+		(void)printf("%u\n", fks.cntvfork);
 		break;
 	case KERN_FORKSTAT_TFORK:
-		(void)printf("%d\n", fks.cnttfork);
+		(void)printf("%u\n", fks.cnttfork);
 		break;
 	case KERN_FORKSTAT_KTHREAD:
-		(void)printf("%d\n", fks.cntkthread);
+		(void)printf("%u\n", fks.cntkthread);
 		break;
 	case KERN_FORKSTAT_SIZFORK:
-		(void)printf("%d\n", fks.sizfork);
+		(void)printf("%llu\n", fks.sizfork);
 		break;
 	case KERN_FORKSTAT_SIZVFORK:
-		(void)printf("%d\n", fks.sizvfork);
+		(void)printf("%llu\n", fks.sizvfork);
 		break;
 	case KERN_FORKSTAT_SIZTFORK:
-		(void)printf("%d\n", fks.siztfork);
+		(void)printf("%llu\n", fks.siztfork);
 		break;
 	case KERN_FORKSTAT_SIZKTHREAD:
-		(void)printf("%d\n", fks.sizkthread);
+		(void)printf("%llu\n", fks.sizkthread);
 		break;
 	}
 	return (-1);
@@ -2022,7 +1993,6 @@ sysctl_inet(char *string, char **bufpp, int mib[], int flags, int *typep)
 	return (4);
 }
 
-#ifdef INET6
 struct ctlname inet6name[] = CTL_IPV6PROTO_NAMES;
 struct ctlname ip6name[] = IPV6CTL_NAMES;
 struct ctlname icmp6name[] = ICMPV6CTL_NAMES;
@@ -2159,7 +2129,6 @@ sysctl_inet6(char *string, char **bufpp, int mib[], int flags, int *typep)
 	}
 	return (4);
 }
-#endif
 
 /* handle bpf requests */
 int
@@ -2641,183 +2610,6 @@ print_sensor(struct sensor *s)
 		ct[19] = '\0';
 		printf(", %s.%03ld", ct, s->tv.tv_usec / 1000);
 	}
-}
-
-struct emulname {
-	char *name;
-	int index;
-} *emul_names;
-int	emul_num, nemuls;
-int	emul_init(void);
-
-int
-sysctl_emul(char *string, char *newval, int flags)
-{
-	int mib[4], enabled, i, old, print, found = 0;
-	char *head, *target;
-	size_t len;
-
-	if (emul_init() == -1) {
-		warnx("emul_init: out of memory");
-		return (1);
-	}
-
-	mib[0] = CTL_KERN;
-	mib[1] = KERN_EMUL;
-	mib[3] = KERN_EMUL_ENABLED;
-	head = "kern.emul.";
-
-	if (aflag || strcmp(string, "kern.emul") == 0) {
-		if (newval) {
-			warnx("%s: specification is incomplete", string);
-			return (1);
-		}
-		if (nflag)
-			printf("%d\n", nemuls);
-		else
-			printf("%snemuls%s%d\n", head, equ, nemuls);
-		for (i = 0; i < emul_num; i++) {
-			if (emul_names[i].name == NULL)
-				break;
-			if (i > 0 && strcmp(emul_names[i].name,
-			    emul_names[i-1].name) == 0)
-				continue;
-			mib[2] = emul_names[i].index;
-			len = sizeof(int);
-			if (sysctl(mib, 4, &enabled, &len, NULL, 0) == -1) {
-				warn("%s", string);
-				continue;
-			}
-			if (nflag)
-				printf("%d\n", enabled);
-			else
-				printf("%s%s%s%d\n", head, emul_names[i].name,
-				    equ, enabled);
-		}
-		return (0);
-	}
-	/* User specified a third level name */
-	target = strrchr(string, '.');
-	target++;
-	if (strcmp(target, "nemuls") == 0) {
-		if (newval) {
-			warnx("Operation not permitted");
-			return (1);
-		}
-		if (nflag)
-			printf("%d\n", nemuls);
-		else
-			printf("%snemuls = %d\n", head, nemuls);
-		return (0);
-	}
-	print = 1;
-	for (i = 0; i < emul_num; i++) {
-		if (!emul_names[i].name || (strcmp(target, emul_names[i].name)))
-			continue;
-		found = 1;
-		mib[2] = emul_names[i].index;
-		len = sizeof(int);
-		if (newval) {
-			const char *errstr;
-
-			enabled = strtonum(newval, 0, INT_MAX, &errstr);
-			if (errstr) {
-				warnx("%s: %s is %s", string, newval, errstr);
-				print = 0;
-				continue;
-			}
-			if (sysctl(mib, 4, &old, &len, &enabled, len) == -1) {
-				warn("%s", string);
-				print = 0;
-				continue;
-			}
-			if (print) {
-				if (nflag)
-					printf("%d\n", enabled);
-				else
-					printf("%s%s: %d -> %d\n", head,
-					    target, old, enabled);
-			}
-		} else {
-			if (sysctl(mib, 4, &enabled, &len, NULL, 0) == -1) {
-				warn("%s", string);
-				continue;
-			}
-			if (print) {
-				if (nflag)
-					printf("%d\n", enabled);
-				else
-					printf("%s%s = %d\n", head, target,
-					    enabled);
-			}
-		}
-		print = 0;
-	}
-	if (!found)
-		warnx("third level name %s in kern.emul is invalid",
-		    string);
-	return (0);
-
-
-}
-
-static int
-emulcmp(const void *m, const void *n)
-{
-	const struct emulname *a = m, *b = n;
-
-	if (!a || !a->name)
-		return 1;
-	if (!b || !b->name)
-		return -1;
-	return (strcmp(a->name, b->name));
-}
-
-int
-emul_init(void)
-{
-	static int done;
-	char string[16];
-	int mib[4], i;
-	size_t len;
-
-	if (done)
-		return (0);
-	done = 1;
-
-	mib[0] = CTL_KERN;
-	mib[1] = KERN_EMUL;
-	mib[2] = KERN_EMUL_NUM;
-	len = sizeof(int);
-	if (sysctl(mib, 3, &emul_num, &len, NULL, 0) == -1)
-		return (-1);
-
-	emul_names = calloc(emul_num, sizeof(*emul_names));
-	if (emul_names == NULL)
-		return (-1);
-
-	nemuls = emul_num;
-	for (i = 0; i < emul_num; i++) {
-		emul_names[i].index = mib[2] = i + 1;
-		mib[3] = KERN_EMUL_NAME;
-		len = sizeof(string);
-		if (sysctl(mib, 4, string, &len, NULL, 0) == -1)
-			continue;
-		if (strcmp(string, "native") == 0)
-			continue;
-		emul_names[i].name = strdup(string);
-		if (emul_names[i].name == NULL) {
-			free(emul_names);
-			return (-1);
-		}
-	}
-	qsort(emul_names, nemuls, sizeof(*emul_names), emulcmp);
-	for (i = 0; i < emul_num; i++) {
-		if (!emul_names[i].name || (i > 0 &&
-		    strcmp(emul_names[i].name, emul_names[i - 1].name) == 0))
-			nemuls--;
-	}
-	return (0);
 }
 
 /*

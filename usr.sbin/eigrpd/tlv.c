@@ -1,4 +1,4 @@
-/*	$OpenBSD: tlv.c,v 1.6 2016/01/15 12:29:29 renato Exp $ */
+/*	$OpenBSD: tlv.c,v 1.14 2016/09/02 16:46:29 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -16,17 +16,16 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <inttypes.h>
-#include <string.h>
-#include <sys/uio.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "eigrpd.h"
-#include "eigrp.h"
-#include "log.h"
 #include "eigrpe.h"
+#include "log.h"
 
 int
 gen_parameter_tlv(struct ibuf *buf, struct eigrp_iface *ei, int peerterm)
@@ -68,26 +67,20 @@ gen_sequence_tlv(struct ibuf *buf, struct seq_addr_head *seq_addr_list)
 		switch (sa->af) {
 		case AF_INET:
 			alen = INADDRSZ;
-			if (ibuf_add(buf, &alen, sizeof(alen)))
-				return (-1);
-			if (ibuf_add(buf, &sa->addr.v4, sizeof(sa->addr.v4))) {
-				log_warn("%s: ibuf_add failed", __func__);
-				return (-1);
-			}
 			break;
 		case AF_INET6:
 			alen = IN6ADDRSZ;
-			if (ibuf_add(buf, &alen, sizeof(alen)))
-				return (-1);
-			if (ibuf_add(buf, &sa->addr.v6, sizeof(sa->addr.v6))) {
-				log_warn("%s: ibuf_add failed", __func__);
-				return (-1);
-			}
 			break;
 		default:
-			log_debug("%s: unkown address family", __func__);
+			fatalx("gen_sequence_tlv: unknown address family");
+		}
+		if (ibuf_add(buf, &alen, sizeof(alen)))
+			return (-1);
+		if (ibuf_add(buf, &sa->addr, alen)) {
+			log_warn("%s: ibuf_add failed", __func__);
 			return (-1);
 		}
+
 		len += (sizeof(alen) + alen);
 	}
 
@@ -219,7 +212,7 @@ gen_route_tlv(struct ibuf *buf, struct rinfo *ri)
 
 	/* exterior metric */
 	if (ri->type == EIGRP_ROUTE_EXTERNAL) {
-		memcpy(&emetric, &ri->emetric, sizeof(emetric));
+		emetric = ri->emetric;
 		emetric.routerid = htonl(emetric.routerid);
 		emetric.as = htonl(emetric.as);
 		emetric.tag = htonl(emetric.tag);
@@ -231,7 +224,7 @@ gen_route_tlv(struct ibuf *buf, struct rinfo *ri)
 	}
 
 	/* metric */
-	memcpy(&metric, &ri->metric, sizeof(metric));
+	metric = ri->metric;
 	metric.delay = htonl(metric.delay);
 	metric.bandwidth = htonl(metric.bandwidth);
 	if (ibuf_add(buf, &metric, sizeof(metric)))
@@ -303,33 +296,32 @@ tlv_decode_seq(int af, struct tlv *tlv, char *buf,
 			return (-1);
 		}
 
-		if ((sa = calloc(1, sizeof(*sa))) == NULL)
-			fatal("tlv_decode_seq");
-		sa->af = af;
 		switch (af) {
 		case AF_INET:
 			if (alen != INADDRSZ) {
-				log_debug("%s: invalid address length");
-				free(sa);
+				log_debug("%s: invalid address length",
+				    __func__);
 				return (-1);
 			}
-			memcpy(&sa->addr.v4, buf, sizeof(struct in_addr));
 			break;
 		case AF_INET6:
 			if (alen != IN6ADDRSZ) {
-				log_debug("%s: invalid address length");
-				free(sa);
+				log_debug("%s: invalid address length",
+				    __func__);
 				return (-1);
 			}
-			memcpy(&sa->addr.v6, buf, sizeof(struct in6_addr));
 			break;
 		default:
-			free(sa);
 			fatalx("tlv_decode_seq: unknown af");
 		}
+		if ((sa = calloc(1, sizeof(*sa))) == NULL)
+			fatal("tlv_decode_seq");
+		sa->af = af;
+		memcpy(&sa->addr, buf, alen);
+		TAILQ_INSERT_TAIL(seq_addr_list, sa, entry);
+
 		buf += alen;
 		len -= alen;
-		TAILQ_INSERT_TAIL(seq_addr_list, sa, entry);
 	}
 
 	return (0);
@@ -364,16 +356,17 @@ tlv_decode_mcast_seq(struct tlv *tlv, char *buf)
 int
 tlv_decode_route(int af, struct tlv *tlv, char *buf, struct rinfo *ri)
 {
-	int		 tlv_len, min_len, plen, offset;
-	in_addr_t	 ipv4;
+	unsigned int	 tlv_len, min_len, max_plen, plen, offset;
 
 	ri->af = af;
 	switch (ri->af) {
 	case AF_INET:
 		min_len = TLV_TYPE_IPV4_INT_MIN_LEN;
+		max_plen = sizeof(ri->prefix.v4);
 		break;
 	case AF_INET6:
 		min_len = TLV_TYPE_IPV6_INT_MIN_LEN;
+		max_plen = sizeof(ri->prefix.v6);
 		break;
 	default:
 		fatalx("tlv_decode_route: unknown af");
@@ -433,21 +426,19 @@ tlv_decode_route(int af, struct tlv *tlv, char *buf, struct rinfo *ri)
 	memcpy(&ri->prefixlen, buf + offset, sizeof(ri->prefixlen));
 	offset += sizeof(ri->prefixlen);
 
-	switch (af) {
-	case AF_INET:
-		plen = PREFIX_SIZE4(ri->prefixlen);
-		break;
-	case AF_INET6:
-		plen = PREFIX_SIZE6(ri->prefixlen);
-		break;
-	default:
-		fatalx("tlv_decode_route: unknown af");
-	}
+	/*
+	 * Different versions of IOS can use a different number of bytes to
+	 * encode the same IPv6 prefix. This sucks but we have to deal with it.
+	 * Instead of calculating the number of bytes based on the value of the
+	 * prefixlen field, let's get this number by subtracting the size of all
+	 * other fields from the total size of the TLV. It works because all
+	 * the other fields have a fixed length.
+	 */
+	plen = tlv_len - min_len;
 
 	/* safety check */
-	if (plen != (tlv_len - min_len)) {
-		log_debug("%s: malformed tlv (invalid prefix length)",
-		    __func__);
+	if (plen > max_plen) {
+		log_debug("%s: malformed tlv", __func__);
 		return (-1);
 	}
 
@@ -456,30 +447,21 @@ tlv_decode_route(int af, struct tlv *tlv, char *buf, struct rinfo *ri)
 	case AF_INET:
 		memset(&ri->prefix.v4, 0, sizeof(ri->prefix.v4));
 		memcpy(&ri->prefix.v4, buf + offset, plen);
-
-		/* check if the network is valid */
-		ipv4 = ntohl(ri->prefix.v4.s_addr);
-		if (((ipv4 >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET) ||
-		    IN_MULTICAST(ipv4) || IN_BADCLASS(ipv4)) {
-			log_debug("%s: malformed tlv (invalid ipv4 prefix)",
-			    __func__);
-			return (-1);
-		}
 		break;
 	case AF_INET6:
 		memset(&ri->prefix.v6, 0, sizeof(ri->prefix.v6));
 		memcpy(&ri->prefix.v6, buf + offset, plen);
-
-		/* check if the network is valid */
-		if (IN6_IS_ADDR_LOOPBACK(&ri->prefix.v6) ||
-		    IN6_IS_ADDR_MULTICAST(&ri->prefix.v6)) {
-			log_debug("%s: malformed tlv (invalid ipv6 prefix)",
-			    __func__);
-			return (-1);
-		}
 		break;
 	default:
 		fatalx("tlv_decode_route: unknown af");
+	}
+
+	/* check if the network is valid */
+	if (bad_addr(af, &ri->prefix) ||
+	   (af == AF_INET6 && IN6_IS_SCOPE_EMBED(&ri->prefix.v6))) {
+		log_debug("%s: malformed tlv (invalid prefix): %s", __func__,
+		    log_addr(af, &ri->prefix));
+		return (-1);
 	}
 
 	/* just in case... */

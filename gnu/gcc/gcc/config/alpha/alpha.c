@@ -4178,11 +4178,11 @@ alpha_expand_block_clear (rtx operands[])
       if (a > align)
 	{
           if (a >= 64)
-	    align = a, alignofs = 8 - c % 8;
+	    align = a, alignofs = 8 - (c & 7);
           else if (a >= 32)
-	    align = a, alignofs = 4 - c % 4;
+	    align = a, alignofs = 4 - (c & 3);
           else if (a >= 16)
-	    align = a, alignofs = 2 - c % 2;
+	    align = a, alignofs = 2 - (c & 1);
 	}
     }
 
@@ -4551,6 +4551,8 @@ emit_insxl (enum machine_mode mode, rtx op1, rtx op2)
       else
 	fn = gen_inswl_le;
     }
+  /* The insbl and inswl patterns require a register operand.  */
+  op1 = force_reg (mode, op1);
   emit_insn (fn (ret, op1, op2));
 
   return ret;
@@ -8721,11 +8723,15 @@ summarize_insn (rtx x, struct shadow_summary *sum, int set)
    result of an instruction that might generate an UNPREDICTABLE
    result.
 
-   (c) Within the trap shadow, no register may be used more than once
+   (c) Within the trap shadow, the destination register of the potentially
+   trapping instruction may not be used as an input, for its value would be
+   UNPREDICTABLE.
+
+   (d) Within the trap shadow, no register may be used more than once
    as a destination register.  (This is to make life easier for the
    trap-handler.)
 
-   (d) The trap shadow may not include any branch instructions.  */
+   (e) The trap shadow may not include any branch instructions.  */
 
 static void
 alpha_handle_trap_shadows (void)
@@ -8797,7 +8803,7 @@ alpha_handle_trap_shadows (void)
 		      if ((sum.defd.i & shadow.defd.i)
 			  || (sum.defd.fp & shadow.defd.fp))
 			{
-			  /* (c) would be violated */
+			  /* (d) would be violated */
 			  goto close_shadow;
 			}
 
@@ -8820,11 +8826,19 @@ alpha_handle_trap_shadows (void)
 
 			  goto close_shadow;
 			}
+
+		      if ((sum.used.i & shadow.defd.i)
+			  || (sum.used.fp & shadow.defd.fp))
+			{
+			  /* (c) would be violated */
+			  goto close_shadow;
+			}
 		      break;
 
 		    case JUMP_INSN:
 		    case CALL_INSN:
 		    case CODE_LABEL:
+		      /* (e) would be violated */
 		      goto close_shadow;
 
 		    default:

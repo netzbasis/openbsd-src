@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.105 2015/11/04 17:54:06 jca Exp $	*/
+/*	$OpenBSD: main.c,v 1.110 2016/08/13 12:55:21 jsing Exp $	*/
 /*	$NetBSD: main.c,v 1.24 1997/08/18 10:20:26 lukem Exp $	*/
 
 /*
@@ -98,6 +98,60 @@ char * const ssl_verify_opts[] = {
 };
 
 struct tls_config *tls_config;
+
+static void
+process_ssl_options(char *cp)
+{
+	const char *errstr;
+	long long depth;
+	char *str;
+
+	while (*cp) {
+		switch (getsubopt(&cp, ssl_verify_opts, &str)) {
+		case SSL_CAFILE:
+			if (str == NULL)
+				errx(1, "missing CA file");
+			if (tls_config_set_ca_file(tls_config, str) != 0)
+				errx(1, "tls ca file failed: %s",
+				    tls_config_error(tls_config));
+			break;
+		case SSL_CAPATH:
+			if (str == NULL)
+				errx(1, "missing CA directory path");
+			if (tls_config_set_ca_path(tls_config, str) != 0)
+				errx(1, "tls ca path failed: %s",
+				    tls_config_error(tls_config));
+			break;
+		case SSL_CIPHERS:
+			if (str == NULL)
+				errx(1, "missing cipher list");
+			if (tls_config_set_ciphers(tls_config, str) != 0)
+				errx(1, "tls ciphers failed: %s",
+				    tls_config_error(tls_config));
+			break;
+		case SSL_DONTVERIFY:
+			tls_config_insecure_noverifycert(tls_config);
+			tls_config_insecure_noverifyname(tls_config);
+			break;
+		case SSL_DOVERIFY:
+			tls_config_verify(tls_config);
+			break;
+		case SSL_VERIFYDEPTH:
+			if (str == NULL)
+				errx(1, "missing depth");
+			depth = strtonum(str, 0, INT_MAX, &errstr);
+			if (errstr)
+				errx(1, "certificate validation depth is %s",
+				    errstr);
+			tls_config_set_verify_depth(tls_config, (int)depth);
+			break;
+		default:
+			errx(1, "unknown -S suboption `%s'",
+			    suboptarg ? suboptarg : "");
+			/* NOTREACHED */
+		}
+	}
+}
 #endif /* !SMALL */
 
 int family = PF_UNSPEC;
@@ -112,9 +166,6 @@ main(volatile int argc, char *argv[])
 	char *outfile = NULL;
 	const char *errstr;
 	int dumb_terminal = 0;
-#ifndef SMALL
-	long long depth;
-#endif
 
 	ftpport = "ftp";
 	httpport = "http";
@@ -143,11 +194,7 @@ main(volatile int argc, char *argv[])
 	marg_sl = sl_init();
 #endif /* !SMALL */
 	mark = HASHBYTES;
-#ifdef INET6
 	epsv4 = 1;
-#else
-	epsv4 = 0;
-#endif
 	epsv4bad = 0;
 
 	/* Set default operation mode based on FTPMODE environment variable */
@@ -198,13 +245,16 @@ main(volatile int argc, char *argv[])
 
 #ifndef SMALL
 	cookiefile = getenv("http_cookies");
+	if (tls_init() != 0)
+		errx(1, "tls init failed");
 	if (tls_config == NULL) {
 		tls_config = tls_config_new();
 		if (tls_config == NULL)
 			errx(1, "tls config failed");
 		tls_config_set_protocols(tls_config, TLS_PROTOCOLS_ALL);
-		if (tls_config_set_ciphers(tls_config, "compat") != 0)
-			errx(1, "tls set ciphers failed");
+		if (tls_config_set_ciphers(tls_config, "all") != 0)
+			errx(1, "tls set ciphers failed: %s",
+			    tls_config_error(tls_config));
 	}
 #endif /* !SMALL */
 
@@ -320,60 +370,8 @@ main(volatile int argc, char *argv[])
 
 		case 'S':
 #ifndef SMALL
-			cp = optarg;
-			while (*cp) {
-				char	*str;
-				switch (getsubopt(&cp, ssl_verify_opts, &str)) {
-				case SSL_CAFILE:
-					if (str == NULL)
-						errx(1, "missing CA file");
-					if (tls_config_set_ca_file(
-					    tls_config, str) != 0)
-						errx(1, "tls ca file failed");
-					break;
-				case SSL_CAPATH:
-					if (str == NULL)
-						errx(1, "missing CA directory"
-						    " path");
-					if (tls_config_set_ca_path(
-					    tls_config, str) != 0)
-						errx(1, "tls ca path failed");
-					break;
-				case SSL_CIPHERS:
-					if (str == NULL)
-						errx(1, "missing cipher list");
-					if (tls_config_set_ciphers(
-					    tls_config, str) != 0)
-						errx(1, "tls ciphers failed");
-					break;
-				case SSL_DONTVERIFY:
-					tls_config_insecure_noverifycert(
-					    tls_config);
-					tls_config_insecure_noverifyname(
-					    tls_config);
-					break;
-				case SSL_DOVERIFY:
-					tls_config_verify(tls_config);
-					break;
-				case SSL_VERIFYDEPTH:
-					if (str == NULL)
-						errx(1, "missing depth");
-					depth = strtonum(str, 0, INT_MAX,
-					    &errstr);
-					if (errstr)
-						errx(1, "certificate "
-						    "validation depth is %s",
-						    errstr);
-					tls_config_set_verify_depth(
-					    tls_config, (int)depth);
-					break;
-				default:
-					errx(1, "unknown -S suboption `%s'",
-					    suboptarg ? suboptarg : "");
-					/* NOTREACHED */
-				}
-			}
-#endif
+			process_ssl_options(optarg);
+#endif /* !SMALL */
 			break;
 
 		case 's':
@@ -852,7 +850,7 @@ OUT:
 		default:
 			break;
 	}
-	return ((char *)0);
+	return (NULL);
 }
 
 /*
@@ -887,7 +885,7 @@ help(int argc, char *argv[])
 		c = getcmd(arg);
 		if (c == (struct cmd *)-1)
 			fprintf(ttyout, "?Ambiguous help command %s\n", arg);
-		else if (c == (struct cmd *)0)
+		else if (c == NULL)
 			fprintf(ttyout, "?Invalid help command %s\n", arg);
 		else
 			fprintf(ttyout, "%-*s\t%s\n", HELPINDENT,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm_machdep.c,v 1.16 2015/08/15 22:20:20 miod Exp $	*/
+/*	$OpenBSD: vm_machdep.c,v 1.18 2016/07/31 09:18:01 jsg Exp $	*/
 /*	$NetBSD: vm_machdep.c,v 1.31 2004/01/04 11:33:29 jdolecek Exp $	*/
 
 /*
@@ -96,13 +96,8 @@ extern void proc_trampoline	(void);
  * accordingly.
  */
 void
-cpu_fork(p1, p2, stack, stacksize, func, arg)
-	struct proc *p1;
-	struct proc *p2;
-	void *stack;
-	size_t stacksize;
-	void (*func) (void *);
-	void *arg;
+cpu_fork(struct proc *p1, struct proc *p2, void *stack,
+    size_t stacksize, void (*func) (void *), void *arg)
 {
 	struct pcb *pcb = (struct pcb *)&p2->p_addr->u_pcb;
 	struct trapframe *tf;
@@ -140,10 +135,11 @@ cpu_fork(p1, p2, stack, stacksize, func, arg)
 	*tf = *p1->p_addr->u_pcb.pcb_tf;
 
 	/*
-	 * If specified, give the child a different stack.
+	 * If specified, give the child a different stack (make sure
+	 * it's 8-byte aligned).
 	 */
 	if (stack != NULL)
-		tf->tf_usr_sp = (u_int)stack + stacksize;
+		tf->tf_usr_sp = ((vaddr_t)(stack) + stacksize) & -8;
 
 	sf = (struct switchframe *)tf - 1;
 	sf->sf_r4 = (u_int)func;
@@ -165,9 +161,7 @@ cpu_exit(struct proc *p)
  * do not need to pass an access_type to pmap_enter().
  */
 void
-vmapbuf(bp, len)
-	struct buf *bp;
-	vsize_t len;
+vmapbuf(struct buf *bp, vsize_t len)
 {
 	vaddr_t faddr, taddr, off;
 	paddr_t fpa;
@@ -203,9 +197,7 @@ vmapbuf(bp, len)
  * Unmap a previously-mapped user I/O request.
  */
 void
-vunmapbuf(bp, len)
-	struct buf *bp;
-	vsize_t len;
+vunmapbuf(struct buf *bp, vsize_t len)
 {
 	vaddr_t addr, off;
 

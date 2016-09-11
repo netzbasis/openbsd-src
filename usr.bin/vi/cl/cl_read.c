@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_read.c,v 1.19 2014/11/12 04:28:41 bentley Exp $	*/
+/*	$OpenBSD: cl_read.c,v 1.21 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

@@ -1,4 +1,4 @@
-/*	$OpenBSD: stdio.h,v 1.50 2015/01/20 22:09:50 tedu Exp $	*/
+/*	$OpenBSD: stdio.h,v 1.53 2016/09/09 18:12:37 millert Exp $	*/
 /*	$NetBSD: stdio.h,v 1.18 1996/04/25 18:29:21 jtc Exp $	*/
 
 /*-
@@ -39,6 +39,7 @@
 #define	_STDIO_H_
 
 #include <sys/cdefs.h>
+#include <sys/_null.h>
 #include <sys/_types.h>
 
 #if __BSD_VISIBLE || __POSIX_VISIBLE || __XPG_VISIBLE
@@ -53,16 +54,6 @@ typedef	__size_t	size_t;
 #ifndef	_OFF_T_DEFINED_
 #define	_OFF_T_DEFINED_
 typedef	__off_t	off_t;
-#endif
-
-#ifndef NULL
-#ifdef 	__GNUG__
-#define	NULL	__null
-#elif defined(__cplusplus)
-#define	NULL	0L
-#else
-#define	NULL	((void *)0)
-#endif
 #endif
 
 #define	_FSTDIO			/* Define for new stdio with functions. */
@@ -278,21 +269,24 @@ int	 vsprintf(char *, const char *, __va_list);
 int	 vdprintf(int, const char * __restrict, __va_list);
 #endif
 
-#if __ISO_C_VISIBLE >= 1999 || __BSD_VISIBLE
+#if __ISO_C_VISIBLE >= 1999 || __XPG_VISIBLE >= 500 || __BSD_VISIBLE
 int	 snprintf(char *, size_t, const char *, ...)
 		__attribute__((__format__ (printf, 3, 4)))
 		__attribute__((__nonnull__ (3)))
 		__attribute__((__bounded__ (__string__,1,2)));
+int	 vsnprintf(char *, size_t, const char *, __va_list)
+		__attribute__((__format__ (printf, 3, 0)))
+		__attribute__((__nonnull__ (3)))
+		__attribute__((__bounded__(__string__,1,2)));
+#endif /* __ISO_C_VISIBLE >= 1999 || __XPG_VISIBLE >= 500 || __BSD_VISIBLE */
+
+#if __ISO_C_VISIBLE >= 1999 || __BSD_VISIBLE
 int	 vfscanf(FILE *, const char *, __va_list)
 		__attribute__((__format__ (scanf, 2, 0)))
 		__attribute__((__nonnull__ (2)));
 int	 vscanf(const char *, __va_list)
 		__attribute__((__format__ (scanf, 1, 0)))
 		__attribute__((__nonnull__ (1)));
-int	 vsnprintf(char *, size_t, const char *, __va_list)
-		__attribute__((__format__ (printf, 3, 0)))
-		__attribute__((__nonnull__ (3)))
-		__attribute__((__bounded__(__string__,1,2)));
 int	 vsscanf(const char *, const char *, __va_list)
 		__attribute__((__format__ (scanf, 2, 0)))
 		__attribute__((__nonnull__ (2)));
@@ -390,26 +384,12 @@ __END_DECLS
  * define function versions in the C library.
  */
 #define	__sgetc(p) (--(p)->_r < 0 ? __srget(p) : (int)(*(p)->_p++))
-#if defined(__GNUC__)
 static __inline int __sputc(int _c, FILE *_p) {
 	if (--_p->_w >= 0 || (_p->_w >= _p->_lbfsize && (char)_c != '\n'))
 		return (*_p->_p++ = _c);
 	else
 		return (__swbuf(_c, _p));
 }
-#else
-/*
- * This has been tuned to generate reasonable code on the vax using pcc.
- */
-#define	__sputc(c, p) \
-	(--(p)->_w < 0 ? \
-		(p)->_w >= (p)->_lbfsize ? \
-			(*(p)->_p = (c)), *(p)->_p != '\n' ? \
-				(int)*(p)->_p++ : \
-				__swbuf('\n', p) : \
-			__swbuf((int)(c), p) : \
-		(*(p)->_p = (c), (int)*(p)->_p++))
-#endif
 
 #define	__sfeof(p)	(((p)->_flags & __SEOF) != 0)
 #define	__sferror(p)	(((p)->_flags & __SERR) != 0)

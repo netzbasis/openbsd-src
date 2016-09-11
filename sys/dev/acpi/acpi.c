@@ -1,4 +1,4 @@
-/* $OpenBSD: acpi.c,v 1.305 2016/01/17 09:04:18 jsg Exp $ */
+/* $OpenBSD: acpi.c,v 1.315 2016/09/03 14:46:56 naddy Exp $ */
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
@@ -120,10 +120,6 @@ int	acpi_add_device(struct aml_node *node, void *arg);
 
 void	acpi_thread(void *);
 void	acpi_create_thread(void *);
-
-int	acpi_thinkpad_enabled;
-int	acpi_toshiba_enabled;
-int	acpi_asus_enabled;
 
 #ifndef SMALL_KERNEL
 
@@ -1037,7 +1033,8 @@ acpi_attach(struct device *parent, struct device *self, void *aux)
 	/*
 	 * ACPI is enabled now -- attach timer
 	 */
-	if (!sc->sc_hw_reduced) {
+	if (!sc->sc_hw_reduced &&
+	    (sc->sc_fadt->pm_tmr_blk || sc->sc_fadt->x_pm_tmr_blk.address)) {
 		struct acpi_attach_args aaa;
 
 		memset(&aaa, 0, sizeof(aaa));
@@ -1097,10 +1094,8 @@ acpi_attach(struct device *parent, struct device *self, void *aux)
 	/* attach docks */
 	aml_find_node(&aml_root, "_DCK", acpi_founddock, sc);
 
-	/* attach video only if this is not a thinkpad or toshiba */
-	if (!acpi_thinkpad_enabled && !acpi_toshiba_enabled &&
-	    !acpi_asus_enabled)
-		aml_find_node(&aml_root, "_DOS", acpi_foundvideo, sc);
+	/* attach video */
+	aml_find_node(&aml_root, "_DOS", acpi_foundvideo, sc);
 
 	/* create list of devices we want to query when APM comes in */
 	SLIST_INIT(&sc->sc_ac);
@@ -1155,6 +1150,8 @@ acpi_print(void *aux, const char *pnp)
 	if (pnp) {
 		if (aa->aaa_name)
 			printf("%s at %s", aa->aaa_name, pnp);
+		else if (aa->aaa_dev)
+			printf("\"%s\" at %s", aa->aaa_dev, pnp);
 		else
 			return (QUIET);
 	}
@@ -1963,6 +1960,8 @@ acpi_add_device(struct aml_node *node, void *arg)
 	struct acpi_attach_args aaa;
 #ifdef MULTIPROCESSOR
 	struct aml_value res;
+	CPU_INFO_ITERATOR cii;
+	struct cpu_info *ci;
 	int proc_id = -1;
 #endif
 
@@ -1983,8 +1982,11 @@ acpi_add_device(struct aml_node *node, void *arg)
 				proc_id = res.v_processor.proc_id;
 			aml_freevalue(&res);
 		}
-		if (proc_id < -1 || proc_id >= LAPIC_MAP_SIZE ||
-		    (acpi_lapic_flags[proc_id] & ACPI_PROC_ENABLE) == 0)
+		CPU_INFO_FOREACH(cii, ci) {
+			if (ci->ci_acpi_proc_id == proc_id)
+				break;
+		}
+		if (ci == NULL)
 			return 0;
 #endif
 		nacpicpus++;
@@ -2108,6 +2110,13 @@ acpi_foundprw(struct aml_node *node, void *arg)
 {
 	struct acpi_softc *sc = arg;
 	struct acpi_wakeq *wq;
+	int64_t sta;
+
+	if (aml_evalinteger(sc, node->parent, "_STA", 0, NULL, &sta))
+		sta = STA_PRESENT | STA_ENABLED | STA_DEV_OK | 0x1000;
+
+	if ((sta & STA_PRESENT) == 0)
+		return 0;
 
 	wq = malloc(sizeof(struct acpi_wakeq), M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (wq == NULL)
@@ -2374,6 +2383,8 @@ acpi_sleep_state(struct acpi_softc *sc, int state)
 	rw_enter_write(&sc->sc_lck);
 #endif /* NWSDISPLAY > 0 */
 
+	stop_periodic_resettodr();
+
 #ifdef HIBERNATE
 	if (state == ACPI_STATE_S4) {
 		uvmpd_hibernate();
@@ -2473,6 +2484,8 @@ fail_alloc:
 		hibernate_resume_bufcache();
 	}
 #endif /* HIBERNATE */
+
+	start_periodic_resettodr();
 
 #if NWSDISPLAY > 0
 	rw_exit_write(&sc->sc_lck);
@@ -2757,6 +2770,52 @@ acpi_parsehid(struct aml_node *node, void *arg, char *outcdev, char *outdev,
 	return (0);
 }
 
+/* Devices for which we don't want to attach a driver */
+const char *acpi_skip_hids[] = {
+	"INT0800",	/* Intel 82802Firmware Hub Device */
+	"PNP0000",	/* 8259-compatible Programmable Interrupt Controller */
+	"PNP0100",	/* PC-class System Timer */
+	"PNP0103",	/* HPET System Timer */
+	"PNP0200",	/* PC-class DMA Controller */
+	"PNP0800",	/* Microsoft Sound System Compatible Device */
+	"PNP0A03",	/* PCI Bus */
+	"PNP0A08",	/* PCI Express Bus */
+	"PNP0B00",	/* AT Real-Time Clock */
+	"PNP0C01",	/* System Board */
+	"PNP0C02",	/* PNP Motherboard Resources */
+	"PNP0C04",	/* x87-compatible Floating Point Processing Unit */
+	"PNP0C09",	/* Embedded Controller Device */
+	"PNP0C0F",	/* PCI Interrupt Link Device */
+	NULL
+};
+
+void
+acpi_attach_deps(struct acpi_softc *sc, struct aml_node *node)
+{
+	struct aml_value res;
+	struct aml_node *dep;
+	int i;
+
+	if (aml_evalname(sc, node, "_DEP", 0, NULL, &res))
+		return;
+
+	if (res.type != AML_OBJTYPE_PACKAGE)
+		return;
+
+	for (i = 0; i < res.length; i++) {
+		if (res.v_package[i]->type != AML_OBJTYPE_STRING)
+			continue;
+		dep = aml_searchrel(node, res.v_package[i]->v_string);
+		if (dep == NULL || dep->attached)
+			continue;
+		dep = aml_searchname(dep, "_HID");
+		if (dep)
+			acpi_foundhid(dep, sc);
+	}
+
+	aml_freevalue(&res);
+}
+
 int
 acpi_foundhid(struct aml_node *node, void *arg)
 {
@@ -2765,6 +2824,7 @@ acpi_foundhid(struct aml_node *node, void *arg)
 	char		 	 cdev[16];
 	char		 	 dev[16];
 	struct acpi_attach_args	 aaa;
+	int64_t			 sta;
 #ifndef SMALL_KERNEL
 	int			 i;
 #endif
@@ -2772,44 +2832,22 @@ acpi_foundhid(struct aml_node *node, void *arg)
 	if (acpi_parsehid(node, arg, cdev, dev, 16) != 0)
 		return (0);
 
+	if (aml_evalinteger(sc, node->parent, "_STA", 0, NULL, &sta))
+		sta = STA_PRESENT | STA_ENABLED | STA_DEV_OK | 0x1000;
+
+	if ((sta & STA_PRESENT) == 0)
+		return (0);
+
+	acpi_attach_deps(sc, node->parent);
+
 	memset(&aaa, 0, sizeof(aaa));
 	aaa.aaa_iot = sc->sc_iot;
 	aaa.aaa_memt = sc->sc_memt;
 	aaa.aaa_node = node->parent;
 	aaa.aaa_dev = dev;
 
-	if (!strcmp(dev, ACPI_DEV_AC)) {
-		aaa.aaa_name = "acpiac";
-	} else if (!strcmp(dev, ACPI_DEV_CMB)) {
-		aaa.aaa_name = "acpibat";
-	} else if (!strcmp(dev, ACPI_DEV_LD) ||
-	    !strcmp(dev, ACPI_DEV_PBD) ||
-	    !strcmp(dev, ACPI_DEV_SBD)) {
-		aaa.aaa_name = "acpibtn";
-	} else if (!strcmp(dev, ACPI_DEV_ASUS) ||
-	    !strcmp(dev, ACPI_DEV_ASUS1)) {
-		aaa.aaa_name = "acpiasus";
-		acpi_asus_enabled = 1;
-	} else if (!strcmp(dev, ACPI_DEV_IBM) ||
-	    !strcmp(dev, ACPI_DEV_LENOVO)) {
-		aaa.aaa_name = "acpithinkpad";
-		acpi_thinkpad_enabled = 1;
-	} else if (!strcmp(dev, ACPI_DEV_ASUSAIBOOSTER)) {
-		aaa.aaa_name = "aibs";
-	} else if (!strcmp(dev, ACPI_DEV_TOSHIBA_LIBRETTO) ||
-	    !strcmp(dev, ACPI_DEV_TOSHIBA_DYNABOOK) ||
-	    !strcmp(dev, ACPI_DEV_TOSHIBA_SPA40)) {
-		aaa.aaa_name = "acpitoshiba";
-		acpi_toshiba_enabled = 1;
-	} else if (!strcmp(dev, "80860F14") || !strcmp(dev, "PNP0FFF")) {
-		aaa.aaa_name = "sdhc";
-	} else if (!strcmp(dev, ACPI_DEV_DWIIC1) ||
-	    !strcmp(dev, ACPI_DEV_DWIIC2) ||
-	    !strcmp(dev, ACPI_DEV_DWIIC3) ||
-	    !strcmp(dev, ACPI_DEV_DWIIC4) ||
-	    !strcmp(dev, ACPI_DEV_DWIIC5)) {
-		aaa.aaa_name = "dwiic";
-	}
+	if (acpi_matchhids(&aaa, acpi_skip_hids, "none"))
+		return (0);
 
 #ifndef SMALL_KERNEL
 	if (!strcmp(cdev, ACPI_DEV_MOUSE)) {
@@ -2822,8 +2860,10 @@ acpi_foundhid(struct aml_node *node, void *arg)
 	}
 #endif
 
-	if (aaa.aaa_name)
+	if (!node->parent->attached) {
 		config_found(self, &aaa, acpi_print);
+		node->parent->attached = 1;
+	}
 
 	return (0);
 }

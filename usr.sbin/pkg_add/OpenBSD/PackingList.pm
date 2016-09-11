@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackingList.pm,v 1.135 2014/10/13 12:44:16 espie Exp $
+# $OpenBSD: PackingList.pm,v 1.140 2016/09/08 09:51:15 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -59,6 +59,15 @@ sub match
 		if ($i->match($f)) {
 			return 1;
 		}
+	}
+	return 0;
+}
+
+sub partial_match
+{
+	my ($h, $subdir) = @_;
+	for my $dir (keys %$h) {
+		return 1 if $dir =~ m/\b\Q$subdir\E\b/;
 	}
 	return 0;
 }
@@ -248,7 +257,7 @@ sub ExtraInfoOnly
 {
 	my ($fh, $cont) = @_;
 	while (<$fh>) {
-		if (m/^\@(?:name|pkgpath|comment\s+(?:subdir|pkgpath)\=)\b/o) {
+		if (m/^\@(?:name|pkgpath|comment\s+(?:subdir|pkgpath)\=|option)\b/o) {
 			&$cont($_);
 		# XXX optimization
 		} elsif (m/^\@(?:depend|wantlib|newgroup|newuser|cwd)\b/o) {
@@ -437,7 +446,7 @@ sub match_pkgpath
 }
 
 our @unique_categories =
-    (qw(name url signer digital-signature no-default-conflict manual-installation firmware always-update extrainfo localbase arch));
+    (qw(name url signer digital-signature no-default-conflict manual-installation firmware always-update is-branch extrainfo localbase arch));
 
 our @list_categories =
     (qw(conflict pkgpath ask-update depend
@@ -540,6 +549,8 @@ sub check_signature
 	} elsif ($sig->{key} eq 'signify') {
 		require OpenBSD::signify;
 		return OpenBSD::signify::check_signature($plist, $state);
+	} elsif ($sig->{key} eq 'signify2' && $state->defines('newsign')) {
+		return 1;
 	} else {
 		$state->log("Error: unknown signature style $sig->{key}");
 		return 0;

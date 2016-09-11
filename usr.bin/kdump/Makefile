@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.30 2016/01/05 19:41:15 robert Exp $
+#	$OpenBSD: Makefile,v 1.33 2016/04/25 19:18:41 tedu Exp $
 
 LDSTATIC=${STATIC}
 PROG=	kdump
@@ -11,18 +11,23 @@ CLEANFILES+=ioctl.c kdump_subr.c
 ioctl.c: ${.CURDIR}/Makefile ${.CURDIR}/mkioctls
 	CC="${CC}" \
 	/bin/sh ${.CURDIR}/mkioctls ${SYS_DIR}/sys/ioctl.h \
-	    ${SYS_DIR}/sys/ioctl_compat.h \
 	    ${SYS_DIR}/dev/biovar.h \
-	    ${SYS_DIR}/dev/systrace.h \
+	    ${SYS_DIR}/dev/ipmi.h \
 	    ${SYS_DIR}/dev/wscons/wsconsio.h \
 	    ${SYS_DIR}/dev/vndioctl.h \
+	    ${SYS_DIR}/dev/vscsivar.h \
 	    ${SYS_DIR}/dev/pci/drm/i915_drm.h \
+	    ${SYS_DIR}/dev/pv/pvvar.h \
+	    ${SYS_DIR}/dev/usb/udlio.h \
 	    ${SYS_DIR}/dev/usb/usb.h \
+	    ${SYS_DIR}/miscfs/fuse/fusefs.h \
 	    ${SYS_DIR}/net/bpf.h \
 	    ${SYS_DIR}/net/if_ppp.h \
 	    ${SYS_DIR}/net/if_pppoe.h \
+	    ${SYS_DIR}/net/if_trunk.h \
 	    ${SYS_DIR}/net/if_tun.h \
 	    ${SYS_DIR}/net/pfvar.h \
+	    ${SYS_DIR}/net/pipex.h \
 	    ${SYS_DIR}/net80211/ieee80211_ioctl.h \
 	    ${SYS_DIR}/netinet6/in6_var.h \
 	    ${SYS_DIR}/sys/tty.h \
@@ -34,6 +39,7 @@ ioctl.c: ${.CURDIR}/Makefile ${.CURDIR}/mkioctls
 	    ${SYS_DIR}/sys/dkio.h \
 	    ${SYS_DIR}/sys/filio.h \
 	    ${SYS_DIR}/sys/gpio.h \
+	    ${SYS_DIR}/sys/memrange.h \
 	    ${SYS_DIR}/sys/mtio.h \
 	    ${SYS_DIR}/sys/pciio.h \
 	    ${SYS_DIR}/sys/radioio.h \

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_display.c,v 1.11 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: ex_display.c,v 1.13 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

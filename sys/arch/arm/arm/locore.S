@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.S,v 1.8 2016/01/31 00:14:50 jsg Exp $	*/
+/*	$OpenBSD: locore.S,v 1.10 2016/04/25 04:46:56 jsg Exp $	*/
 /*	$NetBSD: locore.S,v 1.14 2003/04/20 16:21:40 thorpej Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <sys/syscall.h>
 #include <sys/errno.h>
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 #include <machine/cpu.h>
 #include <machine/frame.h>
 
@@ -56,7 +57,12 @@ ASENTRY_NP(start)
 	mov	r5, r1
 	mov	r6, r2
 	adr	r1, .Lstart
-	ldmia	r1, {r1, r2, sp}	/* Set initial stack and */
+	ldmia	r1, {r1, r2, r8, sp}	/* Set initial stack and */
+
+#ifdef CPU_ARMv7
+	mcr	CP15_TPIDRPRW(r8)	/* put curcpu into the TPIDRPRW */
+#endif
+
 	sub	r2, r2, r1		/* get zero init data */
 	mov	r3, #0
 
@@ -87,6 +93,7 @@ ASENTRY_NP(start)
 .Lstart:
 	.word	_edata
 	.word	_end
+	.word	_C_LABEL(cpu_info_primary)
 	.word	svcstk + INIT_ARM_STACK_SIZE
 
 .Lmainreturned:
@@ -135,8 +142,8 @@ ENTRY_NP(cpu_reset)
 	 * Hurl ourselves into the ROM
 	 */
 	mov	r0, #(CPU_CONTROL_32BP_ENABLE | CPU_CONTROL_32BD_ENABLE)
-	mcr     p15, 0, r0, c1, c0, 0
-	mcrne   p15, 0, r2, c8, c7, 0 	/* nail I+D TLB on ARMv4 and greater */
+	mcr     CP15_SCTLR(r0)	
+	mcrne   CP15_TLBIALL(r2) 	/* nail I+D TLB on ARMv4 and greater */
 	mov     pc, r4
 
 	/*

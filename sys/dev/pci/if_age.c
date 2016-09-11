@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_age.c,v 1.31 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_age.c,v 1.33 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
@@ -52,8 +52,6 @@
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -224,7 +222,6 @@ age_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = age_start;
 	ifp->if_watchdog = age_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, AGE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->age_eaddr, sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 

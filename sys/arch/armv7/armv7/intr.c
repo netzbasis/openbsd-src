@@ -1,4 +1,4 @@
-/* $OpenBSD: intr.c,v 1.4 2016/01/31 00:14:50 jsg Exp $ */
+/* $OpenBSD: intr.c,v 1.9 2016/08/06 17:25:15 patrick Exp $ */
 /*
  * Copyright (c) 2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -19,11 +19,20 @@
 #include <sys/systm.h>
 #include <sys/param.h>
 #include <sys/timetc.h>
+#include <sys/malloc.h>
 
 #include <dev/clock_subr.h>
 #include <arm/cpufunc.h>
 #include <machine/cpu.h>
 #include <machine/intr.h>
+
+#include <dev/ofw/openfirm.h>
+
+uint32_t arm_intr_get_parent(int);
+
+void *arm_intr_prereg_establish_fdt(void *, int *, int, int (*)(void *),
+    void *, char *);
+void arm_intr_prereg_disestablish_fdt(void *);
 
 int arm_dflt_splraise(int);
 int arm_dflt_spllower(int);
@@ -36,7 +45,6 @@ const char *arm_dflt_intr_string(void *cookie);
 
 void arm_dflt_intr(void *);
 void arm_intr(void *);
-
 
 #define SI_TO_IRQBIT(x) (1 << (x))
 uint32_t arm_smask[NIPL];
@@ -78,6 +86,289 @@ void arm_intr_disestablish(void *cookie)
 const char *arm_intr_string(void *cookie)
 {
 	return arm_intr_func.intr_string(cookie);
+}
+
+/*
+ * Find the interrupt parent by walking up the tree.
+ */
+uint32_t
+arm_intr_get_parent(int node)
+{
+	uint32_t phandle = 0;
+
+	while (node && !phandle) {
+		phandle = OF_getpropint(node, "interrupt-parent", 0);
+		node = OF_parent(node);
+	}
+
+	return phandle;
+}
+
+/*
+ * Interrupt pre-registration.
+ *
+ * To allow device drivers to establish interrupt handlers before all
+ * relevant interrupt controllers have been attached, we support
+ * pre-registration of interrupt handlers.  For each node in the
+ * device tree that has an "interrupt-controller" property, we
+ * register a dummy interrupt controller that simply stashes away all
+ * relevant details of the interrupt handler being established.
+ * Later, when the real interrupt controller registers itself, we
+ * establush those interrupt handlers based on that information.
+ */
+
+#define MAX_INTERRUPT_CELLS	4
+
+struct intr_prereg {
+	LIST_ENTRY(intr_prereg) ip_list;
+	uint32_t ip_phandle;
+	uint32_t ip_cell[MAX_INTERRUPT_CELLS];
+
+	int ip_level;
+	int (*ip_func)(void *);
+	void *ip_arg;
+	char *ip_name;
+
+	struct interrupt_controller *ip_ic;
+	void *ip_ih;
+};
+
+LIST_HEAD(, intr_prereg) prereg_interrupts =
+	LIST_HEAD_INITIALIZER(prereg_interrupts);
+
+void *
+arm_intr_prereg_establish_fdt(void *cookie, int *cell, int level,
+    int (*func)(void *), void *arg, char *name)
+{
+	struct interrupt_controller *ic = cookie;
+	struct intr_prereg *ip;
+	int i;
+
+	ip = malloc(sizeof(struct intr_prereg), M_DEVBUF, M_ZERO | M_WAITOK);
+	ip->ip_phandle = ic->ic_phandle;
+	for (i = 0; i < ic->ic_cells; i++)
+		ip->ip_cell[i] = cell[i];
+	ip->ip_level = level;
+	ip->ip_func = func;
+	ip->ip_arg = arg;
+	ip->ip_name = name;
+	LIST_INSERT_HEAD(&prereg_interrupts, ip, ip_list);
+
+	return ip;
+}
+
+void
+arm_intr_prereg_disestablish_fdt(void *cookie)
+{
+	struct intr_prereg *ip = cookie;
+	struct interrupt_controller *ic = ip->ip_ic;
+
+	if (ip->ip_ic != NULL && ip->ip_ih != NULL)
+		ic->ic_disestablish(ip->ip_ih);
+
+	if (ip->ip_ic != NULL)
+		LIST_REMOVE(ip, ip_list);
+
+	free(ip, M_DEVBUF, sizeof(*ip));
+}
+
+void
+arm_intr_init_fdt_recurse(int node)
+{
+	struct interrupt_controller *ic;
+
+	if (OF_getproplen(node, "interrupt-controller") >= 0) {
+		ic = malloc(sizeof(struct interrupt_controller),
+		    M_DEVBUF, M_ZERO | M_WAITOK);
+		ic->ic_node = node;
+		ic->ic_cookie = ic;
+		ic->ic_establish = arm_intr_prereg_establish_fdt;
+		ic->ic_disestablish = arm_intr_prereg_disestablish_fdt;
+		arm_intr_register_fdt(ic);
+	}
+
+	for (node = OF_child(node); node; node = OF_peer(node))
+		arm_intr_init_fdt_recurse(node);
+}
+
+void
+arm_intr_init_fdt(void)
+{
+	int node = OF_peer(0);
+
+	if (node)
+		arm_intr_init_fdt_recurse(node);
+}
+
+LIST_HEAD(, interrupt_controller) interrupt_controllers =
+	LIST_HEAD_INITIALIZER(interrupt_controllers);
+
+void
+arm_intr_register_fdt(struct interrupt_controller *ic)
+{
+	struct intr_prereg *ip, *tip;
+
+	ic->ic_cells = OF_getpropint(ic->ic_node, "#interrupt-cells", 0);
+	ic->ic_phandle = OF_getpropint(ic->ic_node, "phandle", 0);
+	if (ic->ic_cells == 0 || ic->ic_phandle == 0)
+		return;
+	KASSERT(ic->ic_cells <= MAX_INTERRUPT_CELLS);
+
+	LIST_INSERT_HEAD(&interrupt_controllers, ic, ic_list);
+
+	/* Establish pre-registered interrupt handlers. */
+	LIST_FOREACH_SAFE(ip, &prereg_interrupts, ip_list, tip) {
+		if (ip->ip_phandle != ic->ic_phandle)
+			continue;
+
+		ip->ip_ic = ic;
+		ip->ip_ih = ic->ic_establish(ic->ic_cookie, ip->ip_cell,
+		    ip->ip_level, ip->ip_func, ip->ip_arg, ip->ip_name);
+		if (ip->ip_ih == NULL)
+			printf("can't establish interrupt %s\n", ip->ip_name);
+
+		LIST_REMOVE(ip, ip_list);
+	}
+}
+
+struct arm_intr_handle {
+	struct interrupt_controller *ih_ic;
+	void *ih_ih;
+};
+
+void *
+arm_intr_establish_fdt(int node, int level, int (*func)(void *),
+    void *cookie, char *name)
+{
+	return arm_intr_establish_fdt_idx(node, 0, level, func, cookie, name);
+}
+
+void *
+arm_intr_establish_fdt_idx(int node, int idx, int level, int (*func)(void *),
+    void *cookie, char *name)
+{
+	struct interrupt_controller *ic;
+	int i, len, ncells, extended = 1;
+	uint32_t *cell, *cells, phandle;
+	struct arm_intr_handle *ih;
+	void *val = NULL;
+
+	len = OF_getproplen(node, "interrupts-extended");
+	if (len <= 0) {
+		len = OF_getproplen(node, "interrupts");
+		extended = 0;
+	}
+	if (len <= 0 || (len % sizeof(uint32_t) != 0))
+		return NULL;
+
+	/* Old style. */
+	if (!extended) {
+		phandle = arm_intr_get_parent(node);
+		LIST_FOREACH(ic, &interrupt_controllers, ic_list) {
+			if (ic->ic_phandle == phandle)
+				break;
+		}
+
+		if (ic == NULL)
+			return NULL;
+	}
+
+	cell = cells = malloc(len, M_TEMP, M_WAITOK);
+	if (extended)
+		OF_getpropintarray(node, "interrupts-extended", cells, len);
+	else
+		OF_getpropintarray(node, "interrupts", cells, len);
+	ncells = len / sizeof(uint32_t);
+
+	for (i = 0; i <= idx && ncells > 0; i++) {
+		if (extended) {
+			phandle = cell[0];
+
+			LIST_FOREACH(ic, &interrupt_controllers, ic_list) {
+				if (ic->ic_phandle == phandle)
+					break;
+			}
+
+			if (ic == NULL)
+				break;
+
+			cell++;
+			ncells--;
+		}
+
+		if (i == idx && ncells >= ic->ic_cells && ic->ic_establish) {
+			val = ic->ic_establish(ic->ic_cookie, cell, level,
+			    func, cookie, name);
+			break;
+		}
+
+		cell += ic->ic_cells;
+		ncells -= ic->ic_cells;
+	}
+
+	free(cells, M_TEMP, len);
+
+	if (val == NULL)
+		return NULL;
+
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
+	ih->ih_ic = ic;
+	ih->ih_ih = val;
+
+	return ih;
+}
+
+void
+arm_intr_disestablish_fdt(void *cookie)
+{
+	struct arm_intr_handle *ih = cookie;
+	struct interrupt_controller *ic = ih->ih_ic;
+
+	ic->ic_disestablish(ih->ih_ih);
+	free(ih, M_DEVBUF, sizeof(*ih));
+}
+
+/*
+ * Some interrupt controllers transparently forward interrupts to
+ * their parent.  Such interrupt controllers can use this function to
+ * delegate the interrupt handler to their parent.
+ */
+void *
+arm_intr_parent_establish_fdt(void *cookie, int *cell, int level,
+    int (*func)(void *), void *arg, char *name)
+{
+	struct interrupt_controller *ic = cookie;
+	struct arm_intr_handle *ih;
+	uint32_t phandle;
+	void *val;
+
+	phandle = arm_intr_get_parent(ic->ic_node);
+	LIST_FOREACH(ic, &interrupt_controllers, ic_list) {
+		if (ic->ic_phandle == phandle)
+			break;
+	}
+	if (ic == NULL)
+		return NULL;
+
+	val = ic->ic_establish(ic->ic_cookie, cell, level, func, arg, name);
+	if (val == NULL)
+		return NULL;
+
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
+	ih->ih_ic = ic;
+	ih->ih_ih = val;
+
+	return ih;
+}
+
+void
+arm_intr_parent_disestablish_fdt(void *cookie)
+{
+	struct arm_intr_handle *ih = cookie;
+	struct interrupt_controller *ic = ih->ih_ic;
+
+	ic->ic_disestablish(ih->ih_ih);
+	free(ih, M_DEVBUF, sizeof(*ih));
 }
 
 int
@@ -165,17 +456,9 @@ void
 arm_do_pending_intr(int pcpl)
 {
 	struct cpu_info *ci = curcpu();
-	static int processing = 0;
 	int oldirqstate;
 
 	oldirqstate = disable_interrupts(PSR_I);
-
-	if (processing == 1) {
-		/* Don't use splx... we are here already! */
-		arm_intr_func.setipl(pcpl);
-		restore_interrupts(oldirqstate);
-		return;
-	}
 
 #define DO_SOFTINT(si, ipl) \
 	if ((ci->ci_ipending & arm_smask[pcpl]) &	\
@@ -196,7 +479,6 @@ arm_do_pending_intr(int pcpl)
 
 	/* Don't use splx... we are here already! */
 	arm_intr_func.setipl(pcpl);
-	processing = 0;
 	restore_interrupts(oldirqstate);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.c,v 1.227 2016/01/31 00:18:07 sashan Exp $	*/
+/*	$OpenBSD: if_pfsync.c,v 1.230 2016/08/23 12:37:44 dlg Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff
@@ -303,6 +303,7 @@ pfsync_clone_create(struct if_clone *ifc, int unit)
 		TAILQ_INIT(&sc->sc_qs[q]);
 
 	pool_init(&sc->sc_pool, PFSYNC_PLSIZE, 0, 0, 0, "pfsync", NULL);
+	pool_setipl(&sc->sc_pool, IPL_SOFTNET);
 	TAILQ_INIT(&sc->sc_upd_req_list);
 	TAILQ_INIT(&sc->sc_deferrals);
 	sc->sc_deferred = 0;
@@ -523,6 +524,7 @@ pfsync_state_import(struct pfsync_state *sp, int flags)
 	skw->port[0] = sp->key[PF_SK_WIRE].port[0];
 	skw->port[1] = sp->key[PF_SK_WIRE].port[1];
 	skw->rdomain = ntohs(sp->key[PF_SK_WIRE].rdomain);
+	PF_REF_INIT(skw->refcnt);
 	skw->proto = sp->proto;
 	if (!(skw->af = sp->key[PF_SK_WIRE].af))
 		skw->af = sp->af;
@@ -532,6 +534,7 @@ pfsync_state_import(struct pfsync_state *sp, int flags)
 		sks->port[0] = sp->key[PF_SK_STACK].port[0];
 		sks->port[1] = sp->key[PF_SK_STACK].port[1];
 		sks->rdomain = ntohs(sp->key[PF_SK_STACK].rdomain);
+		PF_REF_INIT(sks->refcnt);
 		if (!(sks->af = sp->key[PF_SK_STACK].af))
 			sks->af = sp->af;
 		if (sks->af != skw->af) {
@@ -1222,8 +1225,8 @@ int
 pfsyncoutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	struct rtentry *rt)
 {
-	m_freem(m);
-	return (0);
+	m_freem(m);	/* drop packet */
+	return (EAFNOSUPPORT);
 }
 
 int

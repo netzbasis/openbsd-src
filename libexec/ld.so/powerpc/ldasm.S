@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.26 2015/11/15 03:41:24 deraadt Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.30 2016/08/28 06:15:32 guenther Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -149,9 +149,8 @@ DL_SYSCALL(getdents)
 DL_SYSCALL(getentropy)
 DL_SYSCALL(sendsyslog)
 DL_SYSCALL(pledge)
-DL_SYSCALL(gettimeofday)
 DL_SYSCALL_NOERR(issetugid)
-DL_SYSCALL(lstat)
+DL_SYSCALL_NOERR(getthrid)
 DL_SYSCALL(mmap)
 DL_SYSCALL(mprotect)
 DL_SYSCALL(munmap)

@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: State.pm,v 1.34 2015/04/06 11:07:24 espie Exp $
+# $OpenBSD: State.pm,v 1.37 2016/06/24 11:42:30 espie Exp $
 #
 # Copyright (c) 2007-2014 Marc Espie <espie@openbsd.org>
 #
@@ -257,50 +257,65 @@ sub fatal
 	$self->_fatal($self->f(@_));
 }
 
+sub _fhprint
+{
+	my $self = shift;
+	my $fh = shift;
+	$self->sync_display;
+	print $fh @_;
+}
 sub _print
 {
 	my $self = shift;
-	$self->sync_display;
-	print @_;
+	$self->_fhprint(\*STDOUT, @_);
 }
 
 sub _errprint
 {
 	my $self = shift;
-	$self->sync_display;
-	print STDERR @_;
+	$self->_fhprint(\*STDERR, @_);
+}
+
+sub fhprint
+{
+	my $self = shift;
+	my $fh = shift;
+	$self->_fhprint($fh, $self->f(@_));
+}
+
+sub fhsay
+{
+	my $self = shift;
+	my $fh = shift;
+	if (@_ == 0) {
+		$self->_fhprint($fh, "\n");
+	} else {
+		$self->_fhprint($fh, $self->f(@_), "\n");
+	}
 }
 
 sub print
 {
 	my $self = shift;
-	$self->_print($self->f(@_));
+	$self->fhprint(\*STDOUT, @_);
 }
 
 sub say
 {
 	my $self = shift;
-	if (@_ == 0) {
-		$self->_print("\n");
-	} else {
-		$self->_print($self->f(@_), "\n");
-	}
+	$self->fhsay(\*STDOUT, @_);
 }
 
 sub errprint
 {
 	my $self = shift;
-	$self->_errprint($self->f(@_));
+	$self->fhprint(\*STDERR, @_);
 }
 
 sub errsay
 {
 	my $self = shift;
-	if (@_ == 0) {
-		$self->_errprint("\n");
-	} else {
-		$self->_errprint($self->f(@_), "\n");
-	}
+	$self->fhsay(\*STDERR, @_);
 }
 
 sub do_options
@@ -346,6 +361,44 @@ sub defines
 {
 	my ($self, $k) = @_;
 	return $self->{subst}->value($k);
+}
+
+sub width
+{
+	my $self = shift;
+	if (!defined $self->{width}) {
+		$self->find_window_size;
+	}
+	return $self->{width};
+}
+
+sub height
+{
+	my $self = shift;
+	if (!defined $self->{height}) {
+		$self->find_window_size;
+	}
+	return $self->{height};
+}
+		
+sub find_window_size
+{
+	my $self = shift;
+	require Term::ReadKey;
+	my @l = Term::ReadKey::GetTermSizeGWINSZ(\*STDOUT);
+	if (@l != 4) {
+		$self->{width} = 80;
+		$self->{height} = 24;
+	} else {
+		$self->{width} = $l[0];
+		$self->{height} = $l[1];
+		$SIG{'WINCH'} = sub {
+			$self->find_window_size;
+		};
+	}
+	$SIG{'CONT'} = sub {
+		$self->find_window_size(1);
+	}
 }
 
 OpenBSD::Auto::cache(signer_list,

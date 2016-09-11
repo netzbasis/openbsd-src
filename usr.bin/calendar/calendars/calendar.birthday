@@ -1,7 +1,7 @@
 /*
  * Birthday
  *
- * $OpenBSD: calendar.birthday,v 1.61 2015/10/05 16:41:51 jmc Exp $
+ * $OpenBSD: calendar.birthday,v 1.64 2016/08/31 12:33:03 schwarze Exp $
  */
 
 #ifndef _calendar_birthday_
@@ -144,6 +144,7 @@
 04/09	J. Presper Eckert born, 1919
 04/10	Commodore Matthew Calbraith Perry born, 1794
 04/10	William Booth born, 1829, founder of the Salvation Army
+04/10	Howard Marks dies, 2016
 04/11	Edsger Wybe Dijkstra was born at Rotterdam, 1930
 04/12	Feodor Ivanovich Chaliapin died in Paris, 1938
 04/13	Samuel Beckett born in Foxrock, County Dublin, 1906
@@ -195,7 +196,6 @@
 06/07	George Bryan "Beau" Brummel born, 1778
 06/07	Alan Mathison Turing died, 1954
 06/08	Frank Lloyd Wright born in Richland Center, Wisconsin, 1867
-06/13	Alexander the Great dies (323BC)
 06/14	Ernesto "Che" Guevara de la Serna born in Rosario, Argentina, 1928
 06/16	Hammurabi the Great dies, Babylon, 1686 BC
 06/17	M.C. Escher born, 1898
@@ -221,6 +221,7 @@
 		Saint Nicholas"
 07/18	Brian Auger is born in London, 1939
 07/20	Bruce Lee died in Hong Kong, 1973
+07/20	Alexander the Great born, 356 BC
 07/25	Robert Morris is born in Boston, 1932
 07/25	Steve Goodman is born in Chicago, 1948
 07/28	(Helen) Beatrix Potter born, 1866
@@ -238,6 +239,7 @@
 08/12	Thomas Mann's Death, 1955
 08/13	Annie Oakley born, 1860
 08/13	Fidel Castro born, 1926
+08/13	Howard Marks born, 1945
 08/15	Louis Victor de Broglie born, 1892, physicist
 08/17	Mae West born, 1892/93
 08/18	Meriwether Lewis born, 1774
@@ -328,6 +330,7 @@
 11/26	Norbert Wiener born, 1894
 11/27	Bruce Lee born in San Francisco, 1940
 11/28	Friedrich Engels born, 1820
+11/28	Joe Ossanna died, 1977
 11/29	John Mayall is born in Cheshire, England, 1933
 11/30	Cleopatra died, 30 BC
 11/30	Mark Twain (Samuel Clemens) born in Florida, Missouri, 1835
@@ -339,6 +342,7 @@
 12/08	Horace (Quintus Horatius Flaccus) born in Venosa (Italy), 65BC
 12/08	James (Grover) Thurber born in Columbus, Ohio, 1894
 12/10	Emily Dickinson born, 1830
+12/10	Joe Ossanna born, 1928
 12/12	E.G. Robinson born, 1893
 12/14	George Washington dies, 1799
 12/16	Arthur C. Clarke born in Somerset, England, 1917

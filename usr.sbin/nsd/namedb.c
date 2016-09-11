@@ -533,7 +533,7 @@ domain_find_zone(namedb_type* db, domain_type* domain)
 }
 
 zone_type *
-domain_find_parent_zone(zone_type* zone)
+domain_find_parent_zone(namedb_type* db, zone_type* zone)
 {
 	rrset_type* rrset;
 
@@ -544,6 +544,10 @@ domain_find_parent_zone(zone_type* zone)
 			return rrset->zone;
 		}
 	}
+	/* the NS record in the parent zone above this zone is not present,
+	 * workaround to find that parent zone anyway */
+	if(zone->apex->parent)
+		return domain_find_zone(db, zone->apex->parent);
 	return NULL;
 }
 
@@ -558,6 +562,18 @@ domain_find_ns_rrsets(domain_type* domain, zone_type* zone, rrset_type **ns)
 	}
 
 	*ns = NULL;
+	return NULL;
+}
+
+domain_type *
+find_dname_above(domain_type* domain, zone_type* zone)
+{
+	domain_type* d = domain->parent;
+	while(d && d != zone->apex) {
+		if(domain_find_rrset(d, zone, TYPE_DNAME))
+			return d;
+		d = d->parent;
+	}
 	return NULL;
 }
 

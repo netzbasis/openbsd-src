@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vnops.c,v 1.62 2016/02/02 16:44:44 stefan Exp $	*/
+/*	$OpenBSD: udf_vnops.c,v 1.64 2016/06/19 11:54:33 natano Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -898,20 +898,19 @@ int
 udf_lock(void *v)
 {
 	struct vop_lock_args *ap = v;
-
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOU(vp)->u_lock, ap->a_flags, NULL));
+	return rrw_enter(&VTOU(vp)->u_lock, ap->a_flags & LK_RWFLAGS);
 }
 
 int
 udf_unlock(void *v)
 {
 	struct vop_unlock_args *ap = v;
-
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOU(vp)->u_lock, ap->a_flags | LK_RELEASE, NULL));
+	rrw_exit(&VTOU(vp)->u_lock);
+	return 0;
 }
 
 int
@@ -919,7 +918,7 @@ udf_islocked(void *v)
 {
 	struct vop_islocked_args *ap = v;
 
-	return (lockstatus(&VTOU(ap->a_vp)->u_lock));
+	return rrw_status(&VTOU(ap->a_vp)->u_lock);
 }
 
 int
@@ -1105,7 +1104,7 @@ lookloop:
 				nchstats.ncs_pass2++;
 			if (!(flags & LOCKPARENT) || !(flags & ISLASTCN)) {
 				ap->a_cnp->cn_flags |= PDIRUNLOCK;
-				VOP_UNLOCK(dvp, 0, p);
+				VOP_UNLOCK(dvp, p);
 			}
 
 			*vpp = tdp;
@@ -1152,7 +1151,7 @@ udf_inactive(void *v)
 	/*
 	 * No need to sync anything, so just unlock the vnode and return.
 	 */
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	return (0);
 }

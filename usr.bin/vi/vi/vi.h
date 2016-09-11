@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi.h,v 1.9 2015/12/03 08:13:15 bentley Exp $	*/
+/*	$OpenBSD: vi.h,v 1.11 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

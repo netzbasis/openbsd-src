@@ -1,4 +1,4 @@
-/* $OpenBSD: cpufunc_asm_armv7.S,v 1.8 2015/06/02 02:30:16 jsg Exp $ */
+/* $OpenBSD: cpufunc_asm_armv7.S,v 1.14 2016/08/15 21:08:56 kettenis Exp $ */
 /*
  * Copyright (c) 2008 Dale Rahn <drahn@openbsd.org>
  *
@@ -17,6 +17,8 @@
 
 #include <machine/cpu.h>
 #include <machine/asm.h>
+#include <arm/armreg.h>
+#include <arm/sysreg.h>
 
 ENTRY(armv7_cpu_sleep)
 	wfi
@@ -31,20 +33,24 @@ ENTRY(armv7_drain_writebuf)
  * Function to read the MPCore base address
  */
 ENTRY(armv7_periphbase)
-	mrc	p15, 4, r0, c15, c0, 0
+	mrc	CP15_CBAR(r0)	
 	mov	pc, lr
+
+/* Suitable default for a uniprocessor kernel. */
+#define TTBR_DEFAULT	(TTBR_IRGN_WBNWA | TTBR_RGN_WBNWA)
 
 /*
  * Functions to set the MMU Translation Table Base register
  */
 ENTRY(armv7_setttb)
-	mcr	p15, 0, r0, c7, c5, 0	/* Flush I cache */
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
+	mcr	CP15_ICIALLU		/* Flush I cache */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 
-	mcr	p15, 0, r0, c2, c0, 0	/* load new TTB */
-	mcr	p15, 0, r0, c8, c7, 0	/* invalidate I+D TLBs */
+	orr	r0, r0, #TTBR_DEFAULT
+	mcr	CP15_TTBR0(r0)		/* load new TTB */
+	mcr	CP15_TLBIALL(r0)	/* invalidate unified TLB */
 	dsb	sy
 	isb	sy
 
@@ -54,45 +60,27 @@ ENTRY(armv7_setttb)
  * TLB functions
  */
 ENTRY(armv7_tlb_flushID_SE)
-	mcr	p15, 0, r0, c8, c6, 1	/* flush D tlb single entry */
-	mcr	p15, 0, r0, c8, c5, 1	/* flush I tlb single entry */
-	mcr	p15, 0, r0, c7, c5, 7	/* flush va from BP */
+	mcr	CP15_TLBIMVA(r0)	/* flush unified tlb single entry */
+	mcr	CP15_BPIMVA		/* flush va from BP */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
 
-ENTRY(armv7_tlb_flushI_SE)
-	mcr	p15, 0, r0, c8, c5, 1	/* flush I tlb single entry */
-	mcr	p15, 0, r0, c7, c5, 7	/* flush va from BP */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-/*
- * TLB functions
- */
 ENTRY(armv7_tlb_flushID)
-	mcr	p15, 0, r0, c8, c7, 0	/* flush I+D tlb */
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-ENTRY(armv7_tlb_flushI)
-	mcr	p15, 0, r0, c8, c5, 0	/* flush I tlb */
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-ENTRY(armv7_tlb_flushD)
-	mcr	p15, 0, r0, c8, c6, 0	/* flush D tlb */
+	mcr	CP15_TLBIALL(r0)	/* flush unified tlb */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
 
 ENTRY(armv7_tlb_flushD_SE)
-	mcr	p15, 0, r0, c8, c6, 1	/* flush D tlb single entry */
+	mcr	CP15_TLBIMVA(r0)	/* flush unified tlb single entry */
+	dsb	sy
+	isb	sy
+	mov	pc, lr
+
+ENTRY(armv7_tlb_flushD)
+	mcr	CP15_TLBIALL(r0)	/* flush unified tlb */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
@@ -102,14 +90,19 @@ ENTRY(armv7_tlb_flushD_SE)
  * Cache operations.  For the entire cache we use the set/index
  * operations.
  */
+.Larmv7_dcache_line_size:
+	.word	_C_LABEL(arm_dcache_min_line_size)
+.Larmv7_icache_line_size:
+	.word	_C_LABEL(arm_icache_min_line_size)
+.Larmv7_idcache_line_size:
+	.word	_C_LABEL(arm_idcache_min_line_size)
+
 	s_max	.req r0
 	i_max	.req r1
 	s_inc	.req r2
 	i_inc	.req r3
 ENTRY(armv7_icache_sync_range)
-	ldr	ip, .Larmv7_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
+	ldr	ip, .Larmv7_icache_line_size
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -117,12 +110,12 @@ ENTRY(armv7_icache_sync_range)
 	add	r1, r1, r2
 	bic	r0, r0, r3
 1:
-	mcr	p15, 0, r0, c7, c11, 1	/* Clean D cache SE with VA to PoU */
-	mcr	p15, 0, r0, c7, c5, 1	/* Invalidate I cache SE with VA */
+	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
+	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
@@ -134,18 +127,13 @@ ENTRY(armv7_icache_sync_all)
 	 * dcache, so that we can safely flush the Icache and fall through
 	 * into the Dcache cleaning code.
 	 */
-	mcr	p15, 0, r0, c7, c5, 0	/* Flush I cache */
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
+	mcr	CP15_ICIALLU		/* Flush I cache */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	isb	sy
 	mov	pc, lr
 
-.Larmv7_line_size:
-	.word	_C_LABEL(arm_pdcache_line_size)
-
 ENTRY(armv7_dcache_wb_range)
-	ldr	ip, .Larmv7_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
+	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -153,7 +141,7 @@ ENTRY(armv7_dcache_wb_range)
 	add	r1, r1, r2
 	bic	r0, r0, r3
 1:
-	mcr	p15, 0, r0, c7, c10, 1	/* Clean D cache SE with VA */
+	mcr	CP15_DCCMVAC(r0)	/* Clean D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
@@ -162,9 +150,7 @@ ENTRY(armv7_dcache_wb_range)
 	mov	pc, lr
 
 ENTRY(armv7_idcache_wbinv_range)
-	ldr	ip, .Larmv7_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
+	ldr	ip, .Larmv7_idcache_line_size
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -172,21 +158,19 @@ ENTRY(armv7_idcache_wbinv_range)
 	add	r1, r1, r2
 	bic	r0, r0, r3
 1:
-	mcr	p15, 0, r0, c7, c11, 1	/* Clean D cache SE with VA to PoU */
-	mcr	p15, 0, r0, c7, c5, 1	/* Invalidate I cache SE with VA */
-	mcr	p15, 0, r0, c7, c14, 1	/* Purge D cache SE with VA */
+	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
+	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
+	mcr	CP15_DCCIMVAC(r0)	/* Purge D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
 
 ENTRY(armv7_dcache_wbinv_range)
-	ldr	ip, .Larmv7_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
+	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -194,9 +178,9 @@ ENTRY(armv7_dcache_wbinv_range)
 	add	r1, r1, r2
 	bic	r0, r0, r3
 1:
-	mcr	p15, 0, r0, c7, c11, 1	/* Clean D cache SE with VA to PoU */
-	mcr	p15, 0, r0, c7, c5, 1	/* Invalidate I cache SE with VA */
-	mcr	p15, 0, r0, c7, c14, 1	/* Purge D cache SE with VA */
+	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
+	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
+	mcr	CP15_DCCIMVAC(r0)	/* Purge D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
@@ -205,9 +189,7 @@ ENTRY(armv7_dcache_wbinv_range)
 	mov	pc, lr
 
 ENTRY(armv7_dcache_inv_range)
-	ldr	ip, .Larmv7_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
+	ldr	ip, .Larmv7_dcache_line_size
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -215,9 +197,9 @@ ENTRY(armv7_dcache_inv_range)
 	add	r1, r1, r2
 	bic	r0, r0, r3
 1:
-	mcr	p15, 0, r0, c7, c11, 1	/* Clean D cache SE with VA to PoU */
-	mcr	p15, 0, r0, c7, c5, 1	/* Invalidate I cache SE with VA */
-	mcr	p15, 0, r0, c7, c6, 1	/* Invalidate D cache SE with VA */
+	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
+	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
+	mcr	CP15_DCIMVAC(r0)	/* Invalidate D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
@@ -240,13 +222,14 @@ ENTRY(armv7_context_switch)
 	 * We can assume that the caches will only contain kernel addresses
 	 * at this point.  So no need to flush them again.
 	 */
-	mcr	p15, 0, r0, c7, c5, 0	/* Flush I cache */
-	mcr	p15, 0, r0, c7, c5, 6	/* Flush BP cache */
+	mcr	CP15_ICIALLU		/* Flush I cache */
+	mcr	CP15_BPIALL		/* Flush BP cache */
 	dsb	sy
 	isb	sy
 
-	mcr	p15, 0, r0, c2, c0, 0	/* set the new TTB */
-	mcr	p15, 0, r0, c8, c7, 0	/* and flush the I+D tlbs */
+	orr	r0, r0, #TTBR_DEFAULT
+	mcr	CP15_TTBR0(r0)		/* set the new TTB */
+	mcr	CP15_TLBIALL(r0)	/* and flush the unified tlb */
 	dsb	sy
 	isb	sy
 	mov	pc, lr

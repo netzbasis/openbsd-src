@@ -1,4 +1,4 @@
-/*	$OpenBSD: signal.h,v 1.10 2015/11/10 04:30:59 guenther Exp $	*/
+/*	$OpenBSD: signal.h,v 1.13 2016/09/06 19:56:36 guenther Exp $	*/
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
@@ -18,6 +18,23 @@
 #ifndef _LIBC_SIGNAL_H
 #define _LIBC_SIGNAL_H
 
+/* Rename __errno() before it's used in the inline functions in <signal.h> */
+#include <errno.h>
+
+/* sigh: predeclare and rename the functions which we'll declare inline */
+#include <sys/signal.h>
+
+__only_inline int	sigaddset(sigset_t *__set, int __signo);
+__only_inline int	sigdelset(sigset_t *__set, int __signo);
+__only_inline int	sigemptyset(sigset_t *__set);
+__only_inline int	sigfillset(sigset_t *__set);
+__only_inline int	sigismember(const sigset_t *__set, int __signo);
+PROTO_NORMAL(sigaddset);
+PROTO_NORMAL(sigdelset);
+PROTO_NORMAL(sigemptyset);
+PROTO_NORMAL(sigfillset);
+PROTO_NORMAL(sigismember);
+
 #include_next <signal.h>
 
 __BEGIN_HIDDEN_DECLS
@@ -29,6 +46,9 @@ extern PROTO_NORMAL(sys_siglist);
 extern PROTO_NORMAL(sys_signame);
 #endif
 
+/* prototyped for and used by the inline functions */
+PROTO_NORMAL(__errno);
+
 PROTO_DEPRECATED(bsd_signal);
 PROTO_NORMAL(kill);             /* wrap to ban SIGTHR? */
 PROTO_DEPRECATED(killpg);
@@ -36,21 +56,15 @@ PROTO_DEPRECATED(psignal);
 PROTO_DEPRECATED(pthread_sigmask);
 PROTO_NORMAL(raise);
 PROTO_WRAP(sigaction);
-PROTO_NORMAL(sigaddset);
 PROTO_NORMAL(sigaltstack);
 PROTO_NORMAL(sigblock);
-PROTO_NORMAL(sigdelset);
-PROTO_NORMAL(sigemptyset);
-PROTO_NORMAL(sigfillset);
 PROTO_DEPRECATED(siginterrupt);
-PROTO_NORMAL(sigismember);
 PROTO_STD_DEPRECATED(signal);
 PROTO_DEPRECATED(sigpause);
 PROTO_NORMAL(sigpending);
 PROTO_WRAP(sigprocmask);
-PROTO_NORMAL(sigreturn);
 PROTO_NORMAL(sigsetmask);
-/*PROTO_CANCEL(sigsuspend);	wrap to hide SIGTHR */
+PROTO_CANCEL(sigsuspend);
 PROTO_DEPRECATED(sigvec);
 PROTO_NORMAL(thrkill);
 

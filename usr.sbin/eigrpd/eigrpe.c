@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpe.c,v 1.13 2016/01/15 12:41:09 renato Exp $ */
+/*	$OpenBSD: eigrpe.c,v 1.34 2016/09/02 17:59:58 benno Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -19,39 +19,38 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <arpa/inet.h>
-#include <signal.h>
-#include <string.h>
-#include <fcntl.h>
-#include <pwd.h>
-#include <unistd.h>
-#include <errno.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
 
-#include "eigrp.h"
+#include <arpa/inet.h>
+#include <errno.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "eigrpd.h"
 #include "eigrpe.h"
 #include "rde.h"
-#include "control.h"
 #include "log.h"
+#include "control.h"
 
-void		 eigrpe_sig_handler(int, short, void *);
-void		 eigrpe_shutdown(void);
+static void		 eigrpe_sig_handler(int, short, void *);
+static __dead void	 eigrpe_shutdown(void);
+static void		 eigrpe_dispatch_main(int, short, void *);
+static void		 eigrpe_dispatch_rde(int, short, void *);
+
+struct eigrpd_conf	*econf;
 
 static struct event	 ev4;
 static struct event	 ev6;
-struct eigrpd_conf	*econf = NULL, *nconf;
-struct imsgev		*iev_main;
-struct imsgev		*iev_rde;
-
-extern struct iface_id_head ifaces_by_id;
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-
-extern struct nbr_addr_head nbrs_by_addr;
-RB_PROTOTYPE(nbr_addr_head, nbr, addr_tree, nbr_compare)
+static struct imsgev	*iev_main;
+static struct imsgev	*iev_rde;
 
 /* ARGSUSED */
-void
+static void
 eigrpe_sig_handler(int sig, short event, void *bula)
 {
 	switch (sig) {
@@ -65,60 +64,57 @@ eigrpe_sig_handler(int sig, short event, void *bula)
 }
 
 /* eigrp engine */
-pid_t
-eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2],
-    int pipe_eigrpe2rde[2], int pipe_parent2rde[2])
+void
+eigrpe(int debug, int verbose, char *sockname)
 {
 	struct passwd		*pw;
 	struct event		 ev_sigint, ev_sigterm;
-	pid_t			 pid;
-	struct iface		*iface;
 
-	switch (pid = fork()) {
-	case -1:
-		fatal("cannot fork");
-	case 0:
-		break;
-	default:
-		return (pid);
-	}
+	econf = config_new_empty();
+
+	log_init(debug);
+	log_verbose(verbose);
 
 	/* create eigrpd control socket outside chroot */
-	if (control_init(xconf->csock) == -1)
+	global.csock = sockname;
+	if (control_init(global.csock) == -1)
 		fatalx("control socket setup failed");
 
+	if (inet_pton(AF_INET, AllEIGRPRouters_v4, &global.mcast_addr_v4) != 1)
+		fatal("inet_pton");
+	if (inet_pton(AF_INET6, AllEIGRPRouters_v6, &global.mcast_addr_v6) != 1)
+		fatal("inet_pton");
+
 	/* create the raw ipv4 socket */
-	if ((xconf->eigrp_socket_v4 = socket(AF_INET,
+	if ((global.eigrp_socket_v4 = socket(AF_INET,
 	    SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_EIGRP)) == -1)
 		fatal("error creating raw ipv4 socket");
 
 	/* set some defaults */
-	if (if_set_ipv4_mcast_ttl(xconf->eigrp_socket_v4, EIGRP_IP_TTL) == -1)
+	if (if_set_ipv4_mcast_ttl(global.eigrp_socket_v4, EIGRP_IP_TTL) == -1)
 		fatal("if_set_ipv4_mcast_ttl");
-	if (if_set_ipv4_mcast_loop(xconf->eigrp_socket_v4) == -1)
+	if (if_set_ipv4_mcast_loop(global.eigrp_socket_v4) == -1)
 		fatal("if_set_ipv4_mcast_loop");
-	if (if_set_ipv4_recvif(xconf->eigrp_socket_v4, 1) == -1)
+	if (if_set_ipv4_recvif(global.eigrp_socket_v4, 1) == -1)
 		fatal("if_set_ipv4_recvif");
-	if (if_set_ipv4_hdrincl(xconf->eigrp_socket_v4) == -1)
+	if (if_set_ipv4_hdrincl(global.eigrp_socket_v4) == -1)
 		fatal("if_set_ipv4_hdrincl");
-	if_set_sockbuf(xconf->eigrp_socket_v4);
+	if_set_sockbuf(global.eigrp_socket_v4);
 
 	/* create the raw ipv6 socket */
-	if ((xconf->eigrp_socket_v6 = socket(AF_INET6,
+	if ((global.eigrp_socket_v6 = socket(AF_INET6,
 	    SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_EIGRP)) == -1)
 		fatal("error creating raw ipv6 socket");
 
 	/* set some defaults */
-	if (if_set_ipv6_mcast_loop(xconf->eigrp_socket_v6) == -1)
+	if (if_set_ipv6_mcast_loop(global.eigrp_socket_v6) == -1)
 		fatal("if_set_ipv6_mcast_loop");
-	if (if_set_ipv6_pktinfo(xconf->eigrp_socket_v6, 1) == -1)
+	if (if_set_ipv6_pktinfo(global.eigrp_socket_v6, 1) == -1)
 		fatal("if_set_ipv6_pktinfo");
-	if (if_set_ipv6_dscp(xconf->eigrp_socket_v6,
+	if (if_set_ipv6_dscp(global.eigrp_socket_v6,
 	    IPTOS_PREC_NETCONTROL) == -1)
 		fatal("if_set_ipv6_dscp");
-	if_set_sockbuf(xconf->eigrp_socket_v6);
-
-	econf = xconf;
+	if_set_sockbuf(global.eigrp_socket_v6);
 
 	if ((pw = getpwnam(EIGRPD_USER)) == NULL)
 		fatal("getpwnam");
@@ -130,11 +126,15 @@ eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2],
 
 	setproctitle("eigrp engine");
 	eigrpd_process = PROC_EIGRP_ENGINE;
+	log_procname = log_procnames[eigrpd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	if (pledge("stdio cpath inet mcast recvfd", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 
@@ -146,37 +146,22 @@ eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2],
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
-	/* setup pipes */
-	close(pipe_parent2eigrpe[0]);
-	close(pipe_eigrpe2rde[1]);
-	close(pipe_parent2rde[0]);
-	close(pipe_parent2rde[1]);
-
-	if ((iev_rde = malloc(sizeof(struct imsgev))) == NULL ||
-	    (iev_main = malloc(sizeof(struct imsgev))) == NULL)
+	/* setup pipe and event handler to the parent process */
+	if ((iev_main = malloc(sizeof(struct imsgev))) == NULL)
 		fatal(NULL);
-	imsg_init(&iev_rde->ibuf, pipe_eigrpe2rde[0]);
-	iev_rde->handler = eigrpe_dispatch_rde;
-	imsg_init(&iev_main->ibuf, pipe_parent2eigrpe[1]);
+	imsg_init(&iev_main->ibuf, 3);
 	iev_main->handler = eigrpe_dispatch_main;
-
-	/* setup event handler */
-	iev_rde->events = EV_READ;
-	event_set(&iev_rde->ev, iev_rde->ibuf.fd, iev_rde->events,
-	    iev_rde->handler, iev_rde);
-	event_add(&iev_rde->ev, NULL);
-
 	iev_main->events = EV_READ;
 	event_set(&iev_main->ev, iev_main->ibuf.fd, iev_main->events,
 	    iev_main->handler, iev_main);
 	event_add(&iev_main->ev, NULL);
 
-	event_set(&ev4, econf->eigrp_socket_v4, EV_READ|EV_PERSIST,
-	    recv_packet_v4, econf);
+	event_set(&ev4, global.eigrp_socket_v4, EV_READ|EV_PERSIST,
+	    recv_packet, econf);
 	event_add(&ev4, NULL);
 
-	event_set(&ev6, econf->eigrp_socket_v6, EV_READ|EV_PERSIST,
-	    recv_packet_v6, econf);
+	event_set(&ev6, global.eigrp_socket_v6, EV_READ|EV_PERSIST,
+	    recv_packet, econf);
 	event_add(&ev6, NULL);
 
 	/* listen on eigrpd control socket */
@@ -186,43 +171,37 @@ eigrpe(struct eigrpd_conf *xconf, int pipe_parent2eigrpe[2],
 	if ((pkt_ptr = calloc(1, READ_BUF_SIZE)) == NULL)
 		fatal("eigrpe");
 
-	/* initialize interfaces */
-	TAILQ_FOREACH(iface, &econf->iface_list, entry)
-		if_init(xconf, iface);
-
-	if (pledge("stdio cpath inet mcast", NULL) == -1)
-		fatal("pledge");
-
 	event_dispatch();
 
 	eigrpe_shutdown();
-	/* NOTREACHED */
-	return (0);
 }
 
-void
+static __dead void
 eigrpe_shutdown(void)
 {
-	control_cleanup(econf->csock);
+	/* close pipes */
+	msgbuf_write(&iev_rde->ibuf.w);
+	msgbuf_clear(&iev_rde->ibuf.w);
+	close(iev_rde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
+	control_cleanup(global.csock);
 	config_clear(econf);
 
 	event_del(&ev4);
 	event_del(&ev6);
-	close(econf->eigrp_socket_v4);
-	close(econf->eigrp_socket_v6);
+	close(global.eigrp_socket_v4);
+	close(global.eigrp_socket_v6);
 
 	/* clean up */
-	msgbuf_write(&iev_rde->ibuf.w);
-	msgbuf_clear(&iev_rde->ibuf.w);
 	free(iev_rde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(pkt_ptr);
 
 	log_info("eigrp engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 /* imesg */
@@ -241,10 +220,11 @@ eigrpe_imsg_compose_rde(int type, uint32_t peerid, pid_t pid,
 }
 
 /* ARGSUSED */
-void
+static void
 eigrpe_dispatch_main(int fd, short event, void *bula)
 {
-	struct iface		*niface = NULL;
+	static struct eigrpd_conf *nconf;
+	static struct iface	*niface;
 	static struct eigrp	*neigrp;
 	struct eigrp_iface	*nei;
 	struct imsg		 imsg;
@@ -299,14 +279,6 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 			if (iface == NULL)
 				break;
 
-			if (ka->af == AF_INET6 &&
-			    IN6_IS_ADDR_LINKLOCAL(&ka->addr.v6)) {
-				memcpy(&iface->linklocal, &ka->addr.v6,
-				    sizeof(iface->linklocal));
-				if_update(iface, AF_INET6);
-				break;
-			}
-
 			if_addr_new(iface, ka);
 			break;
 		case IMSG_DELADDR:
@@ -319,15 +291,29 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 			if (iface == NULL)
 				break;
 
-			if (ka->af == AF_INET6 &&
-			    IN6_ARE_ADDR_EQUAL(&iface->linklocal,
-			    &ka->addr.v6)) {
-				memset(&iface->linklocal, 0,
-				    sizeof(iface->linklocal));
+			if_addr_del(iface, ka);
+			break;
+		case IMSG_SOCKET_IPC:
+			if (iev_rde) {
+				log_warnx("%s: received unexpected imsg fd "
+				    "to rde", __func__);
+				break;
+			}
+			if ((fd = imsg.fd) == -1) {
+				log_warnx("%s: expected to receive imsg fd to "
+				    "rde but didn't receive any", __func__);
 				break;
 			}
 
-			if_addr_del(iface, ka);
+			iev_rde = malloc(sizeof(struct imsgev));
+			if (iev_rde == NULL)
+				fatal(NULL);
+			imsg_init(&iev_rde->ibuf, fd);
+			iev_rde->handler = eigrpe_dispatch_rde;
+			iev_rde->events = EV_READ;
+			event_set(&iev_rde->ev, iev_rde->ibuf.fd,
+			    iev_rde->events, iev_rde->handler, iev_rde);
+			event_add(&iev_rde->ev, NULL);
 			break;
 		case IMSG_RECONF_CONF:
 			if ((nconf = malloc(sizeof(struct eigrpd_conf))) ==
@@ -359,6 +345,7 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 				fatal(NULL);
 			memcpy(niface, imsg.data, sizeof(struct iface));
 
+			TAILQ_INIT(&niface->ei_list);
 			TAILQ_INIT(&niface->addr_list);
 			TAILQ_INSERT_TAIL(&nconf->iface_list, niface, entry);
 			break;
@@ -379,7 +366,7 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 			TAILQ_INSERT_TAIL(&neigrp->ei_list, nei, e_entry);
 			if (RB_INSERT(iface_id_head, &ifaces_by_id, nei) !=
 			    NULL)
-				fatalx("rde_dispatch_parent: "
+				fatalx("eigrpe_dispatch_main: "
 				    "RB_INSERT(ifaces_by_id) failed");
 			break;
 		case IMSG_RECONF_END:
@@ -408,7 +395,7 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 }
 
 /* ARGSUSED */
-void
+static void
 eigrpe_dispatch_rde(int fd, short event, void *bula)
 {
 	struct imsgev		*iev = bula;
@@ -471,7 +458,7 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 				fatalx("invalid size of rinfo");
 			memcpy(&rinfo, imsg.data, sizeof(rinfo));
 
-			ei = eigrp_iface_find_id(imsg.hdr.peerid);
+			ei = eigrp_if_lookup_id(imsg.hdr.peerid);
 			if (ei == NULL) {
 				log_debug("%s: cannot find interface",
 				    __func__);
@@ -519,7 +506,7 @@ eigrpe_dispatch_rde(int fd, short event, void *bula)
 			break;
 		case IMSG_SEND_MUPDATE_END:
 		case IMSG_SEND_MQUERY_END:
-			ei = eigrp_iface_find_id(imsg.hdr.peerid);
+			ei = eigrp_if_lookup_id(imsg.hdr.peerid);
 			if (ei == NULL) {
 				log_debug("%s: cannot find interface",
 				    __func__);
@@ -592,7 +579,7 @@ message_add(struct rinfo_head *rinfo_list, struct rinfo *rinfo)
 	re = calloc(1, sizeof(*re));
 	if (re == NULL)
 		fatal("message_add");
-	memcpy(&re->rinfo, rinfo, sizeof(re->rinfo));;
+	re->rinfo = *rinfo;
 
 	TAILQ_INSERT_TAIL(rinfo_list, re, entry);
 }
@@ -628,7 +615,7 @@ eigrpe_orig_local_route(struct eigrp_iface *ei, struct if_addr *if_addr,
 	memset(&rinfo, 0, sizeof(rinfo));
 	rinfo.af = if_addr->af;
 	rinfo.type = EIGRP_ROUTE_INTERNAL;
-	memcpy(&rinfo.prefix, &if_addr->addr, sizeof(rinfo.prefix));
+	rinfo.prefix = if_addr->addr;
 	rinfo.prefixlen = if_addr->prefixlen;
 
 	eigrp_applymask(rinfo.af, &rinfo.prefix, &rinfo.prefix,
@@ -699,7 +686,7 @@ eigrpe_stats_ctl(struct ctl_conn *c)
 	TAILQ_FOREACH(eigrp, &econf->instances, entry) {
 		sctl.af = eigrp->af;
 		sctl.as = eigrp->as;
-		memcpy(&sctl.stats, &eigrp->stats, sizeof(sctl.stats));
+		sctl.stats = eigrp->stats;
 		imsg_compose_event(&c->iev, IMSG_CTL_SHOW_STATS, 0,
 		    0, -1, &sctl, sizeof(struct ctl_stats));
 	}

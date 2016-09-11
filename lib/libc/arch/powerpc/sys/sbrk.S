@@ -1,4 +1,4 @@
-/* $OpenBSD: sbrk.S,v 1.10 2015/09/05 06:22:47 guenther Exp $ */
+/* $OpenBSD: sbrk.S,v 1.13 2016/05/30 05:18:52 guenther Exp $ */
 
 /*
  * Copyright (c) 1996 Dale Rahn
@@ -32,7 +32,7 @@
 	.globl __curbrk
 	.hidden __curbrk
 __curbrk:
-	.long _C_LABEL(end)
+	.long _C_LABEL(_end)
 	END(__curbrk)
 	.type	__curbrk,@object
 
@@ -63,7 +63,9 @@ PSEUDO_PREFIX(,sbrk,break)
 	/* check for error */
 	cmpwi	0, 0
 	beq+	.L_sbrk_ok
-	b	_ASM_LABEL(___cerror)
+	stw	0, R2_OFFSET_ERRNO(2)
+	li	3, -1
+	blr
 
 	/* update, __curbrk and return */
 .L_sbrk_ok:

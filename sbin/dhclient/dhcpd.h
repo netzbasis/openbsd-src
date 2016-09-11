@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.154 2016/02/06 19:30:52 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.158 2016/09/02 15:44:26 mpi Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -69,6 +69,7 @@ struct client_lease {
 	char			*server_name;
 	char			*filename;
 	char			*resolv_conf;
+	char			 ssid[33];
 	unsigned int		 is_static;
 	unsigned int		 is_bootp;
 	unsigned int		 is_invalid;
@@ -143,6 +144,8 @@ struct client_state {
 struct interface_info {
 	struct ether_addr	hw_address;
 	char		 name[IFNAMSIZ];
+	char		 ssid[33];
+	struct client_state	*client;
 	int		 bfdesc; /* bpf - reading & broadcast writing*/
 	int		 ufdesc; /* udp - unicast writing */
 	unsigned char	*rbuf;
@@ -162,7 +165,8 @@ struct interface_info {
 
 struct dhcp_timeout {
 	time_t	 when;
-	void	 (*func)(void);
+	void	 (*func)(void *);
+	void	*arg;
 };
 
 #define	_PATH_DHCLIENT_CONF	"/etc/dhclient.conf"
@@ -170,8 +174,6 @@ struct dhcp_timeout {
 
 /* External definitions. */
 
-extern struct interface_info *ifi;
-extern struct client_state *client;
 extern struct client_config *config;
 extern struct imsgbuf *unpriv_ibuf;
 extern struct in_addr deleting;
@@ -180,14 +182,15 @@ extern struct in_addr active_addr;
 extern volatile sig_atomic_t quit;
 
 /* options.c */
-int cons_options(struct option_data *);
+int cons_options(struct interface_info *, struct option_data *);
 char *pretty_print_option(unsigned int, struct option_data *, int);
 int pretty_print_string(unsigned char *, size_t, unsigned char *, size_t, int);
 int pretty_print_classless_routes(unsigned char *, size_t, unsigned char *,
     size_t);
 int pretty_print_domain_search(unsigned char *, size_t, unsigned char *,
     size_t);
-void do_packet(unsigned int, struct in_addr, struct ether_addr *);
+void do_packet(struct interface_info *, unsigned int, struct in_addr,
+    struct ether_addr *);
 
 /* errwarn.c */
 extern int warnings_occurred;
@@ -219,20 +222,21 @@ int parse_hex(FILE *, unsigned char *);
 time_t parse_date(FILE *);
 
 /* bpf.c */
-void if_register_send(void);
-void if_register_receive(void);
-ssize_t send_packet(struct in_addr, struct in_addr);
-ssize_t receive_packet(struct sockaddr_in *, struct ether_addr *);
+void if_register_send(struct interface_info *);
+void if_register_receive(struct interface_info *);
+ssize_t send_packet(struct interface_info *, struct in_addr, struct in_addr);
+ssize_t receive_packet(struct interface_info *, struct sockaddr_in *,
+    struct ether_addr *);
 
 /* dispatch.c */
-void dispatch(void);
-void set_timeout(time_t, void (*)(void));
-void set_timeout_interval(time_t, void (*)(void));
+void dispatch(struct interface_info *);
+void set_timeout(time_t, void (*)(void *), void *);
+void set_timeout_interval(time_t, void (*)(void *), void *);
 void cancel_timeout(void);
 void interface_link_forceup(char *);
-int interface_status(char *);
+int interface_status(struct interface_info *);
 int get_rdomain(char *);
-void get_hw_address(void);
+void get_hw_address(struct interface_info *);
 
 /* tables.c */
 extern const struct option dhcp_options[256];
@@ -243,16 +247,19 @@ extern char *path_dhclient_db;
 extern int log_perror;
 extern int routefd;
 
-void dhcpoffer(struct in_addr, struct option_data *, char *);
-void dhcpack(struct in_addr, struct option_data *, char *);
-void dhcpnak(struct in_addr, struct option_data *, char *);
+void dhcpoffer(struct interface_info *, struct in_addr, struct option_data *,
+    char *);
+void dhcpack(struct interface_info *, struct in_addr, struct option_data *,
+    char *);
+void dhcpnak(struct interface_info *, struct in_addr, struct option_data *,
+    char *);
 
 void free_client_lease(struct client_lease *);
 
-void routehandler(void);
+void routehandler(struct interface_info *);
 
 /* packet.c */
-void assemble_eh_header(struct ether_header *);
+void assemble_eh_header(struct interface_info *, struct ether_header *);
 ssize_t decode_hw_header(unsigned char *, int, struct ether_addr *);
 ssize_t decode_udp_ip_header(unsigned char *, int, struct sockaddr_in *,
     int);
@@ -260,11 +267,11 @@ u_int32_t checksum(unsigned char *, unsigned, u_int32_t);
 u_int32_t wrapsum(u_int32_t);
 
 /* clparse.c */
-void read_client_conf(void);
-void read_client_leases(void);
+void read_client_conf(struct interface_info *);
+void read_client_leases(struct interface_info *);
 
 /* kroute.c */
-void delete_addresses(void);
+void delete_addresses(struct interface_info *);
 void delete_address(struct in_addr);
 
 void set_interface_mtu(int);
@@ -277,6 +284,6 @@ void add_route(struct in_addr, struct in_addr, struct in_addr, struct in_addr,
 
 void sendhup(struct client_lease *);
 
-int resolv_conf_priority(void);
+int resolv_conf_priority(struct interface_info *);
 
 void flush_unpriv_ibuf(const char *);

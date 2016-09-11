@@ -1,4 +1,4 @@
-/*	$OpenBSD: dc.c,v 1.149 2015/11/28 22:57:43 dlg Exp $	*/
+/*	$OpenBSD: dc.c,v 1.151 2016/05/04 18:38:57 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -121,6 +121,18 @@
 #include <dev/pci/pcidevs.h>
 
 #include <dev/ic/dcreg.h>
+
+/*
+ * The Davicom DM9102 has a broken DMA engine that reads beyond the
+ * end of the programmed transfer.  Architectures with a proper IOMMU
+ * (such as sparc64) will trap on this access.  To avoid having to
+ * copy each transmitted mbuf to guarantee enough trailing space,
+ * those architectures should implement BUS_DMA_OVERRUN that takes
+ * appropriate action to tolerate this behaviour.
+ */
+#ifndef BUS_DMA_OVERRUN
+#define BUS_DMA_OVERRUN 0
+#endif
 
 int dc_intr(void *);
 struct dc_type *dc_devtype(void *);
@@ -1687,7 +1699,6 @@ hasmac:
 	ifp->if_start = dc_start;
 	ifp->if_watchdog = dc_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, DC_TX_LIST_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -2584,13 +2595,13 @@ dc_start(struct ifnet *ifp)
 
 		map = sc->sc_tx_sparemap;
 		switch (bus_dmamap_load_mbuf(sc->sc_dmat, map, m,
-		    BUS_DMA_NOWAIT)) {
+		    BUS_DMA_NOWAIT | BUS_DMA_OVERRUN)) {
 		case 0:
 			break;
 		case EFBIG:
 			if (m_defrag(m, M_DONTWAIT) == 0 &&
 			    bus_dmamap_load_mbuf(sc->sc_dmat, map, m,
-			     BUS_DMA_NOWAIT) == 0)
+			     BUS_DMA_NOWAIT | BUS_DMA_OVERRUN) == 0)
 				break;
 
 			/* FALLTHROUGH */

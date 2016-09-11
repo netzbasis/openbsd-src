@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmds.c,v 1.75 2015/10/18 03:04:11 mmcc Exp $	*/
+/*	$OpenBSD: cmds.c,v 1.78 2016/08/14 18:34:48 guenther Exp $	*/
 /*	$NetBSD: cmds.c,v 1.27 1997/08/18 10:20:15 lukem Exp $	*/
 
 /*
@@ -1007,10 +1007,10 @@ shell(int argc, char *argv[])
 			(void)fflush(ttyout);
 		}
 		if (argc > 1) {
-			execl(shellp, shellnam, "-c", altarg, (char *)0);
+			execl(shellp, shellnam, "-c", altarg, (char *)NULL);
 		}
 		else {
-			execl(shellp, shellnam, (char *)0);
+			execl(shellp, shellnam, (char *)NULL);
 		}
 		warn("%s", shellp);
 		code = -1;
@@ -1501,14 +1501,14 @@ cdup(int argc, char *argv[])
 void
 restart(int argc, char *argv[])
 {
-	quad_t nrestart_point;
+	off_t nrestart_point;
 	char *ep;
 
 	if (argc != 2)
 		fputs("restart: offset not specified.\n", ttyout);
 	else {
-		nrestart_point = strtoq(argv[1], &ep, 10);
-		if (nrestart_point == QUAD_MAX || *ep != '\0')
+		nrestart_point = strtoll(argv[1], &ep, 10);
+		if (nrestart_point == LLONG_MAX || *ep != '\0')
 			fputs("restart: invalid offset.\n", ttyout);
 		else {
 			fprintf(ttyout, "Restarting at %lld. Execute get, put "
@@ -1643,9 +1643,7 @@ void
 newer(int argc, char *argv[])
 {
 
-	if (getit(argc, argv, -1, "w"))
-		fprintf(ttyout, "Local file \"%s\" is newer than remote file \"%s\".\n",
-			argv[2], argv[1]);
+	(void)getit(argc, argv, -1, "w");
 }
 
 /*
@@ -1654,7 +1652,8 @@ newer(int argc, char *argv[])
 void
 page(int argc, char *argv[])
 {
-	int orestart_point, ohash, overbose;
+	off_t orestart_point;
+	int ohash, overbose;
 	char *p, *pager, *oldargv1;
 
 	if ((argc < 2 && !another(&argc, &argv, "file")) || argc > 2) {

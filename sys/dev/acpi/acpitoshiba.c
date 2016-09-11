@@ -1,4 +1,4 @@
-/* $OpenBSD: acpitoshiba.c,v 1.4 2015/03/14 03:38:46 jsg Exp $ */
+/* $OpenBSD: acpitoshiba.c,v 1.6 2016/06/16 10:39:36 giovanni Exp $ */
 /*-
  * Copyright (c) 2003 Hiroyuki Aizu <aizu@navi.org>
  * All rights reserved.
@@ -78,6 +78,8 @@
 #define	HCI_SUCCESS			0
 
 /* Toshiba fn_keys events */
+#define	FN_KEY_SUSPEND			0x01BD
+#define	FN_KEY_HIBERNATE		0x01BE
 #define	FN_KEY_VIDEO_OUTPUT		0x01BF
 #define	FN_KEY_BRIGHTNESS_DOWN		0x01C0
 #define	FN_KEY_BRIGHTNESS_UP		0x01C1
@@ -116,6 +118,13 @@ struct cfattach acpitoshiba_ca = {
 
 struct cfdriver acpitoshiba_cd = {
 	NULL, "acpitoshiba", DV_DULL
+};
+
+const char *acpitoshiba_hids[] = {
+	ACPI_DEV_TOSHIBA_LIBRETTO,
+	ACPI_DEV_TOSHIBA_DYNABOOK,
+	ACPI_DEV_TOSHIBA_SPA40,
+	0
 };
 
 int
@@ -233,6 +242,9 @@ toshiba_match(struct device *parent, void *match, void *aux)
 {
       struct acpi_attach_args *aa = aux;
       struct cfdata	      *cf = match;
+
+        if (acpi_matchhids(aa, acpitoshiba_hids, cf->cf_driver->cd_name))
+                return (1);
 
 	if ( aa->aaa_name == NULL ||
 	   strcmp(aa->aaa_name, cf->cf_driver->cd_name) != 0 ||
@@ -383,6 +395,24 @@ toshiba_hotkey(struct aml_node *node, int notify, void *arg)
 	case FN_KEY_BRIGHTNESS_DOWN:
 		/* Decrease brightness */
 		ret = toshiba_fn_key_brightness_down(sc);
+		break;
+	case FN_KEY_SUSPEND:
+#ifndef SMALL_KERNEL
+		if (acpi_record_event(sc->sc_acpi, APM_USER_SUSPEND_REQ)) {
+			acpi_addtask(sc->sc_acpi, acpi_sleep_task,
+			    sc->sc_acpi, ACPI_STATE_S3);
+			ret = HCI_SUCCESS;
+		}
+#endif
+		break;
+	case FN_KEY_HIBERNATE:
+#if defined(HIBERNATE) && !defined(SMALL_KERNEL)
+		if (acpi_record_event(sc->sc_acpi, APM_USER_HIBERNATE_REQ)) {
+			acpi_addtask(sc->sc_acpi, acpi_sleep_task,
+			    sc->sc_acpi, ACPI_STATE_S4);
+			ret = HCI_SUCCESS;
+		}
+#endif
 		break;
 	case FN_KEY_VIDEO_OUTPUT:
 		/* Cycle through video outputs. */

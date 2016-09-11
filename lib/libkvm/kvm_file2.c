@@ -1,4 +1,4 @@
-/*	$OpenBSD: kvm_file2.c,v 1.47 2015/09/04 02:58:14 dlg Exp $	*/
+/*	$OpenBSD: kvm_file2.c,v 1.49 2016/05/04 01:28:42 zhuk Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -61,7 +61,6 @@
 #define _KERNEL
 #include <sys/file.h>
 #include <sys/mount.h>
-#include <dev/systrace.h>
 #undef _KERNEL
 #include <sys/vnode.h>
 #include <sys/socket.h>
@@ -149,7 +148,7 @@ kvm_getfiles(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			/* find size and alloc buffer */
 			rv = sysctl(mib, 6, NULL, &size, NULL, 0);
 			if (rv == -1) {
-				if (kd->vmfd != -1)
+				if (errno != ESRCH && kd->vmfd != -1)
 					goto deadway;
 				_kvm_syserr(kd, kd->program, "kvm_getfiles");
 				return (NULL);
@@ -266,7 +265,7 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 {
 	size_t buflen;
 	struct nlist nl[4], *np;
-	int n = 0;
+	int n = 0, matched = 0;
 	char *where;
 	struct kinfo_file kf;
 	struct file *fp, file;
@@ -312,6 +311,9 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 	kd->filebase = (void *)where;
 	buflen = (nfiles + 10) * esize;
 
+	if (op != KERN_FILE_BYPID || arg <= 0)
+		matched = 1;
+
 	for (pr = LIST_FIRST(&allprocess);
 	    pr != NULL;
 	    pr = LIST_NEXT(&process, ps_list)) {
@@ -333,10 +335,11 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			goto cleanup;
 		}
 
-		if (op == KERN_FILE_BYPID && arg > 0 &&
-		    proc.p_pid != (pid_t)arg) {
-				/* not the pid we are looking for */
+		if (op == KERN_FILE_BYPID) {
+			/* check if this is the pid we are looking for */
+			if (arg > 0 && proc.p_pid != (pid_t)arg)
 				continue;
+			matched = 1;
 		}
 
 		if (KREAD(kd, (u_long)process.ps_ucred, &ucred)) {
@@ -457,6 +460,10 @@ kvm_deadfile_byid(kvm_t *kd, int op, int arg, size_t esize, int *cnt)
 			buflen -= esize;
 			n++;
 		}
+	}
+	if (!matched) {
+		errno = ESRCH;
+		goto cleanup;
 	}
 done:
 	*cnt = n;
@@ -713,16 +720,6 @@ fill_file(kvm_t *kd, struct kinfo_file *kf, struct file *fp, u_long fpaddr,
 		}
 		kf->kq_count = kqi.kq_count;
 		kf->kq_state = kqi.kq_state;
-		break;
-	    }
-	case DTYPE_SYSTRACE: {
-		struct fsystrace f;
-
-		if (KREAD(kd, (u_long)fp->f_data, &f)) {
-			_kvm_err(kd, kd->program, "can't read fsystrace");
-			return (-1);
-		}
-		kf->str_npolicies = f.npolicies;
 		break;
 	    }
 	}

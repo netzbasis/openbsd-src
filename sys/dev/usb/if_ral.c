@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ral.c,v 1.138 2015/11/25 03:10:00 dlg Exp $	*/
+/*	$OpenBSD: if_ral.c,v 1.140 2016/07/20 10:24:43 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -310,7 +310,6 @@ ural_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = ural_ioctl;
 	ifp->if_start = ural_start;
 	ifp->if_watchdog = ural_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -1232,7 +1231,7 @@ ural_start(struct ifnet *ifp)
 	 * net80211 may still try to send management frames even if the
 	 * IFF_RUNNING flag is not set...
 	 */
-	if ((ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {

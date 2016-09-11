@@ -1,5 +1,5 @@
-/*	$OpenBSD: refresh.h,v 1.7 2010/06/30 00:05:35 nicm Exp $	*/
-/*	$NetBSD: refresh.h,v 1.6 2009/12/30 22:37:40 christos Exp $	*/
+/*	$OpenBSD: refresh.h,v 1.9 2016/03/20 22:57:59 schwarze Exp $	*/
+/*	$NetBSD: refresh.h,v 1.9 2016/02/16 15:53:48 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -41,15 +41,13 @@
 #ifndef _h_el_refresh
 #define	_h_el_refresh
 
-#include "histedit.h"
-
 typedef struct {
 	coord_t	r_cursor;	/* Refresh cursor position	*/
 	int	r_oldcv;	/* Vertical locations		*/
 	int	r_newcv;
 } el_refresh_t;
 
-protected void	re_putc(EditLine *, Int, int);
+protected void	re_putc(EditLine *, wint_t, int);
 protected void	re_clear_lines(EditLine *);
 protected void	re_clear_display(EditLine *);
 protected void	re_refresh(EditLine *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtadvd.h,v 1.21 2016/02/09 00:39:13 jca Exp $	*/
+/*	$OpenBSD: rtadvd.h,v 1.27 2016/08/20 15:05:52 jca Exp $	*/
 /*	$KAME: rtadvd.h,v 1.20 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
@@ -34,9 +34,6 @@
 
 #define ALLNODES "ff02::1"
 #define ALLROUTERS_LINK "ff02::2"
-#define ALLROUTERS_SITE "ff05::2"
-#define ANY "::"
-#define RTSOLLEN 8
 
 /* protocol constants and default values */
 #define DEF_MAXRTRADVINTERVAL 600
@@ -63,6 +60,11 @@
 #define PREFIX_FROM_KERNEL 1
 #define PREFIX_FROM_CONFIG 2
 #define PREFIX_FROM_DYNAMIC 3
+
+struct rtadvd_timer {
+	struct event ev;
+	struct timeval tm;
+};
 
 struct prefix {
 	TAILQ_ENTRY(prefix) entry;
@@ -122,10 +124,10 @@ struct	rainfo {
 	SLIST_ENTRY(rainfo) entry;
 
 	/* timer related parameters */
-	struct rtadvd_timer *timer;
-	int initcounter; /* counter for the first few advertisements */
+	struct rtadvd_timer timer;
+	unsigned int initcounter; /* counter for the first few advertisements */
 	struct timeval lastsent; /* timestamp when the latest RA was sent */
-	int waiting;		/* number of RS waiting for RA */
+	unsigned int waiting;	/* number of RS waiting for RA */
 
 	/* interface information */
 	int	ifindex;
@@ -148,11 +150,8 @@ struct	rainfo {
 	TAILQ_HEAD(prefixlist, prefix) prefixes; /* AdvPrefixList(link head) */
 	int	pfxs;		/* number of prefixes */
 	TAILQ_HEAD(rtinfolist, rtinfo) rtinfos;
-	int     rtinfocnt;
 	TAILQ_HEAD(rdnsslist, rdnss) rdnsss; /* advertised recursive dns servers */
-	int	rdnsscnt;	/* number of rdnss entries */
 	TAILQ_HEAD(dnssllist, dnssl) dnssls;
-	int	dnsslcnt;
 	long	clockskew;	/* used for consistency check of lifetimes */
 
 
@@ -161,18 +160,13 @@ struct	rainfo {
 	u_char *ra_data;
 
 	/* statistics */
-	u_quad_t raoutput;	/* number of RAs sent */
-	u_quad_t rainput;	/* number of RAs received */
-	u_quad_t rainconsistent; /* number of RAs inconsistent with ours */
-	u_quad_t rsinput;	/* number of RSs received */
+	uint64_t raoutput;	/* number of RAs sent */
+	uint64_t rainput;	/* number of RAs received */
+	uint64_t rainconsistent; /* number of RAs inconsistent with ours */
+	uint64_t rsinput;	/* number of RSs received */
 };
 SLIST_HEAD(ralist, rainfo);
 
-void ra_timeout(void *);
-void ra_timer_update(void *, struct timeval *);
+void ra_timer_update(struct rainfo *);
 
-int prefix_match(struct in6_addr *, int, struct in6_addr *, int);
-struct rainfo *if_indextorainfo(int);
 struct prefix *find_prefix(struct rainfo *, struct in6_addr *, int);
-
-extern struct in6_addr in6a_site_allrouters;

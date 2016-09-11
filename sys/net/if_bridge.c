@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.c,v 1.275 2015/12/05 10:07:55 tedu Exp $	*/
+/*	$OpenBSD: if_bridge.c,v 1.284 2016/09/03 13:46:57 reyk Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -88,10 +88,6 @@
 #include <net/if_vlan_var.h>
 #endif
 
-#if NGIF > 0
-#include <net/if_gif.h>
-#endif
-
 #include <net/if_bridge.h>
 
 /*
@@ -121,14 +117,10 @@ void	bridge_span(struct bridge_softc *, struct mbuf *);
 void	bridge_stop(struct bridge_softc *);
 void	bridge_init(struct bridge_softc *);
 int	bridge_bifconf(struct bridge_softc *, struct ifbifconf *);
-
 int bridge_blocknonip(struct ether_header *, struct mbuf *);
-struct mbuf *bridge_ip(struct bridge_softc *, int, struct ifnet *,
-    struct ether_header *, struct mbuf *m);
-int	bridge_ifenqueue(struct bridge_softc *, struct ifnet *, struct mbuf *);
 void	bridge_ifinput(struct ifnet *, struct mbuf *);
-void	bridge_fragment(struct bridge_softc *, struct ifnet *,
-    struct ether_header *, struct mbuf *);
+int	bridge_dummy_output(struct ifnet *, struct mbuf *, struct sockaddr *,
+    struct rtentry *);
 #ifdef IPSEC
 int bridge_ipsec(struct bridge_softc *, struct ifnet *,
     struct ether_header *, int, struct llc *,
@@ -137,7 +129,6 @@ int bridge_ipsec(struct bridge_softc *, struct ifnet *,
 int     bridge_clone_create(struct if_clone *, int);
 int	bridge_clone_destroy(struct ifnet *ifp);
 int	bridge_delete(struct bridge_softc *, struct bridge_iflist *);
-struct	mbuf *bridge_m_dup(struct mbuf *);
 
 #define	ETHERADDR_IS_IP_MCAST(a) \
 	/* struct etheraddr *a;	*/				\
@@ -187,7 +178,7 @@ bridge_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_softc = sc;
 	ifp->if_mtu = ETHERMTU;
 	ifp->if_ioctl = bridge_ioctl;
-	ifp->if_output = NULL;
+	ifp->if_output = bridge_dummy_output;
 	ifp->if_start = NULL;
 	ifp->if_type = IFT_BRIDGE;
 	ifp->if_hdrlen = ETHER_HDR_LEN;
@@ -203,6 +194,14 @@ bridge_clone_create(struct if_clone *ifc, int unit)
 	if_ih_insert(ifp, ether_input, NULL);
 
 	return (0);
+}
+
+int
+bridge_dummy_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
+    struct rtentry *rt)
+{
+	m_freem(m);
+	return (EAFNOSUPPORT);
 }
 
 int
@@ -333,11 +332,6 @@ bridge_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 					break;
 			}
 		}
-#if NGIF > 0
-		else if (ifs->if_type == IFT_GIF) {
-			/* Nothing needed */
-		}
-#endif /* NGIF */
 #if NMPW > 0
 		else if (ifs->if_type == IFT_MPLSTUNNEL) {
 			/* Nothing needed */
@@ -721,6 +715,7 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 	struct bridge_rtnode *dst_p = NULL;
 	struct ether_addr *dst;
 	struct bridge_softc *sc;
+	struct bridge_tunneltag *brtag;
 	int error;
 
 	/* ifp must be a member interface of the bridge. */ 
@@ -800,7 +795,7 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 				used = 1;
 				mc = m;
 			} else {
-				mc = bridge_m_dup(m);
+				mc = m_dup_pkt(m, ETHER_ALIGN, M_NOWAIT);
 				if (mc == NULL) {
 					sc->sc_if.if_oerrors++;
 					continue;
@@ -817,9 +812,15 @@ bridge_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 	}
 
 sendunicast:
-	if (dst_p != NULL && dst_p->brt_tunnel.sa.sa_family != AF_UNSPEC &&
-	    (sa = bridge_tunneltag(m, dst_p->brt_tunnel.sa.sa_family)) != NULL)
-		memcpy(sa, &dst_p->brt_tunnel.sa, dst_p->brt_tunnel.sa.sa_len);
+	if ((dst_p != NULL) &&
+	    (dst_p->brt_tunnel.brtag_dst.sa.sa_family != AF_UNSPEC) &&
+	    ((brtag = bridge_tunneltag(m)) != NULL)) {
+		memcpy(&brtag->brtag_src, &dst_p->brt_tunnel.brtag_src.sa,
+		    dst_p->brt_tunnel.brtag_src.sa.sa_len);
+		memcpy(&brtag->brtag_dst, &dst_p->brt_tunnel.brtag_dst.sa,
+		    dst_p->brt_tunnel.brtag_dst.sa.sa_len);
+		brtag->brtag_id = dst_p->brt_tunnel.brtag_id;
+	}
 
 	bridge_span(sc, m);
 	if ((dst_if->if_flags & IFF_RUNNING) == 0) {
@@ -1054,6 +1055,18 @@ bridge_process(struct ifnet *ifp, struct mbuf *m)
 	if ((sc->sc_if.if_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
 		goto reenqueue;
 
+#if NVLAN > 0
+	/*
+	 * If the underlying interface removed the VLAN header itself,
+	 * add it back.
+	 */
+	if (ISSET(m->m_flags, M_VLANTAG)) {
+		m = vlan_inject(m, ETHERTYPE_VLAN, m->m_pkthdr.ether_vtag);
+		if (m == NULL)
+			return;
+	}
+#endif
+
 #if NBPFILTER > 0
 	if (sc->sc_if.if_bpf)
 		bpf_mtap_ether(sc->sc_if.if_bpf, m, BPF_DIRECTION_IN);
@@ -1090,25 +1103,12 @@ bridge_process(struct ifnet *ifp, struct mbuf *m)
 		    (ifl->bif_state == BSTP_IFSTATE_DISCARDING))
 	    		goto reenqueue;
 
-		mc = bridge_m_dup(m);
+		mc = m_dup_pkt(m, ETHER_ALIGN, M_NOWAIT);
 		if (mc == NULL)
 	    		goto reenqueue;
 
-#if NGIF > 0
-		if (ifp->if_type == IFT_GIF) {
-			TAILQ_FOREACH(ifl, &sc->sc_iflist, next) {
-				if (ifl->ifp->if_type != IFT_ETHER)
-					continue;
-
-				bridge_ifinput(ifl->ifp, mc);
-				break;
-			}
-			if (!ifl)
-				m_freem(mc);
-		} else
-#endif /* NGIF */
 		bridge_ifinput(ifp, mc);
-		
+
 		bridgeintr_frame(sc, ifp, m);
 		return;
 	}
@@ -1204,14 +1204,15 @@ bridge_broadcast(struct bridge_softc *sc, struct ifnet *ifp,
 		if (bridge_filterrule(&p->bif_brlout, eh, m) == BRL_ACTION_BLOCK)
 			continue;
 
-		bridge_localbroadcast(sc, dst_if, eh, m);
-
 		/*
 		 * Don't retransmit out of the same interface where
 		 * the packet was received from.
 		 */
 		if (dst_if->if_index == ifp->if_index)
 			continue;
+
+		bridge_localbroadcast(sc, dst_if, eh, m);
+
 #if NMPW > 0
 		/*
 		 * Split horizon: avoid broadcasting messages from wire to
@@ -1227,7 +1228,7 @@ bridge_broadcast(struct bridge_softc *sc, struct ifnet *ifp,
 			mc = m;
 			used = 1;
 		} else {
-			mc = bridge_m_dup(m);
+			mc = m_dup_pkt(m, ETHER_ALIGN, M_NOWAIT);
 			if (mc == NULL) {
 				sc->sc_if.if_oerrors++;
 				continue;
@@ -1277,11 +1278,15 @@ bridge_localbroadcast(struct bridge_softc *sc, struct ifnet *ifp,
 			return;
 	}
 
-	m1 = bridge_m_dup(m);
+	m1 = m_dup_pkt(m, ETHER_ALIGN, M_NOWAIT);
 	if (m1 == NULL) {
 		sc->sc_if.if_oerrors++;
 		return;
 	}
+
+#if NPF > 0
+	pf_pkt_addr_changed(m1);
+#endif	/* NPF */
 
 	bridge_ifinput(ifp, m1);
 }
@@ -1846,19 +1851,6 @@ bridge_ifenqueue(struct bridge_softc *sc, struct ifnet *ifp, struct mbuf *m)
 	/* Loop prevention. */
 	m->m_flags |= M_PROTO1;
 
-#if NGIF > 0
-	/* Packet needs etherip encapsulation. */
-	if (ifp->if_type == IFT_GIF) {
-
-		/* Count packets input into the gif from outside */
-		ifp->if_ipackets++;
-		ifp->if_ibytes += m->m_pkthdr.len;
-
-		error = gif_encap(ifp, &m, AF_LINK);
-		if (error)
-			return (error);
-	}
-#endif /* NGIF */
 	len = m->m_pkthdr.len;
 
 	error = if_enqueue(ifp, m);
@@ -1957,7 +1949,7 @@ bridge_send_icmp_err(struct bridge_softc *sc, struct ifnet *ifp,
 	m_freem(n);
 }
 
-struct sockaddr *
+struct bridge_tunneltag *
 bridge_tunnel(struct mbuf *m)
 {
 	struct m_tag    *mtag;
@@ -1965,41 +1957,24 @@ bridge_tunnel(struct mbuf *m)
 	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) == NULL)
 		return (NULL);
 
-	return ((struct sockaddr *)(mtag + 1));
+	return ((struct bridge_tunneltag *)(mtag + 1));
 }
 
-struct sockaddr *
-bridge_tunneltag(struct mbuf *m, int af)
+struct bridge_tunneltag *
+bridge_tunneltag(struct mbuf *m)
 {
-	struct m_tag    *mtag;
-	size_t		 len;
-	struct sockaddr	*sa;
+	struct m_tag    	*mtag;
 
-	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) != NULL) {
-		sa = (struct sockaddr *)(mtag + 1);
-		if (sa->sa_family != af) {
-			m_tag_delete(m, mtag);
-			mtag = NULL;
-		}
-	}
-	if (mtag == NULL) {
-		if (af == AF_INET)
-			len = sizeof(struct sockaddr_in);
-		else if (af == AF_INET6)
-			len = sizeof(struct sockaddr_in6);
-		else
-			return (NULL);
-		mtag = m_tag_get(PACKET_TAG_TUNNEL, len, M_NOWAIT);
+	if ((mtag = m_tag_find(m, PACKET_TAG_TUNNEL, NULL)) == NULL) {
+		mtag = m_tag_get(PACKET_TAG_TUNNEL,
+		    sizeof(struct bridge_tunneltag), M_NOWAIT);
 		if (mtag == NULL)
 			return (NULL);
-		bzero(mtag + 1, len);
-		sa = (struct sockaddr *)(mtag + 1);
-		sa->sa_family = af;
-		sa->sa_len = len;
+		bzero(mtag + 1, sizeof(struct bridge_tunneltag));
 		m_tag_prepend(m, mtag);
 	}
 
-	return ((struct sockaddr *)(mtag + 1));
+	return ((struct bridge_tunneltag *)(mtag + 1));
 }
 
 void
@@ -2015,39 +1990,20 @@ bridge_copyaddr(struct sockaddr *src, struct sockaddr *dst)
 {
 	if (src != NULL && src->sa_family != AF_UNSPEC)
 		memcpy(dst, src, src->sa_len);
-	else
+	else {
 		dst->sa_family = AF_UNSPEC;
+		dst->sa_len = 0;
+	}
 }
 
-/*
- * Specialized deep copy to ensure that the payload after the Ethernet
- * header is nicely aligned.
- */
-struct mbuf *
-bridge_m_dup(struct mbuf *m)
+void
+bridge_copytag(struct bridge_tunneltag *src, struct bridge_tunneltag *dst)
 {
-	struct mbuf *m1, *m2, *mx;
-
-	m1 = m_copym2(m, 0, ETHER_HDR_LEN, M_DONTWAIT);
-	if (m1 == NULL) {
-		return (NULL);
+	if (src == NULL) {
+		memset(dst, 0, sizeof(*dst));
+	} else {
+		bridge_copyaddr(&src->brtag_src.sa, &dst->brtag_src.sa);
+		bridge_copyaddr(&src->brtag_dst.sa, &dst->brtag_dst.sa);
+		dst->brtag_id = src->brtag_id;
 	}
-	m2 = m_copym2(m, ETHER_HDR_LEN, M_COPYALL, M_DONTWAIT);
-	if (m2 == NULL) {
-		m_freem(m1);
-		return (NULL);
-	}
-
-	for (mx = m1; mx->m_next != NULL; mx = mx->m_next)
-		/*EMPTY*/;
-	mx->m_next = m2;
-
-	if (m1->m_flags & M_PKTHDR) {
-		int len = 0;
-		for (mx = m1; mx != NULL; mx = mx->m_next)
-			len += mx->m_len;
-		m1->m_pkthdr.len = len;
-	}
-
-	return (m1);
 }

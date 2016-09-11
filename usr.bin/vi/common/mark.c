@@ -1,4 +1,4 @@
-/*	$OpenBSD: mark.c,v 1.12 2016/01/20 08:43:27 bentley Exp $	*/
+/*	$OpenBSD: mark.c,v 1.14 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

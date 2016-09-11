@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_process.c,v 1.68 2015/09/24 20:35:18 tedu Exp $	*/
+/*	$OpenBSD: sys_process.c,v 1.70 2016/09/01 12:47:18 akfaew Exp $	*/
 /*	$NetBSD: sys_process.c,v 1.55 1996/05/15 06:17:47 tls Exp $	*/
 
 /*-
@@ -454,7 +454,7 @@ sys_ptrace(struct proc *p, void *v, register_t *retval)
 		/* If the address parameter is not (int *)1, set the pc. */
 		if ((int *)SCARG(uap, addr) != (int *)1)
 			if ((error = process_set_pc(t, SCARG(uap, addr))) != 0)
-				goto relebad;
+				return error;
 
 #ifdef PT_STEP
 		/*
@@ -462,7 +462,7 @@ sys_ptrace(struct proc *p, void *v, register_t *retval)
 		 */
 		error = process_sstep(t, req == PT_STEP);
 		if (error)
-			goto relebad;
+			return error;
 #endif
 		goto sendsig;
 
@@ -492,7 +492,7 @@ sys_ptrace(struct proc *p, void *v, register_t *retval)
 		 */
 		error = process_sstep(t, 0);
 		if (error)
-			goto relebad;
+			return error;
 #endif
 
 		/* give process back to original parent or init */
@@ -522,9 +522,6 @@ sys_ptrace(struct proc *p, void *v, register_t *retval)
 		}
 
 		return (0);
-
-	relebad:
-		return (error);
 
 	case  PT_KILL:
 		if (SCARG(uap, pid) < THREAD_PID_OFFSET && tr->ps_single)
@@ -734,7 +731,7 @@ process_domem(struct proc *curp, struct proc *p, struct uio *uio, int req)
 	vm->vm_refcnt++;
 
 	error = uvm_io(&vm->vm_map, uio,
-	    (req == PT_WRITE_I) ? UVM_IO_FIXPROT : 0);
+	    (uio->uio_rw == UIO_WRITE) ? UVM_IO_FIXPROT : 0);
 
 	uvmspace_free(vm);
 

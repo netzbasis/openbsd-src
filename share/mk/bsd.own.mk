@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.172 2015/10/26 10:43:42 bluhm Exp $
+#	$OpenBSD: bsd.own.mk,v 1.178 2016/09/08 18:59:49 kettenis Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -14,16 +14,12 @@ WARNINGS?=	no
 SKEY?=		yes
 # Set `YP' to `yes' to build with support for NIS/YP.
 YP?=		yes
-# Set `DEBUGLIBS' to `yes' to build libraries with debugging symbols
-DEBUGLIBS?=	no
 
-GCC3_ARCH=m88k vax
+GCC3_ARCH=m88k
 
-# arm: needs to switch away from SJLJ exceptions
-# vax: no shared libraries
 # m88k: ?
-PIE_ARCH=alpha amd64 hppa i386 mips64 mips64el powerpc sh sparc sparc64
-STATICPIE_ARCH=alpha amd64 hppa i386 mips64 mips64el powerpc sh sparc sparc64
+PIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
+STATICPIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
 
 .for _arch in ${MACHINE_ARCH}
 .if !empty(GCC3_ARCH:M${_arch})
@@ -45,10 +41,6 @@ NOPIE_FLAGS?=
 PIE_DEFAULT?=
 .endif
 .endfor
-
-.if ${COMPILER_VERSION} == "gcc4"
-VISIBILITY_HIDDEN?=-fvisibility=hidden
-.endif
 
 # where the system object and source trees are kept; can be configurable
 # by the user in case they want them in ~/foosrc and ~/fooobj, for example
@@ -115,12 +107,6 @@ STATIC?=	-static ${STATICPIE}
 # in environments where it's not possible to keep /sys publicly readable)
 #SYS_INCLUDE= 	symlinks
 
-# don't try to generate PIC versions of libraries on machines
-# which don't support PIC.
-.if ${MACHINE_ARCH} == "vax"
-NOPIC=
-.endif
-
 # pic relocation flags.
 .if (${MACHINE_ARCH} == "alpha") || (${MACHINE_ARCH} == "sparc64")
 PICFLAG?=-fPIC
@@ -128,12 +114,12 @@ PICFLAG?=-fPIC
 PICFLAG?=-fpic
 .endif
 
-.if ${MACHINE_ARCH} == "sparc" || ${MACHINE_ARCH} == "sparc64"
+.if ${MACHINE_ARCH} == "sparc64"
 ASPICFLAG=-KPIC
 .endif
 
 .if ${MACHINE_ARCH} == "alpha" || ${MACHINE_ARCH} == "powerpc" || \
-    ${MACHINE_ARCH} == "sparc" || ${MACHINE_ARCH} == "sparc64"
+    ${MACHINE_ARCH} == "sparc64"
 # big PIE
 DEFAULT_PIE_DEF=-DPIE_DEFAULT=2
 .else

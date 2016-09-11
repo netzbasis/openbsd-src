@@ -1,4 +1,4 @@
-/*	$OpenBSD: chartype.c,v 1.6 2014/10/17 06:07:50 deraadt Exp $	*/
+/*	$OpenBSD: chartype.c,v 1.15 2016/04/11 21:17:29 schwarze Exp $	*/
 /*	$NetBSD: chartype.c,v 1.6 2011/07/28 00:48:21 christos Exp $	*/
 
 /*-
@@ -13,13 +13,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *        This product includes software developed by the NetBSD
- *        Foundation, Inc. and its contributors.
- * 4. Neither the name of The NetBSD Foundation nor the names of its
- *    contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
  * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
@@ -38,13 +31,18 @@
  * chartype.c: character classification and meta information
  */
 #include "config.h"
-#include "el.h"
+
+#include <ctype.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "el.h"
 
 #define CT_BUFSIZ 1024
 
-#ifdef WIDECHAR
-protected void
+static void ct_conv_buff_resize(ct_buffer_t *, size_t, size_t);
+
+static void
 ct_conv_buff_resize(ct_buffer_t *conv, size_t mincsize, size_t minwsize)
 {
 	void *p;
@@ -55,13 +53,13 @@ ct_conv_buff_resize(ct_buffer_t *conv, size_t mincsize, size_t minwsize)
 			conv->csize = 0;
 			free(conv->cbuff);
 			conv->cbuff = NULL;
-		} else 
+		} else
 			conv->cbuff = p;
 	}
 
 	if (minwsize > conv->wsize) {
 		conv->wsize = minwsize;
-		p = reallocarray(conv->wbuff, conv->wsize, sizeof(Char));
+		p = reallocarray(conv->wbuff, conv->wsize, sizeof(wchar_t));
 		if (p == NULL) {
 			conv->wsize = 0;
 			free(conv->wbuff);
@@ -72,8 +70,8 @@ ct_conv_buff_resize(ct_buffer_t *conv, size_t mincsize, size_t minwsize)
 }
 
 
-public char *
-ct_encode_string(const Char *s, ct_buffer_t *conv)
+char *
+ct_encode_string(const wchar_t *s, ct_buffer_t *conv)
 {
 	char *dst;
 	ssize_t used = 0;
@@ -105,7 +103,7 @@ ct_encode_string(const Char *s, ct_buffer_t *conv)
 	return conv->cbuff;
 }
 
-public Char *
+wchar_t *
 ct_decode_string(const char *s, ct_buffer_t *conv)
 {
 	size_t len = 0;
@@ -117,25 +115,26 @@ ct_decode_string(const char *s, ct_buffer_t *conv)
 	if (!conv->wbuff)
 		return NULL;
 
-	len = ct_mbstowcs(NULL, s, 0);
+	len = mbstowcs(NULL, s, 0);
 	if (len == (size_t)-1)
 		return NULL;
 	if (len > conv->wsize)
 		ct_conv_buff_resize(conv, 0, len + 1);
 	if (!conv->wbuff)
 		return NULL;
-	ct_mbstowcs(conv->wbuff, s, conv->wsize);
+
+	mbstowcs(conv->wbuff, s, conv->wsize);
 	return conv->wbuff;
 }
 
 
-protected Char **
+protected wchar_t **
 ct_decode_argv(int argc, const char *argv[], ct_buffer_t *conv)
 {
 	size_t bufspace;
 	int i;
-	Char *p;
-	Char **wargv;
+	wchar_t *p;
+	wchar_t **wargv;
 	size_t wlen;
 
 	/* Make sure we have enough space in the conversion buffer to store all
@@ -171,7 +170,7 @@ ct_decode_argv(int argc, const char *argv[], ct_buffer_t *conv)
 
 
 protected size_t
-ct_enc_width(Char c)
+ct_enc_width(wchar_t c)
 {
 	/* UTF-8 encoding specific values */
 	if (c < 0x80)
@@ -187,28 +186,27 @@ ct_enc_width(Char c)
 }
 
 protected ssize_t
-ct_encode_char(char *dst, size_t len, Char c)
+ct_encode_char(char *dst, size_t len, wchar_t c)
 {
 	ssize_t l = 0;
 	if (len < ct_enc_width(c))
 		return -1;
-	l = ct_wctomb(dst, c);
+	l = wctomb(dst, c);
 
 	if (l < 0) {
-		ct_wctomb_reset;
+		wctomb(NULL, L'\0');
 		l = 0;
 	}
 	return l;
 }
-#endif
 
-protected const Char *
-ct_visual_string(const Char *s)
+protected const wchar_t *
+ct_visual_string(const wchar_t *s)
 {
-	static Char *buff = NULL;
+	static wchar_t *buff = NULL;
 	static size_t buffsize = 0;
 	void *p;
-	Char *dst;
+	wchar_t *dst;
 	ssize_t used = 0;
 
 	if (!s)
@@ -253,12 +251,10 @@ out:
 
 
 protected int
-ct_visual_width(Char c)
+ct_visual_width(wchar_t c)
 {
 	int t = ct_chr_class(c);
-#ifdef WIDECHAR
 	int w;
-#endif
 	switch (t) {
 	case CHTYPE_ASCIICTL:
 		return 2; /* ^@ ^? etc. */
@@ -266,7 +262,6 @@ ct_visual_width(Char c)
 		return 1; /* Hmm, this really need to be handled outside! */
 	case CHTYPE_NL:
 		return 0; /* Should this be 1 instead? */
-#ifdef WIDECHAR
 	case CHTYPE_PRINT:
 		w = wcwidth(c);
 		return (w == -1 ? 0 : w);
@@ -275,12 +270,6 @@ ct_visual_width(Char c)
 			return 8; /* \U+12345 */
 		else
 			return 7; /* \U+1234 */
-#else
-	case CHTYPE_PRINT:
-		return 1;
-	case CHTYPE_NONPRINT:
-		return 4; /* \123 */
-#endif
 	default:
 		return 0; /* should not happen */
 	}
@@ -288,7 +277,7 @@ ct_visual_width(Char c)
 
 
 protected ssize_t
-ct_visual_char(Char *dst, size_t len, Char c)
+ct_visual_char(wchar_t *dst, size_t len, wchar_t c)
 {
 	int t = ct_chr_class(c);
 	switch (t) {
@@ -313,7 +302,6 @@ ct_visual_char(Char *dst, size_t len, Char c)
 		 * so this is right */
 		if ((ssize_t)len < ct_visual_width(c))
 			return -1;   /* insufficient space */
-#ifdef WIDECHAR
 		*dst++ = '\\';
 		*dst++ = 'U';
 		*dst++ = '+';
@@ -325,13 +313,6 @@ ct_visual_char(Char *dst, size_t len, Char c)
 		*dst++ = tohexdigit(((unsigned int) c >>  4) & 0xf);
 		*dst   = tohexdigit(((unsigned int) c      ) & 0xf);
 		return (c > 0xffff) ? 8 : 7;
-#else
-		*dst++ = '\\';
-#define tooctaldigit(v) ((v) + '0')
-		*dst++ = tooctaldigit(((unsigned int) c >> 6) & 0x7);
-		*dst++ = tooctaldigit(((unsigned int) c >> 3) & 0x7);
-		*dst++ = tooctaldigit(((unsigned int) c     ) & 0x7);
-#endif
 		/*FALLTHROUGH*/
 	/* these two should be handled outside this function */
 	default:            /* we should never hit the default */
@@ -343,15 +324,15 @@ ct_visual_char(Char *dst, size_t len, Char c)
 
 
 protected int
-ct_chr_class(Char c)
+ct_chr_class(wchar_t c)
 {
 	if (c == '\t')
 		return CHTYPE_TAB;
 	else if (c == '\n')
 		return CHTYPE_NL;
-	else if (IsASCII(c) && Iscntrl(c))
+	else if (c < 0x100 && iswcntrl(c))
 		return CHTYPE_ASCIICTL;
-	else if (Isprint(c))
+	else if (iswprint(c))
 		return CHTYPE_PRINT;
 	else
 		return CHTYPE_NONPRINT;

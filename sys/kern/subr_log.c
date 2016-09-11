@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_log.c,v 1.37 2016/01/13 17:05:25 stefan Exp $	*/
+/*	$OpenBSD: subr_log.c,v 1.48 2016/06/23 15:41:42 bluhm Exp $	*/
 /*	$NetBSD: subr_log.c,v 1.11 1996/03/30 22:24:44 christos Exp $	*/
 
 /*
@@ -82,7 +82,7 @@ struct	file *syslogf;
 
 void filt_logrdetach(struct knote *kn);
 int filt_logread(struct knote *kn, long hint);
-   
+
 struct filterops logread_filtops =
 	{ 1, NULL, filt_logrdetach, filt_logread};
 
@@ -114,7 +114,7 @@ initmsgbuf(caddr_t buf, size_t bufsize)
 		mbp->msg_magic = MSG_MAGIC;
 		mbp->msg_bufs = new_bufs;
 	}
-	
+
 	/* Always start new buffer data on a new line. */
 	if (mbp->msg_bufx > 0 && mbp->msg_bufc[mbp->msg_bufx - 1] != '\n')
 		msgbuf_putchar(msgbufp, '\n');
@@ -138,21 +138,26 @@ initconsbuf(void)
 }
 
 void
-msgbuf_putchar(struct msgbuf *mbp, const char c) 
+msgbuf_putchar(struct msgbuf *mbp, const char c)
 {
+	int s;
+
 	if (mbp->msg_magic != MSG_MAGIC)
 		/* Nothing we can do */
 		return;
 
+	s = splhigh();
 	mbp->msg_bufc[mbp->msg_bufx++] = c;
-	mbp->msg_bufl = min(mbp->msg_bufl+1, mbp->msg_bufs);
+	mbp->msg_bufl = lmin(mbp->msg_bufl+1, mbp->msg_bufs);
 	if (mbp->msg_bufx < 0 || mbp->msg_bufx >= mbp->msg_bufs)
 		mbp->msg_bufx = 0;
 	/* If the buffer is full, keep the most recent data. */
 	if (mbp->msg_bufr == mbp->msg_bufx) {
 		if (++mbp->msg_bufr >= mbp->msg_bufs)
 			mbp->msg_bufr = 0;
+		mbp->msg_bufd++;
 	}
+	splx(s);
 }
 
 int
@@ -181,25 +186,34 @@ logread(dev_t dev, struct uio *uio, int flag)
 {
 	struct msgbuf *mbp = msgbufp;
 	size_t l;
-	int s;
-	int error = 0;
+	int s, error = 0;
 
 	s = splhigh();
 	while (mbp->msg_bufr == mbp->msg_bufx) {
 		if (flag & IO_NDELAY) {
-			splx(s);
-			return (EWOULDBLOCK);
+			error = EWOULDBLOCK;
+			goto out;
 		}
 		logsoftc.sc_state |= LOG_RDWAIT;
 		error = tsleep(mbp, LOG_RDPRI | PCATCH,
 			       "klog", 0);
-		if (error) {
-			splx(s);
-			return (error);
-		}
+		if (error)
+			goto out;
 	}
-	splx(s);
 	logsoftc.sc_state &= ~LOG_RDWAIT;
+
+	if (mbp->msg_bufd > 0) {
+		char buf[64];
+
+		l = snprintf(buf, sizeof(buf),
+		    "<%d>klog: dropped %ld byte%s, message buffer full\n",
+		    LOG_KERN|LOG_WARNING, mbp->msg_bufd,
+                    mbp->msg_bufd == 1 ? "" : "s");
+		error = uiomove(buf, ulmin(l, sizeof(buf) - 1), uio);
+		if (error)
+			goto out;
+		mbp->msg_bufd = 0;
+	}
 
 	while (uio->uio_resid > 0) {
 		if (mbp->msg_bufx >= mbp->msg_bufr)
@@ -216,15 +230,17 @@ logread(dev_t dev, struct uio *uio, int flag)
 		if (mbp->msg_bufr < 0 || mbp->msg_bufr >= mbp->msg_bufs)
 			mbp->msg_bufr = 0;
 	}
+ out:
+	splx(s);
 	return (error);
 }
 
 int
 logpoll(dev_t dev, int events, struct proc *p)
 {
-	int revents = 0;
-	int s = splhigh();
+	int s, revents = 0;
 
+	s = splhigh();
 	if (events & (POLLIN | POLLRDNORM)) {
 		if (msgbufp->msg_bufr != msgbufp->msg_bufx)
 			revents |= events & (POLLIN | POLLRDNORM);
@@ -262,8 +278,9 @@ logkqfilter(dev_t dev, struct knote *kn)
 void
 filt_logrdetach(struct knote *kn)
 {
-	int s = splhigh();
+	int s;
 
+	s = splhigh();
 	SLIST_REMOVE(&logsoftc.sc_selp.si_note, kn, knote, kn_selnext);
 	splx(s);
 }
@@ -272,10 +289,13 @@ int
 filt_logread(struct knote *kn, long hint)
 {
 	struct  msgbuf *p = (struct  msgbuf *)kn->kn_hook;
+	int s, event = 0;
 
+	s = splhigh();
 	kn->kn_data = (int)(p->msg_bufx - p->msg_bufr);
-
-	return (p->msg_bufx != p->msg_bufr);
+	event = (p->msg_bufx != p->msg_bufr);
+	splx(s);
+	return (event);
 }
 
 void
@@ -354,48 +374,30 @@ sys_sendsyslog(struct proc *p, void *v, register_t *retval)
 	struct sys_sendsyslog_args /* {
 		syscallarg(const void *) buf;
 		syscallarg(size_t) nbyte;
-	} */ *uap = v;
-	struct sys_sendsyslog2_args oap;
-
-	SCARG(&oap, buf) = SCARG(uap, buf);
-	SCARG(&oap, nbyte) = SCARG(uap, nbyte);
-	SCARG(&oap, flags) = 0;
-	return sys_sendsyslog2(p, &oap, retval);
-}
-
-int
-sys_sendsyslog2(struct proc *p, void *v, register_t *retval)
-{
-	struct sys_sendsyslog2_args /* {
-		syscallarg(const void *) buf;
-		syscallarg(size_t) nbyte;
 		syscallarg(int) flags;
 	} */ *uap = v;
 	int error;
-#ifndef SMALL_KERNEL
 	static int dropped_count, orig_error;
-	int len;
-	char buf[64];
 
 	if (dropped_count) {
-		len = snprintf(buf, sizeof(buf),
+		size_t l;
+		char buf[64];
+
+		l = snprintf(buf, sizeof(buf),
 		    "<%d>sendsyslog: dropped %d message%s, error %d",
 		    LOG_KERN|LOG_WARNING, dropped_count,
 		    dropped_count == 1 ? "" : "s", orig_error);
-		error = dosendsyslog(p, buf, MIN((size_t)len, sizeof(buf) - 1),
+		error = dosendsyslog(p, buf, ulmin(l, sizeof(buf) - 1),
 		    0, UIO_SYSSPACE);
 		if (error == 0)
 			dropped_count = 0;
 	}
-#endif
 	error = dosendsyslog(p, SCARG(uap, buf), SCARG(uap, nbyte),
 	    SCARG(uap, flags), UIO_USERSPACE);
-#ifndef SMALL_KERNEL
 	if (error) {
 		dropped_count++;
 		orig_error = error;
 	}
-#endif
 	return (error);
 }
 
@@ -407,7 +409,7 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 	struct iovec *ktriov = NULL;
 	int iovlen;
 #endif
-	char pri[6];
+	char pri[6], *kbuf;
 	struct iovec aiov;
 	struct uio auio;
 	size_t i, len;
@@ -415,7 +417,7 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 
 	if (syslogf)
 		FREF(syslogf);
-	else if ((flags & LOG_CONS) == 0)
+	else if (!ISSET(flags, LOG_CONS))
 		return (ENOTCONN);
 	else {
 		/*
@@ -465,13 +467,14 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 #endif
 
 	len = auio.uio_resid;
-	if (syslogf)
+	if (syslogf) {
 		error = sosend(syslogf->f_data, NULL, &auio, NULL, NULL, 0);
-	else
+		if (error == 0)
+			len -= auio.uio_resid;
+	} else if (constty || cn_devvp) {
 		error = cnwrite(0, &auio, 0);
-	if (error == 0)
-		len -= auio.uio_resid;
-	if (syslogf == NULL) {
+		if (error == 0)
+			len -= auio.uio_resid;
 		aiov.iov_base = "\r\n";
 		aiov.iov_len = 2;
 		auio.uio_iov = &aiov;
@@ -482,6 +485,27 @@ dosendsyslog(struct proc *p, const char *buf, size_t nbyte, int flags,
 		auio.uio_offset = 0;
 		auio.uio_resid = aiov.iov_len;
 		cnwrite(0, &auio, 0);
+	} else {
+		/* XXX console redirection breaks down... */
+		if (sflg == UIO_USERSPACE) {
+			kbuf = malloc(len, M_TEMP, M_WAITOK);
+			error = copyin(aiov.iov_base, kbuf, len);
+		} else {
+			kbuf = aiov.iov_base;
+			error = 0;
+		}
+		if (error == 0)
+			for (i = 0; i < len; i++) {
+				if (kbuf[i] == '\0')
+					break;
+				cnputc(kbuf[i]);
+				auio.uio_resid--;
+			}
+		if (sflg == UIO_USERSPACE)
+			free(kbuf, M_TEMP, len);
+		if (error == 0)
+			len -= auio.uio_resid;
+		cnputc('\n');
 	}
 
 #ifdef KTRACE

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwi.c,v 1.131 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_iwi.c,v 1.133 2016/09/05 08:17:48 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -27,6 +27,7 @@
 #include <sys/sockio.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
@@ -294,7 +295,6 @@ iwi_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = iwi_ioctl;
 	ifp->if_start = iwi_start;
 	ifp->if_watchdog = iwi_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -318,6 +318,7 @@ iwi_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_txtap.wt_ihdr.it_present = htole32(IWI_TX_RADIOTAP_PRESENT);
 #endif
 
+	rw_init(&sc->sc_rwlock, "iwilock");
 	task_set(&sc->init_task, iwi_init_task, sc);
 	return;
 
@@ -365,17 +366,14 @@ iwi_init_task(void *arg1)
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int s;
 
+	rw_enter_write(&sc->sc_rwlock);
 	s = splnet();
-	while (sc->sc_flags & IWI_FLAG_BUSY)
-		tsleep(&sc->sc_flags, 0, "iwipwr", 0);
-	sc->sc_flags |= IWI_FLAG_BUSY;
 
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
 		iwi_init(ifp);
 
-	sc->sc_flags &= ~IWI_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -1452,18 +1450,10 @@ iwi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr;
 	int s, error = 0;
 
-	s = splnet();
-	/*
-	 * Prevent processes from entering this function while another
-	 * process is tsleep'ing in it.
-	 */
-	while ((sc->sc_flags & IWI_FLAG_BUSY) && error == 0)
-		error = tsleep(&sc->sc_flags, PCATCH, "iwiioc", 0);
-	if (error != 0) {
-		splx(s);
+	error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+	if (error)
 		return error;
-	}
-	sc->sc_flags |= IWI_FLAG_BUSY;
+	s = splnet();
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -1512,9 +1502,8 @@ iwi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = 0;
 	}
 
-	sc->sc_flags &= ~IWI_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 	return error;
 }
 
@@ -1540,8 +1529,6 @@ iwi_stop_master(struct iwi_softc *sc)
 
 	tmp = CSR_READ_4(sc, IWI_CSR_RST);
 	CSR_WRITE_4(sc, IWI_CSR_RST, tmp | IWI_RST_PRINCETON_RESET);
-
-	sc->sc_flags &= ~IWI_FLAG_FW_INITED;
 }
 
 int
@@ -2283,7 +2270,6 @@ iwi_init(struct ifnet *ifp)
 	}
 
 	free(data, M_DEVBUF, size);
-	sc->sc_flags |= IWI_FLAG_FW_INITED;
 
 	if ((error = iwi_config(sc)) != 0) {
 		printf("%s: device configuration failed\n",

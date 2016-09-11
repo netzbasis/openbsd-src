@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.78 2015/12/30 09:07:00 tedu Exp $	*/
+/*	$OpenBSD: main.c,v 1.80 2016/09/08 15:51:54 millert Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -84,7 +84,7 @@ static const char initsubs[] = "${PS2=> } ${PS3=#? } ${PS4=+ }";
 static const char *initcoms [] = {
 	"typeset", "-r", "KSH_VERSION", NULL,
 	"typeset", "-x", "SHELL", "PATH", "HOME", NULL,
-	"typeset", "-i", "PPID", NULL,
+	"typeset", "-ir", "PPID", NULL,
 	"typeset", "-i", "OPTIND=1", NULL,
 	"eval", "typeset -i RANDOM MAILCHECK=\"${MAILCHECK-600}\" SECONDS=\"${SECONDS-0}\" TMOUT=\"${TMOUT-0}\"", NULL,
 	"alias",
@@ -152,13 +152,11 @@ main(int argc, char *argv[])
 
 	kshname = argv[0];
 
-#ifndef MKNOD
 	if (pledge("stdio rpath wpath cpath fattr flock getpw proc exec tty",
 	    NULL) == -1) {
 		perror("pledge");
 		exit(1);
 	}
-#endif
 
 	ainit(&aperm);		/* initialize permanent Area */
 

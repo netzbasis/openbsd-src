@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.38 2016/02/06 19:30:52 krw Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.44 2016/08/31 12:57:31 mpi Exp $	*/
 
 /* BPF socket interface code, originally contributed by Archie Cobbs. */
 
@@ -64,9 +64,7 @@
 #include "dhcp.h"
 #include "dhcpd.h"
 
-#define BPF_FORMAT "/dev/bpf%d"
-
-int if_register_bpf(void);
+int if_register_bpf(struct interface_info *ifi);
 
 /*
  * Called by get_interface_list for each interface that's discovered.
@@ -74,37 +72,25 @@ int if_register_bpf(void);
  * mask.
  */
 int
-if_register_bpf(void)
+if_register_bpf(struct interface_info *ifi)
 {
-	char filename[50];
 	struct ifreq ifr;
-	int sock, b;
+	int sock;
 
-	/* Open a BPF device */
-	for (b = 0; 1; b++) {
-		snprintf(filename, sizeof(filename), BPF_FORMAT, b);
-		sock = open(filename, O_RDWR | O_CLOEXEC, 0);
-		if (sock < 0) {
-			if (errno == EBUSY)
-				continue;
-			else
-				error("Can't find free bpf: %s",
-				    strerror(errno));
-		} else
-			break;
-	}
+	if ((sock = open("/dev/bpf0", O_RDWR | O_CLOEXEC)) == -1)
+		error("Can't open bpf: %s", strerror(errno));
 
 	/* Set the BPF device to point at this interface. */
 	strlcpy(ifr.ifr_name, ifi->name, IFNAMSIZ);
 	if (ioctl(sock, BIOCSETIF, &ifr) < 0)
-		error("Can't attach interface %s to %s: %s",
-		    ifi->name, filename, strerror(errno));
+		error("Can't attach interface %s to /dev/bpf0: %s",
+		    ifi->name, strerror(errno));
 
 	return (sock);
 }
 
 void
-if_register_send(void)
+if_register_send(struct interface_info *ifi)
 {
 	int sock, on = 1;
 
@@ -199,14 +185,14 @@ struct bpf_insn dhcp_bpf_wfilter[] = {
 int dhcp_bpf_wfilter_len = sizeof(dhcp_bpf_wfilter) / sizeof(struct bpf_insn);
 
 void
-if_register_receive(void)
+if_register_receive(struct interface_info *ifi)
 {
 	struct bpf_version v;
 	struct bpf_program p;
 	int flag = 1, sz;
 
 	/* Open a BPF device and hang it on this interface. */
-	ifi->bfdesc = if_register_bpf();
+	ifi->bfdesc = if_register_bpf(ifi);
 
 	/* Make sure the BPF version is in range. */
 	if (ioctl(ifi->bfdesc, BIOCVERSION, &v) < 0)
@@ -271,8 +257,9 @@ if_register_receive(void)
 }
 
 ssize_t
-send_packet(struct in_addr from, struct in_addr to)
+send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 {
+	struct client_state *client = ifi->client;
 	struct sockaddr_in dest;
 	struct ether_header eh;
 	struct ip ip;
@@ -289,7 +276,7 @@ send_packet(struct in_addr from, struct in_addr to)
 	dest.sin_addr.s_addr = to.s_addr;
 
 	if (to.s_addr == INADDR_BROADCAST) {
-		assemble_eh_header(&eh);
+		assemble_eh_header(ifi, &eh);
 		iov[0].iov_base = &eh;
 		iov[0].iov_len = sizeof(eh);
 		iovcnt++;
@@ -347,8 +334,10 @@ send_packet(struct in_addr from, struct in_addr to)
 }
 
 ssize_t
-receive_packet(struct sockaddr_in *from, struct ether_addr *hfrom)
+receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
+    struct ether_addr *hfrom)
 {
+	struct client_state *client = ifi->client;
 	int length = 0, offset = 0;
 	struct bpf_hdr hdr;
 

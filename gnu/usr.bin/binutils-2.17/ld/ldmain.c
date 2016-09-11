@@ -261,7 +261,6 @@ main (int argc, char **argv)
   command_line.warn_mismatch = TRUE;
   command_line.check_section_addresses = TRUE;
   command_line.accept_unknown_input_arch = FALSE;
-  command_line.reduce_memory_overheads = FALSE;
 
   sort_section = none;
 
@@ -291,6 +290,7 @@ main (int argc, char **argv)
   link_info.unresolved_syms_in_shared_libs = RM_NOT_YET_SET;
   link_info.allow_multiple_definition = FALSE;
   link_info.allow_undefined_version = TRUE;
+  link_info.allow_textrel = FALSE;
   link_info.create_default_symver = FALSE;
   link_info.default_imported_symver = FALSE;
   link_info.keep_memory = TRUE;
@@ -299,7 +299,7 @@ main (int argc, char **argv)
   link_info.new_dtags = FALSE;
   link_info.combreloc = TRUE;
   link_info.eh_frame_hdr = FALSE;
-  link_info.relro = FALSE;
+  link_info.relro = TRUE;
   link_info.strip_discarded = TRUE;
   link_info.strip = strip_none;
   link_info.discard = discard_sec_merge;
@@ -325,6 +325,7 @@ main (int argc, char **argv)
   link_info.relax_pass = 1;
   link_info.warn_shared_textrel = FALSE;
   link_info.gc_sections = FALSE;
+  link_info.reduce_memory_overheads = FALSE;
 
   ldfile_add_arch ("");
 

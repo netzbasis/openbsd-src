@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.95 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.102 2016/08/26 07:12:30 guenther Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -54,7 +54,7 @@
 void	uipc_setaddr(const struct unpcb *, struct mbuf *);
 
 /* list of all UNIX domain sockets, for unp_gc() */
-LIST_HEAD(unp_head, unpcb) unp_head = LIST_HEAD_INITIALIZER(&unp_head);
+LIST_HEAD(unp_head, unpcb) unp_head = LIST_HEAD_INITIALIZER(unp_head);
 
 /*
  * Stack of sets of files that were passed over a socket but were
@@ -64,10 +64,11 @@ struct	unp_deferral {
 	SLIST_ENTRY(unp_deferral)	ud_link;
 	int	ud_n;
 	/* followed by ud_n struct file * pointers */
+	struct file *ud_fp[];
 };
 
 /* list of sets of files that were sent over sockets that are now closed */
-SLIST_HEAD(,unp_deferral) unp_deferred = SLIST_HEAD_INITIALIZER(&unp_deferred);
+SLIST_HEAD(,unp_deferral) unp_deferred = SLIST_HEAD_INITIALIZER(unp_deferred);
 
 struct task unp_gc_task = TASK_INITIALIZER(unp_gc, NULL);
 
@@ -253,6 +254,10 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 			if (control) {
 				if (sbappendcontrol(rcv, m, control))
 					control = NULL;
+				else {
+					error = ENOBUFS;
+					break;
+				}
 			} else if (so->so_type == SOCK_SEQPACKET)
 				sbappendrecord(rcv, m);
 			else
@@ -468,7 +473,7 @@ unp_bind(struct unpcb *unp, struct mbuf *nam, struct proc *p)
 	unp->unp_connid.gid = p->p_ucred->cr_gid;
 	unp->unp_connid.pid = p->p_p->ps_pid;
 	unp->unp_flags |= UNP_FEIDSBIND;
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 	return (0);
 }
 
@@ -673,35 +678,31 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 		goto restart;
 	}
 
-	rp = (struct file **)CMSG_DATA(cm);
-
-	fdp = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
-
 	/* Make sure the recipient should be able to see the descriptors.. */
-	if (p->p_fd->fd_rdir != NULL) {
-		rp = (struct file **)CMSG_DATA(cm);
-		for (i = 0; i < nfds; i++) {
-			fp = *rp++;
+	rp = (struct file **)CMSG_DATA(cm);
+	for (i = 0; i < nfds; i++) {
+		fp = *rp++;
+		error = pledge_recvfd(p, fp);
+		if (error)
+			break;
 
-			error = pledge_recvfd(p, fp);
-			if (error)
+		/*
+		 * No to block devices.  If passing a directory,
+		 * make sure that it is underneath the root.
+		 */
+		if (p->p_fd->fd_rdir != NULL && fp->f_type == DTYPE_VNODE) {
+			struct vnode *vp = (struct vnode *)fp->f_data;
+
+			if (vp->v_type == VBLK ||
+			    (vp->v_type == VDIR &&
+			    !vn_isunder(vp, p->p_fd->fd_rdir, p))) {
+				error = EPERM;
 				break;
-			/*
-			 * No to block devices.  If passing a directory,
-			 * make sure that it is underneath the root.
-			 */
-			if (fp->f_type == DTYPE_VNODE) {
-				struct vnode *vp = (struct vnode *)fp->f_data;
-
-				if (vp->v_type == VBLK ||
-				    (vp->v_type == VDIR &&
-				    !vn_isunder(vp, p->p_fd->fd_rdir, p))) {
-					error = EPERM;
-					break;
-				}
 			}
 		}
 	}
+
+	fdp = mallocarray(nfds, sizeof(int), M_TEMP, M_WAITOK);
 
 restart:
 	fdplock(p->p_fd);
@@ -852,9 +853,8 @@ morespace:
 		if (error)
 			goto fail;
 		    
-		/* kq and systrace descriptors cannot be copied */
-		if (fp->f_type == DTYPE_KQUEUE ||
-		    fp->f_type == DTYPE_SYSTRACE) {
+		/* kqueue descriptors cannot be copied */
+		if (fp->f_type == DTYPE_KQUEUE) {
 			error = EINVAL;
 			goto fail;
 		}
@@ -901,8 +901,9 @@ unp_gc(void *arg __unused)
 	while ((defer = SLIST_FIRST(&unp_deferred)) != NULL) {
 		SLIST_REMOVE_HEAD(&unp_deferred, ud_link);
 		for (i = 0; i < defer->ud_n; i++) {
-			memcpy(&fp, &((struct file **)(defer + 1))[i],
-			    sizeof(fp));
+			fp = defer->ud_fp[i];
+			if (fp == NULL)
+				continue;
 			FREF(fp);
 			if ((unp = fptounp(fp)) != NULL)
 				unp->unp_msgcount--;
@@ -1062,7 +1063,7 @@ unp_discard(struct file **rp, int nfds)
 	/* copy the file pointers to a deferral structure */
 	defer = malloc(sizeof(*defer) + sizeof(*rp) * nfds, M_TEMP, M_WAITOK);
 	defer->ud_n = nfds;
-	memcpy(defer + 1, rp, sizeof(*rp) * nfds);
+	memcpy(&defer->ud_fp[0], rp, sizeof(*rp) * nfds);
 	memset(rp, 0, sizeof(*rp) * nfds);
 	SLIST_INSERT_HEAD(&unp_deferred, defer, ud_link);
 

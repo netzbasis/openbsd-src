@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_ioctl.c,v 1.297 2015/12/03 13:30:18 claudio Exp $ */
+/*	$OpenBSD: pf_ioctl.c,v 1.299 2016/09/03 17:11:40 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -143,20 +143,28 @@ pfattach(int num)
 
 	pool_init(&pf_rule_pl, sizeof(struct pf_rule), 0, 0, 0, "pfrule",
 	    NULL);
+	pool_setipl(&pf_rule_pl, IPL_SOFTNET);
 	pool_init(&pf_src_tree_pl, sizeof(struct pf_src_node), 0, 0, 0,
 	    "pfsrctr", NULL);
+	pool_setipl(&pf_src_tree_pl, IPL_SOFTNET);
 	pool_init(&pf_sn_item_pl, sizeof(struct pf_sn_item), 0, 0, 0,
 	    "pfsnitem", NULL);
+	pool_setipl(&pf_sn_item_pl, IPL_SOFTNET);
 	pool_init(&pf_state_pl, sizeof(struct pf_state), 0, 0, 0, "pfstate",
 	    NULL);
+	pool_setipl(&pf_state_pl, IPL_SOFTNET);
 	pool_init(&pf_state_key_pl, sizeof(struct pf_state_key), 0, 0, 0,
 	    "pfstkey", NULL);
+	pool_setipl(&pf_state_key_pl, IPL_SOFTNET);
 	pool_init(&pf_state_item_pl, sizeof(struct pf_state_item), 0, 0, 0,
 	    "pfstitem", NULL);
+	pool_setipl(&pf_state_item_pl, IPL_SOFTNET);
 	pool_init(&pf_rule_item_pl, sizeof(struct pf_rule_item), 0, 0, 0,
 	    "pfruleitem", NULL);
+	pool_setipl(&pf_rule_item_pl, IPL_SOFTNET);
 	pool_init(&pf_queue_pl, sizeof(struct pf_queuespec), 0, 0, 0, 
 	    "pfqueue", NULL);
+	pool_setipl(&pf_queue_pl, IPL_SOFTNET);
 	hfsc_initialize();
 	pfr_initialize();
 	pfi_initialize();
@@ -301,12 +309,13 @@ pf_rm_rule(struct pf_rulequeue *rulequeue, struct pf_rule *rule)
 }
 
 void
-pf_purge_rule(struct pf_ruleset *ruleset, struct pf_rule *rule,
-    struct pf_ruleset *aruleset, struct pf_rule *arule)
+pf_purge_rule(struct pf_rule *rule)
 {
 	u_int32_t		 nr = 0;
+	struct pf_ruleset	*ruleset;
 
-	KASSERT(ruleset != NULL && rule != NULL);
+	KASSERT((rule != NULL) && (rule->ruleset != NULL));
+	ruleset = rule->ruleset;
 
 	pf_rm_rule(ruleset->rules.active.ptr, rule);
 	ruleset->rules.active.rcount--;
@@ -314,16 +323,6 @@ pf_purge_rule(struct pf_ruleset *ruleset, struct pf_rule *rule,
 		rule->nr = nr++;
 	ruleset->rules.active.ticket++;
 	pf_calc_skip_steps(ruleset->rules.active.ptr);
-
-	/* remove the parent anchor rule */
-	if (nr == 0 && arule && aruleset) {
-		pf_rm_rule(aruleset->rules.active.ptr, arule);
-		aruleset->rules.active.rcount--;
-		TAILQ_FOREACH(rule, aruleset->rules.active.ptr, entries)
-			rule->nr = nr++;
-		aruleset->rules.active.ticket++;
-		pf_calc_skip_steps(aruleset->rules.active.ptr);
-	}
 }
 
 u_int16_t
@@ -775,6 +774,9 @@ pf_commit_rules(u_int32_t ticket, char *anchor)
 	int			 s, error;
 	u_int32_t		 old_rcount;
 
+	/* Make sure any expired rules get removed from active rules first. */
+	pf_purge_expired_rules(1);
+
 	rs = pf_find_ruleset(anchor);
 	if (rs == NULL || !rs->rules.inactive.open ||
 	    ticket != rs->rules.inactive.ticket)
@@ -1209,6 +1211,7 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		}
 		TAILQ_INSERT_TAIL(ruleset->rules.inactive.ptr,
 		    rule, entries);
+		rule->ruleset = ruleset;
 		ruleset->rules.inactive.rcount++;
 		break;
 	}
@@ -1265,6 +1268,8 @@ pfioctl(dev_t dev, u_long cmd, caddr_t addr, int flags, struct proc *p)
 		pr->rule.rcv_kif = NULL;
 		pr->rule.anchor = NULL;
 		pr->rule.overload_tbl = NULL;
+		bzero(&pr->rule.gcle, sizeof(pr->rule.gcle));
+		pr->rule.ruleset = NULL;
 		if (pf_anchor_copyout(ruleset, rule, pr)) {
 			error = EBUSY;
 			break;

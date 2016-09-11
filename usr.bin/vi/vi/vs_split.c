@@ -1,4 +1,4 @@
-/*	$OpenBSD: vs_split.c,v 1.14 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: vs_split.c,v 1.16 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.419 2016/01/27 20:52:41 sthen Exp $
+#	$OpenBSD: Makefile,v 1.430 2016/09/03 13:37:40 guenther Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -30,9 +30,8 @@ kernels: bootblocks ${ALL_KERNELS}
 # -rw-r--r--
 BINOWN= root
 BINGRP= wheel
-MUTABLE=changelist csh.cshrc csh.login csh.logout daily \
-	etc.${MACHINE}/disktab etc.${MACHINE}/login.conf ftpusers \
-	gettytab group ksh.kshrc locate.rc mailer.conf \
+MUTABLE=changelist daily etc.${MACHINE}/disktab etc.${MACHINE}/login.conf \
+	ftpusers gettytab group ksh.kshrc locate.rc mailer.conf \
 	moduli monthly netstart networks newsyslog.conf ntpd.conf \
 	pf.os protocols rc rc.conf rpc services shells syslog.conf weekly
 
@@ -44,10 +43,10 @@ EXAMPLES=chio.conf dhclient.conf dhcpd.conf exports \
 	remote sensorsd.conf wsconsctl.conf
 
 # -rw-------
-EXAMPLES_600=bgpd.conf dvmrpd.conf eigrpd.conf hostapd.conf iked.conf \
-	ipsec.conf ldapd.conf ldpd.conf ospf6d.conf ospfd.conf pf.conf \
-	radiusd.conf rc.local rc.securelevel rc.shutdown relayd.conf \
-	ripd.conf sasyncd.conf snmpd.conf vm.conf ypldap.conf 
+EXAMPLES_600=bgpd.conf doas.conf dvmrpd.conf eigrpd.conf hostapd.conf \
+	iked.conf ipsec.conf ldapd.conf ldpd.conf ospf6d.conf ospfd.conf \
+	pf.conf radiusd.conf rc.local rc.securelevel rc.shutdown relayd.conf \
+	ripd.conf sasyncd.conf snmpd.conf vm.conf ypldap.conf
 
 # -r-xr-xr-x
 RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dvmrpd eigrpd ftpd \
@@ -154,9 +153,6 @@ distribution-etc-root-var: distrib-dirs
 	cd signify; \
 		${INSTALL} -c -o root -g wheel -m 644 *.pub \
 		    ${DESTDIR}/etc/signify
-	cd systrace; \
-		${INSTALL} -c -o root -g wheel -m 600 usr_sbin_lpd \
-		    ${DESTDIR}/etc/systrace; \
 	ln -fs ${TZDIR}/${LOCALTIME} ${DESTDIR}/etc/localtime
 	ln -fs /usr/sbin/rmt ${DESTDIR}/etc/rmt
 	${INSTALL} -c -o root -g wheel -m 644 minfree \
@@ -183,7 +179,7 @@ distribution-etc-root-var: distrib-dirs
 	    ${DESTDIR}/var/log/lastlog
 	${INSTALL} -c -o ${BINOWN} -g wheel -m 640 /dev/null \
 	    ${DESTDIR}/var/log/lpd-errs
-	${INSTALL} -c -o ${BINOWN} -g wheel -m 600 /dev/null \
+	${INSTALL} -c -o ${BINOWN} -g wheel -m 640 /dev/null \
 	    ${DESTDIR}/var/log/maillog
 	${INSTALL} -c -o ${BINOWN} -g wheel -m 644 /dev/null \
 	    ${DESTDIR}/var/log/messages
@@ -211,18 +207,12 @@ distribution-etc-root-var: distrib-dirs
 		    ${DESTDIR}/etc/rc.d
 	cd ${DESTDIR}/var; ln -fs ../tmp
 	touch ${DESTDIR}/var/sysmerge/etcsum
-	touch ${DESTDIR}/var/sysmerge/examplessum
 	cd ${DESTDIR}/ && \
 		sort ${.CURDIR}/../distrib/sets/lists/etc/{mi,md.${MACHINE}} | \
 		xargs sha256 -h ${DESTDIR}/var/sysmerge/etcsum || true
 	cd ${DESTDIR}/ && \
-		grep -h '/etc/examples/' \
-		    ${.CURDIR}/../distrib/sets/lists/base/{mi,md.${MACHINE}} | \
-		sort | \
-		xargs sha256 -h ${DESTDIR}/var/sysmerge/examplessum || true
-	cd ${DESTDIR}/ && \
 		sort ${.CURDIR}/../distrib/sets/lists/etc/{mi,md.${MACHINE}} | \
-	    	pax -w -d | gzip -9 > ${DESTDIR}/var/sysmerge/etc.tgz
+		pax -w -d | gzip -9 > ${DESTDIR}/var/sysmerge/etc.tgz
 
 distribution:
 	exec ${SUDO} ${MAKE} distribution-etc-root-var
@@ -271,10 +261,10 @@ distrib:
 	release allarchs kernels release-sets m4 install-mtree \
 	bootblocks ${ALL_KERNELS}
 
-SUBDIR+= etc.alpha etc.amd64 etc.armish etc.armv7
-SUBDIR+= etc.hppa etc.hppa64 etc.i386 etc.landisk etc.loongson etc.luna88k
+SUBDIR+= etc.alpha etc.amd64 etc.armv7
+SUBDIR+= etc.hppa etc.i386 etc.landisk etc.loongson etc.luna88k
 SUBDIR+= etc.macppc etc.octeon
-SUBDIR+= etc.sgi etc.socppc etc.sparc etc.sparc64 etc.vax etc.zaurus
+SUBDIR+= etc.sgi etc.socppc etc.sparc64
 
 .include <bsd.subdir.mk>
 .include <bsd.prog.mk>

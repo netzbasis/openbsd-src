@@ -1,4 +1,4 @@
-/*	$OpenBSD: gs.h,v 1.16 2016/01/30 21:23:50 martijn Exp $	*/
+/*	$OpenBSD: gs.h,v 1.18 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

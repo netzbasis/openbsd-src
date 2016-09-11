@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_at.c,v 1.12 2015/12/07 20:39:19 mmcc Exp $	*/
+/*	$OpenBSD: ex_at.c,v 1.14 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.h,v 1.66 2016/01/08 13:53:24 mpi Exp $	*/
+/*	$OpenBSD: if_ether.h,v 1.72 2016/06/28 17:18:24 chris Exp $	*/
 /*	$NetBSD: if_ether.h,v 1.22 1996/05/11 13:00:00 mycroft Exp $	*/
 
 /*
@@ -75,6 +75,31 @@ struct	ether_header {
 	u_int16_t ether_type;
 };
 
+/*
+ * VLAN headers.
+ */
+
+struct  ether_vlan_header {
+        u_char  evl_dhost[ETHER_ADDR_LEN];
+        u_char  evl_shost[ETHER_ADDR_LEN];
+        u_int16_t evl_encap_proto;
+        u_int16_t evl_tag;
+        u_int16_t evl_proto;
+};
+
+#define EVL_VLID_MASK	0xFFF
+#define EVL_VLID_NULL	0x000
+/* 0x000 and 0xfff are reserved */
+#define EVL_VLID_MIN	0x001
+#define EVL_VLID_MAX	0xFFE
+#define EVL_VLANOFTAG(tag) ((tag) & EVL_VLID_MASK)
+
+#define EVL_PRIO_MAX    7
+#define EVL_PRIO_BITS   13
+#define EVL_PRIOFTAG(tag) (((tag) >> EVL_PRIO_BITS) & 7)
+
+#define EVL_ENCAPLEN    4       /* length in octets of encapsulation */
+
 #include <net/ethertypes.h>
 
 #define	ETHER_IS_MULTICAST(addr) (*(addr) & 0x01) /* is address mcast/bcast? */
@@ -123,7 +148,6 @@ struct sockaddr_inarp {
  * IP and ethernet specific routing flags
  */
 #define	RTF_USETRAILERS	  RTF_PROTO1	/* use trailers */
-#define	RTF_ANNOUNCE	  RTF_PROTO2	/* announce new arp entry */
 #define	RTF_PERMANENT_ARP RTF_PROTO3    /* only manual overwrite of entry */
 
 #ifdef _KERNEL
@@ -178,6 +202,9 @@ struct	arpcom {
 
 };
 
+extern int arpt_keep;				/* arp resolved cache expire */
+extern int arpt_down;				/* arp down cache expire */
+
 extern u_int8_t etherbroadcastaddr[ETHER_ADDR_LEN];
 extern u_int8_t etheranyaddr[ETHER_ADDR_LEN];
 extern u_int8_t ether_ipmulticast_min[ETHER_ADDR_LEN];
@@ -187,12 +214,12 @@ extern u_int8_t ether_ipmulticast_max[ETHER_ADDR_LEN];
 extern unsigned int revarp_ifidx;
 #endif /* NFSCLIENT */
 
-void	revarpinput(struct mbuf *);
+void	revarpinput(struct ifnet *, struct mbuf *);
 void	revarprequest(struct ifnet *);
 int	revarpwhoarewe(struct ifnet *, struct in_addr *, struct in_addr *);
 int	revarpwhoami(struct in_addr *, struct ifnet *);
 
-void	arpinput(struct mbuf *);
+void	arpinput(struct ifnet *, struct mbuf *);
 void	arprequest(struct ifnet *, u_int32_t *, u_int32_t *, u_int8_t *);
 void	arpwhohas(struct arpcom *, struct in_addr *);
 int	arpproxy(struct in_addr, unsigned int);
@@ -225,7 +252,6 @@ char	*ether_sprintf(u_char *);
 struct ether_multi {
 	u_int8_t enm_addrlo[ETHER_ADDR_LEN]; /* low  or only address of range */
 	u_int8_t enm_addrhi[ETHER_ADDR_LEN]; /* high or only address of range */
-	struct	 arpcom *enm_ac;	/* back pointer to arpcom */
 	u_int	 enm_refcount;		/* no. claims to this addr/range */
 	LIST_ENTRY(ether_multi) enm_list;
 };

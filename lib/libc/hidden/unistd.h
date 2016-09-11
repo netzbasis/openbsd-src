@@ -1,4 +1,4 @@
-/*	$OpenBSD: unistd.h,v 1.5 2015/10/17 20:22:08 deraadt Exp $	*/
+/*	$OpenBSD: unistd.h,v 1.9 2016/05/23 00:12:58 guenther Exp $	*/
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
@@ -20,6 +20,11 @@
 
 #include_next <unistd.h>
 
+__BEGIN_HIDDEN_DECLS
+/* shared between getpagesize(), sysconf(), and _csu_finish() */
+extern int	_pagesize;
+__END_HIDDEN_DECLS
+
 PROTO_NORMAL(__tfork_thread);
 PROTO_NORMAL(_exit);
 PROTO_NORMAL(access);
@@ -29,8 +34,8 @@ PROTO_DEPRECATED(brk);
 PROTO_NORMAL(chdir);
 PROTO_NORMAL(chown);
 PROTO_NORMAL(chroot);
-/*PROTO_CANCEL(close);*/
-/*PROTO_CANCEL(closefrom);*/
+PROTO_CANCEL(close);
+PROTO_CANCEL(closefrom);
 PROTO_DEPRECATED(confstr);
 PROTO_NORMAL(crypt);
 PROTO_NORMAL(crypt_checkpass);
@@ -52,11 +57,11 @@ PROTO_NORMAL(fchown);
 PROTO_NORMAL(fchownat);
 /*PROTO_CANCEL(fdatasync);*/
 PROTO_DEPRECATED(fflagstostr);
-/*PROTO_WRAP(fork);*/
+PROTO_WRAP(fork);
 PROTO_NORMAL(fpathconf);
-/*PROTO_CANCEL(fsync);*/
+PROTO_CANCEL(fsync);
 PROTO_NORMAL(ftruncate);
-/*PROTO_BARE(getcwd);*/
+PROTO_NORMAL(getcwd);
 PROTO_NORMAL(getdomainname);
 PROTO_NORMAL(getdtablecount);
 PROTO_DEPRECATED(getdtablesize);
@@ -68,7 +73,7 @@ PROTO_NORMAL(getgrouplist);
 PROTO_NORMAL(getgroups);
 PROTO_DEPRECATED(gethostid);
 PROTO_NORMAL(gethostname);
-/*PROTO_BARE(getlogin);*/
+PROTO_DEPRECATED(getlogin);
 PROTO_NORMAL(getlogin_r);
 PROTO_DEPRECATED(getmode);
 PROTO_DEPRECATED(getopt);
@@ -86,8 +91,6 @@ PROTO_NORMAL(getuid);
 PROTO_DEPRECATED(getusershell);
 PROTO_DEPRECATED(getwd);
 PROTO_NORMAL(initgroups);
-PROTO_DEPRECATED(iruserok);
-PROTO_NORMAL(iruserok_sa);
 PROTO_NORMAL(isatty);
 PROTO_NORMAL(issetugid);
 PROTO_NORMAL(lchown);
@@ -106,14 +109,14 @@ PROTO_NORMAL(pathconf);
 PROTO_NORMAL(pipe);
 PROTO_NORMAL(pipe2);
 PROTO_NORMAL(pledge);
-/*PROTO_CANCEL(pread);*/
+PROTO_CANCEL(pread);
 PROTO_NORMAL(profil);
-/*PROTO_CANCEL(pwrite);*/
+PROTO_CANCEL(pwrite);
 PROTO_NORMAL(quotactl);
 PROTO_DEPRECATED(rcmd);
 PROTO_NORMAL(rcmd_af);
 PROTO_NORMAL(rcmdsh);
-/*PROTO_CANCEL(read);*/
+PROTO_CANCEL(read);
 PROTO_NORMAL(readlink);
 PROTO_NORMAL(readlinkat);
 PROTO_NORMAL(reboot);
@@ -123,7 +126,7 @@ PROTO_DEPRECATED(rresvport);
 PROTO_NORMAL(rresvport_af);
 PROTO_DEPRECATED(ruserok);
 PROTO_DEPRECATED(sbrk);
-/*PROTO_CANCEL(select);*/
+PROTO_CANCEL(select);
 PROTO_DEPRECATED(setdomainname);
 PROTO_NORMAL(setegid);
 PROTO_NORMAL(seteuid);
@@ -131,7 +134,7 @@ PROTO_NORMAL(setgid);
 PROTO_NORMAL(setgroups);
 PROTO_DEPRECATED(sethostid);
 PROTO_DEPRECATED(sethostname);
-/*PROTO_WRAP(setlogin);*/
+PROTO_NORMAL(setlogin);
 PROTO_DEPRECATED(setmode);
 PROTO_NORMAL(setpgid);
 PROTO_DEPRECATED(setpgrp);
@@ -160,7 +163,7 @@ PROTO_DEPRECATED(ualarm);
 PROTO_NORMAL(unlink);
 PROTO_NORMAL(unlinkat);
 PROTO_DEPRECATED(usleep);
-/*PROTO_WRAP(vfork);*/
-/*PROTO_CANCEL(write);*/
+PROTO_WRAP(vfork);
+PROTO_CANCEL(write);
 
 #endif /* !_LIBC_UNISTD_H_ */
