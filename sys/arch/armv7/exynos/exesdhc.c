@@ -1,4 +1,4 @@
-/*	$OpenBSD: exesdhc.c,v 1.4 2016/01/10 14:11:43 kettenis Exp $	*/
+/*	$OpenBSD: exesdhc.c,v 1.8 2016/07/26 22:10:10 patrick Exp $	*/
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -18,8 +18,6 @@
  */
 
 /* i.MX SD/MMC support derived from /sys/dev/sdmmc/sdhc.c */
-
-#include "fdt.h"
 
 #include <sys/param.h>
 #include <sys/device.h>
@@ -199,7 +197,7 @@ uint32_t exesdhc_host_ocr(sdmmc_chipset_handle_t);
 int	exesdhc_host_maxblklen(sdmmc_chipset_handle_t);
 int	exesdhc_card_detect(sdmmc_chipset_handle_t);
 int	exesdhc_bus_power(sdmmc_chipset_handle_t, uint32_t);
-int	exesdhc_bus_clock(sdmmc_chipset_handle_t, int);
+int	exesdhc_bus_clock(sdmmc_chipset_handle_t, int, int);
 void	exesdhc_card_intr_mask(sdmmc_chipset_handle_t, int);
 void	exesdhc_card_intr_ack(sdmmc_chipset_handle_t);
 void	exesdhc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
@@ -230,6 +228,7 @@ struct sdmmc_chip_functions exesdhc_functions = {
 	/* bus power and clock frequency */
 	exesdhc_bus_power,
 	exesdhc_bus_clock,
+	NULL,
 	/* command execution */
 	exesdhc_exec_command,
 	/* card interrupt */
@@ -274,13 +273,13 @@ exesdhc_attach(struct device *parent, struct device *self, void *args)
 	sc->sc_iot = aa->aa_iot;
 #if NFDT > 0
 	if (aa->aa_node) {
-		struct fdt_memory fdtmem;
+		struct fdt_reg reg;
 		static int unit = 0;
 		uint32_t ints[3];
 
 		sc->unit = unit++;
 
-		if (fdt_get_memory_address(aa->aa_node, 0, &fdtmem))
+		if (fdt_get_reg(aa->aa_node, 0, &reg))
 			panic("%s: could not extract memory data from FDT",
 			    __func__);
 
@@ -290,8 +289,8 @@ exesdhc_attach(struct device *parent, struct device *self, void *args)
 			panic("%s: could not extract interrupt data from FDT",
 			    __func__);
 
-		mem.addr = fdtmem.addr;
-		mem.size = fdtmem.size;
+		mem.addr = reg.addr;
+		mem.size = reg.size;
 
 		irq = ints[1];
 	} else
@@ -518,7 +517,7 @@ exesdhc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
  * Return zero on success.
  */
 int
-exesdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq)
+exesdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 {
 	struct exesdhc_softc *sc = sch;
 	int div, pre_div, cur_freq, s;

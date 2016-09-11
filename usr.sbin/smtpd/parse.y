@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.183 2016/02/22 16:19:05 gilles Exp $	*/
+/*	$OpenBSD: parse.y,v 1.189 2016/08/31 15:24:04 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -176,9 +176,9 @@ typedef struct {
 %token	TABLE SECURE SMTPS CERTIFICATE DOMAIN BOUNCEWARN LIMIT INET4 INET6 NODSN SESSION
 %token  RELAY BACKUP VIA DELIVER TO LMTP MAILDIR MBOX RCPTTO HOSTNAME HOSTNAMES
 %token	ACCEPT REJECT INCLUDE ERROR MDA FROM FOR SOURCE MTA PKI SCHEDULER
-%token	ARROW AUTH TLS LOCAL VIRTUAL TAG TAGGED ALIAS FILTER KEY CA DHPARAMS
+%token	ARROW AUTH TLS LOCAL VIRTUAL TAG TAGGED ALIAS FILTER KEY CA DHE
 %token	AUTH_OPTIONAL TLS_REQUIRE USERBASE SENDER SENDERS MASK_SOURCE VERIFY FORWARDONLY RECIPIENT
-%token	CIPHERS RECEIVEDAUTH MASQUERADE SOCKET
+%token	CIPHERS RECEIVEDAUTH MASQUERADE SOCKET SUBADDRESSING_DELIM AUTHENTICATED
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.table>	table
@@ -213,6 +213,14 @@ include		: INCLUDE STRING		{
 		;
 
 varset		: STRING '=' STRING		{
+			char *s = $1;
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -261,6 +269,11 @@ tagged		: TAGGED negation STRING       		{
 			}
 			free($3);
 			rule->r_nottag = $2;
+		}
+		;
+
+authenticated  	: AUTHENTICATED	{
+			rule->r_wantauth = 1;
 		}
 		;
 
@@ -397,8 +410,19 @@ opt_pki		: CERTIFICATE STRING {
 		| KEY STRING {
 			pki->pki_key_file = $2;
 		}
-		| DHPARAMS STRING {
-			pki->pki_dhparams_file = $2;
+		| DHE STRING {
+			if (strcasecmp($2, "none") == 0)
+				pki->pki_dhe = 0;
+			else if (strcasecmp($2, "auto") == 0)
+				pki->pki_dhe = 1;
+			else if (strcasecmp($2, "legacy") == 0)
+				pki->pki_dhe = 2;
+			else {
+				yyerror("invalid DHE keyword: %s", $2);
+				free($2);
+				YYERROR;
+			}
+			free($2);
 		}
 		;
 
@@ -829,6 +853,21 @@ relay_via	: opt_relay_common relay_via
 main		: BOUNCEWARN {
 			memset(conf->sc_bounce_warn, 0, sizeof conf->sc_bounce_warn);
 		} bouncedelays
+		| SUBADDRESSING_DELIM STRING {
+			if (strlen($2) != 1) {
+				yyerror("subaddressing-delimiter must be one character");
+				free($2);
+				YYERROR;
+			}
+
+			if (isspace((int)*$2) ||  !isprint((int)*$2) || *$2== '@') {
+				yyerror("subaddressing-delimiter uses invalid character");
+				free($2);
+				YYERROR;
+			}
+
+			conf->sc_subaddressing_delim = $2;
+		}
 		| QUEUE COMPRESSION {
 			conf->sc_queue_flags |= QUEUE_COMPRESSION;
 		}
@@ -939,7 +978,7 @@ main		: BOUNCEWARN {
 			}
 		} ca
 		| CIPHERS STRING {
-			env->sc_tls_ciphers = $2;
+			conf->sc_tls_ciphers = $2;
 		}
 		;
 
@@ -1343,6 +1382,7 @@ opt_decision	: sender
 		| from
 		| for
 		| tagged
+		| authenticated
 		;
 decision	: opt_decision decision
 		|
@@ -1453,6 +1493,7 @@ lookup(char *s)
 		{ "as",			AS },
 		{ "auth",		AUTH },
 		{ "auth-optional",     	AUTH_OPTIONAL },
+		{ "authenticated",     	AUTHENTICATED },
 		{ "backup",		BACKUP },
 		{ "bounce-warn",	BOUNCEWARN },
 		{ "ca",			CA },
@@ -1460,7 +1501,7 @@ lookup(char *s)
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
 		{ "deliver",		DELIVER },
-		{ "dhparams",		DHPARAMS },
+		{ "dhe",		DHE },
 		{ "domain",		DOMAIN },
 		{ "encryption",		ENCRYPTION },
 		{ "expire",		EXPIRE },
@@ -1504,6 +1545,7 @@ lookup(char *s)
 		{ "smtps",		SMTPS },
 		{ "socket",		SOCKET },
 		{ "source",		SOURCE },
+		{ "subaddressing-delimiter",	SUBADDRESSING_DELIM },
 		{ "table",		TABLE },
 		{ "tag",		TAG },
 		{ "tagged",		TAGGED },
@@ -1858,6 +1900,7 @@ parse_config(struct smtpd *x_conf, const char *filename, int opts)
 	(void)strlcpy(conf->sc_hostname, hostname, sizeof(conf->sc_hostname));
 
 	conf->sc_maxsize = DEFAULT_MAX_BODY_SIZE;
+	conf->sc_subaddressing_delim = SUBADDRESSING_DELIMITER;
 
 	conf->sc_tables_dict = calloc(1, sizeof(*conf->sc_tables_dict));
 	conf->sc_rules = calloc(1, sizeof(*conf->sc_rules));
@@ -2074,6 +2117,7 @@ create_sock_listener(struct listen_opts *lo)
 	lo->hostname = conf->sc_hostname;
 	l->ss.ss_family = AF_LOCAL;
 	l->ss.ss_len = sizeof(struct sockaddr *);
+	l->local = 1;
 	config_listener(l, lo);
 
 	return (l);

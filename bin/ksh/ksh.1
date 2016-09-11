@@ -1,8 +1,8 @@
-.\"	$OpenBSD: ksh.1,v 1.177 2016/03/06 14:20:04 jmc Exp $
+.\"	$OpenBSD: ksh.1,v 1.180 2016/09/04 17:21:44 nicm Exp $
 .\"
 .\"	Public Domain
 .\"
-.Dd $Mdocdate: March 6 2016 $
+.Dd $Mdocdate: September 4 2016 $
 .Dt KSH 1
 .Os
 .Sh NAME
@@ -822,12 +822,6 @@ the
 and the newline are stripped; otherwise, both the
 .Ql \e
 and the character following are unchanged.
-.Pp
-.Sy Note :
-See
-.Sx POSIX mode
-below for a special rule regarding
-differences in quoting when the shell is in POSIX mode.
 .Ss Aliases
 There are two types of aliases: normal command aliases and tracked aliases.
 Command aliases are normally used as a short hand for a long or often used
@@ -2473,27 +2467,6 @@ The following is a list of things that are affected by the state of the
 option:
 .Bl -bullet
 .It
-Occurrences of
-.Ic \e\&"
-inside double quoted
-.Ic `..`
-command substitutions.
-In POSIX mode, the
-.Ic \e\&"
-is interpreted when the command is interpreted;
-in non-POSIX mode,
-the backslash is stripped before the command substitution is interpreted.
-For example,
-.Ic echo \&"`echo \e\&"hi\e\&"`\&"
-produces
-.Dq \&"hi\&"
-in POSIX mode,
-.Dq hi
-in non-POSIX mode.
-To avoid problems, use the
-.Ic $(...)\&
-form of command substitution.
-.It
 .Ic kill -l
 output.
 In POSIX mode, only signal names are listed (in a single line);
@@ -2969,7 +2942,7 @@ is executed exactly as if
 had not been specified, with two exceptions:
 firstly,
 .Ar cmd
-cannot be a shell function;
+cannot be an alias or a shell function;
 and secondly, special built-in commands lose their specialness
 (i.e. redirection and utility errors do not cause the shell to
 exit, and command assignments are not permanent).
@@ -2981,6 +2954,8 @@ option is given, a default search path is used instead of the current value of
 (the actual value of the default path is system dependent: on
 POSIX-ish systems, it is the value returned by
 .Ic getconf PATH ) .
+Nevertheless, reserved words, aliases, shell functions, and
+builtin commands are still found before external commands.
 .Pp
 If the
 .Fl v
@@ -4437,7 +4412,7 @@ is similar to
 .Ic command Fl v
 except that
 .Ic whence
-will find reserved words and won't print aliases as alias commands.
+won't print aliases as alias commands.
 With the
 .Fl v
 option,
@@ -4730,6 +4705,25 @@ is appended.
 If there is no command or file name with the current partial word
 as its prefix, a bell character is output (usually causing a beep to be
 sounded).
+.Pp
+Custom completions may be configured by creating an array named
+.Ql complete_command ,
+optionally suffixed with an argument number to complete only for a single
+argument.
+So defining an array named
+.Ql complete_kill
+provides possible completions for any argument to the
+.Xr kill 1
+command, but
+.Ql complete_kill_1
+only completes the first argument.
+For example, the following command makes
+.Nm
+offer a selection of signal names for the first argument to
+.Xr kill 1 :
+.Pp
+.Dl set -A complete_kill_1 -- -9 -HUP -INFO -KILL -TERM
+.Pp
 .It complete-command: ^X^[
 Automatically completes as much as is unique of the command name having the
 partial word up to the cursor as its prefix, as in the

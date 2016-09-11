@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ppp.c,v 1.97 2015/11/20 06:22:09 jsg Exp $	*/
+/*	$OpenBSD: if_ppp.c,v 1.100 2016/06/22 19:44:26 jca Exp $	*/
 /*	$NetBSD: if_ppp.c,v 1.39 1997/05/17 21:11:59 christos Exp $	*/
 
 /*
@@ -169,13 +169,12 @@ struct mbuf	*ppp_pkt_mbuf(struct ppp_pkt *);
 #ifdef PPP_COMPRESS
 /*
  * List of compressors we know about.
- * We leave some space so maybe we can modload compressors.
  */
 
 extern struct compressor ppp_bsd_compress;
 extern struct compressor ppp_deflate, ppp_deflate_draft;
 
-struct compressor *ppp_compressors[8] = {
+struct compressor *ppp_compressors[] = {
 #if DO_BSD_COMPRESS && defined(PPP_BSDCOMP)
 	&ppp_bsd_compress,
 #endif
@@ -226,7 +225,6 @@ ppp_clone_create(struct if_clone *ifc, int unit)
 	IFQ_SET_MAXLEN(&sc->sc_if.if_snd, IFQ_MAXLEN);
 	mq_init(&sc->sc_inq, IFQ_MAXLEN, IPL_NET);
 	ppp_pkt_list_init(&sc->sc_rawq, IFQ_MAXLEN);
-	IFQ_SET_READY(&sc->sc_if.if_snd);
 	if_attach(&sc->sc_if);
 	if_alloc_sadl(&sc->sc_if);
 #if NBPFILTER > 0
@@ -1569,7 +1567,7 @@ ppp_pkt_mbuf(struct ppp_pkt *pkt0)
 			goto fail;
 
 		MEXTADD(m, pkt, sizeof(*pkt), M_EXTWR,
-		    m_extfree_pool, &ppp_pkts);
+		    MEXTFREE_POOL, &ppp_pkts);
 		m->m_data += sizeof(pkt->p_hdr);
 		m->m_len = PKT_LEN(pkt);
 

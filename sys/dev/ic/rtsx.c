@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsx.c,v 1.12 2015/04/28 07:55:13 stsp Exp $	*/
+/*	$OpenBSD: rtsx.c,v 1.17 2016/05/06 08:17:13 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -95,7 +95,8 @@ u_int32_t rtsx_host_ocr(sdmmc_chipset_handle_t);
 int	rtsx_host_maxblklen(sdmmc_chipset_handle_t);
 int	rtsx_card_detect(sdmmc_chipset_handle_t);
 int	rtsx_bus_power(sdmmc_chipset_handle_t, u_int32_t);
-int	rtsx_bus_clock(sdmmc_chipset_handle_t, int);
+int	rtsx_bus_clock(sdmmc_chipset_handle_t, int, int);
+int	rtsx_bus_width(sdmmc_chipset_handle_t, int);
 void	rtsx_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
 int	rtsx_init(struct rtsx_softc *, int);
 void	rtsx_soft_reset(struct rtsx_softc *);
@@ -146,6 +147,7 @@ struct sdmmc_chip_functions rtsx_functions = {
 	/* bus power and clock frequency */
 	rtsx_bus_power,
 	rtsx_bus_clock,
+	rtsx_bus_width,
 	/* command execution */
 	rtsx_exec_command,
 	/* card interrupt */
@@ -198,6 +200,7 @@ rtsx_attach(struct rtsx_softc *sc, bus_space_tag_t iot,
 	saa.sct = &rtsx_functions;
 	saa.sch = sc;
 	saa.flags = SMF_STOP_AFTER_MULTIPLE;
+	saa.caps = SMC_CAPS_4BIT_MODE;
 
 	sc->sdmmc = config_found(&sc->sc_dev, &saa, NULL);
 	if (sc->sdmmc == NULL)
@@ -505,6 +508,7 @@ int
 rtsx_set_bus_width(struct rtsx_softc *sc, int w)
 {
 	u_int32_t bus_width;
+	int error;
 
 	switch (w) {
 		case 8:
@@ -519,12 +523,8 @@ rtsx_set_bus_width(struct rtsx_softc *sc, int w)
 			break;
 	}
 
-	if (bus_width == RTSX_BUS_WIDTH_1)
-		RTSX_CLR(sc, RTSX_SD_CFG1, RTSX_BUS_WIDTH_MASK);
-	else
-		RTSX_SET(sc, RTSX_SD_CFG1, bus_width);
-
-	return 0;
+	error = rtsx_write(sc, RTSX_SD_CFG1, RTSX_BUS_WIDTH_MASK, bus_width);
+	return error;
 }
 
 int
@@ -598,11 +598,11 @@ rtsx_bus_power(sdmmc_chipset_handle_t sch, u_int32_t ocr)
 		goto ret;
 	}
 
-	error = rtsx_set_bus_width(sc, 1);
+	error = rtsx_bus_power_on(sc);
 	if (error)
 		goto ret;
 
-	error = rtsx_bus_power_on(sc);
+	error = rtsx_set_bus_width(sc, 1);
 ret:
 	splx(s);
 	return error;
@@ -613,7 +613,7 @@ ret:
  * Return zero on success.
  */
 int
-rtsx_bus_clock(sdmmc_chipset_handle_t sch, int freq)
+rtsx_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 {
 	struct rtsx_softc *sc = sch;
 	int s;
@@ -628,6 +628,14 @@ rtsx_bus_clock(sdmmc_chipset_handle_t sch, int freq)
 		error = rtsx_stop_sd_clock(sc);
 		goto ret;
 	}
+
+	/* Round down to a supported frequency. */
+	if (freq >= SDMMC_SDCLK_50MHZ)
+		freq = SDMMC_SDCLK_50MHZ;
+	else if (freq >= SDMMC_SDCLK_25MHZ)
+		freq = SDMMC_SDCLK_25MHZ;
+	else
+		freq = SDMMC_SDCLK_400KHZ;
 
 	/*
 	 * Configure the clock frequency.
@@ -645,6 +653,12 @@ rtsx_bus_clock(sdmmc_chipset_handle_t sch, int freq)
 		mcu = 7;
 		RTSX_CLR(sc, RTSX_SD_CFG1, RTSX_CLK_DIVIDE_MASK);
 		break;
+	case SDMMC_SDCLK_50MHZ:
+		n = 100;
+		div = RTSX_CLK_DIV_2;
+		mcu = 7;
+		RTSX_CLR(sc, RTSX_SD_CFG1, RTSX_CLK_DIVIDE_MASK);
+		break;
 	default:
 		error = EINVAL;
 		goto ret;
@@ -657,6 +671,14 @@ rtsx_bus_clock(sdmmc_chipset_handle_t sch, int freq)
 ret:
 	splx(s);
 	return error;
+}
+
+int
+rtsx_bus_width(sdmmc_chipset_handle_t sch, int width)
+{
+	struct rtsx_softc *sc = sch;
+
+	return rtsx_set_bus_width(sc, width);
 }
 
 int
@@ -976,9 +998,11 @@ rtsx_xfer(struct rtsx_softc *sc, struct sdmmc_command *cmd, u_int32_t *cmdbuf)
 
 	/* Queue commands to configure data transfer size. */
 	rtsx_hostcmd(cmdbuf, &ncmd,
-	    RTSX_WRITE_REG_CMD, RTSX_SD_BYTE_CNT_L, 0xff, 0);
+	    RTSX_WRITE_REG_CMD, RTSX_SD_BYTE_CNT_L, 0xff,
+	    (cmd->c_blklen & 0xff));
 	rtsx_hostcmd(cmdbuf, &ncmd,
-	    RTSX_WRITE_REG_CMD, RTSX_SD_BYTE_CNT_H, 0xff, 0x02);
+	    RTSX_WRITE_REG_CMD, RTSX_SD_BYTE_CNT_H, 0xff,
+	    (cmd->c_blklen >> 8));
 	rtsx_hostcmd(cmdbuf, &ncmd,
 	    RTSX_WRITE_REG_CMD, RTSX_SD_BLOCK_CNT_L, 0xff,
 	    ((cmd->c_datalen / cmd->c_blklen) & 0xff));

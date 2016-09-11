@@ -1,4 +1,4 @@
-/*	$OpenBSD: deroff.c,v 1.13 2015/10/09 01:37:07 deraadt Exp $	*/
+/*	$OpenBSD: deroff.c,v 1.15 2016/09/04 15:29:21 tb Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -342,7 +342,7 @@ main(int ac, char **av)
 	files[0] = infile;
 	filesp = &files[0];
 
-	for (i = 'a'; i <= 'z' ; ++i)
+	for (i = 'a'; i <= 'z'; ++i)
 		chars[i] = LETTER;
 	for (i = 'A'; i <= 'Z'; ++i)
 		chars[i] = LETTER;
@@ -951,7 +951,7 @@ meputmac(char *cp, int constant)
 					np++;
 					continue;
 				} else {
-					*np = ' '; 	/* bye bye " */
+					*np = ' ';	/* bye bye " */
 					goto endarg;
 				}
 
@@ -1425,7 +1425,7 @@ comline(void)
 	int	lb, ub;
 	int	hit;
 	static	int	tabsize = 0;
-	static	struct	mactab	*mactab = (struct mactab *)0;
+	static	struct	mactab	*mactab = NULL;
 	struct	mactab	*mp;
 
 	if (mactab == 0)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.h,v 1.4 2012/04/12 17:33:43 claudio Exp $ */
+/*	$OpenBSD: control.h,v 1.8 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -19,20 +19,20 @@
 #ifndef _CONTROL_H_
 #define	_CONTROL_H_
 
+#include <sys/types.h>
 #include <sys/queue.h>
-#include <sys/time.h>
-#include <event.h>
 
 struct ctl_conn {
 	TAILQ_ENTRY(ctl_conn)	entry;
 	struct imsgev		iev;
 };
+TAILQ_HEAD(ctl_conns, ctl_conn);
+
+extern struct ctl_conns ctl_conns;
 
 int	control_init(void);
 int	control_listen(void);
-void	control_accept(int, short, void *);
-void	control_dispatch_imsg(int, short, void *);
-int	control_imsg_relay(struct imsg *);
 void	control_cleanup(void);
+int	control_imsg_relay(struct imsg *);
 
 #endif	/* _CONTROL_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: armreg.h,v 1.19 2016/03/02 23:46:48 jsg Exp $	*/
+/*	$OpenBSD: armreg.h,v 1.37 2016/08/25 08:17:57 kettenis Exp $	*/
 /*	$NetBSD: armreg.h,v 1.27 2003/09/06 08:43:02 rearnsha Exp $	*/
 
 /*
@@ -109,35 +109,13 @@
 /* The high-order byte is always the implementor */
 #define CPU_ID_IMPLEMENTOR_MASK	0xff000000
 #define CPU_ID_ARM_LTD		0x41000000 /* 'A' */
-#define CPU_ID_DEC		0x44000000 /* 'D' */
 #define CPU_ID_INTEL		0x69000000 /* 'i' */
-#define CPU_ID_TI		0x54000000 /* 'T' */
 
-/* How to decide what format the CPUID is in. */
-#define CPU_ID_ISOLD(x)		(((x) & 0x0000f000) == 0x00000000)
-#define CPU_ID_IS7(x)		(((x) & 0x0000f000) == 0x00007000)
-#define CPU_ID_ISNEW(x)		(!CPU_ID_ISOLD(x) && !CPU_ID_IS7(x))
-
-/* On ARM3 and ARM6, this byte holds the foundry ID. */
-#define CPU_ID_FOUNDRY_MASK	0x00ff0000
-#define CPU_ID_FOUNDRY_VLSI	0x00560000
-
-/* On ARM7 it holds the architecture and variant (sub-model) */
-#define CPU_ID_7ARCH_MASK	0x00800000
-#define CPU_ID_7ARCH_V3		0x00000000
-#define CPU_ID_7ARCH_V4T	0x00800000
-#define CPU_ID_7VARIANT_MASK	0x007f0000
-
-/* On more recent ARMs, it does the same, but in a different format */
 #define CPU_ID_ARCH_MASK	0x000f0000
-#define CPU_ID_ARCH_V3		0x00000000
-#define CPU_ID_ARCH_V4		0x00010000
-#define CPU_ID_ARCH_V4T		0x00020000
-#define CPU_ID_ARCH_V5		0x00030000
-#define CPU_ID_ARCH_V5T		0x00040000
 #define CPU_ID_ARCH_V5TE	0x00050000
+#define CPU_ID_ARCH_V5TEJ	0x00060000
 #define CPU_ID_ARCH_V6		0x00070000
-#define CPU_ID_ARCH_V7		0x00080000
+#define CPU_ID_ARCH_CPUID	0x000f0000
 #define CPU_ID_VARIANT_MASK	0x00f00000
 
 /* Next three nybbles are part number */
@@ -153,48 +131,6 @@
 
 /* Individual CPUs are probably best IDed by everything but the revision. */
 #define CPU_ID_CPU_MASK		0xfffffff0
-
-/* Fake CPU IDs for ARMs without CP15 */
-#define CPU_ID_ARM2		0x41560200
-#define CPU_ID_ARM250		0x41560250
-
-/* Pre-ARM7 CPUs -- [15:12] == 0 */
-#define CPU_ID_ARM3		0x41560300
-#define CPU_ID_ARM600		0x41560600
-#define CPU_ID_ARM610		0x41560610
-#define CPU_ID_ARM620		0x41560620
-
-/* ARM7 CPUs -- [15:12] == 7 */
-#define CPU_ID_ARM700		0x41007000 /* XXX This is a guess. */
-#define CPU_ID_ARM710		0x41007100
-#define CPU_ID_ARM7500		0x41027100 /* XXX This is a guess. */
-#define CPU_ID_ARM710A		0x41047100 /* inc ARM7100 */
-#define CPU_ID_ARM7500FE	0x41077100
-#define CPU_ID_ARM710T		0x41807100
-#define CPU_ID_ARM720T		0x41807200
-#define CPU_ID_ARM740T8K	0x41807400 /* XXX no MMU, 8KB cache */
-#define CPU_ID_ARM740T4K	0x41817400 /* XXX no MMU, 4KB cache */
-
-/* Post-ARM7 CPUs */
-#define CPU_ID_ARM810		0x41018100
-#define CPU_ID_ARM920T		0x41129200
-#define CPU_ID_ARM922T		0x41029220
-#define CPU_ID_ARM926EJS	0x41069260
-#define CPU_ID_ARM940T		0x41029400 /* XXX no MMU */
-#define CPU_ID_ARM946ES		0x41049460 /* XXX no MMU */
-#define CPU_ID_ARM966ES		0x41049660 /* XXX no MMU */
-#define CPU_ID_ARM966ESR1	0x41059660 /* XXX no MMU */
-#define CPU_ID_ARM1020E		0x4115a200 /* (AKA arm10 rev 1) */
-#define CPU_ID_ARM1022ES	0x4105a220
-#define CPU_ID_ARM1026EJS	0x4106a260
-#define CPU_ID_ARM1136JS	0x4107b360
-#define CPU_ID_ARM1136JSR1	0x4117b360
-#define CPU_ID_SA110		0x4401a100
-#define CPU_ID_SA1100		0x4401a110
-#define CPU_ID_TI925T		0x54029250
-#define CPU_ID_SA1110		0x6901b110
-#define CPU_ID_IXP1200		0x6901c120
-#define CPU_ID_80200		0x69052000
 #define CPU_ID_PXA250		0x69052100 /* sans core revision */
 #define CPU_ID_PXA210		0x69052120
 #define CPU_ID_PXA250A		0x69052100 /* 1st version Core */
@@ -203,16 +139,8 @@
 #define CPU_ID_PXA210B		0x69052920 /* 3rd version Core */
 #define CPU_ID_PXA250C		0x69052d00 /* 4th version Core */
 #define CPU_ID_PXA210C		0x69052d20 /* 4th version Core */
-#define CPU_ID_80219_400        0x69052e20
-#define CPU_ID_80219_600        0x69052e30
 #define CPU_ID_PXA27X		0x69054110
-#define CPU_ID_80321_400	0x69052420
-#define CPU_ID_80321_600	0x69052430
-#define CPU_ID_80321_400_B0	0x69052c20
-#define CPU_ID_80321_600_B0	0x69052c30
-#define CPU_ID_IXP425_533	0x690541c0
-#define CPU_ID_IXP425_400	0x690541d0
-#define CPU_ID_IXP425_266	0x690541f0
+#define CPU_ID_CORTEX_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A5	0x410fc050
 #define CPU_ID_CORTEX_A5_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A7	0x410fc070
@@ -237,6 +165,8 @@
 #define CPU_ID_CORTEX_A17	0x410fc0e0
 #define CPU_ID_CORTEX_A17_R1	0x411fc0e0
 #define CPU_ID_CORTEX_A17_MASK	0xff0ffff0
+#define CPU_ID_CORTEX_A35	0x410fd040
+#define CPU_ID_CORTEX_A35_MASK	0xff0ffff0
 #define CPU_ID_CORTEX_A53	0x410fd030
 #define CPU_ID_CORTEX_A53_R1	0x411fd030
 #define CPU_ID_CORTEX_A53_MASK	0xff0ffff0
@@ -246,18 +176,15 @@
 #define CPU_ID_CORTEX_A72	0x410fd080
 #define CPU_ID_CORTEX_A72_R1	0x411fd080
 #define CPU_ID_CORTEX_A72_MASK	0xff0ffff0
+#define CPU_ID_CORTEX_A73	0x410fd090
+#define CPU_ID_CORTEX_A73_MASK	0xff0ffff0
 
-/* ARM3-specific coprocessor 15 registers */
-#define ARM3_CP15_FLUSH		1
-#define ARM3_CP15_CONTROL	2
-#define ARM3_CP15_CACHEABLE	3
-#define ARM3_CP15_UPDATEABLE	4
-#define ARM3_CP15_DISRUPTIVE	5	
+/* CPUID on >= v7 */
+#define ID_MMFR0_VMSA_MASK	0x0000000f
 
-/* ARM3 Control register bits */
-#define ARM3_CTL_CACHE_ON	0x00000001
-#define ARM3_CTL_SHARED		0x00000002
-#define ARM3_CTL_MONITOR	0x00000004
+#define VMSA_V7			3
+#define VMSA_V7_PXN		4
+#define VMSA_V7_LDT		5
 
 /*
  * Post-ARM3 CP15 registers:
@@ -321,6 +248,8 @@
 #define CPU_CONTROL_L2		(1<<25) /* L2: L2 cache enable */
 
 /* added with v7 */
+#define CPU_CONTROL_WXN		(1<<19)	/* WXN: Write implies XN */
+#define CPU_CONTROL_UWXN	(1<<20)	/* UWXN: Unpriv write implies XN */
 #define CPU_CONTROL_NMFI	(1<<27) /* NMFI: Non Maskable fast interrupt */ 
 #define CPU_CONTROL_TRE		(1<<28) /* TRE: TEX Remap Enable */
 #define CPU_CONTROL_AFE		(1<<29) /* AFE: Access Flag Enable */
@@ -336,11 +265,24 @@
 #define XSCALE_AUXCTL_MD_WT	0x00000020 /* mini-D$ wt, read-allocate */
 #define XSCALE_AUXCTL_MD_MASK	0x00000030
 
+/* Cortex-A9 Auxiliary Control Register (CP15 register 1, opcode 1) */
+#define CORTEXA9_AUXCTL_FW	(1 << 0) /* Cache and TLB updates broadcast */
+#define CORTEXA9_AUXCTL_L2PE	(1 << 1) /* Prefetch hint enable */
+#define CORTEXA9_AUXCTL_L1PE	(1 << 2) /* Data prefetch hint enable */
+#define CORTEXA9_AUXCTL_WR_ZERO	(1 << 3) /* Ena. write full line of 0s mode */
+#define CORTEXA9_AUXCTL_SMP	(1 << 6) /* Coherency is active */
+#define CORTEXA9_AUXCTL_EXCL	(1 << 7) /* Exclusive cache bit */
+#define CORTEXA9_AUXCTL_ONEWAY	(1 << 8) /* Allocate in on cache way only */
+#define CORTEXA9_AUXCTL_PARITY	(1 << 9) /* Support parity checking */
+
 /* Cache type register definitions */
 #define CPU_CT_ISIZE(x)		((x) & 0xfff)		/* I$ info */
 #define CPU_CT_DSIZE(x)		(((x) >> 12) & 0xfff)	/* D$ info */
 #define CPU_CT_S		(1U << 24)		/* split cache */
 #define CPU_CT_CTYPE(x)		(((x) >> 25) & 0xf)	/* cache type */
+/* Cache type register definitions for ARM v7 */
+#define CPU_CT_IMINLINE(x)	((x) & 0xf)		/* I$ min line size */
+#define CPU_CT_DMINLINE(x)	(((x) >> 16) & 0xf)	/* D$ min line size */
 
 #define CPU_CT_CTYPE_WT		0	/* write-through */
 #define CPU_CT_CTYPE_WB1	1	/* write-back, clean w/ read */
@@ -374,6 +316,10 @@
 #define FAULT_PERM_S    0x0d /* Permission -- Section */
 #define FAULT_PERM_P    0x0f /* Permission -- Page */
 
+/* Fault type definitions for ARM v7 */
+#define FAULT_ACCESS_1	0x03 /* Access flag fault -- Level 1 */
+#define FAULT_ACCESS_2	0x06 /* Access flag fault -- Level 2 */
+
 #define FAULT_IMPRECISE	0x400	/* Imprecise exception (XSCALE) */
 
 #define	FAULT_EXT	0x00001000	/* external abort */
@@ -402,5 +348,21 @@
 #define INSN_SIZE		4		/* Always 4 bytes */
 #define INSN_COND_MASK		0xf0000000	/* Condition mask */
 #define INSN_COND_AL		0xe0000000	/* Always condition */
+
+/* Translation Table Base Register */
+#define TTBR_C			(1 << 0)	/* without MPE */
+#define TTBR_S			(1 << 1)
+#define TTBR_IMP		(1 << 2)
+#define TTBR_RGN_MASK		(3 << 3)
+#define  TTBR_RGN_NC		(0 << 3)
+#define  TTBR_RGN_WBWA		(1 << 3)
+#define  TTBR_RGN_WT		(2 << 3)
+#define  TTBR_RGN_WBNWA		(3 << 3)
+#define TTBR_NOS		(1 << 5)
+#define TTBR_IRGN_MASK		((1 << 0) | (1 << 6))
+#define  TTBR_IRGN_NC		((0 << 0) | (0 << 6))
+#define  TTBR_IRGN_WBWA		((0 << 0) | (1 << 6))
+#define  TTBR_IRGN_WT		((1 << 0) | (0 << 6))
+#define  TTBR_IRGN_WBNWA	((1 << 0) | (1 << 6))
 
 #endif

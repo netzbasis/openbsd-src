@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.168 2016/02/12 10:12:42 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.178 2016/05/18 08:15:28 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -67,6 +67,8 @@ void	ieee80211_input_ba_flush(struct ieee80211com *, struct ieee80211_node *,
 void	ieee80211_input_ba_gap_timeout(void *arg);
 void	ieee80211_ba_move_window(struct ieee80211com *,
 	    struct ieee80211_node *, u_int8_t, u_int16_t);
+void	ieee80211_input_ba_seq(struct ieee80211com *,
+	    struct ieee80211_node *, uint8_t, uint16_t);
 struct	mbuf *ieee80211_align_mbuf(struct mbuf *);
 void	ieee80211_decap(struct ieee80211com *, struct mbuf *,
 	    struct ieee80211_node *, int);
@@ -360,7 +362,7 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 			/* dequeue buffered unicast frames */
 			while ((m = mq_dequeue(&ni->ni_savedq)) != NULL) {
 				mq_enqueue(&ic->ic_pwrsaveq, m);
-				(*ifp->if_start)(ifp);
+				if_start(ifp);
 			}
 		}
 	}
@@ -445,7 +447,7 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 				ic->ic_stats.is_rx_notassoc++;
 				goto err;
 			}
-			if (ni->ni_associd == 0) {
+			if (ni->ni_state != IEEE80211_STA_ASSOC) {
 				DPRINTF(("data from unassoc src %s\n",
 				    ether_sprintf(wh->i_addr2)));
 				IEEE80211_SEND_MGMT(ic, ni,
@@ -546,14 +548,12 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 		if (ifp->if_flags & IFF_DEBUG)
 			ieee80211_input_print(ic, ifp, wh, rxi);
 #if NBPFILTER > 0
-		if (ic->ic_rawbpf)
-			bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_IN);
-		/*
-		 * Drop mbuf if it was filtered by bpf. Normally, this is
-		 * done in ether_input() but IEEE 802.11 management frames
-		 * are a special case.
-		 */
-		if (m->m_flags & M_FILDROP) {
+		if (bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_IN) != 0) {
+			/*
+			 * Drop mbuf if it was filtered by bpf. Normally,
+			 * this is done in ether_input() but IEEE 802.11
+			 * management frames are a special case.
+			 */
 			m_freem(m);
 			return;
 		}
@@ -707,32 +707,20 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
 
 	if (SEQ_LT(sn, ba->ba_winstart)) {	/* SN < WinStartB */
-		ic->ic_stats.is_rx_dup++;
+		ic->ic_stats.is_ht_rx_frame_below_ba_winstart++;
 		m_freem(m);	/* discard the MPDU */
 		return;
 	}
 	if (SEQ_LT(ba->ba_winend, sn)) {	/* WinEndB < SN */
-		/* 
-		 * If this frame would move the window outside the range of
-		 * winend + winsize, drop it. This is likely a fluke and the
-		 * next frame will fit into the window again. Allowing the
-		 * window to be moved too far ahead makes us drop frames
-		 * until their sequence numbers catch up with the new window.
-		 *
-		 * However, if the window really did move arbitrarily, we must
-		 * allow it to move forward. We try to detect this condition
-		 * by counting missed consecutive frames.
-		 */
+		ic->ic_stats.is_ht_rx_frame_above_ba_winend++;
 		count = (sn - ba->ba_winend) & 0xfff;
-#ifdef DIAGNOSTIC
-		if ((ifp->if_flags & IFF_DEBUG) && count > 1)
-			printf("%s: received frame with bad sequence number "
-			    "%d, expecting %d:%d\n", __func__,
-			    sn, ba->ba_winstart, ba->ba_winend);
-#endif
 		if (count > ba->ba_winsize) {
+			/* 
+			 * Check whether we're consistently behind the window,
+			 * and let the window move forward if neccessary.
+			 */
 			if (ba->ba_winmiss < IEEE80211_BA_MAX_WINMISS) { 
-				if (ba->ba_missedsn == sn - 1)
+				if (ba->ba_missedsn == ((sn - 1) & 0xfff))
 					ba->ba_winmiss++;
 				else
 					ba->ba_winmiss = 0;
@@ -743,32 +731,27 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 			}
 
 			/* It appears the window has moved for real. */
+			ic->ic_stats.is_ht_rx_ba_window_jump++;
 			ba->ba_winmiss = 0;
 			ba->ba_missedsn = 0;
-
-			count = ba->ba_winsize;	/* no overlap */
+			ieee80211_ba_move_window(ic, ni, tid, sn);
+		} else {
+			ic->ic_stats.is_ht_rx_ba_window_slide++;
+			ieee80211_input_ba_seq(ic, ni, tid,
+			    (ba->ba_winstart + count) & 0xfff);
+			ieee80211_input_ba_flush(ic, ni, ba);
 		}
-		while (count-- > 0) {
-			/* gaps may exist */
-			if (ba->ba_buf[ba->ba_head].m != NULL) {
-				ieee80211_input(ifp, ba->ba_buf[ba->ba_head].m,
-				    ni, &ba->ba_buf[ba->ba_head].rxi);
-				ba->ba_buf[ba->ba_head].m = NULL;
-			}
-			ba->ba_head = (ba->ba_head + 1) %
-			    IEEE80211_BA_MAX_WINSZ;
-		}
-		/* move window forward */
-		ba->ba_winend = sn;
-		ba->ba_winstart = (sn - ba->ba_winsize + 1) & 0xfff;
 	}
 	/* WinStartB <= SN <= WinEndB */
 
+	ba->ba_winmiss = 0;
+	ba->ba_missedsn = 0;
 	idx = (sn - ba->ba_winstart) & 0xfff;
 	idx = (ba->ba_head + idx) % IEEE80211_BA_MAX_WINSZ;
 	/* store the received MPDU in the buffer */
 	if (ba->ba_buf[idx].m != NULL) {
 		ifp->if_ierrors++;
+		ic->ic_stats.is_ht_rx_ba_no_buf++;
 		m_freem(m);
 		return;
 	}
@@ -783,6 +766,39 @@ ieee80211_input_ba(struct ieee80211com *ic, struct mbuf *m,
 		timeout_del(&ba->ba_gap_to);
 
 	ieee80211_input_ba_flush(ic, ni, ba);
+}
+
+/* 
+ * Forward buffered frames with sequence number lower than max_seq.
+ * See 802.11-2012 9.21.7.6.2 b.
+ */
+void
+ieee80211_input_ba_seq(struct ieee80211com *ic, struct ieee80211_node *ni,
+    uint8_t tid, uint16_t max_seq)
+{
+	struct ifnet *ifp = &ic->ic_if;
+	struct ieee80211_rx_ba *ba = &ni->ni_rx_ba[tid];
+	struct ieee80211_frame *wh;
+	uint16_t seq;
+	int i = 0;
+
+	while (i++ < ba->ba_winsize) {
+		/* gaps may exist */
+		if (ba->ba_buf[ba->ba_head].m != NULL) {
+			wh = mtod(ba->ba_buf[ba->ba_head].m,
+			    struct ieee80211_frame *);
+			KASSERT(ieee80211_has_seq(wh));
+			seq = letoh16(*(u_int16_t *)wh->i_seq) >>
+			    IEEE80211_SEQ_SEQ_SHIFT;
+			if (!SEQ_LT(seq, max_seq))
+				return;
+			ieee80211_input(ifp, ba->ba_buf[ba->ba_head].m,
+			    ni, &ba->ba_buf[ba->ba_head].rxi);
+			ba->ba_buf[ba->ba_head].m = NULL;
+		} else
+			ic->ic_stats.is_ht_rx_ba_frame_lost++;
+		ba->ba_head = (ba->ba_head + 1) % IEEE80211_BA_MAX_WINSZ;
+	}
 }
 
 /* Flush a consecutive sequence of frames from the reorder buffer. */
@@ -820,6 +836,8 @@ ieee80211_input_ba_gap_timeout(void *arg)
 	struct ieee80211com *ic = ni->ni_ic;
 	int s, skipped;
 
+	ic->ic_stats.is_ht_rx_ba_window_gap_timeout++;
+
 	s = splnet();
 
 	skipped = 0;
@@ -828,6 +846,7 @@ ieee80211_input_ba_gap_timeout(void *arg)
 		ba->ba_head = (ba->ba_head + 1) % IEEE80211_BA_MAX_WINSZ;
 		ba->ba_winstart = (ba->ba_winstart + 1) & 0xfff;
 		skipped++;
+		ic->ic_stats.is_ht_rx_ba_frame_lost++;
 	}
 	if (skipped > 0)
 		ba->ba_winend = (ba->ba_winstart + ba->ba_winsize - 1) & 0xfff;
@@ -861,7 +880,8 @@ ieee80211_ba_move_window(struct ieee80211com *ic, struct ieee80211_node *ni,
 			ieee80211_input(ifp, ba->ba_buf[ba->ba_head].m, ni,
 			    &ba->ba_buf[ba->ba_head].rxi);
 			ba->ba_buf[ba->ba_head].m = NULL;
-		}
+		} else
+			ic->ic_stats.is_ht_rx_ba_frame_lost++;
 		ba->ba_head = (ba->ba_head + 1) % IEEE80211_BA_MAX_WINSZ;
 	}
 	/* move window forward */
@@ -901,7 +921,7 @@ ieee80211_deliver_data(struct ieee80211com *ic, struct mbuf *m,
 		struct ieee80211_node *ni1;
 
 		if (ETHER_IS_MULTICAST(eh->ether_dhost)) {
-			m1 = m_copym2(m, 0, M_COPYALL, M_DONTWAIT);
+			m1 = m_dup_pkt(m, ETHER_ALIGN, M_DONTWAIT);
 			if (m1 == NULL)
 				ifp->if_oerrors++;
 			else
@@ -940,74 +960,6 @@ ieee80211_deliver_data(struct ieee80211com *ic, struct mbuf *m,
 		}
 	}
 }
-
-#ifdef __STRICT_ALIGNMENT
-/*
- * Make sure protocol header (e.g. IP) is aligned on a 32-bit boundary.
- * This is achieved by copying mbufs so drivers should try to map their
- * buffers such that this copying is not necessary.  It is however not
- * always possible because 802.11 header length may vary (non-QoS+LLC
- * is 32 bytes while QoS+LLC is 34 bytes).  Some devices are smart and
- * add 2 padding bytes after the 802.11 header in the QoS case so this
- * function is there for stupid drivers/devices only.
- *
- * XXX -- this is horrible
- */
-struct mbuf *
-ieee80211_align_mbuf(struct mbuf *m)
-{
-	struct mbuf *n, *n0, **np;
-	caddr_t newdata;
-	int off, pktlen;
-
-	n0 = NULL;
-	np = &n0;
-	off = 0;
-	pktlen = m->m_pkthdr.len;
-	while (pktlen > off) {
-		if (n0 == NULL) {
-			MGETHDR(n, M_DONTWAIT, MT_DATA);
-			if (n == NULL) {
-				m_freem(m);
-				return NULL;
-			}
-			if (m_dup_pkthdr(n, m, M_DONTWAIT)) {
-				m_free(n);
-				m_freem(m);
-				return (NULL);
-			}
-			n->m_len = MHLEN;
-		} else {
-			MGET(n, M_DONTWAIT, MT_DATA);
-			if (n == NULL) {
-				m_freem(m);
-				m_freem(n0);
-				return NULL;
-			}
-			n->m_len = MLEN;
-		}
-		if (pktlen - off >= MINCLSIZE) {
-			MCLGET(n, M_DONTWAIT);
-			if (n->m_flags & M_EXT)
-				n->m_len = n->m_ext.ext_size;
-		}
-		if (n0 == NULL) {
-			newdata = (caddr_t)ALIGN(n->m_data + ETHER_HDR_LEN) -
-			    ETHER_HDR_LEN;
-			n->m_len -= newdata - n->m_data;
-			n->m_data = newdata;
-		}
-		if (n->m_len > pktlen - off)
-			n->m_len = pktlen - off;
-		m_copydata(m, off, n->m_len, mtod(n, caddr_t));
-		off += n->m_len;
-		*np = n;
-		np = &n->m_next;
-	}
-	m_freem(m);
-	return n0;
-}
-#endif	/* __STRICT_ALIGNMENT */
 
 void
 ieee80211_decap(struct ieee80211com *ic, struct mbuf *m,
@@ -1056,14 +1008,15 @@ ieee80211_decap(struct ieee80211com *ic, struct mbuf *m,
 		m_adj(m, hdrlen - ETHER_HDR_LEN);
 	}
 	memcpy(mtod(m, caddr_t), &eh, ETHER_HDR_LEN);
-#ifdef __STRICT_ALIGNMENT
 	if (!ALIGNED_POINTER(mtod(m, caddr_t) + ETHER_HDR_LEN, u_int32_t)) {
-		if ((m = ieee80211_align_mbuf(m)) == NULL) {
+		struct mbuf *m0 = m;
+		m = m_dup_pkt(m0, ETHER_ALIGN, M_NOWAIT);
+		m_freem(m0);
+		if (m == NULL) {
 			ic->ic_stats.is_rx_decap++;
 			return;
 		}
 	}
-#endif
 	ieee80211_deliver_data(ic, m, ni);
 }
 
@@ -1647,6 +1600,7 @@ ieee80211_recv_probe_resp(struct ieee80211com *ic, struct mbuf *m,
 				DPRINTF(("[%s] htprot change: was %d, now %d\n",
 				    ether_sprintf((u_int8_t *)wh->i_addr2),
 				    htprot_last, htprot));
+				ic->ic_stats.is_ht_prot_change++;
 				ic->ic_bss->ni_htop1 = ni->ni_htop1;
 				ic->ic_update_htprot(ic, ic->ic_bss);
 			}
@@ -2558,6 +2512,7 @@ ieee80211_recv_addba_req(struct ieee80211com *ic, struct mbuf *m,
 		goto resp;
 	}
 	ba->ba_state = IEEE80211_BA_AGREED;
+	ic->ic_stats.is_ht_rx_ba_agreements++;
 	/* start Block Ack inactivity timer */
 	if (ba->ba_timeout_val != 0)
 		timeout_add_usec(&ba->ba_to, ba->ba_timeout_val);
@@ -2628,6 +2583,7 @@ ieee80211_recv_addba_resp(struct ieee80211com *ic, struct mbuf *m,
 	}
 	/* MLME-ADDBA.confirm(Success) */
 	ba->ba_state = IEEE80211_BA_AGREED;
+	ic->ic_stats.is_ht_tx_ba_agreements++;
 
 	/* notify drivers of this new Block Ack agreement */
 	if (ic->ic_ampdu_tx_start != NULL)
@@ -2937,7 +2893,7 @@ ieee80211_recv_pspoll(struct ieee80211com *ic, struct mbuf *m,
 		wh->i_fc[1] |= IEEE80211_FC1_MORE_DATA;
 	}
 	mq_enqueue(&ic->ic_pwrsaveq, m);
-	(*ifp->if_start)(ifp);
+	if_start(ifp);
 }
 #endif	/* IEEE80211_STA_ONLY */
 

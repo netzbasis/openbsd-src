@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_subs.c,v 1.129 2016/02/13 15:45:05 stefan Exp $	*/
+/*	$OpenBSD: nfs_subs.c,v 1.132 2016/08/30 07:12:49 dlg Exp $	*/
 /*	$NetBSD: nfs_subs.c,v 1.27.4.3 1996/07/08 20:34:24 jtc Exp $	*/
 
 /*
@@ -899,6 +899,7 @@ nfs_init(void)
 
 	pool_init(&nfsreqpl, sizeof(struct nfsreq), 0, 0, PR_WAITOK,
 	    "nfsreqpl", NULL);
+	pool_setipl(&nfsreqpl, IPL_NONE);
 }
 
 #ifdef NFSCLIENT
@@ -911,6 +912,7 @@ nfs_vfs_init(struct vfsconf *vfsp)
 
 	pool_init(&nfs_node_pool, sizeof(struct nfsnode), 0, 0, PR_WAITOK,
 	    "nfsnodepl", NULL);
+	pool_setipl(&nfs_node_pool, IPL_NONE);
 
 	return (0);
 }
@@ -1244,6 +1246,13 @@ nfs_namei(struct nameidata *ndp, fhandle_t *fhp, int len,
 		cnp->cn_flags |= (NOCROSSMOUNT | RDONLY);
 	else
 		cnp->cn_flags |= NOCROSSMOUNT;
+
+	/*
+	 * Should be 0, if not someone didn't init ndp with NDINIT,
+	 * go find and murder the offender messily.
+	 */
+	KASSERT (ndp->ni_p_path == NULL && ndp->ni_p_size == 0);
+
 	/*
 	 * And call lookup() to do the real work
 	 */
@@ -1470,7 +1479,7 @@ nfsrv_fhtovp(fhandle_t *fhp, int lockflag, struct vnode **vpp,
 	else
 		*rdonlyp = 0;
 	if (!lockflag)
-		VOP_UNLOCK(*vpp, 0, p);
+		VOP_UNLOCK(*vpp, p);
 
 	return (0);
 }

@@ -24,7 +24,7 @@
 #define UU __attribute__((__unused__))
 
 int ch_enlargebufs(EL, size_t addlen UU) { return 1; }
-void ch_reset(EL, int mclear UU) { }
+void ch_reset(EL) { }
 void el_resize(EL) { }
 int el_set(EL, int op UU, ...) { return 0; }
 int el_wset(EL, int op UU, ...) { return 0; }
@@ -40,9 +40,9 @@ int tty_cookedmode(EL) { return 0; }
 int tty_rawmode(EL) { return 0; }
 
 int
-keymacro_get(EL, Char *ch, keymacro_value_t *val)
+keymacro_get(EL, wchar_t *ch, keymacro_value_t *val)
 {
-	static Char value[] = L"ic";
+	static wchar_t value[] = L"ic";
 
 	switch (*ch) {
 	case L'c':

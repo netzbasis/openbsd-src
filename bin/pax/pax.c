@@ -1,4 +1,4 @@
-/*	$OpenBSD: pax.c,v 1.44 2015/12/16 01:39:11 tb Exp $	*/
+/*	$OpenBSD: pax.c,v 1.47 2016/08/26 04:11:16 guenther Exp $	*/
 /*	$NetBSD: pax.c,v 1.5 1996/03/26 23:54:20 mrg Exp $	*/
 
 /*-
@@ -36,7 +36,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/time.h>
 #include <sys/resource.h>
 #include <signal.h>
 #include <unistd.h>
@@ -90,6 +89,7 @@ int	exit_val;		/* exit value */
 int	docrc;			/* check/create file crc */
 char	*dirptr;		/* destination dir in a copy */
 char	*argv0;			/* root of argv[0] */
+enum op_mode op_mode;		/* what program are we acting as? */
 sigset_t s_mask;		/* signal mask for cleanup critical sect */
 FILE	*listf = stderr;	/* file pointer to print file list to */
 int	listfd = STDERR_FILENO;	/* fd matching listf, for sighandler output */
@@ -261,13 +261,13 @@ main(int argc, char **argv)
 	 * so can't pledge at all then.
 	 */
 	if (pmode == 0 || (act != EXTRACT && act != COPY)) {
-		if (pledge("stdio rpath wpath cpath dpath fattr getpw ioctl proc exec",
+		if (pledge("stdio rpath wpath cpath fattr dpath getpw ioctl proc exec",
 		    NULL) == -1)
 			err(1, "pledge");
 
 		/* Copy mode, or no gzip -- don't need to fork/exec. */
 		if (gzip_program == NULL || act == COPY) {
-			if (pledge("stdio rpath wpath fattr cpath getpw ioctl",
+			if (pledge("stdio rpath wpath cpath fattr dpath getpw ioctl",
 			    NULL) == -1)
 				err(1, "pledge");
 		}

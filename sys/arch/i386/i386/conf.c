@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.154 2016/02/26 09:10:04 natano Exp $	*/
+/*	$OpenBSD: conf.c,v 1.157 2016/09/04 10:51:23 naddy Exp $	*/
 /*	$NetBSD: conf.c,v 1.75 1996/05/03 19:40:20 christos Exp $	*/
 
 /*
@@ -60,7 +60,7 @@ struct bdevsw	bdevsw[] =
 	bdev_disk_init(NFD,fd),		/* 2: floppy diskette */
 	bdev_notdef(),			/* 3 */
 	bdev_disk_init(NSD,sd),		/* 4: SCSI disk */
-	bdev_tape_init(NST,st),		/* 5: SCSI tape */
+	bdev_notdef(),			/* 5: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/* 6: SCSI CD-ROM */
 	bdev_notdef(),			/* 7 */
 	bdev_notdef(),			/* 8 */
@@ -110,7 +110,6 @@ int	nblkdev = nitems(bdevsw);
 #define	mmwrite	mmrw
 cdev_decl(mm);
 cdev_decl(wd);
-#include "systrace.h"
 #include "bio.h"
 #include "pty.h"
 #include "com.h"
@@ -178,6 +177,7 @@ cdev_decl(pci);
 #include "fuse.h"
 #include "pvbus.h"
 #include "ipmi.h"
+#include "switch.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -271,7 +271,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),
 	cdev_radio_init(NRADIO, radio), /* 76: generic radio I/O */
 	cdev_notdef(),			/* 77: was USB scanners */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 78: system call tracing */
+	cdev_notdef(),			/* 78: */
  	cdev_bio_init(NBIO,bio),	/* 79: ioctl tunnel */
 	cdev_ch_init(NGPR,gpr),		/* 80: GPR400 SmartCard reader */
 	cdev_ptm_init(NPTY,ptm),	/* 81: pseudo-tty ptm device */
@@ -290,6 +290,7 @@ struct cdevsw	cdevsw[] =
 	cdev_tun_init(NTUN,tap),	/* 94: Ethernet network tunnel */
 	cdev_pvbus_init(NPVBUS,pvbus),	/* 95: pvbus(4) control interface */
 	cdev_ipmi_init(NIPMI,ipmi),	/* 96: ipmi */
+	cdev_switch_init(NSWITCH,switch), /* 97: switch(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -346,7 +347,7 @@ int chrtoblktbl[] = {
 	/* 11 */	NODEV,
 	/* 12 */	NODEV,
 	/* 13 */	4,		/* sd */
-	/* 14 */	5,		/* st */
+	/* 14 */	NODEV,
 	/* 15 */	6,		/* cd */
 	/* 16 */	NODEV,
 	/* 17 */	NODEV,

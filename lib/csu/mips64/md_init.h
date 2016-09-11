@@ -1,4 +1,4 @@
-/* $OpenBSD: md_init.h,v 1.11 2015/09/01 05:40:06 guenther Exp $ */
+/* $OpenBSD: md_init.h,v 1.14 2016/08/07 02:44:00 guenther Exp $ */
 
 /*-
  * Copyright (c) 2001 Ross Harvey
@@ -124,6 +124,8 @@
 	"	dsubu	$s0, $ra, $s1		\n" \
 	"	daddu	$a0, $sp, 160		\n" \
 	"	daddu	$a1, $sp, 0		\n" \
+	"	dla	$a2, _DYNAMIC		\n" \
+	"	daddu	$a2, $s0		\n" \
 	"	dla	$t9, _dl_boot_bind	\n" \
 	"	daddu	$t9, $s0		\n" \
 	"	jalr	$t9			\n" \
@@ -165,13 +167,4 @@ struct kframe {
 						\
 	argc = kfp->kargc;			\
 	argv = &kfp->kargv[0];			\
-	environ = envp = argv + argc + 1;
-
-#include <sys/syscall.h>
-#define	MD_DISABLE_KBIND						\
-	do {								\
-		register long syscall_num __asm("v0") = SYS_kbind;	\
-		register void *arg1 __asm("a0") = NULL;			\
-		__asm volatile("syscall" : "+r" (syscall_num)		\
-		    : "r" (arg1) : "v1", "a3");				\
-	} while (0)
+	envp = argv + argc + 1;

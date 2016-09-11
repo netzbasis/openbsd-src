@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.69 2015/12/18 14:02:15 visa Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.75 2016/09/04 15:46:39 reyk Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -115,6 +115,7 @@ struct ifnet {				/* and the entries */
 	int	if_pcount;		/* number of promiscuous listeners */
 	caddr_t	if_bpf;			/* packet filter structure */
 	caddr_t if_bridgeport;		/* used by bridge ports */
+	caddr_t if_switchport;		/* used by switch ports */
 	caddr_t	if_pf_kif;		/* pf interface abstraction */
 	union {
 		caddr_t	carp_s;		/* carp structure (used by !carp ifs) */
@@ -131,11 +132,14 @@ struct ifnet {				/* and the entries */
 	char	if_description[IFDESCRSIZE]; /* interface description */
 	u_short	if_rtlabelid;		/* next route label */
 	u_int8_t if_priority;
+	u_int8_t if_llprio;		/* link layer priority */
 	struct	timeout *if_slowtimo;	/* watchdog timeout */
 	struct	task *if_watchdogtask;	/* watchdog task */
 	struct	task *if_linkstatetask; /* task to do route updates */
 
 	/* procedure handles */
+	struct mbuf_queue if_inputqueue;
+	struct task *if_inputtask;	/* input task */
 	SRPL_HEAD(, ifih) if_inputs;	/* input routines (dequeue) */
 
 					/* output routine (enqueue) */
@@ -257,7 +261,6 @@ do {									\
 #define	IFQ_LEN(ifq)			ifq_len(ifq)
 #define	IFQ_IS_EMPTY(ifq)		ifq_empty(ifq)
 #define	IFQ_SET_MAXLEN(ifq, len)	ifq_set_maxlen(ifq, len)
-#define	IFQ_SET_READY(ifq)		do { } while (0)
 
 /* default interface priorities */
 #define IF_WIRED_DEFAULT_PRIORITY	0
@@ -282,7 +285,6 @@ int		niq_enlist(struct niqueue *, struct mbuf_list *);
 #define niq_dequeue(_q)			mq_dequeue(&(_q)->ni_q)
 #define niq_dechain(_q)			mq_dechain(&(_q)->ni_q)
 #define niq_delist(_q, _ml)		mq_delist(&(_q)->ni_q, (_ml))
-#define niq_filter(_q, _f, _c)		mq_filter(&(_q)->ni_q, (_f), (_c))
 #define niq_len(_q)			mq_len(&(_q)->ni_q)
 #define niq_drops(_q)			mq_drops(&(_q)->ni_q)
 #define sysctl_niq(_n, _l, _op, _olp, _np, _nl, _niq) \
@@ -311,7 +313,7 @@ int	if_isconnected(const struct ifnet *, unsigned int);
 void	if_clone_attach(struct if_clone *);
 void	if_clone_detach(struct if_clone *);
 
-int	if_clone_create(const char *);
+int	if_clone_create(const char *, int);
 int	if_clone_destroy(const char *);
 
 struct if_clone *

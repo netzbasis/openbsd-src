@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket2.c,v 1.63 2015/10/06 14:38:32 claudio Exp $	*/
+/*	$OpenBSD: uipc_socket2.c,v 1.65 2016/09/02 13:28:21 bluhm Exp $	*/
 /*	$NetBSD: uipc_socket2.c,v 1.11 1996/02/04 02:17:55 christos Exp $	*/
 
 /*
@@ -185,6 +185,9 @@ sonewconn(struct socket *head, int connstatus)
 	so->so_rcv.sb_lowat = head->so_rcv.sb_lowat;
 	so->so_rcv.sb_timeo = head->so_rcv.sb_timeo;
 
+	rw_init(&so->so_rcv.sb_lock, "sbsndl");
+	rw_init(&so->so_snd.sb_lock, "sbrcvl");
+
 	soqinsque(head, so, soqueue);
 	if ((*so->so_proto->pr_usrreq)(so, PRU_ATTACH, NULL, NULL, NULL,
 	    curproc)) {
@@ -286,21 +289,25 @@ sbwait(struct sockbuf *sb)
  * return any error returned from sleep (EINTR).
  */
 int
-sb_lock(struct sockbuf *sb)
+sblock(struct sockbuf *sb, int wf)
 {
 	int error;
 
-	while (sb->sb_flags & SB_LOCK) {
-		sb->sb_flags |= SB_WANT;
-		error = tsleep(&sb->sb_flags,
-		    (sb->sb_flags & SB_NOINTR) ?
-		    PSOCK : PSOCK|PCATCH, "netlck", 0);
-		if (error)
-			return (error);
-	}
-	sb->sb_flags |= SB_LOCK;
-	return (0);
+	error = rw_enter(&sb->sb_lock, RW_WRITE |
+	    (sb->sb_flags & SB_NOINTR ? 0 : RW_INTR) |
+	    (wf == M_WAITOK ? 0 : RW_NOSLEEP));
+
+	if (error == EBUSY)
+		error = EWOULDBLOCK;
+	return (error);
 }
+
+void
+sbunlock(struct sockbuf *sb)
+{
+	rw_exit(&sb->sb_lock);
+}
+
 
 /*
  * Wakeup processes waiting on a socket buffer.
@@ -390,7 +397,8 @@ sbreserve(struct sockbuf *sb, u_long cc)
 	if (cc == 0 || cc > sb_max)
 		return (1);
 	sb->sb_hiwat = cc;
-	sb->sb_mbmax = min(cc * 2, sb_max + (sb_max / MCLBYTES) * MSIZE);
+	sb->sb_mbmax = max(3 * MAXMCLBYTES,
+	    min(cc * 2, sb_max + (sb_max / MCLBYTES) * MSIZE));
 	if (sb->sb_lowat > sb->sb_hiwat)
 		sb->sb_lowat = sb->sb_hiwat;
 	return (0);
@@ -827,7 +835,7 @@ void
 sbflush(struct sockbuf *sb)
 {
 
-	KASSERT((sb->sb_flags & SB_LOCK) == 0);
+	rw_assert_unlocked(&sb->sb_lock);
 
 	while (sb->sb_mbcnt)
 		sbdrop(sb, (int)sb->sb_cc);

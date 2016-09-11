@@ -1,4 +1,4 @@
-/*	$OpenBSD: intr.h,v 1.2 2015/09/19 02:13:05 jsg Exp $	*/
+/*	$OpenBSD: intr.h,v 1.5 2016/08/06 17:25:15 patrick Exp $	*/
 /*	$NetBSD: intr.h,v 1.12 2003/06/16 20:00:59 thorpej Exp $	*/
 
 /*
@@ -144,6 +144,30 @@ const char *arm_intr_string(void *cookie);
 /* XXX - this is probably the wrong location for this */
 void arm_clock_register(void (*)(void), void (*)(u_int), void (*)(int),
     void (*)(void));
+
+struct interrupt_controller {
+	int	ic_node;
+	void	*ic_cookie;
+	void	*(*ic_establish)(void *, int *, int, int (*)(void *),
+		    void *, char *);
+	void	 (*ic_disestablish)(void *);
+
+	LIST_ENTRY(interrupt_controller) ic_list;
+	uint32_t ic_phandle;
+	uint32_t ic_cells;
+};
+
+void	 arm_intr_init_fdt(void);
+void	 arm_intr_register_fdt(struct interrupt_controller *);
+void	*arm_intr_establish_fdt(int, int, int (*)(void *),
+	    void *, char *);
+void	*arm_intr_establish_fdt_idx(int, int, int, int (*)(void *),
+	    void *, char *);
+void	 arm_intr_disestablish_fdt(void *);
+
+void	*arm_intr_parent_establish_fdt(void *, int *, int,
+	    int (*)(void *), void *, char *);
+void	 arm_intr_parent_disestablish_fdt(void *);
 
 #ifdef DIAGNOSTIC
 /*

@@ -1,4 +1,4 @@
-/*	$OpenBSD: commands.c,v 1.82 2015/12/09 19:39:10 mmcc Exp $	*/
+/*	$OpenBSD: commands.c,v 1.84 2016/05/03 02:06:54 awolk Exp $	*/
 /*	$NetBSD: commands.c,v 1.14 1996/03/24 22:03:48 jtk Exp $	*/
 
 /*
@@ -1445,14 +1445,6 @@ env_init(void)
 
 		gethostname(hbuf, sizeof hbuf);
 
-		/* If this is not the full name, try to get it via DNS */
-		if (strchr(hbuf, '.') == 0) {
-			struct hostent *he = gethostbyname(hbuf);
-			if (he != 0)
-				strncpy(hbuf, he->h_name, sizeof hbuf-1);
-			hbuf[sizeof hbuf-1] = '\0';
-		}
-
 		if (asprintf (&cp, "%s%s", hbuf, cp2) == -1)
 			err(1, "asprintf");
 
@@ -2078,7 +2070,7 @@ help(int argc, char *argv[])
 		c = getcmd(arg);
 		if (Ambiguous(c))
 			printf("?Ambiguous help command %s\r\n", arg);
-		else if (c == (Command *)0)
+		else if (c == NULL)
 			printf("?Invalid help command %s\r\n", arg);
 		else
 			printf("%s\r\n", c->help);

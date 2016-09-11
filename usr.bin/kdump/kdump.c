@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.123 2016/03/06 22:33:48 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.129 2016/07/18 09:36:50 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -185,14 +185,14 @@ main(int argc, char *argv[])
 			if (errstr)
 				errx(1, "-p %s: %s", optarg, errstr);
 			break;
-		case 'R':
-			timestamp = 2;	/* relative timestamp */
+		case 'R':	/* relative timestamp */
+			timestamp = timestamp == 1 ? 3 : 2;
 			break;
 		case 'T':
-			timestamp = 1;
+			timestamp = timestamp == 2 ? 3 : 1;
 			break;
 		case 't':
-			trpoints = getpoints(optarg);
+			trpoints = getpoints(optarg, DEF_POINTS);
 			if (trpoints < 0)
 				errx(1, "unknown trace point in %s", optarg);
 			break;
@@ -349,7 +349,11 @@ dumpheader(struct ktr_header *kth)
 		basecol += printf("/%-7ld", (long)kth->ktr_tid);
 	basecol += printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
 	if (timestamp) {
-		if (timestamp == 2) {
+		if (timestamp == 3) {
+			if (prevtime.tv_sec == 0)
+				prevtime = kth->ktr_time;
+			timespecsub(&kth->ktr_time, &prevtime, &temp);
+		} else if (timestamp == 2) {
 			timespecsub(&kth->ktr_time, &prevtime, &temp);
 			prevtime = kth->ktr_time;
 		} else
@@ -546,6 +550,7 @@ static void (*formatters[])(int) = {
 	sigset,
 	uidname,
 	gidname,
+	syslogflagname,
 };
 
 enum {
@@ -628,6 +633,7 @@ enum {
 	Sigset,
 	Uidname,
 	Gidname,
+	Syslogflagname,
 };
 
 #define Pptr		Phexlong
@@ -692,7 +698,7 @@ static const formatter scargs[][8] = {
     [SYS_ktrace]	= { Ppath, Ktraceopname, Ktracefacname, Ppgid },
     [SYS_sigaction]	= { Signame, Pptr, Pptr },
     [SYS_sigprocmask]	= { Sigprocmaskhowname, Sigset },
-    [SYS_getlogin]	= { Pptr, Pucount },
+    [SYS_getlogin_r]	= { Pptr, Psize },
     [SYS_setlogin]	= { Pptr },
     [SYS_acct]		= { Ppath },
     [SYS_fstat]		= { Pfd, Pptr },
@@ -719,11 +725,12 @@ static const formatter scargs[][8] = {
     [SYS_madvise]	= { Pptr, Pbigsize, Madvisebehavname },
     [SYS_utimes]	= { Ppath, Pptr },
     [SYS_futimes]	= { Pfd, Pptr },
+    [SYS_kbind]		= { Pptr, Psize, Phexlonglong },
     [SYS_mincore]	= { Pptr, Pbigsize, Pptr },
     [SYS_getgroups]	= { Pcount, Pptr },
     [SYS_setgroups]	= { Pcount, Pptr },
     [SYS_setpgid]	= { Ppid_t, Ppid_t },
-    [SYS_sendsyslog]	= { Pptr, Psize },
+    [SYS_sendsyslog]	= { Pptr, Psize, Syslogflagname },
     [SYS_utimensat]	= { Atfd, Ppath, Pptr, Atflagsname },
     [SYS_futimens]	= { Pfd, Pptr },
     [SYS_clock_gettime]	= { Clockname, Pptr },
@@ -1073,6 +1080,7 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 	else
 		(void)printf("%s ", syscallnames[code]);
 
+doerr:
 	if (error == 0) {
 		if (fancy) {
 			switch (code) {
@@ -1096,6 +1104,12 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 			case SYS_getegid:
 				gidname(ret);
 				break;
+			/* syscalls that return errno values */
+			case SYS_getlogin_r:
+			case SYS___thrsleep:
+				if ((error = ret) != 0)
+					goto doerr;
+				/* FALLTHROUGH */
 			default:
 				(void)printf("%ld", (long)ret);
 				if (ret < 0 || ret > 9)
@@ -1112,9 +1126,9 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 	else if (error == EJUSTRETURN)
 		(void)printf("JUSTRETURN");
 	else {
-		(void)printf("-1 errno %d", ktr->ktr_error);
+		(void)printf("-1 errno %d", error);
 		if (fancy)
-			(void)printf(" %s", strerror(ktr->ktr_error));
+			(void)printf(" %s", strerror(error));
 	}
 	(void)putchar('\n');
 }
@@ -1122,20 +1136,20 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 static void
 ktrnamei(const char *cp, size_t len)
 {
-	(void)printf("\"%.*s\"\n", (int)len, cp);
+	showbufc(basecol, (unsigned char *)cp, len, VIS_DQ | VIS_TAB | VIS_NL);
 }
 
 void
-showbufc(int col, unsigned char *dp, size_t datalen)
+showbufc(int col, unsigned char *dp, size_t datalen, int flags)
 {
-	int i, j;
-	int width, bpl;
-	unsigned char visbuf[5], *cp, c;
+	int width;
+	unsigned char visbuf[5], *cp;
 
+	flags |= VIS_CSTYLE;
 	putchar('"');
 	col++;
 	for (; datalen > 0; datalen--, dp++) {
-		(void)vis(visbuf, *dp, VIS_CSTYLE, *(dp+1));
+		(void)vis(visbuf, *dp, flags, *(dp+1));
 		cp = visbuf;
 
 		/*
@@ -1175,8 +1189,8 @@ static void
 showbuf(unsigned char *dp, size_t datalen)
 {
 	int i, j;
-	int col = 0, width, bpl;
-	unsigned char visbuf[5], *cp, c;
+	int col = 0, bpl;
+	unsigned char c;
 
 	if (iohex == 1) {
 		putchar('\t');
@@ -1222,7 +1236,7 @@ showbuf(unsigned char *dp, size_t datalen)
 	}
 
 	(void)printf("       ");
-	showbufc(7, dp, datalen);
+	showbufc(7, dp, datalen, 0);
 }
 
 static void
@@ -1317,7 +1331,6 @@ ktruser(struct ktr_user *usr, size_t len)
 static void
 ktrexec(const char *ptr, size_t len)
 {
-	char buf[sizeof("[2147483648] = ")];
 	int i, col;
 	size_t l;
 
@@ -1327,7 +1340,7 @@ ktrexec(const char *ptr, size_t len)
 		l = strnlen(ptr, len);
 		col = printf("\t[%d] = ", i++);
 		col += 7;	/* tab expands from 1 to 8 columns */
-		showbufc(col, (unsigned char *)ptr, l);
+		showbufc(col, (unsigned char *)ptr, l, VIS_DQ|VIS_TAB|VIS_NL);
 		if (l == len) {
 			printf("\tunterminated argument\n");
 			break;
@@ -1371,7 +1384,7 @@ usage(void)
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
 	    "[-dHlnRTXx] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [cinstuxX+]]\n",
+	    "%*s[-t [cinpstuxX+]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);
 }

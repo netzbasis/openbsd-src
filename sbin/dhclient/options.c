@@ -1,4 +1,4 @@
-/*	$OpenBSD: options.c,v 1.75 2016/02/06 19:30:52 krw Exp $	*/
+/*	$OpenBSD: options.c,v 1.78 2016/09/02 15:44:26 mpi Exp $	*/
 
 /* DHCP options parsing and reassembly. */
 
@@ -159,8 +159,9 @@ parse_option_buffer(struct option_data *options, unsigned char *buffer,
  * to see if it's DHO_END to decide if all the options were copied.
  */
 int
-cons_options(struct option_data *options)
+cons_options(struct interface_info *ifi, struct option_data *options)
 {
+	struct client_state *client = ifi->client;
 	unsigned char *buf = client->bootrequest_packet.options;
 	int buflen = 576 - DHCP_FIXED_LEN;
 	int ix, incr, length, bufix, code, lastopt = -1;
@@ -645,13 +646,15 @@ toobig:
 }
 
 void
-do_packet(unsigned int from_port, struct in_addr from,
-    struct ether_addr *hfrom)
+do_packet(struct interface_info *ifi, unsigned int from_port,
+    struct in_addr from, struct ether_addr *hfrom)
 {
+	struct client_state *client = ifi->client;
 	struct dhcp_packet *packet = &client->packet;
 	struct option_data options[256];
 	struct reject_elem *ap;
-	void (*handler)(struct in_addr, struct option_data *, char *);
+	void (*handler)(struct interface_info *, struct in_addr,
+	    struct option_data *, char *);
 	char *type, *info;
 	int i, rslt, options_valid = 1;
 
@@ -750,7 +753,7 @@ do_packet(unsigned int from_port, struct in_addr from,
 		error("no memory for info string");
 
 	if (handler)
-		(*handler)(from, options, info);
+		(*handler)(ifi, from, options, info);
 
 	free(info);
 

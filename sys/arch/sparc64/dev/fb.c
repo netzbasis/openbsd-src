@@ -1,4 +1,4 @@
-/*	$OpenBSD: fb.c,v 1.26 2016/03/07 13:21:51 naddy Exp $	*/
+/*	$OpenBSD: fb.c,v 1.28 2016/03/29 22:06:50 kettenis Exp $	*/
 /*	$NetBSD: fb.c,v 1.23 1997/07/07 23:30:22 pk Exp $ */
 
 /*
@@ -131,7 +131,12 @@ fb_setsize(struct sunfb *sf, int def_depth, int def_width, int def_height,
 {
 	int def_linebytes;
 
-	sf->sf_depth = getpropint(node, "depth", def_depth);
+	/*
+	 * Some PCI devices lack the `depth' property, but have a `depth '
+	 * property (with a trailing space) instead.
+	 */
+	sf->sf_depth = getpropint(node, "depth",
+	    getpropint(node, "depth ", def_depth));
 	sf->sf_width = getpropint(node, "width", def_width);
 	sf->sf_height = getpropint(node, "height", def_height);
 
@@ -210,7 +215,7 @@ fbwscons_init(struct sunfb *sf, int flags, int isconsole)
 	 *   metrics, since it will not match the PROM reality anymore.
 	 * - the screen needs to be cleared.
 	 *
-	 * However, to accomodate laptops with specific small fonts,
+	 * However, to accommodate laptops with specific small fonts,
 	 * it is necessary to compare the resolution with the actual
 	 * font metrics.
 	 */

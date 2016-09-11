@@ -1,4 +1,4 @@
-/*      $OpenBSD: tag.c,v 1.11 2015/11/20 21:58:32 schwarze Exp $    */
+/*	$OpenBSD: tag.c,v 1.13 2016/07/20 13:02:44 schwarze Exp $ */
 /*
  * Copyright (c) 2015 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -34,7 +34,7 @@ struct tag_entry {
 	char	 s[];
 };
 
-static	void	 tag_signal(int);
+static	void	 tag_signal(int) __attribute__((noreturn));
 
 static struct ohash	 tag_data;
 static struct tag_files	 tag_files;
@@ -55,6 +55,24 @@ tag_init(void)
 	tag_files.tfd = -1;
 	tag_files.tcpgid = -1;
 
+	/* Clean up when dying from a signal. */
+
+	memset(&sa, 0, sizeof(sa));
+	sigfillset(&sa.sa_mask);
+	sa.sa_handler = tag_signal;
+	sigaction(SIGHUP, &sa, NULL);
+	sigaction(SIGINT, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
+
+	/*
+	 * POSIX requires that a process calling tcsetpgrp(3)
+	 * from the background gets a SIGTTOU signal.
+	 * In that case, do not stop.
+	 */
+
+	sa.sa_handler = SIG_IGN;
+	sigaction(SIGTTOU, &sa, NULL);
+
 	/* Save the original standard output for use by the pager. */
 
 	if ((tag_files.ofd = dup(STDOUT_FILENO)) == -1)
@@ -66,12 +84,6 @@ tag_init(void)
 	    sizeof(tag_files.ofn));
 	(void)strlcpy(tag_files.tfn, "/tmp/man.XXXXXXXXXX",
 	    sizeof(tag_files.tfn));
-	memset(&sa, 0, sizeof(sa));
-	sigfillset(&sa.sa_mask);
-	sa.sa_handler = tag_signal;
-	sigaction(SIGHUP, &sa, NULL);
-	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
 	if ((ofd = mkstemp(tag_files.ofn)) == -1)
 		goto fail;
 	if ((tag_files.tfd = mkstemp(tag_files.tfn)) == -1)

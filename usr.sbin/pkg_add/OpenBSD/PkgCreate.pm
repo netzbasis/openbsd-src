@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCreate.pm,v 1.118 2015/11/06 08:53:12 espie Exp $
+# $OpenBSD: PkgCreate.pm,v 1.122 2016/09/06 10:41:51 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -104,7 +104,7 @@ sub handle_options
 	$state->SUPER::handle_options('p:f:d:M:U:A:B:P:W:qQ',
 	    '[-nQqvx] [-A arches] [-B pkg-destdir] [-D name[=value]]',
 	    '[-L localbase] [-M displayfile] [-P pkg-dependency]',
-	    '[-s signing-parameter] [-U undisplayfile] [-W wantedlib]',
+	    '[-U undisplayfile] [-W wantedlib]',
 	    '[-d desc -D COMMENT=value -f packinglist -p prefix]',
 	    'pkg-name');
 
@@ -294,6 +294,9 @@ sub prepare_for_archival
 	if (!$o->verify_modes($self)) {
 		$state->error("modes don't match for #1", $self->fullname);
 	}
+	if (!$o->is_allowed) {
+		$state->error("can't package #1", $self->fullname);
+	}
 	return $o;
 }
 
@@ -302,10 +305,6 @@ sub discover_directories
 }
 
 sub check_version
-{
-}
-
-sub find_every_library
 {
 }
 
@@ -512,14 +511,6 @@ sub verify_checksum
 	$self->verify_checksum_with_base($state, $state->{base});
 }
 
-sub find_every_library
-{
-	my ($self, $h) = @_;
-	if ($self->fullname =~ m,/lib([^/]+)\.a$,) {
-		$h->{$1}{static} = 1;
-	}
-}
-
 package OpenBSD::PackingElement::Dir;
 sub discover_directories
 {
@@ -677,13 +668,6 @@ sub check_version
 		$state->error("Invalid shared library #1", $unsubst);
 	}
 	$state->{has_libraries} = 1;
-}
-
-sub find_every_library
-{
-	my ($self, $h) = @_;
-	my @l = $self->parse($self->fullname);
-	push(@{$h->{$l[0]}{dynamic}}, $self);
 }
 
 package OpenBSD::PackingElement::DigitalSignature;
@@ -1043,13 +1027,9 @@ our @ISA = qw(OpenBSD::AddCreateDelete);
 
 sub handle_fragment
 {
-	my ($self, $state, $old, $not, $frag, undef, $cont) = @_;
+	my ($self, $state, $old, $not, $frag, undef, $cont, $msg) = @_;
 	my $def = $frag;
-	if ($frag eq 'SHARED') {
-		$def = 'SHARED_LIBS';
-		$frag = 'shared';
-	}
-	if ($state->{subst}->has_fragment($def, $frag)) {
+	if ($state->{subst}->has_fragment($def, $frag, $msg)) {
 		return undef if defined $not;
 	} else {
 		return undef unless defined $not;
@@ -1087,7 +1067,7 @@ sub read_fragments
 					$l = '@comment $'.'OpenBSD: '.basename($file->name).',v$';
 				}
 				if ($l =~ m/^(\!)?\%\%(.*)\%\%$/) {
-					if (my $f2 = $self->handle_fragment($state, $file, $1, $2, $l, $cont)) {
+					if (my $f2 = $self->handle_fragment($state, $file, $1, $2, $l, $cont, $filename)) {
 						push(@$stack, $file);
 						$file = $f2;
 					}
@@ -1255,8 +1235,8 @@ sub create_plist
 		$state->set_status("reading plist");
 	}
 	$self->read_all_fragments($state, $plist);
-
 	$plist->set_pkgname($pkgname);
+
 	$self->add_elements($plist, $state);
 	return $plist;
 }
@@ -1357,28 +1337,6 @@ sub finish_manpages
 	if (defined $state->{mandir}) {
 		require File::Path;
 		File::Path::remove_tree($state->{mandir});
-	}
-}
-
-# This converts shared libraries into non-shared libraries if necessary
-sub tweak_libraries
-{
-	my ($self, $state, $plist) = @_;
-	return unless $state->{has_libraries};
-	return if $state->{subst}->has_fragment('SHARED_LIBS', 'shared');
-	my $h = {};
-	$plist->find_every_library($h);
-	# now we have each library recorded by "stem"
-	while (my ($k, $v) = each %$h) {
-		# need a static one: convert the first dynamic library to static
-		if (!defined $v->{static}) {
-			my $lib = pop @{$v->{dynamic}};
-			$lib->{name} = "lib/lib$k.a";
-			bless $lib, "OpenBSD::PackingElement::File";
-		}
-		for my $lib (@{$v->{dynamic}}) {
-			$lib->remove($plist);
-		}
 	}
 }
 
@@ -1500,7 +1458,6 @@ sub parse_and_run
 
 
 	$plist->discover_directories($state);
-	$self->tweak_libraries($state, $plist);
 	my $ordered;
 	unless (defined $state->opt('q') && defined $state->opt('n')) {
 		$state->set_status("checking dependencies");

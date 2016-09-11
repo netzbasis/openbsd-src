@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_term.c,v 1.21 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: cl_term.c,v 1.26 2016/07/07 09:26:26 semarie Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -40,7 +40,6 @@ typedef struct _tklist {
 	char	*ts;			/* Key's termcap string. */
 	char	*output;		/* Corresponding vi command. */
 	char	*name;			/* Name. */
-	u_char	 value;			/* Special value (for lookup). */
 } TKLIST;
 static TKLIST const c_tklist[] = {	/* Command mappings. */
 	{"kil1",	"O",	"insert line"},
@@ -59,17 +58,14 @@ static TKLIST const c_tklist[] = {	/* Command mappings. */
 	{"ked",	       "dG",	"delete to end of screen"},
 	{"kcuf1",	"l",	"cursor right"},
 	{"kcuu1",	"k",	"cursor up"},
-	{NULL},
+	{NULL, NULL, NULL},
 };
-static TKLIST const m1_tklist[] = {	/* Input mappings (lookup). */
-	{NULL},
-};
-static TKLIST const m2_tklist[] = {	/* Input mappings (set or delete). */
+static TKLIST const m1_tklist[] = {	/* Input mappings (set or delete). */
 	{"kcud1",  "\033ja",	"cursor down"},			/* ^[ja */
 	{"kcub1",  "\033ha",	"cursor left"},			/* ^[ha */
 	{"kcuu1",  "\033ka",	"cursor up"},			/* ^[ka */
 	{"kcuf1",  "\033la",	"cursor right"},		/* ^[la */
-	{NULL},
+	{NULL, NULL, NULL},
 };
 
 /*
@@ -96,22 +92,8 @@ cl_term_init(SCR *sp)
 			return (1);
 	}
 
-	/* Input mappings needing to be looked up. */
-	for (tkp = m1_tklist; tkp->name != NULL; ++tkp) {
-		if ((t = tigetstr(tkp->ts)) == NULL || t == (char *)-1)
-			continue;
-		for (kp = keylist;; ++kp)
-			if (kp->value == tkp->value)
-				break;
-		if (kp == NULL)
-			continue;
-		if (seq_set(sp, tkp->name, strlen(tkp->name), t, strlen(t),
-		    &kp->ch, 1, SEQ_INPUT, SEQ_NOOVERWRITE | SEQ_SCREEN))
-			return (1);
-	}
-
 	/* Input mappings that are already set or are text deletions. */
-	for (tkp = m2_tklist; tkp->name != NULL; ++tkp) {
+	for (tkp = m1_tklist; tkp->name != NULL; ++tkp) {
 		if ((t = tigetstr(tkp->ts)) == NULL || t == (char *)-1)
 			continue;
 		/*
@@ -284,6 +266,7 @@ cl_omesg(SCR *sp, CL_PRIVATE *clp, int on)
 			msgq(sp, M_SYSERR, "%s", tty);
 		return (1);
 	}
+	sb.st_mode &= ACCESSPERMS;
 
 	/* Save the original status if it's unknown. */
 	if (clp->tgw == TGW_UNKNOWN)
@@ -319,7 +302,8 @@ cl_ssize(SCR *sp, int sigwinch, size_t *rowp, size_t *colp, int *changedp)
 	struct winsize win;
 	size_t col, row;
 	int rval;
-	char *p;
+	long lval;
+	char *p, *ep;
 
 	/* Assume it's changed. */
 	if (changedp != NULL)
@@ -413,10 +397,28 @@ noterm:	if (row == 0)
 	 * deleting the LINES and COLUMNS environment variables from their
 	 * dot-files.
 	 */
-	if ((p = getenv("LINES")) != NULL)
-		row = strtol(p, NULL, 10);
-	if ((p = getenv("COLUMNS")) != NULL)
-		col = strtol(p, NULL, 10);
+	if ((p = getenv("LINES")) != NULL) {
+		errno = 0;
+		lval = strtol(p, &ep, 10);
+		if (p[0] == '\0' || *ep != '\0')
+			;
+		else if ((errno == ERANGE && (lval == LONG_MAX || lval ==
+		    LONG_MIN)) || (lval > INT_MAX || lval < 1))
+			;
+		else
+			row = lval;
+	}
+	if ((p = getenv("COLUMNS")) != NULL) {
+		errno = 0;
+		lval = strtol(p, &ep, 10);
+		if (p[0] == '\0' || *ep != '\0')
+			;
+		else if ((errno == ERANGE && (lval == LONG_MAX || lval ==
+		    LONG_MIN)) || (lval > INT_MAX || lval < 1))
+			;
+		else
+			col = lval;
+	}
 
 	if (rowp != NULL)
 		*rowp = row;

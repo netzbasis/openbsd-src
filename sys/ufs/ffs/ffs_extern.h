@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_extern.h,v 1.41 2016/01/12 11:41:00 mpi Exp $	*/
+/*	$OpenBSD: ffs_extern.h,v 1.43 2016/08/10 08:04:57 natano Exp $	*/
 /*	$NetBSD: ffs_extern.h,v 1.4 1996/02/09 22:22:22 christos Exp $	*/
 
 /*
@@ -57,8 +57,8 @@
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
-	{ "doreallocblks", CTLTYPE_INT }, \
-	{ "doasyncfree", CTLTYPE_INT }, \
+	{ 0, 0 }, \
+	{ 0, 0 }, \
 	{ "max_softdeps", CTLTYPE_INT }, \
 	{ "sd_tickdelay", CTLTYPE_INT }, \
 	{ "sd_worklist_push", CTLTYPE_INT }, \
@@ -103,7 +103,6 @@ int ffs_alloc(struct inode *, daddr_t, daddr_t , int, struct ucred *,
 		   daddr_t *);
 int ffs_realloccg(struct inode *, daddr_t, daddr_t, int, int ,
 		       struct ucred *, struct buf **, daddr_t *);
-int ffs_reallocblks(void *);
 int ffs_inode_alloc(struct inode *, mode_t, struct ucred *, struct vnode **);
 int ffs_inode_free(struct inode *, ufsino_t, mode_t);
 int ffs_freefile(struct inode *, ufsino_t, mode_t);
@@ -133,6 +132,7 @@ int  ffs_isfreeblock(struct fs *, u_char *, daddr_t);
 int  ffs_isblock(struct fs *, u_char *, daddr_t);
 void ffs_clrblock(struct fs *, u_char *, daddr_t);
 void ffs_setblock(struct fs *, u_char *, daddr_t);
+int  ffs_vinit(struct mount *, struct vnode **);
 
 /* ffs_vfsops.c */
 int ffs_mountroot(void);
@@ -188,12 +188,6 @@ void  softdep_setup_allocindir_page(struct inode *, daddr_t,
 void  softdep_fsync_mountdev(struct vnode *, int);
 int   softdep_sync_metadata(struct vop_fsync_args *);
 int   softdep_fsync(struct vnode *);
-
-#ifdef FIFO
-#define FFS_FIFOOPS &ffs_fifovops
-#else
-#define FFS_FIFOOPS NULL
-#endif
 
 extern struct pool ffs_ino_pool;	/* memory pool for inodes */
 extern struct pool ffs_dinode1_pool;	/* memory pool for UFS1 dinodes */

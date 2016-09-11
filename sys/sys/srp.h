@@ -1,4 +1,4 @@
-/*	$OpenBSD: srp.h,v 1.7 2015/12/03 16:27:32 mpi Exp $ */
+/*	$OpenBSD: srp.h,v 1.11 2016/06/07 07:53:33 mpi Exp $ */
 
 /*
  * Copyright (c) 2014 Jonathan Matthew <jmatthew@openbsd.org>
@@ -21,49 +21,36 @@
 
 #include <sys/refcnt.h>
 
+#ifdef MULTIPROCESSOR
+#define __upunused
+#else
+#define __upunused __attribute__((__unused__))
+#endif
+
 struct srp {
 	void			*ref;
 };
+
+#define SRP_INITIALIZER() { NULL }
 
 struct srp_hazard {
 	struct srp		*sh_p;
 	void			*sh_v;
 };
 
+struct srp_ref {
+	struct srp_hazard	*hz;
+} __upunused;
+
 #define SRP_HAZARD_NUM 16
-	
+
 struct srp_gc {
 	void			(*srp_gc_dtor)(void *, void *);
 	void			*srp_gc_cookie;
 	struct refcnt		srp_gc_refcnt;
 };
 
-#ifdef _KERNEL
-
-#define SRP_INITIALIZER() { NULL }
 #define SRP_GC_INITIALIZER(_d, _c) { (_d), (_c), REFCNT_INITIALIZER() }
-
-void		 srp_startup(void);
-void		 srp_gc_init(struct srp_gc *, void (*)(void *, void *), void *);
-void		 srp_update_locked(struct srp_gc *, struct srp *, void *);
-void		*srp_get_locked(struct srp *);
-void		 srp_finalize(struct srp_gc *);
-
-void		 srp_init(struct srp *);
-
-#ifdef MULTIPROCESSOR
-void		 srp_update(struct srp_gc *, struct srp *, void *);
-void		*srp_enter(struct srp *);
-void		*srp_follow(struct srp *, void *, struct srp *);
-void		 srp_leave(struct srp *, void *);
-#else /* MULTIPROCESSOR */
-#define srp_update(_gc, _srp, _v)	srp_update_locked((_gc), (_srp), (_v))
-#define srp_enter(_srp)			((_srp)->ref)
-#define srp_follow(_srp, _v, _next)	((_next)->ref)
-#define srp_leave(_srp, _v)		do { } while (0)
-#endif /* MULTIPROCESSOR */
-
-#endif /* _KERNEL */
 
 /*
  * singly linked list built by following srps
@@ -75,20 +62,42 @@ struct srpl_rc {
 };
 #define srpl_cookie		srpl_gc.srp_gc_cookie
 
+#define SRPL_RC_INITIALIZER(_r, _u, _c) { _r, SRP_GC_INITIALIZER(_u, _c) }
+
 struct srpl {
 	struct srp		sl_head;
 };
 
-struct srpl_iter {
-	struct srp *		si_ref;
-};
-
 #ifdef _KERNEL
+
+void		 srp_startup(void);
+void		 srp_gc_init(struct srp_gc *, void (*)(void *, void *), void *);
+void		*srp_swap_locked(struct srp *, void *);
+void		 srp_update_locked(struct srp_gc *, struct srp *, void *);
+void		*srp_get_locked(struct srp *);
+void		 srp_gc_finalize(struct srp_gc *);
+
+void		 srp_init(struct srp *);
+
+#ifdef MULTIPROCESSOR
+void		*srp_swap(struct srp *, void *);
+void		 srp_update(struct srp_gc *, struct srp *, void *);
+void		 srp_finalize(void *, const char *);
+void		*srp_enter(struct srp_ref *, struct srp *);
+void		*srp_follow(struct srp_ref *, struct srp *);
+void		 srp_leave(struct srp_ref *);
+#else /* MULTIPROCESSOR */
+#define srp_swap(_srp, _v)		srp_swap_locked((_srp), (_v))
+#define srp_update(_gc, _srp, _v)	srp_update_locked((_gc), (_srp), (_v))
+#define srp_finalize(_v, _wchan)	((void)0)
+#define srp_enter(_sr, _srp)		((_srp)->ref)
+#define srp_follow(_sr, _srp)		((_srp)->ref)
+#define srp_leave(_sr)			do { } while (0)
+#endif /* MULTIPROCESSOR */
+
 
 void		srpl_rc_init(struct srpl_rc *, void (*)(void *, void *),
 		    void (*)(void *, void *), void *);
-
-#define SRPL_RC_INITIALIZER(_r, _u, _c) { _r, SRP_GC_INITIALIZER(_u, _c) }
 
 #define SRPL_INIT(_sl)			srp_init(&(_sl)->sl_head)
 
@@ -99,41 +108,23 @@ struct {								\
 	struct srp		se_next;				\
 }
 
-static inline void *
-_srpl_enter(struct srpl *sl, struct srpl_iter *si)
-{
-	si->si_ref = &sl->sl_head;
-	return (srp_enter(si->si_ref));
-}
+#define SRPL_ENTER(_sr, _sl)		srp_enter((_sr), &(_sl)->sl_head)
 
-static inline void *
-_srpl_next(struct srpl_iter *si, void *elm, struct srp *nref)
-{
-	void *n;
+#define SRPL_NEXT(_sr, _e, _ENTRY)	\
+	srp_follow((_sr), &(_e)->_ENTRY.se_next)
 
-	n = srp_follow(si->si_ref, elm, nref);
-	si->si_ref = nref;
-
-	return (n);
-}
-
-#define SRPL_ENTER(_sl, _si)		_srpl_enter(_sl, _si)
-
-#define SRPL_NEXT(_si, _e, _ENTRY)					\
-	 _srpl_next(_si, _e, &(_e)->_ENTRY.se_next)
-
-#define SRPL_FOREACH(_c, _sl, _si, _ENTRY)				\
-	for ((_c) = SRPL_ENTER(_sl, _si);				\
+#define SRPL_FOREACH(_c, _sr, _sl, _ENTRY)				\
+	for ((_c) = SRPL_ENTER(_sr, _sl);				\
 	    (_c) != NULL; 						\
-	    (_c) = SRPL_NEXT(_si, _c, _ENTRY))
+	    (_c) = SRPL_NEXT(_sr, _c, _ENTRY))
 
-#define SRPL_LEAVE(_si, _c)		srp_leave((_si)->si_ref, (_c))
+#define SRPL_LEAVE(_sr)			srp_leave((_sr))
 
-#define SRPL_EMPTY_LOCKED(_sl)		(SRPL_FIRST_LOCKED(_sl) == NULL)
 #define SRPL_FIRST_LOCKED(_sl)		srp_get_locked(&(_sl)->sl_head)
+#define SRPL_EMPTY_LOCKED(_sl)		(SRPL_FIRST_LOCKED(_sl) == NULL)
 
 #define SRPL_NEXT_LOCKED(_e, _ENTRY)					\
-    srp_get_locked(&(_e)->_ENTRY.se_next)
+	srp_get_locked(&(_e)->_ENTRY.se_next)
 
 #define SRPL_FOREACH_LOCKED(_c, _sl, _ENTRY)				\
 	for ((_c) = SRPL_FIRST_LOCKED(_sl);				\

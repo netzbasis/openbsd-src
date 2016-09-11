@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pkg_create.1,v 1.99 2015/09/15 17:20:53 schwarze Exp $
+.\"	$OpenBSD: pkg_create.1,v 1.103 2016/09/06 10:41:51 espie Exp $
 .\"
 .\" Documentation and design originally from FreeBSD. All the code has
 .\" been rewritten since. We keep the documentation's notice:
@@ -21,7 +21,7 @@
 .\" [jkh] Took John's changes back and made some additional extensions for
 .\" better integration with FreeBSD's new ports collection.
 .\"
-.Dd $Mdocdate: September 15 2015 $
+.Dd $Mdocdate: September 6 2016 $
 .Dt PKG_CREATE 1
 .Os
 .Sh NAME
@@ -37,7 +37,6 @@
 .Op Fl L Ar localbase
 .Op Fl M Ar displayfile
 .Op Fl P Ar pkgpath : Ns Ar pkgspec : Ns Ar default
-.Op Fl s Ar signature-parameter
 .Op Fl U Ar undisplayfile
 .Op Fl W Ar libspec
 .Fl d Ar desc
@@ -48,7 +47,6 @@
 .Ar pkg-name
 .Ek
 .Nm pkg_create
-.Op Fl s Ar signature-parameter
 .Fl f Ar packinglist
 .Sh DESCRIPTION
 The
@@ -221,12 +219,6 @@ Print out the actual packing-list of the package being generated
 (query mode).
 Most often used in combination with
 .Fl n .
-.It Fl s Ar signature-parameter
-Specify signature parameters for signing packages on-the-fly during
-building.
-Refer to
-.Xr pkg_sign 1
-for the meaning of the parameters and the signing process.
 .It Fl U Ar undisplayfile
 Display the file (using
 .Xr more 1 )
@@ -601,6 +593,13 @@ uses some simplified information to decide whether an installed package
 needs updating.
 With this option, the package is updated whenever anything changes.
 To be used sparingly, as this is more expensive.
+.It Ar is-branch
+Annotate the few rare ports where several branches are present in the
+ports tree (such as autoconf), to help
+.Xr pkg_info 1
+produce
+.Ar stem Ns % Ns Ar branch
+annotations when needed.
 .It Ar no-default-conflict
 By default, a package conflicts with other versions of the same package.
 With this option, the older package version will still be noticed, but the
@@ -612,25 +611,6 @@ Set default ownership for all subsequently extracted files to
 .Ar user .
 Use without an arg to set back to default (extraction)
 ownership.
-.Pp
-.It Cm @pkgcfl Ar pkgcflname
-Declare a conflict to the
-.Ar pkgcflname
-package.
-The
-.Ar pkgcflname
-package must
-.Em not
-be installed if
-.Ar pkgname
-package gets installed because they install the same files and thus conflict.
-.Ar pkgcflname
-may use
-.Xr fnmatch 3
-wildcards.
-Deprecated, use
-.Cm @conflict
-instead.
 .Pp
 .It Cm @pkgpath Ar pkgpath
 Declare a secondary
@@ -802,10 +782,7 @@ will take its version number from
 The ports framework normally takes care of all details, see
 .Ev SHARED_LIBS
 in
-.Xr bsd.port.mk 5 ,
-not to be confused with
-.Va SHARED_LIBS
-later in this document.
+.Xr bsd.port.mk 5 .
 .Pp
 Constructs like
 .Li %%VAR%%
@@ -856,37 +833,6 @@ inclusion will be ignored.
 However, if both the positive and negative fragment files do not exist,
 .Nm
 will error out, to make it easier to spot fragment names errors.
-.Pp
-Shared libraries no longer require any fragments, but can be included directly
-in the final packing-list:
-on an architecture without shared libraries,
-.Li @lib lib/libfoo.so.${LIBfoo_VERSION}
-will automatically devolve into
-.Li lib/libfoo.a ,
-if needed (e.g., for a port that builds both a shared library and a normal
-library on a shared libraries architecture,
-.Li @lib lib/libfoo.so.${LIBfoo_VERSION}
-will simply vanish on non-shared architectures).
-Extra copies living in other directories will be ignored
-.Po
-See the description of
-.Ev SHARED_ONLY
-and
-.Ev NO_SHARED_LIBS
-in
-.Xr bsd.port.mk 5
-.Pc .
-.Pp
-As a special historical exception, the variable
-.Va SHARED_LIBS
-still control the inclusion of fragments
-.Pa PFRAG.shared
-and
-.Pa PFRAG.no-shared
-through the lines
-.Li %%SHARED%%
-and
-.Li !%%SHARED%% .
 .Sh ENVIRONMENT
 .Bl -tag -width PKG_DESTDIR
 .It Ev PKG_DESTDIR

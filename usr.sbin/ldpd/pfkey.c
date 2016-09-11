@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.1 2015/07/19 21:01:56 renato Exp $ */
+/*	$OpenBSD: pfkey.c,v 1.10 2016/05/23 19:11:42 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -18,13 +18,7 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <net/pfkeyv2.h>
-#include <netinet/ip_ipsp.h>
-#include <ctype.h>
 #include <errno.h>
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -33,44 +27,29 @@
 #include "ldpe.h"
 #include "log.h"
 
-#define	PFKEY2_CHUNK sizeof(u_int64_t)
+static int	 pfkey_send(int, uint8_t, uint8_t, uint8_t,
+		    int, union ldpd_addr *, union ldpd_addr *,
+		    uint32_t, uint8_t, int, char *, uint8_t, int, char *,
+		    uint16_t, uint16_t);
+static int	 pfkey_reply(int, uint32_t *);
+static int	 pfkey_sa_add(int, union ldpd_addr *, union ldpd_addr *,
+		    uint8_t, char *, uint32_t *);
+static int	 pfkey_sa_remove(int, union ldpd_addr *, union ldpd_addr *,
+		    uint32_t *);
+static int	 pfkey_md5sig_establish(struct nbr *, struct nbr_params *nbrp);
+static int	 pfkey_md5sig_remove(struct nbr *);
+
+#define	PFKEY2_CHUNK sizeof(uint64_t)
 #define	ROUNDUP(x) (((x) + (PFKEY2_CHUNK - 1)) & ~(PFKEY2_CHUNK - 1))
 #define	IOV_CNT	20
 
-static u_int32_t	sadb_msg_seq = 0;
-static u_int32_t	pid = 0; /* should pid_t but pfkey needs u_int32_t */
-static int		fd;
+static uint32_t	 sadb_msg_seq;
+static uint32_t	 pid; /* should pid_t but pfkey needs uint32_t */
+static int	 fd;
 
-int	pfkey_reply(int, u_int32_t *);
-int	pfkey_send(int, uint8_t, uint8_t, uint8_t,
-	    struct in_addr *, struct in_addr *,
-	    u_int32_t, uint8_t, int, char *, uint8_t, int, char *,
-	    uint16_t, uint16_t);
-int	pfkey_sa_add(struct in_addr *, struct in_addr *, u_int8_t, char *,
-	    u_int32_t *);
-int	pfkey_sa_remove(struct in_addr *, struct in_addr *, u_int32_t *);
-
-int	pfkey_md5sig_establish(struct nbr *, struct nbr_params *nbrp);
-int	pfkey_md5sig_remove(struct nbr *);
-
-static struct sockaddr *
-addr2sa(struct in_addr *addr)
-{
-	static struct sockaddr_storage	 ss;
-	struct sockaddr_in		*sa_in = (struct sockaddr_in *)&ss;
-
-	bzero(&ss, sizeof(ss));
-	sa_in->sin_family = AF_INET;
-	sa_in->sin_len = sizeof(struct sockaddr_in);
-	sa_in->sin_addr.s_addr = addr->s_addr;
-	sa_in->sin_port = htons(0);
-
-	return ((struct sockaddr *)&ss);
-}
-
-int
+static int
 pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
-    struct in_addr *src, struct in_addr *dst, u_int32_t spi,
+    int af, union ldpd_addr *src, union ldpd_addr *dst, uint32_t spi,
     uint8_t aalg, int alen, char *akey, uint8_t ealg, int elen, char *ekey,
     uint16_t sport, uint16_t dport)
 {
@@ -90,23 +69,43 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 		pid = getpid();
 
 	/* we need clean sockaddr... no ports set */
-	bzero(&ssrc, sizeof(ssrc));
-	bzero(&smask, sizeof(smask));
-	if ((saptr = addr2sa(src)))
+	memset(&ssrc, 0, sizeof(ssrc));
+	memset(&smask, 0, sizeof(smask));
+	if ((saptr = addr2sa(af, src, 0)))
 		memcpy(&ssrc, saptr, sizeof(ssrc));
-	memset(&((struct sockaddr_in *)&smask)->sin_addr, 0xff, 32/8);
+	switch (af) {
+	case AF_INET:
+		memset(&((struct sockaddr_in *)&smask)->sin_addr, 0xff, 32/8);
+		break;
+	case AF_INET6:
+		memset(&((struct sockaddr_in6 *)&smask)->sin6_addr, 0xff,
+		    128/8);
+		break;
+	default:
+		return (-1);
+	}
 	smask.ss_family = ssrc.ss_family;
 	smask.ss_len = ssrc.ss_len;
 
-	bzero(&sdst, sizeof(sdst));
-	bzero(&dmask, sizeof(dmask));
-	if ((saptr = addr2sa(dst)))
+	memset(&sdst, 0, sizeof(sdst));
+	memset(&dmask, 0, sizeof(dmask));
+	if ((saptr = addr2sa(af, dst, 0)))
 		memcpy(&sdst, saptr, sizeof(sdst));
-	memset(&((struct sockaddr_in *)&dmask)->sin_addr, 0xff, 32/8);
+	switch (af) {
+	case AF_INET:
+		memset(&((struct sockaddr_in *)&dmask)->sin_addr, 0xff, 32/8);
+		break;
+	case AF_INET6:
+		memset(&((struct sockaddr_in6 *)&dmask)->sin6_addr, 0xff,
+		    128/8);
+		break;
+	default:
+		return (-1);
+	}
 	dmask.ss_family = sdst.ss_family;
 	dmask.ss_len = sdst.ss_len;
 
-	bzero(&smsg, sizeof(smsg));
+	memset(&smsg, 0, sizeof(smsg));
 	smsg.sadb_msg_version = PF_KEY_V2;
 	smsg.sadb_msg_seq = ++sadb_msg_seq;
 	smsg.sadb_msg_pid = pid;
@@ -116,7 +115,7 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 
 	switch (mtype) {
 	case SADB_GETSPI:
-		bzero(&sa_spirange, sizeof(sa_spirange));
+		memset(&sa_spirange, 0, sizeof(sa_spirange));
 		sa_spirange.sadb_spirange_exttype = SADB_EXT_SPIRANGE;
 		sa_spirange.sadb_spirange_len = sizeof(sa_spirange) / 8;
 		sa_spirange.sadb_spirange_min = 0x100;
@@ -126,7 +125,7 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 	case SADB_ADD:
 	case SADB_UPDATE:
 	case SADB_DELETE:
-		bzero(&sa, sizeof(sa));
+		memset(&sa, 0, sizeof(sa));
 		sa.sadb_sa_exttype = SADB_EXT_SA;
 		sa.sadb_sa_len = sizeof(sa) / 8;
 		sa.sadb_sa_replay = 0;
@@ -135,11 +134,11 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 		break;
 	}
 
-	bzero(&sa_src, sizeof(sa_src));
+	memset(&sa_src, 0, sizeof(sa_src));
 	sa_src.sadb_address_exttype = SADB_EXT_ADDRESS_SRC;
 	sa_src.sadb_address_len = (sizeof(sa_src) + ROUNDUP(ssrc.ss_len)) / 8;
 
-	bzero(&sa_dst, sizeof(sa_dst));
+	memset(&sa_dst, 0, sizeof(sa_dst));
 	sa_dst.sadb_address_exttype = SADB_EXT_ADDRESS_DST;
 	sa_dst.sadb_address_len = (sizeof(sa_dst) + ROUNDUP(sdst.ss_len)) / 8;
 
@@ -149,13 +148,13 @@ pfkey_send(int sd, uint8_t satype, uint8_t mtype, uint8_t dir,
 	switch (mtype) {
 	case SADB_ADD:
 	case SADB_UPDATE:
-		bzero(&sa_akey, sizeof(sa_akey));
+		memset(&sa_akey, 0, sizeof(sa_akey));
 		sa_akey.sadb_key_exttype = SADB_EXT_KEY_AUTH;
 		sa_akey.sadb_key_len = (sizeof(sa_akey) +
 		    ((alen + 7) / 8) * 8) / 8;
 		sa_akey.sadb_key_bits = 8 * alen;
 
-		bzero(&sa_ekey, sizeof(sa_ekey));
+		memset(&sa_ekey, 0, sizeof(sa_ekey));
 		sa_ekey.sadb_key_exttype = SADB_EXT_KEY_ENCRYPT;
 		sa_ekey.sadb_key_len = (sizeof(sa_ekey) +
 		    ((elen + 7) / 8) * 8) / 8;
@@ -263,7 +262,7 @@ pfkey_read(int sd, struct sadb_msg *h)
 	if (hdr.sadb_msg_seq == sadb_msg_seq &&
 	    hdr.sadb_msg_pid == pid) {
 		if (h)
-			bcopy(&hdr, h, sizeof(hdr));
+			*h = hdr;
 		return (0);
 	}
 
@@ -278,13 +277,13 @@ pfkey_read(int sd, struct sadb_msg *h)
 	return (1);
 }
 
-int
-pfkey_reply(int sd, u_int32_t *spip)
+static int
+pfkey_reply(int sd, uint32_t *spip)
 {
 	struct sadb_msg hdr, *msg;
 	struct sadb_ext *ext;
 	struct sadb_sa *sa;
-	u_int8_t *data;
+	uint8_t *data;
 	ssize_t len;
 	int rv;
 
@@ -310,23 +309,23 @@ pfkey_reply(int sd, u_int32_t *spip)
 	len = hdr.sadb_msg_len * PFKEY2_CHUNK;
 	if (read(sd, data, len) != len) {
 		log_warn("pfkey read");
-		bzero(data, len);
+		explicit_bzero(data, len);
 		free(data);
 		return (-1);
 	}
 
 	if (hdr.sadb_msg_type == SADB_GETSPI) {
 		if (spip == NULL) {
-			bzero(data, len);
+			explicit_bzero(data, len);
 			free(data);
 			return (0);
 		}
 
 		msg = (struct sadb_msg *)data;
 		for (ext = (struct sadb_ext *)(msg + 1);
-		    (size_t)((u_int8_t *)ext - (u_int8_t *)msg) <
+		    (size_t)((uint8_t *)ext - (uint8_t *)msg) <
 		    msg->sadb_msg_len * PFKEY2_CHUNK;
-		    ext = (struct sadb_ext *)((u_int8_t *)ext +
+		    ext = (struct sadb_ext *)((uint8_t *)ext +
 		    ext->sadb_ext_len * PFKEY2_CHUNK)) {
 			if (ext->sadb_ext_type == SADB_EXT_SA) {
 				sa = (struct sadb_sa *) ext;
@@ -335,33 +334,34 @@ pfkey_reply(int sd, u_int32_t *spip)
 			}
 		}
 	}
-	bzero(data, len);
+	explicit_bzero(data, len);
 	free(data);
 	return (0);
 }
 
-int
-pfkey_sa_add(struct in_addr *src, struct in_addr *dst, u_int8_t keylen,
-    char *key, u_int32_t *spi)
+static int
+pfkey_sa_add(int af, union ldpd_addr *src, union ldpd_addr *dst, uint8_t keylen,
+    char *key, uint32_t *spi)
 {
 	if (pfkey_send(fd, SADB_X_SATYPE_TCPSIGNATURE, SADB_GETSPI, 0,
-	    src, dst, 0, 0, 0, NULL, 0, 0, NULL, 0, 0) < 0)
+	    af, src, dst, 0, 0, 0, NULL, 0, 0, NULL, 0, 0) < 0)
 		return (-1);
 	if (pfkey_reply(fd, spi) < 0)
 		return (-1);
 	if (pfkey_send(fd, SADB_X_SATYPE_TCPSIGNATURE, SADB_UPDATE, 0,
-		src, dst, *spi, 0, keylen, key, 0, 0, NULL, 0, 0) < 0)
+	    af, src, dst, *spi, 0, keylen, key, 0, 0, NULL, 0, 0) < 0)
 		return (-1);
 	if (pfkey_reply(fd, NULL) < 0)
 		return (-1);
 	return (0);
 }
 
-int
-pfkey_sa_remove(struct in_addr *src, struct in_addr *dst, u_int32_t *spi)
+static int
+pfkey_sa_remove(int af, union ldpd_addr *src, union ldpd_addr *dst,
+    uint32_t *spi)
 {
 	if (pfkey_send(fd, SADB_X_SATYPE_TCPSIGNATURE, SADB_DELETE, 0,
-	    src, dst, *spi, 0, 0, NULL, 0, 0, NULL, 0, 0) < 0)
+	    af, src, dst, *spi, 0, 0, NULL, 0, 0, NULL, 0, 0) < 0)
 		return (-1);
 	if (pfkey_reply(fd, NULL) < 0)
 		return (-1);
@@ -369,18 +369,18 @@ pfkey_sa_remove(struct in_addr *src, struct in_addr *dst, u_int32_t *spi)
 	return (0);
 }
 
-int
+static int
 pfkey_md5sig_establish(struct nbr *nbr, struct nbr_params *nbrp)
 {
 	sleep(1);
 
 	if (!nbr->auth.spi_out)
-		if (pfkey_sa_add(&nbr->auth.local_addr, &nbr->addr,
+		if (pfkey_sa_add(nbr->af, &nbr->laddr, &nbr->raddr,
 		    nbrp->auth.md5key_len, nbrp->auth.md5key,
 		    &nbr->auth.spi_out) == -1)
 			return (-1);
 	if (!nbr->auth.spi_in)
-		if (pfkey_sa_add(&nbr->addr, &nbr->auth.local_addr,
+		if (pfkey_sa_add(nbr->af, &nbr->raddr, &nbr->laddr,
 		    nbrp->auth.md5key_len, nbrp->auth.md5key,
 		    &nbr->auth.spi_in) == -1)
 			return (-1);
@@ -389,20 +389,19 @@ pfkey_md5sig_establish(struct nbr *nbr, struct nbr_params *nbrp)
 	return (0);
 }
 
-int
+static int
 pfkey_md5sig_remove(struct nbr *nbr)
 {
 	if (nbr->auth.spi_out)
-		if (pfkey_sa_remove(&nbr->auth.local_addr, &nbr->addr,
+		if (pfkey_sa_remove(nbr->af, &nbr->laddr, &nbr->raddr,
 		    &nbr->auth.spi_out) == -1)
 			return (-1);
 	if (nbr->auth.spi_in)
-		if (pfkey_sa_remove(&nbr->addr, &nbr->auth.local_addr,
+		if (pfkey_sa_remove(nbr->af, &nbr->raddr, &nbr->laddr,
 		    &nbr->auth.spi_in) == -1)
 			return (-1);
 
 	nbr->auth.established = 0;
-	nbr->auth.local_addr.s_addr = 0;
 	nbr->auth.spi_in = 0;
 	nbr->auth.spi_out = 0;
 	nbr->auth.method = AUTH_NONE;
@@ -421,7 +420,6 @@ pfkey_establish(struct nbr *nbr, struct nbr_params *nbrp)
 	 * make sure we keep copies of everything we need to
 	 * remove SAs and flows later again.
 	 */
-	nbr->auth.local_addr.s_addr = ldpe_router_id();
 	nbr->auth.method = nbrp->auth.method;
 
 	switch (nbr->auth.method) {
@@ -429,7 +427,6 @@ pfkey_establish(struct nbr *nbr, struct nbr_params *nbrp)
 		strlcpy(nbr->auth.md5key, nbrp->auth.md5key,
 		    sizeof(nbr->auth.md5key));
 		return (pfkey_md5sig_establish(nbr, nbrp));
-		break;
 	default:
 		break;
 	}
@@ -446,7 +443,6 @@ pfkey_remove(struct nbr *nbr)
 	switch (nbr->auth.method) {
 	case AUTH_MD5SIG:
 		return (pfkey_md5sig_remove(nbr));
-		break;
 	default:
 		break;
 	}
@@ -455,13 +451,13 @@ pfkey_remove(struct nbr *nbr)
 }
 
 int
-pfkey_init(struct ldpd_sysdep *sysdep)
+pfkey_init(void)
 {
 	if ((fd = socket(PF_KEY, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK,
 	    PF_KEY_V2)) == -1) {
 		if (errno == EPROTONOSUPPORT) {
-			log_warnx("PF_KEY not available, disabling ipsec");
-			sysdep->no_pfkey = 1;
+			log_warnx("PF_KEY not available");
+			sysdep.no_pfkey = 1;
 			return (-1);
 		} else
 			fatal("pfkey setup failed");

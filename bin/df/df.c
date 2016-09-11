@@ -1,4 +1,4 @@
-/*	$OpenBSD: df.c,v 1.57 2016/03/07 01:19:46 mmcc Exp $	*/
+/*	$OpenBSD: df.c,v 1.59 2016/08/14 21:07:40 krw Exp $	*/
 /*	$NetBSD: df.c,v 1.21.2.1 1995/11/01 00:06:11 jtc Exp $	*/
 
 /*
@@ -46,8 +46,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <util.h>
-
-extern	char *__progname;
 
 int		 bread(int, off_t, void *, int);
 static void	 bsdprint(struct statfs *, long, int);
@@ -446,8 +444,8 @@ bread(int rfd, off_t off, void *buf, int cnt)
 	if ((nr = pread(rfd, buf, cnt, off)) != cnt) {
 		/* Probably a dismounted disk if errno == EIO. */
 		if (errno != EIO)
-			(void)fprintf(stderr, "\ndf: %qd: %s\n",
-			    off, strerror(nr > 0 ? EIO : errno));
+			(void)fprintf(stderr, "\ndf: %lld: %s\n",
+			    (long long)off, strerror(nr > 0 ? EIO : errno));
 		return (0);
 	}
 	return (1);
@@ -458,6 +456,6 @@ usage(void)
 {
 	(void)fprintf(stderr,
 	    "usage: %s [-hiklnP] [-t type] [[file | file_system] ...]\n",
-	    __progname);
+	    getprogname());
 	exit(1);
 }

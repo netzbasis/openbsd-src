@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.149 2015/11/23 14:41:05 sthen Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.155 2016/07/11 13:06:31 bluhm Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -914,6 +914,7 @@ sppp_cp_send(struct sppp *sp, u_short proto, u_char type,
 		return;
 	m->m_pkthdr.len = m->m_len = PKTHDRLEN + LCP_HEADER_LEN + len;
 	m->m_pkthdr.ph_ifidx = 0;
+	m->m_pkthdr.pf.prio = sp->pp_if.if_llprio;
 
 	*mtod(m, u_int16_t *) = htons(proto);
 	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
@@ -3991,6 +3992,7 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 	if (! m)
 		return;
 	m->m_pkthdr.ph_ifidx = 0;
+	m->m_pkthdr.pf.prio = sp->pp_if.if_llprio;
 
 	*mtod(m, u_int16_t *) = htons(cp->proto);
 	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
@@ -4094,7 +4096,7 @@ sppp_keepalive(void *dummy)
 		}
 		if (sp->pp_alivecnt < MAXALIVECNT)
 			++sp->pp_alivecnt;
-		else if (sp->pp_phase >= PHASE_AUTHENTICATE) {
+		if (sp->pp_phase >= PHASE_AUTHENTICATE) {
 			u_int32_t nmagic = htonl(sp->lcp.magic);
 			sp->lcp.echoid = ++sp->pp_seq;
 			sppp_cp_send (sp, PPP_LCP, ECHO_REQ,
@@ -4159,7 +4161,7 @@ sppp_update_gw_walker(struct rtentry *rt, void *arg, unsigned int id)
 		    rt->rt_gateway->sa_family ||
 		    !ISSET(rt->rt_flags, RTF_GATEWAY))
 			return (0);	/* do not modify non-gateway routes */
-		rt_setgate(rt, rt->rt_ifa->ifa_dstaddr);
+		rt_setgate(rt, rt->rt_ifa->ifa_dstaddr, ifp->if_rdomain);
 	}
 	return (0);
 }
@@ -4171,9 +4173,7 @@ sppp_update_gw(struct ifnet *ifp)
 
 	/* update routing table */
 	for (tid = 0; tid <= RT_TABLEID_MAX; tid++) {
-		while (rtable_walk(tid, AF_INET, sppp_update_gw_walker,
-		    ifp) == EAGAIN)
-			;	/* nothing */
+		rtable_walk(tid, AF_INET, sppp_update_gw_walker, ifp);
 	}
 }
 
@@ -4529,19 +4529,6 @@ sppp_set_params(struct sppp *sp, struct ifreq *ifr)
 	if (copyin((caddr_t)ifr->ifr_data, &cmd, sizeof cmd) != 0)
 		return EFAULT;
 
-	/*
-	 * We have a very specific idea of which fields we allow
-	 * being passed back from userland, so to not clobber our
-	 * current state.  For one, we only allow setting
-	 * anything if LCP is in dead phase.  Once the LCP
-	 * negotiations started, the authentication settings must
-	 * not be changed again.  (The administrator can force an
-	 * ifconfig down in order to get LCP back into dead
-	 * phase.)
-	 */
-	if (sp->pp_phase != PHASE_DEAD)
-		return EBUSY;
-
 	switch (cmd) {
 	case SPPPIOSDEFS:
 	{
@@ -4638,7 +4625,7 @@ sppp_set_params(struct sppp *sp, struct ifreq *ifr)
 		return EINVAL;
 	}
 
-	return 0;
+	return (ENETRESET);
 }
 
 void

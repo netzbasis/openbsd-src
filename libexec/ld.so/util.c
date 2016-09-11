@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.38 2015/01/20 19:51:00 deraadt Exp $	*/
+/*	$OpenBSD: util.c,v 1.43 2016/08/12 20:39:01 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -27,7 +27,9 @@
  */
 
 #include <sys/types.h>
+#include <syslog.h>
 #include "archdep.h"
+#include "resolve.h"
 
 /*
  * Stack protector dummies.
@@ -41,19 +43,18 @@ void __stack_smash_handler(char [], int);
 void
 __stack_smash_handler(char func[], int damaged)
 {
-	extern const char *_dl_progname;
 	char message[256];
 
 	/* <10> indicates LOG_CRIT */
 	_dl_strlcpy(message, "<10>ld.so:", sizeof message);
-	_dl_strlcat(message, _dl_progname, sizeof message);
+	_dl_strlcat(message, __progname, sizeof message);
 	if (_dl_strlen(message) > sizeof(message)/2)
 		_dl_strlcpy(message + sizeof(message)/2, "...",
 		    sizeof(message) - sizeof(message)/2);
 	_dl_strlcat(message, "stack overflow in function ", sizeof message);
 	_dl_strlcat(message, func, sizeof message);
 
-	_dl_sendsyslog(message, _dl_strlen(message));
+	_dl_sendsyslog(message, _dl_strlen(message), LOG_CONS);
 	_dl_exit(127);
 }
 
@@ -71,27 +72,47 @@ _dl_strdup(const char *orig)
 }
 
 void
-_dl_randombuf(void *v, size_t buflen)
+_dl_arc4randombuf(void *v, size_t buflen)
 {
+	static char bytes[256];
+	static u_int reserve;
 	char *buf = v;
 	size_t chunk;
 
 	while (buflen != 0) {
-		if (buflen > 256)
-			chunk = 256;
+		if (reserve == 0) {
+			if (_dl_getentropy(bytes, sizeof(bytes)) != 0)
+				_dl_exit(8);
+			reserve = sizeof(bytes);
+		}
+		if (buflen > reserve)
+			chunk = reserve;
 		else
 			chunk = buflen;
-		if (_dl_getentropy(buf, chunk) != 0)
-			_dl_exit(8);
+#if 0
+		memcpy(buf, bytes + reserve - chunk, chunk);
+		memset(bytes + reserve - chunk, 0, chunk);
+#else
+		{
+			char *d = buf;
+			char *s = bytes + reserve - chunk;
+			u_int l;
+			for (l = chunk; l > 0; l--, s++, d++) {
+				*d = *s;
+				*s = 0;
+			}
+		}
+#endif
+		reserve -= chunk;
 		buflen -= chunk;
 		buf += chunk;
 	}
 }
 
 u_int32_t
-_dl_random(void)
+_dl_arc4random(void)
 {
 	u_int32_t rnd;
-	_dl_randombuf(&rnd, sizeof(rnd));
+	_dl_arc4randombuf(&rnd, sizeof(rnd));
 	return (rnd);
 }

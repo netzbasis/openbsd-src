@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread_file.c,v 1.7 2013/11/21 17:45:10 fgsch Exp $	*/
+/*	$OpenBSD: rthread_file.c,v 1.10 2016/09/04 10:13:35 akfaew Exp $	*/
 /*
  * Copyright (c) 1995 John Birrell <jb@cimlogic.com.au>.
  * All rights reserved.
@@ -43,6 +43,7 @@
 #include <sys/queue.h>
 #include <pthread.h>
 #include "rthread.h"
+#include "rthread_cb.h"
 
 /*
  * The FILE lock structure. The FILE *fp is locked if the owner is
@@ -86,7 +87,7 @@ static struct static_file_lock {
 } flh[NUM_HEADS];
 
 /* Lock for accesses to the hash table: */
-static	struct _spinlock	hash_lock	= _SPINLOCK_UNLOCKED;
+static _atomic_lock_t	hash_lock	= _SPINLOCK_UNLOCKED;
 
 /*
  * Find a lock structure for a FILE, return NULL if the file is
@@ -167,7 +168,7 @@ do_lock(int idx, FILE *fp)
 }
 
 void
-(flockfile)(FILE * fp)
+_thread_flockfile(FILE * fp)
 {
 	int	idx = file_idx(fp);
 	struct	file_lock	*p;
@@ -204,8 +205,7 @@ void
 		 */
 		TAILQ_INSERT_TAIL(&p->lockers,self,waiting);
 		while (p->owner != self) {
-			__thrsleep(self, 0 | _USING_TICKETS, NULL,
-			    &hash_lock.ticket, NULL);
+			__thrsleep(self, 0, NULL, &hash_lock, NULL);
 			_spinlock(&hash_lock);
 		}
 	}
@@ -215,7 +215,7 @@ void
 }
 
 int
-(ftrylockfile)(FILE * fp)
+_thread_ftrylockfile(FILE * fp)
 {
 	int	ret = -1;
 	int	idx = file_idx(fp);
@@ -264,7 +264,7 @@ int
 }
 
 void 
-(funlockfile)(FILE * fp)
+_thread_funlockfile(FILE * fp)
 {
 	int	idx = file_idx(fp);
 	struct	file_lock	*p;
@@ -301,4 +301,3 @@ void
 	/* Unlock the hash table: */
 	_spinunlock(&hash_lock);
 }
-

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_pcb.c,v 1.84 2015/12/18 22:25:16 vgross Exp $	*/
+/*	$OpenBSD: in6_pcb.c,v 1.96 2016/08/04 20:46:24 vgross Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -150,138 +150,86 @@ u_char inet6ctlerrmap[PRC_NCMDS] = {
 };
 #endif
 
-/*
- * Bind an address (or at least a port) to an PF_INET6 socket.
- */
 int
-in6_pcbbind(struct inpcb *inp, struct mbuf *nam, struct proc *p)
+in6_pcbaddrisavail(struct inpcb *inp, struct sockaddr_in6 *sin6, int wild,
+    struct proc *p)
 {
 	struct socket *so = inp->inp_socket;
+	struct inpcbtable *table = inp->inp_table;
+	u_short lport = sin6->sin6_port;
+	int reuseport = (so->so_options & SO_REUSEPORT);
 
-	struct inpcbtable *head = inp->inp_table;
-	struct sockaddr_in6 *sin6;
-	u_short lport = 0;
-	int wild = INPLOOKUP_IPV6, reuseport = (so->so_options & SO_REUSEPORT);
-	int error;
+	wild |= INPLOOKUP_IPV6;
+	/* KAME hack: embed scopeid */
+	if (in6_embedscope(&sin6->sin6_addr, sin6, inp) != 0)
+		return (EINVAL);
+	/* this must be cleared for ifa_ifwithaddr() */
+	sin6->sin6_scope_id = 0;
+	/* reject IPv4 mapped address, we have no support for it */
+	if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr))
+		return (EADDRNOTAVAIL);
 
-	/*
-	 * REMINDER:  Once up to speed, flow label processing should go here,
-	 * too.  (Same with in6_pcbconnect.)
-	 */
-	if (TAILQ_EMPTY(&in6_ifaddr))
-		return EADDRNOTAVAIL;
+	if (IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr)) {
+		/*
+		 * Treat SO_REUSEADDR as SO_REUSEPORT for multicast;
+		 * allow complete duplication of binding if
+		 * SO_REUSEPORT is set, or if SO_REUSEADDR is set
+		 * and a multicast address is bound on both
+		 * new and duplicated sockets.
+		 */
+		if (so->so_options & (SO_REUSEADDR|SO_REUSEPORT))
+			reuseport = SO_REUSEADDR | SO_REUSEPORT;
+	} else if (!IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr)) {
+		struct ifaddr *ifa = NULL;
 
-	if (inp->inp_lport != 0 || !IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6))
-		return EINVAL;	/* If already bound, EINVAL! */
-
-	if ((so->so_options & (SO_REUSEADDR | SO_REUSEPORT)) == 0 &&
-	    ((so->so_proto->pr_flags & PR_CONNREQUIRED) == 0 ||
-	     (so->so_options & SO_ACCEPTCONN) == 0))
-		wild |= INPLOOKUP_WILDCARD;
-
-	/*
-	 * If I did get a sockaddr passed in...
-	 */
-	if (nam) {
-		sin6 = mtod(nam, struct sockaddr_in6 *);
-		if (nam->m_len != sizeof (*sin6))
-			return EINVAL;
+		sin6->sin6_port = 0;  /*
+				       * Yechhhh, because of upcoming
+				       * call to ifa_ifwithaddr(), which
+				       * does bcmp's over the PORTS as
+				       * well.  (What about flow?)
+				       */
+		sin6->sin6_flowinfo = 0;
+		if (!(so->so_options & SO_BINDANY) &&
+		    (ifa = ifa_ifwithaddr(sin6tosa(sin6),
+		    inp->inp_rtableid)) == NULL)
+			return (EADDRNOTAVAIL);
+		sin6->sin6_port = lport;
 
 		/*
-		 * Unlike v4, I have no qualms about EAFNOSUPPORT if the
-		 * wretched family is not filled in!
+		 * bind to an anycast address might accidentally
+		 * cause sending a packet with an anycast source
+		 * address, so we forbid it.
+		 *
+		 * We should allow to bind to a deprecated address,
+		 * since the application dare to use it.
+		 * But, can we assume that they are careful enough
+		 * to check if the address is deprecated or not?
+		 * Maybe, as a safeguard, we should have a setsockopt
+		 * flag to control the bind(2) behavior against
+		 * deprecated addresses (default: forbid bind(2)).
 		 */
-		if (sin6->sin6_family != AF_INET6)
-			return EAFNOSUPPORT;
-
-		/* KAME hack: embed scopeid */
-		if (in6_embedscope(&sin6->sin6_addr, sin6, inp) != 0)
-			return EINVAL;
-		/* this must be cleared for ifa_ifwithaddr() */
-		sin6->sin6_scope_id = 0;
-
-		lport = sin6->sin6_port;
-
-		/* reject IPv4 mapped address, we have no support for it */
-		if (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr))
-			return EADDRNOTAVAIL;
-
-		if (IN6_IS_ADDR_MULTICAST(&sin6->sin6_addr)) {
-			/*
-			 * Treat SO_REUSEADDR as SO_REUSEPORT for multicast;
-			 * allow complete duplication of binding if
-			 * SO_REUSEPORT is set, or if SO_REUSEADDR is set
-			 * and a multicast address is bound on both
-			 * new and duplicated sockets.
-			 */
-			if (so->so_options & (SO_REUSEADDR|SO_REUSEPORT))
-				reuseport = SO_REUSEADDR | SO_REUSEPORT;
-		} else if (!IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr)) {
-			struct ifaddr *ifa = NULL;
-
-			sin6->sin6_port = 0;  /*
-					       * Yechhhh, because of upcoming
-					       * call to ifa_ifwithaddr(), which
-					       * does bcmp's over the PORTS as
-					       * well.  (What about flow?)
-					       */
-			sin6->sin6_flowinfo = 0;
-			if (!(so->so_options & SO_BINDANY) &&
-			    (ifa = ifa_ifwithaddr(sin6tosa(sin6),
-			    inp->inp_rtableid)) == NULL)
-				return EADDRNOTAVAIL;
-
-			/*
-			 * bind to an anycast address might accidentally
-			 * cause sending a packet with an anycast source
-			 * address, so we forbid it.
-			 *
-			 * We should allow to bind to a deprecated address,
-			 * since the application dare to use it.
-			 * But, can we assume that they are careful enough
-			 * to check if the address is deprecated or not?
-			 * Maybe, as a safeguard, we should have a setsockopt
-			 * flag to control the bind(2) behavior against
-			 * deprecated addresses (default: forbid bind(2)).
-			 */
-			if (ifa &&
-			    ifatoia6(ifa)->ia6_flags &
-			    (IN6_IFF_ANYCAST|IN6_IFF_NOTREADY|IN6_IFF_DETACHED))
-				return (EADDRNOTAVAIL);
-		}
-		if (lport) {
-			struct inpcb *t;
-
-			/*
-			 * Question:  Do we wish to continue the Berkeley
-			 * tradition of ports < IPPORT_RESERVED be only for
-			 * root?
-			 * Answer: For now yes, but IMHO, it should be REMOVED!
-			 * OUCH: One other thing, is there no better way of
-			 * finding a process for a socket instead of using
-			 * curproc?  (Marked with BSD's {in,}famous XXX ?
-			 */
-			if (ntohs(lport) < IPPORT_RESERVED &&
-			    (error = suser(p, 0)))
-				return error;
-
-			t = in_pcblookup(head,
-			    (struct in_addr *)&zeroin6_addr, 0,
-			    (struct in_addr *)&sin6->sin6_addr, lport,
-			    wild, inp->inp_rtableid);
-
-			if (t && (reuseport & t->inp_socket->so_options) == 0)
-				return EADDRINUSE;
-		}
-		inp->inp_laddr6 = sin6->sin6_addr;
+		if (ifa && ifatoia6(ifa)->ia6_flags & (IN6_IFF_ANYCAST|
+		    IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED|IN6_IFF_DETACHED))
+			return (EADDRNOTAVAIL);
 	}
+	if (lport) {
+		struct inpcb *t;
 
-	if (lport == 0)
-		if ((error = in_pcbpickport(&lport, wild, inp, p)))
-			return (error);
-	inp->inp_lport = lport;
-	in_pcbrehash(inp);
-	return 0;
+		if (so->so_euid) {
+			t = in_pcblookup_local(table,
+			    (struct in_addr *)&sin6->sin6_addr, lport,
+			    INPLOOKUP_WILDCARD | INPLOOKUP_IPV6,
+			    inp->inp_rtableid);
+			if (t && (so->so_euid != t->inp_socket->so_euid))
+				return (EADDRINUSE);
+		}
+		t = in_pcblookup_local(table,
+		    (struct in_addr *)&sin6->sin6_addr, lport,
+		    wild, inp->inp_rtableid);
+		if (t && (reuseport & t->inp_socket->so_options) == 0)
+			return (EADDRINUSE);
+	}
+	return (0);
 }
 
 /*
@@ -333,17 +281,15 @@ in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 	 * with the address specified by setsockopt(IPV6_PKTINFO).
 	 * Is it the intended behavior?
 	 */
-	error = in6_selectsrc(&in6a, sin6, inp->inp_outputopts6,
-	    inp->inp_moptions6, &inp->inp_route6, &inp->inp_laddr6,
-	    inp->inp_rtableid);
+	error = in6_pcbselsrc(&in6a, sin6, inp, inp->inp_outputopts6);
 	if (error)
 		return (error);
 
 	inp->inp_ipv6.ip6_hlim = (u_int8_t)in6_selecthlim(inp);
 
-	if (in_pcblookup(inp->inp_table, &sin6->sin6_addr, sin6->sin6_port,
+	if (in6_pcbhashlookup(inp->inp_table, &sin6->sin6_addr, sin6->sin6_port,
 	    IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6) ? in6a : &inp->inp_laddr6,
-	    inp->inp_lport, INPLOOKUP_IPV6, inp->inp_rtableid)) {
+	    inp->inp_lport, inp->inp_rtableid)) {
 		return (EADDRINUSE);
 	}
 
@@ -351,7 +297,7 @@ in6_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 
 	if (IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6)) {
 		if (inp->inp_lport == 0 &&
-		    in6_pcbbind(inp, NULL, curproc) == EADDRNOTAVAIL)
+		    in_pcbbind(inp, NULL, curproc) == EADDRNOTAVAIL)
 			return (EADDRNOTAVAIL);
 		inp->inp_laddr6 = *in6a;
 	}

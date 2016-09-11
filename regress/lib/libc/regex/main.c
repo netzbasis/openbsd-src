@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.7 2007/09/12 19:32:35 otto Exp $	*/
+/*	$OpenBSD: main.c,v 1.10 2016/07/13 06:17:11 guenther Exp $	*/
 /*	$NetBSD: main.c,v 1.2 1995/04/20 22:39:51 cgd Exp $	*/
 
 #include <stdio.h>
@@ -46,19 +46,19 @@ main(int argc, char *argv[])
 
 	progname = argv[0];
 
-	while ((c = getopt(argc, argv, "c:e:S:E:x")) != -1)
+	while ((c = getopt(argc, argv, "c:E:e:S:x")) != -1)
 		switch (c) {
 		case 'c':	/* compile options */
 			copts = options('c', optarg);
+			break;
+		case 'E':	/* end offset */
+			endoff = (regoff_t)atoi(optarg);
 			break;
 		case 'e':	/* execute options */
 			eopts = options('e', optarg);
 			break;
 		case 'S':	/* start offset */
 			startoff = (regoff_t)atoi(optarg);
-			break;
-		case 'E':	/* end offset */
-			endoff = (regoff_t)atoi(optarg);
 			break;
 		case 'x':	/* Debugging. */
 			debug++;
@@ -69,7 +69,7 @@ main(int argc, char *argv[])
 		}
 	if (errflg) {
 		fprintf(stderr, "usage: %s ", progname);
-		fprintf(stderr, "[-c copt][-C][-d] [re]\n");
+		fprintf(stderr, "[-x] [-c copt] [-E endoff] [-e eopt] [-S startoff] [re]\n");
 		exit(2);
 	}
 
@@ -259,6 +259,9 @@ int opts;			/* may not match f1 */
 			fprintf(stderr, "%d: bad STARTEND syntax\n", line);
 		subs[0].rm_so = strchr(f2, '(') - f2 + 1;
 		subs[0].rm_eo = strchr(f2, ')') - f2;
+		/* the preceding character is relevant with REG_NOTBOL */
+		f2copy[subs[0].rm_so - 1] = subs[0].rm_so > 1 ?
+		    f2copy[subs[0].rm_so - 2] : 'X';
 	}
 	err = regexec(&re, f2copy, NSUBS, subs, options('e', f1));
 
@@ -450,7 +453,6 @@ char *should;
 	}
 
 	len = (int)(sub.rm_eo - sub.rm_so);
-	shlen = (int)strlen(should);
 	p = str + sub.rm_so;
 
 	/* check for not supposed to match */
@@ -460,6 +462,7 @@ char *should;
 	}
 
 	/* check for wrong match */
+	shlen = (int)strlen(should);
 	if (len != shlen || strncmp(p, should, (size_t)shlen) != 0) {
 		snprintf(grump, sizeof grump, "matched `%.*s' instead", len, p);
 		return(grump);

@@ -1,8 +1,7 @@
-#	$OpenBSD: Makefile,v 1.2 2014/07/12 23:45:33 jasper Exp $
+#	$OpenBSD: Makefile,v 1.4 2016/07/30 03:25:49 guenther Exp $
 
 NOMAN=
 #MAN=		boot.8
-#MLINKS=	boot.8 boot.conf.5
 
 .if ${MACHINE} == "octeon"
 PROG=		boot
@@ -13,6 +12,6 @@ NOPROG=
 
 CFLAGS+=-fno-pie -DCONSPEED=15200
 AFLAGS+=-fno-pie
-LDFLAGS+=-nopie
+LDFLAGS+=-nopie -znorelro
 
 .include <bsd.prog.mk>

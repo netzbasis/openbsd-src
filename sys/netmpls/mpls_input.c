@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpls_input.c,v 1.54 2015/12/04 11:13:21 claudio Exp $	*/
+/*	$OpenBSD: mpls_input.c,v 1.57 2016/08/22 15:37:23 mpi Exp $	*/
 
 /*
  * Copyright (c) 2008 Claudio Jeker <claudio@openbsd.org>
@@ -385,8 +385,9 @@ mpls_do_error(struct mbuf *m, int type, int code, int destmtu)
 			m_freem(m);
 			return (NULL);
 		}
-		rtfree(rt);
+		/* It is safe to dereference ``ia'' iff ``rt'' is valid. */
 		error = icmp_reflect(m, NULL, ia);
+		rtfree(rt);
 		if (error)
 			return (NULL);
 

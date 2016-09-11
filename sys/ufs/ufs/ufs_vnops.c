@@ -1,4 +1,4 @@
-/*	$OpenBSD: ufs_vnops.c,v 1.126 2016/02/27 18:50:38 natano Exp $	*/
+/*	$OpenBSD: ufs_vnops.c,v 1.131 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: ufs_vnops.c,v 1.18 1996/05/11 18:28:04 mycroft Exp $	*/
 
 /*
@@ -274,6 +274,9 @@ ufs_access(void *v)
 	if ((mode & VWRITE) && (DIP(ip, flags) & IMMUTABLE))
 		return (EPERM);
 
+	if (vp->v_mount->mnt_flag & MNT_NOPERM)
+		return (0);
+
 	return (vaccess(vp->v_type, DIP(ip, mode), DIP(ip, uid), DIP(ip, gid),
 	    mode, ap->a_cred));
 }
@@ -349,6 +352,7 @@ ufs_setattr(void *v)
 		if (vp->v_mount->mnt_flag & MNT_RDONLY)
 			return (EROFS);
 		if (cred->cr_uid != DIP(ip, uid) &&
+		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 		    (error = suser_ucred(cred)))
 			return (error);
 		if (cred->cr_uid == 0) {
@@ -408,6 +412,7 @@ ufs_setattr(void *v)
 		if (vp->v_mount->mnt_flag & MNT_RDONLY)
 			return (EROFS);
 		if (cred->cr_uid != DIP(ip, uid) &&
+		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 		    (error = suser_ucred(cred)) &&
 		    ((vap->va_vaflags & VA_UTIMES_NULL) == 0 || 
 		    (error = VOP_ACCESS(vp, VWRITE, cred, p))))
@@ -455,9 +460,11 @@ ufs_chmod(struct vnode *vp, int mode, struct ucred *cred, struct proc *p)
 	int error;
 
 	if (cred->cr_uid != DIP(ip, uid) &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 	    (error = suser_ucred(cred)))
 		return (error);
-	if (cred->cr_uid) {
+	if (cred->cr_uid &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0) {
 		if (vp->v_type != VDIR && (mode & S_ISTXT))
 			return (EFTYPE);
 		if (!groupmember(DIP(ip, gid), cred) && (mode & ISGID))
@@ -497,6 +504,7 @@ ufs_chown(struct vnode *vp, uid_t uid, gid_t gid, struct ucred *cred,
 	 */
 	if ((cred->cr_uid != DIP(ip, uid) || uid != DIP(ip, uid) ||
 	    (gid != DIP(ip, gid) && !groupmember(gid, cred))) &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 	    (error = suser_ucred(cred)))
 		return (error);
 	ogid = DIP(ip, gid);
@@ -537,9 +545,11 @@ ufs_chown(struct vnode *vp, uid_t uid, gid_t gid, struct ucred *cred,
 
 	if (ouid != uid || ogid != gid)
 		ip->i_flag |= IN_CHANGE;
-	if (ouid != uid && cred->cr_uid != 0)
+	if (ouid != uid && cred->cr_uid != 0 &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0)
 		DIP_AND(ip, mode, ~ISUID);
-	if (ogid != gid && cred->cr_uid != 0)
+	if (ogid != gid && cred->cr_uid != 0 &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0)
 		DIP_AND(ip, mode, ~ISGID);
 	return (0);
 
@@ -673,7 +683,7 @@ ufs_link(void *v)
 	VN_KNOTE(dvp, NOTE_WRITE);
 out1:
 	if (dvp != vp)
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 out2:
 	vput(dvp);
 	return (error);
@@ -798,13 +808,13 @@ abortit:
 	dp = VTOI(fdvp);
 	ip = VTOI(fvp);
 	if ((nlink_t) DIP(ip, nlink) >= LINK_MAX) {
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		error = EMLINK;
 		goto abortit;
 	}
 	if ((DIP(ip, flags) & (IMMUTABLE | APPEND)) ||
 	    (DIP(dp, flags) & APPEND)) {
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		error = EPERM;
 		goto abortit;
 	}
@@ -813,7 +823,7 @@ abortit:
 		if (!error && tvp)
 			error = VOP_ACCESS(tvp, VWRITE, tcnp->cn_cred, tcnp->cn_proc);
 		if (error) {
-			VOP_UNLOCK(fvp, 0, p);
+			VOP_UNLOCK(fvp, p);
 			error = EACCES;
 			goto abortit;
 		}
@@ -825,7 +835,7 @@ abortit:
 		    (fcnp->cn_flags & ISDOTDOT) ||
 		    (tcnp->cn_flags & ISDOTDOT) ||
 		    (ip->i_flag & IN_RENAME)) {
-			VOP_UNLOCK(fvp, 0, p);
+			VOP_UNLOCK(fvp, p);
 			error = EINVAL;
 			goto abortit;
 		}
@@ -856,7 +866,7 @@ abortit:
 	if (DOINGSOFTDEP(fvp))
 		softdep_change_linkcnt(ip, 0);
 	if ((error = UFS_UPDATE(ip, !DOINGSOFTDEP(fvp))) != 0) {
-		VOP_UNLOCK(fvp, 0, p);
+		VOP_UNLOCK(fvp, p);
 		goto bad;
 	}
 
@@ -871,7 +881,7 @@ abortit:
 	 * call to checkpath().
 	 */
 	error = VOP_ACCESS(fvp, VWRITE, tcnp->cn_cred, tcnp->cn_proc);
-	VOP_UNLOCK(fvp, 0, p);
+	VOP_UNLOCK(fvp, p);
 
 	/* tdvp and tvp locked */
 	if (oldparent != dp->i_number)
@@ -965,7 +975,8 @@ abortit:
 		 */
 		if ((DIP(dp, mode) & S_ISTXT) && tcnp->cn_cred->cr_uid != 0 &&
 		    tcnp->cn_cred->cr_uid != DIP(dp, uid) &&
-		    DIP(xp, uid )!= tcnp->cn_cred->cr_uid) {
+		    DIP(xp, uid )!= tcnp->cn_cred->cr_uid &&
+		    (tdvp->v_mount->mnt_flag & MNT_NOPERM) == 0) {
 			error = EPERM;
 			goto bad;
 		}
@@ -1441,7 +1452,7 @@ ufs_readdir(void *v)
 	 */
 
 	/* read from disk, stopping on a block boundary, max 64kB */
-	readcnt = max(count, 64*1024) - entries;
+	readcnt = min(count, 64*1024) - entries;
 
 	auio = *uio;
 	auio.uio_iov = &aiov;
@@ -1538,7 +1549,7 @@ ufs_lock(void *v)
 	struct vop_lock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->i_lock, ap->a_flags, NULL));
+	return rrw_enter(&VTOI(vp)->i_lock, ap->a_flags & LK_RWFLAGS);
 }
 
 /*
@@ -1550,7 +1561,8 @@ ufs_unlock(void *v)
 	struct vop_unlock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->i_lock, ap->a_flags | LK_RELEASE, NULL));
+	rrw_exit(&VTOI(vp)->i_lock);
+	return 0;
 }
 
 /*
@@ -1561,7 +1573,7 @@ ufs_islocked(void *v)
 {
 	struct vop_islocked_args *ap = v;
 
-	return (lockstatus(&VTOI(ap->a_vp)->i_lock));
+	return rrw_status(&VTOI(ap->a_vp)->i_lock);
 }
 
 /*
@@ -1802,72 +1814,6 @@ ufs_advlock(void *v)
 }
 
 /*
- * Initialize the vnode associated with a new inode, handle aliased
- * vnodes.
- */
-int
-ufs_vinit(struct mount *mntp, struct vops *specops, struct vops *fifoops,
-    struct vnode **vpp)
-{
-	struct inode *ip;
-	struct vnode *vp, *nvp;
-	struct timeval mtv;
-
-	vp = *vpp;
-	ip = VTOI(vp);
-	switch(vp->v_type = IFTOVT(DIP(ip, mode))) {
-	case VCHR:
-	case VBLK:
-		vp->v_op = specops;
-		if ((nvp = checkalias(vp, DIP(ip, rdev), mntp)) != NULL) {
-			/*
-			 * Discard unneeded vnode, but save its inode.
-			 * Note that the lock is carried over in the inode
-			 * to the replacement vnode.
-			 */
-			nvp->v_data = vp->v_data;
-			vp->v_data = NULL;
-			vp->v_op = &spec_vops;
-#ifdef VFSLCKDEBUG
-			vp->v_flag &= ~VLOCKSWORK;
-#endif
-			vrele(vp);
-			vgone(vp);
-			/*
-			 * Reinitialize aliased inode.
-			 */
-			vp = nvp;
-			ip->i_vnode = vp;
-		}
-		break;
-	case VFIFO:
-#ifdef FIFO
-		vp->v_op = fifoops;
-		break;
-#else
-		return (EOPNOTSUPP);
-#endif
-	case VNON:
-	case VBAD:
-	case VSOCK:
-	case VLNK:
-	case VDIR:
-	case VREG:
-		break;
-	}
-	if (ip->i_number == ROOTINO)
-		vp->v_flag |= VROOT;
-	/*
-	 * Initialize modrev times
-	 */
-	getmicrouptime(&mtv);
-	ip->i_modrev = (u_quad_t)mtv.tv_sec << 32;
-	ip->i_modrev |= (u_quad_t)mtv.tv_usec * 4294;
-	*vpp = vp;
-	return (0);
-}
-
-/*
  * Allocate a new inode.
  */
 int
@@ -1917,6 +1863,7 @@ ufs_makeinode(int mode, struct vnode *dvp, struct vnode **vpp,
 		softdep_change_linkcnt(ip, 0);
 	if ((DIP(ip, mode) & ISGID) &&
 		!groupmember(DIP(ip, gid), cnp->cn_cred) &&
+	    (dvp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 	    suser_ucred(cnp->cn_cred))
 		DIP_AND(ip, mode, ~ISGID);
 

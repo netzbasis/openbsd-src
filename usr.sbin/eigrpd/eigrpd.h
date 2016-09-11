@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpd.h,v 1.10 2016/02/21 18:53:54 renato Exp $ */
+/*	$OpenBSD: eigrpd.h,v 1.22 2016/09/02 17:59:58 benno Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -22,20 +22,23 @@
 #define _EIGRPD_H_
 
 #include <sys/queue.h>
-#include <sys/socket.h>
-#include <sys/time.h>
 #include <sys/tree.h>
-#include <net/route.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/in.h>
-#include <event.h>
 
+#include <event.h>
 #include <imsg.h>
+
 #include "eigrp.h"
 
 #define CONF_FILE		"/etc/eigrpd.conf"
 #define	EIGRPD_SOCKET		"/var/run/eigrpd.sock"
 #define EIGRPD_USER		"_eigrpd"
+
+#define EIGRPD_OPT_VERBOSE	0x00000001
+#define EIGRPD_OPT_VERBOSE2	0x00000002
+#define EIGRPD_OPT_NOACTION	0x00000004
 
 #define NBR_IDSELF		1
 #define NBR_CNTSTART		(NBR_IDSELF + 1)
@@ -58,11 +61,16 @@
 #define	F_CTL_ACTIVE		0x0400
 #define	F_CTL_ALLLINKS		0x0800
 
+static const char * const log_procnames[] = {
+	"parent",
+	"eigrpe",
+	"rde"
+};
+
 struct imsgev {
 	struct imsgbuf		 ibuf;
 	void			(*handler)(int, short, void *);
 	struct event		 ev;
-	void			*data;
 	short			 events;
 };
 
@@ -108,12 +116,24 @@ enum imsg_type {
 	IMSG_SEND_SIAREPLY_END,
 	IMSG_SEND_MUPDATE_END,
 	IMSG_SEND_MQUERY_END,
+	IMSG_SOCKET_IPC,
 	IMSG_RECONF_CONF,
 	IMSG_RECONF_IFACE,
 	IMSG_RECONF_INSTANCE,
 	IMSG_RECONF_EIGRP_IFACE,
 	IMSG_RECONF_END
 };
+
+/* forward declarations */
+struct eigrp_iface;
+RB_HEAD(iface_id_head, eigrp_iface);
+struct nbr;
+RB_HEAD(nbr_addr_head, nbr);
+RB_HEAD(nbr_pid_head, nbr);
+struct rde_nbr;
+RB_HEAD(rde_nbr_head, rde_nbr);
+struct rt_node;
+RB_HEAD(rt_tree, rt_node);
 
 union eigrpd_addr {
 	struct in_addr	v4;
@@ -145,7 +165,7 @@ struct iface {
 	TAILQ_HEAD(, eigrp_iface) ei_list;
 	unsigned int		 ifindex;
 	char			 name[IF_NAMESIZE];
-	struct if_addr_head      addr_list;
+	struct if_addr_head	 addr_list;
 	struct in6_addr		 linklocal;
 	int			 mtu;
 	enum iface_type		 type;
@@ -211,6 +231,7 @@ struct eigrp_iface {
 	struct rinfo_head	 query_list;	/* multicast queries */
 	TAILQ_HEAD(, summary_addr) summary_list;
 };
+RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
 
 #define INADDRSZ	4
 #define IN6ADDRSZ	16
@@ -221,12 +242,6 @@ struct seq_addr_entry {
 	union eigrpd_addr	 addr;
 };
 TAILQ_HEAD(seq_addr_head, seq_addr_entry);
-
-struct nbr;
-RB_HEAD(nbr_addr_head, nbr);
-RB_HEAD(nbr_pid_head, nbr);
-struct rt_node;
-RB_HEAD(rt_tree, rt_node);
 
 #define	REDIST_STATIC		0x01
 #define	REDIST_RIP		0x02
@@ -298,7 +313,7 @@ struct eigrp {
 };
 
 /* eigrp_conf */
-enum {
+enum eigrpd_process {
 	PROC_MAIN,
 	PROC_EIGRP_ENGINE,
 	PROC_RDE_ENGINE
@@ -306,26 +321,27 @@ enum {
 
 struct eigrpd_conf {
 	struct in_addr		 rtr_id;
-
-	uint32_t		 opts;
-#define EIGRPD_OPT_VERBOSE	0x00000001
-#define EIGRPD_OPT_VERBOSE2	0x00000002
-#define EIGRPD_OPT_NOACTION	0x00000004
-
-	int			 flags;
-#define	EIGRPD_FLAG_NO_FIB_UPDATE 0x0001
-
-	time_t			 uptime;
-	int			 eigrp_socket_v4;
-	int			 eigrp_socket_v6;
 	unsigned int		 rdomain;
 	uint8_t			 fib_priority_internal;
 	uint8_t			 fib_priority_external;
 	uint8_t			 fib_priority_summary;
 	TAILQ_HEAD(, iface)	 iface_list;
 	TAILQ_HEAD(, eigrp)	 instances;
+	int			 flags;
+#define	EIGRPD_FLAG_NO_FIB_UPDATE 0x0001
+};
+
+struct eigrpd_global {
+	int			 cmd_opts;
+	time_t			 uptime;
+	int			 eigrp_socket_v4;
+	int			 eigrp_socket_v6;
+	struct in_addr		 mcast_addr_v4;
+	struct in6_addr		 mcast_addr_v6;
 	char			*csock;
 };
+
+extern struct eigrpd_global global;
 
 /* kroute */
 struct kroute {
@@ -430,8 +446,14 @@ struct ctl_stats {
 	struct eigrp_stats	 stats;
 };
 
+#define min(x,y) ((x) <= (y) ? (x) : (y))
+#define max(x,y) ((x) > (y) ? (x) : (y))
+
+extern struct eigrpd_conf	*eigrpd_conf;
+extern struct iface_id_head	 ifaces_by_id;
+
 /* parse.y */
-struct eigrpd_conf	*parse_config(char *, int);
+struct eigrpd_conf	*parse_config(char *);
 int			 cmdline_symset(char *);
 
 /* in_cksum.c */
@@ -439,20 +461,17 @@ uint16_t	 in_cksum(void *, size_t);
 
 /* kroute.c */
 int		 kif_init(void);
-void		 kif_redistribute(void);
 int		 kr_init(int, unsigned int);
+void		 kif_redistribute(void);
 int		 kr_change(struct kroute *);
 int		 kr_delete(struct kroute *);
-void		 kif_clear(void);
 void		 kr_shutdown(void);
 void		 kr_fib_couple(void);
 void		 kr_fib_decouple(void);
-void		 kr_fib_reload(void);
-void		 kr_dispatch_msg(int, short, void *);
 void		 kr_show_route(struct imsg *);
 void		 kr_ifinfo(char *, pid_t);
 struct kif	*kif_findname(char *);
-void		 kr_reload(void);
+void		 kif_clear(void);
 
 /* util.c */
 uint8_t		 mask2prefixlen(in_addr_t);
@@ -460,12 +479,12 @@ uint8_t		 mask2prefixlen6(struct sockaddr_in6 *);
 in_addr_t	 prefixlen2mask(uint8_t);
 struct in6_addr	*prefixlen2mask6(uint8_t);
 void		 eigrp_applymask(int, union eigrpd_addr *,
-    const union eigrpd_addr *, int);
+		    const union eigrpd_addr *, int);
 int		 eigrp_addrcmp(int, const union eigrpd_addr *,
-    const union eigrpd_addr *);
+		    const union eigrpd_addr *);
 int		 eigrp_addrisset(int, const union eigrpd_addr *);
 int		 eigrp_prefixcmp(int, const union eigrpd_addr *,
-    const union eigrpd_addr *, uint8_t);
+		    const union eigrpd_addr *, uint8_t);
 int		 bad_addr_v4(struct in_addr);
 int		 bad_addr_v6(struct in6_addr *);
 int		 bad_addr(int, union eigrpd_addr *);
@@ -473,19 +492,33 @@ void		 embedscope(struct sockaddr_in6 *);
 void		 recoverscope(struct sockaddr_in6 *);
 void		 addscope(struct sockaddr_in6 *, uint32_t);
 void		 clearscope(struct in6_addr *);
+void		 sa2addr(struct sockaddr *, int *, union eigrpd_addr *);
 
 /* eigrpd.c */
-void		 main_imsg_compose_eigrpe(int, pid_t, void *, uint16_t);
-void		 main_imsg_compose_rde(int, pid_t, void *, uint16_t);
-void		 merge_config(struct eigrpd_conf *, struct eigrpd_conf *);
-void		 config_clear(struct eigrpd_conf *);
+int		 main_imsg_compose_eigrpe(int, pid_t, void *, uint16_t);
+int		 main_imsg_compose_rde(int, pid_t, void *, uint16_t);
 void		 imsg_event_add(struct imsgev *);
 int		 imsg_compose_event(struct imsgev *, uint16_t, uint32_t,
-    pid_t, int, void *, uint16_t);
-uint32_t	 eigrp_router_id(struct eigrpd_conf *);
+		    pid_t, int, void *, uint16_t);
 struct eigrp	*eigrp_find(struct eigrpd_conf *, int, uint16_t);
+void		 merge_config(struct eigrpd_conf *, struct eigrpd_conf *);
+struct eigrpd_conf *config_new_empty(void);
+void		 config_clear(struct eigrpd_conf *);
 
 /* printconf.c */
-void	print_config(struct eigrpd_conf *);
+void		 print_config(struct eigrpd_conf *);
+
+/* logmsg.c */
+const char	*log_in6addr(const struct in6_addr *);
+const char	*log_in6addr_scope(const struct in6_addr *, unsigned int);
+const char	*log_sockaddr(void *);
+const char	*log_addr(int, union eigrpd_addr *);
+const char	*log_prefix(struct rt_node *);
+const char	*log_route_origin(int, struct rde_nbr *);
+const char	*opcode_name(uint8_t);
+const char	*af_name(int);
+const char	*if_type_name(enum iface_type);
+const char	*dual_state_name(int);
+const char	*ext_proto_name(int);
 
 #endif	/* _EIGRPD_H_ */

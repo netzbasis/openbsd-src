@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec_elf.c,v 1.120 2016/02/28 15:46:18 naddy Exp $	*/
+/*	$OpenBSD: exec_elf.c,v 1.126 2016/06/11 21:04:08 kettenis Exp $	*/
 
 /*
  * Copyright (c) 1996 Per Fogelstrom
@@ -76,6 +76,7 @@
 #include <sys/namei.h>
 #include <sys/vnode.h>
 #include <sys/core.h>
+#include <sys/syslog.h>
 #include <sys/exec.h>
 #include <sys/exec_elf.h>
 #include <sys/file.h>
@@ -108,7 +109,7 @@ void ELFNAME(load_psection)(struct exec_vmcmd_set *, struct vnode *,
 	Elf_Phdr *, Elf_Addr *, Elf_Addr *, int *, int);
 int ELFNAMEEND(coredump)(struct proc *, void *);
 
-extern char sigcode[], esigcode[];
+extern char sigcode[], esigcode[], sigcoderet[];
 #ifdef SYSCALL_DEBUG
 extern char *syscallnames[];
 #endif
@@ -145,6 +146,7 @@ struct emul ELFNAMEEND(emul) = {
 	ELFNAMEEND(coredump),
 	sigcode,
 	esigcode,
+	sigcoderet,
 	EMUL_ENABLED | EMUL_NATIVE,
 };
 
@@ -234,9 +236,16 @@ ELFNAME(load_psection)(struct exec_vmcmd_set *vcset, struct vnode *vp,
 	}
 	bdiff = ph->p_vaddr - trunc_page(ph->p_vaddr);
 
+	/*
+	 * Enforce W^X and map W|X segments without X permission
+	 * initially.  The dynamic linker will make these read-only
+	 * and add back X permission after relocation processing.
+	 * Static executables with W|X segments will probably crash.
+	 */
 	*prot |= (ph->p_flags & PF_R) ? PROT_READ : 0;
 	*prot |= (ph->p_flags & PF_W) ? PROT_WRITE : 0;
-	*prot |= (ph->p_flags & PF_X) ? PROT_EXEC : 0;
+	if ((ph->p_flags & PF_W) == 0)
+		*prot |= (ph->p_flags & PF_X) ? PROT_EXEC : 0;
 
 	msize = ph->p_memsz + diff;
 	offset = ph->p_offset - bdiff;
@@ -867,6 +876,7 @@ int
 ELFNAME(os_pt_note)(struct proc *p, struct exec_package *epp, Elf_Ehdr *eh,
 	char *os_name, size_t name_size, size_t desc_size)
 {
+	char pathbuf[MAXPATHLEN];
 	Elf_Phdr *hph, *ph;
 	Elf_Note *np = NULL;
 	size_t phsize;
@@ -877,6 +887,25 @@ ELFNAME(os_pt_note)(struct proc *p, struct exec_package *epp, Elf_Ehdr *eh,
 	if ((error = ELFNAME(read_from)(p, epp->ep_vp, eh->e_phoff,
 	    (caddr_t)hph, phsize)) != 0)
 		goto out1;
+
+	for (ph = hph;  ph < &hph[eh->e_phnum]; ph++) {
+		if (ph->p_type == PT_OPENBSD_WXNEEDED) {
+			int wxallowed = (epp->ep_vp->v_mount &&
+			    (epp->ep_vp->v_mount->mnt_flag & MNT_WXALLOWED));
+			
+			if (!wxallowed) {
+				error = copyinstr(epp->ep_name, &pathbuf,
+				    sizeof(pathbuf), NULL);
+				log(LOG_NOTICE,
+				    "%s(%d): W^X binary outside wxallowed mountpoint\n",
+				    error ? "" : pathbuf, p->p_pid);
+				error = ENOEXEC;
+				goto out1;
+			}
+			epp->ep_flags |= EXEC_WXNEEDED;
+			break;
+		}
+	}
 
 	for (ph = hph;  ph < &hph[eh->e_phnum]; ph++) {
 		if (ph->p_type != PT_NOTE ||

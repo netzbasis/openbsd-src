@@ -1,4 +1,4 @@
-/*	$OpenBSD: growfs.c,v 1.49 2016/01/29 11:50:40 tb Exp $	*/
+/*	$OpenBSD: growfs.c,v 1.51 2016/05/28 20:40:23 tb Exp $	*/
 /*
  * Copyright (c) 2000 Christoph Herrmann, Thomas-Henning von Kamptz
  * Copyright (c) 1980, 1989, 1993 The Regents of the University of California.
@@ -1666,15 +1666,13 @@ charsperline(void)
 	struct winsize	ws;
 
 	columns = 0;
-	if (ioctl(0, TIOCGWINSZ, &ws) != -1) {
-		columns = ws.ws_col;
-	}
-	if (columns == 0 && (cp = getenv("COLUMNS"))) {
+	if ((cp = getenv("COLUMNS")) != NULL)
 		columns = strtonum(cp, 1, INT_MAX, NULL);
-	}
-	if (columns == 0) {
-		columns = 80;	/* last resort */
-	}
+	if (columns == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_col > 0)
+		columns = ws.ws_col;
+	if (columns == 0)
+		columns = 80;
 
 	return columns;
 }
@@ -1767,9 +1765,6 @@ main(int argc, char **argv)
 			err(1, "%s", device);
 	}
 
-	if (pledge("stdio disklabel", NULL) == -1)
-		err(1, "pledge");
-
 	/*
 	 * Now we have a file descriptor for our device, fstat() it to
 	 * figure out the partition number.
@@ -1788,6 +1783,9 @@ main(int argc, char **argv)
 	else
 		errx(1, "%s: invalid partition number %u",
 		    device, DISKPART(st.st_rdev));
+
+	if (pledge("stdio disklabel", NULL) == -1)
+		err(1, "pledge");
 
 	/*
 	 * Check if that partition is suitable for growing a file system.

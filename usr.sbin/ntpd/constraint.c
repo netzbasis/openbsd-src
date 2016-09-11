@@ -1,4 +1,4 @@
-/*	$OpenBSD: constraint.c,v 1.26 2016/03/05 16:09:20 naddy Exp $	*/
+/*	$OpenBSD: constraint.c,v 1.30 2016/07/13 16:35:47 jsing Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -77,9 +77,9 @@ extern struct imsgbuf *ibuf;		/* priv */
 extern struct imsgbuf *ibuf_main;	/* chld */
 
 struct httpsdate {
-	char			*tls_host;
+	char			*tls_addr;
 	char			*tls_port;
-	char			*tls_name;
+	char			*tls_hostname;
 	char			*tls_path;
 	char			*tls_request;
 	struct tls_config	*tls_config;
@@ -280,7 +280,7 @@ void
 priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
     u_int8_t *data, int pipes[2], const char *pw_dir, uid_t pw_uid, gid_t pw_gid)
 {
-	static char		 hname[NI_MAXHOST];
+	static char		 addr[NI_MAXHOST];
 	struct timeval		 rectv, xmttv;
 	struct sigaction	 sa;
 	void			*ctx;
@@ -292,12 +292,12 @@ priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
 	if (setpriority(PRIO_PROCESS, 0, 0) == -1)
 		log_warn("could not set priority");
 
-	/* Init TLS and load cert before chroot() */
+	/* Init TLS and load CA certs before chroot() */
 	if (tls_init() == -1)
 		fatalx("tls_init");
 	if ((conf->ca = tls_load_file(CONSTRAINT_CA,
 	    &conf->ca_len, NULL)) == NULL)
-		log_warnx("constraint certificate verification turned off");
+		fatalx("failed to load constraint ca");
 
 	if (chroot(pw_dir) == -1)
 		fatal("chroot");
@@ -323,12 +323,12 @@ priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
 	/* Get name and set process title */
 	if (getnameinfo((struct sockaddr *)&cstr->addr->ss,
 	    SA_LEN((struct sockaddr *)&cstr->addr->ss),
-	    hname, sizeof(hname), NULL, 0,
+	    addr, sizeof(addr), NULL, 0,
 	    NI_NUMERICHOST) != 0)
 		fatalx("%s getnameinfo", __func__);
 
-	log_debug("constraint request to %s", hname);
-	setproctitle("constraint from %s", hname);
+	log_debug("constraint request to %s", addr);
+	setproctitle("constraint from %s", addr);
 
 	/* Set file descriptors */
 	if (dup2(pipes[1], CONSTRAINT_PASSFD) == -1)
@@ -359,7 +359,7 @@ priv_constraint_child(struct constraint *cstr, struct ntp_addr_msg *am,
 	}
 
 	/* Run! */
-	if ((ctx = httpsdate_query(hname,
+	if ((ctx = httpsdate_query(addr,
 	    CONSTRAINT_PORT, cstr->addr_head.name, cstr->addr_head.path,
 	    conf->ca, conf->ca_len, &rectv, &xmttv)) == NULL) {
 		/* Abort with failure but without warning */
@@ -793,7 +793,7 @@ constraint_check(double val)
 }
 
 struct httpsdate *
-httpsdate_init(const char *hname, const char *port, const char *name,
+httpsdate_init(const char *addr, const char *port, const char *hostname,
     const char *path, const u_int8_t *ca, size_t ca_len)
 {
 	struct httpsdate	*httpsdate = NULL;
@@ -801,28 +801,25 @@ httpsdate_init(const char *hname, const char *port, const char *name,
 	if ((httpsdate = calloc(1, sizeof(*httpsdate))) == NULL)
 		goto fail;
 
-	if (name == NULL)
-		name = hname;
+	if (hostname == NULL)
+		hostname = addr;
 
-	if ((httpsdate->tls_host = strdup(hname)) == NULL ||
+	if ((httpsdate->tls_addr = strdup(addr)) == NULL ||
 	    (httpsdate->tls_port = strdup(port)) == NULL ||
-	    (httpsdate->tls_name = strdup(name)) == NULL ||
+	    (httpsdate->tls_hostname = strdup(hostname)) == NULL ||
 	    (httpsdate->tls_path = strdup(path)) == NULL)
 		goto fail;
 
 	if (asprintf(&httpsdate->tls_request,
 	    "HEAD %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
-	    httpsdate->tls_path, httpsdate->tls_name) == -1)
+	    httpsdate->tls_path, httpsdate->tls_hostname) == -1)
 		goto fail;
 
 	if ((httpsdate->tls_config = tls_config_new()) == NULL)
 		goto fail;
 
-	if (tls_config_set_ciphers(httpsdate->tls_config, "compat") != 0)
+	if (tls_config_set_ciphers(httpsdate->tls_config, "all") != 0)
 		goto fail;
-
-	/* XXX we have to pre-resolve, so name and host are not equal */
-	tls_config_insecure_noverifyname(httpsdate->tls_config);
 
 	if (ca == NULL || ca_len == 0)
 		tls_config_insecure_noverifycert(httpsdate->tls_config);
@@ -846,9 +843,9 @@ httpsdate_free(void *arg)
 		tls_close(httpsdate->tls_ctx);
 	tls_free(httpsdate->tls_ctx);
 	tls_config_free(httpsdate->tls_config);
-	free(httpsdate->tls_host);
+	free(httpsdate->tls_addr);
 	free(httpsdate->tls_port);
-	free(httpsdate->tls_name);
+	free(httpsdate->tls_hostname);
 	free(httpsdate->tls_path);
 	free(httpsdate->tls_request);
 	free(httpsdate);
@@ -867,9 +864,10 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 	if (tls_configure(httpsdate->tls_ctx, httpsdate->tls_config) == -1)
 		goto fail;
 
-	if (tls_connect(httpsdate->tls_ctx,
-	    httpsdate->tls_host, httpsdate->tls_port) == -1) {
-		log_debug("tls failed: %s: %s", httpsdate->tls_host,
+	if (tls_connect_servername(httpsdate->tls_ctx, httpsdate->tls_addr,
+	    httpsdate->tls_port, httpsdate->tls_hostname) == -1) {
+		log_debug("tls connect failed: %s (%s): %s",
+		    httpsdate->tls_addr, httpsdate->tls_hostname,
 		    tls_error(httpsdate->tls_ctx));
 		goto fail;
 	}
@@ -880,8 +878,12 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 		ret = tls_write(httpsdate->tls_ctx, buf, len);
 		if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 			continue;
-		if (ret < 0)
+		if (ret < 0) {
+			log_warnx("tls write failed: %s (%s): %s",
+			    httpsdate->tls_addr, httpsdate->tls_hostname,
+			    tls_error(httpsdate->tls_ctx));
 			goto fail;
+		}
 		buf += ret;
 		len -= ret;
 	}
@@ -916,15 +918,15 @@ httpsdate_request(struct httpsdate *httpsdate, struct timeval *when)
 		free(line);
 	}
 
-
 	return (0);
+
  fail:
 	httpsdate_free(httpsdate);
 	return (-1);
 }
 
 void *
-httpsdate_query(const char *hname, const char *port, const char *name,
+httpsdate_query(const char *addr, const char *port, const char *hostname,
     const char *path, const u_int8_t *ca, size_t ca_len,
     struct timeval *rectv, struct timeval *xmttv)
 {
@@ -932,7 +934,7 @@ httpsdate_query(const char *hname, const char *port, const char *name,
 	struct timeval		 when;
 	time_t			 t;
 
-	if ((httpsdate = httpsdate_init(hname, port, name, path,
+	if ((httpsdate = httpsdate_init(addr, port, hostname, path,
 	    ca, ca_len)) == NULL)
 		return (NULL);
 

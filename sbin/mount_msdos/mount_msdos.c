@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount_msdos.c,v 1.31 2015/11/02 01:22:37 chl Exp $	*/
+/*	$OpenBSD: mount_msdos.c,v 1.33 2016/05/21 19:14:02 jmc Exp $	*/
 /*	$NetBSD: mount_msdos.c,v 1.16 1996/10/24 00:12:50 cgd Exp $	*/
 
 /*
@@ -71,7 +71,7 @@ main(int argc, char **argv)
 	mntflags = set_gid = set_uid = set_mask = 0;
 	(void)memset(&args, '\0', sizeof(args));
 
-	while ((c = getopt(argc, argv, "sl9xu:g:m:o:")) != -1) {
+	while ((c = getopt(argc, argv, "sl9u:g:m:o:")) != -1) {
 		switch (c) {
 		case 's':
 			args.flags |= MSDOSFSMNT_SHORTNAME;
@@ -81,9 +81,6 @@ main(int argc, char **argv)
 			break;
 		case '9':
 			args.flags |= MSDOSFSMNT_NOWIN95;
-			break;
-		case 'x':
-			args.flags |= MSDOSFSMNT_ALLOWDIRX;
 			break;
 		case 'u':
 			args.uid = a_uid(optarg);
@@ -203,6 +200,6 @@ usage(void)
 {
 
 	fprintf(stderr,
-	    "usage: mount_msdos [-9lsx] [-g gid] [-m mask] [-o options] [-u uid] special node\n");
+	    "usage: mount_msdos [-9ls] [-g gid] [-m mask] [-o options] [-u uid] special node\n");
 	exit(1);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.111 2016/02/09 10:38:02 gilles Exp $	*/
+/*	$OpenBSD: control.c,v 1.117 2016/09/08 12:06:43 eric Exp $	*/
 
 /*
  * Copyright (c) 2012 Gilles Chehade <gilles@poolp.org>
@@ -63,7 +63,6 @@ static void control_shutdown(void);
 static void control_listen(void);
 static void control_accept(int, short, void *);
 static void control_close(struct ctl_conn *);
-static void control_sig_handler(int, short, void *);
 static void control_dispatch_ext(struct mproc *, struct imsg *);
 static void control_digest_update(const char *, size_t, int);
 static void control_broadcast_verbose(int, int);
@@ -88,6 +87,12 @@ control_imsg(struct mproc *p, struct imsg *imsg)
 	const char		*key;
 	const void		*data;
 	size_t			 sz;
+
+	if (imsg == NULL) {
+		if (p->proc != PROC_CLIENT)
+			control_shutdown();
+		return;
+	}
 
 	if (p->proc == PROC_PONY) {
 		switch (imsg->hdr.type) {
@@ -186,19 +191,6 @@ control_imsg(struct mproc *p, struct imsg *imsg)
 	    imsg_to_str(imsg->hdr.type));
 }
 
-static void
-control_sig_handler(int sig, short event, void *p)
-{
-	switch (sig) {
-	case SIGINT:
-	case SIGTERM:
-		control_shutdown();
-		break;
-	default:
-		fatalx("control_sig_handler: unexpected signal");
-	}
-}
-
 int
 control_create_socket(void)
 {
@@ -235,29 +227,16 @@ control_create_socket(void)
 		fatal("control: chmod");
 	}
 
-	session_socket_blockmode(fd, BM_NONBLOCK);
+	io_set_nonblocking(fd);
 	control_state.fd = fd;
 
 	return fd;
 }
 
-pid_t
+int
 control(void)
 {
-	pid_t			 pid;
 	struct passwd		*pw;
-	struct event		 ev_sigint;
-	struct event		 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("control: cannot fork");
-	case 0:
-		post_fork(PROC_CONTROL);
-		break;
-	default:
-		return (pid);
-	}
 
 	purge_config(PURGE_EVERYTHING);
 
@@ -282,10 +261,8 @@ control(void)
 	imsg_callback = control_imsg;
 	event_init();
 
-	signal_set(&ev_sigint, SIGINT, control_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, control_sig_handler, NULL);
-	signal_add(&ev_sigint, NULL);
-	signal_add(&ev_sigterm, NULL);
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
@@ -301,16 +278,14 @@ control(void)
 	config_peer(PROC_LKA);
 	config_peer(PROC_PONY);
 	config_peer(PROC_CA);
-	config_done();
 
 	control_listen();
 
 	if (pledge("stdio unix recvfd sendfd", NULL) == -1)
 		err(1, "pledge");
 
-	if (event_dispatch() < 0)
-		fatal("event_dispatch");
-	control_shutdown();
+	event_dispatch();
+	fatalx("exited event loop");
 
 	return (0);
 }
@@ -318,7 +293,7 @@ control(void)
 static void
 control_shutdown(void)
 {
-	log_info("info: control process exiting");
+	log_debug("debug: control agent exiting");
 	_exit(0);
 }
 
@@ -358,7 +333,7 @@ control_accept(int listenfd, short event, void *arg)
 		fatal("control_accept: accept");
 	}
 
-	session_socket_blockmode(connfd, BM_NONBLOCK);
+	io_set_nonblocking(connfd);
 
 	if (getpeereid(connfd, &euid, &egid) == -1)
 		fatal("getpeereid");
@@ -497,7 +472,7 @@ control_dispatch_ext(struct mproc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 	case IMSG_CTL_SMTP_SESSION:
-		if (env->sc_flags & (SMTPD_SMTP_PAUSED | SMTPD_EXITING)) {
+		if (env->sc_flags & SMTPD_SMTP_PAUSED) {
 			m_compose(p, IMSG_CTL_FAIL, 0, 0, -1, NULL, 0);
 			return;
 		}
@@ -523,22 +498,6 @@ control_dispatch_ext(struct mproc *p, struct imsg *imsg)
 			kvp->val = val;
 		}
 		m_compose(p, IMSG_CTL_GET_STATS, 0, 0, -1, kvp, sizeof *kvp);
-		return;
-
-	case IMSG_CTL_SHUTDOWN:
-		/* NEEDS_FIX */
-		log_debug("debug: received shutdown request");
-
-		if (c->euid)
-			goto badcred;
-
-		if (env->sc_flags & SMTPD_EXITING) {
-			m_compose(p, IMSG_CTL_FAIL, 0, 0, -1, NULL, 0);
-			return;
-		}
-		env->sc_flags |= SMTPD_EXITING;
-		m_compose(p, IMSG_CTL_OK, 0, 0, -1, NULL, 0);
-		m_compose(p_parent, IMSG_CTL_SHUTDOWN, 0, 0, -1, NULL, 0);
 		return;
 
 	case IMSG_CTL_VERBOSE:

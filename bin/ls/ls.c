@@ -1,4 +1,4 @@
-/*	$OpenBSD: ls.c,v 1.44 2015/12/01 18:36:13 schwarze Exp $	*/
+/*	$OpenBSD: ls.c,v 1.48 2016/08/16 16:13:32 krw Exp $	*/
 /*	$NetBSD: ls.c,v 1.18 1996/07/09 09:16:29 mycroft Exp $	*/
 
 /*
@@ -66,7 +66,7 @@ static int (*sortfcn)(const FTSENT *, const FTSENT *);
 #define	BY_TIME	2
 
 long blocksize;			/* block size units */
-int termwidth = 80;		/* default terminal width */
+int termwidth;			/* default terminal width */
 int sortkey = BY_NAME;
 
 /* flags */
@@ -101,7 +101,7 @@ ls_main(int argc, char *argv[])
 	static char dot[] = ".", *dotav[] = { dot, NULL };
 	struct winsize win;
 	int ch, fts_options, notused;
-	int kflag = 0, width = 0;
+	int kflag = 0;
 	char *p;
 
 #ifndef SMALL
@@ -110,23 +110,19 @@ ls_main(int argc, char *argv[])
 
 	/* Terminal defaults to -Cq, non-terminal defaults to -1. */
 	if (isatty(STDOUT_FILENO)) {
-		if ((p = getenv("COLUMNS")) != NULL)
-			width = strtonum(p, 1, INT_MAX, NULL);
-		if (width == 0 &&
-		    ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
-		    win.ws_col > 0)
-			width = win.ws_col;
-		if (width)
-			termwidth = width;
 		f_column = f_nonprint = 1;
 	} else {
 		f_singlecol = 1;
-		/* retrieve environment variable, in case of explicit -C */
-		if ((p = getenv("COLUMNS")) != NULL)
-			width = strtonum(p, 0, INT_MAX, NULL);
-		if (width)
-			termwidth = width;
 	}
+
+	termwidth = 0;
+	if ((p = getenv("COLUMNS")) != NULL)
+		termwidth = strtonum(p, 1, INT_MAX, NULL);
+	if (termwidth == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &win) == 0 &&
+	    win.ws_col > 0)
+		termwidth = win.ws_col;
+	if (termwidth == 0)
+		termwidth = 80;
 
 	if (pledge("stdio rpath getpw", NULL) == -1)
 		err(1, "pledge");
@@ -428,10 +424,11 @@ display(FTSENT *p, FTSENT *list)
 	FTSENT *cur;
 	NAMES *np;
 	off_t maxsize;
-	u_long maxlen, maxnlink;
-	unsigned long long btotal, maxblock;
+	nlink_t maxnlink;
+	unsigned long long btotal;
+	blkcnt_t maxblock;
 	ino_t maxinode;
-	int bcfile, flen, glen, ulen, maxflags, maxgroup, maxuser;
+	int bcfile, flen, glen, ulen, maxflags, maxgroup, maxuser, maxlen;
 	int entries, needstats;
 	int width;
 	char *user, *group, buf[21];	/* 64 bits == 20 digits */
@@ -532,7 +529,7 @@ display(FTSENT *p, FTSENT *list)
 
 				if (f_flags) {
 					np->flags = &np->data[ulen + 1 + glen + 1];
-				  	(void)strlcpy(np->flags, flags, flen + 1);
+					(void)strlcpy(np->flags, flags, flen + 1);
 					if (*flags != '-')
 						free(flags);
 				}
@@ -551,14 +548,16 @@ display(FTSENT *p, FTSENT *list)
 	if (needstats) {
 		d.bcfile = bcfile;
 		d.btotal = btotal;
-		(void)snprintf(buf, sizeof(buf), "%llu", maxblock);
+		(void)snprintf(buf, sizeof(buf), "%llu",
+		   (unsigned long long)maxblock);
 		d.s_block = strlen(buf);
 		d.s_flags = maxflags;
 		d.s_group = maxgroup;
 		(void)snprintf(buf, sizeof(buf), "%llu",
 		    (unsigned long long)maxinode);
 		d.s_inode = strlen(buf);
-		(void)snprintf(buf, sizeof(buf), "%lu", maxnlink);
+		(void)snprintf(buf, sizeof(buf), "%lu",
+		    (unsigned long)maxnlink);
 		d.s_nlink = strlen(buf);
 		if (!f_humanval) {
 			(void)snprintf(buf, sizeof(buf), "%lld",

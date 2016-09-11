@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.318 2016/02/11 12:56:08 jca Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.327 2016/09/04 17:18:56 mpi Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -103,9 +103,11 @@ ip_output(struct mbuf *m0, struct mbuf *opt, struct route *ro, int flags,
 	int len, error = 0;
 	struct route iproute;
 	struct sockaddr_in *dst;
-	struct in_ifaddr *ia;
 	struct tdb *tdb = NULL;
 	u_long mtu;
+#if defined(MROUTING)
+	int rv;
+#endif
 
 #ifdef IPSEC
 	if (inp && (inp->inp_flags & INP_IPV6) != 0)
@@ -183,9 +185,20 @@ reroute:
 	if ((IN_MULTICAST(ip->ip_dst.s_addr) ||
 	    (ip->ip_dst.s_addr == INADDR_BROADCAST)) &&
 	    imo != NULL && (ifp = if_get(imo->imo_ifidx)) != NULL) {
+
 		mtu = ifp->if_mtu;
-		IFP_TO_IA(ifp, ia);
+		if (ip->ip_src.s_addr == INADDR_ANY) {
+			struct in_ifaddr *ia;
+
+			KERNEL_LOCK();
+			IFP_TO_IA(ifp, ia);
+			if (ia != NULL)
+				ip->ip_src = ia->ia_addr.sin_addr;
+			KERNEL_UNLOCK();
+		}
 	} else {
+		struct in_ifaddr *ia;
+
 		if (ro->ro_rt == NULL)
 			ro->ro_rt = rtalloc_mpath(&ro->ro_dst,
 			    &ip->ip_src.s_addr, ro->ro_tableid);
@@ -201,22 +214,28 @@ reroute:
 			ifp = if_get(lo0ifidx);
 		else
 			ifp = if_get(ro->ro_rt->rt_ifidx);
+		if (ifp == NULL) {
+			error = EHOSTUNREACH;
+			goto bad;
+		}
 		if ((mtu = ro->ro_rt->rt_rmx.rmx_mtu) == 0)
 			mtu = ifp->if_mtu;
 
 		if (ro->ro_rt->rt_flags & RTF_GATEWAY)
 			dst = satosin(ro->ro_rt->rt_gateway);
-	}
 
-	/* Set the source IP address */
-	if (ip->ip_src.s_addr == INADDR_ANY && ia)
-		ip->ip_src = ia->ia_addr.sin_addr;
+		/* Set the source IP address */
+		if (ip->ip_src.s_addr == INADDR_ANY && ia)
+			ip->ip_src = ia->ia_addr.sin_addr;
+	}
 
 #ifdef IPSEC
 	if (ipsec_in_use || inp != NULL) {
+		KERNEL_LOCK();
 		/* Do we have any pending SAs to apply ? */
 		tdb = ip_output_ipsec_lookup(m, hlen, &error, inp,
 		    ipsecflowinfo);
+		KERNEL_UNLOCK();
 		if (error != 0) {
 			/* Should silently drop packet */
 			if (error == -EINVAL)
@@ -289,9 +308,13 @@ reroute:
 		 * of outgoing interface.
 		 */
 		if (ip->ip_src.s_addr == INADDR_ANY) {
+			struct in_ifaddr *ia;
+
+			KERNEL_LOCK();
 			IFP_TO_IA(ifp, ia);
 			if (ia != NULL)
 				ip->ip_src = ia->ia_addr.sin_addr;
+			KERNEL_UNLOCK();
 		}
 
 		if ((imo == NULL || imo->imo_loop) &&
@@ -322,8 +345,6 @@ reroute:
 			 */
 			if (ipmforwarding && ip_mrouter &&
 			    (flags & IP_FORWARDING) == 0) {
-				int rv;
-
 				KERNEL_LOCK();
 				rv = ip_mforward(m, ifp);
 				KERNEL_UNLOCK();
@@ -389,8 +410,10 @@ sendit:
 	 * Check if the packet needs encapsulation.
 	 */
 	if (tdb != NULL) {
+		KERNEL_LOCK();
 		/* Callee frees mbuf */
 		error = ip_output_ipsec_send(tdb, m, ifp, ro);
+		KERNEL_UNLOCK();
 		goto done;
 	}
 #endif /* IPSEC */
@@ -400,7 +423,7 @@ sendit:
 	 */
 #if NPF > 0
 	if (pf_test(AF_INET, PF_OUT, ifp, &m) != PF_PASS) {
-		error = EHOSTUNREACH;
+		error = EACCES;
 		m_freem(m);
 		goto done;
 	}
@@ -662,9 +685,10 @@ ip_fragment(struct mbuf *m, struct ifnet *ifp, u_long mtu)
 		m->m_data += max_linkhdr;
 		mhip = mtod(m, struct ip *);
 		*mhip = *ip;
-		/* we must inherit MCAST and BCAST flags and routing table */
+		/* we must inherit MCAST/BCAST flags, routing table and prio */
 		m->m_flags |= m0->m_flags & (M_MCAST|M_BCAST);
 		m->m_pkthdr.ph_rtableid = m0->m_pkthdr.ph_rtableid;
+		m->m_pkthdr.pf.prio = m0->m_pkthdr.pf.prio;
 		if (hlen > sizeof (struct ip)) {
 			mhlen = ip_optcopy(ip, mhip) + sizeof (struct ip);
 			mhip->ip_hl = mhlen >> 2;
@@ -867,12 +891,14 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 				case IP_TTL:
 					if (optval > 0 && optval <= MAXTTL)
 						inp->inp_ip.ip_ttl = optval;
+					else if (optval == -1)
+						inp->inp_ip.ip_ttl = ip_defttl;
 					else
 						error = EINVAL;
 					break;
 
 				case IP_MINTTL:
-					if (optval > 0 && optval <= MAXTTL)
+					if (optval >= 0 && optval <= MAXTTL)
 						inp->inp_ip_minttl = optval;
 					else
 						error = EINVAL;
@@ -1033,7 +1059,12 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 				error = EINVAL;
 				break;
 			}
+			if (inp->inp_lport) {
+				error = EBUSY;
+				break;
+			}
 			inp->inp_rtableid = rtid;
+			in_pcbrehash(inp);
 			break;
 		case IP_PIPEX:
 			if (m != NULL && m->m_len == sizeof(int))
@@ -1669,7 +1700,7 @@ ip_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in *dst)
 	struct ip *ip;
 	struct mbuf *copym;
 
-	copym = m_copym2(m, 0, M_COPYALL, M_DONTWAIT);
+	copym = m_dup_pkt(m, max_linkhdr, M_DONTWAIT);
 	if (copym != NULL) {
 		/*
 		 * We don't bother to fragment if the IP length is greater

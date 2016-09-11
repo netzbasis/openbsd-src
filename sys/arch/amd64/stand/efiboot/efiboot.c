@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.11 2016/02/04 09:19:39 kettenis Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.14 2016/08/30 20:31:09 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -108,7 +108,11 @@ efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	/* can't use sa_cleanup since printf is used after sa_cleanup() */
 	/* sa_cleanup = efi_cleanup; */
 
-	progname = "EFIBOOT";
+#ifdef __amd64__
+	progname = "BOOTX64";
+#else
+	progname = "BOOTIA32";
+#endif
 
 	/*
 	 * Move the stack before calling boot().  UEFI on some machines
@@ -369,10 +373,10 @@ efi_video_init(void)
 			EfiConsoleControlScreenText);
 	mode80x25 = -1;
 	mode100x31 = -1;
-	for (i = 0; ; i++) {
+	for (i = 0; i < conout->Mode->MaxMode; i++) {
 		status = EFI_CALL(conout->QueryMode, conout, i, &cols, &rows);
 		if (EFI_ERROR(status))
-			break;
+			continue;
 		if (mode80x25 < 0 && cols == 80 && rows == 25)
 			mode80x25 = i;
 		if (mode100x31 < 0 && cols == 100 && rows == 31)
@@ -462,7 +466,7 @@ efi_cons_getshifts(dev_t dev)
 	return (0);
 }
 
-/* XXX: serial console is not supporte yet */
+/* XXX: serial console is not supported yet */
 int comspeed = 9600;
 int com_addr = -1;
 int com_speed = -1;
@@ -473,7 +477,7 @@ int com_speed = -1;
 /*
  * ACPI GUID is confusing in UEFI spec.
  * {EFI_,}_ACPI_20_TABLE_GUID or EFI_ACPI_TABLE_GUID means
- * ACPI 2.0 or abobe.
+ * ACPI 2.0 or above.
  */
 static EFI_GUID acpi_guid = ACPI_20_TABLE_GUID;
 static EFI_GUID smbios_guid = SMBIOS_TABLE_GUID;
@@ -515,10 +519,10 @@ efi_makebootargs(void)
 	status = EFI_CALL(BS->LocateProtocol, &gop_guid, NULL,
 	    (void **)&gop);
 	if (!EFI_ERROR(status)) {
-		for (i = 0; ; i++) {
+		for (i = 0; i < gop->Mode->MaxMode; i++) {
 			status = EFI_CALL(gop->QueryMode, gop, i, &sz, &info);
 			if (EFI_ERROR(status))
-				break;
+				continue;
 			gopsiz = info->HorizontalResolution *
 			    info->VerticalResolution;
 			if (gopsiz > bestsiz) {
@@ -625,16 +629,17 @@ Xvideo_efi(void)
 	int	 i, mode = -1;
 	char	*p;
 
-	for (i = 0; i < nitems(efi_video) && efi_video[i].cols > 0; i++) {
-		printf("Mode %d: %d x %d\n", i,
-		    efi_video[i].cols, efi_video[i].rows);
+	for (i = 0; i < nitems(efi_video) && i < conout->Mode->MaxMode; i++) {
+		if (efi_video[i].cols > 0)
+			printf("Mode %d: %d x %d\n", i,
+			    efi_video[i].cols, efi_video[i].rows);
 	}
 	if (cmd.argc == 2) {
 		p = cmd.argv[1];
 		mode = strtol(p, &p, 10);
 	}
 	printf("\nCurrent Mode = %d\n", conout->Mode->Mode);
-	if (0 <= mode && mode < i) {
+	if (0 <= mode && mode < i && efi_video[mode].cols > 0) {
 		EFI_CALL(conout->SetMode, conout, mode);
 		efi_video_reset();
 	}

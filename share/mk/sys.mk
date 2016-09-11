@@ -1,4 +1,4 @@
-#	$OpenBSD: sys.mk,v 1.74 2015/12/19 19:48:24 deraadt Exp $
+#	$OpenBSD: sys.mk,v 1.76 2016/05/26 20:13:44 zhuk Exp $
 #	$NetBSD: sys.mk,v 1.27 1996/04/10 05:47:19 mycroft Exp $
 #	@(#)sys.mk	5.11 (Berkeley) 3/13/91
 
@@ -9,15 +9,15 @@
 .endif
 
 unix=		We run OpenBSD.
-OSMAJOR=	5
-OSMINOR=	9
+OSMAJOR=	6
+OSMINOR=	0
 OSREV=		$(OSMAJOR).$(OSMINOR)
 OSrev=		$(OSMAJOR)$(OSMINOR)
 
 .SUFFIXES: .out .a .o .c .cc .C .cxx .cpp .F .f .r .y .l .s .S .cl .p .h .sh .m4
 
 AR?=		ar
-ARFLAGS?=	rl
+ARFLAGS?=	r
 RANLIB?=	ranlib
 LORDER?=	lorder
 

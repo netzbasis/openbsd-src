@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.219 2016/02/23 01:39:14 dlg Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.227 2016/09/03 14:17:37 bluhm Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -72,6 +72,8 @@
  * Research Laboratory (NRL).
  */
 
+#include "pf.h"
+
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -93,13 +95,17 @@
 #include <machine/db_machdep.h>
 #endif
 
+#if NPF > 0
+#include <net/pfvar.h>
+#endif	/* NPF > 0 */
+
 struct	mbstat mbstat;		/* mbuf stats */
 struct	mutex mbstatmtx = MUTEX_INITIALIZER(IPL_NET);
 struct	pool mbpool;		/* mbuf pool */
 struct	pool mtagpool;
 
 /* mbuf cluster pools */
-u_int	mclsizes[] = {
+u_int	mclsizes[MCLPOOLS] = {
 	MCLBYTES,	/* must be at slot 0 */
 	4 * 1024,
 	8 * 1024,
@@ -124,6 +130,8 @@ struct mbuf *m_copym0(struct mbuf *, int, int, int, int);
 void	nmbclust_update(void);
 void	m_zero(struct mbuf *);
 
+static void (*mextfree_fns[4])(caddr_t, u_int, void *);
+static u_int num_extfree_fns;
 
 const char *mclpool_warnmsg =
     "WARNING: mclpools limit reached; increase kern.maxclusters";
@@ -162,21 +170,25 @@ mbinit(void)
 		pool_setlowat(&mclpools[i], mcllowat);
 	}
 
+	(void)mextfree_register(m_extfree_pool);
+	KASSERT(num_extfree_fns == 1);
+
 	nmbclust_update();
 }
 
 void
 nmbclust_update(void)
 {
-	int i;
+	unsigned int i, n;
+
 	/*
 	 * Set the hard limit on the mclpools to the number of
 	 * mbuf clusters the kernel is to support.  Log the limit
 	 * reached message max once a minute.
 	 */
 	for (i = 0; i < nitems(mclsizes); i++) {
-		(void)pool_sethardlimit(&mclpools[i], nmbclust,
-		    mclpool_warnmsg, 60);
+		n = (unsigned long long)nmbclust * MCLBYTES / mclsizes[i];
+		(void)pool_sethardlimit(&mclpools[i], n, mclpool_warnmsg, 60);
 		/*
 		 * XXX this needs to be reconsidered.
 		 * Setting the high water mark to nmbclust is too high
@@ -184,7 +196,7 @@ nmbclust_update(void)
 		 * allocations in interrupt context don't fail or mclgeti()
 		 * drivers may end up with empty rings.
 		 */
-		pool_sethiwat(&mclpools[i], nmbclust);
+		pool_sethiwat(&mclpools[i], n);
 	}
 	pool_sethiwat(&mbpool, nmbclust);
 }
@@ -254,6 +266,7 @@ void
 m_resethdr(struct mbuf *m)
 {
 	int len = m->m_pkthdr.len;
+	u_int8_t loopcnt = m->m_pkthdr.ph_loopcnt;
 
 	KASSERT(m->m_flags & M_PKTHDR);
 	m->m_flags &= (M_EXT|M_PKTHDR|M_EOR|M_EXTWR|M_ZEROIZE);
@@ -261,10 +274,15 @@ m_resethdr(struct mbuf *m)
 	/* delete all mbuf tags to reset the state */
 	m_tag_delete_chain(m);
 
+#if NPF > 0
+	pf_pkt_unlink_state_key(m);
+#endif	/* NPF > 0 */
+
 	/* like m_inithdr(), but keep any associated data and mbufs */
 	memset(&m->m_pkthdr, 0, sizeof(m->m_pkthdr));
 	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
 	m->m_pkthdr.len = len;
+	m->m_pkthdr.ph_loopcnt = loopcnt;
 }
 
 struct mbuf *
@@ -321,7 +339,7 @@ m_clget(struct mbuf *m, int how, u_int pktlen)
 		return (NULL);
 	}
 
-	MEXTADD(m, buf, pp->pr_size, M_EXTWR, m_extfree_pool, pp);
+	MEXTADD(m, buf, pp->pr_size, M_EXTWR, MEXTFREE_POOL, pp);
 	return (m);
 }
 
@@ -350,8 +368,12 @@ m_free(struct mbuf *m)
 		if (n)
 			n->m_flags |= M_ZEROIZE;
 	}
-	if (m->m_flags & M_PKTHDR)
+	if (m->m_flags & M_PKTHDR) {
 		m_tag_delete_chain(m);
+#if NPF > 0
+		pf_pkt_unlink_state_key(m);
+#endif	/* NPF > 0 */
+	}
 	if (m->m_flags & M_EXT)
 		m_extfree(m);
 
@@ -400,22 +422,53 @@ m_extunref(struct mbuf *m)
 	return (refs);
 }
 
+/*
+ * Returns a number for use with MEXTADD.
+ * Should only be called once per function.
+ * Drivers can be assured that the index will be non zero.
+ */
+u_int
+mextfree_register(void (*fn)(caddr_t, u_int, void *))
+{
+	KASSERT(num_extfree_fns < nitems(mextfree_fns));
+	mextfree_fns[num_extfree_fns] = fn;
+	return num_extfree_fns++;
+}
+
 void
 m_extfree(struct mbuf *m)
 {
 	if (m_extunref(m) == 0) {
-		(*(m->m_ext.ext_free))(m->m_ext.ext_buf,
+		KASSERT(m->m_ext.ext_free_fn < num_extfree_fns);
+		mextfree_fns[m->m_ext.ext_free_fn](m->m_ext.ext_buf,
 		    m->m_ext.ext_size, m->m_ext.ext_arg);
 	}
 
 	m->m_flags &= ~(M_EXT|M_EXTWR);
 }
 
-void
+struct mbuf *
 m_freem(struct mbuf *m)
 {
-	while (m != NULL)
+	struct mbuf *n;
+
+	if (m == NULL)
+		return (NULL);
+
+	n = m->m_nextpkt;
+
+	do
 		m = m_free(m);
+	while (m != NULL);
+
+	return (n);
+}
+
+void
+m_purge(struct mbuf *m)
+{
+	while (m != NULL)
+		m = m_freem(m);
 }
 
 /*
@@ -1202,6 +1255,10 @@ m_dup_pkthdr(struct mbuf *to, struct mbuf *from, int wait)
 	to->m_flags |= (from->m_flags & M_COPYFLAGS);
 	to->m_pkthdr = from->m_pkthdr;
 
+#if NPF > 0
+	pf_pkt_state_key_ref(to);
+#endif	/* NPF > 0 */
+
 	SLIST_INIT(&to->m_pkthdr.ph_tags);
 
 	if ((error = m_tag_copy_chain(to, from, wait)) != 0)
@@ -1223,7 +1280,7 @@ m_dup_pkt(struct mbuf *m0, unsigned int adj, int wait)
 	if (len > MAXMCLBYTES) /* XXX */
 		return (NULL);
 
-	m = m_get(m0->m_type, wait);
+	m = m_get(wait, m0->m_type);
 	if (m == NULL)
 		return (NULL);
 
@@ -1231,7 +1288,7 @@ m_dup_pkt(struct mbuf *m0, unsigned int adj, int wait)
 		goto fail;
 
 	if (len > MHLEN) {
-		MCLGETI(m, len, NULL, wait);
+		MCLGETI(m, wait, NULL, len);
 		if (!ISSET(m->m_flags, M_EXT))
 			goto fail;
 	}
@@ -1265,7 +1322,8 @@ m_print(void *v,
 		(*pr)("m_ptkhdr.ph_tags: %p\tm_pkthdr.ph_tagsset: %b\n",
 		    SLIST_FIRST(&m->m_pkthdr.ph_tags),
 		    m->m_pkthdr.ph_tagsset, MTAG_BITS);
-		(*pr)("m_pkthdr.ph_flowid: %u\n", m->m_pkthdr.ph_flowid);
+		(*pr)("m_pkthdr.ph_flowid: %u\tm_pkthdr.ph_loopcnt: %u\n",
+		    m->m_pkthdr.ph_flowid, m->m_pkthdr.ph_loopcnt);
 		(*pr)("m_pkthdr.csum_flags: %b\n",
 		    m->m_pkthdr.csum_flags, MCS_BITS);
 		(*pr)("m_pkthdr.ether_vtag: %u\tm_ptkhdr.ph_rtableid: %u\n",
@@ -1282,8 +1340,8 @@ m_print(void *v,
 	if (m->m_flags & M_EXT) {
 		(*pr)("m_ext.ext_buf: %p\tm_ext.ext_size: %u\n",
 		    m->m_ext.ext_buf, m->m_ext.ext_size);
-		(*pr)("m_ext.ext_free: %p\tm_ext.ext_arg: %p\n",
-		    m->m_ext.ext_free, m->m_ext.ext_arg);
+		(*pr)("m_ext.ext_free_fn: %u\tm_ext.ext_arg: %p\n",
+		    m->m_ext.ext_free_fn, m->m_ext.ext_arg);
 		(*pr)("m_ext.ext_nextref: %p\tm_ext.ext_prevref: %p\n",
 		    m->m_ext.ext_nextref, m->m_ext.ext_prevref);
 
@@ -1359,35 +1417,6 @@ ml_dechain(struct mbuf_list *ml)
 	ml_init(ml);
 
 	return (m0);
-}
-
-struct mbuf *
-ml_filter(struct mbuf_list *ml,
-    int (*filter)(void *, const struct mbuf *), void *ctx)
-{
-	struct mbuf_list matches = MBUF_LIST_INITIALIZER();
-	struct mbuf *m, *n;
-	struct mbuf **mp;
-
-	mp = &ml->ml_head;
-
-	for (m = ml->ml_head; m != NULL; m = n) {
-		n = m->m_nextpkt;
-		if ((*filter)(ctx, m)) {
-			*mp = n;
-			ml_enqueue(&matches, m);
-		} else {
-			mp = &m->m_nextpkt;
-			ml->ml_tail = m;
-		}
-	}
-
-	/* fixup ml */
-	if (ml->ml_head == NULL)
-		ml->ml_tail = NULL;
-	ml->ml_len -= ml_len(&matches);
-
-	return (matches.ml_head); /* ml_dechain */
 }
 
 unsigned int
@@ -1490,19 +1519,6 @@ mq_dechain(struct mbuf_queue *mq)
 
 	mtx_enter(&mq->mq_mtx);
 	m0 = ml_dechain(&mq->mq_list);
-	mtx_leave(&mq->mq_mtx);
-
-	return (m0);
-}
-
-struct mbuf *
-mq_filter(struct mbuf_queue *mq,
-    int (*filter)(void *, const struct mbuf *), void *ctx)
-{
-	struct mbuf *m0;
-
-	mtx_enter(&mq->mq_mtx);
-	m0 = ml_filter(&mq->mq_list, filter, ctx);
 	mtx_leave(&mq->mq_mtx);
 
 	return (m0);

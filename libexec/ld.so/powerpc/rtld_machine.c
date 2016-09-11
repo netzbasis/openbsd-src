@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.56 2015/11/02 07:02:53 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.59 2016/06/21 15:25:37 deraadt Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -181,7 +181,7 @@ _dl_printf("object relocation size %x, numrela %x\n",
 		for (llist = object->load_list; llist != NULL; llist = llist->next) {
 			if (!(llist->prot & PROT_WRITE)) {
 				_dl_mprotect(llist->start, llist->size,
-				    llist->prot|PROT_WRITE);
+				    PROT_READ | PROT_WRITE);
 			}
 		}
 	}
@@ -460,7 +460,7 @@ _dl_printf(" found other symbol at %x size %d\n",
 		default:
 			_dl_printf("%s:"
 			    " %s: unsupported relocation '%s' %d at %x\n",
-			    _dl_progname, object->load_name, symn,
+			    __progname, object->load_name, symn,
 			    ELF32_R_TYPE(relas->r_info), r_addr );
 			_dl_exit(1);
 		}
@@ -574,7 +574,7 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	/* mprotect the GOT */
 	got_addr = _dl_protect_segment(object, 0, "__got_start", "__got_end",
 	    PROT_READ|prot_exec);
-	if (got_addr != NULL)
+	if (prot_exec != 0 && got_addr != NULL)
 		_dl_syncicache(got_addr, 4);
 
 	/* mprotect the PLT */

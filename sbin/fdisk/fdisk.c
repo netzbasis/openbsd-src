@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.99 2015/12/12 04:14:36 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.101 2016/06/25 17:03:22 tb Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -72,7 +72,7 @@ main(int argc, char *argv[])
 {
 	ssize_t len;
 	int ch, fd, error;
-	int e_flag = 0, f_flag = 0, g_flag = 0, i_flag = 0, u_flag = 0;
+	int e_flag = 0, g_flag = 0, i_flag = 0, u_flag = 0;
 	int verbosity = 0;
 	int c_arg = 0, h_arg = 0, s_arg = 0;
 	u_int32_t l_arg = 0;
@@ -84,10 +84,6 @@ main(int argc, char *argv[])
 #endif
 	struct dos_mbr dos_mbr;
 	struct mbr mbr;
-
-	/* "proc exec" for man page display */
-	if (pledge("stdio rpath wpath disklabel proc exec", NULL) == -1)
-		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "iegpuvf:c:h:s:l:b:y")) != -1) {
 		const char *errstr;
@@ -103,7 +99,6 @@ main(int argc, char *argv[])
 			e_flag = 1;
 			break;
 		case 'f':
-			f_flag = 1;
 			mbrfile = optarg;
 			break;
 		case 'c':
@@ -169,6 +164,10 @@ main(int argc, char *argv[])
 
 	disk.name = argv[0];
 	DISK_open(i_flag || u_flag || e_flag);
+
+	/* "proc exec" for man page display */
+	if (pledge("stdio rpath wpath disklabel proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	error = MBR_read(0, &dos_mbr);
 	if (error)

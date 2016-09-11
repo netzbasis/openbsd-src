@@ -1,4 +1,4 @@
-/* $OpenBSD: kex.c,v 1.117 2016/02/08 10:57:07 djm Exp $ */
+/* $OpenBSD: kex.c,v 1.119 2016/09/06 09:14:05 markus Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  *
@@ -77,7 +77,10 @@ struct kexalg {
 static const struct kexalg kexalgs[] = {
 #ifdef WITH_OPENSSL
 	{ KEX_DH1, KEX_DH_GRP1_SHA1, 0, SSH_DIGEST_SHA1 },
-	{ KEX_DH14, KEX_DH_GRP14_SHA1, 0, SSH_DIGEST_SHA1 },
+	{ KEX_DH14_SHA1, KEX_DH_GRP14_SHA1, 0, SSH_DIGEST_SHA1 },
+	{ KEX_DH14_SHA256, KEX_DH_GRP14_SHA256, 0, SSH_DIGEST_SHA256 },
+	{ KEX_DH16_SHA512, KEX_DH_GRP16_SHA512, 0, SSH_DIGEST_SHA512 },
+	{ KEX_DH18_SHA512, KEX_DH_GRP18_SHA512, 0, SSH_DIGEST_SHA512 },
 	{ KEX_DHGEX_SHA1, KEX_DH_GEX_SHA1, 0, SSH_DIGEST_SHA1 },
 	{ KEX_DHGEX_SHA256, KEX_DH_GEX_SHA256, 0, SSH_DIGEST_SHA256 },
 	{ KEX_ECDH_SHA2_NISTP256, KEX_ECDH_SHA2,
@@ -750,10 +753,8 @@ kex_choose_conf(struct ssh *ssh)
 		char *ext;
 
 		ext = match_list("ext-info-c", peer[PROPOSAL_KEX_ALGS], NULL);
-		if (ext) {
-			kex->ext_info_c = 1;
-			free(ext);
-		}
+		kex->ext_info_c = (ext != NULL);
+		free(ext);
 	}
 
 	/* Algorithm Negotiation */

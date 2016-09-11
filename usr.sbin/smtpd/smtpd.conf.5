@@ -1,4 +1,4 @@
-.\"	$OpenBSD: smtpd.conf.5,v 1.156 2016/03/07 16:21:48 gilles Exp $
+.\"	$OpenBSD: smtpd.conf.5,v 1.165 2016/08/31 16:39:24 jmc Exp $
 .\"
 .\" Copyright (c) 2008 Janne Johansson <jj@openbsd.org>
 .\" Copyright (c) 2009 Jacek Masiulaniec <jacekm@dobremiasto.net>
@@ -17,7 +17,7 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .\"
-.Dd $Mdocdate: March 7 2016 $
+.Dd $Mdocdate: August 31 2016 $
 .Dt SMTPD.CONF 5
 .Os
 .Sh NAME
@@ -82,7 +82,14 @@ the default action is to reject the message.
 An exclamation mark may be specified to perform a reverse match.
 .Pp
 Following the accept/reject
-decision comes the optional tag matching:
+decision comes the matching of optional session related properties:
+.Bl -tag -width Ds
+.It Ic authenticated
+If specified, the rule will only be matched if the client session was
+authenticated either by requesting authentication over the network or
+because the message was submitted over the local enqueuer.
+.El
+.Pp
 .Bl -tag -width Ds
 .It Xo
 .Ic tagged
@@ -202,7 +209,7 @@ holds a key-value mapping of virtual to system users.
 For an example of how to configure the
 .Ar users
 table, see
-.Xr makemap 8 .
+.Xr table 5 .
 .It Xo
 .Ic for
 .Op Ic \&!
@@ -219,7 +226,7 @@ holds a key-value mapping of virtual to system users.
 For an example of how to configure the
 .Ar users
 table, see
-.Xr makemap 8 .
+.Xr table 5 .
 .It Xo
 .Ic for
 .Op Ic \&!
@@ -612,7 +619,7 @@ using the given filter
 Filters are used to hook into the SMTP dialog and provide additional filtering
 options for
 .Xr smtpd 8 .
-.It Ic filter Ar name Ic chain Ar filter Op , Ar ...
+.It Ic filter Ar name Ic chain Ar filter Ar ...
 Specify a filter chain with the given
 .Ar name
 and filters.
@@ -664,6 +671,7 @@ Changing the default value might degrade performance.
 .Op Ic filter Ar name
 .Op Ic tls | tls-require | tls-require verify | smtps | secure
 .Op Ic pki Ar pkiname
+.Op Ic ca Ar caname
 .Op Ic auth | auth-optional Op < Ns Ar authtable Ns >
 .Op Ic tag Ar tag
 .Op Ic hostname Ar hostname
@@ -742,6 +750,9 @@ is specified,
 a certificate matching
 .Ic name
 is searched for.
+Moreover, a previously declared
+.Ic ca
+directive may be specified to use a custom CA certificate.
 .Pp
 If the
 .Ic auth
@@ -851,19 +862,13 @@ Associate the key located in
 .Ar keyfile
 with
 .Ar hostname .
-.It Ic pki Ar hostname Ic dhparams Ar dhfile
-Associate the Diffie-Hellman parameters located in
-.Ar dhfile
-with
+.It Ic pki Ar hostname Ic dhe Ar params
+Specify the DHE parameters to use for DHE cipher suites with
 .Ar hostname .
-.Pp
-The parameters are used for ephemeral key exchange.
-If not specified,
-.Xr smtpd 8
-will use safely generated built-in parameters.
-.Pp
-Creation of Diffie-Hellman parameters is documented in
-.Xr openssl 1 .
+Valid parameter values are none, legacy and auto.
+For legacy a fixed key length of 1024 bits is used, whereas for auto the key
+length is determined automatically.
+The default is none, which disables DHE cipher suites.
 .It Ic queue compression
 Enable transparent compression of envelopes and messages.
 The only supported algorithm at the moment is gzip.
@@ -901,6 +906,19 @@ utility.
 .Pp
 Queue encryption can be used with queue compression and will always
 perform compression before encryption.
+.It Ic subaddressing-delimiter Ar delimiter
+Redefine the subaddressing delimiter from the default
+.Sq +
+to
+.Ar delimiter .
+.Pp
+Any printable character valid in an email address is allowed,
+except spaces and
+.Sq @ .
+.Pp
+The first character in the user-part of an email address that matches
+.Ar delimiter
+is considered to be the subaddressing delimiter.
 .It Ic table Ar name Oo Ar type : Oc Ns Ar config
 Tables are used to provide additional configuration information for
 .Xr smtpd 8
@@ -1057,9 +1075,11 @@ A secrets file is needed to specify a username and password:
 .Nm
 would look like this:
 .Bd -literal -offset indent
-listen on lo0
 table aliases file:/etc/mail/aliases
 table secrets file:/etc/mail/secrets
+
+listen on lo0
+
 accept for local alias <aliases> deliver to mbox
 accept for any relay via tls+auth://label@smtp.example.com \e
 	auth <secrets>
@@ -1087,10 +1107,10 @@ The configuration file would look like this:
 pki mail.example.com certificate "/etc/ssl/mail.example.com.crt"
 pki mail.example.com key "/etc/ssl/private/mail.example.com.key"
 
+table aliases file:/etc/mail/aliases
+
 listen on lo0
 listen on egress tls pki mail.example.com auth
-
-table aliases file:/etc/mail/aliases
 
 accept for local alias <aliases> deliver to mda "/path/to/mda \-f \-"
 accept from any for domain example.com \e
@@ -1106,10 +1126,10 @@ but all outgoing mail is passed to dkimproxy_out on port 10027
 for signing.
 The signed messages are received on port 10028 and tagged for relaying.
 .Bd -literal -offset indent
+table aliases file:/etc/mail/aliases
+
 listen on lo0
 listen on lo0 port 10028 tag DKIM
-
-table aliases file:/etc/mail/aliases
 
 accept for local alias <aliases> deliver to mbox
 accept tagged DKIM for any relay
@@ -1124,11 +1144,11 @@ The table
 can be used to specify the IP addresses of relays that may legitimately
 originate mail with your domain as the sender.
 .Bd -literal -offset indent
-listen on lo0
-listen on egress
-
 table aliases file:/etc/mail/aliases
 table other-relays file:/etc/mail/other-relays
+
+listen on lo0
+listen on egress
 
 accept for local alias <aliases> deliver to mbox
 accept from local for any relay

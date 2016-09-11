@@ -1,4 +1,4 @@
-/*	$OpenBSD: vs_msg.c,v 1.16 2016/01/06 22:29:38 millert Exp $	*/
+/*	$OpenBSD: vs_msg.c,v 1.18 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

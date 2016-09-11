@@ -1,4 +1,4 @@
-/* $OpenBSD: dsdt.h,v 1.67 2016/01/13 23:11:22 kettenis Exp $ */
+/* $OpenBSD: dsdt.h,v 1.72 2016/09/02 13:59:51 pirofti Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  *
@@ -49,7 +49,7 @@ struct aml_value	*aml_getstack(struct aml_scope *, int);
 struct aml_value	*aml_allocvalue(int, int64_t, const void *);
 void			aml_freevalue(struct aml_value *);
 void			aml_notify(struct aml_node *, int);
-void			aml_showvalue(struct aml_value *, int);
+void			aml_showvalue(struct aml_value *);
 void			aml_walkroot(void);
 void			aml_walktree(struct aml_node *);
 
@@ -83,7 +83,7 @@ const char		*aml_nodename(struct aml_node *);
 #define SRT_ENDDEP		0x38
 #define SRT_IOPORT		0x47
 #define SRT_FIXEDPORT		0x4B
-#define SRT_ENDTAG		0x78
+#define SRT_ENDTAG		0x79
 
 #define SR_IRQ			0x04
 #define SR_DMA			0x05
@@ -103,6 +103,7 @@ const char		*aml_nodename(struct aml_node *);
 #define LR_WORD			0x88
 #define LR_EXTIRQ		0x89
 #define LR_QWORD		0x8A
+#define LR_GPIO			0x8C
 #define LR_SERBUS		0x8E
 
 #define __amlflagbit(v,s,l)
@@ -226,6 +227,32 @@ union acpi_resource {
 		uint8_t		src_index;
 		char		src[1];
 	} __packed lr_qword;
+	struct {
+		uint8_t		typecode;
+		uint16_t	length;
+		uint8_t		revid;
+		uint8_t		type;
+#define LR_GPIO_INT	0x00
+#define LR_GPIO_IO	0x01
+		uint16_t	flags;
+		uint16_t	tflags;
+#define LR_GPIO_SHR		(3L << 3)
+#define LR_GPIO_POLARITY	(3L << 1)
+#define  LR_GPIO_ACTHI		(0L << 1)
+#define  LR_GPIO_ACTLO		(1L << 1)
+#define  LR_GPIO_ACTBOTH	(2L << 1)
+#define LR_GPIO_MODE		(1L << 0)
+#define  LR_GPIO_LEVEL		(0L << 0)
+#define  LR_GPIO_EDGE		(1L << 0)
+		uint8_t		_ppi;
+		uint16_t	_drs;
+		uint16_t	_dbt;
+		uint16_t	pin_off;
+		uint8_t		residx;
+		uint16_t	res_off;
+		uint16_t	vd_off;
+		uint16_t	vd_len;
+	} __packed lr_gpio;
 	struct {
 		uint8_t		typecode;
 		uint16_t	length;

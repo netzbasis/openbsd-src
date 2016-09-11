@@ -1,4 +1,4 @@
-/*	$OpenBSD: arptab.c,v 1.26 2016/01/26 18:26:19 mmcc Exp $ */
+/*	$OpenBSD: arptab.c,v 1.28 2016/08/27 01:42:37 guenther Exp $ */
 
 /*
  * Copyright (c) 1984, 1993
@@ -40,6 +40,7 @@
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -172,6 +173,7 @@ rtmsg(int cmd)
 	char *cp = m_rtmsg.m_space;
 	int l;
 
+retry:
 	errno = 0;
 	if (cmd == RTM_DELETE)
 		goto doit;
@@ -224,11 +226,14 @@ doit:
 		}
 	}
 	do {
-		l = read(s, (char *)&m_rtmsg, sizeof(m_rtmsg));
+		l = recv(s, (char *)&m_rtmsg, sizeof(m_rtmsg), MSG_DONTWAIT);
 	} while (l > 0 && (rtm->rtm_version != RTM_VERSION ||
 	    rtm->rtm_seq != seq || rtm->rtm_pid != pid));
-	if (l < 0)
+	if (l < 0) {
+		if (errno == EAGAIN || errno == EINTR)
+			goto retry;
 		syslog(LOG_ERR, "arptab_set: read from routing socket: %m");
+	}
 	return (0);
 }
 

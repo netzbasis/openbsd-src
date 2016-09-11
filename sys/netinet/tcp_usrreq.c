@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.128 2015/09/11 07:42:35 claudio Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.134 2016/07/20 19:57:53 bluhm Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -220,28 +220,15 @@ tcp_usrreq(so, req, m, nam, control, p)
 	 * Give the socket an address.
 	 */
 	case PRU_BIND:
-#ifdef INET6
-		if (inp->inp_flags & INP_IPV6)
-			error = in6_pcbbind(inp, nam, p);
-		else
-#endif
-			error = in_pcbbind(inp, nam, p);
-		if (error)
-			break;
+		error = in_pcbbind(inp, nam, p);
 		break;
 
 	/*
 	 * Prepare to accept connections.
 	 */
 	case PRU_LISTEN:
-		if (inp->inp_lport == 0) {
-#ifdef INET6
-			if (inp->inp_flags & INP_IPV6)
-				error = in6_pcbbind(inp, NULL, p);
-			else
-#endif
-				error = in_pcbbind(inp, NULL, p);
-		}
+		if (inp->inp_lport == 0)
+			error = in_pcbbind(inp, NULL, p);
 		/* If the in_pcbbind() above is called, the tp->pf
 		   should still be whatever it was before. */
 		if (error == 0)
@@ -898,6 +885,12 @@ tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
 		return (sysctl_struct(oldp, oldlenp, newp, newlen,
 		    baddynamicports.tcp, sizeof(baddynamicports.tcp)));
 
+	case TCPCTL_ROOTONLY:
+		if (newp && securelevel > 0)
+			return (EPERM);
+		return (sysctl_struct(oldp, oldlenp, newp, newlen,
+		    rootonlyports.tcp, sizeof(rootonlyports.tcp)));
+
 	case TCPCTL_IDENT:
 		return (tcp_ident(oldp, oldlenp, newp, newlen, 0));
 
@@ -943,8 +936,64 @@ tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
 	case TCPCTL_STATS:
 		if (newp != NULL)
 			return (EPERM);
+		{
+			struct syn_cache_set *set;
+			int i;
+
+			set = &tcp_syn_cache[tcp_syn_cache_active];
+			tcpstat.tcps_sc_hash_size = set->scs_size;
+			tcpstat.tcps_sc_entry_count = set->scs_count;
+			tcpstat.tcps_sc_entry_limit = tcp_syn_cache_limit;
+			tcpstat.tcps_sc_bucket_maxlen = 0;
+			for (i = 0; i < set->scs_size; i++) {
+				if (tcpstat.tcps_sc_bucket_maxlen <
+				    set->scs_buckethead[i].sch_length)
+					tcpstat.tcps_sc_bucket_maxlen =
+					    set->scs_buckethead[i].sch_length;
+			}
+			tcpstat.tcps_sc_bucket_limit = tcp_syn_bucket_limit;
+			tcpstat.tcps_sc_uses_left = set->scs_use;
+		}
 		return (sysctl_struct(oldp, oldlenp, newp, newlen,
 		    &tcpstat, sizeof(tcpstat)));
+
+	case TCPCTL_SYN_USE_LIMIT:
+		error = sysctl_int(oldp, oldlenp, newp, newlen,
+		    &tcp_syn_use_limit);
+		if (error)
+			return (error);
+		if (newp != NULL) {
+			/*
+			 * Global tcp_syn_use_limit is used when reseeding a
+			 * new cache.  Also update the value in active cache.
+			 */
+			if (tcp_syn_cache[0].scs_use > tcp_syn_use_limit)
+				tcp_syn_cache[0].scs_use = tcp_syn_use_limit;
+			if (tcp_syn_cache[1].scs_use > tcp_syn_use_limit)
+				tcp_syn_cache[1].scs_use = tcp_syn_use_limit;
+		}
+		return (0);
+
+	case TCPCTL_SYN_HASH_SIZE:
+		nval = tcp_syn_hash_size;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &nval);
+		if (error)
+			return (error);
+		if (nval != tcp_syn_hash_size) {
+			if (nval < 1 || nval > 100000)
+				return (EINVAL);
+			/*
+			 * If global hash size has been changed, switch sets as
+			 * soon as possible.  Then the actual hash array will
+			 * be reallocated.
+			 */
+			if (tcp_syn_cache[0].scs_size != nval)
+				tcp_syn_cache[0].scs_use = 0;
+			if (tcp_syn_cache[1].scs_size != nval)
+				tcp_syn_cache[1].scs_use = 0;
+			tcp_syn_hash_size = nval;
+		}
+		return (0);
 
 	default:
 		if (name[0] < TCPCTL_MAXID)
@@ -967,12 +1016,13 @@ void
 tcp_update_sndspace(struct tcpcb *tp)
 {
 	struct socket *so = tp->t_inpcb->inp_socket;
-	u_long nmax;
+	u_long nmax = so->so_snd.sb_hiwat;
 
-	if (sbchecklowmem())
+	if (sbchecklowmem()) {
 		/* low on memory try to get rid of some */
-		nmax = tcp_sendspace;
-	else if (so->so_snd.sb_wat != tcp_sendspace)
+		if (tcp_sendspace < nmax)
+			nmax = tcp_sendspace;
+	} else if (so->so_snd.sb_wat != tcp_sendspace)
 		/* user requested buffer size, auto-scaling disabled */
 		nmax = so->so_snd.sb_wat;
 	else
@@ -1007,10 +1057,11 @@ tcp_update_rcvspace(struct tcpcb *tp)
 	struct socket *so = tp->t_inpcb->inp_socket;
 	u_long nmax = so->so_rcv.sb_hiwat;
 
-	if (sbchecklowmem())
+	if (sbchecklowmem()) {
 		/* low on memory try to get rid of some */
-		nmax = tcp_recvspace;
-	else if (so->so_rcv.sb_wat != tcp_recvspace)
+		if (tcp_recvspace < nmax)
+			nmax = tcp_recvspace;
+	} else if (so->so_rcv.sb_wat != tcp_recvspace)
 		/* user requested buffer size, auto-scaling disabled */
 		nmax = so->so_rcv.sb_wat;
 	else {

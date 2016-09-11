@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.158 2016/02/29 19:44:07 naddy Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.165 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -130,8 +130,8 @@ struct ctlname {
 #define	KERN_OSVERSION		27	/* string: kernel build version */
 #define	KERN_SOMAXCONN		28	/* int: listen queue maximum */
 #define	KERN_SOMINCONN		29	/* int: half-open controllable param */
-#define	KERN_USERMOUNT		30	/* int: users may mount filesystems */
-#define	KERN_RND		31	/* struct: rnd(4) statistics */
+/* was KERN_USERMOUNT		30	*/
+/* was KERN_RND	31			*/
 #define	KERN_NOSUIDCOREDUMP	32	/* int: no setuid coredumps ever */ 
 #define	KERN_FSYNC		33	/* int: file synchronization support */
 #define	KERN_SYSVMSG		34	/* int: SysV message queue suppoprt */
@@ -152,7 +152,7 @@ struct ctlname {
 #define	KERN_POOL		49	/* struct: pool information */
 #define	KERN_STACKGAPRANDOM	50	/* int: stackgap_random */
 #define	KERN_SYSVIPC_INFO	51	/* struct: SysV sem/shm/msg info */
-/* was KERN_USERCRYPTO	52	*/
+/* was KERN_USERCRYPTO		52	*/
 /* was KERN_CRYPTODEVALLOWSOFT	53	*/
 #define KERN_SPLASSERT		54	/* int: splassert */
 #define KERN_PROC_ARGS		55	/* node: proc args and env */
@@ -174,7 +174,7 @@ struct ctlname {
 #define	KERN_CPTIME2		71	/* array: cp_time2 */
 #define	KERN_CACHEPCT		72	/* buffer cache % of physmem */
 #define	KERN_FILE		73	/* struct: file entries */
-/* was KERN_RTHREADS	74	*/
+#define	KERN_WXABORT		74	/* int: w^x sigabrt & core */
 #define	KERN_CONSDEV		75	/* dev_t: console terminal device */
 #define	KERN_NETLIVELOCKS	76	/* int: number of network livelocks */
 #define	KERN_POOL_DEBUG		77	/* int: enable pool_debug */
@@ -217,7 +217,7 @@ struct ctlname {
 	{ "osversion", CTLTYPE_STRING }, \
 	{ "somaxconn", CTLTYPE_INT }, \
 	{ "sominconn", CTLTYPE_INT }, \
-	{ "usermount", CTLTYPE_INT }, \
+	{ "gap", 0 }, \
 	{ "random", CTLTYPE_STRUCT }, \
 	{ "nosuidcoredump", CTLTYPE_INT }, \
 	{ "fsync", CTLTYPE_INT }, \
@@ -261,7 +261,7 @@ struct ctlname {
  	{ "cp_time2", CTLTYPE_STRUCT }, \
 	{ "bufcachepercent", CTLTYPE_INT }, \
 	{ "file", CTLTYPE_STRUCT }, \
-	{ "gap", 0 }, \
+	{ "wxabort", CTLTYPE_INT }, \
 	{ "consdev", CTLTYPE_STRUCT }, \
 	{ "netlivelocks", CTLTYPE_INT }, \
 	{ "pool_debug", CTLTYPE_INT }, \
@@ -377,7 +377,7 @@ struct kinfo_proc {
 
 	int8_t	p_stat;			/* CHAR: S* process status (from LWP). */
 	u_int8_t p_priority;		/* U_CHAR: Process priority. */
-	u_int8_t p_usrpri;		/* U_CHAR: User-priority based on p_cpu and ps_nice. */
+	u_int8_t p_usrpri;		/* U_CHAR: User-priority based on p_estcpu and ps_nice. */
 	u_int8_t p_nice;		/* U_CHAR: Process "nice" value. */
 
 	u_int16_t p_xstat;		/* U_SHORT: Exit status for wait; also stop signal. */
@@ -721,8 +721,7 @@ struct kinfo_file {
 	uint32_t	kq_count;	/* INT: number of pending events */
 	uint32_t	kq_state;	/* INT: kqueue status information */
 
-	/* systrace information */
-	uint32_t	str_npolicies;	/* INT: number systrace policies */
+	uint32_t	__unused1;	/* INT: unused */
 
 	/* process information when retrieved via KERN_FILE_BY[PU]ID */
 	uint32_t	p_pid;		/* PID_T: process id */
@@ -939,7 +938,7 @@ int sysctl_dumpentry(struct rtentry *, void *, unsigned int);
 int sysctl_rtable(int *, u_int, void *, size_t *, void *, size_t);
 int sysctl_clockrate(char *, size_t *, void *);
 int sysctl_vnode(char *, size_t *, struct proc *);
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 int sysctl_doprof(int *, u_int, void *, size_t *, void *, size_t);
 #endif
 int sysctl_dopool(int *, u_int, char *, size_t *);

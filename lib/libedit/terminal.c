@@ -1,5 +1,5 @@
-/*	$OpenBSD: terminal.c,v 1.6 2016/01/30 17:32:52 schwarze Exp $	*/
-/*	$NetBSD: term.c,v 1.57 2009/12/30 22:37:40 christos Exp $	*/
+/*	$OpenBSD: terminal.c,v 1.17 2016/05/06 13:12:52 schwarze Exp $	*/
+/*	$NetBSD: terminal.c,v 1.17 2016/02/15 15:35:03 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -40,12 +40,14 @@
  *	       We have to declare a static variable here, since the
  *	       termcap putchar routine does not take an argument!
  */
-#include <stdio.h>
-#include <signal.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #ifdef HAVE_TERMCAP_H
 #include <termcap.h>
 #endif
@@ -59,14 +61,13 @@
 #if defined(HAVE_TERM_H) && !defined(__sun)
 #include <term.h>
 #endif
-#include <sys/types.h>
-#include <sys/ioctl.h>
 
 #ifdef _REENTRANT
 #include <pthread.h>
 #endif
 
 #include "el.h"
+#include "fcns.h"
 
 /*
  * IMPORTANT NOTE: these routines are allowed to look at the current screen
@@ -82,7 +83,7 @@
 #define	Str(a)		el->el_terminal.t_str[a]
 #define	Val(a)		el->el_terminal.t_val[a]
 
-private const struct termcapstr {
+static const struct termcapstr {
 	const char *name;
 	const char *long_name;
 } tstr[] = {
@@ -166,7 +167,7 @@ private const struct termcapstr {
 	{ NULL, NULL }
 };
 
-private const struct termcapval {
+static const struct termcapval {
 	const char *name;
 	const char *long_name;
 } tval[] = {
@@ -191,27 +192,27 @@ private const struct termcapval {
 };
 /* do two or more of the attributes use me */
 
-private void	terminal_setflags(EditLine *);
-private int	terminal_rebuffer_display(EditLine *);
-private void	terminal_free_display(EditLine *);
-private int	terminal_alloc_display(EditLine *);
-private void	terminal_alloc(EditLine *, const struct termcapstr *,
+static void	terminal_setflags(EditLine *);
+static int	terminal_rebuffer_display(EditLine *);
+static void	terminal_free_display(EditLine *);
+static int	terminal_alloc_display(EditLine *);
+static void	terminal_alloc(EditLine *, const struct termcapstr *,
     const char *);
-private void	terminal_init_arrow(EditLine *);
-private void	terminal_reset_arrow(EditLine *);
-private int	terminal_putc(int);
-private void	terminal_tputs(EditLine *, const char *, int);
+static void	terminal_init_arrow(EditLine *);
+static void	terminal_reset_arrow(EditLine *);
+static int	terminal_putc(int);
+static void	terminal_tputs(EditLine *, const char *, int);
 
 #ifdef _REENTRANT
-private pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t terminal_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
-private FILE *terminal_outfile = NULL;
+static FILE *terminal_outfile = NULL;
 
 
 /* terminal_setflags():
  *	Set the terminal capability flags
  */
-private void
+static void
 terminal_setflags(EditLine *el)
 {
 	EL_FLAGS = 0;
@@ -262,7 +263,7 @@ terminal_init(EditLine *el)
 
 	el->el_terminal.t_buf = (char *)malloc(TC_BUFSIZE);
 	if (el->el_terminal.t_buf == NULL)
-		goto fail;
+		goto fail1;
 	el->el_terminal.t_cap = (char *)malloc(TC_BUFSIZE);
 	if (el->el_terminal.t_cap == NULL)
 		goto fail2;
@@ -294,7 +295,7 @@ fail3:
 fail2:
 	free(el->el_terminal.t_buf);
 	el->el_terminal.t_buf = NULL;
-fail:
+fail1:
 	return -1;
 }
 
@@ -323,7 +324,7 @@ terminal_end(EditLine *el)
 /* terminal_alloc():
  *	Maintain a string pool for termcap strings
  */
-private void
+static void
 terminal_alloc(EditLine *el, const struct termcapstr *t, const char *cap)
 {
 	char termbuf[TC_BUFSIZE];
@@ -363,7 +364,7 @@ terminal_alloc(EditLine *el, const struct termcapstr *t, const char *cap)
          */
 	tlen = 0;
 	for (tmp = tlist; tmp < &tlist[T_str]; tmp++)
-		if (*tmp != NULL && *tmp != '\0' && *tmp != *str) {
+		if (*tmp != NULL && **tmp != '\0' && *tmp != *str) {
 			char *ptr;
 
 			for (ptr = *tmp; *ptr != '\0'; termbuf[tlen++] = *ptr++)
@@ -388,7 +389,7 @@ terminal_alloc(EditLine *el, const struct termcapstr *t, const char *cap)
 /* terminal_rebuffer_display():
  *	Rebuffer the display after the screen changed size
  */
-private int
+static int
 terminal_rebuffer_display(EditLine *el)
 {
 	coord_t *c = &el->el_terminal.t_size;
@@ -407,11 +408,11 @@ terminal_rebuffer_display(EditLine *el)
 /* terminal_alloc_display():
  *	Allocate a new display.
  */
-private int
+static int
 terminal_alloc_display(EditLine *el)
 {
-	int i, rv = -1;
-	Char **b;
+	int i;
+	wchar_t **b;
 	coord_t *c = &el->el_terminal.t_size;
 
 	b = reallocarray(NULL, c->v + 1, sizeof(*b));
@@ -443,23 +444,21 @@ terminal_alloc_display(EditLine *el)
 	}
 	b[c->v] = NULL;
 	el->el_vdisplay = b;
-
-	rv = 0;
+	return 0;
 done:
-	if (rv)
-		terminal_free_display(el);
-	return rv;
+	terminal_free_display(el);
+	return -1;
 }
 
 
 /* terminal_free_display():
  *	Free the display buffers
  */
-private void
+static void
 terminal_free_display(EditLine *el)
 {
-	Char **b;
-	Char **bufp;
+	wchar_t **b;
+	wchar_t **bufp;
 
 	b = el->el_display;
 	el->el_display = NULL;
@@ -480,7 +479,7 @@ terminal_free_display(EditLine *el)
 
 /* terminal_move_to_line():
  *	move to line <where> (first line == 0)
- * 	as efficiently as possible
+ *	as efficiently as possible
  */
 protected void
 terminal_move_to_line(EditLine *el, int where)
@@ -503,13 +502,11 @@ terminal_move_to_line(EditLine *el, int where)
 			if (EL_HAS_AUTO_MARGINS &&
 			    el->el_display[el->el_cursor.v][0] != '\0') {
                                 size_t h = el->el_terminal.t_size.h - 1;
-#ifdef WIDECHAR
                                 for (; h > 0 &&
                                          el->el_display[el->el_cursor.v][h] ==
                                                  MB_FILL_CHAR;
                                          h--)
                                                 continue;
-#endif
 				/* move without newline */
 				terminal_move_to_char(el, (int)h);
 				terminal_overwrite(el, &el->el_display
@@ -584,11 +581,9 @@ mc_again:
 				if (EL_CAN_TAB) {
 					if ((el->el_cursor.h & 0370) !=
 					    (where & ~0x7)
-#ifdef WIDECHAR
 					    && (el->el_display[
 					    el->el_cursor.v][where & 0370] !=
 					    MB_FILL_CHAR)
-#endif
 					    ) {
 						/* if not within tab stop */
 						for (i =
@@ -596,7 +591,7 @@ mc_again:
 						    i < (where & ~0x7);
 						    i += 8)
 							terminal__putc(el,
-							    '\t');	
+							    '\t');
 							/* then tab over */
 						el->el_cursor.h = where & ~0x7;
 					}
@@ -646,7 +641,7 @@ mc_again:
  *	Assumes MB_FILL_CHARs are present to keep the column count correct
  */
 protected void
-terminal_overwrite(EditLine *el, const Char *cp, size_t n)
+terminal_overwrite(EditLine *el, const wchar_t *cp, size_t n)
 {
 	if (n == 0)
 		return;
@@ -654,7 +649,7 @@ terminal_overwrite(EditLine *el, const Char *cp, size_t n)
 	if (n > (size_t)el->el_terminal.t_size.h) {
 #ifdef DEBUG_SCREEN
 		(void) fprintf(el->el_errfile,
-		    "terminal_overwrite: n is riduculous: %d\r\n", n);
+		    "terminal_overwrite: n is riduculous: %zu\r\n", n);
 #endif /* DEBUG_SCREEN */
 		return;
 	}
@@ -672,15 +667,13 @@ terminal_overwrite(EditLine *el, const Char *cp, size_t n)
 			if (EL_HAS_MAGIC_MARGINS) {
 				/* force the wrap to avoid the "magic"
 				 * situation */
-				Char c;
+				wchar_t c;
 				if ((c = el->el_display[el->el_cursor.v]
 				    [el->el_cursor.h]) != '\0') {
 					terminal_overwrite(el, &c, 1);
-#ifdef WIDECHAR
 					while (el->el_display[el->el_cursor.v]
 					    [el->el_cursor.h] == MB_FILL_CHAR)
 						el->el_cursor.h++;
-#endif
 				} else {
 					terminal__putc(el, ' ');
 					el->el_cursor.h = 1;
@@ -738,7 +731,7 @@ terminal_deletechars(EditLine *el, int num)
  *      Assumes MB_FILL_CHARs are present to keep column count correct
  */
 protected void
-terminal_insertwrite(EditLine *el, Char *cp, int num)
+terminal_insertwrite(EditLine *el, wchar_t *cp, int num)
 {
 	if (num <= 0)
 		return;
@@ -1001,37 +994,37 @@ terminal_change_size(EditLine *el, int lins, int cols)
 /* terminal_init_arrow():
  *	Initialize the arrow key bindings from termcap
  */
-private void
+static void
 terminal_init_arrow(EditLine *el)
 {
 	funckey_t *arrow = el->el_terminal.t_fkey;
 
-	arrow[A_K_DN].name = STR("down");
+	arrow[A_K_DN].name = L"down";
 	arrow[A_K_DN].key = T_kd;
 	arrow[A_K_DN].fun.cmd = ED_NEXT_HISTORY;
 	arrow[A_K_DN].type = XK_CMD;
 
-	arrow[A_K_UP].name = STR("up");
+	arrow[A_K_UP].name = L"up";
 	arrow[A_K_UP].key = T_ku;
 	arrow[A_K_UP].fun.cmd = ED_PREV_HISTORY;
 	arrow[A_K_UP].type = XK_CMD;
 
-	arrow[A_K_LT].name = STR("left");
+	arrow[A_K_LT].name = L"left";
 	arrow[A_K_LT].key = T_kl;
 	arrow[A_K_LT].fun.cmd = ED_PREV_CHAR;
 	arrow[A_K_LT].type = XK_CMD;
 
-	arrow[A_K_RT].name = STR("right");
+	arrow[A_K_RT].name = L"right";
 	arrow[A_K_RT].key = T_kr;
 	arrow[A_K_RT].fun.cmd = ED_NEXT_CHAR;
 	arrow[A_K_RT].type = XK_CMD;
 
-	arrow[A_K_HO].name = STR("home");
+	arrow[A_K_HO].name = L"home";
 	arrow[A_K_HO].key = T_kh;
 	arrow[A_K_HO].fun.cmd = ED_MOVE_TO_BEG;
 	arrow[A_K_HO].type = XK_CMD;
 
-	arrow[A_K_EN].name = STR("end");
+	arrow[A_K_EN].name = L"end";
 	arrow[A_K_EN].key = T_at7;
 	arrow[A_K_EN].fun.cmd = ED_MOVE_TO_END;
 	arrow[A_K_EN].type = XK_CMD;
@@ -1041,22 +1034,22 @@ terminal_init_arrow(EditLine *el)
 /* terminal_reset_arrow():
  *	Reset arrow key bindings
  */
-private void
+static void
 terminal_reset_arrow(EditLine *el)
 {
 	funckey_t *arrow = el->el_terminal.t_fkey;
-	static const Char strA[] = {033, '[', 'A', '\0'};
-	static const Char strB[] = {033, '[', 'B', '\0'};
-	static const Char strC[] = {033, '[', 'C', '\0'};
-	static const Char strD[] = {033, '[', 'D', '\0'};
-	static const Char strH[] = {033, '[', 'H', '\0'};
-	static const Char strF[] = {033, '[', 'F', '\0'};
-	static const Char stOA[] = {033, 'O', 'A', '\0'};
-	static const Char stOB[] = {033, 'O', 'B', '\0'};
-	static const Char stOC[] = {033, 'O', 'C', '\0'};
-	static const Char stOD[] = {033, 'O', 'D', '\0'};
-	static const Char stOH[] = {033, 'O', 'H', '\0'};
-	static const Char stOF[] = {033, 'O', 'F', '\0'};
+	static const wchar_t strA[] = L"\033[A";
+	static const wchar_t strB[] = L"\033[B";
+	static const wchar_t strC[] = L"\033[C";
+	static const wchar_t strD[] = L"\033[D";
+	static const wchar_t strH[] = L"\033[H";
+	static const wchar_t strF[] = L"\033[F";
+	static const wchar_t stOA[] = L"\033OA";
+	static const wchar_t stOB[] = L"\033OB";
+	static const wchar_t stOC[] = L"\033OC";
+	static const wchar_t stOD[] = L"\033OD";
+	static const wchar_t stOH[] = L"\033OH";
+	static const wchar_t stOF[] = L"\033OF";
 
 	keymacro_add(el, strA, &arrow[A_K_UP].fun, arrow[A_K_UP].type);
 	keymacro_add(el, strB, &arrow[A_K_DN].fun, arrow[A_K_DN].type);
@@ -1092,14 +1085,14 @@ terminal_reset_arrow(EditLine *el)
  *	Set an arrow key binding
  */
 protected int
-terminal_set_arrow(EditLine *el, const Char *name, keymacro_value_t *fun,
+terminal_set_arrow(EditLine *el, const wchar_t *name, keymacro_value_t *fun,
     int type)
 {
 	funckey_t *arrow = el->el_terminal.t_fkey;
 	int i;
 
 	for (i = 0; i < A_K_NKEYS; i++)
-		if (Strcmp(name, arrow[i].name) == 0) {
+		if (wcscmp(name, arrow[i].name) == 0) {
 			arrow[i].fun = *fun;
 			arrow[i].type = type;
 			return 0;
@@ -1112,13 +1105,13 @@ terminal_set_arrow(EditLine *el, const Char *name, keymacro_value_t *fun,
  *	Clear an arrow key binding
  */
 protected int
-terminal_clear_arrow(EditLine *el, const Char *name)
+terminal_clear_arrow(EditLine *el, const wchar_t *name)
 {
 	funckey_t *arrow = el->el_terminal.t_fkey;
 	int i;
 
 	for (i = 0; i < A_K_NKEYS; i++)
-		if (Strcmp(name, arrow[i].name) == 0) {
+		if (wcscmp(name, arrow[i].name) == 0) {
 			arrow[i].type = XK_NOD;
 			return 0;
 		}
@@ -1130,13 +1123,13 @@ terminal_clear_arrow(EditLine *el, const Char *name)
  *	Print the arrow key bindings
  */
 protected void
-terminal_print_arrow(EditLine *el, const Char *name)
+terminal_print_arrow(EditLine *el, const wchar_t *name)
 {
 	int i;
 	funckey_t *arrow = el->el_terminal.t_fkey;
 
 	for (i = 0; i < A_K_NKEYS; i++)
-		if (*name == '\0' || Strcmp(name, arrow[i].name) == 0)
+		if (*name == '\0' || wcscmp(name, arrow[i].name) == 0)
 			if (arrow[i].type != XK_NOD)
 				keymacro_kprint(el, arrow[i].name,
 				    &arrow[i].fun, arrow[i].type);
@@ -1165,8 +1158,8 @@ terminal_bind_arrow(EditLine *el)
 	terminal_reset_arrow(el);
 
 	for (i = 0; i < A_K_NKEYS; i++) {
-		Char wt_str[VISUAL_WIDTH_MAX];
-		Char *px;
+		wchar_t wt_str[VISUAL_WIDTH_MAX];
+		wchar_t *px;
 		size_t n;
 
 		p = el->el_terminal.t_str[arrow[i].key];
@@ -1211,7 +1204,7 @@ terminal_bind_arrow(EditLine *el)
 /* terminal_putc():
  *	Add a character
  */
-private int
+static int
 terminal_putc(int c)
 {
 	if (terminal_outfile == NULL)
@@ -1219,7 +1212,7 @@ terminal_putc(int c)
 	return fputc(c, terminal_outfile);
 }
 
-private void
+static void
 terminal_tputs(EditLine *el, const char *cap, int affcnt)
 {
 #ifdef _REENTRANT
@@ -1236,11 +1229,11 @@ terminal_tputs(EditLine *el, const char *cap, int affcnt)
  *	Add a character
  */
 protected int
-terminal__putc(EditLine *el, Int c)
+terminal__putc(EditLine *el, wint_t c)
 {
 	char buf[MB_LEN_MAX +1];
 	ssize_t i;
-	if (c == MB_FILL_CHAR)
+	if (c == (wint_t)MB_FILL_CHAR)
 		return 0;
 	i = ct_encode_char(buf, MB_LEN_MAX, c);
 	if (i <= 0)
@@ -1263,9 +1256,9 @@ terminal__flush(EditLine *el)
  *	Write the given character out, in a human readable form
  */
 protected void
-terminal_writec(EditLine *el, Int c)
+terminal_writec(EditLine *el, wint_t c)
 {
-	Char visbuf[VISUAL_WIDTH_MAX +1];
+	wchar_t visbuf[VISUAL_WIDTH_MAX +1];
 	ssize_t vcnt = ct_visual_char(visbuf, VISUAL_WIDTH_MAX, c);
 	visbuf[vcnt] = '\0';
 	terminal_overwrite(el, visbuf, (size_t)vcnt);
@@ -1278,8 +1271,8 @@ terminal_writec(EditLine *el, Int c)
  */
 protected int
 /*ARGSUSED*/
-terminal_telltc(EditLine *el, int argc __attribute__((__unused__)), 
-    const Char **argv __attribute__((__unused__)))
+terminal_telltc(EditLine *el, int argc __attribute__((__unused__)),
+    const wchar_t **argv __attribute__((__unused__)))
 {
 	const struct termcapstr *t;
 	char **ts;
@@ -1321,7 +1314,7 @@ terminal_telltc(EditLine *el, int argc __attribute__((__unused__)),
 protected int
 /*ARGSUSED*/
 terminal_settc(EditLine *el, int argc __attribute__((__unused__)),
-    const Char **argv)
+    const wchar_t **argv)
 {
 	const struct termcapstr *ts;
 	const struct termcapval *tv;
@@ -1365,7 +1358,7 @@ terminal_settc(EditLine *el, int argc __attribute__((__unused__)),
 			el->el_terminal.t_val[tv - tval] = 0;
 		else {
 			(void) fprintf(el->el_errfile,
-			    "" FSTR ": Bad value `%s'.\n", argv[0], how);
+			    "%ls: Bad value `%s'.\n", argv[0], how);
 			return -1;
 		}
 		terminal_setflags(el);
@@ -1379,7 +1372,7 @@ terminal_settc(EditLine *el, int argc __attribute__((__unused__)),
 		i = strtol(how, &ep, 10);
 		if (*ep != '\0') {
 			(void) fprintf(el->el_errfile,
-			    "" FSTR ": Bad value `%s'.\n", argv[0], how);
+			    "%ls: Bad value `%s'.\n", argv[0], how);
 			return -1;
 		}
 		el->el_terminal.t_val[tv - tval] = (int) i;
@@ -1454,10 +1447,10 @@ terminal_gettc(EditLine *el, int argc __attribute__((__unused__)), char **argv)
 protected int
 /*ARGSUSED*/
 terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
-    const Char **argv)
+    const wchar_t **argv)
 {
 	char *cap, *scap;
-	Char *ep;
+	wchar_t *ep;
 	int arg_need, arg_cols, arg_rows;
 	int verbose = 0, silent = 0;
 	char *area;
@@ -1488,28 +1481,28 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 	}
 	if (!*argv || *argv[0] == '\0')
 		return 0;
-	if (Strcmp(*argv, STR("tabs")) == 0) {
+	if (wcscmp(*argv, L"tabs") == 0) {
 		(void) fprintf(el->el_outfile, fmts, EL_CAN_TAB ? "yes" : "no");
 		return 0;
-	} else if (Strcmp(*argv, STR("meta")) == 0) {
+	} else if (wcscmp(*argv, L"meta") == 0) {
 		(void) fprintf(el->el_outfile, fmts, Val(T_km) ? "yes" : "no");
 		return 0;
-	} else if (Strcmp(*argv, STR("xn")) == 0) {
+	} else if (wcscmp(*argv, L"xn") == 0) {
 		(void) fprintf(el->el_outfile, fmts, EL_HAS_MAGIC_MARGINS ?
 		    "yes" : "no");
 		return 0;
-	} else if (Strcmp(*argv, STR("am")) == 0) {
+	} else if (wcscmp(*argv, L"am") == 0) {
 		(void) fprintf(el->el_outfile, fmts, EL_HAS_AUTO_MARGINS ?
 		    "yes" : "no");
 		return 0;
-	} else if (Strcmp(*argv, STR("baud")) == 0) {
+	} else if (wcscmp(*argv, L"baud") == 0) {
 		(void) fprintf(el->el_outfile, fmtd, (int)el->el_tty.t_speed);
 		return 0;
-	} else if (Strcmp(*argv, STR("rows")) == 0 ||
-                   Strcmp(*argv, STR("lines")) == 0) {
+	} else if (wcscmp(*argv, L"rows") == 0 ||
+                   wcscmp(*argv, L"lines") == 0) {
 		(void) fprintf(el->el_outfile, fmtd, Val(T_li));
 		return 0;
-	} else if (Strcmp(*argv, STR("cols")) == 0) {
+	} else if (wcscmp(*argv, L"cols") == 0) {
 		(void) fprintf(el->el_outfile, fmtd, Val(T_co));
 		return 0;
 	}
@@ -1530,7 +1523,7 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 	if (!scap || scap[0] == '\0') {
 		if (!silent)
 			(void) fprintf(el->el_errfile,
-			    "echotc: Termcap parameter `" FSTR "' not found.\n",
+			    "echotc: Termcap parameter `%ls' not found.\n",
 			    *argv);
 		return -1;
 	}
@@ -1573,7 +1566,7 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
+				    "echotc: Warning: Extra argument `%ls'.\n",
 				    *argv);
 			return -1;
 		}
@@ -1588,11 +1581,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 			return -1;
 		}
 		arg_cols = 0;
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for rows.\n",
+				    "echotc: Bad value `%ls' for rows.\n",
 				    *argv);
 			return -1;
 		}
@@ -1601,8 +1594,8 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
-				    *argv);
+				    "echotc: Warning: Extra argument `%ls"
+				    "'.\n", *argv);
 			return -1;
 		}
 		terminal_tputs(el, tgoto(scap, arg_cols, arg_rows), 1);
@@ -1622,11 +1615,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 				    "echotc: Warning: Missing argument.\n");
 			return -1;
 		}
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for cols.\n",
+				    "echotc: Bad value `%ls' for cols.\n",
 				    *argv);
 			return -1;
 		}
@@ -1638,11 +1631,11 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 				    "echotc: Warning: Missing argument.\n");
 			return -1;
 		}
-		i = Strtol(*argv, &ep, 10);
+		i = wcstol(*argv, &ep, 10);
 		if (*ep != '\0' || i < 0) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "' for rows.\n",
+				    "echotc: Bad value `%ls' for rows.\n",
 				    *argv);
 			return -1;
 		}
@@ -1650,15 +1643,15 @@ terminal_echotc(EditLine *el, int argc __attribute__((__unused__)),
 		if (*ep != '\0') {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Bad value `" FSTR "'.\n", *argv);
+				    "echotc: Bad value `%ls'.\n", *argv);
 			return -1;
 		}
 		argv++;
 		if (*argv && *argv[0]) {
 			if (!silent)
 				(void) fprintf(el->el_errfile,
-				    "echotc: Warning: Extra argument `" FSTR "'.\n",
-				    *argv);
+				    "echotc: Warning: Extra argument `%ls"
+				    "'.\n", *argv);
 			return -1;
 		}
 		terminal_tputs(el, tgoto(scap, arg_cols, arg_rows), arg_rows);

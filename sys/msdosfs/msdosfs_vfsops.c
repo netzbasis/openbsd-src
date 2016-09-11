@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vfsops.c,v 1.73 2015/10/23 17:21:34 krw Exp $	*/
+/*	$OpenBSD: msdosfs_vfsops.c,v 1.80 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: msdosfs_vfsops.c,v 1.48 1997/10/18 02:54:57 briggs Exp $	*/
 
 /*-
@@ -106,7 +106,6 @@ msdosfs_mount(struct mount *mp, const char *path, void *data,
 	char fname[MNAMELEN];
 	char fspec[MNAMELEN];
 	int error, flags;
-	mode_t accessmode;
 
 	error = copyin(data, &args, sizeof(struct msdosfs_args));
 	if (error)
@@ -138,22 +137,9 @@ msdosfs_mount(struct mount *mp, const char *path, void *data,
 		if (error)
 			return (error);
 		if ((pmp->pm_flags & MSDOSFSMNT_RONLY) &&
-		    (mp->mnt_flag & MNT_WANTRDWR)) {
-			/*
-			 * If upgrade to read-write by non-root, then verify
-			 * that user has necessary permissions on the device.
-			 */
-			if (suser(p, 0) != 0) {
-				devvp = pmp->pm_devvp;
-				vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-				error = VOP_ACCESS(devvp, VREAD | VWRITE,
-						   p->p_ucred, p);
-				VOP_UNLOCK(devvp, 0, p);
-				if (error)
-					return (error);
-			}
+		    (mp->mnt_flag & MNT_WANTRDWR))
 			pmp->pm_flags &= ~MSDOSFSMNT_RONLY;
-		}
+
 		if (args.fspec == NULL) {
 #ifdef	__notyet__		/* doesn't work correctly with current mountd	XXX */
 			if (args.flags & MSDOSFSMNT_MNTOPT) {
@@ -197,21 +183,6 @@ msdosfs_mount(struct mount *mp, const char *path, void *data,
 		goto error_devvp;
 	}
 
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0) != 0) {
-		accessmode = VREAD;
-		if ((mp->mnt_flag & MNT_RDONLY) == 0)
-			accessmode |= VWRITE;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, accessmode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
-		if (error)
-			goto error_devvp;
-	}
-
 	if ((mp->mnt_flag & MNT_UPDATE) == 0)
 		error = msdosfs_mountfs(devvp, mp, p, &args);
 	else {
@@ -251,6 +222,11 @@ msdosfs_mount(struct mount *mp, const char *path, void *data,
 			vput(rvp);
 		}
 	}
+
+	if (pmp->pm_flags & MSDOSFSMNT_LONGNAME)
+		mp->mnt_stat.f_namemax = WIN_MAXLEN;
+	else
+		mp->mnt_stat.f_namemax = 12;
 
 	bzero(mp->mnt_stat.f_mntonname, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntonname, path, MNAMELEN);
@@ -302,7 +278,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
@@ -561,7 +537,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 		pmp->pm_flags |= MSDOSFSMNT_RONLY;
 	else
 		pmp->pm_fmod = 1;
-	mp->mnt_data = (qaddr_t)pmp;
+	mp->mnt_data = pmp;
         mp->mnt_stat.f_fsid.val[0] = (long)dev;
         mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
 #ifdef QUOTA
@@ -578,19 +554,20 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	return (0);
 
 error_exit:
-	devvp->v_specmountpoint = NULL;
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 
 	vn_lock(devvp, LK_EXCLUSIVE|LK_RETRY, p);
 	(void) VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, NOCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 
 	if (pmp) {
 		if (pmp->pm_inusemap)
 			free(pmp->pm_inusemap, M_MSDOSFSFAT, 0);
 		free(pmp, M_MSDOSFSMNT, 0);
-		mp->mnt_data = (qaddr_t)0;
+		mp->mnt_data = NULL;
 	}
 	return (error);
 }
@@ -626,14 +603,14 @@ msdosfs_unmount(struct mount *mp, int mntflags,struct proc *p)
 	vprint("msdosfs_umount(): just before calling VOP_CLOSE()\n", vp);
 #endif
 	vn_lock(vp, LK_EXCLUSIVE | LK_RETRY, p);
-	error = VOP_CLOSE(vp,
-	   pmp->pm_flags & MSDOSFSMNT_RONLY ? FREAD : FREAD|FWRITE, NOCRED, p);
+	(void)VOP_CLOSE(vp,
+	    pmp->pm_flags & MSDOSFSMNT_RONLY ? FREAD : FREAD|FWRITE, NOCRED, p);
 	vput(vp);
 	free(pmp->pm_inusemap, M_MSDOSFSFAT, 0);
 	free(pmp, M_MSDOSFSMNT, 0);
-	mp->mnt_data = (qaddr_t)0;
+	mp->mnt_data = NULL;
 	mp->mnt_flag &= ~MNT_LOCAL;
-	return (error);
+	return (0);
 }
 
 int
@@ -667,14 +644,9 @@ msdosfs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	sbp->f_bfree = pmp->pm_freeclustercount;
 	sbp->f_bavail = pmp->pm_freeclustercount;
 	sbp->f_files = pmp->pm_RootDirEnts;			/* XXX */
-	sbp->f_ffree = 0;	/* what to put in here? */
-	if (sbp != &mp->mnt_stat) {
-		bcopy(mp->mnt_stat.f_mntonname, sbp->f_mntonname, MNAMELEN);
-		bcopy(mp->mnt_stat.f_mntfromname, sbp->f_mntfromname, MNAMELEN);
-		bcopy(&mp->mnt_stat.mount_info.msdosfs_args,
-		    &sbp->mount_info.msdosfs_args, sizeof(struct msdosfs_args));
-	}
-	strncpy(sbp->f_fstypename, mp->mnt_vfc->vfc_name, MFSNAMELEN);
+	sbp->f_ffree = sbp->f_favail = 0;	/* what to put in here? */
+	copy_statfs_info(sbp, mp);
+
 	return (0);
 }
 
@@ -706,7 +678,7 @@ msdosfs_sync_vnode(struct vnode *vp, void *arg)
 
 	if ((error = VOP_FSYNC(vp, msa->cred, msa->waitfor, msa->p)) != 0)
 		msa->allerror = error;
-	VOP_UNLOCK(vp, 0, msa->p);
+	VOP_UNLOCK(vp, msa->p);
 	vrele(vp);
 
 	return (0);
@@ -748,7 +720,7 @@ msdosfs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
 		vn_lock(pmp->pm_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 		if ((error = VOP_FSYNC(pmp->pm_devvp, cred, waitfor, p)) != 0)
 			msa.allerror = error;
-		VOP_UNLOCK(pmp->pm_devvp, 0, p);
+		VOP_UNLOCK(pmp->pm_devvp, p);
 	}
 
 	return (msa.allerror);

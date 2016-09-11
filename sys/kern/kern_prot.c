@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_prot.c,v 1.63 2015/03/02 20:46:50 guenther Exp $	*/
+/*	$OpenBSD: kern_prot.c,v 1.66 2016/09/02 18:11:28 tedu Exp $	*/
 /*	$NetBSD: kern_prot.c,v 1.33 1996/02/09 18:59:42 christos Exp $	*/
 
 /*
@@ -225,6 +225,7 @@ sys_setsid(struct proc *p, void *v, register_t *retval)
 	pid_t pid = pr->ps_pid;
 
 	newsess = pool_get(&session_pool, PR_WAITOK);
+	timeout_set(&newsess->s_verauthto, zapverauth, newsess);
 	newpgrp = pool_get(&pgrp_pool, PR_WAITOK);
 
 	if (pr->ps_pgid == pid || pgfind(pid)) {
@@ -1006,9 +1007,9 @@ crfromxucred(struct ucred *cr, const struct xucred *xcr)
  * Get login name, if available.
  */
 int
-sys_getlogin(struct proc *p, void *v, register_t *retval)
+sys_getlogin59(struct proc *p, void *v, register_t *retval)
 {
-	struct sys_getlogin_args /* {
+	struct sys_getlogin59_args /* {
 		syscallarg(char *) namebuf;
 		syscallarg(u_int) namelen;
 	} */ *uap = v;
@@ -1021,6 +1022,29 @@ sys_getlogin(struct proc *p, void *v, register_t *retval)
 }
 
 /*
+ * Get login name, if available.
+ */
+int
+sys_getlogin_r(struct proc *p, void *v, register_t *retval)
+{
+	struct sys_getlogin_r_args /* {
+		syscallarg(char *) namebuf;
+		syscallarg(size_t) namelen;
+	} */ *uap = v;
+	size_t namelen = SCARG(uap, namelen);
+	struct session *s = p->p_p->ps_pgrp->pg_session;
+	int error;
+
+	if (namelen > sizeof(s->s_login))
+		namelen = sizeof(s->s_login);
+	error = copyoutstr(s->s_login, SCARG(uap, namebuf), namelen, NULL);
+	if (error == ENAMETOOLONG)
+		error = ERANGE;
+	*retval = error;
+	return (0);
+}
+
+/*
  * Set login name.
  */
 int
@@ -1030,13 +1054,15 @@ sys_setlogin(struct proc *p, void *v, register_t *retval)
 		syscallarg(const char *) namebuf;
 	} */ *uap = v;
 	struct session *s = p->p_p->ps_pgrp->pg_session;
+	char buf[sizeof(s->s_login)];
 	int error;
 
 	if ((error = suser(p, 0)) != 0)
 		return (error);
-	error = copyinstr((caddr_t)SCARG(uap, namebuf), (caddr_t)s->s_login,
-	    sizeof(s->s_login), NULL);
-	if (error == ENAMETOOLONG)
+	error = copyinstr(SCARG(uap, namebuf), buf, sizeof(buf), NULL);
+	if (error == 0)
+		strlcpy(s->s_login, buf, sizeof(s->s_login));
+	else if (error == ENAMETOOLONG)
 		error = EINVAL;
 	return (error);
 }

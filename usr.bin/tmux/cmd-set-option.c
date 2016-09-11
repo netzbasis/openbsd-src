@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-option.c,v 1.94 2016/03/03 14:15:22 nicm Exp $ */
+/* $OpenBSD: cmd-set-option.c,v 1.96 2016/05/30 09:50:20 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -200,6 +200,17 @@ cmd_set_option_exec(struct cmd *self, struct cmd_q *cmdq)
 		status_timer_start_all();
 	if (strcmp(oe->name, "monitor-silence") == 0)
 		alerts_reset_all();
+	if (strcmp(oe->name, "window-style") == 0 ||
+	    strcmp(oe->name, "window-active-style") == 0) {
+		RB_FOREACH(w, windows, &windows)
+			w->flags |= WINDOW_STYLECHANGED;
+	}
+
+	/* When the pane-border-status option has been changed, resize panes. */
+	if (strcmp(oe->name, "pane-border-status") == 0) {
+		RB_FOREACH(w, windows, &windows)
+			layout_fix_panes(w, w->sx, w->sy);
+	}
 
 	/* Update sizes and redraw. May not need it but meh. */
 	recalculate_sizes();

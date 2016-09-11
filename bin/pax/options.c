@@ -1,4 +1,4 @@
-/*	$OpenBSD: options.c,v 1.92 2015/12/06 12:00:16 tobias Exp $	*/
+/*	$OpenBSD: options.c,v 1.100 2016/08/26 04:40:27 guenther Exp $	*/
 /*	$NetBSD: options.c,v 1.6 1996/03/26 23:54:18 mrg Exp $	*/
 
 /*-
@@ -35,21 +35,95 @@
  */
 
 #include <sys/types.h>
-#include <sys/time.h>
 #include <sys/stat.h>
-#include <sys/mtio.h>
-#include <stdio.h>
-#include <string.h>
 #include <errno.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <paths.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "pax.h"
-#include "options.h"
 #include "cpio.h"
 #include "tar.h"
 #include "extern.h"
+
+/*
+ * argv[0] names. Used for tar and cpio emulation
+ */
+
+#define NM_TAR  "tar"
+#define NM_CPIO "cpio"
+#define NM_PAX  "pax"
+
+/*
+ * Constants used to specify the legal sets of flags in pax. For each major
+ * operation mode of pax, a set of illegal flags is defined. If any one of
+ * those illegal flags are found set, we scream and exit
+ */
+
+/*
+ * flags (one for each option).
+ */
+#define	AF	0x00000001
+#define	BF	0x00000002
+#define	CF	0x00000004
+#define	DF	0x00000008
+#define	FF	0x00000010
+#define	IF	0x00000020
+#define	KF	0x00000040
+#define	LF	0x00000080
+#define	NF	0x00000100
+#define	OF	0x00000200
+#define	PF	0x00000400
+#define	RF	0x00000800
+#define	SF	0x00001000
+#define	TF	0x00002000
+#define	UF	0x00004000
+#define	VF	0x00008000
+#define	WF	0x00010000
+#define	XF	0x00020000
+#define	CBF	0x00040000	/* nonstandard extension */
+#define	CDF	0x00080000	/* nonstandard extension */
+#define	CEF	0x00100000	/* nonstandard extension */
+#define	CGF	0x00200000	/* nonstandard extension */
+#define	CHF	0x00400000	/* nonstandard extension */
+#define	CLF	0x00800000	/* nonstandard extension */
+#define	CPF	0x01000000	/* nonstandard extension */
+#define	CTF	0x02000000	/* nonstandard extension */
+#define	CUF	0x04000000	/* nonstandard extension */
+#define	CXF	0x08000000
+#define	CYF	0x10000000	/* nonstandard extension */
+#define	CZF	0x20000000	/* nonstandard extension */
+#define	C0F	0x40000000	/* nonstandard extension */
+
+/*
+ * ascii string indexed by bit position above (alter the above and you must
+ * alter this string) used to tell the user what flags caused us to complain
+ */
+#define FLGCH	"abcdfiklnoprstuvwxBDEGHLPTUXYZ0"
+
+/*
+ * legal pax operation bit patterns
+ */
+
+#define ISLIST(x)	(((x) & (RF|WF)) == 0)
+#define	ISEXTRACT(x)	(((x) & (RF|WF)) == RF)
+#define ISARCHIVE(x)	(((x) & (AF|RF|WF)) == WF)
+#define ISAPPND(x)	(((x) & (AF|RF|WF)) == (AF|WF))
+#define	ISCOPY(x)	(((x) & (RF|WF)) == (RF|WF))
+#define	ISWRITE(x)	(((x) & (RF|WF)) == WF)
+
+/*
+ * Illegal option flag subsets based on pax operation
+ */
+
+#define	BDEXTR	(AF|BF|LF|TF|WF|XF|CBF|CHF|CLF|CPF|CXF)
+#define	BDARCH	(CF|KF|LF|NF|PF|RF|CDF|CEF|CYF|CZF)
+#define	BDCOPY	(AF|BF|FF|OF|XF|CBF|CEF)
+#define	BDLIST (AF|BF|IF|KF|LF|OF|PF|RF|TF|UF|WF|XF|CBF|CDF|CHF|CLF|CPF|CXF|CYF|CZF)
+
 
 /*
  * Routines which handle command line options
@@ -74,12 +148,6 @@ static int compress_id(char *_blk, int _size);
 static int gzip_id(char *_blk, int _size);
 static int bzip2_id(char *_blk, int _size);
 static int xz_id(char *_blk, int _size);
-
-/* errors from get_line */
-#define GETLINE_FILE_CORRUPT 1
-#define GETLINE_OUT_OF_MEM 2
-static int getline_error;
-
 
 #define GZIP_CMD	"gzip"		/* command to run as gzip */
 #define COMPRESS_CMD	"compress"	/* command to run as compress */
@@ -132,7 +200,7 @@ FSUB fsub[] = {
 
 /* 5: POSIX USTAR */
 	{"ustar", 10240, BLKMULT, 0, 1, BLKMULT, 0, ustar_id, ustar_strd,
-	ustar_rd, tar_endrd, ustar_stwr, ustar_wr, tar_endwr, tar_trail,
+	ustar_rd, tar_endrd, no_op, ustar_wr, tar_endwr, tar_trail,
 	tar_opt},
 
 #ifdef SMALL
@@ -192,11 +260,13 @@ options(int argc, char **argv)
 	argv0 = __progname;
 
 	if (strcmp(NM_TAR, argv0) == 0) {
+		op_mode = OP_TAR;
 		tar_options(argc, argv);
 		return;
 	}
 #ifndef NOCPIO
 	else if (strcmp(NM_CPIO, argv0) == 0) {
+		op_mode = OP_CPIO;
 		cpio_options(argc, argv);
 		return;
 	}
@@ -205,6 +275,7 @@ options(int argc, char **argv)
 	 * assume pax as the default
 	 */
 	argv0 = NM_PAX;
+	op_mode = OP_PAX;
 	pax_options(argc, argv);
 }
 
@@ -456,17 +527,13 @@ pax_options(int argc, char **argv)
 			/*
 			 * non-standard limit on read faults
 			 * 0 indicates stop after first error, values
-			 * indicate a limit, "NONE" try forever
+			 * indicate a limit
 			 */
 			flg |= CEF;
-			if (strcmp(NONE, optarg) == 0)
-				maxflt = -1;
-			else {
-				maxflt = strtonum(optarg, 0, INT_MAX, &errstr);
-				if (errstr) {
-					paxwarn(1, "Error count value: %s", errstr);
-					pax_usage();
-				}
+			maxflt = strtonum(optarg, 0, INT_MAX, &errstr);
+			if (errstr) {
+				paxwarn(1, "Error count value: %s", errstr);
+				pax_usage();
 			}
 			break;
 		case 'G':
@@ -644,7 +711,6 @@ static void
 tar_options(int argc, char **argv)
 {
 	int c;
-	int fstdin = 0;
 	int Oflag = 0;
 	int nincfiles = 0;
 	int incfiles_max = 0;
@@ -691,15 +757,6 @@ tar_options(int argc, char **argv)
 			/*
 			 * filename where the archive is stored
 			 */
-			if ((optarg[0] == '-') && (optarg[1]== '\0')) {
-				/*
-				 * treat a - as stdin
-				 */
-				fstdin = 1;
-				arcname = NULL;
-				break;
-			}
-			fstdin = 0;
 			arcname = optarg;
 			break;
 		case 'h':
@@ -875,20 +932,19 @@ tar_options(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (!fstdin && ((arcname == NULL) || (*arcname == '\0'))) {
+	if ((arcname == NULL) || (*arcname == '\0')) {
 		arcname = getenv("TAPE");
 		if ((arcname == NULL) || (*arcname == '\0'))
 			arcname = _PATH_DEFTAPE;
-		else if ((arcname[0] == '-') && (arcname[1]== '\0')) {
-			arcname = NULL;
-			fstdin = 1;
-		}
 	}
+	if ((arcname[0] == '-') && (arcname[1]== '\0'))
+		arcname = NULL;
 
-	/* Traditional tar behaviour (pax uses stderr unless in list mode) */
-	if (fstdin == 1 && act == ARCHIVE)
-		listf = stderr;
-	else
+	/*
+	 * Traditional tar behaviour: list-like output goes to stdout unless
+	 * writing the archive there.  (pax uses stderr unless in list mode)
+	 */
+        if (act == LIST || act == EXTRACT || arcname != NULL)
 		listf = stdout;
 
 	/* Traditional tar behaviour (pax wants to read file list from stdin) */
@@ -933,7 +989,8 @@ tar_options(int argc, char **argv)
 					if (strcmp(file, "-") == 0)
 						fp = stdin;
 					else if ((fp = fopen(file, "r")) == NULL) {
-						paxwarn(1, "Unable to open file '%s' for read", file);
+						syswarn(1, errno,
+						    "Unable to open %s", file);
 						tar_usage();
 					}
 					while ((str = get_line(fp)) != NULL) {
@@ -941,12 +998,15 @@ tar_options(int argc, char **argv)
 							tar_usage();
 						sawpat = 1;
 					}
-					if (strcmp(file, "-") != 0)
-						fclose(fp);
-					if (getline_error) {
-						paxwarn(1, "Problem with file '%s'", file);
+					if (ferror(fp)) {
+						syswarn(1, errno,
+						    "Unable to read from %s",
+						    strcmp(file, "-") ? file :
+						    "stdin");
 						tar_usage();
 					}
+					if (strcmp(file, "-") != 0)
+						fclose(fp);
 				} else if (strcmp(*argv, "-C") == 0) {
 					if (*++argv == NULL)
 						break;
@@ -1009,20 +1069,22 @@ tar_options(int argc, char **argv)
 				if (strcmp(file, "-") == 0)
 					fp = stdin;
 				else if ((fp = fopen(file, "r")) == NULL) {
-					paxwarn(1, "Unable to open file '%s' for read", file);
+					syswarn(1, errno, "Unable to open %s",
+					    file);
 					tar_usage();
 				}
 				while ((str = get_line(fp)) != NULL) {
 					if (ftree_add(str, 0) < 0)
 						tar_usage();
 				}
-				if (strcmp(file, "-") != 0)
-					fclose(fp);
-				if (getline_error) {
-					paxwarn(1, "Problem with file '%s'",
-					    file);
+				if (ferror(fp)) {
+					syswarn(1, errno,
+					    "Unable to read from %s",
+					    strcmp(file, "-") ? file : "stdin");
 					tar_usage();
 				}
+				if (strcmp(file, "-") != 0)
+					fclose(fp);
 			} else if (strcmp(*argv, "-C") == 0) {
 				if (*++argv == NULL)
 					break;
@@ -1087,7 +1149,7 @@ static void
 cpio_options(int argc, char **argv)
 {
 	const char *errstr;
-	int c;
+	int c, list_only = 0;
 	unsigned i;
 	char *str;
 	FILE *fp;
@@ -1185,8 +1247,7 @@ cpio_options(int argc, char **argv)
 				/*
 				 * list contents of archive
 				 */
-				act = LIST;
-				listf = stdout;
+				list_only = 1;
 				break;
 			case 'u':
 				/*
@@ -1234,17 +1295,19 @@ cpio_options(int argc, char **argv)
 				 * file with patterns to extract or list
 				 */
 				if ((fp = fopen(optarg, "r")) == NULL) {
-					paxwarn(1, "Unable to open file '%s' for read", optarg);
+					syswarn(1, errno, "Unable to open %s",
+					    optarg);
 					cpio_usage();
 				}
 				while ((str = get_line(fp)) != NULL) {
 					pat_add(str, NULL);
 				}
-				fclose(fp);
-				if (getline_error) {
-					paxwarn(1, "Problem with file '%s'", optarg);
+				if (ferror(fp)) {
+					syswarn(1, errno,
+					    "Unable to read from %s", optarg);
 					cpio_usage();
 				}
+				fclose(fp);
 				break;
 			case 'F':
 			case 'I':
@@ -1316,8 +1379,16 @@ cpio_options(int argc, char **argv)
 	 * process the args as they are interpreted by the operation mode
 	 */
 	switch (act) {
-		case LIST:
 		case EXTRACT:
+			if (list_only) {
+				act = LIST;
+
+				/*
+				 * cpio is like pax: list to stderr
+				 * unless in list mode
+				 */
+				listf = stdout;
+			}
 			while (*argv != NULL)
 				if (pat_add(*argv++, NULL) < 0)
 					cpio_usage();
@@ -1344,8 +1415,9 @@ cpio_options(int argc, char **argv)
 			while ((str = get_line(stdin)) != NULL) {
 				ftree_add(str, 0);
 			}
-			if (getline_error) {
-				paxwarn(1, "Problem while reading stdin");
+			if (ferror(stdin)) {
+				syswarn(1, errno, "Unable to read from %s",
+				    "stdin");
 				cpio_usage();
 			}
 			break;
@@ -1369,7 +1441,7 @@ printflg(unsigned int flg)
 
 	(void)fprintf(stderr,"%s: Invalid combination of options:", argv0);
 	while ((nxt = ffs(flg)) != 0) {
-		flg = flg >> nxt;
+		flg >>= nxt;
 		pos += nxt;
 		(void)fprintf(stderr, " -%c", flgch[pos-1]);
 	}
@@ -1558,24 +1630,20 @@ str_offt(char *val)
 char *
 get_line(FILE *f)
 {
-	char *name, *temp;
-	size_t len;
+	char *str = NULL;
+	size_t size = 0;
+	ssize_t len;
 
-	name = fgetln(f, &len);
-	if (!name) {
-		getline_error = ferror(f) ? GETLINE_FILE_CORRUPT : 0;
-		return(0);
-	}
-	if (name[len-1] != '\n')
-		len++;
-	temp = malloc(len);
-	if (!temp) {
-		getline_error = GETLINE_OUT_OF_MEM;
-		return(0);
-	}
-	memcpy(temp, name, len-1);
-	temp[len-1] = 0;
-	return(temp);
+	do {
+		len = getline(&str, &size, f);
+		if (len == -1) {
+			free(str);
+			return NULL;
+		}
+		if (str[len - 1] == '\n')
+			str[len - 1] = '\0';
+	} while (str[0] == '\0');
+	return str;
 }
 
 /*

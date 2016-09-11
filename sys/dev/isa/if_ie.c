@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ie.c,v 1.49 2015/12/08 13:34:22 tedu Exp $	*/
+/*	$OpenBSD: if_ie.c,v 1.52 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: if_ie.c,v 1.51 1996/05/12 23:52:48 mycroft Exp $	*/
 
 /*-
@@ -775,7 +775,6 @@ ieattach(parent, self, aux)
 	ifp->if_watchdog = iewatchdog;
 	ifp->if_flags =
 	    IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* Attach the interface. */
 	if_attach(ifp);
@@ -1118,18 +1117,6 @@ iexmit(sc)
 	if (sc->sc_debug & IED_XMIT)
 		printf("%s: xmit buffer %d\n", sc->sc_dev.dv_xname,
 		    sc->xctail);
-#endif
-
-#if NBPFILTER > 0
-	/*
-	 * If BPF is listening on this interface, let it see the packet before
-	 * we push it on the wire.
-	 */
-	if (sc->sc_arpcom.ac_if.if_bpf)
-		bpf_tap(sc->sc_arpcom.ac_if.if_bpf,
-		    sc->xmit_cbuffs[sc->xctail],
-		    sc->xmit_buffs[sc->xctail]->ie_xmit_flags,
-		    BPF_DIRECTION_OUT);
 #endif
 
 	sc->xmit_buffs[sc->xctail]->ie_xmit_flags |= IE_XMIT_LAST;
@@ -2082,7 +2069,7 @@ mc_reset(sc)
 
 	if (ac->ac_multirangecnt > 0) {
 		ac->ac_if.if_flags |= IFF_ALLMULTI;
-		ieioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+		ieioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 		goto setflag;
 	}
 	/*
@@ -2093,7 +2080,7 @@ mc_reset(sc)
 	while (enm) {
 		if (sc->mcast_count >= MAXMCAST) {
 			ac->ac_if.if_flags |= IFF_ALLMULTI;
-			ieioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+			ieioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 			goto setflag;
 		}
 

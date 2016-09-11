@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.32 2015/11/15 03:41:24 deraadt Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.38 2016/08/31 13:18:57 guenther Exp $ */
 
 /*
  * Copyright (c) 2001 Niklas Hallqvist
@@ -77,6 +77,7 @@ L2:	ldiq	s3, L2		/* get where the linker thought we were */
 	mov	s2, a1
 	lda	t5, _DYNAMIC
 	addq	s2, t5, a0
+	mov	a0, s6
 
 	bsr	ra, _reloc_alpha_got
 
@@ -95,7 +96,7 @@ L2:	ldiq	s3, L2		/* get where the linker thought we were */
 	mov	a5, s5
 	lda	s2, 0(sp)
 	mov	s2, a1
-	mov	0,  a2		/* dynamicp is unused on alpha */
+	mov	s6, a2		/* &_DYNAMIC */
 	CALL(_dl_boot_bind)
 	mov	s3, a0		/* **argv  */
 	mov	s4, a1		/* **envp  */
@@ -315,9 +316,8 @@ DL_SYSCALL(getdents)
 DL_SYSCALL(getentropy)
 DL_SYSCALL(sendsyslog)
 DL_SYSCALL(pledge)
-DL_SYSCALL(gettimeofday)
 DL_SYSCALL_NOERR(issetugid)
-DL_SYSCALL(lstat)
+DL_SYSCALL_NOERR(getthrid)
 DL_SYSCALL(mprotect)
 DL_SYSCALL(munmap)
 DL_SYSCALL(open)

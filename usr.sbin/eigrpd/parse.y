@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.9 2016/02/21 19:01:12 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.19 2016/09/02 16:44:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -26,47 +26,30 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <netinet/in.h>
+#include <net/route.h>
+
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <err.h>
-#include <errno.h>
-#include <unistd.h>
 #include <ifaddrs.h>
 #include <limits.h>
-#include <stdarg.h>
 #include <stdio.h>
-#include <string.h>
 #include <syslog.h>
+#include <unistd.h>
 
-#include "eigrp.h"
 #include "eigrpd.h"
 #include "eigrpe.h"
 #include "log.h"
 
-TAILQ_HEAD(files, file)		 files = TAILQ_HEAD_INITIALIZER(files);
-static struct file {
+struct file {
 	TAILQ_ENTRY(file)	 entry;
 	FILE			*stream;
 	char			*name;
 	int			 lineno;
 	int			 errors;
-} *file, *topfile;
-struct file	*pushfile(const char *, int);
-int		 popfile(void);
-int		 check_file_secrecy(int, const char *);
-int		 yyparse(void);
-int		 yylex(void);
-int		 yyerror(const char *, ...)
-    __attribute__((__format__ (printf, 1, 2)))
-    __attribute__((__nonnull__ (1)));
-int		 kw_cmp(const void *, const void *);
-int		 lookup(char *);
-int		 lgetc(int);
-int		 lungetc(int);
-int		 findeol(void);
+};
+TAILQ_HEAD(files, file);
 
-TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
 struct sym {
 	TAILQ_ENTRY(sym)	 entry;
 	int			 used;
@@ -74,19 +57,7 @@ struct sym {
 	char			*nam;
 	char			*val;
 };
-int		 symset(const char *, const char *, int);
-char		*symget(const char *);
-
-void		 clear_config(struct eigrpd_conf *xconf);
-uint32_t	 get_rtr_id(void);
-int		 get_prefix(const char *, union eigrpd_addr *, uint8_t *);
-
-static struct eigrpd_conf	*conf;
-static int			 errors = 0;
-
-int			 af = AF_UNSPEC;
-struct eigrp		*eigrp = NULL;
-struct eigrp_iface	*ei = NULL;
+TAILQ_HEAD(symhead, sym);
 
 struct config_defaults {
 	uint8_t		kvalues[6];
@@ -102,15 +73,6 @@ struct config_defaults {
 	uint8_t		splithorizon;
 };
 
-struct config_defaults	 globaldefs;
-struct config_defaults	 afdefs;
-struct config_defaults	 asdefs;
-struct config_defaults	 ifacedefs;
-struct config_defaults	*defs;
-
-struct eigrp		*conf_get_instance(uint16_t);
-struct eigrp_iface	*conf_get_if(struct kif *);
-
 typedef struct {
 	union {
 		int64_t			 number;
@@ -120,6 +82,50 @@ typedef struct {
 	} v;
 	int lineno;
 } YYSTYPE;
+
+#define MAXPUSHBACK	128
+
+static int		 yyerror(const char *, ...)
+    __attribute__((__format__ (printf, 1, 2)))
+    __attribute__((__nonnull__ (1)));
+static int		 kw_cmp(const void *, const void *);
+static int		 lookup(char *);
+static int		 lgetc(int);
+static int		 lungetc(int);
+static int		 findeol(void);
+static int		 yylex(void);
+static int		 check_file_secrecy(int, const char *);
+static struct file	*pushfile(const char *, int);
+static int		 popfile(void);
+static int		 yyparse(void);
+static int		 symset(const char *, const char *, int);
+static char		*symget(const char *);
+static struct eigrp	*conf_get_instance(uint16_t);
+static struct eigrp_iface *conf_get_if(struct kif *);
+static void		 clear_config(struct eigrpd_conf *xconf);
+static uint32_t	 get_rtr_id(void);
+static int		 get_prefix(const char *, union eigrpd_addr *, uint8_t *);
+
+static struct file		*file, *topfile;
+static struct files		 files = TAILQ_HEAD_INITIALIZER(files);
+static struct symhead		 symhead = TAILQ_HEAD_INITIALIZER(symhead);
+static struct eigrpd_conf	*conf;
+static int			 errors;
+
+static int			 af;
+static struct eigrp		*eigrp;
+static struct eigrp_iface	*ei;
+
+static struct config_defaults	 globaldefs;
+static struct config_defaults	 afdefs;
+static struct config_defaults	 asdefs;
+static struct config_defaults	 ifacedefs;
+static struct config_defaults	*defs;
+
+static unsigned char		*parsebuf;
+static int			 parseindex;
+static unsigned char		 pushback_buffer[MAXPUSHBACK];
+static int			 pushback_index;
 
 %}
 
@@ -197,8 +203,16 @@ eigrp_af	: IPV4	{ $$ = AF_INET; }
 		;
 
 varset		: STRING '=' string {
-			if (conf->opts & EIGRPD_OPT_VERBOSE)
+			char *s = $1;
+			if (global.cmd_opts & EIGRPD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -355,7 +369,7 @@ interfaceopts_l	: interfaceopts_l interfaceoptsl nl
 
 interfaceoptsl	: PASSIVE { ei->passive = 1; }
 		| SUMMARY_ADDR STRING {
-			struct summary_addr	*s;
+			struct summary_addr	*s, *tmp;
 
 			if ((s = calloc(1, sizeof(*s))) == NULL)
 				fatal(NULL);
@@ -365,8 +379,19 @@ interfaceoptsl	: PASSIVE { ei->passive = 1; }
 				free(s);
 				YYERROR;
 			}
-
 			free($2);
+
+			TAILQ_FOREACH(tmp, &ei->summary_list, entry) {
+				if (eigrp_prefixcmp(af, &s->prefix,
+				    &tmp->prefix, min(s->prefixlen,
+				    tmp->prefixlen)) == 0) {
+					yyerror("summary-address conflicts "
+					    "with another summary-address "
+					    "already configured");
+					YYERROR;
+				}
+			}
+
 			TAILQ_INSERT_TAIL(&ei->summary_list, s, entry);
 		}
 		| iface_defaults
@@ -557,7 +582,7 @@ struct keywords {
 	int		 k_val;
 };
 
-int
+static int
 yyerror(const char *fmt, ...)
 {
 	va_list		 ap;
@@ -573,13 +598,13 @@ yyerror(const char *fmt, ...)
 	return (0);
 }
 
-int
+static int
 kw_cmp(const void *k, const void *e)
 {
 	return (strcmp(k, ((const struct keywords *)e)->k_name));
 }
 
-int
+static int
 lookup(char *s)
 {
 	/* this has to be sorted always */
@@ -625,14 +650,7 @@ lookup(char *s)
 		return (STRING);
 }
 
-#define MAXPUSHBACK	128
-
-unsigned char	*parsebuf;
-int		 parseindex;
-unsigned char	 pushback_buffer[MAXPUSHBACK];
-int		 pushback_index = 0;
-
-int
+static int
 lgetc(int quotec)
 {
 	int		c, next;
@@ -680,7 +698,7 @@ lgetc(int quotec)
 	return (c);
 }
 
-int
+static int
 lungetc(int c)
 {
 	if (c == EOF)
@@ -696,7 +714,7 @@ lungetc(int c)
 		return (EOF);
 }
 
-int
+static int
 findeol(void)
 {
 	int	c;
@@ -719,7 +737,7 @@ findeol(void)
 	return (ERROR);
 }
 
-int
+static int
 yylex(void)
 {
 	unsigned char	 buf[8096];
@@ -868,7 +886,7 @@ nodigits:
 	return (c);
 }
 
-int
+static int
 check_file_secrecy(int fd, const char *fname)
 {
 	struct stat	st;
@@ -888,7 +906,7 @@ check_file_secrecy(int fd, const char *fname)
 	return (0);
 }
 
-struct file *
+static struct file *
 pushfile(const char *name, int secret)
 {
 	struct file	*nfile;
@@ -919,7 +937,7 @@ pushfile(const char *name, int secret)
 	return (nfile);
 }
 
-int
+static int
 popfile(void)
 {
 	struct file	*prev;
@@ -936,13 +954,11 @@ popfile(void)
 }
 
 struct eigrpd_conf *
-parse_config(char *filename, int opts)
+parse_config(char *filename)
 {
 	struct sym	*sym, *next;
 
-	if ((conf = calloc(1, sizeof(struct eigrpd_conf))) == NULL)
-		fatal("parse_config");
-	conf->opts = opts;
+	conf = config_new_empty();
 	conf->rdomain = 0;
 	conf->fib_priority_internal = RTP_EIGRP;
 	conf->fib_priority_external = RTP_EIGRP;
@@ -960,14 +976,12 @@ parse_config(char *filename, int opts)
 	defs->bandwidth = DEFAULT_BANDWIDTH;
 	defs->splithorizon = 1;
 
-	if ((file = pushfile(filename, !(conf->opts & EIGRPD_OPT_NOACTION))) == NULL) {
+	if ((file = pushfile(filename,
+	    !(global.cmd_opts & EIGRPD_OPT_NOACTION))) == NULL) {
 		free(conf);
 		return (NULL);
 	}
 	topfile = file;
-
-	TAILQ_INIT(&conf->iface_list);
-	TAILQ_INIT(&conf->instances);
 
 	yyparse();
 	errors = file->errors;
@@ -976,7 +990,7 @@ parse_config(char *filename, int opts)
 	/* Free macros and check which have not been used. */
 	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
 		next = TAILQ_NEXT(sym, entry);
-		if ((conf->opts & EIGRPD_OPT_VERBOSE2) && !sym->used)
+		if ((global.cmd_opts & EIGRPD_OPT_VERBOSE2) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
 		if (!sym->persist) {
@@ -998,7 +1012,7 @@ parse_config(char *filename, int opts)
 	return (conf);
 }
 
-int
+static int
 symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
@@ -1059,7 +1073,7 @@ cmdline_symset(char *s)
 	return (ret);
 }
 
-char *
+static char *
 symget(const char *nam)
 {
 	struct sym	*sym;
@@ -1072,7 +1086,7 @@ symget(const char *nam)
 	return (NULL);
 }
 
-struct eigrp *
+static struct eigrp *
 conf_get_instance(uint16_t as)
 {
 	struct eigrp	*e, *tmp;
@@ -1084,6 +1098,9 @@ conf_get_instance(uint16_t as)
 	}
 
 	e = calloc(1, sizeof(struct eigrp));
+	if (e == NULL)
+		fatal(NULL);
+
 	e->af = af;
 	e->as = as;
 	SIMPLEQ_INIT(&e->redist_list);
@@ -1107,7 +1124,7 @@ conf_get_instance(uint16_t as)
 	return (e);
 }
 
-struct eigrp_iface *
+static struct eigrp_iface *
 conf_get_if(struct kif *kif)
 {
 	struct eigrp_iface	*e;
@@ -1126,13 +1143,44 @@ conf_get_if(struct kif *kif)
 	return (e);
 }
 
-void
+static void
 clear_config(struct eigrpd_conf *xconf)
 {
+	struct eigrp		*e;
+	struct redistribute	*r;
+	struct eigrp_iface	*i;
+	struct summary_addr	*s;
+
+	while ((e = TAILQ_FIRST(&xconf->instances)) != NULL) {
+		while (!SIMPLEQ_EMPTY(&e->redist_list)) {
+			r = SIMPLEQ_FIRST(&e->redist_list);
+			SIMPLEQ_REMOVE_HEAD(&e->redist_list, entry);
+			free(r);
+		}
+
+		while ((i = TAILQ_FIRST(&e->ei_list)) != NULL) {
+			RB_REMOVE(iface_id_head, &ifaces_by_id, i);
+			TAILQ_REMOVE(&e->ei_list, i, e_entry);
+			TAILQ_REMOVE(&e->ei_list, i, i_entry);
+			while ((s = TAILQ_FIRST(&i->summary_list)) != NULL) {
+				TAILQ_REMOVE(&i->summary_list, s, entry);
+				free(s);
+			}
+			if (TAILQ_EMPTY(&i->iface->ei_list)) {
+				TAILQ_REMOVE(&xconf->iface_list, i->iface, entry);
+				free(i->iface);
+			}
+			free(i);
+		}
+
+		TAILQ_REMOVE(&xconf->instances, e, entry);
+		free(e);
+	}
+
 	free(xconf);
 }
 
-uint32_t
+static uint32_t
 get_rtr_id(void)
 {
 	struct ifaddrs		*ifap, *ifa;
@@ -1162,7 +1210,7 @@ get_rtr_id(void)
 	return (ip);
 }
 
-int
+static int
 get_prefix(const char *s, union eigrpd_addr *addr, uint8_t *plen)
 {
 	char			*p, *ps;

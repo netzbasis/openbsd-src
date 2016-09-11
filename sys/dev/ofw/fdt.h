@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdt.h,v 1.1 2016/03/03 02:42:16 bmercer Exp $	*/
+/*	$OpenBSD: fdt.h,v 1.5 2016/07/26 22:10:10 patrick Exp $	*/
 
 /*
  * Copyright (c) 2009 Dariusz Swiderski <sfires@sfires.net>
@@ -38,6 +38,11 @@ struct fdt {
 	int		strings_size;
 };
 
+struct fdt_reg {
+	uint64_t	addr;
+	uint64_t	size;
+};
+
 #define FDT_MAGIC	0xd00dfeed
 #define FDT_NODE_BEGIN	0x01
 #define FDT_NODE_END	0x02
@@ -48,12 +53,16 @@ struct fdt {
 #define FDT_CODE_VERSION 0x11
 
 int	 fdt_init(void *);
+size_t	 fdt_get_size(void *);
 void	*fdt_next_node(void *);
 void	*fdt_child_node(void *);
 char	*fdt_node_name(void *);
 void	*fdt_find_node(char *);
 int	 fdt_node_property(void *, char *, char **);
 void	*fdt_parent_node(void *);
+void	*fdt_find_phandle(uint32_t);
+int	 fdt_get_reg(void *, int, struct fdt_reg *);
+int	 fdt_is_compatible(void *, const char *);
 #ifdef DEBUG
 void	*fdt_print_property(void *, int);
 void 	 fdt_print_node(void *, int);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: spamd.c,v 1.137 2015/12/12 20:09:28 mmcc Exp $	*/
+/*	$OpenBSD: spamd.c,v 1.144 2016/09/06 11:06:40 henning Exp $	*/
 
 /*
  * Copyright (c) 2015 Henning Brauer <henning@openbsd.org>
@@ -92,6 +92,8 @@ struct con {
 #define	SPAMD_TLS_ACT_READ_POLLOUT	2
 #define	SPAMD_TLS_ACT_WRITE_POLLIN	3
 #define	SPAMD_TLS_ACT_WRITE_POLLOUT	4
+
+#define	SPAMD_USER			"_spamd"
 
 void     usage(void);
 char    *grow_obuf(struct con *, int);
@@ -456,7 +458,7 @@ spamd_tls_init()
 	tls_config_set_protocols(tlscfg, TLS_PROTOCOLS_ALL);
 
 	/* might need user-specified ciphers, tls_config_set_ciphers */
-	if (tls_config_set_ciphers(tlscfg, "compat") != 0)
+	if (tls_config_set_ciphers(tlscfg, "all") != 0)
 		errx(1, "failed to set tls ciphers");
 
 	if (tls_config_set_cert_mem(tlscfg, pubcert, pubcertlen) == -1)
@@ -763,8 +765,8 @@ closecon(struct con *cp)
 	if (cp->cctx) {
 		tls_close(cp->cctx);
 		tls_free(cp->cctx);
-	} else
-		close(cp->pfd->fd);
+	}
+	close(cp->pfd->fd);
 	cp->pfd->fd = -1;
 
 	slowdowntill = 0;
@@ -847,7 +849,9 @@ nextstate(struct con *cp)
 				    cp->blacklists == NULL &&
 				    match(cp->ibuf, "EHLO")) {
 					snprintf(cp->obuf, cp->osize,
-					    "250 STARTTLS\r\n");
+					    "250-%s\r\n"
+					    "250 STARTTLS\r\n",
+					    hostname);
 					nextstate = 7;
 				} else {
 					snprintf(cp->obuf, cp->osize,
@@ -1362,14 +1366,14 @@ main(int argc, char *argv[])
 			err(1, "sync init");
 	}
 
-	if ((pw = getpwnam("_spamd")) == NULL)
-		errx(1, "no such user _spamd");
+	if (geteuid())
+		errx(1, "need root privileges");
+
+	if ((pw = getpwnam(SPAMD_USER)) == NULL)
+		errx(1, "no such user %s", SPAMD_USER);
 
 	if (!greylist) {
 		maxblack = maxcon;
-
-		if (pledge("stdio rpath inet proc id", NULL) == -1)
-			err(1, "pledge");
 	} else if (maxblack > maxcon)
 		usage();
 
@@ -1466,7 +1470,7 @@ main(int argc, char *argv[])
 			syslog(LOG_ERR, "pipe (%m)");
 			exit(1);
 		}
-		/* open pipe to recieve spamtrap configs */
+		/* open pipe to receive spamtrap configs */
 		if (pipe(trappipe) == -1) {
 			syslog(LOG_ERR, "pipe (%m)");
 			exit(1);
@@ -1493,16 +1497,19 @@ main(int argc, char *argv[])
 			}
 			close(trappipe[1]);
 
-			if (chroot("/var/empty") == -1 || chdir("/") == -1) {
-				syslog(LOG_ERR, "cannot chdir to /var/empty.");
+			if (chroot("/var/empty") == -1) {
+				syslog(LOG_ERR, "cannot chroot to /var/empty.");
+				exit(1);
+			}			
+ 			if (chdir("/") == -1) {
+				syslog(LOG_ERR, "cannot chdir to /");
 				exit(1);
 			}
 
-			if (pw)
-				if (setgroups(1, &pw->pw_gid) ||
-					setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-					setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-					err(1, "failed to drop privs");
+			if (setgroups(1, &pw->pw_gid) ||
+			    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+			    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+				err(1, "failed to drop privs");
 
 			goto jail;
 		}
@@ -1520,7 +1527,6 @@ main(int argc, char *argv[])
 		}
 		close(trappipe[0]);
 		return (greywatcher());
-		/* NOTREACHED */
 	}
 
 jail:

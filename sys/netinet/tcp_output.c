@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_output.c,v 1.116 2015/12/05 10:52:26 tedu Exp $	*/
+/*	$OpenBSD: tcp_output.c,v 1.118 2016/07/19 21:28:43 bluhm Exp $	*/
 /*	$NetBSD: tcp_output.c,v 1.16 1997/06/03 16:17:09 kml Exp $	*/
 
 /*
@@ -732,6 +732,9 @@ send:
 				goto out;
 			}
 		}
+		if (so->so_snd.sb_mb->m_flags & M_PKTHDR)
+			m->m_pkthdr.ph_loopcnt =
+			    so->so_snd.sb_mb->m_pkthdr.ph_loopcnt;
 #endif
 		/*
 		 * If we're sending everything we've got, set PUSH.
@@ -928,12 +931,16 @@ send:
 
 		tdb = gettdbbysrcdst(rtable_l2(tp->t_inpcb->inp_rtableid),
 		    0, &src, &dst, IPPROTO_TCP);
-		if (tdb == NULL)
+		if (tdb == NULL) {
+			m_freem(m);
 			return (EPERM);
+		}
 
 		if (tcp_signature(tdb, tp->pf, m, th, iphlen, 0,
-		    mtod(m, caddr_t) + hdrlen - optlen + sigoff) < 0)
+		    mtod(m, caddr_t) + hdrlen - optlen + sigoff) < 0) {
+			m_freem(m);
 			return (EINVAL);
+		}
 	}
 #endif /* TCP_SIGNATURE */
 

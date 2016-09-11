@@ -1,4 +1,4 @@
-/* $OpenBSD: key-string.c,v 1.35 2016/03/02 15:36:02 nicm Exp $ */
+/* $OpenBSD: key-string.c,v 1.38 2016/05/26 14:49:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -93,6 +93,9 @@ const struct {
 	KEYC_MOUSE_STRING(MOUSEDRAG1, MouseDrag1),
 	KEYC_MOUSE_STRING(MOUSEDRAG2, MouseDrag2),
 	KEYC_MOUSE_STRING(MOUSEDRAG3, MouseDrag3),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND1, MouseDragEnd1),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND2, MouseDragEnd2),
+	KEYC_MOUSE_STRING(MOUSEDRAGEND3, MouseDragEnd3),
 	KEYC_MOUSE_STRING(WHEELUP, WheelUp),
 	KEYC_MOUSE_STRING(WHEELDOWN, WheelDown),
 };
@@ -143,8 +146,7 @@ key_string_lookup_string(const char *string)
 {
 	static const char	*other = "!#()+,-.0123456789:;<=>?'\r\t";
 	key_code		 key;
-	u_short			 u;
-	int			 size;
+	u_int			 u;
 	key_code		 modifiers;
 	struct utf8_data	 ud;
 	u_int			 i;
@@ -157,7 +159,9 @@ key_string_lookup_string(const char *string)
 
 	/* Is this a hexadecimal value? */
 	if (string[0] == '0' && string[1] == 'x') {
-	        if (sscanf(string + 2, "%hx%n", &u, &size) != 1 || size > 4)
+	        if (sscanf(string + 2, "%x", &u) != 1)
+	                return (KEYC_UNKNOWN);
+		if (u > 0x1fffff)
 	                return (KEYC_UNKNOWN);
 	        return (u);
 	}
@@ -223,6 +227,7 @@ key_string_lookup_key(key_code key)
 	char			tmp[8];
 	u_int			i;
 	struct utf8_data	ud;
+	size_t			off;
 
 	*out = '\0';
 
@@ -267,8 +272,9 @@ key_string_lookup_key(key_code key)
 	/* Is this a UTF-8 key? */
 	if (key > 127 && key < KEYC_BASE) {
 		if (utf8_split(key, &ud) == UTF8_DONE) {
-			memcpy(out, ud.data, ud.size);
-			out[ud.size] = '\0';
+			off = strlen(out);
+			memcpy(out + off, ud.data, ud.size);
+			out[off + ud.size] = '\0';
 			return (out);
 		}
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.72 2016/03/07 05:32:46 naddy Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.79 2016/07/28 21:57:56 kettenis Exp $	*/
 /* $NetBSD: cpu.c,v 1.1.2.7 2000/06/26 02:04:05 sommerfeld Exp $ */
 
 /*-
@@ -172,6 +172,8 @@ void	replacesmap(void);
 extern int _stac;
 extern int _clac;
 
+u_int32_t mp_pdirpa;
+
 void
 replacesmap(void)
 {
@@ -227,17 +229,18 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	} else {
 		ci = &cpu_info_primary;
 #ifdef MULTIPROCESSOR
-		if (caa->cpu_number != lapic_cpu_number()) {
+		if (caa->cpu_apicid != lapic_cpu_number()) {
 			panic("%s: running cpu is at apic %d"
 			    " instead of at expected %d",
-			    self->dv_xname, lapic_cpu_number(), caa->cpu_number);
+			    self->dv_xname, lapic_cpu_number(), caa->cpu_apicid);
 		}
 #endif
 		bcopy(self, &ci->ci_dev, sizeof *self);
 	}
 
 	ci->ci_self = ci;
-	ci->ci_apicid = caa->cpu_number;
+	ci->ci_apicid = caa->cpu_apicid;
+	ci->ci_acpi_proc_id = caa->cpu_acpi_proc_id;
 #ifdef MULTIPROCESSOR
 	ci->ci_cpuid = cpunum;
 #else
@@ -272,8 +275,6 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 	    sizeof (struct trapframe);
 	pcb->pcb_pmap = pmap_kernel();
 	pcb->pcb_cr3 = pcb->pcb_pmap->pm_pdirpa;
-
-	cpu_default_ldt(ci);	/* Use the `global' ldt until one alloc'd */
 #endif
 	ci->ci_curpmap = pmap_kernel();
 
@@ -294,7 +295,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		break;
 
 	case CPU_ROLE_BP:
-		printf("apid %d (boot processor)\n", caa->cpu_number);
+		printf("apid %d (boot processor)\n", caa->cpu_apicid);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_BSP | CPUF_PRIMARY;
 		identifycpu(ci);
 #ifdef MTRR
@@ -310,7 +311,7 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		lapic_calibrate_timer(ci);
 #endif
 #if NIOAPIC > 0
-		ioapic_bsp_id = caa->cpu_number;
+		ioapic_bsp_id = caa->cpu_apicid;
 #endif
 		cpu_init_mwait(&ci->ci_dev);
 		break;
@@ -319,11 +320,10 @@ cpu_attach(struct device *parent, struct device *self, void *aux)
 		/*
 		 * report on an AP
 		 */
-		printf("apid %d (application processor)\n", caa->cpu_number);
+		printf("apid %d (application processor)\n", caa->cpu_apicid);
 
 #ifdef MULTIPROCESSOR
 		gdt_alloc_cpu(ci);
-		cpu_alloc_ldt(ci);
 		ci->ci_flags |= CPUF_PRESENT | CPUF_AP;
 		identifycpu(ci);
 		sched_init_cpu(ci);
@@ -380,6 +380,8 @@ cpu_init(struct cpu_info *ci)
 #ifndef SMALL_KERNEL
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
+	if (ci->ci_feature_sefflags_ecx & SEFF0ECX_UMIP)
+		cr4 |= CR4_UMIP;
 #endif
 
 	/*
@@ -522,7 +524,7 @@ cpu_init_idle_pcbs(void)
 			continue;
 		if ((ci->ci_flags & CPUF_PRESENT) == 0)
 			continue;
-		i386_init_pcb_tss_ldt(ci);
+		i386_init_pcb_tss(ci);
 	}
 }
 
@@ -532,7 +534,6 @@ cpu_boot_secondary(struct cpu_info *ci)
 	struct pcb *pcb;
 	int i;
 	struct pmap *kpm = pmap_kernel();
-	extern u_int32_t mp_pdirpa;
 
 	if (mp_verbose)
 		printf("%s: starting", ci->ci_dev.dv_xname);
@@ -579,9 +580,8 @@ cpu_hatch(void *v)
 	lapic_startclock();
 	lapic_set_lvt();
 	gdt_init_cpu(ci);
-	cpu_init_ldt(ci);
 
-	lldt(GSEL(GLDT_SEL, SEL_KPL));
+	lldt(0);
 
 	npxinit(ci);
 
@@ -612,9 +612,16 @@ cpu_copy_trampoline(void)
 	 */
 	extern u_char cpu_spinup_trampoline[];
 	extern u_char cpu_spinup_trampoline_end[];
+	extern u_char mp_tramp_data_start[];
+	extern u_char mp_tramp_data_end[];
 
-	bcopy(cpu_spinup_trampoline, (caddr_t)MP_TRAMPOLINE,
+	memcpy((caddr_t)MP_TRAMPOLINE, cpu_spinup_trampoline,
 	    cpu_spinup_trampoline_end - cpu_spinup_trampoline);
+	memcpy((caddr_t)MP_TRAMP_DATA, mp_tramp_data_start,
+	    mp_tramp_data_end - mp_tramp_data_start);
+
+	pmap_write_protect(pmap_kernel(), (vaddr_t)MP_TRAMPOLINE,
+	    (vaddr_t)(MP_TRAMPOLINE + NBPG), PROT_READ | PROT_EXEC);
 }
 
 #endif
@@ -632,7 +639,7 @@ cpu_init_tss(struct i386tss *tss, void *stack, void *func)
 	    tss->__tss_ss = GSEL(GDATA_SEL, SEL_KPL);
 	tss->tss_cr3 = pmap_kernel()->pm_pdirpa;
 	tss->tss_esp = (int)((char *)stack + USPACE - 16);
-	tss->tss_ldt = GSEL(GLDT_SEL, SEL_KPL);
+	tss->tss_ldt = 0;
 	tss->__tss_eflags = PSL_MBO | PSL_NT;	/* XXX not needed? */
 	tss->__tss_eip = (int)func;
 }
@@ -755,7 +762,7 @@ cpu_idle_mwait_cycle(void)
 		panic("idle with interrupts blocked!");
 
 	/* something already queued? */
-	if (ci->ci_schedstate.spc_whichqs != 0)
+	if (!cpu_is_idle(ci))
 		return;
 
 	/*
@@ -769,7 +776,7 @@ cpu_idle_mwait_cycle(void)
 	 * the check in sched_idle() and here.
 	 */
 	atomic_setbits_int(&ci->ci_mwait, MWAIT_IDLING | MWAIT_ONLY);
-	if (ci->ci_schedstate.spc_whichqs == 0) {
+	if (cpu_is_idle(ci)) {
 		monitor(&ci->ci_mwait, 0, 0);
 		if ((ci->ci_mwait & MWAIT_IDLING) == MWAIT_IDLING)
 			mwait(0, 0);

@@ -1,4 +1,4 @@
-/* $OpenBSD: ihidev.c,v 1.9 2016/01/29 17:11:58 jcs Exp $ */
+/* $OpenBSD: ihidev.c,v 1.12 2016/04/23 09:40:28 kettenis Exp $ */
 /*
  * HID-over-i2c driver
  *
@@ -29,9 +29,6 @@
 #include <dev/i2c/ihidev.h>
 
 #include <dev/hid/hid.h>
-
-/* XXX */
-#include <dev/acpi/acpivar.h>
 
 /* #define IHIDEV_DEBUG */
 
@@ -111,7 +108,8 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_addr = ia->ia_addr;
 	sc->sc_hid_desc_addr = ia->ia_size;
 
-	printf(": int %d", ia->ia_int);
+	if (ia->ia_intr)
+		printf(" %s", iic_intr_string(sc->sc_tag, ia->ia_intr));
 
 	if (ihidev_hid_command(sc, I2C_HID_CMD_DESCR, NULL) ||
 	    ihidev_hid_desc_parse(sc)) {
@@ -156,12 +154,11 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ibuf = malloc(sc->sc_isize, M_DEVBUF, M_NOWAIT | M_ZERO);
 
 	/* register interrupt with system */
-	if (ia->ia_int > 0) {
-		/* XXX: don't assume this uses acpi_intr_establish */
-		sc->sc_ih = acpi_intr_establish(ia->ia_int, ia->ia_int_flags,
-		    IPL_BIO, ihidev_intr, sc, sc->sc_dev.dv_xname);
+	if (ia->ia_intr) {
+		sc->sc_ih = iic_intr_establish(sc->sc_tag, ia->ia_intr,
+		    IPL_TTY, ihidev_intr, sc, sc->sc_dev.dv_xname);
 		if (sc->sc_ih == NULL) {
-			printf(", failed establishing intr\n");
+			printf(", can't establish interrupt\n");
 			return;
 		}
 	}

@@ -160,6 +160,11 @@ struct tcp_handler_data
 	 * The number of queries handled by this specific TCP connection.
 	 */
 	int					query_count;
+	
+	/*
+	 * The timeout in msec for this tcp connection
+	 */
+	int	tcp_timeout;
 };
 
 /*
@@ -560,7 +565,7 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 {
 	struct addrinfo* addr;
 	size_t i;
-#if defined(SO_REUSEPORT) || defined(SO_REUSEADDR) || (defined(INET6) && (defined(IPV6_V6ONLY) || defined(IPV6_USE_MIN_MTU) || defined(IPV6_MTU) || defined(IP_TRANSPARENT)))
+#if defined(SO_REUSEPORT) || defined(SO_REUSEADDR) || (defined(INET6) && (defined(IPV6_V6ONLY) || defined(IPV6_USE_MIN_MTU) || defined(IPV6_MTU) || defined(IP_TRANSPARENT)) || defined(IP_FREEBIND))
 	int on = 1;
 #endif
 
@@ -734,6 +739,15 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 		}
 
 		/* Bind it... */
+		if (nsd->options->ip_freebind) {
+#ifdef IP_FREEBIND
+			if (setsockopt(nsd->udp[i].s, IPPROTO_IP, IP_FREEBIND, &on, sizeof(on)) < 0) {
+				log_msg(LOG_ERR, "setsockopt(...,IP_FREEBIND, ...) failed for udp: %s",
+					strerror(errno));
+			}
+#endif /* IP_FREEBIND */
+		}
+
 		if (nsd->options->ip_transparent) {
 #ifdef IP_TRANSPARENT
 			if (setsockopt(nsd->udp[i].s, IPPROTO_IP, IP_TRANSPARENT, &on, sizeof(on)) < 0) {
@@ -832,6 +846,21 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 # endif
 		}
 #endif
+		/* set maximum segment size to tcp socket */
+		if(nsd->tcp_mss > 0) {
+#if defined(IPPROTO_TCP) && defined(TCP_MAXSEG)
+			if(setsockopt(nsd->tcp[i].s, IPPROTO_TCP, TCP_MAXSEG,
+					(void*)&nsd->tcp_mss,
+					sizeof(nsd->tcp_mss)) < 0) {
+				log_msg(LOG_ERR,
+					"setsockopt(...,TCP_MAXSEG,...)"
+					" failed for tcp: %s", strerror(errno));
+			}
+#else
+			log_msg(LOG_ERR, "setsockopt(TCP_MAXSEG) unsupported");
+#endif /* defined(IPPROTO_TCP) && defined(TCP_MAXSEG) */
+		}
+
 		/* set it nonblocking */
 		/* (StevensUNP p463), if tcp listening socket is blocking, then
 		   it may block in accept, even if select() says readable. */
@@ -840,6 +869,15 @@ server_init_ifs(struct nsd *nsd, size_t from, size_t to, int* reuseport_works)
 		}
 
 		/* Bind it... */
+		if (nsd->options->ip_freebind) {
+#ifdef IP_FREEBIND
+			if (setsockopt(nsd->tcp[i].s, IPPROTO_IP, IP_FREEBIND, &on, sizeof(on)) < 0) {
+				log_msg(LOG_ERR, "setsockopt(...,IP_FREEBIND, ...) failed for tcp: %s",
+					strerror(errno));
+			}
+#endif /* IP_FREEBIND */
+		}
+
 		if (nsd->options->ip_transparent) {
 #ifdef IP_TRANSPARENT
 			if (setsockopt(nsd->tcp[i].s, IPPROTO_IP, IP_TRANSPARENT, &on, sizeof(on)) < 0) {
@@ -2395,7 +2433,10 @@ cleanup_tcp_handler(struct tcp_handler_data* data)
 	 */
 	if (slowaccept || data->nsd->current_tcp_count == data->nsd->maximum_tcp_count) {
 		configure_handler_event_types(EV_READ|EV_PERSIST);
-		slowaccept = 0;
+		if(slowaccept) {
+			event_del(&slowaccept_event);
+			slowaccept = 0;
+		}
 	}
 	--data->nsd->current_tcp_count;
 	assert(data->nsd->current_tcp_count >= 0);
@@ -2594,8 +2635,8 @@ handle_tcp_reading(int fd, short event, void* arg)
 	data->query->tcplen = buffer_remaining(data->query->packet);
 	data->bytes_transmitted = 0;
 
-	timeout.tv_sec = data->nsd->tcp_timeout;
-	timeout.tv_usec = 0L;
+	timeout.tv_sec = data->tcp_timeout / 1000;
+	timeout.tv_usec = (data->tcp_timeout % 1000)*1000;
 
 	ev_base = data->event.ev_base;
 	event_del(&data->event);
@@ -2727,8 +2768,8 @@ handle_tcp_writing(int fd, short event, void* arg)
 			q->tcplen = buffer_remaining(q->packet);
 			data->bytes_transmitted = 0;
 			/* Reset timeout.  */
-			timeout.tv_sec = data->nsd->tcp_timeout;
-			timeout.tv_usec = 0L;
+			timeout.tv_sec = data->tcp_timeout / 1000;
+			timeout.tv_usec = (data->tcp_timeout % 1000)*1000;
 			ev_base = data->event.ev_base;
 			event_del(&data->event);
 			event_set(&data->event, fd, EV_PERSIST | EV_WRITE | EV_TIMEOUT,
@@ -2758,8 +2799,8 @@ handle_tcp_writing(int fd, short event, void* arg)
 
 	data->bytes_transmitted = 0;
 
-	timeout.tv_sec = data->nsd->tcp_timeout;
-	timeout.tv_usec = 0L;
+	timeout.tv_sec = data->tcp_timeout / 1000;
+	timeout.tv_usec = (data->tcp_timeout % 1000)*1000;
 	ev_base = data->event.ev_base;
 	event_del(&data->event);
 	event_set(&data->event, fd, EV_PERSIST | EV_READ | EV_TIMEOUT,
@@ -2873,8 +2914,13 @@ handle_tcp_accept(int fd, short event, void* arg)
 	memcpy(&tcp_data->query->addr, &addr, addrlen);
 	tcp_data->query->addrlen = addrlen;
 
-	timeout.tv_sec = data->nsd->tcp_timeout;
-	timeout.tv_usec = 0;
+	tcp_data->tcp_timeout = data->nsd->tcp_timeout * 1000;
+	if (data->nsd->current_tcp_count > data->nsd->maximum_tcp_count/2) {
+		/* very busy, give smaller timeout */
+		tcp_data->tcp_timeout = 200;
+	}
+	timeout.tv_sec = tcp_data->tcp_timeout / 1000;
+	timeout.tv_usec = (tcp_data->tcp_timeout % 1000)*1000;
 
 	event_set(&tcp_data->event, s, EV_PERSIST | EV_READ | EV_TIMEOUT,
 		handle_tcp_reading, tcp_data);

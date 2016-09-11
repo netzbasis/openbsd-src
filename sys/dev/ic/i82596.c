@@ -1,4 +1,4 @@
-/*	$OpenBSD: i82596.c,v 1.50 2015/12/08 13:34:22 tedu Exp $	*/
+/*	$OpenBSD: i82596.c,v 1.52 2016/04/13 10:49:26 mpi Exp $	*/
 /*	$NetBSD: i82586.c,v 1.18 1998/08/15 04:42:42 mycroft Exp $	*/
 
 /*-
@@ -291,7 +291,6 @@ i82596_attach(struct ie_softc *sc, const char *name, u_int8_t *etheraddr,
 		IFF_DEBUG |
 #endif
 		IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
 
         /* Initialize media goo. */
         ifmedia_init(&sc->sc_media, 0, i82596_mediachange, i82596_mediastatus);
@@ -1924,7 +1923,7 @@ ie_mc_reset(sc)
 
 	if (ac->ac_multicnt >= IE_MAXMCAST || ac->ac_multirangecnt > 0) {
 		ac->ac_if.if_flags |= IFF_ALLMULTI;
-		i82596_ioctl(&ac->ac_if, SIOCSIFFLAGS, (void *)0);
+		i82596_ioctl(&ac->ac_if, SIOCSIFFLAGS, NULL);
 		return;
 	}
 

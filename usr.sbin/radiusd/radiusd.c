@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.15 2016/02/09 05:14:08 jsg Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.18 2016/04/16 18:32:29 krw Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -175,7 +175,7 @@ main(int argc, char *argv[])
 		errx(EXIT_FAILURE, "start failed");
 
 #ifdef RADIUSD_DEBUG
-	if (pledge("stdio inet proc abort", NULL) == -1)
+	if (pledge("stdio inet proc", NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 #else
 	if (pledge("stdio inet", NULL) == -1)
@@ -196,7 +196,7 @@ radiusd_start(struct radiusd *radiusd)
 {
 	struct radiusd_listen	*l;
 	struct radiusd_module	*module;
-	int			 s, ival;
+	int			 s;
 	char			 hbuf[NI_MAXHOST];
 
 	TAILQ_FOREACH(l, &radiusd->listen, next) {
@@ -206,8 +206,8 @@ radiusd_start(struct radiusd *radiusd)
 			log_warn("%s: getnameinfo()", __func__);
 			goto on_error;
 		}
-		if ((s = socket(l->addr.ipv4.sin_family, l->stype, l->sproto))
-		    < 0) {
+		if ((s = socket(l->addr.ipv4.sin_family,
+		    l->stype | SOCK_NONBLOCK, l->sproto)) < 0) {
 			log_warn("Listen %s port %d is failed: socket()",
 			    hbuf, (int)htons(l->addr.ipv4.sin_port));
 			goto on_error;
@@ -216,16 +216,6 @@ radiusd_start(struct radiusd *radiusd)
 		    != 0) {
 			log_warn("Listen %s port %d is failed: bind()",
 			    hbuf, (int)htons(l->addr.ipv4.sin_port));
-			close(s);
-			goto on_error;
-		}
-		if ((ival = fcntl(s, F_GETFL, 0)) < 0) {
-			log_warn("fcntl(F_GETFL) failed at %s()", __func__);
-			close(s);
-			goto on_error;
-		}
-		if (fcntl(s, F_SETFL, ival | O_NONBLOCK) < 0) {
-			log_warn("fcntl(F_SETFL,O_NONBLOCK) failed at %s()", __func__);
 			close(s);
 			goto on_error;
 		}
@@ -977,7 +967,7 @@ radiusd_module_load(struct radiusd *radiusd, const char *path, const char *name)
 	close(pairsock[1]);
 
 	module->fd = pairsock[0];
-	if ((ival = fcntl(module->fd, F_GETFL, 0)) < 0) {
+	if ((ival = fcntl(module->fd, F_GETFL)) < 0) {
 		log_warn("Could not load module `%s': fcntl(F_GETFL)",
 		    name);
 		goto on_error;

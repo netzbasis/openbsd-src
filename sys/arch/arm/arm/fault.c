@@ -1,4 +1,4 @@
-/*	$OpenBSD: fault.c,v 1.20 2016/02/27 13:08:06 mpi Exp $	*/
+/*	$OpenBSD: fault.c,v 1.23 2016/08/24 13:09:52 kettenis Exp $	*/
 /*	$NetBSD: fault.c,v 1.46 2004/01/21 15:39:21 skrll Exp $	*/
 
 /*
@@ -131,6 +131,8 @@ static int dab_align(trapframe_t *, u_int, u_int, struct proc *,
     struct sigdata *sd);
 static int dab_buserr(trapframe_t *, u_int, u_int, struct proc *,
     struct sigdata *sd);
+extern int dab_access(trapframe_t *, u_int, u_int, struct proc *,
+    struct sigdata *sd);
 
 static const struct data_abort data_aborts[] = {
 #ifndef CPU_ARMv7
@@ -152,36 +154,36 @@ static const struct data_abort data_aborts[] = {
 	{NULL,		"Permission Fault (P)"}
 #else
 	{dab_fatal,	"V7 fault 00000"},
-	{dab_align,	"Alignment Fault 1"},
-	{dab_fatal,	"Debug Event"},
-	{dab_fatal,	"Access Flag Fault (S)"},
-	{dab_buserr,	"External Linefetch Abort (S)"},
-	{NULL,		"Translation Fault (S)"},
-	{dab_fatal,	"Access Flag Fault (P)"},
-	{NULL,		"Translation Fault (P)"},
-	{dab_buserr,	"External Non-Linefetch Abort (S)"},
-	{NULL,		"Domain Fault (S)"},
+	{dab_align,	"Alignment fault"},
+	{dab_fatal,	"Debug event"},
+	{dab_fatal,	"Access flag fault (L1)"},
+	{dab_buserr,	"Fault on instruction cache maintenance"},
+	{NULL,		"Translation fault (L1)"},
+	{dab_access,	"Access flag fault (L2)"},
+	{NULL,		"Translation fault (L2)"},
+	{dab_buserr,	"Synchronous external abort"},
+	{NULL,		"Domain fault (L1)"},
 	{dab_fatal,	"V7 fault 01010"},
-	{NULL,		"Domain Fault (P)"},
-	{dab_buserr,	"External Translation Abort (L1)"},
-	{NULL,		"Permission Fault (S)"},
-	{dab_buserr,	"External Translation Abort (L2)"},
-	{NULL,		"Permission Fault (P)"},
-	{dab_fatal,	"V7 fault 10000"},
+	{NULL,		"Domain fault (L2)"},
+	{dab_buserr,	"Synchronous external abort on translation table walk (L1)"},
+	{NULL,		"Permission fault (L1)"},
+	{dab_buserr,	"Synchronous external abort on translation table walk (L2)"},
+	{NULL,		"Permission fault (L2)"},
+	{dab_fatal,	"TLB conflict abort"},
 	{dab_fatal,	"V7 fault 10001"},
 	{dab_fatal,	"V7 fault 10010"},
 	{dab_fatal,	"V7 fault 10011"},
 	{dab_fatal,	"Lockdown"},
 	{dab_fatal,	"V7 fault 10101"},
-	{dab_fatal,	"Asynchronous External Abort"},
+	{dab_fatal,	"Asynchronous external abort"},
 	{dab_fatal,	"V7 fault 10111"},
-	{dab_fatal,	"Memory Asynchronous Parity Error"},
-	{dab_fatal,	"Memory Synchronous Parity Error"},
+	{dab_fatal,	"Asynchronous parity error on memory access"},
+	{dab_fatal,	"Synchronous parity error on memory access"},
 	{dab_fatal,	"Coprocessor Abort"},
 	{dab_fatal,	"V7 fault 11011"},
-	{dab_buserr,	"External Translation Abort (L1)"},
+	{dab_buserr,	"Synchronous parity error on translation table walk (L1)"},
 	{dab_fatal,	"V7 fault 11101"},
-	{dab_buserr,	"External Translation Abort (L2)"},
+	{dab_buserr,	"Synchronous parity error on translation table walk (L2)"},
 	{NULL,		"V7 fault 11111"},
 #endif
 };
@@ -361,6 +363,7 @@ data_abort_handler(trapframe_t *tf)
 	ftype = fsr & FAULT_WNR ? PROT_WRITE : PROT_READ;
 #endif
 
+#ifndef CPU_ARMv7
 	/*
 	 * See if the fault is as a result of ref/mod emulation,
 	 * or domain mismatch.
@@ -375,6 +378,7 @@ data_abort_handler(trapframe_t *tf)
 #endif
 		goto out;
 	}
+#endif
 
 	if (__predict_false(curcpu()->ci_idepth > 0)) {
 		if (pcb->pcb_onfault) {
@@ -668,8 +672,16 @@ prefetch_abort_handler(trapframe_t *tf)
 	if (__predict_true((tf->tf_spsr & PSR_I) == 0))
 		enable_interrupts(PSR_I);
 
-	/* Get fault address */
 	p = curproc;
+
+#ifdef CPU_ARMv7
+	/* Invoke access fault handler if appropriate */
+	if (FAULT_TYPE_V7(fsr) == FAULT_ACCESS_2) {
+		dab_access(tf, fsr, far, p, NULL);
+		goto out;
+	}
+#endif
+
 	p->p_addr->u_pcb.pcb_tf = tf;
 
 	/* Ok validate the address, can only execute in USER space */
@@ -683,6 +695,7 @@ prefetch_abort_handler(trapframe_t *tf)
 	map = &p->p_vmspace->vm_map;
 	va = trunc_page(far);
 
+#ifndef CPU_ARMv7
 	/*
 	 * See if the pmap can handle this fault on its own...
 	 */
@@ -691,6 +704,7 @@ prefetch_abort_handler(trapframe_t *tf)
 #endif
 	if (pmap_fault_fixup(map->pmap, va, PROT_READ | PROT_EXEC, 1))
 		goto out;
+#endif
 
 #ifdef DIAGNOSTIC
 	if (__predict_false(curcpu()->ci_idepth > 0)) {

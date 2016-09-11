@@ -1,4 +1,4 @@
-.\" $OpenBSD: __thrsleep.2,v 1.4 2013/07/16 15:21:11 schwarze Exp $
+.\" $OpenBSD: __thrsleep.2,v 1.6 2016/09/03 17:02:22 akfaew Exp $
 .\"
 .\" Copyright (c) 2012 Philip Guenther <guenther@openbsd.org>
 .\"
@@ -14,8 +14,8 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 16 2013 $
-.Dt __THRSLEEP 3
+.Dd $Mdocdate: September 3 2016 $
+.Dt __THRSLEEP 2
 .Os
 .Sh NAME
 .Nm __thrsleep ,
@@ -151,10 +151,9 @@ argument pointed to a non-zero value.
 .It Bq Er EINVAL
 The
 .Fa clock_id
-argument is neither
-.Dv CLOCK_REALTIME
-nor
-.Dv CLOCK_MONOTONIC .
+argument is not a valid
+.Xr clock_gettime 2
+clock id.
 .El
 .Pp
 .Fn __thrwakeup

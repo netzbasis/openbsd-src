@@ -1,6 +1,6 @@
-#	$OpenBSD: Makefile,v 1.9 2015/06/15 09:25:22 florian Exp $
+#	$OpenBSD: Makefile,v 1.11 2016/07/05 20:01:47 schwarze Exp $
 
-SUBDIR+= chmod ksh ln md5 pax ps systrace test
+SUBDIR+= cat chmod ksh ln md5 pax ps test
 
 install:
 

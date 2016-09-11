@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.24 2016/01/14 17:20:34 visa Exp $
+#	$OpenBSD: GENERIC,v 1.28 2016/07/05 12:53:40 visa Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -64,9 +64,14 @@ wd*		at pciide? flags 0x0000
 
 # USB Controllers
 dwctwo0 	at iobus? irq 56
+octuctl0	at iobus? irq 56
+ehci0		at octuctl?
+ohci0		at octuctl?
 
 # USB bus support
 usb*		at dwctwo?
+usb*		at ehci?
+usb*		at ohci?
 
 # USB devices
 uhub*		at usb?		# USB Hubs
@@ -107,6 +112,9 @@ uaudio* 	at uhub?	# USB Audio
 audio*		at uaudio?
 uvideo*		at uhub?	# USB Video
 video*		at uvideo?
+utvfu*		at uhub?	# Fushicai Audio-Video Grabber
+video*		at utvfu?
+audio*		at utvfu?
 ulpt*		at uhub?	# USB Printers
 umass*		at uhub?	# USB Mass Storage devices
 ugen*		at uhub?	# USB Generic driver
@@ -131,6 +139,7 @@ ugl*		at uhub?	# Genesys Logic GL620USB-A host-to-host `network'
 udav*		at uhub?	# Davicom DM9601 based Ethernet
 mos*		at uhub?	# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*		at uhub?	# Realtek RTL8150L based adapters
+ure*		at uhub?	# Realtek RTL8152 based adapters
 wi*		at uhub?	# WaveLAN IEEE 802.11DS
 udsbr*		at uhub?	# D-Link DSB-R100 radio
 radio*		at udsbr?	# USB radio
@@ -167,3 +176,5 @@ owid*		at onewire?	# ID
 owsbm*		at onewire?	# Smart Battery Monitor
 owtemp* 	at onewire?	# Temperature
 owctr*		at onewire?	# Counter device
+
+pseudo-device	openprom

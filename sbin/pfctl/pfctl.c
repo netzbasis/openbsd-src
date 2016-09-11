@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.334 2016/01/14 12:05:51 henning Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.337 2016/09/03 21:30:49 jca Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1076,8 +1076,8 @@ pfctl_add_rule(struct pfctl *pf, struct pf_rule *r, const char *anchor_call)
 		    sizeof(rule->anchor->path)) >= sizeof(rule->anchor->path))
                         errx(1, "pfctl_add_rule: strlcpy");
 		if ((p = strrchr(anchor_call, '/')) != NULL) {
-			if (!strlen(p))
-				err(1, "pfctl_add_rule: bad anchor name %s",
+			if (strlen(p) == 1)
+				errx(1, "pfctl_add_rule: bad anchor name %s",
 				    anchor_call);
 		} else
 			p = (char *)anchor_call;
@@ -1342,7 +1342,7 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
 	if (path[0])
 		snprintf(&path[len], PATH_MAX - len, "/%s", pf->anchor->name);
 	else
-		snprintf(&path[len], PATH_MAX - len, "%s", pf->anchor->name);
+		snprintf(&path[len], PATH_MAX - len, "%s", pf->anchor->path);
 
 	if (depth) {
 		if (TAILQ_FIRST(rs->rules.active.ptr) != NULL) {
@@ -1447,6 +1447,7 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	struct pfr_table	 trs;
 	char			*path = NULL;
 	int			 osize;
+	char			*p;
 
 	bzero(&pf, sizeof(pf));
 	RB_INIT(&pf_anchors);
@@ -1483,7 +1484,15 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	if (strlcpy(pf.anchor->path, anchorname,
 	    sizeof(pf.anchor->path)) >= sizeof(pf.anchor->path))
 		errx(1, "pfctl_add_rule: strlcpy");
-	if (strlcpy(pf.anchor->name, anchorname,
+
+	if ((p = strrchr(anchorname, '/')) != NULL) {
+		if (strlen(p) == 1)
+			errx(1, "pfctl_add_rule: bad anchor name %s",
+			    anchorname);
+	} else
+		p = anchorname;
+
+	if (strlcpy(pf.anchor->name, p,
 	    sizeof(pf.anchor->name)) >= sizeof(pf.anchor->name))
 		errx(1, "pfctl_add_rule: strlcpy");
 

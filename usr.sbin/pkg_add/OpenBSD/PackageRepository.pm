@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PackageRepository.pm,v 1.118 2016/02/23 17:45:43 espie Exp $
+# $OpenBSD: PackageRepository.pm,v 1.129 2016/09/06 12:41:23 espie Exp $
 #
 # Copyright (c) 2003-2010 Marc Espie <espie@openbsd.org>
 #
@@ -85,6 +85,10 @@ sub parse_fullurl
 
 	$class->strip_urlscheme($r) or return undef;
 	return $class->unique($class->parse_url($r, $state));
+}
+
+sub dont_cleanup
+{
 }
 
 sub ftp() { 'OpenBSD::PackageRepository::FTP' }
@@ -261,6 +265,54 @@ sub grabPlist
 sub parse_problems
 {
 	my ($self, $filename, $hint, $object) = @_;
+	CORE::open(my $fh, '<', $filename) or return;
+
+	my $baseurl = $self->url;
+	my $url = $baseurl;
+	if (defined $object) {
+		$url = $object->url;
+	}
+	my $notyet = 1;
+	while(<$fh>) {
+		next if m/^(?:200|220|221|226|229|230|227|250|331|500|150)[\s\-]/o;
+		next if m/^EPSV command not understood/o;
+		next if m/^Trying [\da-f\.\:]+\.\.\./o;
+		next if m/^Requesting \Q$baseurl\E/;
+		next if m/^Remote system type is\s+/o;
+		next if m/^Connected to\s+/o;
+		next if m/^remote\:\s+/o;
+		next if m/^Using binary mode to transfer files/o;
+		next if m/^Retrieving\s+/o;
+		next if m/^Success?fully retrieved file/o;
+		next if m/^\d+\s+bytes\s+received\s+in/o;
+		next if m/^ftp: connect to address.*: No route to host/o;
+
+		if (defined $hint && $hint == 0) {
+			next if m/^ftp: -: short write/o;
+			next if m/^ftp: local: -: Broken pipe/o;
+			next if m/^ftp: Writing -: Broken pipe/o;
+			next if m/^421\s+/o;
+		}
+		s/.*unsigned archive.*/unsigned package/;
+		if ($notyet) {
+			$self->{state}->errsay("Error from #1", $url);
+			$notyet = 0;
+		}
+		if (m/^421\s+/o ||
+		    m/^ftp: connect: Connection timed out/o ||
+		    m/^ftp: Can't connect or login to host/o) {
+			$self->{lasterror} = 421;
+		}
+		# http error
+		if (m/^ftp: Error retrieving file: 404/o) {
+		    	$self->{lasterror} = 404;
+		}
+		if (m/^550\s+/o) {
+			$self->{lasterror} = 550;
+		}
+		$self->{state}->errprint("#1", $_);
+	}
+	CORE::close($fh);
 	OpenBSD::Temp->reclaim($filename);
 	unlink $filename;
 }
@@ -295,17 +347,65 @@ sub did_it_fork
 		$self->{state}->fatal("Cannot fork: #1", $!);
 	}
 	if ($pid == 0) {
-		undef $SIG{'WINCH'};
-		undef $SIG{'CONT'};
-		undef $SIG{'INFO'};
+		delete $SIG{'WINCH'};
+		delete $SIG{'CONT'};
+		delete $SIG{'INFO'};
 	}
 }
 
 sub uncompress
 {
 	my $self = shift;
-	require IO::Uncompress::AnyUncompress;
-	return IO::Uncompress::AnyUncompress->new(@_, MultiStream => 1);
+	my $object = shift;
+	require IO::Uncompress::Gunzip;
+	my $fh = IO::Uncompress::Gunzip->new(@_, MultiStream => 1);
+	my $result = "";
+	if ($object->{is_signed}) {
+		my $h = $fh->getHeaderInfo;
+		if ($h) {
+			for my $line (split /\n/, $h->{Comment}) {
+				if ($line =~ m/^key=.*\/(.*)\.sec$/) {
+					$result .= "\@signer $1\n";
+				} elsif ($line =~ m/^date=(.*)$/) {
+					$result .= "\@digital-signature signify2:$1:external\n";
+				}
+			}
+		}
+	}
+	$object->{extra_content} = $result;
+	return $fh;
+}
+
+sub signify_pipe
+{
+	my $self = shift;
+	my $object = shift;
+	CORE::open STDERR, ">>", $object->{errors};
+	exec {OpenBSD::Paths->signify}
+	    ("signify",
+	    "-zV",
+	    @_);
+    	exit(1);
+}
+
+sub check_signed
+{
+	my ($self, $object) = @_;
+	# XXX switch not flipped
+	if ($self->{state}->defines('newsign')) {
+		$object->{is_signed} = 1;
+		return 1;
+	} else {
+		return 0;
+	}
+
+	if ($self->{state}->defines('unsigned') ||
+	    $self->{state}->defines('oldsign')) {
+		return 0;
+	} else {
+		$object->{is_signed} = 1;
+		return 1;
+	}
 }
 
 package OpenBSD::PackageRepository::Local;
@@ -368,7 +468,20 @@ sub open_pipe
 	if (defined $ENV{'PKG_CACHE'}) {
 		$self->may_copy($object, $ENV{'PKG_CACHE'});
 	}
-	return $self->uncompress($self->relative_url($object->{name}));
+	my $name = $self->relative_url($object->{name});
+	if ($self->check_signed($object)) {
+		$self->make_error_file($object);
+		my $pid = open(my $fh, "-|");
+		$self->did_it_fork($pid);
+		if ($pid) {
+			$object->{pid} = $pid;
+			return $self->uncompress($object, $fh);
+		} else {
+			$self->signify_pipe($object, "-x", $name);
+		}
+	} else {
+		return $self->uncompress($object, $name);
+	}
 }
 
 sub may_exist
@@ -430,7 +543,19 @@ sub new
 sub open_pipe
 {
 	my ($self, $object) = @_;
-	return $self->uncompress(\*STDIN);
+	if ($self->check_signed($object)) {
+		$self->make_error_file($object);
+		my $pid = open(my $fh, "-|");
+		$self->did_it_fork($pid);
+		if ($pid) {
+			$object->{pid} = $pid;
+			return $self->uncompress_signed($object, $fh);
+		} else {
+			$self->signify_pipe($object);
+		}
+    	} else {
+		return $self->uncompress($object, \*STDIN);
+	}
 }
 
 package OpenBSD::PackageRepository::Distant;
@@ -520,16 +645,22 @@ sub pkg_copy
 	close($in);
 }
 
-sub open_pipe
+sub make_error_file
 {
-	require OpenBSD::Temp;
-
 	my ($self, $object) = @_;
 	$object->{errors} = OpenBSD::Temp->file;
 	if (!defined $object->{errors}) {
 		$self->{state}->fatal("#1 not writable",
 		    $OpenBSD::Temp::tempbase);
 	}
+}
+
+sub open_pipe
+{
+	require OpenBSD::Temp;
+
+	my ($self, $object) = @_;
+	$self->make_error_file($object);
 	my $d = $ENV{'PKG_CACHE'};
 	if (defined $d) {
 		$object->{cache_dir} = $d;
@@ -540,16 +671,24 @@ sub open_pipe
 	}
 	$object->{parent} = $$;
 
-	my $pid2 = open(my $rdfh, "-|");
+	my ($rdfh, $wrfh);
+
+	pipe($rdfh, $wrfh);
+	my $pid2 = fork();
 	$self->did_it_fork($pid2);
 	if ($pid2) {
 		$object->{pid2} = $pid2;
+		close($wrfh);
 	} else {
-		open STDERR, '>', $object->{errors};
+		open STDERR, '>>', $object->{errors};
+		open(STDOUT, '>&', $wrfh);
+		close($rdfh);
+		close($wrfh);
 		if (defined $d) {
 			my $pid3 = open(my $in, "-|");
 			$self->did_it_fork($pid3);
 			if ($pid3) {
+				$self->dont_cleanup;
 				$self->pkg_copy($in, $object);
 			} else {
 				$self->grab_object($object);
@@ -559,7 +698,24 @@ sub open_pipe
 		}
 		exit(0);
 	}
-	return $self->uncompress($rdfh);
+
+	if ($self->check_signed($object)) {
+		my $pid = open(my $fh, "-|");
+		$self->did_it_fork($pid);
+		if ($pid) {
+			$object->{pid} = $pid;
+			close($rdfh);
+		} else {
+			open(STDIN, '<&', $rdfh) or
+			    $self->{state}->fatal("Bad dup: #1", $!);
+			close($rdfh);
+			$self->signify_pipe($object);
+		}
+
+		return $self->uncompress($object, $fh);
+	} else {
+		return $self->uncompress($object, $rdfh);
+	}
 }
 
 sub finish_and_close
@@ -579,20 +735,27 @@ our %distant = ();
 
 sub drop_privileges_and_setup_env
 {
-	# we can't cache anything, we happen after the fork, right before exec
-	if (my (undef, undef, $uid, $gid) = getpwnam("_pfetch")) {
-		$( = $gid;
-		$) = "$gid $gid";
-		$< = $uid;
-		$> = $uid;
-	} 
-	# don't error out yet if we can't change.
-
+	my $self = shift;
+	my $user = '_pkgfetch';
+	if ($< == 0) {
+		# we can't cache anything, we happen after the fork, 
+		# right before exec
+		if (my (undef, undef, $uid, $gid) = getpwnam($user)) {
+			$( = $gid;
+			$) = "$gid $gid";
+			$< = $uid;
+			$> = $uid;
+		} else {
+			$self->{state}->fatal("Couldn't change identity: can't find #1 user", $user);
+		}
+	} else {
+		($user) = getpwuid($<);
+	}
 	# create sanitized env for ftp
 	my %newenv = (
 		HOME => '/var/empty',
-		USER => '_pfetch',
-		LOGNAME => '_pfetch',
+		USER => $user,
+		LOGNAME => $user,
 		SHELL => '/bin/sh',
 		LC_ALL => 'C', # especially, laundry error messages
 		PATH => '/bin:/usr/bin'
@@ -642,7 +805,7 @@ sub open_read_ftp
 		$self->{pipe_pid} = $child_pid;
 		return $fh;
 	} else {
-		open STDERR, '>', $errors if defined $errors;
+		open STDERR, '>>', $errors if defined $errors;
 
 		$self->drop_privileges_and_setup_env;
 		exec($cmd) 
@@ -723,59 +886,6 @@ sub grabPlist
 	return $self->try_until_success($pkgname,
 	    sub {
 	    	return $self->SUPER::grabPlist($pkgname, @extra); });
-}
-
-sub parse_problems
-{
-	my ($self, $filename, $hint, $object) = @_;
-	CORE::open(my $fh, '<', $filename) or return;
-
-	my $baseurl = $self->url;
-	my $url = $baseurl;
-	if (defined $object) {
-		$url = $object->url;
-	}
-	my $notyet = 1;
-	while(<$fh>) {
-		next if m/^(?:200|220|221|226|229|230|227|250|331|500|150)[\s\-]/o;
-		next if m/^EPSV command not understood/o;
-		next if m/^Trying [\da-f\.\:]+\.\.\./o;
-		next if m/^Requesting \Q$baseurl\E/;
-		next if m/^Remote system type is\s+/o;
-		next if m/^Connected to\s+/o;
-		next if m/^remote\:\s+/o;
-		next if m/^Using binary mode to transfer files/o;
-		next if m/^Retrieving\s+/o;
-		next if m/^Success?fully retrieved file/o;
-		next if m/^\d+\s+bytes\s+received\s+in/o;
-		next if m/^ftp: connect to address.*: No route to host/o;
-
-		if (defined $hint && $hint == 0) {
-			next if m/^ftp: -: short write/o;
-			next if m/^ftp: local: -: Broken pipe/o;
-			next if m/^ftp: Writing -: Broken pipe/o;
-			next if m/^421\s+/o;
-		}
-		if ($notyet) {
-			$self->{state}->errsay("Error from #1", $url);
-			$notyet = 0;
-		}
-		if (m/^421\s+/o ||
-		    m/^ftp: connect: Connection timed out/o ||
-		    m/^ftp: Can't connect or login to host/o) {
-			$self->{lasterror} = 421;
-		}
-		# http error
-		if (m/^ftp: Error retrieving file: 404/o) {
-		    	$self->{lasterror} = 404;
-		}
-		if (m/^550\s+/o) {
-			$self->{lasterror} = 550;
-		}
-		$self->{state}->errprint("#1", $_);
-	}
-	CORE::close($fh);
-	$self->SUPER::parse_problems($filename, $hint, $object);
 }
 
 sub list

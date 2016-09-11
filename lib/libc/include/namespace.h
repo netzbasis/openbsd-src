@@ -1,4 +1,4 @@
-/*	$OpenBSD: namespace.h,v 1.8 2015/10/23 04:39:24 guenther Exp $	*/
+/*	$OpenBSD: namespace.h,v 1.10 2016/05/07 19:05:22 guenther Exp $	*/
 
 #ifndef _LIBC_NAMESPACE_H_
 #define _LIBC_NAMESPACE_H_
@@ -41,14 +41,14 @@
  *
  * Some other calls need to be wrapped for reasons other than cancellation,
  * such as to provide functionality beyond the underlying syscall (e.g.,
- * setlogin).  For these, there are identifiers for the raw call, without
+ * sigaction).  For these, there are identifiers for the raw call, without
  * the wrapping:
- *	_libc_setlogin		hidden alias, for use internal to libc only
- *	_thread_sys_setlogin	global name, for use outside libc only
+ *	_libc_sigaction		hidden alias, for use internal to libc only
+ *	_thread_sys_sigaction	global name, for use outside libc only
  * ...and identifiers that do provide the libc wrapping:
- *	setlogin		weak alias, for general use
- *	_libc_setlogin_wrap	hidden alias, for use internal to libc only
- * Inside libc, the bare name ("setlogin") binds to the wrapper; when the
+ *	sigaction		weak alias, for general use
+ *	_libc_sigaction_wrap	hidden alias, for use internal to libc only
+ * Inside libc, the bare name ("sigaction") binds to the wrapper; when the
  * raw version is necessary it can be obtained by calling HIDDEN(x) instead of
  * just x.
  *
@@ -118,7 +118,7 @@
  *   DEF_WRAP(x)
  *	This defines x as a weak alias for _libc_x_wrap.
  *	Matches with PROTO_WRAP()
- *	ex: DEF_WRAP(setlogin)
+ *	ex: DEF_WRAP(sigaction)
  *
  *   DEF_SYS(x)
  *	This defines _thread_sys_x as a strong alias for _libc_x.  This should
@@ -139,12 +139,14 @@
 #define	CANCEL(x)		_libc_##x##_cancel
 #define	WRAP(x)			_libc_##x##_wrap
 #define	HIDDEN_STRING(x)	"_libc_" __STRING(x)
+#define	CANCEL_STRING(x)	"_libc_" __STRING(x) "_cancel"
 #define	WRAP_STRING(x)		"_libc_" __STRING(x) "_wrap"
 
 #define	PROTO_NORMAL(x)		__dso_hidden typeof(x) x asm(HIDDEN_STRING(x))
 #define	PROTO_STD_DEPRECATED(x)	typeof(x) x __attribute__((deprecated))
 #define	PROTO_DEPRECATED(x)	typeof(x) x __attribute__((deprecated, weak))
-#define	PROTO_CANCEL(x)		PROTO_NORMAL(x), CANCEL(x)
+#define	PROTO_CANCEL(x)		__dso_hidden typeof(x) HIDDEN(x), \
+					x asm(CANCEL_STRING(x))
 #define	PROTO_WRAP(x)		PROTO_NORMAL(x), WRAP(x)
 
 #define	DEF_STRONG(x)		__strong_alias(x, HIDDEN(x))

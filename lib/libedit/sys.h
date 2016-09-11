@@ -1,5 +1,5 @@
-/*	$OpenBSD: sys.h,v 1.12 2016/02/02 00:43:12 schwarze Exp $	*/
-/*	$NetBSD: sys.h,v 1.13 2009/12/30 22:37:40 christos Exp $	*/
+/*	$OpenBSD: sys.h,v 1.18 2016/05/10 11:53:54 schwarze Exp $	*/
+/*	$NetBSD: sys.h,v 1.25 2016/04/11 18:56:31 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -58,19 +58,8 @@
 #  define __END_DECLS
 # endif
 #endif
- 
-#ifndef public
-# define public		/* Externally visible functions/variables */
-#endif
 
-#ifndef private
-# define private	static	/* Always hidden internals */
-#endif
-
-#ifndef protected
-# define protected	/* Redefined from elsewhere to "static" */
-			/* When we want to hide everything	*/
-#endif
+#define protected __dso_hidden
 
 #ifndef __arraycount
 # define __arraycount(a) (sizeof(a) / sizeof(*(a)))
@@ -88,14 +77,9 @@ size_t	strlcat(char *dst, const char *src, size_t size);
 size_t	strlcpy(char *dst, const char *src, size_t size);
 #endif
 
-#ifndef HAVE_FGETLN
-#define	fgetln libedit_fgetln
-char	*fgetln(FILE *fp, size_t *len);
-#endif
-
-#ifndef WIDECHAR
-#define	setlocale(c, l) NULL
-#define	nl_langinfo(i) ""
+#ifndef HAVE_GETLINE
+#define	getline libedit_getline
+ssize_t	getline(char **line, size_t *len, FILE *fp);
 #endif
 
 #define	REGEX		/* Use POSIX.2 regular expression functions */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_bio.c,v 1.172 2016/03/06 19:15:23 mpi Exp $	*/
+/*	$OpenBSD: vfs_bio.c,v 1.176 2016/09/04 10:51:24 naddy Exp $	*/
 /*	$NetBSD: vfs_bio.c,v 1.44 1996/06/11 11:15:36 pk Exp $	*/
 
 /*
@@ -669,14 +669,7 @@ bdwrite(struct buf *bp)
 		curproc->p_ru.ru_oublock++;		/* XXX */
 	}
 
-	/* If this is a tape block, write the block now. */
-	if (major(bp->b_dev) < nblkdev &&
-	    bdevsw[major(bp->b_dev)].d_type == D_TAPE) {
-		bawrite(bp);
-		return;
-	}
-
-	/* Otherwise, the "write" is done, so mark and release the buffer. */
+	/* The "write" is done, so mark and release the buffer. */
 	CLR(bp->b_flags, B_NEEDCOMMIT);
 	SET(bp->b_flags, B_DONE);
 	brelse(bp);
@@ -908,7 +901,7 @@ geteblk(int size)
 	struct buf *bp;
 
 	while ((bp = buf_get(NULL, 0, size)) == NULL)
-		;
+		continue;
 
 	return (bp);
 }
@@ -1027,7 +1020,7 @@ buf_get(struct vnode *vp, daddr_t blkno, size_t size)
 
 	if (size) {
 		buf_alloc_pages(bp, round_page(size));
-		SET(bp->b_flags, B_DMA);
+		KASSERT(ISSET(bp->b_flags, B_DMA));
 		buf_map(bp);
 	}
 
@@ -1319,12 +1312,17 @@ bufcache_adjust(void)
 		    &cleancache[i].warmbufpages) ||
 		    chillbufs(&cleancache[i], &cleancache[i].hotqueue,
 		    &cleancache[i].hotbufpages))
-			;
+			continue;
 	}
 }
 
+/*
+ * Get a clean buffer from the cache. if "discard" is set do not promote
+ * previously warm buffers as normal, because we are tossing everything
+ * away such as in a hibernation
+ */
 struct buf *
-bufcache_getcleanbuf(int cachenum)
+bufcache_getcleanbuf(int cachenum, int discard)
 {
 	struct buf *bp = NULL;
 	struct bufcache *cache = &cleancache[cachenum];
@@ -1333,7 +1331,8 @@ bufcache_getcleanbuf(int cachenum)
 
 	/* try  cold queue */
 	while ((bp = TAILQ_FIRST(&cache->coldqueue))) {
-		if (cachenum < NUM_CACHES - 1 && ISSET(bp->b_flags, B_WARM)) {
+		if ((!discard) &&
+		    cachenum < NUM_CACHES - 1 && ISSET(bp->b_flags, B_WARM)) {
 			/*
 			 * If this buffer was warm before, move it to
 			 *  the hot queue in the next cache
@@ -1364,11 +1363,10 @@ bufcache_getcleanbuf(int cachenum)
 	return bp;
 }
 
-
 struct buf *
-bufcache_getanycleanbuf(void)
+bufcache_getcleanbuf_range(int start, int end, int discard)
 {
-	int i, j = 0, q = NUM_CACHES - 1;
+	int i, j = start, q = end;
 	struct buf *bp = NULL;
 
 	/*
@@ -1378,11 +1376,17 @@ bufcache_getanycleanbuf(void)
 	 */
 	while (j <= q)	{
 		for (i = q; i >= j; i--)
-			if ((bp = bufcache_getcleanbuf(i)))
+			if ((bp = bufcache_getcleanbuf(i, discard)))
 				return(bp);
 		j++;
 	}
 	return bp;
+}
+
+struct buf *
+bufcache_getanycleanbuf(void)
+{
+	return bufcache_getcleanbuf_range(DMA_CACHE, NUM_CACHES -1, 0);
 }
 
 
@@ -1487,28 +1491,33 @@ bufcache_release(struct buf *bp)
 
 #ifdef HIBERNATE
 /*
- * Flush buffercache to lowest value on hibernate suspend
+ * Nuke the buffer cache from orbit when hibernating. We do not want to save
+ * any clean cache pages to swap and read them back. the original disk files
+ * are just as good.
  */
 void
 hibernate_suspend_bufcache(void)
 {
-	long save_buflowpages = buflowpages;
+	struct buf *bp;
+	int s;
 
-	/* Shrink buffercache to 16MB (4096 pages) */
-	buflowpages = 4096;
-	bufadjust(buflowpages);
-	buflowpages = save_buflowpages;
-	bufhighpages = bufpages;
+	s = splbio();
+	/* Chuck away all the cache pages.. discard bufs, do not promote */
+	while ((bp = bufcache_getcleanbuf_range(DMA_CACHE, NUM_CACHES - 1, 1))) {
+		bufcache_take(bp);
+		if (bp->b_vp) {
+			RB_REMOVE(buf_rb_bufs,
+			    &bp->b_vp->v_bufs_tree, bp);
+			brelvp(bp);
+		}
+		buf_put(bp);
+	}
+	splx(s);
 }
 
 void
 hibernate_resume_bufcache(void)
 {
-	uint64_t dmapages, pgs;
-
-	dmapages = uvm_pagecount(&dma_constraint);
-	pgs = bufcachepercent * dmapages / 100;
-	bufadjust(pgs);
-	bufhighpages = bufpages;
+	/* XXX Nothing needed here for now */
 }
 #endif /* HIBERNATE */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: archdep.h,v 1.6 2015/12/06 23:36:12 guenther Exp $ */
+/*	$OpenBSD: archdep.h,v 1.8 2016/09/08 18:56:58 kettenis Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -49,11 +49,10 @@
  */
 
 static inline void *
-_dl_mmap(void *addr, unsigned int len, unsigned int prot,
-	unsigned int flags, int fd, off_t offset)
+_dl_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
 	return((void *)_dl__syscall((quad_t)SYS_mmap, addr, len, prot,
-		flags, fd, 0, offset));
+	    flags, fd, 0, offset));
 }
 
 static inline void
@@ -61,6 +60,10 @@ RELOC_DYN(Elf_Rel *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v)
 {
 	if (ELF_R_TYPE(r->r_info) == R_ARM_RELATIVE) {
 		*p += v;
+	} else if (ELF_R_TYPE(r->r_info) == R_ARM_GLOB_DAT) {
+		*p += v + s->st_value;
+	} else if (ELF_R_TYPE(r->r_info) == R_ARM_ABS32) {
+		*p += v + s->st_value;
 	} else {
 		/* XXX - printf might not work here, but we give it a shot. */
 		_dl_printf("Unknown bootstrap relocation.\n");

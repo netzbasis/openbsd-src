@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.216 2016/03/06 05:20:26 guenther Exp $	*/
+/*	$OpenBSD: proc.h,v 1.226 2016/09/03 08:47:24 tedu Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -64,7 +64,12 @@ struct	session {
 	struct	vnode *s_ttyvp;		/* Vnode of controlling terminal. */
 	struct	tty *s_ttyp;		/* Controlling terminal. */
 	char	s_login[LOGIN_NAME_MAX];	/* Setlogin() name. */
+	pid_t	s_verauthppid;
+	uid_t	s_verauthuid;
+	struct timeout s_verauthto;
 };
+
+void zapverauth(/* struct session */ void *);
 
 /*
  * One structure allocated per process group.
@@ -107,6 +112,7 @@ struct	emul {
 	int	(*e_coredump)(struct proc *, void *cookie);
 	char	*e_sigcode;		/* Start of sigcode */
 	char	*e_esigcode;		/* End of sigcode */
+	char	*e_esigret;		/* sigaction RET position */
 	int	e_flags;		/* Flags, see below */
 	struct uvm_object *e_sigobject;	/* shared sigcode object */
 					/* Per-process hooks */
@@ -189,6 +195,8 @@ struct process {
 	struct	rusage ps_cru;		/* sum of stats for reaped children */
 	struct	itimerval ps_timer[3];	/* timers, indexed by ITIMER_* */
 
+	u_int64_t ps_wxcounter;
+
 /* End area that is zeroed on creation. */
 #define	ps_endzero	ps_startcopy
 
@@ -200,6 +208,8 @@ struct process {
 	vaddr_t	ps_strings;		/* User pointers to argv/env */
 	vaddr_t	ps_stackgap;		/* User pointer to the "stackgap" */
 	vaddr_t	ps_sigcode;		/* User pointer to the signal code */
+	vaddr_t ps_sigcoderet;		/* User pointer to sigreturn retPC */
+	u_long	ps_sigcookie;
 	u_int	ps_rtableid;		/* Process routing table/domain. */
 	char	ps_nice;		/* Process "nice" value. */
 
@@ -256,13 +266,14 @@ struct process {
 #define	PS_ZOMBIE	0x00040000	/* Dead and ready to be waited for */
 #define	PS_NOBROADCASTKILL 0x00080000	/* Process excluded from kill -1. */
 #define	PS_PLEDGE	0x00100000	/* Has called pledge(2) */
+#define	PS_WXNEEDED	0x00200000	/* Process may violate W^X */
 
 #define	PS_BITS \
     ("\20" "\01CONTROLT" "\02EXEC" "\03INEXEC" "\04EXITING" "\05SUGID" \
      "\06SUGIDEXEC" "\07PPWAIT" "\010ISPWAIT" "\011PROFIL" "\012TRACED" \
      "\013WAITED" "\014COREDUMP" "\015SINGLEEXIT" "\016SINGLEUNWIND" \
      "\017NOZOMBIE" "\020STOPPED" "\021SYSTEM" "\022EMBRYO" "\023ZOMBIE" \
-     "\024NOBROADCASTKILL" "\025PLEDGE")
+     "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED")
 
 
 struct proc {
@@ -309,8 +320,6 @@ struct proc {
 	struct	tusage p_tu;		/* accumulated times. */
 	struct	timespec p_rtime;	/* Real time. */
 
-	void	*p_systrace;		/* Back pointer to systrace */
-
 	void	*p_emuldata;		/* Per-process emulation data, or */
 					/* NULL. Malloc type M_EMULDATA */
 	int	 p_siglist;		/* Signals arrived but not delivered. */
@@ -323,7 +332,7 @@ struct proc {
 	sigset_t p_sigmask;	/* Current signal mask. */
 
 	u_char	p_priority;	/* Process priority. */
-	u_char	p_usrpri;	/* User-priority based on p_cpu and ps_nice. */
+	u_char	p_usrpri;	/* User-priority based on p_estcpu and ps_nice. */
 	char	p_comm[MAXCOMLEN+1];
 
 	int	p_pledge_syscall;	/* Cache of current syscall */
@@ -364,6 +373,8 @@ struct proc {
 #define	SONPROC	7		/* Thread is currently on a CPU. */
 
 #define	P_ZOMBIE(p)	((p)->p_stat == SDEAD)
+#define	P_HASSIBLING(p)	(TAILQ_FIRST(&(p)->p_p->ps_threads) != (p) || \
+			 TAILQ_NEXT((p), p_thr_link) != NULL)
 
 /*
  * These flags are per-thread and kept in p_flag
@@ -380,7 +391,6 @@ struct proc {
 #define	P_WEXIT		0x00002000	/* Working on exiting. */
 #define	P_OWEUPC	0x00008000	/* Owe proc an addupc() at next ast. */
 #define	P_SUSPSINGLE	0x00080000	/* Need to stop for single threading. */
-#define P_SYSTRACE	0x00400000	/* Process system call tracing active*/
 #define P_CONTINUED	0x00800000	/* Proc has continued from a stopped state. */
 #define	P_THREAD	0x04000000	/* Only a thread, not a real process */
 #define	P_SUSPSIG	0x08000000	/* Stopped from signal. */
@@ -390,7 +400,7 @@ struct proc {
 #define	P_BITS \
     ("\20" "\01INKTR" "\02PROFPEND" "\03ALRMPEND" "\04SIGSUSPEND" \
      "\05CANTSLEEP" "\07SELECT" "\010SINTR" "\012SYSTEM" "\013TIMEOUT" \
-     "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" "\027SYSTRACE" \
+     "\016WEXIT" "\020OWEUPC" "\024SUSPSINGLE" "\027XX" \
      "\030CONTINUED" "\033THREAD" "\034SUSPSIG" "\035SOFTDEP" "\037CPUPEG")
 
 #define	THREAD_PID_OFFSET	1000000
@@ -417,8 +427,10 @@ struct uidinfo *uid_find(uid_t);
 #define SESS_LEADER(pr)	((pr)->ps_session->s_leader == (pr))
 #define	SESSHOLD(s)	((s)->s_count++)
 #define	SESSRELE(s) do {						\
-	if (--(s)->s_count == 0)					\
+	if (--(s)->s_count == 0) {					\
+		timeout_del(&(s)->s_verauthto);			\
 		pool_put(&session_pool, (s));				\
+	}								\
 } while (/* CONSTCOND */ 0)
 
 /*
@@ -477,6 +489,7 @@ pid_t	allocpid(void);
 void	freepid(pid_t);
 
 struct process *prfind(pid_t);	/* Find process by id. */
+struct process *zombiefind(pid_t); /* Find zombie process by id. */
 struct proc *pfind(pid_t);	/* Find thread by id. */
 struct pgrp *pgfind(pid_t);	/* Find process group by id. */
 void	proc_printit(struct proc *p, const char *modif,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.147 2016/02/12 03:11:16 sunil Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.151 2016/09/04 09:33:49 eric Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -218,6 +218,57 @@ srv_read(void *dst, size_t sz)
 }
 
 static void
+srv_get_int(int *i)
+{
+	srv_read(i, sizeof(*i));
+}
+
+static void
+srv_get_time(time_t *t)
+{
+	srv_read(t, sizeof(*t));
+}
+
+static void
+srv_get_evpid(uint64_t *evpid)
+{
+	srv_read(evpid, sizeof(*evpid));
+}
+
+static void
+srv_get_string(const char **s)
+{
+	const char *end;
+	size_t len;
+
+	if (rlen == 0)
+		errx(1, "message too short");
+
+	end = memchr(rdata, 0, rlen);
+	if (end == NULL)
+		errx(1, "unterminated string");
+
+	len = end + 1 - rdata;
+
+	*s = rdata;
+	rlen -= len;
+	rdata += len;
+}
+
+static void
+srv_get_envelope(struct envelope *evp)
+{
+	uint64_t	 evpid;
+	const char	*str;
+
+	srv_get_evpid(&evpid);
+	srv_get_string(&str);
+
+	envelope_load_buffer(evp, str, strlen(str));
+	evp->id = evpid;
+}
+
+static void
 srv_end(void)
 {
 	if (rlen)
@@ -294,9 +345,8 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 	static uint32_t	currmsgid = 0;
 	static uint64_t	from = 0;
 	static int	done = 0, need_send = 1, found;
-	char		buf[sizeof(*evp)];
-	size_t		buflen;
-	uint64_t	evpid;
+	int		flags;
+	time_t		nexttry;
 
 	if (currmsgid != msgid) {
 		if (currmsgid != 0 && !done)
@@ -329,13 +379,14 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 		goto again;
 	}
 
-	srv_read(&evpid, sizeof evpid);
-	buflen = rlen;
-	srv_read(buf, rlen);
-	envelope_load_buffer(evp, buf, buflen - 1);
-	evp->id = evpid;
-
+	srv_get_int(&flags);
+	srv_get_time(&nexttry);
+	srv_get_envelope(evp);
 	srv_end();
+
+	evp->flags |= flags;
+	evp->nexttry = nexttry;
+
 	from = evp->id + 1;
 	found++;
 	return (1);
@@ -813,13 +864,6 @@ do_show_status(int argc, struct parameter *argv)
 }
 
 static int
-do_stop(int argc, struct parameter *argv)
-{
-	srv_send(IMSG_CTL_SHUTDOWN, NULL, 0);
-	return srv_check_result(1);
-}
-
-static int
 do_trace(int argc, struct parameter *argv)
 {
 	int	v;
@@ -868,7 +912,7 @@ do_encrypt(int argc, struct parameter *argv)
 
 	if (argv)
 		p = argv[0].u.u_str;
-	execl(PATH_ENCRYPT, "encrypt", p, NULL);
+	execl(PATH_ENCRYPT, "encrypt", p, (char *)NULL);
 	errx(1, "execl");
 }
 
@@ -1029,7 +1073,6 @@ main(int argc, char **argv)
 	cmd_install("show routes",		do_show_routes);
 	cmd_install("show stats",		do_show_stats);
 	cmd_install("show status",		do_show_status);
-	cmd_install("stop",			do_stop);
 	cmd_install("trace <str>",		do_trace);
 	cmd_install("uncorrupt <msgid>",	do_uncorrupt);
 	cmd_install("unprofile <str>",		do_unprofile);
@@ -1259,9 +1302,9 @@ display(const char *s)
 	lseek(fileno(fp), 0, SEEK_SET);
 	(void)dup2(fileno(fp), STDIN_FILENO);
 	if (gzipped)
-		execl(PATH_GZCAT, gzcat_argv0, NULL);
+		execl(PATH_GZCAT, gzcat_argv0, (char *)NULL);
 	else
-		execl(PATH_CAT, "cat", NULL);
+		execl(PATH_CAT, "cat", (char *)NULL);
 	err(1, "execl");
 }
 

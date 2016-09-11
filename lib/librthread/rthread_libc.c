@@ -1,5 +1,4 @@
-/* $OpenBSD: rthread_libc.c,v 1.13 2016/01/27 08:40:05 kettenis Exp $ */
-/* $snafu: libc_tag.c,v 1.4 2004/11/30 07:00:06 marc Exp $ */
+/* $OpenBSD: rthread_libc.c,v 1.17 2016/09/04 10:13:35 akfaew Exp $ */
 
 /* PUBLIC DOMAIN: No Rights Reserved. Marco S Hyman <marc@snafu.org> */
 
@@ -12,6 +11,7 @@
 #include "thread_private.h"	/* in libc/include */
 
 #include "rthread.h"
+#include "rthread_cb.h"
 
 /*
  * A thread tag is a pointer to a structure of this type.  An opaque
@@ -152,41 +152,56 @@ _thread_mutex_destroy(void **mutex)
 /*
  * the malloc lock
  */
-static struct pthread_mutex malloc_lock = {
-	_SPINLOCK_UNLOCKED,
-	TAILQ_HEAD_INITIALIZER(malloc_lock.lockers),
-	PTHREAD_MUTEX_DEFAULT,
-	NULL,
-	0,
-	-1
+#define MALLOC_LOCK_INITIALIZER(n) { \
+	_SPINLOCK_UNLOCKED,	\
+	TAILQ_HEAD_INITIALIZER(malloc_lock[n].lockers), \
+	PTHREAD_MUTEX_DEFAULT,	\
+	NULL,			\
+	0,			\
+	-1 }			\
+
+static struct pthread_mutex malloc_lock[_MALLOC_MUTEXES] = {
+	MALLOC_LOCK_INITIALIZER(0),
+	MALLOC_LOCK_INITIALIZER(1),
+	MALLOC_LOCK_INITIALIZER(2),
+	MALLOC_LOCK_INITIALIZER(3)
 };
-static pthread_mutex_t malloc_mutex = &malloc_lock;
+static pthread_mutex_t malloc_mutex[_MALLOC_MUTEXES] = {
+	&malloc_lock[0],
+	&malloc_lock[1],
+	&malloc_lock[2],
+	&malloc_lock[3]
+};
 
 void
-_thread_malloc_lock(void)
+_thread_malloc_lock(int i)
 {
-	pthread_mutex_lock(&malloc_mutex);
+	pthread_mutex_lock(&malloc_mutex[i]);
 }
 
 void
-_thread_malloc_unlock(void)
+_thread_malloc_unlock(int i)
 {
-	pthread_mutex_unlock(&malloc_mutex);
+	pthread_mutex_unlock(&malloc_mutex[i]);
 }
 
 void
 _thread_malloc_reinit(void)
 {
-	malloc_lock.lock = _SPINLOCK_UNLOCKED_ASSIGN;
-	TAILQ_INIT(&malloc_lock.lockers);
-	malloc_lock.owner = NULL;
-	malloc_lock.count = 0;
+	int i;
+
+	for (i = 0; i < _MALLOC_MUTEXES; i++) {
+		malloc_lock[i].lock = _SPINLOCK_UNLOCKED;
+		TAILQ_INIT(&malloc_lock[i].lockers);
+		malloc_lock[i].owner = NULL;
+		malloc_lock[i].count = 0;
+	}
 }
 
 /*
  * atexit lock
  */
-static struct _spinlock atexit_lock = _SPINLOCK_UNLOCKED;
+static _atomic_lock_t atexit_lock = _SPINLOCK_UNLOCKED;
 
 void
 _thread_atexit_lock(void)
@@ -203,7 +218,7 @@ _thread_atexit_unlock(void)
 /*
  * atfork lock
  */
-static struct _spinlock atfork_lock = _SPINLOCK_UNLOCKED;
+static _atomic_lock_t atfork_lock = _SPINLOCK_UNLOCKED;
 
 void
 _thread_atfork_lock(void)
@@ -220,7 +235,7 @@ _thread_atfork_unlock(void)
 /*
  * arc4random lock
  */
-static struct _spinlock arc4_lock = _SPINLOCK_UNLOCKED;
+static _atomic_lock_t arc4_lock = _SPINLOCK_UNLOCKED;
 
 void
 _thread_arc4_lock(void)
@@ -233,4 +248,3 @@ _thread_arc4_unlock(void)
 {
 	_spinunlock(&arc4_lock);
 }
-

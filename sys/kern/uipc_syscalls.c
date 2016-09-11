@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_syscalls.c,v 1.131 2016/01/08 05:50:08 guenther Exp $	*/
+/*	$OpenBSD: uipc_syscalls.c,v 1.133 2016/08/09 02:25:35 guenther Exp $	*/
 /*	$NetBSD: uipc_syscalls.c,v 1.19 1996/02/09 19:00:48 christos Exp $	*/
 
 /*
@@ -367,12 +367,12 @@ sys_connect(struct proc *p, void *v, register_t *retval)
 	struct file *fp;
 	struct socket *so;
 	struct mbuf *nam = NULL;
-	int error, s;
+	int error, s, interrupted = 0;
 
 	if ((error = getsock(p, SCARG(uap, s), &fp)) != 0)
 		return (error);
 	so = fp->f_data;
-	if ((so->so_state & SS_NBIO) && (so->so_state & SS_ISCONNECTING)) {
+	if (so->so_state & SS_ISCONNECTING) {
 		FRELE(fp, p);
 		return (EALREADY);
 	}
@@ -409,8 +409,11 @@ sys_connect(struct proc *p, void *v, register_t *retval)
 	s = splsoftnet();
 	while ((so->so_state & SS_ISCONNECTING) && so->so_error == 0) {
 		error = tsleep(&so->so_timeo, PSOCK | PCATCH, "netcon2", 0);
-		if (error)
+		if (error) {
+			if (error == EINTR || error == ERESTART)
+				interrupted = 1;
 			break;
+		}
 	}
 	if (error == 0) {
 		error = so->so_error;
@@ -418,7 +421,8 @@ sys_connect(struct proc *p, void *v, register_t *retval)
 	}
 	splx(s);
 bad:
-	so->so_state &= ~SS_ISCONNECTING;
+	if (!interrupted)
+		so->so_state &= ~SS_ISCONNECTING;
 	FRELE(fp, p);
 	if (nam)
 		m_freem(nam);
@@ -1110,7 +1114,7 @@ sockargs(struct mbuf **mp, const void *buf, size_t buflen, int type)
 
 	/* Allocate an mbuf to hold the arguments. */
 	m = m_get(M_WAIT, type);
-	if ((u_int)buflen > MLEN) {
+	if (buflen > MLEN) {
 		MCLGET(m, M_WAITOK);
 		if ((m->m_flags & M_EXT) == 0) {
 			m_free(m);

@@ -1,4 +1,4 @@
-#	$OpenBSD: test-exec.sh,v 1.51 2015/03/03 22:35:19 markus Exp $
+#	$OpenBSD: test-exec.sh,v 1.54 2016/08/23 06:36:23 djm Exp $
 #	Placed in the Public Domain.
 
 USER=`id -un`
@@ -91,7 +91,8 @@ if [ "x$TEST_SSH_CONCH" != "x" ]; then
 	CONCH="${TEST_SSH_CONCH}"
 fi
 
-SSH_PROTOCOLS=`$SSH -Q protocol-version`
+SSH_PROTOCOLS=2
+#SSH_PROTOCOLS=`$SSH -Q protocol-version`
 if [ "x$TEST_SSH_PROTOCOLS" != "x" ]; then
 	SSH_PROTOCOLS="${TEST_SSH_PROTOCOLS}"
 fi
@@ -133,6 +134,7 @@ echo "#!/bin/sh" > $SSHLOGWRAP
 echo "exec ${SSH} -E${TEST_SSH_LOGFILE} "'"$@"' >>$SSHLOGWRAP
 
 chmod a+rx $OBJ/ssh-log-wrapper.sh
+REAL_SSH="$SSH"
 SSH="$SSHLOGWRAP"
 
 # Some test data.  We make a copy because some tests will overwrite it.
@@ -258,7 +260,6 @@ fi
 # create server config
 cat << EOF > $OBJ/sshd_config
 	Port			$PORT
-	Protocol		$PROTO
 	AddressFamily		inet
 	ListenAddress		127.0.0.1
 	#ListenAddress		::1
@@ -269,6 +270,13 @@ cat << EOF > $OBJ/sshd_config
 	AcceptEnv		_XXX_TEST
 	Subsystem	sftp	$SFTPSERVER
 EOF
+
+# This may be necessary if /usr/src and/or /usr/obj are group-writable,
+# but if you aren't careful with permissions then the unit tests could
+# be abused to locally escalate privileges.
+if [ ! -z "$TEST_SSH_UNSAFE_PERMISSIONS" ]; then
+	echo "StrictModes no" >> $OBJ/sshd_config
+fi
 
 if [ ! -z "$TEST_SSH_SSHD_CONFOPTS" ]; then
 	trace "adding sshd_config option $TEST_SSH_SSHD_CONFOPTS"
@@ -284,7 +292,6 @@ echo 'StrictModes no' >> $OBJ/sshd_proxy
 # create client config
 cat << EOF > $OBJ/ssh_config
 Host *
-	Protocol		$PROTO
 	Hostname		127.0.0.1
 	HostKeyAlias		localhost-with-alias
 	Port			$PORT

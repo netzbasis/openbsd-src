@@ -1,4 +1,4 @@
-/*	$OpenBSD: udf_vfsops.c,v 1.46 2015/08/31 06:56:25 kettenis Exp $	*/
+/*	$OpenBSD: udf_vfsops.c,v 1.55 2016/09/07 17:30:12 natano Exp $	*/
 
 /*
  * Copyright (c) 2001, 2002 Scott Long <scottl@freebsd.org>
@@ -104,10 +104,13 @@ udf_init(struct vfsconf *foo)
 {
 	pool_init(&udf_trans_pool, MAXNAMLEN * sizeof(unicode_t), 0, 0,
 	    PR_WAITOK, "udftrpl", NULL);
+	pool_setipl(&udf_trans_pool, IPL_NONE);
 	pool_init(&unode_pool, sizeof(struct unode), 0, 0,
 	    PR_WAITOK, "udfndpl", NULL);
+	pool_setipl(&unode_pool, IPL_NONE);
 	pool_init(&udf_ds_pool, sizeof(struct udf_dirstream), 0, 0,
 	    PR_WAITOK, "udfdspl", NULL);
+	pool_setipl(&udf_ds_pool, IPL_NONE);
 
 	return (0);
 }
@@ -165,17 +168,6 @@ udf_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		vrele(devvp);
 		return (ENXIO);
-	}
-
-	/* Check the access rights on the mount device */
-	if (p->p_ucred->cr_uid) {
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, VREAD, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
-		if (error) {
-			vrele(devvp);
-			return (error);
-		}
 	}
 
 	if ((error = udf_mountfs(devvp, mp, args.lastblock, p))) {
@@ -251,7 +243,7 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
@@ -261,9 +253,10 @@ udf_mountfs(struct vnode *devvp, struct mount *mp, uint32_t lb, struct proc *p)
 
 	ump = malloc(sizeof(*ump), M_UDFMOUNT, M_WAITOK | M_ZERO);
 
-	mp->mnt_data = (qaddr_t) ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = devvp->v_rdev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
+	mp->mnt_stat.f_namemax = NAME_MAX;
 	mp->mnt_flag |= MNT_LOCAL;
 
 	ump->um_mountp = mp;
@@ -448,12 +441,14 @@ bail:
 		mp->mnt_data = NULL;
 		mp->mnt_flag &= ~MNT_LOCAL;
 	}
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp != NULL)
 		brelse(bp);
 
 	vn_lock(devvp, LK_EXCLUSIVE|LK_RETRY, p);
 	VOP_CLOSE(devvp, FREAD, FSCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 
 	return (error);
 }
@@ -476,10 +471,8 @@ udf_unmount(struct mount *mp, int mntflags, struct proc *p)
 
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	vinvalbuf(devvp, V_SAVE, NOCRED, p, 0, 0);
-	error = VOP_CLOSE(devvp, FREAD, NOCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
-	if (error)
-		return (error);
+	(void)VOP_CLOSE(devvp, FREAD, NOCRED, p);
+	VOP_UNLOCK(devvp, p);
 
 	devvp->v_specmountpoint = NULL;
 	vrele(devvp);
@@ -495,7 +488,7 @@ udf_unmount(struct mount *mp, int mntflags, struct proc *p)
 
 	free(ump, M_UDFMOUNT, 0);
 
-	mp->mnt_data = (qaddr_t)0;
+	mp->mnt_data = NULL;
 	mp->mnt_flag &= ~MNT_LOCAL;
 
 	return (0);
@@ -544,6 +537,8 @@ udf_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	sbp->f_bavail = 0;
 	sbp->f_files = 0;
 	sbp->f_ffree = 0;
+	sbp->f_favail = 0;
+	copy_statfs_info(sbp, mp);
 
 	return (0);
 }
@@ -650,7 +645,7 @@ udf_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	vp->v_data = up;
 	vref(ump->um_devvp);
 
-	lockinit(&up->u_lock, PINOD, "unode", 0, 0);
+	rrw_init(&up->u_lock, "unode");
 
 	/*
 	 * udf_hashins() will lock the vnode for us.

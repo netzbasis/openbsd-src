@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.513 2016/02/21 15:17:25 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.523 2016/09/04 09:33:49 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -52,7 +52,7 @@
 #define SMTPD_QUEUE_EXPIRY	 (4 * 24 * 60 * 60)
 #define SMTPD_SOCKET		 "/var/run/smtpd.sock"
 #define	SMTPD_NAME		 "OpenSMTPD"
-#define	SMTPD_VERSION		 "5.9.1"
+#define	SMTPD_VERSION		 "6.0.0"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -161,7 +161,7 @@ union lookup {
  * Bump IMSG_VERSION whenever a change is made to enum imsg_type.
  * This will ensure that we can never use a wrong version of smtpctl with smtpd.
  */
-#define	IMSG_VERSION		14
+#define	IMSG_VERSION		16
 
 enum imsg_type {
 	IMSG_NONE,
@@ -195,7 +195,6 @@ enum imsg_type {
 	IMSG_CTL_REMOVE,
 	IMSG_CTL_SCHEDULE,
 	IMSG_CTL_SHOW_STATUS,
-	IMSG_CTL_SHUTDOWN,
 	IMSG_CTL_TRACE_DISABLE,
 	IMSG_CTL_TRACE_ENABLE,
 	IMSG_CTL_UPDATE_TABLE,
@@ -205,6 +204,10 @@ enum imsg_type {
 	IMSG_CTL_UNCORRUPT_MSGID,
 
 	IMSG_CTL_SMTP_SESSION,
+
+	IMSG_SETUP_KEY,
+	IMSG_SETUP_PEER,
+	IMSG_SETUP_DONE,
 
 	IMSG_CONF_START,
 	IMSG_CONF_END,
@@ -308,11 +311,6 @@ enum imsg_type {
 	IMSG_CA_PRIVDEC
 };
 
-enum blockmodes {
-	BM_NORMAL,
-	BM_NONBLOCK
-};
-
 enum smtp_proc_type {
 	PROC_PARENT = 0,
 	PROC_LKA,
@@ -396,6 +394,8 @@ struct rule {
 	enum dest_type			r_desttype;
 	struct table		       *r_destination;
 
+	uint8_t				r_wantauth;
+	
 	enum action_type		r_action;
 	union rule_dest {
 		char			buffer[EXPAND_BUFFER];
@@ -571,7 +571,7 @@ struct smtpd {
 #define SMTPD_OPT_NOACTION		0x00000002
 	uint32_t			sc_opts;
 
-#define SMTPD_EXITING			0x00000001
+#define SMTPD_EXITING			0x00000001 /* unused */
 #define SMTPD_MDA_PAUSED		0x00000002
 #define SMTPD_MTA_PAUSED		0x00000004
 #define SMTPD_SMTP_PAUSED		0x00000008
@@ -634,6 +634,8 @@ struct smtpd {
 	char					sc_enqueue_filter[PATH_MAX];
 
 	char				       *sc_tls_ciphers;
+
+	char				       *sc_subaddressing_delim;
 };
 
 #define	TRACE_DEBUG	0x0001
@@ -655,7 +657,6 @@ struct smtpd {
 #define PROFILE_TOSTAT	0x0001
 #define PROFILE_IMSG	0x0002
 #define PROFILE_QUEUE	0x0004
-#define PROFILE_BUFFERS	0x0008
 
 struct forward_req {
 	uint64_t			id;
@@ -1006,13 +1007,6 @@ struct mproc {
 	short		 events;
 	struct event	 ev;
 	void		*data;
-
-	off_t		 msg_in;
-	off_t		 msg_out;
-	off_t		 bytes_in;
-	off_t		 bytes_out;
-	size_t		 bytes_queued;
-	size_t		 bytes_queued_max;
 };
 
 struct msg {
@@ -1130,7 +1124,7 @@ void bounce_fd(int);
 
 
 /* ca.c */
-pid_t	 ca(void);
+int	 ca(void);
 int	 ca_X509_verify(void *, void *, const char *, const char *, const char **);
 void	 ca_imsg(struct mproc *, struct imsg *);
 void	 ca_init(void);
@@ -1151,14 +1145,12 @@ int	uncompress_file(FILE *, FILE *);
 #define PURGE_PKI_KEYS		0x10
 #define PURGE_EVERYTHING	0x0f
 void purge_config(uint8_t);
-void init_pipes(void);
 void config_process(enum smtp_proc_type);
 void config_peer(enum smtp_proc_type);
-void config_done(void);
 
 
 /* control.c */
-pid_t control(void);
+int control(void);
 int control_create_socket(void);
 
 
@@ -1233,7 +1225,7 @@ int limit_mta_set(struct mta_limits *, const char*, int64_t);
 
 
 /* lka.c */
-pid_t lka(void);
+int lka(void);
 
 
 /* lka_session.c */
@@ -1338,8 +1330,7 @@ int cmdline_symset(char *);
 
 
 /* queue.c */
-pid_t queue(void);
-void queue_flow_control(void);
+int queue(void);
 
 
 /* queue_backend.c */
@@ -1367,7 +1358,7 @@ struct rule *ruleset_match(const struct envelope *);
 
 
 /* scheduler.c */
-pid_t scheduler(void);
+int scheduler(void);
 
 
 /* scheduler_bakend.c */
@@ -1376,7 +1367,7 @@ void scheduler_info(struct scheduler_info *, struct envelope *);
 
 
 /* pony.c */
-pid_t pony(void);
+int pony(void);
 void pony_imsg(struct mproc *, struct imsg *);
 
 
@@ -1398,7 +1389,6 @@ void smtp_filter_fd(uint64_t, int);
 
 /* smtpd.c */
 void imsg_dispatch(struct mproc *, struct imsg *);
-void post_fork(int);
 const char *proc_name(enum smtp_proc_type);
 const char *proc_title(enum smtp_proc_type);
 const char *imsg_to_str(int);
@@ -1506,8 +1496,6 @@ void iobuf_xinit(struct iobuf *, size_t, size_t, const char *);
 void iobuf_xfqueue(struct iobuf *, const char *, const char *, ...);
 void log_envelope(const struct envelope *, const char *, const char *,
     const char *);
-void session_socket_blockmode(int, enum blockmodes);
-void session_socket_no_linger(int);
 int session_socket_error(int);
 int getmailname(char *, size_t);
 int base64_encode(unsigned char const *, size_t, char *, size_t);

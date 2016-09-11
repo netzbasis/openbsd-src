@@ -1,5 +1,11 @@
 BOARD=	panda
 PLATFORM=OMAP
-LOADADDR=0x82800000
+UBOOT=	omap4_panda
+DTBS=\
+	omap4-duovero-parlor.dtb \
+	omap4-panda-a4.dtb \
+	omap4-panda-es.dtb \
+	omap4-panda.dtb \
+	omap4-sdp.dtb
 
 .include "${.CURDIR}/../Makefile.inc"

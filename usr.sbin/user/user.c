@@ -1,4 +1,4 @@
-/* $OpenBSD: user.c,v 1.104 2015/11/15 23:13:20 deraadt Exp $ */
+/* $OpenBSD: user.c,v 1.112 2016/08/10 20:30:34 millert Exp $ */
 /* $NetBSD: user.c,v 1.69 2003/04/14 17:40:07 agc Exp $ */
 
 /*
@@ -54,7 +54,6 @@
 #include <limits.h>
 #include <util.h>
 
-#include "defs.h"
 #include "usermgmt.h"
 
 
@@ -107,7 +106,8 @@ enum {
 	F_ACCTUNLOCK	= 0x10000
 };
 
-#define CONFFILE	"/etc/usermgmt.conf"
+#define CONFFILE		"/etc/usermgmt.conf"
+#define _PATH_NONEXISTENT       "/nonexistent"
 
 #ifndef DEF_GROUP
 #define DEF_GROUP	"=uid"
@@ -164,9 +164,6 @@ enum {
 	MaxUserNameLen = _PW_NAME_LEN,
 	MaxCommandLen = 2048,
 	PasswordLength = _PASSWORD_LEN,
-
-	DES_Len = 13,
-
 	LowGid = DEF_LOWUID,
 	HighGid = DEF_HIGHUID
 };
@@ -192,10 +189,9 @@ static int	verbose;
 static void
 memsave(char **cpp, const char *s, size_t n)
 {
-	if (*cpp != NULL) {
-		FREE(*cpp);
-	}
-	NEWARRAY(char, *cpp, n + 1, exit(1));
+	free(*cpp);
+	if ((*cpp = calloc (n + 1, sizeof(char))) == NULL)
+		err(1, NULL);
 	(void) memcpy(*cpp, s, n);
 	(*cpp)[n] = '\0';
 }
@@ -669,12 +665,13 @@ save_range(user_t *up, char *cp)
 	uid_t	to;
 	int	i;
 
-	if (up->u_rsize == 0) {
-		up->u_rsize = 32;
-		NEWARRAY(range_t, up->u_rv, up->u_rsize, return(0));
-	} else if (up->u_rc == up->u_rsize) {
+	if (up->u_rc == up->u_rsize) {
 		up->u_rsize *= 2;
-		RENEW(range_t, up->u_rv, up->u_rsize, return(0));
+		if ((up->u_rv = reallocarray(up->u_rv, up->u_rsize,
+		    sizeof(range_t))) == NULL) {
+			warn(NULL);
+			return 0;
+		}
 	}
 	if (up->u_rv && sscanf(cp, "%u..%u", &from, &to) == 2) {
 		for (i = up->u_defrc ; i < up->u_rc ; i++) {
@@ -760,7 +757,8 @@ read_defaults(user_t *up)
 	memsave(&up->u_class, DEF_CLASS, strlen(DEF_CLASS));
 	up->u_rsize = 16;
 	up->u_defrc = 0;
-	NEWARRAY(range_t, up->u_rv, up->u_rsize, exit(1));
+	if ((up->u_rv = calloc(up->u_rsize, sizeof(range_t))) == NULL)
+		err(1, NULL);
 	up->u_inactive = DEF_INACTIVE;
 	up->u_expire = DEF_EXPIRE;
 	if ((fp = fopen(CONFFILE, "r")) == NULL) {
@@ -799,9 +797,7 @@ read_defaults(user_t *up)
 				for (cp = s + 8 ; isspace((unsigned char)*cp); cp++) {
 				}
 				if (strcmp(cp, UNSET_INACTIVE) == 0) {
-					if (up->u_inactive) {
-						FREE(up->u_inactive);
-					}
+					free(up->u_inactive);
 					up->u_inactive = NULL;
 				} else {
 					memsave(&up->u_inactive, cp, strlen(cp));
@@ -820,15 +816,13 @@ read_defaults(user_t *up)
 				for (cp = s + 6 ; isspace((unsigned char)*cp); cp++) {
 				}
 				if (strcmp(cp, UNSET_EXPIRY) == 0) {
-					if (up->u_expire) {
-						FREE(up->u_expire);
-					}
+					free(up->u_expire);
 					up->u_expire = NULL;
 				} else {
 					memsave(&up->u_expire, cp, strlen(cp));
 				}
 			}
-			(void) free(s);
+			free(s);
 		}
 		(void) fclose(fp);
 	}
@@ -853,51 +847,6 @@ getnextuid(int sync_uid_gid, uid_t *uid, uid_t low_uid, uid_t high_uid)
 			} else {
 				return 1;
 			}
-		}
-	}
-	return 0;
-}
-
-/* structure which defines a password type */
-typedef struct passwd_type_t {
-	const char     *type;		/* optional type descriptor */
-	int		desc_length;	/* length of type descriptor */
-	int		length;		/* length of password */
-} passwd_type_t;
-
-#define NBLF "$2b"
-#define BLF  "$2a"
-#define MD5  "$1"
-#define DES  ""
-
-static passwd_type_t	passwd_types[] = {
-	{ NBLF,	3,	54	},	/* Blowfish bcrypt version 2b */
-	{ BLF,	3,	54	},	/* Blowfish */
-	{ MD5,	2,	34	},	/* MD5 */
-	{ DES,	0,	DES_Len	},	/* standard DES */
-	{ NULL,	-1,	-1	}	/* none - terminate search */
-};
-
-/* return non-zero if it's a valid password - check length for cipher type */
-static int
-valid_password_length(char *newpasswd)
-{
-	passwd_type_t  *pwtp;
-
-	for (pwtp = passwd_types ; pwtp->desc_length >= 0 ; pwtp++) {
-		if (strncmp(newpasswd, pwtp->type, pwtp->desc_length) == 0) {
-			char *p;
-
-			if (strcmp(pwtp->type, BLF) != 0 &&
-			    strcmp(pwtp->type, NBLF) != 0) {
-				return strlen(newpasswd) == pwtp->length;
-			}
-			/* Skip first three `$'. */
-			if ((p = strchr(newpasswd, '$')) == NULL ||
-			    *(++p) == '$' || (p = strchr(p, '$')) == NULL ||
-			    *(++p) == '$' || (p = strchr(p, '$')) == NULL)
-				continue;
-			return (strlen(p) - 1);
 		}
 	}
 	return 0;
@@ -1133,24 +1082,16 @@ adduser(char *login_name, user_t *up)
 		warnx("Warning: home directory `%s' doesn't exist, and -m was"
 		    " not specified", home);
 	}
-	if (up->u_password != NULL && valid_password_length(up->u_password)) {
-		(void) strlcpy(password, up->u_password, sizeof(password));
-	} else {
-		(void) memset(password, '*', DES_Len);
-		password[DES_Len] = 0;
-		if (up->u_password != NULL) {
-			warnx("Password `%s' is invalid: setting it to `%s'",
-				up->u_password, password);
-		}
-	}
-	cc = snprintf(buf, sizeof(buf), "%s:%s:%u:%u:%s:%ld:%ld:%s:%s:%s\n",
+	(void) strlcpy(password, up->u_password ? up->u_password : "*",
+	    sizeof(password));
+	cc = snprintf(buf, sizeof(buf), "%s:%s:%u:%u:%s:%lld:%lld:%s:%s:%s\n",
 	    login_name,
 	    password,
 	    up->u_uid,
 	    gid,
 	    up->u_class,
-	    (long) inactive,
-	    (long) expire,
+	    (long long) inactive,
+	    (long long) expire,
 	    up->u_comment,
 	    home,
 	    up->u_shell);
@@ -1380,7 +1321,7 @@ is_local(char *name, const char *file)
 static int
 moduser(char *login_name, char *newlogin, user_t *up)
 {
-	struct passwd	*pwp;
+	struct passwd	*pwp = NULL;
 	struct group	*grp;
 	const char	*homedir;
 	char		buf[LINE_MAX];
@@ -1408,9 +1349,23 @@ moduser(char *login_name, char *newlogin, user_t *up)
 	if (!valid_login(newlogin)) {
 		errx(EXIT_FAILURE, "`%s' is not a valid login name", login_name);
 	}
-	if ((pwp = getpwnam(login_name)) == NULL) {
+	if ((pwp = getpwnam_shadow(login_name)) == NULL) {
 		errx(EXIT_FAILURE, "No such user `%s'", login_name);
 	}
+	if (up != NULL) {
+		if ((*pwp->pw_passwd != '\0') && (up->u_flags &~ F_PASSWORD)) {
+			up->u_flags |= F_PASSWORD;
+			memsave(&up->u_password, pwp->pw_passwd,
+			    strlen(pwp->pw_passwd));
+			memset(pwp->pw_passwd, 'X', strlen(pwp->pw_passwd));
+		}
+	}
+	endpwent();
+
+	if (pledge("stdio rpath wpath cpath fattr flock proc exec getpw id",
+	    NULL) == -1)
+		err(1, "pledge");
+
 	if (!is_local(login_name, _PATH_MASTERPASSWD)) {
 		errx(EXIT_FAILURE, "User `%s' must be a local user", login_name);
 	}
@@ -1465,15 +1420,8 @@ moduser(char *login_name, char *newlogin, user_t *up)
 			}
 		}
 		if (up->u_flags & F_PASSWORD) {
-			if (up->u_password != NULL) {
-				if (!valid_password_length(up->u_password)) {
-					(void) close(ptmpfd);
-					pw_abort();
-					errx(EXIT_FAILURE, "Invalid password: `%s'",
-						up->u_password);
-				}
+			if (up->u_password != NULL)
 				pwp->pw_passwd = up->u_password;
-			}
 		}
 		if (up->u_flags & F_ACCTLOCK) {
 			/* lock the account */
@@ -1604,14 +1552,14 @@ moduser(char *login_name, char *newlogin, user_t *up)
 		if (strncmp(login_name, buf, loginc) == 0 && loginc == colonc) {
 			if (up != NULL) {
 				if ((len = snprintf(buf, sizeof(buf),
-				    "%s:%s:%u:%u:%s:%ld:%ld:%s:%s:%s\n",
+				    "%s:%s:%u:%u:%s:%lld:%lld:%s:%s:%s\n",
 				    newlogin,
 				    pwp->pw_passwd,
 				    pwp->pw_uid,
 				    pwp->pw_gid,
 				    pwp->pw_class,
-				    (long)pwp->pw_change,
-				    (long)pwp->pw_expire,
+				    (long long)pwp->pw_change,
+				    (long long)pwp->pw_expire,
 				    pwp->pw_gecos,
 				    pwp->pw_dir,
 				    pwp->pw_shell)) >= sizeof(buf) || len < 0 ||
@@ -1679,10 +1627,8 @@ moduser(char *login_name, char *newlogin, user_t *up)
 		}
 	}
 	(void) close(ptmpfd);
-	if (pw_tmp)
-		FREE(pw_tmp);
-	if (shell_tmp)
-		FREE(shell_tmp);
+	free(pw_tmp);
+	free(shell_tmp);
 	if (up != NULL && strcmp(login_name, newlogin) == 0)
 		rval = pw_mkdb(login_name, 0);
 	else
@@ -1758,7 +1704,6 @@ usermgmt_usage(const char *prog)
 		(void) fprintf(stderr, "This program must be called as {user,group}{add,del,mod,info},\n%s is not an understood name.\n", prog);
 	}
 	exit(EXIT_FAILURE);
-	/* NOTREACHED */
 }
 
 int
@@ -1851,9 +1796,13 @@ useradd(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("useradd");
-			/* NOTREACHED */
 		}
 	}
+
+	if (pledge("stdio rpath wpath cpath fattr flock proc exec getpw id",
+	    NULL) == -1)
+		err(1, "pledge");
+
 	if (bigD) {
 		if (defaultfield) {
 			checkeuid();
@@ -1986,9 +1935,9 @@ usermod(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("usermod");
-			/* NOTREACHED */
 		}
 	}
+
 	if ((u.u_flags & F_MKDIR) && !(u.u_flags & F_HOMEDIR) &&
 	    !(u.u_flags & F_USERNAME)) {
 		warnx("option 'm' useless without 'd' or 'l' -- ignored");
@@ -2016,7 +1965,6 @@ userdel(int argc, char **argv)
 {
 	struct passwd	*pwp;
 	user_t		u;
-	char		password[PasswordLength + 1];
 	int		defaultfield;
 	int		rmhome;
 	int		bigD;
@@ -2044,7 +1992,6 @@ userdel(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("userdel");
-			/* NOTREACHED */
 		}
 	}
 	if (bigD) {
@@ -2060,6 +2007,11 @@ userdel(int argc, char **argv)
 	if (argc != 1) {
 		usermgmt_usage("userdel");
 	}
+
+	if (pledge("stdio rpath wpath cpath fattr flock proc exec getpw id",
+	    NULL) == -1)
+		err(1, "pledge");
+
 	checkeuid();
 	if ((pwp = getpwnam(*argv)) == NULL) {
 		warnx("No such user `%s'", *argv);
@@ -2070,9 +2022,7 @@ userdel(int argc, char **argv)
 	if (u.u_preserve) {
 		u.u_flags |= F_SHELL;
 		memsave(&u.u_shell, NOLOGIN, strlen(NOLOGIN));
-		(void) memset(password, '*', DES_Len);
-		password[DES_Len] = 0;
-		memsave(&u.u_password, password, strlen(password));
+		memsave(&u.u_password, "*", strlen("*"));
 		u.u_flags |= F_PASSWORD;
 		openlog("userdel", LOG_PID, LOG_USER);
 		return moduser(*argv, *argv, &u) ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -2111,7 +2061,6 @@ groupadd(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("groupadd");
-			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
@@ -2119,6 +2068,10 @@ groupadd(int argc, char **argv)
 	if (argc != 1) {
 		usermgmt_usage("groupadd");
 	}
+
+	if (pledge("stdio rpath wpath cpath fattr flock getpw", NULL) == -1)
+		err(1, "pledge");
+
 	checkeuid();
 	if (!valid_group(*argv)) {
 		errx(EXIT_FAILURE, "invalid group name `%s'", *argv);
@@ -2150,7 +2103,6 @@ groupdel(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("groupdel");
-			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
@@ -2164,6 +2116,10 @@ groupdel(int argc, char **argv)
 		warnx("No such group: `%s'", *argv);
 		return EXIT_FAILURE;
 	}
+
+	if (pledge("stdio rpath wpath cpath fattr flock", NULL) == -1)
+		err(1, "pledge");
+
 	if (!modify_gid(*argv, NULL)) {
 		err(EXIT_FAILURE, "can't change %s file", _PATH_GROUP);
 	}
@@ -2206,7 +2162,6 @@ groupmod(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("groupmod");
-			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
@@ -2224,6 +2179,10 @@ groupmod(int argc, char **argv)
 	if ((grp = getgrnam(*argv)) == NULL) {
 		errx(EXIT_FAILURE, "can't find group `%s' to modify", *argv);
 	}
+
+	if (pledge("stdio rpath wpath cpath fattr flock", NULL) == -1)
+		err(1, "pledge");
+
 	if (!is_local(*argv, _PATH_GROUP)) {
 		errx(EXIT_FAILURE, "Group `%s' must be a local group", *argv);
 	}
@@ -2276,7 +2235,6 @@ userinfo(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("userinfo");
-			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
@@ -2284,6 +2242,10 @@ userinfo(int argc, char **argv)
 	if (argc != 1) {
 		usermgmt_usage("userinfo");
 	}
+
+	if (pledge("stdio getpw", NULL) == -1)
+		err(1, "pledge");
+
 	pwp = find_user_info(*argv);
 	if (exists) {
 		exit((pwp) ? EXIT_SUCCESS : EXIT_FAILURE);
@@ -2335,7 +2297,6 @@ groupinfo(int argc, char **argv)
 			break;
 		default:
 			usermgmt_usage("groupinfo");
-			/* NOTREACHED */
 		}
 	}
 	argc -= optind;
@@ -2343,6 +2304,10 @@ groupinfo(int argc, char **argv)
 	if (argc != 1) {
 		usermgmt_usage("groupinfo");
 	}
+
+	if (pledge("stdio getpw", NULL) == -1)
+		err(1, "pledge");
+
 	grp = find_group_info(*argv);
 	if (exists) {
 		exit((grp) ? EXIT_SUCCESS : EXIT_FAILURE);

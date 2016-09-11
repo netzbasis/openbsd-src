@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.207 2016/03/06 08:56:16 stefan Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.222 2016/09/03 18:43:34 stefan Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -162,8 +162,6 @@ static __inline void	 uvm_mapent_copy(struct vm_map_entry*,
 			    struct vm_map_entry*);
 static int		 uvm_mapentry_addrcmp(struct vm_map_entry*,
 			    struct vm_map_entry*);
-static int		 uvm_mapentry_freecmp(struct vm_map_entry*,
-			    struct vm_map_entry*);
 void			 uvm_mapent_free_insert(struct vm_map*,
 			    struct uvm_addr_state*, struct vm_map_entry*);
 void			 uvm_mapent_free_remove(struct vm_map*,
@@ -182,8 +180,12 @@ int			 uvm_mapent_bias(struct vm_map*, struct vm_map_entry*);
  * uvm_vmspace_fork helper functions.
  */
 struct vm_map_entry	*uvm_mapent_clone(struct vm_map*, vaddr_t, vsize_t,
-			    vsize_t, struct vm_map_entry*,
-			    struct uvm_map_deadq*, int, int);
+			    vsize_t, vm_prot_t, vm_prot_t,
+			    struct vm_map_entry*, struct uvm_map_deadq*, int,
+			    int);
+struct vm_map_entry	*uvm_mapent_share(struct vm_map*, vaddr_t, vsize_t,
+			    vsize_t, vm_prot_t, vm_prot_t, struct vm_map*,
+			    struct vm_map_entry*, struct uvm_map_deadq*);
 struct vm_map_entry	*uvm_mapent_forkshared(struct vmspace*, struct vm_map*,
 			    struct vm_map*, struct vm_map_entry*,
 			    struct uvm_map_deadq*);
@@ -337,24 +339,6 @@ static __inline int
 uvm_mapentry_addrcmp(struct vm_map_entry *e1, struct vm_map_entry *e2)
 {
 	return e1->start < e2->start ? -1 : e1->start > e2->start;
-}
-
-/*
- * Tree describing free memory.
- *
- * Free memory is indexed (so we can use array semantics in O(log N).
- * Free memory is ordered by size (so we can reduce fragmentation).
- *
- * The address range in the tree can be limited, having part of the
- * free memory not in the free-memory tree. Only free memory in the
- * tree will be considered during 'any address' allocations.
- */
-
-static __inline int
-uvm_mapentry_freecmp(struct vm_map_entry *e1, struct vm_map_entry *e2)
-{
-	int cmp = e1->fspace < e2->fspace ? -1 : e1->fspace > e2->fspace;
-	return cmp ? cmp : uvm_mapentry_addrcmp(e1, e2);
 }
 
 /*
@@ -787,6 +771,9 @@ uvm_map_isavail(struct vm_map *map, struct uvm_addr_state *uaddr,
 	struct uvm_map_addr *atree;
 	struct vm_map_entry *i, *i_end;
 
+	if (addr + sz < addr)
+		return 0;
+
 	/*
 	 * Kernel memory above uvm_maxkaddr is considered unavailable.
 	 */
@@ -1030,8 +1017,7 @@ uvm_mapanon(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 		 * Note: we enforce the alignment restriction,
 		 * but ignore pmap_prefer.
 		 */
-	} else if ((maxprot & PROT_EXEC) != 0 &&
-	    map->uaddr_exe != NULL) {
+	} else if ((prot & PROT_EXEC) != 0 && map->uaddr_exe != NULL) {
 		/* Run selection algorithm for executables. */
 		error = uvm_addr_invoke(map, map->uaddr_exe, &first, &last,
 		    addr, sz, pmap_align, pmap_offset, prot, hint);
@@ -1047,6 +1033,12 @@ uvm_mapanon(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 
 		if (error != 0)
 			goto unlock;
+	}
+
+	/* Double-check if selected address doesn't cause overflow. */
+	if (*addr + sz < *addr) {
+		error = ENOMEM;
+		goto unlock;
 	}
 
 	/* If we only want a query, return now. */
@@ -1084,9 +1076,7 @@ uvm_mapanon(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 	if (flags & UVM_FLAG_OVERLAY) {
 		KERNEL_LOCK();
 		entry->aref.ar_pageoff = 0;
-		entry->aref.ar_amap = amap_alloc(sz,
-		    ptoa(flags & UVM_FLAG_AMAPPAD ? UVM_AMAP_CHUNK : 0),
-		    M_WAITOK);
+		entry->aref.ar_amap = amap_alloc(sz, M_WAITOK, 0);
 		KERNEL_UNLOCK();
 	}
 
@@ -1257,8 +1247,7 @@ uvm_map(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 		 * Note: we enforce the alignment restriction,
 		 * but ignore pmap_prefer.
 		 */
-	} else if ((maxprot & PROT_EXEC) != 0 &&
-	    map->uaddr_exe != NULL) {
+	} else if ((prot & PROT_EXEC) != 0 && map->uaddr_exe != NULL) {
 		/* Run selection algorithm for executables. */
 		error = uvm_addr_invoke(map, map->uaddr_exe, &first, &last,
 		    addr, sz, pmap_align, pmap_offset, prot, hint);
@@ -1292,6 +1281,12 @@ uvm_map(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 
 		if (error != 0)
 			goto unlock;
+	}
+
+	/* Double-check if selected address doesn't cause overflow. */
+	if (*addr + sz < *addr) {
+		error = ENOMEM;
+		goto unlock;
 	}
 
 	KASSERT((map->flags & VM_MAP_ISVMSPACE) == VM_MAP_ISVMSPACE ||
@@ -1342,9 +1337,7 @@ uvm_map(struct vm_map *map, vaddr_t *addr, vsize_t sz,
 	}
 	if (flags & UVM_FLAG_OVERLAY) {
 		entry->aref.ar_pageoff = 0;
-		entry->aref.ar_amap = amap_alloc(sz,
-		    ptoa(flags & UVM_FLAG_AMAPPAD ? UVM_AMAP_CHUNK : 0),
-		    M_WAITOK);
+		entry->aref.ar_amap = amap_alloc(sz, M_WAITOK, 0);
 	}
 
 	/* Update map and process statistics. */
@@ -1377,7 +1370,10 @@ unlock:
 	 * uvm_map_mkentry may also create dead entries, when it attempts to
 	 * destroy free-space entries.
 	 */
-	uvm_unmap_detach(&dead, 0);
+	if (map->flags & VM_MAP_INTRSAFE)
+		uvm_unmap_detach_intrsafe(&dead);
+	else
+		uvm_unmap_detach(&dead, 0);
 out:
 	if (new)
 		uvm_mapent_free(new);
@@ -1448,14 +1444,14 @@ uvm_mapent_merge(struct vm_map *map, struct vm_map_entry *e1,
 	struct uvm_addr_state *free;
 
 	/*
-	 * Amap of e1 must be extended to include e2.
+	 * Merging is not supported for map entries that
+	 * contain an amap in e1. This should never happen
+	 * anyway, because only kernel entries are merged.
+	 * These do not contain amaps.
 	 * e2 contains no real information in its amap,
 	 * so it can be erased immediately.
 	 */
-	if (e1->aref.ar_amap) {
-		if (amap_extend(e1, e2->end - e2->start))
-			return NULL;
-	}
+	KASSERT(e1->aref.ar_amap == NULL);
 
 	/*
 	 * Don't drop obj reference:
@@ -1671,25 +1667,23 @@ uvm_mapent_alloc(struct vm_map *map, int flags)
 
 	if (map->flags & VM_MAP_INTRSAFE || cold) {
 		mtx_enter(&uvm_kmapent_mtx);
-		me = uvm.kentry_free;
-		if (me == NULL) {
+		if (SLIST_EMPTY(&uvm.kentry_free)) {
 			ne = km_alloc(PAGE_SIZE, &kv_page, &kp_dirty,
 			    &kd_nowait);
 			if (ne == NULL)
 				panic("uvm_mapent_alloc: cannot allocate map "
 				    "entry");
-			for (i = 0;
-			    i < PAGE_SIZE / sizeof(struct vm_map_entry) - 1;
-			    i++)
-				RB_LEFT(&ne[i], daddrs.addr_entry) = &ne[i + 1];
-			RB_LEFT(&ne[i], daddrs.addr_entry) = NULL;
-			me = ne;
+			for (i = 0; i < PAGE_SIZE / sizeof(*ne); i++) {
+				SLIST_INSERT_HEAD(&uvm.kentry_free,
+				    &ne[i], daddrs.addr_kentry);
+			}
 			if (ratecheck(&uvm_kmapent_last_warn_time,
 			    &uvm_kmapent_warn_rate))
 				printf("uvm_mapent_alloc: out of static "
 				    "map entries\n");
 		}
-		uvm.kentry_free = RB_LEFT(me, daddrs.addr_entry);
+		me = SLIST_FIRST(&uvm.kentry_free);
+		SLIST_REMOVE_HEAD(&uvm.kentry_free, daddrs.addr_kentry);
 		uvmexp.kmapent++;
 		mtx_leave(&uvm_kmapent_mtx);
 		me->flags = UVM_MAP_STATIC;
@@ -1727,8 +1721,7 @@ uvm_mapent_free(struct vm_map_entry *me)
 {
 	if (me->flags & UVM_MAP_STATIC) {
 		mtx_enter(&uvm_kmapent_mtx);
-		RB_LEFT(me, daddrs.addr_entry) = uvm.kentry_free;
-		uvm.kentry_free = me;
+		SLIST_INSERT_HEAD(&uvm.kentry_free, me, daddrs.addr_kentry);
 		uvmexp.kmapent--;
 		mtx_leave(&uvm_kmapent_mtx);
 	} else if (me->flags & UVM_MAP_KMEM) {
@@ -2797,21 +2790,22 @@ uvm_map_init(void)
 
 	/* now set up static pool of kernel map entries ... */
 	mtx_init(&uvm_kmapent_mtx, IPL_VM);
-	uvm.kentry_free = NULL;
+	SLIST_INIT(&uvm.kentry_free);
 	for (lcv = 0 ; lcv < MAX_KMAPENT ; lcv++) {
-		RB_LEFT(&kernel_map_entry[lcv], daddrs.addr_entry) =
-		    uvm.kentry_free;
-		uvm.kentry_free = &kernel_map_entry[lcv];
+		SLIST_INSERT_HEAD(&uvm.kentry_free,
+		    &kernel_map_entry[lcv], daddrs.addr_kentry);
 	}
 
 	/* initialize the map-related pools. */
 	pool_init(&uvm_vmspace_pool, sizeof(struct vmspace),
 	    0, 0, PR_WAITOK, "vmsppl", NULL);
+	pool_setipl(&uvm_vmspace_pool, IPL_NONE);
 	pool_init(&uvm_map_entry_pool, sizeof(struct vm_map_entry),
 	    0, 0, PR_WAITOK, "vmmpepl", NULL);
 	pool_setipl(&uvm_map_entry_pool, IPL_VM);
 	pool_init(&uvm_map_entry_kmem_pool, sizeof(struct vm_map_entry),
 	    0, 0, 0, "vmmpekpl", NULL);
+	pool_setipl(&uvm_map_entry_kmem_pool, IPL_NONE);
 	pool_sethiwat(&uvm_map_entry_pool, 8192);
 
 	uvm_addr_init();
@@ -3368,6 +3362,98 @@ uvmspace_free(struct vmspace *vm)
 }
 
 /*
+ * uvm_share: Map the address range [srcaddr, srcaddr + sz) in
+ * srcmap to the address range [dstaddr, dstaddr + sz) in
+ * dstmap.
+ *
+ * The whole address range in srcmap must be backed by an object
+ * (no holes).
+ *
+ * If successful, the address ranges share memory and the destination
+ * address range uses the protection flags in prot.
+ *
+ * This routine assumes that sz is a multiple of PAGE_SIZE and
+ * that dstaddr and srcaddr are page-aligned.
+ */
+int
+uvm_share(struct vm_map *dstmap, vaddr_t dstaddr, vm_prot_t prot,
+    struct vm_map *srcmap, vaddr_t srcaddr, vsize_t sz)
+{
+	int ret = 0;
+	vaddr_t unmap_end;
+	vaddr_t dstva;
+	vsize_t off, len, n = sz;
+	struct vm_map_entry *first = NULL, *last = NULL;
+	struct vm_map_entry *src_entry, *psrc_entry = NULL;
+	struct uvm_map_deadq dead;
+
+	if (srcaddr >= srcmap->max_offset || sz > srcmap->max_offset - srcaddr)
+		return EINVAL;
+
+	TAILQ_INIT(&dead);
+	vm_map_lock(dstmap);
+	vm_map_lock_read(srcmap);
+
+	if (!uvm_map_isavail(dstmap, NULL, &first, &last, dstaddr, sz)) {
+		ret = ENOMEM;
+		goto exit_unlock;
+	}
+	if (!uvm_map_lookup_entry(srcmap, srcaddr, &src_entry)) {
+		ret = EINVAL;
+		goto exit_unlock;
+	}
+
+	unmap_end = dstaddr;
+	for (; src_entry != NULL;
+	    psrc_entry = src_entry,
+	    src_entry = RB_NEXT(uvm_map_addr, &srcmap->addr, src_entry)) {
+		/* hole in address space, bail out */
+		if (psrc_entry != NULL && psrc_entry->end != src_entry->start)
+			break;
+		if (src_entry->start >= srcaddr + sz)
+			break;
+
+		if (UVM_ET_ISSUBMAP(src_entry))
+			panic("uvm_share: encountered a submap (illegal)");
+		if (!UVM_ET_ISCOPYONWRITE(src_entry) &&
+		    UVM_ET_ISNEEDSCOPY(src_entry))
+			panic("uvm_share: non-copy_on_write map entries "
+			    "marked needs_copy (illegal)");
+
+		dstva = dstaddr;
+		if (src_entry->start > srcaddr) {
+			dstva += src_entry->start - srcaddr;
+			off = 0;
+		} else
+			off = srcaddr - src_entry->start;
+
+		if (n < src_entry->end - src_entry->start)
+			len = n;
+		else
+			len = src_entry->end - src_entry->start;
+		n -= len;
+
+		if (uvm_mapent_share(dstmap, dstva, len, off, prot, prot,
+		    srcmap, src_entry, &dead) == NULL)
+			break;
+
+		unmap_end = dstva + len;
+		if (n == 0)
+			goto exit_unlock;
+	}
+
+	ret = EINVAL;
+	uvm_unmap_remove(dstmap, dstaddr, unmap_end, &dead, FALSE, TRUE);
+
+exit_unlock:
+	vm_map_unlock_read(srcmap);
+	vm_map_unlock(dstmap);
+	uvm_unmap_detach(&dead, 0);
+
+	return ret;
+}
+
+/*
  * Clone map entry into other map.
  *
  * Mapping will be placed at dstaddr, for the same length.
@@ -3376,7 +3462,8 @@ uvmspace_free(struct vmspace *vm)
  */
 struct vm_map_entry *
 uvm_mapent_clone(struct vm_map *dstmap, vaddr_t dstaddr, vsize_t dstlen,
-    vsize_t off, struct vm_map_entry *old_entry, struct uvm_map_deadq *dead,
+    vsize_t off, vm_prot_t prot, vm_prot_t maxprot,
+    struct vm_map_entry *old_entry, struct uvm_map_deadq *dead,
     int mapent_flags, int amap_share_flags)
 {
 	struct vm_map_entry *new_entry, *first, *last;
@@ -3398,8 +3485,8 @@ uvm_mapent_clone(struct vm_map *dstmap, vaddr_t dstaddr, vsize_t dstlen,
 	new_entry->offset = old_entry->offset;
 	new_entry->aref = old_entry->aref;
 	new_entry->etype |= old_entry->etype & ~UVM_ET_FREEMAPPED;
-	new_entry->protection = old_entry->protection;
-	new_entry->max_protection = old_entry->max_protection;
+	new_entry->protection = prot;
+	new_entry->max_protection = maxprot;
 	new_entry->inheritance = old_entry->inheritance;
 	new_entry->advice = old_entry->advice;
 
@@ -3421,6 +3508,34 @@ uvm_mapent_clone(struct vm_map *dstmap, vaddr_t dstaddr, vsize_t dstlen,
 	return new_entry;
 }
 
+struct vm_map_entry *
+uvm_mapent_share(struct vm_map *dstmap, vaddr_t dstaddr, vsize_t dstlen,
+    vsize_t off, vm_prot_t prot, vm_prot_t maxprot, struct vm_map *old_map,
+    struct vm_map_entry *old_entry, struct uvm_map_deadq *dead)
+{
+	/*
+	 * If old_entry refers to a copy-on-write region that has not yet been
+	 * written to (needs_copy flag is set), then we need to allocate a new
+	 * amap for old_entry.
+	 *
+	 * If we do not do this, and the process owning old_entry does a copy-on
+	 * write later, old_entry and new_entry will refer to different memory
+	 * regions, and the memory between the processes is no longer shared.
+	 *
+	 * [in other words, we need to clear needs_copy]
+	 */
+
+	if (UVM_ET_ISNEEDSCOPY(old_entry)) {
+		/* get our own amap, clears needs_copy */
+		amap_copy(old_map, old_entry, M_WAITOK, FALSE,
+		    0, 0);
+		/* XXXCDC: WAITOK??? */
+	}
+
+	return uvm_mapent_clone(dstmap, dstaddr, dstlen, off,
+	    prot, maxprot, old_entry, dead, 0, AMAP_SHARED);
+}
+
 /*
  * share the mapping: this means we want the old and
  * new entries to share amaps and backing objects.
@@ -3432,23 +3547,9 @@ uvm_mapent_forkshared(struct vmspace *new_vm, struct vm_map *new_map,
 {
 	struct vm_map_entry *new_entry;
 
-	/*
-	 * if the old_entry needs a new amap (due to prev fork)
-	 * then we need to allocate it now so that we have
-	 * something we own to share with the new_entry.   [in
-	 * other words, we need to clear needs_copy]
-	 */
-
-	if (UVM_ET_ISNEEDSCOPY(old_entry)) {
-		/* get our own amap, clears needs_copy */
-		amap_copy(old_map, old_entry, M_WAITOK, FALSE,
-		    0, 0); 
-		/* XXXCDC: WAITOK??? */
-	}
-
-	new_entry = uvm_mapent_clone(new_map, old_entry->start,
-	    old_entry->end - old_entry->start, 0, old_entry,
-	    dead, 0, AMAP_SHARED);
+	new_entry = uvm_mapent_share(new_map, old_entry->start,
+	    old_entry->end - old_entry->start, 0, old_entry->protection,
+	    old_entry->max_protection, old_map, old_entry, dead);
 
 	/* 
 	 * pmap_copy the mappings: this routine is optional
@@ -3478,8 +3579,8 @@ uvm_mapent_forkcopy(struct vmspace *new_vm, struct vm_map *new_map,
 	boolean_t		 protect_child;
 
 	new_entry = uvm_mapent_clone(new_map, old_entry->start,
-	    old_entry->end - old_entry->start, 0, old_entry,
-	    dead, 0, 0);
+	    old_entry->end - old_entry->start, 0, old_entry->protection,
+	    old_entry->max_protection, old_entry, dead, 0, 0);
 
 	new_entry->etype |=
 	    (UVM_ET_COPYONWRITE|UVM_ET_NEEDSCOPY);
@@ -3619,8 +3720,8 @@ uvm_mapent_forkzero(struct vmspace *new_vm, struct vm_map *new_map,
 	struct vm_map_entry *new_entry;
 
 	new_entry = uvm_mapent_clone(new_map, old_entry->start,
-	    old_entry->end - old_entry->start, 0, old_entry,
-	    dead, 0, 0);
+	    old_entry->end - old_entry->start, 0, old_entry->protection,
+	    old_entry->max_protection, old_entry, dead, 0, 0);
 
 	new_entry->etype |=
 	    (UVM_ET_COPYONWRITE|UVM_ET_NEEDSCOPY);
@@ -3769,13 +3870,11 @@ uvm_map_hint(struct vmspace *vm, vm_prot_t prot, vaddr_t minaddr,
 	 */
 	if (vm->vm_dused < spacing >> PAGE_SHIFT)
 		addr += BRKSIZ;
-#if !defined(__vax__)
 	if (addr < maxaddr) {
 		while (spacing > maxaddr - addr)
 			spacing >>= 1;
 	}
 	addr += arc4random() & spacing;
-#endif
 	return (round_page(addr));
 }
 
@@ -4122,6 +4221,7 @@ uvm_map_extract(struct vm_map *srcmap, vaddr_t start, vsize_t len,
 
 		newentry = uvm_mapent_clone(kernel_map,
 		    cp_start - start + dstaddr, cp_len, cp_off,
+		    entry->protection, entry->max_protection,
 		    entry, &dead, flags, AMAP_SHARED | AMAP_REFALL);
 		if (newentry == NULL) {
 			error = ENOMEM;
@@ -4551,7 +4651,7 @@ uvm_map_vmspace_update(struct vm_map *map,
  *
  * This function is only called for kernel maps when an allocation fails.
  *
- * If the map has a gap that is large enough to accomodate alloc_sz, this
+ * If the map has a gap that is large enough to accommodate alloc_sz, this
  * function will make sure map->free will include it.
  */
 void
@@ -4599,7 +4699,7 @@ uvm_map_kmem_grow(struct vm_map *map, struct uvm_map_deadq *dead,
 #ifdef PMAP_GROWKERNEL
 	uvm_maxkaddr = pmap_growkernel(end);
 #else
-	uvm_maxkaddr = end;
+	uvm_maxkaddr = MAX(uvm_maxkaddr, end);
 #endif
 
 	/* Rebuild free list. */
@@ -5202,8 +5302,7 @@ uvm_map_setup_md(struct vm_map *map)
 
 #if 0	/* Cool stuff, not yet */
 	/* Hinted allocations. */
-	map->uaddr_any[1] = uaddr_hint_create(MAX(min, VMMAP_MIN_ADDR), max,
-	    1024 * 1024 * 1024);
+	map->uaddr_any[1] = uaddr_hint_create(min, max, 1024 * 1024 * 1024);
 
 	/* Executable code is special. */
 	map->uaddr_exe = uaddr_rnd_create(min, I386_MAX_EXE_ADDR);
@@ -5238,12 +5337,10 @@ uvm_map_setup_md(struct vm_map *map)
 	map->uaddr_any[0] =
 	    uaddr_hint_create(0x100000000ULL, max, 1024 * 1024 * 1024);
 	/* Hinted allocations below 4GB */
-	map->uaddr_any[1] =
-	    uaddr_hint_create(MAX(min, VMMAP_MIN_ADDR), 0x100000000ULL,
+	map->uaddr_any[1] = uaddr_hint_create(min, 0x100000000ULL,
 	    1024 * 1024 * 1024);
 	/* Normal allocations, always above 4GB */
-	map->uaddr_any[3] =
-	    uaddr_pivot_create(MAX(min, 0x100000000ULL), max);
+	map->uaddr_any[3] = uaddr_pivot_create(MAX(min, 0x100000000ULL), max);
 #else	/* Crappy stuff, for now */
 	map->uaddr_any[0] = uaddr_rnd_create(min, max);
 #endif
@@ -5270,8 +5367,7 @@ uvm_map_setup_md(struct vm_map *map)
 
 #if 0	/* Cool stuff, not yet */
 	/* Hinted allocations. */
-	map->uaddr_any[1] = uaddr_hint_create(MAX(min, VMMAP_MIN_ADDR), max,
-	    1024 * 1024 * 1024);
+	map->uaddr_any[1] = uaddr_hint_create(min, max, 1024 * 1024 * 1024);
 	/* Normal allocations. */
 	map->uaddr_any[3] = uaddr_pivot_create(min, max);
 #else	/* Crappy stuff, for now */

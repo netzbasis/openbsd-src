@@ -1,4 +1,4 @@
-/*	$OpenBSD: chared.c,v 1.17 2016/03/01 16:43:39 schwarze Exp $	*/
+/*	$OpenBSD: chared.c,v 1.27 2016/05/22 23:09:56 schwarze Exp $	*/
 /*	$NetBSD: chared.c,v 1.28 2009/12/30 22:37:40 christos Exp $	*/
 
 /*-
@@ -38,10 +38,13 @@
 /*
  * chared.c: Character editor utilities
  */
+#include <ctype.h>
 #include <stdlib.h>
-#include "el.h"
+#include <string.h>
 
-private void ch__clearmacro (EditLine *);
+#include "el.h"
+#include "common.h"
+#include "fcns.h"
 
 /* value to leave unused in line buffer */
 #define	EL_LEAVE	2
@@ -74,7 +77,7 @@ cv_undo(EditLine *el)
  *	Save yank/delete data for paste
  */
 protected void
-cv_yank(EditLine *el, const Char *ptr, int size)
+cv_yank(EditLine *el, const wchar_t *ptr, int size)
 {
 	c_kill_t *k = &el->el_chared.c_kill;
 
@@ -89,7 +92,7 @@ cv_yank(EditLine *el, const Char *ptr, int size)
 protected void
 c_insert(EditLine *el, int num)
 {
-	Char *cp;
+	wchar_t *cp;
 
 	if (el->el_line.lastchar + num >= el->el_line.limit) {
 		if (!ch_enlargebufs(el, (size_t)num))
@@ -121,7 +124,7 @@ c_delafter(EditLine *el, int num)
 	}
 
 	if (num > 0) {
-		Char *cp;
+		wchar_t *cp;
 
 		for (cp = el->el_line.cursor; cp <= el->el_line.lastchar; cp++)
 			*cp = cp[num];
@@ -137,7 +140,7 @@ c_delafter(EditLine *el, int num)
 protected void
 c_delafter1(EditLine *el)
 {
-	Char *cp;
+	wchar_t *cp;
 
 	for (cp = el->el_line.cursor; cp <= el->el_line.lastchar; cp++)
 		*cp = cp[1];
@@ -162,7 +165,7 @@ c_delbefore(EditLine *el, int num)
 	}
 
 	if (num > 0) {
-		Char *cp;
+		wchar_t *cp;
 
 		for (cp = el->el_line.cursor - num;
 		    cp <= el->el_line.lastchar;
@@ -180,7 +183,7 @@ c_delbefore(EditLine *el, int num)
 protected void
 c_delbefore1(EditLine *el)
 {
-	Char *cp;
+	wchar_t *cp;
 
 	for (cp = el->el_line.cursor - 1; cp <= el->el_line.lastchar; cp++)
 		*cp = cp[1];
@@ -193,9 +196,9 @@ c_delbefore1(EditLine *el)
  *	Return if p is part of a word according to emacs
  */
 protected int
-ce__isword(Int p)
+ce__isword(wint_t p)
 {
-	return Isalnum(p) || Strchr(STR("*?_-.[]~="), p) != NULL;
+	return iswalnum(p) || wcschr(L"*?_-.[]~=", p) != NULL;
 }
 
 
@@ -203,11 +206,11 @@ ce__isword(Int p)
  *	Return if p is part of a word according to vi
  */
 protected int
-cv__isword(Int p)
+cv__isword(wint_t p)
 {
-	if (Isalnum(p) || p == '_')
+	if (iswalnum(p) || p == L'_')
 		return 1;
-	if (Isgraph(p))
+	if (iswgraph(p))
 		return 2;
 	return 0;
 }
@@ -217,17 +220,17 @@ cv__isword(Int p)
  *	Return if p is part of a big word according to vi
  */
 protected int
-cv__isWord(Int p)
+cv__isWord(wint_t p)
 {
-	return !Isspace(p);
+	return !iswspace(p);
 }
 
 
 /* c__prev_word():
  *	Find the previous word
  */
-protected Char *
-c__prev_word(Char *p, Char *low, int n, int (*wtest)(Int))
+protected wchar_t *
+c__prev_word(wchar_t *p, wchar_t *low, int n, int (*wtest)(wint_t))
 {
 	p--;
 
@@ -250,8 +253,8 @@ c__prev_word(Char *p, Char *low, int n, int (*wtest)(Int))
 /* c__next_word():
  *	Find the next word
  */
-protected Char *
-c__next_word(Char *p, Char *high, int n, int (*wtest)(Int))
+protected wchar_t *
+c__next_word(wchar_t *p, wchar_t *high, int n, int (*wtest)(wint_t))
 {
 	while (n--) {
 		while ((p < high) && !(*wtest)(*p))
@@ -268,8 +271,9 @@ c__next_word(Char *p, Char *high, int n, int (*wtest)(Int))
 /* cv_next_word():
  *	Find the next word vi style
  */
-protected Char *
-cv_next_word(EditLine *el, Char *p, Char *high, int n, int (*wtest)(Int))
+protected wchar_t *
+cv_next_word(EditLine *el, wchar_t *p, wchar_t *high, int n,
+    int (*wtest)(wint_t))
 {
 	int test;
 
@@ -282,7 +286,7 @@ cv_next_word(EditLine *el, Char *p, Char *high, int n, int (*wtest)(Int))
 		 * trailing whitespace! This is not what 'w' does..
 		 */
 		if (n || el->el_chared.c_vcmd.action != (DELETE|INSERT))
-			while ((p < high) && Isspace(*p))
+			while ((p < high) && iswspace(*p))
 				p++;
 	}
 
@@ -297,14 +301,14 @@ cv_next_word(EditLine *el, Char *p, Char *high, int n, int (*wtest)(Int))
 /* cv_prev_word():
  *	Find the previous word vi style
  */
-protected Char *
-cv_prev_word(Char *p, Char *low, int n, int (*wtest)(Int))
+protected wchar_t *
+cv_prev_word(wchar_t *p, wchar_t *low, int n, int (*wtest)(wint_t))
 {
 	int test;
 
 	p--;
 	while (n--) {
-		while ((p > low) && Isspace(*p))
+		while ((p > low) && iswspace(*p))
 			p--;
 		test = (*wtest)(*p);
 		while ((p >= low) && (*wtest)(*p) == test)
@@ -361,15 +365,15 @@ cv_delfini(EditLine *el)
 /* cv__endword():
  *	Go to the end of this word according to vi
  */
-protected Char *
-cv__endword(Char *p, Char *high, int n, int (*wtest)(Int))
+protected wchar_t *
+cv__endword(wchar_t *p, wchar_t *high, int n, int (*wtest)(wint_t))
 {
 	int test;
 
 	p++;
 
 	while (n--) {
-		while ((p < high) && Isspace(*p))
+		while ((p < high) && iswspace(*p))
 			p++;
 
 		test = (*wtest)(*p);
@@ -386,8 +390,6 @@ cv__endword(Char *p, Char *high, int n, int (*wtest)(Int))
 protected int
 ch_init(EditLine *el)
 {
-	c_macro_t *ma = &el->el_chared.c_macro;
-
 	el->el_line.buffer = reallocarray(NULL, EL_BUFSIZ,
 	    sizeof(*el->el_line.buffer));
 	if (el->el_line.buffer == NULL)
@@ -437,12 +439,6 @@ ch_init(EditLine *el)
 	el->el_state.argument = 1;
 	el->el_state.lastcmd = ED_UNASSIGNED;
 
-	ma->level = -1;
-	ma->offset = 0;
-	ma->macro = reallocarray(NULL, EL_MAXMACRO,
-	    sizeof(*ma->macro));
-	if (ma->macro == NULL)
-		return -1;
 	return 0;
 }
 
@@ -450,7 +446,7 @@ ch_init(EditLine *el)
  *	Reset the character editor
  */
 protected void
-ch_reset(EditLine *el, int mclear)
+ch_reset(EditLine *el)
 {
 	el->el_line.cursor		= el->el_line.buffer;
 	el->el_line.lastchar		= el->el_line.buffer;
@@ -472,17 +468,6 @@ ch_reset(EditLine *el, int mclear)
 	el->el_state.lastcmd		= ED_UNASSIGNED;
 
 	el->el_history.eventno		= 0;
-
-	if (mclear)
-		ch__clearmacro(el);
-}
-
-private void
-ch__clearmacro(EditLine *el)
-{
-	c_macro_t *ma = &el->el_chared.c_macro;
-	while (ma->level >= 0)
-		free(ma->macro[ma->level--]);
 }
 
 /* ch_enlargebufs():
@@ -493,7 +478,7 @@ protected int
 ch_enlargebufs(EditLine *el, size_t addlen)
 {
 	size_t sz, newsz;
-	Char *newbuffer, *oldbuf, *oldkbuf;
+	wchar_t *newbuffer, *oldbuf, *oldkbuf;
 
 	sz = el->el_line.limit - el->el_line.buffer + EL_LEAVE;
 	newsz = sz * 2;
@@ -516,7 +501,7 @@ ch_enlargebufs(EditLine *el, size_t addlen)
 
 	/* zero the newly added memory, leave old data in */
 	(void) memset(&newbuffer[sz], 0, (newsz - sz) * sizeof(*newbuffer));
-	    
+
 	oldbuf = el->el_line.buffer;
 
 	el->el_line.buffer = newbuffer;
@@ -565,7 +550,7 @@ ch_enlargebufs(EditLine *el, size_t addlen)
 	el->el_chared.c_redo.lim = newbuffer +
 			(el->el_chared.c_redo.lim - el->el_chared.c_redo.buf);
 	el->el_chared.c_redo.buf = newbuffer;
-	
+
 	if (!hist_enlargebuf(el, sz, newsz))
 		return 0;
 
@@ -594,21 +579,19 @@ ch_end(EditLine *el)
 	el->el_chared.c_redo.cmd = ED_UNASSIGNED;
 	free(el->el_chared.c_kill.buf);
 	el->el_chared.c_kill.buf = NULL;
-	ch_reset(el, 1);
-	free(el->el_chared.c_macro.macro);
-	el->el_chared.c_macro.macro = NULL;
+	ch_reset(el);
 }
 
 
 /* el_insertstr():
  *	Insert string at cursorI
  */
-public int
-FUN(el,insertstr)(EditLine *el, const Char *s)
+int
+el_winsertstr(EditLine *el, const wchar_t *s)
 {
 	size_t len;
 
-	if ((len = Strlen(s)) == 0)
+	if ((len = wcslen(s)) == 0)
 		return -1;
 	if (el->el_line.lastchar + len >= el->el_line.limit) {
 		if (!ch_enlargebufs(el, len))
@@ -625,7 +608,7 @@ FUN(el,insertstr)(EditLine *el, const Char *s)
 /* el_deletestr():
  *	Delete num characters before the cursor
  */
-public void
+void
 el_deletestr(EditLine *el, int n)
 {
 	if (n <= 0)
@@ -644,14 +627,13 @@ el_deletestr(EditLine *el, int n)
  *	Get a string
  */
 protected int
-c_gets(EditLine *el, Char *buf, const Char *prompt)
+c_gets(EditLine *el, wchar_t *buf, const wchar_t *prompt)
 {
-	Char ch;
 	ssize_t len;
-	Char *cp = el->el_line.buffer;
+	wchar_t *cp = el->el_line.buffer, ch;
 
 	if (prompt) {
-		len = Strlen(prompt);
+		len = wcslen(prompt);
 		(void)memcpy(cp, prompt, len * sizeof(*cp));
 		cp += len;
 	}
@@ -663,7 +645,7 @@ c_gets(EditLine *el, Char *buf, const Char *prompt)
 		el->el_line.lastchar = cp + 1;
 		re_refresh(el);
 
-		if (FUN(el,getc)(el, &ch) != 1) {
+		if (el_wgetc(el, &ch) != 1) {
 			ed_end_of_file(el, 0);
 			len = -1;
 			break;
@@ -671,7 +653,7 @@ c_gets(EditLine *el, Char *buf, const Char *prompt)
 
 		switch (ch) {
 
-		case 0010:	/* Delete and backspace */
+		case L'\b':	/* Delete and backspace */
 		case 0177:
 			if (len == 0) {
 				len = -1;
@@ -682,8 +664,8 @@ c_gets(EditLine *el, Char *buf, const Char *prompt)
 			continue;
 
 		case 0033:	/* ESC */
-		case '\r':	/* Newline */
-		case '\n':
+		case L'\r':	/* Newline */
+		case L'\n':
 			buf[len] = ch;
 			break;
 
@@ -712,7 +694,7 @@ c_gets(EditLine *el, Char *buf, const Char *prompt)
 protected int
 c_hpos(EditLine *el)
 {
-	Char *ptr;
+	wchar_t *ptr;
 
 	/*
 	 * Find how many characters till the beginning of this line.

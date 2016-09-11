@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.165 2016/03/03 12:32:23 mpi Exp $	*/
+/*	$OpenBSD: locore.s,v 1.170 2016/07/16 06:04:29 mlarkin Exp $	*/
 /*	$NetBSD: locore.s,v 1.145 1996/05/03 19:41:19 christos Exp $	*/
 
 /*-
@@ -40,9 +40,7 @@
 #include "assym.h"
 #include "apm.h"
 #include "lapic.h"
-#include "ioapic.h"
 #include "ksyms.h"
-#include "acpi.h"
 
 #include <sys/errno.h>
 #include <sys/syscall.h>
@@ -689,7 +687,9 @@ _C_LABEL(codepatch_end):
 /*
  * Signal trampoline; copied to top of user stack.
  */
-NENTRY(sigcode)
+	.section .rodata
+	.globl	_C_LABEL(sigcode)
+_C_LABEL(sigcode):
 	call	*SIGF_HANDLER(%esp)
 	leal	SIGF_SC(%esp),%eax	# scp (the call may have clobbered the
 					# copy at SIGF_SCP(%esp))
@@ -697,10 +697,24 @@ NENTRY(sigcode)
 	pushl	%eax			# junk to fake return address
 	movl	$SYS_sigreturn,%eax
 	int	$0x80			# enter kernel with args on stack
+	.globl	_C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	movl	$SYS_exit,%eax
 	int	$0x80			# exit if sigreturn fails
 	.globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
+
+	.globl	_C_LABEL(sigfill)
+_C_LABEL(sigfill):
+	int3
+_C_LABEL(esigfill):
+
+	.data
+	.globl	_C_LABEL(sigfillsiz)
+_C_LABEL(sigfillsiz):
+	.long	_C_LABEL(esigfill) - _C_LABEL(sigfill)
+
+	.text
 
 /*****************************************************************************/
 
@@ -1187,8 +1201,8 @@ switch_exited:
 	movl	%ebx, CPUVAR(CURPCB)
 
 	/*
-	 * Activate the address space.  The pcb copy of %cr3 and the
-	 * LDT will be refreshed from the pmap, and because we're
+	 * Activate the address space.  The pcb copy of %cr3 will
+	 * be refreshed from the pmap, and because we're
 	 * curproc they'll both be reloaded into the CPU.
 	 */
 	pushl	%edi
@@ -1282,15 +1296,11 @@ ENTRY(savectx)
  * (possibly the next clock tick).  Thus, we disable interrupt before checking,
  * and only enable them again on the final `iret' or before calling the AST
  * handler.
- *
- * XXX - debugger traps are now interrupt gates so at least bdb doesn't lose
- * control. STI gives the standard losing behaviour for ddb and kgdb.
  */
 #define	IDTVEC(name)	ALIGN_TEXT; .globl X##name; X##name:
 
 #define	TRAP(a)		pushl $(a) ; jmp _C_LABEL(alltraps)
 #define	ZTRAP(a)	pushl $0 ; TRAP(a)
-#define STI		testb $(PSL_I>>8),13(%esp) ; jz 1f ; sti ; 1: ;
 
 
 	.text
@@ -1304,12 +1314,10 @@ IDTVEC(dbg)
 	andb	$~0xf,%al
 	movl	%eax,%dr6
 	popl	%eax
-	STI
 	TRAP(T_TRCTRAP)
 IDTVEC(nmi)
 	ZTRAP(T_NMI)
 IDTVEC(bpt)
-	STI
 	ZTRAP(T_BPTFLT)
 IDTVEC(ofl)
 	ZTRAP(T_OFLOW)
@@ -1405,7 +1413,6 @@ IDTVEC(align)
  * This will cause the process to get a SIGBUS.
  */
 NENTRY(resume_iret)
-	sti
 	ZTRAP(T_PROTFLT)
 NENTRY(resume_pop_ds)
 	pushl	%es
@@ -1430,6 +1437,7 @@ NENTRY(resume_pop_fs)
  */
 NENTRY(alltraps)
 	INTRENTRY
+	sti
 calltrap:
 #ifdef DIAGNOSTIC
 	movl	CPL,%ebx

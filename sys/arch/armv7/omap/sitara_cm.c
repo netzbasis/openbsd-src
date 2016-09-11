@@ -1,4 +1,4 @@
-/* $OpenBSD: sitara_cm.c,v 1.2 2013/11/06 19:03:07 syl Exp $ */
+/* $OpenBSD: sitara_cm.c,v 1.4 2016/08/12 03:22:41 jsg Exp $ */
 /* $NetBSD: sitara_cm.c,v 1.1 2013/04/17 14:31:02 bouyer Exp $ */
 /*
  * Copyright (c) 2010
@@ -52,6 +52,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/conf.h>
 #include <sys/proc.h>
@@ -61,7 +62,11 @@
 #include <armv7/omap/sitara_cm.h>
 #include <armv7/omap/sitara_cmreg.h>
 
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+
 void sitara_cm_attach(struct device *parent, struct device *self, void *aux);
+int sitara_cm_pinctrl(uint32_t, void *);
 
 struct sitara_cm_softc {
         struct device		sc_dev;
@@ -375,6 +380,7 @@ sitara_cm_attach(struct device *parent, struct device *self, void *aux)
 	struct sitara_cm_softc *sc = (struct sitara_cm_softc *)self;
 	struct armv7_attach_args *aa = aux;
 	uint32_t rev;
+	int node;
 
 	if (sitara_cm_sc)
 		panic("sitara_cm_attach: already attached");
@@ -385,10 +391,50 @@ sitara_cm_attach(struct device *parent, struct device *self, void *aux)
 	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh) != 0)
 		panic("%s: bus_space_map failed!\n", __func__);
 
+	node = OF_finddevice("/ocp/l4_wkup@44c00000/scm@210000/pinmux@800");
+	if (node != -1)
+		pinctrl_register(node, sitara_cm_pinctrl, sc);
+
 	sitara_cm_sc = sc;
 
 	if (sitara_cm_reg_read_4(OMAP2SCM_REVISION, &rev) != 0)
 		panic("sitara_cm_attach: read revision");
 	printf(": control module, rev %d.%d\n",
 	    SCM_REVISION_MAJOR(rev), SCM_REVISION_MINOR(rev));
+}
+
+int
+sitara_cm_pinctrl(uint32_t phandle, void *cookie)
+{
+	struct sitara_cm_softc *sc = cookie;
+	uint32_t *pins;
+	int npins;
+	int node;
+	int len;
+	int i, j;
+
+	if (sc == NULL)
+		return -1;
+
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return -1;
+
+	len = OF_getproplen(node, "pinctrl-single,pins");
+	if (len <= 0)
+		return -1;
+
+	pins = malloc(len, M_TEMP, M_WAITOK);
+	OF_getpropintarray(node, "pinctrl-single,pins", pins, len);
+	npins = len / (2 * sizeof(uint32_t));
+
+	for (i = 0, j = 0; i < npins; i++, j += 2) {
+		uint32_t conf_reg = SCM_PINMUX + pins[2 * i + 0];
+		uint32_t conf_val = pins[2 * i + 1];
+
+		bus_space_write_4(sc->sc_iot, sc->sc_ioh, conf_reg, conf_val);
+	}
+
+	free(pins, M_TEMP, len);
+	return 0;
 }

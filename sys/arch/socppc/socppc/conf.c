@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.25 2016/02/26 09:10:05 natano Exp $ */
+/*	$OpenBSD: conf.c,v 1.28 2016/09/04 10:51:24 naddy Exp $ */
 
 /*
  * Copyright (c) 1997 Per Fogelstrom
@@ -56,7 +56,7 @@ struct bdevsw bdevsw[] = {
 	bdev_disk_init(NSD,sd),		/* 2 SCSI Disk */
 	bdev_disk_init(NCD,cd),		/* 3 SCSI CD-ROM */
 	bdev_notdef(),			/* 4 unknown*/
-	bdev_tape_init(NST,st),		/* 5 SCSI tape */
+	bdev_notdef(),			/* 5 was: SCSI tape */
 	bdev_notdef(),			/* 6 unknown*/
 	bdev_notdef(),			/* 7 unknown*/
 	bdev_notdef(),			/* 8 */
@@ -96,8 +96,6 @@ cdev_decl(pci);
 
 #include "pf.h"
 
-#include "systrace.h"
-
 #include "ksyms.h"
 #include "usb.h"
 #include "uhid.h"
@@ -109,6 +107,7 @@ cdev_decl(pci);
 #include "pppx.h"
 #include "hotplug.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct cdevsw cdevsw[] = {
 	cdev_cn_init(1,cn),		/* 0: virtual console */
@@ -161,7 +160,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),			/* 47: was: /dev/crypto */
 	cdev_notdef(),			/* 48 */
 	cdev_notdef(),			/* 49 */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 	cdev_notdef(),			/* 52 */
 	cdev_notdef(),			/* 53 */
@@ -204,6 +203,7 @@ struct cdevsw cdevsw[] = {
 	cdev_hotplug_init(NHOTPLUG,hotplug),	/* 84: devices hot plugging */
 	cdev_fuse_init(NFUSE,fuse),	/* 85: fuse */
 	cdev_tun_init(NTUN,tap),	/* 86: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 87: switch(4) control interface */
 };
 int nchrdev = nitems(cdevsw);
 
@@ -261,7 +261,6 @@ int chrtoblktbl[] = {
 	/* 17 */	17,		/* rd */
 	/* 18 */	NODEV,
 	/* 19 */	14,		/* vnd */
-	/* 20 */	5,		/* st */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);
 

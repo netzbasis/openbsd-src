@@ -1,4 +1,4 @@
-/* $OpenBSD: utf8.c,v 1.29 2016/03/02 15:36:03 nicm Exp $ */
+/* $OpenBSD: utf8.c,v 1.33 2016/05/27 22:57:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <vis.h>
@@ -31,16 +32,10 @@ static int	utf8_width(wchar_t);
 void
 utf8_set(struct utf8_data *ud, u_char ch)
 {
-	u_int	i;
+	static const struct utf8_data empty = { { 0 }, 1, 1, 1 };
 
+	memcpy(ud, &empty, sizeof *ud);
 	*ud->data = ch;
-	ud->have = 1;
-	ud->size = 1;
-
-	ud->width = 1;
-
-	for (i = ud->size; i < sizeof ud->data; i++)
-		ud->data[i] = '\0';
 }
 
 /* Copy UTF-8 character. */
@@ -116,8 +111,10 @@ utf8_width(wchar_t wc)
 	int	width;
 
 	width = wcwidth(wc);
-	if (width < 0 || width > 0xff)
+	if (width < 0 || width > 0xff) {
+		log_debug("Unicode %04x, wcwidth() %d", wc, width);
 		return (-1);
+	}
 	return (width);
 }
 
@@ -127,6 +124,8 @@ utf8_combine(const struct utf8_data *ud, wchar_t *wc)
 {
 	switch (mbtowc(wc, ud->data, ud->size)) {
 	case -1:
+		log_debug("UTF-8 %.*s, mbtowc() %d", (int)ud->size, ud->data,
+		    errno);
 		mbtowc(NULL, NULL, MB_CUR_MAX);
 		return (UTF8_ERROR);
 	case 0:

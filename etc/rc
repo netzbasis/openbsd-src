@@ -1,4 +1,4 @@
-#	$OpenBSD: rc,v 1.474 2015/12/29 19:41:24 rpe Exp $
+#	$OpenBSD: rc,v 1.486 2016/07/10 09:08:18 rpe Exp $
 
 # System startup script run by init on autoboot or after single-user.
 # Output and error are redirected to console by init, and the console is the
@@ -158,6 +158,77 @@ make_keys() {
 	ssh-keygen -A
 }
 
+# Re-link libraries, placing the objects in a random order.
+reorder_libs() {
+	local _l _liba _libas _tmpdir _remount=false _error=false
+	local _dkdev=$(df /usr/lib | sed '1d;s/ .*//')
+	local _mp=$(mount | grep "^$_dkdev")
+
+	# Skip if /usr/lib is on a nfs mounted filesystem.
+	[[ $_mp == *' type nfs '* ]] && return
+
+	echo -n 'reordering libraries:'
+
+	# Only choose the latest version of the libraries.
+	for _liba in /usr/lib/libc.so.*.a; do
+		_liba=$(ls ${_liba%%.[0-9]*}*.a | sort -V | tail -1)
+		for _l in $_libas; do
+			[[ $_l == $_liba ]] && continue 2
+		done
+		_libas="$_libas $_liba"
+	done
+
+	# Remount read-write, if /usr/lib is on a read-only ffs filesystem.
+	if [[ $_mp == *' type ffs '*'read-only'* ]]; then
+		if mount -u -w $_dkdev; then
+			_remount=true
+		else
+			echo ' failed.'
+			return
+		fi
+	fi
+
+	for _liba in $_libas; do
+		_tmpdir=$(mktemp -dq /tmp/_librebuild.XXXXXXXXXXXX) && (
+			set -o errexit
+			_lib=${_liba#/usr/lib/}
+			_lib=${_lib%.a}
+			cd $_tmpdir
+			ar x ${_liba}
+			cc -shared -o $_lib $(ls *.so | sort -R) $(cat .ldadd)
+			[[ -s $_lib ]] && file $_lib | fgrep -q 'shared object'
+			LD_BIND_NOW=1 LD_LIBRARY_PATH=$_tmpdir awk 'BEGIN {exit 0}'
+			install -F -S -o root -g bin -m 0444 $_lib /usr/lib/$_lib
+		) || { _error=true; break; }
+	done
+
+	rm -rf /tmp/_librebuild.*
+
+	# Restore previous mount state if it was changed.
+	if $_remount; then
+		mount -u -r $_dkdev || _error=true
+	fi
+
+	if $_error; then
+		echo ' failed.'
+	else
+		echo ' done.'
+	fi
+}
+
+# Run rc.* script and email output to root.
+# Usage: run_upgrade_script firsttime|sysmerge
+run_upgrade_script() {
+	local _suffix=$1
+	[[ -n $_suffix ]] || return 1
+	if [[ -f /etc/rc.$_suffix ]]; then
+		mv /etc/rc.$_suffix /etc/rc.$_suffix.run
+		. /etc/rc.$_suffix.run 2>&1 | tee /dev/tty |
+			mail -Es "$(hostname) rc.$_suffix output" root >/dev/null
+	fi
+	rm -f /etc/rc.$_suffix.run
+}
+
 # Check filesystems, optionally by using a fsck(8) flag.
 # Usage: do_fsck [-flag]
 do_fsck() {
@@ -244,7 +315,7 @@ if [[ $1 == shutdown ]]; then
 	exit 0
 fi
 
-# Add swap block-devices. 
+# Add swap block-devices.
 swapctl -A -t blk
 
 if [[ -e /fastboot ]]; then
@@ -337,6 +408,8 @@ mount -s /usr >/dev/null 2>&1
 mount -s /var >/dev/null 2>&1
 
 random_seed
+
+reorder_libs
 
 # Clean up left-over files.
 rm -f /etc/nologin /var/spool/lock/LCK.* /var/spool/uucp/STST/*
@@ -445,6 +518,9 @@ fi
 
 echo 'preserving editor files.'; /usr/libexec/vi.recover
 
+# If rc.sysmerge exists, run it just once, and make sure it is deleted.
+run_upgrade_script sysmerge
+
 echo -n 'starting network daemons:'
 start_daemon ldomd vmd sshd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
 start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd
@@ -461,12 +537,7 @@ start_daemon rbootd mopd spamd spamlogd sndiod
 echo '.'
 
 # If rc.firsttime exists, run it just once, and make sure it is deleted.
-if [[ -f /etc/rc.firsttime ]]; then
-	mv /etc/rc.firsttime /etc/rc.firsttime.run
-	. /etc/rc.firsttime.run 2>&1 | tee /dev/tty |
-		mail -Es "$(hostname) rc.firsttime output" root >/dev/null
-fi
-rm -f /etc/rc.firsttime.run
+run_upgrade_script firsttime
 
 # Run rc.d(8) scripts from packages.
 if [[ -n $pkg_scripts ]]; then

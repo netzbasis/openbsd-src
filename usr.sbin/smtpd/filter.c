@@ -1,4 +1,4 @@
-/*	$OpenBSD: filter.c,v 1.16 2016/02/03 11:14:08 eric Exp $	*/
+/*	$OpenBSD: filter.c,v 1.19 2016/06/29 06:46:06 eric Exp $	*/
 
 /*
  * Copyright (c) 2011 Gilles Chehade <gilles@poolp.org>
@@ -297,6 +297,8 @@ filter_event(uint64_t id, int event)
 	if (event == EVENT_DISCONNECT) {
 		io_clear(&s->iev);
 		iobuf_clear(&s->ibuf);
+		if (s->ofile)
+			fclose(s->ofile);
 		free(s);
 	}
 }
@@ -665,8 +667,8 @@ filter_tx(struct filter_session *s, int sink)
 		return (-1);
 	}
 
-	io_set_blocking(sp[0], 0);
-	io_set_blocking(sp[1], 0);
+	io_set_nonblocking(sp[0]);
+	io_set_nonblocking(sp[1]);
 
 	iobuf_init(&s->ibuf, 0, 0);
 	io_init(&s->iev, sp[0], s, filter_tx_io, &s->ibuf);
@@ -845,8 +847,9 @@ event_to_str(int event)
 	CASE(EVENT_CONNECT);
 	CASE(EVENT_RESET);
 	CASE(EVENT_DISCONNECT);
-	CASE(EVENT_COMMIT);
-	CASE(EVENT_ROLLBACK);
+	CASE(EVENT_TX_BEGIN);
+	CASE(EVENT_TX_COMMIT);
+	CASE(EVENT_TX_ROLLBACK);
 	default:
 		return "EVENT_???";
 	}

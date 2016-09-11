@@ -1,4 +1,4 @@
-/*	$OpenBSD: md_init.h,v 1.3 2015/09/01 05:40:06 guenther Exp $	*/
+/*	$OpenBSD: md_init.h,v 1.5 2016/03/24 05:27:19 guenther Exp $	*/
 
 /*
  * Copyright (c) 2012 Miodrag Vallat.
@@ -46,8 +46,12 @@
  *
  * Our start code starts with two nops because execution may skip up to
  * two instructions; see setregs() in the kernel for details.
+ *
+ * The definitions of environ and __progname prevent the creation
+ * of COPY relocations for WEAK symbols.
  */
 #define	MD_CRT0_START					\
+	char **environ, *__progname;			\
 	__asm(						\
 	"	.text					\n" \
 	"	.align 3				\n" \
@@ -64,12 +68,3 @@
 	"	 addu	%r4, %r4, 4			\n" \
 	"	 /* envp = argv + argc + 1 */		\n" \
 	"	.previous");
-
-#include <sys/syscall.h>
-#define	MD_DISABLE_KBIND						\
-	do {								\
-		register long syscall_num __asm("r13") = SYS_kbind;	\
-		register void *arg1 __asm("r2") = NULL;			\
-		__asm volatile("tb0 0, %%r0, 450; or %%r0, %%r0, %%r0"	\
-		    : "+r" (arg1) : "r" (syscall_num) : "r3", "cc");	\
-	} while (0)

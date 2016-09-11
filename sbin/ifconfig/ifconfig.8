@@ -1,4 +1,4 @@
-.\"	$OpenBSD: ifconfig.8,v 1.266 2016/02/28 21:55:36 tim Exp $
+.\"	$OpenBSD: ifconfig.8,v 1.274 2016/09/09 06:59:41 jasper Exp $
 .\"	$NetBSD: ifconfig.8,v 1.11 1996/01/04 21:27:29 pk Exp $
 .\"     $FreeBSD: ifconfig.8,v 1.16 1998/02/01 07:03:29 steve Exp $
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"     @(#)ifconfig.8	8.4 (Berkeley) 6/1/94
 .\"
-.Dd $Mdocdate: February 28 2016 $
+.Dd $Mdocdate: September 9 2016 $
 .Dt IFCONFIG 8
 .Os
 .Sh NAME
@@ -187,6 +187,7 @@ At least the following devices can be created on demand:
 .Xr ppp 4 ,
 .Xr pppoe 4 ,
 .Xr svlan 4 ,
+.Xr switch 4 ,
 .Xr tap 4 ,
 .Xr trunk 4 ,
 .Xr tun 4 ,
@@ -327,6 +328,11 @@ Disable special processing at the link level with the specified interface.
 Change the link layer address (MAC address) of the interface.
 This should be specified as six colon-separated hex values, or can
 be chosen randomly.
+.It Cm llprio Ar prio
+Set the priority for link layer communications
+.Pf ( Xr arp 4 ,
+.Xr bpf 4 ,
+.Xr pppoe 4 ) .
 .It Cm media Op Ar type
 Set the media type of the interface to
 .Ar type .
@@ -510,6 +516,8 @@ interface groups
 .Xr sppp 4
 (PPP Link Control Protocol)
 .It
+.Xr switch 4
+.It
 .Xr trunk 4
 .It
 tunnel
@@ -517,6 +525,8 @@ tunnel
 .Xr gif 4 ,
 .Xr gre 4 ,
 .Xr vxlan 4 )
+.It
+.Xr umb 4
 .It
 .Xr vlan 4
 .El
@@ -1138,6 +1148,7 @@ Clear the IPv6 anycast address bit.
 .It Cm autoconfprivacy
 Enable privacy extensions for stateless IPv6 address autoconfiguration
 (RFC 4941) on the interface.
+These extensions are enabled by default.
 The purpose of these extensions is to prevent tracking of individual
 devices which connect to the IPv6 internet from different networks
 using stateless autoconfiguration.
@@ -1501,6 +1512,53 @@ or
 .Ql none .
 In the latter case, authentication will be turned off.
 .El
+.\" SWITCH
+.Sh SWITCH
+The following options are available for a
+.Xr switch 4
+interface:
+.Bl -tag -width Ds
+.It Cm add Ar interface
+Add
+.Ar interface
+as a member of the switch.
+The interface is put into promiscuous mode so
+that it can receive every packet sent on the
+network.
+An interface can be a member of at most one switch.
+.It Cm addlocal Ar interface
+Add
+.Ar interface
+as a local port of the switch.
+Local port is a special port connected with the local system's network stack.
+Only
+.Xr vether 4
+can be use for the
+.Ar interface .
+Only one interface can be added as a local port.
+.It Cm datapath Ar datapath_id
+Configure the datapath ID for the switch.
+The default value is generated randomly.
+.It Cm del Ar interface
+Remove
+.Ar interface
+from the switch.
+Promiscuous mode is turned off for the interface when it is removed
+from the switch.
+.It Cm flowmax Ar flowmax
+Set the maximum number of flows per table.
+The default value is 10000.
+.It Cm maxgroup Ar maxgroup
+Set the maximum number of groups.
+The default value is 1000.
+.It Cm portno Ar interface Ar port_no
+Set the port_no for the port named
+.Ar interface .
+The default value is the interface index of the
+.Ar interface .
+.It Cm up
+Start the switch processing packets.
+.El
 .\" TRUNK
 .Sh TRUNK
 .Nm ifconfig
@@ -1595,8 +1653,76 @@ to identify packets with a virtual network.
 The accepted size of the number depends on the individual tunnel protocol;
 it is a 24-bit number for
 .Xr vxlan 4 .
+If supported by the tunnel protocol,
+the value can also be set to
+.Ar any
+to accept packets with arbitrary network identifiers (for example for
+multipoint-to-multipoint modes).
 .It Cm -vnetid
 Clear the virtual network identifier.
+.El
+.\" UMB
+.Sh UMB
+.nr nS 1
+.Bk -words
+.Nm ifconfig
+.Ar umb-interface
+.Op Oo Fl Oc Ns Cm apn Ar apn
+.Op Cm chgpin Ar oldpin Ar newpin
+.Op Oo Fl Oc Ns Cm class Ar class,class,...
+.Op Cm pin Ar pin
+.Op Cm puk Ar puk Ar newpin
+.Op Oo Fl Oc Ns Cm roaming
+.Ek
+.nr nS 0
+.Pp
+The following options are available for a
+.Xr umb 4
+interface:
+.Bl -tag -width Ds
+.It Cm apn Ar apn
+Set the Access Point Name (APN) required by the network provider.
+.It Fl apn
+Clear the current APN.
+.It Cm chgpin Ar oldpin Ar newpin
+Permanently change the PIN of the SIM card from the current value
+.Ar oldpin
+to
+.Ar newpin .
+.It Cm class
+List all available cell classes.
+.It Cm class Ar class,class,...
+Set the preferred cell classes.
+Apart from those listed by
+.Cm class
+the following aliases can be used:
+.Ar 4G ,
+.Ar 3G ,
+and
+.Ar 2G .
+.It Fl class
+Clear any cell class preferences.
+.It Cm down
+Marking the interface as "down" will terminate any existing data connection
+and deregister with the service provider.
+.It Cm pin Ar pin
+Enter the PIN required to unlock the SIM card.
+Most SIM cards will not be able to establish a network association without
+providing a PIN.
+.It Cm puk Ar puk Ar newpin
+Sets the PIN of the SIM card to
+.Ar newpin
+using the PUK
+.Ar puk
+to validate the request.
+.It Cm roaming
+Enable data roaming.
+.It Fl roaming
+Disable data roaming.
+.It Cm up
+As soon as the interface is marked as "up", the
+.Xr umb 4
+device will try to establish a data connection with the service provider.
 .El
 .\" VLAN
 .Sh VLAN

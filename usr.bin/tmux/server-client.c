@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.182 2016/03/01 12:04:43 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.187 2016/06/16 10:55:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -184,6 +184,7 @@ server_client_lost(struct client *c)
 
 	c->flags |= CLIENT_DEAD;
 
+	server_clear_identify(c, NULL);
 	status_prompt_clear(c);
 	status_message_clear(c);
 
@@ -385,33 +386,33 @@ server_client_check_mouse(struct client *c)
 		c->tty.mouse_drag_release = NULL;
 
 		/*
-		 * End a mouse drag by passing a MouseUp key corresponding to
-		 * the button that started the drag.
+		 * End a mouse drag by passing a MouseDragEnd key corresponding
+		 * to the button that started the drag.
 		 */
 		switch (c->tty.mouse_drag_flag) {
 		case 1:
 			if (where == PANE)
-				key = KEYC_MOUSEUP1_PANE;
+				key = KEYC_MOUSEDRAGEND1_PANE;
 			if (where == STATUS)
-				key = KEYC_MOUSEUP1_STATUS;
+				key = KEYC_MOUSEDRAGEND1_STATUS;
 			if (where == BORDER)
-				key = KEYC_MOUSEUP1_BORDER;
+				key = KEYC_MOUSEDRAGEND1_BORDER;
 			break;
 		case 2:
 			if (where == PANE)
-				key = KEYC_MOUSEUP2_PANE;
+				key = KEYC_MOUSEDRAGEND2_PANE;
 			if (where == STATUS)
-				key = KEYC_MOUSEUP2_STATUS;
+				key = KEYC_MOUSEDRAGEND2_STATUS;
 			if (where == BORDER)
-				key = KEYC_MOUSEUP2_BORDER;
+				key = KEYC_MOUSEDRAGEND2_BORDER;
 			break;
 		case 3:
 			if (where == PANE)
-				key = KEYC_MOUSEUP3_PANE;
+				key = KEYC_MOUSEDRAGEND3_PANE;
 			if (where == STATUS)
-				key = KEYC_MOUSEUP3_STATUS;
+				key = KEYC_MOUSEDRAGEND3_STATUS;
 			if (where == BORDER)
-				key = KEYC_MOUSEUP3_BORDER;
+				key = KEYC_MOUSEDRAGEND3_BORDER;
 			break;
 		default:
 			key = KEYC_MOUSE;
@@ -606,16 +607,16 @@ server_client_handle_key(struct client *c, key_code key)
 			return;
 		window_unzoom(w);
 		wp = window_pane_at_index(w, key - '0');
-		if (wp != NULL && window_pane_visible(wp))
-			window_set_active_pane(w, wp);
-		server_clear_identify(c);
+		if (wp != NULL && !window_pane_visible(wp))
+			wp = NULL;
+		server_clear_identify(c, wp);
 		return;
 	}
 
 	/* Handle status line. */
 	if (!(c->flags & CLIENT_READONLY)) {
 		status_message_clear(c);
-		server_clear_identify(c);
+		server_clear_identify(c, NULL);
 	}
 	if (c->prompt_string != NULL) {
 		if (!(c->flags & CLIENT_READONLY))
@@ -854,10 +855,7 @@ server_client_reset_state(struct client *c)
 	struct options		*oo = c->session->options;
 	int			 status, mode, o;
 
-	if (c->flags & CLIENT_SUSPENDED)
-		return;
-
-	if (c->flags & CLIENT_CONTROL)
+	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
 
 	tty_region(&c->tty, 0, c->tty.sy - 1);
@@ -921,7 +919,7 @@ server_client_check_redraw(struct client *c)
 	struct session		*s = c->session;
 	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
-	int		 	 flags, redraw;
+	int		 	 flags, masked, redraw;
 
 	if (c->flags & (CLIENT_CONTROL|CLIENT_SUSPENDED))
 		return;
@@ -961,15 +959,15 @@ server_client_check_redraw(struct client *c)
 		}
 	}
 
-	if (c->flags & CLIENT_BORDERS) {
+	masked = c->flags & (CLIENT_BORDERS|CLIENT_STATUS);
+	if (masked != 0)
 		tty_update_mode(tty, tty->mode, NULL);
+	if (masked == CLIENT_BORDERS)
 		screen_redraw_screen(c, 0, 0, 1);
-	}
-
-	if (c->flags & CLIENT_STATUS) {
-		tty_update_mode(tty, tty->mode, NULL);
+	else if (masked == CLIENT_STATUS)
 		screen_redraw_screen(c, 0, 1, 0);
-	}
+	else if (masked != 0)
+		screen_redraw_screen(c, 0, 1, 1);
 
 	tty->flags = (tty->flags & ~(TTY_FREEZE|TTY_NOCURSOR)) | flags;
 	tty_update_mode(tty, tty->mode, NULL);
@@ -1090,12 +1088,13 @@ server_client_dispatch(struct imsg *imsg, void *arg)
 
 		if (gettimeofday(&c->activity_time, NULL) != 0)
 			fatal("gettimeofday failed");
-		if (s != NULL)
-			session_update_activity(s, &c->activity_time);
 
 		tty_start_tty(&c->tty);
 		server_redraw_client(c);
 		recalculate_sizes();
+
+		if (s != NULL)
+			session_update_activity(s, &c->activity_time);
 		break;
 	case MSG_SHELL:
 		if (datalen != 0)

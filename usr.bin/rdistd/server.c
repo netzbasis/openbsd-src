@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.40 2015/12/22 08:48:39 mmcc Exp $	*/
+/*	$OpenBSD: server.c,v 1.42 2016/03/30 20:51:59 millert Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -750,12 +750,9 @@ recvfile(char *new, opt_t opts, int mode, char *owner, char *group,
 	/*
 	 * Create temporary file
 	 */
-	if ((f = mkstemp(new)) < 0) {
-		if (errno != ENOENT || chkparent(new, opts) < 0 ||
-		    (f = mkstemp(new)) < 0) {
-			error("%s: create failed: %s", new, SYSERR);
-			return;
-		}
+	if (chkparent(new, opts) < 0 || (f = mkstemp(new)) < 0) {
+		error("%s: create failed: %s", new, SYSERR);
+		return;
 	}
 
 	/*
@@ -842,7 +839,7 @@ recvfile(char *new, opt_t opts, int mode, char *owner, char *group,
 				 * need to indicate to the master that
 				 * the file was not updated.
 				 */
-				error("");
+				error(NULL);
 				return;
 			}
 		debugmsg(DM_MISC, "Files are different '%s' '%s'.",
@@ -1147,7 +1144,7 @@ recvlink(char *new, opt_t opts, int mode, off_t size)
 
 	if (IS_ON(opts, DO_VERIFY) || uptodate) {
 		if (uptodate)
-			message(MT_REMOTE|MT_INFO, "");
+			message(MT_REMOTE|MT_INFO, NULL);
 		else
 			message(MT_REMOTE|MT_INFO, "%s: need to update",
 				target);
@@ -1161,13 +1158,10 @@ recvlink(char *new, opt_t opts, int mode, off_t size)
 	/*
 	 * Make new symlink using a temporary name
 	 */
-	if (mktemp(new) == NULL || symlink(dbuf, new) < 0) {
-		if (errno != ENOENT || chkparent(new, opts) < 0 ||
-		    mktemp(new) == NULL || symlink(dbuf, new) < 0) {
-			error("%s -> %s: symlink failed: %s", new, dbuf,
-			    SYSERR);
-			return;
-		}
+	if (chkparent(new, opts) < 0 || mktemp(new) == NULL ||
+	    symlink(dbuf, new) < 0) {
+		error("%s -> %s: symlink failed: %s", new, dbuf, SYSERR);
+		return;
 	}
 
 	/*

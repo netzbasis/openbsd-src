@@ -1,4 +1,4 @@
-/*	$OpenBSD: usbdivar.h,v 1.69 2014/12/21 12:04:01 mpi Exp $ */
+/*	$OpenBSD: usbdivar.h,v 1.71 2016/05/23 11:31:12 mpi Exp $ */
 /*	$NetBSD: usbdivar.h,v 1.70 2002/07/11 21:14:36 augustss Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usbdivar.h,v 1.11 1999/11/17 22:33:51 n_hibma Exp $	*/
 
@@ -150,6 +150,10 @@ struct usbd_device {
 	struct usbd_hub	       *hub;           /* only if this is a hub */
 	struct device         **subdevs;       /* sub-devices, 0 terminated */
 	int			ndevs;	       /* # of subdevs */
+
+	char                   *serial;        /* serial number, can be NULL */
+	char                   *vendor;        /* vendor string, can be NULL */
+	char                   *product;       /* product string, can be NULL */
 };
 
 struct usbd_interface {

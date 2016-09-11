@@ -1,4 +1,4 @@
-#  $OpenBSD: Makefile,v 1.108 2015/09/18 07:48:36 miod Exp $
+#  $OpenBSD: Makefile,v 1.113 2016/09/01 10:08:03 tedu Exp $
 #  $NetBSD: Makefile,v 1.28 1995/11/20 22:06:19 jtc Exp $
 #
 #  @(#)Makefile 5.1beta 93/09/24 
@@ -11,9 +11,6 @@
 #  software is freely granted, provided that this notice 
 #  is preserved.
 #  ====================================================
-
-# SUBDIR is only used to install the infnan(3/VAX) manual page.
-SUBDIR = man
 
 .if (${MACHINE_ARCH} == "alpha")
 .PATH:	${.CURDIR}/arch/alpha
@@ -53,8 +50,6 @@ ARCH_SRCS = e_sqrt.c e_sqrtf.c e_remainder.c e_remainderf.c \
 ARCH_SRCS = e_sqrt.c e_sqrtf.c s_fabsf.c
 .elif (${MACHINE_ARCH} == "arm")
 .PATH:	${.CURDIR}/arch/arm
-.elif (${MACHINE_ARCH} == "hppa64")
-.PATH:	${.CURDIR}/arch/hppa64
 .elif (${MACHINE_ARCH} == "m88k")
 .PATH:	${.CURDIR}/arch/m88k
 .elif (${MACHINE_ARCH} == "mips64")
@@ -63,15 +58,9 @@ ARCH_SRCS = e_sqrt.c e_sqrtf.c s_fabsf.c
 .PATH:	${.CURDIR}/arch/mips64
 .elif (${MACHINE_ARCH} == "powerpc")
 .PATH:	${.CURDIR}/arch/powerpc
-.elif (${MACHINE_ARCH} == "sparc")
-.PATH:	${.CURDIR}/arch/sparc
 .elif (${MACHINE_ARCH} == "sparc64")
 .PATH:	${.CURDIR}/arch/sparc64
 ARCH_SRCS = e_sqrtl.c
-.elif (${MACHINE_ARCH} == "vax")
-.PATH:	${.CURDIR}/arch/vax
-NOIEEE_ARCH = n_argred.S n_infnan.S n_sqrt.S
-ARCH_SRCS = n_atan2.S n_cbrt.S n_hypot.S n_sincos.S n_support.S n_tan.S
 .endif
 
 .PATH:	${.CURDIR}/man
@@ -131,18 +120,6 @@ LONG_SRCS = e_acoshl.c e_acosl.c e_asinl.c e_atan2l.c e_atanhl.c \
 	s_remquol.c s_rintl.c s_roundl.c s_scalbnl.c s_sinl.c \
 	s_tanhl.c s_tanl.c s_truncl.c
 
-# math routines for non-IEEE architectures.
-NOIEEE_SRCS = n_acosh.c n_asincos.c n_asinh.c n_atan.c \
-	n_atanh.c n_cosh.c \
-	n_erf.c n_exp.c n_exp__E.c n_expm1.c n_floor.c \
-	n_fmod.c \
-	n_j0.c n_j1.c n_jn.c n_lgamma.c n_log.c n_log10.c \
-	n_log1p.c n_log__L.c n_nan.c n_pow.c \
-	n_sinh.c n_tanh.c n_tgamma.c n_lrint.c
-# there for reference, they're replaced by an asm version on vax
-NOIEEE_SRCS += n_argred.c n_atan2.c n_cbrt.c n_hypot.c n_infnan.c \
-	n_sincos.c n_sqrt.c n_support.c n_tan.c
-
 # math routines that are completely MI
 PURE_SRCS = s_cabs.c s_cacos.c s_cacosh.c s_carg.c s_casin.c \
 	s_casinh.c s_catan.c s_catanh.c s_ccos.c s_ccosh.c s_cexp.c \
@@ -151,9 +128,6 @@ PURE_SRCS = s_cabs.c s_cacos.c s_cacosh.c s_carg.c s_casin.c \
 	s_ctanh.c s_fdim.c s_fmax.c s_fmaxf.c s_fmin.c s_fminf.c \
 	s_cproj.c s_cprojf.c s_round.c s_roundf.c s_scalbln.c s_signgam.c 
 
-.if (${MACHINE_ARCH} == "vax")
-SRCS=	${NOIEEE_SRCS} ${NOIEEE_ARCH} ${PURE_SRCS}
-.else
 SRCS=	${COMMON_SRCS} ${PURE_SRCS}
 .if (${MACHINE_ARCH} == "amd64") || (${MACHINE_ARCH} == "i386")
 .PATH:		${.CURDIR}/src/ld80
@@ -165,18 +139,11 @@ SRCS+=		${LONG_SRCS}
 CPPFLAGS+=	-I${.CURDIR}/src -I${.CURDIR}/src/ld128
 SRCS+=		${LONG_SRCS}
 .endif
-.endif
 
 # Substitute common sources with any arch specific sources 
 .for i in ${ARCH_SRCS}
     SRCS:=${SRCS:S/${i:S/.S/.c/}/$i/}
 .endfor
-
-.if (${MACHINE_ARCH} == "vax")
-.for i in ${NOIEEE_ARCH}
-    SRCS:=${SRCS:S/${i:S/.S/.c/}/$i/}
-.endfor
-.endif
 
 MAN+=	acos.3 acosh.3 asin.3 asinh.3 atan.3 atan2.3 atanh.3 ceil.3 \
 	copysign.3 cos.3 cosh.3 erf.3 exp.3 \
@@ -189,206 +156,5 @@ MAN+=	acos.3 acosh.3 asin.3 asinh.3 atan.3 atan2.3 atanh.3 ceil.3 \
 MAN+=	cacos.3 cacosh.3 carg.3 casin.3 casinh.3 catan.3 catanh.3 \
 	ccos.3 ccosh.3 cexp.3 cimag.3 clog.3 conj.3 cpow.3 cproj.3 \
 	creal.3 csin.3 csinh.3 csqrt.3 ctan.3 ctanh.3
-
-MLINKS+=erf.3 erfc.3
-MLINKS+=exp.3 exp2.3
-MLINKS+=exp.3 expm1.3
-MLINKS+=exp.3 log.3
-MLINKS+=exp.3 log10.3
-MLINKS+=exp.3 log1p.3
-MLINKS+=exp.3 log2.3
-MLINKS+=exp.3 pow.3
-MLINKS+=feclearexcept.3 fegetexceptflag.3
-MLINKS+=feclearexcept.3 feraiseexcept.3
-MLINKS+=feclearexcept.3 fesetexceptflag.3
-MLINKS+=feclearexcept.3 fetestexcept.3
-MLINKS+=feenableexcept.3 fedisableexcept.3
-MLINKS+=feenableexcept.3 fegetexcept.3
-MLINKS+=fegetenv.3 feholdexcept.3
-MLINKS+=fegetenv.3 fesetenv.3
-MLINKS+=fegetenv.3 feupdateenv.3
-MLINKS+=fegetround.3 fesetround.3
-MLINKS+=fmax.3 fmin.3
-MLINKS+=hypot.3 cabs.3
-MLINKS+=j0.3 j1.3 j0.3 jn.3 j0.3 y0.3 j0.3 y1.3 j0.3 yn.3
-MLINKS+=lgamma.3 gamma.3 lgamma.3 tgamma.3
-MLINKS+=logb.3 scalb.3
-MLINKS+=logb.3 significand.3
-MLINKS+=lrint.3 llrint.3
-MLINKS+=lround.3 llround.3
-MLINKS+=nextafter.3 nexttoward.3
-MLINKS+=remainder.3 drem.3 remainder.3 remquo.3
-MLINKS+=rint.3 nearbyint.3
-MLINKS+=scalbn.3 scalbln.3
-MLINKS+=sqrt.3 cbrt.3
-
-# float versions
-MLINKS+=acos.3 acosf.3
-MLINKS+=acosh.3 acoshf.3
-MLINKS+=asin.3 asinf.3
-MLINKS+=asinh.3 asinhf.3
-MLINKS+=atan.3 atanf.3
-MLINKS+=atan2.3 atan2f.3
-MLINKS+=atanh.3 atanhf.3
-MLINKS+=ceil.3 ceilf.3
-MLINKS+=copysign.3 copysignf.3
-MLINKS+=cos.3 cosf.3
-MLINKS+=cosh.3 coshf.3
-MLINKS+=erf.3 erfcf.3
-MLINKS+=erf.3 erff.3
-MLINKS+=exp.3 exp2f.3
-MLINKS+=exp.3 expf.3
-MLINKS+=exp.3 expm1f.3
-MLINKS+=exp.3 log10f.3
-MLINKS+=exp.3 log1pf.3
-MLINKS+=exp.3 log2f.3
-MLINKS+=exp.3 logf.3
-MLINKS+=exp.3 powf.3
-MLINKS+=fdim.3 fdimf.3
-MLINKS+=floor.3 floorf.3
-MLINKS+=fma.3 fmaf.3
-MLINKS+=fmax.3 fmaxf.3
-MLINKS+=fmax.3 fminf.3
-MLINKS+=fmod.3 fmodf.3
-MLINKS+=hypot.3 cabsf.3
-MLINKS+=hypot.3 hypotf.3
-MLINKS+=ilogb.3 ilogbf.3
-MLINKS+=j0.3 j0f.3
-MLINKS+=j0.3 j1f.3
-MLINKS+=j0.3 jnf.3
-MLINKS+=j0.3 y0f.3
-MLINKS+=j0.3 y1f.3
-MLINKS+=j0.3 ynf.3
-MLINKS+=lgamma.3 gammaf.3
-MLINKS+=lgamma.3 lgammaf.3
-MLINKS+=lgamma.3 tgammaf.3
-MLINKS+=logb.3 logbf.3
-MLINKS+=logb.3 scalbf.3
-MLINKS+=logb.3 significandf.3
-MLINKS+=lrint.3 llrintf.3
-MLINKS+=lrint.3 lrintf.3
-MLINKS+=lround.3 llroundf.3
-MLINKS+=lround.3 lroundf.3
-MLINKS+=nan.3 nanf.3
-MLINKS+=nearbyint.3 nearbyintf.3
-MLINKS+=nextafter.3 nextafterf.3
-MLINKS+=nexttoward.3 nexttowardf.3
-MLINKS+=remainder.3 dremf.3
-MLINKS+=remainder.3 remainderf.3
-MLINKS+=remainder.3 remquof.3
-MLINKS+=rint.3 rintf.3
-MLINKS+=round.3 roundf.3
-MLINKS+=scalbln.3 scalblnf.3
-MLINKS+=scalbn.3 scalbnf.3
-MLINKS+=sin.3 sinf.3
-MLINKS+=sinh.3 sinhf.3
-MLINKS+=sqrt.3 cbrtf.3
-MLINKS+=sqrt.3 sqrtf.3
-MLINKS+=tan.3 tanf.3
-MLINKS+=tanh.3 tanhf.3
-MLINKS+=trunc.3 truncf.3
-
-# complex float versions
-MLINKS+=cacos.3 cacosf.3
-MLINKS+=cacosh.3 cacoshf.3
-MLINKS+=carg.3 cargf.3
-MLINKS+=casin.3 casinf.3
-MLINKS+=casinh.3 casinhf.3
-MLINKS+=catan.3 catanf.3
-MLINKS+=catanh.3 catanhf.3
-MLINKS+=ccos.3 ccosf.3
-MLINKS+=ccosh.3 ccoshf.3
-MLINKS+=cexp.3 cexpf.3
-MLINKS+=cimag.3 cimagf.3
-MLINKS+=clog.3 clogf.3
-MLINKS+=conj.3 conjf.3
-MLINKS+=cpow.3 cpowf.3
-MLINKS+=cproj.3 cprojf.3
-MLINKS+=creal.3 crealf.3
-MLINKS+=csin.3 csinf.3
-MLINKS+=csinh.3 csinhf.3
-MLINKS+=csqrt.3 csqrtf.3
-MLINKS+=ctan.3 ctanf.3
-MLINKS+=ctanh.3 ctanhf.3
-
-# long double versions
-MLINKS+=acos.3 acosl.3
-MLINKS+=acosh.3 acoshl.3
-MLINKS+=asin.3 asinl.3
-MLINKS+=asinh.3 asinhl.3
-MLINKS+=atan.3 atanl.3
-MLINKS+=atan2.3 atan2l.3
-MLINKS+=atanh.3 atanhl.3
-MLINKS+=ceil.3 ceill.3
-MLINKS+=copysign.3 copysignl.3
-MLINKS+=cos.3 cosl.3
-MLINKS+=cosh.3 coshl.3
-MLINKS+=erf.3 erfcl.3
-MLINKS+=erf.3 erfl.3
-MLINKS+=exp.3 exp2l.3
-MLINKS+=exp.3 expl.3
-MLINKS+=exp.3 expm1l.3
-MLINKS+=exp.3 log10l.3
-MLINKS+=exp.3 log1pl.3
-MLINKS+=exp.3 log2l.3
-MLINKS+=exp.3 logl.3
-MLINKS+=exp.3 powl.3
-MLINKS+=fdim.3 fdiml.3
-MLINKS+=floor.3 floorl.3
-MLINKS+=fma.3 fmal.3
-MLINKS+=fmax.3 fmaxl.3
-MLINKS+=fmax.3 fminl.3
-MLINKS+=fmod.3 fmodl.3
-MLINKS+=hypot.3 cabsl.3
-MLINKS+=hypot.3 hypotl.3
-MLINKS+=ilogb.3 ilogbl.3
-MLINKS+=lgamma.3 lgammal.3
-MLINKS+=lgamma.3 tgammal.3
-MLINKS+=logb.3 logbl.3
-MLINKS+=logb.3 scalbl.3
-MLINKS+=lrint.3 llrintl.3
-MLINKS+=lrint.3 lrintl.3
-MLINKS+=lround.3 llroundl.3
-MLINKS+=lround.3 lroundl.3
-MLINKS+=nan.3 nanl.3
-MLINKS+=nearbyint.3 nearbyintl.3
-MLINKS+=nextafter.3 nextafterl.3
-MLINKS+=nexttoward.3 nexttowardl.3
-MLINKS+=remainder.3 remainderl.3
-MLINKS+=remainder.3 remquol.3
-MLINKS+=rint.3 rintl.3
-MLINKS+=round.3 roundl.3
-MLINKS+=scalbln.3 scalblnl.3
-MLINKS+=scalbn.3 scalbnl.3
-MLINKS+=sin.3 sinl.3
-MLINKS+=sinh.3 sinhl.3
-MLINKS+=sqrt.3 cbrtl.3
-MLINKS+=sqrt.3 sqrtl.3
-MLINKS+=tan.3 tanl.3
-MLINKS+=tanh.3 tanhl.3
-MLINKS+=trunc.3 truncl.3
-
-# complex long double versions
-MLINKS+=cacos.3 cacosl.3
-MLINKS+=cacosh.3 cacoshl.3
-MLINKS+=carg.3 cargl.3
-MLINKS+=casin.3 casinl.3
-MLINKS+=casinh.3 casinhl.3
-MLINKS+=catan.3 catanl.3
-MLINKS+=catanh.3 catanhl.3
-MLINKS+=ccos.3 ccosl.3
-MLINKS+=ccosh.3 ccoshl.3
-MLINKS+=cexp.3 cexpl.3
-MLINKS+=cimag.3 cimagl.3
-MLINKS+=clog.3 clogl.3
-MLINKS+=conj.3 conjl.3
-MLINKS+=cpow.3 cpowl.3
-MLINKS+=cproj.3 cprojl.3
-MLINKS+=creal.3 creall.3
-MLINKS+=csin.3 csinl.3
-MLINKS+=csinh.3 csinhl.3
-MLINKS+=csqrt.3 csqrtl.3
-MLINKS+=ctan.3 ctanl.3
-MLINKS+=ctanh.3 ctanhl.3
 
 .include <bsd.lib.mk>

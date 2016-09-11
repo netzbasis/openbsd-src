@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdt.c,v 1.2 2016/03/07 10:49:03 mpi Exp $	*/
+/*	$OpenBSD: fdt.c,v 1.19 2016/08/23 18:12:09 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2009 Dariusz Swiderski <sfires@sfires.net>
@@ -17,7 +17,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/systm.h>
@@ -25,12 +24,21 @@
 #include <dev/ofw/fdt.h>
 #include <dev/ofw/openfirm.h>
 
+/* XXX */
+#define OPROMMAXPARAM	32
+
 unsigned int fdt_check_head(void *);
 char	*fdt_get_str(u_int32_t);
 void	*skip_property(u_int32_t *);
 void	*skip_props(u_int32_t *);
 void	*skip_node_name(u_int32_t *);
+void	*skip_node(void *);
+void	*skip_nops(u_int32_t *);
 void	*fdt_parent_node_recurse(void *, void *);
+void	*fdt_find_phandle_recurse(void *, uint32_t);
+int	 fdt_node_property_int(void *, char *, int *);
+int	 fdt_node_property_ints(void *, char *, int *, int);
+int	 fdt_translate_reg(void *, struct fdt_reg *);
 #ifdef DEBUG
 void 	 fdt_print_node_recurse(void *, int);
 #endif
@@ -42,7 +50,7 @@ unsigned int
 fdt_check_head(void *fdt)
 {
 	struct fdt_head *fh;
-	u_int32_t *ptr;
+	u_int32_t *ptr, *tok;
 
 	fh = fdt;
 	ptr = (u_int32_t *)fdt;
@@ -53,8 +61,8 @@ fdt_check_head(void *fdt)
 	if (betoh32(fh->fh_version) > FDT_CODE_VERSION)
 		return 0;
 
-	if (betoh32(*(ptr + (betoh32(fh->fh_struct_off) / 4))) !=
-	    FDT_NODE_BEGIN)
+	tok = skip_nops(ptr + (betoh32(fh->fh_struct_off) / 4));
+	if (betoh32(*tok) != FDT_NODE_BEGIN)
 		return 0;
 
 	/* check for end signature on version 17 blob */
@@ -96,6 +104,21 @@ fdt_init(void *fdt)
 }
 
 /*
+ * Return the size of the FDT.
+ */
+size_t
+fdt_get_size(void *fdt)
+{
+	if (!fdt)
+		return 0;
+
+	if (!fdt_check_head(fdt))
+		return 0;
+
+	return betoh32(((struct fdt_head *)fdt)->fh_size);
+}
+
+/*
  * Retrieve string pointer from strings table.
  */
 char *
@@ -109,6 +132,16 @@ fdt_get_str(u_int32_t num)
 /*
  * Utility functions for skipping parts of tree.
  */
+
+void *
+skip_nops(u_int32_t *ptr)
+{
+	while (betoh32(*ptr) == FDT_NOP)
+		ptr++;
+
+	return ptr;
+}
+
 void *
 skip_property(u_int32_t *ptr)
 {
@@ -118,7 +151,7 @@ skip_property(u_int32_t *ptr)
 	/* move forward by magic + size + nameid + rounded up property size */
 	ptr += 3 + roundup(size, sizeof(u_int32_t)) / sizeof(u_int32_t);
 
-	return ptr;
+	return skip_nops(ptr);
 }
 
 void *
@@ -134,8 +167,10 @@ void *
 skip_node_name(u_int32_t *ptr)
 {
 	/* skip name, aligned to 4 bytes, this is NULL term., so must add 1 */
-	return ptr + roundup(strlen((char *)ptr) + 1,
+	ptr += roundup(strlen((char *)ptr) + 1,
 	    sizeof(u_int32_t)) / sizeof(u_int32_t);
+
+	return skip_nops(ptr);
 }
 
 /*
@@ -150,12 +185,12 @@ fdt_node_property(void *node, char *name, char **out)
 	char *tmp;
 	
 	if (!tree_inited)
-		return 0;
+		return -1;
 
 	ptr = (u_int32_t *)node;
 
 	if (betoh32(*ptr) != FDT_NODE_BEGIN)
-		return 0;
+		return -1;
 
 	ptr = skip_node_name(ptr + 1);
 
@@ -168,12 +203,34 @@ fdt_node_property(void *node, char *name, char **out)
 		}
 		ptr = skip_property(ptr);
 	}
-	return 0;
+	return -1;
 }
 
 /*
- * Retrieves next node, skipping all the children nodes of the pointed node
- * if passed 0 wil return first node of the tree (root)
+ * Retrieves next node, skipping all the children nodes of the pointed node,
+ * returns pointer to next node, no matter if it exists or not.
+ */
+void *
+skip_node(void *node)
+{
+	u_int32_t *ptr = node;
+
+	ptr++;
+
+	ptr = skip_node_name(ptr);
+	ptr = skip_props(ptr);
+
+	/* skip children */
+	while (betoh32(*ptr) == FDT_NODE_BEGIN)
+		ptr = skip_node(ptr);
+
+	return skip_nops(ptr + 1);
+}
+
+/*
+ * Retrieves next node, skipping all the children nodes of the pointed node,
+ * returns pointer to next node if exists, otherwise returns NULL.
+ * If passed 0 will return first node of the tree (root).
  */
 void *
 fdt_next_node(void *node)
@@ -185,8 +242,8 @@ fdt_next_node(void *node)
 
 	ptr = node;
 
-	if (!node) {
-		ptr = tree.tree;
+	if (node == NULL) {
+		ptr = skip_nops(tree.tree);
 		return (betoh32(*ptr) == FDT_NODE_BEGIN) ? ptr : NULL;
 	}
 
@@ -200,9 +257,82 @@ fdt_next_node(void *node)
 
 	/* skip children */
 	while (betoh32(*ptr) == FDT_NODE_BEGIN)
-		ptr = fdt_next_node(ptr);
+		ptr = skip_node(ptr);
 
-	return (betoh32(*ptr) == FDT_NODE_END) ? (ptr + 1) : NULL;
+	if (betoh32(*ptr) != FDT_NODE_END)
+		return NULL;
+
+	ptr = skip_nops(ptr + 1);
+
+	if (betoh32(*ptr) != FDT_NODE_BEGIN)
+		return NULL;
+
+	return ptr;
+}
+
+int
+fdt_next_property(void *node, char *name, char **nextname)
+{
+	u_int32_t *ptr;
+	u_int32_t nameid;
+	
+	if (!tree_inited)
+		return 0;
+
+	ptr = (u_int32_t *)node;
+
+	if (betoh32(*ptr) != FDT_NODE_BEGIN)
+		return 0;
+
+	ptr = skip_node_name(ptr + 1);
+
+	while (betoh32(*ptr) == FDT_PROPERTY) {
+		nameid = betoh32(*(ptr + 2)); /* id of name in strings table */
+		if (strcmp(name, "") == 0) {
+			*nextname = fdt_get_str(nameid);
+			return 1;
+		}
+		if (strcmp(name, fdt_get_str(nameid)) == 0) {
+			ptr = skip_property(ptr);
+			if (betoh32(*ptr) != FDT_PROPERTY)
+				break;
+			nameid = betoh32(*(ptr + 2));
+			*nextname = fdt_get_str(nameid);
+			return 1;
+		}
+		ptr = skip_property(ptr);
+	}
+	*nextname = "";
+	return 1;
+}
+
+/*
+ * Retrieves node property as integers and puts them in the given
+ * integer array.
+ */
+int
+fdt_node_property_ints(void *node, char *name, int *out, int outlen)
+{
+	int *data;
+	int i, inlen;
+
+	inlen = fdt_node_property(node, name, (char **)&data) / sizeof(int);
+	if (inlen <= 0)
+		return -1;
+
+	for (i = 0; i < inlen && i < outlen; i++)
+		out[i] = betoh32(data[i]);
+
+	return i;
+}
+
+/*
+ * Retrieves node property as an integer.
+ */
+int
+fdt_node_property_int(void *node, char *name, int *out)
+{
+	return fdt_node_property_ints(node, name, out, 1);
 }
 
 /*
@@ -280,6 +410,9 @@ fdt_find_node(char *name)
 			}
 		}
 
+		if (child == NULL)
+			return NULL; /* No match found. */
+
 		p = q;
 	}
 
@@ -291,7 +424,7 @@ fdt_parent_node_recurse(void *pnode, void *child)
 {
 	void *node = fdt_child_node(pnode);
 	void *tmp;
-	
+
 	while (node && (node != child)) {
 		if ((tmp = fdt_parent_node_recurse(node, child)))
 			return tmp;
@@ -308,7 +441,197 @@ fdt_parent_node(void *node)
 	if (!tree_inited)
 		return NULL;
 
+	if (node == pnode)
+		return NULL;
+
 	return fdt_parent_node_recurse(pnode, node);
+}
+
+void *
+fdt_find_phandle_recurse(void *node, uint32_t phandle)
+{
+	void *child;
+	char *data;
+	void *tmp;
+	int len;
+
+	len = fdt_node_property(node, "phandle", &data);
+	if (len < 0)
+		len = fdt_node_property(node, "linux,phandle", &data);
+
+	if (len == sizeof(uint32_t) && bemtoh32(data) == phandle)
+		return node;
+
+	for (child = fdt_child_node(node); child; child = fdt_next_node(child))
+		if ((tmp = fdt_find_phandle_recurse(child, phandle)))
+			return tmp;
+
+	return NULL;
+}
+
+void *
+fdt_find_phandle(uint32_t phandle)
+{
+	return fdt_find_phandle_recurse(fdt_next_node(0), phandle);
+}
+
+/*
+ * Translate memory address depending on parent's range.
+ *
+ * Ranges are a way of mapping one address to another.  This ranges attribute
+ * is set on a node's parent.  This means if a node does not have a parent,
+ * there's nothing to translate.  If it does have a parent and the parent does
+ * not have a ranges attribute, there's nothing to translate either.
+ *
+ * If the parent has a ranges attribute and the attribute is not empty, the
+ * node's memory address has to be in one of the given ranges.  This range is
+ * then used to translate the memory address.
+ *
+ * If the parent has a ranges attribute, but the attribute is empty, there's
+ * nothing to translate.  But it's not a translation barrier.  It can be treated
+ * as a simple 1:1 mapping.
+ *
+ * Translation does not end here.  We need to check if the parent's parent also
+ * has a ranges attribute and ask the same questions again.
+ */
+int
+fdt_translate_reg(void *node, struct fdt_reg *reg)
+{
+	void *parent;
+	int pac, psc, ac, sc, ret, rlen, rone, *range;
+	uint64_t from, to, size;
+
+	/* No parent, no translation. */
+	parent = fdt_parent_node(node);
+	if (parent == NULL)
+		return 0;
+
+	/* Extract ranges property from node. */
+	rlen = fdt_node_property(node, "ranges", (char **)&range) / sizeof(int);
+
+	/* No ranges means translation barrier. Translation stops here. */
+	if (range == NULL)
+		return 0;
+
+	/* Empty ranges means 1:1 mapping. Continue translation on parent. */
+	if (rlen <= 0)
+		return fdt_translate_reg(parent, reg);
+
+	/* We only support 32-bit (1), and 64-bit (2) wide addresses here. */
+	ret = fdt_node_property_int(parent, "#address-cells", &pac);
+	if (ret != 1 || pac <= 0 || pac > 2)
+		return EINVAL;
+
+	/* We only support 32-bit (1), and 64-bit (2) wide sizes here. */
+	ret = fdt_node_property_int(parent, "#size-cells", &psc);
+	if (ret != 1 || psc <= 0 || psc > 2)
+		return EINVAL;
+
+	/* We only support 32-bit (1), and 64-bit (2) wide addresses here. */
+	ret = fdt_node_property_int(node, "#address-cells", &ac);
+	if (ret <= 0)
+		ac = pac;
+	else if (ret > 1 || ac <= 0 || ac > 2)
+		return EINVAL;
+
+	/* We only support 32-bit (1), and 64-bit (2) wide sizes here. */
+	ret = fdt_node_property_int(node, "#size-cells", &sc);
+	if (ret <= 0)
+		sc = psc;
+	else if (ret > 1 || sc <= 0 || sc > 2)
+		return EINVAL;
+
+	/* Must have at least one range. */
+	rone = pac + ac + sc;
+	if (rlen < rone)
+		return ESRCH;
+
+	/* For each range. */
+	for (; rlen >= rone; rlen -= rone, range += rone) {
+		/* Extract from and size, so we can see if we fit. */
+		from = betoh32(range[0]);
+		if (ac == 2)
+			from = (from << 32) + betoh32(range[1]);
+		size = betoh32(range[ac + pac]);
+		if (sc == 2)
+			size = (size << 32) + betoh32(range[ac + pac + 1]);
+
+		/* Try next, if we're not in the range. */
+		if (reg->addr < from || (reg->addr + reg->size) > (from + size))
+			continue;
+
+		/* All good, extract to address and translate. */
+		to = betoh32(range[ac]);
+		if (pac == 2)
+			to = (to << 32) + betoh32(range[ac + 1]);
+
+		reg->addr -= from;
+		reg->addr += to;
+		return fdt_translate_reg(parent, reg);
+	}
+
+	/* To be successful, we must have returned in the for-loop. */
+	return ESRCH;
+}
+
+/*
+ * Parse the memory address and size of a node.
+ */
+int
+fdt_get_reg(void *node, int idx, struct fdt_reg *reg)
+{
+	void *parent;
+	int ac, sc, off, ret, *in, inlen;
+
+	if (node == NULL || reg == NULL)
+		return EINVAL;
+
+	parent = fdt_parent_node(node);
+	if (parent == NULL)
+		return EINVAL;
+
+	/* We only support 32-bit (1), and 64-bit (2) wide addresses here. */
+	ret = fdt_node_property_int(parent, "#address-cells", &ac);
+	if (ret != 1 || ac <= 0 || ac > 2)
+		return EINVAL;
+
+	/* We only support 32-bit (1), and 64-bit (2) wide sizes here. */
+	ret = fdt_node_property_int(parent, "#size-cells", &sc);
+	if (ret != 1 || sc <= 0 || sc > 2)
+		return EINVAL;
+
+	inlen = fdt_node_property(node, "reg", (char **)&in) / sizeof(int);
+	if (inlen < ((idx + 1) * (ac + sc)))
+		return EINVAL;
+
+	off = idx * (ac + sc);
+
+	reg->addr = betoh32(in[off]);
+	if (ac == 2)
+		reg->addr = (reg->addr << 32) + betoh32(in[off + 1]);
+
+	reg->size = betoh32(in[off + ac]);
+	if (sc == 2)
+		reg->size = (reg->size << 32) + betoh32(in[off + ac + 1]);
+
+	return fdt_translate_reg(parent, reg);
+}
+
+int
+fdt_is_compatible(void *node, const char *name)
+{
+	char *data;
+	int len;
+
+	len = fdt_node_property(node, "compatible", &data);
+	while (len > 0) {
+		if (strcmp(data, name) == 0)
+			return 1;
+		len -= strlen(data) + 1;
+		data += strlen(data) + 1;
+	}
+
+	return 0;
 }
 
 #ifdef DEBUG
@@ -428,7 +751,7 @@ int
 OF_parent(int handle)
 {
 	void *node = (char *)tree.header + handle;
-	
+
 	node = fdt_parent_node(node);
 	return node ? ((char *)node - (char *)tree.header) : 0;
 }
@@ -443,12 +766,57 @@ OF_finddevice(char *name)
 }
 
 int
+OF_getnodebyname(int handle, const char *name)
+{
+	void *node = (char *)tree.header + handle;
+
+	if (handle == 0)
+		node = fdt_find_node("/");
+
+	while (node) {
+		if (strcmp(name, fdt_node_name(node)) == 0)
+			break;
+
+		node = fdt_next_node(node);
+	}
+
+	return node ? ((char *)node - (char *)tree.header) : 0;
+}
+
+int
+OF_getnodebyphandle(uint32_t phandle)
+{
+	void *node;
+
+	node = fdt_find_phandle(phandle);
+	return node ? ((char *)node - (char *)tree.header) : 0;
+}
+
+int
 OF_getproplen(int handle, char *prop)
 {
 	void *node = (char *)tree.header + handle;
-	char *data;
+	char *data, *name;
+	int len;
 
-	return fdt_node_property(node, prop, &data);
+	len = fdt_node_property(node, prop, &data);
+
+	/*
+	 * The "name" property is optional since version 16 of the
+	 * flattened device tree specification, so we synthesize one
+	 * from the unit name of the node if it is missing.
+	 */
+	if (len < 0 && strcmp(prop, "name") == 0) {
+		name = fdt_node_name(node);
+		data = strchr(name, '@');
+		if (data)
+			len = data - name;
+		else
+			len = strlen(name);
+		return len + 1;
+	}
+
+	return len;
 }
 
 int
@@ -465,13 +833,15 @@ OF_getprop(int handle, char *prop, void *buf, int buflen)
 	 * flattened device tree specification, so we synthesize one
 	 * from the unit name of the node if it is missing.
 	 */
-	if (len == 0 && strcmp(prop, "name") == 0) {
+	if (len < 0 && strcmp(prop, "name") == 0) {
 		data = fdt_node_name(node);
 		if (data) {
 			len = strlcpy(buf, data, buflen);
 			data = strchr(buf, '@');
-			if (data)
+			if (data) {
 				*data = 0;
+				len = data - (char *)buf;
+			}
 			return len + 1;
 		}
 	}
@@ -480,3 +850,58 @@ OF_getprop(int handle, char *prop, void *buf, int buflen)
 		memcpy(buf, data, min(len, buflen));
 	return len;
 }
+
+uint32_t
+OF_getpropint(int handle, char *prop, uint32_t defval)
+{
+	uint32_t val;
+	int len;
+	
+	len = OF_getprop(handle, prop, &val, sizeof(val));
+	if (len != sizeof(val))
+		return defval;
+
+	return betoh32(val);
+}
+
+int
+OF_getpropintarray(int handle, char *prop, uint32_t *buf, int buflen)
+{
+	int len;
+	int i;
+
+	len = OF_getprop(handle, prop, buf, buflen);
+	if (len < 0 || (len % sizeof(uint32_t)))
+		return -1;
+
+	for (i = 0; i < len / sizeof(uint32_t); i++)
+		buf[i] = betoh32(buf[i]);
+
+	return len;
+}
+
+int
+OF_nextprop(int handle, char *prop, void *nextprop)
+{
+	void *node = (char *)tree.header + handle;
+	char *data;
+
+	if (fdt_node_property(node, "name", &data) == -1) {
+		if (strcmp(prop, "") == 0)
+			return strlcpy(nextprop, "name", OPROMMAXPARAM);
+		if (strcmp(prop, "name") == 0)
+			prop = "";
+	}
+
+	if (fdt_next_property(node, prop, &data))
+		return strlcpy(nextprop, data, OPROMMAXPARAM);
+	return -1;
+}
+
+int
+OF_is_compatible(int handle, const char *name)
+{
+	void *node = (char *)tree.header + handle;
+	return (fdt_is_compatible(node, name));
+}
+

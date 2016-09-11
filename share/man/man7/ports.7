@@ -23,10 +23,10 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: ports.7,v 1.106 2015/11/24 21:27:03 sthen Exp $
+.\" $OpenBSD: ports.7,v 1.110 2016/09/02 12:17:33 tb Exp $
 .\" $FreeBSD: ports.7,v 1.7 1998/06/23 04:38:50 hoek Exp $
 .\"
-.Dd $Mdocdate: November 24 2015 $
+.Dd $Mdocdate: September 2 2016 $
 .Dt PORTS 7
 .Os
 .Sh NAME
@@ -63,12 +63,12 @@ For more information about using ports, see
 The
 .Ox
 Ports System
-.Pq Lk http://www.openbsd.org/faq/faq15.html#Ports .
+.Pq Lk https://www.openbsd.org/faq/faq15.html#Ports .
 For information about creating new ports, see
 the
 .Ox
 Porter's Handbook
-.Pq Lk http://www.openbsd.org/faq/ports/ .
+.Pq Lk https://www.openbsd.org/faq/ports/ .
 .Pp
 For a detailed description of the build process, see
 .Xr bsd.port.mk 5 .
@@ -681,19 +681,6 @@ If defined, display verbose output when applying each patch.
 If defined, only operate on a port if it requires interaction.
 .It Ev BATCH
 If defined, only operate on a port if it can be installed 100% automatically.
-.It Ev USE_SYSTRACE
-Set to
-.Dv Yes
-to protect the
-.Cm configure , build ,
-and
-.Cm fake
-targets with
-.Xr systrace 1 .
-This way it is ensured that ports do not make any network connections
-during build or write outside some well defined directories.
-The filter list is stored in
-.Pa ${PORTSDIR}/infrastructure/db/systrace.filter .
 .El
 .Sh USING A READ-ONLY PORTS TREE
 Select read-write partition(s) that can accommodate working directories, the
@@ -723,8 +710,6 @@ The ports main engine.
 Network configuration defaults.
 .It Pa /usr/ports/infrastructure/db/network.conf
 Local network configuration.
-.It Pa /usr/ports/infrastructure/db/systrace.filter
-Filter list for systrace.
 .It Pa /usr/ports/infrastructure/db/user.list
 List of users and groups created by ports.
 .El
@@ -743,12 +728,12 @@ List of users and groups created by ports.
 The
 .Ox
 Ports System:
-.Lk http://www.openbsd.org/faq/ports/ports.html
+.Lk https://www.openbsd.org/faq/faq15.html#Ports
 .Pp
 The
 .Ox
 Porter's Handbook:
-.Lk http://www.openbsd.org/faq/ports/
+.Lk https://www.openbsd.org/faq/ports/
 .Sh HISTORY
 .Nm The Ports Collection
 appeared in

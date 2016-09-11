@@ -1,4 +1,4 @@
-/*	$OpenBSD: driver.c,v 1.26 2016/01/07 21:37:53 mestre Exp $	*/
+/*	$OpenBSD: driver.c,v 1.28 2016/03/28 11:49:45 chl Exp $	*/
 /*	$NetBSD: driver.c,v 1.5 1997/10/20 00:37:16 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -991,22 +991,17 @@ send_stats(void)
 	int	s;
 	struct sockaddr_in	sockstruct;
 	socklen_t	socklen;
-	int	flags;
 
 	/* Accept a connection to the statistics socket: */
 	socklen = sizeof sockstruct;
-	s = accept(Status, (struct sockaddr *) &sockstruct, &socklen);
+	s = accept4(Status, (struct sockaddr *) &sockstruct, &socklen,
+	    SOCK_NONBLOCK);
 	if (s < 0) {
 		if (errno == EINTR)
 			return;
 		logx(LOG_ERR, "accept");
 		return;
 	}
-
-	/* Don't allow the writes to block: */
-	flags = fcntl(s, F_GETFL, 0);
-	flags |= O_NDELAY;
-	(void) fcntl(s, F_SETFL, flags);
 
 	fp = fdopen(s, "w");
 	if (fp == NULL) {

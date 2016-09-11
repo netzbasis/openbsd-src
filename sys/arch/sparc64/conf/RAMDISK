@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.118 2015/07/17 22:52:29 tedu Exp $
+#	$OpenBSD: RAMDISK,v 1.121 2016/07/04 21:51:40 kettenis Exp $
 
 machine		sparc64
 maxusers	4
@@ -83,6 +83,7 @@ wi*		at pcmcia?		# WaveLAN IEEE 802.11DS
 hme*		at pci?			# Sun Happy Meal 10/100
 gem*		at pci?			# Sun GEM 10/100/Gigabit
 cas*		at pci?			# Sun Cassini 100/Gigabit
+nep*		at pci?			# Sun Neptune ethernet
 ti*		at pci?			# Alteon Tigon 1Gb ethernet
 skc*		at pci?			# SysKonnect GEnesis 984x
 sk*		at skc?			#  each port of above
@@ -168,6 +169,7 @@ jmb*		at pci?
 ahci*		at jmb?
 pciide*		at jmb?
 ahci*		at pci?
+nvme*		at pci?
 
 scsibus*	at scsi?
 sd*		at scsibus?		# SCSI disks
@@ -228,6 +230,7 @@ mos*		at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 ural*		at uhub?		# Ralink RT2500USB
 rum*		at uhub?		# Ralink RT2501USB/RT2601USB
 url*		at uhub?		# Realtek RTL8150L based adapters
+ure*		at uhub?		# Realtek RTL8152 based adapters
 
 sab*		at ebus?
 sabtty*		at sab?

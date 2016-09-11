@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.100 2015/12/05 12:20:13 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.104 2016/09/04 10:10:23 krw Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -39,7 +39,7 @@
 #include "rde.h"
 
 void		 rde_sig_handler(int sig, short, void *);
-void		 rde_shutdown(void);
+__dead void	 rde_shutdown(void);
 void		 rde_dispatch_imsg(int, short, void *);
 void		 rde_dispatch_parent(int, short, void *);
 void		 rde_dump_area(struct area *, int, pid_t);
@@ -126,6 +126,7 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 
 	setproctitle("route decision engine");
 	ospfd_process = PROC_RDE_ENGINE;
+	log_procname = log_procnames[ospfd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
@@ -197,11 +198,17 @@ rde(struct ospfd_conf *xconf, int pipe_parent2rde[2], int pipe_ospfe2rde[2],
 	return (0);
 }
 
-void
+__dead void
 rde_shutdown(void)
 {
 	struct area	*a;
 	struct vertex	*v, *nv;
+
+	/* close pipes */
+	msgbuf_clear(&iev_ospfe->ibuf.w);
+	close(iev_ospfe->ibuf.fd);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	stop_spf_timer(rdeconf);
 	cand_list_clr();
@@ -218,9 +225,7 @@ rde_shutdown(void)
 	rde_asext_free();
 	rde_nbr_free();
 
-	msgbuf_clear(&iev_ospfe->ibuf.w);
 	free(iev_ospfe);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(rdeconf);
 
@@ -374,7 +379,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				}
 			}
 			if (l != 0 && !error)
-				log_warnx("rde_dispatch_imsg: peerid %lu, "
+				log_warnx("rde_dispatch_imsg: peerid %u, "
 				    "trailing garbage in Database Description "
 				    "packet", imsg.hdr.peerid);
 
@@ -411,7 +416,7 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 				    ntohs(v->lsa->hdr.len));
 			}
 			if (l != 0)
-				log_warnx("rde_dispatch_imsg: peerid %lu, "
+				log_warnx("rde_dispatch_imsg: peerid %u, "
 				    "trailing garbage in LS Request "
 				    "packet", imsg.hdr.peerid);
 			break;
@@ -839,7 +844,6 @@ rde_send_summary(pid_t pid)
 	RB_FOREACH(v, lsa_tree, &asext_tree) {
 		sumctl.num_ext_lsa++;
 		sumctl.ext_lsa_cksum += ntohs(v->lsa->hdr.ls_chksum);
-		
 	}
 
 	gettimeofday(&now, NULL);
@@ -1127,7 +1131,7 @@ RB_HEAD(asext_tree, asext_node)		ast;
 RB_PROTOTYPE(asext_tree, asext_node, entry, asext_compare)
 RB_GENERATE(asext_tree, asext_node, entry, asext_compare)
 
-static __inline int             
+static __inline int
 asext_compare(struct asext_node *a, struct asext_node *b)
 {
 	if (ntohl(a->r.prefix.s_addr) < ntohl(b->r.prefix.s_addr))

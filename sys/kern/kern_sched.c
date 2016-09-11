@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sched.c,v 1.41 2015/12/23 14:51:17 kettenis Exp $	*/
+/*	$OpenBSD: kern_sched.c,v 1.43 2016/06/03 15:21:23 kettenis Exp $	*/
 /*
  * Copyright (c) 2007, 2008 Artur Grabowski <art@openbsd.org>
  *
@@ -148,7 +148,7 @@ sched_idle(void *v)
 	KASSERT(curproc == spc->spc_idleproc);
 
 	while (1) {
-		while (!curcpu_is_idle()) {
+		while (!cpu_is_idle(curcpu())) {
 			struct proc *dead;
 
 			SCHED_LOCK(s);
@@ -286,8 +286,11 @@ sched_chooseproc(void)
 				while ((p = TAILQ_FIRST(&spc->spc_qs[queue]))) {
 					remrunqueue(p);
 					p->p_cpu = sched_choosecpu(p);
-					KASSERT(p->p_cpu != curcpu());
 					setrunqueue(p);
+					if (p->p_cpu == curcpu()) {
+						KASSERT(p->p_flag & P_CPUPEG);
+						goto again;
+					}
 				}
 			}
 		}

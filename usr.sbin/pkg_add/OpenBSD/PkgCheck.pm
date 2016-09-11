@@ -1,7 +1,7 @@
 #! /usr/bin/perl
 
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCheck.pm,v 1.57 2015/10/21 10:11:13 espie Exp $
+# $OpenBSD: PkgCheck.pm,v 1.62 2016/08/26 18:19:21 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -308,10 +308,12 @@ sub handle_options
 	my $self = shift;
 	$self->{no_exports} = 1;
 
-	$self->SUPER::handle_options('fB:q',
-		'[-fIimnqvx] [-B pkg-destdir] [-D value]');
+	$self->add_interactive_options;
+	$self->SUPER::handle_options('fFB:q',
+		'[-FfIimnqvx] [-B pkg-destdir] [-D value]');
 	$self->{force} = $self->opt('f');
-	$self->{quick} = $self->opt('q');
+	$self->{quick} = $self->opt('q') // 0;
+	$self->{filesystem} = $self->opt('F');
 	if (defined $self->opt('B')) {
 		$self->{destdir} = $self->opt('B');
 	} 
@@ -907,10 +909,14 @@ sub run
 	$state->log->dump;
 	$self->reverse_dependencies_check($state, \@list);
 	$state->log->dump;
-	$self->package_files_check($state, \@list);
-	$state->log->dump;
-	$self->filesystem_check($state);
-	$state->progress->next;
+	if ($state->{quick} < 2) {
+		$self->package_files_check($state, \@list);
+		$state->log->dump;
+	}
+	if ($state->{filesystem}) {
+		$self->filesystem_check($state);
+		$state->progress->next;
+	}
 }
 
 sub parse_and_run

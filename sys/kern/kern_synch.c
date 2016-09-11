@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.128 2016/02/01 23:34:31 dlg Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.134 2016/09/03 15:06:06 akfaew Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -59,7 +59,7 @@
 #endif
 
 int	thrsleep(struct proc *, struct sys___thrsleep_args *);
-
+int	thrsleep_unlock(void *);
 
 /*
  * We're only looking at 7 bits of the address; everything is
@@ -432,32 +432,37 @@ wakeup(const volatile void *chan)
 int
 sys_sched_yield(struct proc *p, void *v, register_t *retval)
 {
-	yield();
+	struct proc *q;
+	int s;
+
+	SCHED_LOCK(s);
+	/*
+	 * If one of the threads of a multi-threaded process called
+	 * sched_yield(2), drop its priority to ensure its siblings
+	 * can make some progress.
+	 */
+	p->p_priority = p->p_usrpri;
+	TAILQ_FOREACH(q, &p->p_p->ps_threads, p_thr_link)
+		p->p_priority = max(p->p_priority, q->p_priority);
+	p->p_stat = SRUN;
+	setrunqueue(p);
+	p->p_ru.ru_nvcsw++;
+	mi_switch();
+	SCHED_UNLOCK(s);
+
 	return (0);
 }
 
-int thrsleep_unlock(void *, int);
 int
-thrsleep_unlock(void *lock, int lockflags)
+thrsleep_unlock(void *lock)
 {
 	static _atomic_lock_t unlocked = _ATOMIC_LOCK_UNLOCKED;
 	_atomic_lock_t *atomiclock = lock;
-	uint32_t *ticket = lock;
-	uint32_t ticketvalue;
-	int error;
 
 	if (!lock)
-		return (0);
+		return 0;
 
-	if (lockflags) {
-		if ((error = copyin(ticket, &ticketvalue, sizeof(ticketvalue))))
-			return (error);
-		ticketvalue++;
-		error = copyout(&ticketvalue, ticket, sizeof(ticketvalue));
-	} else {
-		error = copyout(&unlocked, atomiclock, sizeof(unlocked));
-	}
-	return (error);
+	return copyout(&unlocked, atomiclock, sizeof(unlocked));
 }
 
 static int globalsleepaddr;
@@ -475,10 +480,9 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 	long ident = (long)SCARG(uap, ident);
 	struct timespec *tsp = (struct timespec *)SCARG(uap, tp);
 	void *lock = SCARG(uap, lock);
-	long long to_ticks = 0;
+	uint64_t to_ticks = 0;
 	int abort, error;
-	clockid_t clock_id = SCARG(uap, clock_id) & 0x7;
-	int lockflags = SCARG(uap, clock_id) & 0x8;
+	clockid_t clock_id = SCARG(uap, clock_id);
 
 	if (ident == 0)
 		return (EINVAL);
@@ -494,13 +498,13 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 
 		if (timespeccmp(tsp, &now, <)) {
 			/* already passed: still do the unlock */
-			if ((error = thrsleep_unlock(lock, lockflags)))
+			if ((error = thrsleep_unlock(lock)))
 				return (error);
 			return (EWOULDBLOCK);
 		}
 
 		timespecsub(tsp, &now, tsp);
-		to_ticks = (long long)hz * tsp->tv_sec +
+		to_ticks = (uint64_t)hz * tsp->tv_sec +
 		    (tsp->tv_nsec + tick * 1000 - 1) / (tick * 1000) + 1;
 		if (to_ticks > INT_MAX)
 			to_ticks = INT_MAX;
@@ -508,9 +512,8 @@ thrsleep(struct proc *p, struct sys___thrsleep_args *v)
 
 	p->p_thrslpid = ident;
 
-	if ((error = thrsleep_unlock(lock, lockflags))) {
+	if ((error = thrsleep_unlock(lock)))
 		goto out;
-	}
 
 	if (SCARG(uap, abort) != NULL) {
 		if ((error = copyin(SCARG(uap, abort), &abort,

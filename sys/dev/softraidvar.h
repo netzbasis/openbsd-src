@@ -1,4 +1,4 @@
-/* $OpenBSD: softraidvar.h,v 1.161 2015/07/21 03:30:51 krw Exp $ */
+/* $OpenBSD: softraidvar.h,v 1.165 2016/09/10 17:06:11 jsing Exp $ */
 /*
  * Copyright (c) 2006 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Chris Kuethe <ckuethe@openbsd.org>
@@ -19,7 +19,7 @@
 #ifndef SOFTRAIDVAR_H
 #define SOFTRAIDVAR_H
 
-#define SR_META_VERSION		5	/* bump when sr_metadata changes */
+#define SR_META_VERSION		6	/* bump when sr_metadata changes */
 #define SR_META_SIZE		64	/* save space at chunk beginning */
 #define SR_META_OFFSET		16	/* skip 8192 bytes at chunk beginning */
 
@@ -45,18 +45,18 @@
 struct sr_crypto_genkdf {
 	u_int32_t	len;
 	u_int32_t	type;
-#define SR_CRYPTOKDFT_INVALID	0
-#define SR_CRYPTOKDFT_PBKDF2	1
-#define SR_CRYPTOKDFT_KEYDISK	2
+#define SR_CRYPTOKDFT_INVALID		0
+#define SR_CRYPTOKDFT_PKCS5_PBKDF2	1
+#define SR_CRYPTOKDFT_KEYDISK		2
+#define SR_CRYPTOKDFT_BCRYPT_PBKDF	3
 };
 
 /*
- * sr_crypto_genkdf_pbkdf2 is a hint for the PKCS#5 KDF performed in userland
- * and is not interpreted by the kernel.
+ * sr_crypto_pbkdf is a hint for a PBKDF performed in userland and is not
+ * interpreted by the kernel.
  */
-struct sr_crypto_kdf_pbkdf2 {
-	u_int32_t	len;
-	u_int32_t	type;
+struct sr_crypto_pbkdf {
+	struct sr_crypto_genkdf generic;
 	u_int32_t	rounds;
 	u_int8_t	salt[128];
 };
@@ -73,20 +73,20 @@ struct sr_crypto_kdfinfo {
 #define SR_CRYPTOKDF_HINT	(1<<1)
 	u_int8_t	maskkey[SR_CRYPTO_MAXKEYBYTES];
 	union {
-		struct sr_crypto_genkdf		generic;
-		struct sr_crypto_kdf_pbkdf2	pbkdf2;
+		struct sr_crypto_genkdf	generic;
+		struct sr_crypto_pbkdf	pbkdf;
 	}		_kdfhint;
 #define genkdf		_kdfhint.generic
-#define pbkdf2		_kdfhint.pbkdf2
+#define pbkdf		_kdfhint.pbkdf
 };
 
 #define SR_IOCTL_GET_KDFHINT		0x01	/* Get KDF hint. */
 #define SR_IOCTL_CHANGE_PASSPHRASE	0x02	/* Change passphase. */
 
 struct sr_crypto_kdfpair {
-	void		*kdfinfo1;
+	struct sr_crypto_kdfinfo *kdfinfo1;
 	u_int32_t	kdfsize1;
-	void		*kdfinfo2;
+	struct sr_crypto_kdfinfo *kdfinfo2;
 	u_int32_t	kdfsize2;
 };
 
@@ -135,7 +135,7 @@ struct sr_metadata {
 
 		/* optional */
 		u_int32_t	ssd_opt_no;	/* nr of optional md elements */
-		u_int32_t	ssd_pad;
+		u_int32_t	ssd_secsize;
 
 		/* volume metadata */
 		u_int32_t	ssd_volid;	/* volume id */
@@ -473,6 +473,7 @@ struct sr_chunk {
 	char			src_devname[32];
 	u_char			src_duid[8];	/* Chunk disklabel UID. */
 	int64_t			src_size;	/* in blocks */
+	u_int32_t		src_secsize;
 
 	SLIST_ENTRY(sr_chunk)	src_link;
 };
@@ -686,6 +687,7 @@ struct sr_workunit	*sr_scsi_wu_get(struct sr_discipline *, int);
 void			sr_scsi_wu_put(struct sr_discipline *,
 			    struct sr_workunit *);
 int			sr_chunk_in_use(struct sr_softc *, dev_t);
+int			sr_rebuild_percent(struct sr_discipline *);
 
 /* discipline functions */
 int			sr_raid_inquiry(struct sr_workunit *);

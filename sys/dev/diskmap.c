@@ -1,4 +1,4 @@
-/*	$OpenBSD: diskmap.c,v 1.13 2015/11/20 16:06:53 deraadt Exp $	*/
+/*	$OpenBSD: diskmap.c,v 1.15 2016/04/29 14:40:36 beck Exp $	*/
 
 /*
  * Copyright (c) 2009, 2010 Joel Sing <jsing@openbsd.org>
@@ -37,6 +37,7 @@
 #include <sys/proc.h>
 #include <sys/vnode.h>
 #include <sys/pledge.h>
+#include <sys/namei.h>
 
 int
 diskmapopen(dev_t dev, int flag, int fmt, struct proc *p)
@@ -85,10 +86,7 @@ diskmapioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	fdp = p->p_fd;
 	fdplock(fdp);
 
-	ndp.ni_segflg = UIO_SYSSPACE;
-	ndp.ni_dirfd = AT_FDCWD;
-	ndp.ni_dirp = devname;
-	ndp.ni_cnd.cn_proc = p;
+	NDINIT(&ndp, 0, 0, UIO_SYSSPACE, devname, p);
 	ndp.ni_pledge = PLEDGE_RPATH;
 	if ((error = vn_open(&ndp, fp->f_flag, 0)) != 0)
 		goto bad;
@@ -116,7 +114,7 @@ diskmapioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 	fp->f_rbytes = 0;
 	fp->f_wbytes = 0;
 
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	FRELE(fp, p);
 	fdpunlock(fdp);

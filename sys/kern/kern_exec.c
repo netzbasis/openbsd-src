@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.174 2016/03/06 20:25:27 guenther Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.183 2016/09/03 14:28:24 jca Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -64,12 +64,6 @@
 
 #ifdef __HAVE_MD_TCB
 # include <machine/tcb.h>
-#endif
-
-#include "systrace.h"
-
-#if NSYSTRACE > 0
-#include <dev/systrace.h>
 #endif
 
 const struct kmem_va_mode kv_exec = {
@@ -164,7 +158,7 @@ check_exec(struct proc *p, struct exec_package *epp)
 		goto bad1;
 
 	/* unlock vp, we need it unlocked from here */
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 
 	/* now we have the file, get the exec header */
 	error = vn_rdwr(UIO_READ, vp, epp->ep_hdr, epp->ep_hdrlen, 0,
@@ -263,11 +257,6 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	struct vmspace *vm = pr->ps_vmspace;
 	char **tmpfap;
 	extern struct emul emul_native;
-#if NSYSTRACE > 0
-	int wassugid = ISSET(pr->ps_flags, PS_SUGID | PS_SUGIDEXEC);
-	size_t pathbuflen;
-#endif
-	char *pathbuf = NULL;
 	struct vnode *otvp;
 
 	/* get other threads to stop */
@@ -280,31 +269,13 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	 */
 	atomic_setbits_int(&pr->ps_flags, PS_INEXEC);
 
-#if NSYSTRACE > 0
-	if (ISSET(p->p_flag, P_SYSTRACE)) {
-		systrace_execve0(p);
-		pathbuf = pool_get(&namei_pool, PR_WAITOK);
-		error = copyinstr(SCARG(uap, path), pathbuf, MAXPATHLEN,
-		    &pathbuflen);
-		if (error != 0)
-			goto clrflag;
-	}
-#endif
-	if (pathbuf != NULL) {
-		NDINIT(&nid, LOOKUP, NOFOLLOW, UIO_SYSSPACE, pathbuf, p);
-	} else {
-		NDINIT(&nid, LOOKUP, NOFOLLOW, UIO_USERSPACE,
-		    SCARG(uap, path), p);
-	}
+	NDINIT(&nid, LOOKUP, NOFOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
 	nid.ni_pledge = PLEDGE_EXEC;
 
 	/*
 	 * initialize the fields of the exec package.
 	 */
-	if (pathbuf != NULL)
-		pack.ep_name = pathbuf;
-	else
-		pack.ep_name = (char *)SCARG(uap, path);
+	pack.ep_name = (char *)SCARG(uap, path);
 	pack.ep_hdr = malloc(exec_maxhdrsz, M_EXEC, M_WAITOK);
 	pack.ep_hdrlen = exec_maxhdrsz;
 	pack.ep_hdrvalid = 0;
@@ -518,6 +489,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	TCB_SET(p, NULL);	/* reset the TCB address */
 	pr->ps_kbind_addr = 0;	/* reset the kbind bits */
 	pr->ps_kbind_cookie = 0;
+	arc4random_buf(&pr->ps_sigcookie, sizeof pr->ps_sigcookie);
 
 	/* set command name & other accounting info */
 	memset(p->p_comm, 0, sizeof(p->p_comm));
@@ -726,6 +698,11 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	if ((pack.ep_flags & EXEC_HASFD) && pack.ep_fd < 255)
 		p->p_descfd = pack.ep_fd;
 
+	if (pack.ep_flags & EXEC_WXNEEDED)
+		p->p_p->ps_flags |= PS_WXNEEDED;
+	else
+		p->p_p->ps_flags &= ~PS_WXNEEDED;
+
 	/*
 	 * Call exec hook. Emulation code may NOT store reference to anything
 	 * from &pack.
@@ -738,15 +715,6 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 
 	atomic_clearbits_int(&pr->ps_flags, PS_INEXEC);
 	single_thread_clear(p, P_SUSPSIG);
-
-#if NSYSTRACE > 0
-	if (ISSET(p->p_flag, P_SYSTRACE) &&
-	    wassugid && !ISSET(pr->ps_flags, PS_SUGID | PS_SUGIDEXEC))
-		systrace_execve1(pathbuf, p);
-#endif
-
-	if (pathbuf != NULL)
-		pool_put(&namei_pool, pathbuf);
 
 	return (0);
 
@@ -769,16 +737,10 @@ bad:
 	pool_put(&namei_pool, nid.ni_cnd.cn_pnbuf);
 	km_free(argp, NCARGS, &kv_exec, &kp_pageable);
 
- freehdr:
+freehdr:
 	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
-#if NSYSTRACE > 0
- clrflag:
-#endif
 	atomic_clearbits_int(&pr->ps_flags, PS_INEXEC);
 	single_thread_clear(p, P_SUSPSIG);
-
-	if (pathbuf != NULL)
-		pool_put(&namei_pool, pathbuf);
 
 	return (error);
 
@@ -800,8 +762,6 @@ exec_abort:
 
 free_pack_abort:
 	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
-	if (pathbuf != NULL)
-		pool_put(&namei_pool, pathbuf);
 	exit1(p, W_EXITCODE(0, SIGABRT), EXIT_NORMAL);
 
 	/* NOTREACHED */
@@ -871,6 +831,9 @@ exec_sigcode_map(struct process *pr, struct emul *e)
 	 * the way sys_mmap would map it.
 	 */
 	if (e->e_sigobject == NULL) {
+		extern int sigfillsiz;
+		extern u_char sigfill[];
+		size_t off;
 		vaddr_t va;
 		int r;
 
@@ -883,7 +846,10 @@ exec_sigcode_map(struct process *pr, struct emul *e)
 			uao_detach(e->e_sigobject);
 			return (ENOMEM);
 		}
-		memcpy((void *)va, e->e_sigcode, sz);
+
+		for (off = 0; off < round_page(sz); off += sigfillsiz)
+			memcpy((caddr_t)va + off, sigfill, sigfillsiz);
+		memcpy((caddr_t)va, e->e_sigcode, sz);
 		uvm_unmap(kernel_map, va, va + round_page(sz));
 	}
 
@@ -896,6 +862,10 @@ exec_sigcode_map(struct process *pr, struct emul *e)
 		uao_detach(e->e_sigobject);
 		return (ENOMEM);
 	}
+
+	/* Calculate PC at point of sigreturn entry */
+	pr->ps_sigcoderet = pr->ps_sigcode +
+	    (pr->ps_emul->e_esigret - pr->ps_emul->e_sigcode);
 
 	return (0);
 }

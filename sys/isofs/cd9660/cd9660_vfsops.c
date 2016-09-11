@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd9660_vfsops.c,v 1.73 2016/03/07 18:43:59 naddy Exp $	*/
+/*	$OpenBSD: cd9660_vfsops.c,v 1.83 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: cd9660_vfsops.c,v 1.26 1997/06/13 15:38:58 pk Exp $	*/
 
 /*-
@@ -179,19 +179,6 @@ cd9660_mount(mp, path, data, ndp, p)
 		return (ENXIO);
 	}
 
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0) != 0) {
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, VREAD, p->p_ucred, p);
-		if (error) {
-			vput(devvp);
-			return (error);
-		}
-		VOP_UNLOCK(devvp, 0, p);
-	}
 	if ((mp->mnt_flag & MNT_UPDATE) == 0)
 		error = iso_mountfs(devvp, mp, p, &args);
 	else {
@@ -204,7 +191,6 @@ cd9660_mount(mp, path, data, ndp, p)
 		vrele(devvp);
 		return (error);
 	}
-	imp = VFSTOISOFS(mp);
 
 	bzero(mp->mnt_stat.f_mntonname, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntonname, path, MNAMELEN);
@@ -229,7 +215,7 @@ iso_mountfs(devvp, mp, p, argp)
 	struct proc *p;
 	struct iso_args *argp;
 {
-	register struct iso_mnt *isomp = (struct iso_mnt *)0;
+	register struct iso_mnt *isomp = NULL;
 	struct buf *bp = NULL;
 	struct buf *pribp = NULL, *supbp = NULL;
 	dev_t dev = devvp->v_rdev;
@@ -261,7 +247,7 @@ iso_mountfs(devvp, mp, p, argp)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
@@ -380,9 +366,10 @@ iso_mountfs(devvp, mp, p, argp)
 	brelse(pribp);
 	pribp = NULL;
 
-	mp->mnt_data = (qaddr_t)isomp;
+	mp->mnt_data = isomp;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
+	mp->mnt_stat.f_namemax = NAME_MAX;
 	mp->mnt_flag |= MNT_LOCAL;
 	isomp->im_mountp = mp;
 	isomp->im_dev = dev;
@@ -445,6 +432,8 @@ iso_mountfs(devvp, mp, p, argp)
 
 	return (0);
 out:
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 	if (supbp)
@@ -452,11 +441,11 @@ out:
 
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, NOCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 
 	if (isomp) {
 		free((caddr_t)isomp, M_ISOFSMNT, 0);
-		mp->mnt_data = (qaddr_t)0;
+		mp->mnt_data = NULL;
 	}
 	return (error);
 }
@@ -585,12 +574,12 @@ cd9660_unmount(mp, mntflags, p)
 
 	isomp->im_devvp->v_specmountpoint = NULL;
 	vn_lock(isomp->im_devvp, LK_EXCLUSIVE | LK_RETRY, p);
-	error = VOP_CLOSE(isomp->im_devvp, FREAD, NOCRED, p);
+	(void)VOP_CLOSE(isomp->im_devvp, FREAD, NOCRED, p);
 	vput(isomp->im_devvp);
 	free((caddr_t)isomp, M_ISOFSMNT, 0);
-	mp->mnt_data = (qaddr_t)0;
+	mp->mnt_data = NULL;
 	mp->mnt_flag &= ~MNT_LOCAL;
-	return (error);
+	return (0);
 }
 
 /*
@@ -650,13 +639,9 @@ cd9660_statfs(mp, sbp, p)
 	sbp->f_bavail = 0; /* blocks free for non superuser */
 	sbp->f_files =  0; /* total files */
 	sbp->f_ffree = 0; /* free file nodes */
-	if (sbp != &mp->mnt_stat) {
-		bcopy(mp->mnt_stat.f_mntonname, sbp->f_mntonname, MNAMELEN);
-		bcopy(mp->mnt_stat.f_mntfromname, sbp->f_mntfromname,
-		    MNAMELEN);
-		bcopy(&mp->mnt_stat.mount_info.iso_args,
-		    &sbp->mount_info.iso_args, sizeof(struct iso_args));
-	}
+	sbp->f_favail = 0; /* file nodes free for non superuser */
+	copy_statfs_info(sbp, mp);
+
 	return (0);
 }
 
@@ -772,7 +757,7 @@ retry:
 		return (error);
 	}
 	ip = malloc(sizeof(*ip), M_ISOFSNODE, M_WAITOK | M_ZERO);
-	lockinit(&ip->i_lock, PINOD, "isoinode", 0, 0);
+	rrw_init(&ip->i_lock, "isoinode");
 	vp->v_data = ip;
 	ip->i_vnode = vp;
 	ip->i_dev = dev;

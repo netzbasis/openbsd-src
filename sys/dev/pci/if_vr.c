@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vr.c,v 1.150 2016/01/26 01:52:10 dlg Exp $	*/
+/*	$OpenBSD: if_vr.c,v 1.152 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998
@@ -77,10 +77,6 @@
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <net/if_media.h>
-
-#if NVLAN > 0
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -627,7 +623,6 @@ vr_attach(struct device *parent, struct device *self, void *aux)
 	if (sc->vr_quirks & VR_Q_BABYJUMBO)
 		ifp->if_hardmtu = VR_RXLEN_BABYJUMBO -
 		    ETHER_HDR_LEN - ETHER_CRC_LEN;
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_proto.c,v 1.84 2015/12/03 21:57:59 mpi Exp $	*/
+/*	$OpenBSD: in6_proto.c,v 1.86 2016/06/01 11:11:44 jca Exp $	*/
 /*	$KAME: in6_proto.c,v 1.66 2000/10/10 15:35:47 itojun Exp $	*/
 
 /*
@@ -279,10 +279,7 @@ int	ip6_dad_count = 1;	/* DupAddrDetectionTransmits */
 int	ip6_dad_pending;	/* number of currently running DADs */
 int	ip6_auto_flowlabel = 1;
 int	ip6_use_deprecated = 1;	/* allow deprecated addr (RFC2462 5.5.4) */
-int	ip6_rr_prune = 5;	/* router renumbering prefix
-				 * walk list every 5 sec.    */
 int	ip6_mcast_pmtu = 0;	/* enable pMTU discovery for multicast? */
-const int ip6_v6only = 1;
 int	ip6_neighborgcthresh = 2048; /* Threshold # of NDP entries for GC */
 int	ip6_maxifprefixes = 16; /* Max acceptable prefixes via RA per IF */
 int	ip6_maxifdefrouters = 16; /* Max acceptable def routers via RA */

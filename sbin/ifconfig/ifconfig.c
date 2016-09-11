@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.317 2016/03/02 19:45:10 deraadt Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.330 2016/09/03 13:46:57 reyk Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -63,6 +63,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/param.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -98,6 +99,7 @@
 #include <err.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -106,6 +108,10 @@
 #include <ifaddrs.h>
 
 #include "brconfig.h"
+#ifndef SMALL
+#include <dev/usb/mbim.h>
+#include <dev/usb/if_umb.h>
+#endif /* SMALL */
 
 #define MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
 #define MAXIMUM(a, b)	(((a) > (b)) ? (a) : (b))
@@ -117,11 +123,9 @@
 
 struct	ifreq		ifr, ridreq;
 struct	in_aliasreq	in_addreq;
-#ifdef INET6
 struct	in6_ifreq	ifr6;
 struct	in6_ifreq	in6_ridreq;
 struct	in6_aliasreq	in6_addreq;
-#endif /* INET6 */
 struct	sockaddr_in	netmask;
 
 #ifndef SMALL
@@ -136,18 +140,18 @@ char	name[IFNAMSIZ];
 int	flags, xflags, setaddr, setipdst, doalias;
 u_long	metric, mtu;
 int	rdomainid;
+int	llprio;
 int	clearaddr, s;
 int	newaddr = 0;
 int	af = AF_INET;
 int	explicit_prefix = 0;
-#ifdef INET6
 int	Lflag = 1;
-#endif /* INET6 */
 
 int	showmediaflag;
 int	showcapsflag;
 int	shownet80211chans;
 int	shownet80211nodes;
+int	showclasses;
 
 void	notealias(const char *, int);
 void	setifaddr(const char *, int);
@@ -160,6 +164,7 @@ void	addaf(const char *, int);
 void	removeaf(const char *, int);
 void	setifbroadaddr(const char *, int);
 void	setifmtu(const char *, int);
+void	setifllprio(const char *, int);
 void	setifnwid(const char *, int);
 void	setifbssid(const char *, int);
 void	setifnwkey(const char *, int);
@@ -181,10 +186,10 @@ void	settunnelinst(const char *, int);
 void	settunnelttl(const char *, int);
 void	setvnetid(const char *, int);
 void	delvnetid(const char *, int);
+void	getvnetid(void);
 void	setifparent(const char *, int);
 void	delifparent(const char *, int);
 void	getifparent(void);
-#ifdef INET6
 void	setia6flags(const char *, int);
 void	setia6pltime(const char *, int);
 void	setia6vltime(const char *, int);
@@ -192,7 +197,6 @@ void	setia6lifetime(const char *, const char *);
 void	setia6eui64(const char *, int);
 void	setkeepalive(const char *, const char *);
 void	unsetkeepalive(const char *, int);
-#endif /* INET6 */
 void	setmedia(const char *, int);
 void	setmediaopt(const char *, int);
 void	setmediamode(const char *, int);
@@ -215,7 +219,7 @@ void	unsetvlandev(const char *, int);
 void	mpe_status(void);
 void	mpw_status(void);
 void	vlan_status(void);
-void	setinstance(const char *, int);
+void	setrdomain(const char *, int);
 int	main(int, char *[]);
 int	prefix(void *val, int);
 void	getifgroups(void);
@@ -279,6 +283,18 @@ void	unsetifdesc(const char *, int);
 void	printifhwfeatures(const char *, int);
 void	setpair(const char *, int);
 void	unsetpair(const char *, int);
+void	umb_status(void);
+void	umb_printclasses(char *, int);
+int	umb_parse_classes(const char *);
+void	umb_setpin(const char *, int);
+void	umb_chgpin(const char *, const char *);
+void	umb_puk(const char *, const char *);
+void	umb_pinop(int, int, const char *, const char *);
+void	umb_apn(const char *, int);
+void	umb_setclass(const char *, int);
+void	umb_roaming(const char *, int);
+void	utf16_to_char(uint16_t *, int, char *, size_t);
+int	char_to_utf16(const char *, uint16_t *, size_t);
 #else
 void	setignore(const char *, int);
 #endif
@@ -360,7 +376,6 @@ const struct	cmd {
 	{ "trunkport",	NEXTARG,	0,		settrunkport },
 	{ "-trunkport",	NEXTARG,	0,		unsettrunkport },
 	{ "trunkproto",	NEXTARG,	0,		settrunkproto },
-#ifdef INET6
 	{ "anycast",	IN6_IFF_ANYCAST,	0,	setia6flags },
 	{ "-anycast",	-IN6_IFF_ANYCAST,	0,	setia6flags },
 	{ "tentative",	IN6_IFF_TENTATIVE,	0,	setia6flags },
@@ -370,7 +385,6 @@ const struct	cmd {
 	{ "eui64",	0,		0,		setia6eui64 },
 	{ "autoconfprivacy",	-IFXF_INET6_NOPRIVACY,	0,	setifxflags },
 	{ "-autoconfprivacy",	IFXF_INET6_NOPRIVACY,	0,	setifxflags },
-#endif /*INET6*/
 #ifndef SMALL
 	{ "hwfeatures", NEXTARG0,	0,		printifhwfeatures },
 	{ "metric",	NEXTARG,	0,		setifmetric },
@@ -379,7 +393,7 @@ const struct	cmd {
 	{ "priority",	NEXTARG,	0,		setifpriority },
 	{ "rtlabel",	NEXTARG,	0,		setifrtlabel },
 	{ "-rtlabel",	-1,		0,		setifrtlabel },
-	{ "rdomain",	NEXTARG,	0,		setinstance },
+	{ "rdomain",	NEXTARG,	0,		setrdomain },
 	{ "mpls",	IFXF_MPLS,	0,		setifxflags },
 	{ "-mpls",	-IFXF_MPLS,	0,		setifxflags },
 	{ "mplslabel",	NEXTARG,	0,		setmpelabel },
@@ -492,8 +506,20 @@ const struct	cmd {
 	{ "-descr",	1,		0,		unsetifdesc },
 	{ "wol",	IFXF_WOL,	0,		setifxflags },
 	{ "-wol",	-IFXF_WOL,	0,		setifxflags },
+	{ "pin",	NEXTARG,	0,		umb_setpin },
+	{ "chgpin",	NEXTARG2,	0,		NULL, umb_chgpin },
+	{ "puk",	NEXTARG2,	0,		NULL, umb_puk },
+	{ "apn",	NEXTARG,	0,		umb_apn },
+	{ "-apn",	-1,		0,		umb_apn },
+	{ "class",	NEXTARG0,	0,		umb_setclass },
+	{ "-class",	-1,		0,		umb_setclass },
+	{ "roaming",	1,		0,		umb_roaming },
+	{ "-roaming",	0,		0,		umb_roaming },
 	{ "patch",	NEXTARG,	0,		setpair },
 	{ "-patch",	1,		0,		unsetpair },
+	{ "datapathid",	NEXTARG,	0,		switch_datapathid },
+	{ "portno",	NEXTARG2,	0,		NULL, switch_portno },
+	{ "addlocal",	NEXTARG,	0,		addlocal },
 #else /* SMALL */
 	{ "powersave",	NEXTARG0,	0,		setignore },
 	{ "priority",	NEXTARG,	0,		setignore },
@@ -527,6 +553,7 @@ const struct	cmd {
 	{ "instance",	NEXTARG,	A_MEDIAINST,	setmediainst },
 	{ "inst",	NEXTARG,	A_MEDIAINST,	setmediainst },
 	{ "lladdr",	NEXTARG,	0,		setiflladdr },
+	{ "llprio",	NEXTARG,	0,		setifllprio },
 	{ NULL, /*src*/	0,		0,		setifaddr },
 	{ NULL, /*dst*/	0,		0,		setifdstaddr },
 	{ NULL, /*illegal*/0,		0,		NULL },
@@ -560,13 +587,11 @@ unsigned long get_ts_map(int, int, int);
 void	in_status(int);
 void	in_getaddr(const char *, int);
 void	in_getprefix(const char *, int);
-#ifdef INET6
 void	in6_fillscopeid(struct sockaddr_in6 *sin6);
 void	in6_alias(struct in6_ifreq *);
 void	in6_status(int);
 void	in6_getaddr(const char *, int);
 void	in6_getprefix(const char *, int);
-#endif /* INET6 */
 void	ieee80211_status(void);
 void	ieee80211_listchans(void);
 void	ieee80211_listnodes(void);
@@ -591,10 +616,8 @@ const struct afswtch {
 #define C(x) ((caddr_t) &x)
 	{ "inet", AF_INET, in_status, in_getaddr, in_getprefix,
 	    SIOCDIFADDR, SIOCAIFADDR, C(ridreq), C(in_addreq) },
-#ifdef INET6
 	{ "inet6", AF_INET6, in6_status, in6_getaddr, in6_getprefix,
 	    SIOCDIFADDR_IN6, SIOCAIFADDR_IN6, C(in6_ridreq), C(in6_addreq) },
-#endif /* INET6 */
 	{ 0,	0,	    0,		0 }
 };
 
@@ -681,11 +704,10 @@ main(int argc, char *argv[])
 	}
 	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
-#ifdef INET6
 	/* initialization */
 	in6_addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
 	in6_addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
-#endif /* INET6 */
+
 	/*
 	 * NOTE:  We must special-case the `create' command right
 	 * here as we would otherwise fail in getinfo().
@@ -700,10 +722,10 @@ main(int argc, char *argv[])
 		create = (argc > 0) && strcmp(argv[0], "destroy") != 0;
 		(void)getinfo(&ifr, create);
 	}
-#ifdef INET6
+
 	if (argc != 0 && af == AF_INET6)
 		addaf(name, AF_INET6);
-#endif
+
 	while (argc > 0) {
 		const struct cmd *p;
 
@@ -865,6 +887,11 @@ getinfo(struct ifreq *ifr, int create)
 	else
 		rdomainid = ifr->ifr_rdomainid;
 #endif
+	if (ioctl(s, SIOCGIFLLPRIO, (caddr_t)ifr) < 0)
+		llprio = 0;
+	else
+		llprio = ifr->ifr_llprio;
+
 	return (0);
 }
 
@@ -993,16 +1020,13 @@ printif(char *ifname, int ifaliases)
 					continue;
 			}
 		}
-#ifdef INET6
 		/* quickhack: sizeof(ifr) < sizeof(ifr6) */
 		if (ifa->ifa_addr->sa_family == AF_INET6) {
 			memset(&ifr6, 0, sizeof(ifr6));
 			memcpy(&ifr6.ifr_addr, ifa->ifa_addr,
 			    MINIMUM(sizeof(ifr6.ifr_addr), ifa->ifa_addr->sa_len));
 			ifrp = (struct ifreq *)&ifr6;
-		} else
-#endif
-		{
+		} else {
 			memset(&ifr, 0, sizeof(ifr));
 			memcpy(&ifr.ifr_addr, ifa->ifa_addr,
 			    MINIMUM(sizeof(ifr.ifr_addr), ifa->ifa_addr->sa_len));
@@ -1295,7 +1319,6 @@ removeaf(const char *vname, int value)
 		warn("SIOCIFAFDETACH");
 }
 
-#ifdef INET6
 void
 setia6flags(const char *vname, int value)
 {
@@ -1354,9 +1377,9 @@ setia6eui64(const char *cmd, int val)
 
 	if (afp->af_af != AF_INET6)
 		errx(1, "%s not allowed for the AF", cmd);
-#ifdef INET6
+
 	addaf(name, AF_INET6);
-#endif
+
 	in6 = (struct in6_addr *)&in6_addreq.ifra_addr.sin6_addr;
 	if (memcmp(&in6addr_any.s6_addr[8], &in6->s6_addr[8], 8) != 0)
 		errx(1, "interface index is already filled");
@@ -1379,17 +1402,14 @@ setia6eui64(const char *cmd, int val)
 
 	freeifaddrs(ifap);
 }
-#endif /* INET6 */
 
 void
 setautoconf(const char *cmd, int val)
 {
 	switch (afp->af_af) {
-#ifdef INET6
 	case AF_INET6:
 		setifxflags("inet6", val * IFXF_AUTOCONF6);
 		break;
-#endif
 	default:
 		errx(1, "autoconf not allowed for this AF");
 	}
@@ -1425,6 +1445,21 @@ setifmtu(const char *val, int d)
 		errx(1, "mtu %s: %s", val, errmsg);
 	if (ioctl(s, SIOCSIFMTU, (caddr_t)&ifr) < 0)
 		warn("SIOCSIFMTU");
+}
+
+/* ARGSUSED */
+void
+setifllprio(const char *val, int d)
+{
+	const char *errmsg = NULL;
+
+	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+
+	ifr.ifr_llprio = strtonum(val, 0, UCHAR_MAX, &errmsg);
+	if (errmsg)
+		errx(1, "llprio %s: %s", val, errmsg);
+	if (ioctl(s, SIOCSIFLLPRIO, (caddr_t)&ifr) < 0)
+		warn("SIOCSIFLLPRIO");
 }
 
 /* ARGSUSED */
@@ -2282,7 +2317,7 @@ ieee80211_listnodes(void)
 void
 ieee80211_printnode(struct ieee80211_nodereq *nr)
 {
-	int len;
+	int len, i;
 
 	if (nr->nr_flags & IEEE80211_NODEREQ_AP ||
 	    nr->nr_capinfo & IEEE80211_CAPINFO_IBSS) {
@@ -2310,11 +2345,29 @@ ieee80211_printnode(struct ieee80211_nodereq *nr)
 
 	if (nr->nr_pwrsave)
 		printf("powersave ");
-	if (nr->nr_nrates) {
-		/* Only print the fastest rate */
-		printf("%uM",
+	/* 
+	 * Print our current Tx rate for associated nodes.
+	 * Print the fastest supported rate for APs.
+	 */
+	if ((nr->nr_flags & (IEEE80211_NODEREQ_AP)) == 0) {
+		if (nr->nr_flags & IEEE80211_NODEREQ_HT) {
+			printf("HT-MCS%d ", nr->nr_txmcs);
+		} else if (nr->nr_nrates) {
+			printf("%uM ",
+			    (nr->nr_rates[nr->nr_txrate] & IEEE80211_RATE_VAL)
+			    / 2);
+		}
+	} else if (nr->nr_max_rxrate) {
+		printf("%uM HT ", nr->nr_max_rxrate);
+	} else if (nr->nr_rxmcs[0] != 0) {
+		for (i = IEEE80211_HT_NUM_MCS - 1; i >= 0; i--) {
+			if (isset(nr->nr_rxmcs, i))
+				break;
+		}
+		printf("HT-MCS%d ", i);
+	} else if (nr->nr_nrates) {
+		printf("%uM ",
 		    (nr->nr_rates[nr->nr_nrates - 1] & IEEE80211_RATE_VAL) / 2);
-		putchar(' ');
 	}
 	/* ESS is the default, skip it */
 	nr->nr_capinfo &= ~IEEE80211_CAPINFO_ESS;
@@ -2821,26 +2874,20 @@ phys_status(int force)
 	(void) strlcpy(req.iflr_name, name, sizeof(req.iflr_name));
 	if (ioctl(s, SIOCGLIFPHYADDR, (caddr_t)&req) < 0)
 		return;
-#ifdef INET6
 	if (req.addr.ss_family == AF_INET6)
 		in6_fillscopeid((struct sockaddr_in6 *)&req.addr);
-#endif /* INET6 */
 	if (getnameinfo((struct sockaddr *)&req.addr, req.addr.ss_len,
 	    psrcaddr, sizeof(psrcaddr), 0, 0, niflag) != 0)
 		strlcpy(psrcaddr, "<error>", sizeof(psrcaddr));
-#ifdef INET6
 	if (req.addr.ss_family == AF_INET6)
 		ver = "6";
-#endif /* INET6 */
 
 	if (req.dstaddr.ss_family == AF_INET)
 		dstport = ((struct sockaddr_in *)&req.dstaddr)->sin_port;
-#ifdef INET6
 	else if (req.dstaddr.ss_family == AF_INET6) {
 		in6_fillscopeid((struct sockaddr_in6 *)&req.dstaddr);
 		dstport = ((struct sockaddr_in6 *)&req.dstaddr)->sin6_port;
 	}
-#endif /* INET6 */
 	if (getnameinfo((struct sockaddr *)&req.dstaddr, req.dstaddr.ss_len,
 	    pdstaddr, sizeof(pdstaddr), 0, 0, niflag) != 0)
 		strlcpy(pdstaddr, "<error>", sizeof(pdstaddr));
@@ -2850,8 +2897,6 @@ phys_status(int force)
 
 	if (dstport)
 		printf(":%u", ntohs(dstport));
-	if (ioctl(s, SIOCGVNETID, (caddr_t)&ifr) == 0)
-		printf(" vnetid %d", ifr.ifr_vnetid);
 	if (ioctl(s, SIOCGLIFPHYTTL, (caddr_t)&ifr) == 0 && ifr.ifr_ttl > 0)
 		printf(" ttl %d", ifr.ifr_ttl);
 #ifndef SMALL
@@ -2903,6 +2948,8 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 #endif
 	uint64_t *media_list;
 	int i;
+	char sep;
+
 
 	printf("%s: ", name);
 	printb("flags", flags | (xflags << 16), IFFBITS);
@@ -2922,6 +2969,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 		(void)printf("\tlladdr %s\n", ether_ntoa(
 		    (struct ether_addr *)LLADDR(sdl)));
 
+	sep = '\t';
 #ifndef SMALL
 	(void) memset(&ifrdesc, 0, sizeof(ifrdesc));
 	(void) strlcpy(ifrdesc.ifr_name, name, sizeof(ifrdesc.ifr_name));
@@ -2930,8 +2978,18 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	    strlen(ifrdesc.ifr_data))
 		printf("\tdescription: %s\n", ifrdesc.ifr_data);
 
-	if (!is_bridge(name) && ioctl(s, SIOCGIFPRIORITY, &ifrdesc) == 0)
-		printf("\tpriority: %d\n", ifrdesc.ifr_metric);
+	if (sdl != NULL) {
+		printf("%cindex %u", sep, sdl->sdl_index);
+		sep = ' ';
+	}
+	if (!is_bridge(name) && ioctl(s, SIOCGIFPRIORITY, &ifrdesc) == 0) {
+		printf("%cpriority %d", sep, ifrdesc.ifr_metric);
+		sep = ' ';
+	}
+#endif
+	printf("%cllprio %d\n", sep, llprio);
+
+#ifndef SMALL
 	(void) memset(&ikardesc, 0, sizeof(ikardesc));
 	(void) strlcpy(ikardesc.ikar_name, name, sizeof(ikardesc.ikar_name));
 	if (ioctl(s, SIOCGETKALIVE, &ikardesc) == 0 &&
@@ -2943,6 +3001,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 		printf("\tpatch: %s\n", ifname);
 #endif
 	vlan_status();
+	getvnetid();
 	getifparent();
 #ifndef SMALL
 	carp_status();
@@ -2953,6 +3012,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	mpe_status();
 	mpw_status();
 	pflow_status();
+	umb_status();
 #endif
 	trunk_status();
 	getifgroups();
@@ -3074,6 +3134,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	phys_status(0);
 #ifndef SMALL
 	bridge_status();
+	switch_status();
 #endif
 }
 
@@ -3147,7 +3208,6 @@ setifprefixlen(const char *addr, int d)
 	explicit_prefix = 1;
 }
 
-#ifdef INET6
 void
 in6_fillscopeid(struct sockaddr_in6 *sin6)
 {
@@ -3283,7 +3343,6 @@ in6_status(int force)
 {
 	in6_alias((struct in6_ifreq *)&ifr6);
 }
-#endif /*INET6*/
 
 #ifndef SMALL
 void
@@ -3373,78 +3432,6 @@ settunnelttl(const char *id, int param)
 	if (ioctl(s, SIOCSLIFPHYTTL, (caddr_t)&ifr) < 0)
 		warn("SIOCSLIFPHYTTL");
 }
-
-void
-setvnetid(const char *id, int param)
-{
-	const char *errmsg = NULL;
-	uint32_t vnetid;
-
-	vnetid = strtonum(id, 0, UINT_MAX, &errmsg);
-	if (errmsg)
-		errx(1, "vnetid %s: %s", id, errmsg);
-
-	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
-	ifr.ifr_vnetid = vnetid;
-	if (ioctl(s, SIOCSVNETID, (caddr_t)&ifr) < 0)
-		warn("SIOCSVNETID");
-}
-
-/* ARGSUSED */
-void
-delvnetid(const char *ignored, int alsoignored)
-{
-	if (ioctl(s, SIOCDVNETID, &ifr) < 0)
-		warn("SIOCDVNETID");
-}
-
-void
-setifparent(const char *id, int param)
-{
-	struct if_parent ifp;
-
-	if (strlcpy(ifp.ifp_name, name, sizeof(ifp.ifp_name)) >=
-	    sizeof(ifp.ifp_name))
-		errx(1, "parent: name too long");
-
-	if (strlcpy(ifp.ifp_parent, id, sizeof(ifp.ifp_parent)) >=
-	    sizeof(ifp.ifp_parent))
-		errx(1, "parent: parent too long");
-
-	if (ioctl(s, SIOCSIFPARENT, (caddr_t)&ifp) < 0)
-		warn("SIOCSIFPARENT");
-}
-
-/* ARGSUSED */
-void
-delifparent(const char *ignored, int alsoignored)
-{
-	if (ioctl(s, SIOCDIFPARENT, &ifr) < 0)
-		warn("SIOCDIFPARENT");
-}
-#endif /* !SMALL */
-
-void
-getifparent(void)
-{
-	struct if_parent ifp;
-	const char *parent = "none";
-
-	memset(&ifp, 0, sizeof(ifp));
-	if (strlcpy(ifp.ifp_name, name, sizeof(ifp.ifp_name)) >=
-	    sizeof(ifp.ifp_name))
-		errx(1, "parent: name too long");
-
-	if (ioctl(s, SIOCGIFPARENT, (caddr_t)&ifp) == -1) {
-		if (errno != EADDRNOTAVAIL)
-			return;
-	} else
-		parent = ifp.ifp_parent;
-
-	printf("\tparent: %s\n", parent);
-}
-
-#ifndef SMALL
 
 void
 mpe_status(void)
@@ -3631,6 +3618,104 @@ setmpwcontrolword(const char *value, int d)
 		imrsave.imr_flags &= ~IMR_FLAG_CONTROLWORD;
 }
 #endif /* SMALL */
+
+void
+setvnetid(const char *id, int param)
+{
+	const char *errmsg = NULL;
+	int64_t vnetid;
+
+	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+
+	if (strcasecmp("any", id) == 0)
+		vnetid = -1;
+	else {
+		vnetid = strtonum(id, 0, INT64_MAX, &errmsg);
+		if (errmsg)
+			errx(1, "vnetid %s: %s", id, errmsg);
+	}
+
+	ifr.ifr_vnetid = vnetid;
+	if (ioctl(s, SIOCSVNETID, (caddr_t)&ifr) < 0)
+		warn("SIOCSVNETID");
+}
+
+/* ARGSUSED */
+void
+delvnetid(const char *ignored, int alsoignored)
+{
+	if (ioctl(s, SIOCDVNETID, &ifr) < 0)
+		warn("SIOCDVNETID");
+}
+
+void
+getvnetid(void)
+{
+	if (strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)) >=
+	    sizeof(ifr.ifr_name))
+		errx(1, "vnetid: name is too long");
+
+	if (ioctl(s, SIOCGVNETID, &ifr) == -1) {
+		if (errno != EADDRNOTAVAIL)
+			return;
+
+		printf("\tvnetid: none\n");
+
+		return;
+	}
+
+	if (ifr.ifr_vnetid < 0) {
+		printf("\tvnetid: any\n");
+		return;
+	}
+
+	printf("\tvnetid: %lld\n", ifr.ifr_vnetid);
+}
+
+void
+setifparent(const char *id, int param)
+{
+	struct if_parent ifp;
+
+	if (strlcpy(ifp.ifp_name, name, sizeof(ifp.ifp_name)) >=
+	    sizeof(ifp.ifp_name))
+		errx(1, "parent: name too long");
+
+	if (strlcpy(ifp.ifp_parent, id, sizeof(ifp.ifp_parent)) >=
+	    sizeof(ifp.ifp_parent))
+		errx(1, "parent: parent too long");
+
+	if (ioctl(s, SIOCSIFPARENT, (caddr_t)&ifp) < 0)
+		warn("SIOCSIFPARENT");
+}
+
+/* ARGSUSED */
+void
+delifparent(const char *ignored, int alsoignored)
+{
+	if (ioctl(s, SIOCDIFPARENT, &ifr) < 0)
+		warn("SIOCDIFPARENT");
+}
+
+void
+getifparent(void)
+{
+	struct if_parent ifp;
+	const char *parent = "none";
+
+	memset(&ifp, 0, sizeof(ifp));
+	if (strlcpy(ifp.ifp_name, name, sizeof(ifp.ifp_name)) >=
+	    sizeof(ifp.ifp_name))
+		errx(1, "parent: name too long");
+
+	if (ioctl(s, SIOCGIFPARENT, (caddr_t)&ifp) == -1) {
+		if (errno != EADDRNOTAVAIL)
+			return;
+	} else
+		parent = ifp.ifp_parent;
+
+	printf("\tparent: %s\n", parent);
+}
 
 static int __tag = 0;
 static int __have_tag = 0;
@@ -4872,6 +4957,403 @@ setifpriority(const char *id, int param)
 	if (ioctl(s, SIOCSIFPRIORITY, (caddr_t)&ifr) < 0)
 		warn("SIOCSIFPRIORITY");
 }
+
+
+const struct umb_valdescr umb_regstate[] = MBIM_REGSTATE_DESCRIPTIONS;
+const struct umb_valdescr umb_dataclass[] = MBIM_DATACLASS_DESCRIPTIONS;
+const struct umb_valdescr umb_simstate[] = MBIM_SIMSTATE_DESCRIPTIONS;
+const struct umb_valdescr umb_istate[] = UMB_INTERNAL_STATE_DESCRIPTIONS;
+const struct umb_valdescr umb_pktstate[] = MBIM_PKTSRV_STATE_DESCRIPTIONS;
+const struct umb_valdescr umb_actstate[] = MBIM_ACTIVATION_STATE_DESCRIPTIONS;
+
+const struct umb_valdescr umb_classalias[] = {
+	{ MBIM_DATACLASS_GPRS | MBIM_DATACLASS_EDGE, "2g" },
+	{ MBIM_DATACLASS_UMTS | MBIM_DATACLASS_HSDPA | MBIM_DATACLASS_HSUPA,
+	    "3g" },
+	{ MBIM_DATACLASS_LTE, "4g" },
+	{ 0, NULL }
+};
+
+int
+umb_descr2val(const struct umb_valdescr *vdp, char *str)
+{
+	while (vdp->descr != NULL) {
+		if (!strcasecmp(vdp->descr, str))
+			return vdp->val;
+		vdp++;
+	}
+	return 0;
+}
+
+void
+umb_status(void)
+{
+	struct umb_info mi;
+	char	 provider[UMB_PROVIDERNAME_MAXLEN+1];
+	char	 roamingtxt[UMB_ROAMINGTEXT_MAXLEN+1];
+	char	 devid[UMB_DEVID_MAXLEN+1];
+	char	 fwinfo[UMB_FWINFO_MAXLEN+1];
+	char	 hwinfo[UMB_HWINFO_MAXLEN+1];
+	char	 sid[UMB_SUBSCRIBERID_MAXLEN+1];
+	char	 iccid[UMB_ICCID_MAXLEN+1];
+	char	 apn[UMB_APN_MAXLEN+1];
+	char	 pn[UMB_PHONENR_MAXLEN+1];
+	int	 i, n;
+
+	memset((char *)&mi, 0, sizeof(mi));
+	ifr.ifr_data = (caddr_t)&mi;
+	if (ioctl(s, SIOCGUMBINFO, (caddr_t)&ifr) == -1)
+		return;
+
+	if (mi.nwerror) {
+		/* 3GPP 24.008 Cause Code */
+		printf("\terror: ");
+		switch (mi.nwerror) {
+		case 2:
+			printf("SIM not activated");
+			break;
+		case 4:
+			printf("Roaming not supported");
+			break;
+		case 6:
+			printf("SIM reported stolen");
+			break;
+		case 7:
+			printf("No GPRS subscription");
+			break;
+		case 8:
+			printf("GPRS and non-GPRS services not allowed");
+			break;
+		case 11:
+			printf("Subscription expired");
+			break;
+		case 12:
+			printf("Subscription does not cover current location");
+			break;
+		case 13:
+			printf("No roaming in this location");
+			break;
+		case 14:
+			printf("GPRS not supported");
+			break;
+		case 15:
+			printf("No subscription for the service");
+			break;
+		case 17:
+			printf("Registration failed");
+			break;
+		case 22:
+			printf("Network congestion");
+			break;
+		default:
+			printf("Error code %d", mi.nwerror);
+			break;
+		}
+		printf("\n");
+	}
+
+	printf("\troaming %s registration %s",
+	    mi.enable_roaming ? "enabled" : "disabled",
+	    umb_val2descr(umb_regstate, mi.regstate));
+	utf16_to_char(mi.roamingtxt, UMB_ROAMINGTEXT_MAXLEN,
+	    roamingtxt, sizeof (roamingtxt));
+	if (roamingtxt[0])
+		printf(" [%s]", roamingtxt);
+	printf("\n");
+
+	if (showclasses)
+		umb_printclasses("available classes", mi.supportedclasses);
+	printf("\tstate %s cell-class %s",
+	    umb_val2descr(umb_istate, mi.state),
+	    umb_val2descr(umb_dataclass, mi.highestclass));
+	if (mi.rssi != UMB_VALUE_UNKNOWN && mi.rssi != 0)
+		printf(" rssi %ddBm", mi.rssi);
+	if (mi.uplink_speed != 0 || mi.downlink_speed != 0) {
+		char s[2][FMT_SCALED_STRSIZE];
+		if (fmt_scaled(mi.uplink_speed, s[0]) != 0)
+			snprintf(s[0], sizeof (s[0]), "%llu", mi.uplink_speed);
+		if (fmt_scaled(mi.downlink_speed, s[1]) != 0)
+			snprintf(s[1], sizeof (s[1]), "%llu", mi.downlink_speed);
+		printf(" speed %sps up %sps down", s[0], s[1]);
+	}
+	printf("\n");
+
+	printf("\tSIM %s PIN ", umb_val2descr(umb_simstate, mi.sim_state));
+	switch (mi.pin_state) {
+	case UMB_PIN_REQUIRED:
+		printf("required");
+		break;
+	case UMB_PIN_UNLOCKED:
+		printf("valid");
+		break;
+	case UMB_PUK_REQUIRED:
+		printf("locked (PUK required)");
+		break;
+	default:
+		printf("unknown state (%d)", mi.pin_state);
+		break;
+	}
+	if (mi.pin_attempts_left != UMB_VALUE_UNKNOWN)
+		printf(" (%d attempts left)", mi.pin_attempts_left);
+	printf("\n");
+
+	utf16_to_char(mi.sid, UMB_SUBSCRIBERID_MAXLEN, sid, sizeof (sid));
+	utf16_to_char(mi.iccid, UMB_ICCID_MAXLEN, iccid, sizeof (iccid));
+	utf16_to_char(mi.provider, UMB_PROVIDERNAME_MAXLEN,
+	    provider, sizeof (provider));
+	if (sid[0] || iccid[0] || provider[0]) {
+		printf("\t");
+		n = 0;
+		if (sid[0])
+			printf("%ssubscriber-id %s", n++ ? " " : "", sid);
+		if (iccid[0])
+			printf("%sICC-id %s", n++ ? " " : "", iccid);
+		if (provider[0])
+			printf("%sprovider %s", n ? " " : "", provider);
+		printf("\n");
+	}
+
+	utf16_to_char(mi.hwinfo, UMB_HWINFO_MAXLEN, hwinfo, sizeof (hwinfo));
+	utf16_to_char(mi.devid, UMB_DEVID_MAXLEN, devid, sizeof (devid));
+	utf16_to_char(mi.fwinfo, UMB_FWINFO_MAXLEN, fwinfo, sizeof (fwinfo));
+	if (hwinfo[0] || devid[0] || fwinfo[0]) {
+		printf("\t");
+		n = 0;
+		if (hwinfo[0])
+			printf("%sdevice %s", n++ ? " " : "", hwinfo);
+		if (devid[0]) {
+			printf("%s", n++ ? " " : "");
+			switch (mi.cellclass) {
+			case MBIM_CELLCLASS_GSM:
+				printf("IMEI");
+				break;
+			case MBIM_CELLCLASS_CDMA:
+				n = strlen(devid);
+				if (n == 8 || n == 11) {
+					printf("ESN");
+					break;
+				} else if (n == 14 || n == 18) {
+					printf("MEID");
+					break;
+				}
+				/*FALLTHROUGH*/
+			default:
+				printf("ID");
+				break;
+			}
+			printf(" %s", devid);
+		}
+		if (fwinfo[0])
+			printf("%sfirmware %s", n++ ? " " : "", fwinfo);
+		printf("\n");
+	}
+
+	utf16_to_char(mi.pn, UMB_PHONENR_MAXLEN, pn, sizeof (pn));
+	utf16_to_char(mi.apn, UMB_APN_MAXLEN, apn, sizeof (apn));
+	if (pn[0] || apn[0]) {
+		printf("\t");
+		n = 0;
+		if (pn[0])
+			printf("%sphone# +%s", n++ ? " " : "", pn);
+		if (apn[0])
+			printf("%sAPN %s", n++ ? " " : "", apn);
+		printf("\n");
+	}
+
+	for (i = 0, n = 0; i < UMB_MAX_DNSSRV; i++) {
+		if (mi.ipv4dns[i] == INADDR_ANY)
+			break;
+		printf("%s %s", n++ ? "" : "\tdns",
+		    inet_ntoa(*(struct in_addr *)&mi.ipv4dns[i]));
+	}
+	if (n)
+		printf("\n");
+}
+
+void
+umb_printclasses(char *tag, int c)
+{
+	int	 i;
+	char	*sep = "";
+
+	printf("\t%s: ", tag);
+	i = 0;
+	while (umb_dataclass[i].descr) {
+		if (umb_dataclass[i].val & c) {
+			printf("%s%s", sep, umb_dataclass[i].descr);
+			sep = ",";
+		}
+		i++;
+	}
+	printf("\n");
+}
+
+int
+umb_parse_classes(const char *spec)
+{
+	char	*optlist, *str;
+	int	 c = 0, v;
+
+	if ((optlist = strdup(spec)) == NULL)
+		err(1, "strdup");
+	str = strtok(optlist, ",");
+	while (str != NULL) {
+		if ((v = umb_descr2val(umb_dataclass, str)) != 0 ||
+		    (v = umb_descr2val(umb_classalias, str)) != 0)
+			c |= v;
+		str = strtok(NULL, ",");
+	}
+	free(optlist);
+	return c;
+}
+
+void
+umb_setpin(const char *pin, int d)
+{
+	umb_pinop(MBIM_PIN_OP_ENTER, 0, pin, NULL);
+}
+
+void
+umb_chgpin(const char *pin, const char *newpin)
+{
+	umb_pinop(MBIM_PIN_OP_CHANGE, 0, pin, newpin);
+}
+
+void
+umb_puk(const char *pin, const char *newpin)
+{
+	umb_pinop(MBIM_PIN_OP_ENTER, 1, pin, newpin);
+}
+
+void
+umb_pinop(int op, int is_puk, const char *pin, const char *newpin)
+{
+	struct umb_parameter mp;
+
+	memset(&mp, 0, sizeof (mp));
+	ifr.ifr_data = (caddr_t)&mp;
+	if (ioctl(s, SIOCGUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCGUMBPARAM");
+
+	mp.op = op;
+	mp.is_puk = is_puk;
+	if ((mp.pinlen = char_to_utf16(pin, (uint16_t *)mp.pin,
+	    sizeof (mp.pin))) == -1)
+		errx(1, "PIN too long");
+
+	if (newpin) {
+		if ((mp.newpinlen = char_to_utf16(newpin, (uint16_t *)mp.newpin,
+		    sizeof (mp.newpin))) == -1)
+		errx(1, "new PIN too long");
+	}
+
+	if (ioctl(s, SIOCSUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCSUMBPARAM");
+}
+
+void
+umb_apn(const char *apn, int d)
+{
+	struct umb_parameter mp;
+
+	memset(&mp, 0, sizeof (mp));
+	ifr.ifr_data = (caddr_t)&mp;
+	if (ioctl(s, SIOCGUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCGUMBPARAM");
+
+	if (d != 0)
+		memset(mp.apn, 0, sizeof (mp.apn));
+	else if ((mp.apnlen = char_to_utf16(apn, mp.apn,
+	    sizeof (mp.apn))) == -1)
+		errx(1, "APN too long");
+
+	if (ioctl(s, SIOCSUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCSUMBPARAM");
+}
+
+void
+umb_setclass(const char *val, int d)
+{
+	struct umb_parameter mp;
+
+	if (val == NULL) {
+		if (showclasses)
+			usage(1);
+		showclasses = 1;
+		return;
+	}
+
+	memset(&mp, 0, sizeof (mp));
+	ifr.ifr_data = (caddr_t)&mp;
+	if (ioctl(s, SIOCGUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCGUMBPARAM");
+	if (d != -1)
+		mp.preferredclasses = umb_parse_classes(val);
+	else
+		mp.preferredclasses = MBIM_DATACLASS_NONE;
+	if (ioctl(s, SIOCSUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCSUMBPARAM");
+}
+
+void
+umb_roaming(const char *val, int d)
+{
+	struct umb_parameter mp;
+
+	memset(&mp, 0, sizeof (mp));
+	ifr.ifr_data = (caddr_t)&mp;
+	if (ioctl(s, SIOCGUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCGUMBPARAM");
+	mp.roaming = d;
+	if (ioctl(s, SIOCSUMBPARAM, (caddr_t)&ifr) == -1)
+		err(1, "SIOCSUMBPARAM");
+}
+
+void
+utf16_to_char(uint16_t *in, int inlen, char *out, size_t outlen)
+{
+	uint16_t c;
+
+	while (outlen > 0) {
+		c = inlen > 0 ? letoh16(*in) : 0;
+		if (c == 0 || --outlen == 0) {
+			/* always NUL terminate result */
+done:
+			*out = '\0';
+			break;
+		}
+		*out++ = isascii(c) ? (char)c : '?';
+		in++;
+		inlen -= sizeof (*in);
+	}
+}
+
+int
+char_to_utf16(const char *in, uint16_t *out, size_t outlen)
+{
+	int	 n = 0;
+	uint16_t c;
+
+	for (;;) {
+		c = *in++;
+
+		if (c == '\0') {
+			/*
+			 * NUL termination is not required, but zero out the
+			 * residual buffer
+			 */
+			memset(out, 0, outlen);
+			return n;
+		}
+		if (outlen < sizeof (*out))
+			return -1;
+
+		*out++ = htole16(c);
+		n += sizeof (*out);
+		outlen -= sizeof (*out);
+	}
+}
+
 #endif
 
 #define SIN(x) ((struct sockaddr_in *) &(x))
@@ -4995,7 +5477,6 @@ printb_status(unsigned short v, unsigned char *bits)
 	}
 }
 
-#ifdef INET6
 #define SIN6(x) ((struct sockaddr_in6 *) &(x))
 struct sockaddr_in6 *sin6tab[] = {
 SIN6(in6_ridreq.ifr_addr), SIN6(in6_addreq.ifra_addr),
@@ -5090,7 +5571,6 @@ prefix(void *val, int size)
 			return (0);
 	return (plen);
 }
-#endif /*INET6*/
 
 /* Print usage, exit(value) if value is non-zero. */
 void
@@ -5171,7 +5651,6 @@ printifhwfeatures(const char *unused, int show)
 }
 #endif
 
-#ifdef INET6
 char *
 sec2str(time_t total)
 {
@@ -5182,7 +5661,6 @@ sec2str(time_t total)
 	snprintf(p, end - p, "%lld", (long long)total);
 	return (result);
 }
-#endif /* INET6 */
 
 /*ARGSUSED*/
 void
@@ -5212,7 +5690,7 @@ setiflladdr(const char *addr, int param)
 
 #ifndef SMALL
 void
-setinstance(const char *id, int param)
+setrdomain(const char *id, int param)
 {
 	const char *errmsg = NULL;
 	int rdomainid;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.16 2016/01/31 00:14:50 jsg Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.27 2016/08/22 01:42:00 jsg Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.29 2003/09/06 09:08:35 rearnsha Exp $	*/
 
 /*
@@ -57,7 +57,8 @@ struct cpu_functions {
 
 	/* MMU functions */
 
-	u_int	(*cf_control)		(u_int bic, u_int eor);
+	u_int	(*cf_control)		(u_int clear, u_int set);
+	u_int	(*cf_auxcontrol)	(u_int clear, u_int set);
 	void	(*cf_domains)		(u_int domains);
 	void	(*cf_setttb)		(u_int ttb);
 	u_int	(*cf_dfsr)		(void);
@@ -139,6 +140,7 @@ struct cpu_functions {
 	void	(*cf_sdcache_wbinv_range) (vaddr_t, paddr_t, vsize_t);
 	void	(*cf_sdcache_inv_range)	(vaddr_t, paddr_t, vsize_t);
 	void	(*cf_sdcache_wb_range)	(vaddr_t, paddr_t, vsize_t);
+	void	(*cf_sdcache_drain_writebuf) (void);
 
 	/* Other functions */
 
@@ -158,7 +160,8 @@ extern u_int cputype;
 #define cpu_id()		cpufuncs.cf_id()
 #define	cpu_cpwait()		cpufuncs.cf_cpwait()
 
-#define cpu_control(c, e)	cpufuncs.cf_control(c, e)
+#define cpu_control(c, s)	cpufuncs.cf_control(c, s)
+#define cpu_auxcontrol(c, s)	cpufuncs.cf_auxcontrol(c, s)
 #define cpu_domains(d)		cpufuncs.cf_domains(d)
 #define cpu_setttb(t)		cpufuncs.cf_setttb(t)
 #define cpu_dfsr()		cpufuncs.cf_dfsr()
@@ -189,6 +192,7 @@ extern u_int cputype;
 #define	cpu_sdcache_wbinv_range(va, pa, s) cpufuncs.cf_sdcache_wbinv_range((va), (pa), (s))
 #define	cpu_sdcache_inv_range(va, pa, s) cpufuncs.cf_sdcache_inv_range((va), (pa), (s))
 #define	cpu_sdcache_wb_range(va, pa, s) cpufuncs.cf_sdcache_wb_range((va), (pa), (s))
+#define	cpu_sdcache_drain_writebuf() cpufuncs.cf_sdcache_drain_writebuf()
 
 #define	cpu_flush_prefetchbuf()	cpufuncs.cf_flush_prefetchbuf()
 #define	cpu_drain_writebuf()	cpufuncs.cf_drain_writebuf()
@@ -206,164 +210,13 @@ void	cpufunc_nullop		(void);
 int	early_abort_fixup	(void *);
 int	late_abort_fixup	(void *);
 u_int	cpufunc_id		(void);
-u_int	cpufunc_control		(u_int clear, u_int bic);
+u_int	cpufunc_control		(u_int clear, u_int set);
+u_int	cpufunc_auxcontrol	(u_int clear, u_int set);
 void	cpufunc_domains		(u_int domains);
 u_int	cpufunc_dfsr		(void);
 u_int	cpufunc_dfar		(void);
 u_int	cpufunc_ifsr		(void);
 u_int	cpufunc_ifar		(void);
-
-#ifdef CPU_ARM8
-void	arm8_setttb		(u_int ttb);
-void	arm8_tlb_flushID	(void);
-void	arm8_tlb_flushID_SE	(u_int va);
-void	arm8_cache_flushID	(void);
-void	arm8_cache_flushID_E	(u_int entry);
-void	arm8_cache_cleanID	(void);
-void	arm8_cache_cleanID_E	(u_int entry);
-void	arm8_cache_purgeID	(void);
-void	arm8_cache_purgeID_E	(u_int entry);
-
-void	arm8_cache_syncI	(void);
-void	arm8_cache_cleanID_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_cleanD_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_purgeID_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_purgeD_rng	(vaddr_t start, vsize_t end);
-void	arm8_cache_syncI_rng	(vaddr_t start, vsize_t end);
-
-void	arm8_context_switch	(u_int);
-
-void	arm8_setup		(void);
-
-u_int	arm8_clock_config	(u_int, u_int);
-#endif
-
-#if defined(CPU_SA1100) || defined(CPU_SA1110)
-void	sa11x0_drain_readbuf	(void);
-
-void	sa11x0_context_switch	(u_int);
-void	sa11x0_cpu_sleep	(int mode);
- 
-void	sa11x0_setup		(void);
-#endif
-
-#if defined(CPU_SA1100) || defined(CPU_SA1110)
-void	sa1_setttb		(u_int ttb);
-
-void	sa1_tlb_flushID_SE	(u_int va);
-
-void	sa1_cache_flushID	(void);
-void	sa1_cache_flushI	(void);
-void	sa1_cache_flushD	(void);
-void	sa1_cache_flushD_SE	(u_int entry);
-
-void	sa1_cache_cleanID	(void);
-void	sa1_cache_cleanD	(void);
-void	sa1_cache_cleanD_E	(u_int entry);
-
-void	sa1_cache_purgeID	(void);
-void	sa1_cache_purgeID_E	(u_int entry);
-void	sa1_cache_purgeD	(void);
-void	sa1_cache_purgeD_E	(u_int entry);
-
-void	sa1_cache_syncI		(void);
-void	sa1_cache_cleanID_rng	(vaddr_t start, vsize_t end);
-void	sa1_cache_cleanD_rng	(vaddr_t start, vsize_t end);
-void	sa1_cache_purgeID_rng	(vaddr_t start, vsize_t end);
-void	sa1_cache_purgeD_rng	(vaddr_t start, vsize_t end);
-void	sa1_cache_syncI_rng	(vaddr_t start, vsize_t end);
-
-#endif
-
-#ifdef CPU_ARM9
-void	arm9_setttb			(u_int);
-
-void	arm9_tlb_flushID_SE		(u_int);
-
-void	arm9_icache_sync_all		(void);
-void	arm9_icache_sync_range		(vaddr_t, vsize_t);
-
-void	arm9_dcache_wbinv_all		(void);
-void	arm9_dcache_wbinv_range		(vaddr_t, vsize_t);
-void	arm9_dcache_inv_range		(vaddr_t, vsize_t);
-void	arm9_dcache_wb_range		(vaddr_t, vsize_t);
-
-void	arm9_idcache_wbinv_all		(void);
-void	arm9_idcache_wbinv_range	(vaddr_t, vsize_t);
-
-void	arm9_context_switch		(u_int);
-
-void	arm9_setup			(void);
-
-extern unsigned arm9_dcache_sets_max;
-extern unsigned arm9_dcache_sets_inc;
-extern unsigned arm9_dcache_index_max;
-extern unsigned arm9_dcache_index_inc;
-#endif
-
-#if defined(CPU_ARM9E) || defined(CPU_ARM10)
-void	arm10_tlb_flushID_SE	(u_int);
-void	arm10_tlb_flushI_SE	(u_int);
-
-void	arm10_context_switch	(u_int);
-
-void	arm9e_setup		(void);
-void	arm10_setup		(void);
-#endif
-
-#if defined(CPU_ARM9E) || defined (CPU_ARM10)
-void	armv5_ec_setttb			(u_int);
-
-void	armv5_ec_icache_sync_all	(void);
-void	armv5_ec_icache_sync_range	(vaddr_t, vsize_t);
-
-void	armv5_ec_dcache_wbinv_all	(void);
-void	armv5_ec_dcache_wbinv_range	(vaddr_t, vsize_t);
-void	armv5_ec_dcache_inv_range	(vaddr_t, vsize_t);
-void	armv5_ec_dcache_wb_range	(vaddr_t, vsize_t);
-
-void	armv5_ec_idcache_wbinv_all	(void);
-void	armv5_ec_idcache_wbinv_range	(vaddr_t, vsize_t);
-#endif
-
-#ifdef CPU_ARM11
-void	arm11_setttb		(u_int);
-
-void	arm11_tlb_flushID_SE	(u_int);
-void	arm11_tlb_flushI_SE	(u_int);
-
-void	arm11_context_switch	(u_int);
-
-void	arm11_setup		(void);
-void	arm11_tlb_flushID	(void);
-void	arm11_tlb_flushI	(void);
-void	arm11_tlb_flushD	(void);
-void	arm11_tlb_flushD_SE	(u_int	va);
-
-void	arm11_drain_writebuf	(void);
-void	arm11_cpu_sleep		(int	mode);
-#endif
-
-
-#if defined (CPU_ARM10) || defined(CPU_ARM11)
-void	armv5_setttb			(u_int);
-
-void	armv5_icache_sync_all		(void);
-void	armv5_icache_sync_range		(vaddr_t, vsize_t);
-
-void	armv5_dcache_wbinv_all		(void);
-void	armv5_dcache_wbinv_range	(vaddr_t, vsize_t);
-void	armv5_dcache_inv_range		(vaddr_t, vsize_t);
-void	armv5_dcache_wb_range		(vaddr_t, vsize_t);
-
-void	armv5_idcache_wbinv_all		(void);
-void	armv5_idcache_wbinv_range	(vaddr_t, vsize_t);
-
-extern unsigned armv5_dcache_sets_max;
-extern unsigned armv5_dcache_sets_inc;
-extern unsigned armv5_dcache_index_max;
-extern unsigned armv5_dcache_index_inc;
-#endif
 
 #ifdef CPU_ARMv7
 void	armv7_setttb		(u_int);
@@ -402,11 +255,7 @@ extern unsigned armv7_dcache_index_inc;
 #endif
 
 
-#if defined(CPU_ARM9) || defined(CPU_ARM9E) || defined(CPU_ARM10) || \
-    defined(CPU_SA1100) || defined(CPU_SA1110) || \
-    defined(CPU_XSCALE_80200) || defined(CPU_XSCALE_80321) || \
-    defined(CPU_XSCALE_PXA2X0) || defined(CPU_XSCALE_IXP425)
-
+#if defined(CPU_XSCALE_PXA2X0)
 void	armv4_tlb_flushID	(void);
 void	armv4_tlb_flushI	(void);
 void	armv4_tlb_flushD	(void);
@@ -415,15 +264,7 @@ void	armv4_tlb_flushD_SE	(u_int va);
 void	armv4_drain_writebuf	(void);
 #endif
 
-#if defined(CPU_IXP12X0)
-void	ixp12x0_drain_readbuf	(void);
-void	ixp12x0_context_switch	(u_int);
-void	ixp12x0_setup		(void);
-#endif
-
-#if defined(CPU_XSCALE_80200) || defined(CPU_XSCALE_80321) || \
-    defined(CPU_XSCALE_PXA2X0) || defined(CPU_XSCALE_IXP425) || \
-    (ARM_MMU_XSCALE == 1)
+#if defined(CPU_XSCALE_PXA2X0) || (ARM_MMU_XSCALE == 1)
 void	xscale_cpwait		(void);
 
 void	xscale_cpu_sleep	(int mode);
@@ -461,7 +302,7 @@ void	xscale_cache_flushD_rng	(vaddr_t start, vsize_t end);
 void	xscale_context_switch	(u_int);
 
 void	xscale_setup		(void);
-#endif	/* CPU_XSCALE_80200 || CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 || CPU_XSCALE_IXP425 */
+#endif	/* CPU_XSCALE_PXA2X0 */
 
 #define tlb_flush	cpu_tlb_flushID
 #define setttb		cpu_setttb

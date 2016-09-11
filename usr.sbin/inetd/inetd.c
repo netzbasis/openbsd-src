@@ -1,4 +1,4 @@
-/*	$OpenBSD: inetd.c,v 1.150 2015/12/22 19:44:01 mmcc Exp $	*/
+/*	$OpenBSD: inetd.c,v 1.154 2016/08/25 05:23:19 tedu Exp $	*/
 
 /*
  * Copyright (c) 1983,1991 The Regents of the University of California.
@@ -420,7 +420,7 @@ gettcp(int fd, short events, void *xsep)
 		}
 		if (getnameinfo((struct sockaddr *)&peer, plen, NULL, 0,
 		    sbuf, sizeof(sbuf), NI_NUMERICSERV) == 0 &&
-		    atoi(sbuf) == 20) {
+		    strtonum(sbuf, 1, USHRT_MAX, NULL) == 20) {
 			/*
 			 * ignore things that look like ftp bounce
 			 */
@@ -549,7 +549,7 @@ config(int sig, short event, void *arg)
 {
 	struct servtab *sep, *cp, **sepp;
 	int add;
-	char protoname[10];
+	char protoname[11];
 
 	if (!setconfig()) {
 		syslog(LOG_ERR, "%s: %m", CONFIG);
@@ -624,7 +624,8 @@ config(int sig, short event, void *arg)
 			if (isrpcservice(sep)) {
 				struct rpcent *rp;
 
-				sep->se_rpcprog = atoi(sep->se_service);
+				sep->se_rpcprog = strtonum(sep->se_service,
+				    1, USHRT_MAX, NULL);
 				if (sep->se_rpcprog == 0) {
 					rp = getrpcbyname(sep->se_service);
 					if (rp == 0) {
@@ -640,12 +641,12 @@ config(int sig, short event, void *arg)
 				if (sep->se_fd != -1)
 					register_rpc(sep);
 			} else {
-				u_short port = htons(atoi(sep->se_service));
+				u_short port = htons(strtonum(sep->se_service,
+				    1, USHRT_MAX, NULL));
 
 				if (!port) {
-					/* XXX */
-					strncpy(protoname, sep->se_proto,
-						sizeof(protoname));
+					(void)strlcpy(protoname, sep->se_proto,
+					    sizeof(protoname));
 					if (isdigit((unsigned char)
 					    protoname[strlen(protoname) - 1]))
 						protoname[strlen(protoname) - 1] = '\0';
@@ -679,7 +680,8 @@ config(int sig, short event, void *arg)
 			if (isrpcservice(sep)) {
 				struct rpcent *rp;
 
-				sep->se_rpcprog = atoi(sep->se_service);
+				sep->se_rpcprog = strtonum(sep->se_service,
+				    1, USHRT_MAX, NULL);
 				if (sep->se_rpcprog == 0) {
 					rp = getrpcbyname(sep->se_service);
 					if (rp == 0) {
@@ -695,12 +697,12 @@ config(int sig, short event, void *arg)
 				if (sep->se_fd != -1)
 					register_rpc(sep);
 			} else {
-				u_short port = htons(atoi(sep->se_service));
+				u_short port = htons(strtonum(sep->se_service,
+				    1, USHRT_MAX, NULL));
 
 				if (!port) {
-					/* XXX */
-					strncpy(protoname, sep->se_proto,
-						sizeof(protoname));
+					(void)strlcpy(protoname, sep->se_proto,
+					    sizeof(protoname));
 					if (isdigit((unsigned char)
 					    protoname[strlen(protoname) - 1]))
 						protoname[strlen(protoname) - 1] = '\0';
@@ -1249,7 +1251,6 @@ more:
 			hints.ai_socktype = sep->se_socktype;
 			hints.ai_flags = AI_PASSIVE;
 			port = "0";
-			/* XXX shortened IPv4 syntax is now forbidden */
 			error = getaddrinfo(strcmp(host, "*") ? host : NULL,
 			    port, &hints, &res0);
 			if (error) {
@@ -1453,7 +1454,6 @@ bump_nofile(void)
  */
 #define	BUFSIZE	4096
 
-/* ARGSUSED */
 void
 echo_stream(int s, struct servtab *sep)
 {
@@ -1467,7 +1467,6 @@ echo_stream(int s, struct servtab *sep)
 	exit(0);
 }
 
-/* ARGSUSED */
 void
 echo_dg(int s, struct servtab *sep)
 {
@@ -1485,7 +1484,6 @@ echo_dg(int s, struct servtab *sep)
 	(void) sendto(s, buffer, i, 0, (struct sockaddr *)&ss, size);
 }
 
-/* ARGSUSED */
 void
 discard_stream(int s, struct servtab *sep)
 {
@@ -1498,7 +1496,6 @@ discard_stream(int s, struct servtab *sep)
 	exit(0);
 }
 
-/* ARGSUSED */
 void
 discard_dg(int s, struct servtab *sep)
 {
@@ -1524,7 +1521,6 @@ initring(void)
 			*endring++ = i;
 }
 
-/* ARGSUSED */
 void
 chargen_stream(int s, struct servtab *sep)
 {
@@ -1556,7 +1552,6 @@ chargen_stream(int s, struct servtab *sep)
 	exit(0);
 }
 
-/* ARGSUSED */
 void
 chargen_dg(int s, struct servtab *sep)
 {
@@ -1609,7 +1604,6 @@ machtime(void)
 	return (htonl((u_int32_t)tv.tv_sec + 2208988800UL));
 }
 
-/* ARGSUSED */
 void
 machtime_stream(int s, struct servtab *sep)
 {
@@ -1619,7 +1613,6 @@ machtime_stream(int s, struct servtab *sep)
 	(void) write(s, &result, sizeof(result));
 }
 
-/* ARGSUSED */
 void
 machtime_dg(int s, struct servtab *sep)
 {
@@ -1639,7 +1632,6 @@ machtime_dg(int s, struct servtab *sep)
 }
 
 /* Return human-readable time of day */
-/* ARGSUSED */
 void
 daytime_stream(int s, struct servtab *sep)
 {
@@ -1653,7 +1645,6 @@ daytime_stream(int s, struct servtab *sep)
 }
 
 /* Return human-readable time of day */
-/* ARGSUSED */
 void
 daytime_dg(int s, struct servtab *sep)
 {

@@ -1,4 +1,4 @@
-/* $OpenBSD: wsdisplay_compat_usl.c,v 1.29 2016/03/03 18:00:49 naddy Exp $ */
+/* $OpenBSD: wsdisplay_compat_usl.c,v 1.31 2016/04/24 17:30:31 matthieu Exp $ */
 /* $NetBSD: wsdisplay_compat_usl.c,v 1.12 2000/03/23 07:01:47 thorpej Exp $ */
 
 /*
@@ -321,16 +321,6 @@ wsdisplay_usl_ioctl1(struct wsdisplay_softc *sc, u_long cmd, caddr_t data,
 #undef ss
 		return (0);
 
-#ifdef WSDISPLAY_COMPAT_PCVT
-	    case VGAPCVTID:
-#define id ((struct pcvtid *)data)
-		strlcpy(id->name, "pcvt", sizeof id->name);
-		id->rmajor = 3;
-		id->rminor = 32;
-#undef id
-		return (0);
-#endif
-
 	    default:
 		return (-1);
 	}
@@ -392,14 +382,6 @@ wsdisplay_usl_ioctl2(struct wsdisplay_softc *sc, struct wsscreen *scr,
 #undef d
 		return (0);
 
-#if defined(__i386__)
-	    case KDENABIO:
-		if (suser(p, 0) || securelevel > 0)
-			return (EPERM);
-		/* FALLTHROUGH */
-	    case KDDISABIO:
-		return (0);
-#else
 	    case KDENABIO:
 	    case KDDISABIO:
 		/*
@@ -407,7 +389,7 @@ wsdisplay_usl_ioctl2(struct wsdisplay_softc *sc, struct wsscreen *scr,
 		 * issue these ioctls anyway.
 		 */
 		return (0);
-#endif
+
 	    case KDSETRAD:
 		/* XXX ignore for now */
 		return (0);

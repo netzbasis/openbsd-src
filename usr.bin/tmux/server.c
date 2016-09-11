@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.157 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.159 2016/07/07 09:24:09 semarie Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -124,7 +124,7 @@ server_create_socket(void)
 		return (-1);
 	umask(mask);
 
-	if (listen(fd, 16) == -1)
+	if (listen(fd, 128) == -1)
 		return (-1);
 	setblocking(fd, 0);
 
@@ -258,7 +258,7 @@ server_update_socket(void)
 
 		if (stat(socket_path, &sb) != 0)
 			return;
-		mode = sb.st_mode;
+		mode = sb.st_mode & ACCESSPERMS;
 		if (n != 0) {
 			if (mode & S_IRUSR)
 				mode |= S_IXUSR;

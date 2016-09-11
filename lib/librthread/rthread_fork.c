@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread_fork.c,v 1.15 2016/01/27 08:40:05 kettenis Exp $ */
+/*	$OpenBSD: rthread_fork.c,v 1.19 2016/09/04 10:13:35 akfaew Exp $ */
 
 /*
  * Copyright (c) 2008 Kurt Miller <kurt@openbsd.org>
@@ -39,24 +39,25 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <tib.h>
 #include <unistd.h>
 
 #include "thread_private.h"	/* in libc/include */
 
 #include "rthread.h"
+#include "rthread_cb.h"
 
-pid_t   _thread_sys_fork(void);
-pid_t   _thread_sys_vfork(void);
-pid_t	_dofork(int);
+/* make {fork,vfork,getthrid} call _thread_sys_{fork,vfork,getthrid} */
+REDIRECT_SYSCALL(fork);
+REDIRECT_SYSCALL(vfork);
+REDIRECT_SYSCALL(getthrid);
 
-pid_t
-_dofork(int is_vfork)
+static pid_t
+_dofork(pid_t (*sys_fork)(void))
 {
 	pthread_t me;
-	pid_t (*sys_fork)(void);
 	pid_t newid;
-
-	sys_fork = is_vfork ? &_thread_sys_vfork : &_thread_sys_fork;
+	int i;
 
 	if (!_threads_ready)
 		return sys_fork();
@@ -76,7 +77,8 @@ _dofork(int is_vfork)
 #endif
 
 	_thread_atexit_lock();
-	_thread_malloc_lock();
+	for (i = 0; i < _MALLOC_MUTEXES; i++)
+		_thread_malloc_lock(i);
 	_thread_arc4_lock();
 
 	newid = sys_fork();
@@ -85,28 +87,26 @@ _dofork(int is_vfork)
 	if (newid == 0)
 		_thread_malloc_reinit();
 	else
-		_thread_malloc_unlock();
+		for (i = 0; i < _MALLOC_MUTEXES; i++)
+			_thread_malloc_unlock(i);
 	_thread_atexit_unlock();
 
 	if (newid == 0) {
+		struct tib *tib = me->tib;
 #ifndef NO_PIC
 		/* reinitialize the lock in the child */
 		if (_DYNAMIC)
 			_rthread_dl_lock(2);
 #endif
 		/* update this thread's structure */
-		me->tid = getthrid();
-		me->donesem.lock = _SPINLOCK_UNLOCKED_ASSIGN;
-		me->flags &= ~THREAD_DETACHED;
-		me->flags_lock = _SPINLOCK_UNLOCKED_ASSIGN;
-
-		/* this thread is the initial thread for the new process */
-		me->flags |= THREAD_ORIGINAL;
+		tib->tib_tid = getthrid();
+		me->donesem.lock = _SPINLOCK_UNLOCKED;
+		me->flags_lock = _SPINLOCK_UNLOCKED;
 
 		/* reinit the thread list */
 		LIST_INIT(&_thread_list);
 		LIST_INSERT_HEAD(&_thread_list, me, threads);
-		_thread_lock = _SPINLOCK_UNLOCKED_ASSIGN;
+		_thread_lock = _SPINLOCK_UNLOCKED;
 
 		/* single threaded now */
 		__isthreaded = 0;
@@ -121,11 +121,11 @@ _dofork(int is_vfork)
 pid_t
 _thread_fork(void)
 {
-	return _dofork(0);
+	return _dofork(&fork);
 }
 
 pid_t
-vfork(void)
+_thread_vfork(void)
 {
-	return _dofork(1);
+	return _dofork(&vfork);
 }

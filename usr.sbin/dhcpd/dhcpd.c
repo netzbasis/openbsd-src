@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.c,v 1.50 2016/02/06 23:50:10 krw Exp $ */
+/*	$OpenBSD: dhcpd.c,v 1.52 2016/08/27 01:26:22 guenther Exp $ */
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@cvs.openbsd.org>
@@ -54,6 +54,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "dhcp.h"
@@ -240,12 +241,8 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if (udpsockmode) {
+	if (udpsockmode)
 		udpsock_startup(udpaddr);
-	} else {
-		if (pledge("stdio rpath inet sendfd proc id", NULL) == -1)
-			err(1, "pledge");
-	}
 
 	icmp_startup(1, lease_pinged);
 

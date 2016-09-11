@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vfsops.c,v 1.152 2016/02/27 18:50:38 natano Exp $	*/
+/*	$OpenBSD: ffs_vfsops.c,v 1.163 2016/09/07 17:30:13 natano Exp $	*/
 /*	$NetBSD: ffs_vfsops.c,v 1.19 1996/02/09 22:22:26 christos Exp $	*/
 
 /*
@@ -97,6 +97,47 @@ struct inode_vtbl ffs_vtbl = {
 	ffs_bufatoff
 };
 
+int
+ffs_checkrange(struct mount *mp, uint32_t ino)
+{
+	struct buf *bp;
+	struct cg *cgp;
+	struct fs *fs;
+	struct ufsmount *ump;
+	int cg, error;
+
+	fs = VFSTOUFS(mp)->um_fs;
+	if (ino < ROOTINO || ino >= fs->fs_ncg * fs->fs_ipg)
+		return ESTALE;
+
+	/*
+	 * Need to check if inode is initialized because ffsv2 does
+	 * lazy initialization and we can get here from nfs_fhtovp
+	 */
+	if (fs->fs_magic != FS_UFS2_MAGIC)
+		return 0;
+
+	cg = ino_to_cg(fs, ino);
+	ump = VFSTOUFS(mp);
+
+	error = bread(ump->um_devvp, fsbtodb(fs, cgtod(fs, cg)),
+	    (int)fs->fs_cgsize, &bp);
+	if (error)
+		return error;
+
+	cgp = (struct cg *)bp->b_data;
+	if (!cg_chkmagic(cgp)) {
+		brelse(bp);
+		return ESTALE;
+	}
+
+	brelse(bp);
+
+	if (cg * fs->fs_ipg + cgp->cg_initediblk < ino)
+		return ESTALE;
+
+	return 0;
+}
 
 /*
  * Called by main() when ufs is going to be mounted as root.
@@ -172,7 +213,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	char fspec[MNAMELEN];
 	int error = 0, flags;
 	int ronly;
-	mode_t accessmode;
 
 	error = copyin(data, &args, sizeof(struct ufs_args));
 	if (error)
@@ -264,19 +304,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 			goto error_1;
 
 		if (ronly && (mp->mnt_flag & MNT_WANTRDWR)) {
-			/*
-			 * If upgrade to read-write by non-root, then verify
-			 * that user has necessary permissions on the device.
-			 */
-			if (suser(p, 0)) {
-				vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-				error = VOP_ACCESS(devvp, VREAD | VWRITE,
-						   p->p_ucred, p);
-				VOP_UNLOCK(devvp, 0, p);
-				if (error)
-					goto error_1;
-			}
-
 			if (fs->fs_clean == 0) {
 #if 0
 				/*
@@ -353,21 +380,6 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		error = ENXIO;
 		goto error_2;
-	}
-
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0)) {
-		accessmode = VREAD;
-		if ((mp->mnt_flag & MNT_RDONLY) == 0)
-			accessmode |= VWRITE;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, accessmode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
-		if (error)
-			goto error_2;
 	}
 
 	if (mp->mnt_flag & MNT_UPDATE) {
@@ -540,7 +552,7 @@ ffs_reload(struct mount *mountp, struct ucred *cred, struct proc *p)
 	devvp = VFSTOUFS(mountp)->um_devvp;
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, 0, cred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		panic("ffs_reload: dirty1");
 
@@ -686,7 +698,7 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, cred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
@@ -826,7 +838,7 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		for (i = 0; i < fs->fs_ncg; i++)
 			*lp++ = fs->fs_contigsumsize;
 	}
-	mp->mnt_data = (qaddr_t)ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	/* Use on-disk fsid if it exists, else fake it */
 	if (fs->fs_id[0] != 0 && fs->fs_id[1] != 0)
@@ -902,13 +914,14 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 	}
 	return (0);
 out:
-	devvp->v_specmountpoint = NULL;
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 
 	vn_lock(devvp, LK_EXCLUSIVE|LK_RETRY, p);
 	(void)VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, cred, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 
 	if (ump) {
 		free(ump->um_fs, M_UFSMNT, ump->um_fs->fs_sbsize);
@@ -1027,15 +1040,15 @@ ffs_unmount(struct mount *mp, int mntflags, struct proc *p)
 
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	vinvalbuf(ump->um_devvp, V_SAVE, NOCRED, p, 0, 0);
-	error = VOP_CLOSE(ump->um_devvp, fs->fs_ronly ? FREAD : FREAD|FWRITE,
-		NOCRED, p);
+	(void)VOP_CLOSE(ump->um_devvp, fs->fs_ronly ? FREAD : FREAD|FWRITE,
+	    NOCRED, p);
 	vput(ump->um_devvp);
 	free(fs->fs_csp, M_UFSMNT, 0);
 	free(fs, M_UFSMNT, fs->fs_sbsize);
 	free(ump, M_UFSMNT, sizeof(*ump));
-	mp->mnt_data = (qaddr_t)0;
+	mp->mnt_data = NULL;
 	mp->mnt_flag &= ~MNT_LOCAL;
-	return (error);
+	return (0);
 }
 
 /*
@@ -1073,7 +1086,7 @@ ffs_flushfiles(struct mount *mp, int flags, struct proc *p)
 	 */
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_FSYNC(ump->um_devvp, p->p_ucred, MNT_WAIT, p);
-	VOP_UNLOCK(ump->um_devvp, 0, p);
+	VOP_UNLOCK(ump->um_devvp, p);
 	return (error);
 }
 
@@ -1138,7 +1151,7 @@ ffs_sync_vnode(struct vnode *vp, void *arg) {
 
 	if ((error = VOP_FSYNC(vp, fsa->cred, fsa->waitfor, fsa->p)))
 		fsa->allerror = error;
-	VOP_UNLOCK(vp, 0, fsa->p);
+	VOP_UNLOCK(vp, fsa->p);
 	vrele(vp);
 
 	return (0);
@@ -1200,7 +1213,7 @@ ffs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
 		vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 		if ((error = VOP_FSYNC(ump->um_devvp, cred, waitfor, p)) != 0)
 			allerror = error;
-		VOP_UNLOCK(ump->um_devvp, 0, p);
+		VOP_UNLOCK(ump->um_devvp, p);
 	}
 	qsync(mp);
 	/*
@@ -1253,7 +1266,7 @@ retry:
 	vp->v_flag |= VLOCKSWORK;
 #endif
 	ip = pool_get(&ffs_ino_pool, PR_WAITOK|PR_ZERO);
-	lockinit(&ip->i_lock, PINOD, "inode", 0, 0);
+	rrw_init(&ip->i_lock, "inode");
 	ip->i_ump = ump;
 	vref(ip->i_devvp);
 	vp->v_data = ip;
@@ -1325,8 +1338,7 @@ retry:
 	 * Initialize the vnode from the inode, check for aliases.
 	 * Note that the underlying vnode may have changed.
 	 */
-	error = ufs_vinit(mp, &ffs_specvops, FFS_FIFOOPS, &vp);
-	if (error) {
+	if ((error = ffs_vinit(mp, &vp)) != 0) {
 		vput(vp);
 		*vpp = NULL;
 		return (error);
@@ -1361,23 +1373,21 @@ retry:
 /*
  * File handle to vnode
  *
- * Have to be really careful about stale file handles:
- * - check that the inode number is valid
- * - call ffs_vget() to get the locked inode
- * - check for an unallocated inode (i_mode == 0)
+ * Have to be really careful about stale file handles.
  */
 int
 ffs_fhtovp(struct mount *mp, struct fid *fhp, struct vnode **vpp)
 {
 	struct ufid *ufhp;
-	struct fs *fs;
+	int error;
 
 	ufhp = (struct ufid *)fhp;
-	fs = VFSTOUFS(mp)->um_fs;
-	if (ufhp->ufid_len != sizeof(*ufhp) ||
-	    ufhp->ufid_ino < ROOTINO ||
-	    ufhp->ufid_ino >= fs->fs_ncg * fs->fs_ipg)
-		return (ESTALE);
+	if (ufhp->ufid_len != sizeof(*ufhp))
+		return EINVAL;
+
+	if ((error = ffs_checkrange(mp, ufhp->ufid_ino)) != 0)
+		return error;
+
 	return (ufs_fhtovp(mp, ufhp, vpp));
 }
 
@@ -1482,11 +1492,14 @@ ffs_init(struct vfsconf *vfsp)
 
 	pool_init(&ffs_ino_pool, sizeof(struct inode), 0, 0, PR_WAITOK,
 	    "ffsino", NULL);
+	pool_setipl(&ffs_ino_pool, IPL_NONE);
 	pool_init(&ffs_dinode1_pool, sizeof(struct ufs1_dinode), 0, 0,
 	    PR_WAITOK, "dino1pl", NULL);
+	pool_setipl(&ffs_dinode1_pool, IPL_NONE);
 #ifdef FFS2
 	pool_init(&ffs_dinode2_pool, sizeof(struct ufs2_dinode), 0, 0,
 	    PR_WAITOK, "dino2pl", NULL);
+	pool_setipl(&ffs_dinode2_pool, IPL_NONE);
 #endif
 
 	softdep_initialize();
@@ -1501,7 +1514,6 @@ int
 ffs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen, struct proc *p)
 {
-	extern int doreallocblks, doasyncfree;
 #ifdef FFS_SOFTUPDATES
 	extern int max_softdeps, tickdelay, stat_worklist_push;
 	extern int stat_blk_limit_push, stat_ino_limit_push, stat_blk_limit_hit;
@@ -1516,12 +1528,9 @@ ffs_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	switch (name[0]) {
 	case FFS_CLUSTERREAD:
 	case FFS_CLUSTERWRITE:
-		return (EOPNOTSUPP);
 	case FFS_REALLOCBLKS:
-		return (sysctl_int(oldp, oldlenp, newp, newlen,
-		    &doreallocblks));
 	case FFS_ASYNCFREE:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &doasyncfree));
+		return (EOPNOTSUPP);
 #ifdef FFS_SOFTUPDATES
 	case FFS_MAX_SOFTDEPS:
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &max_softdeps));

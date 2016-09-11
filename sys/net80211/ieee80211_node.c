@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.c,v 1.100 2016/03/03 07:20:45 gerhard Exp $	*/
+/*	$OpenBSD: ieee80211_node.c,v 1.104 2016/08/17 09:42:03 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.c,v 1.14 2004/05/09 09:18:47 dyoung Exp $	*/
 
 /*-
@@ -585,14 +585,17 @@ ieee80211_end_scan(struct ifnet *ifp)
 		 * Scan the next mode if nothing has been found. This
 		 * is necessary if the device supports different
 		 * incompatible modes in the same channel range, like
-		 * like 11b and "pure" 11G mode. This will loop
-		 * forever except for user-initiated scans.
+		 * like 11b and "pure" 11G mode.
+		 * If the device scans all bands in one fell swoop, return
+		 * current scan results to userspace regardless of mode.
+		 * This will loop forever except for user-initiated scans.
 		 */
-		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO) {
+		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO ||
+		    (ic->ic_caps & IEEE80211_C_SCANALLBAND)) {
 			if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST &&
 			    ic->ic_scan_lock & IEEE80211_SCAN_RESUME) {
 				ic->ic_scan_lock = IEEE80211_SCAN_LOCKED;
-				/* Return from an user-initiated scan */
+				/* Return from a user-initiated scan. */
 				wakeup(&ic->ic_scan_lock);
 			} else if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
 				goto wakeup;
@@ -619,12 +622,23 @@ ieee80211_end_scan(struct ifnet *ifp)
 				ieee80211_free_node(ic, ni);
 			continue;
 		}
-		if (ieee80211_match_bss(ic, ni) == 0) {
-			if (selbs == NULL)
-				selbs = ni;
-			else if (ni->ni_rssi > selbs->ni_rssi)
-				selbs = ni;
-		}
+		if (ieee80211_match_bss(ic, ni) != 0)
+			continue;
+
+		/* Pick the AP/IBSS match with the best RSSI. */
+		if (selbs == NULL)
+			selbs = ni;
+		else if ((ic->ic_caps & IEEE80211_C_SCANALLBAND) &&
+		    IEEE80211_IS_CHAN_5GHZ(selbs->ni_chan) &&
+		    IEEE80211_IS_CHAN_2GHZ(ni->ni_chan) &&
+		    selbs->ni_rssi >= (ic->ic_max_rssi - (ic->ic_max_rssi / 4)))
+			/* 
+			 * Prefer 5GHz (with reasonable RSSI) over 2GHz since
+			 * the 5GHz band is usually less saturated.
+			 */
+			continue;
+		else if (ni->ni_rssi > selbs->ni_rssi)
+			selbs = ni;
 	}
 	if (selbs == NULL)
 		goto notfound;
@@ -652,7 +666,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 
  wakeup:
 	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST) {
-		/* Return from an user-initiated scan */
+		/* Return from a user-initiated scan. */
 		wakeup(&ic->ic_scan_lock);
 	}
 
@@ -1496,7 +1510,7 @@ void
 ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
     int resp)
 {
-	int newassoc;
+	int newassoc = (ni->ni_state != IEEE80211_STA_ASSOC);
 
 	if (ni->ni_associd == 0) {
 		u_int16_t aid;
@@ -1518,13 +1532,11 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 		}
 		ni->ni_associd = aid | 0xc000;
 		IEEE80211_AID_SET(ni->ni_associd, ic->ic_aid_bitmap);
-		newassoc = 1;
 		if (ic->ic_curmode == IEEE80211_MODE_11G ||
 		    (ic->ic_curmode == IEEE80211_MODE_11N &&
 		    IEEE80211_IS_CHAN_2GHZ(ic->ic_bss->ni_chan)))
 			ieee80211_node_join_11g(ic, ni);
-	} else
-		newassoc = 0;
+	}
 
 	DPRINTF(("station %s %s associated at aid %d\n",
 	    ether_sprintf(ni->ni_macaddr), newassoc ? "newly" : "already",
@@ -1699,8 +1711,6 @@ ieee80211_node_leave(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if (ic->ic_node_leave != NULL)
 		(*ic->ic_node_leave)(ic, ni);
 
-	IEEE80211_AID_CLR(ni->ni_associd, ic->ic_aid_bitmap);
-	ni->ni_associd = 0;
 	ieee80211_node_newstate(ni, IEEE80211_STA_COLLECT);
 
 #if NBRIDGE > 0
@@ -1847,7 +1857,7 @@ ieee80211_notify_dtim(struct ieee80211com *ic)
 			wh->i_fc[1] |= IEEE80211_FC1_MORE_DATA;
 		}
 		mq_enqueue(&ic->ic_pwrsaveq, m);
-		(*ifp->if_start)(ifp);
+		if_start(ifp);
 	}
 	/* XXX assumes everything has been sent */
 	ic->ic_tim_mcast_pending = 0;

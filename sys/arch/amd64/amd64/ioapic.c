@@ -1,4 +1,4 @@
-/*	$OpenBSD: ioapic.c,v 1.23 2015/03/14 03:38:46 jsg Exp $	*/
+/*	$OpenBSD: ioapic.c,v 1.25 2016/06/29 06:05:15 mlarkin Exp $	*/
 /* 	$NetBSD: ioapic.c,v 1.6 2003/05/15 13:30:31 fvdl Exp $	*/
 
 /*-
@@ -357,7 +357,7 @@ ioapic_attach(struct device *parent, struct device *self, void *aux)
 	 * Maybe we should record the original ID for interrupt
 	 * mapping later ...
 	 */
-	if (apic_id != sc->sc_apicid) {
+	if (mp_verbose && apic_id != sc->sc_apicid) {
 		printf("%s: misconfigured as apic %d",
 		    sc->sc_pic.pic_name, apic_id);
 		ioapic_set_id(sc);
@@ -492,6 +492,7 @@ ioapic_hwmask(struct pic *pic, int pin)
 	flags = ioapic_lock(sc);
 	redlo = ioapic_read_ul(sc, IOAPIC_REDLO(pin));
 	redlo |= IOAPIC_REDLO_MASK;
+	redlo &= ~IOAPIC_REDLO_RIRR;
 	ioapic_write_ul(sc, IOAPIC_REDLO(pin), redlo);
 	ioapic_unlock(sc, flags);
 }
@@ -508,6 +509,7 @@ ioapic_hwunmask(struct pic *pic, int pin)
 	flags = ioapic_lock(sc);
 	redlo = ioapic_read_ul(sc, IOAPIC_REDLO(pin));
 	redlo &= ~IOAPIC_REDLO_MASK;
+	redlo &= ~IOAPIC_REDLO_RIRR;
 	ioapic_write_ul(sc, IOAPIC_REDLO(pin), redlo);
 	ioapic_unlock(sc, flags);
 }

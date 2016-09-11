@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.h,v 1.176 2016/03/02 00:00:16 dlg Exp $	*/
+/*	$OpenBSD: if.h,v 1.179 2016/09/04 15:10:59 reyk Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -360,7 +360,7 @@ struct	ifreq {
 		struct	sockaddr	ifru_broadaddr;
 		short			ifru_flags;
 		int			ifru_metric;
-		uint32_t		ifru_vnetid;
+		int64_t			ifru_vnetid;
 		uint64_t		ifru_media;
 		caddr_t			ifru_data;
 		unsigned int		ifru_index;
@@ -378,6 +378,7 @@ struct	ifreq {
 #define ifr_ttl		ifr_ifru.ifru_metric	/* tunnel TTL (overload) */
 #define	ifr_data	ifr_ifru.ifru_data	/* for use by interface */
 #define ifr_index	ifr_ifru.ifru_index	/* interface index */
+#define ifr_llprio	ifr_ifru.ifru_metric	/* link layer priority */
 };
 
 struct ifaliasreq {
@@ -484,6 +485,7 @@ void	if_congestion(void);
 int	if_congested(void);
 __dead void	unhandled_af(int);
 int	if_setlladdr(struct ifnet *, const uint8_t *);
+int	if_setrdomain(struct ifnet *, int);
 
 #endif /* _KERNEL */
 

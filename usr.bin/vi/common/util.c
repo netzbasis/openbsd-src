@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.13 2016/01/30 21:31:08 martijn Exp $	*/
+/*	$OpenBSD: util.c,v 1.15 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994

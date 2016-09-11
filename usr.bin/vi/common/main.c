@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.36 2016/02/03 01:47:25 mmcc Exp $	*/
+/*	$OpenBSD: main.c,v 1.38 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
