@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-if-shell.c,v 1.40 2015/12/14 00:31:54 nicm Exp $ */
+/* $OpenBSD: cmd-if-shell.c,v 1.43 2016/04/29 17:12:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -73,16 +73,15 @@ cmd_if_shell_exec(struct cmd *self, struct cmd_q *cmdq)
 	struct format_tree		*ft;
 	const char			*cwd;
 
-	cwd = wp->cwd;
-
 	if (cmdq->client != NULL && cmdq->client->session == NULL)
 		cwd = cmdq->client->cwd;
 	else if (s != NULL)
 		cwd = s->cwd;
 	else
 		cwd = NULL;
+
 	ft = format_create(cmdq, 0);
-	format_defaults(ft, NULL, s, wl, wp);
+	format_defaults(ft, cmdq->state.c, s, wl, wp);
 	shellcmd = format_expand(ft, args->argv[0]);
 	format_free(ft);
 
@@ -158,6 +157,7 @@ cmd_if_shell_callback(struct job *job)
 	}
 
 	cmdq1 = cmdq_new(cmdq->client);
+	cmdq1->flags |= cmdq->flags & CMD_Q_NOHOOKS;
 	cmdq1->emptyfn = cmd_if_shell_done;
 	cmdq1->data = cdata;
 

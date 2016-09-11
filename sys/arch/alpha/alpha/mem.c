@@ -1,4 +1,4 @@
-/* $OpenBSD: mem.c,v 1.28 2015/05/28 20:53:05 jcs Exp $ */
+/* $OpenBSD: mem.c,v 1.30 2016/08/15 22:01:59 tedu Exp $ */
 /* $NetBSD: mem.c,v 1.26 2000/03/29 03:48:20 simonb Exp $ */
 
 /*
@@ -67,12 +67,8 @@ static int ap_open_count = 0;
 extern int allowaperture;
 #endif
 
-/*ARGSUSED*/
 int
-mmopen(dev, flag, mode, p)
-	dev_t dev;
-	int flag, mode;
-	struct proc *p;
+mmopen(dev_t dev, int flag, int mode, struct proc *p)
 {
 
 	switch (minor(dev)) {
@@ -88,7 +84,7 @@ mmopen(dev, flag, mode, p)
 		/* authorize only one simultaneous open() unless
 		 * allowaperture=3 */
 		if (ap_open_count > 0 && allowaperture < 3)
-			return(EPERM);
+			return (EPERM);
 		ap_open_count++;
 		return (0);
 #endif
@@ -99,12 +95,8 @@ mmopen(dev, flag, mode, p)
 	}
 }
 
-/*ARGSUSED*/
 int
-mmclose(dev, flag, mode, p)
-	dev_t dev;
-	int flag, mode;
-	struct proc *p;
+mmclose(dev_t dev, int flag, int mode, struct proc *p)
 {
 
 #ifdef APERTURE
@@ -114,12 +106,8 @@ mmclose(dev, flag, mode, p)
 	return (0);
 }
 
-/*ARGSUSED*/
 int
-mmrw(dev, uio, flags)
-	dev_t dev;
-	struct uio *uio;
-	int flags;
+mmrw(dev_t dev, struct uio *uio, int flags)
 {
 	vaddr_t o, v;
 	size_t c;
@@ -138,7 +126,7 @@ mmrw(dev, uio, flags)
 		}
 		switch (minor(dev)) {
 
-/* minor device 0 is physical memory */
+		/* minor device 0 is physical memory */
 		case 0:
 			v = uio->uio_offset;
 kmemphys:
@@ -179,13 +167,13 @@ kmemphys:
 			error = uiomove((caddr_t)v, c, uio);
 			break;
 
-/* minor device 2 is EOF/rathole */
+		/* minor device 2 is /dev/null */
 		case 2:
 			if (uio->uio_rw == UIO_WRITE)
 				uio->uio_resid = 0;
 			return (0);
 
-/* minor device 12 (/dev/zero) is source of nulls on read, rathole on write */
+		/* minor device 12 is /dev/zero */
 		case 12:
 			if (uio->uio_rw == UIO_WRITE) {
 				uio->uio_resid = 0;
@@ -210,25 +198,22 @@ kmemphys:
 }
 
 paddr_t
-mmmmap(dev, off, prot)
-	dev_t dev;
-	off_t off;
-	int prot;
+mmmmap(dev_t dev, off_t off, int prot)
 {
 	switch (minor(dev)) {
 	case 0:
-	/*
-	 * /dev/mem is the only one that makes sense through this
-	 * interface.  For /dev/kmem any physaddr we return here
-	 * could be transient and hence incorrect or invalid at
-	 * a later time.  /dev/null just doesn't make any sense
-	 * and /dev/zero is a hack that is handled via the default
-	 * pager in mmap().
-	 */
+		/*
+		 * /dev/mem is the only one that makes sense through this
+		 * interface.  For /dev/kmem any physaddr we return here
+		 * could be transient and hence incorrect or invalid at
+		 * a later time.  /dev/null just doesn't make any sense
+		 * and /dev/zero is a hack that is handled via the default
+		 * pager in mmap().
+		 */
 
-	/*
-	 * Allow access only in RAM.
-	 */
+		/*
+		 * Allow access only in RAM.
+		 */
 		if ((prot & alpha_pa_access(atop(off))) != prot)
 			return (-1);
 		return off;
@@ -251,12 +236,7 @@ mmmmap(dev, off, prot)
 }
 
 int
-mmioctl(dev, cmd, data, flags, p)
-	dev_t dev;
-	u_long cmd;
-	caddr_t data;
-	int flags;
-	struct proc *p;
+mmioctl(dev_t dev, u_long cmd, caddr_t data, int flags, struct proc *p)
 {
 	return (EOPNOTSUPP);
 }

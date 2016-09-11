@@ -1,4 +1,4 @@
-/*	$OpenBSD: pledge.h,v 1.27 2016/01/09 06:13:44 semarie Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.29 2016/07/03 04:36:08 semarie Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -56,6 +56,8 @@
 #define PLEDGE_DPATH	0x0000000010000000ULL	/* mknod & mkfifo */
 #define PLEDGE_DRM	0x0000000020000000ULL	/* drm ioctls */
 #define PLEDGE_VMM	0x0000000040000000ULL	/* vmm ioctls */
+#define PLEDGE_CHOWN	0x0000000080000000ULL	/* chown(2) family */
+#define PLEDGE_CHOWNUID	0x0000000100000000ULL	/* allow owner/group changes */
 
 /*
  * Bits outside PLEDGE_USERSET are used by the kernel itself
@@ -100,6 +102,7 @@ static struct {
 	{ PLEDGE_DPATH,		"dpath" },
 	{ PLEDGE_DRM,		"drm" },
 	{ PLEDGE_VMM,		"vmm" },
+	{ PLEDGE_CHOWNUID,	"chown" },
 	{ 0, NULL },
 };
 #endif
@@ -112,6 +115,7 @@ int	pledge_fail(struct proc *, int, uint64_t);
 struct mbuf;
 struct nameidata;
 int	pledge_namei(struct proc *, struct nameidata *, char *);
+int	pledge_namei_wlpath(struct proc *, struct nameidata *);
 int	pledge_sendfd(struct proc *p, struct file *);
 int	pledge_recvfd(struct proc *p, struct file *);
 int	pledge_sysctl(struct proc *p, int namelen, int *name, void *new);

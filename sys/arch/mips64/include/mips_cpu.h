@@ -1,4 +1,4 @@
-/*	$OpenBSD: mips_cpu.h,v 1.2 2015/09/24 18:38:58 miod Exp $	*/
+/*	$OpenBSD: mips_cpu.h,v 1.4 2016/08/14 08:23:52 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -217,6 +217,10 @@
 #define	COP_0_PRID		$15
 #define	COP_0_CONFIG		$16
 
+/* MIPS64 release 2 */
+#define	COP_0_TLB_PG_GRAIN	$5, 1
+#define	COP_0_EBASE		$15, 1
+
 /* R4000/5000/10000 */
 #define	COP_0_TLB_INDEX		$0
 #define	COP_0_TLB_RANDOM	$1
@@ -269,10 +273,8 @@
 #define	COP_0_DIAG		$22
 
 /* Octeon specific */
-#define COP_0_TLB_PG_GRAIN	$5, 1
 #define COP_0_CVMCTL		$9, 7
 #define COP_0_CVMMEMCTL		$11, 7
-#define COP_0_EBASE		$15, 1
 
 /*
  * COP_0_COUNT speed divider.
@@ -288,6 +290,41 @@
  */
 #define	FPC_ID			$0
 #define	FPC_CSR			$31
+
+/*
+ * Config3 register
+ */
+#define	CONFIG3_M		0x80000000
+#define	CONFIG3_BPG		0x40000000
+#define	CONFIG3_CMGCR		0x20000000
+#define	CONFIG3_IPLW		0x00600000
+#define	CONFIG3_MMAR		0x001c0000
+#define	CONFIG3_MCU		0x00020000
+#define	CONFIG3_ISAOnExc	0x00010000
+#define	CONFIG3_ISA		0x0000c000
+#define	CONFIG3_ULRI		0x00002000
+#define	CONFIG3_RXI		0x00001000
+#define	CONFIG3_DSP2P		0x00000800
+#define	CONFIG3_DSPP		0x00000400
+#define	CONFIG3_CTXTC		0x00000200
+#define	CONFIG3_ITL		0x00000100
+#define	CONFIG3_LPA		0x00000080
+#define	CONFIG3_VEIC		0x00000040
+#define	CONFIG3_VInt		0x00000020
+#define	CONFIG3_SP		0x00000010
+#define	CONFIG3_CDMM		0x00000008
+#define	CONFIG3_MT		0x00000004
+#define	CONFIG3_SM		0x00000002
+#define	CONFIG3_TL		0x00000001
+
+/*
+ * PageGrain register
+ */
+#define	PGRAIN_RIE		0x80000000
+#define	PGRAIN_XIE		0x40000000
+#define	PGRAIN_ELPA		0x20000000
+#define	PGRAIN_ESP		0x10000000
+#define	PGRAIN_IEC		0x08000000
 
 #endif	/* _KERNEL || _STANDALONE */
 

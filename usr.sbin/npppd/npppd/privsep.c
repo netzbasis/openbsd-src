@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.20 2015/12/05 18:43:36 mmcc Exp $ */
+/*	$OpenBSD: privsep.c,v 1.22 2016/05/28 07:00:18 natano Exp $ */
 
 /*
  * Copyright (c) 2010 Yasuoka Masahiko <yasuoka@openbsd.org>
@@ -188,7 +188,6 @@ privsep_init(void)
 		_exit(0);
 		/* NOTREACHED */
 	}
-	setproctitle("main");
 	close(pairsock[0]);
 	privsep_sock = pairsock[1];
 	privsep_pid = pid;
@@ -984,7 +983,7 @@ privsep_npppd_check_open(struct PRIVSEP_OPEN_ARG *arg)
 		int readonly;
 	} const allow_paths[] = {
 		{ NPPPD_DIR "/",	1,	1 },
-		{ "/dev/bpf",		1,	0 },
+		{ "/dev/bpf0",		0,	0 },
 		{ "/etc/resolv.conf",	0,	1 },
 		{ "/dev/tun",		1,	0 },
 		{ "/dev/pppx",		1,	0 }

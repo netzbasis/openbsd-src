@@ -1,4 +1,4 @@
-/*	$OpenBSD: rt2860var.h,v 1.21 2013/12/06 21:03:03 deraadt Exp $	*/
+/*	$OpenBSD: rt2860var.h,v 1.24 2016/08/17 11:50:52 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007
@@ -17,11 +17,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define RT2860_TX_RING_COUNT	64
-#define RT2860_RX_RING_COUNT	128
-#define RT2860_TX_POOL_COUNT	(RT2860_TX_RING_COUNT * 2)
+#define RT2860_MAX_SCATTER	15
+#define RT2860_MAX_SCATTER_TXD	(1 + (RT2860_MAX_SCATTER / 2))
 
-#define RT2860_MAX_SCATTER	((RT2860_TX_RING_COUNT * 2) - 1)
+#define RT2860_RX_RING_COUNT	128
+#define RT2860_TX_RING_COUNT	64
+#define RT2860_TX_RING_MAX	(RT2860_TX_RING_COUNT - 1)
+#define RT2860_TX_RING_ONEMORE	(RT2860_TX_RING_MAX - RT2860_MAX_SCATTER_TXD)
+#define RT2860_TX_POOL_COUNT	(RT2860_TX_RING_COUNT * 2)
 
 /* HW supports up to 255 STAs */
 #define RT2860_WCID_MAX		254
@@ -146,7 +149,7 @@ struct rt2860_softc {
 
 	uint16_t			mac_ver;
 	uint16_t			mac_rev;
-	uint8_t				rf_rev;
+	uint16_t			rf_rev;
 	uint8_t				freq;
 	uint8_t				ntxchains;
 	uint8_t				nrxchains;

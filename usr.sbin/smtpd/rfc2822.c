@@ -1,4 +1,4 @@
-/*	$OpenBSD: rfc2822.c,v 1.6 2015/12/28 22:08:30 jung Exp $	*/
+/*	$OpenBSD: rfc2822.c,v 1.8 2016/08/20 20:47:08 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -63,6 +63,7 @@ end:
 		    break;
 	if (hdr_miss_cb)
 		TAILQ_REMOVE(&rp->hdr_miss_cb, hdr_miss_cb, next);
+	free(hdr_miss_cb);
 	header_reset(&rp->header);
 	rp->in_hdr = 0;
 	return;
@@ -137,6 +138,7 @@ rfc2822_parser_init(struct rfc2822_parser *rp)
 	TAILQ_INIT(&rp->header.lines);
 	rfc2822_header_default_callback(rp, hdr_dflt_cb, NULL);
 	rfc2822_body_callback(rp, body_dflt_cb, NULL);
+	rfc2822_parser_reset(rp);
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: enqueue.c,v 1.111 2016/01/12 17:29:43 sunil Exp $	*/
+/*	$OpenBSD: enqueue.c,v 1.113 2016/07/03 14:30:33 gilles Exp $	*/
 
 /*
  * Copyright (c) 2005 Henning Brauer <henning@bulabula.org>
@@ -168,7 +168,7 @@ enqueue(int argc, char *argv[], FILE *ofp)
 	int			 i, ch, tflag = 0;
 	char			*fake_from = NULL, *buf = NULL;
 	struct passwd		*pw;
-	FILE			*fp, *fout;
+	FILE			*fp = NULL, *fout;
 	size_t			 sz = 0, envid_sz = 0;
 	ssize_t			 len;
 	int			 fd;
@@ -187,7 +187,7 @@ enqueue(int argc, char *argv[], FILE *ofp)
 	save_argv = argv;
 
 	while ((ch = getopt(argc, argv,
-	    "A:B:b:E::e:F:f:iJ::L:mN:o:p:qR:StvV:x")) != -1) {
+	    "A:B:b:E::e:F:f:iJ::L:mN:o:p:qr:R:StvV:x")) != -1) {
 		switch (ch) {
 		case 'f':
 			fake_from = optarg;
@@ -197,6 +197,9 @@ enqueue(int argc, char *argv[], FILE *ofp)
 			break;
 		case 'N':
 			msg.dsn_notify = optarg;
+			break;
+		case 'r':
+			fake_from = optarg;
 			break;
 		case 'R':
 			msg.dsn_ret = optarg;

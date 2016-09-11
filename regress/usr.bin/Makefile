@@ -1,8 +1,8 @@
-#	$OpenBSD: Makefile,v 1.33 2015/12/06 18:42:12 schwarze Exp $
+#	$OpenBSD: Makefile,v 1.36 2016/07/30 13:57:21 tb Exp $
 #	$NetBSD: Makefile,v 1.1 1997/12/30 23:27:11 cgd Exp $
 
-SUBDIR+= basename bc dc diff diff3 dirname doas file fmt grep gzip
-SUBDIR+= m4 mandoc openssl sdiff sed signify sort tsort
+SUBDIR+= basename bc dc diff diff3 dirname doas file fmt fold grep gzip
+SUBDIR+= jot m4 mandoc openssl rev sdiff sed signify sort tsort
 SUBDIR+= xargs
 
 .if defined(REGRESS_FULL) || make(clean) || make(cleandir) || make(obj)

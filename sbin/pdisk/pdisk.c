@@ -1,4 +1,4 @@
-/*	$OpenBSD: pdisk.c,v 1.72 2016/01/26 23:41:48 krw Exp $	*/
+/*	$OpenBSD: pdisk.c,v 1.87 2016/05/28 22:26:13 tb Exp $	*/
 
 /*
  * pdisk - an editor for Apple format partition tables
@@ -33,6 +33,7 @@
 #include <sys/dkio.h>
 #include <sys/disklabel.h>
 #include <sys/ioctl.h>
+#include <sys/queue.h>
 #include <sys/stat.h>
 
 #include <err.h>
@@ -43,28 +44,27 @@
 #include <unistd.h>
 #include <util.h>
 
-#include "dpme.h"
-#include "io.h"
 #include "partition_map.h"
+#include "io.h"
 #include "dump.h"
-#include "validate.h"
 
 int	lflag;	/* list the device */
 int	rflag;	/* open device read Only */
 
 static int	first_get = 1;
 
-void	do_change_map_size(struct partition_map_header *);
-void	do_create_partition(struct partition_map_header *, int);
-void	do_delete_partition(struct partition_map_header *);
-void	do_display_entry(struct partition_map_header *);
-void	do_rename_partition(struct partition_map_header *);
-void	do_change_type(struct partition_map_header *);
-void	do_reorder(struct partition_map_header *);
-void	do_write_partition_map(struct partition_map_header *);
-void	edit(struct partition_map_header **);
-int	get_base_argument(long *, struct partition_map_header *);
-int	get_size_argument(long *, struct partition_map_header *);
+void	do_dump_map(struct partition_map *, int);
+void	do_change_map_size(struct partition_map *);
+void	do_create_partition(struct partition_map *, int);
+void	do_delete_partition(struct partition_map *);
+void	do_display_entry(struct partition_map *);
+void	do_rename_partition(struct partition_map *);
+void	do_change_type(struct partition_map *);
+void	do_reorder(struct partition_map *);
+void	do_write_partition_map(struct partition_map *);
+void	edit(struct partition_map **);
+int	get_base_argument(long *, struct partition_map *);
+int	get_size_argument(long *, struct partition_map *);
 
 __dead static void usage(void);
 
@@ -73,16 +73,19 @@ main(int argc, char **argv)
 {
 	struct disklabel dl;
 	struct stat st;
-	struct partition_map_header *map;
-	int c, fd;
+	struct partition_map *map;
+	int c, fd, oflags;
 
+	oflags = O_RDWR;
 	while ((c = getopt(argc, argv, "lr")) != -1) {
 		switch (c) {
 		case 'l':
 			lflag = 1;
+			oflags = O_RDONLY;
 			break;
 		case 'r':
 			rflag = 1;
+			oflags = O_RDONLY;
 			break;
 		default:
 			usage();
@@ -96,18 +99,22 @@ main(int argc, char **argv)
 	if (argc != 1)
 		usage();
 
-	fd = opendev(*argv, (rflag ? O_RDONLY:O_RDWR), OPENDEV_PART, NULL);
+	fd = opendev(*argv, oflags, OPENDEV_PART, NULL);
 	if (fd == -1)
 		err(1, "can't open file '%s'", *argv);
+
 	if (fstat(fd, &st) == -1)
 		err(1, "can't fstat %s", *argv);
-	if (!S_ISCHR(st.st_mode) && !S_ISREG(st.st_mode))
-		errx(1, "%s is not a character device or a regular file",
-		    *argv);
+	if (!S_ISCHR(st.st_mode))
+		errx(1, "%s is not a character device", *argv);
+
 	if (ioctl(fd, DIOCGPDINFO, &dl) == -1)
 		err(1, "can't get disklabel for %s", *argv);
 	if (dl.d_secsize != DEV_BSIZE)
 		errx(1, "disk sector size (%d) != 512\n", dl.d_secsize);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	map = open_partition_map(fd, *argv, DL_GETDSIZE(&dl), dl.d_secsize);
 	if (map != NULL) {
@@ -127,10 +134,10 @@ main(int argc, char **argv)
  * Edit the file
  */
 void
-edit(struct partition_map_header **mapp)
+edit(struct partition_map **mapp)
 {
-	struct partition_map_header *map = *mapp;
-	struct partition_map_header *oldmap;
+	struct partition_map *map = *mapp;
+	struct partition_map *oldmap;
 	int command;
 
 	printf("Edit %s -\n", map->name);
@@ -157,27 +164,27 @@ edit(struct partition_map_header **mapp)
 		case 'h':
 			printf("Commands are:\n"
 			    "  ?    verbose command help\n"
-			    "  C    create a partition of the specified type\n"
+			    "  C    create a partition of a specified type\n"
 			    "  c    create an OpenBSD partition\n"
 			    "  d    delete a partition\n"
-			    "  f    full display of the specified entry\n"
+			    "  f    full display of a partition\n"
 			    "  h    command help\n"
 			    "  i    (re)initialize the partition map\n"
 			    "  n    (re)name a partition\n"
 			    "  P    show the partition map's data structures\n"
 			    "  p    print the partition map\n"
 			    "  q    quit editing\n"
-			    "  r    reorder an entry in the partition map\n"
+			    "  r    reorder (swap) disk positions of two "
+			        "entries in the partition map\n"
 			    "  s    change the size of the partition map\n"
-			    "  t    change the specified partition's type\n"
-			    "  v    validate the partition map\n"
-			    "  w    write the partition map\n");
+			    "  t    change the type of a partition\n"
+			    "  w    write the partition map to disk\n");
 			break;
 		case 'P':
-			show_data_structures(map);
+			do_dump_map(map, 1);
 			break;
 		case 'p':
-			dump_partition_map(map);
+			do_dump_map(map, 0);
 			break;
 		case 'q':
 			if (map->changed) {
@@ -193,7 +200,7 @@ edit(struct partition_map_header **mapp)
 				oldmap = map;
 				map = create_partition_map(oldmap->fd,
 				    oldmap->name, oldmap->media_size,
-				    oldmap->physical_block);
+				    oldmap->sbBlkSize);
 				if (map == NULL)
 					break;
 				*mapp = map;
@@ -227,9 +234,6 @@ edit(struct partition_map_header **mapp)
 		case 'f':
 			do_display_entry(map);
 			break;
-		case 'v':
-			validate_map(map);
-			break;
 		default:
 			bad_input("No such command (%c)", command);
 			break;
@@ -238,7 +242,7 @@ edit(struct partition_map_header **mapp)
 }
 
 void
-do_create_partition(struct partition_map_header *map, int get_type)
+do_create_partition(struct partition_map *map, int get_type)
 {
 	long base, length;
 	char *name = NULL;
@@ -283,9 +287,9 @@ out:
 }
 
 int
-get_base_argument(long *number, struct partition_map_header *map)
+get_base_argument(long *number, struct partition_map *map)
 {
-	struct partition_map *entry;
+	struct entry *entry;
 	int result = 0;
 
 	if (get_number_argument("First block: ", number) == 0) {
@@ -298,7 +302,7 @@ get_base_argument(long *number, struct partition_map_header *map)
 				bad_input("Bad partition number");
 				result = 0;
 			} else {
-				*number = entry->dpme->dpme_pblock_start;
+				*number = entry->dpme_pblock_start;
 			}
 		}
 	}
@@ -307,16 +311,16 @@ get_base_argument(long *number, struct partition_map_header *map)
 
 
 int
-get_size_argument(long *number, struct partition_map_header *map)
+get_size_argument(long *number, struct partition_map *map)
 {
-	struct partition_map *entry;
+	struct entry *entry;
 	unsigned long multiple;
 	int result = 0;
 
 	if (get_number_argument("Length in blocks: ", number) == 0) {
 		bad_input("Bad length");
 	} else {
-		multiple = get_multiplier(map->logical_block);
+		multiple = get_multiplier(map->sbBlkSize);
 		if (multiple == 0) {
 			bad_input("Bad multiplier");
 		} else if (multiple != 1) {
@@ -327,7 +331,7 @@ get_size_argument(long *number, struct partition_map_header *map)
 			if (entry == NULL) {
 				bad_input("Bad partition number");
 			} else {
-				*number = entry->dpme->dpme_pblocks;
+				*number = entry->dpme_pblocks;
 				result = 1;
 			}
 		} else {
@@ -339,9 +343,9 @@ get_size_argument(long *number, struct partition_map_header *map)
 
 
 void
-do_rename_partition(struct partition_map_header *map)
+do_rename_partition(struct partition_map *map)
 {
-	struct partition_map *entry;
+	struct entry *entry;
 	char *name;
 	long ix;
 
@@ -355,7 +359,7 @@ do_rename_partition(struct partition_map_header *map)
 		return;
 	}
 
-	printf("Existing partition name ``%s''.\n", entry->dpme->dpme_name);
+	printf("Existing partition name ``%s''.\n", entry->dpme_name);
 	name = get_dpistr_argument("New name of partition: ");
 	if (name == NULL) {
 		bad_input("Bad name");
@@ -366,8 +370,8 @@ do_rename_partition(struct partition_map_header *map)
 	 * Since dpme_name is supposed to be NUL-filled, make sure
 	 * current contents are zapped before copying in new name!
 	 */
-	memset(entry->dpme->dpme_name, 0, sizeof(entry->dpme->dpme_name));
-	strlcpy(entry->dpme->dpme_name, name, DPISTRLEN);
+	memset(entry->dpme_name, 0, sizeof(entry->dpme_name));
+	strlcpy(entry->dpme_name, name, sizeof(entry->dpme_name));
 	map->changed = 1;
 
 	free(name);
@@ -375,9 +379,9 @@ do_rename_partition(struct partition_map_header *map)
 }
 
 void
-do_change_type(struct partition_map_header *map)
+do_change_type(struct partition_map *map)
 {
-	struct partition_map *entry;
+	struct entry *entry;
 	char *type;
 	long ix;
 
@@ -391,7 +395,7 @@ do_change_type(struct partition_map_header *map)
 		return;
 	}
 
-	printf("Existing partition type ``%s''.\n", entry->dpme->dpme_type);
+	printf("Existing partition type ``%s''.\n", entry->dpme_type);
 	type = get_dpistr_argument("New type of partition: ");
 	if (type == NULL) {
 		bad_input("Bad type");
@@ -402,8 +406,8 @@ do_change_type(struct partition_map_header *map)
 	 * Since dpme_type is supposed to be NUL-filled, make sure
          * current contents are zapped before copying in new type!
 	 */
-	memset(entry->dpme->dpme_type, 0, sizeof(entry->dpme->dpme_type));
-	strncpy(entry->dpme->dpme_type, type, DPISTRLEN);
+	memset(entry->dpme_type, 0, sizeof(entry->dpme_type));
+	strncpy(entry->dpme_type, type, sizeof(entry->dpme_type));
 	map->changed = 1;
 
 	free(type);
@@ -412,9 +416,9 @@ do_change_type(struct partition_map_header *map)
 
 
 void
-do_delete_partition(struct partition_map_header *map)
+do_delete_partition(struct partition_map *map)
 {
-	struct partition_map *cur;
+	struct entry *cur;
 	long ix;
 
 	if (get_number_argument("Partition number: ", &ix) == 0) {
@@ -431,7 +435,7 @@ do_delete_partition(struct partition_map_header *map)
 
 
 void
-do_reorder(struct partition_map_header *map)
+do_reorder(struct partition_map *map)
 {
 	long ix, old_index;
 
@@ -448,7 +452,7 @@ do_reorder(struct partition_map_header *map)
 
 
 void
-do_write_partition_map(struct partition_map_header *map)
+do_write_partition_map(struct partition_map *map)
 {
 	if (map->changed == 0) {
 		bad_input("The map has not been changed.");
@@ -469,7 +473,7 @@ do_write_partition_map(struct partition_map_header *map)
 
 
 void
-do_change_map_size(struct partition_map_header *map)
+do_change_map_size(struct partition_map *map)
 {
 	long size;
 
@@ -482,7 +486,7 @@ do_change_map_size(struct partition_map_header *map)
 
 
 void
-do_display_entry(struct partition_map_header *map)
+do_display_entry(struct partition_map *map)
 {
 	long number;
 
@@ -496,6 +500,14 @@ do_display_entry(struct partition_map_header *map)
 		full_dump_partition_entry(map, number);
 }
 
+void
+do_dump_map(struct partition_map *map, int verbose)
+{
+	if (verbose)
+		show_data_structures(map);
+	else
+		dump_partition_map(map);
+}
 
 __dead static void
 usage(void)

@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vfsops.c,v 1.16 2015/07/19 14:21:14 tedu Exp $ */
+/* $OpenBSD: fuse_vfsops.c,v 1.28 2016/09/07 17:53:35 natano Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -24,6 +24,7 @@
 #include <sys/pool.h>
 #include <sys/proc.h>
 #include <sys/specdev.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/sysctl.h>
 #include <sys/vnode.h>
@@ -111,7 +112,9 @@ fusefs_mount(struct mount *mp, const char *path, void *data,
 	bzero(mp->mnt_stat.f_mntonname, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntonname, path, MNAMELEN);
 	bzero(mp->mnt_stat.f_mntfromname, MNAMELEN);
-	bcopy("fusefs", mp->mnt_stat.f_mntfromname, sizeof("fusefs"));
+	strlcpy(mp->mnt_stat.f_mntfromname, "fusefs", MNAMELEN);
+	bzero(mp->mnt_stat.f_mntfromspec, MNAMELEN);
+	strlcpy(mp->mnt_stat.f_mntfromspec, "fusefs", MNAMELEN);
 
 	fuse_device_set_fmp(fmp, 1);
 	fbuf = fb_setup(0, 0, FBT_INIT, p);
@@ -133,19 +136,13 @@ fusefs_unmount(struct mount *mp, int mntflags, struct proc *p)
 {
 	struct fusefs_mnt *fmp;
 	struct fusebuf *fbuf;
-	extern int doforce;
 	int flags = 0;
 	int error;
 
 	fmp = VFSTOFUSEFS(mp);
 
-	if (mntflags & MNT_FORCE) {
-		/* fusefs can never be rootfs so don't check for it */
-		if (!doforce)
-			return (EINVAL);
-
+	if (mntflags & MNT_FORCE)
 		flags |= FORCECLOSE;
-	}
 
 	if ((error = vflush(mp, NULLVP, flags)))
 		return (error);
@@ -165,23 +162,21 @@ fusefs_unmount(struct mount *mp, int mntflags, struct proc *p)
 	fuse_device_cleanup(fmp->dev, NULL);
 	fuse_device_set_fmp(fmp, 0);
 	free(fmp, M_FUSEFS, 0);
+	mp->mnt_data = NULL;
 
-	return (error);
+	return (0);
 }
 
 int
 fusefs_root(struct mount *mp, struct vnode **vpp)
 {
 	struct vnode *nvp;
-	struct fusefs_node *ip;
 	int error;
 
-	if ((error = VFS_VGET(mp, (ino_t)FUSE_ROOTINO, &nvp)) != 0)
+	if ((error = VFS_VGET(mp, FUSE_ROOTINO, &nvp)) != 0)
 		return (error);
 
-	ip = VTOI(nvp);
 	nvp->v_type = VDIR;
-	ip->vtype = VDIR;
 
 	*vpp = nvp;
 	return (0);
@@ -203,8 +198,10 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 
 	fmp = VFSTOFUSEFS(mp);
 
+	copy_statfs_info(sbp, mp);
+
 	if (fmp->sess_init) {
-		fbuf = fb_setup(0, FUSE_ROOT_ID, FBT_STATFS, p);
+		fbuf = fb_setup(0, FUSE_ROOTINO, FBT_STATFS, p);
 
 		error = fb_queue(fmp->dev, fbuf);
 
@@ -218,7 +215,9 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 		sbp->f_blocks = fbuf->fb_stat.f_blocks;
 		sbp->f_files = fbuf->fb_stat.f_files;
 		sbp->f_ffree = fbuf->fb_stat.f_ffree;
+		sbp->f_favail = fbuf->fb_stat.f_favail;
 		sbp->f_bsize = fbuf->fb_stat.f_frsize;
+		sbp->f_iosize = fbuf->fb_stat.f_bsize;
 		sbp->f_namemax = fbuf->fb_stat.f_namemax;
 		fb_delete(fbuf);
 	} else {
@@ -226,8 +225,10 @@ fusefs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 		sbp->f_bfree = 0;
 		sbp->f_blocks = 0;
 		sbp->f_ffree = 0;
+		sbp->f_favail = 0;
 		sbp->f_files = 0;
 		sbp->f_bsize = 0;
+		sbp->f_iosize = 0;
 		sbp->f_namemax = 0;
 	}
 
@@ -267,12 +268,11 @@ retry:
 	}
 
 	ip = malloc(sizeof(*ip), M_FUSEFS, M_WAITOK | M_ZERO);
-	lockinit(&ip->ufs_ino.i_lock, PINOD, "fuseinode", 0, 0);
+	rrw_init(&ip->ufs_ino.i_lock, "fuseinode");
 	nvp->v_data = ip;
 	ip->ufs_ino.i_vnode = nvp;
 	ip->ufs_ino.i_dev = fmp->dev;
 	ip->ufs_ino.i_number = ino;
-	ip->parent = 0;
 
 	for (i = 0; i < FUFH_MAXTYPE; i++)
 		ip->fufh[i].fh_type = FUFH_INVALID;
@@ -300,28 +300,13 @@ retry:
 int
 fusefs_fhtovp(struct mount *mp, struct fid *fhp, struct vnode **vpp)
 {
-	struct ufid *ufhp;
-
-	ufhp = (struct ufid *)fhp;
-	if (ufhp->ufid_len != sizeof(struct ufid) ||
-	    ufhp->ufid_ino < ROOTINO)
-		return (ESTALE);
-
-	return (VFS_VGET(mp, ufhp->ufid_ino, vpp));
+	return (EINVAL);
 }
 
 int
 fusefs_vptofh(struct vnode *vp, struct fid *fhp)
 {
-	struct fusefs_node *ip;
-	struct ufid *ufhp;
-
-	ip = VTOI(vp);
-	ufhp = (struct ufid *)fhp;
-	ufhp->ufid_len = sizeof(struct ufid);
-	ufhp->ufid_ino = ip->ufs_ino.i_number;
-
-	return (0);
+	return (EINVAL);
 }
 
 int
@@ -363,5 +348,5 @@ int
 fusefs_checkexp(struct mount *mp, struct mbuf *nam, int *extflagsp,
     struct ucred **credanonp)
 {
-	return (0);
+	return (EOPNOTSUPP);
 }

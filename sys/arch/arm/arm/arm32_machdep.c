@@ -1,4 +1,4 @@
-/*	$OpenBSD: arm32_machdep.c,v 1.47 2015/01/12 16:33:31 deraadt Exp $	*/
+/*	$OpenBSD: arm32_machdep.c,v 1.50 2016/09/03 15:07:06 guenther Exp $	*/
 /*	$NetBSD: arm32_machdep.c,v 1.42 2003/12/30 12:33:15 pk Exp $	*/
 
 /*
@@ -110,11 +110,6 @@ int allowaperture = 0;
 #endif
 #endif
 
-#if defined(__zaurus__)
-int lid_suspend = 1;
-extern int xscale_maxspeed;
-#endif
-
 struct consdev *cn_tab;
 
 /* Prototypes */
@@ -165,7 +160,7 @@ arm32_vector_init(vaddr_t va, int which)
 		 *
 		 * Note: This has to be done here (and not just in
 		 * cpu_setup()) because the vector page needs to be
-		 * accessible *before* cpu_startup() is called.
+		 * accessible *before* main() is called.
 		 * Think ddb(9) ...
 		 *
 		 * NOTE: If the CPU control register is not readable,
@@ -204,7 +199,7 @@ bootsync(int howto)
 	bootsyncdone = 1;
 
 	/* Make sure we can still manage to do things */
-	if (__get_cpsr() & I32_bit) {
+	if (__get_cpsr() & PSR_I) {
 		/*
 		 * If we get here then boot has been called without RB_NOSYNC
 		 * and interrupts were disabled. This means the boot() call
@@ -236,12 +231,6 @@ cpu_startup()
 	u_int loop;
 	paddr_t minaddr;
 	paddr_t maxaddr;
-
-	proc0paddr = (struct user *)kernelstack.pv_va;
-	proc0.p_addr = proc0paddr;
-
-	/* Set the cpu control register */
-	cpu_setup();
 
 	/* Lock down zero page */
 	vector_page_setprot(PROT_READ | PROT_EXEC);
@@ -358,24 +347,6 @@ cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
 #if NAPM > 0
 	case CPU_APMWARN:
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &cpu_apmwarn));
-#endif
-#if defined(__zaurus__)
-	case CPU_LIDSUSPEND:
-		return (sysctl_int(oldp, oldlenp, newp, newlen,
-		    &lid_suspend));
-	case CPU_MAXSPEED:
-	{
-		extern void pxa2x0_maxspeed(int *);
-		int err = EINVAL;
-
-		if (!newp && newlen == 0)
-			return (sysctl_int(oldp, oldlenp, 0, 0,
-			    &xscale_maxspeed));
-		err = (sysctl_int(oldp, oldlenp, newp, newlen,
-		    &xscale_maxspeed));
-		pxa2x0_maxspeed(&xscale_maxspeed);
-		return err;
-	}
 #endif
 
 	default:

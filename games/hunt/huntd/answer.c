@@ -1,4 +1,4 @@
-/*	$OpenBSD: answer.c,v 1.18 2016/01/10 13:35:09 mestre Exp $	*/
+/*	$OpenBSD: answer.c,v 1.21 2016/08/27 02:06:40 guenther Exp $	*/
 /*	$NetBSD: answer.c,v 1.3 1997/10/10 16:32:50 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -30,6 +30,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
+#include <sys/select.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -63,12 +65,16 @@ answer_first(void)
 	struct sockaddr		sockstruct;
 	int			newsock;
 	socklen_t		socklen;
-	int			flags;
 	struct spawn *sp;
 
-	/* Answer the call to hunt: */
+	/*
+	 * Answer the call to hunt, turning off blocking I/O, so a slow
+	 * or dead terminal won't stop the game.  All subsequent reads
+	 * check how many bytes they read.
+	 */
 	socklen = sizeof sockstruct;
-	newsock = accept(Socket, (struct sockaddr *) &sockstruct, &socklen);
+	newsock = accept4(Socket, (struct sockaddr *) &sockstruct, &socklen,
+	    SOCK_NONBLOCK);
 	if (newsock < 0) {
 		logit(LOG_ERR, "accept");
 		return;
@@ -91,14 +97,6 @@ answer_first(void)
 		logx(LOG_WARNING, 
 		    "struct sockaddr is not big enough! (%d > %zu)",
 		    socklen, sizeof Spawn->source);
-
-	/*
-	 * Turn off blocking I/O, so a slow or dead terminal won't stop
-	 * the game.  All subsequent reads check how many bytes they read.
-	 */
-	flags = fcntl(newsock, F_GETFL, 0);
-	flags |= O_NDELAY;
-	(void) fcntl(newsock, F_SETFL, flags);
 
 	/* Start listening to the spawning connection */
 	sp->fd = newsock;

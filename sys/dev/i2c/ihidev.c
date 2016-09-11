@@ -1,4 +1,4 @@
-/* $OpenBSD: ihidev.c,v 1.8 2016/01/20 01:19:28 jcs Exp $ */
+/* $OpenBSD: ihidev.c,v 1.12 2016/04/23 09:40:28 kettenis Exp $ */
 /*
  * HID-over-i2c driver
  *
@@ -29,9 +29,6 @@
 #include <dev/i2c/ihidev.h>
 
 #include <dev/hid/hid.h>
-
-/* XXX */
-#include <dev/acpi/acpivar.h>
 
 /* #define IHIDEV_DEBUG */
 
@@ -111,7 +108,8 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_addr = ia->ia_addr;
 	sc->sc_hid_desc_addr = ia->ia_size;
 
-	printf(": int %d", ia->ia_int);
+	if (ia->ia_intr)
+		printf(" %s", iic_intr_string(sc->sc_tag, ia->ia_intr));
 
 	if (ihidev_hid_command(sc, I2C_HID_CMD_DESCR, NULL) ||
 	    ihidev_hid_desc_parse(sc)) {
@@ -156,12 +154,11 @@ ihidev_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_ibuf = malloc(sc->sc_isize, M_DEVBUF, M_NOWAIT | M_ZERO);
 
 	/* register interrupt with system */
-	if (ia->ia_int > 0) {
-		/* XXX: don't assume this uses acpi_intr_establish */
-		sc->sc_ih = acpi_intr_establish(ia->ia_int, ia->ia_int_flags,
-		    IPL_BIO, ihidev_intr, sc, sc->sc_dev.dv_xname);
+	if (ia->ia_intr) {
+		sc->sc_ih = iic_intr_establish(sc->sc_tag, ia->ia_intr,
+		    IPL_TTY, ihidev_intr, sc, sc->sc_dev.dv_xname);
 		if (sc->sc_ih == NULL) {
-			printf(", failed establishing intr\n");
+			printf(", can't establish interrupt\n");
 			return;
 		}
 	}
@@ -236,8 +233,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		 * register is passed from the controller
 		 */
 		uint8_t cmd[] = {
-			htole16(sc->sc_hid_desc_addr),
-			0,
+			htole16(sc->sc_hid_desc_addr) & 0xff,
+			htole16(sc->sc_hid_desc_addr) >> 8,
 		};
 
 		DPRINTF(("%s: HID command I2C_HID_CMD_DESCR at 0x%x\n",
@@ -257,10 +254,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 	}
 	case I2C_HID_CMD_RESET: {
 		uint8_t cmd[] = {
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister)],
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister) + 1],
+			htole16(sc->hid_desc.wCommandRegister) & 0xff,
+			htole16(sc->hid_desc.wCommandRegister) >> 8,
 			0,
 			I2C_HID_CMD_RESET,
 		};
@@ -279,10 +274,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		    (struct i2c_hid_report_request *)arg;
 
 		uint8_t cmd[] = {
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister)],
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister) + 1],
+			htole16(sc->hid_desc.wCommandRegister) & 0xff,
+			htole16(sc->hid_desc.wCommandRegister) >> 8,
 			0,
 			I2C_HID_CMD_GET_REPORT,
 			0, 0, 0,
@@ -315,10 +308,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 
 		cmd[2] = report_id | rreq->type << 4;
 
-		cmd[dataoff++] = sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-		    wDataRegister)] & 0xff;
-		cmd[dataoff] = sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-		    wDataRegister)] >> 8;
+		cmd[dataoff++] = sc->hid_desc.wDataRegister & 0xff;
+		cmd[dataoff] = sc->hid_desc.wDataRegister >> 8;
 
 		/*
 		 * 7.2.2.2 - Response will be a 2-byte length value, the report
@@ -366,10 +357,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		    (struct i2c_hid_report_request *)arg;
 
 		uint8_t cmd[] = {
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister)],
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister) + 1],
+			htole16(sc->hid_desc.wCommandRegister) & 0xff,
+			htole16(sc->hid_desc.wCommandRegister) >> 8,
 			0,
 			I2C_HID_CMD_SET_REPORT,
 			0, 0, 0, 0, 0, 0,
@@ -404,15 +393,15 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 		cmd[2] = report_id | rreq->type << 4;
 
 		if (rreq->type == I2C_HID_REPORT_TYPE_FEATURE) {
-			cmd[dataoff++] = sc->hid_desc_buf[offsetof(
-			    struct i2c_hid_desc, wDataRegister)] & 0xff;
-			cmd[dataoff++] = sc->hid_desc_buf[offsetof(
-			    struct i2c_hid_desc, wDataRegister)] >> 8;
+			cmd[dataoff++] = htole16(sc->hid_desc.wDataRegister)
+			    & 0xff;
+			cmd[dataoff++] = htole16(sc->hid_desc.wDataRegister)
+			    >> 8;
 		} else {
-			cmd[dataoff++] = sc->hid_desc_buf[offsetof(
-			    struct i2c_hid_desc, wOutputRegister)] & 0xff;
-			cmd[dataoff++] = sc->hid_desc_buf[offsetof(
-			    struct i2c_hid_desc, wOutputRegister)] >> 8;
+			cmd[dataoff++] = htole16(sc->hid_desc.wOutputRegister)
+			    & 0xff;
+			cmd[dataoff++] = htole16(sc->hid_desc.wOutputRegister)
+			    >> 8;
 		}
 
 		cmd[dataoff++] = report_len & 0xff;
@@ -437,10 +426,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 	case I2C_HID_CMD_SET_POWER: {
 		int power = *(int *)arg;
 		uint8_t cmd[] = {
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister)],
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wCommandRegister) + 1],
+			htole16(sc->hid_desc.wCommandRegister) & 0xff,
+			htole16(sc->hid_desc.wCommandRegister) >> 8,
 			power,
 			I2C_HID_CMD_SET_POWER,
 		};
@@ -456,9 +443,8 @@ ihidev_hid_command(struct ihidev_softc *sc, int hidcmd, void *arg)
 	}
 	case I2C_HID_REPORT_DESCR: {
 		uint8_t cmd[] = {
-			sc->hid_desc_buf[offsetof(struct i2c_hid_desc,
-			    wReportDescRegister)],
-			0,
+			htole16(sc->hid_desc.wReportDescRegister) & 0xff,
+			htole16(sc->hid_desc.wReportDescRegister) >> 8,
 		};
 
 		DPRINTF(("%s: HID command I2C_HID_REPORT_DESCR at 0x%x with "

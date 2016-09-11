@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.144 2016/01/08 20:36:01 sthen Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.149 2016/08/20 20:18:42 millert Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -557,10 +557,10 @@ noslash:
 		}
 #endif /* !SMALL */
 
-again:
-		if (connect(s, res->ai_addr, res->ai_addrlen) < 0) {
-			if (errno == EINTR)
-				goto again;
+		for (error = connect(s, res->ai_addr, res->ai_addrlen);
+		    error != 0 && errno == EINTR; error = connect_wait(s))
+			continue;
+		if (error != 0) {
 			save_errno = errno;
 			close(s);
 			errno = save_errno;
@@ -603,10 +603,6 @@ again:
 			sslhost = strdup(host);
 			if (sslhost == NULL)
 				errx(1, "Can't allocate memory for https host.");
-		}
-		if (tls_init() != 0) {
-			fprintf(ttyout, "SSL initialisation failed\n");
-			goto cleanup_url_get;
 		}
 		if ((tls = tls_client()) == NULL) {
 			fprintf(ttyout, "failed to create SSL client\n");
@@ -1161,7 +1157,6 @@ bad_ftp_url:
 				pass = urldecode(pass);
 			}
 
-#ifdef INET6
 			/* check [host]:port, or [host] */
 			if (host[0] == '[') {
 				cp = strchr(host, ']');
@@ -1175,9 +1170,6 @@ bad_ftp_url:
 					cp = host;
 			} else
 				cp = host;
-#else
-			cp = host;
-#endif
 
 			/* split off host[:port] if there is */
 			if (cp) {
@@ -1557,8 +1549,10 @@ again:
 			errx(1, "SSL read error: %s", tls_error(tls));
 
 		buf[i] = c;
-		if (c == '\n')
+		if (c == '\n') {
+			buf[i] = '\0';
 			break;
+		}
 	}
 	*lenp = i;
 	return (buf);

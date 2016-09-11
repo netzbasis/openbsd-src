@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_proto.c,v 1.60 2016/01/12 09:28:09 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_proto.c,v 1.68 2016/07/20 15:40:27 stsp Exp $	*/
 /*	$NetBSD: ieee80211_proto.c,v 1.8 2004/04/30 23:58:20 dyoung Exp $	*/
 
 /*-
@@ -88,11 +88,7 @@ ieee80211_proto_attach(struct ifnet *ifp)
 
 	ifp->if_hdrlen = sizeof(struct ieee80211_frame);
 
-#ifdef notdef
 	ic->ic_rtsthreshold = IEEE80211_RTS_DEFAULT;
-#else
-	ic->ic_rtsthreshold = IEEE80211_RTS_MAX;
-#endif
 	ic->ic_fragthreshold = 2346;		/* XXX not used yet */
 	ic->ic_fixed_rate = -1;			/* no fixed rate */
 	ic->ic_fixed_mcs = -1;			/* no fixed mcs */
@@ -560,15 +556,19 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 		return;
 
 	/* Check if the peer supports HT. MCS 0-7 are mandatory. */
-	if (ni->ni_rxmcs[0] != 0xff)
+	if (ni->ni_rxmcs[0] != 0xff) {
+		ic->ic_stats.is_ht_nego_no_mandatory_mcs++;
 		return;
+	}
 
 	if (ic->ic_opmode == IEEE80211_M_STA) {
 		/* We must support the AP's basic MCS set. */
 		for (i = 0; i < IEEE80211_HT_NUM_MCS; i++) {
 			if (isset(ni->ni_basic_mcs, i) &&
-			    !isset(ic->ic_sup_mcs, i))
+			    !isset(ic->ic_sup_mcs, i)) {
+				ic->ic_stats.is_ht_nego_no_basic_mcs++;
 				return;
+			}
 		}
 	}
 
@@ -576,12 +576,16 @@ ieee80211_ht_negotiate(struct ieee80211com *ic, struct ieee80211_node *ni)
 	 * Don't allow group cipher (includes WEP) or TKIP
 	 * for pairwise encryption (see 802.11-2012 11.1.6).
 	 */
-	if (ic->ic_flags & IEEE80211_F_WEPON)
+	if (ic->ic_flags & IEEE80211_F_WEPON) {
+		ic->ic_stats.is_ht_nego_bad_crypto++;
 		return;
+	}
 	if ((ic->ic_flags & IEEE80211_F_RSNON) &&
 	    (ni->ni_rsnciphers & IEEE80211_CIPHER_USEGROUP ||
-	    ni->ni_rsnciphers & IEEE80211_CIPHER_TKIP))
+	    ni->ni_rsnciphers & IEEE80211_CIPHER_TKIP)) {
+		ic->ic_stats.is_ht_nego_bad_crypto++;
 		return;
+	}
 
 	ni->ni_flags |= IEEE80211_NODE_HT; 
 }
@@ -594,6 +598,8 @@ ieee80211_tx_ba_timeout(void *arg)
 	struct ieee80211com *ic = ni->ni_ic;
 	u_int8_t tid;
 	int s;
+
+	ic->ic_stats.is_ht_tx_ba_timeout++;
 
 	s = splnet();
 	if (ba->ba_state == IEEE80211_BA_REQUESTED) {
@@ -618,6 +624,8 @@ ieee80211_rx_ba_timeout(void *arg)
 	u_int8_t tid;
 	int s;
 
+	ic->ic_stats.is_ht_rx_ba_timeout++;
+
 	s = splnet();
 
 	/* Block Ack inactivity timeout */
@@ -641,11 +649,17 @@ ieee80211_addba_request(struct ieee80211com *ic, struct ieee80211_node *ni,
 	/* setup Block Ack */
 	ba->ba_state = IEEE80211_BA_REQUESTED;
 	ba->ba_token = ic->ic_dialog_token++;
-	ba->ba_timeout_val = IEEE80211_BA_MAX_TIMEOUT;
+	ba->ba_timeout_val = 0;
 	timeout_set(&ba->ba_to, ieee80211_tx_ba_timeout, ba);
 	ba->ba_winsize = IEEE80211_BA_MAX_WINSZ;
 	ba->ba_winstart = ssn;
 	ba->ba_winend = (ba->ba_winstart + ba->ba_winsize - 1) & 0xfff;
+	ba->ba_params =
+	    (ba->ba_winsize << IEEE80211_ADDBA_BUFSZ_SHIFT) |
+	    (tid << IEEE80211_ADDBA_TID_SHIFT) | IEEE80211_ADDBA_AMSDU;
+	if ((ic->ic_htcaps & IEEE80211_HTCAP_DELAYEDBA) == 0)
+		/* immediate BA */
+		ba->ba_params |= IEEE80211_ADDBA_BA_POLICY;
 
 	timeout_add_sec(&ba->ba_to, 1);	/* dot11ADDBAResponseTimeout */
 	IEEE80211_SEND_ACTION(ic, ni, IEEE80211_CATEG_BA,
@@ -834,7 +848,7 @@ ieee80211_newstate(struct ieee80211com *ic, enum ieee80211_state nstate,
 			case IEEE80211_M_HOSTAP:
 				s = splnet();
 				RB_FOREACH(ni, ieee80211_tree, &ic->ic_tree) {
-					if (ni->ni_associd == 0)
+					if (ni->ni_state != IEEE80211_STA_ASSOC)
 						continue;
 					IEEE80211_SEND_MGMT(ic, ni,
 					    IEEE80211_FC0_SUBTYPE_DISASSOC,
@@ -1037,7 +1051,7 @@ justcleanup:
 				ieee80211_set_link_state(ic, LINK_STATE_UP);
 			}
 			ic->ic_mgt_timer = 0;
-			(*ifp->if_start)(ifp);
+			if_start(ifp);
 			break;
 		}
 		break;

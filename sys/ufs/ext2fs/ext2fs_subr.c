@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_subr.c,v 1.33 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ext2fs_subr.c,v 1.35 2016/08/10 07:53:02 natano Exp $	*/
 /*	$NetBSD: ext2fs_subr.c,v 1.1 1997/06/11 09:34:03 bouyer Exp $	*/
 
 /*
@@ -48,25 +48,6 @@
 #include <ufs/ext2fs/ext2fs.h>
 #include <ufs/ext2fs/ext2fs_extern.h>
 #include <ufs/ext2fs/ext2fs_extents.h>
-
-union _qcvt {
-	int64_t qcvt;
-	int32_t val[2];
-};
-
-#define SETHIGH(q, h) {			\
-	union _qcvt tmp;		\
-	tmp.qcvt = (q);			\
-	tmp.val[_QUAD_HIGHWORD] = (h);	\
-	(q) = tmp.qcvt;			\
-}
-
-#define SETLOW(q, l) {			\
-	union _qcvt tmp;		\
-	tmp.qcvt = (q);			\
-	tmp.val[_QUAD_LOWWORD] = (l);	\
-	(q) = tmp.qcvt;			\
-}
 
 #ifdef _KERNEL
 
@@ -164,8 +145,7 @@ ext2fs_checkoverlap(struct buf *bp, struct inode *ip)
  * Initialize the vnode associated with a new inode, handle aliased vnodes.
  */
 int
-ext2fs_vinit(struct mount *mp, struct vops *specops,
-    struct vops *fifoops, struct vnode **vpp)
+ext2fs_vinit(struct mount *mp, struct vnode **vpp)
 {
 	struct inode *ip;
 	struct vnode *vp, *nvp;
@@ -178,7 +158,7 @@ ext2fs_vinit(struct mount *mp, struct vops *specops,
 	switch(vp->v_type) {
 	case VCHR:
 	case VBLK:
-		vp->v_op = specops;
+		vp->v_op = &ext2fs_specvops;
 
 		nvp = checkalias(vp, letoh32(ip->i_e2din->e2di_rdev), mp);
 		if (nvp != NULL) {
@@ -204,7 +184,7 @@ ext2fs_vinit(struct mount *mp, struct vops *specops,
 
 	case VFIFO:
 #ifdef FIFO
-		vp->v_op = fifoops;
+		vp->v_op = &ext2fs_fifovops;
 		break;
 #else
 		return (EOPNOTSUPP);
@@ -220,8 +200,8 @@ ext2fs_vinit(struct mount *mp, struct vops *specops,
 
 	/* Initialize modrev times */
 	getmicrouptime(&tv);
-	SETHIGH(ip->i_modrev, tv.tv_sec);
-	SETLOW(ip->i_modrev, tv.tv_usec * 4294);
+	ip->i_modrev = (u_quad_t)tv.tv_sec << 32;
+	ip->i_modrev |= (u_quad_t)tv.tv_usec * 4294;
 
 	*vpp = vp;
 

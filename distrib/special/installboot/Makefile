@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.4 2015/12/01 07:50:07 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.9 2016/09/03 13:37:40 guenther Exp $
 
 .PATH: ${.CURDIR}/../../../usr.sbin/installboot
 
@@ -20,10 +20,6 @@ SRCS += i386_nlist.c
 SRCS += i386_softraid.c
 .endif
 
-.if ${MACHINE} == "armish"
-SRCS += stubs.c
-.endif
-
 .if ${MACHINE} == "armv7"
 SRCS += stubs.c
 .endif
@@ -31,11 +27,6 @@ SRCS += stubs.c
 .if ${MACHINE} == "hppa"
 CFLAGS += -DBOOTSTRAP
 SRCS += hppa_installboot.c
-.endif
-
-.if ${MACHINE} == "hppa64"
-CFLAGS += -DBOOTSTRAP
-SRCS += hppa64_installboot.c
 .endif
 
 .if ${MACHINE} == "i386"
@@ -74,23 +65,10 @@ SRCS += stubs.c
 SRCS += stubs.c
 .endif
 
-.if ${MACHINE} == "sparc"
-SRCS += stubs.c
-.endif
-
 .if ${MACHINE} == "sparc64"
 CFLAGS += -DSOFTRAID
 SRCS += sparc64_installboot.c
 SRCS += sparc64_softraid.c
-.endif
-
-.if ${MACHINE} == "vax"
-CFLAGS += -DBOOTSTRAP
-SRCS += vax_installboot.c
-.endif
-
-.if ${MACHINE} == "zaurus"
-SRCS += stubs.c
 .endif
 
 .if !empty(CFLAGS:M-DBOOTSTRAP)

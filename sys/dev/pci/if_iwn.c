@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwn.c,v 1.158 2016/01/25 11:27:11 stsp Exp $	*/
+/*	$OpenBSD: if_iwn.c,v 1.172 2016/09/05 08:18:18 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -27,6 +27,7 @@
 #include <sys/sockio.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -450,6 +451,8 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_caps =
 	    IEEE80211_C_WEP |		/* WEP */
 	    IEEE80211_C_RSN |		/* WPA/RSN */
+	    IEEE80211_C_SCANALL |	/* device scans all channels at once */
+	    IEEE80211_C_SCANALLBAND |	/* driver scans all bands at once */
 	    IEEE80211_C_MONITOR |	/* monitor mode supported */
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE |	/* short preamble supported */
@@ -460,17 +463,16 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_htxcaps = 0;
 	ic->ic_txbfcaps = 0;
 	ic->ic_aselcaps = 0;
-	ic->ic_ampdu_params = IEEE80211_AMPDU_PARAM_SS_4;
-
-#ifdef notyet
+	ic->ic_ampdu_params = (IEEE80211_AMPDU_PARAM_SS_4 | 0x3 /* 64k */);
 	if (sc->sc_flags & IWN_FLAG_HAS_11N) {
 		/* Set HT capabilities. */
-		ic->ic_htcaps =
+		ic->ic_htcaps = IEEE80211_HTCAP_SGI20;
+#ifdef notyet
+		ic->ic_htcaps |=
 #if IWN_RBUF_SIZE == 8192
 		    IEEE80211_HTCAP_AMSDU7935 |
 #endif
 		    IEEE80211_HTCAP_CBW20_40 |
-		    IEEE80211_HTCAP_SGI20 |
 		    IEEE80211_HTCAP_SGI40;
 		if (sc->hw_type != IWN_HW_REV_TYPE_4965)
 			ic->ic_htcaps |= IEEE80211_HTCAP_GF;
@@ -478,8 +480,8 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 			ic->ic_htcaps |= IEEE80211_HTCAP_SMPS_DYN;
 		else
 			ic->ic_htcaps |= IEEE80211_HTCAP_SMPS_DIS;
-	}
 #endif	/* notyet */
+	}
 
 	/* Set supported legacy rates. */
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -507,7 +509,6 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = iwn_ioctl;
 	ifp->if_start = iwn_start;
 	ifp->if_watchdog = iwn_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -537,6 +538,7 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	iwn_radiotap_attach(sc);
 #endif
 	timeout_set(&sc->calib_to, iwn_calib_timeout, sc);
+	rw_init(&sc->sc_rwlock, "iwnlock");
 	task_set(&sc->init_task, iwn_init_task, sc);
 	return;
 
@@ -776,17 +778,14 @@ iwn_init_task(void *arg1)
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int s;
 
+	rw_enter_write(&sc->sc_rwlock);
 	s = splnet();
-	while (sc->sc_flags & IWN_FLAG_BUSY)
-		tsleep(&sc->sc_flags, 0, "iwnpwr", 0);
-	sc->sc_flags |= IWN_FLAG_BUSY;
 
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
 		iwn_init(ifp);
 
-	sc->sc_flags &= ~IWN_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -1844,6 +1843,7 @@ iwn_ccmp_decap(struct iwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ieee80211_key *k = &ni->ni_pairwise_key;
 	struct ieee80211_frame *wh;
+	struct ieee80211_rx_ba *ba;
 	uint64_t pn, *prsc;
 	uint8_t *ivp;
 	uint8_t tid;
@@ -1860,6 +1860,7 @@ iwn_ccmp_decap(struct iwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	}
 	hasqos = ieee80211_has_qos(wh);
 	tid = hasqos ? ieee80211_get_qos(wh) & IEEE80211_QOS_TID : 0;
+	ba = hasqos ? &ni->ni_rx_ba[tid] : NULL;
 	prsc = &k->k_rsc[tid];
 
 	/* Extract the 48-bit PN from the CCMP header. */
@@ -1870,7 +1871,7 @@ iwn_ccmp_decap(struct iwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	     (uint64_t)ivp[6] << 32 |
 	     (uint64_t)ivp[7] << 40;
 	if (pn <= *prsc) {
-		if (hasqos && (sc->last_rx_valid & IWN_LAST_RX_AMPDU)) {
+		if (hasqos && ba->ba_state == IEEE80211_BA_AGREED) {
 			/*
 			 * This is an A-MPDU subframe.
 			 * Such frames may be received out of order due to
@@ -2008,7 +2009,15 @@ iwn_rx_done(struct iwn_softc *sc, struct iwn_rx_desc *desc,
 		return;
 	}
 	/* Discard frames that are too short. */
-	if (len < sizeof (*wh)) {
+	if (ic->ic_opmode == IEEE80211_M_MONITOR) {
+		/* Allow control frames in monitor mode. */
+		if (len < sizeof (struct ieee80211_frame_cts)) {
+			DPRINTF(("frame too short: %d\n", len));
+			ic->ic_stats.is_rx_tooshort++;
+			ifp->if_ierrors++;
+			return;
+		}
+	} else if (len < sizeof (*wh)) {
 		DPRINTF(("frame too short: %d\n", len));
 		ic->ic_stats.is_rx_tooshort++;
 		ifp->if_ierrors++;
@@ -2058,12 +2067,24 @@ iwn_rx_done(struct iwn_softc *sc, struct iwn_rx_desc *desc,
 	m->m_data = head;
 	m->m_pkthdr.len = m->m_len = len;
 
-	/* Grab a reference to the source node. */
+	/* 
+	 * Grab a reference to the source node. Note that control frames are
+	 * shorter than struct ieee80211_frame but ieee80211_find_rxnode()
+	 * is being careful about control frames.
+	 */
 	wh = mtod(m, struct ieee80211_frame *);
+	if (len < sizeof (*wh) &&
+	   (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) != IEEE80211_FC0_TYPE_CTL) {
+		ic->ic_stats.is_rx_tooshort++;
+		ifp->if_ierrors++;
+		m_freem(m);
+		return;
+	}
 	ni = ieee80211_find_rxnode(ic, wh);
 
 	rxi.rxi_flags = 0;
-	if ((wh->i_fc[1] & IEEE80211_FC1_PROTECTED) &&
+	if (((wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) != IEEE80211_FC0_TYPE_CTL)
+	    && (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) &&
 	    !IEEE80211_IS_MULTICAST(wh->i_addr1) &&
 	    (ni->ni_flags & IEEE80211_NODE_RXPROT) &&
 	    ni->ni_pairwise_key.k_cipher == IEEE80211_CIPHER_CCMP) {
@@ -2985,8 +3006,11 @@ iwn_tx(struct iwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 		tx->plcp = rinfo->plcp;
 
 	if ((ni->ni_flags & IEEE80211_NODE_HT) &&
-	    tx->id != sc->broadcast_id)
+	    tx->id != sc->broadcast_id) {
 		tx->rflags = rinfo->ht_flags;
+		if (ni->ni_htcaps & IEEE80211_HTCAP_SGI20)
+			tx->rflags |= IWN_RFLAG_SGI;
+	}
 	else
 		tx->rflags = rinfo->flags;
 	if (tx->id == sc->broadcast_id) {
@@ -3187,18 +3211,10 @@ iwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr;
 	int s, error = 0;
 
-	s = splnet();
-	/*
-	 * Prevent processes from entering this function while another
-	 * process is tsleep'ing in it.
-	 */
-	while ((sc->sc_flags & IWN_FLAG_BUSY) && error == 0)
-		error = tsleep(&sc->sc_flags, PCATCH, "iwnioc", 0);
-	if (error != 0) {
-		splx(s);
+	error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+	if (error)
 		return error;
-	}
-	sc->sc_flags |= IWN_FLAG_BUSY;
+	s = splnet();
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -3254,9 +3270,8 @@ iwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 	}
 
-	sc->sc_flags &= ~IWN_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 	return error;
 }
 
@@ -3395,10 +3410,13 @@ iwn_set_link_quality(struct iwn_softc *sc, struct ieee80211_node *ni)
 			linkq.retry[i].plcp = rinfo->ht_plcp;
 			linkq.retry[i].rflags = rinfo->ht_flags;
 
+			if (ni->ni_htcaps & IEEE80211_HTCAP_SGI20)
+				linkq.retry[i].rflags |= IWN_RFLAG_SGI;
+
 			/* XXX set correct ant mask for MIMO rates here */
 			linkq.retry[i].rflags |= IWN_RFLAG_ANT(txant);
 
-			if (i++ >= IWN_MAX_TX_RETRIES)
+			if (++i >= IWN_MAX_TX_RETRIES)
 				break;
 		}
 
@@ -4850,7 +4868,7 @@ iwn_run(struct iwn_softc *sc)
 
 	if (ic->ic_opmode == IEEE80211_M_MONITOR) {
 		/* Link LED blinks while monitoring. */
-		iwn_set_led(sc, IWN_LED_LINK, 5, 5);
+		iwn_set_led(sc, IWN_LED_LINK, 50, 50);
 		return 0;
 	}
 	if ((error = iwn_set_timing(sc, ni)) != 0) {
@@ -4920,10 +4938,15 @@ iwn_run(struct iwn_softc *sc)
 	memset(&node, 0, sizeof node);
 	IEEE80211_ADDR_COPY(node.macaddr, ni->ni_macaddr);
 	node.id = IWN_ID_BSS;
-#ifdef notyet
-	node.htflags = htole32(IWN_AMDPU_SIZE_FACTOR(3) |
-	    IWN_AMDPU_DENSITY(5));	/* 2us */
-#endif
+	if (ni->ni_flags & IEEE80211_NODE_HT) {
+		node.htmask = (IWN_AMDPU_SIZE_FACTOR_MASK |
+		    IWN_AMDPU_DENSITY_MASK);
+		node.htflags = htole32(
+		    IWN_AMDPU_SIZE_FACTOR(
+			(ic->ic_ampdu_params & IEEE80211_AMPDU_PARAM_LE)) |
+		    IWN_AMDPU_DENSITY(
+			(ic->ic_ampdu_params & IEEE80211_AMPDU_PARAM_SS) >> 2));
+	}
 	DPRINTF(("adding BSS node\n"));
 	error = ops->add_node(sc, &node, 1);
 	if (error != 0) {
@@ -5024,77 +5047,52 @@ iwn_update_htprot(struct ieee80211com *ic, struct ieee80211_node *ni)
 	struct iwn_softc *sc = ic->ic_softc;
 	struct iwn_ops *ops = &sc->ops;
 	enum ieee80211_htprot htprot;
-	struct iwn_node_info node;
-	int error, ridx;
-
-	timeout_del(&sc->calib_to);
-
-	/* Fake a "disassociation" so we can change RXON configuration. */
-	sc->rxon.filter &= ~htole32(IWN_FILTER_BSS);
-	error = iwn_cmd(sc, IWN_CMD_RXON, &sc->rxon, sc->rxonsz, 1);
-	if (error != 0) {
-		printf("%s: RXON command failed\n", sc->sc_dev.dv_xname);
-		return;
-	}
+	struct iwn_rxon_assoc rxon_assoc;
+	int s, error;
 
 	/* Update HT protection mode setting. */
 	htprot = (ni->ni_htop1 & IEEE80211_HTOP1_PROT_MASK) >>
 	    IEEE80211_HTOP1_PROT_SHIFT;
 	sc->rxon.flags &= ~htole32(IWN_RXON_HT_PROTMODE(3));
 	sc->rxon.flags |= htole32(IWN_RXON_HT_PROTMODE(htprot));
-	sc->rxon.filter |= htole32(IWN_FILTER_BSS);
-	error = iwn_cmd(sc, IWN_CMD_RXON, &sc->rxon, sc->rxonsz, 1);
-	if (error != 0) {
-		printf("%s: RXON command failed\n", sc->sc_dev.dv_xname);
-		return;
-	}
 
-	/* 
-	 * The firmware loses TX power table, node table, LQ table,
-	 * and sensitivity calibration after an RXON command.
-	 */
+	/* Update RXON config. */
+	memset(&rxon_assoc, 0, sizeof(rxon_assoc));
+	rxon_assoc.flags = sc->rxon.flags;
+	rxon_assoc.filter = sc->rxon.filter;
+	rxon_assoc.ofdm_mask = sc->rxon.ofdm_mask;
+	rxon_assoc.cck_mask = sc->rxon.cck_mask;
+	rxon_assoc.ht_single_mask = sc->rxon.ht_single_mask;
+	rxon_assoc.ht_dual_mask = sc->rxon.ht_dual_mask;
+	rxon_assoc.ht_triple_mask = sc->rxon.ht_triple_mask;
+	rxon_assoc.rxchain = sc->rxon.rxchain;
+	rxon_assoc.acquisition = sc->rxon.acquisition;
 
-	if ((error = ops->set_txpower(sc, 1)) != 0) {
+	s = splnet();
+
+	error = iwn_cmd(sc, IWN_CMD_RXON_ASSOC, &rxon_assoc,
+	    sizeof(rxon_assoc), 1);
+	if (error != 0)
+		printf("%s: RXON_ASSOC command failed\n", sc->sc_dev.dv_xname);
+
+	DELAY(100);
+
+	/* All RXONs wipe the firmware's txpower table. Restore it. */
+	error = ops->set_txpower(sc, 1);
+	if (error != 0)
 		printf("%s: could not set TX power\n", sc->sc_dev.dv_xname);
-		return;
-	}
 
-	ridx = IEEE80211_IS_CHAN_5GHZ(ni->ni_chan) ?
-	    IWN_RIDX_OFDM6 : IWN_RIDX_CCK1;
-	if ((error = iwn_add_broadcast_node(sc, 1, ridx)) != 0) {
-		printf("%s: could not add broadcast node\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
+	DELAY(100);
 
-	memset(&node, 0, sizeof node);
-	IEEE80211_ADDR_COPY(node.macaddr, ni->ni_macaddr);
-	node.id = IWN_ID_BSS;
-#ifdef notyet
-	node.htflags = htole32(IWN_AMDPU_SIZE_FACTOR(3) |
-	    IWN_AMDPU_DENSITY(5));	/* 2us */
-#endif
-	error = ops->add_node(sc, &node, 1);
-	if (error != 0) {
-		printf("%s: could not add BSS node\n", sc->sc_dev.dv_xname);
-		return;
-	}
+	/* Restore power saving level */
+	if (ic->ic_flags & IEEE80211_F_PMGTON)
+		error = iwn_set_pslevel(sc, 0, 3, 1);
+	else
+		error = iwn_set_pslevel(sc, 0, 0, 1);
+	if (error != 0)
+		printf("%s: could not set PS level\n", sc->sc_dev.dv_xname);
 
-	if ((error = iwn_set_link_quality(sc, ni)) != 0) {
-		printf("%s: could not setup link quality for node %d\n",
-		    sc->sc_dev.dv_xname, node.id);
-		return;
-	}
-
-	if ((error = iwn_init_sensitivity(sc)) != 0) {
-		printf("%s: could not set sensitivity\n",
-		    sc->sc_dev.dv_xname);
-		return;
-	}
-
-	sc->calib.state = IWN_CALIB_STATE_ASSOC;
-	sc->calib_cnt = 0;
-	timeout_add_msec(&sc->calib_to, 500);
+	splx(s);
 }
 
 /*

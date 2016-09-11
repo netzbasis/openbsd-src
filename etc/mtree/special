@@ -1,4 +1,4 @@
-#	$OpenBSD: special,v 1.116 2015/12/05 09:12:15 tedu Exp $
+#	$OpenBSD: special,v 1.120 2016/08/09 21:24:32 halex Exp $
 #
 # Hand-crafted mtree specification for the dangerous files.
 #
@@ -16,9 +16,9 @@ etc		type=dir mode=0755 uname=root gname=wheel
 bgpd.conf	type=file mode=0600 uname=root gname=wheel optional
 chio.conf	type=file mode=0644 uname=root gname=operator optional
 crontab		type=file mode=0600 uname=root gname=wheel optional
-csh.cshrc	type=file mode=0644 uname=root gname=wheel
-csh.login	type=file mode=0644 uname=root gname=wheel
-csh.logout	type=file mode=0644 uname=root gname=wheel
+csh.cshrc	type=file mode=0644 uname=root gname=wheel optional
+csh.login	type=file mode=0644 uname=root gname=wheel optional
+csh.logout	type=file mode=0644 uname=root gname=wheel optional
 daily		type=file mode=0644 uname=root gname=wheel
 daily.local	type=file mode=0644 uname=root gname=wheel optional
 dhcpd.conf	type=file mode=0644 uname=root gname=wheel optional
@@ -73,7 +73,7 @@ ospfd.conf	type=file mode=0600 uname=root gname=wheel optional
 ospf6d.conf	type=file mode=0600 uname=root gname=wheel optional
 passwd		type=file mode=0644 uname=root gname=wheel
 pf.conf		type=file mode=0600 uname=root gname=wheel optional
-printcap	type=file mode=0644 uname=root gname=wheel optional
+printcap	mode=0644 uname=root gname=wheel optional
 radiusd.conf	type=file mode=0600 uname=root gname=wheel optional
 rc		type=file mode=0644 uname=root gname=wheel
 rc.conf		type=file mode=0644 uname=root gname=wheel
@@ -108,8 +108,6 @@ ssh_host_rsa_key	type=file mode=0600 uname=root gname=wheel optional
 ssh_host_rsa_key.pub	type=file mode=0644 uname=root gname=wheel optional
 sshd_config	type=file mode=0644 uname=root gname=wheel
 ..	#ssh
-systrace	type=dir mode=0755 uname=root gname=wheel optional
-..	#systrace
 syslog.conf	type=file mode=0644 uname=root gname=wheel
 ttys		type=file mode=0644 uname=root gname=wheel
 weekly		type=file mode=0644 uname=root gname=wheel
@@ -208,7 +206,7 @@ hidden		type=dir mode=0111 uname=root gname=wheel optional ignore
 pub		type=dir mode=0555 uname=root gname=wheel optional ignore
 ..	#var/spool/ftp/pub
 ..	#var/spool/ftp
-output		type=dir mode=0775 uname=root gname=daemon ignore
+output		type=dir mode=0755 uname=root gname=wheel ignore
 ..	#var/spool/output
 uucp		type=dir mode=0755 uname=uucp gname=daemon ignore
 ..	#var/spool/uucp

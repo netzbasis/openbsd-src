@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.104 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.107 2016/05/23 20:39:26 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -468,6 +468,7 @@ struct format_tree *
 format_create(struct cmd_q *cmdq, int flags)
 {
 	struct format_tree	*ft;
+	struct cmd		*cmd;
 
 	if (!event_initialized(&format_job_event)) {
 		evtimer_set(&format_job_event, format_job_timer, NULL);
@@ -486,6 +487,10 @@ format_create(struct cmd_q *cmdq, int flags)
 
 	if (cmdq != NULL && cmdq->cmd != NULL)
 		format_add(ft, "command_name", "%s", cmdq->cmd->entry->name);
+	if (cmdq != NULL && cmdq->parent != NULL) {
+		cmd = cmdq->parent->cmd;
+		format_add(ft, "command_hooked", "%s", cmd->entry->name);
+	}
 
 	return (ft);
 }
@@ -684,7 +689,7 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	char		*copy, *copy0, *endptr, *ptr, *found, *new, *value;
 	char		*from = NULL, *to = NULL;
 	size_t		 valuelen, newlen, fromlen, tolen, used;
-	u_long		 limit = 0;
+	long		 limit = 0;
 	int		 modifiers = 0, brackets;
 
 	/* Make a copy of the key. */
@@ -696,8 +701,8 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	switch (copy[0]) {
 	case '=':
 		errno = 0;
-		limit = strtoul(copy + 1, &endptr, 10);
-		if (errno == ERANGE && limit == ULONG_MAX)
+		limit = strtol(copy + 1, &endptr, 10);
+		if (errno == ERANGE && (limit == LONG_MIN || limit == LONG_MAX))
 			break;
 		if (*endptr != ':')
 			break;
@@ -813,8 +818,12 @@ format_replace(struct format_tree *ft, const char *key, size_t keylen,
 	}
 
 	/* Truncate the value if needed. */
-	if (limit != 0) {
+	if (limit > 0) {
 		new = utf8_trimcstr(value, limit);
+		free(value);
+		value = new;
+	} else if (limit < 0) {
+		new = utf8_rtrimcstr(value, -limit);
 		free(value);
 		value = new;
 	}
@@ -841,27 +850,18 @@ fail:
 char *
 format_expand_time(struct format_tree *ft, const char *fmt, time_t t)
 {
-	char		*tmp, *expanded;
-	size_t		 tmplen;
 	struct tm	*tm;
+	char		 s[2048];
 
 	if (fmt == NULL || *fmt == '\0')
 		return (xstrdup(""));
 
 	tm = localtime(&t);
 
-	tmp = NULL;
-	tmplen = strlen(fmt);
+	if (strftime(s, sizeof s, fmt, tm) == 0)
+		return (xstrdup(""));
 
-	do {
-		tmp = xreallocarray(tmp, 2, tmplen);
-		tmplen *= 2;
-	} while (strftime(tmp, tmplen, fmt, tm) == 0);
-
-	expanded = format_expand(ft, tmp);
-	free(tmp);
-
-	return (expanded);
+	return (format_expand(ft, s));
 }
 
 /* Expand keys in a template. */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pstat.c,v 1.101 2015/12/11 11:53:52 tedu Exp $	*/
+/*	$OpenBSD: pstat.c,v 1.108 2016/08/14 22:47:26 guenther Exp $	*/
 /*	$NetBSD: pstat.c,v 1.27 1996/10/23 22:50:06 cgd Exp $	*/
 
 /*-
@@ -193,7 +193,7 @@ main(int argc, char *argv[])
 	need_nlist = vnodeflag || dformat;
 
 	if (nlistf != NULL || memf != NULL) {
-		if (fileflag)
+		if (fileflag || totalflag)
 			need_nlist = 1;
 	}
 
@@ -407,7 +407,7 @@ void
 vnode_print(struct vnode *avnode, struct vnode *vp)
 {
 	char *type, flags[16];
-	char *fp = flags;
+	char *fp;
 	int flag;
 
 	/*
@@ -438,6 +438,7 @@ vnode_print(struct vnode *avnode, struct vnode *vp)
 	/*
 	 * gather flags
 	 */
+	fp = flags;
 	flag = vp->v_flag;
 	if (flag & VROOT)
 		*fp++ = 'R';
@@ -461,7 +462,7 @@ vnode_print(struct vnode *avnode, struct vnode *vp)
 		*fp++ = 'l';
 	if (vp->v_bioflag & VBIOONSYNCLIST)
 		*fp++ = 's';
-	if (flag == 0)
+	if (fp == flags)
 		*fp++ = '-';
 	*fp = '\0';
 	(void)printf("%0*lx %s %5s %4d %4u",
@@ -529,7 +530,7 @@ ufs_print(struct vnode *vp)
 		else
 			(void)printf(" %7s", name);
 	else
-		(void)printf(" %7qd", ip->i_ffs1_size);
+		(void)printf(" %7lld", (long long)ip->i_ffs1_size);
 	return (0);
 }
 
@@ -629,7 +630,7 @@ nfs_print(struct vnode *vp)
 		else
 			(void)printf(" %7s", name);
 	else
-		(void)printf(" %7qd", np->n_size);
+		(void)printf(" %7lld", (long long)np->n_size);
 	return (0);
 }
 
@@ -723,9 +724,9 @@ mount_print(struct mount *mp)
 			flags &= ~MNT_EXPORTANON;
 			comma = ",";
 		}
-		if (flags & MNT_EXKERB) {
-			(void)printf("%sexkerb", comma);
-			flags &= ~MNT_EXKERB;
+		if (flags & MNT_WXALLOWED) {
+			(void)printf("%swxallowed", comma);
+			flags &= ~MNT_WXALLOWED;
 			comma = ",";
 		}
 		if (flags & MNT_LOCAL) {
@@ -976,7 +977,7 @@ filemode(void)
 {
 	struct kinfo_file *kf;
 	char flagbuf[16], *fbp;
-	static char *dtypes[] = { "???", "inode", "socket", "pipe", "kqueue", "???", "systrace" };
+	static char *dtypes[] = { "???", "inode", "socket", "pipe", "kqueue", "???", "???" };
 	int mib[2], maxfile, nfile;
 	size_t len;
 
@@ -1154,6 +1155,6 @@ void
 usage(void)
 {
 	(void)fprintf(stderr, "usage: "
-	    "pstat [-fknsTtv] [-d format] [-M core] [-N system] [symbols]\n");
+	    "pstat [-fknsTtv] [-M core] [-N system] [-d format symbol ...]\n");
 	exit(1);
 }

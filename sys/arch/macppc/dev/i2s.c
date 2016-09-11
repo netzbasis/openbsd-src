@@ -1,4 +1,4 @@
-/*	$OpenBSD: i2s.c,v 1.30 2015/09/08 08:29:35 deraadt Exp $	*/
+/*	$OpenBSD: i2s.c,v 1.33 2016/08/30 11:20:09 ratchov Exp $	*/
 /*	$NetBSD: i2s.c,v 1.1 2003/12/27 02:19:34 grant Exp $	*/
 
 /*-
@@ -150,7 +150,7 @@ i2s_intr(v)
 		mtx_leave(&audio_lock);
 		return (0);
 	}
-	DPRINTF(("i2s_intr: cmd %x\n", cmd));
+	DPRINTF(("i2s_intr: cmd %p\n", cmd));
 
 	c = in16rb(&cmd->d_command);
 	status = in16rb(&cmd->d_status);
@@ -185,7 +185,7 @@ i2s_iintr(v)
 		mtx_leave(&audio_lock);
 		return (0);
 	}
-	DPRINTF(("i2s_intr: cmd %x\n", cmd));
+	DPRINTF(("i2s_intr: cmd %p\n", cmd));
 
 	c = in16rb(&cmd->d_command);
 	status = in16rb(&cmd->d_status);
@@ -295,13 +295,9 @@ i2s_set_params(h, setmode, usemode, play, rec)
 			p->precision = 16;
 		if (p->channels > 2)
 			p->channels = 2;
-
-		switch (p->encoding) {
-		case AUDIO_ENCODING_SLINEAR_BE:
-			break;
-		default:
-			return (EINVAL);
-		}
+		p->bps = AUDIO_BPS(p->precision);
+		p->msb = 1;
+		p->encoding = AUDIO_ENCODING_SLINEAR_BE;
 	}
 
 	/* Set the speed */
@@ -309,10 +305,6 @@ i2s_set_params(h, setmode, usemode, play, rec)
 		return EINVAL;
 
 	p->sample_rate = sc->sc_rate;
-
-	p->bps = AUDIO_BPS(p->precision);
-	p->msb = 1;
-
 	return 0;
 }
 

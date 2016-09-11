@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwnreg.h,v 1.51 2016/01/07 23:08:38 stsp Exp $	*/
+/*	$OpenBSD: if_iwnreg.h,v 1.53 2016/04/28 08:28:18 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2007, 2008
@@ -526,6 +526,22 @@ struct iwn_rxon {
 	uint16_t	reserved6;
 } __packed;
 
+/* Structure for command IWN_CMD_RXON_ASSOC. */
+struct iwn_rxon_assoc {
+	uint32_t flags;
+	uint32_t filter;
+	uint8_t ofdm_mask;
+	uint8_t cck_mask;
+	uint16_t reserved1;
+	uint8_t ht_single_mask;
+	uint8_t ht_dual_mask;
+	uint8_t ht_triple_mask;
+	uint8_t reserved2;
+	uint16_t rxchain;
+	uint16_t acquisition;
+	uint32_t reserved3;
+} __packed;
+
 #define IWN4965_RXONSZ	(sizeof (struct iwn_rxon) - 6)
 #define IWN5000_RXONSZ	(sizeof (struct iwn_rxon))
 
@@ -605,9 +621,11 @@ struct iwn_node_info {
 
 	uint32_t	htflags;
 #define IWN_AMDPU_SIZE_FACTOR(x)	((x) << 19)
+#define IWN_AMDPU_SIZE_FACTOR_MASK	((0x3) << 19)
 #define IWN_AMDPU_DENSITY(x)		((x) << 23)
+#define IWN_AMDPU_DENSITY_MASK		((0x7) << 23)
 
-	uint32_t	mask;
+	uint32_t	htmask;
 	uint16_t	disable_tid;
 	uint16_t	reserved6;
 	uint8_t		addba_tid;
@@ -632,7 +650,7 @@ struct iwn4965_node_info {
 	uint8_t		reserved5;
 	uint8_t		key[16];
 	uint32_t	htflags;
-	uint32_t	mask;
+	uint32_t	htmask;
 	uint16_t	disable_tid;
 	uint16_t	reserved6;
 	uint8_t		addba_tid;

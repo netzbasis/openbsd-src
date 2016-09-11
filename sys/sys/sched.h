@@ -1,4 +1,4 @@
-/*	$OpenBSD: sched.h,v 1.39 2015/09/13 11:15:11 kettenis Exp $	*/
+/*	$OpenBSD: sched.h,v 1.41 2016/03/17 13:18:47 mpi Exp $	*/
 /* $NetBSD: sched.h,v 1.2 1999/02/28 18:14:58 ross Exp $ */
 
 /*-
@@ -139,7 +139,6 @@ void schedclock(struct proc *);
 struct cpu_info;
 void roundrobin(struct cpu_info *);
 void scheduler_start(void);
-void updatepri(struct proc *);
 void userret(struct proc *p);
 
 void sched_init_cpu(struct cpu_info *);
@@ -164,7 +163,7 @@ void sched_start_secondary_cpus(void);
 void sched_stop_secondary_cpus(void);
 #endif
 
-#define curcpu_is_idle()	(curcpu()->ci_schedstate.spc_whichqs == 0)
+#define cpu_is_idle(ci)	((ci)->ci_schedstate.spc_whichqs == 0)
 
 void sched_init_runqueues(void);
 void setrunqueue(struct proc *);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.20 2015/12/28 22:08:30 jung Exp $	*/
+/*	$OpenBSD: ca.c,v 1.25 2016/09/08 12:06:43 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -59,10 +59,6 @@ static int	 rsae_bn_mod_exp(BIGNUM *, const BIGNUM *, const BIGNUM *,
 		    const BIGNUM *, BN_CTX *, BN_MONT_CTX *);
 static int	 rsae_init(RSA *);
 static int	 rsae_finish(RSA *);
-static int	 rsae_sign(int, const unsigned char *, unsigned int,
-		    unsigned char *, unsigned int *, const RSA *);
-static int	 rsae_verify(int dtype, const unsigned char *m, unsigned int,
-		    const unsigned char *, unsigned int, const RSA *);
 static int	 rsae_keygen(RSA *, int, BIGNUM *, BN_GENCB *);
 
 static uint64_t	 rsae_reqid = 0;
@@ -70,40 +66,14 @@ static uint64_t	 rsae_reqid = 0;
 static void
 ca_shutdown(void)
 {
-	log_info("info: ca agent exiting");
+	log_debug("debug: ca agent exiting");
 	_exit(0);
 }
 
-static void
-ca_sig_handler(int sig, short event, void *p)
-{
-	switch (sig) {
-	case SIGINT:
-	case SIGTERM:
-		ca_shutdown();
-		break;
-	default:
-		fatalx("ca_sig_handler: unexpected signal");
-	}
-}
-
-pid_t
+int
 ca(void)
 {
-	pid_t		 pid;
 	struct passwd	*pw;
-	struct event	 ev_sigint;
-	struct event	 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("ca: cannot fork");
-	case 0:
-		post_fork(PROC_CA);
-		break;
-	default:
-		return (pid);
-	}
 
 	purge_config(PURGE_LISTENERS|PURGE_TABLES|PURGE_RULES);
 
@@ -125,17 +95,14 @@ ca(void)
 	imsg_callback = ca_imsg;
 	event_init();
 
-	signal_set(&ev_sigint, SIGINT, ca_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, ca_sig_handler, NULL);
-	signal_add(&ev_sigint, NULL);
-	signal_add(&ev_sigterm, NULL);
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
 	config_peer(PROC_CONTROL);
 	config_peer(PROC_PARENT);
 	config_peer(PROC_PONY);
-	config_done();
 
 	/* Ignore them until we get our config */
 	mproc_disable(p_pony);
@@ -143,9 +110,8 @@ ca(void)
 	if (pledge("stdio", NULL) == -1)
 		err(1, "pledge");
 
-	if (event_dispatch() < 0)
-		fatal("event_dispatch");
-	ca_shutdown();
+	event_dispatch();
+	fatalx("exited event loop");
 
 	return (0);
 }
@@ -260,6 +226,9 @@ ca_imsg(struct mproc *p, struct imsg *imsg)
 	uint64_t		 id;
 	int			 v;
 
+	if (imsg == NULL)
+		ca_shutdown();
+
 	if (p->proc == PROC_PARENT) {
 		switch (imsg->hdr.type) {
 		case IMSG_CONF_START:
@@ -356,8 +325,8 @@ static RSA_METHOD rsae_method = {
 	rsae_finish,
 	0,
 	NULL,
-	rsae_sign,
-	rsae_verify,
+	NULL,
+	NULL,
 	rsae_keygen
 };
 
@@ -510,24 +479,6 @@ rsae_finish(RSA *rsa)
 	if (rsa_default->finish == NULL)
 		return (1);
 	return (rsa_default->finish(rsa));
-}
-
-static int
-rsae_sign(int type, const unsigned char *m, unsigned int m_length,
-    unsigned char *sigret, unsigned int *siglen, const RSA *rsa)
-{
-	log_debug("debug: %s: %s", proc_name(smtpd_process), __func__);
-	return (rsa_default->rsa_sign(type, m, m_length,
-	    sigret, siglen, rsa));
-}
-
-static int
-rsae_verify(int dtype, const unsigned char *m, unsigned int m_length,
-    const unsigned char *sigbuf, unsigned int siglen, const RSA *rsa)
-{
-	log_debug("debug: %s: %s", proc_name(smtpd_process), __func__);
-	return (rsa_default->rsa_verify(dtype, m, m_length,
-	    sigbuf, siglen, rsa));
 }
 
 static int

@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.12 2016/01/15 12:41:50 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.23 2016/09/02 16:44:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -18,32 +18,38 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
+
 #include <ctype.h>
-#include <err.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "eigrpd.h"
-#include "eigrp.h"
-#include "log.h"
 #include "eigrpe.h"
+#include "log.h"
 
-extern struct eigrpd_conf        *econf;
+static __inline int	 iface_id_compare(struct eigrp_iface *,
+			    struct eigrp_iface *);
+static struct iface	*if_new(struct eigrpd_conf *, struct kif *);
+static void		 if_del(struct iface *);
+static struct if_addr	*if_addr_lookup(struct if_addr_head *, struct kaddr *);
+static void		 eigrp_if_start(struct eigrp_iface *);
+static void		 eigrp_if_reset(struct eigrp_iface *);
+static void		 eigrp_if_hello_timer(int, short, void *);
+static void		 eigrp_if_start_hello_timer(struct eigrp_iface *);
+static void		 eigrp_if_stop_hello_timer(struct eigrp_iface *);
+static int		 if_join_ipv4_group(struct iface *, struct in_addr *);
+static int		 if_leave_ipv4_group(struct iface *, struct in_addr *);
+static int		 if_join_ipv6_group(struct iface *, struct in6_addr *);
+static int		 if_leave_ipv6_group(struct iface *, struct in6_addr *);
 
-void		 eigrp_if_hello_timer(int, short, void *);
-void		 eigrp_if_start_hello_timer(struct eigrp_iface *);
-void		 eigrp_if_stop_hello_timer(struct eigrp_iface *);
-
-static __inline int iface_id_compare(struct eigrp_iface *,
-    struct eigrp_iface *);
-
-RB_HEAD(iface_id_head, eigrp_iface);
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
 RB_GENERATE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
+
+struct iface_id_head ifaces_by_id = RB_INITIALIZER(&ifaces_by_id);
 
 static __inline int
 iface_id_compare(struct eigrp_iface *a, struct eigrp_iface *b)
@@ -51,17 +57,13 @@ iface_id_compare(struct eigrp_iface *a, struct eigrp_iface *b)
 	return (a->ifaceid - b->ifaceid);
 }
 
-struct iface_id_head ifaces_by_id = RB_INITIALIZER(&ifaces_by_id);
-
-uint32_t	ifacecnt = 1;
-
-struct iface *
+static struct iface *
 if_new(struct eigrpd_conf *xconf, struct kif *kif)
 {
 	struct iface		*iface;
 
 	if ((iface = calloc(1, sizeof(*iface))) == NULL)
-		err(1, "if_new: calloc");
+		fatal("if_new: calloc");
 
 	TAILQ_INIT(&iface->ei_list);
 	TAILQ_INIT(&iface->addr_list);
@@ -90,7 +92,7 @@ if_new(struct eigrpd_conf *xconf, struct kif *kif)
 	return (iface);
 }
 
-void
+static void
 if_del(struct iface *iface)
 {
 	struct if_addr		*if_addr;
@@ -106,26 +108,6 @@ if_del(struct iface *iface)
 	free(iface);
 }
 
-void
-if_init(struct eigrpd_conf *xconf, struct iface *iface)
-{
-	struct ifreq		 ifr;
-	unsigned int		 rdomain;
-
-	/* set rdomain */
-	strlcpy(ifr.ifr_name, iface->name, sizeof(ifr.ifr_name));
-	if (ioctl(econf->eigrp_socket_v4, SIOCGIFRDOMAIN, (caddr_t)&ifr) == -1)
-		rdomain = 0;
-	else {
-		rdomain = ifr.ifr_rdomainid;
-		if (setsockopt(econf->eigrp_socket_v4, SOL_SOCKET, SO_RTABLE,
-		    &rdomain, sizeof(rdomain)) == -1)
-			fatal("failed to set rdomain");
-	}
-	if (rdomain != xconf->rdomain)
-		fatalx("interface rdomain mismatch");
-}
-
 struct iface *
 if_lookup(struct eigrpd_conf *xconf, unsigned int ifindex)
 {
@@ -138,41 +120,72 @@ if_lookup(struct eigrpd_conf *xconf, unsigned int ifindex)
 	return (NULL);
 }
 
-struct if_addr *
-if_addr_new(struct iface *iface, struct kaddr *kaddr)
+void
+if_init(struct eigrpd_conf *xconf, struct iface *iface)
+{
+	struct ifreq		 ifr;
+	unsigned int		 rdomain;
+
+	/* set rdomain */
+	strlcpy(ifr.ifr_name, iface->name, sizeof(ifr.ifr_name));
+	if (ioctl(global.eigrp_socket_v4, SIOCGIFRDOMAIN, (caddr_t)&ifr) == -1)
+		rdomain = 0;
+	else {
+		rdomain = ifr.ifr_rdomainid;
+		if (setsockopt(global.eigrp_socket_v4, SOL_SOCKET, SO_RTABLE,
+		    &rdomain, sizeof(rdomain)) == -1)
+			fatal("failed to set rdomain");
+	}
+	if (rdomain != xconf->rdomain)
+		fatalx("interface rdomain mismatch");
+}
+
+void
+if_addr_new(struct iface *iface, struct kaddr *ka)
 {
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
 
-	if (if_addr_lookup(&iface->addr_list, kaddr) != NULL)
-		return (NULL);
+	if (ka->af == AF_INET6 && IN6_IS_ADDR_LINKLOCAL(&ka->addr.v6)) {
+		iface->linklocal = ka->addr.v6;
+		if_update(iface, AF_INET6);
+		return;
+	}
+
+	if (if_addr_lookup(&iface->addr_list, ka) != NULL)
+		return;
 
 	if ((if_addr = calloc(1, sizeof(*if_addr))) == NULL)
-		fatal("if_addr_new");
-
-	if_addr->af = kaddr->af;
-	memcpy(&if_addr->addr, &kaddr->addr, sizeof(if_addr->addr));
-	if_addr->prefixlen = kaddr->prefixlen;
-	memcpy(&if_addr->dstbrd, &kaddr->dstbrd, sizeof(if_addr->dstbrd));
-
+		fatal("if_addr_new: calloc");
+	if_addr->af = ka->af;
+	if_addr->addr = ka->addr;
+	if_addr->prefixlen = ka->prefixlen;
+	if_addr->dstbrd = ka->dstbrd;
 	TAILQ_INSERT_TAIL(&iface->addr_list, if_addr, entry);
 
 	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
 		if (ei->state == IF_STA_ACTIVE && ei->eigrp->af == if_addr->af)
 			eigrpe_orig_local_route(ei, if_addr, 0);
 
-	if_update(iface, if_addr->af);
-
-	return (if_addr);
+	if (if_addr->af == AF_INET)
+		if_update(iface, AF_INET);
 }
 
 void
-if_addr_del(struct iface *iface, struct kaddr *kaddr)
+if_addr_del(struct iface *iface, struct kaddr *ka)
 {
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
+	int			 af = ka->af;
 
-	if_addr = if_addr_lookup(&iface->addr_list, kaddr);
+	if (ka->af == AF_INET6 &&
+	    IN6_ARE_ADDR_EQUAL(&iface->linklocal, &ka->addr.v6)) {
+		memset(&iface->linklocal, 0, sizeof(iface->linklocal));
+		if_update(iface, AF_INET6);
+		return;
+	}
+
+	if_addr = if_addr_lookup(&iface->addr_list, ka);
 	if (if_addr == NULL)
 		return;
 
@@ -181,20 +194,22 @@ if_addr_del(struct iface *iface, struct kaddr *kaddr)
 			eigrpe_orig_local_route(ei, if_addr, 1);
 
 	TAILQ_REMOVE(&iface->addr_list, if_addr, entry);
-	if_update(iface, if_addr->af);
 	free(if_addr);
+
+	if (af == AF_INET)
+		if_update(iface, AF_INET);
 }
 
-struct if_addr *
-if_addr_lookup(struct if_addr_head *addr_list, struct kaddr *kaddr)
+static struct if_addr *
+if_addr_lookup(struct if_addr_head *addr_list, struct kaddr *ka)
 {
 	struct if_addr	*if_addr;
-	int		 af = kaddr->af;
+	int		 af = ka->af;
 
 	TAILQ_FOREACH(if_addr, addr_list, entry)
-		if (!eigrp_addrcmp(af, &if_addr->addr, &kaddr->addr) &&
-		    if_addr->prefixlen == kaddr->prefixlen &&
-		    !eigrp_addrcmp(af, &if_addr->dstbrd, &kaddr->dstbrd))
+		if (!eigrp_addrcmp(af, &if_addr->addr, &ka->addr) &&
+		    if_addr->prefixlen == ka->prefixlen &&
+		    !eigrp_addrcmp(af, &if_addr->dstbrd, &ka->dstbrd))
 			return (if_addr);
 
 	return (NULL);
@@ -284,27 +299,24 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 {
 	struct iface		*iface;
 	struct eigrp_iface	*ei;
-	struct timeval		 now;
+	static uint32_t		 ifacecnt = 1;
 
 	iface = if_lookup(xconf, kif->ifindex);
 	if (iface == NULL)
 		iface = if_new(xconf, kif);
 
 	if ((ei = calloc(1, sizeof(*ei))) == NULL)
-		err(1, "eigrp_if_new: calloc");
+		fatal("eigrp_if_new: calloc");
 
 	ei->state = IF_STA_DOWN;
 	/* get next unused ifaceid */
-	while (eigrp_iface_find_id(ifacecnt++))
+	while (eigrp_if_lookup_id(ifacecnt++))
 		;
 	ei->ifaceid = ifacecnt;
 	ei->eigrp = eigrp;
 	ei->iface = iface;
 	if (ei->iface->flags & IFF_LOOPBACK)
 		ei->passive = 1;
-
-	gettimeofday(&now, NULL);
-	ei->uptime = now.tv_sec;
 
 	TAILQ_INIT(&ei->nbr_list);
 	TAILQ_INIT(&ei->update_list);
@@ -342,17 +354,40 @@ eigrp_if_del(struct eigrp_iface *ei)
 	free(ei);
 }
 
-void
+struct eigrp_iface *
+eigrp_if_lookup(struct iface *iface, int af, uint16_t as)
+{
+	struct eigrp_iface	*ei;
+
+	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
+		if (ei->eigrp->af == af &&
+		    ei->eigrp->as == as)
+			return (ei);
+
+	return (NULL);
+}
+
+struct eigrp_iface *
+eigrp_if_lookup_id(uint32_t ifaceid)
+{
+	struct eigrp_iface	 e;
+	e.ifaceid = ifaceid;
+	return (RB_FIND(iface_id_head, &ifaces_by_id, &e));
+}
+
+static void
 eigrp_if_start(struct eigrp_iface *ei)
 {
 	struct eigrp		*eigrp = ei->eigrp;
+	struct timeval		 now;
 	struct if_addr		*if_addr;
 	union eigrpd_addr	 addr;
-	struct in_addr		 addr4;
-	struct in6_addr		 addr6 = AllEIGRPRouters_v6;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
 	    eigrp->as, af_name(eigrp->af));
+
+	gettimeofday(&now, NULL);
+	ei->uptime = now.tv_sec;
 
 	/* init the dummy self neighbor */
 	memset(&addr, 0, sizeof(addr));
@@ -371,12 +406,11 @@ eigrp_if_start(struct eigrp_iface *ei)
 
 	switch (eigrp->af) {
 	case AF_INET:
-		addr4.s_addr = AllEIGRPRouters_v4;
-		if (if_join_ipv4_group(ei->iface, &addr4))
+		if (if_join_ipv4_group(ei->iface, &global.mcast_addr_v4))
 			return;
 		break;
 	case AF_INET6:
-		if (if_join_ipv6_group(ei->iface, &addr6))
+		if (if_join_ipv6_group(ei->iface, &global.mcast_addr_v6))
 			return;
 		break;
 	default:
@@ -387,12 +421,10 @@ eigrp_if_start(struct eigrp_iface *ei)
 	eigrp_if_start_hello_timer(ei);
 }
 
-void
+static void
 eigrp_if_reset(struct eigrp_iface *ei)
 {
 	struct eigrp		*eigrp = ei->eigrp;
-	struct in_addr		 addr4;
-	struct in6_addr		 addr6 = AllEIGRPRouters_v6;
 	struct nbr		*nbr;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
@@ -409,11 +441,10 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	/* try to cleanup */
 	switch (eigrp->af) {
 	case AF_INET:
-		addr4.s_addr = AllEIGRPRouters_v4;
-		if_leave_ipv4_group(ei->iface, &addr4);
+		if_leave_ipv4_group(ei->iface, &global.mcast_addr_v4);
 		break;
 	case AF_INET6:
-		if_leave_ipv6_group(ei->iface, &addr6);
+		if_leave_ipv6_group(ei->iface, &global.mcast_addr_v6);
 		break;
 	default:
 		fatalx("eigrp_if_reset: unknown af");
@@ -422,30 +453,9 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	eigrp_if_stop_hello_timer(ei);
 }
 
-struct eigrp_iface *
-eigrp_iface_find_id(uint32_t ifaceid)
-{
-	struct eigrp_iface	 e;
-	e.ifaceid = ifaceid;
-	return (RB_FIND(iface_id_head, &ifaces_by_id, &e));
-}
-
-struct eigrp_iface *
-eigrp_if_lookup(struct iface *iface, int af, uint16_t as)
-{
-	struct eigrp_iface	*ei;
-
-	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
-		if (ei->eigrp->af == af &&
-		    ei->eigrp->as == as)
-			return (ei);
-
-	return (NULL);
-}
-
 /* timers */
 /* ARGSUSED */
-void
+static void
 eigrp_if_hello_timer(int fd, short event, void *arg)
 {
 	struct eigrp_iface	*ei = arg;
@@ -460,7 +470,7 @@ eigrp_if_hello_timer(int fd, short event, void *arg)
 		fatal("eigrp_if_hello_timer");
 }
 
-void
+static void
 eigrp_if_start_hello_timer(struct eigrp_iface *ei)
 {
 	struct timeval		 tv;
@@ -471,7 +481,7 @@ eigrp_if_start_hello_timer(struct eigrp_iface *ei)
 		fatal("eigrp_if_start_hello_timer");
 }
 
-void
+static void
 eigrp_if_stop_hello_timer(struct eigrp_iface *ei)
 {
 	if (evtimer_pending(&ei->hello_timer, NULL) &&
@@ -496,9 +506,11 @@ if_to_ctl(struct eigrp_iface *ei)
 		ictl.prefixlen = if_primary_addr_prefixlen(ei->iface);
 		break;
 	case AF_INET6:
-		memcpy(&ictl.addr.v6, &ei->iface->linklocal,
-		    sizeof(ictl.addr.v6));
-		ictl.prefixlen = 64;
+		ictl.addr.v6 = ei->iface->linklocal;
+		if (!IN6_IS_ADDR_UNSPECIFIED(&ei->iface->linklocal))
+			ictl.prefixlen = 64;
+		else
+			ictl.prefixlen = 0;
 		break;
 	default:
 		fatalx("if_to_ctl: unknown af");
@@ -553,7 +565,7 @@ if_set_sockbuf(int fd)
 		log_warnx("%s: sendbuf size only %d", __func__, bsize);
 }
 
-int
+static int
 if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 {
 	struct ip_mreq		 mreq;
@@ -565,10 +577,10 @@ if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 	log_debug("%s: interface %s addr %s", __func__, iface->name,
 	    inet_ntoa(*addr));
 
-	mreq.imr_multiaddr.s_addr = addr->s_addr;
+	mreq.imr_multiaddr = *addr;
 	mreq.imr_interface.s_addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IP_ADD_MEMBERSHIP, interface %s address %s",
 		    __func__, iface->name, inet_ntoa(*addr));
@@ -578,7 +590,7 @@ if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 	return (0);
 }
 
-int
+static int
 if_leave_ipv4_group(struct iface *iface, struct in_addr *addr)
 {
 	struct ip_mreq		 mreq;
@@ -590,10 +602,10 @@ if_leave_ipv4_group(struct iface *iface, struct in_addr *addr)
 	log_debug("%s: interface %s addr %s", __func__, iface->name,
 	    inet_ntoa(*addr));
 
-	mreq.imr_multiaddr.s_addr = addr->s_addr;
+	mreq.imr_multiaddr = *addr;
 	mreq.imr_interface.s_addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_DROP_MEMBERSHIP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IP_DROP_MEMBERSHIP, interface %s "
 		    "address %s", iface->name, __func__, inet_ntoa(*addr));
@@ -623,7 +635,7 @@ if_set_ipv4_mcast(struct iface *iface)
 
 	addr = if_primary_addr(iface);
 
-	if (setsockopt(econf->eigrp_socket_v4, IPPROTO_IP, IP_MULTICAST_IF,
+	if (setsockopt(global.eigrp_socket_v4, IPPROTO_IP, IP_MULTICAST_IF,
 	    &addr, sizeof(addr)) < 0) {
 		log_warn("%s: error setting IP_MULTICAST_IF, interface %s",
 		    __func__, iface->name);
@@ -671,7 +683,7 @@ if_set_ipv4_hdrincl(int fd)
 	return (0);
 }
 
-int
+static int
 if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 {
 	struct ipv6_mreq	 mreq;
@@ -686,7 +698,7 @@ if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	mreq.ipv6mr_multiaddr = *addr;
 	mreq.ipv6mr_interface = iface->ifindex;
 
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_JOIN_GROUP,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_JOIN_GROUP,
 	    &mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IPV6_JOIN_GROUP, interface %s address %s",
 		    __func__, iface->name, log_in6addr(addr));
@@ -696,7 +708,7 @@ if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	return (0);
 }
 
-int
+static int
 if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 {
 	struct ipv6_mreq	 mreq;
@@ -711,7 +723,7 @@ if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	mreq.ipv6mr_multiaddr = *addr;
 	mreq.ipv6mr_interface = iface->ifindex;
 
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_LEAVE_GROUP,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_LEAVE_GROUP,
 	    (void *)&mreq, sizeof(mreq)) < 0) {
 		log_warn("%s: error IPV6_LEAVE_GROUP, interface %s address %s",
 		    __func__, iface->name, log_in6addr(addr));
@@ -724,9 +736,9 @@ if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 int
 if_set_ipv6_mcast(struct iface *iface)
 {
-	if (setsockopt(econf->eigrp_socket_v6, IPPROTO_IPV6, IPV6_MULTICAST_IF,
+	if (setsockopt(global.eigrp_socket_v6, IPPROTO_IPV6, IPV6_MULTICAST_IF,
 	    &iface->ifindex, sizeof(iface->ifindex)) < 0) {
-		log_debug("%s: error setting IPV6_MULTICAST_IF, interface %s",
+		log_warn("%s: error setting IPV6_MULTICAST_IF, interface %s",
 		    __func__, iface->name);
 		return (-1);
 	}
@@ -753,7 +765,7 @@ if_set_ipv6_pktinfo(int fd, int enable)
 {
 	if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &enable,
 	    sizeof(enable)) < 0) {
-		log_warn("%s: error setting IPV6_PKTINFO", __func__);
+		log_warn("%s: error setting IPV6_RECVPKTINFO", __func__);
 		return (-1);
 	}
 

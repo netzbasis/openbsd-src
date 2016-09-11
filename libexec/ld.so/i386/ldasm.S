@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.23 2015/11/15 03:41:24 deraadt Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.28 2016/08/28 06:15:32 guenther Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -39,7 +39,8 @@
 _dl_start:
 	movl	%esp,%eax		# save stack pointer for _rtld
 	subl	$DL_DATA_SIZE,%esp	# allocate dl_data
-	pushl	$0			# push 0 for dynamicp (unused on i386)
+	call	1f			# push &_DYNAMIC...
+1:	addl	$(_DYNAMIC-1b),(%esp)	# ...for dl_boot_bind
 	movl	%esp,%ebx
 	movl	%ebx,%edi		# save dl_data arg for dl_boot
 	pushl	%ebx			# push dl_data for dl_boot_bind
@@ -109,6 +110,7 @@ _dl_exit:
 
 
 DL_SYSCALL(issetugid)
+DL_SYSCALL(getthrid)
 DL_SYSCALL2(_syscall,__syscall)
 DL_SYSCALL(munmap)
 DL_SYSCALL(mprotect)
@@ -116,9 +118,7 @@ DL_SYSCALL(open)
 DL_SYSCALL(read)
 DL_SYSCALL(write)
 DL_SYSCALL(fstat)
-DL_SYSCALL(gettimeofday)
 DL_SYSCALL(readlink)
-DL_SYSCALL(lstat)
 DL_SYSCALL(utrace)
 DL_SYSCALL(getentropy)
 DL_SYSCALL(sendsyslog)
@@ -126,6 +126,7 @@ DL_SYSCALL(pledge)
 DL_SYSCALL2(getcwd,__getcwd)
 DL_SYSCALL(sysctl)
 DL_SYSCALL(getdents)
+DL_SYSCALL2(set_tcb,__set_tcb)
 
 .L_cerr:
 	/* error: result = -errno; - handled here. */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.21 2016/01/25 15:22:56 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.29 2016/07/29 21:05:26 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -23,11 +23,14 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/mutex.h>
+#include <sys/ioctl.h>
+#include <sys/task.h>
 
 #include <machine/bus.h>
 
 #include <uvm/uvm_extern.h>
 
+#include <dev/pv/pvvar.h>
 #include <dev/pv/xenreg.h>
 #include <dev/pv/xenvar.h>
 
@@ -55,8 +58,7 @@
  * notably the XenBus used to discover and manage Xen devices.
  */
 
-const struct
-{
+const struct {
 	const char		*xse_errstr;
 	int			 xse_errnum;
 } xs_errors[] = {
@@ -77,8 +79,7 @@ const struct
 	{ NULL,		-1 },
 };
 
-struct xs_msghdr
-{
+struct xs_msghdr {
 	/* Message type */
 	uint32_t		 xmh_type;
 	/* Request identifier, echoed in daemon's response.  */
@@ -126,6 +127,14 @@ struct xs_ring {
 
 #define XST_DELAY		1	/* in seconds */
 
+#define XSW_TOKLEN		(sizeof(void *) * 2 + 1)
+
+struct xs_watch {
+	TAILQ_ENTRY(xs_watch)	 xsw_entry;
+	uint8_t			 xsw_token[XSW_TOKLEN];
+	struct task		*xsw_task;
+};
+
 /*
  * Container for all XenStore related state.
  */
@@ -153,20 +162,26 @@ struct xs_softc {
 	struct mutex		 xs_rsplck;	/* response queue mutex */
 	struct mutex		 xs_frqlck;	/* free queue mutex */
 
+	TAILQ_HEAD(, xs_watch)	 xs_watches;
+	struct mutex		 xs_watchlck;
+	struct xs_msg		 xs_emsg;
+
 	uint			 xs_rngsem;
 };
 
-struct xs_msg	*xs_get_msg(struct xs_softc *, int);
-void		 xs_put_msg(struct xs_softc *, struct xs_msg *);
-int		 xs_ring_get(struct xs_softc *, void *, size_t);
-int		 xs_ring_put(struct xs_softc *, void *, size_t);
-void		 xs_intr(void *);
-int		 xs_output(struct xs_transaction *, uint8_t *, int);
-int		 xs_start(struct xs_transaction *, struct xs_msg *,
-		    struct iovec *, int);
-struct xs_msg	*xs_reply(struct xs_transaction *, uint);
-int		 xs_parse(struct xs_transaction *, struct xs_msg *,
-		     struct iovec **, int *);
+struct xs_msg *
+	xs_get_msg(struct xs_softc *, int);
+void	xs_put_msg(struct xs_softc *, struct xs_msg *);
+int	xs_ring_get(struct xs_softc *, void *, size_t);
+int	xs_ring_put(struct xs_softc *, void *, size_t);
+void	xs_intr(void *);
+int	xs_output(struct xs_transaction *, uint8_t *, int);
+int	xs_start(struct xs_transaction *, struct xs_msg *, struct iovec *, int);
+struct xs_msg *
+	xs_reply(struct xs_transaction *, uint);
+int	xs_parse(struct xs_transaction *, struct xs_msg *, struct iovec **,
+	    int *);
+int	xs_event(struct xs_softc *, struct xs_msg *);
 
 int
 xs_attach(struct xen_softc *sc)
@@ -211,7 +226,7 @@ xs_attach(struct xen_softc *sc)
 	pmap_kenter_pa((vaddr_t)xs->xs_ring, pa, PROT_READ | PROT_WRITE);
 	pmap_update(pmap_kernel());
 
-	if (xen_intr_establish(xs->xs_port, &xs->xs_ih, xs_intr, xs,
+	if (xen_intr_establish(xs->xs_port, &xs->xs_ih, 0, xs_intr, xs,
 	    sc->sc_dev.dv_xname))
 		goto fail_2;
 
@@ -227,6 +242,15 @@ xs_attach(struct xen_softc *sc)
 	mtx_init(&xs->xs_reqlck, IPL_NET);
 	mtx_init(&xs->xs_rsplck, IPL_NET);
 	mtx_init(&xs->xs_frqlck, IPL_NET);
+
+	mtx_init(&xs->xs_watchlck, IPL_NET);
+	TAILQ_INIT(&xs->xs_watches);
+
+	xs->xs_emsg.xsm_data = malloc(XS_MAX_PAYLOAD, M_DEVBUF,
+	    M_ZERO | M_NOWAIT);
+	if (xs->xs_emsg.xsm_data == NULL)
+		goto fail_2;
+	xs->xs_emsg.xsm_dlen = XS_MAX_PAYLOAD;
 
 	return (0);
 
@@ -506,6 +530,7 @@ xs_intr(void *arg)
 
 	/* Response processing */
 
+ again:
 	if (xs->xs_rmsg == NULL) {
 		if (avail < sizeof(xmh)) {
 			printf("%s: incomplete header: %d\n",
@@ -514,27 +539,31 @@ xs_intr(void *arg)
 		}
 		avail -= sizeof(xmh);
 
-		if (TAILQ_EMPTY(&xs->xs_reqs)) {
-			printf("%s: missing requests\n", sc->sc_dev.dv_xname);
-			goto out;
-		}
-
 		if ((len = xs_ring_get(xs, &xmh, sizeof(xmh))) != sizeof(xmh)) {
 			printf("%s: message too short: %d\n",
 			    sc->sc_dev.dv_xname, len);
 			goto out;
 		}
 
-		TAILQ_FOREACH(xsm, &xs->xs_reqs, xsm_link) {
-			if (xsm->xsm_hdr.xmh_rid == xmh.xmh_rid)
-				break;
+		if (xmh.xmh_type == XS_EVENT) {
+			xsm = &xs->xs_emsg;
+			xsm->xsm_read = 0;
+		} else {
+			mtx_enter(&xs->xs_reqlck);
+			TAILQ_FOREACH(xsm, &xs->xs_reqs, xsm_link) {
+				if (xsm->xsm_hdr.xmh_rid == xmh.xmh_rid) {
+					TAILQ_REMOVE(&xs->xs_reqs, xsm,
+					    xsm_link);
+					break;
+				}
+			}
+			mtx_leave(&xs->xs_reqlck);
+			if (xsm == NULL) {
+				printf("%s: unexpected message id %u\n",
+				    sc->sc_dev.dv_xname, xmh.xmh_rid);
+				goto out;
+			}
 		}
-		if (xsm == NULL) {
-			printf("%s: received unexpected message id %u\n",
-			    sc->sc_dev.dv_xname, xmh.xmh_rid);
-			goto out;
-		}
-
 		memcpy(&xsm->xsm_hdr, &xmh, sizeof(xmh));
 		xs->xs_rmsg = xsm;
 	}
@@ -559,12 +588,18 @@ xs_intr(void *arg)
 	/* Notify reader that we've managed to read the whole message */
 	if (xsm->xsm_read == xsm->xsm_hdr.xmh_len) {
 		xs->xs_rmsg = NULL;
-		mtx_enter(&xs->xs_rsplck);
-		TAILQ_REMOVE(&xs->xs_reqs, xsm, xsm_link);
-		TAILQ_INSERT_TAIL(&xs->xs_rsps, xsm, xsm_link);
-		mtx_leave(&xs->xs_rsplck);
-		wakeup(xs->xs_rchan);
+		if (xsm->xsm_hdr.xmh_type == XS_EVENT) {
+			xs_event(xs, xsm);
+		} else {
+			mtx_enter(&xs->xs_rsplck);
+			TAILQ_INSERT_TAIL(&xs->xs_rsps, xsm, xsm_link);
+			mtx_leave(&xs->xs_rsplck);
+			wakeup(xs->xs_rchan);
+		}
 	}
+
+	if ((avail = xs_ring_avail(xsr, 0)) > 0)
+		goto again;
 
  out:
 	/* Wakeup sleeping writes (if any) */
@@ -653,6 +688,40 @@ xs_parse(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec **iov,
 }
 
 int
+xs_event(struct xs_softc *xs, struct xs_msg *xsm)
+{
+	struct xs_watch *xsw;
+	char *token = NULL;
+	int i;
+
+	for (i = 0; i < xsm->xsm_read; i++) {
+		if (xsm->xsm_data[i] == '\0') {
+			token = &xsm->xsm_data[i+1];
+			break;
+		}
+	}
+	if (token == NULL) {
+		printf("%s: event on \"%s\" without token\n",
+		    xs->xs_sc->sc_dev.dv_xname, xsm->xsm_data);
+		return (-1);
+	}
+
+	mtx_enter(&xs->xs_watchlck);
+	TAILQ_FOREACH(xsw, &xs->xs_watches, xsw_entry) {
+		if (strcmp(xsw->xsw_token, token))
+			continue;
+		mtx_leave(&xs->xs_watchlck);
+		task_add(systq, xsw->xsw_task);
+		return (0);
+	}
+	mtx_leave(&xs->xs_watchlck);
+
+	printf("%s: no watchers for node \"%s\"\n",
+	    xs->xs_sc->sc_dev.dv_xname, xsm->xsm_data);
+	return (-1);
+}
+
+int
 xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
     struct iovec **iov, int *iov_cnt)
 {
@@ -675,6 +744,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		break;
 	case XS_TCLOSE:
 	case XS_RM:
+	case XS_WATCH:
 	case XS_WRITE:
 		mode = WRITE;
 		/* FALLTHROUGH */
@@ -751,14 +821,70 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 }
 
 int
-xs_getprop(struct xen_attach_args *xa, const char *property, char *value,
-    int size)
+xs_watch(struct xen_softc *sc, const char *path, const char *property,
+    struct task *task, void (*cb)(void *), void *arg)
 {
-	struct xen_softc *sc = xa->xa_parent;
+	struct xs_softc *xs = sc->sc_xs;
 	struct xs_transaction xst;
-	struct iovec *iovp;
-	char path[128];
-	int error, iov_cnt;
+	struct xs_watch *xsw;
+	struct iovec iov, *iovp = &iov;
+	char key[256];
+	int error, iov_cnt, ret;
+
+	memset(&xst, 0, sizeof(xst));
+	xst.xst_id = 0;
+	xst.xst_sc = sc->sc_xs;
+	if (cold)
+		xst.xst_flags = XST_POLL;
+
+	xsw = malloc(sizeof(*xsw), M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (xsw == NULL)
+		return (-1);
+
+	task_set(task, cb, arg);
+	xsw->xsw_task = task;
+
+	snprintf(xsw->xsw_token, sizeof(xsw->xsw_token), "%0lx",
+	    (unsigned long)xsw);
+
+	if (path)
+		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
+	else
+		ret = snprintf(key, sizeof(key), "%s", property);
+	if (ret == -1 || ret >= sizeof(key))
+		return (EINVAL);
+
+	iov.iov_base = xsw->xsw_token;
+	iov.iov_len = sizeof(xsw->xsw_token);
+	iov_cnt = 1;
+
+	/*
+	 * xs_watches must be prepared pre-emptively because a xenstore
+	 * event is raised immediately after a watch is established.
+	 */
+	mtx_enter(&xs->xs_watchlck);
+	TAILQ_INSERT_TAIL(&xs->xs_watches, xsw, xsw_entry);
+	mtx_leave(&xs->xs_watchlck);
+
+	if ((error = xs_cmd(&xst, XS_WATCH, key, &iovp, &iov_cnt)) != 0) {
+		mtx_enter(&xs->xs_watchlck);
+		TAILQ_REMOVE(&xs->xs_watches, xsw, xsw_entry);
+		mtx_leave(&xs->xs_watchlck);
+		free(xsw, M_DEVBUF, sizeof(*xsw));
+		return (error);
+	}
+
+	return (0);
+}
+
+int
+xs_getprop(struct xen_softc *sc, const char *path, const char *property,
+    char *value, int size)
+{
+	struct xs_transaction xst;
+	struct iovec *iovp = NULL;
+	char key[256];
+	int error, ret, iov_cnt = 0;
 
 	if (!property)
 		return (-1);
@@ -769,19 +895,18 @@ xs_getprop(struct xen_attach_args *xa, const char *property, char *value,
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
-	snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
-	if ((error = xs_cmd(&xst, XS_READ, path, &iovp, &iov_cnt)) != 0 &&
-	     error != ENOENT)
+	if (path)
+		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
+	else
+		ret = snprintf(key, sizeof(key), "%s", property);
+	if (ret == -1 || ret >= sizeof(key))
+		return (EINVAL);
+
+	if ((error = xs_cmd(&xst, XS_READ, key, &iovp, &iov_cnt)) != 0)
 		return (error);
 
-	/* Try backend */
-	if (error == ENOENT) {
-		snprintf(path, sizeof(path), "%s/%s", xa->xa_backend, property);
-		if ((error = xs_cmd(&xst, XS_READ, path, &iovp, &iov_cnt)) != 0)
-			return (error);
-	}
-
-	strlcpy(value, (char *)iovp->iov_base, size);
+	if (iov_cnt > 0)
+		strlcpy(value, (char *)iovp->iov_base, size);
 
 	xs_resfree(&xst, iovp, iov_cnt);
 
@@ -789,14 +914,13 @@ xs_getprop(struct xen_attach_args *xa, const char *property, char *value,
 }
 
 int
-xs_setprop(struct xen_attach_args *xa, const char *property, char *value,
-    int size)
+xs_setprop(struct xen_softc *sc, const char *path, const char *property,
+    char *value, int size)
 {
-	struct xen_softc *sc = xa->xa_parent;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
-	char path[128];
-	int error, iov_cnt;
+	char key[256];
+	int error, ret, iov_cnt = 0;
 
 	if (!property)
 		return (-1);
@@ -807,16 +931,84 @@ xs_setprop(struct xen_attach_args *xa, const char *property, char *value,
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
-	if (value && size > 0) {
-		iov.iov_base = value;
-		iov.iov_len = size;
-		iov_cnt = 1;
+	if (path)
+		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
+	else
+		ret = snprintf(key, sizeof(key), "%s", property);
+	if (ret == -1 || ret >= sizeof(key))
+		return (EINVAL);
 
-		snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
-		error = xs_cmd(&xst, XS_WRITE, path, &iovp, &iov_cnt);
-	} else {
-		snprintf(path, sizeof(path), "%s/%s", xa->xa_node, property);
-		error = xs_cmd(&xst, XS_RM, path, NULL, NULL);
-	}
+	iov.iov_base = value;
+	iov.iov_len = size;
+	iov_cnt = 1;
+
+	error = xs_cmd(&xst, XS_WRITE, key, &iovp, &iov_cnt);
+
 	return (error);
+}
+
+int
+xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
+{
+	struct xen_softc *sc = arg;
+	struct xs_transaction xst;
+	struct iovec iov, *iovp = &iov;
+	int error = 0, iov_cnt = 0, cmd, i;
+
+	switch (op) {
+	case PVBUS_KVWRITE:
+		cmd = XS_WRITE;
+		iov.iov_base = value;
+		iov.iov_len = strlen(value);
+		iov_cnt = 1;
+		break;
+	case PVBUS_KVREAD:
+		cmd = XS_READ;
+		break;
+	case PVBUS_KVLS:
+		cmd = XS_LIST;
+		break;
+	default:
+		return (EOPNOTSUPP);
+	}
+
+	memset(&xst, 0, sizeof(xst));
+	xst.xst_id = 0;
+	xst.xst_sc = sc->sc_xs;
+
+	if ((error = xs_cmd(&xst, cmd, key, &iovp, &iov_cnt)) != 0)
+		return (error);
+
+	memset(value, 0, valuelen);
+
+	switch (cmd) {
+	case XS_READ:
+		if (iov_cnt == 1 && iovp[0].iov_len == 1) {
+			xs_resfree(&xst, iovp, iov_cnt);
+
+			/*
+			 * We cannot distinguish if the returned value is
+			 * a directory or a file in the xenstore.  The only
+			 * indication is that the read value of a directory
+			 * returns an empty string (single nul byte),
+			 * so try to get the directory list in this case.
+			 */
+			return (xs_kvop(arg, PVBUS_KVLS, key, value, valuelen));
+		}
+		/* FALLTHROUGH */
+	case XS_LIST:
+		for (i = 0; i < iov_cnt; i++) {
+			if (i && strlcat(value, "\n", valuelen) >= valuelen)
+				break;
+			if (strlcat(value, iovp[i].iov_base,
+			    valuelen) >= valuelen)
+				break;
+		}
+		xs_resfree(&xst, iovp, iov_cnt);
+		break;
+	default:
+		break;
+	}
+
+	return (0);
 }

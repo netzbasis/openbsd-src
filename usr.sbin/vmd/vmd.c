@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.25 2015/12/11 10:16:53 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.29 2016/08/17 05:07:13 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -16,7 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>
+#include <sys/param.h>	/* nitems */
 #include <sys/queue.h>
 #include <sys/wait.h>
 #include <sys/cdefs.h>
@@ -148,35 +148,45 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		memcpy(&vmr, imsg->data, sizeof(vmr));
 		if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL)
 			fatalx("%s: invalid vm response", __func__);
+		vm->vm_pid = vmr.vmr_pid;
 		vcp = &vm->vm_params;
+		vcp->vcp_id = vmr.vmr_id;
+
+		/*
+		 * If the peerid is not -1, forward the response back to the
+		 * the control socket.  If it is -1, the request originated
+		 * from the parent, not the control socket.
+		 */
+		if (vm->vm_peerid != (uint32_t)-1) {
+			vmr.vmr_result = res;
+			(void)strlcpy(vmr.vmr_ttyname, vm->vm_ttyname,
+			    sizeof(vmr.vmr_ttyname));
+			if (proc_compose_imsg(ps, PROC_CONTROL, -1,
+			    imsg->hdr.type, vm->vm_peerid, -1,
+			    &vmr, sizeof(vmr)) == -1) {
+				errno = vmr.vmr_result;
+				log_warn("%s: failed to foward vm result",
+				    vcp->vcp_name);
+				vm_remove(vm);
+				return (-1);
+			}
+		}
+
 		if (vmr.vmr_result) {
 			errno = vmr.vmr_result;
 			log_warn("%s: failed to start vm", vcp->vcp_name);
 			vm_remove(vm);
 		} else {
-			vcp->vcp_id = vmr.vmr_id;
 			log_info("%s: started vm %d successfully, tty %s",
 			    vcp->vcp_name, vcp->vcp_id, vm->vm_ttyname);
 		}
-		/*
-		 * If the peerid is -1, the request originated from
-		 * the parent, not the control socket.
-		 */
-		if (vm->vm_peerid == (uint32_t)-1)
-			break;
-		vmr.vmr_result = res;
-		(void)strlcpy(vmr.vmr_ttyname, vm->vm_ttyname,
-		    sizeof(vmr.vmr_ttyname));
-		if (proc_compose_imsg(ps, PROC_CONTROL, -1, imsg->hdr.type,
-		    vm->vm_peerid, -1, &vmr, sizeof(vmr)) == -1) {
-			vm_remove(vm);
-			return (-1);
-		}
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
+	case IMSG_VMDOP_TERMINATE_VM_EVENT:
 		IMSG_SIZE_CHECK(imsg, &vmr);
 		memcpy(&vmr, imsg->data, sizeof(vmr));
-		proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
+		if (imsg->hdr.type == IMSG_VMDOP_TERMINATE_VM_RESPONSE)
+			proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
 		if (vmr.vmr_result == 0) {
 			/* Remove local reference */
 			vm = vm_getbyid(vmr.vmr_id);
@@ -369,7 +379,6 @@ main(int argc, char **argv)
 	if (!env->vmd_debug && daemon(0, 0) == -1)
 		fatal("can't daemonize");
 
-	setproctitle("parent");
 	log_procinit("parent");
 
 	ps->ps_ninstances = 1;
@@ -496,6 +505,19 @@ vm_getbyname(const char *name)
 
 	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
 		if (strcmp(vm->vm_params.vcp_name, name) == 0)
+			return (vm);
+	}
+
+	return (NULL);
+}
+
+struct vmd_vm *
+vm_getbypid(pid_t pid)
+{
+	struct vmd_vm	*vm;
+
+	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
+		if (vm->vm_pid == pid)
 			return (vm);
 	}
 

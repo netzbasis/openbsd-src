@@ -1,4 +1,4 @@
-/* $OpenBSD: drmP.h,v 1.200 2015/11/22 15:35:49 kettenis Exp $ */
+/* $OpenBSD: drmP.h,v 1.208 2016/04/08 08:27:53 kettenis Exp $ */
 /* drmP.h -- Private header for Direct Rendering Manager -*- linux-c -*-
  * Created: Mon Jan  4 10:05:05 1999 by faith@precisioninsight.com
  */
@@ -70,9 +70,26 @@
 #include "drm_linux.h"
 #include "drm_linux_list.h"
 #include "drm.h"
+#include "drm_vma_manager.h"
 #include "drm_mm.h"
 #include "drm_atomic.h"
 #include "agp.h"
+
+/***********************************************************************/
+/** \name DRM template customization defaults */
+/*@{*/
+
+/* driver capabilities and requirements mask */
+#define DRIVER_USE_AGP     0x1
+#define DRIVER_PCI_DMA     0x8
+#define DRIVER_SG          0x10
+#define DRIVER_HAVE_DMA    0x20
+#define DRIVER_HAVE_IRQ    0x40
+#define DRIVER_IRQ_SHARED  0x80
+#define DRIVER_GEM         0x1000
+#define DRIVER_MODESET     0x2000
+#define DRIVER_PRIME       0x4000
+#define DRIVER_RENDER      0x8000
 
 #define	DRM_DEBUGBITS_DEBUG		0x1
 #define	DRM_DEBUGBITS_KMS		0x2
@@ -286,18 +303,6 @@ struct drm_ioctl_desc {
 #define DRM_IOCTL_DEF_DRV(ioctl, _func, _flags)			\
 	[DRM_IOCTL_NR(DRM_##ioctl)] = {.cmd = DRM_##ioctl, .func = _func, .flags = _flags, .cmd_drv = DRM_IOCTL_##ioctl}
 
-struct drm_buf {
-	int		  idx;	       /* Index into master buflist	     */
-	int		  total;       /* Buffer size			     */
-	int		  used;	       /* Amount of buffer in use (for DMA)  */
-	unsigned long	  offset;      /* Byte offset (used internally)	     */
-	void 		  *address;    /* KVA of buffer			     */
-	unsigned long	  bus_address; /* Bus address of buffer		     */
-	__volatile__ int  pending;     /* On hardware DMA queue		     */
-	struct drm_file   *file_priv;  /* Unique identifier of holding process */
-	void		  *dev_private;  /* Per-buffer private storage       */
-};
-
 struct drm_dmamem {
 	bus_dmamap_t		map;
 	caddr_t			kva;
@@ -306,15 +311,6 @@ struct drm_dmamem {
 	bus_dma_segment_t	segs[1];
 };
 typedef struct drm_dmamem drm_dma_handle_t;
-
-struct drm_buf_entry {
-	struct drm_dmamem	**seglist;
-	struct drm_buf		*buflist;
-	int			 buf_count;
-	int			 buf_size;
-	int			 page_order;
-	int			 seg_count;
-};
 
 struct drm_pending_event {
 	struct drm_event *event;
@@ -325,59 +321,40 @@ struct drm_pending_event {
 	void (*destroy)(struct drm_pending_event *event);
 };
 
+/** File private data */
 struct drm_file {
-	SPLAY_HEAD(drm_obj_tree, drm_handle)	 obj_tree;
+	unsigned always_authenticated :1;
+	unsigned authenticated :1;
+	unsigned is_master :1; /* this file private is a master for a minor */
+	/* true when the client has asked us to expose stereo 3D mode flags */
+	unsigned stereo_allowed :1;
+
+	drm_magic_t magic;
+	int minor;
+
+	/** Mapping of mm object handles to object pointers. */
+	struct idr object_idr;
+	/** Lock for synchronization of access to object_idr. */
+	spinlock_t table_lock;
+
+	struct file *filp;
+	void *driver_priv;
+
+	/**
+	 * fbs - List of framebuffers associated with this file.
+	 *
+	 * Protected by fbs_lock. Note that the fbs list holds a reference on
+	 * the fb object to prevent it from untimely disappearing.
+	 */
+	struct list_head fbs;
+	struct rwlock fbs_lock;
 
 	wait_queue_head_t event_wait;
 	struct list_head event_list;
 	int event_space;
 
-	struct mutex				 table_lock;
-	struct selinfo				 rsel;
-	SPLAY_ENTRY(drm_file)			 link;
-	int					 authenticated;
-	/* true when the client has asked us to expose stereo 3D mode flags */
-	int					 stereo_allowed;
-	unsigned long				 ioctl_count;
-	dev_t					 kdev;
-	drm_magic_t				 magic;
-	int					 flags;
-	int					 master;
-	int					 minor;
-	u_int					 obj_id; /*next gem id*/
-	struct list_head			 fbs;
-	struct rwlock				 fbs_lock;
-	void					*driver_priv;
-};
-
-/* This structure, in the struct drm_device, is always initialized while
- * the device is open.  dev->dma_lock protects the incrementing of
- * dev->buf_use, which when set marks that no further bufs may be allocated
- * until device teardown occurs (when the last open of the device has closed).
- * The high/low watermarks of bufs are only touched by the X Server, and thus
- * not concurrently accessed, so no locking is needed.
- */
-struct drm_device_dma {
-	struct rwlock	 	 dma_lock;
-	struct drm_buf_entry	 bufs[DRM_MAX_ORDER+1];
-	struct drm_buf		**buflist;	/* Vector of pointers info bufs*/
-	unsigned long		*pagelist;
-	unsigned long		 byte_count;
-	int			 buf_use;	/* Buffers used no more alloc */
-	int			 buf_count;
-	int			 page_count;
-	int			 seg_count;
-	enum {
-		_DRM_DMA_USE_AGP = 0x01,
-		_DRM_DMA_USE_SG  = 0x02
-	} flags;
-};
-
-struct drm_agp_mem {
-	void               *handle;
-	unsigned long      bound; /* address */
-	int                pages;
-	TAILQ_ENTRY(drm_agp_mem) link;
+	struct selinfo rsel;
+	SPLAY_ENTRY(drm_file) link;
 };
 
 struct drm_agp_head {
@@ -394,30 +371,6 @@ struct drm_agp_head {
    	int					 mtrr;
 };
 
-struct drm_local_map {
-	TAILQ_ENTRY(drm_local_map)	 link;	/* Link for map list */
-	struct drm_dmamem		*dmamem;/* Handle to DMA mem */
-	void				*handle;/* KVA, if mapped */
-	bus_space_tag_t			 bst;	/* Tag for mapped pci mem */
-	bus_space_handle_t		 bsh;	/* Handle to mapped pci mem */
-	u_long				 ext;	/* extent for mmap */
-	u_long				 offset;/* Physical address */
-	u_long				 size;	/* Physical size (bytes) */
-	int				 mtrr;	/* Boolean: MTRR used */
-	enum drm_map_flags		 flags;	/* Flags */
-	enum drm_map_type		 type;	/* Type of memory mapped */
-};
-
-/* Heap implementation for radeon and i915 legacy */
-TAILQ_HEAD(drm_heap, drm_mem);
-
-struct drm_mem {
-	TAILQ_ENTRY(drm_mem)	 link;
-	struct drm_file		*file_priv; /* NULL: free, other: real files */
-	int			 start;
-	int			 size;
-};
-
 /* location of GART table */
 #define DRM_ATI_GART_MAIN 1
 #define DRM_ATI_GART_FB   2
@@ -427,53 +380,67 @@ struct drm_mem {
 #define DRM_ATI_GART_IGP  3
 #define DRM_ATI_GART_R600 4
 
-/*
- *  Locking protocol:
- * All drm object are uvm objects, as such they have a reference count and
- * a lock. On the other hand, operations carries out by the drm may involve
- * sleeping (waiting for rendering to finish, say), while you wish to have
- * mutual exclusion on an object. For this reason, all drm-related operations
- * on drm objects must acquire the DRM_BUSY flag on the object as the first
- * thing that they do. If the BUSY flag is already on the object, set DRM_WANTED
- * and sleep until the other locker is done with it. When the BUSY flag is 
- * acquired then only that flag and a reference is required to do most 
- * operations on the drm_object. The uvm object is still bound by uvm locking
- * protocol.
- *
- * Subdrivers (radeon, intel, etc) may have other locking requirement, these
- * requirements will be detailed in those drivers.
+/**
+ * This structure defines the drm_mm memory object, which will be used by the
+ * DRM for its buffer objects.
  */
 struct drm_gem_object {
-	struct uvm_object		 uobj;
-	SPLAY_ENTRY(drm_gem_object) 	 entry;
-	struct drm_device		*dev;
-	struct uvm_object		*uao;
-	struct drm_local_map		*map;
+	/** Reference count of this object */
+	struct kref refcount;
 
-	size_t				 size;
-	int				 name;
-	int				 handlecount;
-/* any flags over 0x00000010 are device specific */
-#define	DRM_BUSY	0x00000001
-#define	DRM_WANTED	0x00000002
-	u_int				 do_flags;
-	uint32_t			 read_domains;
-	uint32_t			 write_domain;
+	/**
+	 * handle_count - gem file_priv handle count of this object
+	 *
+	 * Each handle also holds a reference. Note that when the handle_count
+	 * drops to 0 any global names (e.g. the id in the flink namespace) will
+	 * be cleared.
+	 *
+	 * Protected by dev->object_name_lock.
+	 * */
+	unsigned handle_count;
 
-	uint32_t			 pending_read_domains;
-	uint32_t			 pending_write_domain;
-};
+	/** Related drm device */
+	struct drm_device *dev;
 
-struct drm_handle {
-	SPLAY_ENTRY(drm_handle)	 entry;
-	struct drm_gem_object	*obj;
-	uint32_t		 handle;
-};
+	/** File representing the shmem storage */
+	struct file *filp;
 
-struct drm_mode_handle {
-	SPLAY_ENTRY(drm_mode_handle) entry;
-	struct drm_mode_object	*obj;
-	uint32_t		 handle;
+	/* Mapping info for this object */
+	struct drm_vma_offset_node vma_node;
+
+	/**
+	 * Size of the object, in bytes.  Immutable over the object's
+	 * lifetime.
+	 */
+	size_t size;
+
+	/**
+	 * Global name for this object, starts at 1. 0 means unnamed.
+	 * Access is covered by the object_name_lock in the related drm_device
+	 */
+	int name;
+
+	/**
+	 * Memory domains. These monitor which caches contain read/write data
+	 * related to the object. When transitioning from one set of domains
+	 * to another, the driver is called to ensure that caches are suitably
+	 * flushed and invalidated
+	 */
+	uint32_t read_domains;
+	uint32_t write_domain;
+
+	/**
+	 * While validating an exec operation, the
+	 * new read/write domain values are computed here.
+	 * They will be transferred to the above values
+	 * at the point that any cache flushing occurs
+	 */
+	uint32_t pending_read_domains;
+	uint32_t pending_write_domain;
+
+	struct uvm_object uobj;
+	SPLAY_ENTRY(drm_gem_object) entry;
+	struct uvm_object *uao;
 };
 
 /* Size of ringbuffer for vblank timestamps. Just double-buffer
@@ -546,20 +513,10 @@ struct drm_driver_info {
 	const char *desc;		/* Longer driver name		   */
 	const char *date;		/* Date of last major changes.	   */
 
+	u32 driver_features;
 	const struct drm_ioctl_desc *ioctls;
 	int num_ioctls;
 
-#define DRIVER_AGP		0x1
-#define DRIVER_AGP_REQUIRE	0x2
-#define DRIVER_PCI_DMA     0x8
-#define DRIVER_SG          0x10
-#define DRIVER_HAVE_DMA    0x20
-#define DRIVER_HAVE_IRQ    0x40
-#define DRIVER_IRQ_SHARED  0x80
-#define DRIVER_GEM         0x1000
-#define DRIVER_MODESET     0x2000
-
-	u_int	flags;
 };
 
 #include "drm_crtc.h"
@@ -606,7 +563,7 @@ struct drm_device {
 
 	struct drm_driver_info *driver;
 
-	struct pci_dev	 drm_pci;
+	struct pci_dev	_pdev;
 	struct pci_dev	*pdev;
 	u_int16_t	 pci_device;
 	u_int16_t	 pci_vendor;
@@ -634,13 +591,6 @@ struct drm_device {
 				/* Authentication */
 	SPLAY_HEAD(drm_file_tree, drm_file)	files;
 	drm_magic_t	  magicid;
-
-	/* Linked list of mappable regions. Protected by struct_mutex */
-	struct extent				*handle_ext;
-	TAILQ_HEAD(drm_map_list, drm_local_map)	 maplist;
-
-				/* DMA queues (contexts) */
-	struct drm_device_dma  *dma;		/* Optional pointer for DMA support */
 
 				/* Context support */
 	int		  irq_enabled;	/* True if the irq handler is enabled */
@@ -683,19 +633,23 @@ struct drm_device {
 
 	struct drm_agp_head	*agp;
 	void			*dev_private;
+	struct address_space	*dev_mapping;
 	struct drm_local_map	*agp_buffer_map;
 
 	struct drm_mode_config	 mode_config; /* Current mode config */
 
 	/* GEM info */
-	struct mutex		 obj_name_lock;
 	atomic_t		 obj_count;
 	u_int			 obj_name;
 	atomic_t		 obj_memory;
-	SPLAY_HEAD(drm_name_tree, drm_gem_object) name_tree;
 	struct pool				objpl;
-	
-	/* mode stuff */
+
+	/** \name GEM information */
+	/*@{ */
+	struct rwlock object_name_lock;
+	struct idr object_name_idr;
+	struct drm_vma_offset_manager *vma_offset_manager;
+	/*@} */
 };
 
 struct drm_attach_args {
@@ -743,6 +697,7 @@ int	 drm_order(unsigned long);
 
 /* File operations helpers (drm_fops.c) */
 struct drm_file	*drm_find_file_by_minor(struct drm_device *, int);
+struct drm_device *drm_get_device_from_kdev(dev_t);
 
 /* Memory management support (drm_memory.c) */
 void	*drm_alloc(size_t);
@@ -842,13 +797,18 @@ drm_sysfs_hotplug_event(struct drm_device *dev)
 }
 
 /* Graphics Execution Manager library functions (drm_gem.c) */
+int drm_gem_init(struct drm_device *dev);
+void drm_gem_destroy(struct drm_device *dev);
 void drm_gem_object_release(struct drm_gem_object *obj);
+void drm_gem_object_free(struct kref *kref);
 int drm_gem_object_init(struct drm_device *dev,
 			struct drm_gem_object *obj, size_t size);
+void drm_gem_private_object_init(struct drm_device *dev,
+				 struct drm_gem_object *obj, size_t size);
 
-void	 drm_unref(struct uvm_object *);
-void	 drm_ref(struct uvm_object *);
-
+int drm_gem_handle_create_tail(struct drm_file *file_priv,
+			       struct drm_gem_object *obj,
+			       u32 *handlep);
 int drm_gem_handle_create(struct drm_file *file_priv,
 			  struct drm_gem_object *obj,
 			  u32 *handlep);
@@ -861,30 +821,39 @@ struct drm_gem_object *drm_gem_object_lookup(struct drm_device *dev,
 					     struct drm_file *filp,
 					     u32 handle);
 struct drm_gem_object *drm_gem_object_find(struct drm_file *, u32);
-int	drm_gem_close_ioctl(struct drm_device *, void *, struct drm_file *);
-int	drm_gem_flink_ioctl(struct drm_device *, void *, struct drm_file *);
-int	drm_gem_open_ioctl(struct drm_device *, void *, struct drm_file *);
+int drm_gem_close_ioctl(struct drm_device *dev, void *data,
+			struct drm_file *file_priv);
+int drm_gem_flink_ioctl(struct drm_device *dev, void *data,
+			struct drm_file *file_priv);
+int drm_gem_open_ioctl(struct drm_device *dev, void *data,
+		       struct drm_file *file_priv);
+void drm_gem_open(struct drm_device *dev, struct drm_file *file_private);
+void drm_gem_release(struct drm_device *dev,struct drm_file *file_private);
 
 static __inline void
 drm_gem_object_reference(struct drm_gem_object *obj)
 {
-	drm_ref(&obj->uobj);
+	kref_get(&obj->refcount);
 }
 
 static __inline void
 drm_gem_object_unreference(struct drm_gem_object *obj)
 {
-	drm_unref(&obj->uobj);
+	if (obj != NULL)
+		kref_put(&obj->refcount, drm_gem_object_free);
 }
 
 static __inline void
 drm_gem_object_unreference_unlocked(struct drm_gem_object *obj)
 {
-	struct drm_device *dev = obj->dev;
+	if (obj && !atomic_add_unless(&obj->refcount.refcount, -1, 1)) {
+		struct drm_device *dev = obj->dev;
 
-	mutex_lock(&dev->struct_mutex);
-	drm_unref(&obj->uobj);
-	mutex_unlock(&dev->struct_mutex);
+		mutex_lock(&dev->struct_mutex);
+		if (likely(atomic_dec_and_test(&obj->refcount.refcount)))
+			drm_gem_object_free(&obj->refcount);
+		mutex_unlock(&dev->struct_mutex);
+	}
 }
 
 int drm_gem_dumb_destroy(struct drm_file *file,
@@ -894,7 +863,7 @@ int drm_gem_dumb_destroy(struct drm_file *file,
 static __inline__ int drm_core_check_feature(struct drm_device *dev,
 					     int feature)
 {
-	return ((dev->driver->flags & feature) ? 1 : 0);
+	return ((dev->driver->driver_features & feature) ? 1 : 0);
 }
 
 static inline int drm_dev_to_irq(struct drm_device *dev)

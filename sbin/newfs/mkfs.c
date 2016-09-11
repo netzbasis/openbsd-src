@@ -1,4 +1,4 @@
-/*	$OpenBSD: mkfs.c,v 1.94 2015/11/23 19:19:30 deraadt Exp $	*/
+/*	$OpenBSD: mkfs.c,v 1.97 2016/09/01 09:27:06 otto Exp $	*/
 /*	$NetBSD: mkfs.c,v 1.25 1995/06/18 21:35:38 cgd Exp $	*/
 
 /*
@@ -169,6 +169,7 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 	quad_t sizepb;
 	int i, j, width, origdensity, fragsperinode, minfpg, optimalfpg;
 	int lastminfpg, mincylgrps;
+	uint32_t bpg;
 	long cylno, csfrags;
 	char tmpbuf[100];	/* XXX this will break in about 2,500 years */
 
@@ -549,7 +550,7 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 		iobufsize = SBLOCKSIZE + 3 * sblock.fs_bsize;
 	else
 		iobufsize = 4 * sblock.fs_bsize;
-	if ((iobuf = malloc(iobufsize)) == 0)
+	if ((iobuf = malloc(iobufsize)) == NULL)
 		errx(38, "cannot allocate I/O buffer");
 	bzero(iobuf, iobufsize);
 	/*
@@ -608,7 +609,10 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 	pp->p_fstype = FS_BSDFFS;
 	pp->p_fragblock =
 	    DISKLABELV1_FFS_FRAGBLOCK(sblock.fs_fsize, sblock.fs_frag);
-	pp->p_cpg = sblock.fs_cpg;
+	bpg = sblock.fs_fpg / sblock.fs_frag;
+	while (bpg > USHRT_MAX)
+		bpg >>= 1;
+	pp->p_cpg = bpg;
 }
 
 /*
@@ -1144,12 +1148,14 @@ charsperline(void)
 	struct winsize ws;
 
 	columns = 0;
-	if (ioctl(0, TIOCGWINSZ, &ws) != -1)
-		columns = ws.ws_col;
-	if (columns == 0 && (cp = getenv("COLUMNS")))
+	if ((cp = getenv("COLUMNS")) != NULL)
 		columns = strtonum(cp, 1, INT_MAX, NULL);
+	if (columns == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_col > 0)
+		columns = ws.ws_col;
 	if (columns == 0)
-		columns = 80;   /* last resort */
+		columns = 80;
+
 	return columns;
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.120 2015/11/10 04:30:59 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.129 2016/07/18 09:36:50 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -84,8 +84,6 @@ pid_t pid_opt = -1;
 
 #include <sys/syscall.h>
 
-#include <compat/linux/linux_syscall.h>
-
 #define KTRACE
 #define PTRACE
 #define NFSCLIENT
@@ -95,8 +93,6 @@ pid_t pid_opt = -1;
 #define SYSVSHM
 #define ACCOUNTING
 #include <kern/syscalls.c>
-
-#include <compat/linux/linux_syscalls.c>
 #undef KTRACE
 #undef PTRACE
 #undef NFSCLIENT
@@ -105,29 +101,6 @@ pid_t pid_opt = -1;
 #undef SYSVMSG
 #undef SYSVSHM
 #undef ACCOUNTING
-
-struct emulation {
-	char *name;		/* Emulation name */
-	char **sysnames;	/* Array of system call names */
-	int  nsysnames;		/* Number of */
-};
-
-static struct emulation emulations[] = {
-	{ "native",	syscallnames,		SYS_MAXSYSCALL },
-	{ "linux",	linux_syscallnames,	LINUX_SYS_MAXSYSCALL },
-	{ NULL,		NULL,			0 }
-};
-
-static struct emulation *current;
-static struct emulation *def_emul;
-
-struct pid_emul {
-	struct emulation *e;	
-	pid_t p;
-};
-
-static struct pid_emul *pe_table;
-static size_t pe_size;
 
 
 static char *ptrace_ops[] = {
@@ -138,11 +111,8 @@ static char *ptrace_ops[] = {
 	"PT_GET_THREAD_FIRST", "PT_GET_THREAD_NEXT",
 };
 
-static void mappidtoemul(pid_t, struct emulation *);
-static struct emulation * findemul(pid_t);
 static int fread_tail(void *, size_t, size_t);
 static void dumpheader(struct ktr_header *);
-static void ktremul(char *, size_t);
 static void ktrgenio(struct ktr_genio *, size_t);
 static void ktrnamei(const char *, size_t);
 static void ktrpsig(struct ktr_psig *);
@@ -152,7 +122,6 @@ static void ktrsysret(struct ktr_sysret *, size_t);
 static void ktruser(struct ktr_user *, size_t);
 static void ktrexec(const char*, size_t);
 static void ktrpledge(struct ktr_pledge *, size_t);
-static void setemul(const char *);
 static void usage(void);
 static void ioctldecode(int);
 static void ptracedecode(int);
@@ -179,8 +148,6 @@ main(int argc, char *argv[])
 	const char *errstr;
 	void *m;
 
-	def_emul = current = &emulations[0];	/* native */
-
 	if (screenwidth == 0) {
 		struct winsize ws;
 
@@ -191,12 +158,8 @@ main(int argc, char *argv[])
 			screenwidth = 80;
 	}
 
-	while ((ch = getopt(argc, argv, "e:f:dHlm:nRp:Tt:xX")) != -1)
+	while ((ch = getopt(argc, argv, "f:dHlm:np:RTt:xX")) != -1)
 		switch (ch) {
-		case 'e':
-			setemul(optarg);
-			def_emul = current;
-			break;
 		case 'f':
 			tracefile = optarg;
 			break;
@@ -222,14 +185,14 @@ main(int argc, char *argv[])
 			if (errstr)
 				errx(1, "-p %s: %s", optarg, errstr);
 			break;
-		case 'R':
-			timestamp = 2;	/* relative timestamp */
+		case 'R':	/* relative timestamp */
+			timestamp = timestamp == 1 ? 3 : 2;
 			break;
 		case 'T':
-			timestamp = 1;
+			timestamp = timestamp == 2 ? 3 : 1;
 			break;
 		case 't':
-			trpoints = getpoints(optarg);
+			trpoints = getpoints(optarg, DEF_POINTS);
 			if (trpoints < 0)
 				errx(1, "unknown trace point in %s", optarg);
 			break;
@@ -259,8 +222,6 @@ main(int argc, char *argv[])
 		errx(1, "%s: not a dump", tracefile);
 	while (fread_tail(&ktr_header, sizeof(struct ktr_header), 1)) {
 		silent = 0;
-		if (pe_size == 0)
-			mappidtoemul(ktr_header.ktr_pid, current);
 		if (pid_opt != -1 && pid_opt != ktr_header.ktr_pid)
 			silent = 1;
 		if (silent == 0 && trpoints & (1<<ktr_header.ktr_type))
@@ -283,7 +244,6 @@ main(int argc, char *argv[])
 			continue;
 		if ((trpoints & (1<<ktr_header.ktr_type)) == 0)
 			continue;
-		current = findemul(ktr_header.ktr_pid);
 		switch (ktr_header.ktr_type) {
 		case KTR_SYSCALL:
 			ktrsyscall((struct ktr_syscall *)m, ktrlen);
@@ -300,10 +260,6 @@ main(int argc, char *argv[])
 		case KTR_PSIG:
 			ktrpsig((struct ktr_psig *)m);
 			break;
-		case KTR_EMUL:
-			ktremul(m, ktrlen);
-			mappidtoemul(ktr_header.ktr_pid, current);
-			break;
 		case KTR_STRUCT:
 			ktrstruct(m, ktrlen);
 			break;
@@ -317,43 +273,14 @@ main(int argc, char *argv[])
 		case KTR_PLEDGE:
 			ktrpledge((struct ktr_pledge *)m, ktrlen);
 			break;
+		default:
+			printf("\n");
+			break;
 		}
 		if (tail)
 			(void)fflush(stdout);
 	}
 	exit(0);
-}
-
-static void
-mappidtoemul(pid_t pid, struct emulation *emul)
-{
-	size_t i;
-	struct pid_emul *tmp;
-
-	for (i = 0; i < pe_size; i++) {
-		if (pe_table[i].p == pid) {
-			pe_table[i].e = emul;
-			return;
-		}
-	}
-	tmp = reallocarray(pe_table, pe_size + 1, sizeof(*pe_table));
-	if (tmp == NULL)
-		err(1, NULL);
-	pe_table = tmp;
-	pe_table[pe_size].p = pid;
-	pe_table[pe_size].e = emul;
-	pe_size++;
-}
-
-static struct emulation*
-findemul(pid_t pid)
-{
-	size_t i;
-
-	for (i = 0; i < pe_size; i++)
-		if (pe_table[i].p == pid)
-			return pe_table[i].e;
-	return def_emul;
 }
 
 static int
@@ -391,9 +318,6 @@ dumpheader(struct ktr_header *kth)
 	case KTR_PSIG:
 		type = "PSIG";
 		break;
-	case KTR_EMUL:
-		type = "EMUL";
-		break;
 	case KTR_STRUCT:
 		type = "STRU";
 		break;
@@ -410,7 +334,12 @@ dumpheader(struct ktr_header *kth)
 		type = "PLDG";
 		break;
 	default:
-		(void)snprintf(unknown, sizeof unknown, "UNKNOWN(%d)",
+		/* htobe32() not guaranteed to work as case label */
+		if (kth->ktr_type == htobe32(KTR_START)) {
+			type = "STRT";
+			break;
+		}
+		(void)snprintf(unknown, sizeof unknown, "UNKNOWN(%u)",
 		    kth->ktr_type);
 		type = unknown;
 	}
@@ -420,7 +349,11 @@ dumpheader(struct ktr_header *kth)
 		basecol += printf("/%-7ld", (long)kth->ktr_tid);
 	basecol += printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
 	if (timestamp) {
-		if (timestamp == 2) {
+		if (timestamp == 3) {
+			if (prevtime.tv_sec == 0)
+				prevtime = kth->ktr_time;
+			timespecsub(&kth->ktr_time, &prevtime, &temp);
+		} else if (timestamp == 2) {
 			timespecsub(&kth->ktr_time, &prevtime, &temp);
 			prevtime = kth->ktr_time;
 		} else
@@ -617,6 +550,7 @@ static void (*formatters[])(int) = {
 	sigset,
 	uidname,
 	gidname,
+	syslogflagname,
 };
 
 enum {
@@ -699,6 +633,7 @@ enum {
 	Sigset,
 	Uidname,
 	Gidname,
+	Syslogflagname,
 };
 
 #define Pptr		Phexlong
@@ -763,7 +698,7 @@ static const formatter scargs[][8] = {
     [SYS_ktrace]	= { Ppath, Ktraceopname, Ktracefacname, Ppgid },
     [SYS_sigaction]	= { Signame, Pptr, Pptr },
     [SYS_sigprocmask]	= { Sigprocmaskhowname, Sigset },
-    [SYS_getlogin]	= { Pptr, Pucount },
+    [SYS_getlogin_r]	= { Pptr, Psize },
     [SYS_setlogin]	= { Pptr },
     [SYS_acct]		= { Ppath },
     [SYS_fstat]		= { Pfd, Pptr },
@@ -790,11 +725,12 @@ static const formatter scargs[][8] = {
     [SYS_madvise]	= { Pptr, Pbigsize, Madvisebehavname },
     [SYS_utimes]	= { Ppath, Pptr },
     [SYS_futimes]	= { Pfd, Pptr },
+    [SYS_kbind]		= { Pptr, Psize, Phexlonglong },
     [SYS_mincore]	= { Pptr, Pbigsize, Pptr },
     [SYS_getgroups]	= { Pcount, Pptr },
     [SYS_setgroups]	= { Pcount, Pptr },
     [SYS_setpgid]	= { Ppid_t, Ppid_t },
-    [SYS_sendsyslog]	= { Pptr, Psize },
+    [SYS_sendsyslog]	= { Pptr, Psize, Syslogflagname },
     [SYS_utimensat]	= { Atfd, Ppath, Pptr, Atflagsname },
     [SYS_futimens]	= { Pfd, Pptr },
     [SYS_clock_gettime]	= { Clockname, Pptr },
@@ -856,7 +792,7 @@ static const formatter scargs[][8] = {
     [SYS_lseek]		= { Pfd, PAD, Poff_t, Whencename },
     [SYS_truncate]	= { Ppath, PAD, Poff_t },
     [SYS_ftruncate]	= { Pfd, PAD, Poff_t },
-    /* [SYS_sysctl]	= { }, Magic */
+    [SYS_sysctl]	= { Pptr, Pcount, Pptr, Pptr, Pptr, Psize },
     [SYS_mlock]		= { Pptr, Pbigsize },
     [SYS_munlock]	= { Pptr, Pbigsize },
     [SYS_getpgid]	= { Ppid_t },
@@ -926,22 +862,17 @@ ktrsyscall(struct ktr_syscall *ktr, size_t ktrlen)
 	narg = ktr->ktr_argsize / sizeof(register_t);
 	sep = '\0';
 
-	if (ktr->ktr_code >= current->nsysnames || ktr->ktr_code < 0)
+	if (ktr->ktr_code >= SYS_MAXSYSCALL || ktr->ktr_code < 0)
 		(void)printf("[%d]", ktr->ktr_code);
 	else
-		(void)printf("%s", current->sysnames[ktr->ktr_code]);
+		(void)printf("%s", syscallnames[ktr->ktr_code]);
 	ap = (register_t *)((char *)ktr + sizeof(struct ktr_syscall));
 	(void)putchar('(');
 
-	if (current != &emulations[0])
-		goto nonnative;
-
-	if (ktr->ktr_code == SYS_sysctl) {
+	if (ktr->ktr_code == SYS_sysctl && fancy) {
 		const char *s;
 		int n, i, *top;
 
-		if (!fancy)
-			goto nonnative;
 		n = ap[1];
 		if (n > CTL_MAXNAME)
 			n = CTL_MAXNAME;
@@ -987,7 +918,6 @@ ktrsyscall(struct ktr_syscall *ktr, size_t ktrlen)
 		}
 	}
 
-nonnative:
 	while (narg > 0) {
 		if (sep)
 			putchar(sep);
@@ -1145,21 +1075,15 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 			errx(1, "sysret bogus length %zu", ktrlen);
 	}
 
-	if (code >= current->nsysnames || code < 0)
+	if (code >= SYS_MAXSYSCALL || code < 0)
 		(void)printf("[%d] ", code);
-	else {
-		(void)printf("%s ", current->sysnames[code]);
-		if (error == 0 && ret > 0 &&
-		    (strcmp(current->sysnames[code], "fork") == 0 ||
-		    strcmp(current->sysnames[code], "vfork") == 0 ||
-		    strcmp(current->sysnames[code], "__tfork") == 0 ||
-		    strcmp(current->sysnames[code], "clone") == 0))
-			mappidtoemul(ret, current);
-	}
+	else
+		(void)printf("%s ", syscallnames[code]);
 
+doerr:
 	if (error == 0) {
 		if (fancy) {
-			switch (current == &emulations[0] ? code : -1) {
+			switch (code) {
 			case SYS_lseek:
 				(void)printf("%lld", retll);
 				if (retll < 0 || retll > 9)
@@ -1180,7 +1104,12 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 			case SYS_getegid:
 				gidname(ret);
 				break;
-			case -1:	/* non-default emulation */
+			/* syscalls that return errno values */
+			case SYS_getlogin_r:
+			case SYS___thrsleep:
+				if ((error = ret) != 0)
+					goto doerr;
+				/* FALLTHROUGH */
 			default:
 				(void)printf("%ld", (long)ret);
 				if (ret < 0 || ret > 9)
@@ -1197,9 +1126,9 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 	else if (error == EJUSTRETURN)
 		(void)printf("JUSTRETURN");
 	else {
-		(void)printf("-1 errno %d", ktr->ktr_error);
+		(void)printf("-1 errno %d", error);
 		if (fancy)
-			(void)printf(" %s", strerror(ktr->ktr_error));
+			(void)printf(" %s", strerror(error));
 	}
 	(void)putchar('\n');
 }
@@ -1207,35 +1136,20 @@ ktrsysret(struct ktr_sysret *ktr, size_t ktrlen)
 static void
 ktrnamei(const char *cp, size_t len)
 {
-	(void)printf("\"%.*s\"\n", (int)len, cp);
-}
-
-static void
-ktremul(char *cp, size_t len)
-{
-	char name[1024];
-
-	if (len >= sizeof(name))
-		errx(1, "Emulation name too long");
-
-	strncpy(name, cp, len);
-	name[len] = '\0';
-	(void)printf("\"%s\"\n", name);
-
-	setemul(name);
+	showbufc(basecol, (unsigned char *)cp, len, VIS_DQ | VIS_TAB | VIS_NL);
 }
 
 void
-showbufc(int col, unsigned char *dp, size_t datalen)
+showbufc(int col, unsigned char *dp, size_t datalen, int flags)
 {
-	int i, j;
-	int width, bpl;
-	unsigned char visbuf[5], *cp, c;
+	int width;
+	unsigned char visbuf[5], *cp;
 
+	flags |= VIS_CSTYLE;
 	putchar('"');
 	col++;
 	for (; datalen > 0; datalen--, dp++) {
-		(void)vis(visbuf, *dp, VIS_CSTYLE, *(dp+1));
+		(void)vis(visbuf, *dp, flags, *(dp+1));
 		cp = visbuf;
 
 		/*
@@ -1275,8 +1189,8 @@ static void
 showbuf(unsigned char *dp, size_t datalen)
 {
 	int i, j;
-	int col = 0, width, bpl;
-	unsigned char visbuf[5], *cp, c;
+	int col = 0, bpl;
+	unsigned char c;
 
 	if (iohex == 1) {
 		putchar('\t');
@@ -1322,7 +1236,7 @@ showbuf(unsigned char *dp, size_t datalen)
 	}
 
 	(void)printf("       ");
-	showbufc(7, dp, datalen);
+	showbufc(7, dp, datalen, 0);
 }
 
 static void
@@ -1417,7 +1331,6 @@ ktruser(struct ktr_user *usr, size_t len)
 static void
 ktrexec(const char *ptr, size_t len)
 {
-	char buf[sizeof("[2147483648] = ")];
 	int i, col;
 	size_t l;
 
@@ -1427,7 +1340,7 @@ ktrexec(const char *ptr, size_t len)
 		l = strnlen(ptr, len);
 		col = printf("\t[%d] = ", i++);
 		col += 7;	/* tab expands from 1 to 8 columns */
-		showbufc(col, (unsigned char *)ptr, l);
+		showbufc(col, (unsigned char *)ptr, l, VIS_DQ|VIS_TAB|VIS_NL);
 		if (l == len) {
 			printf("\tunterminated argument\n");
 			break;
@@ -1446,10 +1359,10 @@ ktrpledge(struct ktr_pledge *pledge, size_t len)
 	if (len < sizeof(struct ktr_pledge))
 		errx(1, "invalid ktr pledge length %zu", len);
 
-	if (pledge->syscall >= current->nsysnames || pledge->syscall < 0)
+	if (pledge->syscall >= SYS_MAXSYSCALL || pledge->syscall < 0)
 		(void)printf("[%d]", pledge->syscall);
 	else
-		(void)printf("%s", current->sysnames[pledge->syscall]);
+		(void)printf("%s", syscallnames[pledge->syscall]);
 	printf(", ");
 	for (i = 0; pledge->code && pledgenames[i].bits != 0; i++) {
 		if (pledgenames[i].bits & pledge->code) {
@@ -1470,24 +1383,12 @@ usage(void)
 
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
-	    "[-dHlnRTXx] [-e emulation] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [ceinstuxX+]]\n",
+	    "[-dHlnRTXx] [-f file] [-m maxdata] [-p pid]\n"
+	    "%*s[-t [cinpstuxX+]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);
 }
 
-static void
-setemul(const char *name)
-{
-	int i;
-
-	for (i = 0; emulations[i].name != NULL; i++)
-		if (strcmp(emulations[i].name, name) == 0) {
-			current = &emulations[i];
-			return;
-		}
-	warnx("Emulation `%s' unknown", name);
-}
 
 /*
  * FORMATTERS

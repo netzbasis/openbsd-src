@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.99 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.102 2016/07/15 00:42:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1628,21 +1628,15 @@ input_csi_dispatch_sgr_256(struct input_ctx *ictx, int fgbg, u_int *i)
 	(*i)++;
 	c = input_get(ictx, *i, 0, -1);
 	if (c == -1) {
-		if (fgbg == 38) {
-			gc->flags &= ~GRID_FLAG_FG256;
+		if (fgbg == 38)
 			gc->fg = 8;
-		} else if (fgbg == 48) {
-			gc->flags &= ~GRID_FLAG_BG256;
+		else if (fgbg == 48)
 			gc->bg = 8;
-		}
 	} else {
-		if (fgbg == 38) {
-			gc->flags |= GRID_FLAG_FG256;
-			gc->fg = c;
-		} else if (fgbg == 48) {
-			gc->flags |= GRID_FLAG_BG256;
-			gc->bg = c;
-		}
+		if (fgbg == 38)
+			gc->fg = c | COLOUR_FLAG_256;
+		else if (fgbg == 48)
+			gc->bg = c | COLOUR_FLAG_256;
 	}
 }
 
@@ -1651,7 +1645,7 @@ void
 input_csi_dispatch_sgr_rgb(struct input_ctx *ictx, int fgbg, u_int *i)
 {
 	struct grid_cell	*gc = &ictx->cell.cell;
-	int			 c, r, g, b;
+	int			 r, g, b;
 
 	(*i)++;
 	r = input_get(ictx, *i, 0, -1);
@@ -1666,14 +1660,10 @@ input_csi_dispatch_sgr_rgb(struct input_ctx *ictx, int fgbg, u_int *i)
 	if (b == -1 || b > 255)
 		return;
 
-	c = colour_find_rgb(r, g, b);
-	if (fgbg == 38) {
-		gc->flags |= GRID_FLAG_FG256;
-		gc->fg = c;
-	} else if (fgbg == 48) {
-		gc->flags |= GRID_FLAG_BG256;
-		gc->bg = c;
-	}
+	if (fgbg == 38)
+		gc->fg = colour_join_rgb(r, g, b);
+	else if (fgbg == 48)
+		gc->bg = colour_join_rgb(r, g, b);
 }
 
 /* Handle CSI SGR. */
@@ -1754,11 +1744,9 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 		case 35:
 		case 36:
 		case 37:
-			gc->flags &= ~GRID_FLAG_FG256;
 			gc->fg = n - 30;
 			break;
 		case 39:
-			gc->flags &= ~GRID_FLAG_FG256;
 			gc->fg = 8;
 			break;
 		case 40:
@@ -1769,11 +1757,9 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 		case 45:
 		case 46:
 		case 47:
-			gc->flags &= ~GRID_FLAG_BG256;
 			gc->bg = n - 40;
 			break;
 		case 49:
-			gc->flags &= ~GRID_FLAG_BG256;
 			gc->bg = 8;
 			break;
 		case 90:
@@ -1784,7 +1770,6 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 		case 95:
 		case 96:
 		case 97:
-			gc->flags &= ~GRID_FLAG_FG256;
 			gc->fg = n;
 			break;
 		case 100:
@@ -1795,7 +1780,6 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 		case 105:
 		case 106:
 		case 107:
-			gc->flags &= ~GRID_FLAG_BG256;
 			gc->bg = n - 10;
 			break;
 		}
@@ -1953,8 +1937,14 @@ input_utf8_close(struct input_ctx *ictx)
 {
 	struct utf8_data	*ud = &ictx->utf8data;
 
-	if (utf8_append(ud, ictx->ch) != UTF8_DONE)
-		fatalx("UTF-8 close invalid %#x", ictx->ch);
+	if (utf8_append(ud, ictx->ch) != UTF8_DONE) {
+		/*
+		 * An error here could be invalid UTF-8 or it could be a
+		 * nonprintable character for which we can't get the
+		 * width. Drop it.
+		 */
+		return (0);
+	}
 
 	log_debug("%s %hhu '%*s' (width %hhu)", __func__, ud->size,
 	    (int)ud->size, ud->data, ud->width);

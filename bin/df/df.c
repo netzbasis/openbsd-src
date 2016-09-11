@@ -1,4 +1,4 @@
-/*	$OpenBSD: df.c,v 1.54 2015/10/09 01:37:06 deraadt Exp $	*/
+/*	$OpenBSD: df.c,v 1.59 2016/08/14 21:07:40 krw Exp $	*/
 /*	$NetBSD: df.c,v 1.21.2.1 1995/11/01 00:06:11 jtc Exp $	*/
 
 /*
@@ -41,30 +41,27 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <util.h>
 
-extern	char *__progname;
+int		 bread(int, off_t, void *, int);
+static void	 bsdprint(struct statfs *, long, int);
+char		*getmntpt(char *);
+static void	 maketypelist(char *);
+static void	 posixprint(struct statfs *, long, int);
+static void	 prthuman(struct statfs *sfsp, unsigned long long);
+static void	 prthumanval(long long);
+static void	 prtstat(struct statfs *, int, int, int);
+static long	 regetmntinfo(struct statfs **, long);
+static int	 selected(const char *);
+static __dead void usage(void);
 
-char	*getmntpt(char *);
-int	 selected(const char *);
-void	 maketypelist(char *);
-long	 regetmntinfo(struct statfs **, long);
-void	 bsdprint(struct statfs *, long, int);
-void	 prtstat(struct statfs *, int, int, int);
-void	 posixprint(struct statfs *, long, int);
-int 	 bread(int, off_t, void *, int);
-void	 usage(void);
-void	 prthumanval(long long);
-void	 prthuman(struct statfs *sfsp, unsigned long long);
-
-int		raw_df(char *, struct statfs *);
-extern int	ffs_df(int, char *, struct statfs *);
-extern int	e2fs_df(int, char *, struct statfs *);
+extern int	 e2fs_df(int, char *, struct statfs *);
+extern int	 ffs_df(int, char *, struct statfs *);
+static int	 raw_df(char *, struct statfs *);
 
 int	hflag, iflag, kflag, lflag, nflag, Pflag;
 char	**typelist = NULL;
@@ -162,15 +159,12 @@ main(int argc, char *argv[])
 	}
 
 	if (mntsize) {
-		maxwidth = 0;
+		maxwidth = 11;
 		for (i = 0; i < mntsize; i++) {
 			width = strlen(mntbuf[i].f_mntfromname);
 			if (width > maxwidth)
 				maxwidth = width;
 		}
-
-		if (maxwidth < 11)
-			maxwidth = 11;
 
 		if (Pflag)
 			posixprint(mntbuf, mntsize, maxwidth);
@@ -178,7 +172,7 @@ main(int argc, char *argv[])
 			bsdprint(mntbuf, mntsize, maxwidth);
 	}
 
-	exit(mntsize ? 0 : 1);
+	return (mntsize ? 0 : 1);
 }
 
 char *
@@ -197,7 +191,7 @@ getmntpt(char *name)
 
 static enum { IN_LIST, NOT_IN_LIST } which;
 
-int
+static int
 selected(const char *type)
 {
 	char **av;
@@ -211,7 +205,7 @@ selected(const char *type)
 	return (which == IN_LIST ? 0 : 1);
 }
 
-void
+static void
 maketypelist(char *fslist)
 {
 	int i;
@@ -252,7 +246,7 @@ maketypelist(char *fslist)
  * filesystem types not in ``fsmask'' and possibly re-stating to get
  * current (not cached) info.  Returns the new count of valid statfs bufs.
  */
-long
+static long
 regetmntinfo(struct statfs **mntbufp, long mntsize)
 {
 	int i, j;
@@ -282,7 +276,7 @@ regetmntinfo(struct statfs **mntbufp, long mntsize)
  * the end.  Makes output compact and easy-to-read esp. on huge disks.
  * Code moved into libutil; this is now just a wrapper.
  */
-void
+static void
 prthumanval(long long bytes)
 {
 	char ret[FMT_SCALED_STRSIZE];
@@ -294,7 +288,7 @@ prthumanval(long long bytes)
 	(void)printf(" %7s", ret);
 }
 
-void
+static void
 prthuman(struct statfs *sfsp, unsigned long long used)
 {
 	prthumanval(sfsp->f_blocks * sfsp->f_bsize);
@@ -313,7 +307,7 @@ prthuman(struct statfs *sfsp, unsigned long long used)
 /*
  * Print out status about a filesystem.
  */
-void
+static void
 prtstat(struct statfs *sfsp, int maxwidth, int headerlen, int blocksize)
 {
 	u_int64_t used, inodes;
@@ -344,7 +338,7 @@ prtstat(struct statfs *sfsp, int maxwidth, int headerlen, int blocksize)
 /*
  * Print in traditional BSD format.
  */
-void
+static void
 bsdprint(struct statfs *mntbuf, long mntsize, int maxwidth)
 {
 	int i;
@@ -381,7 +375,7 @@ bsdprint(struct statfs *mntbuf, long mntsize, int maxwidth)
 /*
  * Print in format defined by POSIX 1002.2, invoke with -P option.
  */
-void
+static void
 posixprint(struct statfs *mntbuf, long mntsize, int maxwidth)
 {
 	int i;
@@ -422,7 +416,7 @@ posixprint(struct statfs *mntbuf, long mntsize, int maxwidth)
 	}
 }
 
-int
+static int
 raw_df(char *file, struct statfs *sfsp)
 {
 	int rfd, ret = -1;
@@ -450,18 +444,18 @@ bread(int rfd, off_t off, void *buf, int cnt)
 	if ((nr = pread(rfd, buf, cnt, off)) != cnt) {
 		/* Probably a dismounted disk if errno == EIO. */
 		if (errno != EIO)
-			(void)fprintf(stderr, "\ndf: %qd: %s\n",
-			    off, strerror(nr > 0 ? EIO : errno));
+			(void)fprintf(stderr, "\ndf: %lld: %s\n",
+			    (long long)off, strerror(nr > 0 ? EIO : errno));
 		return (0);
 	}
 	return (1);
 }
 
-void
+static __dead void
 usage(void)
 {
 	(void)fprintf(stderr,
 	    "usage: %s [-hiklnP] [-t type] [[file | file_system] ...]\n",
-	    __progname);
+	    getprogname());
 	exit(1);
 }

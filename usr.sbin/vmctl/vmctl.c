@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.c,v 1.12 2016/01/26 07:58:35 reyk Exp $	*/
+/*	$OpenBSD: vmctl.c,v 1.15 2016/05/10 11:00:54 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
@@ -67,13 +67,32 @@ start_vm(const char *name, int memsize, int nnics, int ndisks, char **disks,
 	struct vm_create_params *vcp;
 	int i;
 
+	if (memsize < 1)
+		errx(1, "specified memory size too small");
+	if (kernel == NULL)
+		errx(1, "no kernel specified");
+	if (ndisks > VMM_MAX_DISKS_PER_VM)
+		errx(1, "too many disks");
+	else if (ndisks == 0)
+		warnx("starting without disks");
+	if (nnics == -1)
+		nnics = 0;
+	if (nnics == 0)
+		warnx("starting without network interfaces");
+
 	vcp = malloc(sizeof(struct vm_create_params));
 	if (vcp == NULL)
 		return (ENOMEM);
 
 	bzero(vcp, sizeof(struct vm_create_params));
 
-	vcp->vcp_memory_size = memsize;
+	/*
+	 * XXX: vmd(8) fills in the actual memory ranges. vmctl(8)
+	 * just passes in the actual memory size in MB here.
+	 */
+	vcp->vcp_nmemranges = 1;
+	vcp->vcp_memranges[0].vmr_size = memsize;
+
 	vcp->vcp_ncpus = 1;
 	vcp->vcp_ndisks = ndisks;
 
@@ -233,7 +252,7 @@ get_info_vm(uint32_t id, const char *name, int console)
 }
 
 /*
- * chec_info_id
+ * check_info_id
  *
  * Check if requested name or ID of a VM matches specified arguments
  *

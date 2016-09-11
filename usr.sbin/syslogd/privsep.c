@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.59 2015/10/20 12:40:19 bluhm Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.61 2016/06/28 18:22:50 jca Exp $	*/
 
 /*
  * Copyright (c) 2003 Anil Madhavapeddy <anil@recoil.org>
@@ -433,7 +433,7 @@ open_pipe(char *cmd)
 	/* skip over leading | and whitespace */
 	if (cmd[0] != '|')
 		return (-1);
-	for(cmd++; *cmd && *cmd == ' '; cmd++)
+	for (cmd++; *cmd && *cmd == ' '; cmd++)
 		; /* nothing */
 	if (!*cmd)
 		return (-1);
@@ -446,7 +446,7 @@ open_pipe(char *cmd)
 	}
 
 	/* make the fd on syslogd's side nonblocking */
-	if ((flags = fcntl(fd[1], F_GETFL, 0)) == -1) {
+	if ((flags = fcntl(fd[1], F_GETFL)) == -1) {
 		warnx("fcntl");
 		return (-1);
 	}

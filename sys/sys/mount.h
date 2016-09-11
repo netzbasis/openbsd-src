@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.h,v 1.121 2014/09/08 01:47:06 guenther Exp $	*/
+/*	$OpenBSD: mount.h,v 1.127 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: mount.h,v 1.48 1996/02/18 11:55:47 fvdl Exp $	*/
 
 /*
@@ -218,7 +218,6 @@ struct msdosfs_args {
 #define	MSDOSFSMNT_SHORTNAME	0x01	/* Force old DOS short names only */
 #define	MSDOSFSMNT_LONGNAME	0x02	/* Force Win'95 long names */
 #define	MSDOSFSMNT_NOWIN95	0x04	/* Completely ignore Win95 entries */
-#define MSDOSFSMNT_ALLOWDIRX	0x10	/* dir is mode +x if r */
 
 /*
  * Arguments to mount ntfs filesystems
@@ -355,7 +354,6 @@ struct mount {
 	struct vnodelst	mnt_vnodelist;		/* list of vnodes this mount */
 	struct rwlock   mnt_lock;               /* mount structure lock */
 	int		mnt_flag;		/* flags */
-	int		mnt_maxsymlinklen;	/* max size of short symlink */
 	struct statfs	mnt_stat;		/* cache of filesystem stats */
 	void		*mnt_data;		/* private data */
 };
@@ -370,7 +368,9 @@ struct mount {
 #define	MNT_NOEXEC	0x00000004	/* can't exec from filesystem */
 #define	MNT_NOSUID	0x00000008	/* don't honor setuid bits on fs */
 #define	MNT_NODEV	0x00000010	/* don't interpret special files */
+#define	MNT_NOPERM	0x00000020	/* don't enforce permission checks */
 #define	MNT_ASYNC	0x00000040	/* file system written asynchronously */
+#define	MNT_WXALLOWED	0x00000800	/* filesystem allows W|X mappings */
 
 /*
  * exported mount flags.
@@ -379,7 +379,6 @@ struct mount {
 #define	MNT_EXPORTED	0x00000100	/* file system is exported */
 #define	MNT_DEFEXPORTED	0x00000200	/* exported to the world */
 #define	MNT_EXPORTANON	0x00000400	/* use anon uid mapping for everyone */
-#define	MNT_EXKERB	0x00000800	/* exported with Kerberos uid mapping */
 
 /*
  * Flags set by internal operations.
@@ -399,9 +398,9 @@ struct mount {
 #define	MNT_VISFLAGMASK	0x0400ffff
 
 #define	MNT_BITS \
-    "\010\001RDONLY\002SYNCHRONOUS\003NOEXEC\004NOSUID\005NODEV" \
+    "\010\001RDONLY\002SYNCHRONOUS\003NOEXEC\004NOSUID\005NODEV\006NOPERM" \
     "\007ASYNC\010EXRDONLY\011EXPORTED\012DEFEXPORTED\013EXPORTANON" \
-    "\014EXKERB\015LOCAL\016QUOTA\017ROOTFS"
+    "\014WXALLOWED\015LOCAL\016QUOTA\017ROOTFS\020NOATIME"
 
 /*
  * filesystem control flags.

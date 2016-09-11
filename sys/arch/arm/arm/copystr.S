@@ -1,4 +1,4 @@
-/*	$OpenBSD: copystr.S,v 1.4 2013/09/12 11:43:51 patrick Exp $	*/
+/*	$OpenBSD: copystr.S,v 1.6 2016/04/25 04:46:56 jsg Exp $	*/
 /*	$NetBSD: copystr.S,v 1.8 2002/10/13 14:54:48 bjh21 Exp $	*/
 
 /*
@@ -41,6 +41,7 @@
 
 #include "assym.h"
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 #include <sys/errno.h>
 
 	.text
@@ -104,18 +105,13 @@ ENTRY(copyinstr)
 	moveq	r0, #ENAMETOOLONG
 	beq	2f
 
-#ifdef MULTIPROCESSOR
-	/* XXX Probably not appropriate for non-Hydra SMPs */
-	stmfd	sp!, {r0-r3, r14}
-	bl	_C_LABEL(cpu_number)
-	ldr	r4, .Lcpu_info
-	ldr	r4, [r4, r0, lsl #2]
-	ldr	r4, [r4, #CI_CURPCB]
-	ldmfd	sp!, {r0-r3, r14}
+#ifdef CPU_ARMv7
+	/* Get curcpu from TPIDRPRW. */
+	mrc	CP15_TPIDRPRW(r4)
 #else
 	ldr	r4, .Lcpu_info_primary
-	ldr	r4, [r4, #CI_CURPCB]
 #endif
+	ldr	r4, [r4, #CI_CURPCB]
 
 #ifdef DEBUG
 	teq	r4, #0x00000000
@@ -161,18 +157,13 @@ ENTRY(copyoutstr)
 	moveq	r0, #ENAMETOOLONG
 	beq	2f
 
-#ifdef MULTIPROCESSOR
-	/* XXX Probably not appropriate for non-Hydra SMPs */
-	stmfd	sp!, {r0-r3, r14}
-	bl	_C_LABEL(cpu_number)
-	ldr	r4, .Lcpu_info
-	ldr	r4, [r4, r0, lsl #2]
-	ldr	r4, [r4, #CI_CURPCB]
-	ldmfd	sp!, {r0-r3, r14}
+#ifdef CPU_ARMv7
+	/* Get curcpu from TPIDRPRW. */
+	mrc	CP15_TPIDRPRW(r4)
 #else
 	ldr	r4, .Lcpu_info_primary
-	ldr	r4, [r4, #CI_CURPCB]
 #endif
+	ldr	r4, [r4, #CI_CURPCB]
 
 #ifdef DEBUG
 	teq	r4, #0x00000000

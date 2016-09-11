@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.h,v 1.127 2015/12/19 20:44:35 reyk Exp $ */
+/*	$OpenBSD: ntpd.h,v 1.131 2016/09/03 11:52:06 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -12,9 +12,9 @@
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF MIND, USE, DATA OR PROFITS, WHETHER
- * IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
- * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <sys/types.h>
@@ -89,6 +89,7 @@ enum client_state {
 	STATE_DNS_DONE,
 	STATE_QUERY_SENT,
 	STATE_REPLY_RECEIVED,
+	STATE_TIMEOUT,
 	STATE_INVALID
 };
 
@@ -213,9 +214,10 @@ struct ntpd_conf {
 	struct ntp_status				status;
 	struct ntp_freq					freq;
 	u_int32_t					scale;
+	int				        	debug;
+	int				        	verbose;
 	u_int8_t					listen_all;
 	u_int8_t					settime;
-	u_int8_t					debug;
 	u_int8_t					noaction;
 	u_int8_t					filters;
 	time_t						constraint_last;
@@ -263,11 +265,6 @@ struct ctl_show_sensor {
 	double		 correction;
 };
 
-enum blockmodes {
-	BM_NORMAL,
-	BM_NONBLOCK
-};
-
 struct ctl_conn {
 	TAILQ_ENTRY(ctl_conn)	entry;
 	struct imsgbuf		ibuf;
@@ -285,6 +282,7 @@ enum imsg_type {
 	IMSG_CONSTRAINT_QUERY,
 	IMSG_CONSTRAINT_RESULT,
 	IMSG_CONSTRAINT_CLOSE,
+	IMSG_CONSTRAINT_KILL,
 	IMSG_CTL_SHOW_STATUS,
 	IMSG_CTL_SHOW_PEERS,
 	IMSG_CTL_SHOW_PEERS_END,
@@ -356,6 +354,7 @@ void	 constraint_msg_result(u_int32_t, u_int8_t *, size_t);
 void	 constraint_msg_close(u_int32_t, u_int8_t *, size_t);
 void	 priv_constraint_msg(u_int32_t, u_int8_t *, size_t,
 	    const char *, uid_t, gid_t);
+void	 priv_constraint_kill(u_int32_t);
 int	 priv_constraint_dispatch(struct pollfd *);
 void	 priv_constraint_check_child(pid_t, int);
 char	*get_string(u_int8_t *, size_t);
@@ -391,7 +390,7 @@ int			 control_accept(int);
 struct ctl_conn		*control_connbyfd(int);
 int			 control_close(int);
 int			 control_dispatch_msg(struct pollfd *, u_int *);
-void			 session_socket_blockmode(int, enum blockmodes);
+void			 session_socket_nonblockmode(int);
 void			 build_show_status(struct ctl_show_status *);
 void			 build_show_peer(struct ctl_show_peer *,
 			     struct ntp_peer *);

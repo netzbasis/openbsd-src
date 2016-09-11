@@ -1,1 +1,1 @@
-#	$OpenBSD: Makefile.inc,v 1.4 2007/03/02 06:11:54 miod Exp $
+#	$OpenBSD: Makefile.inc,v 1.6 2016/05/18 20:21:13 guenther Exp $

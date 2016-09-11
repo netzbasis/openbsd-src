@@ -1,4 +1,4 @@
-/*	$OpenBSD: identcpu.c,v 1.71 2015/12/27 04:31:34 jsg Exp $	*/
+/*	$OpenBSD: identcpu.c,v 1.74 2016/09/03 12:12:43 mlarkin Exp $	*/
 /*	$NetBSD: identcpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*
@@ -123,6 +123,7 @@ const struct {
 	{ CPUIDECX_TM2,		"TM2" },
 	{ CPUIDECX_SSSE3,	"SSSE3" },
 	{ CPUIDECX_CNXTID,	"CNXT-ID" },
+	{ CPUIDECX_SDBG,	"SDBG" },
 	{ CPUIDECX_FMA3,	"FMA3" },
 	{ CPUIDECX_CX16,	"CX16" },
 	{ CPUIDECX_XTPR,	"xTPR" },
@@ -193,6 +194,7 @@ const struct {
 }, cpu_seff0_ecxfeatures[] = {
 	{ SEFF0ECX_PREFETCHWT1,	"PREFETCHWT1" },
 	{ SEFF0ECX_AVX512VBMI,	"AVX512VBMI" },
+	{ SEFF0ECX_UMIP,	"UMIP" },
 	{ SEFF0ECX_PKU,		"PKU" },
 }, cpu_tpm_eaxfeatures[] = {
 	{ TPM_SENSOR,		"SENSOR" },
@@ -700,8 +702,7 @@ cpu_topology(struct cpu_info *ci)
 	u_int32_t smt_mask = 0, core_mask, pkg_mask = 0;
 
 	/* We need at least apicid at CPUID 1 */
-	CPUID(0, eax, ebx, ecx, edx);
-	if (eax < 1)
+	if (cpuid_level < 1)
 		goto no_topology;
 
 	/* Initial apicid */
@@ -710,8 +711,7 @@ cpu_topology(struct cpu_info *ci)
 
 	if (strcmp(cpu_vendor, "AuthenticAMD") == 0) {
 		/* We need at least apicid at CPUID 0x80000008 */
-		CPUID(0x80000000, eax, ebx, ecx, edx);
-		if (eax < 0x80000008)
+		if (ci->ci_pnfeatset < 0x80000008)
 			goto no_topology;
 
 		CPUID(0x80000008, eax, ebx, ecx, edx);
@@ -727,8 +727,7 @@ cpu_topology(struct cpu_info *ci)
 		ci->ci_pkg_id >>= core_bits;
 	} else if (strcmp(cpu_vendor, "GenuineIntel") == 0) {
 		/* We only support leaf 1/4 detection */
-		CPUID(0, eax, ebx, ecx, edx);
-		if (eax < 4)
+		if (cpuid_level < 4)
 			goto no_topology;
 		/* Get max_apicid */
 		CPUID(1, eax, ebx, ecx, edx);
@@ -858,7 +857,8 @@ cpu_check_vmm_cap(struct cpu_info *ci)
 	/*
 	 * Check for SVM Nested Paging
 	 */
-	if (ci->ci_vmm_flags & CI_VMM_SVM) {
+	if ((ci->ci_vmm_flags & CI_VMM_SVM) &&
+	    ci->ci_pnfeatset >= CPUID_AMD_SVM_CAP) {
 		CPUID(CPUID_AMD_SVM_CAP, dummy, dummy, dummy, cap);
 		if (cap & AMD_SVM_NESTED_PAGING_CAP)
 			ci->ci_vmm_flags |= CI_VMM_RVI;

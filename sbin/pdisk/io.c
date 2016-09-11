@@ -1,4 +1,4 @@
-/*	$OpenBSD: io.c,v 1.26 2016/01/27 00:26:33 krw Exp $	*/
+/*	$OpenBSD: io.c,v 1.31 2016/02/01 18:55:00 krw Exp $	*/
 
 /*
  * io.c - simple io and input parsing routines
@@ -27,22 +27,23 @@
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/queue.h>
+
 #include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
-#include "dpme.h"
+#include "partition_map.h"
 #include "io.h"
 
-#define BAD_DIGIT 17		/* must be greater than any base */
 #define UNGET_MAX_COUNT 10
 
 short	unget_buf[UNGET_MAX_COUNT + 1];
 int	unget_count;
 
-static long	get_number(int);
+static int	get_number(long *);
 static char    *get_string(int);
 static int	my_getch (void);
 
@@ -50,9 +51,9 @@ int
 my_getch()
 {
 	if (unget_count > 0)
-		return (unget_buf[--unget_count]);
+		return unget_buf[--unget_count];
 	else
-		return (getc(stdin));
+		return getc(stdin);
 }
 
 
@@ -97,7 +98,7 @@ get_okay(const char *prompt, int default_value)
 	int c;
 
 	flush_to_newline(0);
-	printf(prompt);
+	printf("%s", prompt);
 
 	for (;;) {
 		c = my_getch();
@@ -115,7 +116,7 @@ get_okay(const char *prompt, int default_value)
 			return 0;
 		} else {
 			flush_to_newline(0);
-			printf(prompt);
+			printf("%s", prompt);
 		}
 	}
 	return -1;
@@ -127,7 +128,7 @@ get_command(const char *prompt, int promptBeforeGet, int *command)
 	int c;
 
 	if (promptBeforeGet)
-		printf(prompt);
+		printf("%s", prompt);
 
 	for (;;) {
 		c = my_getch();
@@ -137,7 +138,7 @@ get_command(const char *prompt, int promptBeforeGet, int *command)
 		} else if (c == ' ' || c == '\t') {
 			/* skip blanks and tabs */
 		} else if (c == '\n') {
-			printf(prompt);
+			printf("%s", prompt);
 		} else {
 			*command = c;
 			return 1;
@@ -160,10 +161,10 @@ get_number_argument(const char *prompt, long *number)
 		} else if (c == ' ' || c == '\t') {
 			/* skip blanks and tabs */
 		} else if (c == '\n') {
-			printf(prompt);
+			printf("%s", prompt);
 		} else if ('0' <= c && c <= '9') {
-			*number = get_number(c);
-			result = 1;
+			my_ungetch(c);
+			result = get_number(number);
 			break;
 		} else {
 			my_ungetch(c);
@@ -175,41 +176,26 @@ get_number_argument(const char *prompt, long *number)
 }
 
 
-long
-get_number(int first_char)
+int
+get_number(long *number)
 {
-	int c, base, digit, ret_value;
+	long value;
+	int c;
 
-	if (first_char != '0') {
-		c = first_char;
-		base = 10;
-		digit = BAD_DIGIT;
-	} else if ((c = my_getch()) == 'x' || c == 'X') {
-		c = my_getch();
-		base = 16;
-		digit = BAD_DIGIT;
-	} else {
-		my_ungetch(c);
-		c = first_char;
-		base = 8;
-		digit = 0;
+	value = 0;
+	while ((c = my_getch())) {
+		if (c >= '0' && c <= '9') {
+			value = value * 10 + (c - '0');
+		} else if (c == ' ' || c == '\t' || c == '\n') {
+			my_ungetch(c);
+			*number = value;
+			return 1;
+		} else {
+			return 0;
+		}
 	}
-	ret_value = 0;
-	for (ret_value = 0;; c = my_getch()) {
-		if (c >= '0' && c <= '9')
-			digit = c - '0';
-		else if (c >= 'A' && c <= 'F')
-			digit = 10 + (c - 'A');
-		else if (c >= 'a' && c <= 'f')
-			digit = 10 + (c - 'a');
-		else
-			digit = BAD_DIGIT;
-		if (digit >= base)
-			break;
-		ret_value = ret_value * base + digit;
-	}
-	my_ungetch(c);
-	return (ret_value);
+
+	return 0;
 }
 
 char *
@@ -225,7 +211,7 @@ get_dpistr_argument(const char *prompt)
 		} else if (c == ' ' || c == '\t') {
 			/* skip blanks and tabs */
 		} else if (c == '\n') {
-			printf(prompt);
+			printf("%s", prompt);
 		} else if (c == '"' || c == '\'') {
 			return get_string(c);
 		} else if (('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') ||
@@ -244,7 +230,7 @@ get_dpistr_argument(const char *prompt)
 char *
 get_string(int eos)
 {
-	char buf[DPISTRLEN];
+	char buf[DPISTRLEN+1];
 	char *s, *limit;
 	int c;
 
@@ -266,7 +252,7 @@ get_string(int eos)
 				return NULL;
 		}
 	}
-	return (strdup(buf));
+	return strdup(buf);
 }
 
 

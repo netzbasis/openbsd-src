@@ -1,4 +1,4 @@
-/*	$OpenBSD: invite.c,v 1.15 2013/03/11 17:40:11 deraadt Exp $	*/
+/*	$OpenBSD: invite.c,v 1.17 2016/03/16 15:41:11 krw Exp $	*/
 /*	$NetBSD: invite.c,v 1.3 1994/12/09 02:14:18 jtc Exp $	*/
 
 /*
@@ -30,13 +30,16 @@
  * SUCH DAMAGE.
  */
 
-#include "talk.h"
+#include <sys/socket.h>
 #include <arpa/inet.h>
-#include <sys/time.h>
-#include <netdb.h>
+
+#include <err.h>
 #include <errno.h>
+#include <netdb.h>
 #include <setjmp.h>
 #include <unistd.h>
+
+#include "talk.h"
 #include "talk_ctl.h"
 
 #define STRING_LENGTH 158
@@ -90,7 +93,7 @@ invite_remote(void)
 	 * gets called again in main().
 	 */
 	end_msgs();
-	setitimer(ITIMER_REAL, &itimer, (struct itimerval *)0);
+	setitimer(ITIMER_REAL, &itimer, NULL);
 	message("Waiting for your party to respond");
 	signal(SIGALRM, re_invite);
 	(void) setjmp(invitebuf);

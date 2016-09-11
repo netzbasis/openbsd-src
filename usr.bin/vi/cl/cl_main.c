@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl_main.c,v 1.28 2015/12/28 19:24:01 millert Exp $	*/
+/*	$OpenBSD: cl_main.c,v 1.33 2016/05/05 20:36:41 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -32,14 +32,13 @@
 #include "cl.h"
 
 GS *__global_list;				/* GLOBAL: List of screens. */
-sigset_t __sigblockset;				/* GLOBAL: Blocked signals. */
 
 static void	   cl_func_std(GS *);
 static CL_PRIVATE *cl_init(GS *);
-static GS	  *gs_init(char *);
+static GS	  *gs_init(void);
 static int	   setsig(int, struct sigaction *, void (*)(int));
 static void	   sig_end(GS *);
-static void	   term_init(char *, char *);
+static void	   term_init(char *);
 
 /*
  * main --
@@ -48,19 +47,14 @@ static void	   term_init(char *, char *);
 int
 main(int argc, char *argv[])
 {
-	static int reenter;
 	CL_PRIVATE *clp;
 	GS *gp;
 	size_t rows, cols;
 	int rval;
 	char *ttype;
 
-	/* If loaded at 0 and jumping through a NULL pointer, stop. */
-	if (reenter++)
-		abort();
-
 	/* Create and initialize the global structure. */
-	__global_list = gp = gs_init(argv[0]);
+	__global_list = gp = gs_init();
 
 	/* Create and initialize the CL_PRIVATE structure. */
 	clp = cl_init(gp);
@@ -73,7 +67,7 @@ main(int argc, char *argv[])
 	 */
 	if ((ttype = getenv("TERM")) == NULL)
 		ttype = "unknown";
-	term_init(gp->progname, ttype);
+	term_init(ttype);
 
 	/* Add the terminal type to the global structure. */
 	if ((OG_D_STR(gp, GO_TERM) =
@@ -141,22 +135,14 @@ main(int argc, char *argv[])
  *	Create and partially initialize the GS structure.
  */
 static GS *
-gs_init(char *name)
+gs_init(void)
 {
 	GS *gp;
-	char *p;
-
-	/* Figure out what our name is. */
-	if ((p = strrchr(name, '/')) != NULL)
-		name = p + 1;
 
 	/* Allocate the global structure. */
-	CALLOC_NOMSG(NULL, gp, 1, sizeof(GS));
-	if (gp == NULL)
+	if ((gp = calloc(1, sizeof(GS))) == NULL)
 		err(1, NULL);
 
-
-	gp->progname = name;
 	return (gp);
 }
 
@@ -171,8 +157,7 @@ cl_init(GS *gp)
 	int fd;
 
 	/* Allocate the CL private structure. */
-	CALLOC_NOMSG(NULL, clp, 1, sizeof(CL_PRIVATE));
-	if (clp == NULL)
+	if ((clp = calloc(1, sizeof(CL_PRIVATE))) == NULL)
 		err(1, NULL);
 	gp->cl_private = clp;
 
@@ -211,7 +196,7 @@ tcfail:			err(1, "tcgetattr");
  *	Initialize terminal information.
  */
 static void
-term_init(char *name, char *ttype)
+term_init(char *ttype)
 {
 	int err;
 
@@ -219,13 +204,9 @@ term_init(char *name, char *ttype)
 	setupterm(ttype, STDOUT_FILENO, &err);
 	switch (err) {
 	case -1:
-		(void)fprintf(stderr,
-		    "%s: No terminal database found\n", name);
-		exit (1);
+		errx(1, "No terminal database found");
 	case 0:
-		(void)fprintf(stderr,
-		    "%s: %s: unknown terminal type\n", name, ttype);
-		exit (1);
+		errx(1, "%s: unknown terminal type", ttype);
 	}
 }
 
@@ -280,19 +261,12 @@ sig_init(GS *gp, SCR *sp)
 	clp = GCLP(gp);
 
 	if (sp == NULL) {
-		(void)sigemptyset(&__sigblockset);
-		if (sigaddset(&__sigblockset, SIGHUP) ||
-		    setsig(SIGHUP, &clp->oact[INDX_HUP], h_hup) ||
-		    sigaddset(&__sigblockset, SIGINT) ||
+		if (setsig(SIGHUP, &clp->oact[INDX_HUP], h_hup) ||
 		    setsig(SIGINT, &clp->oact[INDX_INT], h_int) ||
-		    sigaddset(&__sigblockset, SIGTERM) ||
 		    setsig(SIGTERM, &clp->oact[INDX_TERM], h_term) ||
-		    sigaddset(&__sigblockset, SIGWINCH) ||
 		    setsig(SIGWINCH, &clp->oact[INDX_WINCH], h_winch)
-		    ) {
+		    )
 			err(1, NULL);
-			return (1);
-		}
 	} else
 		if (setsig(SIGHUP, NULL, h_hup) ||
 		    setsig(SIGINT, NULL, h_int) ||

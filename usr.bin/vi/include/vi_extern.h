@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi_extern.h,v 1.9 2016/01/20 08:43:27 bentley Exp $	*/
+/*	$OpenBSD: vi_extern.h,v 1.11 2016/05/27 09:18:12 martijn Exp $	*/
 
 int cs_init(SCR *, VCS *);
 int cs_next(SCR *, VCS *);

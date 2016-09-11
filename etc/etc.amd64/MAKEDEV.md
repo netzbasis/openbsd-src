@@ -1,6 +1,6 @@
 define(MACHINE,amd64)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.62 2015/12/21 22:15:53 sf Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.68 2016/09/04 15:38:59 naddy Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -35,7 +35,7 @@ _DEV(vnd, 41, 14)
 _DEV(wd, 3, 0)
 _TITLE(tap)
 _DEV(ch, 17)
-_DEV(st, 14, 5)
+_DEV(st, 14)
 _TITLE(term)
 _DEV(com, 8)
 _DEV(ttyc, 38)
@@ -74,6 +74,7 @@ _DEV(fuse, 92)
 _DEV(gpio, 88)
 _DEV(gpr, 80)
 _DEV(hotplug, 82)
+_DEV(ipmi, 96)
 dnl _DEV(joy, 26)
 _DEV(nvram, 85)
 _DEV(pci, 72)
@@ -84,7 +85,6 @@ _DEV(radio, 76)
 _DEV(rnd, 45)
 _DEV(rmidi, 52)
 _DEV(speak, 27)
-_DEV(systrace, 78)
 _DEV(tun, 40)
 _DEV(tap, 93)
 _DEV(tuner, 49)
@@ -92,11 +92,13 @@ _DEV(uk, 20)
 _DEV(vi, 44)
 _DEV(vmm, 10)
 _DEV(vscsi, 89)
+_DEV(pvbus, 95)
+_DEV(switch, 97)
 dnl
 divert(__mddivert)dnl
 dnl
 ramdisk)
-	_recurse std bpf0 fd0 wd0 sd0 tty00 tty01 rd0 bio diskmap
+	_recurse std bpf fd0 wd0 sd0 tty00 tty01 rd0 bio diskmap
 	_recurse st0 cd0 ttyC0 wskbd0 wskbd1 wskbd2 random
 	;;
 
@@ -119,7 +121,6 @@ twrget(all, flo, fd, 0, 0B, 0C, 0D, 0E, 0F, 0G, 0H)dnl
 twrget(all, flo, fd, 1, 1B, 1C, 1D, 1E, 1F, 1G, 1H)dnl
 target(all, pty, 0)dnl
 target(all, bio)dnl
-target(all, bpf, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, tun, 0, 1, 2, 3)dnl
 target(all, tap, 0, 1, 2, 3)dnl
 target(all, xy, 0, 1, 2, 3)dnl
@@ -132,5 +133,7 @@ target(all, gpio, 0, 1, 2)dnl
 target(all, nvram)dnl
 target(all, drm, 0, 1, 2, 3)dnl
 target(all, ttyVI, 00, 10, 20, 30, 40)dnl
+target(all, ipmi, 0)dnl
+target(all, switch, 0, 1, 2, 3)dnl
 twrget(ramd, wsdisp, ttyC, 0)dnl
 target(ramd, fd, 0)dnl

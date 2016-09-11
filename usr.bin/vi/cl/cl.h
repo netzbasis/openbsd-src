@@ -1,4 +1,4 @@
-/*	$OpenBSD: cl.h,v 1.8 2014/11/12 16:29:04 millert Exp $	*/
+/*	$OpenBSD: cl.h,v 1.10 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

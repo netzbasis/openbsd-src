@@ -1,4 +1,4 @@
-/*	$OpenBSD: brk.S,v 1.7 2015/09/05 06:22:47 guenther Exp $	*/
+/*	$OpenBSD: brk.S,v 1.9 2016/09/10 20:39:22 kettenis Exp $	*/
 /*	$NetBSD: brk.S,v 1.2 2002/06/03 18:30:33 fvdl Exp $	*/
 
 /*-
@@ -49,24 +49,7 @@ __minbrk:
 	.type	__minbrk,@object
 	.text
 
-	.weak	brk
 ENTRY(brk)
-#ifdef __PIC__
-	movq	PIC_GOT(__minbrk),%rdx
-	cmpq	%rdi,(%rdx)
-	jb	1f
-	movq	(%rdx),%rdi
-1:
-	SYSTRAP(break)
-	jc	1f
-	movq	PIC_GOT(__curbrk),%rdx	# set up GOT addressing
-	movq	%rdi,(%rdx)
-	xorl	%eax,%eax
-	ret
-1:
-	movq	PIC_GOT(CERROR),%rdx
-	jmp	*%rdx
-#else
 	cmpq	%rdi,__minbrk(%rip)
 	jb	1f
 	movq	__minbrk(%rip),%rdi
@@ -77,6 +60,7 @@ ENTRY(brk)
 	xorl	%eax,%eax
 	ret
 1:
-	jmp	CERROR
-#endif
+	SET_ERRNO
+	ret
 END(brk)
+	.weak	brk

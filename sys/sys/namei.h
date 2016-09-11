@@ -1,4 +1,4 @@
-/*	$OpenBSD: namei.h,v 1.30 2015/12/06 17:50:21 deraadt Exp $	*/
+/*	$OpenBSD: namei.h,v 1.32 2016/04/29 14:40:36 beck Exp $	*/
 /*	$NetBSD: namei.h,v 1.11 1996/02/09 18:25:20 christos Exp $	*/
 
 /*
@@ -74,6 +74,13 @@ struct nameidata {
 	size_t	ni_pathlen;		/* remaining chars in path */
 	char	*ni_next;		/* next location in pathname */
 	u_long	ni_loopcnt;		/* count of symlinks encountered */
+
+	char	*ni_p_path;		/* component path for pledge */
+	size_t	ni_p_size;		/* allocated size of pledge path */
+	size_t	ni_p_length;		/* length of pledge path */
+	char	*ni_p_next;		/* start of next component in pledge path */
+	char	*ni_p_prev;		/* previous component in pledge path */
+
 	/*
 	 * Lookup parameters: this structure describes the subset of
 	 * information from the nameidata structure that is passed
@@ -146,17 +153,14 @@ struct nameidata {
 /*
  * Initialization of an nameidata structure.
  */
-#define NDINITAT(ndp, op, flags, segflg, dirfd, namep, p) { \
-	(ndp)->ni_cnd.cn_nameiop = op; \
-	(ndp)->ni_cnd.cn_flags = flags; \
-	(ndp)->ni_segflg = segflg; \
-	(ndp)->ni_dirfd = dirfd; \
-	(ndp)->ni_dirp = namep; \
-	(ndp)->ni_cnd.cn_proc = p; \
-	(ndp)->ni_pledge = 0; \
-}
+void ndinitat(struct nameidata *ndp, u_long op, u_long flags,
+    enum uio_seg segflg, int dirfd, const char *namep, struct proc *p);
+
+#define NDINITAT(ndp, op, flags, segflg, dirfd, namep, p)  \
+	ndinitat(ndp, op, flags, segflg, dirfd, namep, p)
+
 #define NDINIT(ndp, op, flags, segflp, namep, p) \
-	NDINITAT(ndp, op, flags, segflp, AT_FDCWD, namep, p)
+	ndinitat(ndp, op, flags, segflp, AT_FDCWD, namep, p)
 
 /* Defined for users of NDINIT(). */
 #define	AT_FDCWD	-100

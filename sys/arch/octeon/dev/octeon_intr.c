@@ -1,3 +1,5 @@
+/*	$OpenBSD: octeon_intr.c,v 1.13 2016/07/16 10:41:53 visa Exp $	*/
+
 /*
  * Copyright (c) 2000-2004 Opsycon AB  (www.opsycon.se)
  *
@@ -51,8 +53,8 @@ extern bus_space_handle_t iobus_h;
 
 void	 octeon_intr_makemasks(void);
 void	 octeon_splx(int);
-uint32_t octeon_iointr(uint32_t, struct trap_frame *);
-uint32_t octeon_aux(uint32_t, struct trap_frame *);
+uint32_t octeon_iointr(uint32_t, struct trapframe *);
+uint32_t octeon_aux(uint32_t, struct trapframe *);
 int	 octeon_iointr_skip(struct intrhand *, uint64_t, uint64_t);
 void	 octeon_setintrmask(int);
 
@@ -215,7 +217,7 @@ octeon_intr_makemasks()
  * Interrupt dispatcher.
  */
 uint32_t
-octeon_iointr(uint32_t hwpend, struct trap_frame *frame)
+octeon_iointr(uint32_t hwpend, struct trapframe *frame)
 {
 	struct cpu_info *ci = curcpu();
 	int cpuid = cpu_number();

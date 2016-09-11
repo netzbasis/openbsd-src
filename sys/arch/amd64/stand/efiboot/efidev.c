@@ -1,4 +1,4 @@
-/*	$OpenBSD: efidev.c,v 1.16 2016/01/06 02:10:03 krw Exp $	*/
+/*	$OpenBSD: efidev.c,v 1.19 2016/08/31 15:11:22 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -32,6 +32,7 @@
 #include <sys/reboot.h>
 #include <sys/disklabel.h>
 #include <lib/libz/zlib.h>
+#include <isofs/cd9660/iso.h>
 
 #include "libsa.h"
 #include "disk.h"
@@ -61,8 +62,9 @@ int bios_bootdev;
 static EFI_STATUS
 		 efid_io(int, efi_diskinfo_t, u_int, int, void *);
 static int	 efid_diskio(int, struct diskinfo *, u_int, int, void *);
+static int	 efi_getdisklabel_cd9660(efi_diskinfo_t, struct disklabel *);
 static u_int	 findopenbsd(efi_diskinfo_t, const char **);
-static uint64_t	 findopenbsd_gpt(efi_diskinfo_t, const char **);
+static u_int	 findopenbsd_gpt(efi_diskinfo_t, const char **);
 static int	 gpt_chk_mbr(struct dos_partition *, u_int64_t);
 
 void
@@ -88,6 +90,9 @@ efid_io(int rw, efi_diskinfo_t ed, u_int off, int nsect, void *buf)
 
 	/* block count of the intrisic block size in DEV_BSIZE */
 	blks = EFI_BLKSPERSEC(ed);
+	if (blks == 0)
+		/* block size < 512.  HP Stream 13 actually has such a disk. */
+		return (EFI_UNSUPPORTED);
 	lba = off / blks;
 
 	/* leading and trailing unaligned blocks in intrisic block */
@@ -198,7 +203,15 @@ gpt_chk_mbr(struct dos_partition *dp, u_int64_t dsize)
 }
 
 /*
- * Try to read the bsd label on the given BIOS device.
+ * Try to find the disk address of the first MBR OpenBSD partition.
+ *
+ * N.B.: must boot from a partition within first 2^32-1 sectors!
+ *
+ * Called only if the MBR on sector 0 is *not* a protective MBR
+ * and *does* have a valid signature.
+ *
+ * We don't check the signatures of EBR's, and they cannot be
+ * protective MBR's so there is no need to check for that.
  */
 static u_int
 findopenbsd(efi_diskinfo_t ed, const char **err)
@@ -206,7 +219,6 @@ findopenbsd(efi_diskinfo_t ed, const char **err)
 	EFI_STATUS status;
 	struct dos_mbr mbr;
 	struct dos_partition *dp;
-	uint64_t gptoff;
 	u_int mbroff = DOSBBSECTOR;
 	u_int mbr_eoff = DOSBBSECTOR;	/* Offset of MBR extended partition. */
 	int i, maxebr = DOS_MAXEBR, nextebr;
@@ -223,25 +235,6 @@ again:
 	if (EFI_ERROR(status)) {
 		*err = "Disk I/O Error";
 		return (-1);
-	}
-
-	/* check mbr signature */
-	if (mbr.dmbr_sign != DOSMBR_SIGNATURE) {
-		*err = "bad MBR signature\n";
-		return (-1);
-	}
-
-	/* check for GPT protective MBR. */
-	if (mbroff == DOSBBSECTOR && gpt_chk_mbr(mbr.dmbr_parts,
-	    ed->blkio->Media->LastBlock + 1) == 0) {
-		gptoff = findopenbsd_gpt(ed, err);
-		if (gptoff > UINT_MAX || EFI_SECTOBLK(ed, gptoff) > UINT_MAX) {
-			*err = "Paritition LBA > 2**32";
-			return (-1);
-		}
-		if (gptoff == -1)
-			return (-1);
-		return EFI_SECTOBLK(ed, gptoff);
 	}
 
 	/* Search for OpenBSD partition */
@@ -286,8 +279,15 @@ again:
 	return (-1);
 }
 
-/* call this only if LBA1 == GPT */
-static uint64_t
+/*
+ * Try to find the disk address of the first GPT OpenBSD partition.
+ *
+ * N.B.: must boot from a partition within first 2^32-1 sectors!
+ *
+ * Called only if the MBR on sector 0 *is* a protective MBR
+ * with a valid signature and sector 1 is a valid GPT header.
+ */
+static u_int
 findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 {
 	EFI_STATUS		 status;
@@ -391,8 +391,15 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 		*err = "bad GPT entries checksum\n";
 		return (-1);
 	}
-	if (found)
-		return (letoh64(gp.gp_lba_start));
+	if (found) {
+		lba = letoh64(gp.gp_lba_start);
+		/* Bootloaders do not current handle addresses > UINT_MAX! */
+		if (lba > UINT_MAX || EFI_SECTOBLK(ed, lba) > UINT_MAX) {
+			*err = "OpenBSD Partition LBA > 2**32 - 1";
+			return (-1);
+		}
+		return (u_int)lba;
+	}
 
 	return (-1);
 }
@@ -401,18 +408,48 @@ const char *
 efi_getdisklabel(efi_diskinfo_t ed, struct disklabel *label)
 {
 	u_int start = 0;
-	char buf[DEV_BSIZE];
+	uint8_t buf[DEV_BSIZE];
+	struct dos_partition dosparts[NDOSPART];
+	EFI_STATUS status;
 	const char *err = NULL;
 	int error;
 
-	/* Sanity check */
-	/* XXX */
+	/*
+	 * Read sector 0. Ensure it has a valid MBR signature.
+	 *
+	 * If it's a protective MBR then try to find the disklabel via
+	 * GPT. If it's not a protective MBR, try to find the disklabel
+	 * via MBR.
+	 */
+	memset(buf, 0, sizeof(buf));
+	status = efid_io(F_READ, ed, DOSBBSECTOR, 1, buf);
+	if (EFI_ERROR(status))
+		return ("Disk I/O Error");
 
-	start = findopenbsd(ed, &err);
-	if (start == (u_int)-1) {
-		if (err != NULL)
-			return (err);
-		return "no OpenBSD partition\n";
+	/* Check MBR signature. */
+	if (buf[510] != 0x55 || buf[511] != 0xaa) {
+		if (efi_getdisklabel_cd9660(ed, label) == 0)
+			return (NULL);
+		return ("invalid MBR signature");
+	}
+
+	memcpy(dosparts, buf+DOSPARTOFF, sizeof(dosparts));
+
+	/* check for GPT protective MBR. */
+	if (gpt_chk_mbr(dosparts, ed->blkio->Media->LastBlock + 1) == 0) {
+		start = findopenbsd_gpt(ed, &err);
+		if (start == (u_int)-1) {
+			if (err != NULL)
+				return (err);
+			return ("no OpenBSD GPT partition");
+		}
+	} else {
+		start = findopenbsd(ed, &err);
+		if (start == (u_int)-1) {
+			if (err != NULL)
+				return (err);
+			return "no OpenBSD MBR partition\n";
+		}
 	}
 
 	/* Load BSD disklabel */
@@ -428,6 +465,66 @@ efi_getdisklabel(efi_diskinfo_t ed, struct disklabel *label)
 
 	/* Fill in disklabel */
 	return (getdisklabel(buf, label));
+}
+
+static int
+efi_getdisklabel_cd9660(efi_diskinfo_t ed, struct disklabel *label)
+{
+	int		 off;
+	uint8_t		 buf[DEV_BSIZE];
+	EFI_STATUS	 status;
+
+	for (off = 0; off < 100; off++) {
+		status = efid_io(F_READ, ed,
+		    EFI_BLKSPERSEC(ed) * (16 + off), 1, buf);
+		if (EFI_ERROR(status))
+			return (-1);
+		if (bcmp(buf + 1, ISO_STANDARD_ID, 5) != 0 ||
+		    buf[0] == ISO_VD_END)
+			return (-1);
+		if (buf[0] == ISO_VD_PRIMARY)
+			break;
+	}
+	if (off >= 100)
+		return (-1);
+
+	/* Create an imaginary disk label */
+	label->d_secsize = 2048;
+	label->d_ntracks = 1;
+	label->d_nsectors = 100;
+	label->d_ncylinders = 1;
+	label->d_secpercyl = label->d_ntracks * label->d_nsectors;
+	if (label->d_secpercyl == 0) {
+		label->d_secpercyl = 100;
+		/* as long as it's not 0, since readdisklabel divides by it */
+	}
+
+	strncpy(label->d_typename, "ATAPI CD-ROM", sizeof(label->d_typename));
+	label->d_type = DTYPE_ATAPI;
+
+	strncpy(label->d_packname, "fictitious", sizeof(label->d_packname));
+	DL_SETDSIZE(label, 100);
+
+	label->d_bbsize = 2048;
+	label->d_sbsize = 2048;
+
+	/* 'a' partition covering the "whole" disk */
+	DL_SETPOFFSET(&label->d_partitions[0], 0);
+	DL_SETPSIZE(&label->d_partitions[0], 100);
+	label->d_partitions[0].p_fstype = FS_UNUSED;
+
+	/* The raw partition is special */
+	DL_SETPOFFSET(&label->d_partitions[RAW_PART], 0);
+	DL_SETPSIZE(&label->d_partitions[RAW_PART], 100);
+	label->d_partitions[RAW_PART].p_fstype = FS_UNUSED;
+
+	label->d_npartitions = MAXPARTITIONS;
+
+	label->d_magic = DISKMAGIC;
+	label->d_magic2 = DISKMAGIC;
+	label->d_checksum = dkcksum(label);
+
+	return (0);
 }
 
 int

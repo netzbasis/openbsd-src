@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.224 2016/01/06 08:07:30 benno Exp $
+#	$OpenBSD: GENERIC,v 1.233 2016/09/04 09:22:28 mpi Exp $
 #
 #	Machine-independent option; used by all architectures for their
 #	GENERIC kernel
@@ -6,6 +6,7 @@
 #option		INSECURE	# default to secure
 
 option		DDB		# in-kernel debugger
+#option		DDBPROF		# ddb(4) based profiling
 #option		DDB_SAFE_CONSOLE # allow break into ddb during boot
 #makeoptions	DEBUG="-g"	# compile full symbol table
 #makeoptions	PROF="-pg"	# build profiled kernel
@@ -17,7 +18,7 @@ option		KMEMSTATS	# collect malloc(9) statistics
 option		PTRACE		# ptrace(2) system call
 
 #option		KVA_GUARDPAGES	# slow virtual address recycling (+ guarding)
-#option		POOL_DEBUG	# pool corruption detection
+option		POOL_DEBUG	# pool corruption detection
 #option		VFSLCKDEBUG	# VFS locking checks
 
 option		CRYPTO		# Cryptographic framework
@@ -41,7 +42,7 @@ option		CD9660		# ISO 9660 + Rock Ridge file system
 option		UDF		# UDF (DVD) file system
 option		MSDOSFS		# MS-DOS file system
 option		FIFO		# FIFOs; RECOMMENDED
-option		TMPFS		# efficient memory file system
+#option		TMPFS		# efficient memory file system
 option		FUSE		# FUSE
 
 option		SOCKET_SPLICE	# Socket Splicing for TCP and UDP
@@ -50,6 +51,7 @@ option		TCP_ECN		# Explicit Congestion Notification for TCP
 option		TCP_SIGNATURE	# TCP MD5 Signatures, for BGP routing sessions
 #option		TCP_FACK	# Forward Acknowledgements for TCP
 
+option		ART		# Allotment Routing Table
 option		INET6		# IPv6
 option		IPSEC		# IPsec
 #option		KEY		# PF_KEY (implied by IPSEC)
@@ -59,6 +61,7 @@ option		PIPEX		# Ppp IP EXtension, for npppd
 option		MROUTING	# Multicast router
 #option		PIM		# Protocol Independent Multicast
 option		MPLS		# Multi-Protocol Label Switching
+#option		BFD		# Bi-directional Forwarding Detection
 
 #mpath0		at root		# SCSI Multipathing
 #scsibus*	at mpath?
@@ -85,7 +88,6 @@ pseudo-device	msts	1	# MSTS line discipline
 pseudo-device	endrun	1	# EndRun line discipline
 pseudo-device	vnd	4	# vnode disk devices
 pseudo-device	ksyms	1	# kernel symbols device
-pseudo-device	systrace 1	# system call tracing device
 
 # clonable devices
 pseudo-device	bpfilter	# packet filter
@@ -107,6 +109,7 @@ pseudo-device	tun		# network tunneling over tty (tun & tap)
 pseudo-device	vether		# Virtual ethernet
 pseudo-device	vxlan		# Virtual extensible LAN
 pseudo-device	vlan		# IEEE 802.1Q VLAN
+#pseudo-device	switch		# Switch
 
 pseudo-device	bio	1	# ioctl multiplexing device
 

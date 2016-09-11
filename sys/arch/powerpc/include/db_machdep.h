@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.26 2015/11/24 13:33:18 mpi Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.29 2016/04/27 11:10:48 mpi Exp $*/
 /*	$NetBSD: db_machdep.h,v 1.13 1996/04/29 20:50:08 leo Exp $	*/
 
 /*
@@ -39,14 +39,10 @@
 
 typedef	vaddr_t	db_addr_t;	/* address - unsigned */
 typedef	long		db_expr_t;	/* expression - signed */
-struct powerpc_saved_state {
-	struct trapframe tf;
-};
-typedef struct powerpc_saved_state db_regs_t;
+typedef struct trapframe db_regs_t;
 extern	db_regs_t ddb_regs;		/* register state */
-#define DDB_REGS	(&ddb_regs)
 
-#define	PC_REGS(regs)	((regs)->tf.srr0)
+#define	PC_REGS(regs)	((regs)->srr0)
 #define	SET_PC_REGS(regs, value)	PC_REGS(regs) = (value)
 
 #define	BKPT_INST	0x7C810808	/* breakpoint instruction */
@@ -54,11 +50,11 @@ extern	db_regs_t ddb_regs;		/* register state */
 #define	BKPT_SIZE	(4)		/* size of breakpoint inst */
 #define	BKPT_SET(inst)	(BKPT_INST)
 
-#define	FIXUP_PC_AFTER_BREAK(regs)	((regs)->tf.srr0 -= 4)
+#define	FIXUP_PC_AFTER_BREAK(regs)	((regs)->srr0 -= 4)
 
 #define SR_SINGLESTEP 0x8000
-#define	db_clear_single_step(regs)	((regs)->tf.srr1 &= ~SR_SINGLESTEP)
-#define	db_set_single_step(regs)	((regs)->tf.srr1 |=  SR_SINGLESTEP)
+#define	db_clear_single_step(regs)	((regs)->srr1 &= ~SR_SINGLESTEP)
+#define	db_set_single_step(regs)	((regs)->srr1 |=  SR_SINGLESTEP)
 
 #define T_BREAKPOINT	0xffff
 #define	IS_BREAKPOINT_TRAP(type, code)	((type) == T_BREAKPOINT)
@@ -100,6 +96,11 @@ extern struct mutex ddb_mp_mutex;
 #define DDB_STATE_NOT_RUNNING	0
 #define DDB_STATE_RUNNING	1
 #define DDB_STATE_EXITING	2
+
+/*
+ * We define some of our own commands
+ */
+#define DB_MACHINE_COMMANDS
 
 #endif /* _KERNEL */
 

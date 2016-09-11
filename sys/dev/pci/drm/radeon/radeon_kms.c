@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon_kms.c,v 1.46 2016/01/06 19:56:08 kettenis Exp $	*/
+/*	$OpenBSD: radeon_kms.c,v 1.48 2016/04/08 08:27:53 kettenis Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -39,6 +39,14 @@
 
 #if NVGA > 0
 extern int vga_console_attached;
+#endif
+
+#ifdef __amd64__
+#include "efifb.h"
+#endif
+
+#if NEFIFB > 0
+#include <machine/efifbvar.h>
 #endif
 
 #define DRIVER_NAME		"radeon"
@@ -201,9 +209,10 @@ const struct drm_pcidev radeondrm_pciidlist[] = {
 };
 
 static struct drm_driver_info kms_driver = {
-	.flags =
-	    DRIVER_AGP | DRIVER_PCI_DMA | DRIVER_SG |
-	    DRIVER_HAVE_IRQ | DRIVER_HAVE_DMA | DRIVER_GEM | DRIVER_MODESET,
+	.driver_features =
+	    DRIVER_USE_AGP |
+	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_GEM |
+	    DRIVER_MODESET,
 	.buf_priv_size = 0,
 	.firstopen = radeon_driver_firstopen_kms,
 	.open = radeon_driver_open_kms,
@@ -501,6 +510,12 @@ radeondrm_attach_kms(struct device *parent, struct device *self, void *aux)
 		vga_console_attached = 1;
 #endif
 	}
+#if NEFIFB > 0
+	if (efifb_is_console(pa)) {
+		rdev->console = 1;
+		efifb_cndetach();
+	}
+#endif
 #endif
 
 #define RADEON_PCI_MEM		0x10

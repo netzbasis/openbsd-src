@@ -1,4 +1,4 @@
-/* $OpenBSD: md_init.h,v 1.5 2015/09/01 05:40:06 guenther Exp $ */
+/* $OpenBSD: md_init.h,v 1.8 2016/09/08 18:56:58 kettenis Exp $ */
 
 /*-
  * Copyright (c) 2001 Ross Harvey
@@ -72,7 +72,12 @@
 	"	.previous")
 
 
+/*
+ * The definitions of environ and __progname prevent the creation
+ * of COPY relocations for WEAK symbols.
+ */
 #define	MD_CRT0_START				\
+	char **environ, *__progname;		\
 	__asm(					\
 	".text					\n" \
 	"	.align	0			\n" \
@@ -82,30 +87,66 @@
 	"__start:				\n" \
 	"	mov	r3, r0	/* cleanup */	\n" \
 	"/* Get argc/argv/envp from stack */	\n" \
-	"	ldr	r0, [sp, #0x0000]	\n" \
-	"	add	r1, sp, #0x0004		\n" \
+	"	ldr	r0, [sp, #0]		\n" \
+	"	add	r1, sp, #4		\n" \
 	"	add	r2, r1, r0, lsl #2	\n" \
-	"	add	r2, r2, #0x0004		\n" \
+	"	add	r2, r2, #4		\n" \
 	"					\n" \
 	"/*					\n" \
 	" * Ensure the stack is properly	\n" \
 	" * aligned before calling C code.	\n" \
 	" */					\n" \
-	/* #if 1 */				\
 	"	bic	sp, sp, #7" /*__STRING(STACKALIGNBYTES)*/ "	\n" \
-	/* #endif */				\
-	"	sub	sp, sp, #8		\n" \
-	"	str	r5, [sp, #4]		\n" \
-	"	str	r4, [sp, #0]		\n" \
-	"					\n" \
 	"	b	___start		\n" \
 	".previous");
 
-#include <sys/syscall.h>
-#define	MD_DISABLE_KBIND						\
-	do {								\
-		register long syscall_num __asm("r12") = SYS_kbind;	\
-		register void *arg1 __asm("r0") = NULL;			\
-		__asm volatile("swi 0" : "+r" (arg1)			\
-		    : "r" (syscall_num) : "r1", "cc");			\
-	} while (0)
+#define	MD_RCRT0_START				\
+	char **environ, *__progname;		\
+	__asm(					\
+	".text					\n" \
+	"	.align	0			\n" \
+	"	.globl	_start			\n" \
+	"	.globl	__start			\n" \
+	"_start:				\n" \
+	"__start:				\n" \
+	"	mov	fp, sp			\n" \
+	"	mov	r0, fp			\n" \
+	"					\n" \
+	"	sub	sp, sp, #4+4+(16*4)	\n" \
+	"	add	r1, sp, #4		\n" \
+	"					\n" \
+	"	ldr	r8, .L_GOT		\n" \
+	"1:	add	r8, pc, r8		\n" \
+	"	ldr	r2, .L__DYNAMIC		\n" \
+	"	add	r2, r2, r8		\n" \
+	"					\n" \
+	"	bl	_dl_boot_bind		\n" \
+	"					\n" \
+	"	mov	sp, fp			\n" \
+	"	mov	fp, #0			\n" \
+	"					\n" \
+	"	mov	r3, #0	/* cleanup */	\n" \
+	"/* Get argc/argv/envp from stack */	\n" \
+	"	ldr	r0, [sp, #0]		\n" \
+	"	add	r1, sp, #4		\n" \
+	"	add	r2, r1, r0, lsl #2	\n" \
+	"	add	r2, r2, #4		\n" \
+	"					\n" \
+	"/*					\n" \
+	" * Ensure the stack is properly	\n" \
+	" * aligned before calling C code.	\n" \
+	" */					\n" \
+	"	bic	sp, sp, #7" /*__STRING(STACKALIGNBYTES)*/ "	\n" \
+	"	b	___start		\n" \
+	"					\n" \
+	".L_GOT:				\n" \
+	"	.long	_GLOBAL_OFFSET_TABLE_-(1b+8)	\n" \
+	".L__DYNAMIC:				\n" \
+	"	.long	_DYNAMIC(GOTOFF)	\n" \
+	"					\n" \
+	"_dl_exit:				\n" \
+	"	mov	r12, #1			\n" \
+	"	swi	#0			\n" \
+	"_dl_printf:				\n" \
+	"	mov	pc, lr			\n" \
+	".previous");

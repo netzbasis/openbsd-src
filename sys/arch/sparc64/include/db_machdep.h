@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.15 2015/08/28 23:28:39 kettenis Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.18 2016/04/27 11:10:48 mpi Exp $	*/
 /*	$NetBSD: db_machdep.h,v 1.12 2001/07/07 15:16:13 eeh Exp $ */
 
 /*
@@ -81,7 +81,6 @@ typedef struct db_regs {
 #endif
 
 extern	db_regs_t ddb_regs;	/* register state */
-#define	DDB_REGS	(&ddb_regs)
 #define	DDB_TF		(&ddb_regs.ddb_tf)
 #define	DDB_FR		(&ddb_regs.ddb_fr)
 #define	DDB_FP		(&ddb_regs.ddb_fpstate)
@@ -114,7 +113,6 @@ boolean_t	db_inst_call(int inst);
 boolean_t	db_inst_branch(int inst);
 boolean_t	db_inst_unconditional_flow_transfer(int inst);
 db_addr_t	db_branch_taken(int inst, db_addr_t pc, db_regs_t *regs);
-void		db_machine_init(void);
 
 #define inst_trap_return(ins)	db_inst_trap_return(ins)
 #define inst_return(ins)	db_inst_return(ins)
@@ -132,7 +130,7 @@ void		db_machine_init(void);
 #define DB_MACHINE_COMMANDS
 
 void db_machine_init(void);
-int kdb_trap(int, struct trapframe64 *);
+int db_ktrap(int, struct trapframe64 *);
 
 int db_enter_ddb(void);
 void db_startcpu(struct cpu_info *);

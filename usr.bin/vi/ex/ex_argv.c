@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_argv.c,v 1.18 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: ex_argv.c,v 1.20 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994

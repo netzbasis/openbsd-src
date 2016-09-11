@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_time.c,v 1.96 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: kern_time.c,v 1.98 2016/09/03 14:46:56 naddy Exp $	*/
 /*	$NetBSD: kern_time.c,v 1.20 1996/02/18 11:57:06 fvdl Exp $	*/
 
 /*
@@ -41,6 +41,8 @@
 #include <sys/vnode.h>
 #include <sys/signalvar.h>
 #include <sys/pledge.h>
+#include <sys/task.h>
+#include <sys/timeout.h>
 #include <sys/timetc.h>
 
 #include <sys/mount.h>
@@ -628,9 +630,11 @@ realitexpire(void *arg)
 int
 timespecfix(struct timespec *ts)
 {
-	if (ts->tv_sec < 0 || ts->tv_sec > 100000000 ||
+	if (ts->tv_sec < 0 ||
 	    ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000)
 		return (EINVAL);
+	if (ts->tv_sec > 100000000)
+		ts->tv_sec = 100000000;
 	return (0);
 }
 
@@ -787,3 +791,37 @@ ppsratecheck(struct timeval *lasttime, int *curpps, int maxpps)
 	return (rv);
 }
 
+
+#define RESETTODR_PERIOD	1800
+
+void periodic_resettodr(void *);
+void perform_resettodr(void *);
+
+struct timeout resettodr_to = TIMEOUT_INITIALIZER(periodic_resettodr, NULL);
+struct task resettodr_task = TASK_INITIALIZER(perform_resettodr, NULL);
+
+void
+periodic_resettodr(void *arg __unused)
+{
+	task_add(systq, &resettodr_task);
+}
+
+void
+perform_resettodr(void *arg __unused)
+{
+	resettodr();
+	timeout_add_sec(&resettodr_to, RESETTODR_PERIOD);
+}
+
+void
+start_periodic_resettodr(void)
+{
+	timeout_add_sec(&resettodr_to, RESETTODR_PERIOD);
+}
+
+void
+stop_periodic_resettodr(void)
+{
+	timeout_del(&resettodr_to);
+	task_del(systq, &resettodr_task);
+}

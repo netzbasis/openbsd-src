@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_interface.c,v 1.31 2014/09/14 14:17:23 jsg Exp $	*/
+/*	$OpenBSD: db_interface.c,v 1.33 2016/03/14 23:08:05 krw Exp $	*/
 /*	$NetBSD: db_interface.c,v 1.22 1996/05/03 19:42:00 christos Exp $	*/
 
 /*
@@ -98,10 +98,10 @@ kdbprinttrap(int type, int code)
 }
 
 /*
- *  kdb_trap - field a TRACE or BPT trap
+ *  db_ktrap - field a TRACE or BPT trap
  */
 int
-kdb_trap(int type, int code, db_regs_t *regs)
+db_ktrap(int type, int code, db_regs_t *regs)
 {
 	int s;
 
@@ -334,7 +334,7 @@ struct db_command db_machine_command_table[] = {
 #if NACPI > 0
 	{ "acpi",	NULL,			0,	db_acpi_cmds },
 #endif /* NACPI > 0 */
-	{ (char *)0, }
+	{ NULL, }
 };
 
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: amltypes.h,v 1.40 2012/09/07 19:19:59 kettenis Exp $ */
+/* $OpenBSD: amltypes.h,v 1.45 2016/05/08 11:08:01 kettenis Exp $ */
 /*
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
  *
@@ -364,11 +364,20 @@ struct acpi_pci {
 	int				_s4w;
 };
 
+struct acpi_gpio {
+	void	*cookie;
+	int	(*read_pin)(void *, int);
+	void	(*write_pin)(void *, int, int);
+	void	(*intr_establish)(void *, int, int, int (*)(void *), void *);
+};
+
 struct aml_node {
 	struct aml_node *parent;
 
 	SIMPLEQ_HEAD(,aml_node)	son;
 	SIMPLEQ_ENTRY(aml_node)	sib;
+
+	int		attached;
 
 	char		name[5];
 	u_int16_t	opcode;
@@ -377,6 +386,7 @@ struct aml_node {
 
 	struct aml_value *value;
 	struct acpi_pci  *pci;
+	struct acpi_gpio *gpio;
 };
 
 #define aml_bitmask(n)		(1L << ((n) & 0x7))

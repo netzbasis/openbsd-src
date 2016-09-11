@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.30 2015/06/02 19:54:06 rpe Exp $
+#	$OpenBSD: install.md,v 1.32 2016/09/04 09:52:03 rpe Exp $
 #
 # machine dependent section of installation/upgrade script.
 #
@@ -17,21 +17,15 @@ md_installboot() {
 }
 
 md_prep_disklabel() {
-	local _disk=$1 _f=/tmp/fstab.$1
+	local _disk=$1 _f=/tmp/i/fstab.$1
 
 	installboot $_disk
 
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-You will now create a OpenBSD disklabel on the disk.  The disklabel defines
-how OpenBSD splits up the disk into OpenBSD partitions in which filesystems
-and swap space are created.  You must provide each filesystem's mountpoint
-in this program.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

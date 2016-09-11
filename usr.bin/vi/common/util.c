@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.12 2015/12/07 20:39:19 mmcc Exp $	*/
+/*	$OpenBSD: util.c,v 1.15 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -94,22 +94,6 @@ nonblank(SCR *sp, recno_t lno, size_t *cnop)
 	/* Set the return. */
 	*cnop = len ? cnt : cnt - 1;
 	return (0);
-}
-
-/*
- * tail --
- *	Return tail of a path.
- *
- * PUBLIC: char *tail(char *);
- */
-char *
-tail(char *path)
-{
-	char *p;
-
-	if ((p = strrchr(path, '/')) == NULL)
-		return (path);
-	return (p + 1);
 }
 
 /*

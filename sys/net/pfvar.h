@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfvar.h,v 1.429 2016/01/07 22:23:13 sashan Exp $ */
+/*	$OpenBSD: pfvar.h,v 1.438 2016/09/03 17:11:40 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -571,6 +571,10 @@ struct pf_rule {
 		struct pf_addr		addr;
 		u_int16_t		port;
 	}			divert, divert_packet;
+
+	SLIST_ENTRY(pf_rule)	 gcle;
+	struct pf_ruleset	*ruleset;
+	time_t			 exptime;
 };
 
 /* rule flags */
@@ -589,6 +593,7 @@ struct pf_rule {
 #define PFRULE_PFLOW		0x00040000
 #define PFRULE_ONCE		0x00100000	/* one shot rule */
 #define PFRULE_AFTO		0x00200000	/* af-to rule */
+#define	PFRULE_EXPIRED		0x00400000	/* one shot rule hit by pkt */
 
 #define PFSTATE_HIWAT		10000	/* default state table size */
 #define PFSTATE_ADAPT_START	6000	/* default adaptive timeout start */
@@ -1205,10 +1210,6 @@ struct pf_pdesc {
 	u_int8_t	 didx;		/* key index for destination */
 	u_int8_t	 destchg;	/* flag set when destination changed */
 	u_int8_t	 pflog;		/* flags for packet logging */
-	u_int8_t	 csum_status;	/* proto cksum ok/bad/unchecked */
-#define	PF_CSUM_UNKNOWN	0
-#define	PF_CSUM_BAD	1
-#define	PF_CSUM_OK	2
 };
 
 
@@ -1381,18 +1382,6 @@ struct pf_queuespec {
 	u_int32_t			 parent_qid;
 };
 
-struct cbq_opts {
-	u_int		minburst;
-	u_int		maxburst;
-	u_int		pktsize;
-	u_int		maxpktsize;
-	u_int		ns_per_byte;
-	u_int		maxidle;
-	int		minidle;
-	u_int		offtime;
-	int		flags;
-};
-
 struct priq_opts {
 	int		flags;
 };
@@ -1427,8 +1416,8 @@ struct pf_divert {
 };
 
 /* Fragment entries reference mbuf clusters, so base the default on that. */
-#define PFFRAG_FRENT_HIWAT	(NMBCLUSTERS / 4) /* Number of entries */
-#define PFFRAG_FRAG_HIWAT	(NMBCLUSTERS / 8) /* Number of packets */
+#define PFFRAG_FRENT_HIWAT	(NMBCLUSTERS / 16) /* Number of entries */
+#define PFFRAG_FRAG_HIWAT	(NMBCLUSTERS / 32) /* Number of packets */
 
 #define PFR_KTABLE_HIWAT	1000	/* Number of tables */
 #define PFR_KENTRY_HIWAT	200000	/* Number of table entries */
@@ -1667,18 +1656,22 @@ extern struct pf_queuehead		  pf_queues[2];
 extern struct pf_queuehead		 *pf_queues_active, *pf_queues_inactive;
 
 extern u_int32_t		 ticket_pabuf;
+extern struct pool		 pf_src_tree_pl, pf_sn_item_pl, pf_rule_pl;
+extern struct pool		 pf_state_pl, pf_state_key_pl, pf_state_item_pl,
+				    pf_rule_item_pl, pf_queue_pl;
+extern struct pool		 pf_state_scrub_pl;
+extern struct ifnet		*sync_ifp;
+extern struct pf_rule		 pf_default_rule;
+
 extern int			 pf_tbladdr_setup(struct pf_ruleset *,
 				    struct pf_addr_wrap *);
 extern void			 pf_tbladdr_remove(struct pf_addr_wrap *);
 extern void			 pf_tbladdr_copyout(struct pf_addr_wrap *);
 extern void			 pf_calc_skip_steps(struct pf_rulequeue *);
-extern struct pool		 pf_src_tree_pl, pf_sn_item_pl, pf_rule_pl;
-extern struct pool		 pf_state_pl, pf_state_key_pl, pf_state_item_pl,
-				    pf_rule_item_pl, pf_queue_pl;
-extern struct pool		 pf_state_scrub_pl;
 extern void			 pf_purge_thread(void *);
 extern void			 pf_purge_expired_src_nodes(int);
 extern void			 pf_purge_expired_states(u_int32_t);
+extern void			 pf_purge_expired_rules(int);
 extern void			 pf_remove_state(struct pf_state *);
 extern void			 pf_remove_divert_state(struct pf_state_key *);
 extern void			 pf_free_state(struct pf_state *);
@@ -1704,16 +1697,11 @@ extern void			 pf_state_export(struct pfsync_state *,
 				    struct pf_state *);
 extern void			 pf_print_state(struct pf_state *);
 extern void			 pf_print_flags(u_int8_t);
-
-extern struct ifnet		*sync_ifp;
-extern struct pf_rule		 pf_default_rule;
 extern void			 pf_addrcpy(struct pf_addr *, struct pf_addr *,
 				    sa_family_t);
 void				 pf_rm_rule(struct pf_rulequeue *,
 				    struct pf_rule *);
-void				 pf_purge_rule(struct pf_ruleset *,
-				    struct pf_rule *, struct pf_ruleset *,
-				    struct pf_rule *);
+void				 pf_purge_rule(struct pf_rule *);
 struct pf_divert		*pf_find_divert(struct mbuf *);
 int				 pf_setup_pdesc(struct pf_pdesc *, void *,
 				    sa_family_t, int, struct pfi_kif *,
@@ -1727,9 +1715,14 @@ void	pf_addr_inc(struct pf_addr *, sa_family_t);
 
 void   *pf_pull_hdr(struct mbuf *, int, void *, int, u_short *, u_short *,
 	    sa_family_t);
-void	pf_change_a(struct pf_pdesc *, void *, u_int32_t);
-int	pf_check_proto_cksum(struct pf_pdesc *, int, int, u_int8_t,
-	    sa_family_t);
+#define PF_HI (true)
+#define PF_LO (!PF_HI)
+#define PF_ALGNMNT(off) (((off) % 2) == 0 ? PF_HI : PF_LO)
+int	pf_patch_8(struct pf_pdesc *, u_int8_t *, u_int8_t, bool);
+int	pf_patch_16(struct pf_pdesc *, u_int16_t *, u_int16_t);
+int	pf_patch_16_unaligned(struct pf_pdesc *, void *, u_int16_t, bool);
+int	pf_patch_32(struct pf_pdesc *, u_int32_t *, u_int32_t);
+int	pf_patch_32_unaligned(struct pf_pdesc *, void *, u_int32_t, bool);
 int	pflog_packet(struct pf_pdesc *, u_int8_t, struct pf_rule *,
 	    struct pf_rule *, struct pf_ruleset *, struct pf_rule *);
 void	pf_send_deferred_syn(struct pf_state *);
@@ -1763,6 +1756,7 @@ int	pf_rtlabel_match(struct pf_addr *, sa_family_t, struct pf_addr_wrap *,
 	    int);
 int	pf_socket_lookup(struct pf_pdesc *);
 struct pf_state_key *pf_alloc_state_key(int);
+int	pf_ouraddr(struct mbuf *);
 void	pf_pkt_addr_changed(struct mbuf *);
 struct inpcb *pf_inp_lookup(struct mbuf *);
 void	pf_inp_link(struct mbuf *, struct inpcb *);
@@ -1916,8 +1910,6 @@ int			 pf_map_addr(sa_family_t, struct pf_rule *,
 			    struct pf_pool *, enum pf_sn_types);
 
 int			 pf_postprocess_addr(struct pf_state *);
-
-void			 pf_cksum(struct pf_pdesc *, struct mbuf *);
 
 struct pf_state_key	*pf_state_key_ref(struct pf_state_key *);
 void			 pf_state_key_unref(struct pf_state_key *);

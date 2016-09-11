@@ -1,4 +1,4 @@
-/*	$OpenBSD: mld6.c,v 1.46 2015/09/12 13:34:12 mpi Exp $	*/
+/*	$OpenBSD: mld6.c,v 1.48 2016/07/05 10:17:14 mpi Exp $	*/
 /*	$KAME: mld6.c,v 1.26 2001/02/16 14:50:35 itojun Exp $	*/
 
 /*
@@ -93,7 +93,7 @@ void mld6_checktimer(struct ifnet *);
 static void mld6_sendpkt(struct in6_multi *, int, const struct in6_addr *);
 
 void
-mld6_init()
+mld6_init(void)
 {
 	static u_int8_t hbh_buf[8];
 	struct ip6_hbh *hbh = (struct ip6_hbh *)hbh_buf;
@@ -391,7 +391,7 @@ mld6_sendpkt(struct in6_multi *in6m, int type, const struct in6_addr *dst)
 	 * We do not reject tentative addresses for MLD report to deal with
 	 * the case where we first join a link-local address.
 	 */
-	ignflags = (IN6_IFF_NOTREADY|IN6_IFF_ANYCAST) & ~IN6_IFF_TENTATIVE;
+	ignflags = IN6_IFF_DUPLICATED|IN6_IFF_ANYCAST;
 	if ((ia6 = in6ifa_ifpforlinklocal(ifp, ignflags)) == NULL) {
 		if_put(ifp);
 		return;

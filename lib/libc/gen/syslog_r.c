@@ -1,4 +1,4 @@
-/*	$OpenBSD: syslog_r.c,v 1.11 2015/11/25 00:01:21 deraadt Exp $ */
+/*	$OpenBSD: syslog_r.c,v 1.15 2016/03/27 16:28:56 chl Exp $ */
 /*
  * Copyright (c) 1983, 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -36,15 +36,13 @@
 #include <fcntl.h>
 #include <paths.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
 #include <stdarg.h>
-
-extern char	*__progname;		/* Program name, from crt0. */
-
 
 /* Reentrant version of syslog, i.e. syslog_r() */
 void
@@ -74,7 +72,7 @@ __vsyslog_r(int pri, struct syslog_data *data,
 {
 	int cnt;
 	char ch, *p, *t;
-	int fd, saved_errno, error;
+	int saved_errno;
 #define	TBUF_LEN	(8192+1)
 #define	FMT_LEN		1024
 	char *conp = NULL, *stdp = NULL, tbuf[TBUF_LEN], fmt_cpy[FMT_LEN];
@@ -193,9 +191,9 @@ __vsyslog_r(int pri, struct syslog_data *data,
 
 	/*
 	 * If the sendsyslog() fails, it means that syslogd
-	 * is not running.
+	 * is not running or the kernel ran out of buffers.
 	 */
-	error = sendsyslog2(tbuf, cnt, data->log_stat & LOG_CONS);
+	sendsyslog(tbuf, cnt, data->log_stat & LOG_CONS);
 }
 
 void

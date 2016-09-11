@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.63 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.66 2016/09/04 10:51:23 naddy Exp $	*/
 
 /*-
  * Copyright (c) 1991 The Regents of the University of California.
@@ -65,7 +65,7 @@ struct bdevsw   bdevsw[] =
 	bdev_disk_init(NVND,vnd),	/*  2: vnode disk driver */
 	bdev_disk_init(NRD,rd),		/*  3: RAM disk */
 	bdev_disk_init(NSD,sd),		/*  4: SCSI disk */
-	bdev_tape_init(NST,st),		/*  5: SCSI tape */
+	bdev_notdef(),			/*  5: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/*  6: SCSI CD-ROM */
 	bdev_disk_init(NFD,fd),		/*  7: floppy drive */
 	bdev_disk_init(NWD,wd),		/*  8: ST506 drive */
@@ -100,7 +100,6 @@ cdev_decl(com);
 
 #include "pf.h"
 
-#include "systrace.h"
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
@@ -117,6 +116,7 @@ cdev_decl(pci);
 #include "ucom.h"
 
 #include "fuse.h"
+#include "switch.h"
 
 struct cdevsw   cdevsw[] =
 {
@@ -157,9 +157,9 @@ struct cdevsw   cdevsw[] =
 #else
 	cdev_notdef(),			/* 31: */
 #endif
-	cdev_notdef(),
+	cdev_notdef(),			/* 32 */
 	cdev_video_init(NVIDEO,video),	/* 33: generic video I/O */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 34: system call tracing */
+	cdev_notdef(),			/* 34 */
 	cdev_audio_init(NAUDIO,audio),	/* 35: /dev/audio */
 	cdev_notdef(),			/* 36: was: /dev/crypto */
 	cdev_bio_init(NBIO,bio),	/* 37: ioctl tunnel */
@@ -185,6 +185,7 @@ struct cdevsw   cdevsw[] =
 	cdev_pppx_init(NPPPX,pppx),	/* 57: pppx */
 	cdev_fuse_init(NFUSE,fuse),	/* 58: fuse */
 	cdev_tun_init(NTUN,tap),	/* 59: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 60: switch(4) control interface */
 };
 int nchrdev = nitems(cdevsw);
 
@@ -214,7 +215,7 @@ int chrtoblktbl[] = {
 	/*  8 */	2,		/* vnd */
 	/*  9 */	3,		/* rd */
 	/* 10 */	4,		/* sd */
-	/* 11 */	5,		/* st */
+	/* 11 */	NODEV,
 	/* 12 */	6,		/* cd */
 	/* 13 */	NODEV,
 	/* 14 */	NODEV,

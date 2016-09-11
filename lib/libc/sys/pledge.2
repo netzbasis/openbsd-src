@@ -1,4 +1,4 @@
-.\" $OpenBSD: pledge.2,v 1.24 2016/01/18 23:29:37 deraadt Exp $
+.\" $OpenBSD: pledge.2,v 1.35 2016/09/05 11:17:24 deraadt Exp $
 .\"
 .\" Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 18 2016 $
+.Dd $Mdocdate: September 5 2016 $
 .Dt PLEDGE 2
 .Os
 .Sh NAME
@@ -54,6 +54,14 @@ value of "" restricts the process to the
 system call.
 This can be used for pure computation operating on memory shared
 with another process.
+.Pp
+Passing
+.Dv NULL
+to
+.Fa promises
+or
+.Fa paths
+specifies to not change the current value.
 .Pp
 Some system calls, when allowed, have restrictions applied to them:
 .Pp
@@ -118,7 +126,7 @@ once.
 .Pp
 The
 .Ar promises
-is specified as a string, with space separate keywords:
+is specified as a string, with space separated keywords:
 .Bl -tag -width "tmppath" -offset indent
 .It Va "stdio"
 The following system calls are permitted to allow most basic functions
@@ -310,6 +318,10 @@ relating to a file:
 .Xr lchown 2 ,
 .Xr fchown 2 ,
 .Xr utimes 2 .
+.It Va "chown"
+The
+.Xr chown 2
+family is allowed to change the user or group on a file.
 .It Va "flock"
 File locking via
 .Xr fcntl 2 ,
@@ -503,12 +515,30 @@ device:
 .Dv DIOCRSETADDRS ,
 .Dv DIOCXBEGIN ,
 .Dv DIOCXCOMMIT .
+.It Va "audio"
+Allows a subset of
+.Xr ioctl 2
+operations on
+.Xr audio 4
+devices:
+.Pp
+.Dv AUDIO_GETPOS ,
+.Dv AUDIO_GETPAR ,
+.Dv AUDIO_SETPAR ,
+.Dv AUDIO_START ,
+.Dv AUDIO_STOP .
+.Pp
+See
+.Xr sio_open 3
+for more information on using the sndio API in combination with
+.Fn pledge .
 .El
 .Pp
 A whitelist of permitted paths may be provided in
 .Ar paths .
 All other paths will return
 .Er ENOENT .
+At least one promise is required to be pledged in order to activate a whitelist.
 .Sh RETURN VALUES
 .Rv -std
 .Sh ERRORS

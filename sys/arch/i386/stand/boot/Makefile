@@ -1,8 +1,7 @@
-#	$OpenBSD: Makefile,v 1.58 2015/09/18 13:30:56 miod Exp $
+#	$OpenBSD: Makefile,v 1.61 2016/09/10 16:38:16 jsing Exp $
 
 COPTS?=
 MAN?=	boot.8
-MLINKS?=boot.8 boot.conf.5
 
 .if !empty(COPTS:M-DFDBOOT)
 SOFTRAID?=no
@@ -17,7 +16,7 @@ SADIR=	${.CURDIR}/..
 PROG?=	boot
 LD?=	ld
 SIZE?=	size
-LDFLAGS+=-nostdlib -Bstatic -nopie
+LDFLAGS+=-nostdlib -Bstatic -nopie -znorelro
 
 CLEANFILES+=	crt0.o
 SRCS=	srt0.S conf.c
@@ -45,7 +44,7 @@ SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
 SRCS+=	elf32.c elf64.c loadfile.c
 SRCS+=	ufs.c
 .if ${SOFTRAID:L} == "yes"
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pbkdf2.c rijndael.c sha1.c
+SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c
 .endif
 
 .PATH:	${S}/lib/libkern

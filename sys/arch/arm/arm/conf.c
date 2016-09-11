@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.42 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.49 2016/09/04 10:51:23 naddy Exp $	*/
 /*	$NetBSD: conf.c,v 1.10 2002/04/19 01:04:38 wiz Exp $	*/
 
 /*
@@ -173,7 +173,7 @@ struct bdevsw bdevsw[] = {
 	bdev_notdef(),			/* 22: */
 	bdev_notdef(),			/* 23: */
 	bdev_disk_init(NSD,sd),		/* 24: SCSI disk */
-	bdev_tape_init(NST,st),		/* 25: SCSI tape */
+	bdev_notdef(),			/* 25: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/* 26: SCSI cdrom */
 	bdev_notdef(),			/* 27: */
 	bdev_notdef(),			/* 28: */
@@ -253,12 +253,11 @@ struct bdevsw bdevsw[] = {
 #define ptctty          ptytty
 #define ptcioctl        ptyioctl
 
-#include "systrace.h"
-
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "openprom.h"
 
 #ifdef CONF_HAVE_GPIO
 #include "gpio.h"
@@ -271,6 +270,8 @@ struct bdevsw bdevsw[] = {
 #else
 #define	NSPKR 0
 #endif
+
+#include "switch.h"
 
 struct cdevsw cdevsw[] = {
 	cdev_cn_init(1,cn),			/*  0: virtual console */
@@ -323,7 +324,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),				/* 47: was: /dev/crypto */
 	cdev_notdef(),				/* 48: reserved */
 	cdev_notdef(),				/* 49: reserved */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50: system call tracing */
+	cdev_notdef(),				/* 50: reserved */
 	cdev_notdef(),				/* 51: reserved */
  	cdev_bio_init(NBIO,bio),		/* 52: ioctl tunnel */
 	cdev_notdef(),				/* 53: reserved */
@@ -355,7 +356,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),                          /* 79: removed device */
 	cdev_notdef(),                          /* 80: removed device */
 	cdev_notdef(),                          /* 81: removed device */
-	cdev_notdef(),                          /* 82: removed device */
+	cdev_openprom_init(NOPENPROM,openprom),	/* 82: /dev/openprom */
 	cdev_notdef(),                          /* 83: removed device */
 	cdev_notdef(),                          /* 84: removed device */
 	cdev_notdef(),                          /* 85: removed device */
@@ -382,6 +383,7 @@ struct cdevsw cdevsw[] = {
 	cdev_disk_init(1,diskmap),		/* 102: disk mapper */
 	cdev_pppx_init(NPPPX,pppx),		/* 103: pppx */
 	cdev_tun_init(NTUN,tap),		/* 104: Ethernet tap */
+	cdev_switch_init(NSWITCH,switch),	/* 105: switch(4) control interface */
 };
 
 int nblkdev = nitems(bdevsw);
@@ -404,8 +406,7 @@ dev_t	swapdev = makedev(1, 0);
  * Returns true if dev is /dev/mem or /dev/kmem.
  */
 int
-iskmemdev(dev)
-	dev_t dev;
+iskmemdev(dev_t dev)
 {
 	return (major(dev) == mem_no && minor(dev) < 2);
 }
@@ -414,8 +415,7 @@ iskmemdev(dev)
  * Returns true if dev is /dev/zero.
  */
 int
-iszerodev(dev)
-	dev_t dev;
+iszerodev(dev_t dev)
 {
 	return (major(dev) == mem_no && minor(dev) == 3);
 }
@@ -448,58 +448,13 @@ int chrtoblktbl[] = {
     /* 22 */        NODEV,
     /* 23 */        NODEV,
     /* 24 */        24,		/* sd */
-    /* 25 */        25,		/* st */
+    /* 25 */        NODEV,
     /* 26 */        26,		/* cd */
-    /* 27 */        NODEV,
-    /* 28 */        NODEV,
-    /* 29 */        NODEV,
-    /* 30 */        NODEV,
-    /* 31 */        NODEV,
-    /* 32 */        NODEV,
-    /* 33 */        NODEV,
-    /* 34 */        NODEV,
-    /* 35 */        NODEV,
-    /* 36 */        NODEV,
-    /* 37 */        NODEV,
-    /* 38 */        NODEV,
-    /* 39 */        NODEV,
-    /* 40 */        NODEV,
-    /* 41 */        NODEV,
-    /* 42 */        NODEV,
-    /* 43 */        NODEV,
-    /* 44 */        NODEV,
-    /* 45 */        NODEV,
-    /* 46 */        NODEV,
-    /* 47 */        NODEV,
-    /* 48 */        NODEV,
-    /* 49 */        NODEV,
-    /* 50 */        NODEV,
-    /* 51 */        NODEV,
-    /* 52 */        NODEV,
-    /* 53 */        NODEV,
-    /* 54 */        NODEV,
-    /* 55 */        NODEV,
-    /* 56 */	    NODEV,
-    /* 57 */	    NODEV,
-    /* 58 */	    NODEV,
-    /* 59 */        NODEV,
-    /* 60 */        NODEV,
-    /* 61 */        NODEV,
-    /* 62 */        NODEV,
-    /* 63 */        NODEV,
-    /* 64 */        NODEV,
-    /* 65 */        NODEV,
-    /* 66 */	    NODEV,
-    /* 67 */	    NODEV,
-    /* 68 */	    NODEV,
-    /* 69 */	    NODEV,
-    /* 70 */	    NODEV,
-    /* 71 */	    71,		/* raid */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);
 
 dev_t
-getnulldev()
+getnulldev(void)
 {
 	return makedev(mem_no, 2);
 }

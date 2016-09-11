@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sppp.h,v 1.23 2015/11/11 01:49:17 dlg Exp $	*/
+/*	$OpenBSD: if_sppp.h,v 1.25 2016/06/14 20:44:43 sthen Exp $	*/
 /*	$NetBSD: if_sppp.h,v 1.2.2.1 1999/04/04 06:57:39 explorer Exp $	*/
 
 /*

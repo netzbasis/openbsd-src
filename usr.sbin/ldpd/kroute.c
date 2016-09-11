@@ -1,6 +1,7 @@
-/*	$OpenBSD: kroute.c,v 1.47 2015/09/27 17:30:38 stsp Exp $ */
+/*	$OpenBSD: kroute.c,v 1.61 2016/06/18 01:25:53 renato Exp $ */
 
 /*
+ * Copyright (c) 2015, 2016 Renato Westphal <renato@openbsd.org>
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -22,19 +23,11 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/sysctl.h>
-#include <sys/tree.h>
-#include <sys/uio.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <net/if.h>
 #include <net/if_dl.h>
-#include <net/if_types.h>
 #include <net/route.h>
 #include <netmpls/mpls.h>
-#include <err.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -44,7 +37,7 @@
 #include "log.h"
 
 struct {
-	u_int32_t		rtseq;
+	uint32_t		rtseq;
 	pid_t			pid;
 	int			fib_sync;
 	int			fd;
@@ -61,20 +54,23 @@ struct kroute_node {
 struct kroute_priority {
 	TAILQ_ENTRY(kroute_priority)	 entry;
 	struct kroute_prefix		*kp;		/* back pointer */
-	u_int8_t			 priority;
+	uint8_t				 priority;
 	TAILQ_HEAD(, kroute_node)	 nexthops;
 };
 
 struct kroute_prefix {
-	RB_ENTRY(kroute_prefix)			 entry;
-	struct in_addr				 prefix;
-	u_int8_t				 prefixlen;
-	TAILQ_HEAD(plist, kroute_priority)	 priorities;
+	RB_ENTRY(kroute_prefix)		 entry;
+	int				 af;
+	union ldpd_addr			 prefix;
+	uint8_t				 prefixlen;
+	TAILQ_HEAD(plist, kroute_priority) priorities;
 };
+RB_HEAD(kroute_tree, kroute_prefix);
+RB_PROTOTYPE(kroute_tree, kroute_prefix, entry, kroute_compare)
 
 struct kif_addr {
 	TAILQ_ENTRY(kif_addr)	 entry;
-	struct kaddr		 addr;
+	struct kaddr		 a;
 };
 
 struct kif_node {
@@ -83,79 +79,67 @@ struct kif_node {
 	struct kif		 k;
 	struct kpw		*kpw;
 };
-
-void	kr_redist_remove(struct kroute *);
-int	kr_redist_eval(struct kroute *);
-void	kr_redistribute(struct kroute_prefix *);
-int	kroute_compare(struct kroute_prefix *, struct kroute_prefix *);
-int	kif_compare(struct kif_node *, struct kif_node *);
-
-struct kroute_prefix	*kroute_find(in_addr_t, u_int8_t);
-struct kroute_priority	*kroute_find_prio(in_addr_t, u_int8_t, u_int8_t);
-struct kroute_node	*kroute_find_gw(in_addr_t, u_int8_t, u_int8_t,
-    struct in_addr);
-int			 kroute_insert(struct kroute *);
-int			 kroute_uninstall(struct kroute_node *);
-int			 kroute_remove(struct kroute *);
-void			 kroute_clear(void);
-
-struct kif_node		*kif_find(u_short);
-struct kif_node		*kif_insert(u_short);
-int			 kif_remove(struct kif_node *);
-void			 kif_clear(void);
-struct kif_node		*kif_update(u_short, int, struct if_data *,
-			    struct sockaddr_dl *, int *);
-
-struct kroute_priority	*kroute_match(in_addr_t);
-
-u_int8_t	prefixlen_classful(in_addr_t);
-void		get_rtaddrs(int, struct sockaddr *, struct sockaddr **);
-void		if_change(u_short, int, struct if_data *, struct sockaddr_dl *);
-void		if_newaddr(u_short, struct sockaddr_in *, struct sockaddr_in *,
-		    struct sockaddr_in *);
-void		if_deladdr(u_short, struct sockaddr_in *, struct sockaddr_in *,
-		    struct sockaddr_in *);
-void		if_announce(void *);
-
-int		send_rtmsg(int, int, struct kroute *, u_int32_t);
-int		dispatch_rtmsg(void);
-int		fetchtable(void);
-int		fetchifs(u_short);
-int		rtmsg_process(char *, size_t);
-
-RB_HEAD(kroute_tree, kroute_prefix)	krt;
-RB_PROTOTYPE(kroute_tree, kroute_prefix, entry, kroute_compare)
-RB_GENERATE(kroute_tree, kroute_prefix, entry, kroute_compare)
-
-RB_HEAD(kif_tree, kif_node)		kit;
+RB_HEAD(kif_tree, kif_node);
 RB_PROTOTYPE(kif_tree, kif_node, entry, kif_compare)
+
+static void		 kr_dispatch_msg(int, short, void *);
+static void		 kr_redist_remove(struct kroute *);
+static int		 kr_redist_eval(struct kroute *);
+static void		 kr_redistribute(struct kroute_prefix *);
+static __inline int	 kroute_compare(struct kroute_prefix *,
+			    struct kroute_prefix *);
+static struct kroute_prefix	*kroute_find_prefix(int, union ldpd_addr *,
+			    uint8_t);
+static struct kroute_priority	*kroute_find_prio(struct kroute_prefix *,
+			    uint8_t);
+static struct kroute_node	*kroute_find_gw(struct kroute_priority *,
+				    union ldpd_addr *);
+static int		 kroute_insert(struct kroute *);
+static int		 kroute_uninstall(struct kroute_node *);
+static int		 kroute_remove(struct kroute *);
+static void		 kroute_clear(void);
+static __inline int	 kif_compare(struct kif_node *, struct kif_node *);
+static struct kif_node	*kif_find(unsigned short);
+static struct kif_node	*kif_insert(unsigned short);
+static int		 kif_remove(struct kif_node *);
+static struct kif_node	*kif_update(unsigned short, int, struct if_data *,
+			    struct sockaddr_dl *, int *);
+static struct kroute_priority	*kroute_match(int, union ldpd_addr *);
+static uint8_t		 prefixlen_classful(in_addr_t);
+static void		 get_rtaddrs(int, struct sockaddr *,
+			    struct sockaddr **);
+static void		 if_change(unsigned short, int, struct if_data *,
+		 	   struct sockaddr_dl *);
+static void		 if_newaddr(unsigned short, struct sockaddr *,
+			    struct sockaddr *, struct sockaddr *);
+static void		 if_deladdr(unsigned short, struct sockaddr *,
+			    struct sockaddr *, struct sockaddr *);
+static void		 if_announce(void *);
+static int		 send_rtmsg(int, int, struct kroute *, int);
+static int		 send_rtmsg_v4(int fd, int, struct kroute *, int);
+static int		 send_rtmsg_v6(int fd, int, struct kroute *, int);
+static int		 fetchtable(void);
+static int		 fetchifs(void);
+static int		 dispatch_rtmsg(void);
+static int		 rtmsg_process(char *, size_t);
+static int		 rtmsg_process_route(struct rt_msghdr *,
+			    struct sockaddr *[RTAX_MAX]);
+static int		 kmpw_install(const char *, struct kpw *);
+static int		 kmpw_uninstall(const char *);
+
+RB_GENERATE(kroute_tree, kroute_prefix, entry, kroute_compare)
 RB_GENERATE(kif_tree, kif_node, entry, kif_compare)
+
+static struct kroute_tree	 krt = RB_INITIALIZER(&krt);
+static struct kif_tree		 kit = RB_INITIALIZER(&kit);
 
 int
 kif_init(void)
 {
-	RB_INIT(&kit);
-	/* init also krt tree so that we can call kr_shutdown() */
-	RB_INIT(&krt);
-	kr_state.fib_sync = 0;	/* decoupled */
-
-	if (fetchifs(0) == -1)
+	if (fetchifs() == -1)
 		return (-1);
 
 	return (0);
-}
-
-void
-kif_redistribute(void)
-{
-	struct kif_node		*kif;
-	struct kif_addr		*ka;
-
-	RB_FOREACH(kif, kif_tree, &kit) {
-		TAILQ_FOREACH(ka, &kif->addrs, entry)
-			main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->addr,
-			    sizeof(struct kaddr));
-	}
 }
 
 int
@@ -169,14 +153,14 @@ kr_init(int fs)
 
 	if ((kr_state.fd = socket(AF_ROUTE,
 	    SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) == -1) {
-		log_warn("kr_init: socket");
+		log_warn("%s: socket", __func__);
 		return (-1);
 	}
 
 	/* not interested in my own messages */
 	if (setsockopt(kr_state.fd, SOL_SOCKET, SO_USELOOPBACK,
 	    &opt, sizeof(opt)) == -1)
-		log_warn("kr_init: setsockopt(SO_USELOOPBACK)");
+		log_warn("%s: setsockopt(SO_USELOOPBACK)", __func__);
 
 	/* filter out unwanted messages */
 	rtfilter = ROUTE_FILTER(RTM_ADD) | ROUTE_FILTER(RTM_GET) |
@@ -186,13 +170,13 @@ kr_init(int fs)
 
 	if (setsockopt(kr_state.fd, PF_ROUTE, ROUTE_MSGFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)
-		log_warn("kr_init: setsockopt(ROUTE_MSGFILTER)");
+		log_warn("%s: setsockopt(ROUTE_MSGFILTER)", __func__);
 
 	/* grow receive buffer, don't wanna miss messages */
 	optlen = sizeof(default_rcvbuf);
 	if (getsockopt(kr_state.fd, SOL_SOCKET, SO_RCVBUF,
 	    &default_rcvbuf, &optlen) == -1)
-		log_warn("kr_init getsockopt SOL_SOCKET SO_RCVBUF");
+		log_warn("%s: getsockopt SOL_SOCKET SO_RCVBUF", __func__);
 	else
 		for (rcvbuf = MAX_RTSOCK_BUF;
 		    rcvbuf > default_rcvbuf &&
@@ -213,63 +197,96 @@ kr_init(int fs)
 
 	if ((kr_state.ioctl_fd = socket(AF_INET,
 	    SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)) == -1) {
-		log_warn("kr_init: ioctl socket");
+		log_warn("%s: ioctl socket", __func__);
 		return (-1);
 	}
 
 	return (0);
 }
 
-int
-kr_change(struct kroute *kroute)
+void
+kif_redistribute(const char *ifname)
 {
+	struct kif_node		*kif;
+	struct kif_addr		*ka;
+
+	RB_FOREACH(kif, kif_tree, &kit) {
+		if (ifname && strcmp(kif->k.ifname, ifname) != 0)
+			continue;
+
+		TAILQ_FOREACH(ka, &kif->addrs, entry)
+			main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->a,
+			    sizeof(ka->a));
+	}
+}
+
+int
+kr_change(struct kroute *kr)
+{
+	struct kroute_prefix	*kp;
+	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
 	int			 action = RTM_ADD;
-	char			 buf[16];
 
-	kn = kroute_find_gw(kroute->prefix.s_addr, kroute->prefixlen,
-	    RTP_ANY, kroute->nexthop);
-	if (kn == NULL) {
-		log_warnx("kr_change: lost FEC %s/%d nexthop %s",
-		    inet_ntoa(kroute->prefix), kroute->prefixlen,
-		    inet_ntop(AF_INET, &kroute->nexthop, buf, sizeof(buf)));
-		return (-1);
-	}
+	kp = kroute_find_prefix(kr->af, &kr->prefix, kr->prefixlen);
+	if (kp == NULL)
+		goto miss;
+
+	kprio = kroute_find_prio(kp, kr->priority);
+	if (kprio == NULL)
+		goto miss;
+
+	kn = kroute_find_gw(kprio, &kr->nexthop);
+	if (kn == NULL)
+		goto miss;
 
 	if (kn->r.flags & F_LDPD_INSERTED)
 		action = RTM_CHANGE;
 
-	kn->r.local_label = kroute->local_label;
-	kn->r.remote_label = kroute->remote_label;
+	kn->r.local_label = kr->local_label;
+	kn->r.remote_label = kr->remote_label;
 	kn->r.flags = kn->r.flags | F_LDPD_INSERTED;
 
 	/* send update */
 	if (send_rtmsg(kr_state.fd, action, &kn->r, AF_MPLS) == -1)
 		return (-1);
 
-	if (kn->r.nexthop.s_addr != INADDR_ANY &&
+	if (ldp_addrisset(kn->r.af, &kn->r.nexthop) &&
 	    kn->r.remote_label != NO_LABEL) {
 		if (send_rtmsg(kr_state.fd, RTM_CHANGE, &kn->r, AF_INET) == -1)
 			return (-1);
 	}
 
-	return  (0);
+	return (0);
+
+miss:
+	log_warnx("%s: lost FEC %s/%d nexthop %s", __func__,
+	    log_addr(kr->af, &kr->prefix), kr->prefixlen,
+	    log_addr(kr->af, &kr->nexthop));
+	return (-1);
 }
 
 int
-kr_delete(struct kroute *kroute)
+kr_delete(struct kroute *kr)
 {
+	struct kroute_prefix	*kp;
+	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
 	int			 update = 0;
 
-	kn = kroute_find_gw(kroute->prefix.s_addr, kroute->prefixlen,
-	    RTP_ANY, kroute->nexthop);
+	kp = kroute_find_prefix(kr->af, &kr->prefix, kr->prefixlen);
+	if (kp == NULL)
+		return (0);
+	kprio = kroute_find_prio(kp, kr->priority);
+	if (kprio == NULL)
+		return (0);
+	kn = kroute_find_gw(kprio, &kr->nexthop);
 	if (kn == NULL)
 		return (0);
 
 	if (!(kn->r.flags & F_LDPD_INSERTED))
 		return (0);
-	if (kn->r.nexthop.s_addr != INADDR_ANY &&
+	if (ldp_addrisset(kn->r.af, &kn->r.nexthop) &&
 	    kn->r.remote_label != NO_LABEL)
 		update = 1;
 
@@ -292,7 +309,6 @@ void
 kr_shutdown(void)
 {
 	kr_fib_decouple();
-
 	kroute_clear();
 	kif_clear();
 }
@@ -321,7 +337,7 @@ kr_fib_couple(void)
 
 			send_rtmsg(kr_state.fd, RTM_ADD, &kn->r, AF_MPLS);
 
-			if (kn->r.nexthop.s_addr != INADDR_ANY &&
+			if (ldp_addrisset(kn->r.af, &kn->r.nexthop) &&
 			    kn->r.remote_label != NO_LABEL) {
 				send_rtmsg(kr_state.fd, RTM_CHANGE,
 				    &kn->r, AF_INET);
@@ -342,7 +358,7 @@ kr_fib_decouple(void)
 	struct kroute_prefix	*kp;
 	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
-	u_int32_t		 rl;
+	uint32_t		 rl;
 	struct kif_node		*kif;
 
 	if (kr_state.fib_sync == 0)	/* already decoupled */
@@ -360,7 +376,7 @@ kr_fib_decouple(void)
 			send_rtmsg(kr_state.fd, RTM_DELETE,
 			    &kn->r, AF_MPLS);
 
-			if (kn->r.nexthop.s_addr != INADDR_ANY &&
+			if (ldp_addrisset(kn->r.af, &kn->r.nexthop) &&
 			    kn->r.remote_label != NO_LABEL) {
 				rl = kn->r.remote_label;
 				kn->r.remote_label = NO_LABEL;
@@ -373,17 +389,54 @@ kr_fib_decouple(void)
 
 	RB_FOREACH(kif, kif_tree, &kit)
 		if (kif->kpw)
-			kmpw_uninstall(kif->k.ifname, kif->kpw);
+			kmpw_uninstall(kif->k.ifname);
 
 	kr_state.fib_sync = 0;
 	log_info("kernel routing table decoupled");
 }
 
-/* ARGSUSED */
 void
+kr_change_egress_label(int af, int was_implicit)
+{
+	struct kroute_prefix	*kp;
+	struct kroute_priority	*kprio;
+	struct kroute_node	*kn;
+
+	RB_FOREACH(kp, kroute_tree, &krt) {
+		if (kp->af != af)
+			continue;
+
+		TAILQ_FOREACH(kprio, &kp->priorities, entry) {
+			TAILQ_FOREACH(kn, &kprio->nexthops, entry) {
+				if (kn->r.local_label > MPLS_LABEL_RESERVED_MAX)
+					continue;
+
+				if (!was_implicit) {
+					kn->r.local_label = MPLS_LABEL_IMPLNULL;
+					continue;
+				}
+
+				switch (kn->r.af) {
+				case AF_INET:
+					kn->r.local_label = MPLS_LABEL_IPV4NULL;
+					break;
+				case AF_INET6:
+					kn->r.local_label = MPLS_LABEL_IPV6NULL;
+					break;
+				default:
+					break;
+				}
+			}
+		}
+	}
+}
+
+/* ARGSUSED */
+static void
 kr_dispatch_msg(int fd, short event, void *bula)
 {
-	dispatch_rtmsg();
+	if (dispatch_rtmsg() == -1)
+		event_loopexit(NULL);
 }
 
 void
@@ -393,12 +446,12 @@ kr_show_route(struct imsg *imsg)
 	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
 	int			 flags;
-	struct in_addr		 addr;
+	struct kroute		 kr;
 
 	switch (imsg->hdr.type) {
 	case IMSG_CTL_KROUTE:
 		if (imsg->hdr.len != IMSG_HEADER_SIZE + sizeof(flags)) {
-			log_warnx("kr_show_route: wrong imsg len");
+			log_warnx("%s: wrong imsg len", __func__);
 			return;
 		}
 		memcpy(&flags, imsg->data, sizeof(flags));
@@ -406,28 +459,31 @@ kr_show_route(struct imsg *imsg)
 		RB_FOREACH(kp, kroute_tree, &krt)
 			TAILQ_FOREACH(kprio, &kp->priorities, entry)
 				TAILQ_FOREACH(kn, &kprio->nexthops, entry) {
-					if (!flags || kn->r.flags & flags)
-						main_imsg_compose_ldpe(
-						    IMSG_CTL_KROUTE,
-						    imsg->hdr.pid,
-						    &kn->r, sizeof(kn->r));
+					if (flags && !(kn->r.flags & flags))
+						continue;
+
+					main_imsg_compose_ldpe(IMSG_CTL_KROUTE,
+					    imsg->hdr.pid, &kn->r,
+					    sizeof(kn->r));
 				}
 		break;
 	case IMSG_CTL_KROUTE_ADDR:
-		if (imsg->hdr.len != IMSG_HEADER_SIZE +
-		    sizeof(struct in_addr)) {
-			log_warnx("kr_show_route: wrong imsg len");
+		if (imsg->hdr.len != IMSG_HEADER_SIZE + sizeof(kr)) {
+			log_warnx("%s: wrong imsg len", __func__);
 			return;
 		}
-		memcpy(&addr, imsg->data, sizeof(addr));
+		memcpy(&kr, imsg->data, sizeof(kr));
 
-		kprio = kroute_match(addr.s_addr);
+		kprio = kroute_match(kr.af, &kr.prefix);
+		if (kprio == NULL)
+			break;
+
 		TAILQ_FOREACH(kn, &kprio->nexthops, entry)
 			main_imsg_compose_ldpe(IMSG_CTL_KROUTE, imsg->hdr.pid,
 			    &kn->r, sizeof(kn->r));
 		break;
 	default:
-		log_debug("kr_show_route: error handling imsg");
+		log_debug("%s: error handling imsg", __func__);
 		break;
 	}
 	main_imsg_compose_ldpe(IMSG_CTL_END, imsg->hdr.pid, NULL, 0);
@@ -447,7 +503,7 @@ kr_ifinfo(char *ifname, pid_t pid)
 	main_imsg_compose_ldpe(IMSG_CTL_END, pid, NULL, 0);
 }
 
-void
+static void
 kr_redist_remove(struct kroute *kr)
 {
 	/* was the route redistributed? */
@@ -456,15 +512,12 @@ kr_redist_remove(struct kroute *kr)
 
 	/* remove redistributed flag */
 	kr->flags &= ~F_REDISTRIBUTED;
-	main_imsg_compose_lde(IMSG_NETWORK_DEL, 0, kr,
-	    sizeof(struct kroute));
+	main_imsg_compose_lde(IMSG_NETWORK_DEL, 0, kr, sizeof(*kr));
 }
 
-int
+static int
 kr_redist_eval(struct kroute *kr)
 {
-	u_int32_t	 a;
-
 	/* was the route redistributed? */
 	if (kr->flags & F_REDISTRIBUTED)
 		goto dont_redistribute;
@@ -473,33 +526,45 @@ kr_redist_eval(struct kroute *kr)
 	if (kr->flags & F_DYNAMIC)
 		goto dont_redistribute;
 
-	/*
-	 * We consider the loopback net, default route, multicast and
-	 * experimental addresses as not redistributable.
-	 */
-	a = ntohl(kr->prefix.s_addr);
-	if (IN_MULTICAST(a) || IN_BADCLASS(a) ||
-	    (kr->prefixlen == 0) ||
-	    (a >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET)
+	/* filter-out non-redistributable addresses */
+	if (bad_addr(kr->af, &kr->prefix) ||
+	    (kr->af == AF_INET6 && IN6_IS_SCOPE_EMBED(&kr->prefix.v6)))
 		goto dont_redistribute;
+
+	/* do not redistribute the default route */
+	if (kr->prefixlen == 0)
+		goto dont_redistribute;
+
 	/*
 	 * Consider networks with nexthop loopback as not redistributable
 	 * unless it is a reject or blackhole route.
 	 */
-	if (kr->nexthop.s_addr == htonl(INADDR_LOOPBACK) &&
-	    !(kr->flags & (F_BLACKHOLE|F_REJECT)))
-		goto dont_redistribute;
+	switch (kr->af) {
+	case AF_INET:
+		if (kr->nexthop.v4.s_addr == htonl(INADDR_LOOPBACK) &&
+		    !(kr->flags & (F_BLACKHOLE|F_REJECT)))
+			goto dont_redistribute;
+		break;
+	case AF_INET6:
+		if (IN6_IS_ADDR_LOOPBACK(&kr->nexthop.v6) &&
+		    !(kr->flags & (F_BLACKHOLE|F_REJECT)))
+			goto dont_redistribute;
+		break;
+	default:
+		log_debug("%s: unexpected address-family", __func__);
+		break;
+	}
 
 	/* prefix should be redistributed */
 	kr->flags |= F_REDISTRIBUTED;
-	main_imsg_compose_lde(IMSG_NETWORK_ADD, 0, kr, sizeof(struct kroute));
+	main_imsg_compose_lde(IMSG_NETWORK_ADD, 0, kr, sizeof(*kr));
 	return (1);
 
 dont_redistribute:
-	return (1);
+	return (0);
 }
 
-void
+static void
 kr_redistribute(struct kroute_prefix *kp)
 {
 	struct kroute_priority	*kprio;
@@ -517,13 +582,20 @@ kr_redistribute(struct kroute_prefix *kp)
 }
 
 /* rb-tree compare */
-int
+static __inline int
 kroute_compare(struct kroute_prefix *a, struct kroute_prefix *b)
 {
-	if (ntohl(a->prefix.s_addr) < ntohl(b->prefix.s_addr))
+	int		 addrcmp;
+
+	if (a->af < b->af)
 		return (-1);
-	if (ntohl(a->prefix.s_addr) > ntohl(b->prefix.s_addr))
+	if (a->af > b->af)
 		return (1);
+
+	addrcmp = ldp_addrcmp(a->af, &a->prefix, &b->prefix);
+	if (addrcmp != 0)
+		return (addrcmp);
+
 	if (a->prefixlen < b->prefixlen)
 		return (-1);
 	if (a->prefixlen > b->prefixlen)
@@ -532,32 +604,23 @@ kroute_compare(struct kroute_prefix *a, struct kroute_prefix *b)
 	return (0);
 }
 
-int
-kif_compare(struct kif_node *a, struct kif_node *b)
-{
-	return (b->k.ifindex - a->k.ifindex);
-}
-
 /* tree management */
-struct kroute_prefix *
-kroute_find(in_addr_t prefix, u_int8_t prefixlen)
+static struct kroute_prefix *
+kroute_find_prefix(int af, union ldpd_addr *prefix, uint8_t prefixlen)
 {
 	struct kroute_prefix	 s;
 
-	s.prefix.s_addr = prefix;
+	s.af = af;
+	s.prefix = *prefix;
 	s.prefixlen = prefixlen;
 
 	return (RB_FIND(kroute_tree, &krt, &s));
 }
 
-struct kroute_priority *
-kroute_find_prio(in_addr_t prefix, u_int8_t prefixlen, u_int8_t prio)
+static struct kroute_priority *
+kroute_find_prio(struct kroute_prefix *kp, uint8_t prio)
 {
-	struct kroute_prefix	*kp;
 	struct kroute_priority	*kprio;
-
-	if ((kp = kroute_find(prefix, prefixlen)) == NULL)
-		return (NULL);
 
 	/* RTP_ANY here picks the lowest priority node */
 	if (prio == RTP_ANY)
@@ -570,70 +633,63 @@ kroute_find_prio(in_addr_t prefix, u_int8_t prefixlen, u_int8_t prio)
 	return (NULL);
 }
 
-struct kroute_node *
-kroute_find_gw(in_addr_t prefix, u_int8_t prefixlen, u_int8_t prio,
-    struct in_addr nh)
+static struct kroute_node *
+kroute_find_gw(struct kroute_priority *kprio, union ldpd_addr *nh)
 {
-	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
 
-	if ((kprio = kroute_find_prio(prefix, prefixlen, prio)) == NULL)
-		return (NULL);
-
 	TAILQ_FOREACH(kn, &kprio->nexthops, entry)
-		if (kn->r.nexthop.s_addr == nh.s_addr)
+		if (ldp_addrcmp(kprio->kp->af, &kn->r.nexthop, nh) == 0)
 			return (kn);
 
 	return (NULL);
 }
 
-int
+static int
 kroute_insert(struct kroute *kr)
 {
 	struct kroute_prefix	*kp;
-	struct kroute_priority	*kprio, *tmp = NULL;
+	struct kroute_priority	*kprio, *tmp;
 	struct kroute_node	*kn;
 
-	kp = kroute_find(kr->prefix.s_addr, kr->prefixlen);
+	kp = kroute_find_prefix(kr->af, &kr->prefix, kr->prefixlen);
 	if (kp == NULL) {
-		kp = calloc(1, sizeof(struct kroute_prefix));
+		kp = calloc(1, sizeof((*kp)));
 		if (kp == NULL)
-			fatal("kroute_insert");
-		kp->prefix.s_addr = kr->prefix.s_addr;
+			fatal(__func__);
+		kp->af = kr->af;
+		kp->prefix = kr->prefix;
 		kp->prefixlen = kr->prefixlen;
 		TAILQ_INIT(&kp->priorities);
 		RB_INSERT(kroute_tree, &krt, kp);
 	}
 
-	kprio = kroute_find_prio(kr->prefix.s_addr, kr->prefixlen,
-	    kr->priority);
+	kprio = kroute_find_prio(kp, kr->priority);
 	if (kprio == NULL) {
-		kprio = calloc(1, sizeof(struct kroute_priority));
+		kprio = calloc(1, sizeof(*kprio));
 		if (kprio == NULL)
-			fatal("kroute_insert");
+			fatal(__func__);
 		kprio->kp = kp;
 		kprio->priority = kr->priority;
 		TAILQ_INIT(&kprio->nexthops);
 
 		/* lower priorities first */
-		TAILQ_FOREACH(tmp, &kp->priorities, entry) {
-			if (tmp->priority > kr->priority) {
-				TAILQ_INSERT_BEFORE(tmp, kprio, entry);
-				goto done;
-			}
-		}
-		TAILQ_INSERT_TAIL(&kp->priorities, kprio, entry);
+		TAILQ_FOREACH(tmp, &kp->priorities, entry)
+			if (tmp->priority > kprio->priority)
+				break;
+		if (tmp)
+			TAILQ_INSERT_BEFORE(tmp, kprio, entry);
+		else
+			TAILQ_INSERT_TAIL(&kp->priorities, kprio, entry);
 	}
 
-done:
-	kn = kroute_find_gw(kr->prefix.s_addr, kr->prefixlen, kr->priority,
-	    kr->nexthop);
+	kn = kroute_find_gw(kprio, &kr->nexthop);
 	if (kn == NULL) {
-		kn = calloc(1, sizeof(struct kroute_node));
+		kn = calloc(1, sizeof(*kn));
 		if (kn == NULL)
-			fatal("kroute_insert");
+			fatal(__func__);
 		kn->kprio = kprio;
-		memcpy(&kn->r, kr, sizeof(struct kroute));
+		kn->r = *kr;
 		TAILQ_INSERT_TAIL(&kprio->nexthops, kn, entry);
 	}
 
@@ -641,7 +697,7 @@ done:
 	return (0);
 }
 
-int
+static int
 kroute_uninstall(struct kroute_node *kn)
 {
 	/* kill MPLS LSP if one was installed */
@@ -653,22 +709,22 @@ kroute_uninstall(struct kroute_node *kn)
 	return (0);
 }
 
-int
+static int
 kroute_remove(struct kroute *kr)
 {
 	struct kroute_prefix	*kp;
 	struct kroute_priority	*kprio;
 	struct kroute_node	*kn;
 
-	kn = kroute_find_gw(kr->prefix.s_addr, kr->prefixlen, kr->priority,
-	    kr->nexthop);
-	if (kn == NULL) {
-		log_warnx("kroute_remove failed to find %s/%u",
-		    inet_ntoa(kr->prefix), kr->prefixlen);
-		return (-1);
-	}
-	kprio = kn->kprio;
-	kp = kprio->kp;
+	kp = kroute_find_prefix(kr->af, &kr->prefix, kr->prefixlen);
+	if (kp == NULL)
+		goto notfound;
+	kprio = kroute_find_prio(kp, kr->priority);
+	if (kprio == NULL)
+		goto notfound;
+	kn = kroute_find_gw(kprio, &kr->nexthop);
+	if (kn == NULL)
+		goto notfound;
 
 	kr_redist_remove(&kn->r);
 	kroute_uninstall(kn);
@@ -683,8 +739,8 @@ kroute_remove(struct kroute *kr)
 
 	if (TAILQ_EMPTY(&kp->priorities)) {
 		if (RB_REMOVE(kroute_tree, &krt, kp) == NULL) {
-			log_warnx("kroute_remove failed for %s/%u",
-			    inet_ntoa(kp->prefix), kp->prefixlen);
+			log_warnx("%s failed for %s/%u", __func__,
+			    log_addr(kr->af, &kr->prefix), kp->prefixlen);
 			return (-1);
 		}
 		free(kp);
@@ -692,9 +748,14 @@ kroute_remove(struct kroute *kr)
 		kr_redistribute(kp);
 
 	return (0);
+
+notfound:
+	log_warnx("%s failed to find %s/%u", __func__,
+	    log_addr(kr->af, &kr->prefix), kr->prefixlen);
+	return (-1);
 }
 
-void
+static void
 kroute_clear(void)
 {
 	struct kroute_prefix	*kp;
@@ -717,12 +778,19 @@ kroute_clear(void)
 	}
 }
 
-struct kif_node *
-kif_find(u_short ifindex)
+static __inline int
+kif_compare(struct kif_node *a, struct kif_node *b)
+{
+	return (b->k.ifindex - a->k.ifindex);
+}
+
+/* tree management */
+static struct kif_node *
+kif_find(unsigned short ifindex)
 {
 	struct kif_node	s;
 
-	bzero(&s, sizeof(s));
+	memset(&s, 0, sizeof(s));
 	s.k.ifindex = ifindex;
 
 	return (RB_FIND(kif_tree, &kit, &s));
@@ -740,8 +808,8 @@ kif_findname(char *ifname)
 	return (NULL);
 }
 
-struct kif_node *
-kif_insert(u_short ifindex)
+static struct kif_node *
+kif_insert(unsigned short ifindex)
 {
 	struct kif_node	*kif;
 
@@ -757,7 +825,7 @@ kif_insert(u_short ifindex)
 	return (kif);
 }
 
-int
+static int
 kif_remove(struct kif_node *kif)
 {
 	struct kif_addr	*ka;
@@ -768,6 +836,7 @@ kif_remove(struct kif_node *kif)
 	}
 
 	while ((ka = TAILQ_FIRST(&kif->addrs)) != NULL) {
+		main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->a, sizeof(ka->a));
 		TAILQ_REMOVE(&kif->addrs, ka, entry);
 		free(ka);
 	}
@@ -784,8 +853,8 @@ kif_clear(void)
 		kif_remove(kif);
 }
 
-struct kif_node *
-kif_update(u_short ifindex, int flags, struct if_data *ifd,
+static struct kif_node *
+kif_update(unsigned short ifindex, int flags, struct if_data *ifd,
     struct sockaddr_dl *sdl, int *link_old)
 {
 	struct kif_node		*kif;
@@ -816,27 +885,43 @@ kif_update(u_short ifindex, int flags, struct if_data *ifd,
 	return (kif);
 }
 
-struct kroute_priority *
-kroute_match(in_addr_t key)
+static struct kroute_priority *
+kroute_match(int af, union ldpd_addr *key)
 {
-	int			 i;
+	int			 i, maxprefixlen;
+	struct kroute_prefix	*kp;
 	struct kroute_priority	*kprio;
+	union ldpd_addr		 addr;
 
-	/* we will never match the default route */
-	for (i = 32; i > 0; i--)
-		if ((kprio = kroute_find_prio(key & prefixlen2mask(i), i,
-		    RTP_ANY)) != NULL)
+	switch (af) {
+	case AF_INET:
+		maxprefixlen = 32;
+		break;
+	case AF_INET6:
+		maxprefixlen = 128;
+		break;
+	default:
+		log_warnx("%s: unknown af", __func__);
+		return (NULL);
+	}
+
+	for (i = maxprefixlen; i >= 0; i--) {
+		ldp_applymask(af, &addr, key, i);
+
+		kp = kroute_find_prefix(af, &addr, i);
+		if (kp == NULL)
+			continue;
+
+		kprio = kroute_find_prio(kp, RTP_ANY);
+		if (kprio != NULL)
 			return (kprio);
-
-	/* if we don't have a match yet, try to find a default route */
-	if ((kprio = kroute_find_prio(0, 0, RTP_ANY)) != NULL)
-		return (kprio);
+	}
 
 	return (NULL);
 }
 
 /* misc */
-u_int8_t
+static uint8_t
 prefixlen_classful(in_addr_t ina)
 {
 	/* it hurt to write this. */
@@ -853,28 +938,10 @@ prefixlen_classful(in_addr_t ina)
 		return (8);
 }
 
-u_int8_t
-mask2prefixlen(in_addr_t ina)
-{
-	if (ina == 0)
-		return (0);
-	else
-		return (33 - ffs(ntohl(ina)));
-}
-
-in_addr_t
-prefixlen2mask(u_int8_t prefixlen)
-{
-	if (prefixlen == 0)
-		return (0);
-
-	return (htonl(0xffffffff << (32 - prefixlen)));
-}
-
 #define	ROUNDUP(a)	\
     (((a) & (sizeof(long) - 1)) ? (1 + ((a) | (sizeof(long) - 1))) : (a))
 
-void
+static void
 get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 {
 	int	i;
@@ -889,8 +956,8 @@ get_rtaddrs(int addrs, struct sockaddr *sa, struct sockaddr **rti_info)
 	}
 }
 
-void
-if_change(u_short ifindex, int flags, struct if_data *ifd,
+static void
+if_change(unsigned short ifindex, int flags, struct if_data *ifd,
     struct sockaddr_dl *sdl)
 {
 	struct kif_node		*kif;
@@ -899,7 +966,7 @@ if_change(u_short ifindex, int flags, struct if_data *ifd,
 
 	kif = kif_update(ifindex, flags, ifd, sdl, &link_old);
 	if (!kif) {
-		log_warn("if_change: kif_update(%u)", ifindex);
+		log_warn("%s: kif_update(%u)", __func__, ifindex);
 		return;
 	}
 	link_new = (kif->k.flags & IFF_UP) &&
@@ -908,91 +975,159 @@ if_change(u_short ifindex, int flags, struct if_data *ifd,
 	if (link_new == link_old)
 		return;
 
+	main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k, sizeof(struct kif));
 	if (link_new) {
-		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
-		    sizeof(struct kif));
 		TAILQ_FOREACH(ka, &kif->addrs, entry)
-			main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->addr,
-			    sizeof(struct kaddr));
+			main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->a,
+			    sizeof(ka->a));
 	} else {
-		main_imsg_compose_ldpe(IMSG_IFSTATUS, 0, &kif->k,
-		    sizeof(struct kif));
 		TAILQ_FOREACH(ka, &kif->addrs, entry)
-			main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->addr,
-			    sizeof(struct kaddr));
+			main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->a,
+			    sizeof(ka->a));
 	}
 }
 
-void
-if_newaddr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
-    struct sockaddr_in *brd)
+static void
+if_newaddr(unsigned short ifindex, struct sockaddr *ifa, struct sockaddr *mask,
+    struct sockaddr *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka;
-	u_int32_t	 a;
+	struct kif_node		*kif;
+	struct sockaddr_in	*ifa4, *mask4, *brd4;
+	struct sockaddr_in6	*ifa6, *mask6, *brd6;
+	struct kif_addr		*ka;
 
-	if (ifa == NULL || ifa->sin_family != AF_INET)
+	if (ifa == NULL)
 		return;
 	if ((kif = kif_find(ifindex)) == NULL) {
-		log_warnx("if_newaddr: corresponding if %d not found", ifindex);
+		log_warnx("%s: corresponding if %d not found", __func__,
+		    ifindex);
 		return;
 	}
-	a = ntohl(ifa->sin_addr.s_addr);
-	if (IN_MULTICAST(a) || IN_BADCLASS(a) ||
-	    (a >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET)
+
+	switch (ifa->sa_family) {
+	case AF_INET:
+		ifa4 = (struct sockaddr_in *) ifa;
+		mask4 = (struct sockaddr_in *) mask;
+		brd4 = (struct sockaddr_in *) brd;
+
+		/* filter out unwanted addresses */
+		if (bad_addr_v4(ifa4->sin_addr))
+			return;
+
+		if ((ka = calloc(1, sizeof(struct kif_addr))) == NULL)
+			fatal("if_newaddr");
+		ka->a.addr.v4 = ifa4->sin_addr;
+		if (mask4)
+			ka->a.prefixlen =
+			    mask2prefixlen(mask4->sin_addr.s_addr);
+		if (brd4)
+			ka->a.dstbrd.v4 = brd4->sin_addr;
+		break;
+	case AF_INET6:
+		ifa6 = (struct sockaddr_in6 *) ifa;
+		mask6 = (struct sockaddr_in6 *) mask;
+		brd6 = (struct sockaddr_in6 *) brd;
+
+		/* We only care about link-local and global-scope. */
+		if (bad_addr_v6(&ifa6->sin6_addr))
+			return;
+
+		clearscope(&ifa6->sin6_addr);
+
+		if ((ka = calloc(1, sizeof(struct kif_addr))) == NULL)
+			fatal("if_newaddr");
+		ka->a.addr.v6 = ifa6->sin6_addr;
+		if (mask6)
+			ka->a.prefixlen = mask2prefixlen6(mask6);
+		if (brd6)
+			ka->a.dstbrd.v6 = brd6->sin6_addr;
+		break;
+	default:
 		return;
+	}
 
-	if ((ka = calloc(1, sizeof(struct kif_addr))) == NULL)
-		fatal("if_newaddr");
-	ka->addr.ifindex = ifindex;
-	ka->addr.addr.s_addr = ifa->sin_addr.s_addr;
-	if (mask)
-		ka->addr.mask.s_addr = mask->sin_addr.s_addr;
-	else
-		ka->addr.mask.s_addr = INADDR_NONE;
-	if (brd)
-		ka->addr.dstbrd.s_addr = brd->sin_addr.s_addr;
-	else
-		ka->addr.dstbrd.s_addr = INADDR_NONE;
-
+	ka->a.ifindex = ifindex;
+	ka->a.af = ifa->sa_family;
 	TAILQ_INSERT_TAIL(&kif->addrs, ka, entry);
 
 	/* notify ldpe about new address */
-	main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->addr,
-	    sizeof(struct kaddr));
+	main_imsg_compose_ldpe(IMSG_NEWADDR, 0, &ka->a, sizeof(ka->a));
 }
 
-void
-if_deladdr(u_short ifindex, struct sockaddr_in *ifa, struct sockaddr_in *mask,
-    struct sockaddr_in *brd)
+static void
+if_deladdr(unsigned short ifindex, struct sockaddr *ifa, struct sockaddr *mask,
+    struct sockaddr *brd)
 {
-	struct kif_node *kif;
-	struct kif_addr *ka, *nka;
+	struct kif_node		*kif;
+	struct sockaddr_in	*ifa4, *mask4, *brd4;
+	struct sockaddr_in6	*ifa6, *mask6, *brd6;
+	struct kaddr		 k;
+	struct kif_addr		*ka, *nka;
 
-	if (ifa == NULL || ifa->sin_family != AF_INET)
+	if (ifa == NULL)
 		return;
 	if ((kif = kif_find(ifindex)) == NULL) {
-		log_warnx("if_deladdr: corresponding if %d not found", ifindex);
+		log_warnx("%s: corresponding if %d not found", __func__,
+		    ifindex);
+		return;
+	}
+
+	memset(&k, 0, sizeof(k));
+	k.af = ifa->sa_family;
+	switch (ifa->sa_family) {
+	case AF_INET:
+		ifa4 = (struct sockaddr_in *) ifa;
+		mask4 = (struct sockaddr_in *) mask;
+		brd4 = (struct sockaddr_in *) brd;
+
+		/* filter out unwanted addresses */
+		if (bad_addr_v4(ifa4->sin_addr))
+			return;
+
+		k.addr.v4 = ifa4->sin_addr;
+		if (mask4)
+			k.prefixlen = mask2prefixlen(mask4->sin_addr.s_addr);
+		if (brd4)
+			k.dstbrd.v4 = brd4->sin_addr;
+		break;
+	case AF_INET6:
+		ifa6 = (struct sockaddr_in6 *) ifa;
+		mask6 = (struct sockaddr_in6 *) mask;
+		brd6 = (struct sockaddr_in6 *) brd;
+
+		/* We only care about link-local and global-scope. */
+		if (bad_addr_v6(&ifa6->sin6_addr))
+			return;
+
+		clearscope(&ifa6->sin6_addr);
+
+		k.addr.v6 = ifa6->sin6_addr;
+		if (mask6)
+			k.prefixlen = mask2prefixlen6(mask6);
+		if (brd6)
+			k.dstbrd.v6 = brd6->sin6_addr;
+		break;
+	default:
 		return;
 	}
 
 	for (ka = TAILQ_FIRST(&kif->addrs); ka != NULL; ka = nka) {
 		nka = TAILQ_NEXT(ka, entry);
 
-		if (ka->addr.addr.s_addr == ifa->sin_addr.s_addr) {
-			TAILQ_REMOVE(&kif->addrs, ka, entry);
+		if (ka->a.af != k.af ||
+		    ka->a.prefixlen != k.prefixlen ||
+		    ldp_addrcmp(ka->a.af, &ka->a.addr, &k.addr))
+			continue;
 
-			/* notify ldpe about removed address */
-			main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->addr,
-			    sizeof(struct kaddr));
-
-			free(ka);
-			return;
-		}
+		/* notify ldpe about removed address */
+		main_imsg_compose_ldpe(IMSG_DELADDR, 0, &ka->a, sizeof(ka->a));
+		TAILQ_REMOVE(&kif->addrs, ka, entry);
+		free(ka);
+		return;
 	}
 }
 
-void
+static void
 if_announce(void *msg)
 {
 	struct if_announcemsghdr	*ifan;
@@ -1003,18 +1138,34 @@ if_announce(void *msg)
 	switch (ifan->ifan_what) {
 	case IFAN_ARRIVAL:
 		kif = kif_insert(ifan->ifan_index);
-		strlcpy(kif->k.ifname, ifan->ifan_name, sizeof(kif->k.ifname));
+		if (kif)
+			strlcpy(kif->k.ifname, ifan->ifan_name,
+			    sizeof(kif->k.ifname));
 		break;
 	case IFAN_DEPARTURE:
 		kif = kif_find(ifan->ifan_index);
-		kif_remove(kif);
+		if (kif)
+			kif_remove(kif);
 		break;
 	}
 }
 
 /* rtsock */
-int
-send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
+static int
+send_rtmsg(int fd, int action, struct kroute *kr, int family)
+{
+	switch (kr->af) {
+	case AF_INET:
+		return (send_rtmsg_v4(fd, action, kr, family));
+	case AF_INET6:
+		return (send_rtmsg_v6(fd, action, kr, family));
+	default:
+		fatalx("send_rtmsg: unknown af");
+	}
+}
+
+static int
+send_rtmsg_v4(int fd, int action, struct kroute *kr, int family)
 {
 	struct iovec		iov[5];
 	struct rt_msghdr	hdr;
@@ -1025,12 +1176,15 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 	if (kr_state.fib_sync == 0)
 		return (0);
 
-	/* Implicit NULL label should not be added to the FIB */
-	if (family == AF_MPLS && kroute->local_label == MPLS_LABEL_IMPLNULL)
+	/*
+	 * Reserved labels (implicit and explicit NULL) should not be added
+	 * to the FIB.
+	 */
+	if (family == AF_MPLS && kr->local_label < MPLS_LABEL_RESERVED_MAX)
 		return (0);
 
 	/* initialize header */
-	bzero(&hdr, sizeof(hdr));
+	memset(&hdr, 0, sizeof(hdr));
 	hdr.rtm_version = RTM_VERSION;
 
 	hdr.rtm_type = action;
@@ -1039,17 +1193,17 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 	hdr.rtm_seq = kr_state.rtseq++;	/* overflow doesn't matter */
 	hdr.rtm_msglen = sizeof(hdr);
 	hdr.rtm_hdrlen = sizeof(struct rt_msghdr);
-	hdr.rtm_priority = kroute->priority;
+	hdr.rtm_priority = kr->priority;
 	/* adjust iovec */
 	iov[iovcnt].iov_base = &hdr;
 	iov[iovcnt++].iov_len = sizeof(hdr);
 
 	if (family == AF_MPLS) {
-		bzero(&label_in, sizeof(label_in));
+		memset(&label_in, 0, sizeof(label_in));
 		label_in.smpls_len = sizeof(label_in);
 		label_in.smpls_family = AF_MPLS;
 		label_in.smpls_label =
-		    htonl(kroute->local_label << MPLS_LABEL_OFFSET);
+		    htonl(kr->local_label << MPLS_LABEL_OFFSET);
 		/* adjust header */
 		hdr.rtm_flags |= RTF_MPLS | RTF_MPATH;
 		hdr.rtm_addrs |= RTA_DST;
@@ -1058,10 +1212,10 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 		iov[iovcnt].iov_base = &label_in;
 		iov[iovcnt++].iov_len = sizeof(label_in);
 	} else {
-		bzero(&dst, sizeof(dst));
+		memset(&dst, 0, sizeof(dst));
 		dst.sin_len = sizeof(dst);
 		dst.sin_family = AF_INET;
-		dst.sin_addr.s_addr = kroute->prefix.s_addr;
+		dst.sin_addr = kr->prefix.v4;
 		/* adjust header */
 		hdr.rtm_addrs |= RTA_DST;
 		hdr.rtm_msglen += sizeof(dst);
@@ -1070,10 +1224,10 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 		iov[iovcnt++].iov_len = sizeof(dst);
 	}
 
-	bzero(&nexthop, sizeof(nexthop));
+	memset(&nexthop, 0, sizeof(nexthop));
 	nexthop.sin_len = sizeof(nexthop);
 	nexthop.sin_family = AF_INET;
-	nexthop.sin_addr.s_addr = kroute->nexthop.s_addr;
+	nexthop.sin_addr = kr->nexthop.v4;
 	/* adjust header */
 	hdr.rtm_flags |= RTF_GATEWAY;
 	hdr.rtm_addrs |= RTA_GATEWAY;
@@ -1083,10 +1237,10 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 	iov[iovcnt++].iov_len = sizeof(nexthop);
 
 	if (family == AF_INET) {
-		bzero(&mask, sizeof(mask));
+		memset(&mask, 0, sizeof(mask));
 		mask.sin_len = sizeof(mask);
 		mask.sin_family = AF_INET;
-		mask.sin_addr.s_addr = prefixlen2mask(kroute->prefixlen);
+		mask.sin_addr.s_addr = prefixlen2mask(kr->prefixlen);
 		/* adjust header */
 		hdr.rtm_addrs |= RTA_NETMASK;
 		hdr.rtm_msglen += sizeof(mask);
@@ -1096,12 +1250,12 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 	}
 
 	/* If action is RTM_DELETE we have to get rid of MPLS infos */
-	if (kroute->remote_label != NO_LABEL && action != RTM_DELETE) {
-		bzero(&label_out, sizeof(label_out));
+	if (kr->remote_label != NO_LABEL && action != RTM_DELETE) {
+		memset(&label_out, 0, sizeof(label_out));
 		label_out.smpls_len = sizeof(label_out);
 		label_out.smpls_family = AF_MPLS;
 		label_out.smpls_label =
-		    htonl(kroute->remote_label << MPLS_LABEL_OFFSET);
+		    htonl(kr->remote_label << MPLS_LABEL_OFFSET);
 		/* adjust header */
 		hdr.rtm_addrs |= RTA_SRC;
 		hdr.rtm_flags |= RTF_MPLS;
@@ -1110,7 +1264,7 @@ send_rtmsg(int fd, int action, struct kroute *kroute, u_int32_t family)
 		iov[iovcnt].iov_base = &label_out;
 		iov[iovcnt++].iov_len = sizeof(label_out);
 
-		if (kroute->remote_label == MPLS_LABEL_IMPLNULL) {
+		if (kr->remote_label == MPLS_LABEL_IMPLNULL) {
 			if (family == AF_MPLS)
 				hdr.rtm_mpls = MPLS_OP_POP;
 			else
@@ -1131,21 +1285,26 @@ retry:
 				goto retry;
 			} else if (hdr.rtm_type == RTM_DELETE) {
 				log_info("route %s/%u vanished before delete",
-				    inet_ntoa(kroute->prefix),
-				    kroute->prefixlen);
-				return (0);
+				    inet_ntoa(kr->prefix.v4), kr->prefixlen);
+				return (-1);
 			}
 		}
-		log_warn("send_rtmsg: action %u, AF %d, prefix %s/%u",
-		    hdr.rtm_type, family, inet_ntoa(kroute->prefix),
-		    kroute->prefixlen);
-		return (0);
+		log_warn("%s action %u, af %s, prefix %s/%u", __func__,
+		    hdr.rtm_type, af_name(family), inet_ntoa(kr->prefix.v4),
+		    kr->prefixlen);
+		return (-1);
 	}
 
 	return (0);
 }
 
-int
+static int
+send_rtmsg_v6(int fd, int action, struct kroute *kr, int family)
+{
+	return (0);
+}
+
+static int
 fetchtable(void)
 {
 	size_t			 len;
@@ -1156,7 +1315,7 @@ fetchtable(void)
 	mib[0] = CTL_NET;
 	mib[1] = PF_ROUTE;
 	mib[2] = 0;
-	mib[3] = AF_INET;
+	mib[3] = 0;
 	mib[4] = NET_RT_DUMP;
 	mib[5] = 0;
 	mib[6] = 0;	/* rtableid */
@@ -1166,7 +1325,7 @@ fetchtable(void)
 		return (-1);
 	}
 	if ((buf = malloc(len)) == NULL) {
-		log_warn("fetchtable");
+		log_warn(__func__);
 		return (-1);
 	}
 	if (sysctl(mib, 7, buf, &len, NULL, 0) == -1) {
@@ -1181,8 +1340,8 @@ fetchtable(void)
 	return (rv);
 }
 
-int
-fetchifs(u_short ifindex)
+static int
+fetchifs(void)
 {
 	size_t			 len;
 	int			 mib[6];
@@ -1192,16 +1351,16 @@ fetchifs(u_short ifindex)
 	mib[0] = CTL_NET;
 	mib[1] = PF_ROUTE;
 	mib[2] = 0;
-	mib[3] = AF_INET;
+	mib[3] = 0;	/* wildcard */
 	mib[4] = NET_RT_IFLIST;
-	mib[5] = ifindex;
+	mib[5] = 0;
 
 	if (sysctl(mib, 6, NULL, &len, NULL, 0) == -1) {
 		log_warn("sysctl");
 		return (-1);
 	}
 	if ((buf = malloc(len)) == NULL) {
-		log_warn("fetchif");
+		log_warn(__func__);
 		return (-1);
 	}
 	if (sysctl(mib, 6, buf, &len, NULL, 0) == -1) {
@@ -1216,7 +1375,7 @@ fetchifs(u_short ifindex)
 	return (rv);
 }
 
-int
+static int
 dispatch_rtmsg(void)
 {
 	char			 buf[RT_BUF_SIZE];
@@ -1225,7 +1384,7 @@ dispatch_rtmsg(void)
 	if ((n = read(kr_state.fd, &buf, sizeof(buf))) == -1) {
 		if (errno == EAGAIN || errno == EINTR)
 			return (0);
-		log_warn("dispatch_rtmsg: read error");
+		log_warn("%s: read error", __func__);
 		return (-1);
 	}
 
@@ -1237,39 +1396,25 @@ dispatch_rtmsg(void)
 	return (rtmsg_process(buf, n));
 }
 
-int
+static int
 rtmsg_process(char *buf, size_t len)
 {
 	struct rt_msghdr	*rtm;
 	struct if_msghdr	 ifm;
 	struct ifa_msghdr	*ifam;
 	struct sockaddr		*sa, *rti_info[RTAX_MAX];
-	struct sockaddr_in	*sa_in;
-	struct kroute_priority	*kprio;
-	struct kroute_node	*kn;
-	struct kroute		 kr;
-	struct in_addr		 prefix, nexthop;
-	u_int8_t		 prefixlen, prio;
-	int			 flags;
-	u_short			 ifindex = 0;
 	size_t			 offset;
 	char			*next;
 
 	for (offset = 0; offset < len; offset += rtm->rtm_msglen) {
 		next = buf + offset;
 		rtm = (struct rt_msghdr *)next;
-		if (len < offset + sizeof(u_short) ||
+		if (len < offset + sizeof(unsigned short) ||
 		    len < offset + rtm->rtm_msglen)
 			fatalx("rtmsg_process: partial rtm in buffer");
 		if (rtm->rtm_version != RTM_VERSION)
 			continue;
 		log_rtmsg(rtm->rtm_type);
-
-		prefix.s_addr = 0;
-		prefixlen = 0;
-		nexthop.s_addr = 0;
-		prio = 0;
-		flags = 0;
 
 		sa = (struct sockaddr *)(next + rtm->rtm_hdrlen);
 		get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
@@ -1285,7 +1430,8 @@ rtmsg_process(char *buf, size_t len)
 			if (rtm->rtm_tableid != 0)
 				continue;
 
-			if ((sa = rti_info[RTAX_DST]) == NULL)
+			if (rtm->rtm_type == RTM_GET &&
+			    rtm->rtm_pid != kr_state.pid)
 				continue;
 
 			/* Skip ARP/ND cache and broadcast routes. */
@@ -1295,119 +1441,12 @@ rtmsg_process(char *buf, size_t len)
 			/* LDP should follow the IGP and ignore BGP routes */
 			if (rtm->rtm_priority == RTP_BGP)
 				continue;
-			prio = rtm->rtm_priority;
 
-			switch (sa->sa_family) {
-			case AF_INET:
-				prefix.s_addr =
-				    ((struct sockaddr_in *)sa)->sin_addr.s_addr;
-				sa_in = (struct sockaddr_in *)
-				    rti_info[RTAX_NETMASK];
-				if (sa_in != NULL) {
-					if (sa_in->sin_len != 0)
-						prefixlen = mask2prefixlen(
-						    sa_in->sin_addr.s_addr);
-				} else if (rtm->rtm_flags & RTF_HOST)
-					prefixlen = 32;
-				else
-					prefixlen =
-					    prefixlen_classful(prefix.s_addr);
-				if (rtm->rtm_flags & RTF_STATIC)
-					flags |= F_STATIC;
-				if (rtm->rtm_flags & RTF_BLACKHOLE)
-					flags |= F_BLACKHOLE;
-				if (rtm->rtm_flags & RTF_REJECT)
-					flags |= F_REJECT;
-				if (rtm->rtm_flags & RTF_DYNAMIC)
-					flags |= F_DYNAMIC;
-				break;
-			default:
-				continue;
-			}
-
-			ifindex = rtm->rtm_index;
-			if ((sa = rti_info[RTAX_GATEWAY]) != NULL) {
-				switch (sa->sa_family) {
-				case AF_INET:
-					if (rtm->rtm_flags & RTF_CONNECTED) {
-						flags |= F_CONNECTED;
-						break;
-					}
-					nexthop.s_addr = ((struct
-					    sockaddr_in *)sa)->sin_addr.s_addr;
-					break;
-				case AF_LINK:
-					/*
-					 * Traditional BSD connected routes have
-					 * a gateway of type AF_LINK.
-					 */
-					flags |= F_CONNECTED;
-					break;
-				}
-			}
+			if (rtmsg_process_route(rtm, rti_info) == -1)
+				return (-1);
 		}
 
 		switch (rtm->rtm_type) {
-		case RTM_CHANGE:
-			/*
-			 * The kernel doesn't allow RTM_CHANGE for multipath
-			 * routes. If we got this message we know that the
-			 * route has only one nexthop and we should remove
-			 * it before installing the same route with a new
-			 * nexthop.
-			 */
-			if ((kprio = kroute_find_prio(prefix.s_addr,
-			    prefixlen, prio)) == NULL) {
-				log_warnx("dispatch_rtmsg route not found");
-				return (-1);
-			}
-			kn = TAILQ_FIRST(&kprio->nexthops);
-			if (kn && kroute_remove(&kn->r) == -1)
-				return (-1);
-			break;
-		default:
-			break;
-		}
-
-		switch (rtm->rtm_type) {
-		case RTM_ADD:
-		case RTM_GET:
-		case RTM_CHANGE:
-			if (nexthop.s_addr == 0 && !(flags & F_CONNECTED)) {
-				log_warnx("no nexthop for %s/%u",
-				    inet_ntoa(prefix), prefixlen);
-				continue;
-			}
-
-			/* routes attached to loopback interfaces */
-			if (prefix.s_addr == nexthop.s_addr)
-				flags |= F_CONNECTED;
-
-			if (kroute_find_gw(prefix.s_addr, prefixlen, prio,
-			    nexthop) != NULL)
-				break;
-
-			memset(&kr, 0, sizeof(kr));
-			kr.prefix.s_addr = prefix.s_addr;
-			kr.prefixlen = prefixlen;
-			kr.nexthop.s_addr = nexthop.s_addr;
-			kr.flags = flags;
-			kr.ifindex = ifindex;
-			kr.priority = prio;
-			kr.local_label = NO_LABEL;
-			kr.remote_label = NO_LABEL;
-			kroute_insert(&kr);
-			break;
-		case RTM_DELETE:
-			/* get the correct route */
-			if ((kn = kroute_find_gw(prefix.s_addr, prefixlen,
-			    prio, nexthop)) == NULL) {
-				log_warnx("dispatch_rtmsg route not found");
-				return (-1);
-			}
-			if (kroute_remove(&kn->r) == -1)
-				return (-1);
-			break;
 		case RTM_IFINFO:
 			memcpy(&ifm, next, sizeof(ifm));
 			if_change(ifm.ifm_index, ifm.ifm_flags, &ifm.ifm_data,
@@ -1420,9 +1459,9 @@ rtmsg_process(char *buf, size_t len)
 				break;
 
 			if_newaddr(ifam->ifam_index,
-			    (struct sockaddr_in *)rti_info[RTAX_IFA],
-			    (struct sockaddr_in *)rti_info[RTAX_NETMASK],
-			    (struct sockaddr_in *)rti_info[RTAX_BRD]);
+			    (struct sockaddr *)rti_info[RTAX_IFA],
+			    (struct sockaddr *)rti_info[RTAX_NETMASK],
+			    (struct sockaddr *)rti_info[RTAX_BRD]);
 			break;
 		case RTM_DELADDR:
 			ifam = (struct ifa_msghdr *)rtm;
@@ -1431,9 +1470,9 @@ rtmsg_process(char *buf, size_t len)
 				break;
 
 			if_deladdr(ifam->ifam_index,
-			    (struct sockaddr_in *)rti_info[RTAX_IFA],
-			    (struct sockaddr_in *)rti_info[RTAX_NETMASK],
-			    (struct sockaddr_in *)rti_info[RTAX_BRD]);
+			    (struct sockaddr *)rti_info[RTAX_IFA],
+			    (struct sockaddr *)rti_info[RTAX_NETMASK],
+			    (struct sockaddr *)rti_info[RTAX_BRD]);
 			break;
 		case RTM_IFANNOUNCE:
 			if_announce(next);
@@ -1447,51 +1486,178 @@ rtmsg_process(char *buf, size_t len)
 	return (offset);
 }
 
-void
+static int
+rtmsg_process_route(struct rt_msghdr *rtm, struct sockaddr *rti_info[RTAX_MAX])
+{
+	struct sockaddr		*sa;
+	struct sockaddr_in	*sa_in;
+	struct sockaddr_in6	*sa_in6;
+	struct kroute		 kr;
+	struct kroute_prefix	*kp;
+	struct kroute_priority	*kprio;
+	struct kroute_node	*kn;
+
+	if ((sa = rti_info[RTAX_DST]) == NULL)
+		return (-1);
+
+	memset(&kr, 0, sizeof(kr));
+	kr.af = sa->sa_family;
+	switch (kr.af) {
+	case AF_INET:
+		kr.prefix.v4 = ((struct sockaddr_in *)sa)->sin_addr;
+		sa_in = (struct sockaddr_in *) rti_info[RTAX_NETMASK];
+		if (sa_in != NULL && sa_in->sin_len != 0)
+			kr.prefixlen = mask2prefixlen(sa_in->sin_addr.s_addr);
+		else if (rtm->rtm_flags & RTF_HOST)
+			kr.prefixlen = 32;
+		else if (kr.prefix.v4.s_addr == INADDR_ANY)
+			kr.prefixlen = 0;
+		else
+			kr.prefixlen = prefixlen_classful(kr.prefix.v4.s_addr);
+		break;
+	case AF_INET6:
+		kr.prefix.v6 = ((struct sockaddr_in6 *)sa)->sin6_addr;
+		sa_in6 = (struct sockaddr_in6 *)rti_info[RTAX_NETMASK];
+		if (sa_in6 != NULL && sa_in6->sin6_len != 0)
+			kr.prefixlen = mask2prefixlen6(sa_in6);
+		else if (rtm->rtm_flags & RTF_HOST)
+			kr.prefixlen = 128;
+		else if (IN6_IS_ADDR_UNSPECIFIED(&kr.prefix.v6))
+			kr.prefixlen = 0;
+		else
+			fatalx("in6 net addr without netmask");
+		break;
+	default:
+		return (0);
+	}
+	kr.ifindex = rtm->rtm_index;
+	if ((sa = rti_info[RTAX_GATEWAY]) != NULL) {
+		switch (sa->sa_family) {
+		case AF_INET:
+			kr.nexthop.v4 = ((struct sockaddr_in *)sa)->sin_addr;
+			break;
+		case AF_INET6:
+			sa_in6 = (struct sockaddr_in6 *)sa;
+			recoverscope(sa_in6);
+			kr.nexthop.v6 = sa_in6->sin6_addr;
+			if (sa_in6->sin6_scope_id)
+				kr.ifindex = sa_in6->sin6_scope_id;
+			break;
+		case AF_LINK:
+			kr.flags |= F_CONNECTED;
+			break;
+		}
+	}
+
+	if (rtm->rtm_flags & RTF_STATIC)
+		kr.flags |= F_STATIC;
+	if (rtm->rtm_flags & RTF_BLACKHOLE)
+		kr.flags |= F_BLACKHOLE;
+	if (rtm->rtm_flags & RTF_REJECT)
+		kr.flags |= F_REJECT;
+	if (rtm->rtm_flags & RTF_DYNAMIC)
+		kr.flags |= F_DYNAMIC;
+	/* routes attached to connected or loopback interfaces */
+	if (rtm->rtm_flags & RTF_CONNECTED ||
+	    ldp_addrcmp(kr.af, &kr.prefix, &kr.nexthop) == 0)
+		kr.flags |= F_CONNECTED;
+	kr.priority = rtm->rtm_priority;
+
+	if (rtm->rtm_type == RTM_CHANGE) {
+		/*
+		 * The kernel doesn't allow RTM_CHANGE for multipath routes.
+		 * If we got this message we know that the route has only one
+		 * nexthop and we should remove it before installing the same
+		 * route with the new nexthop.
+		 */
+		kp = kroute_find_prefix(kr.af, &kr.prefix, kr.prefixlen);
+		if (kp) {
+			kprio = kroute_find_prio(kp, kr.priority);
+			if (kprio) {
+				kn = TAILQ_FIRST(&kprio->nexthops);
+				if (kn)
+					kroute_remove(&kn->r);
+			}
+		}
+	}
+
+	kn = NULL;
+	kp = kroute_find_prefix(kr.af, &kr.prefix, kr.prefixlen);
+	if (kp) {
+		kprio = kroute_find_prio(kp, kr.priority);
+		if (kprio)
+			kn = kroute_find_gw(kprio, &kr.nexthop);
+	}
+
+	if (rtm->rtm_type == RTM_DELETE) {
+		if (kn == NULL)
+			return (0);
+		return (kroute_remove(&kr));
+	}
+
+	if (!ldp_addrisset(kr.af, &kr.nexthop) && !(kr.flags & F_CONNECTED)) {
+		log_warnx("%s: no nexthop for %s/%u", __func__,
+		    log_addr(kr.af, &kr.prefix), kr.prefixlen);
+		return (-1);
+	}
+
+	if (kn != NULL) {
+		/* update route */
+		kn->r = kr;
+		kr_redistribute(kp);
+	} else {
+		kr.local_label = NO_LABEL;
+		kr.remote_label = NO_LABEL;
+		kroute_insert(&kr);
+	}
+
+	return (0);
+}
+
+int
 kmpw_set(struct kpw *kpw)
 {
 	struct kif_node		*kif;
 
 	kif = kif_find(kpw->ifindex);
 	if (kif == NULL) {
-		log_warn("kmpw_set: failed to find mpw by index (%u)",
+		log_warnx("%s: failed to find mpw by index (%u)", __func__,
 		    kpw->ifindex);
-		return;
+		return (-1);
 	}
 
 	if (kif->kpw == NULL)
 		kif->kpw = malloc(sizeof(*kif->kpw));
-	memcpy(kif->kpw, kpw, sizeof(*kif->kpw));
+	*kif->kpw = *kpw;
 
-	kmpw_install(kif->k.ifname, kpw);
+	return (kmpw_install(kif->k.ifname, kpw));
 }
 
-void
+int
 kmpw_unset(struct kpw *kpw)
 {
 	struct kif_node		*kif;
 
 	kif = kif_find(kpw->ifindex);
 	if (kif == NULL) {
-		log_warn("kmpw_unset: failed to find mpw by index (%u)",
+		log_warnx("%s: failed to find mpw by index (%u)", __func__,
 		    kpw->ifindex);
-		return;
+		return (-1);
 	}
 
 	if (kif->kpw == NULL) {
-		log_warn("kmpw_unset: %s is not set", kif->k.ifname);
-		return;
+		log_warnx("%s: %s is not set", __func__, kif->k.ifname);
+		return (-1);
 	}
 
 	free(kif->kpw);
 	kif->kpw = NULL;
-	kmpw_uninstall(kif->k.ifname, kpw);
+	return (kmpw_uninstall(kif->k.ifname));
 }
 
-void
+static int
 kmpw_install(const char *ifname, struct kpw *kpw)
 {
-	struct sockaddr_in	*sin;
 	struct ifreq		 ifr;
 	struct ifmpwreq		 imr;
 
@@ -1503,19 +1669,17 @@ kmpw_install(const char *ifname, struct kpw *kpw)
 	case PW_TYPE_ETHERNET_TAGGED:
 		imr.imr_type = IMR_TYPE_ETHERNET_TAGGED;
 		break;
-
 	default:
-		log_warn("kmpw_install: unhandled pseudowire type (%#X)",
+		log_warnx("%s: unhandled pseudowire type (%#X)", __func__,
 		    kpw->pw_type);
+		return (-1);
 	}
 
-	if (kpw->flags & F_PW_CONTROLWORD)
+	if (kpw->flags & F_PW_CWORD)
 		imr.imr_flags |= IMR_FLAG_CONTROLWORD;
 
-	sin = (struct sockaddr_in *) &imr.imr_nexthop;
-	sin->sin_family = AF_INET;
-	sin->sin_addr.s_addr = kpw->nexthop.s_addr;
-	sin->sin_len = sizeof(struct sockaddr_in);
+	memcpy(&imr.imr_nexthop, addr2sa(kpw->af, &kpw->nexthop, 0),
+	    sizeof(imr.imr_nexthop));
 
 	imr.imr_lshim.shim_label = kpw->local_label;
 	imr.imr_rshim.shim_label = kpw->remote_label;
@@ -1523,20 +1687,28 @@ kmpw_install(const char *ifname, struct kpw *kpw)
 	memset(&ifr, 0, sizeof(ifr));
 	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (caddr_t) &imr;
-	if (ioctl(kr_state.ioctl_fd, SIOCSETMPWCFG, &ifr))
-		log_warn("ioctl SETMPWCFG");
+	if (ioctl(kr_state.ioctl_fd, SIOCSETMPWCFG, &ifr)) {
+		log_warn("ioctl SIOCSETMPWCFG");
+		return (-1);
+	}
+
+	return (0);
 }
 
-void
-kmpw_uninstall(const char *ifname, struct kpw *kpw)
+static int
+kmpw_uninstall(const char *ifname)
 {
 	struct ifreq		 ifr;
 	struct ifmpwreq		 imr;
 
-	memset(&imr, 0, sizeof(imr));
 	memset(&ifr, 0, sizeof(ifr));
+	memset(&imr, 0, sizeof(imr));
 	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	ifr.ifr_data = (caddr_t) &imr;
-	if (ioctl(kr_state.ioctl_fd, SIOCSETMPWCFG, &ifr))
-		log_warn("ioctl SETMPWCFG");
+	if (ioctl(kr_state.ioctl_fd, SIOCSETMPWCFG, &ifr)) {
+		log_warn("ioctl SIOCSETMPWCFG");
+		return (-1);
+	}
+
+	return (0);
 }

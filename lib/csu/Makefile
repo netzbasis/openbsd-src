@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.21 2014/12/22 03:51:08 kurt Exp $
+#	$OpenBSD: Makefile,v 1.23 2016/09/03 10:47:24 jsg Exp $
 
 OBJS=		crt0.o gcrt0.o
 OBJS+=		crtbegin.o crtend.o
@@ -15,11 +15,6 @@ CFLAGS+=	-I${.CURDIR}/../../libexec/ld.so/${MACHINE_CPU}
 CFLAGS+=	-fno-omit-frame-pointer
 .endif
 
-# XXX arm doesn't do pie yet???
-.if ${MACHINE_ARCH} == "arm"
-CFLAGS+=	-fpie
-.endif
-
 # Override powerpc default of -fPIE
 # XXX if this is safe, why not override CFLAGS for alpha and sparc64 too?
 # Does it work because the csu bits come first and get the first few GOT
@@ -30,8 +25,7 @@ CFLAGS+=	-fpie
 
 .ifdef NOPIC
 PICFLAG=
-.elif ${MACHINE_ARCH} == "powerpc" || ${MACHINE_ARCH} == "sparc" || \
-      ${MACHINE_ARCH} == "sparc64"
+.elif ${MACHINE_ARCH} == "powerpc" || ${MACHINE_ARCH} == "sparc64"
 # The objects for shared libraries need to work for all possible
 # libraries, so force big PIC where it matters.
 # Arguably m88k should do this too, but maybe there aren't any

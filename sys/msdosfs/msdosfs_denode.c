@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_denode.c,v 1.55 2015/10/23 17:21:34 krw Exp $	*/
+/*	$OpenBSD: msdosfs_denode.c,v 1.57 2016/06/19 11:54:33 natano Exp $	*/
 /*	$NetBSD: msdosfs_denode.c,v 1.23 1997/10/17 11:23:58 ws Exp $	*/
 
 /*-
@@ -233,7 +233,7 @@ retry:
 		return (error);
 	}
 	ldep = malloc(sizeof(*ldep), M_MSDOSFSNODE, M_WAITOK | M_ZERO);
-	lockinit(&ldep->de_lock, PINOD, "denode", 0, 0);
+	rrw_init(&ldep->de_lock, "denode");
 	nvp->v_data = ldep;
 	ldep->de_vnode = nvp;
 	ldep->de_flag = 0;
@@ -661,7 +661,7 @@ msdosfs_inactive(void *v)
 	deupdat(dep, 0);
 
 out:
-	VOP_UNLOCK(vp, 0, p);
+	VOP_UNLOCK(vp, p);
 	/*
 	 * If we are done with the denode, reclaim it
 	 * so that it can be reused immediately.

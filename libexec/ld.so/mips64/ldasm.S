@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.16 2015/11/15 03:41:24 deraadt Exp $ */
+/*	$OpenBSD: ldasm.S,v 1.21 2016/08/28 06:15:32 guenther Exp $ */
 
 /*
  * Copyright (c) 1998-2002 Opsycon AB, Sweden.
@@ -28,6 +28,7 @@
 
 #include <machine/asm.h>
 #include <sys/syscall.h>
+#define __cerror	_dl_cerror
 #include <SYS.h>
 
 /* Stack at this stage is:
@@ -54,6 +55,8 @@ LEAF(_dl_start, FRAMESZ)		/* Not really LEAF, but we simplify */
 
 	PTR_ADDU a0, sp, FRAMESZ	# Where stack info is.
 	PTR_ADDU a1, sp, 0		# Where fast AUX info will be.
+	LA	a2, _DYNAMIC
+	PTR_ADDU a2, s0			# Where _DYNAMIC is
 	LA	t9, _dl_boot_bind
 	PTR_ADDU t9, s0
 	jalr	t9			# Relocate ourself.
@@ -153,15 +156,15 @@ DL_SYSCALL(getdents)
 DL_SYSCALL(getentropy)
 DL_SYSCALL(sendsyslog)
 DL_SYSCALL(pledge)
-DL_SYSCALL(gettimeofday)
 DL_SYSCALL_NOERR(issetugid)
-DL_SYSCALL(lstat)
+DL_SYSCALL_NOERR(getthrid)
 DL_SYSCALL(mprotect)
 DL_SYSCALL(munmap)
 DL_SYSCALL(open)
 DL_SYSCALL(read)
 DL_SYSCALL(readlink)
 DL_SYSCALL2(_syscall,__syscall)
+DL_SYSCALL2_NOERR(set_tcb,__set_tcb)
 DL_SYSCALL(sysctl)
 DL_SYSCALL(utrace)
 DL_SYSCALL(write)

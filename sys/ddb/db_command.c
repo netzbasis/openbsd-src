@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_command.c,v 1.68 2016/01/25 14:30:30 mpi Exp $	*/
+/*	$OpenBSD: db_command.c,v 1.71 2016/04/19 12:23:25 mpi Exp $	*/
 /*	$NetBSD: db_command.c,v 1.20 1996/03/30 22:30:05 christos Exp $	*/
 
 /*
@@ -43,12 +43,14 @@
 #include <uvm/uvm_extern.h>
 #include <machine/db_machdep.h>		/* type definitions */
 
+#include <ddb/db_access.h>
 #include <ddb/db_lex.h>
 #include <ddb/db_output.h>
 #include <ddb/db_command.h>
 #include <ddb/db_break.h>
 #include <ddb/db_watch.h>
 #include <ddb/db_run.h>
+#include <ddb/db_sym.h>
 #include <ddb/db_variables.h>
 #include <ddb/db_interface.h>
 #include <ddb/db_extern.h>
@@ -74,6 +76,43 @@ db_addr_t	db_prev;	/* last address examined
 				   or written */
 db_addr_t	db_next;	/* next address to be examined
 				   or written */
+
+int	db_cmd_search(char *, struct db_command *, struct db_command **);
+void	db_cmd_list(struct db_command *);
+void	db_map_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_buf_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_malloc_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_mbuf_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_mount_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_show_all_mounts(db_expr_t, int, db_expr_t, char *);
+void	db_show_all_vnodes(db_expr_t, int, db_expr_t, char *);
+void	db_show_all_bufs(db_expr_t, int, db_expr_t, char *);
+void	db_object_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_page_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_extent_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_pool_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_proc_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_uvmexp_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_vnode_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_nfsreq_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_nfsnode_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_help_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_fncall(db_expr_t, int, db_expr_t, char *);
+void	db_boot_sync_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_boot_crash_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_boot_dump_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_boot_halt_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_boot_reboot_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_boot_poweroff_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_stack_trace_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_dmesg_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_show_panic_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_bcstats_print_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_struct_offset_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_struct_layout_cmd(db_expr_t, int, db_expr_t, char *);
+void	db_show_regs(db_expr_t, boolean_t, db_expr_t, char *);
+void	db_write_cmd(db_expr_t, boolean_t, db_expr_t, char *);
+
 
 /*
  * Utility routine - discard tokens through end-of-line.
@@ -788,4 +827,91 @@ db_stack_trace_cmd(db_expr_t addr, boolean_t have_addr, db_expr_t count,
     char *modif)
 {
 	db_stack_trace_print(addr, have_addr, count, modif, db_printf);
+}
+
+void
+db_show_regs(db_expr_t addr, int have_addr, db_expr_t count, char *modif)
+{
+	struct db_variable *regp;
+	db_expr_t	value, offset;
+	char *		name;
+	char		tmpfmt[28];
+
+	for (regp = db_regs; regp < db_eregs; regp++) {
+	    db_read_variable(regp, &value);
+	    db_printf("%-12s%s", regp->name, db_format(tmpfmt, sizeof tmpfmt,
+	      (long)value, DB_FORMAT_N, 1, sizeof(long) * 3));
+	    db_find_xtrn_sym_and_offset((db_addr_t)value, &name, &offset);
+	    if (name != 0 && offset <= db_maxoff && offset != value) {
+		db_printf("\t%s", name);
+		if (offset != 0)
+		    db_printf("+%s", db_format(tmpfmt, sizeof tmpfmt,
+		      (long)offset, DB_FORMAT_R, 1, 0));
+	    }
+	    db_printf("\n");
+	}
+	db_print_loc_and_inst(PC_REGS(&ddb_regs));
+}
+
+/*
+ * Write to file.
+ */
+/*ARGSUSED*/
+void
+db_write_cmd(db_expr_t	address, boolean_t have_addr, db_expr_t count,
+    char *modif)
+{
+	db_addr_t	addr;
+	db_expr_t	old_value;
+	db_expr_t	new_value;
+	int		size;
+	boolean_t	wrote_one = FALSE;
+	char		tmpfmt[28];
+
+	addr = (db_addr_t) address;
+
+	switch (modif[0]) {
+	case 'b':
+		size = 1;
+		break;
+	case 'h':
+		size = 2;
+		break;
+	case 'l':
+	case '\0':
+		size = 4;
+		break;
+#ifdef __LP64__
+	case 'q':
+		size = 8;
+		break;
+#endif
+	default:
+		size = -1;
+		db_error("Unknown size\n");
+		/*NOTREACHED*/
+	}
+
+	while (db_expression(&new_value)) {
+		old_value = db_get_value(addr, size, FALSE);
+		db_printsym(addr, DB_STGY_ANY, db_printf);
+		db_printf("\t\t%s\t", db_format(tmpfmt, sizeof tmpfmt,
+		    old_value, DB_FORMAT_N, 0, 8));
+		db_printf("=\t%s\n",  db_format(tmpfmt, sizeof tmpfmt,
+		    new_value, DB_FORMAT_N, 0, 8));
+		db_put_value(addr, size, new_value);
+		addr += size;
+
+		wrote_one = TRUE;
+	}
+
+	if (!wrote_one) {
+		db_error("Nothing written.\n");
+		/*NOTREACHED*/
+	}
+
+	db_next = addr;
+	db_prev = addr - size;
+
+	db_skip_to_eol();
 }

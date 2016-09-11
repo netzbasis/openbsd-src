@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.145 2015/12/07 06:34:14 jsg Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.148 2016/07/28 21:57:57 kettenis Exp $	*/
 /*	$NetBSD: cpu.h,v 1.35 1996/05/05 19:29:26 christos Exp $	*/
 
 /*-
@@ -83,6 +83,7 @@ struct cpu_info {
 	struct proc *ci_curproc; 	/* current owner of the processor */
 	cpuid_t ci_cpuid; 		/* our CPU ID */
 	u_int ci_apicid;		/* our APIC ID */
+	u_int ci_acpi_proc_id;
 	u_int32_t ci_randseed;
 
 #if defined(MULTIPROCESSOR)
@@ -142,8 +143,6 @@ struct cpu_info {
 	int		ci_want_resched;
 
 	union descriptor *ci_gdt;
-	union descriptor *ci_ldt;	/* per-cpu default LDT */
-	int		ci_ldt_len;	/* in bytes */
 
 	volatile int ci_ddb_paused;	/* paused due to other proc in ddb */
 #define CI_DDB_RUNNING		0
@@ -387,8 +386,8 @@ extern void (*update_cpuspeed)(void);
 /* machdep.c */
 void	dumpconf(void);
 void	cpu_reset(void);
-void	i386_proc0_tss_ldt_init(void);
-void	i386_init_pcb_tss_ldt(struct cpu_info *);
+void	i386_proc0_tss_init(void);
+void	i386_init_pcb_tss(struct cpu_info *);
 void	cpuid(u_int32_t, u_int32_t *);
 
 /* locore.s */
@@ -441,13 +440,6 @@ void	npxdrop(struct proc *);
 void	npxsave_proc(struct proc *, int);
 void	npxsave_cpu(struct cpu_info *, int);
 
-#ifdef USER_LDT
-/* sys_machdep.h */
-extern int user_ldt_enable;
-int	i386_get_ldt(struct proc *, void *, register_t *);
-int	i386_set_ldt(struct proc *, void *, register_t *);
-#endif
-
 /* isa_machdep.c */
 void	isa_defaultirq(void);
 int	isa_nmi(void);
@@ -485,7 +477,6 @@ int	cpu_paenable(void *);
 #define CPU_APMWARN		9	/* APM battery warning percentage */
 #define CPU_KBDRESET		10	/* keyboard reset under pcvt */
 #define CPU_APMHALT		11	/* halt -p hack */
-#define CPU_USERLDT		12
 #define CPU_OSFXSR		13	/* uses FXSAVE/FXRSTOR */
 #define CPU_SSE			14	/* supports SSE */
 #define CPU_SSE2		15	/* supports SSE2 */
@@ -506,7 +497,7 @@ int	cpu_paenable(void *);
 	{ "apmwarn", CTLTYPE_INT }, \
 	{ "kbdreset", CTLTYPE_INT }, \
 	{ "apmhalt", CTLTYPE_INT }, \
-	{ "userldt", CTLTYPE_INT }, \
+	{ 0, 0 }, \
 	{ "osfxsr", CTLTYPE_INT }, \
 	{ "sse", CTLTYPE_INT }, \
 	{ "sse2", CTLTYPE_INT }, \

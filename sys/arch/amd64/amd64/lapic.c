@@ -1,4 +1,4 @@
-/*	$OpenBSD: lapic.c,v 1.42 2015/12/08 19:45:55 mikeb Exp $	*/
+/*	$OpenBSD: lapic.c,v 1.44 2016/06/22 01:12:38 mikeb Exp $	*/
 /* $NetBSD: lapic.c,v 1.2 2003/05/08 01:04:35 fvdl Exp $ */
 
 /*-
@@ -56,6 +56,7 @@
 
 #include "ioapic.h"
 #include "xen.h"
+#include "hyperv.h"
 
 #if NIOAPIC > 0
 #include <machine/i82093var.h>
@@ -94,12 +95,12 @@ extern int x2apic_eoi;
 int x2apic_enabled = 0;
 
 u_int32_t x2apic_readreg(int reg);
-u_int32_t x2apic_cpu_number();
+u_int32_t x2apic_cpu_number(void);
 void x2apic_writereg(int reg, u_int32_t val);
 void x2apic_ipi(int vec, int target, int dl);
 
 u_int32_t i82489_readreg(int reg);
-u_int32_t i82489_cpu_number();
+u_int32_t i82489_cpu_number(void);
 void i82489_writereg(int reg, u_int32_t val);
 void i82489_ipi(int vec, int target, int dl);
 
@@ -117,7 +118,7 @@ i82489_readreg(int reg)
 }
 
 u_int32_t
-i82489_cpu_number()
+i82489_cpu_number(void)
 {
 	return i82489_readreg(LAPIC_ID) >> LAPIC_ID_SHIFT;
 }
@@ -136,7 +137,7 @@ x2apic_readreg(int reg)
 }
 
 u_int32_t
-x2apic_cpu_number()
+x2apic_cpu_number(void)
 {
 	return x2apic_readreg(LAPIC_ID) & X2APIC_ID_MASK;
 }
@@ -155,7 +156,7 @@ x2apic_writeicr(u_int32_t hi, u_int32_t lo)
 }
 
 u_int32_t
-lapic_cpu_number()
+lapic_cpu_number(void)
 {
 	if (x2apic_enabled)
 		return x2apic_cpu_number();
@@ -358,6 +359,11 @@ lapic_boot_init(paddr_t lapic_base)
 	/* Xen HVM Event Channel Interrupt Vector */
 	idt_allocmap[LAPIC_XEN_VECTOR] = 1;
 	idt_vec_set(LAPIC_XEN_VECTOR, Xintr_xen_upcall);
+#endif
+#if NHYPERV > 0
+	/* Hyper-V Interrupt Vector */
+	idt_allocmap[LAPIC_HYPERV_VECTOR] = 1;
+	idt_vec_set(LAPIC_HYPERV_VECTOR, Xintr_hyperv_upcall);
 #endif
 
 	evcount_attach(&clk_count, "clock", &clk_irq);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvram.c,v 1.5 2016/01/08 08:00:12 stefan Exp $ */
+/*	$OpenBSD: nvram.c,v 1.7 2016/08/03 17:29:18 jcs Exp $ */
 
 /*
  * Copyright (c) 2004 Joshua Stein <jcs@openbsd.org>
@@ -64,8 +64,7 @@ nvramattach(int num)
 		printf("nvram: initialized\n");
 #endif
 		nvram_initialized = 1;
-	} else
-		printf("nvram: invalid checksum\n");
+	}
 }
 
 int
@@ -134,7 +133,7 @@ nvram_get_byte(int byteno)
 }
 
 int
-nvram_csum_valid()
+nvram_csum_valid(void)
 {
 	u_short csum = 0;
 	u_short csumexpect;

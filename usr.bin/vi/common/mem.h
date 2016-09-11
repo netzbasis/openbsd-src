@@ -1,4 +1,4 @@
-/*	$OpenBSD: mem.h,v 1.7 2015/12/07 20:39:19 mmcc Exp $	*/
+/*	$OpenBSD: mem.h,v 1.9 2016/05/07 14:03:01 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -120,9 +120,6 @@
 	if (((p) = calloc((nmemb), (size))) == NULL)			\
 		goto alloc_err;						\
 }
-#define	CALLOC_NOMSG(sp, p, nmemb, size) {				\
-	(p) = calloc((nmemb), (size));					\
-}
 #define	CALLOC_RET(sp, p, nmemb, size) {				\
 	if (((p) = calloc((nmemb), (size))) == NULL) {			\
 		msgq((sp), M_SYSERR, NULL);				\
@@ -138,9 +135,6 @@
 	if (((p) = malloc(size)) == NULL)				\
 		goto alloc_err;						\
 }
-#define	MALLOC_NOMSG(sp, p, size) {					\
-	(p) = malloc(size);						\
-}
 #define	MALLOC_RET(sp, p, size) {					\
 	if (((p) = malloc(size)) == NULL) {				\
 		msgq((sp), M_SYSERR, NULL);				\
@@ -149,13 +143,21 @@
 }
 
 #define	REALLOC(sp, p, size) {						\
-	if (((p) = (realloc((p), (size)))) == NULL)			\
+	void *tmpp;							\
+	if (((tmpp) = (realloc((p), (size)))) == NULL) {		\
 		msgq((sp), M_SYSERR, NULL);				\
+		free(p);						\
+	}								\
+	p = tmpp;							\
 }
 
 #define	REALLOCARRAY(sp, p, nelem, size) {				\
-	if (((p) = (reallocarray((p), (nelem), (size)))) == NULL)	\
+	void *tmpp;							\
+	if (((tmpp) = (reallocarray((p), (nelem), (size)))) == NULL) {	\
 		msgq((sp), M_SYSERR, NULL);				\
+		free(p);						\
+	}								\
+	p = tmpp;							\
 }
 
 /*

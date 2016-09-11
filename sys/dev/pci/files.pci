@@ -1,4 +1,4 @@
-#	$OpenBSD: files.pci,v 1.322 2015/12/31 13:06:49 kettenis Exp $
+#	$OpenBSD: files.pci,v 1.326 2016/09/04 10:35:39 tedu Exp $
 #	$NetBSD: files.pci,v 1.20 1996/09/24 17:47:15 christos Exp $
 #
 # Config file and device description for machine-independent PCI code.
@@ -65,10 +65,6 @@ attach	adw at pci with adw_pci
 file	dev/pci/adw_pci.c		adw_pci
 file	dev/ic/adwlib.c			adw_pci
 file	dev/microcode/adw/adwmcode.c	adw_pci
-
-# BusLogic BT-9xx PCI family
-attach	bha at pci with bha_pci
-file	dev/pci/bha_pci.c		bha_pci
 
 # 3ware 5x000/6x000 RAID controllers
 attach	twe at pci with twe_pci
@@ -580,11 +576,6 @@ device	pcscp: scsi, ncr53c9x
 attach	pcscp at pci
 file	dev/pci/pcscp.c			pcscp
 
-# Gemtek/Guillemot PCI Radio Card
-device	gtp: tea5757, radiobus
-attach	gtp at pci
-file	dev/pci/gtp.c			gtp
-
 # National Semiconductor DP83820/DP83821 based GigE
 device	nge: ether, ifnet, mii, ifmedia, mii_phy
 attach	nge at pci
@@ -677,9 +668,8 @@ attach	rtw at pci with rtw_pci
 file	dev/pci/if_rtw_pci.c		rtw_pci
 
 # Realtek RTL8188CE Mini-PCI
-device	rtwn: ifnet, wlan, firmload
-attach	rtwn at pci
-file	dev/pci/if_rtwn.c		rtwn
+attach	rtwn at pci with rtwn_pci
+file	dev/pci/if_rtwn.c		rtwn_pci
 
 # Ralink RT2500 PCI/Mini-PCI
 attach	ral at pci with ral_pci
@@ -766,7 +756,7 @@ file	dev/pci/nviic.c			nviic
 
 # SD Host Controller
 attach	sdhc at pci with sdhc_pci
-file	dev/pci/sdhc_pci.c		sdhc
+file	dev/pci/sdhc_pci.c		sdhc_pci
 
 # AMD NPT Family 0Fh Processors, Function 3 -- Miscellaneous Control
 device	kate

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mtrace.c,v 1.34 2015/11/18 15:34:34 mmcc Exp $	*/
+/*	$OpenBSD: mtrace.c,v 1.37 2016/08/03 23:37:25 krw Exp $	*/
 /*	$NetBSD: mtrace.c,v 1.5 1995/12/10 10:57:15 mycroft Exp $	*/
 
 /*
@@ -173,7 +173,7 @@ inet_name(u_int32_t addr)
 u_int32_t 
 host_addr(char *name)
 {
-    struct hostent *e = (struct hostent *)0;
+    struct hostent *e = NULL;
     u_int32_t  addr;
     int	i, dots = 3;
     char	buf[40];
@@ -454,7 +454,7 @@ send_recv(u_int32_t dst, int type, int code, int tries, struct resp_buf *save)
 
 	    gettimeofday(&tr, 0);
 	    recvlen = recvfrom(igmp_socket, recv_buf, RECV_BUF_SIZE,
-			       0, (struct sockaddr *)0, &dummy);
+			       0, NULL, &dummy);
 
 	    if (recvlen <= 0) {
 		if (recvlen && errno != EINTR) perror("recvfrom");
@@ -607,7 +607,7 @@ passive_mode(void)
 
     while (1) {
 	recvlen = recvfrom(igmp_socket, recv_buf, RECV_BUF_SIZE,
-			   0, (struct sockaddr *)0, &dummy);
+			   0, NULL, &dummy);
 	gettimeofday(&tr,0);
 
 	if (recvlen <= 0) {
@@ -855,7 +855,7 @@ stat_line(struct tr_resp *r, struct tr_resp *s, int have_next, int *rst)
     v_pps = v_out / timediff;
     g_pps = g_out / timediff;
 
-    if (v_out && (s->tr_vifout != 0xFFFFFFFF && s->tr_vifout != 0) ||
+    if ((v_out && (s->tr_vifout != 0xFFFFFFFF && s->tr_vifout != 0)) ||
 		 (r->tr_vifout != 0xFFFFFFFF && r->tr_vifout != 0))
 	    have |= OUTS;
 
@@ -1057,7 +1057,7 @@ print_stats(struct resp_buf *base, struct resp_buf *prev, struct resp_buf *new)
     }
 
     while (TRUE) {
-	if ((n->tr_inaddr != b->tr_inaddr) || (n->tr_inaddr != b->tr_inaddr))
+	if ((n->tr_inaddr != b->tr_inaddr) || (p->tr_inaddr != b->tr_inaddr))
 	  return 1;		/* Route changed */
 
 	if ((n->tr_inaddr != n->tr_outaddr))
@@ -1133,7 +1133,7 @@ main(int argc, char *argv[])
 	p++;
 	do {
 	    char c = *p++;
-	    char *arg = (char *) 0;
+	    char *arg = NULL;
 	    if (isdigit((unsigned char)*p)) {
 		arg = p;
 		p = "";
@@ -1530,7 +1530,7 @@ usage: mtrace [-lMnpsv] [-g gateway] [-i if_addr] [-m max_hops] [-q nqueries]\n\
 
     if (base.rtime == 0) {
 	printf("Timed out receiving responses\n");
-	if (IN_MULTICAST(ntohl(tdst)))
+	if (IN_MULTICAST(ntohl(tdst))) {
 	  if (tdst == query_cast)
 	    printf("Perhaps no local router has a route for source %s\n",
 		   inet_fmt(qsrc, s1));
@@ -1540,6 +1540,7 @@ or no router local to it has a route for source %s,\n\
 or multicast at ttl %d doesn't reach its last-hop router for that source\n",
 		   inet_fmt(qdst, s2), inet_fmt(qgrp, s3), inet_fmt(qsrc, s1),
 		   qttl ? qttl : MULTICAST_TTL1);
+	}
 	exit(1);
     }
 

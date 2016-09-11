@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.217 2015/10/21 07:59:17 mpi Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.221 2016/05/21 00:56:43 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.3 2003/05/07 22:58:18 fvdl Exp $	*/
 
 /*-
@@ -528,12 +528,6 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	register_t sp, scp, sip;
 	u_long sss;
 
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sendsig: %s[%d] sig %d catcher %p\n",
-		    p->p_comm, p->p_pid, sig, catcher);
-#endif
-
 	memcpy(&ksc, tf, sizeof(*tf));
 	bzero((char *)&ksc + sizeof(*tf), sizeof(ksc) - sizeof(*tf));
 	ksc.sc_mask = mask;
@@ -571,6 +565,7 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	}
 	scp = sp - sss;
 
+	ksc.sc_cookie = (long)scp ^ p->p_p->ps_sigcookie;
 	if (copyout(&ksc, (void *)scp, sizeof(ksc)))
 		sigexit(p, SIGILL);
 
@@ -587,12 +582,6 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 	tf->tf_rflags &= ~(PSL_T|PSL_D|PSL_VM|PSL_AC);
 	tf->tf_rsp = scp;
 	tf->tf_ss = GSEL(GUDATA_SEL, SEL_UPL);
-
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sendsig(%d): pc 0x%llx, catcher 0x%llx\n", p->p_pid,
-		    tf->tf_rip, tf->tf_rax);
-#endif
 }
 
 /*
@@ -611,17 +600,27 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext *scp, ksc;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf = p->p_md.md_regs;
 	int error;
 
-	scp = SCARG(uap, sigcntxp);
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) && (!sigpid || p->p_pid == sigpid))
-		printf("sigreturn: pid %d, scp %p\n", p->p_pid, scp);
-#endif
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
+
 	if ((error = copyin((caddr_t)scp, &ksc, sizeof ksc)))
 		return (error);
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
+		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
 	if (((ksc.sc_rflags ^ tf->tf_rflags) & PSL_USERSTATIC) != 0 ||
 	    !USERMODE(ksc.sc_cs, ksc.sc_eflags))
@@ -1003,10 +1002,12 @@ dumpsys(void)
 }
 
 /*
- * Set FS.base for userspace and reset %ds, %es, and %fs segment registers
+ * Force the userspace FS.base to be reloaded from the PCB on return from
+ * the kernel, and reset most the segment registers (%ds, %es, and %fs)
+ * to their expected userspace value.
  */
 void
-reset_segs(struct pcb *pcb, u_int64_t fsbase)
+reset_segs(void)
 {
 	/*
 	 * Segment registers (%ds, %es, %fs, %gs) aren't in the trapframe.
@@ -1022,7 +1023,6 @@ reset_segs(struct pcb *pcb, u_int64_t fsbase)
 		    "movw %%ax,%%es\n\t"
 		    "movw %%ax,%%fs" : : "a"(GSEL(GUDATA_SEL, SEL_UPL)));
 	}
-	pcb->pcb_fsbase = fsbase;
 }
 
 /*
@@ -1040,7 +1040,8 @@ setregs(struct proc *p, struct exec_package *pack, u_long stack,
 	p->p_md.md_flags &= ~MDP_USEDFPU;
 	p->p_md.md_flags |= MDP_IRET;
 
-	reset_segs(&p->p_addr->u_pcb, 0);
+	reset_segs();
+	p->p_addr->u_pcb.pcb_fsbase = 0;
 
 	tf = p->p_md.md_regs;
 	tf->tf_rdi = 0;
@@ -1213,6 +1214,9 @@ map_tramps(void)
 
 	pmap_kenter_pa(MP_TRAMP_DATA, MP_TRAMP_DATA,
 	    PROT_READ | PROT_WRITE);
+
+	memset((caddr_t)MP_TRAMPOLINE, 0xcc, PAGE_SIZE);
+	memset((caddr_t)MP_TRAMP_DATA, 0xcc, PAGE_SIZE);
 
 	memcpy((caddr_t)MP_TRAMPOLINE,
 	    cpu_spinup_trampoline,

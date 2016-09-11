@@ -1,7 +1,7 @@
-/*	$OpenBSD: term.c,v 1.116 2016/01/07 21:03:23 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.118 2016/08/10 11:02:30 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2016 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -158,7 +158,7 @@ term_flushln(struct termp *p)
 			if (' ' == p->buf[j] || '\t' == p->buf[j])
 				break;
 
-			/* Back over the the last printed character. */
+			/* Back over the last printed character. */
 			if (8 == p->buf[j]) {
 				assert(j);
 				vend -= (*p->width)(p, p->buf[j - 1]);
@@ -502,7 +502,9 @@ term_word(struct termp *p, const char *word)
 				}
 			}
 			/* Trim trailing backspace/blank pair. */
-			if (p->col > 2 && p->buf[p->col - 1] == ' ')
+			if (p->col > 2 &&
+			    (p->buf[p->col - 1] == ' ' ||
+			     p->buf[p->col - 1] == '\t'))
 				p->col -= 2;
 			continue;
 		default:
@@ -566,7 +568,7 @@ encode1(struct termp *p, int c)
 	    p->fontq[p->fonti] : TERMFONT_NONE;
 
 	if (p->flags & TERMP_BACKBEFORE) {
-		if (p->buf[p->col - 1] == ' ')
+		if (p->buf[p->col - 1] == ' ' || p->buf[p->col - 1] == '\t')
 			p->col--;
 		else
 			p->buf[p->col++] = 8;

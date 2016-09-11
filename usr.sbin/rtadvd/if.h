@@ -1,10 +1,10 @@
-/*	$OpenBSD: if.h,v 1.11 2015/12/01 12:11:31 jca Exp $	*/
+/*	$OpenBSD: if.h,v 1.13 2016/06/29 14:19:38 jca Exp $	*/
 /*	$KAME: if.h,v 1.6 2001/01/21 15:37:14 itojun Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, 1998, and 1999 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -33,8 +33,6 @@
 #define RTADV_TYPE2BITMASK(type) (0x1 << type)
 
 extern struct if_msghdr **iflist;
-extern size_t ifblock_size;
-extern char *ifblock;
 
 struct nd_opt_hdr;
 struct sockaddr_dl *if_nametosdl(char *);

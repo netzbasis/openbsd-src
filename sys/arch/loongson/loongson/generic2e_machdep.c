@@ -1,4 +1,4 @@
-/*	$OpenBSD: generic2e_machdep.c,v 1.6 2014/03/27 22:16:03 miod Exp $	*/
+/*	$OpenBSD: generic2e_machdep.c,v 1.8 2016/08/30 12:15:28 jsg Exp $	*/
 
 /*
  * Copyright (c) 2010 Miodrag Vallat.
@@ -92,7 +92,7 @@ void	*generic2e_isa_intr_establish(void *, int, int, int, int (*)(void *),
 	    void *, char *);
 void	 generic2e_isa_intr_disestablish(void *, void *);
 
-uint32_t generic2e_isa_intr(uint32_t, struct trap_frame *);
+uint32_t generic2e_isa_intr(uint32_t, struct trapframe *);
 
 void	via686sb_setup(pci_chipset_tag_t, int);
 
@@ -236,7 +236,7 @@ generic2e_isa_intr_disestablish(void *v, void *ih)
 }
 
 uint32_t
-generic2e_isa_intr(uint32_t hwpend, struct trap_frame *frame)
+generic2e_isa_intr(uint32_t hwpend, struct trapframe *frame)
 {
 	struct intrhand *ih;
 	uint64_t isr, mask = 0;
@@ -518,7 +518,7 @@ via686sb_setup(pci_chipset_tag_t pc, int dev)
 
 	reg = pci_conf_read(pc, tag, VIA686_PCI_LEVEL_PNP_IRQ2);
 	reg &= ~(VIA686_PCI_IRQA_EDGE | VIA686_PCI_IRQB_EDGE |
-	    VIA686_PCI_IRQB_EDGE | VIA686_PCI_IRQD_EDGE);
+	    VIA686_PCI_IRQC_EDGE | VIA686_PCI_IRQD_EDGE);
 	reg &= ~(VIA686_IRQ_PCIA_MASK | VIA686_IRQ_PCIB_MASK |
 	    VIA686_IRQ_PCIC_MASK | VIA686_IRQ_PCID_MASK);
 	reg |= (VIA686_IRQ_PCIA << VIA686_IRQ_PCIA_SHIFT) |

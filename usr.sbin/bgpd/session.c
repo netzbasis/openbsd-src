@@ -1,4 +1,4 @@
-/*	$OpenBSD: session.c,v 1.347 2015/11/20 23:26:08 florian Exp $ */
+/*	$OpenBSD: session.c,v 1.354 2016/09/03 16:22:17 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004, 2005 Henning Brauer <henning@openbsd.org>
@@ -202,6 +202,12 @@ session_main(int debug, int verbose)
 	void			*newp;
 	short			 events;
 
+	bgpd_process = PROC_SE;
+	log_procname = log_procnames[bgpd_process];
+
+	log_init(debug);
+	log_verbose(verbose);
+
 	if ((pw = getpwnam(BGPD_USER)) == NULL)
 		fatal(NULL);
 
@@ -211,7 +217,6 @@ session_main(int debug, int verbose)
 		fatal("chdir(\"/\")");
 
 	setproctitle("session engine");
-	bgpd_process = PROC_SE;
 	pfkeysock = pfkey_init(&sysdep);
 
 	if (setgroups(1, &pw->pw_gid) ||
@@ -547,6 +552,23 @@ session_main(int debug, int verbose)
 			control_dispatch_msg(&pfd[j], &ctl_cnt);
 	}
 
+	/* close pipes */
+	if (ibuf_rde) {
+		msgbuf_write(&ibuf_rde->w);
+		msgbuf_clear(&ibuf_rde->w);
+		close(ibuf_rde->fd);
+		free(ibuf_rde);
+	}
+	if (ibuf_rde_ctl) {
+		msgbuf_clear(&ibuf_rde_ctl->w);
+		close(ibuf_rde_ctl->fd);
+		free(ibuf_rde_ctl);
+	}
+	msgbuf_write(&ibuf_main->w);
+	msgbuf_clear(&ibuf_main->w);
+	close(ibuf_main->fd);
+	free(ibuf_main);
+
 	while ((p = peers) != NULL) {
 		peers = p->next;
 		session_stop(p, ERR_CEASE_ADMIN_DOWN);
@@ -569,17 +591,11 @@ session_main(int debug, int verbose)
 	free(mrt_l);
 	free(pfd);
 
-	msgbuf_write(&ibuf_rde->w);
-	msgbuf_clear(&ibuf_rde->w);
-	free(ibuf_rde);
-	msgbuf_write(&ibuf_main->w);
-	msgbuf_clear(&ibuf_main->w);
-	free(ibuf_main);
 
 	control_shutdown(csock);
 	control_shutdown(rcsock);
 	log_info("session engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 void
@@ -1201,12 +1217,15 @@ session_setup_socket(struct peer *p)
 			/* set hoplimit to foreign router's distance
 			   1=direct n=multihop with ttlsec, we always use 255 */
 			if (p->conf.ttlsec) {
-			/*
-			 * XXX Kernel has no ip6 equivalent of MINTTL yet so
-			 * we can't check incoming packets, but we can at least
-			 * set the outgoing TTL to allow sessions configured
-			 * with ttl-security to come up.
-			 */
+				ttl = 256 - p->conf.distance;
+				if (setsockopt(p->fd, IPPROTO_IPV6,
+				    IPV6_MINHOPCOUNT, &ttl, sizeof(ttl))
+				    == -1) {
+					log_peer_warn(&p->conf,
+					    "session_setup_socket: "
+					    "setsockopt MINHOPCOUNT");
+					return (-1);
+				}
 				ttl = 255;
 			}
 			if (setsockopt(p->fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
@@ -2017,7 +2036,7 @@ parse_open(struct peer *peer)
 
 	/* check bgpid for validity - just disallow 0 */
 	if (ntohl(bgpid) == 0) {
-		log_peer_warnx(&peer->conf, "peer BGPID %lu unacceptable",
+		log_peer_warnx(&peer->conf, "peer BGPID %u unacceptable",
 		    ntohl(bgpid));
 		session_notification(peer, ERR_OPEN, ERR_OPEN_BGPID,
 		    NULL, 0);
@@ -2897,6 +2916,16 @@ session_dispatch_imsg(struct imsgbuf *ibuf, int idx, u_int *listener_cnt)
 					fatal("imsg_compose: "
 					    "IMSG_SESSION_RESTARTED");
 			}
+			break;
+		case IMSG_SESSION_DOWN:
+			if (idx != PFD_PIPE_ROUTE)
+				fatalx("update request not from RDE");
+			if ((p = getpeerbyid(imsg.hdr.peerid)) == NULL) {
+				log_warnx("no such peer: id=%u",
+				    imsg.hdr.peerid);
+				break;
+			}
+			session_stop(p, ERR_CEASE_ADMIN_DOWN);
 			break;
 		default:
 			break;

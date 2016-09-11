@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntfs_vfsops.c,v 1.44 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ntfs_vfsops.c,v 1.55 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: ntfs_vfsops.c,v 1.7 2003/04/24 07:50:19 christos Exp $	*/
 
 /*-
@@ -122,7 +122,6 @@ ntfs_mount(struct mount *mp, const char *path, void *data,
 	struct ntfs_args args;
 	char fname[MNAMELEN];
 	char fspec[MNAMELEN];
-	mode_t amode;
 
 	ntfs_nthashinit();
 
@@ -186,19 +185,6 @@ ntfs_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		err = ENXIO;
 		goto error_2;
-	}
-
-	/*
-	 * If we are not root, make sure we have permission to access the
-	 * requested device.
-	 */
-	if (p->p_ucred->cr_uid) {
-		amode = (mp->mnt_flag & MNT_RDONLY) ? VREAD : (VREAD | VWRITE);
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		err = VOP_ACCESS(devvp, amode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
-		if (err)
-			goto error_2;
 	}
 
 	if (mp->mnt_flag & MNT_UPDATE) {
@@ -282,7 +268,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 	struct buf *bp;
 	struct ntfsmount *ntmp = NULL;
 	dev_t dev = devvp->v_rdev;
-	int error, ronly, ncount, i;
+	int error, ncount, i;
 	struct vnode *vp;
 
 	/*
@@ -299,12 +285,11 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 		return (EBUSY);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = vinvalbuf(devvp, V_SAVE, p->p_ucred, p, 0, 0);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (error)
 		return (error);
 
-	ronly = (mp->mnt_flag & MNT_RDONLY) != 0;
-	error = VOP_OPEN(devvp, ronly ? FREAD : FREAD|FWRITE, FSCRED, p);
+	error = VOP_OPEN(devvp, FREAD, FSCRED, p);
 	if (error)
 		return (error);
 
@@ -345,7 +330,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 	ntmp->ntm_gid = argsp->gid;
 	ntmp->ntm_mode = argsp->mode;
 	ntmp->ntm_flag = argsp->flag;
-	mp->mnt_data = (qaddr_t) ntmp;
+	mp->mnt_data = ntmp;
 	TAILQ_INIT(&ntmp->ntm_ntnodeq);
 
 	/* set file name encode/decode hooks XXX utf-8 only for now */
@@ -436,7 +421,7 @@ ntfs_mountfs(struct vnode *devvp, struct mount *mp, struct ntfs_args *argsp,
 
 	mp->mnt_stat.f_fsid.val[0] = dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
-	mp->mnt_maxsymlinklen = 0;
+	mp->mnt_stat.f_namemax = NTFS_MAXFILENAME;
 	mp->mnt_flag |= MNT_LOCAL;
 	devvp->v_specmountpoint = mp;
 	return (0);
@@ -450,7 +435,8 @@ out1:
 		DPRINTF("ntfs_mountfs: vflush failed\n");
 
 out:
-	devvp->v_specmountpoint = NULL;
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 
@@ -463,8 +449,8 @@ out:
 
 	/* lock the device vnode before calling VOP_CLOSE() */
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-	(void)VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, NOCRED, p);
-	VOP_UNLOCK(devvp, 0, p);
+	(void)VOP_CLOSE(devvp, FREAD, NOCRED, p);
+	VOP_UNLOCK(devvp, p);
 	
 	return (error);
 }
@@ -479,7 +465,7 @@ int
 ntfs_unmount(struct mount *mp, int mntflags, struct proc *p)
 {
 	struct ntfsmount *ntmp;
-	int error, ronly = 0, flags, i;
+	int error, flags, i;
 
 	DPRINTF("ntfs_unmount: unmounting...\n");
 	ntmp = VFSTONTFS(mp);
@@ -521,23 +507,20 @@ ntfs_unmount(struct mount *mp, int mntflags, struct proc *p)
 		ntmp->ntm_devvp->v_specmountpoint = NULL;
 
 	/* lock the device vnode before calling VOP_CLOSE() */
-	VOP_LOCK(ntmp->ntm_devvp, LK_EXCLUSIVE | LK_RETRY, p);
+	vn_lock(ntmp->ntm_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	vinvalbuf(ntmp->ntm_devvp, V_SAVE, NOCRED, p, 0, 0);
-
-	error = VOP_CLOSE(ntmp->ntm_devvp, ronly ? FREAD : FREAD|FWRITE,
-		NOCRED, p);
-
+	(void)VOP_CLOSE(ntmp->ntm_devvp, FREAD, NOCRED, p);
 	vput(ntmp->ntm_devvp);
 
 	/* free the toupper table, if this has been last mounted ntfs volume */
 	ntfs_toupper_unuse(p);
 
 	DPRINTF("ntfs_unmount: freeing memory...\n");
-	mp->mnt_data = NULL;
-	mp->mnt_flag &= ~MNT_LOCAL;
 	free(ntmp->ntm_ad, M_NTFSMNT, 0);
 	free(ntmp, M_NTFSMNT, 0);
-	return (error);
+	mp->mnt_data = NULL;
+	mp->mnt_flag &= ~MNT_LOCAL;
+	return (0);
 }
 
 int
@@ -612,17 +595,10 @@ ntfs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	sbp->f_iosize = ntmp->ntm_bps * ntmp->ntm_spc;
 	sbp->f_blocks = ntmp->ntm_bootfile.bf_spv;
 	sbp->f_bfree = sbp->f_bavail = ntfs_cntobn(ntmp->ntm_cfree);
-	sbp->f_ffree = sbp->f_bfree / ntmp->ntm_bpmftrec;
+	sbp->f_ffree = sbp->f_favail = sbp->f_bfree / ntmp->ntm_bpmftrec;
 	sbp->f_files = mftallocated / ntfs_bntob(ntmp->ntm_bpmftrec) +
 		       sbp->f_ffree;
-	sbp->f_flags = mp->mnt_flag;
-	if (sbp != &mp->mnt_stat) {
-		bcopy(mp->mnt_stat.f_mntonname, sbp->f_mntonname, MNAMELEN);
-		bcopy(mp->mnt_stat.f_mntfromname, sbp->f_mntfromname, MNAMELEN);
-		bcopy(&mp->mnt_stat.mount_info.msdosfs_args,
-		    &sbp->mount_info.msdosfs_args, sizeof(struct msdosfs_args));
-	}
-	strncpy(sbp->f_fstypename, mp->mnt_vfc->vfc_name, MFSNAMELEN);
+	copy_statfs_info(sbp, mp);
 
 	return (0);
 }

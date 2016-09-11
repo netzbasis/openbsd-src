@@ -1,4 +1,4 @@
-/*	$OpenBSD: wscons_machdep.c,v 1.11 2015/08/30 10:05:09 yasuoka Exp $ */
+/*	$OpenBSD: wscons_machdep.c,v 1.13 2016/06/21 15:24:55 jcs Exp $ */
 
 /*
  * Copyright (c) 2001 Aaron Campbell
@@ -137,7 +137,7 @@ wscnpollc(dev_t dev, int on)
  * Configure the display part of the console.
  */
 int
-wscn_video_init()
+wscn_video_init(void)
 {
 #if (NEFIFB > 0)
 	if (efifb_cnattach() == 0)
@@ -145,6 +145,10 @@ wscn_video_init()
 #endif
 #if (NVGA > 0)
 	if (vga_cnattach(X86_BUS_SPACE_IO, X86_BUS_SPACE_MEM, -1, 1) == 0)
+		return (0);
+#endif
+#if (NEFIFB > 0)
+	if (efifb_cb_cnattach() == 0)
 		return (0);
 #endif
 #if (NPCDISPLAY > 0)

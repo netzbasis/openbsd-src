@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldapd.c,v 1.16 2016/01/17 08:13:34 landry Exp $ */
+/*	$OpenBSD: ldapd.c,v 1.20 2016/05/01 00:32:37 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -17,6 +17,7 @@
  */
 
 #include <sys/queue.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -50,6 +51,7 @@ static void	 ldapd_cleanup(char *);
 
 struct ldapd_stats	 stats;
 pid_t			 ldape_pid;
+const char		*datadir = DATADIR;
 
 void
 usage(void)
@@ -57,7 +59,7 @@ usage(void)
 	extern char	*__progname;
 
 	fprintf(stderr, "usage: %s [-dnv] [-D macro=value] "
-	    "[-f file] [-s file]\n", __progname);
+	    "[-f file] [-r directory] [-s file]\n", __progname);
 	exit(1);
 }
 
@@ -116,10 +118,11 @@ main(int argc, char *argv[])
 	struct event		 ev_sigterm;
 	struct event		 ev_sigchld;
 	struct event		 ev_sighup;
+	struct stat		 sb;
 
 	log_init(1);		/* log to stderr until daemonized */
 
-	while ((c = getopt(argc, argv, "dhvD:f:ns:")) != -1) {
+	while ((c = getopt(argc, argv, "dhvD:f:nr:s:")) != -1) {
 		switch (c) {
 		case 'd':
 			debug = 1;
@@ -139,6 +142,9 @@ main(int argc, char *argv[])
 		case 'n':
 			configtest = 1;
 			break;
+		case 'r':
+			datadir = optarg;
+			break;
 		case 's':
 			csockpath = optarg;
 			break;
@@ -157,7 +163,7 @@ main(int argc, char *argv[])
 
 	log_verbose(verbose);
 	stats.started_at = time(0);
-	ssl_init();
+	tls_init();
 
 	if (parse_config(conffile) != 0)
 		exit(2);
@@ -172,6 +178,11 @@ main(int argc, char *argv[])
 			errx(1, "need root privileges");
 		skip_chroot = 1;
 	}
+
+	if (stat(datadir, &sb) == -1)
+		err(1, "%s", datadir);
+	if (!S_ISDIR(sb.st_mode))
+		errx(1, "%s is not a directory", datadir);
 
 	if (!skip_chroot && (pw = getpwnam(LDAPD_USER)) == NULL)
 		err(1, "%s", LDAPD_USER);
@@ -366,7 +377,7 @@ ldapd_open_request(struct imsgev *iev, struct imsg *imsg)
 	/* make sure path is null-terminated */
 	oreq->path[PATH_MAX] = '\0';
 
-	if (strncmp(oreq->path, DATADIR, strlen(DATADIR)) != 0) {
+	if (strncmp(oreq->path, datadir, strlen(datadir)) != 0) {
 		log_warnx("refusing to open file %s", oreq->path);
 		fatal("ldape sent invalid open request");
 	}

@@ -1,4 +1,4 @@
-/*      $OpenBSD: pmap.h,v 1.40 2016/01/10 10:22:56 visa Exp $ */
+/*      $OpenBSD: pmap.h,v 1.44 2016/05/11 15:50:29 visa Exp $ */
 
 /*
  * Copyright (c) 1987 Carnegie-Mellon University
@@ -37,6 +37,8 @@
 
 #ifndef	_MIPS64_PMAP_H_
 #define	_MIPS64_PMAP_H_
+
+#include <sys/mutex.h>
 
 #ifdef	_KERNEL
 
@@ -110,6 +112,7 @@ struct pmap_asid_info {
  * Machine dependent pmap structure.
  */
 typedef struct pmap {
+	struct mutex		pm_mtx;		/* pmap lock */
 	int			pm_count;	/* pmap reference count */
 	struct pmap_statistics	pm_stats;	/* pmap statistics */
 	struct segtab		*pm_segtab;	/* pointers to pages of PTEs */
@@ -154,22 +157,13 @@ extern vaddr_t pmap_prefer_mask;
 #define	PMAP_PREFER_OFFSET(of)		((of) & pmap_prefer_mask)
 
 void	pmap_bootstrap(void);
-int	pmap_is_page_ro( pmap_t, vaddr_t, pt_entry_t);
-void	pmap_kenter_cache(vaddr_t va, paddr_t pa, vm_prot_t prot, int cache);
 vaddr_t	pmap_prefer(vaddr_t, vaddr_t);
-void	pmap_set_modify(vm_page_t);
+int	pmap_emulate_modify(pmap_t, vaddr_t);
 void	pmap_page_cache(vm_page_t, u_int);
 
 #define	pmap_collect(x)			do { /* nothing */ } while (0)
 #define	pmap_unuse_final(p)		do { /* nothing yet */ } while (0)
 #define	pmap_remove_holes(vm)		do { /* nothing */ } while (0)
-
-void	pmap_update_user_page(pmap_t, vaddr_t, pt_entry_t);
-#ifdef MULTIPROCESSOR
-void	pmap_update_kernel_page(vaddr_t, pt_entry_t);
-#else
-#define	pmap_update_kernel_page(va, entry)	tlb_update(va, entry)
-#endif
 
 /*
  * Most R5000 processors (and related families) have a silicon bug preventing
@@ -212,11 +206,13 @@ typedef struct pv_entry {
 } *pv_entry_t;
 
 struct vm_page_md {
+	struct mutex	pv_mtx;		/* pv list lock */
 	struct pv_entry pv_ent;		/* pv list of this seg */
 };
 
 #define	VM_MDPAGE_INIT(pg) \
 	do { \
+		mtx_init(&(pg)->mdpage.pv_mtx, IPL_VM); \
 		(pg)->mdpage.pv_ent.pv_next = NULL; \
 		(pg)->mdpage.pv_ent.pv_pmap = NULL; \
 		(pg)->mdpage.pv_ent.pv_va = 0; \

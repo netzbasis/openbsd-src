@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread.h,v 1.54 2015/11/10 04:30:59 guenther Exp $ */
+/*	$OpenBSD: rthread.h,v 1.60 2016/09/04 10:13:35 akfaew Exp $ */
 /*
  * Copyright (c) 2004,2005 Ted Unangst <tedu@openbsd.org>
  * All Rights Reserved.
@@ -20,7 +20,7 @@
  * Since only the thread library cares about their size or arrangement,
  * it should be possible to switch libraries without relinking.
  *
- * Do not reorder struct _spinlock and sem_t variables in the structs.
+ * Do not reorder _atomic_lock_t and sem_t variables in the structs.
  * This is due to alignment requirements of certain arches like hppa.
  * The current requirement is 16 bytes.
  *
@@ -30,7 +30,6 @@
 #include <sys/queue.h>
 #include <semaphore.h>
 #include <machine/spinlock.h>
-#include <machine/tcb.h>		/* for TLS_VARIANT */
 
 #ifdef __LP64__
 #define RTHREAD_STACK_SIZE_DEF (512 * 1024)
@@ -38,18 +37,7 @@
 #define RTHREAD_STACK_SIZE_DEF (256 * 1024)
 #endif
 
-#define _USING_TICKETS 0
-/*
- * tickets don't work yet? (or seem much slower, with lots of system time)
- * until then, keep the struct around to avoid excessive changes going
- * back and forth.
- */
-struct _spinlock {
-	_atomic_lock_t ticket;
-};
-
-#define	_SPINLOCK_UNLOCKED { _ATOMIC_LOCK_UNLOCKED }
-extern struct _spinlock _SPINLOCK_UNLOCKED_ASSIGN;
+#define	_SPINLOCK_UNLOCKED _ATOMIC_LOCK_UNLOCKED
 
 struct stack {
 	SLIST_ENTRY(stack)	link;	/* link for free default stacks */
@@ -61,7 +49,7 @@ struct stack {
 };
 
 struct __sem {
-	struct _spinlock lock;
+	_atomic_lock_t lock;
 	volatile int waitcount;
 	volatile int value;
 	int shared;
@@ -70,7 +58,7 @@ struct __sem {
 TAILQ_HEAD(pthread_queue, pthread);
 
 struct pthread_mutex {
-	struct _spinlock lock;
+	_atomic_lock_t lock;
 	struct pthread_queue lockers;
 	int type;
 	pthread_t owner;
@@ -85,7 +73,7 @@ struct pthread_mutex_attr {
 };
 
 struct pthread_cond {
-	struct _spinlock lock;
+	_atomic_lock_t lock;
 	struct pthread_queue waiters;
 	struct pthread_mutex *mutex;
 	clockid_t clock;
@@ -96,7 +84,7 @@ struct pthread_cond_attr {
 };
 
 struct pthread_rwlock {
-	struct _spinlock lock;
+	_atomic_lock_t lock;
 	pthread_t owner;
 	struct pthread_queue writers;
 	int readers;
@@ -141,7 +129,8 @@ struct pthread_barrier {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
 	int threshold;
-	int sofar;
+	int in;
+	int out;
 	int generation;
 };
 
@@ -150,19 +139,16 @@ struct pthread_barrierattr {
 };
 
 struct pthread_spinlock {
-	struct _spinlock lock;
+	_atomic_lock_t lock;
 	pthread_t owner;
 };
 
+struct tib;
 struct pthread {
 	struct __sem donesem;
-#if TLS_VARIANT == 1
-	int *errno_ptr;
-#endif
-	pid_t tid;
 	unsigned int flags;
-	struct _spinlock flags_lock;
-	void *tcb;
+	_atomic_lock_t flags_lock;
+	struct tib *tib;
 	void *retval;
 	void *(*fn)(void *);
 	void *arg;
@@ -176,44 +162,32 @@ struct pthread {
 	struct rthread_cleanup_fn *cleanup_fns;
 	int myerrno;
 
-	/* currently in a cancel point? */
-	int cancel_point;
-
 	/* cancel received in a delayed cancel block? */
 	int delayed_cancel;
 };
+/* flags in pthread->flags */
 #define	THREAD_DONE		0x001
 #define	THREAD_DETACHED		0x002
-#define	THREAD_CANCELED		0x004
-#define	THREAD_CANCEL_ENABLE	0x008
-#define	THREAD_CANCEL_DEFERRED	0x010
-#define	THREAD_CANCEL_DELAY	0x020
-#define	THREAD_DYING		0x040
-#define	THREAD_ORIGINAL		0x080	/* original thread from fork */
-#define	THREAD_INITIAL_STACK	0x100	/* thread with stack from exec */
 
-#define	IS_CANCELED(thread) \
-	(((thread)->flags & (THREAD_CANCELED|THREAD_DYING)) == THREAD_CANCELED)
+/* flags in tib->tib_thread_flags */
+#define	TIB_THREAD_ASYNC_CANCEL		0x001
+#define	TIB_THREAD_INITIAL_STACK	0x002	/* has stack from exec */
 
-
-extern int _threads_ready;
-extern size_t _thread_pagesize;
-extern LIST_HEAD(listhead, pthread) _thread_list;
-extern struct _spinlock _thread_lock;
-extern struct pthread_attr _rthread_attr_default;
+#define ENTER_DELAYED_CANCEL_POINT(tib, self)				\
+	(self)->delayed_cancel = 0;					\
+	ENTER_CANCEL_POINT_INNER(tib, 1, 1)
 
 #define	ROUND_TO_PAGE(size) \
 	(((size) + (_thread_pagesize - 1)) & ~(_thread_pagesize - 1))
 
-void	_spinlock(volatile struct _spinlock *);
-int	_spinlocktry(volatile struct _spinlock *);
-void	_spinunlock(volatile struct _spinlock *);
+__BEGIN_HIDDEN_DECLS
+void	_spinlock(volatile _atomic_lock_t *);
+int	_spinlocktry(volatile _atomic_lock_t *);
+void	_spinunlock(volatile _atomic_lock_t *);
 int	_sem_wait(sem_t, int, const struct timespec *, int *);
 int	_sem_post(sem_t);
 
-int	_rthread_init(void);
-void	_rthread_setflag(pthread_t, int);
-void	_rthread_clearflag(pthread_t, int);
+void	_rthread_init(void);
 struct stack *_rthread_alloc_stack(pthread_t);
 void	_rthread_free_stack(struct stack *);
 void	_rthread_tls_destructors(pthread_t);
@@ -223,24 +197,21 @@ void	_rthread_debug_init(void);
 #ifndef NO_PIC
 void	_rthread_dl_lock(int what);
 #endif
+void	_thread_malloc_reinit(void);
 
-/* rthread_cancel.c */
-void	_enter_cancel(pthread_t);
-void	_leave_cancel(pthread_t);
-void	_enter_delayed_cancel(pthread_t);
-void	_leave_delayed_cancel(pthread_t, int);
+extern int _threads_ready;
+extern size_t _thread_pagesize;
+extern LIST_HEAD(listhead, pthread) _thread_list;
+extern _atomic_lock_t _thread_lock;
+extern struct pthread_attr _rthread_attr_default;
+__END_HIDDEN_DECLS
 
 void	_thread_dump_info(void);
 
-/* syscalls */
+/* syscalls not declared in system headers */
+#define REDIRECT_SYSCALL(x)		typeof(x) x asm("_thread_sys_"#x)
 void	__threxit(pid_t *);
 int	__thrsleep(const volatile void *, clockid_t, const struct timespec *,
 	    volatile void *, const int *);
 int	__thrwakeup(const volatile void *, int n);
 int	__thrsigdivert(sigset_t, siginfo_t *, const struct timespec *);
-int	sched_yield(void);
-int	_thread_sys_sigaction(int, const struct sigaction *,
-	    struct sigaction *);
-int	_thread_sys_sigprocmask(int, const sigset_t *, sigset_t *);
-int	_thread_sys_thrkill(pid_t _tid, int _signum, void *_tcb);
-

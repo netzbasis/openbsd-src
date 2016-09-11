@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vio.c,v 1.39 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_vio.c,v 1.42 2016/07/14 12:42:00 sf Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch, Alexander Fiveg.
@@ -49,10 +49,6 @@
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
-
-#if NVLAN > 0
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -525,7 +521,6 @@ vio_attach(struct device *parent, struct device *self, void *aux)
 	vsc->sc_ipl = IPL_NET;
 	vsc->sc_vqs = &sc->sc_vq[0];
 	vsc->sc_config_change = 0;
-	vsc->sc_intrhand = virtio_vq_intr;
 
 	features = VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS |
 	    VIRTIO_NET_F_CTRL_VQ | VIRTIO_NET_F_CTRL_RX |
@@ -596,7 +591,6 @@ vio_attach(struct device *parent, struct device *self, void *aux)
 	if (features & VIRTIO_NET_F_CSUM)
 		ifp->if_capabilities |= IFCAP_CSUM_TCPv4|IFCAP_CSUM_UDPv4;
 	IFQ_SET_MAXLEN(&ifp->if_snd, vsc->sc_vqs[1].vq_num - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	ifmedia_init(&sc->sc_media, 0, vio_media_change, vio_media_status);
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
 	ifmedia_set(&sc->sc_media, IFM_ETHER | IFM_AUTO);

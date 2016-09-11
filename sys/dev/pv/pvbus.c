@@ -1,4 +1,4 @@
-/*	$OpenBSD: pvbus.c,v 1.10 2015/12/12 12:47:49 reyk Exp $	*/
+/*	$OpenBSD: pvbus.c,v 1.12 2016/06/06 17:17:54 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -29,9 +29,13 @@
 #include <sys/syslog.h>
 #include <sys/proc.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <sys/fcntl.h>
 
 #include <machine/specialreg.h>
 #include <machine/cpu.h>
+#include <machine/conf.h>
+#include <machine/bus.h>
 #ifdef __amd64__
 #include <machine/vmmvar.h>
 #endif
@@ -58,6 +62,9 @@ void	 pvbus_hyperv(struct pvbus_hv *);
 void	 pvbus_hyperv_print(struct pvbus_hv *);
 void	 pvbus_xen(struct pvbus_hv *);
 void	 pvbus_xen_print(struct pvbus_hv *);
+
+int	 pvbus_minor(struct pvbus_softc *, dev_t);
+int	 pvbusgetstr(size_t, const char *, char **);
 
 struct cfattach pvbus_ca = {
 	sizeof(struct pvbus_softc),
@@ -89,7 +96,26 @@ struct pvbus_type {
 #endif
 };
 
+struct bus_dma_tag pvbus_dma_tag = {
+	NULL,
+	_bus_dmamap_create,
+	_bus_dmamap_destroy,
+	_bus_dmamap_load,
+	_bus_dmamap_load_mbuf,
+	_bus_dmamap_load_uio,
+	_bus_dmamap_load_raw,
+	_bus_dmamap_unload,
+	_bus_dmamap_sync,
+	_bus_dmamem_alloc,
+	_bus_dmamem_alloc_range,
+	_bus_dmamem_free,
+	_bus_dmamem_map,
+	_bus_dmamem_unmap,
+	_bus_dmamem_mmap,
+};
+
 struct pvbus_hv pvbus_hv[PVBUS_MAX];
+struct pvbus_softc *pvbus_softc;
 
 int
 pvbus_probe(void)
@@ -114,6 +140,7 @@ pvbus_attach(struct device *parent, struct device *self, void *aux)
 	int i, cnt;
 
 	sc->pvbus_hv = pvbus_hv;
+	pvbus_softc = sc;
 
 	printf(":");
 	for (i = 0, cnt = 0; i < PVBUS_MAX; i++) {
@@ -204,6 +231,7 @@ pvbus_search(struct device *parent, void *arg, void *aux)
 
 	pva.pva_busname = cf->cf_driver->cd_name;
 	pva.pva_hv = sc->pvbus_hv;
+	pva.pva_dmat = &pvbus_dma_tag;
 
 	if (cf->cf_attach->ca_match(parent, cf, &pva) > 0)
 		config_attach(parent, cf, &pva, pvbus_print);
@@ -275,4 +303,141 @@ void
 pvbus_xen_print(struct pvbus_hv *hv)
 {
 	printf(" %u.%u", hv->hv_major, hv->hv_minor);
+}
+
+int
+pvbus_minor(struct pvbus_softc *sc, dev_t dev)
+{
+	int hvid, cnt;
+	struct pvbus_hv *hv;
+
+	for (hvid = 0, cnt = 0; hvid < PVBUS_MAX; hvid++) {
+		hv = &sc->pvbus_hv[hvid];
+		if (hv->hv_base == 0 || hv->hv_kvop == NULL)
+			continue;
+		if (minor(dev) == cnt++)
+			return (hvid);
+	}
+
+	return (-1);
+}
+
+int
+pvbusopen(dev_t dev, int flags, int mode, struct proc *p)
+{
+	if (pvbus_softc == NULL)
+		return (ENODEV);
+	if (pvbus_minor(pvbus_softc, dev) == -1)
+		return (ENXIO);
+	return (0);
+}
+
+int
+pvbusclose(dev_t dev, int flags, int mode, struct proc *p)
+{
+	if (pvbus_softc == NULL)
+		return (ENODEV);
+	if (pvbus_minor(pvbus_softc, dev) == -1)
+		return (ENXIO);
+	return (0);
+}
+
+int
+pvbusgetstr(size_t srclen, const char *src, char **dstp)
+{
+	int error = 0;
+	char *dst;
+
+	/*
+	 * Reject size that is too short or obviously too long:
+	 * - at least one byte for the nul terminator.
+	 * - PAGE_SIZE is an arbitrary value, but known pv backends seem
+	 *   to have a hard (PAGE_SIZE - x) limit in their messaging.
+	 */
+	if (srclen < 1)
+		return (EINVAL);
+	else if (srclen > PAGE_SIZE)
+		return (ENAMETOOLONG);
+
+	*dstp = dst = malloc(srclen + 1, M_TEMP|M_ZERO, M_WAITOK);
+	if (src != NULL) {
+		error = copyin(src, dst, srclen);
+		dst[srclen] = '\0';
+	}
+
+	return (error);
+}
+
+int
+pvbusioctl(dev_t dev, u_long cmd, caddr_t data, int flags, struct proc *p)
+{
+	struct pvbus_req *pvr = (struct pvbus_req *)data;
+	struct pvbus_softc *sc = pvbus_softc;
+	char *value = NULL, *key = NULL;
+	const char *str = NULL;
+	size_t valuelen = 0, keylen = 0, sz;
+	int hvid, error = 0, op;
+	struct pvbus_hv *hv;
+
+	if (sc == NULL)
+		return (ENODEV);
+	if ((hvid = pvbus_minor(sc, dev)) == -1)
+		return (ENXIO);
+
+	switch (cmd) {
+	case PVBUSIOC_KVWRITE:
+		if ((flags & FWRITE) == 0)
+			return (EPERM);
+	case PVBUSIOC_KVREAD:
+		hv = &sc->pvbus_hv[hvid];
+		if (hv->hv_base == 0 || hv->hv_kvop == NULL)
+			return (ENXIO);
+		break;
+	case PVBUSIOC_TYPE:
+		str = pvbus_types[hvid].name;
+		sz = strlen(str) + 1;
+		if (sz > pvr->pvr_keylen)
+			return (ENOMEM);
+		error = copyout(str, pvr->pvr_key, sz);
+		return (error);
+	default:
+		return (ENOTTY);
+	}
+
+	str = NULL;
+	op = PVBUS_KVREAD;
+
+	switch (cmd) {
+	case PVBUSIOC_KVWRITE:
+		str = pvr->pvr_value;
+		op = PVBUS_KVWRITE;
+
+		/* FALLTHROUGH */
+	case PVBUSIOC_KVREAD:
+		keylen = pvr->pvr_keylen;
+		if ((error = pvbusgetstr(keylen, pvr->pvr_key, &key)) != 0)
+			break;
+
+		valuelen = pvr->pvr_valuelen;
+		if ((error = pvbusgetstr(valuelen, str, &value)) != 0)
+			break;
+
+		/* Call driver-specific callback */
+		if ((error = (hv->hv_kvop)(hv->hv_arg, op,
+		    key, value, valuelen)) != 0)
+			break;
+
+		sz = strlen(value) + 1;
+		if ((error = copyout(value, pvr->pvr_value, sz)) != 0)
+			break;
+		break;
+	default:
+		error = ENOTTY;
+		break;
+	}
+
+	free(key, M_TEMP, keylen);
+	free(value, M_TEMP, valuelen);
+
+	return (error);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.14 2016/01/26 07:55:47 reyk Exp $	*/
+/*	$OpenBSD: main.c,v 1.17 2016/05/10 11:00:54 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -56,7 +56,7 @@ int		 ctl_stop(struct parse_result *, int, char *[]);
 
 struct ctl_command ctl_commands[] = {
 	{ "console",	CMD_CONSOLE,	ctl_console,	"id" },
-	{ "create",	CMD_CREATE,	ctl_create,	"\"name\" -s size", 1 },
+	{ "create",	CMD_CREATE,	ctl_create,	"\"path\" -s size", 1 },
 	{ "load",	CMD_LOAD,	ctl_load,	"[path]" },
 	{ "reload",	CMD_RELOAD,	ctl_load,	"[path]" },
 	{ "start",	CMD_START,	ctl_start,	"\"name\""
@@ -188,20 +188,6 @@ vmmaction(struct parse_result *res)
 
 	switch (res->action) {
 	case CMD_START:
-		/* XXX validation should be done in start_vm() */
-		if (res->size < 1)
-			errx(1, "specified memory size too small");
-		if (res->path == NULL)
-			errx(1, "no kernel specified");
-		if (res->ndisks > VMM_MAX_DISKS_PER_VM)
-			errx(1, "too many disks");
-		else if (res->ndisks == 0)
-			warnx("starting without disks");
-		if (res->nifs == -1)
-			res->nifs = 0;
-		if (res->nifs == 0)
-			warnx("starting without network interfaces");
-
 		ret = start_vm(res->name, res->size, res->nifs,
 		    res->ndisks, res->disks, res->path);
 		if (ret) {
@@ -541,6 +527,6 @@ __dead void
 ctl_openconsole(const char *name)
 {
 	closefrom(STDERR_FILENO + 1);
-	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "9600", NULL);
+	execl(VMCTL_CU, VMCTL_CU, "-l", name, "-s", "9600", (char *)NULL);
 	err(1, "failed to open the console");
 }

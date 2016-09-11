@@ -1,4 +1,4 @@
-/*	$OpenBSD: snake.c,v 1.23 2016/01/07 16:00:33 tb Exp $	*/
+/*	$OpenBSD: snake.c,v 1.27 2016/03/16 15:00:35 mestre Exp $	*/
 /*	$NetBSD: snake.c,v 1.8 1995/04/29 00:06:41 mycroft Exp $	*/
 
 /*
@@ -118,7 +118,7 @@ int	readscores(int);
 void	setup(void);
 void	snap(void);
 void	snrand(struct point *);
-void	snscore(int, int);
+void	snscore(int);
 void	spacewarp(int);
 void	stop(int);
 int	stretch(struct point *);
@@ -156,14 +156,14 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "hl:stw:")) != -1)
 		switch ((char)ch) {
 		case 'w':	/* width */
-			ccnt = atoi(optarg);
+			ccnt = strtonum(optarg, 1, INT_MAX, NULL);
 			break;
 		case 'l':	/* length */
-			lcnt = atoi(optarg);
+			lcnt = strtonum(optarg, 1, INT_MAX, NULL);
 			break;
 		case 's': /* score */
 			if (readscores(0))
-				snscore(rawscores, 0);
+				snscore(0);
 			else
 				printf("no scores so far\n");
 			return 0;
@@ -171,11 +171,10 @@ main(int argc, char *argv[])
 		case 't': /* slow terminal */
 			fast = 0;
 			break;
-		case '?':
 		case 'h':
 		default:
-			fputs("usage: snake [-st] [-l length] [-w width]\n",
-			    stderr);
+			fprintf(stderr, "usage: %s [-st] [-l length] "
+			    "[-w width]\n", getprogname());
 			return 1;
 		}
 
@@ -544,14 +543,15 @@ post(int iscore, int flag)
 		printf("\nYour score of $%d is ranked %d of all times!\n",
 		    iscore, rank + 1);
 
-	rewind(sf);
-	if (fwrite(scores, sizeof(scores[0]), nscores, sf) < nscores)
+	if (fseek(sf, 0L, SEEK_SET) == -1)
+		err(1, "fseek");
+	if (fwrite(scores, sizeof(scores[0]), nscores, sf) < (u_int)nscores)
 		err(1, "fwrite");
 	if (fclose(sf))
 		err(1, "fclose");
 
 	/* See if we have a new champ */
-	snscore(rawscores, TOPN);
+	snscore(TOPN);
 	return(1);
 }
 
@@ -879,7 +879,7 @@ pushsnake(void)
 			logit("eaten");
 #endif
 			length(moves);
-			snscore(rawscores, TOPN);
+			snscore(TOPN);
 			close(rawscores);
 			exit(0);
 		}
@@ -953,7 +953,7 @@ length(int num)
 }
 
 void
-snscore(int fd, int topn)
+snscore(int topn)
 {
 	int i;
 

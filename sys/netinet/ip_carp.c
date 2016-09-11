@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_carp.c,v 1.286 2016/01/21 11:23:48 mpi Exp $	*/
+/*	$OpenBSD: ip_carp.c,v 1.293 2016/07/25 16:44:04 benno Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff. All rights reserved.
@@ -78,6 +78,11 @@
 #include "bpfilter.h"
 #if NBPFILTER > 0
 #include <net/bpf.h>
+#endif
+
+#include "vlan.h"
+#if NVLAN > 0
+#include <net/if_vlan_var.h>
 #endif
 
 #include <netinet/ip_carp.h>
@@ -796,7 +801,6 @@ carp_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_ioctl = carp_ioctl;
 	ifp->if_start = carp_start;
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	if_attach(ifp);
 	ether_ifattach(ifp);
 	ifp->if_type = IFT_CARP;
@@ -1318,23 +1322,17 @@ carp_update_lsmask(struct carp_softc *sc)
 }
 
 int
-carp_iamatch(struct ifnet *ifp, uint8_t *enaddr)
+carp_iamatch(struct ifnet *ifp)
 {
 	struct carp_softc *sc = ifp->if_softc;
 	struct carp_vhost_entry *vhe;
-	struct srpl_iter i;
+	struct srp_ref sr;
 	int match = 0;
 
-	vhe = SRPL_ENTER(&sc->carp_vhosts, &i); /* head */
-	if (vhe->state == MASTER) {
-		if (sc->sc_balancing == CARP_BAL_IPSTEALTH ||
-		    sc->sc_balancing == CARP_BAL_IP) {
-		    	struct arpcom *ac = (struct arpcom *)sc->sc_carpdev;
-			memcpy(enaddr, ac->ac_enaddr, ETHER_ADDR_LEN);
-		}
+	vhe = SRPL_ENTER(&sr, &sc->carp_vhosts); /* head */
+	if (vhe->state == MASTER)
 		match = 1;
-	}
-	SRPL_LEAVE(&i, vhe);
+	SRPL_LEAVE(&sr);
 
 	return (match);
 }
@@ -1380,13 +1378,13 @@ int
 carp_vhe_match(struct carp_softc *sc, uint8_t *ena)
 {
 	struct carp_vhost_entry *vhe;
-	struct srpl_iter i;
+	struct srp_ref sr;
 	int match = 0;
 
-	vhe = SRPL_ENTER(&sc->carp_vhosts, &i); /* head */
+	vhe = SRPL_ENTER(&sr, &sc->carp_vhosts); /* head */
 	match = (vhe->state == MASTER || sc->sc_balancing >= CARP_BAL_IP) &&
 	    !memcmp(ena, sc->sc_ac.ac_enaddr, ETHER_ADDR_LEN);
-	SRPL_LEAVE(&i, vhe);
+	SRPL_LEAVE(&sr);
 
 	return (match);
 }
@@ -1398,13 +1396,22 @@ carp_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct carp_if *cif;
 	struct carp_softc *sc;
-	struct srpl_iter i;
+	struct srp_ref sr;
+
+#if NVLAN > 0
+	/*
+	 * If the underlying interface removed the VLAN header itself,
+	 * it's not for us.
+	 */
+	if (ISSET(m->m_flags, M_VLANTAG))
+		return (0);
+#endif
 
 	eh = mtod(m, struct ether_header *);
 	cif = (struct carp_if *)cookie;
 	KASSERT(cif == (struct carp_if *)ifp0->if_carp);
 
-	SRPL_FOREACH(sc, &cif->vhif_vrs, &i, sc_list) {
+	SRPL_FOREACH(sc, &sr, &cif->vhif_vrs, sc_list) {
 		if ((sc->sc_if.if_flags & (IFF_UP|IFF_RUNNING)) !=
 		    (IFF_UP|IFF_RUNNING))
 			continue;
@@ -1414,7 +1421,7 @@ carp_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 	}
 
 	if (sc == NULL) {
-		SRPL_LEAVE(&i, sc);
+		SRPL_LEAVE(&sr);
 
 		if (!ETHER_IS_MULTICAST(eh->ether_dhost))
 			return (0);
@@ -1423,13 +1430,13 @@ carp_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 		 * XXX Should really check the list of multicast addresses
 		 * for each CARP interface _before_ copying.
 		 */
-		SRPL_FOREACH(sc, &cif->vhif_vrs, &i, sc_list) {
+		SRPL_FOREACH(sc, &sr, &cif->vhif_vrs, sc_list) {
 			struct mbuf *m0;
 
 			if (!(sc->sc_if.if_flags & IFF_UP))
 				continue;
 
-			m0 = m_copym2(m, 0, M_COPYALL, M_DONTWAIT);
+			m0 = m_dup_pkt(m, ETHER_ALIGN, M_DONTWAIT);
 			if (m0 == NULL)
 				continue;
 
@@ -1438,7 +1445,7 @@ carp_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 
 			if_input(&sc->sc_if, &ml);
 		}
-		SRPL_LEAVE(&i, sc);
+		SRPL_LEAVE(&sr);
 
 		return (0);
 	}
@@ -1452,7 +1459,7 @@ carp_input(struct ifnet *ifp0, struct mbuf *m, void *cookie)
 
 	ml_enqueue(&ml, m);
 	if_input(&sc->sc_if, &ml);
-	SRPL_LEAVE(&i, sc);
+	SRPL_LEAVE(&sr);
 
 	return (1);
 }
@@ -2275,14 +2282,13 @@ carp_start(struct ifnet *ifp)
 		 * advertisements in 'ip' and 'ip-stealth' balacing
 		 * modes.
 		 */
-		if (sc->sc_balancing != CARP_BAL_IPSTEALTH &&
-		    sc->sc_balancing != CARP_BAL_IP &&
-		    (sc->cur_vhe && !sc->cur_vhe->vhe_leader)) {
+		if (sc->sc_balancing == CARP_BAL_IP ||
+		    sc->sc_balancing == CARP_BAL_IPSTEALTH) {
 			struct ether_header *eh;
 			uint8_t *esrc;
 
 			eh = mtod(m, struct ether_header *);
-			esrc = sc->cur_vhe->vhe_enaddr;
+			esrc = ((struct arpcom*)ifp->if_carpdev)->ac_enaddr;;
 			memcpy(eh->ether_shost, esrc, sizeof(eh->ether_shost));
 		}
 
@@ -2300,15 +2306,15 @@ carp_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *sa,
 {
 	struct carp_softc *sc = ((struct carp_softc *)ifp->if_softc);
 	struct carp_vhost_entry *vhe;
-	struct srpl_iter i;
+	struct srp_ref sr;
 	int ismaster;
 
 	KASSERT(sc->sc_carpdev != NULL);
 
 	if (sc->cur_vhe == NULL) {
-		vhe = SRPL_ENTER(&sc->carp_vhosts, &i); /* head */
+		vhe = SRPL_ENTER(&sr, &sc->carp_vhosts); /* head */
 		ismaster = (vhe->state == MASTER);
-		SRPL_LEAVE(&i, vhe);
+		SRPL_LEAVE(&sr);
 	} else {
 		ismaster = (sc->cur_vhe->state == MASTER);
 	}

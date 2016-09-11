@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid.c,v 1.365 2015/12/29 04:46:28 mmcc Exp $ */
+/* $OpenBSD: softraid.c,v 1.377 2016/07/20 20:45:13 krw Exp $ */
 /*
  * Copyright (c) 2007, 2008, 2009 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Chris Kuethe <ckuethe@openbsd.org>
@@ -539,6 +539,7 @@ sr_meta_init(struct sr_discipline *sd, int level, int no_chunk)
 	struct sr_chunk		*chunk;
 	int			cid = 0;
 	u_int64_t		max_chunk_sz = 0, min_chunk_sz = 0;
+	u_int32_t		secsize = DEV_BSIZE;
 
 	DNPRINTF(SR_D_META, "%s: sr_meta_init\n", DEVNAME(sc));
 
@@ -558,7 +559,7 @@ sr_meta_init(struct sr_discipline *sd, int level, int no_chunk)
 
 	sr_uuid_generate(&sm->ssdi.ssd_uuid);
 
-	/* Initialise chunk metadata and get min/max chunk sizes. */
+	/* Initialise chunk metadata and get min/max chunk sizes & secsize. */
 	SLIST_FOREACH(chunk, cl, src_link) {
 		scm = &chunk->src_meta;
 		scm->scmi.scm_size = chunk->src_size;
@@ -574,9 +575,13 @@ sr_meta_init(struct sr_discipline *sd, int level, int no_chunk)
 
 		if (min_chunk_sz == 0)
 			min_chunk_sz = scm->scmi.scm_size;
+		if (chunk->src_secsize > secsize)
+			secsize = chunk->src_secsize;
 		min_chunk_sz = MIN(min_chunk_sz, scm->scmi.scm_size);
 		max_chunk_sz = MAX(max_chunk_sz, scm->scmi.scm_size);
 	}
+
+	sm->ssdi.ssd_secsize = secsize;
 
 	/* Equalize chunk sizes. */
 	SLIST_FOREACH(chunk, cl, src_link)
@@ -942,6 +947,7 @@ sr_meta_validate(struct sr_discipline *sd, dev_t dev, struct sr_metadata *sm,
 		 */
 		if (sm->ssd_data_blkno == 0)
 			sm->ssd_data_blkno = SR_META_V3_DATA_OFFSET;
+		sm->ssdi.ssd_secsize = DEV_BSIZE;
 
 	} else if (sm->ssdi.ssd_version == 4) {
 
@@ -951,13 +957,21 @@ sr_meta_validate(struct sr_discipline *sd, dev_t dev, struct sr_metadata *sm,
 		 */
 		if (sm->ssd_data_blkno == 0)
 			sm->ssd_data_blkno = SR_DATA_OFFSET;
+		sm->ssdi.ssd_secsize = DEV_BSIZE;
 
-	} else if (sm->ssdi.ssd_version == SR_META_VERSION) {
+	} else if (sm->ssdi.ssd_version == 5) {
 
 		/*
 		 * Version 5 - variable length optional metadata. Migration
 		 * from earlier fixed length optional metadata is handled
 		 * in sr_meta_read().
+		 */
+		sm->ssdi.ssd_secsize = DEV_BSIZE;
+
+	} else if (sm->ssdi.ssd_version == SR_META_VERSION) {
+
+		/*
+		 * Version 6 - store & report a sector size.
 		 */
 
 	} else {
@@ -1049,13 +1063,6 @@ sr_meta_native_bootprobe(struct sr_softc *sc, dev_t devno,
 		goto done;
 	}
 	vput(vn);
-
-	/* Make sure this is a DEV_BSIZE byte/sector device. */
-	if (label.d_secsize != DEV_BSIZE) {
-		DNPRINTF(SR_D_META, "%s: %s has unsupported sector size (%d)",
-		    DEVNAME(sc), devname, label.d_secsize);
-		goto done;
-	}
 
 	md = malloc(SR_META_SIZE * DEV_BSIZE, M_DEVBUF, M_ZERO | M_NOWAIT);
 	if (md == NULL) {
@@ -1563,13 +1570,6 @@ sr_meta_native_probe(struct sr_softc *sc, struct sr_chunk *ch_entry)
 	}
 	memcpy(ch_entry->src_duid, label.d_uid, sizeof(ch_entry->src_duid));
 
-	/* Make sure this is a DEV_BSIZE byte/sector device. */
-	if (label.d_secsize != DEV_BSIZE) {
-		sr_error(sc, "%s has unsupported sector size (%u)",
-		    devname, label.d_secsize);
-		goto unwind;
-	}
-
 	/* make sure the partition is of the right type */
 	if (label.d_partitions[part].p_fstype != FS_RAID) {
 		DNPRINTF(SR_D_META,
@@ -1592,6 +1592,7 @@ sr_meta_native_probe(struct sr_softc *sc, struct sr_chunk *ch_entry)
 		goto unwind;
 	}
 	ch_entry->src_size = size;
+	ch_entry->src_secsize = label.d_secsize;
 
 	DNPRINTF(SR_D_META, "%s: probe found %s size %lld\n", DEVNAME(sc),
 	    devname, (long long)size);
@@ -2349,10 +2350,8 @@ sr_scsi_cmd(struct scsi_xfer *xs)
 	    DEVNAME(sc), link->target, xs, xs->flags);
 
 	sd = sc->sc_targets[link->target];
-	if (sd == NULL) {
-		printf("%s: sr_scsi_cmd NULL discipline\n", DEVNAME(sc));
-		goto stuffup;
-	}
+	if (sd == NULL)
+		panic("%s: sr_scsi_cmd NULL discipline", DEVNAME(sc));
 
 	if (sd->sd_deleted) {
 		printf("%s: %s device is being deleted, failing io\n",
@@ -2431,7 +2430,7 @@ sr_scsi_cmd(struct scsi_xfer *xs)
 
 	return;
 stuffup:
-	if (sd && sd->sd_scsi_sense.error_code) {
+	if (sd->sd_scsi_sense.error_code) {
 		xs->error = XS_SENSE;
 		memcpy(&xs->sense, &sd->sd_scsi_sense, sizeof(xs->sense));
 		bzero(&sd->sd_scsi_sense, sizeof(sd->sd_scsi_sense));
@@ -2601,7 +2600,6 @@ sr_ioctl_vol(struct sr_softc *sc, struct bioc_vol *bv)
 	int			vol = -1, rv = EINVAL;
 	struct sr_discipline	*sd;
 	struct sr_chunk		*hotspare;
-	int64_t			rb, sz;
 
 	TAILQ_FOREACH(sd, &sc->sc_dis_list, sd_link) {
 		vol++;
@@ -2618,16 +2616,8 @@ sr_ioctl_vol(struct sr_softc *sc, struct bioc_vol *bv)
 		    sd->mds.mdd_crypto.key_disk != NULL)
 			bv->bv_nodisk++;
 #endif
+		bv->bv_percent = sr_rebuild_percent(sd);
 
-		if (bv->bv_status == BIOC_SVREBUILD) {
-			sz = sd->sd_meta->ssdi.ssd_size;
-			rb = sd->sd_meta->ssd_rebuild;
-			if (rb > 0)
-				bv->bv_percent = 100 -
-				    ((sz * 100 - rb * 100) / sz) - 1;
-			else
-				bv->bv_percent = 0;
-		}
 		strlcpy(bv->bv_dev, sd->sd_meta->ssd_devname,
 		    sizeof(bv->bv_dev));
 		strlcpy(bv->bv_vendor, sd->sd_meta->ssdi.ssd_vendor,
@@ -2871,11 +2861,6 @@ sr_hotspare(struct sr_softc *sc, dev_t dev)
 		vput(vn);
 		goto fail;
 	}
-	if (label.d_secsize != DEV_BSIZE) {
-		sr_error(sc, "%s has unsupported sector size (%u)",
-		    devname, label.d_secsize);
-		goto fail;
-	}
 	if (label.d_partitions[part].p_fstype != FS_RAID) {
 		sr_error(sc, "%s partition not of type RAID (%d)",
 		    devname, label.d_partitions[part].p_fstype);
@@ -2935,6 +2920,7 @@ sr_hotspare(struct sr_softc *sc, dev_t dev)
 	sm->ssdi.ssd_volid = SR_HOTSPARE_VOLID;
 	sm->ssdi.ssd_level = SR_HOTSPARE_LEVEL;
 	sm->ssdi.ssd_size = size;
+	sm->ssdi.ssd_secsize = label.d_secsize;
 	strlcpy(sm->ssdi.ssd_vendor, "OPENBSD", sizeof(sm->ssdi.ssd_vendor));
 	snprintf(sm->ssdi.ssd_product, sizeof(sm->ssdi.ssd_product),
 	    "SR %s", "HOTSPARE");
@@ -3011,21 +2997,20 @@ sr_hotspare_rebuild(struct sr_discipline *sd)
 	struct sr_chunk		*hotspare, *chunk = NULL;
 	struct sr_workunit	*wu;
 	struct sr_ccb		*ccb;
-	int			i, s, chunk_no, busy;
+	int			i, s, cid, busy;
 
 	/*
 	 * Attempt to locate a hotspare and initiate rebuild.
 	 */
 
-	for (i = 0; i < sd->sd_meta->ssdi.ssd_chunk_no; i++) {
-		if (sd->sd_vol.sv_chunks[i]->src_meta.scm_status ==
+	/* Find first offline chunk. */
+	for (cid = 0; cid < sd->sd_meta->ssdi.ssd_chunk_no; cid++) {
+		if (sd->sd_vol.sv_chunks[cid]->src_meta.scm_status ==
 		    BIOC_SDOFFLINE) {
-			chunk_no = i;
-			chunk = sd->sd_vol.sv_chunks[i];
+			chunk = sd->sd_vol.sv_chunks[cid];
 			break;
 		}
 	}
-
 	if (chunk == NULL) {
 		printf("%s: no offline chunk found on %s!\n",
 		    DEVNAME(sc), sd->sd_meta->ssd_devname);
@@ -3036,7 +3021,8 @@ sr_hotspare_rebuild(struct sr_discipline *sd)
 	rw_enter_write(&sc->sc_hs_lock);
 	cl = &sc->sc_hotspare_list;
 	SLIST_FOREACH(hotspare, cl, src_link)
-		if (hotspare->src_size >= chunk->src_size)
+		if (hotspare->src_size >= chunk->src_size &&
+		    hotspare->src_secsize <= sd->sd_meta->ssdi.ssd_secsize)
 			break;
 
 	if (hotspare != NULL) {
@@ -3056,13 +3042,13 @@ sr_hotspare_rebuild(struct sr_discipline *sd)
 			s = splbio();
 			TAILQ_FOREACH(wu, &sd->sd_wu_pendq, swu_link) {
 				TAILQ_FOREACH(ccb, &wu->swu_ccb, ccb_link) {
-					if (ccb->ccb_target == chunk_no)
+					if (ccb->ccb_target == cid)
 						busy = 1;
 				}
 			}
 			TAILQ_FOREACH(wu, &sd->sd_wu_defq, swu_link) {
 				TAILQ_FOREACH(ccb, &wu->swu_ccb, ccb_link) {
-					if (ccb->ccb_target == chunk_no)
+					if (ccb->ccb_target == cid)
 						busy = 1;
 				}
 			}
@@ -3151,6 +3137,7 @@ sr_rebuild_init(struct sr_discipline *sd, dev_t dev, int hotspare)
 	}
 
 	/* Get coerced size from another online chunk. */
+	csize = 0;
 	for (i = 0; i < sd->sd_meta->ssdi.ssd_chunk_no; i++) {
 		if (sd->sd_vol.sv_chunks[i]->src_meta.scm_status ==
 		    BIOC_SDONLINE) {
@@ -3158,6 +3145,10 @@ sr_rebuild_init(struct sr_discipline *sd, dev_t dev, int hotspare)
 			csize = meta->scmi.scm_coerced_size;
 			break;
 		}
+	}
+	if (csize == 0) {
+		sr_error(sc, "no online chunks available for rebuild");
+		goto done;
 	}
 
 	sr_meta_getdevname(sc, dev, devname, sizeof(devname));
@@ -3180,11 +3171,6 @@ sr_rebuild_init(struct sr_discipline *sd, dev_t dev, int hotspare)
 	    NOCRED, curproc)) {
 		DNPRINTF(SR_D_META, "%s: sr_ioctl_setstate ioctl failed\n",
 		    DEVNAME(sc));
-		goto done;
-	}
-	if (label.d_secsize != DEV_BSIZE) {
-		sr_error(sc, "%s has unsupported sector size (%u)",
-		    devname, label.d_secsize);
 		goto done;
 	}
 	if (label.d_partitions[part].p_fstype != FS_RAID) {
@@ -3213,6 +3199,11 @@ sr_rebuild_init(struct sr_discipline *sd, dev_t dev, int hotspare)
 	} else if (size > csize)
 		sr_warn(sc, "%s partition too large, wasting %lld bytes",
 		    devname, (long long)((size - csize) << DEV_BSHIFT));
+	if (label.d_secsize > sd->sd_meta->ssdi.ssd_secsize) {
+		sr_error(sc, "%s sector size too large, <= %u bytes "
+		    "required", devname, sd->sd_meta->ssdi.ssd_secsize);
+		goto done;
+	}
 
 	/* Ensure that this chunk is not already in use. */
 	status = sr_chunk_in_use(sc, dev);
@@ -3269,6 +3260,20 @@ done:
 	return (rv);
 }
 
+int
+sr_rebuild_percent(struct sr_discipline *sd)
+{
+	daddr_t			rb, sz;
+
+	sz = sd->sd_meta->ssdi.ssd_size;
+	rb = sd->sd_meta->ssd_rebuild;
+
+	if (rb > 0)
+		return (100 - ((sz * 100 - rb * 100) / sz) - 1);
+
+	return (0);
+}
+
 void
 sr_roam_chunks(struct sr_discipline *sd)
 {
@@ -3308,7 +3313,7 @@ sr_ioctl_createraid(struct sr_softc *sc, struct bioc_createraid *bc,
 	struct scsi_link	*link;
 	struct device		*dev;
 	char			*uuid, devname[32];
-	dev_t			*dt;
+	dev_t			*dt = NULL;
 	int			i, no_chunk, rv = EINVAL, target, vol;
 	int			no_meta;
 
@@ -3581,9 +3586,13 @@ sr_ioctl_createraid(struct sr_softc *sc, struct bioc_createraid *bc,
 
 	sd->sd_ready = 1;
 
+	free(dt, M_DEVBUF, bc->bc_dev_list_len);
+
 	return (rv);
 
 unwind:
+	free(dt, M_DEVBUF, bc->bc_dev_list_len);
+
 	sr_discipline_shutdown(sd, 0);
 
 	if (rv == EAGAIN)
@@ -3661,7 +3670,7 @@ sr_ioctl_installboot(struct sr_softc *sc, struct sr_discipline *sd,
 	struct sr_meta_opt_item *omi;
 	struct sr_meta_boot	*sbm;
 	struct disk		*dk;
-	u_int32_t		bbs, bls;
+	u_int32_t		bbs, bls, secsize;
 	u_char			duid[8];
 	int			rv = EINVAL;
 	int			i;
@@ -3705,14 +3714,16 @@ sr_ioctl_installboot(struct sr_softc *sc, struct sr_discipline *sd,
 	if (bb->bb_bootldr_size > SR_BOOT_LOADER_SIZE * DEV_BSIZE)
 		goto done;
 
+	secsize = sd->sd_meta->ssdi.ssd_secsize;
+
 	/* Copy in boot block. */
-	bbs = howmany(bb->bb_bootblk_size, DEV_BSIZE) * DEV_BSIZE;
+	bbs = howmany(bb->bb_bootblk_size, secsize) * secsize;
 	bootblk = malloc(bbs, M_DEVBUF, M_WAITOK | M_ZERO);
 	if (copyin(bb->bb_bootblk, bootblk, bb->bb_bootblk_size) != 0)
 		goto done;
 
 	/* Copy in boot loader. */
-	bls = howmany(bb->bb_bootldr_size, DEV_BSIZE) * DEV_BSIZE;
+	bls = howmany(bb->bb_bootldr_size, secsize) * secsize;
 	bootldr = malloc(bls, M_DEVBUF, M_WAITOK | M_ZERO);
 	if (copyin(bb->bb_bootldr, bootldr, bb->bb_bootldr_size) != 0)
 		goto done;
@@ -3777,7 +3788,6 @@ sr_ioctl_installboot(struct sr_softc *sc, struct sr_discipline *sd,
 			sr_error(sc, "failed to write boot loader");
 			goto done;
 		}
-
 	}
 
 	/* XXX - Install boot block on disk - MD code. */
@@ -3785,8 +3795,7 @@ sr_ioctl_installboot(struct sr_softc *sc, struct sr_discipline *sd,
 	/* Mark volume as bootable and save metadata. */
 	sd->sd_meta->ssdi.ssd_vol_flags |= BIOC_SCBOOTABLE;
 	if (sr_meta_save(sd, SR_META_DIRTY)) {
-		sr_error(sc, "could not save metadata to %s",
-		    chunk->src_devname);
+		sr_error(sc, "could not save metadata to %s", DEVNAME(sc));
 		goto done;
 	}
 
@@ -4030,25 +4039,28 @@ sr_raid_read_cap(struct sr_workunit *wu)
 	struct scsi_xfer	*xs = wu->swu_xs;
 	struct scsi_read_cap_data rcd;
 	struct scsi_read_cap_data_16 rcd16;
-	int64_t			addr;
+	u_int64_t		addr;
 	int			rv = 1;
+	u_int32_t		secsize;
 
 	DNPRINTF(SR_D_DIS, "%s: sr_raid_read_cap\n", DEVNAME(sd->sd_sc));
 
-	addr = sd->sd_meta->ssdi.ssd_size - 1;
+	secsize = sd->sd_meta->ssdi.ssd_secsize;
+
+	addr = ((sd->sd_meta->ssdi.ssd_size * DEV_BSIZE) / secsize) - 1;
 	if (xs->cmd->opcode == READ_CAPACITY) {
 		bzero(&rcd, sizeof(rcd));
 		if (addr > 0xffffffffllu)
 			_lto4b(0xffffffff, rcd.addr);
 		else
 			_lto4b(addr, rcd.addr);
-		_lto4b(DEV_BSIZE, rcd.length);
+		_lto4b(secsize, rcd.length);
 		sr_copy_internal_data(xs, &rcd, sizeof(rcd));
 		rv = 0;
 	} else if (xs->cmd->opcode == READ_CAPACITY_16) {
 		bzero(&rcd16, sizeof(rcd16));
 		_lto8b(addr, rcd16.addr);
-		_lto4b(DEV_BSIZE, rcd16.length);
+		_lto4b(secsize, rcd16.length);
 		sr_copy_internal_data(xs, &rcd16, sizeof(rcd16));
 		rv = 0;
 	}
@@ -4575,6 +4587,8 @@ sr_validate_io(struct sr_workunit *wu, daddr_t *blkno, char *func)
 		goto bad;
 	}
 
+	*blkno *= (sd->sd_meta->ssdi.ssd_secsize / DEV_BSIZE);
+
 	wu->swu_blk_start = *blkno;
 	wu->swu_blk_end = *blkno + (xs->datalen >> DEV_BSHIFT) - 1;
 
@@ -4632,9 +4646,8 @@ void
 sr_rebuild(struct sr_discipline *sd)
 {
 	struct sr_softc		*sc = sd->sd_sc;
-	u_int64_t		sz, psz, whole_blk, partial_blk, blk, restart;
+	u_int64_t		sz, whole_blk, partial_blk, blk, restart;
 	daddr_t			lba;
-	int64_t			rb;
 	struct sr_workunit	*wu_r, *wu_w;
 	struct scsi_xfer	xs_r, xs_w;
 	struct scsi_rw_16	*cr, *cw;
@@ -4660,12 +4673,7 @@ sr_rebuild(struct sr_discipline *sd)
 		 * replaced).  We need to check the uuid of the chunk that is
 		 * being rebuilt to assert this.
 		 */
-		psz = sd->sd_meta->ssdi.ssd_size;
-		rb = sd->sd_meta->ssd_rebuild;
-		if (rb > 0)
-			percent = 100 - ((psz * 100 - rb * 100) / psz) - 1;
-		else
-			percent = 0;
+		percent = sr_rebuild_percent(sd);
 		printf("%s: resuming rebuild on %s at %d%%\n",
 		    DEVNAME(sc), sd->sd_meta->ssd_devname, percent);
 	}
@@ -4763,12 +4771,7 @@ sr_rebuild(struct sr_discipline *sd)
 
 		/* XXX - this should be based on size, not percentage. */
 		/* save metadata every percent */
-		psz = sd->sd_meta->ssdi.ssd_size;
-		rb = sd->sd_meta->ssd_rebuild;
-		if (rb > 0)
-			percent = 100 - ((psz * 100 - rb * 100) / psz) - 1;
-		else
-			percent = 0;
+		percent = sr_rebuild_percent(sd);
 		if (percent != old_percent && blk != whole_blk) {
 			if (sr_meta_save(sd, SR_META_DIRTY))
 				printf("%s: could not save metadata to %s\n",

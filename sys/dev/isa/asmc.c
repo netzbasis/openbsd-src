@@ -1,4 +1,4 @@
-/*	$OpenBSD: asmc.c,v 1.28 2015/12/27 20:54:53 jung Exp $	*/
+/*	$OpenBSD: asmc.c,v 1.30 2016/04/22 20:45:53 jung Exp $	*/
 /*
  * Copyright (c) 2015 Joerg Jung <jung@openbsd.org>
  *
@@ -59,6 +59,7 @@
 
 struct asmc_prod {
 	const char	*pr_name;
+	uint8_t		 pr_light;
 	const char	*pr_temp[ASMC_MAXTEMP];
 };
 
@@ -108,7 +109,7 @@ struct cfdriver asmc_cd = {
 };
 
 static struct asmc_prod asmc_prods[] = {
-	{ "MacBookAir", {
+	{ "MacBookAir", 1, {
 		"TB0T", "TB1S", "TB1T", "TB2S", "TB2T", "TBXT", "TC0C", "TC0D",
 		"TC0E", "TC0F", "TC0P", "TC1C", "TC1E", "TC2C", "TCFP", "TCGC",
 		"TCHP", "TCMX", "TCSA", "TCXC", "TCZ3", "TCZ4", "TCZ5", "TG0E",
@@ -117,7 +118,7 @@ static struct asmc_prod asmc_prods[] = {
 		"TV0P", "TVFP", "TW0P", "Ta0P", "Th0H", "Th0P", "Th1H", "Tm0P",
 		"Tm1P", "Tp0P", "Tp1P", "TpFP", "Ts0P", "Ts0S", NULL }
 	},
-	{ "MacBookPro", {
+	{ "MacBookPro", 1, {
 		"TA0P", "TA1P", "TALP", "TB0T", "TB1T", "TB2T", "TB3T", "TBXT",
 		"TC0C", "TC0D", "TC0E", "TC0F", "TC0P", "TC1C", "TC2C", "TC3C",
 		"TC4C", "TCGC", "TCSA", "TCXC", "TG0D", "TG0F", "TG0H", "TG0P",
@@ -127,12 +128,12 @@ static struct asmc_prod asmc_prods[] = {
 		"TN1S", "TP0P", "TPCD", "TTF0", "TW0P", "Ta0P", "TaSP", "Th0H",
 		"Th1H", "Th2H", "Tm0P", "Ts0P", "Ts0S", "Ts1P", "Ts1S", NULL }
 	},
-	{ "MacBook", {
+	{ "MacBook", 0, {
 		"TB0T", "TB1T", "TB2T", "TB3T", "TC0D", "TC0P", "TM0P", "TN0D",
 		"TN0P", "TN1P", "TTF0", "TW0P", "Th0H", "Th0S", "Th1H", "ThFH",
 		"Ts0P", "Ts0S", NULL }
 	},
-	{ "MacPro", {
+	{ "MacPro", 0, {
 		"TA0P", "TC0C", "TC0D", "TC0P", "TC1C", "TC1D", "TC2C", "TC2D",
 		"TC3C", "TC3D", "TCAC", "TCAD", "TCAG", "TCAH", "TCAS", "TCBC",
 		"TCBD", "TCBG", "TCBH", "TCBS", "TH0P", "TH1F", "TH1P", "TH1V",
@@ -147,67 +148,67 @@ static struct asmc_prod asmc_prods[] = {
 		"Te5S", "TeGG", "TeGP", "TeRG", "TeRP", "TeRV", "Tp0C", "Tp1C",
 		"TpPS", "TpTG", "Tv0S", "Tv1S", NULL }
 	},
-	{ "MacMini", {
+	{ "MacMini", 0, {
 		"TC0D", "TC0H", "TC0P", "TH0P", "TN0D", "TN0P", "TN1P", "TW0P",
 		NULL }
 	},
-	{ "iMac", {
+	{ "iMac", 0, {
 		"TA0P", "TC0D", "TC0H", "TC0P", "TG0D", "TG0H", "TG0P", "TH0P",
 		"TL0P", "TN0D", "TN0H", "TN0P", "TO0P", "TW0P", "Tm0P", "Tp0C",
 		"Tp0P", NULL }
 	},
-	{ NULL, { NULL } }
+	{ NULL, 0, { NULL } }
 };
 
 static const char *asmc_temp_desc[][2] = {
-	{ "TA0P", "Ambient" }, { "TA0P", "HDD Bay 1" },
-	{ "TA0S", "PCI Slot 1 Pos 1" }, { "TA1P", "Ambient 2" },
-	{ "TA1S", "PCI Slot 1 Pos 2" }, { "TA2S", "PCI Slot 2 Pos 1" },
-	{ "TA3S", "PCI Slot 2 Pos 2" },
-	{ "TB0T", "Enclosure Bottom" }, { "TB1T", "Enclosure Bottom 2" },
-	{ "TB2T", "Enclosure Bottom 3" }, { "TB3T", "Enclosure Bottom 4" },
-	{ "TC0D", "CPU0 Die Core" }, { "TC0H", "CPU0 Heatsink" },
-	{ "TC0P", "CPU0 Proximity" },
-	{ "TC1D", "CPU1" }, { "TC2D", "CPU2" }, { "TC3D", "CPU3" },
-	{ "TCAH", "CPU0" }, { "TCBH", "CPU1" }, { "TCCH", "CPU2" },
-	{ "TCDH", "CPU3" },
-	{ "TG0D", "GPU0 Diode" }, { "TG0H", "GPU0 Heatsink" },
-	{ "TG0P", "GPU0 Proximity" },
-	{ "TG1H", "GPU Heatsink 2" },
-	{ "TH0P", "HDD Bay 1" }, { "TH1P", "HDD Bay 2" },
-	{ "TH2P", "HDD Bay 3" }, { "TH3P", "HDD Bay 4" },
-	{ "TL0P", "LCD Proximity"},
-	{ "TM0P", "Mem Bank A1" }, { "TM0S", "Mem module A1" },
-	{ "TM1P", "Mem Bank A2" }, { "TM1S", "Mem module A2" },
-	{ "TM2P", "Mem Bank A3" }, { "TM2S", "Mem module A3" },
-	{ "TM3P", "Mem Bank A4" }, { "TM3S", "Mem module A4" },
-	{ "TM4P", "Mem Bank A5" }, { "TM4S", "Mem module A5" },
-	{ "TM5P", "Mem Bank A6" }, { "TM5S", "Mem module A6" },
-	{ "TM6P", "Mem Bank A7" }, { "TM6S", "Mem module A7" },
-	{ "TM7P", "Mem Bank A8" }, { "TM7S", "Mem module A8" },
-	{ "TM8P", "Mem Bank B1" }, { "TM8S", "Mem module B1" },
-	{ "TM9P", "Mem Bank B2" }, { "TM9S", "Mem module B2" },
-	{ "TMA1", "RAM A1" }, { "TMA2", "RAM A2" },
-	{ "TMA3", "RAM A3" }, { "TMA4", "RAM A4" },
-	{ "TMB1", "RAM B1" }, { "TMB2", "RAM B2" },
-	{ "TMB3", "RAM B3" }, { "TMB4", "RAM B4" },
-	{ "TMAP", "Mem Bank B3" }, { "TMAS", "Mem module B3" },
-	{ "TMBP", "Mem Bank B4" }, { "TMBS", "Mem module B4" },
-	{ "TMCP", "Mem Bank B5" }, { "TMCS", "Mem module B5" },
-	{ "TMDP", "Mem Bank B6" }, { "TMDS", "Mem module B6" },
-	{ "TMEP", "Mem Bank B7" }, { "TMES", "Mem module B7" },
-	{ "TMFP", "Mem Bank B8" }, { "TMFS", "Mem module B8" },
-	{ "TN0D", "Northbridge Die Core" }, { "TN0H", "Northbridge" },
-	{ "TN0P", "Northbridge Proximity" }, { "TN1P", "Northbridge 2" },
-	{ "TO0P", "Optical Drive" }, { "TS0C", "Expansion Slots" },
-	{ "TW0P", "Wireless Airport Card" },
-	{ "Th0H", "Main Heatsink A" }, { "Th1H", "Main Heatsink B" },
-	{ "Th2H", "Main Heatsink C" },
-	{ "Tm0P", "Memory Controller" },
-	{ "Tp0C", "Power supply 1" }, { "Tp0P", "Power supply 1" },
-	{ "Tp1C", "Power supply 2" }, { "Tp1P", "Power supply 2" },
-	{ "Tp2P", "Power supply 3" }, { "Tp3P", "Power supply 4" },
-	{ "Tp4P", "Power supply 5" }, { "Tp5P", "Power supply 6" },
+	{ "TA0P", "ambient" }, { "TA0P", "hdd bay 1" },
+	{ "TA0S", "pci slot 1 pos 1" }, { "TA1P", "ambient 2" },
+	{ "TA1S", "pci slot 1 pos 2" }, { "TA2S", "pci slot 2 pos 1" },
+	{ "TA3S", "pci slot 2 pos 2" },
+	{ "TB0T", "enclosure bottom" }, { "TB1T", "enclosure bottom 2" },
+	{ "TB2T", "enclosure bottom 3" }, { "TB3T", "enclosure bottom 4" },
+	{ "TC0D", "cpu0 die core" }, { "TC0H", "cpu0 heatsink" },
+	{ "TC0P", "cpu0 proximity" },
+	{ "TC1D", "cpu1" }, { "TC2D", "cpu2" }, { "TC3D", "cpu3" },
+	{ "TCAH", "cpu0" }, { "TCBH", "cpu1" }, { "TCCH", "cpu2" },
+	{ "TCDH", "cpu3" },
+	{ "TG0D", "gpu0 diode" }, { "TG0H", "gpu0 heatsink" },
+	{ "TG0P", "gpu0 proximity" },
+	{ "TG1H", "gpu heatsink 2" },
+	{ "TH0P", "hdd bay 1" }, { "TH1P", "hdd bay 2" },
+	{ "TH2P", "hdd bay 3" }, { "TH3P", "hdd bay 4" },
+	{ "TL0P", "lcd proximity"},
+	{ "TM0P", "mem bank a1" }, { "TM0S", "mem module a1" },
+	{ "TM1P", "mem bank a2" }, { "TM1S", "mem module a2" },
+	{ "TM2P", "mem bank a3" }, { "TM2S", "mem module a3" },
+	{ "TM3P", "mem bank a4" }, { "TM3S", "mem module a4" },
+	{ "TM4P", "mem bank a5" }, { "TM4S", "mem module a5" },
+	{ "TM5P", "mem bank a6" }, { "TM5S", "mem module a6" },
+	{ "TM6P", "mem bank a7" }, { "TM6S", "mem module a7" },
+	{ "TM7P", "mem bank a8" }, { "TM7S", "mem module a8" },
+	{ "TM8P", "mem bank b1" }, { "TM8S", "mem module b1" },
+	{ "TM9P", "mem bank b2" }, { "TM9S", "mem module b2" },
+	{ "TMA1", "ram a1" }, { "TMA2", "ram a2" },
+	{ "TMA3", "ram a3" }, { "TMA4", "ram a4" },
+	{ "TMB1", "ram b1" }, { "TMB2", "ram b2" },
+	{ "TMB3", "ram b3" }, { "TMB4", "ram b4" },
+	{ "TMAP", "mem bank b3" }, { "TMAS", "mem module b3" },
+	{ "TMBP", "mem bank b4" }, { "TMBS", "mem module b4" },
+	{ "TMCP", "mem bank b5" }, { "TMCS", "mem module b5" },
+	{ "TMDP", "mem bank b6" }, { "TMDS", "mem module b6" },
+	{ "TMEP", "mem bank b7" }, { "TMES", "mem module b7" },
+	{ "TMFP", "mem bank b8" }, { "TMFS", "mem module b8" },
+	{ "TN0D", "northbridge die core" }, { "TN0H", "northbridge" },
+	{ "TN0P", "northbridge proximity" }, { "TN1P", "northbridge 2" },
+	{ "TO0P", "optical drive" }, { "TS0C", "expansion slots" },
+	{ "TW0P", "wireless airport card" },
+	{ "Th0H", "main heatsink a" }, { "Th1H", "main heatsink b" },
+	{ "Th2H", "main heatsink c" },
+	{ "Tm0P", "memory controller" },
+	{ "Tp0C", "power supply 1" }, { "Tp0P", "power supply 1" },
+	{ "Tp1C", "power supply 2" }, { "Tp1P", "power supply 2" },
+	{ "Tp2P", "power supply 3" }, { "Tp3P", "power supply 4" },
+	{ "Tp4P", "power supply 5" }, { "Tp5P", "power supply 6" },
 	{ NULL, NULL }
 };
 
@@ -570,7 +571,7 @@ asmc_fan(struct asmc_softc *sc, uint8_t idx, int init)
 	strlcpy(sc->sc_sensor_fan[idx].desc, buf + 4,
 	    sizeof(sc->sc_sensor_fan[idx].desc));
 	if (buf[2] < nitems(asmc_fan_loc)) {
-		strlcat(sc->sc_sensor_fan[idx].desc, " ",
+		strlcat(sc->sc_sensor_fan[idx].desc, ", ",
 		    sizeof(sc->sc_sensor_fan[idx].desc));
 		strlcat(sc->sc_sensor_fan[idx].desc, asmc_fan_loc[buf[2]],
 		    sizeof(sc->sc_sensor_fan[idx].desc));
@@ -664,7 +665,7 @@ asmc_init(struct asmc_softc *sc)
 			printf("%s: read fan %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);
 	/* left and right light sensors are optional */
-	for (i = 0; i < ASMC_MAXLIGHT; i++)
+	for (i = 0; sc->sc_prod->pr_light && i < ASMC_MAXLIGHT; i++)
 		if ((r = asmc_light(sc, i, 1)) && r != ASMC_NOTFOUND)
 			printf("%s: read light %d failed (0x%x)\n",
 			    sc->sc_dev.dv_xname, i, r);

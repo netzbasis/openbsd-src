@@ -1,4 +1,4 @@
-/* $OpenBSD: grid.c,v 1.50 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: grid.c,v 1.55 2016/09/02 20:57:20 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -43,8 +43,6 @@ const struct grid_cell_entry grid_default_entry = {
 	0, { .data = { 0, 8, 8, ' ' } }
 };
 
-int	grid_check_y(struct grid *, u_int);
-
 void	grid_reflow_copy(struct grid_line *, u_int, struct grid_line *l,
 	    u_int, u_int);
 void	grid_reflow_join(struct grid *, u_int *, struct grid_line *, u_int);
@@ -64,7 +62,7 @@ grid_clear_cell(struct grid *gd, u_int px, u_int py)
 }
 
 /* Check grid y position. */
-int
+static int
 grid_check_y(struct grid *gd, u_int py)
 {
 	if ((py) >= (gd)->hsize + (gd)->sy) {
@@ -72,6 +70,21 @@ grid_check_y(struct grid *gd, u_int py)
 		return (-1);
 	}
 	return (0);
+}
+
+/* Compare grid cells. Return 1 if equal, 0 if not. */
+int
+grid_cells_equal(const struct grid_cell *gca, const struct grid_cell *gcb)
+{
+	if (gca->fg != gcb->fg || gca->bg != gcb->bg)
+		return (0);
+	if (gca->attr != gcb->attr || gca->flags != gcb->flags)
+		return (0);
+	if (gca->data.width != gcb->data.width)
+		return (0);
+	if (gca->data.size != gcb->data.size)
+		return (0);
+	return (memcmp(gca->data.data, gcb->data.data, gca->data.size) == 0);
 }
 
 /* Create a new grid. */
@@ -86,6 +99,7 @@ grid_create(u_int sx, u_int sy, u_int hlimit)
 
 	gd->flags = GRID_HISTORY;
 
+	gd->hscrolled = 0;
 	gd->hsize = 0;
 	gd->hlimit = hlimit;
 
@@ -131,7 +145,7 @@ grid_compare(struct grid *ga, struct grid *gb)
 		for (xx = 0; xx < gla->cellsize; xx++) {
 			grid_get_cell(ga, xx, yy, &gca);
 			grid_get_cell(gb, xx, yy, &gcb);
-			if (memcmp(&gca, &gcb, sizeof (struct grid_cell)) != 0)
+			if (!grid_cells_equal(&gca, &gcb))
 				return (1);
 		}
 	}
@@ -157,6 +171,8 @@ grid_collect_history(struct grid *gd)
 
 	grid_move_lines(gd, 0, yy, gd->hsize + gd->sy - yy);
 	gd->hsize -= yy;
+	if (gd->hscrolled > gd->hsize)
+		gd->hscrolled = gd->hsize;
 }
 
 /*
@@ -173,6 +189,7 @@ grid_scroll_history(struct grid *gd)
 	    sizeof *gd->linedata);
 	memset(&gd->linedata[yy], 0, sizeof gd->linedata[yy]);
 
+	gd->hscrolled++;
 	gd->hsize++;
 }
 
@@ -183,7 +200,9 @@ grid_clear_history(struct grid *gd)
 	grid_clear_lines(gd, 0, gd->hsize);
 	grid_move_lines(gd, 0, gd->hsize, gd->sy);
 
+	gd->hscrolled = 0;
 	gd->hsize = 0;
+
 	gd->linedata = xreallocarray(gd->linedata, gd->sy,
 	    sizeof *gd->linedata);
 }
@@ -218,6 +237,7 @@ grid_scroll_history_region(struct grid *gd, u_int upper, u_int lower)
 	memset(gl_lower, 0, sizeof *gl_lower);
 
 	/* Move the history offset down over the line. */
+	gd->hscrolled++;
 	gd->hsize++;
 }
 
@@ -270,10 +290,14 @@ grid_get_cell(struct grid *gd, u_int px, u_int py, struct grid_cell *gc)
 		return;
 	}
 
-	gc->flags = gce->flags & ~GRID_FLAG_EXTENDED;
+	gc->flags = gce->flags & ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
 	gc->attr = gce->data.attr;
 	gc->fg = gce->data.fg;
+	if (gce->flags & GRID_FLAG_FG256)
+		gc->fg |= COLOUR_FLAG_256;
 	gc->bg = gce->data.bg;
+	if (gce->flags & GRID_FLAG_BG256)
+		gc->bg |= COLOUR_FLAG_256;
 	utf8_set(&gc->data, gce->data.data);
 }
 
@@ -284,6 +308,7 @@ grid_set_cell(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc)
 	struct grid_line	*gl;
 	struct grid_cell_entry	*gce;
 	struct grid_cell 	*gcp;
+	int			 extended;
 
 	if (grid_check_y(gd, py) != 0)
 		return;
@@ -293,8 +318,15 @@ grid_set_cell(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc)
 	gl = &gd->linedata[py];
 	gce = &gl->celldata[px];
 
-	if ((gce->flags & GRID_FLAG_EXTENDED) || gc->data.size != 1 ||
-	    gc->data.width != 1) {
+	extended = (gce->flags & GRID_FLAG_EXTENDED);
+	if (!extended && (gc->data.size != 1 || gc->data.width != 1))
+		extended = 1;
+	if (!extended && ((gc->fg & COLOUR_FLAG_RGB) ||
+	    (gc->bg & COLOUR_FLAG_RGB)))
+		extended = 1;
+	if (extended) {
+		gl->flags |= GRID_LINE_EXTENDED;
+
 		if (~gce->flags & GRID_FLAG_EXTENDED) {
 			gl->extddata = xreallocarray(gl->extddata,
 			    gl->extdsize + 1, sizeof *gl->extddata);
@@ -309,10 +341,14 @@ grid_set_cell(struct grid *gd, u_int px, u_int py, const struct grid_cell *gc)
 		return;
 	}
 
-	gce->flags = gc->flags & ~GRID_FLAG_EXTENDED;
+	gce->flags = gc->flags;
 	gce->data.attr = gc->attr;
-	gce->data.fg = gc->fg;
-	gce->data.bg = gc->bg;
+	gce->data.fg = gc->fg & 0xff;
+	if (gc->fg & COLOUR_FLAG_256)
+		gce->flags |= GRID_FLAG_FG256;
+	gce->data.bg = gc->bg & 0xff;
+	if (gc->bg & COLOUR_FLAG_256)
+		gce->flags |= GRID_FLAG_BG256;
 	gce->data.data = gc->data.data[0];
 }
 
@@ -441,12 +477,20 @@ size_t
 grid_string_cells_fg(const struct grid_cell *gc, int *values)
 {
 	size_t	n;
+	u_char	r, g, b;
 
 	n = 0;
-	if (gc->flags & GRID_FLAG_FG256) {
+	if (gc->fg & COLOUR_FLAG_256) {
 		values[n++] = 38;
 		values[n++] = 5;
-		values[n++] = gc->fg;
+		values[n++] = gc->fg & 0xff;
+	} else if (gc->fg & COLOUR_FLAG_RGB) {
+		values[n++] = 38;
+		values[n++] = 2;
+		colour_split_rgb(gc->fg, &r, &g, &b);
+		values[n++] = r;
+		values[n++] = g;
+		values[n++] = b;
 	} else {
 		switch (gc->fg) {
 		case 0:
@@ -482,12 +526,20 @@ size_t
 grid_string_cells_bg(const struct grid_cell *gc, int *values)
 {
 	size_t	n;
+	u_char	r, g, b;
 
 	n = 0;
-	if (gc->flags & GRID_FLAG_BG256) {
+	if (gc->bg & COLOUR_FLAG_256) {
 		values[n++] = 48;
 		values[n++] = 5;
-		values[n++] = gc->bg;
+		values[n++] = gc->bg & 0xff;
+	} else if (gc->bg & COLOUR_FLAG_RGB) {
+		values[n++] = 48;
+		values[n++] = 2;
+		colour_split_rgb(gc->bg, &r, &g, &b);
+		values[n++] = r;
+		values[n++] = g;
+		values[n++] = b;
 	} else {
 		switch (gc->bg) {
 		case 0:
@@ -508,7 +560,7 @@ grid_string_cells_bg(const struct grid_cell *gc, int *values)
 		case 102:
 		case 103:
 		case 104:
-			case 105:
+		case 105:
 		case 106:
 		case 107:
 			values[n++] = gc->bg - 10;
@@ -527,7 +579,7 @@ void
 grid_string_cells_code(const struct grid_cell *lastgc,
     const struct grid_cell *gc, char *buf, size_t len, int escape_c0)
 {
-	int	oldc[16], newc[16], s[32];
+	int	oldc[64], newc[64], s[128];
 	size_t	noldc, nnewc, n, i;
 	u_int	attr = gc->attr;
 	u_int	lastattr = lastgc->attr;
@@ -869,6 +921,10 @@ grid_reflow(struct grid *dst, struct grid *src, u_int new_x)
 			grid_reflow_join(dst, &py, src_gl, new_x);
 		}
 		previous_wrapped = (src_gl->flags & GRID_LINE_WRAPPED);
+
+		/* This is where we started scrolling. */
+		if (line == sy + src->hsize - src->hscrolled - 1)
+			dst->hscrolled = 0;
 	}
 
 	grid_destroy(src);

@@ -1,6 +1,6 @@
 define(MACHINE,loongson)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.22 2015/10/23 15:14:11 claudio Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.26 2016/09/04 15:38:59 naddy Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -40,7 +40,7 @@ _DEV(vnd, 11, 2)
 _DEV(wd, 18, 4)
 _TITLE(tap)
 _DEV(ch, 36)
-_DEV(st, 10, 10)
+_DEV(st, 10)
 _TITLE(term)
 _DEV(com, 17)
 _TITLE(pty)
@@ -74,12 +74,12 @@ _DEV(pci, 29)
 _DEV(pf, 31)
 _DEV(pppx, 71)
 _DEV(rnd, 33)
-_DEV(systrace, 50)
 _DEV(tun, 13)
 _DEV(tap, 74)
 _DEV(uk, 32)
 _DEV(vi, 45)
 _DEV(vscsi, 69)
+_DEV(switch, 75)
 dnl
 divert(__mddivert)dnl
 dnl
@@ -95,7 +95,6 @@ target(all, diskmap)dnl
 dnl twrget(all, flo, fd, 0, 0B, 0C, 0D, 0E, 0F, 0G, 0H)dnl
 dnl twrget(all, flo, fd, 1, 1B, 1C, 1D, 1E, 1F, 1G, 1H)dnl
 target(all, pty, 0, 1, 2)dnl
-target(all, bpf, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, bio)dnl
 target(all, tun, 0, 1, 2, 3)dnl
 target(all, tap, 0, 1, 2, 3)dnl
@@ -104,6 +103,7 @@ target(all, rd, 0)dnl
 target(all, cd, 0, 1)dnl
 target(all, sd, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, vnd, 0, 1, 2, 3)dnl
+target(all, switch, 0, 1, 2, 3)dnl
 target(ramd, pty, 0)dnl
 target(ramd, bio)dnl
 target(ramd, diskmap)dnl

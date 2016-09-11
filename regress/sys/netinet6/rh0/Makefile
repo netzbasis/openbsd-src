@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.4 2013/11/17 20:16:27 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.6 2016/09/02 21:30:34 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -13,6 +13,7 @@ PYTHON_IMPORT != python2.7 -c 'from scapy.all import *' 2>&1 || true
 regress:
 	@echo '${PYTHON_IMPORT}'
 	@echo install python and the scapy module for additional tests
+	@echo SKIPPED
 .endif
 
 # This test needs a manual setup of two machines
@@ -48,6 +49,7 @@ regress:
 	@echo SRC_IF SRC_MAC DST_MAC SRC_OUT6 DST_IN6 DST_OUT6
 	@echo SRT_IN6 SRT_OUT6 are empty
 	@echo fill out these variables for additional tests
+	@echo SKIPPED
 .endif
 
 depend: addr.py
@@ -135,14 +137,15 @@ CLEANFILES +=		addr.py *.pyc *.log
 
 # Check wether the address, route and remote setup is correct
 check-setup:
-	route -n get -inet6 ${SRC_OUT6} | grep 'interface: lo0$$'
+	@echo '\n======== $@ ========'
+	route -n get -inet6 ${SRC_OUT6} | grep -q 'flags: .*LOCAL'
 	ping6 -n -c 1 ${SRC_OUT6}
-	route -n get -inet6 ${DST_IN6} | grep 'interface: ${SRC_IF}$$'
+	route -n get -inet6 ${DST_IN6} | grep -q 'interface: ${SRC_IF}$$'
 	ping6 -n -c 1 ${DST_IN6}
-	route -n get -inet6 ${DST_OUT6} | grep 'gateway: ${DST_IN6}$$'
+	route -n get -inet6 ${DST_OUT6} | grep -q 'gateway: ${DST_IN6}$$'
 	ping6 -n -c 1 ${DST_OUT6}
-	route -n get -inet6 ${SRT_IN6} | grep 'gateway: ${DST_IN6}$$'
-	ndp -n ${DST_IN6} | grep ' ${DST_MAC} '
+	route -n get -inet6 ${SRT_IN6} | grep -q 'gateway: ${DST_IN6}$$'
+	ndp -n ${DST_IN6} | grep -q ' ${DST_MAC} '
 .if defined(REMOTE_SSH)
 	ssh ${REMOTE_SSH} ${SUDO} pfctl -si | grep '^Status: Disabled '
 .endif

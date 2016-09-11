@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ale.c,v 1.42 2015/11/25 03:09:59 dlg Exp $	*/
+/*	$OpenBSD: if_ale.c,v 1.44 2016/04/13 10:34:32 mpi Exp $	*/
 /*-
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -55,8 +55,6 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -503,7 +501,6 @@ ale_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = ale_start;
 	ifp->if_watchdog = ale_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, ALE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->ale_eaddr, sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 

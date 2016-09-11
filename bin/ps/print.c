@@ -1,4 +1,4 @@
-/*	$OpenBSD: print.c,v 1.66 2016/01/10 14:04:16 schwarze Exp $	*/
+/*	$OpenBSD: print.c,v 1.69 2016/09/08 15:11:29 tedu Exp $	*/
 /*	$NetBSD: print.c,v 1.27 1995/09/29 21:58:12 cgd Exp $	*/
 
 /*-
@@ -264,8 +264,6 @@ printstate(const struct kinfo_proc *kp, VARENT *ve)
 		*cp++ = 'N';
 	if (kp->p_psflags & PS_TRACED)
 		*cp++ = 'X';
-	if (flag & P_SYSTRACE)
-		*cp++ = 'x';
 	if ((kp->p_psflags & (PS_EXITING | PS_ZOMBIE)) == PS_EXITING)
 		*cp++ = 'E';
 	if (kp->p_psflags & PS_ISPWAIT)
@@ -441,6 +439,50 @@ lstarted(const struct kinfo_proc *kp, VARENT *ve)
 	(void)printf("%-*s", v->width, buf);
 }
 
+void elapsed(const struct kinfo_proc *kp, VARENT *ve)
+{
+	VAR *v;
+	static time_t now;
+	time_t secs;
+	char buf[64];
+	long days, hours, minutes, seconds;
+
+	v = ve->var;
+	if (!kp->p_uvalid) {
+		(void)printf("%*s", v->width, "-");
+		return;
+	}
+
+	if (!now)
+		(void)time(&now);
+	secs = now - kp->p_ustart_sec;
+
+	if (secs < 0) {
+		(void)printf("%*s", v->width, "-");
+		return;
+	}
+
+	days = secs / SECSPERDAY;
+	secs %= SECSPERDAY;
+
+	hours = secs / SECSPERHOUR;
+	secs %= SECSPERHOUR;
+
+	minutes = secs / 60;
+	seconds = secs % 60;
+
+	if (days > 0)
+		(void)snprintf(buf, sizeof(buf), "%ld-%02ld:%02ld:%02ld",
+		    days, hours, minutes, seconds);
+	else if (hours > 0)
+		(void)snprintf(buf, sizeof(buf), "%02ld:%02ld:%02ld",
+		    hours, minutes, seconds);
+	else
+		(void)snprintf(buf, sizeof(buf), "%02ld:%02ld",
+		    minutes, seconds);
+	(void)printf("%*s", v->width, buf);
+}
+
 void
 wchan(const struct kinfo_proc *kp, VARENT *ve)
 {
@@ -498,9 +540,7 @@ cputime(const struct kinfo_proc *kp, VARENT *ve)
 		psecs = 0;
 	} else {
 		/*
-		 * This counts time spent handling interrupts.  We could
-		 * fix this, but it is not 100% trivial (and interrupt
-		 * time fractions only work on the sparc anyway).	XXX
+		 * This counts time spent handling interrupts.  XXX
 		 */
 		secs = kp->p_rtime_sec;
 		psecs = kp->p_rtime_usec;

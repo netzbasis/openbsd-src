@@ -15,19 +15,18 @@
 
 #include "defines.h"
 
-/* Library function declarations */
-
 #include <sys/types.h>
-#include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
+
 #include <ctype.h>
-#include <wctype.h>
+#include <fcntl.h>
+#include <libgen.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <libgen.h>
-#include <signal.h>
+#include <unistd.h>
+#include <wctype.h>
 
 /*
  * Simple lowercase test which can be used during option processing
@@ -52,10 +51,6 @@
 #define	OPT_OFF		0
 #define	OPT_ON		1
 #define	OPT_ONPLUS	2
-
-#ifndef CHAR_BIT
-#define	CHAR_BIT 8
-#endif
 
 /*
  * Special types and constants.
@@ -154,6 +149,7 @@ struct textlist {
 #define	AT_ANSI		(1 << 4)  /* Content-supplied "ANSI" escape sequence */
 #define	AT_BINARY	(1 << 5)  /* LESS*BINFMT representation */
 #define	AT_HILITE	(1 << 6)  /* Internal highlights (e.g., for search) */
+#define	AT_INDET	(1 << 7)  /* Indeterminate: either bold or underline */
 
 #define	CONTROL(c)	((c)&037)
 

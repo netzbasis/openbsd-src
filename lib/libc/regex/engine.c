@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.19 2015/12/28 23:01:22 mmcc Exp $	*/
+/*	$OpenBSD: engine.c,v 1.23 2016/05/26 05:46:44 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994 Henry Spencer.
@@ -156,7 +156,7 @@ matcher(struct re_guts *g, char *string, size_t nmatch, regmatch_t pmatch[],
 	if (g->must != NULL) {
 		for (dp = start; dp < stop; dp++)
 			if (*dp == g->must[0] && stop - dp >= g->mlen &&
-				memcmp(dp, g->must, (size_t)g->mlen) == 0)
+			    memcmp(dp, g->must, (size_t)g->mlen) == 0)
 				break;
 		if (dp == stop)		/* we didn't find g->must */
 			return(REG_NOMATCH);
@@ -205,7 +205,7 @@ matcher(struct re_guts *g, char *string, size_t nmatch, regmatch_t pmatch[],
 		/* oh my, he wants the subexpressions... */
 		if (m->pmatch == NULL)
 			m->pmatch = reallocarray(NULL, m->g->nsub + 1,
-					sizeof(regmatch_t));
+			    sizeof(regmatch_t));
 		if (m->pmatch == NULL) {
 			STATETEARDOWN(m);
 			return(REG_ESPACE);
@@ -506,9 +506,9 @@ backref(struct match *m, char *start, char *stop, sopno startst, sopno stopst,
 				return(NULL);
 			break;
 		case OBOL:
-			if ( (sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
-					(sp < m->endp && *(sp-1) == '\n' &&
-						(m->g->cflags&REG_NEWLINE)) )
+			if ((sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
+			    (sp > m->offp && sp < m->endp &&
+			     *(sp-1) == '\n' && (m->g->cflags&REG_NEWLINE)))
 				{ /* yes */ }
 			else
 				return(NULL);
@@ -522,12 +522,9 @@ backref(struct match *m, char *start, char *stop, sopno startst, sopno stopst,
 				return(NULL);
 			break;
 		case OBOW:
-			if (( (sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
-					(sp < m->endp && *(sp-1) == '\n' &&
-						(m->g->cflags&REG_NEWLINE)) ||
-					(sp > m->beginp &&
-							!ISWORD(*(sp-1))) ) &&
-					(sp < m->endp && ISWORD(*sp)) )
+			if (sp < m->endp && ISWORD(*sp) &&
+			    ((sp == m->beginp && !(m->eflags&REG_NOTBOL)) ||
+			     (sp > m->offp && !ISWORD(*(sp-1)))))
 				{ /* yes */ }
 			else
 				return(NULL);
@@ -674,11 +671,16 @@ fast(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 	states fresh = m->fresh;
 	states tmp = m->tmp;
 	char *p = start;
-	int c = (start == m->beginp) ? OUT : *(start-1);
+	int c;
 	int lastc;	/* previous c */
 	int flagch;
 	int i;
 	char *coldp;	/* last p after which no match was underway */
+
+	if (start == m->offp || (start == m->beginp && !(m->eflags&REG_NOTBOL)))
+		c = OUT;
+	else
+		c = *(start-1);
 
 	CLEAR(st);
 	SET1(st, startst);
@@ -696,31 +698,30 @@ fast(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 		/* is there an EOL and/or BOL between lastc and c? */
 		flagch = '\0';
 		i = 0;
-		if ( (lastc == '\n' && m->g->cflags&REG_NEWLINE) ||
-				(lastc == OUT && !(m->eflags&REG_NOTBOL)) ) {
+		if ((lastc == '\n' && m->g->cflags&REG_NEWLINE) ||
+		    (lastc == OUT && !(m->eflags&REG_NOTBOL))) {
 			flagch = BOL;
 			i = m->g->nbol;
 		}
-		if ( (c == '\n' && m->g->cflags&REG_NEWLINE) ||
-				(c == OUT && !(m->eflags&REG_NOTEOL)) ) {
+		if ((c == '\n' && m->g->cflags&REG_NEWLINE) ||
+		    (c == OUT && !(m->eflags&REG_NOTEOL)) ) {
 			flagch = (flagch == BOL) ? BOLEOL : EOL;
 			i += m->g->neol;
 		}
 		if (i != 0) {
 			for (; i > 0; i--)
-				st = step(m->g, startst, stopst, st, flagch, st);
+				st = step(m->g, startst, stopst,
+				    st, flagch, st);
 			SP("boleol", st, c);
 		}
 
 		/* how about a word boundary? */
-		if ( (flagch == BOL || (lastc != OUT && !ISWORD(lastc))) &&
-					(c != OUT && ISWORD(c)) ) {
+		if ((flagch == BOL || (lastc != OUT && !ISWORD(lastc))) &&
+		    (c != OUT && ISWORD(c)))
 			flagch = BOW;
-		}
-		if ( (lastc != OUT && ISWORD(lastc)) &&
-				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
+		if ((lastc != OUT && ISWORD(lastc)) &&
+		    (flagch == EOL || (c != OUT && !ISWORD(c))))
 			flagch = EOW;
-		}
 		if (flagch == BOW || flagch == EOW) {
 			st = step(m->g, startst, stopst, st, flagch, st);
 			SP("boweow", st, c);
@@ -758,11 +759,16 @@ slow(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 	states empty = m->empty;
 	states tmp = m->tmp;
 	char *p = start;
-	int c = (start == m->beginp) ? OUT : *(start-1);
+	int c;
 	int lastc;	/* previous c */
 	int flagch;
 	int i;
 	char *matchp;	/* last p at which a match ended */
+
+	if (start == m->offp || (start == m->beginp && !(m->eflags&REG_NOTBOL)))
+		c = OUT;
+	else
+		c = *(start-1);
 
 	AT("slow", start, stop, startst, stopst);
 	CLEAR(st);
@@ -778,31 +784,30 @@ slow(struct match *m, char *start, char *stop, sopno startst, sopno stopst)
 		/* is there an EOL and/or BOL between lastc and c? */
 		flagch = '\0';
 		i = 0;
-		if ( (lastc == '\n' && m->g->cflags&REG_NEWLINE) ||
-				(lastc == OUT && !(m->eflags&REG_NOTBOL)) ) {
+		if ((lastc == '\n' && m->g->cflags&REG_NEWLINE) ||
+		    (lastc == OUT && !(m->eflags&REG_NOTBOL))) {
 			flagch = BOL;
 			i = m->g->nbol;
 		}
-		if ( (c == '\n' && m->g->cflags&REG_NEWLINE) ||
-				(c == OUT && !(m->eflags&REG_NOTEOL)) ) {
+		if ((c == '\n' && m->g->cflags&REG_NEWLINE) ||
+		    (c == OUT && !(m->eflags&REG_NOTEOL))) {
 			flagch = (flagch == BOL) ? BOLEOL : EOL;
 			i += m->g->neol;
 		}
 		if (i != 0) {
 			for (; i > 0; i--)
-				st = step(m->g, startst, stopst, st, flagch, st);
+				st = step(m->g, startst, stopst,
+				    st, flagch, st);
 			SP("sboleol", st, c);
 		}
 
 		/* how about a word boundary? */
-		if ( (flagch == BOL || (lastc != OUT && !ISWORD(lastc))) &&
-					(c != OUT && ISWORD(c)) ) {
+		if ((flagch == BOL || (lastc != OUT && !ISWORD(lastc))) &&
+		    (c != OUT && ISWORD(c)))
 			flagch = BOW;
-		}
-		if ( (lastc != OUT && ISWORD(lastc)) &&
-				(flagch == EOL || (c != OUT && !ISWORD(c))) ) {
+		if ((lastc != OUT && ISWORD(lastc)) &&
+		    (flagch == EOL || (c != OUT && !ISWORD(c))))
 			flagch = EOW;
-		}
 		if (flagch == BOW || flagch == EOW) {
 			st = step(m->g, startst, stopst, st, flagch, st);
 			SP("sboweow", st, c);
@@ -919,8 +924,8 @@ step(struct re_guts *g,
 		case OOR1:		/* done a branch, find the O_CH */
 			if (ISSTATEIN(aft, here)) {
 				for (look = 1;
-						OP(s = g->strip[pc+look]) != O_CH;
-						look += OPND(s))
+				    OP(s = g->strip[pc+look]) != O_CH;
+				    look += OPND(s))
 					assert(OP(s) == OOR2);
 				FWD(aft, aft, look);
 			}
@@ -960,11 +965,12 @@ print(struct match *m, char *caption, states st, int ch, FILE *d)
 
 	(void)fprintf(d, "%s", caption);
 	(void)fprintf(d, " %s", pchar(ch));
-	for (i = 0; i < g->nstates; i++)
+	for (i = 0; i < g->nstates; i++) {
 		if (ISSET(st, i)) {
 			(void)fprintf(d, "%s%d", (first) ? "\t" : ", ", i);
 			first = 0;
 		}
+	}
 	(void)fprintf(d, "\n");
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_abbrev.c,v 1.7 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: ex_abbrev.c,v 1.9 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

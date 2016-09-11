@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.h,v 1.23 2016/01/12 09:28:09 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.h,v 1.27 2016/08/15 22:14:19 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.h,v 1.7 2004/04/30 22:51:04 dyoung Exp $	*/
 
 /*-
@@ -95,6 +95,21 @@ struct ieee80211_stats {
 	u_int32_t	is_cmac_replays;
 	u_int32_t	is_cmac_icv_errs;
 	u_int32_t	is_pbac_errs;
+	u_int32_t	is_ht_nego_no_mandatory_mcs;
+	u_int32_t	is_ht_nego_no_basic_mcs;
+	u_int32_t	is_ht_nego_bad_crypto;
+	u_int32_t	is_ht_prot_change;
+	u_int32_t	is_ht_rx_ba_agreements;
+	u_int32_t	is_ht_tx_ba_agreements;
+	u_int32_t	is_ht_rx_frame_below_ba_winstart;
+	u_int32_t	is_ht_rx_frame_above_ba_winend;
+	u_int32_t	is_ht_rx_ba_window_slide;
+	u_int32_t	is_ht_rx_ba_window_jump;
+	u_int32_t	is_ht_rx_ba_no_buf;
+	u_int32_t	is_ht_rx_ba_frame_lost;
+	u_int32_t	is_ht_rx_ba_window_gap_timeout;
+	u_int32_t	is_ht_rx_ba_timeout;
+	u_int32_t	is_ht_tx_ba_timeout;
 };
 
 #define	SIOCG80211STATS		_IOWR('i', 242, struct ifreq)
@@ -318,6 +333,13 @@ struct ieee80211_nodereq {
 
 	/* Node flags */
 	u_int8_t	nr_flags;
+
+	/* HT */
+	uint16_t		nr_htcaps;
+	uint8_t			nr_rxmcs[howmany(80,NBBY)];
+	uint16_t		nr_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
+	uint8_t			nr_tx_mcs_set;
+	uint8_t			nr_txmcs;
 };
 
 #define IEEE80211_NODEREQ_STATE(_s)	(1 << _s)
@@ -331,6 +353,7 @@ struct ieee80211_nodereq {
 #define IEEE80211_NODEREQ_AP		0x01	/* access point */
 #define IEEE80211_NODEREQ_AP_BSS	0x02	/* current bss access point */
 #define IEEE80211_NODEREQ_COPY		0x04	/* add node with flags */
+#define IEEE80211_NODEREQ_HT		0x08	/* HT negotiated */
 
 #define SIOCG80211NODE		_IOWR('i', 211, struct ieee80211_nodereq)
 #define SIOCS80211NODE		 _IOW('i', 212, struct ieee80211_nodereq)

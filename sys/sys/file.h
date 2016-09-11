@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.h,v 1.35 2015/08/28 04:38:47 guenther Exp $	*/
+/*	$OpenBSD: file.h,v 1.38 2016/08/23 23:28:02 tedu Exp $	*/
 /*	$NetBSD: file.h,v 1.11 1995/03/26 20:24:13 jtc Exp $	*/
 
 /*
@@ -68,8 +68,6 @@ struct file {
 #define	DTYPE_SOCKET	2	/* communications endpoint */
 #define	DTYPE_PIPE	3	/* pipe */
 #define	DTYPE_KQUEUE	4	/* event queue */
-/* was define	DTYPE_CRYPTO	5 */
-#define	DTYPE_SYSTRACE	6	/* system call tracing */
 	short	f_type;		/* descriptor type */
 	long	f_count;	/* reference count */
 	struct	ucred *f_cred;	/* credentials associated with descriptor */
@@ -103,7 +101,7 @@ int	fdrop(struct file *, struct proc *);
 LIST_HEAD(filelist, file);
 extern struct filelist filehead;	/* head of list of open files */
 extern int maxfiles;			/* kernel limit on number of open files */
-extern int nfiles;			/* actual number of open files */
+extern int numfiles;			/* actual number of open files */
 extern struct fileops vnops;		/* vnode operations for files */
 
 #endif /* _KERNEL */

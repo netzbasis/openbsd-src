@@ -1,4 +1,4 @@
-/*	$OpenBSD: tftpd.c,v 1.34 2015/12/14 16:34:55 semarie Exp $	*/
+/*	$OpenBSD: tftpd.c,v 1.37 2016/09/04 14:41:49 florian Exp $	*/
 
 /*
  * Copyright (c) 2012 David Gwynne <dlg@uq.edu.au>
@@ -74,6 +74,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <poll.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -152,6 +153,7 @@ struct tftp_client {
 
 __dead void	usage(void);
 const char	*getip(void *);
+int		rdaemon(int);
 
 void		rewrite_connect(const char *);
 void		rewrite_events(void);
@@ -220,11 +222,18 @@ struct errmsg {
 };
 
 struct loggers {
-	void (*err)(int, const char *, ...);
-	void (*errx)(int, const char *, ...);
-	void (*warn)(const char *, ...);
-	void (*warnx)(const char *, ...);
-	void (*info)(const char *, ...);
+	__dead void (*err)(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+	__dead void (*errx)(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+	void (*warn)(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+	void (*warnx)(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+	void (*info)(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+	void (*debug)(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 };
 
 const struct loggers conslogger = {
@@ -232,15 +241,24 @@ const struct loggers conslogger = {
 	errx,
 	warn,
 	warnx,
-	warnx
+	warnx, /* info */
+	warnx /* debug */
 };
 
-void	syslog_err(int, const char *, ...);
-void	syslog_errx(int, const char *, ...);
-void	syslog_warn(const char *, ...);
-void	syslog_warnx(const char *, ...);
-void	syslog_info(const char *, ...);
-void	syslog_vstrerror(int, int, const char *, va_list);
+__dead void	syslog_err(int, const char *, ...)
+		    __attribute__((__format__ (printf, 2, 3)));
+__dead void	syslog_errx(int, const char *, ...)
+		    __attribute__((__format__ (printf, 2, 3)));
+void		syslog_warn(const char *, ...)
+		    __attribute__((__format__ (printf, 1, 2)));
+void		syslog_warnx(const char *, ...)
+		    __attribute__((__format__ (printf, 1, 2)));
+void		syslog_info(const char *, ...)
+		    __attribute__((__format__ (printf, 1, 2)));
+void		syslog_debug(const char *, ...)
+		    __attribute__((__format__ (printf, 1, 2)));
+void		syslog_vstrerror(int, int, const char *, va_list)
+		    __attribute__((__format__ (printf, 3, 0)));
 
 const struct loggers syslogger = {
 	syslog_err,
@@ -248,6 +266,7 @@ const struct loggers syslogger = {
 	syslog_warn,
 	syslog_warnx,
 	syslog_info,
+	syslog_debug
 };
 
 const struct loggers *logger = &conslogger;
@@ -257,6 +276,7 @@ const struct loggers *logger = &conslogger;
 #define lwarn(_f...) logger->warn(_f)
 #define lwarnx(_f...) logger->warnx(_f)
 #define linfo(_f...) logger->info(_f)
+#define ldebug(_f...) logger->debug(_f)
 
 __dead void
 usage(void)
@@ -269,12 +289,12 @@ usage(void)
 
 int		  cancreate = 0;
 int		  verbose = 0;
+int		  debug = 0;
 
 int
 main(int argc, char *argv[])
 {
 	extern char *__progname;
-	int debug = 0;
 
 	int		 c;
 	struct passwd	*pw;
@@ -285,6 +305,7 @@ main(int argc, char *argv[])
 	char *addr = NULL;
 	char *port = "tftp";
 	int family = AF_UNSPEC;
+	int devnull = -1;
 
 	while ((c = getopt(argc, argv, "46cdl:p:r:v")) != -1) {
 		switch (c) {
@@ -337,15 +358,15 @@ main(int argc, char *argv[])
 		openlog(__progname, LOG_PID|LOG_NDELAY, LOG_DAEMON);
 		tzset();
 		logger = &syslogger;
+		devnull = open(_PATH_DEVNULL, O_RDWR, 0);
+		if (devnull == -1)
+			err(1, "open %s", _PATH_DEVNULL);
 	}
 
 	if (rewrite != NULL)
 		rewrite_connect(rewrite);
 
 	tftpd_listen(addr, port, family);
-
-	if (!debug && daemon(1, 0) == -1)
-		err(1, "unable to daemonize");
 
 	if (chroot(dir))
 		err(1, "chroot %s", dir);
@@ -358,8 +379,11 @@ main(int argc, char *argv[])
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		errx(1, "can't drop privileges");
 
+	if (!debug && rdaemon(devnull) == -1)
+		err(1, "unable to daemonize");
+
 	if (pledge("stdio rpath wpath cpath fattr dns inet", NULL) == -1)
-		err(1, "pledge");
+		lerr(1, "pledge");
 
 	event_init();
 
@@ -1556,6 +1580,32 @@ getip(void *s)
 	return(hbuf);
 }
 
+/* daemon(3) clone, intended to be used in a "r"estricted environment */
+int
+rdaemon(int devnull)
+{
+
+	switch (fork()) {
+	case -1:
+		return (-1);
+	case 0:
+		break;
+	default:
+		_exit(0);
+	}
+
+	if (setsid() == -1)
+		return (-1);
+
+	(void)dup2(devnull, STDIN_FILENO);
+	(void)dup2(devnull, STDOUT_FILENO);
+	(void)dup2(devnull, STDERR_FILENO);
+	if (devnull > 2)
+		(void)close(devnull);
+
+	return (0);
+}
+
 void
 syslog_vstrerror(int e, int priority, const char *fmt, va_list ap)
 {
@@ -1625,3 +1675,15 @@ syslog_info(const char *fmt, ...)
 	va_end(ap);
 }
 
+void
+syslog_debug(const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!debug)
+		return;
+
+	va_start(ap, fmt);
+	vsyslog(LOG_DEBUG, fmt, ap);
+	va_end(ap);
+}

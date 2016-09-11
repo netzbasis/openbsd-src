@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-802_11.c,v 1.28 2016/01/12 09:28:10 stsp Exp $	*/
+/*	$OpenBSD: print-802_11.c,v 1.33 2016/09/02 17:11:46 stsp Exp $	*/
 
 /*
  * Copyright (c) 2005 Reyk Floeter <reyk@openbsd.org>
@@ -36,6 +36,25 @@
 
 #include "addrtoname.h"
 #include "interface.h"
+
+const char *ieee80211_ctl_subtype_name[] = {
+	"reserved#0",
+	"reserved#1",
+	"reserved#2",
+	"reserved#3",
+	"reserved#4",
+	"reserved#5",
+	"reserved#6",
+	"wrapper",
+	"block ack request",
+	"block ack", 
+	"ps poll", 
+	"rts", 
+	"cts", 
+	"ack", 
+	"cf-end", 
+	"cf-end-ack", 
+};
 
 const char *ieee80211_mgt_subtype_name[] = {
 	"association request",
@@ -82,7 +101,9 @@ void	 ieee80211_print_essid(u_int8_t *, u_int);
 void	 ieee80211_print_country(u_int8_t *, u_int);
 void	 ieee80211_print_htcaps(u_int8_t *, u_int);
 void	 ieee80211_print_htop(u_int8_t *, u_int);
-int	 ieee80211_elements(struct ieee80211_frame *, u_int);
+int	 ieee80211_print_beacon(struct ieee80211_frame *, u_int);
+int	 ieee80211_print_assocreq(struct ieee80211_frame *, u_int);
+int	 ieee80211_print_elements(uint8_t *);
 int	 ieee80211_frame(struct ieee80211_frame *, u_int);
 int	 ieee80211_print(struct ieee80211_frame *, u_int);
 u_int	 ieee80211_any2ieee(u_int, u_int);
@@ -153,14 +174,25 @@ int
 ieee80211_data(struct ieee80211_frame *wh, u_int len)
 {
 	u_int8_t *t = (u_int8_t *)wh;
-	struct ieee80211_frame_addr4 *w4;
 	u_int datalen;
 	int data = !(wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_NODATA);
+	int hasqos = ((wh->i_fc[0] &
+	    (IEEE80211_FC0_TYPE_MASK | IEEE80211_FC0_SUBTYPE_QOS)) ==
+	    (IEEE80211_FC0_TYPE_DATA | IEEE80211_FC0_SUBTYPE_QOS));
 	u_char *esrc = NULL, *edst = NULL;
 
-	TCHECK(*wh);
-	t += sizeof(struct ieee80211_frame);
-	datalen = len - sizeof(struct ieee80211_frame);
+	if (hasqos) {
+		struct ieee80211_qosframe *wq;
+
+		wq = (struct ieee80211_qosframe *) wh;
+		TCHECK(*wq);
+		t += sizeof(*wq);
+		datalen = len - sizeof(*wq);
+	} else {
+		TCHECK(*wh);
+		t += sizeof(*wh);
+		datalen = len - sizeof(*wh);
+	}
 
 	switch (wh->i_fc[1] & IEEE80211_FC1_DIR_MASK) {
 	case IEEE80211_FC1_DIR_TODS:
@@ -176,12 +208,25 @@ ieee80211_data(struct ieee80211_frame *wh, u_int len)
 		edst = wh->i_addr1;
 		break;
 	case IEEE80211_FC1_DIR_DSTODS:
-		w4 = (struct ieee80211_frame_addr4 *) wh;
-		TCHECK(*w4);
-		t = (u_int8_t *) (w4 + 1);
-		datalen = len - sizeof(*w4);
-		esrc = w4->i_addr4;
-		edst = w4->i_addr3;
+		if (hasqos) {
+			struct ieee80211_qosframe_addr4 *w4;
+
+			w4 = (struct ieee80211_qosframe_addr4 *) wh;
+			TCHECK(*w4);
+			t = (u_int8_t *) (w4 + 1);
+			datalen = len - sizeof(*w4);
+			esrc = w4->i_addr4;
+			edst = w4->i_addr3;
+		} else {
+			struct ieee80211_frame_addr4 *w4;
+
+			w4 = (struct ieee80211_frame_addr4 *) wh;
+			TCHECK(*w4);
+			t = (u_int8_t *) (w4 + 1);
+			datalen = len - sizeof(*w4);
+			esrc = w4->i_addr4;
+			edst = w4->i_addr3;
+		}
 		break;
 	}
 
@@ -252,12 +297,14 @@ ieee80211_print_country(u_int8_t *data, u_int len)
 	data += 3;
 
 	/* channels and corresponding TX power limits */
-	while (len > 3)	{
+	while (len >= 3) {
 		/* no pretty-printing for nonsensical zero values,
 		 * nor for operating extension IDs (values >= 201) */
 		if (data[0] == 0 || data[1] == 0 ||
 		    data[0] >= 201 || data[1] >= 201) {
 			printf(", %d %d %d", data[0], data[1], data[2]);
+			len -= 3;
+			data += 3;
 			continue;
 		}
 
@@ -544,37 +591,74 @@ ieee80211_print_htop(u_int8_t *data, u_int len)
 }
 
 int
-ieee80211_elements(struct ieee80211_frame *wh, u_int flen)
+ieee80211_print_beacon(struct ieee80211_frame *wh, u_int len)
 {
-	u_int8_t *buf, *frm;
-	u_int64_t tstamp;
-	u_int16_t bintval, capinfo;
-	int i;
+	uint64_t tstamp;
+	uint16_t bintval, capinfo;
+	uint8_t *frm;
 
-	buf = (u_int8_t *)wh;
+	if (len < sizeof(tstamp) + sizeof(bintval) + sizeof(capinfo))
+		return 1; /* truncated */
+
 	frm = (u_int8_t *)&wh[1];
 
-	TCHECK2(*frm, 8);
 	bcopy(frm, &tstamp, sizeof(u_int64_t));
 	frm += 8;
-
 	if (vflag > 1)
 		printf(", timestamp %llu", letoh64(tstamp));
 
-	TCHECK2(*frm, 2);
 	bcopy(frm, &bintval, sizeof(u_int16_t));
 	frm += 2;
-
 	if (vflag > 1)
 		printf(", interval %u", letoh16(bintval));
 
-	TCHECK2(*frm, 2);
 	bcopy(frm, &capinfo, sizeof(u_int16_t));
 	frm += 2;
-
 	if (vflag)
-		printb(", caps", letoh16(capinfo),
-		    IEEE80211_CAPINFO_BITS);
+		printb(", caps", letoh16(capinfo), IEEE80211_CAPINFO_BITS);
+
+	return ieee80211_print_elements(frm);
+}
+
+int
+ieee80211_print_assocreq(struct ieee80211_frame *wh, u_int len)
+{
+	uint8_t subtype;
+	uint16_t capinfo, lintval;
+	uint8_t *frm;
+
+	subtype = wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK;
+
+	if (len < sizeof(capinfo) + sizeof(lintval) +
+	    (subtype == IEEE80211_FC0_SUBTYPE_REASSOC_REQ ?
+	    IEEE80211_ADDR_LEN : 0))
+		return 1; /* truncated */
+
+	frm = (u_int8_t *)&wh[1];
+
+	bcopy(frm, &capinfo, sizeof(u_int16_t));
+	frm += 2;
+	if (vflag)
+		printb(", caps", letoh16(capinfo), IEEE80211_CAPINFO_BITS);
+
+	bcopy(frm, &lintval, sizeof(u_int16_t));
+	frm += 2;
+	if (vflag > 1)
+		printf(", listen interval %u", letoh16(lintval));
+
+	if (subtype == IEEE80211_FC0_SUBTYPE_REASSOC_REQ) {
+		if (vflag)
+			printf(", AP %s", etheraddr_string(frm));
+		frm += IEEE80211_ADDR_LEN;
+	}
+
+	return ieee80211_print_elements(frm);
+}
+
+int
+ieee80211_print_elements(uint8_t *frm)
+{
+	int i;
 
 	while (TTEST2(*frm, 2)) {
 		u_int len = frm[1];
@@ -583,7 +667,7 @@ ieee80211_elements(struct ieee80211_frame *wh, u_int flen)
 		if (!TTEST2(*data, len))
 			break;
 
-#define ELEM_CHECK(l)	if (len != l) break
+#define ELEM_CHECK(l)	if (len != l) goto trunc
 
 		switch (*frm) {
 		case IEEE80211_ELEMID_SSID:
@@ -628,7 +712,8 @@ ieee80211_elements(struct ieee80211_frame *wh, u_int flen)
 			break;
 		case IEEE80211_ELEMID_COUNTRY:
 			printf(", country");
-			ieee80211_print_country(data, len);
+			if (vflag)
+				ieee80211_print_country(data, len);
 			break;
 		case IEEE80211_ELEMID_CHALLENGE:
 			printf(", challenge");
@@ -743,7 +828,12 @@ ieee80211_frame(struct ieee80211_frame *wh, u_int len)
 		switch (subtype) {
 		case IEEE80211_FC0_SUBTYPE_BEACON:
 		case IEEE80211_FC0_SUBTYPE_PROBE_RESP:
-			if (ieee80211_elements(wh, len) != 0)
+			if (ieee80211_print_beacon(wh, len) != 0)
+				goto trunc;
+			break;
+		case IEEE80211_FC0_SUBTYPE_ASSOC_REQ:
+		case IEEE80211_FC0_SUBTYPE_REASSOC_REQ:
+			if (ieee80211_print_assocreq(wh, len) != 0)
 				goto trunc;
 			break;
 		case IEEE80211_FC0_SUBTYPE_AUTH:
@@ -789,6 +879,70 @@ ieee80211_frame(struct ieee80211_frame *wh, u_int len)
 			break;
 		}
 		break;
+	case IEEE80211_FC0_TYPE_CTL: {
+		u_int8_t *t = (u_int8_t *) wh;
+
+		printf(": %s", ieee80211_ctl_subtype_name[
+		    subtype >> IEEE80211_FC0_SUBTYPE_SHIFT]);
+		if (!vflag)
+			break;
+
+		/* See 802.11 2012 "8.3.1 Control frames". */
+		t += 2; /* skip Frame Control */
+		switch (subtype) {
+		case IEEE80211_FC0_SUBTYPE_RTS:
+		case IEEE80211_FC0_SUBTYPE_BAR:
+		case IEEE80211_FC0_SUBTYPE_BA:
+			TCHECK2(*t, 2); /* Duration */
+			printf(", duration %dms", (t[0] | t[1] << 8));
+			t += 2;
+			TCHECK2(*t, 6); /* RA */
+			printf(", ra %s", etheraddr_string(t));
+			t += 6;
+			TCHECK2(*t, 6); /* TA */
+			printf(", ta %s", etheraddr_string(t));
+			if (subtype == IEEE80211_FC0_SUBTYPE_BAR ||
+			    subtype == IEEE80211_FC0_SUBTYPE_BA) {
+				u_int16_t ctrl;
+
+				t += 6;	
+				TCHECK2(*t, 2); /* BAR/BA control */
+				ctrl = t[0] | (t[1] << 8);
+				if (ctrl & IEEE80211_BA_ACK_POLICY)
+					printf(", no ack");
+				else
+					printf(", normal ack");
+				if ((ctrl & IEEE80211_BA_MULTI_TID) == 0 &&
+				    (ctrl & IEEE80211_BA_COMPRESSED) == 0)
+					printf(", basic variant");
+				else if ((ctrl & IEEE80211_BA_MULTI_TID) &&
+				    (ctrl & IEEE80211_BA_COMPRESSED))
+					printf(", multi-tid variant");
+				else if (ctrl & IEEE80211_BA_COMPRESSED)
+					printf(", compressed variant");
+			}
+			break;
+		case IEEE80211_FC0_SUBTYPE_CTS:
+		case IEEE80211_FC0_SUBTYPE_ACK:
+			TCHECK2(*t, 2); /* Duration */
+			printf(", duration %dms", (t[0] | t[1] << 8));
+			t += 2;
+			TCHECK2(*t, 6); /* RA */
+			printf(", ra %s", etheraddr_string(t));
+			break;
+		case IEEE80211_FC0_SUBTYPE_PS_POLL:
+			TCHECK2(*t, 2); /* AID */
+			printf(", aid 0x%x", (t[0] | t[1] << 8));
+			t += 2;
+			TCHECK2(*t, 6); /* BSSID(RA) */
+			printf(", ra %s", etheraddr_string(t));
+			t += 6;
+			TCHECK2(*t, 6); /* TA */
+			printf(", ta %s", etheraddr_string(t));
+			break;
+		}
+		break;
+	}
 	default:
 		printf(": type#%d", type);
 		break;

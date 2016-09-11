@@ -1,4 +1,4 @@
-/* $OpenBSD: ufs_dirhash.c,v 1.33 2015/03/14 03:38:53 jsg Exp $	*/
+/* $OpenBSD: ufs_dirhash.c,v 1.37 2016/06/19 10:21:56 dlg Exp $	*/
 /*
  * Copyright (c) 2001, 2002 Ian Dowse.  All rights reserved.
  *
@@ -54,7 +54,7 @@ __FBSDID("$FreeBSD: src/sys/ufs/ufs/ufs_dirhash.c,v 1.18 2004/02/15 21:39:35 dwm
 
 #define WRAPINCR(val, limit)	(((val) + 1 == (limit)) ? 0 : ((val) + 1))
 #define WRAPDECR(val, limit)	(((val) == 0) ? ((limit) - 1) : ((val) - 1))
-#define OFSFMT(vp)		((vp)->v_mount->mnt_maxsymlinklen <= 0)
+#define OFSFMT(ip)		((ip)->i_ump->um_maxsymlinklen == 0)
 #define BLKFREE2IDX(n)		((n) > DH_NFSTATS ? DH_NFSTATS : (n))
 
 int ufs_mindirhashsize;
@@ -116,7 +116,7 @@ ufsdirhash_build(struct inode *ip)
 
 	/* Check if we can/should use dirhash. */
 	if (ip->i_dirhash == NULL) {
-		if (DIP(ip, size) < ufs_mindirhashsize || OFSFMT(ip->i_vnode))
+		if (DIP(ip, size) < ufs_mindirhashsize || OFSFMT(ip))
 			return (-1);
 	} else {
 		/* Hash exists, but sysctls could have changed. */
@@ -1049,15 +1049,11 @@ ufsdirhash_init(void)
 {
 	pool_init(&ufsdirhash_pool, DH_NBLKOFF * sizeof(doff_t), 0, 0,
 	    PR_WAITOK, "dirhash", NULL);
+	pool_setipl(&ufsdirhash_pool, IPL_NONE);
 	mtx_init(&ufsdirhash_mtx, IPL_NONE);
 	arc4random_buf(&ufsdirhash_key, sizeof(ufsdirhash_key));
 	TAILQ_INIT(&ufsdirhash_list);
-#if defined (__sparc__) && !defined (__sparc64__)
-	if (!CPU_ISSUN4OR4C)
-#elif defined (__vax__)
-	if (0)
-#endif
-		ufs_dirhashmaxmem = 2 * 1024 * 1024;
+	ufs_dirhashmaxmem = 2 * 1024 * 1024;
 	ufs_mindirhashsize = 5 * DIRBLKSIZ;
 }
 

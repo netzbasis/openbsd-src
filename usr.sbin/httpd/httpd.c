@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.c,v 1.53 2015/12/03 11:46:25 reyk Exp $	*/
+/*	$OpenBSD: httpd.c,v 1.61 2016/09/02 11:25:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -16,12 +16,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>	/* nitems */
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/wait.h>
 #include <sys/resource.h>
 
 #include <netinet/in.h>
@@ -71,56 +69,11 @@ void
 parent_sig_handler(int sig, short event, void *arg)
 {
 	struct privsep	*ps = arg;
-	int		 die = 0, status, fail, id;
-	pid_t		 pid;
-	char		*cause;
 
 	switch (sig) {
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		do {
-			int len;
-
-			pid = waitpid(WAIT_ANY, &status, WNOHANG);
-			if (pid <= 0)
-				continue;
-
-			fail = 0;
-			if (WIFSIGNALED(status)) {
-				fail = 1;
-				len = asprintf(&cause, "terminated; signal %d",
-				    WTERMSIG(status));
-			} else if (WIFEXITED(status)) {
-				if (WEXITSTATUS(status) != 0) {
-					fail = 1;
-					len = asprintf(&cause,
-					    "exited abnormally");
-				} else
-					len = asprintf(&cause, "exited okay");
-			} else
-				fatalx("unexpected cause of SIGCHLD");
-
-			if (len == -1)
-				fatal("asprintf");
-
-			die = 1;
-
-			for (id = 0; id < PROC_MAX; id++)
-				if (pid == ps->ps_pid[id]) {
-					if (fail)
-						log_warnx("lost child: %s %s",
-						    ps->ps_title[id], cause);
-					break;
-				}
-
-			free(cause);
-		} while (pid > 0 || (pid == -1 && errno == EINTR));
-
-		if (die)
-			parent_shutdown(ps->ps_env);
+		parent_shutdown(ps->ps_env);
 		break;
 	case SIGHUP:
 		log_info("%s: reload requested with SIGHUP", __func__);
@@ -164,8 +117,12 @@ main(int argc, char *argv[])
 	struct httpd		*env;
 	struct privsep		*ps;
 	const char		*conffile = CONF_FILE;
+	enum privsep_procid	 proc_id = PROC_PARENT;
+	int			 proc_instance = 0;
+	const char		*errp, *title = NULL;
+	int			 argc0 = argc;
 
-	while ((c = getopt(argc, argv, "dD:nf:v")) != -1) {
+	while ((c = getopt(argc, argv, "dD:nf:I:P:v")) != -1) {
 		switch (c) {
 		case 'd':
 			debug = 2;
@@ -185,6 +142,18 @@ main(int argc, char *argv[])
 		case 'v':
 			verbose++;
 			opts |= HTTPD_OPT_VERBOSE;
+			break;
+		case 'P':
+			title = optarg;
+			proc_id = proc_getid(procs, nitems(procs), title);
+			if (proc_id == PROC_MAX)
+				fatalx("invalid process name");
+			break;
+		case 'I':
+			proc_instance = strtonum(optarg, 0,
+			    PROC_MAX_INSTANCES, &errp);
+			if (errp)
+				fatalx("invalid process instance");
 			break;
 		default:
 			usage();
@@ -224,16 +193,13 @@ main(int argc, char *argv[])
 	log_init(debug, LOG_DAEMON);
 	log_verbose(verbose);
 
-	if (!debug && daemon(1, 0) == -1)
-		err(1, "failed to daemonize");
-
 	if (env->sc_opts & HTTPD_OPT_NOACTION)
 		ps->ps_noaction = 1;
-	else
-		log_info("startup");
 
 	ps->ps_instances[PROC_SERVER] = env->sc_prefork_server;
-	ps->ps_ninstances = env->sc_prefork_server;
+	ps->ps_instance = proc_instance;
+	if (title != NULL)
+		ps->ps_title[proc_id] = title;
 
 	if (env->sc_chroot == NULL)
 		env->sc_chroot = ps->ps_pw->pw_dir;
@@ -246,12 +212,17 @@ main(int argc, char *argv[])
 			errx(1, "malloc failed");
 	}
 
-	proc_init(ps, procs, nitems(procs));
+	/* only the parent returns */
+	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
 
-	setproctitle("parent");
 	log_procinit("parent");
+	if (!debug && daemon(1, 0) == -1)
+		err(1, "failed to daemonize");
 
-	if (pledge("stdio rpath wpath cpath inet dns proc ioctl sendfd",
+	if (ps->ps_noaction == 0)
+		log_info("startup");
+
+	if (pledge("stdio rpath wpath cpath inet dns ioctl sendfd",
 	    NULL) == -1)
 		fatal("pledge");
 
@@ -259,19 +230,17 @@ main(int argc, char *argv[])
 
 	signal_set(&ps->ps_evsigint, SIGINT, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, parent_sig_handler, ps);
-	signal_set(&ps->ps_evsigchld, SIGCHLD, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsighup, SIGHUP, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, parent_sig_handler, ps);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, parent_sig_handler, ps);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
-	signal_add(&ps->ps_evsigchld, NULL);
 	signal_add(&ps->ps_evsighup, NULL);
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
 
-	proc_listen(ps, procs, nitems(procs));
+	proc_connect(ps);
 
 	if (load_config(env->sc_conffile, env) == -1) {
 		proc_kill(env->sc_ps);
@@ -746,7 +715,7 @@ escape_html(const char* src)
 {
 	char		*dp, *dst;
 
-	/* We need 5 times the memory if every letter is "<" or ">". */
+	/* We need 5 times the memory if every letter is "&" */
 	if ((dst = calloc(5, strlen(src) + 1)) == NULL)
 		return NULL;
 
@@ -1002,11 +971,13 @@ kv_set(struct kv *kv, char *fmt, ...)
 	va_list		  ap;
 	char		*value = NULL;
 	struct kv	*ckv;
+	int		ret;
 
 	va_start(ap, fmt);
-	if (vasprintf(&value, fmt, ap) == -1)
-		return (-1);
+	ret = vasprintf(&value, fmt, ap);
 	va_end(ap);
+	if (ret == -1)
+		return (-1);
 
 	/* Remove all children */
 	while ((ckv = TAILQ_FIRST(&kv->kv_children)) != NULL) {
@@ -1027,11 +998,13 @@ kv_setkey(struct kv *kv, char *fmt, ...)
 {
 	va_list  ap;
 	char	*key = NULL;
+	int	ret;
 
 	va_start(ap, fmt);
-	if (vasprintf(&key, fmt, ap) == -1)
-		return (-1);
+	ret = vasprintf(&key, fmt, ap);
 	va_end(ap);
+	if (ret == -1)
+		return (-1);
 
 	free(kv->kv_key);
 	kv->kv_key = key;

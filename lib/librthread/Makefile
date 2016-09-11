@@ -1,25 +1,27 @@
-#	$OpenBSD: Makefile,v 1.40 2015/05/19 20:50:06 guenther Exp $
+#	$OpenBSD: Makefile,v 1.43 2016/06/01 04:34:18 tedu Exp $
 
 LIB=pthread
 LIBCSRCDIR=	${.CURDIR}/../libc
 
 CFLAGS+=-Wall -g -Werror -Wshadow
-CFLAGS+=-Wmissing-prototypes -Wstrict-prototypes
+CFLAGS+=-Werror-implicit-function-declaration
 CFLAGS+=-Wsign-compare
-CFLAGS+=-I${LIBCSRCDIR}/arch/${MACHINE_CPU} -I${LIBCSRCDIR}/include
+CFLAGS+=-I${.CURDIR} -include namespace.h \
+	-I${LIBCSRCDIR}/arch/${MACHINE_CPU} -I${LIBCSRCDIR}/include
 CDIAGFLAGS=
-LDADD = -Wl,-znodelete,-zinitfirst,-znodlopen
+LDADD = -Wl,-znodelete
 
 .if defined(NOPIC)
 CFLAGS+=-DNO_PIC
 .endif
+
+VERSION_SCRIPT= ${.CURDIR}/Symbols.map
 
 .PATH: ${.CURDIR}/arch/${MACHINE_CPU}
 SRCS=	rthread.c \
 	rthread_attr.c \
 	rthread_barrier.c \
 	rthread_barrier_attr.c \
-	rthread_cancel.c \
 	rthread_condattr.c \
 	rthread_debug.c \
 	rthread_file.c \
@@ -41,9 +43,11 @@ SRCS=	rthread.c \
 	rthread_tls.c \
 	sched_prio.c
 
-OBJS+= _atomic_lock.o cerror.o
+OBJS+= _atomic_lock.o
 
 SRCDIR= ${.CURDIR}/../libpthread
 .include "${SRCDIR}/include/Makefile.inc"
 .include "${SRCDIR}/man/Makefile.inc"
 .include <bsd.lib.mk>
+
+${OBJS} ${GOBJS} ${POBJS} ${SOBJS} ${DOBJS}: ${.CURDIR}/namespace.h

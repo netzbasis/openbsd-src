@@ -1,4 +1,4 @@
-/*	$OpenBSD: vnet.c,v 1.53 2015/12/05 13:10:03 kettenis Exp $	*/
+/*	$OpenBSD: vnet.c,v 1.56 2016/04/13 11:34:00 mpi Exp $	*/
 /*
  * Copyright (c) 2009, 2015 Mark Kettenis
  *
@@ -169,6 +169,7 @@ struct vnet_softc {
 	struct ldc_map	*sc_lm;
 	struct vnet_dring *sc_vd;
 	struct vnet_soft_desc *sc_vsd;
+#define VNET_NUM_SOFT_DESC	128
 
 	size_t		sc_peer_desc_size;
 	struct ldc_cookie sc_peer_dring_cookie;
@@ -315,7 +316,6 @@ vnet_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_watchdog = vnet_watchdog;
 	strlcpy(ifp->if_xname, sc->sc_dv.dv_xname, IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, 31); /* XXX */
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifmedia_init(&sc->sc_media, 0, vnet_media_change, vnet_media_status);
 	ifmedia_add(&sc->sc_media, IFM_ETHER | IFM_AUTO, 0, NULL);
@@ -763,6 +763,7 @@ vnet_rx_vio_desc_data(struct vnet_softc *sc, struct vio_msg_tag *tag)
 		atomic_dec_int(&map->lm_count);
 
 		pool_put(&sc->sc_pool, sc->sc_vsd[cons].vsd_buf);
+		sc->sc_vsd[cons].vsd_buf = NULL;
 		ifp->if_opackets++;
 
 		sc->sc_tx_cons++;
@@ -876,6 +877,7 @@ vnet_rx_vio_dring_data(struct vnet_softc *sc, struct vio_msg_tag *tag)
 			atomic_dec_int(&map->lm_count);
 
 			pool_put(&sc->sc_pool, sc->sc_vsd[cons].vsd_buf);
+			sc->sc_vsd[cons].vsd_buf = NULL;
 			ifp->if_opackets++;
 
 			sc->sc_vd->vd_desc[cons].hdr.dstate = VIO_DESC_FREE;
@@ -926,8 +928,13 @@ vnet_ldc_reset(struct ldc_conn *lc)
 	for (i = 1; i < sc->sc_lm->lm_nentries; i++)
 		sc->sc_lm->lm_slot[i].entry = 0;
 
-	for (i = 0; i < sc->sc_vd->vd_nentries; i++)
+	for (i = 0; i < sc->sc_vd->vd_nentries; i++) {
+		if (sc->sc_vsd[i].vsd_buf) {
+			pool_put(&sc->sc_pool, sc->sc_vsd[i].vsd_buf);
+			sc->sc_vsd[i].vsd_buf = NULL;
+		}
 		sc->sc_vd->vd_desc[i].hdr.dstate = VIO_DESC_FREE;
+	}
 }
 
 void
@@ -1392,10 +1399,11 @@ vnet_init(struct ifnet *ifp)
 		return;
 	}
 
-	sc->sc_vd = vnet_dring_alloc(sc->sc_dmatag, 128);
+	sc->sc_vd = vnet_dring_alloc(sc->sc_dmatag, VNET_NUM_SOFT_DESC);
 	if (sc->sc_vd == NULL)
 		return;
-	sc->sc_vsd = malloc(128 * sizeof(*sc->sc_vsd), M_DEVBUF, M_NOWAIT);
+	sc->sc_vsd = malloc(VNET_NUM_SOFT_DESC * sizeof(*sc->sc_vsd), M_DEVBUF,
+	    M_NOWAIT|M_ZERO);
 	if (sc->sc_vsd == NULL)
 		return;
 
@@ -1445,6 +1453,8 @@ vnet_stop(struct ifnet *ifp)
 	lc->lc_state = 0;
 	lc->lc_tx_state = lc->lc_rx_state = LDC_CHANNEL_DOWN;
 	vnet_ldc_reset(lc);
+
+	free(sc->sc_vsd, M_DEVBUF, VNET_NUM_SOFT_DESC * sizeof(*sc->sc_vsd));
 
 	vnet_dring_free(sc->sc_dmatag, sc->sc_vd);
 

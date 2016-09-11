@@ -1,4 +1,4 @@
-/* $OpenBSD: intc.c,v 1.3 2014/07/12 18:44:41 tedu Exp $ */
+/* $OpenBSD: intc.c,v 1.7 2016/08/06 18:21:34 patrick Exp $ */
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  *
@@ -21,8 +21,15 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/evcount.h>
+
 #include <machine/bus.h>
+#include <machine/fdt.h>
+
 #include <armv7/armv7/armv7var.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/fdt.h>
+
 #include "intc.h"
 
 #define INTC_NUM_IRQ intc_nirq
@@ -89,19 +96,23 @@ volatile int softint_pending;
 struct intrq intc_handler[INTC_MAX_IRQ];
 u_int32_t intc_smask[NIPL];
 u_int32_t intc_imask[INTC_MAX_BANKS][NIPL];
+struct interrupt_controller intc_ic;
 
 bus_space_tag_t		intc_iot;
 bus_space_handle_t	intc_ioh;
 int			intc_nirq;
 
+int	intc_match(struct device *, void *, void *);
 void	intc_attach(struct device *, struct device *, void *);
 int	intc_spllower(int new);
 int	intc_splraise(int new);
 void	intc_setipl(int new);
 void	intc_calc_mask(void);
+void	*intc_intr_establish_fdt(void *, int *, int, int (*)(void *),
+	    void *, char *);
 
 struct cfattach	intc_ca = {
-	sizeof (struct device), NULL, intc_attach
+	sizeof (struct device), intc_match, intc_attach
 };
 
 struct cfdriver intc_cd = {
@@ -110,16 +121,25 @@ struct cfdriver intc_cd = {
 
 int intc_attached = 0;
 
-void
-intc_attach(struct device *parent, struct device *self, void *args)
+int
+intc_match(struct device *parent, void *match, void *aux)
 {
-	struct armv7_attach_args *aa = args;
+	struct fdt_attach_args *faa = aux;
+
+	return (OF_is_compatible(faa->fa_node, "ti,omap3-intc") ||
+	    OF_is_compatible(faa->fa_node, "ti,am33xx-intc"));
+}
+
+void
+intc_attach(struct device *parent, struct device *self, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
 	int i;
 	u_int32_t rev;
 
-	intc_iot = aa->aa_iot;
-	if (bus_space_map(intc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &intc_ioh))
+	intc_iot = faa->fa_iot;
+	if (bus_space_map(intc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &intc_ioh))
 		panic("intc_attach: bus_space_map failed!");
 
 	rev = bus_space_read_4(intc_iot, intc_ioh, INTC_REVISION);
@@ -137,14 +157,10 @@ intc_attach(struct device *parent, struct device *self, void *args)
 	bus_space_write_4(intc_iot, intc_ioh, INTC_SYSCONFIG,
 	    INTC_SYSCONFIG_AUTOIDLE);
 
-	switch (board_id) {
-	case BOARD_ID_AM335X_BEAGLEBONE:
+	if (OF_is_compatible(faa->fa_node, "ti,am33xx-intc"))
 		intc_nirq = 128;
-		break;
-	default:
+	else
 		intc_nirq = 96;
-		break;
-	}
 
 	/* mask all interrupts */
 	for (i = 0; i < INTC_NUM_BANKS; i++)
@@ -170,7 +186,11 @@ intc_attach(struct device *parent, struct device *self, void *args)
 	    intc_irq_handler);
 
 	intc_setipl(IPL_HIGH);  /* XXX ??? */
-	enable_interrupts(I32_bit);
+	enable_interrupts(PSR_I);
+
+	intc_ic.ic_node = faa->fa_node;
+	intc_ic.ic_establish = intc_intr_establish_fdt;
+	arm_intr_register_fdt(&intc_ic);
 }
 
 void
@@ -269,7 +289,7 @@ intc_setipl(int new)
 	if (intc_attached == 0)
 		return;
 
-	psw = disable_interrupts(I32_bit);
+	psw = disable_interrupts(PSR_I);
 #if 0
 	{
 		volatile static int recursed = 0;
@@ -342,13 +362,9 @@ intc_intr_establish(int irqno, int level, int (*func)(void *),
 	if (irqno < 0 || irqno >= INTC_NUM_IRQ)
 		panic("intc_intr_establish: bogus irqnumber %d: %s",
 		     irqno, name);
-	psw = disable_interrupts(I32_bit);
+	psw = disable_interrupts(PSR_I);
 
-	/* no point in sleeping unless someone can free memory. */
-	ih = (struct intrhand *)malloc (sizeof *ih, M_DEVBUF,
-	    cold ? M_NOWAIT : M_WAITOK);
-	if (ih == NULL)
-		panic("intr_establish: can't malloc handler info");
+	ih = malloc(sizeof(*ih), M_DEVBUF, M_WAITOK);
 	ih->ih_func = func;
 	ih->ih_arg = arg;
 	ih->ih_ipl = level;
@@ -370,13 +386,20 @@ intc_intr_establish(int irqno, int level, int (*func)(void *),
 	return (ih);
 }
 
+void *
+intc_intr_establish_fdt(void *cookie, int *cell, int level,
+    int (*func)(void *), void *arg, char *name)
+{
+	return intc_intr_establish(cell[0], level, func, arg, name);
+}
+
 void
 intc_intr_disestablish(void *cookie)
 {
 	int psw;
 	struct intrhand *ih = cookie;
 	int irqno = ih->ih_irq;
-	psw = disable_interrupts(I32_bit);
+	psw = disable_interrupts(PSR_I);
 	TAILQ_REMOVE(&intc_handler[irqno].iq_list, ih, ih_list);
 	if (ih->ih_name != NULL)
 		evcount_detach(&ih->ih_count);

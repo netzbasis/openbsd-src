@@ -1,4 +1,4 @@
-#	$OpenBSD: changelist,v 1.110 2015/10/03 18:57:11 renato Exp $
+#	$OpenBSD: changelist,v 1.112 2016/04/20 12:41:30 sthen Exp $
 #
 # List of files which the security script backs up and checks
 # for modifications.
@@ -45,6 +45,8 @@
 /etc/httpd.conf
 /etc/ifstated.conf
 +/etc/iked.conf
+/etc/iked/local.pub
++/etc/iked/private/local.key
 /etc/inetd.conf
 +/etc/ipsec.conf
 +/etc/isakmpd/isakmpd.conf
@@ -150,7 +152,6 @@
 /var/cron/cron.deny
 /var/cron/tabs/root
 +/var/nsd/etc/nsd.conf
-/var/unbound/db/root.key
 /var/unbound/etc/unbound.conf
 /var/yp/Makefile.main
 /var/yp/Makefile.yp

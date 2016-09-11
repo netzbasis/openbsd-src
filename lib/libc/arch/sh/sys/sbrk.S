@@ -1,4 +1,4 @@
-/*	$OpenBSD: sbrk.S,v 1.4 2015/09/10 13:29:09 guenther Exp $	*/
+/*	$OpenBSD: sbrk.S,v 1.6 2016/05/30 05:18:52 guenther Exp $	*/
 /*	$NetBSD: sbrk.S,v 1.9 2006/01/06 03:58:31 uwe Exp $	*/
 
 /*-
@@ -37,7 +37,7 @@
 
 #include "SYS.h"
 
-	.globl	_C_LABEL(end)
+	.globl	_C_LABEL(_end)
 	.globl	__curbrk
 	.hidden	__curbrk
 
@@ -45,7 +45,7 @@
 
 	.data
 __curbrk:
-	.long	_C_LABEL(end)
+	.long	_C_LABEL(_end)
 	.size	__curbrk, . - __curbrk
 	.type	__curbrk,@object
 
@@ -76,9 +76,9 @@ ENTRY(sbrk)
 	mov.l	@r1, r0
 	add	r0, r2
 	rts
-	mov.l	r2, @r1
+	 mov.l	r2, @r1
 1:
-	JUMP_CERROR
+	SET_ERRNO_AND_RETURN
 
 	.align	2
 LSYS_break:	.long	SYS_break

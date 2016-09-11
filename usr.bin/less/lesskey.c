@@ -81,11 +81,11 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  */
 
+#include <err.h>
+
+#include "cmd.h"
 #include "less.h"
 #include "lesskey.h"
-#include "cmd.h"
-
-#include <err.h>
 
 struct cmdname {
 	char *cn_name;
@@ -753,6 +753,7 @@ main(int argc, char **argv)
 		++linenum;
 		parse_line(line);
 	}
+	fclose(desc);
 
 	/*
 	 * Write the output file.
@@ -797,5 +798,6 @@ main(int argc, char **argv)
 	/* File trailer */
 	fputbytes(out, endsection, sizeof (endsection));
 	fputbytes(out, filetrailer, sizeof (filetrailer));
+	fclose(out);
 	return (0);
 }

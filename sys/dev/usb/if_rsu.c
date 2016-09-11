@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_rsu.c,v 1.33 2016/01/05 18:41:16 stsp Exp $	*/
+/*	$OpenBSD: if_rsu.c,v 1.36 2016/07/26 18:18:04 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -246,6 +246,7 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 	    IEEE80211_C_RSN;		/* WPA/RSN. */
 	/* Check if HT support is present. */
 	if (usb_lookup(rsu_devs_noht, uaa->vendor, uaa->product) == NULL) {
+#ifdef notyet
 		/* Set HT capabilities. */
 		ic->ic_htcaps =
 		    IEEE80211_HTCAP_CBW20_40 |
@@ -253,6 +254,7 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 		/* Set supported HT rates. */
 		for (i = 0; i < 2; i++)
 			ic->ic_sup_mcs[i] = 0xff;
+#endif
 	}
 
 	/* Set supported .11b and .11g rates. */
@@ -273,7 +275,6 @@ rsu_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = rsu_ioctl;
 	ifp->if_start = rsu_start;
 	ifp->if_watchdog = rsu_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -2264,7 +2265,7 @@ rsu_init(struct ifnet *ifp)
 
 	/* We're ready to go. */
 	ifp->if_flags |= IFF_RUNNING;
-	ifq_set_oactive(&ifp->if_snd);
+	ifq_clr_oactive(&ifp->if_snd);
 
 #ifdef notyet
 	if (ic->ic_flags & IEEE80211_F_WEPON) {

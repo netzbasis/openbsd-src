@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.c,v 1.45 2015/12/27 04:31:34 jsg Exp $	*/
+/*	$OpenBSD: autoconf.c,v 1.47 2016/06/08 17:24:44 tedu Exp $	*/
 /*	$NetBSD: autoconf.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $	*/
 
 /*-
@@ -139,10 +139,8 @@ cpu_configure(void)
 		timeout_set(&viac3_rnd_tmo, viac3_rnd, &viac3_rnd_tmo);
 		viac3_rnd(&viac3_rnd_tmo);
 	}
-	if (has_rdrand || has_rdseed) {
-		timeout_set(&rdrand_tmo, rdrand, &rdrand_tmo);
-		rdrand(&rdrand_tmo);
-	}
+	timeout_set(&rdrand_tmo, rdrand, &rdrand_tmo);
+	rdrand(&rdrand_tmo);
 #ifdef CRYPTO
 	/*
 	 * Also, if the chip has crypto available, enable it.
@@ -227,6 +225,5 @@ struct nam2blk nam2blk[] = {
 	{ "cd",		6 },
 	{ "vnd",	14 },
 	{ "rd",		17 },
-	{ "raid",	19 },
 	{ NULL,		-1 }
 };

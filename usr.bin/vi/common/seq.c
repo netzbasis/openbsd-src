@@ -1,4 +1,4 @@
-/*	$OpenBSD: seq.c,v 1.11 2015/12/07 20:39:19 mmcc Exp $	*/
+/*	$OpenBSD: seq.c,v 1.13 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994

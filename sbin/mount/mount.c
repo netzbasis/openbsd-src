@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.c,v 1.61 2015/11/23 23:26:59 deraadt Exp $	*/
+/*	$OpenBSD: mount.c,v 1.68 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: mount.c,v 1.24 1995/11/18 03:34:29 cgd Exp $	*/
 
 /*
@@ -80,7 +80,6 @@ static struct opt {
 } optnames[] = {
 	{ MNT_ASYNC,		0,	"asynchronous",		"async" },
 	{ MNT_DEFEXPORTED,	1,	"exported to the world", "" },
-	{ MNT_EXKERB,		1,	"kerberos uid mapping",	"" },
 	{ MNT_EXPORTED,		0,	"NFS exported",		"" },
 	{ MNT_EXPORTANON,	1,	"anon uid mapping",	"" },
 	{ MNT_EXRDONLY,		1,	"exported read-only",	"" },
@@ -89,6 +88,8 @@ static struct opt {
 	{ MNT_NODEV,		0,	"nodev",		"nodev" },
 	{ MNT_NOEXEC,		0,	"noexec",		"noexec" },
 	{ MNT_NOSUID,		0,	"nosuid",		"nosuid" },
+	{ MNT_NOPERM,		0,	"noperm",		"noperm" },
+	{ MNT_WXALLOWED,	0,	"wxallowed",		"wxallowed" },
 	{ MNT_QUOTA,		0,	"with quotas",		"" },
 	{ MNT_RDONLY,		0,	"read-only",		"ro" },
 	{ MNT_ROOTFS,		1,	"root file system",	"" },
@@ -588,8 +589,6 @@ prmount(struct statfs *sf)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "long");
 		if (msdosfs_args->flags & MSDOSFSMNT_NOWIN95)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "nowin95");
-		if (msdosfs_args->flags & MSDOSFSMNT_ALLOWDIRX)
-			(void)printf("%s%s", !f++ ? " (" : ", ", "direxec");
 	} else if (strcmp(sf->f_fstypename, MOUNT_CD9660) == 0) {
 		struct iso_args *iso_args = &sf->mount_info.iso_args;
 
@@ -599,6 +598,21 @@ prmount(struct statfs *sf)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "gens");
 		if (iso_args->flags & ISOFSMNT_EXTATT)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "extatt");
+	} else if (strcmp(sf->f_fstypename, MOUNT_TMPFS) == 0) {
+		struct tmpfs_args *tmpfs_args = &sf->mount_info.tmpfs_args;
+
+		if (verbose || tmpfs_args->ta_root_uid || tmpfs_args->ta_root_gid)
+			(void)printf("%s%s=%u, %s=%u", !f++ ? " (" : ", ",
+			    "uid", tmpfs_args->ta_root_uid, "gid", tmpfs_args->ta_root_gid);
+		if (verbose || tmpfs_args->ta_root_mode != 040755)
+			(void)printf("%s%s=%04o", !f++ ? " (" : ", ",
+			    "mode", tmpfs_args->ta_root_mode & 07777);
+		if (verbose || tmpfs_args->ta_size_max)
+			(void)printf("%s%s=%lu", !f++ ? " (" : ", ",
+			    "size", (unsigned long)tmpfs_args->ta_size_max);
+		if (verbose || tmpfs_args->ta_nodes_max)
+			(void)printf("%s%s=%lu", !f++ ? " (" : ", ",
+			    "inodes", (unsigned long)tmpfs_args->ta_nodes_max);
 	}
 	(void)printf(f ? ")\n" : "\n");
 }
@@ -672,19 +686,16 @@ maketypelist(char *fslist)
 char *
 catopt(char *s0, const char *s1)
 {
-	size_t i;
 	char *cp;
 
 	if (s0 && *s0) {
-		i = strlen(s0) + strlen(s1) + 1 + 1;
-		if ((cp = malloc(i)) == NULL)
+		if (asprintf(&cp, "%s,%s", s0, s1) == -1)
 			err(1, NULL);
-		(void)snprintf(cp, i, "%s,%s", s0, s1);
 	} else
 		cp = strdup(s1);
 
 	free(s0);
-	return (cp);
+	return cp;
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_dwarf.c,v 1.3 2016/01/25 14:30:30 mpi Exp $	 */
+/*	$OpenBSD: db_dwarf.c,v 1.5 2016/04/20 08:02:59 mpi Exp $	 */
 /*
  * Copyright (c) 2014 Matthew Dempsky <matthew@dempsky.org>
  *
@@ -17,10 +17,10 @@
 
 #ifdef _KERNEL
 #include <sys/param.h>
-#include <sys/stdint.h>
 #include <sys/systm.h>
 #include <sys/types.h>
-#include <ddb/db_dwarf.h>
+#include <machine/db_machdep.h>
+#include <ddb/db_sym.h>
 #ifdef DIAGNOSTIC
 #define DWARN(fmt, ...) printf("ddb: " fmt "\n", __VA_ARGS__)
 #else
@@ -414,7 +414,7 @@ next:
 #endif /* !ELFDATA */
 
 static void
-usage()
+usage(void)
 {
 	extern const char *__progname;
 	errx(1, "usage: %s [-s] [-e filename] [addr addr ...]", __progname);

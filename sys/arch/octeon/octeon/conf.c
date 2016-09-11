@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.16 2015/10/23 15:10:52 claudio Exp $ */
+/*	$OpenBSD: conf.c,v 1.20 2016/09/04 10:51:24 naddy Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -77,7 +77,7 @@ struct bdevsw	bdevsw[] =
 	bdev_notdef(),			/* 7:  */
 	bdev_disk_init(NRD,rd),		/* 8: RAM disk (for install) */
 	bdev_notdef(),			/* 9:  */
-	bdev_tape_init(NST,st),		/* 10: SCSI tape */
+	bdev_notdef(),			/* 10: was: SCSI tape */
 	bdev_notdef(),			/* 11:  */
 	bdev_notdef(),			/* 12:  */
 	bdev_notdef(),			/* 13:  */
@@ -130,7 +130,6 @@ cdev_decl(amdcf);
 cdev_decl(pci);
 
 #include "pf.h"
-#include "systrace.h"
 
 #include "usb.h"
 #include "uhid.h"
@@ -141,6 +140,8 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "openprom.h"
+#include "switch.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -168,7 +169,7 @@ struct cdevsw	cdevsw[] =
 	cdev_tty_init(NCOM,com),	/* 17: 16C450 serial interface */
 	cdev_disk_init(NWD,wd),		/* 18: ST506/ESDI/IDE disk */
 	cdev_disk_init(NAMDCF,amdcf),	/* 19: CF disk */
-	cdev_notdef(),			/* 20: */
+	cdev_openprom_init(NOPENPROM,openprom),	/* 20: /dev/openprom */
 	cdev_notdef(),			/* 21: */
 	cdev_disk_init(NRD,rd),		/* 22: ramdisk device */
 	cdev_notdef(),			/* 23: was: concatenated disk driver */
@@ -202,7 +203,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 47: was: /dev/crypto */
 	cdev_notdef(),			/* 48: */
 	cdev_bio_init(NBIO,bio),	/* 49: ioctl tunnel */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50: system call tracing */
+	cdev_notdef(),			/* 50: */
 	cdev_notdef(),			/* 51: */
 	cdev_ptm_init(NPTY,ptm),	/* 52: pseudo-tty ptm device */
 	cdev_fuse_init(NFUSE,fuse),	/* 53: fuse */
@@ -227,6 +228,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 72: was USB scanners */
 	cdev_notdef(),			/* 73: fuse on other mips64 */
 	cdev_tun_init(NTUN,tap),	/* 74: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 75: switch(4) control interface */
 };
 
 int	nchrdev = nitems(cdevsw);
@@ -286,7 +288,7 @@ int chrtoblktbl[] =  {
 	/* 7 */		NODEV,
 	/* 8 */		3,		/* cd */
 	/* 9 */		0,		/* sd */
-	/* 10 */	10,		/* st */
+	/* 10 */	NODEV,
 	/* 11 */	2,		/* vnd */
 	/* 12 */	NODEV,
 	/* 13 */	NODEV,

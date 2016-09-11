@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.2 2015/09/02 04:09:24 yasuoka Exp $	*/
+/*	$OpenBSD: conf.c,v 1.4 2016/08/31 15:11:22 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -31,13 +31,14 @@
 #include <sys/disklabel.h>
 #include <libsa.h>
 #include <lib/libsa/ufs.h>
+#include <lib/libsa/cd9660.h>
 #include <dev/cons.h>
 
 #include "disk.h"
 #include "efiboot.h"
 #include "efidev.h"
 
-const char version[] = "3.29";
+const char version[] = "3.30";
 
 #ifdef EFI_DEBUG
 int	debug = 0;
@@ -63,13 +64,13 @@ int nibprobes = nitems(probe_list);
 struct fs_ops file_system[] = {
 	{ ufs_open,    ufs_close,    ufs_read,    ufs_write,    ufs_seek,
 	  ufs_stat,    ufs_readdir    },
+	{ cd9660_open, cd9660_close, cd9660_read, cd9660_write, cd9660_seek,
+	  cd9660_stat, cd9660_readdir },
 #ifdef notdef
 	{ fat_open,    fat_close,    fat_read,    fat_write,    fat_seek,
 	  fat_stat,    fat_readdir    },
 	{ nfs_open,    nfs_close,    nfs_read,    nfs_write,    nfs_seek,
 	  nfs_stat,    nfs_readdir    },
-	{ cd9660_open, cd9660_close, cd9660_read, cd9660_write, cd9660_seek,
-	  cd9660_stat, cd9660_readdir },
 #endif
 };
 int nfsys = nitems(file_system);

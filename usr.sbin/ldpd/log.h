@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.h,v 1.6 2015/07/21 04:52:29 renato Exp $ */
+/*	$OpenBSD: log.h,v 1.15 2016/09/02 17:08:02 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -21,20 +21,43 @@
 
 #include <stdarg.h>
 
-void	log_init(int);
-void	log_verbose(int);
-void	logit(int, const char *, ...);
-void	vlog(int, const char *, va_list);
-void	log_warn(const char *, ...);
-void	log_warnx(const char *, ...);
-void	log_info(const char *, ...);
-void	log_debug(const char *, ...);
-void	fatal(const char *) __dead;
-void	fatalx(const char *) __dead;
-const char *pw_type_name(u_int16_t);
-const char *log_map(struct map *);
+struct in6_addr;
+union ldpd_addr;
+struct hello_source;
 struct fec;
-const char *log_fec(struct fec *);
-void	log_rtmsg(u_char);
+
+void		 log_init(int);
+void		 log_verbose(int);
+void		 logit(int, const char *, ...)
+			__attribute__((__format__ (printf, 2, 3)));
+void		 log_warn(const char *, ...)
+			__attribute__((__format__ (printf, 1, 2)));
+void		 log_warnx(const char *, ...)
+			__attribute__((__format__ (printf, 1, 2)));
+void		 log_info(const char *, ...)
+			__attribute__((__format__ (printf, 1, 2)));
+void		 log_debug(const char *, ...)
+			__attribute__((__format__ (printf, 1, 2)));
+void		 fatal(const char *) __dead
+			__attribute__((__format__ (printf, 1, 0)));
+void		 fatalx(const char *) __dead
+			__attribute__((__format__ (printf, 1, 0)));
+const char	*log_sockaddr(void *);
+const char	*log_in6addr(const struct in6_addr *);
+const char	*log_in6addr_scope(const struct in6_addr *, unsigned int);
+const char	*log_addr(int, const union ldpd_addr *);
+char		*log_label(uint32_t);
+char		*log_hello_src(const struct hello_source *);
+const char	*log_map(const struct map *);
+const char	*log_fec(const struct fec *);
+const char	*af_name(int);
+const char	*socket_name(int);
+const char	*nbr_state_name(int);
+const char	*if_state_name(int);
+const char	*if_type_name(enum iface_type);
+const char	*msg_name(uint16_t);
+const char	*status_code_name(uint32_t);
+const char	*pw_type_name(uint16_t);
+void		 log_rtmsg(unsigned char);
 
 #endif /* _LOG_H_ */

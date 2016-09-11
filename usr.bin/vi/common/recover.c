@@ -1,4 +1,4 @@
-/*	$OpenBSD: recover.c,v 1.23 2016/01/06 22:28:52 millert Exp $	*/
+/*	$OpenBSD: recover.c,v 1.25 2016/06/29 20:38:39 tb Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -122,29 +122,24 @@ int
 rcv_tmp(SCR *sp, EXF *ep, char *name)
 {
 	struct stat sb;
+	static int warned = 0;
 	int fd;
 	char *dp, *p, path[PATH_MAX];
 
 	/*
 	 * !!!
 	 * ep MAY NOT BE THE SAME AS sp->ep, DON'T USE THE LATTER.
-	 *
-	 *
-	 * If the recovery directory doesn't exist, try and create it.  As
-	 * the recovery files are themselves protected from reading/writing
-	 * by other than the owner, the worst that can happen is that a user
-	 * would have permission to remove other user's recovery files.  If
-	 * the sticky bit has the BSD semantics, that too will be impossible.
 	 */
 	if (opts_empty(sp, O_RECDIR, 0))
 		goto err;
 	dp = O_STR(sp, O_RECDIR);
 	if (stat(dp, &sb)) {
-		if (errno != ENOENT || mkdir(dp, 0)) {
+		if (!warned) {
+			warned = 1;
 			msgq(sp, M_SYSERR, "%s", dp);
 			goto err;
 		}
-		(void)chmod(dp, S_IRWXU | S_IRWXG | S_IRWXO | S_ISVTX);
+		return 1;
 	}
 
 	/* Newlines delimit the mail messages. */
@@ -397,8 +392,8 @@ rcv_mailfile(SCR *sp, int issync, char *cp_path)
 	    " was editing a file named ", t, " on the machine ",
 	    host, ", when it was saved for recovery. ",
 	    "You can recover most, if not all, of the changes ",
-	    "to this file using the -r option to ", gp->progname, ":\n\n\t",
-	    gp->progname, " -r ", t);
+	    "to this file using the -r option to ", getprogname(), ":\n\n\t",
+	    getprogname(), " -r ", t);
 	if (len > sizeof(buf) - 1) {
 lerr:		msgq(sp, M_ERR, "Recovery file buffer overrun");
 		goto err;
@@ -555,7 +550,7 @@ rcv_list(SCR *sp)
 next:		(void)fclose(fp);
 	}
 	if (found == 0)
-		(void)printf("%s: No files to recover\n", sp->gp->progname);
+		(void)printf("%s: No files to recover\n", getprogname());
 	(void)closedir(dirp);
 	return (0);
 }

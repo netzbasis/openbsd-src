@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty.c,v 1.128 2016/01/14 09:44:08 sf Exp $	*/
+/*	$OpenBSD: tty.c,v 1.132 2016/07/10 00:39:31 millert Exp $	*/
 /*	$NetBSD: tty.c,v 1.68.4.2 1996/06/06 16:04:52 thorpej Exp $	*/
 
 /*-
@@ -201,8 +201,6 @@ ttyopen(dev_t device, struct tty *tp, struct proc *p)
 int
 ttyclose(struct tty *tp)
 {
-	extern struct tty *constty;	/* Temporary virtual console. */
-
 	if (constty == tp)
 		constty = NULL;
 
@@ -719,7 +717,6 @@ ttyoutput(int c, struct tty *tp)
 int
 ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
-	extern struct tty *constty;	/* Temporary virtual console. */
 	extern int nlinesw;
 	struct process *pr = p->p_p;
 	int s, error;
@@ -734,9 +731,7 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 	case  TIOCSETD:
 	case  TIOCSETAF:
 	case  TIOCSETAW:
-#ifdef notdef
 	case  TIOCSPGRP:
-#endif
 	case  TIOCSTAT:
 	case  TIOCSTI:
 	case  TIOCSWINSZ:
@@ -803,7 +798,7 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 				return (error);
 			vn_lock(nid.ni_vp, LK_EXCLUSIVE | LK_RETRY, p);
 			error = VOP_ACCESS(nid.ni_vp, VREAD, p->p_ucred, p);
-			VOP_UNLOCK(nid.ni_vp, 0, p);
+			VOP_UNLOCK(nid.ni_vp, p);
 			vrele(nid.ni_vp);
 			if (error)
 				return (error);
@@ -1782,7 +1777,7 @@ loop:
 		if (cc == 0) {
 			cc = MIN(uio->uio_resid, OBUFSIZ);
 			cp = obuf;
-			error = uiomovei(cp, cc, uio);
+			error = uiomove(cp, cc, uio);
 			if (error) {
 				cc = 0;
 				break;

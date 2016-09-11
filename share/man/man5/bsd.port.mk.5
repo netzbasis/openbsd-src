@@ -1,4 +1,4 @@
-.\" $OpenBSD: bsd.port.mk.5,v 1.432 2016/01/02 08:29:26 jmc Exp $
+.\" $OpenBSD: bsd.port.mk.5,v 1.439 2016/09/06 10:32:51 espie Exp $
 .\"
 .\" Copyright (c) 2000-2008 Marc Espie
 .\"
@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: January 2 2016 $
+.Dd $Mdocdate: September 6 2016 $
 .Dt BSD.PORT.MK 5
 .Os
 .Sh NAME
@@ -152,7 +152,7 @@ Verify from the ports tree, without building anything, that the current
 subpackage will register okay
 .Po
 see
-.Ev PLIST_DB
+.Ev PLIST_REPOSITORY
 .Pc .
 .It Cm check-register-all
 Apply
@@ -476,7 +476,7 @@ for each package in the
 .Ev MULTI_PACKAGES
 list.
 If the repository already contains up-to-date packages, they are not rebuilt.
-If PLIST_DB is set, the resulting packaging information is compared
+If PLIST_REPOSITORY is set, the resulting packaging information is compared
 with existing stuff, and saved if new, with loud complaints if it changed
 without a REVISION bump.
 Arch-independent packages are created in ${PACKAGE_REPOSITORY}/no-arch,
@@ -834,20 +834,14 @@ as well.
 Update the packing lists for a port, using the fake installation and the
 existing packing lists.
 .Cm update-plist
-should produce mostly correct
-.Pa PLIST ,
-.Pa PFRAG.shared
-and
-.Pa PFRAG.no-shared
-files, handling shared libraries, GNU
+should produce a mostly correct
+.Pa PLIST
+file, handling GNU
 .Xr info 1
 files, setuid files, and empty directories.
-It moves existing files to
-.Pa PLIST.orig ,
-.Pa PFRAG.shared.orig
-and
-.Pa PFRAG.no-shared.orig .
-If the generated lists include files and directories that shouldn't be
+It moves an existing file to
+.Pa PLIST.orig .
+If the generated list includes files and directories that shouldn't be
 included, comment these like this:
 .Bd -literal
 @comment unwanted-file
@@ -1311,11 +1305,6 @@ Set to name of script invoked by the
 .Cm configure
 target, if appropriate.
 Should be either an absolute path, or relative to ${WRKSRC}.
-.It Ev CONFIGURE_SHARED
-Set by default to --enable-shared or --disable-shared, depending on whether
-the architecture supports shared libraries.
-Should be appended to CONFIGURE_ARGS, for ports that build dynamic libraries
-and whose configure script supports these options.
 .It Ev CONFIGURE_STYLE
 Set to style of configuration that needs to happen.
 .Pp
@@ -1326,10 +1315,12 @@ assume
 .Xr ExtUtils::MakeMaker 3p
 style.
 Add
-.Sq modbuild ,
+.Sq modbuild
 to enable
-.Xr perl 1
-.Xr Module::Build 3p
+.Xr Module::Build 3p ,
+.Sq modbuild tiny
+to enable
+.Xr Module::Build::Tiny 3p ,
 or
 .Sq modinst
 for
@@ -2033,11 +2024,6 @@ ${PACKAGE_REPOSITORY}/${NO_ARCH}.
 List of architectures on which this port does not build.
 See also
 .Ev ONLY_FOR_ARCHS .
-See also
-.Ev SHARED_ONLY .
-Do not use instead of
-.Ev SHARED_ONLY
-without very good reasons.
 .It Ev NO_BUILD
 Set to
 .Sq Yes
@@ -2088,22 +2074,6 @@ It should be left alone for ports with empty regression tests, and for
 ports with failing tests.
 That way, if a subsequent update of a port acquires actual regression tests,
 they will be picked up automatically.
-.It Ev NO_SHARED_ARCHS
-Set to the list of platforms that do not support shared libraries.
-Read-only.
-Use with
-.Ev NOT_FOR_ARCHS .
-.It Ev NO_SHARED_LIBS
-Set to
-.Sq Yes
-if platform does not support shared libraries.
-To be tested after including
-.Nm ,
-or
-.Xr bsd.port.arch.mk 5 ,
-if neither PFRAG.shared nor CONFIGURE_SHARED are enough.
-.It Ev NO_SYSTRACE
-Port does not build with systrace-enabled build targets.
 .It Ev OLD_WRKDIR_NAME
 Base name for
 .Ev WRKDIR
@@ -2290,8 +2260,6 @@ User settings.
 Path to
 .Xr pkg_create 1
 command, with possible options.
-Signing options should be set separately in
-.Ev SIGNING_PARAMETERS .
 .It Ev PKG_CREATE_NO_CHECKS
 Porters switch.
 Set to
@@ -2410,8 +2378,11 @@ Do not override without very good reasons,
 namely software that coexist as different incompatible versions with the
 same stem, e.g., already a mess.
 .It Ev PLIST_DB
+Deprecated, see
+.Ev PLIST_REPOSITORY .
+.It Ev PLIST_REPOSITORY
 User settings.
-Directory used to save generated packing-lists, as persistent information.
+Base directory used to save generated packing-lists, as persistent information.
 Packing-lists are processed by a script,
 .Xr register-plist 1 ,
 which complains when packing-lists change without a
@@ -2425,7 +2396,11 @@ This directory is never cleaned during normal operation.
 .Ql make clean=plist
 should only ever be used during debugging by port maintainers.
 Defaults to
-.Pa ${PORTSDIR}/plist/${MACHINE_ARCH} .
+.Pa ${PORTSDIR}/plist
+.Po
+plists actually get saved into
+.Pa ${PLIST_REPOSITORY}/${MACHINE_ARCH}
+.Pc .
 If set to empty, will not register anything: very much unsafe.
 .It Ev PORTS_BUILD_XENOCARA_TOO
 EXPERIMENTAL.
@@ -2491,22 +2466,17 @@ and
 .Ev BUILD_PACKAGES
 is generally preferred (and simpler).
 Possible properties include
-.Bl -tag -width no_shared
+.Bl -tag -width mono
 .It apm
 architecture possesses suspend (apm) support.
 .It be
 architecture is big-endian.
 .It gccN
 gccN architecture.
-.It elf
-.Xr elf 5
-architecture.
 .It le
 architecture is little-endian.
 .It lp64
 lp64 architecture.
-.It no_shared
-architecture has no shared library support.
 .It llvm
 there is
 .Pa lang/llvm
@@ -2665,15 +2635,6 @@ Porters of software using libtool should make sure
 .Ev MAKE_FLAGS
 get propagated to the libtool invocations.
 This should be enough in most cases.
-.It Ev SHARED_ONLY
-Set to
-.Sq Yes
-if port can only be built on architectures with shared libraries.
-.It Ev SIGNING_PARAMETERS
-User settings.
-Set to
-.Xr pkg_create 1
-options for signing packages directly during their creation.
 .It Ev SKIPDIR
 See
 .Xr ports 7 .
@@ -2821,25 +2782,6 @@ from
 which defaults to
 .Pa /etc .
 Passed to gnu configure scripts and substituted in PLISTs.
-.It Ev SYSTRACE_FILTER
-Location of the systrace filter file which is the basis for a port's
-actual systrace policy file.
-Defaults to
-.Pa ${PORTSDIR}/infrastructure/db/systrace.filter .
-.It Ev SYSTRACE_FILTER_CCACHE
-Location of the supplementary systrace filter file which is used when
-.Ev USE_CCACHE
-is enabled.
-Defaults to
-.Pa ${PORTSDIR}/infrastructure/db/systrace.filter.ccache .
-.It Ev SYSTRACE_SUBST_VARS
-List of variables used in ${SYSTRACE_FILTER} that will be substituted
-by their real value when creating the systrace policy file.
-Always holds
-.Ev WRKOBJDIR ,
-.Ev PORTSDIR ,
-and
-.Ev DISTDIR .
 .It Ev TAR
 Name of the tar binary.
 .It Ev TARGETS
@@ -2973,11 +2915,14 @@ and not intended to be a user setting.
 See
 .Ev WRKOBJDIR_MFS
 for configuration.
-.It Ev USE_SYSTRACE
-User settings.
-Set to
-.Sq Yes
-to protect port building with systrace.
+.It Ev USE_WXNEEDED
+If set to
+.Sq Yes ,
+writes a wrapper script to ${WRKDIR}/bin/ld in
+.Cm patch
+to request that the linker adds an OPENBSD_WXNEEDED ELF section.
+Use when a port requires memory mappings that are both executable
+and writable and cannot be modified to avoid this.
 .It Ev USE_X11
 Normally, presence of ${X11BASE} is enforced by default for building ports.
 But there is an experimental way to hook the xenocara build into
@@ -3279,6 +3224,8 @@ that something will be able to make sense of it.
 Common Makefile fragment for a set of ports, included automatically.
 .It Pa /cdrom/distfiles
 Default path to a CD-ROM (or other media) full of distribution files.
+.It Pa ${PORTSDIR}/distfiles
+Default setup of ${DISTDIR}.
 .It Pa ${DISTDIR}
 Cache of all distribution files.
 .It Pa distinfo
@@ -3347,10 +3294,6 @@ Extra directory used to store local ports before committing them.
 All depend targets will normally look there after the normal lookup fails.
 See
 .Ev PORTSDIR_PATH .
-.It Pa systrace.filter
-List of additional port specific filters, included automatically.
-.It Pa systrace.policy
-List of additional port specific policies, included automatically.
 .El
 .Sh THE FAKE FRAMEWORK
 The
@@ -3669,7 +3612,7 @@ e.g., if FLAVORS=no_map gfx qt2, if FLAVOR=gfx no_map, this is
 .Sq -no_map-gfx .
 .It
 Generate the actual PLIST from the template ${PLIST},
-by inserting shared/no-shared fragments, merging other fragments,
+by inserting fragments
 and applying the same variable substitutions as other package information.
 .El
 .Pp
@@ -3680,30 +3623,20 @@ generation.
 To avoid substitution, variables can be escaped as follows:
 .Li "$\e{PREFIX}"
 .Pp
-Constructs such as the line
-.Li "%%SHARED%%"
+If FLAVORS lists flv, then constructs such as the line
+.Li "%%flv%%"
 or
-.Li "!%%SHARED%%"
-in the packing-list template trigger the inclusion of the
-.Pa ${PKGDIR}/PFRAG.shared${SUBPACKAGE}
+.Li "!%%flv%%"
+in the packing-list template trigger the inclusion of
+.Pa ${PKGDIR}/PFRAG.flv${SUBPACKAGE}
 or
-.Pa ${PKGDIR}/PFRAG.no-shared${SUBPACKAGE} .
-.Pp
-Similarly, if FLAVORS lists flav1, then the line
-.Li "%%flav1%%"
-(resp.
-.Li "!%%flav1%%" )
-will trigger the inclusion of
-.Pa ${PKGDIR}/PFRAG.flav1${SUBPACKAGE}
-(resp.
-.Pa ${PKGDIR}/PFRAG.no-flav1${SUBPACKAGE} )
-in the packing-list.
+.Pa ${PKGDIR}/PFRAG.no-flv${SUBPACKAGE} .
 Other fragments can be defined by simply adding
 .Li "-Dfrag=1"
 or
 .Li "-Dfrag=0"
 to
-.Ev PKG_ARGS
+.Ev PKG_ARGS .
 .Pp
 If libraries are built using
 .Pa bsd.lib.mk ,
@@ -3739,16 +3672,17 @@ Some programs will prefer to use rpath to find their own libraries.
 .Pp
 The special
 .Cm update-plist
-target does a fairly good job of automatically generating PLIST and
-PFRAG.shared fragments.
+target does a fairly good job of automatically generating the PLIST.
 .Pp
 If
-.Ev PLIST_DB
+.Ev PLIST_REPOSITORY
 points to a directory, all packing-lists from packages generated by
 .Xr pkg_create 1
 during the
 .Cm package
-stage are saved in that location by a script:
+stage are saved in
+.Pa ${PLIST_REPOSITORY}/${MACHINE_ARCH}
+by a script:
 .Pa ${PORTSDIR}/infrastructure/bin/register-plist .
 This script strips some irrelevant information and normalizes the
 packing-list somehow, and compares it to existing information, looking
@@ -3846,6 +3780,9 @@ Now hardwired to
 Used to be the name of the comment file for a package.
 It now holds the comment itself.
 Some magic has been put in to allow for a seamless transition.
+.It Ev CONFIGURE_SHARED
+Used to default to --enable-shared or --disable-shared, depending on whether
+the architecture supported shared libraries.
 .It Ev DESCR_SRC
 From
 .Nx .
@@ -3965,6 +3902,13 @@ All ports should generate a package, preferably before install.
 .It Ev NO_PATCH
 The absence of a patches directory does the same.
 Use PATCHDIR and PATCH_LIST if patches need to be changed dynamically.
+.It Ev NO_SHARED_ARCHS
+Used to be set to the list of platforms that did not support shared libraries.
+No such architectures remain.
+.It Ev NO_SHARED_LIBS
+Used to be set to
+.Sq Yes
+if platform did not support shared libraries.
 .It Ev NO_WRKDIR
 All ports should have a working directory, as this is necessary to store
 cookies and keep state.
@@ -4033,7 +3977,7 @@ Concentrate on real questions instead, make sure
 .Ev PERMIT_PACKAGE_CDROM
 is set correctly.
 .It Ev PKG_CMD
-replaced by
+Replaced by
 .Ev PKG_CREATE .
 .It Ev PKGREPOSITORY
 Old user settings.
@@ -4080,6 +4024,9 @@ instead.
 Old pipeline for creating packing-lists at the ports level.
 Necessary functionality has been integrated directly into
 .Xr pkg_create 1 .
+.It Ev SIGNING_PARAMETERS
+Old user settings.
+There is no longer any benefit to signing packages during creation.
 .It Ev SCRIPTDIR
 Old location for scripts related to the current port.
 There is no reason for the semantic distinction, use
@@ -4091,6 +4038,10 @@ Used to contain the environment for invoking various scripts.
 and
 .Ev MAKE_ENV
 are enough.
+.It Ev SHARED_ONLY
+Had to be set to
+.Sq Yes
+if port could only be built on architectures with shared libraries.
 .It Ev USE_AUTOCONF
 Use
 .Ev CONFIGURE_STYLE
@@ -4157,9 +4108,9 @@ Use COMMENT variable instead.
 Use @unexec annotations in the packing-list instead.
 .It Pa ${PKGDIR}/INSTALL*
 Use @exec annotations in the packing-list instead.
-.It Pa ${PKGDIR}/PLIST.noshared
-Use PFRAG.shared or PFRAG.no-shared instead.
-PLIST.noshared was too easy to forget when updating ports.
+.It Pa ${PKGDIR}/PLIST.{noshared,no-shared,shared}
+Packaging list fragments to handle platforms that did not support
+shared libraries.
 .It Pa ${PKGDIR}/PLIST.sed
 Use PLIST directly.
 Until revision 1.295,

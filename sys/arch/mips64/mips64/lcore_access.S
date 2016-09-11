@@ -1,4 +1,4 @@
-/*	$OpenBSD: lcore_access.S,v 1.24 2012/10/03 11:18:23 miod Exp $ */
+/*	$OpenBSD: lcore_access.S,v 1.26 2016/05/23 20:11:49 deraadt Exp $ */
 
 /*
  * Copyright (c) 2001-2003 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -77,9 +77,23 @@ sigcode:
 	PTR_ADDU a0, sp, 4*REGSZ		# address of sigcontext
 	LI	v0, SYS_sigreturn	# sigreturn(scp)
 	syscall
+	.globl  _C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	break	0			# just in case sigreturn fails
 	.globl	esigcode
 esigcode:
+
+	.globl	sigfill
+sigfill:
+	break	0
+esigfill:
+
+	.data
+	.globl	sigfillsiz
+sigfillsiz:
+	.long	esigfill - sigfill
+
+	.text
 
 /*
  * Copy a null terminated string within the kernel address space.

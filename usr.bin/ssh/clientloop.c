@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.281 2016/01/23 05:31:35 jsg Exp $ */
+/* $OpenBSD: clientloop.c,v 1.286 2016/07/23 02:54:08 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -115,6 +115,9 @@ extern int stdin_null_flag;
 /* Flag indicating that no shell has been requested */
 extern int no_shell_flag;
 
+/* Flag indicating that ssh should daemonise after authentication is complete */
+extern int fork_after_authentication_flag;
+
 /* Control socket */
 extern int muxserver_sock; /* XXX use mux_client_cleanup() instead */
 
@@ -159,8 +162,6 @@ static u_int x11_refuse_time;	/* If >0, refuse x11 opens after this time. */
 
 static void client_init_dispatch(void);
 int	session_ident = -1;
-
-int	session_resumed = 0;
 
 /* Track escape per proto2 channel */
 struct escape_filter_ctx {
@@ -312,8 +313,9 @@ client_x11_get_proto(const char *display, const char *xauth_path,
 	proto[0] = data[0] = xauthfile[0] = xauthdir[0] = '\0';
 
 	if (!client_x11_display_valid(display)) {
-		logit("DISPLAY \"%s\" invalid; disabling X11 forwarding",
-		    display);
+		if (display != NULL)
+			logit("DISPLAY \"%s\" invalid; disabling X11 forwarding",
+			    display);
 		return -1;
 	}
 	if (xauth_path != NULL && stat(xauth_path, &st) == -1) {
@@ -1491,7 +1493,7 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 {
 	fd_set *readset = NULL, *writeset = NULL;
 	double start_time, total_time;
-	int r, max_fd = 0, max_fd2 = 0, len, rekeying = 0;
+	int r, max_fd = 0, max_fd2 = 0, len;
 	u_int64_t ibytes, obytes;
 	u_int nalloc = 0;
 	char buf[100];
@@ -1499,9 +1501,9 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 	debug("Entering interactive session.");
 
 	if (options.control_master &&
-	    ! option_clear_or_none(options.control_path)) {
+	    !option_clear_or_none(options.control_path)) {
 		debug("pledge: id");
-		if (pledge("stdio rpath wpath cpath unix inet dns proc exec id tty",
+		if (pledge("stdio rpath wpath cpath unix inet dns recvfd proc exec id tty",
 		    NULL) == -1)
 			fatal("%s pledge(): %s", __func__, strerror(errno));
 
@@ -1517,7 +1519,8 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 		    NULL) == -1)
 			fatal("%s pledge(): %s", __func__, strerror(errno));
 
-	} else if (! option_clear_or_none(options.proxy_command)) {
+	} else if (!option_clear_or_none(options.proxy_command) ||
+	    fork_after_authentication_flag) {
 		debug("pledge: proc");
 		if (pledge("stdio cpath unix inet dns proc tty", NULL) == -1)
 			fatal("%s pledge(): %s", __func__, strerror(errno));
@@ -1606,10 +1609,15 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 		if (compat20 && session_closed && !channel_still_open())
 			break;
 
-		rekeying = (active_state->kex != NULL && !active_state->kex->done);
-
-		if (rekeying) {
+		if (ssh_packet_is_rekeying(active_state)) {
 			debug("rekeying in progress");
+		} else if (need_rekeying) {
+			/* manual rekey request */
+			debug("need rekeying");
+			if ((r = kex_start_rekex(active_state)) != 0)
+				fatal("%s: kex_start_rekex: %s", __func__,
+				    ssh_err(r));
+			need_rekeying = 0;
 		} else {
 			/*
 			 * Make packets of buffered stdin data, and buffer
@@ -1640,23 +1648,14 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 		 */
 		max_fd2 = max_fd;
 		client_wait_until_can_do_something(&readset, &writeset,
-		    &max_fd2, &nalloc, rekeying);
+		    &max_fd2, &nalloc, ssh_packet_is_rekeying(active_state));
 
 		if (quit_pending)
 			break;
 
 		/* Do channel operations unless rekeying in progress. */
-		if (!rekeying) {
+		if (!ssh_packet_is_rekeying(active_state))
 			channel_after_select(readset, writeset);
-			if (need_rekeying || packet_need_rekeying()) {
-				debug("need rekeying");
-				active_state->kex->done = 0;
-				if ((r = kex_send_kexinit(active_state)) != 0)
-					fatal("%s: kex_send_kexinit: %s",
-					    __func__, ssh_err(r));
-				need_rekeying = 0;
-			}
-		}
 
 		/* Buffer input from the connection.  */
 		client_process_net_input(readset);
@@ -1672,14 +1671,6 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 			 * the connection is processed elsewhere (above).
 			 */
 			client_process_output(writeset);
-		}
-
-		if (session_resumed) {
-			connection_in = packet_get_connection_in();
-			connection_out = packet_get_connection_out();
-			max_fd = MAX(max_fd, connection_out);
-			max_fd = MAX(max_fd, connection_in);
-			session_resumed = 0;
 		}
 
 		/*

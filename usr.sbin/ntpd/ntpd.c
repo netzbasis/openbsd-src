@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntpd.c,v 1.103 2016/01/11 15:30:56 deraadt Exp $ */
+/*	$OpenBSD: ntpd.c,v 1.108 2016/09/03 11:52:06 reyk Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -12,9 +12,9 @@
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF MIND, USE, DATA OR PROFITS, WHETHER
- * IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
- * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
 #include <sys/types.h>
@@ -132,18 +132,16 @@ main(int argc, char *argv[])
 
 	memset(&lconf, 0, sizeof(lconf));
 
-	log_init(1, LOG_DAEMON);	/* log to stderr until daemonized */
-
 	while ((ch = getopt(argc, argv, "df:nsSv")) != -1) {
 		switch (ch) {
 		case 'd':
-			lconf.debug = 1;
-			log_verbose(1);
+			lconf.debug = 2;
 			break;
 		case 'f':
 			conffile = optarg;
 			break;
 		case 'n':
+			lconf.debug = 2;
 			lconf.noaction = 1;
 			break;
 		case 's':
@@ -153,13 +151,16 @@ main(int argc, char *argv[])
 			lconf.settime = 0;
 			break;
 		case 'v':
-			log_verbose(1);
+			lconf.verbose++;
 			break;
 		default:
 			usage();
 			/* NOTREACHED */
 		}
 	}
+
+	/* log to stderr until daemonized */
+	log_init(lconf.debug ? lconf.debug : 1, LOG_DAEMON);
 
 	argc -= optind;
 	argv += optind;
@@ -190,6 +191,7 @@ main(int argc, char *argv[])
 	reset_adjtime();
 	if (!lconf.settime) {
 		log_init(lconf.debug, LOG_DAEMON);
+		log_verbose(lconf.verbose);
 		if (!lconf.debug)
 			if (daemon(1, 0))
 				fatal("daemon");
@@ -208,7 +210,6 @@ main(int argc, char *argv[])
 	/* fork child process */
 	chld_pid = ntp_main(pipe_chld, fd_ctl, &lconf, pw);
 
-	setproctitle("[priv]");
 	log_procinit("[priv]");
 	readfreq();
 
@@ -229,8 +230,10 @@ main(int argc, char *argv[])
 	 * Constraint processes are forked with certificates in memory,
 	 * then privdrop into chroot before speaking to the outside world.
 	 */
+#if 0	
 	if (pledge("stdio rpath inet settime proc id", NULL) == -1)
 		err(1, "pledge");
+#endif
 
 	while (quit == 0) {
 		new_cnt = PFD_MAX + constraint_cnt;
@@ -269,6 +272,7 @@ main(int argc, char *argv[])
 			lconf.settime = 0;
 			timeout = INFTIM;
 			log_init(lconf.debug, LOG_DAEMON);
+			log_verbose(lconf.verbose);
 			log_warnx("no reply received in time, skipping initial "
 			    "time setting");
 			if (!lconf.debug)
@@ -395,6 +399,7 @@ dispatch_imsg(struct ntpd_conf *lconf, const char *pw_dir,
 			if (!lconf->settime)
 				break;
 			log_init(lconf->debug, LOG_DAEMON);
+			log_verbose(lconf->verbose);
 			memcpy(&d, imsg.data, sizeof(d));
 			ntpd_settime(d);
 			/* daemonize now */
@@ -408,6 +413,9 @@ dispatch_imsg(struct ntpd_conf *lconf, const char *pw_dir,
 			priv_constraint_msg(imsg.hdr.peerid,
 			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE,
 			    pw_dir, pw_uid, pw_gid);
+			break;
+		case IMSG_CONSTRAINT_KILL:
+			priv_constraint_kill(imsg.hdr.peerid);
 			break;
 		default:
 			break;
