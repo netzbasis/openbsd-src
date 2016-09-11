@@ -1,4 +1,4 @@
-/*	$OpenBSD: softraid.c,v 1.15 2015/10/28 13:33:42 jsing Exp $	*/
+/*	$OpenBSD: softraid.c,v 1.18 2016/09/10 16:53:22 jsing Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Sing <jsing@openbsd.org>
@@ -26,7 +26,7 @@
 
 #include <lib/libsa/aes_xts.h>
 #include <lib/libsa/hmac_sha1.h>
-#include <lib/libsa/pbkdf2.h>
+#include <lib/libsa/pkcs5_pbkdf2.h>
 #include <lib/libsa/rijndael.h>
 
 #include "libsa.h"
@@ -413,8 +413,10 @@ sr_getdisklabel(struct sr_boot_volume *bv, struct disklabel *label)
 			dp = &mbr.dmbr_parts[i];
 			if (!dp->dp_size)
 				continue;
-			if (dp->dp_typ == DOSPTYP_OPENBSD)
+			if (dp->dp_typ == DOSPTYP_OPENBSD) {
 				start = dp->dp_start;
+				break;
+			}
 		}
 	}
 
@@ -514,7 +516,7 @@ sr_crypto_decrypt_keys(struct sr_boot_volume *bv)
 	struct sr_meta_crypto *cm;
 	struct sr_boot_keydisk	*kd;
 	struct sr_meta_opt_item *omi;
-	struct sr_crypto_kdf_pbkdf2 *kdfhint;
+	struct sr_crypto_pbkdf *kdfhint;
 	struct sr_crypto_kdfinfo kdfinfo;
 	char passphrase[PASSPHRASE_LENGTH];
 	u_int8_t digest[SHA1_DIGEST_LENGTH];
@@ -534,7 +536,7 @@ sr_crypto_decrypt_keys(struct sr_boot_volume *bv)
 	}
 
 	cm = (struct sr_meta_crypto *)omi->omi_som;
-	kdfhint = (struct sr_crypto_kdf_pbkdf2 *)&cm->scm_kdfhint;
+	kdfhint = (struct sr_crypto_pbkdf *)&cm->scm_kdfhint;
 
 	switch (cm->scm_mask_alg) {
 	case SR_CRYPTOM_AES_ECB_256:

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.24 2014/07/12 19:22:32 krw Exp $ */
+/*	$OpenBSD: rde.c,v 1.29 2016/09/02 16:20:34 benno Exp $ */
 
 /*
  * Copyright (c) 2004, 2005 Claudio Jeker <claudio@openbsd.org>
@@ -40,7 +40,7 @@
 #include "rde.h"
 
 void		 rde_sig_handler(int sig, short, void *);
-void		 rde_shutdown(void);
+__dead void	 rde_shutdown(void);
 void		 rde_dispatch_imsg(int, short, void *);
 
 int		 rde_select_ds_ifs(struct mfc *, struct iface *);
@@ -98,6 +98,7 @@ rde(struct dvmrpd_conf *xconf, int pipe_parent2rde[2], int pipe_dvmrpe2rde[2],
 
 	setproctitle("route decision engine");
 	dvmrpd_process = PROC_RDE_ENGINE;
+	log_procname = log_procnames[dvmrpd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
@@ -147,14 +148,19 @@ rde(struct dvmrpd_conf *xconf, int pipe_parent2rde[2], int pipe_dvmrpe2rde[2],
 
 	rde_shutdown();
 	/* NOTREACHED */
-
 	return (0);
 }
 
-void
+__dead void
 rde_shutdown(void)
 {
 	struct iface	*iface;
+
+	/* close pipes */
+	msgbuf_clear(&iev_dvmrpe->ibuf.w);
+	close(iev_dvmrpe->ibuf.fd);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	rt_clear();
 	mfc_clear();
@@ -163,9 +169,7 @@ rde_shutdown(void)
 		if_del(iface);
 	}
 
-	msgbuf_clear(&iev_dvmrpe->ibuf.w);
 	free(iev_dvmrpe);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(rdeconf);
 
@@ -198,24 +202,26 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 	struct imsg		 imsg;
 	struct route_report	 rr;
 	struct nbr_msg		 nm;
-	int			 i, connected = 0, verbose;
+	int			 i, connected = 0, shut = 0, verbose;
 	ssize_t			 n;
 	struct iface		*iface;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
-			fatalx("pipe closed");
+			shut = 1;
 	}
 	if (event & EV_WRITE) {
-		if (msgbuf_write(&ibuf->w) <= 0 && errno != EAGAIN)
+		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
 			fatal("msgbuf_write");
+		if (n == 0)	/* connection closed */
+			shut = 1;
 	}
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("rde_dispatch_imsg: imsg_read error");
+			fatal("rde_dispatch_imsg: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -325,7 +331,13 @@ rde_dispatch_imsg(int fd, short event, void *bula)
 		}
 		imsg_free(&imsg);
 	}
-	imsg_event_add(iev);
+	if (!shut)
+		imsg_event_add(iev);
+	else {
+		/* this pipe is dead, so remove the event handler */
+		event_del(&iev->ev);
+		event_loopexit(NULL);
+	}
 }
 
 int

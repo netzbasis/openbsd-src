@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.40 2015/11/06 16:42:30 tedu Exp $	*/
+/*	$OpenBSD: main.c,v 1.42 2016/03/16 15:41:10 krw Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1993
@@ -168,6 +168,13 @@ main(int argc, char *argv[])
 	limit.rlim_cur = GETTY_TIMEOUT;
 	(void)setrlimit(RLIMIT_CPU, &limit);
 
+	ioctl(0, FIOASYNC, &off);	/* turn off async mode */
+
+	if (pledge("stdio rpath wpath fattr proc exec tty", NULL) == -1) {
+		syslog(LOG_ERR, "pledge: %m");
+		exit(1);
+	}
+
 	/*
 	 * The following is a work around for vhangup interactions
 	 * which cause great problems getting window systems started.
@@ -210,9 +217,8 @@ main(int argc, char *argv[])
 			login_tty(i);
 		}
 	}
-	ioctl(0, FIOASYNC, &off);	/* turn off async mode */
 
-	if (pledge("stdio rpath fattr proc exec tty", NULL) == -1) {
+	if (pledge("stdio rpath proc exec tty", NULL) == -1) {
 		syslog(LOG_ERR, "pledge: %m");
 		exit(1);
 	}
@@ -300,14 +306,14 @@ main(int argc, char *argv[])
 				exit(1);
 			}
 			signal(SIGINT, SIG_DFL);
-			for (i = 0; environ[i] != (char *)0; i++)
+			for (i = 0; environ[i] != NULL; i++)
 				env[i] = environ[i];
 			makeenv(&env[i]);
 
 			limit.rlim_max = RLIM_INFINITY;
 			limit.rlim_cur = RLIM_INFINITY;
 			(void)setrlimit(RLIMIT_CPU, &limit);
-			execle(LO, "login", "-p", "--", name, (char *)0, env);
+			execle(LO, "login", "-p", "--", name, NULL, env);
 			syslog(LOG_ERR, "%s: %m", LO);
 			exit(1);
 		}

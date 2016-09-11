@@ -1,4 +1,4 @@
-/*	$OpenBSD: uslcom.c,v 1.36 2015/06/18 10:47:44 jsg Exp $	*/
+/*	$OpenBSD: uslcom.c,v 1.39 2016/09/02 09:14:59 mpi Exp $	*/
 
 /*
  * Copyright (c) 2006 Jonathan Gray <jsg@openbsd.org>
@@ -38,7 +38,6 @@ int	uslcomdebug = 0;
 #define DPRINTF(x) DPRINTFN(0, x)
 
 #define USLCOMBUFSZ		256
-#define USLCOM_CONFIG_NO	0
 #define USLCOM_IFACE_NO		0
 
 #define USLCOM_SET_DATA_BITS(x)	(x << 8)
@@ -113,6 +112,7 @@ struct ucom_methods uslcom_methods = {
 };
 
 static const struct usb_devno uslcom_devs[] = {
+	{ USB_VENDOR_ARUBA,		USB_PRODUCT_ARUBA_CP210X },
 	{ USB_VENDOR_BALTECH,		USB_PRODUCT_BALTECH_CARDREADER },
 	{ USB_VENDOR_CLIPSAL,		USB_PRODUCT_CLIPSAL_5000CT2 },
 	{ USB_VENDOR_CLIPSAL,		USB_PRODUCT_CLIPSAL_5500PACA },
@@ -276,7 +276,7 @@ uslcom_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 
-	if (uaa->iface != NULL)
+	if (uaa->iface == NULL)
 		return UMATCH_NONE;
 
 	return (usb_lookup(uslcom_devs, uaa->vendor, uaa->product) != NULL) ?
@@ -296,13 +296,6 @@ uslcom_attach(struct device *parent, struct device *self, void *aux)
 
 	bzero(&uca, sizeof(uca));
 	sc->sc_udev = uaa->device;
-
-	if (usbd_set_config_index(sc->sc_udev, USLCOM_CONFIG_NO, 1) != 0) {
-		printf("%s: could not set configuration no\n",
-		    sc->sc_dev.dv_xname);
-		usbd_deactivate(sc->sc_udev);
-		return;
-	}
 
 	/* get the first interface handle */
 	error = usbd_device2interface_handle(sc->sc_udev, USLCOM_IFACE_NO,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.47 2015/11/04 12:40:49 mikeb Exp $	*/
+/*	$OpenBSD: pfkey.c,v 1.52 2016/09/03 09:20:07 vgross Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -69,16 +69,9 @@ struct pfkey_constmap {
 };
 
 static const struct pfkey_constmap pfkey_encr[] = {
-	{ SADB_X_EALG_DES_IV64,	IKEV2_XFORMENCR_DES_IV64 },
-	{ SADB_EALG_DESCBC,	IKEV2_XFORMENCR_DES },
 	{ SADB_EALG_3DESCBC,	IKEV2_XFORMENCR_3DES },
-	{ SADB_X_EALG_RC5,	IKEV2_XFORMENCR_RC5 },
-	{ SADB_X_EALG_IDEA,	IKEV2_XFORMENCR_IDEA },
 	{ SADB_X_EALG_CAST,	IKEV2_XFORMENCR_CAST },
 	{ SADB_X_EALG_BLF,	IKEV2_XFORMENCR_BLOWFISH },
-	{ SADB_X_EALG_3IDEA,	IKEV2_XFORMENCR_3IDEA },
-	{ SADB_X_EALG_DES_IV32,	IKEV2_XFORMENCR_DES_IV32 },
-	{ SADB_X_EALG_RC4,	IKEV2_XFORMENCR_RC4 },
 	{ SADB_EALG_NULL,	IKEV2_XFORMENCR_NULL },
 	{ SADB_X_EALG_AES,	IKEV2_XFORMENCR_AES_CBC },
 	{ SADB_X_EALG_AESCTR,	IKEV2_XFORMENCR_AES_CTR },
@@ -91,7 +84,6 @@ static const struct pfkey_constmap pfkey_encr[] = {
 static const struct pfkey_constmap pfkey_integr[] = {
 	{ SADB_AALG_MD5HMAC,	IKEV2_XFORMAUTH_HMAC_MD5_96 },
 	{ SADB_AALG_SHA1HMAC,	IKEV2_XFORMAUTH_HMAC_SHA1_96 },
-	{ SADB_X_AALG_DES,	IKEV2_XFORMAUTH_DES_MAC },
 	{ SADB_X_AALG_SHA2_256,	IKEV2_XFORMAUTH_HMAC_SHA2_256_128 },
 	{ SADB_X_AALG_SHA2_384,	IKEV2_XFORMAUTH_HMAC_SHA2_384_192 },
 	{ SADB_X_AALG_SHA2_512,	IKEV2_XFORMAUTH_HMAC_SHA2_512_256 },
@@ -181,6 +173,7 @@ int
 pfkey_flow(int sd, uint8_t satype, uint8_t action, struct iked_flow *flow)
 {
 	struct sadb_msg		 smsg;
+	struct iked_addr	*flow_src, *flow_dst;
 	struct sadb_address	 sa_src, sa_dst, sa_local, sa_peer, sa_smask,
 				 sa_dmask;
 	struct sadb_protocol	 sa_flowtype, sa_protocol;
@@ -191,56 +184,75 @@ pfkey_flow(int sd, uint8_t satype, uint8_t action, struct iked_flow *flow)
 
 	sa_srcid = sa_dstid = NULL;
 
+	flow_src = &flow->flow_src;
+	flow_dst = &flow->flow_dst;
+
+	if (flow->flow_prenat.addr_af == flow_src->addr_af) {
+		switch (flow->flow_type) {
+		case SADB_X_FLOW_TYPE_USE:
+			flow_dst = &flow->flow_prenat;
+			break;
+		case SADB_X_FLOW_TYPE_REQUIRE:
+			flow_src = &flow->flow_prenat;
+			break;
+		case 0:
+			if (flow->flow_dir == IPSP_DIRECTION_IN)
+				flow_dst = &flow->flow_prenat;
+			else
+				flow_src = &flow->flow_prenat;
+		}
+	}
+
 	bzero(&ssrc, sizeof(ssrc));
 	bzero(&smask, sizeof(smask));
-	memcpy(&ssrc, &flow->flow_src.addr, sizeof(ssrc));
-	memcpy(&smask, &flow->flow_src.addr, sizeof(smask));
-	socket_af((struct sockaddr *)&ssrc, flow->flow_src.addr_port);
-	socket_af((struct sockaddr *)&smask, flow->flow_src.addr_port ?
+	memcpy(&ssrc, &flow_src->addr, sizeof(ssrc));
+	memcpy(&smask, &flow_src->addr, sizeof(smask));
+	socket_af((struct sockaddr *)&ssrc, flow_src->addr_port);
+	socket_af((struct sockaddr *)&smask, flow_src->addr_port ?
 	    0xffff : 0);
 
-	switch (flow->flow_src.addr_af) {
+	switch (flow_src->addr_af) {
 	case AF_INET:
 		((struct sockaddr_in *)&smask)->sin_addr.s_addr =
-		    prefixlen2mask(flow->flow_src.addr_net ?
-		    flow->flow_src.addr_mask : 32);
+		    prefixlen2mask(flow_src->addr_net ?
+		    flow_src->addr_mask : 32);
 		break;
 	case AF_INET6:
-		prefixlen2mask6(flow->flow_src.addr_net ?
-		    flow->flow_src.addr_mask : 128,
+		prefixlen2mask6(flow_src->addr_net ?
+		    flow_src->addr_mask : 128,
 		    (uint32_t *)((struct sockaddr_in6 *)
 		    &smask)->sin6_addr.s6_addr);
 		break;
 	default:
 		log_warnx("%s: unsupported address family %d",
-		    __func__, flow->flow_src.addr_af);
+		    __func__, flow_src->addr_af);
 		return (-1);
 	}
 	smask.ss_len = ssrc.ss_len;
 
 	bzero(&sdst, sizeof(sdst));
 	bzero(&dmask, sizeof(dmask));
-	memcpy(&sdst, &flow->flow_dst.addr, sizeof(sdst));
-	memcpy(&dmask, &flow->flow_dst.addr, sizeof(dmask));
-	socket_af((struct sockaddr *)&sdst, flow->flow_dst.addr_port);
-	socket_af((struct sockaddr *)&dmask, flow->flow_dst.addr_port ?
+	memcpy(&sdst, &flow_dst->addr, sizeof(sdst));
+	memcpy(&dmask, &flow_dst->addr, sizeof(dmask));
+	socket_af((struct sockaddr *)&sdst, flow_dst->addr_port);
+	socket_af((struct sockaddr *)&dmask, flow_dst->addr_port ?
 	    0xffff : 0);
 
-	switch (flow->flow_dst.addr_af) {
+	switch (flow_dst->addr_af) {
 	case AF_INET:
 		((struct sockaddr_in *)&dmask)->sin_addr.s_addr =
-		    prefixlen2mask(flow->flow_dst.addr_net ?
-		    flow->flow_dst.addr_mask : 32);
+		    prefixlen2mask(flow_dst->addr_net ?
+		    flow_dst->addr_mask : 32);
 		break;
 	case AF_INET6:
-		prefixlen2mask6(flow->flow_dst.addr_net ?
-		    flow->flow_dst.addr_mask : 128,
+		prefixlen2mask6(flow_dst->addr_net ?
+		    flow_dst->addr_mask : 128,
 		    (uint32_t *)((struct sockaddr_in6 *)
 		    &dmask)->sin6_addr.s6_addr);
 		break;
 	default:
 		log_warnx("%s: unsupported address family %d",
-		    __func__, flow->flow_dst.addr_af);
+		    __func__, flow_dst->addr_af);
 		return (-1);
 	}
 	dmask.ss_len = sdst.ss_len;
@@ -1243,7 +1255,7 @@ pfkey_block(int fd, int af, unsigned int action)
 
 	/*
 	 * Prevent VPN traffic leakages in dual-stack hosts/networks.
-	 * http://tools.ietf.org/html/draft-gont-opsec-vpn-leakages.
+	 * https://tools.ietf.org/html/draft-gont-opsec-vpn-leakages.
 	 * We forcibly block IPv6 traffic unless it is used in any of
 	 * the flows by tracking a sadb_ipv6refcnt reference counter.
 	 */
@@ -1579,7 +1591,7 @@ pfkey_timer_cb(int unused, short event, void *arg)
 
 /*
  * pfkey_process returns 0 if the message has been processed and -1 if
- * the system is busy and the the message should be passed again, later.
+ * the system is busy and the message should be passed again, later.
  */
 int
 pfkey_process(struct iked *env, struct pfkey_message *pm)

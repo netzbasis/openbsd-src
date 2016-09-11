@@ -1,4 +1,4 @@
-/*	$OpenBSD: makemaze.c,v 1.6 2003/06/11 08:45:33 pjanzen Exp $	*/
+/*	$OpenBSD: makemaze.c,v 1.9 2016/08/27 02:06:40 guenther Exp $	*/
 /*	$NetBSD: makemaze.c,v 1.2 1997/10/10 16:33:43 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,11 +31,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/select.h>
 #include <string.h>
 
+#include "conf.h"
 #include "hunt.h"
 #include "server.h"
-#include "conf.h"
 
 # define	ISCLEAR(y,x)	(Maze[y][x] == SPACE)
 # define	ODD(n)		((n) & 01)
@@ -46,7 +47,7 @@ static	void	dig_maze(int, int);
 static	void	remap(void);
 
 void
-makemaze()
+makemaze(void)
 {
 	char	*sp;
 	int	y, x;
@@ -81,8 +82,7 @@ int	incr[NDIR][2] = {
 	};
 
 static void
-dig(y, x)
-	int	y, x;
+dig(int y, int x)
 {
 	int	*dp;
 	int	*ip;
@@ -106,8 +106,7 @@ dig(y, x)
  *	Is it legal to clear this spot?
  */
 static int
-candig(y, x)
-	int	y, x;
+candig(int y, int x)
 {
 	int	i;
 
@@ -137,8 +136,7 @@ candig(y, x)
 }
 
 static void
-dig_maze(x, y)
-	int	x, y;
+dig_maze(int x, int y)
 {
 	int	tx, ty;
 	int	i, j;
@@ -185,7 +183,7 @@ dig_maze(x, y)
 }
 
 static void
-remap()
+remap(void)
 {
 	int	y, x;
 	char	*sp;

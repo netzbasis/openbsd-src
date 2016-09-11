@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwnvar.h,v 1.28 2014/09/09 18:55:08 sthen Exp $	*/
+/*	$OpenBSD: if_iwnvar.h,v 1.31 2016/09/05 08:18:18 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2007, 2008
@@ -172,12 +172,10 @@ struct iwn_ops {
 			    int);
 	void		(*tx_done)(struct iwn_softc *, struct iwn_rx_desc *,
 			    struct iwn_rx_data *);
-#ifndef IEEE80211_NO_HT
 	void		(*ampdu_tx_start)(struct iwn_softc *,
 			    struct ieee80211_node *, uint8_t, uint16_t);
 	void		(*ampdu_tx_stop)(struct iwn_softc *, uint8_t,
 			    uint16_t);
-#endif
 };
 
 struct iwn_softc {
@@ -192,13 +190,13 @@ struct iwn_softc {
 
 	bus_dma_tag_t		sc_dmat;
 
+	struct rwlock		sc_rwlock;
 	u_int			sc_flags;
 #define IWN_FLAG_HAS_5GHZ	(1 << 0)
 #define IWN_FLAG_HAS_OTPROM	(1 << 1)
 #define IWN_FLAG_CALIB_DONE	(1 << 2)
 #define IWN_FLAG_USE_ICT	(1 << 3)
 #define IWN_FLAG_INTERNAL_PA	(1 << 4)
-#define IWN_FLAG_BUSY		(1 << 5)
 #define IWN_FLAG_HAS_11N	(1 << 6)
 #define IWN_FLAG_ENH_SENS	(1 << 7)
 #define IWN_FLAG_ADV_BT_COEX	(1 << 8)
@@ -259,6 +257,8 @@ struct iwn_softc {
 
 	struct iwn_rx_stat	last_rx_stat;
 	int			last_rx_valid;
+#define IWN_LAST_RX_VALID	0x01
+#define IWN_LAST_RX_AMPDU	0x02
 	struct iwn_ucode_info	ucode_info;
 	struct iwn_rxon		rxon;
 	uint32_t		rawtemp;

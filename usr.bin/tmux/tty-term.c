@@ -1,7 +1,7 @@
-/* $OpenBSD: tty-term.c,v 1.41 2015/10/27 15:58:43 nicm Exp $ */
+/* $OpenBSD: tty-term.c,v 1.45 2016/01/29 11:13:56 nicm Exp $ */
 
 /*
- * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -251,6 +251,7 @@ const struct tty_term_code_entry tty_term_codes[] = {
 	[TTYC_SMSO] = { TTYCODE_STRING, "smso" },
 	[TTYC_SMUL] = { TTYCODE_STRING, "smul" },
 	[TTYC_SS] = { TTYCODE_STRING, "Ss" },
+	[TTYC_TC] = { TTYCODE_FLAG, "Tc" },
 	[TTYC_TSL] = { TTYCODE_STRING, "tsl" },
 	[TTYC_VPA] = { TTYCODE_STRING, "vpa" },
 	[TTYC_XENL] = { TTYCODE_FLAG, "xenl" },
@@ -406,12 +407,12 @@ tty_term_find(char *name, int fd, char **cause)
 	if (setupterm(name, fd, &error) != OK) {
 		switch (error) {
 		case 1:
-			xasprintf(
-			    cause, "can't use hardcopy terminal: %s", name);
+			xasprintf(cause, "can't use hardcopy terminal: %s",
+			    name);
 			break;
 		case 0:
-			xasprintf(
-			    cause, "missing or unsuitable terminal: %s", name);
+			xasprintf(cause, "missing or unsuitable terminal: %s",
+			    name);
 			break;
 		case -1:
 			xasprintf(cause, "can't find terminfo database");
@@ -556,7 +557,7 @@ tty_term_string(struct tty_term *term, enum tty_code_code code)
 	if (!tty_term_has(term, code))
 		return ("");
 	if (term->codes[code].type != TTYCODE_STRING)
-		log_fatalx("not a string: %d", code);
+		fatalx("not a string: %d", code);
 	return (term->codes[code].value.string);
 }
 
@@ -591,7 +592,7 @@ tty_term_number(struct tty_term *term, enum tty_code_code code)
 	if (!tty_term_has(term, code))
 		return (0);
 	if (term->codes[code].type != TTYCODE_NUMBER)
-		log_fatalx("not a number: %d", code);
+		fatalx("not a number: %d", code);
 	return (term->codes[code].value.number);
 }
 
@@ -601,7 +602,7 @@ tty_term_flag(struct tty_term *term, enum tty_code_code code)
 	if (!tty_term_has(term, code))
 		return (0);
 	if (term->codes[code].type != TTYCODE_FLAG)
-		log_fatalx("not a flag: %d", code);
+		fatalx("not a flag: %d", code);
 	return (term->codes[code].value.flag);
 }
 

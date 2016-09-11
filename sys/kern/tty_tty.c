@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_tty.c,v 1.15 2015/05/01 01:30:58 millert Exp $	*/
+/*	$OpenBSD: tty_tty.c,v 1.20 2016/09/06 08:13:23 tedu Exp $	*/
 /*	$NetBSD: tty_tty.c,v 1.13 1996/03/30 22:24:46 christos Exp $	*/
 
 /*-
@@ -49,7 +49,6 @@
 	((p)->p_p->ps_flags & PS_CONTROLT ? \
 	    (p)->p_p->ps_session->s_ttyvp : NULL)
 
-/*ARGSUSED*/
 int
 cttyopen(dev_t dev, int flag, int mode, struct proc *p)
 {
@@ -59,25 +58,11 @@ cttyopen(dev_t dev, int flag, int mode, struct proc *p)
 	if (ttyvp == NULL)
 		return (ENXIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
-#ifdef PARANOID
-	/*
-	 * Since group is tty and mode is 620 on most terminal lines
-	 * and since sessions protect terminals from processes outside
-	 * your session, this check is probably no longer necessary.
-	 * Since it inhibits setuid root programs that later switch 
-	 * to another user from accessing /dev/tty, we have decided
-	 * to delete this test. (mckusick 5/93)
-	 */
-	error = VOP_ACCESS(ttyvp,
-	  (flag&FREAD ? VREAD : 0) | (flag&FWRITE ? VWRITE : 0), p->p_ucred, p);
-	if (!error)
-#endif /* PARANOID */
-		error = VOP_OPEN(ttyvp, flag, NOCRED, p);
-	VOP_UNLOCK(ttyvp, 0, p);
+	error = VOP_OPEN(ttyvp, flag, NOCRED, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttyread(dev_t dev, struct uio *uio, int flag)
 {
@@ -89,11 +74,10 @@ cttyread(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_READ(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttywrite(dev_t dev, struct uio *uio, int flag)
 {
@@ -105,15 +89,16 @@ cttywrite(dev_t dev, struct uio *uio, int flag)
 		return (EIO);
 	vn_lock(ttyvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_WRITE(ttyvp, uio, flag, NOCRED);
-	VOP_UNLOCK(ttyvp, 0, p);
+	VOP_UNLOCK(ttyvp, p);
 	return (error);
 }
 
-/*ARGSUSED*/
 int
 cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 {
 	struct vnode *ttyvp = cttyvp(p);
+	struct session *sess;
+	int error, secs;
 
 	if (ttyvp == NULL)
 		return (EIO);
@@ -126,10 +111,40 @@ cttyioctl(dev_t dev, u_long cmd, caddr_t addr, int flag, struct proc *p)
 		} else
 			return (EINVAL);
 	}
+	switch (cmd) {
+	case TIOCSETVERAUTH:
+		if ((error = suser(p, 0)))
+			return error;
+		secs = *(int *)addr;
+		if (secs < 1 || secs > 3600)
+			return EINVAL;
+		sess = p->p_p->ps_pgrp->pg_session;
+		sess->s_verauthuid = p->p_ucred->cr_ruid;
+		sess->s_verauthppid = p->p_p->ps_pptr->ps_pid;
+		timeout_add_sec(&sess->s_verauthto, secs);
+		return 0;
+	case TIOCCLRVERAUTH:
+		sess = p->p_p->ps_pgrp->pg_session;
+		timeout_del(&sess->s_verauthto);
+		zapverauth(sess);
+		return 0;
+	case TIOCCHKVERAUTH:
+		/*
+		 * It's not clear when or what these checks are for.
+		 * How can we reach this code with a differnt ruid?
+		 * The ppid check is also more porous than desired.
+		 * Nevertheless, the checks reflect the original intention;
+		 * namely, that it be the same user using the same shell.
+		 */
+		sess = p->p_p->ps_pgrp->pg_session;
+		if (sess->s_verauthuid == p->p_ucred->cr_ruid &&
+		    sess->s_verauthppid == p->p_p->ps_pptr->ps_pid)
+			return 0;
+		return EPERM;
+	}
 	return (VOP_IOCTL(ttyvp, cmd, addr, flag, NOCRED, p));
 }
 
-/*ARGSUSED*/
 int
 cttypoll(dev_t dev, int events, struct proc *p)
 {
@@ -140,7 +155,6 @@ cttypoll(dev_t dev, int events, struct proc *p)
 	return (VOP_POLL(ttyvp, FREAD|FWRITE, events, p));
 }
 
-/*ARGSUSED*/
 int
 cttykqfilter(dev_t dev, struct knote *kn)
 {

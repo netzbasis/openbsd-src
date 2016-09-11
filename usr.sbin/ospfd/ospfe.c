@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospfe.c,v 1.91 2015/09/27 17:31:50 stsp Exp $ */
+/*	$OpenBSD: ospfe.c,v 1.96 2016/09/03 10:22:57 renato Exp $ */
 
 /*
  * Copyright (c) 2005 Claudio Jeker <claudio@openbsd.org>
@@ -43,7 +43,7 @@
 #include "log.h"
 
 void		 ospfe_sig_handler(int, short, void *);
-void		 ospfe_shutdown(void);
+__dead void	 ospfe_shutdown(void);
 void		 orig_rtr_lsa_all(struct area *);
 struct iface	*find_vlink(struct abr_rtr *);
 
@@ -87,6 +87,9 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 		return (pid);
 	}
 
+	/* cleanup a bit */
+	kif_clear();
+
 	/* create ospfd control socket outside chroot */
 	if (control_init(xconf->csock) == -1)
 		fatalx("control socket setup failed");
@@ -120,11 +123,15 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 
 	setproctitle("ospf engine");
 	ospfd_process = PROC_OSPF_ENGINE;
+	log_procname = log_procnames[ospfd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	if (pledge("stdio inet mcast", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 	nbr_init(NBR_HASHSIZE);
@@ -205,11 +212,19 @@ ospfe(struct ospfd_conf *xconf, int pipe_parent2ospfe[2], int pipe_ospfe2rde[2],
 	return (0);
 }
 
-void
+__dead void
 ospfe_shutdown(void)
 {
 	struct area	*area;
 	struct iface	*iface;
+
+	/* close pipes */
+	msgbuf_write(&iev_rde->ibuf.w);
+	msgbuf_clear(&iev_rde->ibuf.w);
+	close(iev_rde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
 	/* stop all interfaces and remove all areas */
 	while ((area = LIST_FIRST(&oeconf->area_list)) != NULL) {
@@ -224,15 +239,10 @@ ospfe_shutdown(void)
 	}
 
 	nbr_del(nbr_find_peerid(NBR_IDSELF));
-	kr_shutdown();
 	close(oeconf->ospf_socket);
 
 	/* clean up */
-	msgbuf_write(&iev_rde->ibuf.w);
-	msgbuf_clear(&iev_rde->ibuf.w);
 	free(iev_rde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(oeconf);
 	free(pkt_ptr);
@@ -273,7 +283,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 	int		 n, link_ok, stub_changed, shut = 0;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -287,7 +297,7 @@ ospfe_dispatch_main(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_main: imsg_read error");
+			fatal("ospfe_dispatch_main: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -435,7 +445,7 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 	u_int16_t		 l, age;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* connection closed */
 			shut = 1;
@@ -449,7 +459,7 @@ ospfe_dispatch_rde(int fd, short event, void *bula)
 
 	for (;;) {
 		if ((n = imsg_get(ibuf, &imsg)) == -1)
-			fatal("ospfe_dispatch_rde: imsg_read error");
+			fatal("ospfe_dispatch_rde: imsg_get error");
 		if (n == 0)
 			break;
 
@@ -996,9 +1006,9 @@ orig_rtr_lsa(struct area *area)
 		oeconf->border = border;
 		orig_rtr_lsa_all(area);
 	}
-
 	if (oeconf->border)
 		lsa_rtr.flags |= OSPF_RTR_B;
+
 	/* TODO set V flag if a active virtual link ends here and the
 	 * area is the transit area for this link. */
 	if (virtual)

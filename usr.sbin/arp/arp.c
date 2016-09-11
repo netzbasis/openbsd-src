@@ -1,4 +1,4 @@
-/*	$OpenBSD: arp.c,v 1.69 2015/10/14 04:03:01 deraadt Exp $ */
+/*	$OpenBSD: arp.c,v 1.76 2016/08/27 04:15:52 guenther Exp $ */
 /*	$NetBSD: arp.c,v 1.12 1995/04/24 13:25:18 cgd Exp $ */
 
 /*
@@ -40,6 +40,7 @@
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <net/bpf.h>
 #include <net/if.h>
@@ -62,7 +63,7 @@
 #include <ifaddrs.h>
 
 void dump(void);
-int delete(const char *, const char *);
+int delete(const char *);
 void search(in_addr_t addr, void (*action)(struct sockaddr_dl *sdl,
 	struct sockaddr_inarp *sin, struct rt_msghdr *rtm));
 void print_entry(struct sockaddr_dl *sdl,
@@ -104,7 +105,7 @@ extern int h_errno;
 int
 main(int argc, char *argv[])
 {
-	int		 ch, func = 0, rtn;
+	int		 ch, func = 0, error = 0;
 	const char	*errstr;
 
 	pid = getpid();
@@ -158,14 +159,13 @@ main(int argc, char *argv[])
 
 	if (!func)
 		func = F_GET;
-	rtn = 0;
 
 	switch (func) {
 	case F_GET:
 		if (aflag && argc == 0)
 			dump();
 		else if (!aflag && argc == 1)
-			rtn = get(argv[0]);
+			error = get(argv[0]);
 		else
 			usage();
 		break;
@@ -173,34 +173,34 @@ main(int argc, char *argv[])
 		if (argc < 2 || argc > 5)
 			usage();
 		if (replace)
-			delete(argv[0], NULL);
-		rtn = set(argc, argv) ? 1 : 0;
+			delete(argv[0]);
+		error = set(argc, argv) ? 1 : 0;
 		break;
 	case F_DELETE:
 		if (aflag && argc == 0)
 			search(0, nuke_entry);
 		else if (!aflag && argc == 1)
-			rtn = delete(argv[0], argv[1]);
+			error = delete(argv[0]);
 		else
 			usage();
 		break;
 	case F_FILESET:
 		if (argc != 1)
 			usage();
-		rtn = file(argv[0]);
+		error = file(argv[0]);
 		break;
 	case F_WAKE:
 		if (aflag || nflag || replace || rdomain > 0)
 			usage();
 		if (argc == 1)
-			rtn = wake(argv[0], NULL);
+			error = wake(argv[0], NULL);
 		else if (argc == 2)
-			rtn = wake(argv[0], argv[1]);
+			error = wake(argv[0], argv[1]);
 		else
 			usage();
 		break;
 	}
-	return (rtn);
+	return (error);
 }
 
 /*
@@ -230,7 +230,7 @@ file(char *name)
 			continue;
 		}
 		if (replace)
-			delete(arg[0], NULL);
+			delete(arg[0]);
 		if (set(i, args))
 			retval = 1;
 	}
@@ -316,9 +316,7 @@ set(int argc, char *argv[])
 				usage();
 				return (0);
 			}
-		} else if (strncmp(argv[0], "trail", 5) == 0)
-			printf("%s: Sending trailers is no longer supported\n",
-			    host);
+		}
 
 		argv++;
 	}
@@ -400,7 +398,7 @@ get(const char *host)
  * Delete an arp entry
  */
 int
-delete(const char *host, const char *info)
+delete(const char *host)
 {
 	struct sockaddr_inarp *sin;
 	struct rt_msghdr *rtm;
@@ -409,8 +407,6 @@ delete(const char *host, const char *info)
 	sin = &sin_m;
 	rtm = &m_rtmsg.m_rtm;
 
-	if (info && strncmp(info, "pro", 3) )
-		export_only = 1;
 	getsocket();
 	sin_m = blank_sin;		/* struct copy */
 	if (getinetaddr(host, &sin->sin_addr) == -1)
@@ -568,9 +564,8 @@ print_entry(struct sockaddr_dl *sdl, struct sockaddr_inarp *sin,
 	else
 		printf(" %-10.10s", "expired");
 
-	printf(" %s%s%s\n",
+	printf(" %s%s\n",
 	    (rtm->rtm_flags & RTF_LOCAL) ? "l" : "",
-	    (sin->sin_other & SIN_PROXY) ? "P" : "",
 	    (rtm->rtm_flags & RTF_ANNOUNCE) ? "p" : "");
 }
 
@@ -584,7 +579,7 @@ nuke_entry(struct sockaddr_dl *sdl, struct sockaddr_inarp *sin,
 	char ip[20];
 
 	strlcpy(ip, inet_ntoa(sin->sin_addr), sizeof(ip));
-	delete(ip, NULL);
+	delete(ip);
 }
 
 static char *
@@ -697,7 +692,7 @@ rtget(struct sockaddr_inarp **sinp, struct sockaddr_dl **sdlp)
 	struct sockaddr_dl *sdl = NULL;
 	struct sockaddr *sa;
 	char *cp;
-	int i;
+	unsigned int i;
 
 	if (rtmsg(RTM_GET) < 0)
 		return (1);
@@ -814,12 +809,7 @@ sec2str(time_t total)
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BPF_PATH_FORMAT
-#define BPF_PATH_FORMAT "/dev/bpf%u"
-#endif
-
 int	do_wakeup(const char *, const char *, int);
-int	get_bpf(void);
 int	bind_if_to_bpf(const char *, int);
 int	get_ether(const char *, struct ether_addr *);
 int	send_frame(int, const struct ether_addr *);
@@ -831,9 +821,8 @@ wake(const char *ether_addr, const char *iface)
 	char			*pname = NULL;
 	int			 bpf;
 
-	bpf = get_bpf();
-	if (bpf == -1)
-		errx(1, "Failed to bind to bpf.");
+	if ((bpf = open("/dev/bpf0", O_RDWR)) == -1)
+		err(1, "Failed to bind to bpf");
 
 	if (iface == NULL) {
 		if (getifaddrs(&ifa) == -1)
@@ -879,25 +868,6 @@ do_wakeup(const char *eaddr, const char *iface, int bpf)
 	if (send_frame(bpf, &macaddr) != 0)
 		errx(1, "Failed to send WoL frame on %s", iface);
 	return 0;
-}
-
-int
-get_bpf(void)
-{
-	char path[PATH_MAX];
-	int i, fd;
-
-	for (i = 0; ; i++) {
-		if (snprintf(path, sizeof(path), BPF_PATH_FORMAT, i) == -1)
-			return -1;
-		fd = open(path, O_RDWR);
-		if (fd != -1)
-			return fd;
-		if (errno == EBUSY)
-			continue;
-		break;
-	}
-	return -1;
 }
 
 int

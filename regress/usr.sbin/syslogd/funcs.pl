@@ -1,4 +1,4 @@
-#	$OpenBSD: funcs.pl,v 1.27 2015/10/23 14:06:55 bluhm Exp $
+#	$OpenBSD: funcs.pl,v 1.30 2016/03/21 23:23:15 bluhm Exp $
 
 # Copyright (c) 2010-2015 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -86,8 +86,9 @@ sub write_message {
 	if (defined($self->{connectdomain})) {
 		my $msg = join("", @_);
 		if ($self->{connectdomain} eq "sendsyslog") {
-			sendsyslog($msg)
-			    or die ref($self), " sendsyslog failed: $!";
+			my $flags = $self->{connect}{flags} || 0;
+			sendsyslog($msg, $flags) or die ref($self),
+			    " sendsyslog failed: $!";
 		} elsif ($self->{connectproto} eq "udp") {
 			# writing UDP packets works only with syswrite()
 			defined(my $n = syswrite(STDOUT, $msg))
@@ -106,8 +107,9 @@ sub write_message {
 
 sub sendsyslog {
 	my $msg = shift;
+	my $flags = shift;
 	require 'sys/syscall.ph';
-	return syscall(&SYS_sendsyslog, $msg, length($msg)) != -1;
+	return syscall(&SYS_sendsyslog, $msg, length($msg), $flags) != -1;
 }
 
 sub write_shutdown {
@@ -350,14 +352,20 @@ sub check_out {
 	unless ($args{pipe}{nocheck}) {
 		$r->loggrep("bytes transferred", 1) or sleep 1;
 	}
-	unless ($args{tty}{nocheck}) {
-		open(my $fh, '<', $r->{outtty})
-		    or die "Open file $r->{outtty} for reading failed: $!";
-		grep { qr/^logout/ } <$fh> or sleep 1;
+	foreach my $dev (qw(console user)) {
+		$args{$dev}{nocheck} ||= $args{tty}{nocheck};
+		$args{$dev}{loggrep} ||= $args{tty}{loggrep};
+		next if $args{$dev}{nocheck};
+		my $ctl = $r->{"ctl$dev"};
+		close($ctl);
+		my $file = $r->{"out$dev"};
+		open(my $fh, '<', $file)
+		    or die "Open file $file for reading failed: $!";
+		grep { /^logout/ or /^console .* off/ } <$fh> or sleep 1;
 		close($fh);
 	}
 
-	foreach my $name (qw(file pipe tty)) {
+	foreach my $name (qw(file pipe console user)) {
 		next if $args{$name}{nocheck};
 		my $file = $r->{"out$name"} or die;
 		my $pattern = $args{$name}{loggrep} || get_testgrep();

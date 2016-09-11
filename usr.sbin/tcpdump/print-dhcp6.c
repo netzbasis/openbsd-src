@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-dhcp6.c,v 1.8 2015/01/16 06:40:21 deraadt Exp $	*/
+/*	$OpenBSD: print-dhcp6.c,v 1.10 2015/11/18 15:36:20 mmcc Exp $	*/
 
 /*
  * Copyright (C) 1998 and 1999 WIDE Project.
@@ -41,9 +41,6 @@ struct rtentry;
 #include <netinet/in.h>
 
 #include <ctype.h>
-#ifdef HAVE_MEMORY_H
-#include <memory.h>
-#endif
 #include <stdio.h>
 #include <string.h>
 #include <arpa/inet.h>
@@ -223,7 +220,7 @@ trunc:
  * Print dhcp6 requests
  */
 void
-dhcp6_print(register const u_char *cp, u_int length,
+dhcp6_print(const u_char *cp, u_int length,
 	    u_short sport, u_short dport)
 {
 	union dhcp6 *dh6;

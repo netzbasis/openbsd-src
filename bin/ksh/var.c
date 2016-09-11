@@ -1,11 +1,14 @@
-/*	$OpenBSD: var.c,v 1.53 2015/10/19 14:42:16 mmcc Exp $	*/
+/*	$OpenBSD: var.c,v 1.57 2016/09/08 15:50:50 millert Exp $	*/
 
 #include <sys/stat.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -31,7 +34,7 @@ static struct tbl *arraysearch(struct tbl *, int);
 
 /*
  * create a new block for function calls and simple commands
- * assume caller has allocated and set up e->loc
+ * assume caller has allocated and set up genv->loc
  */
 void
 newblock(void)
@@ -41,19 +44,19 @@ newblock(void)
 
 	l = alloc(sizeof(struct block), ATEMP);
 	l->flags = 0;
-	ainit(&l->area); /* todo: could use e->area (l->area => l->areap) */
-	if (!e->loc) {
+	ainit(&l->area); /* todo: could use genv->area (l->area => l->areap) */
+	if (!genv->loc) {
 		l->argc = 0;
 		l->argv = (char **) empty;
 	} else {
-		l->argc = e->loc->argc;
-		l->argv = e->loc->argv;
+		l->argc = genv->loc->argc;
+		l->argv = genv->loc->argv;
 	}
 	l->exit = l->error = NULL;
 	ktinit(&l->vars, &l->area, 0);
 	ktinit(&l->funs, &l->area, 0);
-	l->next = e->loc;
-	e->loc = l;
+	l->next = genv->loc;
+	genv->loc = l;
 }
 
 /*
@@ -62,11 +65,11 @@ newblock(void)
 void
 popblock(void)
 {
-	struct block *l = e->loc;
+	struct block *l = genv->loc;
 	struct tbl *vp, **vpp = l->vars.tbls, *vq;
 	int i;
 
-	e->loc = l->next;	/* pop block */
+	genv->loc = l->next;	/* pop block */
 	for (i = l->vars.size; --i >= 0; )
 		if ((vp = *vpp++) != NULL && (vp->flag&SPECIAL)) {
 			if ((vq = global(vp->name))->flag & ISSET)
@@ -159,7 +162,7 @@ array_index_calc(const char *n, bool *arrayp, int *valp)
 struct tbl *
 global(const char *n)
 {
-	struct block *l = e->loc;
+	struct block *l = genv->loc;
 	struct tbl *vp;
 	long	 num;
 	int c;
@@ -216,7 +219,7 @@ global(const char *n)
 		}
 		return vp;
 	}
-	for (l = e->loc; ; l = l->next) {
+	for (l = genv->loc; ; l = l->next) {
 		vp = ktsearch(&l->vars, n, h);
 		if (vp != NULL) {
 			if (array)
@@ -242,7 +245,7 @@ global(const char *n)
 struct tbl *
 local(const char *n, bool copy)
 {
-	struct block *l = e->loc;
+	struct block *l = genv->loc;
 	struct tbl *vp;
 	unsigned int h;
 	bool	 array;
@@ -353,8 +356,8 @@ int
 setstr(struct tbl *vq, const char *s, int error_ok)
 {
 	const char *fs = NULL;
-	int no_ro_check = error_ok & 0x4;
-	error_ok &= ~0x4;
+	int no_ro_check = error_ok & KSH_IGNORE_RDONLY;
+	error_ok &= ~KSH_IGNORE_RDONLY;
 	if ((vq->flag & RDONLY) && !no_ro_check) {
 		warningf(true, "%s: is read only", vq->name);
 		if (!error_ok)
@@ -658,6 +661,7 @@ typeset(const char *var, int set, int clr, int field, int base)
 		 */
 		for (t = vpbase; t; t = t->u.array) {
 			int fake_assign;
+			int error_ok = KSH_RETURN_ERROR;
 			char *s = NULL;
 			char *free_me = NULL;
 
@@ -680,6 +684,10 @@ typeset(const char *var, int set, int clr, int field, int base)
 				t->type = 0;
 				t->flag &= ~ALLOC;
 			}
+			if (!(t->flag & RDONLY) && (set & RDONLY)) {
+				/* allow var to be initialized read-only */
+				error_ok |= KSH_IGNORE_RDONLY;
+			}
 			t->flag = (t->flag | set) & ~clr;
 			/* Don't change base if assignment is to be done,
 			 * in case assignment fails.
@@ -689,7 +697,7 @@ typeset(const char *var, int set, int clr, int field, int base)
 			if (set & (LJUST|RJUST|ZEROFIL))
 				t->u2.field = field;
 			if (fake_assign) {
-				if (!setstr(t, s, KSH_RETURN_ERROR)) {
+				if (!setstr(t, s, error_ok)) {
 					/* Somewhat arbitrary action here:
 					 * zap contents of variable, but keep
 					 * the flag settings.
@@ -714,13 +722,13 @@ typeset(const char *var, int set, int clr, int field, int base)
 	if (val != NULL) {
 		if (vp->flag&INTEGER) {
 			/* do not zero base before assignment */
-			setstr(vp, val, KSH_UNWIND_ERROR | 0x4);
+			setstr(vp, val, KSH_UNWIND_ERROR | KSH_IGNORE_RDONLY);
 			/* Done after assignment to override default */
 			if (base > 0)
 				vp->type = base;
 		} else
 			/* setstr can't fail (readonly check already done) */
-			setstr(vp, val, KSH_RETURN_ERROR | 0x4);
+			setstr(vp, val, KSH_RETURN_ERROR | KSH_IGNORE_RDONLY);
 	}
 
 	/* only x[0] is ever exported, so use vpbase */
@@ -838,7 +846,7 @@ makenv(void)
 	int i;
 
 	XPinit(env, 64);
-	for (l = e->loc; l != NULL; l = l->next)
+	for (l = genv->loc; l != NULL; l = l->next)
 		for (vpp = l->vars.tbls, i = l->vars.size; --i >= 0; )
 			if ((vp = *vpp++) != NULL &&
 			    (vp->flag&(ISSET|EXPORT)) == (ISSET|EXPORT)) {

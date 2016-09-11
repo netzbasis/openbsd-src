@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_df.c,v 1.16 2015/01/20 18:22:20 deraadt Exp $	*/
+/*	$OpenBSD: ffs_df.c,v 1.19 2016/03/01 17:57:49 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1980, 1990, 1993, 1994
@@ -36,13 +36,10 @@
 
 #include <sys/types.h>
 #include <sys/mount.h>
-#include <ufs/ufs/dinode.h>
 #include <ufs/ffs/fs.h>
+#include <ufs/ufs/dinode.h>
 
-#include <unistd.h>
-#include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
 
 int		ffs_df(int, char *, struct statfs *);
 
@@ -91,8 +88,8 @@ ffs_df(int rfd, char *file, struct statfs *sfsp)
 	sfsp->f_fsid.val[1] = 0;
 	if ((mntpt = getmntpt(file)) == 0)
 		mntpt = "";
-	memmove(&sfsp->f_mntonname[0], mntpt, MNAMELEN);
-	memmove(&sfsp->f_mntfromname[0], file, MNAMELEN);
-	strlcpy(sfsp->f_fstypename, MOUNT_FFS, MFSNAMELEN);
+	strlcpy(sfsp->f_mntonname, mntpt, sizeof(sfsp->f_mntonname));
+	strlcpy(sfsp->f_mntfromname, file, sizeof(sfsp->f_mntfromname));
+	strlcpy(sfsp->f_fstypename, MOUNT_EXT2FS, sizeof(sfsp->f_fstypename));
 	return (0);
 }

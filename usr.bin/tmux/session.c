@@ -1,7 +1,7 @@
-/* $OpenBSD: session.c,v 1.58 2015/10/31 08:13:58 nicm Exp $ */
+/* $OpenBSD: session.c,v 1.62 2016/01/19 15:59:12 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -123,17 +123,15 @@ session_create(const char *name, int argc, char **argv, const char *path,
 	s->environ = environ_create();
 	if (env != NULL)
 		environ_copy(env, s->environ);
+
 	s->options = options_create(global_s_options);
+	s->hooks = hooks_create(global_hooks);
 
 	s->tio = NULL;
 	if (tio != NULL) {
 		s->tio = xmalloc(sizeof *s->tio);
 		memcpy(s->tio, tio, sizeof *s->tio);
 	}
-
-	if (gettimeofday(&s->creation_time, NULL) != 0)
-		fatal("gettimeofday failed");
-	session_update_activity(s, &s->creation_time);
 
 	s->sx = sx;
 	s->sy = sy;
@@ -150,6 +148,8 @@ session_create(const char *name, int argc, char **argv, const char *path,
 		} while (RB_FIND(sessions, &sessions, s) != NULL);
 	}
 	RB_INSERT(sessions, &sessions, s);
+
+	log_debug("new session %s $%u", s->name, s->id);
 
 	if (gettimeofday(&s->creation_time, NULL) != 0)
 		fatal("gettimeofday failed");
@@ -183,7 +183,7 @@ session_unref(struct session *s)
 
 /* Free session. */
 void
-session_free(unused int fd, unused short events, void *arg)
+session_free(__unused int fd, __unused short events, void *arg)
 {
 	struct session	*s = arg;
 
@@ -191,7 +191,9 @@ session_free(unused int fd, unused short events, void *arg)
 
 	if (s->references == 0) {
 		environ_free(s->environ);
+
 		options_free(s->options);
+		hooks_free(s->hooks);
 
 		free(s->name);
 		free(s);
@@ -238,7 +240,7 @@ session_check_name(const char *name)
 
 /* Lock session if it has timed out. */
 void
-session_lock_timer(unused int fd, unused short events, void *arg)
+session_lock_timer(__unused int fd, __unused short events, void *arg)
 {
 	struct session	*s = arg;
 
@@ -264,6 +266,10 @@ session_update_activity(struct session *s, struct timeval *from)
 		gettimeofday(&s->activity_time, NULL);
 	else
 		memcpy(&s->activity_time, from, sizeof s->activity_time);
+
+	log_debug("session %s activity %lld.%06d (last %lld.%06d)", s->name,
+	    (long long)s->activity_time.tv_sec, (int)s->activity_time.tv_usec,
+	    (long long)last->tv_sec, (int)last->tv_usec);
 
 	if (evtimer_initialized(&s->lock_timer))
 		evtimer_del(&s->lock_timer);

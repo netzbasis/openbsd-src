@@ -1,4 +1,4 @@
-/*	$OpenBSD: rarpd.c,v 1.65 2015/10/27 11:47:17 jca Exp $ */
+/*	$OpenBSD: rarpd.c,v 1.68 2016/05/28 07:00:18 natano Exp $ */
 /*	$NetBSD: rarpd.c,v 1.25 1998/04/23 02:48:33 mrg Exp $	*/
 
 /*
@@ -86,6 +86,7 @@ void   usage(void);
 void   rarp_process(struct if_info *, u_char *);
 void   rarp_reply(struct if_info *, struct if_addr *,
 	    struct ether_header *, u_int32_t, struct hostent *);
+void	arptab_init(void);
 int    arptab_set(u_char *, u_int32_t);
 void   error(int, const char *,...);
 void   debug(const char *,...);
@@ -225,25 +226,6 @@ usage(void)
 	exit(1);
 }
 
-static int
-bpf_open(void)
-{
-	int	fd, n = 0;
-	char    device[sizeof "/dev/bpf0000000000"];
-
-	/* Go through all the minors and find one that isn't in use. */
-	do {
-		(void) snprintf(device, sizeof device, "/dev/bpf%d", n++);
-		fd = open(device, O_RDWR);
-	} while (fd < 0 && errno == EBUSY);
-
-	if (fd < 0) {
-		error(FATAL, "%s: %s", device, strerror(errno));
-		/* NOTREACHED */
-	}
-	return fd;
-}
-
 static struct bpf_insn insns[] = {
 	BPF_STMT(BPF_LD | BPF_H | BPF_ABS, 12),
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ETHERTYPE_REVARP, 0, 3),
@@ -270,7 +252,8 @@ rarp_open(char *device)
 	struct ifreq ifr;
 	u_int   dlt;
 
-	fd = bpf_open();
+	if ((fd = open("/dev/bpf0", O_RDWR)) == -1)
+		error(FATAL, "/dev/bpf0: %s", strerror(errno));
 
 	/* Set immediate mode so packets are processed as they arrive. */
 	immediate = 1;
@@ -369,6 +352,12 @@ rarp_loop(void)
 		error(FATAL, "BIOCGBLEN: %s", strerror(errno));
 		/* NOTREACHED */
 	}
+
+	arptab_init();
+
+	if (pledge("stdio rpath dns", NULL) == -1)
+		error(FATAL, "pledge");
+
 	buf = malloc((size_t) bufsize);
 	if (buf == 0) {
 		error(FATAL, "malloc: %s", strerror(errno));

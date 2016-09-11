@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.3 2015/10/21 03:52:12 renato Exp $ */
+/*	$OpenBSD: util.c,v 1.9 2016/09/02 16:36:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -19,7 +19,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <netinet/in.h>
+#include <sys/types.h>
+
 #include <string.h>
 
 #include "eigrpd.h"
@@ -136,26 +137,22 @@ eigrp_applymask(int af, union eigrpd_addr *dest, const union eigrpd_addr *src,
 }
 
 int
-eigrp_addrcmp(int af, union eigrpd_addr *a, union eigrpd_addr *b)
+eigrp_addrcmp(int af, const union eigrpd_addr *a, const union eigrpd_addr *b)
 {
 	switch (af) {
 	case AF_INET:
-		if (a->v4.s_addr != b->v4.s_addr)
-			return (1);
-		break;
+		if (a->v4.s_addr == b->v4.s_addr)
+			return (0);
+		return ((ntohl(a->v4.s_addr) > ntohl(b->v4.s_addr)) ? 1 : -1);
 	case AF_INET6:
-		if (!IN6_ARE_ADDR_EQUAL(&a->v6, &b->v6))
-			return (1);
-		break;
+		return (!!memcmp(&a->v6, &b->v6, sizeof(struct in6_addr)));
 	default:
 		fatalx("eigrp_addrcmp: unknown af");
 	}
-
-	return (0);
 }
 
 int
-eigrp_addrisset(int af, union eigrpd_addr *addr)
+eigrp_addrisset(int af, const union eigrpd_addr *addr)
 {
 	switch (af) {
 	case AF_UNSPEC:
@@ -216,10 +213,45 @@ eigrp_prefixcmp(int af, const union eigrpd_addr *a, const union eigrpd_addr *b,
 	return (-1);
 }
 
-#define IN6_IS_SCOPE_EMBED(a)   \
-	((IN6_IS_ADDR_LINKLOCAL(a)) ||  \
-	 (IN6_IS_ADDR_MC_LINKLOCAL(a)) || \
-	 (IN6_IS_ADDR_MC_INTFACELOCAL(a)))
+int
+bad_addr_v4(struct in_addr addr)
+{
+	uint32_t	 a = ntohl(addr.s_addr);
+
+	if (((a >> IN_CLASSA_NSHIFT) == 0) ||
+	    ((a >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET) ||
+	    IN_MULTICAST(a) || IN_BADCLASS(a))
+		return (1);
+
+	return (0);
+}
+
+int
+bad_addr_v6(struct in6_addr *addr)
+{
+	if (IN6_IS_ADDR_UNSPECIFIED(addr) ||
+	    IN6_IS_ADDR_LOOPBACK(addr) ||
+	    IN6_IS_ADDR_MULTICAST(addr) ||
+	    IN6_IS_ADDR_SITELOCAL(addr) ||
+	    IN6_IS_ADDR_V4MAPPED(addr) ||
+	    IN6_IS_ADDR_V4COMPAT(addr))
+		return (1);
+
+	return (0);
+}
+
+int
+bad_addr(int af, union eigrpd_addr *addr)
+{
+	switch (af) {
+	case AF_INET:
+		return (bad_addr_v4(addr->v4));
+	case AF_INET6:
+		return (bad_addr_v6(&addr->v6));
+	default:
+		fatalx("bad_addr: unknown af");
+	}
+}
 
 void
 embedscope(struct sockaddr_in6 *sin6)
@@ -243,10 +275,9 @@ recoverscope(struct sockaddr_in6 *sin6)
 {
 	uint16_t	 tmp16;
 
-	if (sin6->sin6_scope_id != 0) {
+	if (sin6->sin6_scope_id != 0)
 		log_warnx("%s: address %s already has scope id %u",
 		    __func__, log_sockaddr(sin6), sin6->sin6_scope_id);
-	}
 
 	if (IN6_IS_SCOPE_EMBED(&sin6->sin6_addr)) {
 		memcpy(&tmp16, &sin6->sin6_addr.s6_addr[2], sizeof(tmp16));
@@ -259,14 +290,12 @@ recoverscope(struct sockaddr_in6 *sin6)
 void
 addscope(struct sockaddr_in6 *sin6, uint32_t id)
 {
-	if (sin6->sin6_scope_id != 0) {
+	if (sin6->sin6_scope_id != 0)
 		log_warnx("%s: address %s already has scope id %u", __func__,
 		    log_sockaddr(sin6), sin6->sin6_scope_id);
-	}
 
-	if (IN6_IS_SCOPE_EMBED(&sin6->sin6_addr)) {
+	if (IN6_IS_SCOPE_EMBED(&sin6->sin6_addr))
 		sin6->sin6_scope_id = id;
-	}
 }
 
 void
@@ -278,4 +307,23 @@ clearscope(struct in6_addr *in6)
 	}
 }
 
-#undef IN6_IS_SCOPE_EMBED
+void
+sa2addr(struct sockaddr *sa, int *af, union eigrpd_addr *addr)
+{
+	struct sockaddr_in		*sa_in = (struct sockaddr_in *)sa;
+	struct sockaddr_in6		*sa_in6 = (struct sockaddr_in6 *)sa;
+
+	memset(addr, 0, sizeof(*addr));
+	switch (sa->sa_family) {
+	case AF_INET:
+		*af = AF_INET;
+		addr->v4 = sa_in->sin_addr;
+		break;
+	case AF_INET6:
+		*af = AF_INET6;
+		addr->v6 = sa_in6->sin6_addr;
+		break;
+	default:
+		fatalx("sa2addr: unknown af");
+	}
+}

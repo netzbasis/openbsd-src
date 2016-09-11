@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ppp.c,v 1.95 2015/11/06 07:07:19 dlg Exp $	*/
+/*	$OpenBSD: if_ppp.c,v 1.100 2016/06/22 19:44:26 jca Exp $	*/
 /*	$NetBSD: if_ppp.c,v 1.39 1997/05/17 21:11:59 christos Exp $	*/
 
 /*
@@ -169,13 +169,12 @@ struct mbuf	*ppp_pkt_mbuf(struct ppp_pkt *);
 #ifdef PPP_COMPRESS
 /*
  * List of compressors we know about.
- * We leave some space so maybe we can modload compressors.
  */
 
 extern struct compressor ppp_bsd_compress;
 extern struct compressor ppp_deflate, ppp_deflate_draft;
 
-struct compressor *ppp_compressors[8] = {
+struct compressor *ppp_compressors[] = {
 #if DO_BSD_COMPRESS && defined(PPP_BSDCOMP)
 	&ppp_bsd_compress,
 #endif
@@ -226,7 +225,6 @@ ppp_clone_create(struct if_clone *ifc, int unit)
 	IFQ_SET_MAXLEN(&sc->sc_if.if_snd, IFQ_MAXLEN);
 	mq_init(&sc->sc_inq, IFQ_MAXLEN, IPL_NET);
 	ppp_pkt_list_init(&sc->sc_rawq, IFQ_MAXLEN);
-	IFQ_SET_READY(&sc->sc_if.if_snd);
 	if_attach(&sc->sc_if);
 	if_alloc_sadl(&sc->sc_if);
 #if NBPFILTER > 0
@@ -296,7 +294,7 @@ pppalloc(pid_t pid)
 	for (i = 0; i < NUM_NP; ++i)
 		sc->sc_npmode[i] = NPMODE_ERROR;
 	ml_init(&sc->sc_npqueue);
-	sc->sc_last_sent = sc->sc_last_recv = time_second;
+	sc->sc_last_sent = sc->sc_last_recv = time_uptime;
 
 	return sc;
 }
@@ -423,7 +421,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 	case PPPIOCXFERUNIT:
 		if ((error = suser(p, 0)) != 0)
 			return (error);
-			sc->sc_xfer = p->p_p->ps_pid;
+		sc->sc_xfer = p->p_p->ps_pid;
 		break;
 
 #ifdef PPP_COMPRESS
@@ -525,7 +523,7 @@ pppioctl(struct ppp_softc *sc, u_long cmd, caddr_t data, int flag,
 
 	case PPPIOCGIDLE:
 		s = splsoftnet();
-		t = time_second;
+		t = time_uptime;
 		((struct ppp_idle *)data)->xmit_idle = t - sc->sc_last_sent;
 		((struct ppp_idle *)data)->recv_idle = t - sc->sc_last_recv;
 		splx(s);
@@ -757,14 +755,14 @@ pppoutput(struct ifnet *ifp, struct mbuf *m0, struct sockaddr *dst,
 		if (sc->sc_active_filt.bf_insns == 0 ||
 		    bpf_filter(sc->sc_active_filt.bf_insns, (u_char *)m0,
 		    len, 0))
-			sc->sc_last_sent = time_second;
+			sc->sc_last_sent = time_uptime;
 
 		*mtod(m0, u_char *) = address;
 #else
 		/*
 		 * Update the time we sent the most recent packet.
 		 */
-		sc->sc_last_sent = time_second;
+		sc->sc_last_sent = time_uptime;
 #endif
 	}
 
@@ -1382,14 +1380,14 @@ ppp_inproc(struct ppp_softc *sc, struct mbuf *m)
 		if (sc->sc_active_filt.bf_insns == 0 ||
 		    bpf_filter(sc->sc_active_filt.bf_insns, (u_char *)m,
 		     ilen, 0))
-			sc->sc_last_recv = time_second;
+			sc->sc_last_recv = time_uptime;
 
 		*mtod(m, u_char *) = adrs;
 #else
 		/*
 		 * Record the time that we received this packet.
 		 */
-		sc->sc_last_recv = time_second;
+		sc->sc_last_recv = time_uptime;
 #endif
 	}
 
@@ -1569,7 +1567,7 @@ ppp_pkt_mbuf(struct ppp_pkt *pkt0)
 			goto fail;
 
 		MEXTADD(m, pkt, sizeof(*pkt), M_EXTWR,
-		    m_extfree_pool, &ppp_pkts);
+		    MEXTFREE_POOL, &ppp_pkts);
 		m->m_data += sizeof(pkt->p_hdr);
 		m->m_len = PKT_LEN(pkt);
 

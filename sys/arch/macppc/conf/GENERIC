@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.252 2015/08/30 09:49:41 mpi Exp $g
+#	$OpenBSD: GENERIC,v 1.259 2016/09/04 10:22:06 tedu Exp $g
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -23,7 +23,6 @@ option		APERTURE	# in-kernel aperture driver for XFree86
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 option		USER_PCICONF	# user-space PCI configuration
 
@@ -59,7 +58,6 @@ vgafb0		at pci?		# PCI VGA graphics
 #ne*		at pci?		# NE2000-compatible Ethernet
 #adv*		at pci?		# AdvanSys 1200[A,B], 9xx[U,UA] SCSI
 ahc*		at pci?		# Adaptec 294x, aic78x0 SCSI
-#bha*		at pci?		# BusLogic 9xx SCSI
 #ami*		at pci?
 pcscp*		at pci?		# AMD Am53c974 PCscsi-PCI SCSI
 qlw*		at pci?		# QLogic ISP SCSI
@@ -158,8 +156,8 @@ wskbd*		at akbd? mux 1
 ams*		at adb?		# ADB mouse
 wsmouse*	at ams?	mux 0
 abtn*		at adb?		# ADB button?
-zsc*		at macobio?
-zstty*		at zsc?
+zs*		at macobio?
+zstty*		at zs?
 
 awacs*		at macobio?	# Apple audio device
 kiic*		at macobio?	# Keywest I2C
@@ -210,6 +208,7 @@ usb*	at ehci?
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
 ualea*	at uhub?		# Araneus Alea II TRNG
+uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?		# Handspring Visor
@@ -273,6 +272,7 @@ ugl*	at uhub?		# Genesys Logic GL620A-USB host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio
@@ -301,6 +301,10 @@ onewire* at uow?
 # USB Video
 uvideo* at uhub?
 video*  at uvideo?
+
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 
 udl*		at uhub?
 wsdisplay*	at udl?
@@ -351,8 +355,8 @@ ral*		at cardbus?	# Ralink RT2500/RT2501/RT2600
 
 wsdisplay*	at vgafb?
 
-#appleagp*	at pchb?
-#agp*		at appleagp?	# AGP bridges
+appleagp*	at pchb?
+agp*		at appleagp?	# AGP bridges
 
 radeondrm*	at pci? 	# ATI Radeon DRM driver
 drm*		at radeondrm?

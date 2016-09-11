@@ -1,4 +1,4 @@
-/*	$OpenBSD: pony.c,v 1.8 2015/10/14 19:39:16 gilles Exp $	*/
+/*	$OpenBSD: pony.c,v 1.16 2016/09/08 12:06:43 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -35,6 +35,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
+#include <grp.h>
 #include <vis.h>
 
 #include "smtpd.h"
@@ -45,7 +46,6 @@ void mta_imsg(struct mproc *, struct imsg *);
 void smtp_imsg(struct mproc *, struct imsg *);
 
 static void pony_shutdown(void);
-static void pony_sig_handler(int, short, void *);
 
 void
 pony_imsg(struct mproc *p, struct imsg *imsg)
@@ -53,11 +53,14 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	struct msg	m;
 	int		v;
 
+	if (imsg == NULL)
+		pony_shutdown();
+
 	switch (imsg->hdr.type) {
 	case IMSG_CONF_START:
 		return;
 	case IMSG_CONF_END:
-		smtp_configure();
+		filter_configure();
 		return;
 	case IMSG_CTL_VERBOSE:
 		m_msg(&m, imsg);
@@ -74,11 +77,12 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 
 	/* smtp imsg */
 	case IMSG_SMTP_DNS_PTR:
+	case IMSG_SMTP_CHECK_SENDER:
 	case IMSG_SMTP_EXPAND_RCPT:
 	case IMSG_SMTP_LOOKUP_HELO:
 	case IMSG_SMTP_AUTHENTICATE:
-	case IMSG_SMTP_SSL_INIT:
-	case IMSG_SMTP_SSL_VERIFY:
+	case IMSG_SMTP_TLS_INIT:
+	case IMSG_SMTP_TLS_VERIFY:
 	case IMSG_SMTP_MESSAGE_COMMIT:
 	case IMSG_SMTP_MESSAGE_CREATE:
 	case IMSG_SMTP_MESSAGE_OPEN:
@@ -101,8 +105,8 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_MTA_DNS_HOST_END:
 	case IMSG_MTA_DNS_MX_PREFERENCE:
 	case IMSG_MTA_DNS_PTR:
-	case IMSG_MTA_SSL_INIT:
-	case IMSG_MTA_SSL_VERIFY:
+	case IMSG_MTA_TLS_INIT:
+	case IMSG_MTA_TLS_VERIFY:
 	case IMSG_CTL_RESUME_ROUTE:
 	case IMSG_CTL_MTA_SHOW_HOSTS:
 	case IMSG_CTL_MTA_SHOW_RELAYS:
@@ -130,46 +134,21 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 }
 
 static void
-pony_sig_handler(int sig, short event, void *p)
-{
-	switch (sig) {
-	case SIGINT:
-	case SIGTERM:
-		pony_shutdown();
-		break;
-	default:
-		fatalx("pony_sig_handler: unexpected signal");
-	}
-}
-
-static void
 pony_shutdown(void)
 {
-	log_info("info: pony agent exiting");
+	log_debug("debug: pony agent exiting");
 	_exit(0);
 }
 
-pid_t
+int
 pony(void)
 {
-	pid_t		 pid;
 	struct passwd	*pw;
-	struct event	 ev_sigint;
-	struct event	 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("pony: cannot fork");
-	case 0:
-		post_fork(PROC_PONY);
-		break;
-	default:
-		return (pid);
-	}
 
 	mda_postfork();
 	mta_postfork();
 	smtp_postfork();
+	filter_postfork();
 
 	/* do not purge listeners and pki, they are purged
 	 * in smtp_configure()
@@ -199,10 +178,8 @@ pony(void)
 	mta_postprivdrop();
 	smtp_postprivdrop();
 
-	signal_set(&ev_sigint, SIGINT, pony_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, pony_sig_handler, NULL);
-	signal_add(&ev_sigint, NULL);
-	signal_add(&ev_sigterm, NULL);
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
@@ -211,16 +188,14 @@ pony(void)
 	config_peer(PROC_LKA);
 	config_peer(PROC_CONTROL);
 	config_peer(PROC_CA);
-	config_done();
 
 	ca_engine_init();
 
 	if (pledge("stdio inet unix recvfd sendfd", NULL) == -1)
 		err(1, "pledge");
 
-	if (event_dispatch() < 0)
-		fatal("event_dispatch");
-	pony_shutdown();
+	event_dispatch();
+	fatalx("exited event loop");
 
 	return (0);
 }

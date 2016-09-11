@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.75 2015/10/23 15:10:53 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.80 2016/09/04 11:59:50 naddy Exp $	*/
 /*	$NetBSD: conf.c,v 1.17 2001/03/26 12:33:26 lukem Exp $ */
 
 /*
@@ -111,11 +111,11 @@ cdev_decl(pci);
 
 #include "ksyms.h"
 
-#include "systrace.h"
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct bdevsw	bdevsw[] =
 {
@@ -130,7 +130,7 @@ struct bdevsw	bdevsw[] =
 	bdev_disk_init(NVND,vnd),	/* 8: vnode disk driver */
 	bdev_notdef(),			/* 9: was: concatenated disk driver */
 	bdev_notdef(),			/* 10: SMD disk -- not this arch */
-	bdev_tape_init(NST,st),		/* 11: SCSI tape */
+	bdev_notdef(),			/* 11: was: SCSI tape */
 	bdev_disk_init(NWD,wd),		/* 12: IDE disk */
 	bdev_notdef(),			/* 13 */
 	bdev_notdef(),			/* 14 */
@@ -200,7 +200,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 47 */
 	cdev_notdef(),			/* 48 */
 	cdev_notdef(),			/* 49 */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 #ifdef USER_PCICONF
 	cdev_pci_init(NPCI,pci),	/* 52: PCI user */
@@ -291,6 +291,7 @@ struct cdevsw	cdevsw[] =
 	cdev_vdsp_init(NVDSP,vdsp),	/* 133: vdsp */
 	cdev_fuse_init(NFUSE,fuse),	/* 134: fuse */
 	cdev_tun_init(NTUN,tap),	/* 135: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 136: switch(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -352,16 +353,16 @@ int chrtoblktbl[] = {
 	/* 14 */	NODEV,
 	/* 15 */	NODEV,
 	/* 16 */	NODEV,
-	/* 17 */	7,
-	/* 18 */	11,
+	/* 17 */	7,		/* sd */
+	/* 18 */	NODEV,
 	/* 19 */	NODEV,
 	/* 20 */	NODEV,
 	/* 21 */	NODEV,
 	/* 22 */	NODEV,
-	/* 23 */	9,
+	/* 23 */	NODEV,
 	/* 24 */	NODEV,
 	/* 25 */	NODEV,
-	/* 26 */	12,
+	/* 26 */	12,		/* wd */
 	/* 27 */	NODEV,
 	/* 28 */	NODEV,
 	/* 29 */	NODEV,
@@ -389,14 +390,14 @@ int chrtoblktbl[] = {
 	/* 51 */	NODEV,
 	/* 52 */	NODEV,
 	/* 53 */	NODEV,
-	/* 54 */	16,
+	/* 54 */	16,		/* fd */
 	/* 55 */	NODEV,
 	/* 56 */	NODEV,
 	/* 57 */	NODEV,
-	/* 58 */	18,
+	/* 58 */	18,		/* cd */
 	/* 59 */	NODEV,
 	/* 60 */	NODEV,
-	/* 61 */	5,
+	/* 61 */	5,		/* rd */
 	/* 62 */	NODEV,
 	/* 63 */	NODEV,
 	/* 64 */	NODEV,
@@ -445,18 +446,6 @@ int chrtoblktbl[] = {
 	/*107 */	NODEV,
 	/*108 */	NODEV,
 	/*109 */	NODEV,
-	/*110 */	8,
-	/*111 */	NODEV,
-	/*112 */	NODEV,
-	/*113 */	NODEV,
-	/*114 */	NODEV,
-	/*115 */	NODEV,
-	/*116 */	NODEV,
-	/*117 */	NODEV,
-	/*118 */	NODEV,
-	/*119 */	NODEV,
-	/*120 */	NODEV,
-	/*121 */	25,
-	/*122 */	NODEV,
+	/*110 */	8,		/* vnd */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);

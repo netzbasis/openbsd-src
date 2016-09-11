@@ -1,4 +1,4 @@
-/*	$OpenBSD: grey.c,v 1.59 2015/05/18 16:04:21 reyk Exp $	*/
+/*	$OpenBSD: grey.c,v 1.63 2016/03/25 16:31:32 mestre Exp $	*/
 
 /*
  * Copyright (c) 2004-2006 Bob Beck.  All rights reserved.
@@ -162,8 +162,11 @@ configure_pf(char **addrs, int count)
 
 	if (debug)
 		fprintf(stderr, "configure_pf - device on fd %d\n", pfdev);
+
+	/* Because /dev/fd/ only contains device nodes for 0-63 */
 	if (pfdev < 1 || pfdev > 63)
 		return(-1);
+
 	if (asprintf(&fdpath, "/dev/fd/%d", pfdev) == -1)
 		return(-1);
 	pargv[2] = fdpath;
@@ -997,7 +1000,6 @@ greyscanner(void)
 			    PATH_SPAMD_DB);
 		sleep(DB_SCAN_INTERVAL);
 	}
-	/* NOTREACHED */
 }
 
 static void
@@ -1006,16 +1008,15 @@ drop_privs(void)
 	/*
 	 * lose root, continue as non-root user
 	 */
-	if (pw) {
-		setgroups(1, &pw->pw_gid);
-		setegid(pw->pw_gid);
-		setgid(pw->pw_gid);
-		seteuid(pw->pw_uid);
-		setuid(pw->pw_uid);
+	if (setgroups(1, &pw->pw_gid) ||
+	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid)) {
+		syslog_r(LOG_ERR, &sdata, "failed to drop privs (%m)");
+		exit(1);
 	}
 }
 
-static void
+void
 check_spamd_db(void)
 {
 	HASHINFO hashinfo;
@@ -1042,7 +1043,6 @@ check_spamd_db(void)
 				exit(1);
 			}
 			close(i);
-			drop_privs();
 			return;
 			break;
 		default:
@@ -1053,7 +1053,6 @@ check_spamd_db(void)
 	}
 	db->sync(db, 0);
 	db->close(db);
-	drop_privs();
 }
 
 
@@ -1062,8 +1061,13 @@ greywatcher(void)
 {
 	struct sigaction sa;
 
-	check_spamd_db();
+	drop_privs();
 
+	if (pledge("stdio rpath wpath inet flock proc exec", NULL) == -1) {
+		syslog_r(LOG_ERR, &sdata, "pledge failed (%m)");
+		exit(1);
+	}
+		
 	startup = time(NULL);
 	db_pid = fork();
 	switch (db_pid) {
@@ -1101,6 +1105,5 @@ greywatcher(void)
 
 	setproctitle("(pf <spamd-white> update)");
 	greyscanner();
-	/* NOTREACHED */
 	exit(1);
 }

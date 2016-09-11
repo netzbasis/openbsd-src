@@ -1,4 +1,4 @@
-/*	$OpenBSD: warp.c,v 1.6 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: warp.c,v 1.8 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: warp.c,v 1.3 1995/04/22 10:59:40 cgd Exp $	*/
 
 /*
@@ -31,11 +31,11 @@
  */
 
 #include <stdio.h>
-#include <math.h>
 #include <string.h>
 #include <unistd.h>
-#include "trek.h"
+
 #include "getpar.h"
+#include "trek.h"
 
 /*
 **  MOVE UNDER WARP POWER
@@ -54,8 +54,7 @@
 */
 
 void
-dowarp(fl)
-	int fl;
+dowarp(int fl)
 {
 	int	c;
 	double	d;
@@ -66,9 +65,7 @@ dowarp(fl)
 }
 
 void
-warp(fl, c, d)
-	int	fl, c;
-	double	d;
+warp(int fl, int c, double d)
 {
 	char	*p;
 	double	power, dist, time, speed, frac;

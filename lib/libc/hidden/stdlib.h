@@ -1,4 +1,4 @@
-/*	$OpenBSD: stdlib.h,v 1.5 2015/10/25 18:01:24 guenther Exp $	*/
+/*	$OpenBSD: stdlib.h,v 1.8 2016/08/14 23:18:03 guenther Exp $	*/
 /*	$NetBSD: stdlib.h,v 1.25 1995/12/27 21:19:08 jtc Exp $	*/
 
 /*-
@@ -42,6 +42,9 @@ char	*__findenv(const char *, int, int *);
 void	__atexit_register_cleanup(void (*)(void));
 __END_HIDDEN_DECLS
 
+extern char **environ;
+extern char *__progname;
+
 #if 0
 extern PROTO_NORMAL(__mb_cur_max);
 /*extern PROTO_NORMAL(suboptarg);*/
@@ -54,7 +57,7 @@ PROTO_NORMAL(abs);
 PROTO_NORMAL(arc4random);
 PROTO_NORMAL(arc4random_buf);
 PROTO_NORMAL(arc4random_uniform);
-/*PROTO_NORMAL(atexit);			actually in csu */
+PROTO_NORMAL(atexit);
 PROTO_STD_DEPRECATED(atof);
 PROTO_NORMAL(atoi);
 PROTO_STD_DEPRECATED(atol);
@@ -116,8 +119,8 @@ PROTO_DEPRECATED(nrand48);
 PROTO_DEPRECATED(posix_openpt);
 PROTO_DEPRECATED(ptsname);
 PROTO_NORMAL(putenv);
-PROTO_DEPRECATED(qabs);
-PROTO_DEPRECATED(qdiv);
+/*PROTO_DEPRECATED(qabs);	alias of llabs */
+/*PROTO_DEPRECATED(qdiv);	alias of lldiv */
 PROTO_NORMAL(qsort);
 PROTO_DEPRECATED(radixsort);
 PROTO_STD_DEPRECATED(rand);

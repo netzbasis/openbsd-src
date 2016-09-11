@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_output.c,v 1.198 2015/11/03 21:39:34 chl Exp $	*/
+/*	$OpenBSD: ip6_output.c,v 1.213 2016/08/25 12:30:16 mpi Exp $	*/
 /*	$KAME: ip6_output.c,v 1.172 2001/03/25 09:55:56 itojun Exp $	*/
 
 /*
@@ -128,8 +128,7 @@ int ip6_insertfraghdr(struct mbuf *, struct mbuf *, int,
 	struct ip6_frag **);
 int ip6_insert_jumboopt(struct ip6_exthdrs *, u_int32_t);
 int ip6_splithdr(struct mbuf *, struct ip6_exthdrs *);
-int ip6_getpmtu(struct route_in6 *, struct route_in6 *,
-	struct ifnet *, struct in6_addr *, u_long *, int *);
+int ip6_getpmtu(struct rtentry *, struct ifnet *, u_long *, int *);
 int copypktopts(struct ip6_pktopts *, struct ip6_pktopts *, int);
 static __inline u_int16_t __attribute__((__unused__))
     in6_cksum_phdr(const struct in6_addr *, const struct in6_addr *,
@@ -172,14 +171,7 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt, struct route_in6 *ro,
 	int hdrsplit = 0;
 	u_int8_t sproto = 0;
 #ifdef IPSEC
-	struct m_tag *mtag;
-	union sockaddr_union sdst;
-	struct tdb_ident *tdbi;
-	u_int32_t sspi;
-	struct tdb *tdb;
-#if NPF > 0
-	struct ifnet *encif;
-#endif
+	struct tdb *tdb = NULL;
 #endif /* IPSEC */
 
 #ifdef IPSEC
@@ -215,28 +207,9 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt, struct route_in6 *ro,
 	}
 
 #ifdef IPSEC
-	if (!ipsec_in_use && !inp)
-		goto done_spd;
-
-	/*
-	 * Check if there was an outgoing SA bound to the flow
-	 * from a transport protocol.
-	 */
-
-	/* Do we have any pending SAs to apply ? */
-	tdb = ipsp_spd_lookup(m, AF_INET6, sizeof(struct ip6_hdr),
-	    &error, IPSP_DIRECTION_OUT, NULL, inp, 0);
-
-	if (tdb == NULL) {
-		if (error == 0) {
-		        /*
-			 * No IPsec processing required, we'll just send the
-			 * packet out.
-			 */
-		        sproto = 0;
-
-			/* Fall through to routing/multicast handling */
-		} else {
+	if (ipsec_in_use || inp) {
+		tdb = ip6_output_ipsec_lookup(m, &error, inp);
+		if (error != 0) {
 		        /*
 			 * -EINVAL is used to indicate that the packet should
 			 * be silently dropped, typically because we've asked
@@ -247,31 +220,7 @@ ip6_output(struct mbuf *m0, struct ip6_pktopts *opt, struct route_in6 *ro,
 
 			goto freehdrs;
 		}
-	} else {
-		/* Loop detection */
-		for (mtag = m_tag_first(m); mtag != NULL;
-		    mtag = m_tag_next(m, mtag)) {
-			if (mtag->m_tag_id != PACKET_TAG_IPSEC_OUT_DONE)
-				continue;
-			tdbi = (struct tdb_ident *)(mtag + 1);
-			if (tdbi->spi == tdb->tdb_spi &&
-			    tdbi->proto == tdb->tdb_sproto &&
-			    tdbi->rdomain == tdb->tdb_rdomain &&
-			    !bcmp(&tdbi->dst, &tdb->tdb_dst,
-			    sizeof(union sockaddr_union))) {
-				sproto = 0; /* mark as no-IPsec-needed */
-				goto done_spd;
-			}
-		}
-
-	        /* We need to do IPsec */
-	        bcopy(&tdb->tdb_dst, &sdst, sizeof(sdst));
-		sspi = tdb->tdb_spi;
-		sproto = tdb->tdb_sproto;
 	}
-
-	/* Fall through to the routing/multicast handling code */
- done_spd:
 #endif /* IPSEC */
 
 	/*
@@ -469,55 +418,19 @@ reroute:
 	}
 
 #ifdef IPSEC
-	/*
-	 * Check if the packet needs encapsulation.
-	 * ipsp_process_packet will never come back to here.
-	 */
-	if (sproto != 0) {
+	if (tdb) {
 		/*
 		 * XXX what should we do if ip6_hlim == 0 and the
 		 * packet gets tunneled?
 		 */
-
-		tdb = gettdb(rtable_l2(m->m_pkthdr.ph_rtableid),
-		    sspi, &sdst, sproto);
-		if (tdb == NULL) {
-			error = EHOSTUNREACH;
-			m_freem(m);
-			goto done;
-		}
-
-#if NPF > 0
-		if ((encif = enc_getif(tdb->tdb_rdomain,
-		    tdb->tdb_tap)) == NULL ||
-		    pf_test(AF_INET6, PF_OUT, encif, &m) != PF_PASS) {
-			error = EHOSTUNREACH;
-			m_freem(m);
-			goto done;
-		}
-		if (m == NULL)
-			goto done;
-		/*
-		 * PF_TAG_REROUTE handling or not...
-		 * Packet is entering IPsec so the routing is
-		 * already overruled by the IPsec policy.
-		 * Until now the change was not reconsidered.
-		 * What's the behaviour?
-		 */
-		in6_proto_cksum_out(m, encif);
-#endif
-		m->m_flags &= ~(M_BCAST | M_MCAST);	/* just in case */
-
-		/* Callee frees mbuf */
 		/*
 		 * if we are source-routing, do not attempt to tunnel the
 		 * packet just because ip6_dst is different from what tdb has.
 		 * XXX
 		 */
-		error = ipsp_process_packet(m, tdb, AF_INET6,
-		    exthdrs.ip6e_rthdr ? 1 : 0);
-
-		return error;  /* Nothing more to be done */
+		error = ip6_output_ipsec_send(tdb, m,
+		    exthdrs.ip6e_rthdr ? 1 : 0, 0);
+		goto done;
 	}
 #endif /* IPSEC */
 
@@ -549,7 +462,7 @@ reroute:
 			goto bad;
 		}
 		if (ISSET(rt->rt_flags, RTF_LOCAL))
-			ifp = if_ref(lo0ifp);
+			ifp = if_get(lo0ifidx);
 		else
 			ifp = if_get(rt->rt_ifidx);
 	} else {
@@ -566,7 +479,6 @@ reroute:
 		m->m_flags &= ~(M_BCAST | M_MCAST);	/* just in case */
 	} else {
 		/* Multicast */
-		struct	in6_multi *in6m;
 
 		m->m_flags = (m->m_flags & ~M_BCAST) | M_MCAST;
 
@@ -579,9 +491,8 @@ reroute:
 			goto bad;
 		}
 
-		IN6_LOOKUP_MULTI(ip6->ip6_dst, ifp, in6m);
-		if (in6m != NULL &&
-		    (im6o == NULL || im6o->im6o_loop)) {
+		if ((im6o == NULL || im6o->im6o_loop) &&
+		    in6_hasmulti(&ip6->ip6_dst, ifp)) {
 			/*
 			 * If we belong to the destination multicast group
 			 * on the outgoing interface, and the caller did not
@@ -646,8 +557,7 @@ reroute:
 	}
 
 	/* Determine path MTU. */
-	if ((error = ip6_getpmtu(ro_pmtu, ro, ifp, &finaldst, &mtu,
-	    &alwaysfrag)) != 0)
+	if ((error = ip6_getpmtu(ro_pmtu->ro_rt, ifp, &mtu, &alwaysfrag)) != 0)
 		goto bad;
 
 	/*
@@ -722,6 +632,7 @@ reroute:
 		finaldst = ip6->ip6_dst;
 		ro = NULL;
 		if_put(ifp); /* drop reference since destination changed */
+		ifp = NULL;
 		goto reroute;
 	}
 #endif
@@ -779,7 +690,7 @@ reroute:
 	 * transmit packet without fragmentation
 	 */
 	if (dontfrag || (!alwaysfrag && tlen <= mtu)) {	/* case 1-a and 2-a */
-		error = nd6_output(ifp, m, dst, ro->ro_rt);
+		error = ifp->if_output(ifp, m, sin6tosa(dst), ro->ro_rt);
 		goto done;
 	}
 
@@ -854,7 +765,8 @@ reroute:
 		m->m_nextpkt = 0;
 		if (error == 0) {
 			ip6stat.ip6s_ofragments++;
-			error = nd6_output(ifp, m, dst, ro->ro_rt);
+			error = ifp->if_output(ifp, m, sin6tosa(dst),
+			    ro->ro_rt);
 		} else
 			m_freem(m);
 	}
@@ -1111,38 +1023,15 @@ ip6_insertfraghdr(struct mbuf *m0, struct mbuf *m, int hlen,
 }
 
 int
-ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro,
-    struct ifnet *ifp, struct in6_addr *dst, u_long *mtup, int *alwaysfragp)
+ip6_getpmtu(struct rtentry *rt, struct ifnet *ifp, u_long *mtup,
+    int *alwaysfragp)
 {
 	u_int32_t mtu = 0;
 	int alwaysfrag = 0;
 	int error = 0;
 
-	if (ro_pmtu != ro) {
-		/* The first hop and the final destination may differ. */
-		struct sockaddr_in6 *sa6_dst = &ro_pmtu->ro_dst;
-
-		if (!rtisvalid(ro_pmtu->ro_rt) ||
-		    (ro_pmtu->ro_tableid != ifp->if_rdomain) ||
-		     !IN6_ARE_ADDR_EQUAL(&sa6_dst->sin6_addr, dst)) {
-			rtfree(ro_pmtu->ro_rt);
-			ro_pmtu->ro_rt = NULL;
-		}
-		if (ro_pmtu->ro_rt == NULL) {
-			bzero(ro_pmtu, sizeof(*ro_pmtu));
-			ro_pmtu->ro_tableid = ifp->if_rdomain;
-			sa6_dst->sin6_family = AF_INET6;
-			sa6_dst->sin6_len = sizeof(struct sockaddr_in6);
-			sa6_dst->sin6_addr = *dst;
-
-			ro_pmtu->ro_rt = rtalloc(sin6tosa(&ro_pmtu->ro_dst),
-			    RT_REPORT|RT_RESOLVE, ro_pmtu->ro_tableid);
-		}
-	}
-	if (ro_pmtu->ro_rt) {
-		if (ifp == NULL)
-			ifp = ro_pmtu->ro_rt->rt_ifp;
-		mtu = ro_pmtu->ro_rt->rt_rmx.rmx_mtu;
+	if (rt != NULL) {
+		mtu = rt->rt_rmx.rmx_mtu;
 		if (mtu == 0)
 			mtu = ifp->if_mtu;
 		else if (mtu < IPV6_MMTU) {
@@ -1166,13 +1055,12 @@ ip6_getpmtu(struct route_in6 *ro_pmtu, struct route_in6 *ro,
 			 * field isn't locked).
 			 */
 			mtu = ifp->if_mtu;
-			if (!(ro_pmtu->ro_rt->rt_rmx.rmx_locks & RTV_MTU))
-				ro_pmtu->ro_rt->rt_rmx.rmx_mtu = mtu;
+			if (!(rt->rt_rmx.rmx_locks & RTV_MTU))
+				rt->rt_rmx.rmx_mtu = mtu;
 		}
-	} else if (ifp) {
+	} else {
 		mtu = ifp->if_mtu;
-	} else
-		error = EHOSTUNREACH; /* XXX */
+	}
 
 	*mtup = mtu;
 	if (alwaysfragp)
@@ -1219,13 +1107,13 @@ ip6_ctloutput(int op, struct socket *so, int level, int optname,
 			 */
 			case IPV6_RECVHOPOPTS:
 			case IPV6_RECVDSTOPTS:
-			case IPV6_RECVRTHDRDSTOPTS:
 				if (!privileged) {
 					error = EPERM;
 					break;
 				}
 				/* FALLTHROUGH */
 			case IPV6_UNICAST_HOPS:
+			case IPV6_MINHOPCOUNT:
 			case IPV6_HOPLIMIT:
 
 			case IPV6_RECVPKTINFO:
@@ -1251,6 +1139,14 @@ ip6_ctloutput(int op, struct socket *so, int level, int optname,
 						inp->inp_hops = optval;
 					}
 					break;
+
+				case IPV6_MINHOPCOUNT:
+					if (optval < 0 || optval > 255)
+						error = EINVAL;
+					else
+						inp->inp_ip6_minhlim = optval;
+					break;
+
 #define OPTSET(bit) \
 do { \
 	if (optval) \
@@ -1289,10 +1185,6 @@ do { \
 					OPTSET(IN6P_DSTOPTS);
 					break;
 
-				case IPV6_RECVRTHDRDSTOPTS:
-					OPTSET(IN6P_RTHDRDSTOPTS);
-					break;
-
 				case IPV6_RECVRTHDR:
 					OPTSET(IN6P_RTHDR);
 					break;
@@ -1319,11 +1211,11 @@ do { \
 						error = EINVAL;
 						break;
 					}
-					if ((ip6_v6only && optval) ||
-					    (!ip6_v6only && !optval))
-						error = 0;
-					else
+					/* No support for IPv4-mapped addresses. */
+					if (!optval)
 						error = EINVAL;
+					else
+						error = 0;
 					break;
 				case IPV6_RECVTCLASS:
 					OPTSET(IN6P_TCLASS);
@@ -1506,7 +1398,12 @@ do { \
 					error = EINVAL;
 					break;
 				}
+				if (inp->inp_lport) {
+					error = EBUSY;
+					break;
+				}
 				inp->inp_rtableid = rtid;
+				in_pcbrehash(inp);
 				break;
 			case IPV6_PIPEX:
 				if (m != NULL && m->m_len == sizeof(int))
@@ -1528,8 +1425,8 @@ do { \
 
 			case IPV6_RECVHOPOPTS:
 			case IPV6_RECVDSTOPTS:
-			case IPV6_RECVRTHDRDSTOPTS:
 			case IPV6_UNICAST_HOPS:
+			case IPV6_MINHOPCOUNT:
 			case IPV6_RECVPKTINFO:
 			case IPV6_RECVHOPLIMIT:
 			case IPV6_RECVRTHDR:
@@ -1550,12 +1447,12 @@ do { \
 					optval = OPTBIT(IN6P_DSTOPTS);
 					break;
 
-				case IPV6_RECVRTHDRDSTOPTS:
-					optval = OPTBIT(IN6P_RTHDRDSTOPTS);
-					break;
-
 				case IPV6_UNICAST_HOPS:
 					optval = inp->inp_hops;
+					break;
+
+				case IPV6_MINHOPCOUNT:
+					optval = inp->inp_ip6_minhlim;
 					break;
 
 				case IPV6_RECVPKTINFO:
@@ -1575,7 +1472,7 @@ do { \
 					break;
 
 				case IPV6_V6ONLY:
-					optval = (ip6_v6only != 0); /* XXX */
+					optval = 1;
 					break;
 
 				case IPV6_PORTRANGE:
@@ -1613,17 +1510,26 @@ do { \
 			{
 				u_long pmtu = 0;
 				struct ip6_mtuinfo mtuinfo;
-				struct route_in6 *ro = (struct route_in6 *)&inp->inp_route6;
+				struct ifnet *ifp;
+				struct rtentry *rt;
 
 				if (!(so->so_state & SS_ISCONNECTED))
 					return (ENOTCONN);
+
+				rt = in_pcbrtentry(inp);
+				if (!rtisvalid(rt))
+					return (EHOSTUNREACH);
+
+				ifp = if_get(rt->rt_ifidx);
+				if (ifp == NULL)
+					return (EHOSTUNREACH);
 				/*
 				 * XXX: we dot not consider the case of source
 				 * routing, or optional information to specify
 				 * the outgoing interface.
 				 */
-				error = ip6_getpmtu(ro, NULL, NULL,
-				    &inp->inp_faddr6, &pmtu, NULL);
+				error = ip6_getpmtu(rt, ifp, &pmtu, NULL);
+				if_put(ifp);
 				if (error)
 					break;
 				if (pmtu > IPV6_MAXPACKET)
@@ -1820,7 +1726,7 @@ ip6_pcbopts(struct ip6_pktopts **pktopt, struct mbuf *m, struct socket *so)
 		 * Only turning off any previous options, regardless of
 		 * whether the opt is just created or given.
 		 */
-		free(opt, M_IP6OPT, 0);
+		free(opt, M_IP6OPT, sizeof(*opt));
 		return (0);
 	}
 
@@ -1830,7 +1736,7 @@ ip6_pcbopts(struct ip6_pktopts **pktopt, struct mbuf *m, struct socket *so)
 	if ((error = ip6_setpktopts(m, opt, NULL, priv,
 	    so->so_proto->pr_protocol)) != 0) {
 		ip6_clearpktopts(opt, -1);	/* XXX discard all options */
-		free(opt, M_IP6OPT, 0);
+		free(opt, M_IP6OPT, sizeof(*opt));
 		return (error);
 	}
 	*pktopt = opt;
@@ -2184,7 +2090,7 @@ ip6_setmoptions(int optname, struct ip6_moptions **im6op, struct mbuf *m)
 			dst->sin6_family = AF_INET6;
 			dst->sin6_addr = mreq->ipv6mr_multiaddr;
 			ro.ro_rt = rtalloc(sin6tosa(&ro.ro_dst),
-			    RT_REPORT|RT_RESOLVE, ro.ro_tableid);
+			    RT_RESOLVE, ro.ro_tableid);
 			if (ro.ro_rt == NULL) {
 				error = EADDRNOTAVAIL;
 				break;
@@ -2944,3 +2850,70 @@ in6_proto_cksum_out(struct mbuf *m, struct ifnet *ifp)
 		m->m_pkthdr.csum_flags &= ~M_ICMP_CSUM_OUT; /* Clear */
 	}
 }
+
+#ifdef IPSEC
+struct tdb *
+ip6_output_ipsec_lookup(struct mbuf *m, int *error, struct inpcb *inp)
+{
+	struct tdb *tdb;
+	struct m_tag *mtag;
+	struct tdb_ident *tdbi;
+
+	/*
+	 * Check if there was an outgoing SA bound to the flow
+	 * from a transport protocol.
+	 */
+
+	/* Do we have any pending SAs to apply ? */
+	tdb = ipsp_spd_lookup(m, AF_INET6, sizeof(struct ip6_hdr),
+	    error, IPSP_DIRECTION_OUT, NULL, inp, 0);
+
+	if (tdb == NULL)
+		return NULL;
+	/* Loop detection */
+	for (mtag = m_tag_first(m); mtag != NULL; mtag = m_tag_next(m, mtag)) {
+		if (mtag->m_tag_id != PACKET_TAG_IPSEC_OUT_DONE)
+			continue;
+		tdbi = (struct tdb_ident *)(mtag + 1);
+		if (tdbi->spi == tdb->tdb_spi &&
+		    tdbi->proto == tdb->tdb_sproto &&
+		    tdbi->rdomain == tdb->tdb_rdomain &&
+		    !memcmp(&tdbi->dst, &tdb->tdb_dst,
+		    sizeof(union sockaddr_union))) {
+			/* no IPsec needed */
+			return NULL;
+		}
+	}
+	return tdb;
+}
+
+int
+ip6_output_ipsec_send(struct tdb *tdb, struct mbuf *m, int tunalready, int fwd)
+{
+#if NPF > 0
+	struct ifnet *encif;
+#endif
+
+#if NPF > 0
+	if ((encif = enc_getif(tdb->tdb_rdomain, tdb->tdb_tap)) == NULL ||
+	    pf_test(AF_INET6, fwd ? PF_FWD : PF_OUT, encif, &m) != PF_PASS) {
+		m_freem(m);
+		return EHOSTUNREACH;
+	}
+	if (m == NULL)
+		return 0;
+	/*
+	 * PF_TAG_REROUTE handling or not...
+	 * Packet is entering IPsec so the routing is
+	 * already overruled by the IPsec policy.
+	 * Until now the change was not reconsidered.
+	 * What's the behaviour?
+	 */
+	in6_proto_cksum_out(m, encif);
+#endif
+	m->m_flags &= ~(M_BCAST | M_MCAST);	/* just in case */
+
+	/* Callee frees mbuf */
+	return ipsp_process_packet(m, tdb, AF_INET6, tunalready);
+}
+#endif /* IPSEC */

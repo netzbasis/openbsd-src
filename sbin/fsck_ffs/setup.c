@@ -1,4 +1,4 @@
-/*	$OpenBSD: setup.c,v 1.59 2015/10/15 15:11:10 semarie Exp $	*/
+/*	$OpenBSD: setup.c,v 1.63 2016/09/09 15:37:15 tb Exp $	*/
 /*	$NetBSD: setup.c,v 1.27 1996/09/27 22:45:19 christos Exp $	*/
 
 /*
@@ -61,7 +61,7 @@
 #define POWEROF2(num)	(((num) & ((num) - 1)) == 0)
 
 void badsb(int, char *);
-int calcsb(char *, int, struct fs *, struct disklabel *);
+int calcsb(char *, int, struct fs *, struct disklabel *, uint32_t);
 static struct disklabel *getdisklabel(char *, int);
 static int readsb(int);
 static int cmpsb(struct fs *, struct fs *);
@@ -77,7 +77,7 @@ static const int sbtry[] = SBLOCKSEARCH;
 static const int altsbtry[] = { 32, 64, 128, 144, 160, 192, 256 };
 
 int
-setup(char *dev)
+setup(char *dev, int isfsdb)
 {
 	long cg, size, asked, i, j;
 	size_t bmapsize;
@@ -101,6 +101,11 @@ setup(char *dev)
 		blockcheck(unrawname(realdev));
 		strlcpy(rdevname, realdev, sizeof(rdevname));
 		setcdevname(rdevname, dev, preen);
+
+		if (isfsdb || !hotroot())
+			if (pledge("stdio rpath wpath getpw tty disklabel",
+			    NULL) == -1)
+				err(1, "pledge");
 	}
 	if (fstat(fsreadfd, &statb) < 0) {
 		printf("Can't stat %s: %s\n", realdev, strerror(errno));
@@ -140,7 +145,10 @@ setup(char *dev)
 	else
 		secsize = DEV_BSIZE;
 
-	if (!hotroot()) {
+	if (isfsdb) {
+		if (pledge("stdio rpath getpw tty", NULL) == -1)
+			err(1, "pledge");
+	} else if (!hotroot()) {
 #ifndef SMALL
 		if (pledge("stdio getpw", NULL) == -1)
 			err(1, "pledge");
@@ -154,7 +162,8 @@ setup(char *dev)
 	 * Read in the superblock, looking for alternates if necessary
 	 */
 	if (readsb(1) == 0) {
-		if (bflag || preen || calcsb(realdev, fsreadfd, &proto, lp) == 0)
+		if (bflag || preen ||
+		    calcsb(realdev, fsreadfd, &proto, lp, SBLOCK_UFS1) == 0)
 			return(0);
 		if (reply("LOOK FOR ALTERNATE SUPERBLOCKS") == 0)
 			return (0);
@@ -168,8 +177,18 @@ setup(char *dev)
 		}
 		for (cg = 0; cg < proto.fs_ncg; cg++) {
 			bflag = fsbtodb(&proto, cgsblock(&proto, cg));
-			if (readsb(0) != 0)
-				break;
+			if (readsb(0) != 0 &&
+			    proto.fs_fsize == sblock.fs_fsize &&
+			    proto.fs_bsize == sblock.fs_bsize)
+				goto found;
+		}
+		calcsb(realdev, fsreadfd, &proto, lp, SBLOCK_UFS2);
+		for (cg = 0; cg < proto.fs_ncg; cg++) {
+			bflag = fsbtodb(&proto, cgsblock(&proto, cg));
+			if (readsb(0) != 0 &&
+			    proto.fs_fsize == sblock.fs_fsize &&
+			    proto.fs_bsize == sblock.fs_bsize)
+				goto found;
 		}
 		if (cg >= proto.fs_ncg) {
 			printf("%s %s\n%s %s\n%s %s\n",
@@ -586,7 +605,8 @@ badsb(int listerr, char *s)
  * their needed information is available!
  */
 int
-calcsb(char *dev, int devfd, struct fs *fs, struct disklabel *lp)
+calcsb(char *dev, int devfd, struct fs *fs, struct disklabel *lp,
+    uint32_t sblockloc)
 {
 	struct partition *pp;
 	char *cp;
@@ -614,43 +634,22 @@ calcsb(char *dev, int devfd, struct fs *fs, struct disklabel *lp)
 	memset(fs, 0, sizeof(struct fs));
 	fs->fs_fsize = DISKLABELV1_FFS_FSIZE(pp->p_fragblock);
 	fs->fs_frag = DISKLABELV1_FFS_FRAG(pp->p_fragblock);
+	fs->fs_fpg = pp->p_cpg * fs->fs_frag;
 	fs->fs_bsize = fs->fs_fsize * fs->fs_frag;
-	fs->fs_cpg = pp->p_cpg;
 	fs->fs_nspf = DL_SECTOBLK(lp, fs->fs_fsize / lp->d_secsize);
+	for (fs->fs_fsbtodb = 0, i = NSPF(fs); i > 1; i >>= 1)
+		fs->fs_fsbtodb++;
 	/*
 	 * fs->fs_size is in fragments, DL_GETPSIZE() is in disk sectors
 	 * and fs_nspf is in DEV_BSIZE blocks. Shake well.
 	 */
 	fs->fs_size = DL_SECTOBLK(lp, DL_GETPSIZE(pp)) / fs->fs_nspf;
-	fs->fs_ntrak = lp->d_ntracks;
-	fs->fs_nsect = DL_SECTOBLK(lp, lp->d_nsectors);
-	fs->fs_spc = DL_SECTOBLK(lp, lp->d_secpercyl);
+	fs->fs_ncg = howmany(fs->fs_size, fs->fs_fpg);
 	/* we can't use lp->d_sbsize, it is the max sb size */
 	fs->fs_sblkno = roundup(
-		howmany(lp->d_bbsize + SBSIZE, fs->fs_fsize),
+		howmany(sblockloc + SBSIZE, fs->fs_fsize),
 		fs->fs_frag);
-again:
-	fs->fs_cgmask = 0xffffffff;
-	for (i = fs->fs_ntrak; i > 1; i >>= 1)
-		fs->fs_cgmask <<= 1;
-	if (!POWEROF2(fs->fs_ntrak))
-		fs->fs_cgmask <<= 1;
-	fs->fs_cgoffset = roundup(
-		howmany(fs->fs_nsect, NSPF(fs)), fs->fs_frag);
-	fs->fs_fpg = (fs->fs_cpg * fs->fs_spc) / NSPF(fs);
-	fs->fs_ncg = howmany(DL_GETPSIZE(pp) / fs->fs_spc, fs->fs_cpg);
-	for (fs->fs_fsbtodb = 0, i = NSPF(fs); i > 1; i >>= 1)
-		fs->fs_fsbtodb++;
-	/*
-	 * Mimic what mkfs is doing to get an acceptable cgsize,
-	 * not all fields used by CGSIZE() are filled in, but it's a best
-	 * effort anyway.
-	 */
-	if (CGSIZE(fs) > fs->fs_bsize && fs->fs_ntrak > 1) {
-		fs->fs_ntrak >>= 1;
-		fs->fs_spc >>= 1;
-		goto again;
-	}
+
 	return (1);
 }
 

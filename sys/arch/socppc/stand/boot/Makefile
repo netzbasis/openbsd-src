@@ -1,9 +1,8 @@
-#	$OpenBSD: Makefile,v 1.15 2014/07/13 09:26:08 jasper Exp $
+#	$OpenBSD: Makefile,v 1.17 2016/07/30 03:25:49 guenther Exp $
 
 .include "${.CURDIR}/../Makefile.inc"
 
 MAN=	boot.8
-MLINKS=	boot.8 boot.conf.5
 
 .if ${MACHINE} == "socppc"
 PROG=		boot
@@ -45,7 +44,7 @@ LIBSA=          ${SALIB}
 STANDIR=	${.CURDIR}/..
 
 RELOC=		0x100000
-LDFLAGS=	-Ttext ${RELOC} -nopie
+LDFLAGS=	-Ttext ${RELOC} -nopie -znorelro
 OBJCOPY?=	objcopy
 
 ${PROG}: ${OBJS} ${LIBSA} ${LIBZ}

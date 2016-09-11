@@ -1,4 +1,4 @@
-/*	$OpenBSD: utils.c,v 1.37 2015/05/03 19:44:58 guenther Exp $	*/
+/*	$OpenBSD: utils.c,v 1.39 2015/12/26 18:11:43 guenther Exp $	*/
 /*	$NetBSD: utils.c,v 1.6 1997/02/26 14:40:51 cgd Exp $	*/
 
 /*-
@@ -202,22 +202,22 @@ int
 copy_link(FTSENT *p, int exists)
 {
 	int len;
-	char link[PATH_MAX];
+	char name[PATH_MAX];
 
-	if ((len = readlink(p->fts_path, link, sizeof(link)-1)) == -1) {
+	if ((len = readlink(p->fts_path, name, sizeof(name)-1)) == -1) {
 		warn("readlink: %s", p->fts_path);
 		return (1);
 	}
-	link[len] = '\0';
+	name[len] = '\0';
 	if (exists && unlink(to.p_path)) {
 		warn("unlink: %s", to.p_path);
 		return (1);
 	}
-	if (symlink(link, to.p_path)) {
-		warn("symlink: %s", link);
+	if (symlink(name, to.p_path)) {
+		warn("symlink: %s", name);
 		return (1);
 	}
-	return (pflag ? setlink(p->fts_statp) : 0);
+	return (pflag ? setfile(p->fts_statp, -1) : 0);
 }
 
 int
@@ -300,20 +300,6 @@ setfile(struct stat *fs, int fd)
 			rval = 1;
 		}
 	return (rval);
-}
-
-
-int
-setlink(struct stat *fs)
-{
-
-	if (lchown(to.p_path, fs->st_uid, fs->st_gid)) {
-		if (errno != EPERM) {
-			warn("lchown: %s", to.p_path);
-			return (1);
-		}
-	}
-	return (0);
 }
 
 

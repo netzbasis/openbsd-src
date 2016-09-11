@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfwprintf.c,v 1.14 2015/09/29 03:19:24 guenther Exp $ */
+/*	$OpenBSD: vfwprintf.c,v 1.17 2016/08/17 22:15:08 tedu Exp $ */
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
  * All rights reserved.
@@ -49,6 +49,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include "local.h"
@@ -667,10 +668,7 @@ reswitch:	switch (ch) {
 				prec = dtoaend - dtoaresult;
 			if (expt == INT_MAX)
 				ox[1] = '\0';
-			if (convbuf) {
-				free(convbuf);
-				convbuf = NULL;
-			}
+			free(convbuf);
 			cp = convbuf = __mbsconv(dtoaresult, -1);
 			if (cp == NULL)
 				goto error;
@@ -719,10 +717,7 @@ fp_begin:
 				if (expt == 9999)
 					expt = INT_MAX;
  			}
-			if (convbuf) {
-				free(convbuf);
-				convbuf = NULL;
-			}
+			free(convbuf);
 			cp = convbuf = __mbsconv(dtoaresult, -1);
 			if (cp == NULL)
 				goto error;
@@ -822,16 +817,29 @@ fp_common:
 			/*FALLTHROUGH*/
 		case 's':
 			if (flags & LONGINT) {
-				if ((cp = GETARG(wchar_t *)) == NULL)
+				if ((cp = GETARG(wchar_t *)) == NULL) {
+					struct syslog_data sdata = SYSLOG_DATA_INIT;
+					int save_errno = errno;
+
+					syslog_r(LOG_CRIT | LOG_CONS, &sdata,
+					    "vfwprintf %%ls NULL in \"%s\"", fmt0);
+					errno = save_errno;
+
 					cp = L"(null)";
+				}
 			} else {
 				char *mbsarg;
-				if ((mbsarg = GETARG(char *)) == NULL)
+				if ((mbsarg = GETARG(char *)) == NULL) {
+					struct syslog_data sdata = SYSLOG_DATA_INIT;
+					int save_errno = errno;
+
+					syslog_r(LOG_CRIT | LOG_CONS, &sdata,
+					    "vfwprintf %%s NULL in \"%s\"", fmt0);
+					errno = save_errno;
+
 					mbsarg = "(null)";
-				if (convbuf) {
-					free(convbuf);
-					convbuf = NULL;
 				}
+				free(convbuf);
 				convbuf = __mbsconv(mbsarg, prec);
 				if (convbuf == NULL) {
 					fp->_flags |= __SERR;
@@ -1047,8 +1055,7 @@ overflow:
 	ret = -1;
 
 finish:
-	if (convbuf)
-		free(convbuf);
+	free(convbuf);
 #ifdef FLOATING_POINT
 	if (dtoaresult)
 		__freedtoa(dtoaresult);

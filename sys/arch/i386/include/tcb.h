@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcb.h,v 1.2 2011/12/24 04:21:19 guenther Exp $	*/
+/*	$OpenBSD: tcb.h,v 1.4 2016/09/04 08:49:35 guenther Exp $	*/
 /*
  * Copyright (c) 2011 Philip Guenther <guenther@openbsd.org>
  *
@@ -24,13 +24,11 @@
 #include <machine/pcb.h>
 
 #define TCB_GET(p)		\
-	i386_get_threadbase(p, TSEG_GS)
+	((void *)i386_get_threadbase(p, TSEG_GS))
 #define TCB_SET(p, addr)	\
 	i386_set_threadbase(p, (uint32_t)(addr), TSEG_GS)
 
 #else /* _KERNEL */
-
-#include <stddef.h>		/* for offsetof */
 
 /* ELF TLS ABI calls for big TCB, with static TLS data at negative offsets */
 #define TLS_VARIANT	2
@@ -47,12 +45,7 @@ __i386_read_tcb(int offset)
 /* Get a pointer to the TCB itself */
 #define TCB_GET()		__i386_read_tcb(0)
 
-/* Get the value of a specific member in the TCB */
-#define TCB_GET_MEMBER(member)	\
-	__i386_read_tcb(offsetof(struct thread_control_block, member))
-
 /* Setting the TCB pointer can only be done via syscall, so no TCB_SET() */
 
 #endif /* _KERNEL */
-
 #endif /* _MACHINE_TCB_H_ */

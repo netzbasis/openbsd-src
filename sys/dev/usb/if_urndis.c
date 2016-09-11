@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urndis.c,v 1.56 2015/10/25 12:11:56 mpi Exp $ */
+/*	$OpenBSD: if_urndis.c,v 1.61 2016/04/13 11:03:37 mpi Exp $ */
 
 /*
  * Copyright (c) 2010 Jonathan Armani <armani@openbsd.org>
@@ -34,7 +34,6 @@
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -855,11 +854,11 @@ urndis_decap(struct urndis_softc *sc, struct urndis_chain *c, u_int32_t len)
 
 		if (letoh32(msg->rm_datalen) < sizeof(struct ether_header)) {
 			ifp->if_ierrors++;
-			printf("%s: urndis_decap invalid ethernet size "
+			DPRINTF(("%s: urndis_decap invalid ethernet size "
 			    "%u < %zu\n",
 			    DEVNAME(sc),
 			    letoh32(msg->rm_datalen),
-			    sizeof(struct ether_header));
+			    sizeof(struct ether_header)));
 			return;
 		}
 
@@ -1080,7 +1079,7 @@ urndis_init(struct urndis_softc *sc)
 	}
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -1094,7 +1093,8 @@ urndis_stop(struct urndis_softc *sc)
 
 	ifp = GET_IFP(sc);
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (sc->sc_bulkin_pipe != NULL) {
 		usbd_abort_pipe(sc->sc_bulkin_pipe);
@@ -1145,18 +1145,19 @@ urndis_start(struct ifnet *ifp)
 
 	sc = ifp->if_softc;
 
-	if (usbd_is_dying(sc->sc_udev) || (ifp->if_flags & IFF_OACTIVE))
+	if (usbd_is_dying(sc->sc_udev) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
-	IFQ_POLL(&ifp->if_snd, m_head);
+	m_head = ifq_deq_begin(&ifp->if_snd);
 	if (m_head == NULL)
 		return;
 
 	if (urndis_encap(sc, m_head, 0)) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_deq_rollback(&ifp->if_snd, m_head);
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
-	IFQ_DEQUEUE(&ifp->if_snd, m_head);
+	ifq_deq_commit(&ifp->if_snd, m_head);
 
 	/*
 	 * If there's a BPF listener, bounce a copy of this frame
@@ -1167,7 +1168,7 @@ urndis_start(struct ifnet *ifp)
 		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
 #endif
 
-	ifp->if_flags |= IFF_OACTIVE;
+	ifq_set_oactive(&ifp->if_snd);
 
 	/*
 	 * Set a timeout in case the chip goes out to lunch.
@@ -1199,12 +1200,13 @@ urndis_rxeof(struct usbd_xfer *xfer,
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED)
 			return;
 		if (usbd_ratecheck(&sc->sc_rx_notice)) {
-			printf("%s: usb errors on rx: %s\n",
-			    DEVNAME(sc), usbd_errstr(status));
+			DPRINTF(("%s: usb errors on rx: %s\n",
+			    DEVNAME(sc), usbd_errstr(status)));
 		}
 		if (status == USBD_STALLED)
 			usbd_clear_endpoint_stall_async(sc->sc_bulkin_pipe);
 
+		ifp->if_ierrors++;
 		goto done;
 	}
 
@@ -1242,7 +1244,7 @@ urndis_txeof(struct usbd_xfer *xfer,
 	s = splnet();
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status == USBD_NOT_STARTED || status == USBD_CANCELLED) {
@@ -1250,8 +1252,8 @@ urndis_txeof(struct usbd_xfer *xfer,
 			return;
 		}
 		ifp->if_oerrors++;
-		printf("%s: usb error on tx: %s\n", DEVNAME(sc),
-		    usbd_errstr(status));
+		DPRINTF(("%s: usb error on tx: %s\n", DEVNAME(sc),
+		    usbd_errstr(status)));
 		if (status == USBD_STALLED)
 			usbd_clear_endpoint_stall_async(sc->sc_bulkout_pipe);
 		splx(s);
@@ -1416,8 +1418,6 @@ urndis_attach(struct device *parent, struct device *self, void *aux)
 #endif
 
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
-
-	IFQ_SET_READY(&ifp->if_snd);
 
 	s = splnet();
 

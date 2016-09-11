@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.17 2015/07/18 00:37:16 sf Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.19 2016/07/14 12:42:00 sf Exp $	*/
 /*	$NetBSD: virtio.c,v 1.3 2011/11/02 23:05:52 njoly Exp $	*/
 
 /*
@@ -207,14 +207,12 @@ vq_sync_indirect(struct virtio_softc *sc, struct virtqueue *vq, int slot,
 }
 
 /*
- * Can be used as sc_intrhand.
- */
-/*
  * Scan vq, bus_dmamap_sync for the vqs (not for the payload),
  * and calls (*vq_done)() if some entries are consumed.
+ * For use in transport specific irq handlers.
  */
 int
-virtio_vq_intr(struct virtio_softc *sc)
+virtio_check_vqs(struct virtio_softc *sc)
 {
 	struct virtqueue *vq;
 	int i, r = 0;
@@ -648,7 +646,7 @@ publish_avail_idx(struct virtio_softc *sc, struct virtqueue *vq)
 /*
  * enqueue_commit: add it to the aring.
  */
-int
+void
 virtio_enqueue_commit(struct virtio_softc *sc, struct virtqueue *vq, int slot,
     int notifynow)
 {
@@ -682,8 +680,6 @@ notify:
 				sc->sc_ops->kick(sc, vq->vq_index);
 		}
 	}
-
-	return 0;
 }
 
 /*

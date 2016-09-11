@@ -1,4 +1,4 @@
-/*	$OpenBSD: gprof.h,v 1.14 2013/10/19 13:51:40 deraadt Exp $	*/
+/*	$OpenBSD: gprof.h,v 1.16 2015/12/06 23:22:51 guenther Exp $	*/
 /*	$NetBSD: gprof.h,v 1.13 1996/04/01 21:54:06 mark Exp $	*/
 
 /*
@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <err.h>
+#include <unistd.h>
 
 #include MD_INCLUDE
 
@@ -281,10 +282,10 @@ void		sortchildren(nltype *);
 void		sortmembers(nltype *);
 void		sortparents(nltype *);
 void		tally(struct rawarc *);
-int		timecmp(nltype **, nltype **);
+int		timecmp(const void *, const void *);
 void		timepropagate(nltype *);
-int		topcmp(nltype **, nltype **);
-int		totalcmp(nltype **, nltype **);
+int		topcmp(const void *, const void *);
+int		totalcmp(const void *, const void *);
 
 #define	LESSTHAN	-1
 #define	EQUALTO		0

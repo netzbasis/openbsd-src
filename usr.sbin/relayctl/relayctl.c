@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayctl.c,v 1.55 2015/10/12 12:17:36 semarie Exp $	*/
+/*	$OpenBSD: relayctl.c,v 1.57 2016/09/03 14:44:21 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2013 Reyk Floeter <reyk@openbsd.org>
@@ -49,7 +49,7 @@ char		*print_rdr_status(int);
 char		*print_host_status(int, int);
 char		*print_table_status(int, int);
 char		*print_relay_status(int);
-void		 print_statistics(struct ctl_stats[RELAY_MAXPROC + 1]);
+void		 print_statistics(struct ctl_stats[PROC_MAX_INSTANCES + 1]);
 
 struct imsgname {
 	int type;
@@ -207,7 +207,7 @@ main(int argc, char *argv[])
 			err(1, "write error");
 
 	while (!done) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			errx(1, "imsg_read error");
 		if (n == 0)
 			errx(1, "pipe closed");
@@ -330,7 +330,7 @@ show_summary_msg(struct imsg *imsg, int type)
 	struct relay		*rlay;
 	struct router		*rt;
 	struct netroute		*nr;
-	struct ctl_stats	 stats[RELAY_MAXPROC];
+	struct ctl_stats	 stats[PROC_MAX_INSTANCES];
 	char			 name[HOST_NAME_MAX+1];
 
 	switch (imsg->hdr.type) {
@@ -536,7 +536,7 @@ print_relay_status(int flags)
 }
 
 void
-print_statistics(struct ctl_stats stats[RELAY_MAXPROC + 1])
+print_statistics(struct ctl_stats stats[PROC_MAX_INSTANCES + 1])
 {
 	struct ctl_stats	 crs;
 	int			 i;

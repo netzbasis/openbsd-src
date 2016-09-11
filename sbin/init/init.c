@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.54 2015/08/20 22:02:21 deraadt Exp $	*/
+/*	$OpenBSD: init.c,v 1.62 2016/09/05 10:20:40 gsoares Exp $	*/
 /*	$NetBSD: init.c,v 1.22 1996/05/15 23:29:33 jtc Exp $	*/
 
 /*-
@@ -34,15 +34,17 @@
  */
 
 #include <sys/types.h>
-#include <sys/sysctl.h>
-#include <sys/wait.h>
 #include <sys/reboot.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <sys/tree.h>
+#include <sys/wait.h>
 #include <machine/cpu.h>
 
-#include <db.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -56,6 +58,7 @@
 
 #ifdef SECURE
 #include <pwd.h>
+#include <readpassphrase.h>
 #endif
 
 #ifdef LOGIN_CAP
@@ -155,7 +158,13 @@ typedef struct init_session {
 	char	**se_window_argv;	/* pre-parsed argument array */
 	struct	init_session *se_prev;
 	struct	init_session *se_next;
+	RB_ENTRY(init_session) se_entry;
 } session_t;
+
+static int cmp_sessions(session_t *, session_t *);
+RB_HEAD(session_tree, init_session) session_tree = RB_INITIALIZER(session_tree);
+RB_PROTOTYPE(session_tree, init_session, se_entry, cmp_sessions);
+RB_GENERATE(session_tree, init_session, se_entry, cmp_sessions);
 
 void free_session(session_t *);
 session_t *new_session(session_t *, int, struct ttyent *);
@@ -180,11 +189,9 @@ void setprocresources(char *);
 
 void clear_session_logs(session_t *);
 
-int start_session_db(void);
 void add_session(session_t *);
 void del_session(session_t *);
 session_t *find_session(pid_t);
-DB *session_db;
 
 /*
  * The mother of all processes.
@@ -192,7 +199,7 @@ DB *session_db;
 int
 main(int argc, char *argv[])
 {
-	int c;
+	int c, fd;
 	struct sigaction sa;
 	sigset_t mask;
 
@@ -206,6 +213,17 @@ main(int argc, char *argv[])
 	if (getpid() != 1) {
 		(void)fprintf(stderr, "init: already running\n");
 		exit (1);
+	}
+
+	/*
+	 * Paranoia.
+	 */
+	if ((fd = open(_PATH_DEVNULL, O_RDWR, 0)) != -1) {
+		(void)dup2(fd, STDIN_FILENO);
+		(void)dup2(fd, STDOUT_FILENO);
+		(void)dup2(fd, STDERR_FILENO);
+		if (fd > 2)
+			(void)close(fd);
 	}
 
 	/*
@@ -268,13 +286,6 @@ main(int argc, char *argv[])
 	sa.sa_handler = SIG_IGN;
 	(void) sigaction(SIGTTIN, &sa, NULL);
 	(void) sigaction(SIGTTOU, &sa, NULL);
-
-	/*
-	 * Paranoia.
-	 */
-	close(STDIN_FILENO);
-	close(STDOUT_FILENO);
-	close(STDERR_FILENO);
 
 	/*
 	 * Start the state machine.
@@ -517,7 +528,8 @@ f_single_user(void)
 	struct passwd *pp;
 	static const char banner[] =
 		"Enter root password, or ^D to go multi-user\n";
-	char *clear, *password;
+	char *clear;
+	char pbuf[1024];
 #endif
 
 	/* Init shell and name */
@@ -543,17 +555,19 @@ f_single_user(void)
 		 * it's the only tty that can be 'off' and 'secure'.
 		 */
 		typ = getttynam("console");
-		pp = getpwnam("root");
+		pp = getpwnam_shadow("root");
 		if (typ && (typ->ty_status & TTY_SECURE) == 0 && pp &&
 		    *pp->pw_passwd) {
 			write(STDERR_FILENO, banner, sizeof banner - 1);
 			for (;;) {
-				clear = getpass("Password:");
-				if (clear == 0 || *clear == '\0')
+				int ok = 0;
+				clear = readpassphrase("Password:", pbuf, sizeof(pbuf), RPP_ECHO_OFF);
+				if (clear == NULL || *clear == '\0')
 					_exit(0);
-				password = crypt(clear, pp->pw_passwd);
-				memset(clear, 0, _PASSWORD_LEN);
-				if (strcmp(password, pp->pw_passwd) == 0)
+				if (crypt_checkpass(clear, pp->pw_passwd) == 0)
+					ok = 1;
+				memset(clear, 0, strlen(clear));
+				if (ok)
 					break;
 				warning("single-user login failed\n");
 			}
@@ -692,8 +706,8 @@ f_runcom(void)
 
 		argv[0] = "sh";
 		argv[1] = _PATH_RUNCOM;
-		argv[2] = runcom_mode == AUTOBOOT ? "autoboot" : 0;
-		argv[3] = 0;
+		argv[2] = runcom_mode == AUTOBOOT ? "autoboot" : NULL;
+		argv[3] = NULL;
 
 		sigprocmask(SIG_SETMASK, &sa.sa_mask, NULL);
 
@@ -760,19 +774,15 @@ f_runcom(void)
 }
 
 /*
- * Open the session database.
- *
- * NB: We could pass in the size here; is it necessary?
+ * Compare session keys.
  */
-int
-start_session_db(void)
+static int
+cmp_sessions(session_t *sp1, session_t *sp2)
 {
-	if (session_db && (*session_db->close)(session_db))
-		emergency("session database close: %s", strerror(errno));
-	if ((session_db = dbopen(NULL, O_RDWR, 0, DB_HASH, NULL)) == 0) {
-		emergency("session database open: %s", strerror(errno));
+	if (sp1->se_process < sp2->se_process)
+		return (-1);
+	if (sp1->se_process > sp2->se_process)
 		return (1);
-	}
 	return (0);
 }
 
@@ -782,15 +792,7 @@ start_session_db(void)
 void
 add_session(session_t *sp)
 {
-	DBT key;
-	DBT data;
-
-	key.data = &sp->se_process;
-	key.size = sizeof sp->se_process;
-	data.data = &sp;
-	data.size = sizeof sp;
-
-	if ((*session_db->put)(session_db, &key, &data, 0))
+	if (RB_INSERT(session_tree, &session_tree, sp) != NULL)
 		emergency("insert %d: %s", sp->se_process, strerror(errno));
 }
 
@@ -800,13 +802,7 @@ add_session(session_t *sp)
 void
 del_session(session_t *sp)
 {
-	DBT key;
-
-	key.data = &sp->se_process;
-	key.size = sizeof sp->se_process;
-
-	if ((*session_db->del)(session_db, &key, 0))
-		emergency("delete %d: %s", sp->se_process, strerror(errno));
+	RB_REMOVE(session_tree, &session_tree, sp);
 }
 
 /*
@@ -815,16 +811,10 @@ del_session(session_t *sp)
 session_t *
 find_session(pid_t pid)
 {
-	DBT key;
-	DBT data;
-	session_t *ret;
+	struct init_session s;
 
-	key.data = &pid;
-	key.size = sizeof pid;
-	if ((*session_db->get)(session_db, &key, &data, 0) != 0)
-		return (0);
-	memcpy(&ret, data.data, sizeof(ret));
-	return (ret);
+	s.se_process = pid;
+	return (RB_FIND(session_tree, &session_tree, &s));
 }
 
 /*
@@ -895,10 +885,10 @@ new_session(session_t *sprev, int session_index, struct ttyent *typ)
 		return (0);
 	}
 
-	sp->se_next = 0;
-	if (sprev == 0) {
+	sp->se_next = NULL;
+	if (sprev == NULL) {
 		sessions = sp;
-		sp->se_prev = 0;
+		sp->se_prev = NULL;
 	} else {
 		sprev->se_next = sp;
 		sp->se_prev = sprev;
@@ -923,12 +913,11 @@ setupargv(session_t *sp, struct ttyent *typ)
 	if (sp->se_getty_argv == 0) {
 		warning("can't parse getty for port %s", sp->se_device);
 		free(sp->se_getty);
-		sp->se_getty = 0;
+		sp->se_getty = NULL;
 		return (0);
 	}
 	if (typ->ty_window) {
-		if (sp->se_window)
-			free(sp->se_window);
+		free(sp->se_window);
 		sp->se_window = strdup(typ->ty_window);
 		if (sp->se_window == NULL) {
 			warning("can't allocate window");
@@ -966,9 +955,7 @@ f_read_ttys(void)
 		snext = sp->se_next;
 		free_session(sp);
 	}
-	sessions = 0;
-	if (start_session_db())
-		return single_user;
+	sessions = NULL;
 
 	/*
 	 * Allocate a session entry for each active port.
@@ -1237,7 +1224,7 @@ f_clean_ttys(void)
 	while ((typ = getttyent())) {
 		++session_index;
 
-		for (sprev = 0, sp = sessions; sp; sprev = sp, sp = sp->se_next)
+		for (sprev = NULL, sp = sessions; sp; sprev = sp, sp = sp->se_next)
 			if (strcmp(typ->ty_name, sp->se_device + devlen) == 0)
 				break;
 

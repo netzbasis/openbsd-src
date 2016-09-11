@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_extern.h,v 1.135 2015/09/28 18:33:42 tedu Exp $	*/
+/*	$OpenBSD: uvm_extern.h,v 1.139 2016/06/05 08:35:57 stefan Exp $	*/
 /*	$NetBSD: uvm_extern.h,v 1.57 2001/03/09 01:02:12 chs Exp $	*/
 
 /*
@@ -60,7 +60,6 @@
 #ifndef _UVM_UVM_EXTERN_H_
 #define _UVM_UVM_EXTERN_H_
 
-typedef unsigned int  uvm_flag_t;
 typedef int vm_fault_t;
 
 typedef int vm_inherit_t;	/* XXX: inheritance codes */
@@ -107,12 +106,11 @@ typedef int		vm_prot_t;
 #define UVM_FLAG_OVERLAY 0x0020000 /* establish overlay */
 #define UVM_FLAG_NOMERGE 0x0040000 /* don't merge map entries */
 #define UVM_FLAG_COPYONW 0x0080000 /* set copy_on_write flag */
-#define UVM_FLAG_AMAPPAD 0x0100000 /* for bss: pad amap to reduce malloc() */
-#define UVM_FLAG_TRYLOCK 0x0200000 /* fail if we can not lock map */
-#define UVM_FLAG_HOLE    0x0400000 /* no backend */
-#define UVM_FLAG_QUERY   0x0800000 /* do everything, except actual execution */
-#define UVM_FLAG_NOFAULT 0x1000000 /* don't fault */
-#define UVM_FLAG_UNMAP   0x2000000 /* unmap to make space */
+#define UVM_FLAG_TRYLOCK 0x0100000 /* fail if we can not lock map */
+#define UVM_FLAG_HOLE    0x0200000 /* no backend */
+#define UVM_FLAG_QUERY   0x0400000 /* do everything, except actual execution */
+#define UVM_FLAG_NOFAULT 0x0800000 /* don't fault */
+#define UVM_FLAG_UNMAP   0x1000000 /* unmap to make space */
 
 
 /* macros to extract info */
@@ -413,8 +411,8 @@ void			*km_alloc(size_t, const struct kmem_va_mode *,
 void			km_free(void *, size_t, const struct kmem_va_mode *,
 			    const struct kmem_pa_mode *);
 int			uvm_map(vm_map_t, vaddr_t *, vsize_t,
-			    struct uvm_object *, voff_t, vsize_t, uvm_flag_t);
-int			uvm_mapanon(vm_map_t, vaddr_t *, vsize_t, vsize_t, uvm_flag_t);
+			    struct uvm_object *, voff_t, vsize_t, unsigned int);
+int			uvm_mapanon(vm_map_t, vaddr_t *, vsize_t, vsize_t, unsigned int);
 int			uvm_map_pageable(vm_map_t, vaddr_t, 
 			    vaddr_t, boolean_t, int);
 int			uvm_map_pageable_all(vm_map_t, int, vsize_t);
@@ -430,6 +428,8 @@ void			uvmspace_exec(struct proc *, vaddr_t, vaddr_t);
 struct vmspace		*uvmspace_fork(struct process *);
 void			uvmspace_free(struct vmspace *);
 struct vmspace		*uvmspace_share(struct process *);
+int			uvm_share(vm_map_t, vaddr_t, vm_prot_t,
+			    vm_map_t, vaddr_t, vsize_t);
 void			uvm_meter(void);
 int			uvm_sysctl(int *, u_int, void *, size_t *, 
 			    void *, size_t, struct proc *);
@@ -448,7 +448,6 @@ void			uvm_page_physload(paddr_t, paddr_t, paddr_t,
 			    paddr_t, int);
 void			uvm_setpagesize(void);
 void			uvm_shutdown(void);
-void			uvm_aio_biodone1(struct buf *);
 void			uvm_aio_biodone(struct buf *);
 void			uvm_aio_aiodone(struct buf *);
 void			uvm_pageout(void *);

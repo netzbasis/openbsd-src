@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.177 2015/11/03 21:39:34 chl Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.190 2016/08/24 09:38:29 mpi Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -444,8 +444,10 @@ icmp6_input(struct mbuf **mp, int *offp, int proto)
 	if (ifp->if_type == IFT_CARP &&
 	    icmp6->icmp6_type == ICMP6_ECHO_REQUEST &&
 	    carp_lsdrop(m, AF_INET6, ip6->ip6_src.s6_addr32,
-	    ip6->ip6_dst.s6_addr32))
+	    ip6->ip6_dst.s6_addr32)) {
+		if_put(ifp);
 		goto freeit;
+	}
 
 	if_put(ifp);
 #endif
@@ -1018,16 +1020,19 @@ icmp6_mtudisc_update(struct ip6ctlparam *ip6cp, int validated)
 
 	rt = icmp6_mtudisc_clone(sin6tosa(&sin6), m->m_pkthdr.ph_rtableid);
 
-	if (rt && (rt->rt_flags & RTF_HOST) &&
+	if (rt != NULL && ISSET(rt->rt_flags, RTF_HOST) &&
 	    !(rt->rt_rmx.rmx_locks & RTV_MTU) &&
 	    (rt->rt_rmx.rmx_mtu > mtu || rt->rt_rmx.rmx_mtu == 0)) {
-		if (mtu < rt->rt_ifp->if_mtu) {
+	    	struct ifnet *ifp;
+
+	    	ifp = if_get(rt->rt_ifidx);
+		if (ifp != NULL && mtu < ifp->if_mtu) {
 			icmp6stat.icp6s_pmtuchg++;
 			rt->rt_rmx.rmx_mtu = mtu;
 		}
+		if_put(ifp);
 	}
-	if (rt)
-		rtfree(rt);
+	rtfree(rt);
 
 	/*
 	 * Notify protocols that the MTU for this destination
@@ -1147,12 +1152,11 @@ icmp6_rip6_input(struct mbuf **mp, int off)
 void
 icmp6_reflect(struct mbuf *m, size_t off)
 {
+	struct rtentry *rt = NULL;
 	struct ip6_hdr *ip6;
 	struct icmp6_hdr *icmp6;
 	struct in6_ifaddr *ia6;
 	struct in6_addr t, *src = NULL;
-	int plen;
-	int type, code;
 	struct sockaddr_in6 sa6_src, sa6_dst;
 
 	/* too short to reflect */
@@ -1193,12 +1197,9 @@ icmp6_reflect(struct mbuf *m, size_t off)
 				return;
 		}
 	}
-	plen = m->m_pkthdr.len - sizeof(struct ip6_hdr);
 	ip6 = mtod(m, struct ip6_hdr *);
 	ip6->ip6_nxt = IPPROTO_ICMPV6;
 	icmp6 = (struct icmp6_hdr *)(ip6 + 1);
-	type = icmp6->icmp6_type; /* keep type for statistics */
-	code = icmp6->icmp6_code; /* ditto. */
 
 	t = ip6->ip6_dst;
 	/*
@@ -1229,13 +1230,14 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	/*
 	 * If the incoming packet was addressed directly to us (i.e. unicast),
 	 * use dst as the src for the reply.
-	 * The IN6_IFF_NOTREADY case would be VERY rare, but is possible
-	 * (for example) when we encounter an error while forwarding procedure
-	 * destined to a duplicated address of ours.
+	 * The IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED case would be VERY rare,
+	 * but is possible (for example) when we encounter an error while
+	 * forwarding procedure destined to a duplicated address of ours.
 	 */
 	TAILQ_FOREACH(ia6, &in6_ifaddr, ia_list)
 		if (IN6_ARE_ADDR_EQUAL(&t, &ia6->ia_addr.sin6_addr) &&
-		    (ia6->ia6_flags & (IN6_IFF_ANYCAST|IN6_IFF_NOTREADY)) == 0) {
+		    (ia6->ia6_flags & (IN6_IFF_ANYCAST|IN6_IFF_TENTATIVE|
+		    IN6_IFF_DUPLICATED)) == 0) {
 			src = &t;
 			break;
 		}
@@ -1248,32 +1250,28 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	}
 
 	if (src == NULL) {
-		int error;
-		struct route_in6 ro;
-		char addr[INET6_ADDRSTRLEN];
-
 		/*
 		 * This case matches to multicasts, our anycast, or unicasts
 		 * that we do not own.  Select a source address based on the
 		 * source address of the erroneous packet.
 		 */
-		bzero(&ro, sizeof(ro));
-		error = in6_selectsrc(&src, &sa6_src, NULL, NULL, &ro, NULL,
+		rt = rtalloc(sin6tosa(&sa6_src), RT_RESOLVE,
 		    m->m_pkthdr.ph_rtableid);
-		if (ro.ro_rt)
-			rtfree(ro.ro_rt); /* XXX: we could use this */
-		if (error) {
+		if (!rtisvalid(rt)) {
+			char addr[INET6_ADDRSTRLEN];
+
 			nd6log((LOG_DEBUG,
-			    "icmp6_reflect: source can't be determined: "
-			    "dst=%s, error=%d\n",
-			    inet_ntop(AF_INET6, &sa6_src.sin6_addr,
-				addr, sizeof(addr)),
-			    error));
+			    "%s: source can't be determined: dst=%s\n",
+			    __func__, inet_ntop(AF_INET6, &sa6_src.sin6_addr,
+				addr, sizeof(addr))));
+			rtfree(rt);
 			goto bad;
 		}
+		src = &ifatoia6(rt->rt_ifa)->ia_addr.sin6_addr;
 	}
 
 	ip6->ip6_src = *src;
+	rtfree(rt);
 
 	ip6->ip6_flow = 0;
 	ip6->ip6_vfc &= ~IPV6_VERSION_MASK;
@@ -1299,7 +1297,7 @@ icmp6_reflect(struct mbuf *m, size_t off)
 #if NPF > 0
 	pf_pkt_addr_changed(m);
 #endif
-	ip6_output(m, NULL, NULL, IPV6_MINMTU, NULL, NULL);
+	ip6_send(m);
 	return;
 
  bad:
@@ -1514,8 +1512,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 		bcopy(&redtgt6, &sgw.sin6_addr, sizeof(struct in6_addr));
 		bcopy(&reddst6, &sdst.sin6_addr, sizeof(struct in6_addr));
 		bcopy(&src6, &ssrc.sin6_addr, sizeof(struct in6_addr));
-		rtredirect(sin6tosa(&sdst), sin6tosa(&sgw), NULL,
-		    RTF_GATEWAY | RTF_HOST, sin6tosa(&ssrc),
+		rtredirect(sin6tosa(&sdst), sin6tosa(&sgw), sin6tosa(&ssrc),
 		    &newrt, m->m_pkthdr.ph_rtableid);
 
 		if (newrt) {
@@ -1549,7 +1546,7 @@ icmp6_redirect_input(struct mbuf *m, int off)
 void
 icmp6_redirect_output(struct mbuf *m0, struct rtentry *rt)
 {
-	struct ifnet *ifp;	/* my outgoing interface */
+	struct ifnet *ifp = NULL;
 	struct in6_addr *ifp_ll6;
 	struct in6_addr *nexthop;
 	struct ip6_hdr *sip6;	/* m0 as struct ip6_hdr */
@@ -1569,7 +1566,10 @@ icmp6_redirect_output(struct mbuf *m0, struct rtentry *rt)
 	/* sanity check */
 	if (m0 == NULL || !rtisvalid(rt))
 		goto fail;
-	ifp = rt->rt_ifp;
+
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		goto fail;
 
 	/*
 	 * Address check:
@@ -1619,9 +1619,8 @@ icmp6_redirect_output(struct mbuf *m0, struct rtentry *rt)
 	{
 		/* get ip6 linklocal address for ifp(my outgoing interface). */
 		struct in6_ifaddr *ia6;
-		if ((ia6 = in6ifa_ifpforlinklocal(ifp,
-						 IN6_IFF_NOTREADY|
-						 IN6_IFF_ANYCAST)) == NULL)
+		if ((ia6 = in6ifa_ifpforlinklocal(ifp, IN6_IFF_TENTATIVE|
+		    IN6_IFF_DUPLICATED|IN6_IFF_ANYCAST)) == NULL)
 			goto fail;
 		ifp_ll6 = &ia6->ia_addr.sin6_addr;
 	}
@@ -1795,9 +1794,11 @@ noredhdropt:
 
 	icmp6stat.icp6s_outhist[ND_REDIRECT]++;
 
+	if_put(ifp);
 	return;
 
 fail:
+	if_put(ifp);
 	m_freem(m);
 	m_freem(m0);
 }
@@ -1905,7 +1906,7 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rdomain)
 	struct rtentry *rt;
 	int    error;
 
-	rt = rtalloc(dst, RT_REPORT|RT_RESOLVE, rdomain);
+	rt = rtalloc(dst, RT_RESOLVE, rdomain);
 	if (rt == NULL)
 		return NULL;
 
@@ -1945,34 +1946,42 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rdomain)
 void
 icmp6_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp6_mtudisc_timeout: bad route to timeout");
-	if ((rt->rt_flags & (RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_DYNAMIC | RTF_HOST)) {
-		int s;
+	struct ifnet *ifp;
+	int s;
 
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
+
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 		splx(s);
 	} else {
 		if (!(rt->rt_rmx.rmx_locks & RTV_MTU))
 			rt->rt_rmx.rmx_mtu = 0;
 	}
+
+	if_put(ifp);
 }
 
 void
 icmp6_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 {
-	if (rt == NULL)
-		panic("icmp6_redirect_timeout: bad route to timeout");
-	if ((rt->rt_flags & (RTF_GATEWAY | RTF_DYNAMIC | RTF_HOST)) ==
-	    (RTF_GATEWAY | RTF_DYNAMIC | RTF_HOST)) {
-		int s;
+	struct ifnet *ifp;
+	int s;
 
+	ifp = if_get(rt->rt_ifidx);
+	if (ifp == NULL)
+		return;
+
+	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
 		s = splsoftnet();
-		rtdeletemsg(rt, r->rtt_tableid);
+		rtdeletemsg(rt, ifp, r->rtt_tableid);
 		splx(s);
 	}
+
+	if_put(ifp);
 }
 
 int *icmpv6ctl_vars[ICMPV6CTL_MAXID] = ICMPV6CTL_VARS;

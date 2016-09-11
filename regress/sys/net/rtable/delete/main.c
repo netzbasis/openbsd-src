@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.1 2015/11/04 09:45:52 mpi Exp $ */
+/*	$OpenBSD: main.c,v 1.4 2016/07/19 10:52:56 mpi Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -16,6 +16,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "srp_compat.h"
+
 #include <sys/socket.h>
 #include <net/route.h>
 
@@ -24,6 +26,15 @@
 #include <stdlib.h>
 
 #include "util.h"
+
+#ifdef ART
+#include <net/rtable.h>
+#include <net/art.h>
+
+#include <assert.h>
+
+extern void  *rtable_get(unsigned int, sa_family_t);
+#endif /* ART */
 
 __dead void
 usage(void)
@@ -50,6 +61,15 @@ main(int argc, char *argv[])
 	do_from_file(0, AF_INET6, filename, route_insert);
 
 	rtable_walk(0, AF_INET6, rtentry_delete, NULL);
+
+	rtable_walk(0, AF_INET6, rtentry_dump, NULL);
+
+#ifdef ART
+	struct art_root *ar;
+	ar = rtable_get(0, AF_INET6);
+	assert(ar != NULL);
+	assert(ar->ar_root.ref == NULL);
+#endif /* ART */
 
 	return (0);
 }

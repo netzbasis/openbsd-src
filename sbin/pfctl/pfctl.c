@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.331 2015/10/02 15:32:17 krw Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.337 2016/09/03 21:30:49 jca Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -220,7 +220,6 @@ static const char *tblcmdopt_list[] = {
 static const char *debugopt_list[] = {
 	"debug", "info", "notice", "warning",
 	"error", "crit", "alert", "emerg",
-	"none", "urgent", "misc", "loud",
 	NULL
 };
 
@@ -1077,8 +1076,8 @@ pfctl_add_rule(struct pfctl *pf, struct pf_rule *r, const char *anchor_call)
 		    sizeof(rule->anchor->path)) >= sizeof(rule->anchor->path))
                         errx(1, "pfctl_add_rule: strlcpy");
 		if ((p = strrchr(anchor_call, '/')) != NULL) {
-			if (!strlen(p))
-				err(1, "pfctl_add_rule: bad anchor name %s",
+			if (strlen(p) == 1)
+				errx(1, "pfctl_add_rule: bad anchor name %s",
 				    anchor_call);
 		} else
 			p = (char *)anchor_call;
@@ -1118,6 +1117,16 @@ pfctl_add_queue(struct pfctl *pf, struct pf_queuespec *q)
 	if (pf->anchor->name[0]) {
 		printf("must not have queue definitions in an anchor\n");
 		return (1);
+	}
+
+	if (q->parent[0] == '\0') {
+		TAILQ_FOREACH(qi, &rootqs, entries) {
+			if (strcmp(q->ifname, qi->qs.ifname))
+			    continue;
+			printf("A root queue is already defined on %s\n",
+			    qi->qs.ifname);
+			return (1);
+		}
 	}
 
 	if ((qi = calloc(1, sizeof(*qi))) == NULL)
@@ -1333,7 +1342,7 @@ pfctl_load_ruleset(struct pfctl *pf, char *path, struct pf_ruleset *rs,
 	if (path[0])
 		snprintf(&path[len], PATH_MAX - len, "/%s", pf->anchor->name);
 	else
-		snprintf(&path[len], PATH_MAX - len, "%s", pf->anchor->name);
+		snprintf(&path[len], PATH_MAX - len, "%s", pf->anchor->path);
 
 	if (depth) {
 		if (TAILQ_FIRST(rs->rules.active.ptr) != NULL) {
@@ -1438,6 +1447,7 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	struct pfr_table	 trs;
 	char			*path = NULL;
 	int			 osize;
+	char			*p;
 
 	bzero(&pf, sizeof(pf));
 	RB_INIT(&pf_anchors);
@@ -1474,7 +1484,15 @@ pfctl_rules(int dev, char *filename, int opts, int optimize,
 	if (strlcpy(pf.anchor->path, anchorname,
 	    sizeof(pf.anchor->path)) >= sizeof(pf.anchor->path))
 		errx(1, "pfctl_add_rule: strlcpy");
-	if (strlcpy(pf.anchor->name, anchorname,
+
+	if ((p = strrchr(anchorname, '/')) != NULL) {
+		if (strlen(p) == 1)
+			errx(1, "pfctl_add_rule: bad anchor name %s",
+			    anchorname);
+	} else
+		p = anchorname;
+
+	if (strlcpy(pf.anchor->name, p,
 	    sizeof(pf.anchor->name)) >= sizeof(pf.anchor->name))
 		errx(1, "pfctl_add_rule: strlcpy");
 
@@ -1546,8 +1564,7 @@ _error:
 				err(1, "DIOCXROLLBACK");
 		exit(1);
 	} else {		/* sub ruleset */
-		if (path)
-			free(path);
+		free(path);
 		return (-1);
 	}
 
@@ -1884,15 +1901,7 @@ pfctl_set_debug(struct pfctl *pf, char *d)
 	u_int32_t	level;
 	int		loglevel;
 
-	if (!strcmp(d, "none"))
-		level = LOG_CRIT;
-	else if (!strcmp(d, "urgent"))
-		level = LOG_ERR;
-	else if (!strcmp(d, "misc"))
-		level = LOG_NOTICE;
-	else if (!strcmp(d, "loud"))
-		level = LOG_DEBUG;
-	else if ((loglevel = string_to_loglevel(d)) >= 0)
+	if ((loglevel = string_to_loglevel(d)) >= 0)
 		level = loglevel;
 	else {
 		warnx("unknown debug level \"%s\"", d);

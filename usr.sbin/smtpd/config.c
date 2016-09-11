@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.33 2015/10/14 20:45:30 gilles Exp $	*/
+/*	$OpenBSD: config.c,v 1.37 2016/09/01 10:54:25 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -35,10 +35,6 @@
 #include "smtpd.h"
 #include "log.h"
 #include "ssl.h"
-
-extern int profiling;
-
-static int pipes[PROC_COUNT][PROC_COUNT];
 
 void
 purge_config(uint8_t what)
@@ -106,23 +102,6 @@ purge_config(uint8_t what)
 }
 
 void
-init_pipes(void)
-{
-	int	 i, j, sockpair[2];
-
-	for (i = 0; i < PROC_COUNT; i++)
-		for (j = i + 1; j < PROC_COUNT; j++) {
-			if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC,
-				sockpair) == -1)
-				fatal("socketpair");
-			pipes[i][j] = sockpair[0];
-			pipes[j][i] = sockpair[1];
-			session_socket_blockmode(pipes[i][j], BM_NONBLOCK);
-			session_socket_blockmode(pipes[j][i], BM_NONBLOCK);
-		}
-}
-
-void
 config_process(enum smtp_proc_type proc)
 {
 	struct rlimit rl;
@@ -145,96 +124,22 @@ config_peer(enum smtp_proc_type proc)
 	if (proc == smtpd_process)
 		fatal("config_peers: cannot peer with oneself");
 
-	p = xcalloc(1, sizeof *p, "config_peer");
-	p->proc = proc;
-	p->name = xstrdup(proc_name(proc), "config_peer");
-	p->handler = imsg_dispatch;
-
-	mproc_init(p, pipes[smtpd_process][proc]);
-	mproc_enable(p);
-	pipes[smtpd_process][proc] = -1;
-
 	if (proc == PROC_CONTROL)
-		p_control = p;
+		p = p_control;
 	else if (proc == PROC_LKA)
-		p_lka = p;
+		p = p_lka;
 	else if (proc == PROC_PARENT)
-		p_parent = p;
+		p = p_parent;
 	else if (proc == PROC_QUEUE)
-		p_queue = p;
+		p = p_queue;
 	else if (proc == PROC_SCHEDULER)
-		p_scheduler = p;
+		p = p_scheduler;
 	else if (proc == PROC_PONY)
-		p_pony = p;
+		p = p_pony;
 	else if (proc == PROC_CA)
-		p_ca = p;
+		p = p_ca;
 	else
 		fatalx("bad peer");
-}
 
-static void process_stat_event(int, short, void *);
-
-void
-config_done(void)
-{
-	static struct event	ev;
-	struct timeval		tv;
-	unsigned int		i, j;
-
-	for (i = 0; i < PROC_COUNT; i++) {
-		for (j = 0; j < PROC_COUNT; j++) {
-			if (i == j || pipes[i][j] == -1)
-				continue;
-			close(pipes[i][j]);
-			pipes[i][j] = -1;
-		}
-	}
-
-	if (smtpd_process == PROC_CONTROL)
-		return;
-
-	if (!(profiling & PROFILE_BUFFERS))
-		return;
-
-	evtimer_set(&ev, process_stat_event, &ev);
-	tv.tv_sec = 0;
-	tv.tv_usec = 0;
-	evtimer_add(&ev, &tv);
-}
-
-static void
-process_stat(struct mproc *p)
-{
-	char			buf[1024];
-	struct stat_value	value;
-
-	if (p == NULL)
-		return;
-
-	value.type = STAT_COUNTER;
-	(void)snprintf(buf, sizeof buf, "buffer.%s.%s",
-	    proc_name(smtpd_process),
-	    proc_name(p->proc));
-	value.u.counter = p->bytes_queued_max;
-	p->bytes_queued_max = p->bytes_queued;
-	stat_set(buf, &value);
-}
-
-static void
-process_stat_event(int fd, short ev, void *arg)
-{
-	struct event	*e = arg;
-	struct timeval	 tv;
-
-	process_stat(p_control);
-	process_stat(p_lka);
-	process_stat(p_parent);
-	process_stat(p_queue);
-	process_stat(p_scheduler);
-	process_stat(p_pony);
-	process_stat(p_ca);
-
-	tv.tv_sec = 1;
-	tv.tv_usec = 0;
-	evtimer_add(e, &tv);
+	mproc_enable(p);
 }

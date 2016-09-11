@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_sh.c,v 1.54 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: c_sh.c,v 1.59 2016/03/04 15:11:06 deraadt Exp $	*/
 
 /*
  * built-in Bourne commands
@@ -8,7 +8,13 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -24,7 +30,7 @@ c_label(char **wp)
 int
 c_shift(char **wp)
 {
-	struct block *l = e->loc;
+	struct block *l = genv->loc;
 	int n;
 	long val;
 	char *arg;
@@ -202,7 +208,7 @@ c_dot(char **wp)
 	/* Set positional parameters? */
 	if (wp[builtin_opt.optind + 1]) {
 		argv = wp + builtin_opt.optind;
-		argv[0] = e->loc->argv[0]; /* preserve $0 */
+		argv[0] = genv->loc->argv[0]; /* preserve $0 */
 		for (argc = 0; argv[argc + 1]; argc++)
 			;
 	} else {
@@ -326,7 +332,7 @@ c_read(char **wp)
 				if (c == '\0')
 					continue;
 				if (c == EOF && shf_error(shf) &&
-				    shf_errno(shf) == EINTR) {
+				    shf->errno_ == EINTR) {
 					/* Was the offending signal one that
 					 * would normally kill a process?
 					 * If so, pretend the read was killed.
@@ -523,7 +529,7 @@ c_exitreturn(char **wp)
 		/* need to tell if this is exit or return so trap exit will
 		 * work right (POSIX)
 		 */
-		for (ep = e; ep; ep = ep->oenv)
+		for (ep = genv; ep; ep = ep->oenv)
 			if (STOP_RETURN(ep->type)) {
 				how = LRETURN;
 				break;
@@ -564,7 +570,7 @@ c_brkcont(char **wp)
 	}
 
 	/* Stop at E_NONE, E_PARSE, E_FUNC, or E_INCL */
-	for (ep = e; ep && !STOP_BRKCONT(ep->type); ep = ep->oenv)
+	for (ep = genv; ep && !STOP_BRKCONT(ep->type); ep = ep->oenv)
 		if (ep->type == E_LOOP) {
 			if (--quit == 0)
 				break;
@@ -599,7 +605,7 @@ int
 c_set(char **wp)
 {
 	int argi, setargs;
-	struct block *l = e->loc;
+	struct block *l = genv->loc;
 	char **owp = wp;
 
 	if (wp[1] == NULL) {
@@ -802,79 +808,23 @@ c_exec(char **wp)
 	int i;
 
 	/* make sure redirects stay in place */
-	if (e->savefd != NULL) {
+	if (genv->savefd != NULL) {
 		for (i = 0; i < NUFILE; i++) {
-			if (e->savefd[i] > 0)
-				close(e->savefd[i]);
+			if (genv->savefd[i] > 0)
+				close(genv->savefd[i]);
 			/*
 			 * For ksh keep anything > 2 private,
 			 * for sh, let them be (POSIX says what
 			 * happens is unspecified and the bourne shell
 			 * keeps them open).
 			 */
-			if (!Flag(FSH) && i > 2 && e->savefd[i])
+			if (!Flag(FSH) && i > 2 && genv->savefd[i])
 				fcntl(i, F_SETFD, FD_CLOEXEC);
 		}
-		e->savefd = NULL;
+		genv->savefd = NULL;
 	}
 	return 0;
 }
-
-#ifdef MKNOD
-static int
-c_mknod(char **wp)
-{
-	int argc, optc, ismkfifo = 0, ret;
-	char **argv;
-	void *set = NULL;
-	mode_t mode = 0, oldmode = 0;
-
-	while ((optc = ksh_getopt(wp, &builtin_opt, "m:")) != -1) {
-		switch (optc) {
-		case 'm':
-			set = setmode(builtin_opt.optarg);
-			if (set == NULL) {
-				bi_errorf("invalid file mode");
-				return 1;
-			}
-			mode = getmode(set, DEFFILEMODE);
-			free(set);
-			break;
-		default:
-			goto usage;
-		}
-	}
-	argv = &wp[builtin_opt.optind];
-	if (argv[0] == NULL)
-		goto usage;
-	for (argc = 0; argv[argc]; argc++)
-		;
-	if (argc == 2 && argv[1][0] == 'p') {
-		ismkfifo = 1;
-		argc--;
-	} else if (argc != 4)
-		goto usage;
-
-	if (set)
-		oldmode = umask(0);
-	else
-		mode = DEFFILEMODE;
-
-	if (ismkfifo)
-		ret = domkfifo(argc, argv, mode);
-	else
-		ret = domknod(argc, argv, mode);
-
-	if (set)
-		umask(oldmode);
-	return ret;
-usage:
-	builtin_argv0 = NULL;
-	bi_errorf("usage: mknod [-m mode] name b|c major minor");
-	bi_errorf("usage: mknod [-m mode] name p");
-	return 1;
-}
-#endif /* MKNOD */
 
 static int
 c_suspend(char **wp)
@@ -934,9 +884,6 @@ const struct builtin shbuiltins [] = {
 	{"ulimit", c_ulimit},
 	{"+umask", c_umask},
 	{"*=unset", c_unset},
-#ifdef MKNOD
-	{"mknod", c_mknod},
-#endif
 	{"suspend", c_suspend},
 	{NULL, NULL}
 };

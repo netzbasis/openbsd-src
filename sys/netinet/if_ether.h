@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.h,v 1.62 2015/10/27 15:22:58 mpi Exp $	*/
+/*	$OpenBSD: if_ether.h,v 1.72 2016/06/28 17:18:24 chris Exp $	*/
 /*	$NetBSD: if_ether.h,v 1.22 1996/05/11 13:00:00 mycroft Exp $	*/
 
 /*
@@ -75,6 +75,31 @@ struct	ether_header {
 	u_int16_t ether_type;
 };
 
+/*
+ * VLAN headers.
+ */
+
+struct  ether_vlan_header {
+        u_char  evl_dhost[ETHER_ADDR_LEN];
+        u_char  evl_shost[ETHER_ADDR_LEN];
+        u_int16_t evl_encap_proto;
+        u_int16_t evl_tag;
+        u_int16_t evl_proto;
+};
+
+#define EVL_VLID_MASK	0xFFF
+#define EVL_VLID_NULL	0x000
+/* 0x000 and 0xfff are reserved */
+#define EVL_VLID_MIN	0x001
+#define EVL_VLID_MAX	0xFFE
+#define EVL_VLANOFTAG(tag) ((tag) & EVL_VLID_MASK)
+
+#define EVL_PRIO_MAX    7
+#define EVL_PRIO_BITS   13
+#define EVL_PRIOFTAG(tag) (((tag) >> EVL_PRIO_BITS) & 7)
+
+#define EVL_ENCAPLEN    4       /* length in octets of encapsulation */
+
 #include <net/ethertypes.h>
 
 #define	ETHER_IS_MULTICAST(addr) (*(addr) & 0x01) /* is address mcast/bcast? */
@@ -87,6 +112,43 @@ struct	ether_header {
  */
 #define	ETHER_CRC_POLY_LE	0xedb88320
 #define	ETHER_CRC_POLY_BE	0x04c11db6
+
+/*
+ * Ethernet Address Resolution Protocol.
+ *
+ * See RFC 826 for protocol description.  Structure below is adapted
+ * to resolving internet addresses.  Field names used correspond to
+ * RFC 826.
+ */
+struct	ether_arp {
+	struct	 arphdr ea_hdr;			/* fixed-size header */
+	u_int8_t arp_sha[ETHER_ADDR_LEN];	/* sender hardware address */
+	u_int8_t arp_spa[4];			/* sender protocol address */
+	u_int8_t arp_tha[ETHER_ADDR_LEN];	/* target hardware address */
+	u_int8_t arp_tpa[4];			/* target protocol address */
+};
+#define	arp_hrd	ea_hdr.ar_hrd
+#define	arp_pro	ea_hdr.ar_pro
+#define	arp_hln	ea_hdr.ar_hln
+#define	arp_pln	ea_hdr.ar_pln
+#define	arp_op	ea_hdr.ar_op
+
+struct sockaddr_inarp {
+	u_int8_t  sin_len;
+	u_int8_t  sin_family;
+	u_int16_t sin_port;
+	struct	  in_addr sin_addr;
+	struct	  in_addr sin_srcaddr;
+	u_int16_t sin_tos;
+	u_int16_t sin_other;
+#define SIN_PROXY 1
+};
+
+/*
+ * IP and ethernet specific routing flags
+ */
+#define	RTF_USETRAILERS	  RTF_PROTO1	/* use trailers */
+#define	RTF_PERMANENT_ARP RTF_PROTO3    /* only manual overwrite of entry */
 
 #ifdef _KERNEL
 /*
@@ -123,31 +185,6 @@ do {									\
 	(enaddr)[5] = ((u_int8_t *)ip6addr)[15];			\
 } while (/* CONSTCOND */ 0)
 
-void	ether_fakeaddr(struct ifnet *);
-#endif
-
-/*
- * Ethernet Address Resolution Protocol.
- *
- * See RFC 826 for protocol description.  Structure below is adapted
- * to resolving internet addresses.  Field names used correspond to
- * RFC 826.
- */
-struct	ether_arp {
-	struct	 arphdr ea_hdr;			/* fixed-size header */
-	u_int8_t arp_sha[ETHER_ADDR_LEN];	/* sender hardware address */
-	u_int8_t arp_spa[4];			/* sender protocol address */
-	u_int8_t arp_tha[ETHER_ADDR_LEN];	/* target hardware address */
-	u_int8_t arp_tpa[4];			/* target protocol address */
-};
-#define	arp_hrd	ea_hdr.ar_hrd
-#define	arp_pro	ea_hdr.ar_pro
-#define	arp_hln	ea_hdr.ar_hln
-#define	arp_pln	ea_hdr.ar_pln
-#define	arp_op	ea_hdr.ar_op
-
-#ifdef _KERNEL
-
 #include <net/if_var.h>	/* for "struct ifnet" */
 
 /*
@@ -164,43 +201,45 @@ struct	arpcom {
 	int	 ac_multirangecnt;		/* number of mcast ranges */
 
 };
-#endif
 
-struct sockaddr_inarp {
-	u_int8_t  sin_len;
-	u_int8_t  sin_family;
-	u_int16_t sin_port;
-	struct	  in_addr sin_addr;
-	struct	  in_addr sin_srcaddr;
-	u_int16_t sin_tos;
-	u_int16_t sin_other;
-#define SIN_PROXY 1
-};
+extern int arpt_keep;				/* arp resolved cache expire */
+extern int arpt_down;				/* arp down cache expire */
 
-/*
- * IP and ethernet specific routing flags
- */
-#define	RTF_USETRAILERS	  RTF_PROTO1	/* use trailers */
-#define	RTF_ANNOUNCE	  RTF_PROTO2	/* announce new arp entry */
-#define	RTF_PERMANENT_ARP RTF_PROTO3    /* only manual overwrite of entry */
-
-#ifdef	_KERNEL
 extern u_int8_t etherbroadcastaddr[ETHER_ADDR_LEN];
 extern u_int8_t etheranyaddr[ETHER_ADDR_LEN];
 extern u_int8_t ether_ipmulticast_min[ETHER_ADDR_LEN];
 extern u_int8_t ether_ipmulticast_max[ETHER_ADDR_LEN];
-extern struct niqueue arpintrq;
-extern struct niqueue rarpintrq;
 
+#ifdef NFSCLIENT
+extern unsigned int revarp_ifidx;
+#endif /* NFSCLIENT */
+
+void	revarpinput(struct ifnet *, struct mbuf *);
+void	revarprequest(struct ifnet *);
+int	revarpwhoarewe(struct ifnet *, struct in_addr *, struct in_addr *);
+int	revarpwhoami(struct in_addr *, struct ifnet *);
+
+void	arpinput(struct ifnet *, struct mbuf *);
+void	arprequest(struct ifnet *, u_int32_t *, u_int32_t *, u_int8_t *);
 void	arpwhohas(struct arpcom *, struct in_addr *);
-void	arpintr(void);
-int	arpresolve(struct ifnet *,
-	    struct rtentry *, struct mbuf *, struct sockaddr *, u_char *);
+int	arpproxy(struct in_addr, unsigned int);
+int	arpresolve(struct ifnet *, struct rtentry *, struct mbuf *,
+	    struct sockaddr *, u_char *);
 void	arp_rtrequest(struct ifnet *, int, struct rtentry *);
 
+void	ether_fakeaddr(struct ifnet *);
 int	ether_addmulti(struct ifreq *, struct arpcom *);
 int	ether_delmulti(struct ifreq *, struct arpcom *);
 int	ether_multiaddr(struct sockaddr *, u_int8_t[], u_int8_t[]);
+void	ether_ifattach(struct ifnet *);
+void	ether_ifdetach(struct ifnet *);
+int	ether_ioctl(struct ifnet *, struct arpcom *, u_long, caddr_t);
+int	ether_input(struct ifnet *, struct mbuf *, void *);
+int	ether_output(struct ifnet *,
+	    struct mbuf *, struct sockaddr *, struct rtentry *);
+void	ether_rtrequest(struct ifnet *, int, struct rtentry *);
+char	*ether_sprintf(u_char *);
+
 
 /*
  * Ethernet multicast address structure.  There is one of these for each
@@ -213,7 +252,6 @@ int	ether_multiaddr(struct sockaddr *, u_int8_t[], u_int8_t[]);
 struct ether_multi {
 	u_int8_t enm_addrlo[ETHER_ADDR_LEN]; /* low  or only address of range */
 	u_int8_t enm_addrhi[ETHER_ADDR_LEN]; /* high or only address of range */
-	struct	 arpcom *enm_ac;	/* back pointer to arpcom */
 	u_int	 enm_refcount;		/* no. claims to this addr/range */
 	LIST_ENTRY(ether_multi) enm_list;
 };
@@ -268,23 +306,12 @@ do {									\
 	ETHER_NEXT_MULTI((step), (enm));				\
 } while (/* CONSTCOND */ 0)
 
-#ifdef NFSCLIENT
-extern struct ifnet *revarp_ifp;
-#endif /* NFSCLIENT */
-
-void arprequest(struct ifnet *, u_int32_t *, u_int32_t *, u_int8_t *);
-int arpproxy(struct in_addr, unsigned int);
-void revarprequest(struct ifnet *);
-int revarpwhoarewe(struct ifnet *, struct in_addr *, struct in_addr *);
-int revarpwhoami(struct in_addr *, struct ifnet *);
-int db_show_arptab(void);
-
 u_int32_t ether_crc32_le_update(u_int32_t crc, const u_int8_t *, size_t);
 u_int32_t ether_crc32_be_update(u_int32_t crc, const u_int8_t *, size_t);
 u_int32_t ether_crc32_le(const u_int8_t *, size_t);
 u_int32_t ether_crc32_be(const u_int8_t *, size_t);
 
-#else
+#else /* _KERNEL */
 
 __BEGIN_DECLS
 char *ether_ntoa(struct ether_addr *);

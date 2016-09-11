@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.h,v 1.47 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: ieee80211_node.h,v 1.60 2016/04/28 08:18:10 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.h,v 1.9 2004/04/30 22:57:32 dyoung Exp $	*/
 
 /*-
@@ -112,18 +112,21 @@ struct ieee80211_tx_ba {
 	struct ieee80211_node	*ba_ni;	/* backpointer for callbacks */
 	struct timeout		ba_to;
 	int			ba_timeout_val;
-#define IEEE80211_BA_MIN_TIMEOUT	(10 * 1000)		/* 10msec */
-#define IEEE80211_BA_MAX_TIMEOUT	(10 * 1000 * 1000)	/* 10sec */
-
 	int			ba_state;
 #define IEEE80211_BA_INIT	0
 #define IEEE80211_BA_REQUESTED	1
 #define IEEE80211_BA_AGREED	2
 
+	/* ADDBA parameter set field for this BA agreement. */
+	u_int16_t		ba_params;
+
+	/* These values are IEEE802.11 frame sequence numbers (0x0-0xfff) */
 	u_int16_t		ba_winstart;
 	u_int16_t		ba_winend;
+
+	/* Number of A-MPDU subframes in reorder buffer. */
 	u_int16_t		ba_winsize;
-#define IEEE80211_BA_MAX_WINSZ	128	/* maximum we will accept */
+#define IEEE80211_BA_MAX_WINSZ	64	/* corresponds to maximum ADDBA BUFSZ */
 
 	u_int8_t		ba_token;
 };
@@ -137,10 +140,19 @@ struct ieee80211_rx_ba {
 	struct timeout		ba_to;
 	int			ba_timeout_val;
 	int			ba_state;
+	u_int16_t		ba_params;
 	u_int16_t		ba_winstart;
 	u_int16_t		ba_winend;
 	u_int16_t		ba_winsize;
 	u_int16_t		ba_head;
+	struct timeout		ba_gap_to;
+#define IEEE80211_BA_GAP_TIMEOUT	300 /* msec */
+	/* Counter for consecutive frames which missed the BA window. */
+	int			ba_winmiss;
+	/* Sequence number of previous frame which missed the BA window. */
+	uint16_t		ba_missedsn;
+	/* Window moves forward after this many frames have missed it. */
+#define IEEE80211_BA_MAX_WINMISS	8
 };
 
 /*
@@ -220,9 +232,28 @@ struct ieee80211_node {
 	struct timeout		ni_sa_query_to;
 	int			ni_sa_query_count;
 
+	/* HT capabilities */
+	uint16_t		ni_htcaps;
+	uint8_t			ni_ampdu_param;
+	uint8_t			ni_rxmcs[howmany(80,NBBY)];
+	uint16_t		ni_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
+	uint8_t			ni_tx_mcs_set;
+	uint16_t		ni_htxcaps;
+	uint32_t		ni_txbfcaps;
+	uint8_t			ni_aselcaps;
+
+	/* HT operation */
+	uint8_t			ni_primary_chan; /* XXX corresponds to ni_chan */
+	uint8_t			ni_htop0;
+	uint16_t		ni_htop1;
+	uint16_t		ni_htop2;
+	uint8_t			ni_basic_mcs[howmany(128,NBBY)];
+
 	/* Block Ack records */
 	struct ieee80211_tx_ba	ni_tx_ba[IEEE80211_NUM_TID];
 	struct ieee80211_rx_ba	ni_rx_ba[IEEE80211_NUM_TID];
+
+	int			ni_txmcs;	/* current MCS used for TX */
 
 	/* others */
 	u_int16_t		ni_associd;	/* assoc response */
@@ -327,6 +358,10 @@ extern	void ieee80211_iterate_nodes(struct ieee80211com *ic,
 		ieee80211_iter_func *, void *);
 extern	void ieee80211_clean_cached(struct ieee80211com *ic);
 extern	void ieee80211_clean_nodes(struct ieee80211com *, int);
+void ieee80211_setup_htcaps(struct ieee80211_node *, const uint8_t *,
+    uint8_t);
+int ieee80211_setup_htop(struct ieee80211_node *, const uint8_t *,
+    uint8_t);
 extern	int ieee80211_setup_rates(struct ieee80211com *,
 	    struct ieee80211_node *, const u_int8_t *, const u_int8_t *, int);
 extern  int ieee80211_iserp_sta(const struct ieee80211_node *);

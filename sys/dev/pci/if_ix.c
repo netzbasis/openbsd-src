@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ix.c,v 1.127 2015/11/04 00:20:35 dlg Exp $	*/
+/*	$OpenBSD: if_ix.c,v 1.132 2016/04/13 10:34:32 mpi Exp $	*/
 
 /******************************************************************************
 
@@ -210,8 +210,6 @@ ixgbe_attach(struct device *parent, struct device *self, void *aux)
 	sc->osdep.os_sc = sc;
 	sc->osdep.os_pa = *pa;
 
-	mtx_init(&sc->rx_mtx, IPL_NET);
-
 	/* Set up the timer callout */
 	timeout_set(&sc->timer, ixgbe_local_timer, sc);
 	timeout_set(&sc->rx_refill, ixgbe_rxrefill, sc);
@@ -368,7 +366,7 @@ ixgbe_start(struct ifnet * ifp)
 	struct mbuf  		*m_head;
 	int			 post = 0;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 	if (!sc->link_up)
 		return;
@@ -378,16 +376,20 @@ ixgbe_start(struct ifnet * ifp)
 	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		/* Check that we have the minimal number of TX descriptors. */
+		if (txr->tx_avail <= IXGBE_TX_OP_THRESHOLD) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
+		m_head = ifq_dequeue(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
 		if (ixgbe_encap(txr, m_head)) {
-			ifp->if_flags |= IFF_OACTIVE;
-			break;
+			m_freem(m_head);
+			continue;
 		}
-
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
@@ -526,10 +528,7 @@ ixgbe_watchdog(struct ifnet * ifp)
 
 	/*
 	 * The timer is set to 5 every time ixgbe_start() queues a packet.
-	 * Then ixgbe_txeof() keeps resetting to 5 as long as it cleans at
-	 * least one descriptor.
-	 * Finally, anytime all descriptors are clean the timer is
-	 * set to 0.
+	 * Anytime all descriptors are clean the timer is set to 0.
 	 */
 	for (i = 0; i < sc->num_queues; i++, txr++) {
 		if (txr->watchdog_timer == 0 || --txr->watchdog_timer)
@@ -800,7 +799,7 @@ ixgbe_init(void *arg)
 
 	/* Now inform the stack we're ready */
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -861,7 +860,7 @@ ixgbe_intr(void *arg)
 	struct tx_ring	*txr = sc->tx_rings;
 	struct ixgbe_hw	*hw = &sc->hw;
 	uint32_t	 reg_eicr;
-	int		 i, refill = 0, was_active = 0;
+	int		 i, refill = 0;
 
 	reg_eicr = IXGBE_READ_REG(&sc->hw, IXGBE_EICR);
 	if (reg_eicr == 0) {
@@ -871,11 +870,8 @@ ixgbe_intr(void *arg)
 
 	if (ISSET(ifp->if_flags, IFF_RUNNING)) {
 		ixgbe_rxeof(que);
-		refill = 1;
-
-		if (ISSET(ifp->if_flags, IFF_OACTIVE))
-			was_active = 1;
 		ixgbe_txeof(txr);
+		refill = 1;
 	}
 
 	if (refill) {
@@ -892,6 +888,7 @@ ixgbe_intr(void *arg)
 		KERNEL_LOCK();
 		ixgbe_update_link_status(sc);
 		KERNEL_UNLOCK();
+		ifq_start(&ifp->if_snd);
 	}
 
 	/* ... more link status change */
@@ -910,12 +907,6 @@ ixgbe_intr(void *arg)
 			ixgbe_handle_msf(sc);
 			KERNEL_UNLOCK();
 		}
-	}
-
-	if (was_active) {
-		KERNEL_LOCK();
-		ixgbe_start(ifp);
-		KERNEL_UNLOCK();
 	}
 
 	/* Check for fan failure */
@@ -1061,18 +1052,6 @@ ixgbe_encap(struct tx_ring *txr, struct mbuf *m_head)
 #endif
 
 	/*
-	 * Force a cleanup if number of TX descriptors
-	 * available is below the threshold. If it fails
-	 * to get above, then abort transmit.
-	 */
-	if (txr->tx_avail <= IXGBE_TX_CLEANUP_THRESHOLD) {
-		ixgbe_txeof(txr);
-		/* Make sure things have improved */
-		if (txr->tx_avail <= IXGBE_TX_OP_THRESHOLD)
-			return (ENOBUFS);
-	}
-
-	/*
 	 * Important to capture the first descriptor
 	 * used because it will contain the index of
 	 * the one we tell the hardware to report back
@@ -1101,10 +1080,7 @@ ixgbe_encap(struct tx_ring *txr, struct mbuf *m_head)
 	}
 
 	/* Make certain there are enough descriptors */
-	if (map->dm_nsegs > txr->tx_avail - 2) {
-		error = ENOBUFS;
-		goto xmit_fail;
-	}
+	KASSERT(map->dm_nsegs <= txr->tx_avail - 2);
 
 	/*
 	 * Set the appropriate offload context
@@ -1134,8 +1110,6 @@ ixgbe_encap(struct tx_ring *txr, struct mbuf *m_head)
 
 	txd->read.cmd_type_len |=
 	    htole32(IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS);
-	txr->tx_avail -= map->dm_nsegs;
-	txr->next_avail_desc = i;
 
 	txbuf->m_head = m_head;
 	/*
@@ -1153,13 +1127,17 @@ ixgbe_encap(struct tx_ring *txr, struct mbuf *m_head)
 	txbuf = &txr->tx_buffers[first];
 	txbuf->eop_index = last;
 
+	membar_producer();
+
+	atomic_sub_int(&txr->tx_avail, map->dm_nsegs);
+	txr->next_avail_desc = i;
+
 	++txr->tx_packets;
 	return (0);
 
 xmit_fail:
 	bus_dmamap_unload(txr->txdma.dma_tag, txbuf->map);
 	return (error);
-
 }
 
 void
@@ -1301,7 +1279,7 @@ ixgbe_stop(void *arg)
 	struct ifnet   *ifp = &sc->arpcom.ac_if;
 
 	/* Tell the stack that the interface is no longer active */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
 
 	INIT_DEBUGOUT("ixgbe_stop: begin\n");
 	ixgbe_disable_intr(sc);
@@ -1319,6 +1297,13 @@ ixgbe_stop(void *arg)
 
 	/* reprogram the RAR[0] in case user changed it. */
 	ixgbe_set_rar(&sc->hw, 0, sc->hw.mac.addr, 0, IXGBE_RAH_AV);
+
+	ifq_barrier(&ifp->if_snd);
+	intr_barrier(sc->tag);
+
+	KASSERT((ifp->if_flags & IFF_RUNNING) == 0);
+
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Should we really clear all structures on stop? */
 	ixgbe_free_transmit_structures(sc);
@@ -1390,11 +1375,9 @@ ixgbe_identify_hardware(struct ix_softc *sc)
 	}
 
 	/* Pick up the 82599 and VF settings */
-	if (sc->hw.mac.type != ixgbe_mac_82598EB) {
+	if (sc->hw.mac.type != ixgbe_mac_82598EB)
 		sc->hw.phy.smart_speed = ixgbe_smart_speed;
-		sc->num_segs = IXGBE_82599_SCATTER;
-	} else
-		sc->num_segs = IXGBE_82598_SCATTER;
+	sc->num_segs = IXGBE_82599_SCATTER;
 }
 
 /*********************************************************************
@@ -1548,6 +1531,7 @@ ixgbe_setup_interface(struct ix_softc *sc)
 	strlcpy(ifp->if_xname, sc->dev.dv_xname, IFNAMSIZ);
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = ixgbe_ioctl;
 	ifp->if_start = ixgbe_start;
 	ifp->if_timer = 0;
@@ -1555,7 +1539,6 @@ ixgbe_setup_interface(struct ix_softc *sc)
 	ifp->if_hardmtu = IXGBE_MAX_FRAME_SIZE -
 	    ETHER_HDR_LEN - ETHER_CRC_LEN;
 	IFQ_SET_MAXLEN(&ifp->if_snd, sc->num_tx_desc - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 
@@ -2200,11 +2183,13 @@ ixgbe_tx_ctx_setup(struct tx_ring *txr, struct mbuf *mp,
 	tx_buffer->m_head = NULL;
 	tx_buffer->eop_index = -1;
 
+	membar_producer();
+
 	/* We've consumed the first desc, adjust counters */
 	if (++ctxd == sc->num_tx_desc)
 		ctxd = 0;
 	txr->next_avail_desc = ctxd;
-	--txr->tx_avail;
+	atomic_dec_int(&txr->tx_avail);
 
 	return (0);
 }
@@ -2318,10 +2303,12 @@ ixgbe_tso_setup(struct tx_ring *txr, struct mbuf *mp,
 
 	TXD->seqnum_seed = htole32(0);
 
+	membar_producer();
+
 	if (++ctxd == sc->num_tx_desc)
 		ctxd = 0;
 
-	txr->tx_avail--;
+	atomic_dec_int(&txr->tx_avail);
 	txr->next_avail_desc = ctxd;
 	*cmd_type_len |= IXGBE_ADVTXD_DCMD_TSE;
 	*olinfo_status |= IXGBE_TXD_POPTS_TXSM << 8;
@@ -2343,6 +2330,7 @@ ixgbe_txeof(struct tx_ring *txr)
 	struct ix_softc			*sc = txr->sc;
 	struct ifnet			*ifp = &sc->arpcom.ac_if;
 	uint32_t			 first, last, done, processed;
+	uint32_t			 num_avail;
 	struct ixgbe_tx_buf		*tx_buffer;
 	struct ixgbe_legacy_tx_desc *tx_desc, *eop_desc;
 
@@ -2354,23 +2342,19 @@ ixgbe_txeof(struct tx_ring *txr)
 		return FALSE;
 	}
 
-	KERNEL_LOCK();
+	membar_consumer();
 
 	processed = 0;
 	first = txr->next_to_clean;
 	/* was the txt queue cleaned up in the meantime */
-	if (txr->tx_buffers == NULL) {
-		KERNEL_UNLOCK();
+	if (txr->tx_buffers == NULL)
 		return FALSE;
-	}
 	tx_buffer = &txr->tx_buffers[first];
 	/* For cleanup we just use legacy struct */
 	tx_desc = (struct ixgbe_legacy_tx_desc *)&txr->tx_base[first];
 	last = tx_buffer->eop_index;
-	if (last == -1) {
-		KERNEL_UNLOCK();
+	if (last == -1)
 		return FALSE;
-	}
 	eop_desc = (struct ixgbe_legacy_tx_desc *)&txr->tx_base[last];
 
 	/*
@@ -2392,7 +2376,6 @@ ixgbe_txeof(struct tx_ring *txr)
 			tx_desc->upper.data = 0;
 			tx_desc->lower.data = 0;
 			tx_desc->buffer_addr = 0;
-			++txr->tx_avail;
 			++processed;
 
 			if (tx_buffer->m_head) {
@@ -2434,30 +2417,14 @@ ixgbe_txeof(struct tx_ring *txr)
 
 	txr->next_to_clean = first;
 
-	/*
-	 * If we have enough room, clear IFF_OACTIVE to tell the stack that
-	 * it is OK to send packets. If there are no pending descriptors,
-	 * clear the timeout. Otherwise, if some descriptors have been freed,
-	 * restart the timeout.
-	 */
-	if (txr->tx_avail > IXGBE_TX_CLEANUP_THRESHOLD) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+	num_avail = atomic_add_int_nv(&txr->tx_avail, processed);
 
-		/* If all are clean turn off the timer */
-		if (txr->tx_avail == sc->num_tx_desc) {
-			ifp->if_timer = 0;
-			txr->watchdog_timer = 0;
-			KERNEL_UNLOCK();
-			return FALSE;
-		}
-		/* Some were cleaned, so reset timer */
-		else if (processed) {
-			ifp->if_timer = IXGBE_TX_TIMEOUT;
-			txr->watchdog_timer = IXGBE_TX_TIMEOUT;
-		}
-	}
+	/* All clean, turn off the timer */
+	if (num_avail == sc->num_tx_desc)
+		ifp->if_timer = 0;
 
-	KERNEL_UNLOCK();
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
 
 	return TRUE;
 }
@@ -2608,8 +2575,6 @@ ixgbe_rxfill(struct rx_ring *rxr)
 	u_int		 slots;
 	int		 i;
 
-	mtx_enter(&sc->rx_mtx);
-
 	i = rxr->last_desc_filled;
 	for (slots = if_rxr_get(&rxr->rx_ring, sc->num_rx_desc);
 	    slots > 0; slots--) {
@@ -2624,8 +2589,6 @@ ixgbe_rxfill(struct rx_ring *rxr)
 	}
 
 	if_rxr_put(&rxr->rx_ring, slots);
-
-	mtx_leave(&sc->rx_mtx);
 
 	return (post);
 }
@@ -2794,10 +2757,8 @@ ixgbe_free_receive_structures(struct ix_softc *sc)
 	struct rx_ring *rxr;
 	int		i;
 
-	mtx_enter(&sc->rx_mtx);
 	for (i = 0, rxr = sc->rx_rings; i < sc->num_queues; i++, rxr++)
 		if_rxr_init(&rxr->rx_ring, 0, 0);
-	mtx_leave(&sc->rx_mtx);
 
 	for (i = 0, rxr = sc->rx_rings; i < sc->num_queues; i++, rxr++)
 		ixgbe_free_receive_buffers(rxr);
@@ -2851,7 +2812,6 @@ ixgbe_rxeof(struct ix_queue *que)
 	struct rx_ring		*rxr = que->rxr;
 	struct ifnet   		*ifp = &sc->arpcom.ac_if;
 	struct mbuf_list	 ml = MBUF_LIST_INITIALIZER();
-	struct mbuf_list	 free_ml = MBUF_LIST_INITIALIZER();
 	struct mbuf    		*mp, *sendmp;
 	uint8_t		    	 eop = 0;
 	uint16_t		 len, vtag;
@@ -2864,7 +2824,6 @@ ixgbe_rxeof(struct ix_queue *que)
 	if (!ISSET(ifp->if_flags, IFF_RUNNING))
 		return FALSE;
 
-	mtx_enter(&sc->rx_mtx);
 	i = rxr->next_to_check;
 	while (if_rxr_inuse(&rxr->rx_ring) > 0) {
 		bus_dmamap_sync(rxr->rxdma.dma_tag, rxr->rxdma.dma_map,
@@ -2899,11 +2858,11 @@ ixgbe_rxeof(struct ix_queue *que)
 			sc->dropped_pkts++;
 
 			if (rxbuf->fmp) {
-				ml_enqueue(&free_ml, rxbuf->fmp);
+				m_freem(rxbuf->fmp);
 				rxbuf->fmp = NULL;
 			}
 
-			ml_enqueue(&free_ml, mp);
+			m_freem(mp);
 			rxbuf->buf = NULL;
 			goto next_desc;
 		}
@@ -2981,9 +2940,6 @@ next_desc:
 			i = 0;
 	}
 	rxr->next_to_check = i;
-	mtx_leave(&sc->rx_mtx);
-
-	ml_purge(&free_ml);
 
 	if_input(ifp, &ml);
 

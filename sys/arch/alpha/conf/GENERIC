@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.254 2015/04/16 09:09:49 mpi Exp $
+#	$OpenBSD: GENERIC,v 1.259 2016/08/31 12:46:45 tedu Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -40,7 +40,6 @@ option		USBVERBOSE
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 option		APERTURE		# in-kernel aperture driver for XFree86
 option		USER_PCICONF		# user-space PCI configuration
@@ -64,6 +63,7 @@ usb*	at ohci?
 uhub*	at usb?				# USB Hubs
 uhub*	at uhub?			# USB Hubs
 ualea*	at uhub?			# Araneus Alea II TRNG
+uonerng* at uhub?			# Moonbase Otago OneRNG
 umodem*	at uhub?			# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?			# Handspring Visor
@@ -116,6 +116,7 @@ udav*	at uhub?			# Davicom DM9601 based Ethernet
 upl*	at uhub?			# Prolific PL2301/PL2302 host-to-host `network'
 ugl*	at uhub?			# Genesys Logic GL620USB-A host-to-host `network'
 url*	at uhub?			# Realtek RTL8150L based adapters
+ure*	at uhub?			# Realtek RTL8152 based adapters
 wi*	at uhub?			# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?			# D-Link DSB-R100 radio
 radio*	at udsbr?			# USB radio
@@ -133,6 +134,10 @@ utwitch* at uhidev?			# yurex BBU sensor
 # USB Video
 uvideo* at uhub?
 video*  at uvideo?
+
+utvfu*	at uhub?			# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 
 # EV6 Tsunami Core Logic
 tsc*	at	mainbus0
@@ -326,7 +331,6 @@ ne1	at isa? port 0x300 irq 10	# NE[12]000 ethernet cards
 ne2	at isa? port 0x280 irq 9	# NE[12]000 ethernet cards
 ep*	at isa?				# 3C509 ethernet cards
 ep*	at isapnp?			# 3C509 ethernet cards
-#wss*	at isa? port 0x530 irq 9 drq 0	# Windows Sound System
 lc0	at isa? port 0x200		# DEC EtherWorks
 lc1	at isa? port 0x280		# DEC EtherWorks
 pcic0	at isa? port 0x3e0 iomem 0xd0000 iosiz 0x10000

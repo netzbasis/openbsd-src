@@ -1,4 +1,4 @@
-/*	$OpenBSD: trade.c,v 1.6 2009/10/27 23:59:26 deraadt Exp $	*/
+/*	$OpenBSD: trade.c,v 1.8 2016/01/08 18:20:33 mestre Exp $	*/
 /*	$NetBSD: trade.c,v 1.3 1995/03/23 08:35:19 cgd Exp $	*/
 
 /*
@@ -30,7 +30,10 @@
  * SUCH DAMAGE.
  */
 
-#include	"monop.ext"
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "monop.ext"
 
 struct trd_st {			/* how much to give to other player	*/
 	int	trader;			/* trader number		*/
@@ -54,7 +57,7 @@ static void	do_trade(void);
 static void	move_em(TRADE *, TRADE *);
 
 void
-trade()
+trade(void)
 {
 	int	tradee, i;
 
@@ -93,8 +96,7 @@ over:
  * player, and puts in the structure given.
  */
 static void
-get_list(struct_no, play_no)
-	int	struct_no, play_no;
+get_list(int struct_no, int play_no)
 {
 	int	sn, pn;
 	PLAY	*pp;
@@ -145,8 +147,7 @@ once_more:
  *	This routine sets up the list of tradable property.
  */
 static int
-set_list(the_list)
-	OWN	*the_list;
+set_list(OWN *the_list)
 {
 	int	i;
 	OWN	*op;
@@ -163,7 +164,7 @@ set_list(the_list)
  *	This routine summates the trade.
  */
 static void
-summate()
+summate(void)
 {
 	bool	some;
 	int	i;
@@ -193,7 +194,7 @@ summate()
  *	This routine actually executes the trade.
  */
 static void
-do_trade()
+do_trade(void)
 {
 	move_em(&trades[0], &trades[1]);
 	move_em(&trades[1], &trades[0]);
@@ -202,8 +203,7 @@ do_trade()
  *	This routine does a switch from one player to another
  */
 static void
-move_em(from, to)
-	TRADE	*from, *to;
+move_em(TRADE *from, TRADE *to)
 {
 	PLAY	*pl_fr, *pl_to;
 	OWN	*op;
@@ -226,7 +226,7 @@ move_em(from, to)
  *	This routine lets a player resign
  */
 void
-resign()
+resign(void)
 {
 	int	i, new_own;
 	OWN	*op;

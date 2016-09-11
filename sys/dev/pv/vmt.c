@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmt.c,v 1.5 2015/08/27 19:51:36 deraadt Exp $ */
+/*	$OpenBSD: vmt.c,v 1.9 2016/02/03 14:24:05 reyk Exp $ */
 
 /*
  * Copyright (c) 2007 David Crawshaw <david@zentus.com>
@@ -35,6 +35,7 @@
 #include <sys/syslog.h>
 #include <sys/proc.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 
 #include <net/if.h>
 #include <net/if_var.h>
@@ -166,7 +167,7 @@ struct vmt_softc {
 	int			sc_rpc_error;
 	int			sc_tclo_ping;
 	int			sc_set_guest_os;
-#define VMT_RPC_BUFLEN			256
+#define VMT_RPC_BUFLEN		4096
 
 	struct timeout		sc_tick;
 	struct timeout		sc_tclo_tick;
@@ -199,6 +200,8 @@ int	 vm_rpc_send_rpci_tx(struct vmt_softc *, const char *, ...)
 	    __attribute__((__format__(__kprintf__,2,3)));
 int	 vm_rpci_response_successful(struct vmt_softc *);
 
+int	 vmt_kvop(void *, int, char *, char *, size_t);
+
 void	 vmt_probe_cmd(struct vm_backdoor *, uint16_t);
 void	 vmt_tclo_state_change_success(struct vmt_softc *, int, char);
 void	 vmt_do_reboot(struct vmt_softc *);
@@ -208,6 +211,7 @@ void	 vmt_shutdown(void *);
 void	 vmt_update_guest_info(struct vmt_softc *);
 void	 vmt_update_guest_uptime(struct vmt_softc *);
 
+void	 vmt_tick_hook(struct device *self);
 void	 vmt_tick(void *);
 void	 vmt_resume(void);
 
@@ -333,6 +337,8 @@ void
 vmt_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct vmt_softc *sc = (struct vmt_softc *)self;
+	struct pv_attach_args	*pva = aux;
+	struct pvbus_hv		*hv = &pva->pva_hv[PVBUS_VMWARE];
 
 	printf("\n");
 	sc->sc_rpc_buf = malloc(VMT_RPC_BUFLEN, M_DEVBUF, M_NOWAIT);
@@ -364,18 +370,78 @@ vmt_attach(struct device *parent, struct device *self, void *aux)
 	sensor_attach(&sc->sc_sensordev, &sc->sc_sensor);
 	sensordev_install(&sc->sc_sensordev);
 
-	timeout_set(&sc->sc_tick, vmt_tick, sc);
-	if (mountroothook_establish(vmt_tick, sc) == NULL)
-		DPRINTF("%s: unable to establish tick\n", DEVNAME(sc));
+	config_mountroot(self, vmt_tick_hook);
 
 	timeout_set(&sc->sc_tclo_tick, vmt_tclo_tick, sc);
 	timeout_add_sec(&sc->sc_tclo_tick, 1);
 	sc->sc_tclo_ping = 1;
 
+	/* pvbus(4) key/value interface */
+	hv->hv_kvop = vmt_kvop;
+	hv->hv_arg = sc;
+
 	return;
 
 free:
 	free(sc->sc_rpc_buf, M_DEVBUF, VMT_RPC_BUFLEN);
+}
+
+int
+vmt_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
+{
+	struct vmt_softc *sc = arg;
+	char *buf = NULL, *ptr;
+	size_t bufsz;
+	int error = 0;
+
+	bufsz = VMT_RPC_BUFLEN;
+	buf = malloc(bufsz, M_TEMP|M_ZERO, M_WAITOK);
+
+	switch (op) {
+	case PVBUS_KVWRITE:
+		if ((size_t)snprintf(buf, bufsz, "info-set %s %s",
+		    key, value) >= bufsz) {
+			DPRINTF("%s: write command too long", DEVNAME(sc));
+			error = EINVAL;
+			goto done;
+		}
+		break;
+	case PVBUS_KVREAD:
+		if ((size_t)snprintf(buf, bufsz, "info-get %s",
+		    key) >= bufsz) {
+			DPRINTF("%s: read command too long", DEVNAME(sc));
+			error = EINVAL;
+			goto done;
+		}
+		break;
+	default:
+		error = EOPNOTSUPP;
+		goto done;
+	}
+
+	if (vm_rpc_send_rpci_tx(sc, buf) != 0) {
+		DPRINTF("%s: error sending command: %s\n", DEVNAME(sc), buf);
+		sc->sc_rpc_error = 1;
+		error = EIO;
+		goto done;
+	}
+
+	if (vm_rpci_response_successful(sc) == 0) {
+		DPRINTF("%s: host rejected command: %s\n", DEVNAME(sc), buf);
+		error = EINVAL;
+		goto done;
+	}
+
+	/* skip response that was tested in vm_rpci_response_successful() */
+	ptr = sc->sc_rpc_buf + 2;
+
+	/* might truncat, copy anyway but return error */
+	if (strlcpy(value, ptr, valuelen) >= valuelen)
+		error = ENOMEM;
+
+ done:
+	free(buf, M_TEMP, bufsz);
+	return (error);
 }
 
 void
@@ -467,6 +533,15 @@ vmt_update_guest_info(struct vmt_softc *sc)
 
 		sc->sc_set_guest_os = 1;
 	}
+}
+
+void
+vmt_tick_hook(struct device *self)
+{
+	struct vmt_softc *sc = (struct vmt_softc *)self;
+
+	timeout_set(&sc->sc_tick, vmt_tick, sc);
+	vmt_tick(sc);
 }
 
 void

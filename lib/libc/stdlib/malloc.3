@@ -30,9 +30,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: malloc.3,v 1.91 2015/09/14 13:08:01 schwarze Exp $
+.\"	$OpenBSD: malloc.3,v 1.95 2016/04/03 09:31:45 otto Exp $
 .\"
-.Dd $Mdocdate: September 14 2015 $
+.Dd $Mdocdate: April 3 2016 $
 .Dt MALLOC 3
 .Os
 .Sh NAME
@@ -173,10 +173,6 @@ and set
 .Va errno
 to
 .Er ENOMEM .
-.Pp
-The
-.Fn free
-function returns no value.
 .Sh IDIOMS
 Consider
 .Fn calloc
@@ -191,7 +187,7 @@ or
 For example, avoid this common idiom as it may lead to integer overflow:
 .Bd -literal -offset indent
 if ((p = malloc(num * size)) == NULL)
-	err(1, "malloc");
+	err(1, NULL);
 .Ed
 .Pp
 A drop-in replacement is the
@@ -200,7 +196,7 @@ extension
 .Fn reallocarray :
 .Bd -literal -offset indent
 if ((p = reallocarray(NULL, num, size)) == NULL)
-	err(1, "reallocarray");
+	err(1, NULL);
 .Ed
 .Pp
 Alternatively,
@@ -295,7 +291,7 @@ if (size && num > SIZE_MAX / size)
 	errc(1, EOVERFLOW, "overflow");
 
 if ((p = malloc(size * num)) == NULL)
-	err(1, "malloc");
+	err(1, NULL);
 .Ed
 .Pp
 The above test is not sufficient in all cases.
@@ -313,7 +309,7 @@ if (size && num > INT_MAX / size)
 	errc(1, EOVERFLOW, "overflow");
 
 if ((p = malloc(size * num)) == NULL)
-	err(1, "malloc");
+	err(1, NULL);
 .Ed
 .Pp
 Assuming the implementation checks for integer overflow as
@@ -326,13 +322,13 @@ or
 The above examples could be simplified to:
 .Bd -literal -offset indent
 if ((p = reallocarray(NULL, num, size)) == NULL)
-	err(1, "reallocarray");
+	err(1, NULL);
 .Ed
 .Pp
 or at the cost of initialization:
 .Bd -literal -offset indent
 if ((p = calloc(num, size)) == NULL)
-	err(1, "calloc");
+	err(1, NULL);
 .Ed
 .Sh DIAGNOSTICS
 If
@@ -345,10 +341,7 @@ or
 detect an error condition,
 a message will be printed to file descriptor
 2 (not using stdio).
-Errors will result in the process being aborted,
-unless the
-.Cm a
-option has been specified.
+Errors will result in the process being aborted.
 .Pp
 Here is a brief description of the error messages and what they mean:
 .Bl -tag -width Ds
@@ -375,6 +368,8 @@ or
 an unallocated pointer was made.
 .It Dq chunk is already free
 There was an attempt to free a chunk that had already been freed.
+.It Dq use after free
+A chunk has been modified after it was freed.
 .It Dq modified chunk-pointer
 The pointer passed to
 .Fn free ,

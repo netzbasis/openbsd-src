@@ -1,14 +1,14 @@
-#	$OpenBSD: Makefile,v 1.189 2015/10/26 13:07:13 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.194 2016/09/03 13:37:46 guenther Exp $
 
 .include <bsd.own.mk>
 
-SUBDIR=	ac accton acpidump adduser amd apm apmd arp \
+SUBDIR=	ac accton acme-client acpidump adduser amd apm apmd arp \
 	authpf bgpctl bgpd bind chroot config cron crunchgen dev_mkdb \
 	dhcpd dhcrelay dvmrpctl dvmrpd edquota eeprom eigrpd eigrpctl \
-	fdformat ftp-proxy gpioctl hostapd hotplugd httpd identd ifstated \
-	ikectl inetd installboot iostat iscsictl iscsid kgmon kvm_mkdb \
-	ldapd ldapctl ldomctl ldomd ldpd ldpctl lpr mailwrapper map-mbone \
-	memconfig mksuncd mkuboot mopd mrinfo mrouted \
+	fdformat ftp-proxy gpioctl hostapd hostctl hotplugd httpd identd \
+	ifstated ikectl inetd installboot iostat iscsictl iscsid kgmon \
+	kvm_mkdb ldapd ldapctl ldomctl ldomd ldpd ldpctl lpr mailwrapper \
+	map-mbone memconfig mksuncd mkuboot mopd mrinfo mrouted \
 	mtrace mtree ndp netgroup_mkdb \
 	npppctl npppd nsd ntpd ospfctl ospfd ospf6d ospf6ctl \
 	pcidump pkg_add portmap pppd procmap pstat pwd_mkdb \
@@ -18,8 +18,8 @@ SUBDIR=	ac accton acpidump adduser amd apm apmd arp \
 	sa sasyncd sensorsd slowcgi smtpd \
 	snmpctl snmpd spamdb syslogc syslogd sysmerge tcpdrop tcpdump \
 	tftp-proxy tftpd tokenadm tokeninit traceroute trpt \
-	unbound usbdevs user vipw watchdogd wsconscfg wsfontload wsmoused \
-	zdump zic ztsscale
+	unbound usbdevs user vmd vmctl vipw watchdogd wsconscfg \
+	wsfontload wsmoused zdump zic
 
 .if (${YP:L} == "yes")
 SUBDIR+=ypbind ypldap yppoll ypset ypserv

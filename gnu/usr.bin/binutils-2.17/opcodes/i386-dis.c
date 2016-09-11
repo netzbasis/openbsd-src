@@ -89,6 +89,7 @@ static void OP_MS (int, int);
 static void OP_XS (int, int);
 static void OP_M (int, int);
 static void OP_VMX (int, int);
+static void OP_VMX2 (int, int);
 static void OP_0fae (int, int);
 static void OP_0f07 (int, int);
 static void NOP_Fixup (int, int);
@@ -315,6 +316,7 @@ fetch_data (struct disassemble_info *info, bfd_byte *addr)
 #define MS OP_MS, v_mode
 #define XS OP_XS, v_mode
 #define VM OP_VMX, q_mode
+#define VM2 OP_VMX2, q_mode
 #define OPSUF OP_3DNowSuffix, 0
 #define OPSIMD OP_SIMD_Suffix, 0
 #define OP0FAE OP_0fae, v_mode
@@ -1435,7 +1437,7 @@ static const struct dis386 grps[][8] = {
     { "(bad)",	XX, XX, XX },
     { "(bad)",	XX, XX, XX },
     { "",	VM, XX, XX },		/* See OP_VMX.  */
-    { "vmptrst", Eq, XX, XX },
+    { "",	VM2, XX, XX },
   },
   /* GRP10 */
   {
@@ -2507,7 +2509,7 @@ static bfd_vma start_pc;
  * The function returns the length of this instruction in bytes.
  */
 
-static char intel_syntax;
+static int intel_syntax;
 static char open_char;
 static char close_char;
 static char separator_char;
@@ -2558,7 +2560,7 @@ print_insn (bfd_vma pc, disassemble_info *info)
   else
     address_mode = mode_32bit;
 
-  if (intel_syntax == (char) -1)
+  if (intel_syntax == -1)
     intel_syntax = (info->mach == bfd_mach_i386_i386_intel_syntax
 		    || info->mach == bfd_mach_x86_64_intel_syntax);
 
@@ -3309,7 +3311,7 @@ dofloat (int sizeflag)
 static void
 OP_ST (int bytemode ATTRIBUTE_UNUSED, int sizeflag ATTRIBUTE_UNUSED)
 {
-  oappend ("%st" + intel_syntax);
+  oappend (&"%st"[intel_syntax]);
 }
 
 static void
@@ -3647,32 +3649,32 @@ append_seg (void)
   if (prefixes & PREFIX_CS)
     {
       used_prefixes |= PREFIX_CS;
-      oappend ("%cs:" + intel_syntax);
+      oappend (&"%cs:"[intel_syntax]);
     }
   if (prefixes & PREFIX_DS)
     {
       used_prefixes |= PREFIX_DS;
-      oappend ("%ds:" + intel_syntax);
+      oappend (&"%ds:"[intel_syntax]);
     }
   if (prefixes & PREFIX_SS)
     {
       used_prefixes |= PREFIX_SS;
-      oappend ("%ss:" + intel_syntax);
+      oappend (&"%ss:"[intel_syntax]);
     }
   if (prefixes & PREFIX_ES)
     {
       used_prefixes |= PREFIX_ES;
-      oappend ("%es:" + intel_syntax);
+      oappend (&"%es:"[intel_syntax]);
     }
   if (prefixes & PREFIX_FS)
     {
       used_prefixes |= PREFIX_FS;
-      oappend ("%fs:" + intel_syntax);
+      oappend (&"%fs:"[intel_syntax]);
     }
   if (prefixes & PREFIX_GS)
     {
       used_prefixes |= PREFIX_GS;
-      oappend ("%gs:" + intel_syntax);
+      oappend (&"%gs:"[intel_syntax]);
     }
 }
 
@@ -4421,7 +4423,7 @@ OP_I64 (int bytemode, int sizeflag)
   op &= mask;
   scratchbuf[0] = '$';
   print_operand_value (scratchbuf + 1, 1, op);
-  oappend (scratchbuf + intel_syntax);
+  oappend (&scratchbuf[intel_syntax]);
   scratchbuf[0] = '\0';
 }
 
@@ -4471,7 +4473,7 @@ OP_sI (int bytemode, int sizeflag)
 
   scratchbuf[0] = '$';
   print_operand_value (scratchbuf + 1, 1, op);
-  oappend (scratchbuf + intel_syntax);
+  oappend (&scratchbuf[intel_syntax]);
 }
 
 static void
@@ -4624,7 +4626,7 @@ OP_ESreg (int code, int sizeflag)
 {
   if (intel_syntax)
     intel_operand_size (codep[-1] & 1 ? v_mode : b_mode, sizeflag);
-  oappend ("%es:" + intel_syntax);
+  oappend (&"%es:"[intel_syntax]);
   ptr_reg (code, sizeflag);
 }
 
@@ -5336,6 +5338,21 @@ OP_VMX (int bytemode, int sizeflag)
       else
 	strcpy (obuf, "vmptrld");
       OP_E (bytemode, sizeflag);
+    }
+}
+
+static void
+OP_VMX2 (int bytemode ATTRIBUTE_UNUSED, int sizeflag)
+{
+  if (mod == 3)
+    {
+      strcpy (obuf, "rdseed");
+      OP_E (v_mode, sizeflag);
+    }
+  else
+    {
+      strcpy (obuf, "vmptrst");
+      OP_E (q_mode, sizeflag);
     }
 }
 

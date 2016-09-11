@@ -21,10 +21,11 @@
  * Unix features are present.
  */
 
-#include "less.h"
+#include <errno.h>
 #include <signal.h>
 #include <time.h>
-#include <errno.h>
+
+#include "less.h"
 
 extern volatile sig_atomic_t sigs;
 
@@ -37,7 +38,7 @@ iread(int fd, unsigned char *buf, unsigned int len)
 	int n;
 
 start:
-	flush();
+	flush(0);
 	n = read(fd, buf, len);
 	if (n < 0) {
 		/*

@@ -1,3 +1,4 @@
+/*	$OpenBSD: hash.c,v 1.5 2015/12/17 08:01:55 tb Exp $ */
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
  * All rights reserved.
@@ -220,8 +221,7 @@ hash_free(htbl)
 	hash_table *htbl;
 {
 	if (htbl != NULL) {
-		if (htbl->bucket != NULL)
-			free(htbl->bucket);
+		free(htbl->bucket);
 		free(htbl);
 	}
 }

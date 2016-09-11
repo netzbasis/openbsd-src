@@ -1,4 +1,4 @@
-/* $OpenBSD: if_mpe.c,v 1.50 2015/11/06 11:45:42 mpi Exp $ */
+/* $OpenBSD: if_mpe.c,v 1.54 2016/04/13 11:41:15 mpi Exp $ */
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@spootnik.org>
@@ -97,7 +97,6 @@ mpe_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_type = IFT_MPLS;
 	ifp->if_hdrlen = MPE_HDRLEN;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 	if_attach(ifp);
 	if_alloc_sadl(ifp);
 #if NBPFILTER > 0
@@ -143,16 +142,12 @@ mpestart(struct ifnet *ifp0)
 {
 	struct mbuf 		*m;
 	struct sockaddr		*sa = (struct sockaddr *)&mpedst;
-	int			 s;
 	sa_family_t		 af;
 	struct rtentry		*rt;
 	struct ifnet		*ifp;
 
 	for (;;) {
-		s = splnet();
 		IFQ_DEQUEUE(&ifp0->if_snd, m);
-		splx(s);
-
 		if (m == NULL)
 			return;
 
@@ -172,7 +167,7 @@ mpestart(struct ifnet *ifp0)
 			continue;
 		}
 
-		rt = rtalloc(sa, RT_REPORT|RT_RESOLVE, 0);
+		rt = rtalloc(sa, RT_RESOLVE, 0);
 		if (!rtisvalid(rt)) {
 			m_freem(m);
 			rtfree(rt);
@@ -272,7 +267,6 @@ out:
 	return (error);
 }
 
-/* ARGSUSED */
 int
 mpeioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {

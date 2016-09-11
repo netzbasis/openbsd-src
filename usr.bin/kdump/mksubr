@@ -1,5 +1,5 @@
 #!/bin/sh
-# $OpenBSD: mksubr,v 1.28 2015/05/17 01:22:01 deraadt Exp $
+# $OpenBSD: mksubr,v 1.31 2016/06/07 06:12:37 deraadt Exp $
 #
 # Copyright (c) 2006 David Kirchner <dpk@dpk.net>
 #
@@ -261,6 +261,7 @@ _EOF_
 cat <<_EOF_
 #include <stdio.h>
 #include <sys/param.h>
+#include <sys/event.h>
 #include <sys/fcntl.h>
 #include <sys/stat.h>
 #include <sys/unistd.h>
@@ -299,6 +300,7 @@ cat <<_EOF_
 #include <nfsserver/nfs.h>
 #endif
 #include <ufs/ufs/quota.h>
+#include <sys/syslog.h>
 
 #include "kdump_subr.h"
 
@@ -353,8 +355,14 @@ auto_if_type "sockfamilyname" "AF_[[:alnum:]]+[[:space:]]+" "sys/socket.h"
 auto_if_type "sockipprotoname" "IPPROTO_[[:alnum:]]+[[:space:]]+" "netinet/in.h"
 auto_switch_type "sockoptname" "SO_[A-Z]+[[:space:]]+0x[0-9]+" "sys/socket.h"
 #auto_switch_type "ptraceopname" "PT_[[:alnum:]_]+[[:space:]]+[0-9]+" "sys/ptrace.h"
+# exclude KTRFAC_MASK
 auto_orz_type "ktracefacname" "KTRFAC_[^M][[:alnum:]_]+" "sys/ktrace.h"
 auto_switch_type "itimername" "ITIMER_[[:alnum:]_]+" "sys/time.h"
+auto_switch_type "evfiltername" "EVFILT_[[:alnum:]_]+[[:space:]]+[(]" "sys/event.h"
+auto_orz_type "pollfdeventname" "POLL[^_][[:alnum:]_]+[[:space:]]+0x" "sys/poll.h"
+# exclude EV_{SYSFLAGS,FLAG1}
+auto_orz_type "evflagsname" "EV_[^S][A-Z]+[[:space:]]+0x" "sys/event.h"
+auto_orz_type "syslogflagname" "LOG_[A-Z]+[[:space:]]+0x0*[1248]0*[[:space:]]" "sys/syslog.h"
 
 cat <<_EOF_
 /*
@@ -496,6 +504,53 @@ quotactlcmdname(int cmd)
 		printf(",<invalid>%#x)>", cmd & SUBCMDMASK);
 		break;
 	}
+}
+
+/*
+ * AUTO - Special
+ *
+ * kevent() NOTE_* interpretation depends on the filter type
+ */
+void
+evfflagsname (int filter, int fflags)
+{
+	int	or = 0;
+
+	if (fflags == 0) {
+		printf("0<>");
+		return;
+	}
+	printf("%#x<", fflags);
+	switch (filter) {
+	case EVFILT_READ:
+	case EVFILT_WRITE:
+		if_print_or(fflags, NOTE_LOWAT, or);
+		if_print_or(fflags, NOTE_EOF, or);
+		break;
+	case EVFILT_VNODE:
+_EOF_
+	egrep "^#[[:space:]]*define[[:space:]]+NOTE_.[^O][A-Z]+[[:space:]]+0x[01248]{4}[^[:alnum:]]" \
+		$include_dir/sys/event.h | \
+	awk '{ for (i = 1; i <= NF; i++) \
+		if ($i ~ /define/) \
+			break; \
+		++i; \
+		printf "\t\tif_print_or(fflags, %s, or);\n", $i }'
+cat <<_EOF_
+		break;
+	case EVFILT_PROC:
+_EOF_
+	egrep "^#[[:space:]]*define[[:space:]]+NOTE_[^S][A-Z]+[[:space:]]+0x[01248]{8}" \
+		$include_dir/sys/event.h | \
+	awk '{ for (i = 1; i <= NF; i++) \
+		if ($i ~ /define/) \
+			break; \
+		++i; \
+		printf "\t\tif_print_or(fflags, %s, or);\n", $i }'
+cat <<_EOF_
+		break;
+	}
+	printf(">");
 }
 
 _EOF_

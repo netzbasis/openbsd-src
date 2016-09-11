@@ -1,4 +1,4 @@
-/*	$OpenBSD: sensorsd.c,v 1.56 2015/06/15 14:29:52 millert Exp $ */
+/*	$OpenBSD: sensorsd.c,v 1.60 2016/08/27 01:50:07 guenther Exp $ */
 
 /*
  * Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #include <sys/queue.h>
+#include <sys/time.h>
 #include <sys/sensors.h>
 
 #include <err.h>
@@ -111,6 +112,9 @@ main(int argc, char *argv[])
 	time_t		 last_report = 0, this_check;
 	int		 ch, check_period = CHECK_PERIOD;
 	const char	*errstr;
+
+	if (pledge("stdio rpath proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "c:d")) != -1) {
 		switch (ch) {
@@ -239,10 +243,9 @@ destroy_sdlim(struct sdlim_t *sdlim)
 {
 	struct limits_t		*limit;
 
-	while((limit = TAILQ_FIRST(&sdlim->limits)) != NULL) {
+	while ((limit = TAILQ_FIRST(&sdlim->limits)) != NULL) {
 		TAILQ_REMOVE(&sdlim->limits, limit, entries);
-		if (limit->command != NULL)
-			free(limit->command);
+		free(limit->command);
 		free(limit);
 	}
 	free(sdlim);
@@ -465,16 +468,19 @@ report_sdlim(struct sdlim_t *sdlim, time_t last_report)
 				snprintf(us, sizeof(us), "marked invalid");
 				break;
 			case SENSORSD_S_WITHIN:
-				snprintf(us, sizeof(us), "within limits: %s",
+				snprintf(us, sizeof(us),
+				    "within limits: %s",
 				    print_sensor(limit->type, limit->last_val));
 				break;
 			case SENSORSD_S_ABOVE:
-				snprintf(us, sizeof(us), "exceeds limits: %s is above %s",
+				snprintf(us, sizeof(us),
+				    "exceeds limits: %s is above %s",
 				    print_sensor(limit->type, limit->last_val),
 				    print_sensor(limit->type, limit->upper));
 				break;
 			case SENSORSD_S_BELOW:
-				snprintf(us, sizeof(us), "exceeds limits: %s is below %s",
+				snprintf(us, sizeof(us),
+				    "exceeds limits: %s is below %s",
 				    print_sensor(limit->type, limit->last_val),
 				    print_sensor(limit->type, limit->lower));
 				break;
@@ -523,7 +529,7 @@ report_sdlim(struct sdlim_t *sdlim, time_t last_report)
 				case 'l':
 				{
 					char *s = "";
-					switch(limit->ustatus){
+					switch (limit->ustatus) {
 					case SENSORSD_S_UNSPEC:
 						s = "uninitialised";
 						break;
@@ -547,7 +553,7 @@ report_sdlim(struct sdlim_t *sdlim, time_t last_report)
 				case 's':
 				{
 					char *s;
-					switch(limit->astatus){
+					switch (limit->astatus) {
 					case SENSOR_S_UNSPEC:
 						s = "UNSPEC";
 						break;
@@ -755,9 +761,9 @@ get_val(char *buf, int upper, enum sensor_type type)
 	if (buf == p)
 		err(1, "incorrect value: %s", buf);
 
-	switch(type) {
+	switch (type) {
 	case SENSOR_TEMP:
-		switch(*p) {
+		switch (*p) {
 		case 'C':
 			printf("C");
 			rval = val * 1000 * 1000 + 273150000;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.c,v 1.69 2015/11/02 07:02:53 guenther Exp $ */
+/*	$OpenBSD: resolve.c,v 1.75 2016/08/23 06:46:17 kettenis Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -37,7 +37,6 @@
 #include "archdep.h"
 #include "path.h"
 #include "resolve.h"
-#include "dl_prebind.h"
 
 /* substitution types */
 typedef enum {
@@ -54,12 +53,18 @@ elf_object_t *_dl_loading_object;
 void
 _dl_add_object(elf_object_t *object)
 {
-	/* if a .so is marked nodelete, then add a reference */
+	/*
+	 * If a .so is marked nodelete, then the entire load group that it's
+	 * in needs to be kept around forever, so add a reference there.
+	 * XXX It would be better if we tracked inter-object dependencies
+	 * from relocations and didn't leave dangling pointers when a load
+	 * group was partially unloaded.  That would render this unnecessary.
+	 */
 	if (object->obj_flags & DF_1_NODELETE &&
-	    (object->status & STAT_NODELETE) == 0) {
+	    (object->load_object->status & STAT_NODELETE) == 0) {
 		DL_DEB(("objname %s is nodelete\n", object->load_name));
-		object->refcount++;
-		object->status |= STAT_NODELETE;
+		object->load_object->opencount++;
+		object->load_object->status |= STAT_NODELETE;
 	}
 
 	/*
@@ -241,6 +246,7 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
     int phdrc, const int objtype, const long lbase, const long obase)
 {
 	elf_object_t *object;
+
 #if 0
 	_dl_printf("objname [%s], dynp %p, objtype %x lbase %lx, obase %lx\n",
 	    objname, dynp, objtype, lbase, obase);
@@ -317,6 +323,12 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 		object->Dyn.info[DT_FINI] += obase;
 	if (object->Dyn.info[DT_JMPREL])
 		object->Dyn.info[DT_JMPREL] += obase;
+	if (object->Dyn.info[DT_INIT_ARRAY])
+		object->Dyn.info[DT_INIT_ARRAY] += obase;
+	if (object->Dyn.info[DT_FINI_ARRAY])
+		object->Dyn.info[DT_FINI_ARRAY] += obase;
+	if (object->Dyn.info[DT_PREINIT_ARRAY])
+		object->Dyn.info[DT_PREINIT_ARRAY] += obase;
 
 	if (object->Dyn.info[DT_HASH] != 0) {
 		Elf_Word *hashtab = (Elf_Word *)object->Dyn.info[DT_HASH];
@@ -346,7 +358,7 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 	/* default dev, inode for dlopen-able objects. */
 	object->dev = 0;
 	object->inode = 0;
-	object->lastlookup = 0;
+	object->grpsym_gen = 0;
 	TAILQ_INIT(&object->grpsym_list);
 	TAILQ_INIT(&object->grpref_list);
 
@@ -437,29 +449,51 @@ _dl_protect_segment(elf_object_t *object, Elf_Addr addr,
 	const Elf_Sym *this;
 	Elf_Addr ooff, start, end;
 
-	if (addr == 0) {
+	if (addr == 0 && start_sym[2] == 'g' &&
+	    (addr = object->relro_addr) != 0) {
+		DL_DEB(("protect start RELRO = 0x%lx in %s\n",
+		    addr, object->load_name));
+	}
+	else if (addr == 0) {
 		this = NULL;
 		ooff = _dl_find_symbol(start_sym, &this,
 		    SYM_SEARCH_OBJ | SYM_NOWARNNOTFOUND | SYM_PLT, NULL,
 		    object, NULL);
 		/* If not found, nothing to do */
-		if (this == NULL)
+		if (this == NULL) {
+			DL_DEB(("protect start \"%s\" not found in %s\n",
+			    start_sym, object->load_name));
 			return (NULL);
+		}
 		addr = ooff + this->st_value;
+		DL_DEB(("protect start \"%s\" to %x = 0x%lx in %s\n",
+		    start_sym, prot, addr, object->load_name));
 	}
 
-	this = NULL;
-	ooff = _dl_find_symbol(end_sym, &this,
-	    SYM_SEARCH_OBJ | SYM_NOWARNNOTFOUND | SYM_PLT, NULL, object, NULL);
-	if (this == NULL)
-		addr = 0;
-	else {
-		end = ooff + this->st_value;
-		if (addr < end) {
-			start = ELF_TRUNC(addr, _dl_pagesz);
-			end = ELF_ROUND(end, _dl_pagesz);
-			_dl_mprotect((void *)start, end - start, prot);
+	if (object->relro_addr != 0 && start_sym[2] == 'g') {
+		end = object->relro_addr + object->relro_size;
+		DL_DEB(("protect end RELRO = 0x%lx in %s\n",
+		    end, object->load_name));
+	} else {
+		this = NULL;
+		ooff = _dl_find_symbol(end_sym, &this,
+		    SYM_SEARCH_OBJ | SYM_NOWARNNOTFOUND | SYM_PLT, NULL,
+		    object, NULL);
+		if (this == NULL) {
+			DL_DEB(("protect end \"%s\" not found in %s\n",
+			    end_sym, object->load_name));
+			addr = 0;
+		} else {
+			end = ooff + this->st_value;
+			DL_DEB(("protect end \"%s\" = 0x%lx in %s\n",
+			    end_sym, end, object->load_name));
 		}
+	}
+
+	if (addr != 0 && addr < end) {
+		start = ELF_TRUNC(addr, _dl_pagesz);
+		end = ELF_ROUND(end, _dl_pagesz);
+		_dl_mprotect((void *)start, end - start, prot);
 	}
 
 	return ((void *)addr);
@@ -492,8 +526,6 @@ _dl_find_symbol_bysym(elf_object_t *req_obj, unsigned int symidx,
 		*this = _dl_symcache[symidx].sym;
 		if (pobj)
 			*pobj = sobj;
-		if (_dl_prebind_validate) /* XXX */
-			prebind_validate(req_obj, symidx, flags, ref_sym);
 		return sobj->obj_base;
 	}
 
@@ -522,27 +554,6 @@ _dl_find_symbol_bysym(elf_object_t *req_obj, unsigned int symidx,
 	}
 
 	return ret;
-}
-
-int _dl_searchnum = 0;
-void
-_dl_newsymsearch(void)
-{
-	_dl_searchnum += 1;
-
-	if (_dl_searchnum < 0) {
-		/*
-		 * If the signed number rolls over, reset all counters so
-		 * we dont get accidental collision.
-		 */
-		elf_object_t *walkobj;
-		for (walkobj = _dl_objects;
-		    walkobj != NULL;
-		    walkobj = walkobj->next) {
-			walkobj->lastlookup = 0;
-		}
-		_dl_searchnum = 1;
-	}
 }
 
 static int
@@ -663,8 +674,6 @@ _dl_find_symbol(const char *name, const Elf_Sym **this,
 		if ((flags & SYM_SEARCH_SELF) || (flags & SYM_SEARCH_NEXT))
 			skip = 1;
 
-		_dl_newsymsearch();
-
 		/*
 		 * search dlopened objects: global or req_obj == dlopened_obj
 		 * and and it's children
@@ -674,7 +683,6 @@ _dl_find_symbol(const char *name, const Elf_Sym **this,
 			    (n->data != req_obj->load_object))
 				continue;
 
-			n->data->lastlookup_head = _dl_searchnum;
 			TAILQ_FOREACH(m, &n->data->grpsym_list, next_sib) {
 				if (skip == 1) {
 					if (m->data == req_obj) {
@@ -687,7 +695,6 @@ _dl_find_symbol(const char *name, const Elf_Sym **this,
 				if ((flags & SYM_SEARCH_OTHER) &&
 				    (m->data == req_obj))
 					continue;
-				m->data->lastlookup = _dl_searchnum;
 				if (_dl_find_symbol_obj(m->data, name, h, flags,
 				    this, &weak_sym, &weak_object)) {
 					object = m->data;
@@ -711,7 +718,7 @@ found:
 		    (ELF_ST_BIND(ref_sym->st_info) != STB_WEAK)) &&
 		    (flags & SYM_WARNNOTFOUND))
 			_dl_printf("%s:%s: undefined symbol '%s'\n",
-			    _dl_progname, req_obj->load_name, name);
+			    __progname, req_obj->load_name, name);
 		return (0);
 	}
 
@@ -720,8 +727,7 @@ found:
 	    (ELF_ST_TYPE((*this)->st_info) != STT_FUNC) ) {
 		_dl_printf("%s:%s: %s : WARNING: "
 		    "symbol(%s) size mismatch, relink your program\n",
-		    _dl_progname, req_obj->load_name,
-		    object->load_name, name);
+		    __progname, req_obj->load_name, object->load_name, name);
 	}
 
 	if (pobj)

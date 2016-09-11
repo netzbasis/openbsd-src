@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.h,v 1.9 2015/02/16 06:28:05 ratchov Exp $	*/
+/*	$OpenBSD: dev.h,v 1.11 2016/03/23 06:16:35 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -28,7 +28,7 @@
 struct slotops
 {
 	void (*onmove)(void *);			/* clock tick */
-	void (*onvol)(void *, unsigned int);	/* tell client vol changed */
+	void (*onvol)(void *);	        /* tell client vol changed */
 	void (*fill)(void *);			/* request to fill a play block */
 	void (*flush)(void *);			/* request to flush a rec block */
 	void (*eof)(void *);			/* notify that play drained */
@@ -42,7 +42,7 @@ struct slot {
 	void *arg;				/* user data for callbacks */
 	struct aparams par;			/* socket side params */
 	struct {
-		int weight;			/* dynamic range */	
+		int weight;			/* dynamic range */
 		int maxweight;			/* max dynamic range allowed */
 		unsigned int vol;		/* volume within the vol */
 		struct abuf buf;		/* socket side buffer */
@@ -105,7 +105,7 @@ struct dev {
 
 	/*
 	 * audio device (while opened)
-	 */	
+	 */
 	struct dev_sio sio;
 	struct aparams par;			/* encoding */
 	int pchan, rchan;			/* play & rec channels */
@@ -196,7 +196,7 @@ struct dev *dev_new(char *, struct aparams *, unsigned int, unsigned int,
     unsigned int, unsigned int, unsigned int, unsigned int);
 struct dev *dev_bynum(int);
 void dev_del(struct dev *);
-void dev_adjpar(struct dev *, int, int, int, int, int);
+void dev_adjpar(struct dev *, int, int, int);
 int  dev_init(struct dev *);
 void dev_done(struct dev *);
 int dev_ref(struct dev *);

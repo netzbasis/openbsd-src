@@ -1,4 +1,4 @@
-.\"	$OpenBSD: snake.6,v 1.11 2009/11/13 21:50:12 deraadt Exp $
+.\"	$OpenBSD: snake.6,v 1.14 2015/11/29 15:58:38 jmc Exp $
 .\"	$NetBSD: snake.6,v 1.5 1995/04/22 08:34:35 cgd Exp $
 .\"
 .\" Copyright (c) 1980, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)snake.6	8.1 (Berkeley) 5/31/93
 .\"
-.Dd $Mdocdate: November 13 2009 $
+.Dd $Mdocdate: November 29 2015 $
 .Dt SNAKE 6
 .Os
 .Sh NAME
@@ -114,11 +114,16 @@ which appears after the game is worth a bonus.
 To see who wastes time playing snake, run
 .Nm snake
 .Fl s .
+.Sh ENVIRONMENT
+.Bl -tag -width $HOME/.snake.scores
+.It Ev LOGNAME
+Name displayed in high score file.
+.El
 .Sh FILES
-.Bl -tag -width /var/games/snakerawscores -compact
-.It Pa /var/games/snakerawscores
-database of personal bests
-.\".It Pa /var/games/snake.log
+.Bl -tag -width $HOME/.snake.scores
+.It Pa $HOME/.snake.scores
+Database of personal bests.
+.\".It Pa $HOME/.snake.log
 .\"log of games played
 .El
 .Sh BUGS

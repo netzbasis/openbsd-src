@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exit.c,v 1.154 2015/10/09 01:10:27 deraadt Exp $	*/
+/*	$OpenBSD: kern_exit.c,v 1.157 2016/04/25 20:00:33 tedu Exp $	*/
 /*	$NetBSD: kern_exit.c,v 1.39 1996/04/22 01:38:25 christos Exp $	*/
 
 /*
@@ -65,13 +65,14 @@
 #include <sys/sem.h>
 #endif
 
-#include "systrace.h"
-#include <dev/systrace.h>
-
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
 
 #include <uvm/uvm_extern.h>
+
+void	proc_finish_wait(struct proc *, struct proc *);
+void	process_zap(struct process *);
+void	proc_free(struct proc *);
 
 /*
  * exit --
@@ -123,8 +124,7 @@ exit1(struct proc *p, int rv, int flags)
 	pr = p->p_p;
 
 	/* single-threaded? */
-	if (TAILQ_FIRST(&pr->ps_threads) == p &&
-	    TAILQ_NEXT(p, p_thr_link) == NULL) {
+	if (!P_HASSIBLING(p)) {
 		flags = EXIT_NORMAL;
 	} else {
 		/* nope, multi-threaded */
@@ -241,11 +241,6 @@ exit1(struct proc *p, int rv, int flags)
 	}
 
 	p->p_fd = NULL;		/* zap the thread's copy */
-
-#if NSYSTRACE > 0
-	if (ISSET(p->p_flag, P_SYSTRACE))
-		systrace_exit(p);
-#endif
 
 	/*
 	 * If emulation has thread exit hook, call it now.

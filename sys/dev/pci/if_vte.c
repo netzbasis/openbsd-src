@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vte.c,v 1.14 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_vte.c,v 1.18 2016/04/13 10:34:32 mpi Exp $	*/
 /*-
  * Copyright (c) 2010, Pyun YongHyeon <yongari@FreeBSD.org>
  * All rights reserved.
@@ -29,7 +29,6 @@
 /* Driver for DM&P Electronics, Inc, Vortex86 RDC R6040 FastEthernet. */
 
 #include "bpfilter.h"
-#include "vlan.h"
 
 #include <sys/param.h>
 #include <sys/endian.h>
@@ -51,9 +50,6 @@
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -335,7 +331,6 @@ vte_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = vte_start;
 	ifp->if_watchdog = vte_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, VTE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->vte_eaddr, sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
@@ -661,13 +656,13 @@ vte_start(struct ifnet *ifp)
 	struct mbuf *m_head;
 	int enq = 0;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		/* Reserve one free TX descriptor. */
 		if (sc->vte_cdata.vte_tx_cnt >= VTE_TX_RING_CNT - 1) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		IFQ_DEQUEUE(&ifp->if_snd, m_head);
@@ -925,7 +920,7 @@ vte_txeof(struct vte_softc *sc)
 	}
 
 	if (prog > 0) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->vte_cdata.vte_tx_cons = cons;
 		/*
 		 * Unarm watchdog timer only when there is no pending
@@ -1231,7 +1226,7 @@ vte_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->vte_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return (0);
 }
@@ -1247,7 +1242,8 @@ vte_stop(struct vte_softc *sc)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 	sc->vte_flags &= ~VTE_FLAG_LINK;
 	timeout_del(&sc->vte_tick_ch);

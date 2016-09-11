@@ -1,4 +1,4 @@
-/*	$OpenBSD: key.c,v 1.15 2015/02/11 12:36:40 deraadt Exp $	*/
+/*	$OpenBSD: key.c,v 1.17 2016/03/23 14:52:42 mmcc Exp $	*/
 /*	$NetBSD: key.c,v 1.11 1995/09/07 06:57:11 jtc Exp $	*/
 
 /*-
@@ -31,13 +31,15 @@
  */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <err.h>
 #include <errno.h>
-#include <stdlib.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 
 #include "stty.h"
 #include "extern.h"
@@ -328,13 +330,13 @@ f_tty(struct info *ip)
 void
 f_ostart(struct info *ip)
 {
-	if (ioctl (ip->fd, TIOCSTART) < 0)
+	if (ioctl(ip->fd, TIOCSTART) < 0)
 		err(1, "TIOCSTART");
 }
 
 void
 f_ostop(struct info *ip)
 {
-	if (ioctl (ip->fd, TIOCSTOP) < 0)
+	if (ioctl(ip->fd, TIOCSTOP) < 0)
 		err(1, "TIOCSTOP");
 }

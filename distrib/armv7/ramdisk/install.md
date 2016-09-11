@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.19 2015/08/01 00:25:14 jsg Exp $
+#	$OpenBSD: install.md,v 1.42 2016/09/04 10:06:11 jsg Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -32,148 +32,76 @@
 # machine dependent section of installation/upgrade script.
 #
 
-# This code runs when the script is initally sourced to set up 
-# MDSETS, SANESETS and DEFAULTSETS 
-
-dmesg | grep "^omap0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
-        MDPLAT=OMAP
-	LOADADDR=0x82800000
-fi
-dmesg | grep "^imx0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
-        MDPLAT=IMX
-	LOADADDR=0x18800000
-fi
-dmesg | grep "^sunxi0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
-	MDPLAT=SUNXI
-	LOADADDR=0x40200000
-fi
-dmesg | grep "^vexpress0 at mainbus0:" >/dev/null
-if [[ $? == 0 ]]; then
-	dmesg | grep "^cpu0 at mainbus0: ARM Cortex A9 " >/dev/null
-	if [[ $? == 0 ]]; then
-		MDPLAT=VEXPRESSA9
-		LOADADDR=0x60300000
-	else
-		MDPLAT=VEXPRESSA15
-		LOADADDR=0x80300000
-	fi
-fi
-
-MDSETS="bsd.${MDPLAT}.umg bsd.rd.${MDPLAT}.umg"
 SANESETS="bsd"
-DEFAULTSETS="bsd bsd.rd ${MDSETS}"
+DEFAULTSETS="bsd bsd.rd"
 
 NEWFSARGS_msdos="-F 16 -L boot"
-NEWFSARGS_ext2fs="-v boot"
+MOUNT_ARGS_msdos="-o-l"
 
 md_installboot() {
-	local _disk=$1
-	mount /dev/${_disk}i /mnt/mnt
+	local _disk=/dev/$1 _mdec _plat
 
-	BEAGLE=$(scan_dmesg '/^omap0 at mainbus0: TI OMAP3 \(BeagleBoard\).*/s//\1/p')
-	BEAGLEBONE=$(scan_dmesg '/^omap0 at mainbus0: TI AM335x \(BeagleBone\).*/s//\1/p')
-	PANDA=$(scan_dmesg '/^omap0 at mainbus0: TI OMAP4 \(PandaBoard\)/s//\1/p')
-	CUBOX=$(scan_dmesg '/^imx0 at mainbus0: \(SolidRun.*\)/s//CUBOX/p')
-	NITROGEN=$(scan_dmesg '/^imx0 at mainbus0: \(Freescale i.MX6 SABRE Lite.*\)/s//NITROGEN/p')
-	WANDBOARD=$(scan_dmesg '/^imx0 at mainbus0: \(Wandboard i.MX6.*\)/s//WANDBOARD/p')
+	# Identify ARMv7 platform based on dmesg.
+	case $(scan_dmesg 's/^mainbus0 at root: \(.*\)$/\1/p') in
+	*AM335x*)			_plat=am335x;;
+	*'OMAP3 BeagleBoard'*)		_plat=beagle;;
+	*OMAP4*)			_plat=panda;;
+	*'Cubietech Cubieboard2'*)	_plat=cubie;;
+	*Cubox-i*|*HummingBoard*)	_plat=cubox;;
+	*Wandboard*)			_plat=wandboard;;
+	*Nitrogen6*|*'SABRE Lite'*)	_plat=nitrogen;;
+	*)				;; # XXX: Handle unknown platform?
+	esac
 
-        if [[ -f /mnt/bsd.${MDPLAT}.umg ]]; then
-                mv /mnt/bsd.${MDPLAT}.umg /mnt/mnt/bsd.umg
-        fi
-        if [[ -f /mnt/bsd.rd.${MDPLAT}.umg ]]; then
-                mv /mnt/bsd.rd.${MDPLAT}.umg /mnt/mnt/bsdrd.umg
-        fi
+	# Mount MSDOS partition, extract U-Boot and copy UEFI boot program
+	mount ${MOUNT_ARGS_msdos} ${_disk}i /mnt/mnt
+	mkdir -p /mnt/mnt/efi/boot
+	cp /mnt/usr/mdec/BOOTARM.EFI /mnt/mnt/efi/boot/bootarm.efi
 
-	# extracted on all machines, so make snap works.
-	tar -C /mnt/ -xf /usr/mdec/u-boots.tgz 
+	_mdec=/usr/mdec/$_plat
 
-	if [[ ${MDPLAT} == "OMAP" ]]; then
-
-		if [[ -n $BEAGLE ]]; then
-			cp /mnt/usr/mdec/beagle/{mlo,u-boot.img} /mnt/mnt/
-		elif [[ -n $BEAGLEBONE ]]; then
-			cp /mnt/usr/mdec/am335x/{mlo,u-boot.img} /mnt/mnt/
-		elif [[ -n $PANDA ]]; then
-			cp /mnt/usr/mdec/panda/{mlo,u-boot.img} /mnt/mnt/
-		fi
-		cat > /mnt/mnt/uenv.txt<<__EOT
-bootcmd=mmc rescan ; setenv loadaddr ${LOADADDR}; setenv bootargs sd0i:/bsd.umg ; fatload mmc \${mmcdev} \${loadaddr} bsd.umg ; bootm \${loadaddr} ;
-uenvcmd=boot
-__EOT
-	elif [[ ${MDPLAT} == "IMX" ]]; then
-		if [[ -n $CUBOX ]]; then
-			cat > /tmp/boot.cmd<<__EOT
-; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in usb mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/boot.cmd \
-			    /mnt/mnt/boot.scr
-			dd if=/mnt/usr/mdec/cubox/SPL \
-			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
-			dd if=/mnt/usr/mdec/cubox/u-boot.img \
-			    of=/dev/${_disk}c bs=1024 seek=42 >/dev/null
-		elif [[ -n $NITROGEN ]]; then
-			cat > /tmp/6x_bootscript.scr<<__EOT
-	; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in sata mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg 
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/6x_bootscript.scr /mnt/mnt/6x_bootscript
-		elif [[ -n $WANDBOARD ]]; then
-			cat > /tmp/boot.cmd<<__EOT
-; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in mmc ; do for disk in 0 1 ; do \${dtype} dev \${disk} ; for fs in fat ext2 ; do if \${fs}load \${dtype} \${disk}:1 \${loadaddr} bsd.umg ; then bootm \${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg
-__EOT
-			mkuboot -t script -a arm -o linux /tmp/boot.cmd \
-			    /mnt/mnt/boot.scr
-			dd if=/mnt/usr/mdec/wandboard/SPL \
-			    of=/dev/${_disk}c bs=1024 seek=1 >/dev/null
-			dd if=/mnt/usr/mdec/wandboard/u-boot.img \
-			    of=/dev/${_disk}c bs=1024 seek=69 >/dev/null
-		fi
-	elif [[ ${MDPLAT} == "SUNXI" ]]; then
-		cat > /mnt/mnt/uenv.txt<<__EOT
-bootargs=sd0i:/bsd
-mmcboot=mmc rescan ; fatload mmc 0 ${LOADADDR} bsd.umg && bootm ${LOADADDR};
-uenvcmd=run mmcboot;
-__EOT
-		cp /mnt/usr/mdec/cubie/u-boot-sunxi-with-spl.bin /mnt/mnt/
-	fi
+	case $_plat in
+	am335x|beagle|panda)
+		cp $_mdec/{MLO,u-boot.img,*.dtb} /mnt/mnt/
+		;;
+	cubox|wandboard)
+		cp $_mdec/*.dtb /mnt/mnt/
+		dd if=$_mdec/SPL of=${_disk}c bs=1024 seek=1 \
+		    >/dev/null 2>&1
+		dd if=$_mdec/u-boot.img of=${_disk}c bs=1024 seek=69 \
+		    >/dev/null 2>&1
+		;;
+	nitrogen)
+		cp $_mdec/*.dtb /mnt/mnt/
+		;;
+	cubie)
+		cp $_mdec/*.dtb /mnt/mnt/
+		dd if=$_mdec/u-boot-sunxi-with-spl.bin of=${_disk}c \
+		    bs=1024 seek=8 >/dev/null 2>&1
+		;;
+	esac
 }
 
 md_prep_fdisk() {
-	local _disk=$1 _q _d
+	local _disk=$1 _d
 
 	local bootparttype="C"
-	local bootsectorstart="64"
+	local bootsectorstart="2048"
 	local bootsectorsize="32768"
-	local bootsectorend
+	local bootsectorend=$(($bootsectorstart + $bootsectorsize))
 	local bootfstype="msdos"
 	local newfs_args=${NEWFSARGS_msdos}
 
-	CUBOX=$(scan_dmesg '/^imx0 at mainbus0: \(SolidRun.*\)/s//CUBOX/p')
-	WANDBOARD=$(scan_dmesg '/^imx0 at mainbus0: \(Wandboard i.MX6.*\)/s//WANDBOARD/p')
-
-	# imx needs an ext2fs filesystem
-	if [[ ${MDPLAT} == "IMX" && ! -n $WANDBOARD ]]; then
-		bootparttype="83"
-		bootfstype="ext2fs"
-		newfs_args=${NEWFSARGS_ext2fs}
-	fi
-	if [[ -n $CUBOX || -n $WANDBOARD ]]; then
-		bootsectorstart="2048"
-	fi
-	bootsectorend=$(($bootsectorstart + $bootsectorsize))
-
 	while :; do
 		_d=whole
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr; then
 			fdisk $_disk
 		else
 			echo "MBR has invalid signature; not showing it."
 		fi
-		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
+		ask "Use (W)hole disk$ or (E)dit the MBR?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			echo -n "Creating a ${bootfstype} partition and an OpenBSD partition for rest of $_disk..."
 			fdisk -e ${_disk} <<__EOT >/dev/null
 reinit
@@ -195,48 +123,38 @@ __EOT
 			disklabel $_disk 2>/dev/null | grep -q "^  i:" || disklabel -w -d $_disk
 			newfs -t ${bootfstype} ${newfs_args} ${_disk}i
 			return ;;
-		e*|E*)
+		[eE]*)
 			# Manually configure the MBR.
 			cat <<__EOT
 
 You will now create one MBR partition to contain your OpenBSD data
-and one MBR partition on which kernels are located which are loaded
-by U-Boot. Neither partition will overlap any other partition.
+and one MBR partition on which the OpenBSD boot program is located.
+Neither partition will overlap any other partition.
 
 The OpenBSD MBR partition will have an id of 'A6' and the boot MBR
-partition will have an id of '${bootparttype}' (${bootfstype}). The boot partition will be
-at least 16MB and be the first 'MSDOS' partition on the disk.
+partition will have an id of '${bootparttype}' (${bootfstype}).
+The boot partition will be at least 16MB and be the first 'MSDOS'
+partition on the disk.
 
 $(fdisk ${_disk})
 __EOT
 			fdisk -e ${_disk}
-			fdisk $_disk | grep -q ' A6 ' && return
+			disk_has $_disk mbr openbsd && return
 			echo No OpenBSD partition in MBR, try again. ;;
-		o*|O*)	return ;;
 		esac
 	done
 }
 
 md_prep_disklabel() {
-	local _disk=$1 _f=/tmp/fstab.$1
+	local _disk=$1 _f=/tmp/i/fstab.$1
 
 	md_prep_fdisk $_disk
 
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD MBR
-partition. The disklabel defines how OpenBSD splits up the MBR partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD MBR partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile.cross,v 1.78 2015/06/05 21:48:35 tobiasu Exp $
+# $OpenBSD: Makefile.cross,v 1.87 2016/09/03 13:37:39 guenther Exp $
 
 cross-tools:	cross-includes cross-binutils cross-gcc cross-lib
 cross-distrib:	cross-tools cross-bin cross-share cross-sys cross-etc-root-var
@@ -6,18 +6,15 @@ cross-distrib:	cross-tools cross-bin cross-share cross-sys cross-etc-root-var
 
 # Have to compute TARGET_ARCH directly in the Makefile, for .if tests involving
 # this variable to work.
-.if	(${TARGET} == "armish" || ${TARGET} == "armv7" || \
-	 ${TARGET} == "zaurus")
+.if	(${TARGET} == "armv7")
 TARGET_ARCH=	arm
-.elif	(${TARGET} == "aviion" || ${TARGET} == "luna88k")
+.elif	(${TARGET} == "luna88k")
 TARGET_ARCH=	m88k
 .elif	(${TARGET} == "sgi" || ${TARGET} == "octeon")
 TARGET_ARCH=	mips64
 .elif	(${TARGET} == "loongson")
 TARGET_ARCH=	mips64el
 TARGET_CPU=	mips64
-.elif	(${TARGET} == "solbourne")
-TARGET_ARCH=	sparc
 .elif	(${TARGET} == "macppc" || ${TARGET} == "socppc")
 TARGET_ARCH=	powerpc
 .elif	(${TARGET} == "landisk")
@@ -29,7 +26,7 @@ TARGET_CPU?=	${TARGET_ARCH}
 
 # List of LP64 archs
 # XXX move to bsd.*.mk?
-LP64_ARCH = amd64 alpha hppa64 ia64 mips64 sparc64 vax64
+LP64_ARCH = amd64 alpha mips64 sparc64
 
 TARGET_IS_LP64 =
 MACHINE_IS_LP64 =
@@ -301,10 +298,10 @@ cross-lib:	${CROSSGCC}
 		    ${MAKE} install); \
 	    done; \
 	    eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
-	        SKIPDIR=\"${NO_CROSS} libocurses/PSD.doc\" \
+	        SKIPDIR=\"${NO_CROSS}\" \
 	        ${MAKE} depend all ; \
 	    eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} DESTDIR=${CROSSDIR} \
-	        SKIPDIR=\"${NO_CROSS} libocurses/PSD.doc\" \
+	        SKIPDIR=\"${NO_CROSS}\" \
 	        ${MAKE} install)
 
 cross-bin:	${CROSSOBJ}
@@ -343,6 +340,7 @@ cross-share:   ${CROSSOBJ}
 	    (cd ${.CURDIR}/$$i; \
 	        eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
 		SKIPDIR=\"${NO_CROSS}\" \
+		DESTDIR=${CROSSDIR} \
 		${MAKE} depend all install); \
 	done
 
@@ -354,6 +352,7 @@ cross-sys:   ${CROSSOBJ}
 	    (cd ${.CURDIR}/$$i; \
 	        eval ${CROSSENV} MAKEOBJDIR=obj.${MACHINE}.${TARGET} \
 		SKIPDIR=\"${NO_CROSS}\" \
+		DESTDIR=${CROSSDIR} \
 		${MAKE} depend all install); \
 	done
 

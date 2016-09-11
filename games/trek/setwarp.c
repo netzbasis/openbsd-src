@@ -1,4 +1,4 @@
-/*	$OpenBSD: setwarp.c,v 1.4 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: setwarp.c,v 1.6 2016/01/07 14:37:51 mestre Exp $	*/
 /*	$NetBSD: setwarp.c,v 1.3 1995/04/22 10:59:27 cgd Exp $	*/
 
 /*
@@ -31,8 +31,9 @@
  */
 
 #include <stdio.h>
-#include "trek.h"
+
 #include "getpar.h"
+#include "trek.h"
 
 /*
 **  SET WARP FACTOR
@@ -42,8 +43,7 @@
 */
 
 void
-setwarp(v)
-	int v;
+setwarp(int v)
 {
 	double	warpfac;
 

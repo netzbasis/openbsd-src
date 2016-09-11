@@ -1,4 +1,4 @@
-/*	$OpenBSD: stty.c,v 1.17 2015/10/11 15:27:19 deraadt Exp $	*/
+/*	$OpenBSD: stty.c,v 1.20 2016/07/23 08:57:18 bluhm Exp $	*/
 /*	$NetBSD: stty.c,v 1.11 1995/03/21 09:11:30 cgd Exp $	*/
 
 /*-
@@ -31,15 +31,17 @@
  */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "stty.h"
@@ -83,9 +85,6 @@ args:	argc -= optind;
 	if (ioctl(i.fd, TIOCGETD, &i.ldisc) < 0	)
 		err(1, "TIOCGETD");
 
-	if (pledge("stdio tty", NULL) == -1)
-		err(1, "pledge");
-
 	if (tcgetattr(i.fd, &i.t) < 0)
 		errx(1, "not a terminal");
 	if (ioctl(i.fd, TIOCGWINSZ, &i.win) < 0)
@@ -98,16 +97,24 @@ args:	argc -= optind;
 		/* FALLTHROUGH */
 	case BSD:
 	case POSIX:
+		if (*argv)
+			errx(1, "either display or modify");
 		if (pledge("stdio", NULL) == -1)
 			err(1, "pledge");
 		print(&i.t, &i.win, i.ldisc, fmt);
 		break;
 	case GFLAG:
+		if (*argv)
+			errx(1, "either display or modify");
 		if (pledge("stdio", NULL) == -1)
 			err(1, "pledge");
 		gprint(&i.t, &i.win, i.ldisc);
 		break;
 	}
+
+	/*
+	 * Cannot pledge, because of "extproc", "ostart" and "ostop"
+	 */
 
 	for (i.set = i.wset = 0; *argv; ++argv) {
 		if (ksearch(&argv, &i))

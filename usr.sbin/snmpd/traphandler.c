@@ -1,4 +1,5 @@
-/*	$OpenBSD: traphandler.c,v 1.2 2015/01/16 00:05:13 deraadt Exp $	*/
+/*	$OpenBSD: traphandler.c,v 1.5 2016/08/16 18:41:57 tedu Exp $	*/
+
 /*
  * Copyright (c) 2014 Bret Stephen Lambert <blambert@openbsd.org>
  *
@@ -16,7 +17,6 @@
  */
 
 #include <sys/queue.h>
-#include <sys/param.h>	/* nitems */
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/stat.h>
@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <pwd.h>
 
@@ -176,8 +177,7 @@ traphandler_recvmsg(int fd, short events, void *arg)
 	iov[1].iov_len = n;
 
 	/* Forward it to the parent process */
-	if (proc_composev_imsg(ps, PROC_PARENT, -1, IMSG_ALERT,
-	    -1, iov, 2) == -1)
+	if (proc_composev(ps, PROC_PARENT, IMSG_ALERT, iov, 2) == -1)
 		goto done;
 
  done:
@@ -295,7 +295,9 @@ traphandler_fork_handler(struct privsep_proc *p, struct imsg *imsg)
 		fatal("traphandler_fork_handler: cannot drop privileges");
 
 	closefrom(STDERR_FILENO + 1);
-	log_init(debug);
+
+	log_init(debug, LOG_DAEMON);
+	log_procinit(p->p_title);
 
 	n = IMSG_DATA_SIZE(imsg);
 

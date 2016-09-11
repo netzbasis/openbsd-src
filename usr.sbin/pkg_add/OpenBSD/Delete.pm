@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Delete.pm,v 1.144 2015/07/28 13:22:07 espie Exp $
+# $OpenBSD: Delete.pm,v 1.146 2016/08/27 18:17:46 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -340,8 +340,12 @@ sub record_shared
 package OpenBSD::PackingElement::Fontdir;
 sub record_shared
 {
-	&OpenBSD::PackingElement::Mandir::record_shared;
+	my ($self, $recorder, $pkgname) = @_;
+	$self->{pkgname} = $pkgname;
+	push(@{$recorder->{dirs}{$self->fullname}} , $self);
+	$recorder->{fonts_todo}{$self->fullname} = 1;
 }
+
 package OpenBSD::PackingElement::Infodir;
 sub record_shared
 {
@@ -447,9 +451,14 @@ sub delete
 		$state->say("deleting: #1", $realname);
 	}
 	return if $state->{not};
-	if (!unlink $realname) {
-		$state->errsay("Problem deleting #1: #2", $realname, $!);
-		$state->log("deleting #1 failed: #2", $realname, $!);
+	if ($state->{delete_first} && $self->{tied}) {
+		push(@{$state->{delayed}}, $realname);
+	} else {
+		if (!unlink $realname) {
+			$state->errsay("Problem deleting #1: #2", $realname, 
+			    $!);
+			$state->log("deleting #1 failed: #2", $realname, $!);
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: ArcCheck.pm,v 1.31 2014/12/23 08:46:31 espie Exp $
+# $OpenBSD: ArcCheck.pm,v 1.34 2016/05/14 21:12:40 espie Exp $
 #
 # Copyright (c) 2005-2006 Marc Espie <espie@openbsd.org>
 #
@@ -16,10 +16,16 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 # Supplementary code to handle archives in the package context.
-# Contrarily to GNU-tar, we do not change the archive format, but by
-# convention,  the names LongName\d+ and LongLink\d correspond to names
-# too long to fit. The actual names reside in the PLIST, but the archive
-# is still a valid archive.
+# Ustar allows about anything, but we want to forbid a lot of things.
+# this code is used during creation and extraction
+# specifically, during create time:
+# - prevent a lot of weird objects from entering the archives
+# - make sure all relevant users/modes are recorded in the PLIST item
+
+# during extraction:
+# - make sure complex objects have all their relevant properties recorded
+# - disallow extraction of non-files/links.
+# - guard against files much longer than they should be.
 
 use strict;
 use warnings;
@@ -27,15 +33,11 @@ use warnings;
 use OpenBSD::Ustar;
 
 package OpenBSD::Ustar::Object;
+use POSIX;
 
-# match archive header name against PackingElement item
-sub check_name
-{
-	my ($self, $item) = @_;
-	return $self->name eq $item->name;
-}
+sub is_allowed() { 0 }
 
-# match archive header link name against actual link names
+# match archive header link name against actual link name
 sub check_linkname
 {
 	my ($self, $linkname) = @_;
@@ -46,7 +48,83 @@ sub check_linkname
 	return $c eq $linkname;
 }
 
-use POSIX;
+sub validate_meta
+{
+	my ($o, $item) = @_;
+
+	$o->{cwd} = $item->cwd;
+	if (defined $item->{symlink} || $o->isSymLink) {
+		unless (defined $item->{symlink} && $o->isSymLink) {
+			$o->errsay("bogus symlink #1", $item->name);
+			return 0;
+		}
+		if (!$o->check_linkname($item->{symlink})) {
+			$o->errsay("archive symlink does not match #1 != #2",
+			    $o->{linkname}, $item->{symlink});
+			return 0;
+		}
+	} elsif (defined $item->{link} || $o->isHardLink) {
+		unless (defined $item->{link} && $o->isHardLink) {
+			$o->errsay("bogus hardlink #1", $item->name);
+			return 0;
+		}
+		if (!$o->check_linkname($item->{link})) {
+			$o->errsay("archive hardlink does not match #1 != #2",
+			    $o->{linkname}, $item->{link});
+			return 0;
+		}
+	} elsif ($o->isFile) {
+		if (!defined $item->{size}) {
+			$o->errsay("Error: file #1 does not have recorded size",
+			    $item->fullname);
+			return 0;
+		} elsif ($item->{size} != $o->{size}) {
+			$o->errsay("Error: size does not match for #1",
+			    $item->fullname);
+			return 0;
+		}
+	} else {
+		$o->errsay("archive content for #1 should be file", 
+		    $item->name);
+		return 0;
+	}
+	return $o->verify_modes($item);
+}
+
+sub strip_modes
+{
+	my ($o, $item) = @_;
+
+	my $result = $o->{mode};
+
+	# disallow writable files/dirs without explicit annotation
+	if (!defined $item->{mode}) {
+		# if there's an owner, we have to be explicit
+		if (defined $item->{owner}) {
+			$result &= ~(S_IWUSR|S_IWGRP|S_IWOTH);
+		} else {
+			$result &= ~(S_IWGRP|S_IWOTH);
+		}
+		# and make libraries non-executable
+		if ($item->is_a_library) {
+			$result &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
+		}
+		$result |= S_IROTH | S_IRGRP;
+	}
+	# if we're going to set the group or owner, sguid bits won't
+	# survive the extraction
+	if (defined $item->{group} || defined $item->{owner}) {
+		$result &= ~(S_ISUID|S_ISGID);
+	}
+	return $result;
+}
+
+sub printable_mode
+{
+	my $o = shift;
+	return sprintf("%4o", 
+	    $o->{mode} & (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID));
+}
 
 sub verify_modes
 {
@@ -54,47 +132,35 @@ sub verify_modes
 	my $result = 1;
 
 	if (!defined $item->{owner}) {
-	    if ($o->{uname} ne 'root') {
-		    $o->errsay("Error: no \@owner for #1 (#2)",
-			$item->fullname, $o->{uname});
+		if ($o->{uname} ne 'root') {
+			$o->errsay("Error: no \@owner for #1 (#2)",
+			    $item->fullname, $o->{uname});
 	    		$result = 0;
-	    }
+		}
 	}
 	if (!defined $item->{group}) {
-	    if ($o->{gname} ne 'bin' && $o->{gname} ne 'wheel') {
-		if (($o->{mode} & (S_ISUID | S_ISGID | S_IWGRP)) != 0) {
-		    $o->errsay("Error: no \@group for #1 (#2), which has mode #3",
-			$item->fullname, $o->{uname},
-			sprintf("%4o", $o->{mode} & (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID)));
-	    		$result = 0;
-		} else {
-		    $o->errsay("Warning: no \@group for #1 (#2)",
-			$item->fullname, $o->{gname});
-	    	}
-	    }
-	}
-	if (!defined $item->{mode}) {
-	    if (($o->{mode} & (S_ISUID | S_ISGID | S_IWOTH)) != 0 ||
-	    	($o->{mode} & S_IROTH) == 0 || ($o->{mode} & S_IRGRP) == 0) {
-		    $o->errsay("Error: weird mode for #1: #2",
-			$item->fullname,
-			sprintf("%4o", $o->{mode} & (S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID)));
-	    		$result = 0;
-	    }
-	}
-	if ($o->isFile) {
-		if (!defined $item->{size}) {
-			$o->errsay("Error: file #1 does not have recorded size",
-			    $item->fullname);
-			$result = 0;
-		} elsif ($item->{size} != $o->{size}) {
-			$o->errsay("Error: size does not match for #1",
-			    $item->fullname);
+		if ($o->{gname} ne 'bin' && $o->{gname} ne 'wheel') {
+			$o->errsay("Error: no \@group for #1 (#2)",
+			    $item->fullname, $o->{gname});
 			$result = 0;
 		}
 	}
+	if ($o->{mode} != $o->strip_modes($o)) {
+		$o->errsay("Error: weird mode for #1: #2", $item->fullname,
+		    $o->printable_mode);
+		    $result = 0;
+ 	}
 	return $result;
 }
+
+package OpenBSD::Ustar::HardLink;
+sub is_allowed() { 1 }
+
+package OpenBSD::Ustar::SoftLink;
+sub is_allowed() { 1 }
+
+package OpenBSD::Ustar::File;
+sub is_allowed() { 1 }
 
 package OpenBSD::Ustar;
 use POSIX;
@@ -149,19 +215,7 @@ sub prepare_long
 		$self->fatal("No group name for #1 (gid #2)",
 		    $item->name, $entry->{gid});
 	}
-	# disallow writable files/dirs without explicit annotation
-	if (!defined $item->{mode}) {
-		$entry->{mode} &= ~(S_IWUSR|S_IWGRP|S_IWOTH);
-		# and make libraries non-executable
-		if ($item->is_a_library) {
-			$entry->{mode} &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
-		}
-	}
-	# if we're going to set the group or owner, sguid bits won't
-	# survive the extraction
-	if (defined $item->{group} || defined $item->{owner}) {
-		$entry->{mode} &= ~(S_ISUID|S_ISGID);
-	}
+	$entry->{mode} = $entry->strip_modes($item);
 	if (defined $item->{ts}) {
 		delete $entry->{mtime};
 	}

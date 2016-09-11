@@ -1,4 +1,4 @@
-/*	$OpenBSD: nlist.c,v 1.48 2015/08/20 22:39:29 deraadt Exp $	*/
+/*	$OpenBSD: nlist.c,v 1.50 2016/09/10 05:48:18 jsg Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -84,8 +84,10 @@ __elf_knlist(int fd, DB *db, int ksyms)
 
 	if (fseek(fp, (off_t)0, SEEK_SET) == -1 ||
 	    fread(&eh, sizeof(eh), 1, fp) != 1 ||
-	    !IS_ELF(eh))
+	    !IS_ELF(eh)) {
+		fclose(fp);
 		return (1);
+	}
 
 	sh = calloc(sizeof(Elf_Shdr), eh.e_shnum);
 	if (sh == NULL)
@@ -297,8 +299,7 @@ done:
 			munmap(strtab, symstrsize);
 	}
 	(void)fclose(fp);
-	if (sh)
-		free(sh);
+	free(sh);
 	return (error);
 }
 

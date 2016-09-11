@@ -1,7 +1,7 @@
 /*
  * Music
  *
- * $OpenBSD: calendar.music,v 1.32 2015/05/21 10:42:30 jmc Exp $
+ * $OpenBSD: calendar.music,v 1.34 2016/03/27 18:15:51 tim Exp $
  */
 
 #ifndef _calendar_music_
@@ -23,6 +23,7 @@
 01/10	Jim Croce is born in Philadelphia, 1943
 01/10	Pat Benatar is born in Long Island, 1952
 01/10	Rod Stewart is born in Glasgow, Scotland, 1945
+01/11	David Bowie dies, 2016
 01/11	Maurice Durufle is born in Louviers, France, 1902
 01/11	Reinhold Gliere is born in Kiev, Russia, 1875
 01/13	Eric Clapton plays the "Rainbow Concert" in London, 1973
@@ -141,7 +142,7 @@
 03/26	Ludwig van Beethoven dies in Vienna, Austria, 1827
 03/26	Emerson, Lake, and Palmer record "Pictures at an Exhibition" live, 1971
 03/27	Ferde Grofe is born in New York City, 1892
-03/28	Sergei Rachmaninov dies in Beverley Hills, California, 1943
+03/28	Sergei Rachmaninov dies in Beverly Hills, California, 1943
 03/28	Modest Mussorgsky dies, 1881
 03/29	Dr. Hook gets a group picture on the cover of "Rolling Stone", 1973
 03/29	Carl Orff dies in Munich, Germany, 1982

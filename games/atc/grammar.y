@@ -1,4 +1,4 @@
-/*	$OpenBSD: grammar.y,v 1.7 2015/02/18 22:33:51 tedu Exp $	*/
+/*	$OpenBSD: grammar.y,v 1.10 2016/01/09 19:27:56 mestre Exp $	*/
 /*	$NetBSD: grammar.y,v 1.3 1995/03/21 15:03:59 cgd Exp $	*/
 
 /*-
@@ -58,7 +58,9 @@
 }
 
 %{
-#include "include.h"
+#include "def.h"
+#include "extern.h"
+#include "y.tab.h"
 
 int	errors = 0;
 int	line = 1;
@@ -262,8 +264,7 @@ Lline:
 %%
 
 void
-check_edge(x, y)
-	int x, y;
+check_edge(int x, int y)
 {
 	if (!(x == 0) && !(x == sp->width - 1) && 
 	    !(y == 0) && !(y == sp->height - 1))
@@ -271,8 +272,7 @@ check_edge(x, y)
 }
 
 void
-check_point(x, y)
-	int x, y;
+check_point(int x, int y)
 {
 	if (x < 1 || x >= sp->width - 1)
 		yyerror("X value out of range.");
@@ -281,8 +281,7 @@ check_point(x, y)
 }
 
 void
-check_linepoint(x, y)
-	int x, y;
+check_linepoint(int x, int y)
 {
 	if (x < 0 || x >= sp->width)
 		yyerror("X value out of range.");
@@ -291,8 +290,7 @@ check_linepoint(x, y)
 }
 
 void
-check_line(x1, y1, x2, y2)
-	int x1, y1, x2, y2;
+check_line(int x1, int y1, int x2, int y2)
 {
 	int	d1, d2;
 
@@ -307,8 +305,7 @@ check_line(x1, y1, x2, y2)
 }
 
 int
-yyerror(s)
-	const char *s;
+yyerror(const char *s)
 {
 	fprintf(stderr, "\"%s\": line %d: %s\n", file, line, s);
 	errors++;
@@ -317,8 +314,7 @@ yyerror(s)
 }
 
 void
-check_edir(x, y, dir)
-	int x, y, dir;
+check_edir(int x, int y, int dir)
 {
 	int	bad = 0;
 
@@ -350,13 +346,12 @@ check_edir(x, y, dir)
 }
 
 void
-check_adir(x, y, dir)
-	int x, y, dir;
+check_adir(int x, int y, int dir)
 {
 }
 
 int
-checkdefs()
+checkdefs(void)
 {
 	int	err = 0;
 

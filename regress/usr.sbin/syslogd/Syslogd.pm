@@ -1,4 +1,4 @@
-#	$OpenBSD: Syslogd.pm,v 1.16 2015/10/19 20:16:09 bluhm Exp $
+#	$OpenBSD: Syslogd.pm,v 1.19 2016/07/12 15:44:58 bluhm Exp $
 
 # Copyright (c) 2010-2015 Alexander Bluhm <bluhm@openbsd.org>
 # Copyright (c) 2014 Florian Riehm <mail@friehm.de>
@@ -42,7 +42,8 @@ sub new {
 	$args{conffile} ||= "syslogd.conf";
 	$args{outfile} ||= "file.log";
 	$args{outpipe} ||= "pipe.log";
-	$args{outtty} ||= "tty.log";
+	$args{outconsole} ||= "console.log";
+	$args{outuser} ||= "user.log";
 	if ($args{memory}) {
 		$args{memory} = {} unless ref $args{memory};
 		$args{memory}{name} ||= "memory";
@@ -68,6 +69,7 @@ sub new {
 	    or die ref($self), " create conf file $self->{conffile} failed: $!";
 	print $fh "*.*\t$self->{outfile}\n";
 	print $fh "*.*\t|dd of=$self->{outpipe}\n";
+	print $fh "*.*\t/dev/console\n";
 	print $fh "*.*\tsyslogd-regress\n";
 	my $memory = $self->{memory};
 	print $fh "*.*\t:$memory->{size}:$memory->{name}\n" if $memory;
@@ -87,6 +89,7 @@ sub new {
 
 sub create_out {
 	my $self = shift;
+	my @sudo = $ENV{SUDO} ? $ENV{SUDO} : ();
 
 	open(my $fh, '>', $self->{outfile})
 	    or die ref($self), " create log file $self->{outfile} failed: $!";
@@ -98,23 +101,45 @@ sub create_out {
 	chmod(0666, $self->{outpipe})
 	    or die ref($self), " chmod pipe file $self->{outpipe} failed: $!";
 
-	unlink($self->{outtty});
-	open($fh, '>', $self->{outtty})
-	    or die ref($self), " create tty file $self->{outtty} failed: $!";
-	close $fh;
-	my @sudo = $ENV{SUDO} ? $ENV{SUDO} : ();
-	my @cmd = (@sudo, "./ttylog", "syslogd-regress", $self->{outtty});
-	open($fh, '|-', @cmd)
-	    or die ref($self), " pipe to ttylog $self->{outfile} failed: $!";
-	# remember until object is destroyed, perl autoclose will send EOF
-	$self->{fhtty} = $fh;
+	foreach my $dev (qw(console user)) {
+		my $file = $self->{"out$dev"};
+		unlink($file);
+		open($fh, '>', $file)
+		    or die ref($self), " create $dev file $file failed: $!";
+		close $fh;
+		my $user = $dev eq "console" ?
+		    "/dev/console" : "syslogd-regress";
+		my @cmd = (@sudo, "./ttylog", $user, $file);
+		$self->{"pid$dev"} = open(my $ctl, '|-', @cmd)
+		    or die ref($self), " pipe to @cmd failed: $!";
+		# remember until object is destroyed, autoclose will send EOF
+		$self->{"ctl$dev"} = $ctl;
+	}
 
+	return $self;
+}
+
+sub ttykill {
+	my $self = shift;
+	my $dev = shift;
+	my $sig = shift;
+	my $pid = $self->{"pid$dev"}
+	    or die ref($self), " no tty log pid$dev";
+
+	if (kill($sig => $pid) != 1) {
+		my $sudo = $ENV{SUDO};
+		$sudo && $!{EPERM}
+		    or die ref($self), " kill $pid failed: $!";
+		my @cmd = ($sudo, '/bin/kill', "-$sig", $pid);
+		system(@cmd)
+		    and die ref($self), " sudo kill $pid failed: $?";
+	}
 	return $self;
 }
 
 sub child {
 	my $self = shift;
-	my @sudo = $ENV{SUDO} ? $ENV{SUDO} : ();
+	my @sudo = $ENV{SUDO} ? $ENV{SUDO} : "env";
 
 	my @pkill = (@sudo, "pkill", "-KILL", "-x", "syslogd");
 	my @pgrep = ("pgrep", "-x", "syslogd");
@@ -171,14 +196,17 @@ sub up {
 		sleep .1;
 	}
 
-	while ($self->{fhtty}) {
-		open(my $fh, '<', $self->{outtty}) or die ref($self),
-		    " open $self->{outtty} for reading failed: $!";
-		last if grep { /ttylog: started/ } <$fh>;
-		time() < $end
-		    or croak ref($self), " no 'started' in $self->{outtty} ".
-		    "after $timeout seconds";
-		sleep .1;
+	foreach my $dev (qw(console user)) {
+		my $file = $self->{"out$dev"};
+		while ($self->{"ctl$dev"}) {
+			open(my $fh, '<', $file) or die ref($self),
+			    " open $file for reading failed: $!";
+			last if grep { /ttylog: started/ } <$fh>;
+			time() < $end
+			    or croak ref($self), " no 'started' in $file ".
+			    "after $timeout seconds";
+			sleep .1;
+		}
 	}
 
 	return $self;

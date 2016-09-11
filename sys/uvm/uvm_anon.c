@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_anon.c,v 1.44 2015/08/21 16:04:35 visa Exp $	*/
+/*	$OpenBSD: uvm_anon.c,v 1.47 2016/06/17 10:48:25 dlg Exp $	*/
 /*	$NetBSD: uvm_anon.c,v 1.10 2000/11/25 06:27:59 chs Exp $	*/
 
 /*
@@ -50,6 +50,7 @@ uvm_anon_init(void)
 {
 	pool_init(&uvm_anon_pool, sizeof(struct vm_anon), 0, 0,
 	    PR_WAITOK, "anonpl", NULL);
+	pool_setipl(&uvm_anon_pool, IPL_NONE);
 	pool_sethiwat(&uvm_anon_pool, uvmexp.free / 16);
 }
 
@@ -125,6 +126,19 @@ uvm_anfree(struct vm_anon *anon)
 }
 
 /*
+ * uvm_anwait: wait for memory to become available to allocate an anon.
+ */
+void
+uvm_anwait(void)
+{
+	struct vm_anon *anon;
+
+	/* XXX: Want something like pool_wait()? */
+	anon = pool_get(&uvm_anon_pool, PR_WAITOK);
+	pool_put(&uvm_anon_pool, anon);
+}
+
+/*
  * uvm_anon_dropswap:  release any swap resources from this anon.
  */
 void
@@ -148,7 +162,6 @@ boolean_t
 uvm_anon_pagein(struct vm_anon *anon)
 {
 	struct vm_page *pg;
-	struct uvm_object *uobj;
 	int rv;
 
 	rv = uvmfault_anonget(NULL, NULL, anon);
@@ -177,7 +190,6 @@ uvm_anon_pagein(struct vm_anon *anon)
 	 * mark it as dirty, clear its swslot and un-busy it.
 	 */
 	pg = anon->an_page;
-	uobj = pg->uobject;
 	uvm_swap_free(anon->an_swslot, 1);
 	anon->an_swslot = 0;
 	atomic_clearbits_int(&pg->pg_flags, PG_CLEAN);

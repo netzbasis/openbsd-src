@@ -1,4 +1,4 @@
-/*	$OpenBSD: radeon_kms.c,v 1.42 2015/09/27 16:13:23 kettenis Exp $	*/
+/*	$OpenBSD: radeon_kms.c,v 1.48 2016/04/08 08:27:53 kettenis Exp $	*/
 /*
  * Copyright 2008 Advanced Micro Devices, Inc.
  * Copyright 2008 Red Hat Inc.
@@ -41,6 +41,14 @@
 extern int vga_console_attached;
 #endif
 
+#ifdef __amd64__
+#include "efifb.h"
+#endif
+
+#if NEFIFB > 0
+#include <machine/efifbvar.h>
+#endif
+
 #define DRIVER_NAME		"radeon"
 #define DRIVER_DESC		"ATI Radeon"
 #define DRIVER_DATE		"20080613"
@@ -54,7 +62,6 @@ void	radeon_driver_irq_preinstall_kms(struct drm_device *);
 int	radeon_driver_irq_postinstall_kms(struct drm_device *);
 void	radeon_driver_irq_uninstall_kms(struct drm_device *d);
 
-int	radeon_gem_object_init(struct drm_gem_object *);
 void	radeon_gem_object_free(struct drm_gem_object *);
 int	radeon_gem_object_open(struct drm_gem_object *, struct drm_file *);
 void	radeon_gem_object_close(struct drm_gem_object *, struct drm_file *);
@@ -107,7 +114,7 @@ int	radeondrm_probe(struct device *, void *, void *);
 void	radeondrm_attach_kms(struct device *, struct device *, void *);
 int	radeondrm_detach_kms(struct device *, int);
 int	radeondrm_activate_kms(struct device *, int);
-void	radeondrm_attachhook(void *);
+void	radeondrm_attachhook(struct device *);
 int	radeondrm_forcedetach(struct radeon_device *);
 
 extern struct drm_ioctl_desc radeon_ioctls_kms[];
@@ -202,9 +209,10 @@ const struct drm_pcidev radeondrm_pciidlist[] = {
 };
 
 static struct drm_driver_info kms_driver = {
-	.flags =
-	    DRIVER_AGP | DRIVER_PCI_DMA | DRIVER_SG |
-	    DRIVER_HAVE_IRQ | DRIVER_HAVE_DMA | DRIVER_GEM | DRIVER_MODESET,
+	.driver_features =
+	    DRIVER_USE_AGP |
+	    DRIVER_HAVE_IRQ | DRIVER_IRQ_SHARED | DRIVER_GEM |
+	    DRIVER_MODESET,
 	.buf_priv_size = 0,
 	.firstopen = radeon_driver_firstopen_kms,
 	.open = radeon_driver_open_kms,
@@ -231,7 +239,6 @@ static struct drm_driver_info kms_driver = {
 	.irq_postinstall = radeon_driver_irq_postinstall_kms,
 	.irq_uninstall = radeon_driver_irq_uninstall_kms,
 	.ioctls = radeon_ioctls_kms,
-	.gem_init_object = radeon_gem_object_init,
 	.gem_free_object = radeon_gem_object_free,
 	.gem_open_object = radeon_gem_object_open,
 	.gem_close_object = radeon_gem_object_close,
@@ -503,6 +510,12 @@ radeondrm_attach_kms(struct device *parent, struct device *self, void *aux)
 		vga_console_attached = 1;
 #endif
 	}
+#if NEFIFB > 0
+	if (efifb_is_console(pa)) {
+		rdev->console = 1;
+		efifb_cndetach();
+	}
+#endif
 #endif
 
 #define RADEON_PCI_MEM		0x10
@@ -648,10 +661,7 @@ radeondrm_attach_kms(struct device *parent, struct device *self, void *aux)
 #endif
 
 	rdev->shutdown = true;
-	if (rootvp == NULL)
-		mountroothook_establish(radeondrm_attachhook, rdev);
-	else
-		radeondrm_attachhook(rdev);
+	config_mountroot(self, radeondrm_attachhook);
 }
 
 int
@@ -670,9 +680,9 @@ radeondrm_forcedetach(struct radeon_device *rdev)
 }
 
 void
-radeondrm_attachhook(void *xsc)
+radeondrm_attachhook(struct device *self)
 {
-	struct radeon_device	*rdev = xsc;
+	struct radeon_device	*rdev = (struct radeon_device *)self;
 	int			 r, acpi_status;
 
 	/* radeon_device_init should report only fatal error
@@ -1091,13 +1101,16 @@ int radeon_driver_firstopen_kms(struct drm_device *dev)
 void radeon_driver_lastclose_kms(struct drm_device *dev)
 {
 	struct radeon_device *rdev = dev->dev_private;
+	struct drm_fb_helper *fb_helper = (void *)rdev->mode_info.rfbdev;
 
 #ifdef __sparc64__
 	fbwscons_setcolormap(&rdev->sf, radeondrm_setcolor);
 #endif
-	drm_modeset_lock_all(dev);
-	drm_fb_helper_restore_fbdev_mode((void *)rdev->mode_info.rfbdev);
-	drm_modeset_unlock_all(dev);
+	if (rdev->mode_info.mode_config_initialized) {
+		drm_modeset_lock_all(dev);
+		drm_fb_helper_restore_fbdev_mode(fb_helper);
+		drm_modeset_unlock_all(dev);
+	}
 #ifdef notyet
 	vga_switcheroo_process_delayed_switch();
 #endif
@@ -1402,18 +1415,18 @@ struct drm_ioctl_desc radeon_ioctls_kms[] = {
 	DRM_IOCTL_DEF_DRV(RADEON_SURF_ALLOC, radeon_surface_alloc_kms, DRM_AUTH),
 	DRM_IOCTL_DEF_DRV(RADEON_SURF_FREE, radeon_surface_free_kms, DRM_AUTH),
 	/* KMS */
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_INFO, radeon_gem_info_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_CREATE, radeon_gem_create_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_MMAP, radeon_gem_mmap_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_SET_DOMAIN, radeon_gem_set_domain_ioctl, DRM_AUTH|DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_INFO, radeon_gem_info_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_CREATE, radeon_gem_create_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_MMAP, radeon_gem_mmap_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_SET_DOMAIN, radeon_gem_set_domain_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(RADEON_GEM_PREAD, radeon_gem_pread_ioctl, DRM_AUTH|DRM_UNLOCKED),
 	DRM_IOCTL_DEF_DRV(RADEON_GEM_PWRITE, radeon_gem_pwrite_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_WAIT_IDLE, radeon_gem_wait_idle_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_CS, radeon_cs_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_INFO, radeon_info_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_SET_TILING, radeon_gem_set_tiling_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_GET_TILING, radeon_gem_get_tiling_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_BUSY, radeon_gem_busy_ioctl, DRM_AUTH|DRM_UNLOCKED),
-	DRM_IOCTL_DEF_DRV(RADEON_GEM_VA, radeon_gem_va_ioctl, DRM_AUTH|DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_WAIT_IDLE, radeon_gem_wait_idle_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_CS, radeon_cs_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_INFO, radeon_info_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_SET_TILING, radeon_gem_set_tiling_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_GET_TILING, radeon_gem_get_tiling_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_BUSY, radeon_gem_busy_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(RADEON_GEM_VA, radeon_gem_va_ioctl, DRM_AUTH|DRM_UNLOCKED|DRM_RENDER_ALLOW),
 };
 int radeon_max_kms_ioctl = DRM_ARRAY_SIZE(radeon_ioctls_kms);

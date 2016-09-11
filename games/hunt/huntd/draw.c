@@ -1,4 +1,4 @@
-/*	$OpenBSD: draw.c,v 1.7 2003/06/11 08:45:33 pjanzen Exp $	*/
+/*	$OpenBSD: draw.c,v 1.10 2016/08/27 02:06:40 guenther Exp $	*/
 /*	$NetBSD: draw.c,v 1.2 1997/10/10 16:33:04 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,11 +31,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/select.h>
 #include <string.h>
 
+#include "conf.h"
 #include "hunt.h"
 #include "server.h"
-#include "conf.h"
 
 static char	translate(char);
 static int	player_sym(PLAYER *, int, int);
@@ -47,8 +48,7 @@ static void	see(PLAYER *, int);
  *	Draw the entire maze on a player's screen.
  */
 void
-drawmaze(pp)
-	PLAYER	*pp;
+drawmaze(PLAYER *pp)
 {
 	int	x;
 	char	*sp;
@@ -85,8 +85,7 @@ drawmaze(pp)
  *		size is 80x24 with the maze being 64x24)
  */
 static void
-drawstatus(pp)
-	PLAYER	*pp;
+drawstatus(PLAYER *pp)
 {
 	int	i;
 	PLAYER	*np;
@@ -125,8 +124,7 @@ drawstatus(pp)
  *	check and update the visible area around the player
  */
 void
-look(pp)
-	PLAYER	*pp;
+look(PLAYER *pp)
 {
 	int	x, y;
 
@@ -184,9 +182,7 @@ look(pp)
  *	is a simulation of visibility from the player's perspective.
  */
 static void
-see(pp, face)
-	PLAYER	*pp;
-	int	face;
+see(PLAYER *pp, int face)
 {
 	char	*sp;
 	int	y, x;
@@ -226,9 +222,7 @@ see(pp, face)
  *	Ensure it is shown properly on their screen.
  */
 void
-check(pp, y, x)
-	PLAYER	*pp;
-	int	y, x;
+check(PLAYER *pp, int y, int x)
 {
 	int	index;
 	int	ch;
@@ -262,8 +256,7 @@ check(pp, y, x)
  *	Update the status of a player on everyone's screen
  */
 void
-showstat(pp)
-	PLAYER	*pp;
+showstat(PLAYER *pp)
 {
 
 	outyx(ALL_PLAYERS, 
@@ -279,9 +272,7 @@ showstat(pp)
  *	be drawn instead of the player; effectively un-drawing the player.
  */
 void
-drawplayer(pp, draw)
-	PLAYER	*pp;
-	FLAG	draw;
+drawplayer(PLAYER *pp, FLAG draw)
 {
 	PLAYER	*newp;
 	int	x, y;
@@ -337,9 +328,7 @@ drawplayer(pp, draw)
  *	Write a message at the bottom of the screen.
  */
 void
-message(pp, s)
-	PLAYER	*pp;
-	char	*s;
+message(PLAYER *pp, char *s)
 {
 	cgoto(pp, HEIGHT, 0);
 	outstr(pp, s, strlen(s));
@@ -352,8 +341,7 @@ message(pp, s)
  *	ie: {,},!,i becomes <,>,v,^
  */
 static char
-translate(ch)
-	char	ch;
+translate(char ch)
 {
 	switch (ch) {
 	  case LEFTS:
@@ -376,9 +364,7 @@ translate(ch)
  *	    - teamed players see other players on their team, as a digit
  */
 static int
-player_sym(pp, y, x)
-	PLAYER	*pp;
-	int	y, x;
+player_sym(PLAYER *pp, int y, int x)
 {
 	PLAYER	*npp;
 

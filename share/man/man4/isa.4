@@ -1,4 +1,4 @@
-.\"	$OpenBSD: isa.4,v 1.74 2015/09/30 12:15:12 jung Exp $
+.\"	$OpenBSD: isa.4,v 1.78 2016/09/04 10:35:39 tedu Exp $
 .\"	$NetBSD: isa.4,v 1.19 2000/03/18 16:54:37 augustss Exp $
 .\"
 .\" Copyright (c) 2000 Theo de Raadt.  All rights reserved.
@@ -31,7 +31,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: September 30 2015 $
+.Dd $Mdocdate: September 4 2016 $
 .Dt ISA 4
 .Os
 .Sh NAME
@@ -83,16 +83,10 @@ provides support for the following devices.
 Note that not all architectures support all devices.
 .Ss SCSI controllers
 .Bl -tag -width 12n -offset ind -compact
-.It Xr aha 4
-Adaptec 154x SCSI interface
 .It Xr aic 4
 Adaptec AIC-6260 and AIC-6360 SCSI interface
-.It Xr bha 4
-Buslogic SCSI interface
 .It Xr dpt 4
 DPT EATA SCSI RAID controller
-.It Xr sea 4
-Seagate/Future Domain ISA SCSI interface
 .It Xr uha 4
 Ultrastor SCSI interface
 .It Xr wds 4
@@ -165,21 +159,6 @@ Roland/Yamaha MPU401 MIDI UART device
 Media Vision Pro AudioSpectrum audio device
 .It Xr sb 4
 SoundBlaster family audio device
-.It Xr wss 4
-Windows Sound System audio device
-.El
-.Ss Radio receiver devices
-.Bl -tag -width 12n -offset ind -compact
-.It Xr az 4
-Aztech/PackardBell FM radio device
-.It Xr rt 4
-AIMS Lab Radiotrack FM radio device
-.It Xr rtii 4
-AIMS Lab Radiotrack II FM radio device
-.It Xr sfr 4
-SoundForte RadioLink SF16-FMR FM radio device
-.It Xr sf2r 4
-SoundForte RadioLink SF16-FMR2 FM radio device
 .El
 .Ss Hardware Sensors
 .Bl -tag -width 12n -offset ind -compact

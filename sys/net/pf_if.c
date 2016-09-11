@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_if.c,v 1.81 2015/10/30 11:33:55 mikeb Exp $ */
+/*	$OpenBSD: pf_if.c,v 1.83 2016/09/02 10:19:49 dlg Exp $ */
 
 /*
  * Copyright 2005 Henning Brauer <henning@openbsd.org>
@@ -90,6 +90,7 @@ pfi_initialize(void)
 
 	pool_init(&pfi_addr_pl, sizeof(struct pfi_dynaddr), 0, 0, 0,
 	    "pfiaddrpl", NULL);
+	pool_setipl(&pfi_addr_pl, IPL_SOFTNET);
 	pfi_buffer_max = 64;
 	pfi_buffer = mallocarray(pfi_buffer_max, sizeof(*pfi_buffer),
 	    PFI_MTYPE, M_WAITOK);
@@ -257,11 +258,6 @@ pfi_detach_ifnet(struct ifnet *ifp)
 	pfi_update++;
 	hook_disestablish(ifp->if_addrhooks, kif->pfik_ah_cookie);
 	pfi_kif_update(kif);
-
-	if (HFSC_ENABLED(&ifp->if_snd)) {
-		pf_remove_queues(ifp);
-		pf_free_queues(pf_queues_active, ifp);
-	}
 
 	kif->pfik_ifp = NULL;
 	ifp->if_pf_kif = NULL;

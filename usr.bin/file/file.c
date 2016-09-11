@@ -1,4 +1,4 @@
-/* $OpenBSD: file.c,v 1.53 2015/10/17 04:41:37 deraadt Exp $ */
+/* $OpenBSD: file.c,v 1.58 2016/05/01 20:34:26 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -19,21 +19,25 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 
+#include <err.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <getopt.h>
 #include <imsg.h>
 #include <libgen.h>
-#include <getopt.h>
-#include <fcntl.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdlib.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <limits.h>
 
 #include "file.h"
 #include "magic.h"
@@ -74,6 +78,7 @@ extern char	*__progname;
 
 __dead void	 usage(void);
 
+static int	 prepare_message(struct input_msg *, int, const char *);
 static void	 send_message(struct imsgbuf *, void *, size_t, int);
 static int	 read_message(struct imsgbuf *, struct imsg *, pid_t);
 
@@ -101,9 +106,11 @@ static char	*magicpath;
 static FILE	*magicfp;
 
 static struct option longopts[] = {
-	{ "mime",      no_argument, NULL, 'i' },
-	{ "mime-type", no_argument, NULL, 'i' },
-	{ NULL,        0,           NULL, 0   }
+	{ "brief",       no_argument, NULL, 'b' },
+	{ "dereference", no_argument, NULL, 'L' },
+	{ "mime",        no_argument, NULL, 'i' },
+	{ "mime-type",   no_argument, NULL, 'i' },
+	{ NULL,          0,           NULL, 0   }
 };
 
 __dead void
@@ -116,7 +123,7 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	int			 opt, pair[2], fd, idx, mode;
+	int			 opt, pair[2], fd, idx;
 	char			*home;
 	struct passwd		*pw;
 	struct imsgbuf		 ibuf;
@@ -209,36 +216,7 @@ main(int argc, char **argv)
 
 	imsg_init(&ibuf, pair[0]);
 	for (idx = 0; idx < argc; idx++) {
-		memset(&msg, 0, sizeof msg);
-		msg.idx = idx;
-
-		if (strcmp(argv[idx], "-") == 0) {
-			if (fstat(STDIN_FILENO, &msg.sb) == -1) {
-				fd = -1;
-				msg.error = errno;
-			} else
-				fd = STDIN_FILENO;
-		} else if (lstat(argv[idx], &msg.sb) == -1) {
-			fd = -1;
-			msg.error = errno;
-		} else {
-			/*
-			 * pledge(2) doesn't let us pass directory file
-			 * descriptors around - but in fact we don't need them,
-			 * so just don't open directories or symlinks (which
-			 * could be to directories).
-			 */
-			mode = msg.sb.st_mode;
-			if (!S_ISDIR(mode) && !S_ISLNK(mode)) {
-				fd = open(argv[idx], O_RDONLY|O_NONBLOCK);
-				if (fd == -1 &&
-				    (errno == ENFILE || errno == EMFILE))
-					err(1, "open");
-			} else
-				fd = -1;
-			if (S_ISLNK(mode))
-				read_link(&msg, argv[idx]);
-		}
+		fd = prepare_message(&msg, idx, argv[idx]);
 		send_message(&ibuf, &msg, sizeof msg, fd);
 
 		if (read_message(&ibuf, &imsg, pid) == 0)
@@ -260,6 +238,49 @@ wait_for_child:
 	_exit(0); /* let the child flush */
 }
 
+static int
+prepare_message(struct input_msg *msg, int idx, const char *path)
+{
+	int	fd, mode, error;
+
+	memset(msg, 0, sizeof *msg);
+	msg->idx = idx;
+
+	if (strcmp(path, "-") == 0) {
+		if (fstat(STDIN_FILENO, &msg->sb) == -1) {
+			msg->error = errno;
+			return (-1);
+		}
+		return (STDIN_FILENO);
+	}
+
+	if (Lflag)
+		error = stat(path, &msg->sb);
+	else
+		error = lstat(path, &msg->sb);
+	if (error == -1) {
+		msg->error = errno;
+		return (-1);
+	}
+
+	/*
+	 * pledge(2) doesn't let us pass directory file descriptors around -
+	 * but in fact we don't need them, so just don't open directories or
+	 * symlinks (which could be to directories).
+	 */
+	mode = msg->sb.st_mode;
+	if (!S_ISDIR(mode) && !S_ISLNK(mode)) {
+		fd = open(path, O_RDONLY|O_NONBLOCK);
+		if (fd == -1 && (errno == ENFILE || errno == EMFILE))
+			err(1, "open");
+	} else
+		fd = -1;
+	if (S_ISLNK(mode))
+		read_link(msg, path);
+	return (fd);
+
+}
+
 static void
 send_message(struct imsgbuf *ibuf, void *msg, size_t msglen, int fd)
 {
@@ -274,7 +295,9 @@ read_message(struct imsgbuf *ibuf, struct imsg *imsg, pid_t from)
 {
 	int	n;
 
-	if ((n = imsg_read(ibuf)) == -1)
+	while ((n = imsg_read(ibuf)) == -1 && errno == EAGAIN)
+		/* nothing */ ;
+	if (n == -1)
 		err(1, "imsg_read");
 	if (n == 0)
 		return (0);
@@ -329,13 +352,8 @@ read_link(struct input_msg *msg, const char *path)
 		free(copy);
 	}
 
-	if (Lflag) {
-		if (stat(path, &msg->sb) == -1)
-			msg->error = errno;
-	} else {
-		if (stat(path, &sb) == -1)
-			msg->link_target = errno;
-	}
+	if (!Lflag && stat(path, &sb) == -1)
+		msg->link_target = errno;
 }
 
 static __dead void

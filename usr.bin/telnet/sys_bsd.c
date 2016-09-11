@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_bsd.c,v 1.30 2015/03/29 13:42:53 sthen Exp $	*/
+/*	$OpenBSD: sys_bsd.c,v 1.32 2016/03/16 15:41:11 krw Exp $	*/
 /*	$NetBSD: sys_bsd.c,v 1.11 1996/02/28 21:04:10 thorpej Exp $	*/
 
 /*
@@ -181,7 +181,7 @@ tcval(int func)
     case SLC_BRK:
     case SLC_EOR:
     default:
-	return((cc_t *)0);
+	return(NULL);
     }
 }
 
@@ -266,7 +266,8 @@ TerminalNewMode(int f)
 	    /*
 	     * Wait for data to drain, then flush again.
 	     */
-	    tcsetattr(tin, TCSADRAIN, &tmp_tc);
+	    if (isatty(tin))
+	        tcsetattr(tin, TCSADRAIN, &tmp_tc);
 	    old = ttyflush(SYNCHing|flushout);
 	} while (old < 0 || old > 1);
     }
@@ -414,7 +415,7 @@ TerminalNewMode(int f)
 	sigprocmask(SIG_UNBLOCK, &mask, NULL);
 	tmp_tc = old_tc;
     }
-    if (tcsetattr(tin, TCSADRAIN, &tmp_tc) < 0)
+    if (isatty(tin) && tcsetattr(tin, TCSADRAIN, &tmp_tc) < 0)
 	tcsetattr(tin, TCSANOW, &tmp_tc);
 
     ioctl(tin, FIONBIO, &onoff);

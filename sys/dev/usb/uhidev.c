@@ -1,4 +1,4 @@
-/*	$OpenBSD: uhidev.c,v 1.70 2015/02/28 08:42:41 mpi Exp $	*/
+/*	$OpenBSD: uhidev.c,v 1.74 2016/06/13 10:15:03 mpi Exp $	*/
 /*	$NetBSD: uhidev.c,v 1.14 2003/03/11 16:44:00 augustss Exp $	*/
 
 /*
@@ -54,7 +54,6 @@
 #include <dev/usb/usbdi_util.h>
 #include <dev/usb/usbdivar.h>
 #include <dev/usb/usb_mem.h>
-#include <dev/usb/hid.h>
 #include <dev/usb/usb_quirks.h>
 
 #include <dev/usb/uhidev.h>
@@ -62,7 +61,10 @@
 #ifndef SMALL_KERNEL
 /* Replacement report descriptors for devices shipped with broken ones */
 #include <dev/usb/uhid_rdesc.h>
-int uhidev_use_rdesc(struct uhidev_softc *, int, int, void **, int *);
+int uhidev_use_rdesc(struct uhidev_softc *, usb_interface_descriptor_t *,
+		int, int, void **, int *);
+#define UISUBCLASS_XBOX360_CONTROLLER 0x5d
+#define UIPROTO_XBOX360_GAMEPAD 0x01
 #endif /* !SMALL_KERNEL */
 
 #define DEVNAME(sc)		((sc)->sc_dev.dv_xname)
@@ -94,8 +96,7 @@ void uhidev_attach(struct device *, struct device *, void *);
 int uhidev_detach(struct device *, int);
 int uhidev_activate(struct device *, int);
 
-void uhidev_get_report_async_cb(struct usbd_xfer *xfer, void *priv,
-    usbd_status status);
+void uhidev_get_report_async_cb(struct usbd_xfer *, void *, usbd_status);
 
 struct cfdriver uhidev_cd = {
 	NULL, "uhidev", DV_DULL
@@ -118,10 +119,10 @@ uhidev_match(struct device *parent, void *match, void *aux)
 	if (id == NULL)
 		return (UMATCH_NONE);
 #ifndef SMALL_KERNEL
-	if (uaa->vendor == USB_VENDOR_MICROSOFT &&
-	    uaa->product == USB_PRODUCT_MICROSOFT_XBOX360_CONTROLLER &&
-	    id->bInterfaceNumber == 0)
-		return (UMATCH_VENDOR_PRODUCT);
+	if (id->bInterfaceClass == UICLASS_VENDOR &&
+	    id->bInterfaceSubClass == UISUBCLASS_XBOX360_CONTROLLER &&
+	    id->bInterfaceProtocol == UIPROTO_XBOX360_GAMEPAD)
+		return (UMATCH_IFACECLASS_IFACESUBCLASS_IFACEPROTO);
 #endif /* !SMALL_KERNEL */
 	if (id->bInterfaceClass != UICLASS_HID)
 		return (UMATCH_NONE);
@@ -191,7 +192,7 @@ uhidev_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 #ifndef SMALL_KERNEL
-	if (uhidev_use_rdesc(sc, uaa->vendor, uaa->product, &desc, &size))
+	if (uhidev_use_rdesc(sc, id, uaa->vendor, uaa->product, &desc, &size))
 		return;
 #endif /* !SMALL_KERNEL */
 
@@ -275,8 +276,8 @@ uhidev_attach(struct device *parent, struct device *self, void *aux)
 
 #ifndef SMALL_KERNEL
 int
-uhidev_use_rdesc(struct uhidev_softc *sc, int vendor, int product,
-    void **descp, int *sizep)
+uhidev_use_rdesc(struct uhidev_softc *sc, usb_interface_descriptor_t *id,
+		int vendor, int product, void **descp, int *sizep)
 {
 	static uByte reportbuf[] = {2, 2};
 	const void *descptr = NULL;
@@ -300,8 +301,9 @@ uhidev_use_rdesc(struct uhidev_softc *sc, int vendor, int product,
 		default:
 			break;
 		}
-	} else if (vendor == USB_VENDOR_MICROSOFT &&
-	    product == USB_PRODUCT_MICROSOFT_XBOX360_CONTROLLER) {
+	} else if ((id->bInterfaceClass == UICLASS_VENDOR &&
+		   id->bInterfaceSubClass == UISUBCLASS_XBOX360_CONTROLLER &&
+		   id->bInterfaceProtocol == UIPROTO_XBOX360_GAMEPAD)) {
 		/* The Xbox 360 gamepad has no report descriptor. */
 		size = sizeof(uhid_xb360gp_report_descr);
 		descptr = uhid_xb360gp_report_descr;
@@ -751,17 +753,19 @@ uhidev_get_report_async_cb(struct usbd_xfer *xfer, void *priv, usbd_status err)
 	char *buf;
 	int len = -1;
 
-	if (err == USBD_NORMAL_COMPLETION || err == USBD_SHORT_XFER) {
-		len = xfer->actlen;
-		buf = KERNADDR(&xfer->dmabuf, 0);
-		if (info->id > 0) {
-			len--;
-			memcpy(info->data, buf + 1, len);
-		} else {
-			memcpy(info->data, buf, len);
+	if (!usbd_is_dying(xfer->pipe->device)) {
+		if (err == USBD_NORMAL_COMPLETION || err == USBD_SHORT_XFER) {
+			len = xfer->actlen;
+			buf = KERNADDR(&xfer->dmabuf, 0);
+			if (info->id > 0) {
+				len--;
+				memcpy(info->data, buf + 1, len);
+			} else {
+				memcpy(info->data, buf, len);
+			}
 		}
+		info->callback(info->priv, info->id, info->data, len);
 	}
-	info->callback(info->priv, info->id, info->data, len);
 	free(info, M_TEMP, sizeof(*info));
 	usbd_free_xfer(xfer);
 }

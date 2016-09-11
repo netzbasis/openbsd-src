@@ -1,9 +1,7 @@
 ./.cshrc
 ./.profile
+./etc/acme
 ./etc/changelist
-./etc/csh.cshrc
-./etc/csh.login
-./etc/csh.logout
 ./etc/dumpdates
 ./etc/fbtab
 ./etc/ftpusers
@@ -15,7 +13,6 @@
 ./etc/login.conf
 ./etc/mail.rc
 ./etc/mail/aliases
-./etc/mail/aliases.db
 ./etc/mail/smtpd.conf
 ./etc/mail/spamd.conf
 ./etc/mailer.conf
@@ -42,11 +39,13 @@
 ./etc/spwd.db
 ./etc/ssh/ssh_config
 ./etc/ssh/sshd_config
+./etc/ssl/acme
+./etc/ssl/acme/private
 ./etc/ssl/cert.pem
+./etc/ssl/ikeca.cnf
 ./etc/ssl/openssl.cnf
 ./etc/ssl/x509v3.cnf
 ./etc/syslog.conf
-./etc/systrace/usr_sbin_lpd
 ./etc/ttys
 ./root/.Xdefaults
 ./root/.cshrc
@@ -73,8 +72,8 @@
 ./var/mail/root
 ./var/nsd/etc/nsd.conf
 ./var/sysmerge/etcsum
-./var/sysmerge/examplessum
 ./var/unbound/etc/unbound.conf
+./var/www/acme
 ./var/www/conf/bgplg.css
 ./var/www/conf/bgplg.foot
 ./var/www/conf/bgplg.head

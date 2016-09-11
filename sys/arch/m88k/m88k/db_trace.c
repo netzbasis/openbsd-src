@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.13 2014/07/13 12:11:01 jasper Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.15 2016/03/09 08:58:50 mpi Exp $	*/
 /*
  * Mach Operating System
  * Copyright (c) 1993-1991 Carnegie Mellon University
@@ -80,23 +80,7 @@ extern label_t *db_recover;
  * m88k trace/register state interface for ddb.
  */
 
-/* lifted from mips */
-static int
-db_setf_regs(struct db_variable      *vp,
-	db_expr_t		*valuep,
-	int			op)		/* read/write */
-{
-	int   *regp = (int *) ((char *) DDB_REGS + (int) (vp->valuep));
-
-	if (op == DB_VAR_GET)
-		*valuep = *regp;
-	else if (op == DB_VAR_SET)
-		*regp = *valuep;
-
-	return (0); /* silence warning */
-}
-
-#define N(s, x)  {s, (long *)&(((db_regs_t *) 0)->x), db_setf_regs}
+#define N(s, x)  {s, (long *)&ddb_regs.x, FCN_NULL}
 
 struct db_variable db_regs[] = {
 	N("r1", r[1]),     N("r2", r[2]),    N("r3", r[3]),    N("r4", r[4]),
@@ -489,14 +473,14 @@ stack_decode(db_addr_t addr, vaddr_t *stack, int (*pr)(const char *, ...))
 	/* get what we hope will be the db_sym_t for the function name */
 	proc = db_search_symbol(addr, DB_STGY_PROC, &offset_from_proc);
 	if (offset_from_proc == addr) /* i.e. no symbol found */
-		proc = DB_SYM_NULL;
+		proc = NULL;
 
 	/*
 	 * Try and find the start of this function, and its stack usage.
 	 * If we do not have symbols available, we will need to
 	 * look back in memory for a prologue pattern.
 	 */
-	if (proc != DB_SYM_NULL) {
+	if (proc != NULL) {
 		char *names = NULL;
 		db_symbol_values(proc, &names, &function_addr);
 		if (names == NULL)
@@ -864,7 +848,7 @@ db_stack_trace_print(db_expr_t addr,
 
 	switch (style) {
 	case Default:
-		regs = DDB_REGS;
+		regs = &ddb_regs;
 		break;
 	case Frame:
 		regs = arg.frame;

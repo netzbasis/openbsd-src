@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_vfsops.c,v 1.85 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ext2fs_vfsops.c,v 1.96 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: ext2fs_vfsops.c,v 1.1 1997/06/11 09:34:07 bouyer Exp $	*/
 
 /*
@@ -95,8 +95,10 @@ ext2fs_init(struct vfsconf *vfsp)
 {
 	pool_init(&ext2fs_inode_pool, sizeof(struct inode), 0, 0, PR_WAITOK,
 	    "ext2inopl", NULL);
+	pool_setipl(&ext2fs_inode_pool, IPL_NONE);
 	pool_init(&ext2fs_dinode_pool, sizeof(struct ext2fs_dinode), 0, 0,
 	    PR_WAITOK, "ext2dinopl", NULL);
+	pool_setipl(&ext2fs_dinode_pool, IPL_NONE);
 
 	return (ufs_init(vfsp));
 }
@@ -168,7 +170,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 	char fname[MNAMELEN];
 	char fspec[MNAMELEN];
 	int error, flags;
-	mode_t accessmode;
 
 	error = copyin(data, &args, sizeof(struct ufs_args));
 	if (error)
@@ -202,19 +203,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 				return (error);
 		}
 		if (fs->e2fs_ronly && (mp->mnt_flag & MNT_WANTRDWR)) {
-			/*
-			 * If upgrade to read-write by non-root, then verify
-			 * that user has necessary permissions on the device.
-			 */
-			if (suser(p, 0) != 0) {
-				devvp = ump->um_devvp;
-				vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-				error = VOP_ACCESS(devvp, VREAD | VWRITE,
-				    p->p_ucred, p);
-				VOP_UNLOCK(devvp, 0, p);
-				if (error)
-					return (error);
-			}
 			fs->e2fs_ronly = 0;
 			if (fs->e2fs.e2fs_state == E2FS_ISCLEAN)
 				fs->e2fs.e2fs_state = 0;
@@ -254,20 +242,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 		error = ENXIO;
 		goto error_devvp;
 	}
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0) != 0) {
-		accessmode = VREAD;
-		if ((mp->mnt_flag & MNT_RDONLY) == 0)
-			accessmode |= VWRITE;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, accessmode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, 0, p);
-		if (error)
-			goto error_devvp;
-	}
 	if ((mp->mnt_flag & MNT_UPDATE) == 0)
 		error = ext2fs_mountfs(devvp, mp, p);
 	else {
@@ -293,6 +267,7 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 	strlcpy(mp->mnt_stat.f_mntfromname, fname, MNAMELEN);
 	memset(mp->mnt_stat.f_mntfromspec, 0, MNAMELEN);
 	strlcpy(mp->mnt_stat.f_mntfromspec, fspec, MNAMELEN);
+	memcpy(&mp->mnt_stat.mount_info.ufs_args, &args, sizeof(args));
 
 	if (fs->e2fs_fmod != 0) {	/* XXX */
 		fs->e2fs_fmod = 0;
@@ -580,10 +555,10 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		ump->um_e2fs->e2fs_fmod = 1;
 	}
 
-	mp->mnt_data = (qaddr_t)ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
-	mp->mnt_maxsymlinklen = EXT2_MAXSYMLINKLEN;
+	mp->mnt_stat.f_namemax = MAXNAMLEN;
 	mp->mnt_flag |= MNT_LOCAL;
 	ump->um_mountp = mp;
 	ump->um_dev = dev;
@@ -591,18 +566,21 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 	ump->um_nindir = NINDIR(ump->um_e2fs);
 	ump->um_bptrtodb = ump->um_e2fs->e2fs_fsbtodb;
 	ump->um_seqinc = 1; /* no frags */
+	ump->um_maxsymlinklen = EXT2_MAXSYMLINKLEN;
 	devvp->v_specmountpoint = mp;
 	return (0);
 out:
+	if (devvp->v_specinfo)
+		devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	(void)VOP_CLOSE(devvp, ronly ? FREAD : FREAD|FWRITE, cred, p);
-	VOP_UNLOCK(devvp, 0, p);
+	VOP_UNLOCK(devvp, p);
 	if (ump) {
 		free(ump->um_e2fs, M_UFSMNT, sizeof *ump->um_e2fs);
 		free(ump, M_UFSMNT, sizeof *ump);
-		mp->mnt_data = (qaddr_t)0;
+		mp->mnt_data = NULL;
 	}
 	return (error);
 }
@@ -636,15 +614,15 @@ ext2fs_unmount(struct mount *mp, int mntflags, struct proc *p)
 	if (ump->um_devvp->v_type != VBAD)
 		ump->um_devvp->v_specmountpoint = NULL;
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
-	error = VOP_CLOSE(ump->um_devvp, fs->e2fs_ronly ? FREAD : FREAD|FWRITE,
+	(void)VOP_CLOSE(ump->um_devvp, fs->e2fs_ronly ? FREAD : FREAD|FWRITE,
 	    NOCRED, p);
 	vput(ump->um_devvp);
 	free(fs->e2fs_gd, M_UFSMNT, gdescs_space);
 	free(fs, M_UFSMNT, sizeof *fs);
 	free(ump, M_UFSMNT, sizeof *ump);
-	mp->mnt_data = (qaddr_t)0;
+	mp->mnt_data = NULL;
 	mp->mnt_flag &= ~MNT_LOCAL;
-	return (error);
+	return (0);
 }
 
 /*
@@ -667,7 +645,7 @@ ext2fs_flushfiles(struct mount *mp, int flags, struct proc *p)
 	 */
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_FSYNC(ump->um_devvp, p->p_ucred, MNT_WAIT, p);
-	VOP_UNLOCK(ump->um_devvp, 0, p);
+	VOP_UNLOCK(ump->um_devvp, p);
 	return (error);
 }
 
@@ -711,13 +689,9 @@ ext2fs_statfs(struct mount *mp, struct statfs *sbp, struct proc *p)
 	sbp->f_bfree = fs->e2fs.e2fs_fbcount;
 	sbp->f_bavail = sbp->f_bfree - fs->e2fs.e2fs_rbcount;
 	sbp->f_files =  fs->e2fs.e2fs_icount;
-	sbp->f_ffree = fs->e2fs.e2fs_ficount;
-	if (sbp != &mp->mnt_stat) {
-		memcpy(sbp->f_mntonname, mp->mnt_stat.f_mntonname, MNAMELEN);
-		memcpy(sbp->f_mntfromname, mp->mnt_stat.f_mntfromname, MNAMELEN);
-		memcpy(sbp->f_mntfromspec, mp->mnt_stat.f_mntfromspec, MNAMELEN);
-	}
-	strncpy(sbp->f_fstypename, mp->mnt_vfc->vfc_name, MFSNAMELEN);
+	sbp->f_favail = sbp->f_ffree = fs->e2fs.e2fs_ficount;
+	copy_statfs_info(sbp, mp);
+
 	return (0);
 }
 
@@ -793,7 +767,7 @@ ext2fs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
 		vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 		if ((error = VOP_FSYNC(ump->um_devvp, cred, waitfor, p)) != 0)
 			allerror = error;
-		VOP_UNLOCK(ump->um_devvp, 0, p);
+		VOP_UNLOCK(ump->um_devvp, p);
 	}
 	/*
 	 * Write back modified superblock.
@@ -843,7 +817,7 @@ ext2fs_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	}
 
 	ip = pool_get(&ext2fs_inode_pool, PR_WAITOK|PR_ZERO);
-	lockinit(&ip->i_lock, PINOD, "inode", 0, 0);
+	rrw_init(&ip->i_lock, "inode");
 	vp->v_data = ip;
 	ip->i_vnode = vp;
 	ip->i_ump = ump;
@@ -916,7 +890,7 @@ ext2fs_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	 * Initialize the vnode from the inode, check for aliases.
 	 * Note that the underlying vnode may have changed.
 	 */
-	error = ext2fs_vinit(mp, &ext2fs_specvops, EXT2FS_FIFOOPS, &vp);
+	error = ext2fs_vinit(mp, &vp);
 	if (error) {
 		vput(vp);
 		*vpp = NULL;

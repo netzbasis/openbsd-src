@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.7 2015/10/23 14:52:20 phessler Exp $ */
+/*	$OpenBSD: control.c,v 1.10 2016/03/27 11:16:12 krw Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +33,8 @@
 #include "ntpd.h"
 
 #define	CONTROL_BACKLOG	5
+
+#define square(x) ((x) * (x))
 
 int
 control_init(char *path)
@@ -74,7 +77,7 @@ control_init(char *path)
 		return (-1);
 	}
 
-	session_socket_blockmode(fd, BM_NONBLOCK);
+	session_socket_nonblockmode(fd);
 
 	return (fd);
 }
@@ -119,7 +122,7 @@ control_accept(int listenfd)
 		return (0);
 	}
 
-	session_socket_blockmode(connfd, BM_NONBLOCK);
+	session_socket_nonblockmode(connfd);
 
 	if ((ctl_conn = calloc(1, sizeof(struct ctl_conn))) == NULL) {
 		log_warn("control_accept");
@@ -192,7 +195,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 	if (!(pfd->revents & POLLIN))
 		return (0);
 
-	if ((n = imsg_read(&c->ibuf)) == -1 || n == 0) {
+	if (((n = imsg_read(&c->ibuf)) == -1 && errno != EAGAIN) || n == 0) {
 		*ctl_cnt -= control_close(pfd->fd);
 		return (1);
 	}
@@ -270,17 +273,14 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 }
 
 void
-session_socket_blockmode(int fd, enum blockmodes bm)
+session_socket_nonblockmode(int fd)
 {
 	int	flags;
 
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
+	if ((flags = fcntl(fd, F_GETFL)) == -1)
 		fatal("fcntl F_GETFL");
 
-	if (bm == BM_NONBLOCK)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
+	flags |= O_NONBLOCK;
 
 	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
 		fatal("fcntl F_SETFL");
@@ -354,21 +354,18 @@ build_show_peer(struct ctl_show_peer *cp, struct ntp_peer *p)
 		cp->delay /= validdelaycnt;
 	}
 
-	/*
-	 *  use simple average for jitter calculation, as the
-	 *  RFC5905-recommended RMS average needs the math library
-	 */
 	jittercnt = 0;
 	cp->jitter = 0.0;
 	for (shift = 0; shift < OFFSET_ARRAY_SIZE; shift++) {
 		if (p->reply[shift].delay > 0.0 && shift != best) {
-			cp->jitter += p->reply[shift].delay -
-			    p->reply[best].delay;
+			cp->jitter += square(p->reply[shift].delay -
+			    p->reply[best].delay);
 			jittercnt++;
 		}
 	}
 	if (jittercnt > 1)
 		cp->jitter /= jittercnt;
+	cp->jitter = sqrt(cp->jitter);
 
 	if (p->shift == 0)
 		shift = OFFSET_ARRAY_SIZE - 1;

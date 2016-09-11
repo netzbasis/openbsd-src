@@ -1,4 +1,4 @@
-/*	$OpenBSD: rain.c,v 1.18 2015/10/14 07:19:23 semarie Exp $	*/
+/*	$OpenBSD: rain.c,v 1.21 2016/01/07 16:00:33 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -34,11 +34,9 @@
  * cc rain.c -o rain -O -ltermlib
  */
 
-#include <sys/types.h>
 #include <curses.h>
 #include <err.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
@@ -61,7 +59,7 @@ main(int argc, char *argv[])
 	int ch;
 	int xpos[5], ypos[5];
 
-	if (pledge("stdio rpath getpw tty", NULL) == -1)
+	if (pledge("stdio rpath tty", NULL) == -1)
 		err(1, "pledge");
 
 	/* set default delay based on terminal baud rate */
@@ -79,7 +77,7 @@ main(int argc, char *argv[])
 		case 'h':
 		default:
 			(void)fprintf(stderr, "usage: rain [-d delay]\n");
-			exit(1);
+			return 1;
 		}
 
 	/* Convert delay from ms -> ns */
@@ -110,7 +108,7 @@ main(int argc, char *argv[])
 	for (j = 0;;) {
 		if (sig_caught) {
 			endwin();
-			exit(0);
+			return 0;
 		}
 		x = arc4random_uniform(tcols) + 2;
 		y = arc4random_uniform(tlines) + 2;

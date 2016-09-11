@@ -1,4 +1,4 @@
-/*	$OpenBSD: lka_session.c,v 1.73 2015/10/28 07:43:44 gilles Exp $	*/
+/*	$OpenBSD: lka_session.c,v 1.80 2016/08/31 10:18:08 gilles Exp $	*/
 
 /*
  * Copyright (c) 2011 Gilles Chehade <gilles@poolp.org>
@@ -68,7 +68,6 @@ static void lka_submit(struct lka_session *, struct rule *,
 static void lka_resume(struct lka_session *);
 static size_t lka_expand_format(char *, size_t, const struct envelope *,
     const struct userinfo *);
-static void mailaddr_to_username(const struct mailaddr *, char *, size_t);
 
 static int mod_lowercase(char *, size_t);
 static int mod_uppercase(char *, size_t);
@@ -274,7 +273,8 @@ lka_expand(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 	struct mailaddr		maddr;
 	int			r;
 	union lookup		lk;
-
+	char		       *tag;
+	
 	if (xn->depth >= EXPAND_DEPTH) {
 		log_trace(TRACE_EXPAND, "expand: lka_expand: node too deep.");
 		lks->error = LKA_PERMFAIL;
@@ -321,9 +321,8 @@ lka_expand(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 			 * we eventually strip the '+'-part before lookup.
 			 */
 			maddr = xn->u.mailaddr;
-			mailaddr_to_username(&xn->u.mailaddr, maddr.user,
+			xlowercase(maddr.user, xn->u.mailaddr.user,
 			    sizeof maddr.user);
-
 			r = aliases_virtual_get(&lks->expand, &maddr);
 			if (r == -1) {
 				lks->error = LKA_TEMPFAIL;
@@ -342,8 +341,8 @@ lka_expand(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 			lks->expand.alias = 1;
 			memset(&node, 0, sizeof node);
 			node.type = EXPAND_USERNAME;
-			mailaddr_to_username(&xn->u.mailaddr, node.u.user,
-				sizeof node.u.user);
+			xlowercase(node.u.user, xn->u.mailaddr.user,
+			    sizeof node.u.user);
 			node.mapping = rule->r_mapping;
 			node.userbase = rule->r_userbase;
 			expand_insert(&lks->expand, &node);
@@ -377,6 +376,10 @@ lka_expand(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 			if (r)
 				break;
 		}
+
+		/* gilles+hackers@ -> gilles@ */
+		if ((tag = strchr(xn->u.user, *env->sc_subaddressing_delim)) != NULL)
+			*tag++ = '\0';
 
 		r = table_lookup(rule->r_userbase, NULL, xn->u.user, K_USERINFO, &lk);
 		if (r == -1) {
@@ -541,6 +544,8 @@ lka_submit(struct lka_session *lks, struct rule *rule, struct expandnode *xn)
 		    sizeof ep->agent.mda.usertable);
 		(void)strlcpy(ep->agent.mda.username, lk.userinfo.username,
 		    sizeof ep->agent.mda.username);
+		strlcpy(ep->agent.mda.delivery_user, rule->r_delivery_user,
+		    sizeof ep->agent.mda.delivery_user);
 
 		if (xn->type == EXPAND_FILENAME) {
 			ep->agent.mda.method = A_FILENAME;
@@ -639,41 +644,41 @@ lka_expand_token(char *dest, size_t len, const char *token,
 	}
 
 	/* token -> expanded token */
-	if (! strcasecmp("sender", rtoken)) {
+	if (!strcasecmp("sender", rtoken)) {
 		if (snprintf(tmp, sizeof tmp, "%s@%s",
 			ep->sender.user, ep->sender.domain) >= (int)sizeof tmp)
 			return 0;
 		string = tmp;
 	}
-	else if (! strcasecmp("dest", rtoken)) {
+	else if (!strcasecmp("dest", rtoken)) {
 		if (snprintf(tmp, sizeof tmp, "%s@%s",
 			ep->dest.user, ep->dest.domain) >= (int)sizeof tmp)
 			return 0;
 		string = tmp;
 	}
-	else if (! strcasecmp("rcpt", rtoken)) {
+	else if (!strcasecmp("rcpt", rtoken)) {
 		if (snprintf(tmp, sizeof tmp, "%s@%s",
 			ep->rcpt.user, ep->rcpt.domain) >= (int)sizeof tmp)
 			return 0;
 		string = tmp;
 	}
-	else if (! strcasecmp("sender.user", rtoken))
+	else if (!strcasecmp("sender.user", rtoken))
 		string = ep->sender.user;
-	else if (! strcasecmp("sender.domain", rtoken))
+	else if (!strcasecmp("sender.domain", rtoken))
 		string = ep->sender.domain;
-	else if (! strcasecmp("user.username", rtoken))
+	else if (!strcasecmp("user.username", rtoken))
 		string = ui->username;
-	else if (! strcasecmp("user.directory", rtoken)) {
+	else if (!strcasecmp("user.directory", rtoken)) {
 		string = ui->directory;
 		replace = 0;
 	}
-	else if (! strcasecmp("dest.user", rtoken))
+	else if (!strcasecmp("dest.user", rtoken))
 		string = ep->dest.user;
-	else if (! strcasecmp("dest.domain", rtoken))
+	else if (!strcasecmp("dest.domain", rtoken))
 		string = ep->dest.domain;
-	else if (! strcasecmp("rcpt.user", rtoken))
+	else if (!strcasecmp("rcpt.user", rtoken))
 		string = ep->rcpt.user;
-	else if (! strcasecmp("rcpt.domain", rtoken))
+	else if (!strcasecmp("rcpt.domain", rtoken))
 		string = ep->rcpt.domain;
 	else
 		return 0;
@@ -690,12 +695,12 @@ lka_expand_token(char *dest, size_t len, const char *token,
 			if ((sep = strchr(mods, '|')) != NULL)
 				*sep++ = '\0';
 			for (i = 0; (size_t)i < nitems(token_modifiers); ++i) {
-				if (! strcasecmp(token_modifiers[i].name, mods)) {
+				if (!strcasecmp(token_modifiers[i].name, mods)) {
 					if (token_modifiers[i].f == NULL) {
 						raw = 1;
 						break;
 					}
-					if (! token_modifiers[i].f(tmp, sizeof tmp))
+					if (!token_modifiers[i].f(tmp, sizeof tmp))
 						return 0; /* modifier error */
 					break;
 				}
@@ -704,8 +709,8 @@ lka_expand_token(char *dest, size_t len, const char *token,
 				return 0; /* modifier not found */
 		} while ((mods = sep) != NULL);
 	}
-	
-	if (! raw && replace)
+
+	if (!raw && replace)
 		for (i = 0; (size_t)i < strlen(tmp); ++i)
 			if (strchr(MAILADDR_ESCAPE, tmp[i]))
 				tmp[i] = ':';
@@ -763,8 +768,10 @@ lka_expand_format(char *buf, size_t len, const struct envelope *ep,
 	char		token[MAXTOKENLEN];
 	size_t		ret, tmpret;
 
-	if (len < sizeof tmpbuf)
-		fatalx("lka_expand_format: tmp buffer < rule buffer");
+	if (len < sizeof tmpbuf) {
+		log_warnx("lka_expand_format: tmp buffer < rule buffer");
+		return 0;
+	}
 
 	memset(tmpbuf, 0, sizeof tmpbuf);
 	pbuf = buf;
@@ -836,36 +843,24 @@ lka_expand_format(char *buf, size_t len, const struct envelope *ep,
 	return ret;
 }
 
-static void
-mailaddr_to_username(const struct mailaddr *maddr, char *dst, size_t len)
-{
-	char	*tag;
-
-	xlowercase(dst, maddr->user, len);
-
-	/* gilles+hackers@ -> gilles@ */
-	if ((tag = strchr(dst, TAG_CHAR)) != NULL)
-		*tag++ = '\0';
-}
-
-static int 
+static int
 mod_lowercase(char *buf, size_t len)
 {
 	char tmp[EXPAND_BUFFER];
 
-	if (! lowercase(tmp, buf, sizeof tmp))
+	if (!lowercase(tmp, buf, sizeof tmp))
 		return 0;
 	if (strlcpy(buf, tmp, len) >= len)
 		return 0;
 	return 1;
 }
 
-static int 
+static int
 mod_uppercase(char *buf, size_t len)
 {
 	char tmp[EXPAND_BUFFER];
 
-	if (! uppercase(tmp, buf, sizeof tmp))
+	if (!uppercase(tmp, buf, sizeof tmp))
 		return 0;
 	if (strlcpy(buf, tmp, len) >= len)
 		return 0;
@@ -879,7 +874,7 @@ mod_strip(char *buf, size_t len)
 	unsigned int i;
 
 	/* gilles+hackers -> gilles */
-	if ((tag = strchr(buf, TAG_CHAR)) != NULL) {
+	if ((tag = strchr(buf, *env->sc_subaddressing_delim)) != NULL) {
 		/* gilles+hackers@poolp.org -> gilles@poolp.org */
 		if ((at = strchr(tag, '@')) != NULL) {
 			for (i = 0; i <= strlen(at); ++i)

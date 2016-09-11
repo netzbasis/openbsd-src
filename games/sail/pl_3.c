@@ -1,4 +1,4 @@
-/*	$OpenBSD: pl_3.c,v 1.4 2009/10/27 23:59:27 deraadt Exp $	*/
+/*	$OpenBSD: pl_3.c,v 1.6 2016/01/08 20:26:33 mestre Exp $	*/
 /*	$NetBSD: pl_3.c,v 1.3 1995/04/22 10:37:09 cgd Exp $	*/
 
 /*
@@ -30,11 +30,15 @@
  * SUCH DAMAGE.
  */
 
-#include "player.h"
+#include <signal.h>
 #include <stdlib.h>
 
+#include "extern.h"
+#include "machdep.h"
+#include "player.h"
+
 void
-acceptcombat()
+acceptcombat(void)
 {
 	int men = 0;
 	int target, temp;
@@ -207,7 +211,7 @@ acceptcombat()
 }
 
 void
-grapungrap()
+grapungrap(void)
 {
 	struct ship *sp;
 	int i;
@@ -247,7 +251,7 @@ grapungrap()
 }
 
 void
-unfoulplayer()
+unfoulplayer(void)
 {
 	struct ship *to;
 	int i;

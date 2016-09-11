@@ -1,4 +1,4 @@
-/*	$OpenBSD: getguess.c,v 1.13 2015/02/07 03:30:08 tedu Exp $	*/
+/*	$OpenBSD: getguess.c,v 1.15 2016/01/04 17:33:24 mestre Exp $	*/
 /*	$NetBSD: getguess.c,v 1.5 1995/03/23 08:32:43 cgd Exp $	*/
 
 /*
@@ -30,7 +30,11 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/ttydefaults.h>
+#include <ctype.h>
+#include <curses.h>
+#include <termios.h>
+#include <unistd.h>
+
 #include "hangman.h"
 
 /*

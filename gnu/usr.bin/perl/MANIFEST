@@ -1729,6 +1729,9 @@ cpan/OpenBSD-MkTemp/lib/OpenBSD/MkTemp.pm	OpenBSD::MkTemp
 cpan/OpenBSD-MkTemp/MkTemp.xs	OpenBSD::MkTemp
 cpan/OpenBSD-MkTemp/README	OpenBSD::MkTemp Readme
 cpan/OpenBSD-MkTemp/t/OpenBSD-MkTemp.t	OpenBSD::MkTemp test file
+cpan/OpenBSD-Pledge/lib/OpenBSD/Pledge.pm	OpenBSD::Pledge
+cpan/OpenBSD-Pledge/Pledge.xs	OpenBSD::Pledge
+cpan/OpenBSD-Pledge/t/OpenBSD-Pledge.t	OpenBSD::Pledge test file
 cpan/Package-Constants/lib/Package/Constants.pm	Package::Constants
 cpan/Package-Constants/t/01_list.t		Package::Constants tests
 cpan/Params-Check/lib/Params/Check.pm	Params::Check
@@ -2160,6 +2163,17 @@ cpan/Term-ANSIColor/t/stringify.t		Tests for Term::ANSIColor
 cpan/Term-ANSIColor/t/taint.t
 cpan/Term-Cap/Cap.pm			Perl module supporting termcap usage
 cpan/Term-Cap/test.pl			See if Term::Cap works
+cpan/Term-ReadKey/Changes		Term::ReadKey
+cpan/Term-ReadKey/Configure.pm		Term::ReadKey
+cpan/Term-ReadKey/example/test.pl	Term::ReadKey
+cpan/Term-ReadKey/genchars.pl		Term::ReadKey
+cpan/Term-ReadKey/Makefile.PL		Term::ReadKey
+cpan/Term-ReadKey/ppport.h		Term::ReadKey
+cpan/Term-ReadKey/ReadKey.pm		Term::ReadKey
+cpan/Term-ReadKey/ReadKey.xs		Term::ReadKey
+cpan/Term-ReadKey/README		Term::ReadKey
+cpan/Term-ReadKey/t/01_basic.t		Term::ReadKey
+cpan/Term-ReadKey/t/02_terminal_functions.t	Term::ReadKey
 cpan/Test-Harness/bin/prove				The prove harness utility
 cpan/Test-Harness/lib/App/Prove.pm			Gubbins for the prove utility
 cpan/Test-Harness/lib/App/Prove/State.pm		Gubbins for the prove utility
@@ -4998,6 +5012,7 @@ pod/perl5182delta.pod		Perl changes in version 5.18.2
 pod/perl5184delta.pod		Perl changes in version 5.18.4
 pod/perl5200delta.pod		Perl changes in version 5.20.0
 pod/perl5201delta.pod		Perl changes in version 5.20.1
+pod/perl5202delta.pod		Perl changes in version 5.20.2
 pod/perl561delta.pod		Perl changes in version 5.6.1
 pod/perl56delta.pod		Perl changes in version 5.6
 pod/perl581delta.pod		Perl changes in version 5.8.1
@@ -5757,6 +5772,7 @@ t/op/warn.t			See if warn works
 t/op/while.t			See if while loops work
 t/op/write.t			See if write works (formats work)
 t/op/yadayada.t			See if ... works
+t/perf/taint.t			See if optimisations are keeping things fast (taint issues)
 t/perl.supp			Perl valgrind suppressions
 t/porting/args_assert.t		Check that all PERL_ARGS_ASSERT* macros are used
 t/porting/authors.t		Check that all authors have been acknowledged
@@ -5783,6 +5799,7 @@ t/porting/perlfunc.t		Test that Functions_pm.PL can parse perlfunc.pod
 t/porting/podcheck.t		Test the POD of shipped modules is well formed
 t/porting/pod_rules.t		Check that various pod lists are consistent
 t/porting/readme.t		Check that all files in Porting/ are mentioned in Porting/README.pod
+t/porting/re_context.t		Check assumptions made by save_re_context()
 t/porting/regen.t		Check that regen.pl doesn't need running
 t/porting/ss_dup.t		Check that sv.c:ss_dup handle everything
 t/porting/test_bootstrap.t	Test that the instructions for test bootstrapping aren't accidentally overlooked.

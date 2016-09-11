@@ -1,6 +1,7 @@
-/*	$OpenBSD: drm_linux.c,v 1.5 2015/09/26 11:17:15 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.c,v 1.11 2016/04/07 20:30:59 kettenis Exp $	*/
 /*
  * Copyright (c) 2013 Jonathan Gray <jsg@openbsd.org>
+ * Copyright (c) 2015, 2016 Mark Kettenis <kettenis@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,6 +17,7 @@
  */
 
 #include <dev/pci/drm/drmP.h>
+#include <dev/pci/ppbreg.h>
 
 struct timespec
 ns_to_timespec(const int64_t nsec)
@@ -207,3 +209,244 @@ vunmap(void *addr, size_t size)
 	uvm_km_free(kernel_map, va, size);
 }
 
+int
+panic_cmp(struct rb_node *a, struct rb_node *b)
+{
+	panic(__func__);
+}
+
+#undef RB_ROOT
+#define RB_ROOT(head)	(head)->rbh_root
+
+RB_GENERATE(linux_root, rb_node, __entry, panic_cmp);
+
+/*
+ * This is a fairly minimal implementation of the Linux "idr" API.  It
+ * probably isn't very efficient, and defenitely isn't RCU safe.  The
+ * pre-load buffer is global instead of per-cpu; we rely on the kernel
+ * lock to make this work.  We do randomize our IDs in order to make
+ * them harder to guess.
+ */
+
+int idr_cmp(struct idr_entry *, struct idr_entry *);
+SPLAY_PROTOTYPE(idr_tree, idr_entry, entry, idr_cmp);
+
+struct pool idr_pool;
+struct idr_entry *idr_entry_cache;
+
+void
+idr_init(struct idr *idr)
+{
+	static int initialized;
+
+	if (!initialized) {
+		pool_init(&idr_pool, sizeof(struct idr_entry), 0, 0, 0,
+		    "idrpl", NULL);
+		pool_setipl(&idr_pool, IPL_TTY);
+		initialized = 1;
+	}
+	SPLAY_INIT(&idr->tree);
+}
+
+void
+idr_destroy(struct idr *idr)
+{
+	struct idr_entry *id;
+
+	while ((id = SPLAY_MIN(idr_tree, &idr->tree))) {
+		SPLAY_REMOVE(idr_tree, &idr->tree, id);
+		pool_put(&idr_pool, id);
+	}
+}
+
+void
+idr_preload(unsigned int gfp_mask)
+{
+	int flags = (gfp_mask & GFP_NOWAIT) ? PR_NOWAIT : PR_WAITOK;
+
+	KERNEL_ASSERT_LOCKED();
+
+	if (idr_entry_cache == NULL)
+		idr_entry_cache = pool_get(&idr_pool, flags);
+}
+
+int
+idr_alloc(struct idr *idr, void *ptr, int start, int end,
+    unsigned int gfp_mask)
+{
+	int flags = (gfp_mask & GFP_NOWAIT) ? PR_NOWAIT : PR_WAITOK;
+	struct idr_entry *id;
+	int begin;
+
+	KERNEL_ASSERT_LOCKED();
+
+	if (idr_entry_cache) {
+		id = idr_entry_cache;
+		idr_entry_cache = NULL;
+	} else {
+		id = pool_get(&idr_pool, flags);
+		if (id == NULL)
+			return -ENOMEM;
+	}
+
+	if (end <= 0)
+		end = INT_MAX;
+
+	id->id = begin = start + arc4random_uniform(end - start);
+	while (SPLAY_INSERT(idr_tree, &idr->tree, id)) {
+		if (++id->id == end)
+			id->id = start;
+		if (id->id == begin) {
+			pool_put(&idr_pool, id);
+			return -ENOSPC;
+		}
+	}
+	id->ptr = ptr;
+	return id->id;
+}
+
+void
+idr_remove(struct idr *idr, int id)
+{
+	struct idr_entry find, *res;
+
+	find.id = id;
+	res = SPLAY_FIND(idr_tree, &idr->tree, &find);
+	if (res) {
+		SPLAY_REMOVE(idr_tree, &idr->tree, res);
+		pool_put(&idr_pool, res);
+	}
+}
+
+void *
+idr_find(struct idr *idr, int id)
+{
+	struct idr_entry find, *res;
+
+	find.id = id;
+	res = SPLAY_FIND(idr_tree, &idr->tree, &find);
+	if (res == NULL)
+		return NULL;
+	return res->ptr;
+}
+
+int
+idr_for_each(struct idr *idr, int (*func)(int, void *, void *), void *data)
+{
+	struct idr_entry *id;
+	int ret;
+
+	SPLAY_FOREACH(id, idr_tree, &idr->tree) {
+		ret = func(id->id, id->ptr, data);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+int
+idr_cmp(struct idr_entry *a, struct idr_entry *b)
+{
+	return (a->id < b->id ? -1 : a->id > b->id);
+}
+
+SPLAY_GENERATE(idr_tree, idr_entry, entry, idr_cmp);
+
+#if defined(__amd64__) || defined(__i386__)
+
+/*
+ * This is a minimal implementation of the Linux vga_get/vga_put
+ * interface.  In all likelyhood, it will only work for inteldrm(4) as
+ * it assumes that if there is another active VGA device in the
+ * system, it is sitting behind a PCI bridge.
+ */
+
+extern int pci_enumerate_bus(struct pci_softc *,
+    int (*)(struct pci_attach_args *), struct pci_attach_args *);
+
+pcitag_t vga_bridge_tag;
+int vga_bridge_disabled;
+
+int
+vga_disable_bridge(struct pci_attach_args *pa)
+{
+	pcireg_t bhlc, bc;
+
+	if (pa->pa_domain != 0)
+		return 0;
+
+	bhlc = pci_conf_read(pa->pa_pc, pa->pa_tag, PCI_BHLC_REG);
+	if (PCI_HDRTYPE_TYPE(bhlc) != 1)
+		return 0;
+
+	bc = pci_conf_read(pa->pa_pc, pa->pa_tag, PPB_REG_BRIDGECONTROL);
+	if ((bc & PPB_BC_VGA_ENABLE) == 0)
+		return 0;
+	bc &= ~PPB_BC_VGA_ENABLE;
+	pci_conf_write(pa->pa_pc, pa->pa_tag, PPB_REG_BRIDGECONTROL, bc);
+
+	vga_bridge_tag = pa->pa_tag;
+	vga_bridge_disabled = 1;
+
+	return 1;
+}
+
+void
+vga_get_uninterruptible(struct pci_dev *pdev, int rsrc)
+{
+	KASSERT(pdev->pci->sc_bridgetag == NULL);
+	pci_enumerate_bus(pdev->pci, vga_disable_bridge, NULL);
+}
+
+void
+vga_put(struct pci_dev *pdev, int rsrc)
+{
+	pcireg_t bc;
+
+	if (!vga_bridge_disabled)
+		return;
+
+	bc = pci_conf_read(pdev->pc, vga_bridge_tag, PPB_REG_BRIDGECONTROL);
+	bc |= PPB_BC_VGA_ENABLE;
+	pci_conf_write(pdev->pc, vga_bridge_tag, PPB_REG_BRIDGECONTROL, bc);
+
+	vga_bridge_disabled = 0;
+}
+
+#endif
+
+/*
+ * ACPI types and interfaces.
+ */
+
+#if defined(__amd64__) || defined(__i386__)
+#include "acpi.h"
+#endif
+
+#if NACPI > 0
+
+#include <dev/acpi/acpireg.h>
+#include <dev/acpi/acpivar.h>
+
+acpi_status
+acpi_get_table_with_size(const char *sig, int instance,
+    struct acpi_table_header **hdr, acpi_size *size)
+{
+	struct acpi_softc *sc = acpi_softc;
+	struct acpi_q *entry;
+
+	KASSERT(instance == 1);
+
+	SIMPLEQ_FOREACH(entry, &sc->sc_tables, q_next) {
+		if (memcmp(entry->q_table, sig, strlen(sig)) == 0) {
+			*hdr = entry->q_table;
+			*size = (*hdr)->length;
+			return 0;
+		}
+	}
+
+	return AE_NOT_FOUND;
+}
+
+#endif

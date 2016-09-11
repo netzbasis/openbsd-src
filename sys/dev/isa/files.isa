@@ -1,4 +1,4 @@
-#	$OpenBSD: files.isa,v 1.119 2015/09/30 12:15:12 jung Exp $
+#	$OpenBSD: files.isa,v 1.123 2016/09/04 10:35:39 tedu Exp $
 #	$NetBSD: files.isa,v 1.21 1996/05/16 03:45:55 mycroft Exp $
 #
 # Config file and device description for machine-independent ISA code.
@@ -96,23 +96,9 @@ file	dev/isa/pcdisplay.c		pcdisplay	needs-flag
 # SCSI host adapters
 #
 
-# BusLogic BT-74x EISA family (XXX; should be EISA.  it's special)
-attach	bha at isa with bha_isa: isa_dma
-file	dev/isa/bha_isa.c		bha_isa
-
 # Adaptec AIC-6[32]60 ICs
 attach	aic at isa with aic_isa: isa_dma
 file	dev/isa/aic_isa.c		aic_isa
-
-# Adaptec AHA-154x family
-device	aha: scsi, isa_dma
-attach	aha at isa with aha_isa
-file	dev/isa/aha.c			aha needs-flag
-
-# Seagate ST0[12] ICs
-device	sea: scsi
-attach	sea at isa
-file	dev/isa/seagate.c		sea
 
 # UltraStor UHA-[13]4f boards
 # device declaration in sys/conf/files
@@ -248,14 +234,6 @@ file	dev/isa/ad1848.c		ad1848
 define	ics2101
 file	dev/isa/ics2101.c		ics2101
 
-
-# Microsoft Windows Sound System
-device	wss: audio, isa_dma, ad1848
-file	dev/isa/wss.c			wss
-
-attach	wss at isa with wss_isa
-file	dev/isa/wss_isa.c		wss & (wss_isa | wss_isapnp)
-
 # ESS Technology ES1887/ES888/ES1888
 device	ess {} : audio, isa_dma, midibus
 file	dev/isa/ess.c			ess
@@ -269,33 +247,6 @@ file	dev/isa/gus.c			gus
 
 attach	gus at isa with gus_isa
 file	dev/isa/gus_isa.c		gus & (gus_isa | gus_isapnp)
-
-# Sound Forte RadioLink SF16-FMR FM Radio Card
-device sfr: radiobus, tc921x, pt2254a
-attach sfr at isa
-file	dev/isa/sf16fmr.c		sfr
-
-# Sound Forte RadioLink SF16-FMR2 FM Radio Card
-device sf2r: radiobus, tea5757, pt2254a
-attach sf2r at isa
-file	dev/isa/sf16fmr2.c		sf2r
-
-# Aztech/PackardBell FM Radio Card
-device az: radiobus, lm700x
-attach az at isa
-file	dev/isa/aztech.c		az
-
-# AIMS Lab Radiotrack & compatible
-device	rt: radiobus, lm700x
-file	dev/isa/radiotrack.c		rt & (rt_isa | rt_isapnp)
-
-attach	rt at isa with rt_isa
-file	dev/isa/rt_isa.c		rt_isa
-
-# AIMS Lab Radiotrack II FM Radio Card
-device	rtii: radiobus, tea5757
-attach	rtii at isa
-file	dev/isa/radiotrack2.c		rtii
 
 # PC PPI + TIMER 1 (speaker interface)
 device	pcppi {}

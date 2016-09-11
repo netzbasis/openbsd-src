@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan_var.h,v 1.30 2015/09/13 10:02:36 dlg Exp $	*/
+/*	$OpenBSD: if_vlan_var.h,v 1.36 2016/04/19 23:31:32 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -34,21 +34,6 @@
 #ifndef _NET_IF_VLAN_VAR_H_
 #define _NET_IF_VLAN_VAR_H_
 
-struct	ether_vlan_header {
-	u_char	evl_dhost[ETHER_ADDR_LEN];
-	u_char	evl_shost[ETHER_ADDR_LEN];
-	u_int16_t evl_encap_proto;
-	u_int16_t evl_tag;
-	u_int16_t evl_proto;
-};
-
-#define	EVL_VLID_MASK	0x0FFF
-#define	EVL_VLANOFTAG(tag) ((tag) & EVL_VLID_MASK)
-#define	EVL_PRIOFTAG(tag) (((tag) >> EVL_PRIO_BITS) & 7)
-#define	EVL_ENCAPLEN	4	/* length in octets of encapsulation */
-#define	EVL_PRIO_MAX	7
-#define	EVL_PRIO_BITS	13
-
 /* sysctl(3) tags, for compatibility purposes */
 #define	VLANCTL_PROTO	1
 #define	VLANCTL_MAX	2
@@ -76,16 +61,15 @@ struct vlan_mc_entry {
 
 struct	ifvlan {
 	struct	arpcom ifv_ac;	/* make this an interface */
-	struct	ifnet *ifv_p;	/* parent interface of this vlan */
+	unsigned int ifv_ifp0;	/* parent interface of this vlan */
 	struct	ifv_linkmib {
-		int	ifvm_parent;
 		u_int16_t ifvm_proto; /* encapsulation ethertype */
 		u_int16_t ifvm_tag; /* tag to apply on packets leaving if */
 		u_int16_t ifvm_prio; /* prio to apply on packet leaving if */
 		u_int16_t ifvm_type; /* non-standard ethertype or 0x8100 */
 	}	ifv_mib;
 	LIST_HEAD(__vlan_mchead, vlan_mc_entry)	vlan_mc_listhead;
-	struct srpl_entry ifv_list;
+	SRPL_ENTRY(ifvlan) ifv_list;
 	int ifv_flags;
 	struct refcnt ifv_refcnt;
 	void *lh_cookie;
@@ -97,7 +81,10 @@ struct	ifvlan {
 #define	ifv_tag		ifv_mib.ifvm_tag
 #define	ifv_prio	ifv_mib.ifvm_prio
 #define	ifv_type	ifv_mib.ifvm_type
-#define	IFVF_PROMISC	0x01
+#define	IFVF_PROMISC	0x01	/* the parent should be made promisc */
+#define	IFVF_LLADDR	0x02	/* don't inherit the parents mac */
+
+struct mbuf	*vlan_inject(struct mbuf *, uint16_t, uint16_t);
 #endif /* _KERNEL */
 
 #endif /* _NET_IF_VLAN_VAR_H_ */

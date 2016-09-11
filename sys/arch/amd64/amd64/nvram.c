@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvram.c,v 1.4 2015/05/11 01:56:26 guenther Exp $ */
+/*	$OpenBSD: nvram.c,v 1.7 2016/08/03 17:29:18 jcs Exp $ */
 
 /*
  * Copyright (c) 2004 Joshua Stein <jcs@openbsd.org>
@@ -64,8 +64,7 @@ nvramattach(int num)
 		printf("nvram: initialized\n");
 #endif
 		nvram_initialized = 1;
-	} else
-		printf("nvram: invalid checksum\n");
+	}
 }
 
 int
@@ -92,7 +91,7 @@ int
 nvramread(dev_t dev, struct uio *uio, int flags)
 {
 	u_char buf[NVRAM_SIZE];
-	u_int pos = uio->uio_offset;
+	off_t pos = uio->uio_offset;
 	u_char *tmp;
 	size_t count = ulmin(sizeof(buf), uio->uio_resid);
 	int ret;
@@ -100,11 +99,14 @@ nvramread(dev_t dev, struct uio *uio, int flags)
 	if (!nvram_initialized)
 		return (ENXIO);
 
+	if (uio->uio_offset < 0)
+		return (EINVAL);
+
 	if (uio->uio_resid == 0)
 		return (0);
 
 #ifdef NVRAM_DEBUG
-	printf("attempting to read %zu bytes at offset %d\n", count, pos);
+	printf("attempting to read %zu bytes at offset %lld\n", count, pos);
 #endif
 
 	for (tmp = buf; count-- > 0 && pos < NVRAM_SIZE; ++pos, ++tmp)
@@ -131,7 +133,7 @@ nvram_get_byte(int byteno)
 }
 
 int
-nvram_csum_valid()
+nvram_csum_valid(void)
 {
 	u_short csum = 0;
 	u_short csumexpect;

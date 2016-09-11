@@ -1,4 +1,4 @@
-/*	$OpenBSD: readline.c,v 1.14 2015/02/06 23:21:58 millert Exp $	*/
+/*	$OpenBSD: readline.c,v 1.27 2016/05/31 16:12:00 schwarze Exp $	*/
 /*	$NetBSD: readline.c,v 1.91 2010/08/28 15:44:59 christos Exp $	*/
 
 /*-
@@ -34,18 +34,18 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <dirent.h>
-#include <string.h>
-#include <pwd.h>
 #include <ctype.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <pwd.h>
 #include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #ifdef HAVE_VIS_H
 #include <vis.h>
 #else
@@ -53,8 +53,7 @@
 #endif
 #include "readline/readline.h"
 #include "el.h"
-#include "fcns.h"		/* for EL_NUM_FCNS */
-#include "histedit.h"
+#include "fcns.h"
 #include "filecomplete.h"
 
 void rl_prep_terminal(int);
@@ -150,6 +149,14 @@ char *rl_special_prefixes = NULL;
  */
 int rl_completion_append_character = ' ';
 
+/*
+ * When the history cursor is on the newest element and next_history()
+ * is called, GNU readline moves the cursor beyond the newest element.
+ * The editline library does not provide data structures to express
+ * that state, so we need a local flag.
+ */
+static int current_history_valid = 1;
+
 /* stuff below is used internally by libedit for readline emulation */
 
 static History *h = NULL;
@@ -161,13 +168,13 @@ static jmp_buf topbuf;
 static unsigned char	 _el_rl_complete(EditLine *, int);
 static unsigned char	 _el_rl_tstp(EditLine *, int);
 static char		*_get_prompt(EditLine *);
-static int		 _getc_function(EditLine *, char *);
+static int		 _getc_function(EditLine *, wchar_t *);
 static HIST_ENTRY	*_move_history(int);
 static int		 _history_expand_command(const char *, size_t, size_t,
     char **);
 static char		*_rl_compat_sub(const char *, const char *,
     const char *, int);
-static int		 _rl_event_read_char(EditLine *, char *);
+static int		 _rl_event_read_char(EditLine *, wchar_t *);
 static void		 _rl_update_pos(void);
 
 
@@ -176,7 +183,7 @@ static char *
 _get_prompt(EditLine *el __attribute__((__unused__)))
 {
 	rl_already_prompted = 1;
-	return (rl_prompt);
+	return rl_prompt;
 }
 
 
@@ -190,12 +197,12 @@ _move_history(int op)
 	static HIST_ENTRY rl_he;
 
 	if (history(h, &ev, op) != 0)
-		return (HIST_ENTRY *) NULL;
+		return NULL;
 
 	rl_he.line = ev.str;
 	rl_he.data = NULL;
 
-	return (&rl_he);
+	return &rl_he;
 }
 
 
@@ -204,14 +211,14 @@ _move_history(int op)
  */
 static int
 /*ARGSUSED*/
-_getc_function(EditLine *el, char *c)
+_getc_function(EditLine *el __attribute__((__unused__)), wchar_t *c)
 {
 	int i;
 
 	i = (*rl_getc_function)(NULL);
 	if (i == -1)
 		return 0;
-	*c = i;
+	*c = (wchar_t)i;
 	return 1;
 }
 
@@ -257,7 +264,7 @@ rl_set_prompt(const char *prompt)
 
 	if (!prompt)
 		prompt = "";
-	if (rl_prompt != NULL && strcmp(rl_prompt, prompt) == 0) 
+	if (rl_prompt != NULL && strcmp(rl_prompt, prompt) == 0)
 		return 0;
 	if (rl_prompt)
 		free(rl_prompt);
@@ -280,6 +287,8 @@ rl_initialize(void)
 	HistEvent ev;
 	int editmode = 1;
 	struct termios t;
+
+	current_history_valid = 1;
 
 	if (e != NULL)
 		el_end(e);
@@ -304,7 +313,7 @@ rl_initialize(void)
 
 	h = history_init();
 	if (!e || !h)
-		return (-1);
+		return -1;
 
 	history(h, &ev, H_SETSIZE, INT_MAX);	/* unlimited */
 	history_length = 0;
@@ -351,7 +360,7 @@ rl_initialize(void)
 	    "ReadLine compatible suspend function",
 	    _el_rl_tstp);
 	el_set(e, EL_BIND, "^Z", "rl_tstp", NULL);
-		
+
 	/* read settings from configuration file */
 	el_source(e, NULL);
 
@@ -365,7 +374,7 @@ rl_initialize(void)
 	if (rl_startup_hook)
 		(*rl_startup_hook)(NULL, 0);
 
-	return (0);
+	return 0;
 }
 
 
@@ -485,13 +494,13 @@ _rl_compat_sub(const char *str, const char *what, const char *with,
 			s += what_len;
 			if (!globally) {
 				(void)strlcpy(r, s, len);
-				return(result);
+				return result;
 			}
 		} else
 			*r++ = *s++;
 	}
 	*r = '\0';
-	return(result);
+	return result;
 }
 
 static	char	*last_search_pat;	/* last !?pat[?] search pattern */
@@ -508,12 +517,12 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 
 	idx = *cindex;
 	if (cmd[idx++] != history_expansion_char)
-		return(NULL);
+		return NULL;
 
 	/* find out which event to take */
 	if (cmd[idx] == history_expansion_char || cmd[idx] == '\0') {
 		if (history(h, &ev, H_FIRST) != 0)
-			return(NULL);
+			return NULL;
 		*cindex = cmd[idx]? (idx + 1):idx;
 		return ev.str;
 	}
@@ -535,10 +544,10 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 			num = history_length - num + 1;
 
 		if (!(rl_he = history_get(num)))
-			return(NULL);
+			return NULL;
 
 		*cindex = idx;
-		return(rl_he->line);
+		return rl_he->line;
 	}
 	sub = 0;
 	if (cmd[idx] == '?') {
@@ -562,7 +571,7 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 	if (sub && len == 0 && last_search_pat && *last_search_pat)
 		pat = last_search_pat;
 	else if (len == 0)
-		return(NULL);
+		return NULL;
 	else {
 		if ((pat = malloc(len + 1)) == NULL)
 			return NULL;
@@ -573,7 +582,7 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 	if (history(h, &ev, H_CURR) != 0) {
 		if (pat != last_search_pat)
 			free(pat);
-		return (NULL);
+		return NULL;
 	}
 	num = ev.num;
 
@@ -593,7 +602,7 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 		(void)fprintf(rl_outstream, "%s: Event not found\n", pat);
 		if (pat != last_search_pat)
 			free(pat);
-		return(NULL);
+		return NULL;
 	}
 
 	if (sub && len) {
@@ -606,7 +615,7 @@ get_history_event(const char *cmd, int *cindex, int qchar)
 		free(pat);
 
 	if (history(h, &ev, H_CURR) != 0)
-		return(NULL);
+		return NULL;
 	*cindex = idx;
 	rptr = ev.str;
 
@@ -624,7 +633,7 @@ get_history_event(const char *cmd, int *cindex, int qchar)
  * returns 0 if data was not modified, 1 if it was and 2 if the string
  * should be only printed and not executed; in case of error,
  * returns -1 and *result points to NULL
- * it's callers responsibility to free() string returned in *result
+ * it's the caller's responsibility to free() the string returned in *result
  */
 static int
 _history_expand_command(const char *command, size_t offs, size_t cmdlen,
@@ -673,7 +682,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 	}
 
 	if (ptr == NULL && aptr == NULL)
-		return(-1);
+		return -1;
 
 	if (!has_mods) {
 		*result = strdup(aptr ? aptr : ptr);
@@ -681,7 +690,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 			free(aptr);
 		if (*result == NULL)
 			return -1;
-		return(1);
+		return 1;
 	}
 
 	cmd = command + offs + idx + 1;
@@ -727,7 +736,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 			    command + offs + idx);
 			if (aptr)
 				free(aptr);
-			return(-1);
+			return -1;
 		}
 	} else
 		tmp = strdup(aptr? aptr:ptr);
@@ -737,7 +746,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 
 	if (*cmd == '\0' || ((size_t)(cmd - (command + offs)) >= cmdlen)) {
 		*result = tmp;
-		return(1);
+		return 1;
 	}
 
 	for (; *cmd; cmd++) {
@@ -812,7 +821,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 					} else {
 						from = NULL;
 						free(tmp);
-						return (-1);
+						return -1;
 					}
 				}
 				cmd++;	/* shift after delim */
@@ -866,7 +875,7 @@ _history_expand_command(const char *command, size_t offs, size_t cmdlen,
 		}
 	}
 	*result = tmp;
-	return (p_on? 2:1);
+	return p_on? 2:1;
 }
 
 
@@ -885,7 +894,7 @@ history_expand(char *str, char **output)
 
 	if (history_expansion_char == 0) {
 		*output = strdup(str);
-		return(0);
+		return 0;
 	}
 
 	*output = NULL;
@@ -1001,7 +1010,7 @@ loop:
 	free(*output);
 	*output = result;
 
-	return (ret);
+	return ret;
 }
 
 /*
@@ -1117,7 +1126,7 @@ history_tokenize(const char *str)
 		if (str[i])
 			i++;
 	}
-	return (result);
+	return result;
 }
 
 
@@ -1128,12 +1137,24 @@ void
 stifle_history(int max)
 {
 	HistEvent ev;
+	HIST_ENTRY *he;
+	int i, len;
 
 	if (h == NULL || e == NULL)
 		rl_initialize();
 
-	if (history(h, &ev, H_SETSIZE, max) == 0)
+	len = history_length;
+	if (history(h, &ev, H_SETSIZE, max) == 0) {
 		max_input_history = max;
+		if (max < len)
+			history_base += len - max;
+		for (i = 0; i < len - max; i++) {
+			he = remove_history(0);
+			free(he->data);
+			free((void *)he->line);
+			free(he);
+		}
+	}
 }
 
 
@@ -1149,7 +1170,7 @@ unstifle_history(void)
 	history(h, &ev, H_SETSIZE, INT_MAX);
 	omax = max_input_history;
 	max_input_history = INT_MAX;
-	return (omax);		/* some value _must_ be returned */
+	return omax;		/* some value _must_ be returned */
 }
 
 
@@ -1158,7 +1179,7 @@ history_is_stifled(void)
 {
 
 	/* cannot return true answer */
-	return (max_input_history != INT_MAX);
+	return max_input_history != INT_MAX;
 }
 
 static const char _history_tmp_template[] = "/tmp/.historyXXXXXX";
@@ -1310,8 +1331,8 @@ read_history(const char *filename)
 		rl_initialize();
 	if (filename == NULL && (filename = _default_history_file()) == NULL)
 		return errno;
-	return (history(h, &ev, H_LOAD, filename) == -1 ?
-	    (errno ? errno : EINVAL) : 0);
+	return history(h, &ev, H_LOAD, filename) == -1 ?
+	    (errno ? errno : EINVAL) : 0;
 }
 
 
@@ -1327,8 +1348,8 @@ write_history(const char *filename)
 		rl_initialize();
 	if (filename == NULL && (filename = _default_history_file()) == NULL)
 		return errno;
-	return (history(h, &ev, H_SAVE, filename) == -1 ?
-	    (errno ? errno : EINVAL) : 0);
+	return history(h, &ev, H_SAVE, filename) == -1 ?
+	    (errno ? errno : EINVAL) : 0;
 }
 
 
@@ -1347,25 +1368,37 @@ history_get(int num)
 	if (h == NULL || e == NULL)
 		rl_initialize();
 
+	if (num < history_base)
+		return NULL;
+
 	/* save current position */
 	if (history(h, &ev, H_CURR) != 0)
-		return (NULL);
+		return NULL;
 	curr_num = ev.num;
 
-	/* start from the oldest */
-	if (history(h, &ev, H_LAST) != 0)
-		return (NULL);	/* error */
+	/*
+	 * use H_DELDATA to set to nth history (without delete) by passing
+	 * (void **)-1  -- as in history_set_pos
+	 */
+	if (history(h, &ev, H_DELDATA, num - history_base, (void **)-1) != 0)
+		goto out;
 
-	/* look forwards for event matching specified offset */
-	if (history(h, &ev, H_NEXT_EVDATA, num, &she.data))
-		return (NULL);
-
+	/* get current entry */
+	if (history(h, &ev, H_CURR) != 0)
+		goto out;
+	if (history(h, &ev, H_NEXT_EVDATA, ev.num, &she.data) != 0)
+		goto out;
 	she.line = ev.str;
 
 	/* restore pointer to where it was */
 	(void)history(h, &ev, H_SET, curr_num);
 
-	return (&she);
+	return &she;
+
+out:
+	/* restore pointer to where it was */
+	(void)history(h, &ev, H_SET, curr_num);
+	return NULL;
 }
 
 
@@ -1383,8 +1416,9 @@ add_history(const char *line)
 	(void)history(h, &ev, H_ENTER, line);
 	if (history(h, &ev, H_GETSIZE) == 0)
 		history_length = ev.num;
+	current_history_valid = 1;
 
-	return (!(history_length > 0)); /* return 0 if all is okay */
+	return !(history_length > 0); /* return 0 if all is okay */
 }
 
 
@@ -1472,6 +1506,7 @@ clear_history(void)
 
 	(void)history(h, &ev, H_CLEAR);
 	history_length = 0;
+	current_history_valid = 1;
 }
 
 
@@ -1485,15 +1520,18 @@ where_history(void)
 	int curr_num, off;
 
 	if (history(h, &ev, H_CURR) != 0)
-		return (0);
+		return 0;
 	curr_num = ev.num;
 
-	(void)history(h, &ev, H_FIRST);
-	off = 1;
-	while (ev.num != curr_num && history(h, &ev, H_NEXT) == 0)
+	/* start from the oldest */
+	(void)history(h, &ev, H_LAST);
+
+	/* position is zero-based */
+	off = 0;
+	while (ev.num != curr_num && history(h, &ev, H_PREV) == 0)
 		off++;
 
-	return (off);
+	return off;
 }
 
 
@@ -1504,7 +1542,7 @@ HIST_ENTRY *
 current_history(void)
 {
 
-	return (_move_history(H_CURR));
+	return current_history_valid ? _move_history(H_CURR) : NULL;
 }
 
 
@@ -1519,7 +1557,7 @@ history_total_bytes(void)
 	size_t size;
 
 	if (history(h, &ev, H_CURR) != 0)
-		return (-1);
+		return -1;
 	curr_num = ev.num;
 
 	(void)history(h, &ev, H_FIRST);
@@ -1531,7 +1569,7 @@ history_total_bytes(void)
 	/* get to the same position as before */
 	history(h, &ev, H_PREV_EVENT, curr_num);
 
-	return (int)(size);
+	return (int)size;
 }
 
 
@@ -1545,10 +1583,11 @@ history_set_pos(int pos)
 	int curr_num;
 
 	if (pos >= history_length || pos < 0)
-		return (-1);
+		return 0;
 
 	(void)history(h, &ev, H_CURR);
 	curr_num = ev.num;
+	current_history_valid = 1;
 
 	/*
 	 * use H_DELDATA to set to nth history (without delete) by passing
@@ -1556,20 +1595,25 @@ history_set_pos(int pos)
 	 */
 	if (history(h, &ev, H_DELDATA, pos, (void **)-1)) {
 		(void)history(h, &ev, H_SET, curr_num);
-		return(-1);
+		return 0;
 	}
-	return (0);
+	return 1;
 }
 
 
 /*
  * returns previous event in history and shifts pointer accordingly
+ * Note that readline and editline define directions in opposite ways.
  */
 HIST_ENTRY *
 previous_history(void)
 {
 
-	return (_move_history(H_PREV));
+	if (current_history_valid == 0) {
+		current_history_valid = 1;
+		return _move_history(H_CURR);
+	}
+	return _move_history(H_NEXT);
 }
 
 
@@ -1579,8 +1623,12 @@ previous_history(void)
 HIST_ENTRY *
 next_history(void)
 {
+	HIST_ENTRY *he;
 
-	return (_move_history(H_NEXT));
+	he = _move_history(H_PREV);
+	if (he == NULL)
+		current_history_valid = 0;
+	return he;
 }
 
 
@@ -1595,17 +1643,17 @@ history_search(const char *str, int direction)
 	int curr_num;
 
 	if (history(h, &ev, H_CURR) != 0)
-		return (-1);
+		return -1;
 	curr_num = ev.num;
 
 	for (;;) {
 		if ((strp = strstr(ev.str, str)) != NULL)
-			return (int) (strp - ev.str);
+			return (int)(strp - ev.str);
 		if (history(h, &ev, direction < 0 ? H_NEXT:H_PREV) != 0)
 			break;
 	}
 	(void)history(h, &ev, H_SET, curr_num);
-	return (-1);
+	return -1;
 }
 
 
@@ -1638,15 +1686,15 @@ history_search_pos(const char *str,
 	pos = (pos > 0) ? 1 : -1;
 
 	if (history(h, &ev, H_CURR) != 0)
-		return (-1);
+		return -1;
 	curr_num = ev.num;
 
-	if (history_set_pos(off) != 0 || history(h, &ev, H_CURR) != 0)
-		return (-1);
+	if (!history_set_pos(off) || history(h, &ev, H_CURR) != 0)
+		return -1;
 
 	for (;;) {
 		if (strstr(ev.str, str))
-			return (off);
+			return off;
 		if (history(h, &ev, (pos < 0) ? H_PREV : H_NEXT) != 0)
 			break;
 	}
@@ -1655,7 +1703,7 @@ history_search_pos(const char *str,
 	(void)history(h, &ev,
 	    pos < 0 ? H_NEXT_EVENT : H_PREV_EVENT, curr_num);
 
-	return (-1);
+	return -1;
 }
 
 
@@ -1679,7 +1727,7 @@ filename_completion_function(const char *name, int state)
  * which starts with supplied text
  * text contains a partial username preceded by random character
  * (usually '~'); state is ignored
- * it's callers responsibility to free returned value
+ * it's the caller's responsibility to free the returned value
  */
 char *
 username_completion_function(const char *text, int state)
@@ -1687,7 +1735,7 @@ username_completion_function(const char *text, int state)
 	struct passwd *pwd;
 
 	if (text[0] == '\0')
-		return (NULL);
+		return NULL;
 
 	if (*text == '~')
 		text++;
@@ -1748,9 +1796,7 @@ _rl_completion_append_character_function(const char *dummy
 int
 rl_complete(int ignore __attribute__((__unused__)), int invoking_key)
 {
-#ifdef WIDECHAR
 	static ct_buffer_t wbreak_conv, sprefix_conv;
-#endif
 
 	if (h == NULL || e == NULL)
 		rl_initialize();
@@ -1760,7 +1806,7 @@ rl_complete(int ignore __attribute__((__unused__)), int invoking_key)
 		arr[0] = (char)invoking_key;
 		arr[1] = '\0';
 		el_insertstr(e, arr);
-		return (CC_REFRESH);
+		return CC_REFRESH;
 	}
 
 	/* Just look at how many global variables modify this operation! */
@@ -1805,7 +1851,7 @@ rl_bind_key(int c, rl_command_func_t *func)
 		e->el_map.key[c] = ED_INSERT;
 		retval = 0;
 	}
-	return (retval);
+	return retval;
 }
 
 
@@ -1821,7 +1867,7 @@ rl_read_key(void)
 	if (e == NULL || h == NULL)
 		rl_initialize();
 
-	return (el_getc(e, fooarr));
+	return el_getc(e, fooarr);
 }
 
 
@@ -1857,20 +1903,20 @@ rl_insert(int count, int c)
 	for (; count > 0; count--)
 		el_push(e, arr);
 
-	return (0);
+	return 0;
 }
 
 int
 rl_insert_text(const char *text)
 {
 	if (!text || *text == 0)
-		return (0);
+		return 0;
 
 	if (h == NULL || e == NULL)
 		rl_initialize();
 
 	if (el_insertstr(e, text) < 0)
-		return (0);
+		return 0;
 	return (int)strlen(text);
 }
 
@@ -1941,7 +1987,7 @@ rl_callback_read_char()
 	}
 }
 
-void 
+void
 rl_callback_handler_install(const char *prompt, VCPFunction *linefunc)
 {
 	if (e == NULL) {
@@ -1950,9 +1996,9 @@ rl_callback_handler_install(const char *prompt, VCPFunction *linefunc)
 	(void)rl_set_prompt(prompt);
 	rl_linefunc = linefunc;
 	el_set(e, EL_UNBUFFERED, 1);
-}   
+}
 
-void 
+void
 rl_callback_handler_remove(void)
 {
 	el_set(e, EL_UNBUFFERED, 0);
@@ -1995,7 +2041,7 @@ rl_deprep_terminal(void)
 int
 rl_read_init_file(const char *s)
 {
-	return(el_source(e, s));
+	return el_source(e, s);
 }
 
 int
@@ -2009,7 +2055,7 @@ rl_parse_and_bind(const char *line)
 	tok_str(tok, line, &argc, &argv);
 	argc = el_parse(e, argc, argv);
 	tok_end(tok);
-	return (argc ? 1 : 0);
+	return argc ? 1 : 0;
 }
 
 int
@@ -2019,7 +2065,7 @@ rl_variable_bind(const char *var, const char *value)
 	 * The proper return value is undocument, but this is what the
 	 * readline source seems to do.
 	 */
-	return ((el_set(e, EL_BIND, "", var, value, NULL) == -1) ? 1 : 0);
+	return el_set(e, EL_BIND, "", var, value, NULL) == -1 ? 1 : 0;
 }
 
 void
@@ -2033,35 +2079,37 @@ rl_stuff_char(int c)
 }
 
 static int
-_rl_event_read_char(EditLine *el, char *cp)
+_rl_event_read_char(EditLine *el, wchar_t *wc)
 {
+	char	ch;
 	int	n;
 	ssize_t num_read = 0;
 
-	*cp = '\0';
+	ch = '\0';
+	*wc = L'\0';
 	while (rl_event_hook) {
 
 		(*rl_event_hook)();
 
 #if defined(FIONREAD)
 		if (ioctl(el->el_infd, FIONREAD, &n) < 0)
-			return(-1);
+			return -1;
 		if (n)
-			num_read = read(el->el_infd, cp, 1);
+			num_read = read(el->el_infd, &ch, 1);
 		else
 			num_read = 0;
 #elif defined(F_SETFL) && defined(O_NDELAY)
-		if ((n = fcntl(el->el_infd, F_GETFL, 0)) < 0)
-			return(-1);
+		if ((n = fcntl(el->el_infd, F_GETFL)) < 0)
+			return -1;
 		if (fcntl(el->el_infd, F_SETFL, n|O_NDELAY) < 0)
-			return(-1);
-		num_read = read(el->el_infd, cp, 1);
+			return -1;
+		num_read = read(el->el_infd, &ch, 1);
 		if (fcntl(el->el_infd, F_SETFL, n))
-			return(-1);
+			return -1;
 #else
 		/* not non-blocking, but what you gonna do? */
-		num_read = read(el->el_infd, cp, 1);
-		return(-1);
+		num_read = read(el->el_infd, &ch, 1);
+		return -1;
 #endif
 
 		if (num_read < 0 && errno == EAGAIN)
@@ -2072,6 +2120,7 @@ _rl_event_read_char(EditLine *el, char *cp)
 	}
 	if (!rl_event_hook)
 		el_set(el, EL_GETCFN, EL_BUILTIN_GETCFN);
+	*wc = (wchar_t)ch;
 	return (int)num_read;
 }
 
@@ -2152,7 +2201,7 @@ rl_completion_matches(const char *str, rl_compentry_func_t *fun)
 		list[0][min] = '\0';
 	}
 	return list;
-		
+
 out:
 	free(list);
 	return NULL;
@@ -2190,9 +2239,9 @@ history_get_history_state(void)
 	HISTORY_STATE *hs;
 
 	if ((hs = malloc(sizeof(HISTORY_STATE))) == NULL)
-		return (NULL);
+		return NULL;
 	hs->length = history_length;
-	return (hs);
+	return hs;
 }
 
 int
@@ -2248,7 +2297,7 @@ rl_on_new_line(void)
 
 int
 /*ARGSUSED*/
-rl_set_keyboard_input_timeout(int u)
+rl_set_keyboard_input_timeout(int u __attribute__((__unused__)))
 {
 	return 0;
 }

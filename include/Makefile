@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.206 2015/09/27 14:52:47 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.212 2016/05/07 21:58:24 tedu Exp $
 #	$NetBSD: Makefile,v 1.59 1996/05/15 21:36:43 jtc Exp $
 
 #	@(#)Makefile	5.45.1.1 (Berkeley) 5/6/91
@@ -10,23 +10,16 @@
 .include <bsd.own.mk>
 
 FILES=	a.out.h ar.h asr.h assert.h bitstring.h blf.h bsd_auth.h \
-	complex.h cpio.h ctype.h curses.h db.h dbm.h dirent.h disktab.h \
+	complex.h cpio.h ctype.h curses.h db.h dirent.h disktab.h \
 	dlfcn.h elf_abi.h err.h errno.h fenv.h float.h fnmatch.h fstab.h fts.h \
-	ftw.h getopt.h glob.h grp.h ifaddrs.h inttypes.h iso646.h kvm.h \
-	langinfo.h libgen.h limits.h locale.h login_cap.h malloc.h math.h \
-	md5.h memory.h ndbm.h netdb.h netgroup.h nlist.h nl_types.h \
-	paths.h poll.h pwd.h ranlib.h readpassphrase.h regex.h \
-	resolv.h rmd160.h search.h setjmp.h sha1.h sha2.h signal.h siphash.h \
-	sndio.h \
-	spawn.h stdbool.h stddef.h stdio.h stdlib.h string.h strings.h struct.h \
-	sysexits.h tar.h tgmath.h time.h ttyent.h unistd.h utime.h \
-	utmp.h uuid.h vis.h wchar.h wctype.h
-
-FILES+=	link.h link_elf.h
-
-.if (${MACHINE_ARCH} != "vax")
-FILES+= ieeefp.h
-.endif
+	ftw.h getopt.h glob.h grp.h icdb.h ieeefp.h ifaddrs.h inttypes.h \
+	iso646.h kvm.h langinfo.h libgen.h limits.h link.h link_elf.h \
+	locale.h login_cap.h math.h md5.h memory.h ndbm.h netdb.h netgroup.h \
+	nlist.h nl_types.h paths.h poll.h pwd.h ranlib.h readpassphrase.h \
+	regex.h resolv.h rmd160.h search.h setjmp.h sha1.h sha2.h signal.h \
+	siphash.h sndio.h spawn.h stdbool.h stddef.h stdio.h stdlib.h \
+	string.h strings.h struct.h sysexits.h tar.h tgmath.h tib.h time.h \
+	ttyent.h unistd.h utime.h utmp.h uuid.h vis.h wchar.h wctype.h
 
 MFILES=	frame.h
 LFILES=	endian.h fcntl.h syslog.h termios.h stdarg.h stdint.h varargs.h
@@ -42,7 +35,7 @@ PRDIRS=
 RDIRS=	../lib/libcrypto ../lib/libcurses ../lib/libedit \
 	../lib/libevent ../lib/libexpat ../lib/libform \
 	../lib/libfuse ../lib/libkeynote ../lib/libmenu \
-	../lib/libocurses ../lib/libossaudio ../lib/libpanel \
+	../lib/libossaudio ../lib/libpanel \
 	../lib/libpcap ../lib/libradius ../lib/librpcsvc ../lib/librthread \
 	../lib/libskey ../lib/libsqlite3 ../lib/libssl  ../lib/libtls \
 	../lib/libusbhid ../lib/libutil ../lib/libz \

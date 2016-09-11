@@ -1,4 +1,4 @@
-/*	$OpenBSD: rfc2822.c,v 1.5 2015/11/05 08:55:09 gilles Exp $	*/
+/*	$OpenBSD: rfc2822.c,v 1.8 2016/08/20 20:47:08 eric Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
@@ -63,6 +63,7 @@ end:
 		    break;
 	if (hdr_miss_cb)
 		TAILQ_REMOVE(&rp->hdr_miss_cb, hdr_miss_cb, next);
+	free(hdr_miss_cb);
 	header_reset(&rp->header);
 	rp->in_hdr = 0;
 	return;
@@ -93,7 +94,7 @@ parser_feed_header(struct rfc2822_parser *rp, char *line)
 	char			*pos;
 
 	/* new header */
-	if (! isspace(*line) && *line != '\0') {
+	if (!isspace(*line) && *line != '\0') {
 		rp->in_hdr = 1;
 		if ((pos = strchr(line, ':')) == NULL)
 			return 0;
@@ -108,7 +109,7 @@ parser_feed_header(struct rfc2822_parser *rp, char *line)
 	}
 
 	/* continuation */
-	if (! rp->in_hdr)
+	if (!rp->in_hdr)
 		return 0;
 
 	/* append line to header */
@@ -137,12 +138,13 @@ rfc2822_parser_init(struct rfc2822_parser *rp)
 	TAILQ_INIT(&rp->header.lines);
 	rfc2822_header_default_callback(rp, hdr_dflt_cb, NULL);
 	rfc2822_body_callback(rp, body_dflt_cb, NULL);
+	rfc2822_parser_reset(rp);
 }
 
 void
 rfc2822_parser_flush(struct rfc2822_parser *rp)
 {
-	if (! rp->in_hdrs)
+	if (!rp->in_hdrs)
 		return;
 
 	header_callback(rp);

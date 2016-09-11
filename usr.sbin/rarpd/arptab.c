@@ -1,4 +1,4 @@
-/*	$OpenBSD: arptab.c,v 1.24 2015/08/03 13:39:22 mpi Exp $ */
+/*	$OpenBSD: arptab.c,v 1.28 2016/08/27 01:42:37 guenther Exp $ */
 
 /*
  * Copyright (c) 1984, 1993
@@ -40,6 +40,7 @@
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -70,8 +71,8 @@ static int s = -1;
 
 int rtget(struct sockaddr_inarp **, struct sockaddr_dl **);
 
-static void
-getsocket(void)
+void
+arptab_init(void)
 {
 	s = socket(PF_ROUTE, SOCK_RAW, 0);
 	if (s < 0)
@@ -105,7 +106,6 @@ arptab_set(u_char *eaddr, u_int32_t host)
 	struct timeval now;
 	int rt;
 
-	getsocket();
 	pid = getpid();
 
 	sdl_m = blank_sdl;
@@ -121,8 +121,6 @@ arptab_set(u_char *eaddr, u_int32_t host)
 tryagain:
 	if (rtget(&sin, &sdl)) {
 		syslog(LOG_ERR,"%s: %m", inet_ntoa(sin->sin_addr));
-		close(s);
-		s = -1;
 		return (1);
 	}
 
@@ -143,15 +141,11 @@ tryagain:
 		if (doing_proxy == 0) {
 			syslog(LOG_ERR, "arptab_set: can only proxy for %s",
 			    inet_ntoa(sin->sin_addr));
-			close(s);
-			s = -1;
 			return (1);
 		}
 		if (sin_m.sin_other & SIN_PROXY) {
 			syslog(LOG_ERR,
 			    "arptab_set: proxy entry exists for non 802 device");
-			close(s);
-			s = -1;
 			return(1);
 		}
 		sin_m.sin_other = SIN_PROXY;
@@ -163,15 +157,11 @@ overwrite:
 		syslog(LOG_ERR,
 		    "arptab_set: cannot intuit interface index and type for %s",
 		    inet_ntoa(sin->sin_addr));
-		close(s);
-		s = -1;
 		return (1);
 	}
 	sdl_m.sdl_type = sdl->sdl_type;
 	sdl_m.sdl_index = sdl->sdl_index;
 	rt = rtmsg(RTM_ADD);
-	close(s);
-	s = -1;
 	return (rt);
 }
 
@@ -183,6 +173,7 @@ rtmsg(int cmd)
 	char *cp = m_rtmsg.m_space;
 	int l;
 
+retry:
 	errno = 0;
 	if (cmd == RTM_DELETE)
 		goto doit;
@@ -235,11 +226,14 @@ doit:
 		}
 	}
 	do {
-		l = read(s, (char *)&m_rtmsg, sizeof(m_rtmsg));
+		l = recv(s, (char *)&m_rtmsg, sizeof(m_rtmsg), MSG_DONTWAIT);
 	} while (l > 0 && (rtm->rtm_version != RTM_VERSION ||
 	    rtm->rtm_seq != seq || rtm->rtm_pid != pid));
-	if (l < 0)
+	if (l < 0) {
+		if (errno == EAGAIN || errno == EINTR)
+			goto retry;
 		syslog(LOG_ERR, "arptab_set: read from routing socket: %m");
+	}
 	return (0);
 }
 
@@ -251,7 +245,7 @@ rtget(struct sockaddr_inarp **sinp, struct sockaddr_dl **sdlp)
 	struct sockaddr_dl *sdl = NULL;
 	struct sockaddr *sa;
 	char *cp;
-	int i;
+	unsigned int i;
 
 	if (rtmsg(RTM_GET) < 0)
 		return (1);

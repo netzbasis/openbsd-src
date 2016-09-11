@@ -1,4 +1,4 @@
-/*	$OpenBSD: stdio.h,v 1.5 2015/09/19 04:02:21 guenther Exp $	*/
+/*	$OpenBSD: stdio.h,v 1.7 2016/09/06 19:56:36 guenther Exp $	*/
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
@@ -18,6 +18,11 @@
 #ifndef	_LIBC_STDIO_H_
 #define	_LIBC_STDIO_H_
 
+/* Rename __swbuf() before it's used in the inline __sputc() */
+struct __sFILE;
+int     __swbuf(int, struct __sFILE *);
+PROTO_NORMAL(__swbuf);
+
 /* we want the const-correct declarations inside libc */
 #define __SYS_ERRLIST
 
@@ -36,7 +41,6 @@ extern PROTO_NORMAL(sys_errlist);
 #endif
 
 PROTO_NORMAL(__srget);
-PROTO_NORMAL(__swbuf);
 PROTO_NORMAL(asprintf);
 PROTO_NORMAL(clearerr);
 PROTO_NORMAL(ctermid);
@@ -51,7 +55,7 @@ PROTO_NORMAL(fgetln);
 PROTO_NORMAL(fgetpos);
 PROTO_NORMAL(fgets);
 PROTO_NORMAL(fileno);
-/*PROTO_NORMAL(flockfile);*/
+PROTO_NORMAL(flockfile);
 PROTO_NORMAL(fmemopen);
 PROTO_NORMAL(fopen);
 PROTO_NORMAL(fprintf);
@@ -66,8 +70,8 @@ PROTO_NORMAL(fseeko);
 PROTO_NORMAL(fsetpos);
 PROTO_NORMAL(ftell);
 PROTO_NORMAL(ftello);
-/*PROTO_NORMAL(ftrylockfile);*/
-/*PROTO_NORMAL(funlockfile);*/
+PROTO_NORMAL(ftrylockfile);
+PROTO_NORMAL(funlockfile);
 PROTO_NORMAL(funopen);
 PROTO_NORMAL(fwrite);
 PROTO_NORMAL(getc);

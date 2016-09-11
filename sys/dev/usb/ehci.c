@@ -1,4 +1,4 @@
-/*	$OpenBSD: ehci.c,v 1.188 2015/11/02 14:55:41 mpi Exp $ */
+/*	$OpenBSD: ehci.c,v 1.192 2016/08/18 11:59:58 jsg Exp $ */
 /*	$NetBSD: ehci.c,v 1.66 2004/06/30 03:11:56 mycroft Exp $	*/
 
 /*
@@ -65,6 +65,7 @@
 #include <sys/timeout.h>
 #include <sys/pool.h>
 #include <sys/endian.h>
+#include <sys/atomic.h>
 
 #include <machine/bus.h>
 
@@ -1447,14 +1448,18 @@ ehci_open(struct usbd_pipe *pipe)
 		    (speed != EHCI_QH_SPEED_HIGH && xfertype == UE_CONTROL ?
 		    EHCI_QH_CTL : 0) |
 		    EHCI_QH_SET_NRL(naks)
-		    );
+		);
 		sqh->qh.qh_endphub = htole32(
 		    EHCI_QH_SET_MULT(1) |
-		    EHCI_QH_SET_HUBA(hshubaddr) |
-		    EHCI_QH_SET_PORT(hshubport) |
-		    EHCI_QH_SET_CMASK(0x1c) | /* XXX */
 		    EHCI_QH_SET_SMASK(xfertype == UE_INTERRUPT ? 0x01 : 0)
-		    );
+		);
+		if (speed != EHCI_QH_SPEED_HIGH) {
+			sqh->qh.qh_endphub |= htole32(
+			    EHCI_QH_SET_HUBA(hshubaddr) |
+			    EHCI_QH_SET_PORT(hshubport) |
+			    EHCI_QH_SET_CMASK(0x1c) /* XXX */
+			);
+		}
 		sqh->qh.qh_curqtd = htole32(EHCI_LINK_TERMINATE);
 		/* Fill the overlay qTD */
 		sqh->qh.qh_qtd.qtd_next = htole32(EHCI_LINK_TERMINATE);
@@ -2534,8 +2539,10 @@ ehci_alloc_itd(struct ehci_softc *sc)
 	if (freeitd == NULL) {
 		err = usb_allocmem(&sc->sc_bus, EHCI_ITD_SIZE * EHCI_ITD_CHUNK,
 		    EHCI_PAGE_SIZE, &dma);
-		if (err)
+		if (err) {
+			splx(s);
 			return (NULL);
+		}
 
 		for (i = 0; i < EHCI_ITD_CHUNK; i++) {
 			offs = i * EHCI_ITD_SIZE;
@@ -2820,11 +2827,11 @@ ehci_timeout_task(void *addr)
 }
 
 /*
- * Some EHCI chips from VIA seem to trigger interrupts before writing back the
- * qTD status, or miss signalling occasionally under heavy load.  If the host
- * machine is too fast, we we can miss transaction completion - when we scan
- * the active list the transaction still seems to be active.  This generally
- * exhibits itself as a umass stall that never recovers.
+ * Some EHCI chips from VIA / ATI seem to trigger interrupts before writing
+ * back the qTD status, or miss signalling occasionally under heavy load.
+ * If the host machine is too fast, we can miss transaction completion - when
+ * we scan the active list the transaction still seems to be active. This
+ * generally exhibits itself as a umass stall that never recovers.
  *
  * We work around this behaviour by setting up this callback after any softintr
  * that completes with transactions still pending, giving us another chance to

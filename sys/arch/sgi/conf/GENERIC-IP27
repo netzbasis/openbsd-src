@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC-IP27,v 1.61 2015/11/02 20:14:36 miod Exp $
+#	$OpenBSD: GENERIC-IP27,v 1.64 2016/06/28 04:41:37 jmatthew Exp $
 #
 # THIS KERNEL IS FOR Origin, Onyx, Fuel, Tezro (IP27, IP35) SYSTEMS ONLY.
 #
@@ -108,6 +108,7 @@ usb*		at ehci?
 uhub*		at usb?		# USB Hubs
 uhub*		at uhub?	# USB Hubs
 ualea*		at uhub?	# Araneus Alea II TRNG
+uonerng*	at uhub?	# Moonbase Otago OneRNG
 umodem*		at uhub?	# USB Modems/Serial
 ucom*		at umodem?
 uvscom*		at uhub?	# SUNTAC Slipper U VS-10U serial
@@ -146,6 +147,7 @@ upl*		at uhub?	# Prolific PL2301/PL2302 host-to-host `network'
 ugl*		at uhub?	# Genesys Logic GL620USB-A host-to-host `network'
 ural*		at uhub?	# Ralink RT2500USB
 url*		at uhub?	# Realtek RTL8150L based adapters
+ure*		at uhub?	# Realtek RTL8152 based adapters
 urtw*		at uhub?	# Realtek 8187
 urtwn*		at uhub?	# Realtek RTL8188CU/RTL8192CU
 wi*		at uhub?	# WaveLAN IEEE 802.11DS
@@ -158,6 +160,10 @@ utwitch*	at uhidev?	# YUREX BBU sensor
 # USB Video
 uvideo*		at uhub?
 video*		at uvideo?
+
+utvfu*		at uhub?	# Fushicai Audio-Video Grabber
+video*		at utvfu?
+audio*		at utvfu?
 
 udl*		at uhub?
 wsdisplay*	at udl?

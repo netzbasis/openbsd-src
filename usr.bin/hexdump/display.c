@@ -1,4 +1,4 @@
-/*	$OpenBSD: display.c,v 1.21 2015/01/16 06:40:08 deraadt Exp $	*/
+/*	$OpenBSD: display.c,v 1.25 2016/08/24 03:13:45 guenther Exp $	*/
 /*	$NetBSD: display.c,v 1.12 2001/12/07 15:14:29 bjh21 Exp $	*/
 
 /*
@@ -49,7 +49,10 @@ enum _vflag vflag = FIRST;
 static off_t address;			/* address/offset in stream */
 static off_t eaddress;			/* end address */
 
-static __inline void print(PR *, u_char *);
+static void		 bpad(PR *);
+static void		 doskip(const char *, int);
+static u_char		*get(void);
+static __inline void	 print(PR *, u_char *);
 
 void
 display(void)
@@ -97,7 +100,7 @@ display(void)
 		for (pr = endfu->nextpr; pr; pr = pr->nextpr)
 			switch(pr->flags) {
 			case F_ADDRESS:
-				(void)printf(pr->fmt, (quad_t)eaddress);
+				(void)printf(pr->fmt, (int64_t)eaddress);
 				break;
 			case F_TEXT:
 				(void)printf("%s", pr->fmt);
@@ -120,7 +123,7 @@ print(PR *pr, u_char *bp)
 
 	switch(pr->flags) {
 	case F_ADDRESS:
-		(void)printf(pr->fmt, (quad_t)address);
+		(void)printf(pr->fmt, (int64_t)address);
 		break;
 	case F_BPAD:
 		(void)printf(pr->fmt, "");
@@ -146,15 +149,15 @@ print(PR *pr, u_char *bp)
 	case F_INT:
 		switch(pr->bcnt) {
 		case 1:
-			(void)printf(pr->fmt, (quad_t)*bp);
+			(void)printf(pr->fmt, (int64_t)*bp);
 			break;
 		case 2:
 			memmove(&s2, bp, sizeof(s2));
-			(void)printf(pr->fmt, (quad_t)s2);
+			(void)printf(pr->fmt, (int64_t)s2);
 			break;
 		case 4:
 			memmove(&s4, bp, sizeof(s4));
-			(void)printf(pr->fmt, (quad_t)s4);
+			(void)printf(pr->fmt, (int64_t)s4);
 			break;
 		case 8:
 			memmove(&s8, bp, sizeof(s8));
@@ -177,15 +180,15 @@ print(PR *pr, u_char *bp)
 	case F_UINT:
 		switch(pr->bcnt) {
 		case 1:
-			(void)printf(pr->fmt, (u_quad_t)*bp);
+			(void)printf(pr->fmt, (uint64_t)*bp);
 			break;
 		case 2:
 			memmove(&u2, bp, sizeof(u2));
-			(void)printf(pr->fmt, (u_quad_t)u2);
+			(void)printf(pr->fmt, (uint64_t)u2);
 			break;
 		case 4:
 			memmove(&u4, bp, sizeof(u4));
-			(void)printf(pr->fmt, (u_quad_t)u4);
+			(void)printf(pr->fmt, (uint64_t)u4);
 			break;
 		case 8:
 			memmove(&u8, bp, sizeof(u8));
@@ -196,7 +199,7 @@ print(PR *pr, u_char *bp)
 	}
 }
 
-void
+static void
 bpad(PR *pr)
 {
 	static const char *spec = " -0+#";
@@ -216,7 +219,7 @@ bpad(PR *pr)
 
 static char **_argv;
 
-u_char *
+static u_char *
 get(void)
 {
 	static int ateof = 1;
@@ -226,8 +229,9 @@ get(void)
 	u_char *tmpp;
 
 	if (!curp) {
-		curp = emalloc(blocksize);
-		savp = emalloc(blocksize);
+		if ((curp = calloc(1, blocksize)) == NULL ||
+		    (savp = calloc(1, blocksize)) == NULL)
+			err(1, NULL);
 	} else {
 		tmpp = curp;
 		curp = savp;
@@ -319,7 +323,7 @@ next(char **argv)
 	/* NOTREACHED */
 }
 
-void
+static void
 doskip(const char *fname, int statok)
 {
 	off_t cnt;
@@ -329,7 +333,7 @@ doskip(const char *fname, int statok)
 		if (fstat(fileno(stdin), &sb))
 			err(1, "fstat %s", fname);
 		if (S_ISREG(sb.st_mode)) {
-			if (skip >= sb.st_size) {
+			if (skip > sb.st_size) {
 				address += sb.st_size;
 				skip -= sb.st_size;
 			} else {
@@ -347,21 +351,4 @@ doskip(const char *fname, int statok)
 			break;
 	address += cnt;
 	skip -= cnt;
-}
-
-void *
-emalloc(int allocsize)
-{
-	void *p;
-
-	if ((p = malloc((u_int)allocsize)) == NULL)
-		nomem();
-	memset(p, 0, allocsize);
-	return(p);
-}
-
-void
-nomem(void)
-{
-	err(1, NULL);
 }

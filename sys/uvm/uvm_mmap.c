@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_mmap.c,v 1.121 2015/11/01 19:03:33 semarie Exp $	*/
+/*	$OpenBSD: uvm_mmap.c,v 1.139 2016/08/18 19:59:16 deraadt Exp $	*/
 /*	$NetBSD: uvm_mmap.c,v 1.49 2001/02/18 21:19:08 chs Exp $	*/
 
 /*
@@ -62,6 +62,7 @@
 #include <sys/vnode.h>
 #include <sys/conf.h>
 #include <sys/signalvar.h>
+#include <sys/syslog.h>
 #include <sys/stat.h>
 #include <sys/specdev.h>
 #include <sys/stdint.h>
@@ -124,7 +125,6 @@ sys_mquery(struct proc *p, void *v, register_t *retval)
 		syscallarg(off_t) pos;
 	} */ *uap = v;
 	struct file *fp;
-	struct uvm_object *uobj;
 	voff_t uoff;
 	int error;
 	vaddr_t vaddr;
@@ -147,11 +147,9 @@ sys_mquery(struct proc *p, void *v, register_t *retval)
 	if (fd >= 0) {
 		if ((error = getvnode(p, fd, &fp)) != 0)
 			return (error);
-		uobj = &((struct vnode *)fp->f_data)->v_uvm->u_obj;
 		uoff = SCARG(uap, pos);
 	} else {
 		fp = NULL;
-		uobj = NULL;
 		uoff = UVM_UNKNOWN_OFFSET;
 	}
 
@@ -308,6 +306,37 @@ sys_mincore(struct proc *p, void *v, register_t *retval)
 	return (error);
 }
 
+int	uvm_wxabort;
+
+/*
+ * W^X violations are only allowed on permitted filesystems.
+ */
+static inline int
+uvm_wxcheck(struct proc *p, char *call)
+{
+	struct process *pr = p->p_p;
+	int wxallowed = (pr->ps_textvp->v_mount &&
+	    (pr->ps_textvp->v_mount->mnt_flag & MNT_WXALLOWED));
+
+	if (wxallowed && (pr->ps_flags & PS_WXNEEDED))
+		return (0);
+
+	/* Report W^X failures, and potentially SIGABRT */
+	if (pr->ps_wxcounter++ == 0)
+		log(LOG_NOTICE, "%s(%d): %s W^X violation\n",
+		    p->p_comm, p->p_pid, call);
+	if (uvm_wxabort) {
+		struct sigaction sa;
+
+		/* Send uncatchable SIGABRT for coredump */
+		memset(&sa, 0, sizeof sa);
+		sa.sa_handler = SIG_DFL;
+		setsigvec(p, SIGABRT, &sa);
+		psignal(p, SIGABRT);
+	}
+	return (ENOTSUP);
+}
+
 /*
  * sys_mmap: mmap system call.
  *
@@ -349,15 +378,16 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 	pos = SCARG(uap, pos);
 
 	/*
-	 * Fixup the old deprecated MAP_COPY into MAP_PRIVATE, and
-	 * validate the flags.
+	 * Validate the flags.
 	 */
 	if ((prot & PROT_MASK) != prot)
 		return (EINVAL);
+	if ((prot & (PROT_WRITE | PROT_EXEC)) == (PROT_WRITE | PROT_EXEC) &&
+	    (error = uvm_wxcheck(p, "mmap")))
+		return (error);
+
 	if ((flags & MAP_FLAGMASK) != flags)
 		return (EINVAL);
-	if (flags & MAP_OLDCOPY)
-		flags = (flags & MAP_OLDCOPY) | MAP_PRIVATE;
 	if ((flags & (MAP_SHARED|MAP_PRIVATE)) == (MAP_SHARED|MAP_PRIVATE))
 		return (EINVAL);
 	if ((flags & (MAP_FIXED|__MAP_NOREPLACE)) == __MAP_NOREPLACE)
@@ -491,10 +521,11 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 			/* MAP_PRIVATE mappings can always write to */
 			maxprot |= PROT_WRITE;
 		}
-		if ((flags & MAP_ANON) != 0 ||
+		if ((flags & MAP_ANON) != 0 || (flags & __MAP_NOFAULT) != 0 ||
 		    ((flags & MAP_PRIVATE) != 0 && (prot & PROT_WRITE) != 0)) {
-			if (size >
-			    (p->p_rlimit[RLIMIT_DATA].rlim_cur - ptoa(p->p_vmspace->vm_dused))) {
+			if (p->p_rlimit[RLIMIT_DATA].rlim_cur < size ||
+			    p->p_rlimit[RLIMIT_DATA].rlim_cur - size <
+			    ptoa(p->p_vmspace->vm_dused)) {
 				error = ENOMEM;
 				goto out;
 			}
@@ -510,10 +541,11 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 
 is_anon:	/* label for SunOS style /dev/zero */
 
-		if ((flags & MAP_ANON) != 0 ||
+		if ((flags & MAP_ANON) != 0 || (flags & __MAP_NOFAULT) != 0 ||
 		    ((flags & MAP_PRIVATE) != 0 && (prot & PROT_WRITE) != 0)) {
-			if (size >
-			    (p->p_rlimit[RLIMIT_DATA].rlim_cur - ptoa(p->p_vmspace->vm_dused))) {
+			if (p->p_rlimit[RLIMIT_DATA].rlim_cur < size ||
+			    p->p_rlimit[RLIMIT_DATA].rlim_cur - size <
+			    ptoa(p->p_vmspace->vm_dused)) {
 				return ENOMEM;
 			}
 		}
@@ -667,6 +699,9 @@ sys_mprotect(struct proc *p, void *v, register_t *retval)
 	
 	if ((prot & PROT_MASK) != prot)
 		return (EINVAL);
+	if ((prot & (PROT_WRITE | PROT_EXEC)) == (PROT_WRITE | PROT_EXEC) &&
+	    (error = uvm_wxcheck(p, "mprotect")))
+		return (error);
 
 	error = pledge_protexec(p, prot);
 	if (error)
@@ -982,7 +1017,7 @@ uvm_mmapanon(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 {
 	int error;
 	int advice = MADV_NORMAL;
-	uvm_flag_t uvmflag = 0;
+	unsigned int uvmflag = 0;
 	vsize_t align = 0;	/* userland page size */
 
 	/*
@@ -1035,7 +1070,7 @@ uvm_mmapfile(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 	struct uvm_object *uobj;
 	int error;
 	int advice = MADV_NORMAL;
-	uvm_flag_t uvmflag = 0;
+	unsigned int uvmflag = 0;
 	vsize_t align = 0;	/* userland page size */
 
 	/*
@@ -1137,12 +1172,6 @@ uvm_mmapfile(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 int
 sys_kbind(struct proc *p, void *v, register_t *retval)
 {
-#if defined(__vax__) || defined(__hppa64__)
-	/* only exists to support ld.so */
-	sigexit(p, SIGSYS);
-	/* NOTREACHED */
-	return EINVAL;
-#else
 	struct sys_kbind_args /* {
 		syscallarg(const struct __kbind *) param;
 		syscallarg(size_t) psize;
@@ -1258,5 +1287,4 @@ sys_kbind(struct proc *p, void *v, register_t *retval)
 	uvm_unmap_detach(&dead_entries, AMAP_REFALL);
 
 	return (error);
-#endif	/* !vax && !hppa64 */
 }

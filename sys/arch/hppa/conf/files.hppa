@@ -1,4 +1,4 @@
-#	$OpenBSD: files.hppa,v 1.94 2015/07/17 22:52:28 tedu Exp $
+#	$OpenBSD: files.hppa,v 1.96 2016/08/19 20:48:36 tedu Exp $
 #
 # hppa-specific configuration info
 
@@ -68,6 +68,11 @@ include	"dev/cardbus/files.cardbus"
 include	"dev/pcmcia/files.pcmcia"
 
 #
+# Machine-independent HID support
+#
+include	"dev/hid/files.hid"
+
+#
 # Machine-independent USB drivers
 #
 include "dev/usb/files.usb"
@@ -111,7 +116,7 @@ file	arch/hppa/dev/lcd.c			lcd needs-flag
 
 device	mem
 attach	mem at gedoens
-file	arch/hppa/dev/mem.c			mem
+file	arch/hppa/hppa/mem.c			mem
 
 device	cpu
 attach	cpu at gedoens

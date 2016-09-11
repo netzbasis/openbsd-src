@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.298 2015/10/17 13:27:08 krw Exp $	*/
+/*	$OpenBSD: editor.c,v 1.303 2016/09/02 10:47:17 otto Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -145,6 +145,7 @@ int	micmp(const void *, const void *);
 int	mpequal(char **, char **);
 int	get_bsize(struct disklabel *, int);
 int	get_fsize(struct disklabel *, int);
+int	get_cpg(struct disklabel *, int);
 int	get_fstype(struct disklabel *, int);
 int	get_mp(struct disklabel *, int);
 int	get_offset(struct disklabel *, int);
@@ -155,7 +156,6 @@ void	set_geometry(struct disklabel *, struct disklabel *, struct disklabel *,
 void	zero_partitions(struct disklabel *);
 u_int64_t max_partition_size(struct disklabel *, int);
 void	display_edit(struct disklabel *, char, u_int64_t);
-int64_t	getphysmem(void);
 void	psize(u_int64_t sz, char unit, struct disklabel *lp);
 char	*get_token(char **, size_t *);
 int	apply_unit(double, u_char, u_int64_t *);
@@ -511,21 +511,8 @@ done:
 	mpfree(omountpoints);
 	mpfree(origmountpoints);
 	mpfree(tmpmountpoints);
-	if (disk_geop)
-		free(disk_geop);
+	free(disk_geop);
 	return(error);
-}
-
-int64_t
-getphysmem(void)
-{
-	int64_t physmem;
-	size_t sz = sizeof(physmem);
-	int mib[] = { CTL_HW, HW_PHYSMEM64 };
-
-	if (sysctl(mib, 2, &physmem, &sz, NULL, (size_t)0) == -1)
-		errx(4, "can't get mem size");
-	return physmem;
 }
 
 /*
@@ -543,7 +530,7 @@ editor_allocspace(struct disklabel *lp_org)
 	u_int64_t chunkstart, chunksize, cylsecs, secs, totsecs, xtrasecs;
 	char **partmp;
 	int i, j, lastalloc, index = 0, fragsize, partno;
-	int64_t physmem;
+	extern int64_t physmem;
 
 	/* How big is the OpenBSD portion of the disk?  */
 	find_bounds(lp_org);
@@ -564,8 +551,6 @@ editor_allocspace(struct disklabel *lp_org)
 		}
 	}
 
-	physmem = getphysmem() / DEV_BSIZE;	/* Blocks not sectors here! */
-
 	cylsecs = lp_org->d_secpercyl;
 again:
 	lp = &label;
@@ -584,12 +569,12 @@ again:
 
 	/* bump max swap based on phys mem, little physmem gets 2x swap */
 	if (index == 0 && alloc_table == alloc_table_default) {
-		if (physmem < MEG(256))
-			alloc[1].minsz = alloc[1].maxsz = 2 * physmem;
+		if (physmem / DEV_BSIZE < MEG(256))
+			alloc[1].minsz = alloc[1].maxsz = 2 * (physmem / DEV_BSIZE);
 		else
-			alloc[1].maxsz += physmem;
+			alloc[1].maxsz += (physmem / DEV_BSIZE);
 		/* bump max /var to make room for 2 crash dumps */
-		alloc[3].maxsz += 2 * physmem;
+		alloc[3].maxsz += 2 * (physmem / DEV_BSIZE);
 	}
 
 	xtrasecs = totsecs = editor_countfree(lp);
@@ -683,19 +668,16 @@ cylinderalign:
 		/* Everything seems ok so configure the partition. */
 		DL_SETPSIZE(pp, secs);
 		DL_SETPOFFSET(pp, chunkstart);
-		fragsize = (lp->d_secsize == DEV_BSIZE) ? 2048 :
-		    lp->d_secsize;
+		fragsize = 2048;
 		if (secs * lp->d_secsize > 128ULL * 1024 * 1024 * 1024)
 			fragsize *= 2;
 		if (secs * lp->d_secsize > 512ULL * 1024 * 1024 * 1024)
 			fragsize *= 2;
-#if defined (__sparc__) && !defined(__sparc64__)
-		/* can't boot from > 8k boot blocks */
-		pp->p_fragblock =
-		    DISKLABELV1_FFS_FRAGBLOCK(i == 0 ? 1024 : fragsize, 8);
-#else
+		if (fragsize < lp->d_secsize)
+			fragsize = lp->d_secsize;
+		if (fragsize > MAXBSIZE / 8)
+			fragsize = MAXBSIZE / 8;
 		pp->p_fragblock = DISKLABELV1_FFS_FRAGBLOCK(fragsize, 8);
-#endif
 		pp->p_cpg = 1;
 		if (ap->mp[0] != '/')
 			pp->p_fstype = FS_SWAP;
@@ -907,22 +889,17 @@ editor_add(struct disklabel *lp, char *p)
 
 	if (get_offset(lp, partno) == 0 &&
 	    get_size(lp, partno) == 0) {
-		fragsize = (lp->d_secsize == DEV_BSIZE) ? 2048 :
-		    lp->d_secsize;
+		fragsize = 2048;
 		new_size = DL_GETPSIZE(pp) * lp->d_secsize;
 		if (new_size > 128ULL * 1024 * 1024 * 1024)
 			fragsize *= 2;
 		if (new_size > 512ULL * 1024 * 1024 * 1024)
 			fragsize *= 2;
+		if (fragsize < lp->d_secsize)
+			fragsize = lp->d_secsize;
 		if (fragsize > MAXBSIZE / 8)
 			fragsize = MAXBSIZE / 8;
-#if defined (__sparc__) && !defined(__sparc64__)
-		/* can't boot from > 8k boot blocks */
-		pp->p_fragblock =
-		    DISKLABELV1_FFS_FRAGBLOCK(partno == 0 ? 1024 : fragsize, 8);
-#else
 		pp->p_fragblock = DISKLABELV1_FFS_FRAGBLOCK(fragsize, 8);
-#endif
 		if (get_fstype(lp, partno) == 0 &&
 		    get_mp(lp, partno) == 0 &&
 		    get_fsize(lp, partno) == 0  &&
@@ -1014,7 +991,8 @@ editor_modify(struct disklabel *lp, char *p)
 	    get_fstype(lp, partno) == 0 &&
 	    get_mp(lp, partno) == 0 &&
 	    get_fsize(lp, partno) == 0  &&
-	    get_bsize(lp, partno) == 0)
+	    get_bsize(lp, partno) == 0 &&
+	    get_cpg(lp, partno) == 0)
 		return;
 
 	/* Bailed out at some point, so undo any changes. */
@@ -1329,7 +1307,7 @@ has_overlap(struct disklabel *lp)
 				printf("\nError, partitions %c and %c overlap:"
 				    "\n", 'a' + i, 'a' + j);
 				printf("#    %16.16s %16.16s  fstype "
-				    "[fsize bsize  cpg]\n", "size", "offset");
+				    "[fsize bsize    cpg]\n", "size", "offset");
 				display_partition(stdout, lp, i, 0);
 				display_partition(stdout, lp, j, 0);
 
@@ -1991,6 +1969,34 @@ get_size(struct disklabel *lp, int partno)
 }
 
 int
+get_cpg(struct disklabel *lp, int partno)
+{
+	u_int64_t ui;
+	struct partition *pp = &lp->d_partitions[partno];
+
+	if (!expert || pp->p_fstype != FS_BSDFFS)
+		return (0);
+
+	for (;;) {
+		ui = getuint64(lp, "cpg",
+		    "Size of partition in fs blocks.",
+		    pp->p_cpg, pp->p_cpg, 0, 0);
+		if (ui == ULLONG_MAX - 1) {
+			fputs("Command aborted\n", stderr);
+			return (1);
+		} else if (ui == ULLONG_MAX) {
+			fputs("Invalid entry\n", stderr);
+		} else if (ui > USHRT_MAX) {
+			fprintf(stderr, "Error: cpg should be smaller than "
+			    "65536\n");
+		} else
+			break;
+	}
+	pp->p_cpg = ui;
+	return (0);
+}
+
+int
 get_fsize(struct disklabel *lp, int partno)
 {
 	u_int64_t ui, fsize, frag;
@@ -2354,7 +2360,7 @@ display_edit(struct disklabel *lp, char unit, u_int64_t fr)
 	printf("; free: ");
 	psize(fr, unit, lp);
 
-	printf("\n#    %16.16s %16.16s  fstype [fsize bsize  cpg]\n",
+	printf("\n#    %16.16s %16.16s  fstype [fsize bsize   cpg]\n",
 	    "size", "offset");
 	for (i = 0; i < lp->d_npartitions; i++)
 		display_partition(stdout, lp, i, unit);

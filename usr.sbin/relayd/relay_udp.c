@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_udp.c,v 1.39 2015/01/22 17:42:09 reyk Exp $	*/
+/*	$OpenBSD: relay_udp.c,v 1.43 2016/09/02 14:31:47 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2013 Reyk Floeter <reyk@openbsd.org>
@@ -39,7 +39,6 @@
 
 extern volatile sig_atomic_t relay_sessions;
 extern objid_t relay_conid;
-extern int proc_id;
 extern int debug;
 
 static struct relayd *env = NULL;
@@ -116,14 +115,13 @@ relay_udp_socket(struct sockaddr_storage *ss, in_port_t port,
 	if (relay_socket_af(ss, port) == -1)
 		goto bad;
 
-	if ((s = socket(ss->ss_family, SOCK_DGRAM, IPPROTO_UDP)) == -1)
+	if ((s = socket(ss->ss_family, SOCK_DGRAM | SOCK_NONBLOCK,
+	    IPPROTO_UDP)) == -1)
 		goto bad;
 
 	/*
 	 * Socket options
 	 */
-	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
-		goto bad;
 	if (proto->tcpflags & TCPFLAG_BUFSIZ) {
 		val = proto->tcpbufsiz;
 		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
@@ -191,13 +189,13 @@ relay_udp_response(int fd, short sig, void *arg)
 		return;
 
 	relay_close(con, "unknown response");
-	if (priv != NULL)
-		free(priv);
+	free(priv);
 }
 
 void
 relay_udp_server(int fd, short sig, void *arg)
 {
+	struct privsep *ps = env->sc_ps;
 	struct relay *rlay = arg;
 	struct protocol *proto = rlay->rl_proto;
 	struct rsession *con = NULL;
@@ -263,7 +261,7 @@ relay_udp_server(int fd, short sig, void *arg)
 	relay_session_publish(con);
 
 	/* Increment the per-relay session counter */
-	rlay->rl_stats[proc_id].last++;
+	rlay->rl_stats[ps->ps_instance].last++;
 
 	/* Pre-allocate output buffer */
 	con->se_out.output = evbuffer_new();
@@ -290,8 +288,7 @@ relay_udp_server(int fd, short sig, void *arg)
 	/* Save the received data */
 	if (evbuffer_add(con->se_out.output, buf, len) == -1) {
 		relay_close(con, "failed to store buffer");
-		if (cnl != NULL)
-			free(cnl);
+		free(cnl);
 		return;
 	}
 
@@ -300,12 +297,12 @@ relay_udp_server(int fd, short sig, void *arg)
 		bzero(cnl, sizeof(*cnl));
 		cnl->in = -1;
 		cnl->id = con->se_id;
-		cnl->proc = proc_id;
+		cnl->proc = ps->ps_instance;
 		cnl->proto = IPPROTO_UDP;
 		bcopy(&con->se_in.ss, &cnl->src, sizeof(cnl->src));
 		bcopy(&rlay->rl_conf.ss, &cnl->dst, sizeof(cnl->dst));
-		proc_compose_imsg(env->sc_ps, PROC_PFE, -1,
-		    IMSG_NATLOOK, -1, cnl, sizeof(*cnl));
+		proc_compose(env->sc_ps, PROC_PFE,
+		    IMSG_NATLOOK, cnl, sizeof(*cnl));
 
 		/* Schedule timeout */
 		evtimer_set(&con->se_ev, relay_natlook, con);

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: set.opt.roff,v 1.8 2009/11/22 22:51:58 nicm Exp $
+.\"	$OpenBSD: set.opt.roff,v 1.12 2016/08/08 15:09:33 sobrado Exp $
 .\"
 .\" Copyright (c) 1994
 .\"     The Regents of the University of California.  All rights reserved.
@@ -368,14 +368,6 @@ this option causes
 .CO vi
 to skip to the end of that shell, C or C++ comment (probably a
 terribly boring legal notice) before displaying the file.
-.KY directory
-.IP "directory, dir [environment variable TMPDIR, or /tmp]"
-The directory where temporary files are created.
-The environment variable
-.LI TMPDIR
-is used as the default value if it exists, otherwise
-.LI /tmp
-is used.
 .KY edcompatible
 .IP "edcompatible, ed [off]"
 Remember the values of the
@@ -425,7 +417,7 @@ This option causes all regular expressions to be treated as POSIX
 .XR egrep 1
 style expressions).
 .KY filec
-.IP "filec [no default]"
+.IP "filec [<tab>]"
 This option adds the ability to do shell expansion when entering input
 on the colon command line.
 This option is set to a string.
@@ -607,30 +599,6 @@ This option only permits you to disallow messages for the edit session.
 See the
 .XR mesg 1
 utility for more information.
-.KY msgcat
-.IP "msgcat [/usr/share/vi/catalog/]"
-This option selects a message catalog to be used to display error and
-informational messages in a specified language.
-If the value of this option ends with a '/', it is treated as the name
-of a directory that contains a message catalog
-.QT "vi_XXXX" ,
-where
-.QT XXXX
-is the value of the
-.LI LANG
-environment variable, if it's set, or the value of the
-.LI LC_MESSAGES
-environment variable if it's not.
-If neither of those environment variables are set,
-or if the option doesn't end in a '/',
-the option is treated as the full path name of the message catalog to use.
-.sp
-If any messages are missing from the catalog,
-the backup text (English) is used instead.
-.sp
-See the distribution file
-.LI catalog/README
-for additional information on building and installing message catalogs.
 .KY modelines
 .IP "modelines, modeline [off]"
 If the
@@ -811,7 +779,7 @@ In other words, the
 edit option will be set if the current file lacks write permissions,
 and will not be set if the user has write permissions for the file.
 .KY recdir
-.IP "recdir [/var/tmp/vi.recover]"
+.IP "recdir [/tmp/vi.recover]"
 The directory where recovery files are stored.
 .sp
 If you change the value of

@@ -1,4 +1,4 @@
-/*	$OpenBSD: makedefs.c,v 1.8 2015/10/24 17:43:28 mmcc Exp $	*/
+/*	$OpenBSD: makedefs.c,v 1.10 2016/01/09 18:33:15 mestre Exp $	*/
 
 /*
  * Copyright (c) 1985, Stichting Centrum voor Wiskunde en Informatica,
@@ -62,10 +62,11 @@
  */
 
 #include <ctype.h>
+#include <err.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
 #include <unistd.h>
 
 /* construct definitions of object constants */
@@ -88,13 +89,16 @@ main(int argc, char **argv)
 	int propct = 0;
 	char *sp;
 
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
+
 	if (argc != 2) {
 		(void)fprintf(stderr, "usage: makedefs file\n");
-		exit(1);
+		return 1;
 	}
 	if ((fd = open(argv[1], O_RDONLY)) < 0) {
 		perror(argv[1]);
-		exit(1);
+		return 1;
 	}
 	skipuntil("objects[] = {");
 	while(getentry()) {
@@ -122,14 +126,14 @@ main(int argc, char **argv)
 	printf("#define	LAST_GEM	(JADE+1)\n");
 	printf("#define	LAST_RING	%d\n", propct);
 	printf("#define	NROFOBJECTS	%d\n", index-1);
-	exit(0);
+	return 0;
 }
 
 char line[LINSZ], *lp = line, *lp0 = line, *lpe = line;
 int eof;
 
 void
-readline()
+readline(void)
 {
 	int n = read(fd, lp0, (line+LINSZ)-lp0);
 
@@ -142,7 +146,7 @@ readline()
 }
 
 char
-nextchar()
+nextchar(void)
 {
 	if(lp == lpe){
 		readline();
@@ -187,7 +191,7 @@ loop:
 }
 
 int
-getentry()
+getentry(void)
 {
 	int inbraces = 0, inparens = 0, stringseen = 0, commaseen = 0;
 	int prefix = 0;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: initdeck.c,v 1.14 2015/08/22 14:47:41 deraadt Exp $	*/
+/*	$OpenBSD: initdeck.c,v 1.17 2016/01/08 18:20:33 mestre Exp $	*/
 /*	$NetBSD: initdeck.c,v 1.3 1995/03/23 08:34:43 cgd Exp $	*/
 
 /*
@@ -30,11 +30,12 @@
  * SUCH DAMAGE.
  */
 
-#include	<err.h>
-#include	<stdio.h>
-#include	<stdlib.h>
-#include	<unistd.h>
-#include	"deck.h"
+#include <err.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "deck.h"
 
 /*
  *	This program initializes the card files for monopoly.
@@ -64,11 +65,12 @@ static void	count(void);
 static void	putem(void);
 
 int
-main(ac, av)
-	int	ac;
-	char	*av[];
+main(int ac, char *av[])
 {
 	int n;
+
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
 
 	getargs(ac, av);
 	if ((inf = fopen(infile, "r")) == NULL)
@@ -85,6 +87,9 @@ main(ac, av)
 	fseek(inf, 0L, SEEK_SET);
 	if ((outf = fopen(outfile, "w")) == NULL)
 		err(1, "%s", outfile);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	fwrite(&deck[0].num_cards, sizeof(deck[0].num_cards), 1, outf);
 	fwrite(&deck[0].top_card, sizeof(deck[0].top_card), 1, outf);
@@ -125,14 +130,13 @@ main(ac, av)
 	}
 
 	fclose(outf);
-	printf("There were %d com. chest and %d chance cards\n", CC_D.num_cards, CH_D.num_cards);
-	exit(0);
+	printf("There were %d com. chest and %d chance cards\n", CC_D.num_cards,
+	    CH_D.num_cards);
+	return 0;
 }
 
 static void
-getargs(ac, av)
-	int	ac;
-	char	*av[];
+getargs(int ac, char *av[])
 {
 	if (ac > 1)
 		infile = av[1];
@@ -144,7 +148,7 @@ getargs(ac, av)
  * count the cards
  */
 static void
-count()
+count(void)
 {
 	bool	newline;
 	DECK	*in_deck;
@@ -167,7 +171,7 @@ count()
  *	put strings in the file
  */
 static void
-putem()
+putem(void)
 {
 	bool	newline;
 	DECK	*in_deck;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_esp.c,v 1.135 2015/11/03 01:50:36 mikeb Exp $ */
+/*	$OpenBSD: ip_esp.c,v 1.139 2016/08/18 06:01:10 dlg Exp $ */
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -84,7 +84,7 @@ struct espstat espstat;
  * esp_attach() is called from the transformation initialization code.
  */
 int
-esp_attach()
+esp_attach(void)
 {
 	return 0;
 }
@@ -109,10 +109,6 @@ esp_init(struct tdb *tdbp, struct xformsw *xsp, struct ipsecinit *ii)
 		switch (ii->ii_encalg) {
 		case SADB_EALG_NULL:
 			txform = &enc_xform_null;
-			break;
-
-		case SADB_EALG_DESCBC:
-			txform = &enc_xform_des;
 			break;
 
 		case SADB_EALG_3DESCBC:
@@ -888,18 +884,14 @@ esp_output(struct mbuf *m, struct tdb *tdb, struct mbuf **mp, int skip,
 
 	/*
 	 * Loop through mbuf chain; if we find a readonly mbuf,
-	 * replace the rest of the chain.
+	 * copy the packet.
 	 */
-	mo = NULL;
 	mi = m;
-	while (mi != NULL && !M_READONLY(mi)) {
-		mo = mi;
+	while (mi != NULL && !M_READONLY(mi))
 		mi = mi->m_next;
-	}
 
 	if (mi != NULL)	{
-		/* Replace the rest of the mbuf chain. */
-		struct mbuf *n = m_copym2(mi, 0, M_COPYALL, M_DONTWAIT);
+		struct mbuf *n = m_dup_pkt(m, 0, M_DONTWAIT);
 
 		if (n == NULL) {
 			DPRINTF(("esp_output(): bad mbuf chain, SA %s/%08x\n",
@@ -910,12 +902,8 @@ esp_output(struct mbuf *m, struct tdb *tdb, struct mbuf **mp, int skip,
 			return ENOBUFS;
 		}
 
-		if (mo != NULL)
-			mo->m_next = n;
-		else
-			m = n;
-
-		m_freem(mi);
+		m_freem(m);
+		m = n;
 	}
 
 	/* Inject ESP header. */

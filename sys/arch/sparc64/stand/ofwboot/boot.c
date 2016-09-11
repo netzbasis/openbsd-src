@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.c,v 1.23 2014/12/11 10:52:07 stsp Exp $	*/
+/*	$OpenBSD: boot.c,v 1.25 2016/03/07 13:21:51 naddy Exp $	*/
 /*	$NetBSD: boot.c,v 1.3 2001/05/31 08:55:19 mrg Exp $	*/
 /*
  * Copyright (c) 1997, 1999 Eduardo E. Horvath.  All rights reserved.
@@ -343,7 +343,7 @@ srbootdev(const char *bootline)
 #endif
 
 int
-main()
+main(void)
 {
 	extern char version[];
 	int chosen;
@@ -380,11 +380,11 @@ main()
 
 	/*
 	 * case 1:	boot net -a
-	 *			-> gets loop
+	 *			-> getln loop
 	 * case 2:	boot net kernel [options]
-	 *			-> boot kernel, gets loop
+	 *			-> boot kernel, getln loop
 	 * case 3:	boot net [options]
-	 *			-> iterate boot list, gets loop
+	 *			-> iterate boot list, getln loop
 	 */
 
 	bootlp = kernels;
@@ -415,7 +415,7 @@ main()
 		}
 		if (!bootlp) {
 			printf("Boot: ");
-			gets(bootline);
+			getln(bootline, sizeof bootline);
 			if (parseargs(bootline, &boothowto) == -1)
 				continue;
 			if (!*bootline) {

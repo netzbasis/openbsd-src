@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.79 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.c,v 1.83 2016/09/04 10:51:23 naddy Exp $	*/
 /*	$NetBSD: conf.c,v 1.16 1996/10/18 21:26:57 cgd Exp $	*/
 
 /*-
@@ -57,7 +57,7 @@ struct bdevsw	bdevsw[] =
 {
 	bdev_disk_init(NWD,wd),	        /* 0: ST506/ESDI/IDE disk */
 	bdev_swap_init(1,sw),		/* 1: swap pseudo-device */
-	bdev_tape_init(NST,st),		/* 2: SCSI tape */
+	bdev_notdef(),			/* 2: was: SCSI tape */
 	bdev_disk_init(NCD,cd),		/* 3: SCSI CD-ROM */
 	bdev_disk_init(NFD,fd),		/* 4: Floppy disk */
 	bdev_notdef(),			/* 5 */
@@ -120,11 +120,11 @@ cdev_decl(cy);
 cdev_decl(pci);
 #endif
 
-#include "systrace.h"
 #include "hotplug.h"
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -178,7 +178,7 @@ struct cdevsw	cdevsw[] =
 	cdev_ulpt_init(NULPT,ulpt),	/* 47: USB printer */
 	cdev_usbdev_init(NUGEN,ugen),	/* 48: USB generic driver */
 	cdev_tty_init(NUCOM, ucom),	/* 49: USB tty */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 #ifdef USER_PCICONF
 	cdev_pci_init(NPCI,pci),	/* 52: PCI user */
@@ -201,6 +201,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 66: was USB scanners */
 	cdev_fuse_init(NFUSE,fuse),	/* 67: fuse */
 	cdev_tun_init(NTUN,tap),	/* 68: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 69: switch(4) control interface */
 };
 int	nchrdev = nitems(cdevsw);
 
@@ -259,7 +260,7 @@ int chrtoblktbl[] = {
 	/*  9 */	9,		/* vnd */
 	/* 10 */	NODEV,
 	/* 11 */	NODEV,
-	/* 12 */	2,		/* st */
+	/* 12 */	NODEV,
 	/* 13 */	3,		/* cd */
 	/* 14 */	NODEV,
 	/* 15 */	NODEV,
@@ -285,19 +286,5 @@ int chrtoblktbl[] = {
 	/* 35 */	NODEV,
 	/* 36 */	0,
 	/* 37 */	4,		/* fd */
-	/* 38 */	NODEV,
-	/* 39 */	NODEV,
-	/* 40 */	NODEV,
-	/* 41 */	NODEV,
-	/* 42 */	NODEV,
-	/* 43 */	16,		/* raid */
-	/* 44 */	NODEV,
-	/* 45 */	NODEV,
-	/* 46 */	NODEV,
-	/* 47 */	NODEV,
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
 };
 int nchrtoblktbl = nitems(chrtoblktbl);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.52 2015/11/07 20:48:28 mmcc Exp $	*/
+/*	$OpenBSD: sh.h,v 1.58 2016/09/08 15:50:50 millert Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -10,19 +10,10 @@
 
 /* Start of common headers */
 
-#include <sys/types.h>
-
-#include <stdio.h>
 #include <setjmp.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <stdarg.h>
-
-#include <errno.h>
-#include <fcntl.h>
-
 #include <signal.h>
+#include <stdbool.h>
 
 /* end of common headers */
 
@@ -62,7 +53,7 @@ typedef struct Area {
 
 extern	Area	aperm;		/* permanent object space */
 #define	APERM	&aperm
-#define	ATEMP	&e->area
+#define	ATEMP	&genv->area
 
 #ifdef KSH_DEBUG
 # define kshdebug_init()	kshdebug_init_()
@@ -87,7 +78,7 @@ struct env {
 	sigjmp_buf jbuf;		/* long jump back to env creator */
 	struct temp *temps;		/* temp files */
 };
-extern	struct env	*e;
+extern	struct env	*genv;
 
 /* struct env.type values */
 #define	E_NONE	0		/* dummy environment */
@@ -282,7 +273,7 @@ extern int really_exit;
  * fast character classes
  */
 #define	C_ALPHA	 BIT(0)		/* a-z_A-Z */
-#define	C_DIGIT	 BIT(1)		/* 0-9 */
+/* was	C_DIGIT */
 #define	C_LEX1	 BIT(2)		/* \0 \t\n|&;<>() */
 #define	C_VAR1	 BIT(3)		/* *@#!$-? */
 #define	C_IFSWS	 BIT(4)		/* \t \n (IFS white space) */
@@ -295,8 +286,8 @@ extern	short ctypes [];
 
 #define	ctype(c, t)	!!(ctypes[(unsigned char)(c)]&(t))
 #define	letter(c)	ctype(c, C_ALPHA)
-#define	digit(c)	ctype(c, C_DIGIT)
-#define	letnum(c)	ctype(c, C_ALPHA|C_DIGIT)
+#define	digit(c)	isdigit((unsigned char)(c))
+#define	letnum(c)	(ctype(c, C_ALPHA) || isdigit((unsigned char)(c)))
 
 extern int ifs0;	/* for "$*" */
 
@@ -376,8 +367,9 @@ extern	int	x_cols;	/* tty columns */
 #define KSH_SYSTEM_PROFILE "/etc/profile"
 
 /* Used by v_evaluate() and setstr() to control action when error occurs */
-#define KSH_UNWIND_ERROR	0	/* unwind the stack (longjmp) */
-#define KSH_RETURN_ERROR	1	/* return 1/0 for success/failure */
+#define KSH_UNWIND_ERROR	0x0	/* unwind the stack (longjmp) */
+#define KSH_RETURN_ERROR	0x1	/* return 1/0 for success/failure */
+#define KSH_IGNORE_RDONLY	0x4	/* ignore the read-only flag */
 
 #include "shf.h"
 #include "table.h"
@@ -393,7 +385,6 @@ void *	areallocarray(void *, size_t, size_t, Area *);
 void *	aresize(void *, size_t, Area *);
 void	afree(void *, Area *);
 /* c_ksh.c */
-int	c_hash(char **);
 int	c_cd(char **);
 int	c_pwd(char **);
 int	c_print(char **);
@@ -567,9 +558,6 @@ int	strip_nuls(char *, int);
 int	blocking_read(int, char *, int);
 int	reset_nonblock(int);
 char	*ksh_get_wd(char *, int);
-/* mknod.c */
-int domknod(int, char **, mode_t);
-int domkfifo(int, char **, mode_t);
 /* path.c */
 int	make_path(const char *, const char *, char **, XString *, int *);
 void	simplify_path(char *);

@@ -14,11 +14,14 @@
  * Uses termcap to be as terminal-independent as possible.
  */
 
-#include "less.h"
-#include "cmd.h"
+#include <sys/ioctl.h>
 
-#include <termios.h>
+#include <err.h>
 #include <term.h>
+#include <termios.h>
+
+#include "cmd.h"
+#include "less.h"
 
 #define	DEFAULT_TERM		"unknown"
 
@@ -157,7 +160,6 @@ raw_mode(int on)
 		s = save_term;
 	}
 	(void) tcsetattr(tty, TCSASOFT | TCSADRAIN, &s);
-	(void) fsync(tty);
 	curr_on = on;
 }
 
@@ -172,27 +174,19 @@ static int hardcopy;
 static void
 scrsize(void)
 {
-	char *s;
-	int sys_height;
-	int sys_width;
-	int n;
-#ifdef	TIOCGWINSIZE
+	int sys_height = 0, sys_width = 0, n;
 	struct winsize w;
-#endif
+	char *s;
 
 #define	DEF_SC_WIDTH	80
 #define	DEF_SC_HEIGHT	24
 
-	sys_width = sys_height = 0;
-
-#ifdef	TIOCGWINSIZE
 	if (ioctl(2, TIOCGWINSZ, &w) == 0) {
 		if (w.ws_row > 0)
 			sys_height = w.ws_row;
 		if (w.ws_col > 0)
 			sys_width = w.ws_col;
 	}
-#endif
 
 	if (sys_height > 0)
 		sc_height = sys_height;
@@ -273,6 +267,7 @@ get_term(void)
 {
 	char *t1, *t2;
 	char *term;
+	int  err;
 
 	/*
 	 * Find out what kind of terminal this is.
@@ -281,8 +276,11 @@ get_term(void)
 		term = DEFAULT_TERM;
 	hardcopy = 0;
 
-	if (setupterm(term, 1, NULL) < 0) {
-		hardcopy = 1;
+	if (setupterm(term, 1, &err) < 0) {
+		if (err == 1)
+			hardcopy = 1;
+		else
+			errx(1, "%s: unknown terminal type", term);
 	}
 	if (hard_copy == 1)
 		hardcopy = 1;

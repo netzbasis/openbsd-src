@@ -1,4 +1,4 @@
-/* $OpenBSD: keynote-verify.c,v 1.14 2004/06/29 11:35:56 msf Exp $ */
+/* $OpenBSD: keynote-verify.c,v 1.17 2015/11/19 05:20:19 mmcc Exp $ */
 /*
  * The author of this code is Angelos D. Keromytis (angelos@dsl.cis.upenn.edu)
  *
@@ -25,7 +25,6 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <getopt.h>
-#include <memory.h>
 #include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,9 +53,6 @@ verifyusage(void)
 void
 keynote_verify(int argc, char *argv[])
 {
-#ifdef LoopTesting
-    int loopvar = 1000;
-#endif /* LoopTesting */
     int fd, i, ch, se = 0, cl = 8192, sk = 0, sl = 0, p, ac = argc;
     char *buf, **av = argv, **retv, **foov, *ptr;
     int numretv = 16, numret = 0, sn;
@@ -68,17 +64,13 @@ keynote_verify(int argc, char *argv[])
 	exit(1);
     }
 
-    if ((buf = (char *) calloc(cl, sizeof(char))) == (char *) NULL)
+    if ((buf = calloc(cl, sizeof(char))) == NULL)
     {
 	perror("calloc()");
 	exit(1);
     }
 
-#ifdef LoopTesting
-    while(loopvar--) {
-#endif /* LoopTesting */
-
-    if ((retv = (char **) calloc(numretv, sizeof(char *))) == (char **) NULL)
+    if ((retv = calloc(numretv, sizeof(char *))) == NULL)
     {
 	perror("calloc()");
 	exit(1);
@@ -126,8 +118,8 @@ keynote_verify(int argc, char *argv[])
 		{
 		    free(buf);
 		    cl = sb.st_size + 1;
-		    buf = (char *) calloc(cl, sizeof(char));
-		    if (buf == (char *) NULL)
+		    buf = calloc(cl, sizeof(char));
+		    if (buf == NULL)
 		    {
 			perror("calloc()");
 			exit(1);
@@ -180,15 +172,15 @@ keynote_verify(int argc, char *argv[])
 		sn = 1;
 
 		for (numret = 0;
-		     (ptr = strchr(optarg, ',')) != (char *) NULL;
+		     (ptr = strchr(optarg, ',')) != NULL;
 		     numret++)
 		{
 		    /* Running out of memory */
 		    if (numret > numretv - 3)
 		    {
 			numretv *= 2;
-			foov = (char **) calloc(numretv, sizeof(char **));
-			if (foov == (char **) NULL)
+			foov = calloc(numretv, sizeof(char **));
+			if (foov == NULL)
 			{
 			    /* 
 			     * If this were a real program, we 'd be freeing
@@ -204,9 +196,9 @@ keynote_verify(int argc, char *argv[])
 			retv = foov;
 		    }
 
-		    retv[numret] = (char *) calloc((ptr - optarg) + 1,
+		    retv[numret] = calloc((ptr - optarg) + 1,
 						       sizeof(char));
-		    if (retv[numret] == (char *) NULL)
+		    if (retv[numret] == NULL)
 		    {
 			/* Comment from above applies here as well */
 			perror("calloc()");
@@ -219,8 +211,8 @@ keynote_verify(int argc, char *argv[])
 		}
 
 		/* Last component */
-		retv[numret] = (char *) strdup(optarg);
-		if (retv[numret] == (char *) NULL)
+		retv[numret] = strdup(optarg);
+		if (retv[numret] == NULL)
 		{
 		    perror("calloc()");
 		    exit(1);
@@ -246,8 +238,8 @@ keynote_verify(int argc, char *argv[])
 		{
 		    free(buf);
 		    cl = sb.st_size + 1;
-		    buf = (char *) calloc(cl, sizeof(char));
-		    if (buf == (char *) NULL)
+		    buf = calloc(cl, sizeof(char));
+		    if (buf == NULL)
 		    {
 			perror("calloc()");
 			exit(1);
@@ -285,10 +277,6 @@ keynote_verify(int argc, char *argv[])
     argc -= optind;
     argv += optind;
     optind = 1;
-
-#ifdef LoopTesting
-    optreset = 1;
-#endif /* LoopTesting */
 
     if (sn == 0)
     {
@@ -334,8 +322,8 @@ keynote_verify(int argc, char *argv[])
 	{
 	    free(buf);
 	    cl = sb.st_size + 1;
-	    buf = (char *) calloc(cl, sizeof(char));
-	    if (buf == (char *) NULL)
+	    buf = calloc(cl, sizeof(char));
+	    if (buf == NULL)
 	    {
 		perror("calloc()");
 		exit(1);
@@ -363,7 +351,6 @@ keynote_verify(int argc, char *argv[])
 
     p = kn_do_query(sessid, retv, numret); /* Evaluation time */
 
-#ifndef LoopTesting
     printf("Query result = ");
 
     switch (keynote_errno)
@@ -390,7 +377,6 @@ keynote_verify(int argc, char *argv[])
     }
 
     printf("%s\n", retv[p]);
-#endif /* LoopTesting */
 
     keynote_errno = 0;
 
@@ -421,15 +407,11 @@ keynote_verify(int argc, char *argv[])
 
     kn_close(sessid);
 
-#ifdef LoopTesting
-    }
-#endif /* LoopTesting */
-
     /* This is a reminder that return values are not free'ed by KeyNote */
     for (sn = 0; sn < numret; sn++)
       free(retv[sn]);
     free(retv);
-    retv = (char **) NULL;
+    retv = NULL;
 
     exit(0);
 }

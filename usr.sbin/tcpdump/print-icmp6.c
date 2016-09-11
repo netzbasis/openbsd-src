@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-icmp6.c,v 1.16 2015/11/02 17:48:33 sthen Exp $	*/
+/*	$OpenBSD: print-icmp6.c,v 1.21 2016/07/28 13:05:52 bluhm Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1993, 1994
@@ -43,6 +43,7 @@
 #include <arpa/inet.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <netinet/ip6.h>
@@ -125,13 +126,13 @@ icmp6_cksum(const struct ip6_hdr *ip6, const struct icmp6_hdr *icmp6,
 void
 icmp6_print(const u_char *bp, u_int length, const u_char *bp2)
 {
-	register const struct icmp6_hdr *dp;
-	register const struct ip6_hdr *ip;
-	register const char *str;
-	register const struct ip6_hdr *oip;
-	register const struct udphdr *ouh;
-	register int hlen, dport;
-	register const u_char *ep;
+	const struct icmp6_hdr *dp;
+	const struct ip6_hdr *ip;
+	const char *str;
+	const struct ip6_hdr *oip;
+	const struct udphdr *ouh;
+	int hlen, dport;
+	const u_char *ep;
 	char buf[256];
 	int icmp6len;
 
@@ -304,8 +305,24 @@ icmp6_print(const u_char *bp, u_int length, const u_char *bp2)
 				printf("M");
 			if (p->nd_ra_flags_reserved & ND_RA_FLAG_OTHER)
 				printf("O");
-			if (p->nd_ra_flags_reserved != 0)
-				printf(" ");
+			if (p->nd_ra_flags_reserved &
+			    (ND_RA_FLAG_MANAGED|ND_RA_FLAG_OTHER))
+				printf(", ");
+			switch (p->nd_ra_flags_reserved
+			    & ND_RA_FLAG_RTPREF_MASK) {
+			case ND_RA_FLAG_RTPREF_HIGH:
+				printf("pref=high, ");
+				break;
+			case ND_RA_FLAG_RTPREF_MEDIUM:
+				printf("pref=medium, ");
+				break;
+			case ND_RA_FLAG_RTPREF_LOW:
+				printf("pref=low, ");
+				break;
+			case ND_RA_FLAG_RTPREF_RSV:
+				printf("pref=rsv, ");
+				break;
+			}
 			printf("router_ltime=%d, ", ntohs(p->nd_ra_router_lifetime));
 			printf("reachable_time=%u, ",
 				(u_int32_t)ntohl(p->nd_ra_reachable));
@@ -435,10 +452,7 @@ icmp6_print(const u_char *bp, u_int length, const u_char *bp2)
 					mode = FQDN;
 			}
 		}
-#ifndef abs
-#define abs(a)	((0 < (a)) ? (a) : -(a))
-#endif
-		if (mode == UNKNOWN && 2 < abs(buf[12] - (ep - buf - 13)))
+		if (mode == UNKNOWN && 2 < labs(buf[12] - (ep - buf - 13)))
 			mode = WRU;
 		if (mode == UNKNOWN)
 			mode = FQDN;
@@ -504,22 +518,25 @@ trunc:
 }
 
 void
-icmp6_opt_print(register const u_char *bp, int resid)
+icmp6_opt_print(const u_char *bp, int resid)
 {
-	register const struct nd_opt_hdr *op;
-	register const struct nd_opt_hdr *opl;	/* why there's no struct? */
-	register const struct nd_opt_prefix_info *opp;
-	register const struct icmp6_opts_redirect *opr;
-	register const struct nd_opt_mtu *opm;
-	register const struct nd_opt_rdnss *oprd;
-	register const u_char *ep;
+	const struct nd_opt_hdr *op;
+	const struct nd_opt_hdr *opl;	/* why there's no struct? */
+	const struct nd_opt_prefix_info *opp;
+	const struct icmp6_opts_redirect *opr;
+	const struct nd_opt_mtu *opm;
+	const struct nd_opt_rdnss *oprd;
+	const struct nd_opt_route_info *opri;
+	const u_char *ep;
+	const struct in6_addr *in6p;
+	struct in6_addr in6;
 	int	i, opts_len;
 #if 0
-	register const struct ip6_hdr *ip;
-	register const char *str;
-	register const struct ip6_hdr *oip;
-	register const struct udphdr *ouh;
-	register int hlen, dport;
+	const struct ip6_hdr *ip;
+	const char *str;
+	const struct ip6_hdr *oip;
+	const struct udphdr *ouh;
+	int hlen, dport;
 	char buf[256];
 #endif
 
@@ -628,7 +645,43 @@ icmp6_opt_print(register const u_char *bp, int resid)
 				resid - (op->nd_opt_len << 3));
 		break;
 	case ND_OPT_ROUTE_INFO:
-		printf("(route-info: opt_len=%d)", op->nd_opt_len);
+		opri = (struct nd_opt_route_info *)op;
+		TCHECK(opri->nd_opt_rti_lifetime);
+		printf("(route-info: ");
+		memset(&in6, 0, sizeof(in6));
+		in6p = (const struct in6_addr *)(opri + 1);
+		switch (op->nd_opt_len) {
+		case 1:
+			break;
+		case 2:
+			TCHECK2(*in6p, 8);
+			memcpy(&in6, opri + 1, 8);
+			break;
+		case 3:
+			TCHECK(*in6p);
+			memcpy(&in6, opri + 1, sizeof(in6));
+			break;
+		default:
+			goto trunc;
+		}
+		printf("%s/%u, ", ip6addr_string(&in6),
+		    opri->nd_opt_rti_prefixlen);
+		switch (opri->nd_opt_rti_flags & ND_RA_FLAG_RTPREF_MASK) {
+		case ND_RA_FLAG_RTPREF_HIGH:
+			printf("pref=high, ");
+			break;
+		case ND_RA_FLAG_RTPREF_MEDIUM:
+			printf("pref=medium, ");
+			break;
+		case ND_RA_FLAG_RTPREF_LOW:
+			printf("pref=low, ");
+			break;
+		case ND_RA_FLAG_RTPREF_RSV:
+			printf("pref=rsv, ");
+			break;
+		}
+		printf("lifetime=%us)",
+		    (u_int32_t)ntohl(opri->nd_opt_rti_lifetime));
 		icmp6_opt_print((const u_char *)op + (op->nd_opt_len << 3),
 				resid - (op->nd_opt_len << 3));
 		break;
@@ -676,10 +729,10 @@ icmp6_opt_print(register const u_char *bp, int resid)
 }
 
 void
-mld6_print(register const u_char *bp)
+mld6_print(const u_char *bp)
 {
-	register struct mld_hdr *mp = (struct mld_hdr *)bp;
-	register const u_char *ep;
+	struct mld_hdr *mp = (struct mld_hdr *)bp;
+	const u_char *ep;
 
 	/* 'ep' points to the end of avaible data. */
 	ep = snapend;

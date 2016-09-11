@@ -1,4 +1,4 @@
-/*	$OpenBSD: chat.c,v 1.32 2015/08/20 22:46:32 deraadt Exp $	*/
+/*	$OpenBSD: chat.c,v 1.35 2016/04/05 21:24:02 krw Exp $	*/
 
 /*
  *	Chat -- a program for automatic session establishment (i.e. dial
@@ -160,7 +160,7 @@ struct termio saved_tty_parameters;
 struct termios saved_tty_parameters;
 #endif
 
-char *abort_string[MAX_ABORTS], *fail_reason = (char *)0,
+char *abort_string[MAX_ABORTS], *fail_reason = NULL,
 	fail_buffer[50];
 int n_aborts = 0, abort_next = 0, timeout_next = 0, echo_next = 0;
 int clear_abort_next = 0;
@@ -468,7 +468,7 @@ int signo;
     alarmed = 1;		/* Reset alarm to avoid race window */
     signal(SIGALRM, sigalrm);	/* that can cause hanging in read() */
 
-    if ((flags = fcntl(0, F_GETFL, 0)) == -1)
+    if ((flags = fcntl(0, F_GETFL)) == -1)
 	fatal(2, "Can't get file mode flags on stdin: %m");
 
     if (fcntl(0, F_SETFL, flags | O_NONBLOCK) == -1)
@@ -482,7 +482,7 @@ void unalarm()
 {
     int flags;
 
-    if ((flags = fcntl(0, F_GETFL, 0)) == -1)
+    if ((flags = fcntl(0, F_GETFL)) == -1)
 	fatal(2, "Can't get file mode flags on stdin: %m");
 
     if (fcntl(0, F_SETFL, flags & ~O_NONBLOCK) == -1)
@@ -1139,7 +1139,7 @@ int get_char()
 	logmsg("warning: read() on stdin returned %d", status);
 
     case -1:
-	if ((status = fcntl(0, F_GETFL, 0)) == -1)
+	if ((status = fcntl(0, F_GETFL)) == -1)
 	    fatal(2, "Can't get file mode flags on stdin: %m");
 
 	if (fcntl(0, F_SETFL, status & ~O_NONBLOCK) == -1)
@@ -1167,7 +1167,7 @@ int c;
 	logmsg("warning: write() on stdout returned %d", status);
 	
     case -1:
-	if ((status = fcntl(0, F_GETFL, 0)) == -1)
+	if ((status = fcntl(0, F_GETFL)) == -1)
 	    fatal(2, "Can't get file mode flags on stdin, %m");
 
 	if (fcntl(0, F_SETFL, status & ~O_NONBLOCK) == -1)
@@ -1203,7 +1203,7 @@ register char *s;
 
     if (verbose) {
 	if (quiet)
-	    logmsg("send (??????)");
+	    logmsg("send (hidden)");
 	else
 	    logmsg("send (%v)", s);
     }
@@ -1286,7 +1286,7 @@ register char *string;
     register char *s = temp, *end = s + STR_LEN;
     char *logged = temp;
 
-    fail_reason = (char *)0;
+    fail_reason = NULL;
     string = clean(string, 0);
     len = strlen(string);
     minlen = (len > sizeof(fail_buffer)? len: sizeof(fail_buffer)) - 1;

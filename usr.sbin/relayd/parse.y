@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.205 2015/08/20 22:39:29 deraadt Exp $	*/
+/*	$OpenBSD: parse.y,v 1.211 2016/09/03 14:44:21 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -172,13 +172,13 @@ typedef struct {
 %token	SOCKET SPLICE SSL STICKYADDR STYLE TABLE TAG TAGGED TCP TIMEOUT TLS TO
 %token	ROUTER RTLABEL TRANSPARENT TRAP UPDATES URL VIRTUAL WITH TTL RTABLE
 %token	MATCH PARAMS RANDOM LEASTSTATES SRCHASH KEY CERTIFICATE PASSWORD ECDH
-%token	EDH CURVE
+%token	EDH CURVE TICKETS
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
 %type	<v.string>	hostname interface table value optstring
 %type	<v.number>	http_type loglevel quick trap
 %type	<v.number>	dstmode flag forwardmode retry
-%type	<v.number>	opttls opttlsclient tlscache
+%type	<v.number>	opttls opttlsclient
 %type	<v.number>	redirect_proto relay_proto match
 %type	<v.number>	action ruleaf key_option
 %type	<v.number>	tlsdhparams tlsecdhcurve
@@ -349,6 +349,14 @@ port		: PORT STRING {
 		;
 
 varset		: STRING '=' STRING	{
+			char *s = $1;
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -368,45 +376,42 @@ sendbuf		: NOTHING		{
 		;
 
 main		: INTERVAL NUMBER	{
-			if (loadcfg)
-				break;
-			if ((conf->sc_interval.tv_sec = $2) < 0) {
+			if ((conf->sc_conf.interval.tv_sec = $2) < 0) {
 				yyerror("invalid interval: %d", $2);
 				YYERROR;
 			}
 		}
 		| LOG loglevel		{
-			if (loadcfg)
-				break;
-			conf->sc_opts |= $2;
+			conf->sc_conf.opts |= $2;
 		}
 		| TIMEOUT timeout	{
-			if (loadcfg)
-				break;
-			bcopy(&$2, &conf->sc_timeout, sizeof(struct timeval));
+			bcopy(&$2, &conf->sc_conf.timeout, sizeof(struct timeval));
 		}
 		| PREFORK NUMBER	{
-			if (loadcfg)
-				break;
-			if ($2 <= 0 || $2 > RELAY_MAXPROC) {
+			if ($2 <= 0 || $2 > PROC_MAX_INSTANCES) {
 				yyerror("invalid number of preforked "
 				    "relays: %d", $2);
 				YYERROR;
 			}
-			conf->sc_prefork_relay = $2;
+			conf->sc_conf.prefork_relay = $2;
 		}
 		| SNMP trap optstring	{
-			if (loadcfg)
-				break;
-			conf->sc_flags |= F_SNMP;
+			conf->sc_conf.flags |= F_SNMP;
 			if ($2)
-				conf->sc_snmp_flags |= FSNMP_TRAPONLY;
-			if ($3)
-				conf->sc_snmp_path = $3;
-			else
-				conf->sc_snmp_path = strdup(AGENTX_SOCKET);
-			if (conf->sc_snmp_path == NULL)
-				fatal("out of memory");
+				conf->sc_conf.flags |= F_SNMP_TRAPONLY;
+			if ($3) {
+				if (strlcpy(conf->sc_conf.snmp_path,
+				    $3, sizeof(conf->sc_conf.snmp_path)) >=
+				    sizeof(conf->sc_conf.snmp_path)) {
+					yyerror("snmp path truncated");
+					free($3);
+					YYERROR;
+				}
+				free($3);
+			} else
+				(void)strlcpy(conf->sc_conf.snmp_path,
+				    AGENTX_SOCKET,
+				    sizeof(conf->sc_conf.snmp_path));
 		}
 		;
 
@@ -420,7 +425,7 @@ loglevel	: UPDATES		{ $$ = RELAYD_OPT_LOGUPDATE; }
 rdr		: REDIRECT STRING	{
 			struct rdr *srv;
 
-			conf->sc_flags |= F_NEEDPF;
+			conf->sc_conf.flags |= F_NEEDPF;
 
 			if (!loadcfg) {
 				free($2);
@@ -573,7 +578,7 @@ rdroptsl	: forwardmode TO tablespec interface	{
 		| DISABLE		{ rdr->conf.flags |= F_DISABLE; }
 		| STICKYADDR		{ rdr->conf.flags |= F_STICKY; }
 		| match PFTAG STRING {
-			conf->sc_flags |= F_NEEDPF;
+			conf->sc_conf.flags |= F_NEEDPF;
 			if (strlcpy(rdr->conf.tag, $3,
 			    sizeof(rdr->conf.tag)) >=
 			    sizeof(rdr->conf.tag)) {
@@ -646,7 +651,7 @@ tabledef	: TABLE table		{
 			free($2);
 
 			tb->conf.id = 0; /* will be set later */
-			bcopy(&conf->sc_timeout, &tb->conf.timeout,
+			bcopy(&conf->sc_conf.timeout, &tb->conf.timeout,
 			    sizeof(struct timeval));
 			TAILQ_INIT(&tb->hosts);
 			table = tb;
@@ -742,14 +747,14 @@ tableopts	: CHECK tablecheck
 			}
 		}
 		| INTERVAL NUMBER	{
-			if ($2 < conf->sc_interval.tv_sec ||
-			    $2 % conf->sc_interval.tv_sec) {
+			if ($2 < conf->sc_conf.interval.tv_sec ||
+			    $2 % conf->sc_conf.interval.tv_sec) {
 				yyerror("table interval must be "
 				    "divisible by global interval");
 				YYERROR;
 			}
 			table->conf.skip_cnt =
-			    ($2 / conf->sc_interval.tv_sec) - 1;
+			    ($2 / conf->sc_conf.interval.tv_sec) - 1;
 		}
 		| MODE dstmode hashkey	{
 			switch ($2) {
@@ -849,12 +854,12 @@ tablecheck	: ICMP			{ table->conf.check = CHECK_ICMP; }
 		| TCP			{ table->conf.check = CHECK_TCP; }
 		| ssltls		{
 			table->conf.check = CHECK_TCP;
-			conf->sc_flags |= F_TLS;
+			conf->sc_conf.flags |= F_TLS;
 			table->conf.flags |= F_TLS;
 		}
 		| http_type STRING hostname CODE NUMBER {
 			if ($1) {
-				conf->sc_flags |= F_TLS;
+				conf->sc_conf.flags |= F_TLS;
 				table->conf.flags |= F_TLS;
 			}
 			table->conf.check = CHECK_HTTP_CODE;
@@ -875,7 +880,7 @@ tablecheck	: ICMP			{ table->conf.check = CHECK_ICMP; }
 		}
 		| http_type STRING hostname digest {
 			if ($1) {
-				conf->sc_flags |= F_TLS;
+				conf->sc_conf.flags |= F_TLS;
 				table->conf.flags |= F_TLS;
 			}
 			table->conf.check = CHECK_HTTP_DIGEST;
@@ -900,7 +905,7 @@ tablecheck	: ICMP			{ table->conf.check = CHECK_ICMP; }
 		| SEND sendbuf EXPECT STRING opttls {
 			table->conf.check = CHECK_SEND_EXPECT;
 			if ($5) {
-				conf->sc_flags |= F_TLS;
+				conf->sc_conf.flags |= F_TLS;
 				table->conf.flags |= F_TLS;
 			}
 			if (strlcpy(table->conf.exbuf, $4,
@@ -922,7 +927,7 @@ tablecheck	: ICMP			{ table->conf.check = CHECK_ICMP; }
 				free($2);
 				YYERROR;
 			}
-			conf->sc_flags |= F_SCRIPT;
+			conf->sc_conf.flags |= F_SCRIPT;
 			free($2);
 		}
 		;
@@ -988,7 +993,6 @@ proto		: relay_proto PROTO STRING	{
 			free($3);
 			p->id = ++last_proto_id;
 			p->type = $1;
-			p->cache = RELAY_CACHESIZE;
 			p->tcpflags = TCPFLAG_DEFAULT;
 			p->tlsflags = TLSFLAG_DEFAULT;
 			p->tcpbacklog = RELAY_BACKLOG;
@@ -1083,7 +1087,8 @@ tlsflags_l	: tlsflags comma tlsflags_l
 		| tlsflags
 		;
 
-tlsflags	: SESSION CACHE tlscache	{ proto->cache = $3; }
+tlsflags	: SESSION TICKETS { proto->tickets = 0; }
+		| NO SESSION TICKETS { proto->tickets = -1; }
 		| CIPHERS STRING		{
 			if (strlcpy(proto->tlsciphers, $2,
 			    sizeof(proto->tlsciphers)) >=
@@ -1170,16 +1175,6 @@ flag		: STRING			{
 			}
 			free($1);
 		}
-		;
-
-tlscache	: NUMBER			{
-			if ($1 < 0) {
-				yyerror("invalid tlscache value: %d", $1);
-				YYERROR;
-			}
-			$$ = $1;
-		}
-		| DISABLE			{ $$ = -2; }
 		;
 
 filterrule	: action dir quick ruleaf rulesrc ruledst {
@@ -1702,7 +1697,7 @@ relayoptsl	: LISTEN ON STRING port opttls {
 			r->rl_conf.port = h->port.val[0];
 			if ($5) {
 				r->rl_conf.flags |= F_TLS;
-				conf->sc_flags |= F_TLS;
+				conf->sc_conf.flags |= F_TLS;
 			}
 			tableport = h->port.val[0];
 			host_free(&al);
@@ -1715,7 +1710,7 @@ relayoptsl	: LISTEN ON STRING port opttls {
 			}
 			if ($2) {
 				rlay->rl_conf.flags |= F_TLSCLIENT;
-				conf->sc_flags |= F_TLSCLIENT;
+				conf->sc_conf.flags |= F_TLSCLIENT;
 			}
 		}
 		| SESSION TIMEOUT NUMBER		{
@@ -1779,12 +1774,12 @@ forwardspec	: STRING port retry	{
 			host_free(&al);
 		}
 		| NAT LOOKUP retry	{
-			conf->sc_flags |= F_NEEDPF;
+			conf->sc_conf.flags |= F_NEEDPF;
 			rlay->rl_conf.flags |= F_NATLOOK;
 			rlay->rl_conf.dstretry = $3;
 		}
 		| DESTINATION retry		{
-			conf->sc_flags |= F_NEEDPF;
+			conf->sc_conf.flags |= F_NEEDPF;
 			rlay->rl_conf.flags |= F_DIVERT;
 			rlay->rl_conf.dstretry = $2;
 		}
@@ -1833,7 +1828,7 @@ router		: ROUTER STRING		{
 				YYACCEPT;
 			}
 
-			conf->sc_flags |= F_NEEDRT;
+			conf->sc_conf.flags |= F_NEEDRT;
 			TAILQ_FOREACH(rt, conf->sc_rts, rt_entry)
 				if (!strcmp(rt->rt_conf.name, $2))
 					break;
@@ -2249,6 +2244,7 @@ lookup(char *s)
 		{ "tag",		TAG },
 		{ "tagged",		TAGGED },
 		{ "tcp",		TCP },
+		{ "tickets",		TICKETS },
 		{ "timeout",		TIMEOUT },
 		{ "tls",		TLS },
 		{ "to",			TO },
@@ -2631,7 +2627,7 @@ load_config(const char *filename, struct relayd *x_conf)
 	struct relay_table	*rlt;
 
 	conf = x_conf;
-	conf->sc_flags = 0;
+	conf->sc_conf.flags = 0;
 
 	loadcfg = 1;
 	errors = 0;
@@ -2660,7 +2656,7 @@ load_config(const char *filename, struct relayd *x_conf)
 	/* Free macros and check which have not been used. */
 	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
 		next = TAILQ_NEXT(sym, entry);
-		if ((conf->sc_opts & RELAYD_OPT_VERBOSE) && !sym->used)
+		if ((conf->sc_conf.opts & RELAYD_OPT_VERBOSE) && !sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
 		if (!sym->persist) {
@@ -2688,7 +2684,7 @@ load_config(const char *filename, struct relayd *x_conf)
 		free(rlay);
 	}
 
-	if (timercmp(&conf->sc_timeout, &conf->sc_interval, >=)) {
+	if (timercmp(&conf->sc_conf.timeout, &conf->sc_conf.interval, >=)) {
 		log_warnx("global timeout exceeds interval");
 		errors++;
 	}
@@ -2732,7 +2728,8 @@ load_config(const char *filename, struct relayd *x_conf)
 			log_warnx("unused table: %s", table->conf.name);
 			errors++;
 		}
-		if (timercmp(&table->conf.timeout, &conf->sc_interval, >=)) {
+		if (timercmp(&table->conf.timeout,
+		    &conf->sc_conf.interval, >=)) {
 			log_warnx("table timeout exceeds interval: %s",
 			    table->conf.name);
 			errors++;
@@ -2835,7 +2832,7 @@ host_v4(const char *s)
 		return (NULL);
 
 	if ((h = calloc(1, sizeof(*h))) == NULL)
-		fatal(NULL);
+		fatal(__func__);
 	sain = (struct sockaddr_in *)&h->ss;
 	sain->sin_len = sizeof(struct sockaddr_in);
 	sain->sin_family = AF_INET;
@@ -2857,7 +2854,7 @@ host_v6(const char *s)
 	hints.ai_flags = AI_NUMERICHOST;
 	if (getaddrinfo(s, "0", &hints, &res) == 0) {
 		if ((h = calloc(1, sizeof(*h))) == NULL)
-			fatal(NULL);
+			fatal(__func__);
 		sa_in6 = (struct sockaddr_in6 *)&h->ss;
 		sa_in6->sin6_len = sizeof(struct sockaddr_in6);
 		sa_in6->sin6_family = AF_INET6;
@@ -2904,7 +2901,7 @@ host_dns(const char *s, struct addresslist *al, int max,
 		    res->ai_family != AF_INET6)
 			continue;
 		if ((h = calloc(1, sizeof(*h))) == NULL)
-			fatal(NULL);
+			fatal(__func__);
 
 		if (port != NULL)
 			bcopy(port, &h->port, sizeof(h->port));

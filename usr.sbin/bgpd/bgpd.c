@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.c,v 1.179 2015/08/04 14:46:38 phessler Exp $ */
+/*	$OpenBSD: bgpd.c,v 1.187 2016/09/03 16:22:17 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -40,7 +40,6 @@ void		sighdlr(int);
 __dead void	usage(void);
 int		main(int, char *[]);
 pid_t		start_child(enum bgpd_process, char *, int, int, int);
-int		check_child(pid_t, const char *);
 int		send_filterset(struct imsgbuf *, struct filter_set_head *);
 int		reconfigure(char *, struct bgpd_config *, struct peer **);
 int		dispatch_imsg(struct imsgbuf *, int, struct bgpd_config *);
@@ -51,7 +50,6 @@ int			 rfd = -1;
 int			 cflags;
 volatile sig_atomic_t	 mrtdump;
 volatile sig_atomic_t	 quit;
-volatile sig_atomic_t	 sigchld;
 volatile sig_atomic_t	 reconfig;
 pid_t			 reconfpid;
 int			 reconfpending;
@@ -68,9 +66,6 @@ sighdlr(int sig)
 	case SIGTERM:
 	case SIGINT:
 		quit = 1;
-		break;
-	case SIGCHLD:
-		sigchld = 1;
 		break;
 	case SIGHUP:
 		reconfig = 1;
@@ -111,12 +106,13 @@ main(int argc, char *argv[])
 	char			*saved_argv0;
 	int			 debug = 0;
 	int			 rflag = 0, sflag = 0;
-	int			 ch, timeout;
+	int			 ch, timeout, status;
 	int			 pipe_m2s[2];
 	int			 pipe_m2r[2];
 
 	conffile = CONFFILE;
 	bgpd_process = PROC_MAIN;
+	log_procname = log_procnames[bgpd_process];
 
 	log_init(1);		/* log to stderr until daemonized */
 	log_verbose(1);
@@ -214,11 +210,8 @@ main(int argc, char *argv[])
 	io_pid = start_child(PROC_SE, saved_argv0, pipe_m2s[1], debug,
 	    cmd_opts & BGPD_OPT_VERBOSE);
 
-	setproctitle("parent");
-
 	signal(SIGTERM, sighdlr);
 	signal(SIGINT, sighdlr);
-	signal(SIGCHLD, sighdlr);
 	signal(SIGHUP, sighdlr);
 	signal(SIGALRM, sighdlr);
 	signal(SIGUSR1, sighdlr);
@@ -232,6 +225,26 @@ main(int argc, char *argv[])
 	mrt_init(ibuf_rde, ibuf_se);
 	if ((rfd = kr_init()) == -1)
 		quit = 1;
+
+	/*
+	 * rpath, read config file
+	 * cpath, unlink control socket
+	 * fattr, chmod on control socket
+	 * wpath, needed if we are doing mrt dumps
+	 *
+	 * pledge placed here because kr_init() does a setsockopt on the
+	 * routing socket thats not allowed at all.
+	 */
+#if 0
+	/*
+	 * disabled because we do ioctls on /dev/pf and SIOCSIFGATTR
+	 * this needs some redesign of bgpd to be fixed.
+	 */
+	if (pledge("stdio rpath wpath cpath fattr unix route recvfd sendfd",
+	    NULL) == -1)
+		fatal("pledge");
+#endif
+
 	if (imsg_send_sockets(ibuf_se, ibuf_rde))
 		fatal("could not establish imsg links");
 	quit = reconfigure(conffile, conf, &peer_l);
@@ -311,31 +324,23 @@ main(int argc, char *argv[])
 			}
 		}
 
-		if (sigchld) {
-			sigchld = 0;
-			if (check_child(io_pid, "session engine")) {
-				quit = 1;
-				io_pid = 0;
-			}
-			if (check_child(rde_pid, "route decision engine")) {
-				quit = 1;
-				rde_pid = 0;
-			}
-		}
-
 		if (mrtdump) {
 			mrtdump = 0;
 			mrt_handler(conf->mrt);
 		}
 	}
 
-	signal(SIGCHLD, SIG_IGN);
-
-	if (io_pid)
-		kill(io_pid, SIGTERM);
-
-	if (rde_pid)
-		kill(rde_pid, SIGTERM);
+	/* close pipes */
+	if (ibuf_se) {
+		msgbuf_clear(&ibuf_se->w);
+		close(ibuf_se->fd);
+		free(ibuf_se);
+	}
+	if (ibuf_rde) {
+		msgbuf_clear(&ibuf_rde->w);
+		close(ibuf_rde->fd);
+		free(ibuf_rde);
+	}
 
 	while ((p = peer_l) != NULL) {
 		peer_l = p->next;
@@ -350,20 +355,22 @@ main(int argc, char *argv[])
 
 	free_config(conf);
 
+	log_debug("waiting for children to terminate");
 	do {
-		if ((pid = wait(NULL)) == -1 &&
-		    errno != EINTR && errno != ECHILD)
-			fatal("wait");
+		pid = wait(&status);
+		if (pid == -1) {
+			if (errno != EINTR && errno != ECHILD)
+				fatal("wait");
+		} else if (WIFSIGNALED(status))
+			log_warnx("%s terminated; signal %d",
+			    (pid == rde_pid) ? "route decision engine" :
+			    "session engine", WTERMSIG(status));
 	} while (pid != -1 || (pid == -1 && errno == EINTR));
 
-	msgbuf_clear(&ibuf_se->w);
-	free(ibuf_se);
-	msgbuf_clear(&ibuf_rde->w);
-	free(ibuf_rde);
 	free(rcname);
 	free(cname);
 
-	log_info("Terminating");
+	log_info("terminating");
 	return (0);
 }
 
@@ -406,26 +413,6 @@ start_child(enum bgpd_process p, char *argv0, int fd, int debug, int verbose)
 
 	execvp(argv0, argv);
 	fatal("execvp");
-}
-
-int
-check_child(pid_t pid, const char *pname)
-{
-	int	status;
-
-	if (waitpid(pid, &status, WNOHANG) > 0) {
-		if (WIFEXITED(status)) {
-			log_warnx("Lost child: %s exited", pname);
-			return (1);
-		}
-		if (WIFSIGNALED(status)) {
-			log_warnx("Lost child: %s terminated; signal %d",
-			    pname, WTERMSIG(status));
-			return (1);
-		}
-	}
-
-	return (0);
 }
 
 int
@@ -752,7 +739,7 @@ send_nexthop_update(struct kroute_nexthop *msg)
 			quit = 1;
 		}
 
-	log_info("nexthop %s now %s%s%s", log_addr(&msg->nexthop),
+	log_debug("nexthop %s now %s%s%s", log_addr(&msg->nexthop),
 	    msg->valid ? "valid" : "invalid",
 	    msg->connected ? ": directly connected" : "",
 	    msg->gateway.aid ? gw : "");
@@ -828,6 +815,8 @@ control_setup(struct bgpd_config *conf)
 			fatal("strdup");
 		if ((fd = control_init(0, cname)) == -1)
 			fatalx("control socket setup failed");
+		if (control_listen(fd) == -1)
+			fatalx("control socket setup failed");
 		restricted = 0;
 		if (imsg_compose(ibuf_se, IMSG_RECONF_CTRL, 0, 0, fd,
 		    &restricted, sizeof(restricted)) == -1)
@@ -846,6 +835,8 @@ control_setup(struct bgpd_config *conf)
 		if ((rcname = strdup(conf->rcsock)) == NULL)
 			fatal("strdup");
 		if ((fd = control_init(1, rcname)) == -1)
+			fatalx("control socket setup failed");
+		if (control_listen(fd) == -1)
 			fatalx("control socket setup failed");
 		restricted = 1;
 		if (imsg_compose(ibuf_se, IMSG_RECONF_CTRL, 0, 0, fd,
@@ -878,21 +869,21 @@ handle_pollfd(struct pollfd *pfd, struct imsgbuf *i)
 
 	if (pfd->revents & POLLOUT)
 		if (msgbuf_write(&i->w) <= 0 && errno != EAGAIN) {
-			log_warn("handle_pollfd: msgbuf_write error");
+			log_warn("imsg write error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
 
 	if (pfd->revents & POLLIN) {
-		if ((n = imsg_read(i)) == -1) {
-			log_warn("handle_pollfd: imsg_read error");
+		if ((n = imsg_read(i)) == -1 && errno != EAGAIN) {
+			log_warn("imsg read error");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);
 		}
-		if (n == 0) { /* connection closed */
-			log_warn("handle_pollfd: poll fd");
+		if (n == 0) {
+			log_warnx("peer closed imsg connection");
 			close(i->fd);
 			i->fd = -1;
 			return (-1);

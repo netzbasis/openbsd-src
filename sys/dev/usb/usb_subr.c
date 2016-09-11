@@ -1,4 +1,4 @@
-/*	$OpenBSD: usb_subr.c,v 1.118 2015/10/24 14:01:40 stsp Exp $ */
+/*	$OpenBSD: usb_subr.c,v 1.127 2016/09/02 11:14:17 mpi Exp $ */
 /*	$NetBSD: usb_subr.c,v 1.103 2003/01/10 11:19:13 augustss Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/usb_subr.c,v 1.18 1999/11/17 22:33:47 n_hibma Exp $	*/
 
@@ -63,6 +63,7 @@ usbd_status	usbd_set_config(struct usbd_device *, int);
 void		usbd_devinfo(struct usbd_device *, int, char *, size_t);
 void		usbd_devinfo_vp(struct usbd_device *, char *, size_t,
 		    char *, size_t, int);
+char		*usbd_get_device_string(struct usbd_device *, uByte);
 char		*usbd_get_string(struct usbd_device *, int, char *, size_t);
 int		usbd_getnewaddr(struct usbd_bus *);
 int		usbd_print(void *, const char *);
@@ -211,6 +212,25 @@ usbd_trim_spaces(char *p)
 	*e = 0;			/* kill trailing spaces */
 }
 
+char *
+usbd_get_device_string(struct usbd_device *dev, uByte index)
+{
+	char *buf;
+
+	buf = malloc(USB_MAX_STRING_LEN, M_USB, M_NOWAIT);
+	if (buf == NULL)
+		return (NULL);
+
+	if (usbd_get_string(dev, index, buf, USB_MAX_STRING_LEN) != NULL) {
+		usbd_trim_spaces(buf);
+	} else {
+		free(buf, M_USB, USB_MAX_STRING_LEN);
+		buf = NULL;
+	}
+
+	return (buf);
+}
+
 void
 usbd_devinfo_vp(struct usbd_device *dev, char *v, size_t vl,
     char *p, size_t pl, int usedev)
@@ -232,6 +252,11 @@ usbd_devinfo_vp(struct usbd_device *dev, char *v, size_t vl,
 		usbd_trim_spaces(vendor);
 		product = usbd_get_string(dev, udd->iProduct, p, pl);
 		usbd_trim_spaces(product);
+	} else {
+		if (dev->vendor != NULL)
+			vendor = dev->vendor;
+		if (dev->product != NULL)
+			product = dev->product;
 	}
 #ifdef USBVERBOSE
 	if (vendor == NULL || product == NULL) {
@@ -294,7 +319,7 @@ usbd_devinfo(struct usbd_device *dev, int showclass, char *base, size_t len)
 	char *cp = base;
 	int bcdDevice, bcdUSB;
 
-	usbd_devinfo_vp(dev, vendor, sizeof vendor, product, sizeof product, 1);
+	usbd_devinfo_vp(dev, vendor, sizeof vendor, product, sizeof product, 0);
 	snprintf(cp, len, "\"%s %s\"", vendor, product);
 	cp += strlen(cp);
 	if (showclass) {
@@ -478,33 +503,38 @@ usbd_fill_iface_data(struct usbd_device *dev, int ifaceidx, int altidx)
 	char *p, *end;
 	int endpt, nendpt;
 
-	DPRINTFN(4,("usbd_fill_iface_data: ifaceidx=%d altidx=%d\n",
-		    ifaceidx, altidx));
+	DPRINTFN(4,("%s: ifaceidx=%d altidx=%d\n", __func__, ifaceidx, altidx));
+
 	idesc = usbd_find_idesc(dev->cdesc, ifaceidx, altidx);
 	if (idesc == NULL)
 		return (USBD_INVAL);
+
+	nendpt = idesc->bNumEndpoints;
+	DPRINTFN(4,("%s: found idesc nendpt=%d\n", __func__, nendpt));
+
 	ifc->device = dev;
 	ifc->idesc = idesc;
 	ifc->index = ifaceidx;
 	ifc->altindex = altidx;
-	nendpt = ifc->idesc->bNumEndpoints;
-	DPRINTFN(4,("usbd_fill_iface_data: found idesc nendpt=%d\n", nendpt));
+	ifc->endpoints = NULL;
+	ifc->priv = NULL;
+	LIST_INIT(&ifc->pipes);
+
 	if (nendpt != 0) {
 		ifc->endpoints = mallocarray(nendpt,
-		    sizeof(struct usbd_endpoint), M_USB, M_NOWAIT);
+		    sizeof(struct usbd_endpoint), M_USB, M_NOWAIT | M_ZERO);
 		if (ifc->endpoints == NULL)
 			return (USBD_NOMEM);
-	} else
-		ifc->endpoints = NULL;
-	ifc->priv = NULL;
+	}
+
 	p = (char *)ifc->idesc + ifc->idesc->bLength;
 	end = (char *)dev->cdesc + UGETW(dev->cdesc->wTotalLength);
 #define ed ((usb_endpoint_descriptor_t *)p)
 	for (endpt = 0; endpt < nendpt; endpt++) {
-		DPRINTFN(10,("usbd_fill_iface_data: endpt=%d\n", endpt));
+		DPRINTFN(10,("%s: endpt=%d\n", __func__, endpt));
 		for (; p < end; p += ed->bLength) {
-			DPRINTFN(10,("usbd_fill_iface_data: p=%p end=%p "
-			    "len=%d type=%d\n", p, end, ed->bLength,
+			DPRINTFN(10,("%s: p=%p end=%p len=%d type=%d\n",
+			    __func__, p, end, ed->bLength,
 			    ed->bDescriptorType));
 			if (p + ed->bLength <= end && ed->bLength != 0 &&
 			    ed->bDescriptorType == UDESC_ENDPOINT)
@@ -514,7 +544,7 @@ usbd_fill_iface_data(struct usbd_device *dev, int ifaceidx, int altidx)
 				break;
 		}
 		/* passed end, or bad desc */
-		printf("usbd_fill_iface_data: bad descriptor(s): %s\n",
+		printf("%s: bad descriptor(s): %s\n", __func__,
 		    ed->bLength == 0 ? "0 length" :
 		    ed->bDescriptorType == UDESC_INTERFACE ? "iface desc" :
 		    "out of data");
@@ -534,10 +564,8 @@ usbd_fill_iface_data(struct usbd_device *dev, int ifaceidx, int altidx)
 			check:
 				if (UGETW(ed->wMaxPacketSize) != mps) {
 					USETW(ed->wMaxPacketSize, mps);
-#ifdef DIAGNOSTIC
-					printf("usbd_fill_iface_data: bad max "
-					    "packet size\n");
-#endif
+					DPRINTF(("%s: bad max packet size\n",
+					    __func__));
 				}
 				break;
 			default:
@@ -549,7 +577,6 @@ usbd_fill_iface_data(struct usbd_device *dev, int ifaceidx, int altidx)
 		p += ed->bLength;
 	}
 #undef ed
-	LIST_INIT(&ifc->pipes);
 	return (USBD_NORMAL_COMPLETION);
 
  bad:
@@ -638,8 +665,10 @@ usbd_set_config_index(struct usbd_device *dev, int index, int msg)
 	/* Get the short descriptor. */
 	err = usbd_get_desc(dev, UDESC_CONFIG, index,
 	    USB_CONFIG_DESCRIPTOR_SIZE, &cd);
-	if (err || cd.bDescriptorType != UDESC_CONFIG)
+	if (err)
 		return (err);
+	if (cd.bDescriptorType != UDESC_CONFIG)
+		return (USBD_INVAL);
 	len = UGETW(cd.wTotalLength);
 	cdp = malloc(len, M_USB, M_NOWAIT);
 	if (cdp == NULL)
@@ -754,11 +783,8 @@ usbd_set_config_index(struct usbd_device *dev, int index, int msg)
 	dev->config = cdp->bConfigurationValue;
 	for (ifcidx = 0; ifcidx < nifc; ifcidx++) {
 		err = usbd_fill_iface_data(dev, ifcidx, 0);
-		if (err) {
-			while (--ifcidx >= 0)
-				usbd_free_iface_data(dev, ifcidx);
-			goto bad;
-		}
+		if (err)
+			return (err);
 	}
 
 	return (USBD_NORMAL_COMPLETION);
@@ -1188,6 +1214,11 @@ usbd_new_device(struct device *parent, struct usbd_bus *bus, int depth,
 	DPRINTF(("usbd_new_device: new dev (addr %d), dev=%p, parent=%p\n",
 		 addr, dev, parent));
 
+	/* Cache some strings if possible. */
+	dev->vendor = usbd_get_device_string(dev, dev->ddesc.iManufacturer);
+	dev->product = usbd_get_device_string(dev, dev->ddesc.iProduct);
+	dev->serial = usbd_get_device_string(dev, dev->ddesc.iSerialNumber);
+
 	err = usbd_probe_and_attach(parent, dev, port, addr);
 	if (err) {
 		usb_free_device(dev);
@@ -1304,16 +1335,21 @@ usbd_fill_deviceinfo(struct usbd_device *dev, struct usb_device_info *di,
 		di->udi_nports = 0;
 
 	bzero(di->udi_serial, sizeof(di->udi_serial));
-	usbd_get_string(dev, dev->ddesc.iSerialNumber, di->udi_serial,
-	    sizeof(di->udi_serial));
+	if (!usedev && dev->serial != NULL) {
+		strlcpy(di->udi_serial, dev->serial,
+		    sizeof(di->udi_serial));
+	} else {
+		usbd_get_string(dev, dev->ddesc.iSerialNumber,
+		    di->udi_serial, sizeof(di->udi_serial));
+	}
 }
 
 /* Retrieve a complete descriptor for a certain device and index. */
 usb_config_descriptor_t *
-usbd_get_cdesc(struct usbd_device *dev, int index, int *lenp)
+usbd_get_cdesc(struct usbd_device *dev, int index, u_int *lenp)
 {
 	usb_config_descriptor_t *cdesc, *tdesc, cdescr;
-	int len;
+	u_int len;
 	usbd_status err;
 
 	if (index == USB_CURRENT_CONFIG_INDEX) {
@@ -1325,14 +1361,14 @@ usbd_get_cdesc(struct usbd_device *dev, int index, int *lenp)
 			*lenp = len;
 		cdesc = malloc(len, M_TEMP, M_WAITOK);
 		memcpy(cdesc, tdesc, len);
-		DPRINTFN(5,("usbd_get_cdesc: current, len=%d\n", len));
+		DPRINTFN(5,("usbd_get_cdesc: current, len=%u\n", len));
 	} else {
 		err = usbd_get_desc(dev, UDESC_CONFIG, index,
 		    USB_CONFIG_DESCRIPTOR_SIZE, &cdescr);
 		if (err || cdescr.bDescriptorType != UDESC_CONFIG)
 			return (0);
 		len = UGETW(cdescr.wTotalLength);
-		DPRINTFN(5,("usbd_get_cdesc: index=%d, len=%d\n", index, len));
+		DPRINTFN(5,("usbd_get_cdesc: index=%d, len=%u\n", index, len));
 		if (lenp)
 			*lenp = len;
 		cdesc = malloc(len, M_TEMP, M_WAITOK);
@@ -1368,6 +1404,13 @@ usb_free_device(struct usbd_device *dev)
 		free(dev->subdevs, M_USB, 0);
 	dev->bus->devices[dev->address] = NULL;
 
+	if (dev->vendor != NULL)
+		free(dev->vendor, M_USB, USB_MAX_STRING_LEN);
+	if (dev->product != NULL)
+		free(dev->product, M_USB, USB_MAX_STRING_LEN);
+	if (dev->serial != NULL)
+		free(dev->serial, M_USB, USB_MAX_STRING_LEN);
+
 	free(dev, M_USB, 0);
 }
 
@@ -1382,8 +1425,10 @@ usbd_detach(struct usbd_device *dev, struct device *parent)
 
 	usbd_deactivate(dev);
 
-	for (i = 0; dev->subdevs[i] != NULL; i++)
-		rv |= config_detach(dev->subdevs[i], DETACH_FORCE);
+	if (dev->ndevs > 0) {
+		for (i = 0; dev->subdevs[i] != NULL; i++)
+			rv |= config_detach(dev->subdevs[i], DETACH_FORCE);
+	}
 
 	if (rv == 0)
 		usb_free_device(dev);

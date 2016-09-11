@@ -1,4 +1,4 @@
-/*	$OpenBSD: worms.c,v 1.22 2015/02/18 23:16:08 tedu Exp $	*/
+/*	$OpenBSD: worms.c,v 1.28 2016/03/05 07:47:15 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -46,12 +46,9 @@
  *				 October, 1980
  *
  */
-#include <sys/types.h>
-
 #include <curses.h>
 #include <err.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
@@ -183,6 +180,9 @@ main(int argc, char *argv[])
 	speed_t speed;
 	time_t delay = 0;
 
+	if (pledge("stdio rpath tty", NULL) == -1)
+		err(1, "pledge");
+
 	/* set default delay based on terminal baud rate */
 	if (tcgetattr(STDOUT_FILENO, &term) == 0 &&
 	    (speed = cfgetospeed(&term)) > B9600)
@@ -197,28 +197,32 @@ main(int argc, char *argv[])
 		case 'd':
 			delay = (time_t)strtonum(optarg, 0, 1000, &errstr);
 			if (errstr)
-			    errx(1, "delay (0-1000) is %s: %s", errstr, optarg);
+				errx(1, "delay (0-1000) is %s: %s", errstr,
+				    optarg);
 			break;
 		case 'f':
 			field = "WORM";
 			break;
 		case 'l':
-			if ((length = atoi(optarg)) < 2 || length > 1024)
-				errx(1, "invalid length (%d - %d).", 2, 1024);
+			length = strtonum(optarg, 2, 1024, &errstr);
+			if (errstr)
+				errx(1, "length (2-1024) is %s: %s", errstr,
+				    optarg);
 			break;
 		case 'n':
-			if ((number = atoi(optarg)) < 1 || number > 100)
-				errx(1, "invalid number of worms (%d - %d).",
-				    1, 100);
+			number = strtonum(optarg, 1, 100, &errstr);
+			if (errstr)
+				errx(1, "number of worms (1-100) is %s: %s",
+				    errstr, optarg);
 			break;
 		case 't':
 			trail = '.';
 			break;
-		case '?': case 'h':
+		case 'h':
 		default:
-			(void)fprintf(stderr,
-			    "usage: worms [-ft] [-d delay] [-l length] [-n number]\n");
-			exit(1);
+			(void)fprintf(stderr, "usage: %s [-ft] [-d delay] "
+			    "[-l length] [-n number]\n", getprogname());
+			return 1;
 		}
 
 	/* Convert delay from ms -> ns */
@@ -286,7 +290,7 @@ main(int argc, char *argv[])
 		refresh();
 		if (sig_caught) {
 			endwin();
-			exit(0);
+			return 0;
 		}
 		nanosleep(&sleeptime, NULL);
 		for (n = 0, w = &worm[0]; n < number; n++, w++) {
@@ -308,7 +312,30 @@ main(int argc, char *argv[])
 				if (--ref[y1][x1] == 0)
 					mvaddch(y1, x1, trail);
 			}
-			op = &(!x ? (!y ? upleft : (y == bottom ? lowleft : left)) : (x == last ? (!y ? upright : (y == bottom ? lowright : right)) : (!y ? upper : (y == bottom ? lower : normal))))[w->orientation];
+
+			if (x == 0) {
+				if (y == 0)
+					op = &upleft[w->orientation];
+				else if (y == bottom)
+					op = &lowleft[w->orientation];
+				else
+					op = &left[w->orientation];
+			} else if (x == last) {
+				if (y == 0)
+					op = &upright[w->orientation];
+				else if (y == bottom)
+					op = &lowright[w->orientation];
+				else
+					op = &right[w->orientation];
+			} else {
+				if (y == 0)
+					op = &upper[w->orientation];
+				else if (y == bottom)
+					op = &lower[w->orientation];
+				else
+					op = &normal[w->orientation];
+			}
+
 			switch (op->nopts) {
 			case 0:
 				endwin();

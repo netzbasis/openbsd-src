@@ -1,4 +1,4 @@
-/*	$OpenBSD: strfile.c,v 1.23 2015/10/24 18:33:22 mmcc Exp $	*/
+/*	$OpenBSD: strfile.c,v 1.28 2016/03/07 12:07:56 mestre Exp $	*/
 /*	$NetBSD: strfile.c,v 1.4 1995/04/24 12:23:09 cgd Exp $	*/
 
 /*-
@@ -33,15 +33,15 @@
  * SUCH DAMAGE.
  */
 
-#include	<ctype.h>
-#include	<err.h>
-#include	<limits.h>
-#include	<stdio.h>
-#include	<stdlib.h>
-#include	<string.h>
-#include	<time.h>
-#include	<unistd.h>
-#include	"strfile.h"
+#include <ctype.h>
+#include <err.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "strfile.h"
 
 /*
  *	This program takes a file composed of strings separated by
@@ -114,7 +114,7 @@ void do_order(void);
 void getargs(int, char **);
 void randomize(void);
 char *unctrl(char);
-void usage(void);
+__dead void usage(void);
 
 /*
  * main:
@@ -137,6 +137,9 @@ main(int ac, char *av[])
 	STR		*fp;
 	static char	string[257];
 
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
+
 	getargs(ac, av);		/* evalute arguments */
 	dc = Delimch;
 	if ((inf = fopen(Infile, "r")) == NULL)
@@ -144,6 +147,10 @@ main(int ac, char *av[])
 
 	if ((outf = fopen(Outfile, "w")) == NULL)
 		err(1, "%s", Outfile);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
+
 	if (!STORING_PTRS)
 		(void) fseek(outf, sizeof Tbl, SEEK_SET);
 
@@ -237,7 +244,7 @@ main(int ac, char *av[])
 	}
 	if (fclose(outf))
 		err(1, "fclose `%s'", Outfile);
-	exit(0);
+	return 0;
 }
 
 /*
@@ -250,7 +257,7 @@ getargs(int argc, char *argv[])
 	extern int	optind;
 	int	ch;
 
-	while ((ch = getopt(argc, argv, "c:iorsx")) != -1) {
+	while ((ch = getopt(argc, argv, "c:hiorsx")) != -1) {
 		switch(ch) {
 		case 'c':			/* new delimiting char */
 			Delimch = *optarg;
@@ -274,7 +281,7 @@ getargs(int argc, char *argv[])
 		case 'x':			/* set the rotated bit */
 			Xflag++;
 			break;
-		case '?':
+		case 'h':
 		default:
 			usage();
 		}
@@ -301,7 +308,7 @@ void
 usage(void)
 {
 	(void) fprintf(stderr,
-	    "strfile [-iorsx] [-c char] sourcefile [datafile]\n");
+	    "%s [-iorsx] [-c char] sourcefile [datafile]\n", getprogname());
 	exit(1);
 }
 

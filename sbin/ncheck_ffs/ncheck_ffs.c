@@ -1,4 +1,4 @@
-/*	$OpenBSD: ncheck_ffs.c,v 1.51 2015/10/11 19:00:40 doug Exp $	*/
+/*	$OpenBSD: ncheck_ffs.c,v 1.53 2016/05/28 23:46:06 tb Exp $	*/
 
 /*-
  * Copyright (c) 1995, 1996 SigmaSoft, Th. Lockert <tholo@sigmasoft.com>

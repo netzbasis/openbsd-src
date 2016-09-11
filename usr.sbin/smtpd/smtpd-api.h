@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd-api.h,v 1.24 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: smtpd-api.h,v 1.31 2016/09/03 16:06:26 eric Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -20,7 +20,7 @@
 #ifndef	_SMTPD_API_H_
 #define	_SMTPD_API_H_
 
-#define	FILTER_API_VERSION	 50
+#define	FILTER_API_VERSION	 52
 
 struct mailaddr {
 	char	user[SMTPD_MAXLOCALPARTSIZE];
@@ -59,8 +59,9 @@ enum filter_event_type {
 	EVENT_CONNECT,
 	EVENT_RESET,
 	EVENT_DISCONNECT,
-	EVENT_COMMIT,
-	EVENT_ROLLBACK,
+	EVENT_TX_BEGIN,
+	EVENT_TX_COMMIT,
+	EVENT_TX_ROLLBACK,
 };
 
 /* XXX - server side requires mfa_session.c update on filter_hook changes */
@@ -95,7 +96,7 @@ struct filter_connect {
 	const char		*hostname;
 };
 
-#define PROC_QUEUE_API_VERSION	1
+#define PROC_QUEUE_API_VERSION	2
 
 enum {
 	PROC_QUEUE_OK,
@@ -107,6 +108,7 @@ enum {
 	PROC_QUEUE_MESSAGE_COMMIT,
 	PROC_QUEUE_MESSAGE_FD_R,
 	PROC_QUEUE_MESSAGE_CORRUPT,
+	PROC_QUEUE_MESSAGE_UNCORRUPT,
 	PROC_QUEUE_ENVELOPE_CREATE,
 	PROC_QUEUE_ENVELOPE_DELETE,
 	PROC_QUEUE_ENVELOPE_LOAD,
@@ -114,7 +116,7 @@ enum {
 	PROC_QUEUE_ENVELOPE_WALK,
 };
 
-#define PROC_SCHEDULER_API_VERSION	1
+#define PROC_SCHEDULER_API_VERSION	2
 
 struct scheduler_info;
 
@@ -182,7 +184,7 @@ struct scheduler_info {
 #define SCHED_MDA		0x10
 #define SCHED_MTA		0x20
 
-#define PROC_TABLE_API_VERSION	1
+#define PROC_TABLE_API_VERSION	2
 
 struct table_open_params {
 	uint32_t	version;
@@ -190,17 +192,18 @@ struct table_open_params {
 };
 
 enum table_service {
-	K_NONE		= 0x00,
-	K_ALIAS		= 0x01,	/* returns struct expand	*/
-	K_DOMAIN	= 0x02,	/* returns struct destination	*/
-	K_CREDENTIALS	= 0x04,	/* returns struct credentials	*/
-	K_NETADDR	= 0x08,	/* returns struct netaddr	*/
-	K_USERINFO	= 0x10,	/* returns struct userinfo	*/
-	K_SOURCE	= 0x20, /* returns struct source	*/
-	K_MAILADDR	= 0x40, /* returns struct mailaddr	*/
-	K_ADDRNAME	= 0x80, /* returns struct addrname	*/
+	K_NONE		= 0x000,
+	K_ALIAS		= 0x001,	/* returns struct expand	*/
+	K_DOMAIN	= 0x002,	/* returns struct destination	*/
+	K_CREDENTIALS	= 0x004,	/* returns struct credentials	*/
+	K_NETADDR	= 0x008,	/* returns struct netaddr	*/
+	K_USERINFO	= 0x010,	/* returns struct userinfo	*/
+	K_SOURCE	= 0x020,	/* returns struct source	*/
+	K_MAILADDR	= 0x040,	/* returns struct mailaddr	*/
+	K_ADDRNAME	= 0x080,	/* returns struct addrname	*/
+	K_MAILADDRMAP	= 0x100,	/* returns struct maddrmap	*/
 };
-#define K_ANY		  0xff
+#define K_ANY		  0xfff
 
 enum {
 	PROC_TABLE_OK,
@@ -325,10 +328,11 @@ const char *esc_description(enum enhanced_status_code);
 void filter_api_setugid(uid_t, gid_t);
 void filter_api_set_chroot(const char *);
 void filter_api_no_chroot(void);
+void filter_api_set_udata(uint64_t, void *);
+void *filter_api_get_udata(uint64_t);
 
 void filter_api_loop(void);
 int filter_api_accept(uint64_t);
-int filter_api_accept_notify(uint64_t, uint64_t *);
 int filter_api_reject(uint64_t, enum filter_status);
 int filter_api_reject_code(uint64_t, enum filter_status, uint32_t,
     const char *);
@@ -343,6 +347,10 @@ void filter_api_on_rcpt(int(*)(uint64_t, struct mailaddr *));
 void filter_api_on_data(int(*)(uint64_t));
 void filter_api_on_dataline(void(*)(uint64_t, const char *));
 void filter_api_on_eom(int(*)(uint64_t, size_t));
+void filter_api_on_reset(void(*)(uint64_t));
+void filter_api_on_disconnect(void(*)(uint64_t));
+void filter_api_on_commit(void(*)(uint64_t));
+void filter_api_on_rollback(void(*)(uint64_t));
 
 /* queue */
 void queue_api_on_close(int(*)(void));

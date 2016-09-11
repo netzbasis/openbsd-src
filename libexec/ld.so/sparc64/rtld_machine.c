@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.56 2015/11/02 07:02:53 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.58 2016/06/21 15:25:38 deraadt Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -237,7 +237,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		for (llist = object->load_list; llist != NULL; llist = llist->next) {
 			if (!(llist->prot & PROT_WRITE))
 				_dl_mprotect(llist->start, llist->size,
-				    llist->prot|PROT_WRITE);
+				    PROT_READ | PROT_WRITE);
 		}
 	}
 
@@ -846,6 +846,10 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 
 	if (object->traced)
 		lazy = 1;
+
+	/* temporarily make the PLT writable */
+	_dl_protect_segment(object, 0, "__plt_start", "__plt_end",
+	    PROT_READ|PROT_WRITE);
 
 	if (!lazy) {
 		fails = _dl_md_reloc_all_plt(object);

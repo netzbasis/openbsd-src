@@ -59,6 +59,12 @@ extern int optind;
 		return;					\
 	}
 
+#define ZONE_GET_INT(NAME, VAR, PATTERN) 		\
+	if (strcasecmp(#NAME, (VAR)) == 0) { 	\
+		printf("%d\n", (int) PATTERN->NAME); 	\
+		return; 			\
+	}
+
 #define SERV_GET_BIN(NAME, VAR) 			\
 	if (strcasecmp(#NAME, (VAR)) == 0) { 		\
 		printf("%s\n", opt->NAME?"yes":"no"); 	\
@@ -306,6 +312,11 @@ config_print_zone(nsd_options_t* opt, const char* k, int s, const char *o,
 		ZONE_GET_STR(zonestats, o, zone->pattern);
 		ZONE_GET_OUTGOING(outgoing_interface, o, zone->pattern);
 		ZONE_GET_BIN(allow_axfr_fallback, o, zone->pattern);
+		ZONE_GET_INT(max_refresh_time, o, zone->pattern);
+		ZONE_GET_INT(min_refresh_time, o, zone->pattern);
+		ZONE_GET_INT(max_retry_time, o, zone->pattern);
+		ZONE_GET_INT(min_retry_time, o, zone->pattern);
+		ZONE_GET_INT(size_limit_xfr, o, zone->pattern);
 #ifdef RATELIMIT
 		ZONE_GET_RRL(rrl_whitelist, o, zone->pattern);
 #endif
@@ -331,6 +342,11 @@ config_print_zone(nsd_options_t* opt, const char* k, int s, const char *o,
 		ZONE_GET_STR(zonestats, o, p);
 		ZONE_GET_OUTGOING(outgoing_interface, o, p);
 		ZONE_GET_BIN(allow_axfr_fallback, o, p);
+		ZONE_GET_INT(max_refresh_time, o, p);
+		ZONE_GET_INT(min_refresh_time, o, p);
+		ZONE_GET_INT(max_retry_time, o, p);
+		ZONE_GET_INT(min_retry_time, o, p);
+		ZONE_GET_INT(size_limit_xfr, o, p);
 #ifdef RATELIMIT
 		ZONE_GET_RRL(rrl_whitelist, o, p);
 #endif
@@ -341,6 +357,7 @@ config_print_zone(nsd_options_t* opt, const char* k, int s, const char *o,
 		SERV_GET_IP(ip_address, ip_addresses, o);
 		/* bin */
 		SERV_GET_BIN(ip_transparent, o);
+		SERV_GET_BIN(ip_freebind, o);
 		SERV_GET_BIN(debug_mode, o);
 		SERV_GET_BIN(do_ip4, o);
 		SERV_GET_BIN(do_ip6, o);
@@ -352,6 +369,7 @@ config_print_zone(nsd_options_t* opt, const char* k, int s, const char *o,
 		/* str */
 		SERV_GET_PATH(final, database, o);
 		SERV_GET_STR(identity, o);
+		SERV_GET_STR(version, o);
 		SERV_GET_STR(nsid, o);
 		SERV_GET_PATH(final, logfile, o);
 		SERV_GET_PATH(final, pidfile, o);
@@ -367,6 +385,8 @@ config_print_zone(nsd_options_t* opt, const char* k, int s, const char *o,
 		SERV_GET_INT(tcp_count, o);
 		SERV_GET_INT(tcp_query_count, o);
 		SERV_GET_INT(tcp_timeout, o);
+		SERV_GET_INT(tcp_mss, o);
+		SERV_GET_INT(outgoing_tcp_mss, o);
 		SERV_GET_INT(ipv4_edns_size, o);
 		SERV_GET_INT(ipv6_edns_size, o);
 		SERV_GET_INT(statistics, o);
@@ -427,6 +447,17 @@ static void print_zone_content_elems(pattern_options_t* pat)
 	if(!pat->allow_axfr_fallback_is_default)
 		printf("\tallow-axfr-fallback: %s\n",
 			pat->allow_axfr_fallback?"yes":"no");
+	if(!pat->max_refresh_time_is_default)
+		printf("\tmax-refresh-time: %d\n", pat->max_refresh_time);
+	if(!pat->min_refresh_time_is_default)
+		printf("\tmin-refresh-time: %d\n", pat->min_refresh_time);
+	if(!pat->max_retry_time_is_default)
+		printf("\tmax-retry-time: %d\n", pat->max_retry_time);
+	if(!pat->min_retry_time_is_default)
+		printf("\tmin-retry-time: %d\n", pat->min_retry_time);
+	if(pat->size_limit_xfr != 0)
+		printf("\tsize-limit-xfr: %llu\n",
+			(long long unsigned)pat->size_limit_xfr);
 }
 
 void
@@ -441,18 +472,22 @@ config_test_print_server(nsd_options_t* opt)
 	printf("server:\n");
 	printf("\tdebug-mode: %s\n", opt->debug_mode?"yes":"no");
 	printf("\tip-transparent: %s\n", opt->ip_transparent?"yes":"no");
+	printf("\tip-freebind: %s\n", opt->ip_freebind?"yes":"no");
 	printf("\treuseport: %s\n", opt->reuseport?"yes":"no");
 	printf("\tdo-ip4: %s\n", opt->do_ip4?"yes":"no");
 	printf("\tdo-ip6: %s\n", opt->do_ip6?"yes":"no");
 	printf("\thide-version: %s\n", opt->hide_version?"yes":"no");
 	print_string_var("database:", opt->database);
 	print_string_var("identity:", opt->identity);
+	print_string_var("version:", opt->version);
 	print_string_var("nsid:", opt->nsid);
 	print_string_var("logfile:", opt->logfile);
-	printf("\tserver_count: %d\n", opt->server_count);
-	printf("\ttcp_count: %d\n", opt->tcp_count);
-	printf("\ttcp_query_count: %d\n", opt->tcp_query_count);
-	printf("\ttcp_timeout: %d\n", opt->tcp_timeout);
+	printf("\tserver-count: %d\n", opt->server_count);
+	printf("\ttcp-count: %d\n", opt->tcp_count);
+	printf("\ttcp-query-count: %d\n", opt->tcp_query_count);
+	printf("\ttcp-timeout: %d\n", opt->tcp_timeout);
+	printf("\ttcp-mss: %d\n", opt->tcp_mss);
+	printf("\toutgoing-tcp-mss: %d\n", opt->outgoing_tcp_mss);
 	printf("\tipv4-edns-size: %d\n", (int) opt->ipv4_edns_size);
 	printf("\tipv6-edns-size: %d\n", (int) opt->ipv6_edns_size);
 	print_string_var("pidfile:", opt->pidfile);
@@ -464,7 +499,7 @@ config_test_print_server(nsd_options_t* opt)
 	print_string_var("xfrdfile:", opt->xfrdfile);
 	print_string_var("zonelistfile:", opt->zonelistfile);
 	print_string_var("xfrdir:", opt->xfrdir);
-	printf("\txfrd_reload_timeout: %d\n", opt->xfrd_reload_timeout);
+	printf("\txfrd-reload-timeout: %d\n", opt->xfrd_reload_timeout);
 	printf("\tlog-time-ascii: %s\n", opt->log_time_ascii?"yes":"no");
 	printf("\tround-robin: %s\n", opt->round_robin?"yes":"no");
 	printf("\tverbosity: %d\n", opt->verbosity);
@@ -551,6 +586,13 @@ additional_checks(nsd_options_t* opt, const char* filename)
 			fprintf(stderr, "%s: cannot parse zone name syntax for zone %s.\n", filename, zone->name);
 			errors ++;
 		}
+#ifndef ROOT_SERVER
+		/* Is it a root zone? Are we a root server then? Idiot proof. */
+		if(dname->label_count == 1) {
+			fprintf(stderr, "%s: not configured as a root server.\n", filename);
+			errors ++;
+		}
+#endif
 		if(zone->pattern->allow_notify && !zone->pattern->request_xfr) {
 			fprintf(stderr, "%s: zone %s has allow-notify but no request-xfr"
 				" items. Where can it get a zone transfer when a notify "
@@ -585,6 +627,11 @@ additional_checks(nsd_options_t* opt, const char* filename)
 	if (opt->identity && strlen(opt->identity) > UCHAR_MAX) {
                 fprintf(stderr, "%s: server identity too long (%u characters)\n",
                       filename, (unsigned) strlen(opt->identity));
+		errors ++;
+        }
+	if (opt->version && strlen(opt->version) > UCHAR_MAX) {
+                fprintf(stderr, "%s: server version too long (%u characters)\n",
+                      filename, (unsigned) strlen(opt->version));
 		errors ++;
         }
 

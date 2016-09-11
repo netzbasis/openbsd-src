@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_age.c,v 1.30 2015/11/09 00:29:06 dlg Exp $	*/
+/*	$OpenBSD: if_age.c,v 1.33 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2008, Pyun YongHyeon <yongari@FreeBSD.org>
@@ -52,8 +52,6 @@
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#include <net/if_vlan_var.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -224,7 +222,6 @@ age_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = age_start;
 	ifp->if_watchdog = age_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, AGE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->age_eaddr, sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
@@ -960,7 +957,7 @@ age_start(struct ifnet *ifp)
         struct mbuf *m;
 	int enq;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 	if ((sc->age_flags & AGE_FLAG_LINK) == 0)
 		return;
@@ -971,7 +968,7 @@ age_start(struct ifnet *ifp)
 	for (;;) {
 		if (sc->age_cdata.age_tx_cnt + AGE_MAXTXSEGS >=
 		    AGE_TX_RING_CNT - 2) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1226,7 +1223,7 @@ age_txintr(struct age_softc *sc, int tpd_cons)
 		if (sc->age_cdata.age_tx_cnt <= 0)
 			break;
 		prog++;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->age_cdata.age_tx_cnt--;
 		txd = &sc->age_cdata.age_txdesc[cons];
 		/*
@@ -1782,7 +1779,7 @@ age_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->age_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	return (0);
 }
@@ -1799,7 +1796,8 @@ age_stop(struct age_softc *sc)
 	/*
 	 * Mark the interface down and cancel the watchdog timer.
 	 */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
 
 	sc->age_flags &= ~AGE_FLAG_LINK;

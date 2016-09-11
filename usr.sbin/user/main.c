@@ -1,4 +1,4 @@
-/* $OpenBSD: main.c,v 1.7 2011/12/31 14:05:51 ajacoutot Exp $ */
+/* $OpenBSD: main.c,v 1.10 2016/03/29 13:32:54 mestre Exp $ */
 /* $NetBSD: main.c,v 1.3 2002/07/09 10:34:16 tron Exp $ */
 
 /*
@@ -95,5 +95,4 @@ main(int argc, char **argv)
 			    argv + (matched - 1));
 	}
 	usermgmt_usage(__progname);
-	/* NOTREACHED */
 }

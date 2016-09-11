@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.143 2015/10/30 19:47:40 bluhm Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.157 2016/09/03 14:09:58 bluhm Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -50,11 +50,16 @@
 #include <net/if.h>
 #include <sys/pool.h>
 
+#ifdef DDB
+#include <machine/db_machdep.h>
+#endif
+
 void	sbsync(struct sockbuf *, struct mbuf *);
 
 int	sosplice(struct socket *, int, off_t, struct timeval *);
 void	sounsplice(struct socket *, struct socket *, int);
 void	soidle(void *);
+void	sotask(void *);
 int	somove(struct socket *, int);
 
 void	filt_sordetach(struct knote *kn);
@@ -81,6 +86,7 @@ int	sominconn = SOMINCONN;
 struct pool socket_pool;
 #ifdef SOCKET_SPLICE
 struct pool sosplice_pool;
+struct taskq *sosplice_taskq;
 #endif
 
 void
@@ -102,7 +108,6 @@ soinit(void)
  * implement the semantics of socket operations by
  * switching out to the protocol specific routines.
  */
-/*ARGSUSED*/
 int
 socreate(int dom, struct socket **aso, int type, int proto)
 {
@@ -273,7 +278,7 @@ drop:
 	}
 discard:
 	if (so->so_state & SS_NOFDREF)
-		panic("soclose: NOFDREF");
+		panic("soclose NOFDREF: so %p, so_type %d", so, so->so_type);
 	so->so_state |= SS_NOFDREF;
 	sofree(so);
 	splx(s);
@@ -299,7 +304,7 @@ soaccept(struct socket *so, struct mbuf *nam)
 	int error = 0;
 
 	if ((so->so_state & SS_NOFDREF) == 0)
-		panic("soaccept: !NOFDREF");
+		panic("soaccept !NOFDREF: so %p, so_type %d", so, so->so_type);
 	so->so_state &= ~SS_NOFDREF;
 	if ((so->so_state & SS_ISDISCONNECTED) == 0 ||
 	    (so->so_proto->pr_flags & PR_ABRTACPTDIS) == 0)
@@ -370,6 +375,8 @@ bad:
 	return (error);
 }
 
+int m_getuio(struct mbuf **, int, long, struct uio *);
+
 #define	SBLOCKWAIT(f)	(((f) & MSG_DONTWAIT) ? M_NOWAIT : M_WAITOK)
 /*
  * Send on a socket.
@@ -392,10 +399,8 @@ int
 sosend(struct socket *so, struct mbuf *addr, struct uio *uio, struct mbuf *top,
     struct mbuf *control, int flags)
 {
-	struct mbuf **mp;
-	struct mbuf *m;
-	long space, len, mlen, clen = 0;
-	quad_t resid;
+	long space, clen = 0;
+	size_t resid;
 	int error, s;
 	int atomic = sosendallatonce(so) || top;
 
@@ -403,22 +408,20 @@ sosend(struct socket *so, struct mbuf *addr, struct uio *uio, struct mbuf *top,
 		resid = uio->uio_resid;
 	else
 		resid = top->m_pkthdr.len;
-	/*
-	 * In theory resid should be unsigned (since uio->uio_resid is).
-	 * However, space must be signed, as it might be less than 0
-	 * if we over-committed, and we must use a signed comparison
-	 * of space and resid.  On the other hand, a negative resid
-	 * causes us to loop sending 0-length segments to the protocol.
-	 * MSG_EOR on a SOCK_STREAM socket is also invalid.
-	 */
-	if (resid < 0 ||
-	    (so->so_type == SOCK_STREAM && (flags & MSG_EOR))) {
+	/* MSG_EOR on a SOCK_STREAM socket is invalid. */
+	if (so->so_type == SOCK_STREAM && (flags & MSG_EOR)) {
 		error = EINVAL;
 		goto out;
 	}
 	if (uio && uio->uio_procp)
 		uio->uio_procp->p_ru.ru_msgsnd++;
 	if (control) {
+		/*
+		 * In theory clen should be unsigned (since control->m_len is).
+		 * However, space must be signed, as it might be less than 0
+		 * if we over-committed, and we must use a signed comparison
+		 * of space and clen.
+		 */
 		clen = control->m_len;
 		/* reserve extra space for AF_LOCAL's internalize */
 		if (so->so_proto->pr_domain->dom_family == AF_LOCAL &&
@@ -459,8 +462,9 @@ restart:
 		    (so->so_proto->pr_domain->dom_family != AF_LOCAL &&
 		    clen > so->so_snd.sb_hiwat))
 			snderr(EMSGSIZE);
-		if (space < resid + clen &&
-		    (atomic || space < so->so_snd.sb_lowat || space < clen)) {
+		if (space < clen ||
+		    (space - clen < resid &&
+		    (atomic || space < so->so_snd.sb_lowat))) {
 			if ((so->so_state & SS_NBIO) || (flags & MSG_DONTWAIT))
 				snderr(EWOULDBLOCK);
 			sbunlock(&so->so_snd);
@@ -472,7 +476,6 @@ restart:
 			goto restart;
 		}
 		splx(s);
-		mp = &top;
 		space -= clen;
 		do {
 			if (uio == NULL) {
@@ -482,64 +485,26 @@ restart:
 				resid = 0;
 				if (flags & MSG_EOR)
 					top->m_flags |= M_EOR;
-			} else do {
-				if (top == 0) {
-					MGETHDR(m, M_WAIT, MT_DATA);
-					mlen = MHLEN;
-					m->m_pkthdr.len = 0;
-					m->m_pkthdr.ph_ifidx = 0;
-				} else {
-					MGET(m, M_WAIT, MT_DATA);
-					mlen = MLEN;
-				}
-				if (resid >= MINCLSIZE && space >= MCLBYTES) {
-					MCLGET(m, M_NOWAIT);
-					if ((m->m_flags & M_EXT) == 0)
-						goto nopages;
-					if (atomic && top == 0) {
-						len = lmin(MCLBYTES - max_hdr,
-						    resid);
-						m->m_data += max_hdr;
-					} else
-						len = lmin(MCLBYTES, resid);
-					space -= len;
-				} else {
-nopages:
-					len = lmin(lmin(mlen, resid), space);
-					space -= len;
-					/*
-					 * For datagram protocols, leave room
-					 * for protocol headers in first mbuf.
-					 */
-					if (atomic && top == 0 && len < mlen)
-						MH_ALIGN(m, len);
-				}
-				error = uiomovei(mtod(m, caddr_t), (int)len,
-				    uio);
-				resid = uio->uio_resid;
-				m->m_len = len;
-				*mp = m;
-				top->m_pkthdr.len += len;
+			} else {
+				error = m_getuio(&top, atomic,
+				    space, uio);
 				if (error)
 					goto release;
-				mp = &m->m_next;
-				if (resid <= 0) {
-					if (flags & MSG_EOR)
-						top->m_flags |= M_EOR;
-					break;
-				}
-			} while (space > 0 && atomic);
+				space -= top->m_pkthdr.len;
+				resid = uio->uio_resid;
+				if (flags & MSG_EOR)
+					top->m_flags |= M_EOR;
+			}
 			s = splsoftnet();		/* XXX */
-			if (resid <= 0)
+			if (resid == 0)
 				so->so_state &= ~SS_ISSENDING;
 			error = (*so->so_proto->pr_usrreq)(so,
 			    (flags & MSG_OOB) ? PRU_SENDOOB : PRU_SEND,
 			    top, addr, control, curproc);
 			splx(s);
 			clen = 0;
-			control = 0;
-			top = 0;
-			mp = &top;
+			control = NULL;
+			top = NULL;
 			if (error)
 				goto release;
 		} while (resid && space > 0);
@@ -554,6 +519,74 @@ out:
 	if (control)
 		m_freem(control);
 	return (error);
+}
+
+int
+m_getuio(struct mbuf **mp, int atomic, long space, struct uio *uio)
+{
+	struct mbuf *m, *top = NULL;
+	struct mbuf **nextp = &top;
+	u_long len, mlen;
+	size_t resid = uio->uio_resid;
+	int error;
+
+	do {
+		if (top == NULL) {
+			MGETHDR(m, M_WAIT, MT_DATA);
+			mlen = MHLEN;
+			m->m_pkthdr.len = 0;
+			m->m_pkthdr.ph_ifidx = 0;
+		} else {
+			MGET(m, M_WAIT, MT_DATA);
+			mlen = MLEN;
+		}
+		/* chain mbuf together */
+		*nextp = m;
+		nextp = &m->m_next;
+
+		resid = ulmin(resid, space);
+		if (resid >= MINCLSIZE) {
+			MCLGETI(m, M_NOWAIT, NULL, ulmin(resid, MAXMCLBYTES));
+			if ((m->m_flags & M_EXT) == 0)
+				MCLGETI(m, M_NOWAIT, NULL, MCLBYTES);
+			if ((m->m_flags & M_EXT) == 0)
+				goto nopages;
+			mlen = m->m_ext.ext_size;
+			len = ulmin(mlen, resid);
+			/*
+			 * For datagram protocols, leave room
+			 * for protocol headers in first mbuf.
+			 */
+			if (atomic && top == NULL && len < mlen - max_hdr)
+				m->m_data += max_hdr;
+		} else {
+nopages:
+			len = ulmin(mlen, resid);
+			/*
+			 * For datagram protocols, leave room
+			 * for protocol headers in first mbuf.
+			 */
+			if (atomic && top == NULL && len < mlen - max_hdr)
+				MH_ALIGN(m, len);
+		}
+
+		error = uiomove(mtod(m, caddr_t), len, uio);
+		if (error) {
+			m_freem(top);
+			return (error);
+		}
+
+		/* adjust counters */
+		resid = uio->uio_resid;
+		space -= len;
+		m->m_len = len;
+		top->m_pkthdr.len += len;
+
+		/* Is there more space and more data? */
+	} while (space > 0 && resid > 0);
+
+	*mp = top;
+	return 0;
 }
 
 /*
@@ -614,13 +647,11 @@ soreceive(struct socket *so, struct mbuf **paddr, struct uio *uio,
 {
 	struct mbuf *m, **mp;
 	struct mbuf *cm;
-	int flags, len, error, s, offset;
+	u_long len, offset, moff;
+	int flags, error, s, type, uio_error = 0;
 	struct protosw *pr = so->so_proto;
 	struct mbuf *nextrecord;
-	int moff, type = 0;
-	size_t orig_resid = uio->uio_resid;
-	int uio_error = 0;
-	int resid;
+	size_t resid, orig_resid = uio->uio_resid;
 
 	mp = mp0;
 	if (paddr)
@@ -640,8 +671,8 @@ soreceive(struct socket *so, struct mbuf **paddr, struct uio *uio,
 		if (error)
 			goto bad;
 		do {
-			error = uiomovei(mtod(m, caddr_t),
-			    (int) min(uio->uio_resid, m->m_len), uio);
+			error = uiomove(mtod(m, caddr_t),
+			    ulmin(uio->uio_resid, m->m_len), uio);
 			m = m_free(m);
 		} while (uio->uio_resid && error == 0 && m);
 bad:
@@ -683,7 +714,8 @@ restart:
 #ifdef SOCKET_SPLICE
 		    if (!isspliced(so))
 #endif /* SOCKET_SPLICE */
-			panic("receive 1");
+			panic("receive 1: so %p, so_type %d, sb_cc %lu",
+			    so, so->so_type, so->so_rcv.sb_cc);
 #endif
 		if (so->so_error) {
 			if (m)
@@ -747,7 +779,8 @@ dontblock:
 	if (pr->pr_flags & PR_ADDR) {
 #ifdef DIAGNOSTIC
 		if (m->m_type != MT_SONAME)
-			panic("receive 1a");
+			panic("receive 1a: so %p, so_type %d, m %p, m_type %d",
+			    so, so->so_type, m, m->m_type);
 #endif
 		orig_resid = 0;
 		if (flags & MSG_PEEK) {
@@ -831,7 +864,8 @@ dontblock:
 			break;
 #ifdef DIAGNOSTIC
 		else if (m->m_type != MT_DATA && m->m_type != MT_HEADER)
-			panic("receive 3");
+			panic("receive 3: so %p, so_type %d, m %p, m_type %d",
+			    so, so->so_type, m, m->m_type);
 #endif
 		so->so_state &= ~SS_RCVATMARK;
 		len = uio->uio_resid;
@@ -852,7 +886,7 @@ dontblock:
 			SBLASTMBUFCHK(&so->so_rcv, "soreceive uiomove");
 			resid = uio->uio_resid;
 			splx(s);
-			uio_error = uiomovei(mtod(m, caddr_t) + moff, len, uio);
+			uio_error = uiomove(mtod(m, caddr_t) + moff, len, uio);
 			s = splsoftnet();
 			if (uio_error)
 				uio->uio_resid = resid - len;
@@ -1038,6 +1072,7 @@ sorflush(struct socket *so)
 #define so_splicemax	so_sp->ssp_max
 #define so_idletv	so_sp->ssp_idletv
 #define so_idleto	so_sp->ssp_idleto
+#define so_splicetask	so_sp->ssp_task
 
 int
 sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
@@ -1045,6 +1080,12 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 	struct file	*fp;
 	struct socket	*sosp;
 	int		 s, error = 0;
+
+	if (sosplice_taskq == NULL)
+		sosplice_taskq = taskq_create("sosplice", 1, IPL_SOFTNET,
+		    TASKQ_CANTSLEEP);
+	if (sosplice_taskq == NULL)
+		return (ENOMEM);
 
 	if ((so->so_proto->pr_flags & PR_SPLICE) == 0)
 		return (EPROTONOSUPPORT);
@@ -1123,6 +1164,7 @@ sosplice(struct socket *so, int fd, off_t max, struct timeval *tv)
 	else
 		timerclear(&so->so_idletv);
 	timeout_set(&so->so_idleto, soidle, so);
+	task_set(&so->so_splicetask, sotask, so);
 
 	/*
 	 * To prevent softnet interrupt from calling somove() while
@@ -1146,6 +1188,7 @@ sounsplice(struct socket *so, struct socket *sosp, int wakeup)
 {
 	splsoftassert(IPL_SOFTNET);
 
+	task_del(sosplice_taskq, &so->so_splicetask);
 	timeout_del(&so->so_idleto);
 	sosp->so_snd.sb_flagsintr &= ~SB_SPLICE;
 	so->so_rcv.sb_flagsintr &= ~SB_SPLICE;
@@ -1166,6 +1209,27 @@ soidle(void *arg)
 		sounsplice(so, so->so_sp->ssp_socket, 1);
 	}
 	splx(s);
+}
+
+void
+sotask(void *arg)
+{
+	struct socket *so = arg;
+	int s;
+
+	s = splsoftnet();
+	if (so->so_rcv.sb_flagsintr & SB_SPLICE) {
+		/*
+		 * We may not sleep here as sofree() and unsplice() may be
+		 * called from softnet interrupt context.  This would remove
+		 * the socket during somove().
+		 */
+		somove(so, M_DONTWAIT);
+	}
+	splx(s);
+
+	/* Avoid user land starvation. */
+	yield();
 }
 
 /*
@@ -1196,7 +1260,7 @@ somove(struct socket *so, int wait)
 		goto release;
 	}
 	if (sosp->so_error && sosp->so_error != ETIMEDOUT &&
-	    sosp->so_error != EFBIG) {
+	    sosp->so_error != EFBIG && sosp->so_error != ELOOP) {
 		error = sosp->so_error;
 		goto release;
 	}
@@ -1239,7 +1303,8 @@ somove(struct socket *so, int wait)
 	if (so->so_proto->pr_flags & PR_ADDR) {
 #ifdef DIAGNOSTIC
 		if (m->m_type != MT_SONAME)
-			panic("somove soname");
+			panic("somove soname: so %p, so_type %d, m %p, "
+			    "m_type %d", so, so->so_type, m, m->m_type);
 #endif
 		m = m->m_next;
 	}
@@ -1249,13 +1314,23 @@ somove(struct socket *so, int wait)
 		sbdroprecord(&so->so_rcv);
 		if (so->so_proto->pr_flags & PR_WANTRCVD && so->so_pcb)
 			(so->so_proto->pr_usrreq)(so, PRU_RCVD, NULL,
-			    (struct mbuf *)0L, NULL, NULL);
+			    NULL, NULL, NULL);
 		goto nextpkt;
+	}
+
+	/*
+	 * By splicing sockets connected to localhost, userland might create a
+	 * loop.  Dissolve splicing with error if loop is detected by counter.
+	 */
+	if ((m->m_flags & M_PKTHDR) && m->m_pkthdr.ph_loopcnt++ >= M_MAXLOOP) {
+		error = ELOOP;
+		goto release;
 	}
 
 	if (so->so_proto->pr_flags & PR_ATOMIC) {
 		if ((m->m_flags & M_PKTHDR) == 0)
-			panic("somove pkthdr");
+			panic("somove !PKTHDR: so %p, so_type %d, m %p, "
+			    "m_type %d", so, so->so_type, m, m->m_type);
 		if (sosp->so_snd.sb_hiwat < m->m_pkthdr.len) {
 			error = EMSGSIZE;
 			goto release;
@@ -1297,7 +1372,8 @@ somove(struct socket *so, int wait)
 
 #ifdef DIAGNOSTIC
 		if ((*mp)->m_type != MT_DATA && (*mp)->m_type != MT_HEADER)
-			panic("somove type");
+			panic("somove type: so %p, so_type %d, m %p, "
+			    "m_type %d", so, so->so_type, *mp, (*mp)->m_type);
 #endif
 		if ((*mp)->m_len > size) {
 			if (!maxreached || (*mp = m_copym(
@@ -1429,19 +1505,26 @@ somove(struct socket *so, int wait)
 	return (1);
 }
 
-#undef so_splicelen
-#undef so_splicemax
-#undef so_idletv
-#undef so_idleto
-
 #endif /* SOCKET_SPLICE */
 
 void
 sorwakeup(struct socket *so)
 {
 #ifdef SOCKET_SPLICE
-	if (so->so_rcv.sb_flagsintr & SB_SPLICE)
-		(void) somove(so, M_DONTWAIT);
+	if (so->so_rcv.sb_flagsintr & SB_SPLICE) {
+		/*
+		 * TCP has a sendbuffer that can handle multiple packets
+		 * at once.  So queue the stream a bit to accumulate data.
+		 * The sosplice thread will call somove() later and send
+		 * the packets calling tcp_output() only once.
+		 * In the UDP case, send out the packets immediately.
+		 * Using a thread would make things slower.
+		 */
+		if (so->so_proto->pr_flags & PR_WANTRCVD)
+			task_add(sosplice_taskq, &so->so_splicetask);
+		else
+			somove(so, M_DONTWAIT);
+	}
 	if (isspliced(so))
 		return;
 #endif
@@ -1455,7 +1538,7 @@ sowwakeup(struct socket *so)
 {
 #ifdef SOCKET_SPLICE
 	if (so->so_snd.sb_flagsintr & SB_SPLICE)
-		(void) somove(so->so_sp->ssp_soback, M_DONTWAIT);
+		task_add(sosplice_taskq, &so->so_sp->ssp_soback->so_splicetask);
 #endif
 	sowakeup(so, &so->so_snd);
 }
@@ -1834,7 +1917,6 @@ filt_sordetach(struct knote *kn)
 	splx(s);
 }
 
-/*ARGSUSED*/
 int
 filt_soread(struct knote *kn, long hint)
 {
@@ -1869,7 +1951,6 @@ filt_sowdetach(struct knote *kn)
 	splx(s);
 }
 
-/*ARGSUSED*/
 int
 filt_sowrite(struct knote *kn, long hint)
 {
@@ -1891,7 +1972,6 @@ filt_sowrite(struct knote *kn, long hint)
 	return (kn->kn_data >= so->so_snd.sb_lowat);
 }
 
-/*ARGSUSED*/
 int
 filt_solisten(struct knote *kn, long hint)
 {
@@ -1900,3 +1980,86 @@ filt_solisten(struct knote *kn, long hint)
 	kn->kn_data = so->so_qlen;
 	return (so->so_qlen != 0);
 }
+
+#ifdef DDB
+void
+sobuf_print(struct sockbuf *,
+    int (*)(const char *, ...) __attribute__((__format__(__kprintf__,1,2))));
+
+void
+sobuf_print(struct sockbuf *sb,
+    int (*pr)(const char *, ...) __attribute__((__format__(__kprintf__,1,2))))
+{
+	(*pr)("\tsb_cc: %lu\n", sb->sb_cc);
+	(*pr)("\tsb_datacc: %lu\n", sb->sb_datacc);
+	(*pr)("\tsb_hiwat: %lu\n", sb->sb_hiwat);
+	(*pr)("\tsb_wat: %lu\n", sb->sb_wat);
+	(*pr)("\tsb_mbcnt: %lu\n", sb->sb_mbcnt);
+	(*pr)("\tsb_mbmax: %lu\n", sb->sb_mbmax);
+	(*pr)("\tsb_lowat: %ld\n", sb->sb_lowat);
+	(*pr)("\tsb_mb: %p\n", sb->sb_mb);
+	(*pr)("\tsb_mbtail: %p\n", sb->sb_mbtail);
+	(*pr)("\tsb_lastrecord: %p\n", sb->sb_lastrecord);
+	(*pr)("\tsb_sel: ...\n");
+	(*pr)("\tsb_flagsintr: %d\n", sb->sb_flagsintr);
+	(*pr)("\tsb_flags: %i\n", sb->sb_flags);
+	(*pr)("\tsb_timeo: %i\n", sb->sb_timeo);
+}
+
+void
+so_print(void *v,
+    int (*pr)(const char *, ...) __attribute__((__format__(__kprintf__,1,2))))
+{
+	struct socket *so = v;
+
+	(*pr)("socket %p\n", so);
+	(*pr)("so_type: %i\n", so->so_type);
+	(*pr)("so_options: 0x%04x\n", so->so_options); /* %b */
+	(*pr)("so_linger: %i\n", so->so_linger);
+	(*pr)("so_state: %i\n", so->so_state);
+	(*pr)("so_pcb: %p\n", so->so_pcb);
+	(*pr)("so_proto: %p\n", so->so_proto);
+
+	(*pr)("so_head: %p\n", so->so_head);
+	(*pr)("so_onq: %p\n", so->so_onq);
+	(*pr)("so_q0: @%p first: %p\n", &so->so_q0, TAILQ_FIRST(&so->so_q0));
+	(*pr)("so_q: @%p first: %p\n", &so->so_q, TAILQ_FIRST(&so->so_q));
+	(*pr)("so_eq: next: %p\n", TAILQ_NEXT(so, so_qe));
+	(*pr)("so_q0len: %i\n", so->so_q0len);
+	(*pr)("so_qlen: %i\n", so->so_qlen);
+	(*pr)("so_qlimit: %i\n", so->so_qlimit);
+	(*pr)("so_timeo: %i\n", so->so_timeo);
+	(*pr)("so_pgid: %i\n", so->so_pgid);
+	(*pr)("so_siguid: %i\n", so->so_siguid);
+	(*pr)("so_sigeuid: %i\n", so->so_sigeuid);
+	(*pr)("so_obmark: %lu\n", so->so_oobmark);
+
+	(*pr)("so_sp: %p\n", so->so_sp);
+	if (so->so_sp != NULL) {
+		(*pr)("\tssp_socket: %p\n", so->so_sp->ssp_socket);
+		(*pr)("\tssp_soback: %p\n", so->so_sp->ssp_soback);
+		(*pr)("\tssp_len: %lld\n",
+		    (unsigned long long)so->so_sp->ssp_len);
+		(*pr)("\tssp_max: %lld\n",
+		    (unsigned long long)so->so_sp->ssp_max);
+		(*pr)("\tssp_idletv: %lld %ld\n", so->so_sp->ssp_idletv.tv_sec,
+		    so->so_sp->ssp_idletv.tv_usec);
+		(*pr)("\tssp_idleto: %spending (@%i)\n",
+		    timeout_pending(&so->so_sp->ssp_idleto) ? "" : "not ",
+		    so->so_sp->ssp_idleto.to_time);
+	}
+
+	(*pr)("so_rcv:\n");
+	sobuf_print(&so->so_rcv, pr);
+	(*pr)("so_snd:\n");
+	sobuf_print(&so->so_snd, pr);
+
+	(*pr)("so_upcall: %p so_upcallarg: %p\n",
+	    so->so_upcall, so->so_upcallarg);
+
+	(*pr)("so_euid: %d so_ruid: %d\n", so->so_euid, so->so_ruid);
+	(*pr)("so_egid: %d so_rgid: %d\n", so->so_egid, so->so_rgid);
+	(*pr)("so_cpid: %d\n", so->so_cpid);
+}
+#endif
+

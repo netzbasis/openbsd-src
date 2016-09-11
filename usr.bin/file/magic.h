@@ -1,4 +1,4 @@
-/* $OpenBSD: magic.h,v 1.11 2015/10/05 20:05:52 nicm Exp $ */
+/* $OpenBSD: magic.h,v 1.15 2016/05/01 20:34:26 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -19,16 +19,13 @@
 #ifndef MAGIC_H
 #define MAGIC_H
 
+#include <sys/types.h>
 #include <sys/tree.h>
 #include <sys/queue.h>
-#include <sys/stat.h>
 
-#include <err.h>
 #include <regex.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define MAGIC_STRING_SIZE 31
 #define MAGIC_STRENGTH_MULTIPLIER 10
@@ -95,10 +92,14 @@ enum magic_type {
 	MAGIC_TYPE_REGEX,
 	MAGIC_TYPE_SEARCH,
 	MAGIC_TYPE_DEFAULT,
+	MAGIC_TYPE_CLEAR,
+	MAGIC_TYPE_NAME,
+	MAGIC_TYPE_USE,
 };
 
 TAILQ_HEAD(magic_lines, magic_line);
 RB_HEAD(magic_tree, magic_line);
+RB_HEAD(magic_named_tree, magic_line);
 
 struct magic_line {
 	struct magic		*root;
@@ -119,6 +120,8 @@ struct magic_line {
 	int64_t			 indirect_offset;
 	char			 indirect_operator;
 	int64_t			 indirect_operand;
+
+	const char		*name;
 
 	enum magic_type		 type;
 	const char		*type_string;
@@ -147,6 +150,7 @@ struct magic {
 	int			 warnings;
 
 	struct magic_tree	 tree;
+	struct magic_named_tree	 named;
 
 	int			 compiled;
 	regex_t			 format_short;
@@ -164,6 +168,10 @@ struct magic_state {
 	const char		*base;
 	size_t			 size;
 	size_t			 offset;
+	int			 matched;
+
+	size_t			 start;
+	int			 reverse;
 };
 
 #define MAGIC_TEST_TEXT 0x1
@@ -171,6 +179,9 @@ struct magic_state {
 
 int		 magic_compare(struct magic_line *, struct magic_line *);
 RB_PROTOTYPE(magic_tree, magic_line, node, magic_compare);
+
+int		 magic_named_compare(struct magic_line *, struct magic_line *);
+RB_PROTOTYPE(magic_named_tree, magic_line, node, magic_named_compare);
 
 char		*magic_strtoull(const char *, uint64_t *);
 char		*magic_strtoll(const char *, int64_t *);

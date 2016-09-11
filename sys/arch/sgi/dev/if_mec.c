@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mec.c,v 1.31 2015/10/25 13:22:09 mpi Exp $ */
+/*	$OpenBSD: if_mec.c,v 1.36 2016/04/13 11:34:00 mpi Exp $ */
 /*	$NetBSD: if_mec_mace.c,v 1.5 2004/08/01 06:36:36 tsutsui Exp $ */
 
 /*
@@ -78,9 +78,7 @@
 #include <sys/errno.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -462,7 +460,6 @@ mec_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = mec_ioctl;
 	ifp->if_start = mec_start;
 	ifp->if_watchdog = mec_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if_attach(ifp);
 	IFQ_SET_MAXLEN(&ifp->if_snd, MEC_NTXDESC - 1);
@@ -670,7 +667,7 @@ mec_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick_ch, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	mec_start(ifp);
 
 	mii_mediachg(&sc->sc_mii);
@@ -724,7 +721,7 @@ mec_start(struct ifnet *ifp)
 	int error, firsttx, nexttx, opending;
 	int len, bufoff, buflen, unaligned, txdlen;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/*
@@ -738,11 +735,12 @@ mec_start(struct ifnet *ifp)
 
 	for (;;) {
 		/* Grab a packet off the queue. */
-		IFQ_POLL(&ifp->if_snd, m0);
+		m0 = ifq_deq_begin(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
 
 		if (sc->sc_txpending == MEC_NTXDESC) {
+			ifq_deq_rollback(&ifp->if_snd, m0);
 			break;
 		}
 
@@ -763,7 +761,7 @@ mec_start(struct ifnet *ifp)
 		DPRINTF(MEC_DEBUG_START,
 		    ("mec_start: len = %d, nexttx = %d\n", len, nexttx));
 
-		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		ifq_deq_commit(&ifp->if_snd, m0);
 		if (len < ETHER_PAD_LEN) {
 			/*
 			 * I don't know if MEC chip does auto padding,
@@ -961,7 +959,7 @@ mec_start(struct ifnet *ifp)
 
 	if (sc->sc_txpending == MEC_NTXDESC) {
 		/* No more slots; notify upper layer. */
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_txpending != opending) {
@@ -1002,7 +1000,8 @@ mec_stop(struct ifnet *ifp)
 	DPRINTF(MEC_DEBUG_STOP, ("mec_stop\n"));
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->sc_tick_ch);
 	mii_down(&sc->sc_mii);
@@ -1329,7 +1328,7 @@ mec_txintr(struct mec_softc *sc, uint32_t stat)
 	int i, last;
 	u_int col;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	DPRINTF(MEC_DEBUG_TXINTR, ("mec_txintr: called\n"));
 

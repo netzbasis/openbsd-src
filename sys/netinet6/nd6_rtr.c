@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_rtr.c,v 1.133 2015/11/02 13:54:46 sthen Exp $	*/
+/*	$OpenBSD: nd6_rtr.c,v 1.145 2016/09/08 09:02:42 mpi Exp $	*/
 /*	$KAME: nd6_rtr.c,v 1.97 2001/02/07 11:09:13 itojun Exp $	*/
 
 /*
@@ -47,7 +47,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_var.h>
-#include <net/if_types.h>
 #include <net/route.h>
 #include <net/rtable.h>
 
@@ -76,6 +75,7 @@ int rt6_deleteroute(struct rtentry *, void *, unsigned int);
 void nd6_addr_add(void *);
 
 void nd6_rs_output_timo(void *);
+u_int32_t nd6_rs_next_pltime_timo(struct ifnet *);
 void nd6_rs_output_set_timo(int);
 void nd6_rs_output(struct ifnet *, struct in6_ifaddr *);
 void nd6_rs_dev_state(void *);
@@ -284,30 +284,64 @@ nd6_rs_output_set_timo(int timeout)
 	timeout_add_sec(&nd6_rs_output_timer, nd6_rs_output_timeout);
 }
 
+u_int32_t
+nd6_rs_next_pltime_timo(struct ifnet *ifp)
+{
+	struct ifaddr *ifa;
+	struct in6_ifaddr *ia6;
+	u_int32_t pltime_expires = ND6_INFINITE_LIFETIME;
+
+	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+		if (ifa->ifa_addr->sa_family != AF_INET6)
+			continue;
+
+		ia6 = ifatoia6(ifa);
+		if (ia6->ia6_lifetime.ia6t_pltime == ND6_INFINITE_LIFETIME ||
+		    IFA6_IS_DEPRECATED(ia6) || IFA6_IS_INVALID(ia6))
+			continue;
+
+		pltime_expires = MIN(pltime_expires,
+		    ia6->ia6_lifetime.ia6t_pltime);
+	}
+
+	return pltime_expires;
+}
+
 void
 nd6_rs_output_timo(void *ignored_arg)
 {
 	struct ifnet *ifp;
 	struct in6_ifaddr *ia6;
+	u_int32_t pltime_expire = ND6_INFINITE_LIFETIME, t;
+	int timeout = ND6_RS_OUTPUT_INTERVAL;
 
 	if (nd6_rs_timeout_count == 0)
 		return;
 
 	if (nd6_rs_output_timeout < ND6_RS_OUTPUT_INTERVAL)
 		/* exponential backoff if running quick timeouts */
-		nd6_rs_output_timeout *= 2;
-	if (nd6_rs_output_timeout > ND6_RS_OUTPUT_INTERVAL)
-		nd6_rs_output_timeout = ND6_RS_OUTPUT_INTERVAL;
+		timeout = nd6_rs_output_timeout * 2;
 
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ISSET(ifp->if_flags, IFF_RUNNING) &&
 		    ISSET(ifp->if_xflags, IFXF_AUTOCONF6)) {
-			ia6 = in6ifa_ifpforlinklocal(ifp, IN6_IFF_TENTATIVE);
-			if (ia6 != NULL)
-				nd6_rs_output(ifp, ia6);
+			t = nd6_rs_next_pltime_timo(ifp);
+			if (t == ND6_INFINITE_LIFETIME || t <
+			    ND6_RS_OUTPUT_INTERVAL) {
+				timeout = ND6_RS_OUTPUT_QUICK_INTERVAL;
+				ia6 = in6ifa_ifpforlinklocal(ifp,
+				    IN6_IFF_TENTATIVE);
+				if (ia6 != NULL)
+					nd6_rs_output(ifp, ia6);
+			}
+
+			pltime_expire = MIN(pltime_expire, t);
 		}
 	}
-	timeout_add_sec(&nd6_rs_output_timer, nd6_rs_output_timeout);
+	if (pltime_expire != ND6_INFINITE_LIFETIME)
+		timeout = MAX(timeout, pltime_expire / 2);
+
+	nd6_rs_output_set_timo(timeout);
 }
 
 void
@@ -668,7 +702,7 @@ defrtrlist_del(struct nd_defrouter *dr)
 		    dr->ifp->if_xname);
 	}
 
-	free(dr, M_IP6NDP, 0);
+	free(dr, M_IP6NDP, sizeof(*dr));
 }
 
 /*
@@ -996,7 +1030,7 @@ void
 pfxrtr_del(struct nd_pfxrouter *pfr)
 {
 	LIST_REMOVE(pfr, pfr_entry);
-	free(pfr, M_IP6NDP, 0);
+	free(pfr, M_IP6NDP, sizeof(*pfr));
 }
 
 struct nd_prefix *
@@ -1146,7 +1180,7 @@ prelist_remove(struct nd_prefix *pr)
 
 	/* free list of routers that adversed the prefix */
 	LIST_FOREACH_SAFE(pfr, &pr->ndpr_advrtrs, pfr_entry, next)
-		free(pfr, M_IP6NDP, 0);
+		free(pfr, M_IP6NDP, sizeof(*pfr));
 
 	ext->nprefixes--;
 	if (ext->nprefixes < 0) {
@@ -1154,7 +1188,7 @@ prelist_remove(struct nd_prefix *pr)
 		    pr->ndpr_ifp->if_xname);
 	}
 
-	free(pr, M_IP6NDP, 0);
+	free(pr, M_IP6NDP, sizeof(*pr));
 
 	pfxlist_onlink_check();
 	splx(s);
@@ -1248,19 +1282,6 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 			    new->ndpr_plen, new->ndpr_ifp->if_xname,
 			    error, newpr));
 			goto end; /* we should just give up in this case. */
-		}
-
-		/*
-		 * XXX: from the ND point of view, we can ignore a prefix
-		 * with the on-link bit being zero.  However, we need a
-		 * prefix structure for references from autoconfigured
-		 * addresses.  Thus, we explicitly make sure that the prefix
-		 * itself expires now.
-		 */
-		if (newpr->ndpr_raf_onlink == 0) {
-			newpr->ndpr_vltime = 0;
-			newpr->ndpr_pltime = 0;
-			in6_init_prefix_ltimes(newpr);
 		}
 
 		pr = newpr;
@@ -1698,15 +1719,11 @@ pfxlist_onlink_check(void)
 int
 nd6_prefix_onlink(struct nd_prefix *pr)
 {
-	struct rt_addrinfo info;
-	struct ifaddr *ifa;
 	struct ifnet *ifp = pr->ndpr_ifp;
-	struct sockaddr_in6 mask6;
+	struct ifaddr *ifa;
 	struct nd_prefix *opr;
-	struct rtentry *rt;
 	char addr[INET6_ADDRSTRLEN];
-	u_long rtflags = 0;
-	int error;
+	int error, rtflags = 0;
 
 	/* sanity check */
 	if ((pr->ndpr_stateflags & NDPRF_ONLINK) != 0)
@@ -1732,18 +1749,11 @@ nd6_prefix_onlink(struct nd_prefix *pr)
 			return (0);
 	}
 
-	/*
-	 * We prefer link-local addresses as the associated interface address.
-	 */
-	/* search for a link-local addr */
-	ifa = &in6ifa_ifpforlinklocal(ifp,
-	    IN6_IFF_NOTREADY | IN6_IFF_ANYCAST)->ia_ifa;
-	if (ifa == NULL) {
-		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-			if (ifa->ifa_addr->sa_family == AF_INET6)
-				break;
-		}
-		/* should we care about ia6_flags? */
+	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+		if (ifa->ifa_addr->sa_family != AF_INET6)
+			continue;
+		if (ifatoia6(ifa)->ia6_ndpr == pr)
+			break;
 	}
 	if (ifa == NULL) {
 		/*
@@ -1761,25 +1771,12 @@ nd6_prefix_onlink(struct nd_prefix *pr)
 		return (0);
 	}
 
-	bzero(&mask6, sizeof(mask6));
-	mask6.sin6_len = sizeof(mask6);
-	mask6.sin6_addr = pr->ndpr_mask;
-
 	if (nd6_need_cache(ifp))
 		rtflags = RTF_CLONING | RTF_CONNECTED;
 
-	bzero(&info, sizeof(info));
-	info.rti_flags = rtflags;
-	info.rti_info[RTAX_DST] = sin6tosa(&pr->ndpr_prefix);
-	info.rti_info[RTAX_GATEWAY] = ifa->ifa_addr;
-	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask6);
-
-	error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, &rt, ifp->if_rdomain);
-	if (error == 0) {
+	error = rt_ifa_add(ifa, rtflags, sin6tosa(&pr->ndpr_prefix));
+	if (error == 0)
 		pr->ndpr_stateflags |= NDPRF_ONLINK;
-		rt_sendmsg(rt, RTM_ADD, ifp->if_rdomain);
-		rtfree(rt);
-	}
 
 	return (error);
 }
@@ -1787,13 +1784,11 @@ nd6_prefix_onlink(struct nd_prefix *pr)
 int
 nd6_prefix_offlink(struct nd_prefix *pr)
 {
-	struct rt_addrinfo info;
 	struct ifnet *ifp = pr->ndpr_ifp;
+	struct ifaddr *ifa;
 	struct nd_prefix *opr;
-	struct sockaddr_in6 sa6, mask6;
-	struct rtentry *rt;
 	char addr[INET6_ADDRSTRLEN];
-	int error;
+	int error, rtflags = 0;
 
 	/* sanity check */
 	if ((pr->ndpr_stateflags & NDPRF_ONLINK) == 0) {
@@ -1805,26 +1800,21 @@ nd6_prefix_offlink(struct nd_prefix *pr)
 		return (EEXIST);
 	}
 
-	bzero(&sa6, sizeof(sa6));
-	sa6.sin6_family = AF_INET6;
-	sa6.sin6_len = sizeof(sa6);
-	bcopy(&pr->ndpr_prefix.sin6_addr, &sa6.sin6_addr,
-	    sizeof(struct in6_addr));
-	bzero(&mask6, sizeof(mask6));
-	mask6.sin6_family = AF_INET6;
-	mask6.sin6_len = sizeof(sa6);
-	bcopy(&pr->ndpr_mask, &mask6.sin6_addr, sizeof(struct in6_addr));
-	bzero(&info, sizeof(info));
-	info.rti_info[RTAX_DST] = sin6tosa(&sa6);
-	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask6);
+	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+		if (ifa->ifa_addr->sa_family != AF_INET6)
+			continue;
+		if (ifatoia6(ifa)->ia6_ndpr == pr)
+			break;
+	}
+	if (ifa == NULL)
+		return (EINVAL);
 
-	error = rtrequest(RTM_DELETE, &info, RTP_CONNECTED, &rt,
-	    ifp->if_rdomain);
+	if (nd6_need_cache(ifp))
+		rtflags = RTF_CLONING | RTF_CONNECTED;
+
+	error = rt_ifa_del(ifa, rtflags, sin6tosa(&pr->ndpr_prefix));
 	if (error == 0) {
 		pr->ndpr_stateflags &= ~NDPRF_ONLINK;
-
-		rt_sendmsg(rt, RTM_DELETE, ifp->if_rdomain);
-		rtfree(rt);
 
 		/*
 		 * There might be the same prefix on another interface,
@@ -1865,13 +1855,6 @@ nd6_prefix_offlink(struct nd_prefix *pr)
 				}
 			}
 		}
-	} else {
-		/* XXX: can we still set the NDPRF_ONLINK flag? */
-		nd6log((LOG_ERR,
-		    "nd6_prefix_offlink: failed to delete route: "
-		    "%s/%d on %s (errno = %d)\n",
-		    inet_ntop(AF_INET6,	&sa6.sin6_addr, addr, sizeof(addr)),
-		    pr->ndpr_plen, ifp->if_xname, error));
 	}
 
 	return (error);
@@ -1915,14 +1898,6 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 		ia6 = ifatoia6(ifa);
 	else
 		return NULL;
-
-#if 0 /* don't care link local addr state, and always do DAD */
-	/* if link-local address is not eligible, do not autoconfigure. */
-	if (ifatoia6(ifa)->ia6_flags & IN6_IFF_NOTREADY) {
-		printf("in6_ifadd: link-local address not ready\n");
-		return NULL;
-	}
-#endif
 
 	/* prefixlen + ifidlen must be equal to 128 */
 	plen0 = in6_mask2len(&ia6->ia_prefixmask.sin6_addr, NULL);
@@ -1990,16 +1965,18 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 		ifra.ifra_lifetime.ia6t_vltime = ND6_PRIV_VALID_LIFETIME;
 	    if (ifra.ifra_lifetime.ia6t_pltime > ND6_PRIV_PREFERRED_LIFETIME)
 		ifra.ifra_lifetime.ia6t_pltime = ND6_PRIV_PREFERRED_LIFETIME
-			- (arc4random() % ND6_PRIV_MAX_DESYNC_FACTOR);
+			- arc4random_uniform(ND6_PRIV_MAX_DESYNC_FACTOR);
 	}
 
 	/* XXX: scope zone ID? */
 
 	ifra.ifra_flags |= IN6_IFF_AUTOCONF|IN6_IFF_TENTATIVE;
 
-	/* allocate ifaddr structure, link into chain, etc. */
+	/* If this address already exists, update it. */
+	ia6 = in6ifa_ifpwithaddr(ifp, &ifra.ifra_addr.sin6_addr);
+
 	s = splsoftnet();
-	error = in6_update_ifa(ifp, &ifra, NULL);
+	error = in6_update_ifa(ifp, &ifra, ia6);
 	splx(s);
 
 	if (error != 0) {
@@ -2013,11 +1990,10 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 		return (NULL);	/* ifaddr must not have been allocated. */
 	}
 
-	/* this is always non-NULL */
 	ia6 = in6ifa_ifpwithaddr(ifp, &ifra.ifra_addr.sin6_addr);
 
 	/* Perform DAD, if needed. */
-	if (ia6->ia6_flags & IN6_IFF_TENTATIVE)
+	if (ia6 != NULL && ia6->ia6_flags & IN6_IFF_TENTATIVE)
 		nd6_dad_start(&ia6->ia_ifa);
 
 	return (ia6);
@@ -2095,6 +2071,8 @@ rt6_deleteroute(struct rtentry *rt, void *arg, unsigned int id)
 {
 	struct rt_addrinfo info;
 	struct in6_addr *gate = (struct in6_addr *)arg;
+	struct sockaddr_in6 sa_mask;
+	int error;
 
 	if (rt->rt_gateway == NULL || rt->rt_gateway->sa_family != AF_INET6)
 		return (0);
@@ -2121,6 +2099,10 @@ rt6_deleteroute(struct rtentry *rt, void *arg, unsigned int id)
 	info.rti_flags =  rt->rt_flags;
 	info.rti_info[RTAX_DST] = rt_key(rt);
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
-	return (rtrequest(RTM_DELETE, &info, RTP_ANY, NULL, id));
+	info.rti_info[RTAX_NETMASK] = rt_plen2mask(rt, &sa_mask);
+	error = rtrequest(RTM_DELETE, &info, RTP_ANY, NULL, id);
+	if (error != 0)
+		return (error);
+
+	return (EAGAIN);
 }

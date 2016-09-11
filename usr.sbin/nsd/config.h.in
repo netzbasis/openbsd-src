@@ -58,6 +58,9 @@
 /* Define to 1 if you have the `chroot' function. */
 #undef HAVE_CHROOT
 
+/* Define to 1 if you have the `clock_gettime' function. */
+#undef HAVE_CLOCK_GETTIME
+
 /* if time.h provides ctime_r prototype */
 #undef HAVE_CTIME_R_PROTO
 
@@ -127,6 +130,12 @@
 /* Define to 1 if you have the <grp.h> header file. */
 #undef HAVE_GRP_H
 
+/* Define to 1 if you have the `HMAC_CTX_new' function. */
+#undef HAVE_HMAC_CTX_NEW
+
+/* Define to 1 if you have the `HMAC_CTX_reset' function. */
+#undef HAVE_HMAC_CTX_RESET
+
 /* Define to 1 if you have the `inet_aton' function. */
 #undef HAVE_INET_ATON
 
@@ -179,6 +188,9 @@
 /* Define to 1 if you have the <netinet/in.h> header file. */
 #undef HAVE_NETINET_IN_H
 
+/* Define to 1 if you have the <netinet/tcp.h> header file. */
+#undef HAVE_NETINET_TCP_H
+
 /* Define to 1 if you have the <openssl/err.h> header file. */
 #undef HAVE_OPENSSL_ERR_H
 
@@ -187,6 +199,9 @@
 
 /* Define to 1 if you have the <openssl/ssl.h> header file. */
 #undef HAVE_OPENSSL_SSL_H
+
+/* Define to 1 if you have the `ppoll' function. */
+#undef HAVE_PPOLL
 
 /* Define to 1 if you have the `pselect' function. */
 #undef HAVE_PSELECT
@@ -286,6 +301,12 @@
 
 /* Define to 1 if you have the `strtol' function. */
 #undef HAVE_STRTOL
+
+/* Define to 1 if `st_mtimensec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_MTIMENSEC
+
+/* Define to 1 if `st_mtim.tv_nsec' is a member of `struct stat'. */
+#undef HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC
 
 /* If time.h has a struct timespec (for pselect). */
 #undef HAVE_STRUCT_TIMESPEC
@@ -411,11 +432,11 @@
 /* Define this to enable rate limiting. */
 #undef RATELIMIT
 
+/* Define this to set ratelimit to off by default. */
+#undef RATELIMIT_DEFAULT_OFF
+
 /* Define as the return type of signal handlers (`int' or `void'). */
 #undef RETSIGTYPE
-
-/* enable reuseport option by default. */
-#undef REUSEPORT_BY_DEFAULT
 
 /* Define this to configure as a root server. */
 #undef ROOT_SERVER
@@ -622,6 +643,9 @@
 #  ifndef _BSD_SOURCE
 #    define _BSD_SOURCE 1
 #  endif
+#  ifndef _DEFAULT_SOURCE
+#    define _DEFAULT_SOURCE 1
+#  endif
 #  ifndef __EXTENSIONS__
 #    define __EXTENSIONS__ 1
 #  endif 
@@ -664,6 +688,10 @@
 
 #ifdef HAVE_NETINET_IN_H
 #include <netinet/in.h>
+#endif
+
+#ifdef HAVE_NETINET_TCP_H
+#include <netinet/tcp.h>
 #endif
 
 #ifdef HAVE_ARPA_INET_H

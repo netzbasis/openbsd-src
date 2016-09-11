@@ -1,4 +1,4 @@
-/*	$OpenBSD: yp.c,v 1.14 2015/02/11 01:26:00 pelikan Exp $ */
+/*	$OpenBSD: yp.c,v 1.17 2016/01/24 08:33:27 matthieu Exp $ */
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
  *
@@ -218,12 +218,15 @@ yp_dispatch(struct svc_req *req, SVCXPRT *trans)
 		return;
 	case YPPROC_ALL:
 		log_debug("ypproc_all");
+		xdr_argument = (xdrproc_t) xdr_ypreq_nokey;
+		xdr_result = (xdrproc_t) xdr_ypresp_all;
 		if (yp_check(req) == -1)
 			return;
 		cb = (void *)ypproc_all_2_svc;
 		break;
 	case YPPROC_MASTER:
-		log_debug("ypproc_master");
+		xdr_argument = (xdrproc_t) xdr_ypreq_nokey;
+		xdr_result = (xdrproc_t) xdr_ypresp_master;
 		if (yp_check(req) == -1)
 			return;
 		cb = (void *)ypproc_master_2_svc;
@@ -235,7 +238,8 @@ yp_dispatch(struct svc_req *req, SVCXPRT *trans)
 		svcerr_noproc(trans);
 		return;
 	case YPPROC_MAPLIST:
-		log_debug("ypproc_maplist");
+		xdr_argument = (xdrproc_t) xdr_domainname;
+		xdr_result = (xdrproc_t) xdr_ypresp_maplist;
 		if (yp_check(req) == -1)
 			return;
 		cb = (void *)ypproc_maplist_2_svc;
@@ -561,11 +565,16 @@ ypresp_master *
 ypproc_master_2_svc(ypreq_nokey *arg, struct svc_req *req)
 {
 	static struct ypresp_master	 res;
+	static char master[YPMAXPEER + 1];
 
+	bzero(&res, sizeof(res));
 	if (yp_valid_domain(arg->domain, (struct ypresp_val *)&res) == -1)
 		return (&res);
-
-	res.stat = YP_YPERR;
+	if (gethostname(master, sizeof(master)) == 0) {
+		res.peer = (peername)master;
+		res.stat = YP_TRUE;
+	} else
+		res.stat = YP_NOKEY;
 	return (&res);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpd.h,v 1.62 2015/10/08 08:17:30 sthen Exp $	*/
+/*	$OpenBSD: snmpd.h,v 1.67 2016/08/16 18:41:57 tedu Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -20,16 +20,25 @@
 #ifndef SNMPD_H
 #define SNMPD_H
 
+#include <net/if.h>
+#include <net/if_dl.h>
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-#include <net/if_dl.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
 #include <net/pfvar.h>
 #include <net/route.h>
 
-#include "ber.h"
-#include <snmp.h>
-
+#include <stdio.h>
 #include <imsg.h>
+
+#include "ber.h"
+#include "snmp.h"
+
+#ifndef nitems
+#define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
+#endif
 
 /*
  * common definitions for snmpd
@@ -166,11 +175,6 @@ struct privsep_proc {
 	struct privsep		*p_ps;
 	void 			*p_env;
 	u_int			 p_instance;
-};
-
-enum blockmodes {
-	BM_NORMAL,
-	BM_NONBLOCK
 };
 
 /*
@@ -580,27 +584,30 @@ int		 control_init(struct privsep *, struct control_sock *);
 int		 control_listen(struct control_sock *);
 void		 control_cleanup(struct control_sock *);
 
-void		 socket_set_blockmode(int, enum blockmodes);
-
 /* parse.y */
 struct snmpd	*parse_config(const char *, u_int);
 int		 cmdline_symset(char *);
 
 /* log.c */
-void		 log_init(int);
-void		 log_verbose(int);
-void		 log_warn(const char *, ...);
-void		 log_warnx(const char *, ...);
-void		 log_info(const char *, ...);
-void		 log_debug(const char *, ...);
-void		 print_debug(const char *, ...);
-void		 print_verbose(const char *, ...);
-__dead void	 fatal(const char *);
-__dead void	 fatalx(const char *);
-void		 logit(int, const char *, ...);
-void		 vlog(int, const char *, va_list);
-const char	*log_in6addr(const struct in6_addr *);
-const char	*print_host(struct sockaddr_storage *, char *, size_t);
+void	log_init(int, int);
+void	log_procinit(const char *);
+void	log_verbose(int);
+void	log_warn(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_warnx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_info(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	log_debug(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+void	logit(int, const char *, ...)
+	    __attribute__((__format__ (printf, 2, 3)));
+void	vlog(int, const char *, va_list)
+	    __attribute__((__format__ (printf, 2, 0)));
+__dead void fatal(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
+__dead void fatalx(const char *, ...)
+	    __attribute__((__format__ (printf, 1, 2)));
 
 /* kroute.c */
 void		 kr_init(void);
@@ -734,9 +741,13 @@ int	 imsg_composev_event(struct imsgev *, u_int16_t, u_int32_t,
 	    pid_t, int, const struct iovec *, int);
 void	 proc_range(struct privsep *, enum privsep_procid, int *, int *);
 int	 proc_compose_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, void *, u_int16_t);
+	    u_int16_t, u_int32_t, int, void *, u_int16_t);
+int	 proc_compose(struct privsep *, enum privsep_procid,
+	    uint16_t, void *, uint16_t);
 int	 proc_composev_imsg(struct privsep *, enum privsep_procid, int,
-	    u_int16_t, int, const struct iovec *, int);
+	    u_int16_t, u_int32_t, int, const struct iovec *, int);
+int	 proc_composev(struct privsep *, enum privsep_procid,
+	    uint16_t, const struct iovec *, int);
 int	 proc_forward_imsg(struct privsep *, struct imsg *,
 	    enum privsep_procid, int);
 struct imsgbuf *
@@ -756,5 +767,9 @@ struct trapcmd *
 /* util.c */
 int	 varbind_convert(struct agentx_pdu *, struct agentx_varbind_hdr *,
 	    struct ber_element **, struct ber_element **);
+void	 print_debug(const char *, ...);
+void	 print_verbose(const char *, ...);
+const char *log_in6addr(const struct in6_addr *);
+const char *print_host(struct sockaddr_storage *, char *, size_t);
 
 #endif /* SNMPD_H */

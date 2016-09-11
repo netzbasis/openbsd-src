@@ -1,4 +1,4 @@
-/* $OpenBSD: openssl.c,v 1.19 2015/10/17 07:51:10 semarie Exp $ */
+/* $OpenBSD: openssl.c,v 1.24 2016/09/04 18:19:53 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -154,9 +154,6 @@ FUNCTION functions[] = {
 	{ FUNC_TYPE_GENERAL, "ca", ca_main },
 	{ FUNC_TYPE_GENERAL, "certhash", certhash_main },
 	{ FUNC_TYPE_GENERAL, "ciphers", ciphers_main },
-#ifndef OPENSSL_NO_CMS
-	{ FUNC_TYPE_GENERAL, "cms", cms_main },
-#endif
 	{ FUNC_TYPE_GENERAL, "crl2pkcs7", crl2pkcs7_main },
 	{ FUNC_TYPE_GENERAL, "crl", crl_main },
 	{ FUNC_TYPE_GENERAL, "dgst", dgst_main },
@@ -438,7 +435,7 @@ main(int argc, char **argv)
 	arg.data = NULL;
 	arg.count = 0;
 
-	if (pledge("stdio inet rpath wpath cpath proc flock tty", NULL) == -1) {
+	if (pledge("stdio inet dns rpath wpath cpath proc flock tty", NULL) == -1) {
 		fprintf(stderr, "openssl: pledge: %s\n", strerror(errno));
 		exit(1);
 	}

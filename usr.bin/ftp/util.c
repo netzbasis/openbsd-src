@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.75 2015/10/18 03:41:14 deraadt Exp $	*/
+/*	$OpenBSD: util.c,v 1.81 2016/08/20 20:18:42 millert Exp $	*/
 /*	$NetBSD: util.c,v 1.12 1997/08/18 10:20:27 lukem Exp $	*/
 
 /*-
@@ -67,6 +67,7 @@
  * FTP User Program -- Misc support routines
  */
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 #include <arpa/ftp.h>
 
@@ -76,6 +77,7 @@
 #include <fcntl.h>
 #include <libgen.h>
 #include <glob.h>
+#include <poll.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdio.h>
@@ -390,8 +392,7 @@ remglob2(char *argv[], int doswitch, char **errbuf, FILE **ftemp, char *type)
 	if (*ftemp == NULL) {
 		int len;
 
-		if ((cp = getenv("TMPDIR")) == NULL || *cp == '\0')
-		    cp = _PATH_TMP;
+		cp = _PATH_TMP;
 		len = strlen(cp);
 		if (len + sizeof(TMPFILE) + (cp[len-1] != '/') > sizeof(temp)) {
 			warnx("unable to create temporary file: %s",
@@ -581,7 +582,7 @@ remotesize(const char *file, int noisy)
 		cp = strchr(reply_string, ' ');
 		if (cp != NULL) {
 			cp++;
-			size = strtoq(cp, &ep, 10);
+			size = strtoll(cp, &ep, 10);
 			if (*ep != '\0' && !isspace((unsigned char)*ep))
 				size = -1;
 		}
@@ -764,11 +765,11 @@ progressmeter(int flag, const char *filename)
 	char buf[512];
 
 	if (flag == -1) {
-		(void)gettimeofday(&start, (struct timezone *)0);
+		(void)gettimeofday(&start, NULL);
 		lastupdate = start;
 		lastsize = restart_point;
 	}
-	(void)gettimeofday(&now, (struct timezone *)0);
+	(void)gettimeofday(&now, NULL);
 	if (!progress || filesize < 0)
 		return;
 	cursize = bytes + restart_point;
@@ -899,10 +900,8 @@ progressmeter(int flag, const char *filename)
 	} else if (flag == 1) {
 		alarmtimer(0);
 		(void)putc('\n', ttyout);
-		if (title != NULL) {
-			free(title);
-			title = NULL;
-		}
+		free(title);
+		title = NULL;
 	}
 	fflush(ttyout);
 }
@@ -927,7 +926,7 @@ ptransfer(int siginfo)
 	if (!verbose && !siginfo)
 		return;
 
-	(void)gettimeofday(&now, (struct timezone *)0);
+	(void)gettimeofday(&now, NULL);
 	timersub(&now, &start, &td);
 	elapsed = td.tv_sec + (td.tv_usec / 1000000.0);
 	bs = bytes / (elapsed == 0.0 ? 1 : elapsed);
@@ -1071,3 +1070,26 @@ controlediting(void)
 }
 #endif /* !SMALL */
 
+/*
+ * Wait for an asynchronous connect(2) attempt to finish.
+ */
+int
+connect_wait(int s)
+{
+	struct pollfd pfd[1];
+	int error = 0;
+	socklen_t len = sizeof(error);
+
+	pfd[0].fd = s;
+	pfd[0].events = POLLOUT;
+
+	if (poll(pfd, 1, -1) == -1)
+		return -1;
+	if (getsockopt(s, SOL_SOCKET, SO_ERROR, &error, &len) < 0)
+		return -1;
+	if (error != 0) {
+		errno = error;
+		return -1;
+	}
+	return 0;
+}

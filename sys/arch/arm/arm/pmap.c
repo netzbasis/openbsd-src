@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.56 2015/09/08 21:28:36 kettenis Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.64 2016/06/07 06:23:19 dlg Exp $	*/
 /*	$NetBSD: pmap.c,v 1.147 2004/01/18 13:03:50 scw Exp $	*/
 
 /*
@@ -2858,7 +2858,7 @@ pmap_activate(struct proc *p)
 		}
 
 		s = splhigh();
-		disable_interrupts(I32_bit | F32_bit);
+		disable_interrupts(PSR_I | PSR_F);
 
 		/*
 		 * We MUST, I repeat, MUST fix up the L1 entry corresponding
@@ -2878,7 +2878,7 @@ pmap_activate(struct proc *p)
 		cpu_domains(pcb->pcb_dacr);
 		cpu_setttb(pcb->pcb_pagedir);
 
-		enable_interrupts(I32_bit | F32_bit);
+		enable_interrupts(PSR_I | PSR_F);
 
 		/*
 		 * Flag any previous userland pmap as being NOT
@@ -2989,11 +2989,11 @@ pmap_destroy(pmap_t pm)
 			 * number. This will ensure pmap_remove() does not
 			 * pull the current vector page out from under us.
 			 */
-			disable_interrupts(I32_bit | F32_bit);
+			disable_interrupts(PSR_I | PSR_F);
 			*pcb->pcb_pl1vec = pcb->pcb_l1vec;
 			cpu_domains(pcb->pcb_dacr);
 			cpu_setttb(pcb->pcb_pagedir);
-			enable_interrupts(I32_bit | F32_bit);
+			enable_interrupts(PSR_I | PSR_F);
 		}
 
 		/* Remove the vector page mapping */
@@ -3045,7 +3045,7 @@ pmap_reference(pmap_t pm)
  * StrongARM accesses to non-cached pages are non-burst making writing
  * _any_ bulk data very slow.
  */
-#if (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0
+#if ARM_MMU_GENERIC == 1
 void
 pmap_zero_page_generic(struct vm_page *pg)
 {
@@ -3069,7 +3069,7 @@ pmap_zero_page_generic(struct vm_page *pg)
 	bzero_page(cdstp);
 	cpu_dcache_wbinv_range(cdstp, PAGE_SIZE);
 }
-#endif /* (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0 */
+#endif /* ARM_MMU_GENERIC == 1 */
 
 #if ARM_MMU_XSCALE == 1
 void
@@ -3105,7 +3105,7 @@ pmap_zero_page_xscale(struct vm_page *pg)
  * hook points. The same comment regarding cachability as in
  * pmap_zero_page also applies here.
  */
-#if (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0
+#if ARM_MMU_GENERIC == 1
 void
 pmap_copy_page_generic(struct vm_page *src_pg, struct vm_page *dst_pg)
 {
@@ -3144,7 +3144,7 @@ pmap_copy_page_generic(struct vm_page *src_pg, struct vm_page *dst_pg)
 	cpu_dcache_inv_range(csrcp, PAGE_SIZE);
 	cpu_dcache_wbinv_range(cdstp, PAGE_SIZE);
 }
-#endif /* (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0 */
+#endif /* ARM_MMU_GENERIC == 1 */
 
 #if ARM_MMU_XSCALE == 1
 void
@@ -3729,26 +3729,30 @@ pmap_bootstrap(pd_entry_t *kernel_l1pt, vaddr_t vstart, vaddr_t vend)
 	/*
 	 * Initialize the pmap pool and cache
 	 */
-	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0, "pmappl",
-	    &pool_allocator_single);
+	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, 0,
+	    "pmappl", &pool_allocator_single);
+	pool_setipl(&pmap_pmap_pool, IPL_NONE);
 
 	/*
 	 * Initialize the pv pool.
 	 */
 	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvepl",
 	    &pmap_bootstrap_pv_allocator);
+	pool_setipl(&pmap_pv_pool, IPL_VM);
 
 	/*
 	 * Initialize the L2 dtable pool and cache.
 	 */
 	pool_init(&pmap_l2dtable_pool, sizeof(struct l2_dtable), 0, 0, 0,
 	    "l2dtblpl", NULL);
+	pool_setipl(&pmap_l2dtable_pool, IPL_VM);
 
 	/*
 	 * Initialise the L2 descriptor table pool and cache
 	 */
 	pool_init(&pmap_l2ptp_pool, L2_TABLE_SIZE_REAL, L2_TABLE_SIZE_REAL, 0,
 	    0, "l2ptppl", &pool_allocator_single);
+	pool_setipl(&pmap_l2ptp_pool, IPL_VM);
 
 	cpu_dcache_wbinv_all();
 }
@@ -4361,6 +4365,12 @@ pt_entry_t	pte_l1_s_prot_kr;
 pt_entry_t	pte_l1_s_prot_kw;
 pt_entry_t	pte_l1_s_prot_mask;
 
+pt_entry_t	pte_l2_l_prot_ur;
+pt_entry_t	pte_l2_l_prot_uw;
+pt_entry_t	pte_l2_l_prot_kr;
+pt_entry_t	pte_l2_l_prot_kw;
+pt_entry_t	pte_l2_l_prot_mask;
+
 pt_entry_t	pte_l2_s_prot_ur;
 pt_entry_t	pte_l2_s_prot_uw;
 pt_entry_t	pte_l2_s_prot_kr;
@@ -4374,7 +4384,7 @@ pt_entry_t	pte_l2_s_proto;
 void		(*pmap_copy_page_func)(struct vm_page *, struct vm_page *);
 void		(*pmap_zero_page_func)(struct vm_page *);
 
-#if (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0
+#if ARM_MMU_GENERIC == 1
 void
 pmap_pte_init_generic(void)
 {
@@ -4413,6 +4423,12 @@ pmap_pte_init_generic(void)
 	pte_l1_s_prot_kw = L1_S_PROT_KW_generic;
 	pte_l1_s_prot_mask = L1_S_PROT_MASK_generic;
 
+	pte_l2_l_prot_ur = L2_L_PROT_UR_generic;
+	pte_l2_l_prot_uw = L2_L_PROT_UW_generic;
+	pte_l2_l_prot_kr = L2_L_PROT_KR_generic;
+	pte_l2_l_prot_kw = L2_L_PROT_KW_generic;
+	pte_l2_l_prot_mask = L2_L_PROT_MASK_generic;
+
 	pte_l2_s_prot_ur = L2_S_PROT_UR_generic;
 	pte_l2_s_prot_uw = L2_S_PROT_UW_generic;
 	pte_l2_s_prot_kr = L2_S_PROT_KR_generic;
@@ -4426,90 +4442,7 @@ pmap_pte_init_generic(void)
 	pmap_copy_page_func = pmap_copy_page_generic;
 	pmap_zero_page_func = pmap_zero_page_generic;
 }
-
-#if defined(CPU_ARM8)
-void
-pmap_pte_init_arm8(void)
-{
-
-	/*
-	 * ARM8 is compatible with generic, but we need to use
-	 * the page tables uncached.
-	 */
-	pmap_pte_init_generic();
-
-	pte_l1_s_cache_mode_pt = 0;
-	pte_l2_l_cache_mode_pt = 0;
-	pte_l2_s_cache_mode_pt = 0;
-}
-#endif /* CPU_ARM8 */
-
-#if defined(CPU_ARM9)
-void
-pmap_pte_init_arm9(void)
-{
-
-	/*
-	 * ARM9 is compatible with generic, but we want to use
-	 * write-through caching for now.
-	 */
-	pmap_pte_init_generic();
-
-	pte_l1_s_cache_mode = L1_S_C;
-	pte_l2_l_cache_mode = L2_C;
-	pte_l2_s_cache_mode = L2_C;
-
-	pte_l1_s_cache_mode_pt = L1_S_C;
-	pte_l2_l_cache_mode_pt = L2_C;
-	pte_l2_s_cache_mode_pt = L2_C;
-}
-#endif /* CPU_ARM9 */
-#endif /* (ARM_MMU_GENERIC + ARM_MMU_SA1) != 0 */
-
-#if defined(CPU_ARM10)
-void
-pmap_pte_init_arm10(void)
-{
-
-	/*
-	 * ARM10 is compatible with generic, but we want to use
-	 * write-through caching for now.
-	 */
-	pmap_pte_init_generic();
-
-	pte_l1_s_cache_mode = L1_S_B | L1_S_C;
-	pte_l2_l_cache_mode = L2_B | L2_C;
-	pte_l2_s_cache_mode = L2_B | L2_C;
-
-	pte_l1_s_cache_mode_pt = L1_S_C;
-	pte_l2_l_cache_mode_pt = L2_C;
-	pte_l2_s_cache_mode_pt = L2_C;
-
-}
-#endif /* CPU_ARM10 */
-
-#if defined(CPU_ARM11)
-void
-pmap_pte_init_arm11(void)
-{
-
-	/*
-	 * XXX 
-	 * ARM11 is compatible with generic, but we want to use
-	 * write-through caching for now.
-	 */
-	pmap_pte_init_generic();
-
-	pte_l1_s_cache_mode = L1_S_B | L1_S_C;
-	pte_l2_l_cache_mode = L2_B | L2_C;
-	pte_l2_s_cache_mode = L2_B | L2_C;
-
-	pte_l1_s_cache_mode_pt = L1_S_C;
-	pte_l2_l_cache_mode_pt = L2_C;
-	pte_l2_s_cache_mode_pt = L2_C;
-
-}
-#endif /* CPU_ARM11 */
+#endif /* ARM_MMU_GENERIC == 1 */
 
 #if defined(CPU_ARMv7)
 void
@@ -4542,6 +4475,12 @@ pmap_pte_init_armv7(void)
 	pte_l1_s_prot_kw = L1_S_PROT_KW_v7;
 	pte_l1_s_prot_mask = L1_S_PROT_MASK_v7;
 
+	pte_l2_l_prot_ur = L2_L_PROT_UR_v7;
+	pte_l2_l_prot_uw = L2_L_PROT_UW_v7;
+	pte_l2_l_prot_kr = L2_L_PROT_KR_v7;
+	pte_l2_l_prot_kw = L2_L_PROT_KW_v7;
+	pte_l2_l_prot_mask = L2_L_PROT_MASK_v7;
+
 	pte_l2_s_prot_ur = L2_S_PROT_UR_v7;
 	pte_l2_s_prot_uw = L2_S_PROT_UW_v7;
 	pte_l2_s_prot_kr = L2_S_PROT_KR_v7;
@@ -4565,27 +4504,6 @@ pmap_pte_init_armv7(void)
 	pmap_needs_pte_sync = 1;
 }
 #endif /* CPU_ARMv7 */
-
-#if ARM_MMU_SA1 == 1
-void
-pmap_pte_init_sa1(void)
-{
-
-	/*
-	 * The StrongARM SA-1 cache does not have a write-through
-	 * mode.  So, do the generic initialization, then reset
-	 * the page table cache mode to B=1,C=1, and note that
-	 * the PTEs need to be sync'd.
-	 */
-	pmap_pte_init_generic();
-
-	pte_l1_s_cache_mode_pt = L1_S_B|L1_S_C;
-	pte_l2_l_cache_mode_pt = L2_B|L2_C;
-	pte_l2_s_cache_mode_pt = L2_B|L2_C;
-
-	pmap_needs_pte_sync = 1;
-}
-#endif /* ARM_MMU_SA1 == 1*/
 
 #if ARM_MMU_XSCALE == 1
 #if (ARM_NMMUS > 1)
@@ -4679,6 +4597,12 @@ pmap_pte_init_xscale(void)
 	pte_l1_s_prot_kr = L1_S_PROT_KR_xscale;
 	pte_l1_s_prot_kw = L1_S_PROT_KW_xscale;
 	pte_l1_s_prot_mask = L1_S_PROT_MASK_xscale;
+
+	pte_l2_l_prot_ur = L2_L_PROT_UR_xscale;
+	pte_l2_l_prot_uw = L2_L_PROT_UW_xscale;
+	pte_l2_l_prot_kr = L2_L_PROT_KR_xscale;
+	pte_l2_l_prot_kw = L2_L_PROT_KW_xscale;
+	pte_l2_l_prot_mask = L2_L_PROT_MASK_xscale;
 
 	pte_l2_s_prot_ur = L2_S_PROT_UR_xscale;
 	pte_l2_s_prot_uw = L2_S_PROT_UW_xscale;

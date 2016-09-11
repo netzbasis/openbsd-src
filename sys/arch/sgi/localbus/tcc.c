@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcc.c,v 1.7 2015/09/24 18:37:50 miod Exp $	*/
+/*	$OpenBSD: tcc.c,v 1.10 2016/03/06 19:42:27 mpi Exp $	*/
 
 /*
  * Copyright (c) 2012 Miodrag Vallat.
@@ -50,7 +50,7 @@ struct cfdriver tcc_cd = {
 	NULL, "tcc", DV_DULL
 };
 
-uint32_t tcc_bus_error(uint32_t, struct trap_frame *);
+uint32_t tcc_bus_error(uint32_t, struct trapframe *);
 
 CACHE_PROTOS(tcc)
 
@@ -99,17 +99,28 @@ tcc_bus_reset()
 }
 
 uint32_t
-tcc_bus_error(uint32_t hwpend, struct trap_frame *tf)
+tcc_bus_error(uint32_t hwpend, struct trapframe *tf)
 {
 	uint64_t intr, error, addr, errack;
+	unsigned int errtype;
 
 	intr = tcc_read(TCC_INTR);
 	error = tcc_read(TCC_ERROR);
-	addr = tcc_read(TCC_BERR_ADDR);
 
-	printf("tcc bus error: intr %llx error %llx (%llu) addr %08llx\n",
-	    intr, error, (error & TCC_ERROR_TYPE_MASK) >> TCC_ERROR_TYPE_SHIFT,
-	    addr);
+	errtype = (error & TCC_ERROR_TYPE_MASK) >> TCC_ERROR_TYPE_SHIFT;
+
+	/*
+	 * Execution of the `sync' instruction is not supported by the
+	 * T-Bus and raises a machine check exception.
+	 * Do not report anything on console in that case, so that
+	 * userland does not suffer too much.
+	 */
+	if (errtype != TCC_ERROR_TYPE_TBUS || (intr & TCC_INTR_MCHECK) == 0) {
+		addr = tcc_read(TCC_BERR_ADDR);
+
+		printf("tcc bus error: intr %llx error %llx (%u) addr %08llx\n",
+		    intr, error, errtype, addr);
+	}
 
 	/* Ack error condition */
 	errack = 0;
@@ -152,6 +163,7 @@ tcc_ConfigCache(struct cpu_info *ci)
 
 		ci->ci_SyncCache = tcc_SyncCache;
 		ci->ci_SyncDCachePage = tcc_SyncDCachePage;
+		ci->ci_HitSyncDCachePage = tcc_SyncDCachePage;
 		ci->ci_HitSyncDCache = tcc_HitSyncDCache;
 		ci->ci_HitInvalidateDCache = tcc_HitInvalidateDCache;
 		ci->ci_IOSyncDCache = tcc_IOSyncDCache;

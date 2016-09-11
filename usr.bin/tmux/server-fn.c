@@ -1,7 +1,7 @@
-/* $OpenBSD: server-fn.c,v 1.91 2015/10/27 15:58:42 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.99 2016/06/16 10:55:47 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -34,20 +34,19 @@ void		server_callback_identify(int, short, void *);
 void
 server_fill_environ(struct session *s, struct environ *env)
 {
-	char	var[PATH_MAX], *term;
-	u_int	idx;
-	long	pid;
+	char	*term;
+	u_int	 idx;
+	long	 pid;
 
 	if (s != NULL) {
 		term = options_get_string(global_options, "default-terminal");
-		environ_set(env, "TERM", term);
+		environ_set(env, "TERM", "%s", term);
 
 		idx = s->id;
 	} else
 		idx = (u_int)-1;
 	pid = getpid();
-	xsnprintf(var, sizeof var, "%s,%ld,%u", socket_path, pid, idx);
-	environ_set(env, "TMUX", var);
+	environ_set(env, "TMUX", "%s,%ld,%u", socket_path, pid, idx);
 }
 
 void
@@ -294,12 +293,13 @@ server_unlink_window(struct session *s, struct winlink *wl)
 }
 
 void
-server_destroy_pane(struct window_pane *wp)
+server_destroy_pane(struct window_pane *wp, int hooks)
 {
 	struct window		*w = wp->window;
 	int			 old_fd;
 	struct screen_write_ctx	 ctx;
 	struct grid_cell	 gc;
+	struct cmd_find_state	 fs;
 
 	old_fd = wp->fd;
 	if (wp->fd != -1) {
@@ -320,12 +320,18 @@ server_destroy_pane(struct window_pane *wp)
 		screen_write_puts(&ctx, &gc, "Pane is dead");
 		screen_write_stop(&ctx);
 		wp->flags |= PANE_REDRAW;
+
+		if (hooks && cmd_find_from_pane(&fs, wp) == 0)
+			hooks_run(hooks_get(fs.s), NULL, &fs, "pane-died");
 		return;
 	}
 
 	server_unzoom_window(w);
 	layout_close_pane(wp);
 	window_remove_pane(w, wp);
+
+	if (hooks && cmd_find_from_window(&fs, w) == 0)
+		hooks_run(hooks_get(fs.s), NULL, &fs, "pane-exited");
 
 	if (TAILQ_EMPTY(&w->panes))
 		server_kill_window(w);
@@ -385,11 +391,13 @@ server_destroy_session(struct session *s)
 		} else {
 			c->last_session = NULL;
 			c->session = s_new;
+			server_client_set_key_table(c, NULL);
 			status_timer_start(c);
 			notify_attached_session_changed(c);
 			session_update_activity(s_new, NULL);
 			gettimeofday(&s_new->last_attached_time, NULL);
 			server_redraw_client(c);
+			alerts_check_session(s_new);
 		}
 	}
 	recalculate_sizes();
@@ -433,65 +441,23 @@ server_set_identify(struct client *c)
 }
 
 void
-server_clear_identify(struct client *c)
+server_clear_identify(struct client *c, struct window_pane *wp)
 {
-	if (c->flags & CLIENT_IDENTIFY) {
-		c->flags &= ~CLIENT_IDENTIFY;
-		c->tty.flags &= ~(TTY_FREEZE|TTY_NOCURSOR);
-		server_redraw_client(c);
-	}
+	if (~c->flags & CLIENT_IDENTIFY)
+		return;
+	c->flags &= ~CLIENT_IDENTIFY;
+
+	if (c->identify_callback != NULL)
+		c->identify_callback(c, wp);
+
+	c->tty.flags &= ~(TTY_FREEZE|TTY_NOCURSOR);
+	server_redraw_client(c);
 }
 
 void
-server_callback_identify(unused int fd, unused short events, void *data)
+server_callback_identify(__unused int fd, __unused short events, void *data)
 {
-	struct client	*c = data;
-
-	server_clear_identify(c);
-}
-
-/* Push stdout to client if possible. */
-void
-server_push_stdout(struct client *c)
-{
-	struct msg_stdout_data data;
-	size_t                 size;
-
-	size = EVBUFFER_LENGTH(c->stdout_data);
-	if (size == 0)
-		return;
-	if (size > sizeof data.data)
-		size = sizeof data.data;
-
-	memcpy(data.data, EVBUFFER_DATA(c->stdout_data), size);
-	data.size = size;
-
-	if (proc_send(c->peer, MSG_STDOUT, -1, &data, sizeof data) == 0)
-		evbuffer_drain(c->stdout_data, size);
-}
-
-/* Push stderr to client if possible. */
-void
-server_push_stderr(struct client *c)
-{
-	struct msg_stderr_data data;
-	size_t                 size;
-
-	if (c->stderr_data == c->stdout_data) {
-		server_push_stdout(c);
-		return;
-	}
-	size = EVBUFFER_LENGTH(c->stderr_data);
-	if (size == 0)
-		return;
-	if (size > sizeof data.data)
-		size = sizeof data.data;
-
-	memcpy(data.data, EVBUFFER_DATA(c->stderr_data), size);
-	data.size = size;
-
-	if (proc_send(c->peer, MSG_STDERR, -1, &data, sizeof data) == 0)
-		evbuffer_drain(c->stderr_data, size);
+	server_clear_identify(data, NULL);
 }
 
 /* Set stdin callback. */

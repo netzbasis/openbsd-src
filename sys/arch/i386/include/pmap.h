@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.h,v 1.79 2015/10/23 09:36:09 kettenis Exp $	*/
+/*	$OpenBSD: pmap.h,v 1.82 2016/03/15 03:17:51 guenther Exp $	*/
 /*	$NetBSD: pmap.h,v 1.44 2000/04/24 17:18:18 thorpej Exp $	*/
 
 /*
@@ -106,13 +106,7 @@ struct pmap {
 	int pm_flags;			/* see below */
 
 	struct segment_descriptor pm_codeseg;	/* cs descriptor for process */
-	union descriptor *pm_ldt;	/* user-set LDT */
-	int pm_ldt_len;			/* number of LDT entries */
-	int pm_ldt_sel;			/* LDT selector */
 };
-
-/* pm_flags */
-#define	PMF_USER_LDT	0x01	/* pmap has user-set LDT */
 
 /*
  * For each managed physical page we maintain a list of <PMAP,VA>s
@@ -223,7 +217,6 @@ void pmap_init(void);
 struct pmap *pmap_create(void);
 void pmap_destroy(struct pmap *);
 void pmap_reference(struct pmap *);
-void pmap_fork(struct pmap *, struct pmap *);
 void pmap_remove(struct pmap *, vaddr_t, vaddr_t);
 void pmap_collect(struct pmap *);
 void pmap_activate(struct proc *);
@@ -333,8 +326,8 @@ void pmap_tlb_shootwait(void);
 #define pmap_tlb_shootwait()
 #endif
 
-void pmap_prealloc_lowmem_ptp();
-void pmap_prealloc_lowmem_ptp_pae();
+void pmap_prealloc_lowmem_ptp(void);
+void pmap_prealloc_lowmem_ptp_pae(void);
 vaddr_t pmap_tmpmap_pa(paddr_t);
 void pmap_tmpunmap_pa(void);
 vaddr_t pmap_tmpmap_pa_pae(paddr_t);
@@ -457,11 +450,6 @@ pmap_is_curpmap(struct pmap *pmap)
 {
 	return (pmap_is_active(pmap, curcpu()));
 }
-
-#if defined(USER_LDT)
-void	pmap_ldt_cleanup(struct proc *);
-#define	PMAP_FORK
-#endif /* USER_LDT */
 
 #endif /* _KERNEL */
 

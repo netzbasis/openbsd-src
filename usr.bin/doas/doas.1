@@ -1,4 +1,4 @@
-.\" $OpenBSD: doas.1,v 1.14 2015/07/27 17:57:06 jmc Exp $
+.\" $OpenBSD: doas.1,v 1.19 2016/09/04 15:20:37 tedu Exp $
 .\"
 .\"Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
 .\"
@@ -13,7 +13,7 @@
 .\"WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 .\"ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\"OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-.Dd $Mdocdate: July 27 2015 $
+.Dd $Mdocdate: September 4 2016 $
 .Dt DOAS 1
 .Os
 .Sh NAME
@@ -21,7 +21,8 @@
 .Nd execute commands as another user
 .Sh SYNOPSIS
 .Nm doas
-.Op Fl ns
+.Op Fl Lns
+.Op Fl a Ar style
 .Op Fl C Ar config
 .Op Fl u Ar user
 .Ar command
@@ -33,13 +34,22 @@ utility executes the given command as another user.
 The
 .Ar command
 argument is mandatory unless
-.Fl C
+.Fl C ,
+.Fl L ,
 or
 .Fl s
 is specified.
 .Pp
 The options are as follows:
 .Bl -tag -width tenletters
+.It Fl a Ar style
+Use the specified authentication style when validating the user,
+as allowed by
+.Pa /etc/login.conf .
+A list of doas-specific authentication methods may be configured by adding an
+.Sq auth-doas
+entry in
+.Xr login.conf 5 .
 .It Fl C Ar config
 Parse and check the configuration file
 .Ar config ,
@@ -57,7 +67,11 @@ or
 .Sq deny
 will be printed on standard output, depending on command
 matching results.
-In either case, no command is executed.
+No command is executed.
+.It Fl L
+Clear any persisted authorizations from previous invocations,
+then immediately exit.
+No command is executed.
 .It Fl n
 Non interactive mode, fail if
 .Nm

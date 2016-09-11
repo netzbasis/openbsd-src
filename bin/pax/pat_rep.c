@@ -1,4 +1,4 @@
-/*	$OpenBSD: pat_rep.c,v 1.39 2015/03/17 03:23:17 guenther Exp $	*/
+/*	$OpenBSD: pat_rep.c,v 1.41 2016/08/26 04:19:28 guenther Exp $	*/
 /*	$NetBSD: pat_rep.c,v 1.4 1995/03/21 09:07:33 cgd Exp $	*/
 
 /*-
@@ -35,17 +35,26 @@
  */
 
 #include <sys/types.h>
-#include <sys/time.h>
 #include <sys/stat.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <errno.h>
 #include <regex.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "pax.h"
-#include "pat_rep.h"
 #include "extern.h"
+
+/*
+ * data structure for storing user supplied replacement strings (-s)
+ */
+typedef struct replace {
+	char		*nstr;	/* the new string we will substitute with */
+	regex_t		rcmp;	/* compiled regular expression used to match */
+	int		flgs;	/* print conversions? global in operation?  */
+#define	PRNT		0x1
+#define	GLOB		0x2
+	struct replace	*fow;	/* pointer to next pattern */
+} REPLACE;
 
 /*
  * routines to handle pattern matching, name modification (regular expression
@@ -294,7 +303,7 @@ pat_sel(ARCHD *arcn)
 {
 	PATTERN *pt;
 	PATTERN **ppt;
-	int len;
+	size_t len;
 
 	/*
 	 * if no patterns just return

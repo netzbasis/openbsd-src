@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread_sem.c,v 1.20 2015/01/16 16:48:52 deraadt Exp $ */
+/*	$OpenBSD: rthread_sem.c,v 1.25 2016/09/04 10:13:35 akfaew Exp $ */
 /*
  * Copyright (c) 2004,2005,2013 Ted Unangst <tedu@openbsd.org>
  * All Rights Reserved.
@@ -32,6 +32,7 @@
 #include <pthread.h>
 
 #include "rthread.h"
+#include "cancel.h"		/* in libc/include */
 
 #define SHARED_IDENT ((void *)-1)
 
@@ -46,7 +47,7 @@
  * Size of memory to be mmap()'ed by named semaphores.
  * Should be >= SEM_PATH_SIZE and page-aligned.
  */
-#define SEM_MMAP_SIZE	getpagesize()
+#define SEM_MMAP_SIZE	_thread_pagesize
 
 /*
  * Internal implementation of semaphores
@@ -70,9 +71,8 @@ _sem_wait(sem_t sem, int tryonly, const struct timespec *abstime,
 	} else {
 		sem->waitcount++;
 		do {
-			r = __thrsleep(ident, CLOCK_REALTIME |
-			    _USING_TICKETS, abstime, &sem->lock.ticket,
-			    delayed_cancel);
+			r = __thrsleep(ident, CLOCK_REALTIME, abstime,
+			    &sem->lock, delayed_cancel);
 			_spinlock(&sem->lock);
 			/* ignore interruptions other than cancelation */
 			if (r == EINTR && (delayed_cancel == NULL ||
@@ -160,7 +160,7 @@ sem_init(sem_t *semp, int pshared, unsigned int value)
 		errno = ENOSPC;
 		return (-1);
 	}
-	sem->lock = _SPINLOCK_UNLOCKED_ASSIGN;
+	sem->lock = _SPINLOCK_UNLOCKED;
 	sem->value = value;
 	*semp = sem;
 
@@ -229,18 +229,24 @@ sem_post(sem_t *semp)
 int
 sem_wait(sem_t *semp)
 {
-	pthread_t self = pthread_self();
+	struct tib *tib = TIB_GET();
+	pthread_t self;
 	sem_t sem;
 	int r;
+	PREP_CANCEL_POINT(tib);
+
+	if (!_threads_ready)
+		_rthread_init();
+	self = tib->tib_thread;
 
 	if (!semp || !(sem = *semp)) {
 		errno = EINVAL;
 		return (-1);
 	}
 
-	_enter_delayed_cancel(self);
+	ENTER_DELAYED_CANCEL_POINT(tib, self);
 	r = _sem_wait(sem, 0, NULL, &self->delayed_cancel);
-	_leave_delayed_cancel(self, r);
+	LEAVE_CANCEL_POINT_INNER(tib, r);
 
 	if (r) {
 		errno = r;
@@ -253,18 +259,24 @@ sem_wait(sem_t *semp)
 int
 sem_timedwait(sem_t *semp, const struct timespec *abstime)
 {
-	pthread_t self = pthread_self();
+	struct tib *tib = TIB_GET();
+	pthread_t self;
 	sem_t sem;
 	int r;
+	PREP_CANCEL_POINT(tib);
+
+	if (!_threads_ready)
+		_rthread_init();
+	self = tib->tib_thread;
 
 	if (!semp || !(sem = *semp)) {
 		errno = EINVAL;
 		return (-1);
 	}
 
-	_enter_delayed_cancel(self);
+	ENTER_DELAYED_CANCEL_POINT(tib, self);
 	r = _sem_wait(sem, 0, abstime, &self->delayed_cancel);
-	_leave_delayed_cancel(self, r);
+	LEAVE_CANCEL_POINT_INNER(tib, r);
 
 	if (r) {
 		errno = r == EWOULDBLOCK ? ETIMEDOUT : r;
@@ -314,6 +326,9 @@ sem_open(const char *name, int oflag, ...)
 	unsigned int value = 0;
 	int created = 0, fd;
 
+	if (!_threads_ready)
+		_rthread_init();
+
 	if (oflag & ~(O_CREAT | O_EXCL)) {
 		errno = EINVAL;
 		return (SEM_FAILED);
@@ -342,12 +357,12 @@ sem_open(const char *name, int oflag, ...)
 		errno = EINVAL;
 		return (SEM_FAILED);
 	}
-	if (sb.st_uid != getuid()) {
+	if (sb.st_uid != geteuid()) {
 		close(fd);
 		errno = EPERM;
 		return (SEM_FAILED);
 	}
-	if (sb.st_size != SEM_MMAP_SIZE) {
+	if (sb.st_size != (off_t)SEM_MMAP_SIZE) {
 		if (!(oflag & O_CREAT)) {
 			close(fd);
 			errno = EINVAL;
@@ -380,7 +395,7 @@ sem_open(const char *name, int oflag, ...)
 		return (SEM_FAILED);
 	}
 	if (created) {
-		sem->lock = _SPINLOCK_UNLOCKED_ASSIGN;
+		sem->lock = _SPINLOCK_UNLOCKED;
 		sem->value = value;
 		sem->shared = 1;
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-snmp.c,v 1.18 2015/01/16 06:40:21 deraadt Exp $	*/
+/*	$OpenBSD: print-snmp.c,v 1.21 2016/03/15 05:03:11 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1990, 1991, 1993, 1994, 1995, 1996, 1997
@@ -58,9 +58,6 @@
 #include <sys/time.h>
 
 #include <ctype.h>
-#ifdef HAVE_MEMORY_H
-#include <memory.h>
-#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -349,7 +346,6 @@ struct be {
  * it to decode.
  */
 static int truncated;
-#define ifNotTruncated if (truncated) fputs("[|snmp]", stdout); else
 
 /*
  * This decodes the next ASN.1 object in the stream pointed to by "p"
@@ -360,7 +356,7 @@ static int truncated;
  * O/w, this returns the number of bytes parsed from "p".
  */
 static int
-asn1_parse(register const u_char *p, u_int len, struct be *elem)
+asn1_parse(const u_char *p, u_int len, struct be *elem)
 {
 	u_char form, class, id;
 	int i, hdr;
@@ -368,7 +364,10 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 	elem->asnlen = 0;
 	elem->type = BE_ANY;
 	if (len < 1) {
-		ifNotTruncated puts("[nothing to parse], stdout");
+		if (truncated)
+			fputs("[|snmp]", stdout);
+		else
+			fputs("[nothing to parse]", stdout);
 		return -1;
 	}
 
@@ -402,7 +401,10 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 			id = (id << 7) | (*p & ~ASN_BIT8);
 		}
 		if (len == 0 && *p & ASN_BIT8) {
-			ifNotTruncated fputs("[Xtagfield?]", stdout);
+			if (truncated)
+				fputs("[|snmp]", stdout);
+			else 
+				fputs("[Xtagfield?]", stdout);
 			return -1;
 		}
 		elem->id = id = (id << 7) | *p;
@@ -411,7 +413,10 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 		++p;
 	}
 	if (len < 1) {
-		ifNotTruncated fputs("[no asnlen]", stdout);
+		if (truncated)
+			fputs("[|snmp]", stdout);
+		else
+			fputs("[no asnlen]", stdout);
 		return -1;
 	}
 	elem->asnlen = *p;
@@ -422,7 +427,10 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 		int noct = elem->asnlen % ASN_BIT8;
 		elem->asnlen = 0;
 		if (len < noct) {
-			ifNotTruncated printf("[asnlen? %d<%d]", len, noct);
+			if (truncated)
+				fputs("[|snmp]", stdout);
+			else
+				printf("[asnlen? %d<%d]", len, noct);
 			return -1;
 		}
 		for (; noct-- > 0; len--, hdr++) {
@@ -440,16 +448,25 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 		elem->asnlen = len;
 	}
 	if (form >= sizeof(Form)/sizeof(Form[0])) {
-		ifNotTruncated printf("[form?%d]", form);
+		if (truncated)
+			fputs("[|snmp]", stdout);
+		else
+			printf("[form?%d]", form);
 		return -1;
 	}
 	if (class >= sizeof(Class)/sizeof(Class[0])) {
-		ifNotTruncated printf("[class?%c/%d]", *Form[form], class);
+		if (truncated)
+			fputs("[|snmp]", stdout);
+		else
+			printf("[class?%c/%d]", *Form[form], class);
 		return -1;
 	}
 	if ((int)id >= Class[class].numIDs) {
-		ifNotTruncated printf("[id?%c/%s/%d]", *Form[form],
-			Class[class].name, id);
+		if (truncated)
+			fputs("[|snmp]", stdout);
+		else
+			printf("[id?%c/%s/%d]", *Form[form],
+			    Class[class].name, id);
 		return -1;
 	}
 
@@ -464,7 +481,7 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 				break;
 
 			case INTEGER: {
-				register int32_t data;
+				int32_t data;
 				elem->type = BE_INT;
 				data = 0;
 
@@ -508,7 +525,7 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 			case OPAQUE:
 			case NSAPADDR:
 			case UINTEGER32: {
-				register u_int32_t data;
+				u_int32_t data;
 				elem->type = BE_UNS;
 				data = 0;
 				for (i = elem->asnlen; i-- > 0; p++)
@@ -518,7 +535,7 @@ asn1_parse(register const u_char *p, u_int len, struct be *elem)
 			}
 
 			case COUNTER64: {
-				register u_int64_t data;
+				u_int64_t data;
 				elem->type = BE_UNS64;
 				data = 0;
 				for (i = elem->asnlen; i-- > 0; p++)
@@ -656,7 +673,7 @@ asn1_print(struct be *elem)
 		break;
 
 	case BE_STR: {
-		register int printable = 1, first = 1;
+		int printable = 1, first = 1;
 		const u_char *p = elem->data.str;
 		for (i = asnlen; printable && i-- > 0; p++)
 			printable = isprint(*p) || isspace(*p);

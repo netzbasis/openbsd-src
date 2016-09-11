@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nge.c,v 1.86 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_nge.c,v 1.91 2016/04/13 10:34:32 mpi Exp $	*/
 /*
  * Copyright (c) 2001 Wind River Systems
  * Copyright (c) 1997, 1998, 1999, 2000, 2001
@@ -101,16 +101,10 @@
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -799,7 +793,6 @@ nge_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_watchdog = nge_watchdog;
 	ifp->if_hardmtu = NGE_JUMBO_MTU;
 	IFQ_SET_MAXLEN(&ifp->if_snd, NGE_TX_LIST_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	DPRINTFN(5, ("%s: bcopy\n", sc->sc_dv.dv_xname));
 	bcopy(sc->sc_dv.dv_xname, ifp->if_xname, IFNAMSIZ);
 
@@ -1154,7 +1147,7 @@ nge_txeof(struct nge_softc *sc)
 		if (cur_tx->nge_mbuf != NULL) {
 			m_freem(cur_tx->nge_mbuf);
 			cur_tx->nge_mbuf = NULL;
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 		}
 
 		sc->nge_cdata.nge_tx_cnt--;
@@ -1409,21 +1402,22 @@ nge_start(struct ifnet *ifp)
 
 	idx = sc->nge_cdata.nge_tx_prod;
 
-	if (ifp->if_flags & IFF_OACTIVE)
+	if (ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	while(sc->nge_ldata->nge_tx_list[idx].nge_mbuf == NULL) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		m_head = ifq_deq_begin(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
 		if (nge_encap(sc, m_head, &idx)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m_head);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		ifq_deq_commit(&ifp->if_snd, m_head);
 		pkts++;
 
 #if NBPFILTER > 0
@@ -1626,7 +1620,7 @@ nge_init(void *xsc)
 	    nge_ifmedia_mii_upd(ifp);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 }
@@ -1881,7 +1875,8 @@ nge_stop(struct nge_softc *sc)
 
 	timeout_del(&sc->nge_timeout);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	CSR_WRITE_4(sc, NGE_IER, 0);
 	CSR_WRITE_4(sc, NGE_IMR, 0);

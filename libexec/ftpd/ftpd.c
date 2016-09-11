@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftpd.c,v 1.210 2015/10/25 23:10:53 millert Exp $	*/
+/*	$OpenBSD: ftpd.c,v 1.223 2016/09/03 15:00:48 jca Exp $	*/
 /*	$NetBSD: ftpd.c,v 1.15 1995/06/03 22:46:47 mycroft Exp $	*/
 
 /*
@@ -151,9 +151,6 @@ char	remotehost[HOST_NAME_MAX+1];
 char	dhostname[HOST_NAME_MAX+1];
 char	*guestpw;
 char	ttyline[20];
-#if 0
-char	*tty = ttyline;		/* for klogin */
-#endif
 static struct utmp utmp;	/* for utmp */
 static	login_cap_t *lc;
 static	auth_session_t *as;
@@ -172,9 +169,7 @@ int epsvall = 0;
 int	swaitmax = SWAITMAX;
 int	swaitint = SWAITINT;
 
-#ifdef HASSETPROCTITLE
 char	proctitle[BUFSIZ];	/* initial part of title */
-#endif /* HASSETPROCTITLE */
 
 #define LOGCMD(cmd, file) \
 	if (logging > 1) \
@@ -187,12 +182,13 @@ char	proctitle[BUFSIZ];	/* initial part of title */
 		*(file2) == '/' ? "" : curdir(), file2);
 #define LOGBYTES(cmd, file, cnt) \
 	if (logging > 1) { \
-		if (cnt == (off_t)-1) \
+		if ((cnt) == -1) \
 		    syslog(LOG_INFO,"%s %s%s", cmd, \
 			*(file) == '/' ? "" : curdir(), file); \
 		else \
-		    syslog(LOG_INFO, "%s %s%s = %qd bytes", \
-			cmd, (*(file) == '/') ? "" : curdir(), file, cnt); \
+		    syslog(LOG_INFO, "%s %s%s = %lld bytes", \
+			cmd, (*(file) == '/') ? "" : curdir(), file, \
+			(long long)(cnt)); \
 	}
 
 static void	 ack(char *);
@@ -530,58 +526,29 @@ main(int argc, char *argv[])
 	}
 	if (his_addr.su_family == AF_INET6 &&
 	    IN6_IS_ADDR_V4MAPPED(&his_addr.su_sin6.sin6_addr)) {
-#if 1
-		/*
-		 * IPv4 control connection arrived to AF_INET6 socket.
-		 * I hate to do this, but this is the easiest solution.
-		 */
-		union sockunion tmp_addr;
-		const int off = sizeof(struct in6_addr) - sizeof(struct in_addr);
-
-		tmp_addr = his_addr;
-		memset(&his_addr, 0, sizeof(his_addr));
-		his_addr.su_sin.sin_family = AF_INET;
-		his_addr.su_sin.sin_len = sizeof(his_addr.su_sin);
-		memcpy(&his_addr.su_sin.sin_addr,
-		    &tmp_addr.su_sin6.sin6_addr.s6_addr[off],
-		    sizeof(his_addr.su_sin.sin_addr));
-		his_addr.su_sin.sin_port = tmp_addr.su_sin6.sin6_port;
-
-		tmp_addr = ctrl_addr;
-		memset(&ctrl_addr, 0, sizeof(ctrl_addr));
-		ctrl_addr.su_sin.sin_family = AF_INET;
-		ctrl_addr.su_sin.sin_len = sizeof(ctrl_addr.su_sin);
-		memcpy(&ctrl_addr.su_sin.sin_addr,
-		    &tmp_addr.su_sin6.sin6_addr.s6_addr[off],
-		    sizeof(ctrl_addr.su_sin.sin_addr));
-		ctrl_addr.su_sin.sin_port = tmp_addr.su_sin6.sin6_port;
-#else
-		while (fgets(line, sizeof(line), fd) != NULL) {
-			line[strcspn(line, "\n")] = '\0';
-			lreply(530, "%s", line);
-		}
-		(void) fflush(stdout);
-		(void) close(fd);
-		reply(530,
-			"Connection from IPv4 mapped address is not supported.");
-		exit(0);
-#endif
+		syslog(LOG_WARNING,
+		    "Connection from IPv4 mapped address is not supported.");
+		reply(530, "System not available.");
+		exit(1);
 	}
-#ifdef IP_TOS
-	if (his_addr.su_family == AF_INET) {
-		tos = IPTOS_LOWDELAY;
+	tos = IPTOS_LOWDELAY;
+	switch (his_addr.su_family) {
+	case AF_INET:
 		if (setsockopt(0, IPPROTO_IP, IP_TOS, &tos,
 		    sizeof(int)) < 0)
 			syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
+		break;
+	case AF_INET6:
+		if (setsockopt(0, IPPROTO_IPV6, IPV6_TCLASS, &tos,
+		    sizeof(int)) < 0)
+			syslog(LOG_WARNING, "setsockopt (IPV6_TCLASS): %m");
+		break;
 	}
-#endif
 	data_source.su_port = htons(ntohs(ctrl_addr.su_port) - 1);
 
 	/* Try to handle urgent data inline */
-#ifdef SO_OOBINLINE
 	if (setsockopt(0, SOL_SOCKET, SO_OOBINLINE, &on, sizeof(on)) < 0)
 		syslog(LOG_ERR, "setsockopt: %m");
-#endif
 
 	dolog((struct sockaddr *)&his_addr);
 
@@ -941,8 +908,7 @@ pass(char *passwd)
 		}
 	} else if (lc != NULL) {
 		/* Save anonymous' password. */
-		if (guestpw != NULL)
-			free(guestpw);
+		free(guestpw);
 		guestpw = strdup(passwd);
 		if (guestpw == NULL) {
 			kill_slave("out of mem");
@@ -982,7 +948,7 @@ pass(char *passwd)
 		flags |= LOGIN_SETUMASK;
 	else
 		(void) umask(defumask);
-	if (setusercontext(lc, pw, (uid_t)0, flags) != 0) {
+	if (setusercontext(lc, pw, 0, flags) != 0) {
 		perror_reply(421, "Local resource failure: setusercontext");
 		syslog(LOG_NOTICE, "setusercontext: %m");
 		dologout(1);
@@ -995,7 +961,7 @@ pass(char *passwd)
 
 	/* open utmp before chroot */
 	if (doutmp) {
-		memset((void *)&utmp, 0, sizeof(utmp));
+		memset(&utmp, 0, sizeof(utmp));
 		(void)time(&utmp.ut_time);
 		(void)strncpy(utmp.ut_name, pw->pw_name, sizeof(utmp.ut_name));
 		(void)strncpy(utmp.ut_host, remotehost, sizeof(utmp.ut_host));
@@ -1080,11 +1046,11 @@ pass(char *passwd)
 		} else
 			lreply(230, "No directory! Logging in with home=/");
 	}
-	if (setegid(pw->pw_gid) < 0 || setgid(pw->pw_gid) < 0) {
+	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) < 0) {
 		reply(550, "Can't set gid.");
 		goto bad;
 	}
-	if (seteuid(pw->pw_uid) < 0 || setuid(pw->pw_uid) < 0) {
+	if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) < 0) {
 		reply(550, "Can't set uid.");
 		goto bad;
 	}
@@ -1115,27 +1081,22 @@ pass(char *passwd)
 		(void) fflush(stdout);
 		(void) fclose(fp);
 	}
-	if (motd != NULL)
-		free(motd);
+	free(motd);
 	if (guest) {
 		reply(230, "Guest login ok, access restrictions apply.");
-#ifdef HASSETPROCTITLE
 		snprintf(proctitle, sizeof(proctitle),
 		    "%s: anonymous/%.*s", remotehost,
 		    (int)(sizeof(proctitle) - sizeof(remotehost) -
 		    sizeof(": anonymous/")), passwd);
 		setproctitle("%s", proctitle);
-#endif /* HASSETPROCTITLE */
 		if (logging)
 			syslog(LOG_INFO, "ANONYMOUS FTP LOGIN FROM %s, %s",
 			    remotehost, passwd);
 	} else {
 		reply(230, "User %s logged in.", pw->pw_name);
-#ifdef HASSETPROCTITLE
 		snprintf(proctitle, sizeof(proctitle),
 		    "%s: %s", remotehost, pw->pw_name);
 		setproctitle("%s", proctitle);
-#endif /* HASSETPROCTITLE */
 		if (logging)
 			syslog(LOG_INFO, "FTP LOGIN FROM %s as %s",
 			    remotehost, pw->pw_name);
@@ -1159,7 +1120,7 @@ retrieve(char *cmd, char *name)
 	pid_t pid;
 	time_t start;
 
-	if (cmd == 0) {
+	if (cmd == NULL) {
 		fin = fopen(name, "r");
 		st.st_size = 0;
 	} else {
@@ -1174,14 +1135,15 @@ retrieve(char *cmd, char *name)
 	if (fin == NULL) {
 		if (errno != 0) {
 			perror_reply(550, name);
-			if (cmd == 0) {
+			if (cmd == NULL) {
 				LOGCMD("get", name);
 			}
 		}
 		return;
 	}
 	byte_count = -1;
-	if (cmd == 0 && (fstat(fileno(fin), &st) < 0 || !S_ISREG(st.st_mode))) {
+	if (cmd == NULL &&
+	    (fstat(fileno(fin), &st) < 0 || !S_ISREG(st.st_mode))) {
 		reply(550, "%s: not a plain file.", name);
 		goto done;
 	}
@@ -1212,9 +1174,9 @@ retrieve(char *cmd, char *name)
 	if (dout == NULL)
 		goto done;
 	time(&start);
-	send_data(fin, dout, (off_t)st.st_blksize, st.st_size,
-	    (restart_point == 0 && cmd == 0 && S_ISREG(st.st_mode)));
-	if ((cmd == 0) && stats)
+	send_data(fin, dout, st.st_blksize, st.st_size,
+	    (restart_point == 0 && cmd == NULL && S_ISREG(st.st_mode)));
+	if ((cmd == NULL) && stats)
 		logxfer(name, byte_count, start);
 	(void) fclose(dout);
 	data = -1;
@@ -1222,7 +1184,7 @@ done:
 	if (pdata >= 0)
 		(void) close(pdata);
 	pdata = -1;
-	if (cmd == 0) {
+	if (cmd == NULL) {
 		LOGBYTES("get", name, byte_count);
 		fclose(fin);
 	} else {
@@ -1284,7 +1246,7 @@ store(char *name, char *mode, int unique)
 			 * because we are changing from reading to
 			 * writing.
 			 */
-			if (fseek(fout, 0L, SEEK_CUR) < 0) {
+			if (fseek(fout, 0, SEEK_CUR) < 0) {
 				perror_reply(550, name);
 				goto done;
 			}
@@ -1293,7 +1255,7 @@ store(char *name, char *mode, int unique)
 			goto done;
 		}
 	}
-	din = dataconn(name, (off_t)-1, "r");
+	din = dataconn(name, -1, "r");
 	if (din == NULL)
 		goto done;
 	if (receive_data(din, fout) == 0) {
@@ -1314,7 +1276,7 @@ done:
 static FILE *
 getdatasock(char *mode)
 {
-	int on = 1, s, t, tries;
+	int opt, s, t, tries;
 
 	if (data >= 0)
 		return (fdopen(data, mode));
@@ -1322,8 +1284,9 @@ getdatasock(char *mode)
 	s = monitor_socket(ctrl_addr.su_family);
 	if (s < 0)
 		goto bad;
+	opt = 1;
 	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
-	    &on, sizeof(on)) < 0)
+	    &opt, sizeof(opt)) < 0)
 		goto bad;
 	/* anchor socket to avoid multi-homing problems */
 	data_source = ctrl_addr;
@@ -1338,30 +1301,31 @@ getdatasock(char *mode)
 	}
 	sigprocmask (SIG_UNBLOCK, &allsigs, NULL);
 
-#ifdef IP_TOS
-	if (ctrl_addr.su_family == AF_INET) {
-		on = IPTOS_THROUGHPUT;
-		if (setsockopt(s, IPPROTO_IP, IP_TOS, &on,
-		    sizeof(int)) < 0)
+	opt = IPTOS_THROUGHPUT;
+	switch (ctrl_addr.su_family) {
+	case AF_INET:
+		if (setsockopt(s, IPPROTO_IP, IP_TOS, &opt,
+		    sizeof(opt)) < 0)
 			syslog(LOG_WARNING, "setsockopt (IP_TOS): %m");
+		break;
+	case AF_INET6:
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, &opt,
+		    sizeof(opt)) < 0)
+			syslog(LOG_WARNING, "setsockopt (IPV6_TCLASS): %m");
+		break;
 	}
-#endif
-#ifdef TCP_NOPUSH
 	/*
 	 * Turn off push flag to keep sender TCP from sending short packets
 	 * at the boundaries of each write().  Should probably do a SO_SNDBUF
 	 * to set the send buffer size as well, but that may not be desirable
 	 * in heavy-load situations.
 	 */
-	on = 1;
-	if (setsockopt(s, IPPROTO_TCP, TCP_NOPUSH, &on, sizeof(on)) < 0)
+	opt = 1;
+	if (setsockopt(s, IPPROTO_TCP, TCP_NOPUSH, &opt, sizeof(opt)) < 0)
 		syslog(LOG_WARNING, "setsockopt (TCP_NOPUSH): %m");
-#endif
-#ifdef SO_SNDBUF
-	on = 65536;
-	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &on, sizeof(on)) < 0)
+	opt = 65536;
+	if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &opt, sizeof(opt)) < 0)
 		syslog(LOG_WARNING, "setsockopt (SO_SNDBUF): %m");
-#endif
 
 	return (fdopen(s, mode));
 bad:
@@ -1387,9 +1351,9 @@ dataconn(char *name, off_t size, char *mode)
 
 	file_size = size;
 	byte_count = 0;
-	if (size != (off_t) -1) {
-		(void) snprintf(sizebuf, sizeof(sizebuf), " (%qd bytes)",
-		    size);
+	if (size != -1) {
+		(void) snprintf(sizebuf, sizeof(sizebuf), " (%lld bytes)",
+		    (long long)size);
 	} else
 		sizebuf[0] = '\0';
 	if (pdata >= 0) {
@@ -1580,7 +1544,7 @@ send_data(FILE *instr, FILE *outstr, off_t blksize, off_t filesize, int isreg)
 		netfd = fileno(outstr);
 		filefd = fileno(instr);
 
-		if (isreg && filesize < (off_t)16 * 1024 * 1024) {
+		if (isreg && filesize < 16 * 1024 * 1024) {
 			size_t fsize = (size_t)filesize;
 
 			if (fsize == 0) {
@@ -1589,8 +1553,7 @@ send_data(FILE *instr, FILE *outstr, off_t blksize, off_t filesize, int isreg)
 				return(0);
 			}
 
-			buf = mmap(0, fsize, PROT_READ, MAP_SHARED, filefd,
-			    (off_t)0);
+			buf = mmap(0, fsize, PROT_READ, MAP_SHARED, filefd, 0);
 			if (buf == MAP_FAILED) {
 				syslog(LOG_WARNING, "mmap(%llu): %m",
 				    (unsigned long long)fsize);
@@ -1834,11 +1797,7 @@ statcmd(void)
 	if (type == TYPE_A || type == TYPE_E)
 		printf(", FORM: %s", formnames[form]);
 	if (type == TYPE_L)
-#if NBBY == 8
-		printf(" %d", NBBY);
-#else
-		printf(" %d", bytesize);	/* need definition! */
-#endif
+		printf(" 8");
 	printf("; STRUcture: %s; transfer MODE: %s\r\n",
 	    strunames[stru], modenames[mode]);
 	ispassive = 0;
@@ -2148,7 +2107,7 @@ renamefrom(char *name)
 
 	if (stat(name, &st) < 0) {
 		perror_reply(550, name);
-		return ((char *)0);
+		return (NULL);
 	}
 	reply(350, "File exists, ready for destination name");
 	return (name);
@@ -2175,10 +2134,8 @@ dolog(struct sockaddr *sa)
 	else
 		(void) strlcpy(remotehost, "unknown", sizeof(remotehost));
 
-#ifdef HASSETPROCTITLE
 	snprintf(proctitle, sizeof(proctitle), "%s: connected", remotehost);
 	setproctitle("%s", proctitle);
-#endif /* HASSETPROCTITLE */
 
 	if (logging) {
 		int error;
@@ -2245,11 +2202,12 @@ myoob(void)
 	}
 	if (strcmp(cp, "STAT\r\n") == 0) {
 		tmpline[0] = '\0';
-		if (file_size != (off_t) -1)
-			reply(213, "Status: %qd of %qd bytes transferred",
-			    byte_count, file_size);
+		if (file_size != -1)
+			reply(213, "Status: %lld of %lld bytes transferred",
+			    (long long)byte_count, (long long)file_size);
 		else
-			reply(213, "Status: %qd bytes transferred", byte_count);
+			reply(213, "Status: %lld bytes transferred",
+			    (long long)byte_count);
 	}
 }
 
@@ -2327,9 +2285,7 @@ epsvproto2af(int proto)
 
 	switch (proto) {
 	case 1:	return AF_INET;
-#ifdef INET6
 	case 2:	return AF_INET6;
-#endif
 	default: return -1;
 	}
 }
@@ -2340,9 +2296,7 @@ af2epsvproto(int af)
 
 	switch (af) {
 	case AF_INET:	return 1;
-#ifdef INET6
 	case AF_INET6:	return 2;
-#endif
 	default:	return -1;
 	}
 }
@@ -2541,8 +2495,7 @@ extended_port(const char *arg)
 	}
 	reply(200, "EPRT command successful.");
 
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return 0;
@@ -2550,8 +2503,7 @@ extended_port(const char *arg)
 parsefail:
 	reply(500, "Invalid argument, rejected.");
 	usedefault = 1;
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return -1;
@@ -2559,8 +2511,7 @@ parsefail:
 protounsupp:
 	epsv_protounsupp("Protocol not supported");
 	usedefault = 1;
-	if (tmp)
-		free(tmp);
+	free(tmp);
 	if (res)
 		freeaddrinfo(res);
 	return -1;
@@ -2651,6 +2602,7 @@ send_file_list(char *whichf)
 	int simple = 0;
 	volatile int freeglob = 0;
 	glob_t gl;
+	size_t prefixlen;
 
 	if (strpbrk(whichf, "~{[*?") != NULL) {
 		memset(&gl, 0, sizeof(gl));
@@ -2695,7 +2647,7 @@ send_file_list(char *whichf)
 
 		if (S_ISREG(st.st_mode)) {
 			if (dout == NULL) {
-				dout = dataconn("file list", (off_t)-1, "w");
+				dout = dataconn("file list", -1, "w");
 				if (dout == NULL)
 					goto out;
 				transflag++;
@@ -2710,9 +2662,11 @@ send_file_list(char *whichf)
 		if ((dirp = opendir(dirname)) == NULL)
 			continue;
 
+		if (dirname[0] == '.' && dirname[1] == '\0')
+			prefixlen = 0;
+		else
+			prefixlen = strlen(dirname) + 1;
 		while ((dir = readdir(dirp)) != NULL) {
-			char nbuf[PATH_MAX];
-
 			if (recvurg) {
 				myoob();
 				recvurg = 0;
@@ -2726,29 +2680,27 @@ send_file_list(char *whichf)
 			    dir->d_namlen == 2)
 				continue;
 
-			snprintf(nbuf, sizeof(nbuf), "%s/%s", dirname,
-				 dir->d_name);
-
 			/*
 			 * We have to do a stat to insure it's
 			 * not a directory or special file.
 			 */
-			if (simple || (stat(nbuf, &st) == 0 &&
+			if (simple ||
+			    (fstatat(dirfd(dirp), dir->d_name, &st, 0) == 0 &&
 			    S_ISREG(st.st_mode))) {
 				if (dout == NULL) {
-					dout = dataconn("file list", (off_t)-1,
-						"w");
+					dout = dataconn("file list", -1, "w");
 					if (dout == NULL)
 						goto out;
 					transflag++;
 				}
-				if (nbuf[0] == '.' && nbuf[1] == '/')
-					fprintf(dout, "%s%s\n", &nbuf[2],
-						type == TYPE_A ? "\r" : "");
-				else
-					fprintf(dout, "%s%s\n", nbuf,
-						type == TYPE_A ? "\r" : "");
-				byte_count += strlen(nbuf) + 1;
+
+				if (prefixlen) {
+					fprintf(dout, "%s/", dirname);
+					byte_count += prefixlen;
+				}
+				fprintf(dout, "%s%s\n", dir->d_name,
+				    type == TYPE_A ? "\r" : "");
+				byte_count += dir->d_namlen + 1;
 			}
 		}
 		(void) closedir(dirp);
@@ -2816,7 +2768,7 @@ logxfer(char *name, off_t size, time_t start)
 		strvis(vpw, guest? guestpw : pw->pw_name, VIS_SAFE|VIS_NOSLASH);
 
 		len = snprintf(buf, sizeof(buf),
-		    "%.24s %lld %s %qd %s %c %s %c %c %s ftp %d %s %s\n",
+		    "%.24s %lld %s %lld %s %c %s %c %c %s ftp %d %s %s\n",
 		    ctime(&now), (long long)(now - start + (now == start)),
 		    vremotehost, (long long)size, vpath,
 		    ((type == TYPE_A) ? 'a' : 'b'), "*" /* none yet */,
@@ -2863,10 +2815,8 @@ set_slave_signals(void)
 	sa.sa_handler = toolong;
 	(void) sigaction(SIGALRM, &sa, NULL);
 
-#ifdef F_SETOWN
 	if (fcntl(fileno(stdin), F_SETOWN, getpid()) == -1)
 		syslog(LOG_ERR, "fcntl F_SETOWN: %m");
-#endif
 }
 
 /*

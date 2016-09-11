@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.200 2015/11/02 09:21:48 dlg Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.217 2016/09/03 13:42:28 reyk Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -35,7 +35,6 @@
 #ifndef _SYS_MBUF_H_
 #define _SYS_MBUF_H_
 
-#include <sys/malloc.h>
 #include <sys/queue.h>
 
 /*
@@ -122,14 +121,15 @@ struct pkthdr_pf {
 /* record/packet header in first mbuf of chain; valid if M_PKTHDR set */
 struct	pkthdr {
 	void			*ph_cookie;	/* additional data */
-	SLIST_HEAD(packet_tags, m_tag) tags;	/* list of packet tags */
+	SLIST_HEAD(, m_tag)	 ph_tags;	/* list of packet tags */
 	int			 len;		/* total packet length */
-	u_int16_t		 tagsset;	/* mtags attached */
-	u_int16_t		 flowid;	/* pseudo unique flow id */
+	u_int16_t		 ph_tagsset;	/* mtags attached */
+	u_int16_t		 ph_flowid;	/* pseudo unique flow id */
 	u_int16_t		 csum_flags;	/* checksum flags */
 	u_int16_t		 ether_vtag;	/* Ethernet 802.1p+Q vlan tag */
 	u_int			 ph_rtableid;	/* routing table id */
 	u_int			 ph_ifidx;	/* rcv interface index */
+	u_int8_t		 ph_loopcnt;	/* mbuf is looping in kernel */
 	struct pkthdr_pf	 pf;
 };
 
@@ -137,8 +137,8 @@ struct	pkthdr {
 struct mbuf_ext {
 	caddr_t	ext_buf;		/* start of buffer */
 					/* free routine if not the usual */
-	void	(*ext_free)(caddr_t, u_int, void *);
 	void	*ext_arg;
+	u_int	ext_free_fn;
 	u_int	ext_size;		/* size of buffer, for ext_free */
 	struct mbuf *ext_nextref;
 	struct mbuf *ext_prevref;
@@ -184,7 +184,7 @@ struct mbuf {
 /* mbuf pkthdr flags, also in m_flags */
 #define M_VLANTAG	0x0020	/* ether_vtag is valid */
 #define M_LOOP		0x0040	/* for Mbuf statistics */
-#define M_FILDROP	0x0080	/* dropped by bpf filter */
+#define M_ACAST		0x0080	/* received as IPv6 anycast */
 #define M_BCAST		0x0100	/* send/received as link-level broadcast */
 #define M_MCAST		0x0200	/* send/received as link-level multicast */
 #define M_CONF		0x0400  /* payload was encrypted (ESP-transport) */
@@ -197,13 +197,13 @@ struct mbuf {
 #ifdef _KERNEL
 #define M_BITS \
     ("\20\1M_EXT\2M_PKTHDR\3M_EOR\4M_EXTWR\5M_PROTO1\6M_VLANTAG\7M_LOOP" \
-    "\10M_FILDROP\11M_BCAST\12M_MCAST\13M_CONF\14M_AUTH\15M_TUNNEL" \
+    "\10M_ACAST\11M_BCAST\12M_MCAST\13M_CONF\14M_AUTH\15M_TUNNEL" \
     "\16M_ZEROIZE\17M_COMP\20M_LINK0")
 #endif
 
 /* flags copied when copying m_pkthdr */
 #define	M_COPYFLAGS	(M_PKTHDR|M_EOR|M_PROTO1|M_BCAST|M_MCAST|M_CONF|M_COMP|\
-			 M_AUTH|M_LOOP|M_TUNNEL|M_LINK0|M_VLANTAG|M_FILDROP|\
+			 M_AUTH|M_LOOP|M_TUNNEL|M_LINK0|M_VLANTAG|M_ACAST|\
 			 M_ZEROIZE)
 
 /* Checksumming flags */
@@ -242,6 +242,7 @@ struct mbuf {
 #define M_FLOWID_MASK	0x7fff	/* flow id to map to path */
 
 /* flags to m_get/MGET */
+#include <sys/malloc.h>
 #define	M_DONTWAIT	M_NOWAIT
 #define	M_WAIT		M_WAITOK
 
@@ -296,17 +297,20 @@ struct mbuf {
  * MCLGET allocates and adds an mbuf cluster to a normal mbuf;
  * the flag M_EXT is set upon success.
  */
-#define	MEXTADD(m, buf, size, mflags, free, arg) do {			\
+#define	MEXTADD(m, buf, size, mflags, freefn, arg) do {			\
 	(m)->m_data = (m)->m_ext.ext_buf = (caddr_t)(buf);		\
 	(m)->m_flags |= M_EXT | (mflags & M_EXTWR);			\
 	(m)->m_ext.ext_size = (size);					\
-	(m)->m_ext.ext_free = (free);					\
+	(m)->m_ext.ext_free_fn = (freefn);					\
 	(m)->m_ext.ext_arg = (arg);					\
 	MCLINITREFERENCE(m);						\
 } while (/* CONSTCOND */ 0)
 
 #define MCLGET(m, how) (void) m_clget((m), (how), MCLBYTES)
 #define MCLGETI(m, how, ifp, l) m_clget((m), (how), (l))
+
+u_int mextfree_register(void (*)(caddr_t, u_int, void *));
+#define	MEXTFREE_POOL 0
 
 /*
  * Move just m_pkthdr from from to to,
@@ -315,7 +319,8 @@ struct mbuf {
 #define M_MOVE_HDR(to, from) do {					\
 	(to)->m_pkthdr = (from)->m_pkthdr;				\
 	(from)->m_flags &= ~M_PKTHDR;					\
-	SLIST_INIT(&(from)->m_pkthdr.tags);				\
+	SLIST_INIT(&(from)->m_pkthdr.ph_tags);				\
+	(from)->m_pkthdr.pf.statekey = NULL;				\
 } while (/* CONSTCOND */ 0)
 
 /*
@@ -392,6 +397,21 @@ struct mbstat {
 	u_short	m_mtypes[256];	/* type specific mbuf allocations */
 };
 
+#include <sys/mutex.h>
+
+struct mbuf_list {
+	struct mbuf		*ml_head;
+	struct mbuf		*ml_tail;
+	u_int			ml_len;
+};
+
+struct mbuf_queue {
+	struct mutex		mq_mtx;
+	struct mbuf_list	mq_list;
+	u_int			mq_maxlen;
+	u_int			mq_drops;
+};
+
 #ifdef	_KERNEL
 
 extern	struct mbstat mbstat;
@@ -425,13 +445,15 @@ void	m_extref(struct mbuf *, struct mbuf *);
 void	m_extfree_pool(caddr_t, u_int, void *);
 void	m_adj(struct mbuf *, int);
 int	m_copyback(struct mbuf *, int, int, const void *, int);
-void	m_freem(struct mbuf *);
+struct mbuf *m_freem(struct mbuf *);
+void	m_purge(struct mbuf *);
 void	m_reclaim(void *, int);
 void	m_copydata(struct mbuf *, int, int, caddr_t);
 void	m_cat(struct mbuf *, struct mbuf *);
 struct mbuf *m_devget(char *, int, int);
 int	m_apply(struct mbuf *, int, int,
 	    int (*)(caddr_t, caddr_t, unsigned int), caddr_t);
+struct mbuf *m_dup_pkt(struct mbuf *, unsigned int, int);
 int	m_dup_pkthdr(struct mbuf *, struct mbuf *, int);
 
 /* Packet tag routines */
@@ -468,48 +490,38 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
  * length for an existing packet tag type or when adding a new one that
  * has payload larger than the value below.
  */
-#define PACKET_TAG_MAXSIZE		52
+#define PACKET_TAG_MAXSIZE		60
+
+/* Detect mbufs looping in the kernel when spliced too often. */
+#define M_MAXLOOP	128
 
 /*
  * mbuf lists
  */
-
-#include <sys/mutex.h>
-
-struct mbuf_list {
-	struct mbuf		*ml_head;
-	struct mbuf		*ml_tail;
-	u_int			ml_len;
-};
 
 #define MBUF_LIST_INITIALIZER() { NULL, NULL, 0 }
 
 void			ml_init(struct mbuf_list *);
 void			ml_enqueue(struct mbuf_list *, struct mbuf *);
 struct mbuf *		ml_dequeue(struct mbuf_list *);
-void			ml_requeue(struct mbuf_list *, struct mbuf *);
 void			ml_enlist(struct mbuf_list *, struct mbuf_list *);
 struct mbuf *		ml_dechain(struct mbuf_list *);
-struct mbuf *		ml_filter(struct mbuf_list *,
-			    int (*)(void *, const struct mbuf *), void *);
 unsigned int		ml_purge(struct mbuf_list *);
 
 #define	ml_len(_ml)		((_ml)->ml_len)
 #define	ml_empty(_ml)		((_ml)->ml_len == 0)
 
-#define MBUF_LIST_FOREACH(_ml, _m) \
-	for ((_m) = (_ml)->ml_head; (_m) != NULL; (_m) = (_m)->m_nextpkt)
+#define MBUF_LIST_FIRST(_ml)	((_ml)->ml_head)
+#define MBUF_LIST_NEXT(_m)	((_m)->m_nextpkt)
+
+#define MBUF_LIST_FOREACH(_ml, _m)					\
+	for ((_m) = MBUF_LIST_FIRST(_ml);				\
+	    (_m) != NULL;						\
+	    (_m) = MBUF_LIST_NEXT(_m))
 
 /*
  * mbuf queues
  */
-
-struct mbuf_queue {
-	struct mutex		mq_mtx;
-	struct mbuf_list	mq_list;
-	u_int			mq_maxlen;
-	u_int			mq_drops;
-};
 
 #define MBUF_QUEUE_INITIALIZER(_maxlen, _ipl) \
     { MUTEX_INITIALIZER(_ipl), MBUF_LIST_INITIALIZER(), (_maxlen), 0 }
@@ -517,12 +529,9 @@ struct mbuf_queue {
 void			mq_init(struct mbuf_queue *, u_int, int);
 int			mq_enqueue(struct mbuf_queue *, struct mbuf *);
 struct mbuf *		mq_dequeue(struct mbuf_queue *);
-int			mq_requeue(struct mbuf_queue *, struct mbuf *);
 int			mq_enlist(struct mbuf_queue *, struct mbuf_list *);
 void			mq_delist(struct mbuf_queue *, struct mbuf_list *);
 struct mbuf *		mq_dechain(struct mbuf_queue *);
-struct mbuf *		mq_filter(struct mbuf_queue *,
-			    int (*)(void *, const struct mbuf *), void *);
 unsigned int		mq_purge(struct mbuf_queue *);
 
 #define	mq_len(_mq)		ml_len(&(_mq)->mq_list)

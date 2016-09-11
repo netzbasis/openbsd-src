@@ -1,4 +1,4 @@
-/*	$OpenBSD: ktrace.h,v 1.26 2015/10/25 20:39:54 deraadt Exp $	*/
+/*	$OpenBSD: ktrace.h,v 1.32 2016/09/01 08:31:15 tom Exp $	*/
 /*	$NetBSD: ktrace.h,v 1.12 1996/02/04 02:12:29 christos Exp $	*/
 
 /*
@@ -57,12 +57,6 @@ struct ktr_header {
 	char	ktr_comm[MAXCOMLEN+1];	/* command name */
 	size_t	ktr_len;		/* length of buf */
 };
-
-/*
- * Test for kernel trace point
- */
-#define KTRPOINT(p, type)	\
-	((p)->p_p->ps_traceflag & (1<<(type)) && ((p)->p_flag & P_INKTR) == 0)
 
 /*
  * ktrace record types
@@ -129,12 +123,6 @@ struct ktr_psig {
 };
 
 /*
- * KTR_EMUL - emulation change
- */
-#define KTR_EMUL	7
-	/* record contains emulation name */
-
-/*
  * KTR_STRUCT - misc. structs
  */
 #define KTR_STRUCT	8
@@ -171,8 +159,8 @@ struct ktr_user {
 #define	KTR_PLEDGE	12
 struct ktr_pledge {
 	int	error;
-	int	code;
 	int	syscall;
+	int64_t	code;
 };
 
 /*
@@ -184,7 +172,6 @@ struct ktr_pledge {
 #define KTRFAC_NAMEI	(1<<KTR_NAMEI)
 #define KTRFAC_GENIO	(1<<KTR_GENIO)
 #define	KTRFAC_PSIG	(1<<KTR_PSIG)
-#define KTRFAC_EMUL	(1<<KTR_EMUL)
 #define KTRFAC_STRUCT   (1<<KTR_STRUCT)
 #define KTRFAC_USER	(1<<KTR_USER)
 #define KTRFAC_EXECARGS	(1<<KTR_EXECARGS)
@@ -208,16 +195,20 @@ __END_DECLS
 
 #else
 
-void ktremul(struct proc *);
+/*
+ * Test for kernel trace point
+ */
+#define KTRPOINT(p, type)	\
+	((p)->p_p->ps_traceflag & (1<<(type)) && ((p)->p_flag & P_INKTR) == 0)
+
 void ktrgenio(struct proc *, int, enum uio_rw, struct iovec *, ssize_t);
 void ktrnamei(struct proc *, char *);
 void ktrpsig(struct proc *, int, sig_t, int, int, siginfo_t *);
 void ktrsyscall(struct proc *, register_t, size_t, register_t []);
 void ktrsysret(struct proc *, register_t, int, const register_t [2]);
-void ktr_kuser(const char *, void *, size_t);
 int ktruser(struct proc *, const char *, const void *, size_t);
 void ktrexec(struct proc *, int, const char *, ssize_t);
-void ktrpledge(struct proc *, int, int, int);
+void ktrpledge(struct proc *, int, uint64_t, int);
 
 void ktrcleartrace(struct process *);
 void ktrsettrace(struct process *, int, struct vnode *, struct ucred *);
@@ -251,5 +242,9 @@ void    ktrstruct(struct proc *, const char *, const void *, size_t);
 	ktrstruct(p, "iovec", s, (count) * sizeof(struct iovec))
 #define ktrcmsghdr(p, c, len) \
 	ktrstruct(p, "cmsghdr", c, len)
+#define ktrevent(p, kev, count) \
+	ktrstruct(p, "kevent", kev, (count) * sizeof(struct kevent))
+#define ktrpollfd(p, pfd, count) \
+	ktrstruct(p, "pollfd", pfd, (count) * sizeof(struct pollfd))
 
 #endif	/* !_KERNEL */

@@ -1,7 +1,7 @@
-/* $OpenBSD: mode-key.c,v 1.63 2015/05/08 16:33:29 nicm Exp $ */
+/* $OpenBSD: mode-key.c,v 1.68 2016/04/27 09:39:09 nicm Exp $ */
 
 /*
- * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -40,7 +40,7 @@
 
 /* Entry in the default mode key tables. */
 struct mode_key_entry {
-	int			key;
+	key_code		key;
 
 	/*
 	 * Editing mode for vi: 0 is edit mode, keys not in the table are
@@ -140,12 +140,14 @@ const struct mode_key_cmdstr mode_key_cmdstr_copy[] = {
 	{ MODEKEYCOPY_RECTANGLETOGGLE, "rectangle-toggle" },
 	{ MODEKEYCOPY_MIDDLELINE, "middle-line" },
 	{ MODEKEYCOPY_NEXTPAGE, "page-down" },
+	{ MODEKEYCOPY_NEXTPARAGRAPH, "next-paragraph" },
 	{ MODEKEYCOPY_NEXTSPACE, "next-space" },
 	{ MODEKEYCOPY_NEXTSPACEEND, "next-space-end" },
 	{ MODEKEYCOPY_NEXTWORD, "next-word" },
 	{ MODEKEYCOPY_NEXTWORDEND, "next-word-end" },
 	{ MODEKEYCOPY_OTHEREND, "other-end" },
 	{ MODEKEYCOPY_PREVIOUSPAGE, "page-up" },
+	{ MODEKEYCOPY_PREVIOUSPARAGRAPH, "previous-paragraph" },
 	{ MODEKEYCOPY_PREVIOUSSPACE, "previous-space" },
 	{ MODEKEYCOPY_PREVIOUSWORD, "previous-word" },
 	{ MODEKEYCOPY_RIGHT, "cursor-right" },
@@ -335,6 +337,8 @@ const struct mode_key_entry mode_key_vi_copy[] = {
 	{ 'q',			    0, MODEKEYCOPY_CANCEL },
 	{ 'v',			    0, MODEKEYCOPY_RECTANGLETOGGLE },
 	{ 'w',			    0, MODEKEYCOPY_NEXTWORD },
+	{ '{',			    0, MODEKEYCOPY_PREVIOUSPARAGRAPH },
+	{ '}',			    0, MODEKEYCOPY_NEXTPARAGRAPH },
 	{ KEYC_BSPACE,		    0, MODEKEYCOPY_LEFT },
 	{ KEYC_DOWN | KEYC_CTRL,    0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_DOWN,		    0, MODEKEYCOPY_DOWN },
@@ -347,6 +351,7 @@ const struct mode_key_entry mode_key_vi_copy[] = {
 	{ KEYC_WHEELUP_PANE,        0, MODEKEYCOPY_SCROLLUP },
 	{ KEYC_WHEELDOWN_PANE,      0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_MOUSEDRAG1_PANE,     0, MODEKEYCOPY_STARTSELECTION },
+	{ KEYC_MOUSEDRAGEND1_PANE,  0, MODEKEYCOPY_COPYSELECTION },
 
 	{ 0,			   -1, 0 }
 };
@@ -482,6 +487,8 @@ const struct mode_key_entry mode_key_emacs_copy[] = {
 	{ 't',			    0, MODEKEYCOPY_JUMPTO },
 	{ 'v' | KEYC_ESCAPE,	    0, MODEKEYCOPY_PREVIOUSPAGE },
 	{ 'w' | KEYC_ESCAPE,	    0, MODEKEYCOPY_COPYSELECTION },
+	{ '{' | KEYC_ESCAPE,	    0, MODEKEYCOPY_PREVIOUSPARAGRAPH },
+	{ '}' | KEYC_ESCAPE,	    0, MODEKEYCOPY_NEXTPARAGRAPH },
 	{ KEYC_DOWN | KEYC_CTRL,    0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_DOWN | KEYC_ESCAPE,  0, MODEKEYCOPY_HALFPAGEDOWN },
 	{ KEYC_DOWN,		    0, MODEKEYCOPY_DOWN },
@@ -495,6 +502,7 @@ const struct mode_key_entry mode_key_emacs_copy[] = {
 	{ KEYC_WHEELUP_PANE,        0, MODEKEYCOPY_SCROLLUP },
 	{ KEYC_WHEELDOWN_PANE,      0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_MOUSEDRAG1_PANE,     0, MODEKEYCOPY_STARTSELECTION },
+	{ KEYC_MOUSEDRAGEND1_PANE,  0, MODEKEYCOPY_COPYSELECTION },
 
 	{ 0,			   -1, 0 }
 };
@@ -523,9 +531,15 @@ RB_GENERATE(mode_key_tree, mode_key_binding, entry, mode_key_cmp);
 int
 mode_key_cmp(struct mode_key_binding *mbind1, struct mode_key_binding *mbind2)
 {
-	if (mbind1->mode != mbind2->mode)
-		return (mbind1->mode - mbind2->mode);
-	return (mbind1->key - mbind2->key);
+	if (mbind1->mode < mbind2->mode)
+		return (-1);
+	if (mbind1->mode > mbind2->mode)
+		return (1);
+	if (mbind1->key < mbind2->key)
+		return (-1);
+	if (mbind1->key > mbind2->key)
+		return (1);
+	return (0);
 }
 
 const char *
@@ -588,7 +602,7 @@ mode_key_init(struct mode_key_data *mdata, struct mode_key_tree *mtree)
 }
 
 enum mode_key_cmd
-mode_key_lookup(struct mode_key_data *mdata, int key, const char **arg)
+mode_key_lookup(struct mode_key_data *mdata, key_code key, const char **arg)
 {
 	struct mode_key_binding	*mbind, mtmp;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.h,v 1.21 2015/01/09 20:34:21 sthen Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.h,v 1.27 2016/08/15 22:14:19 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.h,v 1.7 2004/04/30 22:51:04 dyoung Exp $	*/
 
 /*-
@@ -95,6 +95,21 @@ struct ieee80211_stats {
 	u_int32_t	is_cmac_replays;
 	u_int32_t	is_cmac_icv_errs;
 	u_int32_t	is_pbac_errs;
+	u_int32_t	is_ht_nego_no_mandatory_mcs;
+	u_int32_t	is_ht_nego_no_basic_mcs;
+	u_int32_t	is_ht_nego_bad_crypto;
+	u_int32_t	is_ht_prot_change;
+	u_int32_t	is_ht_rx_ba_agreements;
+	u_int32_t	is_ht_tx_ba_agreements;
+	u_int32_t	is_ht_rx_frame_below_ba_winstart;
+	u_int32_t	is_ht_rx_frame_above_ba_winend;
+	u_int32_t	is_ht_rx_ba_window_slide;
+	u_int32_t	is_ht_rx_ba_window_jump;
+	u_int32_t	is_ht_rx_ba_no_buf;
+	u_int32_t	is_ht_rx_ba_frame_lost;
+	u_int32_t	is_ht_rx_ba_window_gap_timeout;
+	u_int32_t	is_ht_rx_ba_timeout;
+	u_int32_t	is_ht_tx_ba_timeout;
 };
 
 #define	SIOCG80211STATS		_IOWR('i', 242, struct ifreq)
@@ -167,7 +182,6 @@ struct ieee80211_channel {
 /*
  * Channel attributes (XXX must keep in sync with radiotap flags).
  */
-#define IEEE80211_CHAN_TURBO	0x0010	/* Turbo channel */
 #define IEEE80211_CHAN_CCK	0x0020	/* CCK channel */
 #define IEEE80211_CHAN_OFDM	0x0040	/* OFDM channel */
 #define IEEE80211_CHAN_2GHZ	0x0080	/* 2 GHz spectrum channel */
@@ -175,6 +189,7 @@ struct ieee80211_channel {
 #define IEEE80211_CHAN_PASSIVE	0x0200	/* Only passive scan allowed */
 #define IEEE80211_CHAN_DYN	0x0400	/* Dynamic CCK-OFDM channel */
 #define IEEE80211_CHAN_XR	0x1000	/* Extended range OFDM channel */
+#define IEEE80211_CHAN_HT	0x2000	/* 11n/HT channel */
 #endif	/* !_KERNEL */
 
 struct ieee80211_chanreq_all {
@@ -318,6 +333,13 @@ struct ieee80211_nodereq {
 
 	/* Node flags */
 	u_int8_t	nr_flags;
+
+	/* HT */
+	uint16_t		nr_htcaps;
+	uint8_t			nr_rxmcs[howmany(80,NBBY)];
+	uint16_t		nr_max_rxrate;	/* in Mb/s, 0 <= rate <= 1023 */
+	uint8_t			nr_tx_mcs_set;
+	uint8_t			nr_txmcs;
 };
 
 #define IEEE80211_NODEREQ_STATE(_s)	(1 << _s)
@@ -331,6 +353,7 @@ struct ieee80211_nodereq {
 #define IEEE80211_NODEREQ_AP		0x01	/* access point */
 #define IEEE80211_NODEREQ_AP_BSS	0x02	/* current bss access point */
 #define IEEE80211_NODEREQ_COPY		0x04	/* add node with flags */
+#define IEEE80211_NODEREQ_HT		0x08	/* HT negotiated */
 
 #define SIOCG80211NODE		_IOWR('i', 211, struct ieee80211_nodereq)
 #define SIOCS80211NODE		 _IOW('i', 212, struct ieee80211_nodereq)

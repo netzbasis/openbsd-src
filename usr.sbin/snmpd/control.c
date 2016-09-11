@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.33 2015/10/19 09:32:51 reyk Exp $	*/
+/*	$OpenBSD: control.c,v 1.39 2016/09/02 13:28:36 eric Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -60,7 +60,7 @@ control_init(struct privsep *ps, struct control_sock *cs)
 	if (cs->cs_name == NULL)
 		return (0);
 
-	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1) {
 		log_warn("%s: socket", __func__);
 		return (-1);
 	}
@@ -103,7 +103,6 @@ control_init(struct privsep *ps, struct control_sock *cs)
 		return (-1);
 	}
 
-	socket_set_blockmode(fd, BM_NONBLOCK);
 	cs->cs_fd = fd;
 	cs->cs_env = env;
 
@@ -153,8 +152,8 @@ control_accept(int listenfd, short event, void *arg)
 		return;
 
 	len = sizeof(sun);
-	if ((connfd = accept(listenfd,
-	    (struct sockaddr *)&sun, &len)) == -1) {
+	if ((connfd = accept4(listenfd,
+	    (struct sockaddr *)&sun, &len, SOCK_NONBLOCK)) == -1) {
 		/*
 		 * Pause accept if we are out of file descriptors, or
 		 * libevent will haunt us here too.
@@ -169,8 +168,6 @@ control_accept(int listenfd, short event, void *arg)
 			log_warn("%s: accept", __func__);
 		return;
 	}
-
-	socket_set_blockmode(connfd, BM_NONBLOCK);
 
 	if ((c = calloc(1, sizeof(struct ctl_conn))) == NULL) {
 		close(connfd);
@@ -207,7 +204,7 @@ control_close(struct ctl_conn *c, const char *msg, struct imsg *imsg)
 	struct control_sock *cs = c->cs;
 
 	if (imsg) {
-		log_debug("%s: fd %d: %s, imsg %d datalen %u", __func__,
+		log_debug("%s: fd %d: %s, imsg %d datalen %zu", __func__,
 		    c->iev.ibuf.fd, msg, imsg->hdr.type, IMSG_DATA_SIZE(imsg));
 		imsg_free(imsg);
 	} else
@@ -239,7 +236,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	int			 n, v, i;
 
 	if (event & EV_READ) {
-		if ((n = imsg_read_nofd(&c->iev.ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read_nofd(&c->iev.ibuf)) == -1 &&
+		    errno != EAGAIN) || n == 0) {
 			control_close(c, "could not read imsg", NULL);
 			return;
 		}
@@ -629,8 +627,7 @@ control_dispatch_agentx(int fd, short event, void *arg)
 		uptime = smi_getticks();
 		if ((pdu = snmp_agentx_response_pdu(uptime, error, idx)) == NULL) {
 			log_debug("failed to generate response");
-			if (varcpy)
-				free(varcpy);
+			free(varcpy);
 			control_event_add(c, fd, EV_WRITE, NULL);	/* XXX -- EV_WRITE? */
 			return;
 		}
@@ -638,6 +635,7 @@ control_dispatch_agentx(int fd, short event, void *arg)
 		if (varcpy) {
 			snmp_agentx_raw(pdu, varcpy, vcpylen); /* XXX */
 			free(varcpy);
+			varcpy = NULL;
 		}
 		snmp_agentx_send(h, pdu);
 
@@ -655,8 +653,7 @@ control_dispatch_agentx(int fd, short event, void *arg)
 	log_debug("subagent session '%i' destroyed", h->sessionid);
 	snmp_agentx_free(h);
 	purge_registered_oids(&c->oids);
-	if (varcpy)
-		free(varcpy);
+	free(varcpy);
 	control_close(c, "agentx teardown", NULL);
 }
 
@@ -691,14 +688,11 @@ imsg_read_nofd(struct imsgbuf *ibuf)
 	buf = ibuf->r.buf + ibuf->r.wpos;
 	len = sizeof(ibuf->r.buf) - ibuf->r.wpos;
 
- again:
-	if ((n = recv(ibuf->fd, buf, len, 0)) == -1) {
-		if (errno != EINTR && errno != EAGAIN)
-			goto fail;
-		goto again;
+	while ((n = recv(ibuf->fd, buf, len, 0)) == -1) {
+		if (errno != EINTR)
+			return (n);
 	}
 
         ibuf->r.wpos += n;
- fail:
         return (n);
 }

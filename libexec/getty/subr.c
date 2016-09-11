@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr.c,v 1.24 2015/08/28 20:28:50 deraadt Exp $	*/
+/*	$OpenBSD: subr.c,v 1.26 2016/03/16 15:41:10 krw Exp $	*/
 
 /*
  * Copyright (c) 1983, 1993
@@ -57,7 +57,7 @@ gettable(char *name, char *buf)
 	long n;
 	char *dba[2];
 	dba[0] = _PATH_GETTYTAB;
-	dba[1] = 0;
+	dba[1] = NULL;
 
 	if (cgetent(&buf, dba, name) != 0)
 		return;
@@ -413,7 +413,7 @@ makeenv(char *env[])
 		if (*p)
 			*ep++ = p;
 	}
-	*ep = (char *)0;
+	*ep = NULL;
 }
 
 /*

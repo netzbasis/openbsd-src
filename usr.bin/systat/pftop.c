@@ -1,4 +1,4 @@
-/* $OpenBSD: pftop.c,v 1.32 2015/08/20 22:32:42 deraadt Exp $	 */
+/* $OpenBSD: pftop.c,v 1.34 2016/04/13 05:25:45 jasper Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -116,7 +116,6 @@ u_int32_t num_queues = 0;
 int cachestates = 0;
 
 char *filter_string = NULL;
-int dumpfilter = 0;
 
 #define MIN_LABEL_SIZE 5
 #define ANCHOR_FLD_SIZE 12
@@ -682,14 +681,6 @@ read_states(void)
 		alloc_buf(num_states_all);
 	}
 
-	if (dumpfilter) {
-		int fd = open("state.dmp", O_WRONLY|O_CREAT|O_EXCL, 0);
-		if (fd > 0) {
-			write(fd, state_buf, ps.ps_len);
-			close(fd);
-		}
-	}
-
 	num_states =  num_states_all;
 	for (n = 0; n<num_states_all; n++)
 		state_ord[n] = n;
@@ -896,7 +887,7 @@ print_state(struct pfsync_state * s, struct sc_ent * ent)
 		       COUNTER(s->packets[1]));
 	print_fld_size(FLD_BYTES, sz);
 	print_fld_rate(FLD_SA, (s->creation) ?
-		       ((double)sz/ntohl((double)s->creation)) : -1);
+		       ((double)sz/(double)ntohl(s->creation)) : -1);
 
 	print_fld_uint(FLD_RULE, ntohl(s->rule));
 	if (cachestates && ent != NULL) {

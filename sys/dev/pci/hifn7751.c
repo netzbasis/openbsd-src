@@ -1,4 +1,4 @@
-/*	$OpenBSD: hifn7751.c,v 1.171 2015/09/10 18:10:34 deraadt Exp $	*/
+/*	$OpenBSD: hifn7751.c,v 1.174 2015/12/10 21:00:51 naddy Exp $	*/
 
 /*
  * Invertex AEON / Hifn 7751 driver
@@ -291,14 +291,10 @@ hifn_attach(struct device *parent, struct device *self, void *aux)
 	switch (ena) {
 	case HIFN_PUSTAT_ENA_2:
 		algs[CRYPTO_3DES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
-		algs[CRYPTO_ARC4] = CRYPTO_ALG_FLAG_SUPPORTED;
 		/*FALLTHROUGH*/
 	case HIFN_PUSTAT_ENA_1:
-		algs[CRYPTO_MD5] = CRYPTO_ALG_FLAG_SUPPORTED;
-		algs[CRYPTO_SHA1] = CRYPTO_ALG_FLAG_SUPPORTED;
 		algs[CRYPTO_MD5_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
 		algs[CRYPTO_SHA1_HMAC] = CRYPTO_ALG_FLAG_SUPPORTED;
-		algs[CRYPTO_DES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
 	}
 	if (sc->sc_flags & HIFN_HAS_AES)
 		algs[CRYPTO_AES_CBC] = CRYPTO_ALG_FLAG_SUPPORTED;
@@ -1863,18 +1859,14 @@ hifn_newsession(u_int32_t *sidp, struct cryptoini *cri)
 
 	for (c = cri; c != NULL; c = c->cri_next) {
 		switch (c->cri_alg) {
-		case CRYPTO_MD5:
-		case CRYPTO_SHA1:
 		case CRYPTO_MD5_HMAC:
 		case CRYPTO_SHA1_HMAC:
 			if (mac)
 				return (EINVAL);
 			mac = 1;
 			break;
-		case CRYPTO_DES_CBC:
 		case CRYPTO_3DES_CBC:
 		case CRYPTO_AES_CBC:
-		case CRYPTO_ARC4:
 			if (cry)
 				return (EINVAL);
 			cry = 1;
@@ -1986,15 +1978,11 @@ hifn_process(struct cryptop *crp)
 
 	if (crd2 == NULL) {
 		if (crd1->crd_alg == CRYPTO_MD5_HMAC ||
-		    crd1->crd_alg == CRYPTO_SHA1_HMAC ||
-		    crd1->crd_alg == CRYPTO_SHA1 ||
-		    crd1->crd_alg == CRYPTO_MD5) {
+		    crd1->crd_alg == CRYPTO_SHA1_HMAC) {
 			maccrd = crd1;
 			enccrd = NULL;
-		} else if (crd1->crd_alg == CRYPTO_DES_CBC ||
-		    crd1->crd_alg == CRYPTO_3DES_CBC ||
-		    crd1->crd_alg == CRYPTO_AES_CBC ||
-		    crd1->crd_alg == CRYPTO_ARC4) {
+		} else if (crd1->crd_alg == CRYPTO_3DES_CBC ||
+		    crd1->crd_alg == CRYPTO_AES_CBC) {
 			if ((crd1->crd_flags & CRD_F_ENCRYPT) == 0)
 				cmd->base_masks |= HIFN_BASE_CMD_DECODE;
 			maccrd = NULL;
@@ -2007,25 +1995,17 @@ hifn_process(struct cryptop *crp)
 		}
 	} else {
 		if ((crd1->crd_alg == CRYPTO_MD5_HMAC ||
-		     crd1->crd_alg == CRYPTO_SHA1_HMAC ||
-		     crd1->crd_alg == CRYPTO_MD5 ||
-		     crd1->crd_alg == CRYPTO_SHA1) &&
-		    (crd2->crd_alg == CRYPTO_DES_CBC ||
-		     crd2->crd_alg == CRYPTO_3DES_CBC ||
-		     crd2->crd_alg == CRYPTO_AES_CBC ||
-		     crd2->crd_alg == CRYPTO_ARC4) &&
+		     crd1->crd_alg == CRYPTO_SHA1_HMAC) &&
+		    (crd2->crd_alg == CRYPTO_3DES_CBC ||
+		     crd2->crd_alg == CRYPTO_AES_CBC) &&
 		    ((crd2->crd_flags & CRD_F_ENCRYPT) == 0)) {
 			cmd->base_masks = HIFN_BASE_CMD_DECODE;
 			maccrd = crd1;
 			enccrd = crd2;
-		} else if ((crd1->crd_alg == CRYPTO_DES_CBC ||
-		     crd1->crd_alg == CRYPTO_ARC4 ||
-		     crd1->crd_alg == CRYPTO_AES_CBC ||
-		     crd1->crd_alg == CRYPTO_3DES_CBC) &&
+		} else if ((crd1->crd_alg == CRYPTO_3DES_CBC ||
+		     crd1->crd_alg == CRYPTO_AES_CBC) &&
 		    (crd2->crd_alg == CRYPTO_MD5_HMAC ||
-		     crd2->crd_alg == CRYPTO_SHA1_HMAC ||
-		     crd2->crd_alg == CRYPTO_MD5 ||
-		     crd2->crd_alg == CRYPTO_SHA1) &&
+		     crd2->crd_alg == CRYPTO_SHA1_HMAC) &&
 		    (crd1->crd_flags & CRD_F_ENCRYPT)) {
 			enccrd = crd1;
 			maccrd = crd2;
@@ -2042,14 +2022,6 @@ hifn_process(struct cryptop *crp)
 		cmd->enccrd = enccrd;
 		cmd->base_masks |= HIFN_BASE_CMD_CRYPT;
 		switch (enccrd->crd_alg) {
-		case CRYPTO_ARC4:
-			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_RC4;
-			break;
-		case CRYPTO_DES_CBC:
-			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_DES |
-			    HIFN_CRYPT_CMD_MODE_CBC |
-			    HIFN_CRYPT_CMD_NEW_IV;
-			break;
 		case CRYPTO_3DES_CBC:
 			cmd->cry_masks |= HIFN_CRYPT_CMD_ALG_3DES |
 			    HIFN_CRYPT_CMD_MODE_CBC |
@@ -2064,41 +2036,35 @@ hifn_process(struct cryptop *crp)
 			err = EINVAL;
 			goto errout;
 		}
-		if (enccrd->crd_alg != CRYPTO_ARC4) {
-			ivlen = ((enccrd->crd_alg == CRYPTO_AES_CBC) ?
-			    HIFN_AES_IV_LENGTH : HIFN_IV_LENGTH);
-			if (enccrd->crd_flags & CRD_F_ENCRYPT) {
-				if (enccrd->crd_flags & CRD_F_IV_EXPLICIT)
-					bcopy(enccrd->crd_iv, cmd->iv, ivlen);
-				else
-					arc4random_buf(cmd->iv, ivlen);
+		ivlen = ((enccrd->crd_alg == CRYPTO_AES_CBC) ?
+		    HIFN_AES_IV_LENGTH : HIFN_IV_LENGTH);
+		if (enccrd->crd_flags & CRD_F_ENCRYPT) {
+			if (enccrd->crd_flags & CRD_F_IV_EXPLICIT)
+				bcopy(enccrd->crd_iv, cmd->iv, ivlen);
+			else
+				arc4random_buf(cmd->iv, ivlen);
 
-				if ((enccrd->crd_flags & CRD_F_IV_PRESENT)
-				    == 0) {
-					if (crp->crp_flags & CRYPTO_F_IMBUF)
-						err =
-						    m_copyback(cmd->srcu.src_m,
-						    enccrd->crd_inject,
-						    ivlen, cmd->iv, M_NOWAIT);
-					else if (crp->crp_flags & CRYPTO_F_IOV)
-						cuio_copyback(cmd->srcu.src_io,
-						    enccrd->crd_inject,
-						    ivlen, cmd->iv);
-					if (err)
-						goto errout;
-				}
-			} else {
-				if (enccrd->crd_flags & CRD_F_IV_EXPLICIT)
-					bcopy(enccrd->crd_iv, cmd->iv, ivlen);
-				else if (crp->crp_flags & CRYPTO_F_IMBUF)
-					m_copydata(cmd->srcu.src_m,
+			if ((enccrd->crd_flags & CRD_F_IV_PRESENT) == 0) {
+				if (crp->crp_flags & CRYPTO_F_IMBUF)
+					err = m_copyback(cmd->srcu.src_m,
 					    enccrd->crd_inject,
-					    ivlen, cmd->iv);
+					    ivlen, cmd->iv, M_NOWAIT);
 				else if (crp->crp_flags & CRYPTO_F_IOV)
-					cuio_copydata(cmd->srcu.src_io,
+					cuio_copyback(cmd->srcu.src_io,
 					    enccrd->crd_inject,
 					    ivlen, cmd->iv);
+				if (err)
+					goto errout;
 			}
+		} else {
+			if (enccrd->crd_flags & CRD_F_IV_EXPLICIT)
+				bcopy(enccrd->crd_iv, cmd->iv, ivlen);
+			else if (crp->crp_flags & CRYPTO_F_IMBUF)
+				m_copydata(cmd->srcu.src_m,
+				    enccrd->crd_inject, ivlen, cmd->iv);
+			else if (crp->crp_flags & CRYPTO_F_IOV)
+				cuio_copydata(cmd->srcu.src_io,
+				    enccrd->crd_inject, ivlen, cmd->iv);
 		}
 
 		cmd->ck = enccrd->crd_key;
@@ -2132,20 +2098,10 @@ hifn_process(struct cryptop *crp)
 		cmd->base_masks |= HIFN_BASE_CMD_MAC;
 
 		switch (maccrd->crd_alg) {
-		case CRYPTO_MD5:
-			cmd->mac_masks |= HIFN_MAC_CMD_ALG_MD5 |
-			    HIFN_MAC_CMD_RESULT | HIFN_MAC_CMD_MODE_HASH |
-			    HIFN_MAC_CMD_POS_IPSEC;
-			break;
 		case CRYPTO_MD5_HMAC:
 			cmd->mac_masks |= HIFN_MAC_CMD_ALG_MD5 |
 			    HIFN_MAC_CMD_RESULT | HIFN_MAC_CMD_MODE_HMAC |
 			    HIFN_MAC_CMD_POS_IPSEC | HIFN_MAC_CMD_TRUNC;
-			break;
-		case CRYPTO_SHA1:
-			cmd->mac_masks |= HIFN_MAC_CMD_ALG_SHA1 |
-			    HIFN_MAC_CMD_RESULT | HIFN_MAC_CMD_MODE_HASH |
-			    HIFN_MAC_CMD_POS_IPSEC;
 			break;
 		case CRYPTO_SHA1_HMAC:
 			cmd->mac_masks |= HIFN_MAC_CMD_ALG_SHA1 |
@@ -2338,11 +2294,7 @@ hifn_callback(struct hifn_softc *sc, struct hifn_command *cmd,
 		for (crd = crp->crp_desc; crd; crd = crd->crd_next) {
 			int len;
 
-			if (crd->crd_alg == CRYPTO_MD5)
-				len = 16;
-			else if (crd->crd_alg == CRYPTO_SHA1)
-				len = 20;
-			else if (crd->crd_alg == CRYPTO_MD5_HMAC ||
+			if (crd->crd_alg == CRYPTO_MD5_HMAC ||
 			    crd->crd_alg == CRYPTO_SHA1_HMAC)
 				len = 12;
 			else

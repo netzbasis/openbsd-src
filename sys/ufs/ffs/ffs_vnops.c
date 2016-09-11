@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vnops.c,v 1.80 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ffs_vnops.c,v 1.88 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: ffs_vnops.c,v 1.7 1996/05/11 18:27:24 mycroft Exp $	*/
 
 /*
@@ -93,7 +93,6 @@ struct vops ffs_vops = {
 	.vop_islocked	= ufs_islocked,
 	.vop_pathconf	= ufs_pathconf,
 	.vop_advlock	= ufs_advlock,
-	.vop_reallocblks = ffs_reallocblks,
 	.vop_bwrite	= vop_generic_bwrite
 };
 
@@ -180,12 +179,6 @@ struct vops ffs_fifovops = {
 #endif /* FIFO */
 
 /*
- * Enabling cluster read/write operations.
- */
-int doclusterread = 1;
-int doclusterwrite = 1;
-
-/*
  * Vnode op for reading.
  */
 int
@@ -199,7 +192,7 @@ ffs_read(void *v)
 	struct buf *bp;
 	daddr_t lbn, nextlbn;
 	off_t bytesinfile;
-	long size, xfersize, blkoffset;
+	int size, xfersize, blkoffset;
 	mode_t mode;
 	int error;
 
@@ -213,17 +206,15 @@ ffs_read(void *v)
 		panic("ffs_read: mode");
 
 	if (vp->v_type == VLNK) {
-		if ((int)DIP(ip, size) < vp->v_mount->mnt_maxsymlinklen ||
-		    (vp->v_mount->mnt_maxsymlinklen == 0 &&
-		     DIP(ip, blocks) == 0))
+		if (DIP(ip, size) < ip->i_ump->um_maxsymlinklen ||
+		    (ip->i_ump->um_maxsymlinklen == 0 && DIP(ip, blocks) == 0))
 			panic("ffs_read: short symlink");
 	} else if (vp->v_type != VREG && vp->v_type != VDIR)
 		panic("ffs_read: type %d", vp->v_type);
 #endif
 	fs = ip->i_fs;
-	if ((u_int64_t)uio->uio_offset > fs->fs_maxfilesize)
-		return (EFBIG);
-
+	if (uio->uio_offset < 0)
+		return (EINVAL);
 	if (uio->uio_resid == 0)
 		return (0);
 
@@ -242,14 +233,11 @@ ffs_read(void *v)
 
 		if (lblktosize(fs, nextlbn) >= DIP(ip, size))
 			error = bread(vp, lbn, size, &bp);
-		else if (lbn - 1 == ip->i_ci.ci_lastr) {
+		else
 			error = bread_cluster(vp, lbn, size, &bp);
-		} else
-			error = bread(vp, lbn, size, &bp);
 
 		if (error)
 			break;
-		ip->i_ci.ci_lastr = lbn;
 
 		/*
 		 * We should only get non-zero b_resid when an I/O error
@@ -264,7 +252,7 @@ ffs_read(void *v)
 				break;
 			xfersize = size;
 		}
-		error = uiomovei(bp->b_data + blkoffset, (int)xfersize, uio);
+		error = uiomove(bp->b_data + blkoffset, xfersize, uio);
 		if (error)
 			break;
 		brelse(bp);
@@ -293,7 +281,8 @@ ffs_write(void *v)
 	daddr_t lbn;
 	off_t osize;
 	int blkoffset, error, extended, flags, ioflag, size, xfersize;
-	ssize_t resid, overrun;
+	size_t resid;
+	ssize_t overrun;
 
 	extended = 0;
 	ioflag = ap->a_ioflag;
@@ -368,8 +357,7 @@ ffs_write(void *v)
 		if (size < xfersize)
 			xfersize = size;
 
-		error =
-		    uiomovei(bp->b_data + blkoffset, xfersize, uio);
+		error = uiomove(bp->b_data + blkoffset, xfersize, uio);
 
 		if (error != 0)
 			memset(bp->b_data + blkoffset, 0, xfersize);
@@ -381,10 +369,7 @@ ffs_write(void *v)
 		if (ioflag & IO_SYNC)
 			(void)bwrite(bp);
 		else if (xfersize + blkoffset == fs->fs_bsize) {
-			if (doclusterwrite)
-				cluster_write(bp, &ip->i_ci, DIP(ip, size));
-			else
-				bawrite(bp);
+			bawrite(bp);
 		} else
 			bdwrite(bp);
 
@@ -397,7 +382,8 @@ ffs_write(void *v)
 	 * we clear the setuid and setgid bits as a precaution against
 	 * tampering.
 	 */
-	if (resid > uio->uio_resid && ap->a_cred && ap->a_cred->cr_uid != 0)
+	if (resid > uio->uio_resid && ap->a_cred && ap->a_cred->cr_uid != 0 &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0)
 		DIP_ASSIGN(ip, mode, DIP(ip, mode) & ~(ISUID | ISGID));
 	if (resid > uio->uio_resid)
 		VN_KNOTE(vp, NOTE_WRITE | (extended ? NOTE_EXTEND : 0));

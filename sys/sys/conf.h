@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.135 2015/10/23 15:10:52 claudio Exp $	*/
+/*	$OpenBSD: conf.h,v 1.143 2016/09/04 10:51:24 naddy Exp $	*/
 /*	$NetBSD: conf.h,v 1.33 1996/05/03 20:03:32 christos Exp $	*/
 
 /*-
@@ -55,9 +55,8 @@ struct knote;
 /*
  * Types for d_type
  */
-#define	D_TAPE	1
-#define	D_DISK	2
-#define	D_TTY	3
+#define	D_DISK	1
+#define	D_TTY	2
 
 /*
  * Flags for d_flags
@@ -115,11 +114,6 @@ extern struct bdevsw bdevsw[];
 	dev_init(c,n,open), dev_init(c,n,close), \
 	dev_init(c,n,strategy), dev_init(c,n,ioctl), \
 	dev_init(c,n,dump), dev_size_init(c,n), D_DISK }
-
-#define	bdev_tape_init(c,n) { \
-	dev_init(c,n,open), dev_init(c,n,close), \
-	dev_init(c,n,strategy), dev_init(c,n,ioctl), \
-	dev_init(c,n,dump), 0, D_TAPE }
 
 #define	bdev_swap_init(c,n) { \
 	(dev_type_open((*))) enodev, (dev_type_close((*))) enodev, \
@@ -186,7 +180,7 @@ extern struct cdevsw cdevsw[];
 	dev_init(c,n,open), dev_init(c,n,close), dev_init(c,n,read), \
 	dev_init(c,n,write), dev_init(c,n,ioctl), (dev_type_stop((*))) enodev, \
 	0, seltrue, (dev_type_mmap((*))) enodev, \
-	D_TAPE, 0, seltrue_kqfilter }
+	0, 0, seltrue_kqfilter }
 
 /* open, close, read, write, ioctl, stop, tty */
 #define	cdev_tty_init(c,n) { \
@@ -236,12 +230,6 @@ extern struct cdevsw cdevsw[];
 	(dev_type_stop((*))) enodev, 0, seltrue, dev_init(c,n,mmap), \
 	0, 0, seltrue_kqfilter }
 
-/* open, close, read, write, ioctl */
-#define cdev_systrace_init(c,n) { \
-	dev_init(c,n,open), dev_init(c,n,close), (dev_type_read((*))) enodev, \
-	(dev_type_write((*))) enodev, dev_init(c,n,ioctl), (dev_type_stop((*))) enodev, \
-	0, selfalse, (dev_type_mmap((*))) enodev }
-
 /* open, close, read, write, ioctl, tty, poll, kqfilter */
 #define cdev_ptc_init(c,n) { \
 	dev_init(c,n,open), dev_init(c,n,close), dev_init(c,n,read), \
@@ -276,6 +264,13 @@ extern struct cdevsw cdevsw[];
 	0, dev_init(c,n,poll), (dev_type_mmap((*))) enodev, \
 	0, 0, dev_init(c,n,kqfilter) }
 
+/* open, close, read, write, ioctl, poll, kqfilter -- XXX should be generic device */
+#define cdev_switch_init(c,n) {						\
+	dev_init(c,n,open), dev_init(c,n,close), dev_init(c,n,read),	\
+	dev_init(c,n,write), dev_init(c,n,ioctl), (dev_type_stop((*))) enodev, \
+	0, dev_init(c,n,poll), (dev_type_mmap((*))) enodev,		\
+	0, 0, dev_init(c,n,kqfilter) }
+
 /* open, close, ioctl, poll, kqfilter -- XXX should be generic device */
 #define cdev_vscsi_init(c,n) { \
 	dev_init(c,n,open), dev_init(c,n,close), \
@@ -296,7 +291,7 @@ extern struct cdevsw cdevsw[];
 	dev_init(c,n,open), dev_init(c,n,close), dev_init(c,n,read), \
 	dev_init(c,n,write), dev_init(c,n,ioctl), (dev_type_stop((*))) enodev, \
 	0, dev_init(c,n,poll), (dev_type_mmap((*))) enodev, \
-	0, 0, dev_init(c,n,kqfilter) }
+	0, D_CLONE, dev_init(c,n,kqfilter) }
 
 /* open, close, ioctl */
 #define	cdev_ch_init(c,n) { \
@@ -465,6 +460,21 @@ extern struct cdevsw cdevsw[];
 	(dev_type_stop((*))) enodev, 0, dev_init(c,n,poll), \
 	(dev_type_mmap((*))) enodev, 0, D_CLONE, dev_init(c,n,kqfilter) }
 
+#define cdev_pvbus_init(c,n) { \
+	dev_init(c,n,open), dev_init(c,n,close), \
+	(dev_type_read((*))) enodev, \
+	(dev_type_write((*))) enodev, \
+	 dev_init(c,n,ioctl), \
+	(dev_type_stop((*))) enodev, 0, selfalse, \
+	(dev_type_mmap((*))) enodev }
+
+/* open, close, read, write, poll, ioctl, nokqfilter */
+#define cdev_ipmi_init(c,n) { \
+	dev_init(c,n,open), dev_init(c,n,close), (dev_type_read((*))) enodev, \
+	(dev_type_write((*))) enodev, dev_init(c,n,ioctl), \
+	(dev_type_stop((*))) enodev, 0, (dev_type_poll((*))) enodev, \
+	(dev_type_mmap((*))) enodev, 0 }
+
 #endif
 
 /*
@@ -529,6 +539,7 @@ cdev_decl(ptm);
 cdev_decl(ctty);
 
 cdev_decl(audio);
+cdev_decl(drm);
 cdev_decl(midi);
 cdev_decl(radio);
 cdev_decl(video);
@@ -546,7 +557,6 @@ cdev_decl(sd);
 
 cdev_decl(ses);
 
-bdev_decl(st);
 cdev_decl(st);
 
 bdev_decl(cd);
@@ -566,6 +576,7 @@ cdev_decl(pf);
 
 cdev_decl(tun);
 cdev_decl(tap);
+cdev_decl(switch);
 cdev_decl(pppx);
 
 cdev_decl(random);
@@ -576,8 +587,6 @@ cdev_decl(wsmouse);
 cdev_decl(wsmux);
 
 cdev_decl(ksyms);
-
-cdev_decl(systrace);
 
 cdev_decl(bio);
 cdev_decl(vscsi);
@@ -596,6 +605,8 @@ cdev_decl(hotplug);
 cdev_decl(gpio);
 cdev_decl(amdmsr);
 cdev_decl(fuse);
+cdev_decl(pvbus);
+cdev_decl(ipmi);
 
 #endif
 

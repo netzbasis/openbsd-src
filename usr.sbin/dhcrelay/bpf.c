@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.8 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: bpf.c,v 1.11 2016/05/28 07:00:18 natano Exp $ */
 
 /* BPF socket interface code, originally contributed by Archie Cobbs. */
 
@@ -40,18 +40,25 @@
  * Enterprises, see ``http://www.vix.com''.
  */
 
-#include "dhcpd.h"
+#include <sys/types.h>
 #include <sys/ioctl.h>
-#include <sys/uio.h>
+#include <sys/socket.h>
 
 #include <net/bpf.h>
-#include <net/if_types.h>
+#include <net/if.h>
 
-#include <netinet/ip.h>
-#include <netinet/udp.h>
+#include <netinet/in.h>
 #include <netinet/if_ether.h>
 
-#define BPF_FORMAT "/dev/bpf%d"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "dhcp.h"
+#include "dhcpd.h"
 
 /*
  * Called by get_interface_list for each interface that's discovered.
@@ -61,26 +68,16 @@
 int
 if_register_bpf(struct interface_info *info)
 {
-	char filename[50];
-	int sock, b;
+	int sock;
 
-	/* Open a BPF device */
-	for (b = 0; 1; b++) {
-		snprintf(filename, sizeof(filename), BPF_FORMAT, b);
-		sock = open(filename, O_RDWR, 0);
-		if (sock == -1) {
-			if (errno == EBUSY)
-				continue;
-			else
-				error("Can't find free bpf: %m");
-		} else
-			break;
-	}
+	/* Open the BPF device */
+	if ((sock = open("/dev/bpf0", O_RDWR)) == -1)
+		error("Can't open bpf device: %m");
 
 	/* Set the BPF device to point at this interface. */
 	if (ioctl(sock, BIOCSETIF, info->ifp) == -1)
-		error("Can't attach interface %s to bpf device %s: %m",
-		    info->name, filename);
+		error("Can't attach interface %s to bpf device: %m",
+		    info->name);
 
 	return (sock);
 }
@@ -377,7 +374,7 @@ receive_packet(struct interface_info *interface, unsigned char *buf,
 
 		/* Decode the IP and UDP headers... */
 		offset = decode_udp_ip_header(interface, interface->rbuf,
-		    interface->rbuf_offset, from, NULL, hdr.bh_caplen);
+		    interface->rbuf_offset, from, hdr.bh_caplen);
 
 		/* If the IP or UDP checksum was bad, skip the packet... */
 		if (offset < 0) {

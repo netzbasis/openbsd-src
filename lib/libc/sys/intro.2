@@ -1,4 +1,4 @@
-.\"	$OpenBSD: intro.2,v 1.61 2015/11/07 22:57:52 jmc Exp $
+.\"	$OpenBSD: intro.2,v 1.64 2016/04/17 14:36:44 jmc Exp $
 .\"	$NetBSD: intro.2,v 1.6 1995/02/27 12:33:41 cgd Exp $
 .\"
 .\" Copyright (c) 1980, 1983, 1986, 1991, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"     @(#)intro.2	8.3 (Berkeley) 12/11/93
 .\"
-.Dd $Mdocdate: November 7 2015 $
+.Dd $Mdocdate: April 17 2016 $
 .Dt INTRO 2
 .Os
 .Sh NAME
@@ -42,6 +42,9 @@
 .Sh DESCRIPTION
 The manual pages in section 2 provide an overview of the system calls,
 their error returns, and other common definitions and concepts.
+.Pp
+Programs may be restricted to a subset of system calls with
+.Xr pledge 2 .
 .\".Pp
 .\".Sy System call restart
 .\".Pp
@@ -434,7 +437,7 @@ and root directory and current working directory.
 .It Process ID
 Each active process in the system is uniquely identified by a non-negative
 integer called a process ID.
-The range of this ID is from 1 to 32766.
+The range of this ID is from 0 to 99999.
 .It Parent Process ID
 A new process is created by a currently active process; (see
 .Xr fork 2 ) .
@@ -449,6 +452,8 @@ This is the process ID of the group leader.
 This grouping permits the signaling of related processes (see
 .Xr termios 4 )
 and the job control mechanisms of
+.Xr ksh 1
+and
 .Xr csh 1 .
 .It Session
 A session is a set of one or more process groups.
@@ -475,7 +480,8 @@ the terminal process group ID to the ID of the process group.
 This facility is used
 to arbitrate between multiple jobs contending for the same terminal;
 (see
-.Xr csh 1
+.Xr ksh 1 ,
+.Xr csh 1 ,
 and
 .Xr tty 4 ) .
 .It Orphaned Process Group
@@ -722,6 +728,7 @@ Each socket has an address chosen from the address family in which the
 socket was created.
 .El
 .Sh SEE ALSO
+.Xr pledge 2 ,
 .Xr intro 3 ,
 .Xr perror 3
 .Sh HISTORY

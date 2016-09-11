@@ -1,4 +1,4 @@
-/*	$OpenBSD: answer.c,v 1.15 2015/10/24 17:48:36 mmcc Exp $	*/
+/*	$OpenBSD: answer.c,v 1.21 2016/08/27 02:06:40 guenther Exp $	*/
 /*	$NetBSD: answer.c,v 1.3 1997/10/10 16:32:50 lukem Exp $	*/
 /*
  * Copyright (c) 1983-2003, Regents of the University of California.
@@ -31,21 +31,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/select.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 #include <ctype.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <syslog.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <syslog.h>
+#include <unistd.h>
 
+#include "conf.h"
 #include "hunt.h"
 #include "server.h"
-#include "conf.h"
 
 /* Exported symbols for hosts_access(): */
 int allow_severity	= LOG_INFO;
@@ -60,17 +60,21 @@ static void	stmonitor(PLAYER *);
 static IDENT *	get_ident(struct sockaddr *, int, u_long, char *, char);
 
 void
-answer_first()
+answer_first(void)
 {
 	struct sockaddr		sockstruct;
 	int			newsock;
 	socklen_t		socklen;
-	int			flags;
 	struct spawn *sp;
 
-	/* Answer the call to hunt: */
+	/*
+	 * Answer the call to hunt, turning off blocking I/O, so a slow
+	 * or dead terminal won't stop the game.  All subsequent reads
+	 * check how many bytes they read.
+	 */
 	socklen = sizeof sockstruct;
-	newsock = accept(Socket, (struct sockaddr *) &sockstruct, &socklen);
+	newsock = accept4(Socket, (struct sockaddr *) &sockstruct, &socklen,
+	    SOCK_NONBLOCK);
 	if (newsock < 0) {
 		logit(LOG_ERR, "accept");
 		return;
@@ -94,14 +98,6 @@ answer_first()
 		    "struct sockaddr is not big enough! (%d > %zu)",
 		    socklen, sizeof Spawn->source);
 
-	/*
-	 * Turn off blocking I/O, so a slow or dead terminal won't stop
-	 * the game.  All subsequent reads check how many bytes they read.
-	 */
-	flags = fcntl(newsock, F_GETFL, 0);
-	flags |= O_NDELAY;
-	(void) fcntl(newsock, F_SETFL, flags);
-
 	/* Start listening to the spawning connection */
 	sp->fd = newsock;
 	FD_SET(sp->fd, &Fds_mask);
@@ -119,8 +115,7 @@ answer_first()
 }
 
 int
-answer_next(sp)
-	struct spawn *sp;
+answer_next(struct spawn *sp)
 {
 	PLAYER			*pp;
 	char			*cp1, *cp2;
@@ -275,8 +270,7 @@ close_it:
 
 /* Start a monitor: */
 static void
-stmonitor(pp)
-	PLAYER	*pp;
+stmonitor(PLAYER *pp)
 {
 
 	/* Monitors get to see the entire maze: */
@@ -297,9 +291,7 @@ stmonitor(pp)
 
 /* Start a player: */
 static void
-stplayer(newpp, enter_status)
-	PLAYER	*newpp;
-	int	enter_status;
+stplayer(PLAYER *newpp, int enter_status)
 {
 	int	x, y;
 	PLAYER	*pp;
@@ -423,7 +415,7 @@ stplayer(newpp, enter_status)
  *	Return a random direction
  */
 int
-rand_dir()
+rand_dir(void)
 {
 	switch (rand_num(4)) {
 	  case 0:
@@ -435,7 +427,6 @@ rand_dir()
 	  case 3:
 		return ABOVE;
 	}
-	/* NOTREACHED */
 	return(-1);
 }
 
@@ -444,12 +435,7 @@ rand_dir()
  *	Get the score structure of a player
  */
 static IDENT *
-get_ident(sa, salen, uid, name, team)
-	struct sockaddr *sa;
-	int	salen;
-	u_long	uid;
-	char	*name;
-	char	team;
+get_ident(struct sockaddr *sa, int salen, u_long uid, char *name, char team)
 {
 	IDENT		*ip;
 	static IDENT	punt;
@@ -521,8 +507,7 @@ get_ident(sa, salen, uid, name, team)
 }
 
 void
-answer_info(fp)
-	FILE *fp;
+answer_info(FILE *fp)
 {
 	struct spawn *sp;
 	char buf[128];

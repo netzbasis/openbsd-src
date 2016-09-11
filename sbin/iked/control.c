@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.19 2015/10/22 15:55:18 reyk Exp $	*/
+/*	$OpenBSD: control.c,v 1.22 2016/09/04 16:55:43 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -83,7 +83,7 @@ control_init(struct privsep *ps, struct control_sock *cs)
 	if (cs->cs_name == NULL)
 		return (0);
 
-	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1) {
 		log_warn("%s: socket", __func__);
 		return (-1);
 	}
@@ -126,7 +126,6 @@ control_init(struct privsep *ps, struct control_sock *cs)
 		return (-1);
 	}
 
-	socket_set_blockmode(fd, BM_NONBLOCK);
 	cs->cs_fd = fd;
 	cs->cs_env = env;
 
@@ -177,8 +176,8 @@ control_accept(int listenfd, short event, void *arg)
 		return;
 
 	len = sizeof(sun);
-	if ((connfd = accept(listenfd,
-	    (struct sockaddr *)&sun, &len)) == -1) {
+	if ((connfd = accept4(listenfd,
+	    (struct sockaddr *)&sun, &len, SOCK_NONBLOCK)) == -1) {
 		/*
 		 * Pause accept if we are out of file descriptors, or
 		 * libevent will haunt us here too.
@@ -193,8 +192,6 @@ control_accept(int listenfd, short event, void *arg)
 			log_warn("%s: accept", __func__);
 		return;
 	}
-
-	socket_set_blockmode(connfd, BM_NONBLOCK);
 
 	if ((c = calloc(1, sizeof(struct ctl_conn))) == NULL) {
 		log_warn("%s", __func__);
@@ -266,7 +263,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	}
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(&c->iev.ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read(&c->iev.ibuf)) == -1 && errno != EAGAIN) ||
+		    n == 0) {
 			control_close(fd, cs);
 			return;
 		}
@@ -308,7 +306,6 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			log_verbose(v);
 
 			proc_forward_imsg(&env->sc_ps, &imsg, PROC_PARENT, -1);
-			proc_forward_imsg(&env->sc_ps, &imsg, PROC_IKEV2, -1);
 			break;
 		case IMSG_CTL_RELOAD:
 		case IMSG_CTL_RESET:

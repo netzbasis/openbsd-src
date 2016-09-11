@@ -1,4 +1,4 @@
-/* $OpenBSD: locore.s,v 1.43 2015/07/20 07:45:23 dlg Exp $ */
+/* $OpenBSD: locore.s,v 1.45 2016/05/23 20:11:48 deraadt Exp $ */
 /* $NetBSD: locore.s,v 1.94 2001/04/26 03:10:44 ross Exp $ */
 
 /*-
@@ -266,6 +266,7 @@ backtolocore1:
  *      scp+0	beginning of signal context frame
  */
 
+	.section .rodata
 NESTED(sigcode,0,0,ra,0,0)
 	lda	sp, -16(sp)		/* save the sigcontext pointer */
 	stq	a2, 0(sp)
@@ -273,10 +274,23 @@ NESTED(sigcode,0,0,ra,0,0)
 	ldq	a0, 0(sp)		/* get the sigcontext pointer */
 	lda	sp, 16(sp)
 	CALLSYS_NOERROR(sigreturn)	/* and call sigreturn() with it. */
+	.globl  sigcoderet
+sigcoderet:
 	mov	v0, a0			/* if that failed, get error code */
 	CALLSYS_NOERROR(exit)		/* and call exit() with it. */
 XNESTED(esigcode,0)
 	END(sigcode)
+
+	.globl	sigfill
+sigfill:
+	halt
+esigfill:
+
+	.globl	sigfillsiz
+sigfillsiz:
+	.quad	esigfill - sigfill
+
+	.text
 
 /**************************************************************************/
 

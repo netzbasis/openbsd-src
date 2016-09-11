@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.20 2015/11/05 21:04:19 miod Exp $
+#	$OpenBSD: install.md,v 1.26 2016/09/04 09:52:03 rpe Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -55,10 +55,10 @@ md_prep_fdisk() {
 
 	while :; do
 		_d=whole
-		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
+		if disk_has $_disk mbr; then
 			fdisk $_disk
-			if fdisk $_disk | grep -q '^..: A6 '; then
-				_q=", use the (O)penBSD area,"
+			if disk_has $_disk mbr openbsd; then
+				_q=", use the (O)penBSD area"
 				_d=OpenBSD
 			fi
 		else
@@ -66,7 +66,7 @@ md_prep_fdisk() {
 		fi
 		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
 		case $resp in
-		w*|W*)
+		[wW]*)
 			case $(sysctl -n hw.product) in
 			Gdium)
 				_s=32
@@ -104,7 +104,7 @@ __EOT
 			disklabel $_disk 2>/dev/null | grep -q "^  i:" || disklabel -w -d $_disk
 			newfs -qt ext2fs $_o ${_disk}i
 			break ;;
-		e*|E*)
+		[eE]*)
 			# Manually configure the MBR.
 			cat <<__EOT
 
@@ -121,38 +121,30 @@ first 'Linux files' partition.
 $(fdisk ${_disk})
 __EOT
 			fdisk -e $_disk
-			fdisk $_disk | grep -q '^..: 83 ' || \
+			disk_has $_disk mbr linux ||
 				{ echo "\nNo Linux files (id 83) partition!\n"; continue; }
-			fdisk $_disk | grep -q "^..: A6 " || \
+			disk_has $_disk mbr openbsd ||
 				{ echo "\nNo OpenBSD (id A6) partition!\n"; continue; }
 			disklabel $_disk 2>/dev/null | grep -q "^  i:" || disklabel -w -d $_disk
 			break ;;
-		o*|O*)	break ;;
+		[oO]*)
+			[[ $_d == OpenBSD ]] || continue
+			break ;;
 		esac
 	done
 
 }
 
 md_prep_disklabel() {
-	local _disk=$1 _f=/tmp/fstab.$1
+	local _disk=$1 _f=/tmp/i/fstab.$1
 
 	md_prep_fdisk $_disk
 
 	disklabel_autolayout $_disk $_f || return
 	[[ -s $_f ]] && return
 
-	cat <<__EOT
-
-You will now create an OpenBSD disklabel inside the OpenBSD MBR
-partition. The disklabel defines how OpenBSD splits up the MBR partition
-into OpenBSD partitions in which filesystems and swap space are created.
-You must provide each filesystem's mountpoint in this program.
-
-The offsets used in the disklabel are ABSOLUTE, i.e. relative to the
-start of the disk, NOT the start of the OpenBSD MBR partition.
-
-__EOT
-
+	# Edit disklabel manually.
+	# Abandon all hope, ye who enter here.
 	disklabel -F $_f -E $_disk
 }
 

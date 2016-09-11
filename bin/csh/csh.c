@@ -1,4 +1,4 @@
-/*	$OpenBSD: csh.c,v 1.35 2015/10/28 22:18:53 naddy Exp $	*/
+/*	$OpenBSD: csh.c,v 1.39 2016/03/19 15:42:38 krw Exp $	*/
 /*	$NetBSD: csh.c,v 1.14 1995/04/29 23:21:28 mycroft Exp $	*/
 
 /*-
@@ -31,7 +31,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -152,8 +151,10 @@ main(int argc, char *argv[])
 	(void) time(&chktim);
 
     if (pledge("stdio rpath wpath cpath fattr getpw proc exec tty",
-	NULL) == -1)
+	NULL) == -1) {
 	    perror("pledge");
+	    exit(1);
+    }
 
     /*
      * Move the descriptors to safe places. The variable didfds is 0 while we
@@ -367,7 +368,7 @@ main(int argc, char *argv[])
 		stderror(ERR_SYSTEM, tempv[0], strerror(errno));
 		break;
 	    }
-	(void) ioctl(SHIN, FIOCLEX, NULL);
+	(void) fcntl(SHIN, F_SETFD, FD_CLOEXEC);
 	prompt = 0;
 	 /* argc not used any more */ tempv++;
     }
@@ -461,7 +462,7 @@ main(int argc, char *argv[])
 		 */
 		if (tcsetpgrp(f, shpgrp) == -1)
 		    goto notty;
-		(void) ioctl(dcopy(f, FSHTTY), FIOCLEX, NULL);
+		(void) fcntl(dcopy(f, FSHTTY), F_SETFD, FD_CLOEXEC);
 	    }
 	    if (tpgrp == -1) {
 notty:
@@ -607,7 +608,7 @@ srccat(Char *cp, Char *dp)
     Char *ep = Strspl(cp, dp);
     char   *ptr = short2str(ep);
 
-    xfree(ep);
+    free(ep);
     return srcfile(ptr, mflag ? 0 : 1, 0);
 }
 
@@ -623,7 +624,7 @@ srcfile(char *f, bool onlyown, bool flag)
 	return 0;
     unit = dmove(unit, -1);
 
-    (void) ioctl(unit, FIOCLEX, NULL);
+    (void) fcntl(unit, F_SETFD, FD_CLOEXEC);
     srcunit(unit, onlyown, flag);
     return 1;
 }
@@ -714,10 +715,10 @@ srcunit(int unit, bool onlyown, bool hflg)
 	int i;
 
 	/* We made it to the new state... free up its storage */
-	/* This code could get run twice but xfree doesn't care */
+	/* This code could get run twice but free doesn't care */
 	for (i = 0; i < fblocks; i++)
-	    xfree(fbuf[i]);
-	xfree(fbuf);
+	    free(fbuf[i]);
+	free(fbuf);
 
 	/* Reset input arena */
 	memcpy(&B, &saveB, sizeof(B));
@@ -1012,7 +1013,7 @@ process(bool catch)
 	    (void) fflush(cshout);
 	}
 	if (seterr) {
-	    xfree(seterr);
+	    free(seterr);
 	    seterr = NULL;
 	}
 
@@ -1092,7 +1093,7 @@ dosource(Char **v, struct command *t)
     (void) Strlcpy(buf, *v, sizeof buf/sizeof(Char));
     f = globone(buf, G_ERROR);
     (void) strlcpy(sbuf, short2str(f), sizeof sbuf);
-    xfree(f);
+    free(f);
     if (!srcfile(sbuf, 0, hflg) && !hflg)
 	stderror(ERR_SYSTEM, sbuf, strerror(errno));
 }
@@ -1235,10 +1236,10 @@ initdesc(void)
 {
 
     didfds = 0;			/* 0, 1, 2 aren't set up */
-    (void) ioctl(SHIN = dcopy(0, FSHIN), FIOCLEX, NULL);
-    (void) ioctl(SHOUT = dcopy(1, FSHOUT), FIOCLEX, NULL);
-    (void) ioctl(SHERR = dcopy(2, FSHERR), FIOCLEX, NULL);
-    (void) ioctl(OLDSTD = dcopy(SHIN, FOLDSTD), FIOCLEX, NULL);
+    (void) fcntl(SHIN = dcopy(0, FSHIN), F_SETFD, FD_CLOEXEC);
+    (void) fcntl(SHOUT = dcopy(1, FSHOUT), F_SETFD, FD_CLOEXEC);
+    (void) fcntl(SHERR = dcopy(2, FSHERR), F_SETFD, FD_CLOEXEC);
+    (void) fcntl(OLDSTD = dcopy(SHIN, FOLDSTD), F_SETFD, FD_CLOEXEC);
     closem();
 }
 

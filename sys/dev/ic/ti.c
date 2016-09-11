@@ -1,4 +1,4 @@
-/*	$OpenBSD: ti.c,v 1.18 2015/10/25 12:48:46 mpi Exp $	*/
+/*	$OpenBSD: ti.c,v 1.24 2016/04/13 10:49:26 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -85,7 +85,6 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -94,10 +93,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#endif
-
-#if NVLAN > 0
-#include <net/if_vlan_var.h>
 #endif
 
 #include <machine/bus.h>
@@ -489,9 +484,6 @@ ti_handle_events(struct ti_softc *sc)
 	struct ti_event_desc	*e;
 	struct ifnet		*ifp = &sc->arpcom.ac_if;
 
-	if (sc->ti_rdata->ti_event_ring == NULL)
-		return;
-
 	while (sc->ti_ev_saved_considx != sc->ti_ev_prodidx.ti_idx) {
 		e = &sc->ti_rdata->ti_event_ring[sc->ti_ev_saved_considx];
 		switch (TI_EVENT_EVENT(e)) {
@@ -851,9 +843,6 @@ ti_free_tx_ring(struct ti_softc *sc)
 {
 	int		i;
 	struct ti_txmap_entry *entry;
-
-	if (sc->ti_rdata->ti_tx_ring == NULL)
-		return;
 
 	for (i = 0; i < TI_TX_RING_CNT; i++) {
 		if (sc->ti_cdata.ti_tx_chain[i] != NULL) {
@@ -1455,7 +1444,6 @@ ti_attach(struct ti_softc *sc)
 	ifp->if_watchdog = ti_watchdog;
 	ifp->if_hardmtu = TI_JUMBO_FRAMELEN - ETHER_HDR_LEN;
 	IFQ_SET_MAXLEN(&ifp->if_snd, TI_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dv.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -1674,7 +1662,7 @@ ti_txeof_tigon1(struct ti_softc *sc)
 	}
 
 	if (!active)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 }
 
 void
@@ -1718,7 +1706,7 @@ ti_txeof_tigon2(struct ti_softc *sc)
 	}
 
 	if (cur_tx != NULL)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 }
 
 int
@@ -1965,7 +1953,7 @@ ti_start(struct ifnet *ifp)
 	prodidx = sc->ti_tx_saved_prodidx;
 
 	while(sc->ti_cdata.ti_tx_chain[prodidx] == NULL) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		m_head = ifq_deq_begin(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
@@ -1980,12 +1968,13 @@ ti_start(struct ifnet *ifp)
 			error = ti_encap_tigon2(sc, m_head, &prodidx);
 
 		if (error) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m_head);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
 		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		ifq_deq_commit(&ifp->if_snd, m_head);
 		pkts++;
 
 		/*
@@ -2091,7 +2080,7 @@ ti_init2(struct ti_softc *sc)
 	CSR_WRITE_4(sc, TI_MB_HOSTINTR, 0);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Make sure to set media properly. We have to do this
@@ -2293,7 +2282,8 @@ ti_stop(struct ti_softc *sc)
 
 	ifp = &sc->arpcom.ac_if;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Disable host interrupts. */
 	CSR_WRITE_4(sc, TI_MB_HOSTINTR, 1);

@@ -1,7 +1,7 @@
-/*	$OpenBSD: read.c,v 1.120 2015/10/30 19:03:36 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.124 2016/07/19 16:22:34 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2016 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010, 2012 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -284,13 +284,6 @@ choose_parser(struct mparse *curp)
 		}
 	}
 
-	if (curp->man == NULL) {
-		curp->man = roff_man_alloc(curp->roff, curp, curp->defos,
-		    curp->options & MPARSE_QUICK ? 1 : 0);
-		curp->man->macroset = MACROSET_MAN;
-		curp->man->first->tok = TOKEN_NONE;
-	}
-
 	if (format == MPARSE_MDOC) {
 		mdoc_hash_init();
 		curp->man->macroset = MACROSET_MDOC;
@@ -532,9 +525,9 @@ rerun:
 			if (curp->secondary)
 				curp->secondary->sz -= pos + 1;
 			save_file = curp->file;
-			if (mparse_open(curp, &fd, ln.buf + of) ==
-			    MANDOCLEVEL_OK) {
+			if ((fd = mparse_open(curp, ln.buf + of)) != -1) {
 				mparse_readfd(curp, fd, ln.buf + of);
+				close(fd);
 				curp->file = save_file;
 			} else {
 				curp->file = save_file;
@@ -555,15 +548,7 @@ rerun:
 			break;
 		}
 
-		/*
-		 * If input parsers have not been allocated, do so now.
-		 * We keep these instanced between parsers, but set them
-		 * locally per parse routine since we can use different
-		 * parsers with each one.
-		 */
-
-		if (curp->man == NULL ||
-		    curp->man->macroset == MACROSET_NONE)
+		if (curp->man->macroset == MACROSET_NONE)
 			choose_parser(curp);
 
 		/*
@@ -673,10 +658,6 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 static void
 mparse_end(struct mparse *curp)
 {
-
-	if (curp->man == NULL && curp->sodest == NULL)
-		curp->man = roff_man_alloc(curp->roff, curp, curp->defos,
-		    curp->options & MPARSE_QUICK ? 1 : 0);
 	if (curp->man->macroset == MACROSET_NONE)
 		curp->man->macroset = MACROSET_MAN;
 	if (curp->man->macroset == MACROSET_MDOC)
@@ -748,17 +729,14 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 		else
 			free(blk.buf);
 	}
-
-	if (fd != STDIN_FILENO && close(fd) == -1)
-		perror(file);
-
 	return curp->file_status;
 }
 
-enum mandoclevel
-mparse_open(struct mparse *curp, int *fd, const char *file)
+int
+mparse_open(struct mparse *curp, const char *file)
 {
 	char		 *cp;
+	int		  fd;
 
 	curp->file = file;
 	cp = strrchr(file, '.');
@@ -766,8 +744,8 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 
 	/* First try to use the filename as it is. */
 
-	if ((*fd = open(file, O_RDONLY)) != -1)
-		return MANDOCLEVEL_OK;
+	if ((fd = open(file, O_RDONLY)) != -1)
+		return fd;
 
 	/*
 	 * If that doesn't work and the filename doesn't
@@ -776,18 +754,18 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 
 	if ( ! curp->gzip) {
 		mandoc_asprintf(&cp, "%s.gz", file);
-		*fd = open(file, O_RDONLY);
+		fd = open(cp, O_RDONLY);
 		free(cp);
-		if (*fd != -1) {
+		if (fd != -1) {
 			curp->gzip = 1;
-			return MANDOCLEVEL_OK;
+			return fd;
 		}
 	}
 
 	/* Neither worked, give up. */
 
 	mandoc_msg(MANDOCERR_FILE, curp, 0, 0, strerror(errno));
-	return MANDOCLEVEL_ERROR;
+	return -1;
 }
 
 struct mparse *
@@ -820,11 +798,8 @@ mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
 void
 mparse_reset(struct mparse *curp)
 {
-
 	roff_reset(curp->roff);
-
-	if (curp->man != NULL)
-		roff_man_reset(curp->man);
+	roff_man_reset(curp->man);
 	if (curp->secondary)
 		curp->secondary->sz = 0;
 

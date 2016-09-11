@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcidump.c,v 1.37 2015/01/16 06:40:19 deraadt Exp $	*/
+/*	$OpenBSD: pcidump.c,v 1.40 2016/08/27 04:38:48 guenther Exp $	*/
 
 /*
  * Copyright (c) 2006, 2007 David Gwynne <loki@animata.net>
@@ -20,6 +20,8 @@
 #include <sys/ioctl.h>
 #include <sys/pciio.h>
 
+#include <stdio.h>	/* need NULL for <dev/pci/*.h> */
+
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcidevs.h>
 #include <dev/pci/pcidevs_data.h>
@@ -28,7 +30,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <paths.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -50,6 +51,7 @@ int pci_nfuncs(int, int);
 int pci_read(int, int, int, u_int32_t, u_int32_t *);
 int pci_readmask(int, int, int, u_int32_t, u_int32_t *);
 void dump_caplist(int, int, int, u_int8_t);
+void dump_pci_powerstate(int, int, int, uint8_t);
 void dump_pcie_linkspeed(int, int, int, uint8_t);
 void print_pcie_ls(uint8_t);
 int dump_rom(int, int, int);
@@ -285,6 +287,22 @@ probe(int bus, int dev, int func)
 }
 
 void
+dump_pci_powerstate(int bus, int dev, int func, uint8_t ptr)
+{
+	u_int32_t pmcsr;
+
+	if (pci_read(bus, dev, func, ptr + PCI_PMCSR, &pmcsr) != 0)
+		return;
+
+	printf("\t	State: D%d", pmcsr & PCI_PMCSR_STATE_MASK);
+	if (pmcsr & PCI_PMCSR_PME_EN)
+		printf(" PME# enabled");
+	if (pmcsr & PCI_PMCSR_PME_STATUS)
+		printf(" PME# asserted");
+	printf("\n");
+}
+
+void
 print_pcie_ls(uint8_t speed)
 {
 	if (speed & 4)
@@ -359,6 +377,8 @@ dump_caplist(int bus, int dev, int func, u_int8_t ptr)
 		if (cap >= nitems(pci_capnames))
 			cap = 0;
 		printf("%s\n", pci_capnames[cap]);
+		if (cap == PCI_CAP_PWRMGMT)
+			dump_pci_powerstate(bus, dev, func, ptr);
 		if (cap == PCI_CAP_PCIEXPRESS)
 			dump_pcie_linkspeed(bus, dev, func, ptr);
 		ptr = PCI_CAPLIST_NEXT(reg);

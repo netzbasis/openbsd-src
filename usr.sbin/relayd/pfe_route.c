@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfe_route.c,v 1.9 2015/01/22 17:42:09 reyk Exp $	*/
+/*	$OpenBSD: pfe_route.c,v 1.11 2016/09/02 14:45:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2009 - 2011 Reyk Floeter <reyk@openbsd.org>
@@ -55,7 +55,7 @@ init_routes(struct relayd *env)
 {
 	u_int	 rtfilter;
 
-	if (!(env->sc_flags & F_NEEDRT))
+	if (!(env->sc_conf.flags & F_NEEDRT))
 		return;
 
 	if ((env->sc_rtsock = socket(AF_ROUTE, SOCK_RAW, 0)) == -1)
@@ -75,7 +75,7 @@ sync_routes(struct relayd *env, struct router *rt)
 	char			 buf[HOST_NAME_MAX+1];
 	struct ctl_netroute	 crt;
 
-	if (!(env->sc_flags & F_NEEDRT))
+	if (!(env->sc_conf.flags & F_NEEDRT))
 		return;
 
 	TAILQ_FOREACH(nr, &rt->rt_netroutes, nr_entry) {
@@ -97,8 +97,8 @@ sync_routes(struct relayd *env, struct router *rt)
 			memcpy(&crt.host, &host->conf, sizeof(host->conf));
 			memcpy(&crt.rt, &rt->rt_conf, sizeof(rt->rt_conf));
 
-			proc_compose_imsg(env->sc_ps, PROC_PARENT, -1,
-			    IMSG_RTMSG, -1, &crt, sizeof(crt));
+			proc_compose(env->sc_ps, PROC_PARENT,
+			    IMSG_RTMSG, &crt, sizeof(crt));
 		}
 	}
 }

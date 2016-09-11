@@ -1,4 +1,4 @@
-/*	$OpenBSD: uoakv.c,v 1.10 2015/03/14 03:38:50 jsg Exp $   */
+/*	$OpenBSD: uoakv.c,v 1.12 2016/01/09 04:14:42 jcs Exp $   */
 
 /*
  * Copyright (c) 2012 Yojiro UO <yuo@nui.org>
@@ -32,7 +32,7 @@
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdevs.h>
 #include <dev/usb/uhidev.h>
-#include <dev/usb/hid.h>
+
 #include "uoak.h"
 
 #ifdef UOAKV_DEBUG

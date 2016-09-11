@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_subst.c,v 1.22 2015/01/16 06:40:14 deraadt Exp $	*/
+/*	$OpenBSD: ex_subst.c,v 1.29 2016/09/02 15:38:42 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -32,7 +32,6 @@
 #define	SUB_MUSTSETR	0x02		/* The 'r' flag is required. */
 
 static int re_conv(SCR *, char **, size_t *, int *);
-static int re_cscope_conv(SCR *, char **, size_t *, int *);
 static int re_sub(SCR *, char *, char **, size_t *, size_t *, regmatch_t [10]);
 static int re_tag_conv(SCR *, char **, size_t *, int *);
 static int s(SCR *, EXCMD *, char *, regex_t *, u_int);
@@ -302,7 +301,7 @@ ex_subtilde(SCR *sp, EXCMD *cmdp)
 #define	NEEDNEWLINE(sp) {						\
 	if ((sp)->newl_len == (sp)->newl_cnt) {				\
 		(sp)->newl_len += 25;					\
-		REALLOCARRAY((sp), (sp)->newl, size_t *,		\
+		REALLOCARRAY((sp), (sp)->newl,				\
 		    (sp)->newl_len, sizeof(size_t));			\
 		if ((sp)->newl == NULL) {				\
 			(sp)->newl_len = 0;				\
@@ -314,7 +313,7 @@ ex_subtilde(SCR *sp, EXCMD *cmdp)
 #define	BUILD(sp, l, len) {						\
 	if (lbclen + (len) > lblen) {					\
 		lblen += MAXIMUM(lbclen + (len), 256);			\
-		REALLOC((sp), lb, char *, lblen);			\
+		REALLOC((sp), lb, lblen);				\
 		if (lb == NULL) {					\
 			lbclen = 0;					\
 			return (1);					\
@@ -327,7 +326,7 @@ ex_subtilde(SCR *sp, EXCMD *cmdp)
 #define	NEEDSP(sp, len, pnt) {						\
 	if (lbclen + (len) > lblen) {					\
 		lblen += MAXIMUM(lbclen + (len), 256);			\
-		REALLOC((sp), lb, char *, lblen);			\
+		REALLOC((sp), lb, lblen);				\
 		if (lb == NULL) {					\
 			lbclen = 0;					\
 			return (1);					\
@@ -347,7 +346,7 @@ s(SCR *sp, EXCMD *cmdp, char *s, regex_t *re, u_int flags)
 	size_t blen, cnt, last, lbclen, lblen, len, llen;
 	size_t offset, saved_offset, scno;
 	int lflag, nflag, pflag, rflag;
-	int didsub, do_eol_match, eflags, empty_ok, eval;
+	int didsub, do_eol_match, eflags, nempty, eval;
 	int linechanged, matched, quit, rval;
 	unsigned long ul;
 	char *bp, *lb;
@@ -409,7 +408,7 @@ s(SCR *sp, EXCMD *cmdp, char *s, regex_t *re, u_int flags)
 				--s;
 			if (errno == ERANGE) {
 				if (ul >= UINT_MAX)
-					msgq(sp, M_ERR, "153|Count overflow");
+					msgq(sp, M_ERR, "Count overflow");
 				else
 					msgq(sp, M_SYSERR, NULL);
 				return (1);
@@ -449,7 +448,7 @@ s(SCR *sp, EXCMD *cmdp, char *s, regex_t *re, u_int flags)
 		case 'r':
 			if (LF_ISSET(SUB_FIRST)) {
 				msgq(sp, M_ERR,
-		    "155|Regular expression specified; r flag meaningless");
+		    "Regular expression specified; r flag meaningless");
 				return (1);
 			}
 			if (!F_ISSET(sp, SC_RE_SEARCH)) {
@@ -470,7 +469,7 @@ usage:		ex_emsg(sp, cmdp->cmd->usage, EXM_USAGE);
 
 noargs:	if (F_ISSET(sp, SC_VI) && sp->c_suffix && (lflag || nflag || pflag)) {
 		msgq(sp, M_ERR,
-"156|The #, l and p flags may not be combined with the c flag in vi mode");
+"The #, l and p flags may not be combined with the c flag in vi mode");
 		return (1);
 	}
 
@@ -516,8 +515,8 @@ noargs:	if (F_ISSET(sp, SC_VI) && sp->c_suffix && (lflag || nflag || pflag)) {
 		/* Reset the build buffer offset. */
 		lbclen = 0;
 
-		/* Reset empty match flag. */
-		empty_ok = 1;
+		/* Reset empty match test variable. */
+		nempty = -1;
 
 		/*
 		 * We don't want to have to do a setline if the line didn't
@@ -533,18 +532,12 @@ noargs:	if (F_ISSET(sp, SC_VI) && sp->c_suffix && (lflag || nflag || pflag)) {
 		/* It's not nul terminated, but we pretend it is. */
 		eflags = REG_STARTEND;
 
-		/*
-		 * The search area is from s + offset to the EOL.
-		 *
-		 * Generally, match[0].rm_so is the offset of the start
-		 * of the match from the start of the search, and offset
-		 * is the offset of the start of the last search.
-		 */
-nextmatch:	match[0].rm_so = 0;
-		match[0].rm_eo = len;
+		/* The search area is from s + offset to the EOL.  */
+nextmatch:	match[0].rm_so = offset;
+		match[0].rm_eo = llen;
 
 		/* Get the next match. */
-		eval = regexec(re, (char *)s + offset, 10, match, eflags);
+		eval = regexec(re, (char *)s, 10, match, eflags);
 
 		/*
 		 * There wasn't a match or if there was an error, deal with
@@ -576,14 +569,13 @@ nextmatch:	match[0].rm_so = 0;
 		 * incorrectly using " *" to replace groups of spaces with one
 		 * space.
 		 *
-		 * The way we do this is that if we just had a successful match,
-		 * the starting offset does not skip characters, and the match
-		 * is empty, ignore the match and move forward.  If there's no
-		 * more characters in the string, we were attempting to match
-		 * after the last character, so quit.
+		 * If the match is empty and at the same place as the end of the
+		 * previous match, ignore the match and move forward.  If
+		 * there's no more characters in the string, we were
+		 * attempting to match after the last character, so quit.
 		 */
-		if (!empty_ok && match[0].rm_so == 0 && match[0].rm_eo == 0) {
-			empty_ok = 1;
+		if (match[0].rm_so == nempty && match[0].rm_eo == nempty) {
+			nempty = -1;
 			if (len == 0)
 				goto endmatch;
 			BUILD(sp, s + offset, 1)
@@ -600,8 +592,8 @@ nextmatch:	match[0].rm_so = 0;
 			 * the end of line.
 			 */
 			from.lno = to.lno = lno;
-			from.cno = match[0].rm_so + offset;
-			to.cno = match[0].rm_eo + offset;
+			from.cno = match[0].rm_so;
+			to.cno = match[0].rm_eo;
 			/*
 			 * Both ex and vi have to correct for a change before
 			 * the first character in the line.
@@ -627,8 +619,7 @@ nextmatch:	match[0].rm_so = 0;
 				if (vs_refresh(sp, 1))
 					goto err;
 
-				vs_update(sp, msg_cat(sp,
-				    "169|Confirm change? [n]", NULL), NULL);
+				vs_update(sp, "Confirm change? [n]", NULL);
 
 				if (v_event_get(sp, &ev, 0, 0))
 					goto err;
@@ -658,7 +649,7 @@ nextmatch:	match[0].rm_so = 0;
 			default:
 			case CH_NO:
 				didsub = 0;
-				BUILD(sp, s +offset, match[0].rm_eo);
+				BUILD(sp, s + offset, match[0].rm_eo - offset);
 				goto skip;
 			case CH_QUIT:
 				/* Set the quit/interrupted flags. */
@@ -681,22 +672,22 @@ lquit:				quit = 1;
 		sp->cno = match[0].rm_so;
 
 		/* Copy the bytes before the match into the build buffer. */
-		BUILD(sp, s + offset, match[0].rm_so);
+		BUILD(sp, s + offset, match[0].rm_so - offset);
 
 		/* Substitute the matching bytes. */
 		didsub = 1;
-		if (re_sub(sp, s + offset, &lb, &lbclen, &lblen, match))
+		if (re_sub(sp, s, &lb, &lbclen, &lblen, match))
 			goto err;
 
 		/* Set the change flag so we know this line was modified. */
 		linechanged = 1;
 
 		/* Move past the matched bytes. */
-skip:		offset += match[0].rm_eo;
-		len -= match[0].rm_eo;
+skip:		offset = match[0].rm_eo;
+		len = llen - match[0].rm_eo;
 
 		/* A match cannot be followed by an empty pattern. */
-		empty_ok = 0;
+		nempty = match[0].rm_eo;
 
 		/*
 		 * If doing a global change with confirmation, we have to
@@ -854,7 +845,7 @@ endmatch:	if (!linechanged)
 	rval = 0;
 	if (!matched) {
 		if (!F_ISSET(sp, SC_EX_GLOBAL)) {
-			msgq(sp, M_ERR, "157|No match found");
+			msgq(sp, M_ERR, "No match found");
 			goto err;
 		}
 	} else if (!lflag && !nflag && !pflag)
@@ -888,7 +879,7 @@ re_compile(SCR *sp, char *ptrn, size_t plen, char **ptrnp, size_t *lenp,
 
 	/* Set RE flags. */
 	reflags = 0;
-	if (!LF_ISSET(RE_C_CSCOPE | RE_C_TAG)) {
+	if (!LF_ISSET(RE_C_TAG)) {
 		if (O_ISSET(sp, O_EXTENDED))
 			reflags |= REG_EXTENDED;
 		if (O_ISSET(sp, O_IGNORECASE))
@@ -918,17 +909,7 @@ re_compile(SCR *sp, char *ptrn, size_t plen, char **ptrnp, size_t *lenp,
 	 * later recompilation.   Free any previously saved value.
 	 */
 	if (ptrnp != NULL) {
-		if (LF_ISSET(RE_C_CSCOPE)) {
-			if (re_cscope_conv(sp, &ptrn, &plen, &replaced))
-				return (1);
-			/*
-			 * XXX
-			 * Currently, the match-any-<blank> expression used in
-			 * re_cscope_conv() requires extended RE's.  This may
-			 * not be right or safe.
-			 */
-			reflags |= REG_EXTENDED;
-		} else if (LF_ISSET(RE_C_TAG)) {
+		if (LF_ISSET(RE_C_TAG)) {
 			if (re_tag_conv(sp, &ptrn, &plen, &replaced))
 				return (1);
 		} else
@@ -950,7 +931,7 @@ re_compile(SCR *sp, char *ptrn, size_t plen, char **ptrnp, size_t *lenp,
 		 * Regcomp isn't 8-bit clean, so the pattern is nul-terminated
 		 * for now.  There's just no other solution.  
 		 */
-		MALLOC(sp, *ptrnp, char *, plen + 1);
+		MALLOC(sp, *ptrnp, plen + 1);
 		if (*ptrnp != NULL) {
 			memcpy(*ptrnp, ptrn, plen);
 			(*ptrnp)[plen] = '\0';
@@ -1189,62 +1170,6 @@ re_tag_conv(SCR *sp, char **ptrnp, size_t *plenp, int *replacedp)
 	}
 	if (lastdollar)
 		*t++ = '$';
-
-	*ptrnp = bp;
-	*plenp = t - bp;
-	return (0);
-}
-
-/*
- * re_cscope_conv --
- *	 Convert a cscope search path into something that the POSIX
- *      1003.2 RE functions can handle.
- */
-static int
-re_cscope_conv(SCR *sp, char **ptrnp, size_t *plenp, int *replacedp)
-{
-	size_t blen, len, nspaces;
-	char *bp, *p, *t;
-
-	/*
-	 * Each space in the source line printed by cscope represents an
-	 * arbitrary sequence of spaces, tabs, and comments.
-	 */
-#define	CSCOPE_RE_SPACE		"([ \t]|/\\*([^*]|\\*/)*\\*/)*"
-	for (nspaces = 0, p = *ptrnp, len = *plenp; len > 0; ++p, --len)
-		if (*p == ' ')
-			++nspaces;
-
-	/*
-	 * Allocate plenty of space:
-	 *	the string, plus potential escaping characters;
-	 *	nspaces + 2 copies of CSCOPE_RE_SPACE;
-	 *	^, $, nul terminator characters.
-	 */
-	*replacedp = 1;
-	len = (p - *ptrnp) * 2 + (nspaces + 2) * sizeof(CSCOPE_RE_SPACE) + 3;
-	GET_SPACE_RET(sp, bp, blen, len);
-
-	p = *ptrnp;
-	t = bp;
-
-	*t++ = '^';
-	memcpy(t, CSCOPE_RE_SPACE, sizeof(CSCOPE_RE_SPACE) - 1);
-	t += sizeof(CSCOPE_RE_SPACE) - 1;
-
-	for (len = *plenp; len > 0; ++p, --len)
-		if (*p == ' ') {
-			memcpy(t, CSCOPE_RE_SPACE, sizeof(CSCOPE_RE_SPACE) - 1);
-			t += sizeof(CSCOPE_RE_SPACE) - 1;
-		} else {
-			if (strchr("\\^.[]$*+?()|{}", *p))
-				*t++ = '\\';
-			*t++ = *p;
-		}
-
-	memcpy(t, CSCOPE_RE_SPACE, sizeof(CSCOPE_RE_SPACE) - 1);
-	t += sizeof(CSCOPE_RE_SPACE) - 1;
-	*t++ = '$';
 
 	*ptrnp = bp;
 	*plenp = t - bp;

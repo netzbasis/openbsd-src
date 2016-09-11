@@ -1,4 +1,4 @@
-/*	$OpenBSD: re.c,v 1.182 2015/11/02 00:08:50 dlg Exp $	*/
+/*	$OpenBSD: re.c,v 1.193 2016/08/10 14:27:17 deraadt Exp $	*/
 /*	$FreeBSD: if_re.c,v 1.31 2004/09/04 07:54:05 ru Exp $	*/
 /*
  * Copyright (c) 1997, 1998-2003
@@ -120,22 +120,16 @@
 #include <sys/device.h>
 #include <sys/timeout.h>
 #include <sys/socket.h>
+#include <sys/atomic.h>
 
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#include <netinet/ip_var.h>
 #include <netinet/if_ether.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -158,7 +152,7 @@ int redebug = 0;
 
 static inline void re_set_bufaddr(struct rl_desc *, bus_addr_t);
 
-int	re_encap(struct rl_softc *, struct mbuf *, int *);
+int	re_encap(struct rl_softc *, struct mbuf *, struct rl_txq *, int *);
 
 int	re_newbuf(struct rl_softc *);
 int	re_rx_list_init(struct rl_softc *);
@@ -203,6 +197,8 @@ void	in_delayed_cksum(struct mbuf *);
 struct cfdriver re_cd = {
 	0, "re", DV_IFNET
 };
+
+extern char *hw_vendor, *hw_prod;
 
 #define EE_SET(x)					\
 	CSR_WRITE_1(sc, RL_EECMD,			\
@@ -648,18 +644,6 @@ re_reset(struct rl_softc *sc)
 		CSR_WRITE_1(sc, RL_LDPS, 1);
 }
 
-#ifdef __armish__ 
-/*
- * Thecus N2100 doesn't store the full mac address in eeprom
- * so we read the old mac address from the device before the reset
- * in hopes that the proper mac address is already there.
- */
-union {
-	u_int32_t eaddr_word[2];
-	u_char eaddr[ETHER_ADDR_LEN];
-} boot_eaddr;
-int boot_eaddr_valid;
-#endif /* __armish__ */
 /*
  * Attach the interface. Allocate softc structures, do ifmedia
  * setup and ethernet/BPF attach.
@@ -881,30 +865,6 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 		for (i = 0; i < ETHER_ADDR_LEN / 2; i++)
 			as[i] = letoh16(as[i]);
 		bcopy(as, eaddr, ETHER_ADDR_LEN);
-
-#ifdef __armish__
-		/*
-		 * On the Thecus N2100, the MAC address in the EEPROM is
-		 * always 00:14:fd:10:00:00.  The proper MAC address is
-		 * stored in flash.  Fortunately RedBoot configures the
-		 * proper MAC address (for the first onboard interface)
-		 * which we can read from the IDR.
-		 */
-		if (eaddr[0] == 0x00 && eaddr[1] == 0x14 &&
-		    eaddr[2] == 0xfd && eaddr[3] == 0x10 &&
-		    eaddr[4] == 0x00 && eaddr[5] == 0x00) {
-			if (boot_eaddr_valid == 0) {
-				boot_eaddr.eaddr_word[1] =
-				    letoh32(CSR_READ_4(sc, RL_IDR4));
-				boot_eaddr.eaddr_word[0] =
-				    letoh32(CSR_READ_4(sc, RL_IDR0));
-				boot_eaddr_valid = 1;
-			}
-
-			bcopy(boot_eaddr.eaddr, eaddr, sizeof(eaddr));
-			eaddr[5] += sc->sc_dev.dv_unit;
-		}
-#endif
 	}
 
 	/*
@@ -1048,12 +1008,12 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 	ifp->if_softc = sc;
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = re_ioctl;
 	ifp->if_start = re_start;
 	ifp->if_watchdog = re_watchdog;
 	ifp->if_hardmtu = sc->rl_max_mtu;
 	IFQ_SET_MAXLEN(&ifp->if_snd, RL_TX_QLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_TCPv4 |
 	    IFCAP_CSUM_UDPv4;
@@ -1455,17 +1415,13 @@ re_txeof(struct rl_softc *sc)
 	struct ifnet	*ifp;
 	struct rl_txq	*txq;
 	uint32_t	txstat;
-	int		idx, descidx, tx = 0;
+	int		idx, descidx, tx_free, freed = 0;
 
 	ifp = &sc->sc_arpcom.ac_if;
 
-	for (idx = sc->rl_ldata.rl_txq_considx;; idx = RL_NEXT_TXQ(sc, idx)) {
+	for (idx = sc->rl_ldata.rl_txq_considx;
+	    idx != sc->rl_ldata.rl_txq_prodidx; idx = RL_NEXT_TXQ(sc, idx)) {
 		txq = &sc->rl_ldata.rl_txq[idx];
-
-		if (txq->txq_mbuf == NULL) {
-			KASSERT(idx == sc->rl_ldata.rl_txq_prodidx);
-			break;
-		}
 
 		descidx = txq->txq_descidx;
 		RL_TXDESCSYNC(sc, descidx,
@@ -1477,9 +1433,7 @@ re_txeof(struct rl_softc *sc)
 		if (txstat & RL_TDESC_CMD_OWN)
 			break;
 
-		tx = 1;
-		sc->rl_ldata.rl_tx_free += txq->txq_nsegs;
-		KASSERT(sc->rl_ldata.rl_tx_free <= sc->rl_ldata.rl_tx_desc_cnt);
+		freed += txq->txq_nsegs;
 		bus_dmamap_sync(sc->sc_dmat, txq->txq_dmamap,
 		    0, txq->txq_dmamap->dm_mapsize, BUS_DMASYNC_POSTWRITE);
 		bus_dmamap_unload(sc->sc_dmat, txq->txq_dmamap);
@@ -1494,9 +1448,13 @@ re_txeof(struct rl_softc *sc)
 			ifp->if_opackets++;
 	}
 
-	sc->rl_ldata.rl_txq_considx = idx;
+	if (freed == 0)
+		return (0);
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	tx_free = atomic_add_int_nv(&sc->rl_ldata.rl_tx_free, freed);
+	KASSERT(tx_free <= sc->rl_ldata.rl_tx_desc_cnt);
+
+	sc->rl_ldata.rl_txq_considx = idx;
 
 	/*
 	 * Some chips will ignore a second TX request issued while an
@@ -1505,12 +1463,14 @@ re_txeof(struct rl_softc *sc)
 	 * to restart the channel here to flush them out. This only
 	 * seems to be required with the PCIe devices.
 	 */
-	if (sc->rl_ldata.rl_tx_free < sc->rl_ldata.rl_tx_desc_cnt)
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
+	else if (tx_free < sc->rl_ldata.rl_tx_desc_cnt)
 		CSR_WRITE_1(sc, sc->rl_txstart, RL_TXSTART_START);
 	else
 		ifp->if_timer = 0;
 
-	return (tx);
+	return (1);
 }
 
 void
@@ -1573,13 +1533,15 @@ re_intr(void *arg)
 		}
 
 		if (status & RL_ISR_SYSTEM_ERR) {
+			KERNEL_LOCK();
 			re_init(ifp);
+			KERNEL_UNLOCK();
 			claimed = 1;
 		}
 	}
 
 	if (sc->rl_imtype == RL_IMTYPE_SIM) {
-		if ((sc->rl_flags & RL_FLAG_TIMERINTR)) {
+		if (sc->rl_timerintr) {
 			if ((tx | rx) == 0) {
 				/*
 				 * Nothing needs to be processed, fallback
@@ -1593,7 +1555,7 @@ re_intr(void *arg)
 				 * masks.
 				 */
 				re_rxeof(sc);
-				tx = re_txeof(sc);
+				re_txeof(sc);
 			} else
 				CSR_WRITE_4(sc, RL_TIMERCNT, 1); /* reload */
 		} else if (tx | rx) {
@@ -1606,15 +1568,13 @@ re_intr(void *arg)
 		}
 	}
 
-	re_start(ifp);
-
 	CSR_WRITE_2(sc, RL_IMR, sc->rl_intrs);
 
 	return (claimed);
 }
 
 int
-re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
+re_encap(struct rl_softc *sc, struct mbuf *m, struct rl_txq *txq, int *used)
 {
 	bus_dmamap_t	map;
 	struct mbuf	*mp, mh;
@@ -1623,7 +1583,6 @@ re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
 	struct ip	*ip;
 	struct rl_desc	*d;
 	u_int32_t	cmdstat, vlanctl = 0, csum_flags = 0;
-	struct rl_txq	*txq;
 
 	/*
 	 * Set up checksum offload. Note: checksum offload bits must
@@ -1676,7 +1635,6 @@ re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
 		}
 	}
 
-	txq = &sc->rl_ldata.rl_txq[*idx];
 	map = txq->txq_dmamap;
 
 	error = bus_dmamap_load_mbuf(sc->sc_dmat, map, m,
@@ -1693,7 +1651,7 @@ re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
 
 		/* FALLTHROUGH */
 	default:
-		return (ENOBUFS);
+		return (ENOMEM);
 	}
 
 	nsegs = map->dm_nsegs;
@@ -1717,8 +1675,8 @@ re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
 		nsegs++;
 	}
 
-	if (sc->rl_ldata.rl_tx_free - nsegs <= 1) {
-		error = EFBIG;
+	if (*used + nsegs + 1 >= sc->rl_ldata.rl_tx_free) {
+		error = ENOBUFS;
 		goto fail_unload;
 	}
 
@@ -1819,10 +1777,9 @@ re_encap(struct rl_softc *sc, struct mbuf *m, int *idx)
 	txq->txq_descidx = lastidx;
 	txq->txq_nsegs = nsegs;
 
-	sc->rl_ldata.rl_tx_free -= nsegs;
 	sc->rl_ldata.rl_tx_nextfree = curidx;
 
-	*idx = RL_NEXT_TXQ(sc, *idx);
+	*used += nsegs;
 
 	return (0);
 
@@ -1841,64 +1798,61 @@ re_start(struct ifnet *ifp)
 {
 	struct rl_softc	*sc = ifp->if_softc;
 	struct mbuf	*m;
-	int		idx, queued = 0, error;
+	int		idx, used = 0, txq_free, error;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!ISSET(sc->rl_flags, RL_FLAG_LINK)) {
+		IFQ_PURGE(&ifp->if_snd);
 		return;
-	if ((sc->rl_flags & RL_FLAG_LINK) == 0)
-		return;
-	if (IFQ_IS_EMPTY(&ifp->if_snd))
-		return;
+	}
 
+	txq_free = sc->rl_ldata.rl_txq_considx;
 	idx = sc->rl_ldata.rl_txq_prodidx;
+	if (txq_free <= idx)
+		txq_free += RL_TX_QLEN;
+	txq_free -= idx;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
-		if (m == NULL)
-			break;
-
-		if (sc->rl_ldata.rl_txq[idx].txq_mbuf != NULL) {
-			KASSERT(idx == sc->rl_ldata.rl_txq_considx);
-			ifp->if_flags |= IFF_OACTIVE;
+		if (txq_free <= 1) {
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		error = re_encap(sc, m, &idx);
-		if (error != 0 && error != ENOBUFS) {
-			ifp->if_flags |= IFF_OACTIVE;
+		m = ifq_deq_begin(&ifp->if_snd);
+		if (m == NULL)
 			break;
-		} else if (error != 0) {
-			IFQ_DEQUEUE(&ifp->if_snd, m);
+
+		error = re_encap(sc, m, &sc->rl_ldata.rl_txq[idx], &used);
+		if (error == 0)
+			ifq_deq_commit(&ifp->if_snd, m);
+		else if (error == ENOBUFS) {
+			ifq_deq_rollback(&ifp->if_snd, m);
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		} else {
+			ifq_deq_commit(&ifp->if_snd, m);
 			m_freem(m);
 			ifp->if_oerrors++;
 			continue;
 		}
 
-		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
-		queued++;
-
 #if NBPFILTER > 0
-		/*
-		 * If there's a BPF listener, bounce a copy of this frame
-		 * to him.
-		 */
 		if (ifp->if_bpf)
 			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
+		idx = RL_NEXT_TXQ(sc, idx);
+		txq_free--;
 	}
 
-	if (queued == 0)
+	if (used == 0)
 		return;
+	
+	ifp->if_timer = 5;
+	atomic_sub_int(&sc->rl_ldata.rl_tx_free, used);
+	KASSERT(sc->rl_ldata.rl_tx_free >= 0);
 
 	sc->rl_ldata.rl_txq_prodidx = idx;
 
 	CSR_WRITE_1(sc, sc->rl_txstart, RL_TXSTART_START);
-
-	/*
-	 * Set a timeout in case the chip goes out to lunch.
-	 */
-	ifp->if_timer = 5;
 }
 
 int
@@ -1952,6 +1906,21 @@ re_init(struct ifnet *ifp)
 	    htole32(*(u_int32_t *)(&eaddr.eaddr[4])));
 	CSR_WRITE_4(sc, RL_IDR0,
 	    htole32(*(u_int32_t *)(&eaddr.eaddr[0])));
+	/*
+	 * Default on PC Engines APU1 is to have all LEDs off unless
+	 * there is network activity. Override to provide a link status
+	 * LED.
+	 */
+	if (sc->sc_hwrev == RL_HWREV_8168E &&
+	    hw_vendor != NULL && hw_prod != NULL &&
+	    strcmp(hw_vendor, "PC Engines") == 0 &&
+	    strcmp(hw_prod, "APU") == 0) {
+		CSR_SETBIT_1(sc, RL_CFG4, RL_CFG4_CUSTOM_LED);
+		CSR_WRITE_1(sc, RL_LEDSEL, RL_LED_LINK | RL_LED_ACT << 4);
+	}
+	/*
+	 * Protect config register again
+	 */
 	CSR_WRITE_1(sc, RL_EECMD, RL_EEMODE_OFF);
 
 	if ((sc->rl_flags & RL_FLAG_JUMBOV2) != 0)
@@ -2027,7 +1996,7 @@ re_init(struct ifnet *ifp)
 	    RL_CFG1_DRVLOAD);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -2124,7 +2093,6 @@ re_watchdog(struct ifnet *ifp)
 	sc = ifp->if_softc;
 	s = splnet();
 	printf("%s: watchdog timeout\n", sc->sc_dev.dv_xname);
-	ifp->if_oerrors++;
 
 	re_txeof(sc);
 	re_rxeof(sc);
@@ -2147,12 +2115,11 @@ re_stop(struct ifnet *ifp)
 	sc = ifp->if_softc;
 
 	ifp->if_timer = 0;
-	sc->rl_flags &= ~(RL_FLAG_LINK|RL_FLAG_TIMERINTR);
+	sc->rl_flags &= ~RL_FLAG_LINK;
+	sc->rl_timerintr = 0;
 
 	timeout_del(&sc->timer_handle);
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
-
-	mii_down(&sc->sc_mii);
+	ifp->if_flags &= ~IFF_RUNNING;
 
 	/*
 	 * Disable accepting frames to put RX MAC into idle state.
@@ -2194,6 +2161,12 @@ re_stop(struct ifnet *ifp)
 	DELAY(1000);
 	CSR_WRITE_2(sc, RL_IMR, 0x0000);
 	CSR_WRITE_2(sc, RL_ISR, 0xFFFF);
+
+	intr_barrier(sc->sc_ih);
+	ifq_barrier(&ifp->if_snd);
+
+	ifq_clr_oactive(&ifp->if_snd);
+	mii_down(&sc->sc_mii);
 
 	if (sc->rl_head != NULL) {
 		m_freem(sc->rl_head);
@@ -2269,18 +2242,18 @@ re_setup_sim_im(struct rl_softc *sc)
 	if (sc->sc_hwrev == RL_HWREV_8139CPLUS)
 		CSR_WRITE_4(sc, RL_TIMERINT, 0x400); /* XXX */
 	else {
-		u_int32_t ticks;
+		u_int32_t nticks;
 
 		/*
 		 * Datasheet says tick decreases at bus speed,
 		 * but it seems the clock runs a little bit
 		 * faster, so we do some compensation here.
 		 */
-		ticks = (sc->rl_sim_time * sc->rl_bus_speed * 8) / 5;
-		CSR_WRITE_4(sc, RL_TIMERINT_8169, ticks);
+		nticks = (sc->rl_sim_time * sc->rl_bus_speed * 8) / 5;
+		CSR_WRITE_4(sc, RL_TIMERINT_8169, nticks);
 	}
 	CSR_WRITE_4(sc, RL_TIMERCNT, 1); /* reload */
-	sc->rl_flags |= RL_FLAG_TIMERINTR;
+	sc->rl_timerintr = 1;
 }
 
 void
@@ -2290,7 +2263,7 @@ re_disable_sim_im(struct rl_softc *sc)
 		CSR_WRITE_4(sc, RL_TIMERINT, 0);
 	else 
 		CSR_WRITE_4(sc, RL_TIMERINT_8169, 0);
-	sc->rl_flags &= ~RL_FLAG_TIMERINTR;
+	sc->rl_timerintr = 0;
 }
 
 void

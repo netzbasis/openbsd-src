@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.15 2014/10/25 03:23:49 lteo Exp $ */
+/*	$OpenBSD: init.c,v 1.33 2016/07/16 19:20:16 renato Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -17,116 +17,145 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-
-#include <netinet/in.h>
-#include <netinet/ip.h>
 #include <arpa/inet.h>
-#include <net/if_dl.h>
-#include <unistd.h>
-
-#include <errno.h>
-#include <event.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "ldpd.h"
-#include "ldp.h"
-#include "log.h"
 #include "ldpe.h"
+#include "log.h"
 
-extern struct ldpd_conf        *leconf;
-
-int	gen_init_prms_tlv(struct ibuf *, struct nbr *, u_int16_t);
-int	tlv_decode_opt_init_prms(char *, u_int16_t);
+static int	gen_init_prms_tlv(struct ibuf *, struct nbr *);
 
 void
 send_init(struct nbr *nbr)
 {
 	struct ibuf		*buf;
-	u_int16_t		 size;
+	uint16_t		 size;
+	int			 err = 0;
 
-	log_debug("send_init: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
-	if ((buf = ibuf_open(LDP_MAX_LEN)) == NULL)
-		fatal("send_init");
+	size = LDP_HDR_SIZE + LDP_MSG_SIZE + SESS_PRMS_SIZE;
+	if ((buf = ibuf_open(size)) == NULL)
+		fatal(__func__);
 
-	size = LDP_HDR_SIZE + sizeof(struct ldp_msg) + SESS_PRMS_SIZE;
-
-	gen_ldp_hdr(buf, size);
-
+	err |= gen_ldp_hdr(buf, size);
 	size -= LDP_HDR_SIZE;
-
-	gen_msg_tlv(buf, MSG_TYPE_INIT, size);
-
-	size -= sizeof(struct ldp_msg);
-
-	gen_init_prms_tlv(buf, nbr, size);
+	err |= gen_msg_hdr(buf, MSG_TYPE_INIT, size);
+	size -= LDP_MSG_SIZE;
+	err |= gen_init_prms_tlv(buf, nbr);
+	if (err) {
+		ibuf_free(buf);
+		return;
+	}
 
 	evbuf_enqueue(&nbr->tcp->wbuf, buf);
 }
 
 int
-recv_init(struct nbr *nbr, char *buf, u_int16_t len)
+recv_init(struct nbr *nbr, char *buf, uint16_t len)
 {
-	struct ldp_msg		init;
+	struct ldp_msg		msg;
 	struct sess_prms_tlv	sess;
+	uint16_t		max_pdu_len;
 
-	log_debug("recv_init: neighbor ID %s", inet_ntoa(nbr->id));
+	log_debug("%s: lsr-id %s", __func__, inet_ntoa(nbr->id));
 
-	bcopy(buf, &init, sizeof(init));
-
-	buf += sizeof(struct ldp_msg);
-	len -= sizeof(struct ldp_msg);
+	memcpy(&msg, buf, sizeof(msg));
+	buf += LDP_MSG_SIZE;
+	len -= LDP_MSG_SIZE;
 
 	if (len < SESS_PRMS_SIZE) {
-		session_shutdown(nbr, S_BAD_MSG_LEN, init.msgid, init.type);
+		session_shutdown(nbr, S_BAD_MSG_LEN, msg.id, msg.type);
 		return (-1);
 	}
-	bcopy(buf, &sess, sizeof(sess));
-
-	if (ntohs(sess.length) != SESS_PRMS_SIZE - TLV_HDR_LEN ||
-	    ntohs(sess.length) > len - TLV_HDR_LEN) {
-		session_shutdown(nbr, S_BAD_TLV_LEN, init.msgid, init.type);
+	memcpy(&sess, buf, sizeof(sess));
+	if (ntohs(sess.length) != SESS_PRMS_LEN) {
+		session_shutdown(nbr, S_BAD_TLV_LEN, msg.id, msg.type);
 		return (-1);
 	}
-
 	if (ntohs(sess.proto_version) != LDP_VERSION) {
-		session_shutdown(nbr, S_BAD_PROTO_VER, init.msgid, init.type);
+		session_shutdown(nbr, S_BAD_PROTO_VER, msg.id, msg.type);
+		return (-1);
+	}
+	if (ntohs(sess.keepalive_time) < MIN_KEEPALIVE) {
+		session_shutdown(nbr, S_KEEPALIVE_BAD, msg.id, msg.type);
+		return (-1);
+	}
+	if (sess.lsr_id != leconf->rtr_id.s_addr ||
+	    ntohs(sess.lspace_id) != 0) {
+		session_shutdown(nbr, S_NO_HELLO, msg.id, msg.type);
 		return (-1);
 	}
 
 	buf += SESS_PRMS_SIZE;
 	len -= SESS_PRMS_SIZE;
 
-	/* just ignore all optional TLVs for now */
-	if (tlv_decode_opt_init_prms(buf, len) == -1) {
-		session_shutdown(nbr, S_BAD_TLV_VAL, init.msgid, init.type);
-		return (-1);
+	/* Optional Parameters */
+	while (len > 0) {
+		struct tlv 	tlv;
+		uint16_t	tlv_len;
+
+		if (len < sizeof(tlv)) {
+			session_shutdown(nbr, S_BAD_TLV_LEN, msg.id, msg.type);
+			return (-1);
+		}
+
+		memcpy(&tlv, buf, TLV_HDR_SIZE);
+		tlv_len = ntohs(tlv.length);
+		if (tlv_len + TLV_HDR_SIZE > len) {
+			session_shutdown(nbr, S_BAD_TLV_LEN, msg.id, msg.type);
+			return (-1);
+		}
+		buf += TLV_HDR_SIZE;
+		len -= TLV_HDR_SIZE;
+
+		switch (ntohs(tlv.type)) {
+		case TLV_TYPE_ATMSESSIONPAR:
+			session_shutdown(nbr, S_BAD_TLV_VAL, msg.id, msg.type);
+			return (-1);
+		case TLV_TYPE_FRSESSION:
+			session_shutdown(nbr, S_BAD_TLV_VAL, msg.id, msg.type);
+			return (-1);
+		default:
+			if (!(ntohs(tlv.type) & UNKNOWN_FLAG))
+				send_notification_nbr(nbr, S_UNKNOWN_TLV,
+				    msg.id, msg.type);
+			/* ignore unknown tlv */
+			break;
+		}
+		buf += tlv_len;
+		len -= tlv_len;
 	}
 
-	nbr->keepalive = min(leconf->keepalive, ntohs(sess.keepalive_time));
+	nbr->keepalive = min(nbr_get_keepalive(nbr->af, nbr->id),
+	    ntohs(sess.keepalive_time));
 
-	if (!nbr_pending_idtimer(nbr))
-		nbr_fsm(nbr, NBR_EVT_INIT_RCVD);
+	max_pdu_len = ntohs(sess.max_pdu_len);
+	/*
+	 * RFC 5036 - Section 3.5.3:
+	 * "A value of 255 or less specifies the default maximum length of
+	 * 4096 octets".
+	 */
+	if (max_pdu_len <= 255)
+		max_pdu_len = LDP_MAX_LEN;
+	nbr->max_pdu_len = min(max_pdu_len, LDP_MAX_LEN);
 
-	return (ntohs(init.length));
+	nbr_fsm(nbr, NBR_EVT_INIT_RCVD);
+
+	return (0);
 }
 
-int
-gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr, u_int16_t size)
+static int
+gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr)
 {
 	struct sess_prms_tlv	parms;
 
-	/* We want just the size of the value */
-	size -= TLV_HDR_LEN;
-
-	bzero(&parms, sizeof(parms));
+	memset(&parms, 0, sizeof(parms));
 	parms.type = htons(TLV_TYPE_COMMONSESSION);
-	parms.length = htons(size);
+	parms.length = htons(SESS_PRMS_LEN);
 	parms.proto_version = htons(LDP_VERSION);
-	parms.keepalive_time = htons(leconf->keepalive);
+	parms.keepalive_time = htons(nbr_get_keepalive(nbr->af, nbr->id));
 	parms.reserved = 0;
 	parms.pvlim = 0;
 	parms.max_pdu_len = 0;
@@ -134,35 +163,4 @@ gen_init_prms_tlv(struct ibuf *buf, struct nbr *nbr, u_int16_t size)
 	parms.lspace_id = 0;
 
 	return (ibuf_add(buf, &parms, SESS_PRMS_SIZE));
-}
-
-int
-tlv_decode_opt_init_prms(char *buf, u_int16_t len)
-{
-	struct tlv	tlv;
-	int		cons = 0;
-	u_int16_t	tlv_len;
-
-	 while (len >= sizeof(tlv)) {
-		bcopy(buf, &tlv, sizeof(tlv));
-		tlv_len = ntohs(tlv.length);
-		switch (ntohs(tlv.type)) {
-		case TLV_TYPE_ATMSESSIONPAR:
-			log_warnx("ATM session parameter present");
-			return (-1);
-		case TLV_TYPE_FRSESSION:
-			log_warnx("FR session parameter present");
-			return (-1);
-		default:
-			/* if unknown flag set, ignore TLV */
-			if (!(ntohs(tlv.type) & UNKNOWN_FLAG))
-				return (-1);
-			break;
-		}
-		buf += TLV_HDR_LEN + tlv_len;
-		len -= TLV_HDR_LEN + tlv_len;
-		cons += TLV_HDR_LEN + tlv_len;
-	}
-
-	return (cons);
 }

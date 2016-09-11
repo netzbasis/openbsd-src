@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.7 2015/05/28 17:08:08 florian Exp $	*/
+/*	$OpenBSD: control.c,v 1.11 2016/09/01 10:59:38 reyk Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -50,7 +50,7 @@ control_init(struct privsep *ps, struct control_sock *cs)
 	if (cs->cs_name == NULL)
 		return (0);
 
-	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1) {
 		log_warn("%s: socket", __func__);
 		return (-1);
 	}
@@ -93,7 +93,6 @@ control_init(struct privsep *ps, struct control_sock *cs)
 		return (-1);
 	}
 
-	socket_set_blockmode(fd, BM_NONBLOCK);
 	cs->cs_fd = fd;
 	cs->cs_env = env;
 
@@ -143,8 +142,8 @@ control_accept(int listenfd, short event, void *arg)
 		return;
 
 	len = sizeof(sun);
-	if ((connfd = accept(listenfd,
-	    (struct sockaddr *)&sun, &len)) == -1) {
+	if ((connfd = accept4(listenfd,
+	    (struct sockaddr *)&sun, &len, SOCK_NONBLOCK)) == -1) {
 		/*
 		 * Pause accept if we are out of file descriptors, or
 		 * libevent will haunt us here too.
@@ -159,8 +158,6 @@ control_accept(int listenfd, short event, void *arg)
 			log_warn("%s: accept", __func__);
 		return;
 	}
-
-	socket_set_blockmode(connfd, BM_NONBLOCK);
 
 	if ((c = calloc(1, sizeof(struct ctl_conn))) == NULL) {
 		close(connfd);
@@ -233,7 +230,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	}
 
 	if (event & EV_READ) {
-		if ((n = imsg_read(&c->iev.ibuf)) == -1 || n == 0) {
+		if (((n = imsg_read(&c->iev.ibuf)) == -1 && errno != EAGAIN) ||
+		    n == 0) {
 			control_close(fd, cs);
 			return;
 		}
@@ -275,7 +273,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 				    "client requested notify more than once",
 				    __func__);
 				imsg_compose_event(&c->iev, IMSG_CTL_FAIL,
-				    0, 0, -1, NULL, 0);
+				    0, env->sc_ps->ps_instance + 1, -1,
+				    NULL, 0);
 				break;
 			}
 			c->flags |= CTL_CONN_NOTIFY;
@@ -289,7 +288,7 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			proc_forward_imsg(env->sc_ps, &imsg, PROC_SERVER, -1);
 
 			memcpy(imsg.data, &verbose, sizeof(verbose));
-			control_imsg_forward(&imsg);
+			control_imsg_forward(env->sc_ps, &imsg);
 			log_verbose(verbose);
 			break;
 		default:
@@ -304,30 +303,13 @@ control_dispatch_imsg(int fd, short event, void *arg)
 }
 
 void
-control_imsg_forward(struct imsg *imsg)
+control_imsg_forward(struct privsep *ps, struct imsg *imsg)
 {
 	struct ctl_conn *c;
 
 	TAILQ_FOREACH(c, &ctl_conns, entry)
 		if (c->flags & CTL_CONN_NOTIFY)
 			imsg_compose_event(&c->iev, imsg->hdr.type,
-			    0, imsg->hdr.pid, -1, imsg->data,
+			    0, ps->ps_instance + 1, -1, imsg->data,
 			    imsg->hdr.len - IMSG_HEADER_SIZE);
-}
-
-void
-socket_set_blockmode(int fd, enum blockmodes bm)
-{
-	int	flags;
-
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
-		fatal("fcntl F_GETFL");
-
-	if (bm == BM_NONBLOCK)
-		flags |= O_NONBLOCK;
-	else
-		flags &= ~O_NONBLOCK;
-
-	if ((flags = fcntl(fd, F_SETFL, flags)) == -1)
-		fatal("fcntl F_SETFL");
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: theo.c,v 1.148 2015/10/29 15:42:01 tedu Exp $	*/
+/*	$OpenBSD: theo.c,v 1.152 2016/08/16 15:24:01 tedu Exp $	*/
 /*
  * Copyright (c) 2002 Artur Grabowski <art@openbsd.org>
  * All rights reserved.
@@ -194,6 +194,9 @@ static const char *talk[] = {
 	"Where did my \"fuck backwards compat\" compatriots go?",
 	"I want a new vax, one that's not so slow.",
 	"This sausage is made from unsound meat.",
+	"The people who wrote this code are not on your side.",
+	"Well finally everyone can see that the shit is really shitty.",
+	"All that complexity stopped us from getting flying cars by today.",
 };
 
 static const int ntalk = sizeof(talk)/sizeof(talk[0]);
@@ -208,12 +211,14 @@ theo_analyze(int f, int n)
 	str = talk[arc4random_uniform(ntalk)];
 	len = strlen(str);
 
+	undo_boundary_enable(FFRAND, 0);
 	enewline(FFRAND, 2);
 
 	while (len--)
 		linsert(1, *str++);
 
 	enewline(FFRAND, 2);
+	undo_boundary_enable(FFRAND, 1);
 
 	return (TRUE);
 }

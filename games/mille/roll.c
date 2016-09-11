@@ -1,4 +1,4 @@
-/*	$OpenBSD: roll.c,v 1.7 2015/01/19 00:47:01 deraadt Exp $	*/
+/*	$OpenBSD: roll.c,v 1.9 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: roll.c,v 1.4 1995/03/24 05:02:07 cgd Exp $	*/
 
 /*
@@ -30,7 +30,9 @@
  * SUCH DAMAGE.
  */
 
-#include	"mille.h"
+#include <stdlib.h>
+
+#include "mille.h"
 
 /*
  *	This routine rolls ndie nside-sided dice.
@@ -40,8 +42,7 @@
  */
 
 int
-roll(ndie, nsides)
-	int	ndie, nsides;
+roll(int ndie, int nsides)
 {
 	int	tot;
 

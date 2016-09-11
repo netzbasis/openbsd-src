@@ -1,4 +1,4 @@
-/*	$OpenBSD: SYS.h,v 1.17 2015/10/23 04:39:24 guenther Exp $	*/
+/*	$OpenBSD: SYS.h,v 1.20 2016/09/06 18:33:35 kettenis Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -35,31 +35,11 @@
  *	$NetBSD: SYS.h,v 1.5 2002/06/03 18:30:32 fvdl Exp $
  */
 
-#include <machine/asm.h>
+#include "DEFS.h"
 #include <sys/syscall.h>
 
-/*
- * We define a hidden alias with the prefix "_libc_" for each global symbol
- * that may be used internally.  By referencing _libc_x instead of x, other
- * parts of libc prevent overriding by the application and avoid unnecessary
- * relocations.
- */
-#define _HIDDEN(x)		_libc_##x
-#define _HIDDEN_ALIAS(x,y)			\
-	STRONG_ALIAS(_HIDDEN(x),y);		\
-	.hidden _HIDDEN(x)
-#define _HIDDEN_FALIAS(x,y)			\
-	_HIDDEN_ALIAS(x,y);			\
-	.type _HIDDEN(x),@function
-
-/*
- * For functions implemented in ASM that aren't syscalls.
- *   END_STRONG(x)	Like DEF_STRONG() in C; for standard/reserved C names
- *   END_WEAK(x)	Like DEF_WEAK() in C; for non-ISO C names
- */
-#define	END_STRONG(x)	END(x); _HIDDEN_FALIAS(x,x); END(_HIDDEN(x))
-#define	END_WEAK(x)	END_STRONG(x); .weak x
-
+/* offsetof(struct tib, tib_errno) - offsetof(struct tib, __tib_tcb) */
+#define	TCB_OFFSET_ERRNO	32
 
 #define SYSTRAP(x)	movl $(SYS_ ## x),%eax; movq %rcx, %r10; syscall
 
@@ -75,8 +55,14 @@
 	END(_HIDDEN(x))
 #define	SYSCALL_END(x)		SYSCALL_END_HIDDEN(x); END(x)
 
-#define CERROR		_C_LABEL(__cerror)
-#define _CERROR		_C_LABEL(___cerror)
+
+#define SET_ERRNO							\
+	movl	%eax,%fs:(TCB_OFFSET_ERRNO);				\
+	movq	$-1, %rax
+#define HANDLE_ERRNO							\
+	jnc	99f;							\
+	SET_ERRNO;							\
+	99:
 
 #define _SYSCALL_NOERROR(x,y)						\
 	SYSENTRY(x);							\
@@ -85,39 +71,23 @@
 	SYSENTRY_HIDDEN(x);						\
 	SYSTRAP(y)
 
-#ifdef __PIC__
-#define _SYSCALL(x,y)							\
-	.text; _ALIGN_TEXT;						\
-	2: mov PIC_GOT(CERROR), %rcx;					\
-	jmp *%rcx;							\
-	_SYSCALL_NOERROR(x,y);						\
-	jc 2b
-#define _SYSCALL_HIDDEN(x,y)						\
-	.text; _ALIGN_TEXT;						\
-	2: mov PIC_GOT(CERROR), %rcx;					\
-	jmp *%rcx;							\
-	_SYSCALL_HIDDEN_NOERROR(x,y);					\
-	jc 2b
-#else
-#define _SYSCALL(x,y)							\
-	.text; _ALIGN_TEXT;						\
-	2: jmp CERROR;							\
-	_SYSCALL_NOERROR(x,y);						\
-	jc 2b
-#define _SYSCALL_HIDDEN(x,y)						\
-	.text; _ALIGN_TEXT;						\
-	2: jmp CERROR;							\
-	_SYSCALL_HIDDEN_NOERROR(x,y);					\
-	jc 2b
-#endif
-
 #define SYSCALL_NOERROR(x)						\
 	_SYSCALL_NOERROR(x,x)
 
 #define SYSCALL_HIDDEN(x)						\
-	_SYSCALL_HIDDEN(x,x)
+	_SYSCALL_HIDDEN_NOERROR(x,x);					\
+	HANDLE_ERRNO
 #define SYSCALL(x)							\
-	_SYSCALL(x,x)
+	_SYSCALL_NOERROR(x,x);						\
+	HANDLE_ERRNO
+
+
+/* return, handling errno for failed calls */
+#define _RSYSCALL_RET							\
+	jc	99f;							\
+	ret;								\
+	99: SET_ERRNO;							\
+	ret
 
 #define PSEUDO_NOERROR(x,y)						\
 	_SYSCALL_NOERROR(x,y);						\
@@ -125,12 +95,12 @@
 	SYSCALL_END(x)
 
 #define PSEUDO(x,y)							\
-	_SYSCALL(x,y);							\
-	ret;								\
+	_SYSCALL_NOERROR(x,y);						\
+	_RSYSCALL_RET;							\
 	SYSCALL_END(x)
 #define PSEUDO_HIDDEN(x,y)						\
-	_SYSCALL_HIDDEN(x,y);						\
-	ret;								\
+	_SYSCALL_HIDDEN_NOERROR(x,y);					\
+	_RSYSCALL_RET;							\
 	SYSCALL_END_HIDDEN(x)
 
 #define RSYSCALL_NOERROR(x)						\
@@ -140,5 +110,3 @@
 	PSEUDO(x,x)
 #define RSYSCALL_HIDDEN(x)						\
 	PSEUDO_HIDDEN(x,x)
-
-	.globl	CERROR

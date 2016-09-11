@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.h,v 1.172 2015/10/24 10:52:05 reyk Exp $	*/
+/*	$OpenBSD: if.h,v 1.179 2016/09/04 15:10:59 reyk Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -206,14 +206,14 @@ struct if_status_description {
 	(IFF_BROADCAST|IFF_POINTOPOINT|IFF_RUNNING|IFF_OACTIVE|\
 	    IFF_SIMPLEX|IFF_MULTICAST|IFF_ALLMULTI)
 
-#define IFXF_TXREADY		0x1		/* interface is ready to tx */
+#define IFXF_MPSAFE		0x1		/* if_start is mpsafe */
 #define	IFXF_INET6_NOPRIVACY	0x4		/* don't autoconf privacy */
 #define	IFXF_MPLS		0x8		/* supports MPLS */
 #define	IFXF_WOL		0x10		/* wake on lan enabled */
 #define	IFXF_AUTOCONF6		0x20		/* v6 autoconf enabled */
 
 #define	IFXF_CANTCHANGE \
-	(IFXF_TXREADY)
+	(IFXF_MPSAFE)
 
 /*
  * Some convenience macros used for setting ifi_baudrate.
@@ -360,7 +360,7 @@ struct	ifreq {
 		struct	sockaddr	ifru_broadaddr;
 		short			ifru_flags;
 		int			ifru_metric;
-		uint32_t		ifru_vnetid;
+		int64_t			ifru_vnetid;
 		uint64_t		ifru_media;
 		caddr_t			ifru_data;
 		unsigned int		ifru_index;
@@ -378,6 +378,7 @@ struct	ifreq {
 #define ifr_ttl		ifr_ifru.ifru_metric	/* tunnel TTL (overload) */
 #define	ifr_data	ifr_ifru.ifru_data	/* for use by interface */
 #define ifr_index	ifr_ifru.ifru_index	/* interface index */
+#define ifr_llprio	ifr_ifru.ifru_metric	/* link layer priority */
 };
 
 struct ifaliasreq {
@@ -400,8 +401,7 @@ struct ifmediareq {
 	uint64_t	ifm_mask;		/* don't care mask */
 	uint64_t	ifm_status;		/* media status */
 	uint64_t	ifm_active;		/* active options */ 
-	int		ifm_count;		/* # entries in ifm_ulist
-						array */
+	int		ifm_count;		/* # entries in ifm_ulist array */
 	uint64_t	*ifm_ulist;		/* media words */
 };
 
@@ -445,6 +445,12 @@ struct if_afreq {
 	sa_family_t	ifar_af;
 };
 
+/* SIOC[SG]IFPARENT */
+struct if_parent {
+	char		ifp_name[IFNAMSIZ];
+	char		ifp_parent[IFNAMSIZ];
+};
+
 #include <net/if_arp.h>
 
 #ifdef _KERNEL
@@ -473,13 +479,13 @@ int	if_delgroup(struct ifnet *, const char *);
 void	if_group_routechange(struct sockaddr *, struct sockaddr *);
 struct	ifnet *ifunit(const char *);
 struct	ifnet *if_get(unsigned int);
-struct	ifnet *if_ref(struct ifnet *);
 void	if_put(struct ifnet *);
 void	ifnewlladdr(struct ifnet *);
 void	if_congestion(void);
 int	if_congested(void);
 __dead void	unhandled_af(int);
 int	if_setlladdr(struct ifnet *, const uint8_t *);
+int	if_setrdomain(struct ifnet *, int);
 
 #endif /* _KERNEL */
 

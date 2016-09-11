@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ral_pci.c,v 1.23 2013/12/06 21:03:04 deraadt Exp $  */
+/*	$OpenBSD: if_ral_pci.c,v 1.25 2016/08/17 11:50:52 stsp Exp $  */
 
 /*-
  * Copyright (c) 2005-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -36,7 +36,6 @@
 #include <machine/intr.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -136,7 +135,12 @@ const struct pci_matchid ral_pci_devices[] = {
 	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT3092 },
 	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT3562 },
 	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT3592 },
-	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT3593 }
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT3593 },
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT5390 },
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT5392 },
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT5390_1 },
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT5390_2 },
+	{ PCI_VENDOR_RALINK, PCI_PRODUCT_RALINK_RT5390_3 }
 };
 
 int

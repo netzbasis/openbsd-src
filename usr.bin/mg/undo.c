@@ -1,4 +1,4 @@
-/* $OpenBSD: undo.c,v 1.56 2015/03/19 21:22:15 bcallah Exp $ */
+/* $OpenBSD: undo.c,v 1.58 2016/09/05 08:10:58 lum Exp $ */
 /*
  * This file is in the public domain
  */
@@ -115,10 +115,8 @@ free_undo_record(struct undo_rec *rec)
 		TAILQ_INIT(&undo_free);
 		initialised = 1;
 	}
-	if (rec->content != NULL) {
-		free(rec->content);
-		rec->content = NULL;
-	}
+	free(rec->content);
+	rec->content = NULL;
 	if (undo_free_num >= MAX_FREE_RECORDS) {
 		free(rec);
 		return;
@@ -271,6 +269,8 @@ undo_add_insert(struct line *lp, int offset, int size)
 
 	if (!undo_enable_flag)
 		return (TRUE);
+
+	memset(&reg, 0, sizeof(reg));
 	reg.r_linep = lp;
 	reg.r_offset = offset;
 	reg.r_size = size;
@@ -317,6 +317,7 @@ undo_add_delete(struct line *lp, int offset, int size, int isreg)
 	if (!undo_enable_flag)
 		return (TRUE);
 
+	memset(&reg, 0, sizeof(reg));
 	reg.r_linep = lp;
 	reg.r_offset = offset;
 	reg.r_size = size;

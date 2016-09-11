@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_trunk.c,v 1.122 2015/10/25 12:05:40 mpi Exp $	*/
+/*	$OpenBSD: if_trunk.c,v 1.127 2016/04/13 11:41:15 mpi Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -188,7 +188,6 @@ trunk_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_capabilities = trunk_capabilities(tr);
 
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	snprintf(ifp->if_xname, sizeof(ifp->if_xname), "%s%d",
 	    ifc->ifc_name, unit);
@@ -294,10 +293,6 @@ trunk_port_create(struct trunk_softc *tr, struct ifnet *ifp)
 	/* Limit the maximal number of trunk ports */
 	if (tr->tr_count >= TRUNK_MAX_PORTS)
 		return (ENOSPC);
-
-	/* New trunk port has to be in an idle state */
-	if (ifp->if_flags & IFF_OACTIVE)
-		return (EBUSY);
 
 	/* Check if port has already been associated to a trunk */
 	if (trunk_port_get(NULL, ifp) != NULL)
@@ -418,9 +413,6 @@ trunk_port_destroy(struct trunk_port *tp)
 	/* Restore previous input handler. */
 	if_ih_remove(ifp, trunk_input, tp);
 
-	if (tr->tr_port_destroy != NULL)
-		(*tr->tr_port_destroy)(tp);
-
 	/* Remove multicast addresses from this port */
 	trunk_ether_cmdmulti(tp, SIOCDELMULTI);
 
@@ -429,6 +421,9 @@ trunk_port_destroy(struct trunk_port *tp)
 		if_down(ifp);
 
 	ifpromisc(ifp, 0);
+
+	if (tr->tr_port_destroy != NULL)
+		(*tr->tr_port_destroy)(tp);
 
 	/* Restore interface type. */
 	ifp->if_type = tp->tp_iftype;
@@ -965,8 +960,8 @@ trunk_hashmbuf(struct mbuf *m, SIPHASH_KEY *key)
 #endif
 	SIPHASH_CTX ctx;
 
-	if (m->m_pkthdr.flowid & M_FLOWID_VALID)
-		return (m->m_pkthdr.flowid & M_FLOWID_MASK);
+	if (m->m_pkthdr.ph_flowid & M_FLOWID_VALID)
+		return (m->m_pkthdr.ph_flowid & M_FLOWID_MASK);
 
 	SipHash24_Init(&ctx, key);
 	off = sizeof(*eh);
@@ -1025,7 +1020,6 @@ trunk_init(struct ifnet *ifp)
 	s = splnet();
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
 
 	if (tr->tr_init != NULL)
 		(*tr->tr_init)(tr);
@@ -1041,7 +1035,7 @@ trunk_stop(struct ifnet *ifp)
 
 	s = splnet();
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
 
 	if (tr->tr_stop != NULL)
 		(*tr->tr_stop)(tr);

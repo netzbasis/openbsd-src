@@ -1,4 +1,4 @@
-/*	$OpenBSD: malo.c,v 1.109 2015/11/04 12:11:59 dlg Exp $ */
+/*	$OpenBSD: malo.c,v 1.112 2016/04/13 10:49:26 mpi Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -349,7 +349,6 @@ malo_attach(struct malo_softc *sc)
 	ifp->if_flags = IFF_SIMPLEX | IFF_BROADCAST | IFF_MULTICAST;
 	strlcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	/* set supported rates */
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -1006,18 +1005,17 @@ malo_start(struct ifnet *ifp)
 
 	DPRINTF(2, "%s: %s\n", sc->sc_dev.dv_xname, __func__);
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
+		if (sc->sc_txring.queued >= MALO_TX_RING_COUNT - 1) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
 		m0 = mq_dequeue(&ic->ic_mgtq);
 		if (m0 != NULL) {
-			if (sc->sc_txring.queued >= MALO_TX_RING_COUNT) {
-				ifp->if_flags |= IFF_OACTIVE;
-				mq_requeue(&ic->ic_mgtq, m0);
-				break;
-			}
-
 			ni = m0->m_pkthdr.ph_cookie;
 #if NBPFILTER > 0
 			if (ic->ic_rawbpf != NULL)
@@ -1028,14 +1026,10 @@ malo_start(struct ifnet *ifp)
 		} else {
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
-			IFQ_POLL(&ifp->if_snd, m0);
+
+			IFQ_DEQUEUE(&ifp->if_snd, m0);
 			if (m0 == NULL)
 				break;
-			if (sc->sc_txring.queued >= MALO_TX_RING_COUNT - 1) {
-				ifp->if_flags |= IFF_OACTIVE;
-				break;
-			}
-			IFQ_DEQUEUE(&ifp->if_snd, m0);
 #if NBPFILTER > 0
 			if (ifp->if_bpf != NULL)
 				bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
@@ -1070,7 +1064,8 @@ malo_stop(struct malo_softc *sc)
 		malo_ctl_write4(sc, 0x0c18, (1 << 15));
 
 	/* device is not running anymore */
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* change back to initial state */
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
@@ -1374,7 +1369,7 @@ next:
 	}
 
 	sc->sc_tx_timer = 0;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	malo_start(ifp);
 }
 

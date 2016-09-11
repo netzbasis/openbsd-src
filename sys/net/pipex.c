@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipex.c,v 1.84 2015/11/03 21:33:56 chl Exp $	*/
+/*	$OpenBSD: pipex.c,v 1.88 2016/08/30 23:29:04 dlg Exp $	*/
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -131,10 +131,12 @@ pipex_init(void)
 
 	rn_init(sizeof(struct sockaddr_in6));
 
-	pool_init(&pipex_session_pool, sizeof(struct pipex_session), 0, 0, 0,
-	    "ppxss", NULL);
+	pool_init(&pipex_session_pool, sizeof(struct pipex_session), 0, 0,
+	    PR_WAITOK, "ppxss", NULL);
+	pool_setipl(&pipex_session_pool, IPL_NONE);
 	pool_init(&mppe_key_pool, PIPEX_MPPE_KEYLEN * PIPEX_MPPE_NOLDKEY, 0, 0,
-	    0, "mppekey", NULL);
+	    PR_WAITOK, "mppekey", NULL);
+	pool_setipl(&mppe_key_pool, IPL_NONE);
 
 	LIST_INIT(&pipex_session_list);
 	LIST_INIT(&pipex_close_wait_list);
@@ -1138,6 +1140,10 @@ pipex_ip_input(struct mbuf *m0, struct pipex_session *session)
 		if (m0 == NULL)
 			goto drop;
 	}
+
+#if NPF > 0
+	pf_pkt_addr_changed(m0);
+#endif
 
 	len = m0->m_pkthdr.len;
 
@@ -2564,10 +2570,10 @@ pipex_mppe_output(struct mbuf *m0, struct pipex_session *session,
 	 */
 	for (m = m0; m != NULL; m = m->m_next) {
 		if (M_READONLY(m)) {
-			m = m_copym2(m0, 0, M_COPYALL, M_NOWAIT);
+			m = m_dup_pkt(m0, max_linkhdr, M_NOWAIT);
+			m_freem(m0);
 			if (m == NULL)
 				goto drop;
-			m_freem(m0);
 			m0 = m;
 			break;
 		}

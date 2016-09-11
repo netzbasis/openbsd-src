@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.23 2014/07/13 14:01:04 tedu Exp $	*/
+/*	$OpenBSD: main.c,v 1.29 2016/03/07 13:48:25 jmc Exp $	*/
 /*	$NetBSD: main.c,v 1.4 1995/04/27 21:22:25 mycroft Exp $	*/
 
 /*-
@@ -42,82 +42,76 @@
  * For more info on this and all of my stuff, mail edjames@berkeley.edu.
  */
 
-#include "include.h"
+#include <err.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include "extern.h"
 #include "pathnames.h"
 
 int
-main(int ac, char *av[])
+main(int argc, char *argv[])
 {
+	int			ch;
 	int			f_usage = 0, f_list = 0, f_showscore = 0;
 	int			f_printpath = 0;
 	const char		*file = NULL;
-	char			*name, *ptr, *seed;
+	char			*seed;
 	struct sigaction	sa;
-	gid_t			gid;
 	struct itimerval	itv;
 
+	if (pledge("stdio rpath wpath cpath flock tty", NULL) == -1)
+		err(1, "pledge");
 	open_score_file();
-
-	/* revoke privs */
-	gid = getgid();
-	setresgid(gid, gid, gid);
 
 	start_time = time(0);
 	makenoise = 1;
 	seed = NULL;
 
-	name = *av++;
-	while (*av) {
-#ifndef SAVEDASH
-		if (**av == '-') 
-			++*av;
-		else
+	while ((ch = getopt(argc, argv, "f:g:hlpqr:st")) != -1) {
+		switch (ch) {
+		case 'f':
+		case 'g':
+			file = optarg;
 			break;
-#endif
-		ptr = *av++;
-		while (*ptr) {
-			switch (*ptr) {
-			case '?':
-			case 'u':
-				f_usage++;
-				break;
-			case 'l':
-				f_list++;
-				break;
-			case 's':
-			case 't':
-				f_showscore++;
-				break;
-			case 'p':
-				f_printpath++;
-				break;
-			case 'q':
-				makenoise = 0;
-				break;
-			case 'r':
-				seed = *av;
-				av++;
-				break;
-			case 'f':
-			case 'g':
-				file = *av;
-				av++;
-				break;
-			default: 
-				warnx("unknown option '%c'", *ptr);
-				f_usage++;
-				break;
-			}
-			ptr++;
+		case 'l':
+			f_list = 1;
+			break;
+		case 'p':
+			f_printpath = 1;
+			break;
+		case 'q':
+			makenoise = 0;
+			break;
+		case 'r':
+			seed = optarg;
+			break;
+		case 's':
+		case 't':
+			f_showscore = 1;
+			break;
+		case 'h':
+		default:
+			f_usage = 1;
+			break;
 		}
 	}
+	argc -= optind;
+	argv += optind;
+
+	if (argc > 0)
+		f_usage = 1;
+
 	if (seed != NULL)
 		setseed(seed);
 
 	if (f_usage)
 		fprintf(stderr, 
-		    "usage: %s [-lpqstu?] [-f game] [-g game] [-r seed]\n",
-		    name);
+		    "usage: %s [-lpqst] [-f game] [-g game] [-r seed]\n",
+		    getprogname());
 	if (f_showscore)
 		log_score(1);
 	if (f_list)
@@ -134,7 +128,7 @@ main(int ac, char *av[])
 	}
 		
 	if (f_usage || f_showscore || f_list || f_printpath)
-		exit(0);
+		return 0;
 
 	if (file == NULL)
 		file = default_game();
@@ -142,7 +136,7 @@ main(int ac, char *av[])
 		file = okay_game(file);
 
 	if (file == NULL || read_file(file) < 0)
-		exit(1);
+		return 1;
 
 	setup_screen(sp);
 

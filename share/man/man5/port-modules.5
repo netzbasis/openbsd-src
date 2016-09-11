@@ -1,4 +1,4 @@
-.\"	$OpenBSD: port-modules.5,v 1.197 2015/10/05 10:25:59 sobrado Exp $
+.\"	$OpenBSD: port-modules.5,v 1.207 2016/08/25 14:57:35 dcoppa Exp $
 .\"
 .\" Copyright (c) 2008 Marc Espie
 .\"
@@ -24,7 +24,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: October 5 2015 $
+.Dd $Mdocdate: August 25 2016 $
 .Dt PORT-MODULES 5
 .Os
 .Sh NAME
@@ -283,7 +283,6 @@ The following variables can be overridden in a relatively safe fashion:
 .Ev TEST_IS_INTERACTIVE ,
 .Ev REORDER_DEPENDENCIES ,
 .Ev SEPARATE_BUILD ,
-.Ev SHARED_ONLY ,
 .Ev USE_GMAKE ,
 .Ev USE_LIBTOOL .
 .Pp
@@ -363,12 +362,12 @@ value:
 .Ev PKGPATH ,
 .Ev PORTSDIR ,
 .Ev X11BASE
-and all arch-dependent constant from
+and all arch-dependent constants from
 .Xr bsd.port.arch.mk 5 ,
 such as
 .Ev PROPERTIES
 or
-.Ev NO_SHARED_ARCHS .
+.Ev LP64_ARCHS .
 Note that this is only relevant for tests.
 It is perfectly okay to define variables or targets that depend on the
 basic ports framework without having to care whether that variable is
@@ -598,6 +597,65 @@ It appends
 .Pa devel/pmk
 to
 .Ev BUILD_DEPENDS .
+.It devel/qmake
+This module automates usage of qmake, independently of the actual
+version of Qt being used.
+This module requires that one of the
+.Pa x11/qt4
+or
+.Pa x11/qt5
+to be used as well.
+.Pp
+If
+.Ev CONFIGURE_STYLE
+was not set before, sets its value to
+.Sq qmake .
+If
+.Ev CONFIGURE_STYLE
+contains
+.Sq qmake
+the module will define each of the
+.Ar do-build
+and
+.Ar do-install
+targets, unless port already defines one; also,
+.Ev SEPARATE_BUILD
+will be set to
+.Sq Yes
+unless it's already set to some value.
+.Pp
+The following variables could be used in qmake-based ports:
+.Bl -tag -width 1234
+.It Ev MODQMAKE_ARGS
+Additional arguments for qmake invocation.
+The module already defines some.
+.It Ev MODQMAKE_INSTALL_ROOT
+Root directory for fake install.
+Normally, it's a WRKINST, but some (broken) ports require another value,
+like PREFIX.
+.It Ev MODQMAKE_PROJECTS
+List of qmake project files to be used, relative to WRKSRC.
+Directories containing those projects could be used as well,
+see qmake documentation for details.
+Defaults to
+.Sq \&. ,
+which means the (only) project in WRKSRC directory.
+.It Ev MODQMAKE_build
+Actual commands that module will use to build all
+.Ev MODQMAKE_PROJECTS
+provided.
+To be used in complicated cases, when port have to use its own
+.Ar do-build
+target or mix different
+.Ev CONFIGURE_STYLE
+values.
+.It Ev MODQMAKE_install
+Same as for
+.Ev MODQMAKE_build ,
+but used in
+.Ar do-install
+stage.
+.El
 .It devel/scons
 Adds
 .Pa devel/scons
@@ -634,6 +692,7 @@ targets.
 and
 .Cm post-install
 can be overridden in the port Makefile.
+.It font
 .It fortran
 Sets
 .Ev MODFORTRAN_LIB_DEPENDS ,
@@ -644,8 +703,6 @@ Set
 to `g77' or `gfortran', depending on what the port requires.
 The default is `g77'.
 The dependencies are chosen according to
-.Ev COMPILER_VERSION
-and
 .Ev MODFORTRAN_COMPILER .
 .It gcc4
 If
@@ -1133,6 +1190,10 @@ to Yes.
 All ports that generate egg-info files should set
 .Ev MODPY_EGG_VERSION
 to the version string used by the port's setup.py setup() function.
+Arguments can be passed to setup.py during
+.Cm configure
+with
+.Ev MODPY_SETUP_ARGS .
 Extra arguments to the build and install commands can be passed via
 .Ev MODPY_DISTUTILS_BUILDARGS
 and
@@ -1147,7 +1208,6 @@ Also affects
 .Ev CATEGORIES ,
 .Ev MAKE_ENV ,
 .Ev CONFIGURE_ENV ,
-.Ev SHARED_ONLY ,
 and
 .Ev SUBST_VARS .
 May affect the
@@ -1156,6 +1216,8 @@ target.
 If
 .Ev MODPY_PI
 is set to Yes it will set
+.Ev HOMEPAGE
+and
 .Ev MASTER_SITES .
 The subdirectory can be overridden with
 .Ev MODPY_PI_DIR .
@@ -1170,7 +1232,7 @@ Generate or update the PLIST using the python3
 then edit it to prefix any lines creating
 .Ev MODPY_PYCACHE
 directories with
-.Ev MODPY_PYCOMMENT .
+.Ev MODPY_COMMENT .
 As python2 and python3 packages should permit being installed together,
 it may be necessary to suffix names of common binaries or directories,
 or split common files into a subpackage.
@@ -1305,9 +1367,8 @@ Sets
 .Ev MASTER_SITES ,
 .Ev DISTNAME ,
 .Ev USE_GMAKE ,
-.Ev ONLY_FOR_ARCHS
 and
-.Ev SHARED_ONLY .
+.Ev ONLY_FOR_ARCHS .
 .Ev EXTRACT_SUFX
 defaults to .tar.bz2.
 .Pp
@@ -1427,9 +1488,6 @@ is set to "Yes".
 If
 .Ev CONFIGURE_STYLE
 is set to "gnu" or "simple",
-.Ev CONFIGURE_SHARED
-is appended to
-.Ev CONFIGURE_ARGS ,
 .Li CPPFLAGS="-I${LOCALBASE}/include"
 and
 .Li LDFLAGS="-L${LOCALBASE}/lib"
@@ -1738,9 +1796,8 @@ set by a port:
 .Ev EXTRACT_SUFX ,
 .Ev ONLY_FOR_ARCHS ,
 .Ev PORTHOME ,
-.Ev SEPARATE_BUILD
 and
-.Ev SHARED_ONLY .
+.Ev SEPARATE_BUILD .
 .Pp
 The x11/kde4 module modifies the following variables if needed:
 .Ev BUILD_DEPENDS ,
@@ -1769,14 +1826,16 @@ unless
 .Ev MODKDE4_RESOURCES
 is set to
 .Sq Yes .
-.It x11/qt3 and x11/qt4
-Both qt modules share a common
+.It x11/qt3, x11/qt4 and x11/qt5
+All qt* modules share a common
 .Ev MODQT_*
 namespace for simple ports.
 The qt3 module also defines the same variables under
-.Ev MODQT3_*
-and the qt4 module also defines the same variables under
-.Ev MODQT4_* ,
+.Ev MODQT3_* ,
+the qt4 module also defines the same variables under
+.Ev MODQT4_*
+and the qt5 module also defines the same variables under
+.Ev MODQT5_* ,
 to allow ports to use both modules, such as
 .Pa print/poppler .
 .Pp
@@ -1784,18 +1843,22 @@ Those modules define
 .Ev MODQT*_LIBDIR
 as the libraries location,
 .Ev MODQT*_INCDIR
-as the include files location ,
+as the include files location,
 .Ev MODQT*_QTDIR
-as the global qt directory location ,
+as the global qt directory location,
 .Ev MODQT*_CONFIGURE_ARGS
 as standard GNU configure-style parameters to locate the include and libraries.
 .Pp
 The location of qt specific tools
-.Nm moc
+.Nm lrelease ,
+.Nm moc ,
+.Nm qmake
 and
 .Nm uic
 is available through
-.Ev MODQT*_MOC
+.Ev MODQT*_LRELEASE ,
+.Ev MODQT*_MOC ,
+.Ev MODQT*_QMAKE
 and
 .Ev MODQT*_UIC .
 .Ev MODQT*_OVERRIDE_UIC
@@ -1805,6 +1868,13 @@ or not.
 The value of
 .Ev MOC
 is always forced to ${MODQT*_MOC}.
+.Pp
+In most cases the
+.Pa devel/qmake
+module should be used instead of using
+.Ev MODQT*_QMAKE
+directly.
+.Pp
 qt4 includes
 .Xr pkg-config 1
 files under a specific location recorded in
@@ -1825,6 +1895,9 @@ Note that qt4 has split its code over several libraries, so the basic
 .Ev WANTLIB
 only refers to QtCore.
 Other libraries should be added as needed.
+The qt5 module doesn't set
+.Ev MODQT*_WANTLIB
+at all.
 .It x11/tk
 Sets
 .Ev MODTK_VERSION ,

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpii.c,v 1.101 2015/03/18 12:23:25 mikeb Exp $	*/
+/*	$OpenBSD: mpii.c,v 1.104 2016/08/17 01:02:31 krw Exp $	*/
 /*
  * Copyright (c) 2010, 2012 Mike Belopuhov
  * Copyright (c) 2009 James Giannoules
@@ -2918,25 +2918,22 @@ mpii_scsi_cmd_done(struct mpii_ccb *ccb)
 	DNPRINTF(MPII_D_CMD, "%s:  bidirectional_transfer_count: 0x%08x\n",
 	    DEVNAME(sc), letoh32(sie->bidirectional_transfer_count));
 
-	xs->status = sie->scsi_status;
+	if (sie->scsi_state & MPII_SCSIIO_ERR_STATE_NO_SCSI_STATUS)
+		xs->status = SCSI_TERMINATED;
+	else
+		xs->status = sie->scsi_status;
+	xs->resid = 0;
+
 	switch (lemtoh16(&sie->ioc_status) & MPII_IOCSTATUS_MASK) {
 	case MPII_IOCSTATUS_SCSI_DATA_UNDERRUN:
-		switch (xs->status) {
-		case SCSI_OK:
-			xs->resid = xs->datalen -
-			    lemtoh32(&sie->transfer_count);
-			break;
-		default:
-			xs->error = XS_DRIVER_STUFFUP;
-			break;
-		}
-		break;
+		xs->resid = xs->datalen - lemtoh32(&sie->transfer_count);
+		/* FALLTHROUGH */
 
 	case MPII_IOCSTATUS_SUCCESS:
 	case MPII_IOCSTATUS_SCSI_RECOVERED_ERROR:
 		switch (xs->status) {
 		case SCSI_OK:
-			xs->resid = 0;
+			xs->error = XS_NOERROR;
 			break;
 
 		case SCSI_CHECK:
@@ -2983,9 +2980,9 @@ mpii_scsi_cmd_done(struct mpii_ccb *ccb)
 
 	mpii_push_reply(sc, ccb->ccb_rcb);
 done:
-KERNEL_LOCK();
+	KERNEL_LOCK();
 	scsi_done(xs);
-KERNEL_UNLOCK();
+	KERNEL_UNLOCK();
 }
 
 int

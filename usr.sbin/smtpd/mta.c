@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta.c,v 1.192 2015/10/14 22:01:43 gilles Exp $	*/
+/*	$OpenBSD: mta.c,v 1.202 2016/09/03 22:59:06 giovanni Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -51,8 +51,8 @@
 #define DELAY_CHECK_LIMIT	5
 
 #define	DELAY_QUADRATIC		1
-#define DELAY_ROUTE_BASE	200
-#define DELAY_ROUTE_MAX		(3600 * 4)
+#define DELAY_ROUTE_BASE	15
+#define DELAY_ROUTE_MAX		3600
 
 #define RELAY_ONHOLD		0x01
 #define RELAY_HOLDQ		0x02
@@ -232,6 +232,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 				return;
 			}
 
+			task = NULL;
 			TAILQ_FOREACH(task, &relay->tasks, entry)
 				if (task->msgid == evpid_to_msgid(evp.id))
 					break;
@@ -383,11 +384,11 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 			mta_session_imsg(p, imsg);
 			return;
 
-		case IMSG_MTA_SSL_INIT:
+		case IMSG_MTA_TLS_INIT:
 			mta_session_imsg(p, imsg);
 			return;
 
-		case IMSG_MTA_SSL_VERIFY:
+		case IMSG_MTA_TLS_VERIFY:
 			mta_session_imsg(p, imsg);
 			return;
 		}
@@ -413,7 +414,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 
 	if (p->proc == PROC_CONTROL) {
 		switch (imsg->hdr.type) {
-			
+
 		case IMSG_CTL_RESUME_ROUTE:
 			u64 = *((uint64_t *)imsg->data);
 			if (u64)
@@ -516,7 +517,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 			m_get_string(&m, &dom);
 			m_end(&m);
 			source = mta_source((struct sockaddr*)&ss);
-			if (strlen(dom)) {
+			if (*dom != '\0') {
 				if (!(strlcpy(buf, dom, sizeof(buf))
 					>= sizeof(buf)))
 					mta_block(source, buf);
@@ -533,7 +534,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 			m_get_string(&m, &dom);
 			m_end(&m);
 			source = mta_source((struct sockaddr*)&ss);
-			if (strlen(dom)) {
+			if (*dom != '\0') {
 				if (!(strlcpy(buf, dom, sizeof(buf))
 					>= sizeof(buf)))
 					mta_unblock(source, buf);
@@ -667,7 +668,7 @@ mta_route_collect(struct mta_relay *relay, struct mta_route *route)
 
 	/* First connection failed */
 	if (route->flags & ROUTE_NEW)
-		mta_route_disable(route, 2, ROUTE_DISABLED_NET);
+		mta_route_disable(route, 1, ROUTE_DISABLED_NET);
 
 	c = mta_connector(relay, route->src);
 	c->nconn -= 1;
@@ -1041,7 +1042,7 @@ mta_on_source(struct mta_relay *relay, struct mta_source *source)
 		else if (errmask & CONNECTOR_ERROR_BLOCKED)
 			relay->failstr = "All routes to destination blocked";
 		else
-			relay->failstr = "No valid route to destination";	
+			relay->failstr = "No valid route to destination";
 	}
 
 	relay->nextsource = relay->lastsource + delay;
@@ -1246,13 +1247,13 @@ mta_route_disable(struct mta_route *route, int penalty, int reason)
 	log_info("smtp-out: Disabling route %s for %llus",
 	    mta_route_to_text(route), delay);
 
-	if (route->flags & ROUTE_DISABLED) {
+	if (route->flags & ROUTE_DISABLED)
 		runq_cancel(runq_route, NULL, route);
-		mta_route_unref(route); /* from last call to here */
-	}
+	else
+		mta_route_ref(route);
+
 	route->flags |= reason & ROUTE_DISABLED;
 	runq_schedule(runq_route, time(NULL) + delay, NULL, route);
-	mta_route_ref(route);
 }
 
 static void
@@ -1442,7 +1443,7 @@ mta_find_route(struct mta_connector *c, time_t now, int *limits,
 	TAILQ_FOREACH(mx, &c->relay->domain->mxs, entry) {
 		/*
 		 * New preference level
-		 */		
+		 */
 		if (mx->preference > level) {
 #ifndef IGNORE_MX_PREFERENCE
 			/*
@@ -1608,18 +1609,18 @@ static void
 mta_log(const struct mta_envelope *evp, const char *prefix, const char *source,
     const char *relay, const char *status)
 {
-	log_info("relay: %s for %016" PRIx64 ": session=%016"PRIx64", "
-	    "from=<%s>, to=<%s>, rcpt=<%s>, source=%s, "
-	    "relay=%s, delay=%s, stat=%s",
-	    prefix,
-	    evp->id,
+	log_info("%016"PRIx64" mta event=delivery evpid=%016"PRIx64" "
+	    "from=<%s> to=<%s> rcpt=<%s> source=\"%s\" "
+	    "relay=\"%s\" delay=%s result=\"%s\" stat=\"%s\"",
 	    evp->session,
+	    evp->id,
 	    evp->task->sender,
 	    evp->dest,
 	    evp->rcpt ? evp->rcpt : "-",
 	    source ? source : "-",
 	    relay,
 	    duration_to_text(time(NULL) - evp->creation),
+	    prefix,
 	    status);
 }
 
@@ -1647,6 +1648,9 @@ mta_relay(struct envelope *e)
 	key.pki_name = e->agent.mta.relay.pki_name;
 	if (!key.pki_name[0])
 		key.pki_name = NULL;
+	key.ca_name = e->agent.mta.relay.ca_name;
+	if (!key.ca_name[0])
+		key.ca_name = NULL;
 	key.authtable = e->agent.mta.relay.authtable;
 	if (!key.authtable[0])
 		key.authtable = NULL;
@@ -1674,6 +1678,7 @@ mta_relay(struct envelope *e)
 		r->backuppref = -1;
 		r->port = key.port;
 		r->pki_name = key.pki_name ? xstrdup(key.pki_name, "mta: pki_name") : NULL;
+		r->ca_name = key.ca_name ? xstrdup(key.ca_name, "mta: ca_name") : NULL;
 		if (key.authtable)
 			r->authtable = xstrdup(key.authtable, "mta: authtable");
 		if (key.authlabel)
@@ -1729,6 +1734,7 @@ mta_relay_unref(struct mta_relay *relay)
 	free(relay->authtable);
 	free(relay->backupname);
 	free(relay->pki_name);
+	free(relay->ca_name);
 	free(relay->helotable);
 	free(relay->heloname);
 	free(relay->secret);
@@ -1900,7 +1906,7 @@ mta_relay_show(struct mta_relay *r, struct mproc *p, uint32_t id, time_t t)
 		    flags);
 		m_compose(p, IMSG_CTL_MTA_SHOW_RELAYS, id, 0, -1, buf,
 		    strlen(buf) + 1);
-		
+
 
 	}
 }
@@ -1957,6 +1963,13 @@ mta_relay_cmp(const struct mta_relay *a, const struct mta_relay *b)
 	if (a->pki_name && b->pki_name == NULL)
 		return (1);
 	if (a->pki_name && ((r = strcmp(a->pki_name, b->pki_name))))
+		return (r);
+
+	if (a->ca_name == NULL && b->ca_name)
+		return (-1);
+	if (a->ca_name && b->ca_name == NULL)
+		return (1);
+	if (a->ca_name && ((r = strcmp(a->ca_name, b->ca_name))))
 		return (r);
 
 	if (a->backupname && ((r = strcmp(a->backupname, b->backupname))))
@@ -2421,7 +2434,7 @@ mta_hoststat_update(const char *host, const char *error)
 	char		 buf[HOST_NAME_MAX+1];
 	time_t		 tm;
 
-	if (! lowercase(buf, host, sizeof buf))
+	if (!lowercase(buf, host, sizeof buf))
 		return;
 
 	tm = time(NULL);
@@ -2447,7 +2460,7 @@ mta_hoststat_cache(const char *host, uint64_t evpid)
 	struct hoststat	*hs = NULL;
 	char buf[HOST_NAME_MAX+1];
 
-	if (! lowercase(buf, host, sizeof buf))
+	if (!lowercase(buf, host, sizeof buf))
 		return;
 
 	hs = dict_get(&hoststat, buf);
@@ -2466,7 +2479,7 @@ mta_hoststat_uncache(const char *host, uint64_t evpid)
 	struct hoststat	*hs = NULL;
 	char buf[HOST_NAME_MAX+1];
 
-	if (! lowercase(buf, host, sizeof buf))
+	if (!lowercase(buf, host, sizeof buf))
 		return;
 
 	hs = dict_get(&hoststat, buf);
@@ -2483,7 +2496,7 @@ mta_hoststat_reschedule(const char *host)
 	char		 buf[HOST_NAME_MAX+1];
 	uint64_t	 evpid;
 
-	if (! lowercase(buf, host, sizeof buf))
+	if (!lowercase(buf, host, sizeof buf))
 		return;
 
 	hs = dict_get(&hoststat, buf);

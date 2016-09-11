@@ -1,4 +1,4 @@
-/*	$OpenBSD: archdep.h,v 1.5 2014/07/05 12:22:41 miod Exp $ */
+/*	$OpenBSD: archdep.h,v 1.8 2016/09/08 18:56:58 kettenis Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -29,6 +29,8 @@
 #ifndef _ARM_ARCHDEP_H_
 #define _ARM_ARCHDEP_H_
 
+#define	RELOC_TAG	DT_REL
+
 #define	DL_MALLOC_ALIGN	4	/* Arch constraint or otherwise */
 
 #define	MACHID	EM_ARM	/* ELF e_machine ID value checked */
@@ -47,30 +49,26 @@
  */
 
 static inline void *
-_dl_mmap(void *addr, unsigned int len, unsigned int prot,
-	unsigned int flags, int fd, off_t offset)
+_dl_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset)
 {
 	return((void *)_dl__syscall((quad_t)SYS_mmap, addr, len, prot,
-		flags, fd, 0, offset));
+	    flags, fd, 0, offset));
 }
 
 static inline void
-RELOC_REL(Elf_Rel *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v)
+RELOC_DYN(Elf_Rel *r, const Elf_Sym *s, Elf_Addr *p, unsigned long v)
 {
 	if (ELF_R_TYPE(r->r_info) == R_ARM_RELATIVE) {
 		*p += v;
+	} else if (ELF_R_TYPE(r->r_info) == R_ARM_GLOB_DAT) {
+		*p += v + s->st_value;
+	} else if (ELF_R_TYPE(r->r_info) == R_ARM_ABS32) {
+		*p += v + s->st_value;
 	} else {
 		/* XXX - printf might not work here, but we give it a shot. */
 		_dl_printf("Unknown bootstrap relocation.\n");
 		_dl_exit(6);
 	}
-}
-
-static inline void
-RELOC_RELA(Elf32_Rela *r, const Elf32_Sym *s, Elf32_Addr *p, unsigned long v,
-    Elf_Addr *pltgot)
-{
-	_dl_exit(20);
 }
 
 #define RELOC_GOT(obj, offs)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ndp.c,v 1.67 2015/10/28 12:14:25 florian Exp $	*/
+/*	$OpenBSD: ndp.c,v 1.78 2016/08/15 08:52:03 mpi Exp $	*/
 /*	$KAME: ndp.c,v 1.101 2002/07/17 08:46:33 itojun Exp $	*/
 
 /*
@@ -110,13 +110,12 @@
 /* packing rule for routing socket */
 #define ROUNDUP(a) \
 	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
-#define ADVANCE(x, n) (x += ROUNDUP((n)->sa_len))
 
 static pid_t pid;
 static int nflag;
 static int tflag;
 static int32_t thiszone;	/* time difference with gmt */
-static int s = -1;
+static int rtsock = -1;
 static int repeat = 0;
 
 char ntop_buf[INET6_ADDRSTRLEN];	/* inet_ntop() */
@@ -139,11 +138,9 @@ void ifinfo(char *, int, char **);
 void rtrlist(void);
 void plist(void);
 void pfx_flush(void);
-void rtrlist(void);
 void rtr_flush(void);
 void harmonize_rtr(void);
 static char *sec2str(time_t);
-static char *ether_str(struct sockaddr_dl *);
 static void ts_print(const struct timeval *);
 static int rdomain = 0;
 
@@ -154,13 +151,12 @@ static char *rtpref_str[] = {
 	"low"			/* 11 */
 };
 
-int mode = 0;
-char *arg = NULL;
-
 int
 main(int argc, char *argv[])
 {
 	int		 ch;
+	int		 mode = 0;
+	char		*arg = NULL;
 	const char	*errstr;
 
 	pid = getpid();
@@ -240,6 +236,11 @@ main(int argc, char *argv[])
 			/*NOTREACHED*/
 		}
 		delete(arg);
+		break;
+	case 'f':
+		if (argc != 0)
+			usage();
+		file(arg);
 		break;
 	case 'p':
 		if (argc != 0) {
@@ -332,9 +333,9 @@ file(char *name)
 void
 getsocket(void)
 {
-	if (s < 0) {
-		s = socket(PF_ROUTE, SOCK_RAW, 0);
-		if (s < 0) {
+	if (rtsock < 0) {
+		rtsock = socket(PF_ROUTE, SOCK_RAW, 0);
+		if (rtsock < 0) {
 			err(1, "socket");
 			/* NOTREACHED */
 		}
@@ -511,7 +512,7 @@ delete(char *host)
 
 	if (IN6_ARE_ADDR_EQUAL(&sin->sin6_addr, &sin_m.sin6_addr)) {
 		if (sdl->sdl_family == AF_LINK && rtm->rtm_flags & RTF_LLINFO) {
-			if (rtm->rtm_flags & (RTF_LOCAL|RTF_BROADCAST))
+			if (rtm->rtm_flags & RTF_LOCAL)
 				return (0);
 			if (!(rtm->rtm_flags & RTF_GATEWAY))
 				goto delete;
@@ -577,6 +578,7 @@ dump(struct in6_addr *addr, int cflag)
 		    W_IF, W_IF, "Netif", "Expire", "S", "Flags");
 
 again:;
+	lim = NULL;
 	mib[0] = CTL_NET;
 	mib[1] = PF_ROUTE;
 	mib[2] = 0;
@@ -600,7 +602,7 @@ again:;
 		break;
 	}
 
-	for (next = buf; next && next < lim; next += rtm->rtm_msglen) {
+	for (next = buf; next && lim && next < lim; next += rtm->rtm_msglen) {
 		int isrouter = 0, prbs = 0;
 
 		rtm = (struct rt_msghdr *)next;
@@ -795,7 +797,7 @@ usage(void)
 	printf("usage: ndp [-nrt] [-a | -c | -p] [-H | -P | -R] ");
 	printf("[-A wait] [-d hostname]\n");
 	printf("\t[-f filename] [-i interface [flag ...]]\n");
-	printf("\t[-s nodename etheraddr [temp] [proxy]] ");
+	printf("\t[-s nodename ether_addr [temp] [proxy]] ");
 	printf("[-V rdomain] [hostname]\n");
 	exit(1);
 }
@@ -855,14 +857,14 @@ doit:
 	l = rtm->rtm_msglen;
 	rtm->rtm_seq = ++seq;
 	rtm->rtm_type = cmd;
-	if ((rlen = write(s, (char *)&m_rtmsg, l)) < 0) {
+	if ((rlen = write(rtsock, (char *)&m_rtmsg, l)) < 0) {
 		if (errno != ESRCH || cmd != RTM_DELETE) {
 			err(1, "writing to routing socket");
 			/* NOTREACHED */
 		}
 	}
 	do {
-		l = read(s, (char *)&m_rtmsg, sizeof(m_rtmsg));
+		l = read(rtsock, (char *)&m_rtmsg, sizeof(m_rtmsg));
 	} while (l > 0 && (rtm->rtm_version != RTM_VERSION ||
 	    rtm->rtm_seq != seq || rtm->rtm_pid != pid));
 	if (l < 0)
@@ -879,7 +881,7 @@ rtget(struct sockaddr_in6 **sinp, struct sockaddr_dl **sdlp)
 	struct sockaddr_dl *sdl = NULL;
 	struct sockaddr *sa;
 	char *cp;
-	int i;
+	unsigned int i;
 
 	if (rtmsg(RTM_GET) < 0)
 		return (1);
@@ -930,8 +932,7 @@ ifinfo(char *ifname, int argc, char **argv)
 		err(1, "ioctl(SIOCGIFINFO_IN6)");
 		/* NOTREACHED */
 	}
-#define ND nd.ndi
-	newflags = ND.flags;
+	newflags = nd.ndi.flags;
 	for (i = 0; i < argc; i++) {
 		int clear = 0;
 		char *cp = argv[i];
@@ -953,7 +954,7 @@ ifinfo(char *ifname, int argc, char **argv)
 		SETFLAG("nud", ND6_IFF_PERFORMNUD);
 		SETFLAG("accept_rtadv", ND6_IFF_ACCEPT_RTADV);
 
-		ND.flags = newflags;
+		nd.ndi.flags = newflags;
 		if (ioctl(s, SIOCSIFINFO_FLAGS, (caddr_t)&nd) < 0) {
 			err(1, "ioctl(SIOCSIFINFO_FLAGS)");
 			/* NOTREACHED */
@@ -961,24 +962,24 @@ ifinfo(char *ifname, int argc, char **argv)
 #undef SETFLAG
 	}
 
-	if (!ND.initialized) {
+	if (!nd.ndi.initialized) {
 		errx(1, "%s: not initialized yet", ifname);
 		/* NOTREACHED */
 	}
 
 	printf("basereachable=%ds%dms",
-	    ND.basereachable / 1000, ND.basereachable % 1000);
-	printf(", reachable=%ds", ND.reachable);
-	printf(", retrans=%ds%dms", ND.retrans / 1000, ND.retrans % 1000);
-	if (ND.flags) {
+	    nd.ndi.basereachable / 1000, nd.ndi.basereachable % 1000);
+	printf(", reachable=%ds", nd.ndi.reachable);
+	printf(", retrans=%ds%dms", nd.ndi.retrans / 1000,
+	    nd.ndi.retrans % 1000);
+	if (nd.ndi.flags) {
 		printf("\nFlags: ");
-		if ((ND.flags & ND6_IFF_PERFORMNUD))
+		if ((nd.ndi.flags & ND6_IFF_PERFORMNUD))
 			printf("nud ");
-		if ((ND.flags & ND6_IFF_ACCEPT_RTADV))
+		if ((nd.ndi.flags & ND6_IFF_ACCEPT_RTADV))
 			printf("accept_rtadv ");
 	}
 	putc('\n', stdout);
-#undef ND
 
 	close(s);
 }
@@ -1055,6 +1056,8 @@ plist(void)
 		err(1, "sysctl(ICMPV6CTL_ND6_PRLIST)");
 		/*NOTREACHED*/
 	}
+	if (l == 0)
+		return;
 	buf = malloc(l);
 	if (buf == NULL) {
 		err(1, "malloc");

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vdsp.c,v 1.40 2015/09/15 21:04:10 kettenis Exp $	*/
+/*	$OpenBSD: vdsp.c,v 1.42 2016/03/19 12:04:15 natano Exp $	*/
 /*
  * Copyright (c) 2009, 2011, 2014 Mark Kettenis
  *
@@ -941,7 +941,7 @@ vdsp_open(void *arg1)
 			sc->sc_vdisk_size = va.va_size / DEV_BSIZE;
 		}
 
-		VOP_UNLOCK(nd.ni_vp, 0, p);
+		VOP_UNLOCK(nd.ni_vp, p);
 		sc->sc_vp = nd.ni_vp;
 
 		vdsp_readlabel(sc);
@@ -975,19 +975,13 @@ vdsp_close(void *arg1)
 
 	sc->sc_seq_no = 0;
 
-	if (sc->sc_vd) {
-		free(sc->sc_vd, M_DEVBUF, 0);
-		sc->sc_vd = NULL;
-	}
-	if (sc->sc_vd_ring != NULL) {
-		free(sc->sc_vd_ring, M_DEVBUF,
-		    sc->sc_num_descriptors * sizeof(*sc->sc_vd_ring));
-		sc->sc_vd_ring = NULL;
-	}
-	if (sc->sc_label) {
-		free(sc->sc_label, M_DEVBUF, 0);
-		sc->sc_label = NULL;
-	}
+	free(sc->sc_vd, M_DEVBUF, 0);
+	sc->sc_vd = NULL;
+	free(sc->sc_vd_ring, M_DEVBUF,
+	     sc->sc_num_descriptors * sizeof(*sc->sc_vd_ring));
+	sc->sc_vd_ring = NULL;
+	free(sc->sc_label, M_DEVBUF, 0);
+	sc->sc_label = NULL;
 	if (sc->sc_vp) {
 		vn_close(sc->sc_vp, FREAD | FWRITE, p->p_ucred, p);
 		sc->sc_vp = NULL;
@@ -1019,7 +1013,7 @@ vdsp_readlabel(struct vdsp_softc *sc)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	err = VOP_READ(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 	if (err) {
 		free(sc->sc_label, M_DEVBUF, 0);
 		sc->sc_label = NULL;
@@ -1049,7 +1043,7 @@ vdsp_writelabel(struct vdsp_softc *sc)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	err = VOP_WRITE(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 
 	return (err);
 }
@@ -1080,7 +1074,7 @@ vdsp_is_iso(struct vdsp_softc *sc)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	err = VOP_READ(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 
 	if (err == 0 && memcmp(vdp->id, ISO_STANDARD_ID, sizeof(vdp->id)))
 		err = ENOENT;
@@ -1159,7 +1153,7 @@ vdsp_read_desc(struct vdsp_softc *sc, struct vdsk_desc_msg *dm)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	dm->status = VOP_READ(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 
 	KERNEL_UNLOCK();
 	if (dm->status == 0) {
@@ -1233,7 +1227,7 @@ vdsp_read_dring(void *arg1, void *arg2)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	vd->status = VOP_READ(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 
 	KERNEL_UNLOCK();
 	if (vd->status == 0) {
@@ -1332,7 +1326,7 @@ vdsp_write_dring(void *arg1, void *arg2)
 
 	vn_lock(sc->sc_vp, LK_EXCLUSIVE | LK_RETRY, p);
 	vd->status = VOP_WRITE(sc->sc_vp, &uio, 0, p->p_ucred);
-	VOP_UNLOCK(sc->sc_vp, 0, p);
+	VOP_UNLOCK(sc->sc_vp, p);
 
 fail:
 	free(buf, M_DEVBUF, 0);

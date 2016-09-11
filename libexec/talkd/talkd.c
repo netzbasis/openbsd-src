@@ -1,4 +1,4 @@
-/*	$OpenBSD: talkd.c,v 1.23 2015/01/16 06:39:51 deraadt Exp $	*/
+/*	$OpenBSD: talkd.c,v 1.25 2016/02/05 10:13:51 mestre Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -35,19 +35,19 @@
  * disconnect all descriptors and ttys, and then endless
  * loop on waiting for and processing requests
  */
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <protocols/talkd.h>
-#include <signal.h>
-#include <syslog.h>
-#include <time.h>
+
 #include <errno.h>
-#include <unistd.h>
 #include <limits.h>
+#include <paths.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <paths.h>
+#include <syslog.h>
+#include <unistd.h>
+
 #include "talkd.h"
 
 int	debug = 0;
@@ -80,6 +80,11 @@ main(int argc, char *argv[])
 	init_table();
 	signal(SIGALRM, timeout);
 	alarm(TIMEOUT);
+
+	if (pledge("stdio rpath wpath cpath inet dns", NULL) == -1) {
+		syslog(LOG_ERR, "pledge: %m");
+		_exit(1);
+	}
 
 	for (;;) {
 		CTL_RESPONSE response;

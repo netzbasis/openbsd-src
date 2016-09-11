@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.14 2013/08/29 20:22:10 naddy Exp $	*/
+/*	$OpenBSD: init.c,v 1.16 2015/12/31 17:51:19 mestre Exp $	*/
 /*	$NetBSD: init.c,v 1.4 1995/03/21 15:07:35 cgd Exp $	*/
 
 /*
@@ -29,6 +29,13 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <err.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "extern.h"
 
@@ -72,13 +79,17 @@ initialize(const char *filename)
 static const char *
 getutmp(void)
 {
-	struct passwd *ptr;
+	const char	*name;
 
-	ptr = getpwuid(getuid());
-	if (ptr == NULL)
-		return(NULL);
-	else
-		return(strdup(ptr->pw_name));
+	name = getenv("LOGNAME");
+	if (name == NULL || *name == 0)
+		name = getenv("USER");
+	if (name == NULL || *name == 0)
+		name = getlogin();
+	if (name == NULL || *name == 0)
+		name = " ??? ";
+
+	return(strdup(name));
 }
 
 /* Hereditary wizards.  A configuration file might make more sense. */

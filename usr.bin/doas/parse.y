@@ -1,4 +1,4 @@
-/* $OpenBSD: parse.y,v 1.12 2015/09/01 16:20:55 mikeb Exp $ */
+/* $OpenBSD: parse.y,v 1.21 2016/09/04 15:11:13 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -48,6 +48,7 @@ FILE *yyfp;
 struct rule **rules;
 int nrules, maxrules;
 int parse_errors = 0;
+int obsolete_warned = 0;
 
 void yyerror(const char *, ...);
 int yylex(void);
@@ -56,7 +57,7 @@ int yyparse(void);
 %}
 
 %token TPERMIT TDENY TAS TCMD TARGS
-%token TNOPASS TKEEPENV
+%token TNOPASS TPERSIST TKEEPENV TSETENV
 %token TSTRING
 
 %%
@@ -97,15 +98,23 @@ action:		TPERMIT options {
 			$$.envlist = $2.envlist;
 		} | TDENY {
 			$$.action = DENY;
+			$$.options = 0;
+			$$.envlist = NULL;
 		} ;
 
-options:	/* none */
-		| options option {
+options:	/* none */ {
+			$$.options = 0;
+			$$.envlist = NULL;
+		} | options option {
 			$$.options = $1.options | $2.options;
 			$$.envlist = $1.envlist;
+			if (($$.options & (NOPASS|PERSIST)) == (NOPASS|PERSIST)) {
+				yyerror("can't combine nopass and persist");
+				YYERROR;
+			}
 			if ($2.envlist) {
 				if ($$.envlist) {
-					yyerror("can't have two keepenv sections");
+					yyerror("can't have two setenv sections");
 					YYERROR;
 				} else
 					$$.envlist = $2.envlist;
@@ -113,10 +122,22 @@ options:	/* none */
 		} ;
 option:		TNOPASS {
 			$$.options = NOPASS;
+			$$.envlist = NULL;
+		} | TPERSIST {
+			$$.options = PERSIST;
+			$$.envlist = NULL;
 		} | TKEEPENV {
 			$$.options = KEEPENV;
+			$$.envlist = NULL;
 		} | TKEEPENV '{' envlist '}' {
-			$$.options = KEEPENV;
+			$$.options = 0;
+			if (!obsolete_warned) {
+				warnx("keepenv with list is obsolete");
+				obsolete_warned = 1;
+			}
+			$$.envlist = $3.envlist;
+		} | TSETENV '{' envlist '}' {
+			$$.options = 0;
 			$$.envlist = $3.envlist;
 		} ;
 
@@ -176,6 +197,7 @@ yyerror(const char *fmt, ...)
 {
 	va_list va;
 
+	fprintf(stderr, "doas: ");
 	va_start(va, fmt);
 	vfprintf(stderr, fmt, va);
 	va_end(va);
@@ -193,7 +215,9 @@ struct keyword {
 	{ "cmd", TCMD },
 	{ "args", TARGS },
 	{ "nopass", TNOPASS },
+	{ "persist", TPERSIST },
 	{ "keepenv", TKEEPENV },
+	{ "setenv", TSETENV },
 };
 
 int
@@ -223,12 +247,12 @@ repeat:
 			/* skip comments; NUL is allowed; no continuation */
 			while ((c = getc(yyfp)) != '\n')
 				if (c == EOF)
-					return 0;
+					goto eof;
 			yylval.colno = 0;
 			yylval.lineno++;
 			return c;
 		case EOF:
-			return 0;
+			goto eof;
 	}
 
 	/* parsing next word */
@@ -284,8 +308,10 @@ repeat:
 			}
 		}
 		*p++ = c;
-		if (p == ebuf)
+		if (p == ebuf) {
 			yyerror("too long line");
+			p = buf;
+		}
 		escape = 0;
 	}
 
@@ -300,7 +326,7 @@ eow:
 		 * the main loop.
 		 */
 		if (c == EOF)
-			return 0;
+			goto eof;
 		else if (qpos == -1)    /* accept, e.g., empty args: cmd foo args "" */
 			goto repeat;
 	}
@@ -314,4 +340,9 @@ eow:
 		err(1, "strdup");
 	yylval.str = str;
 	return TSTRING;
+
+eof:
+	if (ferror(yyfp))
+		yyerror("input error reading config");
+	return 0;
 }

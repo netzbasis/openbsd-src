@@ -1,4 +1,4 @@
-/*	$OpenBSD: vector.S,v 1.43 2015/07/17 15:37:58 guenther Exp $	*/
+/*	$OpenBSD: vector.S,v 1.47 2016/09/04 09:22:28 mpi Exp $	*/
 /*	$NetBSD: vector.S,v 1.5 2004/06/28 09:13:11 fvdl Exp $	*/
 
 /*
@@ -83,6 +83,8 @@
 #include "ioapic.h"
 #include "lapic.h"
 #include "assym.h"
+#include "xen.h"
+#include "hyperv.h"
 
 /*****************************************************************************/
 
@@ -95,24 +97,22 @@
  * (possibly the next clock tick).  Thus, we disable interrupt before checking,
  * and only enable them again on the final `iret' or before calling the AST
  * handler.
- */ 
+ */
 
 /*****************************************************************************/
 
 #define	TRAP(a)		pushq $(a) ; jmp _C_LABEL(alltraps)
 #define	ZTRAP(a)	pushq $0 ; TRAP(a)
 
-#define	BPTTRAP(a)	ZTRAP(a)
-
 	.text
 IDTVEC(trap00)
 	ZTRAP(T_DIVIDE)
 IDTVEC(trap01)
-	BPTTRAP(T_TRCTRAP)
+	ZTRAP(T_TRCTRAP)
 IDTVEC(trap02)
 	ZTRAP(T_NMI)
 IDTVEC(trap03)
-	BPTTRAP(T_BPTFLT)
+	ZTRAP(T_BPTFLT)
 IDTVEC(trap04)
 	ZTRAP(T_OFLOW)
 IDTVEC(trap05)
@@ -244,12 +244,28 @@ NENTRY(resume_iret)
 NENTRY(alltraps)
 	INTRENTRY
 	sti
-	.globl	calltrap
 calltrap:
 	cld
 #ifdef DIAGNOSTIC
 	movl	CPUVAR(ILEVEL),%ebx
 #endif /* DIAGNOSTIC */
+#if !defined(GPROF) && defined(DDBPROF)
+	cmpl	$T_BPTFLT,TF_TRAPNO(%rsp)
+	jne	.Lreal_trap
+
+	movq	%rsp, %rdi
+	call	_C_LABEL(db_prof_hook)
+	cmpl	$1, %eax
+	jne	.Lreal_trap
+
+	/*
+	 * Abuse the error field to indicate that intr_fast_exit needs
+	 * to emulate the patched instruction.
+	 */
+	movl	$INTR_FAKE_TRAP, TF_ERR(%rsp)
+	jz	2f
+.Lreal_trap:
+#endif /* !defined(GPROF) && defined(DDBPROF) */
 	movq	%rsp, %rdi
 	call	_C_LABEL(trap)
 2:	/* Check for ASTs on exit to user mode. */
@@ -435,8 +451,76 @@ IDTVEC(resume_lapic_ltimer)
 	movq	$(1 << LIR_TIMER),%rax
 	orq	%rax,CPUVAR(IPENDING)
 	INTRFASTEXIT
-#endif /* NLAPIC > 0 */
 
+#if NXEN > 0
+/*
+ * Xen event channel upcall interrupt handler.
+ * Only used when the hypervisor supports direct vector callbacks.
+ */
+IDTVEC(recurse_xen_upcall)
+	INTR_RECURSE_HWFRAME
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	jmp	1f
+IDTVEC(intr_xen_upcall)
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	call	_C_LABEL(xen_intr_ack)
+	movl	CPUVAR(ILEVEL),%ebx
+	cmpl	$IPL_NET,%ebx
+	jae	2f
+IDTVEC(resume_xen_upcall)
+1:
+	incl	CPUVAR(IDEPTH)
+	movl	$IPL_NET,CPUVAR(ILEVEL)
+	sti
+	cld
+	pushq	%rbx
+	call	_C_LABEL(xen_intr)
+	jmp	_C_LABEL(Xdoreti)
+2:
+	movq	$(1 << LIR_XEN),%rax
+	orq	%rax,CPUVAR(IPENDING)
+3:
+	INTRFASTEXIT
+#endif /* NXEN > 0 */
+
+#if NHYPERV > 0
+/*
+ * Hyperv event channel upcall interrupt handler.
+ * Only used when the hypervisor supports direct vector callbacks.
+ */
+IDTVEC(recurse_hyperv_upcall)
+	INTR_RECURSE_HWFRAME
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	jmp	1f
+IDTVEC(intr_hyperv_upcall)
+	pushq	$0
+	subq	$8,%rsp			/* unused __if_trapno */
+	INTRENTRY
+	movl	CPUVAR(ILEVEL),%ebx
+	cmpl	$IPL_NET,%ebx
+	jae	2f
+IDTVEC(resume_hyperv_upcall)
+1:
+	incl	CPUVAR(IDEPTH)
+	movl	$IPL_NET,CPUVAR(ILEVEL)
+	sti
+	cld
+	pushq	%rbx
+	call	_C_LABEL(hv_intr)
+	jmp	_C_LABEL(Xdoreti)
+2:
+	movq	$(1 << LIR_HYPERV),%rax
+	orq	%rax,CPUVAR(IPENDING)
+3:
+	INTRFASTEXIT
+#endif /* NHYPERV > 0 */
+#endif /* NLAPIC > 0 */
 
 #define voidop(num)
 

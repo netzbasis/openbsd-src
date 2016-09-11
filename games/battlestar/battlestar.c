@@ -1,4 +1,4 @@
-/*	$OpenBSD: battlestar.c,v 1.16 2009/10/27 23:59:23 deraadt Exp $	*/
+/*	$OpenBSD: battlestar.c,v 1.20 2016/01/01 15:56:04 tedu Exp $	*/
 /*	$NetBSD: battlestar.c,v 1.3 1995/03/21 15:06:47 cgd Exp $	*/
 
 /*
@@ -37,23 +37,23 @@
  * on the Cory PDP-11/70, University of California, Berkeley.
  */
 
+#include <err.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "extern.h"
 #include "pathnames.h"
-
-int main(int, char *[]);
 
 int
 main(int argc, char *argv[])
 {
 	char    mainbuf[LINELENGTH];
 	char   *next;
-	gid_t	gid;
+
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
 
 	open_score_file();
-
-	/* revoke privs */
-	gid = getgid();
-	setresgid(gid, gid, gid);
 
 	if (argc < 2)
 		initialize(NULL);

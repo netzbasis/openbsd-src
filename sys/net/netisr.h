@@ -1,4 +1,4 @@
-/*	$OpenBSD: netisr.h,v 1.42 2015/07/20 21:16:39 rzalamena Exp $	*/
+/*	$OpenBSD: netisr.h,v 1.47 2016/09/01 10:06:33 goda Exp $	*/
 /*	$NetBSD: netisr.h,v 1.12 1995/08/12 23:59:24 mycroft Exp $	*/
 
 /*
@@ -59,30 +59,31 @@
 #define	NETISR_PPP	28		/* for PPP processing */
 #define	NETISR_BRIDGE	29		/* for bridge processing */
 #define	NETISR_PPPOE	30		/* for pppoe processing */
+#define	NETISR_SWITCH	31		/* for switch dataplane */
 
 #ifndef _LOCORE
 #ifdef _KERNEL
-extern int	netisr;			/* scheduling bits for network */
 
-void	nettxintr(void);
+#include <sys/task.h>
+#include <sys/atomic.h>
+
+extern int	netisr;			/* scheduling bits for network */
+extern struct task if_input_task_locked;
+
 void	arpintr(void);
 void	ipintr(void);
 void	ip6intr(void);
 void	pppintr(void);
 void	bridgeintr(void);
 void	pppoeintr(void);
+void	switchintr(void);
 void	pfsyncintr(void);
 
-#include <machine/atomic.h>
-
-extern void *netisr_intr;
 #define	schednetisr(anisr)						\
 do {									\
 	atomic_setbits_int(&netisr, (1 << (anisr)));			\
-	softintr_schedule(netisr_intr);					\
+	task_add(softnettq, &if_input_task_locked);			\
 } while (/* CONSTCOND */0)
-
-void	netisr_init(void);
 
 #endif /* _KERNEL */
 #endif /*_LOCORE */

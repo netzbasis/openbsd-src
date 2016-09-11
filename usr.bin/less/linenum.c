@@ -44,7 +44,7 @@ struct linenum_info {
 	struct linenum_info *prev;	/* Line to previous in the list */
 	off_t pos;			/* File position */
 	off_t gap;			/* Gap between prev and next */
-	LINENUM line;			/* Line number */
+	off_t line;			/* Line number */
 };
 /*
  * "gap" needs some explanation: the gap of any particular line number
@@ -120,7 +120,7 @@ calcgap(struct linenum_info *p)
  * FIRST character in the specified line.
  */
 void
-add_lnum(LINENUM linenum, off_t pos)
+add_lnum(off_t linenum, off_t pos)
 {
 	struct linenum_info *p;
 	struct linenum_info *new;
@@ -196,26 +196,16 @@ add_lnum(LINENUM linenum, off_t pos)
 	}
 }
 
-/*
- * If we get stuck in a long loop trying to figure out the
- * line number, print a message to tell the user what we're doing.
- */
-static void
-longloopmessage(void)
-{
-	ierror("Calculating line numbers", NULL_PARG);
-}
-
 static int loopcount;
 static time_t startime;
 
 static void
 longish(void)
 {
-	if (loopcount >= 0 && ++loopcount > 100) {
+	if (++loopcount > 100) {
 		loopcount = 0;
 		if (time(NULL) >= startime + LONGTIME) {
-			longloopmessage();
+			ierror("Calculating line numbers", NULL);
 			loopcount = -1;
 		}
 	}
@@ -234,18 +224,18 @@ abort_long(void)
 		 */
 		screen_trashed = 1;
 	linenums = 0;
-	error("Line numbers turned off", NULL_PARG);
+	error("Line numbers turned off", NULL);
 }
 
 /*
  * Find the line number associated with a given position.
  * Return 0 if we can't figure it out.
  */
-LINENUM
+off_t
 find_linenum(off_t pos)
 {
 	struct linenum_info *p;
-	LINENUM linenum;
+	off_t linenum;
 	off_t cpos;
 
 	if (!linenums)
@@ -350,11 +340,11 @@ find_linenum(off_t pos)
  * Return -1 if we can't figure it out.
  */
 off_t
-find_pos(LINENUM linenum)
+find_pos(off_t linenum)
 {
 	struct linenum_info *p;
 	off_t cpos;
-	LINENUM clinenum;
+	off_t clinenum;
 
 	if (linenum <= 1)
 		/*
@@ -421,12 +411,12 @@ find_pos(LINENUM linenum)
  * The argument "where" tells which line is to be considered
  * the "current" line (e.g. TOP, BOTTOM, MIDDLE, etc).
  */
-LINENUM
+off_t
 currline(int where)
 {
 	off_t pos;
 	off_t len;
-	LINENUM linenum;
+	off_t linenum;
 
 	pos = position(where);
 	len = ch_length();

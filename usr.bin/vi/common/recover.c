@@ -1,4 +1,4 @@
-/*	$OpenBSD: recover.c,v 1.22 2015/04/24 21:48:31 brynet Exp $	*/
+/*	$OpenBSD: recover.c,v 1.25 2016/06/29 20:38:39 tb Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -122,36 +122,31 @@ int
 rcv_tmp(SCR *sp, EXF *ep, char *name)
 {
 	struct stat sb;
+	static int warned = 0;
 	int fd;
 	char *dp, *p, path[PATH_MAX];
 
 	/*
 	 * !!!
 	 * ep MAY NOT BE THE SAME AS sp->ep, DON'T USE THE LATTER.
-	 *
-	 *
-	 * If the recovery directory doesn't exist, try and create it.  As
-	 * the recovery files are themselves protected from reading/writing
-	 * by other than the owner, the worst that can happen is that a user
-	 * would have permission to remove other user's recovery files.  If
-	 * the sticky bit has the BSD semantics, that too will be impossible.
 	 */
 	if (opts_empty(sp, O_RECDIR, 0))
 		goto err;
 	dp = O_STR(sp, O_RECDIR);
 	if (stat(dp, &sb)) {
-		if (errno != ENOENT || mkdir(dp, 0)) {
+		if (!warned) {
+			warned = 1;
 			msgq(sp, M_SYSERR, "%s", dp);
 			goto err;
 		}
-		(void)chmod(dp, S_IRWXU | S_IRWXG | S_IRWXO | S_ISVTX);
+		return 1;
 	}
 
 	/* Newlines delimit the mail messages. */
 	for (p = name; *p; ++p)
 		if (*p == '\n') {
 			msgq(sp, M_ERR,
-		    "055|Files with newlines in the name are unrecoverable");
+		    "Files with newlines in the name are unrecoverable");
 			goto err;
 		}
 
@@ -164,7 +159,7 @@ rcv_tmp(SCR *sp, EXF *ep, char *name)
 		msgq(sp, M_SYSERR, NULL);
 		(void)unlink(path);
 err:		msgq(sp, M_ERR,
-		    "056|Modifications not recoverable if the session fails");
+		    "Modifications not recoverable if the session fails");
 		return (1);
 	}
 
@@ -209,10 +204,10 @@ rcv_init(SCR *sp)
 
 		/* Turn on a busy message, and sync it to backing store. */
 		sp->gp->scr_busy(sp,
-		    "057|Copying file for recovery...", BUSY_ON);
+		    "Copying file for recovery...", BUSY_ON);
 		if (ep->db->sync(ep->db, R_RECNOSYNC)) {
 			msgq_str(sp, M_SYSERR, ep->rcv_path,
-			    "058|Preservation failed: %s");
+			    "Preservation failed: %s");
 			sp->gp->scr_busy(sp, NULL, BUSY_OFF);
 			goto err;
 		}
@@ -227,7 +222,7 @@ rcv_init(SCR *sp)
 	return (0);
 
 err:	msgq(sp, M_ERR,
-	    "059|Modifications not recoverable if the session fails");
+	    "Modifications not recoverable if the session fails");
 	return (1);
 }
 
@@ -258,7 +253,7 @@ rcv_sync(SCR *sp, u_int flags)
 		if (ep->db->sync(ep->db, R_RECNOSYNC)) {
 			F_CLR(ep, F_RCV_ON | F_RCV_NORM);
 			msgq_str(sp, M_SYSERR,
-			    ep->rcv_path, "060|File backup failed: %s");
+			    ep->rcv_path, "File backup failed: %s");
 			return (1);
 		}
 
@@ -290,7 +285,7 @@ rcv_sync(SCR *sp, u_int flags)
 		if ((fd = rcv_mktemp(sp, buf, dp, S_IRUSR | S_IWUSR)) == -1)
 			goto err;
 		sp->gp->scr_busy(sp,
-		    "061|Copying file for recovery...", BUSY_ON);
+		    "Copying file for recovery...", BUSY_ON);
 		if (rcv_copy(sp, fd, ep->rcv_path) ||
 		    close(fd) || rcv_mailfile(sp, 1, buf)) {
 			(void)unlink(buf);
@@ -331,7 +326,7 @@ rcv_mailfile(SCR *sp, int issync, char *cp_path)
 	gp = sp->gp;
 	if ((pw = getpwuid(uid = getuid())) == NULL) {
 		msgq(sp, M_ERR,
-		    "062|Information on user id %u not found", uid);
+		    "Information on user id %u not found", uid);
 		return (1);
 	}
 
@@ -351,7 +346,7 @@ rcv_mailfile(SCR *sp, int issync, char *cp_path)
 	 */
 	ep = sp->ep;
 	if (file_lock(sp, NULL, NULL, fd, 1) != LOCK_SUCCESS)
-		msgq(sp, M_SYSERR, "063|Unable to lock recovery file");
+		msgq(sp, M_SYSERR, "Unable to lock recovery file");
 	if (!issync) {
 		/* Save the recover file descriptor, and mail path. */
 		ep->rcv_fd = fd;
@@ -397,10 +392,10 @@ rcv_mailfile(SCR *sp, int issync, char *cp_path)
 	    " was editing a file named ", t, " on the machine ",
 	    host, ", when it was saved for recovery. ",
 	    "You can recover most, if not all, of the changes ",
-	    "to this file using the -r option to ", gp->progname, ":\n\n\t",
-	    gp->progname, " -r ", t);
+	    "to this file using the -r option to ", getprogname(), ":\n\n\t",
+	    getprogname(), " -r ", t);
 	if (len > sizeof(buf) - 1) {
-lerr:		msgq(sp, M_ERR, "064|Recovery file buffer overrun");
+lerr:		msgq(sp, M_ERR, "Recovery file buffer overrun");
 		goto err;
 	}
 
@@ -441,7 +436,7 @@ wout:		*t2++ = '\n';
 	if (issync) {
 		rcv_email(sp, mpath);
 		if (close(fd)) {
-werr:			msgq(sp, M_SYSERR, "065|Recovery file");
+werr:			msgq(sp, M_SYSERR, "Recovery file");
 			goto err;
 		}
 	}
@@ -525,7 +520,7 @@ rcv_list(SCR *sp)
 		    strncmp(path, VI_PHEADER, sizeof(VI_PHEADER) - 1) ||
 		    (t = strchr(path, '\n')) == NULL) {
 			msgq_str(sp, M_ERR, dp->d_name,
-			    "066|%s: malformed recovery file");
+			    "%s: malformed recovery file");
 			goto next;
 		}
 		*p = *t = '\0';
@@ -555,7 +550,7 @@ rcv_list(SCR *sp)
 next:		(void)fclose(fp);
 	}
 	if (found == 0)
-		(void)printf("%s: No files to recover\n", sp->gp->progname);
+		(void)printf("%s: No files to recover\n", getprogname());
 	(void)closedir(dirp);
 	return (0);
 }
@@ -639,7 +634,7 @@ rcv_read(SCR *sp, FREF *frp)
 		    strncmp(path, VI_PHEADER, sizeof(VI_PHEADER) - 1) ||
 		    (t = strchr(path, '\n')) == NULL) {
 			msgq_str(sp, M_ERR, recpath,
-			    "067|%s: malformed recovery file");
+			    "%s: malformed recovery file");
 			goto next;
 		}
 		*p = *t = '\0';
@@ -701,16 +696,16 @@ next:			(void)close(fd);
 
 	if (recp == NULL) {
 		msgq_str(sp, M_INFO, name,
-		    "068|No files named %s, readable by you, to recover");
+		    "No files named %s, readable by you, to recover");
 		return (1);
 	}
 	if (found) {
 		if (requested > 1)
 			msgq(sp, M_INFO,
-	    "069|There are older versions of this file for you to recover");
+	    "There are older versions of this file for you to recover");
 		if (found > requested)
 			msgq(sp, M_INFO,
-			    "070|There are other files for you to recover");
+			    "There are other files for you to recover");
 	}
 
 	/*
@@ -825,7 +820,7 @@ rcv_email(SCR *sp, char *fname)
 
 	if (_PATH_SENDMAIL[0] != '/' || stat(_PATH_SENDMAIL, &sb))
 		msgq_str(sp, M_SYSERR,
-		    _PATH_SENDMAIL, "071|not sending email: %s");
+		    _PATH_SENDMAIL, "not sending email: %s");
 	else {
 		/*
 		 * !!!

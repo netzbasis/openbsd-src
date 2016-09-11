@@ -1,4 +1,4 @@
-/*	$OpenBSD: atrun.c,v 1.35 2015/11/09 01:12:27 millert Exp $	*/
+/*	$OpenBSD: atrun.c,v 1.43 2016/01/11 14:23:50 millert Exp $	*/
 
 /*
  * Copyright (c) 2002-2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -23,12 +23,14 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 
 #include <bitstring.h>		/* for structs.h */
 #include <bsd_auth.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -38,6 +40,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -50,6 +53,21 @@
 
 static void run_job(atjob *, char *);
 
+static int
+strtot(const char *nptr, char **endptr, time_t *tp)
+{
+	long long ll;
+
+	errno = 0;
+	ll = strtoll(nptr, endptr, 10);
+	if (*endptr == nptr)
+		return (-1);
+	if (ll < 0 || (errno == ERANGE && ll == LLONG_MAX) || (time_t)ll != ll)
+		return (-1);
+	*tp = (time_t)ll;
+	return (0);
+}
+
 /*
  * Scan the at jobs dir and build up a list of jobs found.
  */
@@ -57,52 +75,45 @@ int
 scan_atjobs(at_db **db, struct timespec *ts)
 {
 	DIR *atdir = NULL;
-	int cwd, queue, pending;
+	int dfd, queue, pending;
 	time_t run_time;
 	char *ep;
 	at_db *new_db, *old_db = *db;
 	atjob *job;
 	struct dirent *file;
-	struct stat statbuf;
+	struct stat sb;
 
-	if (stat(AT_DIR, &statbuf) != 0) {
-		log_it("CRON", getpid(), "CAN'T STAT", AT_DIR);
+	if ((dfd = open(_PATH_AT_SPOOL, O_RDONLY|O_DIRECTORY)) == -1) {
+		syslog(LOG_ERR, "(CRON) OPEN FAILED (%s)", _PATH_AT_SPOOL);
+		return (0);
+	}
+	if (fstat(dfd, &sb) != 0) {
+		syslog(LOG_ERR, "(CRON) FSTAT FAILED (%s)", _PATH_AT_SPOOL);
+		close(dfd);
+		return (0);
+	}
+	if (old_db != NULL && timespeccmp(&old_db->mtime, &sb.st_mtim, ==)) {
+		close(dfd);
 		return (0);
 	}
 
-	if (old_db != NULL && old_db->mtime == statbuf.st_mtime) {
-		return (0);
-	}
-
-	/* XXX - use fstatat/openat instead of chdir */
-	if ((cwd = open(".", O_RDONLY, 0)) < 0) {
-		log_it("CRON", getpid(), "CAN'T OPEN", ".");
-		return (0);
-	}
-
-	if (chdir(AT_DIR) != 0 || (atdir = opendir(".")) == NULL) {
-		if (atdir == NULL)
-			log_it("CRON", getpid(), "OPENDIR FAILED", AT_DIR);
-		else
-			log_it("CRON", getpid(), "CHDIR FAILED", AT_DIR);
-		fchdir(cwd);
-		close(cwd);
+	if ((atdir = fdopendir(dfd)) == NULL) {
+		syslog(LOG_ERR, "(CRON) OPENDIR FAILED (%s)", _PATH_AT_SPOOL);
+		close(dfd);
 		return (0);
 	}
 
 	if ((new_db = malloc(sizeof(*new_db))) == NULL) {
 		closedir(atdir);
-		fchdir(cwd);
-		close(cwd);
 		return (0);
 	}
-	new_db->mtime = statbuf.st_mtime;	/* stash at dir mtime */
+	new_db->mtime = sb.st_mtim;	/* stash at dir mtime */
 	TAILQ_INIT(&new_db->jobs);
 
 	pending = 0;
 	while ((file = readdir(atdir)) != NULL) {
-		if (stat(file->d_name, &statbuf) != 0 ||
-		    !S_ISREG(statbuf.st_mode))
+		if (fstatat(dfd, file->d_name, &sb, AT_SYMLINK_NOFOLLOW) != 0 ||
+		    !S_ISREG(sb.st_mode))
 			continue;
 
 		/*
@@ -124,12 +135,10 @@ scan_atjobs(at_db **db, struct timespec *ts)
 			}
 			free(new_db);
 			closedir(atdir);
-			fchdir(cwd);
-			close(cwd);
 			return (0);
 		}
-		job->uid = statbuf.st_uid;
-		job->gid = statbuf.st_gid;
+		job->uid = sb.st_uid;
+		job->gid = sb.st_gid;
 		job->queue = queue;
 		job->run_time = run_time;
 		TAILQ_INSERT_TAIL(&new_db->jobs, job, entries);
@@ -148,10 +157,6 @@ scan_atjobs(at_db **db, struct timespec *ts)
 	}
 	*db = new_db;
 
-	/* Change back to the normal cron dir. */
-	fchdir(cwd);
-	close(cwd);
-
 	return (pending);
 }
 
@@ -161,8 +166,8 @@ scan_atjobs(at_db **db, struct timespec *ts)
 void
 atrun(at_db *db, double batch_maxload, time_t now)
 {
-	char atfile[MAX_FNAME];
-	struct stat statbuf;
+	char atfile[PATH_MAX];
+	struct stat sb;
 	double la;
 	atjob *job, *tjob, *batch = NULL;
 
@@ -174,10 +179,10 @@ atrun(at_db *db, double batch_maxload, time_t now)
 		if (job->run_time > now)
 			continue;
 
-		snprintf(atfile, sizeof(atfile), "%s/%lld.%c", AT_DIR,
+		snprintf(atfile, sizeof(atfile), "%s/%lld.%c", _PATH_AT_SPOOL,
 		    (long long)job->run_time, job->queue);
 
-		if (lstat(atfile, &statbuf) != 0 || !S_ISREG(statbuf.st_mode)) {
+		if (lstat(atfile, &sb) != 0 || !S_ISREG(sb.st_mode)) {
 			TAILQ_REMOVE(&db->jobs, job, entries);
 			free(job);
 			continue;		/* disapeared or not a file */
@@ -186,7 +191,7 @@ atrun(at_db *db, double batch_maxload, time_t now)
 		/*
 		 * Pending jobs have the user execute bit set.
 		 */
-		if (statbuf.st_mode & S_IXUSR) {
+		if (sb.st_mode & S_IXUSR) {
 			/* new job to run */
 			if (isupper(job->queue)) {
 				/* we run one batch job per atrun() call */
@@ -207,7 +212,7 @@ atrun(at_db *db, double batch_maxload, time_t now)
 	    && (batch_maxload == 0.0 ||
 	    ((getloadavg(&la, 1) == 1) && la <= batch_maxload))
 	    ) {
-		snprintf(atfile, sizeof(atfile), "%s/%lld.%c", AT_DIR,
+		snprintf(atfile, sizeof(atfile), "%s/%lld.%c", _PATH_AT_SPOOL,
 		    (long long)batch->run_time, batch->queue);
 		run_job(batch, atfile);
 		TAILQ_REMOVE(&db->jobs, batch, entries);
@@ -221,8 +226,10 @@ atrun(at_db *db, double batch_maxload, time_t now)
 static void
 run_job(atjob *job, char *atfile)
 {
-	struct stat statbuf;
+	struct stat sb;
 	struct passwd *pw;
+	login_cap_t *lc;
+	auth_session_t *as;
 	pid_t pid;
 	long nuid, ngid;
 	FILE *fp;
@@ -235,7 +242,7 @@ run_job(atjob *job, char *atfile)
 
 	/* Open the file and unlink it so we don't try running it again. */
 	if ((fd = open(atfile, O_RDONLY|O_NONBLOCK|O_NOFOLLOW, 0)) < 0) {
-		log_it("CRON", getpid(), "CAN'T OPEN", atfile);
+		syslog(LOG_ERR, "(CRON) CAN'T OPEN (%s)", atfile);
 		return;
 	}
 	unlink(atfile);
@@ -251,7 +258,7 @@ run_job(atjob *job, char *atfile)
 		break;
 	case -1:
 		/* error */
-		log_it("CRON", getpid(), "error", "can't fork");
+		syslog(LOG_ERR, "(CRON) CAN'T FORK (%m)");
 		/* FALLTHROUGH */
 	default:
 		/* parent */
@@ -270,39 +277,43 @@ run_job(atjob *job, char *atfile)
 	 */
 	pw = getpwuid(job->uid);
 	if (pw == NULL) {
-		log_it("CRON", getpid(), "ORPHANED JOB", atfile);
+		syslog(LOG_WARNING, "(CRON) ORPHANED JOB (%s)", atfile);
 		_exit(EXIT_FAILURE);
 	}
 	if (pw->pw_expire && time(NULL) >= pw->pw_expire) {
-		log_it(pw->pw_name, getpid(), "ACCOUNT EXPIRED, JOB ABORTED",
-		    atfile);
+		syslog(LOG_NOTICE, "(%s) ACCOUNT EXPIRED, JOB ABORTED (%s)",
+		    pw->pw_name, atfile);
 		_exit(EXIT_FAILURE);
 	}
 
 	/* Sanity checks */
-	if (fstat(fd, &statbuf) < 0) {
-		log_it(pw->pw_name, getpid(), "FSTAT FAILED", atfile);
+	if (fstat(fd, &sb) < 0) {
+		syslog(LOG_ERR, "(%s) FSTAT FAILED (%s)", pw->pw_name, atfile);
 		_exit(EXIT_FAILURE);
 	}
-	if (!S_ISREG(statbuf.st_mode)) {
-		log_it(pw->pw_name, getpid(), "NOT REGULAR", atfile);
+	if (!S_ISREG(sb.st_mode)) {
+		syslog(LOG_WARNING, "(%s) NOT REGULAR (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
-	if ((statbuf.st_mode & ALLPERMS) != (S_IRUSR | S_IWUSR | S_IXUSR)) {
-		log_it(pw->pw_name, getpid(), "BAD FILE MODE", atfile);
+	if ((sb.st_mode & ALLPERMS) != (S_IRUSR | S_IWUSR | S_IXUSR)) {
+		syslog(LOG_WARNING, "(%s) BAD FILE MODE (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
-	if (statbuf.st_uid != 0 && statbuf.st_uid != job->uid) {
-		log_it(pw->pw_name, getpid(), "WRONG FILE OWNER", atfile);
+	if (sb.st_uid != 0 && sb.st_uid != job->uid) {
+		syslog(LOG_WARNING, "(%s) WRONG FILE OWNER (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
-	if (statbuf.st_nlink > 1) {
-		log_it(pw->pw_name, getpid(), "BAD LINK COUNT", atfile);
+	if (sb.st_nlink > 1) {
+		syslog(LOG_WARNING, "(%s) BAD LINK COUNT (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
 
 	if ((fp = fdopen(dup(fd), "r")) == NULL) {
-		log_it("CRON", getpid(), "error", "dup(2) failed");
+		syslog(LOG_ERR, "(CRON) DUP FAILED (%m)");
 		_exit(EXIT_FAILURE);
 	}
 
@@ -356,35 +367,37 @@ run_job(atjob *job, char *atfile)
 	if (!safe_p(pw->pw_name, mailto))
 		_exit(EXIT_FAILURE);
 	if ((uid_t)nuid != job->uid) {
-		log_it(pw->pw_name, getpid(), "UID MISMATCH", atfile);
+		syslog(LOG_WARNING, "(%s) UID MISMATCH (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
 	if ((gid_t)ngid != job->gid) {
-		log_it(pw->pw_name, getpid(), "GID MISMATCH", atfile);
+		syslog(LOG_WARNING, "(%s) GID MISMATCH (%s)", pw->pw_name,
+		    atfile);
 		_exit(EXIT_FAILURE);
 	}
 
 	/* mark ourselves as different to PS command watchers */
 	setproctitle("atrun %s", atfile);
 
-	pipe(output_pipe);	/* child's stdout/stderr */
+	if (pipe(output_pipe) != 0) {	/* child's stdout/stderr */
+		syslog(LOG_ERR, "(CRON) PIPE (%m)");
+		_exit(EXIT_FAILURE);
+	}
 
 	/* Fork again, child will run the job, parent will catch output. */
 	switch ((pid = fork())) {
 	case -1:
-		log_it("CRON", getpid(), "error", "can't fork");
+		syslog(LOG_ERR, "(CRON) CAN'T FORK (%m)");
 		_exit(EXIT_FAILURE);
 		/*NOTREACHED*/
 	case 0:
 		/* Write log message now that we have our real pid. */
-		log_it(pw->pw_name, getpid(), "ATJOB", atfile);
-
-		/* Close log file (or syslog) */
-		log_close();
+		syslog(LOG_INFO, "(%s) ATJOB (%s)", pw->pw_name, atfile);
 
 		/* Connect grandchild's stdin to the at job file. */
 		if (lseek(fd, 0, SEEK_SET) < 0) {
-			perror("lseek");
+			syslog(LOG_ERR, "(CRON) LSEEK (%m)");
 			_exit(EXIT_FAILURE);
 		}
 		if (fd != STDIN_FILENO) {
@@ -402,43 +415,50 @@ run_job(atjob *job, char *atfile)
 
 		(void) setsid();
 
-		{
-			login_cap_t *lc;
-			auth_session_t *as;
-			if ((lc = login_getclass(pw->pw_class)) == NULL) {
-				fprintf(stderr,
-				    "Cannot get login class for %s\n",
-				    pw->pw_name);
-				_exit(EXIT_FAILURE);
+		/*
+		 * From this point on, anything written to stderr will be
+		 * mailed to the user as output.
+		 */
 
-			}
+		/* Setup execution environment as per login.conf */
+		if ((lc = login_getclass(pw->pw_class)) == NULL) {
+			warnx("unable to get login class for %s",
+			    pw->pw_name);
+			syslog(LOG_ERR, "(CRON) CAN'T GET LOGIN CLASS (%s)",
+			    pw->pw_name);
+			_exit(EXIT_FAILURE);
 
-			if (setusercontext(lc, pw, pw->pw_uid, LOGIN_SETALL)) {
-				fprintf(stderr,
-				    "setusercontext failed for %s\n",
-				    pw->pw_name);
-				_exit(EXIT_FAILURE);
-			}
-			as = auth_open();
-			if (as == NULL || auth_setpwd(as, pw) != 0) {
-				fprintf(stderr, "can't malloc\n");
-				_exit(EXIT_FAILURE);
-			}
-			if (auth_approval(as, lc, pw->pw_name, "cron") <= 0) {
-				fprintf(stderr, "approval failed for %s\n",
-				    pw->pw_name);
-				_exit(EXIT_FAILURE);
-			}
-			auth_close(as);
-			login_close(lc);
+		}
+		if (setusercontext(lc, pw, pw->pw_uid, LOGIN_SETALL)) {
+			warn("setusercontext failed for %s", pw->pw_name);
+			syslog(LOG_ERR, "(%s) SETUSERCONTEXT FAILED (%m)",
+			    pw->pw_name);
+			_exit(EXIT_FAILURE);
 		}
 
-		chdir("/");		/* at job will chdir to correct place */
+		/* Run any approval scripts. */
+		as = auth_open();
+		if (as == NULL || auth_setpwd(as, pw) != 0) {
+			warn("auth_setpwd");
+			syslog(LOG_ERR, "(%s) AUTH_SETPWD FAILED (%m)",
+			    pw->pw_name);
+			_exit(EXIT_FAILURE);
+		}
+		if (auth_approval(as, lc, pw->pw_name, "cron") <= 0) {
+			warnx("approval failed for %s", pw->pw_name);
+			syslog(LOG_ERR, "(%s) APPROVAL FAILED (cron)",
+			    pw->pw_name);
+			_exit(EXIT_FAILURE);
+		}
+		auth_close(as);
+		login_close(lc);
 
 		/* If this is a low priority job, nice ourself. */
-		if (job->queue > 'b')
-			(void)setpriority(PRIO_PROCESS, 0, job->queue - 'b');
-
+		if (job->queue > 'b') {
+			if (setpriority(PRIO_PROCESS, 0, job->queue - 'b') != 0)
+				syslog(LOG_ERR, "(%s) CAN'T NICE (%m)",
+				    pw->pw_name);
+		}
 
 		(void) signal(SIGPIPE, SIG_DFL);
 
@@ -451,7 +471,9 @@ run_job(atjob *job, char *atfile)
 		nargv[1] = NULL;
 		nenvp[0] = NULL;
 		if (execve(_PATH_BSHELL, nargv, nenvp) != 0) {
-			perror("execve: " _PATH_BSHELL);
+			warn("unable to execute %s", _PATH_BSHELL);
+			syslog(LOG_ERR, "(%s) CAN'T EXEC (%s: %m)", pw->pw_name,
+			    _PATH_BSHELL);
 			_exit(EXIT_FAILURE);
 		}
 		break;
@@ -466,7 +488,7 @@ run_job(atjob *job, char *atfile)
 
 	/* Read piped output (if any) from the at job. */
 	if ((fp = fdopen(output_pipe[READ_PIPE], "r")) == NULL) {
-		perror("fdopen");
+		syslog(LOG_ERR, "(%s) FDOPEN (%m)", pw->pw_name);
 		(void) _exit(EXIT_FAILURE);
 	}
 	nread = fread(buf, 1, sizeof(buf), fp);
@@ -480,21 +502,22 @@ run_job(atjob *job, char *atfile)
 
 		if (gethostname(hostname, sizeof(hostname)) != 0)
 			strlcpy(hostname, "unknown", sizeof(hostname));
-		if (snprintf(mailcmd, sizeof mailcmd,  MAILFMT,
+		if (snprintf(mailcmd, sizeof mailcmd, MAILFMT,
 		    MAILARG) >= sizeof mailcmd) {
-			fprintf(stderr, "mailcmd too long\n");
+			syslog(LOG_ERR, "(%s) ERROR (mailcmd too long)",
+			    pw->pw_name);
 			(void) _exit(EXIT_FAILURE);
 		}
 		if (!(mail = cron_popen(mailcmd, "w", pw, &mailpid))) {
-			perror(mailcmd);
+			syslog(LOG_ERR, "(%s) POPEN (%s)", pw->pw_name, mailcmd);
 			(void) _exit(EXIT_FAILURE);
 		}
 		fprintf(mail, "From: %s (Atrun Service)\n", pw->pw_name);
 		fprintf(mail, "To: %s\n", mailto);
 		fprintf(mail, "Subject: Output from \"at\" job\n");
 		fprintf(mail, "Auto-Submitted: auto-generated\n");
-		fprintf(mail, "\nYour \"at\" job on %s\n\"%s/%s/%s\"\n",
-		    hostname, CRONDIR, AT_DIR, atfile);
+		fprintf(mail, "\nYour \"at\" job on %s\n\"%s/%s\"\n",
+		    hostname, _PATH_AT_SPOOL, atfile);
 		fprintf(mail, "\nproduced the following output:\n\n");
 
 		/* Pipe the job's output to sendmail. */
@@ -508,10 +531,9 @@ run_job(atjob *job, char *atfile)
 		 * this fact so the problem can (hopefully) be debugged.
 		 */
 		if ((status = cron_pclose(mail, mailpid)) != 0) {
-			snprintf(buf, sizeof(buf), "mailed %lu byte%s of output"
-			    " but got status 0x%04x\n", (unsigned long)bytes,
-			    (bytes == 1) ? "" : "s", status);
-			log_it(pw->pw_name, getpid(), "MAIL", buf);
+			syslog(LOG_NOTICE, "(%s) MAIL (mailed %zu byte%s of "
+			    "output but got status 0x%04x)", pw->pw_name,
+			    bytes, (bytes == 1) ? "" : "s", status);
 		}
 	}
 
@@ -534,6 +556,6 @@ run_job(atjob *job, char *atfile)
 	_exit(EXIT_SUCCESS);
 
 bad_file:
-	log_it(pw->pw_name, getpid(), "BAD FILE FORMAT", atfile);
+	syslog(LOG_ERR, "(%s) BAD FILE FORMAT (%s)", pw->pw_name, atfile);
 	_exit(EXIT_FAILURE);
 }

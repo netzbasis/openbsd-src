@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.152 2015/10/29 19:46:47 lum Exp $	*/
+/*	$OpenBSD: def.h,v 1.155 2016/04/14 17:05:32 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -377,6 +377,7 @@ int		 makebkfile(int, int);
 int		 writeout(FILE **, struct buffer *, char *);
 void		 upmodes(struct buffer *);
 size_t		 xbasename(char *, const char *, size_t);
+int		 do_filevisitalt(char *);
 
 /* line.c X */
 struct line	*lalloc(int);
@@ -592,6 +593,7 @@ int		 fillword(int, int);
 int		 setfillcol(int, int);
 int		 markpara(int, int);
 int		 transposepara(int, int);
+int		 sentencespace(int, int);
 
 /* word.c X */
 int		 backword(int, int);
@@ -602,6 +604,7 @@ int		 capword(int, int);
 int		 delfword(int, int);
 int		 delbword(int, int);
 int		 inword(void);
+int		 transposeword(int, int);
 
 /* region.c X */
 int		 killregion(int, int);
@@ -732,6 +735,7 @@ extern int		 defb_nmodes;
 extern int		 defb_flag;
 extern int		 doaudiblebell;
 extern int		 dovisiblebell;
+extern int		 dblspace;
 extern char	 	 cinfo[];
 extern char		*keystrings[];
 extern char		 pat[NPAT];

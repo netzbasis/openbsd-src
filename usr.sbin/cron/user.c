@@ -1,4 +1,4 @@
-/*	$OpenBSD: user.c,v 1.17 2015/11/09 01:12:27 millert Exp $	*/
+/*	$OpenBSD: user.c,v 1.19 2016/08/30 14:08:16 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -22,9 +22,11 @@
 #include <bitstring.h>		/* for structs.h */
 #include <ctype.h>
 #include <errno.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>		/* for structs.h */
 
 #include "macros.h"
@@ -52,22 +54,23 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name)
 	user *u;
 	entry *e;
 	int status, save_errno;
-	char **envp, **tenvp;
+	char **envp = NULL, **tenvp;
 
 	if (!(file = fdopen(crontab_fd, "r"))) {
-		perror("fdopen on crontab_fd in load_user");
+		syslog(LOG_ERR, "(%s) FDOPEN (%m)", pw->pw_name);
 		return (NULL);
 	}
 
 	/* file is open.  build user entry, then read the crontab file.
 	 */
 	if ((u = malloc(sizeof(user))) == NULL)
-		return (NULL);
+		goto done;
 	if ((u->name = strdup(name)) == NULL) {
 		save_errno = errno;
 		free(u);
+		u = NULL;
 		errno = save_errno;
-		return (NULL);
+		goto done;
 	}
 	SLIST_INIT(&u->crontab);
 
@@ -75,10 +78,10 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name)
 	 */
 	if ((envp = env_init()) == NULL) {
 		save_errno = errno;
-		free(u->name);
-		free(u);
+		free_user(u);
+		u = NULL;
 		errno = save_errno;
-		return (NULL);
+		goto done;
 	}
 
 	/* load the crontab
@@ -105,7 +108,8 @@ load_user(int crontab_fd, struct passwd	*pw, const char *name)
 	}
 
  done:
-	env_free(envp);
+	if (envp != NULL)
+		env_free(envp);
 	fclose(file);
 	return (u);
 }

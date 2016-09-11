@@ -1,5 +1,5 @@
 # $FreeBSD: src/gnu/lib/libgcc/Makefile,v 1.58.8.1 2009/04/15 03:14:26 kensmith Exp $
-# $OpenBSD: Makefile,v 1.26 2014/04/08 23:18:21 martynas Exp $
+# $OpenBSD: Makefile,v 1.29 2016/09/01 11:03:09 patrick Exp $
 
 .include <bsd.own.mk>
 
@@ -125,6 +125,7 @@ CFLAGS+=	-Dinhibit_libc -fno-inline
 LIB1ASMSRC =	lib1funcs.asm
 LIB1ASMFUNCS =  _dvmd_tls _bb_init_func
 LIB2FUNCS_EXTRA = floatunsidf.c floatunsisf.c
+LIB2ADDEH =	unwind-arm.c libunwind.S pr-support.c unwind-c.c
 
 # Not now
 #LIB1ASMFUNCS =  _udivsi3 _divsi3 _umodsi3 _modsi3 _dvmd_tls _bb_init_func
@@ -157,6 +158,10 @@ LIB1ASMFUNCS =	__divxf3 __divdf3 __divsf3 \
 	__nonlocal_goto __restore_stack_nonlocal __trampoline \
 	_fixtfdi _fixunstfdi _floatditf
 LIB2ADDEH = unwind-ia64.c unwind-sjlj.c unwind-c.c
+.endif
+
+.if ${TARGET_ARCH} == "mips64" || ${TARGET_ARCH} == "mips64el"
+LIB2FUNCS_EXTRA = sync.S
 .endif
 
 .if ${TARGET_ARCH} == "sh"
@@ -222,7 +227,7 @@ OBJ_GRPS =	STD DIV SI DI
 #
 .if ${TARGET_ARCH} == "armNOT_YET" || ${TARGET_ARCH} == "m88k" || \
     ${TARGET_ARCH} == "mips64" || ${TARGET_ARCH} == "mips64el" || \
-    ${TARGET_ARCH} == "powerpc" || ${TARGET_ARCH} == "sparc" || \
+    ${TARGET_ARCH} == "powerpc" || \
     ${TARGET_ARCH} == "sparc64"
 
 FPBIT_CFLAGS =	-DFINE_GRAINED_LIBRARIES -DFLOAT

@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.98 2015/02/12 01:49:02 claudio Exp $	*/
+/*	$OpenBSD: route.c,v 1.100 2016/08/27 04:13:43 guenther Exp $	*/
 /*	$NetBSD: route.c,v 1.15 1996/05/07 02:55:06 thorpej Exp $	*/
 
 /*
@@ -32,10 +32,10 @@
 
 #include <sys/types.h>
 #include <sys/protosw.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 
 #include <net/if.h>
-#include <net/if_var.h>
 #include <net/if_dl.h>
 #include <net/if_types.h>
 #define _KERNEL
@@ -263,7 +263,6 @@ p_rtnode(void)
 static void
 p_krtentry(struct rtentry *rt)
 {
-	static struct ifnet ifnet, *lastif;
 	struct sockaddr_storage sock1, sock2;
 	struct sockaddr *sa = (struct sockaddr *)&sock1;
 	struct sockaddr *mask = (struct sockaddr *)&sock2;
@@ -295,12 +294,8 @@ p_krtentry(struct rtentry *rt)
 	putchar((rt->rt_rmx.rmx_locks & RTV_MTU) ? 'L' : ' ');
 	printf("  %2d", rt->rt_priority);
 
-	if (rt->rt_ifp) {
-		if (rt->rt_ifp != lastif) {
-			kread((u_long)rt->rt_ifp, &ifnet, sizeof(ifnet));
-			lastif = rt->rt_ifp;
-		}
-		printf(" %.16s%s", ifnet.if_xname,
+	if (rt->rt_ifidx != 0) {
+		printf(" if%d%s", rt->rt_ifidx,
 		    rt->rt_nodes[0].rn_dupedkey ? " =>" : "");
 	}
 	putchar('\n');

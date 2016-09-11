@@ -1,4 +1,4 @@
-.\"	$OpenBSD: exp.3,v 1.29 2015/01/15 19:06:31 schwarze Exp $
+.\"	$OpenBSD: exp.3,v 1.34 2016/06/01 13:43:54 tb Exp $
 .\"
 .\" Copyright (c) 1985, 1991 Regents of the University of California.
 .\" All rights reserved.
@@ -29,7 +29,7 @@
 .\"
 .\"     from: @(#)exp.3	6.12 (Berkeley) 7/31/91
 .\"
-.Dd $Mdocdate: January 15 2015 $
+.Dd $Mdocdate: June 1 2016 $
 .Dt EXP 3
 .Os
 .Sh NAME
@@ -139,7 +139,7 @@ function is an extended precision version of
 .Pp
 The
 .Fn expm1
-function computes the value exp(x)\-1 accurately even for tiny argument
+function computes the value exp(x) \(mi 1 accurately even for tiny argument
 .Fa x .
 The
 .Fn expm1f
@@ -194,7 +194,7 @@ function is an extended precision version of
 The
 .Fn log1p
 function computes
-the value of log(1+x) accurately even for tiny argument
+the value of log(1 + x) accurately even for tiny argument
 .Fa x .
 The
 .Fn log1pf
@@ -227,12 +227,11 @@ The functions
 .Fn expm1
 and
 .Fn pow
-detect if the computed value will overflow,
-set the global variable
+detect if the computed value will overflow
+and set the global variable
 .Va errno
 to
-.Er ERANGE
-and cause a reserved operand fault on a VAX or Tahoe.
+.Er ERANGE .
 The function
 .Fn pow x y
 checks to see if
@@ -243,20 +242,7 @@ is not an integer, in the event this is true,
 the global variable
 .Va errno
 is set to
-.Er EDOM
-and on the VAX and Tahoe generate a reserved operand fault.
-On a VAX and Tahoe,
-.Va errno
-is set to
-.Er EDOM
-and the reserved operand is returned
-by log unless
-.Fa x
-> 0, by
-.Fn log1p
-unless
-.Fa x
-> \-1.
+.Er EDOM .
 .Sh ERRORS (due to Roundoff etc.)
 exp(x), log(x), expm1(x) and log1p(x) are accurate to within
 an
@@ -280,43 +266,28 @@ magnitude is moderate, but increases as
 approaches
 the over/underflow thresholds until almost as many bits could be
 lost as are occupied by the floating\-point format's exponent
-field; that is 8 bits for
-.Dq VAX D
-and 11 bits for IEEE 754 Double.
+field; that is 11 bits for IEEE 754 Double.
 No such drastic loss has been exposed by testing; the worst
-errors observed have been below 20
-.Em ulps
-for
-.Dq VAX D ,
-300
+errors observed have been below 300
 .Em ulps
 for IEEE 754 Double.
 Moderate values of
 .Fn pow
 are accurate enough that
 .Fn pow integer integer
-is exact until it is bigger than 2**56 on a VAX,
-2**53 for IEEE 754.
+is exact until it is bigger than 2**53 for IEEE 754.
 .Sh NOTES
-The functions exp(x)\-1 and log(1+x) are called
+The functions exp(x) \(mi 1 and log(1 + x) are called
 expm1 and logp1 in BASIC on the Hewlett\-Packard HP-71B
 and APPLE Macintosh, EXP1 and LN1 in Pascal, exp1 and log1 in C
 on APPLE Macintoshes, where they have been provided to make
-sure financial calculations of ((1+x)**n\-1)/x, namely
-expm1(n\(**log1p(x))/x, will be accurate when x is tiny.
+sure financial calculations of ((1 + x)**n \(mi 1) / x, namely
+expm1(n * log1p(x)) / x, will be accurate when x is tiny.
 They also provide accurate inverse hyperbolic functions.
 .Pp
 The function
 .Fn pow x 0
-returns x**0 = 1 for all x including x = 0,
-.if n \
-\*(If
-.if t \
-\(if
-(not found on a VAX),
-and
-.Em \*(Na
-(the reserved operand on a VAX).
+returns x**0 = 1 for all x including x = 0 and infinity.
 Previous implementations of
 .Fn pow
 may have defined x**0 to be undefined in some or all of these cases.
@@ -324,7 +295,7 @@ Here are reasons for returning x**0 = 1 always:
 .Bl -enum -width indent
 .It
 Any program that already tests whether x is zero (or
-infinite or \*(Na) before computing x**0 cannot care
+infinite or NaN) before computing x**0 cannot care
 whether 0**0 = 1 or not.
 Any program that depends upon 0**0 to be invalid is dubious anyway since that
 expression's meaning and, if invalid, its consequences
@@ -335,10 +306,10 @@ all x, including x = 0.
 This is compatible with the convention that accepts a[0]
 as the value of polynomial
 .Bd -literal -offset indent
-p(x) = a[0]\(**x**0 + a[1]\(**x**1 + a[2]\(**x**2 +...+ a[n]\(**x**n
+p(x) = a[0]*x**0 + a[1]*x**1 + a[2]*x**2 +...+ a[n]*x**n
 .Ed
 .Pp
-at x = 0 rather than reject a[0]\(**0**0 as invalid.
+at x = 0 rather than reject a[0]*0**0 as invalid.
 .It
 Analysts will accept 0**0 = 1 despite that x**y can
 approach anything or nothing as x and y approach 0
@@ -352,17 +323,13 @@ in power series) in z around z = 0, and if there
 x(0) = y(0) = 0, then x(z)**y(z) \(-> 1 as z \(-> 0.
 .Ed
 .It
-If 0**0 = 1, then
-.if n \
-\*(If**0 = 1/0**0 = 1 too; and
-.if t \
-\(if**0 = 1/0**0 = 1 too; and
-then \*(Na**0 = 1 too because x**0 = 1 for all finite
+If 0**0 = 1, then infinity**0 = 1/0**0 = 1 too; and
+then NaN**0 = 1 too because x**0 = 1 for all finite
 and infinite x, i.e., independently of x.
 .El
 .Sh SEE ALSO
-.Xr ilogb 3 ,
-.Xr infnan 3
+.Xr fpclassify 3 ,
+.Xr ilogb 3
 .Sh HISTORY
 The
 .Fn exp

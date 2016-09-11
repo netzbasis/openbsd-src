@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc.c,v 1.38 2015/03/14 03:38:49 jsg Exp $	*/
+/*	$OpenBSD: sdmmc.c,v 1.44 2016/05/05 11:01:08 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -60,7 +60,6 @@ int	sdmmc_enable(struct sdmmc_softc *);
 void	sdmmc_disable(struct sdmmc_softc *);
 int	sdmmc_scan(struct sdmmc_softc *);
 int	sdmmc_init(struct sdmmc_softc *);
-int	sdmmc_set_bus_width(struct sdmmc_function *);
 #ifdef SDMMC_IOCTL
 int	sdmmc_ioctl(struct device *, u_long, caddr_t);
 #endif
@@ -97,14 +96,37 @@ sdmmc_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct sdmmc_softc *sc = (struct sdmmc_softc *)self;
 	struct sdmmcbus_attach_args *saa = aux;
+	int error;
 
+	if (ISSET(saa->caps, SMC_CAPS_8BIT_MODE))
+		printf(": 8-bit");
+	else if (ISSET(saa->caps, SMC_CAPS_4BIT_MODE))
+		printf(": 4-bit");
+	else
+		printf(": 1-bit");
+	if (ISSET(saa->caps, SMC_CAPS_SD_HIGHSPEED))
+		printf(", sd high-speed");
+	if (ISSET(saa->caps, SMC_CAPS_MMC_HIGHSPEED))
+		printf(", mmc high-speed");
+	if (ISSET(saa->caps, SMC_CAPS_DMA))
+		printf(", dma");
 	printf("\n");
 
 	sc->sct = saa->sct;
 	sc->sch = saa->sch;
+	sc->sc_dmat = saa->dmat;
 	sc->sc_flags = saa->flags;
 	sc->sc_caps = saa->caps;
 	sc->sc_max_xfer = saa->max_xfer;
+
+	if (ISSET(sc->sc_caps, SMC_CAPS_DMA)) {
+		error = bus_dmamap_create(sc->sc_dmat, MAXPHYS, SDMMC_MAXNSEGS,
+		    MAXPHYS, 0, BUS_DMA_NOWAIT|BUS_DMA_ALLOCNOW, &sc->sc_dmap);
+		if (error) {
+			printf("%s: can't create DMA map\n", DEVNAME(sc));
+			return;
+		}
+	}
 
 	SIMPLEQ_INIT(&sc->sf_head);
 	TAILQ_INIT(&sc->sc_tskq);
@@ -138,6 +160,10 @@ sdmmc_detach(struct device *self, int flags)
 		wakeup(&sc->sc_tskq);
 		tsleep(sc, PWAIT, "mmcdie", 0);
 	}
+
+	if (sc->sc_dmap)
+		bus_dmamap_destroy(sc->sc_dmat, sc->sc_dmap);
+
 	return 0;
 }
 
@@ -394,7 +420,8 @@ sdmmc_enable(struct sdmmc_softc *sc)
 	/*
 	 * Select the minimum clock frequency.
 	 */
-	error = sdmmc_chip_bus_clock(sc->sct, sc->sch, SDMMC_SDCLK_400KHZ);
+	error = sdmmc_chip_bus_clock(sc->sct, sc->sch,
+	    SDMMC_SDCLK_400KHZ, SDMMC_TIMING_LEGACY);
 	if (error != 0) {
 		printf("%s: can't supply clock\n", DEVNAME(sc));
 		goto err;
@@ -411,11 +438,6 @@ sdmmc_enable(struct sdmmc_softc *sc)
 	if (ISSET(sc->sc_flags, SMF_MEM_MODE) &&
 	    (error = sdmmc_mem_enable(sc)) != 0)
 		goto err;
-
-	/* XXX respect host and card capabilities */
-	if (ISSET(sc->sc_flags, SMF_SD_MODE))
-		(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
-		    SDMMC_SDCLK_25MHZ);
 
  err:
 	if (error != 0)
@@ -435,7 +457,8 @@ sdmmc_disable(struct sdmmc_softc *sc)
 	(void)sdmmc_select_card(sc, NULL);
 
 	/* Turn off bus power and clock. */
-	(void)sdmmc_chip_bus_clock(sc->sct, sc->sch, SDMMC_SDCLK_OFF);
+	(void)sdmmc_chip_bus_clock(sc->sct, sc->sch,
+	    SDMMC_SDCLK_OFF, SDMMC_TIMING_LEGACY);
 	(void)sdmmc_chip_bus_power(sc->sct, sc->sch, 0);
 }
 
@@ -548,10 +571,10 @@ sdmmc_init(struct sdmmc_softc *sc)
 void
 sdmmc_delay(u_int usecs)
 {
-	int ticks = usecs / (1000000 / hz);
+	int nticks = usecs / (1000000 / hz);
 
-	if (!cold && ticks > 0)
-		tsleep(&sdmmc_delay, PWAIT, "mmcdly", ticks);
+	if (!cold && nticks > 0)
+		tsleep(&sdmmc_delay, PWAIT, "mmcdly", nticks);
 	else
 		delay(usecs);
 }
@@ -683,37 +706,6 @@ sdmmc_set_relative_addr(struct sdmmc_softc *sc,
 	if (ISSET(sc->sc_flags, SMF_SD_MODE))
 		sf->rca = SD_R6_RCA(cmd.c_resp);
 	return 0;
-}
-
-/*
- * Switch card and host to the maximum supported bus width.
- */
-int
-sdmmc_set_bus_width(struct sdmmc_function *sf)
-{
-	struct sdmmc_softc *sc = sf->sc;
-	struct sdmmc_command cmd;
-	int error;
-
-	rw_enter_write(&sc->sc_lock);
-
-	if (!ISSET(sc->sc_flags, SMF_SD_MODE)) {
-		rw_exit(&sc->sc_lock);
-		return EOPNOTSUPP;
-	}
-
-	if ((error = sdmmc_select_card(sc, sf)) != 0) {
-		rw_exit(&sc->sc_lock);
-		return error;
-	}
-
-	bzero(&cmd, sizeof cmd);
-	cmd.c_opcode = SD_APP_SET_BUS_WIDTH;
-	cmd.c_arg = SD_ARG_BUS_WIDTH_4;
-	cmd.c_flags = SCF_CMD_AC | SCF_RSP_R1;
-	error = sdmmc_app_command(sc, &cmd);
-	rw_exit(&sc->sc_lock);
-	return error;
 }
 
 int

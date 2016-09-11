@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_lii.c,v 1.38 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_lii.c,v 1.43 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  *  Copyright (c) 2007 The NetBSD Foundation.
@@ -45,9 +45,7 @@
 #include <machine/bus.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -268,7 +266,6 @@ lii_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = lii_ioctl;
 	ifp->if_start = lii_start;
 	ifp->if_watchdog = lii_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 
 	if_attach(ifp);
 	ether_ifattach(ifp);
@@ -730,7 +727,7 @@ lii_init(struct ifnet *ifp)
 	timeout_add_sec(&sc->sc_tick, 1);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 out:
 	return error;
@@ -794,17 +791,18 @@ lii_start(struct ifnet *ifp)
 
 	DPRINTF(("lii_start\n"));
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m0);
+		m0 = ifq_deq_begin(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
 
 		if (!sc->sc_free_tx_slots ||
 		    lii_free_tx_space(sc) < m0->m_pkthdr.len) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_deq_rollback(&ifp->if_snd, m0);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -819,7 +817,7 @@ lii_start(struct ifnet *ifp)
 
 		LII_WRITE_2(sc, LII_MB_TXD_WR_IDX, sc->sc_txd_cur/4);
 
-		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		ifq_deq_commit(&ifp->if_snd, m0);
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
@@ -837,7 +835,8 @@ lii_stop(struct ifnet *ifp)
 	timeout_del(&sc->sc_tick);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	mii_down(&sc->sc_mii);
 
@@ -981,7 +980,7 @@ lii_txintr(struct lii_softc *sc)
 			++ifp->if_opackets;
 		else
 			++ifp->if_oerrors;
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 	}
 
 	if (sc->sc_free_tx_slots)

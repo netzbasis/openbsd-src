@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.38 2015/10/18 03:54:22 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.40 2016/03/16 15:41:11 krw Exp $	*/
 /*	$NetBSD: main.c,v 1.6 1995/05/21 16:54:10 mycroft Exp $	*/
 
 /*
@@ -473,7 +473,7 @@ get(int argc, char *argv[])
 		}
 		if (argc < 4) {
 			cp = argc == 3 ? argv[2] : tail(src);
-			fd = creat(cp, 0644);
+			fd = open(cp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 			if (fd < 0) {
 				warn("create: %s", cp);
 				return;
@@ -485,7 +485,7 @@ get(int argc, char *argv[])
 			break;
 		}
 		cp = tail(src);	/* new .. jdg */
-		fd = creat(cp, 0644);
+		fd = open(cp, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 		if (fd < 0) {
 			warn("create: %s", cp);
 			continue;
@@ -716,7 +716,7 @@ help(int argc, char *argv[])
 		c = getcmd(arg);
 		if (c == (struct cmd *) - 1)
 			printf("?Ambiguous help command %s\n", arg);
-		else if (c == (struct cmd *)0)
+		else if (c == NULL)
 			printf("?Invalid help command %s\n", arg);
 		else
 			printf("%s\n", c->help);

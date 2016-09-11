@@ -1,4 +1,4 @@
-/*	$OpenBSD: ppp_tty.c,v 1.38 2015/09/13 17:53:44 mpi Exp $	*/
+/*	$OpenBSD: ppp_tty.c,v 1.43 2016/01/25 18:47:00 stefan Exp $	*/
 /*	$NetBSD: ppp_tty.c,v 1.12 1997/03/24 21:23:10 christos Exp $	*/
 
 /*
@@ -115,7 +115,6 @@
 
 #include <net/if.h>
 #include <net/if_var.h>
-#include <net/if_types.h>
 
 #ifdef VJC
 #include <netinet/in.h>
@@ -128,14 +127,7 @@
 #include <net/if_ppp.h>
 #include <net/if_pppvar.h>
 
-int	pppopen(dev_t dev, struct tty *tp);
-int	pppclose(struct tty *tp, int flag);
-int	pppread(struct tty *tp, struct uio *uio, int flag);
-int	pppwrite(struct tty *tp, struct uio *uio, int flag);
-int	ppptioctl(struct tty *tp, u_long cmd, caddr_t data, int flag,
-		       struct proc *);
-int	pppinput(int c, struct tty *tp);
-int	pppstart(struct tty *tp, int);
+int	pppstart_internal(struct tty *tp, int);
 
 u_int16_t pppfcs(u_int16_t fcs, u_char *cp, int len);
 void	pppasyncstart(struct ppp_softc *);
@@ -163,19 +155,14 @@ struct pool ppp_pkts;
 /* This is a NetBSD-1.0 or later kernel. */
 #define CCOUNT(q)	((q)->c_cc)
 
-#define PPP_LOWAT	100	/* Process more output when < LOWAT on queue */
-#define	PPP_HIWAT	400	/* Don't start a new packet if HIWAT on queue */
-
 /*
  * Line specific open routine for async tty devices.
  * Attach the given tty to the first available ppp unit.
  * Called from device open routine or ttioctl.
  */
-/* ARGSUSED */
 int
-pppopen(dev_t dev, struct tty *tp)
+pppopen(dev_t dev, struct tty *tp, struct proc *p)
 {
-    struct proc *p = curproc;		/* XXX */
     struct ppp_softc *sc;
     int error, s;
 
@@ -240,7 +227,7 @@ pppopen(dev_t dev, struct tty *tp)
  * Mimics part of ttyclose().
  */
 int
-pppclose(struct tty *tp, int flag)
+pppclose(struct tty *tp, int flag, struct proc *p)
 {
     struct ppp_softc *sc;
     int s;
@@ -331,7 +318,7 @@ pppread(struct tty *tp, struct uio *uio, int flag)
     splx(s);
 
     for (m = m0; m && uio->uio_resid; m = m->m_next)
-	if ((error = uiomovei(mtod(m, u_char *), m->m_len, uio)) != 0)
+	if ((error = uiomove(mtod(m, u_char *), m->m_len, uio)) != 0)
 	    break;
     m_freem(m0);
     return (error);
@@ -346,7 +333,8 @@ pppwrite(struct tty *tp, struct uio *uio, int flag)
     struct ppp_softc *sc = (struct ppp_softc *)tp->t_sc;
     struct mbuf *m, *m0, **mp;
     struct sockaddr dst;
-    int len, error;
+    u_int len;
+    int error;
 
     if ((tp->t_state & TS_CARR_ON) == 0 && (tp->t_cflag & CLOCAL) == 0)
 	return 0;		/* wrote 0 bytes */
@@ -371,7 +359,7 @@ pppwrite(struct tty *tp, struct uio *uio, int flag)
 	len = M_TRAILINGSPACE(m);
 	if (len > uio->uio_resid)
 	    len = uio->uio_resid;
-	if ((error = uiomovei(mtod(m, u_char *), len, uio)) != 0) {
+	if ((error = uiomove(mtod(m, u_char *), len, uio)) != 0) {
 	    m_freem(m0);
 	    return (error);
 	}
@@ -389,7 +377,6 @@ pppwrite(struct tty *tp, struct uio *uio, int flag)
  * This discipline requires that tty device drivers call
  * the line specific l_ioctl routine from their ioctl routines.
  */
-/* ARGSUSED */
 int
 ppptioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
@@ -510,7 +497,7 @@ pppasyncstart(struct ppp_softc *sc)
     int s;
 
     idle = 0;
-    while (CCOUNT(&tp->t_outq) < PPP_HIWAT) {
+    while (CCOUNT(&tp->t_outq) < tp->t_hiwat) {
 	/*
 	 * See if we have an existing packet partly sent.
 	 * If not, get a new packet and start sending it.
@@ -662,7 +649,7 @@ pppasyncstart(struct ppp_softc *sc)
 
     /* Call pppstart to start output again if necessary. */
     s = spltty();
-    pppstart(tp, 0);
+    pppstart_internal(tp, 0);
 
     /*
      * This timeout is needed for operation on a pseudo-tty,
@@ -701,7 +688,7 @@ pppasyncctlp(struct ppp_softc *sc)
  * called later at splsoftnet.
  */
 int
-pppstart(struct tty *tp, int force)
+pppstart_internal(struct tty *tp, int force)
 {
     struct ppp_softc *sc = (struct ppp_softc *) tp->t_sc;
 
@@ -717,13 +704,19 @@ pppstart(struct tty *tp, int force)
      * or been disconnected from the ppp unit, then tell if_ppp.c that
      * we need more output.
      */
-    if ((CCOUNT(&tp->t_outq) < PPP_LOWAT || force)
+    if ((CCOUNT(&tp->t_outq) < tp->t_lowat || force)
 	&& !((tp->t_state & TS_CARR_ON) == 0 && (tp->t_cflag & CLOCAL) == 0)
 	&& sc != NULL && tp == (struct tty *) sc->sc_devp) {
 	ppp_restart(sc);
     }
 
     return 0;
+}
+
+int
+pppstart(struct tty *tp)
+{
+	return pppstart_internal(tp, 0);
 }
 
 /*
@@ -738,7 +731,7 @@ ppp_timeout(void *x)
 
     s = spltty();
     sc->sc_flags &= ~SC_TIMEOUT;
-    pppstart(tp, 1);
+    pppstart_internal(tp, 1);
     splx(s);
 }
 

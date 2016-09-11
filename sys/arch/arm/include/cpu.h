@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.39 2014/07/11 10:53:07 uebayasi Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.41 2016/04/04 09:13:44 patrick Exp $	*/
 /*	$NetBSD: cpu.h,v 1.34 2003/06/23 11:01:08 martin Exp $	*/
 
 /*
@@ -112,20 +112,20 @@ extern int cpu_do_powersave;
 #define IRQdisable \
 	stmfd	sp!, {r0} ; \
 	mrs	r0, cpsr ; \
-	orr	r0, r0, #(I32_bit) ; \
+	orr	r0, r0, #(PSR_I) ; \
 	msr	cpsr_c, r0 ; \
 	ldmfd	sp!, {r0}
 
 #define IRQenable \
 	stmfd	sp!, {r0} ; \
 	mrs	r0, cpsr ; \
-	bic	r0, r0, #(I32_bit) ; \
+	bic	r0, r0, #(PSR_I) ; \
 	msr	cpsr_c, r0 ; \
 	ldmfd	sp!, {r0}		
 
 #else
-#define IRQdisable __set_cpsr_c(I32_bit, I32_bit);
-#define IRQenable __set_cpsr_c(I32_bit, 0);
+#define IRQdisable __set_cpsr_c(PSR_I, PSR_I);
+#define IRQenable __set_cpsr_c(PSR_I, 0);
 #endif	/* _LOCORE */
 
 #ifndef _LOCORE
@@ -208,8 +208,19 @@ struct cpu_info {
 extern struct cpu_info cpu_info_primary;
 extern struct cpu_info *cpu_info_list;
 
-#ifndef MULTIPROCESSOR
+#ifdef CPU_ARMv7
+static inline struct cpu_info *
+curcpu(void)
+{
+	struct cpu_info *__ci;
+	__asm volatile("mrc	p15, 0, %0, c13, c0, 4" : "=r" (__ci));
+	return (__ci);
+}
+#else
 #define	curcpu()	(&cpu_info_primary)
+#endif
+
+#ifndef MULTIPROCESSOR
 #define cpu_number()	0
 #define CPU_IS_PRIMARY(ci)	1
 #define CPU_INFO_ITERATOR	int

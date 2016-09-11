@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.343 2015/11/06 16:23:26 phessler Exp $ */
+/*	$OpenBSD: rde.c,v 1.350 2016/09/03 16:22:17 renato Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -96,7 +96,7 @@ void		 rde_update6_queue_runner(u_int8_t);
 
 void		 peer_init(u_int32_t);
 void		 peer_shutdown(void);
-void		 peer_localaddrs(struct rde_peer *, struct bgpd_addr *);
+int		 peer_localaddrs(struct rde_peer *, struct bgpd_addr *);
 struct rde_peer	*peer_add(u_int32_t, struct peer_config *);
 struct rde_peer	*peer_get(u_int32_t);
 void		 peer_up(u_int32_t, struct session_up *);
@@ -168,6 +168,9 @@ rde_main(int debug, int verbose)
 	int			 timeout;
 	u_int8_t		 aid;
 
+	bgpd_process = PROC_RDE;
+	log_procname = log_procnames[bgpd_process];
+
 	log_init(debug);
 	log_verbose(verbose);
 
@@ -180,14 +183,13 @@ rde_main(int debug, int verbose)
 		fatal("chdir(\"/\")");
 
 	setproctitle("route decision engine");
-	bgpd_process = PROC_RDE;
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
 
-	if (pledge("stdio unix route recvfd", NULL) == -1)
+	if (pledge("stdio route recvfd", NULL) == -1)
 		fatal("pledge");
 
 	signal(SIGTERM, rde_sighdlr);
@@ -306,6 +308,21 @@ rde_main(int debug, int verbose)
 			rib_dump_runner();
 	}
 
+	/* close pipes */
+	if (ibuf_se) {
+		msgbuf_clear(&ibuf_se->w);
+		close(ibuf_se->fd);
+		free(ibuf_se);
+	}
+	if (ibuf_se_ctl) {
+		msgbuf_clear(&ibuf_se_ctl->w);
+		close(ibuf_se_ctl->fd);
+		free(ibuf_se_ctl);
+	}
+	msgbuf_clear(&ibuf_main->w);
+	close(ibuf_main->fd);
+	free(ibuf_main);
+
 	/* do not clean up on shutdown on production, it takes ages. */
 	if (debug)
 		rde_shutdown();
@@ -318,18 +335,9 @@ rde_main(int debug, int verbose)
 		free(mctx);
 	}
 
-	if (ibuf_se)
-		msgbuf_clear(&ibuf_se->w);
-	free(ibuf_se);
-	if (ibuf_se_ctl)
-		msgbuf_clear(&ibuf_se_ctl->w);
-	free(ibuf_se_ctl);
-
-	msgbuf_clear(&ibuf_main->w);
-	free(ibuf_main);
 
 	log_info("route decision engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 struct network_config	 netconf_s, netconf_p;
@@ -2252,7 +2260,7 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 			return;
 		if (req->type == IMSG_CTL_SHOW_RIB_AS &&
 		    !aspath_match(p->aspath->aspath->data,
-		    p->aspath->aspath->len, req->as.type, req->as.as))
+		    p->aspath->aspath->len, &req->as, req->as.as))
 			return;
 		if (req->type == IMSG_CTL_SHOW_RIB_COMMUNITY &&
 		    !community_match(p->aspath, req->community.as,
@@ -2445,7 +2453,7 @@ rde_send_kroute(struct prefix *new, struct prefix *old, u_int16_t ribid)
 	enum imsg_type		 type;
 
 	/*
-	 * Make sure that self announce prefixes are not commited to the
+	 * Make sure that self announce prefixes are not committed to the
 	 * FIB. If both prefixes are unreachable no update is needed.
 	 */
 	if ((old == NULL || old->aspath->flags & F_PREFIX_ANNOUNCED) &&
@@ -3134,7 +3142,7 @@ peer_add(u_int32_t id, struct peer_config *p_conf)
 	return (peer);
 }
 
-void
+int
 peer_localaddrs(struct rde_peer *peer, struct bgpd_addr *laddr)
 {
 	struct ifaddrs	*ifap, *ifa, *match;
@@ -3146,8 +3154,10 @@ peer_localaddrs(struct rde_peer *peer, struct bgpd_addr *laddr)
 		if (sa_cmp(laddr, match->ifa_addr) == 0)
 			break;
 
-	if (match == NULL)
-		fatalx("peer_localaddrs: local address not found");
+	if (match == NULL) {
+		log_warnx("peer_localaddrs: local address not found");
+		return (-1);
+	}
 
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		if (ifa->ifa_addr->sa_family == AF_INET &&
@@ -3182,6 +3192,7 @@ peer_localaddrs(struct rde_peer *peer, struct bgpd_addr *laddr)
 	}
 
 	freeifaddrs(ifap);
+	return (0);
 }
 
 void
@@ -3216,7 +3227,11 @@ peer_up(u_int32_t id, struct session_up *sup)
 	    sizeof(peer->remote_addr));
 	memcpy(&peer->capa, &sup->capa, sizeof(peer->capa));
 
-	peer_localaddrs(peer, &sup->local_addr);
+	if (peer_localaddrs(peer, &sup->local_addr)) {
+		peer->state = PEER_DOWN;
+		imsg_compose(ibuf_se, IMSG_SESSION_DOWN, id, 0, -1, NULL, 0);
+		return;
+	}
 
 	peer->state = PEER_UP;
 	up_init(peer);

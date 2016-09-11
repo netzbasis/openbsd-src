@@ -1,4 +1,4 @@
-/*	$OpenBSD: save.c,v 1.8 2009/10/27 23:59:26 deraadt Exp $	*/
+/*	$OpenBSD: save.c,v 1.12 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: save.c,v 1.4 1995/03/24 05:02:13 cgd Exp $	*/
 
 /*
@@ -30,7 +30,14 @@
  * SUCH DAMAGE.
  */
 
-#include <time.h>
+#include <sys/stat.h>
+
+#include <err.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "mille.h"
 
 /*
@@ -44,7 +51,7 @@ typedef	struct stat	STAT;
  *	Returns FALSE if it couldn't be done.
  */
 bool
-save()
+save(void)
 {
 	char	*sp;
 	int	outf;
@@ -100,7 +107,7 @@ over:
 	    && getyn(OVERWRITEFILEPROMPT) == FALSE))
 		return FALSE;
 
-	if ((outf = creat(buf, 0644)) < 0) {
+	if ((outf = open(buf, O_CREAT | O_TRUNC | O_WRONLY, 0644)) < 0) {
 		error(strerror(errno));
 		return FALSE;
 	}
@@ -129,8 +136,7 @@ over:
  * be cleaned up before the game starts.
  */
 bool
-rest_f(file)
-	const char	*file;
+rest_f(const char *file)
 {
 	char	*sp;
 	int	inf;

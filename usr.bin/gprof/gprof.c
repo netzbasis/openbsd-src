@@ -1,4 +1,4 @@
-/*	$OpenBSD: gprof.c,v 1.22 2015/08/20 22:32:41 deraadt Exp $	*/
+/*	$OpenBSD: gprof.c,v 1.25 2016/09/01 09:49:44 tedu Exp $	*/
 /*	$NetBSD: gprof.c,v 1.8 1995/04/19 07:15:59 cgd Exp $	*/
 
 /*
@@ -44,6 +44,9 @@ main(int argc, char *argv[])
     nltype	**timesortnlp;
     char	**defaultEs;
 
+    if (pledge("stdio rpath wpath cpath", NULL) == -1)
+        err(1, NULL);
+
     --argc;
     argv++;
     debug = 0;
@@ -62,8 +65,7 @@ main(int argc, char *argv[])
 	    cyclethreshold = atoi( *++argv );
 	    break;
 	case 'c':
-#if defined(__i386__) || defined(__vax__) || \
-    defined(__sparc__) || defined(__sparc64__)
+#if defined(__i386__) || defined(__sparc64__)
 	    cflag = TRUE;
 #else
 	    fprintf(stderr, "%s: -c isn't supported on this architecture yet\n", __progname);
@@ -128,6 +130,10 @@ main(int argc, char *argv[])
 	argv++;
     } else {
 	gmonname = GMONNAME;
+    }
+    if ( sflag == FALSE ) {
+        if (pledge("stdio rpath", NULL) == -1)
+            err(1, "pledge");
     }
 	/*
 	 *	get information about a.out file.

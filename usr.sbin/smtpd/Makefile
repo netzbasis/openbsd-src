@@ -1,10 +1,8 @@
-#	$OpenBSD: Makefile,v 1.12 2013/07/21 09:38:51 eric Exp $
+#	$OpenBSD: Makefile,v 1.15 2015/12/07 12:29:19 sunil Exp $
 
 .include <bsd.own.mk>
 
-SUBDIR = makemap smtpd smtpctl
-SUBDIR+=	table-ldap
-SUBDIR+=	table-passwd
-SUBDIR+=	table-sqlite
+SUBDIR =	smtpd
+SUBDIR+=	smtpctl
 
 .include <bsd.subdir.mk>

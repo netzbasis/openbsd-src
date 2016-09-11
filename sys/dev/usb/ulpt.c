@@ -1,4 +1,4 @@
-/*	$OpenBSD: ulpt.c,v 1.51 2015/07/09 12:23:17 mpi Exp $ */
+/*	$OpenBSD: ulpt.c,v 1.53 2016/03/03 18:13:24 stefan Exp $ */
 /*	$NetBSD: ulpt.c,v 1.57 2003/01/05 10:19:42 scw Exp $	*/
 /*	$FreeBSD: src/sys/dev/usb/ulpt.c,v 1.24 1999/11/17 22:33:44 n_hibma Exp $	*/
 
@@ -117,7 +117,7 @@ int ulpt_statusmsg(u_char, struct ulpt_softc *);
 /*
  * Printers which need firmware uploads.
  */
-void ulpt_load_firmware(void *);
+void ulpt_load_firmware(struct device *);
 usbd_status ulpt_ucode_loader_hp(struct ulpt_softc *);
 struct ulpt_fwdev {
 	struct usb_devno	 uv_dev;
@@ -187,9 +187,9 @@ ulpt_match(struct device *parent, void *match, void *aux)
 }
 
 void
-ulpt_load_firmware(void *arg)
+ulpt_load_firmware(struct device *self)
 {
-	struct ulpt_softc *sc = (struct ulpt_softc *)arg;
+	struct ulpt_softc *sc = (struct ulpt_softc *)self;
 	usbd_status err;
 
 	err = (sc->sc_fwdev->ucode_loader)(sc);
@@ -310,12 +310,8 @@ ulpt_attach(struct device *parent, struct device *self, void *aux)
 
 	/* maybe the device needs firmware */
 	sc->sc_fwdev = ulpt_lookup(uaa->vendor, uaa->product);
-	if (sc->sc_fwdev) {
-		if (rootvp == NULL)
-			mountroothook_establish(ulpt_load_firmware, sc);
-		else
-			ulpt_load_firmware(sc);
-	}
+	if (sc->sc_fwdev)
+		config_mountroot(self, ulpt_load_firmware);
 
 #if 0
 /*
@@ -473,7 +469,7 @@ ulptopen(dev_t dev, int flag, int mode, struct proc *p)
 
 	/* If a previous attempt to load firmware failed, retry. */
 	if (sc->sc_flags & ULPT_EFIRMWARE) {
-		ulpt_load_firmware(sc);
+		ulpt_load_firmware(&sc->sc_dev);
 		if (sc->sc_flags & ULPT_EFIRMWARE)
 			return (EIO);
 	}
@@ -605,7 +601,7 @@ ulptclose(dev_t dev, int flag, int mode, struct proc *p)
 int
 ulpt_do_write(struct ulpt_softc *sc, struct uio *uio, int flags)
 {
-	u_int32_t n;
+	size_t n;
 	int error = 0;
 	void *bufp;
 	struct usbd_xfer *xfer;
@@ -620,12 +616,12 @@ ulpt_do_write(struct ulpt_softc *sc, struct uio *uio, int flags)
 		usbd_free_xfer(xfer);
 		return (ENOMEM);
 	}
-	while ((n = min(ULPT_BSIZE, uio->uio_resid)) != 0) {
+	while ((n = ulmin(ULPT_BSIZE, uio->uio_resid)) != 0) {
 		ulpt_statusmsg(ulpt_status(sc), sc);
-		error = uiomovei(bufp, n, uio);
+		error = uiomove(bufp, n, uio);
 		if (error)
 			break;
-		DPRINTFN(1, ("ulptwrite: transfer %d bytes\n", n));
+		DPRINTFN(1, ("ulptwrite: transfer %zu bytes\n", n));
 		usbd_setup_xfer(xfer, sc->sc_out_pipe, 0, bufp, n,
 		    USBD_NO_COPY | USBD_SYNCHRONOUS | USBD_CATCH, 0, NULL);
 		err = usbd_transfer(xfer);

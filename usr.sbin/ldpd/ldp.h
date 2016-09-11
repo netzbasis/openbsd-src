@@ -1,6 +1,7 @@
-/*	$OpenBSD: ldp.h,v 1.19 2015/07/21 04:52:29 renato Exp $ */
+/*	$OpenBSD: ldp.h,v 1.35 2016/09/03 16:07:08 renato Exp $ */
 
 /*
+ * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
  *
@@ -22,25 +23,28 @@
 #ifndef _LDP_H_
 #define _LDP_H_
 
-#include <netinet/in.h>
+#include <sys/types.h>
 
 /* misc */
 #define LDP_VERSION		1
 #define LDP_PORT		646
-#define AllRouters		"224.0.0.2"
-
 #define LDP_MAX_LEN		4096
+
+/* All Routers on this Subnet group multicast addresses */
+#define AllRouters_v4		"224.0.0.2"
+#define AllRouters_v6		"ff02::2"
 
 #define LINK_DFLT_HOLDTIME	15
 #define TARGETED_DFLT_HOLDTIME	45
-#define MIN_HOLDTIME		1
+#define MIN_HOLDTIME		3
 #define MAX_HOLDTIME		0xffff
 #define	INFINITE_HOLDTIME	0xffff
 
 #define DEFAULT_KEEPALIVE	180
-#define MIN_KEEPALIVE		1
+#define MIN_KEEPALIVE		3
 #define MAX_KEEPALIVE		0xffff
 #define KEEPALIVE_PER_PERIOD	3
+#define INIT_FSM_TIMEOUT	15
 
 #define	DEFAULT_HELLO_INTERVAL	5
 #define	MIN_HELLO_INTERVAL	1
@@ -93,55 +97,71 @@
 #define TLV_TYPE_PW_STATUS	0x096A
 #define TLV_TYPE_PW_IF_PARAM	0x096B
 #define TLV_TYPE_PW_GROUP_ID	0x096C
+/* RFC 7552 */
+#define TLV_TYPE_DUALSTACK	0x8701
 
 /* LDP header */
 struct ldp_hdr {
-	u_int16_t		version;
-	u_int16_t		length;
-	u_int32_t		lsr_id;
-	u_int16_t		lspace_id;
+	uint16_t	version;
+	uint16_t	length;
+	uint32_t	lsr_id;
+	uint16_t	lspace_id;
 } __packed;
 
-#define	LDP_HDR_SIZE		10
-#define	LDP_HDR_PDU_LEN		6
+#define	LDP_HDR_SIZE		10	/* actual size of the LDP header */
+#define	LDP_HDR_PDU_LEN		6	/* minimum "PDU Length" */
+#define LDP_HDR_DEAD_LEN	4
 
 /* TLV record */
 struct tlv {
-	u_int16_t	type;
-	u_int16_t	length;
+	uint16_t	type;
+	uint16_t	length;
 };
-#define	TLV_HDR_LEN		4
+#define	TLV_HDR_SIZE		4
 
 struct ldp_msg {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	msgid;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	id;
 	/* Mandatory Parameters */
 	/* Optional Parameters */
 } __packed;
 
-#define LDP_MSG_LEN		8
+#define LDP_MSG_SIZE		8	/* minimum size of LDP message */
+#define LDP_MSG_LEN		4	/* minimum "Message Length" */
+#define LDP_MSG_DEAD_LEN	4
 
 #define	UNKNOWN_FLAG		0x8000
 #define	FORWARD_FLAG		0xc000
 
-#define TARGETED_HELLO		0x8000
-#define REQUEST_TARG_HELLO	0x4000
-
 struct hello_prms_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int16_t	holdtime;
-	u_int16_t	flags;
+	uint16_t	type;
+	uint16_t	length;
+	uint16_t	holdtime;
+	uint16_t	flags;
 };
+#define F_HELLO_TARGETED	0x8000
+#define F_HELLO_REQ_TARG	0x4000
+#define F_HELLO_GTSM		0x2000
 
 struct hello_prms_opt4_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	value;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	value;
 };
 
-#define HELLO_PRMS_SIZE		8
+struct hello_prms_opt16_tlv {
+	uint16_t	type;
+	uint16_t	length;
+	uint8_t		value[16];
+};
+
+#define DUAL_STACK_LDPOV4	4
+#define DUAL_STACK_LDPOV6	6
+
+#define F_HELLO_TLV_RCVD_ADDR	0x01
+#define F_HELLO_TLV_RCVD_CONF	0x02
+#define F_HELLO_TLV_RCVD_DS	0x04
 
 #define	S_SUCCESS	0x00000000
 #define	S_BAD_LDP_ID	0x80000001
@@ -178,27 +198,31 @@ struct hello_prms_opt4_tlv {
 #define S_UNASSIGN_TAI	0x00000029
 #define S_MISCONF_ERR	0x0000002A
 #define S_WITHDRAW_MTHD	0x0000002B
+/* RFC 7552 */
+#define	S_TRANS_MISMTCH	0x80000032
+#define	S_DS_NONCMPLNCE	0x80000033
 
 struct sess_prms_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int16_t	proto_version;
-	u_int16_t	keepalive_time;
-	u_int8_t	reserved;
-	u_int8_t	pvlim;
-	u_int16_t	max_pdu_len;
-	u_int32_t	lsr_id;
-	u_int16_t	lspace_id;
+	uint16_t	type;
+	uint16_t	length;
+	uint16_t	proto_version;
+	uint16_t	keepalive_time;
+	uint8_t		reserved;
+	uint8_t		pvlim;
+	uint16_t	max_pdu_len;
+	uint32_t	lsr_id;
+	uint16_t	lspace_id;
 } __packed;
 
 #define SESS_PRMS_SIZE		18
+#define SESS_PRMS_LEN		14
 
 struct status_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	status_code;
-	u_int32_t	msg_id;
-	u_int16_t	msg_type;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	status_code;
+	uint32_t	msg_id;
+	uint16_t	msg_type;
 } __packed;
 
 #define STATUS_SIZE		14
@@ -209,60 +233,64 @@ struct status_tlv {
 #define	AF_IPV6			0x2
 
 struct address_list_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int16_t	family;
+	uint16_t	type;
+	uint16_t	length;
+	uint16_t	family;
 	/* address entries */
 } __packed;
+
+#define ADDR_LIST_SIZE		6
 
 #define FEC_ELM_WCARD_LEN	1
 #define FEC_ELM_PREFIX_MIN_LEN	4
 #define FEC_PWID_ELM_MIN_LEN	8
-#define	FEC_WILDCARD		0x01
-#define	FEC_PREFIX		0x02
-#define	FEC_PWID		0x80
-#define	FEC_GENPWID		0x81
+
+#define	MAP_TYPE_WILDCARD	0x01
+#define	MAP_TYPE_PREFIX		0x02
+#define	MAP_TYPE_PWID		0x80
+#define	MAP_TYPE_GENPWID	0x81
 
 #define CONTROL_WORD_FLAG	0x8000
 #define PW_TYPE_ETHERNET_TAGGED	0x0004
 #define PW_TYPE_ETHERNET	0x0005
+#define DEFAULT_PW_TYPE		PW_TYPE_ETHERNET
 
 /* RFC 4447 Sub-TLV record */
 struct subtlv {
-	u_int8_t	type;
-	u_int8_t	length;
+	uint8_t		type;
+	uint8_t		length;
 };
-#define	SUBTLV_HDR_LEN		2
+#define	SUBTLV_HDR_SIZE		2
 
 #define SUBTLV_IFMTU		0x01
 #define SUBTLV_VLANID		0x06
 
-#define FEC_SUBTLV_IFMTU_LEN	4
-#define FEC_SUBTLV_VLANID_LEN	4
+#define FEC_SUBTLV_IFMTU_SIZE	4
+#define FEC_SUBTLV_VLANID_SIZE	4
 
 struct label_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	label;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	label;
 };
-
-#define LABEL_TLV_LEN		8
+#define LABEL_TLV_SIZE		8
+#define LABEL_TLV_LEN		4
 
 struct reqid_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	reqid;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	reqid;
 };
-
-#define REQID_TLV_LEN		8
+#define REQID_TLV_SIZE		8
+#define REQID_TLV_LEN		4
 
 struct pw_status_tlv {
-	u_int16_t	type;
-	u_int16_t	length;
-	u_int32_t	value;
+	uint16_t	type;
+	uint16_t	length;
+	uint32_t	value;
 };
-
-#define PW_STATUS_TLV_LEN	8
+#define PW_STATUS_TLV_SIZE	8
+#define PW_STATUS_TLV_LEN	4
 
 #define PW_FORWARDING		0
 #define PW_NOT_FORWARDING	(1 << 0)
@@ -271,6 +299,6 @@ struct pw_status_tlv {
 #define PW_PSN_RX_FAULT		(1 << 3)
 #define PW_PSN_TX_FAULT		(1 << 4)
 
-#define	NO_LABEL		UINT_MAX
+#define	NO_LABEL		UINT32_MAX
 
 #endif /* !_LDP_H_ */

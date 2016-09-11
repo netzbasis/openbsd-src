@@ -3,9 +3,9 @@
 # THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
 # generated from:
 #
-#	OpenBSD: etc.sgi/MAKEDEV.md,v 1.44 2015/10/23 15:14:12 claudio Exp 
-#	OpenBSD: MAKEDEV.common,v 1.79 2015/10/23 15:14:11 claudio Exp 
-#	OpenBSD: MAKEDEV.mi,v 1.81 2012/11/05 08:07:09 jasper Exp 
+#	OpenBSD: etc.sgi/MAKEDEV.md,v 1.48 2016/09/04 15:38:59 naddy Exp 
+#	OpenBSD: MAKEDEV.common,v 1.93 2016/09/11 03:06:31 deraadt Exp 
+#	OpenBSD: MAKEDEV.mi,v 1.83 2016/09/11 03:06:31 deraadt Exp 
 #	OpenBSD: MAKEDEV.sub,v 1.14 2005/02/07 06:14:18 david Exp 
 #
 #
@@ -62,7 +62,7 @@
 # Special purpose devices:
 #	audio*	Audio devices
 #	bio	ioctl tunnel pseudo-device
-#	bpf*	Berkeley Packet Filter
+#	bpf	Berkeley Packet Filter
 #	diskmap	Disk mapper
 #	fd	fd/* nodes
 #	fuse	Userland Filesystem
@@ -71,12 +71,12 @@
 #	pf*	Packet Filter
 #	pppx*	PPP Multiplexer
 #	*random	In-kernel random data source
-#	systrace*	System call tracing device
 #	tun*	Network tunnel driver
 #	tap*	Ethernet tunnel driver
 #	uk*	Unknown SCSI devices
 #	video*	Video V4L2 devices
 #	vscsi*	Virtual SCSI controller
+#	switch*	Switch driver
 PATH=/sbin:/usr/sbin:/bin:/usr/bin
 T=$0
 
@@ -168,7 +168,8 @@ dodisk2()
 RMlist[0]="rm -f"
 
 mkl() {
-	mklist[${#mklist[*]}]=";mknod -m $1 $2 $3 $4 $5"
+	: ${mklist[0]:=";mknod"}
+	mklist[${#mklist[*]}]=" -m $1 $2 $3 $4 $5"
 }
 
 M() {
@@ -216,12 +217,16 @@ std)
 	M klog		c 6 0 600
 	;;
 
+switch*)
+	M switch$U c 75 $U 600
+	;;
+
 vscsi*)
 	M vscsi$U c 68 $U 600
 	;;
 
 video*)
-	M video$U  c 45 $U
+	M video$U  c 45 $U 600
 	MKlist[${#MKlist[*]}]=";[ -e video ] || ln -s video$U video"
 	;;
 
@@ -235,10 +240,6 @@ tap*)
 
 tun*)
 	M tun$U c 13 $U 600
-	;;
-
-systrace)
-	M systrace c 50 0 644
 	;;
 
 *random)
@@ -281,8 +282,9 @@ diskmap)
 	M diskmap c 69 0 640 operator
 	;;
 
-bpf*)
-	M bpf$U c 12 $U 600
+bpf)
+	M bpf c 12 0 600
+	M bpf0 c 12 0 600
 	;;
 
 bio)
@@ -290,13 +292,11 @@ bio)
 	;;
 
 audio*)
-	M sound$U	c 44 $U
+	M audio$U	c 44 $U
 	M mixer$U	c 44 $(($U+16))
-	M audio$U	c 44 $(($U+128))
 	M audioctl$U	c 44 $(($U+192))
 	MKlist[${#MKlist[*]}]=";[ -e audio ] || ln -s audio$U audio"
 	MKlist[${#MKlist[*]}]=";[ -e mixer ] || ln -s mixer$U mixer"
-	MKlist[${#MKlist[*]}]=";[ -e sound ] || ln -s sound$U sound"
 	MKlist[${#MKlist[*]}]=";[ -e audioctl ] || ln -s audioctl$U audioctl"
 	;;
 
@@ -424,7 +424,6 @@ st*)
 	n=$(($U*16))
 	for pre in " " n e en
 	do
-		M ${pre}st$U	b 10 $n 660 operator
 		M ${pre}rst$U	c 10 $n 660 operator
 		n=$(($n+1))
 	done
@@ -452,18 +451,18 @@ local)
 
 ramdisk)
 	R diskmap bio pty0 rd0 cd0 cd1 st0 st1 wd0 wd1 wd2 wd3 wd4
-	R sd0 sd1 sd2 sd3 sd4 tty00 tty01 bpf0 std
+	R sd0 sd1 sd2 sd3 sd4 tty00 tty01 bpf std
 	;;
 
 all)
-	R ttya ttyb vnd0 vnd1 vnd2 vnd3 sd0 sd1 sd2 sd3 sd4 sd5 sd6
-	R sd7 sd8 sd9 cd0 cd1 rd0 tap0 tap1 tap2 tap3 tun0 tun1 tun2
-	R tun3 bio bpf0 bpf1 bpf2 bpf3 bpf4 bpf5 bpf6 bpf7 bpf8 bpf9
-	R pty0 pty1 pty2 diskmap vscsi0 ch0 audio0 audio1 audio2 fuse
-	R pppx hotplug ptm local wscons pci0 pci1 pci2 pci3 uall
-	R video0 video1 uk0 random tty00 tty01 tty02 tty03 tty04 tty05
-	R tty06 tty07 tty08 tty09 tty0a tty0b pf systrace wd0 wd1 wd2
-	R wd3 std st0 st1 fd
+	R ttya ttyb switch0 switch1 switch2 switch3 vnd0 vnd1 vnd2
+	R vnd3 sd0 sd1 sd2 sd3 sd4 sd5 sd6 sd7 sd8 sd9 cd0 cd1 rd0
+	R tap0 tap1 tap2 tap3 tun0 tun1 tun2 tun3 bio pty0 pty1 pty2
+	R diskmap vscsi0 ch0 audio0 audio1 audio2 bpf fuse pppx
+	R hotplug ptm local wscons pci0 pci1 pci2 pci3 uall video0
+	R video1 uk0 random tty00 tty01 tty02 tty03 tty04 tty05 tty06
+	R tty07 tty08 tty09 tty0a tty0b pf wd0 wd1 wd2 wd3 std st0 st1
+	R fd
 	;;
 
 wd*|sd*)
@@ -487,7 +486,7 @@ echo -n ${MKlist[*]}
 echo -n ${whlist[*]}
 echo ${oplist[*]}
 } | if [ "$eo" = "echo" ]; then
-        cat
+	cat
 else
 	sh
 fi

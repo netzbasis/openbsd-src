@@ -1,4 +1,4 @@
-/*	$OpenBSD: ypbind.c,v 1.64 2015/08/20 22:39:30 deraadt Exp $ */
+/*	$OpenBSD: ypbind.c,v 1.68 2016/07/08 19:32:26 millert Exp $ */
 
 /*
  * Copyright (c) 1992, 1993, 1996, 1997, 1998 Theo de Raadt <deraadt@openbsd.org>
@@ -53,6 +53,7 @@
 #include <rpcsvc/yp.h>
 #include <rpcsvc/ypclnt.h>
 #include <ifaddrs.h>
+#include <poll.h>
 
 #define SERVERSDIR	"/etc/yp"
 #define BINDINGDIR	"/var/yp/binding"
@@ -336,10 +337,8 @@ main(int argc, char *argv[])
 {
 	char path[PATH_MAX];
 	struct sockaddr_in sin;
-	struct timeval tv;
-	fd_set *fdsrp = NULL;
-	int fdsrl = 0;
-	int width, lockfd, lsock;
+	struct pollfd *pfd = NULL;
+	int width = 0, nready, lockfd, lsock;
 	socklen_t len;
 	int evil = 0, one = 1;
 	DIR *dirp;
@@ -475,7 +474,7 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if ((rpcsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+	if ((rpcsock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0) {
 		perror("socket");
 		return -1;
 	}
@@ -485,7 +484,7 @@ main(int argc, char *argv[])
 	sin.sin_port = 0;
 	bindresvport(rpcsock, &sin);
 
-	if ((pingsock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
+	if ((pingsock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0)) < 0) {
 		perror("socket");
 		return -1;
 	}
@@ -495,8 +494,6 @@ main(int argc, char *argv[])
 	sin.sin_port = 0;
 	bindresvport(pingsock, &sin);
 
-	fcntl(rpcsock, F_SETFL, fcntl(rpcsock, F_GETFL, 0) | FNDELAY);
-	fcntl(pingsock, F_SETFL, fcntl(pingsock, F_GETFL, 0) | FNDELAY);
 	setsockopt(rpcsock, SOL_SOCKET, SO_BROADCAST, &one,
 	    (socklen_t)sizeof(one));
 	rmtca.prog = YPPROG;
@@ -532,45 +529,39 @@ main(int argc, char *argv[])
 	checkwork();
 
 	while (1) {
-		extern int __svc_fdsetsize;
-		extern void *__svc_fdset;
-
-		if (fdsrp == NULL || fdsrl != __svc_fdsetsize) {
-			if (fdsrp)
-				free(fdsrp);
-
-			fdsrl = __svc_fdsetsize;
-			width = __svc_fdsetsize;
-			if (rpcsock > __svc_fdsetsize)
-				width = rpcsock;
-			if (pingsock > __svc_fdsetsize)
-				width = pingsock;
-			fdsrp = calloc(howmany(width+1, NFDBITS), sizeof(fd_mask));
-			if (fdsrp == NULL)
-				errx(1, "no memory");
+		if (pfd == NULL || width != svc_max_pollfd + 2) {
+			width = svc_max_pollfd + 2;
+			pfd = reallocarray(pfd, width, sizeof *pfd);
+			if (pfd == NULL)
+				err(1, NULL);
 		}
 
-		bcopy(__svc_fdset, fdsrp, howmany(fdsrl+1, NFDBITS) *
-		    sizeof(fd_mask));
-		FD_SET(rpcsock, fdsrp);
-		FD_SET(pingsock, fdsrp);
+		pfd[0].fd = rpcsock;
+		pfd[0].events = POLLIN;
+		pfd[1].fd = pingsock;
+		pfd[1].events = POLLIN;
+		memcpy(pfd + 2, svc_pollfd, sizeof(*pfd) * svc_max_pollfd);
 
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
-
-		switch (select(width+1, fdsrp, NULL, NULL, &tv)) {
+		nready = poll(pfd, width, 1000);
+		switch (nready) {
 		case 0:
 			checkwork();
 			break;
 		case -1:
-			perror("select\n");
+			if (errno != EINTR)
+				perror("poll");
 			break;
 		default:
-			if (FD_ISSET(rpcsock, fdsrp))
+			/* No need to check for POLLHUP on UDP sockets. */
+			if (pfd[0].revents & POLLIN) {
 				handle_replies();
-			if (FD_ISSET(pingsock, fdsrp))
+				nready--;
+			}
+			if (pfd[1].revents & POLLIN) {
 				handle_ping();
-			svc_getreqset2(fdsrp, width);
+				nready--;
+			}
+			svc_getreq_poll(pfd + 2, nready);
 			if (check)
 				checkwork();
 			break;

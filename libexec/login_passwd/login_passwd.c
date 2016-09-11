@@ -1,4 +1,4 @@
-/*	$OpenBSD: login_passwd.c,v 1.12 2015/10/14 17:06:58 deraadt Exp $	*/
+/*	$OpenBSD: login_passwd.c,v 1.14 2015/11/19 18:37:01 millert Exp $	*/
 
 /*-
  * Copyright (c) 2001 Hans Insulander <hin@openbsd.org>.
@@ -46,14 +46,16 @@ pwd_login(char *username, char *password, char *wheel, int lastchance,
 	if (password == NULL)
 		return (AUTH_FAILED);
 
-	pwd = getpwnam(username);
+	pwd = getpwnam_shadow(username);
 	if (pwd)
 		goodhash = pwd->pw_passwd;
 
 	setpriority(PRIO_PROCESS, 0, -4);
 
-	if (pledge("stdio rpath", NULL) == -1)
-		err(1, "pledge");
+	if (pledge("stdio rpath", NULL) == -1) {
+		syslog(LOG_ERR, "pledge: %m");
+		return (AUTH_FAILED);
+	}
 
 	if (crypt_checkpass(password, goodhash) == 0)
 		passok = 1;

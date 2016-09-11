@@ -1,12 +1,12 @@
-#	$OpenBSD: Makefile,v 1.9 2014/02/21 18:30:15 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.11 2016/05/04 19:48:08 jca Exp $
 
-CFLAGS+=-DSMALL -DINET6
+CFLAGS+=-DSMALL
 
 PROG=	ftp
 SRCS=	fetch.c ftp.c main.c small.c util.c
 .PATH:	${.CURDIR}/../../../usr.bin/ftp
 
-LDADD+=	-lcurses -lutil
-DPADD+=	${LIBCURSES} ${LIBUTIL}
+LDADD+=	-lutil
+DPADD+=	${LIBUTIL}
 
 .include <bsd.prog.mk>

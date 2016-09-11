@@ -1,4 +1,4 @@
-/* $OpenBSD: s_client.c,v 1.23 2015/10/17 15:00:11 doug Exp $ */
+/* $OpenBSD: s_client.c,v 1.28 2016/06/21 03:56:43 bcook Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -365,7 +365,7 @@ s_client_main(int argc, char **argv)
 	long socket_mtu = 0;
 
 	if (single_execution) {
-		if (pledge("stdio inet rpath wpath cpath tty", NULL) == -1) {
+		if (pledge("stdio inet dns rpath wpath cpath tty", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}
@@ -728,15 +728,13 @@ bad:
 	if (!set_cert_key_stuff(ctx, cert, key))
 		goto end;
 
-	if ((!SSL_CTX_load_verify_locations(ctx, CAfile, CApath)) ||
-	    (!SSL_CTX_set_default_verify_paths(ctx))) {
-		/*
-		 * BIO_printf(bio_err,"error setting default verify
-		 * locations\n");
-		 */
+	if ((CAfile || CApath)
+	    && !SSL_CTX_load_verify_locations(ctx, CAfile, CApath))
 		ERR_print_errors(bio_err);
-		/* goto end; */
-	}
+
+	if (!SSL_CTX_set_default_verify_paths(ctx))
+		ERR_print_errors(bio_err);
+
 	if (servername != NULL) {
 		tlsextcbp.biodebug = bio_err;
 		SSL_CTX_set_tlsext_servername_callback(ctx, ssl_servername_cb);

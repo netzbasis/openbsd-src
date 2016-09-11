@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.36 2014/11/20 05:51:20 jsg Exp $	*/
+/*	$OpenBSD: parse.y,v 1.38 2016/06/21 21:35:24 benno Exp $	*/
 
 /*
  * Copyright (c) 2004 Ryan McBride <mcbride@openbsd.org>
@@ -142,8 +142,16 @@ string		: string STRING				{
 		;
 
 varset		: STRING '=' string		{
+			char *s = $1;
 			if (conf->opts & IFSD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1) {
 				free($1);
 				free($3);
@@ -266,7 +274,7 @@ ext_test	: STRING EVERY NUMBER {
 
 term		: if_test {
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				errx(1, "term: calloc");
+				err(1, NULL);
 			curaction->act.c.expression = $$;
 			$$->type = IFSD_OPER_IFSTATE;
 			$$->u.ifstate = $1;
@@ -274,7 +282,7 @@ term		: if_test {
 		}
 		| ext_test {
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				errx(1, "term: calloc");
+				err(1, NULL);
 			curaction->act.c.expression = $$;
 			$$->type = IFSD_OPER_EXTERNAL;
 			$$->u.external = $1;
@@ -287,7 +295,7 @@ term		: if_test {
 
 expr		: '!' expr %prec UNARY			{
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				errx(1, "expr: calloc");
+				err(1, NULL);
 			curaction->act.c.expression = $$;
 			$$->type = IFSD_OPER_NOT;
 			$2->parent = $$;
@@ -295,7 +303,7 @@ expr		: '!' expr %prec UNARY			{
 		}
 		| expr AND expr			{
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				errx(1, "expr: calloc");
+				err(1, NULL);
 			curaction->act.c.expression = $$;
 			$$->type = IFSD_OPER_AND;
 			$1->parent = $$;
@@ -305,7 +313,7 @@ expr		: '!' expr %prec UNARY			{
 		}
 		| expr OR expr			{
 			if (($$ = calloc(1, sizeof(*$$))) == NULL)
-				errx(1, "expr: calloc");
+				err(1, NULL);
 			curaction->act.c.expression = $$;
 			$$->type = IFSD_OPER_OR;
 			$1->parent = $$;
@@ -326,7 +334,7 @@ state		: STATE string {
 					YYERROR;
 				}
 			if ((state = calloc(1, sizeof(*curstate))) == NULL)
-				errx(1, "state: calloc");
+				err(1, NULL);
 			init_state(state);
 			state->name = $2;
 			curstate = state;
@@ -685,7 +693,7 @@ pushfile(const char *name, int secret)
 		return (NULL);
 	}
 	if ((nfile->stream = fopen(nfile->name, "r")) == NULL) {
-		warnx("%s", nfile->name);
+		warn("%s", nfile->name);
 		free(nfile->name);
 		free(nfile);
 		return (NULL);
@@ -725,7 +733,7 @@ parse_config(char *filename, int opts)
 	struct ifsd_state *state;
 
 	if ((conf = calloc(1, sizeof(struct ifsd_config))) == NULL) {
-		errx(1, "parse_config calloc");
+		err(1, NULL);
 		return (NULL);
 	}
 
@@ -872,7 +880,7 @@ cmdline_symset(char *s)
 
 	len = strlen(s) - strlen(val) + 1;
 	if ((sym = malloc(len)) == NULL)
-		errx(1, "cmdline_symset: malloc");
+		err(1, NULL);
 
 	strlcpy(sym, s, len);
 
@@ -940,7 +948,7 @@ new_ifstate(u_short ifindex, int s)
 			break;
 	if (ifstate == NULL) {
 		if ((ifstate = calloc(1, sizeof(*ifstate))) == NULL)
-			errx(1, "new_ifstate: calloc");
+			err(1, NULL);
 		ifstate->ifindex = ifindex;
 		ifstate->ifstate = s;
 		TAILQ_INIT(&ifstate->expressions);
@@ -968,9 +976,9 @@ new_external(char *command, u_int32_t frequency)
 			break;
 	if (external == NULL) {
 		if ((external = calloc(1, sizeof(*external))) == NULL)
-			errx(1, "new_external: calloc");
+			err(1, NULL);
 		if ((external->command = strdup(command)) == NULL)
-			errx(1, "new_external: strdup");
+			err(1, NULL);
 		external->frequency = frequency;
 		TAILQ_INIT(&external->expressions);
 		TAILQ_INSERT_TAIL(&state->external_tests, external, entries);

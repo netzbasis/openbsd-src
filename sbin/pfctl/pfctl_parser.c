@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl_parser.c,v 1.306 2015/09/03 12:46:47 mikeb Exp $ */
+/*	$OpenBSD: pfctl_parser.c,v 1.308 2016/09/03 17:11:40 sashan Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -44,17 +44,18 @@
 #include <net/hfsc.h>
 #include <arpa/inet.h>
 
+#include <ctype.h>
+#include <err.h>
+#include <errno.h>
+#include <ifaddrs.h>
+#include <limits.h>
+#include <netdb.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <netdb.h>
-#include <stdarg.h>
-#include <errno.h>
-#include <err.h>
-#include <ifaddrs.h>
+#include <time.h>
 #include <unistd.h>
-#include <limits.h>
 
 #define SYSLOG_NAMES
 #include <syslog.h>
@@ -700,8 +701,12 @@ print_rule(struct pf_rule *r, const char *anchor_call, int opts)
 	int	verbose = opts & (PF_OPT_VERBOSE2 | PF_OPT_DEBUG);
 	char	*p;
 
+	if ((r->rule_flag & PFRULE_EXPIRED) && (!verbose))
+		return;
+
 	if (verbose)
 		printf("@%d ", r->nr);
+
 	if (r->action > PF_MATCH)
 		printf("action(%d)", r->action);
 	else if (anchor_call[0]) {

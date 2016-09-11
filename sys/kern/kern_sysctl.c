@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sysctl.c,v 1.298 2015/11/01 19:03:33 semarie Exp $	*/
+/*	$OpenBSD: kern_sysctl.c,v 1.309 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: kern_sysctl.c,v 1.17 1996/05/20 17:49:05 mrg Exp $	*/
 
 /*-
@@ -82,7 +82,6 @@
 
 #include <dev/cons.h>
 #include <dev/rndvar.h>
-#include <dev/systrace.h>
 
 #include <net/route.h>
 #include <netinet/in.h>
@@ -129,7 +128,6 @@ int sysctl_proc_nobroadcastkill(int *, u_int, void *, size_t, void *, size_t *,
 int sysctl_proc_vmmap(int *, u_int, void *, size_t *, struct proc *);
 int sysctl_intrcnt(int *, u_int, void *, size_t *);
 int sysctl_sensors(int *, u_int, void *, size_t *, void *, size_t);
-int sysctl_emul(int *, u_int, void *, size_t *, void *, size_t);
 int sysctl_cptime2(int *, u_int, void *, size_t *, void *, size_t);
 
 void fill_file(struct kinfo_file *, struct file *, struct filedesc *, int,
@@ -277,9 +275,10 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	int error, level, inthostid, stackgap;
 	dev_t dev;
 	extern int somaxconn, sominconn;
-	extern int usermount, nosuidcoredump;
+	extern int nosuidcoredump;
 	extern int maxlocksperuid;
 	extern int pool_debug;
+	extern int uvm_wxabort;
 
 	/* all sysctl names at this level are terminal except a ton of them */
 	if (namelen != 1) {
@@ -298,7 +297,6 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		case KERN_SHMINFO:
 		case KERN_INTRCNT:
 		case KERN_WATCHDOG:
-		case KERN_EMUL:
 		case KERN_EVCOUNT:
 		case KERN_TIMECOUNTER:
 		case KERN_CPTIME2:
@@ -327,7 +325,7 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case KERN_MAXFILES:
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &maxfiles));
 	case KERN_NFILES:
-		return (sysctl_rdint(oldp, oldlenp, newp, nfiles));
+		return (sysctl_rdint(oldp, oldlenp, newp, numfiles));
 	case KERN_TTYCOUNT:
 		return (sysctl_rdint(oldp, oldlenp, newp, tty_count));
 	case KERN_NUMVNODES:
@@ -391,7 +389,7 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case KERN_MBSTAT:
 		return (sysctl_rdstruct(oldp, oldlenp, newp, &mbstat,
 		    sizeof(mbstat)));
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 	case KERN_PROF:
 		return (sysctl_doprof(name + 1, namelen - 1, oldp, oldlenp,
 		    newp, newlen));
@@ -416,11 +414,6 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &somaxconn));
 	case KERN_SOMINCONN:
 		return (sysctl_int(oldp, oldlenp, newp, newlen, &sominconn));
-	case KERN_USERMOUNT:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &usermount));
-	case KERN_RND:
-		return (sysctl_rdstruct(oldp, oldlenp, newp, &rndstats,
-		    sizeof(rndstats)));
 	case KERN_ARND: {
 		char buf[512];
 
@@ -557,9 +550,6 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case KERN_WATCHDOG:
 		return (sysctl_wdog(name + 1, namelen - 1, oldp, oldlenp,
 		    newp, newlen));
-	case KERN_EMUL:
-		return (sysctl_emul(name + 1, namelen - 1, oldp, oldlenp,
-		    newp, newlen));
 #endif
 	case KERN_MAXCLUSTERS:
 		error = sysctl_int(oldp, oldlenp, newp, newlen, &nmbclust);
@@ -599,6 +589,8 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		}
 		return(0);
 	}
+	case KERN_WXABORT:
+		return (sysctl_int(oldp, oldlenp, newp, newlen, &uvm_wxabort));
 	case KERN_CONSDEV:
 		if (cn_tab != NULL)
 			dev = cn_tab->cn_dev;
@@ -1196,12 +1188,6 @@ fill_file(struct kinfo_file *kf, struct file *fp, struct filedesc *fdp,
 		kf->kq_state = kqi->kq_state;
 		break;
 	    }
-	case DTYPE_SYSTRACE: {
-		struct fsystrace *f = (struct fsystrace *)fp->f_data;
-
-		kf->str_npolicies = f->npolicies;
-		break;
-	    }
 	}
 
 	/* per-process information for KERN_FILE_BY[PU]ID */
@@ -1230,7 +1216,7 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 	struct process *pr;
 	size_t buflen, elem_size, elem_count, outsize;
 	char *dp = where;
-	int arg, i, error = 0, needed = 0;
+	int arg, i, error = 0, needed = 0, matched;
 	u_int op;
 	int show_pointers;
 
@@ -1330,6 +1316,7 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 			error = EINVAL;
 			break;
 		}
+		matched = 0;
 		LIST_FOREACH(pr, &allprocess, ps_list) {
 			/*
 			 * skip system, exiting, embryonic and undead
@@ -1341,6 +1328,7 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 				/* not the pid we are looking for */
 				continue;
 			}
+			matched = 1;
 			fdp = pr->ps_fd;
 			if (pr->ps_textvp)
 				FILLIT(NULL, NULL, KERN_FILE_TEXT, pr->ps_textvp, pr);
@@ -1358,6 +1346,8 @@ sysctl_file(int *name, u_int namelen, char *where, size_t *sizep,
 				FILLIT(fp, fdp, i, NULL, pr);
 			}
 		}
+		if (!matched)
+			error = ESRCH;
 		break;
 	case KERN_FILE_BYUID:
 		LIST_FOREACH(pr, &allprocess, ps_list) {
@@ -2057,11 +2047,9 @@ done:
 int
 sysctl_diskinit(int update, struct proc *p)
 {
-	struct disklabel *dl;
 	struct diskstats *sdk;
 	struct disk *dk;
-	char duid[17];
-	u_int64_t uid = 0;
+	const char *duid;
 	int i, tlen, l;
 
 	if ((i = rw_enter(&sysctl_disklock, RW_WRITE|RW_INTR)) != 0)
@@ -2091,18 +2079,12 @@ sysctl_diskinit(int update, struct proc *p)
 
 		for (dk = TAILQ_FIRST(&disklist), i = 0, l = 0; dk;
 		    dk = TAILQ_NEXT(dk, dk_link), i++) {
-			dl = dk->dk_label;
-			memset(duid, 0, sizeof(duid));
-			if (dl && memcmp(dl->d_uid, &uid, sizeof(dl->d_uid))) {
-				snprintf(duid, sizeof(duid), 
-				    "%02hx%02hx%02hx%02hx"
-				    "%02hx%02hx%02hx%02hx",
-				    dl->d_uid[0], dl->d_uid[1], dl->d_uid[2],
-				    dl->d_uid[3], dl->d_uid[4], dl->d_uid[5],
-				    dl->d_uid[6], dl->d_uid[7]);
-			}
+			duid = NULL;
+			if (dk->dk_label && !duid_iszero(dk->dk_label->d_uid))
+				duid = duid_format(dk->dk_label->d_uid);
 			snprintf(disknames + l, tlen - l, "%s:%s,",
-			    dk->dk_name ? dk->dk_name : "", duid);
+			    dk->dk_name ? dk->dk_name : "",
+			    duid ? duid : "");
 			l += strlen(disknames + l);
 			sdk = diskstats + i;
 			strlcpy(sdk->ds_name, dk->dk_name,
@@ -2332,41 +2314,6 @@ sysctl_sensors(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 	return (ret);
 }
 
-int
-sysctl_emul(int *name, u_int namelen, void *oldp, size_t *oldlenp,
-    void *newp, size_t newlen)
-{
-	int enabled, error;
-	struct emul *e;
-
-	if (name[0] == KERN_EMUL_NUM) {
-		if (namelen != 1)
-			return (ENOTDIR);
-		return (sysctl_rdint(oldp, oldlenp, newp, nexecs));
-	}
-
-	if (namelen != 2)
-		return (ENOTDIR);
-	if (name[0] > nexecs || name[0] < 0)
-		return (EINVAL);
-	e = execsw[name[0] - 1].es_emul;
-	if (e == NULL)
-		return (EINVAL);
-
-	switch (name[1]) {
-	case KERN_EMUL_NAME:
-		return (sysctl_rdstring(oldp, oldlenp, newp, e->e_name));
-	case KERN_EMUL_ENABLED:
-		enabled = (e->e_flags & EMUL_ENABLED);
-		error = sysctl_int(oldp, oldlenp, newp, newlen,
-		    &enabled);
-		e->e_flags = (enabled & EMUL_ENABLED);
-		return (error);
-	default:
-		return (EINVAL);
-	}
-}
-
 #endif	/* SMALL_KERNEL */
 
 int
@@ -2375,18 +2322,18 @@ sysctl_cptime2(int *name, u_int namelen, void *oldp, size_t *oldlenp,
 {
 	CPU_INFO_ITERATOR cii;
 	struct cpu_info *ci;
-	int i;
+	int found = 0;
 
 	if (namelen != 1)
 		return (ENOTDIR);
 
-	i = name[0];
-
 	CPU_INFO_FOREACH(cii, ci) {
-		if (i-- == 0)
+		if (name[0] == CPU_INFO_UNIT(ci)) {
+			found = 1;
 			break;
+		}
 	}
-	if (i > 0)
+	if (!found)
 		return (ENOENT);
 
 	return (sysctl_rdstruct(oldp, oldlenp, newp,

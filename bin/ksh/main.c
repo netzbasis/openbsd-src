@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.73 2015/11/01 15:38:53 mmcc Exp $	*/
+/*	$OpenBSD: main.c,v 1.80 2016/09/08 15:51:54 millert Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -6,9 +6,14 @@
 
 #include <sys/stat.h>
 
+#include <errno.h>
+#include <fcntl.h>
 #include <paths.h>
 #include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 
@@ -33,7 +38,7 @@ const char *safe_prompt;
 
 Area	aperm;
 
-struct env	*e;
+struct env	*genv;
 
 char	shell_flags[FNFLAGS];
 
@@ -79,7 +84,7 @@ static const char initsubs[] = "${PS2=> } ${PS3=#? } ${PS4=+ }";
 static const char *initcoms [] = {
 	"typeset", "-r", "KSH_VERSION", NULL,
 	"typeset", "-x", "SHELL", "PATH", "HOME", NULL,
-	"typeset", "-i", "PPID", NULL,
+	"typeset", "-ir", "PPID", NULL,
 	"typeset", "-i", "OPTIND=1", NULL,
 	"eval", "typeset -i RANDOM MAILCHECK=\"${MAILCHECK-600}\" SECONDS=\"${SECONDS-0}\" TMOUT=\"${TMOUT-0}\"", NULL,
 	"alias",
@@ -115,22 +120,20 @@ char username[_PW_NAME_LEN + 1];
 
 /* The shell uses its own variation on argv, to build variables like
  * $0 and $@.
- * If we need to alter argv, allocate a new array first since
- * modifying the original argv will modify ps output.
+ * Allocate a new array since modifying the original argv will modify
+ * ps output.
  */
 static char **
 make_argv(int argc, char *argv[])
 {
 	int i;
-	char **nargv = argv;
+	char **nargv;
 
-	if (strcmp(argv[0], kshname) != 0) {
-		nargv = areallocarray(NULL, argc + 1, sizeof(char *), &aperm);
-		nargv[0] = (char *) kshname;
-		for (i = 1; i < argc; i++)
-			nargv[i] = argv[i];
-		nargv[i] = NULL;
-	}
+	nargv = areallocarray(NULL, argc + 1, sizeof(char *), &aperm);
+	nargv[0] = (char *) kshname;
+	for (i = 1; i < argc; i++)
+		nargv[i] = argv[i];
+	nargv[i] = NULL;
 
 	return nargv;
 }
@@ -149,11 +152,11 @@ main(int argc, char *argv[])
 
 	kshname = argv[0];
 
-#ifndef MKNOD
 	if (pledge("stdio rpath wpath cpath fattr flock getpw proc exec tty",
-	    NULL) == -1)
+	    NULL) == -1) {
 		perror("pledge");
-#endif
+		exit(1);
+	}
 
 	ainit(&aperm);		/* initialize permanent Area */
 
@@ -161,7 +164,7 @@ main(int argc, char *argv[])
 	memset(&env, 0, sizeof(env));
 	env.type = E_NONE;
 	ainit(&env.area);
-	e = &env;
+	genv = &env;
 	newblock();		/* set up global l->vars and l->funs */
 
 	/* Do this first so output routines (eg, errorf, shellf) can work */
@@ -377,7 +380,7 @@ main(int argc, char *argv[])
 		x_init();
 #endif
 
-	l = e->loc;
+	l = genv->loc;
 	l->argv = make_argv(argc - (argi - 1), &argv[argi - 1]);
 	l->argc = argc - argi;
 	getopts_reset(1);
@@ -471,19 +474,19 @@ include(const char *name, int argc, char **argv, int intr_ok)
 		return -1;
 
 	if (argv) {
-		old_argv = e->loc->argv;
-		old_argc = e->loc->argc;
+		old_argv = genv->loc->argv;
+		old_argc = genv->loc->argc;
 	} else {
 		old_argv = NULL;
 		old_argc = 0;
 	}
 	newenv(E_INCL);
-	i = sigsetjmp(e->jbuf, 0);
+	i = sigsetjmp(genv->jbuf, 0);
 	if (i) {
 		quitenv(s ? s->u.shf : NULL);
 		if (old_argv) {
-			e->loc->argv = old_argv;
-			e->loc->argc = old_argc;
+			genv->loc->argv = old_argv;
+			genv->loc->argc = old_argc;
 		}
 		switch (i) {
 		case LRETURN:
@@ -507,8 +510,8 @@ include(const char *name, int argc, char **argv, int intr_ok)
 		}
 	}
 	if (argv) {
-		e->loc->argv = argv;
-		e->loc->argc = argc;
+		genv->loc->argv = argv;
+		genv->loc->argc = argc;
 	}
 	s = pushs(SFILE, ATEMP);
 	s->u.shf = shf;
@@ -516,8 +519,8 @@ include(const char *name, int argc, char **argv, int intr_ok)
 	i = shell(s, false);
 	quitenv(s->u.shf);
 	if (old_argv) {
-		e->loc->argv = old_argv;
-		e->loc->argc = old_argc;
+		genv->loc->argv = old_argv;
+		genv->loc->argc = old_argc;
 	}
 	return i & 0xff;	/* & 0xff to ensure value not -1 */
 }
@@ -553,7 +556,7 @@ shell(Source *volatile s, volatile int toplevel)
 	newenv(E_PARSE);
 	if (interactive)
 		really_exit = 0;
-	i = sigsetjmp(e->jbuf, 0);
+	i = sigsetjmp(genv->jbuf, 0);
 	if (i) {
 		switch (i) {
 		case LINTR: /* we get here if SIGINT not caught or ignored */
@@ -664,18 +667,18 @@ unwind(int i)
 		i = LLEAVE;
 	}
 	while (1) {
-		switch (e->type) {
+		switch (genv->type) {
 		case E_PARSE:
 		case E_FUNC:
 		case E_INCL:
 		case E_LOOP:
 		case E_ERRH:
-			siglongjmp(e->jbuf, i);
+			siglongjmp(genv->jbuf, i);
 			/* NOTREACHED */
 
 		case E_NONE:
 			if (i == LINTR)
-				e->flags |= EF_FAKE_SIGDIE;
+				genv->flags |= EF_FAKE_SIGDIE;
 			/* FALLTHROUGH */
 
 		default:
@@ -700,17 +703,17 @@ newenv(int type)
 	ep->type = type;
 	ep->flags = 0;
 	ainit(&ep->area);
-	ep->loc = e->loc;
+	ep->loc = genv->loc;
 	ep->savefd = NULL;
-	ep->oenv = e;
+	ep->oenv = genv;
 	ep->temps = NULL;
-	e = ep;
+	genv = ep;
 }
 
 void
 quitenv(struct shf *shf)
 {
-	struct env *ep = e;
+	struct env *ep = genv;
 	int fd;
 
 	if (ep->oenv && ep->oenv->loc != ep->loc)
@@ -757,7 +760,7 @@ quitenv(struct shf *shf)
 		shf_close(shf);
 	reclaim();
 
-	e = e->oenv;
+	genv = genv->oenv;
 	afree(ep, ATEMP);
 }
 
@@ -774,7 +777,7 @@ cleanup_parents_env(void)
 	 */
 
 	/* close all file descriptors hiding in savefd */
-	for (ep = e; ep; ep = ep->oenv) {
+	for (ep = genv; ep; ep = ep->oenv) {
 		if (ep->savefd) {
 			for (fd = 0; fd < NUFILE; fd++)
 				if (ep->savefd[fd] > 0)
@@ -783,7 +786,7 @@ cleanup_parents_env(void)
 			ep->savefd = NULL;
 		}
 	}
-	e->oenv = NULL;
+	genv->oenv = NULL;
 }
 
 /* Called just before an execve cleanup stuff temporary files */
@@ -792,7 +795,7 @@ cleanup_proc_env(void)
 {
 	struct env *ep;
 
-	for (ep = e; ep; ep = ep->oenv)
+	for (ep = genv; ep; ep = ep->oenv)
 		remove_temps(ep->temps);
 }
 
@@ -800,9 +803,9 @@ cleanup_proc_env(void)
 static void
 reclaim(void)
 {
-	remove_temps(e->temps);
-	e->temps = NULL;
-	afreeall(&e->area);
+	remove_temps(genv->temps);
+	genv->temps = NULL;
+	afreeall(&genv->area);
 }
 
 static void

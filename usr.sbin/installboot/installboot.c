@@ -1,4 +1,4 @@
-/*	$OpenBSD: installboot.c,v 1.9 2015/10/14 00:19:04 krw Exp $	*/
+/*	$OpenBSD: installboot.c,v 1.11 2015/11/29 00:14:07 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>

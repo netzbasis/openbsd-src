@@ -1,7 +1,7 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.216 2015/10/30 19:03:36 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.224 2016/08/20 14:43:39 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2016 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -500,6 +500,7 @@ post_bl_norm(POST_ARGS)
 		mandoc_msg(MANDOCERR_BL_NOTYPE, mdoc->parse,
 		    n->line, n->pos, "Bl");
 		n->norm->Bl.type = LIST_item;
+		mdoclt = MDOC_Item;
 	}
 
 	/*
@@ -876,9 +877,11 @@ post_display(POST_ARGS)
 	n = mdoc->last;
 	switch (n->type) {
 	case ROFFT_BODY:
-		if (n->end != ENDBODY_NOT)
-			break;
-		if (n->child == NULL)
+		if (n->end != ENDBODY_NOT) {
+			if (n->tok == MDOC_Bd &&
+			    n->body->parent->args == NULL)
+				roff_node_delete(mdoc, n);
+		} else if (n->child == NULL)
 			mandoc_msg(MANDOCERR_BLK_EMPTY, mdoc->parse,
 			    n->line, n->pos, mdoc_macronames[n->tok]);
 		else if (n->tok == MDOC_D1)
@@ -1054,10 +1057,11 @@ post_it(POST_ARGS)
 			    mdoc_argnames[nbl->args->argv[0].arg]);
 		/* FALLTHROUGH */
 	case LIST_item:
-		if (nit->head->child != NULL)
+		if ((nch = nit->head->child) != NULL)
 			mandoc_vmsg(MANDOCERR_ARG_SKIP,
 			    mdoc->parse, nit->line, nit->pos,
-			    "It %s", nit->head->child->string);
+			    "It %s", nch->string == NULL ?
+			    mdoc_macronames[nch->tok] : nch->string);
 		break;
 	case LIST_column:
 		cols = (int)nbl->norm->Bl.ncols;
@@ -1269,7 +1273,8 @@ post_bl_head(POST_ARGS)
 
 	argv = nbl->args->argv + j;
 	i = argv->sz;
-	argv->sz += nh->nchild;
+	for (nch = nh->child; nch != NULL; nch = nch->next)
+		argv->sz++;
 	argv->value = mandoc_reallocarray(argv->value,
 	    argv->sz, sizeof(char *));
 
@@ -1282,7 +1287,6 @@ post_bl_head(POST_ARGS)
 		nnext = nch->next;
 		roff_node_delete(NULL, nch);
 	}
-	nh->nchild = 0;
 	nh->child = NULL;
 }
 
@@ -1316,11 +1320,41 @@ post_bl(POST_ARGS)
 		return;
 	}
 	while (nchild != NULL) {
+		nnext = nchild->next;
 		if (nchild->tok == MDOC_It ||
 		    (nchild->tok == MDOC_Sm &&
-		     nchild->next != NULL &&
-		     nchild->next->tok == MDOC_It)) {
-			nchild = nchild->next;
+		     nnext != NULL && nnext->tok == MDOC_It)) {
+			nchild = nnext;
+			continue;
+		}
+
+		/*
+		 * In .Bl -column, the first rows may be implicit,
+		 * that is, they may not start with .It macros.
+		 * Such rows may be followed by nodes generated on the
+		 * roff level, for example .TS, which cannot be moved
+		 * out of the list.  In that case, wrap such roff nodes
+		 * into an implicit row.
+		 */
+
+		if (nchild->prev != NULL) {
+			mdoc->last = nchild;
+			mdoc->next = ROFF_NEXT_SIBLING;
+			roff_block_alloc(mdoc, nchild->line,
+			    nchild->pos, MDOC_It);
+			roff_head_alloc(mdoc, nchild->line,
+			    nchild->pos, MDOC_It);
+			mdoc->next = ROFF_NEXT_SIBLING;
+			roff_body_alloc(mdoc, nchild->line,
+			    nchild->pos, MDOC_It);
+			while (nchild->tok != MDOC_It) {
+				mdoc_node_relink(mdoc, nchild);
+				if ((nchild = nnext) == NULL)
+					break;
+				nnext = nchild->next;
+				mdoc->next = ROFF_NEXT_SIBLING;
+			}
+			mdoc->last = nbody;
 			continue;
 		}
 
@@ -1336,21 +1370,16 @@ post_bl(POST_ARGS)
 		nblock  = nbody->parent;
 		nprev   = nblock->prev;
 		nparent = nblock->parent;
-		nnext   = nchild->next;
 
 		/*
 		 * Unlink this child.
 		 */
 
-		assert(nchild->prev == NULL);
-		if (--nbody->nchild == 0) {
-			nbody->child = NULL;
+		nbody->child = nnext;
+		if (nnext == NULL)
 			nbody->last  = NULL;
-			assert(nnext == NULL);
-		} else {
-			nbody->child = nnext;
+		else
 			nnext->prev = NULL;
-		}
 
 		/*
 		 * Relink this child.
@@ -1361,7 +1390,6 @@ post_bl(POST_ARGS)
 		nchild->next   = nblock;
 
 		nblock->prev = nchild;
-		nparent->nchild++;
 		if (nprev == NULL)
 			nparent->child = nchild;
 		else
@@ -1679,7 +1707,9 @@ post_sh_see_also(POST_ARGS)
 	n = mdoc->last->child;
 	lastname = lastsec = lastpunct = NULL;
 	while (n != NULL) {
-		if (n->tok != MDOC_Xr || n->nchild < 2)
+		if (n->tok != MDOC_Xr ||
+		    n->child == NULL ||
+		    n->child->next == NULL)
 			break;
 
 		/* Process one .Xr node. */
@@ -1735,7 +1765,7 @@ child_an(const struct roff_node *n)
 {
 
 	for (n = n->child; n != NULL; n = n->next)
-		if ((n->tok == MDOC_An && n->nchild) || child_an(n))
+		if ((n->tok == MDOC_An && n->child != NULL) || child_an(n))
 			return 1;
 	return 0;
 }
@@ -1752,8 +1782,9 @@ post_sh_authors(POST_ARGS)
 static void
 post_sh_head(POST_ARGS)
 {
-	const char	*goodsec;
-	enum roff_sec	 sec;
+	struct roff_node	*nch;
+	const char		*goodsec;
+	enum roff_sec		 sec;
 
 	/*
 	 * Process a new section.  Sections are either "named" or
@@ -1766,10 +1797,13 @@ post_sh_head(POST_ARGS)
 
 	/* The NAME should be first. */
 
-	if (SEC_NAME != sec && SEC_NONE == mdoc->lastnamed)
+	if (sec != SEC_NAME && mdoc->lastnamed == SEC_NONE)
 		mandoc_vmsg(MANDOCERR_NAMESEC_FIRST, mdoc->parse,
-		    mdoc->last->line, mdoc->last->pos,
-		    "Sh %s", secnames[sec]);
+		    mdoc->last->line, mdoc->last->pos, "Sh %s",
+		    sec != SEC_CUSTOM ? secnames[sec] :
+		    (nch = mdoc->last->child) == NULL ? "" :
+		    nch->type == ROFFT_TEXT ? nch->string :
+		    mdoc_macronames[nch->tok]);
 
 	/* The SYNOPSIS gets special attention in other areas. */
 
@@ -1922,7 +1956,7 @@ post_par(POST_ARGS)
 		post_prevpar(mdoc);
 
 	if (np->tok == MDOC_sp) {
-		if (np->nchild > 1)
+		if (np->child != NULL && np->child->next != NULL)
 			mandoc_vmsg(MANDOCERR_ARG_EXCESS, mdoc->parse,
 			    np->child->next->line, np->child->next->pos,
 			    "sp ... %s", np->child->next->string);

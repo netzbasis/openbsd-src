@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.11 2015/07/17 17:02:52 jsg Exp $
+#	$OpenBSD: Makefile,v 1.14 2016/06/05 15:12:56 jsg Exp $
 
 REV=	${OSrev}
 
@@ -21,17 +21,19 @@ VND_RDEV=	/dev/r${VND}a
 VND_CRDEV=	/dev/r${VND}c
 PID!=		echo $$$$
 
-KERNADDR_OMAP=0x80300000
-KERNADDR_IMX=0x10300000
-KERNADDR_SUNXI=0x40300000
-KERNADDR_VEXPRESSA15=0x80300000
-KERNADDR_VEXPRESSA9=0x60300000
-KERNADDR_EXYNOS=0x40300000
-
 DISKTYPE=       rdroot
-NBLKS=		10240
+NBLKS=		15360
 # minfree, opt, b/i  trks, sects, cpg
 NEWFSARGS= -m 0 -o space -i 4096
+
+DIRS=\
+	am335x \
+	beagle \
+	cubie \
+	cubox \
+	nitrogen \
+	panda \
+	wandboard
 
 .ifndef DESTDIR
 all ${IMAGE}:
@@ -39,12 +41,8 @@ all ${IMAGE}:
 	@false
 .else
 
-ALLSOC=		EXYNOS IMX OMAP SUNXI VEXPRESSA9 VEXPRESSA15
 ALLBSD=		bsd
 ALLBSDRD=	${BSD_RD}
-.for SOC in ${ALLSOC}
-ALLBSDRD+=	${BSD_RD}.${SOC}.umg
-.endfor
 all:	${ALLBSDRD}
 
 bsd:
@@ -56,12 +54,6 @@ bsd:
 ${BSD_RD}: ${CBIN} ${IMAGE} bsd rdsetroot
 	cp bsd ${BSD_RD}
 	${.OBJDIR}/rdsetroot ${BSD_RD} ${IMAGE}
-
-.for SOC in ${ALLSOC}
-${BSD_RD}.${SOC}.umg: ${BSD_RD}
-	mkuboot -a arm -o linux -e ${KERNADDR_${SOC}} -l ${KERNADDR_${SOC}} \
-	    ${BSD_RD} ${BSD_RD}.${SOC}.umg
-.endfor
 
 ${IMAGE}: rd_setup do_files rd_teardown
 
@@ -101,6 +93,9 @@ ${CRUNCHCONF}: ${LISTS}
 	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CBIN}.conf
 
 do_files:
+.for DIR in ${DIRS}
+	mkdir -p ${MOUNT_POINT}/usr/mdec/${DIR}
+.endfor
 	cat ${MTREE} | mtree -de -p ${MOUNT_POINT}/ -u
 	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} \
 	    REV=${REV} TARGDIR=${MOUNT_POINT} UTILS=${UTILS} \

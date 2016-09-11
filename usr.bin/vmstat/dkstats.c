@@ -1,4 +1,4 @@
-/*	$OpenBSD: dkstats.c,v 1.37 2015/01/16 06:40:14 deraadt Exp $	*/
+/*	$OpenBSD: dkstats.c,v 1.39 2016/09/04 14:21:05 tb Exp $	*/
 /*	$NetBSD: dkstats.c,v 1.1 1996/05/10 23:19:27 thorpej Exp $	*/
 
 /*
@@ -221,7 +221,7 @@ dkreadstats(void)
 						last.dk_seek[i] = 0;
 						last.dk_rbytes[i] = 0;
 						last.dk_wbytes[i] = 0;
-						bzero(&last.dk_time[i],
+						memset(&last.dk_time[i], 0,
 						    sizeof(struct timeval));
 						continue;
 					}
@@ -235,32 +235,32 @@ dkreadstats(void)
 					last.dk_time[i] = last.dk_time[j];
 				}
 
-				cur.dk_select = realloc(cur.dk_select,
-				    dk_ndrive * sizeof(*cur.dk_select));
-				cur.dk_rxfer = realloc(cur.dk_rxfer,
-				    dk_ndrive * sizeof(*cur.dk_rxfer));
-				cur.dk_wxfer = realloc(cur.dk_wxfer,
-				    dk_ndrive * sizeof(*cur.dk_wxfer));
-				cur.dk_seek = realloc(cur.dk_seek,
-				    dk_ndrive * sizeof(*cur.dk_seek));
-				cur.dk_rbytes = realloc(cur.dk_rbytes,
-				    dk_ndrive * sizeof(*cur.dk_rbytes));
-				cur.dk_wbytes = realloc(cur.dk_wbytes,
-				    dk_ndrive * sizeof(*cur.dk_wbytes));
-				cur.dk_time = realloc(cur.dk_time,
-				    dk_ndrive * sizeof(*cur.dk_time));
-				last.dk_rxfer = realloc(last.dk_rxfer,
-				    dk_ndrive * sizeof(*last.dk_rxfer));
-				last.dk_wxfer = realloc(last.dk_wxfer,
-				    dk_ndrive * sizeof(*last.dk_wxfer));
-				last.dk_seek = realloc(last.dk_seek,
-				    dk_ndrive * sizeof(*last.dk_seek));
-				last.dk_rbytes = realloc(last.dk_rbytes,
-				    dk_ndrive * sizeof(*last.dk_rbytes));
-				last.dk_wbytes = realloc(last.dk_wbytes,
-				    dk_ndrive * sizeof(*last.dk_wbytes));
-				last.dk_time = realloc(last.dk_time,
-				    dk_ndrive * sizeof(*last.dk_time));
+				cur.dk_select = reallocarray(cur.dk_select,
+				    dk_ndrive, sizeof(*cur.dk_select));
+				cur.dk_rxfer = reallocarray(cur.dk_rxfer,
+				    dk_ndrive, sizeof(*cur.dk_rxfer));
+				cur.dk_wxfer = reallocarray(cur.dk_wxfer,
+				    dk_ndrive, sizeof(*cur.dk_wxfer));
+				cur.dk_seek = reallocarray(cur.dk_seek,
+				    dk_ndrive, sizeof(*cur.dk_seek));
+				cur.dk_rbytes = reallocarray(cur.dk_rbytes,
+				    dk_ndrive, sizeof(*cur.dk_rbytes));
+				cur.dk_wbytes = reallocarray(cur.dk_wbytes,
+				    dk_ndrive, sizeof(*cur.dk_wbytes));
+				cur.dk_time = reallocarray(cur.dk_time,
+				    dk_ndrive, sizeof(*cur.dk_time));
+				last.dk_rxfer = reallocarray(last.dk_rxfer,
+				    dk_ndrive, sizeof(*last.dk_rxfer));
+				last.dk_wxfer = reallocarray(last.dk_wxfer,
+				    dk_ndrive, sizeof(*last.dk_wxfer));
+				last.dk_seek = reallocarray(last.dk_seek,
+				    dk_ndrive, sizeof(*last.dk_seek));
+				last.dk_rbytes = reallocarray(last.dk_rbytes,
+				    dk_ndrive, sizeof(*last.dk_rbytes));
+				last.dk_wbytes = reallocarray(last.dk_wbytes,
+				    dk_ndrive, sizeof(*last.dk_wbytes));
+				last.dk_time = reallocarray(last.dk_time,
+				    dk_ndrive, sizeof(*last.dk_time));
 
 				if (!cur.dk_select || !cur.dk_rxfer ||
 				    !cur.dk_wxfer || !cur.dk_seek ||
@@ -271,32 +271,32 @@ dkreadstats(void)
 				    !last.dk_time)
 					errx(1, "Memory allocation failure.");
 			} else {
-				cur.dk_select = realloc(cur.dk_select,
-				    dk_ndrive * sizeof(*cur.dk_select));
-				cur.dk_rxfer = realloc(cur.dk_rxfer,
-				    dk_ndrive * sizeof(*cur.dk_rxfer));
-				cur.dk_wxfer = realloc(cur.dk_wxfer,
-				    dk_ndrive * sizeof(*cur.dk_wxfer));
-				cur.dk_seek = realloc(cur.dk_seek,
-				    dk_ndrive * sizeof(*cur.dk_seek));
-				cur.dk_rbytes = realloc(cur.dk_rbytes,
-				    dk_ndrive * sizeof(*cur.dk_rbytes));
-				cur.dk_wbytes = realloc(cur.dk_wbytes,
-				    dk_ndrive * sizeof(*cur.dk_wbytes));
-				cur.dk_time = realloc(cur.dk_time,
-				    dk_ndrive * sizeof(*cur.dk_time));
-				last.dk_rxfer = realloc(last.dk_rxfer,
-				    dk_ndrive * sizeof(*last.dk_rxfer));
-				last.dk_wxfer = realloc(last.dk_wxfer,
-				    dk_ndrive * sizeof(*last.dk_wxfer));
-				last.dk_seek = realloc(last.dk_seek,
-				    dk_ndrive * sizeof(*last.dk_seek));
-				last.dk_rbytes = realloc(last.dk_rbytes,
-				    dk_ndrive * sizeof(*last.dk_rbytes));
-				last.dk_wbytes = realloc(last.dk_wbytes,
-				    dk_ndrive * sizeof(*last.dk_wbytes));
-				last.dk_time = realloc(last.dk_time,
-				    dk_ndrive * sizeof(*last.dk_time));
+				cur.dk_select = reallocarray(cur.dk_select,
+				    dk_ndrive, sizeof(*cur.dk_select));
+				cur.dk_rxfer = reallocarray(cur.dk_rxfer,
+				    dk_ndrive, sizeof(*cur.dk_rxfer));
+				cur.dk_wxfer = reallocarray(cur.dk_wxfer,
+				    dk_ndrive, sizeof(*cur.dk_wxfer));
+				cur.dk_seek = reallocarray(cur.dk_seek,
+				    dk_ndrive, sizeof(*cur.dk_seek));
+				cur.dk_rbytes = reallocarray(cur.dk_rbytes,
+				    dk_ndrive, sizeof(*cur.dk_rbytes));
+				cur.dk_wbytes = reallocarray(cur.dk_wbytes,
+				    dk_ndrive, sizeof(*cur.dk_wbytes));
+				cur.dk_time = reallocarray(cur.dk_time,
+				    dk_ndrive, sizeof(*cur.dk_time));
+				last.dk_rxfer = reallocarray(last.dk_rxfer,
+				    dk_ndrive, sizeof(*last.dk_rxfer));
+				last.dk_wxfer = reallocarray(last.dk_wxfer,
+				    dk_ndrive, sizeof(*last.dk_wxfer));
+				last.dk_seek = reallocarray(last.dk_seek,
+				    dk_ndrive, sizeof(*last.dk_seek));
+				last.dk_rbytes = reallocarray(last.dk_rbytes,
+				    dk_ndrive, sizeof(*last.dk_rbytes));
+				last.dk_wbytes = reallocarray(last.dk_wbytes,
+				    dk_ndrive, sizeof(*last.dk_wbytes));
+				last.dk_time = reallocarray(last.dk_time,
+				    dk_ndrive, sizeof(*last.dk_time));
 
 				if (!cur.dk_select || !cur.dk_rxfer ||
 				    !cur.dk_wxfer || !cur.dk_seek ||
@@ -319,7 +319,7 @@ dkreadstats(void)
 						last.dk_seek[i] = 0;
 						last.dk_rbytes[i] = 0;
 						last.dk_wbytes[i] = 0;
-						bzero(&last.dk_time[i],
+						memset(&last.dk_time[i], 0,
 						    sizeof(struct timeval));
 						continue;
 					}
@@ -361,7 +361,7 @@ dkreadstats(void)
 #ifdef	DEBUG
 			warn("could not read hw.diskstats");
 #endif	/* DEBUG */
-			bzero(q, cur.dk_ndrive * sizeof(struct diskstats));
+			memset(q, 0, cur.dk_ndrive * sizeof(struct diskstats));
 		}
 
 		for (i = 0; i < cur.dk_ndrive; i++)	{
@@ -379,7 +379,7 @@ dkreadstats(void)
 		mib[1] = KERN_CPTIME;
 		if (sysctl(mib, 2, cur.cp_time, &size, NULL, 0) < 0) {
 			warn("could not read kern.cp_time");
-			bzero(cur.cp_time, sizeof(cur.cp_time));
+			memset(cur.cp_time, 0, sizeof(cur.cp_time));
 		}
 		size = sizeof(cur.tk_nin);
 		mib[0] = CTL_KERN;
@@ -573,7 +573,7 @@ deref_kptr(void *kptr, void *ptr, size_t len)
 	char buf[128];
 
 	if (kvm_read(kd, (u_long)kptr, ptr, len) != len) {
-		bzero(buf, sizeof(buf));
+		memset(buf, 0, sizeof(buf));
 		snprintf(buf, (sizeof(buf) - 1),
 		     "can't dereference kptr 0x%lx", (u_long)kptr);
 		KVM_ERROR(buf);

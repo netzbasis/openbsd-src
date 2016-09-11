@@ -1,4 +1,4 @@
-/*	$OpenBSD: gs.h,v 1.14 2015/03/27 04:11:25 brynet Exp $	*/
+/*	$OpenBSD: gs.h,v 1.18 2016/05/27 09:18:11 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -55,8 +55,6 @@ typedef enum { KEY_VEOF, KEY_VERASE, KEY_VKILL, KEY_VWERASE } scr_keyval_t;
  * Structure that describes global state of the running program.
  */
 struct _gs {
-	char	*progname;		/* Programe name. */
-
 	int	 id;			/* Last allocated screen id. */
 	TAILQ_HEAD(_dqh, _scr) dq;	/* Displayed screens. */
 	TAILQ_HEAD(_hqh, _scr) hq;	/* Hidden screens. */
@@ -74,7 +72,6 @@ struct _gs {
 #define	GO_TERM		3		/* Global options: terminal type. */
 	OPTION	 opts[GO_TERM + 1];
 
-	DB	*msg;			/* Message catalog DB. */
 	MSGH	 msgq;			/* User message list. */
 #define	DEFAULT_NOPRINT	'\1'		/* Emergency non-printable character. */
 	CHAR_T	 noprint;		/* Cached, unprintable character. */

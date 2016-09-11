@@ -1,10 +1,10 @@
-/*	$OpenBSD: rtadvd.h,v 1.17 2014/01/07 14:58:40 gsoares Exp $	*/
+/*	$OpenBSD: rtadvd.h,v 1.27 2016/08/20 15:05:52 jca Exp $	*/
 /*	$KAME: rtadvd.h,v 1.20 2002/05/29 10:13:10 itojun Exp $	*/
 
 /*
  * Copyright (C) 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -34,9 +34,6 @@
 
 #define ALLNODES "ff02::1"
 #define ALLROUTERS_LINK "ff02::2"
-#define ALLROUTERS_SITE "ff05::2"
-#define ANY "::"
-#define RTSOLLEN 8
 
 /* protocol constants and default values */
 #define DEF_MAXRTRADVINTERVAL 600
@@ -47,16 +44,12 @@
 #define DEF_ADVVALIDLIFETIME 2592000
 #define DEF_ADVPREFERREDLIFETIME 604800
 
-/*XXX int-to-double comparison for INTERVAL items */
-#define mobileip6 0
-
+/* XXX int-to-double comparison for INTERVAL items */
 #define MAXROUTERLIFETIME 9000
-#define MIN_MAXINTERVAL (mobileip6 ? 1.5 : 4.0)
+#define MIN_MAXINTERVAL 4.0
 #define MAX_MAXINTERVAL 1800
-#define MIN_MININTERVAL	(mobileip6 ? 0.05 : 3.0)
+#define MIN_MININTERVAL	3.0
 #define MAXREACHABLETIME 3600000
-
-#undef miobileip6
 
 #define MAX_INITIAL_RTR_ADVERT_INTERVAL  16
 #define MAX_INITIAL_RTR_ADVERTISEMENTS    3
@@ -68,6 +61,11 @@
 #define PREFIX_FROM_CONFIG 2
 #define PREFIX_FROM_DYNAMIC 3
 
+struct rtadvd_timer {
+	struct event ev;
+	struct timeval tm;
+};
+
 struct prefix {
 	TAILQ_ENTRY(prefix) entry;
 
@@ -78,7 +76,7 @@ struct prefix {
 	u_int onlinkflg;	/* bool: AdvOnLinkFlag */
 	u_int autoconfflg;	/* bool: AdvAutonomousFlag */
 	int prefixlen;
-	int origin;		/* from kernel or cofig */
+	int origin;		/* from kernel or config */
 	struct in6_addr prefix;
 };
 
@@ -121,20 +119,15 @@ struct dnssl {
 	TAILQ_HEAD(dnssldomlist, dnssldom) dnssldoms;
 };
 
-struct soliciter {
-	SLIST_ENTRY(soliciter) entry;
-	struct sockaddr_in6 addr;
-};
-
 struct	rainfo {
 	/* pointer for list */
 	SLIST_ENTRY(rainfo) entry;
 
 	/* timer related parameters */
-	struct rtadvd_timer *timer;
-	int initcounter; /* counter for the first few advertisements */
+	struct rtadvd_timer timer;
+	unsigned int initcounter; /* counter for the first few advertisements */
 	struct timeval lastsent; /* timestamp when the latest RA was sent */
-	int waiting;		/* number of RS waiting for RA */
+	unsigned int waiting;	/* number of RS waiting for RA */
 
 	/* interface information */
 	int	ifindex;
@@ -157,12 +150,9 @@ struct	rainfo {
 	TAILQ_HEAD(prefixlist, prefix) prefixes; /* AdvPrefixList(link head) */
 	int	pfxs;		/* number of prefixes */
 	TAILQ_HEAD(rtinfolist, rtinfo) rtinfos;
-	int     rtinfocnt;
 	TAILQ_HEAD(rdnsslist, rdnss) rdnsss; /* advertised recursive dns servers */
-	int	rdnsscnt;	/* number of rdnss entries */
 	TAILQ_HEAD(dnssllist, dnssl) dnssls;
-	int	dnsslcnt;
-	long	clockskew;	/* used for consisitency check of lifetimes */
+	long	clockskew;	/* used for consistency check of lifetimes */
 
 
 	/* actual RA packet data and its length */
@@ -170,21 +160,13 @@ struct	rainfo {
 	u_char *ra_data;
 
 	/* statistics */
-	u_quad_t raoutput;	/* number of RAs sent */
-	u_quad_t rainput;	/* number of RAs received */
-	u_quad_t rainconsistent; /* number of RAs inconsistent with ours */
-	u_quad_t rsinput;	/* number of RSs received */
-
-	/* info about soliciter */
-	SLIST_HEAD(, soliciter) soliciters; /* recent solication source */
+	uint64_t raoutput;	/* number of RAs sent */
+	uint64_t rainput;	/* number of RAs received */
+	uint64_t rainconsistent; /* number of RAs inconsistent with ours */
+	uint64_t rsinput;	/* number of RSs received */
 };
 SLIST_HEAD(ralist, rainfo);
 
-void ra_timeout(void *);
-void ra_timer_update(void *, struct timeval *);
+void ra_timer_update(struct rainfo *);
 
-int prefix_match(struct in6_addr *, int, struct in6_addr *, int);
-struct rainfo *if_indextorainfo(int);
 struct prefix *find_prefix(struct rainfo *, struct in6_addr *, int);
-
-extern struct in6_addr in6a_site_allrouters;

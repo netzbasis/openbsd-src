@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.24 2015/09/02 01:52:26 yasuoka Exp $
+#	$OpenBSD: Makefile,v 1.27 2016/09/10 16:38:16 jsing Exp $
 
 MAN=	pxeboot.8
 
@@ -10,7 +10,7 @@ PROG=	pxeboot
 SRCS=	srt0.S conf.c devopen.c open.c
 LD?=	ld
 SIZE?=	size
-LDFLAGS+=-nostdlib -Bstatic -Ttext $(LINKADDR) -N -x -nopie
+LDFLAGS+=-nostdlib -Bstatic -Ttext $(LINKADDR) -N -x -nopie -znorelro
 LDFLAGS+=-melf_i386 -L/usr/libdata
 INSTALL_STRIP=
 BINMODE=644
@@ -27,10 +27,11 @@ SRCS+=	softraid.c
 SRCS+=	boot.c cmd.c vars.c bootarg.c
 
 .PATH:	${S}/lib/libsa
-SRCS+=	alloc.c exit.c getchar.c getfile.c gets.c globals.c putchar.c strcmp.c \
-	strlen.c strncmp.c memcmp.c memcpy.c memset.c printf.c snprintf.c \
-	strerror.c strncpy.c strtol.c strtoll.c ctime.c strlcpy.c strlcat.c
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pbkdf2.c rijndael.c sha1.c
+SRCS+=	alloc.c exit.c getchar.c getfile.c getln.c globals.c putchar.c \
+	strcmp.c strlen.c strncmp.c memcmp.c memcpy.c memset.c printf.c \
+	snprintf.c strerror.c strncpy.c strtol.c strtoll.c ctime.c strlcpy.c \
+	strlcat.c
+SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c
 
 SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fstat.c ioctl.c lseek.c \
 	read.c stat.c write.c cread.c readdir.c cons.c loadfile.c \

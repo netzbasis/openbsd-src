@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.42 2014/01/23 00:39:15 deraadt Exp $	*/
+/*	$OpenBSD: extern.h,v 1.44 2016/08/20 20:18:42 millert Exp $	*/
 /*	$NetBSD: extern.h,v 1.17 1997/08/18 10:20:19 lukem Exp $	*/
 
 /*
@@ -75,6 +75,7 @@ void	cmdabort(int);
 void	cmdscanner(int);
 int	command(const char *, ...);
 int	confirm(const char *, const char *);
+int	connect_wait(int);
 FILE   *dataconn(const char *);
 int	foregroundproc(void);
 int	fileindir(const char *, const char *);

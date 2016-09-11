@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.73 2015/11/02 16:31:55 semarie Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.78 2016/05/24 16:09:07 deraadt Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -193,7 +193,7 @@ check_pty(int minor)
 	if (!pt_softc[minor]) {
 		pti = malloc(sizeof(struct pt_softc), M_DEVBUF,
 		    M_WAITOK|M_ZERO);
-		pti->pt_tty = ttymalloc(0);
+		pti->pt_tty = ttymalloc(1000000);
 		ptydevname(minor, pti);
 		pt_softc[minor] = pti;
 	}
@@ -223,7 +223,6 @@ ptyattach(int n)
 	ptmattach(1);
 }
 
-/*ARGSUSED*/
 int
 ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 {
@@ -236,7 +235,7 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 
 	pti = pt_softc[minor(dev)];
 	if (!pti->pt_tty) {
-		tp = pti->pt_tty = ttymalloc(0);
+		tp = pti->pt_tty = ttymalloc(1000000);
 	} else
 		tp = pti->pt_tty;
 	if ((tp->t_state & TS_ISOPEN) == 0) {
@@ -246,7 +245,7 @@ ptsopen(dev_t dev, int flag, int devtype, struct proc *p)
 		tp->t_oflag = TTYDEF_OFLAG;
 		tp->t_lflag = TTYDEF_LFLAG;
 		tp->t_cflag = TTYDEF_CFLAG;
-		tp->t_ispeed = tp->t_ospeed = TTYDEF_SPEED;
+		tp->t_ispeed = tp->t_ospeed = B115200;
 		ttsetwater(tp);		/* would be done in xxparam() */
 	} else if (tp->t_state&TS_XCLUDE && suser(p, 0) != 0)
 		return (EBUSY);
@@ -401,7 +400,6 @@ ptcwakeup(struct tty *tp, int flag)
 
 int ptcopen(dev_t, int, int, struct proc *);
 
-/*ARGSUSED*/
 int
 ptcopen(dev_t dev, int flag, int devtype, struct proc *p)
 {
@@ -414,7 +412,7 @@ ptcopen(dev_t dev, int flag, int devtype, struct proc *p)
 
 	pti = pt_softc[minor(dev)];
 	if (!pti->pt_tty) {
-		tp = pti->pt_tty = ttymalloc(0);
+		tp = pti->pt_tty = ttymalloc(1000000);
 	} else
 		tp = pti->pt_tty;
 	if (tp->t_oproc)
@@ -428,7 +426,6 @@ ptcopen(dev_t dev, int flag, int devtype, struct proc *p)
 	return (0);
 }
 
-/*ARGSUSED*/
 int
 ptcclose(dev_t dev, int flag, int devtype, struct proc *p)
 {
@@ -464,7 +461,7 @@ ptcread(dev_t dev, struct uio *uio, int flag)
 				if (pti->pt_send & TIOCPKT_IOCTL) {
 					cc = MIN(uio->uio_resid,
 						sizeof(tp->t_termios));
-					error = uiomovei(&tp->t_termios, cc, uio);
+					error = uiomove(&tp->t_termios, cc, uio);
 					if (error)
 						return (error);
 				}
@@ -499,7 +496,7 @@ ptcread(dev_t dev, struct uio *uio, int flag)
 			bufcc = cc;
 		if (cc <= 0)
 			break;
-		error = uiomovei(buf, cc, uio);
+		error = uiomove(buf, cc, uio);
 	}
 	ttwakeupwr(tp);
 	if (bufcc)
@@ -532,7 +529,7 @@ again:
 				if (cc > bufcc)
 					bufcc = cc;
 				cp = buf;
-				error = uiomovei(cp, cc, uio);
+				error = uiomove(cp, cc, uio);
 				if (error)
 					goto done;
 				/* check again for safety */
@@ -556,7 +553,7 @@ again:
 			if (cc > bufcc)
 				bufcc = cc;
 			cp = buf;
-			error = uiomovei(cp, cc, uio);
+			error = uiomove(cp, cc, uio);
 			if (error)
 				goto done;
 			/* check again for safety */
@@ -762,7 +759,6 @@ ptytty(dev_t dev)
 	return (tp);
 }
 
-/*ARGSUSED*/
 int
 ptyioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 {
@@ -915,34 +911,10 @@ int
 sysctl_pty(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen)
 {
-	int error, oldmax;
-
 	if (namelen != 1)
 		return (ENOTDIR);
 
 	switch (name[0]) {
-	case KERN_TTY_MAXPTYS:
-		if (!newp)
-			return (sysctl_rdint(oldp, oldlenp, newp, maxptys));
-		rw_enter_write(&pt_softc_lock);
-		oldmax = maxptys;
-		error = sysctl_int(oldp, oldlenp, newp, newlen, &maxptys);
-		/*
-		 * We can't set the max lower than the current active
-		 * value or to a value bigger than NPTY_MAX.
-		 */
-		if (error == 0 && (maxptys > NPTY_MAX || maxptys < npty)) {
-			maxptys = oldmax;
-			error = ERANGE;
-		}
-		rw_exit_write(&pt_softc_lock);
-		return (error);
-	case KERN_TTY_NPTYS:
-		return (sysctl_rdint(oldp, oldlenp, newp, npty));
-#ifdef notyet
-	case KERN_TTY_GID:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &tty_gid));
-#endif
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -1116,7 +1088,7 @@ retry:
 		cfp->f_type = DTYPE_VNODE;
 		cfp->f_ops = &vnops;
 		cfp->f_data = (caddr_t) cnd.ni_vp;
-		VOP_UNLOCK(cnd.ni_vp, 0, p);
+		VOP_UNLOCK(cnd.ni_vp, p);
 
 		/*
 		 * Open the slave.
@@ -1150,7 +1122,7 @@ retry:
 				goto bad;
 			}
 		}
-		VOP_UNLOCK(snd.ni_vp, 0, p);
+		VOP_UNLOCK(snd.ni_vp, p);
 		if (snd.ni_vp->v_usecount > 1 ||
 		    (snd.ni_vp->v_flag & (VALIASED)))
 			VOP_REVOKE(snd.ni_vp, REVOKEALL);
@@ -1171,7 +1143,7 @@ retry:
 		sfp->f_type = DTYPE_VNODE;
 		sfp->f_ops = &vnops;
 		sfp->f_data = (caddr_t) snd.ni_vp;
-		VOP_UNLOCK(snd.ni_vp, 0, p);
+		VOP_UNLOCK(snd.ni_vp, p);
 
 		/* now, put the indexen and names into struct ptmget */
 		ptm->cfd = cindx;

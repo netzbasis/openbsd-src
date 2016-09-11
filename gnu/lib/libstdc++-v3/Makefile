@@ -1,5 +1,5 @@
 # $FreeBSD: src/gnu/lib/libstdc++/Makefile,v 1.63.2.1 2009/08/03 08:13:06 kensmith Exp $
-# $OpenBSD: Makefile,v 1.8 2015/05/14 02:56:01 jsg Exp $
+# $OpenBSD: Makefile,v 1.11 2016/09/01 11:03:09 patrick Exp $
 
 .include "${.CURDIR}/Makefile.common"
 
@@ -8,15 +8,15 @@ GCC_TARGET=	${MACHINE_ARCH}-unknown-openbsd${OSREV}
 LIB=		stdc++
 
 CPPFLAGS+=	-DIN_GLIBCPP_V3 -DHAVE_CONFIG_H
-.if ${MACHINE_ARCH} == "arm"
-CPPFLAGS+=	-D_GLIBCXX_SJLJ_EXCEPTIONS=1
-.endif
 CPPFLAGS+=	-I${.CURDIR} -I${SUPDIR} -I${GCCDIR} -I${SRCDIR}/include
 CPPFLAGS+=	-I${GCCLIB}/include -I${SRCDIR}/include -I${.CURDIR}/../libiberty/include -I.
 CFLAGS+=	-frandom-seed=RepeatabilityConsideredGood
 CXXFLAGS+=	-frandom-seed=RepeatabilityConsideredGood
 CXXFLAGS+=	-fno-implicit-templates -ffunction-sections -fdata-sections \
 		-Wno-deprecated
+.if ${MACHINE_ARCH} == "arm"
+CXXFLAGS+=	-fno-stack-protector
+.endif
 
 DPADD=		${LIBM}
 LDADD=		-lm
@@ -35,16 +35,7 @@ SRCS+=	bitmap_allocator.cc pool_allocator.cc \
 	wlocale-inst.cc wstring-inst.cc atomicity.cc \
 	codecvt_members.cc collate_members.cc ctype_members.cc \
 	messages_members.cc monetary_members.cc numeric_members.cc \
-	time_members.cc basic_file_stdio.cc c_locale.cc \
-#	compatibility-ldbl.cc
-
-# target sources
-SRCS+=  atomicity.cc codecvt_members.cc collate_members.cc ctype_members.cc \
-	messages_members.cc monetary_members.cc numeric_members.cc \
-	time_members.cc
-
-# target sources extra
-SRCS+=  basic_file_stdio.cc c_locale.cc
+	time_members.cc basic_file_stdio.cc c_locale.cc
 
 # C parts of math
 SRCS+=	stubs.c

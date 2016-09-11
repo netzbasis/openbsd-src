@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_gif.c,v 1.81 2015/10/25 11:58:11 mpi Exp $	*/
+/*	$OpenBSD: if_gif.c,v 1.85 2016/04/13 11:41:15 mpi Exp $	*/
 /*	$KAME: if_gif.c,v 1.43 2001/02/20 08:51:07 itojun Exp $	*/
 
 /*
@@ -95,7 +95,6 @@ struct gif_softc_head gif_softc_list;
 struct if_clone gif_cloner =
     IF_CLONE_INITIALIZER("gif", gif_clone_create, gif_clone_destroy);
 
-/* ARGSUSED */
 void
 gifattach(int count)
 {
@@ -123,7 +122,6 @@ gif_clone_create(struct if_clone *ifc, int unit)
 	sc->gif_if.if_rtrequest = p2p_rtrequest;
 	sc->gif_if.if_type   = IFT_GIF;
 	IFQ_SET_MAXLEN(&sc->gif_if.if_snd, IFQ_MAXLEN);
-	IFQ_SET_READY(&sc->gif_if.if_snd);
 	sc->gif_if.if_softc = sc;
 	if_attach(&sc->gif_if);
 	if_alloc_sadl(&sc->gif_if);
@@ -165,18 +163,14 @@ gif_start(struct ifnet *ifp)
 {
 	struct gif_softc *sc = (struct gif_softc*)ifp;
 	struct mbuf *m;
-	int s;
 
-	while (1) {
-		s = splnet();
+	for (;;) {
 		IFQ_DEQUEUE(&ifp->if_snd, m);
-		splx(s);
-
 		if (m == NULL)
 			break;
 
 		/* is interface up and usable? */
-		if ((ifp->if_flags & (IFF_OACTIVE | IFF_UP)) != IFF_UP ||
+		if (!(ifp->if_flags & IFF_UP) ||
 		    sc->gif_psrc == NULL || sc->gif_pdst == NULL ||
 		    sc->gif_psrc->sa_family != sc->gif_pdst->sa_family) {
 			m_freem(m);

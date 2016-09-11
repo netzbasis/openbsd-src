@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.172 2015/10/21 07:59:18 mpi Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.176 2016/05/21 00:56:43 deraadt Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -325,6 +325,7 @@ initppc(startkernel, endkernel, args)
 	consinit();
 
         pool_init(&ppc_vecpl, sizeof(struct vreg), 16, 0, 0, "ppcvec", NULL);
+	pool_setipl(&ppc_vecpl, IPL_NONE);
 
 }
 
@@ -480,9 +481,9 @@ sendsig(sig_t catcher, int sig, int mask, u_long code, int type,
 		frame.sf_sip = &fp->sf_si;
 		initsiginfo(&frame.sf_si, sig, code, type, val);
 	}
+	frame.sf_sc.sc_cookie = (long)&fp->sf_sc ^ p->p_p->ps_sigcookie;
 	if (copyout(&frame, fp, sizeof frame) != 0)
 		sigexit(p, SIGILL);
-
 
 	tf->fixreg[1] = (int)fp;
 	tf->lr = (int)catcher;
@@ -507,19 +508,35 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext sc;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf;
 	int error;
 
-	if ((error = copyin(SCARG(uap, sigcntxp), &sc, sizeof sc)))
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
+
+	if ((error = copyin(scp, &ksc, sizeof ksc)))
 		return error;
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
+		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
+
 	tf = trapframe(p);
-	sc.sc_frame.srr1 &= ~PSL_VEC;
-	sc.sc_frame.srr1 |= (tf->srr1 & PSL_VEC);
-	if ((sc.sc_frame.srr1 & PSL_USERSTATIC) != (tf->srr1 & PSL_USERSTATIC))
+	ksc.sc_frame.srr1 &= ~PSL_VEC;
+	ksc.sc_frame.srr1 |= (tf->srr1 & PSL_VEC);
+	if ((ksc.sc_frame.srr1 & PSL_USERSTATIC) != (tf->srr1 & PSL_USERSTATIC))
 		return EINVAL;
-	bcopy(&sc.sc_frame, tf, sizeof *tf);
-	p->p_sigmask = sc.sc_mask & ~sigcantmask;
+	bcopy(&ksc.sc_frame, tf, sizeof *tf);
+	p->p_sigmask = ksc.sc_mask & ~sigcantmask;
 	return EJUSTRETURN;
 }
 

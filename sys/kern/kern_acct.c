@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_acct.c,v 1.29 2014/12/10 02:44:46 tedu Exp $	*/
+/*	$OpenBSD: kern_acct.c,v 1.32 2016/03/19 12:04:15 natano Exp $	*/
 /*	$NetBSD: kern_acct.c,v 1.42 1996/02/04 02:15:12 christos Exp $	*/
 
 /*-
@@ -116,7 +116,7 @@ sys_acct(struct proc *p, void *v, register_t *retval)
 		    p);
 		if ((error = vn_open(&nd, FWRITE|O_APPEND, 0)) != 0)
 			return (error);
-		VOP_UNLOCK(nd.ni_vp, 0, p);
+		VOP_UNLOCK(nd.ni_vp, p);
 		if (nd.ni_vp->v_type != VREG) {
 			vn_close(nd.ni_vp, FWRITE, p->p_ucred, p);
 			return (EACCES);
@@ -279,7 +279,6 @@ acct_start(void)
  * has been vgone()'d out from underneath us, e.g. when the file
  * system containing the accounting file has been forcibly unmounted.
  */
-/* ARGSUSED */
 void
 acct_thread(void *arg)
 {
@@ -293,7 +292,7 @@ acct_thread(void *arg)
 				savacctp = NULL;
 				break;
 			}
-			(void)VFS_STATFS(savacctp->v_mount, &sb, (struct proc *)0);
+			(void)VFS_STATFS(savacctp->v_mount, &sb, NULL);
 			if (sb.f_bavail > acctresume * sb.f_blocks / 100) {
 				acctp = savacctp;
 				savacctp = NULL;
@@ -305,7 +304,7 @@ acct_thread(void *arg)
 				acctp = NULL;
 				break;
 			}
-			(void)VFS_STATFS(acctp->v_mount, &sb, (struct proc *)0);
+			(void)VFS_STATFS(acctp->v_mount, &sb, NULL);
 			if (sb.f_bavail <= acctsuspend * sb.f_blocks / 100) {
 				savacctp = acctp;
 				acctp = NULL;

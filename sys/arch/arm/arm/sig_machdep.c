@@ -1,4 +1,4 @@
-/*	$OpenBSD: sig_machdep.c,v 1.11 2014/03/26 05:23:42 guenther Exp $	*/
+/*	$OpenBSD: sig_machdep.c,v 1.14 2016/05/21 00:56:43 deraadt Exp $	*/
 /*	$NetBSD: sig_machdep.c,v 1.22 2003/10/08 00:28:41 thorpej Exp $	*/
 
 /*
@@ -136,6 +136,7 @@ sendsig(sig_t catcher, int sig, int returnmask, u_long code, int type,
 		initsiginfo(&frame.sf_si, sig, code, type, val);
 	}
 
+	frame.sf_sc.sc_cookie = (long)&fp->sf_sc ^ p->p_p->ps_sigcookie;
 	if (copyout(&frame, fp, sizeof(frame)) != 0) {
 		/*
 		 * Process has trashed its stack; give it an illegal
@@ -182,55 +183,58 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 		syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext *scp, context;
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf;
 
-	/*
-	 * we do a rather scary test in userland
-	 */
-	if (v == NULL)
+	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
+		sigexit(p, SIGILL);
+		return (EPERM);
+	}
+
+	if (copyin(scp, &ksc, sizeof(*scp)) != 0)
 		return (EFAULT);
-	
-	/*
-	 * The trampoline code hands us the context.
-	 * It is unsafe to keep track of it ourselves, in the event that a
-	 * program jumps out of a signal handler.
-	 */
-	scp = SCARG(uap, sigcntxp);
-	if (copyin((caddr_t)scp, &context, sizeof(*scp)) != 0)
+
+	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
+		sigexit(p, SIGILL);
 		return (EFAULT);
+	}
+
+	/* Prevent reuse of the sigcontext cookie */
+	ksc.sc_cookie = 0;
+	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
 	/*
 	 * Make sure the processor mode has not been tampered with and
 	 * interrupts have not been disabled.
 	 */
-	if ((context.sc_spsr & PSR_MODE) != PSR_USR32_MODE ||
-	    (context.sc_spsr & (I32_bit | F32_bit)) != 0)
+	if ((ksc.sc_spsr & PSR_MODE) != PSR_USR32_MODE ||
+	    (ksc.sc_spsr & (PSR_I | PSR_F)) != 0)
 		return (EINVAL);
 
 	/* Restore register context. */
 	tf = process_frame(p);
-	tf->tf_r0    = context.sc_r0;
-	tf->tf_r1    = context.sc_r1;
-	tf->tf_r2    = context.sc_r2;
-	tf->tf_r3    = context.sc_r3;
-	tf->tf_r4    = context.sc_r4;
-	tf->tf_r5    = context.sc_r5;
-	tf->tf_r6    = context.sc_r6;
-	tf->tf_r7    = context.sc_r7;
-	tf->tf_r8    = context.sc_r8;
-	tf->tf_r9    = context.sc_r9;
-	tf->tf_r10   = context.sc_r10;
-	tf->tf_r11   = context.sc_r11;
-	tf->tf_r12   = context.sc_r12;
-	tf->tf_usr_sp = context.sc_usr_sp;
-	tf->tf_usr_lr = context.sc_usr_lr;
-	tf->tf_svc_lr = context.sc_svc_lr;
-	tf->tf_pc    = context.sc_pc;
-	tf->tf_spsr  = context.sc_spsr;
+	tf->tf_r0    = ksc.sc_r0;
+	tf->tf_r1    = ksc.sc_r1;
+	tf->tf_r2    = ksc.sc_r2;
+	tf->tf_r3    = ksc.sc_r3;
+	tf->tf_r4    = ksc.sc_r4;
+	tf->tf_r5    = ksc.sc_r5;
+	tf->tf_r6    = ksc.sc_r6;
+	tf->tf_r7    = ksc.sc_r7;
+	tf->tf_r8    = ksc.sc_r8;
+	tf->tf_r9    = ksc.sc_r9;
+	tf->tf_r10   = ksc.sc_r10;
+	tf->tf_r11   = ksc.sc_r11;
+	tf->tf_r12   = ksc.sc_r12;
+	tf->tf_usr_sp = ksc.sc_usr_sp;
+	tf->tf_usr_lr = ksc.sc_usr_lr;
+	tf->tf_svc_lr = ksc.sc_svc_lr;
+	tf->tf_pc    = ksc.sc_pc;
+	tf->tf_spsr  = ksc.sc_spsr;
 
 	/* Restore signal mask. */
-	p->p_sigmask = context.sc_mask & ~sigcantmask;
+	p->p_sigmask = ksc.sc_mask & ~sigcantmask;
 
 	return (EJUSTRETURN);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: dsdt.c,v 1.218 2015/08/20 20:50:10 kettenis Exp $ */
+/* $OpenBSD: dsdt.c,v 1.224 2016/09/02 13:59:51 pirofti Exp $ */
 /*
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
  *
@@ -289,14 +289,14 @@ _aml_die(const char *fn, int line, const char *fmt, ...)
 			sp = aml_getstack(root, AMLOP_ARG0+idx);
 			if (sp && sp->type) {
 				printf("  arg%d: ", idx);
-				aml_showvalue(sp, 0);
+				aml_showvalue(sp);
 			}
 		}
 		for (idx = 0; idx < AML_MAX_LOCAL; idx++) {
 			sp = aml_getstack(root, AMLOP_LOCAL0+idx);
 			if (sp && sp->type) {
 				printf("  local%d: ", idx);
-				aml_showvalue(sp, 0);
+				aml_showvalue(sp);
 			}
 		}
 	}
@@ -786,7 +786,7 @@ aml_unlockfield(struct aml_scope *scope, struct aml_value *field)
 
 #ifndef SMALL_KERNEL
 void
-aml_showvalue(struct aml_value *val, int lvl)
+aml_showvalue(struct aml_value *val)
 {
 	int idx;
 
@@ -809,7 +809,7 @@ aml_showvalue(struct aml_value *val, int lvl)
 	case AML_OBJTYPE_PACKAGE:
 		printf(" package: %.2x\n", val->length);
 		for (idx = 0; idx < val->length; idx++)
-			aml_showvalue(val->v_package[idx], lvl);
+			aml_showvalue(val->v_package[idx]);
 		break;
 	case AML_OBJTYPE_BUFFER:
 		printf(" buffer: %.2x {", val->length);
@@ -862,7 +862,7 @@ aml_showvalue(struct aml_value *val, int lvl)
 	case AML_OBJTYPE_OBJREF:
 		printf(" objref: %p index:%x opcode:%s\n", val->v_objref.ref,
 		    val->v_objref.index, aml_mnem(val->v_objref.type, 0));
-		aml_showvalue(val->v_objref.ref, lvl);
+		aml_showvalue(val->v_objref.ref);
 		break;
 	default:
 		printf(" !!type: %x\n", val->type);
@@ -1249,26 +1249,26 @@ aml_walknodes(struct aml_node *node, int mode,
 		nodecb(node, arg);
 }
 
-int
+void
 aml_find_node(struct aml_node *node, const char *name,
     int (*cbproc)(struct aml_node *, void *arg), void *arg)
 {
+	struct aml_node *child;
 	const char *nn;
-	int st = 0;
 
-	while (node) {
-		if ((nn = node->name) != NULL) {
+	SIMPLEQ_FOREACH(child, &node->son, sib) {
+		nn = child->name;
+		if ((nn = child->name) != NULL) {
 			if (*nn == AMLOP_ROOTCHAR) nn++;
 			while (*nn == AMLOP_PARENTPREFIX) nn++;
-			if (!strcmp(name, nn))
-				st = cbproc(node, arg);
+			if (strcmp(name, nn) == 0) {
+				/* Only recurse if cbproc() wants us to */
+				if (cbproc(child, arg) == 0)
+					continue;
+			}
 		}
-		/* Only recurse if cbproc() wants us to */
-		if (!st)
-			aml_find_node(SIMPLEQ_FIRST(&node->son), name, cbproc, arg);
-		node = SIMPLEQ_NEXT(node, sib);
+		aml_find_node(child, name, cbproc, arg);
 	}
-	return st;
 }
 
 /*
@@ -1479,15 +1479,20 @@ char *aml_valid_osi[] = {
 	"Windows 2000",
 	"Windows 2001",
 	"Windows 2001.1",
+	"Windows 2001.1 SP1",
 	"Windows 2001 SP0",
 	"Windows 2001 SP1",
 	"Windows 2001 SP2",
 	"Windows 2001 SP3",
 	"Windows 2001 SP4",
 	"Windows 2006",
+	"Windows 2006.1",
+	"Windows 2006 SP1",
+	"Windows 2006 SP2",
 	"Windows 2009",
 	"Windows 2012",
 	"Windows 2013",
+	"Windows 2015",
 	NULL
 };
 
@@ -1627,7 +1632,7 @@ aml_parse_resource(struct aml_value *res,
 		crs = (union acpi_resource *)(res->v_buffer+off);
 
 		rlen = AML_CRSLEN(crs);
-		if (crs->hdr.typecode == 0x79 || !rlen)
+		if (crs->hdr.typecode == SRT_ENDTAG || !rlen)
 			break;
 
 		crs = aml_mapresource(crs);
@@ -1850,14 +1855,14 @@ aml_showstack(struct aml_scope *scope)
 		sp = aml_getstack(scope, AMLOP_ARG0+idx);
 		if (sp && sp->type) {
 			dnprintf(10," Arg%d: ", idx);
-			aml_showvalue(sp, 10);
+			aml_showvalue(sp);
 		}
 	}
 	for (idx=0; scope->locals && idx<8; idx++) {
 		sp = aml_getstack(scope, AMLOP_LOCAL0+idx);
 		if (sp && sp->type) {
 			dnprintf(10," Local%d: ", idx);
-			aml_showvalue(sp, 10);
+			aml_showvalue(sp);
 		}
 	}
 }
@@ -2065,7 +2070,7 @@ aml_convert(struct aml_value *a, int ctype, int clen)
 	}
 	if (c == NULL) {
 #ifndef SMALL_KERNEL
-		aml_showvalue(a, 0);
+		aml_showvalue(a);
 #endif
 		aml_die("Could not convert %x to %x\n", a->type, ctype);
 	}
@@ -2149,7 +2154,7 @@ aml_concatres(struct aml_value *a1, struct aml_value *a2)
 {
 	struct aml_value *c;
 	int l1 = 0, l2 = 0, l3 = 2;
-	uint8_t a3[] = { 0x79, 0x00 };
+	uint8_t a3[] = { SRT_ENDTAG, 0x00 };
 
 	if (a1->type != AML_OBJTYPE_BUFFER || a2->type != AML_OBJTYPE_BUFFER)
 		aml_die("concatres: not buffers\n");
@@ -2201,6 +2206,7 @@ aml_evalhid(struct aml_node *node, struct aml_value *val)
 }
 
 void aml_rwgas(struct aml_value *, int, int, struct aml_value *, int, int);
+void aml_rwgpio(struct aml_value *, int, int, struct aml_value *, int, int);
 void aml_rwindexfield(struct aml_value *, struct aml_value *val, int);
 void aml_rwfield(struct aml_value *, int, int, struct aml_value *, int);
 
@@ -2327,6 +2333,37 @@ aml_rwgas(struct aml_value *rgn, int bpos, int blen, struct aml_value *val,
 }
 
 void
+aml_rwgpio(struct aml_value *conn, int bpos, int blen, struct aml_value *val,
+    int mode, int flag)
+{
+	union acpi_resource *crs = (union acpi_resource *)conn->v_buffer;
+	struct aml_node *node;
+	uint16_t pin;
+	int v = 0;
+
+	if (conn->type != AML_OBJTYPE_BUFFER || conn->length < 5 ||
+	    AML_CRSTYPE(crs) != LR_GPIO || AML_CRSLEN(crs) > conn->length)
+		aml_die("Invalid GpioIo");
+	if (bpos != 0 || blen != 1)
+		aml_die("Invalid GpioIo access");
+
+	node = aml_searchname(conn->node,
+	    (char *)&crs->pad[crs->lr_gpio.res_off]);
+	pin = *(uint16_t *)&crs->pad[crs->lr_gpio.pin_off];
+
+	if (node == NULL || node->gpio == NULL)
+		aml_die("Could not find GpioIo pin");
+
+	if (mode == ACPI_IOWRITE) {
+		v = aml_val2int(val);
+		node->gpio->write_pin(node->gpio->cookie, pin, v);
+	} else {
+		v = node->gpio->read_pin(node->gpio->cookie, pin);
+		_aml_setvalue(val, AML_OBJTYPE_INTEGER, v, NULL);
+	}
+}
+
+void
 aml_rwindexfield(struct aml_value *fld, struct aml_value *val, int mode)
 {
 	struct aml_value tmp, *ref1, *ref2;
@@ -2422,8 +2459,22 @@ aml_rwfield(struct aml_value *fld, int bpos, int blen, struct aml_value *val,
 		aml_rwgas(ref1, fld->v_field.bitpos, fld->v_field.bitlen,
 		    val, mode, fld->v_field.flags);
 	} else if (fld->v_field.type == AMLOP_FIELD) {
-		aml_rwgas(ref1, fld->v_field.bitpos + bpos, blen, val, mode,
-		    fld->v_field.flags);
+		switch (ref1->v_opregion.iospace) {
+		case ACPI_OPREG_GPIO:
+			aml_rwgpio(ref2, bpos, blen, val, mode,
+			    fld->v_field.flags);
+			break;
+		case ACPI_OPREG_SYSMEM:
+		case ACPI_OPREG_SYSIO:
+		case ACPI_OPREG_PCICFG:
+		case ACPI_OPREG_EC:
+			aml_rwgas(ref1, fld->v_field.bitpos + bpos, blen,
+			    val, mode, fld->v_field.flags);
+			break;
+		default:
+			aml_die("Unsupported RegionSpace");
+			break;
+		}
 	} else if (mode == ACPI_IOREAD) {
 		/* bufferfield:read */
 		_aml_setvalue(val, AML_OBJTYPE_INTEGER, 0, 0);
@@ -2493,6 +2544,7 @@ void
 aml_parsefieldlist(struct aml_scope *mscope, int opcode, int flags,
     struct aml_value *data, struct aml_value *index, int indexval)
 {
+	struct aml_value *conn = NULL;
 	struct aml_value *rv;
 	int bpos, blen;
 
@@ -2501,20 +2553,28 @@ aml_parsefieldlist(struct aml_scope *mscope, int opcode, int flags,
 	bpos = 0;
 	while (mscope->pos < mscope->end) {
 		switch (*mscope->pos) {
-		case 0x00: // reserved, length
+		case 0x00: /* reserved, length */
 			mscope->pos++;
 			blen = aml_parselength(mscope);
 			break;
-		case 0x01: // flags
+		case 0x01: /* flags */
 			mscope->pos += 3;
 			blen = 0;
 			break;
-		default: // 4-byte name, length
+		case 0x02: /* connection */
+			mscope->pos++;
+			blen = 0;
+			conn = aml_parse(mscope, 'o', "Connection");
+			if (conn == NULL)
+				aml_die("Could not parse connection");
+			conn->node = mscope->node;
+			break;
+		default: /* 4-byte name, length */
 			mscope->pos = aml_parsename(mscope->node, mscope->pos,
 			    &rv, 1);
 			blen = aml_parselength(mscope);
-			aml_createfield(rv, opcode, data, bpos, blen, index,
-				indexval, flags);
+			aml_createfield(rv, opcode, data, bpos, blen,
+			    conn ? conn : index, indexval, flags);
 			aml_delref(&rv, 0);
 			break;
 		}
@@ -3114,7 +3174,7 @@ aml_eval(struct aml_scope *scope, struct aml_value *my_ret, int ret_type,
 		dnprintf(10,"\n--==Finished evaluating method: %s %c\n",
 		    aml_nodename(tmp->node), ret_type);
 #ifdef ACPI_DEBUG
-		aml_showvalue(my_ret, 0);
+		aml_showvalue(my_ret);
 		aml_showstack(ms);
 #endif
 		aml_popscope(ms);
@@ -3129,7 +3189,7 @@ aml_eval(struct aml_scope *scope, struct aml_value *my_ret, int ret_type,
 	}
 	if (ret_type == 'i' && my_ret && my_ret->type != AML_OBJTYPE_INTEGER) {
 #ifndef SMALL_KERNEL
-		aml_showvalue(my_ret, 8-100);
+		aml_showvalue(my_ret);
 #endif
 		aml_die("Not Integer");
 	}
@@ -3665,7 +3725,7 @@ aml_parse(struct aml_scope *scope, int ret_type, const char *stype)
 		idx = opargs[1]->v_integer;
 		if (idx >= opargs[0]->length || idx < 0) {
 #ifndef SMALL_KERNEL
-			aml_showvalue(opargs[0], 0);
+			aml_showvalue(opargs[0]);
 #endif
 			aml_die("Index out of bounds %d/%d\n", idx,
 			    opargs[0]->length);

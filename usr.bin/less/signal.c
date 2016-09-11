@@ -17,8 +17,9 @@
  * signals need processing by calling psignal().
  */
 
-#include "less.h"
 #include <signal.h>
+
+#include "less.h"
 
 /*
  * "sigs" contains bits indicating signals which need to be processed.
@@ -35,7 +36,6 @@ extern long jump_sline_fraction;
 /*
  * Interrupt signal handler.
  */
-/* ARGSUSED */
 static void
 u_interrupt(int type)
 {
@@ -45,7 +45,6 @@ u_interrupt(int type)
 /*
  * "Stop" (^Z) signal handler.
  */
-/* ARGSUSED */
 static void
 stop(int type)
 {
@@ -55,7 +54,6 @@ stop(int type)
 /*
  * "Window" change handler
  */
-/* ARGSUSED */
 void
 sigwinch(int type)
 {
@@ -107,7 +105,7 @@ psignals(void)
 		lsignal(SIGTTOU, SIG_IGN);
 		clear_bot();
 		deinit();
-		flush();
+		flush(0);
 		raw_mode(0);
 		lsignal(SIGTTOU, SIG_DFL);
 		lsignal(SIGTSTP, SIG_DFL);

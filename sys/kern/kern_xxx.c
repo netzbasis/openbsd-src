@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_xxx.c,v 1.28 2015/03/14 03:38:50 jsg Exp $	*/
+/*	$OpenBSD: kern_xxx.c,v 1.30 2016/09/03 14:46:56 naddy Exp $	*/
 /*	$NetBSD: kern_xxx.c,v 1.32 1996/04/22 01:38:41 christos Exp $	*/
 
 /*
@@ -40,7 +40,6 @@
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
 
-/* ARGSUSED */
 int
 sys_reboot(struct proc *p, void *v, register_t *retval)
 {
@@ -65,6 +64,8 @@ __dead void
 reboot(int howto)
 {
 	KASSERT((howto & RB_NOSYNC) || curproc != NULL);
+
+	stop_periodic_resettodr();
 
 	boot(howto);
 	/* NOTREACHED */

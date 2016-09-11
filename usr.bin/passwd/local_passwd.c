@@ -1,4 +1,4 @@
-/*	$OpenBSD: local_passwd.c,v 1.45 2015/10/25 08:39:26 ajacoutot Exp $	*/
+/*	$OpenBSD: local_passwd.c,v 1.52 2016/09/02 18:06:43 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
@@ -44,8 +44,9 @@
 #include <unistd.h>
 #include <util.h>
 #include <login_cap.h>
+#include <readpassphrase.h>
 
-#define UNCHANGED_MSG	"Password unchanged.\n"
+#define UNCHANGED_MSG	"Password unchanged."
 
 static uid_t uid;
 extern int pwd_check(login_cap_t *, char *);
@@ -65,14 +66,14 @@ local_passwd(char *uname, int authenticated)
 	int i, pfd, tfd = -1;
 	int pwflags = _PASSWORD_OMITV7;
 
-	if (!(pw = getpwnam(uname))) {
-#ifdef YP
-		extern int use_yp;
-		if (!use_yp)
-#endif
+	if (!(pw = getpwnam_shadow(uname))) {
 		warnx("unknown user %s.", uname);
 		return(1);
 	}
+
+	if (pledge("stdio rpath wpath cpath getpw tty id proc exec", NULL) == -1)
+		err(1, "pledge");
+
 	if ((opw = pw_dup(pw)) == NULL) {
 		warn(NULL);
 		return(1);
@@ -93,9 +94,11 @@ local_passwd(char *uname, int authenticated)
 	/* Get the new password. */
 	pw->pw_passwd = getnewpasswd(pw, lc, authenticated);
 
+	if (pledge("stdio rpath wpath cpath getpw id proc exec", NULL) == -1)
+		err(1, "pledge");
+
 	/* Reset password change time based on login.conf. */
-	period = (time_t)login_getcaptime(lc, "passwordtime",
-	    (quad_t)0, (quad_t)0);
+	period = (time_t)login_getcaptime(lc, "passwordtime", 0, 0);
 	if (period > 0) {
 		pw->pw_change = time(NULL) + period;
 	} else {
@@ -114,6 +117,9 @@ local_passwd(char *uname, int authenticated)
 	sigfillset(&fullset);
 	sigdelset(&fullset, SIGINT);
 	sigprocmask(SIG_BLOCK, &fullset, NULL);
+
+	if (pledge("stdio rpath wpath cpath proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	/* Get a lock on the passwd file and open it. */
 	pw_init();
@@ -146,36 +152,44 @@ char *
 getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 {
 	static char hash[_PASSWORD_LEN];
+	char newpass[1024];
 	char *p, *pref;
 	int tries, pwd_tries;
-	char buf[1024];
 	sig_t saveint, savequit;
 
 	saveint = signal(SIGINT, kbintr);
 	savequit = signal(SIGQUIT, kbintr);
 
 	if (!authenticated) {
-		(void)printf("Changing local password for %s.\n", pw->pw_name);
+		(void)printf("Changing password for %s.\n", pw->pw_name);
 		if (uid != 0 && pw->pw_passwd[0] != '\0') {
-			p = getpass("Old password:");
+			char oldpass[1024];
+
+			p = readpassphrase("Old password:", oldpass,
+			    sizeof(oldpass), RPP_ECHO_OFF);
 			if (p == NULL || *p == '\0') {
-				(void)printf(UNCHANGED_MSG);
+				(void)printf("%s\n", UNCHANGED_MSG);
 				pw_abort();
 				exit(p == NULL ? 1 : 0);
 			}
 			if (crypt_checkpass(p, pw->pw_passwd) != 0) {
 				errno = EACCES;
+				explicit_bzero(oldpass, sizeof(oldpass));
 				pw_error(NULL, 1, 1);
 			}
+			explicit_bzero(oldpass, sizeof(oldpass));
 		}
 	}
 
 	pwd_tries = pwd_gettries(lc);
 
-	for (buf[0] = '\0', tries = 0;;) {
-		p = getpass("New password:");
+	for (newpass[0] = '\0', tries = 0;;) {
+		char repeat[1024];
+
+		p = readpassphrase("New password:", newpass, sizeof(newpass),
+		    RPP_ECHO_OFF);
 		if (p == NULL || *p == '\0') {
-			(void)printf(UNCHANGED_MSG);
+			(void)printf("%s\n", UNCHANGED_MSG);
 			pw_abort();
 			exit(p == NULL ? 1 : 0);
 		}
@@ -187,30 +201,31 @@ getnewpasswd(struct passwd *pw, login_cap_t *lc, int authenticated)
 		if ((tries++ < pwd_tries || pwd_tries == 0) &&
 		    pwd_check(lc, p) == 0)
 			continue;
-		strlcpy(buf, p, sizeof(buf));
-		p = getpass("Retype new password:");
-		if (p != NULL && strcmp(buf, p) == 0)
+		p = readpassphrase("Retype new password:", repeat, sizeof(repeat),
+		    RPP_ECHO_OFF);
+		if (p != NULL && strcmp(newpass, p) == 0)
 			break;
 		(void)printf("Mismatch; try again, EOF to quit.\n");
+		explicit_bzero(newpass, sizeof(newpass));
 	}
 
 	(void)signal(SIGINT, saveint);
 	(void)signal(SIGQUIT, savequit);
 
 	pref = login_getcapstr(lc, "localcipher", NULL, NULL);
-	if (crypt_newhash(buf, pref, hash, sizeof(hash)) != 0) {
+	if (crypt_newhash(newpass, pref, hash, sizeof(hash)) != 0) {
 		(void)printf("Couldn't generate hash.\n");
+		explicit_bzero(newpass, sizeof(newpass));
 		pw_error(NULL, 0, 0);
 	}
+	explicit_bzero(newpass, sizeof(newpass));
 	free(pref);
 	return hash;
 }
 
-/* ARGSUSED */
 void
 kbintr(int signo)
 {
-	write(STDOUT_FILENO, "\n", 1);
-	write(STDOUT_FILENO, UNCHANGED_MSG, sizeof(UNCHANGED_MSG) - 1);
+	dprintf(STDOUT_FILENO, "\n%s\n", UNCHANGED_MSG);
 	_exit(0);
 }

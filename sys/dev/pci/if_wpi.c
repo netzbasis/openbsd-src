@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_wpi.c,v 1.130 2015/11/04 12:11:59 dlg Exp $	*/
+/*	$OpenBSD: if_wpi.c,v 1.135 2016/09/05 08:18:40 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2006-2008
@@ -27,6 +27,7 @@
 #include <sys/sockio.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -48,7 +49,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -279,6 +279,8 @@ wpi_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_caps =
 	    IEEE80211_C_WEP |		/* WEP */
 	    IEEE80211_C_RSN |		/* WPA/RSN */
+	    IEEE80211_C_SCANALL |	/* device scans all channels at once */
+	    IEEE80211_C_SCANALLBAND |	/* driver scans all bands at once */
 	    IEEE80211_C_MONITOR |	/* monitor mode supported */
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE |	/* short preamble supported */
@@ -300,7 +302,6 @@ wpi_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = wpi_ioctl;
 	ifp->if_start = wpi_start;
 	ifp->if_watchdog = wpi_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -323,6 +324,7 @@ wpi_attach(struct device *parent, struct device *self, void *aux)
 	wpi_radiotap_attach(sc);
 #endif
 	timeout_set(&sc->calib_to, wpi_calib_timeout, sc);
+	rw_init(&sc->sc_rwlock, "wpilock");
 	task_set(&sc->init_task, wpi_init_task, sc);
 	return;
 
@@ -421,17 +423,14 @@ wpi_init_task(void *arg1)
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int s;
 
+	rw_enter_write(&sc->sc_rwlock);
 	s = splnet();
-	while (sc->sc_flags & WPI_FLAG_BUSY)
-		tsleep(&sc->sc_flags, 0, "wpipwr", 0);
-	sc->sc_flags |= WPI_FLAG_BUSY;
 
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
 		wpi_init(ifp);
 
-	sc->sc_flags &= ~WPI_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -1373,8 +1372,8 @@ wpi_tx_done(struct wpi_softc *sc, struct wpi_rx_desc *desc)
 	sc->sc_tx_timer = 0;
 	if (--ring->queued < WPI_TX_RING_LOMARK) {
 		sc->qfullmsk &= ~(1 << ring->qid);
-		if (sc->qfullmsk == 0 && (ifp->if_flags & IFF_OACTIVE)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (sc->qfullmsk == 0 && ifq_is_oactive(&ifp->if_snd)) {
+			ifq_clr_oactive(&ifp->if_snd);
 			(*ifp->if_start)(ifp);
 		}
 	}
@@ -1896,12 +1895,12 @@ wpi_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->qfullmsk != 0) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* Send pending management frames first. */
@@ -1968,18 +1967,10 @@ wpi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr;
 	int s, error = 0;
 
-	s = splnet();
-	/*
-	 * Prevent processes from entering this function while another
-	 * process is tsleep'ing in it.
-	 */
-	while ((sc->sc_flags & WPI_FLAG_BUSY) && error == 0)
-		error = tsleep(&sc->sc_flags, PCATCH, "wpiioc", 0);
-	if (error != 0) {
-		splx(s);
+	error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+	if (error)
 		return error;
-	}
-	sc->sc_flags |= WPI_FLAG_BUSY;
+	s = splnet();
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -2034,9 +2025,8 @@ wpi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 	}
 
-	sc->sc_flags &= ~WPI_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 	return error;
 }
 
@@ -3310,7 +3300,7 @@ wpi_init(struct ifnet *ifp)
 		goto fail;
 	}
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
@@ -3331,7 +3321,8 @@ wpi_stop(struct ifnet *ifp, int disable)
 	struct ieee80211com *ic = &sc->sc_ic;
 
 	ifp->if_timer = sc->sc_tx_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* In case we were scanning, release the scan "lock". */
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;

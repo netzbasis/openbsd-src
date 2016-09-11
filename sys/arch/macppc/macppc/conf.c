@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.63 2015/10/23 15:10:52 claudio Exp $ */
+/*	$OpenBSD: conf.c,v 1.67 2016/09/04 10:51:24 naddy Exp $ */
 
 /*
  * Copyright (c) 1997 Per Fogelstrom
@@ -58,7 +58,7 @@ struct bdevsw bdevsw[] = {
 	bdev_disk_init(NSD,sd),		/* 2 SCSI Disk */
 	bdev_disk_init(NCD,cd),		/* 3 SCSI CD-ROM */
 	bdev_notdef(),			/* 4 unknown*/
-	bdev_tape_init(NST,st),		/* 5 SCSI tape */
+	bdev_notdef(),			/* 5 was: SCSI tape */
 	bdev_notdef(),			/* 6 unknown*/
 	bdev_notdef(),			/* 7 unknown*/
 	bdev_notdef(),			/* 8 */
@@ -117,8 +117,6 @@ cdev_decl(pci);
 
 #include "pf.h"
 
-#include "systrace.h"
-
 #include "radio.h"
 #include "bktr.h"
 #include "hotplug.h"
@@ -127,6 +125,7 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct cdevsw cdevsw[] = {
 	cdev_cn_init(1,cn),		/* 0: virtual console */
@@ -179,7 +178,7 @@ struct cdevsw cdevsw[] = {
 	cdev_notdef(),			/* 47: was: /dev/crypto */
 	cdev_notdef(),			/* 48 */
 	cdev_notdef(),			/* 49 */
-	cdev_systrace_init(NSYSTRACE,systrace),	/* 50 system call tracing */
+	cdev_notdef(),			/* 50 */
 	cdev_notdef(),			/* 51 */
 	cdev_midi_init(NMIDI,midi),	/* 52: MIDI I/O */
 	cdev_notdef(),			/* 53 was: sequencer I/O */
@@ -226,6 +225,7 @@ struct cdevsw cdevsw[] = {
 	cdev_tun_init(NTUN,tap),	/* 86: Ethernet network tunnel */
 	cdev_drm_init(NDRM,drm),	/* 87: drm */
 	cdev_fuse_init(NFUSE,fuse),	/* 88: fuse */
+	cdev_switch_init(NSWITCH,switch), /* 89: switch(4) control interface */
 };
 int nchrdev = nitems(cdevsw);
 
@@ -283,41 +283,6 @@ int chrtoblktbl[] = {
 	/* 17 */	17,		/* rd */
 	/* 18 */	NODEV,
 	/* 19 */	14,		/* vnd */
-	/* 20 */	5,		/* st */
-	/* 21 */	NODEV,
-	/* 22 */	NODEV,
-	/* 23 */	NODEV,
-	/* 24 */	NODEV,
-	/* 25 */	NODEV,
-	/* 26 */	NODEV,
-	/* 27 */	NODEV,
-	/* 28 */	NODEV,
-	/* 29 */	NODEV,
-	/* 30 */	NODEV,
-	/* 31 */	NODEV,
-	/* 32 */	NODEV,
-	/* 33 */	NODEV,
-	/* 34 */	NODEV,
-	/* 35 */	NODEV,
-	/* 36 */	NODEV,
-	/* 37 */	NODEV,
-	/* 38 */	NODEV,
-	/* 39 */	NODEV,
-	/* 40 */	NODEV,
-	/* 41 */	NODEV,
-	/* 42 */	NODEV,
-	/* 43 */	NODEV,
-	/* 44 */	NODEV,
-	/* 45 */	NODEV,
-	/* 46 */	NODEV,
-	/* 47 */	NODEV,
-	/* 48 */	NODEV,
-	/* 49 */	NODEV,
-	/* 50 */	NODEV,
-	/* 51 */	NODEV,
-	/* 52 */	NODEV,
-	/* 53 */	NODEV,
-	/* 54 */	19,		/* raid */
 };
 int nchrtoblktbl = nitems(chrtoblktbl);
 

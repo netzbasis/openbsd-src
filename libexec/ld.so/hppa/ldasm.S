@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.17 2015/09/19 20:56:47 guenther Exp $	*/
+/*	$OpenBSD: ldasm.S,v 1.22 2016/08/28 06:15:32 guenther Exp $	*/
 
 /*
  * Copyright (c) 2004 Michael Shalayeff
@@ -182,6 +182,12 @@ ENTRY(_dl_issetugid,0)
 	nop
 EXIT(_dl_issetugid)
 
+ENTRY(_dl_getthrid,0)
+	SYSCALL(getthrid)
+	bv	r0(rp)
+	nop
+EXIT(_dl_getthrid)
+
 ENTRY(_dl__syscall,0)
 	SYSCALL(__syscall)
 	bv	r0(rp)
@@ -236,23 +242,11 @@ ENTRY(_dl_getdents,0)
 	nop
 EXIT(_dl_getdents)
 
-ENTRY(_dl_gettimeofday,0)
-	SYSCALL(gettimeofday)
-	bv	r0(rp)
-	nop
-EXIT(_dl_gettimeofday)
-
 ENTRY(_dl_readlink,0)
 	SYSCALL(readlink)
 	bv	r0(rp)
 	nop
 EXIT(_dl_readlink)
-
-ENTRY(_dl_lstat,0)
-	SYSCALL(lstat)
-	bv	r0(rp)
-	nop
-EXIT(_dl_lstat)
 
 ENTRY(_dl_getcwd,0)
 	SYSCALL(__getcwd)
@@ -277,5 +271,17 @@ ENTRY(_dl_sendsyslog,0)
 	bv	r0(rp)
 	nop
 EXIT(_dl_sendsyslog)
+
+ENTRY(_dl_set_tcb,0)
+	SYSCALL(__set_tcb)
+	bv	r0(rp)
+	nop
+EXIT(_dl_set_tcb)
+
+ENTRY(_dl_pledge,0)
+	SYSCALL(pledge)
+	bv	r0(rp)
+	nop
+EXIT(_dl_pledge)
 
 	.end

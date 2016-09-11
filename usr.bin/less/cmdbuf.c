@@ -14,10 +14,11 @@
  * Used only by command() and related functions.
  */
 
-#include "less.h"
-#include "cmd.h"
-#include "charset.h"
 #include <sys/stat.h>
+
+#include "charset.h"
+#include "cmd.h"
+#include "less.h"
 
 extern int sc_width;
 extern int utf_mode;
@@ -170,11 +171,11 @@ cmd_step_common(char *p, LWCHAR ch, int len, int *pwidth, int *bswidth)
 	if (len == 1) {
 		pr = prchar((int)ch);
 		if (pwidth != NULL || bswidth != NULL) {
-			int len = strlen(pr);
+			int prlen = strlen(pr);
 			if (pwidth != NULL)
-				*pwidth = len;
+				*pwidth = prlen;
 			if (bswidth != NULL)
-				*bswidth = len;
+				*bswidth = prlen;
 		}
 	} else {
 		pr = prutfchar(ch);
@@ -185,11 +186,11 @@ cmd_step_common(char *p, LWCHAR ch, int len, int *pwidth, int *bswidth)
 				if (bswidth != NULL)
 					*bswidth = 0;
 			} else if (is_ubin_char(ch)) {
-				int len = strlen(pr);
+				int prlen = strlen(pr);
 				if (pwidth != NULL)
-					*pwidth = len;
+					*pwidth = prlen;
 				if (bswidth != NULL)
-					*bswidth = len;
+					*bswidth = prlen;
 			} else {
 				LWCHAR prev_ch = step_char(&p, -1, cmdbuf);
 				if (is_combining_char(prev_ch, ch)) {
@@ -918,13 +919,8 @@ init_compl(void)
 	char *word;
 	char c;
 
-	/*
-	 * Get rid of any previous tk_text.
-	 */
-	if (tk_text != NULL) {
-		free(tk_text);
-		tk_text = NULL;
-	}
+	free(tk_text);
+	tk_text = NULL;
 	/*
 	 * Find the original (uncompleted) word in the command buffer.
 	 */
@@ -939,8 +935,7 @@ init_compl(void)
 	/*
 	 * Save the original (uncompleted) word
 	 */
-	if (tk_original != NULL)
-		free(tk_original);
+	free(tk_original);
 	tk_original = ecalloc(cp-word+1, sizeof (char));
 	(void) strncpy(tk_original, word, cp-word);
 	/*
@@ -954,12 +949,11 @@ init_compl(void)
 		tk_text = fcomplete(word);
 	} else {
 		char *qword = shell_quote(word+1);
-		if (qword == NULL) {
+		if (qword == NULL)
 			tk_text = fcomplete(word+1);
-		} else {
+		else
 			tk_text = fcomplete(qword);
-			free(qword);
-		}
+		free(qword);
 	}
 	*cp = c;
 }
@@ -1154,11 +1148,11 @@ retry:
 /*
  * Return the number currently in the command buffer.
  */
-LINENUM
+off_t
 cmd_int(long *frac)
 {
 	char *p;
-	LINENUM n = 0;
+	off_t n = 0;
 	int err;
 
 	for (p = cmdbuf;  *p >= '0' && *p <= '9';  p++)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ps.c,v 1.67 2015/10/25 09:39:00 deraadt Exp $	*/
+/*	$OpenBSD: ps.c,v 1.70 2016/03/17 05:27:10 bentley Exp $	*/
 /*	$NetBSD: ps.c,v 1.15 1995/05/18 20:33:25 mycroft Exp $	*/
 
 /*-
@@ -44,6 +44,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <kvm.h>
+#include <locale.h>
 #include <nlist.h>
 #include <paths.h>
 #include <pwd.h>
@@ -99,22 +100,16 @@ main(int argc, char *argv[])
 	int prtheader, showthreads, wflag, kflag, what, Uflag, xflg;
 	char *nlistf, *memf, *swapf, *cols, errbuf[_POSIX2_LINE_MAX];
 
-	if ((cols = getenv("COLUMNS")) != NULL && *cols != '\0') {
-		const char *errstr;
+	setlocale(LC_CTYPE, "");
 
-		termwidth = strtonum(cols, 1, INT_MAX, &errstr);
-		if (errstr != NULL)
-			warnx("COLUMNS: %s: %s", cols, errstr);
-	}
-	if (termwidth == 0) {
-		if ((ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 &&
-		    ioctl(STDERR_FILENO, TIOCGWINSZ, &ws) == -1 &&
-		    ioctl(STDIN_FILENO,  TIOCGWINSZ, &ws) == -1) ||
-		    ws.ws_col == 0)
-			termwidth = 79;
-		else
-			termwidth = ws.ws_col - 1;
-	}
+	termwidth = 0;
+	if ((cols = getenv("COLUMNS")) != NULL)
+		termwidth = strtonum(cols, 1, INT_MAX, NULL);
+	if (termwidth == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_col > 0)
+		termwidth = ws.ws_col - 1;
+	if (termwidth == 0)
+		termwidth = 79;
 
 	if (argc > 1)
 		argv[1] = kludge_oldps_options(argv[1]);
@@ -279,7 +274,7 @@ main(int argc, char *argv[])
 		errx(1, "%s", errbuf);
 
 	if (pledge("stdio rpath getpw ps", NULL) == -1)
-		err(1, "abort pledge");
+		err(1, "pledge");
 
 	if (!fmt) {
 		if (showthreads)

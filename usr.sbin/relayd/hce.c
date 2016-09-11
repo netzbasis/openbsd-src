@@ -1,4 +1,4 @@
-/*	$OpenBSD: hce.c,v 1.69 2015/01/22 17:42:09 reyk Exp $	*/
+/*	$OpenBSD: hce.c,v 1.75 2016/09/03 14:09:04 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -48,7 +48,7 @@ static struct privsep_proc procs[] = {
 	{ "relay",	PROC_RELAY,	hce_dispatch_relay },
 };
 
-pid_t
+void
 hce(struct privsep *ps, struct privsep_proc *p)
 {
 	env = ps->ps_env;
@@ -56,7 +56,7 @@ hce(struct privsep *ps, struct privsep_proc *p)
 	/* this is needed for icmp tests */
 	icmp_init(env);
 
-	return (proc_run(ps, p, procs, nitems(procs), hce_init, NULL));
+	proc_run(ps, p, procs, nitems(procs), hce_init, NULL);
 }
 
 void
@@ -69,6 +69,9 @@ hce_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 
 	/* Allow maximum available sockets for TCP checks */
 	socket_rlimit(-1);
+
+	if (pledge("stdio recvfd inet", NULL) == -1)
+		fatal("hce: pledge");
 }
 
 void
@@ -84,7 +87,7 @@ hce_setup_events(void)
 		evtimer_add(&env->sc_ev, &tv);
 	}
 
-	if (env->sc_flags & F_TLS) {
+	if (env->sc_conf.flags & F_TLS) {
 		TAILQ_FOREACH(table, env->sc_tables, entry) {
 			if (!(table->conf.flags & F_TLS) ||
 			    table->ssl_ctx != NULL)
@@ -130,7 +133,7 @@ hce_launch_checks(int fd, short event, void *arg)
 	/*
 	 * notify pfe checks are done and schedule next check
 	 */
-	proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_SYNC, -1, NULL, 0);
+	proc_compose(env->sc_ps, PROC_PFE, IMSG_SYNC, NULL, 0);
 	TAILQ_FOREACH(table, env->sc_tables, entry) {
 		TAILQ_FOREACH(host, &table->hosts, entry) {
 			if ((host->flags & F_CHECK_DONE) == 0)
@@ -182,7 +185,7 @@ hce_launch_checks(int fd, short event, void *arg)
 	}
 	check_icmp(env, &tv);
 
-	bcopy(&env->sc_interval, &tv, sizeof(tv));
+	bcopy(&env->sc_conf.interval, &tv, sizeof(tv));
 	evtimer_add(&env->sc_ev, &tv);
 }
 
@@ -197,6 +200,7 @@ hce_notify_done(struct host *host, enum host_error he)
 	struct host		*h, *hostnst;
 	int			 hostup;
 	const char		*msg;
+	char			*codemsg = NULL;
 
 	if ((hostnst = host_find(env, host->conf.id)) == NULL)
 		fatalx("hce_notify_done: desynchronized");
@@ -205,7 +209,7 @@ hce_notify_done(struct host *host, enum host_error he)
 		fatalx("hce_notify_done: invalid table id");
 
 	if (hostnst->flags & F_DISABLE) {
-		if (env->sc_opts & RELAYD_OPT_LOGUPDATE) {
+		if (env->sc_conf.opts & RELAYD_OPT_LOGUPDATE) {
 			log_info("host %s, check %s%s (ignoring result, "
 			    "host disabled)",
 			    host->conf.name, table_check(table->conf.check),
@@ -240,8 +244,7 @@ hce_notify_done(struct host *host, enum host_error he)
 	if (msg)
 		log_debug("%s: %s (%s)", __func__, host->conf.name, msg);
 
-	proc_compose_imsg(env->sc_ps, PROC_PFE, -1, IMSG_HOST_STATUS,
-	    -1, &st, sizeof(st));
+	proc_compose(env->sc_ps, PROC_PFE, IMSG_HOST_STATUS, &st, sizeof(st));
 	if (host->up != host->last_up)
 		logopt = RELAYD_OPT_LOGUPDATE;
 	else
@@ -254,13 +257,17 @@ hce_notify_done(struct host *host, enum host_error he)
 	else
 		duration = 0;
 
-	if (env->sc_opts & logopt) {
-		log_info("host %s, check %s%s (%lums), state %s -> %s, "
+	if (env->sc_conf.opts & logopt) {
+		if (host->code > 0)
+		    asprintf(&codemsg, ",%d", host->code);
+		log_info("host %s, check %s%s (%lums,%s%s), state %s -> %s, "
 		    "availability %s",
 		    host->conf.name, table_check(table->conf.check),
 		    (table->conf.flags & F_TLS) ? " use tls" : "", duration,
+		    msg, (codemsg != NULL) ? codemsg : "",
 		    host_status(host->last_up), host_status(host->up),
 		    print_availability(host->check_cnt, host->up_cnt));
+		free(codemsg);
 	}
 
 	host->last_up = host->up;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: authpf.c,v 1.123 2015/01/21 21:50:32 deraadt Exp $	*/
+/*	$OpenBSD: authpf.c,v 1.125 2016/03/29 14:53:27 mestre Exp $	*/
 
 /*
  * Copyright (C) 1998 - 2007 Bob Beck (beck@openbsd.org).
@@ -342,7 +342,6 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* NOTREACHED */
 dogdeath:
 	printf("\r\n\r\nSorry, this service is currently unavailable due to ");
 	printf("technical difficulties\r\n\r\n");
@@ -546,10 +545,8 @@ allowed_luser(struct passwd *pw)
 				    strcmp("*", buf) == 0;
 			}
 
-			if (lbuf != NULL) {
-				free(lbuf);
-				lbuf = NULL;
-			}
+			free(lbuf);
+			lbuf = NULL;
 
 			if (matched) {
 				fclose(f);
@@ -758,6 +755,7 @@ change_filter(int add, const char *luser, const char *ipsrc)
 		if((grent = getgrgid(getgid())) == NULL) {
 			syslog(LOG_ERR, "Group not found user %s, gid %d",
 			    luser, getgid());
+			goto error;
 		}
 
 		if (luser == NULL || !luser[0] || ipsrc == NULL || !ipsrc[0]) {

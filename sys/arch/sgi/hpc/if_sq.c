@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sq.c,v 1.18 2015/10/25 13:22:09 mpi Exp $	*/
+/*	$OpenBSD: if_sq.c,v 1.26 2016/04/13 11:34:00 mpi Exp $	*/
 /*	$NetBSD: if_sq.c,v 1.42 2011/07/01 18:53:47 dyoung Exp $	*/
 
 /*
@@ -50,9 +50,7 @@
 #include <uvm/uvm_extern.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -361,8 +359,7 @@ sq_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_start = sq_start;
 	ifp->if_ioctl = sq_ioctl;
 	ifp->if_watchdog = sq_watchdog;
-	ifp->if_flags = IFF_BROADCAST | IFF_NOTRAILERS | IFF_MULTICAST;
-	IFQ_SET_READY(&ifp->if_snd);
+	ifp->if_flags = IFF_BROADCAST | IFF_MULTICAST;
 
 	if_attach(ifp);
 	IFQ_SET_MAXLEN(&ifp->if_snd, SQ_NTXDESC - 1);
@@ -409,7 +406,7 @@ sq_attach(struct device *parent, struct device *self, void *aux)
 			    IFM_ETHER | IFM_10_T, 0, NULL);
 
 			/*
-			 * Force autoselect, and set the the 10BaseT port
+			 * Force autoselect, and set the 10BaseT port
 			 * to use UTP cable.
 			 */
 			media = IFM_ETHER | IFM_AUTO;
@@ -550,7 +547,7 @@ sq_init(struct ifnet *ifp)
 		sq_hpc_write(sc, HPC1_ENET_INTDELAY, HPC1_ENET_INTDELAY_OFF);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	sq_start(ifp);
 
 	return 0;
@@ -652,7 +649,7 @@ sq_start(struct ifnet *ifp)
 	uint32_t status;
 	int err, len, totlen, nexttx, firsttx, lasttx = -1, ofree, seg;
 
-	if ((ifp->if_flags & (IFF_RUNNING|IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/*
@@ -671,7 +668,7 @@ sq_start(struct ifnet *ifp)
 		/*
 		 * Grab a packet off the queue.
 		 */
-		IFQ_POLL(&ifp->if_snd, m0);
+		m0 = ifq_deq_begin(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
 		m = NULL;
@@ -696,6 +693,7 @@ sq_start(struct ifnet *ifp)
 		    BUS_DMA_NOWAIT) != 0) {
 			MGETHDR(m, M_DONTWAIT, MT_DATA);
 			if (m == NULL) {
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				printf("%s: unable to allocate Tx mbuf\n",
 				    sc->sc_dev.dv_xname);
 				break;
@@ -703,6 +701,7 @@ sq_start(struct ifnet *ifp)
 			if (len > MHLEN) {
 				MCLGET(m, M_DONTWAIT);
 				if ((m->m_flags & M_EXT) == 0) {
+					ifq_deq_rollback(&ifp->if_snd, m0);
 					printf("%s: unable to allocate Tx "
 					    "cluster\n",
 					    sc->sc_dev.dv_xname);
@@ -722,6 +721,7 @@ sq_start(struct ifnet *ifp)
 
 			if ((err = bus_dmamap_load_mbuf(sc->sc_dmat, dmamap,
 			    m, BUS_DMA_NOWAIT)) != 0) {
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				printf("%s: unable to load Tx buffer, "
 				    "error = %d\n",
 				    sc->sc_dev.dv_xname, err);
@@ -734,6 +734,7 @@ sq_start(struct ifnet *ifp)
 		 * the packet.
 		 */
 		if (dmamap->dm_nsegs > sc->sc_nfreetx) {
+			ifq_deq_rollback(&ifp->if_snd, m0);
 			/*
 			 * Not enough free descriptors to transmit this
 			 * packet.  We haven't committed to anything yet,
@@ -744,14 +745,14 @@ sq_start(struct ifnet *ifp)
 			 * XXX We could allocate an mbuf and copy, but
 			 * XXX it is worth it?
 			 */
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			bus_dmamap_unload(sc->sc_dmat, dmamap);
 			if (m != NULL)
 				m_freem(m);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		ifq_deq_commit(&ifp->if_snd, m0);
 #if NBPFILTER > 0
 		/*
 		 * Pass the packet to any BPF listeners.
@@ -844,7 +845,7 @@ sq_start(struct ifnet *ifp)
 
 	/* All transmit descriptors used up, let upper layers know */
 	if (sc->sc_nfreetx == 0)
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 
 	if (sc->sc_nfreetx != ofree) {
 		SQ_DPRINTF(("%s: %d packets enqueued, first %d, INTR on %d\n",
@@ -946,7 +947,8 @@ sq_stop(struct ifnet *ifp)
 	int i;
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	for (i = 0; i < SQ_NTXDESC; i++) {
 		if (sc->sc_txmbuf[i] != NULL) {
@@ -1263,7 +1265,7 @@ sq_txintr(struct sq_softc *sc)
 
 	/* If we have buffers free, let upper layers know */
 	if (sc->sc_nfreetx > 0)
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 	/* If all packets have left the coop, cancel watchdog */
 	if (sc->sc_nfreetx == SQ_NTXDESC)

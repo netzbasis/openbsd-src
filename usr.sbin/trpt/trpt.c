@@ -1,4 +1,4 @@
-/*	$OpenBSD: trpt.c,v 1.31 2015/02/09 23:00:15 deraadt Exp $	*/
+/*	$OpenBSD: trpt.c,v 1.33 2016/08/27 01:50:07 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1997 The NetBSD Foundation, Inc.
@@ -60,6 +60,7 @@
  */
 
 #include <sys/queue.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #define PRUREQUESTS
 #include <sys/protosw.h>
@@ -197,6 +198,9 @@ main(int argc, char *argv[])
 
 	if (kvm_nlist(kd, nl))
 		errx(2, "%s: no namelist", sys ? sys : _PATH_UNIX);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	if (kvm_read(kd, nl[N_TCP_DEBX].n_value, (char *)&tcp_debx,
 	    sizeof(tcp_debx)) != sizeof(tcp_debx))

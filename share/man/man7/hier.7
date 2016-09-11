@@ -1,4 +1,4 @@
-.\"	$OpenBSD: hier.7,v 1.145 2015/11/05 23:38:07 bluhm Exp $
+.\"	$OpenBSD: hier.7,v 1.155 2016/09/06 12:27:41 jmc Exp $
 .\"	$NetBSD: hier.7,v 1.7 1994/11/30 19:07:10 jtc Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)hier.7	8.1 (Berkeley) 6/5/93
 .\"
-.Dd $Mdocdate: November 5 2015 $
+.Dd $Mdocdate: September 6 2016 $
 .Dt HIER 7
 .Os
 .Sh NAME
@@ -76,9 +76,6 @@ Script for creating device files (see
 File descriptor files (see
 .Xr fd 4 ) .
 .El
-.It /emul/
-Base directory for alternate areas searched first when system call
-emulation is in effect.
 .It /etc/
 System configuration files and scripts.
 .Pp
@@ -88,6 +85,9 @@ Local time zone information (see
 .Xr ctime 3 ) .
 .It X11/
 Configuration files for the X11 window system.
+.It acme/
+Private keys for
+.Xr acme-client 1 .
 .It amd/
 Contains map files for
 .Xr amd 8 .
@@ -148,10 +148,6 @@ and
 .It ssl/
 OpenSSL configuration files (see
 .Xr openssl 1 ) .
-.It systrace/
-Sample
-.Xr systrace 1
-policies.
 .El
 .It /home/
 Default location for user home directories.
@@ -229,6 +225,8 @@ C include files for the ISO standard file systems (currently only cd9660).
 Machine specific C include files.
 .It miscfs/
 C include files for miscellaneous file systems.
+.It msdosfs/
+C include files for MS-DOS file system.
 .It net/
 Miscellaneous network C include files.
 .It net80211/
@@ -243,6 +241,8 @@ C include files for Internet protocol version 6 (see
 C include files for the MPLS protocol.
 .It nfs/
 C include files for NFS (Network File System).
+.It ntfs/
+C include files for NTFS file system.
 .It objc/
 C include files for GNU Objective-C.
 .It openssl/
@@ -307,9 +307,6 @@ Contains the lpf filter for
 .It radiusd/
 Authentication modules for
 .Xr radiusd 8 .
-.It smtpd/
-Binaries related to
-.Xr smtpd 8 .
 .El
 .Pp
 .It local/
@@ -330,7 +327,7 @@ System daemons and utilities (executed by users).
 .It share/
 Architecture independent data files.
 .Pp
-.Bl -tag -width "vi/catalog/" -compact
+.Bl -tag -width "calendar/" -compact
 .It calendar/
 Variety of pre-fab calendar files (see
 .Xr calendar 1 ) .
@@ -405,15 +402,10 @@ Kernel internals.
 .It misc/
 Miscellaneous system-wide ASCII text files.
 .Pp
-.Bl -tag -width terminfo.db -compact
+.Bl -tag -width pcvtfonts/ -compact
 .It termcap
 Terminal characteristics database (see
 .Xr termcap 5 ) .
-.It termcap.db
-Hash database file containing terminal descriptions (see
-.Xr cap_mkdb 1 ) .
-.It terminfo.db
-Terminal information database.
 .It pcvtfonts/
 Additional i386 console fonts.
 .El
@@ -434,13 +426,12 @@ Management Information Base (MIB) definitions.
 Tab description files for a variety of terminals; used in
 the termcap file (see
 .Xr termcap 5 ) .
+.It terminfo/
+Compiled terminal characteristic files (see
+.Xr terminfo 5 ) .
 .It texinfo/
 Templates for
 .Xr texinfo 5 .
-.It vi/catalog/
-Catalog files for the
-.Xr vi 1
-text editor.
 .It zoneinfo/
 Time zone configuration information (see
 .Xr tzfile 5 ) .
@@ -605,6 +596,10 @@ Commonly ~uucp; public uucp temporary directory.
 Checksum files and reference sets
 for
 .Xr sysmerge 8 .
+.It syspatch/
+Rollback tarballs and patch files for
+.\" Xr syspatch 8 .
+syspatch.
 .It tmp -> ../tmp
 A symbolic link to the system
 .Pa /tmp

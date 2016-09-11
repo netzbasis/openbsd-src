@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6_ifattach.c,v 1.98 2015/10/24 16:24:21 mpi Exp $	*/
+/*	$OpenBSD: in6_ifattach.c,v 1.100 2016/06/30 08:19:03 mpi Exp $	*/
 /*	$KAME: in6_ifattach.c,v 1.124 2001/07/18 08:32:51 jinmei Exp $	*/
 
 /*
@@ -294,7 +294,7 @@ in6_ifattach_linklocal(struct ifnet *ifp, struct in6_addr *ifid)
 {
 	struct in6_aliasreq ifra;
 	struct in6_ifaddr *ia6;
-	int s, error;
+	int s, error, flags;
 
 	/*
 	 * configure link-local address.
@@ -350,14 +350,17 @@ in6_ifattach_linklocal(struct ifnet *ifp, struct in6_addr *ifid)
 	if (ia6->ia6_flags & IN6_IFF_TENTATIVE)
 		nd6_dad_start(&ia6->ia_ifa);
 
-	if (ifp->if_flags & (IFF_POINTOPOINT|IFF_LOOPBACK)) {
+	if (ifp->if_flags & IFF_LOOPBACK) {
 		dohooks(ifp->if_addrhooks, 0);
 		return (0); /* No need to install a connected route. */
 	}
 
+	flags = RTF_CONNECTED;
+	if ((ifp->if_flags & IFF_POINTOPOINT) == 0)
+		flags |= RTF_CLONING;
+
 	s = splsoftnet();
-	error = rt_ifa_add(&ia6->ia_ifa, RTF_CLONING | RTF_CONNECTED,
-	    ia6->ia_ifa.ifa_addr);
+	error = rt_ifa_add(&ia6->ia_ifa, flags, ia6->ia_ifa.ifa_addr);
 	if (error) {
 		in6_purgeaddr(&ia6->ia_ifa);
 		splx(s);
@@ -547,7 +550,7 @@ in6_ifdetach(struct ifnet *ifp)
 	sin6.sin6_addr.s6_addr16[1] = htons(ifp->if_index);
 	rt = rtalloc(sin6tosa(&sin6), 0, ifp->if_rdomain);
 	if (rt && rt->rt_ifidx == ifp->if_index) {
-		rtdeletemsg(rt, ifp->if_rdomain);
+		rtdeletemsg(rt, ifp, ifp->if_rdomain);
 		rtfree(rt);
 	}
 
@@ -559,7 +562,7 @@ in6_ifdetach(struct ifnet *ifp)
 	sin6.sin6_addr.s6_addr16[1] = htons(ifp->if_index);
 	rt = rtalloc(sin6tosa(&sin6), 0, ifp->if_rdomain);
 	if (rt && rt->rt_ifidx == ifp->if_index) {
-		rtdeletemsg(rt, ifp->if_rdomain);
+		rtdeletemsg(rt, ifp, ifp->if_rdomain);
 		rtfree(rt);
 	}
 

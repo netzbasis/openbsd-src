@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtable.h,v 1.10 2015/11/06 17:55:55 mpi Exp $ */
+/*	$OpenBSD: rtable.h,v 1.16 2016/09/07 09:36:49 mpi Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -31,6 +31,7 @@
 
 #define	rt_key(rt)	(((struct sockaddr *)(rt)->rt_nodes[0].rn_key))
 #define	rt_mask(rt)	(((struct sockaddr *)(rt)->rt_nodes[0].rn_mask))
+#define	rt_plen(rt)	(rtable_satoplen(rt_key(rt)->sa_family, rt_mask(rt)))
 #define	RT_ROOT(rt)	((rt)->rt_nodes[0].rn_flags & RNF_ROOT)
 
 #else /* ART */
@@ -42,10 +43,12 @@
 #include <net/art.h>
 
 #define	rt_key(rt)	((rt)->rt_dest)
-#define	rt_mask(rt)	((rt)->rt_mask)
+#define	rt_plen(rt)	((rt)->rt_plen)
 #define	RT_ROOT(rt)	(0)
 
 #endif /* ART */
+
+int		 rtable_satoplen(sa_family_t, struct sockaddr *);
 
 void		 rtable_init(void);
 int		 rtable_exists(unsigned int);
@@ -55,19 +58,19 @@ void		 rtable_l2set(unsigned int, unsigned int);
 
 struct rtentry	*rtable_lookup(unsigned int, struct sockaddr *,
 		     struct sockaddr *, struct sockaddr *, uint8_t);
-struct rtentry	*rtable_match(unsigned int, struct sockaddr *);
+struct rtentry	*rtable_match(unsigned int, struct sockaddr *, uint32_t *);
+struct rtentry	*rtable_iterate(struct rtentry *);
 int		 rtable_insert(unsigned int, struct sockaddr *,
 		     struct sockaddr *, struct sockaddr *, uint8_t,
 		     struct rtentry *);
 int		 rtable_delete(unsigned int, struct sockaddr *,
-		     struct sockaddr *, uint8_t, struct rtentry *);
+		     struct sockaddr *, struct rtentry *);
 int		 rtable_walk(unsigned int, sa_family_t,
 		     int (*)(struct rtentry *, void *, unsigned int), void *);
 
 int		 rtable_mpath_capable(unsigned int, sa_family_t);
 struct rtentry	*rtable_mpath_match(unsigned int, struct rtentry *,
 		     struct sockaddr *, uint8_t);
-struct rtentry	*rtable_mpath_select(struct rtentry *, uint32_t);
-void		 rtable_mpath_reprio(struct rtentry *, uint8_t);
-struct rtentry	*rtable_mpath_next(struct rtentry *);
+int		 rtable_mpath_reprio(unsigned int, struct sockaddr *,
+		     struct sockaddr *, uint8_t, struct rtentry *);
 #endif /* _NET_RTABLE_H_ */

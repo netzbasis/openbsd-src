@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcap-bpf.c,v 1.30 2015/10/01 13:29:08 jsg Exp $	*/
+/*	$OpenBSD: pcap-bpf.c,v 1.34 2016/05/08 08:20:50 natano Exp $	*/
 
 /*
  * Copyright (c) 1993, 1994, 1995, 1996, 1998
@@ -71,7 +71,7 @@ pcap_read(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 {
 	int cc;
 	int n = 0;
-	register u_char *bp, *ep;
+	u_char *bp, *ep;
 
  again:
 	/*
@@ -143,7 +143,7 @@ pcap_read(pcap_t *p, int cnt, pcap_handler callback, u_char *user)
 #define bhp ((struct bpf_hdr *)bp)
 	ep = bp + cc;
 	while (bp < ep) {
-		register int caplen, hdrlen;
+		int caplen, hdrlen;
 
 		/*
 		 * Has "pcap_breakloop()" been called?
@@ -215,69 +215,20 @@ static __inline int
 bpf_open(pcap_t *p)
 {
 	int fd;
-	int n = 0;
-	char device[sizeof "/dev/bpf0000000000"];
 
-	/*
-	 * Go through all the minors and find one that isn't in use.
-	 */
-	do {
-		(void)snprintf(device, sizeof device, "/dev/bpf%d", n++);
-		fd = open(device, O_RDWR);
-		if (fd < 0 && errno == EACCES)
-			fd = open(device, O_RDONLY);
-	} while (fd < 0 && errno == EBUSY);
+	fd = open("/dev/bpf0", O_RDWR);
+	if (fd == -1 && errno == EACCES)
+		fd = open("/dev/bpf0", O_RDONLY);
 
-	/*
-	 * XXX better message for all minors used
-	 */
-	if (fd < 0) {
-		switch (errno) {
-
-		case ENOENT:
-			fd = PCAP_ERROR;
-			if (n == 1) {
-				/*
-				 * /dev/bpf0 doesn't exist, which
-				 * means we probably have no BPF
-				 * devices.
-				 */
-				snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
-				    "(there are no BPF devices)");
-			} else {
-				/*
-				 * We got EBUSY on at least one
-				 * BPF device, so we have BPF
-				 * devices, but all the ones
-				 * that exist are busy.
-				 */
-				snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
-				    "(all BPF devices are busy)");
-			}
-			break;
-
-		case EACCES:
-			/*
-			 * Got EACCES on the last device we tried,
-			 * and EBUSY on all devices before that,
-			 * if any.
-			 */
+	if (fd == -1) {
+		if (errno == EACCES)
 			fd = PCAP_ERROR_PERM_DENIED;
-			snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
-			    "(cannot open BPF device) %s: %s", device,
-			    pcap_strerror(errno));
-			break;
-
-		default:
-			/*
-			 * Some other problem.
-			 */
+		else
 			fd = PCAP_ERROR;
-			snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
-			    "(cannot open BPF device) %s: %s", device,
-			    pcap_strerror(errno));
-			break;
-		}
+
+		snprintf(p->errbuf, PCAP_ERRBUF_SIZE,
+		    "(cannot open BPF device): %s",
+		    pcap_strerror(errno));
 	}
 
 	return (fd);
@@ -416,10 +367,10 @@ pcap_cleanup_bpf(pcap_t *p)
 	}
 	if (p->sf.rfile != NULL) {
 		(void)fclose(p->sf.rfile);
-		if (p->sf.base != NULL)
-			free(p->sf.base);
-	} else if (p->buffer != NULL)
+		free(p->sf.base);
+	} else
 		free(p->buffer);
+
 	pcap_freecode(&p->fcode);
 	if (p->dlt_list != NULL) {
 		free(p->dlt_list);

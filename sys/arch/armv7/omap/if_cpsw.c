@@ -1,4 +1,4 @@
-/* $OpenBSD: if_cpsw.c,v 1.28 2015/10/27 15:07:56 mpi Exp $ */
+/* $OpenBSD: if_cpsw.c,v 1.40 2016/08/12 03:22:41 jsg Exp $ */
 /*	$NetBSD: if_cpsw.c,v 1.3 2013/04/17 14:36:34 bouyer Exp $	*/
 
 /*
@@ -67,6 +67,7 @@
 #include <sys/socket.h>
 
 #include <machine/bus.h>
+#include <machine/fdt.h>
 
 #include <net/if.h>
 #include <net/if_media.h>
@@ -82,8 +83,11 @@
 #include <dev/mii/miivar.h>
 
 #include <arch/armv7/armv7/armv7var.h>
-#include <arch/armv7/omap/sitara_cm.h>
 #include <arch/armv7/omap/if_cpswreg.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 #define CPSW_TXFRAGS	16
 
@@ -114,6 +118,13 @@ struct cpsw_ring_data {
 	struct mbuf		*tx_mb[CPSW_NTXDESCS];
 	bus_dmamap_t		 rx_dm[CPSW_NRXDESCS];
 	struct mbuf		*rx_mb[CPSW_NRXDESCS];
+};
+
+struct cpsw_port_config {
+	uint8_t			 enaddr[ETHER_ADDR_LEN];
+	int			 phy_id;
+	int			 rgmii;
+	int			 vlan;
 };
 
 struct cpsw_softc {
@@ -148,10 +159,14 @@ struct cpsw_softc {
 	volatile bool		 sc_txeoq;
 	volatile bool		 sc_rxeoq;
 	struct timeout		 sc_tick;
+	int			 sc_active_port;
+
+	struct cpsw_port_config	 sc_port_config[2];
 };
 
 #define DEVNAME(_sc) ((_sc)->sc_dev.dv_xname)
 
+int	cpsw_match(struct device *, void *, void *);
 void	cpsw_attach(struct device *, struct device *, void *);
 
 void	cpsw_start(struct ifnet *);
@@ -175,11 +190,11 @@ int	cpsw_rxintr(void *);
 int	cpsw_txintr(void *);
 int	cpsw_miscintr(void *);
 
-void	cpsw_get_mac_addr(struct cpsw_softc *);
+void	cpsw_get_port_config(struct cpsw_port_config *, int);
 
 struct cfattach cpsw_ca = {
 	sizeof(struct cpsw_softc),
-	NULL,
+	cpsw_match,
 	cpsw_attach
 };
 
@@ -265,62 +280,116 @@ cpsw_rxdesc_paddr(struct cpsw_softc * const sc, u_int x)
 	return sc->sc_rxdescs_pa + sizeof(struct cpsw_cpdma_bd) * x;
 }
 
-void
-cpsw_get_mac_addr(struct cpsw_softc *sc)
+static void
+cpsw_mdio_init(struct cpsw_softc *sc)
 {
-	struct arpcom *ac = &sc->sc_ac;
-	u_int32_t	mac_lo = 0, mac_hi = 0;
+	uint32_t alive, link;
+	u_int tries;
 
-	sitara_cm_reg_read_4(OMAP2SCM_MAC_ID0_LO, &mac_lo);
-	sitara_cm_reg_read_4(OMAP2SCM_MAC_ID0_HI, &mac_hi);
+	sc->sc_active_port = 0;
 
-	if ((mac_lo == 0) && (mac_hi == 0))
-		printf("%s: invalid ethernet address\n", DEVNAME(sc));
-	else {
-		ac->ac_enaddr[0] = (mac_hi >>  0) & 0xff;
-		ac->ac_enaddr[1] = (mac_hi >>  8) & 0xff;
-		ac->ac_enaddr[2] = (mac_hi >> 16) & 0xff;
-		ac->ac_enaddr[3] = (mac_hi >> 24) & 0xff;
-		ac->ac_enaddr[4] = (mac_lo >>  0) & 0xff;
-		ac->ac_enaddr[5] = (mac_lo >>  8) & 0xff;
+	/* Initialze MDIO - ENABLE, PREAMBLE=0, FAULTENB, CLKDIV=0xFF */
+	/* TODO Calculate MDCLK=CLK/(CLKDIV+1) */
+	bus_space_write_4(sc->sc_bst, sc->sc_bsh, MDIOCONTROL,
+	    (1<<30) | (1<<18) | 0xFF);
+
+	for(tries = 0; tries < 1000; tries++) {
+		alive = bus_space_read_4(sc->sc_bst, sc->sc_bsh, MDIOALIVE) & 3;
+		if (alive)
+			break;
+		delay(1);
 	}
+
+	if (alive == 0) {
+		printf("%s: no PHY is alive\n", DEVNAME(sc));
+		return;
+	}
+
+	link = bus_space_read_4(sc->sc_bst, sc->sc_bsh, MDIOLINK) & 3;
+
+	if (alive == 3) {
+		/* both ports are alive, prefer one with link */
+		if (link == 2)
+			sc->sc_active_port = 1;
+	} else if (alive == 2)
+		sc->sc_active_port = 1;
+
+	/* Select the port to monitor */
+	bus_space_write_4(sc->sc_bst, sc->sc_bsh, MDIOUSERPHYSEL0,
+	    sc->sc_active_port);
+}
+
+int
+cpsw_match(struct device *parent, void *match, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return OF_is_compatible(faa->fa_node, "ti,cpsw");
 }
 
 void
 cpsw_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct cpsw_softc *sc = (struct cpsw_softc *)self;
-	struct armv7_attach_args *aa = aux;
+	struct fdt_attach_args *faa = aux;
 	struct arpcom * const ac = &sc->sc_ac;
 	struct ifnet * const ifp = &ac->ac_if;
 	u_int32_t idver;
 	int error;
+	int node;
 	u_int i;
+	uint32_t memsize;
+	char name[32];
+
+	if (faa->fa_nreg < 1)
+		return;
+
+	/*
+	 * fa_reg[0].size is size of CPSW_SS and CPSW_PORT
+	 * fa_reg[1].size is size of CPSW_WR
+	 * we map a size that is a superset of both
+	 */
+	memsize = 0x4000;
+
+	pinctrl_byname(faa->fa_node, "default");
+
+	for (node = OF_child(faa->fa_node); node; node = OF_peer(node)) {
+		memset(name, 0, sizeof(name));
+
+		if (OF_getprop(node, "compatible", name, sizeof(name)) == -1)
+			continue;
+
+		if (strcmp(name, "ti,davinci_mdio") != 0)
+			continue;
+		pinctrl_byname(node, "default");
+	}
 
 	timeout_set(&sc->sc_tick, cpsw_tick, sc);
 
-	cpsw_get_mac_addr(sc);
+	cpsw_get_port_config(sc->sc_port_config, faa->fa_node);
+	memcpy(sc->sc_ac.ac_enaddr, sc->sc_port_config[0].enaddr,
+	    ETHER_ADDR_LEN);
 
-	sc->sc_rxthih = arm_intr_establish(aa->aa_dev->irq[0] +
-	    CPSW_INTROFF_RXTH, IPL_NET, cpsw_rxthintr, sc, DEVNAME(sc));
-	sc->sc_rxih = arm_intr_establish(aa->aa_dev->irq[0] +
-	    CPSW_INTROFF_RX, IPL_NET, cpsw_rxintr, sc, DEVNAME(sc));
-	sc->sc_txih = arm_intr_establish(aa->aa_dev->irq[0] +
-	    CPSW_INTROFF_TX, IPL_NET, cpsw_txintr, sc, DEVNAME(sc));
-	sc->sc_miscih = arm_intr_establish(aa->aa_dev->irq[0] +
-	    CPSW_INTROFF_MISC, IPL_NET, cpsw_miscintr, sc, DEVNAME(sc));
+	sc->sc_rxthih = arm_intr_establish_fdt_idx(faa->fa_node, 0, IPL_NET,
+	    cpsw_rxthintr, sc, DEVNAME(sc));
+	sc->sc_rxih = arm_intr_establish_fdt_idx(faa->fa_node, 1, IPL_NET,
+	    cpsw_rxintr, sc, DEVNAME(sc));
+	sc->sc_txih = arm_intr_establish_fdt_idx(faa->fa_node, 2, IPL_NET,
+	    cpsw_txintr, sc, DEVNAME(sc));
+	sc->sc_miscih = arm_intr_establish_fdt_idx(faa->fa_node, 3, IPL_NET,
+	    cpsw_miscintr, sc, DEVNAME(sc));
 
-	sc->sc_bst = aa->aa_iot;
-	sc->sc_bdt = aa->aa_dmat;
+	sc->sc_bst = faa->fa_iot;
+	sc->sc_bdt = faa->fa_dmat;
 
-	error = bus_space_map(sc->sc_bst, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_bsh);
+	error = bus_space_map(sc->sc_bst, faa->fa_reg[0].addr,
+	    memsize, 0, &sc->sc_bsh);
 	if (error) {
 		printf("can't map registers: %d\n", error);
 		return;
 	}
 
-	sc->sc_txdescs_pa = aa->aa_dev->mem[0].addr +
+	sc->sc_txdescs_pa = faa->fa_reg[0].addr +
 	    CPSW_CPPI_RAM_TXDESCS_BASE;
 	error = bus_space_subregion(sc->sc_bst, sc->sc_bsh,
 	    CPSW_CPPI_RAM_TXDESCS_BASE, CPSW_CPPI_RAM_TXDESCS_SIZE,
@@ -330,7 +399,7 @@ cpsw_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	sc->sc_rxdescs_pa = aa->aa_dev->mem[0].addr +
+	sc->sc_rxdescs_pa = faa->fa_reg[0].addr +
 	    CPSW_CPPI_RAM_RXDESCS_BASE;
 	error = bus_space_subregion(sc->sc_bst, sc->sc_bsh,
 	    CPSW_CPPI_RAM_RXDESCS_BASE, CPSW_CPPI_RAM_RXDESCS_SIZE,
@@ -381,7 +450,6 @@ cpsw_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = cpsw_ioctl;
 	ifp->if_watchdog = cpsw_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, CPSW_NTXDESCS - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 
 	cpsw_stop(ifp);
@@ -391,10 +459,12 @@ cpsw_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_mii.mii_writereg = cpsw_mii_writereg;
 	sc->sc_mii.mii_statchg = cpsw_mii_statchg;
 
+	cpsw_mdio_init(sc);
+
 	ifmedia_init(&sc->sc_mii.mii_media, 0, cpsw_mediachange,
 	    cpsw_mediastatus);
 	mii_attach(self, &sc->sc_mii, 0xffffffff,
-	    MII_PHY_ANY, MII_OFFSET_ANY, 0);
+	    sc->sc_port_config[0].phy_id, MII_OFFSET_ANY, 0);
 	if (LIST_FIRST(&sc->sc_mii.mii_phys) == NULL) {
 		printf("no PHY found!\n");
 		ifmedia_add(&sc->sc_mii.mii_media,
@@ -450,7 +520,7 @@ cpsw_start(struct ifnet *ifp)
 	u_int mlen;
 
 	if (!ISSET(ifp->if_flags, IFF_RUNNING) ||
-	    ISSET(ifp->if_flags, IFF_OACTIVE) ||
+	    ifq_is_oactive(&ifp->if_snd) ||
 	    IFQ_IS_EMPTY(&ifp->if_snd))
 		return;
 
@@ -461,15 +531,13 @@ cpsw_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (txfree <= CPSW_TXFRAGS) {
-			SET(ifp->if_flags, IFF_OACTIVE);
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 		dm = rdp->tx_dm[sc->sc_txnext];
 		error = bus_dmamap_load_mbuf(sc->sc_bdt, dm, m, BUS_DMA_NOWAIT);
@@ -778,13 +846,14 @@ cpsw_init(struct ifnet *ifp)
 		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_PORT_P_SA_LO(i+1),
 		    ac->ac_enaddr[4] | (ac->ac_enaddr[5] << 8));
 
-		/* Set MACCONTROL for ports 0,1: FULLDUPLEX(1), GMII_EN(5),
+		/* Set MACCONTROL for ports 0,1: FULLDUPLEX(0), GMII_EN(5),
 		   IFCTL_A(15), IFCTL_B(16) FIXME */
 		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_SL_MACCONTROL(i),
 		    1 | (1<<5) | (1<<15) | (1<<16));
 
-		/* Set ALE port to forwarding(3) */
-		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_ALE_PORTCTL(i+1), 3);
+		/* Set ALE port to forwarding(3) on the active port */
+		if (i == sc->sc_active_port)
+			bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_ALE_PORTCTL(i+1), 3);
 	}
 
 	/* Set Host Port Mapping */
@@ -836,6 +905,12 @@ cpsw_init(struct ifnet *ifp)
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_TX_CONTROL, 1);
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_CONTROL, 1);
 
+	/* Enable interrupt pacing for C0 RX/TX (IMAX set to max intr/ms allowed) */
+#define CPSW_VBUSP_CLK_MHZ	2400	/* hardcoded for BBB */
+	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_WR_C_RX_IMAX(0), 2);
+	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_WR_C_TX_IMAX(0), 2);
+	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_WR_INT_CONTROL, 3 << 16 | CPSW_VBUSP_CLK_MHZ/4);
+
 	/* Enable TX and RX interrupt receive for core 0 */
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_WR_C_TX_EN(0), 1);
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_WR_C_RX_EN(0), 1);
@@ -854,9 +929,7 @@ cpsw_init(struct ifnet *ifp)
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_CPDMA_EOI_VECTOR, CPSW_INTROFF_TX);
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_CPDMA_EOI_VECTOR, CPSW_INTROFF_MISC);
 
-	/* Initialze MDIO - ENABLE, PREAMBLE=0, FAULTENB, CLKDIV=0xFF */
-	/* TODO Calculate MDCLK=CLK/(CLKDIV+1) */
-	bus_space_write_4(sc->sc_bst, sc->sc_bsh, MDIOCONTROL, (1<<30) | (1<<18) | 0xFF);
+	cpsw_mdio_init(sc);
 
 	mii_mediachg(mii);
 
@@ -869,7 +942,7 @@ cpsw_init(struct ifnet *ifp)
 	sc->sc_txeoq = true;
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->sc_tick, 1);
 
@@ -937,8 +1010,9 @@ cpsw_stop(struct ifnet *ifp)
 		rdp->tx_mb[i] = NULL;
 	}
 
-	ifp->if_flags &= ~(IFF_RUNNING|IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
 	ifp->if_timer = 0;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* XXX Not sure what this is doing calling disable here
 	    where is disable set?
@@ -979,6 +1053,8 @@ cpsw_rxintr(void *arg)
 	u_int i;
 	u_int len, off;
 
+	sc->sc_rxeoq = false;
+	
 	for (;;) {
 		KASSERT(sc->sc_rxhead < CPSW_NRXDESCS);
 
@@ -999,18 +1075,22 @@ cpsw_rxintr(void *arg)
 			goto done;
 		}
 
-		if ((bd.flags & (CPDMA_BD_SOP|CPDMA_BD_EOP)) !=
-		    (CPDMA_BD_SOP|CPDMA_BD_EOP)) {
-			/* Debugger(); */
-		}
-
 		bus_dmamap_sync(sc->sc_bdt, dm, 0, dm->dm_mapsize,
 		    BUS_DMASYNC_POSTREAD);
-		bus_dmamap_unload(sc->sc_bdt, dm);
 
 		if (cpsw_new_rxbuf(sc, i) != 0) {
 			/* drop current packet, reuse buffer for new */
 			ifp->if_ierrors++;
+			goto next;
+		}
+
+		if ((bd.flags & (CPDMA_BD_SOP|CPDMA_BD_EOP)) !=
+		    (CPDMA_BD_SOP|CPDMA_BD_EOP)) {
+			if (bd.flags & CPDMA_BD_SOP) {
+				printf("cpsw: rx packet too large\n");
+				ifp->if_ierrors++;
+			}
+			m_freem(m);
 			goto next;
 		}
 
@@ -1029,17 +1109,17 @@ next:
 		sc->sc_rxhead = RXDESC_NEXT(sc->sc_rxhead);
 		if (bd.flags & CPDMA_BD_EOQ) {
 			sc->sc_rxeoq = true;
-			break;
-		} else {
-			sc->sc_rxeoq = false;
+			sc->sc_rxrun = false;
 		}
 		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_CP(0),
 		    cpsw_rxdesc_paddr(sc, i));
 	}
 
 	if (sc->sc_rxeoq) {
-		printf("rxeoq\n");
-		/* Debugger(); */
+		bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_RX_HDP(0),
+				  cpsw_rxdesc_paddr(sc, sc->sc_rxhead));
+		sc->sc_rxrun = true;
+		sc->sc_rxeoq = false;
 	}
 
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_CPDMA_EOI_VECTOR,
@@ -1124,7 +1204,7 @@ cpsw_txintr(void *arg)
 
 		handled = true;
 
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 
 next:
 		if ((bd.flags & (CPDMA_BD_EOP|CPDMA_BD_EOQ)) ==
@@ -1200,4 +1280,34 @@ cpsw_miscintr(void *arg)
 	bus_space_write_4(sc->sc_bst, sc->sc_bsh, CPSW_CPDMA_CPDMA_EOI_VECTOR, CPSW_INTROFF_MISC);
 
 	return 1;
+}
+
+void
+cpsw_get_port_config(struct cpsw_port_config *conf, int pnode)
+{
+	char mode[32];
+	uint32_t phy_id[2];
+	int node;
+	int port = 0;
+
+	for (node = OF_child(pnode); node; node = OF_peer(node)) {
+		if (OF_getprop(node, "local-mac-address", conf[port].enaddr,
+		    sizeof(conf[port].enaddr)) != sizeof(conf[port].enaddr))
+			continue;
+
+		conf[port].vlan = OF_getpropint(node, "dual_emac_res_vlan", 0);
+
+		if (OF_getpropintarray(node, "phy_id", phy_id,
+		    sizeof(phy_id)) == sizeof(phy_id))
+			conf[port].phy_id = phy_id[1];
+
+		if (OF_getprop(node, "phy-mode", mode, sizeof(mode)) > 0 &&
+		    !strcmp(mode, "rgmii"))
+			conf[port].rgmii = 1;
+		else
+			conf[port].rgmii = 0;
+
+		if (port == 0)
+			port = 1;
+	}
 }

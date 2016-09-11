@@ -35,6 +35,7 @@ Software Foundation, 59 Temple Place - Suite 330, Boston, MA
 #include <stdlib.h>
 #include <string.h>
 #include <err.h>
+#include <unistd.h>
 
 char *program_name;
 #if 0
@@ -188,6 +189,9 @@ main (argc, argv)
 
   program_name = argv[0];
   xmalloc_set_program_name (program_name);
+
+  if (pledge ("stdio rpath wpath cpath", NULL) == -1)
+    err (1, "pledge");
 
   strip_underscore = TARGET_PREPENDS_UNDERSCORE;
 

@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.amd64,v 1.65 2015/01/13 01:12:49 deraadt Exp $
+#	$OpenBSD: Makefile.amd64,v 1.67 2016/04/29 12:44:52 mpi Exp $
 
 # For instructions on building kernels consult the config(8) and options(4)
 # manual pages.
@@ -81,13 +81,13 @@ SYSTEM_LD_TAIL=	@${SIZE} $@; chmod 755 $@
 
 DEBUG?=
 .if ${DEBUG} == "-g"
-STRIPFLAGS=	-g -x
+STRIPFLAGS=	-S
 SYSTEM_LD_TAIL+=; \
 		echo mv $@ $@.gdb; rm -f $@.gdb; mv $@ $@.gdb; \
 		echo ${STRIP} ${STRIPFLAGS} -o $@ $@.gdb; \
 		${STRIP} ${STRIPFLAGS} -o $@ $@.gdb
 .else
-LINKFLAGS+=	-S -x
+LINKFLAGS+=	-S
 .endif
 
 %LOAD
@@ -142,7 +142,7 @@ db_structinfo.h: $S/ddb/db_structinfo.c $S/ddb/parse_structinfo.pl
 	rm -f db_structinfo.o
 
 locore.o: ${_machdir}/${_mach}/locore.S assym.h
-mutex.o vector.o copy.o spl.o mptramp.o acpi_wakecode.o: assym.h
+mutex.o vector.o copy.o spl.o mptramp.o acpi_wakecode.o vmm_support.o: assym.h
 
 # The install target can be redefined by putting a
 # install-kernel-${MACHINE_NAME} target into /etc/mk.conf

@@ -1,4 +1,4 @@
-/*	$OpenBSD: telnet.c,v 1.30 2014/09/09 03:41:08 guenther Exp $	*/
+/*	$OpenBSD: telnet.c,v 1.35 2016/01/26 18:35:01 mmcc Exp $	*/
 /*	$NetBSD: telnet.c,v 1.7 1996/02/28 21:04:15 thorpej Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <ctype.h>
 #include <curses.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <term.h>
 
@@ -80,10 +81,10 @@ int
 	binary = 0,
 	autologin = 0,	/* Autologin anyone? */
 	skiprc = 0,
+	connections = 0,
 	connected,
 	showoptions,
 	ISend,		/* trying to send network data in */
-	debug = 0,
 	crmod,
 	netdata,	/* Print out network data flow */
 	crlf,		/* Should '\r' be mapped to <CR><LF> (or <CR><NUL>)? */
@@ -1585,7 +1586,7 @@ process_iac:
 		     * inserted into the suboption are all possibilities.
 		     * If we assume that the IAC was not doubled,
 		     * and really the IAC SE was left off, we could
-		     * get into an infinate loop here.  So, instead,
+		     * get into an infinite loop here.  So, instead,
 		     * we terminate the suboption, and process the
 		     * partial suboption if we can.
 		     */
@@ -1837,7 +1838,13 @@ Scheduler(int block)			/* should we block in the select ? */
 void
 telnet(char *user)
 {
+    connections++;
     sys_telnet_init();
+
+    if (pledge("stdio rpath tty", NULL) == -1) {
+	perror("pledge");
+	exit(1);
+    }
 
     if (telnetport) {
 	send_do(TELOPT_SGA, 1);

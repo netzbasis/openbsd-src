@@ -1,4 +1,4 @@
-/*	$OpenBSD: common.h,v 1.7 2014/11/12 16:29:04 millert Exp $	*/
+/*	$OpenBSD: common.h,v 1.9 2016/08/27 04:07:42 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -11,6 +11,7 @@
  *	@(#)common.h	10.13 (Berkeley) 9/25/96
  */
 
+#include <sys/time.h>
 #include <db.h>
 #include <regex.h>
 
@@ -19,7 +20,6 @@
  * are far too interrelated for a clean solution.
  */
 typedef struct _cb		CB;
-typedef struct _csc		CSC;
 typedef struct _event		EVENT;
 typedef struct _excmd		EXCMD;
 typedef struct _exf		EXF;

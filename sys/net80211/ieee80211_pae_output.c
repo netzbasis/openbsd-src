@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_pae_output.c,v 1.24 2015/10/12 13:17:58 dlg Exp $	*/
+/*	$OpenBSD: ieee80211_pae_output.c,v 1.27 2016/04/12 14:33:27 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2007,2008 Damien Bergamini <damien.bergamini@free.fr>
@@ -34,7 +34,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_arp.h>
 #include <net/if_llc.h>
 
 #include <netinet/in.h>
@@ -67,7 +66,7 @@ ieee80211_send_eapol_key(struct ieee80211com *ic, struct mbuf *m,
 	struct ether_header *eh;
 	struct ieee80211_eapol_key *key;
 	u_int16_t info;
-	int s, len, error;
+	int len;
 
 	M_PREPEND(m, sizeof(struct ether_header), M_DONTWAIT);
 	if (m == NULL)
@@ -119,22 +118,12 @@ ieee80211_send_eapol_key(struct ieee80211com *ic, struct mbuf *m,
 	if (info & EAPOL_KEY_KEYMIC)
 		ieee80211_eapol_key_mic(key, ptk->kck);
 
-	len = m->m_pkthdr.len;
-	s = splnet();
 #ifndef IEEE80211_STA_ONLY
 	/* start a 100ms timeout if an answer is expected from supplicant */
 	if (info & EAPOL_KEY_KEYACK)
 		timeout_add_msec(&ni->ni_eapol_to, 100);
 #endif
-	IFQ_ENQUEUE(&ifp->if_snd, m, error);
-	if (error == 0) {
-		ifp->if_obytes += len;
-		if ((ifp->if_flags & IFF_OACTIVE) == 0)
-			(*ifp->if_start)(ifp);
-	}
-	splx(s);
-
-	return error;
+	return if_enqueue(ifp, m);
 }
 
 #ifndef IEEE80211_STA_ONLY

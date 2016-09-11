@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcd.c,v 1.22 2015/10/23 02:01:15 jsg Exp $	*/
+/*	$OpenBSD: bcd.c,v 1.25 2016/03/07 12:07:55 mestre Exp $	*/
 /*	$NetBSD: bcd.c,v 1.6 1995/04/24 12:22:23 cgd Exp $	*/
 
 /*
@@ -63,13 +63,11 @@
  * Nov 5, 1993
  */
 
-#include <sys/types.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 #include <err.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 u_short holes[256] = {
     0x0,	 0x0,	  0x0,	   0x0,	    0x0,     0x0,     0x0,     0x0,
@@ -117,11 +115,11 @@ int	decode(char *buf);
 
 int	columns	= 48;
 
-
 int
 main(int argc, char *argv[])
 {
 	char cardline[1024];
+	extern char *__progname;
 	int dflag = 0;
 	int ch;
 
@@ -137,9 +135,10 @@ main(int argc, char *argv[])
 			columns = 80;
 			break;
 		default:
-			fprintf(stderr, "usage: bcd [-l] [string ...]\n");
-			fprintf(stderr, "usage: bcd -d [-l]\n");
-			exit(1);
+			fprintf(stderr, "usage: %s [-l] [string ...]\n",
+			    __progname);
+			fprintf(stderr, "usage: %s -d [-l]\n", __progname);
+			return 1;
 		}
 	}
 	argc -= optind;
@@ -166,7 +165,7 @@ main(int argc, char *argv[])
 		while (fgets(cardline, sizeof(cardline), stdin))
 			printcard(cardline);
 	}
-	exit(0);
+	return 0;
 }
 
 void

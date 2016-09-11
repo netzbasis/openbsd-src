@@ -1,4 +1,4 @@
-/*	$OpenBSD: fstat.c,v 1.83 2015/10/23 13:21:10 deraadt Exp $	*/
+/*	$OpenBSD: fstat.c,v 1.88 2016/05/04 19:48:08 jca Exp $	*/
 
 /*
  * Copyright (c) 2009 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -96,10 +96,10 @@ int	nflg;	/* (numerical) display f.s. and rdev as dev_t */
 int	oflg;	/* display file offset */
 int	sflg;	/* display file xfer/bytes counters */
 int	vflg;	/* display errors in locating kernel data objects etc... */
-int 	cflg; 	/* fuser only */
+int	cflg; 	/* fuser only */
 
-int 	fuser;	/* 1 if we are fuser, 0 if we are fstat */
-int 	signo;	/* signal to send (fuser only) */
+int	fuser;	/* 1 if we are fuser, 0 if we are fstat */
+int	signo;	/* signal to send (fuser only) */
 
 kvm_t *kd;
 uid_t uid;
@@ -107,7 +107,7 @@ uid_t uid;
 void fstat_dofile(struct kinfo_file *);
 void fstat_header(void);
 void getinetproto(int);
-void usage(void);
+__dead void usage(void);
 int getfname(char *);
 void kqueuetrans(struct kinfo_file *);
 void pipetrans(struct kinfo_file *);
@@ -115,12 +115,9 @@ struct kinfo_file *splice_find(char, u_int64_t);
 void splice_insert(char, u_int64_t, struct kinfo_file *);
 void find_splices(struct kinfo_file *, int);
 void print_inet_details(struct kinfo_file *);
-#ifdef INET6
 void print_inet6_details(struct kinfo_file *);
-#endif
 void print_sock_details(struct kinfo_file *);
 void socktrans(struct kinfo_file *);
-void systracetrans(struct kinfo_file *);
 void vtrans(struct kinfo_file *);
 const char *inet6_addrstr(struct in6_addr *);
 int signame_to_signum(char *);
@@ -276,7 +273,18 @@ main(int argc, char *argv[])
 		errx(1, "%s", kvm_geterr(kd));
 
 	if (fuser) {
-		if (sflg) { /* fuser might call kill(2) */
+		/*
+		 * fuser
+		 *  uflg: need "getpw"
+		 *  sflg: need "proc" (might call kill(2))
+		 */
+		if (uflg && sflg) {
+			if (pledge("stdio rpath getpw proc", NULL) == -1)
+				err(1, "pledge");
+		} else if (uflg) {
+			if (pledge("stdio rpath getpw", NULL) == -1)
+				err(1, "pledge");
+		} else if (sflg) {
 			if (pledge("stdio rpath proc", NULL) == -1)
 				err(1, "pledge");
 		} else {
@@ -284,7 +292,8 @@ main(int argc, char *argv[])
 				err(1, "pledge");
 		}
 	} else {
-		if (pledge("stdio rpath", NULL) == -1)
+		/* fstat */
+		if (pledge("stdio rpath getpw", NULL) == -1)
 			err(1, "pledge");
 	}
 
@@ -373,10 +382,6 @@ fstat_dofile(struct kinfo_file *kf)
 	case DTYPE_KQUEUE:
 		if (checkfile == 0)
 			kqueuetrans(kf);
-		break;
-	case DTYPE_SYSTRACE:
-		if (checkfile == 0)
-			systracetrans(kf);
 		break;
 	default:
 		if (vflg) {
@@ -527,20 +532,6 @@ kqueuetrans(struct kinfo_file *kf)
 	return;
 }
 
-void
-systracetrans(struct kinfo_file *kf)
-{
-	PREFIX(kf->fd_fd);
-
-	printf(" ");
-
-	printf("systrace ");
-	hide((void *)(uintptr_t)kf->f_data);
-	printf(" npol %d\n", kf->str_npolicies);
-	return;
-}
-
-#ifdef INET6
 const char *
 inet6_addrstr(struct in6_addr *p)
 {
@@ -565,7 +556,6 @@ inet6_addrstr(struct in6_addr *p)
 
 	return hbuf;
 }
-#endif
 
 void
 splice_insert(char type, u_int64_t ptr, struct kinfo_file *data)
@@ -649,7 +639,6 @@ print_inet_details(struct kinfo_file *kf)
 	}
 }
 
-#ifdef INET6
 void
 print_inet6_details(struct kinfo_file *kf)
 {
@@ -695,17 +684,14 @@ print_inet6_details(struct kinfo_file *kf)
 		hide((void *)(uintptr_t)kf->so_pcb);
 	}
 }
-#endif
 
 void
 print_sock_details(struct kinfo_file *kf)
 {
 	if (kf->so_family == AF_INET)
 		print_inet_details(kf);
-#ifdef INET6
 	else if (kf->so_family == AF_INET6)
 		print_inet6_details(kf);
-#endif
 }
 
 void
@@ -748,13 +734,11 @@ socktrans(struct kinfo_file *kf)
 		getinetproto(kf->so_protocol);
 		print_inet_details(kf);
 		break;
-#ifdef INET6
 	case AF_INET6:
 		printf("* internet6 %s", stype);
 		getinetproto(kf->so_protocol);
 		print_inet6_details(kf);
 		break;
-#endif
 	case AF_UNIX:
 		/* print address of pcb and connected pcb */
 		printf("* unix %s", stype);
@@ -827,8 +811,7 @@ socktrans(struct kinfo_file *kf)
  *	print name of protocol number
  */
 void
-getinetproto(number)
-	int number;
+getinetproto(int number)
 {
 	static int isopen;
 	struct protoent *pe;

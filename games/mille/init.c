@@ -1,4 +1,4 @@
-/*	$OpenBSD: init.c,v 1.8 2015/01/19 00:47:01 deraadt Exp $	*/
+/*	$OpenBSD: init.c,v 1.10 2016/01/08 18:09:59 mestre Exp $	*/
 /*	$NetBSD: init.c,v 1.5 1995/03/24 05:01:40 cgd Exp $	*/
 
 /*
@@ -30,14 +30,17 @@
  * SUCH DAMAGE.
  */
 
-#include	"mille.h"
+#include <stdlib.h>
+#include <string.h>
+
+#include "mille.h"
 
 /*
  * @(#)init.c	1.1 (Berkeley) 4/1/82
  */
 
 void
-init()
+init(void)
 {
 	PLAY	*pp;
 	int	i, j;
@@ -81,7 +84,7 @@ init()
 }
 
 void
-shuffle()
+shuffle(void)
 {
 	int	i, r;
 	CARD	temp;
@@ -96,7 +99,7 @@ shuffle()
 }
 
 void
-newboard()
+newboard(void)
 {
 	int		i;
 	PLAY		*pp;
@@ -155,7 +158,7 @@ newboard()
 }
 
 void
-newscore()
+newscore(void)
 {
 	int		i, new;
 	PLAY		*pp;

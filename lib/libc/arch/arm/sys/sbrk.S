@@ -1,4 +1,4 @@
-/*	$OpenBSD: sbrk.S,v 1.7 2015/09/10 13:29:09 guenther Exp $	*/
+/*	$OpenBSD: sbrk.S,v 1.9 2016/08/06 19:16:09 guenther Exp $	*/
 /*	$NetBSD: sbrk.S,v 1.7 2003/08/07 16:42:05 agc Exp $	*/
 
 /*-
@@ -34,7 +34,7 @@
 
 #include "SYS.h"
 
-	.globl	_C_LABEL(end)
+	.globl	_C_LABEL(_end)
 
 	.data
 	.align	0
@@ -42,7 +42,7 @@
 	.type	__curbrk,#object
 	.hidden	__curbrk
 __curbrk:
-	.word	_C_LABEL(end)
+	.word	_C_LABEL(_end)
 	END(__curbrk)
 
 	.weak	sbrk
@@ -67,7 +67,7 @@ ENTRY(sbrk)
 	mov	r3, r0
 	add	r0, r0, r1
 	SYSTRAP(break)
-	bcs	PIC_SYM(CERROR, PLT)
+	bcs	CERROR
 
 	/* Store new curbrk value */
 	ldr	r0, [r2]

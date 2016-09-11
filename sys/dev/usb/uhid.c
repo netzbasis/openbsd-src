@@ -1,4 +1,4 @@
-/*	$OpenBSD: uhid.c,v 1.61 2015/03/14 03:38:50 jsg Exp $ */
+/*	$OpenBSD: uhid.c,v 1.66 2016/05/24 05:35:01 mpi Exp $ */
 /*	$NetBSD: uhid.c,v 1.57 2003/03/11 16:44:00 augustss Exp $	*/
 
 /*
@@ -56,7 +56,6 @@
 #include <dev/usb/usbdevs.h>
 #include <dev/usb/usbdi.h>
 #include <dev/usb/usbdi_util.h>
-#include <dev/usb/hid.h>
 
 #include <dev/usb/uhidev.h>
 
@@ -79,7 +78,6 @@ struct uhid_softc {
 	struct process *sc_async;	/* process that wants SIGIO */
 	u_char sc_state;		/* driver state */
 #define	UHID_ASLP	0x01		/* waiting for device data */
-#define UHID_IMMED	0x02		/* return read data immediately */
 
 	int sc_refcnt;
 };
@@ -230,7 +228,6 @@ uhidopen(dev_t dev, int flag, int mode, struct proc *p)
 	clalloc(&sc->sc_q, UHID_BSIZE, 0);
 
 	sc->sc_obuf = malloc(sc->sc_hdev.sc_osize, M_USBDEV, M_WAITOK);
-	sc->sc_state &= ~UHID_IMMED;
 	sc->sc_async = NULL;
 
 	return (0);
@@ -262,14 +259,6 @@ uhid_do_read(struct uhid_softc *sc, struct uio *uio, int flag)
 	u_char buffer[UHID_CHUNK];
 
 	DPRINTFN(1, ("uhidread\n"));
-	if (sc->sc_state & UHID_IMMED) {
-		DPRINTFN(1, ("uhidread immed\n"));
-		if (uhidev_get_report(sc->sc_hdev.sc_parent,
-		    UHID_INPUT_REPORT, sc->sc_hdev.sc_report_id, buffer,
-		    sc->sc_hdev.sc_isize) != sc->sc_hdev.sc_isize)
-			return (EIO);
-		return (uiomovei(buffer, sc->sc_hdev.sc_isize, uio));
-	}
 
 	s = splusb();
 	while (sc->sc_q.c_cc == 0) {
@@ -292,16 +281,16 @@ uhid_do_read(struct uhid_softc *sc, struct uio *uio, int flag)
 
 	/* Transfer as many chunks as possible. */
 	while (sc->sc_q.c_cc > 0 && uio->uio_resid > 0 && !error) {
-		length = min(sc->sc_q.c_cc, uio->uio_resid);
+		length = ulmin(sc->sc_q.c_cc, uio->uio_resid);
 		if (length > sizeof(buffer))
 			length = sizeof(buffer);
 
 		/* Remove a small chunk from the input queue. */
 		(void) q_to_b(&sc->sc_q, buffer, length);
-		DPRINTFN(5, ("uhidread: got %lu chars\n", (u_long)length));
+		DPRINTFN(5, ("uhidread: got %zu chars\n", length));
 
 		/* Copy the data to the user process. */
-		if ((error = uiomovei(buffer, length, uio)) != 0)
+		if ((error = uiomove(buffer, length, uio)) != 0)
 			break;
 	}
 
@@ -338,7 +327,7 @@ uhid_do_write(struct uhid_softc *sc, struct uio *uio, int flag)
 	error = 0;
 	if (uio->uio_resid != size)
 		return (EINVAL);
-	error = uiomovei(sc->sc_obuf, size, uio);
+	error = uiomove(sc->sc_obuf, size, uio);
 	if (!error) {
 		if (uhidev_set_report(sc->sc_hdev.sc_parent,
 		    UHID_OUTPUT_REPORT, sc->sc_hdev.sc_report_id, sc->sc_obuf,
@@ -368,9 +357,7 @@ int
 uhid_do_ioctl(struct uhid_softc *sc, u_long cmd, caddr_t addr,
 	      int flag, struct proc *p)
 {
-	u_char buffer[UHID_CHUNK];
-	usbd_status err;
-	int rc, size;
+	int rc;
 
 	DPRINTFN(2, ("uhidioctl: cmd=%lx\n", cmd));
 
@@ -400,33 +387,10 @@ uhid_do_ioctl(struct uhid_softc *sc, u_long cmd, caddr_t addr,
 			return (EPERM);
 		break;
 
-	case USB_SET_IMMED:
-		if (*(int *)addr) {
-			if (uhidev_get_report(sc->sc_hdev.sc_parent,
-			    UHID_INPUT_REPORT, sc->sc_hdev.sc_report_id, buffer,
-			    sc->sc_hdev.sc_isize) != sc->sc_hdev.sc_isize)
-				return (EOPNOTSUPP);
-
-			sc->sc_state |=  UHID_IMMED;
-		} else
-			sc->sc_state &= ~UHID_IMMED;
-		break;
-
 	case USB_GET_DEVICEINFO:
 		usbd_fill_deviceinfo(sc->sc_hdev.sc_udev,
 				     (struct usb_device_info *)addr, 1);
 		break;
-
-        case USB_GET_STRING_DESC:
-	    {
-		struct usb_string_desc *si = (struct usb_string_desc *)addr;
-		err = usbd_get_string_desc(sc->sc_hdev.sc_udev,
-			si->usd_string_index,
-			si->usd_language_id, &si->usd_desc, &size);
-		if (err)
-			return (EINVAL);
-		break;
-	    }
 
 	case USB_GET_REPORT_DESC:
 	case USB_GET_REPORT:

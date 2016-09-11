@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgplg.c,v 1.14 2015/10/18 22:37:30 benno Exp $	*/
+/*	$OpenBSD: bgplg.c,v 1.16 2016/04/05 21:57:58 sthen Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006 Reyk Floeter <reyk@openbsd.org>
@@ -219,8 +219,7 @@ lg_argextra(char **argv, int argc, struct cmd *cmdp)
 
 	new_argv[c] = NULL;
 
-	if (argv != NULL)
-		free(argv);
+	free(argv);
 
 	return (new_argv);
 }
@@ -246,9 +245,8 @@ lg_incl(const char *file)
 int
 main(void)
 {
-	char *query, *self, *cmd = NULL, *req;
+	char *query, *myname, *self, *cmd = NULL, *req;
 	char **argv = NULL;
-	char myname[HOST_NAME_MAX+1];
 	int ret = 1, argc = 0, query_length = 0;
 	struct stat st;
 	u_int i;
@@ -257,7 +255,7 @@ main(void)
 	if (pledge("stdio rpath proc exec", NULL) == -1)
 		err(1, "pledge");
 
-	if (gethostname(myname, sizeof(myname)) != 0)
+	if ((myname = lg_getenv("SERVER_NAME", NULL)) == NULL)
 		return (1);
 
 	printf("Content-Type: %s\n"
@@ -371,8 +369,7 @@ main(void)
  err:
 	fflush(stdout);
 
-	if (argv != NULL)
-		free(argv);
+	free(argv);
 
 	printf("</pre>\n");
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcpdump.c,v 1.76 2015/10/28 12:28:14 jca Exp $	*/
+/*	$OpenBSD: tcpdump.c,v 1.78 2015/12/22 21:01:07 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -474,7 +474,7 @@ main(int argc, char **argv)
 		pcap_userdata = (u_char *)p;
 	} else {
 		printer = lookup_printer(pcap_datalink(pd));
-		pcap_userdata = 0;
+		pcap_userdata = NULL;
 		priv_init_done();
 		/* state: STATE_RUN */
 	}
@@ -612,10 +612,10 @@ default_print_ascii(const u_char *cp, unsigned int length)
 
 /* Like default_print() but data need not be aligned */
 void
-default_print_unaligned(register const u_char *cp, register u_int length)
+default_print_unaligned(const u_char *cp, u_int length)
 {
-	register u_int i, s;
-	register int nshorts;
+	u_int i, s;
+	int nshorts;
 
 	if (Xflag) {
 		/* dump the buffer in `emacs-hexl' style */
@@ -642,11 +642,11 @@ default_print_unaligned(register const u_char *cp, register u_int length)
 }
 
 void
-default_print(register const u_char *bp, register u_int length)
+default_print(const u_char *bp, u_int length)
 {
-	register const u_short *sp;
-	register u_int i;
-	register int nshorts;
+	const u_short *sp;
+	u_int i;
+	int nshorts;
 
 	if (Xflag) {
 		/* dump the buffer in `emacs-hexl' style */

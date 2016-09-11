@@ -33,7 +33,7 @@
  * SUCH DAMAGE.
  */
 
-#include "SYS.h"
+#include "DEFS.h"
 
 	/*
 	 * memmove (dst,src,cnt)

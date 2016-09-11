@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bgereg.h,v 1.128 2015/10/19 05:31:25 jmatthew Exp $	*/
+/*	$OpenBSD: if_bgereg.h,v 1.130 2015/11/29 20:19:35 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2001 Wind River Systems
@@ -47,7 +47,7 @@
  *
  * The NIC's memory can be accessed by the host in one of 3 ways:
  *
- * 1) Indirect register access. The MEMWIN_BASEADDR and MEMWIN_DATA
+ * 1) Indirect register access. The REG_BASEADDR and REG_DATA
  *    registers in PCI config space can be used to read any 32-bit
  *    address within the NIC's memory.
  *
@@ -2272,15 +2272,15 @@
 #define	BGE_MEMWIN_READ(pc, tag, x, val)				\
 	do {								\
 		pci_conf_write(pc, tag, BGE_PCI_MEMWIN_BASEADDR,	\
-		    (0xFFFF0000 & x));					\
-		val = CSR_READ_4(sc, BGE_MEMWIN_START + (x & 0xFFFF));	\
+		    (0xFFFF8000 & x));					\
+		val = CSR_READ_4(sc, BGE_MEMWIN_START + (x & 0x7FFF));	\
 	} while(0)
 
 #define	BGE_MEMWIN_WRITE(pc, tag, x, val)				\
 	do {								\
 		pci_conf_write(pc, tag, BGE_PCI_MEMWIN_BASEADDR,	\
-		    (0xFFFF0000 & x));					\
-		CSR_WRITE_4(sc, BGE_MEMWIN_START + (x & 0xFFFF), val);	\
+		    (0xFFFF8000 & x));					\
+		CSR_WRITE_4(sc, BGE_MEMWIN_START + (x & 0x7FFF), val);	\
 	} while(0)
 
 /*
@@ -2839,8 +2839,10 @@ struct bge_softc {
 	struct arpcom		arpcom;		/* interface info */
 	bus_space_handle_t	bge_bhandle;
 	bus_space_tag_t		bge_btag;
+	bus_size_t		bge_bsize;
 	bus_space_handle_t	bge_apehandle;
 	bus_space_tag_t		bge_apetag;
+	bus_size_t		bge_apesize;
 	void			*bge_intrhand;
 	struct pci_attach_args	bge_pa;
 	struct mii_data		bge_mii;
@@ -2902,6 +2904,8 @@ struct bge_softc {
 	struct bge_ring_data	*bge_rdata;	/* rings */
 	struct bge_chain_data	bge_cdata;	/* mbufs */
 	bus_dmamap_t		bge_ring_map;
+	bus_dma_segment_t	bge_ring_seg;
+	int			bge_ring_nseg;
 	u_int16_t		bge_tx_saved_considx;
 	u_int16_t		bge_rx_saved_considx;
 	u_int16_t		bge_ev_saved_considx;

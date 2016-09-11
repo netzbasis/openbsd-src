@@ -1,4 +1,4 @@
-/* $OpenBSD: subr.S,v 1.24 2014/06/08 13:20:39 miod Exp $	*/
+/* $OpenBSD: subr.S,v 1.26 2016/06/21 12:31:19 aoyama Exp $	*/
 /*
  * Mach Operating System
  * Copyright (c) 1993-1992 Carnegie Mellon University
@@ -1083,9 +1083,13 @@ ENTRY(longjmp)
  * The kernel arranges for the handler to be invoked directly, and return
  * here.
  */
-ENTRY(sigcode)			/* r31 points to sigframe */
+	 .section .rodata
+	 .align	3
+	 .type	sigcode,@function
+GLOBAL(sigcode)			/* r31 points to sigframe */
 	ld	%r2,  %r31, 0	/* pick sigcontext* */
 	or	%r13, %r0,  SYS_sigreturn
+GLOBAL(sigcoderet)
 	tb0	0,    %r0,  450	/* syscall trap, calling sigreturn */
 	NOP			| failure return
 #ifdef dontbother		/* sigreturn will not return unless it fails */
@@ -1100,6 +1104,11 @@ ENTRY(sigcode)			/* r31 points to sigframe */
 	NOP
 	NOP
 GLOBAL(esigcode)
+
+GLOBAL(sigfill)
+	tb0	0, %r0, 130	/* breakpoint */
+GLOBAL(sigfillsiz)
+	.word	_C_LABEL(sigfillsiz) - _C_LABEL(sigfill)
 
 /*
  * Helper functions for pmap_copy_page() and pmap_zero_page().

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcsprog.c,v 1.159 2015/10/16 13:37:44 millert Exp $	*/
+/*	$OpenBSD: rcsprog.c,v 1.161 2016/07/04 01:39:12 millert Exp $	*/
 /*
  * Copyright (c) 2005 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -35,7 +35,7 @@
 
 #include "rcsprog.h"
 
-#define RCSPROG_OPTSTRING	"A:a:b::c:e::ik:Ll::m:Mn:N:o:qt::TUu::Vx::z::"
+#define RCSPROG_OPTSTRING	"A:a:b::c:e::Iik:Ll::m:Mn:N:o:qt::TUu::Vx::z::"
 
 const char rcs_version[] = "OpenRCS 4.5";
 
@@ -129,7 +129,7 @@ main(int argc, char **argv)
 	int ret, cmd_argc;
 
 	if (pledge("stdio rpath wpath cpath fattr flock getpw", NULL) == -1)
-		err(1, "pledge");
+		err(2, "pledge");
 
 	ret = -1;
 	rcs_optind = 1;
@@ -221,6 +221,9 @@ rcs_main(int argc, char **argv)
 		case 'e':
 			elist = rcs_optarg;
 			rcsflags |= RCSPROG_EFLAG;
+			break;
+		case 'I':
+			rcsflags |= INTERACTIVE;
 			break;
 		case 'i':
 			flags |= RCS_CREATE;
@@ -324,14 +327,14 @@ rcs_main(int argc, char **argv)
 		}
 
 		if (rcsflags & DESCRIPTION) {
-			if (rcs_set_description(file, descfile) == -1) {
+			if (rcs_set_description(file, descfile, rcsflags) == -1) {
 				warn("%s", descfile);
 				rcs_close(file);
 				continue;
 			}
 		}
 		else if (flags & RCS_CREATE) {
-			if (rcs_set_description(file, NULL) == -1) {
+			if (rcs_set_description(file, NULL, rcsflags) == -1) {
 				warn("stdin");
 				rcs_close(file);
 				continue;

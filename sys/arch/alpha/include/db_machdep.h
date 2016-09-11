@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_machdep.h,v 1.23 2014/03/16 20:31:45 guenther Exp $	*/
+/*	$OpenBSD: db_machdep.h,v 1.25 2016/04/27 11:10:48 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997 Niklas Hallqvist.  All rights reserved.
@@ -43,7 +43,6 @@ typedef	long db_expr_t;
 typedef struct trapframe db_regs_t;
 
 extern db_regs_t	ddb_regs;
-#define	DDB_REGS	(&ddb_regs)
 
 #define	PC_REGS(regs)	((db_addr_t)(regs)->tf_regs[FRAME_PC])
 #define	SET_PC_REGS(regs, value) (regs)->tf_regs[FRAME_PC] = (unsigned long)(value)
@@ -83,7 +82,7 @@ u_long	db_register_value(db_regs_t *, int);
 int	db_valid_breakpoint(db_addr_t);
 int	ddb_trap(unsigned long, unsigned long, unsigned long,
     unsigned long, struct trapframe *);
-int	kdb_trap(int, int, db_regs_t *);
+int	db_ktrap(int, int, db_regs_t *);
 db_addr_t next_instr_address(db_addr_t, int);
 
 #if 1

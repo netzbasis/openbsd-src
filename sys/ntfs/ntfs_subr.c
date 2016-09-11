@@ -1,4 +1,4 @@
-/*	$OpenBSD: ntfs_subr.c,v 1.44 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ntfs_subr.c,v 1.48 2016/09/01 08:40:39 natano Exp $	*/
 /*	$NetBSD: ntfs_subr.c,v 1.4 2003/04/10 21:37:32 jdolecek Exp $	*/
 
 /*-
@@ -606,7 +606,6 @@ ntfs_runtovrun(cn_t **rcnp, cn_t **rclp, u_long *rcntp, u_int8_t *run)
 
 	off = 0;
 	cnt = 0;
-	i = 0;
 	while (run[off]) {
 		off += (run[off] & 0xF) + ((run[off] >> 4) & 0xF) + 1;
 		cnt++;
@@ -1055,14 +1054,20 @@ ntfs_ntlookupfile(struct ntfsmount *ntmp, struct vnode *vp,
 		}
 	} while (1);
 
-	/* perform full scan if no entry was found */
-	if (!fullscan && error == ENOENT) {
-		fullscan = 1;
-		cn = 0;		/* need zero, used by lookup_ctx */
+	if (error == ENOENT) {
+		/* perform full scan if no entry was found */
+		if (!fullscan) {
+			fullscan = 1;
+			cn = 0;		/* need zero, used by lookup_ctx */
 
-		DDPRINTF("ntfs_ntlookupfile: fullscan performed for: %.*s\n",
-		    (unsigned int)fnamelen, fname);
-		goto loop;
+			DDPRINTF("ntfs_ntlookupfile: fullscan performed for: %.*s\n",
+			    (unsigned int)fnamelen, fname);
+			goto loop;
+		}
+
+		if ((cnp->cn_flags & ISLASTCN) &&
+		    (cnp->cn_nameiop == CREATE || cnp->cn_nameiop == RENAME))
+			error = EJUSTRETURN;
 	}
 
 	DPRINTF("finish\n");
@@ -1331,155 +1336,6 @@ ntfs_filesize(struct ntfsmount *ntmp, struct fnode *fp, u_int64_t *size,
 }
 
 /*
- * This is one of the write routines.
- */
-int
-ntfs_writeattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
-    u_int32_t attrnum, char *attrname, off_t roff, size_t rsize, void *rdata,
-    size_t *initp, struct uio *uio)
-{
-	size_t          init;
-	int             error = 0;
-	off_t           off = roff, left = rsize, towrite;
-	caddr_t         data = rdata;
-	struct ntvattr *vap;
-	*initp = 0;
-
-	while (left) {
-		error = ntfs_ntvattrget(ntmp, ip, attrnum, attrname,
-					ntfs_btocn(off), &vap);
-		if (error)
-			return (error);
-		towrite = MIN(left, ntfs_cntob(vap->va_vcnend + 1) - off);
-		DDPRINTF("ntfs_writeattr_plain: o: %lld, s: %lld "
-		    "(%llu - %llu)\n", off, towrite,
-		    vap->va_vcnstart, vap->va_vcnend);
-		error = ntfs_writentvattr_plain(ntmp, ip, vap,
-					 off - ntfs_cntob(vap->va_vcnstart),
-					 towrite, data, &init, uio);
-		if (error) {
-			DPRINTF("ntfs_writeattr_plain: ntfs_writentvattr_plain "
-			    "failed: o: %d, s: %d\n",
-			    (u_int32_t)off, (u_int32_t)towrite);
-			DPRINTF("ntfs_writeattr_plain: attrib: %d - %d\n",
-			    (u_int32_t)vap->va_vcnstart,
-			    (u_int32_t)vap->va_vcnend);
-			ntfs_ntvattrrele(vap);
-			break;
-		}
-		ntfs_ntvattrrele(vap);
-		left -= towrite;
-		off += towrite;
-		data = data + towrite;
-		*initp += init;
-	}
-
-	return (error);
-}
-
-/*
- * This is one of the write routines.
- *
- * ntnode should be locked.
- */
-int
-ntfs_writentvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
-    struct ntvattr *vap, off_t roff, size_t rsize, void *rdata, size_t *initp,
-    struct uio *uio)
-{
-	int             error = 0;
-	off_t		off;
-	int             cnt;
-	cn_t            ccn, ccl, cn, left, cl;
-	caddr_t         data = rdata;
-	struct buf     *bp;
-	size_t          tocopy;
-
-	*initp = 0;
-
-	if ((vap->va_flag & NTFS_AF_INRUN) == 0) {
-		DPRINTF("ntfs_writevattr_plain: CAN'T WRITE RES. ATTRIBUTE\n");
-		return ENOTTY;
-	}
-
-	DDPRINTF("ntfs_writentvattr_plain: data in run: %lu chains\n",
-	    vap->va_vruncnt);
-
-	off = roff;
-	left = rsize;
-	ccl = 0;
-	ccn = 0;
-	cnt = 0;
-	for (; left && (cnt < vap->va_vruncnt); cnt++) {
-		ccn = vap->va_vruncn[cnt];
-		ccl = vap->va_vruncl[cnt];
-
-		DDPRINTF("ntfs_writentvattr_plain: left %llu, cn: 0x%llx, "
-		    "cl: %llu, off: %lld\n", left, ccn, ccl, off);
-
-		if (ntfs_cntob(ccl) < off) {
-			off -= ntfs_cntob(ccl);
-			cnt++;
-			continue;
-		}
-		if (!ccn && ip->i_number != NTFS_BOOTINO)
-			continue; /* XXX */
-
-		ccl -= ntfs_btocn(off);
-		cn = ccn + ntfs_btocn(off);
-		off = ntfs_btocnoff(off);
-
-		while (left && ccl) {
-			/*
-			 * Always read and write single clusters at a time -
-			 * we need to avoid requesting differently-sized
-			 * blocks at the same disk offsets to avoid
-			 * confusing the buffer cache.
-			 */
-			tocopy = MIN(left, ntfs_cntob(1) - off);
-			cl = ntfs_btocl(tocopy + off);
-			KASSERT(cl == 1 && tocopy <= ntfs_cntob(1));
-			DDPRINTF("ntfs_writentvattr_plain: write: cn: 0x%llx "
-			    "cl: %llu, off: %lld len: %llu, left: %llu\n",
-			    cn, cl, off, tocopy, left);
-			if ((off == 0) && (tocopy == ntfs_cntob(cl)))
-			{
-				bp = getblk(ntmp->ntm_devvp, ntfs_cntobn(cn),
-					    ntfs_cntob(cl), 0, 0);
-				clrbuf(bp);
-			} else {
-				error = bread(ntmp->ntm_devvp, ntfs_cntobn(cn),
-					      ntfs_cntob(cl), &bp);
-				if (error) {
-					brelse(bp);
-					return (error);
-				}
-			}
-			if (uio) {
-				error = uiomovei(bp->b_data + off, tocopy, uio);
-				if (error != 0)
-					break;
-			} else
-				memcpy(bp->b_data + off, data, tocopy);
-			bawrite(bp);
-			data = data + tocopy;
-			*initp += tocopy;
-			off = 0;
-			left -= tocopy;
-			cn += cl;
-			ccl -= cl;
-		}
-	}
-
-	if (left && error == 0) {
-		printf("ntfs_writentvattr_plain: POSSIBLE RUN ERROR\n");
-		error = EINVAL;
-	}
-
-	return (error);
-}
-
-/*
  * This is one of the read routines.
  *
  * ntnode should be locked.
@@ -1495,10 +1351,10 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 	*initp = 0;
 	if (vap->va_flag & NTFS_AF_INRUN) {
 		int             cnt;
-		cn_t            ccn, ccl, cn, left, cl;
+		cn_t            ccn, ccl, cn, cl;
 		caddr_t         data = rdata;
 		struct buf     *bp;
-		size_t          tocopy;
+		size_t          left, tocopy;
 
 		DDPRINTF("ntfs_readntvattr_plain: data in run: %lu chains\n",
 		    vap->va_vruncnt);
@@ -1512,7 +1368,7 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 			ccn = vap->va_vruncn[cnt];
 			ccl = vap->va_vruncl[cnt];
 
-			DDPRINTF("ntfs_readntvattr_plain: left %llu, "
+			DDPRINTF("ntfs_readntvattr_plain: left %zu, "
 			    "cn: 0x%llx, cl: %llu, off: %lld\n",
 			    left, ccn, ccl, off);
 
@@ -1542,8 +1398,8 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 
 					DDPRINTF("ntfs_readntvattr_plain: "
 					    "read: cn: 0x%llx cl: %llu, "
-					    "off: %lld, len: %llu, "
-					    "left: %llu\n",
+					    "off: %lld, len: %zu, "
+					    "left: %zu\n",
 					    cn, cl, off, tocopy, left);
 					error = bread(ntmp->ntm_devvp,
 						      ntfs_cntobn(cn),
@@ -1554,7 +1410,7 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 						return (error);
 					}
 					if (uio) {
-						error = uiomovei(bp->b_data + off,
+						error = uiomove(bp->b_data + off,
 							tocopy, uio);
 						if (error != 0)
 							break;
@@ -1574,7 +1430,7 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 				tocopy = MIN(left, ntfs_cntob(ccl) - off);
 				DDPRINTF("ntfs_readntvattr_plain: hole: "
 				    "ccn: 0x%llx ccl: %llu, off: %lld, "
-				    "len: %llu, left: %llu\n",
+				    "len: %zu, left: %zu\n",
 				    ccn, ccl, off, tocopy, left);
 				left -= tocopy;
 				off = 0;
@@ -1600,7 +1456,7 @@ ntfs_readntvattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 	} else {
 		DDPRINTF("ntfs_readnvattr_plain: data is in mft record\n");
 		if (uio) 
-			error = uiomovei(vap->va_datap + roff, rsize, uio);
+			error = uiomove(vap->va_datap + roff, rsize, uio);
 		else
 			memcpy(rdata, vap->va_datap + roff, rsize);
 		*initp += rsize;
@@ -1619,7 +1475,8 @@ ntfs_readattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 {
 	size_t          init;
 	int             error = 0;
-	off_t           off = roff, left = rsize, toread;
+	off_t           off = roff;
+	size_t		left = rsize, toread;
 	caddr_t         data = rdata;
 	struct ntvattr *vap;
 	*initp = 0;
@@ -1630,19 +1487,17 @@ ntfs_readattr_plain(struct ntfsmount *ntmp, struct ntnode *ip,
 		if (error)
 			return (error);
 		toread = MIN(left, ntfs_cntob(vap->va_vcnend + 1) - off);
-		DDPRINTF("ntfs_readattr_plain: o: %lld, s: %lld "
+		DDPRINTF("ntfs_readattr_plain: o: %lld, s: %zu "
 		    "(%llu - %llu)\n", off, toread,
 		    vap->va_vcnstart, vap->va_vcnend);
 		error = ntfs_readntvattr_plain(ntmp, ip, vap,
 					 off - ntfs_cntob(vap->va_vcnstart),
 					 toread, data, &init, uio);
 		if (error) {
-			printf("ntfs_readattr_plain: " \
-			       "ntfs_readntvattr_plain failed: o: %d, s: %d\n",
-			       (u_int32_t) off, (u_int32_t) toread);
-			printf("ntfs_readattr_plain: attrib: %d - %d\n",
-			       (u_int32_t) vap->va_vcnstart, 
-			       (u_int32_t) vap->va_vcnend);
+			printf("ntfs_readattr_plain: ntfs_readntvattr_plain "
+			    "failed: o: %lld, s: %zu\n", off, toread);
+			printf("ntfs_readattr_plain: attrib: %llu - %llu\n",
+			       vap->va_vcnstart, vap->va_vcnend);
 			ntfs_ntvattrrele(vap);
 			break;
 		}
@@ -1684,9 +1539,10 @@ ntfs_readattr(struct ntfsmount *ntmp, struct ntnode *ip, u_int32_t attrnum,
 	if (vap->va_compression && vap->va_compressalg) {
 		u_int8_t       *cup;
 		u_int8_t       *uup;
-		off_t           off = roff, left = rsize, tocopy;
+		off_t           off = roff;
 		caddr_t         data = rdata;
 		cn_t            cn;
+		size_t		left = rsize, tocopy;
 
 		DDPRINTF("ntfs_ntreadattr: compression: %u\n",
 		    vap->va_compressalg);
@@ -1711,7 +1567,7 @@ ntfs_readattr(struct ntfsmount *ntmp, struct ntnode *ip, u_int32_t attrnum,
 
 			if (init == ntfs_cntob(NTFS_COMPUNIT_CL)) {
 				if (uio)
-					error = uiomovei(cup + off, tocopy, uio);
+					error = uiomove(cup + off, tocopy, uio);
 				else
 					memcpy(data, cup + off, tocopy);
 			} else if (init == 0) {
@@ -1730,7 +1586,7 @@ ntfs_readattr(struct ntfsmount *ntmp, struct ntnode *ip, u_int32_t attrnum,
 				if (error)
 					break;
 				if (uio)
-					error = uiomovei(uup + off, tocopy, uio);
+					error = uiomove(uup + off, tocopy, uio);
 				else
 					memcpy(data, uup + off, tocopy);
 			}

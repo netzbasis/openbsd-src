@@ -1,6 +1,6 @@
 define(MACHINE,sgi)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.44 2015/10/23 15:14:12 claudio Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.48 2016/09/04 15:38:59 naddy Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -48,7 +48,7 @@ _DEV(vnd, 11, 2)
 _DEV(wd, 18, 4)
 _TITLE(tap)
 _DEV(ch, 36)
-_DEV(st, 10, 10)
+_DEV(st, 10)
 _TITLE(term)
 _DEV(com, 17)
 _DEV(zs, 19)
@@ -82,12 +82,12 @@ _DEV(pci, 29)
 _DEV(pf, 31)
 _DEV(pppx, 70)
 _DEV(rnd, 33)
-_DEV(systrace, 50)
 _DEV(tun, 13)
 _DEV(tap, 74)
 _DEV(uk, 32)
 _DEV(vi, 45)
 _DEV(vscsi, 68)
+_DEV(switch, 75)
 dnl
 divert(__mddivert)dnl
 dnl
@@ -101,7 +101,6 @@ target(all, ch, 0)dnl
 target(all, vscsi, 0)dnl
 target(all, diskmap)dnl
 target(all, pty, 0, 1, 2)dnl
-target(all, bpf, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, bio)dnl
 target(all, tun, 0, 1, 2, 3)dnl
 target(all, tap, 0, 1, 2, 3)dnl
@@ -109,6 +108,7 @@ target(all, rd, 0)dnl
 target(all, cd, 0, 1)dnl
 target(all, sd, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, vnd, 0, 1, 2, 3)dnl
+target(all, switch, 0, 1, 2, 3)dnl
 twrget(all, zs, tty, a, b)dnl
 twrget(wscons, wscons, ttyD, cfg, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b)dnl
 twrget(wscons, wscons, ttyE, cfg, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, a, b)dnl

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ommmc.c,v 1.14 2015/05/30 02:17:36 jsg Exp $	*/
+/*	$OpenBSD: ommmc.c,v 1.29 2016/08/12 03:22:41 jsg Exp $	*/
 
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
@@ -27,12 +27,17 @@
 #include <sys/malloc.h>
 #include <sys/systm.h>
 #include <machine/bus.h>
+#include <machine/fdt.h>
 
 #include <dev/sdmmc/sdmmcchip.h>
 #include <dev/sdmmc/sdmmcvar.h>
 
 #include <armv7/armv7/armv7var.h>
 #include <armv7/omap/prcmvar.h>
+
+#include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 /*
  * NOTE: on OMAP4430/AM335x these registers skew by 0x100
@@ -179,7 +184,8 @@
 #define SDHC_BUFFER_TIMEOUT	hz
 #define SDHC_TRANSFER_TIMEOUT	hz
 
-void ommmc_attach(struct device *parent, struct device *self, void *args);
+int ommmc_match(struct device *, void *, void *);
+void ommmc_attach(struct device *, struct device *, void *);
 
 struct ommmc_softc {
 	struct device sc_dev;
@@ -228,7 +234,8 @@ uint32_t ommmc_host_ocr(sdmmc_chipset_handle_t);
 int	ommmc_host_maxblklen(sdmmc_chipset_handle_t);
 int	ommmc_card_detect(sdmmc_chipset_handle_t);
 int	ommmc_bus_power(sdmmc_chipset_handle_t, uint32_t);
-int	ommmc_bus_clock(sdmmc_chipset_handle_t, int);
+int	ommmc_bus_clock(sdmmc_chipset_handle_t, int, int);
+int	ommmc_bus_width(sdmmc_chipset_handle_t, int);
 void	ommmc_card_intr_mask(sdmmc_chipset_handle_t, int);
 void	ommmc_card_intr_ack(sdmmc_chipset_handle_t);
 void	ommmc_exec_command(sdmmc_chipset_handle_t, struct sdmmc_command *);
@@ -260,6 +267,7 @@ struct sdmmc_chip_functions ommmc_functions = {
 	/* bus power and clock frequency */
 	ommmc_bus_power,
 	ommmc_bus_clock,
+	ommmc_bus_width,
 	/* command execution */
 	ommmc_exec_command,
 	/* card interrupt */
@@ -272,28 +280,63 @@ struct cfdriver ommmc_cd = {
 };
 
 struct cfattach ommmc_ca = {
-	sizeof(struct ommmc_softc), NULL, ommmc_attach
+	sizeof(struct ommmc_softc), ommmc_match, ommmc_attach
 };
 
+int
+ommmc_match(struct device *parent, void *match, void *aux)
+{
+	struct fdt_attach_args *faa = aux;
+
+	return (OF_is_compatible(faa->fa_node, "ti,omap3-hsmmc") ||
+	    OF_is_compatible(faa->fa_node, "ti,omap4-hsmmc"));
+}
+
 void
-ommmc_attach(struct device *parent, struct device *self, void *args)
+ommmc_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct ommmc_softc		*sc = (struct ommmc_softc *) self;
-	struct armv7_attach_args	*aa = args;
+	struct fdt_attach_args		*faa = aux;
 	struct sdmmcbus_attach_args	 saa;
 	uint32_t			 caps;
+	uint32_t			 addr, size;
+	int				 len, unit;
+	char				 hwmods[128];
 
-	sc->sc_iot = aa->aa_iot;
-	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
-	    aa->aa_dev->mem[0].size, 0, &sc->sc_ioh))
+	if (faa->fa_nreg < 1)
+		return;
+
+	if (faa->fa_reg[0].size <= 0x100)
+		return;
+
+	if (OF_is_compatible(faa->fa_node, "ti,omap4-hsmmc")) {
+		addr = faa->fa_reg[0].addr + 0x100;
+		size = faa->fa_reg[0].size - 0x100;
+	} else {
+		addr = faa->fa_reg[0].addr;
+		size = faa->fa_reg[0].size;
+	}
+
+	unit = 0;
+	if ((len = OF_getprop(faa->fa_node, "ti,hwmods", hwmods,
+	    sizeof(hwmods))) == 5) {
+		if (!strncmp(hwmods, "mmc", 3) &&
+		    (hwmods[3] > '0') && (hwmods[3] <= '9'))
+			unit = hwmods[3] - '1';
+	}
+
+	sc->sc_iot = faa->fa_iot;
+	if (bus_space_map(sc->sc_iot, addr, size, 0, &sc->sc_ioh))
 		panic("%s: bus_space_map failed!", __func__);
 
 	printf("\n");
 
-	/* Enable ICLKEN, FCLKEN? */
-	prcm_enablemodule(PRCM_MMC0 + aa->aa_dev->unit);
+	pinctrl_byname(faa->fa_node, "default");
 
-	sc->sc_ih = arm_intr_establish(aa->aa_dev->irq[0], IPL_SDMMC,
+	/* Enable ICLKEN, FCLKEN? */
+	prcm_enablemodule(PRCM_MMC0 + unit);
+
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_SDMMC,
 	    ommmc_intr, sc, DEVNAME(sc));
 	if (sc->sc_ih == NULL) {
 		printf("%s: cannot map interrupt\n", DEVNAME(sc));
@@ -330,7 +373,6 @@ ommmc_attach(struct device *parent, struct device *self, void *args)
 #if 0
 	if (SDHC_BASE_FREQ_KHZ(caps) != 0)
 		sc->clkbase = SDHC_BASE_FREQ_KHZ(caps);
-		sc->clkbase = SDHC_BASE_FREQ_KHZ(caps);
 #endif
 	if (sc->clkbase == 0) {
 		/* The attachment driver must tell us. */
@@ -353,7 +395,7 @@ ommmc_attach(struct device *parent, struct device *self, void *args)
 	 * Determine SD bus voltage levels supported by the controller.
 	 */
 	if (caps & MMCHS_CAPA_VS18)
-		SET(sc->ocr, MMC_OCR_1_7V_1_8V | MMC_OCR_1_8V_1_9V);
+		SET(sc->ocr, MMC_OCR_1_65V_1_95V);
 	if (caps & MMCHS_CAPA_VS30)
 		SET(sc->ocr, MMC_OCR_2_9V_3_0V | MMC_OCR_3_0V_3_1V);
 	if (caps & MMCHS_CAPA_VS33)
@@ -390,7 +432,6 @@ ommmc_attach(struct device *parent, struct device *self, void *args)
 	saa.saa_busname = "sdmmc";
 	saa.sct = &ommmc_functions;
 	saa.sch = sc;
-	saa.caps = 0;
 	if (caps & MMCHS_CAPA_HSS)
 		saa.caps |= SMC_CAPS_MMC_HIGHSPEED;
 
@@ -404,7 +445,7 @@ ommmc_attach(struct device *parent, struct device *self, void *args)
 err:
 	if (sc->sc_ih != NULL)
 		arm_intr_disestablish(sc->sc_ih);
-	bus_space_unmap(sc->sc_iot, sc->sc_ioh, aa->aa_dev->mem[0].size);
+	bus_space_unmap(sc->sc_iot, sc->sc_ioh, size);
 }
 
 
@@ -506,6 +547,10 @@ ommmc_host_reset(sdmmc_chipset_handle_t sch)
 	HWRITE4(sc, MMCHS_IE, imask);
 	HWRITE4(sc, MMCHS_ISE, imask);
 
+	/* Switch back to 1-bit bus. */
+	HCLR4(sc, MMCHS_CON, MMCHS_CON_DW8);
+	HCLR4(sc, MMCHS_HCTL, MMCHS_HCTL_DTW);
+
 	splx(s);
 	return (0);
 }
@@ -570,7 +615,7 @@ ommmc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 		vdd = MMCHS_HCTL_SDVS_V33;
 	else if (ISSET(ocr, MMC_OCR_2_9V_3_0V | MMC_OCR_3_0V_3_1V))
 		vdd = MMCHS_HCTL_SDVS_V30;
-	else if (ISSET(ocr, MMC_OCR_1_7V_1_8V | MMC_OCR_1_8V_1_9V))
+	else if (ISSET(ocr, MMC_OCR_1_65V_1_95V))
 		vdd = MMCHS_HCTL_SDVS_V18;
 	else {
 		/* Unsupported voltage level requested. */
@@ -629,7 +674,7 @@ ommmc_clock_divisor(struct ommmc_softc *sc, uint32_t freq)
  * Return zero on success.
  */
 int
-ommmc_bus_clock(sdmmc_chipset_handle_t sch, int freq)
+ommmc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 {
 	int error = 0;
 	struct ommmc_softc *sc = sch;
@@ -672,6 +717,11 @@ ommmc_bus_clock(sdmmc_chipset_handle_t sch, int freq)
 	reg |= div << MMCHS_SYSCTL_CLKD_SH;
 	HWRITE4(sc, MMCHS_SYSCTL, reg);
 
+	if (timing == SDMMC_TIMING_LEGACY)
+		HCLR4(sc, MMCHS_HCTL, MMCHS_HCTL_HSPE);
+	else
+		HSET4(sc, MMCHS_HCTL, MMCHS_HCTL_HSPE);
+
 	/*
 	 * Start internal clock.  Wait 10ms for stabilization.
 	 */
@@ -693,6 +743,32 @@ ommmc_bus_clock(sdmmc_chipset_handle_t sch, int freq)
 ret:
 	splx(s);
 	return (error);
+}
+
+int
+ommmc_bus_width(sdmmc_chipset_handle_t sch, int width)
+{
+	struct ommmc_softc *sc = sch;
+	int s;
+
+	if (width != 1 && width != 4 && width != 8)
+		return (1);
+
+	s = splsdmmc();
+
+	if (width == 8)
+		HSET4(sc, MMCHS_CON, MMCHS_CON_DW8);
+	else
+		HCLR4(sc, MMCHS_CON, MMCHS_CON_DW8);
+
+	if (width == 4)
+		HSET4(sc, MMCHS_HCTL, MMCHS_HCTL_DTW);
+	else if (width == 1)
+		HCLR4(sc, MMCHS_HCTL, MMCHS_HCTL_DTW);
+
+	splx(s);
+
+	return (0);
 }
 
 void
@@ -1008,7 +1084,18 @@ ommmc_soft_reset(struct ommmc_softc *sc, int mask)
 	DPRINTF(1,("%s: software reset reg=%#x\n", DEVNAME(sc), mask));
 
 	HSET4(sc, MMCHS_SYSCTL, mask);
-	delay(10);
+	/*
+	 * If we read the software reset register too fast after writing it we
+	 * can get back a zero that means the reset hasn't started yet rather
+	 * than that the reset is complete. Per TI recommendations, work around
+	 * it by reading until we see the reset bit asserted, then read until
+	 * it's clear.
+	 */
+	for (timo = 1000; timo > 0; timo--) {
+		if (ISSET(HREAD4(sc, MMCHS_SYSCTL), mask))
+			break;
+		delay(1);
+	}
 	for (timo = 1000; timo > 0; timo--) {
 		if (!ISSET(HREAD4(sc, MMCHS_SYSCTL), mask))
 			break;
@@ -1116,3 +1203,10 @@ ommmc_intr(void *arg)
 	}
 	return 1;
 }
+
+#ifdef SDHC_DEBUG
+void
+ommmc_dump_regs(struct ommmc_softc *sc)
+{
+}
+#endif

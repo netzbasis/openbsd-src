@@ -1,4 +1,4 @@
-/*	$OpenBSD: kgmon.c,v 1.22 2015/08/20 22:39:29 deraadt Exp $	*/
+/*	$OpenBSD: kgmon.c,v 1.24 2016/08/27 01:50:07 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983, 1992, 1993
@@ -31,6 +31,7 @@
 
 #include <sys/file.h>
 #include <sys/sysctl.h>
+#include <sys/time.h>
 #include <sys/gmon.h>
 #include <errno.h>
 #include <err.h>
@@ -79,7 +80,6 @@ main(int argc, char **argv)
 	char *sys, *kmemf;
 	const char *p;
 
-	seteuid(getuid());
 	kmemf = NULL;
 	sys = NULL;
 	while ((ch = getopt(argc, argv, "M:N:bc:hpr")) != -1) {
@@ -192,10 +192,8 @@ openfiles(char *sys, char *kmemf, struct kvmvars *kvp, int cpuid)
 		if (!(bflag || hflag || rflag ||
 		    (pflag && state == GMON_PROF_ON)))
 			return (O_RDONLY);
-		(void)seteuid(0);
 		if (sysctl(mib, 4, NULL, NULL, &state, size) >= 0)
 			return (O_RDWR);
-		(void)seteuid(getuid());
 		kern_readonly(state);
 		return (O_RDONLY);
 	}
@@ -285,12 +283,8 @@ setprof(struct kvmvars *kvp, int cpuid, int state)
 			goto bad;
 		if (oldstate == state)
 			return;
-		(void)seteuid(0);
-		if (sysctl(mib, 4, NULL, NULL, &state, sz) >= 0) {
-			(void)seteuid(getuid());
+		if (sysctl(mib, 4, NULL, NULL, &state, sz) >= 0)
 			return;
-		}
-		(void)seteuid(getuid());
 	} else if (kvm_write(kvp->kd, (u_long)&p->state, (void *)&state, sz)
 	    == sz)
 		return;
@@ -477,7 +471,6 @@ reset(struct kvmvars *kvp, int cpuid)
 			errx(15, "tos zero: %s", kvm_geterr(kvp->kd));
 		return;
 	}
-	(void)seteuid(0);
 	mib[0] = CTL_KERN;
 	mib[1] = KERN_PROF;
 	mib[2] = GPROF_COUNT;
@@ -490,7 +483,6 @@ reset(struct kvmvars *kvp, int cpuid)
 	mib[2] = GPROF_TOS;
 	if (sysctl(mib, 4, NULL, NULL, zbuf, kvp->gpm.tossize) < 0)
 		err(15, "tos zero");
-	(void)seteuid(getuid());
 	free(zbuf);
 }
 

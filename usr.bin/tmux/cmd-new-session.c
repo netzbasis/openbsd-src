@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-new-session.c,v 1.77 2015/10/31 14:51:15 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.87 2016/03/05 07:47:52 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,34 +36,45 @@
 enum cmd_retval	 cmd_new_session_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_new_session_entry = {
-	"new-session", "new",
-	"Ac:dDEF:n:Ps:t:x:y:", 0, -1,
-	"[-AdDEP] [-c start-directory] [-F format] [-n window-name] "
-	"[-s session-name] " CMD_TARGET_SESSION_USAGE " [-x width] "
-	"[-y height] [command]",
-	CMD_STARTSERVER,
-	cmd_new_session_exec
+	.name = "new-session",
+	.alias = "new",
+
+	.args = { "Ac:dDEF:n:Ps:t:x:y:", 0, -1 },
+	.usage = "[-AdDEP] [-c start-directory] [-F format] [-n window-name] "
+		 "[-s session-name] " CMD_TARGET_SESSION_USAGE " [-x width] "
+		 "[-y height] [command]",
+
+	.tflag = CMD_SESSION_CANFAIL,
+
+	.flags = CMD_STARTSERVER,
+	.exec = cmd_new_session_exec
 };
 
 const struct cmd_entry cmd_has_session_entry = {
-	"has-session", "has",
-	"t:", 0, 0,
-	CMD_TARGET_SESSION_USAGE,
-	0,
-	cmd_new_session_exec
+	.name = "has-session",
+	.alias = "has",
+
+	.args = { "t:", 0, 0 },
+	.usage = CMD_TARGET_SESSION_USAGE,
+
+	.tflag = CMD_SESSION,
+
+	.flags = 0,
+	.exec = cmd_new_session_exec
 };
 
 enum cmd_retval
 cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
-	struct client		*c = cmdq->client, *c0;
-	struct session		*s, *groupwith;
+	struct client		*c = cmdq->client;
+	struct session		*s, *as;
+	struct session		*groupwith = cmdq->state.tflag.s;
 	struct window		*w;
 	struct environ		*env;
 	struct termios		 tio, *tiop;
 	const char		*newname, *target, *update, *errstr, *template;
-	const char		*path, *cwd, *to_free;
+	const char		*path, *cwd, *to_free = NULL;
 	char		       **argv, *cmd, *cause, *cp;
 	int			 detached, already_attached, idx, argc;
 	u_int			 sx, sy;
@@ -71,8 +82,10 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 	struct environ_entry	*envent;
 
 	if (self->entry == &cmd_has_session_entry) {
-		if (cmd_find_session(cmdq, args_get(args, 't'), 0) == NULL)
-			return (CMD_RETURN_ERROR);
+		/*
+		 * cmd_prepare() will fail if the session cannot be found,
+		 * hence always return success here.
+		 */
 		return (CMD_RETURN_NORMAL);
 	}
 
@@ -87,9 +100,16 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 			cmdq_error(cmdq, "bad session name: %s", newname);
 			return (CMD_RETURN_ERROR);
 		}
-		if (session_find(newname) != NULL) {
+		if ((as = session_find(newname)) != NULL) {
 			if (args_has(args, 'A')) {
-				return (cmd_attach_session(cmdq, newname,
+				/*
+				 * This cmdq is now destined for
+				 * attach-session.  Because attach-session
+				 * will have already been prepared, copy this
+				 * session into its tflag so it can be used.
+				 */
+				cmd_find_from_session(&cmdq->state.tflag, as);
+				return (cmd_attach_session(cmdq,
 				    args_has(args, 'D'), 0, NULL,
 				    args_has(args, 'E')));
 			}
@@ -98,11 +118,11 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 		}
 	}
 
-	target = args_get(args, 't');
-	if (target != NULL) {
-		groupwith = cmd_find_session(cmdq, target, 0);
-		if (groupwith == NULL)
-			return (CMD_RETURN_ERROR);
+	if ((target = args_get(args, 't')) != NULL) {
+		if (groupwith == NULL) {
+			cmdq_error(cmdq, "no such session: %s", target);
+			goto error;
+		}
 	} else
 		groupwith = NULL;
 
@@ -117,17 +137,13 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 		already_attached = 1;
 
 	/* Get the new session working directory. */
-	to_free = NULL;
 	if (args_has(args, 'c')) {
-		ft = format_create();
-		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), NULL, NULL,
-		    NULL);
+		ft = format_create(cmdq, 0);
+		format_defaults(ft, c, NULL, NULL, NULL);
 		to_free = cwd = format_expand(ft, args_get(args, 'c'));
 		format_free(ft);
-	} else if (c != NULL && c->session == NULL)
+	} else if (c != NULL && c->session == NULL && c->cwd != NULL)
 		cwd = c->cwd;
-	else if ((c0 = cmd_find_client(cmdq, NULL, 1)) != NULL)
-		cwd = c0->session->cwd;
 	else
 		cwd = ".";
 
@@ -193,10 +209,10 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 	/* Figure out the command for the new window. */
 	argc = -1;
 	argv = NULL;
-	if (target == NULL && args->argc != 0) {
+	if (!args_has(args, 't') && args->argc != 0) {
 		argc = args->argc;
 		argv = args->argv;
-	} else if (target == NULL) {
+	} else if (groupwith == NULL) {
 		cmd = options_get_string(global_s_options, "default-command");
 		if (cmd != NULL && *cmd != '\0') {
 			argc = 1;
@@ -262,6 +278,7 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 		} else if (c->session != NULL)
 			c->last_session = c->session;
 		c->session = s;
+		server_client_set_key_table(c, NULL);
 		status_timer_start(c);
 		notify_attached_session_changed(c);
 		session_update_activity(s, NULL);
@@ -283,9 +300,8 @@ cmd_new_session_exec(struct cmd *self, struct cmd_q *cmdq)
 		if ((template = args_get(args, 'F')) == NULL)
 			template = NEW_SESSION_TEMPLATE;
 
-		ft = format_create();
-		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s, NULL,
-		    NULL);
+		ft = format_create(cmdq, 0);
+		format_defaults(ft, c, s, NULL, NULL);
 
 		cp = format_expand(ft, template);
 		cmdq_print(cmdq, "%s", cp);

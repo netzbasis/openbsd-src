@@ -1,4 +1,4 @@
-.\"	$OpenBSD: select.2,v 1.39 2015/09/21 06:06:54 guenther Exp $
+.\"	$OpenBSD: select.2,v 1.41 2016/06/07 16:18:56 tedu Exp $
 .\"	$NetBSD: select.2,v 1.5 1995/06/27 22:32:28 cgd Exp $
 .\"
 .\" Copyright (c) 1983, 1991, 1993
@@ -30,12 +30,16 @@
 .\"
 .\"     @(#)select.2	8.2 (Berkeley) 3/25/94
 .\"
-.Dd $Mdocdate: September 21 2015 $
+.Dd $Mdocdate: June 7 2016 $
 .Dt SELECT 2
 .Os
 .Sh NAME
 .Nm select ,
-.Nm pselect
+.Nm pselect ,
+.Nm FD_SET ,
+.Nm FD_CLR ,
+.Nm FD_ISSET ,
+.Nm FD_ZERO
 .Nd synchronous I/O multiplexing
 .Sh SYNOPSIS
 .In sys/select.h
@@ -289,11 +293,3 @@ and using
 .Fn timersub
 (as described in
 .Xr getitimer 2 ) .
-.Pp
-Internally to the kernel,
-.Fn select
-and
-.Fn pselect
-work poorly if multiple processes wait on the same file descriptor.
-Given that, it is rather surprising to see that many daemons are
-written that way.

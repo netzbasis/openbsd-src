@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pflog.c,v 1.71 2015/08/25 12:06:47 jsg Exp $	*/
+/*	$OpenBSD: if_pflog.c,v 1.74 2016/04/29 08:55:03 krw Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and 
@@ -198,30 +198,17 @@ pflog_clone_destroy(struct ifnet *ifp)
 void
 pflogstart(struct ifnet *ifp)
 {
-	struct mbuf *m;
-	int s;
-
-	for (;;) {
-		s = splnet();
-		IF_DROP(&ifp->if_snd);
-		IF_DEQUEUE(&ifp->if_snd, m);
-		splx(s);
-
-		if (m == NULL)
-			return;
-		m_freem(m);
-	}
+	IFQ_PURGE(&ifp->if_snd);
 }
 
 int
 pflogoutput(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	struct rtentry *rt)
 {
-	m_freem(m);
-	return (0);
+	m_freem(m);	/* drop packet */
+	return (EAFNOSUPPORT);
 }
 
-/* ARGSUSED */
 int
 pflogioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {

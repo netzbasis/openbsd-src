@@ -1,4 +1,4 @@
-/*	$OpenBSD: intrdefs.h,v 1.13 2015/02/10 05:35:19 mlarkin Exp $	*/
+/*	$OpenBSD: intrdefs.h,v 1.16 2016/06/22 01:12:38 mikeb Exp $	*/
 /*	$NetBSD: intrdefs.h,v 1.2 2003/05/04 22:01:56 fvdl Exp $	*/
 
 #ifndef _AMD64_INTRDEFS_H
@@ -54,6 +54,8 @@
 #define	SIR_NET		60
 #define	SIR_TTY		59
 
+#define	LIR_XEN		58
+#define	LIR_HYPERV	57
 
 /*
  * Maximum # of interrupt sources per CPU. 64 to fit in one word.
@@ -79,12 +81,15 @@
 #define X86_IPI_MTRR			0x00000020
 #define X86_IPI_SETPERF			0x00000040
 #define X86_IPI_DDB			0x00000080
+#define X86_IPI_START_VMM		0x00000100
+#define X86_IPI_STOP_VMM		0x00000200
 
-#define X86_NIPI			8
+#define X86_NIPI			10
 
 #define X86_IPI_NAMES { "halt IPI", "nop IPI", "FPU flush IPI", \
 			 "FPU synch IPI", "TLB shootdown IPI", \
-			 "MTRR update IPI", "setperf IPI", "ddb IPI" }
+			 "MTRR update IPI", "setperf IPI", "ddb IPI", \
+			 "VMM start IPI", "VMM stop IPI" }
 
 #define IREENT_MAGIC	0x18041969
 

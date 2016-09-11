@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bge.c,v 1.371 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_bge.c,v 1.382 2016/04/13 10:34:32 mpi Exp $	*/
 
 /*
  * Copyright (c) 2001 Wind River Systems
@@ -84,18 +84,13 @@
 #include <sys/device.h>
 #include <sys/timeout.h>
 #include <sys/socket.h>
+#include <sys/atomic.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
-#endif
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -123,10 +118,12 @@ const struct bge_revision * bge_lookup_rev(u_int32_t);
 int bge_can_use_msi(struct bge_softc *);
 int bge_probe(struct device *, void *, void *);
 void bge_attach(struct device *, struct device *, void *);
+int bge_detach(struct device *, int);
 int bge_activate(struct device *, int);
 
 struct cfattach bge_ca = {
-	sizeof(struct bge_softc), bge_probe, bge_attach, NULL, bge_activate
+	sizeof(struct bge_softc), bge_probe, bge_attach, bge_detach,
+	bge_activate
 };
 
 struct cfdriver bge_cd = {
@@ -150,7 +147,7 @@ int bge_ioctl(struct ifnet *, u_long, caddr_t);
 int bge_rxrinfo(struct bge_softc *, struct if_rxrinfo *);
 void bge_init(void *);
 void bge_stop_block(struct bge_softc *, bus_size_t, u_int32_t);
-void bge_stop(struct bge_softc *);
+void bge_stop(struct bge_softc *, int);
 void bge_watchdog(struct ifnet *);
 int bge_ifmedia_upd(struct ifnet *);
 void bge_ifmedia_sts(struct ifnet *, struct ifmediareq *);
@@ -2541,9 +2538,7 @@ bge_attach(struct device *parent, struct device *self, void *aux)
 	pcireg_t		pm_ctl, memtype, subid, reg;
 	pci_intr_handle_t	ih;
 	const char		*intrstr = NULL;
-	bus_size_t		size, apesize;
-	bus_dma_segment_t	seg;
-	int			rseg, gotenaddr = 0;
+	int			gotenaddr = 0;
 	u_int32_t		hwcfg = 0;
 	u_int32_t		mac_addr = 0;
 	u_int32_t		misccfg;
@@ -2565,7 +2560,7 @@ bge_attach(struct device *parent, struct device *self, void *aux)
 	DPRINTFN(5, ("pci_mapreg_map\n"));
 	memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, BGE_PCI_BAR0);
 	if (pci_mapreg_map(pa, BGE_PCI_BAR0, memtype, 0, &sc->bge_btag,
-	    &sc->bge_bhandle, NULL, &size, 0)) {
+	    &sc->bge_bhandle, NULL, &sc->bge_bsize, 0)) {
 		printf(": can't find mem space\n");
 		return;
 	}
@@ -2832,7 +2827,8 @@ bge_attach(struct device *parent, struct device *self, void *aux)
 	if ((sc->bge_flags & BGE_APE) != 0) {
 		memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, BGE_PCI_BAR2);
 		if (pci_mapreg_map(pa, BGE_PCI_BAR2, memtype, 0,
-		    &sc->bge_apetag, &sc->bge_apehandle, NULL, &apesize, 0)) {
+		    &sc->bge_apetag, &sc->bge_apehandle, NULL,
+		    &sc->bge_apesize, 0)) {
 			printf(": couldn't map BAR2 memory\n");
 			goto fail_1;
 		}
@@ -2949,14 +2945,15 @@ bge_attach(struct device *parent, struct device *self, void *aux)
 	sc->bge_dmatag = pa->pa_dmat;
 	DPRINTFN(5, ("bus_dmamem_alloc\n"));
 	if (bus_dmamem_alloc(sc->bge_dmatag, sizeof(struct bge_ring_data),
-			     PAGE_SIZE, 0, &seg, 1, &rseg, BUS_DMA_NOWAIT)) {
+	    PAGE_SIZE, 0, &sc->bge_ring_seg, 1, &sc->bge_ring_nseg,
+	    BUS_DMA_NOWAIT)) {
 		printf(": can't alloc rx buffers\n");
 		goto fail_2;
 	}
 	DPRINTFN(5, ("bus_dmamem_map\n"));
-	if (bus_dmamem_map(sc->bge_dmatag, &seg, rseg,
-			   sizeof(struct bge_ring_data), &kva,
-			   BUS_DMA_NOWAIT)) {
+	if (bus_dmamem_map(sc->bge_dmatag, &sc->bge_ring_seg,
+	    sc->bge_ring_nseg, sizeof(struct bge_ring_data), &kva,
+	    BUS_DMA_NOWAIT)) {
 		printf(": can't map dma buffers (%lu bytes)\n",
 		    sizeof(struct bge_ring_data));
 		goto fail_3;
@@ -2997,11 +2994,11 @@ bge_attach(struct device *parent, struct device *self, void *aux)
 	ifp = &sc->arpcom.ac_if;
 	ifp->if_softc = sc;
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
+	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = bge_ioctl;
 	ifp->if_start = bge_start;
 	ifp->if_watchdog = bge_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, BGE_TX_RING_CNT - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	DPRINTFN(5, ("bcopy\n"));
 	bcopy(sc->bge_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
@@ -3139,18 +3136,54 @@ fail_5:
 	bus_dmamap_destroy(sc->bge_dmatag, sc->bge_ring_map);
 
 fail_4:
-	bus_dmamem_unmap(sc->bge_dmatag, kva,
+	bus_dmamem_unmap(sc->bge_dmatag, (caddr_t)sc->bge_rdata,
 	    sizeof(struct bge_ring_data));
 
 fail_3:
-	bus_dmamem_free(sc->bge_dmatag, &seg, rseg);
+	bus_dmamem_free(sc->bge_dmatag, &sc->bge_ring_seg, sc->bge_ring_nseg);
 
 fail_2:
 	if ((sc->bge_flags & BGE_APE) != 0)
-		bus_space_unmap(sc->bge_apetag, sc->bge_apehandle, apesize);
+		bus_space_unmap(sc->bge_apetag, sc->bge_apehandle,
+		    sc->bge_apesize);
 
 fail_1:
-	bus_space_unmap(sc->bge_btag, sc->bge_bhandle, size);
+	bus_space_unmap(sc->bge_btag, sc->bge_bhandle, sc->bge_bsize);
+}
+
+int
+bge_detach(struct device *self, int flags)
+{
+	struct bge_softc *sc = (struct bge_softc *)self;
+	struct ifnet *ifp = &sc->arpcom.ac_if;
+
+	if (sc->bge_intrhand)
+		pci_intr_disestablish(sc->bge_pa.pa_pc, sc->bge_intrhand);
+
+	bge_stop(sc, 1);
+
+	/* Detach any PHYs we might have. */
+	if (LIST_FIRST(&sc->bge_mii.mii_phys) != NULL)
+		mii_detach(&sc->bge_mii, MII_PHY_ANY, MII_OFFSET_ANY);
+
+	/* Delete any remaining media. */
+	ifmedia_delete_instance(&sc->bge_mii.mii_media, IFM_INST_ANY);
+
+	ether_ifdetach(ifp);
+	if_detach(ifp);
+
+	bus_dmamap_unload(sc->bge_dmatag, sc->bge_ring_map);
+	bus_dmamap_destroy(sc->bge_dmatag, sc->bge_ring_map);
+	bus_dmamem_unmap(sc->bge_dmatag, (caddr_t)sc->bge_rdata,
+	    sizeof(struct bge_ring_data));
+	bus_dmamem_free(sc->bge_dmatag, &sc->bge_ring_seg, sc->bge_ring_nseg);
+
+	if ((sc->bge_flags & BGE_APE) != 0)
+		bus_space_unmap(sc->bge_apetag, sc->bge_apehandle,
+		    sc->bge_apesize);
+
+	bus_space_unmap(sc->bge_btag, sc->bge_bhandle, sc->bge_bsize);
+	return (0);
 }
 
 int
@@ -3164,7 +3197,7 @@ bge_activate(struct device *self, int act)
 	case DVACT_SUSPEND:
 		rv = config_activate_children(self, act);
 		if (ifp->if_flags & IFF_RUNNING)
-			bge_stop(sc);
+			bge_stop(sc, 0);
 		break;
 	case DVACT_RESUME:
 		if (ifp->if_flags & IFF_UP)
@@ -3632,12 +3665,12 @@ bge_txeof(struct bge_softc *sc)
 
 	txcnt = atomic_sub_int_nv(&sc->bge_txcnt, freed);
 
-	if (txcnt < BGE_TX_RING_CNT - 16)
-		ifp->if_flags &= ~IFF_OACTIVE;
-	if (txcnt == 0)
-		ifp->if_timer = 0;
-
 	sc->bge_tx_saved_considx = cons;
+
+	if (ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
+	else if (txcnt == 0)
+		ifp->if_timer = 0;
 }
 
 int
@@ -3700,12 +3733,6 @@ bge_intr(void *xsc)
 
 		/* Check TX ring producer/consumer */
 		bge_txeof(sc);
-
-		if (!IFQ_IS_EMPTY(&ifp->if_snd)) {
-			KERNEL_LOCK();
-			bge_start(ifp);
-			KERNEL_UNLOCK();
-		}
 	}
 
 	return (1);
@@ -3985,7 +4012,7 @@ bge_cksum_pad(struct mbuf *m)
  * pointers to descriptors.
  */
 int
-bge_encap(struct bge_softc *sc, struct mbuf *m_head, int *txinc)
+bge_encap(struct bge_softc *sc, struct mbuf *m, int *txinc)
 {
 	struct bge_tx_bd	*f = NULL;
 	u_int32_t		frag, cur;
@@ -3995,20 +4022,20 @@ bge_encap(struct bge_softc *sc, struct mbuf *m_head, int *txinc)
 
 	cur = frag = (sc->bge_tx_prodidx + *txinc) % BGE_TX_RING_CNT;
 
-	if (m_head->m_pkthdr.csum_flags) {
-		if (m_head->m_pkthdr.csum_flags & M_IPV4_CSUM_OUT)
+	if (m->m_pkthdr.csum_flags) {
+		if (m->m_pkthdr.csum_flags & M_IPV4_CSUM_OUT)
 			csum_flags |= BGE_TXBDFLAG_IP_CSUM;
-		if (m_head->m_pkthdr.csum_flags & (M_TCP_CSUM_OUT |
-		    M_UDP_CSUM_OUT)) {
+		if (m->m_pkthdr.csum_flags &
+		    (M_TCP_CSUM_OUT | M_UDP_CSUM_OUT)) {
 			csum_flags |= BGE_TXBDFLAG_TCP_UDP_CSUM;
-			if (m_head->m_pkthdr.len < ETHER_MIN_NOPAD &&
-			    bge_cksum_pad(m_head) != 0)
+			if (m->m_pkthdr.len < ETHER_MIN_NOPAD &&
+			    bge_cksum_pad(m) != 0)
 				return (ENOBUFS);
 		}
 	}
 
 	if (sc->bge_flags & BGE_JUMBO_FRAME && 
-	    m_head->m_pkthdr.len > ETHER_MAX_LEN)
+	    m->m_pkthdr.len > ETHER_MAX_LEN)
 		csum_flags |= BGE_TXBDFLAG_JUMBO_FRAME;
 
 	if (!(BGE_CHIPREV(sc->bge_chipid) == BGE_CHIPREV_5700_BX))
@@ -4019,7 +4046,7 @@ bge_encap(struct bge_softc *sc, struct mbuf *m_head, int *txinc)
 	 * less than eight bytes.  If we encounter a teeny mbuf
 	 * at the end of a chain, we can pad.  Otherwise, copy.
 	 */
-	if (bge_compact_dma_runt(m_head) != 0)
+	if (bge_compact_dma_runt(m) != 0)
 		return (ENOBUFS);
 
 doit:
@@ -4030,13 +4057,13 @@ doit:
 	 * the fragment pointers. Stop when we run out
 	 * of fragments or hit the end of the mbuf chain.
 	 */
-	switch (bus_dmamap_load_mbuf(sc->bge_dmatag, dmamap, m_head,
+	switch (bus_dmamap_load_mbuf(sc->bge_dmatag, dmamap, m,
 	    BUS_DMA_NOWAIT)) {
 	case 0:
 		break;
 	case EFBIG:
-		if (m_defrag(m_head, M_DONTWAIT) == 0 &&
-		    bus_dmamap_load_mbuf(sc->bge_dmatag, dmamap, m_head,
+		if (m_defrag(m, M_DONTWAIT) == 0 &&
+		    bus_dmamap_load_mbuf(sc->bge_dmatag, dmamap, m,
 		     BUS_DMA_NOWAIT) == 0)
 			break;
 
@@ -4044,10 +4071,6 @@ doit:
 	default:
 		return (ENOBUFS);
 	}
-
-	/* Check if we have enough free send BDs. */
-	if (sc->bge_txcnt + *txinc + dmamap->dm_nsegs >= BGE_TX_RING_CNT)
-		goto fail_unload;
 
 	for (i = 0; i < dmamap->dm_nsegs; i++) {
 		f = &sc->bge_rdata->bge_tx_ring[frag];
@@ -4058,9 +4081,9 @@ doit:
 		f->bge_flags = csum_flags;
 		f->bge_vlan_tag = 0;
 #if NVLAN > 0
-		if (m_head->m_flags & M_VLANTAG) {
+		if (m->m_flags & M_VLANTAG) {
 			f->bge_flags |= BGE_TXBDFLAG_VLAN_TAG;
-			f->bge_vlan_tag = m_head->m_pkthdr.ether_vtag;
+			f->bge_vlan_tag = m->m_pkthdr.ether_vtag;
 		}
 #endif
 		cur = frag;
@@ -4070,14 +4093,14 @@ doit:
 	if (i < dmamap->dm_nsegs)
 		goto fail_unload;
 
-	bus_dmamap_sync(sc->bge_dmatag, dmamap, 0, dmamap->dm_mapsize,
-	    BUS_DMASYNC_PREWRITE);
-
 	if (frag == sc->bge_tx_saved_considx)
 		goto fail_unload;
 
+	bus_dmamap_sync(sc->bge_dmatag, dmamap, 0, dmamap->dm_mapsize,
+	    BUS_DMASYNC_PREWRITE);
+
 	sc->bge_rdata->bge_tx_ring[cur].bge_flags |= BGE_TXBDFLAG_END;
-	sc->bge_cdata.bge_tx_chain[cur] = m_head;
+	sc->bge_cdata.bge_tx_chain[cur] = m;
 	sc->bge_cdata.bge_tx_map[cur] = dmamap;
 	
 	*txinc += dmamap->dm_nsegs;
@@ -4097,38 +4120,40 @@ fail_unload:
 void
 bge_start(struct ifnet *ifp)
 {
-	struct bge_softc *sc;
-	struct mbuf *m_head;
+	struct bge_softc *sc = ifp->if_softc;
+	struct mbuf *m;
 	int txinc;
 
-	sc = ifp->if_softc;
-
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!BGE_STS_BIT(sc, BGE_STS_LINK)) {
+		IFQ_PURGE(&ifp->if_snd);
 		return;
-	if (!BGE_STS_BIT(sc, BGE_STS_LINK))
-		return;
+	}
 
 	txinc = 0;
 	while (1) {
-		IFQ_POLL(&ifp->if_snd, m_head);
-		if (m_head == NULL)
+		/* Check if we have enough free send BDs. */
+		if (sc->bge_txcnt + txinc + BGE_NTXSEG + 16 >=
+		    BGE_TX_RING_CNT) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
+		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == NULL)
 			break;
 
-		if (bge_encap(sc, m_head, &txinc))
-			break;
-
-		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		if (bge_encap(sc, m, &txinc) != 0) {
+			m_freem(m);
+			continue;
+		}
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf)
-			bpf_mtap_ether(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
+			bpf_mtap_ether(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
 	}
 
 	if (txinc != 0) {
-		int txcnt;
-
 		/* Transmit */
 		sc->bge_tx_prodidx = (sc->bge_tx_prodidx + txinc) %
 		    BGE_TX_RING_CNT;
@@ -4137,9 +4162,7 @@ bge_start(struct ifnet *ifp)
 			bge_writembx(sc, BGE_MBX_TX_HOST_PROD0_LO,
 			    sc->bge_tx_prodidx);
 
-		txcnt = atomic_add_int_nv(&sc->bge_txcnt, txinc);
-		if (txcnt > BGE_TX_RING_CNT - 16)
-			ifp->if_flags |= IFF_OACTIVE;
+		atomic_add_int(&sc->bge_txcnt, txinc);
 
 		/*
 		 * Set a timeout in case the chip goes out to lunch.
@@ -4162,7 +4185,7 @@ bge_init(void *xsc)
 	ifp = &sc->arpcom.ac_if;
 
 	/* Cancel pending I/O and flush buffers. */
-	bge_stop(sc);
+	bge_stop(sc, 0);
 	bge_sig_pre_reset(sc, BGE_RESET_START);
 	bge_reset(sc);
 	bge_sig_legacy(sc, BGE_RESET_START);
@@ -4287,7 +4310,7 @@ bge_init(void *xsc)
 	bge_ifmedia_upd(ifp);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -4431,7 +4454,7 @@ bge_ioctl(struct ifnet *ifp, u_long command, caddr_t data)
 				bge_init(sc);
 		} else {
 			if (ifp->if_flags & IFF_RUNNING)
-				bge_stop(sc);
+				bge_stop(sc, 0);
 		}
 		break;
 
@@ -4548,7 +4571,7 @@ bge_stop_block(struct bge_softc *sc, bus_size_t reg, u_int32_t bit)
  * RX and TX lists.
  */
 void
-bge_stop(struct bge_softc *sc)
+bge_stop(struct bge_softc *sc, int softonly)
 {
 	struct ifnet *ifp = &sc->arpcom.ac_if;
 	struct ifmedia_entry *ifm;
@@ -4559,66 +4582,71 @@ bge_stop(struct bge_softc *sc)
 	timeout_del(&sc->bge_rxtimeout);
 	timeout_del(&sc->bge_rxtimeout_jumbo);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifp->if_timer = 0;
 
-	/*
-	 * Tell firmware we're shutting down.
-	 */
-	/* bge_stop_fw(sc); */
-	bge_sig_pre_reset(sc, BGE_RESET_SHUTDOWN);
+	if (!softonly) {
+		/*
+		 * Tell firmware we're shutting down.
+		 */
+		/* bge_stop_fw(sc); */
+		bge_sig_pre_reset(sc, BGE_RESET_SHUTDOWN);
 
+		/*
+		 * Disable all of the receiver blocks
+		 */
+		bge_stop_block(sc, BGE_RX_MODE, BGE_RXMODE_ENABLE);
+		bge_stop_block(sc, BGE_RBDI_MODE, BGE_RBDIMODE_ENABLE);
+		bge_stop_block(sc, BGE_RXLP_MODE, BGE_RXLPMODE_ENABLE);
+		if (BGE_IS_5700_FAMILY(sc))
+			bge_stop_block(sc, BGE_RXLS_MODE, BGE_RXLSMODE_ENABLE);
+		bge_stop_block(sc, BGE_RDBDI_MODE, BGE_RBDIMODE_ENABLE);
+		bge_stop_block(sc, BGE_RDC_MODE, BGE_RDCMODE_ENABLE);
+		bge_stop_block(sc, BGE_RBDC_MODE, BGE_RBDCMODE_ENABLE);
 
-	/*
-	 * Disable all of the receiver blocks
-	 */
-	bge_stop_block(sc, BGE_RX_MODE, BGE_RXMODE_ENABLE);
-	bge_stop_block(sc, BGE_RBDI_MODE, BGE_RBDIMODE_ENABLE);
-	bge_stop_block(sc, BGE_RXLP_MODE, BGE_RXLPMODE_ENABLE);
-	if (BGE_IS_5700_FAMILY(sc))
-		bge_stop_block(sc, BGE_RXLS_MODE, BGE_RXLSMODE_ENABLE);
-	bge_stop_block(sc, BGE_RDBDI_MODE, BGE_RBDIMODE_ENABLE);
-	bge_stop_block(sc, BGE_RDC_MODE, BGE_RDCMODE_ENABLE);
-	bge_stop_block(sc, BGE_RBDC_MODE, BGE_RBDCMODE_ENABLE);
+		/*
+		 * Disable all of the transmit blocks
+		 */
+		bge_stop_block(sc, BGE_SRS_MODE, BGE_SRSMODE_ENABLE);
+		bge_stop_block(sc, BGE_SBDI_MODE, BGE_SBDIMODE_ENABLE);
+		bge_stop_block(sc, BGE_SDI_MODE, BGE_SDIMODE_ENABLE);
+		bge_stop_block(sc, BGE_RDMA_MODE, BGE_RDMAMODE_ENABLE);
+		bge_stop_block(sc, BGE_SDC_MODE, BGE_SDCMODE_ENABLE);
+		if (BGE_IS_5700_FAMILY(sc))
+			bge_stop_block(sc, BGE_DMAC_MODE, BGE_DMACMODE_ENABLE);
+		bge_stop_block(sc, BGE_SBDC_MODE, BGE_SBDCMODE_ENABLE);
 
-	/*
-	 * Disable all of the transmit blocks
-	 */
-	bge_stop_block(sc, BGE_SRS_MODE, BGE_SRSMODE_ENABLE);
-	bge_stop_block(sc, BGE_SBDI_MODE, BGE_SBDIMODE_ENABLE);
-	bge_stop_block(sc, BGE_SDI_MODE, BGE_SDIMODE_ENABLE);
-	bge_stop_block(sc, BGE_RDMA_MODE, BGE_RDMAMODE_ENABLE);
-	bge_stop_block(sc, BGE_SDC_MODE, BGE_SDCMODE_ENABLE);
-	if (BGE_IS_5700_FAMILY(sc))
-		bge_stop_block(sc, BGE_DMAC_MODE, BGE_DMACMODE_ENABLE);
-	bge_stop_block(sc, BGE_SBDC_MODE, BGE_SBDCMODE_ENABLE);
+		/*
+		 * Shut down all of the memory managers and related
+		 * state machines.
+		 */
+		bge_stop_block(sc, BGE_HCC_MODE, BGE_HCCMODE_ENABLE);
+		bge_stop_block(sc, BGE_WDMA_MODE, BGE_WDMAMODE_ENABLE);
+		if (BGE_IS_5700_FAMILY(sc))
+			bge_stop_block(sc, BGE_MBCF_MODE, BGE_MBCFMODE_ENABLE);
 
-	/*
-	 * Shut down all of the memory managers and related
-	 * state machines.
-	 */
-	bge_stop_block(sc, BGE_HCC_MODE, BGE_HCCMODE_ENABLE);
-	bge_stop_block(sc, BGE_WDMA_MODE, BGE_WDMAMODE_ENABLE);
-	if (BGE_IS_5700_FAMILY(sc))
-		bge_stop_block(sc, BGE_MBCF_MODE, BGE_MBCFMODE_ENABLE);
+		CSR_WRITE_4(sc, BGE_FTQ_RESET, 0xFFFFFFFF);
+		CSR_WRITE_4(sc, BGE_FTQ_RESET, 0);
 
-	CSR_WRITE_4(sc, BGE_FTQ_RESET, 0xFFFFFFFF);
-	CSR_WRITE_4(sc, BGE_FTQ_RESET, 0);
+		if (!BGE_IS_5705_PLUS(sc)) {
+			bge_stop_block(sc, BGE_BMAN_MODE, BGE_BMANMODE_ENABLE);
+			bge_stop_block(sc, BGE_MARB_MODE, BGE_MARBMODE_ENABLE);
+		}
 
-	if (!BGE_IS_5705_PLUS(sc)) {
-		bge_stop_block(sc, BGE_BMAN_MODE, BGE_BMANMODE_ENABLE);
-		bge_stop_block(sc, BGE_MARB_MODE, BGE_MARBMODE_ENABLE);
+		bge_reset(sc);
+		bge_sig_legacy(sc, BGE_RESET_SHUTDOWN);
+		bge_sig_post_reset(sc, BGE_RESET_SHUTDOWN);
+
+		/*
+		 * Tell firmware we're shutting down.
+		 */
+		BGE_CLRBIT(sc, BGE_MODE_CTL, BGE_MODECTL_STACKUP);
 	}
 
-	bge_reset(sc);
-	bge_sig_legacy(sc, BGE_RESET_SHUTDOWN);
-	bge_sig_post_reset(sc, BGE_RESET_SHUTDOWN);
-
-	/*
-	 * Tell firmware we're shutting down.
-	 */
-	BGE_CLRBIT(sc, BGE_MODE_CTL, BGE_MODECTL_STACKUP);
-
 	intr_barrier(sc->bge_intrhand);
+	ifq_barrier(&ifp->if_snd);
+
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Free the RX lists. */
 	bge_free_rx_ring_std(sc);
@@ -4649,8 +4677,10 @@ bge_stop(struct bge_softc *sc)
 
 	sc->bge_tx_saved_considx = BGE_TXCONS_UNSET;
 
-	/* Clear MAC's link state (PHY may still have link UP). */
-	BGE_STS_CLRBIT(sc, BGE_STS_LINK);
+	if (!softonly) {
+		/* Clear MAC's link state (PHY may still have link UP). */
+		BGE_STS_CLRBIT(sc, BGE_STS_LINK);
+	}
 }
 
 void

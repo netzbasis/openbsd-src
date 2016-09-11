@@ -118,21 +118,9 @@ ap_char(char c)
 static void
 ap_pos(off_t pos)
 {
-	char buf[INT_STRLEN_BOUND(pos) + 2];
+	char buf[23];
 
-	postoa(pos, buf, sizeof buf);
-	ap_str(buf);
-}
-
-/*
- * Append a line number to the end of the message.
- */
-static void
-ap_linenum(LINENUM linenum)
-{
-	char buf[INT_STRLEN_BOUND(linenum) + 2];
-
-	linenumtoa(linenum, buf, sizeof buf);
+	postoa(pos, buf, sizeof(buf));
 	ap_str(buf);
 }
 
@@ -142,7 +130,7 @@ ap_linenum(LINENUM linenum)
 static void
 ap_int(int num)
 {
-	char buf[INT_STRLEN_BOUND(num) + 2];
+	char buf[13];
 
 	inttoa(num, buf, sizeof buf);
 	ap_str(buf);
@@ -186,7 +174,7 @@ cond(char c, int where)
 
 	switch (c) {
 	case 'a':	/* Anything in the message yet? */
-		return (mp > message);
+		return (*message != '\0');
 	case 'b':	/* Current byte offset known? */
 		return (curr_byte(where) != -1);
 	case 'c':
@@ -216,7 +204,7 @@ cond(char c, int where)
 	case 'x':	/* Is there a "next" file? */
 		if (ntags())
 			return (0);
-		return (next_ifile(curr_ifile) != NULL_IFILE);
+		return (next_ifile(curr_ifile) != NULL);
 	}
 	return (0);
 }
@@ -234,8 +222,8 @@ protochar(int c, int where)
 	off_t pos;
 	off_t len;
 	int n;
-	LINENUM linenum;
-	LINENUM last_linenum;
+	off_t linenum;
+	off_t last_linenum;
 	IFILE h;
 
 #undef	PAGE_NUM
@@ -255,7 +243,7 @@ protochar(int c, int where)
 	case 'd':	/* Current page number */
 		linenum = currline(where);
 		if (linenum > 0 && sc_height > 1)
-			ap_linenum(PAGE_NUM(linenum));
+			ap_pos(PAGE_NUM(linenum));
 		else
 			ap_quest();
 		break;
@@ -266,13 +254,13 @@ protochar(int c, int where)
 			ap_quest();
 		} else if (len == 0) {
 			/* An empty file has no pages. */
-			ap_linenum(0);
+			ap_pos(0);
 		} else {
 			linenum = find_linenum(len - 1);
 			if (linenum <= 0)
 				ap_quest();
 			else
-				ap_linenum(PAGE_NUM(linenum));
+				ap_pos(PAGE_NUM(linenum));
 		}
 		break;
 	case 'E':	/* Editor name */
@@ -293,7 +281,7 @@ protochar(int c, int where)
 	case 'l':	/* Current line number */
 		linenum = currline(where);
 		if (linenum != 0)
-			ap_linenum(linenum);
+			ap_pos(linenum);
 		else
 			ap_quest();
 		break;
@@ -303,7 +291,7 @@ protochar(int c, int where)
 		    (linenum = find_linenum(len)) <= 0)
 			ap_quest();
 		else
-			ap_linenum(linenum-1);
+			ap_pos(linenum-1);
 		break;
 	case 'm':	/* Number of files */
 		n = ntags();
@@ -350,7 +338,7 @@ protochar(int c, int where)
 		break;
 	case 'x':	/* Name of next file */
 		h = next_ifile(curr_ifile);
-		if (h != NULL_IFILE)
+		if (h != NULL)
 			ap_str(get_filename(h));
 		else
 			ap_quest();
@@ -417,7 +405,6 @@ skipcond(const char *p)
 			return (p-1);
 		}
 	}
-	/*NOTREACHED*/
 }
 
 /*
@@ -491,7 +478,7 @@ pr_expand(const char *proto, int maxwidth)
 		}
 	}
 
-	if (mp == message)
+	if (*message == '\0')
 		return ("");
 	if (maxwidth > 0 && mp >= message + maxwidth) {
 		/*

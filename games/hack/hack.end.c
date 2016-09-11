@@ -1,4 +1,4 @@
-/*	$OpenBSD: hack.end.c,v 1.13 2015/10/24 18:26:13 mmcc Exp $	*/
+/*	$OpenBSD: hack.end.c,v 1.16 2016/01/09 21:54:11 mestre Exp $	*/
 
 /*
  * Copyright (c) 1985, Stichting Centrum voor Wiskunde en Informatica,
@@ -66,6 +66,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+
 #include "hack.h"
 
 #define newttentry() (struct toptenentry *) alloc(sizeof(struct toptenentry))
@@ -111,11 +112,10 @@ done1(int notused)
 		return;
 	}
 	done("quit");
-	/* NOTREACHED */
 }
 
 int
-done2()
+done2(void)
 {
 	done1(0);
 	return(0);
@@ -203,7 +203,7 @@ done(char *st1)
 			outrip();
 	}
 	if(*st1 == 'c') killer = st1;		/* after outrip() */
-	settty((char *) 0);	/* does a clr_screen() */
+	settty(NULL);	/* does a clr_screen() */
 	if(!done_stopprint)
 		printf("Goodbye %s %s...\n\n", pl_character, plname);
 	{ long int tmp;
@@ -296,7 +296,7 @@ done(char *st1)
 }
 
 static void
-topten()
+topten(void)
 {
 	int uid = getuid();
 	int rank, rank0 = -1, rank1 = 0;
@@ -452,7 +452,7 @@ unlock:
 }
 
 static void
-outheader()
+outheader(void)
 {
 	char linebuf[BUFSZ];
 	char *bp;
@@ -578,7 +578,7 @@ ordin(int n)
 }
 
 void
-clearlocks()
+clearlocks(void)
 {
 	int x;
 
@@ -613,7 +613,7 @@ charcat(char *s, char c)
 void
 prscore(int argc, char **argv)
 {
-	extern char *hname;
+	extern char *__progname;
 	char **players;
 	int playerct;
 	int rank;
@@ -699,7 +699,7 @@ prscore(int argc, char **argv)
 		  if(playerct > 1) printf("any of ");
 		  for(i=0; i<playerct; i++)
 			printf("%s%s", players[i], (i<playerct-1)?", ":".\n");
-		  printf("Call is: %s -s [playernames]\n", hname);
+		  printf("Call is: %s -s [playernames]\n", __progname);
 		}
 	    }
 	    return;

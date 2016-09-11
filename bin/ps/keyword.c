@@ -1,4 +1,4 @@
-/*	$OpenBSD: keyword.c,v 1.42 2015/01/16 06:39:32 deraadt Exp $	*/
+/*	$OpenBSD: keyword.c,v 1.44 2016/09/08 15:11:29 tedu Exp $	*/
 /*	$NetBSD: keyword.c,v 1.12.6.1 1996/05/30 21:25:13 cgd Exp $	*/
 
 /*-
@@ -101,7 +101,7 @@ VAR var[] = {
 	{"cwd", "CWD", NULL, LJUST, curwd, CWDLEN},
 	{"dsiz", "DSIZ", NULL, 0, dsize, 4},
 	{"emul", "EMUL", NULL, LJUST, emulname, KI_EMULNAMELEN - 1},
-	{"etime", "ELAPSED", "start"},
+	{"etime", "ELAPSED", NULL, USER, elapsed, 12},
 	{"f", "F", NULL, 0, pvar, 7, 0, POFF(p_flag), INT32, "x"},
 	{"flags", "", "f"},
 	GID("gid", "GID", pvar, POFF(p_gid)),
@@ -167,7 +167,7 @@ VAR var[] = {
 	{"ssiz", "SSIZ", NULL, 0, ssize, 4},
 	{"start", "STARTED", NULL, LJUST|USER, started, 8},
 	{"stat", "", "state"},
-	{"state", "STAT", NULL, LJUST|NLIST, state, 5},
+	{"state", "STAT", NULL, LJUST|NLIST, printstate, 5},
 	GID("svgid", "SVGID", pvar, POFF(p_svgid)),
 	UID("svuid", "SVUID", pvar, POFF(p_svuid)),
 	{"tdev", "TDEV", NULL, 0, tdev, 4},

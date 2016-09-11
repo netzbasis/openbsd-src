@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.7 2004/07/09 15:59:26 deraadt Exp $	*/
+/*	$OpenBSD: extern.h,v 1.10 2016/03/08 10:48:39 mestre Exp $	*/
 /*	$NetBSD: extern.h,v 1.3 1997/10/11 01:55:27 lukem Exp $	*/
 
 /*
@@ -31,6 +31,7 @@
  */
 
 #include <sys/types.h>
+
 #include <string.h>
 
 /* crc.c */
@@ -72,9 +73,6 @@ struct text;
 void speak(const struct text *);
 void pspeak(int, int);
 
-/* main.c */
-int main(int, char **);
-
 /* save.c */
 int save(const char *);
 int restore(const char *);
@@ -96,7 +94,7 @@ int mback(void);
 int specials(void);
 int trbridge(void);
 void badmove(void);
-void bug(int);
+__dead void bug(int);
 void checkhints(void);
 int trsay(void);
 int trtake(void);

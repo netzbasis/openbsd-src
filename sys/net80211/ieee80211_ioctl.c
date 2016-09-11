@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_ioctl.c,v 1.39 2015/03/14 03:38:51 jsg Exp $	*/
+/*	$OpenBSD: ieee80211_ioctl.c,v 1.43 2016/08/31 13:33:52 stsp Exp $	*/
 /*	$NetBSD: ieee80211_ioctl.c,v 1.15 2004/05/06 02:58:16 dyoung Exp $	*/
 
 /*-
@@ -60,6 +60,8 @@ void
 ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
     struct ieee80211_nodereq *nr)
 {
+	uint8_t rssi;
+
 	/* Node address and name information */
 	IEEE80211_ADDR_COPY(nr->nr_macaddr, ni->ni_macaddr);
 	IEEE80211_ADDR_COPY(nr->nr_bssid, ni->ni_bssid);
@@ -73,7 +75,19 @@ ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
 	bcopy(ni->ni_rates.rs_rates, nr->nr_rates, IEEE80211_RATE_MAXSIZE);
 
 	/* Node status information */
-	nr->nr_rssi = (*ic->ic_node_getrssi)(ic, ni);
+	rssi = (*ic->ic_node_getrssi)(ic, ni);
+	if (ic->ic_max_rssi) {
+		/* Driver reports RSSI relative to ic_max_rssi. */
+		nr->nr_rssi = rssi;
+	} else {
+		/*
+		 * Driver reports RSSI value in dBm.
+		 * Convert from unsigned to signed.
+		 * Some drivers report a negative value, some don't.
+		 * Reasonable range is -20dBm to -80dBm.
+		 */
+		nr->nr_rssi = (rssi < 128) ? -rssi : rssi;
+	}
 	nr->nr_max_rssi = ic->ic_max_rssi;
 	bcopy(ni->ni_tstamp, nr->nr_tstamp, sizeof(nr->nr_tstamp));
 	nr->nr_intval = ni->ni_intval;
@@ -106,6 +120,15 @@ ieee80211_node2req(struct ieee80211com *ic, const struct ieee80211_node *ni,
 		nr->nr_flags |= IEEE80211_NODEREQ_AP;
 	if (ni == ic->ic_bss)
 		nr->nr_flags |= IEEE80211_NODEREQ_AP_BSS;
+
+	/* HT */
+	nr->nr_htcaps = ni->ni_htcaps;
+	memcpy(nr->nr_rxmcs, ni->ni_rxmcs, sizeof(nr->nr_rxmcs));
+	nr->nr_max_rxrate = ni->ni_max_rxrate;
+	nr->nr_tx_mcs_set = ni->ni_tx_mcs_set;
+	nr->nr_txmcs = ni->ni_txmcs;
+	if (ni->ni_flags & IEEE80211_NODE_HT)
+		nr->nr_flags |= IEEE80211_NODEREQ_HT;
 }
 
 void
@@ -647,6 +670,19 @@ ieee80211_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			ic->ic_scan_lock |= IEEE80211_SCAN_REQUEST;
 			if (ic->ic_state != IEEE80211_S_SCAN) {
 				ieee80211_clean_cached(ic);
+				if (ic->ic_opmode == IEEE80211_M_STA &&
+				    ic->ic_state == IEEE80211_S_RUN &&
+				    IFM_MODE(ic->ic_media.ifm_cur->ifm_media)
+				    == IFM_AUTO) {
+					/* 
+					 * We're already associated to an AP.
+					 * Make the scanning loop start off in
+					 * auto mode so all supported bands
+					 * get scanned.
+					 */
+					ieee80211_setmode(ic,
+					    IEEE80211_MODE_AUTO);
+				}
 				ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
 			}
 		}

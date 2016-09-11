@@ -1,4 +1,4 @@
-/*	$OpenBSD: scores.c,v 1.12 2014/11/16 04:49:49 guenther Exp $	*/
+/*	$OpenBSD: scores.c,v 1.22 2016/08/27 02:00:10 guenther Exp $	*/
 /*	$NetBSD: scores.c,v 1.2 1995/04/22 07:42:38 cgd Exp $	*/
 
 /*-
@@ -42,24 +42,19 @@
  *
  * Major whacks since then.
  */
-#include <sys/types.h>
-#include <sys/stat.h>
-
-#include <errno.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <term.h>
+#include <time.h>
 #include <unistd.h>
 
-#include "pathnames.h"
-#include "screen.h"
 #include "scores.h"
+#include "screen.h"
 #include "tetris.h"
 
 /*
@@ -96,52 +91,48 @@ static char *thisuser(void);
 static void
 getscores(FILE **fpp)
 {
-	int sd, mint, lck, mask, i;
-	char *mstr, *human;
+	int sd, mint, i, ret;
+	char *mstr, *human, *home;
+	char scorepath[PATH_MAX];
 	FILE *sf;
 
 	if (fpp != NULL) {
 		mint = O_RDWR | O_CREAT;
 		mstr = "r+";
 		human = "read/write";
-		lck = LOCK_EX;
+		*fpp = NULL;
 	} else {
 		mint = O_RDONLY;
 		mstr = "r";
 		human = "reading";
-		lck = LOCK_SH;
 	}
-	setegid(egid);
-	mask = umask(S_IWOTH);
-	sd = open(_PATH_SCOREFILE, mint, 0666);
-	(void)umask(mask);
-	setegid(gid);
+
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home, ".tetris.scores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".tetris.scores");
+
+	sd = open(scorepath, mint, 0666);
 	if (sd < 0) {
 		if (fpp == NULL) {
 			nscores = 0;
 			return;
 		}
-		err(1, "cannot open %s for %s", _PATH_SCOREFILE, human);
+		err(1, "cannot open %s for %s", scorepath, human);
 	}
-	setegid(egid);
 	if ((sf = fdopen(sd, mstr)) == NULL)
-		err(1, "cannot fdopen %s for %s", _PATH_SCOREFILE, human);
-	setegid(gid);
-
-	/*
-	 * Grab a lock.
-	 */
-	if (flock(sd, lck))
-		warn("warning: score file %s cannot be locked",
-		    _PATH_SCOREFILE);
+		err(1, "cannot fdopen %s for %s", scorepath, human);
 
 	nscores = fread(scores, sizeof(scores[0]), MAXHISCORES, sf);
 	if (ferror(sf))
-		err(1, "error reading %s", _PATH_SCOREFILE);
+		err(1, "error reading %s", scorepath);
 	for (i = 0; i < nscores; i++)
 		if (scores[i].hs_level < MINLEVEL ||
 		    scores[i].hs_level > MAXLEVEL)
-			errx(1, "scorefile %s corrupt", _PATH_SCOREFILE);
+			errx(1, "scorefile %s corrupt", scorepath);
 
 	if (fpp)
 		*fpp = sf;
@@ -201,11 +192,12 @@ savescore(int level)
 		 * Sort & clean the scores, then rewrite.
 		 */
 		nscores = checkscores(scores, nscores);
-		rewind(sf);
+		if (fseek(sf, 0L, SEEK_SET) == -1)
+			err(1, "fseek");
 		if (fwrite(scores, sizeof(*sp), nscores, sf) != nscores ||
 		    fflush(sf) == EOF)
-			warnx("error writing %s: %s\n\t-- %s",
-			    _PATH_SCOREFILE, strerror(errno),
+			warnx("error writing scorefile: %s\n\t-- %s",
+			    strerror(errno),
 			    "high scores may be damaged");
 	}
 	(void)fclose(sf);	/* releases lock */
@@ -219,19 +211,17 @@ static char *
 thisuser(void)
 {
 	const char *p;
-	struct passwd *pw;
 	static char u[sizeof(scores[0].hs_name)];
 
 	if (u[0])
 		return (u);
-	p = getlogin();
-	if (p == NULL || *p == '\0') {
-		pw = getpwuid(getuid());
-		if (pw != NULL)
-			p = pw->pw_name;
-		else
-			p = "  ???";
-	}
+	p = getenv("LOGNAME");
+	if (p == NULL || *p == '\0')
+		p = getenv("USER");
+	if (p == NULL || *p == '\0')
+		p = getlogin();
+	if (p == NULL || *p == '\0')
+		p = "  ???";
 	strlcpy(u, p, sizeof(u));
 	return (u);
 }
@@ -275,7 +265,7 @@ static int
 checkscores(struct highscore *hs, int num)
 {
 	struct highscore *sp;
-	int i, j, k, numnames;
+	int i, j, k, nrnames;
 	int levelfound[NLEVELS];
 	struct peruser {
 		char *name;
@@ -292,21 +282,21 @@ checkscores(struct highscore *hs, int num)
 	qsort((void *)hs, nscores, sizeof(*hs), cmpscores);
 	for (i = MINLEVEL; i < NLEVELS; i++)
 		levelfound[i] = 0;
-	numnames = 0;
+	nrnames = 0;
 	for (i = 0, sp = hs; i < num;) {
 		/*
 		 * This is O(n^2), but do you think we care?
 		 */
-		for (j = 0, pu = count; j < numnames; j++, pu++)
+		for (j = 0, pu = count; j < nrnames; j++, pu++)
 			if (strcmp(sp->hs_name, pu->name) == 0)
 				break;
-		if (j == numnames) {
+		if (j == nrnames) {
 			/*
 			 * Add new user, set per-user count to 1.
 			 */
 			pu->name = sp->hs_name;
 			pu->times = 1;
-			numnames++;
+			nrnames++;
 		} else {
 			/*
 			 * Two ways to keep this score:
@@ -315,7 +305,6 @@ checkscores(struct highscore *hs, int num)
 			 * - High score on this level.
 			 */
 			if ((pu->times < MAXSCORES &&
-			     getpwnam(sp->hs_name) != NULL &&
 			     sp->hs_time + EXPIRATION >= now) ||
 			    levelfound[sp->hs_level] == 0)
 				pu->times++;

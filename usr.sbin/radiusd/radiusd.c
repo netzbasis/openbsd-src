@@ -1,4 +1,4 @@
-/*	$OpenBSD: radiusd.c,v 1.12 2015/10/27 04:48:06 yasuoka Exp $	*/
+/*	$OpenBSD: radiusd.c,v 1.18 2016/04/16 18:32:29 krw Exp $	*/
 
 /*
  * Copyright (c) 2013 Internet Initiative Japan Inc.
@@ -38,7 +38,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sysexits.h>
 #include <syslog.h>
 #include <unistd.h>
 #include <util.h>
@@ -95,7 +94,7 @@ usage(void)
 	extern char *__progname;
 
 	fprintf(stderr, "usage: %s [-dn] [-f file]\n", __progname);
-	exit(EX_USAGE);
+	exit(EXIT_FAILURE);
 }
 
 int
@@ -140,7 +139,7 @@ main(int argc, char *argv[])
 
 	log_init(debug);
 	if (parse_config(conffile, radiusd) != 0)
-		errx(EX_DATAERR, "config error");
+		errx(EXIT_FAILURE, "config error");
 	if (noaction) {
 		fprintf(stderr, "configuration OK\n");
 		exit(EXIT_SUCCESS);
@@ -173,10 +172,10 @@ main(int argc, char *argv[])
 	signal_set(&radiusd->ev_sigchld, SIGCHLD, radiusd_on_sigchld, radiusd);
 
 	if (radiusd_start(radiusd) != 0)
-		errx(EX_DATAERR, "start failed");
+		errx(EXIT_FAILURE, "start failed");
 
 #ifdef RADIUSD_DEBUG
-	if (pledge("stdio inet proc abort", NULL) == -1)
+	if (pledge("stdio inet proc", NULL) == -1)
 		err(EXIT_FAILURE, "pledge");
 #else
 	if (pledge("stdio inet", NULL) == -1)
@@ -197,7 +196,7 @@ radiusd_start(struct radiusd *radiusd)
 {
 	struct radiusd_listen	*l;
 	struct radiusd_module	*module;
-	int			 s, ival;
+	int			 s;
 	char			 hbuf[NI_MAXHOST];
 
 	TAILQ_FOREACH(l, &radiusd->listen, next) {
@@ -207,8 +206,8 @@ radiusd_start(struct radiusd *radiusd)
 			log_warn("%s: getnameinfo()", __func__);
 			goto on_error;
 		}
-		if ((s = socket(l->addr.ipv4.sin_family, l->stype, l->sproto))
-		    < 0) {
+		if ((s = socket(l->addr.ipv4.sin_family,
+		    l->stype | SOCK_NONBLOCK, l->sproto)) < 0) {
 			log_warn("Listen %s port %d is failed: socket()",
 			    hbuf, (int)htons(l->addr.ipv4.sin_port));
 			goto on_error;
@@ -217,16 +216,6 @@ radiusd_start(struct radiusd *radiusd)
 		    != 0) {
 			log_warn("Listen %s port %d is failed: bind()",
 			    hbuf, (int)htons(l->addr.ipv4.sin_port));
-			close(s);
-			goto on_error;
-		}
-		if ((ival = fcntl(s, F_GETFL, 0)) < 0) {
-			log_warn("fcntl(F_GETFL) failed at %s()", __func__);
-			close(s);
-			goto on_error;
-		}
-		if (fcntl(s, F_SETFL, ival | O_NONBLOCK) < 0) {
-			log_warn("fcntl(F_SETFL,O_NONBLOCK) failed at %s()", __func__);
 			close(s);
 			goto on_error;
 		}
@@ -313,8 +302,7 @@ radiusd_free(struct radiusd *radiusd)
 
 	TAILQ_FOREACH_SAFE(authen, &radiusd->authen, next, authent) {
 		TAILQ_REMOVE(&radiusd->authen, authen, next);
-		if (authen->auth != NULL)
-			free(authen->auth);
+		free(authen->auth);
 		TAILQ_FOREACH_SAFE(modref, &authen->deco, next, modreft) {
 			TAILQ_REMOVE(&authen->deco, modref, next);
 			free(modref);
@@ -979,7 +967,7 @@ radiusd_module_load(struct radiusd *radiusd, const char *path, const char *name)
 	close(pairsock[1]);
 
 	module->fd = pairsock[0];
-	if ((ival = fcntl(module->fd, F_GETFL, 0)) < 0) {
+	if ((ival = fcntl(module->fd, F_GETFL)) < 0) {
 		log_warn("Could not load module `%s': fcntl(F_GETFL)",
 		    name);
 		goto on_error;
@@ -1016,8 +1004,7 @@ radiusd_module_load(struct radiusd *radiusd, const char *path, const char *name)
 	return (module);
 
 on_error:
-	if (module != NULL)
-		free(module);
+	free(module);
 	if (pairsock[0] >= 0)
 		close(pairsock[0]);
 	if (pairsock[1] >= 0)
@@ -1253,10 +1240,10 @@ radiusd_module_imsg(struct radiusd_module *module, struct imsg *imsg)
 			if (msg)
 				radius_put_string_attr(q->res,
 				    RADIUS_TYPE_REPLY_MESSAGE, msg);
+			radius_set_response_authenticator(q->res,
+			    q->client->secret);
+			radiusd_access_request_answer(q);
 		}
-		radius_set_response_authenticator(q->res,
-		    q->client->secret);
-		radiusd_access_request_answer(q);
 		break;
 	    }
 	case IMSG_RADIUSD_MODULE_ACCSREQ_ANSWER:
@@ -1433,8 +1420,7 @@ radiusd_module_set(struct radiusd_module *module, const char *name,
 	return (0);
 
 on_error:
-	if (buf != NULL)
-		free(buf);
+	free(buf);
 	return (-1);
 }
 

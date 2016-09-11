@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_ktrace.c,v 1.83 2015/11/02 16:31:55 semarie Exp $	*/
+/*	$OpenBSD: kern_ktrace.c,v 1.88 2016/03/19 12:04:15 natano Exp $	*/
 /*	$NetBSD: kern_ktrace.c,v 1.23 1996/02/09 18:59:36 christos Exp $	*/
 
 /*
@@ -55,7 +55,6 @@
 void	ktrinitheaderraw(struct ktr_header *, uint, pid_t, pid_t);
 void	ktrinitheader(struct ktr_header *, struct proc *, int);
 void	ktrstart(struct proc *, struct vnode *, struct ucred *);
-void	ktremulraw(struct proc *, struct process *, pid_t);
 int	ktrops(struct proc *, struct process *, int, int, struct vnode *,
 	    struct ucred *);
 int	ktrsetchildren(struct proc *, struct process *, int, int,
@@ -160,9 +159,9 @@ ktrsyscall(struct proc *p, register_t code, size_t argsize, register_t args[])
 	u_int nargs = 0;
 	int i;
 
-	if (code == SYS_sysctl && (p->p_p->ps_emul->e_flags & EMUL_NATIVE)) {
+	if (code == SYS_sysctl) {
 		/*
-		 * The native sysctl encoding stores the mib[]
+		 * The sysctl encoding stores the mib[]
 		 * array because it is interesting.
 		 */
 		if (args[1] > 0)
@@ -215,29 +214,6 @@ ktrnamei(struct proc *p, char *path)
 	atomic_setbits_int(&p->p_flag, P_INKTR);
 	ktrinitheader(&kth, p, KTR_NAMEI);
 	ktrwrite(p, &kth, path, strlen(path));
-	atomic_clearbits_int(&p->p_flag, P_INKTR);
-}
-
-void
-ktremulraw(struct proc *curp, struct process *pr, pid_t tid)
-{
-	struct ktr_header kth;
-	char *emul = pr->ps_emul->e_name;
-	struct iovec data[2];
-
-	ktrinitheaderraw(&kth, KTR_EMUL, pr->ps_pid, tid);
-	data[0].iov_base = emul;
-	data[0].iov_len = strlen(emul);
-	data[1].iov_len = 0;
-	kth.ktr_len = data[0].iov_len;
-	ktrwriteraw(curp, pr->ps_tracevp, pr->ps_tracecred, &kth, data);
-}
-
-void
-ktremul(struct proc *p)
-{
-	atomic_setbits_int(&p->p_flag, P_INKTR);
-	ktremulraw(p, p->p_p, p->p_pid + THREAD_PID_OFFSET);
 	atomic_clearbits_int(&p->p_flag, P_INKTR);
 }
 
@@ -400,7 +376,7 @@ ktrexec(struct proc *p, int type, const char *data, ssize_t len)
 }
 
 void
-ktrpledge(struct proc *p, int error, int code, int syscall)
+ktrpledge(struct proc *p, int error, uint64_t code, int syscall)
 {
 	struct ktr_header kth;
 	struct ktr_pledge kp;
@@ -420,7 +396,6 @@ ktrpledge(struct proc *p, int error, int code, int syscall)
 /*
  * ktrace system call
  */
-/* ARGSUSED */
 int
 sys_ktrace(struct proc *p, void *v, register_t *retval)
 {
@@ -449,11 +424,11 @@ sys_ktrace(struct proc *p, void *v, register_t *retval)
 		NDINIT(&nd, LOOKUP, FOLLOW, UIO_USERSPACE, SCARG(uap, fname),
 		    p);
 		nd.ni_pledge = PLEDGE_CPATH | PLEDGE_WPATH;
-		if ((error = vn_open(&nd, FREAD|FWRITE|O_NOFOLLOW, 0)) != 0)
+		if ((error = vn_open(&nd, FWRITE|O_NOFOLLOW, 0)) != 0)
 			goto done;
 		vp = nd.ni_vp;
 
-		VOP_UNLOCK(vp, 0, p);
+		VOP_UNLOCK(vp, p);
 		if (vp->v_type != VREG) {
 			error = EACCES;
 			goto done;
@@ -522,7 +497,7 @@ sys_ktrace(struct proc *p, void *v, register_t *retval)
 		error = EPERM;
 done:
 	if (vp != NULL)
-		(void) vn_close(vp, FREAD|FWRITE, cred, p);
+		(void) vn_close(vp, FWRITE, cred, p);
 	return (error);
 }
 
@@ -542,13 +517,6 @@ ktrops(struct proc *curp, struct process *pr, int ops, int facs,
 			ktrcleartrace(pr);
 		}
 	}
-
-	/*
-	 * Emit an emulation record every time there is a ktrace
-	 * change/attach request.
-	 */
-	if (pr->ps_traceflag & KTRFAC_EMUL)
-		ktremulraw(curp, pr, -1);
 
 	return (1);
 }

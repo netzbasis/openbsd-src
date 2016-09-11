@@ -1,4 +1,4 @@
-/*	$OpenBSD: mkfs.c,v 1.93 2015/10/11 00:20:29 guenther Exp $	*/
+/*	$OpenBSD: mkfs.c,v 1.97 2016/09/01 09:27:06 otto Exp $	*/
 /*	$NetBSD: mkfs.c,v 1.25 1995/06/18 21:35:38 cgd Exp $	*/
 
 /*
@@ -169,6 +169,7 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 	quad_t sizepb;
 	int i, j, width, origdensity, fragsperinode, minfpg, optimalfpg;
 	int lastminfpg, mincylgrps;
+	uint32_t bpg;
 	long cylno, csfrags;
 	char tmpbuf[100];	/* XXX this will break in about 2,500 years */
 
@@ -549,7 +550,7 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 		iobufsize = SBLOCKSIZE + 3 * sblock.fs_bsize;
 	else
 		iobufsize = 4 * sblock.fs_bsize;
-	if ((iobuf = malloc(iobufsize)) == 0)
+	if ((iobuf = malloc(iobufsize)) == NULL)
 		errx(38, "cannot allocate I/O buffer");
 	bzero(iobuf, iobufsize);
 	/*
@@ -608,7 +609,10 @@ mkfs(struct partition *pp, char *fsys, int fi, int fo, mode_t mfsmode,
 	pp->p_fstype = FS_BSDFFS;
 	pp->p_fragblock =
 	    DISKLABELV1_FFS_FRAGBLOCK(sblock.fs_fsize, sblock.fs_frag);
-	pp->p_cpg = sblock.fs_cpg;
+	bpg = sblock.fs_fpg / sblock.fs_frag;
+	while (bpg > USHRT_MAX)
+		bpg >>= 1;
+	pp->p_cpg = bpg;
 }
 
 /*
@@ -1144,12 +1148,14 @@ charsperline(void)
 	struct winsize ws;
 
 	columns = 0;
-	if (ioctl(0, TIOCGWINSZ, &ws) != -1)
-		columns = ws.ws_col;
-	if (columns == 0 && (cp = getenv("COLUMNS")))
+	if ((cp = getenv("COLUMNS")) != NULL)
 		columns = strtonum(cp, 1, INT_MAX, NULL);
+	if (columns == 0 && ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 &&
+	    ws.ws_col > 0)
+		columns = ws.ws_col;
 	if (columns == 0)
-		columns = 80;   /* last resort */
+		columns = 80;
+
 	return columns;
 }
 
@@ -1181,19 +1187,13 @@ static void
 checksz(void)
 {
 	unsigned long long allocate, maxino, maxfsblock, ndir, bound;
-	int mib[2];
+	extern int64_t physmem;
 	struct rlimit datasz;
-	size_t len;
 
-	mib[0] = CTL_HW;
-	mib[1] = HW_PHYSMEM64;
-	len = sizeof(bound);
-	
-	if (sysctl(mib, 2, &bound, &len, NULL, 0) != 0)
-		err(1, "can't get physmem");
 	if (getrlimit(RLIMIT_DATA, &datasz) != 0)
 		err(1, "can't get rlimit");
-	bound = MINIMUM(datasz.rlim_max, bound);
+
+	bound = MINIMUM(datasz.rlim_max, physmem);
 
 	allocate = 0;
 	maxino = sblock.fs_ncg * (unsigned long long)sblock.fs_ipg;

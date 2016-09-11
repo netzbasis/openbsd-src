@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.14 2015/07/26 22:16:43 chl Exp $	*/
+/*	$OpenBSD: main.c,v 1.16 2016/08/14 22:29:01 krw Exp $	*/
 /*
  * Copyright (c) 1994 Christopher G. Demetriou
  * All rights reserved.
@@ -47,7 +47,7 @@
 #include "pathnames.h"
 
 static int	acct_load(char *, int);
-static u_quad_t	decode_comp_t(comp_t);
+static uint64_t	decode_comp_t(comp_t);
 static int	cmp_comm(const char *, const char *);
 static int	cmp_usrsys(const DBT *, const DBT *);
 static int	cmp_avgusrsys(const DBT *, const DBT *);
@@ -74,6 +74,9 @@ main(int argc, char **argv)
 	int error = 0;
 	const char *errstr;
 	extern char *__progname;
+
+	if (pledge("stdio rpath wpath cpath getpw flock", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "abcdDfijkKlmnqrstuv:")) != -1)
 		switch (ch) {
@@ -157,7 +160,6 @@ main(int argc, char **argv)
 		case 'v':
 			/* cull junk */
 			vflag = 1;
-			/* XXX cutoff could be converted to quad_t? */
 			cutoff = strtonum(optarg, 1, INT_MAX, &errstr);
 			if (errstr)
 				errx(1, "-v %s: %s", optarg, errstr);
@@ -355,10 +357,10 @@ acct_load(char *pn, int wr)
 	return (fd);
 }
 
-static u_quad_t
+static uint64_t
 decode_comp_t(comp_t comp)
 {
-	u_quad_t rv;
+	uint64_t rv;
 
 	/*
 	 * for more info on the comp_t format, see:
@@ -391,7 +393,7 @@ static int
 cmp_usrsys(const DBT *d1, const DBT *d2)
 {
 	struct cmdinfo c1, c2;
-	u_quad_t t1, t2;
+	uint64_t t1, t2;
 
 	memcpy(&c1, d1->data, sizeof(c1));
 	memcpy(&c2, d2->data, sizeof(c2));
@@ -491,7 +493,7 @@ static int
 cmp_avgcpumem(const DBT *d1, const DBT *d2)
 {
 	struct cmdinfo c1, c2;
-	u_quad_t t1, t2;
+	uint64_t t1, t2;
 	double n1, n2;
 
 	memcpy(&c1, d1->data, sizeof(c1));

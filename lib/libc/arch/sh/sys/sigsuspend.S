@@ -1,4 +1,4 @@
-/*	$OpenBSD: sigsuspend.S,v 1.2 2015/09/10 13:29:09 guenther Exp $	*/
+/*	$OpenBSD: sigsuspend.S,v 1.4 2016/05/18 20:21:13 guenther Exp $	*/
 /*	$NetBSD: sigsuspend.S,v 1.5 2003/08/07 16:42:21 agc Exp $	*/
 
 /*-
@@ -37,20 +37,15 @@
 
 #include "SYS.h"
 
-SYSENTRY(sigsuspend)
+SYSENTRY_HIDDEN(sigsuspend)
 	mov	r4, r0		/* fetch mask arg */
 	mov.l	@r0, r0		/* indirect to mask arg */
 	mov	r0, r4
 	mov.l	LSYS_sigsuspend, r0
 	trapa	#0x80
-	bf	1f
-	xor	r0, r0		/* shouldn t happen */
-	rts
-	nop
-1:
-	JUMP_CERROR
+	SET_ERRNO_AND_RETURN
 
 	.align	2
 LSYS_sigsuspend:
 	.long	SYS_sigsuspend
-SYSCALL_END(sigsuspend)
+SYSCALL_END_HIDDEN(sigsuspend)

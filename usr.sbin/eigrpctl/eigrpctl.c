@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpctl.c,v 1.4 2015/10/29 02:54:29 deraadt Exp $ */
+/*	$OpenBSD: eigrpctl.c,v 1.8 2016/01/15 12:57:48 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -59,6 +59,7 @@ const char *	 get_media_descr(uint64_t);
 const char *	 get_linkstate(uint8_t, int);
 void		 print_baudrate(uint64_t);
 int		 show_fib_interface_msg(struct imsg *);
+int		 show_stats_msg(struct imsg *, struct parse_result *);
 
 struct imsgbuf	*ibuf;
 
@@ -82,6 +83,7 @@ main(int argc, char *argv[])
 	int				 done = 0;
 	int				 n, verbose = 0;
 	struct ctl_show_topology_req	 treq;
+	struct ctl_nbr			 nbr;
 
 	/* parse options */
 	if ((res = parse(argc - 1, argv + 1)) == NULL)
@@ -157,6 +159,18 @@ main(int argc, char *argv[])
 			imsg_compose(ibuf, IMSG_CTL_IFINFO, 0, 0, -1, NULL, 0);
 		show_interface_head();
 		break;
+	case SHOW_STATS:
+		imsg_compose(ibuf, IMSG_CTL_SHOW_STATS, 0, 0, -1, NULL, 0);
+		break;
+	case CLEAR_NBR:
+		memset(&nbr, 0, sizeof(nbr));
+		nbr.af = res->family;
+		nbr.as = res->as;
+		memcpy(&nbr.addr, &res->addr, sizeof(res->addr));
+		imsg_compose(ibuf, IMSG_CTL_CLEAR_NBR, 0, 0, -1, &nbr,
+		    sizeof(nbr));
+		done = 1;
+		break;
 	case FIB:
 		errx(1, "fib couple|decouple");
 		break;
@@ -191,7 +205,7 @@ main(int argc, char *argv[])
 			err(1, "write error");
 
 	while (!done) {
-		if ((n = imsg_read(ibuf)) == -1)
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			errx(1, "imsg_read error");
 		if (n == 0)
 			errx(1, "pipe closed");
@@ -225,6 +239,10 @@ main(int argc, char *argv[])
 			case SHOW_FIB_IFACE:
 				done = show_fib_interface_msg(&imsg);
 				break;
+			case SHOW_STATS:
+				done = show_stats_msg(&imsg, res);
+				break;
+			case CLEAR_NBR:
 			case NONE:
 			case FIB:
 			case FIB_COUPLE:
@@ -607,10 +625,8 @@ show_topology_detail_msg(struct imsg *imsg, struct parse_result *res)
 		}
 
 		printf("\n");
-		if (dstnet)
-			free(dstnet);
-		if (state)
-			free(state);
+		free(dstnet);
+		free(state);
 		free(type);
 		free(nexthop);
 		break;
@@ -773,6 +789,49 @@ show_fib_interface_msg(struct imsg *imsg)
 			print_baudrate(k->baudrate);
 		}
 		printf("\n");
+		break;
+	case IMSG_CTL_END:
+		printf("\n");
+		return (1);
+	default:
+		break;
+	}
+
+	return (0);
+}
+
+int
+show_stats_msg(struct imsg *imsg, struct parse_result *res)
+{
+	struct ctl_stats	*cs;
+
+	switch (imsg->hdr.type) {
+	case IMSG_CTL_SHOW_STATS:
+		if (imsg->hdr.len < IMSG_HEADER_SIZE + sizeof(struct ctl_stats))
+			errx(1, "wrong imsg len");
+		cs = imsg->data;
+
+		if (res->family != AF_UNSPEC && res->family != cs->af)
+			break;
+		if (res->as != 0 && res->as != cs->as)
+			break;
+
+		printf("Address Family %s, Autonomous System %u\n",
+		    af_name(cs->af), cs->as);
+		printf("  Hellos sent/received: %u/%u\n",
+		    cs->stats.hellos_sent, cs->stats.hellos_recv);
+		printf("  Updates sent/received: %u/%u\n",
+		    cs->stats.updates_sent, cs->stats.updates_recv);
+		printf("  Queries sent/received: %u/%u\n",
+		    cs->stats.queries_sent, cs->stats.queries_recv);
+		printf("  Replies sent/received: %u/%u\n",
+		    cs->stats.replies_sent, cs->stats.replies_recv);
+		printf("  Acks sent/received: %u/%u\n",
+		    cs->stats.acks_sent, cs->stats.acks_recv);
+		printf("  SIA-Queries sent/received: %u/%u\n",
+		    cs->stats.squeries_sent, cs->stats.squeries_recv);
+		printf("  SIA-Replies sent/received: %u/%u\n",
+		    cs->stats.sreplies_sent, cs->stats.sreplies_recv);
 		break;
 	case IMSG_CTL_END:
 		printf("\n");

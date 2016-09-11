@@ -1,4 +1,4 @@
-/*	$OpenBSD: queue.c,v 1.171 2015/11/05 09:14:31 sunil Exp $	*/
+/*	$OpenBSD: queue.c,v 1.182 2016/09/08 12:06:43 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -45,19 +45,9 @@ static void queue_imsg(struct mproc *, struct imsg *);
 static void queue_timeout(int, short, void *);
 static void queue_bounce(struct envelope *, struct delivery_bounce *);
 static void queue_shutdown(void);
-static void queue_sig_handler(int, short, void *);
 static void queue_log(const struct envelope *, const char *, const char *);
 static void queue_msgid_walk(int, short, void *);
 
-static size_t	flow_agent_hiwat = 10 * 1024 * 1024;
-static size_t	flow_agent_lowat =   1 * 1024 * 1024;
-static size_t	flow_scheduler_hiwat = 10 * 1024 * 1024;
-static size_t	flow_scheduler_lowat = 1 * 1024 * 1024;
-
-#define LIMIT_AGENT	0x01
-#define LIMIT_SCHEDULER	0x02
-
-static int limit = 0;
 
 static void
 queue_imsg(struct mproc *p, struct imsg *imsg)
@@ -74,6 +64,9 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 	time_t			 nexttry;
 	size_t			 n_evp;
 	int			 fd, mta_ext, ret, v, flags, code;
+
+	if (imsg == NULL)
+		queue_shutdown();
 
 	memset(&bounce, 0, sizeof(struct delivery_bounce));
 	if (p->proc == PROC_PONY) {
@@ -237,6 +230,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			return;
 
 		case IMSG_SCHED_ENVELOPE_BOUNCE:
+			CHECK_IMSG_DATA_SIZE(imsg, sizeof *req_bounce);
 			req_bounce = imsg->data;
 			evpid = req_bounce->evpid;
 
@@ -317,9 +311,6 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			 * its way back to the scheduler.  We need to detect
 			 * this properly and report that state.
 			 */
-			evp.flags |= flags;
-			/* In the past if running or runnable */
-			evp.nexttry = nexttry;
 			if (flags & EF_INFLIGHT) {
 				/*
 				 * Not exactly correct but pretty close: The
@@ -328,8 +319,13 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 				 */
 				evp.lasttry = nexttry;
 			}
-			m_compose(p_control, IMSG_CTL_LIST_ENVELOPES,
-			    imsg->hdr.peerid, 0, -1, &evp, sizeof evp);
+
+			m_create(p_control, IMSG_CTL_LIST_ENVELOPES,
+			    imsg->hdr.peerid, 0, -1);
+			m_add_int(p_control, flags);
+			m_add_time(p_control, nexttry);
+			m_add_envelope(p_control, &evp);
+			m_close(p_control);
 			return;
 		}
 	}
@@ -362,7 +358,7 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 			if (evp.dsn_notify & DSN_SUCCESS) {
 				bounce.type = B_DSN;
 				bounce.dsn_ret = evp.dsn_ret;
-
+				envelope_set_esc_class(&evp, ESC_STATUS_OK);
 				if (imsg->hdr.type == IMSG_MDA_DELIVERY_OK)
 					queue_bounce(&evp, &bounce);
 				else if (imsg->hdr.type == IMSG_MTA_DELIVERY_OK &&
@@ -642,45 +638,19 @@ queue_bounce(struct envelope *e, struct delivery_bounce *d)
 }
 
 static void
-queue_sig_handler(int sig, short event, void *p)
-{
-	switch (sig) {
-	case SIGINT:
-	case SIGTERM:
-		queue_shutdown();
-		break;
-	default:
-		fatalx("queue_sig_handler: unexpected signal");
-	}
-}
-
-static void
 queue_shutdown(void)
 {
-	log_info("info: queue handler exiting");
+	log_debug("debug: queue agent exiting");
 	queue_close();
 	_exit(0);
 }
 
-pid_t
+int
 queue(void)
 {
-	pid_t		 pid;
 	struct passwd	*pw;
 	struct timeval	 tv;
 	struct event	 ev_qload;
-	struct event	 ev_sigint;
-	struct event	 ev_sigterm;
-
-	switch (pid = fork()) {
-	case -1:
-		fatal("queue: cannot fork");
-	case 0:
-		post_fork(PROC_QUEUE);
-		break;
-	default:
-		return (pid);
-	}
 
 	purge_config(PURGE_EVERYTHING);
 
@@ -702,7 +672,7 @@ queue(void)
 		log_info("queue: queue compression enabled");
 
 	if (env->sc_queue_key) {
-		if (! crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
+		if (!crypto_setup(env->sc_queue_key, strlen(env->sc_queue_key)))
 			fatalx("crypto_setup: invalid key for queue encryption");
 		log_info("queue: queue encryption enabled");
 	}
@@ -715,10 +685,8 @@ queue(void)
 	imsg_callback = queue_imsg;
 	event_init();
 
-	signal_set(&ev_sigint, SIGINT, queue_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, queue_sig_handler, NULL);
-	signal_add(&ev_sigint, NULL);
-	signal_add(&ev_sigterm, NULL);
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
@@ -727,7 +695,6 @@ queue(void)
 	config_peer(PROC_LKA);
 	config_peer(PROC_SCHEDULER);
 	config_peer(PROC_PONY);
-	config_done();
 
 	/* setup queue loading task */
 	evtimer_set(&ev_qload, queue_timeout, &ev_qload);
@@ -738,9 +705,8 @@ queue(void)
 	if (pledge("stdio rpath wpath cpath flock recvfd sendfd", NULL) == -1)
 		err(1, "pledge");
 
-	if (event_dispatch() <  0)
-		fatal("event_dispatch");
-	queue_shutdown();
+	event_dispatch();
+	fatalx("exited event loop");
 
 	return (0);
 }
@@ -788,13 +754,13 @@ static void
 queue_log(const struct envelope *e, const char *prefix, const char *status)
 {
 	char rcpt[LINE_MAX];
-	
+
 	(void)strlcpy(rcpt, "-", sizeof rcpt);
 	if (strcmp(e->rcpt.user, e->dest.user) ||
 	    strcmp(e->rcpt.domain, e->dest.domain))
 		(void)snprintf(rcpt, sizeof rcpt, "%s@%s",
 		    e->rcpt.user, e->rcpt.domain);
-	
+
 	log_info("%s: %s for %016" PRIx64 ": from=<%s@%s>, to=<%s@%s>, "
 	    "rcpt=<%s>, delay=%s, stat=%s",
 	    e->type == D_MDA ? "delivery" : "relay",
@@ -804,50 +770,4 @@ queue_log(const struct envelope *e, const char *prefix, const char *status)
 	    rcpt,
 	    duration_to_text(time(NULL) - e->creation),
 	    status);
-}
-
-void
-queue_flow_control(void)
-{
-	size_t	bufsz;
-	int	oldlimit = limit;
-	int	set, unset;
-
-	bufsz = p_pony->bytes_queued;
-	if (bufsz <= flow_agent_lowat)
-		limit &= ~LIMIT_AGENT;
-	else if (bufsz > flow_agent_hiwat)
-		limit |= LIMIT_AGENT;
-
-	if (p_scheduler->bytes_queued <= flow_scheduler_lowat)
-		limit &= ~LIMIT_SCHEDULER;
-	else if (p_scheduler->bytes_queued > flow_scheduler_hiwat)
-		limit |= LIMIT_SCHEDULER;
-
-	set = limit & (limit ^ oldlimit);
-	unset = oldlimit & (limit ^ oldlimit);
-
-	if (set & LIMIT_SCHEDULER) {
-		log_warnx("warn: queue: Hiwat reached on scheduler buffer: "
-		    "suspending transfer, delivery and lookup input");
-		mproc_disable(p_pony);
-		mproc_disable(p_lka);
-	}
-	else if (unset & LIMIT_SCHEDULER) {
-		log_warnx("warn: queue: Down to lowat on scheduler buffer: "
-		    "resuming transfer, delivery and lookup input");
-		mproc_enable(p_pony);
-		mproc_enable(p_lka);
-	}
-
-	if (set & LIMIT_AGENT) {
-		log_warnx("warn: queue: Hiwat reached on transfer and delivery "
-		    "buffers: suspending scheduler input");
-		mproc_disable(p_scheduler);
-	}
-	else if (unset & LIMIT_AGENT) {
-		log_warnx("warn: queue: Down to lowat on transfer and delivery "
-		    "buffers: resuming scheduler input");
-		mproc_enable(p_scheduler);
-	}
 }

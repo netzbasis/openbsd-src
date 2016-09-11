@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.50 2015/06/25 02:04:08 uebayasi Exp $	*/
+/*	$OpenBSD: util.c,v 1.56 2016/08/25 15:11:05 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <fts.h>
 #include <regex.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -48,9 +49,9 @@
 
 static int	linesqueued;
 static int	procline(str_t *l, int);
-static int	grep_search(fastgrep_t *, char *, size_t, regmatch_t *pmatch);
+static int	grep_search(fastgrep_t *, char *, size_t, regmatch_t *pmatch, int);
 #ifndef SMALL
-static int	grep_cmp(const char *, const char *, size_t);
+static bool	grep_cmp(const char *, const char *, size_t);
 static void	grep_revstr(unsigned char *, int);
 #endif
 
@@ -191,14 +192,20 @@ procline(str_t *l, int nottext)
 		offset = 0;
 redo:
 		if (fg_pattern[i].pattern) {
+			int flags = 0;
+			if (offset)
+				flags |= REG_NOTBOL;
 			r = grep_search(&fg_pattern[i], l->dat + offset,
-			    l->len - offset, &pmatch);
+			    l->len - offset, &pmatch, flags);
 			pmatch.rm_so += offset;
 			pmatch.rm_eo += offset;
 		} else {
+			int flags = eflags;
+			if (offset)
+				flags |= REG_NOTBOL;
 			pmatch.rm_so = offset;
 			pmatch.rm_eo = l->len;
-			r = regexec(&r_pattern[i], l->dat, 1, &pmatch, eflags);
+			r = regexec(&r_pattern[i], l->dat, 1, &pmatch, flags);
 		}
 		if (r == 0 && xflag) {
 			if (pmatch.rm_so != 0 || pmatch.rm_eo != l->len)
@@ -390,7 +397,7 @@ nonspecial:
 	 * Determine if a reverse search would be faster based on the placement
 	 * of the dots.
 	 */
-	if ((!(lflag || cflag)) && ((!(bol || eol)) &&
+	if ((!(lflag || cflag || oflag)) && ((!(bol || eol)) &&
 	    ((lastHalfDot) && ((firstHalfDot < 0) ||
 	    ((fg->patternLen - (lastHalfDot + 1)) < firstHalfDot))))) {
 		fg->reversedSearch = 1;
@@ -458,7 +465,8 @@ nonspecial:
 	  e > s && isword(d[s]) && isword(d[e-1]))
 
 static int
-grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch)
+grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch,
+    int flags)
 {
 #ifdef SMALL
 	return 0;
@@ -475,6 +483,8 @@ grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch)
 
 	/* Only try once at the beginning or ending of the line. */
 	if (fg->bol || fg->eol) {
+		if (fg->bol && (flags & REG_NOTBOL))
+			return 0;
 		/* Simple text comparison. */
 		/* Verify data is >= pattern length before searching on it. */
 		if (dataLen >= fg->patternLen) {
@@ -485,7 +495,7 @@ grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch)
 				j = 0;
 			if (!((fg->bol && fg->eol) && (dataLen != fg->patternLen)))
 				if (grep_cmp(fg->pattern, data + j,
-				    fg->patternLen) == -1) {
+				    fg->patternLen)) {
 					pmatch->rm_so = j;
 					pmatch->rm_eo = j + fg->patternLen;
 					if (!fg->wmatch || wmatch(data, dataLen,
@@ -498,7 +508,7 @@ grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch)
 		j = dataLen;
 		do {
 			if (grep_cmp(fg->pattern, data + j - fg->patternLen,
-			    fg->patternLen) == -1) {
+			    fg->patternLen)) {
 				pmatch->rm_so = j - fg->patternLen;
 				pmatch->rm_eo = j;
 				if (!fg->wmatch || wmatch(data, dataLen,
@@ -516,7 +526,7 @@ grep_search(fastgrep_t *fg, char *data, size_t dataLen, regmatch_t *pmatch)
 		/* Quick Search algorithm. */
 		j = 0;
 		do {
-			if (grep_cmp(fg->pattern, data + j, fg->patternLen) == -1) {
+			if (grep_cmp(fg->pattern, data + j, fg->patternLen)) {
 				pmatch->rm_so = j;
 				pmatch->rm_eo = j + fg->patternLen;
 				if (fg->patternLen == 0 || !fg->wmatch ||
@@ -578,22 +588,21 @@ grep_reallocarray(void *ptr, size_t nmemb, size_t size)
 
 #ifndef SMALL
 /*
- * Returns:	i >= 0 on failure (position that it failed)
- *		-1 on success
+ * Returns:	true on success, false on failure
  */
-static int
+static bool
 grep_cmp(const char *pattern, const char *data, size_t len)
 {
-	int i;
+	size_t i;
 
 	for (i = 0; i < len; i++) {
 		if (((pattern[i] == data[i]) || (!Fflag && pattern[i] == '.'))
-		    || (iflag && pattern[i] == toupper(data[i])))
+		    || (iflag && pattern[i] == toupper((unsigned char)data[i])))
 			continue;
-		return (i);
+		return false;
 	}
 
-	return (-1);
+	return true;
 }
 
 static void
@@ -623,7 +632,7 @@ printline(str_t *line, int sep, regmatch_t *pmatch)
 	if (nflag) {
 		if (n)
 			putchar(sep);
-		printf("%d", line->line_no);
+		printf("%lld", line->line_no);
 		++n;
 	}
 	if (bflag) {

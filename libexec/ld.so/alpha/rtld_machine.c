@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.56 2015/11/02 07:02:53 guenther Exp $ */
+/*	$OpenBSD: rtld_machine.c,v 1.59 2016/06/21 15:25:36 deraadt Exp $ */
 
 /*
  * Copyright (c) 1999 Dale Rahn
@@ -83,7 +83,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		for (llist = object->load_list; llist != NULL; llist = llist->next) {
 			if (!(llist->prot & PROT_WRITE)) {
 				_dl_mprotect(llist->start, llist->size,
-				    llist->prot|PROT_WRITE);
+				    PROT_READ | PROT_WRITE);
 			}
 		}
 	}
@@ -182,7 +182,7 @@ _dl_printf("unaligned RELATIVE: %p type: %d %s 0x%lx -> 0x%lx\n", r_addr,
 		default:
 			_dl_printf("%s:"
 			    " %s: unsupported relocation '%s' %d at %lx\n",
-			    _dl_progname, object->load_name, symn,
+			    __progname, object->load_name, symn,
 			    ELF64_R_TYPE(relas->r_info), r_addr );
 			_dl_exit(1);
 		}
@@ -329,7 +329,7 @@ void	_reloc_alpha_got(Elf_Dyn *dynp, Elf_Addr relocbase);
 void
 _reloc_alpha_got(Elf_Dyn *dynp, Elf_Addr relocbase)
 {
-	const Elf_RelA *rela = 0, *relalim;
+	const Elf_RelA *rela = NULL, *relalim;
 	Elf_Addr relasz = 0;
 	Elf_Addr *where;
 

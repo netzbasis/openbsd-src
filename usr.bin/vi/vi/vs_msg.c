@@ -1,4 +1,4 @@
-/*	$OpenBSD: vs_msg.c,v 1.14 2015/04/24 21:48:31 brynet Exp $	*/
+/*	$OpenBSD: vs_msg.c,v 1.18 2016/05/27 09:18:12 martijn Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -62,7 +62,6 @@ vs_busy(SCR *sp, const char *msg, busy_t btype)
 	static const char flagc[] = "|/-\\";
 	struct timespec ts, ts_diff;
 	size_t len, notused;
-	const char *p;
 
 	/* Ex doesn't display busy messages. */
 	if (F_ISSET(sp, SC_EX | SC_SCR_EXWROTE))
@@ -91,9 +90,8 @@ vs_busy(SCR *sp, const char *msg, busy_t btype)
 		(void)gp->scr_cursor(sp, &vip->busy_oldy, &vip->busy_oldx);
 
 		/* Display the busy message. */
-		p = msg_cat(sp, msg, &len);
 		(void)gp->scr_move(sp, LASTLINE(sp), 0);
-		(void)gp->scr_addstr(sp, p, len);
+		(void)gp->scr_addstr(sp, msg, strlen(msg));
 		(void)gp->scr_cursor(sp, &notused, &vip->busy_fx);
 		(void)gp->scr_clrtoeol(sp);
 		(void)gp->scr_move(sp, LASTLINE(sp), vip->busy_fx);
@@ -884,8 +882,8 @@ vs_msgsave(SCR *sp, mtype_t mt, char *p, size_t len)
 	 * allocate memory here, we're genuinely screwed, dump the message
 	 * to stderr in the (probably) vain hope that someone will see it.
 	 */
-	CALLOC_GOTO(sp, mp_n, MSGS *, 1, sizeof(MSGS));
-	MALLOC_GOTO(sp, mp_n->buf, char *, len);
+	CALLOC_GOTO(sp, mp_n, 1, sizeof(MSGS));
+	MALLOC_GOTO(sp, mp_n->buf, len);
 
 	memmove(mp_n->buf, p, len);
 	mp_n->len = len;

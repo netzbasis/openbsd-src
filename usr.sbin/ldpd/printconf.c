@@ -1,6 +1,8 @@
-/*	$OpenBSD: printconf.c,v 1.11 2015/07/21 04:52:29 renato Exp $ */
+/*	$OpenBSD: printconf.c,v 1.26 2016/07/01 23:14:31 renato Exp $ */
 
 /*
+ * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
+ * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
  * Copyright (c) 2004, 2005, 2008 Esben Norby <norby@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -16,132 +18,187 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/queue.h>
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-
 #include <stdio.h>
 
-#include "ldp.h"
 #include "ldpd.h"
 #include "ldpe.h"
+#include "log.h"
 
-void	print_mainconf(struct ldpd_conf *);
-void	print_iface(struct iface *);
-void	print_tnbr(struct tnbr *);
-void	print_nbrp(struct nbr_params *);
-void	print_l2vpn(struct l2vpn *);
-void	print_pw(struct l2vpn_pw *);
+static void	print_mainconf(struct ldpd_conf *);
+static void	print_af(int, struct ldpd_conf *, struct ldpd_af_conf *);
+static void	print_iface(struct iface *, struct iface_af *);
+static void	print_tnbr(struct tnbr *);
+static void	print_nbrp(struct nbr_params *);
+static void	print_l2vpn(struct l2vpn *);
+static void	print_pw(struct l2vpn_pw *);
 
-void
+static void
 print_mainconf(struct ldpd_conf *conf)
 {
-	printf("router-id %s\n\n", inet_ntoa(conf->rtr_id));
+	printf("router-id %s\n", inet_ntoa(conf->rtr_id));
 
-	if (conf->flags & LDPD_FLAG_NO_FIB_UPDATE)
+	if (conf->flags & F_LDPD_NO_FIB_UPDATE)
 		printf("fib-update no\n");
 	else
 		printf("fib-update yes\n");
 
-	if (conf->flags & LDPD_FLAG_TH_ACCEPT)
-		printf("targeted-hello-accept yes\n");
-	else
-		printf("targeted-hello-accept no\n");
+	if (conf->trans_pref == DUAL_STACK_LDPOV4)
+		printf("transport-preference ipv4\n");
+	else if (conf->trans_pref == DUAL_STACK_LDPOV6)
+		printf("transport-preference ipv6\n");
 
-	printf("keepalive %u\n", conf->keepalive);
+	if (conf->flags & F_LDPD_DS_CISCO_INTEROP)
+		printf("ds-cisco-interop yes\n");
+	else
+		printf("ds-cisco-interop no\n");
 }
 
-void
-print_iface(struct iface *iface)
+static void
+print_af(int af, struct ldpd_conf *conf, struct ldpd_af_conf *af_conf)
 {
-	printf("\ninterface %s {\n", iface->name);
-	printf("\tlink-hello-holdtime %u\n", iface->hello_holdtime);
-	printf("\tlink-hello-interval %u\n", iface->hello_interval);
+	struct iface		*iface;
+	struct iface_af		*ia;
+	struct tnbr		*tnbr;
+
+	printf("\naddress-family %s {\n", af_name(af));
+
+	if (af_conf->flags & F_LDPD_AF_THELLO_ACCEPT)
+		printf("\ttargeted-hello-accept yes\n");
+	else
+		printf("\ttargeted-hello-accept no\n");
+
+	if (af_conf->flags & F_LDPD_AF_EXPNULL)
+		printf("\texplicit-null yes\n");
+	else
+		printf("\texplicit-null no\n");
+
+	if (af_conf->flags & F_LDPD_AF_NO_GTSM)
+		printf("\tgtsm-enable no\n");
+	else
+		printf("\tgtsm-enable yes\n");
+
+	printf("\tkeepalive %u\n", af_conf->keepalive);
+	printf("\ttransport-address %s\n", log_addr(af, &af_conf->trans_addr));
+
+	LIST_FOREACH(iface, &conf->iface_list, entry) {
+		ia = iface_af_get(iface, af);
+		if (ia->enabled)
+			print_iface(iface, ia);
+	}
+
+	LIST_FOREACH(tnbr, &conf->tnbr_list, entry)
+		if (tnbr->af == af && tnbr->flags & F_TNBR_CONFIGURED)
+			print_tnbr(tnbr);
+
 	printf("}\n");
 }
 
-void
-print_tnbr(struct tnbr *tnbr)
+static void
+print_iface(struct iface *iface, struct iface_af *ia)
 {
-	printf("\ntargeted-neighbor %s {\n", inet_ntoa(tnbr->addr));
-	printf("\ttargeted-hello-holdtime %u\n", tnbr->hello_holdtime);
-	printf("\ttargeted-hello-interval %u\n", tnbr->hello_interval);
-	printf("}\n");
-}
-
-void
-print_nbrp(struct nbr_params *nbrp)
-{
-	printf("\nneighbor %s {\n", inet_ntoa(nbrp->addr));
-	if (nbrp->auth.method == AUTH_MD5SIG)
-		printf("\tpassword XXXXXX\n");
-	printf("}\n");
-}
-
-void
-print_pw(struct l2vpn_pw *pw)
-{
-	printf("\tpseudowire %s {\n", pw->ifname);
-	if (pw->addr.s_addr != INADDR_ANY)
-		printf("\t\tneighbor %s\n", inet_ntoa(pw->addr));
-	if (pw->pwid != 0)
-		printf("\t\tpw-id %u\n", pw->pwid);
-	if (pw->flags & F_PW_STATUSTLV_CONF)
-		printf("\t\tstatus-tlv yes\n");
-	else
-		printf("\t\tstatus-tlv no\n");
-	if (pw->flags & F_PW_CONTROLWORD_CONF)
-		printf("\t\tcontrol-word yes\n");
-	else
-		printf("\t\tcontrol-word no\n");
+	printf("\tinterface %s {\n", iface->name);
+	printf("\t\tlink-hello-holdtime %u\n", ia->hello_holdtime);
+	printf("\t\tlink-hello-interval %u\n", ia->hello_interval);
 	printf("\t}\n");
 }
 
-void
+static void
+print_tnbr(struct tnbr *tnbr)
+{
+	printf("\n\ttargeted-neighbor %s {\n", log_addr(tnbr->af, &tnbr->addr));
+	printf("\t\ttargeted-hello-holdtime %u\n", tnbr->hello_holdtime);
+	printf("\t\ttargeted-hello-interval %u\n", tnbr->hello_interval);
+	printf("\t}\n");
+}
+
+static void
+print_nbrp(struct nbr_params *nbrp)
+{
+	printf("\nneighbor %s {\n", inet_ntoa(nbrp->lsr_id));
+
+	if (nbrp->flags & F_NBRP_KEEPALIVE)
+		printf("\tkeepalive %u\n", nbrp->keepalive);
+
+	if (nbrp->flags & F_NBRP_GTSM) {
+		if (nbrp->gtsm_enabled)
+			printf("\tgtsm-enable yes\n");
+		else
+			printf("\tgtsm-enable no\n");
+	}
+
+	if (nbrp->flags & F_NBRP_GTSM_HOPS)
+		printf("\tgtsm-hops %u\n", nbrp->gtsm_hops);
+
+	if (nbrp->auth.method == AUTH_MD5SIG)
+		printf("\tpassword XXXXXX\n");
+
+	printf("}\n");
+}
+
+static void
 print_l2vpn(struct l2vpn *l2vpn)
 {
 	struct l2vpn_if	*lif;
 	struct l2vpn_pw	*pw;
 
-	printf("l2vpn %s type vpls {\n", l2vpn->name);
+	printf("\nl2vpn %s type vpls {\n", l2vpn->name);
+
 	if (l2vpn->pw_type == PW_TYPE_ETHERNET)
 		printf("\tpw-type ethernet\n");
 	else
 		printf("\tpw-type ethernet-tagged\n");
+
 	printf("\tmtu %u\n", l2vpn->mtu);
-	printf("\n");
 	if (l2vpn->br_ifindex != 0)
 		printf("\tbridge %s\n", l2vpn->br_ifname);
 	LIST_FOREACH(lif, &l2vpn->if_list, entry)
 		printf("\tinterface %s\n", lif->ifname);
 	LIST_FOREACH(pw, &l2vpn->pw_list, entry)
 		print_pw(pw);
+
 	printf("}\n");
+}
+
+static void
+print_pw(struct l2vpn_pw *pw)
+{
+	printf("\tpseudowire %s {\n", pw->ifname);
+
+	printf("\t\tneighbor-id %s\n", inet_ntoa(pw->lsr_id));
+	printf("\t\tneighbor-addr %s\n", log_addr(pw->af, &pw->addr));
+	printf("\t\tpw-id %u\n", pw->pwid);
+
+	if (pw->flags & F_PW_STATUSTLV_CONF)
+		printf("\t\tstatus-tlv yes\n");
+	else
+		printf("\t\tstatus-tlv no\n");
+
+	if (pw->flags & F_PW_CWORD_CONF)
+		printf("\t\tcontrol-word yes\n");
+	else
+		printf("\t\tcontrol-word no\n");
+
+	printf("\t}\n");
 }
 
 void
 print_config(struct ldpd_conf *conf)
 {
-	struct iface		*iface;
-	struct tnbr		*tnbr;
 	struct nbr_params	*nbrp;
 	struct l2vpn		*l2vpn;
 
 	print_mainconf(conf);
-	printf("\n");
 
-	LIST_FOREACH(iface, &conf->iface_list, entry)
-		print_iface(iface);
-	printf("\n");
-	LIST_FOREACH(tnbr, &conf->tnbr_list, entry)
-		if (tnbr->flags & F_TNBR_CONFIGURED)
-			print_tnbr(tnbr);
-	printf("\n");
+	if (conf->ipv4.flags & F_LDPD_AF_ENABLED)
+		print_af(AF_INET, conf, &conf->ipv4);
+	if (conf->ipv6.flags & F_LDPD_AF_ENABLED)
+		print_af(AF_INET6, conf, &conf->ipv6);
+
 	LIST_FOREACH(nbrp, &conf->nbrp_list, entry)
 		print_nbrp(nbrp);
-	printf("\n");
+
 	LIST_FOREACH(l2vpn, &conf->l2vpn_list, entry)
 		print_l2vpn(l2vpn);
 }

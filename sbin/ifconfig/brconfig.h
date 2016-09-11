@@ -1,4 +1,4 @@
-/*	$OpenBSD: brconfig.h,v 1.8 2014/07/11 16:41:51 henning Exp $	*/
+/*	$OpenBSD: brconfig.h,v 1.11 2016/09/02 10:01:36 goda Exp $	*/
 
 /*
  * Copyright (c) 2009 Claudio Jeker <claudio@openbsd.org>
@@ -37,6 +37,7 @@ void setptp(const char *, int);
 void unsetptp(const char *, int);
 void setautoptp(const char *, int);
 void unsetautoptp(const char *, int);
+void addlocal(const char *, int);
 
 void bridge_add(const char *, int);
 void bridge_delete(const char *, int);
@@ -64,11 +65,14 @@ void bridge_flushrule(const char *, int);
 int is_bridge(char *);
 void bridge_status(void);
 int bridge_rule(int, char **, int);
+void switch_status(void);
+void switch_datapathid(const char *, int);
+void switch_portno(const char *, const char *);
 
 #define	IFFBITS								\
 	"\024\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5POINTOPOINT\6NOTRAILERS" \
 	"\7RUNNING\10NOARP\11PROMISC\12ALLMULTI\13OACTIVE\14SIMPLEX"	\
-	"\15LINK0\16LINK1\17LINK2\20MULTICAST\21TXREADY\22NOINET6"	\
+	"\15LINK0\16LINK1\17LINK2\20MULTICAST"	\
 	"\23INET6_NOPRIVACY\24MPLS\25WOL\26AUTOCONF6"
 
 void printb(char *, unsigned int, unsigned char *);

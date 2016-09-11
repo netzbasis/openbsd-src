@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_var.h,v 1.35 2015/01/12 13:51:45 mpi Exp $	*/
+/*	$OpenBSD: in_var.h,v 1.39 2016/06/15 19:39:34 gerhard Exp $	*/
 /*	$NetBSD: in_var.h,v 1.16 1996/02/13 23:42:15 christos Exp $	*/
 
 /*
@@ -98,9 +98,9 @@ do {									\
  * Per-interface router version information.
  */
 struct router_info {
-	struct	ifnet *rti_ifp;
-	int	rti_type;	/* type of router on this interface */
-	int	rti_age;	/* time since last v1 query */
+	unsigned int	rti_ifidx;
+	int		rti_type;	/* type of router on this interface */
+	int		rti_age;	/* time since last v1 query */
 	struct	router_info *rti_next;
 };
 
@@ -154,8 +154,11 @@ int	in_ifinit(struct ifnet *,
 	    struct in_ifaddr *, struct sockaddr_in *, int);
 struct	in_multi *in_addmulti(struct in_addr *, struct ifnet *);
 void	in_delmulti(struct in_multi *);
+int	in_hasmulti(struct in_addr *, struct ifnet *);
 void	in_ifscrub(struct ifnet *, struct in_ifaddr *);
 int	in_control(struct socket *, u_long, caddr_t, struct ifnet *);
+int	in_ioctl(u_long, caddr_t, struct ifnet *, int);
+void	in_prefixlen2mask(struct in_addr *, int);
 #endif
 
 #endif /* _NETINET_IN_VAR_H_ */

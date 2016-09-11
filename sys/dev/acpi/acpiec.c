@@ -1,4 +1,4 @@
-/* $OpenBSD: acpiec.c,v 1.52 2015/03/14 03:38:46 jsg Exp $ */
+/* $OpenBSD: acpiec.c,v 1.54 2016/08/23 18:26:21 jcs Exp $ */
 /*
  * Copyright (c) 2006 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -74,8 +74,6 @@ void		acpiec_unlock(struct acpiec_softc *);
 #define		EC_CMD_BE	0x82	/* Burst Enable */
 #define		EC_CMD_BD	0x83	/* Burst Disable */
 #define		EC_CMD_QR	0x84	/* Query */
-
-#define		REG_TYPE_EC	3
 
 int	acpiec_reg(struct acpiec_softc *);
 
@@ -220,10 +218,12 @@ acpiec_read(struct acpiec_softc *sc, u_int8_t addr, int len, u_int8_t *buffer)
 	 */
 	dnprintf(20, "%s: read %d, %d\n", DEVNAME(sc), (int)addr, len);
 	sc->sc_ecbusy = 1;
-	acpiec_burst_enable(sc);
+	if (len > 1)
+		acpiec_burst_enable(sc);
 	for (reg = 0; reg < len; reg++)
 		buffer[reg] = acpiec_read_1(sc, addr + reg);
-	acpiec_burst_disable(sc);
+	if (len > 1)
+		acpiec_burst_disable(sc);
 	sc->sc_ecbusy = 0;
 }
 
@@ -239,10 +239,12 @@ acpiec_write(struct acpiec_softc *sc, u_int8_t addr, int len, u_int8_t *buffer)
 	 */
 	dnprintf(20, "%s: write %d, %d\n", DEVNAME(sc), (int)addr, len);
 	sc->sc_ecbusy = 1;
-	acpiec_burst_enable(sc);
+	if (len > 1)
+		acpiec_burst_enable(sc);
 	for (reg = 0; reg < len; reg++)
 		acpiec_write_1(sc, addr + reg, buffer[reg]);
-	acpiec_burst_disable(sc);
+	if (len > 1)
+		acpiec_burst_disable(sc);
 	sc->sc_ecbusy = 0;
 }
 
@@ -524,7 +526,7 @@ acpiec_reg(struct acpiec_softc *sc)
 
 	memset(&arg, 0, sizeof(arg));
 	arg[0].type = AML_OBJTYPE_INTEGER;
-	arg[0].v_integer = REG_TYPE_EC;
+	arg[0].v_integer = ACPI_OPREG_EC;
 	arg[1].type = AML_OBJTYPE_INTEGER;
 	arg[1].v_integer = 1;
 

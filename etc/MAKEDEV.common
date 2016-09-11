@@ -1,4 +1,4 @@
-vers(a, {-$OpenBSD: MAKEDEV.common,v 1.79 2015/10/23 15:14:11 claudio Exp $-})dnl
+vers(a, {-$OpenBSD: MAKEDEV.common,v 1.93 2016/09/11 03:06:31 deraadt Exp $-})dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
 dnl
@@ -129,7 +129,6 @@ target(all, ra, 0, 1, 2, 3)dnl
 target(all, rx, 0, 1)dnl
 target(all, wd, 0, 1, 2, 3)dnl
 target(all, xd, 0, 1, 2, 3)dnl
-target(all, systrace)dnl
 target(all, pctr)dnl
 target(all, pctr0)dnl
 target(all, pf)dnl
@@ -167,6 +166,9 @@ target(all, ptm)dnl
 target(all, hotplug)dnl
 target(all, pppx)dnl
 target(all, fuse)dnl
+target(all, vmm)dnl
+target(all, pvbus, 0)dnl
+target(all, bpf)dnl
 dnl
 _mkdev(all, {-all-}, {-dnl
 show_target(all)dnl
@@ -186,16 +188,13 @@ _mkdev(uall, uall, {-dnl
 show_target({-usb-})dnl
 -})dnl
 __devtitle(tap, Tapes)dnl
-__devitem(tz, tz*, {-DEC TK50 cartridge tape drives-})dnl
 __devitem(st, {-st*-}, SCSI tape drives)dnl
 _mkdev(st, st*, {-n=Mult($U, 16)
 	for pre in " " n e en
 	do
-		M ${pre}st$U	b major_st_b $n 660 operator
 		M ${pre}rst$U	c major_st_c $n 660 operator
 		n=Add($n, 1)
 	done-})dnl
-__devitem(mt, mt*, (Magnetic) 9-track reel tape drives)dnl
 __devtitle(dis, Disks)dnl
 __devitem(sd, {-sd*-}, {-SCSI disks{-,-} including flopticals-})dnl
 __devitem(cd, {-cd*-}, ATAPI and SCSI CD-ROM drives)dnl
@@ -214,7 +213,7 @@ show_target(ramd)dnl
 -})dnl
 dnl
 target(ramd, std)dnl
-target(ramd, bpf, 0)dnl
+target(ramd, bpf)dnl
 twrget(ramd, com, tty0, 0, 1)dnl
 target(ramd, sd, 0, 1, 2, 3, 4)dnl
 target(ramd, wd, 0, 1, 2, 3, 4)dnl
@@ -382,6 +381,8 @@ _mkdev(com, {-tty[0-7][0-9a-f]-}, {-U=${i#tty*}
 	M tty$U c major_com_c $o 660 dialer uucp
 	M cua$U c major_com_c Add($o, 128) 660 dialer uucp-})dnl
 __devitem(ttyc, ttyc*, Cyclades serial ports,cy)dnl
+__devitem(ttyVI, ttyVI*, Virtio serial ports,viocon)dnl
+_mkdev(ttyVI, ttyVI*, {-M ttyVI$U c major_ttyVI_c $U 660 dialer uucp-})dnl
 __devitem(tzs, tty[a-z]*, Zilog 8530 Serial Port,zs)dnl
 _mkdev(tzs, {-tty[a-z]-}, {-u=${i#tty*}
 	case $u in
@@ -416,26 +417,22 @@ _mkdev(apm, apm*, {-M apm	c major_apm_c 0 644
 _mkdev(acpi, acpi*, {-M acpi	c major_acpi_c 0 644-})dnl
 __devitem(pctr, pctr*, PC Performance Tuning Register access device)dnl
 _mkdev(pctr, pctr, {-M pctr c major_pctr_c 0 644-})dnl
-__devitem(systrace, systrace*, System call tracing device)dnl
-_mkdev(systrace, systrace, {-M systrace c major_systrace_c 0 644-})dnl
 __devitem(au, audio*, Audio devices,audio)dnl
-_mkdev(au, audio*, {-M sound$U	c major_au_c $U
+_mkdev(au, audio*, {-M audio$U	c major_au_c $U
 	M mixer$U	c major_au_c Add($U, 16)
-	M audio$U	c major_au_c Add($U, 128)
 	M audioctl$U	c major_au_c Add($U, 192)
 	MKlist[${#MKlist[*]}]=";[ -e audio ] || ln -s audio$U audio"
 	MKlist[${#MKlist[*]}]=";[ -e mixer ] || ln -s mixer$U mixer"
-	MKlist[${#MKlist[*]}]=";[ -e sound ] || ln -s sound$U sound"
 	MKlist[${#MKlist[*]}]=";[ -e audioctl ] || ln -s audioctl$U audioctl"-})dnl
 __devitem(vi, video*, Video V4L2 devices,video)dnl
-_mkdev(vi, video*, {-M video$U  c major_vi_c $U
+_mkdev(vi, video*, {-M video$U  c major_vi_c $U 600
 	MKlist[${#MKlist[*]}]=";[ -e video ] || ln -s video$U video"-})dnl
 __devitem(asc, asc*, ASC Audio device)dnl
 _mkdev(asc, asc*, {-M asc$U major_asc_c 0-})dnl
 __devitem(bio, bio, {-ioctl tunnel pseudo-device-})dnl
 _mkdev(bio, bio, {-M bio c major_bio_c 0 600-})dnl
 __devitem(radio, radio*, FM tuner devices)dnl
-_mkdev(radio, radio*, {-M radio$U     c major_radio_c $U
+_mkdev(radio, radio*, {-M radio$U	c major_radio_c $U
 	MKlist[${#MKlist[*]}]=";[ -e radio ] || ln -s radio$U radio"-})dnl
 __devitem(fdesc, fd, fd/* nodes, fd)dnl
 _mkdev(fdesc, fd, {-RMlist[${#RMlist[*]}]=";mkdir -p fd;rm -f" n=0
@@ -445,14 +442,17 @@ __devitem(oppr, openprom,PROM settings,openprom)dnl
 _cdev(oppr, openprom, 70, 0)dnl
 __devitem(pf, pf*, Packet Filter)dnl
 _mkdev(pf, {-pf*-}, {-M pf c major_pf_c 0 600-})dnl
-__devitem(bpf, bpf*, Berkeley Packet Filter)dnl
-_mkdev(bpf, {-bpf*-}, {-M bpf$U c major_bpf_c $U 600-}, 600)dnl
+__devitem(bpf, bpf, Berkeley Packet Filter)dnl
+_mkdev(bpf, bpf, {-M bpf c major_bpf_c 0 600
+	M bpf0 c major_bpf_c 0 600-})dnl
 _mkdev(tun, {-tun*-}, {-M tun$U c major_tun_c $U 600-}, 600)dnl
 _mkdev(tap, {-tap*-}, {-M tap$U c major_tap_c $U 600-}, 600)dnl
+_mkdev(switch, {-switch*-}, {-M switch$U c major_switch_c $U 600-}, 600)dnl
 __devitem(speak, speaker, PC speaker,spkr)dnl
 _mkdev(speak, speaker, {-M speaker c major_speak_c 0 600-})dnl
 __devitem(tun, tun*, Network tunnel driver)dnl
 __devitem(tap, tap*, Ethernet tunnel driver)dnl
+__devitem(switch, switch*, Switch driver)dnl
 __devitem(rnd, *random, In-kernel random data source,random)dnl
 _mkdev(rnd, *random, {-n=0
 	for pre in " " s u a
@@ -520,6 +520,12 @@ __devitem(gpr, gpr*, GPR400 smartcard reader)dnl
 _mcdev(gpr, gpr*, gpr, {-major_gpr_c-})dnl
 __devitem(hotplug, hotplug, devices hot plugging)dnl
 _mkdev(hotplug, hotplug, {-M hotplug c major_hotplug_c $U 400-})dnl
+__devitem(ipmi, ipmi*, IPMI BMC access)dnl
+_mkdev(ipmi, ipmi*, {-M ipmi$U c major_ipmi_c $U 600-})dnl
 __devitem(gpio, gpio*, General Purpose Input/Output)dnl
 _mcdev(gpio, gpio*, gpio, {-major_gpio_c-}, 600)dnl
+__devitem(vmm, vmm, Virtual Machine Monitor)dnl
+_mkdev(vmm, vmm, {-M vmm c major_vmm_c 0 600-})dnl
+__devitem(pvbus, pvbus*, paravirtual device tree root)dnl
+_mkdev(pvbus, {-pvbus*-}, {-M pvbus$U c major_pvbus_c $U 640-}, 640)dnl
 _mkdev(local, local, {-test -s $T.local && sh $T.local-})dnl

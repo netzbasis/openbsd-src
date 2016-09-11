@@ -1,4 +1,4 @@
-/*	$OpenBSD: packet.c,v 1.4 2015/10/10 05:03:39 renato Exp $ */
+/*	$OpenBSD: packet.c,v 1.18 2016/09/02 16:44:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -17,24 +17,31 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <arpa/inet.h>
+#include <sys/types.h>
 #include <net/if_dl.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+
+#include <arpa/inet.h>
 #include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "eigrpd.h"
-#include "eigrp.h"
-#include "log.h"
 #include "eigrpe.h"
+#include "log.h"
 
-extern struct eigrpd_conf	*econf;
-
-int		 ip_hdr_sanity_check(const struct ip *, uint16_t);
-int		 eigrp_hdr_sanity_check(int, union eigrpd_addr *,
-    struct eigrp_hdr *, uint16_t, const struct iface *);
-struct iface	*find_iface(unsigned int, int, union eigrpd_addr *);
+static int	 send_packet_v4(struct iface *, struct nbr *, struct ibuf *);
+static int	 send_packet_v6(struct iface *, struct nbr *, struct ibuf *);
+static int	 recv_packet_nbr(struct nbr *, struct eigrp_hdr *,
+		    struct seq_addr_head *, struct tlv_mcast_seq *);
+static void	 recv_packet_eigrp(int, union eigrpd_addr *,
+		    union eigrpd_addr *, struct iface *, struct eigrp_hdr *,
+		    char *, uint16_t);
+static int	 eigrp_hdr_sanity_check(int, union eigrpd_addr *,
+		    struct eigrp_hdr *, uint16_t, const struct iface *);
+static struct iface *find_iface(unsigned int, int, union eigrpd_addr *);
 
 int
 gen_eigrp_hdr(struct ibuf *buf, uint16_t opcode, uint8_t flags,
@@ -68,9 +75,9 @@ send_packet_v4(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 	dst.sin_family = AF_INET;
 	dst.sin_len = sizeof(struct sockaddr_in);
 	if (nbr)
-		dst.sin_addr.s_addr = nbr->addr.v4.s_addr;
+		dst.sin_addr = nbr->addr.v4;
 	else
-		dst.sin_addr.s_addr = AllEIGRPRouters_v4;
+		dst.sin_addr = global.mcast_addr_v4;
 
 	/* setup IP hdr */
 	memset(&ip_hdr, 0, sizeof(ip_hdr));
@@ -105,7 +112,7 @@ send_packet_v4(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 			return (-1);
 		}
 
-	if (sendmsg(econf->eigrp_socket_v4, &msg, 0) == -1) {
+	if (sendmsg(global.eigrp_socket_v4, &msg, 0) == -1) {
 		log_warn("%s: error sending packet on interface %s",
 		    __func__, iface->name);
 		return (-1);
@@ -123,11 +130,11 @@ send_packet_v6(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 	memset(&sa6, 0, sizeof(sa6));
 	sa6.sin6_family = AF_INET6;
 	sa6.sin6_len = sizeof(struct sockaddr_in6);
-	if (nbr)
+	if (nbr) {
 		sa6.sin6_addr = nbr->addr.v6;
-	else
-		inet_pton(AF_INET6, AllEIGRPRouters_v6, &sa6.sin6_addr);
-	addscope(&sa6, iface->ifindex);
+		addscope(&sa6, iface->ifindex);
+	} else
+		sa6.sin6_addr = global.mcast_addr_v6;
 
 	/* set outgoing interface for multicast traffic */
 	if (IN6_IS_ADDR_MULTICAST(&sa6.sin6_addr))
@@ -137,7 +144,7 @@ send_packet_v6(struct iface *iface, struct nbr *nbr, struct ibuf *buf)
 			return (-1);
 		}
 
-	if (sendto(econf->eigrp_socket_v6, buf->buf, buf->wpos, 0,
+	if (sendto(global.eigrp_socket_v6, buf->buf, buf->wpos, 0,
 	    (struct sockaddr *)&sa6, sizeof(sa6)) == -1) {
 		log_warn("%s: error sending packet on interface %s",
 		    __func__, iface->name);
@@ -190,13 +197,41 @@ send_packet(struct eigrp_iface *ei, struct nbr *nbr, uint32_t flags,
 
 	switch (eigrp->af) {
 	case AF_INET:
-		send_packet_v4(iface, nbr, buf);
+		if (send_packet_v4(iface, nbr, buf) < 0)
+			return (-1);
 		break;
 	case AF_INET6:
-		send_packet_v6(iface, nbr, buf);
+		if (send_packet_v6(iface, nbr, buf) < 0)
+			return (-1);
 		break;
 	default:
 		fatalx("send_packet: unknown af");
+	}
+
+	switch (eigrp_hdr->opcode) {
+	case EIGRP_OPC_HELLO:
+		if (ntohl(eigrp_hdr->ack_num) == 0)
+			ei->eigrp->stats.hellos_sent++;
+		else
+			ei->eigrp->stats.acks_sent++;
+		break;
+	case EIGRP_OPC_UPDATE:
+		ei->eigrp->stats.updates_sent++;
+		break;
+	case EIGRP_OPC_QUERY:
+		ei->eigrp->stats.queries_sent++;
+		break;
+	case EIGRP_OPC_REPLY:
+		ei->eigrp->stats.replies_sent++;
+		break;
+	case EIGRP_OPC_SIAQUERY:
+		ei->eigrp->stats.squeries_sent++;
+		break;
+	case EIGRP_OPC_SIAREPLY:
+		ei->eigrp->stats.sreplies_sent++;
+		break;
+	default:
+		break;
 	}
 
 	return (0);
@@ -218,20 +253,6 @@ recv_packet_nbr(struct nbr *nbr, struct eigrp_hdr *eigrp_hdr,
 	 * the hold time period, then the Hold Time period will be reset."
 	 */
 	nbr_start_timeout(nbr);
-
-	/* ack processing */
-	if (ack != 0)
-		rtp_process_ack(nbr, ack);
-	if (seq != 0) {
-		/* check for sequence wraparound */
-		if (nbr->recv_seq >= seq &&
-		   !(nbr->recv_seq == UINT32_MAX && seq == 1)) {
-			log_debug("%s: duplicate packet", __func__);
-			rtp_send_ack(nbr);
-			return (-1);
-		}
-		nbr->recv_seq = seq;
-	}
 
 	/* handle the sequence tlv */
 	if (eigrp_hdr->opcode == EIGRP_OPC_HELLO &&
@@ -259,21 +280,36 @@ recv_packet_nbr(struct nbr *nbr, struct eigrp_hdr *eigrp_hdr,
 			}
 		}
 		if (tm)
-			nbr->next_mcast_seq = tm->seq;
+			nbr->next_mcast_seq = ntohl(tm->seq);
 	}
 
 	if ((ntohl(eigrp_hdr->flags) & EIGRP_HDR_FLAG_CR)) {
 		if (!(nbr->flags & F_EIGRP_NBR_CR_MODE))
 			return (-1);
+		nbr->flags &= ~F_EIGRP_NBR_CR_MODE;
 		if (ntohl(eigrp_hdr->seq_num) != nbr->next_mcast_seq)
 			return (-1);
+	}
+
+	/* ack processing */
+	if (ack != 0)
+		rtp_process_ack(nbr, ack);
+	if (seq != 0) {
+		/* check for sequence wraparound */
+		if (nbr->recv_seq >= seq &&
+		   !(nbr->recv_seq == UINT32_MAX && seq == 1)) {
+			log_debug("%s: duplicate packet", __func__);
+			rtp_send_ack(nbr);
+			return (-1);
+		}
+		nbr->recv_seq = seq;
 	}
 
 	return (0);
 }
 
 static void
-recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
+recv_packet_eigrp(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
     struct iface *iface, struct eigrp_hdr *eigrp_hdr, char *buf, uint16_t len)
 {
 	struct eigrp_iface	*ei;
@@ -283,7 +319,6 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	struct tlv_mcast_seq	*tm = NULL;
 	struct rinfo		 ri;
 	struct rinfo_entry	*re;
-	enum route_type		 route_type = 0;
 	struct seq_addr_head	 seq_addr_list;
 	struct rinfo_head	 rinfo_list;
 
@@ -298,6 +333,7 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	TAILQ_INIT(&rinfo_list);
 	while (len > 0) {
 		struct tlv 	tlv;
+		uint16_t	tlv_type;
 
 		if (len < sizeof(tlv)) {
 			log_debug("%s: malformed packet (bad length)",
@@ -312,7 +348,8 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 			goto error;
 		}
 
-		switch (ntohs(tlv.type)) {
+		tlv_type = ntohs(tlv.type);
+		switch (tlv_type) {
 		case TLV_TYPE_PARAMETER:
 			if ((tp = tlv_decode_parameter(&tlv, buf)) == NULL)
 				goto error;
@@ -334,32 +371,18 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 		case TLV_TYPE_IPV6_INTERNAL:
 		case TLV_TYPE_IPV6_EXTERNAL:
 			/* silently ignore TLV from different address-family */
-			if (af != AF_INET &&
-			    (ntohs(tlv.type) == TLV_TYPE_IPV4_INTERNAL  ||
-			    ntohs(tlv.type) == TLV_TYPE_IPV4_EXTERNAL))
+			if ((tlv_type & TLV_PROTO_MASK) == TLV_PROTO_IPV4 &&
+			    af != AF_INET)
 				break;
-			if (af != AF_INET6 &&
-			    (ntohs(tlv.type) == TLV_TYPE_IPV6_INTERNAL  ||
-			    ntohs(tlv.type) == TLV_TYPE_IPV6_EXTERNAL))
+			if ((tlv_type & TLV_PROTO_MASK) == TLV_PROTO_IPV6 &&
+			    af != AF_INET6)
 				break;
 
-			switch (ntohs(tlv.type)) {
-			case TLV_TYPE_IPV4_INTERNAL:
-			case TLV_TYPE_IPV6_INTERNAL:
-				route_type = EIGRP_ROUTE_INTERNAL;
-				break;
-			case TLV_TYPE_IPV4_EXTERNAL:
-			case TLV_TYPE_IPV6_EXTERNAL:
-				route_type = EIGRP_ROUTE_EXTERNAL;
-				break;
-			}
-
-			if (tlv_decode_route(af, route_type, &tlv, buf,
-			    &ri) < 0)
+			if (tlv_decode_route(af, &tlv, buf, &ri) < 0)
 				goto error;
 			if ((re = calloc(1, sizeof(*re))) == NULL)
-				fatal("recv_packet");
-			memcpy(&re->rinfo, &ri, sizeof(re->rinfo));
+				fatal("recv_packet_eigrp");
+			re->rinfo = ri;
 			TAILQ_INSERT_TAIL(&rinfo_list, re, entry);
 			break;
 		case TLV_TYPE_AUTH:
@@ -402,23 +425,31 @@ recv_packet(int af, union eigrpd_addr *src, union eigrpd_addr *dest,
 	/* switch EIGRP packet type */
 	switch (eigrp_hdr->opcode) {
 	case EIGRP_OPC_HELLO:
-		if (ntohl(eigrp_hdr->ack_num) == 0)
+		if (ntohl(eigrp_hdr->ack_num) == 0) {
 			recv_hello(ei, src, nbr, tp);
+			ei->eigrp->stats.hellos_recv++;
+		} else
+			ei->eigrp->stats.acks_recv++;
 		break;
 	case EIGRP_OPC_UPDATE:
 		recv_update(nbr, &rinfo_list, ntohl(eigrp_hdr->flags));
+		ei->eigrp->stats.updates_recv++;
 		break;
 	case EIGRP_OPC_QUERY:
 		recv_query(nbr, &rinfo_list, 0);
+		ei->eigrp->stats.queries_recv++;
 		break;
 	case EIGRP_OPC_REPLY:
 		recv_reply(nbr, &rinfo_list, 0);
+		ei->eigrp->stats.replies_recv++;
 		break;
 	case EIGRP_OPC_SIAQUERY:
 		recv_query(nbr, &rinfo_list, 1);
+		ei->eigrp->stats.squeries_recv++;
 		break;
 	case EIGRP_OPC_SIAREPLY:
 		recv_reply(nbr, &rinfo_list, 1);
+		ei->eigrp->stats.sreplies_recv++;
 		break;
 	default:
 		log_debug("%s: unknown EIGRP packet type, interface %s",
@@ -432,25 +463,27 @@ error:
 	seq_addr_list_clr(&seq_addr_list);
 }
 
+#define CMSG_MAXLEN max(sizeof(struct sockaddr_dl), sizeof(struct in6_pktinfo))
 void
-recv_packet_v4(int fd, short event, void *bula)
+recv_packet(int fd, short event, void *bula)
 {
 	union {
 		struct	cmsghdr hdr;
-		char	buf[CMSG_SPACE(sizeof(struct sockaddr_dl))];
+		char	buf[CMSG_SPACE(CMSG_MAXLEN)];
 	} cmsgbuf;
 	struct msghdr		 msg;
+	struct sockaddr_storage	 from;
 	struct iovec		 iov;
 	struct ip		 ip_hdr;
-	struct eigrp_hdr	*eigrp_hdr;
-	struct iface		*iface;
 	char			*buf;
 	struct cmsghdr		*cmsg;
 	ssize_t			 r;
 	uint16_t		 len;
-	int			 l;
-	unsigned int		 ifindex = 0;
+	int			 af;
 	union eigrpd_addr	 src, dest;
+	unsigned int		 ifindex = 0;
+	struct iface		*iface;
+	struct eigrp_hdr	*eigrp_hdr;
 
 	if (event != EV_READ)
 		return;
@@ -459,6 +492,8 @@ recv_packet_v4(int fd, short event, void *bula)
 	memset(&msg, 0, sizeof(msg));
 	iov.iov_base = buf = pkt_ptr;
 	iov.iov_len = READ_BUF_SIZE;
+	msg.msg_name = &from;
+	msg.msg_namelen = sizeof(from);
 	msg.msg_iov = &iov;
 	msg.msg_iovlen = 1;
 	msg.msg_control = &cmsgbuf.buf;
@@ -470,110 +505,24 @@ recv_packet_v4(int fd, short event, void *bula)
 			    strerror(errno));
 		return;
 	}
+	len = (uint16_t)r;
+
+	sa2addr((struct sockaddr *)&from, &af, &src);
+	if (bad_addr(af, &src)) {
+		log_debug("%s: invalid source address: %s", __func__,
+		    log_addr(af, &src));
+		return;
+	}
+
 	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL;
 	    cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == IPPROTO_IP &&
+		if (af == AF_INET && cmsg->cmsg_level == IPPROTO_IP &&
 		    cmsg->cmsg_type == IP_RECVIF) {
 			ifindex = ((struct sockaddr_dl *)
 			    CMSG_DATA(cmsg))->sdl_index;
 			break;
 		}
-	}
-
-	len = (uint16_t)r;
-
-	/* IP header sanity checks */
-	if (len < sizeof(ip_hdr)) {
-		log_debug("%s: bad packet size", __func__);
-		return;
-	}
-	memcpy(&ip_hdr, buf, sizeof(ip_hdr));
-	if ((l = ip_hdr_sanity_check(&ip_hdr, len)) == -1)
-		return;
-	src.v4.s_addr = ip_hdr.ip_src.s_addr;
-	dest.v4.s_addr = ip_hdr.ip_dst.s_addr;
-
-	buf += l;
-	len -= l;
-
-	/* find a matching interface */
-	if ((iface = find_iface(ifindex, AF_INET, &src)) == NULL)
-		return;
-
-	/*
-	 * Packet needs to be sent to AllEIGRPRouters_v4 or to one
-	 * of the interface addresses.
-	 */
-	if (ip_hdr.ip_dst.s_addr != AllEIGRPRouters_v4) {
-		struct if_addr	*if_addr;
-		int		 found = 0;
-
-		TAILQ_FOREACH(if_addr, &iface->addr_list, entry)
-			if (if_addr->af == AF_INET &&
-			    ip_hdr.ip_dst.s_addr == if_addr->addr.v4.s_addr) {
-				found = 1;
-				break;
-			}
-		if (found == 0) {
-			log_debug("%s: packet sent to wrong address %s, "
-			    "interface %s", __func__, inet_ntoa(ip_hdr.ip_dst),
-			    iface->name);
-			return;
-		}
-	}
-
-	if (len < sizeof(*eigrp_hdr)) {
-		log_debug("%s: bad packet size", __func__);
-		return;
-	}
-	eigrp_hdr = (struct eigrp_hdr *)buf;
-
-	recv_packet(AF_INET, &src, &dest, iface, eigrp_hdr, buf, len);
-}
-
-void
-recv_packet_v6(int fd, short event, void *bula)
-{
-	union {
-		struct	cmsghdr hdr;
-		char	buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
-	} cmsgbuf;
-	struct msghdr		 msg;
-	struct iovec		 iov;
-	struct in6_addr		 maddr;
-	struct sockaddr_in6	 sin6;
-	struct eigrp_hdr	*eigrp_hdr;
-	struct iface		*iface;
-	char			*buf;
-	struct cmsghdr		*cmsg;
-	ssize_t			 r;
-	uint16_t		 len;
-	unsigned int		 ifindex = 0;
-	union eigrpd_addr	 src, dest;
-
-	if (event != EV_READ)
-		return;
-
-	/* setup buffer */
-	memset(&msg, 0, sizeof(msg));
-	iov.iov_base = buf = pkt_ptr;
-	iov.iov_len = READ_BUF_SIZE;
-	msg.msg_name = &sin6;
-	msg.msg_namelen = sizeof(sin6);
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-	msg.msg_control = &cmsgbuf.buf;
-	msg.msg_controllen = sizeof(cmsgbuf.buf);
-
-	if ((r = recvmsg(fd, &msg, 0)) == -1) {
-		if (errno != EAGAIN && errno != EINTR)
-			log_debug("%s: read error: %s", __func__,
-			    strerror(errno));
-		return;
-	}
-	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL;
-	    cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-		if (cmsg->cmsg_level == IPPROTO_IPV6 &&
+		if (af == AF_INET6 && cmsg->cmsg_level == IPPROTO_IPV6 &&
 		    cmsg->cmsg_type == IPV6_PKTINFO) {
 			ifindex = ((struct in6_pktinfo *)
 			    CMSG_DATA(cmsg))->ipi6_ifindex;
@@ -582,63 +531,81 @@ recv_packet_v6(int fd, short event, void *bula)
 			break;
 		}
 	}
-	src.v6 = sin6.sin6_addr;
 
 	/* find a matching interface */
-	if ((iface = find_iface(ifindex, AF_INET6, &src)) == NULL)
+	if ((iface = find_iface(ifindex, af, &src)) == NULL)
 		return;
 
-	/*
-	 * Packet needs to be sent to AllEIGRPRouters_v6 or to the
-	 * link local address of the interface.
-	 */
-	inet_pton(AF_INET6, AllEIGRPRouters_v6, &maddr);
-
-	if (!IN6_ARE_ADDR_EQUAL(&dest.v6, &maddr) &&
-	    !IN6_ARE_ADDR_EQUAL(&dest.v6, &iface->linklocal)) {
-		log_debug("%s: packet sent to wrong address %s, interface %s",
-		    __func__, log_in6addr(&dest.v6), iface->name);
-		return;
+	/* the IPv4 raw sockets API gives us direct access to the IP header */
+	if (af == AF_INET) {
+		if (len < sizeof(ip_hdr)) {
+			log_debug("%s: bad packet size", __func__);
+			return;
+		}
+		memcpy(&ip_hdr, buf, sizeof(ip_hdr));
+		if (ntohs(ip_hdr.ip_len) != len) {
+			log_debug("%s: invalid IP packet length %u", __func__,
+			    ntohs(ip_hdr.ip_len));
+			return;
+		}
+		buf += ip_hdr.ip_hl << 2;
+		len -= ip_hdr.ip_hl << 2;
+		dest.v4 = ip_hdr.ip_dst;
 	}
 
-	len = (uint16_t)r;
+	/* validate destination address */
+	switch (af) {
+	case AF_INET:
+		/*
+		 * Packet needs to be sent to 224.0.0.10 or to one of the
+		 * interface addresses.
+		 */
+		if (dest.v4.s_addr != global.mcast_addr_v4.s_addr) {
+			struct if_addr	*if_addr;
+			int		 found = 0;
+
+			TAILQ_FOREACH(if_addr, &iface->addr_list, entry)
+				if (if_addr->af == AF_INET &&
+				    dest.v4.s_addr == if_addr->addr.v4.s_addr) {
+					found = 1;
+					break;
+				}
+			if (found == 0) {
+				log_debug("%s: packet sent to wrong address "
+				    "%s, interface %s", __func__,
+				    inet_ntoa(dest.v4), iface->name);
+				return;
+			}
+		}
+		break;
+	case AF_INET6:
+		/*
+		 * Packet needs to be sent to ff02::a or to the link local
+		 * address of the interface.
+		 */
+		if (!IN6_ARE_ADDR_EQUAL(&dest.v6, &global.mcast_addr_v6) &&
+		    !IN6_ARE_ADDR_EQUAL(&dest.v6, &iface->linklocal)) {
+			log_debug("%s: packet sent to wrong address %s, "
+			    "interface %s", __func__, log_in6addr(&dest.v6),
+			    iface->name);
+			return;
+		}
+		break;
+	default:
+		fatalx("recv_packet: unknown af");
+		break;
+	}
+
 	if (len < sizeof(*eigrp_hdr)) {
 		log_debug("%s: bad packet size", __func__);
 		return;
 	}
 	eigrp_hdr = (struct eigrp_hdr *)buf;
 
-	recv_packet(AF_INET6, &src, &dest, iface, eigrp_hdr, buf, len);
+	recv_packet_eigrp(af, &src, &dest, iface, eigrp_hdr, buf, len);
 }
 
-int
-ip_hdr_sanity_check(const struct ip *ip_hdr, uint16_t len)
-{
-	in_addr_t	 ipv4;
-
-	if (ntohs(ip_hdr->ip_len) != len) {
-		log_debug("%s: invalid IP packet length %u", __func__,
-		    ntohs(ip_hdr->ip_len));
-		return (-1);
-	}
-
-	ipv4 = ntohl(ip_hdr->ip_src.s_addr);
-	if (((ipv4 >> IN_CLASSA_NSHIFT) == 0)
-	    || ((ipv4 >> IN_CLASSA_NSHIFT) == IN_LOOPBACKNET)
-	    || IN_MULTICAST(ipv4) || IN_BADCLASS(ipv4)) {
-		log_debug("%s: invalid IP source address %s", __func__,
-		    inet_ntoa(ip_hdr->ip_src));
-		return (-1);
-	}
-
-	if (ip_hdr->ip_p != IPPROTO_EIGRP)
-		/* this is enforced by the socket itself */
-		fatalx("ip_hdr_sanity_check: invalid IP proto");
-
-	return (ip_hdr->ip_hl << 2);
-}
-
-int
+static int
 eigrp_hdr_sanity_check(int af, union eigrpd_addr *addr,
     struct eigrp_hdr *eigrp_hdr, uint16_t len, const struct iface *iface)
 {
@@ -685,12 +652,12 @@ eigrp_hdr_sanity_check(int af, union eigrpd_addr *addr,
 	return (0);
 }
 
-struct iface *
+static struct iface *
 find_iface(unsigned int ifindex, int af, union eigrpd_addr *src)
 {
 	struct iface	*iface;
 	struct if_addr	*if_addr;
-	uint32_t	 mask;
+	in_addr_t	 mask;
 
 	iface = if_lookup(econf, ifindex);
 	if (iface == NULL)

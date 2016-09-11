@@ -1,4 +1,4 @@
-/*	$OpenBSD: i82489var.h,v 1.15 2015/04/19 19:45:21 sf Exp $	*/
+/*	$OpenBSD: i82489var.h,v 1.17 2016/06/22 01:12:38 mikeb Exp $	*/
 /*	$NetBSD: i82489var.h,v 1.1 2003/02/26 21:26:10 fvdl Exp $	*/
 
 /*-
@@ -99,6 +99,21 @@ extern void Xintr_lapic3(void);
 extern void Xintr_lapic4(void);
 extern void Xintr_lapic5(void);
 
+/*
+ * Vector used for Xen HVM Event Channel Interrupts.
+ */
+extern void Xintr_xen_upcall(void);
+extern void Xresume_xen_upcall(void);
+extern void Xrecurse_xen_upcall(void);
+#define LAPIC_XEN_VECTOR		0x70
+
+/*
+ * Vector used for Hyper-V Interrupts.
+ */
+extern void Xintr_hyperv_upcall(void);
+extern void Xresume_hyperv_upcall(void);
+extern void Xrecurse_hyperv_upcall(void);
+#define LAPIC_HYPERV_VECTOR		0x71
 
 struct cpu_info;
 

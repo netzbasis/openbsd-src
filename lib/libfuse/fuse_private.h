@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_private.h,v 1.11 2015/01/16 16:48:51 deraadt Exp $ */
+/* $OpenBSD: fuse_private.h,v 1.14 2016/09/07 17:53:35 natano Exp $ */
 /*
  * Copyright (c) 2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -19,9 +19,11 @@
 #define _FUSE_SUBR_H_
 
 #include <sys/dirent.h>
+#include <sys/event.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
-#include <sys/vnode.h>
+#include <sys/tree.h>
 #include <sys/fusebuf.h>
 #include <limits.h>
 
@@ -32,7 +34,8 @@ struct fuse_args;
 
 struct fuse_vnode {
 	ino_t ino;
-	ino_t parent;
+	struct fuse_vnode *parent;
+	unsigned int ref;
 
 	char path[NAME_MAX + 1];
 	struct fuse_dirhandle *fd;
@@ -97,6 +100,8 @@ int	ifuse_exec_opcode(struct fuse *, struct fusebuf *);
 
 /* fuse_subr.c */
 struct fuse_vnode	*alloc_vn(struct fuse *, const char *, ino_t, ino_t);
+void			 ref_vn(struct fuse_vnode *);
+void			 unref_vn(struct fuse *, struct fuse_vnode *);
 struct fuse_vnode	*get_vn_by_name_and_parent(struct fuse *, uint8_t *,
     ino_t);
 void			remove_vnode_from_name_tree(struct fuse *,

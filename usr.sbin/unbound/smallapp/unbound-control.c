@@ -102,7 +102,7 @@ usage()
 	printf("  flush_negative		flush all negative data\n");
 	printf("  flush_stats 			flush statistics, make zero\n");
 	printf("  flush_requestlist 		drop queries that are worked on\n");
-	printf("  dump_requestlist		show what is worked on\n");
+	printf("  dump_requestlist		show what is worked on by first thread\n");
 	printf("  flush_infra [all | ip] 	remove ping, edns for one IP or all\n");
 	printf("  dump_infra			show ping and edns entries\n");
 	printf("  set_option opt: val		set option to value, no reload\n");
@@ -363,6 +363,9 @@ go(const char* cfgfile, char* svr, int quiet, int argc, char* argv[])
 		fatal_exit("could not read config file");
 	if(!cfg->remote_control_enable)
 		log_warn("control-enable is 'no' in the config file.");
+#ifdef UB_ON_WINDOWS
+	w_config_adjust_directory(cfg);
+#endif
 	ctx = setup_ctx(cfg);
 
 	/* contact server */

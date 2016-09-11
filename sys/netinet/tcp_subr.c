@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_subr.c,v 1.150 2015/10/24 16:08:48 mpi Exp $	*/
+/*	$OpenBSD: tcp_subr.c,v 1.154 2016/09/06 00:04:15 dlg Exp $	*/
 /*	$NetBSD: tcp_subr.c,v 1.22 1996/02/13 23:44:00 christos Exp $	*/
 
 /*
@@ -120,7 +120,7 @@ u_int32_t	tcp_now = 1;
 #define	TCB_INITIAL_HASH_SIZE	128
 #endif
 
-int tcp_reass_limit = NMBCLUSTERS / 2; /* hardlimit for tcpqe_pool */
+int tcp_reass_limit = NMBCLUSTERS / 8; /* hardlimit for tcpqe_pool */
 #ifdef TCP_SACK
 int tcp_sackhole_limit = 32*1024; /* hardlimit for sackhl_pool */
 #endif
@@ -138,15 +138,18 @@ tcp_seq  tcp_iss;
  * Tcp initialization
  */
 void
-tcp_init()
+tcp_init(void)
 {
 	tcp_iss = 1;		/* wrong */
 	pool_init(&tcpcb_pool, sizeof(struct tcpcb), 0, 0, 0, "tcpcb", NULL);
+	pool_setipl(&tcpcb_pool, IPL_SOFTNET);
 	pool_init(&tcpqe_pool, sizeof(struct tcpqent), 0, 0, 0, "tcpqe", NULL);
+	pool_setipl(&tcpcb_pool, IPL_SOFTNET);
 	pool_sethardlimit(&tcpqe_pool, tcp_reass_limit, NULL, 0);
 #ifdef TCP_SACK
 	pool_init(&sackhl_pool, sizeof(struct sackhole), 0, 0, 0, "sackhl",
 	    NULL);
+	pool_setipl(&sackhl_pool, IPL_SOFTNET);
 	pool_sethardlimit(&sackhl_pool, tcp_sackhole_limit, NULL, 0);
 #endif /* TCP_SACK */
 	in_pcbinit(&tcbtable, TCB_INITIAL_HASH_SIZE);
@@ -296,7 +299,6 @@ tcp_respond(struct tcpcb *tp, caddr_t template, struct tcphdr *th0,
 	int tlen;
 	int win = 0;
 	struct mbuf *m = NULL;
-	struct route *ro = NULL;
 	struct tcphdr *th;
 	struct ip *ip;
 #ifdef INET6
@@ -311,12 +313,6 @@ tcp_respond(struct tcpcb *tp, caddr_t template, struct tcphdr *th0,
 		 * socket/tp/pcb (tp->pf is 0), we lose.
 		 */
 		af = tp->pf;
-
-		/*
-		 * The route/route6 distinction is meaningless
-		 * unless you're allocating space or passing parameters.
-		 */
-		ro = &tp->t_inpcb->inp_route;
 	} else
 		af = (((struct ip *)template)->ip_v == 6) ? AF_INET6 : AF_INET;
 
@@ -404,7 +400,8 @@ tcp_respond(struct tcpcb *tp, caddr_t template, struct tcphdr *th0,
 		ip6->ip6_plen = tlen - sizeof(struct ip6_hdr);
 		ip6->ip6_plen = htons(ip6->ip6_plen);
 		ip6_output(m, tp ? tp->t_inpcb->inp_outputopts6 : NULL,
-		    (struct route_in6 *)ro, 0, NULL,
+		    tp ? &tp->t_inpcb->inp_route6 : NULL,
+		    0, NULL,
 		    tp ? tp->t_inpcb : NULL);
 		break;
 #endif /* INET6 */
@@ -412,8 +409,11 @@ tcp_respond(struct tcpcb *tp, caddr_t template, struct tcphdr *th0,
 		ip->ip_len = htons(tlen);
 		ip->ip_ttl = ip_defttl;
 		ip->ip_tos = 0;
-		ip_output(m, NULL, ro, ip_mtudisc ? IP_MTUDISC : 0,
-		    NULL, tp ? tp->t_inpcb : NULL, 0);
+		ip_output(m, NULL,
+		    tp ? &tp->t_inpcb->inp_route : NULL,
+		    ip_mtudisc ? IP_MTUDISC : 0, NULL,
+		    tp ? tp->t_inpcb : NULL, 0);
+		break;
 	}
 }
 
@@ -980,7 +980,7 @@ tcp_set_iss_tsm(struct tcpcb *tp)
 
 #ifdef TCP_SIGNATURE
 int
-tcp_signature_tdb_attach()
+tcp_signature_tdb_attach(void)
 {
 	return (0);
 }

@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.808 2015/10/29 07:47:02 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.822 2016/09/04 10:22:06 tedu Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -17,14 +17,11 @@ option		USER_PCICONF	# user-space PCI configuration
 
 #option		VM86		# Virtual 8086 emulation
 option		KVM86		# Kernel Virtual 8086 emulation
-option		USER_LDT	# user-settable LDT; see i386_set_ldt(2)
 option		APERTURE	# in-kernel aperture driver for XFree86
 option		MTRR		# CPU memory range attributes control
 
 #option		KGDB		# Remote debugger support; exclusive of DDB
 #option		"KGDB_DEVNAME=\"com\"",KGDBADDR=0x2f8,KGDBRATE=9600
-
-option		COMPAT_LINUX	# binary compatibility with Linux
 
 option		NTFS		# NTFS support
 option		HIBERNATE	# Hibernate support
@@ -100,6 +97,7 @@ iic*	at glxpcib?
 kate*	at pci?			# AMD K8 temperature sensor
 km*	at pci?			# AMD K10 temperature sensor
 amas*	at pci? disable		# AMD memory configuration
+pchtemp* at pci?		# Intel C610 termperature sensor
 
 # power management and other environmental stuff
 elansc*	at pci?			# AMD Elan SC520 System Controller
@@ -232,6 +230,7 @@ usb*	at ohci?
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
 ualea*	at uhub?		# Araneus Alea II TRNG
+uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?		# Handspring Visor
@@ -297,6 +296,7 @@ ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio
@@ -315,6 +315,7 @@ rsu*	at uhub?		# Realtek RTL8188SU/RTL8191SU/RTL8192SU
 urtwn*	at uhub?		# Realtek RTL8188CU/RTL8192CU
 udcf*	at uhub?		# Gude Expert mouseCLOCK
 umbg*	at uhub?		# Meinberg Funkuhren USB5131
+umb*	at uhub?		# Mobile Broadband Interface Model
 uthum*	at uhidev?		# TEMPerHUM sensor
 ugold*	at uhidev?		# gold TEMPer sensor
 utrh*	at uhidev?		# USBRH sensor
@@ -326,6 +327,9 @@ uoakv*	at uhidev?		# Toradex OAK 10V sensor
 onewire* at uow?
 uvideo* at uhub?		# USB video
 video*  at uvideo?
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
 
@@ -344,7 +348,6 @@ isapnp0	at isa?
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 pckbc0		at isa? flags 0x00	# PC keyboard controller
 pckbd*		at pckbc?	# PC keyboard
@@ -378,12 +381,12 @@ agp*		at intagp?
 drm0		at inteldrm? console 1
 drm*		at inteldrm?
 wsdisplay0	at inteldrm? console 1
-wsdisplay*	at inteldrm?
+wsdisplay*	at inteldrm? mux -1
 radeondrm*	at pci? 	# ATI Radeon DRM driver
 drm0		at radeondrm? console 1
 drm*		at radeondrm?
 wsdisplay0	at radeondrm? console 1
-wsdisplay*	at radeondrm?
+wsdisplay*	at radeondrm? mux -1
 
 pcppi0		at isa?
 
@@ -420,15 +423,6 @@ lpt1	at isa? port 0x278
 lpt2	at isa? port 0x3bc
 lpt*	at puc?
 
-bha0	at isa? port 0x330		# BusLogic [57]4X SCSI controllers
-bha1	at isa? disable port 0x334	# BusLogic [57]4X SCSI controllers
-bha2	at isa? disable
-bha*	at pci?
-#bha*	at eisa?		# XXX eisa still runs in isa-compat
-aha0	at isa? port 0x330	# Adaptec 154[02] SCSI controllers
-aha1	at isa? port 0x334	# Adaptec 154[02] SCSI controllers
-aha*	at isapnp?
-ahb*	at eisa?		# Adaptec 174[024] SCSI controllers
 #ahc0	at isa?			# Adaptec 284x SCSI controllers
 ahc*	at eisa?		# Adaptec 274x, aic7770 SCSI controllers
 ahc*	at pci?			# Adaptec 2940/3940/78?? SCSI controllers
@@ -464,7 +458,6 @@ siop*	at pci?			# NCR 538XX SCSI controllers(new)
 adv*	at pci?			# AdvanSys 1200A/B and ULTRA SCSI
 adw*	at pci?			# AdvanSys ULTRA WIDE SCSI
 pcscp*	at pci?			# AMD 53c974 PCscsi-PCI SCSI
-sea0	at isa? disable iomem 0xc8000 irq 5 # Seagate ST0[12] SCSI controllers
 trm*	at pci?			# Tekram DC-3x5U SCSI Controllers
 uha0	at isa? port 0x330	# UltraStor [13]4f SCSI controllers
 uha1	at isa? disable port 0x334 # UltraStor [13]4f SCSI controllers
@@ -612,7 +605,6 @@ wi*	at pcmcia?			# WaveLAN IEEE 802.11DS
 an*	at pci?				# Aironet IEEE 802.11DS
 an*	at isapnp?			# Aironet IEEE 802.11DS
 an*	at pcmcia?			# Aironet IEEE 802.11DS
-#cnw*	at pcmcia?			# Xircom Netwave
 ipw*	at pci?				# Intel PRO/Wireless 2100
 iwi*	at pci?				# Intel PRO/Wireless 2200BG/2915ABG
 wpi*	at pci?				# Intel PRO/Wireless 3945ABG
@@ -688,18 +680,14 @@ envy*	at pci?				# VIA Envy24 (aka ICE1712)
 sb0	at isa? port 0x220 irq 5 drq 1	# SoundBlaster
 sb*	at isapnp?
 ess*	at isapnp?			# ESS Tech ES188[78], ES888
-wss0	at isa? port 0x530 irq 10 drq 0	# Windows Sound System
-wss*	at isapnp?
 pas0	at isa? port 0x220 irq 7 drq 1	# ProAudio Spectrum
 gus0	at isa? port 0x220 irq 7 drq 1 drq2 6	# Gravis (drq2 is record drq)
 gus*	at isapnp?
-ym*	at isapnp?
 mpu*	at isapnp?
 mpu*	at isa? port 0x300		# generic MPU, Yamaha SW60XG
 
 # MIDI support
 midi*	at sb?			# SB MPU401 port
-midi*	at ym?
 midi*	at mpu?
 midi*	at autri?
 midi*	at eap?
@@ -712,8 +700,6 @@ audio*	at sb?
 audio*	at gus?
 audio*	at pas?
 audio*	at ess?
-audio*	at wss?
-audio*	at ym?
 audio*	at eap?
 audio*	at envy?
 audio*	at eso?
@@ -737,24 +723,9 @@ audio*	at emu?
 
 bktr0	at pci?
 
-# FM-Radio devices
-#gtp*	at pci?			# Gemtek/Guillemot Radio PCI Radio Card
-#sfr0	at isa? port 0x384	# SoundForte RadioLink SF16-FMR FM Radio Card
-#sf2r0	at isa? port 0x384	# SoundForte RadioLink SF16-FMR2 FM Radio Card
-#az0	at isa? port 0x350	# Aztech/PackardBell FM Radio Card
-#rt0	at isa? port 0x30c	# AIMS Lab Radiotrack FM Radio Card
-#rt*	at isapnp?
-#rtii0	at isa? port 0x30c	# AIMS Lab Radiotrack II FM Radio Card
-
 # FM-Radio support
 radio*	at bktr?
 radio*	at fms?
-#radio*	at gtp?
-#radio*	at sfr?
-#radio*	at sf2r?
-#radio*	at az?
-#radio*	at rt?
-#radio*	at rtii?
 
 # Joystick driver. Probe is a little strange; add only if you have one.
 #joy0	at isa? port 0x201

@@ -1,4 +1,4 @@
-/*	$OpenBSD: carp.c,v 1.13 2012/04/14 11:46:09 haesbaert Exp $	*/
+/*	$OpenBSD: carp.c,v 1.15 2016/08/27 04:21:08 guenther Exp $	*/
 
 /*
  * Copyright (c) 2005 Håkan Olsson.  All rights reserved.
@@ -32,6 +32,7 @@
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <net/if.h>
 #include <net/route.h>
@@ -62,6 +63,7 @@ carp_map_state(u_char link_state)
 		state = SLAVE;
 		break;
 	case LINK_STATE_UNKNOWN:
+	case LINK_STATE_INVALID:
 		state = INIT;
 		break;
 	}

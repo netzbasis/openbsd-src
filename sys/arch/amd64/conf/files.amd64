@@ -1,4 +1,4 @@
-#	$OpenBSD: files.amd64,v 1.82 2015/10/29 07:47:02 kettenis Exp $
+#	$OpenBSD: files.amd64,v 1.86 2016/08/30 20:18:17 yasuoka Exp $
 
 maxpartitions 16
 maxusers 2 16 128
@@ -109,7 +109,7 @@ file	arch/amd64/amd64/ioapic.c		ioapic needs-flag
 #
 # EFI Framebuffer
 #
-device efifb: wsemuldisplaydev, rasops32, rasops16, rasops8, rasops4
+device efifb: wsemuldisplaydev, rasops32, rasops24, rasops16, rasops8, rasops4
 attach efifb at mainbus
 file arch/amd64/amd64/efifb.c			efifb needs-flag
 
@@ -205,6 +205,11 @@ pseudo-device	nvram
 file	arch/amd64/amd64/nvram.c	nvram needs-flag
 
 #
+# Machine-independent HID support
+#
+include	"dev/hid/files.hid"
+
+#
 # USB
 #
 include	"dev/usb/files.usb"
@@ -225,6 +230,14 @@ include "dev/gpio/files.gpio"
 include "dev/acpi/files.acpi"
 file	arch/amd64/amd64/acpi_machdep.c		acpi
 file	arch/amd64/amd64/acpi_wakecode.S	acpi & !small_kernel
+
+#
+# VMM
+#
+device vmm {}
+attach vmm at mainbus
+file	arch/amd64/amd64/vmm.c			vmm		needs-flag
+file	arch/amd64/amd64/vmm_support.S		vmm
 
 #
 # Machine-independent SD/MMC drivers

@@ -1,4 +1,4 @@
-#	$OpenBSD: RAMDISK,v 1.114 2015/09/13 14:43:42 deraadt Exp $
+#	$OpenBSD: RAMDISK,v 1.116 2016/06/28 04:41:37 jmatthew Exp $
 
 machine		macppc powerpc
 maxusers	4
@@ -125,8 +125,8 @@ macgpio*	at macobio?		# GPIO, PMU interrupt router.
 macgpio*	at macgpio?		# GPIO, PMU interrupt router.
 akbd*		at adb?			# ADB keyboard
 wskbd*		at akbd? mux 1
-zsc*		at macobio?
-zstty*		at zsc?
+zs*		at macobio?
+zstty*		at zs?
 
 mediabay*	at macobio?
 wdc*		at mediabay?
@@ -169,6 +169,7 @@ rum*		at uhub?		# Ralink RT2501USB/RT2601USB
 urtwn*		at uhub?		# Realtek RTL8188CU/RTL8192CU
 zyd*		at uhub?		# Zydas ZD1211
 url*		at uhub?		# Realtek RTL8150L based adapters
+ure*		at uhub?		# Realtek RTL8152 based adapters
 wi*		at uhub?		# WaveLAN IEEE 802.11DS
 umass*		at uhub?
 

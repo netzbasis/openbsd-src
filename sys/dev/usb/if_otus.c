@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_otus.c,v 1.48 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_otus.c,v 1.53 2016/04/13 11:03:37 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -39,10 +39,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -96,7 +94,7 @@ static const struct usb_devno otus_devs[] = {
 int		otus_match(struct device *, void *, void *);
 void		otus_attach(struct device *, struct device *, void *);
 int		otus_detach(struct device *, int);
-void		otus_attachhook(void *);
+void		otus_attachhook(struct device *);
 void		otus_get_chanlist(struct otus_softc *);
 int		otus_load_firmware(struct otus_softc *, const char *,
 		    uint32_t);
@@ -220,10 +218,7 @@ otus_attach(struct device *parent, struct device *self, void *aux)
 		return;
 	}
 
-	if (rootvp == NULL)
-		mountroothook_establish(otus_attachhook, sc);
-	else
-		otus_attachhook(sc);
+	config_mountroot(self, otus_attachhook);
 }
 
 int
@@ -246,7 +241,8 @@ otus_detach(struct device *self, int flags)
 	usbd_ref_wait(sc->sc_udev);
 
 	if (ifp->if_softc != NULL) {
-		ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+		ifp->if_flags &= ~IFF_RUNNING;
+		ifq_clr_oactive(&ifp->if_snd);
 		ieee80211_ifdetach(ifp);
 		if_detach(ifp);
 	}
@@ -259,9 +255,9 @@ otus_detach(struct device *self, int flags)
 }
 
 void
-otus_attachhook(void *xsc)
+otus_attachhook(struct device *self)
 {
-	struct otus_softc *sc = xsc;
+	struct otus_softc *sc = (struct otus_softc *)self;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
 	usb_device_request_t req;
@@ -359,7 +355,6 @@ otus_attachhook(void *xsc)
 	ifp->if_ioctl = otus_ioctl;
 	ifp->if_start = otus_start;
 	ifp->if_watchdog = otus_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -1269,7 +1264,7 @@ otus_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	}
 	sc->sc_tx_timer = 0;
 	ifp->if_opackets++;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	otus_start(ifp);
 	splx(s);
 }
@@ -1407,12 +1402,12 @@ otus_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (sc->tx_queued >= OTUS_TX_DATA_LIST_COUNT) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* Send pending management frames first. */
@@ -2288,8 +2283,8 @@ otus_init(struct ifnet *ifp)
 	otus_write(sc, 0x1c3d30, 0x100);
 	(void)otus_write_barrier(sc);
 
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (ic->ic_opmode == IEEE80211_M_MONITOR)
 		ieee80211_new_state(ic, IEEE80211_S_RUN, -1);
@@ -2308,7 +2303,8 @@ otus_stop(struct ifnet *ifp)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_del(&sc->scan_to);
 	timeout_del(&sc->calib_to);

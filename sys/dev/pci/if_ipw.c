@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ipw.c,v 1.110 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_ipw.c,v 1.118 2016/09/05 10:17:30 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -28,6 +28,7 @@
 #include <sys/task.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
@@ -45,10 +46,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -205,6 +204,7 @@ ipw_attach(struct device *parent, struct device *self, void *aux)
 	}
 	printf(": %s", intrstr);
 
+	rw_init(&sc->sc_rwlock, "ipwlock");
 	task_set(&sc->sc_scantask, ipw_scan, sc);
 	task_set(&sc->sc_authandassoctask, ipw_auth_and_assoc, sc);
 
@@ -265,7 +265,6 @@ ipw_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = ipw_ioctl;
 	ifp->if_start = ipw_start;
 	ifp->if_watchdog = ipw_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	bcopy(sc->sc_dev.dv_xname, ifp->if_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -321,17 +320,14 @@ ipw_wakeup(struct ipw_softc *sc)
 	data &= ~0x0000ff00;
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, data);
 
+	rw_enter_write(&sc->sc_rwlock);
 	s = splnet();
-	while (sc->sc_flags & IPW_FLAG_BUSY)
-		tsleep(&sc->sc_flags, PZERO, "ipwpwr", 0);
-	sc->sc_flags |= IPW_FLAG_BUSY;
 
 	if (ifp->if_flags & IFF_UP)
 		ipw_init(ifp);
 
-	sc->sc_flags &= ~IPW_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -1035,7 +1031,7 @@ ipw_tx_intr(struct ipw_softc *sc)
 	sc->txold = (r == 0) ? IPW_NTBD - 1 : r - 1;
 
 	/* call start() since some buffer descriptors have been released */
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	(*ifp->if_start)(ifp);
 }
 
@@ -1299,19 +1295,20 @@ ipw_start(struct ifnet *ifp)
 		return;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		if (sc->txfree < 1 + IPW_MAX_NSEG) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
 
-		if (sc->txfree < 1 + IPW_MAX_NSEG) {
-			ifp->if_flags |= IFF_OACTIVE;
-			break;
-		}
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 #if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
+
 		m = ieee80211_encap(ifp, m, &ni);
 		if (m == NULL)
 			continue;
@@ -1361,18 +1358,10 @@ ipw_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr;
 	int s, error = 0;
 
-	s = splnet();
-	/*
-	 * Prevent processes from entering this function while another
-	 * process is tsleep'ing in it.
-	 */
-	while ((sc->sc_flags & IPW_FLAG_BUSY) && error == 0)
-		error = tsleep(&sc->sc_flags, PCATCH, "ipwioc", 0);
-	if (error != 0) {
-		splx(s);
+	error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+	if (error)
 		return error;
-	}
-	sc->sc_flags |= IPW_FLAG_BUSY;
+	s = splnet();
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -1421,9 +1410,8 @@ ipw_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		error = 0;
 	}
 
-	sc->sc_flags &= ~IPW_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 	return error;
 }
 
@@ -1485,8 +1473,6 @@ ipw_stop_master(struct ipw_softc *sc)
 
 	tmp = CSR_READ_4(sc, IPW_CSR_RST);
 	CSR_WRITE_4(sc, IPW_CSR_RST, tmp | IPW_RST_PRINCETON_RESET);
-
-	sc->sc_flags &= ~IPW_FLAG_FW_INITED;
 }
 
 int
@@ -2006,7 +1992,6 @@ ipw_init(struct ifnet *ifp)
 		printf("%s: could not load firmware\n", sc->sc_dev.dv_xname);
 		goto fail2;
 	}
-	sc->sc_flags |= IPW_FLAG_FW_INITED;
 	free(fw.data, M_DEVBUF, fw.size);
 	fw.data = NULL;
 
@@ -2022,7 +2007,7 @@ ipw_init(struct ifnet *ifp)
 		goto fail1;
 	}
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
@@ -2049,7 +2034,8 @@ ipw_stop(struct ifnet *ifp, int disable)
 	CSR_WRITE_4(sc, IPW_CSR_RST, IPW_RST_SW_RESET);
 
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/*
 	 * Release tx buffers.

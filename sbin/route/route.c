@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.179 2015/10/25 09:37:08 deraadt Exp $	*/
+/*	$OpenBSD: route.c,v 1.190 2016/09/04 09:41:03 claudio Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -35,9 +35,12 @@
 
 #include <net/if.h>
 #include <net/if_dl.h>
+#include <net/if_media.h>
 #include <net/if_types.h>
 #include <net/route.h>
 #include <netinet/in.h>
+#include <netmpls/mpls.h>
+
 #include <arpa/inet.h>
 #include <netdb.h>
 
@@ -50,10 +53,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <paths.h>
 #include <err.h>
-#include <net/if_media.h>
-#include <netmpls/mpls.h>
 
 #include "keywords.h"
 #include "show.h"
@@ -226,13 +228,8 @@ main(int argc, char **argv)
 		break;
 	}
 		
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	switch (kw) {
 	case K_GET:
@@ -270,7 +267,7 @@ flushroutes(int argc, char **argv)
 
 	if (uid)
 		errx(1, "must be root to alter routing table");
-	shutdown(s, 0); /* Don't want to read back our messages */
+	shutdown(s, SHUT_RD); /* Don't want to read back our messages */
 	while (--argc > 0) {
 		if (**(++argv) == '-')
 			switch (keyword(*argv + 1)) {
@@ -329,13 +326,8 @@ flushroutes(int argc, char **argv)
 		break;
 	}
 
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	if (verbose) {
 		printf("Examining routing table from sysctl\n");
@@ -450,7 +442,7 @@ newroute(int argc, char **argv)
 		errx(1, "must be root to alter routing table");
 	cmd = argv[0];
 	if (*cmd != 'g')
-		shutdown(s, 0); /* Don't want to read back our messages */
+		shutdown(s, SHUT_RD); /* Don't want to read back our messages */
 	while (--argc > 0) {
 		if (**(++argv)== '-') {
 			switch (key = keyword(1 + *argv)) {
@@ -615,6 +607,14 @@ newroute(int argc, char **argv)
 					usage(1+*argv);
 				prio = getpriority(*++argv);
 				break;
+			case K_BFD:
+				flags |= RTF_BFD;
+				fmask |= RTF_BFD;
+				break;
+			case K_NOBFD:
+				flags &= ~RTF_BFD;
+				fmask |= RTF_BFD;
+				break;
 			default:
 				usage(1+*argv);
 				/* NOTREACHED */
@@ -654,8 +654,11 @@ newroute(int argc, char **argv)
 		} else
 			break;
 	}
-	if (*cmd == 'g')
+	if (*cmd == 'g') {
+		if (ret != 0 && qflag == 0)
+			warn("writing to routing socket");
 		exit(0);
+	}
 	oerrno = errno;
 	if (!qflag) {
 		printf("%s %s %s", cmd, ishost ? "host" : "net", dest);
@@ -773,7 +776,7 @@ inet_makenetandmask(u_int32_t net, struct sockaddr_in *sin, int bits)
 	sin->sin_family = 0;
 	cp = (char *)(&sin->sin_addr + 1);
 	while (*--cp == '\0' && cp > (char *)sin)
-		;
+		continue;
 	sin->sin_len = 1 + cp - (char *)sin;
 }
 
@@ -1175,8 +1178,6 @@ rtmsg(int cmd, int flags, int fmask, uint8_t prio)
 	if (debugonly)
 		return (0);
 	if (write(s, &m_rtmsg, l) != l) {
-		if (qflag == 0)
-			warn("writing to routing socket");
 		return (-1);
 	}
 	if (cmd == RTM_GET) {
@@ -1239,13 +1240,16 @@ char *msgtypes[] = {
 	"RTM_IFINFO: iface status change",
 	"RTM_IFANNOUNCE: iface arrival/departure",
 	"RTM_DESYNC: route socket overflow",
+	"RTM_BFD: bidirectional forwarding detection",
 };
 
 char metricnames[] =
 "\011priority\010rttvar\7rtt\6ssthresh\5sendpipe\4recvpipe\3expire\2hopcount\1mtu";
 char routeflags[] =
-"\1UP\2GATEWAY\3HOST\4REJECT\5DYNAMIC\6MODIFIED\7DONE\010MASK_PRESENT\011CLONING"
-"\012XRESOLVE\013LLINFO\014STATIC\015BLACKHOLE\016PROTO3\017PROTO2\020PROTO1\021CLONED\023MPATH\025MPLS\026LOCAL\027BROADCAST";
+"\1UP\2GATEWAY\3HOST\4REJECT\5DYNAMIC\6MODIFIED\7DONE\010XMASK_PRESENT"
+"\011CLONING\012MULTICAST\013LLINFO\014STATIC\015BLACKHOLE\016PROTO3\017PROTO2"
+"\020PROTO1\021CLONED\022CACHED\023MPATH\025MPLS\026LOCAL\027BROADCAST"
+"\030CONNECTED\031BFD";
 char ifnetflags[] =
 "\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6NOTRAILERS\7RUNNING\010NOARP\011PPROMISC"
 "\012ALLMULTI\013OACTIVE\014SIMPLEX\015LINK0\016LINK1\017LINK2\020MULTICAST";
@@ -1328,12 +1332,17 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		}
 		printf("\n");
 		break;
+	case RTM_BFD:
+		printf("bfd\n");	/* XXX - expand*/
+		break;
 	default:
-		printf(", priority %d, ", rtm->rtm_priority);
-		printf("table %u, pid: %ld, seq %d, errno %d\nflags:",
-		    rtm->rtm_tableid, (long)rtm->rtm_pid, rtm->rtm_seq,
-		    rtm->rtm_errno);
+		printf(", priority %d, table %u, ifidx %u, ",
+		    rtm->rtm_priority, rtm->rtm_tableid, rtm->rtm_index);
+		printf("pid: %ld, seq %d, errno %d\nflags:",
+		    (long)rtm->rtm_pid, rtm->rtm_seq, rtm->rtm_errno);
 		bprintf(stdout, rtm->rtm_flags, routeflags);
+		printf("\nfmask:");
+		bprintf(stdout, rtm->rtm_fmask, routeflags);
 		if (verbose) {
 #define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')
 			relative_expire = rtm->rtm_rmx.rmx_expire ?

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rm.c,v 1.34 2015/10/13 04:30:53 daniel Exp $	*/
+/*	$OpenBSD: rm.c,v 1.39 2016/06/28 18:00:59 tedu Exp $	*/
 /*	$NetBSD: rm.c,v 1.19 1995/09/07 06:48:50 jtc Exp $	*/
 
 /*-
@@ -103,10 +103,10 @@ main(int argc, char *argv[])
 	argv += optind;
 
 	if (Pflag) {
-		if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		if (pledge("stdio rpath wpath cpath getpw", NULL) == -1)
 			err(1, "pledge");
 	} else {
-		if (pledge("stdio rpath cpath", NULL) == -1)
+		if (pledge("stdio rpath cpath getpw", NULL) == -1)
 			err(1, "pledge");
 	}
 
@@ -124,7 +124,7 @@ main(int argc, char *argv[])
 			rm_file(argv);
 	}
 
-	exit (eval);
+	exit(eval);
 }
 
 void
@@ -395,11 +395,19 @@ checkdot(char **argv)
 {
 	char *p, **save, **t;
 	int complained;
+	struct stat sb, root;
 
+	stat("/", &root);
 	complained = 0;
 	for (t = argv; *t;) {
+		if (lstat(*t, &sb) == 0 &&
+		    root.st_ino == sb.st_ino && root.st_dev == sb.st_dev) {
+			if (!complained++)
+				warnx("\"/\" may not be removed");
+			goto skip;
+		}
 		/* strip trailing slashes */
-		p = strrchr (*t, '\0');
+		p = strrchr(*t, '\0');
 		while (--p > *t && *p == '/')
 			*p = '\0';
 
@@ -412,6 +420,7 @@ checkdot(char **argv)
 		if (ISDOT(p)) {
 			if (!complained++)
 				warnx("\".\" and \"..\" may not be removed");
+skip:
 			eval = 1;
 			for (save = t; (t[0] = t[1]) != NULL; ++t)
 				continue;

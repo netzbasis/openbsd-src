@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.37 2015/02/08 04:50:32 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.39 2016/06/21 21:35:25 benno Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -165,6 +165,14 @@ include		: INCLUDE STRING		{
 		;
 
 varset		: STRING '=' STRING	{
+			char *s = $1;
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -1103,7 +1111,7 @@ host_v4(const char *s)
 		return (NULL);
 
 	if ((h = calloc(1, sizeof(*h))) == NULL)
-		fatal(NULL);
+		fatal(__func__);
 	sain = (struct sockaddr_in *)&h->ss;
 	sain->sin_len = sizeof(struct sockaddr_in);
 	sain->sin_family = AF_INET;
@@ -1125,7 +1133,7 @@ host_v6(const char *s)
 	hints.ai_flags = AI_NUMERICHOST;
 	if (getaddrinfo(s, "0", &hints, &res) == 0) {
 		if ((h = calloc(1, sizeof(*h))) == NULL)
-			fatal(NULL);
+			fatal(__func__);
 		sa_in6 = (struct sockaddr_in6 *)&h->ss;
 		sa_in6->sin6_len = sizeof(struct sockaddr_in6);
 		sa_in6->sin6_family = AF_INET6;
@@ -1169,17 +1177,17 @@ host_dns(const char *s, struct addresslist *al, int max,
 		    res->ai_family != AF_INET6)
 			continue;
 		if ((h = calloc(1, sizeof(*h))) == NULL)
-			fatal(NULL);
+			fatal(__func__);
 
 		h->port = port;
 		if (oid != NULL) {
 			if ((h->sa_oid = calloc(1, sizeof(*oid))) == NULL)
-				fatal(NULL);
+				fatal(__func__);
 			bcopy(oid, h->sa_oid, sizeof(*oid));
 		}
 		if (cmn != NULL) {
 			if ((h->sa_community = strdup(cmn)) == NULL)
-				fatal(NULL);
+				fatal(__func__);
 		}
 
 		h->ss.ss_family = res->ai_family;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: check_icmp.c,v 1.42 2015/10/23 12:22:02 benno Exp $	*/
+/*	$OpenBSD: check_icmp.c,v 1.44 2016/09/02 14:45:51 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -52,12 +52,11 @@ icmp_setup(struct relayd *env, struct ctl_icmp_event *cie, int af)
 
 	if (af == AF_INET6)
 		proto = IPPROTO_ICMPV6;
-	if ((cie->s = socket(af, SOCK_RAW, proto)) < 0)
+	if ((cie->s = socket(af, SOCK_RAW | SOCK_NONBLOCK, proto)) < 0)
 		fatal("icmp_setup: socket");
 	val = ICMP_RCVBUF_SIZE;
 	if (setsockopt(cie->s, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)) == -1)
 		fatal("icmp_setup: setsockopt");
-	socket_set_blockmode(cie->s, BM_NONBLOCK);
 	cie->env = env;
 	cie->af = af;
 }
@@ -92,7 +91,7 @@ check_icmp_add(struct ctl_icmp_event *cie, int flags, struct timeval *start,
 
 	if (start != NULL)
 		bcopy(start, &cie->tv_start, sizeof(cie->tv_start));
-	bcopy(&cie->env->sc_timeout, &tv, sizeof(tv));
+	bcopy(&cie->env->sc_conf.timeout, &tv, sizeof(tv));
 	getmonotime(&cie->tv_start);
 	event_del(&cie->ev);
 	event_set(&cie->ev, cie->s, EV_TIMEOUT|flags, fn, cie);
@@ -251,7 +250,7 @@ send_icmp(int s, short event, void *arg)
 
  retry:
 	event_again(&cie->ev, s, EV_TIMEOUT|EV_WRITE, send_icmp,
-	    &cie->tv_start, &cie->env->sc_timeout, cie);
+	    &cie->tv_start, &cie->env->sc_conf.timeout, cie);
 }
 
 void
@@ -316,7 +315,7 @@ recv_icmp(int s, short event, void *arg)
 
  retry:
 	event_again(&cie->ev, s, EV_TIMEOUT|EV_READ, recv_icmp,
-	    &cie->tv_start, &cie->env->sc_timeout, cie);
+	    &cie->tv_start, &cie->env->sc_conf.timeout, cie);
 }
 
 /* in_cksum from ping.c --

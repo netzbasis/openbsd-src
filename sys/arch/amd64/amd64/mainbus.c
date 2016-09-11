@@ -1,4 +1,4 @@
-/*	$OpenBSD: mainbus.c,v 1.33 2015/08/31 19:56:32 kettenis Exp $	*/
+/*	$OpenBSD: mainbus.c,v 1.38 2016/07/28 21:57:57 kettenis Exp $	*/
 /*	$NetBSD: mainbus.c,v 1.1 2003/04/26 18:39:29 fvdl Exp $	*/
 
 /*
@@ -36,6 +36,7 @@
 #include <sys/device.h>
 
 #include <machine/bus.h>
+#include <machine/specialreg.h>
 
 #include <dev/isa/isavar.h>
 #include <dev/pci/pcivar.h>
@@ -48,6 +49,7 @@
 #include "ipmi.h"
 #include "bios.h"
 #include "mpbios.h"
+#include "vmm.h"
 #include "pvbus.h"
 #include "efifb.h"
 
@@ -161,6 +163,12 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
+#if NPVBUS > 0
+	/* Detect hypervisors early, attach the paravirtual bus later */
+	if (cpu_ecxfeature & CPUIDECX_HV)
+		pvbus_identify();
+#endif
+
 #if NBIOS > 0
 	{
 		mba.mba_bios.ba_name = "bios";
@@ -186,9 +194,7 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 
 		memset(&caa, 0, sizeof(caa));
 		caa.caa_name = "cpu";
-		caa.cpu_number = 0;
 		caa.cpu_role = CPU_ROLE_SP;
-		caa.cpu_func = 0;
 
 		config_found(self, &caa, mainbus_print);
 	}
@@ -239,8 +245,13 @@ mainbus_attach(struct device *parent, struct device *self, void *aux)
 		config_found(self, &mba_iba, mainbus_print);
 #endif
 
+#if NVMM > 0
+	mba.mba_busname = "vmm";
+	config_found(self, &mba.mba_busname, mainbus_print);
+#endif /* NVMM > 0 */
+
 #if NEFIFB > 0
-	if (bios_efiinfo != NULL) {
+	if (bios_efiinfo != NULL || efifb_cb_found()) {
 		mba.mba_eaa.eaa_name = "efifb";
 		config_found(self, &mba, mainbus_print);
 	}

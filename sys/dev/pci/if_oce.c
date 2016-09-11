@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_oce.c,v 1.88 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_oce.c,v 1.96 2016/08/24 10:38:34 dlg Exp $	*/
 
 /*
  * Copyright (c) 2012 Mike Belopuhov
@@ -81,11 +81,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#endif
-
-#if NVLAN > 0
-#include <net/if_types.h>
-#include <net/if_vlan_var.h>
 #endif
 
 #include <dev/pci/pcireg.h>
@@ -357,6 +352,8 @@ struct oce_softc {
 
 	struct timeout		sc_tick;
 	struct timeout		sc_rxrefill;
+
+	void *			sc_statcmd;
 };
 
 #define IS_BE(sc)		ISSET((sc)->sc_flags, OCE_F_BE2 | OCE_F_BE3)
@@ -370,7 +367,7 @@ struct oce_softc {
 int 	oce_match(struct device *, void *, void *);
 void	oce_attach(struct device *, struct device *, void *);
 int 	oce_pci_alloc(struct oce_softc *, struct pci_attach_args *);
-void	oce_attachhook(void *);
+void	oce_attachhook(struct device *);
 void	oce_attach_ifp(struct oce_softc *);
 int 	oce_ioctl(struct ifnet *, u_long, caddr_t);
 int	oce_rxrinfo(struct oce_softc *, struct if_rxrinfo *);
@@ -490,8 +487,8 @@ int	oce_new_mq(struct oce_softc *, struct oce_mq *);
 int	oce_new_eq(struct oce_softc *, struct oce_eq *);
 int	oce_new_cq(struct oce_softc *, struct oce_cq *);
 
-static inline int
-	oce_update_stats(struct oce_softc *);
+int	oce_init_stats(struct oce_softc *);
+int	oce_update_stats(struct oce_softc *);
 int	oce_stats_be2(struct oce_softc *, uint64_t *, uint64_t *);
 int	oce_stats_be3(struct oce_softc *, uint64_t *, uint64_t *);
 int	oce_stats_xe(struct oce_softc *, uint64_t *, uint64_t *);
@@ -591,6 +588,7 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 		}
 		pool_init(oce_pkt_pool, sizeof(struct oce_pkt), 0, 0, 0,
 		    "ocepkts", NULL);
+		pool_setipl(oce_pkt_pool, IPL_NET);
 	}
 
 	/* We allocate a single interrupt resource */
@@ -602,8 +600,8 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 	}
 
 	intrstr = pci_intr_string(pa->pa_pc, ih);
-	sc->sc_ih = pci_intr_establish(pa->pa_pc, ih, IPL_NET | IPL_MPSAFE,
-	    oce_intr, sc, sc->sc_dev.dv_xname);
+	sc->sc_ih = pci_intr_establish(pa->pa_pc, ih, IPL_NET, oce_intr, sc,
+	    sc->sc_dev.dv_xname);
 	if (sc->sc_ih == NULL) {
 		printf(": couldn't establish interrupt\n");
 		if (intrstr != NULL)
@@ -612,6 +610,9 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 		goto fail_2;
 	}
 	printf(": %s", intrstr);
+
+	if (oce_init_stats(sc))
+		goto fail_3;
 
 	if (oce_init_queues(sc))
 		goto fail_3;
@@ -626,7 +627,7 @@ oce_attach(struct device *parent, struct device *self, void *aux)
 	timeout_set(&sc->sc_tick, oce_tick, sc);
 	timeout_set(&sc->sc_rxrefill, oce_refill_rx, sc);
 
-	mountroothook_establish(oce_attachhook, sc);
+	config_mountroot(self, oce_attachhook);
 
 	printf(", address %s\n", ether_sprintf(sc->sc_ac.ac_enaddr));
 
@@ -784,9 +785,9 @@ oce_intr_disable(struct oce_softc *sc)
 }
 
 void
-oce_attachhook(void *arg)
+oce_attachhook(struct device *self)
 {
-	struct oce_softc *sc = arg;
+	struct oce_softc *sc = (struct oce_softc *)self;
 
 	oce_get_link_status(sc);
 
@@ -824,7 +825,6 @@ oce_attach_ifp(struct oce_softc *sc)
 	ifp->if_hardmtu = OCE_MAX_MTU;
 	ifp->if_softc = sc;
 	IFQ_SET_MAXLEN(&ifp->if_snd, sc->sc_tx_ring_size - 1);
-	IFQ_SET_READY(&ifp->if_snd);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU | IFCAP_CSUM_IPv4 |
 	    IFCAP_CSUM_TCPv4 | IFCAP_CSUM_UDPv4;
@@ -1113,7 +1113,7 @@ oce_init(void *arg)
 		oce_link_status(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	timeout_add_sec(&sc->sc_tick, 1);
 
@@ -1137,14 +1137,11 @@ oce_stop(struct oce_softc *sc)
 	timeout_del(&sc->sc_tick);
 	timeout_del(&sc->sc_rxrefill);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	/* Stop intrs and finish any bottom halves pending */
 	oce_intr_disable(sc);
-
-	intr_barrier(sc->sc_ih);
-
-	KASSERT((ifp->if_flags & IFF_RUNNING) == 0);
 
 	/* Invalidate any pending cq and eq entries */
 	OCE_EQ_FOREACH(sc, eq, i)
@@ -1180,7 +1177,7 @@ oce_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int pkts = 0;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
@@ -1189,7 +1186,7 @@ oce_start(struct ifnet *ifp)
 			break;
 
 		if (oce_encap(sc, &m, 0)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 
@@ -1444,7 +1441,6 @@ oce_intr_wq(void *arg)
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	int ncqe = 0;
 
-	KERNEL_LOCK();
 	oce_dma_sync(&cq->ring->dma, BUS_DMASYNC_POSTREAD);
 	OCE_RING_FOREACH(cq->ring, cqe, WQ_CQE_VALID(cqe)) {
 		oce_txeof(wq);
@@ -1453,16 +1449,14 @@ oce_intr_wq(void *arg)
 	}
 	oce_dma_sync(&cq->ring->dma, BUS_DMASYNC_PREWRITE);
 
-	if (ifp->if_flags & IFF_OACTIVE) {
+	if (ifq_is_oactive(&ifp->if_snd)) {
 		if (wq->ring->nused < (wq->ring->nitems / 2)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+			ifq_clr_oactive(&ifp->if_snd);
 			oce_start(ifp);
 		}
 	}
 	if (wq->ring->nused == 0)
 		ifp->if_timer = 0;
-
-	KERNEL_UNLOCK();
 
 	if (ncqe)
 		oce_arm_cq(cq, ncqe, FALSE);
@@ -1555,9 +1549,6 @@ oce_rxeof(struct oce_rq *rq, struct oce_nic_rx_cqe *cqe)
 	struct mbuf *m = NULL, *tail = NULL;
 	int i, len, frag_len;
 	uint16_t vtag;
-
-	if (if_rxr_inuse(&rq->rxring) == 0)
-		return;
 
 	len = cqe->u0.s.pkt_size;
 
@@ -1899,14 +1890,12 @@ oce_intr_mq(void *arg)
 void
 oce_link_event(struct oce_softc *sc, struct oce_async_cqe_link_state *acqe)
 {
-	KERNEL_LOCK();
 	/* Update Link status */
 	sc->sc_link_up = ((acqe->u0.s.link_status & ~ASYNC_EVENT_LOGICAL) ==
 	    ASYNC_EVENT_LINK_UP);
 	/* Update speed */
 	sc->sc_link_speed = acqe->u0.s.speed;
 	oce_link_status(sc);
-	KERNEL_UNLOCK();
 }
 
 int
@@ -3087,7 +3076,7 @@ oce_config_rss(struct oce_softc *sc, int enable)
 
 	if (enable)
 		cmd.params.req.enable_rss = RSS_ENABLE_IPV4 | RSS_ENABLE_IPV6 |
-		    RSS_ENABLE_TCP_IPV4 | RSS_ENABLE_TCP_IPV6);
+		    RSS_ENABLE_TCP_IPV4 | RSS_ENABLE_TCP_IPV6;
 	cmd.params.req.flush = OCE_FLUSH;
 	cmd.params.req.if_id = htole32(sc->sc_if_id);
 
@@ -3459,7 +3448,25 @@ oce_new_cq(struct oce_softc *sc, struct oce_cq *cq)
 	return (0);
 }
 
-static inline int
+int
+oce_init_stats(struct oce_softc *sc)
+{
+	union {
+		struct mbx_get_nic_stats_v0	_be2;
+		struct mbx_get_nic_stats	_be3;
+		struct mbx_get_pport_stats	_xe201;
+	} cmd;
+
+	sc->sc_statcmd = malloc(sizeof(cmd), M_DEVBUF, M_ZERO | M_NOWAIT);
+	if (sc->sc_statcmd == NULL) {
+		printf("%s: failed to allocate statistics command block\n",
+		    sc->sc_dev.dv_xname);
+		return (-1);
+	}
+	return (0);
+}
+
+int
 oce_update_stats(struct oce_softc *sc)
 {
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
@@ -3488,21 +3495,21 @@ oce_update_stats(struct oce_softc *sc)
 int
 oce_stats_be2(struct oce_softc *sc, uint64_t *rxe, uint64_t *txe)
 {
-	struct mbx_get_nic_stats_v0 cmd;
+	struct mbx_get_nic_stats_v0 *cmd = sc->sc_statcmd;
 	struct oce_pmem_stats *ms;
 	struct oce_rxf_stats_v0 *rs;
 	struct oce_port_rxf_stats_v0 *ps;
 	int err;
 
-	memset(&cmd, 0, sizeof(cmd));
+	memset(cmd, 0, sizeof(*cmd));
 
 	err = oce_cmd(sc, SUBSYS_NIC, OPCODE_NIC_GET_STATS, OCE_MBX_VER_V0,
-	    &cmd, sizeof(cmd));
+	    cmd, sizeof(*cmd));
 	if (err)
 		return (err);
 
-	ms = &cmd.params.rsp.stats.pmem;
-	rs = &cmd.params.rsp.stats.rxf;
+	ms = &cmd->params.rsp.stats.pmem;
+	rs = &cmd->params.rsp.stats.rxf;
 	ps = &rs->port[sc->sc_port];
 
 	*rxe = ps->rx_crc_errors + ps->rx_in_range_errors +
@@ -3527,21 +3534,21 @@ oce_stats_be2(struct oce_softc *sc, uint64_t *rxe, uint64_t *txe)
 int
 oce_stats_be3(struct oce_softc *sc, uint64_t *rxe, uint64_t *txe)
 {
-	struct mbx_get_nic_stats cmd;
+	struct mbx_get_nic_stats *cmd = sc->sc_statcmd;
 	struct oce_pmem_stats *ms;
 	struct oce_rxf_stats_v1 *rs;
 	struct oce_port_rxf_stats_v1 *ps;
 	int err;
 
-	memset(&cmd, 0, sizeof(cmd));
+	memset(cmd, 0, sizeof(*cmd));
 
 	err = oce_cmd(sc, SUBSYS_NIC, OPCODE_NIC_GET_STATS, OCE_MBX_VER_V1,
-	    &cmd, sizeof(cmd));
+	    cmd, sizeof(*cmd));
 	if (err)
 		return (err);
 
-	ms = &cmd.params.rsp.stats.pmem;
-	rs = &cmd.params.rsp.stats.rxf;
+	ms = &cmd->params.rsp.stats.pmem;
+	rs = &cmd->params.rsp.stats.rxf;
 	ps = &rs->port[sc->sc_port];
 
 	*rxe = ps->rx_crc_errors + ps->rx_in_range_errors +
@@ -3562,21 +3569,21 @@ oce_stats_be3(struct oce_softc *sc, uint64_t *rxe, uint64_t *txe)
 int
 oce_stats_xe(struct oce_softc *sc, uint64_t *rxe, uint64_t *txe)
 {
-	struct mbx_get_pport_stats cmd;
+	struct mbx_get_pport_stats *cmd = sc->sc_statcmd;
 	struct oce_pport_stats *pps;
 	int err;
 
-	memset(&cmd, 0, sizeof(cmd));
+	memset(cmd, 0, sizeof(*cmd));
 
-	cmd.params.req.reset_stats = 0;
-	cmd.params.req.port_number = sc->sc_if_id;
+	cmd->params.req.reset_stats = 0;
+	cmd->params.req.port_number = sc->sc_if_id;
 
 	err = oce_cmd(sc, SUBSYS_NIC, OPCODE_NIC_GET_PPORT_STATS,
-	    OCE_MBX_VER_V0, &cmd, sizeof(cmd));
+	    OCE_MBX_VER_V0, cmd, sizeof(*cmd));
 	if (err)
 		return (err);
 
-	pps = &cmd.params.rsp.pps;
+	pps = &cmd->params.rsp.pps;
 
 	*rxe = pps->rx_discards + pps->rx_errors + pps->rx_crc_errors +
 	    pps->rx_alignment_errors + pps->rx_symbol_errors +

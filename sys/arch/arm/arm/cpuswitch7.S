@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpuswitch7.S,v 1.3 2013/09/12 11:43:51 patrick Exp $	*/
+/*	$OpenBSD: cpuswitch7.S,v 1.12 2016/08/26 11:59:04 kettenis Exp $	*/
 /*	$NetBSD: cpuswitch.S,v 1.41 2003/11/15 08:44:18 scw Exp $	*/
 
 /*
@@ -83,34 +83,17 @@
 #include <machine/frame.h>
 #include <machine/intr.h>
 #include <machine/asm.h>
+#include <arm/sysreg.h>
 
 /* LINTSTUB: include <sys/param.h> */
 	
-/*
- * These are used for switching the translation table/DACR.
- * Since the vector page can be invalid for a short time, we must
- * disable both regular IRQs *and* FIQs.
- *
- * XXX: This is not necessary if the vector table is relocated.
- */
 #define IRQdisableALL \
-	mrs	r14, cpsr ; \
-	orr	r14, r14, #(I32_bit | F32_bit) ; \
-	msr	cpsr_c, r14
+	cpsid	if
 
 #define IRQenableALL \
-	mrs	r14, cpsr ; \
-	bic	r14, r14, #(I32_bit | F32_bit) ; \
-	msr	cpsr_c, r14
+	cpsie	if
 
 	.text
-
-.Lcpu_info_primary:
-	.word	_C_LABEL(cpu_info_primary)
-.Lcurproc:
-	.word	_C_LABEL(cpu_info_primary) + CI_CURPROC
-.Lcurpcb:
-	.word	_C_LABEL(cpu_info_primary) + CI_CURPCB
 
 .Lcpufuncs:
 	.word	_C_LABEL(cpufuncs)
@@ -165,11 +148,12 @@ ENTRY(cpu_idle_leave)
 
 ENTRY(cpu_switchto)
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
+	/* Get curcpu from TPIDRPRW. */
+	mrc	CP15_TPIDRPRW(r3)
 #ifdef MULTIPROCESSOR
-	/* XXX use curcpu() */
-	ldr	r2, .Lcpu_info_primary
-	str	r2, [r1, #(P_CPU)]
+	str	r3, [r1, #(P_CPU)]
 #else
 	/* p->p_cpu initialized in fork1() for single-processor */
 #endif
@@ -179,14 +163,12 @@ ENTRY(cpu_switchto)
 	strb	r2, [r1, #(P_STAT)]
 
 	/* We have a new curproc now so make a note it */
-	ldr	r7, .Lcurproc
-	str	r1, [r7]
+	str	r1, [r3, #(CI_CURPROC)]
 
 	/* Hook in a new pcb */
-	ldr	r7, .Lcurpcb
-	ldr	r6, [r7]			/* Remember the old PCB */
+	ldr	r6, [r3, #(CI_CURPCB)]		/* Remember the old PCB */
 	ldr	r2, [r1, #(P_ADDR)]
-	str	r2, [r7]
+	str	r2, [r3, #(CI_CURPCB)]
 
 	/*
 	 * If the old proc on entry to cpu_switch was zero then the
@@ -200,14 +182,8 @@ ENTRY(cpu_switchto)
 	/* Stage two: Save old context */
 
 	/* Save all the registers in the old proc's pcb */
-#ifndef __XSCALE__
 	add	r7, r6, #(PCB_R8)
 	stmia	r7, {r8-r13}
-#else
-	strd	r8, [r6, #(PCB_R8)]
-	strd	r10, [r6, #(PCB_R10)]
-	strd	r12, [r6, #(PCB_R12)]
-#endif
 
 .Lswitch_exited:
 	/*
@@ -224,14 +200,8 @@ ENTRY(cpu_switchto)
 	/* Get the user structure for the new process in r9 */
 	ldr	r9, [r6, #(P_ADDR)]
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE | I32_bit)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cpsid	i, #(PSR_UND32_MODE)
 
 #ifdef notworthit
 	teq	r0, #0x00000000
@@ -240,7 +210,7 @@ ENTRY(cpu_switchto)
 	str	sp, [r8, #(PCB_UND_SP)]
 #endif
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* rem: r0 = old proc */
 	/* rem: r1 = r6 = new process */
@@ -262,31 +232,10 @@ ENTRY(cpu_switchto)
 	ldr	r10, [r8, #(PCB_PAGEDIR)]	/* r10 = old L1 */
 	ldr	r11, [r9, #(PCB_PAGEDIR)]	/* r11 = new L1 */
 
-	ldr	r0, [r8, #(PCB_DACR)]		/* r0 = old DACR */
-	ldr	r1, [r9, #(PCB_DACR)]		/* r1 = new DACR */
-
-	teq	r10, r11			/* Same L1? */
-	cmpeq	r0, r1				/* Same DACR? */
-	beq	.Lcs_context_switched		/* yes! */
-
-	mov	r2, #DOMAIN_CLIENT
-	cmp	r1, r2, lsl #(PMAP_DOMAIN_KERNEL * 2) /* Sw to kernel thread? */
-	beq	.Lcs_cache_purge_skipped	/* Yup. Don't flush cache */
-
-	stmfd	sp!, {r0-r3}
-	ldr	r1, .Lcpufuncs
-	mov	lr, pc
-	ldr	pc, [r1, #CF_ICACHE_SYNC_ALL]
-	ldmfd	sp!, {r0-r3}
-
-.Lcs_cache_purge_skipped:
-	/* rem: r1 = new DACR */
 	/* rem: r6 = new proc */
 	/* rem: r9 = new PCB */
 	/* rem: r10 = old L1 */
 	/* rem: r11 = new L1 */
-
-	ldr	r7, [r9, #(PCB_PL1VEC)]
 
 	/*
 	 * At this point we need to kill IRQ's again.
@@ -295,36 +244,9 @@ ENTRY(cpu_switchto)
 	 */
 	IRQdisableALL
 
-	/*
-	 * Ensure the vector table is accessible by fixing up the L1
-	 */
-	cmp	r7, #0			/* No need to fixup vector table? */
-	ldrne	r2, [r7]		/* But if yes, fetch current value */
-	ldrne	r0, [r9, #(PCB_L1VEC)]	/* Fetch new vector_page value */
-	mcr	p15, 0, r1, c3, c0, 0	/* Update DACR for new context */
-	cmpne	r2, r0			/* Stuffing the same value? */
-#ifndef PMAP_INCLUDE_PTE_SYNC
-	strne	r0, [r7]		/* Nope, update it */
-#else
-	beq	.Lcs_same_vector
-	str	r0, [r7]		/* Otherwise, update it */
-
-	/*
-	 * Need to sync the cache to make sure that last store is
-	 * visible to the MMU.
-	 */
-	ldr	r2, .Lcpufuncs
-	mov	r0, r7
-	mov	r1, #4
-	mov	lr, pc
-	ldr	pc, [r2, #CF_DCACHE_WB_RANGE]
-
-.Lcs_same_vector:
-#endif /* PMAP_INCLUDE_PTE_SYNC */
-
 	cmp	r10, r11		/* Switching to the same L1? */
 	ldr	r10, .Lcpufuncs
-	beq	.Lcs_same_l1		/* Yup. */
+	beq	.Lcs_context_switched	/* Yup. */
 
 	/*
 	 * Do a full context switch, including full TLB flush.
@@ -333,19 +255,6 @@ ENTRY(cpu_switchto)
 	mov	lr, pc
 	ldr	pc, [r10, #CF_CONTEXT_SWITCH]
 
-	b	.Lcs_context_switched
-
-	/*
-	 * We're switching to a different process in the same L1.
-	 * In this situation, we only need to flush the TLB for the
-	 * vector_page mapping, and even then only if r7 is non-NULL.
-	 */
-.Lcs_same_l1:
-	cmp	r7, #0
-	movne	r0, #0			/* We *know* vector_page's VA is 0x0 */
-	movne	lr, pc
-	ldrne	pc, [r10, #CF_TLB_FLUSHID_SE]
-
 .Lcs_context_switched:
 
 	/* XXXSCW: Safe to re-enable FIQs here */
@@ -353,34 +262,18 @@ ENTRY(cpu_switchto)
 	/* rem: r6 = new proc */
 	/* rem: r9 = new PCB */
 
-	/*
-	 * This can be optimised... We know we want to go from SVC32
-	 * mode to UND32 mode
-	 */
-        mrs	r3, cpsr
-	bic	r2, r3, #(PSR_MODE)
-	orr	r2, r2, #(PSR_UND32_MODE)
-        msr	cpsr_c, r2
+	mrs	r3, cpsr
+	cps	#(PSR_UND32_MODE)
 
 	ldr	sp, [r9, #(PCB_UND_SP)]
 
-        msr	cpsr_c, r3		/* Restore the old mode */
+	msr	cpsr_c, r3		/* Restore the old mode */
 
 	/* Restore all the save registers */
-#ifndef __XSCALE__
 	add	r7, r9, #PCB_R8
 	ldmia	r7, {r8-r13}
 
 	sub	r7, r7, #PCB_R8		/* restore PCB pointer */
-#else
-	mov	r7, r9
-	ldr	r8, [r7, #(PCB_R8)]
-	ldr	r9, [r7, #(PCB_R9)]
-	ldr	r10, [r7, #(PCB_R10)]
-	ldr	r11, [r7, #(PCB_R11)]
-	ldr	r12, [r7, #(PCB_R12)]
-	ldr	r13, [r7, #(PCB_SP)]
-#endif
 
 	/* rem: r6 = new proc */
 	/* rem: r7 = new pcb */
@@ -396,6 +289,7 @@ ENTRY(cpu_switchto)
 	 * Pull the registers that got pushed when either savectx() or
 	 * cpu_switch() was called and return.
 	 */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 /* LINTSTUB: Func: void savectx(struct pcb *pcb) */
@@ -406,18 +300,14 @@ ENTRY(savectx)
 
 	/* Push registers.*/
 	stmfd	sp!, {r4-r7, lr}
+	sub	sp, sp, #4
 
 	/* Store all the registers in the process's pcb */
-#ifndef __XSCALE__
 	add	r2, r0, #(PCB_R8)
 	stmia	r2, {r8-r13}
-#else
-	strd	r8, [r0, #(PCB_R8)]
-	strd	r10, [r0, #(PCB_R10)]
-	strd	r12, [r0, #(PCB_R12)]
-#endif
 
 	/* Pull the regs of the stack */
+	add	sp, sp, #4
 	ldmfd	sp!, {r4-r7, pc}
 
 ENTRY(proc_trampoline)
@@ -433,9 +323,7 @@ ENTRY(proc_trampoline)
 	mov	pc, r4
 
 	/* Kill irq's */
-        mrs     r0, cpsr
-        orr     r0, r0, #(I32_bit)
-        msr     cpsr_c, r0
+	cpsid	i
 
 	PULLFRAME
 

@@ -1,5 +1,11 @@
 BOARD=	am335x
 PLATFORM=OMAP
-LOADADDR=0x82800000
+UBOOT=	am335x_boneblack
+DTBS=\
+	am335x-bone.dtb \
+	am335x-boneblack.dtb \
+	am335x-bonegreen.dtb \
+	am335x-evm.dtb \
+	am335x-evmsk.dtb
 
 .include "${.CURDIR}/../Makefile.inc"

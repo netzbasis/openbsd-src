@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpireg.h,v 1.30 2015/01/15 01:19:28 jsg Exp $	*/
+/*	$OpenBSD: acpireg.h,v 1.36 2016/07/10 20:36:41 kettenis Exp $	*/
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
@@ -172,6 +172,8 @@ struct acpi_fadt {
 #define	FADT_REMOTE_POWER_ON_CAPABLE	0x00020000
 #define	FADT_FORCE_APIC_CLUSTER_MODEL	0x00040000
 #define	FADT_FORCE_APIC_PHYS_DEST_MODE	0x00080000
+#define	FADT_HW_REDUCED_ACPI		0x00100000
+#define	FADT_POWER_S0_IDLE_CAPABLE	0x00200000
 	/*
 	 * Following values only exist when rev > 1
 	 * If the extended addresses exists, they
@@ -193,6 +195,8 @@ struct acpi_fadt {
 	struct acpi_gas	x_pm_tmr_blk;
 	struct acpi_gas	x_gpe0_blk;
 	struct acpi_gas	x_gpe1_blk;
+	struct acpi_gas sleep_control_reg;
+	struct acpi_gas sleep_status_reg;
 } __packed;
 
 struct acpi_dsdt {
@@ -334,7 +338,7 @@ struct acpi_madt_x2apic {
 	u_int8_t	reserved[2];
 	u_int32_t	apic_id;
 	u_int32_t	flags;		/* Same flags as acpi_madt_lapic */
-	u_int32_t	apic_proc_uid;
+	u_int32_t	acpi_proc_uid;
 } __packed;
 
 struct acpi_madt_x2apic_nmi {
@@ -690,6 +694,19 @@ struct acpi_ivrs {
 #define ACPI_PM2_CONTROL		0x06
 #define	ACPI_PM2_ARB_DIS		0x0001
 
+/*
+ * Operation Region Address Space Identifiers
+ */
+#define ACPI_OPREG_SYSMEM	0	/* SystemMemory */
+#define ACPI_OPREG_SYSIO	1	/* SystemIO */
+#define ACPI_OPREG_PCICFG	2	/* PCI_Config */
+#define ACPI_OPREG_EC		3	/* EmbeddedControl */
+#define ACPI_OPREG_SMBUS	4	/* SMBus */
+#define ACPI_OPREG_CMOS		5	/* CMOS */
+#define ACPI_OPREG_PCIBAR	6	/* PCIBARTarget */
+#define ACPI_OPREG_IPMI		7	/* IPMI */
+#define ACPI_OPREG_GPIO		8	/* GeneralPurposeIO */
+#define ACPI_OPREG_GSB		9	/* GenericSerialBus */
 
 /*
  * Sleeping States
@@ -728,6 +745,8 @@ struct acpi_ivrs {
 #define ACPI_DEV_LD	"PNP0C0D"	/* Lid Device */
 #define ACPI_DEV_SBD	"PNP0C0E"	/* Sleep Button Device */
 #define ACPI_DEV_PILD	"PNP0C0F"	/* PCI Interrupt Link Device */
+#define ACPI_DEV_HIDI2C	"PNP0C50"	/* HID over I2C device */
+#define ACPI_DEV_HIDI2C2 "ACPI0C50"	/* HID over I2C device */
 #define ACPI_DEV_MEMD	"PNP0C80"	/* Memory Device */
 #define ACPI_DEV_MOUSE	"PNP0F13"	/* PS/2 Mouse */
 #define ACPI_DEV_SHC	"ACPI0001"	/* SMBus 1.0 Host Controller */
@@ -751,5 +770,12 @@ struct acpi_ivrs {
 #define ACPI_DEV_TOSHIBA_LIBRETTO	"TOS6200"	/* Toshiba Libretto support */
 #define ACPI_DEV_TOSHIBA_DYNABOOK	"TOS6207"	/* Toshiba Dynabook support */
 #define ACPI_DEV_TOSHIBA_SPA40	"TOS6208"	/* Toshiba SPA40 support */
+
+/* Synopsys DesignWare I2C controllers */
+#define ACPI_DEV_DWIIC1	"INT33C2"
+#define ACPI_DEV_DWIIC2	"INT33C3"
+#define ACPI_DEV_DWIIC3	"INT3432"
+#define ACPI_DEV_DWIIC4	"INT3433"
+#define ACPI_DEV_DWIIC5	"80860F41"
 
 #endif	/* !_DEV_ACPI_ACPIREG_H_ */

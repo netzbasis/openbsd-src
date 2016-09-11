@@ -15,9 +15,10 @@
  * both forward and backward from the current read pointer.
  */
 
+#include <sys/stat.h>
+
 #include "less.h"
 
-#include <sys/stat.h>
 extern dev_t curr_dev;
 extern ino_t curr_ino;
 extern int less_is_more;
@@ -81,7 +82,7 @@ struct filestate {
  * Macros to manipulate the list of buffers in thisfile->buflist.
  */
 #define	FOR_BUFS(bn) \
-	for (bn = ch_bufhead;  bn != END_OF_CHAIN;  bn = bn->next)
+	for ((bn) = ch_bufhead;  (bn) != END_OF_CHAIN;  (bn) = (bn)->next)
 
 #define	BUF_RM(bn) \
 	(bn)->next->prev = (bn)->prev; \
@@ -103,8 +104,8 @@ struct filestate {
  * Macros to manipulate the list of buffers in thisfile->hashtbl[n].
  */
 #define	FOR_BUFS_IN_CHAIN(h, bn) \
-	for (bn = thisfile->hashtbl[h].hnext;  \
-	    bn != END_OF_HCHAIN(h);  bn = bn->hnext)
+	for ((bn) = thisfile->hashtbl[h].hnext;  \
+	    (bn) != END_OF_HCHAIN(h); (bn) = (bn)->hnext)
 
 #define	BUF_HASH_RM(bn) \
 	(bn)->hnext->hprev = (bn)->hprev; \
@@ -226,8 +227,8 @@ read_more:
 		 */
 		if (!(ch_flags & CH_CANSEEK))
 			return ('?');
-		if (lseek(ch_file, (off_t)pos, SEEK_SET) == BAD_LSEEK) {
-			error("seek error", NULL_PARG);
+		if (lseek(ch_file, (off_t)pos, SEEK_SET) == (off_t)-1) {
+			error("seek error", NULL);
 			clear_eol();
 			return (EOI);
 		}
@@ -251,7 +252,7 @@ read_more:
 	if (n == READ_INTR)
 		return (EOI);
 	if (n < 0) {
-		error("read error", NULL_PARG);
+		error("read error", NULL);
 		clear_eol();
 		n = 0;
 	}
@@ -341,7 +342,7 @@ void
 ch_ungetchar(int c)
 {
 	if (c != -1 && ch_ungotchar != -1)
-		error("ch_ungetchar overrun", NULL_PARG);
+		error("ch_ungetchar overrun", NULL);
 	ch_ungotchar = c;
 }
 
@@ -358,7 +359,7 @@ end_logfile(void)
 		return;
 	if (!tried && ch_fsize == -1) {
 		tried = TRUE;
-		ierror("Finishing logfile", NULL_PARG);
+		ierror("Finishing logfile", NULL);
 		while (ch_forw_get() != EOI)
 			if (ABORT_SIGS())
 				break;
@@ -395,7 +396,7 @@ sync_logfile(void)
 			}
 		}
 		if (!wrote && !warned) {
-			error("Warning: log file is incomplete", NULL_PARG);
+			error("Warning: log file is incomplete", NULL);
 			warned = TRUE;
 		}
 	}
@@ -655,13 +656,13 @@ ch_flush(void)
 	}
 #endif
 
-	if (lseek(ch_file, (off_t)0, SEEK_SET) == BAD_LSEEK) {
+	if (lseek(ch_file, (off_t)0, SEEK_SET) == (off_t)-1) {
 		/*
 		 * Warning only; even if the seek fails for some reason,
 		 * there's a good chance we're at the beginning anyway.
 		 * {{ I think this is bogus reasoning. }}
 		 */
-		error("seek error to 0", NULL_PARG);
+		error("seek error to 0", NULL);
 	}
 }
 
@@ -728,7 +729,7 @@ ch_delbufs(void)
 int
 seekable(int f)
 {
-	return (lseek(f, (off_t)1, SEEK_SET) != BAD_LSEEK);
+	return (lseek(f, (off_t)1, SEEK_SET) != (off_t)-1);
 }
 
 /*

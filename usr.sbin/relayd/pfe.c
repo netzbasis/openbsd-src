@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfe.c,v 1.80 2015/04/21 01:46:57 jsg Exp $	*/
+/*	$OpenBSD: pfe.c,v 1.87 2016/09/02 16:14:09 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -24,6 +24,7 @@
 #include <event.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <imsg.h>
 
 #include "relayd.h"
@@ -47,12 +48,12 @@ static struct privsep_proc procs[] = {
 	{ "hce",	PROC_HCE,	pfe_dispatch_hce }
 };
 
-pid_t
+void
 pfe(struct privsep *ps, struct privsep_proc *p)
 {
 	env = ps->ps_env;
 
-	return (proc_run(ps, p, procs, nitems(procs), pfe_init, NULL));
+	proc_run(ps, p, procs, nitems(procs), pfe_init, NULL);
 }
 
 void
@@ -61,7 +62,8 @@ pfe_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
-	snmp_init(env, PROC_PARENT);
+	if (pledge("stdio recvfd unix pf", NULL) == -1)
+		fatal("pledge");
 
 	p->p_shutdown = pfe_shutdown;
 }
@@ -81,7 +83,7 @@ pfe_setup_events(void)
 	/* Schedule statistics timer */
 	if (!event_initialized(&env->sc_statev)) {
 		evtimer_set(&env->sc_statev, pfe_statistics, NULL);
-		bcopy(&env->sc_statinterval, &tv, sizeof(tv));
+		bcopy(&env->sc_conf.statinterval, &tv, sizeof(tv));
 		evtimer_add(&env->sc_statev, &tv);
 	}
 }
@@ -99,7 +101,7 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 	struct table		*table;
 	struct ctl_status	 st;
 
-	control_imsg_forward(imsg);
+	control_imsg_forward(p->p_ps, imsg);
 
 	switch (imsg->hdr.type) {
 	case IMSG_HOST_STATUS:
@@ -126,8 +128,8 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 			break;
 
 		/* Forward to relay engine(s) */
-		proc_compose_imsg(env->sc_ps, PROC_RELAY, -1,
-		    IMSG_HOST_STATUS, -1, &st, sizeof(st));
+		proc_compose(env->sc_ps, PROC_RELAY,
+		    IMSG_HOST_STATUS, &st, sizeof(st));
 
 		if ((table = table_find(env, host->conf.tableid))
 		    == NULL)
@@ -152,6 +154,8 @@ pfe_dispatch_hce(int fd, struct privsep_proc *p, struct imsg *imsg)
 			table->conf.flags |= F_CHANGED;
 			host->flags |= F_DEL;
 			host->flags &= ~(F_ADD);
+			host->up = st.up;
+			pfe_sync();
 		}
 
 		host->up = st.up;
@@ -201,6 +205,7 @@ pfe_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		config_getcfg(env, imsg);
 		init_filter(env, imsg->fd);
 		init_tables(env);
+		snmp_init(env, PROC_PARENT);
 		break;
 	case IMSG_CTL_START:
 		pfe_setup_events();
@@ -234,25 +239,25 @@ pfe_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_NATLOOK:
 		IMSG_SIZE_CHECK(imsg, &cnl);
 		bcopy(imsg->data, &cnl, sizeof(cnl));
-		if (cnl.proc > env->sc_prefork_relay)
+		if (cnl.proc > env->sc_conf.prefork_relay)
 			fatalx("pfe_dispatch_relay: "
 			    "invalid relay proc");
 		if (natlook(env, &cnl) != 0)
 			cnl.in = -1;
 		proc_compose_imsg(env->sc_ps, PROC_RELAY, cnl.proc,
-		    IMSG_NATLOOK, -1, &cnl, sizeof(cnl));
+		    IMSG_NATLOOK, -1, -1, &cnl, sizeof(cnl));
 		break;
 	case IMSG_STATISTICS:
 		IMSG_SIZE_CHECK(imsg, &crs);
 		bcopy(imsg->data, &crs, sizeof(crs));
-		if (crs.proc > env->sc_prefork_relay)
+		if (crs.proc > env->sc_conf.prefork_relay)
 			fatalx("pfe_dispatch_relay: "
 			    "invalid relay proc");
 		if ((rlay = relay_find(env, crs.id)) == NULL)
 			fatalx("pfe_dispatch_relay: invalid relay id");
 		bcopy(&crs, &rlay->rl_stats[crs.proc], sizeof(crs));
 		rlay->rl_stats[crs.proc].interval =
-		    env->sc_statinterval.tv_sec;
+		    env->sc_conf.statinterval.tv_sec;
 		break;
 	case IMSG_CTL_SESSION:
 		IMSG_SIZE_CHECK(imsg, &con);
@@ -363,7 +368,7 @@ relays:
 	if (env->sc_relays == NULL)
 		goto routers;
 	TAILQ_FOREACH(rlay, env->sc_relays, rl_entry) {
-		rlay->rl_stats[env->sc_prefork_relay].id = EMPTY_ID;
+		rlay->rl_stats[env->sc_conf.prefork_relay].id = EMPTY_ID;
 		imsg_compose_event(&c->iev, IMSG_CTL_RELAY, 0, 0, -1,
 		    rlay, sizeof(*rlay));
 		imsg_compose_event(&c->iev, IMSG_CTL_RELAY_STATS, 0, 0, -1,
@@ -410,14 +415,14 @@ show_sessions(struct ctl_conn *c)
 {
 	int			 proc, cid;
 
-	for (proc = 0; proc < env->sc_prefork_relay; proc++) {
+	for (proc = 0; proc < env->sc_conf.prefork_relay; proc++) {
 		cid = c->iev.ibuf.fd;
 
 		/*
 		 * Request all the running sessions from the process
 		 */
 		proc_compose_imsg(env->sc_ps, PROC_RELAY, proc,
-		    IMSG_CTL_SESSION, -1, &cid, sizeof(cid));
+		    IMSG_CTL_SESSION, -1, -1, &cid, sizeof(cid));
 		c->waiting++;
 	}
 }
@@ -505,11 +510,11 @@ disable_table(struct ctl_conn *c, struct ctl_id *id)
 	table->up = 0;
 	TAILQ_FOREACH(host, &table->hosts, entry)
 		host->up = HOST_UNKNOWN;
-	proc_compose_imsg(env->sc_ps, PROC_HCE, -1, IMSG_TABLE_DISABLE, -1,
+	proc_compose(env->sc_ps, PROC_HCE, IMSG_TABLE_DISABLE,
 	    &table->conf.id, sizeof(table->conf.id));
 
 	/* Forward to relay engine(s) */
-	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_TABLE_DISABLE, -1,
+	proc_compose(env->sc_ps, PROC_RELAY, IMSG_TABLE_DISABLE,
 	    &table->conf.id, sizeof(table->conf.id));
 
 	log_debug("%s: table %d", __func__, table->conf.id);
@@ -541,11 +546,11 @@ enable_table(struct ctl_conn *c, struct ctl_id *id)
 	table->up = 0;
 	TAILQ_FOREACH(host, &table->hosts, entry)
 		host->up = HOST_UNKNOWN;
-	proc_compose_imsg(env->sc_ps, PROC_HCE, -1, IMSG_TABLE_ENABLE, -1,
+	proc_compose(env->sc_ps, PROC_HCE, IMSG_TABLE_ENABLE,
 	    &table->conf.id, sizeof(table->conf.id));
 
 	/* Forward to relay engine(s) */
-	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_TABLE_ENABLE, -1,
+	proc_compose(env->sc_ps, PROC_RELAY, IMSG_TABLE_ENABLE,
 	    &table->conf.id, sizeof(table->conf.id));
 
 	log_debug("%s: table %d", __func__, table->conf.id);
@@ -586,11 +591,11 @@ disable_host(struct ctl_conn *c, struct ctl_id *id, struct host *host)
 	host->check_cnt = 0;
 	host->up_cnt = 0;
 
-	proc_compose_imsg(env->sc_ps, PROC_HCE, -1, IMSG_HOST_DISABLE, -1,
+	proc_compose(env->sc_ps, PROC_HCE, IMSG_HOST_DISABLE,
 	    &host->conf.id, sizeof(host->conf.id));
 
 	/* Forward to relay engine(s) */
-	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_HOST_DISABLE, -1,
+	proc_compose(env->sc_ps, PROC_RELAY, IMSG_HOST_DISABLE,
 	    &host->conf.id, sizeof(host->conf.id));
 	log_debug("%s: host %d", __func__, host->conf.id);
 
@@ -626,11 +631,11 @@ enable_host(struct ctl_conn *c, struct ctl_id *id, struct host *host)
 	host->flags &= ~(F_DEL);
 	host->flags &= ~(F_ADD);
 
-	proc_compose_imsg(env->sc_ps, PROC_HCE, -1, IMSG_HOST_ENABLE, -1,
+	proc_compose(env->sc_ps, PROC_HCE, IMSG_HOST_ENABLE,
 	    &host->conf.id, sizeof (host->conf.id));
 
 	/* Forward to relay engine(s) */
-	proc_compose_imsg(env->sc_ps, PROC_RELAY, -1, IMSG_HOST_ENABLE, -1,
+	proc_compose(env->sc_ps, PROC_RELAY, IMSG_HOST_ENABLE,
 	    &host->conf.id, sizeof(host->conf.id));
 
 	log_debug("%s: host %d", __func__, host->conf.id);
@@ -681,7 +686,7 @@ pfe_sync(void)
 			imsg.hdr.len = sizeof(id) + IMSG_HEADER_SIZE;
 			imsg.data = &id;
 			sync_table(env, rdr, active);
-			control_imsg_forward(&imsg);
+			control_imsg_forward(env->sc_ps, &imsg);
 		}
 
 		if (rdr->conf.flags & F_DOWN) {
@@ -694,7 +699,7 @@ pfe_sync(void)
 				imsg.hdr.len = sizeof(id) + IMSG_HEADER_SIZE;
 				imsg.data = &id;
 				sync_ruleset(env, rdr, 0);
-				control_imsg_forward(&imsg);
+				control_imsg_forward(env->sc_ps, &imsg);
 			}
 		} else if (!(rdr->conf.flags & F_ACTIVE_RULESET)) {
 			log_debug("%s: enabling ruleset", __func__);
@@ -704,7 +709,7 @@ pfe_sync(void)
 			imsg.hdr.len = sizeof(id) + IMSG_HEADER_SIZE;
 			imsg.data = &id;
 			sync_ruleset(env, rdr, 1);
-			control_imsg_forward(&imsg);
+			control_imsg_forward(env->sc_ps, &imsg);
 		}
 	}
 
@@ -745,7 +750,7 @@ pfe_sync(void)
 		    demote.level, table->conf.name, table->conf.demote_group);
 		(void)strlcpy(demote.group, table->conf.demote_group,
 		    sizeof(demote.group));
-		proc_compose_imsg(env->sc_ps, PROC_PARENT, -1, IMSG_DEMOTE, -1,
+		proc_compose(env->sc_ps, PROC_PARENT, IMSG_DEMOTE,
 		    &demote, sizeof(demote));
 	}
 }
@@ -776,12 +781,14 @@ pfe_statistics(int fd, short events, void *arg)
 		cur->tick++;
 		cur->avg = (cur->last + cur->avg) / 2;
 		cur->last_hour += cur->last;
-		if ((cur->tick % (3600 / env->sc_statinterval.tv_sec)) == 0) {
+		if ((cur->tick %
+		    (3600 / env->sc_conf.statinterval.tv_sec)) == 0) {
 			cur->avg_hour = (cur->last_hour + cur->avg_hour) / 2;
 			resethour++;
 		}
 		cur->last_day += cur->last;
-		if ((cur->tick % (86400 / env->sc_statinterval.tv_sec)) == 0) {
+		if ((cur->tick %
+		    (86400 / env->sc_conf.statinterval.tv_sec)) == 0) {
 			cur->avg_day = (cur->last_day + cur->avg_day) / 2;
 			resethour++;
 		}
@@ -790,11 +797,11 @@ pfe_statistics(int fd, short events, void *arg)
 		if (resetday)
 			cur->last_day = 0;
 
-		rdr->stats.interval = env->sc_statinterval.tv_sec;
+		rdr->stats.interval = env->sc_conf.statinterval.tv_sec;
 	}
 
 	/* Schedule statistics timer */
 	evtimer_set(&env->sc_statev, pfe_statistics, NULL);
-	bcopy(&env->sc_statinterval, &tv, sizeof(tv));
+	bcopy(&env->sc_conf.statinterval, &tv, sizeof(tv));
 	evtimer_add(&env->sc_statev, &tv);
 }

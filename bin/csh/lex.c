@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.20 2015/10/26 22:03:06 naddy Exp $	*/
+/*	$OpenBSD: lex.c,v 1.23 2016/04/16 18:32:29 krw Exp $	*/
 /*	$NetBSD: lex.c,v 1.9 1995/09/27 00:38:46 jtc Exp $	*/
 
 /*-
@@ -31,9 +31,9 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <termios.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -211,8 +211,8 @@ freelex(struct wordent *vp)
     while (vp->next != vp) {
 	fp = vp->next;
 	vp->next = fp->next;
-	xfree(fp->word);
-	xfree(fp);
+	free(fp->word);
+	free(fp);
     }
     vp->prev = vp;
 }
@@ -847,11 +847,11 @@ dosub(int sc, struct wordent *en, bool global)
 			otword = tword;
 			tword = subword(otword, sc, &didone);
 			if (Strcmp(tword, otword) == 0) {
-			    xfree(otword);
+			    free(otword);
 			    break;
 			}
 			else
-			    xfree(otword);
+			    free(otword);
 		    }
 		}
 	    }
@@ -1413,7 +1413,7 @@ again:
 
 	if (fbuf) {
 	    (void) blkcpy(nfbuf, fbuf);
-	    xfree(fbuf);
+	    free(fbuf);
 	}
 	fbuf = nfbuf;
 	fbuf[fblocks] = xcalloc(BUFSIZ, sizeof(Char));
@@ -1453,9 +1453,10 @@ again:
 	    if (c >= 0)
 		break;
 	    if (errno == EWOULDBLOCK) {
-		int     off = 0;
+		int     flags;
 
-		(void) ioctl(SHIN, FIONBIO, (ioctl_t) & off);
+		flags = fcntl(SHIN, F_GETFL);
+		(void) fcntl(SHIN, F_SETFL, (flags & ~O_NONBLOCK));
 	    }
 	    else if (errno != EINTR)
 		break;
@@ -1483,7 +1484,7 @@ bfree(void)
     sb = (int) (fseekp - 1) / BUFSIZ;
     if (sb > 0) {
 	for (i = 0; i < sb; i++)
-	    xfree(fbuf[i]);
+	    free(fbuf[i]);
 	(void) blkcpy(fbuf, &fbuf[sb]);
 	fseekp -= BUFSIZ * sb;
 	feobp -= BUFSIZ * sb;

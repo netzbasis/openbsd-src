@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore_subr.S,v 1.10 2010/09/06 08:00:31 jsg Exp $	*/
+/*	$OpenBSD: locore_subr.S,v 1.12 2016/05/23 20:11:49 deraadt Exp $	*/
 /*	$NetBSD: locore_subr.S,v 1.28 2006/01/23 22:52:09 uwe Exp $	*/
 
 /*
@@ -493,6 +493,8 @@ NENTRY(sigcode)
 	mov	r15, r4			/* get pointer to sigcontext */
 	mov.l	.L_SYS_sigreturn, r0
 	trapa	#0x80			/* and call sigreturn() */
+	.globl  _C_LABEL(sigcoderet)
+_C_LABEL(sigcoderet):
 	mov.l	.L_SYS_exit, r0
 	trapa	#0x80			/* exit if sigreturn fails */
 	/* NOTREACHED */
@@ -505,6 +507,18 @@ NENTRY(sigcode)
 .globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
 	SET_ENTRY_SIZE(sigcode)
+
+	.globl	sigfill
+sigfill:
+	sleep		/* priviledged -> illegal? */
+esigfill:
+
+	.data
+	.globl	sigfillsiz
+sigfillsiz:
+	.word	esigfill - sigfill
+
+	.text
 
 /*
  * LINTSTUB: Func: void savectx(struct pcb *pcb)

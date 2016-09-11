@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.h,v 1.49 2015/06/16 11:09:39 mpi Exp $	*/
+/*	$OpenBSD: bpf.h,v 1.56 2016/05/10 23:48:07 dlg Exp $	*/
 /*	$NetBSD: bpf.h,v 1.15 1996/12/13 07:57:33 mikel Exp $	*/
 
 /*
@@ -119,8 +119,6 @@ struct bpf_version {
 #define BIOCGDLTLIST	_IOWR('B',123, struct bpf_dltlist)
 #define BIOCGDIRFILT	_IOR('B',124, u_int)
 #define BIOCSDIRFILT	_IOW('B',125, u_int)
-#define BIOCGQUEUE	_IOR('B',126, u_int)
-#define BIOCSQUEUE	_IOW('B',127, u_int)
 
 /*
  * Direction filters for BIOCSDIRFILT/BIOCGDIRFILT
@@ -154,7 +152,7 @@ struct bpf_hdr {
 #ifdef _KERNEL
 #if defined(__arm__) || defined(__i386__) || defined(__m68k__) || \
     defined(__mips__) || defined(__ns32k__) || defined(__sparc__) || \
-    defined(__sparc64__) || defined(__vax__)
+    defined(__sparc64__)
 #define SIZEOF_BPF_HDR 18
 #else
 #define SIZEOF_BPF_HDR sizeof(struct bpf_hdr)
@@ -265,25 +263,42 @@ struct bpf_dltlist {
 };
 
 /*
+ * Load operations for _bpf_filter to use against the packet pointer.
+ */
+struct bpf_ops {
+	u_int32_t	(*ldw)(const void *, u_int32_t, int *);
+	u_int32_t	(*ldh)(const void *, u_int32_t, int *);
+	u_int32_t	(*ldb)(const void *, u_int32_t, int *);
+};
+
+/*
  * Macros for insn array initializers.
  */
 #define BPF_STMT(code, k) { (u_int16_t)(code), 0, 0, k }
 #define BPF_JUMP(code, k, jt, jf) { (u_int16_t)(code), jt, jf, k }
 
+u_int	 bpf_filter(const struct bpf_insn *, const u_char *, u_int, u_int)
+	    __bounded((__buffer__, 2, 4));
+
+u_int	 _bpf_filter(const struct bpf_insn *, const struct bpf_ops *,
+	     const void *, u_int);
+
 #ifdef _KERNEL
 struct ifnet;
+struct mbuf;
 
 int	 bpf_validate(struct bpf_insn *, int);
 int	 bpf_tap(caddr_t, u_char *, u_int, u_int);
-void	 bpf_mtap(caddr_t, struct mbuf *, u_int);
-void	 bpf_mtap_hdr(caddr_t, caddr_t, u_int, struct mbuf *, u_int,
+int	 bpf_mtap(caddr_t, const struct mbuf *, u_int);
+int	 bpf_mtap_hdr(caddr_t, caddr_t, u_int, const struct mbuf *, u_int,
 	    void (*)(const void *, void *, size_t));
-void	 bpf_mtap_af(caddr_t, u_int32_t, struct mbuf *, u_int);
-void	 bpf_mtap_ether(caddr_t, struct mbuf *, u_int);
+int	 bpf_mtap_af(caddr_t, u_int32_t, const struct mbuf *, u_int);
+int	 bpf_mtap_ether(caddr_t, const struct mbuf *, u_int);
 void	 bpfattach(caddr_t *, struct ifnet *, u_int, u_int);
 void	 bpfdetach(struct ifnet *);
 void	 bpfilterattach(int);
-u_int	 bpf_filter(struct bpf_insn *, u_char *, u_int, u_int);
+
+u_int	 bpf_mfilter(const struct bpf_insn *, const struct mbuf *, u_int);
 #endif /* _KERNEL */
 
 /*

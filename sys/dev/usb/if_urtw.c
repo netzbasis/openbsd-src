@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_urtw.c,v 1.56 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_urtw.c,v 1.62 2016/04/13 11:03:37 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2009 Martynas Venckus <martynas@openbsd.org>
@@ -35,10 +35,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -719,7 +717,6 @@ urtw_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_ioctl = urtw_ioctl;
 	ifp->if_start = urtw_start;
 	ifp->if_watchdog = urtw_watchdog;
-	IFQ_SET_READY(&ifp->if_snd);
 	memcpy(ifp->if_xname, sc->sc_dev.dv_xname, IFNAMSIZ);
 
 	if_attach(ifp);
@@ -1080,6 +1077,7 @@ urtw_8225_write_s16(struct urtw_softc *sc, uint8_t addr, int index,
 	USETW(req.wIndex, index);
 	USETW(req.wLength, sizeof(uint16_t));
 
+	data = htole16(data);	
 	return (usbd_do_request(sc->sc_udev, &req, &data));
 }
 
@@ -1589,6 +1587,7 @@ urtw_read16_c(struct urtw_softc *sc, int val, uint16_t *data, uint8_t idx)
 	USETW(req.wLength, sizeof(uint16_t));
 
 	error = usbd_do_request(sc->sc_udev, &req, data);
+	*data = letoh16(*data);
 	return (error);
 }
 
@@ -1605,6 +1604,7 @@ urtw_read32_c(struct urtw_softc *sc, int val, uint32_t *data, uint8_t idx)
 	USETW(req.wLength, sizeof(uint32_t));
 
 	error = usbd_do_request(sc->sc_udev, &req, data);
+	*data = letoh32(*data);
 	return (error);
 }
 
@@ -1647,6 +1647,7 @@ urtw_write16_c(struct urtw_softc *sc, int val, uint16_t data, uint8_t idx)
 	USETW(req.wIndex, idx & 0x03);
 	USETW(req.wLength, sizeof(uint16_t));
 
+	data = htole16(data);	
 	return (usbd_do_request(sc->sc_udev, &req, &data));
 }
 
@@ -1661,6 +1662,7 @@ urtw_write32_c(struct urtw_softc *sc, int val, uint32_t data, uint8_t idx)
 	USETW(req.wIndex, idx & 0x03);
 	USETW(req.wLength, sizeof(uint32_t));
 
+	data = htole32(data);	
 	return (usbd_do_request(sc->sc_udev, &req, &data));
 }
 
@@ -2299,7 +2301,7 @@ urtw_init(struct ifnet *ifp)
 	if (error != 0)
 		goto fail;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_flags |= IFF_RUNNING;
 
 	ifp->if_timer = 1;
@@ -2425,19 +2427,18 @@ urtw_start(struct ifnet *ifp)
 	 * net80211 may still try to send management frames even if the
 	 * IFF_RUNNING flag is not set...
 	 */
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
+		if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
+		    sc->sc_tx_normal_queued >= URTW_TX_DATA_LIST_COUNT) {
+			ifq_set_oactive(&ifp->if_snd);
+			break;
+		}
+
 		m0 = mq_dequeue(&ic->ic_mgtq);
 		if (m0 != NULL) {
-			if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
-			    sc->sc_tx_normal_queued >=
-			    URTW_TX_DATA_LIST_COUNT) {
-				mq_requeue(&ic->ic_mgtq, m0);
-				ifp->if_flags |= IFF_OACTIVE;
-				break;
-			}
 			ni = m0->m_pkthdr.ph_cookie;
 #if NBPFILTER > 0
 			if (ic->ic_rawbpf != NULL)
@@ -2449,16 +2450,9 @@ urtw_start(struct ifnet *ifp)
 		} else {
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
-			IFQ_POLL(&ifp->if_snd, m0);
+			IFQ_DEQUEUE(&ifp->if_snd, m0);
 			if (m0 == NULL)
 				break;
-			if (sc->sc_tx_low_queued >= URTW_TX_DATA_LIST_COUNT ||
-			    sc->sc_tx_normal_queued >=
-			    URTW_TX_DATA_LIST_COUNT) {
-				ifp->if_flags |= IFF_OACTIVE;
-				break;
-			}
-			IFQ_DEQUEUE(&ifp->if_snd, m0);
 #if NBPFILTER > 0
 			if (ifp->if_bpf != NULL)
 				bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
@@ -2534,7 +2528,7 @@ urtw_txeof_low(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	sc->sc_tx_low_queued--;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	urtw_start(ifp);
 
 	splx(s);
@@ -2573,7 +2567,7 @@ urtw_txeof_normal(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	sc->sc_tx_normal_queued--;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 	urtw_start(ifp);
 
 	splx(s);
@@ -3016,7 +3010,8 @@ urtw_stop(struct ifnet *ifp, int disable)
 	uint8_t data;
 	usbd_status error;
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
 
@@ -3711,8 +3706,8 @@ urtw_8187b_init(struct ifnet *ifp)
 	if (error != 0)
 		goto fail;
 
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	ifp->if_timer = 1;
 

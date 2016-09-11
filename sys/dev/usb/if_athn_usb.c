@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_athn_usb.c,v 1.38 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_athn_usb.c,v 1.42 2015/12/11 16:07:02 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2011 Damien Bergamini <damien.bergamini@free.fr>
@@ -40,10 +40,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -98,7 +96,7 @@ static const struct athn_usb_type {
 int		athn_usb_match(struct device *, void *, void *);
 void		athn_usb_attach(struct device *, struct device *, void *);
 int		athn_usb_detach(struct device *, int);
-void		athn_usb_attachhook(void *);
+void		athn_usb_attachhook(struct device *);
 int		athn_usb_open_pipes(struct athn_usb_softc *);
 void		athn_usb_close_pipes(struct athn_usb_softc *);
 int		athn_usb_alloc_rx_list(struct athn_usb_softc *);
@@ -258,10 +256,7 @@ athn_usb_attach(struct device *parent, struct device *self, void *aux)
 	if (athn_usb_alloc_tx_cmd(usc) != 0)
 		return;
 
-	if (rootvp == NULL)
-		mountroothook_establish(athn_usb_attachhook, usc);
-	else
-		athn_usb_attachhook(usc);
+	config_mountroot(self, athn_usb_attachhook);
 }
 
 int
@@ -290,9 +285,9 @@ athn_usb_detach(struct device *self, int flags)
 }
 
 void
-athn_usb_attachhook(void *xsc)
+athn_usb_attachhook(struct device *self)
 {
-	struct athn_usb_softc *usc = xsc;
+	struct athn_usb_softc *usc = (struct athn_usb_softc *)self;
 	struct athn_softc *sc = &usc->sc_sc;
 	struct athn_ops *ops = &sc->ops;
 	struct ieee80211com *ic = &sc->sc_ic;
@@ -1925,8 +1920,8 @@ athn_usb_txeof(struct usbd_xfer *xfer, void *priv,
 	ifp->if_opackets++;
 
 	/* We just released a Tx buffer, notify Tx. */
-	if (ifp->if_flags & IFF_OACTIVE) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+	if (ifq_is_oactive(&ifp->if_snd)) {
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_start(ifp);
 	}
 	splx(s);
@@ -2056,12 +2051,12 @@ athn_usb_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct mbuf *m;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if (!(ifp->if_flags & IFF_RUNNING) || ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	for (;;) {
 		if (TAILQ_EMPTY(&usc->tx_free_list)) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifq_set_oactive(&ifp->if_snd);
 			break;
 		}
 		/* Send pending management frames first. */
@@ -2324,8 +2319,8 @@ athn_usb_init(struct ifnet *ifp)
 			goto fail;
 	}
 	/* We're ready to go. */
-	ifp->if_flags &= ~IFF_OACTIVE;
 	ifp->if_flags |= IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 #ifdef notyet
 	if (ic->ic_flags & IEEE80211_F_WEPON) {
@@ -2357,7 +2352,8 @@ athn_usb_stop(struct ifnet *ifp)
 
 	sc->sc_tx_timer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	s = splusb();
 	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);

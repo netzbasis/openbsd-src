@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.184 2015/10/09 01:10:27 deraadt Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.189 2016/09/03 14:29:05 jca Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -62,9 +62,6 @@
 #include <sys/unistd.h>
 
 #include <sys/syscallargs.h>
-
-#include "systrace.h"
-#include <dev/systrace.h>
 
 #include <uvm/uvm.h>
 
@@ -204,7 +201,8 @@ process_new(struct proc *p, struct process *parent, int flags)
 	if (pr->ps_textvp)
 		vref(pr->ps_textvp);
 
-	pr->ps_flags = parent->ps_flags & (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE);
+	pr->ps_flags = parent->ps_flags &
+	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_WXNEEDED);
 	if (parent->ps_session->s_ttyvp != NULL)
 		pr->ps_flags |= parent->ps_flags & PS_CONTROLT;
 
@@ -264,9 +262,6 @@ fork1(struct proc *curp, int flags, void *stack, pid_t *tidptr,
 	vaddr_t uaddr;
 	int s;
 	struct  ptrace_state *newptstat = NULL;
-#if NSYSTRACE > 0
-	void *newstrp = NULL;
-#endif
 
 	/* sanity check some flag combinations */
 	if (flags & FORK_THREAD) {
@@ -432,10 +427,6 @@ fork1(struct proc *curp, int flags, void *stack, pid_t *tidptr,
 
 	if (pr->ps_flags & PS_TRACED && flags & FORK_FORK)
 		newptstat = malloc(sizeof(*newptstat), M_SUBPROC, M_WAITOK);
-#if NSYSTRACE > 0
-	if (ISSET(curp->p_flag, P_SYSTRACE))
-		newstrp = systrace_getproc();
-#endif
 
 	p->p_pid = allocpid();
 
@@ -473,11 +464,6 @@ fork1(struct proc *curp, int flags, void *stack, pid_t *tidptr,
 			atomic_setbits_int(&p->p_flag, P_SUSPSINGLE);
 		}
 	}
-
-#if NSYSTRACE > 0
-	if (newstrp)
-		systrace_fork(curp, p, newstrp);
-#endif
 
 	if (tidptr != NULL) {
 		pid_t	pid = p->p_pid + THREAD_PID_OFFSET;
@@ -563,7 +549,7 @@ fork1(struct proc *curp, int flags, void *stack, pid_t *tidptr,
 /*
  * Checks for current use of a pid, either as a pid or pgid.
  */
-pid_t oldpids[100];
+pid_t oldpids[128];
 int
 ispidtaken(pid_t pid)
 {
@@ -621,10 +607,6 @@ freepid(pid_t pid)
 void
 proc_trampoline_mp(void)
 {
-	struct proc *p;
-
-	p = curproc;
-
 	SCHED_ASSERT_LOCKED();
 	__mp_unlock(&sched_lock);
 	spl0();

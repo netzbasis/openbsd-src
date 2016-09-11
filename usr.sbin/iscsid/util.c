@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.5 2015/01/16 15:57:06 deraadt Exp $ */
+/*	$OpenBSD: util.c,v 1.8 2016/08/16 18:41:57 tedu Exp $ */
 
 /*
  * Copyright (c) 2009 Claudio Jeker <claudio@openbsd.org>
@@ -16,7 +16,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <sys/param.h>	/* nitems */
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -29,7 +28,7 @@
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "iscsid.h"
@@ -110,7 +109,7 @@ socket_setblockmode(int fd, int nonblocking)
 {
 	int     flags;
 
-	if ((flags = fcntl(fd, F_GETFL, 0)) == -1)
+	if ((flags = fcntl(fd, F_GETFL)) == -1)
 		return -1;
 
 	if (nonblocking)

@@ -1,5 +1,5 @@
 /*	$NetBSD: mem.c,v 1.31 1996/05/03 19:42:19 christos Exp $	*/
-/*	$OpenBSD: mem.c,v 1.47 2015/09/08 07:12:56 deraadt Exp $ */
+/*	$OpenBSD: mem.c,v 1.50 2016/08/16 18:19:15 tedu Exp $ */
 /*
  * Copyright (c) 1988 University of Utah.
  * Copyright (c) 1982, 1986, 1990, 1993
@@ -48,6 +48,7 @@
 #include <sys/malloc.h>
 #include <sys/memrange.h>
 #include <sys/fcntl.h>
+#include <sys/rwlock.h>
 
 #include <machine/cpu.h>
 #include <machine/conf.h>
@@ -111,26 +112,20 @@ mmclose(dev_t dev, int flag, int mode, struct proc *p)
 	return (0);
 }
 
-/*ARGSUSED*/
 int
 mmrw(dev_t dev, struct uio *uio, int flags)
 {
+	static struct rwlock physlock = RWLOCK_INITIALIZER("mmrw");
 	vaddr_t o, v;
 	size_t c;
 	struct iovec *iov;
 	int error = 0;
-	static int physlock;
 
 	if (minor(dev) == 0) {
 		/* lock against other uses of shared vmmap */
-		while (physlock > 0) {
-			physlock++;
-			error = tsleep((caddr_t)&physlock, PZERO | PCATCH,
-			    "mmrw", 0);
-			if (error)
-				return (error);
-		}
-		physlock = 1;
+		error = rw_enter(&physlock, RW_WRITE | RW_INTR);
+		if (error)
+			return (error);
 	}
 	while (uio->uio_resid > 0 && error == 0) {
 		iov = uio->uio_iov;
@@ -143,7 +138,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 		}
 		switch (minor(dev)) {
 
-/* minor device 0 is physical memory */
+		/* minor device 0 is physical memory */
 		case 0:
 			v = uio->uio_offset;
 			pmap_enter(pmap_kernel(), (vaddr_t)vmmap,
@@ -158,7 +153,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 			pmap_update(pmap_kernel());
 			continue;
 
-/* minor device 1 is kernel memory */
+		/* minor device 1 is kernel memory */
 		case 1:
 			v = uio->uio_offset;
 			c = ulmin(iov->iov_len, MAXPHYS);
@@ -168,13 +163,13 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 			error = uiomove((caddr_t)v, c, uio);
 			continue;
 
-/* minor device 2 is EOF/RATHOLE */
+		/* minor device 2 is /dev/null */
 		case 2:
 			if (uio->uio_rw == UIO_WRITE)
 				uio->uio_resid = 0;
 			return (0);
 
-/* minor device 12 (/dev/zero) is source of nulls on read, rathole on write */
+		/* minor device 12 is /dev/zero */
 		case 12:
 			if (uio->uio_rw == UIO_WRITE) {
 				c = iov->iov_len;
@@ -197,9 +192,7 @@ mmrw(dev_t dev, struct uio *uio, int flags)
 		uio->uio_resid -= c;
 	}
 	if (minor(dev) == 0) {
-		if (physlock > 1)
-			wakeup((caddr_t)&physlock);
-		physlock = 0;
+		rw_exit(&physlock);
 	}
 	return (error);
 }
@@ -210,14 +203,14 @@ mmmmap(dev_t dev, off_t off, int prot)
 	struct proc *p = curproc;	/* XXX */
 
 	switch (minor(dev)) {
-/* minor device 0 is physical memory */
+	/* minor device 0 is physical memory */
 	case 0:
 		if ((u_int)off > ptoa(physmem) && suser(p, 0) != 0)
 			return -1;
 		return off;
 
 #ifdef APERTURE
-/* minor device 4 is aperture driver */
+	/* minor device 4 is aperture driver */
 	case 4:
 		/* Check if a write combining mapping is requested. */
 		if (off >= MEMRANGE_WC_RANGE)
@@ -350,4 +343,3 @@ mem_range_attr_set(struct mem_range_desc *mrd, int *arg)
 }
 
 #endif /* MTRR */
-

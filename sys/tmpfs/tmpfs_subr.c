@@ -1,4 +1,4 @@
-/*	$OpenBSD: tmpfs_subr.c,v 1.14 2015/04/17 04:43:21 guenther Exp $	*/
+/*	$OpenBSD: tmpfs_subr.c,v 1.16 2016/06/19 11:54:33 natano Exp $	*/
 /*	$NetBSD: tmpfs_subr.c,v 1.79 2012/03/13 18:40:50 elad Exp $	*/
 
 /*
@@ -314,7 +314,7 @@ again:
 		return error;
 	}
 
-	lockinit(&node->tn_vlock, PINOD, "tnode", 0, 0);
+	rrw_init(&node->tn_vlock, "tnode");
 	vp->v_type = node->tn_type;
 
 	/* Type-specific initialization. */
@@ -740,7 +740,7 @@ tmpfs_dir_getdotents(tmpfs_node_t *node, struct dirent *dp, struct uio *uio)
 		return EJUSTRETURN;
 	}
 
-	if ((error = uiomovei(dp, dp->d_reclen, uio)) != 0) {
+	if ((error = uiomove(dp, dp->d_reclen, uio)) != 0) {
 		return error;
 	}
 
@@ -837,7 +837,7 @@ tmpfs_dir_getdents(tmpfs_node_t *node, struct uio *uio)
 		}
 
 		/* Copy out the directory entry and continue. */
-		error = uiomovei(&dent, dent.d_reclen, uio);
+		error = uiomove(&dent, dent.d_reclen, uio);
 		if (error) {
 			break;
 		}
@@ -1225,7 +1225,7 @@ tmpfs_uiomove(tmpfs_node_t *node, struct uio *uio, vsize_t len)
 	if (pgoff + len < PAGE_SIZE) {
 		va = tmpfs_uio_lookup(node, pgnum);
 		if (va != (vaddr_t)NULL)
-			return uiomovei((void *)va + pgoff, len, uio);
+			return uiomove((void *)va + pgoff, len, uio);
 	}
 
 	if (len >= TMPFS_UIO_MAXBYTES) {
@@ -1249,7 +1249,7 @@ tmpfs_uiomove(tmpfs_node_t *node, struct uio *uio, vsize_t len)
 		return error;
 	}
 
-	error = uiomovei((void *)va + pgoff, sz, uio);
+	error = uiomove((void *)va + pgoff, sz, uio);
 	if (error == 0 && pgoff + sz < PAGE_SIZE)
 		tmpfs_uio_cache(node, pgnum, va);
 	else

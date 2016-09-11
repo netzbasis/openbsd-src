@@ -1,4 +1,4 @@
-/*	$OpenBSD: aic7xxxvar.h,v 1.27 2015/07/17 21:42:49 krw Exp $	*/
+/*	$OpenBSD: aic7xxxvar.h,v 1.30 2016/08/17 01:17:54 krw Exp $	*/
 /*
  * Core definitions and data structures shareable across OS platforms.
  *
@@ -38,7 +38,7 @@
  * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGES.
  *
- * $Id: aic7xxxvar.h,v 1.27 2015/07/17 21:42:49 krw Exp $
+ * $Id: aic7xxxvar.h,v 1.30 2016/08/17 01:17:54 krw Exp $
  *
  * $FreeBSD: src/sys/dev/aic7xxx/aic7xxx.h,v 1.50 2003/12/17 00:02:09 gibbs Exp $
  */
@@ -597,9 +597,7 @@ struct scb {
 	struct scsipi_xfer	 *xs;
 	struct ahc_softc	 *ahc_softc;
 	scb_flag		  flags;
-#ifndef __linux__
 	bus_dmamap_t		  dmamap;
-#endif
 	struct scb_platform_data *platform_data;
 	struct sg_map_node	 *sg_map;
 	struct ahc_dma_seg	 *sg_list;
@@ -780,7 +778,7 @@ struct ahc_syncrate {
 #define	AHC_ULTRA2_XFER_PERIOD 0x0a
 
 /*
- * Indexes into our table of syncronous transfer rates.
+ * Indexes into our table of synchronous transfer rates.
  */
 #define AHC_SYNCRATE_DT		0
 #define AHC_SYNCRATE_ULTRA2	1
@@ -949,9 +947,10 @@ struct ahc_softc {
 	bus_space_tag_t           tag;
 	bus_space_handle_t        bsh;
 
-#ifndef __linux__
+	struct mutex		  sc_scb_mtx;
+	struct scsi_iopool	  sc_iopool;
+
 	bus_dma_tag_t		  buffer_dmat;   /* dmat for buffer I/O */
-#endif
 	struct scb_data		 *scb_data;
 
 	struct scb		 *next_queued_scb;

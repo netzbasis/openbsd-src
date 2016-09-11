@@ -1,4 +1,4 @@
-/*	$OpenBSD: show.c,v 1.102 2015/10/23 15:03:25 deraadt Exp $	*/
+/*	$OpenBSD: show.c,v 1.107 2016/09/05 14:23:38 claudio Exp $	*/
 /*	$NetBSD: show.c,v 1.1 1996/11/15 18:01:41 gwr Exp $	*/
 
 /*
@@ -74,22 +74,25 @@ static const struct bits bits[] = {
 	{ RTF_GATEWAY,	'G' },
 	{ RTF_HOST,	'H' },
 	{ RTF_REJECT,	'R' },
-	{ RTF_BLACKHOLE, 'B' },
 	{ RTF_DYNAMIC,	'D' },
 	{ RTF_MODIFIED,	'M' },
 	{ RTF_DONE,	'd' }, /* Completed -- for routing messages only */
-	{ RTF_MASK,	'm' }, /* Mask Present -- for routing messages only */
 	{ RTF_CLONING,	'C' },
+	{ RTF_MULTICAST,'m' },
 	{ RTF_LLINFO,	'L' },
 	{ RTF_STATIC,	'S' },
-	{ RTF_PROTO1,	'1' },
-	{ RTF_PROTO2,	'2' },
+	{ RTF_BLACKHOLE,'B' },
 	{ RTF_PROTO3,	'3' },
+	{ RTF_PROTO2,	'2' },
+	{ RTF_PROTO1,	'1' },
 	{ RTF_CLONED,	'c' },
+	{ RTF_CACHED,	'h' },
 	{ RTF_MPATH,	'P' },
 	{ RTF_MPLS,	'T' },
 	{ RTF_LOCAL,	'l' },
-	{ RTF_BROADCAST, 'b' },
+	{ RTF_BFD,	'F' },
+	{ RTF_BROADCAST,'b' },
+	{ RTF_CONNECTED,'n' },
 	{ 0 }
 };
 
@@ -145,13 +148,8 @@ p_rttables(int af, u_int tableid, int hastable, char prio)
 		break;
 	}
 
-	if (nflag) {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	} else {
-		if (pledge("stdio rpath dns", NULL) == -1)
-			err(1, "pledge");
-	}
+	if (pledge("stdio rpath dns", NULL) == -1)
+		err(1, "pledge");
 
 	printf("Routing tables\n");
 
@@ -299,8 +297,7 @@ p_rtentry(struct rt_msghdr *rtm)
 	printf("  %2d %-5.16s", rtm->rtm_priority,
 	    if_indextoname(rtm->rtm_index, ifbuf));
 	if (verbose && rti_info[RTAX_LABEL])
-		printf(" %s", ((struct sockaddr_rtlabel *)
-		    rti_info[RTAX_LABEL])->sr_label);
+		printf(" %s", routename(rti_info[RTAX_LABEL]));
 	putchar('\n');
 }
 
@@ -469,11 +466,11 @@ routename(struct sockaddr *sa)
 		return (label_print(sa));
 	case AF_UNSPEC:
 		if (sa->sa_len == sizeof(struct sockaddr_rtlabel)) {
-			static char name[RTLABEL_LEN];
+			static char name[RTLABEL_LEN + 2];
 			struct sockaddr_rtlabel *sr;
 
 			sr = (struct sockaddr_rtlabel *)sa;
-			(void)strlcpy(name, sr->sr_label, sizeof(name));
+			snprintf(name, sizeof(name), "\"%s\"", sr->sr_label);
 			return (name);
 		}
 		/* FALLTHROUGH */

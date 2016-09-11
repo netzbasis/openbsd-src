@@ -1,5 +1,5 @@
-/*	$OpenBSD: prompt.c,v 1.9 2010/06/30 00:05:35 nicm Exp $	*/
-/*	$NetBSD: prompt.c,v 1.18 2009/12/31 15:58:26 christos Exp $	*/
+/*	$OpenBSD: prompt.c,v 1.13 2016/04/11 21:17:29 schwarze Exp $	*/
+/*	$NetBSD: prompt.c,v 1.25 2016/04/11 18:56:31 christos Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -41,32 +41,32 @@
 #include <stdio.h>
 #include "el.h"
 
-private Char	*prompt_default(EditLine *);
-private Char	*prompt_default_r(EditLine *);
+static wchar_t	*prompt_default(EditLine *);
+static wchar_t	*prompt_default_r(EditLine *);
 
 /* prompt_default():
  *	Just a default prompt, in case the user did not provide one
  */
-private Char *
+static wchar_t *
 /*ARGSUSED*/
 prompt_default(EditLine *el __attribute__((__unused__)))
 {
-	static Char a[3] = {'?', ' ', '\0'};
+	static wchar_t a[3] = L"? ";
 
-	return (a);
+	return a;
 }
 
 
 /* prompt_default_r():
  *	Just a default rprompt, in case the user did not provide one
  */
-private Char *
+static wchar_t *
 /*ARGSUSED*/
 prompt_default_r(EditLine *el __attribute__((__unused__)))
 {
-	static Char a[1] = {'\0'};
+	static wchar_t a[1] = L"";
 
-	return (a);
+	return a;
 }
 
 
@@ -77,7 +77,7 @@ protected void
 prompt_print(EditLine *el, int op)
 {
 	el_prompt_t *elp;
-	Char *p;
+	wchar_t *p;
 	int ignore = 0;
 
 	if (op == EL_PROMPT)
@@ -97,7 +97,7 @@ prompt_print(EditLine *el, int op)
 			continue;
 		}
 		if (ignore)
-			term__putc(el, *p);
+			terminal__putc(el, *p);
 		else
 			re_putc(el, *p, 1);
 	}
@@ -140,7 +140,7 @@ prompt_end(EditLine *el __attribute__((__unused__)))
  *	Install a prompt printing function
  */
 protected int
-prompt_set(EditLine *el, el_pfunc_t prf, Char c, int op, int wide)
+prompt_set(EditLine *el, el_pfunc_t prf, wchar_t c, int op, int wide)
 {
 	el_prompt_t *p;
 
@@ -172,7 +172,7 @@ prompt_set(EditLine *el, el_pfunc_t prf, Char c, int op, int wide)
  *	Retrieve the prompt printing function
  */
 protected int
-prompt_get(EditLine *el, el_pfunc_t *prf, Char *c, int op)
+prompt_get(EditLine *el, el_pfunc_t *prf, wchar_t *c, int op)
 {
 	el_prompt_t *p;
 

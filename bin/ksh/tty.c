@@ -1,6 +1,9 @@
-/*	$OpenBSD: tty.c,v 1.14 2015/10/19 14:42:16 mmcc Exp $	*/
+/*	$OpenBSD: tty.c,v 1.16 2015/12/14 13:59:42 tb Exp $	*/
 
+#include <errno.h>
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "sh.h"
 #include "tty.h"
@@ -18,7 +21,7 @@ tty_close(void)
 	}
 }
 
-/* Initialize tty_fd.  Used for saving/reseting tty modes upon
+/* Initialize tty_fd.  Used for saving/resetting tty modes upon
  * foreground job completion and for setting up tty process group.
  */
 void

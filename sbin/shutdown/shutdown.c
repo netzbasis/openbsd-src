@@ -1,4 +1,4 @@
-/*	$OpenBSD: shutdown.c,v 1.43 2015/04/23 02:13:18 deraadt Exp $	*/
+/*	$OpenBSD: shutdown.c,v 1.45 2016/09/01 09:50:38 deraadt Exp $	*/
 /*	$NetBSD: shutdown.c,v 1.9 1995/03/18 15:01:09 cgd Exp $	*/
 
 /*
@@ -108,6 +108,9 @@ main(int argc, char *argv[])
 	char *p, *endp;
 	pid_t forkpid;
 
+	if (pledge("stdio rpath wpath cpath getpw tty id proc exec", NULL) == -1)
+		err(1, "pledge");
+
 #ifndef DEBUG
 	if (geteuid())
 		errx(1, "NOT super-user");
@@ -195,9 +198,14 @@ main(int argc, char *argv[])
 	}
 	mbuflen = strlen(mbuf);
 
-	if (offset)
-		(void)printf("Shutdown at %.24s.\n", ctime(&shuttime));
-	else
+	if (offset) {
+		char *ct = ctime(&shuttime);
+
+		if (ct)
+			printf("Shutdown at %.24s.\n", ct);
+		else
+			printf("Shutdown soon.\n");
+	} else
 		(void)printf("Shutdown NOW!\n");
 
 	if (!(whom = getlogin()))
@@ -294,10 +302,12 @@ timewarn(int timeleft)
 	    "\007*** %sSystem shutdown message from %s@%s ***\007\n",
 	    timeleft ? "": "FINAL ", whom, hostname);
 
-	if (timeleft > 10*60)
-		(void)fprintf(pf, "System going down at %5.5s\n\n",
-		    ctime(&shuttime) + 11);
-	else if (timeleft > 59)
+	if (timeleft > 10*60) {
+		struct tm *tm = localtime(&shuttime);
+
+		fprintf(pf, "System going down at %d:%02d\n\n",
+		    tm->tm_hour, tm->tm_min);
+	} else if (timeleft > 59)
 		(void)fprintf(pf, "System going down in %d minute%s\n\n",
 		    timeleft / 60, (timeleft > 60) ? "s" : "");
 	else if (timeleft)
@@ -343,6 +353,10 @@ die_you_gravy_sucking_pig_dog(void)
 	}
 	if (dofast)
 		doitfast();
+
+	if (pledge("stdio rpath wpath cpath tty id proc exec", NULL) == -1)
+		err(1, "pledge");
+
 #ifdef DEBUG
 	if (doreboot)
 		(void)printf("reboot");
@@ -361,6 +375,9 @@ die_you_gravy_sucking_pig_dog(void)
 	if (dohalt || dopower || doreboot) {
 		char *args[10];
 		char **arg, *path;
+
+		if (pledge("stdio exec", NULL) == -1)
+			err(1, "pledge");
 
 		arg = &args[0];
 		if (doreboot) {
@@ -504,7 +521,6 @@ getoffset(char *timearg)
 	}
 }
 
-#define	FSMSG	"fastboot file for fsck\n"
 void
 doitfast(void)
 {
@@ -512,31 +528,29 @@ doitfast(void)
 
 	if ((fastfd = open(_PATH_FASTBOOT, O_WRONLY|O_CREAT|O_TRUNC,
 	    0664)) >= 0) {
-		(void)write(fastfd, FSMSG, sizeof(FSMSG) - 1);
-		(void)close(fastfd);
+		dprintf(fastfd, "fastboot file for fsck\n");
+		close(fastfd);
 	}
 }
 
-#define	NOMSG	"\n\nNO LOGINS: System going down at "
 void
 nolog(void)
 {
 	int logfd;
-	char *ct;
+	struct tm *tm;
 
 	(void)unlink(_PATH_NOLOGIN);	/* in case linked to another file */
 	(void)signal(SIGINT, finish);
 	(void)signal(SIGHUP, finish);
 	(void)signal(SIGQUIT, finish);
 	(void)signal(SIGTERM, finish);
-	if ((logfd = open(_PATH_NOLOGIN, O_WRONLY|O_CREAT|O_TRUNC,
+	tm = localtime(&shuttime);
+	if (tm && (logfd = open(_PATH_NOLOGIN, O_WRONLY|O_CREAT|O_TRUNC,
 	    0664)) >= 0) {
-		(void)write(logfd, NOMSG, sizeof(NOMSG) - 1);
-		ct = ctime(&shuttime);
-		(void)write(logfd, ct + 11, 5);
-		(void)write(logfd, "\n\n", 2);
-		(void)write(logfd, mbuf, strlen(mbuf));
-		(void)close(logfd);
+		dprintf(logfd,
+		    "\n\nNO LOGINS: System going down at %d:%02d\n\n",
+		    tm->tm_hour, tm->tm_min);
+		close(logfd);
 	}
 }
 

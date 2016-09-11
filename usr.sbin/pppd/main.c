@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.52 2015/10/26 11:10:53 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.54 2016/03/17 19:40:43 krw Exp $	*/
 
 /*
  * main.c - Point-to-Point Protocol main module
@@ -90,7 +90,6 @@ extern char *strerror();
 char ifname[IFNAMSIZ];		/* Interface name */
 int ifunit;			/* Interface unit number */
 
-char *progname;			/* Name of this program */
 char hostname[HOST_NAME_MAX+1];	/* Our hostname */
 static char default_devnam[PATH_MAX];	/* name of default device */
 static pid_t pid;		/* Our pid */
@@ -222,8 +221,6 @@ main(argc, argv)
      */
     for (i = 0; (protp = protocols[i]) != NULL; ++i)
 	(*protp->init)(0);
-
-    progname = *argv;
 
     if (!options_from_file(_PATH_SYSOPTIONS, !privileged, 0, 1)
 	|| !options_from_user())
@@ -1104,7 +1101,7 @@ device_script(program, in, out)
 		_exit(1);
 	}
 
-	execl("/bin/sh", "sh", "-c", program, (char *)0);
+	execl("/bin/sh", "sh", "-c", program, (char *)NULL);
 	syslog(LOG_ERR, "could not exec /bin/sh: %m");
 	_exit(99);
 	/* NOTREACHED */

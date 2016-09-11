@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.14 2015/10/10 00:16:23 benno Exp $	*/
+/*	$OpenBSD: ca.c,v 1.22 2016/09/03 14:09:04 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <poll.h>
 #include <imsg.h>
 
 #include <openssl/bio.h>
@@ -55,31 +56,29 @@ int	 rsae_verify(int dtype, const u_char *m, u_int, const u_char *,
 int	 rsae_keygen(RSA *, int, BIGNUM *, BN_GENCB *);
 
 static struct relayd *env = NULL;
-extern int		 proc_id;
 
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	ca_dispatch_parent },
 	{ "relay",	PROC_RELAY,	ca_dispatch_relay },
 };
 
-pid_t
+void
 ca(struct privsep *ps, struct privsep_proc *p)
 {
 	env = ps->ps_env;
 
-	return (proc_run(ps, p, procs, nitems(procs), ca_init, NULL));
+	proc_run(ps, p, procs, nitems(procs), ca_init, NULL);
 }
 
 void
 ca_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 {
-	if (pledge("stdio", NULL) == -1)
+	if (pledge("stdio recvfd", NULL) == -1)
 		fatal("pledge");
 
 	if (config_init(ps->ps_env) == -1)
 		fatal("failed to initialize configuration");
 
-	proc_id = p->p_instance;
 	env->sc_id = getpid() & 0xffff;
 }
 
@@ -181,7 +180,7 @@ ca_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_CA_PRIVDEC:
 		IMSG_SIZE_CHECK(imsg, (&cko));
 		bcopy(imsg->data, &cko, sizeof(cko));
-		if (cko.cko_proc > env->sc_prefork_relay)
+		if (cko.cko_proc > env->sc_conf.prefork_relay)
 			fatalx("ca_dispatch_relay: "
 			    "invalid relay proc");
 		if (IMSG_DATA_SIZE(imsg) != (sizeof(cko) + cko.cko_flen))
@@ -217,7 +216,7 @@ ca_dispatch_relay(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 
 		proc_composev_imsg(env->sc_ps, PROC_RELAY, cko.cko_proc,
-		    imsg->hdr.type, -1, iov, c);
+		    imsg->hdr.type, -1, -1, iov, c);
 
 		free(to);
 		RSA_free(rsa);
@@ -256,6 +255,8 @@ static int
 rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
     int padding, u_int cmd)
 {
+	struct privsep	*ps = env->sc_ps;
+	struct pollfd	 pfd[1];
 	struct ctl_keyop cko;
 	int		 ret = 0;
 	objid_t		*id;
@@ -269,7 +270,7 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 	if ((id = RSA_get_ex_data(rsa, 0)) == NULL)
 		return (0);
 
-	iev = proc_iev(env->sc_ps, PROC_CA, proc_id);
+	iev = proc_iev(ps, PROC_CA, ps->ps_instance);
 	ibuf = &iev->ibuf;
 
 	/*
@@ -277,7 +278,7 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 	 */
 
 	cko.cko_id = *id;
-	cko.cko_proc = proc_id;
+	cko.cko_proc = ps->ps_instance;
 	cko.cko_flen = flen;
 	cko.cko_tlen = RSA_size(rsa);
 	cko.cko_padding = padding;
@@ -292,10 +293,22 @@ rsae_send_imsg(int flen, const u_char *from, u_char *to, RSA *rsa,
 	 * operation in OpenSSL's engine layer.
 	 */
 	imsg_composev(ibuf, cmd, 0, 0, -1, iov, cnt);
-	imsg_flush(ibuf);
+	if (imsg_flush(ibuf) == -1)
+		log_warn("rsae_send_imsg: imsg_flush");
 
+	pfd[0].fd = ibuf->fd;
+	pfd[0].events = POLLIN;
 	while (!done) {
-		if ((n = imsg_read(ibuf)) == -1)
+		switch (poll(pfd, 1, RELAY_TLS_PRIV_TIMEOUT)) {
+		case -1:
+			fatal("rsae_send_imsg: poll");
+		case 0:
+			log_warnx("rsae_send_imsg: poll timeout");
+			break;
+		default:
+			break;
+		}
+		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatalx("imsg_read");
 		if (n == 0)
 			fatalx("pipe closed");

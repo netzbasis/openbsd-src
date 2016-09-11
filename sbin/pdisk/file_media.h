@@ -1,3 +1,5 @@
+/*	$OpenBSD: file_media.h,v 1.20 2016/01/30 17:09:11 krw Exp $	*/
+
 /*
  * file_media.h -
  *
@@ -28,33 +30,10 @@
 #ifndef __file_media__
 #define __file_media__
 
-#include "media.h"
+int	read_block0(int, struct partition_map *);
+int	write_block0(int, struct partition_map *);
 
-
-/*
- * Defines
- */
-
-
-/*
- * Types
- */
-
-
-/*
- * Global Constants
- */
-
-
-/*
- * Global Variables
- */
-
-
-/*
- * Forward declarations
- */
-MEDIA open_file_as_media(char *file, int oflag);
-MEDIA_ITERATOR create_file_iterator(void);
+int	read_dpme(int, uint64_t, struct entry *);
+int	write_dpme(int, uint64_t, struct entry *);
 
 #endif /* __file_media__ */

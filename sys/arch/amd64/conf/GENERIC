@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.399 2015/10/29 07:47:02 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.432 2016/09/04 10:22:05 tedu Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -37,6 +37,7 @@ isa0	at pcib?
 isa0	at amdpcib?
 isa0	at tcpcib?
 pci*	at mainbus0
+#vmm0	at mainbus0
 pvbus0	at mainbus0
 
 acpi0		at bios0
@@ -60,12 +61,24 @@ acpivideo*	at acpi?
 acpivout*	at acpivideo?
 acpipwrres*	at acpi?
 aibs*		at acpi?
+bytgpio*	at acpi?
+chvgpio*	at acpi?
+sdhc*		at acpi?
+acpicbkbd*	at acpi?
+acpials*	at acpi?
+tpm*		at acpi?
 
 mpbios0		at bios0
 
 ipmi0	at mainbus? disable	# IPMI
 
 vmt0	at pvbus?		# VMware Tools
+
+xen0	at pvbus?		# Xen HVM domU
+xnf*	at xen?			# Xen Netfront
+
+#hyperv0	at pvbus?		# Hyper-V guest
+#hvn*	at hyperv?		# Hyper-V netvsc
 
 option		PCIVERBOSE
 option		USBVERBOSE
@@ -81,6 +94,7 @@ tcpcib*	at pci?			# Intel Atom E600 LPC bridge
 kate*	at pci?			# AMD K8 temperature sensor
 km*	at pci?			# AMD K10 temperature sensor
 amas*	at pci? disable		# AMD memory configuration
+pchtemp* at pci?		# Intel C610 termperature sensor
 
 # National Semiconductor LM7[89] and compatible hardware monitors
 lm0	at isa? port 0x290
@@ -90,7 +104,7 @@ lm0	at isa? port 0x290
 it*	at isa? port 0x2e	# ITE IT8705F, IT8712F, IT8716F, IT8718F,
 it*	at isa? port 0x4e	# IT8726F and SiS SiS950 monitors and
 				# watchdog timer
-				
+
 schsio*	at isa? port 0x2e	# SMSC SCH311x Super I/O
 schsio*	at isa? port 0x4e
 schsio*	at isa? port 0x162e
@@ -119,6 +133,8 @@ nviic*	at pci?			# NVIDIA nForce2/3/4 SMBus controller
 iic*	at nviic?
 amdpm*	at pci?			# AMD-7xx/8111 and NForce SMBus controller
 iic*	at amdpm?
+dwiic*	at acpi?		# DesignWare Synopsys i2c controller
+iic*	at dwiic?
 
 itherm*	at pci?			# Intel 3400 Thermal Sensor
 adc*	at iic?			# Analog Devices AD7416/AD7417/7418
@@ -142,6 +158,15 @@ spdmem*	at iic?			# SPD memory eeproms
 sdtemp*	at iic?			# SO-DIMM (JC-42.4) temperature
 wbng*	at iic?			# Winbond W83793G
 nvt*	at iic?			# Novoton W83795G
+ihidev*	at iic?			# HID-over-i2c
+ims*	at ihidev?		# HID-over-i2c mouse/trackpad
+wsmouse* at ims? mux 0
+ikbd*	at ihidev?		# i2c keyboard
+wskbd*	at ikbd? mux 1
+imt*	at ihidev?		# HID-over-i2c multitouch trackpad
+wsmouse* at imt? mux 0
+iatp* at iic?			# Atmel maXTouch i2c touchpad/touchscreen
+wsmouse* at iatp? mux 0
 
 skgpio0 at isa? port 0x680	# Soekris net6501 GPIO and LEDs
 gpio* at skgpio?
@@ -179,6 +204,7 @@ usb*	at ohci?
 uhub*	at usb?			# USB Hubs
 uhub*	at uhub?		# USB Hubs
 ualea*	at uhub?		# Araneus Alea II TRNG
+uonerng* at uhub?		# Moonbase Otago OneRNG
 umodem*	at uhub?		# USB Modems/Serial
 ucom*	at umodem?
 uvisor*	at uhub?		# Handspring Visor
@@ -198,7 +224,7 @@ ucom*	at uslcom?
 uark*	at uhub?		# Arkmicro ARK3116 serial
 ucom*	at uark?
 moscom*	at uhub?		# MosChip MCS7703 serial
-ucom*	at moscom?		
+ucom*	at moscom?
 umcs*	at uhub?		# MosChip MCS78x0 serial
 ucom*	at umcs?
 uipaq*	at uhub?		# iPAQ serial adapter
@@ -244,6 +270,7 @@ ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio
@@ -261,6 +288,7 @@ urtw*	at uhub?		# Realtek 8187
 rsu*	at uhub?		# Realtek RTL8188SU/RTL8191SU/RTL8192SU
 urtwn*	at uhub?		# Realtek RTL8188CU/RTL8192CU
 udcf*	at uhub?		# Gude Expert mouseCLOCK
+umb*	at uhub?		# Mobile Broadband Interface Model
 uthum*	at uhidev?		# TEMPerHUM sensor
 ugold*	at uhidev?		# gold TEMPer sensor
 utrh*	at uhidev?		# USBRH sensor
@@ -272,6 +300,9 @@ uoakv*	at uhidev?		# Toradex OAK 10V sensor
 onewire* at uow?
 uvideo*	at uhub?		# USB Video
 video*	at uvideo?
+utvfu*	at uhub?		# Fushicai Audio-Video Grabber
+video*	at utvfu?
+audio*	at utvfu?
 udl*	at uhub?		# DisplayLink USB displays
 wsdisplay* at udl?
 
@@ -288,7 +319,6 @@ isadma0	at isa?
 option	WSDISPLAY_COMPAT_USL		# VT handling
 option	WSDISPLAY_COMPAT_RAWKBD		# provide raw scancodes; needed for X11
 option	WSDISPLAY_DEFAULTSCREENS=6	# initial number of text consoles
-option	WSDISPLAY_COMPAT_PCVT		# emulate some ioctls; needed for X11
 
 pckbc0		at isa? flags 0x00	# PC keyboard controller
 pckbd*		at pckbc?		# PC keyboard
@@ -309,12 +339,12 @@ agp*		at intagp?
 drm0		at inteldrm? console 1
 drm*		at inteldrm?
 wsdisplay0	at inteldrm? console 1
-wsdisplay*	at inteldrm?
+wsdisplay*	at inteldrm? mux -1
 radeondrm*	at pci? 	# ATI Radeon DRM driver
 drm0		at radeondrm? console 1
 drm*		at radeondrm?
 wsdisplay0	at radeondrm? console 1
-wsdisplay*	at radeondrm?
+wsdisplay*	at radeondrm? mux -1
 
 pcppi0		at isa?
 
@@ -338,7 +368,6 @@ lpt*	at puc?
 efifb0		at mainbus?		# EFI Framebuffer
 wsdisplay0	at efifb? console 1
 
-#bha*	at pci?				# BusLogic [57]4X SCSI controllers
 ahc*	at pci?				# Adaptec 2940 SCSI controllers
 jmb*	at pci?				# JMicron JMB36x controllers
 ahci*	at jmb? flags 0x0000		# flags 0x0001 to force SATA 1 (1.5Gb/s)
@@ -371,6 +400,7 @@ adw*	at pci?				# AdvanSys ULTRA WIDE SCSI
 pcscp*	at pci?				# AMD 53c974 PCscsi-PCI SCSI
 #trm*	at pci?				# Tekram DC-3x5U SCSI Controllers
 vmwpvs*	at pci?				# VMware ParaVirtual SCSI
+nvme*	at pci?				# NVMe controllers
 
 scsibus* at scsi?
 sd*	at scsibus?			# SCSI disk drives
@@ -483,7 +513,6 @@ wi*	at pci?				# WaveLAN IEEE 802.11DS
 wi*	at pcmcia?			# WaveLAN IEEE 802.11DS
 an*	at pci?				# Aironet IEEE 802.11DS
 an*	at pcmcia?			# Aironet IEEE 802.11DS
-cnw*	at pcmcia?			# Xircom Netwave
 iwi*	at pci?				# Intel PRO/Wireless 2200BG/2915ABG
 wpi*	at pci?				# Intel PRO/Wireless 3945ABG
 iwn*	at pci?				# Intel WiFi Link 4965/5000/1000/6000
@@ -598,6 +627,8 @@ hifn*	at pci?			# Hi/fn 7751 crypto card
 ubsec*	at pci?			# Bluesteel Networks 5xxx crypto card
 safe*	at pci?			# SafeNet SafeXcel 1141/1741
 
+xspd0	at pci?			# XenSource Platform Device
+
 # 1-Wire devices
 option ONEWIREVERBOSE
 owid*	at onewire?		# ID
@@ -619,3 +650,4 @@ vio*		at virtio?	# Virtio network device
 viomb*		at virtio?	# Virtio memory ballooning device
 viornd*		at virtio?	# Virtio entropy device
 vioscsi*	at virtio?	# Virtio SCSI device
+#viocon*		at virtio?	# Virtio console device

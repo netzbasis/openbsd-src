@@ -1,4 +1,4 @@
-/*	$OpenBSD: sem.c,v 1.20 2015/10/26 22:03:06 naddy Exp $	*/
+/*	$OpenBSD: sem.c,v 1.22 2016/03/19 15:42:38 krw Exp $	*/
 /*	$NetBSD: sem.c,v 1.9 1995/09/27 00:38:50 jtc Exp $	*/
 
 /*-
@@ -31,7 +31,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -273,11 +272,11 @@ execute(struct command *t, int wanttty, int *pipein, int *pipeout)
 		    csigset = ocsigset;
 		    nosigchld = onosigchld;
 
-		    xfree(Vsav);
+		    free(Vsav);
 		    Vsav = NULL;
-		    xfree(Vdp);
+		    free(Vdp);
 		    Vdp = NULL;
-		    xfree(Vexpath);
+		    free(Vexpath);
 		    Vexpath = NULL;
 		    blkfree((Char **) Vt);
 		    Vt = NULL;
@@ -483,23 +482,23 @@ splicepipe(struct command *t, Char *cp) /* word after < or > */
 	    pv = globall(blk);
 	    if (pv == NULL) {
 		setname(vis_str(blk[0]));
-		xfree(blk[0]);
+		free(blk[0]);
 		stderror(ERR_NAME | ERR_NOMATCH);
 	    }
 	    gargv = NULL;
 	    if (pv[1] != NULL) { /* we need to fix the command vector */
 		Char **av = blkspl(t->t_dcom, &pv[1]);
-		xfree(t->t_dcom);
+		free(t->t_dcom);
 		t->t_dcom = av;
 	    }
-	    xfree(blk[0]);
+	    free(blk[0]);
 	    blk[0] = pv[0];
-	    xfree(pv);
+	    free(pv);
 	}
     }
     else {
 	blk[0] = globone(blk[1] = Dfix1(cp), G_ERROR);
-	xfree(blk[1]);
+	free(blk[1]);
     }
     return(blk[0]);
 }
@@ -529,7 +528,7 @@ doio(struct command *t, int *pipein, int *pipeout)
 	    (void) dcopy(SHERR, 2);
 	    cp = splicepipe(t, t->t_dlef);
 	    strlcpy(tmp, short2str(cp), sizeof tmp);
-	    xfree(cp);
+	    free(cp);
 	    if ((fd = open(tmp, O_RDONLY)) < 0)
 		stderror(ERR_SYSTEM, tmp, strerror(errno));
 	    (void) dmove(fd, 0);
@@ -547,7 +546,7 @@ doio(struct command *t, int *pipein, int *pipeout)
 	else {
 	    (void) close(0);
 	    (void) dup(OLDSTD);
-	    (void) ioctl(STDIN_FILENO, FIONCLEX, NULL);
+	    (void) fcntl(STDIN_FILENO, F_SETFD, 0);
 	}
     }
     if (t->t_drit) {
@@ -555,7 +554,7 @@ doio(struct command *t, int *pipein, int *pipeout)
 
 	cp = splicepipe(t, t->t_drit);
 	strlcpy(tmp, short2str(cp), sizeof tmp);
-	xfree(cp);
+	free(cp);
 	/*
 	 * so > /dev/std{out,err} work
 	 */
@@ -581,7 +580,7 @@ doio(struct command *t, int *pipein, int *pipeout)
     else {
 	(void) close(1);
 	(void) dup(SHOUT);
-	(void) ioctl(STDOUT_FILENO, FIONCLEX, NULL);
+	(void) fcntl(STDOUT_FILENO, F_SETFD, 0);
     }
 
     (void) close(2);
@@ -590,7 +589,7 @@ doio(struct command *t, int *pipein, int *pipeout)
     }
     else {
 	(void) dup(SHERR);
-	(void) ioctl(STDERR_FILENO, FIONCLEX, NULL);
+	(void) fcntl(STDERR_FILENO, F_SETFD, 0);
     }
     didfds = 1;
 }

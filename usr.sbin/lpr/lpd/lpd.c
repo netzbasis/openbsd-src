@@ -1,4 +1,4 @@
-/*	$OpenBSD: lpd.c,v 1.62 2015/10/28 13:25:55 millert Exp $	*/
+/*	$OpenBSD: lpd.c,v 1.64 2016/02/29 17:26:01 jca Exp $	*/
 /*	$NetBSD: lpd.c,v 1.33 2002/01/21 14:42:29 wiz Exp $	*/
 
 /*
@@ -107,7 +107,6 @@ static void		mcleanup(int);
 static void		doit(void);
 static void		startup(void);
 static void		chkhost(struct sockaddr *);
-static int		ckqueue(char *);
 static __dead void	usage(void);
 static int		*socksetup(int, int, const char *);
 
@@ -596,35 +595,6 @@ startup(void)
 }
 
 /*
- * Make sure there's some work to do before forking off a child
- * XXX - could be common w/ lpq
- */
-static int
-ckqueue(char *cap)
-{
-	struct dirent *d;
-	DIR *dirp;
-	char *spooldir;
-
-	if (cgetstr(cap, "sd", &spooldir) >= 0) {
-		dirp = opendir(spooldir);
-		free(spooldir);
-	} else
-		dirp = opendir(_PATH_DEFSPOOL);
-
-	if (dirp == NULL)
-		return (-1);
-	while ((d = readdir(dirp)) != NULL) {
-		if (d->d_name[0] == 'c' && d->d_name[1] == 'f') {
-			closedir(dirp);
-			return (1);		/* found a cf file */
-		}
-	}
-	closedir(dirp);
-	return (0);
-}
-
-/*
  * Check to see if the from host has access to the line printer.
  */
 static void
@@ -790,8 +760,7 @@ socksetup(int af, int options, const char *port)
 
 	if (socks == NULL || *socks == 0) {
 		syslog(LOG_ERR, "Couldn't bind to any socket");
-		if (socks != NULL)
-			free(socks);
+		free(socks);
 		mcleanup(0);
 	}
 	return(socks);

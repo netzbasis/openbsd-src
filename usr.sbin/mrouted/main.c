@@ -132,14 +132,14 @@ usage:	fprintf(stderr,
 	(void)close(0);
 	(void)close(1);
 	(void)close(2);
-	(void)open("/", 0);
+	(void)open("/dev/null", O_RDONLY);
 	(void)dup2(0, 1);
 	(void)dup2(0, 2);
 #ifdef SYSV
 	(void)setpgrp();
 #else
 #ifdef TIOCNOTTY
-	t = open("/dev/tty", 2);
+	t = open("/dev/tty", O_RDWR);
 	if (t >= 0) {
 	    (void)ioctl(t, TIOCNOTTY, (char *)0);
 	    (void)close(t);

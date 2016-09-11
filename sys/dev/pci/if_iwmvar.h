@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.12 2015/10/22 11:51:28 jsg Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.22 2016/09/10 09:32:33 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -137,8 +137,9 @@ struct iwm_tx_radiotap_header {
 	 (1 << IEEE80211_RADIOTAP_CHANNEL) |				\
 	 (1 << IEEE80211_RADIOTAP_HWQUEUE))
 
-#define IWM_UCODE_SECT_MAX 6
+#define IWM_UCODE_SECT_MAX 16
 #define IWM_FWDMASEGSZ (192*1024)
+#define IWM_FWDMASEGSZ_8000 (320*1024)
 /* sanity check value */
 #define IWM_FWMAXSIZE (2*1024*1024)
 
@@ -152,9 +153,10 @@ struct iwm_tx_radiotap_header {
 #define IWM_FW_STATUS_DONE		2
 
 enum iwm_ucode_type {
-	IWM_UCODE_TYPE_INIT,
 	IWM_UCODE_TYPE_REGULAR,
+	IWM_UCODE_TYPE_INIT,
 	IWM_UCODE_TYPE_WOW,
+	IWM_UCODE_TYPE_REGULAR_USNIFFER,
 	IWM_UCODE_TYPE_MAX
 };
 
@@ -191,6 +193,7 @@ struct iwm_nvm_data {
 	int sku_cap_11n_enable;
 	int sku_cap_amt_enable;
 	int sku_cap_ipan_enable;
+	int sku_cap_mimo_disable;
 
 	uint8_t radio_cfg_type;
 	uint8_t radio_cfg_step;
@@ -216,7 +219,7 @@ struct iwm_host_cmd {
 	uint32_t flags;
 	uint16_t len[IWM_MAX_CMD_TBS_PER_TFD];
 	uint8_t dataflags[IWM_MAX_CMD_TBS_PER_TFD];
-	uint8_t id;
+	uint32_t id;
 };
 
 /*
@@ -261,17 +264,9 @@ struct iwm_tx_ring {
 /* Linux driver optionally uses 8k buffer */
 #define IWM_RBUF_SIZE		4096
 
-struct iwm_softc;
-struct iwm_rbuf {
-	struct iwm_softc	*sc;
-	void			*vaddr;
-	bus_addr_t		paddr;
-};
-
 struct iwm_rx_data {
 	struct mbuf	*m;
 	bus_dmamap_t	map;
-	int		wantresp;
 };
 
 struct iwm_rx_ring {
@@ -288,10 +283,11 @@ struct iwm_rx_ring {
 #define IWM_FLAG_HW_INITED	0x02
 #define IWM_FLAG_STOPPED	0x04
 #define IWM_FLAG_RFKILL		0x08
-#define IWM_FLAG_BUSY		0x10
+#define IWM_FLAG_SCANNING	0x10
 
 struct iwm_ucode_status {
 	uint32_t uc_error_event_table;
+	uint32_t uc_umac_error_event_table;
 	uint32_t uc_log_event_table;
 
 	int uc_ok;
@@ -303,13 +299,14 @@ struct iwm_ucode_status {
 
 #define IWM_CMD_RESP_MAX PAGE_SIZE
 
-#define IWM_OTP_LOW_IMAGE_SIZE 2048
+/* lower blocks contain EEPROM image and calibration data */
+#define IWM_OTP_LOW_IMAGE_SIZE_FAMILY_7000 	16384
+#define IWM_OTP_LOW_IMAGE_SIZE_FAMILY_8000	32768
 
-#define IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS 500
-#define IWM_MVM_TE_SESSION_PROTECTION_MIN_TIME_MS 400
+#define IWM_TE_SESSION_PROTECTION_MAX_TIME_MS 1000
+#define IWM_TE_SESSION_PROTECTION_MIN_TIME_MS 400
 
 enum IWM_CMD_MODE {
-	IWM_CMD_SYNC		= 0,
 	IWM_CMD_ASYNC		= (1 << 0),
 	IWM_CMD_WANT_SKB	= (1 << 1),
 	IWM_CMD_SEND_IN_RFKILL	= (1 << 2),
@@ -319,7 +316,7 @@ enum iwm_hcmd_dataflag {
 	IWM_HCMD_DFL_DUP        = (1 << 1),
 };
 
-#define IWM_NUM_PAPD_CH_GROUPS	4
+#define IWM_NUM_PAPD_CH_GROUPS	9
 #define IWM_NUM_TXP_CH_GROUPS	9
 
 struct iwm_phy_db_entry {
@@ -339,7 +336,7 @@ struct iwm_int_sta {
 	uint32_t tfd_queue_msk;
 };
 
-struct iwm_mvm_phy_ctxt {
+struct iwm_phy_ctxt {
 	uint16_t id;
 	uint16_t color;
 	uint32_t ref;
@@ -365,8 +362,18 @@ struct iwm_softc {
 
 	struct task		init_task;
 	struct task		newstate_task;
+	struct task		setrates_task;
 	enum ieee80211_state	ns_nstate;
 	int			ns_arg;
+
+	/* Task for firmware BlockAck setup/teardown and its arguments. */
+	struct task		ba_task;
+	int			ba_start;
+	int			ba_tid;
+	uint16_t		ba_ssn;
+
+	/* Task for HT protection updates. */
+	struct task		htprot_task;
 
 	bus_space_tag_t sc_st;
 	bus_space_handle_t sc_sh;
@@ -381,7 +388,7 @@ struct iwm_softc {
 	uint32_t			sched_base;
 
 	/* TX/RX rings. */
-	struct iwm_tx_ring txq[IWM_MVM_MAX_QUEUES];
+	struct iwm_tx_ring txq[IWM_MAX_QUEUES];
 	struct iwm_rx_ring rxq;
 	int qfullmsk;
 
@@ -392,7 +399,14 @@ struct iwm_softc {
 	int			ict_cur;
 
 	int sc_hw_rev;
+#define IWM_SILICON_A_STEP	0
+#define IWM_SILICON_B_STEP	1
+#define IWM_SILICON_C_STEP	2
+#define IWM_SILICON_D_STEP	3
 	int sc_hw_id;
+	int sc_device_family;
+#define IWM_DEVICE_FAMILY_7000	1
+#define IWM_DEVICE_FAMILY_8000	2
 
 	struct iwm_dma_info kw_dma;
 	struct iwm_dma_info fw_dma;
@@ -402,10 +416,14 @@ struct iwm_softc {
 
 	struct iwm_ucode_status sc_uc;
 	enum iwm_ucode_type sc_uc_current;
-	int sc_fwver;
+	char sc_fwver[32];
 
 	int sc_capaflags;
 	int sc_capa_max_probe_len;
+	int sc_capa_n_scan_channels;
+	uint32_t sc_ucode_api;
+	uint8_t sc_enabled_capa[howmany(IWM_NUM_UCODE_TLV_CAPA, NBBY)];
+	char sc_fw_mcc[3];
 
 	int sc_intmask;
 	int sc_flags;
@@ -421,6 +439,8 @@ struct iwm_softc {
 	 */
 	int sc_generation;
 
+	struct rwlock ioctl_rwl;
+
 	int sc_cap_off; /* PCIe caps */
 
 	const char *sc_fwname;
@@ -435,13 +455,9 @@ struct iwm_softc {
 	struct iwm_bf_data sc_bf;
 
 	int sc_tx_timer;
+	int sc_rx_ba_sessions;
 
-	struct iwm_scan_cmd *sc_scan_cmd;
-	size_t sc_scan_cmd_len;
 	int sc_scan_last_antenna;
-	int sc_scanband;
-
-	int sc_auth_prot;
 
 	int sc_fixed_ridx;
 
@@ -460,7 +476,7 @@ struct iwm_softc {
 	struct iwm_int_sta sc_aux_sta;
 
 	/* phy contexts.  we only use the first one */
-	struct iwm_mvm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];
+	struct iwm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];
 
 	struct iwm_notif_statistics sc_stats;
 	int sc_noise;
@@ -488,7 +504,7 @@ struct iwm_softc {
 
 struct iwm_node {
 	struct ieee80211_node in_ni;
-	struct iwm_mvm_phy_ctxt *in_phyctxt;
+	struct iwm_phy_ctxt *in_phyctxt;
 
 	uint16_t in_id;
 	uint16_t in_color;
@@ -499,10 +515,9 @@ struct iwm_node {
 
 	struct iwm_lq_cmd in_lq;
 	struct ieee80211_amrr_node in_amn;
-
-	uint8_t in_ridx[IEEE80211_RATE_MAXSIZE];
 };
 #define IWM_STATION_ID 0
+#define IWM_AUX_STA_ID 1
 
 #define IWM_ICT_SIZE		4096
 #define IWM_ICT_COUNT		(IWM_ICT_SIZE / sizeof (uint32_t))

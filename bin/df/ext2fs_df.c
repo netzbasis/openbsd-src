@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_df.c,v 1.13 2015/03/01 20:59:05 tobias Exp $	*/
+/*	$OpenBSD: ext2fs_df.c,v 1.16 2016/03/01 17:57:49 mmcc Exp $	*/
 
 /*
  * This file is substantially derived from src/sys/ufs/ext2fs/ext2fs_vfsops.c:e2fs_statfs().
@@ -42,11 +42,7 @@
 #include <sys/mount.h>
 #include <ufs/ext2fs/ext2fs.h>
 #include <ufs/ext2fs/ext2fs_dinode.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
-#include <fstab.h>
 
 int		e2fs_df(int, char *, struct statfs *);
 
@@ -100,8 +96,8 @@ e2fs_df(int rfd, char *file, struct statfs *sfsp)
 	sfsp->f_fsid.val[1] = 0;
 	if ((mntpt = getmntpt(file)) == 0)
 		mntpt = "";
-	memmove(&sfsp->f_mntonname[0], mntpt, MNAMELEN);
-	memmove(&sfsp->f_mntfromname[0], file, MNAMELEN);
-	strlcpy(sfsp->f_fstypename, MOUNT_EXT2FS, MFSNAMELEN);
+	strlcpy(sfsp->f_mntonname, mntpt, sizeof(sfsp->f_mntonname));
+	strlcpy(sfsp->f_mntfromname, file, sizeof(sfsp->f_mntfromname));
+	strlcpy(sfsp->f_fstypename, MOUNT_EXT2FS, sizeof(sfsp->f_fstypename));
 	return (0);
 }

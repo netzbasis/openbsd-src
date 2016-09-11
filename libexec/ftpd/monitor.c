@@ -1,4 +1,4 @@
-/*	$OpenBSD: monitor.c,v 1.22 2015/02/06 23:21:58 millert Exp $	*/
+/*	$OpenBSD: monitor.c,v 1.24 2016/04/25 15:43:34 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2004 Moritz Jodeit <moritz@openbsd.org>
@@ -49,9 +49,7 @@ enum monitor_state {
 	POSTAUTH
 };
 
-#ifdef HASSETPROCTITLE
 extern char	remotehost[];
-#endif
 extern char	ttyline[20];
 extern int	debug;
 
@@ -184,23 +182,17 @@ monitor_init(void)
 
 		if (setgroups(1, &pw->pw_gid) == -1)
 			fatalx("setgroups: %m");
-		if (setegid(pw->pw_gid) == -1)
-			fatalx("setegid failed");
-		if (setgid(pw->pw_gid) == -1)
-			fatalx("setgid failed");
-		if (seteuid(pw->pw_uid) == -1)
-			fatalx("seteuid failed");
-		if (setuid(pw->pw_uid) == -1)
-			fatalx("setuid failed");
+		if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1)
+			fatalx("setresgid failed");
+		if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1)
+			fatalx("setresuid failed");
 
 		endpwent();
 		close(fd_slave);
 		return (1);
 	}
 
-#ifdef HASSETPROCTITLE
 	setproctitle("%s: [priv pre-auth]", remotehost);
-#endif
 
 	handle_cmds();
 
@@ -312,10 +304,8 @@ handle_cmds(void)
 				/* Post-auth monitor */
 				debugmsg("monitor went into post-auth phase");
 				state = POSTAUTH;
-#ifdef HASSETPROCTITLE
 				setproctitle("%s: [priv post-auth]",
 				    remotehost);
-#endif
 				slavequit = 1;
 
 				send_data(fd_slave, &slavequit,

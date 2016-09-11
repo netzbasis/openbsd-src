@@ -1,4 +1,4 @@
-/*	$OpenBSD: res_comp.c,v 1.18 2015/10/05 02:57:16 guenther Exp $	*/
+/*	$OpenBSD: res_comp.c,v 1.20 2016/05/01 15:17:29 millert Exp $	*/
 
 /*
  * ++Copyright++ 1985, 1993
@@ -67,7 +67,7 @@ static int dn_find(u_char *, u_char *, u_char **, u_char **);
 
 /*
  * Expand compressed domain name 'comp_dn' to full domain name.
- * 'msg' is a pointer to the begining of the message,
+ * 'msg' is a pointer to the beginning of the message,
  * 'eomorig' points to the first location after the message,
  * 'exp_dn' is a pointer to a buffer of size 'length' for the result.
  * Return size of compressed name or -1 if there was an error.
@@ -443,18 +443,6 @@ _getshort(const u_char *msgp)
 	return (u);
 }
 DEF_STRONG(_getshort);
-
-#ifdef NeXT
-/*
- * nExt machines have some funky library conventions, which we must maintain.
- */
-u_int16_t
-res_getshort(msgp)
-	const u_char *msgp;
-{
-	return (_getshort(msgp));
-}
-#endif
 
 u_int32_t
 _getlong(const u_char *msgp)

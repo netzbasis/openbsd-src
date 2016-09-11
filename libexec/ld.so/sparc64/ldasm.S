@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldasm.S,v 1.39 2015/09/19 20:56:47 guenther Exp $	*/
+/*	$OpenBSD: ldasm.S,v 1.44 2016/08/28 06:15:33 guenther Exp $	*/
 /*	$NetBSD: rtld_start.S,v 1.5 2001/08/14 22:17:48 eeh Exp $	*/
 
 /*
@@ -230,6 +230,13 @@ _ENTRY(_dl_issetugid)
 	retl
 	 sub %g0, %o0, %o0				! error: result = -errno
 
+_ENTRY(_dl_getthrid)
+	mov SYS_getthrid | SYSCALL_G2RFLAG, %g1	! call sys_getthrid
+	add %o7, 8, %g2				! just return on success
+	t ST_SYSCALL				! off to wonderland
+	retl
+	 sub %g0, %o0, %o0			! error: result = -errno
+
 _ENTRY(_dl__syscall)
 	mov SYS___syscall | SYSCALL_G2RFLAG, %g1	! call sys___syscall
 	add %o7, 8, %g2				! just return on success
@@ -293,22 +300,8 @@ _ENTRY(_dl_sysctl)
 	retl
 	 sub %g0, %o0, %o0				! error: result = -errno
 
-_ENTRY(_dl_gettimeofday)
-	mov SYS_gettimeofday | SYSCALL_G2RFLAG, %g1	! calling sys_gettimeofday
-	add %o7, 8, %g2				! just return on success
-	t ST_SYSCALL				! off to wonderland
-	retl
-	 sub %g0, %o0, %o0			! error: result = -errno
-
 _ENTRY(_dl_readlink)
 	mov SYS_readlink | SYSCALL_G2RFLAG, %g1	! calling sys_readlink
-	add %o7, 8, %g2				! just return on success
-	t ST_SYSCALL				! off to wonderland
-	retl
-	 sub %g0, %o0, %o0			! error: result = -errno
-
-_ENTRY(_dl_lstat)
-	mov SYS_lstat | SYSCALL_G2RFLAG, %g1	! calling sys_lstat
 	add %o7, 8, %g2				! just return on success
 	t ST_SYSCALL				! off to wonderland
 	retl
@@ -337,6 +330,13 @@ _ENTRY(_dl_getentropy)
 
 _ENTRY(_dl_sendsyslog)
 	mov SYS_sendsyslog | SYSCALL_G2RFLAG, %g1	! calling sys_sendsyslog
+	add %o7, 8, %g2				! just return on success
+	t ST_SYSCALL				! off to wonderland
+	retl
+	 sub %g0, %o0, %o0			! error: result = -errno
+
+_ENTRY(_dl_pledge)
+	mov SYS_pledge | SYSCALL_G2RFLAG, %g1	! calling sys_pledge
 	add %o7, 8, %g2				! just return on success
 	t ST_SYSCALL				! off to wonderland
 	retl

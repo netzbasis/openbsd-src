@@ -1,4 +1,4 @@
-/*	$OpenBSD: localtime.c,v 1.56 2015/11/01 03:45:29 guenther Exp $ */
+/*	$OpenBSD: localtime.c,v 1.58 2016/03/14 15:26:52 mestre Exp $ */
 /*
 ** This file is in the public domain, so clarified as of
 ** 1996-06-05 by Arthur David Olson.
@@ -328,7 +328,6 @@ tzload(const char *name, struct state *sp, int doextend)
 				    4 * TZ_MAX_TIMES];
 	} u_t;
 	u_t *			up;
-	int			doaccess;
 	char			fullname[PATH_MAX];
 
 	up = calloc(1, sizeof *up);
@@ -346,8 +345,7 @@ tzload(const char *name, struct state *sp, int doextend)
 
 	if (name[0] == ':')
 		++name;
-	doaccess = name[0] == '/';
-	if (!doaccess) {
+	if (name[0] != '/') {
 		if ((p = TZDIR) == NULL)
 			goto oops;
 		if ((strlen(p) + strlen(name) + 1) >= sizeof fullname)
@@ -355,15 +353,8 @@ tzload(const char *name, struct state *sp, int doextend)
 		strlcpy(fullname, p, sizeof fullname);
 		strlcat(fullname, "/", sizeof fullname);
 		strlcat(fullname, name, sizeof fullname);
-		/*
-		** Set doaccess if '.' (as in "../") shows up in name.
-		*/
-		if (strchr(name, '.') != NULL)
-			doaccess = TRUE;
 		name = fullname;
 	}
-	if (doaccess && access(name, R_OK) != 0)
-		goto oops;
 	if ((fid = open(name, O_RDONLY)) == -1)
 		goto oops;
 
@@ -1328,7 +1319,7 @@ gmtsub(const time_t *timep, long offset, struct tm *tmp)
 	_THREAD_PRIVATE_MUTEX_LOCK(gmt);
 	if (!gmt_is_set) {
 		gmt_is_set = TRUE;
-		gmtptr = (struct state *) calloc(1, sizeof *gmtptr);
+		gmtptr = calloc(1, sizeof(*gmtptr));
 		if (gmtptr != NULL)
 			gmtload(gmtptr);
 	}
