@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.32 2016/04/19 18:15:41 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.36 2016/08/17 17:18:38 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -28,13 +28,13 @@
 #endif
 
 struct xen_intsrc {
-	SLIST_ENTRY(xen_intsrc)	  xi_entry;
-	void			(*xi_handler)(void *);
-	void			 *xi_arg;
-	struct evcount		  xi_evcnt;
-	evtchn_port_t		  xi_port;
-	short			  xi_noclose;
-	short			  xi_masked;
+	SLIST_ENTRY(xen_intsrc)	 xi_entry;
+	struct evcount		 xi_evcnt;
+	evtchn_port_t		 xi_port;
+	short			 xi_noclose;
+	short			 xi_masked;
+	struct task		 xi_task;
+	struct taskq		*xi_taskq;
 };
 
 struct xen_gntent {
@@ -114,6 +114,7 @@ typedef uint32_t xen_intr_handle_t;
 void	xen_intr(void);
 void	xen_intr_ack(void);
 void	xen_intr_signal(xen_intr_handle_t);
+void	xen_intr_schedule(xen_intr_handle_t);
 int	xen_intr_establish(evtchn_port_t, xen_intr_handle_t *, int,
 	    void (*)(void *), void *, char *);
 int	xen_intr_disestablish(xen_intr_handle_t);
@@ -141,6 +142,24 @@ struct xs_transaction {
 #define XST_POLL		0x0001
 	struct xs_softc		*xst_sc;
 };
+
+static __inline void
+clear_bit(u_int b, volatile void *p)
+{
+	atomic_clearbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+}
+
+static __inline void
+set_bit(u_int b, volatile void *p)
+{
+	atomic_setbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+}
+
+static __inline int
+test_bit(u_int b, volatile void *p)
+{
+	return !!(((volatile u_int *)p)[b >> 5] & (1 << (b & 0x1f)));
+}
 
 int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 	    int *);

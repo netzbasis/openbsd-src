@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.56 2016/04/28 16:40:10 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.62 2016/08/17 17:18:38 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -628,13 +628,14 @@ xen_intr(void)
 	for (row = 0; selector > 0; selector >>= 1, row++) {
 		if ((selector & 1) == 0)
 			continue;
-		pending = sc->sc_ipg->evtchn_pending[row] &
-		    ~(sc->sc_ipg->evtchn_mask[row]);
+		if ((sc->sc_ipg->evtchn_pending[row] &
+		    ~(sc->sc_ipg->evtchn_mask[row])) == 0)
+			continue;
+		pending = atomic_swap_ulong(&sc->sc_ipg->evtchn_pending[row],
+		    0) & ~(sc->sc_ipg->evtchn_mask[row]);
 		for (bit = 0; pending > 0; pending >>= 1, bit++) {
 			if ((pending & 1) == 0)
 				continue;
-			sc->sc_ipg->evtchn_pending[row] &= ~(1 << bit);
-			virtio_membar_producer();
 			port = (row * LONG_BIT) + bit;
 			if ((xi = xen_lookup_intsrc(sc, port)) == NULL) {
 				printf("%s: unhandled interrupt on port %u\n",
@@ -642,10 +643,19 @@ xen_intr(void)
 				continue;
 			}
 			xi->xi_evcnt.ec_count++;
-			if (xi->xi_handler)
-				xi->xi_handler(xi->xi_arg);
+			task_add(xi->xi_taskq, &xi->xi_task);
 		}
 	}
+}
+
+void
+xen_intr_schedule(xen_intr_handle_t xih)
+{
+	struct xen_softc *sc = xen_sc;
+	struct xen_intsrc *xi;
+
+	if ((xi = xen_lookup_intsrc(sc, (evtchn_port_t)xih)) != NULL)
+		task_add(xi->xi_taskq, &xi->xi_task);
 }
 
 void
@@ -685,9 +695,16 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 	if (xi == NULL)
 		return (-1);
 
-	xi->xi_handler = handler;
-	xi->xi_arg = arg;
 	xi->xi_port = (evtchn_port_t)*xih;
+
+	xi->xi_taskq = taskq_create(name, 1, IPL_NET, TASKQ_MPSAFE);
+	if (!xi->xi_taskq) {
+		printf("%s: failed to create interrupt task for %s\n",
+		    sc->sc_dev.dv_xname, name);
+		free(xi, M_DEVBUF, sizeof(*xi));
+		return (-1);
+	}
+	task_set(&xi->xi_task, handler, arg);
 
 	if (port == 0) {
 		/* We're being asked to allocate a new event port */
@@ -727,7 +744,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 	SLIST_INSERT_HEAD(&sc->sc_intrs, xi, xi_entry);
 
 	/* Mask the event port */
-	setbit((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port);
+	set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
 
 #if defined(XEN_DEBUG) && disabled
 	memset(&es, 0, sizeof(es));
@@ -768,11 +785,13 @@ xen_intr_disestablish(xen_intr_handle_t xih)
 
 	evcount_detach(&xi->xi_evcnt);
 
+	/* XXX not MP safe */
 	SLIST_REMOVE(&sc->sc_intrs, xi, xen_intsrc, xi_entry);
 
-	setbit((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port);
-	clrbit((char *)&sc->sc_ipg->evtchn_pending[0], xi->xi_port);
-	virtio_membar_sync();
+	taskq_destroy(xi->xi_taskq);
+
+	set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
+	clear_bit(xi->xi_port, &sc->sc_ipg->evtchn_pending[0]);
 
 	if (!xi->xi_noclose) {
 		ec.port = xi->xi_port;
@@ -801,8 +820,7 @@ xen_intr_enable(void)
 				printf("%s: unmasking port %u failed\n",
 				    sc->sc_dev.dv_xname, xi->xi_port);
 			virtio_membar_sync();
-			if (isset((char *)&sc->sc_ipg->evtchn_mask[0],
-			    xi->xi_port))
+			if (test_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]))
 				printf("%s: port %u is still masked\n",
 				    sc->sc_dev.dv_xname, xi->xi_port);
 		}
@@ -818,8 +836,7 @@ xen_intr_mask(xen_intr_handle_t xih)
 
 	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
 		xi->xi_masked = 1;
-		setbit((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port);
-		virtio_membar_sync();
+		set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
 	}
 }
 
@@ -833,7 +850,7 @@ xen_intr_unmask(xen_intr_handle_t xih)
 
 	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
 		xi->xi_masked = 0;
-		if (!isset((char *)&sc->sc_ipg->evtchn_mask[0], xi->xi_port))
+		if (!test_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]))
 			return (0);
 		eu.port = xi->xi_port;
 		return (xen_evtchn_hypercall(sc, EVTCHNOP_unmask, &eu,

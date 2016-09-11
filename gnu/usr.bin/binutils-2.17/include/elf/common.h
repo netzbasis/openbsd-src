@@ -306,6 +306,8 @@
 #define PT_GNU_RELRO	(PT_LOOS + 0x474e552) /* Read-only after relocation */
 
 #define PT_OPENBSD_RANDOMIZE	0x65a3dbe6 /* Fill with random data. */
+#define PT_OPENBSD_WXNEEDED	0x65a3dbe7 /* Program does W^X violations */
+#define PT_OPENBSD_BOOTDATA	0x65a41be6 /* Section for boot arguments */
 
 /* Program segment permissions, in program header p_flags field.  */
 
@@ -590,6 +592,7 @@
 #define DT_VALRNGHI	0x6ffffdff
 
 #define DT_ADDRRNGLO	0x6ffffe00
+#define DT_GNU_HASH	0x6ffffef5
 #define DT_TLSDESC_PLT	0x6ffffef6
 #define DT_TLSDESC_GOT	0x6ffffef7
 #define DT_GNU_CONFLICT	0x6ffffef8

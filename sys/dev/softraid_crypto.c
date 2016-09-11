@@ -1,4 +1,4 @@
-/* $OpenBSD: softraid_crypto.c,v 1.127 2016/05/17 19:28:59 tedu Exp $ */
+/* $OpenBSD: softraid_crypto.c,v 1.131 2016/09/08 17:39:08 jsing Exp $ */
 /*
  * Copyright (c) 2007 Marco Peereboom <marco@peereboom.us>
  * Copyright (c) 2008 Hans-Joerg Hoexer <hshoexer@openbsd.org>
@@ -295,7 +295,7 @@ sr_crypto_prepare(struct sr_workunit *wu, int encrypt)
 	crwu->cr_crp->crp_opaque = crwu;
 	crwu->cr_crp->crp_ilen = xs->datalen;
 	crwu->cr_crp->crp_alloctype = M_DEVBUF;
-	crwu->cr_crp->crp_flags = CRYPTO_F_IOV;
+	crwu->cr_crp->crp_flags = CRYPTO_F_IOV | CRYPTO_F_NOQUEUE;
 	crwu->cr_crp->crp_buf = &crwu->cr_uio;
 	for (i = 0, crd = crwu->cr_crp->crp_desc; crd;
 	    i++, blkno++, crd = crd->crd_next) {
@@ -567,6 +567,17 @@ sr_crypto_change_maskkey(struct sr_discipline *sd,
 		goto out;
 	}
 
+	/* Copy new KDF hint to metadata, if supplied. */
+	if (kdfinfo2->flags & SR_CRYPTOKDF_HINT) {
+		if (kdfinfo2->genkdf.len >
+		    sizeof(sd->mds.mdd_crypto.scr_meta->scm_kdfhint))
+			goto out;
+		explicit_bzero(sd->mds.mdd_crypto.scr_meta->scm_kdfhint,
+		    sizeof(sd->mds.mdd_crypto.scr_meta->scm_kdfhint));
+		memcpy(sd->mds.mdd_crypto.scr_meta->scm_kdfhint,
+		    &kdfinfo2->genkdf, kdfinfo2->genkdf.len);
+	}
+
 	/* Mask the disk keys. */
 	c = (u_char *)sd->mds.mdd_crypto.scr_meta->scm_key;
 	if (sr_crypto_encrypt(p, c, kdfinfo2->maskkey, ksz,
@@ -636,7 +647,7 @@ sr_crypto_create_key_disk(struct sr_discipline *sd, dev_t dev)
 		DNPRINTF(SR_D_META,"%s: sr_crypto_create_key_disk cannot "
 		    "open %s\n", DEVNAME(sc), devname);
 		vput(vn);
-		goto fail;
+		goto done;
 	}
 	open = 1; /* close dev on error */
 
@@ -646,12 +657,12 @@ sr_crypto_create_key_disk(struct sr_discipline *sd, dev_t dev)
 	    FREAD, NOCRED, curproc)) {
 		DNPRINTF(SR_D_META, "%s: sr_crypto_create_key_disk ioctl "
 		    "failed\n", DEVNAME(sc));
-		goto fail;
+		goto done;
 	}
 	if (label.d_partitions[part].p_fstype != FS_RAID) {
 		sr_error(sc, "%s partition not of type RAID (%d)",
 		    devname, label.d_partitions[part].p_fstype);
-		goto fail;
+		goto done;
 	}
 
 	/*
@@ -795,7 +806,7 @@ sr_crypto_read_key_disk(struct sr_discipline *sd, dev_t dev)
 		sr_error(sc, "cannot open key disk %s", devname);
 		goto done;
 	}
-	if (VOP_OPEN(vn, FREAD | FWRITE, NOCRED, curproc)) {
+	if (VOP_OPEN(vn, FREAD, NOCRED, curproc)) {
 		DNPRINTF(SR_D_META,"%s: sr_crypto_read_key_disk cannot "
 		    "open %s\n", DEVNAME(sc), devname);
 		vput(vn);
@@ -809,8 +820,6 @@ sr_crypto_read_key_disk(struct sr_discipline *sd, dev_t dev)
 	    NOCRED, curproc)) {
 		DNPRINTF(SR_D_META, "%s: sr_crypto_read_key_disk ioctl "
 		    "failed\n", DEVNAME(sc));
-		VOP_CLOSE(vn, FREAD | FWRITE, NOCRED, curproc);
-		vput(vn);
 		goto done;
 	}
 	if (label.d_partitions[part].p_fstype != FS_RAID) {
@@ -1099,7 +1108,7 @@ sr_crypto_rw(struct sr_workunit *wu)
 	if (wu->swu_xs->flags & SCSI_DATA_OUT) {
 		crwu = sr_crypto_prepare(wu, 1);
 		crwu->cr_crp->crp_callback = sr_crypto_write;
-		rv = crypto_invoke(crwu->cr_crp);
+		rv = crypto_dispatch(crwu->cr_crp);
 		if (rv == 0)
 			rv = crwu->cr_crp->crp_etype;
 	} else
@@ -1175,9 +1184,9 @@ sr_crypto_done(struct sr_workunit *wu)
 	if (ISSET(xs->flags, SCSI_DATA_IN) && xs->error == XS_NOERROR) {
 		crwu = sr_crypto_prepare(wu, 0);
 		crwu->cr_crp->crp_callback = sr_crypto_read;
-		DNPRINTF(SR_D_INTR, "%s: sr_crypto_done: crypto_invoke %p\n",
+		DNPRINTF(SR_D_INTR, "%s: sr_crypto_done: crypto_dispatch %p\n",
 		    DEVNAME(wu->swu_dis->sd_sc), crwu->cr_crp);
-		crypto_invoke(crwu->cr_crp);
+		crypto_dispatch(crwu->cr_crp);
 		return;
 	}
 

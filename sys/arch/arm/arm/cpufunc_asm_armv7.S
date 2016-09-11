@@ -1,4 +1,4 @@
-/* $OpenBSD: cpufunc_asm_armv7.S,v 1.10 2016/04/25 04:46:56 jsg Exp $ */
+/* $OpenBSD: cpufunc_asm_armv7.S,v 1.14 2016/08/15 21:08:56 kettenis Exp $ */
 /*
  * Copyright (c) 2008 Dale Rahn <drahn@openbsd.org>
  *
@@ -17,6 +17,7 @@
 
 #include <machine/cpu.h>
 #include <machine/asm.h>
+#include <arm/armreg.h>
 #include <arm/sysreg.h>
 
 ENTRY(armv7_cpu_sleep)
@@ -35,6 +36,9 @@ ENTRY(armv7_periphbase)
 	mrc	CP15_CBAR(r0)	
 	mov	pc, lr
 
+/* Suitable default for a uniprocessor kernel. */
+#define TTBR_DEFAULT	(TTBR_IRGN_WBNWA | TTBR_RGN_WBNWA)
+
 /*
  * Functions to set the MMU Translation Table Base register
  */
@@ -44,8 +48,9 @@ ENTRY(armv7_setttb)
 	dsb	sy
 	isb	sy
 
+	orr	r0, r0, #TTBR_DEFAULT
 	mcr	CP15_TTBR0(r0)		/* load new TTB */
-	mcr	CP15_TLBIALL(r0)	/* invalidate I+D TLBs */
+	mcr	CP15_TLBIALL(r0)	/* invalidate unified TLB */
 	dsb	sy
 	isb	sy
 
@@ -55,45 +60,27 @@ ENTRY(armv7_setttb)
  * TLB functions
  */
 ENTRY(armv7_tlb_flushID_SE)
-	mcr	CP15_DTLBIMVA		/* flush D tlb single entry */
-	mcr	CP15_ITLBIMVA		/* flush I tlb single entry */
+	mcr	CP15_TLBIMVA(r0)	/* flush unified tlb single entry */
 	mcr	CP15_BPIMVA		/* flush va from BP */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
 
-ENTRY(armv7_tlb_flushI_SE)
-	mcr	CP15_ITLBIMVA		/* flush I tlb single entry */
-	mcr	CP15_BPIMVA		/* flush va from BP */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-/*
- * TLB functions
- */
 ENTRY(armv7_tlb_flushID)
-	mcr	CP15_TLBIALL(r0)	/* flush I+D tlb */
+	mcr	CP15_TLBIALL(r0)	/* flush unified tlb */
 	mcr	CP15_BPIALL		/* Flush BP cache */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-ENTRY(armv7_tlb_flushI)
-	mcr	CP15_ITLBIALL		/* flush I tlb */
-	mcr	CP15_BPIALL		/* Flush BP cache */
-	dsb	sy
-	isb	sy
-	mov	pc, lr
-
-ENTRY(armv7_tlb_flushD)
-	mcr	CP15_DTLBIALL		/* flush D tlb */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
 
 ENTRY(armv7_tlb_flushD_SE)
-	mcr	CP15_DTLBIMVA		/* flush D tlb single entry */
+	mcr	CP15_TLBIMVA(r0)	/* flush unified tlb single entry */
+	dsb	sy
+	isb	sy
+	mov	pc, lr
+
+ENTRY(armv7_tlb_flushD)
+	mcr	CP15_TLBIALL(r0)	/* flush unified tlb */
 	dsb	sy
 	isb	sy
 	mov	pc, lr
@@ -116,8 +103,6 @@ ENTRY(armv7_tlb_flushD_SE)
 	i_inc	.req r3
 ENTRY(armv7_icache_sync_range)
 	ldr	ip, .Larmv7_icache_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -149,8 +134,6 @@ ENTRY(armv7_icache_sync_all)
 
 ENTRY(armv7_dcache_wb_range)
 	ldr	ip, .Larmv7_dcache_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -168,8 +151,6 @@ ENTRY(armv7_dcache_wb_range)
 
 ENTRY(armv7_idcache_wbinv_range)
 	ldr	ip, .Larmv7_idcache_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -179,7 +160,7 @@ ENTRY(armv7_idcache_wbinv_range)
 1:
 	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
 	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
-	mcr	CP15_CNTPCT(r0, c7), 1	/* Purge D cache SE with VA */
+	mcr	CP15_DCCIMVAC(r0)	/* Purge D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
@@ -190,8 +171,6 @@ ENTRY(armv7_idcache_wbinv_range)
 
 ENTRY(armv7_dcache_wbinv_range)
 	ldr	ip, .Larmv7_dcache_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -201,7 +180,7 @@ ENTRY(armv7_dcache_wbinv_range)
 1:
 	mcr	CP15_DCCMVAU(r0)	/* Clean D cache SE with VA to PoU */
 	mcr	CP15_ICIMVAU(r0)	/* Invalidate I cache SE with VA */
-	mcr	CP15_CNTPCT(r0, c7), 1	/* Purge D cache SE with VA */
+	mcr	CP15_DCCIMVAC(r0)	/* Purge D cache SE with VA */
 	add	r0, r0, ip
 	subs	r1, r1, ip
 	bhi	1b
@@ -211,8 +190,6 @@ ENTRY(armv7_dcache_wbinv_range)
 
 ENTRY(armv7_dcache_inv_range)
 	ldr	ip, .Larmv7_dcache_line_size
-	cmp	r1, #0x8000
-	movcs	r1, #0x8000	/* XXX needs to match cache size... */
 	ldr	ip, [ip]
 	sub	r1, r1, #1		/* Don't overrun */
 	sub	r3, ip, #1
@@ -250,8 +227,9 @@ ENTRY(armv7_context_switch)
 	dsb	sy
 	isb	sy
 
+	orr	r0, r0, #TTBR_DEFAULT
 	mcr	CP15_TTBR0(r0)		/* set the new TTB */
-	mcr	CP15_TLBIALL(r0)	/* and flush the I+D tlbs */
+	mcr	CP15_TLBIALL(r0)	/* and flush the unified tlb */
 	dsb	sy
 	isb	sy
 	mov	pc, lr

@@ -1,4 +1,4 @@
-/*	$OpenBSD: com.c,v 1.158 2014/09/14 14:17:24 jsg Exp $	*/
+/*	$OpenBSD: com.c,v 1.161 2016/09/04 18:20:34 tedu Exp $	*/
 /*	$NetBSD: com.c,v 1.82.4.1 1996/06/02 09:08:00 mrg Exp $	*/
 
 /*
@@ -79,29 +79,15 @@
 #endif
 
 #include <machine/bus.h>
-#if !defined(__sparc__) || defined(__sparc64__)
 #include <machine/intr.h>
-#endif
 
-#if !defined(__sparc__) || defined(__sparc64__)
 #define	COM_CONSOLE
 #include <dev/cons.h>
-#endif
 
 #include <dev/ic/comreg.h>
 #include <dev/ic/comvar.h>
 #include <dev/ic/ns16550reg.h>
 #define	com_lcr	com_cfcr
-
-#ifdef COM_PXA2X0
-#define com_isr 8
-#define ISR_SEND	(ISR_RXPL | ISR_XMODE | ISR_XMITIR)
-#define ISR_RECV	(ISR_RXPL | ISR_XMODE | ISR_RCVEIR)
-#endif
-
-#ifdef __zaurus__
-#include <arch/zaurus/dev/zaurus_scoopvar.h>
-#endif
 
 cdev_decl(com);
 
@@ -116,9 +102,6 @@ struct cfdriver com_cd = {
 };
 
 int	comdefaultrate = TTYDEF_SPEED;
-#ifdef COM_PXA2X0
-bus_addr_t comsiraddr;
-#endif
 #ifdef COM_CONSOLE
 int	comconsfreq;
 int	comconsrate = TTYDEF_SPEED;
@@ -351,9 +334,6 @@ comopen(dev_t dev, int flag, int mode, struct proc *p)
 			case COM_UART_TI16750:
 				bus_space_write_1(iot, ioh, com_ier, 0);
 				break;
-			case COM_UART_PXA2X0:
-				bus_space_write_1(iot, ioh, com_ier, IER_EUART);
-				break;
 			}
 		}
 
@@ -410,10 +390,6 @@ comopen(dev_t dev, int flag, int mode, struct proc *p)
 			SET(sc->sc_mcr, MCR_IENABLE);
 		bus_space_write_1(iot, ioh, com_mcr, sc->sc_mcr);
 		sc->sc_ier = IER_ERXRDY | IER_ERLS | IER_EMSC;
-#ifdef COM_PXA2X0
-		if (sc->sc_uarttype == COM_UART_PXA2X0)
-			sc->sc_ier |= IER_EUART | IER_ERXTOUT;
-#endif  
 		bus_space_write_1(iot, ioh, com_ier, sc->sc_ier);
 
 		sc->sc_msr = bus_space_read_1(iot, ioh, com_msr);
@@ -422,15 +398,6 @@ comopen(dev_t dev, int flag, int mode, struct proc *p)
 			SET(tp->t_state, TS_CARR_ON);
 		else
 			CLR(tp->t_state, TS_CARR_ON);
-#ifdef COM_PXA2X0
-		if (sc->sc_uarttype == COM_UART_PXA2X0 &&
-		    ISSET(sc->sc_hwflags, COM_HW_SIR)) {
-			bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-#ifdef __zaurus__
-			scoop_set_irled(1);
-#endif
-		}
-#endif
 	} else if (ISSET(tp->t_state, TS_XCLUDE) && suser(p, 0) != 0)
 		return EBUSY;
 	else
@@ -563,15 +530,6 @@ compwroff(struct com_softc *sc)
 		case COM_UART_TI16750:
 			bus_space_write_1(iot, ioh, com_ier, IER_SLEEP);
 			break;
-#ifdef COM_PXA2X0
-		case COM_UART_PXA2X0:
-			bus_space_write_1(iot, ioh, com_ier, 0);
-#ifdef __zaurus__
-			if (ISSET(sc->sc_hwflags, COM_HW_SIR))
-				scoop_set_irled(0);
-#endif
-			break;
-#endif
 		}
 	}
 }
@@ -607,9 +565,6 @@ com_resume(struct com_softc *sc)
 			break;
 		case COM_UART_TI16750:
 			bus_space_write_1(iot, ioh, com_ier, 0);
-			break;
-		case COM_UART_PXA2X0:
-			bus_space_write_1(iot, ioh, com_ier, IER_EUART);
 			break;
 		}
 	}
@@ -671,16 +626,6 @@ com_resume(struct com_softc *sc)
 	/* You turn me on, baby! */
 	bus_space_write_1(iot, ioh, com_mcr, sc->sc_mcr);
 	bus_space_write_1(iot, ioh, com_ier, sc->sc_ier);
-
-#ifdef COM_PXA2X0
-	if (sc->sc_uarttype == COM_UART_PXA2X0 &&
-	    ISSET(sc->sc_hwflags, COM_HW_SIR)) {
-		bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-#ifdef __zaurus__
-		scoop_set_irled(1);
-#endif
-	}
-#endif
 }
 
 void
@@ -1006,13 +951,6 @@ comstart(struct tty *tp)
 		goto stopped;
 	SET(tp->t_state, TS_BUSY);
 
-#ifdef COM_PXA2X0
-	/* Enable transmitter slow infrared mode. */
-	if (sc->sc_uarttype == COM_UART_PXA2X0 &&
-	    ISSET(sc->sc_hwflags, COM_HW_SIR))
-		bus_space_write_1(iot, ioh, com_isr, ISR_SEND);
-#endif
-
 	/* Enable transmit completion interrupts. */
 	if (!ISSET(sc->sc_ier, IER_ETXRDY)) {
 		SET(sc->sc_ier, IER_ETXRDY);
@@ -1038,21 +976,6 @@ stopped:
 	if (ISSET(sc->sc_ier, IER_ETXRDY)) {
 		CLR(sc->sc_ier, IER_ETXRDY);
 		bus_space_write_1(iot, ioh, com_ier, sc->sc_ier);
-#ifdef COM_PXA2X0
-		if (sc->sc_uarttype == COM_UART_PXA2X0 &&
-		    ISSET(sc->sc_hwflags, COM_HW_SIR)) {
-			int timo;
-
-			/* Wait for empty transmit shift register. */
-			timo = 20000;
-			while (!ISSET(bus_space_read_1(iot, ioh, com_lsr),
-			    LSR_TSRE) && --timo)
-				delay(1);
-
-			/* Enable receiver slow infrared mode. */
-			bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-		}
-#endif
 	}
 	splx(s);
 }
@@ -1302,13 +1225,6 @@ comintr(void *arg)
 			(*linesw[tp->t_line].l_start)(tp);
 		}
 
-#ifdef COM_PXA2X0
-		if (sc->sc_uarttype == COM_UART_PXA2X0 &&
-		    ISSET(sc->sc_hwflags, COM_HW_SIR) &&
-		    ISSET(lsr, LSR_TXRDY) && ISSET(lsr, LSR_TSRE))
-			bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-#endif
-
 		if (ISSET(bus_space_read_1(iot, ioh, com_iir), IIR_NOPEND))
 			return (1);
 	}
@@ -1324,11 +1240,6 @@ com_common_getc(bus_space_tag_t iot, bus_space_handle_t ioh)
 {
 	int s = splhigh();
 	u_char stat, c;
-
-#ifdef COM_PXA2X0
-	if (com_is_console(iot, comsiraddr))
-		bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-#endif
 
 	/* Block until a character becomes available. */
 	while (!ISSET(stat = bus_space_read_1(iot, ioh, com_lsr), LSR_RXRDY))
@@ -1353,10 +1264,6 @@ com_common_putc(bus_space_tag_t iot, bus_space_handle_t ioh, int c)
 	while (!ISSET(bus_space_read_1(iot, ioh, com_lsr), LSR_TXRDY) && --timo)
 		delay(1);
 
-#ifdef COM_PXA2X0
-	if (com_is_console(iot, comsiraddr))
-		bus_space_write_1(iot, ioh, com_isr, ISR_SEND);
-#endif
 	bus_space_write_1(iot, ioh, com_data, (u_int8_t)(c & 0xff));
 	bus_space_barrier(iot, ioh, 0, COM_NPORTS,
 	    (BUS_SPACE_BARRIER_READ|BUS_SPACE_BARRIER_WRITE));
@@ -1365,18 +1272,6 @@ com_common_putc(bus_space_tag_t iot, bus_space_handle_t ioh, int c)
 	timo = 2000;
 	while (!ISSET(bus_space_read_1(iot, ioh, com_lsr), LSR_TXRDY) && --timo)
 		delay(1);
-
-#ifdef COM_PXA2X0
-	if (com_is_console(iot, comsiraddr)) {
-		/* Wait for transmit shift register to become empty. */
-		timo = 20000;
-		while (!ISSET(bus_space_read_1(iot, ioh, com_lsr), LSR_TSRE)
-		    && --timo)
-			delay(1);
-
-		bus_space_write_1(iot, ioh, com_isr, ISR_RECV);
-	}
-#endif
 
 	splx(s);
 }
@@ -1393,12 +1288,7 @@ cominit(bus_space_tag_t iot, bus_space_handle_t ioh, int rate, int frequency)
 	bus_space_write_1(iot, ioh, com_dlbh, rate >> 8);
 	bus_space_write_1(iot, ioh, com_lcr, LCR_8BITS);
 	bus_space_write_1(iot, ioh, com_mcr, MCR_DTR | MCR_RTS);
-#ifdef COM_PXA2X0
-	/* XXX */
-	bus_space_write_1(iot, ioh, com_ier, IER_EUART);  /* Make sure they are off */
-#else
 	bus_space_write_1(iot, ioh, com_ier, 0);  /* Make sure they are off */
-#endif
 	bus_space_write_1(iot, ioh, com_fifo,
 	    FIFO_ENABLE | FIFO_RCV_RST | FIFO_XMT_RST | FIFO_TRIGGER_1);
 	stat = bus_space_read_1(iot, ioh, com_iir);
@@ -1537,21 +1427,6 @@ com_kgdb_putc(void *arg, int c)
 }
 #endif /* KGDB */
 
-#ifdef COM_PXA2X0
-int
-com_is_console(bus_space_tag_t iot, bus_addr_t iobase)
-{
-
-	if (comconsiot == iot && comconsaddr == iobase)
-		return (1);
-#ifdef KGDB
-	else if (com_kgdb_iot == iot && com_kgdb_addr == iobase)
-		return (1);
-#endif
-	return (0);
-}
-#endif /* COM_PXA2X0 */
-
 void	com_enable_debugport(struct com_softc *);
 void	com_fifo_probe(struct com_softc *);
 
@@ -1565,10 +1440,6 @@ com_enable_debugport(struct com_softc *sc)
 	s = splhigh();
 #ifdef KGDB
 	SET(sc->sc_ier, IER_ERXRDY);
-#ifdef COM_PXA2X0
-	if (sc->sc_uarttype == COM_UART_PXA2X0)
-		sc->sc_ier |= IER_EUART | IER_ERXTOUT;
-#endif
 	bus_space_write_1(sc->sc_iot, sc->sc_ioh, com_ier, sc->sc_ier);
 #endif
 	SET(sc->sc_mcr, MCR_DTR | MCR_RTS | MCR_IENABLE);
@@ -1583,13 +1454,10 @@ com_attach_subr(struct com_softc *sc)
 {
 	bus_space_tag_t iot = sc->sc_iot;
 	bus_space_handle_t ioh = sc->sc_ioh;
+	int probe = 0;
 	u_int8_t lcr;
 
 	sc->sc_ier = 0;
-#ifdef COM_PXA2X0
-	if (sc->sc_uarttype == COM_UART_PXA2X0)
-		sc->sc_ier |= IER_EUART;
-#endif
 	/* disable interrupts */
 	bus_space_write_1(iot, ioh, com_ier, sc->sc_ier);
 
@@ -1616,7 +1484,7 @@ com_attach_subr(struct com_softc *sc)
 	/*
 	 * Skip specific probes if attachment code knows it already.
 	 */
-	if (sc->sc_uarttype == COM_UART_UNKNOWN)
+	if (sc->sc_uarttype == COM_UART_UNKNOWN) {
 		switch (bus_space_read_1(iot, ioh, com_iir) >> 6) {
 		case 0:
 			sc->sc_uarttype = COM_UART_16450;
@@ -1631,8 +1499,11 @@ com_attach_subr(struct com_softc *sc)
 			sc->sc_uarttype = COM_UART_UNKNOWN;
 			break;
 		}
+		probe = 1;
+	}
 
-	if (sc->sc_uarttype == COM_UART_16550A) { /* Probe for ST16650s */
+	/* Probe for ST16650s */
+	if (probe && sc->sc_uarttype == COM_UART_16550A) {
 		bus_space_write_1(iot, ioh, com_lcr, lcr | LCR_DLAB);
 		if (bus_space_read_1(iot, ioh, com_efr) == 0) {
 			bus_space_write_1(iot, ioh, com_efr, EFR_CTS);
@@ -1647,7 +1518,8 @@ com_attach_subr(struct com_softc *sc)
 	}
 
 #if 0	/* until com works with large FIFOs */
-	if (sc->sc_uarttype == COM_UART_ST16650V2) { /* Probe for XR16850s */
+	/* Probe for XR16850s */
+	if (probe && sc->sc_uarttype == COM_UART_ST16650V2) {
 		u_int8_t dlbl, dlbh;
 
 		/* Enable latch access and get the current values. */
@@ -1670,7 +1542,8 @@ com_attach_subr(struct com_softc *sc)
 	}
 #endif
 
-	if (sc->sc_uarttype == COM_UART_16550A) { /* Probe for TI16750s */
+	/* Probe for TI16750s */
+	if (probe && sc->sc_uarttype == COM_UART_16550A) {
 		bus_space_write_1(iot, ioh, com_lcr, lcr | LCR_DLAB);
 		bus_space_write_1(iot, ioh, com_fifo,
 		    FIFO_ENABLE | FIFO_ENABLE_64BYTE);
@@ -1686,7 +1559,9 @@ com_attach_subr(struct com_softc *sc)
 
 	/* Reset the LCR (latch access is probably enabled). */
 	bus_space_write_1(iot, ioh, com_lcr, lcr);
-	if (sc->sc_uarttype == COM_UART_16450) { /* Probe for 8250 */
+
+	/* Probe for 8250 */
+	if (probe && sc->sc_uarttype == COM_UART_16450) {
 		u_int8_t scr0, scr1, scr2;
 
 		scr0 = bus_space_read_1(iot, ioh, com_scratch);
@@ -1722,18 +1597,6 @@ com_attach_subr(struct com_softc *sc)
 		printf(": ns16550a, %d byte fifo\n", sc->sc_fifolen);
 		SET(sc->sc_hwflags, COM_HW_FIFO);
 		break;
-#ifdef COM_PXA2X0
-	case COM_UART_PXA2X0:
-		printf(": pxa2x0, 32 byte fifo");
-		SET(sc->sc_hwflags, COM_HW_FIFO);
-		sc->sc_fifolen = 32;
-		if (sc->sc_iobase == comsiraddr) {
-			SET(sc->sc_hwflags, COM_HW_SIR);
-			printf(" (SIR)");
-		}
-		printf("\n");
-		break;
-#endif
 	case COM_UART_ST16650:
 		printf(": st16650, no working fifo\n");
 		break;
@@ -1851,10 +1714,6 @@ com_fifo_probe(struct com_softc *sc)
 		return;
 
 	ier = 0;
-#ifdef COM_PXA2X0
-	if (sc->sc_uarttype == COM_UART_PXA2X0)
-		ier |= IER_EUART;
-#endif
 	bus_space_write_1(iot, ioh, com_ier, ier);
 	bus_space_write_1(iot, ioh, com_lcr, LCR_DLAB);
 	bus_space_write_1(iot, ioh, com_dlbl, 3);

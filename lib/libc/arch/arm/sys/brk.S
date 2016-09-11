@@ -1,4 +1,4 @@
-/*	$OpenBSD: brk.S,v 1.7 2015/09/10 13:29:09 guenther Exp $	*/
+/*	$OpenBSD: brk.S,v 1.9 2016/08/06 19:16:09 guenther Exp $	*/
 /*	$NetBSD: brk.S,v 1.7 2003/12/26 11:23:44 martin Exp $	*/
 
 /*-
@@ -34,14 +34,14 @@
 
 #include "SYS.h"
 
-	.globl	_C_LABEL(end)
+	.globl	_C_LABEL(_end)
 	.globl	__curbrk
 
 	.data
 	.align	0
 	.type	__minbrk,#object
 __minbrk:
-	.word	_C_LABEL(end)
+	.word	_C_LABEL(_end)
 	END(__minbrk)
 
 	.weak	brk
@@ -71,7 +71,7 @@ ENTRY(brk)
 	movcc	r0, r1
 	mov	r2, r0
 	SYSTRAP(break)
-	bcs	PIC_SYM(CERROR, PLT)
+	bcs	CERROR
 
 #ifdef __PIC__
 	ldr	r1, .Lcurbrk

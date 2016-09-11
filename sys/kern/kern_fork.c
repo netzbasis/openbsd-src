@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_fork.c,v 1.187 2016/04/25 20:18:31 tedu Exp $	*/
+/*	$OpenBSD: kern_fork.c,v 1.189 2016/09/03 14:29:05 jca Exp $	*/
 /*	$NetBSD: kern_fork.c,v 1.29 1996/02/09 18:59:34 christos Exp $	*/
 
 /*
@@ -201,7 +201,8 @@ process_new(struct proc *p, struct process *parent, int flags)
 	if (pr->ps_textvp)
 		vref(pr->ps_textvp);
 
-	pr->ps_flags = parent->ps_flags & (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE);
+	pr->ps_flags = parent->ps_flags &
+	    (PS_SUGID | PS_SUGIDEXEC | PS_PLEDGE | PS_WXNEEDED);
 	if (parent->ps_session->s_ttyvp != NULL)
 		pr->ps_flags |= parent->ps_flags & PS_CONTROLT;
 
@@ -606,10 +607,6 @@ freepid(pid_t pid)
 void
 proc_trampoline_mp(void)
 {
-	struct proc *p;
-
-	p = curproc;
-
 	SCHED_ASSERT_LOCKED();
 	__mp_unlock(&sched_lock);
 	spl0();

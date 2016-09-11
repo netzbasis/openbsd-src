@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.54 2015/12/09 21:41:49 naddy Exp $	*/
+/*	$OpenBSD: parse.y,v 1.58 2016/09/03 09:20:07 vgross Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -811,15 +811,18 @@ ipcomp		: /* empty */			{ $$ = 0; }
 
 ikeauth		: /* empty */			{
 			$$.auth_method = IKEV2_AUTH_RSA_SIG;
+			$$.auth_eap = 0;
 			$$.auth_length = 0;
 		}
 		| RSA				{
 			$$.auth_method = IKEV2_AUTH_RSA_SIG;
+			$$.auth_eap = 0;
 			$$.auth_length = 0;
 		}
 		| PSK keyspec			{
 			memcpy(&$$, &$2, sizeof($$));
 			$$.auth_method = IKEV2_AUTH_SHARED_KEY_MIC;
+			$$.auth_eap = 0;
 		}
 		| EAP STRING			{
 			unsigned int i;
@@ -1005,7 +1008,15 @@ string		: string STRING
 
 varset		: STRING '=' string
 		{
+			char *s = $1;
 			log_debug("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				err(1, "cannot store variable");
 			free($1);
@@ -2407,7 +2418,7 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 {
 	char			 idstr[IKED_ID_SIZE];
 	unsigned int		 idtype = IKEV2_ID_NONE;
-	struct ipsec_addr_wrap	*ipa, *ipb;
+	struct ipsec_addr_wrap	*ipa, *ipb, *ippn;
 	struct iked_policy	 pol;
 	struct iked_proposal	 prop[2];
 	unsigned int		 j;
@@ -2628,6 +2639,17 @@ create_ike(char *name, int af, uint8_t ipproto, struct ipsec_hosts *hosts,
 		flows[j].flow_dst.addr_mask = ipb->mask;
 		flows[j].flow_dst.addr_net = ipb->netaddress;
 		flows[j].flow_dst.addr_port = hosts->dport;
+
+		ippn = ipa->srcnat;
+		if (ippn) {
+			memcpy(&flows[j].flow_prenat.addr, &ippn->address,
+			    sizeof(ippn->address));
+			flows[j].flow_prenat.addr_af = ippn->af;
+			flows[j].flow_prenat.addr_mask = ippn->mask;
+			flows[j].flow_prenat.addr_net = ippn->netaddress;
+		} else {
+			flows[j].flow_prenat.addr_af = 0;
+		}
 
 		flows[j].flow_ipproto = ipproto;
 

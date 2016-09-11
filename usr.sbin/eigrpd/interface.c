@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.17 2016/04/15 13:21:45 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.23 2016/09/02 16:44:33 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -18,24 +18,38 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <arpa/inet.h>
+
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "eigrpd.h"
-#include "eigrp.h"
-#include "log.h"
 #include "eigrpe.h"
+#include "log.h"
 
-extern struct eigrpd_conf        *econf;
+static __inline int	 iface_id_compare(struct eigrp_iface *,
+			    struct eigrp_iface *);
+static struct iface	*if_new(struct eigrpd_conf *, struct kif *);
+static void		 if_del(struct iface *);
+static struct if_addr	*if_addr_lookup(struct if_addr_head *, struct kaddr *);
+static void		 eigrp_if_start(struct eigrp_iface *);
+static void		 eigrp_if_reset(struct eigrp_iface *);
+static void		 eigrp_if_hello_timer(int, short, void *);
+static void		 eigrp_if_start_hello_timer(struct eigrp_iface *);
+static void		 eigrp_if_stop_hello_timer(struct eigrp_iface *);
+static int		 if_join_ipv4_group(struct iface *, struct in_addr *);
+static int		 if_leave_ipv4_group(struct iface *, struct in_addr *);
+static int		 if_join_ipv6_group(struct iface *, struct in6_addr *);
+static int		 if_leave_ipv6_group(struct iface *, struct in6_addr *);
 
-void		 eigrp_if_hello_timer(int, short, void *);
-void		 eigrp_if_start_hello_timer(struct eigrp_iface *);
-void		 eigrp_if_stop_hello_timer(struct eigrp_iface *);
+RB_GENERATE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
+
+struct iface_id_head ifaces_by_id = RB_INITIALIZER(&ifaces_by_id);
 
 static __inline int
 iface_id_compare(struct eigrp_iface *a, struct eigrp_iface *b)
@@ -43,15 +57,7 @@ iface_id_compare(struct eigrp_iface *a, struct eigrp_iface *b)
 	return (a->ifaceid - b->ifaceid);
 }
 
-RB_HEAD(iface_id_head, eigrp_iface);
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-RB_GENERATE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-
-struct iface_id_head ifaces_by_id = RB_INITIALIZER(&ifaces_by_id);
-
-static uint32_t	ifacecnt = 1;
-
-struct iface *
+static struct iface *
 if_new(struct eigrpd_conf *xconf, struct kif *kif)
 {
 	struct iface		*iface;
@@ -86,7 +92,7 @@ if_new(struct eigrpd_conf *xconf, struct kif *kif)
 	return (iface);
 }
 
-void
+static void
 if_del(struct iface *iface)
 {
 	struct if_addr		*if_addr;
@@ -140,24 +146,29 @@ if_addr_new(struct iface *iface, struct kaddr *ka)
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
 
+	if (ka->af == AF_INET6 && IN6_IS_ADDR_LINKLOCAL(&ka->addr.v6)) {
+		iface->linklocal = ka->addr.v6;
+		if_update(iface, AF_INET6);
+		return;
+	}
+
 	if (if_addr_lookup(&iface->addr_list, ka) != NULL)
 		return;
 
 	if ((if_addr = calloc(1, sizeof(*if_addr))) == NULL)
 		fatal("if_addr_new: calloc");
-
 	if_addr->af = ka->af;
 	if_addr->addr = ka->addr;
 	if_addr->prefixlen = ka->prefixlen;
 	if_addr->dstbrd = ka->dstbrd;
-
 	TAILQ_INSERT_TAIL(&iface->addr_list, if_addr, entry);
 
 	TAILQ_FOREACH(ei, &iface->ei_list, i_entry)
 		if (ei->state == IF_STA_ACTIVE && ei->eigrp->af == if_addr->af)
 			eigrpe_orig_local_route(ei, if_addr, 0);
 
-	if_update(iface, if_addr->af);
+	if (if_addr->af == AF_INET)
+		if_update(iface, AF_INET);
 }
 
 void
@@ -165,6 +176,14 @@ if_addr_del(struct iface *iface, struct kaddr *ka)
 {
 	struct if_addr		*if_addr;
 	struct eigrp_iface	*ei;
+	int			 af = ka->af;
+
+	if (ka->af == AF_INET6 &&
+	    IN6_ARE_ADDR_EQUAL(&iface->linklocal, &ka->addr.v6)) {
+		memset(&iface->linklocal, 0, sizeof(iface->linklocal));
+		if_update(iface, AF_INET6);
+		return;
+	}
 
 	if_addr = if_addr_lookup(&iface->addr_list, ka);
 	if (if_addr == NULL)
@@ -175,11 +194,13 @@ if_addr_del(struct iface *iface, struct kaddr *ka)
 			eigrpe_orig_local_route(ei, if_addr, 1);
 
 	TAILQ_REMOVE(&iface->addr_list, if_addr, entry);
-	if_update(iface, if_addr->af);
 	free(if_addr);
+
+	if (af == AF_INET)
+		if_update(iface, AF_INET);
 }
 
-struct if_addr *
+static struct if_addr *
 if_addr_lookup(struct if_addr_head *addr_list, struct kaddr *ka)
 {
 	struct if_addr	*if_addr;
@@ -278,7 +299,7 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 {
 	struct iface		*iface;
 	struct eigrp_iface	*ei;
-	struct timeval		 now;
+	static uint32_t		 ifacecnt = 1;
 
 	iface = if_lookup(xconf, kif->ifindex);
 	if (iface == NULL)
@@ -296,9 +317,6 @@ eigrp_if_new(struct eigrpd_conf *xconf, struct eigrp *eigrp, struct kif *kif)
 	ei->iface = iface;
 	if (ei->iface->flags & IFF_LOOPBACK)
 		ei->passive = 1;
-
-	gettimeofday(&now, NULL);
-	ei->uptime = now.tv_sec;
 
 	TAILQ_INIT(&ei->nbr_list);
 	TAILQ_INIT(&ei->update_list);
@@ -357,17 +375,19 @@ eigrp_if_lookup_id(uint32_t ifaceid)
 	return (RB_FIND(iface_id_head, &ifaces_by_id, &e));
 }
 
-void
+static void
 eigrp_if_start(struct eigrp_iface *ei)
 {
 	struct eigrp		*eigrp = ei->eigrp;
+	struct timeval		 now;
 	struct if_addr		*if_addr;
 	union eigrpd_addr	 addr;
-	struct in_addr		 addr4;
-	struct in6_addr		 addr6 = AllEIGRPRouters_v6;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
 	    eigrp->as, af_name(eigrp->af));
+
+	gettimeofday(&now, NULL);
+	ei->uptime = now.tv_sec;
 
 	/* init the dummy self neighbor */
 	memset(&addr, 0, sizeof(addr));
@@ -386,12 +406,11 @@ eigrp_if_start(struct eigrp_iface *ei)
 
 	switch (eigrp->af) {
 	case AF_INET:
-		addr4.s_addr = AllEIGRPRouters_v4;
-		if (if_join_ipv4_group(ei->iface, &addr4))
+		if (if_join_ipv4_group(ei->iface, &global.mcast_addr_v4))
 			return;
 		break;
 	case AF_INET6:
-		if (if_join_ipv6_group(ei->iface, &addr6))
+		if (if_join_ipv6_group(ei->iface, &global.mcast_addr_v6))
 			return;
 		break;
 	default:
@@ -402,12 +421,10 @@ eigrp_if_start(struct eigrp_iface *ei)
 	eigrp_if_start_hello_timer(ei);
 }
 
-void
+static void
 eigrp_if_reset(struct eigrp_iface *ei)
 {
 	struct eigrp		*eigrp = ei->eigrp;
-	struct in_addr		 addr4;
-	struct in6_addr		 addr6 = AllEIGRPRouters_v6;
 	struct nbr		*nbr;
 
 	log_debug("%s: %s as %u family %s", __func__, ei->iface->name,
@@ -424,11 +441,10 @@ eigrp_if_reset(struct eigrp_iface *ei)
 	/* try to cleanup */
 	switch (eigrp->af) {
 	case AF_INET:
-		addr4.s_addr = AllEIGRPRouters_v4;
-		if_leave_ipv4_group(ei->iface, &addr4);
+		if_leave_ipv4_group(ei->iface, &global.mcast_addr_v4);
 		break;
 	case AF_INET6:
-		if_leave_ipv6_group(ei->iface, &addr6);
+		if_leave_ipv6_group(ei->iface, &global.mcast_addr_v6);
 		break;
 	default:
 		fatalx("eigrp_if_reset: unknown af");
@@ -439,7 +455,7 @@ eigrp_if_reset(struct eigrp_iface *ei)
 
 /* timers */
 /* ARGSUSED */
-void
+static void
 eigrp_if_hello_timer(int fd, short event, void *arg)
 {
 	struct eigrp_iface	*ei = arg;
@@ -454,7 +470,7 @@ eigrp_if_hello_timer(int fd, short event, void *arg)
 		fatal("eigrp_if_hello_timer");
 }
 
-void
+static void
 eigrp_if_start_hello_timer(struct eigrp_iface *ei)
 {
 	struct timeval		 tv;
@@ -465,7 +481,7 @@ eigrp_if_start_hello_timer(struct eigrp_iface *ei)
 		fatal("eigrp_if_start_hello_timer");
 }
 
-void
+static void
 eigrp_if_stop_hello_timer(struct eigrp_iface *ei)
 {
 	if (evtimer_pending(&ei->hello_timer, NULL) &&
@@ -549,7 +565,7 @@ if_set_sockbuf(int fd)
 		log_warnx("%s: sendbuf size only %d", __func__, bsize);
 }
 
-int
+static int
 if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 {
 	struct ip_mreq		 mreq;
@@ -574,7 +590,7 @@ if_join_ipv4_group(struct iface *iface, struct in_addr *addr)
 	return (0);
 }
 
-int
+static int
 if_leave_ipv4_group(struct iface *iface, struct in_addr *addr)
 {
 	struct ip_mreq		 mreq;
@@ -667,7 +683,7 @@ if_set_ipv4_hdrincl(int fd)
 	return (0);
 }
 
-int
+static int
 if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 {
 	struct ipv6_mreq	 mreq;
@@ -692,7 +708,7 @@ if_join_ipv6_group(struct iface *iface, struct in6_addr *addr)
 	return (0);
 }
 
-int
+static int
 if_leave_ipv6_group(struct iface *iface, struct in6_addr *addr)
 {
 	struct ipv6_mreq	 mreq;

@@ -1,4 +1,4 @@
-/* $OpenBSD: prcm.c,v 1.9 2014/05/08 21:17:01 miod Exp $ */
+/* $OpenBSD: prcm.c,v 1.11 2016/07/18 15:03:01 jsg Exp $ */
 /*
  * Copyright (c) 2007,2009 Dale Rahn <drahn@openbsd.org>
  *
@@ -65,6 +65,8 @@
 #include <armv7/omap/omap3_prcmreg.h>
 #include <armv7/omap/omap4_prcmreg.h>
 
+#include <dev/ofw/fdt.h>
+
 #define PRCM_REVISION		0x0800
 #define PRCM_SYSCONFIG		0x0810
 
@@ -120,29 +122,32 @@ prcm_attach(struct device *parent, struct device *self, void *args)
 	struct armv7_attach_args *aa = args;
 	struct prcm_softc *sc = (struct prcm_softc *) self;
 	u_int32_t reg;
+	void *node;
 
 	sc->sc_iot = aa->aa_iot;
 
-	switch (board_id) {
-	case BOARD_ID_AM335X_BEAGLEBONE:
+	node = fdt_find_node("/");
+	if (node == NULL)
+		panic("%s: could not get fdt root node",
+		    sc->sc_dev.dv_xname);
+
+	if (fdt_is_compatible(node, "ti,am33xx")) {
 		sc->sc_setup = NULL;
 		sc->sc_enablemodule = prcm_am335x_enablemodule;
 		sc->sc_setclock = prcm_am335x_setclock;
-		break;
-	case BOARD_ID_OMAP3_BEAGLE:
-	case BOARD_ID_OMAP3_OVERO:
+	} else if (fdt_is_compatible(node, "ti,omap3")) {
 		sc->sc_setup = prcm_v3_setup;
 		sc->sc_enablemodule = prcm_v3_enablemodule;
 		sc->sc_setclock = prcm_v3_setclock;
-		break;
-	case BOARD_ID_OMAP4_PANDA:
+	} else if (fdt_is_compatible(node, "ti,omap4")) {
 		sc->sc_setup = NULL;
 		sc->sc_enablemodule = prcm_v4_enablemodule;
 		sc->sc_setclock = NULL;
 		sc->cm1_avail = 1;
 		sc->cm2_avail = 1;
-		break;
-	}
+	} else
+		panic("%s: could not find a compatible soc",
+		    sc->sc_dev.dv_xname);
 
 	if (bus_space_map(sc->sc_iot, aa->aa_dev->mem[0].addr,
 	    aa->aa_dev->mem[0].size, 0, &sc->sc_prcm))
@@ -282,6 +287,12 @@ prcm_v3_bit(int mod)
 		return PRCM_CLK_EN_GPIO5;
 	case PRCM_GPIO5:
 		return PRCM_CLK_EN_GPIO6;
+	case PRCM_I2C0:
+		return PRCM_CLK_EN_I2C1;
+	case PRCM_I2C1:
+		return PRCM_CLK_EN_I2C2;
+	case PRCM_I2C2:
+		return PRCM_CLK_EN_I2C3;
 	default:
 		panic("%s: module not found\n", __func__);
 	}
@@ -391,6 +402,10 @@ prcm_v4_enablemodule(struct prcm_softc *sc, int mod)
 {
 	switch (mod) {
 		case PRCM_MMC0:
+		case PRCM_MMC1:
+		case PRCM_MMC2:
+		case PRCM_MMC3:
+		case PRCM_MMC4:
 			break;
 		case PRCM_USBP1_PHY:
 		case PRCM_USBP2_PHY:
@@ -409,6 +424,12 @@ prcm_v4_enablemodule(struct prcm_softc *sc, int mod)
 		case  PRCM_GPIO3:
 		case  PRCM_GPIO4:
 		case  PRCM_GPIO5:
+			/* XXX */
+			break;
+		case PRCM_I2C0:
+		case PRCM_I2C1:
+		case PRCM_I2C2:
+		case PRCM_I2C3:
 			/* XXX */
 			break;
 	default:

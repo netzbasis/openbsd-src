@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp6_output.c,v 1.47 2016/03/31 11:59:28 vgross Exp $	*/
+/*	$OpenBSD: udp6_output.c,v 1.51 2016/08/04 20:46:24 vgross Exp $	*/
 /*	$KAME: udp6_output.c,v 1.21 2001/02/07 11:51:54 itojun Exp $	*/
 
 /*
@@ -154,9 +154,7 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 			goto release;
 		}
 
-		error = in6_selectsrc(&laddr, sin6, optp,
-		    in6p->inp_moptions6, &in6p->inp_route6,
-		    &in6p->inp_laddr6, in6p->inp_rtableid);
+		error = in6_pcbselsrc(&laddr, sin6, in6p, optp);
 		if (error)
 			goto release;
 
@@ -168,7 +166,8 @@ udp6_output(struct inpcb *in6p, struct mbuf *m, struct mbuf *addr6,
 				goto release;
 		}
 
-		if (!IN6_ARE_ADDR_EQUAL(&in6p->inp_laddr6, laddr)) {
+		if (!IN6_IS_ADDR_UNSPECIFIED(&in6p->inp_laddr6) &&
+		    !IN6_ARE_ADDR_EQUAL(&in6p->inp_laddr6, laddr)) {
 			valid.sin6_addr = *laddr;
 			valid.sin6_port = in6p->inp_lport;
 			valid.sin6_scope_id = 0;

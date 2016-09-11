@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_timeout.c,v 1.45 2016/03/20 07:56:08 uebayasi Exp $	*/
+/*	$OpenBSD: kern_timeout.c,v 1.48 2016/07/06 15:53:01 tedu Exp $	*/
 /*
  * Copyright (c) 2001 Thomas Nordin <nordin@openbsd.org>
  * Copyright (c) 2000-2001 Artur Grabowski <art@openbsd.org>
@@ -202,11 +202,13 @@ timeout_add(struct timeout *new, int to_ticks)
 int
 timeout_add_tv(struct timeout *to, const struct timeval *tv)
 {
-	long long to_ticks;
+	uint64_t to_ticks;
 
-	to_ticks = (long long)hz * tv->tv_sec + tv->tv_usec / tick;
+	to_ticks = (uint64_t)hz * tv->tv_sec + tv->tv_usec / tick;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
+	if (to_ticks == 0 && tv->tv_usec > 0)
+		to_ticks = 1;
 
 	return (timeout_add(to, (int)to_ticks));
 }
@@ -214,11 +216,13 @@ timeout_add_tv(struct timeout *to, const struct timeval *tv)
 int
 timeout_add_ts(struct timeout *to, const struct timespec *ts)
 {
-	long long to_ticks;
+	uint64_t to_ticks;
 
-	to_ticks = (long long)hz * ts->tv_sec + ts->tv_nsec / (tick * 1000);
+	to_ticks = (uint64_t)hz * ts->tv_sec + ts->tv_nsec / (tick * 1000);
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
+	if (to_ticks == 0 && ts->tv_nsec > 0)
+		to_ticks = 1;
 
 	return (timeout_add(to, (int)to_ticks));
 }
@@ -226,12 +230,14 @@ timeout_add_ts(struct timeout *to, const struct timespec *ts)
 int
 timeout_add_bt(struct timeout *to, const struct bintime *bt)
 {
-	long long to_ticks;
+	uint64_t to_ticks;
 
-	to_ticks = (long long)hz * bt->sec + (long)(((uint64_t)1000000 *
+	to_ticks = (uint64_t)hz * bt->sec + (long)(((uint64_t)1000000 *
 	    (uint32_t)(bt->frac >> 32)) >> 32) / tick;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
+	if (to_ticks == 0 && bt->frac > 0)
+		to_ticks = 1;
 
 	return (timeout_add(to, (int)to_ticks));
 }
@@ -239,9 +245,9 @@ timeout_add_bt(struct timeout *to, const struct bintime *bt)
 int
 timeout_add_sec(struct timeout *to, int secs)
 {
-	long long to_ticks;
+	uint64_t to_ticks;
 
-	to_ticks = (long long)hz * secs;
+	to_ticks = (uint64_t)hz * secs;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
 
@@ -251,11 +257,13 @@ timeout_add_sec(struct timeout *to, int secs)
 int
 timeout_add_msec(struct timeout *to, int msecs)
 {
-	long long to_ticks;
+	uint64_t to_ticks;
 
-	to_ticks = (long long)msecs * 1000 / tick;
+	to_ticks = (uint64_t)msecs * 1000 / tick;
 	if (to_ticks > INT_MAX)
 		to_ticks = INT_MAX;
+	if (to_ticks == 0 && msecs > 0)
+		to_ticks = 1;
 
 	return (timeout_add(to, (int)to_ticks));
 }
@@ -265,6 +273,9 @@ timeout_add_usec(struct timeout *to, int usecs)
 {
 	int to_ticks = usecs / tick;
 
+	if (to_ticks == 0 && usecs > 0)
+		to_ticks = 1;
+
 	return (timeout_add(to, to_ticks));
 }
 
@@ -272,6 +283,9 @@ int
 timeout_add_nsec(struct timeout *to, int nsecs)
 {
 	int to_ticks = nsecs / (tick * 1000);
+
+	if (to_ticks == 0 && nsecs > 0)
+		to_ticks = 1;
 
 	return (timeout_add(to, to_ticks));
 }
@@ -322,6 +336,8 @@ timeout_hardclock_update(void)
 void
 softclock(void *arg)
 {
+	int delta;
+	struct circq *bucket;
 	struct timeout *to;
 	void (*fn)(void *);
 
@@ -331,14 +347,14 @@ softclock(void *arg)
 		CIRCQ_REMOVE(&to->to_list);
 
 		/* If due run it, otherwise insert it into the right bucket. */
-		if (to->to_time - ticks > 0) {
-			CIRCQ_INSERT(&to->to_list,
-			    &BUCKET((to->to_time - ticks), to->to_time));
+		delta = to->to_time - ticks;
+		if (delta > 0) {
+			bucket = &BUCKET(delta, to->to_time);
+			CIRCQ_INSERT(&to->to_list, bucket);
 		} else {
 #ifdef DEBUG
-			if (to->to_time - ticks < 0)
-				printf("timeout delayed %d\n", to->to_time -
-				    ticks);
+			if (delta < 0)
+				printf("timeout delayed %d\n", delta);
 #endif
 			to->to_flags &= ~TIMEOUT_ONQUEUE;
 			to->to_flags |= TIMEOUT_TRIGGERED;

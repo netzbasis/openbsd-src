@@ -1,4 +1,4 @@
-#	$OpenBSD: files.omap,v 1.8 2016/05/02 08:15:55 patrick Exp $
+#	$OpenBSD: files.omap,v 1.17 2016/08/15 13:42:49 patrick Exp $
 
 define omap {}
 device omap: omap
@@ -10,11 +10,11 @@ file	arch/armv7/omap/omap4.c
 file	arch/armv7/omap/am335x.c
 
 device ommmc: sdmmcbus
-attach ommmc at omap
+attach ommmc at fdt
 file	arch/armv7/omap/ommmc.c			ommmc
 
 device cpsw: ether, ifnet, mii, ifmedia
-attach cpsw at omap
+attach cpsw at fdt
 file	arch/armv7/omap/if_cpsw.c		cpsw
 
 device prcm
@@ -27,11 +27,11 @@ file	arch/armv7/omap/am335x_cm_padconf.c	sitaracm
 file	arch/armv7/omap/sitara_cm.c		sitaracm
 
 device omgpio: gpiobus
-attach omgpio at omap
+attach omgpio at fdt
 file	arch/armv7/omap/omgpio.c		omgpio
 
 device tiiic: i2cbus
-attach tiiic at omap
+attach tiiic at fdt
 file	arch/armv7/omap/ti_iic.c		tiiic
 
 device edma
@@ -39,7 +39,7 @@ attach edma at omap
 file	arch/armv7/omap/edma.c			edma
 
 device intc
-attach intc at omap
+attach intc at fdt
 file	arch/armv7/omap/intc.c			intc
 
 device gptimer
@@ -55,18 +55,15 @@ attach omapid at omap
 file	arch/armv7/omap/omapid.c		omapid
 
 device omdog
-attach omdog at omap
+attach omdog at fdt
 file	arch/armv7/omap/omdog.c			omdog
 
 attach ohci at omap with omohci
 file	arch/armv7/omap/omohci.c		omohci
 
-attach ehci at omap with omehci
+device omehci: usbus
+attach omehci at fdt
 file	arch/armv7/omap/omehci.c		omehci
-
-# NS16550 compatible serial ports
-attach	com at omap with com_omap
-file	arch/armv7/omap/omap_com.c		com_omap
 
 device omusbtll
 attach omusbtll at omap

@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.73 2016/03/21 14:20:57 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.75 2016/08/14 08:23:52 visa Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Miodrag Vallat.
@@ -78,6 +78,7 @@
 #include <machine/memconf.h>
 
 #include <dev/cons.h>
+#include <dev/ofw/fdt.h>
 
 #include <octeon/dev/cn30xxipdreg.h>
 #include <octeon/dev/iobusvar.h>
@@ -97,6 +98,8 @@ vm_map_t phys_map;
 
 struct boot_desc *octeon_boot_desc;
 struct boot_info *octeon_boot_info;
+
+void *octeon_fdt;
 
 char uboot_rootdev[OCTEON_ARGV_MAX];
 
@@ -127,6 +130,7 @@ vaddr_t		mips_init(__register_t, __register_t, __register_t, __register_t);
 boolean_t 	is_memory_range(paddr_t, psize_t, psize_t);
 void		octeon_memory_init(struct boot_info *);
 int		octeon_cpuspeed(int *);
+void		octeon_tlb_init(void);
 static void	process_bootargs(void);
 static uint64_t	get_ncpusfound(void);
 
@@ -334,7 +338,7 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 	Octeon_ConfigCache(curcpu());
 	Octeon_SyncCache(curcpu());
 
-	tlb_init(bootcpu_hwinfo.tlbsize);
+	octeon_tlb_init();
 
 	/*
 	 * Save the the boot information for future reference since we can't
@@ -354,6 +358,24 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 	ncpusfound = get_ncpusfound();
 
 	process_bootargs();
+
+	/*
+	 * Save the FDT and let the system use it.
+	 */
+	if (octeon_boot_info->ver_minor >= 3 &&
+	    octeon_boot_info->fdt_addr != 0) {
+		void *fdt;
+		size_t fdt_size;
+
+		fdt = (void *)PHYS_TO_XKPHYS(octeon_boot_info->fdt_addr,
+		    CCA_CACHED);
+		if (fdt_init(fdt) != 0 && (fdt_size = fdt_get_size(fdt)) != 0) {
+			octeon_fdt = (void *)pmap_steal_memory(fdt_size, NULL,
+			    NULL);
+			memcpy(octeon_fdt, fdt, fdt_size);
+			fdt_init(octeon_fdt);
+		}
+	}
 
 	/*
 	 * Get a console, very early but after initial mapping setup.
@@ -407,6 +429,8 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 	DUMP_BOOT_INFO(led_display_addr, %#llx);
 	DUMP_BOOT_INFO(dfaclock, %d);
 	DUMP_BOOT_INFO(config_flags, %#x);
+	if (octeon_boot_info->ver_minor >= 3)
+		DUMP_BOOT_INFO(fdt_addr, %#llx);
 #endif
 
 	/*
@@ -568,6 +592,21 @@ octeon_ioclock_speed(void)
 	default:
 		return octeon_boot_info->eclock;
 	}
+}
+
+void
+octeon_tlb_init(void)
+{
+	uint32_t pgrain = 0;
+
+#ifdef MIPS_PTE64
+	pgrain |= PGRAIN_ELPA;
+#endif
+	if (cp0_get_config_3() & CONFIG3_RXI)
+		pgrain |= PGRAIN_XIE;
+	cp0_set_pagegrain(pgrain);
+
+	tlb_init(bootcpu_hwinfo.tlbsize);
 }
 
 static u_int64_t
@@ -802,7 +841,7 @@ hw_cpu_hatch(struct cpu_info *ci)
 	 */
 	setsr(getsr() | SR_KX | SR_UX);
 
-	tlb_init(64);
+	octeon_tlb_init();
 	tlb_set_pid(0);
 
 	/*

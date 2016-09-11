@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_cnmacvar.h,v 1.9 2016/04/26 11:22:05 visa Exp $	*/
+/*	$OpenBSD: if_cnmacvar.h,v 1.16 2016/08/06 04:32:24 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -34,6 +34,11 @@
 #define FREE_QUEUE_SIZE		GATHER_QUEUE_SIZE
 #define RECV_QUEUE_SIZE		(GATHER_QUEUE_SIZE * 2)
 
+#define OCTEON_ETH_MAX_MTU		12288
+
+/* Number of mbufs per port to keep in the packet pool */
+#define OCTEON_ETH_MBUFS_PER_PORT	256
+
 struct _send_queue_entry;
 struct cn30xxpow_softc;
 struct cn30xxpip_softc;
@@ -57,7 +62,6 @@ struct octeon_eth_softc {
 	struct cn30xxpip_softc	*sc_pip;
 	struct cn30xxipd_softc	*sc_ipd;
 	struct cn30xxpko_softc	*sc_pko;
-	struct cn30xxasx_softc	*sc_asx;
 	struct cn30xxsmi_softc	*sc_smi;
 	struct cn30xxgmx_softc	*sc_gmx;
 	struct cn30xxgmx_port_softc
@@ -70,6 +74,8 @@ struct octeon_eth_softc {
 
 	struct timeout		sc_tick_misc_ch;
 	struct timeout		sc_tick_free_ch;
+
+	struct task		sc_free_task;
 
 	int64_t			sc_soft_req_thresh;
 	int64_t			sc_hard_done_cnt;
@@ -100,10 +106,5 @@ struct octeon_eth_softc {
 
 	size_t			sc_ip_offset;
 
-	struct timeval		sc_rate_recv_check_link_last;
-	struct timeval		sc_rate_recv_check_link_cap;
-	struct timeval		sc_rate_recv_check_jumbo_last;
-	struct timeval		sc_rate_recv_check_jumbo_cap;
-	struct timeval		sc_rate_recv_check_code_last;
-	struct timeval		sc_rate_recv_check_code_cap;
+	struct timeval		sc_rxerr_log_last;
 };

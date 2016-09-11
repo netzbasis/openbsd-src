@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_spppsubr.c,v 1.152 2016/05/02 22:15:49 jmatthew Exp $	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.155 2016/07/11 13:06:31 bluhm Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -914,6 +914,7 @@ sppp_cp_send(struct sppp *sp, u_short proto, u_char type,
 		return;
 	m->m_pkthdr.len = m->m_len = PKTHDRLEN + LCP_HEADER_LEN + len;
 	m->m_pkthdr.ph_ifidx = 0;
+	m->m_pkthdr.pf.prio = sp->pp_if.if_llprio;
 
 	*mtod(m, u_int16_t *) = htons(proto);
 	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
@@ -3991,6 +3992,7 @@ sppp_auth_send(const struct cp *cp, struct sppp *sp,
 	if (! m)
 		return;
 	m->m_pkthdr.ph_ifidx = 0;
+	m->m_pkthdr.pf.prio = sp->pp_if.if_llprio;
 
 	*mtod(m, u_int16_t *) = htons(cp->proto);
 	lh = (struct lcp_header *)(mtod(m, u_int8_t *) + 2);
@@ -4159,7 +4161,7 @@ sppp_update_gw_walker(struct rtentry *rt, void *arg, unsigned int id)
 		    rt->rt_gateway->sa_family ||
 		    !ISSET(rt->rt_flags, RTF_GATEWAY))
 			return (0);	/* do not modify non-gateway routes */
-		rt_setgate(rt, rt->rt_ifa->ifa_dstaddr);
+		rt_setgate(rt, rt->rt_ifa->ifa_dstaddr, ifp->if_rdomain);
 	}
 	return (0);
 }

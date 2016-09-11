@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Term.pm,v 1.35 2016/05/15 10:29:01 espie Exp $
+# $OpenBSD: Term.pm,v 1.38 2016/06/24 11:42:30 espie Exp $
 #
 # Copyright (c) 2004-2007 Marc Espie <espie@openbsd.org>
 #
@@ -86,13 +86,24 @@ use POSIX;
 use Term::Cap;
 use Term::ReadKey;
 
+sub width
+{
+	my $self = shift;
+	return $self->{state}->width;
+}
+
+sub forked
+{
+	my $self = shift;
+	$self->{lastdisplay} = ' 'x($self->width-1);
+}
+
 sub init
 {
 	my $self = shift;
 	my $oldfh = select(STDOUT);
 	$| = 1;
 	select($oldfh);
-	$self->find_window_size;
 	$self->{lastdisplay} = '';
 	$self->{continued} = 0;
 	$self->{work} = 0;
@@ -114,28 +125,19 @@ sub init
 	}
 }
 
-sub find_window_size
-{
-	my $self = shift;
-
-	my @l = Term::ReadKey::GetTermSizeGWINSZ(\*STDOUT);
-	if (@l != 4) {
-		$self->{width} = 80;
-	} else {
-		$self->{width} = $l[0];
-	}
-}
-
 sub compute_playfield
 {
-	my $self = shift;
-	$self->{playfield} = $self->{width} - length($self->{header}) - 7;
+	my ($self, $cont) = @_;
+	$self->{playfield} = $self->width - length($self->{header}) - 7;
 	# we can print to 80 columns
 	if ($self->{glitch} && $self->{state}->config->istrue("fullwidth")) {
 		$self->{playfield} += 1;
 	}
 	if ($self->{playfield} < 5) {
 		$self->{playfield} = 0;
+	}
+	if ($cont) {
+		$self->{continued} = 1;
 	}
 }
 
@@ -144,13 +146,6 @@ sub set_header
 	my ($self, $header) = @_;
 	$self->{header} = $header;
 	$self->compute_playfield;
-	$SIG{'WINCH'} = sub {
-		$self->find_window_size;
-		$self->compute_playfield;
-	};
-	$SIG{'CONT'} = sub {
-		$self->{continued} = 1;
-	};
 	return 1;
 }
 
@@ -180,11 +175,11 @@ sub _show
 		$d.="|$extra";
 		$prefix++;
 	}
-	if ($self->{width} > length($d)) {
+	if ($self->width > length($d)) {
 		if ($self->{cleareol}) {
 			$d .= $self->{cleareol};
 		} else {
-			$d .= ' 'x($self->{width} - length($d) - 1);
+			$d .= ' 'x($self->width - length($d) - 1);
 		}
 	}
 

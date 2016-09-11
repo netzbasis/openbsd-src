@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.c,v 1.102 2016/05/18 08:15:28 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.c,v 1.104 2016/08/17 09:42:03 stsp Exp $	*/
 /*	$NetBSD: ieee80211_node.c,v 1.14 2004/05/09 09:18:47 dyoung Exp $	*/
 
 /*-
@@ -585,14 +585,17 @@ ieee80211_end_scan(struct ifnet *ifp)
 		 * Scan the next mode if nothing has been found. This
 		 * is necessary if the device supports different
 		 * incompatible modes in the same channel range, like
-		 * like 11b and "pure" 11G mode. This will loop
-		 * forever except for user-initiated scans.
+		 * like 11b and "pure" 11G mode.
+		 * If the device scans all bands in one fell swoop, return
+		 * current scan results to userspace regardless of mode.
+		 * This will loop forever except for user-initiated scans.
 		 */
-		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO) {
+		if (ieee80211_next_mode(ifp) == IEEE80211_MODE_AUTO ||
+		    (ic->ic_caps & IEEE80211_C_SCANALLBAND)) {
 			if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST &&
 			    ic->ic_scan_lock & IEEE80211_SCAN_RESUME) {
 				ic->ic_scan_lock = IEEE80211_SCAN_LOCKED;
-				/* Return from an user-initiated scan */
+				/* Return from a user-initiated scan. */
 				wakeup(&ic->ic_scan_lock);
 			} else if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST)
 				goto wakeup;
@@ -619,12 +622,23 @@ ieee80211_end_scan(struct ifnet *ifp)
 				ieee80211_free_node(ic, ni);
 			continue;
 		}
-		if (ieee80211_match_bss(ic, ni) == 0) {
-			if (selbs == NULL)
-				selbs = ni;
-			else if (ni->ni_rssi > selbs->ni_rssi)
-				selbs = ni;
-		}
+		if (ieee80211_match_bss(ic, ni) != 0)
+			continue;
+
+		/* Pick the AP/IBSS match with the best RSSI. */
+		if (selbs == NULL)
+			selbs = ni;
+		else if ((ic->ic_caps & IEEE80211_C_SCANALLBAND) &&
+		    IEEE80211_IS_CHAN_5GHZ(selbs->ni_chan) &&
+		    IEEE80211_IS_CHAN_2GHZ(ni->ni_chan) &&
+		    selbs->ni_rssi >= (ic->ic_max_rssi - (ic->ic_max_rssi / 4)))
+			/* 
+			 * Prefer 5GHz (with reasonable RSSI) over 2GHz since
+			 * the 5GHz band is usually less saturated.
+			 */
+			continue;
+		else if (ni->ni_rssi > selbs->ni_rssi)
+			selbs = ni;
 	}
 	if (selbs == NULL)
 		goto notfound;
@@ -652,7 +666,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 
  wakeup:
 	if (ic->ic_scan_lock & IEEE80211_SCAN_REQUEST) {
-		/* Return from an user-initiated scan */
+		/* Return from a user-initiated scan. */
 		wakeup(&ic->ic_scan_lock);
 	}
 

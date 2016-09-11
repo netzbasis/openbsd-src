@@ -1,4 +1,4 @@
-/*	$OpenBSD: smu.c,v 1.31 2016/05/14 21:22:17 mglocker Exp $	*/
+/*	$OpenBSD: smu.c,v 1.33 2016/05/29 11:00:37 mglocker Exp $	*/
 
 /*
  * Copyright (c) 2005 Mark Kettenis
@@ -32,14 +32,20 @@
 #include <dev/ofw/openfirm.h>
 
 #include <macppc/dev/maci2cvar.h>
+#include <macppc/dev/thermal.h>
 #include <macppc/pci/macobio.h>
 
 int     smu_match(struct device *, void *, void *);
 void    smu_attach(struct device *, struct device *, void *);
 
+/* Target and Max. temperature in muK. */
+#define TEMP_TRG	38 * 1000000 + 273150000
+#define TEMP_MAX	70 * 1000000 + 273150000
+
 #define SMU_MAXFANS	8
 
 struct smu_fan {
+	struct thermal_fan fan;
 	u_int8_t	reg;
 	u_int16_t	min_rpm;
 	u_int16_t	max_rpm;
@@ -53,6 +59,7 @@ struct smu_fan {
 #define SMU_MAXSENSORS	4
 
 struct smu_sensor {
+	struct thermal_temp therm;
 	u_int8_t	reg;
 	struct ksensor	sensor;
 };
@@ -72,6 +79,8 @@ struct smu_softc {
 	bus_space_tag_t sc_memt;
 	bus_space_handle_t sc_gpioh;
 	bus_space_handle_t sc_buffh;
+
+	uint8_t		sc_firmware_old;
 
 	struct smu_fan	sc_fans[SMU_MAXFANS];
 	int		sc_num_fans;
@@ -146,14 +155,19 @@ int	smu_do_cmd(struct smu_softc *, int);
 int	smu_time_read(time_t *);
 int	smu_time_write(time_t);
 int	smu_get_datablock(struct smu_softc *sc, u_int8_t, u_int8_t *, size_t);
+void	smu_firmware_probe(struct smu_softc *, struct smu_fan *);
 int	smu_fan_set_rpm(struct smu_softc *, struct smu_fan *, u_int16_t);
 int	smu_fan_set_pwm(struct smu_softc *, struct smu_fan *, u_int16_t);
 int	smu_fan_read_rpm(struct smu_softc *, struct smu_fan *, u_int16_t *);
 int	smu_fan_read_pwm(struct smu_softc *, struct smu_fan *, u_int16_t *,
 	    u_int16_t *);
 int	smu_fan_refresh(struct smu_softc *, struct smu_fan *);
-int	smu_sensor_refresh(struct smu_softc *, struct smu_sensor *);
+int	smu_sensor_refresh(struct smu_softc *, struct smu_sensor *, int);
 void	smu_refresh_sensors(void *);
+
+int	smu_fan_set_rpm_thermal(struct smu_fan *, int);
+int	smu_fan_set_pwm_thermal(struct smu_fan *, int);
+int	smu_sensor_refresh_thermal(struct smu_sensor *);
 
 int	smu_i2c_acquire_bus(void *, int);
 void	smu_i2c_release_bus(void *, int);
@@ -301,6 +315,15 @@ smu_attach(struct device *parent, struct device *self, void *aux)
 		/* Start running fans at their "unmanaged" speed. */
 		smu_fan_set_rpm(sc, fan, fan->unmanaged_rpm);
 
+		/* Register fan at thermal management framework. */
+		fan->fan.min_rpm = fan->min_rpm;
+		fan->fan.max_rpm = fan->max_rpm;
+		fan->fan.default_rpm = fan->unmanaged_rpm;
+		strlcpy(fan->fan.name, loc, sizeof fan->fan.name);
+		OF_getprop(node, "zone", &fan->fan.zone, sizeof fan->fan.zone);
+		fan->fan.set = (int (*)(struct thermal_fan *, int))
+		    smu_fan_set_rpm_thermal;
+		thermal_fan_register(&fan->fan);
 #ifndef SMALL_KERNEL
 		sensor_attach(&sc->sc_sensordev, &fan->sensor);
 #endif
@@ -348,6 +371,15 @@ smu_attach(struct device *parent, struct device *self, void *aux)
 		/* Start running fans at their "unmanaged" speed. */
 		smu_fan_set_pwm(sc, fan, fan->unmanaged_pwm);
 
+		/* Register fan at thermal management framework. */
+		fan->fan.min_rpm = fan->min_pwm;
+		fan->fan.max_rpm = fan->max_pwm;
+		fan->fan.default_rpm = fan->unmanaged_pwm;
+		strlcpy(fan->fan.name, loc, sizeof fan->fan.name);
+		OF_getprop(node, "zone", &fan->fan.zone, sizeof fan->fan.zone);
+		fan->fan.set = (int (*)(struct thermal_fan *, int))
+		    smu_fan_set_pwm_thermal;
+		thermal_fan_register(&fan->fan);
 #ifndef SMALL_KERNEL
 		sensor_attach(&sc->sc_sensordev, &fan->sensor);
 #endif
@@ -363,6 +395,9 @@ smu_attach(struct device *parent, struct device *self, void *aux)
 		printf(": no fans\n");
 		return;
 	}
+
+	/* Probe the smu firmware version */
+	smu_firmware_probe(sc, &sc->sc_fans[0]);
 
 #ifndef SMALL_KERNEL
 	/* Sensors */
@@ -396,6 +431,19 @@ smu_attach(struct device *parent, struct device *self, void *aux)
 		if (OF_getprop(node, "location", loc, sizeof loc) <= 0)
 			strlcpy(loc, "Unknown", sizeof loc);
 		strlcpy(sensor->sensor.desc, loc, sizeof sensor->sensor.desc);
+
+		/* Register temp. sensor at thermal management framework. */
+		if (sensor->sensor.type == SENSOR_TEMP) {
+			sensor->therm.target_temp = TEMP_TRG;
+			sensor->therm.max_temp = TEMP_MAX;
+			strlcpy(sensor->therm.name, loc,
+			    sizeof sensor->therm.name);
+			OF_getprop(node, "zone", &sensor->therm.zone,
+			    sizeof sensor->therm.zone);
+			sensor->therm.read = (int (*)
+			    (struct thermal_temp *))smu_sensor_refresh_thermal;
+			thermal_sensor_register(&sensor->therm);
+		}
 
 		sensor_attach(&sc->sc_sensordev, &sensor->sensor);
 	}
@@ -592,6 +640,26 @@ smu_get_datablock(struct smu_softc *sc, u_int8_t id, u_int8_t *buf, size_t len)
 	return (0);
 }
 
+void
+smu_firmware_probe(struct smu_softc *sc, struct smu_fan *fan)
+{
+	struct smu_cmd *cmd = (struct smu_cmd *)sc->sc_cmd;
+	int error;
+
+	/*
+	 * Find out if the smu runs an old or new firmware version
+	 * by sending a new firmware command to read the fan speed.
+	 * If it fails we assume to have an old firmware version.
+	 */
+	cmd->cmd = SMU_FAN;
+	cmd->len = 2;
+	cmd->data[0] = 0x31;
+	cmd->data[1] = fan->reg;
+	error = smu_do_cmd(sc, 800);
+	if (error)
+		sc->sc_firmware_old = 1;
+}
+
 int
 smu_fan_set_rpm(struct smu_softc *sc, struct smu_fan *fan, u_int16_t rpm)
 {
@@ -603,12 +671,21 @@ smu_fan_set_rpm(struct smu_softc *sc, struct smu_fan *fan, u_int16_t rpm)
 	 * the PowerMac8,1.  We simply store the value at both
 	 * locations.
 	 */
-	cmd->cmd = SMU_FAN;
-	cmd->len = 14;
-	cmd->data[0] = 0x00;	/* fan-rpm-control */
-	cmd->data[1] = 0x01 << fan->reg;
-	cmd->data[2] = cmd->data[2 + fan->reg * 2] = (rpm >> 8) & 0xff;
-	cmd->data[3] = cmd->data[3 + fan->reg * 2] = (rpm & 0xff);
+	if (sc->sc_firmware_old) {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 14;
+		cmd->data[0] = 0x00;	/* fan-rpm-control */
+		cmd->data[1] = 0x01 << fan->reg;
+		cmd->data[2] = cmd->data[2 + fan->reg * 2] = (rpm >> 8) & 0xff;
+		cmd->data[3] = cmd->data[3 + fan->reg * 2] = (rpm & 0xff);
+	} else {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 4;
+		cmd->data[0] = 0x30;
+		cmd->data[1] = fan->reg;
+		cmd->data[2] = (rpm >> 8) & 0xff;
+		cmd->data[3] = rpm & 0xff;
+	}
 	return smu_do_cmd(sc, 800);
 }
 
@@ -617,12 +694,21 @@ smu_fan_set_pwm(struct smu_softc *sc, struct smu_fan *fan, u_int16_t pwm)
 {
 	struct smu_cmd *cmd = (struct smu_cmd *)sc->sc_cmd;
 
-	cmd->cmd = SMU_FAN;
-	cmd->len = 14;
-	cmd->data[0] = 0x10;	/* fan-pwm-control */
-	cmd->data[1] = 0x01 << fan->reg;
-	cmd->data[2] = cmd->data[2 + fan->reg * 2] = (pwm >> 8) & 0xff;
-	cmd->data[3] = cmd->data[3 + fan->reg * 2] = (pwm & 0xff);
+	if (sc->sc_firmware_old) {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 14;
+		cmd->data[0] = 0x10;	/* fan-pwm-control */
+		cmd->data[1] = 0x01 << fan->reg;
+		cmd->data[2] = cmd->data[2 + fan->reg * 2] = (pwm >> 8) & 0xff;
+		cmd->data[3] = cmd->data[3 + fan->reg * 2] = (pwm & 0xff);
+	} else {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 4;
+		cmd->data[0] = 0x30;
+		cmd->data[1] = fan->reg;
+		cmd->data[2] = (pwm >> 8) & 0xff;
+		cmd->data[3] = pwm & 0xff;
+	}
 	return smu_do_cmd(sc, 800);
 }
 
@@ -632,13 +718,25 @@ smu_fan_read_rpm(struct smu_softc *sc, struct smu_fan *fan, u_int16_t *rpm)
 	struct smu_cmd *cmd = (struct smu_cmd *)sc->sc_cmd;
 	int error;
 
-	cmd->cmd = SMU_FAN;
-	cmd->len = 1;
-	cmd->data[0] = 0x01;	/* fan-rpm-control */
-	error = smu_do_cmd(sc, 800);
-	if (error)
-		return (error);
-	*rpm = (cmd->data[fan->reg * 2 + 1] << 8) | cmd->data[fan->reg * 2 + 2];
+	if (sc->sc_firmware_old) {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 1;
+		cmd->data[0] = 0x01;	/* fan-rpm-control */
+		error = smu_do_cmd(sc, 800);
+		if (error)
+			return (error);
+		*rpm = (cmd->data[fan->reg * 2 + 1] << 8) |
+		        cmd->data[fan->reg * 2 + 2];
+	} else {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 2;
+		cmd->data[0] = 0x31;
+		cmd->data[1] = fan->reg;
+		error = smu_do_cmd(sc, 800);
+		if (error)
+			return (error);
+		*rpm = (cmd->data[0] << 8) | cmd->data[1];
+	}
 
 	return (0);
 }
@@ -650,24 +748,43 @@ smu_fan_read_pwm(struct smu_softc *sc, struct smu_fan *fan, u_int16_t *pwm,
 	struct smu_cmd *cmd = (struct smu_cmd *)sc->sc_cmd;
 	int error;
 
-	/* read PWM value */
-	cmd->cmd = SMU_FAN;
-	cmd->len = 14;
-	cmd->data[0] = 0x12;
-	cmd->data[1] = 0x01 << fan->reg;
-	error = smu_do_cmd(sc, 800);
-	if (error)
-		return (error);
-	*pwm = cmd->data[fan->reg * 2 + 2];
+	if (sc->sc_firmware_old) {
+		/* read PWM value */
+		cmd->cmd = SMU_FAN;
+		cmd->len = 14;
+		cmd->data[0] = 0x12;
+		cmd->data[1] = 0x01 << fan->reg;
+		error = smu_do_cmd(sc, 800);
+		if (error)
+			return (error);
+		*pwm = cmd->data[fan->reg * 2 + 2];
 
-	/* read RPM value */
-	cmd->cmd = SMU_FAN;
-	cmd->len = 1;
-	cmd->data[0] = 0x11;
-	error = smu_do_cmd(sc, 800);
-	if (error)
-		return (error);
-	*rpm = (cmd->data[fan->reg * 2 + 1] << 8) | cmd->data[fan->reg * 2 + 2];
+		/* read RPM value */
+		cmd->cmd = SMU_FAN;
+		cmd->len = 1;
+		cmd->data[0] = 0x11;
+		error = smu_do_cmd(sc, 800);
+		if (error)
+			return (error);
+		*rpm = (cmd->data[fan->reg * 2 + 1] << 8) |
+		        cmd->data[fan->reg * 2 + 2];
+	} else {
+		cmd->cmd = SMU_FAN;
+		cmd->len = 2;
+		cmd->data[0] = 0x31;
+		cmd->data[1] = fan->reg;
+		error = smu_do_cmd(sc, 800);
+		if (error)
+			return (error);
+		*rpm = (cmd->data[0] << 8) | cmd->data[1];
+
+		/* XXX
+		 * We don't know currently if there is a pwm read command
+		 * for the new firmware as well.  Therefore lets calculate
+		 * the pwm value for now based on the rpm.
+		 */
+		*pwm = *rpm * 100 / fan->max_rpm;
+	}
 
 	return (0);
 }
@@ -700,7 +817,8 @@ smu_fan_refresh(struct smu_softc *sc, struct smu_fan *fan)
 }
 
 int
-smu_sensor_refresh(struct smu_softc *sc, struct smu_sensor *sensor)
+smu_sensor_refresh(struct smu_softc *sc, struct smu_sensor *sensor,
+    int update_sysctl)
 {
 	struct smu_cmd *cmd = (struct smu_cmd *)sc->sc_cmd;
 	int64_t value;
@@ -761,9 +879,11 @@ smu_sensor_refresh(struct smu_softc *sc, struct smu_sensor *sensor)
 	default:
 		break;
 	}
-	sensor->sensor.value = value;
-	sensor->sensor.flags = 0;
-	return (0);
+	if (update_sysctl) {
+		sensor->sensor.value = value;
+		sensor->sensor.flags = 0;
+	}
+	return (value);
 }
 
 void
@@ -774,10 +894,50 @@ smu_refresh_sensors(void *arg)
 
 	rw_enter_write(&sc->sc_lock);
 	for (i = 0; i < sc->sc_num_sensors; i++)
-		smu_sensor_refresh(sc, &sc->sc_sensors[i]);
+		smu_sensor_refresh(sc, &sc->sc_sensors[i], 1);
 	for (i = 0; i < sc->sc_num_fans; i++)
 		smu_fan_refresh(sc, &sc->sc_fans[i]);
 	rw_exit_write(&sc->sc_lock);
+}
+
+/*
+ * Wrapper functions for the thermal management framework.
+ */
+int
+smu_fan_set_rpm_thermal(struct smu_fan *fan, int rpm)
+{
+	struct smu_softc *sc = smu_cd.cd_devs[0];
+
+	rw_enter_write(&sc->sc_lock);
+	(void)smu_fan_set_rpm(sc, fan, rpm);
+	rw_exit_write(&sc->sc_lock);
+
+	return (0);
+}
+
+int
+smu_fan_set_pwm_thermal(struct smu_fan *fan, int pwm)
+{
+	struct smu_softc *sc = smu_cd.cd_devs[0];
+
+	rw_enter_write(&sc->sc_lock);
+	(void)smu_fan_set_pwm(sc, fan, pwm);
+	rw_exit_write(&sc->sc_lock);
+
+	return (0);
+}
+
+int
+smu_sensor_refresh_thermal(struct smu_sensor *sensor)
+{
+	struct smu_softc *sc = smu_cd.cd_devs[0];
+	int value;
+
+	rw_enter_write(&sc->sc_lock);
+	value = smu_sensor_refresh(sc, sensor, 0);
+	rw_exit_write(&sc->sc_lock);
+
+	return (value);
 }
 
 int

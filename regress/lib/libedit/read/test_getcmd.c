@@ -34,7 +34,7 @@ int
 main()
 {
 	EditLine	 el;
-	c_macro_t	*ma;
+	struct macros	*ma;
 	int		 irc;
 	wchar_t		 ch;
 	el_action_t	 cmdnum;
@@ -42,7 +42,6 @@ main()
 	if (setlocale(LC_CTYPE, "") == NULL)
 		err(1, "setlocale");
 
-	el.el_errno = ENOMSG;
 	el.el_flags = CHARSET_IS_UTF8;
 	el.el_infd = STDIN_FILENO;
 	el.el_state.metanext = 0;
@@ -57,14 +56,10 @@ main()
 	if ((el.el_signal = calloc(1, sizeof(*el.el_signal))) == NULL)
 		err(1, NULL);
 
-	ma = &el.el_chared.c_macro;
-	ma->level = -1;
-	ma->offset = 0;
-	if ((ma->macro = calloc(EL_MAXMACRO, sizeof(*ma->macro))) == NULL)
-		err(1, NULL);
-
 	if (read_init(&el) != 0)
 		err(1, "read_init");
+	ma = &el.el_read->macros;
+	el.el_read->read_errno = ENOMSG;
 
 	do {
 		irc = read_getcmd(&el, &cmdnum, &ch);
@@ -91,8 +86,8 @@ main()
 			printf("ret(%d)", irc);
 			break;
 		}
-		if (el.el_errno != 0)
-			printf(" el_errno=%d", el.el_errno);
+		if (el.el_read->read_errno != ENOMSG)
+			printf(" read_errno=%d", el.el_read->read_errno);
 		if (ma->level > -1)
 			printf(" macro[%d]=%ls(%d)", ma->level,
 			    *ma->macro, ma->offset);

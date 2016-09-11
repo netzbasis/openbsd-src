@@ -1,4 +1,4 @@
-$OpenBSD: usbdevs,v 1.663 2016/03/31 12:27:48 reyk Exp $
+$OpenBSD: usbdevs,v 1.667 2016/09/09 18:28:11 tedu Exp $
 /* $NetBSD: usbdevs,v 1.322 2003/05/10 17:47:14 hamajima Exp $ */
 
 /*
@@ -591,6 +591,7 @@ vendor SILABS5		0x1ba4	Silicon Labs
 vendor CORSAIR		0x1b1c	Corsair
 vendor MATRIXORB	0x1b3d	Matrix Orbital
 vendor TORADEX		0x1b67	Toradex inc.
+vendor FUSHICAI		0x1b71	Fushicai
 vendor OVISLINK		0x1b75	OvisLink
 vendor TML		0x1b91	The Mobility Lab
 vendor TCTMOBILE	0x1bbb  TCT Mobile
@@ -831,7 +832,8 @@ product AGFA SNAPSCANE26	0x2097	SnapScan e26
 product AGFA SNAPSCANE52	0x20fd	SnapScan e52
 
 /* Airprime, Inc. products */
-product AIRPRIME PC5220		0x0112	AirPrime CDMA Wireless EVDO card
+product AIRPRIME PC5220		0x0112	CDMA Wireless EVDO card
+product AIRPRIME AIRCARD_313U	0x68aa	Aircard 313U
   
 /* Aincomm products */
 product AINCOMM AWU2000B	0x1001	AWU2000B
@@ -1090,7 +1092,7 @@ product ATI2 205		0xa001	USB Cable 205
 /* Atmel Comp. products */
 product ATMEL STK541		0x2109	STK541 Zigbee
 product ATMEL UHB124		0x3301	UHB124 hub
-product ATMEL WN210		0x3301	W-Buddie WN210
+product ATMEL WN210		0x4102	W-Buddie WN210
 product ATMEL DWL900AP		0x5601	DWL-900AP Wireless access point
 product ATMEL AT91_CDC_ACM	0x6119	AT91 CDC ACM
 product ATMEL AT76C503I1	0x7603	AT76C503 (Intersil 3861 Radio)
@@ -1995,6 +1997,9 @@ product FUJITSUCOMP VIRTETH	0xa4a2	Virtual Eth Device
 
 /* Fujitsu Siemens Computers products */
 product FSC E5400		0x1009	PrismGT USB 2.0 WLAN
+
+/* Fushicai */
+product FUSHICAI USBTV007	0x3002	Fushicai Audio-Video Grabber
 
 /* G.Mate */
 product	GMATE YP3X00		0x1001	YP3X00 PDA
@@ -3832,6 +3837,8 @@ product SIERRA AC885U		0x6880	885U
 product SIERRA C01SW		0x6890	C01SW
 product SIERRA USB305		0x68a3	USB305
 product SIERRA MC8355		0x9013	MC8355
+product SIERRA AIRCARD_340U	0x9051	Aircard 340U
+product SIERRA AIRCARD_770S	0x9053	Aircard 770S
 
 /* Sigmatel products */
 product SIGMATEL IRDA		0x4200	IrDA

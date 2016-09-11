@@ -1,4 +1,4 @@
-/*	$OpenBSD: file_subs.c,v 1.48 2016/02/16 04:30:07 guenther Exp $	*/
+/*	$OpenBSD: file_subs.c,v 1.52 2016/08/26 04:11:16 guenther Exp $	*/
 /*	$NetBSD: file_subs.c,v 1.4 1995/03/21 09:07:18 cgd Exp $	*/
 
 /*-
@@ -34,7 +34,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/time.h>
 #include <sys/stat.h>
 #include <err.h>
 #include <errno.h>
@@ -45,7 +44,6 @@
 #include <string.h>
 #include <unistd.h>
 #include "pax.h"
-#include "options.h"
 #include "extern.h"
 
 static int
@@ -371,7 +369,7 @@ node_creat(ARCHD *arcn)
 			 * potential symlink chain before trying to create the
 			 * directory.
 			 */
-			if (strcmp(NM_TAR, argv0) == 0 && Lflag) {
+			if (op_mode == OP_TAR && Lflag) {
 				while (lstat(nm, &sb) == 0 &&
 				    S_ISLNK(sb.st_mode)) {
 					len = readlink(nm, target,
@@ -484,7 +482,7 @@ badlink:
 	if (pmode && !defer_pmode)
 		set_pmode(nm, arcn->sb.st_mode);
 
-	if (arcn->type == PAX_DIR && strcmp(NM_CPIO, argv0) != 0) {
+	if (arcn->type == PAX_DIR && op_mode != OP_CPIO) {
 		/*
 		 * Dirs must be processed again at end of extract to set times
 		 * and modes to agree with those stored in the archive. However
@@ -522,9 +520,7 @@ badlink:
 			arcn->sb.st_ino = sb.st_ino;
 			add_dir(nm, &(arcn->sb), 0);
 		}
-	}
-
-	if (patime || pmtime)
+	} else if (patime || pmtime)
 		set_ftime(nm, &arcn->sb.st_mtim, &arcn->sb.st_atim, 0);
 	return(0);
 }
@@ -760,7 +756,7 @@ set_ids(char *fnm, uid_t uid, gid_t gid)
 		 * ignore EPERM unless in verbose mode or being run by root.
 		 * if running as pax, POSIX requires a warning.
 		 */
-		if (strcmp(NM_PAX, argv0) == 0 || errno != EPERM || vflag ||
+		if (op_mode == OP_PAX || errno != EPERM || vflag ||
 		    geteuid() == 0)
 			syswarn(1, errno, "Unable to set file uid/gid of %s",
 			    fnm);
@@ -777,7 +773,7 @@ fset_ids(char *fnm, int fd, uid_t uid, gid_t gid)
 		 * ignore EPERM unless in verbose mode or being run by root.
 		 * if running as pax, POSIX requires a warning.
 		 */
-		if (strcmp(NM_PAX, argv0) == 0 || errno != EPERM || vflag ||
+		if (op_mode == OP_PAX || errno != EPERM || vflag ||
 		    geteuid() == 0)
 			syswarn(1, errno, "Unable to set file uid/gid of %s",
 			    fnm);
@@ -961,7 +957,7 @@ file_write(int fd, char *str, int cnt, int *rem, int *isempt, int sz,
 				 * skip, buf is empty so far
 				 */
 				if (fd > -1 &&
-				    lseek(fd, (off_t)wcnt, SEEK_CUR) < 0) {
+				    lseek(fd, wcnt, SEEK_CUR) < 0) {
 					syswarn(1,errno,"File seek on %s",
 					    name);
 					return(-1);
@@ -1031,7 +1027,7 @@ file_flush(int fd, char *fname, int isempt)
 	/*
 	 * move back one byte and write a zero
 	 */
-	if (lseek(fd, (off_t)-1, SEEK_CUR) < 0) {
+	if (lseek(fd, -1, SEEK_CUR) < 0) {
 		syswarn(1, errno, "Failed seek on file %s", fname);
 		return;
 	}
@@ -1080,8 +1076,8 @@ set_crc(ARCHD *arcn, int fd)
 {
 	int i;
 	int res;
-	off_t cpcnt = 0L;
-	u_long size;
+	off_t cpcnt = 0;
+	size_t size;
 	u_int32_t crc = 0;
 	char tbuf[FILEBLK];
 	struct stat sb;
@@ -1090,12 +1086,12 @@ set_crc(ARCHD *arcn, int fd)
 		/*
 		 * hmm, no fd, should never happen. well no crc then.
 		 */
-		arcn->crc = 0L;
+		arcn->crc = 0;
 		return(0);
 	}
 
-	if ((size = (u_long)arcn->sb.st_blksize) > (u_long)sizeof(tbuf))
-		size = (u_long)sizeof(tbuf);
+	if ((size = arcn->sb.st_blksize) > sizeof(tbuf))
+		size = sizeof(tbuf);
 
 	/*
 	 * read all the bytes we think that there are in the file. If the user
@@ -1119,7 +1115,7 @@ set_crc(ARCHD *arcn, int fd)
 		syswarn(1, errno, "Failed stat on %s", arcn->org_name);
 	else if (timespeccmp(&arcn->sb.st_mtim, &sb.st_mtim, !=))
 		paxwarn(1, "File %s was modified during read", arcn->org_name);
-	else if (lseek(fd, (off_t)0L, SEEK_SET) < 0)
+	else if (lseek(fd, 0, SEEK_SET) < 0)
 		syswarn(1, errno, "File rewind failed on: %s", arcn->org_name);
 	else {
 		arcn->crc = crc;

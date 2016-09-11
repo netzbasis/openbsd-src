@@ -1,4 +1,4 @@
-/*	$OpenBSD: library.c,v 1.75 2016/05/07 19:05:23 guenther Exp $ */
+/*	$OpenBSD: library.c,v 1.79 2016/08/12 20:39:01 deraadt Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -32,7 +32,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include "dl_prebind.h"
 
 #include "syscall.h"
 #include "archdep.h"
@@ -99,6 +98,7 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	struct load_list *next_load, *load_list = NULL;
 	Elf_Addr maxva = 0, minva = ELFDEFNNAME(NO_ADDR);
 	Elf_Addr libaddr, loff, align = _dl_pagesz - 1;
+	Elf_Addr relro_addr = 0, relro_size = 0;
 	elf_object_t *object;
 	char	hbuf[4096];
 	Elf_Dyn *dynp = NULL;
@@ -106,7 +106,6 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	Elf_Phdr *phdp;
 	Elf_Phdr *ptls = NULL;
 	struct stat sb;
-	void *prebind_data;
 
 #define ROUND_PG(x) (((x) + align) & ~(align))
 #define TRUNC_PG(x) ((x) & ~(align))
@@ -215,11 +214,22 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 			char *start = (char *)(TRUNC_PG(phdp->p_vaddr)) + loff;
 			Elf_Addr off = (phdp->p_vaddr & align);
 			Elf_Addr size = off + phdp->p_filesz;
+			int flags = PFLAGS(phdp->p_flags);
 			void *res;
 
+			/*
+			 * Initially map W|X segments without X
+			 * permission.  After we're done with the
+			 * initial relocation processing, we will make
+			 * these segments read-only and add back the X
+			 * permission.  This way we maintain W^X at
+			 * all times.
+			 */
+			if ((flags & PROT_WRITE) && (flags & PROT_EXEC))
+				flags &= ~PROT_EXEC;
+
 			if (size != 0) {
-				res = _dl_mmap(start, ROUND_PG(size),
-				    PFLAGS(phdp->p_flags),
+				res = _dl_mmap(start, ROUND_PG(size), flags,
 				    MAP_FIXED|MAP_PRIVATE, libfile,
 				    TRUNC_PG(phdp->p_offset));
 			} else
@@ -252,8 +262,7 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 				start = start + ROUND_PG(size);
 				size = ROUND_PG(off + phdp->p_memsz) -
 				    ROUND_PG(size);
-				res = _dl_mmap(start, size,
-				    PFLAGS(phdp->p_flags),
+				res = _dl_mmap(start, size, flags,
 				    MAP_FIXED|MAP_PRIVATE|MAP_ANON, -1, 0);
 				if (_dl_mmap_error(res)) {
 					_dl_printf("%s: rtld mmap failed mapping %s.\n",
@@ -269,16 +278,19 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 		}
 
 		case PT_OPENBSD_RANDOMIZE:
-			_dl_randombuf((char *)(phdp->p_vaddr + loff),
+			_dl_arc4randombuf((char *)(phdp->p_vaddr + loff),
 			    phdp->p_memsz);
+			break;
+
+		case PT_GNU_RELRO:
+			relro_addr = phdp->p_vaddr + loff;
+			relro_size = phdp->p_memsz;
 			break;
 
 		default:
 			break;
 		}
 	}
-
-	prebind_data = prebind_load_fd(libfile, libname);
 
 	_dl_close(libfile);
 
@@ -287,13 +299,14 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	    (Elf_Phdr *)((char *)libaddr + ehdr->e_phoff), ehdr->e_phnum,type,
 	    libaddr, loff);
 	if (object) {
-		object->prebind_data = prebind_data;
 		object->load_size = maxva - minva;	/*XXX*/
 		object->load_list = load_list;
 		/* set inode, dev from stat info */
 		object->dev = sb.st_dev;
 		object->inode = sb.st_ino;
 		object->obj_flags |= flags;
+		object->relro_addr = relro_addr;
+		object->relro_size = relro_size;
 		_dl_set_sod(object->load_name, &object->sod);
 		if (ptls != NULL && ptls->p_memsz)
 			_dl_set_tls(object, ptls, libaddr, libname);

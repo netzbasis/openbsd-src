@@ -1,4 +1,4 @@
-/*	$OpenBSD: sig_machdep.c,v 1.24 2016/05/10 18:39:46 deraadt Exp $	*/
+/*	$OpenBSD: sig_machdep.c,v 1.26 2016/06/21 12:31:19 aoyama Exp $	*/
 /*
  * Copyright (c) 2014 Miodrag Vallat.
  *
@@ -134,19 +134,13 @@ sendsig(sig_t catcher, int sig, int mask, unsigned long code, int type,
 
 	fp = (struct sigframe *)addr;
 
-#ifdef DEBUG
-	if ((sigdebug & SDB_FOLLOW) ||
-	    ((sigdebug & SDB_KSTACK) && p->p_pid == sigpid))
-		printf("sendsig(%d): sig %d ssp %p usp %p scp %p\n",
-		       p->p_pid, sig, &sf, fp, &fp->sf_sc);
-#endif
-
 	/*
 	 * Build the signal context to be used by sigreturn.
 	 */
 	bzero(&sf, fsize);
 	sf.sf_scp = &fp->sf_sc;
 	sf.sf_sc.sc_mask = mask;
+	sf.sf_sc.sc_cookie = (long)sf.sf_scp ^ p->p_p->ps_sigcookie;
 
 	if (psp->ps_siginfo & sigmask(sig))
 		initsiginfo(&sf.sf_si, sig, code, type, val);
@@ -207,26 +201,31 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	struct sys_sigreturn_args /* {
 	   syscallarg(struct sigcontext *) sigcntxp;
 	} */ *uap = v;
-	struct sigcontext *scp = SCARG(uap, sigcntxp);
+	struct sigcontext ksc, *scp = SCARG(uap, sigcntxp);
 	struct trapframe *tf;
-	struct sigcontext ksc;
+	int error;
+	vaddr_t pc;
 
-	if (PROC_PC(p) != p->p_p->ps_sigcoderet) {
-		printf("%s(%d): sigreturn not from tramp [pc 0x%llx %llx]\n",
-		    p->p_comm, p->p_pid, PROC_PC(p), p->p_p->ps_sigcoderet);
+	tf = p->p_md.md_tf;
+
+	/*
+	 * This is simpler than PROC_PC, assuming XIP is always valid
+	 * on 88100, and doesn't have a delay slot on 88110
+	 * (which is the status we expect from the signal code).
+	 */ 
+	pc = CPU_IS88110 ? tf->tf_regs.exip : tf->tf_regs.sxip ^ XIP_V;
+	if (pc != p->p_p->ps_sigcoderet) {
 		sigexit(p, SIGILL);
 		return (EPERM);
 	}
 
 	if (((vaddr_t)scp & 3) != 0)
-		return (EINVAL);
+		return (EFAULT);
+
 	if ((error = copyin((caddr_t)scp, (caddr_t)&ksc, sizeof(*scp))))
 		return (error);
 
 	if (ksc.sc_cookie != ((long)scp ^ p->p_p->ps_sigcookie)) {
-		printf("%s(%d): cookie %lx should have been %lx\n",
-		    p->p_comm, p->p_pid, ksc.sc_cookie,
-		    (long)scp ^ p->p_p->ps_sigcookie);
 		sigexit(p, SIGILL);
 		return (EFAULT);
 	}
@@ -234,23 +233,19 @@ sys_sigreturn(struct proc *p, void *v, register_t *retval)
 	/* Prevent reuse of the sigcontext cookie */
 	ksc.sc_cookie = 0;
 	(void)copyout(&ksc.sc_cookie, (caddr_t)scp +
-	    offsetof(struct sigcontext, sc_cookie),
-	    sizeof (ksc.sc_cookie));
+	    offsetof(struct sigcontext, sc_cookie), sizeof (ksc.sc_cookie));
 
-	tf = p->p_md.md_tf;
-	scp = &ksc;
-
-	if ((((struct reg *)&scp->sc_regs)->epsr ^ tf->tf_regs.epsr) &
+	if ((((struct reg *)&ksc.sc_regs)->epsr ^ tf->tf_regs.epsr) &
 	    PSR_USERSTATIC)
 		return (EINVAL);
 
-	bcopy((const void *)&scp->sc_regs, (caddr_t)&tf->tf_regs,
-	    sizeof(scp->sc_regs));
+	bcopy((const void *)&ksc.sc_regs, (caddr_t)&tf->tf_regs,
+	    sizeof(ksc.sc_regs));
 
 	/*
 	 * Restore the user supplied information
 	 */
-	p->p_sigmask = scp->sc_mask & ~sigcantmask;
+	p->p_sigmask = ksc.sc_mask & ~sigcantmask;
 
 #ifdef M88100
 	if (CPU_IS88100) {

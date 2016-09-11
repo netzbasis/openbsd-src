@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.243 2016/05/02 10:26:04 djm Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.247 2016/07/22 05:46:11 dtucker Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -65,6 +65,7 @@
 #include "uidswap.h"
 #include "hostfile.h"
 #include "ssherr.h"
+#include "utf8.h"
 
 #ifdef GSSAPI
 #include "ssh-gss.h"
@@ -165,13 +166,9 @@ ssh_kex2(char *host, struct sockaddr *hostaddr, u_short port)
 	    compat_cipher_proposal(options.ciphers);
 	myproposal[PROPOSAL_ENC_ALGS_STOC] =
 	    compat_cipher_proposal(options.ciphers);
-	if (options.compression) {
-		myproposal[PROPOSAL_COMP_ALGS_CTOS] =
-		myproposal[PROPOSAL_COMP_ALGS_STOC] = "zlib@openssh.com,zlib,none";
-	} else {
-		myproposal[PROPOSAL_COMP_ALGS_CTOS] =
-		myproposal[PROPOSAL_COMP_ALGS_STOC] = "none,zlib@openssh.com,zlib";
-	}
+	myproposal[PROPOSAL_COMP_ALGS_CTOS] =
+	    myproposal[PROPOSAL_COMP_ALGS_STOC] = options.compression ?
+	    "zlib@openssh.com,zlib,none" : "none,zlib@openssh.com,zlib";
 	myproposal[PROPOSAL_MAC_ALGS_CTOS] =
 	    myproposal[PROPOSAL_MAC_ALGS_STOC] = options.macs;
 	if (options.hostkeyalgorithms != NULL) {
@@ -491,21 +488,15 @@ input_userauth_error(int type, u_int32_t seq, void *ctxt)
 int
 input_userauth_banner(int type, u_int32_t seq, void *ctxt)
 {
-	char *msg, *raw, *lang;
+	char *msg, *lang;
 	u_int len;
 
-	debug3("input_userauth_banner");
-	raw = packet_get_string(&len);
+	debug3("%s", __func__);
+	msg = packet_get_string(&len);
 	lang = packet_get_string(NULL);
-	if (len > 0 && options.log_level >= SYSLOG_LEVEL_INFO) {
-		if (len > 65536)
-			len = 65536;
-		msg = xmalloc(len * 4 + 1); /* max expansion from strnvis() */
-		strnvis(msg, raw, len * 4 + 1, VIS_SAFE|VIS_OCTAL|VIS_NOSLASH);
-		fprintf(stderr, "%s", msg);
-		free(msg);
-	}
-	free(raw);
+	if (len > 0 && options.log_level >= SYSLOG_LEVEL_INFO)
+		fmprintf(stderr, "%s", msg);
+	free(msg);
 	free(lang);
 	return 0;
 }
@@ -557,7 +548,7 @@ input_userauth_failure(int type, u_int32_t seq, void *ctxt)
 	packet_check_eom();
 
 	if (partial != 0) {
-		logit("Authenticated with partial success.");
+		verbose("Authenticated with partial success.");
 		/* reset state */
 		pubkey_cleanup(authctxt);
 		pubkey_prepare(authctxt);
@@ -1291,29 +1282,6 @@ pubkey_prepare(Authctxt *authctxt)
 		id->userprovided = options.identity_file_userprovided[i];
 		TAILQ_INSERT_TAIL(&files, id, next);
 	}
-	/* Prefer PKCS11 keys that are explicitly listed */
-	TAILQ_FOREACH_SAFE(id, &files, next, tmp) {
-		if (id->key == NULL || (id->key->flags & SSHKEY_FLAG_EXT) == 0)
-			continue;
-		found = 0;
-		TAILQ_FOREACH(id2, &files, next) {
-			if (id2->key == NULL ||
-			    (id2->key->flags & SSHKEY_FLAG_EXT) == 0)
-				continue;
-			if (sshkey_equal(id->key, id2->key)) {
-				TAILQ_REMOVE(&files, id, next);
-				TAILQ_INSERT_TAIL(preferred, id, next);
-				found = 1;
-				break;
-			}
-		}
-		/* If IdentitiesOnly set and key not found then don't use it */
-		if (!found && options.identities_only) {
-			TAILQ_REMOVE(&files, id, next);
-			explicit_bzero(id, sizeof(*id));
-			free(id);
-		}
-	}
 	/* list of certificates specified by user */
 	for (i = 0; i < options.num_certificate_files; i++) {
 		key = options.certificates[i];
@@ -1371,6 +1339,29 @@ pubkey_prepare(Authctxt *authctxt)
 			TAILQ_INSERT_TAIL(preferred, id, next);
 		}
 		authctxt->agent_fd = agent_fd;
+	}
+	/* Prefer PKCS11 keys that are explicitly listed */
+	TAILQ_FOREACH_SAFE(id, &files, next, tmp) {
+		if (id->key == NULL || (id->key->flags & SSHKEY_FLAG_EXT) == 0)
+			continue;
+		found = 0;
+		TAILQ_FOREACH(id2, &files, next) {
+			if (id2->key == NULL ||
+			    (id2->key->flags & SSHKEY_FLAG_EXT) == 0)
+				continue;
+			if (sshkey_equal(id->key, id2->key)) {
+				TAILQ_REMOVE(&files, id, next);
+				TAILQ_INSERT_TAIL(preferred, id, next);
+				found = 1;
+				break;
+			}
+		}
+		/* If IdentitiesOnly set and key not found then don't use it */
+		if (!found && options.identities_only) {
+			TAILQ_REMOVE(&files, id, next);
+			explicit_bzero(id, sizeof(*id));
+			free(id);
+		}
 	}
 	/* append remaining keys from the config file */
 	for (id = TAILQ_FIRST(&files); id; id = TAILQ_FIRST(&files)) {

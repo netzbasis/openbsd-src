@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_proc.c,v 1.66 2016/03/04 14:09:37 deraadt Exp $	*/
+/*	$OpenBSD: kern_proc.c,v 1.69 2016/09/02 18:11:28 tedu Exp $	*/
 /*	$NetBSD: kern_proc.c,v 1.14 1996/02/09 18:59:41 christos Exp $	*/
 
 /*
@@ -95,16 +95,22 @@ procinit(void)
 
 	pool_init(&proc_pool, sizeof(struct proc), 0, 0, PR_WAITOK,
 	    "procpl", NULL);
+	pool_setipl(&proc_pool, IPL_NONE);
 	pool_init(&process_pool, sizeof(struct process), 0, 0, PR_WAITOK,
 	    "processpl", NULL);
+	pool_setipl(&process_pool, IPL_NONE);
 	pool_init(&rusage_pool, sizeof(struct rusage), 0, 0, PR_WAITOK,
 	    "zombiepl", NULL);
+	pool_setipl(&rusage_pool, IPL_NONE);
 	pool_init(&ucred_pool, sizeof(struct ucred), 0, 0, PR_WAITOK,
 	    "ucredpl", NULL);
+	pool_setipl(&ucred_pool, IPL_NONE);
 	pool_init(&pgrp_pool, sizeof(struct pgrp), 0, 0, PR_WAITOK,
 	    "pgrppl", NULL);
+	pool_setipl(&pgrp_pool, IPL_NONE);
 	pool_init(&session_pool, sizeof(struct session), 0, 0, PR_WAITOK,
 	    "sessionpl", NULL);
+	pool_setipl(&session_pool, IPL_NONE);
 }
 
 struct uidinfo *
@@ -205,6 +211,20 @@ pgfind(pid_t pgid)
 }
 
 /*
+ * Locate a zombie process
+ */
+struct process *
+zombiefind(pid_t pid)
+{
+	struct process *pr;
+
+	LIST_FOREACH(pr, &zombprocess, ps_list)
+		if (pr->ps_mainproc->p_pid == pid)
+			return (pr);
+	return (NULL);
+}
+
+/*
  * Move p to a new or existing process group (and session)
  * Caller provides a pre-allocated pgrp and session that should
  * be freed if they are not used.
@@ -290,6 +310,8 @@ void
 leavepgrp(struct process *pr)
 {
 
+	if (pr->ps_session->s_verauthppid == pr->ps_pid)
+		zapverauth(pr->ps_session);
 	LIST_REMOVE(pr, ps_pglist);
 	if (LIST_EMPTY(&pr->ps_pgrp->pg_members))
 		pgdelete(pr->ps_pgrp);
@@ -309,6 +331,14 @@ pgdelete(struct pgrp *pgrp)
 	LIST_REMOVE(pgrp, pg_hash);
 	SESSRELE(pgrp->pg_session);
 	pool_put(&pgrp_pool, pgrp);
+}
+
+void
+zapverauth(void *v)
+{
+	struct session *sess = v;
+	sess->s_verauthuid = 0;
+	sess->s_verauthppid = 0;
 }
 
 /*

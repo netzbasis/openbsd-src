@@ -1,4 +1,4 @@
-/* $OpenBSD: fuse_vnops.c,v 1.27 2016/03/19 12:04:15 natano Exp $ */
+/* $OpenBSD: fuse_vnops.c,v 1.33 2016/09/07 17:53:35 natano Exp $ */
 /*
  * Copyright (c) 2012-2013 Sylvestre Gallon <ccna.syl@gmail.com>
  *
@@ -27,6 +27,7 @@
 #include <sys/poll.h>
 #include <sys/proc.h>
 #include <sys/specdev.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/vnode.h>
 #include <sys/lock.h>
@@ -203,19 +204,6 @@ filt_fusefsvnode(struct knote *kn, long int hint)
 	return (kn->kn_fflags != 0);
 }
 
-void
-update_vattr(struct mount *mp, struct vattr *v)
-{
-	v->va_fsid = mp->mnt_stat.f_fsid.val[0];
-	v->va_type = IFTOVT(v->va_mode);
-#if (S_BLKSIZE == 512)
-	v->va_bytes = v->va_bytes << 9;
-#else
-	v->va_bytes = v->va_bytes * S_BLKSIZE;
-#endif
-	v->va_mode = v->va_mode & ~S_IFMT;
-}
-
 int
 fusefs_open(void *v)
 {
@@ -235,7 +223,7 @@ fusefs_open(void *v)
 		return (ENXIO);
 
 	isdir = 0;
-	if (ip->vtype == VDIR)
+	if (ap->a_vp->v_type == VDIR)
 		isdir = 1;
 	else {
 		if ((ap->a_mode & FREAD) && (ap->a_mode & FWRITE)) {
@@ -274,7 +262,7 @@ fusefs_close(void *v)
 	if (!fmp->sess_init)
 		return (0);
 
-	if (ip->vtype == VDIR) {
+	if (ap->a_vp->v_type == VDIR) {
 		isdir = 1;
 
 		if (ip->fufh[fufh_type].fh_type != FUFH_INVALID)
@@ -385,6 +373,7 @@ fusefs_getattr(void *v)
 	struct proc *p = ap->a_p;
 	struct fusefs_node *ip;
 	struct fusebuf *fbuf;
+	struct stat *st;
 	int error = 0;
 
 	ip = VTOI(vp);
@@ -401,8 +390,24 @@ fusefs_getattr(void *v)
 		return (error);
 	}
 
-	update_vattr(fmp->mp, &fbuf->fb_vattr);
-	memcpy(vap, &fbuf->fb_vattr, sizeof(*vap));
+	VATTR_NULL(vap);
+	st = &fbuf->fb_attr;
+
+	vap->va_type = IFTOVT(st->st_mode);
+	vap->va_mode = st->st_mode & ~S_IFMT;
+	vap->va_nlink = st->st_nlink;
+	vap->va_uid = st->st_uid;
+	vap->va_gid = st->st_gid;
+	vap->va_fsid = fmp->mp->mnt_stat.f_fsid.val[0];
+	vap->va_fileid = st->st_ino;
+	vap->va_size = st->st_size;
+	vap->va_blocksize = st->st_blksize;
+	vap->va_atime = st->st_atim;
+	vap->va_mtime = st->st_mtim;
+	vap->va_ctime = st->st_ctim;
+	vap->va_rdev = st->st_rdev;
+	vap->va_bytes = st->st_blocks * S_BLKSIZE;
+
 	fb_delete(fbuf);
 	return (error);
 }
@@ -445,7 +450,7 @@ fusefs_setattr(void *v)
 			error = EROFS;
 			goto out;
 		}
-		fbuf->fb_vattr.va_uid = vap->va_uid;
+		fbuf->fb_attr.st_uid = vap->va_uid;
 		io->fi_flags |= FUSE_FATTR_UID;
 	}
 
@@ -454,7 +459,7 @@ fusefs_setattr(void *v)
 			error = EROFS;
 			goto out;
 		}
-		fbuf->fb_vattr.va_gid = vap->va_gid;
+		fbuf->fb_attr.st_gid = vap->va_gid;
 		io->fi_flags |= FUSE_FATTR_GID;
 	}
 
@@ -474,7 +479,7 @@ fusefs_setattr(void *v)
 			break;
 		}
 
-		fbuf->fb_vattr.va_size = vap->va_size;
+		fbuf->fb_attr.st_size = vap->va_size;
 		io->fi_flags |= FUSE_FATTR_SIZE;
 	}
 
@@ -483,8 +488,7 @@ fusefs_setattr(void *v)
 			error = EROFS;
 			goto out;
 		}
-		fbuf->fb_vattr.va_atime.tv_sec = vap->va_atime.tv_sec;
-		fbuf->fb_vattr.va_atime.tv_nsec = vap->va_atime.tv_nsec;
+		fbuf->fb_attr.st_atim = vap->va_atime;
 		io->fi_flags |= FUSE_FATTR_ATIME;
 	}
 
@@ -493,8 +497,7 @@ fusefs_setattr(void *v)
 			error = EROFS;
 			goto out;
 		}
-		fbuf->fb_vattr.va_mtime.tv_sec = vap->va_mtime.tv_sec;
-		fbuf->fb_vattr.va_mtime.tv_nsec = vap->va_mtime.tv_nsec;
+		fbuf->fb_attr.st_mtim = vap->va_mtime;
 		io->fi_flags |= FUSE_FATTR_MTIME;
 	}
 	/* XXX should set a flag if (vap->va_vaflags & VA_UTIMES_CHANGE) */
@@ -504,7 +507,7 @@ fusefs_setattr(void *v)
 			error = EROFS;
 			goto out;
 		}
-		fbuf->fb_vattr.va_mode = vap->va_mode & ALLPERMS;
+		fbuf->fb_attr.st_mode = vap->va_mode & ALLPERMS;
 		io->fi_flags |= FUSE_FATTR_MODE;
 	}
 
@@ -512,21 +515,13 @@ fusefs_setattr(void *v)
 		goto out;
 	}
 
-	if (io->fi_flags & FUSE_FATTR_SIZE && vp->v_type == VDIR) {
-		error = EISDIR;
-		goto out;
-	}
-
 	error = fb_queue(fmp->dev, fbuf);
-
 	if (error) {
 		if (error == ENOSYS)
 			fmp->undef_op |= UNDEF_SETATTR;
 		goto out;
 	}
 
-	update_vattr(fmp->mp, &fbuf->fb_vattr);
-	memcpy(vap, &fbuf->fb_vattr, sizeof(*vap));
 	VN_KNOTE(ap->a_vp, NOTE_ATTRIB);
 
 out:
@@ -665,8 +660,6 @@ fusefs_symlink(void *v)
 	}
 
 	tdp->v_type = VLNK;
-	VTOI(tdp)->vtype = tdp->v_type;
-	VTOI(tdp)->parent = dp->ufs_ino.i_number;
 	VN_KNOTE(ap->a_dvp, NOTE_WRITE);
 
 	*vpp = tdp;
@@ -762,7 +755,7 @@ fusefs_inactive(void *v)
 		fufh = &(ip->fufh[type]);
 		if (fufh->fh_type != FUFH_INVALID)
 			fusefs_file_close(fmp, ip, fufh->fh_type, type,
-			    (ip->vtype == VDIR), ap->a_p);
+			    (vp->v_type == VDIR), ap->a_p);
 	}
 
 	error = VOP_GETATTR(vp, &vattr, cred, p);
@@ -835,19 +828,15 @@ fusefs_reclaim(void *v)
 		if (fufh->fh_type != FUFH_INVALID) {
 			printf("fusefs: vnode being reclaimed is valid\n");
 			fusefs_file_close(fmp, ip, fufh->fh_type, type,
-			    (ip->vtype == VDIR), ap->a_p);
+			    (vp->v_type == VDIR), ap->a_p);
 		}
 	}
-	/*
-	 * Purge old data structures associated with the inode.
-	 */
-	ip->parent = 0;
 
 	/*
 	 * if the fuse connection is opened
 	 * ask libfuse to free the vnodes
 	 */
-	if (fmp->sess_init) {
+	if (fmp->sess_init && ip->ufs_ino.i_number != FUSE_ROOTINO) {
 		fbuf = fb_setup(0, ip->ufs_ino.i_number, FBT_RECLAIM, ap->a_p);
 		if (fb_queue(fmp->dev, fbuf))
 			printf("fusefs: libfuse vnode reclaim failed\n");
@@ -858,7 +847,6 @@ fusefs_reclaim(void *v)
 	 * Remove the inode from its hash chain.
 	 */
 	ufs_ihashrem(&ip->ufs_ino);
-	cache_purge(vp);
 
 	free(ip, M_FUSEFS, 0);
 	vp->v_data = NULL;
@@ -932,10 +920,6 @@ fusefs_create(void *v)
 	}
 
 	tdp->v_type = IFTOVT(fbuf->fb_io_mode);
-	VTOI(tdp)->vtype = tdp->v_type;
-
-	if (dvp != NULL && dvp->v_type == VDIR)
-		VTOI(tdp)->parent = ip->ufs_ino.i_number;
 
 	*vpp = tdp;
 	VN_KNOTE(ap->a_dvp, NOTE_WRITE);
@@ -998,10 +982,6 @@ fusefs_mknod(void *v)
 	}
 
 	tdp->v_type = IFTOVT(fbuf->fb_io_mode);
-	VTOI(tdp)->vtype = tdp->v_type;
-
-	if (dvp != NULL && dvp->v_type == VDIR)
-		VTOI(tdp)->parent = ip->ufs_ino.i_number;
 
 	*vpp = tdp;
 	VN_KNOTE(ap->a_dvp, NOTE_WRITE);
@@ -1211,7 +1191,7 @@ abortit:
 	 * "ls" or "pwd" with the "." directory entry missing, and "cd .."
 	 * doesn't work if the ".." entry is missing.
 	 */
-	if (ip->vtype == VDIR) {
+	if (fvp->v_type == VDIR) {
 		/*
 		 * Avoid ".", "..", and aliases of "." for obvious reasons.
 		 */
@@ -1325,10 +1305,6 @@ fusefs_mkdir(void *v)
 	}
 
 	tdp->v_type = IFTOVT(fbuf->fb_io_mode);
-	VTOI(tdp)->vtype = tdp->v_type;
-
-	if (dvp != NULL && dvp->v_type == VDIR)
-		VTOI(tdp)->parent = ip->ufs_ino.i_number;
 
 	*vpp = tdp;
 	VN_KNOTE(ap->a_dvp, NOTE_WRITE | NOTE_LINK);
@@ -1393,11 +1369,9 @@ fusefs_rmdir(void *v)
 		goto out;
 	}
 
-	cache_purge(dvp);
 	vput(dvp);
 	dvp = NULL;
 
-	cache_purge(ITOV(ip));
 	fb_delete(fbuf);
 out:
 	if (dvp)
@@ -1473,7 +1447,7 @@ fusefs_lock(void *v)
 	struct vop_lock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->ufs_ino.i_lock, ap->a_flags, NULL));
+	return rrw_enter(&VTOI(vp)->ufs_ino.i_lock, ap->a_flags & LK_RWFLAGS);
 }
 
 int
@@ -1482,7 +1456,8 @@ fusefs_unlock(void *v)
 	struct vop_unlock_args *ap = v;
 	struct vnode *vp = ap->a_vp;
 
-	return (lockmgr(&VTOI(vp)->ufs_ino.i_lock, LK_RELEASE, NULL));
+	rrw_exit(&VTOI(vp)->ufs_ino.i_lock);
+	return 0;
 }
 
 int
@@ -1490,7 +1465,7 @@ fusefs_islocked(void *v)
 {
 	struct vop_islocked_args *ap = v;
 
-	return (lockstatus(&VTOI(ap->a_vp)->ufs_ino.i_lock));
+	return rrw_status(&VTOI(ap->a_vp)->ufs_ino.i_lock);
 }
 
 int

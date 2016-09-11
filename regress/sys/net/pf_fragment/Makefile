@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.18 2015/11/01 21:30:00 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.21 2016/09/02 21:30:34 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -6,13 +6,14 @@
 # py-libdnet          python interface to libdnet
 # scapy               powerful interactive packet manipulation in python
 
-# Check wether all required python packages are installed.  If some
+# Check whether all required python packages are installed.  If some
 # are missing print a warning and skip the tests, but do not fail.
 PYTHON_IMPORT != python2.7 -c 'from scapy.all import *' 2>&1 || true
 .if ! empty(PYTHON_IMPORT)
 regress:
 	@echo '${PYTHON_IMPORT}'
 	@echo install python and the scapy module for additional tests
+	@echo SKIPPED
 .endif
 
 # This test needs a manual setup of four machines
@@ -31,11 +32,11 @@ regress:
 #     out    in  out    in  out    in   rtt    in        in
 
 # Configure Addresses on the machines, there must be routes for the
-# networks.  Adapt interface and addresse variables to your local
+# networks.  Adapt interface and address variables to your local
 # setup.  To control the remote machine you need a hostname for
 # ssh to log in.
 # You must have an anchor "regress" for the divert rules in the pf.conf
-# of the PF machine.  The kernel of the PF machine gets testet.
+# of the PF machine.  The kernel of the PF machine gets tested.
 #
 # Run make check-setup to see if you got the setup correct.
 
@@ -68,10 +69,11 @@ RTT_IN6 ?=	fdd7:e83e:66bc:217:5054:ff:fe12:3452
 
 .if empty (PF_SSH) || empty (RT_SSH) || empty (ECO_SSH)
 regress:
-	@echo this tests needs three remote machines to operate on
+	@echo this test needs three remote machines to operate on
 	@echo PF_SSH RT_SSH ECO_SSH are empty
 	@echo fill out these variables for additional tests, then
-	@echo check wether your test machines are set up properly
+	@echo check whether your test machines are set up properly
+	@echo SKIPPED
 .endif
 
 .MAIN: all
@@ -186,7 +188,7 @@ run-regress-ping6-mtu: addr.py stamp-pfctl
 	${SUDO} ${PYTHON}ping6_mtu_1300.py ${${ip}6}
 .endfor
 
-# Send packet to big to get to destination.
+# Send packet too big to get to destination.
 # Check that checksum of the quoted original packet in ICMP is correct.
 
 # Currently these test fail as pf does not fix the checksum of
@@ -317,9 +319,11 @@ CLEANFILES +=		addr.py *.pyc *.log stamp-*
 
 .PHONY: check-setup
 
-# Check wether the address, route and remote setup is correct
-check-setup:
-	@echo '\n======== $@ SRC ========'
+# Check whether the address, route and remote setup are correct
+check-setup: check-setup-src check-setup-pf check-setup-rt check-setup-eco
+
+check-setup-src:
+	@echo '\n======== $@ ========'
 .for ip in SRC_OUT
 	ping -n -c 1 ${${ip}}  # ${ip}
 	route -n get -inet ${${ip}} | grep -q 'flags: .*LOCAL'  # ${ip}
@@ -338,7 +342,9 @@ check-setup:
 .for ip in PF_OUT RT_IN RT_OUT ECO_IN RDR_IN RTT_IN
 	route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${PF_IN6}'  # ${ip}6 PF_IN6
 .endfor
-	@echo '\n======== $@ PF ========'
+
+check-setup-pf:
+	@echo '\n======== $@ ========'
 	ssh ${PF_SSH} ping -n -c 1 ${PF_IN}  # PF_IN
 	ssh ${PF_SSH} route -n get -inet ${PF_IN} | grep -q 'flags: .*LOCAL'  # PF_IN
 	ssh ${PF_SSH} ping -n -c 1 ${SRC_OUT}  # SRC_OUT
@@ -367,7 +373,9 @@ check-setup:
 	ssh ${PF_SSH} ${SUDO} pfctl -si | grep '^Status: Enabled '
 	ssh ${PF_SSH} sysctl net.inet.ip.forwarding | fgrep =1
 	ssh ${PF_SSH} sysctl net.inet6.ip6.forwarding | fgrep =1
-	@echo '\n======== $@ RT ========'
+
+check-setup-rt:
+	@echo '\n======== $@ ========'
 	ssh ${RT_SSH} ping -n -c 1 ${RT_IN}  # RT_IN
 	ssh ${RT_SSH} route -n get -inet ${RT_IN} | grep -q 'flags: .*LOCAL'  # RT_IN
 	ssh ${RT_SSH} ping -n -c 1 ${PF_OUT}  # PF_OUT
@@ -395,7 +403,9 @@ check-setup:
 	ssh ${RT_SSH} sysctl net.inet.ip.forwarding | fgrep =1
 	ssh ${RT_SSH} sysctl net.inet6.ip6.forwarding | fgrep =1
 	ssh ${RT_SSH} ifconfig | fgrep 'mtu 1300'
-	@echo '\n======== $@ ECO ========'
+
+check-setup-eco:
+	@echo '\n======== $@ ========'
 .for ip in ECO_IN RTT_IN
 	ssh ${ECO_SSH} ping -n -c 1 ${${ip}}  # ${ip}
 	ssh ${ECO_SSH} route -n get -inet ${${ip}} | grep -q 'flags: .*LOCAL'  # ${ip}

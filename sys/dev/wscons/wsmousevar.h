@@ -1,4 +1,4 @@
-/* $OpenBSD: wsmousevar.h,v 1.9 2016/03/30 23:34:12 bru Exp $ */
+/* $OpenBSD: wsmousevar.h,v 1.11 2016/06/06 22:32:47 bru Exp $ */
 /* $NetBSD: wsmousevar.h,v 1.4 2000/01/08 02:57:24 takemura Exp $ */
 
 /*
@@ -80,18 +80,6 @@ struct wsmousedev_attach_args {
  */
 int	wsmousedevprint(void *, const char *);
 
-/*
- * Callbacks from the mouse driver to the wsmouse interface driver.
- */
-#define WSMOUSE_INPUT_DELTA		0
-#define WSMOUSE_INPUT_ABSOLUTE_X	(1<<0)
-#define WSMOUSE_INPUT_ABSOLUTE_Y	(1<<1)
-#define WSMOUSE_INPUT_ABSOLUTE_Z	(1<<2)
-#define WSMOUSE_INPUT_ABSOLUTE_W	(1<<3)
-
-void	wsmouse_input(struct device *kbddev, u_int btns,
-			   int x, int y, int z, int w, u_int flags);
-
 
 /* Process standard mouse input. */
 #define WSMOUSE_INPUT(sc_wsmousedev, btns, dx, dy, dz, dw)		\
@@ -126,8 +114,33 @@ void	wsmouse_input(struct device *kbddev, u_int btns,
 
 
 struct device;
-enum wsmouseval;
 struct mtpoint;
+
+/*
+ * Type codes for wsmouse_set. REL_X/Y, MT_REL_X/Y, and TOUCH_WIDTH
+ * cannot be reported by other functions. Please note that REL_X/Y
+ * values are deltas to be applied to the absolute coordinates and
+ * don't represent "pure" relative motion.
+ */
+enum wsmouseval {
+	WSMOUSE_REL_X,
+	WSMOUSE_ABS_X,
+	WSMOUSE_REL_Y,
+	WSMOUSE_ABS_Y,
+	WSMOUSE_PRESSURE,
+	WSMOUSE_CONTACTS,
+	WSMOUSE_TOUCH_WIDTH,
+	WSMOUSE_MT_REL_X,
+	WSMOUSE_MT_ABS_X,
+	WSMOUSE_MT_REL_Y,
+	WSMOUSE_MT_ABS_Y,
+	WSMOUSE_MT_PRESSURE
+};
+
+#define WSMOUSE_IS_MT_CODE(code) \
+    ((code) >= WSMOUSE_MT_REL_X && (code) <= WSMOUSE_MT_PRESSURE)
+
+
 
 
 /* Report button state. */
@@ -167,31 +180,6 @@ void wsmouse_set_param(struct device *, size_t, int);
 
 /* Switch between compatibility mode and native mode. */
 int wsmouse_set_mode(struct device *, int);
-
-
-/*
- * Type codes for wsmouse_set. REL_X/Y, MT_REL_X/Y, and TOUCH_WIDTH
- * cannot be reported by other functions. Please note that REL_X/Y
- * values are deltas to be applied to the absolute coordinates and
- * don't represent "pure" relative motion.
- */
-enum wsmouseval {
-	WSMOUSE_REL_X,
-	WSMOUSE_ABS_X,
-	WSMOUSE_REL_Y,
-	WSMOUSE_ABS_Y,
-	WSMOUSE_PRESSURE,
-	WSMOUSE_CONTACTS,
-	WSMOUSE_TOUCH_WIDTH,
-	WSMOUSE_MT_REL_X,
-	WSMOUSE_MT_ABS_X,
-	WSMOUSE_MT_REL_Y,
-	WSMOUSE_MT_ABS_Y,
-	WSMOUSE_MT_PRESSURE
-};
-
-#define WSMOUSE_IS_MT_CODE(code) \
-    ((code) >= WSMOUSE_MT_REL_X && (code) <= WSMOUSE_MT_PRESSURE)
 
 
 struct mtpoint {

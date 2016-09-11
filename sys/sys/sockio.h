@@ -1,4 +1,4 @@
-/*	$OpenBSD: sockio.h,v 1.63 2016/03/02 00:00:16 dlg Exp $	*/
+/*	$OpenBSD: sockio.h,v 1.68 2016/09/02 10:01:36 goda Exp $	*/
 /*	$NetBSD: sockio.h,v 1.5 1995/08/23 00:40:47 thorpej Exp $	*/
 
 /*-
@@ -54,7 +54,6 @@
 #define	SIOCGIFFLAGS	_IOWR('i', 17, struct ifreq)	/* get ifnet flags */
 #define	SIOCGIFBRDADDR	_IOWR('i', 35, struct ifreq)	/* get broadcast addr */
 #define	SIOCSIFBRDADDR	 _IOW('i', 19, struct ifreq)	/* set broadcast addr */
-#define	OSIOCGIFCONF	_IOWR('i', 20, struct ifconf)	/* get ifnet list */
 #define	SIOCGIFCONF	_IOWR('i', 36, struct ifconf)	/* get ifnet list */
 #define	SIOCGIFNETMASK	_IOWR('i', 37, struct ifreq)	/* get net addr mask */
 #define	SIOCSIFNETMASK	 _IOW('i', 22, struct ifreq)	/* set net addr mask */
@@ -103,6 +102,7 @@
 #define	SIOCBRDGGTO	_IOWR('i', 70, struct ifbrparam)/* cache timeout */
 #define	SIOCBRDGDADDR	 _IOW('i', 71, struct ifbareq)	/* delete addr */
 #define	SIOCBRDGFLUSH	 _IOW('i', 72, struct ifbreq)	/* flush addr cache */
+#define	SIOCBRDGADDL	 _IOW('i', 73, struct ifbreq)	/* add local port */
 
 #define SIOCBRDGARL	 _IOW('i', 77, struct ifbrlreq)	/* add bridge rule */
 #define SIOCBRDGFRL	 _IOW('i', 78, struct ifbrlreq)	/* flush brdg rules */
@@ -123,12 +123,15 @@
 #define SIOCBRDGSPROTO	 _IOW('i', 90, struct ifbrparam)/* set protocol */
 #define SIOCBRDGS
 
-#define GRESADDRS        _IOW('i', 101, struct ifreq)
-#define GRESADDRD        _IOW('i', 102, struct ifreq)   
-#define GREGADDRS       _IOWR('i', 103, struct ifreq)
-#define GREGADDRD       _IOWR('i', 104, struct ifreq)
-#define GRESPROTO        _IOW('i', 105, struct ifreq)
-#define GREGPROTO       _IOWR('i', 106, struct ifreq)
+/* Following ioctls for switch(4) has compatibility to bridge(4) */
+#define	SIOCSWSFLOWMAX	SIOCBRDGSCACHE		/* set max flow per table */
+#define	SIOCSWGFLOWMAX	SIOCBRDGGCACHE		/* get max flow per table */
+
+#define	SIOCSWGDPID	_IOWR('i', 91, struct ifbrparam)/* set datapath id */
+#define	SIOCSWSDPID	 _IOW('i', 91, struct ifbrparam)/* get datapath id */
+#define	SIOCSWGMAXGROUP	_IOWR('i', 92, struct ifbrparam)/* get max groups */
+#define	SIOCSWSMAXGROUP	 _IOW('i', 92, struct ifbrparam)/* set max groups */
+#define	SIOCSWSPORTNO	_IOWR('i', 93, struct ifbreq)	/* set port number */
 
 #define	SIOCSIFMTU	 _IOW('i', 127, struct ifreq)	/* set ifnet mtu */
 #define	SIOCGIFMTU	_IOWR('i', 126, struct ifreq)	/* get ifnet mtu */
@@ -202,6 +205,13 @@
 #define SIOCSIFPARENT	_IOW('i', 178, struct if_parent) /* set parent if */
 #define SIOCGIFPARENT	_IOWR('i', 179, struct if_parent) /* get parent if */
 #define SIOCDIFPARENT	_IOW('i', 180, struct ifreq)	/* del parent if */
+
+#define	SIOCSIFLLPRIO	_IOW('i', 181, struct ifreq)	/* set ifnet llprio */
+#define	SIOCGIFLLPRIO	_IOWR('i', 182, struct ifreq)	/* get ifnet llprio */
+
+#define	SIOCGUMBINFO	_IOWR('i', 190, struct ifreq)	/* get MBIM info */
+#define	SIOCSUMBPARAM	 _IOW('i', 191, struct ifreq)	/* set MBIM param */
+#define	SIOCGUMBPARAM	_IOWR('i', 192, struct ifreq)	/* get MBIM param */
 
 #define	SIOCSVH		_IOWR('i', 245, struct ifreq)	/* set carp param */
 #define	SIOCGVH		_IOWR('i', 246, struct ifreq)	/* get carp param */

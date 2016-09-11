@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.185 2016/03/29 11:57:51 chl Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.190 2016/08/24 09:38:29 mpi Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -1152,6 +1152,7 @@ icmp6_rip6_input(struct mbuf **mp, int off)
 void
 icmp6_reflect(struct mbuf *m, size_t off)
 {
+	struct rtentry *rt = NULL;
 	struct ip6_hdr *ip6;
 	struct icmp6_hdr *icmp6;
 	struct in6_ifaddr *ia6;
@@ -1229,13 +1230,14 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	/*
 	 * If the incoming packet was addressed directly to us (i.e. unicast),
 	 * use dst as the src for the reply.
-	 * The IN6_IFF_NOTREADY case would be VERY rare, but is possible
-	 * (for example) when we encounter an error while forwarding procedure
-	 * destined to a duplicated address of ours.
+	 * The IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED case would be VERY rare,
+	 * but is possible (for example) when we encounter an error while
+	 * forwarding procedure destined to a duplicated address of ours.
 	 */
 	TAILQ_FOREACH(ia6, &in6_ifaddr, ia_list)
 		if (IN6_ARE_ADDR_EQUAL(&t, &ia6->ia_addr.sin6_addr) &&
-		    (ia6->ia6_flags & (IN6_IFF_ANYCAST|IN6_IFF_NOTREADY)) == 0) {
+		    (ia6->ia6_flags & (IN6_IFF_ANYCAST|IN6_IFF_TENTATIVE|
+		    IN6_IFF_DUPLICATED)) == 0) {
 			src = &t;
 			break;
 		}
@@ -1248,32 +1250,28 @@ icmp6_reflect(struct mbuf *m, size_t off)
 	}
 
 	if (src == NULL) {
-		int error;
-		struct route_in6 ro;
-		char addr[INET6_ADDRSTRLEN];
-
 		/*
 		 * This case matches to multicasts, our anycast, or unicasts
 		 * that we do not own.  Select a source address based on the
 		 * source address of the erroneous packet.
 		 */
-		bzero(&ro, sizeof(ro));
-		error = in6_selectsrc(&src, &sa6_src, NULL, NULL, &ro, NULL,
+		rt = rtalloc(sin6tosa(&sa6_src), RT_RESOLVE,
 		    m->m_pkthdr.ph_rtableid);
-		if (ro.ro_rt)
-			rtfree(ro.ro_rt); /* XXX: we could use this */
-		if (error) {
+		if (!rtisvalid(rt)) {
+			char addr[INET6_ADDRSTRLEN];
+
 			nd6log((LOG_DEBUG,
-			    "icmp6_reflect: source can't be determined: "
-			    "dst=%s, error=%d\n",
-			    inet_ntop(AF_INET6, &sa6_src.sin6_addr,
-				addr, sizeof(addr)),
-			    error));
+			    "%s: source can't be determined: dst=%s\n",
+			    __func__, inet_ntop(AF_INET6, &sa6_src.sin6_addr,
+				addr, sizeof(addr))));
+			rtfree(rt);
 			goto bad;
 		}
+		src = &ifatoia6(rt->rt_ifa)->ia_addr.sin6_addr;
 	}
 
 	ip6->ip6_src = *src;
+	rtfree(rt);
 
 	ip6->ip6_flow = 0;
 	ip6->ip6_vfc &= ~IPV6_VERSION_MASK;
@@ -1621,9 +1619,8 @@ icmp6_redirect_output(struct mbuf *m0, struct rtentry *rt)
 	{
 		/* get ip6 linklocal address for ifp(my outgoing interface). */
 		struct in6_ifaddr *ia6;
-		if ((ia6 = in6ifa_ifpforlinklocal(ifp,
-						 IN6_IFF_NOTREADY|
-						 IN6_IFF_ANYCAST)) == NULL)
+		if ((ia6 = in6ifa_ifpforlinklocal(ifp, IN6_IFF_TENTATIVE|
+		    IN6_IFF_DUPLICATED|IN6_IFF_ANYCAST)) == NULL)
 			goto fail;
 		ifp_ll6 = &ia6->ia_addr.sin6_addr;
 	}

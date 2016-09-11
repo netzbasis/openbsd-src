@@ -1,4 +1,4 @@
-/*	$OpenBSD: octeonvar.h,v 1.25 2016/03/21 14:20:57 visa Exp $	*/
+/*	$OpenBSD: octeonvar.h,v 1.31 2016/07/16 10:19:55 visa Exp $	*/
 /*	$NetBSD: maltavar.h,v 1.3 2002/03/18 10:10:16 simonb Exp $	*/
 
 /*-
@@ -73,14 +73,6 @@ struct octeon_config {
 
 	bus_dma_tag_t mc_iobus_dmat;
 	bus_dma_tag_t mc_bootbus_dmat;
-/*
-	struct mips_bus_dma_tag mc_core1_dmat;
-
-	struct extent *mc_io_ex;
-	struct extent *mc_mem_ex;
-
-	int	mc_mallocsafe;
-*/
 };
 
 /*
@@ -96,10 +88,10 @@ struct octeon_config {
 #define	OCTEON_POOL_NO_XXX_6	6
 #define	OCTEON_POOL_NO_DUMP	7	/* FPA debug dump */
 
-#define	OCTEON_POOL_SIZE_PKT	2048	/* 128 x 16 */
+#define	OCTEON_POOL_SIZE_PKT	1920	/* 128 x 15 */
 #define	OCTEON_POOL_SIZE_WQE	128	/* 128 x 1 */
 #define	OCTEON_POOL_SIZE_CMD	1024	/* 128 x 8 */
-#define	OCTEON_POOL_SIZE_SG	512	/* 128 x 4 */
+#define	OCTEON_POOL_SIZE_SG	128	/* 128 x 1 */
 #define	OCTEON_POOL_SIZE_XXX_4	0
 #define	OCTEON_POOL_SIZE_XXX_5	0
 #define	OCTEON_POOL_SIZE_XXX_6	0
@@ -108,7 +100,7 @@ struct octeon_config {
 #define	OCTEON_POOL_NELEMS_PKT		4096
 #define	OCTEON_POOL_NELEMS_WQE		4096
 #define	OCTEON_POOL_NELEMS_CMD		32
-#define	OCTEON_POOL_NELEMS_SG		1024
+#define	OCTEON_POOL_NELEMS_SG		4096
 #define	OCTEON_POOL_NELEMS_XXX_4	0
 #define	OCTEON_POOL_NELEMS_XXX_5	0
 #define	OCTEON_POOL_NELEMS_XXX_6	0
@@ -118,22 +110,11 @@ struct octeon_config {
  * CVMSEG (``scratch'') memory map
  */
 struct octeon_cvmseg_map {
-	/* 0-3 */
-	uint64_t		csm_xxx_0;
-	uint64_t		csm_xxx_1;
-	uint64_t		csm_xxx_2;
 	uint64_t		csm_pow_intr;
 
-	/* 4-19 */
 	struct octeon_cvmseg_ether_map {
-		uint64_t	csm_ether_fau_req;
 		uint64_t	csm_ether_fau_done;
-		uint64_t	csm_ether_fau_cmdptr;
-		uint64_t	csm_ether_xxx_3;
-	} csm_ether[4/* XXX */];
-
-	/* 20-32 */
-	uint64_t	xxx_20_32[32 - 20];
+	} csm_ether[12/* XXX */];
 } __packed;
 #define	OCTEON_CVMSEG_OFFSET(entry) \
 	offsetof(struct octeon_cvmseg_map, entry)
@@ -271,6 +252,8 @@ struct boot_info {
 	uint64_t led_display_addr;
 	uint32_t dfaclock;
 	uint32_t config_flags;
+	/* The fields below are available when ver_minor >= 3. */
+	uint64_t fdt_addr;
 };
 
 struct octeon_bootmem_desc {
@@ -300,13 +283,6 @@ extern struct boot_info *octeon_boot_info;
 #define BOOTINFO_CFG_FLAG_PCI_TARGET	(1ull << 1)
 #define BOOTINFO_CFG_FLAG_DEBUG		(1ull << 2)
 #define BOOTINFO_CFG_FLAG_NO_MAGIC	(1ull << 3)
-
-void	octeon_bus_io_init(bus_space_tag_t, void *);
-void	octeon_bus_mem_init(bus_space_tag_t, void *);
-void	octeon_cal_timer(int);
-void	octeon_dma_init(struct octeon_config *);
-void	octeon_intr_init(void);
-int	octeon_get_ethaddr(int, u_int8_t *);
 
 int	octeon_ioclock_speed(void);
 
@@ -395,35 +371,6 @@ octeon_cvmseg_write_8(size_t offset, uint64_t value)
 	octeon_xkphys_write_8(0xffffffffffff8000ULL + offset, value);
 }
 
-/* XXX */
-static inline uint32_t
-octeon_disable_interrupt(uint32_t *new)
-{
-	uint32_t s, tmp;
-
-	__asm volatile (
-		_ASM_PROLOGUE
-		"	mfc0	%[s], $12		\n"
-		"	and	%[tmp], %[s], ~1	\n"
-		"	mtc0	%[tmp], $12		\n"
-		_ASM_EPILOGUE
-		: [s]"=&r"(s), [tmp]"=&r"(tmp));
-	if (new)
-		*new = tmp;
-	return s;
-}
-
-/* XXX */
-static inline void
-octeon_restore_status(uint32_t s)
-{
-	__asm volatile (
-		_ASM_PROLOGUE
-		"	mtc0	%[s], $12		\n"
-		_ASM_EPILOGUE
-		:: [s]"r"(s));
-}
-
 static inline uint64_t
 octeon_get_cycles(void)
 {
@@ -435,6 +382,16 @@ octeon_get_cycles(void)
 		_ASM_EPILOGUE
 		: [tmp]"=&r"(tmp));
 	return tmp;
+}
+
+static inline void
+octeon_synciobdma(void)
+{
+	__asm volatile (
+		_ASM_PROLOGUE_OCTEON
+		"	synciobdma\n"
+		_ASM_EPILOGUE
+		: : : "memory");
 }
 
 #endif	/* _MIPS_OCTEON_OCTEONVAR_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: asr.c,v 1.51 2016/02/24 20:52:53 eric Exp $	*/
+/*	$OpenBSD: asr.c,v 1.54 2016/06/18 15:25:28 reyk Exp $	*/
 /*
  * Copyright (c) 2010-2012 Eric Faurot <eric@openbsd.org>
  *
@@ -169,15 +169,30 @@ int
 asr_run_sync(struct asr_query *as, struct asr_result *ar)
 {
 	struct pollfd	 fds[1];
-	int		 r, saved_errno = errno;
+	struct timespec	 pollstart, pollend, elapsed;
+	int		 timeout, r, p, saved_errno = errno;
 
 	while ((r = asr_run(as, ar)) == ASYNC_COND) {
 		fds[0].fd = ar->ar_fd;
 		fds[0].events = (ar->ar_cond == ASR_WANT_READ) ? POLLIN:POLLOUT;
+
+		timeout = ar->ar_timeout;
 	again:
-		r = poll(fds, 1, ar->ar_timeout);
-		if (r == -1 && errno == EINTR)
+		if (clock_gettime(CLOCK_MONOTONIC, &pollstart))
+			break;
+		p = poll(fds, 1, timeout);
+		if (p == -1 && errno == EINTR) {
+			if (clock_gettime(CLOCK_MONOTONIC, &pollend))
+				break;
+
+			timespecsub(&pollend, &pollstart, &elapsed);
+			timeout -= (elapsed.tv_sec * 1000) +
+			    (elapsed.tv_nsec / 1000000);
+			if (timeout < 1)
+				break;
 			goto again;
+		}
+
 		/*
 		 * Otherwise, just ignore the error and let asr_run()
 		 * catch the failure.
@@ -700,7 +715,7 @@ asr_ctx_parse(struct asr_ctx *ac, const char *str)
 
 /*
  * Check for environment variables altering the configuration as described
- * in resolv.conf(5).  Altough not documented there, this feature is disabled
+ * in resolv.conf(5).  Although not documented there, this feature is disabled
  * for setuid/setgid programs.
  */
 static void
@@ -717,7 +732,6 @@ asr_ctx_envopts(struct asr_ctx *ac)
 	if ((e = getenv("RES_OPTIONS")) != NULL) {
 		strlcpy(buf, "options ", sizeof buf);
 		strlcat(buf, e, sizeof buf);
-		s = strlcat(buf, "\n", sizeof buf);
 		s = strlcat(buf, "\n", sizeof buf);
 		if (s < sizeof buf)
 			asr_ctx_parse(ac, buf);

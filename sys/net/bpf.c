@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.141 2016/05/18 03:46:03 dlg Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.148 2016/08/22 10:40:36 mpi Exp $	*/
 /*	$NetBSD: bpf.c,v 1.33 1997/02/21 23:59:35 thorpej Exp $	*/
 
 /*
@@ -57,6 +57,8 @@
 #include <sys/atomic.h>
 #include <sys/srp.h>
 #include <sys/specdev.h>
+#include <sys/selinfo.h>
+#include <sys/task.h>
 
 #include <net/if.h>
 #include <net/bpf.h>
@@ -91,7 +93,6 @@ struct bpf_if	*bpf_iflist;
 LIST_HEAD(, bpf_d) bpf_d_list;
 
 void	bpf_allocbufs(struct bpf_d *);
-void	bpf_freed(struct bpf_d *);
 void	bpf_ifname(struct ifnet *, struct ifreq *);
 int	_bpf_mtap(caddr_t, const struct mbuf *, u_int,
 	    void (*)(const void *, void *, size_t));
@@ -104,6 +105,7 @@ int	bpf_setif(struct bpf_d *, struct ifreq *);
 int	bpfpoll(dev_t, int, struct proc *);
 int	bpfkqfilter(dev_t, struct knote *);
 void	bpf_wakeup(struct bpf_d *);
+void	bpf_wakeup_cb(void *);
 void	bpf_catchpacket(struct bpf_d *, u_char *, size_t, size_t,
 	    void (*)(const void *, void *, size_t), struct timeval *);
 void	bpf_reset_d(struct bpf_d *);
@@ -116,14 +118,12 @@ int	filt_bpfread(struct knote *, long);
 int	bpf_sysctl_locked(int *, u_int, void *, size_t *, void *, size_t);
 
 struct bpf_d *bpfilter_lookup(int);
-struct bpf_d *bpfilter_create(int);
-void bpfilter_destroy(struct bpf_d *);
 
 /*
  * Reference count access to descriptor buffers
  */
-#define D_GET(d) ((d)->bd_ref++)
-#define D_PUT(d) bpf_freed(d)
+void	bpf_get(struct bpf_d *);
+void	bpf_put(struct bpf_d *);
 
 /*
  * garbage collector srps
@@ -332,23 +332,29 @@ bpfilterattach(int n)
 int
 bpfopen(dev_t dev, int flag, int mode, struct proc *p)
 {
-	struct bpf_d *d;
+	struct bpf_d *bd;
+	int unit = minor(dev);
 
-	if (minor(dev) & ((1 << CLONE_SHIFT) - 1))
+	if (unit & ((1 << CLONE_SHIFT) - 1))
 		return (ENXIO);
 
+	KASSERT(bpfilter_lookup(unit) == NULL);
+
 	/* create on demand */
-	if ((d = bpfilter_create(minor(dev))) == NULL)
+	if ((bd = malloc(sizeof(*bd), M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
 		return (EBUSY);
 
 	/* Mark "free" and do most initialization. */
-	d->bd_bufsize = bpf_bufsize;
-	d->bd_sig = SIGIO;
+	bd->bd_unit = unit;
+	bd->bd_bufsize = bpf_bufsize;
+	bd->bd_sig = SIGIO;
+	task_set(&bd->bd_wake_task, bpf_wakeup_cb, bd);
 
 	if (flag & FNONBLOCK)
-		d->bd_rtout = -1;
+		bd->bd_rtout = -1;
 
-	D_GET(d);
+	bpf_get(bd);
+	LIST_INSERT_HEAD(&bpf_d_list, bd, bd_list);
 
 	return (0);
 }
@@ -368,7 +374,8 @@ bpfclose(dev_t dev, int flag, int mode, struct proc *p)
 	if (d->bd_bif)
 		bpf_detachd(d);
 	bpf_wakeup(d);
-	D_PUT(d);
+	LIST_REMOVE(d, bd_list);
+	bpf_put(d);
 	splx(s);
 
 	return (0);
@@ -408,7 +415,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 
 	s = splnet();
 
-	D_GET(d);
+	bpf_get(d);
 
 	/*
 	 * If there's a timeout, bd_rdStart is tagged when we start the read.
@@ -428,7 +435,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 		if (d->bd_bif == NULL) {
 			/* interface is gone */
 			if (d->bd_slen == 0) {
-				D_PUT(d);
+				bpf_put(d);
 				splx(s);
 				return (EIO);
 			}
@@ -455,7 +462,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 				error = EWOULDBLOCK;
 		}
 		if (error == EINTR || error == ERESTART) {
-			D_PUT(d);
+			bpf_put(d);
 			splx(s);
 			return (error);
 		}
@@ -474,7 +481,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 				break;
 
 			if (d->bd_slen == 0) {
-				D_PUT(d);
+				bpf_put(d);
 				splx(s);
 				return (0);
 			}
@@ -499,7 +506,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 	d->bd_hbuf = NULL;
 	d->bd_hlen = 0;
 
-	D_PUT(d);
+	bpf_put(d);
 	splx(s);
 
 	return (error);
@@ -512,14 +519,29 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 void
 bpf_wakeup(struct bpf_d *d)
 {
-	wakeup((caddr_t)d);
+	/*
+	 * As long as csignal() and selwakeup() need to be protected
+	 * by the KERNEL_LOCK() we have to delay the wakeup to
+	 * another context to keep the hot path KERNEL_LOCK()-free.
+	 */
+	bpf_get(d);
+	if (!task_add(systq, &d->bd_wake_task))
+		bpf_put(d);
+}
+
+void
+bpf_wakeup_cb(void *xd)
+{
+	struct bpf_d *d = xd;
+
+	KERNEL_ASSERT_LOCKED();
+
+	wakeup(d);
 	if (d->bd_async && d->bd_sig)
-		csignal(d->bd_pgid, d->bd_sig,
-		    d->bd_siguid, d->bd_sigeuid);
+		csignal(d->bd_pgid, d->bd_sig, d->bd_siguid, d->bd_sigeuid);
 
 	selwakeup(&d->bd_sel);
-	/* XXX */
-	d->bd_sel.si_selpid = 0;
+	bpf_put(d);
 }
 
 int
@@ -561,6 +583,7 @@ bpfwrite(dev_t dev, struct uio *uio, int ioflag)
 	}
 
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
+	m->m_pkthdr.pf.prio = ifp->if_llprio;
 
 	if (d->bd_hdrcmplt && dst.ss_family == AF_UNSPEC)
 		dst.ss_family = pseudo_AF_HDRCMPLT;
@@ -1092,7 +1115,7 @@ bpfkqfilter(dev_t dev, struct knote *kn)
 	kn->kn_hook = d;
 
 	s = splnet();
-	D_GET(d);
+	bpf_get(d);
 	SLIST_INSERT_HEAD(klist, kn, kn_selnext);
 	if (d->bd_rtout != -1 && d->bd_rdStart == 0)
 		d->bd_rdStart = ticks;
@@ -1109,7 +1132,7 @@ filt_bpfrdetach(struct knote *kn)
 
 	s = splnet();
 	SLIST_REMOVE(&d->bd_sel.si_note, kn, knote, kn_selnext);
-	D_PUT(d);
+	bpf_put(d);
 	splx(s);
 }
 
@@ -1167,10 +1190,7 @@ bpf_tap(caddr_t arg, u_char *pkt, u_int pktlen, u_int direction)
 
 			KERNEL_LOCK();
 			s = splnet();
-			if (d->bd_bif != NULL) {
-				bpf_catchpacket(d, pkt, pktlen, slen,
-				    bcopy, &tv);
-			}
+			bpf_catchpacket(d, pkt, pktlen, slen, bcopy, &tv);
 			splx(s);
 			KERNEL_UNLOCK();
 
@@ -1260,10 +1280,8 @@ _bpf_mtap(caddr_t arg, const struct mbuf *m, u_int direction,
 
 			KERNEL_LOCK();
 			s = splnet();
-			if (d->bd_bif != NULL) {
-				bpf_catchpacket(d, (u_char *)m, pktlen, slen,
-				    cpfn, &tv);
-			}
+			bpf_catchpacket(d, (u_char *)m, pktlen, slen, cpfn,
+			    &tv);
 			splx(s);
 			KERNEL_UNLOCK();
 
@@ -1393,7 +1411,12 @@ bpf_catchpacket(struct bpf_d *d, u_char *pkt, size_t pktlen, size_t snaplen,
 {
 	struct bpf_hdr *hp;
 	int totlen, curlen;
-	int hdrlen = d->bd_bif->bif_hdrlen;
+	int hdrlen;
+
+	if (d->bd_bif == NULL)
+		return;
+
+	hdrlen = d->bd_bif->bif_hdrlen;
 
 	/*
 	 * Figure out how many bytes to move.  If the packet is
@@ -1476,24 +1499,30 @@ bpf_allocbufs(struct bpf_d *d)
 	d->bd_hlen = 0;
 }
 
+void
+bpf_get(struct bpf_d *bd)
+{
+	bd->bd_ref++;
+}
+
 /*
  * Free buffers currently in use by a descriptor
  * when the reference count drops to zero.
  */
 void
-bpf_freed(struct bpf_d *d)
+bpf_put(struct bpf_d *bd)
 {
-	if (--d->bd_ref > 0)
+	if (--bd->bd_ref > 0)
 		return;
 
-	free(d->bd_sbuf, M_DEVBUF, 0);
-	free(d->bd_hbuf, M_DEVBUF, 0);
-	free(d->bd_fbuf, M_DEVBUF, 0);
+	free(bd->bd_sbuf, M_DEVBUF, 0);
+	free(bd->bd_hbuf, M_DEVBUF, 0);
+	free(bd->bd_fbuf, M_DEVBUF, 0);
 	KERNEL_ASSERT_LOCKED();
-	srp_update_locked(&bpf_insn_gc, &d->bd_rfilter, NULL);
-	srp_update_locked(&bpf_insn_gc, &d->bd_wfilter, NULL);
+	srp_update_locked(&bpf_insn_gc, &bd->bd_rfilter, NULL);
+	srp_update_locked(&bpf_insn_gc, &bd->bd_wfilter, NULL);
 
-	bpfilter_destroy(d);
+	free(bd, M_DEVBUF, sizeof(*bd));
 }
 
 /*
@@ -1547,20 +1576,8 @@ bpfdetach(struct ifnet *ifp)
 				if (cdevsw[maj].d_open == bpfopen)
 					break;
 
-			while ((bd = SRPL_FIRST_LOCKED(&bp->bif_dlist))) {
-				struct bpf_d *d;
-
-				/*
-				 * Locate the minor number and nuke the vnode
-				 * for any open instance.
-				 */
-				LIST_FOREACH(d, &bpf_d_list, bd_list)
-					if (d == bd) {
-						vdevgone(maj, d->bd_unit,
-						    d->bd_unit, VCHR);
-						break;
-					}
-			}
+			while ((bd = SRPL_FIRST_LOCKED(&bp->bif_dlist)))
+				vdevgone(maj, bd->bd_unit, bd->bd_unit, VCHR);
 
 			free(bp, M_DEVBUF, sizeof *bp);
 		} else
@@ -1636,27 +1653,6 @@ bpfilter_lookup(int unit)
 	return (NULL);
 }
 
-struct bpf_d *
-bpfilter_create(int unit)
-{
-	struct bpf_d *bd;
-
-	KASSERT(bpfilter_lookup(unit) == NULL);
-
-	if ((bd = malloc(sizeof(*bd), M_DEVBUF, M_NOWAIT|M_ZERO)) != NULL) {
-		bd->bd_unit = unit;
-		LIST_INSERT_HEAD(&bpf_d_list, bd, bd_list);
-	}
-	return (bd);
-}
-
-void
-bpfilter_destroy(struct bpf_d *bd)
-{
-	LIST_REMOVE(bd, bd_list);
-	free(bd, M_DEVBUF, sizeof(*bd));
-}
-
 /*
  * Get a list of available data link type of the interface.
  */
@@ -1718,13 +1714,13 @@ bpf_setdlt(struct bpf_d *d, u_int dlt)
 void
 bpf_d_ref(void *null, void *d)
 {
-	D_GET((struct bpf_d *)d);
+	bpf_get(d);
 }
 
 void
 bpf_d_unref(void *null, void *d)
 {
-	D_PUT(d);
+	bpf_put(d);
 }
 
 void

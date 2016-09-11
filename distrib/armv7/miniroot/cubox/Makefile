@@ -1,7 +1,10 @@
 BOARD=	cubox
 PLATFORM=IMX
-LOADADDR=0x18800000
-FS=ext2fs
-PART_ID=83
+UBOOT=	mx6cuboxi
+DTBS=\
+	imx6dl-cubox-i.dtb \
+	imx6dl-hummingboard.dtb \
+	imx6q-cubox-i.dtb \
+	imx6q-hummingboard.dtb
 
 .include "${.CURDIR}/../Makefile.inc"

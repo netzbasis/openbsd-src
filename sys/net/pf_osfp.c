@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_osfp.c,v 1.33 2016/04/04 16:26:00 sthen Exp $ */
+/*	$OpenBSD: pf_osfp.c,v 1.36 2016/09/02 11:43:53 dlg Exp $ */
 
 /*
  * Copyright (c) 2003 Mike Frantzen <frantzen@w4g.org>
@@ -20,7 +20,7 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #ifdef _KERNEL
-# include <sys/systm.h>
+#include <sys/systm.h>
 #include <sys/pool.h>
 #endif /* _KERNEL */
 #include <sys/queue.h>
@@ -43,23 +43,23 @@ typedef struct pool pool_t;
 #else	/* !_KERNEL */
 /* Userland equivalents so we can lend code to tcpdump et al. */
 
-# include <arpa/inet.h>
-# include <errno.h>
-# include <stdio.h>
-# include <stdlib.h>
-# include <string.h>
-# include <netdb.h>
-# define pool_t			int
-# define pool_get(pool, flags)	malloc(*(pool))
-# define pool_put(pool, item)	free(item)
-# define pool_init(pool, size, a, ao, f, m, p)	(*(pool)) = (size)
+#include <arpa/inet.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <netdb.h>
+#define pool_t			int
+#define pool_get(pool, flags)	malloc(*(pool))
+#define pool_put(pool, item)	free(item)
+#define pool_init(pool, size, a, ao, f, m, p)	(*(pool)) = (size)
+#define pool_setipl(pool, ipl)	((void)0)
 
-# ifdef PFDEBUG
-#  include <sys/stdarg.h>	/* for DPFPRINTF() */
-# endif /* PFDEBUG */
+#ifdef PFDEBUG
+#include <sys/stdarg.h>	/* for DPFPRINTF() */
+#endif /* PFDEBUG */
 
 #endif /* _KERNEL */
-
 
 SLIST_HEAD(pf_osfp_list, pf_os_fingerprint) pf_osfp_list;
 pool_t pf_osfp_entry_pl;
@@ -290,8 +290,10 @@ pf_osfp_initialize(void)
 {
 	pool_init(&pf_osfp_entry_pl, sizeof(struct pf_osfp_entry), 0, 0,
 	    PR_WAITOK, "pfosfpen", NULL);
+	pool_setipl(&pf_osfp_entry_pl, IPL_NONE);
 	pool_init(&pf_osfp_pl, sizeof(struct pf_os_fingerprint), 0, 0,
 	    PR_WAITOK, "pfosfp", NULL);
+	pool_setipl(&pf_osfp_pl, IPL_NONE);
 	SLIST_INIT(&pf_osfp_list);
 }
 

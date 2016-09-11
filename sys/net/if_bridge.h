@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bridge.h,v 1.48 2015/12/01 18:28:29 goda Exp $	*/
+/*	$OpenBSD: if_bridge.h,v 1.51 2016/09/03 13:46:57 reyk Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -45,7 +45,7 @@ struct ifbreq {
 	char		ifbr_name[IFNAMSIZ];	/* bridge ifs name */
 	char		ifbr_ifsname[IFNAMSIZ];	/* member ifs name */
 	u_int32_t	ifbr_ifsflags;		/* member ifs flags */
-	u_int8_t	ifbr_portno;		/* member port number */
+	u_int32_t	ifbr_portno;		/* member port number */
 
 	u_int8_t	ifbr_state;		/* member stp state */
 	u_int8_t	ifbr_priority;		/* member stp priority */
@@ -71,7 +71,8 @@ struct ifbreq {
 #define IFBIF_BSTP_PTP		0x0040  /* member stp ptp */
 #define IFBIF_BSTP_AUTOPTP	0x0080	/* member stp autoptp enabled */
 #define	IFBIF_SPAN		0x0100	/* ifs is a span port (ro) */
-#define	IFBIF_RO_MASK		0xff00	/* read only bits */
+#define	IFBIF_LOCAL		0x1000	/* local port in switch(4) */
+#define	IFBIF_RO_MASK		0x0f00	/* read only bits */
 
 /* SIOCBRDGFLUSH */
 #define	IFBF_FLUSHDYN	0x0	/* flush dynamic addresses only */
@@ -152,6 +153,8 @@ struct ifbrparam {
 		u_int8_t	ifbrpu_maxage;		/* max age (sec) */
 		u_int8_t	ifbrpu_proto;		/* bridge protocol */
 		u_int8_t	ifbrpu_txhc;		/* bpdu tx holdcount */
+		u_int64_t	ifbrpu_datapath;	/* datapath-id */
+		u_int32_t	ifbrpu_maxgroup;	/* group size */
 	} ifbrp_ifbrpu;
 };
 #define	ifbrp_csize	ifbrp_ifbrpu.ifbrpu_csize
@@ -162,6 +165,9 @@ struct ifbrparam {
 #define	ifbrp_hellotime	ifbrp_ifbrpu.ifbrpu_hellotime
 #define	ifbrp_fwddelay	ifbrp_ifbrpu.ifbrpu_fwddelay
 #define	ifbrp_maxage	ifbrp_ifbrpu.ifbrpu_maxage
+#define	ifbrp_datapath	ifbrp_ifbrpu.ifbrpu_datapath
+#define	ifbrp_maxflow	ifbrp_ifbrpu.ifbrpu_csize
+#define	ifbrp_maxgroup	ifbrp_ifbrpu.ifbrpu_maxgroup
 
 /* Protocol versions */
 #define	BSTP_PROTO_ID		0x00
@@ -400,15 +406,24 @@ struct bridge_iflist {
 	    ((struct bridge_iflist *)_bp2)->bridge_sc)
 
 /*
+ * Bridge tunnel tagging
+ */
+struct bridge_tunneltag {
+	union pfsockaddr_union		brtag_src;
+	union pfsockaddr_union		brtag_dst;
+	u_int32_t			brtag_id;
+};
+
+/*
  * Bridge route node
  */
 struct bridge_rtnode {
 	LIST_ENTRY(bridge_rtnode)	brt_next;	/* next in list */
-	struct				ifnet *brt_if;	/* destination ifs */
+	struct ifnet			*brt_if;	/* destination ifs */
 	u_int8_t			brt_flags;	/* address flags */
 	u_int8_t			brt_age;	/* age counter */
-	struct				ether_addr brt_addr;	/* dst addr */
-	union pfsockaddr_union		brt_tunnel;	/* tunnel endpoint */
+	struct ether_addr		brt_addr;	/* dst addr */
+	struct bridge_tunneltag		brt_tunnel;	/* tunnel endpoint */
 };
 
 #ifndef BRIDGE_RTABLE_SIZE
@@ -441,10 +456,11 @@ int	bridge_output(struct ifnet *, struct mbuf *, struct sockaddr *,
 void	bridge_update(struct ifnet *, struct ether_addr *, int);
 void	bridge_rtdelete(struct bridge_softc *, struct ifnet *, int);
 void	bridge_rtagenode(struct ifnet *, int);
-struct sockaddr *bridge_tunnel(struct mbuf *);
-struct sockaddr *bridge_tunneltag(struct mbuf *, int);
+struct bridge_tunneltag *bridge_tunnel(struct mbuf *);
+struct bridge_tunneltag *bridge_tunneltag(struct mbuf *);
 void	bridge_tunneluntag(struct mbuf *);
 void	bridge_copyaddr(struct sockaddr *, struct sockaddr *);
+void	bridge_copytag(struct bridge_tunneltag *, struct bridge_tunneltag *);
 
 struct bstp_state *bstp_create(struct ifnet *);
 void	bstp_destroy(struct bstp_state *);
@@ -472,6 +488,12 @@ void	bridge_timer(void *);
 u_int8_t bridge_filterrule(struct brl_head *, struct ether_header *,
     struct mbuf *);
 void	bridge_flushrule(struct bridge_iflist *);
+
+struct mbuf *bridge_ip(struct bridge_softc *, int, struct ifnet *,
+    struct ether_header *, struct mbuf *);
+void	bridge_fragment(struct bridge_softc *, struct ifnet *,
+    struct ether_header *, struct mbuf *);
+int	bridge_ifenqueue(struct bridge_softc *, struct ifnet *, struct mbuf *);
 
 #endif /* _KERNEL */
 #endif /* _NET_IF_BRIDGE_H_ */

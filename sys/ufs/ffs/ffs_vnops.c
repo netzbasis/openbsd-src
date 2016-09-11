@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_vnops.c,v 1.86 2016/04/07 11:13:01 mpi Exp $	*/
+/*	$OpenBSD: ffs_vnops.c,v 1.88 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: ffs_vnops.c,v 1.7 1996/05/11 18:27:24 mycroft Exp $	*/
 
 /*
@@ -93,7 +93,6 @@ struct vops ffs_vops = {
 	.vop_islocked	= ufs_islocked,
 	.vop_pathconf	= ufs_pathconf,
 	.vop_advlock	= ufs_advlock,
-	.vop_reallocblks = ffs_reallocblks,
 	.vop_bwrite	= vop_generic_bwrite
 };
 
@@ -383,7 +382,8 @@ ffs_write(void *v)
 	 * we clear the setuid and setgid bits as a precaution against
 	 * tampering.
 	 */
-	if (resid > uio->uio_resid && ap->a_cred && ap->a_cred->cr_uid != 0)
+	if (resid > uio->uio_resid && ap->a_cred && ap->a_cred->cr_uid != 0 &&
+	    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0)
 		DIP_ASSIGN(ip, mode, DIP(ip, mode) & ~(ISUID | ISGID));
 	if (resid > uio->uio_resid)
 		VN_KNOTE(vp, NOTE_WRITE | (extended ? NOTE_EXTEND : 0));

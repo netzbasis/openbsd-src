@@ -12,14 +12,6 @@ __bss_start
 _edata
 _end
 __end
-_SDA2_BASE
-_SDA_BASE
-
-/* needed by ld.so unless/until we switch to RELRO */
-__got_start
-__got_end
-__plt_start
-__plt_end
 
 /* sys */
 __get_tcb
@@ -678,7 +670,6 @@ login_getcaptime
 login_getclass
 login_getstyle
 longjmp
-longjmperror
 modf
 nftw
 nice
@@ -909,6 +900,15 @@ SHA512Init
 SHA512Pad
 SHA512Transform
 SHA512Update
+SHA512_256Data
+SHA512_256End
+SHA512_256File
+SHA512_256FileChunk
+SHA512_256Final
+SHA512_256Init
+SHA512_256Pad
+SHA512_256Transform
+SHA512_256Update
 SipHash
 SipHash_End
 SipHash_Final
@@ -916,20 +916,7 @@ SipHash_Init
 SipHash_Update
 
 /* locale */
-_CurrentMessagesLocale
-_CurrentMonetaryLocale
-_CurrentNumericLocale
-_CurrentRuneLocale
-_CurrentTimeLocale
-_DefaultMessagesLocale
-_DefaultMonetaryLocale
-_DefaultNumericLocale
-_DefaultRuneLocale
-_DefaultTimeLocale
 __mb_cur_max
-__mb_len_max_runtime
-__mlocale_changed
-__nlocale_changed
 btowc
 iswalnum
 iswalpha
@@ -1012,18 +999,14 @@ res_send_async
 /* net */
 __b64_ntop
 __b64_pton
-__check_rhosts_file
 __dn_comp
 __dn_skipname
-__ivaliduser
-__ivaliduser_sa
 __p_class
 __p_class_syms
 __p_type
 __p_type_syms
 __putlong
 __putshort
-__rcmd_errstr
 __res_dnok
 __res_hnok
 __res_mailok
@@ -1109,8 +1092,6 @@ inet_network
 inet_ntoa
 inet_ntop
 inet_pton
-iruserok
-iruserok_sa
 link_ntoa
 ntohl
 ntohs
@@ -1293,8 +1274,6 @@ xprt_unregister
 __sF
 __srget
 __swbuf
-_cleanup
-_fwalk
 asprintf
 clearerr
 dprintf
@@ -1474,6 +1453,7 @@ lldiv
 lsearch
 malloc
 malloc_options
+_malloc_init
 mergesort
 optarg
 opterr

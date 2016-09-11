@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.213 2016/04/27 12:27:03 dlg Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.217 2016/09/03 13:42:28 reyk Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -129,6 +129,7 @@ struct	pkthdr {
 	u_int16_t		 ether_vtag;	/* Ethernet 802.1p+Q vlan tag */
 	u_int			 ph_rtableid;	/* routing table id */
 	u_int			 ph_ifidx;	/* rcv interface index */
+	u_int8_t		 ph_loopcnt;	/* mbuf is looping in kernel */
 	struct pkthdr_pf	 pf;
 };
 
@@ -136,8 +137,8 @@ struct	pkthdr {
 struct mbuf_ext {
 	caddr_t	ext_buf;		/* start of buffer */
 					/* free routine if not the usual */
-	void	(*ext_free)(caddr_t, u_int, void *);
 	void	*ext_arg;
+	u_int	ext_free_fn;
 	u_int	ext_size;		/* size of buffer, for ext_free */
 	struct mbuf *ext_nextref;
 	struct mbuf *ext_prevref;
@@ -183,7 +184,7 @@ struct mbuf {
 /* mbuf pkthdr flags, also in m_flags */
 #define M_VLANTAG	0x0020	/* ether_vtag is valid */
 #define M_LOOP		0x0040	/* for Mbuf statistics */
-#define M_FILDROP	0x0080	/* dropped by bpf filter */
+#define M_ACAST		0x0080	/* received as IPv6 anycast */
 #define M_BCAST		0x0100	/* send/received as link-level broadcast */
 #define M_MCAST		0x0200	/* send/received as link-level multicast */
 #define M_CONF		0x0400  /* payload was encrypted (ESP-transport) */
@@ -196,13 +197,13 @@ struct mbuf {
 #ifdef _KERNEL
 #define M_BITS \
     ("\20\1M_EXT\2M_PKTHDR\3M_EOR\4M_EXTWR\5M_PROTO1\6M_VLANTAG\7M_LOOP" \
-    "\10M_FILDROP\11M_BCAST\12M_MCAST\13M_CONF\14M_AUTH\15M_TUNNEL" \
+    "\10M_ACAST\11M_BCAST\12M_MCAST\13M_CONF\14M_AUTH\15M_TUNNEL" \
     "\16M_ZEROIZE\17M_COMP\20M_LINK0")
 #endif
 
 /* flags copied when copying m_pkthdr */
 #define	M_COPYFLAGS	(M_PKTHDR|M_EOR|M_PROTO1|M_BCAST|M_MCAST|M_CONF|M_COMP|\
-			 M_AUTH|M_LOOP|M_TUNNEL|M_LINK0|M_VLANTAG|M_FILDROP|\
+			 M_AUTH|M_LOOP|M_TUNNEL|M_LINK0|M_VLANTAG|M_ACAST|\
 			 M_ZEROIZE)
 
 /* Checksumming flags */
@@ -296,17 +297,20 @@ struct mbuf {
  * MCLGET allocates and adds an mbuf cluster to a normal mbuf;
  * the flag M_EXT is set upon success.
  */
-#define	MEXTADD(m, buf, size, mflags, free, arg) do {			\
+#define	MEXTADD(m, buf, size, mflags, freefn, arg) do {			\
 	(m)->m_data = (m)->m_ext.ext_buf = (caddr_t)(buf);		\
 	(m)->m_flags |= M_EXT | (mflags & M_EXTWR);			\
 	(m)->m_ext.ext_size = (size);					\
-	(m)->m_ext.ext_free = (free);					\
+	(m)->m_ext.ext_free_fn = (freefn);					\
 	(m)->m_ext.ext_arg = (arg);					\
 	MCLINITREFERENCE(m);						\
 } while (/* CONSTCOND */ 0)
 
 #define MCLGET(m, how) (void) m_clget((m), (how), MCLBYTES)
 #define MCLGETI(m, how, ifp, l) m_clget((m), (how), (l))
+
+u_int mextfree_register(void (*)(caddr_t, u_int, void *));
+#define	MEXTFREE_POOL 0
 
 /*
  * Move just m_pkthdr from from to to,
@@ -486,7 +490,10 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
  * length for an existing packet tag type or when adding a new one that
  * has payload larger than the value below.
  */
-#define PACKET_TAG_MAXSIZE		52
+#define PACKET_TAG_MAXSIZE		60
+
+/* Detect mbufs looping in the kernel when spliced too often. */
+#define M_MAXLOOP	128
 
 /*
  * mbuf lists

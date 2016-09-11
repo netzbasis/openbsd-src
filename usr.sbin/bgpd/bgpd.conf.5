@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.conf.5,v 1.140 2016/01/07 18:41:41 florian Exp $
+.\" $OpenBSD: bgpd.conf.5,v 1.146 2016/08/17 08:14:40 phessler Exp $
 .\"
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 7 2016 $
+.Dd $Mdocdate: August 17 2016 $
 .Dt BGPD.CONF 5
 .Os
 .Sh NAME
@@ -617,16 +617,21 @@ The default for IBGP peers is
 .Pq Ic none Ns | Ns Ic unicast Ns | Ns Ic vpn
 .Xc
 For the given address family, control which subsequent address families
-(at the moment, only
+are announced during the capabilities negotiation.
+Only routes for that address family and subsequent address families will be
+announced and processed.
+.Pp
+At the moment, only
 .Em none ,
 which disables the announcement of that address family,
 .Em unicast ,
 and
 .Em vpn ,
-which allows the distribution of BGP MPLS VPNs, are supported) are announced
-during the capabilities negotiation.
-Only routes for that address family and subsequent address family will be
-announced and processed.
+which allows the distribution of BGP MPLS VPNs, are supported.
+.Pp
+The default is
+.Ic unicast
+for the same address family of the session.
 .Pp
 .It Xo
 .Ic announce as-4byte
@@ -972,10 +977,6 @@ incoming packets are required to have a TTL of 256 minus multihop distance,
 ensuring they have not passed through more than the expected number of hops.
 The default is
 .Ic no .
-.Pp
-There is currently only partial support for ttl-security with IPv6:
-the TTL of outgoing packets is set,
-but no check is made for the TTL of incoming packets.
 .El
 .Sh FILTER
 .Xr bgpd 8
@@ -1027,7 +1028,10 @@ If a parameter is specified, the rule only applies to packets with
 matching attributes.
 .Pp
 .Bl -tag -width Ds -compact
-.It Ar as-type as-number
+.It Xo
+.Ar as-type Op Ar operator
+.Ar as-number
+.Xc
 This rule applies only to
 .Em UPDATES
 where the
@@ -1038,13 +1042,7 @@ The
 is matched against a part of the
 .Em AS path
 specified by the
-.Ar as-type .
-.Ar as-number
-may be set to
-.Ic neighbor-as ,
-which is expanded to the current neighbor remote AS number.
-.Ar as-type
-is one of the following operators:
+.Ar as-type :
 .Pp
 .Bl -tag -width transmit-as -compact
 .It Ic AS
@@ -1056,6 +1054,29 @@ is one of the following operators:
 .It Ic transit-as
 (all but the rightmost AS number)
 .El
+.Pp
+.Ar as-number
+is an AS number as explained above under
+.Sx GLOBAL CONFIGURATION .
+It may be set to
+.Ic neighbor-as ,
+which is expanded to the current neighbor remote AS number.
+.Pp
+The
+.Ar operator
+can be unspecified (this case is identical to the equality operator), or one of the numerical operators
+.Bd -literal -offset indent
+=	(equal)
+!=	(unequal)
+-	(range including boundaries)
+><	(except range)
+.Ed
+.Pp
+>< and -
+are binary operators (they take two arguments); with these,
+.Ar as-number
+cannot be set to
+.Ic neighbor-as .
 .Pp
 Multiple
 .Ar as-number
@@ -1368,7 +1389,7 @@ Communities are encoded as
 .Ar as-number : Ns Ar local .
 Four-octet encoding is used if the
 .Ar as-number
-is bigger then 65535 or if the AS_DOT encoding is used.
+is bigger than 65535 or if the AS_DOT encoding is used.
 IPv4 Address Specific Extended Communities are encoded as
 .Ar IP : Ns Ar local .
 Opaque Extended Communities are encoded with a single numeric value.

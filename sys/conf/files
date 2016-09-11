@@ -1,4 +1,4 @@
-#	$OpenBSD: files,v 1.619 2016/05/03 14:52:39 mpi Exp $
+#	$OpenBSD: files,v 1.630 2016/09/09 04:50:54 dlg Exp $
 #	$NetBSD: files,v 1.87 1996/05/19 17:17:50 jonathan Exp $
 
 #	@(#)files.newconf	7.5 (Berkeley) 5/10/93
@@ -151,10 +151,6 @@ file	dev/ic/adv.c			adv
 device	adw: scsi
 file	dev/ic/adw.c			adw
 
-# BusLogic MultiMaster and MultiMaster Ultra SCSI controllers
-device	bha: scsi
-file	dev/ic/bha.c		bha & (bha_pci | bha_isa | bha_eisa) needs-flag
-
 # ICP Vortex GDT RAID controllers
 device	gdt: scsi
 file	dev/ic/gdt_common.c		gdt
@@ -193,7 +189,8 @@ file    dev/ic/qla.c                    qla
 
 # Advanced Host Controller Interface for Serial ATA
 device	ahci: scsi, atascsi
-file	dev/ic/ahci.c			ahci | ahci_pci | ahci_jmb needs-flag
+file	dev/ic/ahci.c			ahci | (ahci_pci | ahci_jmb |
+						imxahci | sxiahci) needs-flag
 
 # NVM Express Controller
 device	nvme: scsi
@@ -316,6 +313,11 @@ file	dev/ic/i82596.c			ie & (ie_pci | ie_eisa | ie_gsc)
 device	gem: ether, ifnet, ifmedia, mii
 file	dev/ic/gem.c			gem
 
+# Synopsis Designware GMAC core, as found on Allwinner A20
+# and other SoCs
+device	dwge: ether, ifnet, ifmedia, mii
+file	dev/ic/dwc_gmac.c		dwge
+
 device	ti: ether, ifnet, ifmedia, mii, firmload
 file	dev/ic/ti.c			ti
 
@@ -396,7 +398,7 @@ file	dev/ic/rtw.c			rtw
 
 # Realtek RTL8188CE 802.11
 device	rtwn: ifnet, wlan, firmload
-file	dev/ic/rtwn.c			rtwn
+file	dev/ic/rtwn.c			rtwn | urtwn
 
 # Ralink RT2500/RT2600 802.11
 device	ral: ether, ifnet, ifmedia, firmload, wlan
@@ -548,6 +550,7 @@ pseudo-device mpw: ifnet, ether
 pseudo-device vether: ifnet, ether
 pseudo-device pppx: ifnet
 pseudo-device vxlan: ifnet, ether, ifmedia
+pseudo-device switch: ifnet, ether
 
 pseudo-device ksyms
 file	dev/ksyms.c			ksyms needs-flag
@@ -602,6 +605,7 @@ file ddb/db_hangman.c			ddb
 file ddb/db_input.c			ddb
 file ddb/db_lex.c			ddb
 file ddb/db_output.c			ddb
+file ddb/db_prof.c			ddb & ddbprof & !gprof
 file ddb/db_run.c			ddb | kgdb
 file ddb/db_struct.c			ddb & ddb_struct
 file ddb/db_sym.c			ddb
@@ -771,6 +775,9 @@ file net/if_bridge.c			bridge			needs-count
 file net/bridgectl.c			bridge
 file net/bridgestp.c			bridge
 file net/if_vlan.c			vlan			needs-count
+file net/if_switch.c			switch			needs-count
+file net/switchctl.c			switch
+file net/switchofp.c			switch
 file net/pipex.c			pipex
 file net/radix.c
 file net/radix_mpath.c			!small_kernel & !art
@@ -790,6 +797,7 @@ file net/if_vether.c			vether			needs-count
 file net/if_pair.c			pair			needs-count
 file net/if_pppx.c			pppx			needs-count
 file net/if_vxlan.c			vxlan			needs-count
+file net/bfd.c				bfd
 file net80211/ieee80211.c		wlan
 file net80211/ieee80211_amrr.c		wlan
 file net80211/ieee80211_crypto.c	wlan
@@ -895,7 +903,7 @@ file ufs/mfs/mfs_vfsops.c		mfs
 file ufs/mfs/mfs_vnops.c		mfs
 file ufs/ufs/ufs_bmap.c			ffs | mfs | ext2fs
 file ufs/ufs/ufs_dirhash.c		ufs_dirhash & (ffs | mfs)
-file ufs/ufs/ufs_ihash.c		ffs | mfs | ext2fs
+file ufs/ufs/ufs_ihash.c		ffs | mfs | ext2fs | fuse
 file ufs/ufs/ufs_inode.c		ffs | mfs | ext2fs
 file ufs/ufs/ufs_lookup.c		ffs | mfs | ext2fs
 file ufs/ufs/ufs_quota.c		quota & ( ffs | mfs | ext2fs )

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.19 2016/03/03 12:44:09 mpi Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.21 2016/09/10 06:36:26 jasper Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.18 1996/05/03 19:42:01 christos Exp $	*/
 
 /*
@@ -186,11 +186,11 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		frame = (struct callframe *)ddb_regs.tf_ebp;
 		callpc = (db_addr_t)ddb_regs.tf_eip;
 	} else if (trace_thread) {
-		(*pr) ("db_trace.c: can't trace thread\n");
+		(*pr) ("%s: can't trace thread\n", __func__);
 	} else if (trace_proc) {
 		struct proc *p = pfind((pid_t)addr);
 		if (p == NULL) {
-			(*pr) ("db_trace.c: process not found\n");
+			(*pr) ("not found\n");
 			return;
 		}
 		frame = (struct callframe *)p->p_addr->u_pcb.pcb_ebp;

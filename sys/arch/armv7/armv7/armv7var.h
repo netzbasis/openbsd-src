@@ -1,4 +1,4 @@
-/* $OpenBSD: armv7var.h,v 1.10 2016/05/01 21:07:40 patrick Exp $ */
+/* $OpenBSD: armv7var.h,v 1.12 2016/06/04 18:09:16 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
@@ -27,7 +27,6 @@ struct board_dev {
 
 struct armv7_board {
 	uint32_t		board_id;
-	const char		*name;
 	struct board_dev	*devs;
 	void			(*init)(void);
 };
@@ -80,7 +79,6 @@ int	armv7_submatch(struct device *, void *, void *);
 #define BOARD_ID_OMAP4_PANDA 2791
 #define BOARD_ID_EXYNOS4_SMDKC210 2838
 #define BOARD_ID_EXYNOS4_NURI 3379
-#define BOARD_ID_IMX6_PHYFLEX 3529
 #define BOARD_ID_AM335X_BEAGLEBONE 3589
 #define BOARD_ID_IMX6_SABRELITE 3769
 #define BOARD_ID_EXYNOS5_CHROMEBOOK 3774

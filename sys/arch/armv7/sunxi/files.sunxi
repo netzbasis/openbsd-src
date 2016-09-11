@@ -1,4 +1,4 @@
-#	$OpenBSD: files.sunxi,v 1.4 2016/05/02 08:15:55 patrick Exp $
+#	$OpenBSD: files.sunxi,v 1.13 2016/08/20 13:24:38 patrick Exp $
 
 define	sunxi {}
 device	sunxi: sunxi
@@ -16,35 +16,39 @@ device	sxipio {}: gpiobus
 attach	sxipio at sunxi
 file	arch/armv7/sunxi/sxipio.c		sxipio
 
-device	a1xintc
-attach	a1xintc at sunxi
-file	arch/armv7/sunxi/a1xintc.c		a1xintc
+device	sxiintc
+attach	sxiintc at fdt
+file	arch/armv7/sunxi/sxiintc.c		sxiintc
 
 device	sxitimer
 attach	sxitimer at sunxi
 file	arch/armv7/sunxi/sxitimer.c		sxitimer
 
 device	sxidog
-attach	sxidog at sunxi
+attach	sxidog at fdt
 file	arch/armv7/sunxi/sxidog.c		sxidog
 
 device	sxirtc
-attach	sxirtc at sunxi
+attach	sxirtc at fdt
 file	arch/armv7/sunxi/sxirtc.c		sxirtc
 
-attach	ahci at sunxi with sxiahci
+device	sxiahci: scsi, atascsi
+attach	sxiahci at fdt
 file	arch/armv7/sunxi/sxiahci.c		sxiahci
+
+device	sximmc: sdmmcbus
+attach	sximmc at fdt
+file	arch/armv7/sunxi/sximmc.c		sximmc
 
 #attach ohci at sunxi with sxiohci
 #file	arch/armv7/sunxi/sxiohci.c		sxiohci
 
-attach	ehci at sunxi with sxiehci
+attach	ehci at fdt with sxiehci
 file	arch/armv7/sunxi/sxiehci.c		sxiehci
 
-device	sxiuart
-attach	sxiuart at sunxi
-file	arch/armv7/sunxi/sxiuart.c		sxiuart
-
 device	sxie: ether, ifnet, mii, ifmedia
-attach	sxie at sunxi
+attach	sxie at fdt
 file	arch/armv7/sunxi/sxie.c			sxie
+
+attach	dwge at fdt with dwge_fdt
+file	arch/armv7/sunxi/if_dwge_fdt.c		dwge_fdt

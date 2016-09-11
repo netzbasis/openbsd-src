@@ -1,4 +1,4 @@
-.\"     $OpenBSD: man.cgi.8,v 1.15 2016/03/18 17:31:20 jmc Exp $
+.\"	$OpenBSD: man.cgi.8,v 1.19 2016/07/11 22:46:57 schwarze Exp $
 .\"
 .\" Copyright (c) 2014, 2015, 2016 Ingo Schwarze <schwarze@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 18 2016 $
+.Dd $Mdocdate: July 11 2016 $
 .Dt MAN.CGI 8
 .Os
 .Sh NAME
@@ -26,9 +26,9 @@ The
 CGI program searches for manual pages on a WWW server
 and displays them to HTTP clients,
 providing functionality equivalent to the
-.Xr apropos 1
-and
 .Xr man 1
+and
+.Xr apropos 1
 utilities.
 It can use multiple manual trees in parallel.
 .Ss HTML search interface
@@ -51,20 +51,15 @@ The effect of prepending a backslash to another character is undefined;
 in the current implementation, it has no effect.
 .It
 A
-.Dq Submit
-button to send a search request from the client to the server.
-.It
-A
-.Dq Reset
-button to undo any changes to the input boxes and the dropdown menus
-and reset them to the values contained in the
-.Ev QUERY_STRING .
-.It
-Radio buttons to select pages either by name like in
 .Xr man 1
-or using
+submit button.
+The string in the input box is interpreted as the name of a manual page.
+.It
+An
 .Xr apropos 1
-queries.
+submit button.
+The string in the input box is interpreted as a search
+.Ar expression .
 .It
 A dropdown menu to optionally select a manual section.
 If one is provided, it has the same effect as the
@@ -160,6 +155,12 @@ database inside each manpath.
 .Pp
 Configure your web server to execute CGI programs located in
 .Pa /cgi-bin .
+When using
+.Ox
+.Xr httpd 8 ,
+the
+.Xr slowcgi 8
+proxy daemon is needed to translate FastCGI requests to plain old CGI.
 .Pp
 To compile
 .Nm ,
@@ -219,13 +220,16 @@ run
 .Pp
 .Dl make man.cgi
 .Pp
-and copy the files to the proper locations.
-Reading the
-.Cm installcgi
-target in the
-.Pa Makefile
-can help with that, but do not run it without carefully checking it
-because the directory layouts of web servers vary greatly.
+and copy the resulting binary to the proper location,
+for example using the command:
+.Pp
+.Dl make installcgi
+.Pp
+In addition to that, make sure the default manpath contains the files
+.Pa man1/apropos.1
+and
+.Pa man8/man.cgi.8 ,
+or the documentation links at the bottom of the index page will not work.
 .Ss URI interface
 .Nm
 uniform resource identifiers are not needed for interactive use,
@@ -248,7 +252,9 @@ and the name of the requested file, for example
 .Pa /OpenBSD-current/man1/mandoc.1 .
 This can be abbreviated according to the following syntax:
 .Sm off
-.Op / Ar manpath Oo / Cm man Ar sec Oc Op / Ar arch
+.Op / Ar manpath
+.Op / Cm man Ar sec
+.Op / Ar arch
 .Pf / Ar name Op \&. Ar sec
 .Sm on
 .It
@@ -366,10 +372,6 @@ Default
 data directory containing all the manual trees.
 Can be overridden by
 .Dv MAN_DIR .
-.It Pa /man/mandoc/man1/apropos.1 , /man/mandoc/man8/man.cgi.8
-Manual pages documenting
-.Nm
-itself, linked from the index page.
 .It Pa /man/manpath.conf
 The list of available manpaths, one per line.
 If any of the lines in this file contains a slash

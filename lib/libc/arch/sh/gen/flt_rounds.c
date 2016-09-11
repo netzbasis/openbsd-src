@@ -1,4 +1,4 @@
-/*	$OpenBSD: flt_rounds.c,v 1.5 2015/10/27 05:54:49 guenther Exp $	*/
+/*	$OpenBSD: flt_rounds.c,v 1.6 2016/07/26 19:07:09 guenther Exp $	*/
 /*
  * Copyright (c) 2006 Miodrag Vallat.
  *
@@ -18,7 +18,7 @@
 
 #include <sys/types.h>
 #include <float.h>
-#include <machine/ieeefp.h>
+#include <ieeefp.h>
 
 static const int rndmap[] = {
 	1,	/* round to nearest */

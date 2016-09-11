@@ -1,4 +1,4 @@
-/*	$OpenBSD: rthread_fork.c,v 1.17 2016/05/07 19:05:22 guenther Exp $ */
+/*	$OpenBSD: rthread_fork.c,v 1.19 2016/09/04 10:13:35 akfaew Exp $ */
 
 /*
  * Copyright (c) 2008 Kurt Miller <kurt@openbsd.org>
@@ -57,6 +57,7 @@ _dofork(pid_t (*sys_fork)(void))
 {
 	pthread_t me;
 	pid_t newid;
+	int i;
 
 	if (!_threads_ready)
 		return sys_fork();
@@ -76,7 +77,8 @@ _dofork(pid_t (*sys_fork)(void))
 #endif
 
 	_thread_atexit_lock();
-	_thread_malloc_lock();
+	for (i = 0; i < _MALLOC_MUTEXES; i++)
+		_thread_malloc_lock(i);
 	_thread_arc4_lock();
 
 	newid = sys_fork();
@@ -85,7 +87,8 @@ _dofork(pid_t (*sys_fork)(void))
 	if (newid == 0)
 		_thread_malloc_reinit();
 	else
-		_thread_malloc_unlock();
+		for (i = 0; i < _MALLOC_MUTEXES; i++)
+			_thread_malloc_unlock(i);
 	_thread_atexit_unlock();
 
 	if (newid == 0) {
@@ -97,13 +100,13 @@ _dofork(pid_t (*sys_fork)(void))
 #endif
 		/* update this thread's structure */
 		tib->tib_tid = getthrid();
-		me->donesem.lock = _SPINLOCK_UNLOCKED_ASSIGN;
-		me->flags_lock = _SPINLOCK_UNLOCKED_ASSIGN;
+		me->donesem.lock = _SPINLOCK_UNLOCKED;
+		me->flags_lock = _SPINLOCK_UNLOCKED;
 
 		/* reinit the thread list */
 		LIST_INIT(&_thread_list);
 		LIST_INSERT_HEAD(&_thread_list, me, threads);
-		_thread_lock = _SPINLOCK_UNLOCKED_ASSIGN;
+		_thread_lock = _SPINLOCK_UNLOCKED;
 
 		/* single threaded now */
 		__isthreaded = 0;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ethersubr.c,v 1.236 2016/05/18 20:15:14 mpi Exp $	*/
+/*	$OpenBSD: if_ethersubr.c,v 1.239 2016/07/12 09:33:13 mpi Exp $	*/
 /*	$NetBSD: if_ethersubr.c,v 1.19 1996/05/07 02:40:30 thorpej Exp $	*/
 
 /*
@@ -193,7 +193,11 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	struct mbuf *mcopy = NULL;
 	struct ether_header *eh;
 	struct arpcom *ac = (struct arpcom *)ifp;
+	sa_family_t af = dst->sa_family;
 	int error = 0;
+
+	KASSERT(rt != NULL || ISSET(m->m_flags, M_MCAST|M_BCAST) ||
+		af == AF_UNSPEC || af == pseudo_AF_HDRCMPLT);
 
 #ifdef DIAGNOSTIC
 	if (ifp->if_rdomain != rtable_l2(m->m_pkthdr.ph_rtableid)) {
@@ -208,7 +212,7 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	if ((ifp->if_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
 		senderr(ENETDOWN);
 
-	switch (dst->sa_family) {
+	switch (af) {
 	case AF_INET:
 		error = arpresolve(ifp, rt, m, dst, edst);
 		if (error)
@@ -221,9 +225,9 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 		break;
 #ifdef INET6
 	case AF_INET6:
-		error = nd6_storelladdr(ifp, rt, m, dst, (u_char *)edst);
+		error = nd6_resolve(ifp, rt, m, dst, edst);
 		if (error)
-			return (error);
+			return (error == EAGAIN ? 0 : error);
 		etype = htons(ETHERTYPE_IPV6);
 		break;
 #endif
@@ -340,11 +344,10 @@ ether_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 	}
 
 	/*
-	 * If packet has been filtered by the bpf listener, drop it now
-	 * also HW vlan tagged packets that were not collected by vlan(4)
-	 * must be dropped now.
+	 * HW vlan tagged packets that were not collected by vlan(4) must
+	 * be dropped now.
 	 */
-	if (m->m_flags & (M_FILDROP | M_VLANTAG)) {
+	if (m->m_flags & M_VLANTAG) {
 		m_freem(m);
 		return (1);
 	}

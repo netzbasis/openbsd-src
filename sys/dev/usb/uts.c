@@ -1,4 +1,4 @@
-/*	$OpenBSD: uts.c,v 1.37 2016/02/10 05:49:50 guenther Exp $ */
+/*	$OpenBSD: uts.c,v 1.39 2016/09/02 09:14:59 mpi Exp $ */
 
 /*
  * Copyright (c) 2007 Robert Nagy <robert@openbsd.org>
@@ -43,8 +43,6 @@
 #else
 #define DPRINTF(x)
 #endif
-
-#define UTS_CONFIG_INDEX 0
 
 struct tsscale {
 	int	minx, maxx;
@@ -162,14 +160,6 @@ uts_attach(struct device *parent, struct device *self, void *aux)
 
 	/* Copy the default scalue values to each softc */
 	bcopy(&def_scale, &sc->sc_tsscale, sizeof(sc->sc_tsscale));
-
-	/* Move the device into the configured state. */
-	if (usbd_set_config_index(uaa->device, UTS_CONFIG_INDEX, 1) != 0) {
-		printf("%s: could not set configuartion no\n",
-		    sc->sc_dev.dv_xname);
-		usbd_deactivate(sc->sc_udev);
-		return;
-	}
 
 	/* get the config descriptor */
 	cdesc = usbd_get_config_descriptor(sc->sc_udev);
@@ -476,9 +466,7 @@ uts_intr(struct usbd_xfer *xfer, void *addr, usbd_status status)
 	DPRINTF(("%s: tp.down = %d, tp.z = %d, tp.x = %d, tp.y = %d\n",
 	    sc->sc_dev.dv_xname, tp.down, tp.z, tp.x, tp.y));
 
-	wsmouse_input(sc->sc_wsmousedev, tp.down, tp.x, tp.y, tp.z, 0,
-	    WSMOUSE_INPUT_ABSOLUTE_X | WSMOUSE_INPUT_ABSOLUTE_Y |
-	    WSMOUSE_INPUT_ABSOLUTE_Z);
+	WSMOUSE_TOUCH(sc->sc_wsmousedev, tp.down, tp.x, tp.y, tp.z, 0);
 	sc->sc_oldy = tp.y;
 	sc->sc_oldx = tp.x;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.90 2015/10/17 21:34:07 naddy Exp $	*/
+/*	$OpenBSD: main.c,v 1.94 2016/09/03 13:26:50 tedu Exp $	*/
 
 /*
  * Copyright (c) 1992, 1993
@@ -60,9 +60,12 @@ const struct compressor {
 	const char *comp_opts;
 	const char *decomp_opts;
 	const char *cat_opts;
-	void *(*open)(int, const char *, char *, int, u_int32_t, int);
+	void *(*ropen)(int, char *, int);
 	int (*read)(void *, char *, int);
+#ifndef SMALL
+	void *(*wopen)(int, char *, int, u_int32_t);
 	int (*write)(void *, const char *, int);
+#endif
 	int (*close)(void *, struct z_info *, const char *, struct stat *);
 } c_table[] = {
 #define M_DEFLATE (&c_table[0])
@@ -73,9 +76,12 @@ const struct compressor {
 		"123456789ab:cdfhLlNnOo:qrS:tVv",
 		"cfhLlNno:qrtVv",
 		"fhqr",
-		gz_open,
+		gz_ropen,
 		gz_read,
+#ifndef SMALL
+		gz_wopen,
 		gz_write,
+#endif
 		gz_close
 	},
 #define M_COMPRESS (&c_table[1])
@@ -87,20 +93,13 @@ const struct compressor {
 		"123456789ab:cdfghlNnOo:qrS:tv",
 		"cfhlNno:qrtv",
 		"fghqr",
-		z_open,
+		z_ropen,
 		zread,
+		z_wopen,
 		zwrite,
 		z_close
 	},
 #endif /* SMALL */
-#if 0
-#define M_LZH (&c_table[2])
-  { "lzh", ".lzh", "\037\240", lzh_open, lzh_read, lzh_write, lzh_close },
-#define M_ZIP (&c_table[3])
-  { "zip", ".zip", "PK", zip_open, zip_read, zip_write, zip_close },
-#define M_PACK (&c_table[4])
-  { "pack", ".pak", "\037\036", pak_open, pak_read, pak_write, pak_close },
-#endif
   { NULL }
 };
 
@@ -112,8 +111,9 @@ const struct compressor null_method = {
 	"123456789ab:cdfghlNnOo:qrS:tv",
 	"cfhlNno:qrtv",
 	"fghqr",
-	null_open,
+	null_ropen,
 	null_read,
+	null_wopen,
 	null_write,
 	null_close
 };
@@ -123,8 +123,7 @@ int permission(const char *);
 __dead void usage(int);
 int docompress(const char *, char *, const struct compressor *,
     int, struct stat *);
-int dodecompress(const char *, char *, const struct compressor *,
-    int, struct stat *);
+int dodecompress(const char *, char *, struct stat *);
 const struct compressor *check_method(int);
 const char *check_suffix(const char *);
 char *set_outfile(const char *, char *, size_t);
@@ -167,7 +166,7 @@ main(int argc, char *argv[])
 	char outfile[PATH_MAX], _infile[PATH_MAX], suffix[16];
 	int bits, ch, error, rc, cflag, oflag;
 
-	if (pledge("stdio rpath wpath cpath fattr", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath fattr chown", NULL) == -1)
 		err(1, "pledge");
 
 	bits = cflag = oflag = 0;
@@ -450,8 +449,10 @@ main(int argc, char *argv[])
 		if (verbose > 0 && !pipin && !list)
 			fprintf(stderr, "%s:\t", infile);
 
-		error = (decomp ? dodecompress : docompress)
-		    (infile, outfile, method, bits, entry->fts_statp);
+		if (decomp)
+			error = dodecompress(infile, outfile, entry->fts_statp);
+		else
+			error = docompress(infile, outfile, method, bits, entry->fts_statp);
 
 		switch (error) {
 		case SUCCESS:
@@ -481,7 +482,7 @@ docompress(const char *in, char *out, const struct compressor *method,
 #ifndef SMALL
 	u_char buf[Z_BUFSIZE];
 	char *name;
-	int error, ifd, ofd, flags, oreg;
+	int error, ifd, ofd, oreg;
 	void *cookie;
 	ssize_t nr;
 	u_int32_t mtime;
@@ -489,7 +490,7 @@ docompress(const char *in, char *out, const struct compressor *method,
 	struct stat osb;
 
 	mtime = 0;
-	flags = oreg = 0;
+	oreg = 0;
 	error = SUCCESS;
 	name = NULL;
 	cookie  = NULL;
@@ -536,7 +537,7 @@ docompress(const char *in, char *out, const struct compressor *method,
 		name = basename(in);
 		mtime = (u_int32_t)sb->st_mtime;
 	}
-	if ((cookie = (*method->open)(ofd, "w", name, bits, mtime, flags)) == NULL) {
+	if ((cookie = method->wopen(ofd, name, bits, mtime)) == NULL) {
 		if (verbose >= 0)
 			warn("%s", out);
 		if (oreg)
@@ -547,7 +548,7 @@ docompress(const char *in, char *out, const struct compressor *method,
 	}
 
 	while ((nr = read(ifd, buf, sizeof(buf))) > 0)
-		if ((method->write)(cookie, buf, nr) != nr) {
+		if (method->write(cookie, buf, nr) != nr) {
 			if (verbose >= 0)
 				warn("%s", out);
 			error = FAILURE;
@@ -560,7 +561,7 @@ docompress(const char *in, char *out, const struct compressor *method,
 		error = FAILURE;
 	}
 
-	if ((method->close)(cookie, &info, out, sb)) {
+	if (method->close(cookie, &info, out, sb)) {
 		if (!error && verbose >= 0)
 			warn("%s", out);
 		error = FAILURE;
@@ -616,9 +617,9 @@ check_method(int fd)
 }
 
 int
-dodecompress(const char *in, char *out, const struct compressor *method,
-    int bits, struct stat *sb)
+dodecompress(const char *in, char *out, struct stat *sb)
 {
+	const struct compressor *method;
 	u_char buf[Z_BUFSIZE];
 	char oldname[PATH_MAX];
 	int error, oreg, ifd, ofd;
@@ -658,7 +659,7 @@ dodecompress(const char *in, char *out, const struct compressor *method,
 
 	/* XXX - open constrains outfile to MAXPATHLEN so this is safe */
 	oldname[0] = '\0';
-	if ((cookie = (*method->open)(ifd, "r", oldname, bits, 0, 1)) == NULL) {
+	if ((cookie = method->ropen(ifd, oldname, 1)) == NULL) {
 		if (verbose >= 0)
 			warn("%s", in);
 		close (ifd);
@@ -692,12 +693,12 @@ dodecompress(const char *in, char *out, const struct compressor *method,
 		if (ofd < 0) {
 			if (verbose >= 0)
 				warn("%s", in);
-			(method->close)(cookie, NULL, NULL, NULL);
+			method->close(cookie, NULL, NULL, NULL);
 			return (FAILURE);
 		}
 	}
 
-	while ((nr = (method->read)(cookie, buf, sizeof(buf))) > 0) {
+	while ((nr = method->read(cookie, buf, sizeof(buf))) > 0) {
 		if (ofd != -1 && write(ofd, buf, nr) != nr) {
 			if (verbose >= 0)
 				warn("%s", out);
@@ -713,7 +714,7 @@ dodecompress(const char *in, char *out, const struct compressor *method,
 		error = errno == EINVAL ? WARNING : FAILURE;
 	}
 
-	if ((method->close)(cookie, &info, NULL, NULL)) {
+	if (method->close(cookie, &info, NULL, NULL)) {
 		if (!error && verbose >= 0)
 			warnx("%s", in);
 		error = FAILURE;

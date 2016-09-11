@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_start.S,v 1.6 2016/04/25 04:46:57 jsg Exp $	*/
+/*	$OpenBSD: armv7_start.S,v 1.9 2016/08/26 11:59:04 kettenis Exp $	*/
 /*	$NetBSD: lubbock_start.S,v 1.1 2003/06/18 10:51:15 bsh Exp $ */
 
 /*
@@ -151,7 +151,7 @@ _C_LABEL(bootstrap_start):
 	mcr	CP15_TLBIALL(r0)	/* Flush TLB */
 
 	/* Set the Domain Access register.  Very important! */
-        mov     r0, #((DOMAIN_CLIENT << (PMAP_DOMAIN_KERNEL*2)) | DOMAIN_CLIENT)
+	mov     r0, #DOMAIN_CLIENT	/* We only use domain 0 */
 	mcr	CP15_DACR(r0)	
 
 	/* Enable MMU */
@@ -161,7 +161,7 @@ _C_LABEL(bootstrap_start):
 	CPWAIT(r0)
 
 	/* Restore U-Boot arguments */
-	mov	r0, r6
+	mov	r0, r9
 	mov	r1, r7
 	mov	r2, r8
 
@@ -179,11 +179,14 @@ Lstart:
 
 mmu_init_table:
 	/* map SDRAM VA==PA, WT cacheable */
-	MMU_INIT(0x00000000, 0x00000000, 64, L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW))
+	MMU_INIT(0x00000000, 0x00000000, 64,
+		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
 mmu_init_table2:	
 	/* map VA 0xc0000000..0xc3ffffff to PA 0xa0000000..0xa3ffffff */
-	MMU_INIT(0xc0000000, 0x00000000, 64, L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW))
-	MMU_INIT(0x00000000, 0x00000000, 1, L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW))
+	MMU_INIT(0xc0000000, 0x00000000, 64,
+		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
+	MMU_INIT(0x00000000, 0x00000000, 1,
+		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
 
 	.word 0	/* end of table */
 

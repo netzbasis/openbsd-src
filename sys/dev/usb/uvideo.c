@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvideo.c,v 1.185 2016/05/17 08:27:17 kettenis Exp $ */
+/*	$OpenBSD: uvideo.c,v 1.192 2016/06/17 07:59:16 mglocker Exp $ */
 
 /*
  * Copyright (c) 2008 Robert Nagy <robert@openbsd.org>
@@ -78,7 +78,6 @@ struct uvideo_softc {
 	size_t					 sc_mmap_buffer_size;
 	q_mmap					 sc_mmap_q;
 	int					 sc_mmap_count;
-	int					 sc_mmap_cur;
 	int					 sc_mmap_flag;
 
 	struct vnode				*sc_vp;
@@ -124,7 +123,6 @@ int		uvideo_match(struct device *, void *, void *);
 void		uvideo_attach(struct device *, struct device *, void *);
 void		uvideo_attach_hook(struct device *);
 int		uvideo_detach(struct device *, int);
-int		uvideo_activate(struct device *, int);
 
 usbd_status	uvideo_vc_parse_desc(struct uvideo_softc *);
 usbd_status	uvideo_vc_parse_desc_header(struct uvideo_softc *,
@@ -266,11 +264,7 @@ struct cfdriver uvideo_cd = {
 };
 
 const struct cfattach uvideo_ca = {
-	sizeof(struct uvideo_softc),
-	uvideo_match,
-	uvideo_attach,
-	uvideo_detach,
-	uvideo_activate,
+	sizeof(struct uvideo_softc), uvideo_match, uvideo_attach, uvideo_detach
 };
 
 struct video_hw_if uvideo_hw_if = {
@@ -590,7 +584,6 @@ uvideo_attach_hook(struct device *self)
 
 	/* init mmap queue */
 	SIMPLEQ_INIT(&sc->sc_mmap_q);
-	sc->sc_mmap_cur = -1;
 	sc->sc_mmap_count = 0;
 
 	DPRINTF(1, "uvideo_attach: doing video_attach_mi\n");
@@ -610,25 +603,6 @@ uvideo_detach(struct device *self, int flags)
 
 	if (sc->sc_videodev != NULL)
 		rv = config_detach(sc->sc_videodev, flags);
-
-	return (rv);
-}
-
-int
-uvideo_activate(struct device *self, int act)
-{
-	struct uvideo_softc *sc = (struct uvideo_softc *) self;
-	int rv = 0;
-
-	DPRINTF(1, "uvideo_activate: sc=%p\n", sc);
-
-	switch (act) {
-	case DVACT_DEACTIVATE:
-		if (sc->sc_videodev != NULL)
-			config_deactivate(sc->sc_videodev);
-		usbd_deactivate(sc->sc_udev);
-		break;
-	}
 
 	return (rv);
 }
@@ -1223,11 +1197,10 @@ uvideo_vs_set_alt(struct uvideo_softc *sc, struct usbd_interface *ifaceh,
 	const usb_descriptor_t *desc;
 	usb_interface_descriptor_t *id;
 	usb_endpoint_descriptor_t *ed;
-	int i, diff, best_diff = INT_MAX;
+	int diff, best_diff = INT_MAX;
 	usbd_status error;
 	uint32_t psize;
 
-	i = 0;
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	desc = usbd_desc_iter_next(&iter);
 	while (desc) {
@@ -1245,7 +1218,6 @@ uvideo_vs_set_alt(struct uvideo_softc *sc, struct usbd_interface *ifaceh,
 		if (desc->bDescriptorType != UDESC_ENDPOINT)
 			goto next;
 		ed = (usb_endpoint_descriptor_t *)(uint8_t *)desc;
-		i++;
 
 		/* save endpoint with requested bandwidth */
 		psize = UGETW(ed->wMaxPacketSize);
@@ -1271,10 +1243,10 @@ next:
 	    sc->sc_vs_cur->curalt, sc->sc_vs_cur->psize, max_packet_size);
 
 	/* set alternate video stream interface */
-	error = usbd_set_interface(ifaceh, i);
+	error = usbd_set_interface(ifaceh, sc->sc_vs_cur->curalt);
 	if (error) {
 		printf("%s: could not set alternate interface %d!\n",
-		    DEVNAME(sc), i);
+		    DEVNAME(sc), sc->sc_vs_cur->curalt);
 		return (USBD_INVAL);
 	}
 
@@ -1695,7 +1667,6 @@ uvideo_vs_free_frame(struct uvideo_softc *sc)
 	while (!SIMPLEQ_EMPTY(&sc->sc_mmap_q))
 		SIMPLEQ_REMOVE_HEAD(&sc->sc_mmap_q, q_frames);
 
-	sc->sc_mmap_cur = -1;
 	sc->sc_mmap_count = 0;
 }
 
@@ -1819,19 +1790,17 @@ uvideo_vs_open(struct uvideo_softc *sc)
 		return (error);
 	}
 
-	ed = usbd_interface2endpoint_descriptor(sc->sc_vs_cur->ifaceh, 0);
+	/* double check if we can access the selected endpoint descriptor */
+	ed = usbd_get_endpoint_descriptor(sc->sc_vs_cur->ifaceh,
+	    sc->sc_vs_cur->endpoint);
 	if (ed == NULL) {
 		printf("%s: no endpoint descriptor for VS iface\n",
 		    DEVNAME(sc));
 		return (USBD_INVAL);
 	}
-	DPRINTF(1, "%s: open pipe for ", DEVNAME(sc));
-	DPRINTF(1, "bEndpointAddress=0x%02x (0x%02x), wMaxPacketSize=%d (%d)\n",
-	    ed->bEndpointAddress,
-	    sc->sc_vs_cur->endpoint,
-	    UGETW(ed->wMaxPacketSize),
-	    sc->sc_vs_cur->psize);
 
+	DPRINTF(1, "%s: open pipe for bEndpointAddress=0x%02x\n",
+	    DEVNAME(sc), sc->sc_vs_cur->endpoint);
 	error = usbd_open_pipe(
 	    sc->sc_vs_cur->ifaceh,
 	    sc->sc_vs_cur->endpoint,
@@ -1866,7 +1835,7 @@ uvideo_vs_close(struct uvideo_softc *sc)
 {
 	if (sc->sc_vs_cur->bulk_running == 1) {
 		sc->sc_vs_cur->bulk_running = 0;
-		(void)tsleep(&sc->sc_vs_cur->bulk_running, 0, "vid_close", 0);
+		usbd_ref_wait(sc->sc_udev);
 	}
 
 	if (sc->sc_vs_cur->pipeh) {
@@ -1941,6 +1910,7 @@ uvideo_vs_start_bulk_thread(void *arg)
 	usbd_status error;
 	int size;
 
+	usbd_ref_incr(sc->sc_udev);
 	while (sc->sc_vs_cur->bulk_running) {
 		size = UGETDW(sc->sc_desc_probe.dwMaxPayloadTransferSize);
 
@@ -1965,7 +1935,7 @@ uvideo_vs_start_bulk_thread(void *arg)
 		(void)sc->sc_decode_stream_header(sc,
 		    sc->sc_vs_cur->bxfer.buf, size);
 	}
-	wakeup(&sc->sc_vs_cur->bulk_running);
+	usbd_ref_decr(sc->sc_udev);
 
 	kthread_exit(0);
 }
@@ -2210,42 +2180,35 @@ uvideo_vs_decode_stream_header_isight(struct uvideo_softc *sc, uint8_t *frame,
 int
 uvideo_mmap_queue(struct uvideo_softc *sc, uint8_t *buf, int len)
 {
-	if (sc->sc_mmap_cur < 0 || sc->sc_mmap_count == 0 ||
-	    sc->sc_mmap_buffer == NULL)
+	int i;
+
+	if (sc->sc_mmap_count == 0 || sc->sc_mmap_buffer == NULL)
 		panic("%s: mmap buffers not allocated", __func__);
 
 	/* find a buffer which is ready for queueing */
-	while (sc->sc_mmap_cur < sc->sc_mmap_count) {
-		if (sc->sc_mmap[sc->sc_mmap_cur].v4l2_buf.flags &
-		    V4L2_BUF_FLAG_QUEUED)
+	for (i = 0; i < sc->sc_mmap_count; i++) {
+		if (sc->sc_mmap[i].v4l2_buf.flags & V4L2_BUF_FLAG_QUEUED)
 			break;
-		/* not ready for queueing, try next */
-		sc->sc_mmap_cur++;
 	}
-	if (sc->sc_mmap_cur == sc->sc_mmap_count) {
+	if (i == sc->sc_mmap_count) {
 		DPRINTF(1, "%s: %s: mmap queue is full!",
 		    DEVNAME(sc), __func__);
 		return ENOMEM;
 	}
 
 	/* copy frame to mmap buffer and report length */
-	bcopy(buf, sc->sc_mmap[sc->sc_mmap_cur].buf, len);
-	sc->sc_mmap[sc->sc_mmap_cur].v4l2_buf.bytesused = len;
+	bcopy(buf, sc->sc_mmap[i].buf, len);
+	sc->sc_mmap[i].v4l2_buf.bytesused = len;
 
 	/* timestamp it */
-	getmicrotime(&sc->sc_mmap[sc->sc_mmap_cur].v4l2_buf.timestamp);
+	getmicrotime(&sc->sc_mmap[i].v4l2_buf.timestamp);
 
 	/* queue it */
-	SIMPLEQ_INSERT_TAIL(&sc->sc_mmap_q, &sc->sc_mmap[sc->sc_mmap_cur],
-	    q_frames);
+	sc->sc_mmap[i].v4l2_buf.flags |= V4L2_BUF_FLAG_DONE;
+	sc->sc_mmap[i].v4l2_buf.flags &= ~V4L2_BUF_FLAG_QUEUED;
+	SIMPLEQ_INSERT_TAIL(&sc->sc_mmap_q, &sc->sc_mmap[i], q_frames);
 	DPRINTF(2, "%s: %s: frame queued on index %d\n",
-	    DEVNAME(sc), __func__, sc->sc_mmap_cur);
-
-	/* point to next mmap buffer */
-	sc->sc_mmap_cur++;
-	if (sc->sc_mmap_cur == sc->sc_mmap_count)
-		/* we reached the end of the mmap buffer, start over */
-		sc->sc_mmap_cur = 0;
+	    DEVNAME(sc), __func__, i);
 
 	wakeup(sc);
 
@@ -3202,7 +3165,7 @@ uvideo_reqbufs(void *v, struct v4l2_requestbuffers *rb)
 		sc->sc_mmap[i].v4l2_buf.sequence = 0;
 		sc->sc_mmap[i].v4l2_buf.field = V4L2_FIELD_NONE;
 		sc->sc_mmap[i].v4l2_buf.memory = V4L2_MEMORY_MMAP;
-		sc->sc_mmap[i].v4l2_buf.flags = V4L2_MEMORY_MMAP;
+		sc->sc_mmap[i].v4l2_buf.flags = V4L2_BUF_FLAG_MAPPED;
 
 		DPRINTF(1, "%s: %s: index=%d, offset=%d, length=%d\n",
 		    DEVNAME(sc), __func__,
@@ -3213,9 +3176,6 @@ uvideo_reqbufs(void *v, struct v4l2_requestbuffers *rb)
 
 	/* tell how many buffers we have really allocated */
 	rb->count = sc->sc_mmap_count;
-
-	/* start with the first buffer */
-	sc->sc_mmap_cur = 0;
 
 	return (0);
 }
@@ -3253,7 +3213,6 @@ uvideo_qbuf(void *v, struct v4l2_buffer *qb)
 		return (EINVAL);
 
 	sc->sc_mmap[qb->index].v4l2_buf.flags &= ~V4L2_BUF_FLAG_DONE;
-	sc->sc_mmap[qb->index].v4l2_buf.flags |= V4L2_BUF_FLAG_MAPPED;
 	sc->sc_mmap[qb->index].v4l2_buf.flags |= V4L2_BUF_FLAG_QUEUED;
 
 	DPRINTF(2, "%s: %s: buffer on index %d ready for queueing\n",
@@ -3286,7 +3245,8 @@ uvideo_dqbuf(void *v, struct v4l2_buffer *dqb)
 
 	bcopy(&mmap->v4l2_buf, dqb, sizeof(struct v4l2_buffer));
 
-	mmap->v4l2_buf.flags |= V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_DONE;
+	mmap->v4l2_buf.flags &= ~V4L2_BUF_FLAG_DONE;
+	mmap->v4l2_buf.flags &= ~V4L2_BUF_FLAG_QUEUED;
 
 	DPRINTF(2, "%s: %s: frame dequeued from index %d\n",
 	    DEVNAME(sc), __func__, mmap->v4l2_buf.index);

@@ -15,13 +15,20 @@ VND_CRDEV=	/dev/r${VND}c
 VND_RIDEV=	/dev/r${VND}i
 PID!=		echo $$$$
 
+DISKTYPE=	miniroot
 NBLKS=		36864
+MSDOSSTART=	2048
+MSDOSSIZE=	4096
+FFSSTART!=	expr ${MSDOSSTART} + ${MSDOSSIZE}
 
 FS?=		msdos
 PART_ID?=C
 
-NEWFS_ARGS_msdos=-F 16 -L boot
-NEWFS_ARGS_ext2fs=-v boot
+NEWFS_ARGS_msdos=-L boot
+MOUNT_ARGS_msdos=-o-l
+
+PDTB=		/usr/local/share/dtb/arm
+PUBOOT=		/usr/local/share/u-boot
 
 cleandir: clean
 clean:
@@ -39,57 +46,37 @@ ${IMAGE}: rd_setup do_files rd_teardown
 .endif
 
 do_files:
+	cp ${.OBJDIR}/../../ramdisk/bsd.rd ${MOUNT_POINT}/bsd.rd
+	ln ${MOUNT_POINT}/bsd.rd ${MOUNT_POINT}/bsd
+	-umount ${MOUNT_POINT}
+	mount ${MOUNT_ARGS_msdos} ${VND_IDEV} ${MOUNT_POINT}
+.for DTB in ${DTBS}
+	cp ${PDTB}/${DTB} ${MOUNT_POINT}/
+.endfor
 .if ${PLATFORM} == "OMAP"
-	cp /usr/mdec/${BOARD}/MLO ${MOUNT_POINT}/MLO
-	echo "bootcmd=mmc rescan ; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; fatload mmc \$${mmcdev} \$${loadaddr} bsd.umg ; bootm \$${loadaddr} ;\nuenvcmd=boot" > ${MOUNT_POINT}/uenv.txt
-	cp /usr/mdec/${BOARD}/u-boot.* ${MOUNT_POINT}/
-	mkdir ${MOUNT_POINT}/u-boots
-	cp -r /usr/mdec/{am335x,beagle,panda} ${MOUNT_POINT}/u-boots
+	cp ${PUBOOT}/${UBOOT}/{MLO,u-boot.img} ${MOUNT_POINT}/
 .endif
-.if ${BOARD} == "nitrogen"
-	echo "; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in sata mmc ; do for disk in 0 1 ; do \$${dtype} dev \$${disk} ; for fs in fat ext2 ; do if \$${fs}load \$${dtype} \$${disk}:1 \$${loadaddr} bsd.umg ; then  bootm \$${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg" > 6x_bootscript.cmd
-	${MKUBOOT} -t script -a arm -o linux 6x_bootscript.cmd 6x_bootscript.scr
-	cp 6x_bootscript.scr ${MOUNT_POINT}/6x_bootscript
-.endif
-.if ${BOARD} == "cubox"
-	echo "; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in mmc usb ; do for disk in 0 1 ; do \$${dtype} dev \$${disk} ; for fs in fat ext2 ; do if \$${fs}load \$${dtype} \$${disk}:1 \$${loadaddr} bsd.umg ; then bootm \$${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg" > boot.cmd
-	${MKUBOOT} -t script -a arm -o linux boot.cmd boot.scr
-	cp boot.scr ${MOUNT_POINT}/boot.scr
-	dd if=/usr/mdec/cubox/SPL of=${VND_CDEV} bs=1024 seek=1
-	dd if=/usr/mdec/cubox/u-boot.img of=${VND_CDEV} bs=1024 seek=69
-.endif
-.if ${BOARD} == "wandboard"
-	echo "; setenv loadaddr ${LOADADDR} ; setenv bootargs sd0i:/bsd.umg ; for dtype in mmc ; do for disk in 0 1 ; do \$${dtype} dev \$${disk} ; for fs in fat ext2 ; do if \$${fs}load \$${dtype} \$${disk}:1 \$${loadaddr} bsd.umg ; then bootm \$${loadaddr} ; fi ; done; done; done; echo; echo failed to load bsd.umg" > boot.cmd
-	${MKUBOOT} -t script -a arm -o linux boot.cmd boot.scr
-	cp boot.scr ${MOUNT_POINT}/boot.scr
-	dd if=/usr/mdec/wandboard/SPL of=${VND_CDEV} bs=1024 seek=1
-	dd if=/usr/mdec/wandboard/u-boot.img of=${VND_CDEV} bs=1024 seek=69
+.if ${BOARD} == "cubox" || ${BOARD} == "wandboard"
+	dd if=${PUBOOT}/${UBOOT}/SPL of=${VND_CDEV} bs=1024 seek=1
+	dd if=${PUBOOT}/${UBOOT}/u-boot.img of=${VND_CDEV} bs=1024 seek=69
 .endif
 .if ${PLATFORM} == "SUNXI"
-	echo 'bootargs=sd0a:/bsd' > ${MOUNT_POINT}/uEnv.tx
-	echo 'mmcboot=mmc rescan ; fatload mmc 0 ${LOADADDR} bsd.umg && bootm ${LOADADDR};' >> ${MOUNT_POINT}/uEnv.txt
-	echo 'uenvcmd=run mmcboot;' >> ${MOUNT_POINT}/uEnv.txt
-	dd if=/usr/mdec/${BOARD}/u-boot-sunxi-with-spl.bin \
+	dd if=${PUBOOT}/${UBOOT}/u-boot-sunxi-with-spl.bin \
 	    of=${VND_CDEV} bs=1024 seek=8
 .endif
-	cp ${.OBJDIR}/../../ramdisk/bsd.rd.${PLATFORM}.umg ${MOUNT_POINT}/bsd.umg
+	mkdir -p ${MOUNT_POINT}/efi/boot
+	cp /usr/mdec/BOOTARM.EFI ${MOUNT_POINT}/efi/boot/bootarm.efi
 
 rd_setup:
 	dd if=/dev/zero of=${IMAGE} bs=512 count=${NBLKS}
-	vnconfig -c ${VND} ${IMAGE}
-	fdisk -c 2 -h 255 -s 63 -yi ${VND} >/dev/null
-.if ${PLATFORM} == "SUNXI"
-	echo "u\ne 0\n${PART_ID}\ny\n0\n99\n1\n1\n254\n63\nf 0\nw\nq\n" \
-	    | fdisk -c 2 -h 255 -s 63 -e ${VND} >/dev/null
-.elif ${BOARD} == "cubox" || ${BOARD} == "wandboard"
-	echo "u\ne 3\n0\ne 0\n${PART_ID}\ny\n0\n32\n33\n1\n254\n63\n63\nf 0\nw\nq" \
-	    | fdisk -c 2 -h 255 -s 63 -e ${VND} >/dev/null
-.else
-	echo "u\ne 0\n${PART_ID}\ny\n0\n1\n1\n1\n254\n63\nf 0\nw\nq\n" \
-	    | fdisk -c 2 -h 255 -s 63 -e ${VND} >/dev/null
-.endif
-	newfs_${FS} ${NEWFS_ARGS_${FS}} ${VND_RIDEV} >/dev/null
-	mount ${VND_IDEV} ${MOUNT_POINT}
+	vnconfig -v -c -t ${DISKTYPE} ${VND} ${IMAGE}
+	echo 'u\ne 0\n${PART_ID}\nn\n${MSDOSSTART}\n${MSDOSSIZE}\ne 3\nA6\nn\n${FFSSTART}\n*\nf 0\nw\nq\n' \
+	    | fdisk -e ${VND} >/dev/null
+	echo 'a a\n\n\n\nw\nq\n' | disklabel -E ${VND} >/dev/null
+	newfs -t msdos ${NEWFS_ARGS_msdos} ${VND_RIDEV}
+	newfs -m 0 -o space -i 4096 ${VND_RDEV}
+	fsck ${VND_RDEV}
+	mount ${VND_DEV} ${MOUNT_POINT}
 
 rd_teardown:
 	@df -i ${MOUNT_POINT}

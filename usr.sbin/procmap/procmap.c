@@ -1,4 +1,4 @@
-/*	$OpenBSD: procmap.c,v 1.60 2016/04/16 18:39:30 stefan Exp $ */
+/*	$OpenBSD: procmap.c,v 1.62 2016/05/26 17:23:50 stefan Exp $ */
 /*	$NetBSD: pmap.c,v 1.1 2002/09/01 20:32:44 atatat Exp $ */
 
 /*
@@ -38,6 +38,7 @@
 #include <sys/vnode.h>
 #include <sys/mount.h>
 #include <sys/uio.h>
+#include <sys/namei.h>
 #include <sys/sysctl.h>
 
 /* XXX until uvm gets cleaned up */
@@ -46,6 +47,7 @@ typedef int boolean_t;
 #include <uvm/uvm.h>
 #include <uvm/uvm_device.h>
 #include <uvm/uvm_amap.h>
+#include <uvm/uvm_vnode.h>
 
 #include <ufs/ufs/quota.h>
 #include <ufs/ufs/inode.h>
@@ -78,6 +80,7 @@ typedef int boolean_t;
 #define PRINT_VM_MAP		0x00000002
 #define PRINT_VM_MAP_HEADER	0x00000004
 #define PRINT_VM_MAP_ENTRY	0x00000008
+#define DUMP_NAMEI_CACHE	0x00000010
 
 struct cache_entry {
 	LIST_ENTRY(cache_entry) ce_next;
@@ -88,8 +91,10 @@ struct cache_entry {
 };
 
 LIST_HEAD(cache_head, cache_entry) lcache;
+TAILQ_HEAD(namecache_head, namecache) nclruhead;
+int namecache_loaded;
 void *uvm_vnodeops, *uvm_deviceops, *aobj_pager;
-u_long kernel_map_addr;
+u_long kernel_map_addr, nclruhead_addr;
 int debug, verbose;
 int print_all, print_map, print_maps, print_solaris, print_ddb, print_amap;
 int rwx = PROT_READ | PROT_WRITE | PROT_EXEC;
@@ -122,6 +127,7 @@ struct kbit {
 		struct vmspace vmspace;
 		struct vm_map vm_map;
 		struct vm_map_entry vm_map_entry;
+		struct uvm_vnode uvm_vnode;
 		struct vnode vnode;
 		struct uvm_object uvm_object;
 		struct mount mount;
@@ -163,6 +169,8 @@ struct nlist nl[] = {
 #define NL_AOBJ_PAGER		3
 	{ "_kernel_map" },
 #define NL_KERNEL_MAP		4
+	{ "_nclruhead" },
+#define NL_NCLRUHEAD		5
 	{ NULL }
 };
 
@@ -176,6 +184,8 @@ size_t dump_vm_map_entry(kvm_t *, struct kbit *, struct vm_map_entry *,
 char *findname(kvm_t *, struct kbit *, struct vm_map_entry *, struct kbit *,
     struct kbit *, struct kbit *);
 int search_cache(kvm_t *, struct kbit *, char **, char *, size_t);
+void load_name_cache(kvm_t *);
+void cache_enter(struct namecache *);
 static void __dead usage(void);
 static pid_t strtopid(const char *);
 void print_sum(struct sum *, struct sum *);
@@ -217,7 +227,7 @@ main(int argc, char *argv[])
 			print_ddb = 1;
 			break;
 		case 'D':
-			debug = strtonum(optarg, 0, 0xf, &errstr);
+			debug = strtonum(optarg, 0, 0x1f, &errstr);
 			if (errstr)
 				errx(1, "invalid debug mask");
 			break;
@@ -522,6 +532,8 @@ load_symbols(kvm_t *kd)
 	uvm_deviceops =	(void*)nl[NL_UVM_DEVICEOPS].n_value;
 	aobj_pager =	(void*)nl[NL_AOBJ_PAGER].n_value;
 
+	nclruhead_addr = nl[NL_NCLRUHEAD].n_value;
+
 	_KDEREF(kd, nl[NL_MAXSSIZ].n_value, &maxssiz,
 	    sizeof(maxssiz));
 	_KDEREF(kd, nl[NL_KERNEL_MAP].n_value, &kernel_map_addr,
@@ -579,7 +591,7 @@ size_t
 dump_vm_map_entry(kvm_t *kd, struct kbit *vmspace,
     struct vm_map_entry *vme, struct sum *sum)
 {
-	struct kbit kbit[4], *uvm_obj, *vp, *vfs, *amap;
+	struct kbit kbit[5], *uvm_obj, *vp, *vfs, *amap, *uvn;
 	ino_t inode = 0;
 	dev_t dev = 0;
 	size_t sz = 0;
@@ -589,10 +601,12 @@ dump_vm_map_entry(kvm_t *kd, struct kbit *vmspace,
 	vp = &kbit[1];
 	vfs = &kbit[2];
 	amap = &kbit[3];
+	uvn = &kbit[4];
 
 	A(uvm_obj) = 0;
 	A(vp) = 0;
 	A(vfs) = 0;
+	A(uvn) = 0;
 
 	if (debug & PRINT_VM_MAP_ENTRY) {
 		printf("%s = {", "vm_map_entry");
@@ -628,7 +642,11 @@ dump_vm_map_entry(kvm_t *kd, struct kbit *vmspace,
 		KDEREF(kd, uvm_obj);
 		if (UVM_ET_ISOBJ(vme) &&
 		    UVM_OBJ_IS_VNODE(D(uvm_obj, uvm_object))) {
-			P(vp) = P(uvm_obj);
+			P(uvn) = P(uvm_obj);
+			S(uvn) = sizeof(struct uvm_vnode);
+			KDEREF(kd, uvn);
+
+			P(vp) = D(uvn, uvm_vnode)->u_vnode;
 			S(vp) = sizeof(struct vnode);
 			KDEREF(kd, vp);
 		}
@@ -881,6 +899,9 @@ search_cache(kvm_t *kd, struct kbit *vp, char **name, char *buf, size_t blen)
 	char *o, *e;
 	u_long cid;
 
+	if (!namecache_loaded)
+		load_name_cache(kd);
+
 	P(&svp) = P(vp);
 	S(&svp) = sizeof(struct vnode);
 	cid = D(vp, vnode)->v_id;
@@ -892,8 +913,11 @@ search_cache(kvm_t *kd, struct kbit *vp, char **name, char *buf, size_t blen)
 			if (ce->ce_vp == P(&svp) && ce->ce_cid == cid)
 				break;
 		if (ce && ce->ce_vp == P(&svp) && ce->ce_cid == cid) {
-			if (o != e)
+			if (o != e) {
+				if (o <= buf)
+					break;
 				*(--o) = '/';
+			}
 			if (o - ce->ce_nlen <= buf)
 				break;
 			o -= ce->ce_nlen;
@@ -911,6 +935,56 @@ search_cache(kvm_t *kd, struct kbit *vp, char **name, char *buf, size_t blen)
 
 	KDEREF(kd, &svp);
 	return (D(&svp, vnode)->v_flag & VROOT);
+}
+
+void
+load_name_cache(kvm_t *kd)
+{
+	struct namecache n, *tmp;
+	struct namecache_head nchead;
+
+	LIST_INIT(&lcache);
+	_KDEREF(kd, nclruhead_addr, &nchead, sizeof(nchead));
+	tmp = TAILQ_FIRST(&nchead);
+	while (tmp != NULL) {
+		_KDEREF(kd, (u_long)tmp, &n, sizeof(n));
+
+		if (n.nc_nlen > 0) {
+			if (n.nc_nlen > 2 ||
+			    n.nc_name[0] != '.' ||
+			    (n.nc_nlen != 1 && n.nc_name[1] != '.'))
+				cache_enter(&n);
+		}
+		tmp = TAILQ_NEXT(&n, nc_lru);
+	}
+
+	namecache_loaded = 1;
+}
+
+void
+cache_enter(struct namecache *ncp)
+{
+	struct cache_entry *ce;
+
+	if (debug & DUMP_NAMEI_CACHE)
+		printf("ncp->nc_vp %10p, ncp->nc_dvp %10p, ncp->nc_nlen "
+		    "%3d [%.*s] (nc_dvpid=%lu, nc_vpid=%lu)\n",
+		    ncp->nc_vp, ncp->nc_dvp,
+		    ncp->nc_nlen, ncp->nc_nlen, ncp->nc_name,
+		    ncp->nc_dvpid, ncp->nc_vpid);
+
+	ce = malloc(sizeof(struct cache_entry));
+	if (ce == NULL)
+		err(1, "cache_enter");
+
+	ce->ce_vp = ncp->nc_vp;
+	ce->ce_pvp = ncp->nc_dvp;
+	ce->ce_cid = ncp->nc_vpid;
+	ce->ce_pcid = ncp->nc_dvpid;
+	ce->ce_nlen = (unsigned)ncp->nc_nlen;
+	strlcpy(ce->ce_name, ncp->nc_name, sizeof(ce->ce_name));
+
+	LIST_INSERT_HEAD(&lcache, ce, ce_next);
 }
 
 static void __dead

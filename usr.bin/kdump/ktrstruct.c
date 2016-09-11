@@ -1,4 +1,4 @@
-/*	$OpenBSD: ktrstruct.c,v 1.18 2016/03/24 05:05:42 guenther Exp $	*/
+/*	$OpenBSD: ktrstruct.c,v 1.22 2016/08/26 08:52:19 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -32,6 +32,7 @@
 #include <sys/types.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/event.h>
@@ -147,7 +148,8 @@ print_time(time_t t, int relative, int have_subsec)
 	} else
 		printf("%jd", (intmax_t)t);
 
-	if (!relative) {
+	/* 1970s times are probably relative */
+	if (!relative && t > (10 * 365 * 24 * 3600)) {
 		tm = localtime(&t);
 		if (tm != NULL) {
 			(void)strftime(timestr, sizeof(timestr), TIME_FORMAT,
@@ -266,10 +268,16 @@ ktrsigaction(const struct sigaction *sa)
 	 * note: ktrstruct() has already verified that sa points to a
 	 * buffer exactly sizeof(struct sigaction) bytes long.
 	 */
+	/*
+	 * Fuck!  Comparison of function pointers on hppa assumes you can
+	 * dereference them if they're plabels!  Cast everything to void *
+	 * to suppress that extra logic; sorry folks, the address we report
+	 * here might not match what you see in your executable...
+	 */
 	printf("struct sigaction { ");
-	if (sa->sa_handler == SIG_DFL)
+	if ((void *)sa->sa_handler == (void *)SIG_DFL)
 		printf("handler=SIG_DFL");
-	else if (sa->sa_handler == SIG_IGN)
+	else if ((void *)sa->sa_handler == (void *)SIG_IGN)
 		printf("handler=SIG_IGN");
 	else if (sa->sa_flags & SA_SIGINFO)
 		printf("sigaction=%p", (void *)sa->sa_sigaction);
@@ -418,6 +426,27 @@ ktrevent(const char *data, int count)
 			printf("<\"%s\">", strerror(kev.data));
 		}
 		printf(", udata=%p }", kev.udata);
+	}
+	printf("\n");
+}
+
+static void
+ktrpollfd(const char *data, int count)
+{
+	struct pollfd pfd;
+	int i;
+
+	printf("struct pollfd");
+	if (count > 1)
+		printf(" [%d]", count);
+	for (i = 0; i < count; i++) {
+		memcpy(&pfd, data, sizeof(pfd));
+		data += sizeof(pfd);
+		printf(" { fd=%d, events=", pfd.fd);
+		pollfdeventname(pfd.events);
+		printf(", revents=");
+		pollfdeventname(pfd.revents);
+		printf(" }");
 	}
 	printf("\n");
 }
@@ -587,6 +616,10 @@ ktrstruct(char *buf, size_t buflen)
 		if (datalen % sizeof(struct kevent))
 			goto invalid;
 		ktrevent(data, datalen / sizeof(struct kevent));
+	} else if (strcmp(name, "pollfd") == 0) {
+		if (datalen % sizeof(struct pollfd))
+			goto invalid;
+		ktrpollfd(data, datalen / sizeof(struct pollfd));
 	} else if (strcmp(name, "cmsghdr") == 0) {
 		char *cmsg;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: el.h,v 1.20 2016/05/06 13:12:52 schwarze Exp $	*/
+/*	$OpenBSD: el.h,v 1.22 2016/05/25 09:23:49 schwarze Exp $	*/
 /*	$NetBSD: el.h,v 1.37 2016/04/18 17:01:19 christos Exp $	*/
 
 /*-
@@ -96,7 +96,8 @@ typedef struct el_state_t {
 #include "hist.h"
 #include "map.h"
 #include "sig.h"
-#include "read.h"
+
+struct el_read_t;
 
 struct editline {
 	wchar_t		 *el_prog;	/* the program name		*/
@@ -107,7 +108,6 @@ struct editline {
 	int		  el_outfd;	/* Output file descriptor	*/
 	int		  el_errfd;	/* Error file descriptor	*/
 	int		  el_flags;	/* Various flags.		*/
-	int		  el_errno;	/* Local copy of errno		*/
 	coord_t		  el_cursor;	/* Cursor location		*/
 	wchar_t		**el_display;	/* Real screen image = what is there */
 	wchar_t		**el_vdisplay;	/* Virtual screen image = what we see */
@@ -125,7 +125,7 @@ struct editline {
 	el_history_t	  el_history;	/* History stuff		*/
 	el_search_t	  el_search;	/* Search stuff			*/
 	el_signal_t	  el_signal;	/* Signal handling stuff	*/
-	el_read_t	  el_read;	/* Character reading stuff	*/
+	struct el_read_t *el_read;	/* Character reading stuff	*/
 	ct_buffer_t       el_scratch;   /* Scratch conversion buffer    */
 	ct_buffer_t       el_lgcyconv;  /* Buffer for legacy wrappers   */
 	LineInfo          el_lgcylinfo; /* Legacy LineInfo buffer       */

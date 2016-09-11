@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.127 2016/03/30 08:00:01 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.129 2016/07/18 09:36:50 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -185,14 +185,14 @@ main(int argc, char *argv[])
 			if (errstr)
 				errx(1, "-p %s: %s", optarg, errstr);
 			break;
-		case 'R':
-			timestamp = 2;	/* relative timestamp */
+		case 'R':	/* relative timestamp */
+			timestamp = timestamp == 1 ? 3 : 2;
 			break;
 		case 'T':
-			timestamp = 1;
+			timestamp = timestamp == 2 ? 3 : 1;
 			break;
 		case 't':
-			trpoints = getpoints(optarg);
+			trpoints = getpoints(optarg, DEF_POINTS);
 			if (trpoints < 0)
 				errx(1, "unknown trace point in %s", optarg);
 			break;
@@ -349,7 +349,11 @@ dumpheader(struct ktr_header *kth)
 		basecol += printf("/%-7ld", (long)kth->ktr_tid);
 	basecol += printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
 	if (timestamp) {
-		if (timestamp == 2) {
+		if (timestamp == 3) {
+			if (prevtime.tv_sec == 0)
+				prevtime = kth->ktr_time;
+			timespecsub(&kth->ktr_time, &prevtime, &temp);
+		} else if (timestamp == 2) {
 			timespecsub(&kth->ktr_time, &prevtime, &temp);
 			prevtime = kth->ktr_time;
 		} else
@@ -1380,7 +1384,7 @@ usage(void)
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
 	    "[-dHlnRTXx] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [cinstuxX+]]\n",
+	    "%*s[-t [cinpstuxX+]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);
 }

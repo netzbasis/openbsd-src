@@ -1,4 +1,4 @@
-/*	$OpenBSD: unistd.h,v 1.100 2015/10/09 01:26:40 deraadt Exp $ */
+/*	$OpenBSD: unistd.h,v 1.102 2016/09/09 18:12:37 millert Exp $ */
 /*	$NetBSD: unistd.h,v 1.26.4.1 1996/05/28 02:31:51 mrg Exp $	*/
 
 /*-
@@ -35,6 +35,7 @@
 #ifndef _UNISTD_H_
 #define	_UNISTD_H_
 
+#include <sys/_null.h>
 #include <sys/types.h>
 #include <sys/unistd.h>
 
@@ -314,17 +315,6 @@
 #define	_CS_POSIX_V7_WIDTH_RESTRICTED_ENVS	30
 #define	_CS_V7_ENV				31
 
-
-#ifndef NULL
-#ifdef 	__GNUG__
-#define	NULL	__null
-#elif defined(__cplusplus)
-#define	NULL	0L
-#else
-#define	NULL	((void *)0)
-#endif
-#endif
-
 #ifndef	_INTPTR_T_DEFINED_
 #define	_INTPTR_T_DEFINED_
 typedef	__intptr_t		intptr_t;
@@ -500,8 +490,6 @@ int	 getresuid(uid_t *, uid_t *, uid_t *);
 pid_t	 getthrid(void);
 char	*getusershell(void);
 int	 initgroups(const char *, gid_t);
-int	 iruserok(u_int32_t, int, const char *, const char *);
-int	 iruserok_sa(const void *, int, int, const char *, const char *);
 int	 issetugid(void);
 char	*mkdtemp(char *);
 int	 mkstemps(char *, int);

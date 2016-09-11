@@ -1,4 +1,4 @@
-/*	$OpenBSD: autoconf.c,v 1.99 2016/05/18 03:45:11 mlarkin Exp $	*/
+/*	$OpenBSD: autoconf.c,v 1.101 2016/06/08 17:24:44 tedu Exp $	*/
 /*	$NetBSD: autoconf.c,v 1.20 1996/05/03 19:41:56 christos Exp $	*/
 
 /*-
@@ -145,12 +145,6 @@ cpu_configure(void)
 	    PROT_READ | PROT_WRITE);			/* protection */
 #endif
 
-#if NACPI > 0 && !defined(SMALL_KERNEL)
-	pmap_kenter_pa((vaddr_t)ACPI_TRAMPOLINE,	/* virtual */
-	    (paddr_t)ACPI_TRAMPOLINE,			/* physical */
-	    PROT_READ | PROT_WRITE | PROT_EXEC);	/* protection */
-#endif
-
 	if (config_rootfound("mainbus", NULL) == NULL)
 		panic("cpu_configure: mainbus not configured");
 
@@ -262,7 +256,6 @@ struct nam2blk nam2blk[] = {
 	{ "sd",		4 },
 	{ "cd",		6 },
 	{ "rd",		17 },
-	{ "raid",	19 },
 	{ "vnd",	14 },
 	{ NULL,		-1 }
 };

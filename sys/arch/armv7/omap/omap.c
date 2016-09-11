@@ -1,4 +1,4 @@
-/* $OpenBSD: omap.c,v 1.9 2016/05/02 15:27:24 patrick Exp $ */
+/* $OpenBSD: omap.c,v 1.19 2016/08/11 04:33:06 jsg Exp $ */
 /*
  * Copyright (c) 2005,2008 Dale Rahn <drahn@openbsd.com>
  *
@@ -23,6 +23,8 @@
 #include <arm/mainbus/mainbus.h>
 #include <armv7/armv7/armv7var.h>
 
+#include <dev/ofw/fdt.h>
+
 int	omap_match(struct device *, void *, void *);
 void	omap3_init();
 void	omap4_init();
@@ -36,141 +38,86 @@ struct cfdriver omap_cd = {
 	NULL, "omap", DV_DULL
 };
 
-struct board_dev beagleboard_devs[] = {
+struct board_dev omap3_dev[] = {
 	{ "prcm",	0 },
-	{ "intc",	0 },
 	{ "gptimer",	0 },
 	{ "gptimer",	1 },
-	{ "omdog",	0 },
-	{ "omgpio",	0 },
-	{ "omgpio",	1 },
-	{ "omgpio",	2 },
-	{ "omgpio",	3 },
-	{ "omgpio",	4 },
-	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
-	{ "com",	2 },		/* UART3 */
 	{ NULL,		0 }
 };
 
-struct board_dev beaglebone_devs[] = {
+struct board_dev am33xx_dev[] = {
 	{ "prcm",	0 },
 	{ "sitaracm",	0 },
-	{ "intc",	0 },
 	{ "edma",	0 },
 	{ "dmtimer",	0 },
 	{ "dmtimer",	1 },
-	{ "omdog",	0 },
-	{ "omgpio",	0 },
-	{ "omgpio",	1 },
-	{ "omgpio",	2 },
-	{ "omgpio",	3 },
-	{ "tiiic",	0 },
-	{ "tiiic",	1 },
-	{ "tiiic",	2 },
-	{ "ommmc",	0 },		/* HSMMC0 */
-	{ "ommmc",	1 },		/* HSMMC1 */
-	{ "com",	0 },		/* UART0 */
-	{ "cpsw",	0 },
 	{ NULL,		0 }
 };
 
-struct board_dev overo_devs[] = {
-	{ "prcm",	0 },
-	{ "intc",	0 },
-	{ "gptimer",	0 },
-	{ "gptimer",	1 },
-	{ "omdog",	0 },
-	{ "omgpio",	0 },
-	{ "omgpio",	1 },
-	{ "omgpio",	2 },
-	{ "omgpio",	3 },
-	{ "omgpio",	4 },
-	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
-	{ "com",	2 },		/* UART3 */
-	{ NULL,		0 }
-};
-
-struct board_dev pandaboard_devs[] = {
+struct board_dev omap4_dev[] = {
 	{ "omapid",	0 },
 	{ "prcm",	0 },
-	{ "omdog",	0 },
-	{ "omgpio",	0 },
-	{ "omgpio",	1 },
-	{ "omgpio",	2 },
-	{ "omgpio",	3 },
-	{ "omgpio",	4 },
-	{ "omgpio",	5 },
-	{ "ommmc",	0 },		/* HSMMC1 */
-	{ "com",	2 },		/* UART3 */
-	{ "ehci",	0 },
 	{ NULL,		0 }
 };
 
-struct armv7_board omap_boards[] = {
+struct omap_soc {
+	char			*compatible;
+	struct board_dev	*devs;
+	void			(*init)(void);
+};
+
+struct omap_soc omap_socs[] = {
 	{
-		BOARD_ID_OMAP3_BEAGLE,
-		"TI OMAP3 BeagleBoard",
-		beagleboard_devs,
+		"ti,omap3",
+		omap3_dev,
 		omap3_init,
 	},
 	{
-		BOARD_ID_AM335X_BEAGLEBONE,
-		"TI AM335x BeagleBone",
-		beaglebone_devs,
+		"ti,am33xx",
+		am33xx_dev,
 		am335x_init,
 	},
 	{
-		BOARD_ID_OMAP3_OVERO,
-		"Gumstix OMAP3 Overo",
-		overo_devs,
-		omap3_init,
-	},
-	{
-		BOARD_ID_OMAP4_PANDA,
-		"TI OMAP4 PandaBoard",
-		pandaboard_devs,
+		"ti,omap4",
+		omap4_dev,
 		omap4_init,
 	},
-	{ 0, NULL, NULL, NULL },
+	{ NULL, NULL, NULL },
 };
 
 struct board_dev *
 omap_board_devs(void)
 {
+	void *node;
 	int i;
 
-	for (i = 0; omap_boards[i].name != NULL; i++) {
-		if (omap_boards[i].board_id == board_id)
-			return (omap_boards[i].devs);
+	node = fdt_find_node("/");
+	if (node == NULL)
+		return NULL;
+
+	for (i = 0; omap_socs[i].compatible != NULL; i++) {
+		if (fdt_is_compatible(node, omap_socs[i].compatible))
+			return omap_socs[i].devs;
 	}
-	return (NULL);
+	return NULL;
 }
 
 void
 omap_board_init(void)
 {
+	void *node;
 	int i;
 
-	for (i = 0; omap_boards[i].name != NULL; i++) {
-		if (omap_boards[i].board_id == board_id) {
-			omap_boards[i].init();
+	node = fdt_find_node("/");
+	if (node == NULL)
+		return;
+
+	for (i = 0; omap_socs[i].compatible != NULL; i++) {
+		if (fdt_is_compatible(node, omap_socs[i].compatible)) {
+			omap_socs[i].init();
 			break;
 		}
 	}
-}
-
-const char *
-omap_board_name(void)
-{
-	int i;
-
-	for (i = 0; omap_boards[i].name != NULL; i++) {
-		if (omap_boards[i].board_id == board_id)
-			return (omap_boards[i].name);
-	}
-	return (NULL);
 }
 
 int

@@ -1,4 +1,4 @@
-#	$OpenBSD: files.arm,v 1.36 2016/05/02 08:15:55 patrick Exp $
+#	$OpenBSD: files.arm,v 1.40 2016/08/14 11:30:54 jsg Exp $
 #	$NetBSD: files.arm,v 1.76 2003/11/05 12:53:15 scw Exp $
 
 # generic networking files
@@ -48,11 +48,9 @@ file	arch/arm/arm/bcopyinout.S
 file	arch/arm/arm/copystr.S
 file	arch/arm/arm/cpufunc.c
 file	arch/arm/arm/cpufunc_asm.S
-file	arch/arm/arm/cpufunc_asm_armv4.S	cpu_xscale_80321 |
-							cpu_xscale_pxa2x0
+file	arch/arm/arm/cpufunc_asm_armv4.S	cpu_xscale_pxa2x0
 file	arch/arm/arm/cpufunc_asm_armv7.S	cpu_armv7
-file	arch/arm/arm/cpufunc_asm_xscale.S	cpu_xscale_80321 |
-							cpu_xscale_pxa2x0
+file	arch/arm/arm/cpufunc_asm_xscale.S	cpu_xscale_pxa2x0
 file	arch/arm/arm/process_machdep.c
 file	arch/arm/arm/sig_machdep.c
 file	arch/arm/arm/sigcode.S
@@ -81,6 +79,9 @@ file	arch/arm/armv7/armv7_a4x_space.c	cpu_armv7
 file	arch/arm/armv7/armv7_a4x_io.S		cpu_armv7
 file	arch/arm/armv7/armv7_mutex.c		cpu_armv7
 file	arch/arm/armv7/bus_space_asm_armv7.S	cpu_armv7
+
+pseudo-device	openprom
+file	arch/arm/arm/openprom.c			openprom needs-flag
 
 # arm library functions
 file	arch/arm/arm/bcopy_page.S

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.224 2016/04/15 05:05:21 dlg Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.227 2016/09/03 14:17:37 bluhm Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -105,7 +105,7 @@ struct	pool mbpool;		/* mbuf pool */
 struct	pool mtagpool;
 
 /* mbuf cluster pools */
-u_int	mclsizes[] = {
+u_int	mclsizes[MCLPOOLS] = {
 	MCLBYTES,	/* must be at slot 0 */
 	4 * 1024,
 	8 * 1024,
@@ -130,6 +130,8 @@ struct mbuf *m_copym0(struct mbuf *, int, int, int, int);
 void	nmbclust_update(void);
 void	m_zero(struct mbuf *);
 
+static void (*mextfree_fns[4])(caddr_t, u_int, void *);
+static u_int num_extfree_fns;
 
 const char *mclpool_warnmsg =
     "WARNING: mclpools limit reached; increase kern.maxclusters";
@@ -168,21 +170,25 @@ mbinit(void)
 		pool_setlowat(&mclpools[i], mcllowat);
 	}
 
+	(void)mextfree_register(m_extfree_pool);
+	KASSERT(num_extfree_fns == 1);
+
 	nmbclust_update();
 }
 
 void
 nmbclust_update(void)
 {
-	int i;
+	unsigned int i, n;
+
 	/*
 	 * Set the hard limit on the mclpools to the number of
 	 * mbuf clusters the kernel is to support.  Log the limit
 	 * reached message max once a minute.
 	 */
 	for (i = 0; i < nitems(mclsizes); i++) {
-		(void)pool_sethardlimit(&mclpools[i], nmbclust,
-		    mclpool_warnmsg, 60);
+		n = (unsigned long long)nmbclust * MCLBYTES / mclsizes[i];
+		(void)pool_sethardlimit(&mclpools[i], n, mclpool_warnmsg, 60);
 		/*
 		 * XXX this needs to be reconsidered.
 		 * Setting the high water mark to nmbclust is too high
@@ -190,7 +196,7 @@ nmbclust_update(void)
 		 * allocations in interrupt context don't fail or mclgeti()
 		 * drivers may end up with empty rings.
 		 */
-		pool_sethiwat(&mclpools[i], nmbclust);
+		pool_sethiwat(&mclpools[i], n);
 	}
 	pool_sethiwat(&mbpool, nmbclust);
 }
@@ -260,6 +266,7 @@ void
 m_resethdr(struct mbuf *m)
 {
 	int len = m->m_pkthdr.len;
+	u_int8_t loopcnt = m->m_pkthdr.ph_loopcnt;
 
 	KASSERT(m->m_flags & M_PKTHDR);
 	m->m_flags &= (M_EXT|M_PKTHDR|M_EOR|M_EXTWR|M_ZEROIZE);
@@ -275,6 +282,7 @@ m_resethdr(struct mbuf *m)
 	memset(&m->m_pkthdr, 0, sizeof(m->m_pkthdr));
 	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
 	m->m_pkthdr.len = len;
+	m->m_pkthdr.ph_loopcnt = loopcnt;
 }
 
 struct mbuf *
@@ -331,7 +339,7 @@ m_clget(struct mbuf *m, int how, u_int pktlen)
 		return (NULL);
 	}
 
-	MEXTADD(m, buf, pp->pr_size, M_EXTWR, m_extfree_pool, pp);
+	MEXTADD(m, buf, pp->pr_size, M_EXTWR, MEXTFREE_POOL, pp);
 	return (m);
 }
 
@@ -414,11 +422,25 @@ m_extunref(struct mbuf *m)
 	return (refs);
 }
 
+/*
+ * Returns a number for use with MEXTADD.
+ * Should only be called once per function.
+ * Drivers can be assured that the index will be non zero.
+ */
+u_int
+mextfree_register(void (*fn)(caddr_t, u_int, void *))
+{
+	KASSERT(num_extfree_fns < nitems(mextfree_fns));
+	mextfree_fns[num_extfree_fns] = fn;
+	return num_extfree_fns++;
+}
+
 void
 m_extfree(struct mbuf *m)
 {
 	if (m_extunref(m) == 0) {
-		(*(m->m_ext.ext_free))(m->m_ext.ext_buf,
+		KASSERT(m->m_ext.ext_free_fn < num_extfree_fns);
+		mextfree_fns[m->m_ext.ext_free_fn](m->m_ext.ext_buf,
 		    m->m_ext.ext_size, m->m_ext.ext_arg);
 	}
 
@@ -1300,7 +1322,8 @@ m_print(void *v,
 		(*pr)("m_ptkhdr.ph_tags: %p\tm_pkthdr.ph_tagsset: %b\n",
 		    SLIST_FIRST(&m->m_pkthdr.ph_tags),
 		    m->m_pkthdr.ph_tagsset, MTAG_BITS);
-		(*pr)("m_pkthdr.ph_flowid: %u\n", m->m_pkthdr.ph_flowid);
+		(*pr)("m_pkthdr.ph_flowid: %u\tm_pkthdr.ph_loopcnt: %u\n",
+		    m->m_pkthdr.ph_flowid, m->m_pkthdr.ph_loopcnt);
 		(*pr)("m_pkthdr.csum_flags: %b\n",
 		    m->m_pkthdr.csum_flags, MCS_BITS);
 		(*pr)("m_pkthdr.ether_vtag: %u\tm_ptkhdr.ph_rtableid: %u\n",
@@ -1317,8 +1340,8 @@ m_print(void *v,
 	if (m->m_flags & M_EXT) {
 		(*pr)("m_ext.ext_buf: %p\tm_ext.ext_size: %u\n",
 		    m->m_ext.ext_buf, m->m_ext.ext_size);
-		(*pr)("m_ext.ext_free: %p\tm_ext.ext_arg: %p\n",
-		    m->m_ext.ext_free, m->m_ext.ext_arg);
+		(*pr)("m_ext.ext_free_fn: %u\tm_ext.ext_arg: %p\n",
+		    m->m_ext.ext_free_fn, m->m_ext.ext_arg);
 		(*pr)("m_ext.ext_nextref: %p\tm_ext.ext_prevref: %p\n",
 		    m->m_ext.ext_nextref, m->m_ext.ext_prevref);
 

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sh.1,v 1.133 2016/05/04 08:31:00 schwarze Exp $
+.\"	$OpenBSD: sh.1,v 1.136 2016/08/12 06:16:19 jmc Exp $
 .\"
 .\" Copyright (c) 2015 Jason McIntyre <jmc@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 4 2016 $
+.Dd $Mdocdate: August 12 2016 $
 .Dt SH 1
 .Os
 .Sh NAME
@@ -30,22 +30,21 @@ The
 .Nm
 utility is a
 .Em command language interpreter :
-it reads its input,
-breaks it down into parts,
-and then executes those parts.
-Its chief uses are in interfacing between the user and the operating system,
-reading commands on the command line,
-and in chaining together groups of commands in a very flexible manner,
-through a shell script.
+it reads one or more commands,
+either from the command line or from a file
+(a shell script),
+and then sets about executing those commands.
+Thus it is the
+main interface between the user and the operating system.
 .Pp
 This version of
 .Nm
 is actually
 .Nm ksh
 in disguise.
-As such, it will also accept options documented in
+As such, it also supports the features described in
 .Xr ksh 1 .
-This manual page describes only features
+This manual page describes only the parts
 relevant to a POSIX compliant
 .Nm .
 If portability is a concern,
@@ -2197,9 +2196,6 @@ as well as if its modification time changes.
 This implementation of
 .Nm
 does not provide notification when these files are created.
-.It
-Command substitution occurring within double quotes
-is subject to pathname expansion but should not be.
 .It
 The built-in
 .Ic newgrp

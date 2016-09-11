@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.h,v 1.58 2016/03/30 10:13:14 mpi Exp $	*/
+/*	$OpenBSD: nd6.h,v 1.63 2016/07/13 01:51:22 dlg Exp $	*/
 /*	$KAME: nd6.h,v 1.95 2002/06/08 11:31:06 itojun Exp $	*/
 
 /*
@@ -144,18 +144,16 @@ struct	llinfo_nd6 {
 	TAILQ_ENTRY(llinfo_nd6)	ln_list;
 	struct	rtentry *ln_rt;
 	struct	mbuf *ln_hold;	/* last packet until resolved/timeout */
-	time_t	ln_expire;	/* lifetime for NDP state transition */
 	long	ln_asked;	/* number of queries already sent for addr */
 	int	ln_byhint;	/* # of times we made it reachable by UL hint */
 	short	ln_state;	/* reachability state */
 	short	ln_router;	/* 2^0: ND6 router bit */
 
-	long	ln_ntick;
 	struct	timeout ln_timer_ch;
 };
 
 #define ND6_IS_LLINFO_PROBREACH(n) ((n)->ln_state > ND6_LLINFO_INCOMPLETE)
-#define ND6_LLINFO_PERMANENT(n)	((n)->ln_expire == 0)
+#define ND6_LLINFO_PERMANENT(n)	((n)->ln_rt->rt_expire == 0)
 
 /* node constants */
 #define MAX_REACHABLE_TIME		3600000	/* msec */
@@ -261,18 +259,14 @@ struct nd_opt_hdr *nd6_option(union nd_opts *);
 int nd6_options(union nd_opts *);
 struct	rtentry *nd6_lookup(struct in6_addr *, int, struct ifnet *, u_int);
 void nd6_setmtu(struct ifnet *);
-void nd6_llinfo_settimer(struct llinfo_nd6 *, long);
+void nd6_llinfo_settimer(struct llinfo_nd6 *, int);
 void nd6_timer(void *);
 void nd6_purge(struct ifnet *);
 void nd6_nud_hint(struct rtentry *);
-int nd6_resolve(struct ifnet *, struct rtentry *,
-	struct mbuf *, struct sockaddr *, u_char *);
 void nd6_rtrequest(struct ifnet *, int, struct rtentry *);
 int nd6_ioctl(u_long, caddr_t, struct ifnet *);
 void nd6_cache_lladdr(struct ifnet *, struct in6_addr *, char *, int, int, int);
-int nd6_output(struct ifnet *, struct mbuf *, struct sockaddr_in6 *,
-    struct rtentry *);
-int nd6_storelladdr(struct ifnet *, struct rtentry *, struct mbuf *,
+int nd6_resolve(struct ifnet *, struct rtentry *, struct mbuf *,
 	 struct sockaddr *, u_char *);
 int nd6_sysctl(int, void *, size_t *, void *, size_t);
 int nd6_need_cache(struct ifnet *);

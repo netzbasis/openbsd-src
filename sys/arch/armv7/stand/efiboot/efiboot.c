@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.6 2016/05/17 22:41:20 kettenis Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.11 2016/07/01 09:34:39 patrick Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -30,6 +30,7 @@
 #include <lib/libkern/libkern.h>
 #include <stand/boot/cmd.h>
 
+#include "disk.h"
 #include "eficall.h"
 #include "fdt.h"
 #include "libsa.h"
@@ -225,14 +226,28 @@ struct board_id {
 };
 
 struct board_id board_id_table[] = {
-	{ "phytec,imx6q-pbab01",	3529 },
-	{ "fsl,imx6q-sabrelite",	3769 },
-	{ "fsl,imx6q-sabresd",		3980 },
-	{ "kosagi,imx6q-novena",	4269 },
-	{ "solidrun,hummingboard/q",	4773 },
-	{ "solidrun,cubox-i/q",		4821 },
-	{ "wand,imx6q-wandboard",	4412 },
-	{ "udoo,imx6q-udoo",		4800 },
+	{ "allwinner,sun4i-a10",		4104 },
+	{ "allwinner,sun7i-a20",		4283 },
+	{ "arm,vexpress",			2272 },
+	{ "boundary,imx6q-nitrogen6_max",	3769 },
+	{ "boundary,imx6q-nitrogen6x",		3769 },
+	{ "compulab,cm-fx6",			4273 },
+	{ "fsl,imx6q-sabrelite",		3769 },
+	{ "fsl,imx6q-sabresd",			3980 },
+	{ "google,snow",			3774 },
+	{ "google,spring",			3774 },
+	{ "kosagi,imx6q-novena",		4269 },
+	{ "samsung,universal_c210",		2838 },
+	{ "solidrun,cubox-i/dl",		4821 },
+	{ "solidrun,cubox-i/q",			4821 },
+	{ "solidrun,hummingboard/dl",		4773 },
+	{ "solidrun,hummingboard/q",		4773 },
+	{ "ti,am335x-bone",			3589 },
+	{ "ti,omap3-beagle",			1546 },
+	{ "ti,omap3-beagle-xm",			1546 },
+	{ "ti,omap4-panda",			2791 },
+	{ "udoo,imx6q-udoo",			4800 },
+	{ "wand,imx6q-wandboard",		4412 },
 };
 
 static EFI_GUID fdt_guid = FDT_TABLE_GUID;
@@ -243,7 +258,8 @@ void *
 efi_makebootargs(char *bootargs, uint32_t *board_id)
 {
 	void *fdt = NULL;
-	char *dummy;
+	u_char bootduid[8];
+	u_char zero[8];
 	void *node;
 	size_t len;
 	int i;
@@ -262,10 +278,16 @@ efi_makebootargs(char *bootargs, uint32_t *board_id)
 		return NULL;
 
 	len = strlen(bootargs) + 1;
-	if (fdt_node_property(node, "bootargs", &dummy))
-		fdt_node_set_property(node, "bootargs", bootargs, len);
-	else
-		fdt_node_add_property(node, "bootargs", bootargs, len);
+	fdt_node_add_property(node, "bootargs", bootargs, len);
+
+	/* Pass DUID of the boot disk. */
+	memset(&zero, 0, sizeof(zero));
+	memcpy(&bootduid, diskinfo.disklabel.d_uid, sizeof(bootduid));
+	if (memcmp(bootduid, zero, sizeof(bootduid)) != 0) {
+		fdt_node_add_property(node, "openbsd,bootduid", bootduid,
+		    sizeof(bootduid));
+	}
+
 	fdt_finalize();
 
 	node = fdt_find_node("/");
@@ -284,18 +306,27 @@ u_long efi_loadaddr;
 void
 machdep(void)
 {
-	EFI_STATUS		 status;
-	EFI_PHYSICAL_ADDRESS	 addr = 0x10000000;
+	EFI_PHYSICAL_ADDRESS addr;
+	EFI_STATUS status;
 
 	cninit();
 
-	printf("pos %p\n", machdep);
-
-	status = BS->AllocatePages(AllocateAddress, EfiLoaderData,
-	    EFI_SIZE_TO_PAGES(32 * 1024 * 1024), &addr);
-	if (status != EFI_SUCCESS)
+	/*
+	 * The kernel expects to be loaded at offset 0x00300000 into a
+	 * block of memory aligned on a 256MB boundary.  We allocate a
+	 * block of 32MB of memory, which gives us plenty of room for
+	 * growth.
+	 */
+	for (addr = 0x10000000; addr <= 0xf0000000; addr += 0x10000000) {
+		status = BS->AllocatePages(AllocateAddress, EfiLoaderData,
+		    EFI_SIZE_TO_PAGES(32 * 1024 * 1024), &addr);
+		if (status == EFI_SUCCESS) {
+			efi_loadaddr = addr;
+			break;
+		}
+	}
+	if (efi_loadaddr == 0)
 		printf("Can't allocate memory\n");
-	efi_loadaddr = addr;
 
 	efi_heap_init();
 	efi_timer_init();

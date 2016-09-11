@@ -1,4 +1,4 @@
-vers(a, {-$OpenBSD: MAKEDEV.common,v 1.87 2016/04/28 18:17:30 natano Exp $-})dnl
+vers(a, {-$OpenBSD: MAKEDEV.common,v 1.93 2016/09/11 03:06:31 deraadt Exp $-})dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
 dnl
@@ -188,16 +188,13 @@ _mkdev(uall, uall, {-dnl
 show_target({-usb-})dnl
 -})dnl
 __devtitle(tap, Tapes)dnl
-__devitem(tz, tz*, {-DEC TK50 cartridge tape drives-})dnl
 __devitem(st, {-st*-}, SCSI tape drives)dnl
 _mkdev(st, st*, {-n=Mult($U, 16)
 	for pre in " " n e en
 	do
-		M ${pre}st$U	b major_st_b $n 660 operator
 		M ${pre}rst$U	c major_st_c $n 660 operator
 		n=Add($n, 1)
 	done-})dnl
-__devitem(mt, mt*, (Magnetic) 9-track reel tape drives)dnl
 __devtitle(dis, Disks)dnl
 __devitem(sd, {-sd*-}, {-SCSI disks{-,-} including flopticals-})dnl
 __devitem(cd, {-cd*-}, ATAPI and SCSI CD-ROM drives)dnl
@@ -421,23 +418,21 @@ _mkdev(acpi, acpi*, {-M acpi	c major_acpi_c 0 644-})dnl
 __devitem(pctr, pctr*, PC Performance Tuning Register access device)dnl
 _mkdev(pctr, pctr, {-M pctr c major_pctr_c 0 644-})dnl
 __devitem(au, audio*, Audio devices,audio)dnl
-_mkdev(au, audio*, {-M sound$U	c major_au_c $U
+_mkdev(au, audio*, {-M audio$U	c major_au_c $U
 	M mixer$U	c major_au_c Add($U, 16)
-	M audio$U	c major_au_c Add($U, 128)
 	M audioctl$U	c major_au_c Add($U, 192)
 	MKlist[${#MKlist[*]}]=";[ -e audio ] || ln -s audio$U audio"
 	MKlist[${#MKlist[*]}]=";[ -e mixer ] || ln -s mixer$U mixer"
-	MKlist[${#MKlist[*]}]=";[ -e sound ] || ln -s sound$U sound"
 	MKlist[${#MKlist[*]}]=";[ -e audioctl ] || ln -s audioctl$U audioctl"-})dnl
 __devitem(vi, video*, Video V4L2 devices,video)dnl
-_mkdev(vi, video*, {-M video$U  c major_vi_c $U
+_mkdev(vi, video*, {-M video$U  c major_vi_c $U 600
 	MKlist[${#MKlist[*]}]=";[ -e video ] || ln -s video$U video"-})dnl
 __devitem(asc, asc*, ASC Audio device)dnl
 _mkdev(asc, asc*, {-M asc$U major_asc_c 0-})dnl
 __devitem(bio, bio, {-ioctl tunnel pseudo-device-})dnl
 _mkdev(bio, bio, {-M bio c major_bio_c 0 600-})dnl
 __devitem(radio, radio*, FM tuner devices)dnl
-_mkdev(radio, radio*, {-M radio$U     c major_radio_c $U
+_mkdev(radio, radio*, {-M radio$U	c major_radio_c $U
 	MKlist[${#MKlist[*]}]=";[ -e radio ] || ln -s radio$U radio"-})dnl
 __devitem(fdesc, fd, fd/* nodes, fd)dnl
 _mkdev(fdesc, fd, {-RMlist[${#RMlist[*]}]=";mkdir -p fd;rm -f" n=0
@@ -452,10 +447,12 @@ _mkdev(bpf, bpf, {-M bpf c major_bpf_c 0 600
 	M bpf0 c major_bpf_c 0 600-})dnl
 _mkdev(tun, {-tun*-}, {-M tun$U c major_tun_c $U 600-}, 600)dnl
 _mkdev(tap, {-tap*-}, {-M tap$U c major_tap_c $U 600-}, 600)dnl
+_mkdev(switch, {-switch*-}, {-M switch$U c major_switch_c $U 600-}, 600)dnl
 __devitem(speak, speaker, PC speaker,spkr)dnl
 _mkdev(speak, speaker, {-M speaker c major_speak_c 0 600-})dnl
 __devitem(tun, tun*, Network tunnel driver)dnl
 __devitem(tap, tap*, Ethernet tunnel driver)dnl
+__devitem(switch, switch*, Switch driver)dnl
 __devitem(rnd, *random, In-kernel random data source,random)dnl
 _mkdev(rnd, *random, {-n=0
 	for pre in " " s u a

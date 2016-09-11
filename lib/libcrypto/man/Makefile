@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.32 2016/03/30 06:38:42 jmc Exp $
+# $OpenBSD: Makefile,v 1.34 2016/09/05 10:43:42 schwarze Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 
@@ -21,7 +21,6 @@ MAN=	\
 	BIO_f_null.3 \
 	BIO_find_type.3 \
 	BIO_new.3 \
-	BIO_new_CMS.3 \
 	BIO_push.3 \
 	BIO_read.3 \
 	BIO_s_accept.3 \
@@ -201,34 +200,13 @@ GENMAN= \
 
 MAN+=	${GENMAN}
 
-#MAN+=	CMS_add0_cert.3 \
-#	CMS_add1_recipient_cert.3 \
-#	CMS_add1_signer.3 \
-#	CMS_compress.3 \
-#	CMS_decrypt.3 \
-#	CMS_encrypt.3 \
-#	CMS_final.3 \
-#	CMS_get0_RecipientInfos.3 \
-#	CMS_get0_SignerInfos.3 \
-#	CMS_get0_type.3 \
-#	CMS_get1_ReceiptRequest.3 \
-#	CMS_sign.3 \
-#	CMS_sign_receipt.3 \
-#	CMS_uncompress.3 \
-#	CMS_verify.3 \
-#	CMS_verify_receipt.3 \
-#	PEM_write_bio_CMS_stream.3 \
-#	SMIME_read_CMS.3 \
-#	SMIME_write_CMS.3 \
-#	i2d_CMS_bio_stream.3 \
-
 .include <bsd.man.mk>
 .else
 maninstall:
 
 .endif
 
-.PATH: ${.CURDIR}/../../libssl/src/doc/crypto
+.PATH: ${.CURDIR}/../doc
 .SUFFIXES: .pod .1 .3 .7
 .for sect in 1 3 7
 .pod.${sect}:

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_bio.c,v 1.174 2016/03/17 03:57:51 beck Exp $	*/
+/*	$OpenBSD: vfs_bio.c,v 1.176 2016/09/04 10:51:24 naddy Exp $	*/
 /*	$NetBSD: vfs_bio.c,v 1.44 1996/06/11 11:15:36 pk Exp $	*/
 
 /*
@@ -669,14 +669,7 @@ bdwrite(struct buf *bp)
 		curproc->p_ru.ru_oublock++;		/* XXX */
 	}
 
-	/* If this is a tape block, write the block now. */
-	if (major(bp->b_dev) < nblkdev &&
-	    bdevsw[major(bp->b_dev)].d_type == D_TAPE) {
-		bawrite(bp);
-		return;
-	}
-
-	/* Otherwise, the "write" is done, so mark and release the buffer. */
+	/* The "write" is done, so mark and release the buffer. */
 	CLR(bp->b_flags, B_NEEDCOMMIT);
 	SET(bp->b_flags, B_DONE);
 	brelse(bp);
@@ -908,7 +901,7 @@ geteblk(int size)
 	struct buf *bp;
 
 	while ((bp = buf_get(NULL, 0, size)) == NULL)
-		;
+		continue;
 
 	return (bp);
 }
@@ -1319,7 +1312,7 @@ bufcache_adjust(void)
 		    &cleancache[i].warmbufpages) ||
 		    chillbufs(&cleancache[i], &cleancache[i].hotqueue,
 		    &cleancache[i].hotbufpages))
-			;
+			continue;
 	}
 }
 

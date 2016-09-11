@@ -1,4 +1,4 @@
-/*	$OpenBSD: locore.s,v 1.168 2016/05/10 18:39:45 deraadt Exp $	*/
+/*	$OpenBSD: locore.s,v 1.170 2016/07/16 06:04:29 mlarkin Exp $	*/
 /*	$NetBSD: locore.s,v 1.145 1996/05/03 19:41:19 christos Exp $	*/
 
 /*-
@@ -40,9 +40,7 @@
 #include "assym.h"
 #include "apm.h"
 #include "lapic.h"
-#include "ioapic.h"
 #include "ksyms.h"
-#include "acpi.h"
 
 #include <sys/errno.h>
 #include <sys/syscall.h>
@@ -689,7 +687,9 @@ _C_LABEL(codepatch_end):
 /*
  * Signal trampoline; copied to top of user stack.
  */
-NENTRY(sigcode)
+	.section .rodata
+	.globl	_C_LABEL(sigcode)
+_C_LABEL(sigcode):
 	call	*SIGF_HANDLER(%esp)
 	leal	SIGF_SC(%esp),%eax	# scp (the call may have clobbered the
 					# copy at SIGF_SCP(%esp))
@@ -697,12 +697,24 @@ NENTRY(sigcode)
 	pushl	%eax			# junk to fake return address
 	movl	$SYS_sigreturn,%eax
 	int	$0x80			# enter kernel with args on stack
-	.globl  _C_LABEL(sigcoderet)
+	.globl	_C_LABEL(sigcoderet)
 _C_LABEL(sigcoderet):
 	movl	$SYS_exit,%eax
 	int	$0x80			# exit if sigreturn fails
 	.globl	_C_LABEL(esigcode)
 _C_LABEL(esigcode):
+
+	.globl	_C_LABEL(sigfill)
+_C_LABEL(sigfill):
+	int3
+_C_LABEL(esigfill):
+
+	.data
+	.globl	_C_LABEL(sigfillsiz)
+_C_LABEL(sigfillsiz):
+	.long	_C_LABEL(esigfill) - _C_LABEL(sigfill)
+
+	.text
 
 /*****************************************************************************/
 
