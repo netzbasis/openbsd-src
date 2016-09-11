@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.587 2016/05/21 01:06:53 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.589 2016/09/03 12:12:43 mlarkin Exp $	*/
 /*	$NetBSD: machdep.c,v 1.214 1996/11/10 03:16:17 thorpej Exp $	*/
 
 /*-
@@ -1004,6 +1004,7 @@ const struct cpu_cpuid_feature i386_cpuid_ecxfeatures[] = {
 	{ CPUIDECX_TM2,		"TM2" },
 	{ CPUIDECX_SSSE3,	"SSSE3" },
 	{ CPUIDECX_CNXTID,	"CNXT-ID" },
+	{ CPUIDECX_SDBG,	"SDBG" },
 	{ CPUIDECX_FMA3,	"FMA3" },
 	{ CPUIDECX_CX16,	"CX16" },
 	{ CPUIDECX_XTPR,	"xTPR" },
@@ -1080,6 +1081,7 @@ const struct cpu_cpuid_feature cpu_seff0_ebxfeatures[] = {
 
 const struct cpu_cpuid_feature cpu_seff0_ecxfeatures[] = {
 	{ SEFF0ECX_PREFETCHWT1,	"PREFETCHWT1" },
+	{ SEFF0ECX_UMIP,	"UMIP" },
 	{ SEFF0ECX_AVX512VBMI,	"AVX512VBMI" },
 	{ SEFF0ECX_PKU,		"PKU" },
 };

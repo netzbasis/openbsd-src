@@ -1,4 +1,4 @@
-/*	$OpenBSD: clparse.c,v 1.95 2016/06/03 02:31:17 tedu Exp $	*/
+/*	$OpenBSD: clparse.c,v 1.101 2016/09/01 13:27:04 krw Exp $	*/
 
 /* Parser for dhclient config and lease files. */
 
@@ -59,12 +59,13 @@
 #include "dhcpd.h"
 #include "dhctoken.h"
 
-void parse_client_statement(FILE *);
+void parse_client_statement(FILE *, struct interface_info *);
 int parse_X(FILE *, u_int8_t *, int);
 int parse_option_list(FILE *, u_int8_t *, size_t);
-void parse_interface_declaration(FILE *);
-void parse_client_lease_statement(FILE *, int);
-void parse_client_lease_declaration(FILE *, struct client_lease *);
+void parse_interface_declaration(FILE *, struct interface_info *);
+void parse_client_lease_statement(FILE *, int, struct interface_info *);
+void parse_client_lease_declaration(FILE *, struct client_lease *,
+    struct interface_info *);
 int parse_option_decl(FILE *, struct option_data *);
 void parse_reject_statement(FILE *);
 
@@ -75,7 +76,7 @@ void parse_reject_statement(FILE *);
  *			 | client-declarations client-declaration
  */
 void
-read_client_conf(void)
+read_client_conf(struct interface_info *ifi)
 {
 	FILE *cfile;
 	int token;
@@ -83,13 +84,14 @@ read_client_conf(void)
 	new_parse(path_dhclient_conf);
 
 	/* Set some defaults. */
-	config->link_timeout = 10;
-	config->timeout = 60;
-	config->select_interval = 0;
-	config->reboot_timeout = 1;
-	config->retry_interval = 300;
-	config->backoff_cutoff = 15;
-	config->initial_interval = 3;
+	config->link_timeout = 10;	/* secs before going daemon w/o link */
+	config->timeout = 30;		/* secs to wait for an OFFER */
+	config->select_interval = 0;	/* secs to wait for other OFFERs */
+	config->reboot_timeout = 1;	/* secs before giving up on reboot */
+	config->retry_interval = 1;	/* secs before asking for OFFER */
+	config->backoff_cutoff = 10;	/* max secs between packet retries */
+	config->initial_interval = 1;	/* secs before 1st retry */
+
 	config->bootp_policy = ACCEPT;
 	config->requested_options
 	    [config->requested_option_count++] = DHO_SUBNET_MASK;
@@ -110,13 +112,17 @@ read_client_conf(void)
 	    [config->requested_option_count++] = DHO_DOMAIN_NAME_SERVERS;
 	config->requested_options
 	    [config->requested_option_count++] = DHO_HOST_NAME;
+	config->requested_options
+	    [config->requested_option_count++] = DHO_BOOTFILE_NAME;
+	config->requested_options
+	    [config->requested_option_count++] = DHO_TFTP_SERVER;
 
 	if ((cfile = fopen(path_dhclient_conf, "r")) != NULL) {
 		do {
 			token = peek_token(NULL, cfile);
 			if (token == EOF)
 				break;
-			parse_client_statement(cfile);
+			parse_client_statement(cfile, ifi);
 		} while (1);
 		fclose(cfile);
 	}
@@ -128,7 +134,7 @@ read_client_conf(void)
  *		     | client-lease-statements LEASE client-lease-statement
  */
 void
-read_client_leases(void)
+read_client_leases(struct interface_info *ifi)
 {
 	FILE	*cfile;
 	int	 token;
@@ -147,7 +153,7 @@ read_client_leases(void)
 			warning("Corrupt lease file - possible data loss!");
 			break;
 		}
-		parse_client_lease_statement(cfile, 0);
+		parse_client_lease_statement(cfile, 0, ifi);
 	} while (1);
 	fclose(cfile);
 }
@@ -176,7 +182,7 @@ read_client_leases(void)
  *	TOK_REJECT reject-statement
  */
 void
-parse_client_statement(FILE *cfile)
+parse_client_statement(FILE *cfile, struct interface_info *ifi)
 {
 	u_int8_t optlist[256];
 	char *string;
@@ -257,10 +263,10 @@ parse_client_statement(FILE *cfile)
 		parse_lease_time(cfile, &config->initial_interval);
 		break;
 	case TOK_INTERFACE:
-		parse_interface_declaration(cfile);
+		parse_interface_declaration(cfile, ifi);
 		break;
 	case TOK_LEASE:
-		parse_client_lease_statement(cfile, 1);
+		parse_client_lease_statement(cfile, 1, ifi);
 		break;
 	case TOK_ALIAS:
 	case TOK_MEDIA:
@@ -407,7 +413,7 @@ syntaxerror:
  *	INTERFACE string LBRACE client-declarations RBRACE
  */
 void
-parse_interface_declaration(FILE *cfile)
+parse_interface_declaration(FILE *cfile, struct interface_info *ifi)
 {
 	char *val;
 	int token;
@@ -441,7 +447,7 @@ parse_interface_declaration(FILE *cfile)
 		}
 		if (token == '}')
 			break;
-		parse_client_statement(cfile);
+		parse_client_statement(cfile, ifi);
 	} while (1);
 	token = next_token(&val, cfile);
 }
@@ -456,8 +462,9 @@ parse_interface_declaration(FILE *cfile)
  *		client-lease-declarations client-lease-declaration
  */
 void
-parse_client_lease_statement(FILE *cfile, int is_static)
+parse_client_lease_statement(FILE *cfile, int is_static, struct interface_info *ifi)
 {
+	struct client_state	*client = ifi->client;
 	struct client_lease	*lease, *lp, *pl;
 	struct option_data	*opt1, *opt2;
 	int			 token;
@@ -483,7 +490,7 @@ parse_client_lease_statement(FILE *cfile, int is_static)
 		}
 		if (token == '}')
 			break;
-		parse_client_lease_declaration(cfile, lease);
+		parse_client_lease_declaration(cfile, lease, ifi);
 	} while (1);
 	token = next_token(NULL, cfile);
 
@@ -502,11 +509,13 @@ parse_client_lease_statement(FILE *cfile, int is_static)
 
 	/*
 	 * The new lease will supersede a lease of the same type and for
-	 * the same address.
+	 * the same address or the same SSID.
 	 */
 	TAILQ_FOREACH_SAFE(lp, &client->leases, next, pl) {
-		if (lp->address.s_addr == lease->address.s_addr &&
-		    lp->is_static == is_static) {
+		if (lp->is_static != is_static)
+			continue;
+		if ((strcmp(lp->ssid, ifi->ssid) == 0) ||
+		    (lp->address.s_addr == lease->address.s_addr)) {
 			TAILQ_REMOVE(&client->leases, lp, next);
 			lp->is_static = 0;	/* Else it won't be freed. */
 			free_client_lease(lp);
@@ -538,7 +547,8 @@ parse_client_lease_statement(FILE *cfile, int is_static)
  *	EXPIRE time-decl
  */
 void
-parse_client_lease_declaration(FILE *cfile, struct client_lease *lease)
+parse_client_lease_declaration(FILE *cfile, struct client_lease *lease,
+    struct interface_info *ifi)
 {
 	char *val;
 	int token;
@@ -580,6 +590,12 @@ parse_client_lease_declaration(FILE *cfile, struct client_lease *lease)
 		return;
 	case TOK_SERVER_NAME:
 		lease->server_name = parse_string(cfile);
+		return;
+	case TOK_SSID:
+		val = parse_string(cfile);
+		if (val)
+			strlcpy(lease->ssid, val, sizeof(lease->ssid));
+		free(val);
 		return;
 	case TOK_RENEW:
 		lease->renewal = parse_date(cfile);

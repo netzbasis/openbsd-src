@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.22 2016/06/18 05:59:26 jsg Exp $
+#	$OpenBSD: GENERIC,v 1.52 2016/08/21 06:36:23 jsg Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -33,68 +33,72 @@ cpu0		at mainbus?
 
 # Cortex-A9
 cortex0		at mainbus?
-ampintc*	at cortex?
+ampintc*	at fdt?
 amptimer*	at cortex?
-agtimer*	at cortex?
+agtimer*	at fdt?
 armliicc*	at cortex?
 
 # iMX
 imx0		at mainbus?		# iMX SoC
 imxccm*		at imx?			# clock control module
 imxiomuxc*	at imx?			# iomux controller
+imxgpc*		at fdt?			# power controller
 imxdog*		at fdt?			# watchdog timer
 imxocotp*	at imx?			# on-chip otp controller
-imxgpio*	at imx?			# user-visible GPIO pins?
+imxtemp*	at fdt?			# temperature monitor
+imxgpio*	at fdt?			# user-visible GPIO pins?
 fec*		at fdt?			# Ethernet
 imxuart*	at fdt?			# onboard uarts
 imxiic*		at fdt?			# i2c
 iic*		at imxiic?
 imxesdhc*	at fdt?			# SDHC controller
 sdmmc*		at imxesdhc?		# SD/MMC bus
-ahci*		at fdt?			# AHCI/SATA
-ehci*		at imx?			# EHCI (shim)
-usb*		at ehci?
+imxahci*	at fdt?			# AHCI/SATA
+imxehci*	at fdt?			# EHCI
+usb*		at imxehci?
 
 # OMAP3xxx/OMAP4xxx SoC
 omap0		at mainbus?
 omapid*		at omap?
 
 # OMAP on-chip devices
-intc*		at omap?		# OMAP3 interrupt controller
-edma*		at omap?		# OMAP3 dma controller
+intc*		at fdt?			# OMAP3 interrupt controller
+#edma*		at omap?		# OMAP3 dma controller
 prcm*		at omap?		# power/clock controller
 sitaracm*	at omap?		# sitara control module
-omdog*		at omap?		# watchdog timer
-omgpio*		at omap?		# user-visible GPIO pins?
+omdog*		at fdt?			# watchdog timer
+omgpio*		at fdt?			# user-visible GPIO pins?
 gpio*		at omgpio?
-#tiiic*		at omap?
-#iic*		at tiiic?
+tiiic*		at fdt?
+iic*		at tiiic?
 gptimer*	at omap?		# general purpose timers
 dmtimer*	at omap?		# am335x dual mode timers
 omusbtll*	at omap?
-cpsw*		at omap?
-com*		at omap?		# onboard uarts
+cpsw*		at fdt?
+com*		at fdt?			# onboard uarts
 ommmc*		at fdt?			# SD/MMC card controller
 sdmmc*		at ommmc?		# SD/MMC bus
 
-ehci*		at omap?		# EHCI (shim)
-usb*		at ehci?
+omehci*		at fdt?			# EHCI
+usb*		at omehci?
 
 # Sunxi A1x/A20 SoC
 sunxi0		at mainbus?
 
 # Sunxi on-chip devices
-a1xintc*	at sunxi?		# A1x interrupt controller
+sxiintc*	at fdt?			# A1x interrupt controller
 sxipio*		at sunxi?		# GPIO pins for leds & PHYs
 gpio*		at sxipio?
 sxiccmu*	at sunxi?		# Clock Control Module/Unit
 sxitimer*	at sunxi?
-sxidog*		at sunxi?		# watchdog timer
-sxirtc*		at sunxi?		# Real Time Clock
-sxiuart*	at fdt?			# onboard UARTs
+sxidog*		at fdt?			# watchdog timer
+sxirtc*		at fdt?			# Real Time Clock
 sxie*		at fdt?
-ahci*		at sunxi?		# AHCI/SATA (shim)
-ehci*		at sunxi?		# EHCI (shim)
+dwge*		at fdt?
+sxiahci*	at fdt?			# AHCI/SATA
+sximmc*		at fdt?			# SD/MMC card controller
+sdmmc*		at sximmc?		# SD/MMC bus
+ehci*		at fdt?			# EHCI (shim)
 usb*		at ehci?	#flags 0x1
 #ohci*		at sunxi?
 #usb*		at ohci?
@@ -102,9 +106,9 @@ usb*		at ehci?	#flags 0x1
 # ARM Versatile Express
 vexpress0	at mainbus?
 sysreg*		at vexpress?
-pluart*		at vexpress?
-plrtc*		at vexpress?
-virtio*		at vexpress?
+pluart*		at fdt?
+plrtc*		at fdt?
+virtio*		at fdt?
 
 # Exynos
 exynos0		at mainbus?
@@ -122,7 +126,12 @@ exehci*		at exynos?
 ehci*		at exehci?
 exesdhc*	at exynos?
 sdmmc*		at exesdhc?
-exuart*		at exynos?
+exuart*		at fdt?
+
+# Raspberry Pi 2/3
+bcmintc*	at fdt?
+dwctwo*		at fdt?
+usb*		at dwctwo?
 
 crosec*		at iic?
 wskbd*		at crosec? mux 1
@@ -207,6 +216,7 @@ ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ext2fs_vfsops.c,v 1.93 2016/06/19 11:54:33 natano Exp $	*/
+/*	$OpenBSD: ext2fs_vfsops.c,v 1.96 2016/09/07 17:30:12 natano Exp $	*/
 /*	$NetBSD: ext2fs_vfsops.c,v 1.1 1997/06/11 09:34:07 bouyer Exp $	*/
 
 /*
@@ -170,7 +170,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 	char fname[MNAMELEN];
 	char fspec[MNAMELEN];
 	int error, flags;
-	mode_t accessmode;
 
 	error = copyin(data, &args, sizeof(struct ufs_args));
 	if (error)
@@ -204,19 +203,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 				return (error);
 		}
 		if (fs->e2fs_ronly && (mp->mnt_flag & MNT_WANTRDWR)) {
-			/*
-			 * If upgrade to read-write by non-root, then verify
-			 * that user has necessary permissions on the device.
-			 */
-			if (suser(p, 0) != 0) {
-				devvp = ump->um_devvp;
-				vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-				error = VOP_ACCESS(devvp, VREAD | VWRITE,
-				    p->p_ucred, p);
-				VOP_UNLOCK(devvp, p);
-				if (error)
-					return (error);
-			}
 			fs->e2fs_ronly = 0;
 			if (fs->e2fs.e2fs_state == E2FS_ISCLEAN)
 				fs->e2fs.e2fs_state = 0;
@@ -255,20 +241,6 @@ ext2fs_mount(struct mount *mp, const char *path, void *data,
 	if (major(devvp->v_rdev) >= nblkdev) {
 		error = ENXIO;
 		goto error_devvp;
-	}
-	/*
-	 * If mount by non-root, then verify that user has necessary
-	 * permissions on the device.
-	 */
-	if (suser(p, 0) != 0) {
-		accessmode = VREAD;
-		if ((mp->mnt_flag & MNT_RDONLY) == 0)
-			accessmode |= VWRITE;
-		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY, p);
-		error = VOP_ACCESS(devvp, accessmode, p->p_ucred, p);
-		VOP_UNLOCK(devvp, p);
-		if (error)
-			goto error_devvp;
 	}
 	if ((mp->mnt_flag & MNT_UPDATE) == 0)
 		error = ext2fs_mountfs(devvp, mp, p);
@@ -583,7 +555,7 @@ ext2fs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		ump->um_e2fs->e2fs_fmod = 1;
 	}
 
-	mp->mnt_data = (qaddr_t)ump;
+	mp->mnt_data = ump;
 	mp->mnt_stat.f_fsid.val[0] = (long)dev;
 	mp->mnt_stat.f_fsid.val[1] = mp->mnt_vfc->vfc_typenum;
 	mp->mnt_stat.f_namemax = MAXNAMLEN;
@@ -918,7 +890,7 @@ ext2fs_vget(struct mount *mp, ino_t ino, struct vnode **vpp)
 	 * Initialize the vnode from the inode, check for aliases.
 	 * Note that the underlying vnode may have changed.
 	 */
-	error = ext2fs_vinit(mp, &ext2fs_specvops, EXT2FS_FIFOOPS, &vp);
+	error = ext2fs_vinit(mp, &vp);
 	if (error) {
 		vput(vp);
 		*vpp = NULL;

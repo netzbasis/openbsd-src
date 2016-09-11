@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.20 2016/05/11 21:52:50 deraadt Exp $
+# $OpenBSD: Makefile,v 1.23 2016/09/03 13:37:44 guenther Exp $
 
 NOPROG=
 NOMAN=
@@ -7,11 +7,11 @@ CC=${HOSTCC}
 # USB capable systems only
 .if (${MACHINE_ARCH} == "powerpc" || \
     ${MACHINE} == "alpha" || ${MACHINE} == "amd64" || \
-    ${MACHINE} == "armish" || ${MACHINE} == "armv7" || \
+    ${MACHINE} == "armv7" || \
     ${MACHINE} == "hppa" || ${MACHINE} == "i386" || \
     ${MACHINE} == "landisk" || ${MACHINE} == "loongson" || \
-    ${MACHINE} == "sgi" || \
-    ${MACHINE} == "sparc64" || ${MACHINE} == "zaurus")
+    ${MACHINE} == "octeon" || ${MACHINE} == "sgi" || \
+    ${MACHINE} == "sparc64")
 
 FIRM= 	atu-intersil-int atu-intersil-ext \
 	atu-rfmd-int atu-rfmd-ext \

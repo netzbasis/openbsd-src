@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sig.c,v 1.198 2016/06/11 21:41:50 tedu Exp $	*/
+/*	$OpenBSD: kern_sig.c,v 1.204 2016/09/04 17:22:40 jsing Exp $	*/
 /*	$NetBSD: kern_sig.c,v 1.54 1996/04/22 01:38:32 christos Exp $	*/
 
 /*
@@ -154,6 +154,7 @@ signal_init(void)
 
 	pool_init(&sigacts_pool, sizeof(struct sigacts), 0, 0, PR_WAITOK,
 	    "sigapl", NULL);
+	pool_setipl(&sigacts_pool, IPL_NONE);
 }
 
 /*
@@ -570,19 +571,24 @@ sys_kill(struct proc *cp, void *v, register_t *retval)
 	int pid = SCARG(uap, pid);
 	int signum = SCARG(uap, signum);
 	int error;
+	int zombie = 0;
 
 	if ((error = pledge_kill(cp, pid)) != 0)
 		return (error);
 	if (((u_int)signum) >= NSIG)
 		return (EINVAL);
 	if (pid > 0) {
-		if ((pr = prfind(pid)) == NULL)
-			return (ESRCH);
+		if ((pr = prfind(pid)) == NULL) {
+			if ((pr = zombiefind(pid)) == NULL)
+				return (ESRCH);
+			else
+				zombie = 1;
+		}
 		if (!cansignal(cp, pr, signum))
 			return (EPERM);
 
 		/* kill single process */
-		if (signum)
+		if (signum && !zombie)
 			prsignal(pr, signum);
 		return (0);
 	}
@@ -1658,7 +1664,7 @@ sys___thrsigdivert(struct proc *p, void *v, register_t *retval)
 	sigset_t *m;
 	sigset_t mask = SCARG(uap, sigmask) &~ sigcantmask;
 	siginfo_t si;
-	long long to_ticks = 0;
+	uint64_t to_ticks = 0;
 	int timeinvalid = 0;
 	int error = 0;
 
@@ -1675,7 +1681,7 @@ sys___thrsigdivert(struct proc *p, void *v, register_t *retval)
 		if (ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000)
 			timeinvalid = 1;
 		else {
-			to_ticks = (long long)hz * ts.tv_sec +
+			to_ticks = (uint64_t)hz * ts.tv_sec +
 			    ts.tv_nsec / (tick * 1000);
 			if (to_ticks > INT_MAX)
 				to_ticks = INT_MAX;
@@ -1761,6 +1767,9 @@ int
 filt_sigattach(struct knote *kn)
 {
 	struct process *pr = curproc->p_p;
+
+	if (kn->kn_id >= NSIG)
+		return EINVAL;
 
 	kn->kn_ptr.p_process = pr;
 	kn->kn_flags |= EV_CLEAR;		/* automatically set */

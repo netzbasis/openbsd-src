@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.170 2016/06/07 01:31:54 tedu Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.182 2016/09/04 17:22:40 jsing Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -79,7 +79,7 @@
 #include "drm.h"
 #endif
 
-int pledgereq_flags(const char *req);
+uint64_t pledgereq_flags(const char *req);
 int canonpath(const char *input, char *buf, size_t bufsize);
 int substrcmp(const char *p1, size_t s1, const char *p2, size_t s2);
 int resolvpath(struct proc *p, char **rdir, size_t *rdirlen, char **cwd,
@@ -332,10 +332,11 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_chflags] = PLEDGE_FATTR,
 	[SYS_chflagsat] = PLEDGE_FATTR,
 	[SYS_fchflags] = PLEDGE_FATTR,
-	[SYS_chown] = PLEDGE_FATTR,
-	[SYS_fchownat] = PLEDGE_FATTR,
-	[SYS_lchown] = PLEDGE_FATTR,
-	[SYS_fchown] = PLEDGE_FATTR,
+
+	[SYS_chown] = PLEDGE_CHOWN,
+	[SYS_fchownat] = PLEDGE_CHOWN,
+	[SYS_lchown] = PLEDGE_CHOWN,
+	[SYS_fchown] = PLEDGE_CHOWN,
 
 	[SYS_socket] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
 	[SYS_connect] = PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS | PLEDGE_YPACTIVE,
@@ -354,16 +355,17 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 
 static const struct {
 	char *name;
-	int flags;
+	uint64_t flags;
 } pledgereq[] = {
 	{ "audio",		PLEDGE_AUDIO },
+	{ "chown",		PLEDGE_CHOWN | PLEDGE_CHOWNUID },
 	{ "cpath",		PLEDGE_CPATH },
 	{ "disklabel",		PLEDGE_DISKLABEL },
 	{ "dns",		PLEDGE_DNS },
 	{ "dpath",		PLEDGE_DPATH },
 	{ "drm",		PLEDGE_DRM },
 	{ "exec",		PLEDGE_EXEC },
-	{ "fattr",		PLEDGE_FATTR },
+	{ "fattr",		PLEDGE_FATTR | PLEDGE_CHOWN },
 	{ "flock",		PLEDGE_FLOCK },
 	{ "getpw",		PLEDGE_GETPW },
 	{ "id",			PLEDGE_ID },
@@ -401,7 +403,7 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 	if (SCARG(uap, request)) {
 		size_t rbuflen;
 		char *rbuf, *rp, *pn;
-		int f;
+		uint64_t f;
 
 		rbuf = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
 		error = copyinstr(SCARG(uap, request), rbuf, MAXPATHLEN,
@@ -574,7 +576,8 @@ pledge_fail(struct proc *p, int error, uint64_t code)
 	printf("%s(%d): syscall %d \"%s\"\n", p->p_comm, p->p_pid,
 	    p->p_pledge_syscall, codes);
 #ifdef KTRACE
-	ktrpledge(p, error, code, p->p_pledge_syscall);
+	if (KTRPOINT(p, KTR_PLEDGE))
+		ktrpledge(p, error, code, p->p_pledge_syscall);
 #endif
 	/* Send uncatchable SIGABRT for coredump */
 	memset(&sa, 0, sizeof sa);
@@ -831,15 +834,12 @@ pledge_namei_wlpath(struct proc *p, struct nameidata *ni)
 int
 pledge_recvfd(struct proc *p, struct file *fp)
 {
-	struct vnode *vp = NULL;
-	char *vtypes[] = { VTYPE_NAMES };
+	struct vnode *vp;
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
-	if ((p->p_p->ps_pledge & PLEDGE_RECVFD) == 0) {
-		printf("recvmsg not allowed\n");
+	if ((p->p_p->ps_pledge & PLEDGE_RECVFD) == 0)
 		return pledge_fail(p, EPERM, PLEDGE_RECVFD);
-	}
 
 	switch (fp->f_type) {
 	case DTYPE_SOCKET:
@@ -852,7 +852,6 @@ pledge_recvfd(struct proc *p, struct file *fp)
 			return (0);
 		break;
 	}
-	printf("recvfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
 	return pledge_fail(p, EINVAL, PLEDGE_RECVFD);
 }
 
@@ -862,16 +861,12 @@ pledge_recvfd(struct proc *p, struct file *fp)
 int
 pledge_sendfd(struct proc *p, struct file *fp)
 {
-	struct vnode *vp = NULL;
-	char *vtypes[] = { VTYPE_NAMES };
+	struct vnode *vp;
 
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
-
-	if ((p->p_p->ps_pledge & PLEDGE_SENDFD) == 0) {
-		printf("sendmsg not allowed\n");
+	if ((p->p_p->ps_pledge & PLEDGE_SENDFD) == 0)
 		return pledge_fail(p, EPERM, PLEDGE_SENDFD);
-	}
 
 	switch (fp->f_type) {
 	case DTYPE_SOCKET:
@@ -884,7 +879,6 @@ pledge_sendfd(struct proc *p, struct file *fp)
 			return (0);
 		break;
 	}
-	printf("sendfd type %d %s\n", fp->f_type, vp ? vtypes[vp->v_type] : "");
 	return pledge_fail(p, EINVAL, PLEDGE_SENDFD);
 }
 
@@ -1065,6 +1059,9 @@ pledge_chown(struct proc *p, uid_t uid, gid_t gid)
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
+	if (p->p_p->ps_pledge & PLEDGE_CHOWNUID)
+		return (0);
+
 	if (uid != -1 && uid != p->p_ucred->cr_uid)
 		return (EPERM);
 	if (gid != -1 && !groupmember(gid, p->p_ucred))
@@ -1179,11 +1176,6 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case AUDIO_SETPAR:
 		case AUDIO_START:
 		case AUDIO_STOP:
-		case AUDIO_SETINFO:
-		case AUDIO_GETINFO:
-		case AUDIO_GETENC:
-		case AUDIO_SETFD:
-		case AUDIO_GETPROPS:
 			if (fp->f_type == DTYPE_VNODE &&
 			    vp->v_type == VCHR &&
 			    cdevsw[major(vp->v_rdev)].d_open == audioopen)
@@ -1434,6 +1426,7 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		switch (optname) {
 		case IPV6_TCLASS:
 		case IPV6_UNICAST_HOPS:
+		case IPV6_MINHOPCOUNT:
 		case IPV6_RECVHOPLIMIT:
 		case IPV6_PORTRANGE:
 		case IPV6_RECVPKTINFO:
@@ -1507,7 +1500,7 @@ pledge_swapctl(struct proc *p)
 }
 
 /* bsearch over pledgereq. return flags value if found, 0 else */
-int
+uint64_t
 pledgereq_flags(const char *req_name)
 {
 	int base = 0, cmp, i, lim;

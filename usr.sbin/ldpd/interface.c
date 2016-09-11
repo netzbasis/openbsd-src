@@ -1,4 +1,4 @@
-/*	$OpenBSD: interface.c,v 1.46 2016/06/18 17:31:32 renato Exp $ */
+/*	$OpenBSD: interface.c,v 1.48 2016/09/03 16:07:08 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -82,8 +82,20 @@ if_new(struct kif *kif)
 	return (iface);
 }
 
+struct iface *
+if_lookup(struct ldpd_conf *xconf, unsigned short ifindex)
+{
+	struct iface *iface;
+
+	LIST_FOREACH(iface, &xconf->iface_list, entry)
+		if (iface->ifindex == ifindex)
+			return (iface);
+
+	return (NULL);
+}
+
 void
-if_del(struct iface *iface)
+if_exit(struct iface *iface)
 {
 	struct if_addr		*if_addr;
 
@@ -98,20 +110,6 @@ if_del(struct iface *iface)
 		LIST_REMOVE(if_addr, entry);
 		free(if_addr);
 	}
-
-	free(iface);
-}
-
-struct iface *
-if_lookup(struct ldpd_conf *xconf, unsigned short ifindex)
-{
-	struct iface *iface;
-
-	LIST_FOREACH(iface, &xconf->iface_list, entry)
-		if (iface->ifindex == ifindex)
-			return (iface);
-
-	return (NULL);
 }
 
 struct iface_af *
@@ -177,7 +175,7 @@ if_addr_add(struct kaddr *ka)
 			if (if_addr->af == AF_INET6 && !nbr->v6_enabled)
 				continue;
 
-			send_address(nbr, if_addr->af, if_addr, 0);
+			send_address_single(nbr, if_addr, 0);
 		}
 	}
 
@@ -224,7 +222,7 @@ if_addr_del(struct kaddr *ka)
 				continue;
 			if (if_addr->af == AF_INET6 && !nbr->v6_enabled)
 				continue;
-			send_address(nbr, if_addr->af, if_addr, 1);
+			send_address_single(nbr, if_addr, 1);
 		}
 		LIST_REMOVE(if_addr, entry);
 		free(if_addr);

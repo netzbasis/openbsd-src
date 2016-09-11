@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpufunc.h,v 1.25 2016/04/03 13:55:23 jsg Exp $	*/
+/*	$OpenBSD: cpufunc.h,v 1.27 2016/08/22 01:42:00 jsg Exp $	*/
 /*	$NetBSD: cpufunc.h,v 1.29 2003/09/06 09:08:35 rearnsha Exp $	*/
 
 /*
@@ -140,6 +140,7 @@ struct cpu_functions {
 	void	(*cf_sdcache_wbinv_range) (vaddr_t, paddr_t, vsize_t);
 	void	(*cf_sdcache_inv_range)	(vaddr_t, paddr_t, vsize_t);
 	void	(*cf_sdcache_wb_range)	(vaddr_t, paddr_t, vsize_t);
+	void	(*cf_sdcache_drain_writebuf) (void);
 
 	/* Other functions */
 
@@ -191,6 +192,7 @@ extern u_int cputype;
 #define	cpu_sdcache_wbinv_range(va, pa, s) cpufuncs.cf_sdcache_wbinv_range((va), (pa), (s))
 #define	cpu_sdcache_inv_range(va, pa, s) cpufuncs.cf_sdcache_inv_range((va), (pa), (s))
 #define	cpu_sdcache_wb_range(va, pa, s) cpufuncs.cf_sdcache_wb_range((va), (pa), (s))
+#define	cpu_sdcache_drain_writebuf() cpufuncs.cf_sdcache_drain_writebuf()
 
 #define	cpu_flush_prefetchbuf()	cpufuncs.cf_flush_prefetchbuf()
 #define	cpu_drain_writebuf()	cpufuncs.cf_drain_writebuf()
@@ -253,7 +255,7 @@ extern unsigned armv7_dcache_index_inc;
 #endif
 
 
-#if defined(CPU_XSCALE_80321) || defined(CPU_XSCALE_PXA2X0)
+#if defined(CPU_XSCALE_PXA2X0)
 void	armv4_tlb_flushID	(void);
 void	armv4_tlb_flushI	(void);
 void	armv4_tlb_flushD	(void);
@@ -262,8 +264,7 @@ void	armv4_tlb_flushD_SE	(u_int va);
 void	armv4_drain_writebuf	(void);
 #endif
 
-#if defined(CPU_XSCALE_80321) || \
-    defined(CPU_XSCALE_PXA2X0) || (ARM_MMU_XSCALE == 1)
+#if defined(CPU_XSCALE_PXA2X0) || (ARM_MMU_XSCALE == 1)
 void	xscale_cpwait		(void);
 
 void	xscale_cpu_sleep	(int mode);
@@ -301,7 +302,7 @@ void	xscale_cache_flushD_rng	(vaddr_t start, vsize_t end);
 void	xscale_context_switch	(u_int);
 
 void	xscale_setup		(void);
-#endif	/* CPU_XSCALE_80321 || CPU_XSCALE_PXA2X0 */
+#endif	/* CPU_XSCALE_PXA2X0 */
 
 #define tlb_flush	cpu_tlb_flushID
 #define setttb		cpu_setttb

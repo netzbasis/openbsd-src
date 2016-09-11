@@ -1,4 +1,4 @@
-/*	$OpenBSD: queue.c,v 1.178 2016/05/28 21:21:20 eric Exp $	*/
+/*	$OpenBSD: queue.c,v 1.182 2016/09/08 12:06:43 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -45,19 +45,9 @@ static void queue_imsg(struct mproc *, struct imsg *);
 static void queue_timeout(int, short, void *);
 static void queue_bounce(struct envelope *, struct delivery_bounce *);
 static void queue_shutdown(void);
-static void queue_sig_handler(int, short, void *);
 static void queue_log(const struct envelope *, const char *, const char *);
 static void queue_msgid_walk(int, short, void *);
 
-static size_t	flow_agent_hiwat = 10 * 1024 * 1024;
-static size_t	flow_agent_lowat =   1 * 1024 * 1024;
-static size_t	flow_scheduler_hiwat = 10 * 1024 * 1024;
-static size_t	flow_scheduler_lowat = 1 * 1024 * 1024;
-
-#define LIMIT_AGENT	0x01
-#define LIMIT_SCHEDULER	0x02
-
-static int limit = 0;
 
 static void
 queue_imsg(struct mproc *p, struct imsg *imsg)
@@ -74,6 +64,9 @@ queue_imsg(struct mproc *p, struct imsg *imsg)
 	time_t			 nexttry;
 	size_t			 n_evp;
 	int			 fd, mta_ext, ret, v, flags, code;
+
+	if (imsg == NULL)
+		queue_shutdown();
 
 	memset(&bounce, 0, sizeof(struct delivery_bounce));
 	if (p->proc == PROC_PONY) {
@@ -645,22 +638,9 @@ queue_bounce(struct envelope *e, struct delivery_bounce *d)
 }
 
 static void
-queue_sig_handler(int sig, short event, void *p)
-{
-	switch (sig) {
-	case SIGINT:
-	case SIGTERM:
-		queue_shutdown();
-		break;
-	default:
-		fatalx("queue_sig_handler: unexpected signal");
-	}
-}
-
-static void
 queue_shutdown(void)
 {
-	log_info("info: queue handler exiting");
+	log_debug("debug: queue agent exiting");
 	queue_close();
 	_exit(0);
 }
@@ -671,8 +651,6 @@ queue(void)
 	struct passwd	*pw;
 	struct timeval	 tv;
 	struct event	 ev_qload;
-	struct event	 ev_sigint;
-	struct event	 ev_sigterm;
 
 	purge_config(PURGE_EVERYTHING);
 
@@ -707,10 +685,8 @@ queue(void)
 	imsg_callback = queue_imsg;
 	event_init();
 
-	signal_set(&ev_sigint, SIGINT, queue_sig_handler, NULL);
-	signal_set(&ev_sigterm, SIGTERM, queue_sig_handler, NULL);
-	signal_add(&ev_sigint, NULL);
-	signal_add(&ev_sigterm, NULL);
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
 
@@ -719,7 +695,6 @@ queue(void)
 	config_peer(PROC_LKA);
 	config_peer(PROC_SCHEDULER);
 	config_peer(PROC_PONY);
-	config_done();
 
 	/* setup queue loading task */
 	evtimer_set(&ev_qload, queue_timeout, &ev_qload);
@@ -730,9 +705,8 @@ queue(void)
 	if (pledge("stdio rpath wpath cpath flock recvfd sendfd", NULL) == -1)
 		err(1, "pledge");
 
-	if (event_dispatch() <  0)
-		fatal("event_dispatch");
-	queue_shutdown();
+	event_dispatch();
+	fatalx("exited event loop");
 
 	return (0);
 }
@@ -796,50 +770,4 @@ queue_log(const struct envelope *e, const char *prefix, const char *status)
 	    rcpt,
 	    duration_to_text(time(NULL) - e->creation),
 	    status);
-}
-
-void
-queue_flow_control(void)
-{
-	size_t	bufsz;
-	int	oldlimit = limit;
-	int	set, unset;
-
-	bufsz = p_pony->bytes_queued;
-	if (bufsz <= flow_agent_lowat)
-		limit &= ~LIMIT_AGENT;
-	else if (bufsz > flow_agent_hiwat)
-		limit |= LIMIT_AGENT;
-
-	if (p_scheduler->bytes_queued <= flow_scheduler_lowat)
-		limit &= ~LIMIT_SCHEDULER;
-	else if (p_scheduler->bytes_queued > flow_scheduler_hiwat)
-		limit |= LIMIT_SCHEDULER;
-
-	set = limit & (limit ^ oldlimit);
-	unset = oldlimit & (limit ^ oldlimit);
-
-	if (set & LIMIT_SCHEDULER) {
-		log_warnx("warn: queue: Hiwat reached on scheduler buffer: "
-		    "suspending transfer, delivery and lookup input");
-		mproc_disable(p_pony);
-		mproc_disable(p_lka);
-	}
-	else if (unset & LIMIT_SCHEDULER) {
-		log_warnx("warn: queue: Down to lowat on scheduler buffer: "
-		    "resuming transfer, delivery and lookup input");
-		mproc_enable(p_pony);
-		mproc_enable(p_lka);
-	}
-
-	if (set & LIMIT_AGENT) {
-		log_warnx("warn: queue: Hiwat reached on transfer and delivery "
-		    "buffers: suspending scheduler input");
-		mproc_disable(p_scheduler);
-	}
-	else if (unset & LIMIT_AGENT) {
-		log_warnx("warn: queue: Down to lowat on transfer and delivery "
-		    "buffers: resuming scheduler input");
-		mproc_enable(p_scheduler);
-	}
 }

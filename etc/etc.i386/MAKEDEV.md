@@ -1,6 +1,6 @@
 define(MACHINE,i386)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.80 2016/04/28 18:17:31 natano Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.82 2016/09/04 15:38:59 naddy Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -37,7 +37,7 @@ _DEV(vnd, 41, 14)
 _DEV(wd, 3, 0)
 _TITLE(tap)
 _DEV(ch, 17)
-_DEV(st, 14, 5)
+_DEV(st, 14)
 _TITLE(term)
 _DEV(com, 8)
 _DEV(ttyc, 38)
@@ -95,6 +95,7 @@ _DEV(vi, 44)
 _DEV(vmm, 10)
 _DEV(vscsi, 90)
 _DEV(pvbus, 95)
+_DEV(switch, 97)
 dnl
 divert(__mddivert)dnl
 dnl
@@ -135,4 +136,5 @@ target(all, nvram)dnl
 target(all, drm, 0, 1, 2, 3)dnl
 target(all, amdmsr)dnl
 target(all, ipmi, 0)dnl
+target(all, switch, 0, 1, 2, 3)dnl
 twrget(ramd, wsdisp, ttyC, 0)dnl

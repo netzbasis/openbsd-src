@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiomuxcvar.h,v 1.1 2013/09/06 20:45:54 patrick Exp $ */
+/* $OpenBSD: imxiomuxcvar.h,v 1.3 2016/08/06 17:18:38 kettenis Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -19,7 +19,6 @@
 #define IMXIOMUXCVAR_H
 
 void imxiomuxc_enable_sata(void);
-void imxiomuxc_enable_i2c(int);
 void imxiomuxc_enable_pcie(void);
 void imxiomuxc_pcie_refclk(int);
 void imxiomuxc_pcie_test_powerdown(int);

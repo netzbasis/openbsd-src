@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.h,v 1.99 2016/06/18 10:36:13 vgross Exp $	*/
+/*	$OpenBSD: in_pcb.h,v 1.104 2016/09/03 14:18:42 phessler Exp $	*/
 /*	$NetBSD: in_pcb.h,v 1.14 1996/02/13 23:42:00 christos Exp $	*/
 
 /*
@@ -132,6 +132,7 @@ struct inpcb {
 #define SL_ESP_NETWORK    2             /* ESP network (encapsulation) level */
 #define SL_IPCOMP         3             /* Compression level */
 	u_char	inp_ip_minttl;		/* minimum TTL or drop */
+#define inp_ip6_minhlim inp_ip_minttl	/* minimum Hop Limit or drop */
 #define	inp_flowinfo	inp_hu.hu_ipv6.ip6_flow
 
 	int	inp_cksum6;
@@ -228,7 +229,9 @@ struct inpcbtable {
 	587, 749, 750, 751, 871, 2049, \
 	6000, 6001, 6002, 6003, 6004, 6005, 6006, 6007, 6008, 6009, 6010, \
 	0 }
-#define	DEFBADDYNAMICPORTS_UDP	{ 623, 664, 749, 750, 751, 2049, 0 }
+#define	DEFBADDYNAMICPORTS_UDP	{ 623, 664, 749, 750, 751, 2049, \
+	3784, 3785, 7784, /* BFD/S-BFD ports */ \
+	 0 }
 
 #define DEFROOTONLYPORTS_TCP { \
 	2049, \
@@ -288,8 +291,7 @@ void	 in_setpeeraddr(struct inpcb *, struct mbuf *);
 void	 in_setsockaddr(struct inpcb *, struct mbuf *);
 int	 in_baddynamic(u_int16_t, u_int16_t);
 int	 in_rootonly(u_int16_t, u_int16_t);
-int	 in_selectsrc(struct in_addr **, struct sockaddr_in *,
-	    struct ip_moptions *, struct route *, struct in_addr *, u_int);
+int	 in_pcbselsrc(struct in_addr **, struct sockaddr_in *, struct inpcb *);
 struct rtentry *
 	in_pcbrtentry(struct inpcb *);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.187 2016/06/13 10:34:40 mpi Exp $	*/
+/*	$OpenBSD: in6.c,v 1.192 2016/09/04 10:32:01 mpi Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -438,8 +438,10 @@ in6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp, int privileged)
 			break;
 		}
 
-		if (!newifaddr)
+		if (!newifaddr) {
+			dohooks(ifp->if_addrhooks, 0);
 			break;
+		}
 
 		/* Perform DAD, if needed. */
 		if (ia6->ia6_flags & IN6_IFF_TENTATIVE)
@@ -757,8 +759,7 @@ in6_update_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra,
 			info.rti_info[RTAX_GATEWAY] = sin6tosa(&ia6->ia_addr);
 			info.rti_info[RTAX_NETMASK] = sin6tosa(&mltmask);
 			info.rti_info[RTAX_IFA] = sin6tosa(&ia6->ia_addr);
-			/* XXX: we need RTF_CLONING to fake nd6_rtrequest */
-			info.rti_flags = RTF_CLONING;
+			info.rti_flags = RTF_MULTICAST;
 			error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, NULL,
 			    ifp->if_rdomain);
 			if (error)
@@ -814,7 +815,7 @@ in6_update_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra,
 			info.rti_info[RTAX_GATEWAY] = sin6tosa(&ia6->ia_addr);
 			info.rti_info[RTAX_NETMASK] = sin6tosa(&mltmask);
 			info.rti_info[RTAX_IFA] = sin6tosa(&ia6->ia_addr);
-			info.rti_flags = RTF_CLONING;
+			info.rti_flags = RTF_MULTICAST;
 			error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, NULL,
 			    ifp->if_rdomain);
 			if (error)
@@ -894,11 +895,10 @@ void
 in6_unlink_ifa(struct in6_ifaddr *ia6, struct ifnet *ifp)
 {
 	struct ifaddr *ifa = &ia6->ia_ifa;
+	extern int ifatrash;
 	int plen;
 
 	splsoftassert(IPL_SOFTNET);
-
-	ifa_del(ifp, ifa);
 
 	TAILQ_REMOVE(&in6_ifaddr, ia6, ia_list);
 
@@ -917,10 +917,11 @@ in6_unlink_ifa(struct in6_ifaddr *ia6, struct ifnet *ifp)
 		ia6->ia6_ndpr = NULL;
 	}
 
-	/*
-	 * release another refcnt for the link from in6_ifaddr.
-	 * Note that we should decrement the refcnt at least once for all *BSD.
-	 */
+	rt_ifa_purge(ifa);
+	ifa_del(ifp, ifa);
+
+	ifatrash++;
+	ia6->ia_ifp = NULL;
 	ifafree(&ia6->ia_ifa);
 }
 
@@ -1637,7 +1638,8 @@ in6_ifawithscope(struct ifnet *oifp, struct in6_addr *dst, u_int rdomain)
 			 * Don't use an address before completing DAD
 			 * nor a duplicated address.
 			 */
-			if (ifatoia6(ifa)->ia6_flags & IN6_IFF_NOTREADY)
+			if (ifatoia6(ifa)->ia6_flags &
+			    (IN6_IFF_TENTATIVE|IN6_IFF_DUPLICATED))
 				continue;
 
 			/* XXX: is there any case to allow anycasts? */
@@ -1915,5 +1917,5 @@ in6_domifdetach(struct ifnet *ifp, void *aux)
 	struct in6_ifextra *ext = (struct in6_ifextra *)aux;
 
 	nd6_ifdetach(ext->nd_ifinfo);
-	free(ext, M_IFADDR, 0);
+	free(ext, M_IFADDR, sizeof(*ext));
 }

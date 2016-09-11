@@ -1,4 +1,4 @@
-/*	$OpenBSD: neighbor.c,v 1.74 2016/06/13 23:01:37 renato Exp $ */
+/*	$OpenBSD: neighbor.c,v 1.78 2016/09/03 16:07:08 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -68,7 +68,9 @@ struct {
     {NBR_STA_OPENSENT,	NBR_EVT_INIT_RCVD,	NBR_ACT_KEEPALIVE_SEND,	NBR_STA_OPENREC},
 /* Session Maintenance */
     {NBR_STA_OPER,	NBR_EVT_PDU_RCVD,	NBR_ACT_RST_KTIMEOUT,	0},
+    {NBR_STA_SESSION,	NBR_EVT_PDU_RCVD,	NBR_ACT_NOTHING,	0},
     {NBR_STA_OPER,	NBR_EVT_PDU_SENT,	NBR_ACT_RST_KTIMER,	0},
+    {NBR_STA_SESSION,	NBR_EVT_PDU_SENT,	NBR_ACT_NOTHING,	0},
 /* Session Close */
     {NBR_STA_PRESENT,	NBR_EVT_CLOSE_SESSION,	NBR_ACT_NOTHING,	0},
     {NBR_STA_SESSION,	NBR_EVT_CLOSE_SESSION,	NBR_ACT_CLOSE_SESSION,	NBR_STA_PRESENT},
@@ -183,9 +185,9 @@ nbr_fsm(struct nbr *nbr, enum nbr_event event)
 		nbr_start_ktimer(nbr);
 		nbr_start_ktimeout(nbr);
 		if (nbr->v4_enabled)
-			send_address(nbr, AF_INET, NULL, 0);
+			send_address_all(nbr, AF_INET);
 		if (nbr->v6_enabled)
-			send_address(nbr, AF_INET6, NULL, 0);
+			send_address_all(nbr, AF_INET6);
 		nbr_send_labelmappings(nbr);
 		break;
 	case NBR_ACT_CONNECT_SETUP:
@@ -459,7 +461,7 @@ nbr_start_itimeout(struct nbr *nbr)
 	struct timeval	 tv;
 
 	timerclear(&tv);
-	tv.tv_sec = DEFAULT_KEEPALIVE;
+	tv.tv_sec = INIT_FSM_TIMEOUT;
 	if (evtimer_add(&nbr->init_timeout, &tv) == -1)
 		fatal(__func__);
 }
@@ -608,6 +610,11 @@ nbr_establish_connection(struct nbr *nbr)
 		return (-1);
 	}
 
+	if (nbr_gtsm_check(nbr->fd, nbr, nbrp)) {
+		close(nbr->fd);
+		return (-1);
+	}
+
 	/*
 	 * Send an extra hello to guarantee that the remote peer has formed
 	 * an adjacency as well.
@@ -632,6 +639,89 @@ nbr_establish_connection(struct nbr *nbr)
 
 	/* connection completed immediately */
 	nbr_fsm(nbr, NBR_EVT_CONNECT_UP);
+
+	return (0);
+}
+
+int
+nbr_gtsm_enabled(struct nbr *nbr, struct nbr_params *nbrp)
+{
+	/*
+	 * RFC 6720 - Section 3:
+	 * "This document allows for the implementation to provide an option to
+	 * statically (e.g., via configuration) and/or dynamically override the
+	 * default behavior and enable/disable GTSM on a per-peer basis".
+	 */
+	if (nbrp && (nbrp->flags & F_NBRP_GTSM))
+		return (nbrp->gtsm_enabled);
+
+	if ((ldp_af_conf_get(leconf, nbr->af))->flags & F_LDPD_AF_NO_GTSM)
+		return (0);
+
+	/* By default, GTSM support has to be negotiated for LDPv4 */
+	if (nbr->af == AF_INET && !(nbr->flags & F_NBR_GTSM_NEGOTIATED))
+		return (0);
+
+	return (1);
+}
+
+int
+nbr_gtsm_setup(int fd, int af, struct nbr_params *nbrp)
+{
+	int	 ttl = 255;
+
+	if (nbrp && (nbrp->flags & F_NBRP_GTSM_HOPS))
+		ttl = 256 - nbrp->gtsm_hops;
+
+	switch (af) {
+	case AF_INET:
+		if (sock_set_ipv4_minttl(fd, ttl) == -1)
+			return (-1);
+		ttl = 255;
+		if (sock_set_ipv4_ucast_ttl(fd, ttl) == -1)
+			return (-1);
+		break;
+	case AF_INET6:
+		if (sock_set_ipv6_minhopcount(fd, ttl) == -1)
+			return (-1);
+		ttl = 255;
+		if (sock_set_ipv6_ucast_hops(fd, ttl) == -1)
+			return (-1);
+		break;
+	default:
+		fatalx("nbr_gtsm_setup: unknown af");
+	}
+
+	return (0);
+}
+
+int
+nbr_gtsm_check(int fd, struct nbr *nbr, struct nbr_params *nbrp)
+{
+	if (!nbr_gtsm_enabled(nbr, nbrp)) {
+		switch (nbr->af) {
+		case AF_INET:
+			sock_set_ipv4_ucast_ttl(fd, -1);
+			break;
+		case AF_INET6:
+			/*
+			 * Send packets with a Hop Limit of 255 even when GSTM
+			 * is disabled to guarantee interoperability.
+			 */
+			sock_set_ipv6_ucast_hops(fd, 255);
+			break;
+		default:
+			fatalx("nbr_gtsm_check: unknown af");
+			break;
+		}
+		return (0);
+	}
+
+	if (nbr_gtsm_setup(fd, nbr->af, nbrp) == -1) {
+		log_warnx("%s: error enabling GTSM for lsr-id %s", __func__,
+		    inet_ntoa(nbr->id));
+		return (-1);
+	}
 
 	return (0);
 }

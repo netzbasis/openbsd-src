@@ -1,4 +1,4 @@
-/*	$OpenBSD: platform.c,v 1.8 2016/06/08 15:56:29 jsg Exp $	*/
+/*	$OpenBSD: platform.c,v 1.14 2016/08/31 16:19:40 jsg Exp $	*/
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -34,11 +34,12 @@
 
 static struct armv7_platform *platform;
 
+void	agtimer_init(void);
+
 void	exuart_init_cons(void);
 void	imxuart_init_cons(void);
-void	omapuart_init_cons(void);
-void	sxiuart_init_cons(void);
-void	pl011_init_cons(void);
+void	com_fdt_init_cons(void);
+void	pluart_init_cons(void);
 
 struct armv7_platform *imx_platform_match(void);
 struct armv7_platform *omap_platform_match(void);
@@ -72,7 +73,9 @@ void
 platform_init(void)
 {
 	int i;
-	
+
+	agtimer_init();
+
 	for (i = 0; i < nitems(plat_match); i++) {
 		platform = plat_match[i]();
 		if (platform != NULL)
@@ -101,9 +104,8 @@ platform_init_cons(void)
 	}
 	exuart_init_cons();
 	imxuart_init_cons();
-	omapuart_init_cons();
-	sxiuart_init_cons();
-	pl011_init_cons();
+	com_fdt_init_cons();
+	pluart_init_cons();
 }
 
 void

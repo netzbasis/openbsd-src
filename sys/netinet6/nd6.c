@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.186 2016/06/15 11:49:34 mpi Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.191 2016/09/06 00:04:15 dlg Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -93,6 +93,7 @@ struct nd_prhead nd_prefix = { 0 };
 int nd6_recalc_reachtm_interval = ND6_RECALC_REACHTM_INTERVAL;
 
 void nd6_slowtimo(void *);
+void nd6_invalidate(struct rtentry *);
 struct llinfo_nd6 *nd6_free(struct rtentry *, int);
 void nd6_llinfo_timer(void *);
 
@@ -116,6 +117,7 @@ nd6_init(void)
 
 	TAILQ_INIT(&nd6_list);
 	pool_init(&nd6_pool, sizeof(struct llinfo_nd6), 0, 0, 0, "nd6", NULL);
+	pool_setipl(&nd6_pool, IPL_SOFTNET);
 
 	/* initialization of the default router list */
 	TAILQ_INIT(&nd_defrouter);
@@ -153,7 +155,7 @@ void
 nd6_ifdetach(struct nd_ifinfo *nd)
 {
 
-	free(nd, M_IP6NDP, 0);
+	free(nd, M_IP6NDP, sizeof(*nd));
 }
 
 void
@@ -311,10 +313,10 @@ nd6_llinfo_settimer(struct llinfo_nd6 *ln, int secs)
 	s = splsoftnet();
 
 	if (secs < 0) {
-		ln->ln_expire = 0;
+		ln->ln_rt->rt_expire = 0;
 		timeout_del(&ln->ln_timer_ch);
 	} else {
-		ln->ln_expire = time_uptime + secs;
+		ln->ln_rt->rt_expire = time_uptime + secs;
 		timeout_add_sec(&ln->ln_timer_ch, secs);
 	}
 
@@ -711,6 +713,17 @@ nd6_is_addr_neighbor(struct sockaddr_in6 *addr, struct ifnet *ifp)
 	return (0);
 }
 
+void
+nd6_invalidate(struct rtentry *rt)
+{
+	struct llinfo_nd6 *ln = (struct llinfo_nd6 *)rt->rt_llinfo;
+
+	m_freem(ln->ln_hold);
+	ln->ln_hold = NULL;
+	ln->ln_state = ND6_LLINFO_INCOMPLETE;
+	ln->ln_asked = 0;
+}
+
 /*
  * Free an nd6 llinfo entry.
  * Since the function would cause significant changes in the kernel, DO NOT
@@ -814,7 +827,7 @@ nd6_free(struct rtentry *rt, int gc)
 	 * caches, and disable the route entry not to be used in already
 	 * cached routes.
 	 */
-	if (!ISSET(rt->rt_flags, RTF_STATIC))
+	if (!ISSET(rt->rt_flags, RTF_STATIC|RTF_CACHED))
 		rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	splx(s);
 
@@ -882,7 +895,7 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 			dr->installed = 0;
 	}
 
-	if ((rt->rt_flags & RTF_GATEWAY) != 0)
+	if (ISSET(rt->rt_flags, RTF_GATEWAY|RTF_MULTICAST))
 		return;
 
 	if (nd6_need_cache(ifp) == 0 && (rt->rt_flags & RTF_HOST) == 0) {
@@ -981,7 +994,7 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		if (req == RTM_ADD) {
 		        /*
 			 * gate should have some valid AF_LINK entry,
-			 * and ln->ln_expire should have some lifetime
+			 * and ln expire should have some lifetime
 			 * which is specified by ndp command.
 			 */
 			ln->ln_state = ND6_LLINFO_REACHABLE;
@@ -1097,6 +1110,11 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		rt->rt_flags &= ~RTF_LLINFO;
 		m_freem(ln->ln_hold);
 		pool_put(&nd6_pool, ln);
+		break;
+
+	case RTM_INVALIDATE:
+		nd6_invalidate(rt);
+		break;
 	}
 }
 
@@ -1200,7 +1218,7 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 			splx(s);
 			break;
 		}
-		expire = ln->ln_expire;
+		expire = ln->ln_rt->rt_expire;
 		if (expire != 0) {
 			expire -= time_uptime;
 			expire += time_second;
@@ -1495,17 +1513,18 @@ nd6_resolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	struct sockaddr_dl *sdl;
 	struct rtentry *rt;
 	struct llinfo_nd6 *ln = NULL;
-	int error;
 
 	if (m->m_flags & M_MCAST) {
 		ETHER_MAP_IPV6_MULTICAST(&satosin6(dst)->sin6_addr, desten);
 		return (0);
 	}
 
-	error = rt_checkgate(rt0, &rt);
-	if (error) {
+	rt = rt_getll(rt0);
+
+	if (ISSET(rt->rt_flags, RTF_REJECT) &&
+	    (rt->rt_expire == 0 || time_uptime < rt->rt_expire)) {
 		m_freem(m);
-		return (error);
+		return (rt == rt0 ? EHOSTDOWN : EHOSTUNREACH);
 	}
 
 	/*
@@ -1634,7 +1653,7 @@ nd6_sysctl(int name, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 	ol = oldlenp ? *oldlenp : 0;
 
 	if (oldp) {
-		p = malloc(*oldlenp, M_TEMP, M_WAITOK | M_CANFAIL);
+		p = malloc(ol, M_TEMP, M_WAITOK | M_CANFAIL);
 		if (!p)
 			return ENOMEM;
 	} else
@@ -1656,8 +1675,7 @@ nd6_sysctl(int name, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 		error = ENOPROTOOPT;
 		break;
 	}
-	if (p)
-		free(p, M_TEMP, 0);
+	free(p, M_TEMP, ol);
 
 	return (error);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: init_main.c,v 1.253 2016/05/17 23:28:03 bluhm Exp $	*/
+/*	$OpenBSD: init_main.c,v 1.257 2016/09/04 09:22:29 mpi Exp $	*/
 /*	$NetBSD: init_main.c,v 1.84.4.1 1996/06/02 09:08:06 mrg Exp $	*/
 
 /*
@@ -105,7 +105,7 @@ extern void nfs_init(void);
 const char	copyright[] =
 "Copyright (c) 1982, 1986, 1989, 1991, 1993\n"
 "\tThe Regents of the University of California.  All rights reserved.\n"
-"Copyright (c) 1995-2016 OpenBSD. All rights reserved.  http://www.OpenBSD.org\n";
+"Copyright (c) 1995-2016 OpenBSD. All rights reserved.  https://www.OpenBSD.org\n";
 
 /* Components of the first process -- never freed. */
 struct	session session0;
@@ -139,6 +139,7 @@ void	start_cleaner(void *);
 void	start_update(void *);
 void	start_reaper(void *);
 void	crypto_init(void);
+void	prof_init(void);
 void	init_exec(void);
 void	kqueue_init(void);
 void	taskq_init(void);
@@ -400,18 +401,9 @@ main(void *framep)
 
 	initconsbuf();
 
-#ifdef GPROF
+#if defined(GPROF) || defined(DDBPROF)
 	/* Initialize kernel profiling. */
-	kmstartup();
-#endif
-
-#if !defined(NO_PROPOLICE)
-	if (__guard_local == 0) {
-		volatile long newguard;
-
-		arc4random_buf((void *)&newguard, sizeof newguard);
-		__guard_local = newguard;
-	}
+	prof_init();
 #endif
 
 	/* init exec and emul */
@@ -550,6 +542,8 @@ main(void *framep)
 #if !(defined(__m88k__) && defined(MULTIPROCESSOR))	/* XXX */
 	pool_gc_pages(NULL);
 #endif
+
+	start_periodic_resettodr();
 
         /*
          * proc0: nothing to do, back to sleep

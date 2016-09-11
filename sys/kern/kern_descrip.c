@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.132 2016/05/29 13:51:53 natano Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.134 2016/08/25 00:00:02 dlg Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -68,7 +68,7 @@
  * Descriptor management.
  */
 struct filelist filehead;	/* head of list of open files */
-int nfiles;			/* actual number of open files */
+int numfiles;			/* actual number of open files */
 
 static __inline void fd_used(struct filedesc *, int);
 static __inline void fd_unused(struct filedesc *, int);
@@ -85,8 +85,10 @@ filedesc_init(void)
 {
 	pool_init(&file_pool, sizeof(struct file), 0, 0, PR_WAITOK,
 	    "filepl", NULL);
+	pool_setipl(&file_pool, IPL_NONE);
 	pool_init(&fdesc_pool, sizeof(struct filedesc0), 0, 0, PR_WAITOK,
 	    "fdescpl", NULL);
+	pool_setipl(&fdesc_pool, IPL_NONE);
 	LIST_INIT(&filehead);
 }
 
@@ -901,7 +903,7 @@ restart:
 		}
 		return (error);
 	}
-	if (nfiles >= maxfiles) {
+	if (numfiles >= maxfiles) {
 		fd_unused(p->p_fd, i);
 		tablefull("file");
 		return (ENFILE);
@@ -912,7 +914,7 @@ restart:
 	 * of open files at that point, otherwise put it at the front of
 	 * the list of open files.
 	 */
-	nfiles++;
+	numfiles++;
 	fp = pool_get(&file_pool, PR_WAITOK|PR_ZERO);
 	fp->f_iflags = FIF_LARVAL;
 	if ((fq = p->p_fd->fd_ofiles[0]) != NULL) {
@@ -1165,7 +1167,7 @@ fdrop(struct file *fp, struct proc *p)
 	/* Free fp */
 	LIST_REMOVE(fp, f_list);
 	crfree(fp->f_cred);
-	nfiles--;
+	numfiles--;
 	pool_put(&file_pool, fp);
 
 	return (error);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdt.c,v 1.14 2016/06/14 14:35:27 kettenis Exp $	*/
+/*	$OpenBSD: fdt.c,v 1.19 2016/08/23 18:12:09 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2009 Dariusz Swiderski <sfires@sfires.net>
@@ -33,10 +33,12 @@ void	*skip_property(u_int32_t *);
 void	*skip_props(u_int32_t *);
 void	*skip_node_name(u_int32_t *);
 void	*skip_node(void *);
+void	*skip_nops(u_int32_t *);
 void	*fdt_parent_node_recurse(void *, void *);
+void	*fdt_find_phandle_recurse(void *, uint32_t);
 int	 fdt_node_property_int(void *, char *, int *);
 int	 fdt_node_property_ints(void *, char *, int *, int);
-int	 fdt_translate_memory_address(void *, struct fdt_memory *);
+int	 fdt_translate_reg(void *, struct fdt_reg *);
 #ifdef DEBUG
 void 	 fdt_print_node_recurse(void *, int);
 #endif
@@ -48,7 +50,7 @@ unsigned int
 fdt_check_head(void *fdt)
 {
 	struct fdt_head *fh;
-	u_int32_t *ptr;
+	u_int32_t *ptr, *tok;
 
 	fh = fdt;
 	ptr = (u_int32_t *)fdt;
@@ -59,8 +61,8 @@ fdt_check_head(void *fdt)
 	if (betoh32(fh->fh_version) > FDT_CODE_VERSION)
 		return 0;
 
-	if (betoh32(*(ptr + (betoh32(fh->fh_struct_off) / 4))) !=
-	    FDT_NODE_BEGIN)
+	tok = skip_nops(ptr + (betoh32(fh->fh_struct_off) / 4));
+	if (betoh32(*tok) != FDT_NODE_BEGIN)
 		return 0;
 
 	/* check for end signature on version 17 blob */
@@ -130,6 +132,16 @@ fdt_get_str(u_int32_t num)
 /*
  * Utility functions for skipping parts of tree.
  */
+
+void *
+skip_nops(u_int32_t *ptr)
+{
+	while (betoh32(*ptr) == FDT_NOP)
+		ptr++;
+
+	return ptr;
+}
+
 void *
 skip_property(u_int32_t *ptr)
 {
@@ -139,7 +151,7 @@ skip_property(u_int32_t *ptr)
 	/* move forward by magic + size + nameid + rounded up property size */
 	ptr += 3 + roundup(size, sizeof(u_int32_t)) / sizeof(u_int32_t);
 
-	return ptr;
+	return skip_nops(ptr);
 }
 
 void *
@@ -155,8 +167,10 @@ void *
 skip_node_name(u_int32_t *ptr)
 {
 	/* skip name, aligned to 4 bytes, this is NULL term., so must add 1 */
-	return ptr + roundup(strlen((char *)ptr) + 1,
+	ptr += roundup(strlen((char *)ptr) + 1,
 	    sizeof(u_int32_t)) / sizeof(u_int32_t);
+
+	return skip_nops(ptr);
 }
 
 /*
@@ -210,7 +224,7 @@ skip_node(void *node)
 	while (betoh32(*ptr) == FDT_NODE_BEGIN)
 		ptr = skip_node(ptr);
 
-	return (ptr + 1);
+	return skip_nops(ptr + 1);
 }
 
 /*
@@ -229,7 +243,7 @@ fdt_next_node(void *node)
 	ptr = node;
 
 	if (node == NULL) {
-		ptr = tree.tree;
+		ptr = skip_nops(tree.tree);
 		return (betoh32(*ptr) == FDT_NODE_BEGIN) ? ptr : NULL;
 	}
 
@@ -248,10 +262,12 @@ fdt_next_node(void *node)
 	if (betoh32(*ptr) != FDT_NODE_END)
 		return NULL;
 
-	if (betoh32(*(ptr + 1)) != FDT_NODE_BEGIN)
+	ptr = skip_nops(ptr + 1);
+
+	if (betoh32(*ptr) != FDT_NODE_BEGIN)
 		return NULL;
 
-	return (ptr + 1);
+	return ptr;
 }
 
 int
@@ -394,6 +410,9 @@ fdt_find_node(char *name)
 			}
 		}
 
+		if (child == NULL)
+			return NULL; /* No match found. */
+
 		p = q;
 	}
 
@@ -428,6 +447,34 @@ fdt_parent_node(void *node)
 	return fdt_parent_node_recurse(pnode, node);
 }
 
+void *
+fdt_find_phandle_recurse(void *node, uint32_t phandle)
+{
+	void *child;
+	char *data;
+	void *tmp;
+	int len;
+
+	len = fdt_node_property(node, "phandle", &data);
+	if (len < 0)
+		len = fdt_node_property(node, "linux,phandle", &data);
+
+	if (len == sizeof(uint32_t) && bemtoh32(data) == phandle)
+		return node;
+
+	for (child = fdt_child_node(node); child; child = fdt_next_node(child))
+		if ((tmp = fdt_find_phandle_recurse(child, phandle)))
+			return tmp;
+
+	return NULL;
+}
+
+void *
+fdt_find_phandle(uint32_t phandle)
+{
+	return fdt_find_phandle_recurse(fdt_next_node(0), phandle);
+}
+
 /*
  * Translate memory address depending on parent's range.
  *
@@ -448,7 +495,7 @@ fdt_parent_node(void *node)
  * has a ranges attribute and ask the same questions again.
  */
 int
-fdt_translate_memory_address(void *node, struct fdt_memory *mem)
+fdt_translate_reg(void *node, struct fdt_reg *reg)
 {
 	void *parent;
 	int pac, psc, ac, sc, ret, rlen, rone, *range;
@@ -468,7 +515,7 @@ fdt_translate_memory_address(void *node, struct fdt_memory *mem)
 
 	/* Empty ranges means 1:1 mapping. Continue translation on parent. */
 	if (rlen <= 0)
-		return fdt_translate_memory_address(parent, mem);
+		return fdt_translate_reg(parent, reg);
 
 	/* We only support 32-bit (1), and 64-bit (2) wide addresses here. */
 	ret = fdt_node_property_int(parent, "#address-cells", &pac);
@@ -510,7 +557,7 @@ fdt_translate_memory_address(void *node, struct fdt_memory *mem)
 			size = (size << 32) + betoh32(range[ac + pac + 1]);
 
 		/* Try next, if we're not in the range. */
-		if (mem->addr < from || (mem->addr + mem->size) > (from + size))
+		if (reg->addr < from || (reg->addr + reg->size) > (from + size))
 			continue;
 
 		/* All good, extract to address and translate. */
@@ -518,9 +565,9 @@ fdt_translate_memory_address(void *node, struct fdt_memory *mem)
 		if (pac == 2)
 			to = (to << 32) + betoh32(range[ac + 1]);
 
-		mem->addr -= from;
-		mem->addr += to;
-		return fdt_translate_memory_address(parent, mem);
+		reg->addr -= from;
+		reg->addr += to;
+		return fdt_translate_reg(parent, reg);
 	}
 
 	/* To be successful, we must have returned in the for-loop. */
@@ -531,12 +578,12 @@ fdt_translate_memory_address(void *node, struct fdt_memory *mem)
  * Parse the memory address and size of a node.
  */
 int
-fdt_get_memory_address(void *node, int idx, struct fdt_memory *mem)
+fdt_get_reg(void *node, int idx, struct fdt_reg *reg)
 {
 	void *parent;
 	int ac, sc, off, ret, *in, inlen;
 
-	if (node == NULL || mem == NULL)
+	if (node == NULL || reg == NULL)
 		return EINVAL;
 
 	parent = fdt_parent_node(node);
@@ -559,15 +606,15 @@ fdt_get_memory_address(void *node, int idx, struct fdt_memory *mem)
 
 	off = idx * (ac + sc);
 
-	mem->addr = betoh32(in[off]);
+	reg->addr = betoh32(in[off]);
 	if (ac == 2)
-		mem->addr = (mem->addr << 32) + betoh32(in[off + 1]);
+		reg->addr = (reg->addr << 32) + betoh32(in[off + 1]);
 
-	mem->size = betoh32(in[off + ac]);
+	reg->size = betoh32(in[off + ac]);
 	if (sc == 2)
-		mem->size = (mem->size << 32) + betoh32(in[off + ac + 1]);
+		reg->size = (reg->size << 32) + betoh32(in[off + ac + 1]);
 
-	return fdt_translate_memory_address(parent, mem);
+	return fdt_translate_reg(parent, reg);
 }
 
 int
@@ -737,6 +784,15 @@ OF_getnodebyname(int handle, const char *name)
 }
 
 int
+OF_getnodebyphandle(uint32_t phandle)
+{
+	void *node;
+
+	node = fdt_find_phandle(phandle);
+	return node ? ((char *)node - (char *)tree.header) : 0;
+}
+
+int
 OF_getproplen(int handle, char *prop)
 {
 	void *node = (char *)tree.header + handle;
@@ -830,7 +886,7 @@ OF_nextprop(int handle, char *prop, void *nextprop)
 	void *node = (char *)tree.header + handle;
 	char *data;
 
-	if (fdt_node_property(node, "name", &data) == 0) {
+	if (fdt_node_property(node, "name", &data) == -1) {
 		if (strcmp(prop, "") == 0)
 			return strlcpy(nextprop, "name", OPROMMAXPARAM);
 		if (strcmp(prop, "name") == 0)

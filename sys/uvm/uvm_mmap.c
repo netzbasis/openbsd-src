@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_mmap.c,v 1.134 2016/06/08 15:38:28 deraadt Exp $	*/
+/*	$OpenBSD: uvm_mmap.c,v 1.139 2016/08/18 19:59:16 deraadt Exp $	*/
 /*	$NetBSD: uvm_mmap.c,v 1.49 2001/02/18 21:19:08 chs Exp $	*/
 
 /*
@@ -325,7 +325,7 @@ uvm_wxcheck(struct proc *p, char *call)
 	if (pr->ps_wxcounter++ == 0)
 		log(LOG_NOTICE, "%s(%d): %s W^X violation\n",
 		    p->p_comm, p->p_pid, call);
-	if (!wxallowed || uvm_wxabort) {
+	if (uvm_wxabort) {
 		struct sigaction sa;
 
 		/* Send uncatchable SIGABRT for coredump */
@@ -334,7 +334,7 @@ uvm_wxcheck(struct proc *p, char *call)
 		setsigvec(p, SIGABRT, &sa);
 		psignal(p, SIGABRT);
 	}
-	return (0);		/* ENOTSUP later */
+	return (ENOTSUP);
 }
 
 /*
@@ -521,7 +521,7 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 			/* MAP_PRIVATE mappings can always write to */
 			maxprot |= PROT_WRITE;
 		}
-		if ((flags & MAP_ANON) != 0 ||
+		if ((flags & MAP_ANON) != 0 || (flags & __MAP_NOFAULT) != 0 ||
 		    ((flags & MAP_PRIVATE) != 0 && (prot & PROT_WRITE) != 0)) {
 			if (p->p_rlimit[RLIMIT_DATA].rlim_cur < size ||
 			    p->p_rlimit[RLIMIT_DATA].rlim_cur - size <
@@ -541,7 +541,7 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 
 is_anon:	/* label for SunOS style /dev/zero */
 
-		if ((flags & MAP_ANON) != 0 ||
+		if ((flags & MAP_ANON) != 0 || (flags & __MAP_NOFAULT) != 0 ||
 		    ((flags & MAP_PRIVATE) != 0 && (prot & PROT_WRITE) != 0)) {
 			if (p->p_rlimit[RLIMIT_DATA].rlim_cur < size ||
 			    p->p_rlimit[RLIMIT_DATA].rlim_cur - size <

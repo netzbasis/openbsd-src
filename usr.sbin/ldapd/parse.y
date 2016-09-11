@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.17 2016/05/01 00:32:37 jmatthew Exp $ */
+/*	$OpenBSD: parse.y,v 1.19 2016/07/13 16:35:47 jsing Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martinh@openbsd.org>
@@ -359,6 +359,14 @@ include		: INCLUDE STRING		{
 		;
 
 varset		: STRING '=' STRING		{
+			char *s = $1;
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -1206,7 +1214,7 @@ load_certfile(struct ldapd_config *env, const char *name, u_int8_t flags)
 		goto err;
 
 	tls_config_set_protocols(s->config, TLS_PROTOCOLS_ALL);
-	if (tls_config_set_ciphers(s->config, "compat")) {
+	if (tls_config_set_ciphers(s->config, "all")) {
 		log_warn("load_certfile: failed to set tls ciphers: %s",
 		    tls_config_error(s->config));
 		goto err;

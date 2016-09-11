@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmvar.h,v 1.15 2016/06/10 16:37:16 stefan Exp $	*/
+/*	$OpenBSD: vmmvar.h,v 1.19 2016/09/04 08:49:18 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -151,30 +151,49 @@ struct vcpu_segment_info {
 	uint64_t vsi_base;
 };
 
-/*
- * struct vcpu_init_state describes the set of vmd-settable registers
- * that the VM's vcpus will be set to during VM boot or reset. Certain
- * registers are always set to 0 (eg, the GP regs) and certain registers
- * have fixed values based on hardware requirements and calculated by
- * vmm (eg, CR0/CR4)
- */
-struct vcpu_init_state {
-	uint64_t			vis_rflags;
-	uint64_t			vis_rip;
-	uint64_t			vis_rsp;
-	uint64_t			vis_cr0;
-	uint64_t			vis_cr3;
+#define VCPU_REGS_RAX		0
+#define VCPU_REGS_RBX		1
+#define VCPU_REGS_RCX		2
+#define VCPU_REGS_RDX		3
+#define VCPU_REGS_RSI		4
+#define VCPU_REGS_RDI		5
+#define VCPU_REGS_R8		6
+#define VCPU_REGS_R9		7
+#define VCPU_REGS_R10		8
+#define VCPU_REGS_R11		9
+#define VCPU_REGS_R12		10
+#define VCPU_REGS_R13		11
+#define VCPU_REGS_R14		12
+#define VCPU_REGS_R15		13
+#define VCPU_REGS_RSP		14
+#define VCPU_REGS_RBP		15
+#define VCPU_REGS_RIP		16
+#define VCPU_REGS_RFLAGS	17
+#define VCPU_REGS_NGPRS		(VCPU_REGS_RFLAGS + 1)
 
-	struct vcpu_segment_info	vis_cs;
-	struct vcpu_segment_info	vis_ds;
-	struct vcpu_segment_info	vis_es;
-	struct vcpu_segment_info	vis_fs;
-	struct vcpu_segment_info	vis_gs;
-	struct vcpu_segment_info	vis_ss;
-	struct vcpu_segment_info	vis_gdtr;
-	struct vcpu_segment_info	vis_idtr;
-	struct vcpu_segment_info	vis_ldtr;
-	struct vcpu_segment_info	vis_tr;
+#define VCPU_REGS_CR0	0
+#define VCPU_REGS_CR2	1
+#define VCPU_REGS_CR3	2
+#define VCPU_REGS_CR4	3
+#define VCPU_REGS_CR8	4
+#define VCPU_REGS_NCRS	(VCPU_REGS_CR8 + 1)
+
+#define VCPU_REGS_CS		0
+#define VCPU_REGS_DS		1
+#define VCPU_REGS_ES		2
+#define VCPU_REGS_FS		3
+#define VCPU_REGS_GS		4
+#define VCPU_REGS_SS		5
+#define VCPU_REGS_LDTR		6
+#define VCPU_REGS_TR		7
+#define VCPU_REGS_NSREGS	(VCPU_REGS_TR + 1)
+
+struct vcpu_reg_state {
+	uint64_t			vrs_gprs[VCPU_REGS_NGPRS];
+	uint64_t			vrs_crs[VCPU_REGS_NCRS];
+	struct vcpu_segment_info	vrs_sregs[VCPU_REGS_NSREGS];
+	struct vcpu_segment_info	vrs_gdtr;
+	struct vcpu_segment_info	vrs_idtr;
 };
 
 struct vm_mem_range {
@@ -204,13 +223,14 @@ struct vm_run_params {
 	uint32_t	vrp_vm_id;
 	uint32_t	vrp_vcpu_id;
 	uint8_t		vrp_continue;		/* Continuing from an exit */
-	int16_t		vrp_injint;		/* Injected interrupt vector */
+	uint16_t	vrp_irq;		/* IRQ to inject */
 
 	/* Input/output parameter to VMM_IOC_RUN */
 	union vm_exit	*vrp_exit;		/* updated exit data */
 
 	/* Output parameter from VMM_IOC_RUN */
 	uint16_t	vrp_exit_reason;	/* exit reason */
+	uint8_t		vrp_irqready;		/* ready for IRQ on entry */
 };
 
 struct vm_info_result {
@@ -242,7 +262,7 @@ struct vm_resetcpu_params {
 	/* Input parameters to VMM_IOC_RESETCPU */
 	uint32_t		vrp_vm_id;
 	uint32_t		vrp_vcpu_id;
-	struct vcpu_init_state	vrp_init_state;
+	struct vcpu_reg_state	vrp_init_state;
 };
 
 struct vm_intr_params {
@@ -252,6 +272,18 @@ struct vm_intr_params {
 	uint16_t		vip_intr;
 };
 
+#define VM_RWREGS_GPRS	0x1	/* read/write GPRs */
+#define VM_RWREGS_SREGS	0x2	/* read/write segment registers */
+#define VM_RWREGS_CRS	0x4	/* read/write CRs */
+#define VM_RWREGS_ALL	(VM_RWREGS_GPRS | VM_RWREGS_SREGS | VM_RWREGS_CRS)
+
+struct vm_rwregs_params {
+	uint32_t		vrwp_vm_id;
+	uint32_t		vrwp_vcpu_id;
+	uint64_t		vrwp_mask;
+	struct vcpu_reg_state	vrwp_regs;
+};
+
 /* IOCTL definitions */
 #define VMM_IOC_CREATE _IOWR('V', 1, struct vm_create_params) /* Create VM */
 #define VMM_IOC_RUN _IOWR('V', 2, struct vm_run_params) /* Run VCPU */
@@ -259,6 +291,8 @@ struct vm_intr_params {
 #define VMM_IOC_TERM _IOW('V', 4, struct vm_terminate_params) /* Terminate VM */
 #define VMM_IOC_RESETCPU _IOW('V', 5, struct vm_resetcpu_params) /* Reset */
 #define VMM_IOC_INTR _IOW('V', 6, struct vm_intr_params) /* Intr pending */
+#define VMM_IOC_READREGS _IOWR('V', 7, struct vm_rwregs_params) /* Get registers */
+#define VMM_IOC_WRITEREGS _IOW('V', 8, struct vm_rwregs_params) /* Set registers */
 
 #ifdef _KERNEL
 
@@ -267,6 +301,10 @@ struct vm_intr_params {
 #define VMX_FAIL_LAUNCH_VALID_VMCS 3
 
 #define VMX_NUM_MSR_STORE 7
+
+/* MSR bitmap manipulation macros */
+#define MSRIDX(m) ((m) / 8)
+#define MSRBIT(m) (1 << (m) % 8)
 
 enum {
 	VMM_MODE_UNKNOWN,
@@ -340,6 +378,7 @@ struct vmx_gueststate
 	uint64_t	vg_cr2;			/* 0x78 */
 	uint64_t	vg_rip;			/* 0x80 */
 	uint32_t	vg_exit_reason;		/* 0x88 */
+	uint64_t	vg_rflags;		/* 0x90 */
 };
 
 /*
@@ -375,6 +414,7 @@ struct vcpu {
 	union vm_exit vc_exit;
 
 	uint16_t vc_intr;
+	uint8_t vc_irqready;
 
 	/* VMX only */
 	uint64_t vc_vmx_basic;

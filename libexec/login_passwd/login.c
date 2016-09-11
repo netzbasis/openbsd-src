@@ -1,4 +1,4 @@
-/*	$OpenBSD: login.c,v 1.12 2015/10/05 17:31:17 millert Exp $	*/
+/*	$OpenBSD: login.c,v 1.16 2016/09/03 11:24:40 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1995 Berkeley Software Design, Inc. All rights reserved.
@@ -43,6 +43,7 @@ main(int argc, char **argv)
 {
 	int opt, mode = 0, ret, lastchance = 0;
 	char *username, *password = NULL;
+	char pbuf[1024];
 	char response[1024];
 	int arg_login = 0, arg_notickets = 0;
 	char invokinguser[LOGIN_NAME_MAX];
@@ -120,7 +121,7 @@ main(int argc, char **argv)
 		mode = 0;
 		count = -1;
 		while (++count < sizeof(response) &&
-		    read(3, &response[count], (size_t)1) == (ssize_t)1) {
+		    read(3, &response[count], 1) == 1) {
 			if (response[count] == '\0' && ++mode == 2)
 				break;
 			if (response[count] == '\0' && mode == 1) {
@@ -135,7 +136,7 @@ main(int argc, char **argv)
 	}
 
 	case MODE_LOGIN:
-		password = getpass("Password:");
+		password = readpassphrase("Password:", pbuf, sizeof(pbuf), RPP_ECHO_OFF);
 		break;
 	case MODE_CHALLENGE:
 		fprintf(back, BI_AUTH "\n");
@@ -148,10 +149,6 @@ main(int argc, char **argv)
 	}
 
 	ret = AUTH_FAILED;
-#ifdef KRB5
-	ret = krb5_login(username, invokinguser, password, arg_login,
-			 !arg_notickets, class);
-#endif
 #ifdef PASSWD
 	if (ret != AUTH_OK)
 		ret = pwd_login(username, password, wheel, lastchance, class);

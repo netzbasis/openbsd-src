@@ -1,4 +1,4 @@
-/*	$OpenBSD: eigrpe.c,v 1.24 2016/06/05 17:07:41 renato Exp $ */
+/*	$OpenBSD: eigrpe.c,v 1.34 2016/09/02 17:59:58 benno Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -19,39 +19,38 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <stdlib.h>
-#include <arpa/inet.h>
-#include <signal.h>
-#include <string.h>
-#include <fcntl.h>
-#include <pwd.h>
-#include <unistd.h>
-#include <errno.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
 
-#include "eigrp.h"
+#include <arpa/inet.h>
+#include <errno.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "eigrpd.h"
 #include "eigrpe.h"
 #include "rde.h"
-#include "control.h"
 #include "log.h"
+#include "control.h"
 
-void		 eigrpe_sig_handler(int, short, void *);
-void		 eigrpe_shutdown(void);
+static void		 eigrpe_sig_handler(int, short, void *);
+static __dead void	 eigrpe_shutdown(void);
+static void		 eigrpe_dispatch_main(int, short, void *);
+static void		 eigrpe_dispatch_rde(int, short, void *);
+
+struct eigrpd_conf	*econf;
 
 static struct event	 ev4;
 static struct event	 ev6;
-struct eigrpd_conf	*econf = NULL, *nconf;
-struct imsgev		*iev_main;
-struct imsgev		*iev_rde;
-
-extern struct iface_id_head ifaces_by_id;
-RB_PROTOTYPE(iface_id_head, eigrp_iface, id_tree, iface_id_compare)
-
-extern struct nbr_addr_head nbrs_by_addr;
-RB_PROTOTYPE(nbr_addr_head, nbr, addr_tree, nbr_compare)
+static struct imsgev	*iev_main;
+static struct imsgev	*iev_rde;
 
 /* ARGSUSED */
-void
+static void
 eigrpe_sig_handler(int sig, short event, void *bula)
 {
 	switch (sig) {
@@ -65,7 +64,7 @@ eigrpe_sig_handler(int sig, short event, void *bula)
 }
 
 /* eigrp engine */
-pid_t
+void
 eigrpe(int debug, int verbose, char *sockname)
 {
 	struct passwd		*pw;
@@ -80,6 +79,11 @@ eigrpe(int debug, int verbose, char *sockname)
 	global.csock = sockname;
 	if (control_init(global.csock) == -1)
 		fatalx("control socket setup failed");
+
+	if (inet_pton(AF_INET, AllEIGRPRouters_v4, &global.mcast_addr_v4) != 1)
+		fatal("inet_pton");
+	if (inet_pton(AF_INET6, AllEIGRPRouters_v6, &global.mcast_addr_v6) != 1)
+		fatal("inet_pton");
 
 	/* create the raw ipv4 socket */
 	if ((global.eigrp_socket_v4 = socket(AF_INET,
@@ -122,11 +126,15 @@ eigrpe(int debug, int verbose, char *sockname)
 
 	setproctitle("eigrp engine");
 	eigrpd_process = PROC_EIGRP_ENGINE;
+	log_procname = log_procnames[eigrpd_process];
 
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("can't drop privileges");
+
+	if (pledge("stdio cpath inet mcast recvfd", NULL) == -1)
+		fatal("pledge");
 
 	event_init();
 
@@ -149,11 +157,11 @@ eigrpe(int debug, int verbose, char *sockname)
 	event_add(&iev_main->ev, NULL);
 
 	event_set(&ev4, global.eigrp_socket_v4, EV_READ|EV_PERSIST,
-	    recv_packet_v4, econf);
+	    recv_packet, econf);
 	event_add(&ev4, NULL);
 
 	event_set(&ev6, global.eigrp_socket_v6, EV_READ|EV_PERSIST,
-	    recv_packet_v6, econf);
+	    recv_packet, econf);
 	event_add(&ev6, NULL);
 
 	/* listen on eigrpd control socket */
@@ -163,21 +171,23 @@ eigrpe(int debug, int verbose, char *sockname)
 	if ((pkt_ptr = calloc(1, READ_BUF_SIZE)) == NULL)
 		fatal("eigrpe");
 
-	if (pledge("stdio cpath inet mcast recvfd", NULL) == -1)
-		fatal("pledge");
-
 	event_dispatch();
 
 	eigrpe_shutdown();
-	/* NOTREACHED */
-	return (0);
 }
 
-void
+static __dead void
 eigrpe_shutdown(void)
 {
-	control_cleanup(global.csock);
+	/* close pipes */
+	msgbuf_write(&iev_rde->ibuf.w);
+	msgbuf_clear(&iev_rde->ibuf.w);
+	close(iev_rde->ibuf.fd);
+	msgbuf_write(&iev_main->ibuf.w);
+	msgbuf_clear(&iev_main->ibuf.w);
+	close(iev_main->ibuf.fd);
 
+	control_cleanup(global.csock);
 	config_clear(econf);
 
 	event_del(&ev4);
@@ -186,16 +196,12 @@ eigrpe_shutdown(void)
 	close(global.eigrp_socket_v6);
 
 	/* clean up */
-	msgbuf_write(&iev_rde->ibuf.w);
-	msgbuf_clear(&iev_rde->ibuf.w);
 	free(iev_rde);
-	msgbuf_write(&iev_main->ibuf.w);
-	msgbuf_clear(&iev_main->ibuf.w);
 	free(iev_main);
 	free(pkt_ptr);
 
 	log_info("eigrp engine exiting");
-	_exit(0);
+	exit(0);
 }
 
 /* imesg */
@@ -214,10 +220,11 @@ eigrpe_imsg_compose_rde(int type, uint32_t peerid, pid_t pid,
 }
 
 /* ARGSUSED */
-void
+static void
 eigrpe_dispatch_main(int fd, short event, void *bula)
 {
-	static struct iface	*niface = NULL;
+	static struct eigrpd_conf *nconf;
+	static struct iface	*niface;
 	static struct eigrp	*neigrp;
 	struct eigrp_iface	*nei;
 	struct imsg		 imsg;
@@ -388,7 +395,7 @@ eigrpe_dispatch_main(int fd, short event, void *bula)
 }
 
 /* ARGSUSED */
-void
+static void
 eigrpe_dispatch_rde(int fd, short event, void *bula)
 {
 	struct imsgev		*iev = bula;

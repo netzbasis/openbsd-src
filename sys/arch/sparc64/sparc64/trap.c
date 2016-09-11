@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.88 2016/02/27 13:08:07 mpi Exp $	*/
+/*	$OpenBSD: trap.c,v 1.92 2016/09/11 03:14:04 guenther Exp $	*/
 /*	$NetBSD: trap.c,v 1.73 2001/08/09 01:03:01 eeh Exp $ */
 
 /*
@@ -88,11 +88,11 @@
 int trapstats = 0;
 int protfix = 0;
 int udmiss = 0;	/* Number of normal/nucleus data/text miss/protection faults */
-int udhit = 0;	
+int udhit = 0;
 int udprot = 0;
 int utmiss = 0;
 int kdmiss = 0;
-int kdhit = 0;	
+int kdhit = 0;
 int kdprot = 0;
 int ktmiss = 0;
 int iveccnt = 0; /* number if normal/nucleus interrupt/interrupt vector faults */
@@ -309,16 +309,16 @@ const char *trap_type[] = {
 
 #define	N_TRAP_TYPES	(sizeof trap_type / sizeof *trap_type)
 
-static __inline void share_fpu(struct proc *, struct trapframe64 *);
+static inline void share_fpu(struct proc *, struct trapframe64 *);
 
 void trap(struct trapframe64 *tf, unsigned type, vaddr_t pc, long tstate);
-void data_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc, 
+void data_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 	vaddr_t va, vaddr_t sfva, u_long sfsr);
-void data_access_error(struct trapframe64 *tf, unsigned type, 
+void data_access_error(struct trapframe64 *tf, unsigned type,
 	vaddr_t afva, u_long afsr, vaddr_t sfva, u_long sfsr);
-void text_access_fault(struct trapframe64 *tf, unsigned type, 
+void text_access_fault(struct trapframe64 *tf, unsigned type,
 	vaddr_t pc, u_long sfsr);
-void text_access_error(struct trapframe64 *tf, unsigned type, 
+void text_access_error(struct trapframe64 *tf, unsigned type,
 	vaddr_t pc, u_long sfsr, vaddr_t afva, u_long afsr);
 void syscall(struct trapframe64 *, register_t code, register_t pc);
 
@@ -330,9 +330,8 @@ void syscall(struct trapframe64 *, register_t code, register_t pc);
  *
  * Oh, and don't touch the FPU bit if we're returning to the kernel.
  */
-static __inline void share_fpu(p, tf)
-	struct proc *p;
-	struct trapframe64 *tf;
+static inline void
+share_fpu(struct proc *p, struct trapframe64 *tf)
 {
 	if (!(tf->tf_tstate & TSTATE_PRIV) &&
 	    (tf->tf_tstate & TSTATE_PEF) && fpproc != p)
@@ -344,11 +343,7 @@ static __inline void share_fpu(p, tf)
  * (MMU-related traps go through mem_access_fault, below.)
  */
 void
-trap(tf, type, pc, tstate)
-	struct trapframe64 *tf;
-	unsigned type;
-	vaddr_t pc;
-	long tstate;
+trap(struct trapframe64 *tf, unsigned type, vaddr_t pc, long tstate)
 {
 	struct proc *p;
 	struct pcb *pcb;
@@ -611,7 +606,7 @@ dopanic:
 		isfsr = ldxa(SFSR, ASI_IMMU);
 	}
 #endif
-		/* 
+		/*
 		 * If we're busy doing copyin/copyout continue
 		 */
 		if (p->p_addr->u_pcb.pcb_onfault) {
@@ -619,7 +614,7 @@ dopanic:
 			tf->tf_npc = tf->tf_pc + 4;
 			break;
 		}
-		
+
 		/* XXX sv.sival_ptr should be the fault address! */
 		KERNEL_LOCK();
 		trapsignal(p, SIGBUS, 0, BUS_ADRALN, sv);	/* XXX code? */
@@ -746,8 +741,7 @@ rwindow_save(struct proc *p)
  * the registers into the new process after the exec.
  */
 void
-pmap_unuse_final(p)
-	struct proc *p;
+pmap_unuse_final(struct proc *p)
 {
 
 	write_user_windows();
@@ -759,13 +753,8 @@ pmap_unuse_final(p)
  * of them could be recoverable through uvm_fault.
  */
 void
-data_access_fault(tf, type, pc, addr, sfva, sfsr)
-	struct trapframe64 *tf;
-	unsigned type;
-	vaddr_t pc;
-	vaddr_t addr;
-	vaddr_t sfva;
-	u_long sfsr;
+data_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
+    vaddr_t addr, vaddr_t sfva, u_long sfsr)
 {
 	u_int64_t tstate;
 	struct proc *p;
@@ -785,7 +774,7 @@ data_access_fault(tf, type, pc, addr, sfva, sfsr)
 	/* Find the faulting va to give to uvm_fault */
 	va = trunc_page(addr);
 
-	/* 
+	/*
 	 * Now munch on protections.
 	 *
 	 * If it was a FAST_DATA_ACCESS_MMU_MISS we have no idea what the
@@ -907,13 +896,8 @@ kfault:
  * special PEEK/POKE code sequence.
  */
 void
-data_access_error(tf, type, afva, afsr, sfva, sfsr)
-	struct trapframe64 *tf;
-	unsigned type;
-	vaddr_t sfva;
-	u_long sfsr;
-	vaddr_t afva;
-	u_long afsr;
+data_access_error(struct trapframe64 *tf, unsigned type, vaddr_t afva,
+    u_long afsr, vaddr_t sfva, u_long sfsr)
 {
 	u_long pc;
 	u_int64_t tstate;
@@ -989,11 +973,8 @@ out:
  * of them could be recoverable through uvm_fault.
  */
 void
-text_access_fault(tf, type, pc, sfsr)
-	unsigned type;
-	vaddr_t pc;
-	struct trapframe64 *tf;
-	u_long sfsr;
+text_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
+    u_long sfsr)
 {
 	u_int64_t tstate;
 	struct proc *p;
@@ -1076,13 +1057,8 @@ text_access_fault(tf, type, pc, sfsr)
  * special PEEK/POKE code sequence.
  */
 void
-text_access_error(tf, type, pc, sfsr, afva, afsr)
-	struct trapframe64 *tf;
-	unsigned type;
-	vaddr_t pc;
-	u_long sfsr;
-	vaddr_t afva;
-	u_long afsr;
+text_access_error(struct trapframe64 *tf, unsigned type, vaddr_t pc,
+    u_long sfsr, vaddr_t afva, u_long afsr)
 {
 	int64_t tstate;
 	struct proc *p;
@@ -1186,33 +1162,9 @@ out:
  * `in' registers within the syscall trap code (because of the automatic
  * `save' effect of each trap).  They are, however, the %o registers of the
  * thing that made the system call, and are named that way here.
- *
- * 32-bit system calls on a 64-bit system are a problem.  Each system call
- * argument is stored in the smaller of the argument's true size or a
- * `register_t'.  Now on a 64-bit machine all normal types can be stored in a
- * `register_t'.  (The only exceptions would be 128-bit `quad's or 128-bit
- * extended precision floating point values, which we don't support.)  For
- * 32-bit syscalls, 64-bit integers like `off_t's, double precision floating
- * point values, and several other types cannot fit in a 32-bit `register_t'.
- * These will require reading in two `register_t' values for one argument.
- *
- * In order to calculate the true size of the arguments and therefore whether
- * any argument needs to be split into two slots, the system call args
- * structure needs to be built with the appropriately sized register_t.
- * Otherwise the emul needs to do some magic to split oversized arguments.
- *
- * We can handle most this stuff for normal syscalls by using either a 32-bit
- * or 64-bit array of `register_t' arguments.  Unfortunately ktrace always
- * expects arguments to be `register_t's, so it loses badly.  What's worse,
- * ktrace may need to do size translations to massage the argument array
- * appropriately according to the emulation that is doing the ktrace.
- *  
  */
 void
-syscall(tf, code, pc)
-	register_t code;
-	struct trapframe64 *tf;
-	register_t pc;
+syscall(struct trapframe64 *tf, register_t code, register_t pc)
 {
 	int i, nsys, nap;
 	int64_t *ap;
@@ -1221,6 +1173,9 @@ syscall(tf, code, pc)
 	int error, new;
 	register_t args[8];
 	register_t rval[2];
+
+	if ((tf->tf_out[6] & 1) == 0)
+		sigexit(p, SIGILL);
 
 	uvmexp.syscalls++;
 	p = curproc;
@@ -1245,39 +1200,25 @@ syscall(tf, code, pc)
 	 * of the user's stack frame (see <machine/frame.h>).
 	 *
 	 * Check for ``special'' codes that alter this, namely syscall and
-	 * __syscall.  The latter takes a quad syscall number, so that other
-	 * arguments are at their natural alignments.  Adjust the number
-	 * of ``easy'' arguments as appropriate; we will copy the hard
-	 * ones later as needed.
+	 * __syscall.  These both pass a syscall number in the first argument
+	 * register, so the other arguments are just shifted down, possibly
+	 * pushing one off the end into the extension area.  This happens
+	 * with mmap() and mquery() used via __syscall().
 	 */
 	ap = &tf->tf_out[0];
 	nap = 6;
 
 	switch (code) {
 	case SYS_syscall:
+	case SYS___syscall:
 		code = *ap++;
 		nap--;
-		break;
-	case SYS___syscall:
-		if (code < nsys && callp[code].sy_call !=
-		    callp[p->p_p->ps_emul->e_nosys].sy_call)
-			break; /* valid system call */
-		if (tf->tf_out[6] & 1L) {
-			/* longs *are* quadwords */
-			code = ap[0];
-			ap += 1;
-			nap -= 1;			
-		} else {
-			code = ap[_QUAD_LOWWORD];
-			ap += 2;
-			nap -= 2;
-		}
 		break;
 	}
 
 	if (code < 0 || code >= nsys)
 		callp += p->p_p->ps_emul->e_nosys;
-	else if (tf->tf_out[6] & 1L) {
+	else {
 		register_t *argp;
 
 		callp += code;
@@ -1286,7 +1227,7 @@ syscall(tf, code, pc)
 			if (i > 8)
 				panic("syscall nargs");
 			/* Read the whole block in */
-			if ((error = copyin((caddr_t)(u_long)tf->tf_out[6]
+			if ((error = copyin((caddr_t)tf->tf_out[6]
 			    + BIAS + offsetof(struct frame64, fr_argx),
 			    &args[nap], (i - nap) * sizeof(register_t))))
 				goto bad;
@@ -1296,11 +1237,8 @@ syscall(tf, code, pc)
 		 * It should be faster to do <= 6 longword copies than
 		 * to call bcopy
 		 */
-		for (argp = args; i--;) 
+		for (argp = args; i--;)
 			*argp++ = *ap++;
-	} else {
-		error = EFAULT;
-		goto bad;
 	}
 
 	rval[0] = 0;

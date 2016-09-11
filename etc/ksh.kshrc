@@ -1,5 +1,5 @@
 :
-#	$OpenBSD: ksh.kshrc,v 1.20 2015/02/18 08:39:32 rpe Exp $
+#	$OpenBSD: ksh.kshrc,v 1.26 2016/09/10 12:50:20 rpe Exp $
 #
 # NAME:
 #	ksh.kshrc - global initialization for ksh
@@ -33,9 +33,8 @@
 case "$-" in
 *i*)	# we are interactive
 	# we may have su'ed so reset these
-	USER=`whoami 2>/dev/null`
-	USER=${USER:-`id | sed 's/^[^(]*(\([^)]*\)).*/\1/'`}
-	UID=`id -u`
+	USER=$(id -un)
+	UID=$(id -u)
 	case $UID in
 	0) PS1S='# ';;
 	esac
@@ -53,6 +52,9 @@ case "$-" in
 	tty=`tty`
 	tty=`basename $tty`
 	TTY=${TTY:-$tty}
+	# $console is the system console device
+	console=$(sysctl kern.consdev)
+	console=${console#*=}
 
 	set -o emacs
 
@@ -62,7 +64,7 @@ case "$-" in
 	case "$TERM" in
 	sun*-s)
 		# sun console with status line
-		if [ "$tty" != "$console" ]; then
+		if [[ $tty != $console ]]; then
 			# ilabel
 			ILS='\033]L'; ILE='\033\\'
 			# window title bar
@@ -81,7 +83,7 @@ case "$-" in
 	*)	;;
 	esac
 	# do we want window decorations?
-	if [ "$ILS" ]; then
+	if [[ -n $ILS ]]; then
 		function ilabel { print -n "${ILS}$*${ILE}">/dev/tty; }
 		function label { print -n "${WLS}$*${WLE}">/dev/tty; }
 
@@ -97,7 +99,6 @@ case "$-" in
 
 		function wssh    { \ssh "$@";    _ignore eval 'istripe; stripe'; }
 		function wtelnet { \telnet "$@"; _ignore eval 'istripe; stripe'; }
-		function wrlogin { \rlogin "$@"; _ignore eval 'istripe; stripe'; }
 		function wsu     { \su "$@";     _ignore eval 'istripe; stripe'; }
 
 		alias su=wsu
@@ -105,7 +106,6 @@ case "$-" in
 		alias ftp=wftp
 		alias ssh=wssh
 		alias telnet=wtelnet
-		alias rlogin=wrlogin
 		eval stripe
 		eval istripe
 		PS1=$PROMPT
@@ -128,22 +128,22 @@ esac
 
 # is $1 missing from $2 (or PATH) ?
 function no_path {
-  eval _v="\$${2:-PATH}"
-  case :$_v: in
-  *:$1:*) return 1;;		# no we have it
-  esac
-  return 0
+	eval _v="\$${2:-PATH}"
+	case :$_v: in
+	*:$1:*) return 1;;		# no we have it
+	esac
+	return 0
 }
 # if $1 exists and is not in path, append it
 function add_path {
-  [ -d ${1:-.} ] && no_path $* && eval ${2:-PATH}="\$${2:-PATH}:$1"
+	[[ -d ${1:-.} ]] && no_path $* && eval ${2:-PATH}="\$${2:-PATH}:$1"
 }
 # if $1 exists and is not in path, prepend it
 function pre_path {
-  [ -d ${1:-.} ] && no_path $* && eval ${2:-PATH}="$1:\$${2:-PATH}"
+	[[ -d ${1:-.} ]] && no_path $* && eval ${2:-PATH}="$1:\$${2:-PATH}"
 }
 # if $1 is in path, remove it
 function del_path {
-  no_path $* || eval ${2:-PATH}=`eval echo :'$'${2:-PATH}: |
-    sed -e "s;:$1:;:;g" -e "s;^:;;" -e "s;:\$;;"`
+	no_path $* || eval ${2:-PATH}=`eval echo :'$'${2:-PATH}: |
+		sed -e "s;:$1:;:;g" -e "s;^:;;" -e "s;:\$;;"`
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.223 2016/05/30 21:31:27 deraadt Exp $	*/
+/*	$OpenBSD: proc.h,v 1.226 2016/09/03 08:47:24 tedu Exp $	*/
 /*	$NetBSD: proc.h,v 1.44 1996/04/22 01:23:21 christos Exp $	*/
 
 /*-
@@ -64,7 +64,12 @@ struct	session {
 	struct	vnode *s_ttyvp;		/* Vnode of controlling terminal. */
 	struct	tty *s_ttyp;		/* Controlling terminal. */
 	char	s_login[LOGIN_NAME_MAX];	/* Setlogin() name. */
+	pid_t	s_verauthppid;
+	uid_t	s_verauthuid;
+	struct timeout s_verauthto;
 };
+
+void zapverauth(/* struct session */ void *);
 
 /*
  * One structure allocated per process group.
@@ -268,7 +273,7 @@ struct process {
      "\06SUGIDEXEC" "\07PPWAIT" "\010ISPWAIT" "\011PROFIL" "\012TRACED" \
      "\013WAITED" "\014COREDUMP" "\015SINGLEEXIT" "\016SINGLEUNWIND" \
      "\017NOZOMBIE" "\020STOPPED" "\021SYSTEM" "\022EMBRYO" "\023ZOMBIE" \
-     "\024NOBROADCASTKILL" "\025PLEDGE")
+     "\024NOBROADCASTKILL" "\025PLEDGE" "\026WXNEEDED")
 
 
 struct proc {
@@ -422,8 +427,10 @@ struct uidinfo *uid_find(uid_t);
 #define SESS_LEADER(pr)	((pr)->ps_session->s_leader == (pr))
 #define	SESSHOLD(s)	((s)->s_count++)
 #define	SESSRELE(s) do {						\
-	if (--(s)->s_count == 0)					\
+	if (--(s)->s_count == 0) {					\
+		timeout_del(&(s)->s_verauthto);			\
 		pool_put(&session_pool, (s));				\
+	}								\
 } while (/* CONSTCOND */ 0)
 
 /*
@@ -482,6 +489,7 @@ pid_t	allocpid(void);
 void	freepid(pid_t);
 
 struct process *prfind(pid_t);	/* Find process by id. */
+struct process *zombiefind(pid_t); /* Find zombie process by id. */
 struct proc *pfind(pid_t);	/* Find thread by id. */
 struct pgrp *pgfind(pid_t);	/* Find process group by id. */
 void	proc_printit(struct proc *p, const char *modif,

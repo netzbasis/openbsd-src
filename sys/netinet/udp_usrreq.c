@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp_usrreq.c,v 1.213 2016/06/18 10:36:13 vgross Exp $	*/
+/*	$OpenBSD: udp_usrreq.c,v 1.219 2016/09/03 13:46:57 reyk Exp $	*/
 /*	$NetBSD: udp_usrreq.c,v 1.28 1996/03/16 23:54:03 christos Exp $	*/
 
 /*
@@ -173,7 +173,7 @@ udp_input(struct mbuf *m, ...)
 #ifdef INET6
 		struct sockaddr_in6 sin6;
 #endif /* INET6 */
-	} srcsa;
+	} srcsa, dstsa;
 #ifdef INET6
 	struct ip6_hdr *ip6;
 #endif /* INET6 */
@@ -353,6 +353,12 @@ udp_input(struct mbuf *m, ...)
 		srcsa.sin.sin_family = AF_INET;
 		srcsa.sin.sin_port = uh->uh_sport;
 		srcsa.sin.sin_addr = ip->ip_src;
+
+		bzero(&dstsa, sizeof(struct sockaddr_in));
+		dstsa.sin.sin_len = sizeof(struct sockaddr_in);
+		dstsa.sin.sin_family = AF_INET;
+		dstsa.sin.sin_port = uh->uh_dport;
+		dstsa.sin.sin_addr = ip->ip_dst;
 		break;
 #ifdef INET6
 	case AF_INET6:
@@ -365,6 +371,16 @@ udp_input(struct mbuf *m, ...)
 #endif
 		/* KAME hack: recover scopeid */
 		in6_recoverscope(&srcsa.sin6, &ip6->ip6_src);
+
+		bzero(&dstsa, sizeof(struct sockaddr_in6));
+		dstsa.sin6.sin6_len = sizeof(struct sockaddr_in6);
+		dstsa.sin6.sin6_family = AF_INET6;
+		dstsa.sin6.sin6_port = uh->uh_dport;
+#if 0 /*XXX inbound flowinfo */
+		dstsa.sin6.sin6_flowinfo = htonl(0x0fffffff) & ip6->ip6_flow;
+#endif
+		/* KAME hack: recover scopeid */
+		in6_recoverscope(&dstsa.sin6, &ip6->ip6_dst);
 		break;
 #endif /* INET6 */
 	}
@@ -374,7 +390,7 @@ udp_input(struct mbuf *m, ...)
 #if NPF > 0
 	    !(m->m_pkthdr.pf.flags & PF_TAG_DIVERTED) &&
 #endif
-	    (error = vxlan_lookup(m, uh, iphlen, &srcsa.sa)) != 0) {
+	    (error = vxlan_lookup(m, uh, iphlen, &srcsa.sa, &dstsa.sa)) != 0) {
 		if (error == -1) {
 			udpstat.udps_hdrops++;
 			m_freem(m);
@@ -425,15 +441,25 @@ udp_input(struct mbuf *m, ...)
 				continue;
 #ifdef INET6
 			if (ip6) {
+				if (inp->inp_ip6_minhlim &&
+				    inp->inp_ip6_minhlim > ip6->ip6_hlim)
+					continue;
 				if (!IN6_IS_ADDR_UNSPECIFIED(&inp->inp_laddr6))
 					if (!IN6_ARE_ADDR_EQUAL(&inp->inp_laddr6,
 					    &ip6->ip6_dst))
 						continue;
 			} else
 #endif /* INET6 */
-			if (inp->inp_laddr.s_addr != INADDR_ANY) {
-				if (inp->inp_laddr.s_addr != ip->ip_dst.s_addr)
+			{
+				if (inp->inp_ip_minttl &&
+				    inp->inp_ip_minttl > ip->ip_ttl)
 					continue;
+
+				if (inp->inp_laddr.s_addr != INADDR_ANY) {
+					if (inp->inp_laddr.s_addr !=
+					    ip->ip_dst.s_addr)
+						continue;
+				}
 			}
 #ifdef INET6
 			if (ip6) {
@@ -579,6 +605,17 @@ udp_input(struct mbuf *m, ...)
 		}
 	}
 	KASSERT(sotoinpcb(inp->inp_socket) == inp);
+
+#ifdef INET6
+	if (ip6 && inp->inp_ip6_minhlim &&
+	    inp->inp_ip6_minhlim > ip6->ip6_hlim) {
+		goto bad;
+	} else
+#endif
+	if (ip && inp->inp_ip_minttl &&
+	    inp->inp_ip_minttl > ip->ip_ttl) {
+		goto bad;
+	}
 
 #if NPF > 0
 	if (inp->inp_socket->so_state & SS_ISCONNECTED)
@@ -888,6 +925,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 	struct sockaddr_in *sin = NULL;
 	struct udpiphdr *ui;
 	u_int32_t ipsecflowinfo = 0;
+	struct sockaddr_in src_sin;
 	int len = m->m_pkthdr.len;
 	struct in_addr *laddr;
 	int error = 0;
@@ -905,6 +943,8 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 		error = EMSGSIZE;
 		goto release;
 	}
+
+	memset(&src_sin, 0, sizeof(src_sin));
 
 	if (control) {
 		u_int clen;
@@ -939,9 +979,20 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 			    cm->cmsg_level == IPPROTO_IP &&
 			    cm->cmsg_type == IP_IPSECFLOWINFO) {
 				ipsecflowinfo = *(u_int32_t *)CMSG_DATA(cm);
-				break;
-			}
+			} else
 #endif
+			if (cm->cmsg_len == CMSG_LEN(sizeof(struct in_addr)) &&
+			    cm->cmsg_level == IPPROTO_IP &&
+			    cm->cmsg_type == IP_SENDSRCADDR) {
+				memcpy(&src_sin.sin_addr, CMSG_DATA(cm),
+				    sizeof(struct in_addr));
+				src_sin.sin_family = AF_INET;
+				src_sin.sin_len = sizeof(src_sin);
+				/* no check on reuse when sin->sin_port == 0 */
+				if ((error = in_pcbaddrisavail(inp, &src_sin,
+				    0, curproc)))
+					goto release;
+			}
 			clen -= CMSG_ALIGN(cm->cmsg_len);
 			cmsgs += CMSG_ALIGN(cm->cmsg_len);
 		} while (clen);
@@ -968,8 +1019,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 			goto release;
 		}
 
-		error = in_selectsrc(&laddr, sin, inp->inp_moptions,
-		    &inp->inp_route, &inp->inp_laddr, inp->inp_rtableid);
+		error = in_pcbselsrc(&laddr, sin, inp);
 		if (error)
 			goto release;
 
@@ -979,6 +1029,17 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 			splx(s);
 			if (error)
 				goto release;
+		}
+
+		if (src_sin.sin_len > 0 &&
+		    src_sin.sin_addr.s_addr != INADDR_ANY &&
+		    src_sin.sin_addr.s_addr != inp->inp_laddr.s_addr) {
+			src_sin.sin_port = inp->inp_lport;
+			if (inp->inp_laddr.s_addr != INADDR_ANY &&
+			    (error =
+			    in_pcbaddrisavail(inp, &src_sin, 0, curproc)))
+				goto release;
+			laddr = &src_sin.sin_addr;
 		}
 	} else {
 		if (inp->inp_faddr.s_addr == INADDR_ANY) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.55 2016/06/18 01:33:02 renato Exp $ */
+/*	$OpenBSD: parse.y,v 1.57 2016/07/01 23:14:31 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2015, 2016 Renato Westphal <renato@openbsd.org>
@@ -136,7 +136,7 @@ static int			 pushback_index;
 %token	INTERFACE TNEIGHBOR ROUTERID FIBUPDATE EXPNULL
 %token	LHELLOHOLDTIME LHELLOINTERVAL
 %token	THELLOHOLDTIME THELLOINTERVAL
-%token	THELLOACCEPT AF IPV4 IPV6
+%token	THELLOACCEPT AF IPV4 IPV6 GTSMENABLE GTSMHOPS
 %token	KEEPALIVE TRANSADDRESS TRANSPREFERENCE DSCISCOINTEROP
 %token	NEIGHBOR PASSWORD
 %token	L2VPN TYPE VPLS PWTYPE MTU BRIDGE
@@ -208,8 +208,16 @@ pw_type		: ETHERNET		{ $$ = PW_TYPE_ETHERNET; }
 		;
 
 varset		: STRING '=' string {
+			char *s = $1;
 			if (global.cmd_opts & LDPD_OPT_VERBOSE)
 				printf("%s = \"%s\"\n", $1, $3);
+			while (*s++) {
+				if (isspace((unsigned char)*s)) {
+					yyerror("macro name cannot contain "
+					    "whitespace");
+					YYERROR;
+				}
+			}
 			if (symset($1, $3, 0) == -1)
 				fatal("cannot store variable");
 			free($1);
@@ -316,6 +324,10 @@ afoptsl		:  TRANSADDRESS STRING {
 				YYERROR;
 			}
 		}
+		| GTSMENABLE yesno {
+			if ($2 == 0)
+				defs->afflags |= F_LDPD_AF_NO_GTSM;
+		}
 		| af_defaults
 		| iface_defaults
 		| tnbr_defaults
@@ -404,6 +416,18 @@ nbr_opts	: KEEPALIVE NUMBER {
 			nbrp->auth.md5key_len = strlen($2);
 			nbrp->auth.method = AUTH_MD5SIG;
 			free($2);
+		}
+		| GTSMENABLE yesno {
+			nbrp->flags |= F_NBRP_GTSM;
+			nbrp->gtsm_enabled = $2;
+		}
+		| GTSMHOPS NUMBER {
+			if ($2 < 1 || $2 > 255) {
+				yyerror("invalid number of hops %lld", $2);
+				YYERROR;
+			}
+			nbrp->gtsm_hops = $2;
+			nbrp->flags |= F_NBRP_GTSM_HOPS;
 		}
 		;
 
@@ -799,6 +823,8 @@ lookup(char *s)
 		{"ethernet-tagged",		ETHERNETTAGGED},
 		{"explicit-null",		EXPNULL},
 		{"fib-update",			FIBUPDATE},
+		{"gtsm-enable",			GTSMENABLE},
+		{"gtsm-hops",			GTSMHOPS},
 		{"include",			INCLUDE},
 		{"interface",			INTERFACE},
 		{"ipv4",			IPV4},

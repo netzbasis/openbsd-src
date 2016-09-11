@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.c,v 1.1 2016/06/15 19:39:34 gerhard Exp $ */
+/*	$OpenBSD: if_umb.c,v 1.3 2016/06/20 07:33:34 stsp Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -204,48 +204,35 @@ const struct cfattach umb_ca = {
 
 int umb_delay = 4000;
 
-/*
- * Normally, MBIM devices are detected by their interface class and subclass.
- * But for some models that have multiple configurations, it is better to
- * match by vendor and product id so that we can select the desired
- * configuration ourselves.
- *
- * OTOH, some devices identifiy themself als an MBIM device but fail to speak
- * the MBIM protocol.
- */
-struct umb_products {
-	struct usb_devno	 dev;
-	int			 confno;
-};
-const struct umb_products umb_devs[] = {
-	/*
-	 * Add devices here to force them to attach as umb.
-	 * Format: { { VID, PID }, CONFIGNO }
-	 */
-};
-
-#define umb_lookup(vid, pid)		\
-	((const struct umb_products *)usb_lookup(umb_devs, vid, pid))
-
 int
 umb_match(struct device *parent, void *match, void *aux)
 {
 	struct usb_attach_arg *uaa = aux;
 	usb_interface_descriptor_t *id;
 
-	if (umb_lookup(uaa->vendor, uaa->product) != NULL)
-		return UMATCH_VENDOR_PRODUCT;
 	if (!uaa->iface)
 		return UMATCH_NONE;
 	if ((id = usbd_get_interface_descriptor(uaa->iface)) == NULL)
 		return UMATCH_NONE;
-	if (id->bInterfaceClass != UICLASS_CDC ||
-	    id->bInterfaceSubClass !=
-	    UISUBCLASS_MOBILE_BROADBAND_INTERFACE_MODEL ||
-	    id->bNumEndpoints != 1)
+
+	/*
+	 * If this function implements NCM, check if alternate setting
+	 * 1 implements MBIM.
+	 */
+	if (id->bInterfaceClass == UICLASS_CDC &&
+	    id->bInterfaceSubClass ==
+	    UISUBCLASS_NETWORK_CONTROL_MODEL)
+		id = usbd_find_idesc(uaa->device->cdesc, uaa->iface->index, 1);
+	if (id == NULL)
 		return UMATCH_NONE;
 
-	return UMATCH_DEVCLASS_DEVSUBCLASS;
+	if (id->bInterfaceClass == UICLASS_CDC &&
+	    id->bInterfaceSubClass ==
+	    UISUBCLASS_MOBILE_BROADBAND_INTERFACE_MODEL &&
+	    id->bInterfaceProtocol == 0)
+		return UMATCH_IFACECLASS_IFACESUBCLASS_IFACEPROTO;
+
+	return UMATCH_NONE;
 }
 
 void
@@ -257,45 +244,55 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	struct usbd_desc_iter iter;
 	const usb_descriptor_t *desc;
 	int	 v;
+	struct usb_cdc_union_descriptor *ud;
 	struct mbim_descriptor *md;
 	int	 i;
-	struct usbd_interface *ctrl_iface = NULL;
 	int	 ctrl_ep;
-	uint8_t	 data_ifaceno;
 	usb_interface_descriptor_t *id;
 	usb_config_descriptor_t	*cd;
 	usb_endpoint_descriptor_t *ed;
+	usb_interface_assoc_descriptor_t *ad;
+	int	 current_ifaceno = -1;
+	int	 data_ifaceno = -1;
 	int	 altnum;
 	int	 s;
 	struct ifnet *ifp;
 	int	 hard_mtu;
 
 	sc->sc_udev = uaa->device;
+	sc->sc_ctrl_ifaceno = uaa->ifaceno;
 
-	if (uaa->configno < 0) {
-		/*
-		 * In case the device was matched by VID/PID instead of
-		 * InterfaceClass/InterfaceSubClass, we have to pick the
-		 * correct configuration ourself.
-		 */
-		uaa->configno = umb_lookup(uaa->vendor, uaa->product)->confno;
-		DPRINTF("%s: switching to config #%d\n", DEVNAM(sc),
-		    uaa->configno);
-		status = usbd_set_config_no(sc->sc_udev, uaa->configno, 1);
-		if (status) {
-			printf("%s: failed to switch to config #%d: %s\n",
-			    DEVNAM(sc), uaa->configno, usbd_errstr(status));
-			goto fail;
-		}
-	}
-
+	/*
+	 * Some MBIM hardware does not provide the mandatory CDC Union
+	 * Descriptor, so we also look at matching Interface
+	 * Association Descriptors to find out the MBIM Data Interface
+	 * number.
+	 */
 	sc->sc_ver_maj = sc->sc_ver_min = -1;
-	usbd_desc_iter_init(sc->sc_udev, &iter);
 	hard_mtu = MBIM_MAXSEGSZ_MINVAL;
+	usbd_desc_iter_init(sc->sc_udev, &iter);
 	while ((desc = usbd_desc_iter_next(&iter))) {
+		if (desc->bDescriptorType == UDESC_IFACE_ASSOC) {
+			ad = (usb_interface_assoc_descriptor_t *)desc;
+			if (ad->bFirstInterface == uaa->ifaceno &&
+			    ad->bInterfaceCount > 1)
+				data_ifaceno = uaa->ifaceno + 1;
+			continue;
+		}
+		if (desc->bDescriptorType == UDESC_INTERFACE) {
+			id = (usb_interface_descriptor_t *)desc;
+			current_ifaceno = id->bInterfaceNumber;
+			continue;
+		}
+		if (current_ifaceno != uaa->ifaceno)
+			continue;
 		if (desc->bDescriptorType != UDESC_CS_INTERFACE)
 			continue;
 		switch (desc->bDescriptorSubtype) {
+		case UDESCSUB_CDC_UNION:
+			ud = (struct usb_cdc_union_descriptor *)desc;
+			data_ifaceno = ud->bSlaveInterface[0];
+			break;
 		case UDESCSUB_MBIM:
 			md = (struct mbim_descriptor *)desc;
 			v = UGETW(md->bcdMBIMVersion);
@@ -305,7 +302,7 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 			/* Never trust a USB device! Could try to exploit us */
 			if (sc->sc_ctrl_len < MBIM_CTRLMSG_MINLEN ||
 			    sc->sc_ctrl_len > MBIM_CTRLMSG_MAXLEN) {
-				printf("%s: control message len %d out of "
+				DPRINTF("%s: control message len %d out of "
 				    "bounds [%d .. %d]\n", DEVNAM(sc),
 				    sc->sc_ctrl_len, MBIM_CTRLMSG_MINLEN,
 				    MBIM_CTRLMSG_MAXLEN);
@@ -313,8 +310,8 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 			}
 			sc->sc_maxpktlen = UGETW(md->wMaxSegmentSize);
 			if (sc->sc_maxpktlen < MBIM_MAXSEGSZ_MINVAL) {
-				printf("%s: ignoring invalid segment size %d\n",
-				    DEVNAM(sc), sc->sc_maxpktlen);
+				DPRINTF("%s: ignoring invalid segment "
+				    "size %d\n", DEVNAM(sc), sc->sc_maxpktlen);
 				/* cont. anyway */
 				sc->sc_maxpktlen = 8 * 1024;
 			}
@@ -332,39 +329,34 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 		goto fail;
 	}
 
-	for (i = 0; i < sc->sc_udev->cdesc->bNumInterface; i++) {
+	for (i = 0; i < uaa->nifaces; i++) {
 		if (usbd_iface_claimed(sc->sc_udev, i))
 			continue;
-		id = usbd_get_interface_descriptor(&sc->sc_udev->ifaces[i]);
-		if (id == NULL)
-			continue;
-		if (id->bInterfaceClass == UICLASS_CDC &&
-		    id->bInterfaceSubClass ==
-		    UISUBCLASS_MOBILE_BROADBAND_INTERFACE_MODEL) {
-			ctrl_iface = &sc->sc_udev->ifaces[i];
-			sc->sc_ctrl_ifaceno = id->bInterfaceNumber;
-			usbd_claim_iface(sc->sc_udev, i);
-		} else if (id->bInterfaceClass == UICLASS_CDC_DATA &&
-		    id->bInterfaceSubClass == UISUBCLASS_DATA &&
-		    id->bInterfaceProtocol == UIPROTO_DATA_MBIM) {
-			sc->sc_data_iface = &sc->sc_udev->ifaces[i];
-			data_ifaceno = id->bInterfaceNumber;
+		id = usbd_get_interface_descriptor(uaa->ifaces[i]);
+		if (id != NULL && id->bInterfaceNumber == data_ifaceno) {
+			sc->sc_data_iface = uaa->ifaces[i];
 			usbd_claim_iface(sc->sc_udev, i);
 		}
-	}
-	if (ctrl_iface == NULL) {
-		printf("%s: no control interface found\n", DEVNAM(sc));
-		goto fail;
 	}
 	if (sc->sc_data_iface == NULL) {
 		printf("%s: no data interface found\n", DEVNAM(sc));
 		goto fail;
 	}
 
-	id = usbd_get_interface_descriptor(ctrl_iface);
+	/*
+	 * If this is a combined NCM/MBIM function, switch to
+	 * alternate setting one to enable MBIM.
+	 */
+	id = usbd_get_interface_descriptor(uaa->iface);
+	if (id->bInterfaceClass == UICLASS_CDC &&
+	    id->bInterfaceSubClass ==
+	    UISUBCLASS_NETWORK_CONTROL_MODEL)
+		usbd_set_interface(uaa->iface, 1);
+
+	id = usbd_get_interface_descriptor(uaa->iface);
 	ctrl_ep = -1;
 	for (i = 0; i < id->bNumEndpoints && ctrl_ep == -1; i++) {
-		ed = usbd_interface2endpoint_descriptor(ctrl_iface, i);
+		ed = usbd_interface2endpoint_descriptor(uaa->iface, i);
 		if (ed == NULL)
 			break;
 		if (UE_GET_XFERTYPE(ed->bmAttributes) == UE_INTERRUPT &&
@@ -376,23 +368,38 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 		goto fail;
 	}
 
+	/*
+	 * For the MBIM Data Interface, select the appropriate
+	 * alternate setting by looking for a matching descriptor that
+	 * has two endpoints.
+	 */
 	cd = usbd_get_config_descriptor(sc->sc_udev);
-	id = usbd_get_interface_descriptor(sc->sc_data_iface);
-	altnum = usbd_get_no_alts(cd, id->bInterfaceNumber);
-	if (MBIM_INTERFACE_ALTSETTING >= altnum) {
-		printf("%s: missing alt setting %d for interface #%d\n",
-		    DEVNAM(sc), MBIM_INTERFACE_ALTSETTING, data_ifaceno);
+	altnum = usbd_get_no_alts(cd, data_ifaceno);
+	for (i = 0; i < altnum; i++) {
+		id = usbd_find_idesc(cd, sc->sc_data_iface->index, i);
+		if (id == NULL)
+			continue;
+		if (id->bInterfaceClass == UICLASS_CDC_DATA &&
+		    id->bInterfaceSubClass == UISUBCLASS_DATA &&
+		    id->bInterfaceProtocol == UIPROTO_DATA_MBIM &&
+		    id->bNumEndpoints == 2)
+			break;
+	}
+	if (i == altnum || id == NULL) {
+		printf("%s: missing alt setting for interface #%d\n",
+		    DEVNAM(sc), data_ifaceno);
 		goto fail;
 	}
-	sc->sc_rx_ep = sc->sc_tx_ep = -1;
-	if ((status = usbd_set_interface(sc->sc_data_iface,
-	    MBIM_INTERFACE_ALTSETTING))) {
+	status = usbd_set_interface(sc->sc_data_iface, i);
+	if (status) {
 		printf("%s: select alt setting %d for interface #%d "
-		    "failed: %s\n", DEVNAM(sc), MBIM_INTERFACE_ALTSETTING,
-		    data_ifaceno, usbd_errstr(status));
+		    "failed: %s\n", DEVNAM(sc), i, data_ifaceno,
+		    usbd_errstr(status));
 		goto fail;
 	}
+
 	id = usbd_get_interface_descriptor(sc->sc_data_iface);
+	sc->sc_rx_ep = sc->sc_tx_ep = -1;
 	for (i = 0; i < id->bNumEndpoints; i++) {
 		if ((ed = usbd_interface2endpoint_descriptor(sc->sc_data_iface,
 		    i)) == NULL)
@@ -420,7 +427,7 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	    USB_TASK_TYPE_GENERIC);
 	timeout_set(&sc->sc_statechg_timer, umb_statechg_timeout, sc);
 
-	if (usbd_open_pipe_intr(ctrl_iface, ctrl_ep, USBD_SHORT_XFER_OK,
+	if (usbd_open_pipe_intr(uaa->iface, ctrl_ep, USBD_SHORT_XFER_OK,
 	    &sc->sc_ctrl_pipe, sc, &sc->sc_intr_msg, sizeof (sc->sc_intr_msg),
 	    umb_intr, USBD_DEFAULT_INTERVAL)) {
 		printf("%s: failed to open control pipe\n", DEVNAM(sc));
@@ -475,7 +482,7 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	umb_open(sc);
 	splx(s);
 
-	printf("%s: vers %d.%d\n", DEVNAM(sc), sc->sc_ver_maj, sc->sc_ver_min);
+	DPRINTF("%s: vers %d.%d\n", DEVNAM(sc), sc->sc_ver_maj, sc->sc_ver_min);
 	return;
 
 fail:
@@ -774,21 +781,24 @@ umb_statechg_timeout(void *arg)
 {
 	struct umb_softc *sc = arg;
 
-	printf("%s: state change time out\n",DEVNAM(sc));
+	printf("%s: state change timeout\n",DEVNAM(sc));
 	usb_add_task(sc->sc_udev, &sc->sc_umb_task);
 }
 
 void
 umb_newstate(struct umb_softc *sc, enum umb_state newstate, int flags)
 {
+	struct ifnet *ifp = GET_IFP(sc);
+
 	if (newstate == sc->sc_state)
 		return;
 	if (((flags & UMB_NS_DONT_DROP) && newstate < sc->sc_state) ||
 	    ((flags & UMB_NS_DONT_RAISE) && newstate > sc->sc_state))
 		return;
-	log(LOG_DEBUG, "%s: state going %s from '%s' to '%s'\n", DEVNAM(sc),
-	    newstate > sc->sc_state ? "up" : "down",
-	    umb_istate(sc->sc_state), umb_istate(newstate));
+	if (ifp->if_flags & IFF_DEBUG)
+		log(LOG_DEBUG, "%s: state going %s from '%s' to '%s'\n",
+		    DEVNAM(sc), newstate > sc->sc_state ? "up" : "down",
+		    umb_istate(sc->sc_state), umb_istate(newstate));
 	sc->sc_state = newstate;
 	usb_add_task(sc->sc_udev, &sc->sc_umb_task);
 }
@@ -811,10 +821,12 @@ umb_state_task(void *arg)
 
 	state = sc->sc_state == UMB_S_UP ? LINK_STATE_UP : LINK_STATE_DOWN;
 	if (ifp->if_link_state != state) {
-		log(LOG_INFO, "%s: link state changed from %s to %s\n",
-		    DEVNAM(sc),
-		    LINK_STATE_IS_UP(ifp->if_link_state) ? "up" : "down",
-		    LINK_STATE_IS_UP(state) ? "up" : "down");
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_DEBUG, "%s: link state changed from %s to %s\n",
+			    DEVNAM(sc),
+			    LINK_STATE_IS_UP(ifp->if_link_state)
+			    ? "up" : "down",
+			    LINK_STATE_IS_UP(state) ? "up" : "down");
 		ifp->if_link_state = state;
 		if (!LINK_STATE_IS_UP(state)) {
 			/*
@@ -865,8 +877,7 @@ umb_up(struct umb_softc *sc)
 		sc->sc_tx_seq = 0;
 		if (!umb_alloc_xfers(sc)) {
 			umb_free_xfers(sc);
-			log(LOG_ERR, "%s: allocation of xfers failed\n",
-			    DEVNAM(sc));
+			printf("%s: allocation of xfers failed\n", DEVNAM(sc));
 			break;
 		}
 		DPRINTF("%s: init: connecting ...\n", DEVNAM(sc));
@@ -879,8 +890,7 @@ umb_up(struct umb_softc *sc)
 	case UMB_S_UP:
 		DPRINTF("%s: init: reached state UP\n", DEVNAM(sc));
 		if (!umb_alloc_bulkpipes(sc)) {
-			log(LOG_ERR, "%s: opening bulk pipes failed\n",
-			    DEVNAM(sc));
+			printf("%s: opening bulk pipes failed\n", DEVNAM(sc));
 			ifp->if_flags &= ~IFF_UP;
 			umb_down(sc, 1);
 		}
@@ -1081,6 +1091,7 @@ void
 umb_handle_opendone_msg(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_f2h_openclosedone *resp = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	uint32_t status;
 
 	status = letoh32(resp->status);
@@ -1093,7 +1104,7 @@ umb_handle_opendone_msg(struct umb_softc *sc, void *data, int len)
 			    NULL, 0);
 		}
 		umb_newstate(sc, UMB_S_OPEN, UMB_NS_DONT_DROP);
-	} else
+	} else if (ifp->if_flags & IFF_DEBUG)
 		log(LOG_ERR, "%s: open error: %s\n", DEVNAM(sc),
 		    umb_status2str(status));
 	return;
@@ -1162,6 +1173,7 @@ int
 umb_decode_register_state(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_registration_state_info *rs = data;
+	struct ifnet *ifp = GET_IFP(sc);
 
 	if (len < sizeof (*rs))
 		return 0;
@@ -1184,8 +1196,10 @@ umb_decode_register_state(struct umb_softc *sc, void *data, int len)
 	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING &&
 	    !sc->sc_roaming &&
 	    sc->sc_info.activation == MBIM_ACTIVATION_STATE_ACTIVATED) {
-		log(LOG_INFO, "%s: disconnecting from roaming network\n",
-		    DEVNAM(sc));
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_INFO,
+			    "%s: disconnecting from roaming network\n",
+			    DEVNAM(sc));
 		umb_newstate(sc, UMB_S_ATTACHED, UMB_NS_DONT_RAISE);
 	}
 	return 1;
@@ -1215,6 +1229,7 @@ int
 umb_decode_subscriber_status(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_subscriber_ready_info *si = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	int	npn;
 
 	if (len < sizeof (*si))
@@ -1235,8 +1250,9 @@ umb_decode_subscriber_status(struct umb_softc *sc, void *data, int len)
 
 	if (sc->sc_info.sim_state == MBIM_SIMSTATE_LOCKED)
 		sc->sc_info.pin_state = UMB_PUK_REQUIRED;
-	log(LOG_INFO, "%s: SIM %s\n", DEVNAM(sc),
-	    umb_simstate(sc->sc_info.sim_state));
+	if (ifp->if_flags & IFF_DEBUG)
+		log(LOG_INFO, "%s: SIM %s\n", DEVNAM(sc),
+		    umb_simstate(sc->sc_info.sim_state));
 	if (sc->sc_info.sim_state == MBIM_SIMSTATE_INITIALIZED)
 		umb_newstate(sc, UMB_S_SIMREADY, UMB_NS_DONT_DROP);
 	return 1;
@@ -1246,6 +1262,7 @@ int
 umb_decode_radio_state(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_radio_state_info *rs = data;
+	struct ifnet *ifp = GET_IFP(sc);
 
 	if (len < sizeof (*rs))
 		return 0;
@@ -1255,7 +1272,7 @@ umb_decode_radio_state(struct umb_softc *sc, void *data, int len)
 	sc->sc_info.sw_radio_on =
 	    (letoh32(rs->sw_state) == MBIM_RADIO_STATE_ON) ? 1 : 0;
 	if (!sc->sc_info.hw_radio_on) {
-		log(LOG_INFO, "%s: radio is off by rfkill switch\n",
+		printf("%s: radio is disabled by hardware switch\n",
 		    DEVNAM(sc));
 		/*
 		 * XXX do we need a time to poll the state of the rfkill switch
@@ -1264,7 +1281,8 @@ umb_decode_radio_state(struct umb_softc *sc, void *data, int len)
 		 */
 		umb_newstate(sc, UMB_S_OPEN, 0);
 	} else if (!sc->sc_info.sw_radio_on) {
-		log(LOG_INFO, "%s: radio is off\n", DEVNAM(sc));
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_INFO, "%s: radio is off\n", DEVNAM(sc));
 		umb_newstate(sc, UMB_S_OPEN, 0);
 	} else
 		umb_newstate(sc, UMB_S_RADIO, UMB_NS_DONT_DROP);
@@ -1275,6 +1293,7 @@ int
 umb_decode_pin(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_pin_info *pi = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	uint32_t	attempts_left;
 
 	if (len < sizeof (*pi))
@@ -1304,11 +1323,12 @@ umb_decode_pin(struct umb_softc *sc, void *data, int len)
 		}
 		break;
 	}
-	log(LOG_INFO, "%s: %s state %s (%d attempts left)\n",
-	    DEVNAM(sc), umb_pin_type(letoh32(pi->type)),
-	    (letoh32(pi->state) == MBIM_PIN_STATE_UNLOCKED) ?
-	        "unlocked" : "locked",
-	    letoh32(pi->remaining_attempts));
+	if (ifp->if_flags & IFF_DEBUG)
+		log(LOG_INFO, "%s: %s state %s (%d attempts left)\n",
+		    DEVNAM(sc), umb_pin_type(letoh32(pi->type)),
+		    (letoh32(pi->state) == MBIM_PIN_STATE_UNLOCKED) ?
+			"unlocked" : "locked",
+		    letoh32(pi->remaining_attempts));
 
 	/*
 	 * In case the PIN was set after IFF_UP, retrigger the state machine
@@ -1336,13 +1356,15 @@ umb_decode_packet_service(struct umb_softc *sc, void *data, int len)
 	if (sc->sc_info.packetstate  != state ||
 	    sc->sc_info.uplink_speed != up_speed ||
 	    sc->sc_info.downlink_speed != down_speed) {
-		log(LOG_INFO, "%s: packet service ", DEVNAM(sc));
-		if (sc->sc_info.packetstate  != state)
-			addlog("changed from %s to ",
-			    umb_packet_state(sc->sc_info.packetstate));
-		addlog("%s, class %s, speed: %llu up / %llu down\n",
-		    umb_packet_state(state), umb_dataclass(highestclass),
-		    up_speed, down_speed);
+		if (ifp->if_flags & IFF_DEBUG) {
+			log(LOG_INFO, "%s: packet service ", DEVNAM(sc));
+			if (sc->sc_info.packetstate  != state)
+				addlog("changed from %s to ",
+				    umb_packet_state(sc->sc_info.packetstate));
+			addlog("%s, class %s, speed: %llu up / %llu down\n",
+			    umb_packet_state(state), 
+			    umb_dataclass(highestclass), up_speed, down_speed);
+		}
 	}
 	sc->sc_info.packetstate = state;
 	sc->sc_info.highestclass = highestclass;
@@ -1382,6 +1404,7 @@ int
 umb_decode_signal_state(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_signal_state *ss = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	int	 rssi;
 
 	if (len < sizeof (*ss))
@@ -1391,7 +1414,7 @@ umb_decode_signal_state(struct umb_softc *sc, void *data, int len)
 		rssi = UMB_VALUE_UNKNOWN;
 	else {
 		rssi = -113 + 2 * letoh32(ss->rssi);
-		if (sc->sc_info.rssi != rssi &&
+		if ((ifp->if_flags & IFF_DEBUG) && sc->sc_info.rssi != rssi &&
 		    sc->sc_state >= UMB_S_CONNECTED)
 			log(LOG_INFO, "%s: rssi %d dBm\n", DEVNAM(sc), rssi);
 	}
@@ -1406,6 +1429,7 @@ int
 umb_decode_connect_info(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_connect_info *ci = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	int	 act;
 
 	if (len < sizeof (*ci))
@@ -1424,9 +1448,11 @@ umb_decode_connect_info(struct umb_softc *sc, void *data, int len)
 	}
 	act = letoh32(ci->activation);
 	if (sc->sc_info.activation != act) {
-		log(LOG_INFO, "%s: connection %s\n", DEVNAM(sc),
-		    umb_activation(act));
-		if (letoh32(ci->iptype) != MBIM_CONTEXT_IPTYPE_DEFAULT &&
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_INFO, "%s: connection %s\n", DEVNAM(sc),
+			    umb_activation(act));
+		if ((ifp->if_flags & IFF_DEBUG) &&
+		    letoh32(ci->iptype) != MBIM_CONTEXT_IPTYPE_DEFAULT &&
 		    letoh32(ci->iptype) != MBIM_CONTEXT_IPTYPE_IPV4)
 			log(LOG_DEBUG, "%s: got iptype %d connection\n",
 			    DEVNAM(sc), letoh32(ci->iptype));
@@ -1506,15 +1532,16 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		in_len2mask(&sin->sin_addr, ipv4elem.prefixlen);
 
 		if ((rv = in_ioctl(SIOCAIFADDR, (caddr_t)&ifra, ifp, 1)) == 0) {
-			log(LOG_INFO, "%s: IPv4 addr %s, mask %s, gateway %s\n",
-			    DEVNAM(ifp->if_softc),
-			    umb_ntop(sintosa(&ifra.ifra_addr)),
-			    umb_ntop(sintosa(&ifra.ifra_mask)),
-			    umb_ntop(sintosa(&ifra.ifra_dstaddr)));
+			if (ifp->if_flags & IFF_DEBUG)
+				log(LOG_INFO, "%s: IPv4 addr %s, mask %s, "
+				    "gateway %s\n", DEVNAM(ifp->if_softc),
+				    umb_ntop(sintosa(&ifra.ifra_addr)),
+				    umb_ntop(sintosa(&ifra.ifra_mask)),
+				    umb_ntop(sintosa(&ifra.ifra_dstaddr)));
 			state = UMB_S_UP;
 		} else
-			log(LOG_ERR, "%s: unable to set IPv4 address, "
-			    "error %d\n", DEVNAM(ifp->if_softc), rv);
+			printf("%s: unable to set IPv4 address, error %d\n",
+			    DEVNAM(ifp->if_softc), rv);
 	}
 
 	memset(sc->sc_info.ipv4dns, 0, sizeof (sc->sc_info.ipv4dns));
@@ -1538,12 +1565,13 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 			ifp->if_hardmtu = val;
 			if (ifp->if_mtu > val)
 				ifp->if_mtu = val;
-			log(LOG_INFO, "%s: MTU is %d\n", DEVNAM(sc), val);
+			if (ifp->if_flags & IFF_DEBUG)
+				log(LOG_INFO, "%s: MTU %d\n", DEVNAM(sc), val);
 		}
 	}
 
 	avail = letoh32(ic->ipv6_available);
-	if (avail & MBIM_IPCONF_HAS_ADDRINFO) {
+	if ((ifp->if_flags & IFF_DEBUG) && avail & MBIM_IPCONF_HAS_ADDRINFO) {
 		/* XXX FIXME: IPv6 configuation missing */
 		log(LOG_INFO, "%s: ignoring IPv6 configuration\n", DEVNAM(sc));
 	}
@@ -1867,6 +1895,7 @@ umb_get_encap_response(struct umb_softc *sc, void *buf, int *len)
 void
 umb_ctrl_msg(struct umb_softc *sc, uint32_t req, void *data, int len)
 {
+	struct ifnet *ifp = GET_IFP(sc);
 	uint32_t tid;
 	struct mbim_msghdr *hdr = data;
 	usbd_status err;
@@ -1904,8 +1933,10 @@ umb_ctrl_msg(struct umb_softc *sc, uint32_t req, void *data, int len)
 	err = umb_send_encap_command(sc, data, len);
 	splx(s);
 	if (err != USBD_NORMAL_COMPLETION) {
-		log(LOG_ERR, "%s: send %s msg (tid %u) failed: %s\n",
-		    DEVNAM(sc), umb_request2str(req), tid, usbd_errstr(err));
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_ERR, "%s: send %s msg (tid %u) failed: %s\n",
+			    DEVNAM(sc), umb_request2str(req), tid,
+			    usbd_errstr(err));
 
 		/* will affect other transactions, too */
 		usbd_abort_pipe(sc->sc_udev->default_pipe);
@@ -2021,19 +2052,25 @@ umb_packet_service(struct umb_softc *sc, int attach)
 void
 umb_connect(struct umb_softc *sc)
 {
+	struct ifnet *ifp = GET_IFP(sc);
+
 	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
 		log(LOG_INFO, "%s: connection disabled in roaming network\n",
 		    DEVNAM(sc));
 		return;
 	}
-	log(LOG_DEBUG, "%s: connecting ...\n", DEVNAM(sc));
+	if (ifp->if_flags & IFF_DEBUG)
+		log(LOG_DEBUG, "%s: connecting ...\n", DEVNAM(sc));
 	umb_send_connect(sc, MBIM_CONNECT_ACTIVATE);
 }
 
 void
 umb_disconnect(struct umb_softc *sc)
 {
-	log(LOG_DEBUG, "%s: disconnecting ...\n", DEVNAM(sc));
+	struct ifnet *ifp = GET_IFP(sc);
+
+	if (ifp->if_flags & IFF_DEBUG)
+		log(LOG_DEBUG, "%s: disconnecting ...\n", DEVNAM(sc));
 	umb_send_connect(sc, MBIM_CONNECT_DEACTIVATE);
 }
 
@@ -2108,6 +2145,7 @@ void
 umb_command_done(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_f2h_cmddone *cmd = data;
+	struct ifnet *ifp = GET_IFP(sc);
 	uint32_t status;
 	uint32_t cid;
 	uint32_t infolen;
@@ -2130,15 +2168,17 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 	case MBIM_STATUS_SUCCESS:
 		break;
 	case MBIM_STATUS_NOT_INITIALIZED:
-		log(LOG_ERR, "%s: SIM not initialized (PIN missing)\n",
-		    DEVNAM(sc));
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_ERR, "%s: SIM not initialized (PIN missing)\n",
+			    DEVNAM(sc));
 		return;
 	case MBIM_STATUS_PIN_REQUIRED:
 		sc->sc_info.pin_state = UMB_PIN_REQUIRED;
 		/*FALLTHROUGH*/
 	default:
-		log(LOG_ERR, "%s: set/qry %s failed: %s\n", DEVNAM(sc),
-		    umb_cid2str(cid), umb_status2str(status));
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_ERR, "%s: set/qry %s failed: %s\n", DEVNAM(sc),
+			    umb_cid2str(cid), umb_status2str(status));
 		return;
 	}
 
@@ -2205,6 +2245,7 @@ void
 umb_intr(struct usbd_xfer *xfer, void *priv, usbd_status status)
 {
 	struct umb_softc *sc = priv;
+	struct ifnet *ifp = GET_IFP(sc);
 	int	 total_len;
 
 	if (status != USBD_NORMAL_COMPLETION) {
@@ -2228,8 +2269,9 @@ umb_intr(struct usbd_xfer *xfer, void *priv, usbd_status status)
 
 	switch (sc->sc_intr_msg.bNotification) {
 	case UCDC_N_NETWORK_CONNECTION:
-		log(LOG_DEBUG, "%s: network %sconnected\n", DEVNAM(sc),
-		    UGETW(sc->sc_intr_msg.wValue) ? "" : "dis");
+		if (ifp->if_flags & IFF_DEBUG)
+			log(LOG_DEBUG, "%s: network %sconnected\n", DEVNAM(sc),
+			    UGETW(sc->sc_intr_msg.wValue) ? "" : "dis");
 		break;
 	case UCDC_N_RESPONSE_AVAILABLE:
 		DPRINTFN(2, "%s: umb_intr: response available\n", DEVNAM(sc));

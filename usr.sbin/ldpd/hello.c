@@ -1,4 +1,4 @@
-/*	$OpenBSD: hello.c,v 1.50 2016/06/18 17:31:32 renato Exp $ */
+/*	$OpenBSD: hello.c,v 1.57 2016/07/16 19:20:16 renato Exp $ */
 
 /*
  * Copyright (c) 2013, 2016 Renato Westphal <renato@openbsd.org>
@@ -41,6 +41,7 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 	uint16_t		 size, holdtime = 0, flags = 0;
 	int			 fd = 0;
 	struct ibuf		*buf;
+	int			 err = 0;
 
 	switch (type) {
 	case HELLO_LINK:
@@ -52,6 +53,8 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 		/* multicast destination address */
 		switch (af) {
 		case AF_INET:
+			if (!(leconf->ipv4.flags & F_LDPD_AF_NO_GTSM))
+				flags |= F_HELLO_GTSM;
 			dst.v4 = global.mcast_addr_v4;
 			break;
 		case AF_INET6:
@@ -64,9 +67,9 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 	case HELLO_TARGETED:
 		af = tnbr->af;
 		holdtime = tnbr->hello_holdtime;
-		flags = TARGETED_HELLO;
+		flags = F_HELLO_TARGETED;
 		if ((tnbr->flags & F_TNBR_CONFIGURED) || tnbr->pw_count)
-			flags |= REQUEST_TARG_HELLO;
+			flags |= F_HELLO_REQ_TARG;
 		fd = (ldp_af_global_get(&global, af))->ldp_edisc_socket;
 
 		/* unicast destination address */
@@ -96,10 +99,10 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 	if ((buf = ibuf_open(size)) == NULL)
 		fatal(__func__);
 
-	gen_ldp_hdr(buf, size);
+	err |= gen_ldp_hdr(buf, size);
 	size -= LDP_HDR_SIZE;
-	gen_msg_hdr(buf, MSG_TYPE_HELLO, size);
-	gen_hello_prms_tlv(buf, holdtime, flags);
+	err |= gen_msg_hdr(buf, MSG_TYPE_HELLO, size);
+	err |= gen_hello_prms_tlv(buf, holdtime, flags);
 
 	/*
 	 * RFC 7552 - Section 6.1:
@@ -109,18 +112,18 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 	 */
 	switch (af) {
 	case AF_INET:
-		gen_opt4_hello_prms_tlv(buf, TLV_TYPE_IPV4TRANSADDR,
+		err |= gen_opt4_hello_prms_tlv(buf, TLV_TYPE_IPV4TRANSADDR,
 		    leconf->ipv4.trans_addr.v4.s_addr);
 		break;
 	case AF_INET6:
-		gen_opt16_hello_prms_tlv(buf, TLV_TYPE_IPV6TRANSADDR,
+		err |= gen_opt16_hello_prms_tlv(buf, TLV_TYPE_IPV6TRANSADDR,
 		    leconf->ipv6.trans_addr.v6.s6_addr);
 		break;
 	default:
 		fatalx("send_hello: unknown af");
 	}
 
-	gen_opt4_hello_prms_tlv(buf, TLV_TYPE_CONFIG,
+	err |= gen_opt4_hello_prms_tlv(buf, TLV_TYPE_CONFIG,
 	    htonl(global.conf_seqnum));
 
    	/*
@@ -129,7 +132,12 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 	 * MUST include the Dual-Stack capability TLV in all of its LDP Hellos".
 	 */
 	if (ldp_is_dual_stack(leconf))
-		gen_ds_hello_prms_tlv(buf, leconf->trans_pref);
+		err |= gen_ds_hello_prms_tlv(buf, leconf->trans_pref);
+
+	if (err) {
+		ibuf_free(buf);
+		return (-1);
+	}
 
 	send_packet(fd, af, &dst, ia, buf->buf, buf->wpos);
 	ibuf_free(buf);
@@ -138,7 +146,7 @@ send_hello(enum hello_type type, struct iface_af *ia, struct tnbr *tnbr)
 }
 
 void
-recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
+recv_hello(struct in_addr lsr_id, struct ldp_msg *msg, int af,
     union ldpd_addr *src, struct iface *iface, int multicast, char *buf,
     uint16_t len)
 {
@@ -168,12 +176,12 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 		    __func__, inet_ntoa(lsr_id), holdtime);
 		return;
 	}
-	if (multicast && (flags & TARGETED_HELLO)) {
+	if (multicast && (flags & F_HELLO_TARGETED)) {
 		log_debug("%s: lsr-id %s: multicast targeted hello", __func__,
 		    inet_ntoa(lsr_id));
 		return;
 	}
-	if (!multicast && !((flags & TARGETED_HELLO))) {
+	if (!multicast && !((flags & F_HELLO_TARGETED))) {
 		log_debug("%s: lsr-id %s: unicast link hello", __func__,
 		    inet_ntoa(lsr_id));
 		return;
@@ -211,7 +219,7 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 		 * (i.e., MUST discard the targeted Hello if it failed the
 		 * check)".
 		 */
-		if (flags & TARGETED_HELLO) {
+		if (flags & F_HELLO_TARGETED) {
 			log_debug("%s: lsr-id %s: invalid targeted hello "
 			    "transport address %s", __func__, inet_ntoa(lsr_id),
 			     log_addr(af, &trans_addr));
@@ -221,11 +229,11 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 	}
 
 	memset(&source, 0, sizeof(source));
-	if (flags & TARGETED_HELLO) {
+	if (flags & F_HELLO_TARGETED) {
 		/*
 	 	 * RFC 7552 - Section 5.2:
 		* "The link-local IPv6 addresses MUST NOT be used as the
-		* targeted LDP Hello packet's source or destination addresses.
+		* targeted LDP Hello packet's source or destination addresses".
 		*/
 		if (af == AF_INET6 && IN6_IS_SCOPE_EMBED(&src->v6)) {
 			log_debug("%s: lsr-id %s: targeted hello with "
@@ -238,13 +246,13 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 
 		/* remove the dynamic tnbr if the 'R' bit was cleared */
 		if (tnbr && (tnbr->flags & F_TNBR_DYNAMIC) &&
-		    !((flags & REQUEST_TARG_HELLO))) {
+		    !((flags & F_HELLO_REQ_TARG))) {
 			tnbr->flags &= ~F_TNBR_DYNAMIC;
 			tnbr = tnbr_check(tnbr);
 		}
 
 		if (!tnbr) {
-			if (!((flags & REQUEST_TARG_HELLO) &&
+			if (!((flags & F_HELLO_REQ_TARG) &&
 			    ((ldp_af_conf_get(leconf, af))->flags &
 			    F_LDPD_AF_THELLO_ACCEPT)))
 				return;
@@ -283,8 +291,8 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 		log_debug("%s: lsr-id %s: remote transport preference does not "
 		    "match the local preference", __func__, inet_ntoa(lsr_id));
 		if (nbr)
-			session_shutdown(nbr, S_TRANS_MISMTCH, lm->msgid,
-			    lm->type);
+			session_shutdown(nbr, S_TRANS_MISMTCH, msg->id,
+			    msg->type);
 		if (adj)
 			adj_del(adj, S_SHUTDOWN);
 		return;
@@ -299,14 +307,14 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 		case AF_INET:
 			if (nbr_adj_count(nbr, AF_INET6) > 0) {
 				session_shutdown(nbr, S_DS_NONCMPLNCE,
-				    lm->msgid, lm->type);
+				    msg->id, msg->type);
 				return;
 			}
 			break;
 		case AF_INET6:
 			if (nbr_adj_count(nbr, AF_INET) > 0) {
 				session_shutdown(nbr, S_DS_NONCMPLNCE,
-				    lm->msgid, lm->type);
+				    msg->id, msg->type);
 				return;
 			}
 			break;
@@ -353,9 +361,17 @@ recv_hello(struct in_addr lsr_id, struct ldp_msg *lm, int af,
 	 * to start an LDP session.
 	 */
 	if (nbr == NULL && (!ds_tlv ||
-	    ((trans_pref == DUAL_STACK_LDPOV4 && af != AF_INET) ||
-	    (trans_pref == DUAL_STACK_LDPOV6 && af != AF_INET6))))
+	    ((trans_pref == DUAL_STACK_LDPOV4 && af == AF_INET) ||
+	    (trans_pref == DUAL_STACK_LDPOV6 && af == AF_INET6))))
 		nbr = nbr_new(lsr_id, af, ds_tlv, &trans_addr, scope_id);
+
+	/* dynamic LDPv4 GTSM negotiation as per RFC 6720 */
+	if (nbr) {
+		if (flags & F_HELLO_GTSM)
+			nbr->flags |= F_NBR_GTSM_NEGOTIATED;
+		else
+			nbr->flags &= ~F_NBR_GTSM_NEGOTIATED;
+	}
 
 	/* update neighbor's configuration sequence number */
 	if (nbr && (tlvs_rcvd & F_HELLO_TLV_RCVD_CONF)) {
@@ -452,7 +468,7 @@ tlv_decode_hello_prms(char *buf, uint16_t len, uint16_t *holdtime,
 
 	if (tlv.type != htons(TLV_TYPE_COMMONHELLO))
 		return (-1);
-	if (ntohs(tlv.length) != sizeof(tlv) - TLV_HDR_LEN)
+	if (ntohs(tlv.length) != sizeof(tlv) - TLV_HDR_SIZE)
 		return (-1);
 
 	*holdtime = ntohs(tlv.holdtime);
@@ -486,11 +502,13 @@ tlv_decode_opt_hello_prms(char *buf, uint16_t len, int *tlvs_rcvd, int af,
 	 * given address family".
 	 */
 	while (len >= sizeof(tlv)) {
-		memcpy(&tlv, buf, TLV_HDR_LEN);
-		buf += TLV_HDR_LEN;
-		len -= TLV_HDR_LEN;
-		total += TLV_HDR_LEN;
+		memcpy(&tlv, buf, TLV_HDR_SIZE);
 		tlv_len = ntohs(tlv.length);
+		if (tlv_len + TLV_HDR_SIZE > len)
+			return (-1);
+		buf += TLV_HDR_SIZE;
+		len -= TLV_HDR_SIZE;
+		total += TLV_HDR_SIZE;
 
 		switch (ntohs(tlv.type)) {
 		case TLV_TYPE_IPV4TRANSADDR:

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cgi.c,v 1.71 2016/05/28 13:40:44 schwarze Exp $ */
+/*	$OpenBSD: cgi.c,v 1.79 2016/09/03 21:24:35 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2016 Ingo Schwarze <schwarze@usta.de>
@@ -111,17 +111,18 @@ static	const char *const sec_names[] = {
 static	const int sec_MAX = sizeof(sec_names) / sizeof(char *);
 
 static	const char *const arch_names[] = {
-    "amd64",       "alpha",       "armish",      "armv7",
-    "hppa",        "hppa64",      "i386",        "landisk",
+    "amd64",       "alpha",       "armv7",
+    "hppa",        "i386",        "landisk",
     "loongson",    "luna88k",     "macppc",      "mips64",
-    "octeon",      "sgi",         "socppc",      "sparc",
-    "sparc64",     "zaurus",
-    "amiga",       "arc",         "arm32",       "atari",
-    "aviion",      "beagle",      "cats",        "hp300",       
+    "octeon",      "sgi",         "socppc",      "sparc64",
+    "amiga",       "arc",         "armish",      "arm32",
+    "atari",       "aviion",      "beagle",      "cats",
+    "hppa64",      "hp300",
     "ia64",        "mac68k",      "mvme68k",     "mvme88k",
     "mvmeppc",     "palm",        "pc532",       "pegasos",
-    "pmax",        "powerpc",     "solbourne",   "sun3",
-    "vax",         "wgrisc",      "x68k"
+    "pmax",        "powerpc",     "solbourne",   "sparc",
+    "sun3",        "vax",         "wgrisc",      "x68k",
+    "zaurus"
 };
 static	const int arch_MAX = sizeof(arch_names) / sizeof(char *);
 
@@ -335,6 +336,7 @@ resp_copy(const char *filename)
 		fflush(stdout);
 		while ((sz = read(fd, buf, sizeof(buf))) > 0)
 			write(STDOUT_FILENO, buf, sz);
+		close(fd);
 	}
 }
 
@@ -468,9 +470,6 @@ validate_manpath(const struct req *req, const char* manpath)
 {
 	size_t	 i;
 
-	if ( ! strcmp(manpath, "mandoc"))
-		return 1;
-
 	for (i = 0; i < req->psz; i++)
 		if ( ! strcmp(manpath, req->p[i]))
 			return 1;
@@ -497,9 +496,9 @@ pg_index(const struct req *req)
 	resp_searchform(req, FOCUS_QUERY);
 	printf("<p>\n"
 	       "This web interface is documented in the\n"
-	       "<a href=\"/%s%smandoc/man8/man.cgi.8\">man.cgi</a>\n"
+	       "<a href=\"/%s%sman.cgi.8\">man.cgi(8)</a>\n"
 	       "manual, and the\n"
-	       "<a href=\"/%s%smandoc/man1/apropos.1\">apropos</a>\n"
+	       "<a href=\"/%s%sapropos.1\">apropos(1)</a>\n"
 	       "manual explains the query syntax.\n"
 	       "</p>\n",
 	       scriptname, *scriptname == '\0' ? "" : "/",
@@ -801,7 +800,8 @@ resp_format(const struct req *req, const char *file)
 	}
 
 	mchars_alloc();
-	mp = mparse_alloc(MPARSE_SO, MANDOCLEVEL_BADARG, NULL, req->q.manpath);
+	mp = mparse_alloc(MPARSE_SO | MPARSE_UTF8 | MPARSE_LATIN1,
+	    MANDOCLEVEL_BADARG, NULL, req->q.manpath);
 	mparse_readfd(mp, fd, file);
 	close(fd);
 
@@ -882,12 +882,7 @@ pg_show(struct req *req, const char *fullpath)
 		free(manpath);
 		return;
 	}
-
-	if (strcmp(manpath, "mandoc")) {
-		free(req->q.manpath);
-		req->q.manpath = manpath;
-	} else
-		free(manpath);
+	free(manpath);
 
 	if ( ! validate_filename(file)) {
 		pg_error_badrequest(
@@ -1024,7 +1019,7 @@ main(void)
 
 	if (*path != '\0') {
 		parse_path_info(&req, path);
-		if (access(path, F_OK) == -1)
+		if (req.q.manpath == NULL || access(path, F_OK) == -1)
 			path = "";
 	} else if ((querystring = getenv("QUERY_STRING")) != NULL)
 		parse_query_string(&req, querystring);
@@ -1070,11 +1065,13 @@ main(void)
 static void
 parse_path_info(struct req *req, const char *path)
 {
-	char	*dir;
+	char	*dir[4];
+	int	 i;
 
 	req->isquery = 0;
 	req->q.equal = 1;
 	req->q.manpath = mandoc_strdup(path);
+	req->q.arch = NULL;
 
 	/* Mandatory manual page name. */
 	if ((req->q.query = strrchr(req->q.manpath, '/')) == NULL) {
@@ -1093,27 +1090,50 @@ parse_path_info(struct req *req, const char *path)
 	}
 
 	/* Handle the case of name[.section] only. */
-	if (req->q.manpath == NULL) {
-		req->q.arch = NULL;
+	if (req->q.manpath == NULL)
 		return;
-	}
 	req->q.query = mandoc_strdup(req->q.query);
 
-	/* Optional architecture. */
-	dir = strrchr(req->q.manpath, '/');
-	if (dir != NULL && strncmp(dir + 1, "man", 3) != 0) {
-		*dir++ = '\0';
-		req->q.arch = mandoc_strdup(dir);
-		dir = strrchr(req->q.manpath, '/');
-	} else
-		req->q.arch = NULL;
-
-	/* Optional directory name. */
-	if (dir != NULL && strncmp(dir + 1, "man", 3) == 0) {
-		*dir++ = '\0';
-		free(req->q.sec);
-		req->q.sec = mandoc_strdup(dir + 3);
+	/* Split directory components. */
+	dir[i = 0] = req->q.manpath;
+	while ((dir[i + 1] = strchr(dir[i], '/')) != NULL) {
+		if (++i == 3) {
+			pg_error_badrequest(
+			    "You specified too many directory components.");
+			exit(EXIT_FAILURE);
+		}
+		*dir[i]++ = '\0';
 	}
+
+	/* Optional manpath. */
+	if ((i = validate_manpath(req, req->q.manpath)) == 0)
+		req->q.manpath = NULL;
+	else if (dir[1] == NULL)
+		return;
+
+	/* Optional section. */
+	if (strncmp(dir[i], "man", 3) == 0) {
+		free(req->q.sec);
+		req->q.sec = mandoc_strdup(dir[i++] + 3);
+	}
+	if (dir[i] == NULL) {
+		if (req->q.manpath == NULL)
+			free(dir[0]);
+		return;
+	}
+	if (dir[i + 1] != NULL) {
+		pg_error_badrequest(
+		    "You specified an invalid directory component.");
+		exit(EXIT_FAILURE);
+	}
+
+	/* Optional architecture. */
+	if (i) {
+		req->q.arch = mandoc_strdup(dir[i]);
+		if (req->q.manpath == NULL)
+			free(dir[0]);
+	} else
+		req->q.arch = dir[0];
 }
 
 /*

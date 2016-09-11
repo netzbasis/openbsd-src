@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_var.h,v 1.60 2016/06/01 11:11:44 jca Exp $	*/
+/*	$OpenBSD: ip6_var.h,v 1.64 2016/08/24 09:41:12 mpi Exp $	*/
 /*	$KAME: ip6_var.h,v 1.33 2000/06/11 14:59:20 jinmei Exp $	*/
 
 /*
@@ -258,7 +258,7 @@ int	ip6_process_hopopts(struct mbuf *, u_int8_t *, int, u_int32_t *,
 void	ip6_savecontrol(struct inpcb *, struct mbuf *, struct mbuf **);
 int	ip6_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 
-void	ip6_forward(struct mbuf *, int);
+void	ip6_forward(struct mbuf *, struct rtentry *, int);
 
 void	ip6_mloopback(struct ifnet *, struct mbuf *, struct sockaddr_in6 *);
 int	ip6_output(struct mbuf *, struct ip6_pktopts *, struct route_in6 *, int,
@@ -294,9 +294,10 @@ int	rip6_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int	dest6_input(struct mbuf **, int *, int);
 int	none_input(struct mbuf **, int *, int);
 
+int	in6_pcbselsrc(struct in6_addr **, struct sockaddr_in6 *,
+	    struct inpcb *, struct ip6_pktopts *);
 int	in6_selectsrc(struct in6_addr **, struct sockaddr_in6 *,
-	    struct ip6_pktopts *, struct ip6_moptions *, struct route_in6 *,
-	    struct in6_addr *, u_int);
+	    struct ip6_moptions *, struct route_in6 *, u_int);
 struct rtentry *in6_selectroute(struct sockaddr_in6 *, struct ip6_pktopts *,
 	    struct route_in6 *, unsigned int rtableid);
 

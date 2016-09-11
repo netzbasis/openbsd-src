@@ -1,4 +1,4 @@
-/*	$OpenBSD: imxesdhc.c,v 1.23 2016/06/14 14:41:03 kettenis Exp $	*/
+/*	$OpenBSD: imxesdhc.c,v 1.34 2016/09/05 12:45:44 mglocker Exp $	*/
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -19,7 +19,6 @@
 
 /* i.MX SD/MMC support derived from /sys/dev/sdmmc/sdhc.c */
 
-
 #include <sys/param.h>
 #include <sys/device.h>
 #include <sys/kernel.h>
@@ -34,40 +33,43 @@
 
 #include <armv7/armv7/armv7var.h>
 #include <armv7/imx/imxccmvar.h>
-#include <armv7/imx/imxgpiovar.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_gpio.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/ofw_regulator.h>
+#include <dev/ofw/fdt.h>
 
 /* registers */
-#define SDHC_DS_ADDR			0x00
-#define SDHC_BLK_ATT			0x04
-#define SDHC_CMD_ARG			0x08
-#define SDHC_CMD_XFR_TYP		0x0c
-#define SDHC_CMD_RSP0			0x10
-#define SDHC_CMD_RSP1			0x14
-#define SDHC_CMD_RSP2			0x18
-#define SDHC_CMD_RSP3			0x1c
-#define SDHC_DATA_BUFF_ACC_PORT		0x20
-#define SDHC_PRES_STATE			0x24
-#define SDHC_PROT_CTRL			0x28
-#define SDHC_SYS_CTRL			0x2c
-#define SDHC_INT_STATUS			0x30
-#define SDHC_INT_STATUS_EN		0x34
-#define SDHC_INT_SIGNAL_EN		0x38
-#define SDHC_AUTOCMD12_ERR_STATUS	0x3c
-#define SDHC_HOST_CTRL_CAP		0x40
-#define SDHC_WTMK_LVL			0x44
-#define SDHC_MIX_CTRL			0x48
-#define SDHC_FORCE_EVENT		0x50
-#define SDHC_ADMA_ERR_STATUS		0x54
-#define SDHC_ADMA_SYS_ADDR		0x58
-#define SDHC_DLL_CTRL			0x60
-#define SDHC_DLL_STATUS			0x64
-#define SDHC_CLK_TUNE_CTRL_STATUS	0x68
-#define SDHC_VEND_SPEC			0xc0
-#define SDHC_MMC_BOOT			0xc4
-#define SDHC_VEND_SPEC2			0xc8
-#define SDHC_HOST_CTRL_VER		0xfc
+#define SDHC_DS_ADDR				0x00
+#define SDHC_BLK_ATT				0x04
+#define SDHC_CMD_ARG				0x08
+#define SDHC_CMD_XFR_TYP			0x0c
+#define SDHC_CMD_RSP0				0x10
+#define SDHC_CMD_RSP1				0x14
+#define SDHC_CMD_RSP2				0x18
+#define SDHC_CMD_RSP3				0x1c
+#define SDHC_DATA_BUFF_ACC_PORT			0x20
+#define SDHC_PRES_STATE				0x24
+#define SDHC_PROT_CTRL				0x28
+#define SDHC_SYS_CTRL				0x2c
+#define SDHC_INT_STATUS				0x30
+#define SDHC_INT_STATUS_EN			0x34
+#define SDHC_INT_SIGNAL_EN			0x38
+#define SDHC_AUTOCMD12_ERR_STATUS		0x3c
+#define SDHC_HOST_CTRL_CAP			0x40
+#define SDHC_WTMK_LVL				0x44
+#define SDHC_MIX_CTRL				0x48
+#define SDHC_FORCE_EVENT			0x50
+#define SDHC_ADMA_ERR_STATUS			0x54
+#define SDHC_ADMA_SYS_ADDR			0x58
+#define SDHC_DLL_CTRL				0x60
+#define SDHC_DLL_STATUS				0x64
+#define SDHC_CLK_TUNE_CTRL_STATUS		0x68
+#define SDHC_VEND_SPEC				0xc0
+#define SDHC_MMC_BOOT				0xc4
+#define SDHC_VEND_SPEC2				0xc8
+#define SDHC_HOST_CTRL_VER			0xfc
 
 /* bits and bytes */
 #define SDHC_BLK_ATT_BLKCNT_MAX			0xffff
@@ -147,18 +149,18 @@
 #define SDHC_WTMK_LVL_WR_WML_SHIFT		16
 #define SDHC_WTMK_LVL_WR_BRST_LEN_SHIFT		24
 
-#define SDHC_COMMAND_TIMEOUT	hz
-#define SDHC_BUFFER_TIMEOUT	hz
-#define SDHC_TRANSFER_TIMEOUT	hz
-#define SDHC_DMA_TIMEOUT	(3*hz)
+#define SDHC_COMMAND_TIMEOUT			hz
+#define SDHC_BUFFER_TIMEOUT			hz
+#define SDHC_TRANSFER_TIMEOUT			hz
+#define SDHC_DMA_TIMEOUT			(3 * hz)
 
-#define SDHC_ADMA2_VALID	(1<<0)
-#define SDHC_ADMA2_END		(1<<1)
-#define SDHC_ADMA2_INT		(1<<2)
-#define SDHC_ADMA2_ACT		(3<<4)
-#define SDHC_ADMA2_ACT_NOP	(0<<4)
-#define SDHC_ADMA2_ACT_TRANS	(2<<4)
-#define SDHC_ADMA2_ACT_LINK	(3<<4)
+#define SDHC_ADMA2_VALID			(1 << 0)
+#define SDHC_ADMA2_END				(1 << 1)
+#define SDHC_ADMA2_INT				(1 << 2)
+#define SDHC_ADMA2_ACT				(3 << 4)
+#define SDHC_ADMA2_ACT_NOP			(0 << 4)
+#define SDHC_ADMA2_ACT_TRANS			(2 << 4)
+#define SDHC_ADMA2_ACT_LINK			(3 << 4)
 
 struct sdhc_adma2_descriptor32 {
 	uint16_t	attribute;
@@ -171,36 +173,39 @@ int	imxesdhc_match(struct device *, void *, void *);
 void	imxesdhc_attach(struct device *, struct device *, void *);
 
 struct imxesdhc_softc {
-	struct device sc_dev;
-	bus_space_tag_t		sc_iot;
-	bus_space_handle_t	sc_ioh;
-	bus_dma_tag_t		sc_dmat;
-	void			*sc_ih; /* Interrupt handler */
-	int			sc_node;
+	struct device		 sc_dev;
+	bus_space_tag_t		 sc_iot;
+	bus_space_handle_t	 sc_ioh;
+	bus_dma_tag_t		 sc_dmat;
+	void			*sc_ih;		/* interrupt handler */
+	int			 sc_node;
+	uint32_t		 sc_gpio[3];
+	uint32_t		 sc_vmmc;
+	uint32_t		 sc_pwrseq;
+	uint32_t		 sc_vdd;
 	u_int sc_flags;
 
-	int unit;			/* unit id */
-	struct device *sdmmc;		/* generic SD/MMC device */
-	int clockbit;			/* clock control bit */
-	u_int clkbase;			/* base clock frequency in KHz */
-	int maxblklen;			/* maximum block length */
-	int flags;			/* flags for this host */
-	uint32_t ocr;			/* OCR value from capabilities */
-//	u_int8_t regs[14];		/* host controller state */
-	uint32_t intr_status;		/* soft interrupt status */
-	uint32_t intr_error_status;	/*  */
+	int			 unit;		/* unit id */
+	struct device		*sdmmc;		/* generic SD/MMC device */
+	int			 clockbit;	/* clock control bit */
+	u_int			 clkbase;	/* base clock freq. in KHz */
+	int			 maxblklen;	/* maximum block length */
+	int			 flags;		/* flags for this host */
+	uint32_t		 ocr;		/* OCR value from caps */
+	uint32_t		 intr_status;	/* soft interrupt status */
+	uint32_t		 intr_error_status;
 
-	bus_dmamap_t adma_map;
-	bus_dma_segment_t adma_segs[1];
-	caddr_t adma2;
+	bus_dmamap_t		 adma_map;
+	bus_dma_segment_t	 adma_segs[1];
+	caddr_t			 adma2;
 };
 
 /* Host controller functions called by the attachment driver. */
-int	imxesdhc_host_found(struct imxesdhc_softc *, bus_space_tag_t,
-	    bus_space_handle_t, bus_size_t, int);
-void	imxesdhc_power(int, void *);
-void	imxesdhc_shutdown(void *);
 int	imxesdhc_intr(void *);
+
+void	imxesdhc_clock_enable(uint32_t);
+void	imxesdhc_pwrseq_pre(uint32_t);
+void	imxesdhc_pwrseq_post(uint32_t);
 
 /* RESET MODES */
 #define MMC_RESET_DAT	1
@@ -210,7 +215,7 @@ int	imxesdhc_intr(void *);
 #define HDEVNAME(sc)	((sc)->sc_dev.dv_xname)
 
 /* flag values */
-#define SHF_USE_DMA		0x0001
+#define SHF_USE_DMA	0x0001
 
 /* SDHC should only be accessed with 4 byte reads or writes. */
 #define HREAD4(sc, reg)							\
@@ -293,27 +298,36 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 	uint32_t caps;
 	uint32_t width;
 
-	if (faa->fa_nreg < 2 || faa->fa_nintr < 3)
+	if (faa->fa_nreg < 1)
 		return;
 
-	sc->unit = (faa->fa_reg[0] & 0xc000) >> 14;
+	sc->unit = (faa->fa_reg[0].addr & 0xc000) >> 14;
 	sc->sc_node = faa->fa_node;
 	sc->sc_dmat = faa->fa_dmat;
 	sc->sc_iot = faa->fa_iot;
-	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
-	    faa->fa_reg[1], 0, &sc->sc_ioh))
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic("imxesdhc_attach: bus_space_map failed!");
 
 	printf("\n");
 
-	sc->sc_ih = arm_intr_establish(faa->fa_intr[1], IPL_SDMMC,
+	pinctrl_byname(faa->fa_node, "default");
+
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_SDMMC,
 	   imxesdhc_intr, sc, sc->sc_dev.dv_xname);
+
+	OF_getpropintarray(sc->sc_node, "cd-gpios", sc->sc_gpio,
+	    sizeof(sc->sc_gpio));
+	gpio_controller_config_pin(sc->sc_gpio, GPIO_CONFIG_INPUT);
+
+	sc->sc_vmmc = OF_getpropint(sc->sc_node, "vmmc-supply", 0);
+	sc->sc_pwrseq = OF_getpropint(sc->sc_node, "mmc-pwrseq", 0);
 
 	/*
 	 * Reset the host controller and enable interrupts.
 	 */
 	if (imxesdhc_host_reset(sc))
-		goto err;
+		return;
 
 	/* Determine host capabilities. */
 	caps = HREAD4(sc, SDHC_HOST_CTRL_CAP);
@@ -409,7 +423,6 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 	 * Attach the generic SD/MMC bus driver.  (The bus driver must
 	 * not invoke any chipset functions before it is attached.)
 	 */
-
 	bzero(&saa, sizeof(saa));
 	saa.saa_busname = "sdmmc";
 	saa.sct = &imxesdhc_functions;
@@ -430,34 +443,96 @@ imxesdhc_attach(struct device *parent, struct device *self, void *aux)
 	sc->sdmmc = config_found(&sc->sc_dev, &saa, NULL);
 	if (sc->sdmmc == NULL) {
 		error = 0;
-		goto err;
+		return;
 	}
-	
-	return;
-
-err:
-	return;
 }
 
-
-/*
- * Power hook established by or called from attachment driver.
- */
 void
-imxesdhc_power(int why, void *arg)
+imxesdhc_clock_enable(uint32_t phandle)
 {
+	uint32_t gpios[3];
+	int node;
+
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return;
+
+	if (!OF_is_compatible(node, "gpio-gate-clock"))
+		return;
+
+	pinctrl_byname(node, "default");
+
+	OF_getpropintarray(node, "enable-gpios", gpios, sizeof(gpios));
+	gpio_controller_config_pin(&gpios[0], GPIO_CONFIG_OUTPUT);
+	gpio_controller_set_pin(&gpios[0], 1);
 }
 
-/*
- * Shutdown hook established by or called from attachment driver.
- */
 void
-imxesdhc_shutdown(void *arg)
+imxesdhc_pwrseq_pre(uint32_t phandle)
 {
-	struct imxesdhc_softc *sc = arg;
+	uint32_t *gpios, *gpio;
+	uint32_t clocks;
+	int node;
+	int len;
 
-	/* XXX chip locks up if we don't disable it before reboot. */
-	(void)imxesdhc_host_reset(sc);
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return;
+
+	if (!OF_is_compatible(node, "mmc-pwrseq-simple"))
+		return;
+
+	pinctrl_byname(node, "default");
+
+	clocks = OF_getpropint(node, "clocks", 0);
+	if (clocks)
+		imxesdhc_clock_enable(clocks);
+
+	len = OF_getproplen(node, "reset-gpios");
+	if (len <= 0)
+		return;
+
+	gpios = malloc(len, M_TEMP, M_WAITOK);
+	OF_getpropintarray(node, "reset-gpios", gpios, len);
+
+	gpio = gpios;
+	while (gpio && gpio < gpios + (len / sizeof(uint32_t))) {
+		gpio_controller_config_pin(gpio, GPIO_CONFIG_OUTPUT);
+		gpio_controller_set_pin(gpio, 1);
+		gpio = gpio_controller_next_pin(gpio);
+	}
+
+	free(gpios, M_TEMP, len);
+}
+
+void
+imxesdhc_pwrseq_post(uint32_t phandle)
+{
+	uint32_t *gpios, *gpio;
+	int node;
+	int len;
+
+	node = OF_getnodebyphandle(phandle);
+	if (node == 0)
+		return;
+
+	if (!OF_is_compatible(node, "mmc-pwrseq-simple"))
+		return;
+
+	len = OF_getproplen(node, "reset-gpios");
+	if (len <= 0)
+		return;
+
+	gpios = malloc(len, M_TEMP, M_WAITOK);
+	OF_getpropintarray(node, "reset-gpios", gpios, len);
+
+	gpio = gpios;
+	while (gpio && gpio < gpios + (len / sizeof(uint32_t))) {
+		gpio_controller_set_pin(gpio, 0);
+		gpio = gpio_controller_next_pin(gpio);
+	}
+
+	free(gpios, M_TEMP, len);
 }
 
 /*
@@ -524,6 +599,7 @@ uint32_t
 imxesdhc_host_ocr(sdmmc_chipset_handle_t sch)
 {
 	struct imxesdhc_softc *sc = sch;
+
 	return sc->ocr;
 }
 
@@ -531,6 +607,7 @@ int
 imxesdhc_host_maxblklen(sdmmc_chipset_handle_t sch)
 {
 	struct imxesdhc_softc *sc = sch;
+
 	return sc->maxblklen;
 }
 
@@ -541,87 +618,11 @@ int
 imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 {
 	struct imxesdhc_softc *sc = sch;
-	int gpio;
 
 	if (OF_getproplen(sc->sc_node, "non-removable") == 0)
 		return 1;
 
-	switch (board_id)
-	{
-	case BOARD_ID_IMX6_CUBOXI:
-	case BOARD_ID_IMX6_HUMMINGBOARD:
-		switch (sc->unit) {
-			case 1:
-				gpio = 0*32 + 4;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	case BOARD_ID_IMX6_SABRELITE:
-		switch (sc->unit) {
-			case 2:
-				gpio = 6*32 + 0;
-				break;
-			case 3:
-				gpio = 1*32 + 6;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	case BOARD_ID_IMX6_SABRESD:
-		switch (sc->unit) {
-			case 1:
-				gpio = 1*32 + 2;
-				break;
-			case 2:
-				gpio = 1*32 + 0;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	case BOARD_ID_IMX6_UTILITE:
-		switch (sc->unit) {
-			case 2:
-				gpio = 6*32 + 1;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	case BOARD_ID_IMX6_NOVENA:
-		switch (sc->unit) {
-			case 1:
-				gpio = 0*32 + 4;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	case BOARD_ID_IMX6_WANDBOARD:
-		switch (sc->unit) {
-			case 0:
-				gpio = 0*32 + 2;
-				break;
-			case 2:
-				gpio = 2*32 + 9;
-				break;
-			default:
-				return 0;
-		}
-		imxgpio_set_dir(gpio, IMXGPIO_DIR_IN);
-		return imxgpio_get_bit(gpio) ? 0 : 1;
-	default:
-		printf("%s: unhandled board\n", __func__);
-		return 1;
-	}
+	return gpio_controller_get_pin(sc->sc_gpio);
 }
 
 /*
@@ -631,6 +632,28 @@ imxesdhc_card_detect(sdmmc_chipset_handle_t sch)
 int
 imxesdhc_bus_power(sdmmc_chipset_handle_t sch, uint32_t ocr)
 {
+	struct imxesdhc_softc *sc = sch;
+	uint32_t vdd = 0;
+
+	ocr &= sc->ocr;
+	if (ISSET(ocr, MMC_OCR_3_2V_3_3V|MMC_OCR_3_3V_3_4V))
+		vdd = 3300000;
+	else if (ISSET(ocr, MMC_OCR_2_9V_3_0V|MMC_OCR_3_0V_3_1V))
+		vdd = 3000000;
+	else if (ISSET(ocr, MMC_OCR_1_65V_1_95V))
+		vdd = 1800000;
+
+	if (sc->sc_vdd == 0 && vdd > 0)
+		imxesdhc_pwrseq_pre(sc->sc_pwrseq);
+
+	/* enable mmc power */
+	if (sc->sc_vmmc && vdd > 0)
+		regulator_enable(sc->sc_vmmc);
+
+	if (sc->sc_vdd == 0 && vdd > 0)
+		imxesdhc_pwrseq_post(sc->sc_pwrseq);
+
+	sc->sc_vdd = vdd;
 	return 0;
 }
 
@@ -670,14 +693,18 @@ imxesdhc_bus_clock(sdmmc_chipset_handle_t sch, int freq, int timing)
 	HCLR4(sc, SDHC_VEND_SPEC, SDHC_VEND_SPEC_FRC_SDCLK_ON);
 
 	/* wait while clock is unstable */
-	if ((error = imxesdhc_wait_state(sc, SDHC_PRES_STATE_SDSTB, SDHC_PRES_STATE_SDSTB)) != 0)
+	if ((error = imxesdhc_wait_state(sc,
+	    SDHC_PRES_STATE_SDSTB, SDHC_PRES_STATE_SDSTB)) != 0)
 		goto ret;
 
 	HCLR4(sc, SDHC_SYS_CTRL, SDHC_SYS_CTRL_CLOCK_MASK);
-	HSET4(sc, SDHC_SYS_CTRL, (div << SDHC_SYS_CTRL_CLOCK_DIV_SHIFT) | (pre_div << SDHC_SYS_CTRL_CLOCK_PRE_SHIFT));
+	HSET4(sc, SDHC_SYS_CTRL,
+	    (div << SDHC_SYS_CTRL_CLOCK_DIV_SHIFT) |
+	    (pre_div << SDHC_SYS_CTRL_CLOCK_PRE_SHIFT));
 
 	/* wait while clock is unstable */
-	if ((error = imxesdhc_wait_state(sc, SDHC_PRES_STATE_SDSTB, SDHC_PRES_STATE_SDSTB)) != 0)
+	if ((error = imxesdhc_wait_state(sc,
+	    SDHC_PRES_STATE_SDSTB, SDHC_PRES_STATE_SDSTB)) != 0)
 		goto ret;
 
 ret:
@@ -728,8 +755,9 @@ imxesdhc_card_intr_mask(sdmmc_chipset_handle_t sch, int enable)
 void
 imxesdhc_card_intr_ack(sdmmc_chipset_handle_t sch)
 {
-	printf("imxesdhc_card_intr_ack\n");
 	struct imxesdhc_softc *sc = sch;
+
+	printf("imxesdhc_card_intr_ack\n");
 
 	HWRITE4(sc, SDHC_INT_STATUS, SDHC_INT_STATUS_CINT);
 }
@@ -739,16 +767,18 @@ imxesdhc_wait_state(struct imxesdhc_softc *sc, uint32_t mask, uint32_t value)
 {
 	uint32_t state;
 	int timeout;
+
 	state = HREAD4(sc, SDHC_PRES_STATE);
-	DPRINTF(3,("%s: wait_state %x %x %x)\n", HDEVNAME(sc),
-	    mask, value, state));
+	DPRINTF(3,("%s: wait_state %x %x %x)\n",
+	    HDEVNAME(sc), mask, value, state));
 	for (timeout = 1000; timeout > 0; timeout--) {
 		if (((state = HREAD4(sc, SDHC_PRES_STATE)) & mask) == value)
 			return 0;
 		delay(10);
 	}
-	DPRINTF(0,("%s: timeout waiting for %x, state %x\n", HDEVNAME(sc),
-	    value, state));
+	DPRINTF(0,("%s: timeout waiting for %x, state %x\n",
+	    HDEVNAME(sc), value, state));
+
 	return ETIMEDOUT;
 }
 
@@ -789,9 +819,13 @@ imxesdhc_exec_command(sdmmc_chipset_handle_t sch, struct sdmmc_command *cmd)
 			cmd->c_resp[1] = HREAD4(sc, SDHC_CMD_RSP1);
 			cmd->c_resp[2] = HREAD4(sc, SDHC_CMD_RSP2);
 			cmd->c_resp[3] = HREAD4(sc, SDHC_CMD_RSP3);
-
 #ifdef SDHC_DEBUG
-			printf("resp[0] 0x%08x\nresp[1] 0x%08x\nresp[2] 0x%08x\nresp[3] 0x%08x\n", cmd->c_resp[0], cmd->c_resp[1], cmd->c_resp[2], cmd->c_resp[3]);
+			printf("resp[0] 0x%08x\nresp[1] 0x%08x\n"
+			    "resp[2] 0x%08x\nresp[3] 0x%08x\n",
+			    cmd->c_resp[0],
+			    cmd->c_resp[1],
+			    cmd->c_resp[2],
+			    cmd->c_resp[3]);
 #endif
 		} else  {
 			cmd->c_resp[0] = HREAD4(sc, SDHC_CMD_RSP0);
@@ -982,11 +1016,12 @@ imxesdhc_transfer_data(struct imxesdhc_softc *sc, struct sdmmc_command *cmd)
 	error = 0;
 	datalen = cmd->c_datalen;
 
-	DPRINTF(1,("%s: resp=%#x datalen=%d\n", HDEVNAME(sc),
-	    MMC_R1(cmd->c_resp), datalen));
+	DPRINTF(1,("%s: resp=%#x datalen=%d\n",
+	    HDEVNAME(sc), MMC_R1(cmd->c_resp), datalen));
 
 	while (datalen > 0) {
-		if (!imxesdhc_wait_intr(sc, SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR,
+		if (!imxesdhc_wait_intr(sc,
+		    SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR,
 		    SDHC_BUFFER_TIMEOUT)) {
 			error = ETIMEDOUT;
 			break;
@@ -1097,7 +1132,8 @@ imxesdhc_wait_intr(struct imxesdhc_softc *sc, int mask, int timo)
 
 	/* enable interrupts for brr and bwr */
 	if (mask & (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR))
-		HSET4(sc, SDHC_INT_SIGNAL_EN, (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR));
+		HSET4(sc, SDHC_INT_SIGNAL_EN,
+		    (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR));
 
 	status = sc->intr_status & mask;
 	while (status == 0) {
@@ -1115,7 +1151,8 @@ imxesdhc_wait_intr(struct imxesdhc_softc *sc, int mask, int timo)
 	/* Command timeout has higher priority than command complete. */
 	if (ISSET(status, SDHC_INT_STATUS_ERR)) {
 		sc->intr_error_status = 0;
-		(void)imxesdhc_soft_reset(sc, SDHC_SYS_CTRL_RSTC | SDHC_SYS_CTRL_RSTD);
+		(void)imxesdhc_soft_reset(sc,
+		    SDHC_SYS_CTRL_RSTC | SDHC_SYS_CTRL_RSTD);
 		status = 0;
 	}
 
@@ -1138,12 +1175,12 @@ imxesdhc_intr(void *arg)
 
 	/* disable interrupts for brr and bwr, else we get flooded */
 	if (status & (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR))
-		HCLR4(sc, SDHC_INT_SIGNAL_EN, (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR));
+		HCLR4(sc, SDHC_INT_SIGNAL_EN,
+		    (SDHC_INT_STATUS_BRR | SDHC_INT_STATUS_BWR));
 
 	/* Acknowledge the interrupts we are about to handle. */
 	HWRITE4(sc, SDHC_INT_STATUS, status);
-	DPRINTF(2,("%s: interrupt status=0x%08x\n", HDEVNAME(sc),
-	    status));
+	DPRINTF(2,("%s: interrupt status=0x%08x\n", HDEVNAME(sc), status));
 
 	/*
 	 * Service error interrupts.
@@ -1173,5 +1210,6 @@ imxesdhc_intr(void *arg)
 		HCLR4(sc, SDHC_INT_STATUS, SDHC_INT_STATUS_CINT);
 		sdmmc_card_intr(sc->sdmmc);
 	}
+
 	return 1;
 }

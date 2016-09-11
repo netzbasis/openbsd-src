@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.183 2016/06/07 01:29:38 tedu Exp $	*/
+/*	$OpenBSD: route.c,v 1.190 2016/09/04 09:41:03 claudio Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -35,9 +35,12 @@
 
 #include <net/if.h>
 #include <net/if_dl.h>
+#include <net/if_media.h>
 #include <net/if_types.h>
 #include <net/route.h>
 #include <netinet/in.h>
+#include <netmpls/mpls.h>
+
 #include <arpa/inet.h>
 #include <netdb.h>
 
@@ -50,10 +53,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <paths.h>
 #include <err.h>
-#include <net/if_media.h>
-#include <netmpls/mpls.h>
 
 #include "keywords.h"
 #include "show.h"
@@ -605,6 +607,14 @@ newroute(int argc, char **argv)
 					usage(1+*argv);
 				prio = getpriority(*++argv);
 				break;
+			case K_BFD:
+				flags |= RTF_BFD;
+				fmask |= RTF_BFD;
+				break;
+			case K_NOBFD:
+				flags &= ~RTF_BFD;
+				fmask |= RTF_BFD;
+				break;
 			default:
 				usage(1+*argv);
 				/* NOTREACHED */
@@ -644,8 +654,11 @@ newroute(int argc, char **argv)
 		} else
 			break;
 	}
-	if (*cmd == 'g')
+	if (*cmd == 'g') {
+		if (ret != 0 && qflag == 0)
+			warn("writing to routing socket");
 		exit(0);
+	}
 	oerrno = errno;
 	if (!qflag) {
 		printf("%s %s %s", cmd, ishost ? "host" : "net", dest);
@@ -1165,8 +1178,6 @@ rtmsg(int cmd, int flags, int fmask, uint8_t prio)
 	if (debugonly)
 		return (0);
 	if (write(s, &m_rtmsg, l) != l) {
-		if (qflag == 0)
-			warn("writing to routing socket");
 		return (-1);
 	}
 	if (cmd == RTM_GET) {
@@ -1229,13 +1240,16 @@ char *msgtypes[] = {
 	"RTM_IFINFO: iface status change",
 	"RTM_IFANNOUNCE: iface arrival/departure",
 	"RTM_DESYNC: route socket overflow",
+	"RTM_BFD: bidirectional forwarding detection",
 };
 
 char metricnames[] =
 "\011priority\010rttvar\7rtt\6ssthresh\5sendpipe\4recvpipe\3expire\2hopcount\1mtu";
 char routeflags[] =
-"\1UP\2GATEWAY\3HOST\4REJECT\5DYNAMIC\6MODIFIED\7DONE\010MASK_PRESENT\011CLONING"
-"\012XRESOLVE\013LLINFO\014STATIC\015BLACKHOLE\016PROTO3\017PROTO2\020PROTO1\021CLONED\023MPATH\025MPLS\026LOCAL\027BROADCAST";
+"\1UP\2GATEWAY\3HOST\4REJECT\5DYNAMIC\6MODIFIED\7DONE\010XMASK_PRESENT"
+"\011CLONING\012MULTICAST\013LLINFO\014STATIC\015BLACKHOLE\016PROTO3\017PROTO2"
+"\020PROTO1\021CLONED\022CACHED\023MPATH\025MPLS\026LOCAL\027BROADCAST"
+"\030CONNECTED\031BFD";
 char ifnetflags[] =
 "\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6NOTRAILERS\7RUNNING\010NOARP\011PPROMISC"
 "\012ALLMULTI\013OACTIVE\014SIMPLEX\015LINK0\016LINK1\017LINK2\020MULTICAST";
@@ -1318,12 +1332,17 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		}
 		printf("\n");
 		break;
+	case RTM_BFD:
+		printf("bfd\n");	/* XXX - expand*/
+		break;
 	default:
 		printf(", priority %d, table %u, ifidx %u, ",
 		    rtm->rtm_priority, rtm->rtm_tableid, rtm->rtm_index);
 		printf("pid: %ld, seq %d, errno %d\nflags:",
 		    (long)rtm->rtm_pid, rtm->rtm_seq, rtm->rtm_errno);
 		bprintf(stdout, rtm->rtm_flags, routeflags);
+		printf("\nfmask:");
+		bprintf(stdout, rtm->rtm_fmask, routeflags);
 		if (verbose) {
 #define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')
 			relative_expire = rtm->rtm_rmx.rmx_expire ?

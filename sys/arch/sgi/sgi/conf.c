@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.c,v 1.37 2016/04/25 20:09:14 tedu Exp $ */
+/*	$OpenBSD: conf.c,v 1.39 2016/09/04 10:51:24 naddy Exp $ */
 
 /*
  * Copyright (c) 1992, 1993
@@ -71,7 +71,7 @@ struct bdevsw	bdevsw[] =
 	bdev_notdef(),			/* 7:  */
 	bdev_disk_init(NRD,rd),		/* 8: RAM disk (for install) */
 	bdev_notdef(),			/* 9:  */
-	bdev_tape_init(NST,st),		/* 10: SCSI tape */
+	bdev_notdef(),			/* 10: was: SCSI tape */
 	bdev_notdef(),			/* 11:  */
 	bdev_notdef(),			/* 12:  */
 	bdev_notdef(),			/* 13:  */
@@ -126,6 +126,7 @@ cdev_decl(pci);
 #include "vscsi.h"
 #include "pppx.h"
 #include "fuse.h"
+#include "switch.h"
 
 struct cdevsw	cdevsw[] =
 {
@@ -208,6 +209,7 @@ struct cdevsw	cdevsw[] =
 	cdev_notdef(),			/* 72: was USB scanners */
 	cdev_fuse_init(NFUSE,fuse),	/* 73: fuse */
 	cdev_tun_init(NTUN,tap),	/* 74: Ethernet network tunnel */
+	cdev_switch_init(NSWITCH,switch), /* 75: switch(4) control interface */
 };
 
 int	nchrdev = nitems(cdevsw);
@@ -267,7 +269,7 @@ int chrtoblktbl[] =  {
 	/* 7 */		NODEV,
 	/* 8 */		3,		/* cd */
 	/* 9 */		0,		/* sd */
-	/* 10 */	10,		/* st */
+	/* 10 */	NODEV,
 	/* 11 */	2,		/* vnd */
 	/* 12 */	NODEV,
 	/* 13 */	NODEV,

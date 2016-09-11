@@ -1,4 +1,4 @@
-/*	$OpenBSD: mount.c,v 1.64 2016/05/27 19:45:04 deraadt Exp $	*/
+/*	$OpenBSD: mount.c,v 1.68 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: mount.c,v 1.24 1995/11/18 03:34:29 cgd Exp $	*/
 
 /*
@@ -88,6 +88,7 @@ static struct opt {
 	{ MNT_NODEV,		0,	"nodev",		"nodev" },
 	{ MNT_NOEXEC,		0,	"noexec",		"noexec" },
 	{ MNT_NOSUID,		0,	"nosuid",		"nosuid" },
+	{ MNT_NOPERM,		0,	"noperm",		"noperm" },
 	{ MNT_WXALLOWED,	0,	"wxallowed",		"wxallowed" },
 	{ MNT_QUOTA,		0,	"with quotas",		"" },
 	{ MNT_RDONLY,		0,	"read-only",		"ro" },
@@ -597,6 +598,21 @@ prmount(struct statfs *sf)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "gens");
 		if (iso_args->flags & ISOFSMNT_EXTATT)
 			(void)printf("%s%s", !f++ ? " (" : ", ", "extatt");
+	} else if (strcmp(sf->f_fstypename, MOUNT_TMPFS) == 0) {
+		struct tmpfs_args *tmpfs_args = &sf->mount_info.tmpfs_args;
+
+		if (verbose || tmpfs_args->ta_root_uid || tmpfs_args->ta_root_gid)
+			(void)printf("%s%s=%u, %s=%u", !f++ ? " (" : ", ",
+			    "uid", tmpfs_args->ta_root_uid, "gid", tmpfs_args->ta_root_gid);
+		if (verbose || tmpfs_args->ta_root_mode != 040755)
+			(void)printf("%s%s=%04o", !f++ ? " (" : ", ",
+			    "mode", tmpfs_args->ta_root_mode & 07777);
+		if (verbose || tmpfs_args->ta_size_max)
+			(void)printf("%s%s=%lu", !f++ ? " (" : ", ",
+			    "size", (unsigned long)tmpfs_args->ta_size_max);
+		if (verbose || tmpfs_args->ta_nodes_max)
+			(void)printf("%s%s=%lu", !f++ ? " (" : ", ",
+			    "inodes", (unsigned long)tmpfs_args->ta_nodes_max);
 	}
 	(void)printf(f ? ")\n" : "\n");
 }
@@ -670,19 +686,16 @@ maketypelist(char *fslist)
 char *
 catopt(char *s0, const char *s1)
 {
-	size_t i;
 	char *cp;
 
 	if (s0 && *s0) {
-		i = strlen(s0) + strlen(s1) + 1 + 1;
-		if ((cp = malloc(i)) == NULL)
+		if (asprintf(&cp, "%s,%s", s0, s1) == -1)
 			err(1, NULL);
-		(void)snprintf(cp, i, "%s,%s", s0, s1);
 	} else
 		cp = strdup(s1);
 
 	free(s0);
-	return (cp);
+	return cp;
 }
 
 void

@@ -1541,7 +1541,8 @@ cat >>e${EMULATION_NAME}.c <<EOF
 
 static bfd_boolean
 gld${EMULATION_NAME}_open_dynamic_archive
-  (const char *arch, search_dirs_type *search, lang_input_statement_type *entry)
+  (const char *arch __unused, search_dirs_type *search,
+  lang_input_statement_type *entry)
 {
   const char *filename;
   char *string;
@@ -1558,8 +1559,6 @@ case ${target} in
   string = gld${EMULATION_NAME}_search_dir(search->name, filename, -1, -1);
   if (string == NULL)
     return FALSE;
-
-  arch = arch; /* gcc -Werror */
 EOF
    ;;
   *)
@@ -1940,8 +1939,7 @@ fi
 if test -n "$GENERATE_PIE_SCRIPT" ; then
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
 echo '  ; else if (link_info.pie && link_info.combreloc' >> e${EMULATION_NAME}.c
-echo '             && link_info.relro' >> e${EMULATION_NAME}.c
-echo '             && (link_info.flags & DF_BIND_NOW)) return' >> e${EMULATION_NAME}.c
+echo '             && link_info.relro) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xdw			>> e${EMULATION_NAME}.c
 echo '  ; else if (link_info.pie && link_info.combreloc && config.data_bss_contig == TRUE) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xdcz                >> e${EMULATION_NAME}.c
@@ -1956,8 +1954,7 @@ fi
 if test -n "$GENERATE_SHLIB_SCRIPT" ; then
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
 echo '  ; else if (link_info.shared && link_info.combreloc' >> e${EMULATION_NAME}.c
-echo '             && link_info.relro' >> e${EMULATION_NAME}.c
-echo '             && (link_info.flags & DF_BIND_NOW)) return' >> e${EMULATION_NAME}.c
+echo '             && link_info.relro) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xsw			>> e${EMULATION_NAME}.c
 echo '  ; else if (link_info.shared && link_info.combreloc) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xsc			>> e${EMULATION_NAME}.c
@@ -1968,8 +1965,7 @@ fi
 echo '  ; else if (config.data_bss_contig == TRUE) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xz                 >> e${EMULATION_NAME}.c
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
-echo '  ; else if (link_info.combreloc && link_info.relro' >> e${EMULATION_NAME}.c
-echo '             && (link_info.flags & DF_BIND_NOW)) return' >> e${EMULATION_NAME}.c
+echo '  ; else if (link_info.combreloc && link_info.relro) return' >> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xw			>> e${EMULATION_NAME}.c
 echo '  ; else if (link_info.combreloc) return'		>> e${EMULATION_NAME}.c
 sed $sc ldscripts/${EMULATION_NAME}.xc			>> e${EMULATION_NAME}.c
@@ -2002,8 +1998,7 @@ fi
 if test -n "$GENERATE_PIE_SCRIPT" ; then
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
 cat >>e${EMULATION_NAME}.c <<EOF
-  else if (link_info.pie && link_info.combreloc
-	   && link_info.relro && (link_info.flags & DF_BIND_NOW))
+  else if (link_info.pie && link_info.combreloc && link_info.relro)
     return "ldscripts/${EMULATION_NAME}.xdw";
   else if (link_info.pie && link_info.combreloc && config.data_bss_contig == TRUE)
     return "ldscripts/${EMULATION_NAME}.xdcz";
@@ -2021,8 +2016,7 @@ fi
 if test -n "$GENERATE_SHLIB_SCRIPT" ; then
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
 cat >>e${EMULATION_NAME}.c <<EOF
-  else if (link_info.shared && link_info.combreloc
-	   && link_info.relro && (link_info.flags & DF_BIND_NOW))
+  else if (link_info.shared && link_info.combreloc && link_info.relro)
     return "ldscripts/${EMULATION_NAME}.xsw";
   else if (link_info.shared && link_info.combreloc)
     return "ldscripts/${EMULATION_NAME}.xsc";
@@ -2039,8 +2033,7 @@ cat >>e${EMULATION_NAME}.c <<EOF
 EOF
 if test -n "$GENERATE_COMBRELOC_SCRIPT" ; then
 cat >>e${EMULATION_NAME}.c <<EOF
-  else if (link_info.combreloc && link_info.relro
-	   && (link_info.flags & DF_BIND_NOW))
+  else if (link_info.combreloc && link_info.relro)
     return "ldscripts/${EMULATION_NAME}.xw";
   else if (link_info.combreloc)
     return "ldscripts/${EMULATION_NAME}.xc";
@@ -2193,6 +2186,10 @@ cat >>e${EMULATION_NAME}.c <<EOF
 	link_info.relro = FALSE;
       else if (strcmp (optarg, "wxneeded") == 0)
 	link_info.wxneeded = TRUE;
+      else if (strcmp (optarg, "notext") == 0)
+	link_info.allow_textrel = TRUE;
+      else if (strcmp (optarg, "text") == 0)
+	link_info.allow_textrel = FALSE;
       /* What about the other Solaris -z options? FIXME.  */
       break;
 EOF

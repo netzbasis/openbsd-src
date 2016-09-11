@@ -1,4 +1,4 @@
-/*	$OpenBSD: pstat.c,v 1.106 2016/06/03 20:38:48 deraadt Exp $	*/
+/*	$OpenBSD: pstat.c,v 1.108 2016/08/14 22:47:26 guenther Exp $	*/
 /*	$NetBSD: pstat.c,v 1.27 1996/10/23 22:50:06 cgd Exp $	*/
 
 /*-
@@ -407,7 +407,7 @@ void
 vnode_print(struct vnode *avnode, struct vnode *vp)
 {
 	char *type, flags[16];
-	char *fp = flags;
+	char *fp;
 	int flag;
 
 	/*
@@ -438,6 +438,7 @@ vnode_print(struct vnode *avnode, struct vnode *vp)
 	/*
 	 * gather flags
 	 */
+	fp = flags;
 	flag = vp->v_flag;
 	if (flag & VROOT)
 		*fp++ = 'R';
@@ -461,7 +462,7 @@ vnode_print(struct vnode *avnode, struct vnode *vp)
 		*fp++ = 'l';
 	if (vp->v_bioflag & VBIOONSYNCLIST)
 		*fp++ = 's';
-	if (flag == 0)
+	if (fp == flags)
 		*fp++ = '-';
 	*fp = '\0';
 	(void)printf("%0*lx %s %5s %4d %4u",
@@ -529,7 +530,7 @@ ufs_print(struct vnode *vp)
 		else
 			(void)printf(" %7s", name);
 	else
-		(void)printf(" %7qd", ip->i_ffs1_size);
+		(void)printf(" %7lld", (long long)ip->i_ffs1_size);
 	return (0);
 }
 
@@ -629,7 +630,7 @@ nfs_print(struct vnode *vp)
 		else
 			(void)printf(" %7s", name);
 	else
-		(void)printf(" %7qd", np->n_size);
+		(void)printf(" %7lld", (long long)np->n_size);
 	return (0);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: socket.c,v 1.7 2016/05/23 19:09:25 renato Exp $ */
+/*	$OpenBSD: socket.c,v 1.9 2016/07/01 23:29:55 renato Exp $ */
 
 /*
  * Copyright (c) 2016 Renato Westphal <renato@openbsd.org>
@@ -112,6 +112,12 @@ ldp_create_socket(int af, enum socket_type type)
 				return (-1);
 			}
 		}
+		if (type == LDP_SOCKET_SESSION) {
+			if (sock_set_ipv4_ucast_ttl(fd, 255) == -1) {
+				close(fd);
+				return (-1);
+			}
+		}
 		break;
 	case AF_INET6:
 		if (sock_set_ipv6_dscp(fd, IPTOS_PREC_INTERNETCONTROL) == -1) {
@@ -123,9 +129,25 @@ ldp_create_socket(int af, enum socket_type type)
 				close(fd);
 				return (-1);
 			}
+			if (sock_set_ipv6_mcast_hops(fd, 255) == -1) {
+				close(fd);
+				return (-1);
+			}
+			if (!(ldpd_conf->ipv6.flags & F_LDPD_AF_NO_GTSM)) {
+				if (sock_set_ipv6_minhopcount(fd, 255) == -1) {
+					close(fd);
+					return (-1);
+				}
+			}
 		}
 		if (type == LDP_SOCKET_DISC || type == LDP_SOCKET_EDISC) {
 			if (sock_set_ipv6_pktinfo(fd, 1) == -1) {
+				close(fd);
+				return (-1);
+			}
+		}
+		if (type == LDP_SOCKET_SESSION) {
+			if (sock_set_ipv6_ucast_hops(fd, 255) == -1) {
 				close(fd);
 				return (-1);
 			}
@@ -194,19 +216,6 @@ sock_set_bindany(int fd, int enable)
 }
 
 int
-sock_set_ipv4_mcast_ttl(int fd, uint8_t ttl)
-{
-	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL,
-	    (char *)&ttl, sizeof(ttl)) < 0) {
-		log_warn("%s: error setting IP_MULTICAST_TTL to %d",
-		    __func__, ttl);
-		return (-1);
-	}
-
-	return (0);
-}
-
-int
 sock_set_ipv4_tos(int fd, int tos)
 {
 	if (setsockopt(fd, IPPROTO_IP, IP_TOS, (int *)&tos, sizeof(tos)) < 0) {
@@ -225,6 +234,41 @@ sock_set_ipv4_recvif(int fd, int enable)
 		log_warn("%s: error setting IP_RECVIF", __func__);
 		return (-1);
 	}
+	return (0);
+}
+
+int
+sock_set_ipv4_minttl(int fd, int ttl)
+{
+	if (setsockopt(fd, IPPROTO_IP, IP_MINTTL, &ttl, sizeof(ttl)) < 0) {
+		log_warn("%s: error setting IP_MINTTL", __func__);
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
+sock_set_ipv4_ucast_ttl(int fd, int ttl)
+{
+	if (setsockopt(fd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+		log_warn("%s: error setting IP_TTL", __func__);
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
+sock_set_ipv4_mcast_ttl(int fd, uint8_t ttl)
+{
+	if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL,
+	    (char *)&ttl, sizeof(ttl)) < 0) {
+		log_warn("%s: error setting IP_MULTICAST_TTL to %d",
+		    __func__, ttl);
+		return (-1);
+	}
+
 	return (0);
 }
 
@@ -284,6 +328,42 @@ sock_set_ipv6_pktinfo(int fd, int enable)
 }
 
 int
+sock_set_ipv6_minhopcount(int fd, int hoplimit)
+{
+	if (setsockopt(fd, IPPROTO_IPV6, IPV6_MINHOPCOUNT,
+	    &hoplimit, sizeof(hoplimit)) < 0) {
+		log_warn("%s: error setting IPV6_MINHOPCOUNT", __func__);
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
+sock_set_ipv6_ucast_hops(int fd, int hoplimit)
+{
+	if (setsockopt(fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+	    &hoplimit, sizeof(hoplimit)) < 0) {
+		log_warn("%s: error setting IPV6_UNICAST_HOPS", __func__);
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
+sock_set_ipv6_mcast_hops(int fd, int hoplimit)
+{
+	if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+	    &hoplimit, sizeof(hoplimit)) < 0) {
+		log_warn("%s: error setting IPV6_MULTICAST_HOPS", __func__);
+		return (-1);
+	}
+
+	return (0);
+}
+
+int
 sock_set_ipv6_mcast(struct iface *iface)
 {
 	if (setsockopt(global.ipv6.ldp_disc_socket, IPPROTO_IPV6,
@@ -302,7 +382,7 @@ sock_set_ipv6_mcast_loop(int fd)
 	unsigned int	loop = 0;
 
 	if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
-	    (unsigned int *)&loop, sizeof(loop)) < 0) {
+	    &loop, sizeof(loop)) < 0) {
 		log_warn("%s: error setting IPV6_MULTICAST_LOOP", __func__);
 		return (-1);
 	}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ommmc.c,v 1.24 2016/06/18 09:59:35 jsg Exp $	*/
+/*	$OpenBSD: ommmc.c,v 1.29 2016/08/12 03:22:41 jsg Exp $	*/
 
 /*
  * Copyright (c) 2009 Dale Rahn <drahn@openbsd.org>
@@ -36,6 +36,8 @@
 #include <armv7/omap/prcmvar.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 /*
  * NOTE: on OMAP4430/AM335x these registers skew by 0x100
@@ -297,28 +299,23 @@ ommmc_attach(struct device *parent, struct device *self, void *aux)
 	struct fdt_attach_args		*faa = aux;
 	struct sdmmcbus_attach_args	 saa;
 	uint32_t			 caps;
-	uint32_t			 addr, size, irq;
+	uint32_t			 addr, size;
 	int				 len, unit;
 	char				 hwmods[128];
 
-	if (faa->fa_nreg != 2 || (faa->fa_nintr != 1 && faa->fa_nintr != 3))
+	if (faa->fa_nreg < 1)
 		return;
 
-	if (faa->fa_reg[1] <= 0x100)
+	if (faa->fa_reg[0].size <= 0x100)
 		return;
 
 	if (OF_is_compatible(faa->fa_node, "ti,omap4-hsmmc")) {
-		addr = faa->fa_reg[0] + 0x100;
-		size = faa->fa_reg[1] - 0x100;
+		addr = faa->fa_reg[0].addr + 0x100;
+		size = faa->fa_reg[0].size - 0x100;
 	} else {
-		addr = faa->fa_reg[0];
-		size = faa->fa_reg[1];
+		addr = faa->fa_reg[0].addr;
+		size = faa->fa_reg[0].size;
 	}
-
-	if (faa->fa_nintr == 1)
-		irq = faa->fa_intr[0];
-	else
-		irq = faa->fa_intr[1];
 
 	unit = 0;
 	if ((len = OF_getprop(faa->fa_node, "ti,hwmods", hwmods,
@@ -334,10 +331,12 @@ ommmc_attach(struct device *parent, struct device *self, void *aux)
 
 	printf("\n");
 
+	pinctrl_byname(faa->fa_node, "default");
+
 	/* Enable ICLKEN, FCLKEN? */
 	prcm_enablemodule(PRCM_MMC0 + unit);
 
-	sc->sc_ih = arm_intr_establish(irq, IPL_SDMMC,
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_SDMMC,
 	    ommmc_intr, sc, DEVNAME(sc));
 	if (sc->sc_ih == NULL) {
 		printf("%s: cannot map interrupt\n", DEVNAME(sc));
@@ -373,7 +372,6 @@ ommmc_attach(struct device *parent, struct device *self, void *aux)
 	sc->clkbase = 96 * 1000;
 #if 0
 	if (SDHC_BASE_FREQ_KHZ(caps) != 0)
-		sc->clkbase = SDHC_BASE_FREQ_KHZ(caps);
 		sc->clkbase = SDHC_BASE_FREQ_KHZ(caps);
 #endif
 	if (sc->clkbase == 0) {

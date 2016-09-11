@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_carp.c,v 1.291 2016/06/06 07:01:37 mpi Exp $	*/
+/*	$OpenBSD: ip_carp.c,v 1.293 2016/07/25 16:44:04 benno Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff. All rights reserved.
@@ -80,6 +80,7 @@
 #include <net/bpf.h>
 #endif
 
+#include "vlan.h"
 #if NVLAN > 0
 #include <net/if_vlan_var.h>
 #endif
@@ -2281,14 +2282,13 @@ carp_start(struct ifnet *ifp)
 		 * advertisements in 'ip' and 'ip-stealth' balacing
 		 * modes.
 		 */
-		if (sc->sc_balancing != CARP_BAL_IPSTEALTH &&
-		    sc->sc_balancing != CARP_BAL_IP &&
-		    (sc->cur_vhe && !sc->cur_vhe->vhe_leader)) {
+		if (sc->sc_balancing == CARP_BAL_IP ||
+		    sc->sc_balancing == CARP_BAL_IPSTEALTH) {
 			struct ether_header *eh;
 			uint8_t *esrc;
 
 			eh = mtod(m, struct ether_header *);
-			esrc = sc->cur_vhe->vhe_enaddr;
+			esrc = ((struct arpcom*)ifp->if_carpdev)->ac_enaddr;;
 			memcpy(eh->ether_shost, esrc, sizeof(eh->ether_shost));
 		}
 

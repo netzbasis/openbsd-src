@@ -134,7 +134,6 @@
 ./usr/include/dev/i2c/i2c_io.h
 ./usr/include/dev/i2c/i2cvar.h
 ./usr/include/dev/i2c/ihidev.h
-./usr/include/dev/i2c/wm8750reg.h
 ./usr/include/dev/ic
 ./usr/include/dev/ic/aac_tables.h
 ./usr/include/dev/ic/aacreg.h
@@ -196,8 +195,6 @@
 ./usr/include/dev/ic/atxxreg.h
 ./usr/include/dev/ic/ax88190reg.h
 ./usr/include/dev/ic/ax88190var.h
-./usr/include/dev/ic/bhareg.h
-./usr/include/dev/ic/bhavar.h
 ./usr/include/dev/ic/bt458reg.h
 ./usr/include/dev/ic/bt463reg.h
 ./usr/include/dev/ic/bt463var.h
@@ -228,6 +225,8 @@
 ./usr/include/dev/ic/dptvar.h
 ./usr/include/dev/ic/ds1286reg.h
 ./usr/include/dev/ic/ds1687reg.h
+./usr/include/dev/ic/dwc_gmac_reg.h
+./usr/include/dev/ic/dwc_gmac_var.h
 ./usr/include/dev/ic/elink3reg.h
 ./usr/include/dev/ic/elink3var.h
 ./usr/include/dev/ic/espreg.h
@@ -278,8 +277,6 @@
 ./usr/include/dev/ic/mc146818reg.h
 ./usr/include/dev/ic/mc6845.h
 ./usr/include/dev/ic/mc6845reg.h
-./usr/include/dev/ic/mc68681reg.h
-./usr/include/dev/ic/mc68681var.h
 ./usr/include/dev/ic/mfireg.h
 ./usr/include/dev/ic/mfivar.h
 ./usr/include/dev/ic/mk48txxreg.h
@@ -377,12 +374,10 @@
 ./usr/include/dev/ic/xlreg.h
 ./usr/include/dev/ic/z8530reg.h
 ./usr/include/dev/ic/z8530sc.h
-./usr/include/dev/ic/z8536reg.h
 ./usr/include/dev/ipmi.h
 ./usr/include/dev/ipmivar.h
 ./usr/include/dev/isa
 ./usr/include/dev/isa/ad1848var.h
-./usr/include/dev/isa/ahareg.h
 ./usr/include/dev/isa/cs4231var.h
 ./usr/include/dev/isa/elink.h
 ./usr/include/dev/isa/essreg.h
@@ -425,9 +420,6 @@
 ./usr/include/dev/isa/viasioreg.h
 ./usr/include/dev/isa/wbsioreg.h
 ./usr/include/dev/isa/wdsreg.h
-./usr/include/dev/isa/wssreg.h
-./usr/include/dev/isa/wssvar.h
-./usr/include/dev/isa/ymvar.h
 ./usr/include/dev/midi_if.h
 ./usr/include/dev/midivar.h
 ./usr/include/dev/mii
@@ -463,7 +455,11 @@
 ./usr/include/dev/mulaw.h
 ./usr/include/dev/ofw
 ./usr/include/dev/ofw/fdt.h
+./usr/include/dev/ofw/ofw_clock.h
+./usr/include/dev/ofw/ofw_gpio.h
 ./usr/include/dev/ofw/ofw_pci.h
+./usr/include/dev/ofw/ofw_pinctrl.h
+./usr/include/dev/ofw/ofw_regulator.h
 ./usr/include/dev/ofw/openfirm.h
 ./usr/include/dev/onewire
 ./usr/include/dev/onewire/onewiredevs.h
@@ -631,7 +627,6 @@
 ./usr/include/dev/pcmcia
 ./usr/include/dev/pcmcia/cfxgareg.h
 ./usr/include/dev/pcmcia/gprio.h
-./usr/include/dev/pcmcia/if_cnwreg.h
 ./usr/include/dev/pcmcia/if_maloreg.h
 ./usr/include/dev/pcmcia/if_malovar.h
 ./usr/include/dev/pcmcia/if_xereg.h
@@ -640,8 +635,12 @@
 ./usr/include/dev/pcmcia/pcmciareg.h
 ./usr/include/dev/pcmcia/pcmciavar.h
 ./usr/include/dev/pv
+./usr/include/dev/pv/hypervreg.h
+./usr/include/dev/pv/hypervvar.h
+./usr/include/dev/pv/if_hvnreg.h
 ./usr/include/dev/pv/pvreg.h
 ./usr/include/dev/pv/pvvar.h
+./usr/include/dev/pv/rndisreg.h
 ./usr/include/dev/pv/xenreg.h
 ./usr/include/dev/pv/xenvar.h
 ./usr/include/dev/radio_if.h
@@ -731,6 +730,7 @@
 ./usr/include/dev/usb/if_udavreg.h
 ./usr/include/dev/usb/if_umb.h
 ./usr/include/dev/usb/if_upgtvar.h
+./usr/include/dev/usb/if_urereg.h
 ./usr/include/dev/usb/if_urlreg.h
 ./usr/include/dev/usb/if_urndisreg.h
 ./usr/include/dev/usb/if_urtwreg.h
@@ -768,8 +768,6 @@
 ./usr/include/dev/usb/usbdi.h
 ./usr/include/dev/usb/usbdi_util.h
 ./usr/include/dev/usb/usbdivar.h
-./usr/include/dev/usb/usbf.h
-./usr/include/dev/usb/usbfvar.h
 ./usr/include/dev/usb/usbhid.h
 ./usr/include/dev/usb/uslhcomreg.h
 ./usr/include/dev/usb/utvfu.h
@@ -784,7 +782,6 @@
 ./usr/include/dev/videomode/edidvar.h
 ./usr/include/dev/videomode/vesagtf.h
 ./usr/include/dev/videomode/videomode.h
-./usr/include/dev/videovar.h
 ./usr/include/dev/vndioctl.h
 ./usr/include/dev/vscsivar.h
 ./usr/include/dev/wscons
@@ -942,6 +939,7 @@
 ./usr/include/ndbm.h
 ./usr/include/net
 ./usr/include/net/art.h
+./usr/include/net/bfd.h
 ./usr/include/net/bpf.h
 ./usr/include/net/bpfdesc.h
 ./usr/include/net/ethertypes.h
@@ -963,6 +961,7 @@
 ./usr/include/net/if_pppoe.h
 ./usr/include/net/if_pppvar.h
 ./usr/include/net/if_sppp.h
+./usr/include/net/if_switch.h
 ./usr/include/net/if_trunk.h
 ./usr/include/net/if_tun.h
 ./usr/include/net/if_types.h
@@ -971,6 +970,7 @@
 ./usr/include/net/if_vxlan.h
 ./usr/include/net/ifq.h
 ./usr/include/net/netisr.h
+./usr/include/net/ofp.h
 ./usr/include/net/pfkeyv2.h
 ./usr/include/net/pfvar.h
 ./usr/include/net/pipex.h
@@ -1100,7 +1100,6 @@
 ./usr/include/openssl/cast.h
 ./usr/include/openssl/chacha.h
 ./usr/include/openssl/cmac.h
-./usr/include/openssl/cms.h
 ./usr/include/openssl/comp.h
 ./usr/include/openssl/conf.h
 ./usr/include/openssl/conf_api.h
@@ -1275,6 +1274,7 @@
 ./usr/include/struct.h
 ./usr/include/sys
 ./usr/include/sys/_endian.h
+./usr/include/sys/_null.h
 ./usr/include/sys/_time.h
 ./usr/include/sys/_types.h
 ./usr/include/sys/acct.h
@@ -1596,9 +1596,9 @@
 ./usr/share/man/man2/amd64
 ./usr/share/man/man2/amd64/amd64_get_fsbase.2
 ./usr/share/man/man2/amd64/amd64_iopl.2
-./usr/share/man/man2/armish
-./usr/share/man/man2/armish/arm_drain_writebuf.2
-./usr/share/man/man2/armish/arm_sync_icache.2
+./usr/share/man/man2/armv7
+./usr/share/man/man2/armv7/arm_drain_writebuf.2
+./usr/share/man/man2/armv7/arm_sync_icache.2
 ./usr/share/man/man2/bind.2
 ./usr/share/man/man2/brk.2
 ./usr/share/man/man2/chdir.2
@@ -1731,9 +1731,6 @@
 ./usr/share/man/man2/vfork.2
 ./usr/share/man/man2/wait.2
 ./usr/share/man/man2/write.2
-./usr/share/man/man2/zaurus
-./usr/share/man/man2/zaurus/arm_drain_writebuf.2
-./usr/share/man/man2/zaurus/arm_sync_icache.2
 ./usr/share/man/man3/ASN1_OBJECT_new.3
 ./usr/share/man/man3/ASN1_STRING_length.3
 ./usr/share/man/man3/ASN1_STRING_new.3
@@ -1750,7 +1747,6 @@
 ./usr/share/man/man3/BIO_f_ssl.3
 ./usr/share/man/man3/BIO_find_type.3
 ./usr/share/man/man3/BIO_new.3
-./usr/share/man/man3/BIO_new_CMS.3
 ./usr/share/man/man3/BIO_push.3
 ./usr/share/man/man3/BIO_read.3
 ./usr/share/man/man3/BIO_s_accept.3
@@ -2471,8 +2467,6 @@
 ./usr/share/man/man3/pw_init.3
 ./usr/share/man/man3/pw_lock.3
 ./usr/share/man/man3/pwcache.3
-./usr/share/man/man3/qabs.3
-./usr/share/man/man3/qdiv.3
 ./usr/share/man/man3/qsort.3
 ./usr/share/man/man3/queue.3
 ./usr/share/man/man3/radius_new_request_packet.3
@@ -2649,6 +2643,7 @@
 ./usr/share/man/man3/x509.3
 ./usr/share/man/man3/xdr.3
 ./usr/share/man/man3/ypclnt.3
+./usr/share/man/man9/RBT_INIT.9
 ./usr/share/man/man9/SipHash24.9
 ./usr/share/man/man9/VOP_LOOKUP.9
 ./usr/share/man/man9/aml_evalnode.9
@@ -2688,7 +2683,6 @@
 ./usr/share/man/man9/getdevvp.9
 ./usr/share/man/man9/getnewvnode.9
 ./usr/share/man/man9/hardclock.9
-./usr/share/man/man9/hash.9
 ./usr/share/man/man9/hashinit.9
 ./usr/share/man/man9/hook_establish.9
 ./usr/share/man/man9/hz.9
@@ -2796,7 +2790,6 @@
 ./usr/share/man/man9/vwaitforio.9
 ./usr/share/man/man9/vwakeup.9
 ./usr/share/man/man9/wdog_register.9
-./usr/share/misc/getopt
 ./usr/share/misc/gprof.callg
 ./usr/share/misc/gprof.flat
 ./usr/share/misc/operator

@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.h,v 1.15 2016/03/12 23:28:47 guenther Exp $ */
+/*	$OpenBSD: boot.h,v 1.23 2016/09/01 09:33:30 tedu Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -48,7 +48,6 @@
 #include "resolve.h"
 #include "sod.h"
 #include "stdlib.h"
-#include "dl_prebind.h"
 
 /*
  * Use the internal, hidden name for any syscalls we need, to avoid
@@ -87,8 +86,6 @@ struct boot_dyn {
  */
 void _dl_boot_bind(const long, long *, Elf_Dyn *);
 
-extern char __plt_start[];
-extern char __plt_end[];
 extern char __got_start[];
 extern char __got_end[];
 
@@ -107,6 +104,7 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 	long		loff;
 	int		prot_exec = 0;
 	RELOC_TYPE	*rp;
+	Elf_Phdr	*phdp;
 	Elf_Addr	i;
 
 	/*
@@ -146,15 +144,7 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 	 * Scan the DYNAMIC section for the loader.
 	 * Cache the data for easier access.
 	 */
-
-#if defined(__alpha__)
-	dynp = (Elf_Dyn *)((long)_DYNAMIC);
-#elif defined(__sparc__) || defined(__sparc64__) || defined(__powerpc__) || \
-    defined(__hppa__) || defined(__sh__)
 	dynp = dynamicp;
-#else
-	dynp = (Elf_Dyn *)((long)_DYNAMIC + loff);
-#endif
 
 	_dl_memset(&dynld, 0, sizeof(dynld));
 	while (dynp->d_tag != DT_NULL) {
@@ -229,12 +219,29 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 	else
 		pagesize = 4096;
 
-#if defined(__alpha__) || defined(__powerpc__) || defined(__sparc__) || \
+	/* do any RWX -> RX fixups for executable PLTs and apply GNU_RELRO */
+	phdp = (Elf_Phdr *)dl_data[AUX_phdr];
+	for (i = 0; i < dl_data[AUX_phnum]; i++, phdp++) {
+		switch (phdp->p_type) {
+#if defined(__alpha__) || defined(__hppa__) || defined(__powerpc__) || \
     defined(__sparc64__)
-	start = ELF_TRUNC((Elf_Addr)__plt_start, pagesize);
-	size = ELF_ROUND((Elf_Addr)__plt_end - start, pagesize);
-	mprotect((void *)start, size, PROT_READ);
+		case PT_LOAD:
+			if ((phdp->p_flags & (PF_X | PF_W)) != (PF_X | PF_W))
+				break;
+			mprotect((void *)(phdp->p_vaddr + loff), phdp->p_memsz,
+			    PROT_READ);
+			break;
 #endif
+		case PT_GNU_RELRO:
+			mprotect((void *)(phdp->p_vaddr + loff), phdp->p_memsz,
+			    PROT_READ);
+			/*
+			 * GNU_RELRO (a) covers the GOT, and (b) comes after
+			 * all LOAD sections, so if we found it then we're done
+			 */
+			return;
+		}
+	}
 
 #if defined(__powerpc__)
 	if (dynld.dt_proc[DT_PROC(DT_PPC_GOT)] == 0)

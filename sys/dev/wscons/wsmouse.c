@@ -1,4 +1,4 @@
-/* $OpenBSD: wsmouse.c,v 1.30 2016/06/06 22:32:47 bru Exp $ */
+/* $OpenBSD: wsmouse.c,v 1.34 2016/08/18 21:12:35 bru Exp $ */
 /* $NetBSD: wsmouse.c,v 1.35 2005/02/27 00:27:52 perry Exp $ */
 
 /*
@@ -378,6 +378,8 @@ int
 wsmousedoopen(struct wsmouse_softc *sc, struct wseventvar *evp)
 {
 	sc->sc_base.me_evp = evp;
+
+	wsmouse_input_reset(&sc->input);
 
 	/* enable the device, and punt if that's not possible */
 	return (*sc->sc_accessops->enable)(sc->sc_accesscookie);
@@ -1125,11 +1127,13 @@ wsmouse_matching(int *matrix, int m, int n, int *buffer)
 	for (; p < alt; *p++ = 0) {}
 	for (col = 0; col < n; col++) {
 		delta = INT_MAX;
-		for (i = 0, p = matrix + col; i < m; i++, p += n)
-			if ((d = *p - red[i]) <= delta) {
+		for (i = 0, p = matrix + col; i < m; i++, p += n) {
+			d = *p - red[i];
+			if (d < delta || (d == delta && r2c[i] < 0)) {
 				delta = d;
 				row = i;
 			}
+		}
 		cd[col] = delta;
 		if (r2c[row] < 0) {
 			r2c[row] = col;
@@ -1151,7 +1155,8 @@ wsmouse_matching(int *matrix, int m, int n, int *buffer)
 						mc[i] = j;
 					}
 					d -= red[i];
-					if (d <= delta) {
+					if (d < delta || (d == delta
+					    && r2c[i] < 0)) {
 						delta = d;
 						row = i;
 					}
@@ -1321,7 +1326,7 @@ wsmouse_set_param(struct device *sc, size_t param, int value)
 	struct wsmouseparams *params = &input->params;
 	int *p;
 
-	if (param < 0 || param > WSMPARAM_LASTFIELD) {
+	if (param > WSMPARAM_LASTFIELD) {
 		printf("wsmouse_set_param: invalid parameter type\n");
 		return;
 	}
@@ -1363,6 +1368,27 @@ wsmouse_set_mode(struct device *sc, int mode)
 		return (0);
 	}
 	return (-1);
+}
+
+void
+wsmouse_input_reset(struct wsmouseinput *input)
+{
+	int num_slots, *matrix;
+	struct mt_slot *slots;
+
+	memset(&input->btn, 0, sizeof(struct btn_state));
+	memset(&input->motion, 0, sizeof(struct motion_state));
+	memset(&input->touch, 0, sizeof(struct touch_state));
+	input->touch.min_pressure = input->params.pressure_hi;
+	if ((num_slots = input->mt.num_slots)) {
+		slots = input->mt.slots;
+		matrix = input->mt.matrix;
+		memset(&input->mt, 0, sizeof(struct mt_state));
+		memset(slots, 0, num_slots * sizeof(struct mt_slot));
+		input->mt.num_slots = num_slots;
+		input->mt.slots = slots;
+		input->mt.matrix = matrix;
+	}
 }
 
 void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfprintf.c,v 1.73 2016/06/06 17:22:59 millert Exp $	*/
+/*	$OpenBSD: vfprintf.c,v 1.77 2016/08/29 12:20:57 millert Exp $	*/
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
  * All rights reserved.
@@ -50,6 +50,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <syslog.h>
 #include <wchar.h>
 
 #include "local.h"
@@ -485,17 +486,19 @@ __vfprintf(FILE *fp, const char *fmt0, __va_list ap)
 	 * Scan the format for conversions (`%' character).
 	 */
 	for (;;) {
+		size_t len;
+
 		cp = fmt;
-		while ((n = mbrtowc(&wc, fmt, MB_CUR_MAX, &ps)) > 0) {
-			fmt += n;
+		while ((len = mbrtowc(&wc, fmt, MB_CUR_MAX, &ps)) != 0) {
+			if (len == (size_t)-1 || len == (size_t)-2) {
+				ret = -1;
+				goto error;
+			}
+			fmt += len;
 			if (wc == '%') {
 				fmt--;
 				break;
 			}
-		}
-		if (n < 0) {
-			ret = -1;
-			goto error;
 		}
 		if (fmt != cp) {
 			ptrdiff_t m = fmt - cp;
@@ -504,7 +507,7 @@ __vfprintf(FILE *fp, const char *fmt0, __va_list ap)
 			PRINT(cp, m);
 			ret += m;
 		}
-		if (n == 0)
+		if (len == 0)
 			goto done;
 		fmt++;		/* skip over '%' */
 
@@ -857,6 +860,13 @@ fp_common:
 				free(convbuf);
 				convbuf = NULL;
 				if ((wcp = GETARG(wchar_t *)) == NULL) {
+					struct syslog_data sdata = SYSLOG_DATA_INIT;
+					int save_errno = errno;
+
+					syslog_r(LOG_CRIT | LOG_CONS, &sdata,
+					    "vfprintf %%ls NULL in \"%s\"", fmt0);
+					errno = save_errno;
+
 					cp = "(null)";
 				} else {
 					convbuf = __wcsconv(wcp, prec);
@@ -868,24 +878,20 @@ fp_common:
 				}
 			} else
 #endif /* PRINTF_WIDE_CHAR */
-			if ((cp = GETARG(char *)) == NULL)
+			if ((cp = GETARG(char *)) == NULL) {
+				struct syslog_data sdata = SYSLOG_DATA_INIT;
+				int save_errno = errno;
+
+				syslog_r(LOG_CRIT | LOG_CONS, &sdata,
+				    "vfprintf %%s NULL in \"%s\"", fmt0);
+				errno = save_errno;
+
 				cp = "(null)";
-			if (prec >= 0) {
-				/*
-				 * can't use strlen; can only look for the
-				 * NUL in the first `prec' characters, and
-				 * strlen() will go further.
-				 */
-				char *p = memchr(cp, 0, prec);
-
-				size = p ? (p - cp) : prec;
-			} else {
-				size_t len;
-
-				if ((len = strlen(cp)) > INT_MAX)
-					goto overflow;
-				size = (int)len;
 			}
+			len = prec >= 0 ? strnlen(cp, prec) : strlen(cp);
+			if (len > INT_MAX)
+				goto overflow;
+			size = (int)len;
 			sign = '\0';
 			break;
 		case 'U':
@@ -1211,17 +1217,19 @@ __find_arguments(const char *fmt0, va_list ap, union arg **argtable,
 	 * Scan the format for conversions (`%' character).
 	 */
 	for (;;) {
+		size_t len;
+
 		cp = fmt;
-		while ((n = mbrtowc(&wc, fmt, MB_CUR_MAX, &ps)) > 0) {
-			fmt += n;
+		while ((len = mbrtowc(&wc, fmt, MB_CUR_MAX, &ps)) != 0) {
+			if (len == (size_t)-1 || len == (size_t)-2)
+				return (-1);
+			fmt += len;
 			if (wc == '%') {
 				fmt--;
 				break;
 			}
 		}
-		if (n < 0)
-			return (-1);
-		if (n == 0)
+		if (len == 0)
 			goto done;
 		fmt++;		/* skip over '%' */
 

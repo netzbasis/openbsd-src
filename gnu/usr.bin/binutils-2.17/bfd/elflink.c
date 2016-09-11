@@ -1566,17 +1566,6 @@ nondefault:
   return TRUE;
 }
 
-
-static inline int
-obsd_is_required_sym(const char *name)
-{
-  return (name[0] == '_' && name[1] == '_' &&
-      (strcmp(name+2, "got_start") == 0 ||
-       strcmp(name+2, "got_end") == 0 ||
-       strcmp(name+2, "plt_start") == 0 ||
-       strcmp(name+2, "plt_end") == 0));
-}
-
 /* This routine is used to export all defined symbols into the dynamic
    symbol table.  It is called via elf_link_hash_traverse.  */
 
@@ -1599,10 +1588,6 @@ _bfd_elf_export_symbol (struct elf_link_hash_entry *h, void *data)
       struct bfd_elf_version_tree *t;
       struct bfd_elf_version_expr *d;
 
-      /* kludge around the lack of relro support by always putting
-         __{got,plt}_{start,end} in the dynamic symbol table */
-      if (eif->verdefs && obsd_is_required_sym(h->root.root.string))
-        goto doit;
       for (t = eif->verdefs; t != NULL; t = t->next)
 	{
 	  if (t->globals.list != NULL)
@@ -1865,10 +1850,6 @@ _bfd_elf_link_assign_sym_version (struct elf_link_hash_entry *h, void *data)
       if (hidden)
 	h->hidden = 1;
     }
-
-  /* don't apply a version to the symbols we require */
-  if (obsd_is_required_sym(h->root.root.string)) 
-    return TRUE;
 
   /* If we don't have a version for this symbol, see if we can find
      something.  */
@@ -8680,27 +8661,32 @@ bfd_elf_final_link (bfd *abfd, struct bfd_link_info *info)
 	goto error_return;
 
       /* Check for DT_TEXTREL (late, in case the backend removes it).  */
-      if (info->warn_shared_textrel && info->shared)
+      if (!info->allow_textrel || (info->warn_shared_textrel && info->shared))
 	{
 	  bfd_byte *dyncon, *dynconend;
 
 	  /* Fix up .dynamic entries.  */
 	  o = bfd_get_section_by_name (dynobj, ".dynamic");
-	  BFD_ASSERT (o != NULL);
-
-	  dyncon = o->contents;
-	  dynconend = o->contents + o->size;
-	  for (; dyncon < dynconend; dyncon += bed->s->sizeof_dyn)
+	  if (o != NULL)
 	    {
-	      Elf_Internal_Dyn dyn;
-
-	      bed->s->swap_dyn_in (dynobj, dyncon, &dyn);
-
-	      if (dyn.d_tag == DT_TEXTREL)
+	      dyncon = o->contents;
+	      dynconend = o->contents + o->size;
+	      for (; dyncon < dynconend; dyncon += bed->s->sizeof_dyn)
 		{
-		  _bfd_error_handler
-		    (_("warning: creating a DT_TEXTREL in a shared object."));
-		  break;
+		  Elf_Internal_Dyn dyn;
+
+		  bed->s->swap_dyn_in (dynobj, dyncon, &dyn);
+
+		  if (dyn.d_tag == DT_TEXTREL)
+		    {
+		      _bfd_error_handler
+			(_("warning: creating a DT_TEXTREL in a shared object."));
+#if 0
+		      if (!info->allow_textrel)
+			goto error_return;
+#endif
+		      break;
+		    }
 		}
 	    }
 	}
@@ -9857,7 +9843,7 @@ _bfd_elf_section_already_linked (bfd *abfd, struct bfd_section *sec,
 		   abfd, sec);
 	      else if (sec->size != 0)
 		{
-		  bfd_byte *sec_contents, *l_sec_contents;
+		  bfd_byte *sec_contents = NULL, *l_sec_contents = NULL;
 
 		  if (!bfd_malloc_and_get_section (abfd, sec, &sec_contents))
 		    (*_bfd_error_handler)

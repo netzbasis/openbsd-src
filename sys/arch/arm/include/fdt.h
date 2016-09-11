@@ -1,4 +1,4 @@
-/* $OpenBSD: fdt.h,v 1.2 2016/06/09 12:32:42 kettenis Exp $ */
+/* $OpenBSD: fdt.h,v 1.4 2016/07/27 11:45:02 patrick Exp $ */
 /*
  * Copyright (c) 2016 Patrick Wildt <patrick@blueri.se>
  *
@@ -26,10 +26,12 @@ struct fdt_attach_args {
 	int			 fa_node;
 	bus_space_tag_t		 fa_iot;
 	bus_dma_tag_t		 fa_dmat;
-	uint32_t		*fa_reg;
+	struct fdt_reg		*fa_reg;
 	int			 fa_nreg;
 	uint32_t		*fa_intr;
 	int			 fa_nintr;
+	int			 fa_acells;
+	int			 fa_scells;
 };
 
 #endif /* __ARM_FDT_H__ */

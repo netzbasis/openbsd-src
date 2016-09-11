@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgInfo.pm,v 1.37 2016/05/13 00:22:50 espie Exp $
+# $OpenBSD: PkgInfo.pm,v 1.41 2016/07/27 12:58:21 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -236,7 +236,7 @@ sub find_pkg
 
 	if ($self->find_pkg_in($state, $state->repo->installed, $pkgname,
 	    $code)) {
-		return;
+		return 1;
 	}
 	my $repo;
 
@@ -246,7 +246,7 @@ sub find_pkg
 		$repo = $state->repo;
 	}
 
-	$self->find_pkg_in($state, $repo, $pkgname, $code);
+	return $self->find_pkg_in($state, $repo, $pkgname, $code);
 }
 
 sub get_line
@@ -415,7 +415,22 @@ sub print_info
 		return;
 	}
 	my $plist;
-	if ($state->opt('I')) {
+	if ($state->opt('z')) {
+		$plist = $handle->plist(\&OpenBSD::PackingList::ExtraInfoOnly);
+		# firmware don't belong
+		if ($plist->has('firmware')) {
+			return;
+		}
+		my $name = OpenBSD::PackageName->new_from_string($plist->pkgname);
+		my $stem = $name->{stem};
+		my $compose = $stem."--".join('-', sort keys %{$name->{flavors}});
+		if ($plist->has('is-branch')) {
+			if ($plist->fullpkgpath =~ m/\/([^\/]+?)(,.*)?$/) {
+				$compose .= "%$1";
+			}
+		}
+		$state->say("#1", $compose);
+	} elsif ($state->opt('I')) {
 		if ($state->opt('q')) {
 			$state->say("#1", $pkg);
 		} else {
@@ -567,8 +582,8 @@ sub parse_and_run
 		    }
 	    };
 	$state->{no_exports} = 1;
-	$state->handle_options('cCdfF:hIKLmPQ:qr:RsSUe:E:Ml:aAt',
-	    '[-AaCcdfIKLMmPqRSstUv] [-D nolock][-E filename] [-e pkg-name] ',
+	$state->handle_options('cCdfF:hIKLmPQ:qr:RsSUe:E:Ml:aAtz',
+	    '[-AaCcdfIKLMmPqRSstUvz] [-D nolock][-E filename] [-e pkg-name] ',
 	    '[-l str] [-Q query] [-r pkgspec] [pkg-name ...]');
 
 	if ($state->opt('r')) {
@@ -672,10 +687,12 @@ sub parse_and_run
 		if ($state->{terse}) {
 			$state->banner('#1', $pkg);
 		}
-		$self->find_pkg($state, $pkg,
+		if (!$self->find_pkg($state, $pkg,
 		    sub {
 			$self->print_info($state, @_);
-		});
+		})) {
+			$exit_code = 1;
+		}
 	}
 	for my $extra (@extra) {
 		if ($state->{terse}) {

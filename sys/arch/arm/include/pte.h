@@ -1,4 +1,4 @@
-/*	$OpenBSD: pte.h,v 1.4 2013/04/26 05:05:34 patrick Exp $	*/
+/*	$OpenBSD: pte.h,v 1.8 2016/08/27 14:22:35 kettenis Exp $	*/
 /*	$NetBSD: pte.h,v 1.6 2003/04/18 11:08:28 scw Exp $	*/
 
 /*
@@ -155,9 +155,11 @@ typedef uint32_t	pt_entry_t;	/* L2 table entry */
 #define	L1_S_V7_SS	0x00040000	/* Supersection */
 #define	L1_S_V7_nG	0x00020000	/* not Global */
 #define	L1_S_V7_S	0x00010000	/* Shareable */
-#define	L1_S_V7_AP(x)	((((x) & 0x4) << 13) | (((x) & 3) << 10))	/* AP */
+#define	L1_S_V7_AP(x)	((((x) & 0x4) << 13) | (((x) & 0x2) << 10))	/* AP */
+#define	L1_S_V7_AF	0x00000400	/* Access Flag */
 #define	L1_S_V7_IMP	0x00000200	/* implementation defined */
 #define	L1_S_V7_XN	0x00000010	/* eXecute Never */
+#define	L1_S_V7_PXN	0x00000001	/* Privileged eXecute Never */
 
 /* L1 Coarse Descriptor */
 #define	L1_C_IMP0	0x00000004	/* implementation defined */
@@ -169,8 +171,9 @@ typedef uint32_t	pt_entry_t;	/* L2 table entry */
 
 #define	L1_C_XSCALE_P	0x00000200	/* ECC enable for this section */
 
-#define	L1_C_V7_NS	0x00000008	/* Non-secure */
 #define	L1_C_V7_IMP	0x00000200	/* implementation defined */
+#define	L1_C_V7_NS	0x00000008	/* Non-secure */
+#define	L1_C_V7_PXN	0x00000004	/* Privileged eXecute Never */
 
 /* L1 Fine Descriptor */
 #define	L1_F_IMP0	0x00000004	/* implementation defined */
@@ -218,9 +221,10 @@ typedef uint32_t	pt_entry_t;	/* L2 table entry */
 #define	L2_V7_S_TEX_MASK	(0x7 << 6)	/* Type Extension */
 #define	L2_V7_S_XN	0x00000001	/* eXecute Never */
 
-#define	L2_V7_AP(x)	((((x) & 0x04) << 7) | (((x) & 0x03) << 4))	/* AP */
-#define	L2_V7_S		0x00000400	/* Shared */
-#define	L2_V7_nG	0x00000200	/* not Global */
+#define	L2_V7_AP(x)	((((x) & 0x4) << 7) | (((x) & 0x2) << 4))	/* AP */
+#define	L2_V7_AF	0x00000010	/* Access Flag */
+#define	L2_V7_S		0x00000400	/* Sharable */
+#define	L2_V7_nG	0x00000800	/* not Global */
 
 /*
  * Access Permissions for L1 and L2 Descriptors. (except for V7)
@@ -238,6 +242,7 @@ typedef uint32_t	pt_entry_t;	/* L2 table entry */
 #define	AP_V7_KR	0x05
 #define	AP_KRW		0x01		/* kernel read/write */
 #define	AP_KRWUR	0x02		/* kernel read/write usr read */
+#define	AP_V7_KRUR	0x07		/* kernel read usr read */
 #define	AP_KRWURW	0x03		/* kernel read/write usr read/write */
 
 /*

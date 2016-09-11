@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_output.c,v 1.323 2016/05/31 07:33:22 mpi Exp $	*/
+/*	$OpenBSD: ip_output.c,v 1.327 2016/09/04 17:18:56 mpi Exp $	*/
 /*	$NetBSD: ip_output.c,v 1.28 1996/02/13 23:43:07 christos Exp $	*/
 
 /*
@@ -214,6 +214,10 @@ reroute:
 			ifp = if_get(lo0ifidx);
 		else
 			ifp = if_get(ro->ro_rt->rt_ifidx);
+		if (ifp == NULL) {
+			error = EHOSTUNREACH;
+			goto bad;
+		}
 		if ((mtu = ro->ro_rt->rt_rmx.rmx_mtu) == 0)
 			mtu = ifp->if_mtu;
 
@@ -419,7 +423,7 @@ sendit:
 	 */
 #if NPF > 0
 	if (pf_test(AF_INET, PF_OUT, ifp, &m) != PF_PASS) {
-		error = EHOSTUNREACH;
+		error = EACCES;
 		m_freem(m);
 		goto done;
 	}
@@ -887,12 +891,14 @@ ip_ctloutput(int op, struct socket *so, int level, int optname,
 				case IP_TTL:
 					if (optval > 0 && optval <= MAXTTL)
 						inp->inp_ip.ip_ttl = optval;
+					else if (optval == -1)
+						inp->inp_ip.ip_ttl = ip_defttl;
 					else
 						error = EINVAL;
 					break;
 
 				case IP_MINTTL:
-					if (optval > 0 && optval <= MAXTTL)
+					if (optval >= 0 && optval <= MAXTTL)
 						inp->inp_ip_minttl = optval;
 					else
 						error = EINVAL;
@@ -1694,7 +1700,7 @@ ip_mloopback(struct ifnet *ifp, struct mbuf *m, struct sockaddr_in *dst)
 	struct ip *ip;
 	struct mbuf *copym;
 
-	copym = m_copym2(m, 0, M_COPYALL, M_DONTWAIT);
+	copym = m_dup_pkt(m, max_linkhdr, M_DONTWAIT);
 	if (copym != NULL) {
 		/*
 		 * We don't bother to fragment if the IP length is greater

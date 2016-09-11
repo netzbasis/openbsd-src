@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwn.c,v 1.166 2016/06/03 18:33:37 stsp Exp $	*/
+/*	$OpenBSD: if_iwn.c,v 1.172 2016/09/05 08:18:18 tedu Exp $	*/
 
 /*-
  * Copyright (c) 2007-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -27,6 +27,7 @@
 #include <sys/sockio.h>
 #include <sys/mbuf.h>
 #include <sys/kernel.h>
+#include <sys/rwlock.h>
 #include <sys/socket.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
@@ -450,6 +451,8 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_caps =
 	    IEEE80211_C_WEP |		/* WEP */
 	    IEEE80211_C_RSN |		/* WPA/RSN */
+	    IEEE80211_C_SCANALL |	/* device scans all channels at once */
+	    IEEE80211_C_SCANALLBAND |	/* driver scans all bands at once */
 	    IEEE80211_C_MONITOR |	/* monitor mode supported */
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE |	/* short preamble supported */
@@ -461,15 +464,15 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	ic->ic_txbfcaps = 0;
 	ic->ic_aselcaps = 0;
 	ic->ic_ampdu_params = (IEEE80211_AMPDU_PARAM_SS_4 | 0x3 /* 64k */);
-#ifdef notyet
 	if (sc->sc_flags & IWN_FLAG_HAS_11N) {
 		/* Set HT capabilities. */
-		ic->ic_htcaps =
+		ic->ic_htcaps = IEEE80211_HTCAP_SGI20;
+#ifdef notyet
+		ic->ic_htcaps |=
 #if IWN_RBUF_SIZE == 8192
 		    IEEE80211_HTCAP_AMSDU7935 |
 #endif
 		    IEEE80211_HTCAP_CBW20_40 |
-		    IEEE80211_HTCAP_SGI20 |
 		    IEEE80211_HTCAP_SGI40;
 		if (sc->hw_type != IWN_HW_REV_TYPE_4965)
 			ic->ic_htcaps |= IEEE80211_HTCAP_GF;
@@ -477,8 +480,8 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 			ic->ic_htcaps |= IEEE80211_HTCAP_SMPS_DYN;
 		else
 			ic->ic_htcaps |= IEEE80211_HTCAP_SMPS_DIS;
-	}
 #endif	/* notyet */
+	}
 
 	/* Set supported legacy rates. */
 	ic->ic_sup_rates[IEEE80211_MODE_11B] = ieee80211_std_rateset_11b;
@@ -535,6 +538,7 @@ iwn_attach(struct device *parent, struct device *self, void *aux)
 	iwn_radiotap_attach(sc);
 #endif
 	timeout_set(&sc->calib_to, iwn_calib_timeout, sc);
+	rw_init(&sc->sc_rwlock, "iwnlock");
 	task_set(&sc->init_task, iwn_init_task, sc);
 	return;
 
@@ -774,17 +778,14 @@ iwn_init_task(void *arg1)
 	struct ifnet *ifp = &sc->sc_ic.ic_if;
 	int s;
 
+	rw_enter_write(&sc->sc_rwlock);
 	s = splnet();
-	while (sc->sc_flags & IWN_FLAG_BUSY)
-		tsleep(&sc->sc_flags, 0, "iwnpwr", 0);
-	sc->sc_flags |= IWN_FLAG_BUSY;
 
 	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
 		iwn_init(ifp);
 
-	sc->sc_flags &= ~IWN_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 }
 
 int
@@ -3005,8 +3006,11 @@ iwn_tx(struct iwn_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 		tx->plcp = rinfo->plcp;
 
 	if ((ni->ni_flags & IEEE80211_NODE_HT) &&
-	    tx->id != sc->broadcast_id)
+	    tx->id != sc->broadcast_id) {
 		tx->rflags = rinfo->ht_flags;
+		if (ni->ni_htcaps & IEEE80211_HTCAP_SGI20)
+			tx->rflags |= IWN_RFLAG_SGI;
+	}
 	else
 		tx->rflags = rinfo->flags;
 	if (tx->id == sc->broadcast_id) {
@@ -3207,18 +3211,10 @@ iwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr;
 	int s, error = 0;
 
-	s = splnet();
-	/*
-	 * Prevent processes from entering this function while another
-	 * process is tsleep'ing in it.
-	 */
-	while ((sc->sc_flags & IWN_FLAG_BUSY) && error == 0)
-		error = tsleep(&sc->sc_flags, PCATCH, "iwnioc", 0);
-	if (error != 0) {
-		splx(s);
+	error = rw_enter(&sc->sc_rwlock, RW_WRITE | RW_INTR);
+	if (error)
 		return error;
-	}
-	sc->sc_flags |= IWN_FLAG_BUSY;
+	s = splnet();
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -3274,9 +3270,8 @@ iwn_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		}
 	}
 
-	sc->sc_flags &= ~IWN_FLAG_BUSY;
-	wakeup(&sc->sc_flags);
 	splx(s);
+	rw_exit_write(&sc->sc_rwlock);
 	return error;
 }
 
@@ -3414,6 +3409,9 @@ iwn_set_link_quality(struct iwn_softc *sc, struct ieee80211_node *ni)
 			rinfo = &iwn_rates[iwn_mcs2ridx[txrate]];
 			linkq.retry[i].plcp = rinfo->ht_plcp;
 			linkq.retry[i].rflags = rinfo->ht_flags;
+
+			if (ni->ni_htcaps & IEEE80211_HTCAP_SGI20)
+				linkq.retry[i].rflags |= IWN_RFLAG_SGI;
 
 			/* XXX set correct ant mask for MIMO rates here */
 			linkq.retry[i].rflags |= IWN_RFLAG_ANT(txant);
@@ -4870,7 +4868,7 @@ iwn_run(struct iwn_softc *sc)
 
 	if (ic->ic_opmode == IEEE80211_M_MONITOR) {
 		/* Link LED blinks while monitoring. */
-		iwn_set_led(sc, IWN_LED_LINK, 5, 5);
+		iwn_set_led(sc, IWN_LED_LINK, 50, 50);
 		return 0;
 	}
 	if ((error = iwn_set_timing(sc, ni)) != 0) {
@@ -5063,6 +5061,7 @@ iwn_update_htprot(struct ieee80211com *ic, struct ieee80211_node *ni)
 	rxon_assoc.flags = sc->rxon.flags;
 	rxon_assoc.filter = sc->rxon.filter;
 	rxon_assoc.ofdm_mask = sc->rxon.ofdm_mask;
+	rxon_assoc.cck_mask = sc->rxon.cck_mask;
 	rxon_assoc.ht_single_mask = sc->rxon.ht_single_mask;
 	rxon_assoc.ht_dual_mask = sc->rxon.ht_dual_mask;
 	rxon_assoc.ht_triple_mask = sc->rxon.ht_triple_mask;
@@ -5076,10 +5075,22 @@ iwn_update_htprot(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if (error != 0)
 		printf("%s: RXON_ASSOC command failed\n", sc->sc_dev.dv_xname);
 
+	DELAY(100);
+
 	/* All RXONs wipe the firmware's txpower table. Restore it. */
 	error = ops->set_txpower(sc, 1);
 	if (error != 0)
 		printf("%s: could not set TX power\n", sc->sc_dev.dv_xname);
+
+	DELAY(100);
+
+	/* Restore power saving level */
+	if (ic->ic_flags & IEEE80211_F_PMGTON)
+		error = iwn_set_pslevel(sc, 0, 3, 1);
+	else
+		error = iwn_set_pslevel(sc, 0, 0, 1);
+	if (error != 0)
+		printf("%s: could not set PS level\n", sc->sc_dev.dv_xname);
 
 	splx(s);
 }

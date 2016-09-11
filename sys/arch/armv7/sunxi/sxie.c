@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxie.c,v 1.16 2016/06/12 06:58:39 jsg Exp $	*/
+/*	$OpenBSD: sxie.c,v 1.21 2016/08/22 19:38:42 kettenis Exp $	*/
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  * Copyright (c) 2013 Artturi Alm
@@ -46,12 +46,12 @@
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 
-#include <armv7/armv7/armv7var.h>
 #include <armv7/sunxi/sunxireg.h>
-#include <armv7/sunxi/sxiccmuvar.h>
-#include <armv7/sunxi/sxipiovar.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_clock.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 /* configuration registers */
 #define	SXIE_CR			0x0000
@@ -178,7 +178,6 @@ void	sxie_init(struct sxie_softc *);
 void	sxie_stop(struct sxie_softc *);
 void	sxie_reset(struct sxie_softc *);
 void	sxie_iff(struct sxie_softc *, struct ifnet *);
-struct mbuf * sxie_newbuf(void);
 int	sxie_intr(void *);
 void	sxie_recv(struct sxie_softc *);
 int	sxie_miibus_readreg(struct device *, int, int);
@@ -210,29 +209,28 @@ sxie_attach(struct device *parent, struct device *self, void *aux)
 	struct fdt_attach_args *faa = aux;
 	struct mii_data *mii;
 	struct ifnet *ifp;
-	int s, irq;
+	int s;
 
-	if (faa->fa_nreg != 2 || (faa->fa_nintr != 1 && faa->fa_nintr != 3))
+	if (faa->fa_nreg < 1)
 		return;
 
-	if (faa->fa_nintr == 1)
-		irq = faa->fa_intr[0];
-	else
-		irq = faa->fa_intr[1];
+	pinctrl_byname(faa->fa_node, "default");
 
 	sc->sc_iot = faa->fa_iot;
 
-	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
-	    faa->fa_reg[1], 0, &sc->sc_ioh))
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic("sxie_attach: bus_space_map ioh failed!");
 
 	if (bus_space_map(sc->sc_iot, SID_ADDR, SID_SIZE, 0, &sc->sc_sid_ioh))
 		panic("sxie_attach: bus_space_map sid_ioh failed!");
 
+	clock_enable_all(faa->fa_node);
+
 	sxie_socware_init(sc);
 	sc->txf_inuse = 0;
 
-	sc->sc_ih = arm_intr_establish(irq, IPL_NET,
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_NET,
 	    sxie_intr, sc, sc->sc_dev.dv_xname);
 
 	s = splnet();
@@ -278,12 +276,8 @@ sxie_attach(struct device *parent, struct device *self, void *aux)
 void
 sxie_socware_init(struct sxie_softc *sc)
 {
-	int i, have_mac = 0;
+	int have_mac = 0;
 	uint32_t reg;
-
-	for (i = 0; i < SXIPIO_EMAC_NPINS; i++)
-		sxipio_setcfg(i, 2); /* mux pins to EMAC */
-	sxiccmu_enablemodule(CCMU_EMAC);
 
 	/* MII clock cfg */
 	SXICMS4(sc, SXIE_MACMCFG, 15 << 2, 13 << 2);
@@ -606,10 +600,6 @@ trynext:
 		goto err_out;
 	}
 	
-	m = sxie_newbuf();
-	if (m == NULL)
-		goto err_out;
-
 	reg = SXIREAD4(sc, SXIE_RXIO);
 	pktstat = (uint16_t)reg >> 16;
 	pktlen = (int16_t)reg; /* length of useful data */
@@ -621,10 +611,6 @@ trynext:
 	if (pktlen > SXIE_MAX_PKT_SIZE)
 		pktlen = SXIE_MAX_PKT_SIZE; /* XXX is truncating ok? */
 
-	m->m_pkthdr.len = m->m_len = pktlen;
-	/* XXX m->m_pkthdr.csum_flags ? */
-	m_adj(m, ETHER_ALIGN);
-
 	/* read the actual packet from fifo XXX through 'align buffer'.. */
 	if (pktlen & 3)
 		rlen = SXIE_ROUNDUP(pktlen, 4);
@@ -632,7 +618,12 @@ trynext:
 		rlen = pktlen;
 	bus_space_read_multi_4(sc->sc_iot, sc->sc_ioh,
 	    SXIE_RXIO, (uint32_t *)&rxbuf[0], rlen >> 2);
-	memcpy(mtod(m, char *), (char *)&rxbuf[0], pktlen);
+
+	m = m_devget(&rxbuf[0], pktlen, ETHER_ALIGN);
+	if (m == NULL) {
+		ifp->if_ierrors++;
+		goto err_out;
+	}
 
 	ml_enqueue(&ml, m);
 	goto trynext;
@@ -682,24 +673,6 @@ sxie_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	splx(s);
 	return error;
-}
-
-struct mbuf *
-sxie_newbuf(void)
-{
-	struct mbuf *m;
-
-	MGETHDR(m, M_DONTWAIT, MT_DATA);
-	if (m == NULL)
-		return (NULL);
-
-	MCLGET(m, M_DONTWAIT);
-	if (!(m->m_flags & M_EXT)) {
-		m_freem(m);
-		return (NULL);
-	}
-
-	return (m);
 }
 
 void

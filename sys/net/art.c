@@ -1,4 +1,4 @@
-/*	$OpenBSD: art.c,v 1.19 2016/06/14 04:42:02 jmatthew Exp $ */
+/*	$OpenBSD: art.c,v 1.23 2016/08/30 07:42:57 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -78,9 +78,12 @@ struct art_node		*art_table_insert(struct art_root *, struct art_table *,
 			     int, struct art_node *);
 struct art_node		*art_table_delete(struct art_root *, struct art_table *,
 			     int, struct art_node *);
-void			 art_table_ref(struct art_root *, struct art_table *);
+struct art_table	*art_table_ref(struct art_root *, struct art_table *);
 int			 art_table_free(struct art_root *, struct art_table *);
 int			 art_table_walk(struct art_root *, struct art_table *,
+			     int (*f)(struct art_node *, void *), void *);
+int			 art_walk_apply(struct art_root *,
+			     struct art_node *, struct art_node *,
 			     int (*f)(struct art_node *, void *), void *);
 void			 art_table_gc(void *);
 void			 art_gc(void *);
@@ -149,6 +152,7 @@ art_alloc(unsigned int rtableid, unsigned int alen, unsigned int off)
 
 	ar->ar_off = off;
 	ar->ar_rtableid = rtableid;
+	rw_init(&ar->ar_lock, "art");
 
 	return (ar);
 }
@@ -375,7 +379,7 @@ art_insert(struct art_root *ar, struct art_node *an, uint8_t *addr, int plen)
 	struct art_node		*node;
 	int			 i, j;
 
-	KERNEL_ASSERT_LOCKED();
+	rw_assert_wrlock(&ar->ar_lock);
 	KASSERT(plen >= 0 && plen <= ar->ar_alen);
 
 	at = srp_get_locked(&ar->ar_root);
@@ -479,7 +483,7 @@ art_delete(struct art_root *ar, struct art_node *an, uint8_t *addr, int plen)
 	struct art_node		*node;
 	int			 i, j;
 
-	KERNEL_ASSERT_LOCKED();
+	rw_assert_wrlock(&ar->ar_lock);
 	KASSERT(plen >= 0 && plen <= ar->ar_alen);
 
 	at = srp_get_locked(&ar->ar_root);
@@ -565,10 +569,11 @@ art_table_delete(struct art_root *ar, struct art_table *at, int i,
 	return (an);
 }
 
-void
+struct art_table *
 art_table_ref(struct art_root *ar, struct art_table *at)
 {
 	at->at_refcnt++;
+	return (at);
 }
 
 static inline int
@@ -604,41 +609,43 @@ art_table_free(struct art_root *ar, struct art_table *at)
 int
 art_walk(struct art_root *ar, int (*f)(struct art_node *, void *), void *arg)
 {
+	struct srp_ref		 sr;
 	struct art_table	*at;
 	struct art_node		*node;
-	int			 error;
+	int			 error = 0;
 
-	KERNEL_ASSERT_LOCKED();
-
+	rw_enter_write(&ar->ar_lock);
 	at = srp_get_locked(&ar->ar_root);
-	if (at == NULL)
-		return (0);
+	if (at != NULL) {
+		art_table_ref(ar, at);
 
-	/*
-	 * The default route should be processed here because the root
-	 * table does not have a parent.
-	 */
-	node = srp_get_locked(&at->at_default);
-	if (node != NULL) {
-		error = (*f)(node, arg);
-		if (error)
-			return (error);
+		/*
+		 * The default route should be processed here because the root
+		 * table does not have a parent.
+		 */
+		node = srp_enter(&sr, &at->at_default);
+		error = art_walk_apply(ar, node, NULL, f, arg);
+		srp_leave(&sr);
+
+		if (error == 0)
+			error = art_table_walk(ar, at, f, arg);
+
+		art_table_free(ar, at);
 	}
+	rw_exit_write(&ar->ar_lock);
 
-	return (art_table_walk(ar, at, f, arg));
+	return (error);
 }
 
 int
 art_table_walk(struct art_root *ar, struct art_table *at,
     int (*f)(struct art_node *, void *), void *arg)
 {
-	struct art_node		*next, *an = NULL;
-	struct art_node		*node;
+	struct srp_ref		 sr;
+	struct art_node		*node, *next;
+	struct art_table	*nat;
 	int			 i, j, error = 0;
 	uint32_t		 maxfringe = (at->at_minfringe << 1);
-
-	/* Prevent this table to be freed while we're manipulating it. */
-	art_table_ref(ar, at);
 
 	/*
 	 * Iterate non-fringe nodes in ``natural'' order.
@@ -651,12 +658,13 @@ art_table_walk(struct art_root *ar, struct art_table *at,
 		 */
 		for (i = max(j, 2); i < at->at_minfringe; i <<= 1) {
 			next = srp_get_locked(&at->at_heap[i >> 1].node);
-			an = srp_get_locked(&at->at_heap[i].node);
-			if ((an != NULL) && (an != next)) {
-				error = (*f)(an, arg);
-				if (error)
-					goto out;
-			}
+
+			node = srp_enter(&sr, &at->at_heap[i].node);
+			error = art_walk_apply(ar, node, next, f, arg);
+			srp_leave(&sr);
+
+			if (error != 0)
+				return (error);
 		}
 	}
 
@@ -665,28 +673,47 @@ art_table_walk(struct art_root *ar, struct art_table *at,
 	 */
 	for (i = at->at_minfringe; i < maxfringe; i++) {
 		next = srp_get_locked(&at->at_heap[i >> 1].node);
-		node = srp_get_locked(&at->at_heap[i].node);
-		if (!ISLEAF(node))
-			an = srp_get_locked(&SUBTABLE(node)->at_default);
-		else
-			an = node;
 
-		if ((an != NULL) && (an != next)) {
-			error = (*f)(an, arg);
-			if (error)
-				goto out;
+		node = srp_enter(&sr, &at->at_heap[i].node);
+		if (!ISLEAF(node)) {
+			nat = art_table_ref(ar, SUBTABLE(node));
+			node = srp_follow(&sr, &nat->at_default);
+		} else
+			nat = NULL;
+
+		error = art_walk_apply(ar, node, next, f, arg);
+		srp_leave(&sr);
+
+		if (error != 0) {
+			art_table_free(ar, nat);
+			return (error);
 		}
 
-		if (ISLEAF(node))
-			continue;
-
-		error = art_table_walk(ar, SUBTABLE(node), f, arg);
-		if (error)
-			break;
+		if (nat != NULL) {
+			error = art_table_walk(ar, nat, f, arg);
+			art_table_free(ar, nat);
+			if (error != 0)
+				return (error);
+		}
 	}
 
-out:
-	art_table_free(ar, at);
+	return (0);
+}
+
+int
+art_walk_apply(struct art_root *ar,
+    struct art_node *an, struct art_node *next,
+    int (*f)(struct art_node *, void *), void *arg)
+{
+	int error = 0;
+
+	if ((an != NULL) && (an != next)) {
+		/* this assumes an->an_dst is not used by f */
+		rw_exit_write(&ar->ar_lock);
+		error = (*f)(an, arg);
+		rw_enter_write(&ar->ar_lock);
+	}
+
 	return (error);
 }
 

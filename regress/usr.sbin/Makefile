@@ -1,7 +1,8 @@
-#	$OpenBSD: Makefile,v 1.11 2016/03/23 08:58:32 mpi Exp $
+#	$OpenBSD: Makefile,v 1.13 2016/09/05 09:55:18 deraadt Exp $
 
 SUBDIR += arp
 SUBDIR += httpd
+#SUBDIR += ldapd
 SUBDIR += mtree
 SUBDIR += ospfd
 SUBDIR += relayd

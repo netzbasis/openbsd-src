@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.181 2016/05/23 15:48:59 deraadt Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.185 2016/09/04 16:15:30 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -133,6 +133,9 @@
 
 #include <dev/rndvar.h>
 
+#include <uvm/uvm_param.h>
+#include <uvm/uvm_extern.h>
+
 /*
  * For the purposes of better mixing, we use the CRC-32 polynomial as
  * well to make a twisted Generalized Feedback Shift Register
@@ -222,7 +225,6 @@ struct timer_rand_state {	/* There is one of these per entropy source */
 
 struct rand_event {
 	struct timer_rand_state *re_state;
-	u_int re_nbits;
 	u_int re_time;
 	u_int re_val;
 } rnd_event_space[QEVLEN];
@@ -231,7 +233,8 @@ u_int rnd_event_idx;
 
 struct timeout rnd_timeout;
 
-u_int32_t entropy_pool[POOLWORDS] __attribute__((section(".openbsd.randomdata")));
+static u_int32_t entropy_pool[POOLWORDS];
+static const u_int32_t entropy_pool0[POOLWORDS] __attribute__((section(".openbsd.randomdata")));
 u_int	entropy_add_ptr;
 u_char	entropy_input_rotate;
 
@@ -245,6 +248,7 @@ void	filt_randomdetach(struct knote *);
 int	filt_randomwrite(struct knote *, long);
 
 static void _rs_seed(u_char *, size_t);
+static void _rs_clearseed(const void *p, size_t s);
 
 struct filterops randomread_filtops =
 	{ 1, NULL, filt_randomdetach, filt_randomread };
@@ -372,7 +376,6 @@ enqueue_randomness(u_int state, u_int val)
 	rep = rnd_put();
 
 	rep->re_state = p;
-	rep->re_nbits = nbits;
 	rep->re_time += ts.tv_nsec ^ (ts.tv_sec << 20);
 	rep->re_val += val;
 
@@ -441,7 +444,6 @@ dequeue_randomness(void *v)
 {
 	struct rand_event *rep;
 	u_int32_t buf[2];
-	u_int nbits;
 
 	mtx_enter(&entropylock);
 
@@ -451,7 +453,6 @@ dequeue_randomness(void *v)
 	while ((rep = rnd_get())) {
 		buf[0] = rep->re_time;
 		buf[1] = rep->re_val;
-		nbits = rep->re_nbits;
 		mtx_leave(&entropylock);
 
 		add_entropy_words(buf, 2);
@@ -513,7 +514,8 @@ struct task arc4_task = TASK_INITIALIZER(arc4_init, NULL);
 static int rs_initialized;
 static chacha_ctx rs;		/* chacha context for random keystream */
 /* keystream blocks (also chacha seed from boot) */
-static u_char rs_buf[RSBUFSZ] __attribute__((section(".openbsd.randomdata")));
+static u_char rs_buf[RSBUFSZ];
+static const u_char rs_buf0[RSBUFSZ] __attribute__((section(".openbsd.randomdata")));
 static size_t rs_have;		/* valid bytes at end of rs_buf */
 static size_t rs_count;		/* bytes till reseed */
 
@@ -609,9 +611,52 @@ _rs_stir_if_needed(size_t len)
 		rs_count -= len;
 }
 
+static void
+_rs_clearseed(const void *p, size_t s)
+{
+	struct kmem_dyn_mode kd_avoidalias;
+	vaddr_t va = trunc_page((vaddr_t)p);
+	vsize_t off = (vaddr_t)p - va;
+	vsize_t len;
+	vaddr_t rwva;
+	paddr_t pa;
+
+	while (s > 0) {
+		pmap_extract(pmap_kernel(), va, &pa);
+
+		memset(&kd_avoidalias, 0, sizeof kd_avoidalias);
+		kd_avoidalias.kd_prefer = pa;
+		kd_avoidalias.kd_waitok = 1;
+		rwva = (vaddr_t)km_alloc(PAGE_SIZE, &kv_any, &kp_none,
+		    &kd_avoidalias);
+		if (!rwva)
+			panic("_rs_clearseed");
+
+		pmap_kenter_pa(rwva, pa, PROT_READ | PROT_WRITE);
+		pmap_update(pmap_kernel());
+
+		len = MIN(s, PAGE_SIZE - off);
+		explicit_bzero((void *)(rwva + off), len);
+
+		pmap_kremove(rwva, PAGE_SIZE);
+		km_free((void *)rwva, PAGE_SIZE, &kv_any, &kp_none);
+
+		va += PAGE_SIZE;
+		s -= len;
+		off = 0;
+	}
+}
+
 static inline void
 _rs_rekey(u_char *dat, size_t datlen)
 {
+	if (!rs_initialized) {
+		memcpy(entropy_pool, entropy_pool0, sizeof entropy_pool);
+		memcpy(rs_buf, rs_buf0, sizeof rs_buf);
+		rs_initialized = 1;
+		/* seeds cannot be cleaned yet, random_start() will do so */
+	}
+
 #ifndef KEYSTREAM_ONLY
 	memset(rs_buf, 0, RSBUFSZ);
 #endif
@@ -754,6 +799,9 @@ random_start(void)
 	if (__guard_local == 0)
 		printf("warning: no entropy supplied by boot loader\n");
 #endif
+
+	_rs_clearseed(entropy_pool0, sizeof entropy_pool0);
+	_rs_clearseed(rs_buf0, sizeof rs_buf0);
 
 	rnd_states[RND_SRC_TIMER].dont_count_entropy = 1;
 	rnd_states[RND_SRC_TRUE].dont_count_entropy = 1;

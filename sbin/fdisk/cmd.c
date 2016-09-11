@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd.c,v 1.95 2016/03/30 23:40:54 krw Exp $	*/
+/*	$OpenBSD: cmd.c,v 1.97 2016/09/03 17:46:19 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -54,7 +54,7 @@ Xreinit(char *args, struct mbr *mbr)
 	else if (strlen(args) > 0) {
 		printf("Unrecognized modifier '%s'\n", args);
 		return (CMD_CONT);
-	} else if (MBR_protective_mbr(&initial_mbr) == 0)
+	} else if (MBR_protective_mbr(mbr) == 0)
 		dogpt = 1;
 	else
 		dogpt = 0;
@@ -195,7 +195,7 @@ Xgedit(char *args)
 	gg->gp_lba_start = htole64(bs);
 	gg->gp_lba_end = htole64(bs + ns - 1);
 
-	name = ask_string("partition name", utf16le_to_string(gg->gp_name));
+	name = ask_string("Partition name", utf16le_to_string(gg->gp_name));
 	if (strlen(name) >= GPTPARTNAMESIZE) {
 		printf("partition name must be < %d characters\n",
 		    GPTPARTNAMESIZE);

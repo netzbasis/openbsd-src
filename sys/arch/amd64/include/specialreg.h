@@ -1,4 +1,4 @@
-/*	$OpenBSD: specialreg.h,v 1.43 2016/04/26 15:57:09 mlarkin Exp $	*/
+/*	$OpenBSD: specialreg.h,v 1.48 2016/09/10 17:15:44 mlarkin Exp $	*/
 /*	$NetBSD: specialreg.h,v 1.1 2003/04/26 18:39:48 fvdl Exp $	*/
 /*	$NetBSD: x86/specialreg.h,v 1.2 2003/04/25 21:54:30 fvdl Exp $	*/
 
@@ -90,6 +90,7 @@
 #define	CR4_PCE	0x00000100	/* enable RDPMC instruction for all cpls */
 #define	CR4_OSFXSR	0x00000200	/* enable fxsave/fxrestor and SSE */
 #define	CR4_OSXMMEXCPT	0x00000400	/* enable unmasked SSE exceptions */
+#define	CR4_UMIP	0x00000800	/* user mode instruction prevention */
 #define	CR4_VMXE	0x00002000	/* enable virtual machine operation */
 #define	CR4_SMXE	0x00004000	/* enable safe mode operation */
 #define	CR4_FSGSBASE	0x00010000	/* enable {RD,WR}{FS,GS}BASE ops */
@@ -116,7 +117,7 @@
 #define	CPUID_DE	0x00000004	/* has debugging extension */
 #define	CPUID_PSE	0x00000008	/* has 4MB page size extension */
 #define	CPUID_TSC	0x00000010	/* has time stamp counter */
-#define	CPUID_MSR	0x00000020	/* has mode specific registers */
+#define	CPUID_MSR	0x00000020	/* has model specific registers */
 #define	CPUID_PAE	0x00000040	/* has phys address extension */
 #define	CPUID_MCE	0x00000080	/* has machine check exception */
 #define	CPUID_CX8	0x00000100	/* has CMPXCHG8B instruction */
@@ -155,6 +156,7 @@
 #define	CPUIDECX_TM2	0x00000100	/* thermal monitor 2 */
 #define	CPUIDECX_SSSE3	0x00000200	/* Supplemental Streaming SIMD Ext. 3 */
 #define	CPUIDECX_CNXTID	0x00000400	/* Context ID */
+#define CPUIDECX_SDBG	0x00000800	/* Silicon debug capability */
 #define	CPUIDECX_FMA3	0x00001000	/* Fused Multiply Add */
 #define	CPUIDECX_CX16	0x00002000	/* has CMPXCHG16B instruction */
 #define	CPUIDECX_XTPR	0x00004000	/* xTPR Update Control */
@@ -210,6 +212,7 @@
 /* SEFF ECX bits */
 #define SEFF0ECX_PREFETCHWT1	0x00000001 /* PREFETCHWT1 instruction */
 #define SEFF0ECX_AVX512VBMI	0x00000002 /* AVX-512 vector bit inst */
+#define SEFF0ECX_UMIP		0x00000004 /* UMIP support */
 #define SEFF0ECX_PKU		0x00000008 /* Page prot keys for user mode */
 
 /*
@@ -917,7 +920,13 @@
 #define IA32_VMX_ENABLE_INVPCID				(1ULL << 12)
 #define IA32_VMX_ENABLE_VM_FUNCTIONS			(1ULL << 13)
 #define IA32_VMX_VMCS_SHADOWING				(1ULL << 14)
+#define IA32_VMX_ENABLE_ENCLS_EXITING			(1ULL << 15)
+#define IA32_VMX_RDSEED_EXITING				(1ULL << 16)
+#define IA32_VMX_ENABLE_PML				(1ULL << 17)
 #define IA32_VMX_EPT_VIOLATION_VE			(1ULL << 18)
+#define IA32_VMX_CONCEAL_VMX_FROM_PT			(1ULL << 19)
+#define IA32_VMX_ENABLE_XSAVES_XRSTORS			(1ULL << 20)
+#define IA32_VMX_ENABLE_TSC_SCALING			(1ULL << 25)
 
 /* VMX : IA32_VMX_EXIT_CTLS bits */
 #define IA32_VMX_SAVE_DEBUG_CONTROLS			(1ULL << 2)
@@ -929,6 +938,8 @@
 #define IA32_VMX_SAVE_IA32_EFER_ON_EXIT			(1ULL << 20)
 #define IA32_VMX_LOAD_IA32_EFER_ON_EXIT			(1ULL << 21)
 #define IA32_VMX_SAVE_VMX_PREEMPTION_TIMER		(1ULL << 22)
+#define IA32_VMX_CLEAR_IA32_BNDCFGS_ON_EXIT		(1ULL << 23)
+#define IA32_VMX_CONCEAL_VM_EXITS_FROM_PT		(1ULL << 24)
 
 /* VMX: IA32_VMX_ENTRY_CTLS bits */
 #define IA32_VMX_LOAD_DEBUG_CONTROLS			(1ULL << 2)
@@ -938,6 +949,8 @@
 #define IA32_VMX_LOAD_IA32_PERF_GLOBAL_CTRL_ON_ENTRY	(1ULL << 13)
 #define IA32_VMX_LOAD_IA32_PAT_ON_ENTRY			(1ULL << 14)
 #define IA32_VMX_LOAD_IA32_EFER_ON_ENTRY		(1ULL << 15)
+#define IA32_VMX_LOAD_IA32_BNDCFGS_ON_ENTRY		(1ULL << 16)
+#define IA32_VMX_CONCEAL_VM_ENTRIES_FROM_PT		(1ULL << 17)
 
 /* VMX : VMCS Fields */
 #define VMCS_GUEST_VPID			0x0000
@@ -1041,7 +1054,7 @@
 #define IA32_VMX_EPT_FAULT_WAS_WRITABLE	(1ULL << 4)
 #define IA32_VMX_EPT_FAULT_WAS_EXECABLE (1ULL << 5)
 
-#define IA32_VMX_MSR_LIST_SIZE_MASK	(3ULL << 25)
+#define IA32_VMX_MSR_LIST_SIZE_MASK	(7ULL << 25)
 
 /*
  * SVM

@@ -1,6 +1,6 @@
 define(MACHINE,octeon)dnl
 vers(__file__,
-	{-$OpenBSD: MAKEDEV.md,v 1.10 2016/04/28 18:17:31 natano Exp $-},
+	{-$OpenBSD: MAKEDEV.md,v 1.13 2016/09/04 15:38:59 naddy Exp $-},
 etc.MACHINE)dnl
 dnl
 dnl Copyright (c) 2001-2006 Todd T. Fries <todd@OpenBSD.org>
@@ -47,7 +47,7 @@ _DEV(wd, 18, 4)
 _DEV(octcf, 15, 15)
 _TITLE(tap)
 _DEV(ch, 36)
-_DEV(st, 10, 10)
+_DEV(st, 10)
 _TITLE(term)
 _DEV(com, 17)
 _TITLE(pty)
@@ -82,10 +82,12 @@ _DEV(tap, 74)
 _DEV(uk, 32)
 _DEV(vi, 45)
 _DEV(vscsi, 69)
+_DEV(switch, 75)
 dnl
 divert(__mddivert)dnl
 dnl
 _std(2, 3, 35, 6)
+	M openprom	c 20 0 600
 	;;
 dnl
 dnl *** octeon specific targets
@@ -103,6 +105,7 @@ target(all, cd, 0, 1)dnl
 target(all, sd, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)dnl
 target(all, vnd, 0, 1, 2, 3)dnl
 target(all, octcf, 0)dnl
+target(all, switch, 0, 1, 2, 3)dnl
 target(ramd, pty, 0)dnl
 target(ramd, bio)dnl
 target(ramd, diskmap)dnl

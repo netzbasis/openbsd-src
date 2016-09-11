@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.324 2016/06/15 19:39:33 gerhard Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.330 2016/09/03 13:46:57 reyk Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*
@@ -99,6 +99,7 @@
 #include <err.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -218,7 +219,7 @@ void	unsetvlandev(const char *, int);
 void	mpe_status(void);
 void	mpw_status(void);
 void	vlan_status(void);
-void	setinstance(const char *, int);
+void	setrdomain(const char *, int);
 int	main(int, char *[]);
 int	prefix(void *val, int);
 void	getifgroups(void);
@@ -392,7 +393,7 @@ const struct	cmd {
 	{ "priority",	NEXTARG,	0,		setifpriority },
 	{ "rtlabel",	NEXTARG,	0,		setifrtlabel },
 	{ "-rtlabel",	-1,		0,		setifrtlabel },
-	{ "rdomain",	NEXTARG,	0,		setinstance },
+	{ "rdomain",	NEXTARG,	0,		setrdomain },
 	{ "mpls",	IFXF_MPLS,	0,		setifxflags },
 	{ "-mpls",	-IFXF_MPLS,	0,		setifxflags },
 	{ "mplslabel",	NEXTARG,	0,		setmpelabel },
@@ -516,6 +517,9 @@ const struct	cmd {
 	{ "-roaming",	0,		0,		umb_roaming },
 	{ "patch",	NEXTARG,	0,		setpair },
 	{ "-patch",	1,		0,		unsetpair },
+	{ "datapathid",	NEXTARG,	0,		switch_datapathid },
+	{ "portno",	NEXTARG2,	0,		NULL, switch_portno },
+	{ "addlocal",	NEXTARG,	0,		addlocal },
 #else /* SMALL */
 	{ "powersave",	NEXTARG0,	0,		setignore },
 	{ "priority",	NEXTARG,	0,		setignore },
@@ -1451,9 +1455,9 @@ setifllprio(const char *val, int d)
 
 	(void) strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
-	ifr.ifr_mtu = strtonum(val, 0, UCHAR_MAX, &errmsg);
+	ifr.ifr_llprio = strtonum(val, 0, UCHAR_MAX, &errmsg);
 	if (errmsg)
-		errx(1, "mtu %s: %s", val, errmsg);
+		errx(1, "llprio %s: %s", val, errmsg);
 	if (ioctl(s, SIOCSIFLLPRIO, (caddr_t)&ifr) < 0)
 		warn("SIOCSIFLLPRIO");
 }
@@ -2341,8 +2345,19 @@ ieee80211_printnode(struct ieee80211_nodereq *nr)
 
 	if (nr->nr_pwrsave)
 		printf("powersave ");
-	/* Only print the fastest rate */
-	if (nr->nr_max_rxrate) {
+	/* 
+	 * Print our current Tx rate for associated nodes.
+	 * Print the fastest supported rate for APs.
+	 */
+	if ((nr->nr_flags & (IEEE80211_NODEREQ_AP)) == 0) {
+		if (nr->nr_flags & IEEE80211_NODEREQ_HT) {
+			printf("HT-MCS%d ", nr->nr_txmcs);
+		} else if (nr->nr_nrates) {
+			printf("%uM ",
+			    (nr->nr_rates[nr->nr_txrate] & IEEE80211_RATE_VAL)
+			    / 2);
+		}
+	} else if (nr->nr_max_rxrate) {
 		printf("%uM HT ", nr->nr_max_rxrate);
 	} else if (nr->nr_rxmcs[0] != 0) {
 		for (i = IEEE80211_HT_NUM_MCS - 1; i >= 0; i--) {
@@ -2351,9 +2366,8 @@ ieee80211_printnode(struct ieee80211_nodereq *nr)
 		}
 		printf("HT-MCS%d ", i);
 	} else if (nr->nr_nrates) {
-		printf("%uM",
+		printf("%uM ",
 		    (nr->nr_rates[nr->nr_nrates - 1] & IEEE80211_RATE_VAL) / 2);
-		putchar(' ');
 	}
 	/* ESS is the default, skip it */
 	nr->nr_capinfo &= ~IEEE80211_CAPINFO_ESS;
@@ -3120,6 +3134,7 @@ status(int link, struct sockaddr_dl *sdl, int ls)
 	phys_status(0);
 #ifndef SMALL
 	bridge_status();
+	switch_status();
 #endif
 }
 
@@ -3608,13 +3623,18 @@ void
 setvnetid(const char *id, int param)
 {
 	const char *errmsg = NULL;
-	uint32_t vnetid;
-
-	vnetid = strtonum(id, 0, UINT_MAX, &errmsg);
-	if (errmsg)
-		errx(1, "vnetid %s: %s", id, errmsg);
+	int64_t vnetid;
 
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
+
+	if (strcasecmp("any", id) == 0)
+		vnetid = -1;
+	else {
+		vnetid = strtonum(id, 0, INT64_MAX, &errmsg);
+		if (errmsg)
+			errx(1, "vnetid %s: %s", id, errmsg);
+	}
+
 	ifr.ifr_vnetid = vnetid;
 	if (ioctl(s, SIOCSVNETID, (caddr_t)&ifr) < 0)
 		warn("SIOCSVNETID");
@@ -3644,7 +3664,12 @@ getvnetid(void)
 		return;
 	}
 
-	printf("\tvnetid: %u\n", ifr.ifr_vnetid);
+	if (ifr.ifr_vnetid < 0) {
+		printf("\tvnetid: any\n");
+		return;
+	}
+
+	printf("\tvnetid: %lld\n", ifr.ifr_vnetid);
 }
 
 void
@@ -5665,7 +5690,7 @@ setiflladdr(const char *addr, int param)
 
 #ifndef SMALL
 void
-setinstance(const char *id, int param)
+setrdomain(const char *id, int param)
 {
 	const char *errmsg = NULL;
 	int rdomainid;

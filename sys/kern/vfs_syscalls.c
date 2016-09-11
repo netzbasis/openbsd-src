@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.256 2016/06/01 22:54:45 millert Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.265 2016/09/10 16:53:30 natano Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -63,7 +63,6 @@
 #include <sys/syscallargs.h>
 
 extern int suid_clear;
-int	usermount = 0;		/* sysctl: by default, users may not mount */
 
 static int change_dir(struct nameidata *, struct proc *);
 
@@ -111,12 +110,11 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 	int error, mntflag = 0;
 	char fstypename[MFSNAMELEN];
 	char fspath[MNAMELEN];
-	struct vattr va;
 	struct nameidata nd;
 	struct vfsconf *vfsp;
 	int flags = SCARG(uap, flags);
 
-	if (usermount == 0 && (error = suser(p, 0)))
+	if ((error = suser(p, 0)))
 		return (error);
 
 	/*
@@ -151,29 +149,6 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 			return (EOPNOTSUPP);	/* Needs translation */
 		}
 
-		/*
-		 * Only root, or the user that did the original mount is
-		 * permitted to update it.
-		 */
-		if (mp->mnt_stat.f_owner != p->p_ucred->cr_uid &&
-		    (error = suser(p, 0))) {
-			vput(vp);
-			return (error);
-		}
-		/*
-		 * Do not allow NFS export by non-root users. Silently
-		 * enforce MNT_NOSUID and MNT_NODEV for non-root users, and
-		 * inherit MNT_NOEXEC from the mount point.
-		 */
-		if (suser(p, 0) != 0) {
-			if (flags & MNT_EXPORTED) {
-				vput(vp);
-				return (EPERM);
-			}
-			flags |= MNT_NOSUID | MNT_NODEV;
-			if (mntflag & MNT_NOEXEC)
-				flags |= MNT_NOEXEC;
-		}
 		if ((error = vfs_busy(mp, VB_READ|VB_NOWAIT)) != 0) {
 			vput(vp);
 			return (error);
@@ -182,28 +157,13 @@ sys_mount(struct proc *p, void *v, register_t *retval)
 		goto update;
 	}
 	/*
-	 * If the user is not root, ensure that they own the directory
-	 * onto which we are attempting to mount.
+	 * Do not allow disabling of permission checks unless exec and access to
+	 * device files is disabled too.
 	 */
-	if ((error = VOP_GETATTR(vp, &va, p->p_ucred, p)) ||
-	    (va.va_uid != p->p_ucred->cr_uid &&
-	    (error = suser(p, 0)))) {
+	if ((flags & MNT_NOPERM) &&
+	    (flags & (MNT_NODEV | MNT_NOEXEC)) != (MNT_NODEV | MNT_NOEXEC)) {
 		vput(vp);
-		return (error);
-	}
-	/*
-	 * Do not allow NFS export by non-root users. Silently
-	 * enforce MNT_NOSUID and MNT_NODEV for non-root users, and inherit
-	 * MNT_NOEXEC from the mount point.
-	 */
-	if (suser(p, 0) != 0) {
-		if (flags & MNT_EXPORTED) {
-			vput(vp);
-			return (EPERM);
-		}
-		flags |= MNT_NOSUID | MNT_NODEV;
-		if (vp->v_mount->mnt_flag & MNT_NOEXEC)
-			flags |= MNT_NOEXEC;
+		return (EPERM);
 	}
 	if ((error = vinvalbuf(vp, V_SAVE, p->p_ucred, p, 0, 0)) != 0) {
 		vput(vp);
@@ -254,10 +214,10 @@ update:
 		mp->mnt_flag |= MNT_WANTRDWR;
 	mp->mnt_flag &=~ (MNT_NOSUID | MNT_NOEXEC | MNT_WXALLOWED | MNT_NODEV |
 	    MNT_SYNCHRONOUS | MNT_ASYNC | MNT_SOFTDEP | MNT_NOATIME |
-	    MNT_FORCE);
+	    MNT_NOPERM | MNT_FORCE);
 	mp->mnt_flag |= flags & (MNT_NOSUID | MNT_NOEXEC | MNT_WXALLOWED |
 	    MNT_NODEV | MNT_SYNCHRONOUS | MNT_ASYNC | MNT_SOFTDEP |
-	    MNT_NOATIME | MNT_FORCE);
+	    MNT_NOATIME | MNT_NOPERM | MNT_FORCE);
 	/*
 	 * Mount the filesystem.
 	 */
@@ -375,22 +335,15 @@ sys_unmount(struct proc *p, void *v, register_t *retval)
 	int error;
 	struct nameidata nd;
 
+	if ((error = suser(p, 0)) != 0)
+		return (error);
+
 	NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_USERSPACE,
 	    SCARG(uap, path), p);
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
 	mp = vp->v_mount;
-
-	/*
-	 * Only root, or the user that did the original mount is
-	 * permitted to unmount this filesystem.
-	 */
-	if ((mp->mnt_stat.f_owner != p->p_ucred->cr_uid) &&
-	    (error = suser(p, 0))) {
-		vput(vp);
-		return (error);
-	}
 
 	/*
 	 * Don't allow unmounting the root file system.
@@ -412,7 +365,7 @@ sys_unmount(struct proc *p, void *v, register_t *retval)
 	if (vfs_busy(mp, VB_WRITE|VB_WAIT))
 		return (EBUSY);
 
-	return (dounmount(mp, SCARG(uap, flags), p, vp));
+	return (dounmount(mp, SCARG(uap, flags) & MNT_FORCE, p, vp));
 }
 
 /*
@@ -1222,17 +1175,22 @@ domknodat(struct proc *p, int fd, const char *path, mode_t mode, dev_t dev)
 	int error;
 	struct nameidata nd;
 
-	if (!S_ISFIFO(mode) || dev != 0) {
-		if ((error = suser(p, 0)) != 0)
-			return (error);
-		if (p->p_fd->fd_rdir)
-			return (EINVAL);
-	}
+	if (dev == VNOVAL)
+		return (EINVAL);
 	NDINITAT(&nd, CREATE, LOCKPARENT, UIO_USERSPACE, fd, path, p);
 	nd.ni_pledge = PLEDGE_DPATH;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
+	if (!S_ISFIFO(mode) || dev != 0) {
+		if ((nd.ni_dvp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
+		    (error = suser(p, 0)) != 0)
+			goto out;
+		if (p->p_fd->fd_rdir) {
+			error = EINVAL;
+			goto out;
+		}
+	}
 	if (vp != NULL)
 		error = EEXIST;
 	else {
@@ -1254,7 +1212,8 @@ domknodat(struct proc *p, int fd, const char *path, mode_t mode, dev_t dev)
 			break;
 		case S_IFIFO:
 #ifndef FIFO
-			return (EOPNOTSUPP);
+			error = EOPNOTSUPP;
+			break;
 #else
 			if (dev == 0) {
 				vattr.va_type = VFIFO;
@@ -1267,6 +1226,7 @@ domknodat(struct proc *p, int fd, const char *path, mode_t mode, dev_t dev)
 			break;
 		}
 	}
+out:
 	if (!error) {
 		error = VOP_MKNOD(nd.ni_dvp, &nd.ni_vp, &nd.ni_cnd, &vattr);
 	} else {
@@ -2090,7 +2050,7 @@ dofchownat(struct proc *p, int fd, const char *path, uid_t uid, gid_t gid,
 
 	follow = (flag & AT_SYMLINK_NOFOLLOW) ? NOFOLLOW : FOLLOW;
 	NDINITAT(&nd, LOOKUP, follow, UIO_USERSPACE, fd, path, p);
-	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_pledge = PLEDGE_CHOWN | PLEDGE_RPATH;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2101,6 +2061,7 @@ dofchownat(struct proc *p, int fd, const char *path, uid_t uid, gid_t gid,
 		if ((error = pledge_chown(p, uid, gid)))
 			goto out;
 		if ((uid != -1 || gid != -1) &&
+		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
@@ -2141,7 +2102,7 @@ sys_lchown(struct proc *p, void *v, register_t *retval)
 	gid_t gid = SCARG(uap, gid);
 
 	NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_USERSPACE, SCARG(uap, path), p);
-	nd.ni_pledge = PLEDGE_FATTR | PLEDGE_RPATH;
+	nd.ni_pledge = PLEDGE_CHOWN | PLEDGE_RPATH;
 	if ((error = namei(&nd)) != 0)
 		return (error);
 	vp = nd.ni_vp;
@@ -2152,6 +2113,7 @@ sys_lchown(struct proc *p, void *v, register_t *retval)
 		if ((error = pledge_chown(p, uid, gid)))
 			goto out;
 		if ((uid != -1 || gid != -1) &&
+		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
@@ -2201,6 +2163,7 @@ sys_fchown(struct proc *p, void *v, register_t *retval)
 		if ((error = pledge_chown(p, uid, gid)))
 			goto out;
 		if ((uid != -1 || gid != -1) &&
+		    (vp->v_mount->mnt_flag & MNT_NOPERM) == 0 &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
 			if (error)
@@ -2331,13 +2294,17 @@ dovutimens(struct proc *p, struct vnode *vp, struct timespec ts[2])
 	}
 
 	if (ts[0].tv_nsec != UTIME_OMIT) {
-		if (ts[0].tv_nsec < 0 || ts[0].tv_nsec >= 1000000000)
+		if (ts[0].tv_nsec < 0 || ts[0].tv_nsec >= 1000000000) {
+			vrele(vp);
 			return (EINVAL);
+		}
 		vattr.va_atime = ts[0];
 	}
 	if (ts[1].tv_nsec != UTIME_OMIT) {
-		if (ts[1].tv_nsec < 0 || ts[1].tv_nsec >= 1000000000)
+		if (ts[1].tv_nsec < 0 || ts[1].tv_nsec >= 1000000000) {
+			vrele(vp);
 			return (EINVAL);
+		}
 		vattr.va_mtime = ts[1];
 	}
 
@@ -2795,8 +2762,10 @@ sys_revoke(struct proc *p, void *v, register_t *retval)
 		return (error);
 	vp = nd.ni_vp;
 	if (vp->v_type != VCHR || (u_int)major(vp->v_rdev) >= nchrdev ||
-	    cdevsw[major(vp->v_rdev)].d_type != D_TTY)
-		return (ENOTTY);
+	    cdevsw[major(vp->v_rdev)].d_type != D_TTY) {
+		error = ENOTTY;
+		goto out;
+	}
 	if ((error = VOP_GETATTR(vp, &vattr, p->p_ucred, p)) != 0)
 		goto out;
 	if (p->p_ucred->cr_uid != vattr.va_uid &&

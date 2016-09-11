@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.215 2016/06/14 09:44:41 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.223 2016/09/07 09:36:49 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -74,10 +74,11 @@ struct llinfo_arp {
 #define LA_HOLD_TOTAL 100
 
 /* timer values */
-int	arpt_prune = (5*60*1);	/* walk list every 5 minutes */
-int	arpt_keep = (20*60);	/* once resolved, good for 20 more minutes */
+int	arpt_prune = (5 * 60);	/* walk list every 5 minutes */
+int	arpt_keep = (20 * 60);	/* once resolved, cache for 20 minutes */
 int	arpt_down = 20;		/* once declared down, don't send for 20 secs */
 
+void arpinvalidate(struct rtentry *);
 void arptfree(struct rtentry *);
 void arptimer(void *);
 struct rtentry *arplookup(struct in_addr *, int, int, unsigned int);
@@ -85,6 +86,8 @@ void in_arpinput(struct ifnet *, struct mbuf *);
 void in_revarpinput(struct ifnet *, struct mbuf *);
 int arpcache(struct ifnet *, struct ether_arp *, struct rtentry *);
 void arpreply(struct ifnet *, struct mbuf *, struct in_addr *, uint8_t *);
+
+struct niqueue arpinq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
 
 LIST_HEAD(, llinfo_arp) arp_list;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
@@ -134,12 +137,13 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		arpinit_done = 1;
 		pool_init(&arp_pool, sizeof(struct llinfo_arp), 0, 0, 0, "arp",
 		    NULL);
+		pool_setipl(&arp_pool, IPL_SOFTNET);
 
 		timeout_set(&arptimer_to, arptimer, &arptimer_to);
 		timeout_add_sec(&arptimer_to, 1);
 	}
 
-	if (rt->rt_flags & (RTF_GATEWAY|RTF_BROADCAST))
+	if (ISSET(rt->rt_flags, RTF_GATEWAY|RTF_BROADCAST|RTF_MULTICAST))
 		return;
 
 	switch (req) {
@@ -209,10 +213,16 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		if (la == NULL)
 			break;
 		LIST_REMOVE(la, la_list);
-		rt->rt_llinfo = 0;
+		rt->rt_llinfo = NULL;
 		rt->rt_flags &= ~RTF_LLINFO;
 		la_hold_total -= ml_purge(&la->la_ml);
 		pool_put(&arp_pool, la);
+		break;
+
+	case RTM_INVALIDATE:
+		if (!ISSET(rt->rt_flags, RTF_LOCAL))
+			arpinvalidate(rt);
+		break;
 	}
 }
 
@@ -304,7 +314,6 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	struct sockaddr_dl *sdl;
 	struct rtentry *rt = NULL;
 	char addr[INET_ADDRSTRLEN];
-	int error;
 
 	if (m->m_flags & M_BCAST) {	/* broadcast */
 		memcpy(desten, etherbroadcastaddr, sizeof(etherbroadcastaddr));
@@ -315,10 +324,12 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 		return (0);
 	}
 
-	error = rt_checkgate(rt0, &rt);
-	if (error) {
+	rt = rt_getll(rt0);
+
+	if (ISSET(rt->rt_flags, RTF_REJECT) &&
+	    (rt->rt_expire == 0 || time_uptime < rt->rt_expire)) {
 		m_freem(m);
-		return (error);
+		return (rt == rt0 ? EHOSTDOWN : EHOSTUNREACH);
 	}
 
 	if (!ISSET(rt->rt_flags, RTF_LLINFO)) {
@@ -389,7 +400,7 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			rt->rt_expire = time_uptime;
 			if (la->la_asked++ < arp_maxtries)
 				arprequest(ifp,
-				    &satosin(rt->rt_addr)->sin_addr.s_addr,
+				    &satosin(rt->rt_ifa->ifa_addr)->sin_addr.s_addr,
 				    &satosin(dst)->sin_addr.s_addr,
 				    ac->ac_enaddr);
 			else {
@@ -438,7 +449,28 @@ arpinput(struct ifnet *ifp, struct mbuf *m)
 	if (m->m_len < len && (m = m_pullup(m, len)) == NULL)
 		return;
 
-	in_arpinput(ifp, m);
+	niq_enqueue(&arpinq, m);
+}
+
+void
+arpintr(void)
+{
+	struct mbuf_list ml;
+	struct mbuf *m;
+	struct ifnet *ifp;
+
+	niq_delist(&arpinq, &ml);
+
+	while ((m = ml_dequeue(&ml)) != NULL) {
+		ifp = if_get(m->m_pkthdr.ph_ifidx);
+
+		if (ifp != NULL)
+			in_arpinput(ifp, m);
+		else
+			m_freem(m);
+
+		if_put(ifp);
+	}
 }
 
 /*
@@ -507,7 +539,12 @@ in_arpinput(struct ifnet *ifp, struct mbuf *m)
 		    "address %s\n", addr, ether_sprintf(ea->arp_sha));
 		itaddr = isaddr;
 	} else if (rt != NULL) {
-		if (arpcache(ifp, ea, rt))
+		int error;
+
+		KERNEL_LOCK();
+		error = arpcache(ifp, ea, rt);
+		KERNEL_UNLOCK();
+		if (error)
 			goto out;
 	}
 
@@ -549,7 +586,15 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 	unsigned int len;
 	int changed = 0;
 
+	KERNEL_ASSERT_LOCKED();
 	KASSERT(sdl != NULL);
+
+	/*
+	 * This can happen if the entry has been deleted by another CPU
+	 * after we found it.
+	 */
+	if (la == NULL)
+		return (0);
 
 	if (sdl->sdl_alen > 0) {
 		if (memcmp(ea->arp_sha, LLADDR(sdl), sdl->sdl_alen)) {
@@ -631,23 +676,31 @@ arpcache(struct ifnet *ifp, struct ether_arp *ea, struct rtentry *rt)
 
 	return (0);
 }
+
+void
+arpinvalidate(struct rtentry *rt)
+{
+	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
+	struct sockaddr_dl *sdl = satosdl(rt->rt_gateway);
+
+	la_hold_total -= ml_purge(&la->la_ml);
+	sdl->sdl_alen = 0;
+	la->la_asked = 0;
+}
+
 /*
  * Free an arp entry.
  */
 void
 arptfree(struct rtentry *rt)
 {
-	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
-	struct sockaddr_dl *sdl = satosdl(rt->rt_gateway);
 	struct ifnet *ifp;
 
-	ifp = if_get(rt->rt_ifidx);
-	if ((sdl != NULL) && (sdl->sdl_family == AF_LINK)) {
-		sdl->sdl_alen = 0;
-		la->la_asked = 0;
-	}
+	arpinvalidate(rt);
 
-	if (!ISSET(rt->rt_flags, RTF_STATIC))
+	ifp = if_get(rt->rt_ifidx);
+	KASSERT(ifp != NULL);
+	if (!ISSET(rt->rt_flags, RTF_STATIC|RTF_CACHED))
 		rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	if_put(ifp);
 }
@@ -678,20 +731,15 @@ arplookup(struct in_addr *inp, int create, int proxy, u_int tableid)
 	}
 
 	if (proxy && !ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
-		struct rtentry *mrt = NULL;
-#if defined(ART) && !defined(SMALL_KERNEL)
-		mrt = rt;
+#ifdef ART
 		KERNEL_LOCK();
-		while ((mrt = rtable_mpath_next(mrt)) != NULL) {
-			if (ISSET(mrt->rt_flags, RTF_ANNOUNCE)) {
-				rtref(mrt);
+		while ((rt = rtable_iterate(rt)) != NULL) {
+			if (ISSET(rt->rt_flags, RTF_ANNOUNCE)) {
 				break;
 			}
 		}
 		KERNEL_UNLOCK();
-#endif /* ART && !SMALL_KERNEL */
-		rtfree(rt);
-		return (mrt);
+#endif /* ART */
 	}
 
 	return (rt);
@@ -788,7 +836,7 @@ in_revarpinput(struct ifnet *ifp, struct mbuf *m)
 	switch (op) {
 	case ARPOP_REQUEST:
 	case ARPOP_REPLY:	/* per RFC */
-		in_arpinput(ifp, m);
+		niq_enqueue(&arpinq, m);
 		return;
 	case ARPOP_REVREPLY:
 		break;

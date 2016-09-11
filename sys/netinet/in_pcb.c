@@ -1,4 +1,4 @@
-/*	$OpenBSD: in_pcb.c,v 1.207 2016/06/18 10:36:13 vgross Exp $	*/
+/*	$OpenBSD: in_pcb.c,v 1.214 2016/09/06 00:04:15 dlg Exp $	*/
 /*	$NetBSD: in_pcb.c,v 1.25 1996/02/13 23:41:53 christos Exp $	*/
 
 /*
@@ -257,6 +257,7 @@ in_pcballoc(struct socket *so, struct inpcbtable *table)
 	if (inpcb_pool_initialized == 0) {
 		pool_init(&inpcb_pool, sizeof(struct inpcb), 0, 0, 0,
 		    "inpcbpl", NULL);
+		pool_setipl(&inpcb_pool, IPL_SOFTNET);
 		inpcb_pool_initialized = 1;
 	}
 	inp = pool_get(&inpcb_pool, PR_NOWAIT|PR_ZERO);
@@ -525,8 +526,7 @@ in_pcbconnect(struct inpcb *inp, struct mbuf *nam)
 	if (sin->sin_port == 0)
 		return (EADDRNOTAVAIL);
 
-	error = in_selectsrc(&ina, sin, inp->inp_moptions, &inp->inp_route,
-	    &inp->inp_laddr, inp->inp_rtableid);
+	error = in_pcbselsrc(&ina, sin, inp);
 	if (error)
 		return (error);
 
@@ -587,8 +587,10 @@ in_pcbdetach(struct inpcb *inp)
 	so->so_pcb = 0;
 	sofree(so);
 	m_freem(inp->inp_options);
-	if (inp->inp_route.ro_rt)
+	if (inp->inp_route.ro_rt) {
 		rtfree(inp->inp_route.ro_rt);
+		inp->inp_route.ro_rt = NULL;
+	}
 #ifdef INET6
 	if (inp->inp_flags & INP_IPV6) {
 		ip6_freepcbopts(inp->inp_outputopts6);
@@ -874,10 +876,14 @@ in_pcbrtentry(struct inpcb *inp)
  * an entry to the caller for later use.
  */
 int
-in_selectsrc(struct in_addr **insrc, struct sockaddr_in *sin,
-    struct ip_moptions *mopts, struct route *ro, struct in_addr *laddr,
-    u_int rtableid)
+in_pcbselsrc(struct in_addr **insrc, struct sockaddr_in *sin,
+    struct inpcb *inp)
 {
+	struct ip_moptions *mopts = inp->inp_moptions;
+	struct route *ro = &inp->inp_route;
+	struct in_addr *laddr = &inp->inp_laddr;
+	u_int rtableid = inp->inp_rtableid;
+
 	struct sockaddr_in *sin2;
 	struct in_ifaddr *ia = NULL;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: library.c,v 1.76 2016/06/08 11:58:59 kettenis Exp $ */
+/*	$OpenBSD: library.c,v 1.79 2016/08/12 20:39:01 deraadt Exp $ */
 
 /*
  * Copyright (c) 2002 Dale Rahn
@@ -32,7 +32,6 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <sys/mman.h>
-#include "dl_prebind.h"
 
 #include "syscall.h"
 #include "archdep.h"
@@ -99,6 +98,7 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	struct load_list *next_load, *load_list = NULL;
 	Elf_Addr maxva = 0, minva = ELFDEFNNAME(NO_ADDR);
 	Elf_Addr libaddr, loff, align = _dl_pagesz - 1;
+	Elf_Addr relro_addr = 0, relro_size = 0;
 	elf_object_t *object;
 	char	hbuf[4096];
 	Elf_Dyn *dynp = NULL;
@@ -106,7 +106,6 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	Elf_Phdr *phdp;
 	Elf_Phdr *ptls = NULL;
 	struct stat sb;
-	void *prebind_data;
 
 #define ROUND_PG(x) (((x) + align) & ~(align))
 #define TRUNC_PG(x) ((x) & ~(align))
@@ -279,16 +278,19 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 		}
 
 		case PT_OPENBSD_RANDOMIZE:
-			_dl_randombuf((char *)(phdp->p_vaddr + loff),
+			_dl_arc4randombuf((char *)(phdp->p_vaddr + loff),
 			    phdp->p_memsz);
+			break;
+
+		case PT_GNU_RELRO:
+			relro_addr = phdp->p_vaddr + loff;
+			relro_size = phdp->p_memsz;
 			break;
 
 		default:
 			break;
 		}
 	}
-
-	prebind_data = prebind_load_fd(libfile, libname);
 
 	_dl_close(libfile);
 
@@ -297,13 +299,14 @@ _dl_tryload_shlib(const char *libname, int type, int flags)
 	    (Elf_Phdr *)((char *)libaddr + ehdr->e_phoff), ehdr->e_phnum,type,
 	    libaddr, loff);
 	if (object) {
-		object->prebind_data = prebind_data;
 		object->load_size = maxva - minva;	/*XXX*/
 		object->load_list = load_list;
 		/* set inode, dev from stat info */
 		object->dev = sb.st_dev;
 		object->inode = sb.st_ino;
 		object->obj_flags |= flags;
+		object->relro_addr = relro_addr;
+		object->relro_size = relro_size;
 		_dl_set_sod(object->load_name, &object->sod);
 		if (ptls != NULL && ptls->p_memsz)
 			_dl_set_tls(object, ptls, libaddr, libname);

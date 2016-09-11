@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.515 2016/05/28 21:21:20 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.523 2016/09/04 09:33:49 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -52,7 +52,7 @@
 #define SMTPD_QUEUE_EXPIRY	 (4 * 24 * 60 * 60)
 #define SMTPD_SOCKET		 "/var/run/smtpd.sock"
 #define	SMTPD_NAME		 "OpenSMTPD"
-#define	SMTPD_VERSION		 "5.9.1"
+#define	SMTPD_VERSION		 "6.0.0"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -161,7 +161,7 @@ union lookup {
  * Bump IMSG_VERSION whenever a change is made to enum imsg_type.
  * This will ensure that we can never use a wrong version of smtpctl with smtpd.
  */
-#define	IMSG_VERSION		14
+#define	IMSG_VERSION		16
 
 enum imsg_type {
 	IMSG_NONE,
@@ -195,7 +195,6 @@ enum imsg_type {
 	IMSG_CTL_REMOVE,
 	IMSG_CTL_SCHEDULE,
 	IMSG_CTL_SHOW_STATUS,
-	IMSG_CTL_SHUTDOWN,
 	IMSG_CTL_TRACE_DISABLE,
 	IMSG_CTL_TRACE_ENABLE,
 	IMSG_CTL_UPDATE_TABLE,
@@ -395,6 +394,8 @@ struct rule {
 	enum dest_type			r_desttype;
 	struct table		       *r_destination;
 
+	uint8_t				r_wantauth;
+	
 	enum action_type		r_action;
 	union rule_dest {
 		char			buffer[EXPAND_BUFFER];
@@ -570,7 +571,7 @@ struct smtpd {
 #define SMTPD_OPT_NOACTION		0x00000002
 	uint32_t			sc_opts;
 
-#define SMTPD_EXITING			0x00000001
+#define SMTPD_EXITING			0x00000001 /* unused */
 #define SMTPD_MDA_PAUSED		0x00000002
 #define SMTPD_MTA_PAUSED		0x00000004
 #define SMTPD_SMTP_PAUSED		0x00000008
@@ -633,6 +634,8 @@ struct smtpd {
 	char					sc_enqueue_filter[PATH_MAX];
 
 	char				       *sc_tls_ciphers;
+
+	char				       *sc_subaddressing_delim;
 };
 
 #define	TRACE_DEBUG	0x0001
@@ -654,7 +657,6 @@ struct smtpd {
 #define PROFILE_TOSTAT	0x0001
 #define PROFILE_IMSG	0x0002
 #define PROFILE_QUEUE	0x0004
-#define PROFILE_BUFFERS	0x0008
 
 struct forward_req {
 	uint64_t			id;
@@ -1005,13 +1007,6 @@ struct mproc {
 	short		 events;
 	struct event	 ev;
 	void		*data;
-
-	off_t		 msg_in;
-	off_t		 msg_out;
-	off_t		 bytes_in;
-	off_t		 bytes_out;
-	size_t		 bytes_queued;
-	size_t		 bytes_queued_max;
 };
 
 struct msg {
@@ -1152,7 +1147,6 @@ int	uncompress_file(FILE *, FILE *);
 void purge_config(uint8_t);
 void config_process(enum smtp_proc_type);
 void config_peer(enum smtp_proc_type);
-void config_done(void);
 
 
 /* control.c */
@@ -1337,7 +1331,6 @@ int cmdline_symset(char *);
 
 /* queue.c */
 int queue(void);
-void queue_flow_control(void);
 
 
 /* queue_backend.c */

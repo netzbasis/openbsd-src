@@ -1,4 +1,4 @@
-/* $OpenBSD: imxuart.c,v 1.6 2016/06/11 14:26:18 jsg Exp $ */
+/* $OpenBSD: imxuart.c,v 1.12 2016/08/06 17:18:38 kettenis Exp $ */
 /*
  * Copyright (c) 2005 Dale Rahn <drahn@motorola.com>
  *
@@ -31,7 +31,6 @@
 
 #include <dev/cons.h>
 
-
 #ifdef DDB
 #include <ddb/db_var.h>
 #endif
@@ -44,9 +43,11 @@
 #include <armv7/armv7/armv7var.h>
 #include <armv7/armv7/armv7_machdep.h>
 #include <armv7/imx/imxccmvar.h>
+#include <armv7/imx/imxiomuxcvar.h>
 
-#include <dev/ofw/fdt.h>
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 #define DEVUNIT(x)      (minor(x) & 0x7f)
 #define DEVCUA(x)       (minor(x) & 0x80)
@@ -137,15 +138,15 @@ struct cdevsw imxuartdev =
 void
 imxuart_init_cons(void)
 {
-	struct fdt_memory mem;
+	struct fdt_reg reg;
 	void *node;
 
 	if ((node = fdt_find_cons("fsl,imx21-uart")) == NULL)
 		return;
-	if (fdt_get_memory_address(node, 0, &mem))
+	if (fdt_get_reg(node, 0, &reg))
 		return;
 
-	imxuartcnattach(&armv7_bs_tag, mem.addr, comcnspeed, comcnmode);
+	imxuartcnattach(&armv7_bs_tag, reg.addr, comcnspeed, comcnmode);
 }
 
 int
@@ -161,20 +162,30 @@ imxuart_attach(struct device *parent, struct device *self, void *aux)
 {
 	struct imxuart_softc *sc = (struct imxuart_softc *) self;
 	struct fdt_attach_args *faa = aux;
+	int maj;
 
-	if (faa->fa_nreg < 2 || faa->fa_nintr < 3)
+	if (faa->fa_nreg < 1)
 		return;
 
-	sc->sc_irq = arm_intr_establish(faa->fa_intr[1], IPL_TTY,
+	pinctrl_byname(faa->fa_node, "default");
+
+	sc->sc_irq = arm_intr_establish_fdt(faa->fa_node, IPL_TTY,
 	    imxuart_intr, sc, sc->sc_dev.dv_xname);
 
 	sc->sc_iot = faa->fa_iot;
-	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
-	    faa->fa_reg[1], 0, &sc->sc_ioh))
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic("imxuartattach: bus_space_map failed!");
 
-	if (faa->fa_reg[0] == imxuartconsaddr)
+	if (faa->fa_reg[0].addr == imxuartconsaddr) {
+		/* Locate the major number. */
+		for (maj = 0; maj < nchrdev; maj++)
+			if (cdevsw[maj].d_open == imxuartopen)
+				break;
+		cn_tab->cn_dev = makedev(maj, sc->sc_dev.dv_unit);
+
 		printf(": console");
+	}
 
 	timeout_set(&sc->sc_diag_tmo, imxuart_diag, sc);
 	timeout_set(&sc->sc_dtr_tmo, imxuart_raisedtr, sc);

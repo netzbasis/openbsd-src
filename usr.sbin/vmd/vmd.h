@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.20 2016/04/04 17:13:54 stefan Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.24 2016/09/02 16:23:40 stefan Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -22,6 +22,7 @@
 #include <machine/vmmvar.h>
 
 #include <limits.h>
+#include <pthread.h>
 
 #include "proc.h"
 
@@ -36,8 +37,6 @@
 #define VM_TTYNAME_MAX		12
 #define MAX_TAP			256
 #define NR_BACKLOG		5
-
-/* #define VMD_DEBUG */
 
 #ifdef VMD_DEBUG
 #define dprintf(x...)   do { log_debug(x); } while(0)
@@ -57,12 +56,14 @@ enum imsg_type {
 	IMSG_VMDOP_GET_INFO_VM_DATA,
 	IMSG_VMDOP_GET_INFO_VM_END_DATA,
 	IMSG_VMDOP_LOAD,
-	IMSG_VMDOP_RELOAD
+	IMSG_VMDOP_RELOAD,
+	IMSG_VMDOP_TERMINATE_VM_EVENT
 };
 
 struct vmop_result {
 	int			 vmr_result;
 	uint32_t		 vmr_id;
+	pid_t			 vmr_pid;
 	char			 vmr_ttyname[VM_TTYNAME_MAX];
 };
 
@@ -78,6 +79,7 @@ struct vmop_id {
 
 struct vmd_vm {
 	struct vm_create_params	 vm_params;
+	pid_t			 vm_pid;
 	uint32_t		 vm_vmid;
 	int			 vm_kernel;
 	int			 vm_disks[VMM_MAX_DISKS_PER_VM];
@@ -109,6 +111,7 @@ void	 vmd_reload(int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
 struct vmd_vm *vm_getbyid(uint32_t);
 struct vmd_vm *vm_getbyname(const char *);
+struct vmd_vm *vm_getbypid(pid_t);
 void	 vm_remove(struct vmd_vm *);
 char	*get_string(uint8_t *, size_t);
 
@@ -117,6 +120,9 @@ pid_t	 vmm(struct privsep *, struct privsep_proc *);
 int	 write_mem(paddr_t, void *buf, size_t);
 int	 read_mem(paddr_t, void *buf, size_t);
 int	 opentap(void);
+int	 fd_hasdata(int);
+void	 mutex_lock(pthread_mutex_t *);
+void	 mutex_unlock(pthread_mutex_t *);
 
 /* control.c */
 int	 config_init(struct vmd *);

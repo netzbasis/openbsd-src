@@ -1,4 +1,4 @@
-/* $OpenBSD: imxiic.c,v 1.7 2016/06/09 12:35:46 kettenis Exp $ */
+/* $OpenBSD: imxiic.c,v 1.11 2016/08/06 17:18:38 kettenis Exp $ */
 /*
  * Copyright (c) 2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -25,11 +25,12 @@
 #include <machine/fdt.h>
 
 #include <armv7/armv7/armv7var.h>
-#include <armv7/imx/imxiomuxcvar.h>
 #include <armv7/imx/imxccmvar.h>
 #include <armv7/imx/imxiicvar.h>
 
 #include <dev/ofw/openfirm.h>
+#include <dev/ofw/ofw_pinctrl.h>
+#include <dev/ofw/fdt.h>
 
 /* registers */
 #define I2C_IADR	0x00
@@ -115,26 +116,26 @@ imxiic_attach(struct device *parent, struct device *self, void *aux)
 	struct imxiic_softc *sc = (struct imxiic_softc *)self;
 	struct fdt_attach_args *faa = aux;
 
-	if (faa->fa_nreg < 2)
+	if (faa->fa_nreg < 1)
 		return;
 
 	sc->sc_iot = faa->fa_iot;
-	sc->sc_ios = faa->fa_reg[1];
+	sc->sc_ios = faa->fa_reg[0].size;
 	sc->sc_node = faa->fa_node;
-	sc->unit = (faa->fa_reg[0] & 0xc000) >> 14;
-	if (bus_space_map(sc->sc_iot, faa->fa_reg[0],
-	    faa->fa_reg[1], 0, &sc->sc_ioh))
+	sc->unit = (faa->fa_reg[0].addr & 0xc000) >> 14;
+	if (bus_space_map(sc->sc_iot, faa->fa_reg[0].addr,
+	    faa->fa_reg[0].size, 0, &sc->sc_ioh))
 		panic("imxiic_attach: bus_space_map failed!");
 
 #if 0
-	sc->sc_ih = arm_intr_establish(aa->aa_dev->irq[0], IPL_BIO,
+	sc->sc_ih = arm_intr_establish_fdt(faa->fa_node, IPL_BIO,
 	    imxiic_intr, sc, sc->sc_dev.dv_xname);
 #endif
 
 	printf("\n");
 
 	/* set iomux pins */
-	imxiomuxc_enable_i2c(sc->unit);
+	pinctrl_byname(faa->fa_node, "default");
 
 	/* set speed to 100kHz */
 	imxiic_setspeed(sc, 100);

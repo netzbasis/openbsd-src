@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sysctl.8,v 1.199 2016/06/18 10:36:13 vgross Exp $
+.\"	$OpenBSD: sysctl.8,v 1.205 2016/09/07 17:30:12 natano Exp $
 .\"	$NetBSD: sysctl.8,v 1.4 1995/09/30 07:12:49 thorpej Exp $
 .\"
 .\" Copyright (c) 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	@(#)sysctl.8	8.2 (Berkeley) 5/9/95
 .\"
-.Dd $Mdocdate: June 18 2016 $
+.Dd $Mdocdate: September 7 2016 $
 .Dt SYSCTL 8
 .Os
 .Sh NAME
@@ -139,8 +139,6 @@ and a few require a kernel compiled with non-standard
 .It kern.osversion Ta string Ta no
 .It kern.somaxconn Ta integer Ta yes
 .It kern.sominconn Ta integer Ta yes
-.It kern.usermount Ta integer Ta yes
-.It kern.random Ta struct Ta no
 .It kern.nosuidcoredump Ta integer Ta yes
 .It kern.fsync Ta integer Ta no
 .It kern.sysvmsg Ta integer Ta no
@@ -161,8 +159,6 @@ and a few require a kernel compiled with non-standard
 .It kern.tty.tk_rawcc Ta int64_t Ta no
 .It kern.tty.tk_cancc Ta int64_t Ta no
 .It kern.tty.ttyinfo Ta struct Ta no
-.It kern.tty.maxptys Ta integer Ta yes
-.It kern.tty.nptys Ta integer Ta no
 .It kern.ccpu Ta u_int Ta no
 .It kern.fscale Ta integer Ta no
 .It kern.nprocs Ta integer Ta no
@@ -246,6 +242,8 @@ and a few require a kernel compiled with non-standard
 .It net.inet.ip.ifq.drops Ta integer Ta no
 .It net.inet.ip.mforwarding Ta integer Ta yes
 .It net.inet.ip.multipath Ta integer Ta yes
+.It net.inet.ip.arptimeout Ta integer Ta yes
+.It net.inet.ip.arpdown Ta integer Ta yes
 .It net.inet.icmp.maskrepl Ta integer Ta yes
 .It net.inet.icmp.bmcastecho Ta integer Ta yes
 .It net.inet.icmp.errppslimit Ta integer Ta yes
@@ -257,7 +255,6 @@ and a few require a kernel compiled with non-standard
 .It net.inet.tcp.keepinittime Ta integer Ta yes
 .It net.inet.tcp.keepidle Ta integer Ta yes
 .It net.inet.tcp.keepintvl Ta integer Ta yes
-.It net.inet.tcp.always_keepalive Ta integer Ta yes
 .It net.inet.tcp.slowhz Ta integer Ta no
 .It net.inet.tcp.baddynamic Ta array Ta yes
 .It net.inet.tcp.sack Ta integer Ta yes
@@ -267,10 +264,13 @@ and a few require a kernel compiled with non-standard
 .It net.inet.tcp.ecn Ta integer Ta yes
 .It net.inet.tcp.syncachelimit Ta integer Ta yes
 .It net.inet.tcp.synbucketlimit Ta integer Ta yes
-.It net.inet.tcp.synuselimit Ta integer Ta yes
 .It net.inet.tcp.rfc3390 Ta integer Ta yes
 .It net.inet.tcp.reasslimit Ta integer Ta yes
+.It net.inet.tcp.sackholelimit Ta integer Ta yes
+.It net.inet.tcp.always_keepalive Ta integer Ta yes
+.It net.inet.tcp.synuselimit Ta integer Ta yes
 .It net.inet.tcp.rootonly Ta array Ta yes
+.It net.inet.tcp.synhashsize Ta integer Ta yes
 .It net.inet.udp.checksum Ta integer Ta yes
 .It net.inet.udp.baddynamic Ta array Ta yes
 .It net.inet.udp.recvspace Ta integer Ta yes
@@ -421,10 +421,6 @@ flag lists all the filesystems compiled into the running kernel.
 .It In sys/sysctl.h
 definitions for top level identifiers and second level kernel and hardware
 identifiers
-.It In dev/rndvar.h
-definitions for
-.Xr random 4
-device's statistics structure
 .It In sys/socket.h
 definitions for second level network identifiers
 .It In sys/gmon.h
@@ -499,7 +495,7 @@ a hyphen may be used to specify a range of ports.
 .Pp
 It is also possible to add or remove ports from the current list:
 .Bd -literal -offset indent
-# sysctl net.inet.tcp.baddynamic=+748,6000-6999
+# sysctl net.inet.tcp.baddynamic=+748,+6000-6999
 # sysctl net.inet.tcp.baddynamic=-871
 .Ed
 .Pp

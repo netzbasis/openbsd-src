@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_input.c,v 1.319 2016/06/09 23:09:51 bluhm Exp $	*/
+/*	$OpenBSD: tcp_input.c,v 1.326 2016/08/31 11:05:05 mpi Exp $	*/
 /*	$NetBSD: tcp_input.c,v 1.23 1996/02/13 23:43:44 christos Exp $	*/
 
 /*
@@ -633,8 +633,19 @@ findpcb:
 	KASSERT(intotcpcb(inp) == NULL || intotcpcb(inp)->t_inpcb == inp);
 
 	/* Check the minimum TTL for socket. */
-	if (inp->inp_ip_minttl && inp->inp_ip_minttl > ip->ip_ttl)
-		goto drop;
+	switch (af) {
+	case AF_INET:
+		if (inp->inp_ip_minttl && inp->inp_ip_minttl > ip->ip_ttl)
+			goto drop;
+		break;
+#ifdef INET6
+	case AF_INET6:
+		if (inp->inp_ip6_minhlim &&
+		    inp->inp_ip6_minhlim > ip6->ip6_hlim)
+			goto drop;
+		break;
+#endif
+	}
 
 	tp = intotcpcb(inp);
 	if (tp == NULL)
@@ -3255,7 +3266,7 @@ tcp_mss_adv(struct mbuf *m, int af)
  */
 
 /* syn hash parameters */
-int	tcp_syn_cache_size = TCP_SYN_HASH_SIZE;
+int	tcp_syn_hash_size = TCP_SYN_HASH_SIZE;
 int	tcp_syn_cache_limit = TCP_SYN_HASH_SIZE*TCP_SYN_BUCKET_SIZE;
 int	tcp_syn_bucket_limit = 3*TCP_SYN_BUCKET_SIZE;
 int	tcp_syn_use_limit = 100000;
@@ -3349,7 +3360,13 @@ syn_cache_init(void)
 	int i;
 
 	/* Initialize the hash buckets. */
-	for (i = 0; i < tcp_syn_cache_size; i++) {
+	tcp_syn_cache[0].scs_buckethead = mallocarray(tcp_syn_hash_size,
+	    sizeof(struct syn_cache_head), M_SYNCACHE, M_WAITOK|M_ZERO);
+	tcp_syn_cache[1].scs_buckethead = mallocarray(tcp_syn_hash_size,
+	    sizeof(struct syn_cache_head), M_SYNCACHE, M_WAITOK|M_ZERO);
+	tcp_syn_cache[0].scs_size = tcp_syn_hash_size;
+	tcp_syn_cache[1].scs_size = tcp_syn_hash_size;
+	for (i = 0; i < tcp_syn_hash_size; i++) {
 		TAILQ_INIT(&tcp_syn_cache[0].scs_buckethead[i].sch_bucket);
 		TAILQ_INIT(&tcp_syn_cache[1].scs_buckethead[i].sch_bucket);
 	}
@@ -3366,7 +3383,7 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 	struct syn_cache_set *set = &tcp_syn_cache[tcp_syn_cache_active];
 	struct syn_cache_head *scp;
 	struct syn_cache *sc2;
-	int s;
+	int i, s;
 
 	s = splsoftnet();
 
@@ -3374,16 +3391,33 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 	 * If there are no entries in the hash table, reinitialize
 	 * the hash secrets.  To avoid useless cache swaps and
 	 * reinitialization, use it until the limit is reached.
+	 * An emtpy cache is also the oportunity to resize the hash.
 	 */
 	if (set->scs_count == 0 && set->scs_use <= 0) {
-		arc4random_buf(set->scs_random, sizeof(set->scs_random));
 		set->scs_use = tcp_syn_use_limit;
+		if (set->scs_size != tcp_syn_hash_size) {
+			scp = mallocarray(tcp_syn_hash_size, sizeof(struct
+			    syn_cache_head), M_SYNCACHE, M_NOWAIT|M_ZERO);
+			if (scp == NULL) {
+				/* Try again next time. */
+				set->scs_use = 0;
+			} else {
+				free(set->scs_buckethead, M_SYNCACHE,
+				    set->scs_size *
+				    sizeof(struct syn_cache_head));
+				set->scs_buckethead = scp;
+				set->scs_size = tcp_syn_hash_size;
+				for (i = 0; i < tcp_syn_hash_size; i++)
+					TAILQ_INIT(&scp[i].sch_bucket);
+			}
+		}
+		arc4random_buf(set->scs_random, sizeof(set->scs_random));
 		tcpstat.tcps_sc_seedrandom++;
 	}
 
 	SYN_HASHALL(sc->sc_hash, &sc->sc_src.sa, &sc->sc_dst.sa,
 	    set->scs_random);
-	scp = &set->scs_buckethead[sc->sc_hash % tcp_syn_cache_size];
+	scp = &set->scs_buckethead[sc->sc_hash % set->scs_size];
 	sc->sc_buckethead = scp;
 
 	/*
@@ -3426,7 +3460,7 @@ syn_cache_insert(struct syn_cache *sc, struct tcpcb *tp)
 		 */
 		scp2 = scp;
 		if (TAILQ_EMPTY(&scp2->sch_bucket)) {
-			sce = &set->scs_buckethead[tcp_syn_cache_size];
+			sce = &set->scs_buckethead[set->scs_size];
 			for (++scp2; scp2 != scp; scp2++) {
 				if (scp2 >= sce)
 					scp2 = &set->scs_buckethead[0];
@@ -3584,7 +3618,7 @@ syn_cache_lookup(struct sockaddr *src, struct sockaddr *dst,
 		if (sets[i]->scs_count == 0)
 			continue;
 		SYN_HASHALL(hash, src, dst, sets[i]->scs_random);
-		scp = &sets[i]->scs_buckethead[hash % tcp_syn_cache_size];
+		scp = &sets[i]->scs_buckethead[hash % sets[i]->scs_size];
 		*headp = scp;
 		TAILQ_FOREACH(sc, &scp->sch_bucket, sc_bucketq) {
 			if (sc->sc_hash != hash)
@@ -3627,7 +3661,7 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 {
 	struct syn_cache *sc;
 	struct syn_cache_head *scp;
-	struct inpcb *inp = NULL;
+	struct inpcb *inp, *oldinp;
 	struct tcpcb *tp = NULL;
 	struct mbuf *am;
 	int s;
@@ -3670,7 +3704,8 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	if (so == NULL)
 		goto resetandabort;
 
-	inp = sotoinpcb(oso);
+	oldinp = sotoinpcb(oso);
+	inp = sotoinpcb(so);
 
 #ifdef IPSEC
 	/*
@@ -3678,31 +3713,23 @@ syn_cache_get(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 	 * from the old pcb. Ditto for any other
 	 * IPsec-related information.
 	 */
-	{
-	  struct inpcb *newinp = sotoinpcb(so);
-	  memcpy(newinp->inp_seclevel, inp->inp_seclevel,
-	      sizeof(inp->inp_seclevel));
-	}
+	memcpy(inp->inp_seclevel, oldinp->inp_seclevel,
+	    sizeof(oldinp->inp_seclevel));
 #endif /* IPSEC */
 #ifdef INET6
 	/*
 	 * inp still has the OLD in_pcb stuff, set the
 	 * v6-related flags on the new guy, too.
 	 */
-	{
-	  int flags = inp->inp_flags;
-	  struct inpcb *oldinpcb = inp;
-
-	  inp = sotoinpcb(so);
-	  inp->inp_flags |= (flags & INP_IPV6);
-	  if ((inp->inp_flags & INP_IPV6) != 0) {
-	    inp->inp_ipv6.ip6_hlim =
-	      oldinpcb->inp_ipv6.ip6_hlim;
-	  }
-	}
-#else /* INET6 */
-	inp = sotoinpcb(so);
+	inp->inp_flags |= (oldinp->inp_flags & INP_IPV6);
+	if (inp->inp_flags & INP_IPV6) {
+		inp->inp_ipv6.ip6_hlim = oldinp->inp_ipv6.ip6_hlim;
+		inp->inp_hops = oldinp->inp_hops;
+	} else
 #endif /* INET6 */
+	{
+		inp->inp_ip.ip_ttl = oldinp->inp_ip.ip_ttl;
+	}
 
 #if NPF > 0
 	if (m && m->m_pkthdr.pf.flags & PF_TAG_DIVERTED &&
@@ -4121,7 +4148,6 @@ syn_cache_add(struct sockaddr *src, struct sockaddr *dst, struct tcphdr *th,
 int
 syn_cache_respond(struct syn_cache *sc, struct mbuf *m)
 {
-	struct route *ro;
 	u_int8_t *optp;
 	int optlen, error;
 	u_int16_t tlen;
@@ -4136,12 +4162,10 @@ syn_cache_respond(struct syn_cache *sc, struct mbuf *m)
 	switch (sc->sc_src.sa.sa_family) {
 	case AF_INET:
 		hlen = sizeof(struct ip);
-		ro = &sc->sc_route4;
 		break;
 #ifdef INET6
 	case AF_INET6:
 		hlen = sizeof(struct ip6_hdr);
-		ro = (struct route *)&sc->sc_route6;
 		break;
 #endif
 	default:
@@ -4352,14 +4376,14 @@ syn_cache_respond(struct syn_cache *sc, struct mbuf *m)
 
 	switch (sc->sc_src.sa.sa_family) {
 	case AF_INET:
-		error = ip_output(m, sc->sc_ipopts, ro,
+		error = ip_output(m, sc->sc_ipopts, &sc->sc_route4,
 		    (ip_mtudisc ? IP_MTUDISC : 0),  NULL, inp, 0);
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ip6->ip6_hlim = in6_selecthlim(NULL);
+		ip6->ip6_hlim = in6_selecthlim(inp);
 
-		error = ip6_output(m, NULL /*XXX*/, (struct route_in6 *)ro, 0,
+		error = ip6_output(m, NULL /*XXX*/, &sc->sc_route6, 0,
 		    NULL, NULL);
 		break;
 #endif

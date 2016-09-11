@@ -1087,6 +1087,7 @@ get_segment_type (unsigned int p_type)
     case PT_GNU_RELRO: pt = "RELRO"; break;
     case PT_OPENBSD_RANDOMIZE: pt = "OPENBSD_RANDOMIZE"; break;
     case PT_OPENBSD_WXNEEDED: pt = "OPENBSD_WXNEEDED"; break;
+    case PT_OPENBSD_BOOTDATA: pt = "OPENBSD_BOOTDATA"; break;
     default: pt = NULL; break;
     }
   return pt;
@@ -4728,6 +4729,12 @@ get_program_header_size (bfd *abfd)
   if (elf_tdata (abfd)->relro)
     {
       /* We need a PT_GNU_RELRO segment.  */
+      ++segs;
+    }
+
+  if (elf_tdata (abfd)->wxneeded)
+    {
+      /* We need a PT_OPENBSD_WXNEEDED segment.  */
       ++segs;
     }
 
@@ -8611,7 +8618,7 @@ _bfd_elf_get_synthetic_symtab (bfd *abfd,
   count = relplt->size / hdr->sh_entsize;
   size = count * sizeof (asymbol);
   p = relplt->relocation;
-  for (i = 0; i < count; i++, s++, p++)
+  for (i = 0; i < count; i++, p++)
     size += strlen ((*p->sym_ptr_ptr)->name) + sizeof ("@plt");
 
   s = *ret = bfd_malloc (size);

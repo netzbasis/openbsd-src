@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.816 2016/06/15 19:39:34 gerhard Exp $
+#	$OpenBSD: GENERIC,v 1.822 2016/09/04 10:22:06 tedu Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -296,6 +296,7 @@ ugl*	at uhub?		# Genesys Logic GL620USB-A host-to-host `network'
 udav*	at uhub?		# Davicom DM9601 based Ethernet
 mos*	at uhub?		# MOSCHIP MCS7730/7830 10/100 Ethernet
 url*	at uhub?		# Realtek RTL8150L based adapters
+ure*	at uhub?		# Realtek RTL8152 based adapters
 wi*	at uhub?		# WaveLAN IEEE 802.11DS
 udsbr*	at uhub?		# D-Link DSB-R100 radio
 radio*	at udsbr?		# USB radio
@@ -422,15 +423,6 @@ lpt1	at isa? port 0x278
 lpt2	at isa? port 0x3bc
 lpt*	at puc?
 
-bha0	at isa? port 0x330		# BusLogic [57]4X SCSI controllers
-bha1	at isa? disable port 0x334	# BusLogic [57]4X SCSI controllers
-bha2	at isa? disable
-bha*	at pci?
-#bha*	at eisa?		# XXX eisa still runs in isa-compat
-aha0	at isa? port 0x330	# Adaptec 154[02] SCSI controllers
-aha1	at isa? port 0x334	# Adaptec 154[02] SCSI controllers
-aha*	at isapnp?
-ahb*	at eisa?		# Adaptec 174[024] SCSI controllers
 #ahc0	at isa?			# Adaptec 284x SCSI controllers
 ahc*	at eisa?		# Adaptec 274x, aic7770 SCSI controllers
 ahc*	at pci?			# Adaptec 2940/3940/78?? SCSI controllers
@@ -466,7 +458,6 @@ siop*	at pci?			# NCR 538XX SCSI controllers(new)
 adv*	at pci?			# AdvanSys 1200A/B and ULTRA SCSI
 adw*	at pci?			# AdvanSys ULTRA WIDE SCSI
 pcscp*	at pci?			# AMD 53c974 PCscsi-PCI SCSI
-sea0	at isa? disable iomem 0xc8000 irq 5 # Seagate ST0[12] SCSI controllers
 trm*	at pci?			# Tekram DC-3x5U SCSI Controllers
 uha0	at isa? port 0x330	# UltraStor [13]4f SCSI controllers
 uha1	at isa? disable port 0x334 # UltraStor [13]4f SCSI controllers
@@ -614,7 +605,6 @@ wi*	at pcmcia?			# WaveLAN IEEE 802.11DS
 an*	at pci?				# Aironet IEEE 802.11DS
 an*	at isapnp?			# Aironet IEEE 802.11DS
 an*	at pcmcia?			# Aironet IEEE 802.11DS
-#cnw*	at pcmcia?			# Xircom Netwave
 ipw*	at pci?				# Intel PRO/Wireless 2100
 iwi*	at pci?				# Intel PRO/Wireless 2200BG/2915ABG
 wpi*	at pci?				# Intel PRO/Wireless 3945ABG
@@ -690,18 +680,14 @@ envy*	at pci?				# VIA Envy24 (aka ICE1712)
 sb0	at isa? port 0x220 irq 5 drq 1	# SoundBlaster
 sb*	at isapnp?
 ess*	at isapnp?			# ESS Tech ES188[78], ES888
-wss0	at isa? port 0x530 irq 10 drq 0	# Windows Sound System
-wss*	at isapnp?
 pas0	at isa? port 0x220 irq 7 drq 1	# ProAudio Spectrum
 gus0	at isa? port 0x220 irq 7 drq 1 drq2 6	# Gravis (drq2 is record drq)
 gus*	at isapnp?
-ym*	at isapnp?
 mpu*	at isapnp?
 mpu*	at isa? port 0x300		# generic MPU, Yamaha SW60XG
 
 # MIDI support
 midi*	at sb?			# SB MPU401 port
-midi*	at ym?
 midi*	at mpu?
 midi*	at autri?
 midi*	at eap?
@@ -714,8 +700,6 @@ audio*	at sb?
 audio*	at gus?
 audio*	at pas?
 audio*	at ess?
-audio*	at wss?
-audio*	at ym?
 audio*	at eap?
 audio*	at envy?
 audio*	at eso?
@@ -739,24 +723,9 @@ audio*	at emu?
 
 bktr0	at pci?
 
-# FM-Radio devices
-#gtp*	at pci?			# Gemtek/Guillemot Radio PCI Radio Card
-#sfr0	at isa? port 0x384	# SoundForte RadioLink SF16-FMR FM Radio Card
-#sf2r0	at isa? port 0x384	# SoundForte RadioLink SF16-FMR2 FM Radio Card
-#az0	at isa? port 0x350	# Aztech/PackardBell FM Radio Card
-#rt0	at isa? port 0x30c	# AIMS Lab Radiotrack FM Radio Card
-#rt*	at isapnp?
-#rtii0	at isa? port 0x30c	# AIMS Lab Radiotrack II FM Radio Card
-
 # FM-Radio support
 radio*	at bktr?
 radio*	at fms?
-#radio*	at gtp?
-#radio*	at sfr?
-#radio*	at sf2r?
-#radio*	at az?
-#radio*	at rt?
-#radio*	at rtii?
 
 # Joystick driver. Probe is a little strange; add only if you have one.
 #joy0	at isa? port 0x201

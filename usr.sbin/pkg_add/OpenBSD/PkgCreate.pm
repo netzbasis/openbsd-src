@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgCreate.pm,v 1.120 2016/04/25 10:12:58 espie Exp $
+# $OpenBSD: PkgCreate.pm,v 1.122 2016/09/06 10:41:51 espie Exp $
 #
 # Copyright (c) 2003-2014 Marc Espie <espie@openbsd.org>
 #
@@ -104,7 +104,7 @@ sub handle_options
 	$state->SUPER::handle_options('p:f:d:M:U:A:B:P:W:qQ',
 	    '[-nQqvx] [-A arches] [-B pkg-destdir] [-D name[=value]]',
 	    '[-L localbase] [-M displayfile] [-P pkg-dependency]',
-	    '[-s signing-parameter] [-U undisplayfile] [-W wantedlib]',
+	    '[-U undisplayfile] [-W wantedlib]',
 	    '[-d desc -D COMMENT=value -f packinglist -p prefix]',
 	    'pkg-name');
 
@@ -1027,9 +1027,9 @@ our @ISA = qw(OpenBSD::AddCreateDelete);
 
 sub handle_fragment
 {
-	my ($self, $state, $old, $not, $frag, undef, $cont) = @_;
+	my ($self, $state, $old, $not, $frag, undef, $cont, $msg) = @_;
 	my $def = $frag;
-	if ($state->{subst}->has_fragment($def, $frag)) {
+	if ($state->{subst}->has_fragment($def, $frag, $msg)) {
 		return undef if defined $not;
 	} else {
 		return undef unless defined $not;
@@ -1067,7 +1067,7 @@ sub read_fragments
 					$l = '@comment $'.'OpenBSD: '.basename($file->name).',v$';
 				}
 				if ($l =~ m/^(\!)?\%\%(.*)\%\%$/) {
-					if (my $f2 = $self->handle_fragment($state, $file, $1, $2, $l, $cont)) {
+					if (my $f2 = $self->handle_fragment($state, $file, $1, $2, $l, $cont, $filename)) {
 						push(@$stack, $file);
 						$file = $f2;
 					}
@@ -1235,8 +1235,8 @@ sub create_plist
 		$state->set_status("reading plist");
 	}
 	$self->read_all_fragments($state, $plist);
-
 	$plist->set_pkgname($pkgname);
+
 	$self->add_elements($plist, $state);
 	return $plist;
 }

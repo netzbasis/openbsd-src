@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.h,v 1.77 2016/05/07 19:05:23 guenther Exp $ */
+/*	$OpenBSD: resolve.h,v 1.81 2016/08/30 12:47:19 kettenis Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -32,6 +32,9 @@
 #include <sys/queue.h>
 #include <link.h>
 #include <dlfcn.h>
+
+/* Number of low tags that are used saved internally (0 .. DT_NUM-1) */
+#define DT_NUM	(DT_PREINIT_ARRAYSZ + 1)
 
 struct load_list {
 	struct load_list *next;
@@ -81,13 +84,23 @@ struct elf_object {
 			const char	*soname;
 			const char	*rpath;
 			Elf_Addr	symbolic;
-			Elf_Rel	*rel;
+			Elf_Rel		*rel;
 			Elf_Addr	relsz;
 			Elf_Addr	relent;
 			Elf_Addr	pltrel;
 			Elf_Addr	debug;
 			Elf_Addr	textrel;
 			Elf_Addr	jmprel;
+			Elf_Addr	bind_now;
+			void		(**init_array)(void);
+			void		(**fini_array)(void);
+			Elf_Addr	init_arraysz;
+			Elf_Addr	fini_arraysz;
+			const char	*runpath;
+			Elf_Addr	flags;
+			Elf_Addr	encoding;
+			void		(**preinit_array)(void);
+			Elf_Addr	preinit_arraysz;
 		} u;
 	} Dyn;
 #define dyn Dyn.u
@@ -137,8 +150,6 @@ struct elf_object {
 	elf_object_t	*load_object;
 	struct sod	sod;
 
-	void *prebind_data;
-
 	/* for object confirmation */
 	dev_t	dev;
 	ino_t inode;
@@ -149,6 +160,10 @@ struct elf_object {
 	Elf_Addr	tls_align;
 	const void	*tls_static_data;
 	int		tls_offset;
+
+	/* relro bits */
+	Elf_Addr	relro_addr;
+	Elf_Addr	relro_size;
 
 	/* generation number of last grpsym insert on this object */
 	unsigned int grpsym_gen;
