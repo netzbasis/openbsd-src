@@ -72,12 +72,16 @@ static time_t	FirstTime = 0;
 static int	Flags = 0;
 static struct user_list *Users = NULL;
 static struct tty_list *Ttys = NULL;
+static char	ttys[32];
 
 #define	AC_W	1				/* not _PATH_WTMP */
 #define	AC_D	2				/* daily totals (ignore -p) */
 #define	AC_P	4				/* per-user totals */
 #define	AC_U	8				/* specified users only */
 #define	AC_T	16				/* specified ttys only */
+
+#define	AC_PTYS	"pqrstuvwxyzPQRST"
+#define	AC_TTYS	"0C"
 
 #ifdef DEBUG
 static int Debug = 0;
@@ -197,14 +201,14 @@ update_user(struct user_list *head, char *name, time_t secs)
 int
 main(int argc, char *argv[])
 {
-	FILE *fp;
+	FILE *fp = NULL;
 	int c;
 
 	if (pledge("stdio rpath", NULL) == -1)
 		err(1, "pledge");
 
-	fp = NULL;
-	while ((c = getopt(argc, argv, "Ddpt:w:")) != -1) {
+	(void)strlcpy(ttys, AC_PTYS, sizeof(ttys));
+	while ((c = getopt(argc, argv, "Ddlpt:w:")) != -1) {
 		switch (c) {
 #ifdef DEBUG
 		case 'D':
@@ -213,6 +217,9 @@ main(int argc, char *argv[])
 #endif
 		case 'd':
 			Flags |= AC_D;
+			break;
+		case 'l':
+			(void)strlcat(ttys, AC_TTYS, sizeof(ttys));
 			break;
 		case 'p':
 			Flags |= AC_P;
@@ -447,7 +454,7 @@ ac(FILE	*fp)
 			 */
 			if (*usr.ut_name) {
 				if (strncmp(usr.ut_line, "tty", 3) != 0 ||
-				    strchr("0pqrstuvwxyzCPQRST", usr.ut_line[3]) != NULL ||
+				    strchr(ttys, usr.ut_line[3]) != NULL ||
 				    *usr.ut_host != '\0')
 					head = log_in(head, &usr);
 			} else
@@ -493,6 +500,6 @@ usage(void)
 {
 	extern char *__progname;
 	(void)fprintf(stderr, "usage: "
-	    "%s [-dp] [-t tty] [-w wtmp] [user ...]\n", __progname);
+	    "%s [-dlp] [-t tty] [-w wtmp] [user ...]\n", __progname);
 	exit(1);
 }

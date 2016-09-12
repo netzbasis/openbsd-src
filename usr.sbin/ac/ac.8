@@ -37,7 +37,7 @@
 .Nd connect time accounting
 .Sh SYNOPSIS
 .Nm ac
-.Op Fl dp
+.Op Fl dlp
 .Op Fl t Ar tty
 .Op Fl w Ar wtmp
 .Op Ar user ...
@@ -58,6 +58,8 @@ The options are as follows:
 .Bl -tag -width Ds
 .It Fl d
 Display the connect times in 24 hour chunks.
+.It Fl l
+Also do accounting on local logins.
 .It Fl p
 Print individual users' totals.
 .It Fl t Ar tty
