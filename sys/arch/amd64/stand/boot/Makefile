@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.33 2016/09/10 16:38:16 jsing Exp $
+#	$OpenBSD: Makefile,v 1.35 2016/09/11 17:51:21 jsing Exp $
 
 COPTS?=
 MAN?=	boot.8
@@ -28,7 +28,7 @@ SRCS+=	gidt.S random_i386.S
 SRCS+=	cmd_i386.c dev_i386.c exec_i386.c gateA20.c machdep.c
 SRCS+=	bioscons.c biosdev.c diskprobe.c memprobe.c time.c
 .if ${SOFTRAID:L} == "yes"
-SRCS+=	softraid.c
+SRCS+=	softraid_amd64.c
 .endif
 
 .PATH:	${S}/lib/libsa
@@ -40,7 +40,8 @@ SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
 SRCS+=	elf32.c elf64.c loadfile.c
 SRCS+=	ufs.c
 .if ${SOFTRAID:L} == "yes"
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c
+SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c \
+	sha1.c softraid.c
 .endif
 
 .PATH:	${S}/lib/libkern

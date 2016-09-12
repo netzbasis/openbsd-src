@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.163 2016/09/10 07:43:49 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.189 2016/09/11 19:58:36 florian Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -117,14 +117,13 @@ struct payload {
 	u_int8_t	mac[SIPHASH_DIGEST_LENGTH];
 };
 
-#define MAXPACKETLEN	131072
+#define	ECHOLEN		8	/* icmp echo header len excluding time */
+#define	ECHOTMLEN	sizeof(struct payload)
+#define	DEFDATALEN	(64 - ECHOLEN)		/* default data length */
 #define	IP6LEN		40
-#define ICMP6ECHOLEN	8	/* icmp echo header len excluding time */
-#define ICMP6ECHOTMLEN sizeof(struct payload)
 #define	EXTRA		256	/* for AH and various other headers. weird. */
-#define	DEFDATALEN	ICMP6ECHOTMLEN
-#define MAXPAYLOAD	MAXPACKETLEN - IP6LEN - ICMP6ECHOLEN
-#define	MAXWAIT_DEFAULT	10	/* secs to wait for response */
+#define	MAXPAYLOAD	IPV6_MAXPACKET - IP6LEN - ECHOLEN
+#define	MAXWAIT_DEFAULT	10			/* secs to wait for response */
 
 #define	A(bit)		rcvd_tbl[(bit)>>3]	/* identify byte in array */
 #define	B(bit)		(1 << ((bit) & 0x07))	/* identify bit in byte */
@@ -169,7 +168,7 @@ struct sockaddr_in6 dst;	/* who to ping6 */
 
 int datalen = DEFDATALEN;
 int s;				/* socket file descriptor */
-u_char outpack[MAXPACKETLEN];
+u_char outpack[IPV6_MAXPACKET];
 char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
 char *hostname;
@@ -196,7 +195,6 @@ double tsumsq = 0.0;		/* sum of all times squared, for std. dev. */
 struct tv64 tv64_offset;
 SIPHASH_KEY mac_key;
 
-/* for ancillary data(advanced API) */
 struct msghdr smsghdr;
 struct iovec smsgiov;
 
@@ -215,7 +213,6 @@ __dead void		 usage(void);
 
 int			 get_hoplim(struct msghdr *);
 int			 get_pathmtu(struct msghdr *);
-struct in6_pktinfo	*get_rcvpktinfo(struct msghdr *);
 void			 pr_icmph(struct icmp6_hdr *, u_char *);
 void			 pr_iph(struct ip6_hdr *);
 void			 pr_exthdrs(struct msghdr *);
@@ -251,7 +248,7 @@ main(int argc, char *argv[])
 		err(1, "setresuid");
 
 	preload = 0;
-	datap = &outpack[ICMP6ECHOLEN + ICMP6ECHOTMLEN];
+	datap = &outpack[ECHOLEN + ECHOTMLEN];
 	while ((ch = getopt(argc, argv,
 	    "c:dEefHh:I:i:Ll:mNnp:qS:s:V:vw:")) != -1) {
 		switch (ch) {
@@ -471,9 +468,9 @@ main(int argc, char *argv[])
 		timing = 0;
 	/* in F_VERBOSE case, we may get non-echoreply packets*/
 	if (options & F_VERBOSE && datalen < 2048)
-		packlen = 2048 + IP6LEN + ICMP6ECHOLEN + EXTRA; /* XXX 2048? */
+		packlen = 2048 + IP6LEN + ECHOLEN + EXTRA; /* XXX 2048? */
 	else
-		packlen = datalen + IP6LEN + ICMP6ECHOLEN + EXTRA;
+		packlen = datalen + IP6LEN + ECHOLEN + EXTRA;
 
 	if (!(packet = malloc(packlen)))
 		err(1, "Unable to allocate packet");
@@ -496,7 +493,7 @@ main(int argc, char *argv[])
 		err(1, "setsockopt");
 
 	if (!(options & F_PINGFILLED))
-		for (i = ICMP6ECHOLEN; i < packlen; ++i)
+		for (i = ECHOLEN; i < packlen; ++i)
 			*datap++ = i;
 
 	ident = getpid() & 0xFFFF;
@@ -631,6 +628,12 @@ main(int argc, char *argv[])
 	printf("%s): %d data bytes\n", pr_addr((struct sockaddr *)&dst,
 	    sizeof(dst)), datalen);
 
+	smsghdr.msg_name = &dst;
+	smsghdr.msg_namelen = sizeof(dst);
+	smsgiov.iov_base = (caddr_t)outpack;
+	smsghdr.msg_iov = &smsgiov;
+	smsghdr.msg_iovlen = 1;
+
 	while (preload--)		/* Fire off them quickies. */
 		pinger();
 
@@ -724,12 +727,9 @@ main(int argc, char *argv[])
 				}
 			}
 			continue;
-		} else {
-			/*
-			 * an ICMPv6 message (probably an echoreply) arrived.
-			 */
+		} else
 			pr_pack(packet, cc, &m);
-		}
+
 		if (npackets && nreceived >= npackets)
 			break;
 	}
@@ -751,6 +751,83 @@ onsignal(int sig)
 		seeninfo++;
 		break;
 	}
+}
+
+void
+fill(char *bp, char *patp)
+{
+	int ii, jj, kk;
+	int pat[16];
+	char *cp;
+
+	for (cp = patp; *cp; cp++)
+		if (!isxdigit((unsigned char)*cp))
+			errx(1, "patterns must be specified as hex digits");
+	ii = sscanf(patp,
+	    "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
+	    &pat[0], &pat[1], &pat[2], &pat[3], &pat[4], &pat[5], &pat[6],
+	    &pat[7], &pat[8], &pat[9], &pat[10], &pat[11], &pat[12],
+	    &pat[13], &pat[14], &pat[15]);
+
+	if (ii > 0)
+		for (kk = 0;
+		    kk <= MAXPAYLOAD - (8 + sizeof(struct payload) + ii);
+		    kk += ii)
+			for (jj = 0; jj < ii; ++jj)
+				bp[jj + kk] = pat[jj];
+	if (!(options & F_QUIET)) {
+		(void)printf("PATTERN: 0x");
+		for (jj = 0; jj < ii; ++jj)
+			(void)printf("%02x", bp[jj] & 0xFF);
+		(void)printf("\n");
+	}
+}
+
+void
+summary(void)
+{
+	printf("\n--- %s ping6 statistics ---\n", hostname);
+	printf("%lld packets transmitted, ", ntransmitted);
+	printf("%lld packets received, ", nreceived);
+
+	if (nrepeats)
+		printf("%lld duplicates, ", nrepeats);
+	if (ntransmitted) {
+		if (nreceived > ntransmitted)
+			printf("-- somebody's duplicating packets!");
+		else
+			printf("%.1f%% packet loss",
+			    ((((double)ntransmitted - nreceived) * 100) /
+			    ntransmitted));
+	}
+	printf("\n");
+	if (timinginfo) {
+		/* Only display average to microseconds */
+		double num = nreceived + nrepeats;
+		double avg = tsum / num;
+		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
+		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		    tmin, avg, tmax, dev);
+	}
+}
+
+/*
+ * pr_addr --
+ *	Return address in numeric form or a host name
+ */
+const char *
+pr_addr(struct sockaddr *addr, socklen_t addrlen)
+{
+	static char buf[NI_MAXHOST];
+	int flag = 0;
+
+	if ((options & F_HOSTNAME) == 0)
+		flag |= NI_NUMERICHOST;
+
+	if (getnameinfo(addr, addrlen, buf, sizeof(buf), NULL, 0, flag) == 0)
+		return (buf);
+	else
+		return "?";
 }
 
 /*
@@ -799,27 +876,28 @@ retransmit(void)
  * of the data portion are used to hold a UNIX "timeval" struct in VAX
  * byte-order, to compute the round-trip time.
  */
-
 int
 pinger(void)
 {
 	struct icmp6_hdr *icp;
-	int i, cc;
-	int seq;
+	int cc, i;
+	u_int16_t seq;
 
 	if (npackets && ntransmitted >= npackets)
 		return(-1);	/* no more transmission */
 
+	seq = htons(ntransmitted++);
+
 	icp = (struct icmp6_hdr *)outpack;
 	memset(icp, 0, sizeof(*icp));
 	icp->icmp6_cksum = 0;
-	seq = ntransmitted++;
-	CLR(seq % mx_dup_ck);
-
 	icp->icmp6_type = ICMP6_ECHO_REQUEST;
 	icp->icmp6_code = 0;
 	icp->icmp6_id = htons(ident);
-	icp->icmp6_seq = ntohs(seq);
+	icp->icmp6_seq = seq;
+
+	CLR(ntohs(seq) % mx_dup_ck);
+
 	if (timing) {
 		SIPHASH_CTX ctx;
 		struct timespec ts;
@@ -836,35 +914,26 @@ pinger(void)
 		SipHash24_Init(&ctx, &mac_key);
 		SipHash24_Update(&ctx, tv64, sizeof(*tv64));
 		SipHash24_Update(&ctx, &ident, sizeof(ident));
-		SipHash24_Update(&ctx,
-		    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
-		SipHash24_Update(&ctx, &dst.sin6_addr, sizeof(dst.sin6_addr));
+		SipHash24_Update(&ctx, &seq, sizeof(seq));
 		SipHash24_Final(&payload.mac, &ctx);
 
-		memcpy(&outpack[ICMP6ECHOLEN],
-		    &payload, sizeof(payload));
+		memcpy(&outpack[ECHOLEN], &payload, sizeof(payload));
 	}
-	cc = ICMP6ECHOLEN + datalen;
+	cc = ECHOLEN + datalen;
 
-	smsghdr.msg_name = &dst;
-	smsghdr.msg_namelen = sizeof(dst);
-	smsgiov.iov_base = (caddr_t)outpack;
 	smsgiov.iov_len = cc;
-	smsghdr.msg_iov = &smsgiov;
-	smsghdr.msg_iovlen = 1;
 
 	i = sendmsg(s, &smsghdr, 0);
 
 	if (i < 0 || i != cc)  {
 		if (i < 0)
 			warn("sendmsg");
-		(void)printf("ping6: wrote %s %d chars, ret=%d\n",
-		    hostname, cc, i);
+		printf("ping6: wrote %s %d chars, ret=%d\n", hostname, cc, i);
 	}
 	if (!(options & F_QUIET) && options & F_FLOOD)
 		(void)write(STDOUT_FILENO, &DOT, 1);
 
-	return(0);
+	return (0);
 }
 
 #define MINIMUM(a,b) (((a)<(b))?(a):(b))
@@ -879,20 +948,16 @@ pinger(void)
 void
 pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 {
-#define safeputc(c)	printf((isprint((c)) ? "%c" : "\\%03o"), c)
 	struct icmp6_hdr *icp;
-	int i;
-	int hoplim;
-	struct sockaddr *from;
-	socklen_t fromlen;
-	u_char *cp = NULL, *dp, *end = buf + cc;
-	struct in6_pktinfo *pktinfo = NULL;
 	struct timespec ts, tp;
 	struct payload payload;
-	struct tv64 *tv64;
+	struct sockaddr *from;
+	socklen_t fromlen;
 	double triptime = 0;
-	int dupflag;
+	int i, dupflag;
+	int hoplim;
 	u_int16_t seq;
+	u_char *cp = NULL, *dp, *end = buf + cc;
 
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1)
 		err(1, "clock_gettime(CLOCK_MONOTONIC)");
@@ -918,24 +983,16 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		warnx("failed to get receiving hop limit");
 		return;
 	}
-	if ((pktinfo = get_rcvpktinfo(mhdr)) == NULL) {
-		warnx("failed to get receiving packet information");
-		return;
-	}
 
 	if (icp->icmp6_type == ICMP6_ECHO_REPLY) {
 		if (ntohs(icp->icmp6_id) != ident)
 			return;			/* 'Twas not our ECHO */
-		seq = ntohs(icp->icmp6_seq);
+		seq = icp->icmp6_seq;
 		++nreceived;
 		if (cc >= 8 + sizeof(struct payload)) {
 			SIPHASH_CTX ctx;
+			struct tv64 *tv64;
 			u_int8_t mac[SIPHASH_DIGEST_LENGTH];
-
-			if (cc - sizeof(*cp) < sizeof(payload)) {
-				(void)printf("signature missing!\n");
-				return;
-			}
 
 			memcpy(&payload, icp + 1, sizeof(payload));
 			tv64 = &payload.tv64;
@@ -943,10 +1000,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			SipHash24_Init(&ctx, &mac_key);
 			SipHash24_Update(&ctx, tv64, sizeof(*tv64));
 			SipHash24_Update(&ctx, &ident, sizeof(ident));
-			SipHash24_Update(&ctx,
-			    &icp->icmp6_seq, sizeof(icp->icmp6_seq));
-			SipHash24_Update(&ctx, &dst.sin6_addr,
-			    sizeof(dst.sin6_addr));
+			SipHash24_Update(&ctx, &seq, sizeof(seq));
 			SipHash24_Final(mac, &ctx);
 
 			if (timingsafe_memcmp(mac, &payload.mac,
@@ -960,6 +1014,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			    tv64_offset.tv64_sec;
 			tp.tv_nsec = betoh64(tv64->tv64_nsec) -
 			    tv64_offset.tv64_nsec;
+
 			timespecsub(&ts, &tp, &ts);
 			triptime = ((double)ts.tv_sec) * 1000.0 +
 			    ((double)ts.tv_nsec) / 1000000.0;
@@ -971,12 +1026,12 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 				tmax = triptime;
 		}
 
-		if (TST(seq % mx_dup_ck)) {
+		if (TST(ntohs(seq) % mx_dup_ck)) {
 			++nrepeats;
 			--nreceived;
 			dupflag = 1;
 		} else {
-			SET(seq % mx_dup_ck);
+			SET(ntohs(seq) % mx_dup_ck);
 			dupflag = 0;
 		}
 
@@ -986,40 +1041,28 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		if (options & F_FLOOD)
 			(void)write(STDOUT_FILENO, &BSPACE, 1);
 		else {
-			(void)printf("%d bytes from %s, icmp_seq=%u", cc,
-			    pr_addr(from, fromlen), seq);
+			(void)printf("%d bytes from %s: icmp_seq=%u", cc,
+			    pr_addr(from, fromlen), ntohs(seq));
 			(void)printf(" hlim=%d", hoplim);
-			if ((options & F_VERBOSE) != 0) {
-				struct sockaddr_in6 dstsa;
-
-				memset(&dstsa, 0, sizeof(dstsa));
-				dstsa.sin6_family = AF_INET6;
-				dstsa.sin6_len = sizeof(dstsa);
-				dstsa.sin6_scope_id = pktinfo->ipi6_ifindex;
-				dstsa.sin6_addr = pktinfo->ipi6_addr;
-				(void)printf(" dst=%s",
-				    pr_addr((struct sockaddr *)&dstsa,
-				    sizeof(dstsa)));
-			}
-			if (timing)
+			if (timinginfo)
 				(void)printf(" time=%.3f ms", triptime);
 			if (dupflag)
-				(void)printf("(DUP!)");
-			if (options & F_AUD_RECV)
-				(void)fputc('\a', stderr);
+				(void)printf(" (DUP!)");
 			/* check the data */
-			cp = buf + ICMP6ECHOLEN + ICMP6ECHOTMLEN;
-			dp = outpack + ICMP6ECHOLEN + ICMP6ECHOTMLEN;
-			if (cc != ICMP6ECHOLEN + datalen) {
-				int delta = cc - (datalen + ICMP6ECHOLEN);
+			cp = buf + ECHOLEN + ECHOTMLEN;
+			dp = outpack + ECHOLEN + ECHOTMLEN;
+			if (cc != ECHOLEN + datalen) {
+				int delta = cc - (datalen + ECHOLEN);
 
 				(void)printf(" (%d bytes %s)",
 				    abs(delta), delta > 0 ? "extra" : "short");
-				end = buf + MINIMUM(cc, ICMP6ECHOLEN + datalen);
+				end = buf + MINIMUM(cc, ECHOLEN + datalen);
 			}
 			for (i = 8; cp < end; ++i, ++cp, ++dp) {
 				if (*cp != *dp) {
-					(void)printf("\nwrong data byte #%d should be 0x%x but was 0x%x", i, *dp, *cp);
+					(void)printf("\nwrong data byte #%d "
+					    "should be 0x%x but was 0x%x",
+					    i, *dp, *cp);
 					break;
 				}
 			}
@@ -1037,8 +1080,9 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		if (options & F_VERBOSE)
 			pr_exthdrs(mhdr);
 		(void)fflush(stdout);
+		if (options & F_AUD_RECV)
+			(void)fputc('\a', stderr);
 	}
-#undef safeputc
 }
 
 void
@@ -1168,25 +1212,6 @@ get_hoplim(struct msghdr *mhdr)
 	return(-1);
 }
 
-struct in6_pktinfo *
-get_rcvpktinfo(struct msghdr *mhdr)
-{
-	struct cmsghdr *cm;
-
-	for (cm = (struct cmsghdr *)CMSG_FIRSTHDR(mhdr); cm;
-	     cm = (struct cmsghdr *)CMSG_NXTHDR(mhdr, cm)) {
-		if (cm->cmsg_len == 0)
-			return(NULL);
-
-		if (cm->cmsg_level == IPPROTO_IPV6 &&
-		    cm->cmsg_type == IPV6_PKTINFO &&
-		    cm->cmsg_len == CMSG_LEN(sizeof(struct in6_pktinfo)))
-			return((struct in6_pktinfo *)CMSG_DATA(cm));
-	}
-
-	return(NULL);
-}
-
 int
 get_pathmtu(struct msghdr *mhdr)
 {
@@ -1238,34 +1263,6 @@ get_pathmtu(struct msghdr *mhdr)
 		}
 	}
 	return(0);
-}
-
-void
-summary(void)
-{
-	printf("\n--- %s ping6 statistics ---\n", hostname);
-	printf("%lld packets transmitted, ", ntransmitted);
-	printf("%lld packets received, ", nreceived);
-
-	if (nrepeats)
-		printf("%lld duplicates, ", nrepeats);
-	if (ntransmitted) {
-		if (nreceived > ntransmitted)
-			printf("-- somebody's duplicating packets!");
-		else
-			printf("%.1f%% packet loss",
-			    ((((double)ntransmitted - nreceived) * 100) /
-			    ntransmitted));
-	}
-	printf("\n");
-	if (timinginfo) {
-		/* Only display average to microseconds */
-		double num = nreceived + nrepeats;
-		double avg = tsum / num;
-		double dev = sqrt(fmax(0, tsumsq / num - avg * avg));
-		printf("round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
-		    tmin, avg, tmax, dev);
-	}
 }
 
 /*
@@ -1419,26 +1416,6 @@ pr_iph(struct ip6_hdr *ip6)
 }
 
 /*
- * pr_addr --
- *	Return an ascii host address as a dotted quad and optionally with
- * a hostname.
- */
-const char *
-pr_addr(struct sockaddr *addr, socklen_t addrlen)
-{
-	static char buf[NI_MAXHOST];
-	int flag = 0;
-
-	if ((options & F_HOSTNAME) == 0)
-		flag |= NI_NUMERICHOST;
-
-	if (getnameinfo(addr, addrlen, buf, sizeof(buf), NULL, 0, flag) == 0)
-		return (buf);
-	else
-		return "?";
-}
-
-/*
  * pr_retip --
  *	Dump some info on a returned (via ICMPv6) IPv6 packet.
  */
@@ -1518,37 +1495,6 @@ pr_retip(struct ip6_hdr *ip6, u_char *end)
   trunc:
 	printf("...\n");
 	return;
-}
-
-void
-fill(char *bp, char *patp)
-{
-	int ii, jj, kk;
-	int pat[16];
-	char *cp;
-
-	for (cp = patp; *cp; cp++)
-		if (!isxdigit((unsigned char)*cp))
-			errx(1, "patterns must be specified as hex digits");
-	ii = sscanf(patp,
-	    "%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",
-	    &pat[0], &pat[1], &pat[2], &pat[3], &pat[4], &pat[5], &pat[6],
-	    &pat[7], &pat[8], &pat[9], &pat[10], &pat[11], &pat[12],
-	    &pat[13], &pat[14], &pat[15]);
-
-/* xxx */
-	if (ii > 0)
-		for (kk = 0;
-		    kk <= MAXPAYLOAD - (8 + sizeof(struct payload) + ii);
-		    kk += ii)
-			for (jj = 0; jj < ii; ++jj)
-				bp[jj + kk] = pat[jj];
-	if (!(options & F_QUIET)) {
-		(void)printf("PATTERN: 0x");
-		for (jj = 0; jj < ii; ++jj)
-			(void)printf("%02x", bp[jj] & 0xFF);
-		(void)printf("\n");
-	}
 }
 
 __dead void

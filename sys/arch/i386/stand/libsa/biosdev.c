@@ -1,4 +1,4 @@
-/*	$OpenBSD: biosdev.c,v 1.92 2015/10/01 20:28:12 krw Exp $	*/
+/*	$OpenBSD: biosdev.c,v 1.94 2016/09/11 17:52:47 jsing Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -43,7 +43,8 @@
 
 #ifdef SOFTRAID
 #include <dev/softraidvar.h>
-#include "softraid.h"
+#include <lib/libsa/softraid.h>
+#include "softraid_i386.h"
 #endif
 
 static const char *biosdisk_err(u_int);

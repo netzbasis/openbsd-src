@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.27 2016/09/10 16:38:16 jsing Exp $
+#	$OpenBSD: Makefile,v 1.29 2016/09/11 17:51:21 jsing Exp $
 
 MAN=	pxeboot.8
 
@@ -21,7 +21,7 @@ SRCS+=	machdep.c exec_i386.c cmd_i386.c
 SRCS+=	gidt.S random_i386.S biosdev.c bioscons.c gateA20.c \
 	memprobe.c diskprobe.c time.c ## biosprobe.c
 SRCS+=	pxe.c pxe_call.S pxe_net.c pxe_udp.c
-SRCS+=	softraid.c
+SRCS+=	softraid_amd64.c
 
 .PATH:	${S}/stand/boot
 SRCS+=	boot.c cmd.c vars.c bootarg.c
@@ -31,7 +31,8 @@ SRCS+=	alloc.c exit.c getchar.c getfile.c getln.c globals.c putchar.c \
 	strcmp.c strlen.c strncmp.c memcmp.c memcpy.c memset.c printf.c \
 	snprintf.c strerror.c strncpy.c strtol.c strtoll.c ctime.c strlcpy.c \
 	strlcat.c
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c
+SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c \
+	sha1.c softraid.c
 
 SRCS+=	close.c closeall.c dev.c disklabel.c dkcksum.c fstat.c ioctl.c lseek.c \
 	read.c stat.c write.c cread.c readdir.c cons.c loadfile.c \
