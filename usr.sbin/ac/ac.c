@@ -447,7 +447,7 @@ ac(FILE	*fp)
 			 */
 			if (*usr.ut_name) {
 				if (strncmp(usr.ut_line, "tty", 3) != 0 ||
-				    strchr("pqrstuvwxyzPQRST", usr.ut_line[3]) != NULL ||
+				    strchr("0pqrstuvwxyzCPQRST", usr.ut_line[3]) != NULL ||
 				    *usr.ut_host != '\0')
 					head = log_in(head, &usr);
 			} else
