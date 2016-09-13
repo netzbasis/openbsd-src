@@ -1,4 +1,4 @@
-/*	$OpenBSD: n_floor.c,v 1.19 2013/07/05 05:44:10 espie Exp $	*/
+/*	$OpenBSD: n_floor.c,v 1.21 2016/09/12 19:47:02 guenther Exp $	*/
 /*	$NetBSD: n_floor.c,v 1.1 1995/10/10 23:36:48 ragge Exp $	*/
 /*
  * Copyright (c) 1985, 1993
@@ -58,8 +58,8 @@ floor(double x)
 		return x < y ? y-(double)1 : y;
 	}
 }
-
-__strong_alias(floorl, floor);
+DEF_STD(floor);
+LDBL_CLONE(floor);
 
 double
 ceil(double x)
@@ -76,15 +76,15 @@ ceil(double x)
 		return x > y ? y+(double)1 : y;
 	}
 }
-
-__strong_alias(ceill, ceil);
+DEF_STD(ceil);
+LDBL_UNUSED_CLONE(ceil);
 
 float
 floorf(float x)
 {
 	volatile float y;
 
-	if (isnanf(x) || x >= F)	/* already an even integer */
+	if (isnan(x) || x >= F)		/* already an even integer */
 		return x;
 	else if (x < (float)0)
 		return -ceilf(-x);
@@ -94,13 +94,14 @@ floorf(float x)
 		return x < y ? y-(float)1 : y;
 	}
 }
+DEF_STD(floorf);
 
 float
 ceilf(float x)
 {
 	volatile float y;
 
-	if (isnanf(x) || x >= F)	/* already an even integer */
+	if (isnan(x) || x >= F)		/* already an even integer */
 		return x;
 	else if (x < (float)0)
 		return -floorf(-x);
@@ -110,6 +111,8 @@ ceilf(float x)
 		return x > y ? y+(float)1 : y;
 	}
 }
+DEF_STD(ceilf);
+
 /*
  * algorithm for rint(x) in pseudo-pascal form ...
  *
@@ -148,8 +151,8 @@ rint(double x)
 	t = x + s;				/* x+s rounded to integer */
 	return (t - s);
 }
-
-__strong_alias(rintl, rint);
+DEF_STD(rint);
+LDBL_CLONE(rint);
 
 float
 rintf(float x)
@@ -158,7 +161,7 @@ rintf(float x)
 	volatile float t;
 	const float one = 1.0f;
 
-	if (isnanf(x))
+	if (isnan(x))
 		return (x);
 
 	if (copysignf(x, one) >= F)	/* already an integer */
@@ -168,4 +171,4 @@ rintf(float x)
 	t = x + s;				/* x+s rounded to integer */
 	return (t - s);
 }
-
+DEF_STD(rintf);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: n_hypot.c,v 1.4 2013/07/15 04:08:26 espie Exp $	*/
+/*	$OpenBSD: n_hypot.c,v 1.6 2016/09/12 19:47:02 guenther Exp $	*/
 /*	$NetBSD: n_cabs.c,v 1.1 1995/10/10 23:36:39 ragge Exp $	*/
 /*
  * Copyright (c) 1985, 1993
@@ -37,7 +37,7 @@
  *
  * Required system supported functions :
  *	copysign(x,y)
- *	finite(x)
+ *	isfinite(x)
  *	scalbn(x,N)
  *	sqrt(x)
  *
@@ -104,8 +104,8 @@ hypot(double x, double y)
 	double t,r;
 	int exp;
 
-	if(finite(x))
-	    if(finite(y))
+	if(isfinite(x))
+	    if(isfinite(y))
 	    {
 		x=copysign(x,one);
 		y=copysign(y,one);
@@ -141,14 +141,14 @@ hypot(double x, double y)
 
 	else if(isinf(x))		/* x is +-INF */
 	         return (copysign(x,one));
-	else if(finite(y))
+	else if(isfinite(y))
 	         return(x);		/* x is NaN, y is finite */
 	else if (isnan(y))
 		return (y);
 	else return(copysign(y,one));	/* y is INF */
 }
-
-__strong_alias(hypotl, hypot);
+DEF_STD(hypot);
+LDBL_CLONE(hypot);
 
 /* A faster but less accurate version of cabs(x,y) */
 #if 0
@@ -161,8 +161,8 @@ hypot(double x, double y)
 	double temp;
 	int exp;
 
-	if(finite(x))
-	    if(finite(y))
+	if(isfinite(x))
+	    if(isfinite(y))
 	    {
 		x=copysign(x,one);
 		y=copysign(y,one);
@@ -187,7 +187,7 @@ hypot(double x, double y)
 
 	else if(isinf(x))		/* x is +-INF */
 	         return (copysign(x,one));
-	else if(finite(y))
+	else if(isfinite(y))
 	         return(x);		/* x is NaN, y is finite */
 	else if(isnan(y)) return(y);	/* x and y is NaN */
 	else return(copysign(y,one));	/* y is INF */
