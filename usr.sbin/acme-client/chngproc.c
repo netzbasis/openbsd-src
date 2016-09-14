@@ -1,4 +1,4 @@
-/*	$Id: chngproc.c,v 1.4 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: chngproc.c,v 1.7 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -29,20 +29,12 @@
 int
 chngproc(int netsock, const char *root, int remote)
 {
-	int		  rc;
+	char		 *tok = NULL, *th = NULL, *fmt = NULL, **fs = NULL;
+	size_t		  i, fsz = 0;
+	int		  rc = 0, fd = -1, cc;
 	long		  lval;
 	enum chngop	  op;
-	char		 *tok, *th, *fmt;
-	char		**fs;
-	size_t		  i, fsz;
 	void		 *pp;
-	int		  fd, cc;
-
-	rc = 0;
-	th = tok = fmt = NULL;
-	fd = -1;
-	fs = NULL;
-	fsz = 0;
 
 	if (chroot(root) == -1) {
 		warn("chroot");
@@ -90,7 +82,7 @@ chngproc(int netsock, const char *root, int remote)
 
 		/* Vector appending... */
 
-		pp = realloc(fs, (fsz + 1) * sizeof(char *));
+		pp = reallocarray(fs, (fsz + 1), sizeof(char *));
 		if (NULL == pp) {
 			warn("realloc");
 			goto out;
@@ -115,7 +107,7 @@ chngproc(int netsock, const char *root, int remote)
 			puts("RUN THIS IN THE CHALLENGE DIRECTORY");
 			puts("YOU HAVE 20 SECONDS...");
 			printf("doas sh -c \"echo %s > %s\"\n",
-				fmt, fs[fsz - 1]);
+			    fmt, fs[fsz - 1]);
 			sleep(20);
 			puts("TIME'S UP.");
 		} else {
@@ -124,8 +116,7 @@ chngproc(int netsock, const char *root, int remote)
 			 * Note: we use file descriptors instead of FILE
 			 * because we want to minimise our pledges.
 			 */
-			fd = open(fs[fsz - 1],
-				O_WRONLY|O_EXCL|O_CREAT, 0444);
+			fd = open(fs[fsz - 1], O_WRONLY|O_EXCL|O_CREAT, 0444);
 			if (-1 == fd) {
 				warn("%s", fs[fsz - 1]);
 				goto out;

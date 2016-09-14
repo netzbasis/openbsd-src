@@ -1,4 +1,4 @@
-/*	$Id: main.c,v 1.10 2016/09/01 13:47:54 florian Exp $ */
+/*	$Id: main.c,v 1.13 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -53,7 +53,7 @@ static int
 domain_valid(const char *cp)
 {
 
-	for ( ; '\0' != *cp; cp++)
+	for (; '\0' != *cp; cp++)
 		if (!('.' == *cp || '-' == *cp ||
 		    '_' == *cp || isalnum((int)*cp)))
 			return (0);
@@ -81,70 +81,64 @@ doasprintf(const char *fmt, ...)
 int
 main(int argc, char *argv[])
 {
-	const char	 *domain, *agreement;
-	char		 *certdir, *acctkey, *chngdir, *keyfile;
-	int		  key_fds[2], acct_fds[2], chng_fds[2],
-			  cert_fds[2], file_fds[2], dns_fds[2],
-			  rvk_fds[2];
+	const char	 *domain, *agreement = NULL, **alts = NULL;
+	char		 *certdir = NULL, *acctkey = NULL, *chngdir = NULL;
+	char		 *keyfile = NULL;
+	int		  key_fds[2], acct_fds[2], chng_fds[2], cert_fds[2];
+	int		  file_fds[2], dns_fds[2], rvk_fds[2];
+	int		  newacct = 0, remote = 0, backup = 0;
+	int		  force = 0, multidir = 0, newkey = 0;
+	int		  c, rc, revocate = 0;
+	int		  authority = DEFAULT_AUTHORITY;
 	pid_t		  pids[COMP__MAX];
-	int		  c, rc, newacct, remote, revocate, force,
-			  multidir, newkey, backup, authority;
 	extern int	  verbose;
 	extern enum comp  proccomp;
 	size_t		  i, altsz, ne;
-	const char	**alts;
-
-	alts = NULL;
-	newacct = remote = revocate = verbose = force =
-		multidir = newkey = backup = 0;
-	authority = DEFAULT_AUTHORITY;
-	certdir = keyfile = acctkey = chngdir = NULL;
-	agreement = NULL;
 
 	while (-1 != (c = getopt(argc, argv, "bFmnNrs:tva:f:c:C:k:")))
 		switch (c) {
-		case ('a'):
+		case 'a':
 			agreement = optarg;
 			break;
-		case ('b'):
+		case 'b':
 			backup = 1;
 			break;
-		case ('c'):
+		case 'c':
 			free(certdir);
 			if (NULL == (certdir = strdup(optarg)))
 				err(EXIT_FAILURE, "strdup");
 			break;
-		case ('C'):
+		case 'C':
 			free(chngdir);
 			if (NULL == (chngdir = strdup(optarg)))
 				err(EXIT_FAILURE, "strdup");
 			break;
-		case ('f'):
+		case 'f':
 			free(acctkey);
 			if (NULL == (acctkey = strdup(optarg)))
 				err(EXIT_FAILURE, "strdup");
 			break;
-		case ('F'):
+		case 'F':
 			force = 1;
 			break;
-		case ('k'):
+		case 'k':
 			free(keyfile);
 			if (NULL == (keyfile = strdup(optarg)))
 				err(EXIT_FAILURE, "strdup");
 			break;
-		case ('m'):
+		case 'm':
 			multidir = 1;
 			break;
-		case ('n'):
+		case 'n':
 			newacct = 1;
 			break;
-		case ('N'):
+		case 'N':
 			newkey = 1;
 			break;
-		case ('r'):
+		case 'r':
 			revocate = 1;
 			break;
-		case ('s'):
+		case 's':
 			authority = -1;
 			for (i = 0; i < nitems(authorities); i++) {
 				if (strcmp(authorities[i].name, optarg) == 0) {
@@ -155,14 +149,14 @@ main(int argc, char *argv[])
 			if (-1 == authority)
 				errx(EXIT_FAILURE, "unknown acme authority");
 			break;
-		case ('t'):
+		case 't':
 			/*
 			 / Undocumented feature.
 			 * Don't use it.
 			 */
 			remote = 1;
 			break;
-		case ('v'):
+		case 'v':
 			verbose = verbose ? 2 : 1;
 			break;
 		default:
@@ -189,7 +183,7 @@ main(int argc, char *argv[])
 	argc--;
 	argv++;
 
-	if ( getuid() != 0)
+	if (getuid() != 0)
 		errx(EXIT_FAILURE, "must be run as root");
 
 	/*
@@ -234,12 +228,11 @@ main(int argc, char *argv[])
 		ne++;
 	}
 
-	if ( ! newkey && -1 == access(keyfile, R_OK)) {
+	if (!newkey && -1 == access(keyfile, R_OK)) {
 		warnx("%s: -k file must exist", keyfile);
 		ne++;
 	} else if (newkey && -1 != access(keyfile, R_OK)) {
-		dodbg("%s: domain key exists "
-			"(not creating)", keyfile);
+		dodbg("%s: domain key exists (not creating)", keyfile);
 		newkey = 0;
 	}
 
@@ -248,12 +241,11 @@ main(int argc, char *argv[])
 		ne++;
 	}
 
-	if ( ! newacct && -1 == access(acctkey, R_OK)) {
+	if (!newacct && -1 == access(acctkey, R_OK)) {
 		warnx("%s: -f file must exist", acctkey);
 		ne++;
 	} else if (newacct && -1 != access(acctkey, R_OK)) {
-		dodbg("%s: account key exists "
-			"(not creating)", acctkey);
+		dodbg("%s: account key exists (not creating)", acctkey);
 		newacct = 0;
 	}
 
@@ -336,7 +328,7 @@ main(int argc, char *argv[])
 		close(file_fds[0]);
 		close(file_fds[1]);
 		c = keyproc(key_fds[0], keyfile,
-			(const char **)alts, altsz, newkey);
+		    (const char **)alts, altsz, newkey);
 		free(alts);
 		exit(c ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
@@ -415,8 +407,7 @@ main(int argc, char *argv[])
 		 * This is different from the other processes in that it
 		 * can return 2 if the certificates were updated.
 		 */
-		exit(c > 1 ? 2 :
-		    (c ? EXIT_SUCCESS : EXIT_FAILURE));
+		exit(c > 1 ? 2 : (c ? EXIT_SUCCESS : EXIT_FAILURE));
 	}
 
 	close(file_fds[1]);
@@ -443,9 +434,8 @@ main(int argc, char *argv[])
 
 	if (0 == pids[COMP_REVOKE]) {
 		proccomp = COMP_REVOKE;
-		c = revokeproc(rvk_fds[0], certdir,
-			force, revocate,
-			(const char *const *)alts, altsz);
+		c = revokeproc(rvk_fds[0], certdir, force, revocate,
+		    (const char *const *)alts, altsz);
 		free(alts);
 		exit(c ? EXIT_SUCCESS : EXIT_FAILURE);
 	}

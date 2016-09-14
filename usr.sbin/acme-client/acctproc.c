@@ -1,4 +1,4 @@
-/*	$Id: acctproc.c,v 1.5 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: acctproc.c,v 1.9 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -73,10 +73,8 @@ bn2string(const BIGNUM *bn)
 static char *
 op_thumb_rsa(EVP_PKEY *pkey)
 {
-	char	*exp, *mod, *json;
+	char	*exp = NULL, *mod = NULL, *json = NULL;
 	RSA	*r;
-
-	exp = mod = json = NULL;
 
 	if (NULL == (r = EVP_PKEY_get1_RSA(pkey)))
 		warnx("EVP_PKEY_get1_RSA");
@@ -98,17 +96,11 @@ op_thumb_rsa(EVP_PKEY *pkey)
 static int
 op_thumbprint(int fd, EVP_PKEY *pkey)
 {
-	char		*thumb, *dig64;
-	int		 rc;
+	char		*thumb = NULL, *dig64 = NULL;
+	EVP_MD_CTX	*ctx = NULL;
+	unsigned char	*dig = NULL;
 	unsigned int	 digsz;
-	unsigned char	*dig;
-
-	EVP_MD_CTX	*ctx;
-
-	rc = 0;
-	thumb = dig64 = NULL;
-	dig = NULL;
-	ctx = NULL;
+	int		 rc = 0;
 
 	/* Construct the thumbprint input itself. */
 
@@ -135,13 +127,13 @@ op_thumbprint(int fd, EVP_PKEY *pkey)
 	} else if (NULL == (ctx = EVP_MD_CTX_create())) {
 		warnx("EVP_MD_CTX_create");
 		goto out;
-	} else if ( ! EVP_DigestInit_ex(ctx, EVP_sha256(), NULL)) {
+	} else if (!EVP_DigestInit_ex(ctx, EVP_sha256(), NULL)) {
 		warnx("EVP_SignInit_ex");
 		goto out;
-	} else if ( ! EVP_DigestUpdate(ctx, thumb, strlen(thumb))) {
+	} else if (!EVP_DigestUpdate(ctx, thumb, strlen(thumb))) {
 		warnx("EVP_SignUpdate");
 		goto out;
-	} else if ( ! EVP_DigestFinal_ex(ctx, dig, &digsz)) {
+	} else if (!EVP_DigestFinal_ex(ctx, dig, &digsz)) {
 		warnx("EVP_SignFinal");
 		goto out;
 	} else if (NULL == (dig64 = base64buf_url((char *)dig, digsz))) {
@@ -164,12 +156,12 @@ out:
 static int
 op_sign_rsa(char **head, char **prot, EVP_PKEY *pkey, const char *nonce)
 {
+	char	*exp = NULL, *mod = NULL;
+	int	rc = 0;
 	RSA	*r;
-	char	*exp, *mod;
-	int	rc;
 
-	*head = *prot = exp = mod = NULL;
-	rc = 0;
+	*head = NULL;
+	*prot = NULL;
 
 	/*
 	 * First, extract relevant portions of our private key.
@@ -202,19 +194,13 @@ op_sign_rsa(char **head, char **prot, EVP_PKEY *pkey, const char *nonce)
 static int
 op_sign(int fd, EVP_PKEY *pkey)
 {
-	char		*nonce, *pay,
-			*pay64, *prot, *prot64, *head,
-			*sign, *dig64, *fin;
-	int		 cc, rc;
+	char		*nonce = NULL, *pay = NULL, *pay64 = NULL;
+	char		*prot = NULL, *prot64 = NULL, *head = NULL;
+	char		*sign = NULL, *dig64 = NULL, *fin = NULL;
+	unsigned char	*dig = NULL;
+	EVP_MD_CTX	*ctx = NULL;
+	int		 cc, rc = 0;
 	unsigned int	 digsz;
-	unsigned char	*dig;
-	EVP_MD_CTX	*ctx;
-
-	rc = 0;
-	pay = nonce = head = fin =
-		sign = prot = prot64 = pay64 = dig64 = NULL;
-	dig = NULL;
-	ctx = NULL;
 
 	/* Read our payload and nonce from the requestor. */
 
@@ -232,7 +218,7 @@ op_sign(int fd, EVP_PKEY *pkey)
 
 	switch (EVP_PKEY_type(pkey->type)) {
 	case EVP_PKEY_RSA:
-		if ( ! op_sign_rsa(&head, &prot, pkey, nonce))
+		if (!op_sign_rsa(&head, &prot, pkey, nonce))
 			goto out;
 		break;
 	default:
@@ -269,13 +255,13 @@ op_sign(int fd, EVP_PKEY *pkey)
 	if (NULL == (ctx = EVP_MD_CTX_create())) {
 		warnx("EVP_MD_CTX_create");
 		goto out;
-	} else if ( ! EVP_SignInit_ex(ctx, EVP_sha256(), NULL)) {
+	} else if (!EVP_SignInit_ex(ctx, EVP_sha256(), NULL)) {
 		warnx("EVP_SignInit_ex");
 		goto out;
-	} else if ( ! EVP_SignUpdate(ctx, sign, strlen(sign))) {
+	} else if (!EVP_SignUpdate(ctx, sign, strlen(sign))) {
 		warnx("EVP_SignUpdate");
 		goto out;
-	} else if ( ! EVP_SignFinal(ctx, dig, &digsz, pkey)) {
+	} else if (!EVP_SignFinal(ctx, dig, &digsz, pkey)) {
 		warnx("EVP_SignFinal");
 		goto out;
 	} else if (NULL == (dig64 = base64buf_url((char *)dig, digsz))) {
@@ -316,17 +302,12 @@ out:
 int
 acctproc(int netsock, const char *acctkey, int newacct)
 {
-	FILE		*f;
-	EVP_PKEY	*pkey;
+	FILE		*f = NULL;
+	EVP_PKEY	*pkey = NULL;
 	long		 lval;
 	enum acctop	 op;
-	unsigned char	 rbuf[64];
-	int		 rc, cc;
+	int		 rc = 0, cc;
 	mode_t		 prev;
-
-	f = NULL;
-	pkey = NULL;
-	rc = 0;
 
 	/*
 	 * First, open our private key file read-only or write-only if
@@ -350,17 +331,6 @@ acctproc(int netsock, const char *acctkey, int newacct)
 	if (pledge("stdio", NULL) == -1) {
 		warn("pledge");
 		goto out;
-	}
-
-	/*
-	 * Seed our PRNG with data from arc4random().
-	 * Do this until we're told it's ok and use increments of 64
-	 * bytes (arbitrarily).
-	 */
-
-	while (0 == RAND_status()) {
-		arc4random_buf(rbuf, sizeof(rbuf));
-		RAND_seed(rbuf, sizeof(rbuf));
 	}
 
 	if (newacct) {
@@ -403,12 +373,12 @@ acctproc(int netsock, const char *acctkey, int newacct)
 			break;
 
 		switch (op) {
-		case (ACCT_SIGN):
+		case ACCT_SIGN:
 			if (op_sign(netsock, pkey))
 				break;
 			warnx("op_sign");
 			goto out;
-		case (ACCT_THUMBPRINT):
+		case ACCT_THUMBPRINT:
 			if (op_thumbprint(netsock, pkey))
 				break;
 			warnx("op_thumbprint");

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.191 2016/09/12 15:47:58 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.196 2016/09/13 07:17:40 florian Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -161,10 +161,7 @@ int moptions;
 int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
-struct sockaddr_in6 dst;	/* who to ping6 */
-
 int datalen = DEFDATALEN;
-int s;				/* socket file descriptor */
 u_char outpack[IPV6_MAXPACKET];
 char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
@@ -181,8 +178,8 @@ int64_t nmissedmax = 1;		/* max value of ntransmitted - nreceived - 1 */
 struct timeval interval = {1, 0}; /* interval between packets */
 
 /* timing */
-int timing;			/* flag to do timing */
-int timinginfo;
+int timing = 0;			/* flag to do timing */
+int timinginfo = 0;
 unsigned int maxwait = MAXWAIT_DEFAULT;	/* max seconds to wait for response */
 double tmin = 999999999.0;	/* minimum round trip time */
 double tmax = 0.0;		/* maximum round trip time */
@@ -202,32 +199,32 @@ volatile sig_atomic_t seeninfo;
 void			 fill(char *, char *);
 void			 summary(void);
 void			 onsignal(int);
-void			 retransmit(void);
-int			 pinger(void);
+void			 retransmit(int);
+int			 pinger(int);
 const char		*pr_addr(struct sockaddr *, socklen_t);
 void			 pr_pack(u_char *, int, struct msghdr *);
 __dead void		 usage(void);
 
 int			 get_hoplim(struct msghdr *);
-int			 get_pathmtu(struct msghdr *);
-void			 pr_icmph(struct icmp6_hdr *, u_char *);
-void			 pr_iph(struct ip6_hdr *);
+int			 get_pathmtu(struct msghdr *, struct sockaddr_in6 *);
+void			 pr_icmph6(struct icmp6_hdr *, u_char *);
+void			 pr_iph6(struct ip6_hdr *);
 void			 pr_exthdrs(struct msghdr *);
 void			 pr_ip6opt(void *);
 void			 pr_rthdr(void *);
-void			 pr_retip(struct ip6_hdr *, u_char *);
+void			 pr_retip6(struct ip6_hdr *, u_char *);
 
 int
 main(int argc, char *argv[])
 {
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
-	struct sockaddr_in6 from, from6;
+	struct sockaddr_in6 from, from6, dst;
 	struct cmsghdr *scmsg = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
 	socklen_t maxsizelen;
 	int64_t preload;
-	int ch, i, optval = 1, packlen, maxsize, error;
+	int ch, i, optval = 1, packlen, maxsize, error, s;
 	u_char *datap, *packet, loop = 1;
 	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
 	const char *errstr;
@@ -432,6 +429,19 @@ main(int argc, char *argv[])
 			err(1, "bind");
 	}
 
+	if (options & F_SO_DEBUG)
+		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
+		    sizeof(optval));
+
+	if ((options & F_FLOOD) && (options & F_INTERVAL))
+		errx(1, "-f and -i options are incompatible");
+
+	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
+		warnx("No audible output for flood pings");
+
+	if (datalen >= sizeof(struct payload))	/* can we time transfer */
+		timing = 1;
+
 	/*
 	 * let the kernel pass extension headers of incoming packets,
 	 * for privileged socket options
@@ -447,22 +457,11 @@ main(int argc, char *argv[])
 			err(1, "setsockopt(IPV6_RECVDSTOPTS)");
 	}
 
-	if ((options & F_FLOOD) && (options & F_INTERVAL))
-		errx(1, "-f and -i incompatible options");
-
-	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
-		warnx("No audible output for flood pings");
-
 	if ((moptions & MULTICAST_NOLOOP) &&
 	    setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &loop,
 	    sizeof(loop)) < 0)
 		err(1, "setsockopt IP6_MULTICAST_LOOP");
 
-	if (datalen >= sizeof(struct payload)) {
-		/* we can time transfer */
-		timing = 1;
-	} else
-		timing = 0;
 	/* in F_VERBOSE case, we may get non-echoreply packets*/
 	if (options & F_VERBOSE && datalen < 2048)
 		packlen = 2048 + IP6LEN + ECHOLEN + EXTRA; /* XXX 2048? */
@@ -497,9 +496,6 @@ main(int argc, char *argv[])
 
 	optval = 1;
 
-	if (options & F_SO_DEBUG)
-		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
-		    (socklen_t)sizeof(optval));
 	optval = IPV6_DEFHLIM;
 	if (IN6_IS_ADDR_MULTICAST(&dst.sin6_addr))
 		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
@@ -632,7 +628,7 @@ main(int argc, char *argv[])
 	smsghdr.msg_iovlen = 1;
 
 	while (preload--)		/* Fire off them quickies. */
-		pinger();
+		pinger(s);
 
 	(void)signal(SIGINT, onsignal);
 	(void)signal(SIGINFO, onsignal);
@@ -643,7 +639,7 @@ main(int argc, char *argv[])
 		itimer.it_value = interval;
 		(void)setitimer(ITIMER_REAL, &itimer, NULL);
 		if (ntransmitted == 0)
-			retransmit();
+			retransmit(s);
 	}
 
 	seenalrm = seenint = 0;
@@ -664,7 +660,7 @@ main(int argc, char *argv[])
 		if (seenint)
 			break;
 		if (seenalrm) {
-			retransmit();
+			retransmit(s);
 			seenalrm = 0;
 			if (ntransmitted - nreceived - 1 > nmissedmax) {
 				nmissedmax = ntransmitted - nreceived - 1;
@@ -681,7 +677,7 @@ main(int argc, char *argv[])
 		}
 
 		if (options & F_FLOOD) {
-			(void)pinger();
+			(void)pinger(s);
 			timeout = 10;
 		} else
 			timeout = INFTIM;
@@ -717,7 +713,7 @@ main(int argc, char *argv[])
 			 * exceptions (currently the only possibility is
 			 * a path MTU notification.)
 			 */
-			if ((mtu = get_pathmtu(&m)) > 0) {
+			if ((mtu = get_pathmtu(&m, &dst)) > 0) {
 				if ((options & F_VERBOSE) != 0) {
 					printf("new path MTU (%d) is "
 					    "notified\n", mtu);
@@ -832,7 +828,7 @@ pr_addr(struct sockaddr *addr, socklen_t addrlen)
  *	This routine transmits another ping6.
  */
 void
-retransmit(void)
+retransmit(int s)
 {
 	struct itimerval itimer;
 	static int last_time = 0;
@@ -842,7 +838,7 @@ retransmit(void)
 		return;
 	}
 
-	if (pinger() == 0)
+	if (pinger(s) == 0)
 		return;
 
 	/*
@@ -874,7 +870,7 @@ retransmit(void)
  * byte-order, to compute the round-trip time.
  */
 int
-pinger(void)
+pinger(int s)
 {
 	struct icmp6_hdr *icp;
 	int cc, i;
@@ -1041,7 +1037,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			(void)printf("%d bytes from %s: icmp_seq=%u", cc,
 			    pr_addr(from, fromlen), ntohs(seq));
 			(void)printf(" hlim=%d", hoplim);
-			if (timinginfo)
+			if (cc >= ECHOLEN + ECHOTMLEN)
 				(void)printf(" time=%.3f ms", triptime);
 			if (dupflag)
 				(void)printf(" (DUP!)");
@@ -1069,7 +1065,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		if (!(options & F_VERBOSE))
 			return;
 		(void)printf("%d bytes from %s: ", cc, pr_addr(from, fromlen));
-		pr_icmph(icp, end);
+		pr_icmph6(icp, end);
 	}
 
 	if (!(options & F_FLOOD)) {
@@ -1210,7 +1206,7 @@ get_hoplim(struct msghdr *mhdr)
 }
 
 int
-get_pathmtu(struct msghdr *mhdr)
+get_pathmtu(struct msghdr *mhdr, struct sockaddr_in6 *dst)
 {
 	struct cmsghdr *cm;
 	struct ip6_mtuinfo *mtuctl = NULL;
@@ -1234,11 +1230,11 @@ get_pathmtu(struct msghdr *mhdr)
 			 * in which case the scope ID value is 0.
 			 */
 			if (!IN6_ARE_ADDR_EQUAL(&mtuctl->ip6m_addr.sin6_addr,
-						&dst.sin6_addr) ||
+						&dst->sin6_addr) ||
 			    (mtuctl->ip6m_addr.sin6_scope_id &&
-			     dst.sin6_scope_id &&
+			     dst->sin6_scope_id &&
 			     mtuctl->ip6m_addr.sin6_scope_id !=
-			     dst.sin6_scope_id)) {
+			     dst->sin6_scope_id)) {
 				if ((options & F_VERBOSE) != 0) {
 					printf("path MTU for %s is notified. "
 					       "(ignored)\n",
@@ -1263,11 +1259,11 @@ get_pathmtu(struct msghdr *mhdr)
 }
 
 /*
- * pr_icmph --
+ * pr_icmph6 --
  *	Print a descriptive string about an ICMP header.
  */
 void
-pr_icmph(struct icmp6_hdr *icp, u_char *end)
+pr_icmph6(struct icmp6_hdr *icp, u_char *end)
 {
 	char ntop_buf[INET6_ADDRSTRLEN];
 	struct nd_redirect *red;
@@ -1297,12 +1293,12 @@ pr_icmph(struct icmp6_hdr *icp, u_char *end)
 			break;
 		}
 		/* Print returned IP header information */
-		pr_retip((struct ip6_hdr *)(icp + 1), end);
+		pr_retip6((struct ip6_hdr *)(icp + 1), end);
 		break;
 	case ICMP6_PACKET_TOO_BIG:
 		(void)printf("Packet too big mtu = %d\n",
 		    (int)ntohl(icp->icmp6_mtu));
-		pr_retip((struct ip6_hdr *)(icp + 1), end);
+		pr_retip6((struct ip6_hdr *)(icp + 1), end);
 		break;
 	case ICMP6_TIME_EXCEEDED:
 		switch (icp->icmp6_code) {
@@ -1317,7 +1313,7 @@ pr_icmph(struct icmp6_hdr *icp, u_char *end)
 			    icp->icmp6_code);
 			break;
 		}
-		pr_retip((struct ip6_hdr *)(icp + 1), end);
+		pr_retip6((struct ip6_hdr *)(icp + 1), end);
 		break;
 	case ICMP6_PARAM_PROB:
 		(void)printf("Parameter problem: ");
@@ -1337,7 +1333,7 @@ pr_icmph(struct icmp6_hdr *icp, u_char *end)
 		}
 		(void)printf("pointer = 0x%02x\n",
 		    (u_int32_t)ntohl(icp->icmp6_pptr));
-		pr_retip((struct ip6_hdr *)(icp + 1), end);
+		pr_retip6((struct ip6_hdr *)(icp + 1), end);
 		break;
 	case ICMP6_ECHO_REQUEST:
 		(void)printf("Echo Request");
@@ -1386,11 +1382,11 @@ pr_icmph(struct icmp6_hdr *icp, u_char *end)
 }
 
 /*
- * pr_iph --
+ * pr_iph6 --
  *	Print an IP6 header.
  */
 void
-pr_iph(struct ip6_hdr *ip6)
+pr_iph6(struct ip6_hdr *ip6)
 {
 	u_int32_t flow = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
 	u_int8_t tc;
@@ -1413,11 +1409,11 @@ pr_iph(struct ip6_hdr *ip6)
 }
 
 /*
- * pr_retip --
+ * pr_retip6 --
  *	Dump some info on a returned (via ICMPv6) IPv6 packet.
  */
 void
-pr_retip(struct ip6_hdr *ip6, u_char *end)
+pr_retip6(struct ip6_hdr *ip6, u_char *end)
 {
 	u_char *cp = (u_char *)ip6, nh;
 	int hlen;
@@ -1426,7 +1422,7 @@ pr_retip(struct ip6_hdr *ip6, u_char *end)
 		printf("IP6");
 		goto trunc;
 	}
-	pr_iph(ip6);
+	pr_iph6(ip6);
 	hlen = sizeof(*ip6);
 
 	nh = ip6->ip6_nxt;

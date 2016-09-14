@@ -1,4 +1,4 @@
-/*	$Id: keyproc.c,v 1.4 2016/09/01 00:35:22 florian Exp $ */
+/*	$Id: keyproc.c,v 1.7 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -75,26 +75,19 @@ add_ext(STACK_OF(X509_EXTENSION) *sk, int nid, const char *value)
  */
 int
 keyproc(int netsock, const char *keyfile,
-	const char **alts, size_t altsz, int newkey)
+    const char **alts, size_t altsz, int newkey)
 {
-	char		*der64, *der, *dercp, *sans, *san;
+	char		*der64 = NULL, *der = NULL, *dercp;
+	char		*sans = NULL, *san = NULL;
 	FILE		*f;
 	size_t		 i, sansz;
 	void		*pp;
-	EVP_PKEY	*pkey;
-	X509_REQ	*x;
-	X509_NAME	*name;
-	unsigned char	 rbuf[64];
-	int		 len, rc, cc, nid;
+	EVP_PKEY	*pkey = NULL;
+	X509_REQ	*x = NULL;
+	X509_NAME	*name = NULL;
+	int		 len, rc = 0, cc, nid;
 	mode_t		 prev;
-	STACK_OF(X509_EXTENSION) *exts;
-
-	x = NULL;
-	pkey = NULL;
-	name = NULL;
-	der = der64 = sans = san = NULL;
-	rc = 0;
-	exts = NULL;
+	STACK_OF(X509_EXTENSION) *exts = NULL;
 
 	/*
 	 * First, open our private key file read-only or write-only if
@@ -120,18 +113,6 @@ keyproc(int netsock, const char *keyfile,
 		goto out;
 	}
 
-	/*
-	 * Seed our PRNG with data from arc4random().
-	 * Do this until we're told it's ok and use increments of 64
-	 * bytes (arbitrarily).
-	 * TODO: is this sufficient as a RAND source?
-	 */
-
-	while (0 == RAND_status()) {
-		arc4random_buf(rbuf, sizeof(rbuf));
-		RAND_seed(rbuf, sizeof(rbuf));
-	}
-
 	if (newkey) {
 		if (NULL == (pkey = rsa_key_create(f, keyfile)))
 			goto out;
@@ -153,7 +134,7 @@ keyproc(int netsock, const char *keyfile,
 	if (NULL == (x = X509_REQ_new())) {
 		warnx("X509_new");
 		goto out;
-	} else if ( ! X509_REQ_set_pubkey(x, pkey)) {
+	} else if (!X509_REQ_set_pubkey(x, pkey)) {
 		warnx("X509_set_pubkey");
 		goto out;
 	}
@@ -163,11 +144,11 @@ keyproc(int netsock, const char *keyfile,
 	if (NULL == (name = X509_NAME_new())) {
 		warnx("X509_NAME_new");
 		goto out;
-	} else if ( ! X509_NAME_add_entry_by_txt(name, "CN",
+	} else if (!X509_NAME_add_entry_by_txt(name, "CN",
 		MBSTRING_ASC, (u_char *)alts[0], -1, -1, 0)) {
 		warnx("X509_NAME_add_entry_by_txt: CN=%s", alts[0]);
 		goto out;
-	} else if ( ! X509_REQ_set_subject_name(x, name)) {
+	} else if (!X509_REQ_set_subject_name(x, name)) {
 		warnx("X509_req_set_issuer_name");
 		goto out;
 	}
@@ -201,7 +182,7 @@ keyproc(int netsock, const char *keyfile,
 
 		for (i = 1; i < altsz; i++) {
 			cc = asprintf(&san, "%sDNS:%s",
-				i > 1 ? "," : "", alts[i]);
+			    i > 1 ? "," : "", alts[i]);
 			if (-1 == cc) {
 				warn("asprintf");
 				goto out;
@@ -218,20 +199,19 @@ keyproc(int netsock, const char *keyfile,
 			san = NULL;
 		}
 
-		if ( ! add_ext(exts, nid, sans)) {
+		if (!add_ext(exts, nid, sans)) {
 			warnx("add_ext");
 			goto out;
-		} else if ( ! X509_REQ_add_extensions(x, exts)) {
+		} else if (!X509_REQ_add_extensions(x, exts)) {
 			warnx("X509_REQ_add_extensions");
 			goto out;
 		}
-		sk_X509_EXTENSION_pop_free
-			(exts, X509_EXTENSION_free);
+		sk_X509_EXTENSION_pop_free(exts, X509_EXTENSION_free);
 	}
 
 	/* Sign the X509 request using SHA256. */
 
-	if ( ! X509_REQ_sign(x, pkey, EVP_sha256())) {
+	if (!X509_REQ_sign(x, pkey, EVP_sha256())) {
 		warnx("X509_sign");
 		goto out;
 	}

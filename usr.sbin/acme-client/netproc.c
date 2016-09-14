@@ -1,4 +1,4 @@
-/*	$Id: netproc.c,v 1.6 2016/09/01 12:17:00 florian Exp $ */
+/*	$Id: netproc.c,v 1.8 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -76,7 +76,7 @@ buf_dump(const struct buf *buf)
 			i--;
 		} else
 			nbuf[j++] = isprint((int)buf->buf[i]) ?
-				buf->buf[i] : '?';
+			    buf->buf[i] : '?';
 	dodbg("transfer buffer: [%.*s] (%zu bytes)", j, nbuf, buf->sz);
 	free(nbuf);
 }
@@ -294,8 +294,7 @@ sreq(struct conn *c, const char *addr, const char *req)
 		return (-1);
 	}
 
-	g = http_get(src, (size_t)ssz, host,
-		port, path, reqsn, strlen(reqsn));
+	g = http_get(src, (size_t)ssz, host, port, path, reqsn, strlen(reqsn));
 
 	free(host);
 	free(path);
@@ -325,14 +324,12 @@ sreq(struct conn *c, const char *addr, const char *req)
  * Returns non-zero on success.
  */
 static int
-donewreg(struct conn *c, const char *agreement,
-	const struct capaths *p)
+donewreg(struct conn *c, const char *agreement, const struct capaths *p)
 {
-	int		 rc;
+	int		 rc = 0;
 	char		*req;
 	long		 lc;
 
-	rc = 0;
 	dodbg("%s: new-reg", p->newreg);
 
 	if (NULL == (req = json_fmt_newreg(agreement)))
@@ -358,16 +355,14 @@ donewreg(struct conn *c, const char *agreement,
  * On non-zero exit, fills in "chng" with the challenge.
  */
 static int
-dochngreq(struct conn *c, const char *alt,
-	struct chng *chng, const struct capaths *p)
+dochngreq(struct conn *c, const char *alt, struct chng *chng,
+    const struct capaths *p)
 {
-	int		 rc;
+	int		 rc = 0;
 	char		*req;
 	long		 lc;
-	struct jsmnn	*j;
+	struct jsmnn	*j = NULL;
 
-	j = NULL;
-	rc = 0;
 	dodbg("%s: req-auth: %s", p->newauthz, alt);
 
 	if (NULL == (req = json_fmt_newauthz(alt)))
@@ -378,7 +373,7 @@ dochngreq(struct conn *c, const char *alt,
 		warnx("%s: bad HTTP: %ld", p->newauthz, lc);
 	else if (NULL == (j = json_parse(c->buf.buf, c->buf.sz)))
 		warnx("%s: bad JSON object", p->newauthz);
-	else if ( ! json_parse_challenge(j, chng))
+	else if (!json_parse_challenge(j, chng))
 		warnx("%s: bad challenge", p->newauthz);
 	else
 		rc = 1;
@@ -396,11 +391,10 @@ dochngreq(struct conn *c, const char *alt,
 static int
 dochngresp(struct conn *c, const struct chng *chng, const char *th)
 {
-	int	 rc;
+	int	 rc = 0;
 	long	 lc;
 	char	*req;
 
-	rc = 0;
 	dodbg("%s: challenge", chng->uri);
 
 	if (NULL == (req = json_fmt_challenge(chng->token, th)))
@@ -459,11 +453,9 @@ static int
 dorevoke(struct conn *c, const char *addr, const char *cert)
 {
 	char		*req;
-	int		 rc;
-	long		 lc;
+	int		 rc = 0;
+	long		 lc = 0;
 
-	lc = 0;
-	rc = 0;
 	dodbg("%s: revocation", addr);
 
 	if (NULL == (req = json_fmt_revokecert(cert)))
@@ -492,10 +484,9 @@ static int
 docert(struct conn *c, const char *addr, const char *cert)
 {
 	char	*req;
-	int	 rc;
+	int	 rc = 0;
 	long	 lc;
 
-	rc = 0;
 	dodbg("%s: certificate", addr);
 
 	if (NULL == (req = json_fmt_newcert(cert)))
@@ -521,12 +512,10 @@ docert(struct conn *c, const char *addr, const char *cert)
 static int
 dodirs(struct conn *c, const char *addr, struct capaths *paths)
 {
-	struct jsmnn	*j;
+	struct jsmnn	*j = NULL;
 	long		 lc;
-	int		 rc;
+	int		 rc = 0;
 
-	j = NULL;
-	rc = 0;
 	dodbg("%s: directories", addr);
 
 	if ((lc = nreq(c, addr)) < 0)
@@ -535,7 +524,7 @@ dodirs(struct conn *c, const char *addr, struct capaths *paths)
 		warnx("%s: bad HTTP: %ld", addr, lc);
 	else if (NULL == (j = json_parse(c->buf.buf, c->buf.sz)))
 		warnx("json_parse");
-	else if ( ! json_parse_capaths(j, paths))
+	else if (!json_parse_capaths(j, paths))
 		warnx("%s: bad CA paths", addr);
 	else
 		rc = 1;
@@ -552,10 +541,9 @@ dodirs(struct conn *c, const char *addr, struct capaths *paths)
 static int
 dofullchain(struct conn *c, const char *addr)
 {
-	int	 rc;
+	int	 rc = 0;
 	long	 lc;
 
-	rc = 0;
 	dodbg("%s: full chain", addr);
 
 	if ((lc = nreq(c, addr)) < 0)
@@ -577,22 +565,19 @@ dofullchain(struct conn *c, const char *addr)
  */
 int
 netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
-	int newacct, int revocate, int authority,
-	const char *const *alts, size_t altsz, const char *agreement)
+    int newacct, int revocate, int authority, const char *const *alts,
+    size_t altsz, const char *agreement)
 {
-	int		 rc;
+	int		 rc = 0;
 	size_t		 i;
-	char		*cert, *thumb, *url;
+	char		*cert = NULL, *thumb = NULL, *url = NULL;
 	struct conn	 c;
 	struct capaths	 paths;
-	struct chng	*chngs;
+	struct chng	*chngs = NULL;
 	long		 lval;
 
-	rc = 0;
 	memset(&paths, 0, sizeof(struct capaths));
 	memset(&c, 0, sizeof(struct conn));
-	url = cert = thumb = NULL;
-	chngs = NULL;
 
 	if (pledge("stdio inet", NULL) == -1) {
 		warn("pledge");
@@ -655,7 +640,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 	 * We'll use this ourselves instead of having libcurl do the DNS
 	 * resolution itself.
 	 */
-	if ( ! dodirs(&c, c.na, &paths))
+	if (!dodirs(&c, c.na, &paths))
 		goto out;
 
 	/*
@@ -668,7 +653,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 	if (revocate) {
 		if (NULL == (cert = readstr(rfd, COMM_CSR)))
 			goto out;
-		if ( ! dorevoke(&c, paths.revokecert, cert))
+		if (!dorevoke(&c, paths.revokecert, cert))
 			goto out;
 		else if (writeop(cfd, COMM_CSR_OP, CERT_REVOKE) > 0)
 			rc = 1;
@@ -683,7 +668,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 	/* Pre-authorise all domains with CA server. */
 
 	for (i = 0; i < altsz; i++)
-		if ( ! dochngreq(&c, alts[i], &chngs[i], &paths))
+		if (!dochngreq(&c, alts[i], &chngs[i], &paths))
 			goto out;
 
 	/*
@@ -715,7 +700,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 		/* Write to the CA that it's ready. */
 
-		if ( ! dochngresp(&c, &chngs[i], thumb))
+		if (!dochngresp(&c, &chngs[i], thumb))
 			goto out;
 	}
 
@@ -736,7 +721,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 		/* Sleep before every attempt. */
 		sleep(RETRY_DELAY);
-		if ( ! dochngcheck(&c, &chngs[i]))
+		if (!dochngcheck(&c, &chngs[i]))
 			goto out;
 	}
 
@@ -758,7 +743,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 	 * copy, and ship that into the certificate process for copying.
 	 */
 
-	if ( ! docert(&c, paths.newcert, cert))
+	if (!docert(&c, paths.newcert, cert))
 		goto out;
 	else if (writeop(cfd, COMM_CSR_OP, CERT_UPDATE) <= 0)
 		goto out;
@@ -773,7 +758,7 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 	if (NULL == (url = readstr(cfd, COMM_ISSUER)))
 		goto out;
-	else if ( ! dofullchain(&c, url))
+	else if (!dofullchain(&c, url))
 		goto out;
 	else if (writebuf(cfd, COMM_CHAIN, c.buf.buf, c.buf.sz) <= 0)
 		goto out;

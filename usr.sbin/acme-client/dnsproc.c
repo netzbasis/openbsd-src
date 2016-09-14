@@ -1,4 +1,4 @@
-/*	$Id: dnsproc.c,v 1.4 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: dnsproc.c,v 1.6 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -80,8 +80,8 @@ host_dns(const char *s, struct addr *vec)
 	}
 
 	for (vecsz = 0, res = res0;
-	     NULL != res && vecsz < MAX_SERVERS_DNS;
-	     res = res->ai_next) {
+	    NULL != res && vecsz < MAX_SERVERS_DNS;
+	    res = res->ai_next) {
 		if (res->ai_family != AF_INET &&
 		    res->ai_family != AF_INET6)
 			continue;
@@ -91,13 +91,13 @@ host_dns(const char *s, struct addr *vec)
 		if (AF_INET == res->ai_family) {
 			vec[vecsz].family = 4;
 			inet_ntop(AF_INET,
-				&(((struct sockaddr_in *)sa)->sin_addr),
+			    &(((struct sockaddr_in *)sa)->sin_addr),
 				vec[vecsz].ip, INET6_ADDRSTRLEN);
 		} else {
 			vec[vecsz].family = 6;
 			inet_ntop(AF_INET6,
-				&(((struct sockaddr_in6 *)sa)->sin6_addr),
-				vec[vecsz].ip, INET6_ADDRSTRLEN);
+			    &(((struct sockaddr_in6 *)sa)->sin6_addr),
+			    vec[vecsz].ip, INET6_ADDRSTRLEN);
 		}
 
 		dodbg("%s: DNS: %s", s, vec[vecsz].ip);
@@ -112,17 +112,13 @@ host_dns(const char *s, struct addr *vec)
 int
 dnsproc(int nfd)
 {
-	int		 rc, cc;
-	char		*look, *last;
+	char		*look = NULL, *last = NULL;
 	struct addr	 v[MAX_SERVERS_DNS];
+	int		 rc = 0, cc;
 	long		 lval;
+	ssize_t		 vsz = 0;
 	size_t		 i;
-	ssize_t		 vsz;
 	enum dnsop	 op;
-
-	rc = 0;
-	look = last = NULL;
-	vsz = 0;
 
 	if (pledge("stdio dns", NULL) == -1) {
 		warn("pledge");

@@ -1,4 +1,4 @@
-/*	$Id: fileproc.c,v 1.4 2016/09/01 00:35:21 florian Exp $ */
+/*	$Id: fileproc.c,v 1.6 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -29,8 +29,7 @@
 
 static int
 serialise(const char *tmp, const char *real,
-	const char *v, size_t vsz,
-	const char *v2, size_t v2sz)
+    const char *v, size_t vsz, const char *v2, size_t v2sz)
 {
 	int	 fd;
 
@@ -65,16 +64,13 @@ serialise(const char *tmp, const char *real,
 int
 fileproc(int certsock, int backup, const char *certdir)
 {
-	char		*csr, *ch;
+	char		*csr = NULL, *ch = NULL;
+	char		 file[PATH_MAX];
 	size_t		 chsz, csz;
-	int		 rc;
+	int		 rc = 0;
 	long		 lval;
 	enum fileop	 op;
 	time_t		 t;
-	char		 file[PATH_MAX];
-
-	csr = ch = NULL;
-	rc = 0;
 
 	/* File-system and sandbox jailing. */
 
@@ -129,8 +125,7 @@ fileproc(int certsock, int backup, const char *certdir)
 			warnx("%s/%s", certdir, CERT_PEM);
 			goto out;
 		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, CERT_PEM, file);
+			dodbg("%s/%s: linked to %s", certdir, CERT_PEM, file);
 
 		snprintf(file, sizeof(file),
 			"chain-%llu.pem", (unsigned long long)t);
@@ -138,8 +133,7 @@ fileproc(int certsock, int backup, const char *certdir)
 			warnx("%s/%s", certdir, CHAIN_PEM);
 			goto out;
 		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, CHAIN_PEM, file);
+			dodbg("%s/%s: linked to %s", certdir, CHAIN_PEM, file);
 
 		snprintf(file, sizeof(file),
 			"fullchain-%llu.pem", (unsigned long long)t);
@@ -147,8 +141,7 @@ fileproc(int certsock, int backup, const char *certdir)
 			warnx("%s/%s", certdir, FCHAIN_PEM);
 			goto out;
 		} else
-			dodbg("%s/%s: linked to %s",
-				certdir, FCHAIN_PEM, file);
+			dodbg("%s/%s: linked to %s", certdir, FCHAIN_PEM, file);
 	}
 
 	/*
@@ -189,7 +182,7 @@ fileproc(int certsock, int backup, const char *certdir)
 
 	if (NULL == (ch = readbuf(certsock, COMM_CHAIN, &chsz)))
 		goto out;
-	if ( ! serialise(CHAIN_BAK, CHAIN_PEM, ch, chsz, NULL, 0))
+	if (!serialise(CHAIN_BAK, CHAIN_PEM, ch, chsz, NULL, 0))
 		goto out;
 
 	dodbg("%s/%s: created", certdir, CHAIN_PEM);
@@ -203,7 +196,7 @@ fileproc(int certsock, int backup, const char *certdir)
 
 	if (NULL == (csr = readbuf(certsock, COMM_CSR, &csz)))
 		goto out;
-	if ( ! serialise(CERT_BAK, CERT_PEM, csr, csz, NULL, 0))
+	if (!serialise(CERT_BAK, CERT_PEM, csr, csz, NULL, 0))
 		goto out;
 
 	dodbg("%s/%s: created", certdir, CERT_PEM);
@@ -215,7 +208,7 @@ fileproc(int certsock, int backup, const char *certdir)
 	 * on-file certificates were changed.
 	 */
 
-	if ( ! serialise(FCHAIN_BAK, FCHAIN_PEM, csr, csz, ch, chsz))
+	if (!serialise(FCHAIN_BAK, FCHAIN_PEM, csr, csz, ch, chsz))
 		goto out;
 
 	dodbg("%s/%s: created", certdir, FCHAIN_PEM);

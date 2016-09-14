@@ -1,4 +1,4 @@
-/*	$Id: util.c,v 1.3 2016/09/01 00:35:22 florian Exp $ */
+/*	$Id: util.c,v 1.5 2016/09/13 17:13:37 deraadt Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -122,9 +122,7 @@ readbuf(int fd, enum comm comm, size_t *sz)
 {
 	ssize_t		 ssz;
 	size_t		 rsz, lsz;
-	char		*p;
-
-	p = NULL;
+	char		*p = NULL;
 
 	if ((ssz = read(fd, sz, sizeof(size_t))) < 0) {
 		warn("read: %s length", comms[comm]);
@@ -202,10 +200,8 @@ int
 writebuf(int fd, enum comm comm, const void *v, size_t sz)
 {
 	ssize_t	 ssz;
-	int	 er, rc;
+	int	 er, rc = -1;
 	void	(*sigfp)(int);
-
-	rc = -1;
 
 	/*
 	 * First, try to write the length.
@@ -259,11 +255,11 @@ checkexit(pid_t pid, enum comp comp)
 	if (-1 == waitpid(pid, &c, 0)) {
 		warn("waitpid");
 		return (0);
-	} else if ( ! WIFEXITED(c) && WIFSIGNALED(c)) {
+	} else if (!WIFEXITED(c) && WIFSIGNALED(c)) {
 		cp = strsignal(WTERMSIG(c));
 		warnx("signal: %s(%u): %s", comps[comp], pid, cp);
 		return (0);
-	} else if ( ! WIFEXITED(c)) {
+	} else if (!WIFEXITED(c)) {
 		warnx("did not exit: %s(%u)", comps[comp], pid);
 		return (0);
 	} else if (EXIT_SUCCESS != WEXITSTATUS(c)) {
@@ -294,11 +290,11 @@ checkexit_ext(int *rc, pid_t pid, enum comp comp)
 		return (0);
 	}
 
-	if ( ! WIFEXITED(c) && WIFSIGNALED(c)) {
+	if (!WIFEXITED(c) && WIFSIGNALED(c)) {
 		cp = strsignal(WTERMSIG(c));
 		warnx("signal: %s(%u): %s", comps[comp], pid, cp);
 		return (0);
-	} else if ( ! WIFEXITED(c)) {
+	} else if (!WIFEXITED(c)) {
 		warnx("did not exit: %s(%u)", comps[comp], pid);
 		return (0);
 	}

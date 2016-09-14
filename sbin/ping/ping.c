@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.179 2016/09/12 15:47:57 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.184 2016/09/13 07:17:40 florian Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -161,9 +161,7 @@ int moptions;
 int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
-struct sockaddr_in dst;	/* who to ping */
 int datalen = DEFDATALEN;
-int s;				/* socket file descriptor */
 u_char outpackhdr[IP_MAXPACKET]; /* Max packet size = 65535 */
 u_char *outpack = outpackhdr+sizeof(struct ip);
 char BSPACE = '\b';		/* characters written for flood */
@@ -180,14 +178,13 @@ int64_t nmissedmax = 1;		/* max value of ntransmitted - nreceived - 1 */
 struct timeval interval = {1, 0}; /* interval between packets */
 
 /* timing */
-int timing;			/* flag to do timing */
-int timinginfo;
+int timing = 0;			/* flag to do timing */
+int timinginfo = 0;
 unsigned int maxwait = MAXWAIT_DEFAULT;	/* max seconds to wait for response */
 double tmin = 999999999.0;	/* minimum round trip time */
 double tmax = 0.0;		/* maximum round trip time */
 double tsum = 0.0;		/* sum of all times, for doing average */
 double tsumsq = 0.0;		/* sum of all times squared, for std. dev. */
-int bufspace = IP_MAXPACKET;
 
 struct tv64 tv64_offset;
 SIPHASH_KEY mac_key;
@@ -202,8 +199,8 @@ volatile sig_atomic_t seeninfo;
 void			 fill(char *, char *);
 void			 summary(void);
 void			 onsignal(int);
-void			 retransmit(void);
-int			 pinger(void);
+void			 retransmit(int);
+int			 pinger(int);
 const char		*pr_addr(struct sockaddr *, socklen_t);
 void			 pr_pack(u_char *, int, struct msghdr *);
 __dead void		 usage(void);
@@ -222,11 +219,11 @@ main(int argc, char *argv[])
 {
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
-	struct sockaddr_in  from, from4;
+	struct sockaddr_in  from, from4, dst;
 	socklen_t maxsizelen;
 	int64_t preload;
-	int ch, i, optval = 1, packlen, maxsize, error;
-	int df = 0, tos = 0;
+	int ch, i, optval = 1, packlen, maxsize, error, s;
+	int df = 0, tos = 0, bufspace = IP_MAXPACKET;
 	u_char *datap, *packet, loop = 1;
 	u_char ttl = MAXTTL;
 	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
@@ -460,7 +457,7 @@ main(int argc, char *argv[])
 		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
 		    sizeof(optval));
 
-	if (options & F_FLOOD && options & F_INTERVAL)
+	if ((options & F_FLOOD) && (options & F_INTERVAL))
 		errx(1, "-f and -i options are incompatible");
 
 	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
@@ -577,7 +574,7 @@ main(int argc, char *argv[])
 	smsghdr.msg_iovlen = 1;
 
 	while (preload--)		/* Fire off them quickies. */
-		pinger();
+		pinger(s);
 
 	(void)signal(SIGINT, onsignal);
 	(void)signal(SIGINFO, onsignal);
@@ -588,7 +585,7 @@ main(int argc, char *argv[])
 		itimer.it_value = interval;
 		(void)setitimer(ITIMER_REAL, &itimer, NULL);
 		if (ntransmitted == 0)
-			retransmit();
+			retransmit(s);
 	}
 
 	seenalrm = seenint = 0;
@@ -609,7 +606,7 @@ main(int argc, char *argv[])
 		if (seenint)
 			break;
 		if (seenalrm) {
-			retransmit();
+			retransmit(s);
 			seenalrm = 0;
 			if (ntransmitted - nreceived - 1 > nmissedmax) {
 				nmissedmax = ntransmitted - nreceived - 1;
@@ -626,7 +623,7 @@ main(int argc, char *argv[])
 		}
 
 		if (options & F_FLOOD) {
-			(void)pinger();
+			(void)pinger(s);
 			timeout = 10;
 		} else
 			timeout = INFTIM;
@@ -762,7 +759,7 @@ pr_addr(struct sockaddr *addr, socklen_t addrlen)
  *	This routine transmits another ping.
  */
 void
-retransmit(void)
+retransmit(int s)
 {
 	struct itimerval itimer;
 	static int last_time = 0;
@@ -772,7 +769,7 @@ retransmit(void)
 		return;
 	}
 
-	if (pinger() == 0)
+	if (pinger(s) == 0)
 		return;
 
 	/*
@@ -804,7 +801,7 @@ retransmit(void)
  * byte-order, to compute the round-trip time.
  */
 int
-pinger(void)
+pinger(int s)
 {
 	struct icmp *icp;
 	int cc, i;
@@ -986,7 +983,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			(void)printf("%d bytes from %s: icmp_seq=%u", cc,
 			    pr_addr(from, fromlen), ntohs(seq));
 			(void)printf(" ttl=%d", ip->ip_ttl);
-			if (timinginfo)
+			if (cc >= ECHOLEN + ECHOTMLEN)
 				(void)printf(" time=%.3f ms", triptime);
 			if (dupflag)
 				(void)printf(" (DUP!)");
