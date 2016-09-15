@@ -26,8 +26,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _RNDISREG_H_
-#define _RNDISREG_H_
+#ifndef _DEV_PV_RNDISREG_H_
+#define _DEV_PV_RNDISREG_H_
 
 /*
  * NDIS protocol version numbers
@@ -706,14 +706,14 @@ struct rndis_tcp_tso_info {
 	};
 };
 
-#define RNDIS_VLAN_PPI_SIZE	(sizeof(rndis_pkt_info) +	\
-	sizeof(ndis_8021q_info))
+#define RNDIS_VLAN_PPI_SIZE	(sizeof(struct rndis_pkt_info) +	\
+	sizeof(struct ndis_8021q_info))
 
-#define RNDIS_CSUM_PPI_SIZE	(sizeof(rndis_pkt_info) +	\
-	sizeof(rndis_tcp_ip_csum_info))
+#define RNDIS_CSUM_PPI_SIZE	(sizeof(struct rndis_pkt_info) +	\
+	sizeof(struct rndis_tcp_ip_csum_info))
 
-#define RNDIS_TSO_PPI_SIZE	(sizeof(rndis_pkt_info) +	\
-	sizeof(rndis_tcp_tso_info))
+#define RNDIS_TSO_PPI_SIZE	(sizeof(struct rndis_pkt_info) +	\
+	sizeof(struct rndis_tcp_tso_info))
 
 /*
  * Format of Information buffer passed in a SetRequest for the OID
@@ -971,4 +971,4 @@ struct rndis {
 #define NDIS_PACKET_TYPE_FUNCTIONAL		0x00000400
 #define NDIS_PACKET_TYPE_MAC_FRAME		0x00000800
 
-#endif	/* _RNDISREG_H_ */
+#endif	/* _DEV_PV_RNDISREG_H_ */

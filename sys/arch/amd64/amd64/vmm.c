@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.82 2016/09/10 23:39:42 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.84 2016/09/15 02:00:16 dlg Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -334,12 +334,10 @@ vmm_attach(struct device *parent, struct device *self, void *aux)
 		sc->mode = VMM_MODE_UNKNOWN;
 	}
 
-	pool_init(&vm_pool, sizeof(struct vm), 0, 0, PR_WAITOK, "vmpool",
-	    NULL);
-	pool_setipl(&vm_pool, IPL_NONE);
-	pool_init(&vcpu_pool, sizeof(struct vcpu), 0, 0, PR_WAITOK, "vcpupl",
-	    NULL);
-	pool_setipl(&vcpu_pool, IPL_NONE);
+	pool_init(&vm_pool, sizeof(struct vm), 0, IPL_NONE, PR_WAITOK,
+	    "vmpool", NULL);
+	pool_init(&vcpu_pool, sizeof(struct vcpu), 0, IPL_NONE, PR_WAITOK,
+	    "vcpupl", NULL);
 
 	vmm_softc = sc;
 }
@@ -2926,6 +2924,8 @@ vcpu_run_vmx(struct vcpu *vcpu, struct vm_run_params *vrp)
 		case VMX_EXIT_INT_WINDOW:
 			break;
 		case VMX_EXIT_EXTINT:
+			break;
+		case VMX_EXIT_EPT_VIOLATION:
 			break;
 #ifdef VMM_DEBUG
 		case VMX_EXIT_TRIPLE_FAULT:

@@ -26,8 +26,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _HYPERVREG_H_
-#define _HYPERVREG_H_
+#ifndef _DEV_PV_HYPERVREG_H_
+#define _DEV_PV_HYPERVREG_H_
 
 struct hv_guid {
 	 unsigned char			data[16];
@@ -263,19 +263,6 @@ struct vmbus_chanpkt_hdr {
 #define VMBUS_CHANPKT_CONST_DATA(pkt)			\
 	((const void *)((const uint8_t *)(pkt) +	\
 	    VMBUS_CHANPKT_GETLEN((pkt)->cph_hlen)))
-
-struct vmbus_rxbuf_desc {
-	uint32_t	rb_len;
-	uint32_t	rb_ofs;
-} __packed;
-
-struct vmbus_chanpkt_rxbuf {
-	struct vmbus_chanpkt_hdr cp_hdr;
-	uint16_t	cp_rxbuf_id;
-	uint16_t	cp_rsvd;
-	uint32_t	cp_rxbuf_cnt;
-	struct vmbus_rxbuf_desc cp_rxbuf[0];
-} __packed;
 
 /*
  * ============================================================================
@@ -648,4 +635,4 @@ struct hv_heartbeat_msg {
 #define HV_NPFNBODY	((VMBUS_MSG_DSIZE_MAX -	\
 	  sizeof(struct vmbus_chanmsg_gpadl_subconn)) / sizeof(uint64_t))
 
-#endif	/* _HYPERVREG_H_ */
+#endif	/* _DEV_PV_HYPERVREG_H_ */

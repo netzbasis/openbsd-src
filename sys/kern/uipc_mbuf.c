@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.228 2016/09/13 19:56:55 markus Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.231 2016/09/15 02:00:16 dlg Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -126,7 +126,6 @@ int max_hdr;			/* largest link+protocol header */
 struct	mutex m_extref_mtx = MUTEX_INITIALIZER(IPL_NET);
 
 void	m_extfree(struct mbuf *);
-struct mbuf *m_copym0(struct mbuf *, int, int, int, int);
 void	nmbclust_update(void);
 void	m_zero(struct mbuf *);
 
@@ -151,21 +150,18 @@ mbinit(void)
 		panic("mbinit: the largest cluster size != MAXMCLBYTES");
 #endif
 
-	pool_init(&mbpool, MSIZE, 0, 0, 0, "mbufpl", NULL);
-	pool_setipl(&mbpool, IPL_NET);
+	pool_init(&mbpool, MSIZE, 0, IPL_NET, 0, "mbufpl", NULL);
 	pool_set_constraints(&mbpool, &kp_dma_contig);
 	pool_setlowat(&mbpool, mblowat);
 
-	pool_init(&mtagpool, PACKET_TAG_MAXSIZE + sizeof(struct m_tag),
-	    0, 0, 0, "mtagpl", NULL);
-	pool_setipl(&mtagpool, IPL_NET);
+	pool_init(&mtagpool, PACKET_TAG_MAXSIZE + sizeof(struct m_tag), 0,
+	    IPL_NET, 0, "mtagpl", NULL);
 
 	for (i = 0; i < nitems(mclsizes); i++) {
 		snprintf(mclnames[i], sizeof(mclnames[0]), "mcl%dk",
 		    mclsizes[i] >> 10);
-		pool_init(&mclpools[i], mclsizes[i], 0, 0, 0,
+		pool_init(&mclpools[i], mclsizes[i], 0, IPL_NET, 0,
 		    mclnames[i], NULL);
-		pool_setipl(&mclpools[i], IPL_NET);
 		pool_set_constraints(&mclpools[i], &kp_dma_contig);
 		pool_setlowat(&mclpools[i], mcllowat);
 	}
@@ -571,23 +567,7 @@ m_prepend(struct mbuf *m, int len, int how)
  * The wait parameter is a choice of M_WAIT/M_DONTWAIT from caller.
  */
 struct mbuf *
-m_copym(struct mbuf *m, int off, int len, int wait)
-{
-	return m_copym0(m, off, len, wait, 0);	/* shallow copy on M_EXT */
-}
-
-/*
- * m_copym2() is like m_copym(), except it COPIES cluster mbufs, instead
- * of merely bumping the reference count.
- */
-struct mbuf *
-m_copym2(struct mbuf *m, int off, int len, int wait)
-{
-	return m_copym0(m, off, len, wait, 1);	/* deep copy */
-}
-
-struct mbuf *
-m_copym0(struct mbuf *m0, int off, int len, int wait, int deep)
+m_copym(struct mbuf *m0, int off, int len, int wait)
 {
 	struct mbuf *m, *n, **np;
 	struct mbuf *top;
@@ -620,23 +600,9 @@ m_copym0(struct mbuf *m0, int off, int len, int wait, int deep)
 		}
 		n->m_len = min(len, m->m_len - off);
 		if (m->m_flags & M_EXT) {
-			if (!deep) {
-				n->m_data = m->m_data + off;
-				n->m_ext = m->m_ext;
-				MCLADDREFERENCE(m, n);
-			} else {
-				/*
-				 * we are unsure about the way m was allocated.
-				 * copy into multiple MCLBYTES cluster mbufs.
-				 */
-				MCLGET(n, wait);
-				n->m_len = 0;
-				n->m_len = M_TRAILINGSPACE(n);
-				n->m_len = min(n->m_len, len);
-				n->m_len = min(n->m_len, m->m_len - off);
-				memcpy(mtod(n, caddr_t), mtod(m, caddr_t) + off,
-				    n->m_len);
-			}
+			n->m_data = m->m_data + off;
+			n->m_ext = m->m_ext;
+			MCLADDREFERENCE(m, n);
 		} else
 			memcpy(mtod(n, caddr_t), mtod(m, caddr_t) + off,
 			    n->m_len);
