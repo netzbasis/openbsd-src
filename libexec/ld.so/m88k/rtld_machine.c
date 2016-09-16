@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtld_machine.c,v 1.15 2016/06/21 15:25:37 deraadt Exp $	*/
+/*	$OpenBSD: rtld_machine.c,v 1.17 2016/09/16 02:20:08 guenther Exp $	*/
 
 /*
  * Copyright (c) 2013 Miodrag Vallat.
@@ -65,6 +65,7 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 {
 	int	i;
 	int	numrela;
+	int	relrela;
 	int	fails = 0;
 	struct load_list *llist;
 	Elf32_Addr loff;
@@ -74,6 +75,8 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 
 	loff = object->obj_base;
 	numrela = object->Dyn.info[relasz] / sizeof(Elf32_Rela);
+	relrela = rel == DT_RELA ? object->relacount : 0;
+
 	relas = (Elf32_Rela *)(object->Dyn.info[rel]);
 
 #ifdef DL_PRINTF_DEBUG
@@ -83,6 +86,11 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 
 	if (relas == NULL)
 		return(0);
+
+	if (relrela > numrela) {
+		_dl_printf("relacount > numrel: %d > %d\n", relrela, numrela);
+		_dl_exit(20);
+	}
 
 	/*
 	 * Change protection of all write protected segments in the object
@@ -99,7 +107,14 @@ _dl_md_reloc(elf_object_t *object, int rel, int relasz)
 		}
 	}
 
-	for (i = 0; i < numrela; i++, relas++) {
+	/* tight loop for leading RELATIVE relocs */
+	for (i = 0; i < relrela; i++, relas++) {
+		Elf32_Addr *r_addr;
+
+		r_addr = (Elf32_Addr *)(relas->r_offset + loff);
+		*r_addr = relas->r_addend + loff;
+	}
+	for (; i < numrela; i++, relas++) {
 		Elf32_Addr *r_addr = (Elf32_Addr *)(relas->r_offset + loff);
 		Elf32_Addr ooff, addend, newval;
 		const Elf32_Sym *sym, *this;
@@ -273,10 +288,8 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	extern void _dl_bind_start(void);	/* XXX */
 	int	fails = 0;
 	Elf_Addr *pltgot = (Elf_Addr *)object->Dyn.info[DT_PLTGOT];
-	Elf_Addr ooff;
 	Elf_Addr plt_start, plt_end;
 	size_t plt_size;
-	const Elf_Sym *this;
 
 	if (pltgot == NULL)
 		return (0);
@@ -290,48 +303,23 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	if (object->traced)
 		lazy = 1;
 
-	/*
-	 * Post-5.3 binaries use dynamic tags to provide the .plt boundaries.
-	 * If the tags are missing, fall back to the special symbol search.
-	 */
 	plt_start = object->Dyn.info[DT_88K_PLTSTART - DT_LOPROC + DT_NUM];
 	plt_end = object->Dyn.info[DT_88K_PLTEND - DT_LOPROC + DT_NUM];
-	if (plt_start == 0 || plt_end == 0) {
-		this = NULL;
-		ooff = _dl_find_symbol("__plt_start", &this,
-		    SYM_SEARCH_OBJ | SYM_NOWARNNOTFOUND | SYM_PLT, NULL,
-		    object, NULL);
-		if (this != NULL)
-			plt_start = ooff + this->st_value;
-		else
-			plt_start = 0;
 
-		this = NULL;
-		ooff = _dl_find_symbol("__plt_end", &this,
-		    SYM_SEARCH_OBJ | SYM_NOWARNNOTFOUND | SYM_PLT, NULL,
-		    object, NULL);
-		if (this != NULL)
-			plt_end = ooff + this->st_value;
-		else
-			plt_start = 0;		/* not enough to go on */
-	} else {
+	/*
+	 * GOT relocation will require PLT to be writeable.
+	 */
+	if ((!lazy || object->obj_base != 0) && plt_start != 0 &&
+	    plt_end != 0) {
 		plt_start += object->obj_base;
 		plt_end += object->obj_base;
-	}
-
-	if (plt_start == 0)
-		plt_size = 0;
-	else {
 		plt_start = ELF_TRUNC(plt_start, _dl_pagesz);
 		plt_size = ELF_ROUND(plt_end, _dl_pagesz) - plt_start;
 
-		/*
-		 * GOT relocation will require PLT to be writeable.
-		 */
-		if (!lazy || object->obj_base != 0)
-			_dl_mprotect((void *)plt_start, plt_size,
-			    PROT_READ | PROT_WRITE);
-	}
+		_dl_mprotect((void *)plt_start, plt_size,
+		    PROT_READ | PROT_WRITE);
+	} else
+		plt_size = 0;
 
 	if (!lazy) {
 		fails = _dl_md_reloc(object, DT_JMPREL, DT_PLTRELSZ);
@@ -358,15 +346,13 @@ _dl_md_reloc_got(elf_object_t *object, int lazy)
 	_dl_protect_segment(object, 0, "__got_start", "__got_end", PROT_READ);
 
 	if (plt_size != 0) {
-		if (!lazy || object->obj_base != 0) {
-			/*
-			 * Force a cache sync on the whole plt here,
-			 * otherwise I$ might have stale information.
-			 */
-			_dl_cacheflush(plt_start, plt_size);
-			_dl_mprotect((void *)plt_start, plt_size,
-			    PROT_READ | PROT_EXEC);
-		}
+		/*
+		 * Force a cache sync on the whole plt here,
+		 * otherwise I$ might have stale information.
+		 */
+		_dl_cacheflush(plt_start, plt_size);
+		_dl_mprotect((void *)plt_start, plt_size,
+		    PROT_READ | PROT_EXEC);
 	}
 
 	return (fails);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.h,v 1.4 2016/09/12 15:24:51 phessler Exp $	*/
+/*	$OpenBSD: bfd.h,v 1.6 2016/09/15 13:09:44 phessler Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -25,8 +25,8 @@
 
 /* Public Interface */
 
-#define BFD_MODE_ASYNC		1
-#define BFD_MODE_DEMAND		2
+#define BFD_MODE_ASYNC			1
+#define BFD_MODE_DEMAND			2
 
 /* Diagnostic Code (RFC 5880 Page 8) */
 #define BFD_DIAG_NONE			0
@@ -53,7 +53,6 @@
 #define BFD_FLAG_D			0x02
 #define BFD_FLAG_M			0x01
 
-
 struct bfd_msghdr {
 	unsigned short rtm_msglen;     /* to skip over non-understood msgs */
 	unsigned char  rtm_version;    /* future binary compatibility */
@@ -77,6 +76,7 @@ struct bfd_msghdr {
 	uint32_t	remotediag;
 };
 
+#ifdef _KERNEL
 struct bfd_softc {
 	TAILQ_ENTRY(bfd_softc)	 bfd_next;
 	struct socket		*sc_so;
@@ -98,10 +98,7 @@ struct bfd_softc {
 	int			 mintx;
 	int			 multiplier;
 };
-
-struct bfd_flags {
-	int		 version;
-};
+#endif /* _KERNEL */
 
 int		 bfd_rtalloc(struct rtentry *);
 void		 bfd_rtfree(struct rtentry *);
