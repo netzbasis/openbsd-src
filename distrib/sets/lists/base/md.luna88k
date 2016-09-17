@@ -460,6 +460,8 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_access.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_break.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_command.ph
+./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_ctf.ph
+./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_elf.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_extern.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_interface.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/ddb/db_lex.ph
@@ -1042,6 +1044,7 @@
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/rasops/rasops.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/rasops/rasops_bitops.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/rasops/rasops_masks.ph
+./usr/libdata/perl5/site_perl/m88k-openbsd/dev/rndis.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/rndvar.ph
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/sbus
 ./usr/libdata/perl5/site_perl/m88k-openbsd/dev/sbus/asioreg.ph

@@ -605,6 +605,8 @@
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_access.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_break.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_command.ph
+./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_ctf.ph
+./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_elf.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_extern.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_interface.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/ddb/db_lex.ph
@@ -1187,6 +1189,7 @@
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/rasops/rasops.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/rasops/rasops_bitops.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/rasops/rasops_masks.ph
+./usr/libdata/perl5/site_perl/amd64-openbsd/dev/rndis.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/rndvar.ph
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/sbus
 ./usr/libdata/perl5/site_perl/amd64-openbsd/dev/sbus/asioreg.ph
