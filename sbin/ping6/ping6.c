@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.196 2016/09/13 07:17:40 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.222 2016/09/17 09:39:09 florian Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -83,6 +83,9 @@
 #include <sys/uio.h>
 
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <netinet/ip_var.h>
 #include <netinet/ip6.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_ah.h>
@@ -119,7 +122,7 @@ struct payload {
 #define	DEFDATALEN	(64 - ECHOLEN)		/* default data length */
 #define	IP6LEN		40
 #define	EXTRA		256	/* for AH and various other headers. weird. */
-#define	MAXPAYLOAD	IPV6_MAXPACKET - IP6LEN - ECHOLEN
+#define	MAXPAYLOAD6	IPV6_MAXPACKET - IP6LEN - ECHOLEN
 #define	MAXWAIT_DEFAULT	10			/* secs to wait for response */
 
 #define	A(bit)		rcvd_tbl[(bit)>>3]	/* identify byte in array */
@@ -162,12 +165,13 @@ int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
 int datalen = DEFDATALEN;
-u_char outpack[IPV6_MAXPACKET];
+int maxpayload;
+u_char outpackhdr[IP_MAXPACKET+sizeof(struct ip)];
+u_char *outpack = outpackhdr+sizeof(struct ip);
 char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
 char *hostname;
 int ident;			/* process id to identify our packets */
-int hoplimit = -1;		/* hoplimit */
 
 /* counters */
 int64_t npackets;		/* max packets to transmit */
@@ -219,12 +223,15 @@ main(int argc, char *argv[])
 {
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
-	struct sockaddr_in6 from, from6, dst;
+	struct sockaddr *from, *dst;
+	struct sockaddr_in6 from6, dst6;
 	struct cmsghdr *scmsg = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
+	struct icmp6_filter filt;
 	socklen_t maxsizelen;
 	int64_t preload;
-	int ch, i, optval = 1, packlen, maxsize, error, s;
+	int ch, i, optval = 1, packlen, maxsize, error, s, hoplimit = -1;
+	int bufspace = IP_MAXPACKET;
 	u_char *datap, *packet, loop = 1;
 	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
 	const char *errstr;
@@ -242,6 +249,7 @@ main(int argc, char *argv[])
 		err(1, "setresuid");
 
 	preload = 0;
+	maxpayload = MAXPAYLOAD6;
 	datap = &outpack[ECHOLEN + ECHOTMLEN];
 	while ((ch = getopt(argc, argv,
 	    "c:dEefHh:I:i:Ll:mNnp:qS:s:V:vw:")) != -1) {
@@ -326,7 +334,7 @@ main(int argc, char *argv[])
 			options |= F_QUIET;
 			break;
 		case 's':		/* size of packet to send */
-			datalen = strtonum(optarg, 0, MAXPAYLOAD, &errstr);
+			datalen = strtonum(optarg, 0, maxpayload, &errstr);
 			if (errstr)
 				errx(1, "packet size is %s: %s", errstr,
 				    optarg);
@@ -360,19 +368,19 @@ main(int argc, char *argv[])
 	if (argc != 1)
 		usage();
 
-	memset(&dst, 0, sizeof(dst));
+	memset(&dst6, 0, sizeof(dst6));
 
 #if 0
-	if (inet_aton(*argv, &dst.sin_addr) != 0) {
+	if (inet_aton(*argv, &dst4.sin_addr) != 0) {
 		hostname = *argv;
-		if ((target = strdup(inet_ntoa(dst.sin_addr))) == NULL)
-			errx(1, "malloc");
+		if ((target = strdup(inet_ntoa(dst4.sin_addr))) == NULL)
+			err(1, "malloc");
 	} else
 #endif
 		target = *argv;
 
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_INET6;
+	hints.ai_family = AF_INET6;
 	hints.ai_socktype = SOCK_RAW;
 	hints.ai_protocol = 0;
 	hints.ai_flags = AI_CANONNAME;
@@ -381,8 +389,10 @@ main(int argc, char *argv[])
 
 	switch (res->ai_family) {
 	case AF_INET6:
-		if (res->ai_addrlen != sizeof(dst))
+		if (res->ai_addrlen != sizeof(dst6))
 		    errx(1, "size of sockaddr mismatch");
+		dst = (struct sockaddr *)&dst6;
+		from = (struct sockaddr *)&from6;
 		break;
 	case AF_INET:
 	default:
@@ -390,13 +400,13 @@ main(int argc, char *argv[])
 		break;
 	}
 
-	memcpy(&dst, res->ai_addr, res->ai_addrlen);
+	memcpy(dst, res->ai_addr, res->ai_addrlen);
 
 	if (!hostname) {
 		hostname = res->ai_canonname ? strdup(res->ai_canonname) :
 		    target;
 		if (!hostname)
-			errx(1, "malloc");
+			err(1, "malloc");
 	}
 
 	if (res->ai_next) {
@@ -409,162 +419,30 @@ main(int argc, char *argv[])
 	freeaddrinfo(res);
 
 	if (source) {
-		memset(&hints, 0, sizeof(struct addrinfo));
-		hints.ai_flags = AI_NUMERICHOST; /* allow hostname? */
+		memset(&hints, 0, sizeof(hints));
 		hints.ai_family = AF_INET6;
-		hints.ai_socktype = SOCK_RAW;
-		hints.ai_protocol = IPPROTO_ICMPV6;
-
-		error = getaddrinfo(source, NULL, &hints, &res);
-		if (error)
-			errx(1, "invalid source address: %s", 
-			     gai_strerror(error));
-
+		if ((error = getaddrinfo(source, NULL, &hints, &res)))
+			errx(1, "%s: %s", source, gai_strerror(error));
 		if (res->ai_family != AF_INET6 || res->ai_addrlen !=
 		    sizeof(from6))
 			errx(1, "invalid source address");
-		memcpy(&from6, res->ai_addr, sizeof(from6));
+		memcpy(from, res->ai_addr, res->ai_addrlen);
 		freeaddrinfo(res);
-		if (bind(s, (struct sockaddr *)&from6, sizeof(from6)) != 0)
+		if (bind(s, from, from->sa_len) < 0)
 			err(1, "bind");
-	}
-
-	if (options & F_SO_DEBUG)
-		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
-		    sizeof(optval));
-
-	if ((options & F_FLOOD) && (options & F_INTERVAL))
-		errx(1, "-f and -i options are incompatible");
-
-	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
-		warnx("No audible output for flood pings");
-
-	if (datalen >= sizeof(struct payload))	/* can we time transfer */
-		timing = 1;
-
-	/*
-	 * let the kernel pass extension headers of incoming packets,
-	 * for privileged socket options
-	 */
-	if ((options & F_VERBOSE) != 0) {
-		int opton = 1;
-
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVHOPOPTS, &opton,
-		    (socklen_t)sizeof(opton)))
-			err(1, "setsockopt(IPV6_RECVHOPOPTS)");
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVDSTOPTS, &opton,
-		    (socklen_t)sizeof(opton)))
-			err(1, "setsockopt(IPV6_RECVDSTOPTS)");
-	}
-
-	if ((moptions & MULTICAST_NOLOOP) &&
-	    setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &loop,
-	    sizeof(loop)) < 0)
-		err(1, "setsockopt IP6_MULTICAST_LOOP");
-
-	/* in F_VERBOSE case, we may get non-echoreply packets*/
-	if (options & F_VERBOSE && datalen < 2048)
-		packlen = 2048 + IP6LEN + ECHOLEN + EXTRA; /* XXX 2048? */
-	else
-		packlen = datalen + IP6LEN + ECHOLEN + EXTRA;
-
-	if (!(packet = malloc(packlen)))
-		err(1, "Unable to allocate packet");
-
-	/*
-	 * When trying to send large packets, you must increase the
-	 * size of both the send and receive buffers...
-	 */
-	maxsizelen = sizeof maxsize;
-	if (getsockopt(s, SOL_SOCKET, SO_SNDBUF, &maxsize, &maxsizelen) < 0)
-		err(1, "getsockopt");
-	if (maxsize < packlen &&
-	    setsockopt(s, SOL_SOCKET, SO_SNDBUF, &packlen, sizeof(maxsize)) < 0)
-		err(1, "setsockopt");
-
-	if (getsockopt(s, SOL_SOCKET, SO_RCVBUF, &maxsize, &maxsizelen) < 0)
-		err(1, "getsockopt");
-	if (maxsize < packlen &&
-	    setsockopt(s, SOL_SOCKET, SO_RCVBUF, &packlen, sizeof(maxsize)) < 0)
-		err(1, "setsockopt");
-
-	if (!(options & F_PINGFILLED))
-		for (i = ECHOLEN; i < packlen; ++i)
-			*datap++ = i;
-
-	ident = getpid() & 0xFFFF;
-
-	optval = 1;
-
-	optval = IPV6_DEFHLIM;
-	if (IN6_IS_ADDR_MULTICAST(&dst.sin6_addr))
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
-		    &optval, (socklen_t)sizeof(optval)) == -1)
-			err(1, "IPV6_MULTICAST_HOPS");
-	if (mflag != 1) {
-		optval = mflag > 1 ? 0 : 1;
-
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_USE_MIN_MTU,
-		    &optval, (socklen_t)sizeof(optval)) == -1)
-			err(1, "setsockopt(IPV6_USE_MIN_MTU)");
-	} else {
-		optval = 1;
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPATHMTU,
-		    &optval, sizeof(optval)) == -1)
-			err(1, "setsockopt(IPV6_RECVPATHMTU)");
-	}
-
-
-    {
-	struct icmp6_filter filt;
-	if (!(options & F_VERBOSE)) {
-		ICMP6_FILTER_SETBLOCKALL(&filt);
-		ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &filt);
-	} else {
-		ICMP6_FILTER_SETPASSALL(&filt);
-	}
-	if (setsockopt(s, IPPROTO_ICMPV6, ICMP6_FILTER, &filt,
-	    (socklen_t)sizeof(filt)) < 0)
-		err(1, "setsockopt(ICMP6_FILTER)");
-    }
-
-	/* let the kernel pass extension headers of incoming packets */
-	if ((options & F_VERBOSE) != 0) {
-		int opton = 1;
-
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVRTHDR, &opton,
-		    sizeof(opton)))
-			err(1, "setsockopt(IPV6_RECVRTHDR)");
-	}
-
-	if (hoplimit != -1) {
-		/* set IP6 packet options */
-		if ((scmsg = malloc( CMSG_SPACE(sizeof(int)))) == NULL)
-			errx(1, "can't allocate enough memory");
-		smsghdr.msg_control = (caddr_t)scmsg;
-		smsghdr.msg_controllen =  CMSG_SPACE(sizeof(int));
-
-		scmsg->cmsg_len = CMSG_LEN(sizeof(int));
-		scmsg->cmsg_level = IPPROTO_IPV6;
-		scmsg->cmsg_type = IPV6_HOPLIMIT;
-		*(int *)(CMSG_DATA(scmsg)) = hoplimit;
-	}
-
-	if (!source && options & F_VERBOSE) {
+	} else if (options & F_VERBOSE) {
 		/*
 		 * get the source address. XXX since we revoked the root
 		 * privilege, we cannot use a raw socket for this.
 		 */
 		int dummy;
-		socklen_t len = sizeof(from6);
+		socklen_t len = dst->sa_len;
 
-		if ((dummy = socket(AF_INET6, SOCK_DGRAM, 0)) < 0)
+		if ((dummy = socket(dst->sa_family, SOCK_DGRAM, 0)) < 0)
 			err(1, "UDP socket");
 
-		from6.sin6_family = AF_INET6;
-		from6.sin6_addr = dst.sin6_addr;
+		memcpy(from, dst, dst->sa_len);
 		from6.sin6_port = ntohs(DUMMY_PORT);
-		from6.sin6_scope_id = dst.sin6_scope_id;
 
 		if (pktinfo &&
 		    setsockopt(dummy, IPPROTO_IPV6, IPV6_PKTINFO,
@@ -586,13 +464,129 @@ main(int argc, char *argv[])
 		    sizeof(rtableid)) < 0)
 			err(1, "setsockopt(SO_RTABLE)");
 
-		if (connect(dummy, (struct sockaddr *)&from6, len) < 0)
+		if (connect(dummy, from, len) < 0)
 			err(1, "UDP connect");
 
-		if (getsockname(dummy, (struct sockaddr *)&from6, &len) < 0)
+		if (getsockname(dummy, from, &len) < 0)
 			err(1, "getsockname");
 
 		close(dummy);
+	}
+
+	if (options & F_SO_DEBUG)
+		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, &optval,
+		    sizeof(optval));
+
+	if ((options & F_FLOOD) && (options & F_INTERVAL))
+		errx(1, "-f and -i options are incompatible");
+
+	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
+		warnx("No audible output for flood pings");
+
+	if (datalen >= sizeof(struct payload))	/* can we time transfer */
+		timing = 1;
+
+	/* in F_VERBOSE case, we may get non-echoreply packets*/
+	if (options & F_VERBOSE && datalen < 2048)
+		packlen = 2048 + IP6LEN + ECHOLEN + EXTRA; /* XXX 2048? */
+	else
+		packlen = datalen + IP6LEN + ECHOLEN + EXTRA;
+
+	if (!(packet = malloc(packlen)))
+		err(1, "malloc");
+
+	if (!(options & F_PINGFILLED))
+		for (i = ECHOTMLEN; i < datalen; ++i)
+			*datap++ = i;
+
+	ident = getpid() & 0xFFFF;
+
+	/*
+	 * When trying to send large packets, you must increase the
+	 * size of both the send and receive buffers...
+	 */
+	maxsizelen = sizeof maxsize;
+	if (getsockopt(s, SOL_SOCKET, SO_SNDBUF, &maxsize, &maxsizelen) < 0)
+		err(1, "getsockopt");
+	if (maxsize < packlen &&
+	    setsockopt(s, SOL_SOCKET, SO_SNDBUF, &packlen, sizeof(maxsize)) < 0)
+		err(1, "setsockopt");
+
+	/*
+	 * When pinging the broadcast address, you can get a lot of answers.
+	 * Doing something so evil is useful if you are trying to stress the
+	 * ethernet, or just want to fill the arp cache to get some stuff for
+	 * /etc/ethers.
+	 */
+	while (setsockopt(s, SOL_SOCKET, SO_RCVBUF,
+	    (void*)&bufspace, sizeof(bufspace)) < 0) {
+		if ((bufspace -= 1024) <= 0)
+			err(1, "Cannot set the receive buffer size");
+	}
+	if (bufspace < IP_MAXPACKET)
+		warnx("Could only allocate a receive buffer of %d bytes "
+		    "(default %d)", bufspace, IP_MAXPACKET);
+
+	/*
+	 * let the kernel pass extension headers of incoming packets,
+	 * for privileged socket options
+	 */
+	if ((options & F_VERBOSE) != 0) {
+		int opton = 1;
+
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVHOPOPTS, &opton,
+		    (socklen_t)sizeof(opton)))
+			err(1, "setsockopt(IPV6_RECVHOPOPTS)");
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVDSTOPTS, &opton,
+		    (socklen_t)sizeof(opton)))
+			err(1, "setsockopt(IPV6_RECVDSTOPTS)");
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVRTHDR, &opton,
+		    sizeof(opton)))
+			err(1, "setsockopt(IPV6_RECVRTHDR)");
+		ICMP6_FILTER_SETPASSALL(&filt);
+	} else {
+		ICMP6_FILTER_SETBLOCKALL(&filt);
+		ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &filt);
+	}
+
+	if ((moptions & MULTICAST_NOLOOP) &&
+	    setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &loop,
+	    sizeof(loop)) < 0)
+		err(1, "setsockopt IP6_MULTICAST_LOOP");
+
+	optval = IPV6_DEFHLIM;
+	if (IN6_IS_ADDR_MULTICAST(&dst6.sin6_addr))
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+		    &optval, (socklen_t)sizeof(optval)) == -1)
+			err(1, "IPV6_MULTICAST_HOPS");
+	if (mflag != 1) {
+		optval = mflag > 1 ? 0 : 1;
+
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_USE_MIN_MTU,
+		    &optval, (socklen_t)sizeof(optval)) == -1)
+			err(1, "setsockopt(IPV6_USE_MIN_MTU)");
+	} else {
+		optval = 1;
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPATHMTU,
+		    &optval, sizeof(optval)) == -1)
+			err(1, "setsockopt(IPV6_RECVPATHMTU)");
+	}
+
+	if (setsockopt(s, IPPROTO_ICMPV6, ICMP6_FILTER, &filt,
+	    (socklen_t)sizeof(filt)) < 0)
+		err(1, "setsockopt(ICMP6_FILTER)");
+
+	if (hoplimit != -1) {
+		/* set IP6 packet options */
+		if ((scmsg = malloc( CMSG_SPACE(sizeof(int)))) == NULL)
+			err(1, "malloc");
+		smsghdr.msg_control = (caddr_t)scmsg;
+		smsghdr.msg_controllen =  CMSG_SPACE(sizeof(int));
+
+		scmsg->cmsg_len = CMSG_LEN(sizeof(int));
+		scmsg->cmsg_level = IPPROTO_IPV6;
+		scmsg->cmsg_type = IPV6_HOPLIMIT;
+		*(int *)(CMSG_DATA(scmsg)) = hoplimit;
 	}
 
 	optval = 1;
@@ -616,13 +610,11 @@ main(int argc, char *argv[])
 
 	printf("PING6 %s (", hostname);
 	if (options & F_VERBOSE)
-		printf("%s --> ", pr_addr((struct sockaddr *)&from6,
-		    sizeof(from6)));
-	printf("%s): %d data bytes\n", pr_addr((struct sockaddr *)&dst,
-	    sizeof(dst)), datalen);
+		printf("%s --> ", pr_addr(from, from->sa_len));
+	printf("%s): %d data bytes\n", pr_addr(dst, dst->sa_len), datalen);
 
-	smsghdr.msg_name = &dst;
-	smsghdr.msg_namelen = sizeof(dst);
+	smsghdr.msg_name = dst;
+	smsghdr.msg_namelen = dst->sa_len;
 	smsgiov.iov_base = (caddr_t)outpack;
 	smsghdr.msg_iov = &smsgiov;
 	smsghdr.msg_iovlen = 1;
@@ -646,15 +638,16 @@ main(int argc, char *argv[])
 	seeninfo = 0;
 
 	for (;;) {
-		struct msghdr	m;
+		struct msghdr		m;
 		union {
 			struct cmsghdr hdr;
 			u_char buf[CMSG_SPACE(1024)];
-		}		cmsgbuf;
-		struct iovec	iov[1];
-		struct pollfd	pfd;
-		ssize_t		cc;
-		int		timeout;
+		}			cmsgbuf;
+		struct iovec		iov[1];
+		struct pollfd		pfd;
+		struct sockaddr_in6	peer;
+		ssize_t			cc;
+		int			timeout;
 
 		/* signal handling */
 		if (seenint)
@@ -688,8 +681,8 @@ main(int argc, char *argv[])
 		if (poll(&pfd, 1, timeout) <= 0)
 			continue;
 
-		m.msg_name = &from;
-		m.msg_namelen = sizeof(from);
+		m.msg_name = &peer;
+		m.msg_namelen = sizeof(peer);
 		memset(&iov, 0, sizeof(iov));
 		iov[0].iov_base = (caddr_t)packet;
 		iov[0].iov_len = packlen;
@@ -713,7 +706,7 @@ main(int argc, char *argv[])
 			 * exceptions (currently the only possibility is
 			 * a path MTU notification.)
 			 */
-			if ((mtu = get_pathmtu(&m, &dst)) > 0) {
+			if ((mtu = get_pathmtu(&m, &dst6)) > 0) {
 				if ((options & F_VERBOSE) != 0) {
 					printf("new path MTU (%d) is "
 					    "notified\n", mtu);
@@ -764,7 +757,7 @@ fill(char *bp, char *patp)
 
 	if (ii > 0)
 		for (kk = 0;
-		    kk <= MAXPAYLOAD - (ECHOLEN + ECHOTMLEN + ii);
+		    kk <= maxpayload - (ECHOLEN + ECHOTMLEN + ii);
 		    kk += ii)
 			for (jj = 0; jj < ii; ++jj)
 				bp[jj + kk] = pat[jj];
@@ -912,6 +905,7 @@ pinger(int s)
 
 		memcpy(&outpack[ECHOLEN], &payload, sizeof(payload));
 	}
+
 	cc = ECHOLEN + datalen;
 
 	smsgiov.iov_len = cc;
@@ -928,8 +922,6 @@ pinger(int s)
 
 	return (0);
 }
-
-#define MINIMUM(a,b) (((a)<(b))?(a):(b))
 
 /*
  * pr_pack --
@@ -1042,20 +1034,24 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			if (dupflag)
 				(void)printf(" (DUP!)");
 			/* check the data */
+			if (cc - ECHOLEN < datalen)
+				(void)printf(" (TRUNC!)");
 			cp = buf + ECHOLEN + ECHOTMLEN;
-			dp = outpack + ECHOLEN + ECHOTMLEN;
-			if (cc != ECHOLEN + datalen) {
-				int delta = cc - (datalen + ECHOLEN);
-
-				(void)printf(" (%d bytes %s)",
-				    abs(delta), delta > 0 ? "extra" : "short");
-				end = buf + MINIMUM(cc, ECHOLEN + datalen);
-			}
-			for (i = ECHOLEN; cp < end; ++i, ++cp, ++dp) {
+			dp = &outpack[ECHOLEN + ECHOTMLEN];
+			for (i = ECHOLEN + ECHOTMLEN;
+			    i < cc && i < datalen;
+			    ++i, ++cp, ++dp) {
 				if (*cp != *dp) {
 					(void)printf("\nwrong data byte #%d "
 					    "should be 0x%x but was 0x%x",
-					    i, *dp, *cp);
+					    i - ECHOLEN, *dp, *cp);
+					cp = buf + ECHOLEN;
+					for (i = ECHOLEN; i < cc && i < datalen;
+					     ++i, ++cp) {
+						if ((i % 32) == 8)
+							(void)printf("\n\t");
+						(void)printf("%x ", *cp);
+					}
 					break;
 				}
 			}

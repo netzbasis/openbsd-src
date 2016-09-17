@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.184 2016/09/13 07:17:40 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.205 2016/09/17 09:38:26 florian Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -86,6 +86,9 @@
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <netinet/ip_var.h>
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
+#include <netinet/ip_ah.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 
@@ -152,6 +155,8 @@ int moptions;
 #define	MULTICAST_NOLOOP	0x001
 #define	MULTICAST_TTL		0x002
 
+#define DUMMY_PORT	10101
+
 /*
  * MAX_DUP_CHK is the number of bits in received table, i.e. the maximum
  * number of received sequence numbers we can keep track of.  Change 128
@@ -162,7 +167,8 @@ int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
 int datalen = DEFDATALEN;
-u_char outpackhdr[IP_MAXPACKET]; /* Max packet size = 65535 */
+int maxpayload;
+u_char outpackhdr[IP_MAXPACKET+sizeof(struct ip)];
 u_char *outpack = outpackhdr+sizeof(struct ip);
 char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
@@ -219,7 +225,8 @@ main(int argc, char *argv[])
 {
 	struct addrinfo hints, *res;
 	struct itimerval itimer;
-	struct sockaddr_in  from, from4, dst;
+	struct sockaddr *from, *dst;
+	struct sockaddr_in from4, dst4;
 	socklen_t maxsizelen;
 	int64_t preload;
 	int ch, i, optval = 1, packlen, maxsize, error, s;
@@ -242,6 +249,7 @@ main(int argc, char *argv[])
 		err(1, "setresuid");
 
 	preload = 0;
+	maxpayload = MAXPAYLOAD;
 	datap = &outpack[ECHOLEN + ECHOTMLEN];
 	while ((ch = getopt(argc, argv,
 	    "DEI:LRS:c:defHi:l:np:qs:T:t:V:vw:")) != -1) {
@@ -325,7 +333,7 @@ main(int argc, char *argv[])
 			options |= F_RROUTE;
 			break;
 		case 's':		/* size of packet to send */
-			datalen = strtonum(optarg, 0, MAXPAYLOAD, &errstr);
+			datalen = strtonum(optarg, 0, maxpayload, &errstr);
 			if (errstr)
 				errx(1, "packet size is %s: %s", errstr,
 				    optarg);
@@ -381,17 +389,17 @@ main(int argc, char *argv[])
 	if (argc != 1)
 		usage();
 
-	memset(&dst, 0, sizeof(dst));
+	memset(&dst4, 0, sizeof(dst4));
 
-	if (inet_aton(*argv, &dst.sin_addr) != 0) {
+	if (inet_aton(*argv, &dst4.sin_addr) != 0) {
 		hostname = *argv;
-		if ((target = strdup(inet_ntoa(dst.sin_addr))) == NULL)
-			errx(1, "malloc");
+		if ((target = strdup(inet_ntoa(dst4.sin_addr))) == NULL)
+			err(1, "malloc");
 	} else
 		target = *argv;
 
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_INET;
+	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_RAW;
 	hints.ai_protocol = 0;
 	hints.ai_flags = AI_CANONNAME;
@@ -400,8 +408,10 @@ main(int argc, char *argv[])
 
 	switch (res->ai_family) {
 	case AF_INET:
-		if (res->ai_addrlen != sizeof(dst))
+		if (res->ai_addrlen != sizeof(dst4))
 		    errx(1, "size of sockaddr mismatch");
+		dst = (struct sockaddr *)&dst4;
+		from = (struct sockaddr *)&from4;
 		break;
 	case AF_INET6:
 	default:
@@ -409,13 +419,13 @@ main(int argc, char *argv[])
 		break;
 	}
 
-	memcpy(&dst, res->ai_addr, res->ai_addrlen);
+	memcpy(dst, res->ai_addr, res->ai_addrlen);
 
 	if (!hostname) {
 		hostname = res->ai_canonname ? strdup(res->ai_canonname) :
 		    target;
 		if (!hostname)
-			errx(1, "malloc");
+			err(1, "malloc");
 	}
 
 	if (res->ai_next) {
@@ -428,29 +438,63 @@ main(int argc, char *argv[])
 	freeaddrinfo(res);
 
 	if (source) {
-		memset(&from4, 0, sizeof(from4));
-		from4.sin_family = AF_INET;
-		if (inet_aton(source, &from4.sin_addr) == 0) {
-			memset(&hints, 0, sizeof(hints));
-			hints.ai_family = AF_INET;
-			hints.ai_socktype = SOCK_DGRAM;	/*dummy*/
-			if ((error = getaddrinfo(source, NULL, &hints, &res)))
-				errx(1, "%s: %s", source, gai_strerror(error));
-			if (res->ai_addrlen != sizeof(from4))
-				errx(1, "size of sockaddr mismatch");
-			memcpy(&from4, res->ai_addr, res->ai_addrlen);
-			freeaddrinfo(res);
+		if (inet_aton(source, &from4.sin_addr) != 0) {
+			if ((source = strdup(inet_ntoa(from4.sin_addr))) ==
+			    NULL)
+				err(1, "malloc");
 		}
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = AF_INET;
+		if ((error = getaddrinfo(source, NULL, &hints, &res)))
+			errx(1, "%s: %s", source, gai_strerror(error));
+		if (res->ai_addrlen != sizeof(from4))
+			errx(1, "size of sockaddr mismatch");
+		memcpy(from, res->ai_addr, res->ai_addrlen);
+		freeaddrinfo(res);
 
-		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr))) {
+		if (IN_MULTICAST(ntohl(dst4.sin_addr.s_addr))) {
 			if (setsockopt(s, IPPROTO_IP, IP_MULTICAST_IF,
 			    &from4.sin_addr, sizeof(from4.sin_addr)) < 0)
 				err(1, "setsockopt IP_MULTICAST_IF");
 		} else {
-			if (bind(s, (struct sockaddr *)&from4, sizeof(from4))
-			    < 0)
+			if (bind(s, from, from->sa_len) < 0)
 				err(1, "bind");
 		}
+	} else if (options & F_VERBOSE) {
+		/*
+		 * get the source address. XXX since we revoked the root
+		 * privilege, we cannot use a raw socket for this.
+		 */
+		int dummy;
+		socklen_t len = dst->sa_len;
+
+		if ((dummy = socket(dst->sa_family, SOCK_DGRAM, 0)) < 0)
+			err(1, "UDP socket");
+
+		memcpy(from, dst, dst->sa_len);
+		from4.sin_port = ntohs(DUMMY_PORT);
+
+		if ((moptions & MULTICAST_NOLOOP) &&
+		    setsockopt(dummy, IPPROTO_IP, IP_MULTICAST_LOOP, &loop,
+		    sizeof(loop)) < 0)
+			err(1, "setsockopt IP_MULTICAST_LOOP");
+		if ((moptions & MULTICAST_TTL) &&
+		    setsockopt(dummy, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
+		    sizeof(ttl)) < 0)
+			err(1, "setsockopt IP_MULTICAST_TTL");
+
+		if (rtableid > 0 &&
+		    setsockopt(dummy, SOL_SOCKET, SO_RTABLE, &rtableid,
+		    sizeof(rtableid)) < 0)
+			err(1, "setsockopt(SO_RTABLE)");
+
+		if (connect(dummy, from, len) < 0)
+			err(1, "UDP connect");
+
+		if (getsockname(dummy, from, &len) < 0)
+			err(1, "getsockname");
+
+		close(dummy);
 	}
 
 	if (options & F_SO_DEBUG)
@@ -466,66 +510,14 @@ main(int argc, char *argv[])
 	if (datalen >= sizeof(struct payload))	/* can we time transfer */
 		timing = 1;
 	packlen = datalen + MAXIPLEN + MAXICMPLEN;
-	if (!(packet = malloc((size_t)packlen)))
+	if (!(packet = malloc(packlen)))
 		err(1, "malloc");
+
 	if (!(options & F_PINGFILLED))
-		for (i = sizeof(struct payload); i < datalen; ++i)
+		for (i = ECHOTMLEN; i < datalen; ++i)
 			*datap++ = i;
 
 	ident = getpid() & 0xFFFF;
-
-	if (options & F_TTL) {
-		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
-			moptions |= MULTICAST_TTL;
-		else
-			options |= F_HDRINCL;
-	}
-
-	if (options & F_RROUTE && options & F_HDRINCL)
-		errx(1, "-R option and -D or -T, or -t to unicast destinations"
-		    " are incompatible");
-
-	if (options & F_HDRINCL) {
-		struct ip *ip = (struct ip *)outpackhdr;
-
-		setsockopt(s, IPPROTO_IP, IP_HDRINCL, &optval, sizeof(optval));
-		ip->ip_v = IPVERSION;
-		ip->ip_hl = sizeof(struct ip) >> 2;
-		ip->ip_tos = tos;
-		ip->ip_id = 0;
-		ip->ip_off = htons(df ? IP_DF : 0);
-		ip->ip_ttl = ttl;
-		ip->ip_p = IPPROTO_ICMP;
-		if (source)
-			ip->ip_src = from4.sin_addr;
-		else
-			ip->ip_src.s_addr = INADDR_ANY;
-		ip->ip_dst = dst.sin_addr;
-	}
-
-	/* record route option */
-	if (options & F_RROUTE) {
-		if (IN_MULTICAST(ntohl(dst.sin_addr.s_addr)))
-			errx(1, "record route not valid to multicast destinations");
-		memset(rspace, 0, sizeof(rspace));
-		rspace[IPOPT_OPTVAL] = IPOPT_RR;
-		rspace[IPOPT_OLEN] = sizeof(rspace)-1;
-		rspace[IPOPT_OFFSET] = IPOPT_MINOFF;
-		if (setsockopt(s, IPPROTO_IP, IP_OPTIONS, rspace,
-		    sizeof(rspace)) < 0) {
-			perror("ping: record route");
-			exit(1);
-		}
-	}
-
-	if ((moptions & MULTICAST_NOLOOP) &&
-	    setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, &loop,
-	    sizeof(loop)) < 0)
-		err(1, "setsockopt IP_MULTICAST_LOOP");
-	if ((moptions & MULTICAST_TTL) &&
-	    setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
-	    sizeof(ttl)) < 0)
-		err(1, "setsockopt IP_MULTICAST_TTL");
 
 	/*
 	 * When trying to send large packets, you must increase the
@@ -550,8 +542,61 @@ main(int argc, char *argv[])
 			err(1, "Cannot set the receive buffer size");
 	}
 	if (bufspace < IP_MAXPACKET)
-		warnx("Could only allocate a receive buffer of %d bytes (default %d)",
-		    bufspace, IP_MAXPACKET);
+		warnx("Could only allocate a receive buffer of %d bytes "
+		    "(default %d)", bufspace, IP_MAXPACKET);
+
+	if (options & F_TTL) {
+		if (IN_MULTICAST(ntohl(dst4.sin_addr.s_addr)))
+			moptions |= MULTICAST_TTL;
+		else
+			options |= F_HDRINCL;
+	}
+
+	if (options & F_RROUTE && options & F_HDRINCL)
+		errx(1, "-R option and -D or -T, or -t to unicast destinations"
+		    " are incompatible");
+
+	if (options & F_HDRINCL) {
+		struct ip *ip = (struct ip *)outpackhdr;
+
+		setsockopt(s, IPPROTO_IP, IP_HDRINCL, &optval, sizeof(optval));
+		ip->ip_v = IPVERSION;
+		ip->ip_hl = sizeof(struct ip) >> 2;
+		ip->ip_tos = tos;
+		ip->ip_id = 0;
+		ip->ip_off = htons(df ? IP_DF : 0);
+		ip->ip_ttl = ttl;
+		ip->ip_p = IPPROTO_ICMP;
+		if (source)
+			ip->ip_src = from4.sin_addr;
+		else
+			ip->ip_src.s_addr = INADDR_ANY;
+		ip->ip_dst = dst4.sin_addr;
+	}
+
+	/* record route option */
+	if (options & F_RROUTE) {
+		if (IN_MULTICAST(ntohl(dst4.sin_addr.s_addr)))
+			errx(1, "record route not valid to multicast destinations");
+		memset(rspace, 0, sizeof(rspace));
+		rspace[IPOPT_OPTVAL] = IPOPT_RR;
+		rspace[IPOPT_OLEN] = sizeof(rspace)-1;
+		rspace[IPOPT_OFFSET] = IPOPT_MINOFF;
+		if (setsockopt(s, IPPROTO_IP, IP_OPTIONS, rspace,
+		    sizeof(rspace)) < 0) {
+			perror("ping: record route");
+			exit(1);
+		}
+	}
+
+	if ((moptions & MULTICAST_NOLOOP) &&
+	    setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, &loop,
+	    sizeof(loop)) < 0)
+		err(1, "setsockopt IP_MULTICAST_LOOP");
+	if ((moptions & MULTICAST_TTL) &&
+	    setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl,
+	    sizeof(ttl)) < 0)
+		err(1, "setsockopt IP_MULTICAST_TTL");
 
 	if (options & F_HOSTNAME) {
 		if (pledge("stdio inet dns", NULL) == -1)
@@ -564,11 +609,13 @@ main(int argc, char *argv[])
 	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
 	arc4random_buf(&mac_key, sizeof(mac_key));
 
-	printf("PING %s (%s): %d data bytes\n", hostname,
-	    pr_addr((struct sockaddr *)&dst, sizeof(dst)), datalen);
+	printf("PING %s (", hostname);
+	if (0 && (options & F_VERBOSE))
+		printf("%s --> ", pr_addr(from, from->sa_len));
+	printf("%s): %d data bytes\n", pr_addr(dst, dst->sa_len), datalen);
 
-	smsghdr.msg_name = &dst;
-	smsghdr.msg_namelen = sizeof(dst);
+	smsghdr.msg_name = dst;
+	smsghdr.msg_namelen = dst->sa_len;
 	smsgiov.iov_base = (caddr_t)outpack;
 	smsghdr.msg_iov = &smsgiov;
 	smsghdr.msg_iovlen = 1;
@@ -592,15 +639,16 @@ main(int argc, char *argv[])
 	seeninfo = 0;
 
 	for (;;) {
-		struct msghdr	m;
+		struct msghdr		m;
 		union {
 			struct cmsghdr hdr;
 			u_char buf[CMSG_SPACE(1024)];
-		}		cmsgbuf;
-		struct iovec	iov[1];
-		struct pollfd	pfd;
-		ssize_t		cc;
-		int		timeout;
+		}			cmsgbuf;
+		struct iovec		iov[1];
+		struct pollfd		pfd;
+		struct sockaddr_in	peer;
+		ssize_t			cc;
+		int			timeout;
 
 		/* signal handling */
 		if (seenint)
@@ -634,8 +682,8 @@ main(int argc, char *argv[])
 		if (poll(&pfd, 1, timeout) <= 0)
 			continue;
 
-		m.msg_name = &from;
-		m.msg_namelen = sizeof(from);
+		m.msg_name = &peer;
+		m.msg_namelen = sizeof(peer);
 		memset(&iov, 0, sizeof(iov));
 		iov[0].iov_base = (caddr_t)packet;
 		iov[0].iov_len = packlen;
@@ -695,7 +743,7 @@ fill(char *bp, char *patp)
 
 	if (ii > 0)
 		for (kk = 0;
-		    kk <= MAXPAYLOAD - (ECHOLEN + ECHOTMLEN + ii);
+		    kk <= maxpayload - (ECHOLEN + ECHOTMLEN + ii);
 		    kk += ii)
 			for (jj = 0; jj < ii; ++jj)
 				bp[jj + kk] = pat[jj];
@@ -843,7 +891,7 @@ pinger(int s)
 		memcpy(&outpack[ECHOLEN], &payload, sizeof(payload));
 	}
 
-	cc = datalen + ECHOLEN;			/* skips ICMP portion */
+	cc = ECHOLEN + datalen;
 
 	/* compute ICMP checksum here */
 	icp->icmp_cksum = in_cksum((u_short *)icp, cc);
@@ -855,8 +903,7 @@ pinger(int s)
 		cc += sizeof(struct ip);
 		ip->ip_len = htons(cc);
 		ip->ip_sum = in_cksum((u_short *)outpackhdr, cc);
-	} else
-		smsgiov.iov_base = (caddr_t)outpack;
+	}
 
 	smsgiov.iov_len = cc;
 
@@ -990,7 +1037,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			/* check the data */
 			if (cc - ECHOLEN < datalen)
 				(void)printf(" (TRUNC!)");
-			cp = (u_char *)&icp->icmp_data[sizeof(struct payload)];
+			cp = (u_char *)&icp->icmp_data[ECHOTMLEN];
 			dp = &outpack[ECHOLEN + ECHOTMLEN];
 			for (i = ECHOLEN + ECHOTMLEN;
 			    i < cc && i < datalen;
