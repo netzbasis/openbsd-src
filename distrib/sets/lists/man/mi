@@ -1167,6 +1167,11 @@
 ./usr/share/man/man4/aps.4
 ./usr/share/man/man4/arc.4
 ./usr/share/man/man4/arcofi.4
+./usr/share/man/man4/armv7/agtimer.4
+./usr/share/man/man4/armv7/ampintc.4
+./usr/share/man/man4/armv7/amptimer.4
+./usr/share/man/man4/armv7/armliicc.4
+./usr/share/man/man4/armv7/cortex.4
 ./usr/share/man/man4/armv7/cpsw.4
 ./usr/share/man/man4/armv7/dmtimer.4
 ./usr/share/man/man4/armv7/edma.4
@@ -1542,6 +1547,7 @@
 ./usr/share/man/man4/octeon/cnmac.4
 ./usr/share/man/man4/octeon/octrng.4
 ./usr/share/man/man4/octeon/octrtc.4
+./usr/share/man/man4/octeon/octuctl.4
 ./usr/share/man/man4/ohci.4
 ./usr/share/man/man4/onewire.4
 ./usr/share/man/man4/oosiop.4
@@ -1902,6 +1908,7 @@
 ./usr/share/man/man4/zero.4
 ./usr/share/man/man4/zyd.4
 ./usr/share/man/man5/acct.5
+./usr/share/man/man5/acme-client.conf.5
 ./usr/share/man/man5/aliases.5
 ./usr/share/man/man5/ar.5
 ./usr/share/man/man5/bgpd.conf.5
@@ -2252,7 +2259,6 @@
 ./usr/share/man/man8/pfctl.8
 ./usr/share/man/man8/pflogd.8
 ./usr/share/man/man8/ping.8
-./usr/share/man/man8/ping6.8
 ./usr/share/man/man8/pkg_check.8
 ./usr/share/man/man8/portmap.8
 ./usr/share/man/man8/pppd.8

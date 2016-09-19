@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.207 2016/09/17 21:30:02 florian Exp $	*/
+/*	$OpenBSD: ping.c,v 1.212 2016/09/18 17:27:25 florian Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
@@ -170,7 +170,7 @@ int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
 int datalen = DEFDATALEN;
-int maxpayload;
+int maxpayload = MAXPAYLOAD;
 u_char outpackhdr[IP_MAXPACKET+sizeof(struct ip)];
 u_char *outpack = outpackhdr+sizeof(struct ip);
 char BSPACE = '\b';		/* characters written for flood */
@@ -248,9 +248,8 @@ main(int argc, char *argv[])
 	struct icmp6_filter filt;
 	socklen_t maxsizelen;
 	int64_t preload;
-	int ch, i, optval = 1, packlen, maxsize, error, s4, s6, s;
+	int ch, i, optval = 1, packlen, maxsize, error, s;
 	int df = 0, tos = 0, bufspace = IP_MAXPACKET, hoplimit = -1, mflag = 0;
-	int v4sock_errno = 0, v6sock_errno = 0;
 	u_char *datap, *packet, loop = 1;
 	u_char ttl = MAXTTL;
 	char *e, *target, hbuf[NI_MAXHOST], *source = NULL;
@@ -261,33 +260,20 @@ main(int argc, char *argv[])
 	u_int rtableid = 0;
 	extern char *__progname;
 
-	if ((s4 = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0)
-		v4sock_errno = errno;
-	if ((s6 = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6)) < 0)
-		v6sock_errno = errno;
+	if (strcmp("ping6", __progname) == 0) {
+		v6flag = 1;
+		maxpayload = MAXPAYLOAD6;
+		if ((s = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6)) == -1)
+			err(1, "socket");
+	} else {
+		if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) == -1)
+			err(1, "socket");
+	}
 
 	/* revoke privs */
 	uid = getuid();
 	if (setresuid(uid, uid, uid) == -1)
 		err(1, "setresuid");
-
-	if (strcmp("ping6", __progname) == 0) {
-		v6flag = 1;
-		if (v6sock_errno != 0)
-			errc(1, v6sock_errno, "socket");
-		s = s6;
-		if (s4 >= 0)
-			close(s4);
-		maxpayload = MAXPAYLOAD6;
-	} else {
-		v6flag = 0;
-		if (v4sock_errno != 0)
-			errc(1, v4sock_errno, "socket");
-		s = s4;
-		if (s6 >= 0)
-			close(s6);
-		maxpayload = MAXPAYLOAD;
-	}
 
 	preload = 0;
 	datap = &outpack[ECHOLEN + ECHOTMLEN];
@@ -502,7 +488,7 @@ main(int argc, char *argv[])
 		hints.ai_family = dst->sa_family;
 		if ((error = getaddrinfo(source, NULL, &hints, &res)))
 			errx(1, "%s: %s", source, gai_strerror(error));
-		if (res->ai_addrlen != sizeof(from4))
+		if (res->ai_addrlen != dst->sa_len)
 			errx(1, "size of sockaddr mismatch");
 		memcpy(from, res->ai_addr, res->ai_addrlen);
 		freeaddrinfo(res);
@@ -681,7 +667,7 @@ main(int argc, char *argv[])
 			if ((scmsg = malloc( CMSG_SPACE(sizeof(int)))) == NULL)
 				err(1, "malloc");
 			smsghdr.msg_control = (caddr_t)scmsg;
-			smsghdr.msg_controllen =  CMSG_SPACE(sizeof(int));
+			smsghdr.msg_controllen = CMSG_SPACE(sizeof(int));
 
 			scmsg->cmsg_len = CMSG_LEN(sizeof(int));
 			scmsg->cmsg_level = IPPROTO_IPV6;
@@ -764,11 +750,8 @@ main(int argc, char *argv[])
 	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
 	arc4random_buf(&mac_key, sizeof(mac_key));
 
-	if (v6flag)
-		printf("PING6 %s (", hostname);
-	else
-		printf("PING %s (", hostname);
-	if (v6flag && (options & F_VERBOSE))
+	printf("PING %s (", hostname);
+	if (options & F_VERBOSE)
 		printf("%s --> ", pr_addr(from, from->sa_len));
 	printf("%s): %d data bytes\n", pr_addr(dst, dst->sa_len), datalen);
 
@@ -937,10 +920,7 @@ fill(char *bp, char *patp)
 void
 summary(void)
 {
-	if (v6flag)
-		printf("\n--- %s ping6 statistics ---\n", hostname);
-	else
-		printf("\n--- %s ping statistics ---\n", hostname);
+	printf("\n--- %s ping statistics ---\n", hostname);
 	printf("%lld packets transmitted, ", ntransmitted);
 	printf("%lld packets received, ", nreceived);
 
@@ -1008,7 +988,7 @@ retransmit(int s)
 	 * maxwait seconds if we haven't.
 	 */
 	if (nreceived) {
-		itimer.it_value.tv_sec =  2 * tmax / 1000;
+		itimer.it_value.tv_sec = 2 * tmax / 1000;
 		if (itimer.it_value.tv_sec == 0)
 			itimer.it_value.tv_sec = 1;
 	} else
@@ -1103,15 +1083,10 @@ pinger(int s)
 
 	i = sendmsg(s, &smsghdr, 0);
 
-	if (i < 0 || i != cc)  {
+	if (i < 0 || i != cc) {
 		if (i < 0)
 			warn("sendmsg");
-		if (v6flag)
-			printf("ping6: wrote %s %d chars, ret=%d\n", hostname,
-			    cc, i);
-		else
-			printf("ping: wrote %s %d chars, ret=%d\n", hostname,
-			    cc, i);
+		printf("ping: wrote %s %d chars, ret=%d\n", hostname, cc, i);
 	}
 	if (!(options & F_QUIET) && options & F_FLOOD)
 		(void)write(STDOUT_FILENO, &DOT, 1);
@@ -1297,7 +1272,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 						cp = (u_char *)
 						    &icp->icmp_data[0];
 					for (i = ECHOLEN; i < cc && i < datalen;
-					     ++i, ++cp) {
+					    ++i, ++cp) {
 						if ((i % 32) == 8)
 							(void)printf("\n\t");
 						(void)printf("%x ", *cp);
@@ -1465,7 +1440,7 @@ in_cksum(u_short *addr, int len)
 	 * sequential 16 bit words to it, and at the end, fold back all the
 	 * carry bits from the top 16 bits into the lower 16 bits.
 	 */
-	while (nleft > 1)  {
+	while (nleft > 1) {
 		sum += *w++;
 		nleft -= 2;
 	}
@@ -1740,20 +1715,19 @@ map_tos(char *key, int *val)
 		{ "netcontrol",		IPTOS_PREC_NETCONTROL },
 		{ "reliability",	IPTOS_RELIABILITY },
 		{ "throughput",		IPTOS_THROUGHPUT },
-		{ NULL, 		-1 },
+		{ NULL,			-1 },
 	};
-	
+
 	for (t = toskeywords; t->keyword != NULL; t++) {
 		if (strcmp(key, t->keyword) == 0) {
 			*val = t->val;
 			return (1);
 		}
 	}
-	
+
 	return (0);
 }
 #endif	/* SMALL */
-
 
 void
 pr_exthdrs(struct msghdr *mhdr)
@@ -1761,7 +1735,7 @@ pr_exthdrs(struct msghdr *mhdr)
 	struct cmsghdr *cm;
 
 	for (cm = (struct cmsghdr *)CMSG_FIRSTHDR(mhdr); cm;
-	     cm = (struct cmsghdr *)CMSG_NXTHDR(mhdr, cm)) {
+	    cm = (struct cmsghdr *)CMSG_NXTHDR(mhdr, cm)) {
 		if (cm->cmsg_level != IPPROTO_IPV6)
 			continue;
 
@@ -1889,7 +1863,7 @@ get_pathmtu(struct msghdr *mhdr, struct sockaddr_in6 *dst)
 	struct ip6_mtuinfo *mtuctl = NULL;
 
 	for (cm = (struct cmsghdr *)CMSG_FIRSTHDR(mhdr); cm;
-	     cm = (struct cmsghdr *)CMSG_NXTHDR(mhdr, cm)) {
+	    cm = (struct cmsghdr *)CMSG_NXTHDR(mhdr, cm)) {
 		if (cm->cmsg_len == 0)
 			return(0);
 
@@ -1907,16 +1881,17 @@ get_pathmtu(struct msghdr *mhdr, struct sockaddr_in6 *dst)
 			 * in which case the scope ID value is 0.
 			 */
 			if (!IN6_ARE_ADDR_EQUAL(&mtuctl->ip6m_addr.sin6_addr,
-						&dst->sin6_addr) ||
+			    &dst->sin6_addr) ||
 			    (mtuctl->ip6m_addr.sin6_scope_id &&
-			     dst->sin6_scope_id &&
-			     mtuctl->ip6m_addr.sin6_scope_id !=
-			     dst->sin6_scope_id)) {
+			    dst->sin6_scope_id &&
+			    mtuctl->ip6m_addr.sin6_scope_id !=
+			    dst->sin6_scope_id)) {
 				if ((options & F_VERBOSE) != 0) {
 					printf("path MTU for %s is notified. "
-					       "(ignored)\n",
-					   pr_addr((struct sockaddr *)&mtuctl->ip6m_addr,
-					   sizeof(mtuctl->ip6m_addr)));
+					    "(ignored)\n",
+					    pr_addr((struct sockaddr *)
+					    &mtuctl->ip6m_addr,
+					    sizeof(mtuctl->ip6m_addr)));
 				}
 				return(0);
 			}
