@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket.c,v 1.159 2016/09/15 02:00:16 dlg Exp $	*/
+/*	$OpenBSD: uipc_socket.c,v 1.161 2016/09/20 14:27:43 bluhm Exp $	*/
 /*	$NetBSD: uipc_socket.c,v 1.21 1996/02/04 02:17:52 christos Exp $	*/
 
 /*
@@ -356,21 +356,16 @@ soconnect2(struct socket *so1, struct socket *so2)
 int
 sodisconnect(struct socket *so)
 {
-	int s = splsoftnet();
 	int error;
 
-	if ((so->so_state & SS_ISCONNECTED) == 0) {
-		error = ENOTCONN;
-		goto bad;
-	}
-	if (so->so_state & SS_ISDISCONNECTING) {
-		error = EALREADY;
-		goto bad;
-	}
+	splsoftassert(IPL_SOFTNET);
+
+	if ((so->so_state & SS_ISCONNECTED) == 0)
+		return (ENOTCONN);
+	if (so->so_state & SS_ISDISCONNECTING)
+		return (EALREADY);
 	error = (*so->so_proto->pr_usrreq)(so, PRU_DISCONNECT, NULL, NULL,
 	    NULL, curproc);
-bad:
-	splx(s);
 	return (error);
 }
 
@@ -1023,20 +1018,26 @@ int
 soshutdown(struct socket *so, int how)
 {
 	struct protosw *pr = so->so_proto;
+	int s, error = 0;
 
+	s = splsoftnet();
 	switch (how) {
 	case SHUT_RD:
 	case SHUT_RDWR:
 		sorflush(so);
 		if (how == SHUT_RD)
-			return (0);
+			break;
 		/* FALLTHROUGH */
 	case SHUT_WR:
-		return (*pr->pr_usrreq)(so, PRU_SHUTDOWN, NULL, NULL, NULL,
+		error = (*pr->pr_usrreq)(so, PRU_SHUTDOWN, NULL, NULL, NULL,
 		    curproc);
+		break;
 	default:
-		return (EINVAL);
+		error = EINVAL;
+		break;
 	}
+	splx(s);
+	return (error);
 }
 
 void
@@ -1509,6 +1510,8 @@ somove(struct socket *so, int wait)
 void
 sorwakeup(struct socket *so)
 {
+	splsoftassert(IPL_SOFTNET);
+
 #ifdef SOCKET_SPLICE
 	if (so->so_rcv.sb_flagsintr & SB_SPLICE) {
 		/*
@@ -1535,6 +1538,8 @@ sorwakeup(struct socket *so)
 void
 sowwakeup(struct socket *so)
 {
+	splsoftassert(IPL_SOFTNET);
+
 #ifdef SOCKET_SPLICE
 	if (so->so_snd.sb_flagsintr & SB_SPLICE)
 		task_add(sosplice_taskq, &so->so_sp->ssp_soback->so_splicetask);

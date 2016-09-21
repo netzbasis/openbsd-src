@@ -57,7 +57,7 @@
 #include <dev/pv/hypervvar.h>
 
 #include <dev/rndis.h>
-#include <dev/pv/rndisreg.h>
+#include <dev/pv/ndis.h>
 #include <dev/pv/if_hvnreg.h>
 
 #include <net/if.h>
@@ -86,8 +86,8 @@
 #define HVN_RNDIS_CMPBUFSZ		512
 
 #define HVN_RNDIS_MSG_LEN		\
-	(sizeof(struct rndis_packet_msg) + RNDIS_VLAN_PPI_SIZE + \
-	 RNDIS_CSUM_PPI_SIZE)
+	(sizeof(struct rndis_packet_msg) + NDIS_VLAN_INFO_SIZE + \
+	 NDIS_RXCSUM_INFO_SIZE)
 
 struct rndis_cmd {
 	uint32_t			 rc_id;
@@ -787,8 +787,8 @@ hvn_get_link_status(struct hvn_softc *sc)
 
 	if (hvn_rndis_query(sc, OID_GEN_MEDIA_CONNECT_STATUS,
 	    &state, &len) == 0)
-		sc->sc_link_state = (state == 0) ? LINK_STATE_UP :
-		    LINK_STATE_DOWN;
+		sc->sc_link_state = (state == NDIS_MEDIA_STATE_CONNECTED) ?
+		    LINK_STATE_UP : LINK_STATE_DOWN;
 }
 
 int
@@ -821,6 +821,8 @@ hvn_nvs_attach(struct hvn_softc *sc)
 		km_free(sc->sc_nvsbuf, HVN_NVS_BUFSIZE, &kv_any, &kp_zero);
 		return (-1);
 	}
+
+	hv_evcount_attach(sc->sc_chan, sc->sc_dev.dv_xname);
 
 	mtx_init(&sc->sc_nvslck, IPL_NET);
 
@@ -1313,8 +1315,7 @@ hvn_rxeof(struct hvn_softc *sc, caddr_t buf, uint32_t len,
 	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct rndis_packet_msg *pkt;
 	struct rndis_pktinfo *pi;
-	struct rndis_tcp_ip_csum_info *csum;
-	struct ndis_8021q_info *vlan;
+	uint32_t csum, vlan;
 	struct mbuf *m;
 
 	if (!(ifp->if_flags & IFF_RUNNING))
@@ -1357,20 +1358,18 @@ hvn_rxeof(struct hvn_softc *sc, caddr_t buf, uint32_t len,
 		}
 		switch (pi->rm_type) {
 		case NDIS_PKTINFO_TYPE_CSUM:
-			csum = (struct rndis_tcp_ip_csum_info *)
-			    ((caddr_t)pi + pi->rm_size);
-			if (csum->recv.ip_csum_succeeded)
+			memcpy(&csum, (caddr_t)pi + pi->rm_size, sizeof(csum));
+			if (csum & NDIS_RXCSUM_INFO_IPCS_OK)
 				m->m_pkthdr.csum_flags |= M_IPV4_CSUM_IN_OK;
-			if (csum->recv.tcp_csum_succeeded)
+			if (csum & NDIS_RXCSUM_INFO_TCPCS_OK)
 				m->m_pkthdr.csum_flags |= M_TCP_CSUM_IN_OK;
-			if (csum->recv.udp_csum_succeeded)
+			if (csum & NDIS_RXCSUM_INFO_UDPCS_OK)
 				m->m_pkthdr.csum_flags |= M_UDP_CSUM_IN_OK;
 			break;
 		case NDIS_PKTINFO_TYPE_VLAN:
-			vlan = (struct ndis_8021q_info *)
-			    ((caddr_t)pi + pi->rm_size);
+			memcpy(&vlan, (caddr_t)pi + pi->rm_size, sizeof(vlan));
 #if NVLAN > 0
-			m->m_pkthdr.ether_vtag = vlan->vlan_id;
+			m->m_pkthdr.ether_vtag = vlan & 0xffff;
 			m->m_flags |= M_VLANTAG;
 #endif
 			break;
