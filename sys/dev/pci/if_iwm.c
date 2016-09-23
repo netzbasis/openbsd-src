@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.139 2016/09/21 14:02:33 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.141 2016/09/22 08:28:38 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -389,8 +389,6 @@ int	iwm_disable_beacon_filter(struct iwm_softc *);
 int	iwm_add_sta_cmd(struct iwm_softc *, struct iwm_node *, int);
 int	iwm_add_aux_sta(struct iwm_softc *);
 uint16_t iwm_scan_rx_chain(struct iwm_softc *);
-uint32_t iwm_scan_max_out_time(struct iwm_softc *, uint32_t, int);
-uint32_t iwm_scan_suspend_time(struct iwm_softc *, int);
 uint32_t iwm_scan_rate_n_flags(struct iwm_softc *, int, int);
 uint16_t iwm_get_active_dwell(struct iwm_softc *, int, int);
 uint16_t iwm_get_passive_dwell(struct iwm_softc *, int);
@@ -4422,26 +4420,6 @@ iwm_scan_rx_chain(struct iwm_softc *sc)
 	return htole16(rx_chain);
 }
 
-#define ieee80211_tu_to_usec(a) (1024*(a))
-
-uint32_t
-iwm_scan_max_out_time(struct iwm_softc *sc, uint32_t flags, int is_assoc)
-{
-	if (!is_assoc)
-		return 0;
-	if (flags & 0x1)
-		return htole32(ieee80211_tu_to_usec(SHORT_OUT_TIME_PERIOD));
-	return htole32(ieee80211_tu_to_usec(LONG_OUT_TIME_PERIOD));
-}
-
-uint32_t
-iwm_scan_suspend_time(struct iwm_softc *sc, int is_assoc)
-{
-	if (!is_assoc)
-		return 0;
-	return htole32(ieee80211_tu_to_usec(SUSPEND_TIME_PERIOD));
-}
-
 uint32_t
 iwm_scan_rate_n_flags(struct iwm_softc *sc, int flags, int no_cck)
 {
@@ -5303,10 +5281,8 @@ iwm_setrates(struct iwm_node *in)
 	memset(lq, 0, sizeof(*lq));
 	lq->sta_id = IWM_STATION_ID;
 
-	if (ni->ni_flags & IEEE80211_NODE_HT)
-		sgi_ok = (ni->ni_htcaps & IEEE80211_HTCAP_SGI20);
-	else
-		sgi_ok = 0;
+	sgi_ok = ((ni->ni_flags & IEEE80211_NODE_HT) &&
+	    (ni->ni_htcaps & IEEE80211_HTCAP_SGI20));
 
 	/*
 	 * Fill the LQ rate selection table with legacy and/or HT rates
