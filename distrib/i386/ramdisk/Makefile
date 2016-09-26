@@ -1,7 +1,6 @@
-#	$OpenBSD: Makefile,v 1.2 2016/09/18 15:23:42 jsing Exp $
+#	$OpenBSD: Makefile,v 1.1 2015/01/12 17:10:37 deraadt Exp $
 
 .PATH: ${.CURDIR}/../ramdiskA
-BOOT=		${DESTDIR}/usr/mdec/fdboot
 RAMDISK=RAMDISK
 NOBSDRD=1
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchofp.c,v 1.6 2016/09/19 14:43:22 rzalamena Exp $	*/
+/*	$OpenBSD: switchofp.c,v 1.4 2016/09/16 18:41:20 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -42,7 +42,6 @@
 #include <netinet/if_ether.h>
 #include <net/if_bridge.h>
 #include <net/if_switch.h>
-#include <net/if_vlan_var.h>
 #include <net/ofp.h>
 
 /*
@@ -155,6 +154,8 @@ void	 swofp_forward_ofs(struct switch_softc *, struct switch_flow_classify *,
 int	 swofp_input(struct switch_softc *, struct mbuf *);
 int	 swofp_output(struct switch_softc *, struct mbuf *);
 void	 swofp_timer(void *);
+struct mbuf
+	*swofp_mbuf_align(struct mbuf *);
 
 struct ofp_oxm_class
 	*swofp_lookup_oxm_handler(struct ofp_ox_match *);
@@ -2839,13 +2840,28 @@ swofp_flow_lookup(struct swofp_flow_table *swft,
 struct mbuf *
 swofp_expand_8021q_tag(struct mbuf *m)
 {
+	struct ether_vlan_header	 evh;
+
 	if ((m->m_flags & M_VLANTAG) == 0)
 		return (m);
 
+	m_copydata(m, 0, ETHER_HDR_LEN, (caddr_t)&evh);
+
+	evh.evl_proto = evh.evl_encap_proto;
 	/* H/W tagging supports only 802.1Q */
-	return (vlan_inject(m, ETHERTYPE_VLAN,
-	    EVL_VLANOFTAG(m->m_pkthdr.ether_vtag) |
-	    EVL_PRIOFTAG(m->m_pkthdr.ether_vtag)));
+	evh.evl_encap_proto = htons(ETHERTYPE_VLAN);
+	evh.evl_tag = htons(EVL_VLANOFTAG(m->m_pkthdr.ether_vtag) |
+	    EVL_PRIOFTAG(m->m_pkthdr.ether_vtag));
+
+	m_adj(m, ETHER_HDR_LEN);
+	M_PREPEND(m, sizeof(evh), M_DONTWAIT);
+	if (m == NULL)
+		return (NULL);
+
+	m_copyback(m, 0, sizeof(evh), &evh, M_NOWAIT);
+	m->m_flags &= ~M_VLANTAG;
+
+	return (m);
 }
 
 struct mbuf *
@@ -3096,14 +3112,11 @@ swofp_action_output_controller(struct switch_softc *sc, struct mbuf *m0,
 	    htons(m->m_pkthdr.len + ntohs(pin->pin_total_len));
 
 	if (frame_max_len) {
-		/* Truncate the excess packet bytes. */
-		match_len = m0->m_pkthdr.len - ntohs(pin->pin_total_len);
-		n = m_dup_pkt(m0, 0, M_DONTWAIT);
+		n = m_copym2(m0, 0, ntohs(pin->pin_total_len), M_DONTWAIT);
 		if (n == NULL) {
 			m_freem(m);
 			return (ENOBUFS);
 		}
-		m_adj(n, -match_len);
 		/* m_cat() doesn't update m_pkthdr.len */
 		m_cat(m, n);
 		m->m_pkthdr.len += ntohs(pin->pin_total_len);
@@ -4990,7 +5003,7 @@ swofp_recv_packet_out(struct switch_softc *sc, struct mbuf *m)
 {
 	struct ofp_packet_out		*pout;
 	struct ofp_action_header	*ah;
-	struct mbuf			*mc = NULL, *mcn;
+	struct mbuf			*mc = NULL;
 	int				 al_start, al_len, off;
 	struct switch_flow_classify	 swfcl = {};
 	struct swofp_pipline_desc	 swpld = { .swpld_swfcl = &swfcl };
@@ -5011,21 +5024,13 @@ swofp_recv_packet_out(struct switch_softc *sc, struct mbuf *m)
 	if (pout->pout_buffer_id != OFP_CONTROLLER_MAXLEN_NO_BUFFER) {
 		/*
 		 * It's not necessary to deep copy at here because it's done
-		 * in m_dup_pkt().
+		 * in m_pkt_dup().
 		 */
 		if ((mc = m_split(m, (al_start + al_len), M_NOWAIT)) == NULL) {
 			m_freem(m);
 			return (ENOBUFS);
 		}
-
-		mcn = m_dup_pkt(mc, ETHER_ALIGN, M_NOWAIT);
-		m_freem(mc);
-		if (mcn == NULL) {
-			m_freem(m);
-			return (ENOBUFS);
-		}
-
-		mc = mcn;
+		mc = swofp_mbuf_align(mc);
 	}
 
 	TAILQ_INIT(&swpld.swpld_fwdp_q);
@@ -5219,7 +5224,7 @@ swofp_multipart_reply(struct switch_softc *sc, struct swofp_mpmsg *swmp)
 
 		if (swmp->swmp_body.ml_tail != NULL) {
 			omp->mp_flags |= htons(OFP_MP_FLAG_REPLY_MORE);
-			if ((hdr = m_dup_pkt(swmp->swmp_hdr, 0,
+			if ((hdr = m_copym2(swmp->swmp_hdr, 0, M_COPYALL,
 			    M_WAITOK)) == NULL) {
 				error = ENOBUFS;
 				goto error;
@@ -6026,4 +6031,23 @@ swofp_barrier_reply(struct switch_softc *sc, struct mbuf *m)
 	oh->oh_type = OFP_T_BARRIER_REPLY;
 
 	(void)swofp_output(sc, m);
+}
+
+struct mbuf *
+swofp_mbuf_align(struct mbuf *m)
+{
+	struct mbuf *m1, *m2;
+
+	m1 = m_copym2(m, 0, ETHER_HDR_LEN, M_DONTWAIT);
+	if (m1 == NULL)
+		return (NULL);
+	m2 = m_copym2(m, ETHER_HDR_LEN, M_COPYALL, M_DONTWAIT);
+	if (m2 == NULL) {
+		m_freem(m1);
+		return (NULL);
+	}
+	m_cat(m1, m2);
+	m_freem(m);
+
+	return (m1);
 }

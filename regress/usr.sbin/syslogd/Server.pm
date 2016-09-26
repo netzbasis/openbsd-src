@@ -1,4 +1,4 @@
-#	$OpenBSD: Server.pm,v 1.10 2016/09/23 14:35:15 bluhm Exp $
+#	$OpenBSD: Server.pm,v 1.8 2016/07/12 09:57:20 bluhm Exp $
 
 # Copyright (c) 2010-2015 Alexander Bluhm <bluhm@openbsd.org>
 #
@@ -54,23 +54,12 @@ sub listen {
 	    $self->{listenport}	? (LocalPort => $self->{listenport}) : (),
 	    SSL_key_file	=> "server.key",
 	    SSL_cert_file	=> "server.crt",
-	    SSL_ca_file		=> ($self->{sslca} || "ca.crt"),
-	    SSL_verify_mode     => ($self->{sslca} ?
-		SSL_VERIFY_PEER : SSL_VERIFY_NONE),
-	    $self->{sslca}	? (SSL_verifycn_scheme => "none") : (),
+	    SSL_ca_file		=> ($self->{cacrt} || "ca.crt"),
+	    $self->{sslverify}	? (SSL_verify_mode => SSL_VERIFY_PEER) : (),
+	    $self->{sslverify}	? (SSL_verifycn_scheme => "none") : (),
 	    $self->{sslversion}	? (SSL_version => $self->{sslversion}) : (),
 	    $self->{sslciphers}	? (SSL_cipher_list => $self->{sslciphers}) : (),
 	) or die ref($self), " $iosocket socket failed: $!,$SSL_ERROR";
-	if ($self->{sndbuf}) {
-		setsockopt($ls, SOL_SOCKET, SO_SNDBUF,
-		    pack('i', $self->{sndbuf}))
-		    or die ref($self), " set SO_SNDBUF failed: $!";
-	}
-	if ($self->{rcvbuf}) {
-		setsockopt($ls, SOL_SOCKET, SO_RCVBUF,
-		    pack('i', $self->{rcvbuf}))
-		    or die ref($self), " set SO_RCVBUF failed: $!";
-	}
 	if ($self->{listenproto} ne "udp") {
 		listen($ls, 1)
 		    or die ref($self), " socket listen failed: $!";
@@ -115,7 +104,7 @@ sub child {
 		print STDERR "ssl version: ",$as->get_sslversion(),"\n";
 		print STDERR "ssl cipher: ",$as->get_cipher(),"\n";
 		print STDERR "ssl subject: ", $as->peer_certificate("subject")
-		    ,"\n" if $self->{sslca};
+		    ,"\n" if $self->{sslverify};
 	}
 
 	*STDIN = *STDOUT = $self->{as} = $as;
