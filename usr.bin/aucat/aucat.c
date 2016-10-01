@@ -14,13 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <sndio.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -664,6 +662,7 @@ dev_open(char *dev, int mode, int bufsz, char *port)
 	par.bps = sizeof(adata_t);
 	par.msb = 0;
 	par.le = SIO_LE_NATIVE;
+	par.rate = rate;
 	if (mode & SIO_PLAY)
 		par.pchan = pmax + 1;
 	if (mode & SIO_REC)
