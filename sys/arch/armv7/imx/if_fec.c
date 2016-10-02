@@ -1,4 +1,4 @@
-/* $OpenBSD: if_fec.c,v 1.18 2016/09/22 12:43:22 kettenis Exp $ */
+/* $OpenBSD: if_fec.c,v 1.16 2016/08/19 18:25:53 kettenis Exp $ */
 /*
  * Copyright (c) 2012-2013 Patrick Wildt <patrick@blueri.se>
  *
@@ -221,6 +221,7 @@ struct fec_softc {
 	bus_space_handle_t	sc_ioh;
 	void			*sc_ih; /* Interrupt handler */
 	bus_dma_tag_t		sc_dma_tag;
+	uint32_t		intr_status;	/* soft interrupt status */
 	struct fec_dma_alloc	txdma;		/* bus_dma glue for tx desc */
 	struct fec_buf_desc	*tx_desc_base;
 	struct fec_dma_alloc	rxdma;		/* bus_dma glue for rx desc */
@@ -231,7 +232,6 @@ struct fec_softc {
 	struct fec_buffer	*rx_buffer_base;
 	int			cur_tx;
 	int			cur_rx;
-	struct timeout		sc_tick;
 };
 
 struct fec_softc *fec_sc;
@@ -250,7 +250,7 @@ void fec_iff(struct fec_softc *);
 struct mbuf * fec_newbuf(void);
 int fec_intr(void *);
 void fec_recv(struct fec_softc *);
-void fec_tick(void *);
+int fec_wait_intr(struct fec_softc *, int, int);
 int fec_miibus_readreg(struct device *, int, int);
 void fec_miibus_writereg(struct device *, int, int, int);
 void fec_miibus_statchg(struct device *);
@@ -431,8 +431,6 @@ fec_attach(struct device *parent, struct device *self, void *aux)
 	if_attach(ifp);
 	ether_ifattach(ifp);
 	splx(s);
-
-	timeout_set(&sc->sc_tick, fec_tick, sc);
 
 	fec_sc = sc;
 	return;
@@ -676,14 +674,13 @@ fec_init(struct fec_softc *sc)
 	/* program promiscuous mode and multicast filters */
 	fec_iff(sc);
 
-	timeout_add_sec(&sc->sc_tick, 1);
-
 	/* Indicate we are up and running. */
 	ifp->if_flags |= IFF_RUNNING;
 	ifq_clr_oactive(&ifp->if_snd);
 
 	/* enable interrupts for tx/rx */
 	HWRITE4(sc, ENET_EIMR, ENET_EIR_TXF | ENET_EIR_RXF);
+	HWRITE4(sc, ENET_EIMR, 0xffffffff);
 
 	fec_start(ifp);
 }
@@ -699,8 +696,6 @@ fec_stop(struct fec_softc *sc)
 	ifp->if_flags &= ~IFF_RUNNING;
 	ifp->if_timer = 0;
 	ifq_clr_oactive(&ifp->if_snd);
-
-	timeout_del(&sc->sc_tick);
 
 	/* reset the controller */
 	HSET4(sc, ENET_ECR, ENET_ECR_RESET);
@@ -905,6 +900,15 @@ fec_intr(void *arg)
 	HWRITE4(sc, ENET_EIR, status);
 
 	/*
+	 * Wake up the blocking process to service command
+	 * related interrupt(s).
+	 */
+	if (ISSET(status, ENET_EIR_MII)) {
+		sc->intr_status |= status;
+		wakeup(&sc->intr_status);
+	}
+
+	/*
 	 * Handle incoming packets.
 	 */
 	if (ISSET(status, ENET_EIR_RXF)) {
@@ -976,17 +980,26 @@ done:
 	if_input(ifp, &ml);
 }
 
-void
-fec_tick(void *arg)
+int
+fec_wait_intr(struct fec_softc *sc, int mask, int timo)
 {
-	struct fec_softc *sc = arg;
+	int status;
 	int s;
 
 	s = splnet();
-	mii_tick(&sc->sc_mii);
-	splx(s);
 
-	timeout_add_sec(&sc->sc_tick, 1);
+	status = sc->intr_status;
+	while (status == 0) {
+		if (tsleep(&sc->intr_status, PWAIT, "hcintr", timo)
+		    == EWOULDBLOCK) {
+			break;
+		}
+		status = sc->intr_status;
+	}
+	sc->intr_status &= ~status;
+
+	splx(s);
+	return status;
 }
 
 /*
