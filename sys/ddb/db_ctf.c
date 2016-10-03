@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_ctf.c,v 1.4 2016/09/18 13:31:12 jasper Exp $	*/
+/*	$OpenBSD: db_ctf.c,v 1.1 2016/09/16 19:13:17 jasper Exp $	*/
 
 /*
  * Copyright (c) 2016 Jasper Lievisse Adriaanse <jasper@openbsd.org>
@@ -29,9 +29,9 @@
 #include <ddb/db_sym.h>
 #include <ddb/db_elf.h>
 #include <ddb/db_output.h>
+#include <ddb/db_ctf.h>
 
 #include <sys/exec_elf.h>
-#include <sys/ctf.h>
 #include <sys/malloc.h>
 #include <lib/libz/zlib.h>
 
@@ -49,21 +49,14 @@ struct ddb_ctf {
 
 struct ddb_ctf db_ctf;
 
-/*
- * We need a way to get the number of symbols, so (ab)use db_elf_sym_forall()
- * to give us the count.
- */
-struct db_ctf_forall_arg {
-	int		cnt;
-	db_sym_t	sym;
-};
-
 static const char	*db_ctf_lookup_name(unsigned int);
 static const char	*db_ctf_idx2sym(size_t *, unsigned char);
 static const char	*db_elf_find_ctftab(db_symtab_t *, size_t *);
 static char		*db_ctf_decompress(const char *, size_t, off_t);
 static int		 db_ctf_print_functions();
-static void		 db_ctf_forall(db_sym_t, char *, char *, int, void *);
+static int		 db_ctf_nsyms(void);
+
+#define	ELF_CTF ".SUNW_ctf"
 
 /*
  * Entrypoint to verify CTF presence, initialize the header, decompress
@@ -72,7 +65,6 @@ static void		 db_ctf_forall(db_sym_t, char *, char *, int, void *);
 void
 db_ctf_init(void)
 {
-	struct db_ctf_forall_arg dfa;
 	db_symtab_t *stab = &db_symtab;
 	const char *ctftab;
 	size_t ctftab_size;
@@ -103,31 +95,14 @@ db_ctf_init(void)
 		return;
 	}
 
-	/*
-	 * Lookup the total number of kernel symbols. It's unlikely for the
-	 * kernel to have zero symbols so bail out if that's what we end
-	 * up finding.
-	 */
-	dfa.cnt = 0;
-	db_elf_sym_forall(db_ctf_forall, &dfa);
-	nsyms = -dfa.cnt;
-
-	if (nsyms == 0)
+	/* Lookup the total number of kernel symbols. */
+	if ((nsyms = db_ctf_nsyms()) == 0)
 		return;
 	else
 		db_ctf.nsyms = nsyms;
 
 	/* We made it this far, everything seems fine. */
 	db_ctf.ctf_found = 1;
-}
-
-static void
-db_ctf_forall(db_sym_t sym, char *name, char *suff, int pre, void *varg)
-{
-	struct db_ctf_forall_arg *arg = varg;
-
-	if (arg->cnt-- == 0)
-		arg->sym = sym;
 }
 
 /*
@@ -184,6 +159,41 @@ db_dump_ctf_header(void)
 #if 1
 	db_ctf_print_functions();
 #endif
+	return;
+}
+
+/*
+ * We need a way to get the number of symbols, so (ab)use db_elf_sym_forall()
+ * to give us the count.
+ */
+struct db_ctf_forall_arg {
+	int cnt;
+	db_sym_t sym;
+};
+
+static void db_ctf_forall(db_sym_t, char *, char *, int, void *);
+
+static void
+db_ctf_forall(db_sym_t sym, char *name, char *suff, int pre, void *varg)
+{
+	struct db_ctf_forall_arg *arg = varg;
+
+	if (arg->cnt-- == 0)
+		arg->sym = sym;
+}
+
+static int
+db_ctf_nsyms(void)
+{
+	int nsyms;
+	struct db_ctf_forall_arg dfa;
+
+	dfa.cnt = 0;
+	db_elf_sym_forall(db_ctf_forall, &dfa);
+	nsyms = -dfa.cnt;
+
+	/* The caller must make sure to handle zero symbols. */
+	return nsyms;
 }
 
 /*

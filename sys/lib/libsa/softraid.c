@@ -1,4 +1,4 @@
-/*	$OpenBSD: softraid.c,v 1.2 2016/09/18 16:34:59 jsing Exp $	*/
+/*	$OpenBSD: softraid.c,v 1.1 2016/09/11 17:49:36 jsing Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Sing <jsing@openbsd.org>
@@ -22,7 +22,6 @@
 #include <dev/biovar.h>
 #include <dev/softraidvar.h>
 
-#include <lib/libsa/bcrypt_pbkdf.h>
 #include <lib/libsa/hmac_sha1.h>
 #include <lib/libsa/pkcs5_pbkdf2.h>
 #include <lib/libsa/rijndael.h>
@@ -120,7 +119,6 @@ sr_crypto_decrypt_keys(struct sr_boot_volume *bv)
 	u_int8_t *keys = NULL;
 	u_int8_t *kp, *cp;
 	rijndael_ctx ctx;
-	u_int32_t type;
 	int rv = -1;
 	int c, i;
 
@@ -152,12 +150,6 @@ sr_crypto_decrypt_keys(struct sr_boot_volume *bv)
 	if (kd) {
 		bcopy(&kd->kd_key, &kdfinfo.maskkey, sizeof(kdfinfo.maskkey));
 	} else {
-		if (kdfhint->generic.type != SR_CRYPTOKDFT_PKCS5_PBKDF2 &&
-		    kdfhint->generic.type != SR_CRYPTOKDFT_BCRYPT_PBKDF) {
-			printf("unknown KDF type %u\n", kdfhint->generic.type);
-			goto done;
-		}
-
 		printf("Passphrase: ");
 		for (i = 0; i < PASSPHRASE_LENGTH - 1; i++) {
 			c = cngetc();
@@ -177,25 +169,10 @@ sr_crypto_decrypt_keys(struct sr_boot_volume *bv)
 		    passphrase, strlen(passphrase));
 #endif
 
-		type = kdfhint->generic.type;
-		if (type == SR_CRYPTOKDFT_PKCS5_PBKDF2) {
-			if (pkcs5_pbkdf2(passphrase, strlen(passphrase),
-			    kdfhint->salt, sizeof(kdfhint->salt),
-			    kdfinfo.maskkey, sizeof(kdfinfo.maskkey),
-			    kdfhint->rounds) != 0) {
-				printf("pkcs5_pbkdf2 failed\n");
-				goto done;
-			}
-		} else if (type == SR_CRYPTOKDFT_BCRYPT_PBKDF) {
-			if (bcrypt_pbkdf(passphrase, strlen(passphrase),
-			    kdfhint->salt, sizeof(kdfhint->salt),
-			    kdfinfo.maskkey, sizeof(kdfinfo.maskkey),
-			    kdfhint->rounds) != 0) {
-				printf("bcrypt_pbkdf failed\n");
-				goto done;
-			}
-		} else {
-			printf("unknown KDF type %u\n", kdfhint->generic.type);
+		if (pkcs5_pbkdf2(passphrase, strlen(passphrase), kdfhint->salt,
+		    sizeof(kdfhint->salt), kdfinfo.maskkey,
+		    sizeof(kdfinfo.maskkey), kdfhint->rounds) != 0) {
+			printf("pbkdf2 failed\n");
 			goto done;
 		}
 	}

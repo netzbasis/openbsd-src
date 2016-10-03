@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.2 2016/09/19 11:22:39 kettenis Exp $
+# $OpenBSD: Makefile,v 1.1 2016/09/04 12:48:33 patrick Exp $
 
 HDRDIR=		${.CURDIR}/include
 SRCDIR=		${.CURDIR}/src
@@ -41,7 +41,7 @@ SRCS+=		algorithm.cpp\
 
 CPPFLAGS+=	-DLIBCXXABI -I${HDRDIR} \
 		-DLIBCXX_BUILDING_LIBCXXABI -I${AHDRDIR} -I${UHDRDIR}
-CXXFLAGS+=	-nostdlib -nostdinc++
+CXXFLAGS+=	-nostdlib
 .if empty(CXXFLAGS:M-std=*)
 CXXFLAGS+=	-std=c++11
 .endif
