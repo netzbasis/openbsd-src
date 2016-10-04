@@ -24,7 +24,8 @@ our %args = (
     },
     server => {
 	listen => { domain => AF_UNSPEC, proto => "tls", addr => "localhost" },
-	sslca => "fake-ca.crt",
+	sslverify => 1,
+	cacrt => "fake-ca.crt",
 	up => qr/IO::Socket::SSL socket accept failed/,
 	down => qr/SSL accept attempt failed error/,
 	exit => 255,
