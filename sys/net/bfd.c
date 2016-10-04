@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.c,v 1.27 2016/09/17 07:35:05 phessler Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.40 2016/09/23 14:06:29 phessler Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -72,8 +72,8 @@ struct bfd_header {
 	uint8_t	bfd_ver_diag;
 	uint8_t	bfd_sta_flags;
 
-	uint8_t	bfd_detect_multi;		/* detection time multiplier */
-	uint8_t	bfd_length;			/* in bytes */
+	uint8_t		bfd_detect_multi;	/* detection time multiplier */
+	uint8_t		bfd_length;		/* in bytes */
 	uint32_t	bfd_my_discriminator;		/* From this system */
 	uint32_t	bfd_your_discriminator;		/* Received */
 	uint32_t	bfd_desired_min_tx_interval;	/* in microseconds */
@@ -136,8 +136,8 @@ struct bfd_auth_header {
 #define BFD_UDP_PORT_ECHO		3785
 
 #define BFD_SECOND			1000000 /* 1,000,000 us == 1 second */
-/* We cannot handle more often than 10ms, so force a minimum */
-#define BFD_MINIMUM			10000	/* 10,000 us == 10 ms */
+/* We currently tick every 10ms, so force a minimum that can be handled */
+#define BFD_MINIMUM			50000	/* 50,000 us == 50 ms */
 
 
 struct pool	 bfd_pool, bfd_pool_neigh, bfd_pool_time;
@@ -195,7 +195,7 @@ bfdset(struct rtentry *rt)
 
 	microtime(bfd->bc_time);
 	bfd_reset(bfd);
-	bfd->bc_neighbor->bn_ldiscr = arc4random();	/* XXX - MUST be globally unique */
+	bfd->bc_neighbor->bn_ldiscr = arc4random();
 
 	if (!timeout_initialized(&bfd->bc_timo_rx))
 		timeout_set(&bfd->bc_timo_rx, bfd_timeout_rx, bfd);
@@ -206,6 +206,7 @@ bfdset(struct rtentry *rt)
 	task_add(bfdtq, &bfd->bc_bfd_task);
 
 	TAILQ_INSERT_TAIL(&bfd_queue, bfd, bc_entry);
+	bfd_set_state(bfd, BFD_STATE_DOWN);
 
 	return (0);
 }
@@ -218,6 +219,8 @@ bfdclear(struct rtentry *rt)
 {
 	struct bfd_config *bfd;
 
+	splsoftassert(IPL_SOFTNET);
+
 	if ((bfd = bfd_lookup(rt)) == NULL)
 		return;
 
@@ -225,10 +228,9 @@ bfdclear(struct rtentry *rt)
 	timeout_del(&bfd->bc_timo_tx);
 	task_del(bfdtq, &bfd->bc_bfd_send_task);
 
-/* XXX - punt this off to a task */
 	TAILQ_REMOVE(&bfd_queue, bfd, bc_entry);
 
-	/* send suicide packets immediately */
+	/* inform our neighbor */
 	if (rtisvalid(bfd->bc_rt))
 		bfd_senddown(bfd);
 
@@ -279,11 +281,15 @@ void
 bfddestroy(void)
 {
 	struct bfd_config	*bfd;
+	int s;
 
-	/* send suicide packets immediately */
+	/* inform our neighbor we are rebooting */
+	s = splsoftnet();
 	while ((bfd = TAILQ_FIRST(&bfd_queue))) {
+		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_FIB_RESET;
 		bfdclear(bfd->bc_rt);
 	}
+	splx(s);
 
 	taskq_destroy(bfdtq);
 	pool_destroy(&bfd_pool_time);
@@ -345,17 +351,21 @@ bfd_send_task(void *arg)
 {
 	struct bfd_config	*bfd = (struct bfd_config *)arg;
 	struct rtentry		*rt = bfd->bc_rt;
+	int s;
 
 	if (ISSET(rt->rt_flags, RTF_UP)) {
 		bfd_send_control(bfd);
 	} else {
 		bfd->bc_error++;
-		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_ADMIN_DOWN;
 		if (bfd->bc_neighbor->bn_lstate > BFD_STATE_DOWN) {
+			bfd->bc_neighbor->bn_ldiag = BFD_DIAG_PATH_DOWN;
 			bfd_reset(bfd);
 			bfd_set_state(bfd, BFD_STATE_DOWN);
 		}
 	}
+s = splsoftnet();
+//rt_bfdmsg(bfd);
+splx(s);
 
 	/* re-add 70%-90% jitter to our transmits, rfc 5880 6.8.7 */
 	timeout_add_usec(&bfd->bc_timo_tx,
@@ -584,12 +594,11 @@ bfd_timeout_rx(void *v)
 	struct bfd_config *bfd = v;
 
 
-	if ((bfd->bc_neighbor->bn_lstate > BFD_STATE_DOWN) &&
-	    (++bfd->bc_error >= bfd->bc_neighbor->bn_mult)) {
+	if (++bfd->bc_error >= bfd->bc_neighbor->bn_mult) {
 		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_EXPIRED;
-printf("%s: failed, bfd->bc_error %u\n", __func__, bfd->bc_error);
 		bfd_reset(bfd);
-		bfd_set_state(bfd, BFD_STATE_DOWN);
+		if (bfd->bc_state > BFD_STATE_DOWN)
+			bfd_set_state(bfd, BFD_STATE_DOWN);
 
 		return;
 	}
@@ -607,10 +616,10 @@ bfd_senddown(struct bfd_config *bfd)
 	if (bfd->bc_state < BFD_STATE_INIT)
 		return;
 
-	bfd->bc_neighbor->bn_lstate = BFD_STATE_ADMINDOWN;
 	if (bfd->bc_neighbor->bn_ldiag == 0)
 		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_ADMIN_DOWN;
 
+	bfd_set_state(bfd, BFD_STATE_ADMINDOWN);
 	bfd_send_control(bfd);
 
 	return;
@@ -622,9 +631,6 @@ bfd_senddown(struct bfd_config *bfd)
 void
 bfd_reset(struct bfd_config *bfd)
 {
-if (bfd->bc_error)
-printf("%s: error=%u\n", __func__, bfd->bc_error);
-
 	/* Clean */
 	bfd->bc_neighbor->bn_rdiscr = 0;
 	bfd->bc_neighbor->bn_demand = 0;
@@ -638,20 +644,20 @@ printf("%s: error=%u\n", __func__, bfd->bc_error);
 	bfd->bc_mode = BFD_MODE_ASYNC;
 	bfd->bc_state = BFD_STATE_DOWN;
 
-	/* Set RFC mandated values */
+	/* rfc5880 6.8.18 */
 	bfd->bc_neighbor->bn_lstate = BFD_STATE_DOWN;
 	bfd->bc_neighbor->bn_rstate = BFD_STATE_DOWN;
 	bfd->bc_neighbor->bn_mintx = BFD_SECOND;
-	bfd->bc_neighbor->bn_req_minrx = BFD_SECOND; /* rfc5880 6.8.18 */
+	bfd->bc_neighbor->bn_req_minrx = BFD_SECOND;
 	bfd->bc_neighbor->bn_rminrx = 1;
-	bfd->bc_neighbor->bn_mult = 3; /* XXX - MUST be nonzero */
+	bfd->bc_neighbor->bn_mult = 3;
 
 	bfd->bc_mintx = bfd->bc_neighbor->bn_mintx;
 	bfd->bc_minrx = bfd->bc_neighbor->bn_rminrx;
 	bfd->bc_multiplier = bfd->bc_neighbor->bn_mult;
+	bfd->bc_minecho = 0;	//XXX - BFD_SECOND;
 
 	bfd_set_uptime(bfd);
-printf("%s: localdiscr: %u\n", __func__, bfd->bc_neighbor->bn_ldiscr);
 
 	return;
 }
@@ -679,25 +685,25 @@ bfd_input(struct bfd_config *bfd, struct mbuf *m)
 	state = BFD_STATE(peer->bfd_sta_flags);
 	flags = BFD_FLAGS(peer->bfd_sta_flags);
 
-	if (peer->bfd_length + offp != mp->m_len) {
-		printf("%s: bad len %d != %d\n", __func__, peer->bfd_length + offp, mp->m_len);
+	if (peer->bfd_length + offp > mp->m_len) {
+		printf("%s: bad len %d != %d\n", __func__,
+		    peer->bfd_length + offp, mp->m_len);
 		goto discard;
 	}
 
 	if (peer->bfd_detect_multi == 0)
 		goto discard;
-	if  (ntohl(peer->bfd_my_discriminator) == 0)
+	if (flags & BFD_FLAG_M)
+		goto discard;
+	if (ntohl(peer->bfd_my_discriminator) == 0)
 		goto discard;
 	if (ntohl(peer->bfd_your_discriminator) == 0 &&
 	    BFD_STATE(peer->bfd_sta_flags) > BFD_STATE_DOWN)
 		goto discard;
 	if ((ntohl(peer->bfd_your_discriminator) != 0) &&
-	    (ntohl(peer->bfd_your_discriminator) != bfd->bc_neighbor->bn_ldiscr)) {
+	    (ntohl(peer->bfd_your_discriminator) !=
+	    bfd->bc_neighbor->bn_ldiscr)) {
 		bfd->bc_error++;
-printf("%s: peer your discr %u != local %u\n",
-    __func__, ntohl(peer->bfd_your_discriminator), bfd->bc_neighbor->bn_ldiscr);
-		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_EXPIRED;
-		bfd_senddown(bfd);
 		goto discard;
 	}
 
@@ -718,27 +724,23 @@ printf("%s: peer your discr %u != local %u\n",
 #endif
 	}
 
-	if ((bfd->bc_neighbor->bn_rdiscr == 0) &&
-	    (ntohl(peer->bfd_my_discriminator) != 0))
-		bfd->bc_neighbor->bn_rdiscr = ntohl(peer->bfd_my_discriminator);
-
-	if (bfd->bc_neighbor->bn_rdiscr != ntohl(peer->bfd_my_discriminator))
-		goto discard;
-
+	bfd->bc_neighbor->bn_rdiscr = ntohl(peer->bfd_my_discriminator);
 	bfd->bc_neighbor->bn_rstate = state;
+	bfd->bc_neighbor->bn_rdemand = (flags & BFD_FLAG_D);
+	bfd->bc_poll = (flags & BFD_FLAG_F);
 
-	bfd->bc_neighbor->bn_rminrx =
-	    ntohl(peer->bfd_required_min_rx_interval);
-	/* Local change to the algorithm, we don't accept below 10ms */
-	if (bfd->bc_neighbor->bn_req_minrx < BFD_MINIMUM)
+	/* Local change to the algorithm, we don't accept below 50ms */
+	if (ntohl(peer->bfd_required_min_rx_interval) < BFD_MINIMUM)
 		goto discard;
 	/*
 	 * Local change to the algorithm, we can't use larger than signed
 	 * 32bits for a timeout.
 	 * That is Too Long(tm) anyways.
 	 */
-	if (bfd->bc_neighbor->bn_req_minrx > INT32_MAX)
+	if (ntohl(peer->bfd_required_min_rx_interval) > INT32_MAX)
 		goto discard;
+	bfd->bc_neighbor->bn_rminrx =
+	    ntohl(peer->bfd_required_min_rx_interval);
 	bfd->bc_minrx = bfd->bc_neighbor->bn_req_minrx;
 
 	bfd->bc_neighbor->bn_mintx =
@@ -753,33 +755,23 @@ printf("%s: peer your discr %u != local %u\n",
 	bfd->bc_mintx = max(bfd->bc_neighbor->bn_rminrx,
 	    bfd->bc_neighbor->bn_mintx);
 
+	/* According the to pseudo-code RFC 5880 page 34 */
+	if (bfd->bc_state == BFD_STATE_ADMINDOWN)
+		goto discard;
 	if (bfd->bc_neighbor->bn_rstate == BFD_STATE_ADMINDOWN) {
 		if (bfd->bc_neighbor->bn_lstate != BFD_STATE_DOWN) {
 			bfd->bc_neighbor->bn_ldiag = BFD_DIAG_NEIGHBOR_SIGDOWN;
-			bfd->bc_neighbor->bn_lstate = BFD_STATE_DOWN;
 			bfd_set_state(bfd, BFD_STATE_DOWN);
 		}
-		goto discard;
-	}
-
-	/* According the to pseudo-code RFC 5880 page 34 */
-	if (bfd->bc_neighbor->bn_lstate == BFD_STATE_DOWN) {
-printf("%s: BFD_STATE_DOWN remote 0x%x  ", __func__, ntohl(peer->bfd_my_discriminator));
-printf("local 0x%x\n", ntohl(peer->bfd_your_discriminator));
-bfd_debug(bfd);
+	} else if (bfd->bc_neighbor->bn_lstate == BFD_STATE_DOWN) {
 		if (bfd->bc_neighbor->bn_rstate == BFD_STATE_DOWN)
-			bfd->bc_neighbor->bn_lstate = BFD_STATE_INIT;
+			bfd_set_state(bfd, BFD_STATE_INIT);
 		else if (bfd->bc_neighbor->bn_rstate == BFD_STATE_INIT) {
-printf("%s: set BFD_STATE_UP\n", __func__);
 			bfd->bc_neighbor->bn_ldiag = 0;
 			bfd_set_state(bfd, BFD_STATE_UP);
 		}
 	} else if (bfd->bc_neighbor->bn_lstate == BFD_STATE_INIT) {
-printf("%s: BFD_STATE_INIT remote 0x%x  ", __func__, ntohl(peer->bfd_my_discriminator));
-printf("local 0x%x\n", ntohl(peer->bfd_your_discriminator));
-
 		if (bfd->bc_neighbor->bn_rstate >= BFD_STATE_INIT) {
-printf("%s: set BFD_STATE_UP\n", __func__);
 			bfd->bc_neighbor->bn_ldiag = 0;
 			bfd_set_state(bfd, BFD_STATE_UP);
 		} else {
@@ -787,7 +779,6 @@ printf("%s: set BFD_STATE_UP\n", __func__);
 		}
 	} else {
 		if (bfd->bc_neighbor->bn_rstate == BFD_STATE_DOWN) {
-printf("%s: set BFD_STATE_DOWN\n", __func__);
 			bfd->bc_neighbor->bn_ldiag = BFD_DIAG_NEIGHBOR_SIGDOWN;
 			bfd_set_state(bfd, BFD_STATE_DOWN);
 			goto discard;
@@ -803,9 +794,9 @@ printf("%s: set BFD_STATE_DOWN\n", __func__);
 	bfd->bc_error = 0;
 
  discard:
+	bfd->bc_neighbor->bn_rdiag = diag;
 	m_free(m);
 
-	//XXX task_add(bfdtq, &bfd->bc_bfd_send_task);	
 	timeout_add_usec(&bfd->bc_timo_rx, bfd->bc_minrx);
 
 	return;
@@ -816,7 +807,7 @@ bfd_set_state(struct bfd_config *bfd, int state)
 {
 	struct ifnet	*ifp;
 	struct rtentry	*rt = bfd->bc_rt;
-	int		 new_state;
+	int s;
 
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp == NULL) {
@@ -827,34 +818,38 @@ bfd_set_state(struct bfd_config *bfd, int state)
 		return;
 	}
 
-	bfd_set_uptime(bfd);
-
-	bfd->bc_state = bfd->bc_neighbor->bn_lstate = state;
+	bfd->bc_neighbor->bn_lstate = state;
+	if (state > BFD_STATE_ADMINDOWN)
+		bfd->bc_neighbor->bn_ldiag = 0;
 
 	if (!rtisvalid(rt))
 		bfd->bc_neighbor->bn_lstate = BFD_STATE_ADMINDOWN;
 
-	switch (bfd->bc_neighbor->bn_lstate) {
+	switch (state) {
 	case BFD_STATE_ADMINDOWN:
-		new_state = RTM_BFD;
-//		rt->rt_flags &= ~RTF_BFDUP;
-//		rt->rt_flags |= RTF_BFDDOWN;
-		break;
+		bfd->bc_laststate = bfd->bc_state;
+	/* FALLTHROUGH */
 	case BFD_STATE_DOWN:
-		new_state = RTM_BFD;
-//		rt->rt_flags &= ~RTF_BFDUP;
-//		rt->rt_flags |= RTF_BFDDOWN;
+		if (bfd->bc_laststate == BFD_STATE_UP) {
+			bfd->bc_laststate = bfd->bc_state;
+			bfd_set_uptime(bfd);
+		}
+		break;
+	case BFD_STATE_INIT:
+		bfd->bc_laststate = bfd->bc_state;
 		break;
 	case BFD_STATE_UP:
-		new_state = RTM_BFD;
-//		rt->rt_flags &= ~RTF_BFDDOWN;
-//		rt->rt_flags |= RTF_BFDUP;
+		bfd->bc_laststate =
+		    bfd->bc_state == BFD_STATE_INIT ?
+		    bfd->bc_laststate : bfd->bc_state;
+		bfd_set_uptime(bfd);
 		break;
 	}
 
-printf("%s: BFD set linkstate %u (oldstate: %u)\n", ifp->if_xname, new_state, state);
-	rt_sendmsg(rt, new_state, ifp->if_rdomain);
-
+	bfd->bc_state = state;
+	s = splsoftnet();
+//	rt_bfdmsg(bfd);
+	splx(s);
 	if_put(ifp);
 
 	return;
@@ -867,7 +862,6 @@ bfd_set_uptime(struct bfd_config *bfd)
 
 	microtime(&tv);
 	bfd->bc_lastuptime = tv.tv_sec - bfd->bc_time->tv_sec;
-	bfd->bc_laststate = bfd->bc_state;
 	memcpy(bfd->bc_time, &tv, sizeof(tv));
 }
 
@@ -885,10 +879,10 @@ bfd_send_control(void *x)
 	m->m_len = m->m_pkthdr.len = sizeof(*bfd);
 	h = mtod(m, struct bfd_header *);
 
-	memset(bfd, 0xff, sizeof(*h));	/* canary */
+	memset(h, 0xff, sizeof(*h));	/* canary */
 
 	h->bfd_ver_diag = ((BFD_VERSION << 5) | (bfd->bc_neighbor->bn_ldiag));
-	h->bfd_sta_flags = (bfd->bc_neighbor->bn_lstate << 6);
+	h->bfd_sta_flags = (bfd->bc_state << 6);
 	h->bfd_detect_multi = bfd->bc_neighbor->bn_mult;
 	h->bfd_length = BFD_HDRLEN;
 	h->bfd_my_discriminator = htonl(bfd->bc_neighbor->bn_ldiscr);
@@ -898,8 +892,7 @@ bfd_send_control(void *x)
 	    htonl(bfd->bc_neighbor->bn_mintx);
 	h->bfd_required_min_rx_interval =
 	    htonl(bfd->bc_neighbor->bn_req_minrx);
-	h->bfd_required_min_echo_interval =
-	    htonl(bfd->bc_neighbor->bn_rminrx);
+	h->bfd_required_min_echo_interval = htonl(bfd->bc_minecho);
 
 	error = bfd_send(bfd, m);
 
@@ -915,12 +908,12 @@ bfd_send(struct bfd_config *bfd, struct mbuf *m)
 {
 	struct rtentry *rt = bfd->bc_rt;
 
-	if (!ISSET(rt->rt_flags, RTF_UP)) {
+	if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_UP)) {
 		m_freem(m);
 		return (EHOSTDOWN);
 	}
 
-	return (sosend(bfd->bc_sosend, NULL, NULL, m, NULL, MSG_DONTWAIT));
+	return(sosend(bfd->bc_sosend, NULL, NULL, m, NULL, MSG_DONTWAIT));
 }
 
 /*
