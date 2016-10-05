@@ -700,7 +700,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 	sc->sc_revents = (u_long *)((caddr_t)sc->sc_events + (PAGE_SIZE >> 1));
 
 	sc->sc_monitor[0] = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (sc->sc_monitor == NULL) {
+	if (sc->sc_monitor[0] == NULL) {
 		printf(": failed to allocate monitor page 1\n");
 		goto errout;
 	}
@@ -710,7 +710,7 @@ hv_vmbus_connect(struct hv_softc *sc)
 	}
 
 	sc->sc_monitor[1] = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (sc->sc_monitor == NULL) {
+	if (sc->sc_monitor[1] == NULL) {
 		printf(": failed to allocate monitor page 2\n");
 		goto errout;
 	}
@@ -1917,4 +1917,12 @@ hv_attach_devices(struct hv_softc *sc)
 		config_found((struct device *)sc, &dv->dv_aa, hv_attach_print);
 	}
 	return (0);
+}
+
+void
+hv_evcount_attach(struct hv_channel *ch, const char *name)
+{
+	struct hv_softc *sc = ch->ch_sc;
+
+	evcount_attach(&ch->ch_evcnt, name, &sc->sc_idtvec);
 }
