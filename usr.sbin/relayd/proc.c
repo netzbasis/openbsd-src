@@ -1,7 +1,7 @@
-/*	$OpenBSD: proc.c,v 1.33 2016/09/28 12:16:44 reyk Exp $	*/
+/*	$OpenBSD: proc.c,v 1.36 2016/10/05 17:31:28 rzalamena Exp $	*/
 
 /*
- * Copyright (c) 2010 - 2014 Reyk Floeter <reyk@openbsd.org>
+ * Copyright (c) 2010 - 2016 Reyk Floeter <reyk@openbsd.org>
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -130,8 +131,17 @@ proc_exec(struct privsep *ps, struct privsep_proc *procs, unsigned int nproc,
 				fatal("%s: fork", __func__);
 				break;
 			case 0:
+				/* First create a new session */
+				if (setsid() == -1)
+					fatal("setsid");
+
 				/* Prepare parent socket. */
-				dup2(fd, PROC_PARENT_SOCK_FILENO);
+				if (fd != PROC_PARENT_SOCK_FILENO) {
+					if (dup2(fd, PROC_PARENT_SOCK_FILENO)
+					    == -1)
+						fatal("dup2");
+				} else if (fcntl(fd, F_SETFD, 0) == -1)
+					fatal("fcntl");
 
 				execvp(argv[0], nargv);
 				fatal("%s: execvp", __func__);
@@ -498,7 +508,7 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
     struct privsep_proc *procs, unsigned int nproc,
     void (*run)(struct privsep *, struct privsep_proc *, void *), void *arg)
 {
-	struct passwd		*pw = ps->ps_pw;
+	struct passwd		*pw;
 	const char		*root;
 	struct control_sock	*rcs;
 
@@ -517,6 +527,12 @@ proc_run(struct privsep *ps, struct privsep_proc *p,
 			if (control_init(ps, rcs) == -1)
 				fatalx(__func__);
 	}
+
+	/* Use non-standard user */
+	if (p->p_pw != NULL)
+		pw = p->p_pw;
+	else
+		pw = ps->ps_pw;
 
 	/* Change root directory */
 	if (p->p_chroot != NULL)

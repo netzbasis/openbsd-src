@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.435 2016/10/04 16:54:31 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.437 2016/10/05 21:39:57 deraadt Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -232,6 +232,12 @@ distrib-dirs:
 	if [ ! -d ${DESTDIR}/usr/src ]; then \
 		${INSTALL} -d -o root -g wsrc -m 775 ${DESTDIR}/usr/src; \
 	fi
+	if [ ! -d ${DESTDIR}/usr/obj ]; then \
+		${INSTALL} -d -o root -g wsrc -m 775 ${DESTDIR}/usr/obj; \
+	fi
+	if [ ! -d ${DESTDIR}/usr/xobj ]; then \
+		${INSTALL} -d -o root -g wsrc -m 775 ${DESTDIR}/usr/xobj; \
+	fi
 	cd ${DESTDIR}/; ln -fhs usr/src/sys sys
 	chown -h root:wheel ${DESTDIR}/sys
 
@@ -240,6 +246,15 @@ release:
 	@echo setenv RELEASEDIR before building a release.
 	@false
 .else
+
+release:
+	@if [[ `id -u` -ne 0 ]]; then \
+		echo 'must be called by root' 2>&1; \
+		false; \
+	fi
+	su ${BUILDUSER} -c 'exec ${MAKE} release-sets'
+	${MAKE} distrib
+	su ${BUILDUSER} -c 'exec ${MAKE} sha'
 
 release-sets:
 	cd ${RELEASEDIR} && rm -f SHA256
@@ -251,9 +266,6 @@ sha:
 	    cksum -a sha256 BUILDINFO INSTALL.`arch -ks` \
 	    ${ALL_KERNELS} ${MDEXT} ${MISETS} | sort > SHA256
 
-release: sha
-sha: distrib
-distrib: release-sets kernels
 release-sets: distribution kernels
 
 .endif

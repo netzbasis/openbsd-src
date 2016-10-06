@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.94 2016/09/29 08:50:43 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.96 2016/10/05 22:00:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -389,43 +389,23 @@ screen_write_cnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
 
 /* Copy from another screen. */
 void
-screen_write_copy(struct screen_write_ctx *ctx,
-    struct screen *src, u_int px, u_int py, u_int nx, u_int ny)
+screen_write_copy(struct screen_write_ctx *ctx, struct screen *src, u_int px,
+    u_int py, u_int nx, u_int ny)
 {
 	struct screen		*s = ctx->s;
 	struct grid		*gd = src->grid;
-	struct grid_line	*gl;
 	struct grid_cell	 gc;
-	u_int		 	 xx, yy, cx, cy, ax, bx;
+	u_int		 	 xx, yy, cx, cy;
 
 	cx = s->cx;
 	cy = s->cy;
-	for (yy = py; yy < py + ny; yy++) {
-		gl = &gd->linedata[yy];
-		if (yy < gd->hsize + gd->sy) {
-			/*
-			 * Find start and end position and copy between
-			 * them. Limit to the real end of the line then use a
-			 * clear EOL only if copying to the end, otherwise
-			 * could overwrite whatever is there already.
-			 */
-			if (px > gl->cellsize)
-				ax = gl->cellsize;
-			else
-				ax = px;
-			if (px + nx == gd->sx && px + nx > gl->cellsize)
-				bx = gl->cellsize;
-			else
-				bx = px + nx;
 
-			for (xx = ax; xx < bx; xx++) {
-				grid_get_cell(gd, xx, yy, &gc);
-				screen_write_cell(ctx, &gc);
-			}
-			if (px + nx == gd->sx && px + nx > gl->cellsize)
-				screen_write_clearendofline(ctx);
-		} else
-			screen_write_clearline(ctx);
+	for (yy = py; yy < py + ny; yy++) {
+		for (xx = px; xx < px + nx; xx++) {
+			grid_get_cell(gd, xx, yy, &gc);
+			screen_write_cell(ctx, &gc);
+		}
+
 		cy++;
 		screen_write_cursormove(ctx, cx, cy);
 	}
@@ -1111,7 +1091,7 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 			gce = &gl->celldata[s->cx];
 			if (gce->flags & GRID_FLAG_EXTENDED)
 				skip = 0;
-			else if (gc->flags != (gce->flags & ~GRID_FLAG_EXTENDED))
+			else if (gc->flags != gce->flags)
 				skip = 0;
 			else if (gc->attr != gce->data.attr)
 				skip = 0;
@@ -1119,7 +1099,9 @@ screen_write_cell(struct screen_write_ctx *ctx, const struct grid_cell *gc)
 				skip = 0;
 			else if (gc->bg != gce->data.bg)
 				skip = 0;
-			else if (gc->data.width != 1 || gce->data.data != gc->data.data[0])
+			else if (gc->data.width != 1)
+				skip = 0;
+			else if (gce->data.data != gc->data.data[0])
 				skip = 0;
 		}
 	}
@@ -1267,10 +1249,12 @@ screen_write_overwrite(struct screen_write_ctx *ctx, struct grid_cell *gc,
 	}
 
 	/*
-	 * Overwrite any padding cells that belong to any UTF-8 characters we'll be
-	 * overwriting with the current character.
+	 * Overwrite any padding cells that belong to any UTF-8 characters
+	 * we'll be overwriting with the current character.
 	 */
-	if (width != 1 || gc->data.width != 1 || gc->flags & GRID_FLAG_PADDING) {
+	if (width != 1 ||
+	    gc->data.width != 1 ||
+	    gc->flags & GRID_FLAG_PADDING) {
 		xx = s->cx + width - 1;
 		while (++xx < screen_size_x(s)) {
 			grid_view_get_cell(gd, xx, s->cy, &tmp_gc);

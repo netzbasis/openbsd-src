@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_machdep.c,v 1.40 2016/09/24 13:43:25 kettenis Exp $ */
+/*	$OpenBSD: armv7_machdep.c,v 1.42 2016/10/05 07:44:24 patrick Exp $ */
 /*	$NetBSD: lubbock_machdep.c,v 1.2 2003/07/15 00:25:06 lukem Exp $ */
 
 /*
@@ -199,7 +199,7 @@ int   safepri = 0;
 /* Prototypes */
 
 char	bootargs[MAX_BOOT_STRING];
-int	bootstrap_bs_map(void *, bus_addr_t, bus_size_t, int,
+int	bootstrap_bs_map(void *, uint64_t, bus_size_t, int,
     bus_space_handle_t *);
 void	process_kernel_args(char *);
 void	consinit(void);
@@ -217,6 +217,8 @@ int comcnspeed = CONSPEED;
 int comcnmode = CONMODE;
 
 int stdout_node = 0;
+
+void (*cpuresetfn)(void);
 
 /*
  * void boot(int howto, char *bootstr)
@@ -243,7 +245,8 @@ boot(int howto)
 		}
 		printf("rebooting...\n");
 		delay(500000);
-		platform_watchdog_reset();
+		if (cpuresetfn)
+			(*cpuresetfn)();
 		printf("reboot failed; spinning\n");
 		while(1);
 		/*NOTREACHED*/
@@ -290,7 +293,8 @@ boot(int howto)
 
 	printf("rebooting...\n");
 	delay(500000);
-	platform_watchdog_reset();
+	if (cpuresetfn)
+		(*cpuresetfn)();
 	printf("reboot failed; spinning\n");
 	for (;;) ;
 	/* NOTREACHED */
@@ -318,7 +322,7 @@ read_ttb(void)
 static vaddr_t section_free = 0xfd000000; /* XXX - huh */
 
 int
-bootstrap_bs_map(void *t, bus_addr_t bpa, bus_size_t size,
+bootstrap_bs_map(void *t, uint64_t bpa, bus_size_t size,
     int flags, bus_space_handle_t *bshp)
 {
 	u_long startpa, pa, endpa;
@@ -393,7 +397,7 @@ initarm(void *arg0, void *arg1, void *arg2, paddr_t loadaddr)
 
 	/* early bus_space_map support */
 	struct bus_space tmp_bs_tag;
-	int	(*map_func_save)(void *, bus_addr_t, bus_size_t, int,
+	int	(*map_func_save)(void *, uint64_t, bus_size_t, int,
 	    bus_space_handle_t *);
 
 	if (arg0)
