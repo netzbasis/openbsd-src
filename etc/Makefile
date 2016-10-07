@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.437 2016/10/05 21:39:57 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.440 2016/10/06 20:20:41 reyk Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -54,7 +54,7 @@ RCDAEMONS=amd apmd bgpd bootparamd cron dhcpd dhcrelay dvmrpd eigrpd ftpd \
 	lpd mopd mountd mrouted nfsd npppd nsd ntpd ospf6d ospfd \
 	pflogd portmap radiusd rarpd rbootd rebound relayd ripd route6d \
 	rtadvd sasyncd sensorsd slowcgi smtpd sndiod snmpd spamd \
-	spamlogd sshd statd syslogd tftpd tftpproxy unbound \
+	spamlogd sshd statd switchd syslogd tftpd tftpproxy unbound \
 	vmd watchdogd wsmoused xdm ypbind ypldap ypserv
 
 MISETS=	base${OSrev}.tgz comp${OSrev}.tgz man${OSrev}.tgz game${OSrev}.tgz
@@ -249,24 +249,24 @@ release:
 
 release:
 	@if [[ `id -u` -ne 0 ]]; then \
-		echo 'must be called by root' 2>&1; \
+		echo $@ must be called by root >&2; \
 		false; \
 	fi
-	su ${BUILDUSER} -c 'exec ${MAKE} release-sets'
+	${MAKE} release-sets
 	${MAKE} distrib
 	su ${BUILDUSER} -c 'exec ${MAKE} sha'
 
 release-sets:
+	su ${BUILDUSER} -c 'exec ${MAKE} distribution'
+	${MAKE} kernels
 	cd ${RELEASEDIR} && rm -f SHA256
-	cd ../distrib/sets && exec sh maketars ${OSrev}
+	cd ../distrib/sets && exec su ${BUILDUSER} -c 'exec sh maketars ${OSrev}'
 
 sha:
 	-cd ${RELEASEDIR}; \
 	    date -u "+Build date: %s - %+" > BUILDINFO; \
 	    cksum -a sha256 BUILDINFO INSTALL.`arch -ks` \
 	    ${ALL_KERNELS} ${MDEXT} ${MISETS} | sort > SHA256
-
-release-sets: distribution kernels
 
 .endif
 

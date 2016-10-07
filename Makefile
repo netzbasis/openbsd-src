@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.127 2016/10/05 18:00:41 natano Exp $
+#	$OpenBSD: Makefile,v 1.129 2016/10/06 18:56:17 natano Exp $
 
 #
 # For more information on building in tricky environments, please see
@@ -50,7 +50,9 @@ regression-tests:
 	@cd ${.CURDIR}/regress && ${MAKE} depend && exec ${MAKE} regress
 
 includes:
-	cd ${.CURDIR}/include && ${MAKE} prereq && exec ${MAKE} includes
+	cd ${.CURDIR}/include && \
+		su ${BUILDUSER} -c 'exec ${MAKE} prereq' && \
+		exec ${MAKE} includes
 
 beforeinstall:
 	cd ${.CURDIR}/etc && exec ${MAKE} DESTDIR=${DESTDIR} distrib-dirs
@@ -73,14 +75,12 @@ build:
 	cp /dev/null ${GLOBAL_AUTOCONF_CACHE}
 .endif
 	@if [[ `id -u` -ne 0 ]]; then \
-		echo 'must be called by root' 2>&1; \
+		echo $@ must be called by root >&2; \
 		false; \
 	fi
 	cd ${.CURDIR}/share/mk && exec ${MAKE} install
-	cd ${.CURDIR}/include && \
-	    su ${BUILDUSER} -c 'exec ${MAKE} prereq' && \
-	    exec ${MAKE} includes
-	${MAKE} cleandir
+	exec ${MAKE} includes
+	exec ${MAKE} cleandir
 	cd ${.CURDIR}/lib && \
 	    su ${BUILDUSER} -c '${MAKE} depend && exec ${MAKE}' && \
 	    NOMAN=1 exec ${MAKE} install
