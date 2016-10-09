@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_fcgi.c,v 1.71 2016/09/01 11:13:18 florian Exp $	*/
+/*	$OpenBSD: server_fcgi.c,v 1.73 2016/10/07 07:37:29 patrick Exp $	*/
 
 /*
  * Copyright (c) 2014 Florian Obser <florian@openbsd.org>
@@ -760,7 +760,7 @@ server_fcgi_getheaders(struct client *clt)
 {
 	struct http_descriptor	*resp = clt->clt_descresp;
 	struct evbuffer		*evb = clt->clt_srvevb;
-	int			 code;
+	int			 code, ret;
 	char			*line, *key, *value;
 	const char		*errstr;
 
@@ -769,12 +769,9 @@ server_fcgi_getheaders(struct client *clt)
 
 		if ((value = strchr(key, ':')) == NULL)
 			break;
-		if (*value == ':') {
-			*value++ = '\0';
-			value += strspn(value, " \t");
-		} else {
-			*value++ = '\0';
-		}
+
+		*value++ = '\0';
+		value += strspn(value, " \t");
 
 		DPRINTF("%s: %s: %s", __func__, key, value);
 
@@ -791,5 +788,8 @@ server_fcgi_getheaders(struct client *clt)
 		free(line);
 	}
 
-	return (line != NULL && *line == '\0');
+	ret = (line != NULL && *line == '\0');
+
+	free(line);
+	return ret;
 }

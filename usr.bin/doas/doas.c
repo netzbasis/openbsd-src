@@ -1,4 +1,4 @@
-/* $OpenBSD: doas.c,v 1.65 2016/09/15 00:58:23 deraadt Exp $ */
+/* $OpenBSD: doas.c,v 1.68 2016/10/05 23:28:28 tb Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -42,18 +42,6 @@ usage(void)
 	fprintf(stderr, "usage: doas [-Lns] [-a style] [-C config] [-u user]"
 	    " command [args]\n");
 	exit(1);
-}
-
-size_t
-arraylen(const char **arr)
-{
-	size_t cnt = 0;
-
-	while (*arr) {
-		cnt++;
-		arr++;
-	}
-	return cnt;
 }
 
 static int
@@ -161,6 +149,7 @@ static void
 parseconfig(const char *filename, int checkperms)
 {
 	extern FILE *yyfp;
+	extern int yyparse(void);
 	struct stat sb;
 
 	yyfp = fopen(filename, "r");

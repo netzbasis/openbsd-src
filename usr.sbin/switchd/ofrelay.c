@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofrelay.c,v 1.2 2016/09/30 12:33:43 reyk Exp $	*/
+/*	$OpenBSD: ofrelay.c,v 1.5 2016/10/07 08:31:08 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2016 Reyk Floeter <reyk@openbsd.org>
@@ -99,6 +99,7 @@ ofrelay_close(struct switch_connection *con)
 	TAILQ_REMOVE(&sc->sc_conns, con, con_entry);
 	ofrelay_sessions--;
 
+	ofp_multipart_clear(con);
 	switch_remove(con->con_sc, con->con_switch);
 	msgbuf_clear(&con->con_wbuf);
 	ibuf_release(con->con_ibuf);
@@ -155,13 +156,14 @@ ofrelay_event(int fd, short event, void *arg)
 			goto fail;
 		}
 
+		DPRINTF("%s: connection %u.%u read %zd bytes", __func__,
+		    con->con_id, con->con_instance, rlen);
+
 		if ((len = ofrelay_input_close(con, rbuf, rlen)) == -1) {
 			error = "close input";
 			goto fail;
-		} else if (len == 0) {
-			ofrelay_close(con);
-			return;
-		}
+		} else if (rlen == 0)
+			error = "done";
 
 		do {
 			rlen = ofrelay_input(fd, event, arg);
@@ -212,8 +214,11 @@ ofrelay_input(int fd, short event, void *arg)
 
 	if ((len = ofrelay_input_close(con, ibuf, rlen)) == -1)
 		return (-1);
-	else if (len == 0)
+	else if (rlen == 0) {
+		if (ibuf_left(ibuf))
+			return (0);
 		goto done;
+	}
 
 	/* After we verified the openflow header, set the size accordingly */
 	if (oh != NULL && (hlen + rlen) == sizeof(*oh)) {
@@ -473,6 +478,7 @@ ofrelay_attach(struct switch_server *srv, int s, struct sockaddr *sa)
 	con->con_id = ++ofrelay_conid;
 	con->con_instance = ps->ps_instance + 1;
 	con->con_srv = srv;
+	SLIST_INIT(&con->con_mmlist);
 
 	memcpy(&con->con_peer, sa, sa->sa_len);
 	con->con_port = htons(socket_getport(&con->con_peer));

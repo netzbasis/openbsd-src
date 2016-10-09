@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sysctl.c,v 1.314 2016/10/07 19:04:44 tedu Exp $	*/
+/*	$OpenBSD: kern_sysctl.c,v 1.316 2016/10/08 21:31:56 tedu Exp $	*/
 /*	$NetBSD: kern_sysctl.c,v 1.17 1996/05/20 17:49:05 mrg Exp $	*/
 
 /*-
@@ -608,10 +608,10 @@ kern_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 #endif
 	case KERN_DNSJACKPORT: {
 		extern uint16_t dnsjackport;
-		int port;
+		int port = dnsjackport;
 		if ((error = sysctl_int(oldp, oldlenp, newp, newlen, &port)))
 			return error;
-		if (port < 0 || port > SHRT_MAX)
+		if (port < 0 || port > USHRT_MAX)
 			return EINVAL;
 		dnsjackport = port;
 		return 0;

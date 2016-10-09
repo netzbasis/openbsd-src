@@ -1,4 +1,4 @@
-/*	$Id: netproc.c,v 1.8 2016/09/13 17:13:37 deraadt Exp $ */
+/*	$Id: netproc.c,v 1.10 2016/10/04 15:49:42 jsing Exp $ */
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -559,7 +559,7 @@ dofullchain(struct conn *c, const char *addr)
 }
 
 /*
- * Here we communicate with the letsencrypt server.
+ * Here we communicate with the ACME server.
  * For this, we'll need the certificate we want to upload and our
  * account key information.
  */
@@ -578,6 +578,16 @@ netproc(int kfd, int afd, int Cfd, int cfd, int dfd, int rfd,
 
 	memset(&paths, 0, sizeof(struct capaths));
 	memset(&c, 0, sizeof(struct conn));
+
+	if (pledge("stdio inet rpath", NULL) == -1) {
+		warn("pledge");
+		goto out;
+	}
+
+	if (http_init() == -1) {
+		warn("http_init");
+		goto out;
+	}
 
 	if (pledge("stdio inet", NULL) == -1) {
 		warn("pledge");

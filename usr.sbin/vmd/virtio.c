@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.19 2016/09/03 11:35:24 nayden Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.21 2016/10/05 17:30:13 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -813,10 +813,8 @@ vionet_enq_rx(struct vionet_dev *dev, char *pkt, ssize_t sz, int *spc)
 
 	/* Compute offsets in ring of descriptors, avail ring, and used ring */
 	desc = (struct vring_desc *)(vr);
-	avail = (struct vring_avail *)(vr +
-	    dev->vq[0].vq_availoffset);
-	used = (struct vring_used *)(vr +
-	    dev->vq[0].vq_usedoffset);
+	avail = (struct vring_avail *)(vr + dev->vq[0].vq_availoffset);
+	used = (struct vring_used *)(vr + dev->vq[0].vq_usedoffset);
 
 	idx = dev->vq[0].last_avail & VIONET_QUEUE_MASK;
 
@@ -1171,6 +1169,7 @@ out:
 void
 virtio_init(struct vm_create_params *vcp, int *child_disks, int *child_taps)
 {
+	static const uint8_t zero_mac[6];
 	uint8_t id;
 	uint8_t i;
 	int ret;
@@ -1306,11 +1305,12 @@ virtio_init(struct vm_create_params *vcp, int *child_disks, int *child_taps)
 				return;
 			}
 
-#if 0
 			/* User defined MAC */
-			vionet[i].cfg.device_feature = VIRTIO_NET_F_MAC;
-			bcopy(&vcp->vcp_macs[i], &vionet[i].mac, 6);
-#endif
+			if (memcmp(zero_mac, &vcp->vcp_macs[i], 6) != 0) {
+				vionet[i].cfg.device_feature =
+				    VIRTIO_NET_F_MAC;
+				bcopy(&vcp->vcp_macs[i], &vionet[i].mac, 6);
+			}
 		}
 	}
 }

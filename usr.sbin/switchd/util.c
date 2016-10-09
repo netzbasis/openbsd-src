@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.1 2016/07/19 16:54:26 reyk Exp $	*/
+/*	$OpenBSD: util.c,v 1.4 2016/09/30 11:57:57 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -26,11 +26,13 @@
 #include <netinet/if_ether.h>
 #include <netinet/tcp.h>
 
+#include <unistd.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 #include <event.h>
 
 #include "switchd.h"
@@ -55,6 +57,25 @@ socket_set_blockmode(int fd, enum blockmodes bm)
 		fatal("fcntl F_SETFL");
 }
 
+int
+accept4_reserve(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
+    int flags, int reserve, volatile int *counter)
+{
+	int	 fd;
+
+	if (getdtablecount() + reserve + *counter >= getdtablesize()) {
+		errno = EMFILE;
+		return (-1);
+	}
+
+	if ((fd = accept4(sockfd, addr, addrlen, flags)) != -1) {
+		(*counter)++;
+		DPRINTF("%s: inflight incremented, now %d",__func__, *counter);
+	}
+
+	return (fd);
+}
+
 in_port_t
 socket_getport(struct sockaddr_storage *ss)
 {
@@ -76,6 +97,7 @@ sockaddr_cmp(struct sockaddr *a, struct sockaddr *b, int prefixlen)
 {
 	struct sockaddr_in	*a4, *b4;
 	struct sockaddr_in6	*a6, *b6;
+	struct sockaddr_un	*au, *bu;
 	uint32_t		 av[4], bv[4], mv[4];
 
 	if (a->sa_family == AF_UNSPEC || b->sa_family == AF_UNSPEC)
@@ -129,6 +151,10 @@ sockaddr_cmp(struct sockaddr *a, struct sockaddr *b, int prefixlen)
 		if ((av[0] & mv[0]) < (bv[0] & mv[0]))
 			return (-1);
 		break;
+	case AF_UNIX:
+		au = (struct sockaddr_un *)a;
+		bu = (struct sockaddr_un *)b;
+		return (strcmp(au->sun_path, bu->sun_path));
 	}
 
 	return (0);
@@ -206,7 +232,7 @@ print_host(struct sockaddr_storage *ss, char *buf, size_t len)
 	if (ss->ss_family == AF_UNSPEC) {
 		strlcpy(buf, "any", len);
 		return (buf);
-	} else if (ss->ss_family == AF_LOCAL) {
+	} else if (ss->ss_family == AF_UNIX) {
 		un = (struct sockaddr_un *)ss;
 		strlcpy(buf, un->sun_path, len);
 		return (buf);
@@ -286,6 +312,27 @@ print_verbose(const char *emsg, ...)
 		vfprintf(stderr, emsg, ap);
 		va_end(ap);
 	}
+}
+
+void
+print_hex(uint8_t *buf, off_t offset, size_t length)
+{
+	unsigned int	 i;
+	extern int	 verbose;
+
+	if (verbose < 3 || !length)
+		return;
+
+	for (i = 0; i < length; i++) {
+		if (i && (i % 4) == 0) {
+			if ((i % 32) == 0)
+				print_debug("\n");
+			else
+				print_debug(" ");
+		}
+		print_debug("%02x", buf[offset + i]);
+	}
+	print_debug("\n");
 }
 
 int

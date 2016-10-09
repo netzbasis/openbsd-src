@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.29 2016/08/17 05:07:13 deraadt Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.33 2016/10/06 18:48:41 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -49,16 +49,22 @@ int	 vmd_dispatch_vmm(int, struct privsep_proc *, struct imsg *);
 struct vmd	*env;
 
 static struct privsep_proc procs[] = {
+	/* Keep "priv" on top as procs[0] */
+	{ "priv",	PROC_PRIV,	NULL, priv },
 	{ "control",	PROC_CONTROL,	vmd_dispatch_control, control },
-	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm },
+	{ "vmm",	PROC_VMM,	vmd_dispatch_vmm, vmm, vmm_shutdown },
 };
+
+/* For the privileged process */
+static struct privsep_proc *proc_priv = &procs[0];
+static struct passwd proc_privpw;
 
 int
 vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep			*ps = p->p_ps;
 	int				 res = 0, cmd = 0, v = 0;
-	struct vm_create_params		 vcp;
+	struct vmop_create_params	 vmc;
 	struct vmop_id			 vid;
 	struct vm_terminate_params	 vtp;
 	struct vmop_result		 vmr;
@@ -68,9 +74,9 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
-		IMSG_SIZE_CHECK(imsg, &vcp);
-		memcpy(&vcp, imsg->data, sizeof(vcp));
-		res = config_getvm(ps, &vcp, -1, imsg->hdr.peerid);
+		IMSG_SIZE_CHECK(imsg, &vmc);
+		memcpy(&vmc, imsg->data, sizeof(vmc));
+		res = config_getvm(ps, &vmc, -1, imsg->hdr.peerid);
 		if (res == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -176,10 +182,18 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 			errno = vmr.vmr_result;
 			log_warn("%s: failed to start vm", vcp->vcp_name);
 			vm_remove(vm);
-		} else {
-			log_info("%s: started vm %d successfully, tty %s",
-			    vcp->vcp_name, vcp->vcp_id, vm->vm_ttyname);
+			break;
 		}
+
+		/* Now configure all the interfaces */
+		if (vm_priv_ifconfig(ps, vm) == -1) {
+			log_warn("%s: failed to configure vm", vcp->vcp_name);
+			vm_remove(vm);
+			break;
+		}
+
+		log_info("%s: started vm %d successfully, tty %s",
+		    vcp->vcp_name, vcp->vcp_id, vm->vm_ttyname);
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
 	case IMSG_VMDOP_TERMINATE_VM_EVENT:
@@ -196,9 +210,10 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_GET_INFO_VM_DATA:
 		IMSG_SIZE_CHECK(imsg, &vir);
 		memcpy(&vir, imsg->data, sizeof(vir));
-		if ((vm = vm_getbyid(vir.vir_info.vir_id)) != NULL)
+		if ((vm = vm_getbyid(vir.vir_info.vir_id)) != NULL) {
 			(void)strlcpy(vir.vir_ttyname, vm->vm_ttyname,
 			    sizeof(vir.vir_ttyname));
+		}
 		if (proc_compose_imsg(ps, PROC_CONTROL, -1, imsg->hdr.type,
 		    imsg->hdr.peerid, -1, &vir, sizeof(vir)) == -1) {
 			vm_remove(vm);
@@ -219,12 +234,6 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 void
 vmd_sighdlr(int sig, short event, void *arg)
 {
-	struct privsep	*ps = arg;
-	int		 die = 0, status, fail, id;
-	pid_t		 pid;
-	char		*cause;
-	const char	*title = "vm";
-
 	if (privsep_process != PROC_PARENT)
 		return;
 
@@ -246,49 +255,7 @@ vmd_sighdlr(int sig, short event, void *arg)
 		break;
 	case SIGTERM:
 	case SIGINT:
-		die = 1;
-		/* FALLTHROUGH */
-	case SIGCHLD:
-		do {
-			int len;
-
-			pid = waitpid(-1, &status, WNOHANG);
-			if (pid <= 0)
-				continue;
-
-			fail = 0;
-			if (WIFSIGNALED(status)) {
-				fail = 1;
-				len = asprintf(&cause, "terminated; signal %d",
-				    WTERMSIG(status));
-			} else if (WIFEXITED(status)) {
-				if (WEXITSTATUS(status) != 0) {
-					fail = 1;
-					len = asprintf(&cause,
-					    "exited abnormally");
-				} else
-					len = asprintf(&cause, "exited okay");
-			} else
-				fatalx("unexpected cause of SIGCHLD");
-
-			if (len == -1)
-				fatal("asprintf");
-
-			for (id = 0; id < PROC_MAX; id++) {
-				if (pid == ps->ps_pid[id]) {
-					die = 1;
-					title = ps->ps_title[id];
-					break;
-				}
-			}
-			if (fail)
-				log_warnx("lost child: %s %s", title, cause);
-
-			free(cause);
-		} while (pid > 0 || (pid == -1 && errno == EINTR));
-
-		if (die)
-			vmd_shutdown();
+		vmd_shutdown();
 		break;
 	default:
 		fatalx("unexpected signal");
@@ -307,9 +274,13 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	struct privsep	*ps;
-	int		 ch;
-	const char	*conffile = VMD_CONF;
+	struct privsep		*ps;
+	int			 ch;
+	const char		*conffile = VMD_CONF;
+	enum privsep_procid	 proc_id = PROC_PARENT;
+	int			 proc_instance = 0;
+	const char		*errp, *title = NULL;
+	int			 argc0 = argc;
 
 	/* log to stderr until daemonized */
 	log_init(1, LOG_DAEMON);
@@ -317,7 +288,7 @@ main(int argc, char **argv)
 	if ((env = calloc(1, sizeof(*env))) == NULL)
 		fatal("calloc: env");
 
-	while ((ch = getopt(argc, argv, "D:df:vn")) != -1) {
+	while ((ch = getopt(argc, argv, "D:P:I:df:vn")) != -1) {
 		switch (ch) {
 		case 'D':
 			if (cmdline_symset(optarg) < 0)
@@ -336,10 +307,26 @@ main(int argc, char **argv)
 		case 'n':
 			env->vmd_noaction = 1;
 			break;
+		case 'P':
+			title = optarg;
+			proc_id = proc_getid(procs, nitems(procs), title);
+			if (proc_id == PROC_MAX)
+				fatalx("invalid process name");
+			break;
+		case 'I':
+			proc_instance = strtonum(optarg, 0,
+			    PROC_MAX_INSTANCES, &errp);
+			if (errp)
+				fatalx("invalid process instance");
+			break;
 		default:
 			usage();
 		}
 	}
+
+	argc -= optind;
+	if (argc > 0)
+		usage();
 
 	if (env->vmd_noaction && !env->vmd_debug)
 		env->vmd_debug = 1;
@@ -352,6 +339,7 @@ main(int argc, char **argv)
 
 	ps = &env->vmd_ps;
 	ps->ps_env = env;
+	env->vmd_fd = -1;
 
 	if (config_init(env) == -1)
 		fatal("failed to initialize configuration");
@@ -359,9 +347,9 @@ main(int argc, char **argv)
 	if ((ps->ps_pw = getpwnam(VMD_USER)) == NULL)
 		fatal("unknown user %s", VMD_USER);
 
-	/* Configure the control socket */
-	ps->ps_csock.cs_name = SOCKET_NAME;
-	TAILQ_INIT(&ps->ps_rcsocks);
+	/* First proc runs as root without pledge but in default chroot */
+	proc_priv->p_pw = &proc_privpw; /* initialized to all 0 */
+	proc_priv->p_chroot = ps->ps_pw->pw_dir; /* from VMD_USER */
 
 	/* Open /dev/vmm */
 	if (env->vmd_noaction == 0) {
@@ -370,40 +358,48 @@ main(int argc, char **argv)
 			fatal("%s", VMM_NODE);
 	}
 
+	/* Configure the control socket */
+	ps->ps_csock.cs_name = SOCKET_NAME;
+	TAILQ_INIT(&ps->ps_rcsocks);
+
 	/* Configuration will be parsed after forking the children */
 	env->vmd_conffile = conffile;
 
 	log_init(env->vmd_debug, LOG_DAEMON);
 	log_verbose(env->vmd_verbose);
 
+	if (env->vmd_noaction)
+		ps->ps_noaction = 1;
+	ps->ps_instance = proc_instance;
+	if (title != NULL)
+		ps->ps_title[proc_id] = title;
+
+	/* only the parent returns */
+	proc_init(ps, procs, nitems(procs), argc0, argv, proc_id);
+
+	log_procinit("parent");
 	if (!env->vmd_debug && daemon(0, 0) == -1)
 		fatal("can't daemonize");
 
-	log_procinit("parent");
-
-	ps->ps_ninstances = 1;
-
-	if (!env->vmd_noaction)
-		proc_init(ps, procs, nitems(procs));
+	if (ps->ps_noaction == 0)
+		log_info("startup");
 
 	event_init();
 
 	signal_set(&ps->ps_evsigint, SIGINT, vmd_sighdlr, ps);
 	signal_set(&ps->ps_evsigterm, SIGTERM, vmd_sighdlr, ps);
-	signal_set(&ps->ps_evsigchld, SIGCHLD, vmd_sighdlr, ps);
 	signal_set(&ps->ps_evsighup, SIGHUP, vmd_sighdlr, ps);
 	signal_set(&ps->ps_evsigpipe, SIGPIPE, vmd_sighdlr, ps);
 	signal_set(&ps->ps_evsigusr1, SIGUSR1, vmd_sighdlr, ps);
 
 	signal_add(&ps->ps_evsigint, NULL);
 	signal_add(&ps->ps_evsigterm, NULL);
-	signal_add(&ps->ps_evsigchld, NULL);
 	signal_add(&ps->ps_evsighup, NULL);
 	signal_add(&ps->ps_evsigpipe, NULL);
 	signal_add(&ps->ps_evsigusr1, NULL);
 
 	if (!env->vmd_noaction)
-		proc_listen(ps, procs, nitems(procs));
+		proc_connect(ps);
 
 	if (vmd_configure() == -1)
 		fatalx("configuration failed");
@@ -503,6 +499,8 @@ vm_getbyname(const char *name)
 {
 	struct vmd_vm	*vm;
 
+	if (name == NULL)
+		return (NULL);
 	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
 		if (strcmp(vm->vm_params.vcp_name, name) == 0)
 			return (vm);
@@ -539,15 +537,54 @@ vm_remove(struct vmd_vm *vm)
 			close(vm->vm_disks[i]);
 	}
 	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++) {
-		if (vm->vm_ifs[i] != -1)
-			close(vm->vm_ifs[i]);
+		if (vm->vm_ifs[i].vif_fd != -1)
+			close(vm->vm_ifs[i].vif_fd);
+		free(vm->vm_ifs[i].vif_name);
+		free(vm->vm_ifs[i].vif_switch);
 	}
 	if (vm->vm_kernel != -1)
 		close(vm->vm_kernel);
 	if (vm->vm_tty != -1)
 		close(vm->vm_tty);
 
+	free(vm->vm_ttyname);
 	free(vm);
+}
+
+void
+switch_remove(struct vmd_switch *vsw)
+{
+	struct vmd_if	*vif;
+
+	if (vsw == NULL)
+		return;
+
+	TAILQ_REMOVE(env->vmd_switches, vsw, sw_entry);
+
+	while ((vif = TAILQ_FIRST(&vsw->sw_ifs)) != NULL) {
+		free(vif->vif_name);
+		free(vif->vif_switch);
+		TAILQ_REMOVE(&vsw->sw_ifs, vif, vif_entry);
+		free(vif);
+	}
+
+	free(vsw->sw_name);
+	free(vsw);
+}
+
+struct vmd_switch *
+switch_getbyname(const char *name)
+{
+	struct vmd_switch	*vsw;
+
+	if (name == NULL)
+		return (NULL);
+	TAILQ_FOREACH(vsw, env->vmd_switches, sw_entry) {
+		if (strcmp(vsw->sw_name, name) == 0)
+			return (vsw);
+	}
+
+	return (NULL);
 }
 
 char *

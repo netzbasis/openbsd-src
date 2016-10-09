@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp10.c,v 1.6 2016/07/21 08:40:14 reyk Exp $	*/
+/*	$OpenBSD: ofp10.c,v 1.12 2016/10/05 15:42:28 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -22,6 +22,8 @@
 
 #include <net/if.h>
 #include <net/if_arp.h>
+#include <net/ofp.h>
+
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 #include <netinet/tcp.h>
@@ -34,7 +36,6 @@
 #include <imsg.h>
 #include <event.h>
 
-#include "ofp.h"
 #include "ofp10.h"
 #include "switchd.h"
 #include "ofp_map.h"
@@ -84,6 +85,40 @@ struct ofp_callback ofp10_callbacks[] = {
 };
 
 int
+ofp_validate_header(struct switchd *sc,
+    struct sockaddr_storage *src, struct sockaddr_storage *dst,
+    struct ofp_header *oh, uint8_t version)
+{
+	struct constmap	*tmap;
+
+	/* For debug, don't verify the header if the version is unset */
+	if (version != OFP_V_0 &&
+	    (oh->oh_version != version ||
+	    oh->oh_type >= OFP_T_TYPE_MAX))
+		return (-1);
+
+	switch (version) {
+	case OFP_V_1_0:
+	case OFP_V_1_1:
+		tmap = ofp10_t_map;
+		break;
+	case OFP_V_1_3:
+	default:
+		tmap = ofp_t_map;
+		break;
+	}
+
+	log_debug("%s > %s: version %s type %s length %u xid %u",
+	    print_host(src, NULL, 0),
+	    print_host(dst, NULL, 0),
+	    print_map(oh->oh_version, ofp_v_map),
+	    print_map(oh->oh_type, tmap),
+	    ntohs(oh->oh_length), ntohl(oh->oh_xid));
+
+	return (0);
+}
+
+int
 ofp10_validate(struct switchd *sc,
     struct sockaddr_storage *src, struct sockaddr_storage *dst,
     struct ofp_header *oh, struct ibuf *ibuf)
@@ -114,7 +149,7 @@ ofp10_validate_packet_in(struct switchd *sc,
 {
 	struct ofp10_packet_in	*pin;
 	uint8_t			*p;
-	size_t			 len;
+	size_t			 len, plen;
 	off_t			 off;
 
 	off = 0;
@@ -126,8 +161,20 @@ ofp10_validate_packet_in(struct switchd *sc,
 	    print_map(ntohs(pin->pin_port), ofp10_port_map),
 	    ntohs(pin->pin_total_len),
 	    pin->pin_reason);
-	len = ntohs(pin->pin_total_len);
 	off += sizeof(*pin);
+
+	len = ntohs(pin->pin_total_len);
+	plen = ibuf_length(ibuf) - off;
+
+	if (plen < len) {
+		log_debug("\ttruncated packet %zu < %zu", plen, len);
+
+		/* Buffered packets can be truncated */
+		if (pin->pin_buffer_id != OFP_PKTOUT_NO_BUFFER)
+			len = plen;
+		else
+			return (-1);
+	}
 	if ((p = ibuf_seek(ibuf, off, len)) == NULL)
 		return (-1);
 	if (sc->sc_tap != -1)
@@ -246,7 +293,6 @@ ofp10_hello(struct switchd *sc, struct switch_connection *con,
 	if (oh->oh_version == OFP_V_1_0 &&
 	    switch_add(con) == NULL) {
 		log_debug("%s: failed to add switch", __func__);
-		ofp_close(con);
 		return (-1);
 	}
 
@@ -256,7 +302,7 @@ ofp10_hello(struct switchd *sc, struct switch_connection *con,
 	oh->oh_xid = htonl(con->con_xidnxt++);
 	if (ofp10_validate(sc, &con->con_local, &con->con_peer, oh, NULL) != 0)
 		return (-1);
-	ofp_send(con, oh, NULL);
+	ofp_output(con, oh, NULL);
 
 #if 0
 	(void)write(fd, &oh, sizeof(oh));
@@ -280,7 +326,7 @@ ofp10_echo_request(struct switchd *sc, struct switch_connection *con,
 	oh->oh_type = OFP10_T_ECHO_REPLY;
 	if (ofp10_validate(sc, &con->con_local, &con->con_peer, oh, NULL) != 0)
 		return (-1);
-	ofp_send(con, oh, NULL);
+	ofp_output(con, oh, NULL);
 
 	return (0);
 }
@@ -398,7 +444,7 @@ ofp10_packet_in(struct switchd *sc, struct switch_connection *con,
 	if (ofp10_validate(sc, &con->con_local, &con->con_peer, oh, obuf) != 0)
 		goto done;
 
-	ofp_send(con, NULL, obuf);
+	ofp_output(con, NULL, obuf);
 
 	if (addflow && addpacket) {
 		/* loop to output the packet again */

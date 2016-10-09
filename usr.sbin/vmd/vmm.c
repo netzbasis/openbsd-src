@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.44 2016/09/03 11:38:08 mlarkin Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.49 2016/10/06 20:41:28 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -34,6 +34,8 @@
 #include <machine/specialreg.h>
 #include <machine/vmmvar.h>
 
+#include <net/if.h>
+
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
@@ -63,7 +65,7 @@ io_fn_t ioports_map[MAX_PORTS];
 
 void vmm_sighdlr(int, short, void *);
 int start_client_vmd(void);
-int opentap(void);
+int opentap(char *);
 int start_vm(struct imsg *, uint32_t *);
 int terminate_vm(struct vm_terminate_params *);
 int get_info_vm(struct privsep *, struct imsg *, int);
@@ -137,10 +139,10 @@ static const struct vcpu_reg_state vcpu_init_flat32 = {
 	.vrs_sregs[VCPU_REGS_TR] = { 0x0, 0xFFFF, 0x008B, 0x0},
 };
 
-pid_t
+void
 vmm(struct privsep *ps, struct privsep_proc *p)
 {
-	return (proc_run(ps, p, procs, nitems(procs), vmm_run, NULL));
+	proc_run(ps, p, procs, nitems(procs), vmm_run, NULL);
 }
 
 void
@@ -153,7 +155,6 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	signal_set(&ps->ps_evsigchld, SIGCHLD, vmm_sighdlr, ps);
 	signal_add(&ps->ps_evsigchld, NULL);
 
-#if 0
 	/*
 	 * pledge in the vmm process:
  	 * stdio - for malloc and basic I/O including events.
@@ -161,10 +162,8 @@ vmm_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 	 * proc - for forking and maitaining vms.
 	 * recvfd - for disks, interfaces and other fds.
 	 */
-	/* XXX'ed pledge to hide it from grep as long as it's disabled */
-	if (XXX("stdio vmm recvfd proc", NULL) == -1)
+	if (pledge("stdio vmm recvfd proc", NULL) == -1)
 		fatal("pledge");
-#endif
 
 	/* Get and terminate all running VMs */
 	get_info_vm(ps, NULL, 1);
@@ -175,7 +174,7 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep		*ps = p->p_ps;
 	int			 res = 0, cmd = 0;
-	struct vm_create_params	 vcp;
+	struct vmop_create_params vmc;
 	struct vm_terminate_params vtp;
 	struct vmop_result	 vmr;
 	uint32_t		 id = 0;
@@ -183,9 +182,9 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
-		IMSG_SIZE_CHECK(imsg, &vcp);
-		memcpy(&vcp, imsg->data, sizeof(vcp));
-		res = config_getvm(ps, &vcp, imsg->fd, imsg->hdr.peerid);
+		IMSG_SIZE_CHECK(imsg, &vmc);
+		memcpy(&vmc, imsg->data, sizeof(vmc));
+		res = config_getvm(ps, &vmc, imsg->fd, imsg->hdr.peerid);
 		if (res == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -313,6 +312,25 @@ vmm_sighdlr(int sig, short event, void *arg)
 }
 
 /*
+ * vmm_shutdown
+ * 
+ * Terminate VMs on shutdown to avoid "zombie VM" processes.
+ */
+void
+vmm_shutdown(void)
+{
+	struct vm_terminate_params vtp;
+	struct vmd_vm *vm, *vm_next;
+
+	TAILQ_FOREACH_SAFE(vm, env->vmd_vms, vm_entry, vm_next) {
+		vtp.vtp_vm_id = vm->vm_params.vcp_id;
+
+		/* XXX suspend or request graceful shutdown */
+		terminate_vm(&vtp);
+	}
+}
+
+/*
  * vcpu_reset
  *
  * Requests vmm(4) to reset the VCPUs in the indicated VM to
@@ -374,20 +392,27 @@ terminate_vm(struct vm_terminate_params *vtp)
  *
  * Opens the next available tap device, up to MAX_TAP.
  *
+ * Parameters
+ *  ifname: an optional buffer of at least IF_NAMESIZE bytes.
+ *
  * Returns a file descriptor to the tap node opened, or -1 if no tap
  * devices were available.
  */
 int
-opentap(void)
+opentap(char *ifname)
 {
 	int i, fd;
 	char path[PATH_MAX];
 
+	strlcpy(ifname, "tap", IF_NAMESIZE);
 	for (i = 0; i < MAX_TAP; i++) {
 		snprintf(path, PATH_MAX, "/dev/tap%d", i);
 		fd = open(path, O_RDWR | O_NONBLOCK);
-		if (fd != -1)
+		if (fd != -1) {
+			if (ifname != NULL)
+				snprintf(ifname, IF_NAMESIZE, "tap%d", i);
 			return (fd);
+		}
 	}
 
 	return (-1);
@@ -424,7 +449,7 @@ start_vm(struct imsg *imsg, uint32_t *id)
 	struct vmd_vm		*vm;
 	size_t			 i;
 	int			 ret = EINVAL;
-	int			 fds[2];
+	int			 fds[2], nicfds[VMM_MAX_NICS_PER_VM];
 	struct vcpu_reg_state vrs;
 
 	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
@@ -462,8 +487,8 @@ start_vm(struct imsg *imsg, uint32_t *id)
 		}
 
 		for (i = 0 ; i < vcp->vcp_nnics; i++) {
-			close(vm->vm_ifs[i]);
-			vm->vm_ifs[i] = -1;
+			close(vm->vm_ifs[i].vif_fd);
+			vm->vm_ifs[i].vif_fd = -1;
 		}
 
 		close(vm->vm_kernel);
@@ -512,15 +537,13 @@ start_vm(struct imsg *imsg, uint32_t *id)
 			fatal("create vmm ioctl failed - exiting");
 		}
 
-#if 0
 		/*
 		 * pledge in the vm processes:
 	 	 * stdio - for malloc and basic I/O including events.
 		 * vmm - for the vmm ioctls and operations.
 		 */
-		if (XXX("stdio vmm", NULL) == -1)
+		if (pledge("stdio vmm", NULL) == -1)
 			fatal("pledge");
-#endif
 
 		/*
 		 * Set up default "flat 32 bit" register state - RIP,
@@ -541,8 +564,11 @@ start_vm(struct imsg *imsg, uint32_t *id)
 		if (fcntl(con_fd, F_SETFL, O_NONBLOCK) == -1)
 			fatal("failed to set nonblocking mode on console");
 
+		for (i = 0; i < VMM_MAX_NICS_PER_VM; i++)
+			nicfds[i] = vm->vm_ifs[i].vif_fd;
+
 		/* Execute the vcpu run loop(s) for this VM */
-		ret = run_vm(vm->vm_disks, vm->vm_ifs, vcp, &vrs);
+		ret = run_vm(vm->vm_disks, nicfds, vcp, &vrs);
 
 		_exit(ret != 0);
 	}

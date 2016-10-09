@@ -1,4 +1,14 @@
-#	$OpenBSD: Makefile,v 1.1 2014/08/27 07:36:14 blambert Exp $
+#	$OpenBSD: Makefile,v 1.3 2016/10/05 16:53:34 bluhm Exp $
+
+MOUNT_NOSUID != mount | grep ^$$(df -P . | tail -1 | awk '{ print $$1 }') | \
+    grep nosuid || true
+
+.if ! empty (MOUNT_NOSUID)
+regress:
+	echo '${MOUNT_NOSUID}'
+	echo object directory is mounted nosuid, test needs set user id
+	echo SKIPPED
+.endif
 
 CFLAGS			+= -Wall -Wformat -pedantic
 
@@ -113,3 +123,8 @@ sgidexec-install: sgidexec sgidexec_none sgidexec_inherit setresgid_real_exec se
 	${SUDO} chmod 2555 ./sgidexec
 
 .include <bsd.regress.mk>
+
+.ifmake all || regress
+.END:
+	${SUDO} chmod 0555 ./suidexec ./sgidexec
+.endif

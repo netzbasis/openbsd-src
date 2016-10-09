@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay.c,v 1.214 2016/09/23 12:06:15 jsg Exp $	*/
+/*	$OpenBSD: relay.c,v 1.216 2016/09/29 22:04:28 benno Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -1305,7 +1305,8 @@ relay_from_table(struct rsession *con)
 		/* handle all non-hashing algorithms */
 		host = rlt->rlt_host[idx];
 		DPRINTF("%s: session %d: table %s host %s, p 0x%016llx, idx %d",
-		    __func__, con->se_id, table->conf.name, host->conf.name, p, idx);
+		    __func__, con->se_id, table->conf.name, host->conf.name,
+		    p, idx);
 	}
 
 	while (host != NULL) {
@@ -1821,7 +1822,7 @@ relay_dispatch_pfe(int fd, struct privsep_proc *p, struct imsg *imsg)
 			fatalx("relay_dispatch_pfe: invalid table id");
 
 		DPRINTF("%s: [%d] state %d for "
-		    "host %u %s", __func__, ps->ps_instance, st.up,
+		    "host %u %s", __func__, p->p_ps->ps_instance, st.up,
 		    host->conf.id, host->conf.name);
 
 		if ((st.up == HOST_UNKNOWN && host->up == HOST_DOWN) ||
@@ -2069,7 +2070,6 @@ relay_tls_ctx_create(struct relay *rlay)
 	 */
 	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 
-	
 	/* Set callback for TLS session tickets if enabled */
 	if (proto->tickets == -1)
 		SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
