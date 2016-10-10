@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vfsops.c,v 1.81 2016/09/28 18:49:11 jca Exp $	*/
+/*	$OpenBSD: msdosfs_vfsops.c,v 1.83 2016/10/10 00:34:50 bluhm Exp $	*/
 /*	$NetBSD: msdosfs_vfsops.c,v 1.48 1997/10/18 02:54:57 briggs Exp $	*/
 
 /*-
@@ -299,7 +299,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	bsp = (union bootsector *)bp->b_data;
 	b33 = (struct byte_bpb33 *)bsp->bs33.bsBPB;
 	b50 = (struct byte_bpb50 *)bsp->bs50.bsBPB;
-	b710 = (struct byte_bpb710 *)bsp->bs710.bsPBP;
+	b710 = (struct byte_bpb710 *)bsp->bs710.bsBPB;
 
 	pmp = malloc(sizeof *pmp, M_MSDOSFSMNT, M_WAITOK | M_ZERO);
 	pmp->pm_mountp = mp;
@@ -323,7 +323,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	/* Determine the number of DEV_BSIZE blocks in a MSDOSFS sector */
 	pmp->pm_BlkPerSec = pmp->pm_BytesPerSec / DEV_BSIZE;
 
-	if (!pmp->pm_BytesPerSec || !SecPerClust || pmp->pm_SecPerTrack > 64) {
+	if (!pmp->pm_BytesPerSec || !SecPerClust) {
 		error = EFTYPE;
 		goto error_exit;
 	}

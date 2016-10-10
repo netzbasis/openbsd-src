@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.440 2016/10/06 20:20:41 reyk Exp $
+#	$OpenBSD: Makefile,v 1.442 2016/10/09 20:55:16 natano Exp $
 
 TZDIR=		/usr/share/zoneinfo
 LOCALTIME=	Canada/Mountain
@@ -250,6 +250,15 @@ release:
 release:
 	@if [[ `id -u` -ne 0 ]]; then \
 		echo $@ must be called by root >&2; \
+		false; \
+	fi
+	@destmp=`df -P ${DESTDIR} | awk 'END { print $$6 }'`; \
+	if ! mount | grep -q " $${destmp} .*noperm"; then \
+		echo ${DESTDIR} must be on a noperm filesystem >&2; \
+		false; \
+	fi; \
+	if [[ `stat -f '%Su %Lp' $${destmp}` != '${BUILDUSER} 700' ]]; then \
+		echo $${destmp} must have owner BUILDUSER and mode 700 >&2; \
 		false; \
 	fi
 	${MAKE} release-sets
