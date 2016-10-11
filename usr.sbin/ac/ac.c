@@ -79,6 +79,7 @@ static char	ttys[32];
 #define	AC_P	4				/* per-user totals */
 #define	AC_U	8				/* specified users only */
 #define	AC_T	16				/* specified ttys only */
+#define	AC_L	32				/* also local ttys */
 
 #define	AC_PTYS	"pqrstuvwxyzPQRST"
 #define	AC_TTYS	"0C"
@@ -219,7 +220,7 @@ main(int argc, char *argv[])
 			Flags |= AC_D;
 			break;
 		case 'l':
-			(void)strlcat(ttys, AC_TTYS, sizeof(ttys));
+			Flags |= AC_L;
 			break;
 		case 'p':
 			Flags |= AC_P;
@@ -247,6 +248,8 @@ main(int argc, char *argv[])
 	}
 	if (Flags & AC_D)
 		Flags &= ~AC_P;
+	if (Flags & AC_L)
+		(void)strlcat(ttys, AC_TTYS, sizeof(ttys));
 	if (fp == NULL) {
 		/*
 		 * if _PATH_WTMP does not exist, exit quietly
