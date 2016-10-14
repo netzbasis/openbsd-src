@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-swap-pane.c,v 1.27 2016/10/10 21:51:39 nicm Exp $ */
+/* $OpenBSD: cmd-swap-pane.c,v 1.29 2016/10/13 22:48:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>

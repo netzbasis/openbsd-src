@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.501 2016/10/12 15:26:37 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.505 2016/10/13 22:48:51 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 12 2016 $
+.Dd $Mdocdate: October 13 2016 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1951,7 +1951,7 @@ is given and the selected window is already the current window,
 the command behaves like
 .Ic last-window .
 .It Xo Ic split-window
-.Op Fl bdhvP
+.Op Fl bdfhvP
 .Op Fl c Ar start-directory
 .Oo Fl l
 .Ar size |
@@ -2179,13 +2179,9 @@ With
 the key bindings in
 .Ar mode-table
 are listed; this may be one of:
-.Em vi-edit ,
-.Em emacs-edit ,
-.Em vi-choice ,
-.Em emacs-choice ,
-.Em vi-copy
+.Em vi-choice
 or
-.Em emacs-copy .
+.Em emacs-choice .
 .It Xo Ic send-keys
 .Op Fl lMRX
 .Op Fl N Ar repeat-count
@@ -2700,19 +2696,6 @@ flag to
 Repeat is enabled for the default keys bound to the
 .Ic resize-pane
 command.
-.It Xo Ic set-remain-on-exit
-.Op Ic on | off
-.Xc
-Set the
-.Ic remain-on-exit
-window option for any windows first created in this session.
-When this option is true, windows in which the running program has
-exited do not close, instead remaining open but inactivate.
-Use the
-.Ic respawn-window
-command to reactivate such a window, or the
-.Ic kill-window
-command to destroy it.
 .It Xo Ic set-titles
 .Op Ic on | off
 .Xc
@@ -3221,20 +3204,16 @@ shows only the option value, not the name.
 .Nm
 allows commands to run on various triggers, called
 .Em hooks .
-Each
+Most
 .Nm
-command has a
-.Em before
-hook and an
+commands have an
 .Em after
 hook and there are a number of hooks not associated with commands.
 .Pp
-A command's before hook is run before the command is executed and its after
-hook is run afterwards, except when the command is run as part of a hook
+A command's after
+hook is run after it completes, except when the command is run as part of a hook
 itself.
-Before hooks are named using the
-.Ql before-
-prefix and after hooks the
+They are named with an
 .Ql after-
 prefix.
 For example, the following command adds a hook to select the even-vertical
@@ -3242,11 +3221,6 @@ layout after every
 .Ic split-window :
 .Bd -literal -offset indent
 set-hook after-split-window "selectl even-vertical"
-.Ed
-.Pp
-Or to write when each new window is created to a file:
-.Bd -literal -offset indent
-set-hook before-new-window 'run "date >>/tmp/log"'
 .Ed
 .Pp
 In addition, the following hooks are available:
