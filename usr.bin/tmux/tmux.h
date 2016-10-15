@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.662 2016/10/13 22:48:51 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.665 2016/10/15 00:12:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1577,8 +1577,7 @@ void	mode_key_init(struct mode_key_data *, struct mode_key_tree *);
 enum mode_key_cmd mode_key_lookup(struct mode_key_data *, key_code);
 
 /* notify.c */
-void	notify_enable(void);
-void	notify_disable(void);
+void	notify_drain(void);
 void	notify_input(struct window_pane *, struct evbuffer *);
 void	notify_window_layout_changed(struct window *);
 void	notify_window_unlinked(struct session *, struct window *);
@@ -1743,6 +1742,8 @@ int		 cmd_find_from_session(struct cmd_find_state *,
 		     struct session *);
 int		 cmd_find_from_winlink(struct cmd_find_state *,
 		     struct session *, struct winlink *);
+int		 cmd_find_from_session_window(struct cmd_find_state *,
+		     struct session *, struct window *);
 int		 cmd_find_from_window(struct cmd_find_state *, struct window *);
 int		 cmd_find_from_pane(struct cmd_find_state *,
 		     struct window_pane *);
@@ -2207,7 +2208,7 @@ void	control_notify_window_renamed(struct window *);
 void	control_notify_attached_session_changed(struct client *);
 void	control_notify_session_renamed(struct session *);
 void	control_notify_session_created(struct session *);
-void	control_notify_session_close(struct session *);
+void	control_notify_session_closed(struct session *);
 
 /* session.c */
 extern struct sessions sessions;
