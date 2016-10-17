@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.109 2016/10/11 13:45:47 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.112 2016/10/16 19:36:37 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -468,12 +468,24 @@ format_cb_pane_tabs(struct format_tree *ft, struct format_entry *fe)
 	evbuffer_free(buffer);
 }
 
+/* Merge a format tree. */
+static void
+format_merge(struct format_tree *ft, struct format_tree *from)
+{
+	struct format_entry	*fe;
+
+	RB_FOREACH(fe, format_entry_tree, &from->tree) {
+		if (fe->value != NULL)
+			format_add(ft, fe->key, "%s", fe->value);
+	}
+
+}
+
 /* Create a new tree. */
 struct format_tree *
-format_create(struct cmd_q *cmdq, int flags)
+format_create(struct cmdq_item *item, int flags)
 {
 	struct format_tree	*ft;
-	struct cmd		*cmd;
 
 	if (!event_initialized(&format_job_event)) {
 		evtimer_set(&format_job_event, format_job_timer, NULL);
@@ -490,12 +502,10 @@ format_create(struct cmd_q *cmdq, int flags)
 	format_add(ft, "socket_path", "%s", socket_path);
 	format_add_tv(ft, "start_time", &start_time);
 
-	if (cmdq != NULL && cmdq->cmd != NULL)
-		format_add(ft, "command_name", "%s", cmdq->cmd->entry->name);
-	if (cmdq != NULL && cmdq->parent != NULL) {
-		cmd = cmdq->parent->cmd;
-		format_add(ft, "command_hooked", "%s", cmd->entry->name);
-	}
+	if (item != NULL && item->cmd != NULL)
+		format_add(ft, "command", "%s", item->cmd->entry->name);
+	if (item != NULL && item->formats != NULL)
+		format_merge(ft, item->formats);
 
 	return (ft);
 }

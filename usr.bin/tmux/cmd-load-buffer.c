@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.44 2016/10/14 22:14:22 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.46 2016/10/16 19:04:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -31,9 +31,9 @@
  * Loads a paste buffer from a file.
  */
 
-static enum cmd_retval	 cmd_load_buffer_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_load_buffer_exec(struct cmd *, struct cmdq_item *);
 
-static void		 cmd_load_buffer_callback(struct client *, int, void *);
+static void		cmd_load_buffer_callback(struct client *, int, void *);
 
 const struct cmd_entry cmd_load_buffer_entry = {
 	.name = "load-buffer",
@@ -46,17 +46,24 @@ const struct cmd_entry cmd_load_buffer_entry = {
 	.exec = cmd_load_buffer_exec
 };
 
+struct cmd_load_buffer_data {
+	struct cmdq_item	*item;
+	char			*bufname;
+};
+
 static enum cmd_retval
-cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
+cmd_load_buffer_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct args	*args = self->args;
-	struct client	*c = cmdq->client;
-	struct session  *s;
-	FILE		*f;
-	const char	*path, *bufname, *cwd;
-	char		*pdata, *new_pdata, *cause, *file, resolved[PATH_MAX];
-	size_t		 psize;
-	int		 ch, error;
+	struct args			*args = self->args;
+	struct cmd_load_buffer_data	*cdata;
+	struct client			*c = item->client;
+	struct session  		*s;
+	FILE				*f;
+	const char			*path, *bufname, *cwd;
+	char				*pdata, *new_pdata, *cause, *file;
+	char				 resolved[PATH_MAX];
+	size_t				 psize;
+	int				 ch, error;
 
 	bufname = NULL;
 	if (args_has(args, 'b'))
@@ -64,10 +71,14 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	path = args->argv[0];
 	if (strcmp(path, "-") == 0) {
+		cdata = xcalloc(1, sizeof *cdata);
+		cdata->item = item;
+		cdata->bufname = xstrdup(bufname);
+
 		error = server_set_stdin_callback(c, cmd_load_buffer_callback,
-		    (void *)bufname, &cause);
+		    cdata, &cause);
 		if (error != 0) {
-			cmdq_error(cmdq, "%s: %s", path, cause);
+			cmdq_error(item, "%s: %s", path, cause);
 			free(cause);
 			return (CMD_RETURN_ERROR);
 		}
@@ -87,13 +98,13 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 		xasprintf(&file, "%s/%s", cwd, path);
 	if (realpath(file, resolved) == NULL &&
 	    strlcpy(resolved, file, sizeof resolved) >= sizeof resolved) {
-		cmdq_error(cmdq, "%s: %s", file, strerror(ENAMETOOLONG));
+		cmdq_error(item, "%s: %s", file, strerror(ENAMETOOLONG));
 		return (CMD_RETURN_ERROR);
 	}
 	f = fopen(resolved, "rb");
 	free(file);
 	if (f == NULL) {
-		cmdq_error(cmdq, "%s: %s", resolved, strerror(errno));
+		cmdq_error(item, "%s: %s", resolved, strerror(errno));
 		return (CMD_RETURN_ERROR);
 	}
 
@@ -102,14 +113,14 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	while ((ch = getc(f)) != EOF) {
 		/* Do not let the server die due to memory exhaustion. */
 		if ((new_pdata = realloc(pdata, psize + 2)) == NULL) {
-			cmdq_error(cmdq, "realloc error: %s", strerror(errno));
+			cmdq_error(item, "realloc error: %s", strerror(errno));
 			goto error;
 		}
 		pdata = new_pdata;
 		pdata[psize++] = ch;
 	}
 	if (ferror(f)) {
-		cmdq_error(cmdq, "%s: read error", resolved);
+		cmdq_error(item, "%s: read error", resolved);
 		goto error;
 	}
 	if (pdata != NULL)
@@ -118,7 +129,7 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	fclose(f);
 
 	if (paste_set(pdata, psize, bufname, &cause) != 0) {
-		cmdq_error(cmdq, "%s", cause);
+		cmdq_error(item, "%s", cause);
 		free(pdata);
 		free(cause);
 		return (CMD_RETURN_ERROR);
@@ -136,9 +147,9 @@ error:
 static void
 cmd_load_buffer_callback(struct client *c, int closed, void *data)
 {
-	const char	*bufname = data;
-	char		*pdata, *cause, *saved;
-	size_t		 psize;
+	struct cmd_load_buffer_data	*cdata = data;
+	char				*pdata, *cause, *saved;
+	size_t				 psize;
 
 	if (!closed)
 		return;
@@ -146,7 +157,7 @@ cmd_load_buffer_callback(struct client *c, int closed, void *data)
 
 	server_client_unref(c);
 	if (c->flags & CLIENT_DEAD)
-		return;
+		goto out;
 
 	psize = EVBUFFER_LENGTH(c->stdin_data);
 	if (psize == 0 || (pdata = malloc(psize + 1)) == NULL)
@@ -156,7 +167,7 @@ cmd_load_buffer_callback(struct client *c, int closed, void *data)
 	pdata[psize] = '\0';
 	evbuffer_drain(c->stdin_data, psize);
 
-	if (paste_set(pdata, psize, bufname, &cause) != 0) {
+	if (paste_set(pdata, psize, cdata->bufname, &cause) != 0) {
 		/* No context so can't use server_client_msg_error. */
 		if (~c->flags & CLIENT_UTF8) {
 			saved = cause;
@@ -168,7 +179,9 @@ cmd_load_buffer_callback(struct client *c, int closed, void *data)
 		free(pdata);
 		free(cause);
 	}
-
 out:
-	cmdq_continue(c->cmdq);
+	cdata->item->flags &= ~CMDQ_WAITING;
+
+	free(cdata->bufname);
+	free(cdata);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-command-prompt.c,v 1.36 2016/10/12 13:03:27 nicm Exp $ */
+/* $OpenBSD: cmd-command-prompt.c,v 1.38 2016/10/16 19:04:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -29,7 +29,8 @@
  * Prompt for command in client.
  */
 
-static enum cmd_retval	cmd_command_prompt_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_command_prompt_exec(struct cmd *,
+			    struct cmdq_item *);
 
 static int	cmd_command_prompt_callback(void *, const char *);
 static void	cmd_command_prompt_free(void *);
@@ -59,12 +60,12 @@ struct cmd_command_prompt_cdata {
 };
 
 static enum cmd_retval
-cmd_command_prompt_exec(struct cmd *self, struct cmd_q *cmdq)
+cmd_command_prompt_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args			*args = self->args;
 	const char			*inputs, *prompts;
 	struct cmd_command_prompt_cdata	*cdata;
-	struct client			*c = cmdq->state.c;
+	struct client			*c = item->state.c;
 	char				*prompt, *ptr, *input = NULL;
 	size_t				 n;
 	int				 flags;
@@ -121,12 +122,24 @@ cmd_command_prompt_exec(struct cmd *self, struct cmd_q *cmdq)
 	return (CMD_RETURN_NORMAL);
 }
 
+static enum cmd_retval
+cmd_command_prompt_error(struct cmdq_item *item, void *data)
+{
+	char	*error = data;
+
+	cmdq_error(item, "%s", error);
+	free(error);
+
+	return (CMD_RETURN_NORMAL);
+}
+
 static int
 cmd_command_prompt_callback(void *data, const char *s)
 {
 	struct cmd_command_prompt_cdata	*cdata = data;
 	struct client			*c = cdata->c;
 	struct cmd_list			*cmdlist;
+	struct cmdq_item		*new_item;
 	char				*cause, *new_template, *prompt, *ptr;
 	char				*input = NULL;
 
@@ -153,17 +166,19 @@ cmd_command_prompt_callback(void *data, const char *s)
 
 	if (cmd_string_parse(new_template, &cmdlist, NULL, 0, &cause) != 0) {
 		if (cause != NULL) {
-			*cause = toupper((u_char) *cause);
-			status_message_set(c, "%s", cause);
-			free(cause);
-		}
-		return (0);
+			new_item = cmdq_get_callback(cmd_command_prompt_error,
+			    cause);
+		} else
+			new_item = NULL;
+	} else {
+		new_item = cmdq_get_command(cmdlist, NULL, NULL, 0);
+		cmd_list_free(cmdlist);
 	}
 
-	cmdq_run(c->cmdq, cmdlist, NULL);
-	cmd_list_free(cmdlist);
+	if (new_item != NULL)
+		cmdq_append(c, new_item);
 
-	if (c->prompt_callbackfn != (void *) &cmd_command_prompt_callback)
+	if (c->prompt_callbackfn != (void *)&cmd_command_prompt_callback)
 		return (1);
 	return (0);
 }

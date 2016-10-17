@@ -1,4 +1,4 @@
-/* $OpenBSD: control.c,v 1.17 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: control.c,v 1.19 2016/10/16 19:04:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2012 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -49,13 +49,29 @@ control_write_buffer(struct client *c, struct evbuffer *buffer)
 	server_client_push_stdout(c);
 }
 
+/* Control error callback. */
+static enum cmd_retval
+control_error(struct cmdq_item *item, void *data)
+{
+	struct client	*c = item->client;
+	char		*error = data;
+
+	cmdq_guard(item, "begin", 1);
+	control_write(c, "parse error: %s", error);
+	cmdq_guard(item, "error", 1);
+
+	free(error);
+	return (CMD_RETURN_NORMAL);
+}
+
 /* Control input callback. Read lines and fire commands. */
 void
 control_callback(struct client *c, int closed, __unused void *data)
 {
-	char		*line, *cause;
-	struct cmd_list	*cmdlist;
-	struct cmd	*cmd;
+	char			*line, *cause;
+	struct cmd_list		*cmdlist;
+	struct cmd		*cmd;
+	struct cmdq_item	*item;
 
 	if (closed)
 		c->flags |= CLIENT_EXIT;
@@ -70,18 +86,13 @@ control_callback(struct client *c, int closed, __unused void *data)
 		}
 
 		if (cmd_string_parse(line, &cmdlist, NULL, 0, &cause) != 0) {
-			c->cmdq->time = time(NULL);
-			c->cmdq->number++;
-
-			cmdq_guard(c->cmdq, "begin", 1);
-			control_write(c, "parse error: %s", cause);
-			cmdq_guard(c->cmdq, "error", 1);
-
-			free(cause);
+			item = cmdq_get_callback(control_error, cause);
+			cmdq_append(c, item);
 		} else {
 			TAILQ_FOREACH(cmd, &cmdlist->list, qentry)
 				cmd->flags |= CMD_CONTROL;
-			cmdq_run(c->cmdq, cmdlist, NULL);
+			item = cmdq_get_command(cmdlist, NULL, NULL, 0);
+			cmdq_append(c, item);
 			cmd_list_free(cmdlist);
 		}
 
