@@ -1,5 +1,5 @@
 dnl
-dnl	$OpenBSD: m4.common,v 1.121 2016/07/28 17:19:24 zhuk Exp $
+dnl	$OpenBSD: m4.common,v 1.123 2016/10/18 09:22:05 tb Exp $
 dnl
 dnl Copyright (c) 2004 Todd T. Fries <todd@OpenBSD.org>
 dnl
@@ -288,7 +288,7 @@ define({:-OpenBSDInstallPart3-:},
 	the hardware that was detected and supported by OpenBSD.
 
 dnl dot.profile
-	After the kernel is done initialising, you will be asked whether
+	After the kernel is done initializing, you will be asked whether
 	you wish to do an "(I)nstall", "(U)pgrade" or an "(A)utoinstall".
 	Enter 'I' for a fresh install or 'U' to upgrade an existing
 	installation.  Enter 'A' to start an unattended installation
@@ -460,7 +460,7 @@ dnl install.md md_prep_fdisk
 	partition spanning the whole disk, dedicated to OpenBSD.
 
 	Otherwise, fdisk(8) will be invoked to let you to edit your
-	partitioning.  The current artitions defined will be
+	partitioning.  The current partitions defined will be
 	displayed and you will be allowed to modify them, add new
 	partitions, and change which partition to boot from by default.
 
@@ -743,10 +743,10 @@ define({:-OpenBSDUnattendedInstallation-:},
 Preparing an unattended installation of OpenBSD:
 ------------------------------------------------
 
-If '(A)utoinstall' is choosen at the install prompt or if the
+If '(A)utoinstall' is chosen at the install prompt or if the
 installation system detects that it booted from the network, and
 isn't interrupted within 5 seconds, it attempts a fully-automatic
-installation. 
+installation.
 
 The installer runs dhclient(8) on the network interface the system
 booted from, or in case of multiple interfaces it will ask which one
@@ -824,7 +824,7 @@ Boot from $1.
 When prompted, select the (U)pgrade option rather than the (I)nstall
 option at the prompt in the install process.
 
-You will be presented with a welcome message, and depending on how you are 
+You will be presented with a welcome message, and depending on how you are
 connected to the system, you will be asked to set the terminal type or to
 choose a keyboard layout.
 
