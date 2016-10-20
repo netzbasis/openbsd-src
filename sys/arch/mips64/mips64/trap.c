@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.119 2016/10/08 05:49:09 guenther Exp $	*/
+/*	$OpenBSD: trap.c,v 1.121 2016/10/19 08:28:20 guenther Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -1031,8 +1031,8 @@ ptrace_read_insn(struct proc *p, vaddr_t va, uint32_t *insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_READ_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_READ_I);
 }
 
 int
@@ -1049,8 +1049,8 @@ ptrace_write_insn(struct proc *p, vaddr_t va, uint32_t insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_WRITE_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_WRITE_I);
 }
 
 /*
@@ -1534,7 +1534,7 @@ fpe_branch_emulate(struct proc *p, struct trapframe *tf, uint32_t insn,
 	p->p_md.md_fpslotva = (vaddr_t)tf->pc + 4;
 	p->p_md.md_flags |= MDP_FPUSED;
 	tf->pc = p->p_md.md_fppgva;
-	pmap_proc_iflush(p, tf->pc, 2 * 4);
+	pmap_proc_iflush(p->p_p, tf->pc, 2 * 4);
 
 	return 0;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vfsops.c,v 1.7 2016/10/17 14:25:33 natano Exp $	*/
+/*	$OpenBSD: msdosfs_vfsops.c,v 1.5 2016/10/17 01:16:22 tedu Exp $	*/
 
 /*-
  * Copyright (C) 1994, 1995, 1997 Wolfgang Solfrank.
@@ -85,10 +85,11 @@ msdosfs_mount(struct mkfsvnode *devvp, int flags)
 	struct byte_bpb50 *b50;
 	struct byte_bpb710 *b710;
 	uint8_t SecPerClust;
-	int	ronly = 0, error;
+	int	ronly = 0, error, tmp;
 	int	bsize;
 	struct msdos_options *m = devvp->fs->fs_specific;
 	struct timezone tz;
+	uint64_t psize = m->create_size;
 	unsigned secsize = 512;
 
 	DPRINTF(("%s(bread 0)\n", __func__));
@@ -335,6 +336,14 @@ msdosfs_mount(struct mkfsvnode *devvp, int flags)
 		pmp->pm_flags |= MSDOSFSMNT_RONLY;
 	else
 		pmp->pm_fmod = 1;
+
+	/*
+	 * If we ever do quotas for DOS filesystems this would be a place
+	 * to fill in the info in the msdosfsmount structure. You dolt,
+	 * quotas on dos filesystems make no sense because files have no
+	 * owners on dos filesystems. of course there is some empty space
+	 * in the directory entry where we could put uid's and gid's.
+	 */
 
 	return pmp;
 
