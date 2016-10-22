@@ -1339,6 +1339,7 @@
 ./usr/include/sys/namei.h
 ./usr/include/sys/param.h
 ./usr/include/sys/pciio.h
+./usr/include/sys/percpu.h
 ./usr/include/sys/pipe.h
 ./usr/include/sys/pledge.h
 ./usr/include/sys/poll.h
@@ -2662,6 +2663,8 @@
 ./usr/share/man/man9/config_attach.9
 ./usr/share/man/man9/config_defer.9
 ./usr/share/man/man9/copy.9
+./usr/share/man/man9/counters_alloc.9
+./usr/share/man/man9/cpumem_get.9
 ./usr/share/man/man9/crypto.9
 ./usr/share/man/man9/delay.9
 ./usr/share/man/man9/disk.9

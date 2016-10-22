@@ -1,4 +1,4 @@
-/*	$OpenBSD: cn30xxgmx.c,v 1.26 2016/08/04 13:10:31 visa Exp $	*/
+/*	$OpenBSD: cn30xxgmx.c,v 1.28 2016/10/21 15:15:08 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -227,6 +227,10 @@ cn30xxgmx_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_ports = mallocarray(sc->sc_nports, sizeof(*sc->sc_ports),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (sc->sc_ports == NULL) {
+		printf("%s: out of memory\n", sc->sc_dev.dv_xname);
+		return;
+	}
 
 	for (i = 0; i < sc->sc_nports; i++) {
 		port_sc = &sc->sc_ports[i];
@@ -331,10 +335,9 @@ cn30xxgmx_init(struct cn30xxgmx_softc *sc)
 
 	inf_mode = bus_space_read_8(sc->sc_regt, sc->sc_regh, GMX0_INF_MODE);
 	if ((inf_mode & INF_MODE_EN) == 0) {
-		printf("port are disable\n");
+		printf("ports are disabled\n");
 		sc->sc_nports = 0;
-		result = 1;
-		return result;
+		return 1;
 	}
 
 	id = octeon_get_chipid();

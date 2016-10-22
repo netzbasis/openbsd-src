@@ -6,6 +6,8 @@ import threading
 from addr import *
 from scapy.all import *
 
+# usage: challenge_ack.py src dst
+
 #
 # we can not use scapy's sr() function as receive side
 # ignores the packet we expect to see. Packet is ignored
@@ -13,22 +15,20 @@ from scapy.all import *
 # seq = 1000000, while response sent back by PF has ack,
 # which fits regular session opened by 'syn'.
 #
-class Sniff1(threading.Thread):
-	filter = None
+class Sniff(threading.Thread):
 	captured = None
-	packet = None
 	def run(self):
-		self.captured = sniff(iface=LOCAL_IF, filter=self.filter,
-		    count=1, timeout=5)
-		if self.captured:
-			self.packet = self.captured[0]
+		self.captured = sniff(iface=LOCAL_IF,
+		    filter='tcp src port 7', timeout=3)
 
-fake_port=os.getpid() & 0xffff
+srcaddr=sys.argv[1]
+dstaddr=sys.argv[2]
+port=os.getpid() & 0xffff
 
-ip=IP(src=FAKE_NET_ADDR, dst=REMOTE_ADDR)
+ip=IP(src=srcaddr, dst=dstaddr)
 
 print "Send SYN packet, receive SYN+ACK"
-syn=TCP(sport=fake_port, dport='echo', seq=1, flags='S', window=(2**16)-1)
+syn=TCP(sport=port, dport='echo', seq=1, flags='S', window=(2**16)-1)
 synack=sr1(ip/syn, iface=LOCAL_IF, timeout=5)
 
 print "Send ACK packet to finish handshake."
@@ -37,19 +37,27 @@ ack=TCP(sport=synack.dport, dport=synack.sport, seq=2, flags='A',
 send(ip/ack, iface=LOCAL_IF)
 
 print "Connection is established, send bogus SYN, expect challenge ACK"
-bogus_syn=TCP(sport=fake_port, dport='echo', seq=1000000, flags='S',
+bogus_syn=TCP(sport=port, dport='echo', seq=1000000, flags='S',
     window=(2**16)-1)
-sniffer = Sniff1();
-sniffer.filter = "src %s and tcp port echo and dst %s and tcp port %u " \
-    "and tcp[tcpflags] = tcp-ack" % (REMOTE_ADDR, FAKE_NET_ADDR, fake_port)
+sniffer = Sniff();
 sniffer.start()
-time.sleep(1)
-send(ip/bogus_syn, iface=LOCAL_IF)
-sniffer.join(timeout=7)
-challenge_ack = sniffer.packet
+challenge_ack=send(ip/bogus_syn, iface=LOCAL_IF)
+sniffer.join(timeout=5)
 
-if challenge_ack is None:
-	print "ERROR: no matching ACK packet received"
+if sniffer.captured == None:
+	print "ERROR: no packet received"
+	exit(1)
+
+challenge_ack = None
+
+for p in sniffer.captured:
+	if p.haslayer(TCP) and p.getlayer(TCP).sport == 7 and \
+	    p.getlayer(TCP).flags == 16:
+		challenge_ack = p
+		break
+
+if challenge_ack == None:
+	print "No ACK has been seen"
 	exit(1)
 
 if challenge_ack.getlayer(TCP).seq != (synack.seq + 1):

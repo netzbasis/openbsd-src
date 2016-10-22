@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd9660.c,v 1.7 2016/10/17 08:22:38 natano Exp $	*/
+/*	$OpenBSD: cd9660.c,v 1.5 2016/10/16 21:47:03 tedu Exp $	*/
 /*	$NetBSD: cd9660.c,v 1.52 2015/12/24 15:52:37 christos Exp $	*/
 
 /*
@@ -105,6 +105,7 @@
 #include "makefs.h"
 #include "cd9660.h"
 #include "cd9660/iso9660_rrip.h"
+#include "cd9660/cd9660_archimedes.h"
 
 /*
  * Global variables
@@ -195,6 +196,7 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 	/* Set up defaults in our own structure */
 	diskStructure->verbose_level = 0;
 	diskStructure->keep_bad_images = 0;
+	diskStructure->follow_sym_links = 0;
 	diskStructure->isoLevel = 2;
 
 	diskStructure->rock_ridge_enabled = 0;
@@ -202,6 +204,7 @@ cd9660_set_defaults(iso9660_disk *diskStructure)
 	diskStructure->rock_ridge_move_count = 0;
 	diskStructure->rr_moved_dir = 0;
 
+	diskStructure->archimedes_enabled = 0;
 	diskStructure->chrp_boot = 0;
 
 	diskStructure->include_padding_areas = 1;
@@ -265,6 +268,10 @@ cd9660_prep_opts(fsinfo_t *fsopts)
 		OPT_NUM('v', "verbose",  verbose_level,
 		    0, 2, "Turns on verbose output"),
 
+		OPT_BOOL('h', "help", displayHelp,
+		    "Show help message"),
+		OPT_BOOL('S', "follow-symlinks", follow_sym_links,
+		    "Resolve symlinks in pathnames"),
 	        OPT_BOOL('R', "rockridge", rock_ridge_enabled,
 		    "Enable Rock-Ridge extensions"),
 	        OPT_BOOL('C', "chrp-boot", chrp_boot,
@@ -283,6 +290,8 @@ cd9660_prep_opts(fsinfo_t *fsopts)
 		    "Omit trailing periods in filenames"),
 	        OPT_BOOL('\0', "allow-lowercase", allow_lowercase,
 		    "Allow lowercase characters in filenames"),
+	        OPT_BOOL('\0', "archimedes", archimedes_enabled,
+		    "Enable Archimedes structure"),
 		OPT_BOOL('\0', "no-trailing-padding", include_padding_areas,
 		    "Include padding areas"),
 
@@ -483,6 +492,14 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 	assert(dir != NULL);
 	assert(root != NULL);
 
+	if (diskStructure->displayHelp) {
+		/*
+		 * Display help here - probably want to put it in
+		 * a separate function
+		 */
+		return;
+	}
+
 	if (diskStructure->verbose_level > 0)
 		printf("%s: image %s directory %s root %p\n", __func__,
 		    image, dir, root);
@@ -526,6 +543,10 @@ cd9660_makefs(const char *image, const char *dir, fsnode *root,
 
 	if (diskStructure->verbose_level > 0)
 		printf("%s: done converting tree\n", __func__);
+
+	/* non-SUSP extensions */
+	if (diskStructure->archimedes_enabled)
+		archimedes_convert_tree(diskStructure->rootNode);
 
 	/* Rock ridge / SUSP init pass */
 	if (diskStructure->rock_ridge_enabled) {
@@ -1607,6 +1628,11 @@ cd9660_level1_convert_filename(iso9660_disk *diskStructure, const char *oldname,
 				found_ext = 1;
 			}
 		} else {
+			/* cut RISC OS file type off ISO name */
+			if (diskStructure->archimedes_enabled &&
+			    *oldname == ',' && strlen(oldname) == 4)
+				break;
+
 			/* Enforce 12.3 / 8 */
 			if (namelen == 8 && !found_ext)
 				break;
@@ -1670,7 +1696,12 @@ cd9660_level2_convert_filename(iso9660_disk *diskStructure, const char *oldname,
 				found_ext = 1;
 			}
 		} else {
-			if (islower((unsigned char)*oldname))
+			/* cut RISC OS file type off ISO name */
+			if (diskStructure->archimedes_enabled &&
+			    *oldname == ',' && strlen(oldname) == 4)
+				break;
+
+			 if (islower((unsigned char)*oldname))
 				*newname++ = toupper((unsigned char)*oldname);
 			else if (isupper((unsigned char)*oldname) ||
 			    isdigit((unsigned char)*oldname))
