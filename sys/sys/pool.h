@@ -1,4 +1,4 @@
-/*	$OpenBSD: pool.h,v 1.63 2016/09/15 02:00:16 dlg Exp $	*/
+/*	$OpenBSD: pool.h,v 1.65 2016/11/02 01:58:07 dlg Exp $	*/
 /*	$NetBSD: pool.h,v 1.27 2001/06/06 22:00:17 rafal Exp $	*/
 
 /*-
@@ -84,6 +84,10 @@ struct pool_allocator {
 
 TAILQ_HEAD(pool_pagelist, pool_item_header);
 
+struct pool_list;
+TAILQ_HEAD(pool_lists, pool_list);
+struct cpumem;
+
 struct pool {
 	struct mutex	pr_mtx;
 	SIMPLEQ_ENTRY(pool)
@@ -123,6 +127,15 @@ struct pool {
 
 	RBT_HEAD(phtree, pool_item_header)
 			pr_phtree;
+
+	struct cpumem *	pr_cache;
+	struct mutex	pr_cache_mtx;
+	struct pool_lists
+			pr_cache_lists;
+	u_int		pr_cache_nlist;
+	u_int		pr_cache_items;
+	u_int		pr_cache_contention;
+	int		pr_cache_nout;
 
 	u_int		pr_align;
 	u_int		pr_maxcolors;	/* Cache coloring */
@@ -175,6 +188,7 @@ struct pool_request {
 
 void		pool_init(struct pool *, size_t, u_int, int, int,
 		    const char *, struct pool_allocator *);
+void		pool_cache_init(struct pool *);
 void		pool_destroy(struct pool *);
 void		pool_setlowat(struct pool *, int);
 void		pool_sethiwat(struct pool *, int);

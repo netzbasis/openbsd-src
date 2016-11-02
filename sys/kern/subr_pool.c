@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_pool.c,v 1.198 2016/09/15 02:00:16 dlg Exp $	*/
+/*	$OpenBSD: subr_pool.c,v 1.201 2016/11/02 03:29:48 dlg Exp $	*/
 /*	$NetBSD: subr_pool.c,v 1.61 2001/09/26 07:14:56 chs Exp $	*/
 
 /*-
@@ -42,6 +42,7 @@
 #include <sys/sysctl.h>
 #include <sys/task.h>
 #include <sys/timeout.h>
+#include <sys/percpu.h>
 
 #include <uvm/uvm_extern.h>
 
@@ -95,6 +96,41 @@ struct pool_item {
 	XSIMPLEQ_ENTRY(pool_item)	pi_list;
 };
 #define POOL_IMAGIC(ph, pi) ((u_long)(pi) ^ (ph)->ph_magic)
+
+#ifdef MULTIPROCESSOR
+struct pool_list {
+	struct pool_list	*pl_next;	/* next in list */
+	unsigned long		 pl_nitems;	/* items in list */
+	TAILQ_ENTRY(pool_list)	 pl_nextl;	/* list of lists */
+};
+
+#define POOL_LIST_NITEMS_MASK		0x7ffffffUL
+#define POOL_LIST_NITEMS_POISON		0x8000000UL
+
+#define POOL_LIST_POISONED(_pl)						\
+    ISSET((_pl)->pl_nitems, POOL_LIST_NITEMS_POISON)
+
+#define POOL_LIST_NITEMS(_pl)						\
+    ((_pl)->pl_nitems & POOL_LIST_NITEMS_MASK)
+
+struct pool_cache {
+	struct pool_list	*pc_actv;
+	unsigned long		 pc_nactv;	/* cache pc_actv nitems */
+	struct pool_list	*pc_prev;
+
+	uint64_t		 pc_gen;	/* generation number */
+	uint64_t		 pc_gets;
+	uint64_t		 pc_puts;
+	uint64_t		 pc_fails;
+
+	int			 pc_nout;
+};
+
+void	*pool_cache_get(struct pool *);
+void	 pool_cache_put(struct pool *, void *);
+void	 pool_cache_destroy(struct pool *);
+#endif
+void	 pool_cache_info(struct pool *, struct kinfo_pool *);
 
 #ifdef POOL_DEBUG
 int	pool_debug = 1;
@@ -355,6 +391,11 @@ pool_destroy(struct pool *pp)
 	struct pool_item_header *ph;
 	struct pool *prev, *iter;
 
+#ifdef MULTIPROCESSOR
+	if (pp->pr_cache != NULL)
+		pool_cache_destroy(pp);
+#endif
+
 #ifdef DIAGNOSTIC
 	if (pp->pr_nout != 0)
 		panic("%s: pool busy: still out: %u", __func__, pp->pr_nout);
@@ -421,6 +462,14 @@ pool_get(struct pool *pp, int flags)
 	void *v = NULL;
 	int slowdown = 0;
 
+#ifdef MULTIPROCESSOR
+	if (pp->pr_cache != NULL) {
+		v = pool_cache_get(pp);
+		if (v != NULL)
+			goto good;
+	}
+#endif
+
 	KASSERT(flags & (PR_WAITOK | PR_NOWAIT));
 
 	mtx_enter(&pp->pr_mtx);
@@ -453,6 +502,9 @@ pool_get(struct pool *pp, int flags)
 		v = mem.v;
 	}
 
+#ifdef MULTIPROCESSOR
+good:
+#endif
 	if (ISSET(flags, PR_ZERO))
 		memset(v, 0, pp->pr_size);
 
@@ -629,6 +681,13 @@ pool_put(struct pool *pp, void *v)
 #ifdef DIAGNOSTIC
 	if (v == NULL)
 		panic("%s: NULL item", __func__);
+#endif
+
+#ifdef MULTIPROCESSOR
+	if (pp->pr_cache != NULL && TAILQ_EMPTY(&pp->pr_requests)) {
+		pool_cache_put(pp, v);
+		return;
+	}
 #endif
 
 	mtx_enter(&pp->pr_mtx);
@@ -1333,6 +1392,8 @@ sysctl_dopool(int *name, u_int namelen, char *oldp, size_t *oldlenp)
 		pi.pr_nidle = pp->pr_nidle;
 		mtx_leave(&pp->pr_mtx);
 
+		pool_cache_info(pp, &pi);
+
 		rv = sysctl_rdstruct(oldp, oldlenp, NULL, &pi, sizeof(pi));
 		break;
 	}
@@ -1499,3 +1560,289 @@ pool_multi_free_ni(struct pool *pp, void *v)
 	km_free(v, pp->pr_pgsize, &kv, pp->pr_crange);
 	KERNEL_UNLOCK();
 }
+
+#ifdef MULTIPROCESSOR
+
+struct pool pool_caches; /* per cpu cache entries */
+
+void
+pool_cache_init(struct pool *pp)
+{
+	struct cpumem *cm;
+	struct pool_cache *pc;
+	struct cpumem_iter i;
+
+	if (pool_caches.pr_size == 0) {
+		pool_init(&pool_caches, sizeof(struct pool_cache), 64,
+		    IPL_NONE, PR_WAITOK, "plcache", NULL);
+	}
+
+	KASSERT(pp->pr_size >= sizeof(*pc));
+
+	cm = cpumem_get(&pool_caches);
+
+	mtx_init(&pp->pr_cache_mtx, pp->pr_ipl);
+	TAILQ_INIT(&pp->pr_cache_lists);
+	pp->pr_cache_nlist = 0;
+	pp->pr_cache_items = 8;
+	pp->pr_cache_contention = 0;
+
+	CPUMEM_FOREACH(pc, &i, cm) {
+		pc->pc_actv = NULL;
+		pc->pc_nactv = 0;
+		pc->pc_prev = NULL;
+
+		pc->pc_gets = 0;
+		pc->pc_puts = 0;
+		pc->pc_fails = 0;
+		pc->pc_nout = 0;
+	}
+
+	pp->pr_cache = cm;
+}
+
+static inline void
+pool_list_enter(struct pool *pp)
+{
+	if (mtx_enter_try(&pp->pr_cache_mtx) == 0) {
+		mtx_enter(&pp->pr_cache_mtx);
+		pp->pr_cache_contention++;
+	}
+}
+
+static inline void
+pool_list_leave(struct pool *pp)
+{
+	mtx_leave(&pp->pr_cache_mtx);
+}
+
+static inline struct pool_list *
+pool_list_alloc(struct pool *pp, struct pool_cache *pc)
+{
+	struct pool_list *pl;
+
+	pool_list_enter(pp);
+	pl = TAILQ_FIRST(&pp->pr_cache_lists);
+	if (pl != NULL) {
+		TAILQ_REMOVE(&pp->pr_cache_lists, pl, pl_nextl);
+		pp->pr_cache_nlist--;
+	}
+
+	pp->pr_cache_nout += pc->pc_nout;
+	pc->pc_nout = 0;
+	pool_list_leave(pp);
+
+	return (pl);
+}
+
+static inline void
+pool_list_free(struct pool *pp, struct pool_cache *pc, struct pool_list *pl)
+{
+	pool_list_enter(pp);
+	TAILQ_INSERT_TAIL(&pp->pr_cache_lists, pl, pl_nextl);
+	pp->pr_cache_nlist++;
+
+	pp->pr_cache_nout += pc->pc_nout;
+	pc->pc_nout = 0;
+	pool_list_leave(pp);
+}
+
+static inline struct pool_cache *
+pool_cache_enter(struct pool *pp, int *s)
+{
+	struct pool_cache *pc;
+
+	pc = cpumem_enter(pp->pr_cache);
+	*s = splraise(pp->pr_ipl);
+	pc->pc_gen++;
+
+	return (pc);
+}
+
+static inline void
+pool_cache_leave(struct pool *pp, struct pool_cache *pc, int s)
+{
+	pc->pc_gen++;
+	splx(s);
+	cpumem_leave(pp->pr_cache, pc);
+}
+
+void *
+pool_cache_get(struct pool *pp)
+{
+	struct pool_cache *pc;
+	struct pool_list *pl;
+	int s;
+
+	pc = pool_cache_enter(pp, &s);
+
+	if (pc->pc_actv != NULL) {
+		pl = pc->pc_actv;
+	} else if (pc->pc_prev != NULL) {
+		pl = pc->pc_prev;
+		pc->pc_prev = NULL;
+	} else if ((pl = pool_list_alloc(pp, pc)) == NULL) {
+		pc->pc_fails++;
+		goto done;
+	}
+
+	pc->pc_actv = pl->pl_next;
+	pc->pc_nactv = POOL_LIST_NITEMS(pl) - 1;
+	pc->pc_gets++;
+	pc->pc_nout++;
+
+done:
+	pool_cache_leave(pp, pc, s);
+
+#ifdef DIAGNOSTIC
+	if (pool_debug && pl != NULL && POOL_LIST_POISONED(pl)) {
+		size_t pidx;
+		uint32_t pval;
+
+		if (poison_check(pl + 1, pp->pr_size - sizeof(*pl),
+		    &pidx, &pval)) {
+			int *ip = (int *)(pl + 1);
+			panic("%s: %s cpu free list modified: "
+			    "item addr %p; offset 0x%zx=0x%x",
+			    __func__, pp->pr_wchan, pl,
+			    pidx * sizeof(int) + sizeof(*pl), ip[pidx]);
+		}
+	}
+#endif
+
+	return (pl);
+}
+
+void
+pool_cache_put(struct pool *pp, void *v)
+{
+	struct pool_cache *pc;
+	struct pool_list *pl = v;
+	unsigned long nitems;
+	int s;
+#ifdef DIAGNOSTIC
+	int poison = pool_debug && pp->pr_size > sizeof(*pl);
+
+	if (poison)
+		poison_mem(pl + 1, pp->pr_size - sizeof(*pl));
+#endif
+
+	pc = pool_cache_enter(pp, &s);
+
+	nitems = pc->pc_nactv;
+	if (nitems >= pp->pr_cache_items) {
+		if (pc->pc_prev != NULL)
+			pool_list_free(pp, pc, pc->pc_prev);
+			
+		pc->pc_prev = pc->pc_actv;
+
+		pc->pc_actv = NULL;
+		pc->pc_nactv = 0;
+		nitems = 0;
+	}
+
+	pl->pl_next = pc->pc_actv;
+	pl->pl_nitems = ++nitems;
+#ifdef DIAGNOSTIC
+	pl->pl_nitems |= poison ? POOL_LIST_NITEMS_POISON : 0;
+#endif
+
+	pc->pc_actv = pl;
+	pc->pc_nactv = nitems;
+
+	pc->pc_puts++;
+	pc->pc_nout--;
+
+	pool_cache_leave(pp, pc, s);
+}
+
+struct pool_list *
+pool_list_put(struct pool *pp, struct pool_list *pl)
+{
+	struct pool_list *rpl, *npl;
+
+	if (pl == NULL)
+		return (NULL);
+
+	rpl = TAILQ_NEXT(pl, pl_nextl);
+
+	do {
+		npl = pl->pl_next;
+		pool_put(pp, pl);
+		pl = npl;
+	} while (pl != NULL);
+
+	return (rpl);
+}
+
+void
+pool_cache_destroy(struct pool *pp)
+{
+	struct pool_cache *pc;
+	struct pool_list *pl;
+	struct cpumem_iter i;
+	struct cpumem *cm;
+
+	cm = pp->pr_cache;
+	pp->pr_cache = NULL; /* make pool_put avoid the cache */
+
+	CPUMEM_FOREACH(pc, &i, cm) {
+		pool_list_put(pp, pc->pc_actv);
+		pool_list_put(pp, pc->pc_prev);
+	}
+
+	cpumem_put(&pool_caches, cm);
+
+	pl = TAILQ_FIRST(&pp->pr_cache_lists);
+	while (pl != NULL)
+		pl = pool_list_put(pp, pl);
+}
+
+void
+pool_cache_info(struct pool *pp, struct kinfo_pool *pi)
+{
+	struct pool_cache *pc;
+	struct cpumem_iter i;
+
+	if (pp->pr_cache == NULL)
+		return;
+
+	/* loop through the caches twice to collect stats */
+
+	/* once without the mtx so we can yield while reading nget/nput */
+	CPUMEM_FOREACH(pc, &i, pp->pr_cache) {
+		uint64_t gen, nget, nput;
+
+		do {
+			while ((gen = pc->pc_gen) & 1)
+				yield();
+
+			nget = pc->pc_gets;
+			nput = pc->pc_puts;
+		} while (gen != pc->pc_gen);
+
+		pi->pr_nget += nget;
+		pi->pr_nput += nput;
+	}
+
+	/* and once with the mtx so we can get consistent nout values */
+	mtx_enter(&pp->pr_cache_mtx);
+	CPUMEM_FOREACH(pc, &i, pp->pr_cache)
+		pi->pr_nout += pc->pc_nout;
+
+	pi->pr_nout += pp->pr_cache_nout;
+	mtx_leave(&pp->pr_cache_mtx);
+}
+#else /* MULTIPROCESSOR */
+void
+pool_cache_init(struct pool *pp)
+{
+	/* nop */
+}
+
+void
+pool_cache_info(struct pool *pp, struct kinfo_pool *pi)
+{
+	/* nop */
+}
+#endif /* MULTIPROCESSOR */
