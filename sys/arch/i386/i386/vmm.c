@@ -33,7 +33,6 @@
 #include <machine/pmap.h>
 #include <machine/biosvar.h>
 #include <machine/segments.h>
-#include <machine/cpu.h>
 #include <machine/cpufunc.h>
 #include <machine/vmmvar.h>
 #include <machine/i82489reg.h>
@@ -583,7 +582,7 @@ vm_intr_pending(struct vm_intr_params *vip)
 	 */
 	if (vcpu->vc_state == VCPU_STATE_RUNNING &&
 	    vip->vip_intr == 1)
-		i386_send_ipi(vcpu->vc_last_pcpu, I386_IPI_NOP);
+		x86_send_ipi(vcpu->vc_last_pcpu, X86_IPI_NOP);
 #endif /* MULTIPROCESSOR */
 
 	return (0);
@@ -672,7 +671,7 @@ vmm_start(void)
 
 #ifdef MULTIPROCESSOR
 	/* Broadcast start VMM IPI */
-	i386_broadcast_ipi(I386_IPI_START_VMM);
+	x86_broadcast_ipi(X86_IPI_START_VMM);
 
 	CPU_INFO_FOREACH(cii, ci) {
 		if (ci == self)
@@ -681,7 +680,7 @@ vmm_start(void)
 			delay(10);
 		if (!(ci->ci_flags & CPUF_VMM)) {
 			printf("%s: failed to enter VMM mode\n",
-				ci->ci_dev.dv_xname);
+				ci->ci_dev->dv_xname);
 			ret = EIO;
 		}
 	}
@@ -720,7 +719,7 @@ vmm_stop(void)
 
 #ifdef MULTIPROCESSOR
 	/* Stop VMM on other CPUs */
-	i386_broadcast_ipi(I386_IPI_STOP_VMM);
+	x86_broadcast_ipi(X86_IPI_STOP_VMM);
 
 	CPU_INFO_FOREACH(cii, ci) {
 		if (ci == self)
@@ -729,7 +728,7 @@ vmm_stop(void)
 			delay(10);
 		if (ci->ci_flags & CPUF_VMM) {
 			printf("%s: failed to exit VMM mode\n",
-				ci->ci_dev.dv_xname);
+				ci->ci_dev->dv_xname);
 			ret = EIO;
 		}
 	}

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.37 2016/11/02 15:23:41 schwarze Exp $
+# $OpenBSD: Makefile,v 1.44 2016/11/03 15:48:22 schwarze Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 
@@ -92,14 +92,6 @@ MAN=	\
 	ERR_remove_state.3 \
 	ERR_set_mark.3 \
 	EVP_AEAD_CTX_init.3 \
-	UI_new.3 \
-	bn_dump.3 \
-	crypto.3 \
-	d2i_PKCS8PrivateKey_bio.3 \
-	des_read_pw.3 \
-	lh_new.3 \
-
-GENMAN= \
 	EVP_BytesToKey.3 \
 	EVP_DigestInit.3 \
 	EVP_DigestSignInit.3 \
@@ -130,22 +122,34 @@ GENMAN= \
 	OPENSSL_config.3 \
 	OPENSSL_load_builtin_modules.3 \
 	OpenSSL_add_all_algorithms.3 \
-	PKCS5_PBKDF2_HMAC.3 \
 	PEM_read_bio_PrivateKey.3 \
 	PEM_write_bio_PKCS7_stream.3 \
 	PKCS12_create.3 \
 	PKCS12_parse.3 \
+	PKCS5_PBKDF2_HMAC.3 \
 	PKCS7_decrypt.3 \
 	PKCS7_encrypt.3 \
 	PKCS7_sign.3 \
 	PKCS7_sign_add_signer.3 \
 	PKCS7_verify.3 \
-	RAND.3 \
 	RAND_add.3 \
 	RAND_bytes.3 \
 	RAND_cleanup.3 \
 	RAND_load_file.3 \
 	RAND_set_rand_method.3 \
+	SMIME_read_PKCS7.3 \
+	SMIME_write_PKCS7.3 \
+	UI_new.3 \
+	bn_dump.3 \
+	crypto.3 \
+	d2i_ASN1_OBJECT.3 \
+	d2i_PKCS8PrivateKey_bio.3 \
+	des_read_pw.3 \
+	evp.3 \
+	i2d_PKCS7_bio_stream.3 \
+	lh_new.3 \
+
+GENMAN= \
 	RC4.3 \
 	RIPEMD160.3 \
 	RSA_blinding_on.3 \
@@ -162,8 +166,6 @@ GENMAN= \
 	RSA_sign_ASN1_OCTET_STRING.3 \
 	RSA_size.3 \
 	SHA1.3 \
-	SMIME_read_PKCS7.3 \
-	SMIME_write_PKCS7.3 \
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
 	X509_NAME_get_index_by_NID.3 \
@@ -177,7 +179,6 @@ GENMAN= \
 	X509_new.3 \
 	X509_verify_cert.3 \
 	bn.3 \
-	d2i_ASN1_OBJECT.3 \
 	d2i_DHparams.3 \
 	d2i_DSAPublicKey.3 \
 	d2i_ECPKParameters.3 \
@@ -192,8 +193,6 @@ GENMAN= \
 	dsa.3 \
 	ec.3 \
 	engine.3 \
-	evp.3 \
-	i2d_PKCS7_bio_stream.3 \
 	lh_stats.3 \
 	rsa.3 \
 	x509.3 \
