@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl.h,v 1.96 2015/10/25 16:07:04 doug Exp $ */
+/* $OpenBSD: ssl.h,v 1.99 2016/11/02 10:59:25 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -681,7 +681,9 @@ struct ssl_comp_st {
 };
 
 DECLARE_STACK_OF(SSL_COMP)
-DECLARE_LHASH_OF(SSL_SESSION);
+struct lhash_st_SSL_SESSION {
+	int dummy;
+};
 
 struct ssl_ctx_st {
 	const SSL_METHOD *method;
@@ -691,7 +693,7 @@ struct ssl_ctx_st {
 	STACK_OF(SSL_CIPHER) *cipher_list_by_id;
 
 	struct x509_store_st /* X509_STORE */ *cert_store;
-	LHASH_OF(SSL_SESSION) *sessions;
+	struct lhash_st_SSL_SESSION *sessions;
 	/* Most session-ids that will be cached, default is
 	 * SSL_SESSION_CACHE_MAX_SIZE_DEFAULT. 0 is unlimited. */
 	unsigned long session_cache_size;
@@ -893,7 +895,7 @@ struct ssl_ctx_st {
 #define SSL_SESS_CACHE_NO_INTERNAL \
 	(SSL_SESS_CACHE_NO_INTERNAL_LOOKUP|SSL_SESS_CACHE_NO_INTERNAL_STORE)
 
-LHASH_OF(SSL_SESSION) *SSL_CTX_sessions(SSL_CTX *ctx);
+struct lhash_st_SSL_SESSION *SSL_CTX_sessions(SSL_CTX *ctx);
 #define SSL_CTX_sess_number(ctx) \
 	SSL_CTX_ctrl(ctx,SSL_CTRL_SESS_NUMBER,0,NULL)
 #define SSL_CTX_sess_connect(ctx) \
@@ -1318,7 +1320,12 @@ size_t SSL_get_peer_finished(const SSL *s, void *buf, size_t count);
 #define d2i_SSL_SESSION_bio(bp,s_id) ASN1_d2i_bio_of(SSL_SESSION,SSL_SESSION_new,d2i_SSL_SESSION,bp,s_id)
 #define i2d_SSL_SESSION_bio(bp,s_id) ASN1_i2d_bio_of(SSL_SESSION,i2d_SSL_SESSION,bp,s_id)
 
-DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
+SSL_SESSION *PEM_read_bio_SSL_SESSION(BIO *bp, SSL_SESSION **x,
+    pem_password_cb *cb, void *u);
+SSL_SESSION *PEM_read_SSL_SESSION(FILE *fp, SSL_SESSION **x,
+    pem_password_cb *cb, void *u);
+int PEM_write_bio_SSL_SESSION(BIO *bp, SSL_SESSION *x);
+int PEM_write_SSL_SESSION(FILE *fp, SSL_SESSION *x);
 
 #define SSL_AD_REASON_OFFSET		1000 /* offset to get SSL_R_... value from SSL_AD_... */
 
