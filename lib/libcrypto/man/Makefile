@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.44 2016/11/03 15:48:22 schwarze Exp $
+# $OpenBSD: Makefile,v 1.47 2016/11/04 18:07:23 beck Exp $
 
 .include <bsd.own.mk>		# for NOMAN
 
@@ -11,6 +11,7 @@ MAN=	\
 	ASN1_STRING_new.3 \
 	ASN1_STRING_print_ex.3 \
 	ASN1_generate_nconf.3 \
+	ASN1_time_parse.3 \
 	BF_set_key.3 \
 	BIO.3 \
 	BIO_ctrl.3 \
@@ -137,21 +138,6 @@ MAN=	\
 	RAND_cleanup.3 \
 	RAND_load_file.3 \
 	RAND_set_rand_method.3 \
-	SMIME_read_PKCS7.3 \
-	SMIME_write_PKCS7.3 \
-	UI_new.3 \
-	bn_dump.3 \
-	crypto.3 \
-	d2i_ASN1_OBJECT.3 \
-	d2i_PKCS8PrivateKey_bio.3 \
-	des_read_pw.3 \
-	evp.3 \
-	i2d_PKCS7_bio_stream.3 \
-	lh_new.3 \
-
-GENMAN= \
-	RC4.3 \
-	RIPEMD160.3 \
 	RSA_blinding_on.3 \
 	RSA_check_key.3 \
 	RSA_generate_key.3 \
@@ -165,7 +151,9 @@ GENMAN= \
 	RSA_sign.3 \
 	RSA_sign_ASN1_OCTET_STRING.3 \
 	RSA_size.3 \
-	SHA1.3 \
+	SMIME_read_PKCS7.3 \
+	SMIME_write_PKCS7.3 \
+	UI_new.3 \
 	X509_NAME_ENTRY_get_object.3 \
 	X509_NAME_add_entry_by_txt.3 \
 	X509_NAME_get_index_by_NID.3 \
@@ -178,10 +166,10 @@ GENMAN= \
 	X509_VERIFY_PARAM_set_flags.3 \
 	X509_new.3 \
 	X509_verify_cert.3 \
-	bn.3 \
-	d2i_DHparams.3 \
-	d2i_DSAPublicKey.3 \
-	d2i_ECPKParameters.3 \
+	bn_dump.3 \
+	crypto.3 \
+	d2i_ASN1_OBJECT.3 \
+	d2i_PKCS8PrivateKey_bio.3 \
 	d2i_RSAPublicKey.3 \
 	d2i_X509.3 \
 	d2i_X509_ALGOR.3 \
@@ -189,13 +177,26 @@ GENMAN= \
 	d2i_X509_NAME.3 \
 	d2i_X509_REQ.3 \
 	d2i_X509_SIG.3 \
+	des_read_pw.3 \
+	evp.3 \
+	i2d_PKCS7_bio_stream.3 \
+	lh_new.3 \
+	rsa.3 \
+	x509.3
+
+GENMAN= \
+	RC4.3 \
+	RIPEMD160.3 \
+	SHA1.3 \
+	bn.3 \
+	d2i_DHparams.3 \
+	d2i_DSAPublicKey.3 \
+	d2i_ECPKParameters.3 \
 	dh.3 \
 	dsa.3 \
 	ec.3 \
 	engine.3 \
 	lh_stats.3 \
-	rsa.3 \
-	x509.3 \
 
 MAN+=	${GENMAN}
 

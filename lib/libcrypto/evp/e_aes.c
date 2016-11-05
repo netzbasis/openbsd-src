@@ -1,4 +1,4 @@
-/* $OpenBSD: e_aes.c,v 1.29 2015/09/10 15:56:25 jsing Exp $ */
+/* $OpenBSD: e_aes.c,v 1.31 2016/11/04 17:30:30 miod Exp $ */
 /* ====================================================================
  * Copyright (c) 2001-2011 The OpenSSL Project.  All rights reserved.
  *
@@ -143,17 +143,17 @@ void AES_xts_decrypt(const char *inp, char *out, size_t len,
     const AES_KEY *key1, const AES_KEY *key2, const unsigned char iv[16]);
 #endif
 
-#if	defined(AES_ASM) && !defined(I386_ONLY) &&	(  \
+#if	defined(AES_ASM) &&				(  \
 	((defined(__i386)	|| defined(__i386__)	|| \
 	  defined(_M_IX86)) && defined(OPENSSL_IA32_SSE2))|| \
 	defined(__x86_64)	|| defined(__x86_64__)	|| \
 	defined(_M_AMD64)	|| defined(_M_X64)	|| \
 	defined(__INTEL__)				)
 
-extern unsigned int OPENSSL_ia32cap_P[2];
+#include "x86_arch.h"
 
 #ifdef VPAES_ASM
-#define VPAES_CAPABLE	(OPENSSL_ia32cap_P[1]&(1<<(41-32)))
+#define VPAES_CAPABLE	(OPENSSL_cpu_caps() & CPUCAP_MASK_SSSE3)
 #endif
 #ifdef BSAES_ASM
 #define BSAES_CAPABLE	VPAES_CAPABLE
@@ -161,7 +161,7 @@ extern unsigned int OPENSSL_ia32cap_P[2];
 /*
  * AES-NI section
  */
-#define	AESNI_CAPABLE	(OPENSSL_ia32cap_P[1]&(1<<(57-32)))
+#define	AESNI_CAPABLE	(OPENSSL_cpu_caps() & CPUCAP_MASK_AESNI)
 
 int aesni_set_encrypt_key(const unsigned char *userKey, int bits,
     AES_KEY *key);
