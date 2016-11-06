@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.167 2016/11/04 05:13:13 beck Exp $ */
+/* $OpenBSD: netcat.c,v 1.169 2016/11/05 16:03:09 jmc Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -100,6 +100,7 @@ int	rtableid = -1;
 int	usetls;					/* use TLS */
 char    *Cflag;					/* Public cert file */
 char    *Kflag;					/* Private key file */
+char    *oflag;					/* OCSP stapling file */
 char    *Rflag = DEFAULT_CA_FILE;		/* Root CA file */
 int	tls_cachanged;				/* Using non-default CA file */
 int     TLSopt;					/* TLS options */
@@ -163,7 +164,7 @@ main(int argc, char *argv[])
 	signal(SIGPIPE, SIG_IGN);
 
 	while ((ch = getopt(argc, argv,
-	    "46C:cDde:FH:hI:i:K:klM:m:NnO:P:p:R:rSs:T:tUuV:vw:X:x:z")) != -1) {
+	    "46C:cDde:FH:hI:i:K:klM:m:NnO:o:P:p:R:rSs:T:tUuV:vw:X:x:z")) != -1) {
 		switch (ch) {
 		case '4':
 			family = AF_INET;
@@ -295,6 +296,9 @@ main(int argc, char *argv[])
 				errx(1, "TCP send window %s: %s",
 				    errstr, optarg);
 			break;
+		case 'o':
+			oflag = optarg;
+			break;
 		case 'S':
 			Sflag = 1;
 			break;
@@ -380,6 +384,8 @@ main(int argc, char *argv[])
 		errx(1, "you must specify -c to use -C");
 	if (Kflag && !usetls)
 		errx(1, "you must specify -c to use -K");
+	if (oflag && !Cflag)
+		errx(1, "you must specify -C to use -o");
 	if (tls_cachanged && !usetls)
 		errx(1, "you must specify -c to use -R");
 	if (tls_expecthash && !usetls)
@@ -454,6 +460,8 @@ main(int argc, char *argv[])
 		if (Cflag && tls_config_set_cert_file(tls_cfg, Cflag) == -1)
 			errx(1, "%s", tls_config_error(tls_cfg));
 		if (Kflag && tls_config_set_key_file(tls_cfg, Kflag) == -1)
+			errx(1, "%s", tls_config_error(tls_cfg));
+		if (oflag && tls_config_set_ocsp_staple_file(tls_cfg, oflag) == -1)
 			errx(1, "%s", tls_config_error(tls_cfg));
 		if (TLSopt & TLS_LEGACY) {
 			tls_config_set_protocols(tls_cfg, TLS_PROTOCOLS_ALL);
@@ -1632,6 +1640,7 @@ help(void)
 	\t-N		Shutdown the network socket after EOF on stdin\n\
 	\t-n		Suppress name/port resolutions\n\
 	\t-O length	TCP send buffer length\n\
+	\t-o staplefile	Staple file\n\
 	\t-P proxyuser\tUsername for proxy authentication\n\
 	\t-p port\t	Specify local port for remote connects\n\
 	\t-R CAfile	CA bundle\n\
@@ -1659,8 +1668,10 @@ usage(int ret)
 	    "usage: nc [-46cDdFhklNnrStUuvz] [-C certfile] [-e name] "
 	    "[-H hash] [-I length]\n"
 	    "\t  [-i interval] [-K keyfile] [-M ttl] [-m minttl] [-O length]\n"
-	    "\t  [-P proxy_username] [-p source_port] [-R CAfile] [-s source]\n"
-	    "\t  [-T keyword] [-V rtable] [-w timeout] [-X proxy_protocol]\n"
+	    "\t  [-o staplefile] [-P proxy_username] [-p source_port] "
+	    "[-R CAfile]\n"
+	    "\t  [-s source] [-T keyword] [-V rtable] [-w timeout] "
+	    "[-X proxy_protocol]\n"
 	    "\t  [-x proxy_address[:port]] [destination] [port]\n");
 	if (ret)
 		exit(1);

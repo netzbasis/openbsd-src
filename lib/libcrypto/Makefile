@@ -1,8 +1,12 @@
-# $OpenBSD: Makefile,v 1.10 2016/11/04 18:12:49 jsing Exp $
+# $OpenBSD: Makefile,v 1.12 2016/11/05 15:01:54 schwarze Exp $
 
 LIB=	crypto
 
+.include <bsd.own.mk>
+.ifndef NOMAN
 SUBDIR= man
+.endif
+
 PC_FILES=libcrypto.pc
 
 CLEANFILES=${PC_FILES}
@@ -11,7 +15,6 @@ LCRYPTO_SRC=	${.CURDIR}
 
 CFLAGS+= -Wall -Wundef -Werror
 
-.include <bsd.own.mk>		# for 'NOPIC' definition
 .if !defined(NOPIC)
 CFLAGS+= -DDSO_DLFCN -DHAVE_DLFCN_H -DHAVE_FUNOPEN
 .endif
@@ -88,6 +91,9 @@ SRCS+= comp_lib.c comp_err.c c_rle.c c_zlib.c
 # conf/
 SRCS+= conf_err.c conf_lib.c conf_api.c conf_def.c conf_mod.c
 SRCS+= conf_mall.c conf_sap.c
+
+# curve25519/
+SRCS+= curve25519.c curve25519-generic.c
 
 # des/
 SRCS+= cbc_cksm.c cbc_enc.c cfb64enc.c cfb_enc.c
@@ -261,6 +267,7 @@ SRCS+= pcy_cache.c pcy_node.c pcy_data.c pcy_map.c pcy_tree.c pcy_lib.c
 	${LCRYPTO_SRC}/cmac \
 	${LCRYPTO_SRC}/comp \
 	${LCRYPTO_SRC}/conf \
+	${LCRYPTO_SRC}/curve25519 \
 	${LCRYPTO_SRC}/des \
 	${LCRYPTO_SRC}/dh \
 	${LCRYPTO_SRC}/dsa \
@@ -317,6 +324,7 @@ HDRS=\
 	${LCRYPTO_SRC}/conf/conf.h \
 	${LCRYPTO_SRC}/conf/conf_api.h \
 	${LCRYPTO_SRC}/crypto.h \
+	${LCRYPTO_SRC}/curve25519/curve25519.h \
 	${LCRYPTO_SRC}/des/des.h \
 	${LCRYPTO_SRC}/dh/dh.h \
 	${LCRYPTO_SRC}/dsa/dsa.h \
