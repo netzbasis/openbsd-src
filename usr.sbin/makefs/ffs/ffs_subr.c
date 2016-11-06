@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_subr.c,v 1.1 2016/10/18 17:23:21 natano Exp $	*/
+/*	$OpenBSD: ffs_subr.c,v 1.4 2016/10/22 19:43:50 natano Exp $	*/
 /*	$NetBSD: ffs_subr.c,v 1.49 2016/05/07 11:59:08 maxv Exp $	*/
 
 /*
@@ -34,18 +34,12 @@
 
 #include <sys/param.h>
 
-/* in ffs_tables.c */
-extern const int inside[], around[];
-extern const u_char * const fragtbl[];
+#include <ufs/ufs/dinode.h>
+#include <ufs/ffs/fs.h>
 
-#include "ffs/fs.h"
-#include "ffs/ufs_bswap.h"
-#include "ffs/dinode.h"
+#include <err.h>
 
 #include "ffs/ffs_extern.h"
-
-void    panic(const char *, ...)
-    __attribute__((__noreturn__,__format__(__printf__,1,2)));
 
 
 /*
@@ -73,7 +67,7 @@ ffs_isblock(struct fs *fs, u_char *cp, int32_t h)
 		mask = 0x01 << (h & 0x7);
 		return ((cp[h >> 3] & mask) == mask);
 	default:
-		panic("ffs_isblock: unknown fs_fragshift %d",
+		errx(1, "ffs_isblock: unknown fs_fragshift %d",
 		    (int)fs->fs_fragshift);
 	}
 }
@@ -99,7 +93,7 @@ ffs_clrblock(struct fs *fs, u_char *cp, int32_t h)
 		cp[h >> 3] &= ~(0x01 << (h & 0x7));
 		return;
 	default:
-		panic("ffs_clrblock: unknown fs_fragshift %d",
+		errx(1, "ffs_clrblock: unknown fs_fragshift %d",
 		    (int)fs->fs_fragshift);
 	}
 }
@@ -125,7 +119,7 @@ ffs_setblock(struct fs *fs, u_char *cp, int32_t h)
 		cp[h >> 3] |= (0x01 << (h & 0x7));
 		return;
 	default:
-		panic("ffs_setblock: unknown fs_fragshift %d",
+		errx(1, "ffs_setblock: unknown fs_fragshift %d",
 		    (int)fs->fs_fragshift);
 	}
 }
@@ -147,8 +141,8 @@ ffs_clusteracct(struct fs *fs, struct cg *cgp, int32_t blkno, int cnt)
 
 	if (fs->fs_contigsumsize <= 0)
 		return;
-	freemapp = cg_clustersfree(cgp, 0);
-	sump = cg_clustersum(cgp, 0);
+	freemapp = cg_clustersfree(cgp);
+	sump = cg_clustersum(cgp);
 	/*
 	 * Allocate or clear the actual block.
 	 */
@@ -161,8 +155,8 @@ ffs_clusteracct(struct fs *fs, struct cg *cgp, int32_t blkno, int cnt)
 	 */
 	start = blkno + 1;
 	end = start + fs->fs_contigsumsize;
-	if ((uint32_t)end >= ufs_rw32(cgp->cg_nclusterblks, 0))
-		end = ufs_rw32(cgp->cg_nclusterblks, 0);
+	if ((uint32_t)end >= cgp->cg_nclusterblks)
+		end = cgp->cg_nclusterblks;
 	mapp = &freemapp[start / NBBY];
 	map = *mapp++;
 	bit = 1 << (start % NBBY);
@@ -216,6 +210,6 @@ ffs_clusteracct(struct fs *fs, struct cg *cgp, int32_t blkno, int cnt)
 	 */
 	lp = &sump[fs->fs_contigsumsize];
 	for (i = fs->fs_contigsumsize; i > 0; i--)
-		if (ufs_rw32(*lp--, 0) > 0)
+		if (*lp-- > 0)
 			break;
 }

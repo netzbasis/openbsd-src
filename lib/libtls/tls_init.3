@@ -1,4 +1,4 @@
-.\" $OpenBSD: tls_init.3,v 1.72 2016/09/13 13:40:58 tedu Exp $
+.\" $OpenBSD: tls_init.3,v 1.80 2016/11/05 18:30:02 bcook Exp $
 .\"
 .\" Copyright (c) 2014 Ted Unangst <tedu@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 13 2016 $
+.Dd $Mdocdate: November 5 2016 $
 .Dt TLS_INIT 3
 .Os
 .Sh NAME
@@ -39,6 +39,8 @@
 .Nm tls_config_set_key_mem ,
 .Nm tls_config_set_keypair_file ,
 .Nm tls_config_set_keypair_mem ,
+.Nm tls_config_set_ocsp_staple_mem ,
+.Nm tls_config_set_ocsp_staple_file ,
 .Nm tls_config_set_protocols ,
 .Nm tls_config_set_verify_depth ,
 .Nm tls_config_prefer_ciphers_client ,
@@ -47,6 +49,7 @@
 .Nm tls_config_insecure_noverifycert ,
 .Nm tls_config_insecure_noverifyname ,
 .Nm tls_config_insecure_noverifytime ,
+.Nm tls_config_ocsp_require_stapling ,
 .Nm tls_config_verify ,
 .Nm tls_config_verify_client ,
 .Nm tls_config_verify_client_optional ,
@@ -57,6 +60,15 @@
 .Nm tls_peer_cert_hash ,
 .Nm tls_peer_cert_notbefore ,
 .Nm tls_peer_cert_notafter ,
+.Nm tls_ocsp_process_response ,
+.Nm tls_peer_ocsp_cert_status ,
+.Nm tls_peer_ocsp_crl_reason ,
+.Nm tls_peer_ocsp_next_update ,
+.Nm tls_peer_ocsp_response_status ,
+.Nm tls_peer_ocsp_result_msg ,
+.Nm tls_peer_ocsp_revocation_time ,
+.Nm tls_peer_ocsp_this_update ,
+.Nm tls_peer_ocsp_url ,
 .Nm tls_conn_alpn_selected ,
 .Nm tls_conn_cipher ,
 .Nm tls_conn_servername ,
@@ -124,6 +136,10 @@
 .Fn tls_config_set_keypair_file "struct tls_config *config" "const char *cert_file" "const char *key_file"
 .Ft "int"
 .Fn tls_config_set_keypair_mem "struct tls_config *config" "const uint8_t *cert" "size_t cert_len" "const uint8_t *key" "size_t key_len"
+.Ft "int"
+.Fn tls_config_set_ocsp_staple_mem "struct tls_config *config" "const char *staple" "size_t len"
+.Ft "int"
+.Fn tls_config_set_ocsp_staple_file "struct tls_config *config" "const char *staple_file"
 .Ft "void"
 .Fn tls_config_set_protocols "struct tls_config *config" "uint32_t protocols"
 .Ft "void"
@@ -140,6 +156,8 @@
 .Fn tls_config_insecure_noverifyname "struct tls_config *config"
 .Ft "void"
 .Fn tls_config_insecure_noverifytime "struct tls_config *config"
+.Ft "void"
+.Fn tls_config_ocsp_require_stapling "struct tls_config *config"
 .Ft "void"
 .Fn tls_config_verify "struct tls_config *config"
 .Ft "void"
@@ -160,6 +178,24 @@
 .Fn tls_peer_cert_notbefore "struct tls *ctx"
 .Ft "time_t"
 .Fn tls_peer_cert_notafter "struct tls *ctx"
+.Ft "int"
+.Fn tls_ocsp_process_response "struct tls *ctx" "const unsigned char *response" "size_t size"
+.Ft "int"
+.Fn tls_peer_ocsp_cert_status "struct tls *ctx"
+.Ft "int"
+.Fn tls_peer_ocsp_crl_reason "struct tls *ctx"
+.Ft time_t
+.Fn tls_peer_ocsp_next_update "struct tls *ctx"
+.Ft "int"
+.Fn tls_peer_ocsp_response_status "struct tls *ctx"
+.Ft "const char *"
+.Fn tls_peer_ocsp_result_msg "struct tls *ctx"
+.Ft "time_t"
+.Fn tls_peer_ocsp_revocation_time "struct tls *ctx"
+.Ft "time_t"
+.Fn tls_peer_ocsp_this_update "struct tls *ctx"
+.Ft "const char *"
+.Fn tls_peer_ocsp_url "struct tls *ctx"
 .Ft "const char *"
 .Fn tls_conn_alpn_selected "struct tls *ctx"
 .Ft "const char *"
@@ -335,6 +371,14 @@ used as an alternative certificate for Server Name Indication (server only).
 adds an additional public certificate and private key from memory,
 used as an alternative certificate for Server Name Indication (server only).
 .It
+.Fn tls_config_set_ocsp_staple_mem
+adds a DER-encoded OCSP response to be stapled during the TLS handshake from
+memory.
+.It
+.Fn tls_config_set_ocsp_staple_file
+adds a DER-encoded OCSP response to be stapled during the TLS handshake from
+the specified file.
+.It
 .Fn tls_config_set_alpn
 sets the ALPN protocols that are supported.
 The alpn string is a comma separated list of protocols, in order of preference.
@@ -418,7 +462,7 @@ the default.
 clears any secret keys from memory.
 .It
 .Fn tls_config_insecure_noverifycert
-disables certificate verification.
+disables certificate verification and OCSP validation.
 Be extremely careful when using this option.
 .It
 .Fn tls_config_insecure_noverifyname
@@ -426,8 +470,11 @@ disables server name verification (client only).
 Be careful when using this option.
 .It
 .Fn tls_config_insecure_noverifytime
-disables validity checking of certificates.
+disables validity checking of certificates and OCSP validation.
 Be careful when using this option.
+.It
+.Fn tls_config_ocsp_require_stapling
+requires that a valid stapled OCSP response be provided during the TLS handshake.
 .It
 .Fn tls_config_verify
 reenables server name and certificate verification.
@@ -513,6 +560,47 @@ the peer certificate from
 returns the time corresponding to the end of the validity period of
 the peer certificate from
 .Ar ctx .
+.It
+.Fn tls_ocsp_process_response
+processes a raw OCSP response in
+.Ar response
+of size
+.Ar size
+to check the revocation status of the peer certificate from
+.Ar ctx .
+A successful return code of 0 indicates that the certificate
+has not been revoked.
+.It
+.Fn tls_peer_ocsp_url
+returns the URL for OCSP validation of the peer certificate from
+.Ar ctx
+.El
+.Pp
+The following functions return information about the peer certificate from
+.Ar ctx
+that was obtained by validating a stapled OCSP response during the handshake,
+or via a previous call to
+.Fn tls_ocsp_process_response .
+.Bl -bullet -offset four
+.It
+.Fn tls_peer_ocsp_cert_status
+returns the OCSP certificate status code as per RFC 6960 section 2.2.
+.It
+.Fn tls_peer_ocsp_crl_reason
+returns the OCSP certificate revocation reason status code as per RFC 5280
+section 5.3.1.
+.It
+.Fn tls_peer_ocsp_next_update
+returns the OCSP next update time.
+.It
+.Fn tls_peer_ocsp_response_status
+returns the OCSP response status as per RFC 6960 section 2.3.
+.It
+.Fn tls_peer_ocsp_revocation_time
+returns the OCSP revocation time.
+.It
+.Fn tls_peer_ocsp_this_update
+returns the OCSP this update time.
 .El
 .Pp
 The following are TLS related utility functions:
@@ -616,16 +704,57 @@ The
 and
 .Fn tls_peer_cert_contains_name
 functions return 1 if the check succeeds, and 0 if it does not.
+.Pp
 Functions that return a
 .Vt time_t
 will return a time in epoch-seconds on success, and -1 on error.
+.Pp
 Functions that return a
 .Vt ssize_t
 will return a size on success, and -1 on error.
+.Pp
+The
+.Fn tls_peer_ocsp_response_status
+function returns one of
+.Ar TLS_OCSP_RESPONSE_SUCCESSFUL ,
+.Ar TLS_OCSP_RESPONSE_MALFORMED ,
+.Ar TLS_OCSP_RESPONSE_INTERNALERROR ,
+.Ar TLS_OCSP_RESPONSE_TRYLATER ,
+.Ar TLS_OCSP_RESPONSE_SIGREQUIRED ,
+or
+.Ar TLS_OCSP_RESPONSE_UNAUTHORIZED
+on success, and -1 on error.
+.Pp
+The
+.Fn tls_peer_ocsp_cert_status
+function returns one of
+.Ar TLS_OCSP_CERT_GOOD ,
+.Ar TLS_OCSP_CERT_REVOKED ,
+or
+.Ar TLS_OCSP_CERT_UNKNOWN
+on success, and -1 on error.
+.Pp
+The
+.Fn tls_peer_ocsp_crl_reason
+function returns one of
+.Ar TLS_CRL_REASON_UNSPECIFIED ,
+.Ar TLS_CRL_REASON_KEY_COMPROMISE ,
+.Ar TLS_CRL_REASON_CA_COMPROMISE ,
+.Ar TLS_CRL_REASON_AFFILIATION_CHANGED ,
+.Ar TLS_CRL_REASON_SUPERSEDED ,
+.Ar TLS_CRL_REASON_CESSATION_OF_OPERATION ,
+.Ar TLS_CRL_REASON_CERTIFICATE_HOLD ,
+.Ar TLS_CRL_REASON_REMOVE_FROM_CRL ,
+.Ar TLS_CRL_REASON_PRIVILEGE_WITHDRAWN ,
+or
+.Ar  TLS_CRL_REASON_AA_COMPROMISE
+on success, and -1 on error.
+.Pp
 All other functions that return
 .Vt int
 will return 0 on success and -1 on error.
-Functions that return a pointer will return NULL on error, which indicates an
+.Pp
+Functions that return a pointer will return NULL on error or an
 out of memory condition.
 .Pp
 The

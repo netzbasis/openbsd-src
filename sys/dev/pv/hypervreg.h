@@ -40,9 +40,7 @@ struct hv_guid {
 #define VMBUS_GPADL_START		0xffff /* 0x10000 effectively */
 
 /*
- * ============================================================================
- * hyperv_reg.h
- * ============================================================================
+ * $FreeBSD: head/sys/dev/hyperv/vmbus/hyperv_reg.h 303283 2016-07-25 03:12:40Z sephe $
  */
 
 /*
@@ -202,9 +200,7 @@ struct hypercall_postmsg_in {
 } __packed;
 
 /*
- * ============================================================================
- * vmbus.h
- * ============================================================================
+ * $FreeBSD: head/sys/dev/hyperv/include/vmbus.h 306389 2016-09-28 04:25:25Z sephe $
  */
 
 /*
@@ -215,11 +211,13 @@ struct hypercall_postmsg_in {
  * 1.1   --  Windows 7
  * 2.4   --  Windows 8
  * 3.0   --  Windows 8.1
+ * 4.0   --  Windows 10
  */
 #define VMBUS_VERSION_WS2008		((0 << 16) | (13))
 #define VMBUS_VERSION_WIN7		((1 << 16) | (1))
 #define VMBUS_VERSION_WIN8		((2 << 16) | (4))
 #define VMBUS_VERSION_WIN8_1		((3 << 16) | (0))
+#define VMBUS_VERSION_WIN10		((4 << 16) | (0))
 
 #define VMBUS_VERSION_MAJOR(ver)	(((uint32_t)(ver)) >> 16)
 #define VMBUS_VERSION_MINOR(ver)	(((uint32_t)(ver)) & 0xffff)
@@ -265,9 +263,7 @@ struct vmbus_chanpkt_hdr {
 	    VMBUS_CHANPKT_GETLEN((pkt)->cph_hlen)))
 
 /*
- * ============================================================================
- * vmbus_reg.h
- * ============================================================================
+ * $FreeBSD: head/sys/dev/hyperv/vmbus/vmbus_reg.h 305405 2016-09-05 03:21:31Z sephe $
  */
 
 /*
@@ -547,92 +543,5 @@ struct vmbus_chanmsg_choffer {
 } __packed;
 
 #define VMBUS_CHOFFER_FLAG1_HASMNF	0x01
-
-/*
- * ============================================================================
- * Integrated services
- * ============================================================================
- */
-
- /*
-  * Common defines for Hyper-V ICs
-  */
-#define HV_ICMSGTYPE_NEGOTIATE		0
-#define HV_ICMSGTYPE_HEARTBEAT		1
-#define HV_ICMSGTYPE_KVPEXCHANGE	2
-#define HV_ICMSGTYPE_SHUTDOWN		3
-#define HV_ICMSGTYPE_TIMESYNC		4
-#define HV_ICMSGTYPE_VSS		5
-
-#define HV_ICMSGHDRFLAG_TRANSACTION	1
-#define HV_ICMSGHDRFLAG_REQUEST		2
-#define HV_ICMSGHDRFLAG_RESPONSE	4
-
-struct hv_pipe_hdr {
-	uint32_t	flags;
-	uint32_t	msgsize;
-} __packed;
-
-struct hv_ic_version {
-	uint16_t	major;
-	uint16_t	minor;
-} __packed;
-
-struct hv_icmsg_hdr {
-	struct hv_ic_version icverframe;
-	uint16_t	icmsgtype;
-	struct hv_ic_version icvermsg;
-	uint16_t	icmsgsize;
-	uint32_t	status;
-	uint8_t		ictransaction_id;
-	uint8_t		icflags;
-	uint8_t		reserved[2];
-} __packed;
-
-#define HV_ICMSG_STATUS_OK		0x00000000
-#define HV_ICMSG_STATUS_FAIL		0x80004005
-
-struct hv_icmsg_negotiate {
-	uint16_t	icframe_vercnt;
-	uint16_t	icmsg_vercnt;
-	uint32_t	reserved;
-	struct hv_ic_version icversion_data[1]; /* any size array */
-} __packed;
-
-struct hv_shutdown_msg {
-	uint32_t	reason_code;
-	uint32_t	timeout_seconds;
-	uint32_t 	flags;
-	uint8_t		display_message[2048];
-} __packed;
-
-struct hv_timesync_msg {
-	uint64_t	parent_time;
-	uint64_t	child_time;
-	uint64_t	round_trip_time;
-	uint8_t		flags;
-#define  HV_TIMESYNC_PROBE		 0
-#define  HV_TIMESYNC_SYNC		 1
-#define  HV_TIMESYNC_SAMPLE		 2
-} __packed;
-
-struct hv_heartbeat_msg {
-	uint64_t 	seq_num;
-	uint32_t 	reserved[8];
-} __packed;
-
-/*
- * ============================================================================
- * Helper macros
- * ============================================================================
- */
-
-/* How many PFNs can be referenced by the header */
-#define HV_NPFNHDR	((VMBUS_MSG_DSIZE_MAX -	\
-	  sizeof(struct vmbus_chanmsg_gpadl_conn)) / sizeof(uint64_t))
-
-/* How many PFNs can be referenced by the body */
-#define HV_NPFNBODY	((VMBUS_MSG_DSIZE_MAX -	\
-	  sizeof(struct vmbus_chanmsg_gpadl_subconn)) / sizeof(uint64_t))
 
 #endif	/* _DEV_PV_HYPERVREG_H_ */

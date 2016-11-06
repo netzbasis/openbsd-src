@@ -1,4 +1,4 @@
-#	$OpenBSD: GENERIC,v 1.63 2016/10/08 09:50:14 kettenis Exp $
+#	$OpenBSD: GENERIC,v 1.69 2016/10/23 18:50:34 kettenis Exp $
 #
 # For further information on compiling OpenBSD kernels, see the config(8)
 # man page.
@@ -83,14 +83,11 @@ omehci*		at fdt?			# EHCI
 usb*		at omehci?
 
 # Sunxi A1x/A20 SoC
-sunxi0		at mainbus?
-
-# Sunxi on-chip devices
 sxiintc*	at fdt?			# A1x interrupt controller
 sxipio*		at fdt? early 1		# GPIO pins for leds & PHYs
 gpio*		at sxipio?
-sxiccmu*	at sunxi?		# Clock Control Module/Unit
-sxitimer*	at sunxi?
+sxiccmu*	at fdt? early 1		# Clock Control Module/Unit
+sxitimer*	at fdt? early 1
 sxidog*		at fdt?			# watchdog timer
 sxirtc*		at fdt?			# Real Time Clock
 sxie*		at fdt?
@@ -104,11 +101,12 @@ usb*		at ehci?	#flags 0x1
 #usb*		at ohci?
 
 # ARM Versatile Express
-vexpress0	at mainbus?
 sysreg*		at fdt?
 pluart*		at fdt?
 plrtc*		at fdt?
 virtio*		at fdt?
+
+psci*		at fdt?
 
 # Exynos
 exynos0		at mainbus?
@@ -137,6 +135,7 @@ usb*		at dwctwo?
 mvacc*		at fdt? early 1
 mvagc*		at fdt?
 mvsysctrl*	at fdt?
+mvmbus*		at fdt?
 
 crosec*		at iic?
 wskbd*		at crosec? mux 1

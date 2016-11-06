@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.9 2016/10/05 17:31:22 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.15 2016/11/04 15:16:44 reyk Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -87,6 +87,7 @@ static struct vmop_create_params vmc;
 static struct vm_create_params	*vcp;
 static struct vmd_switch	*vsw;
 static struct vmd_if		*vif;
+static struct vmd_vm        *vm;
 static unsigned int		 vsw_unit;
 static char			 vsw_type[IF_NAMESIZE];
 static int			 vcp_disable;
@@ -108,7 +109,7 @@ typedef struct {
 
 
 %token	INCLUDE ERROR
-%token	ADD DISK DOWN INTERFACE NIFS PATH SIZE SWITCH UP VMID
+%token	ADD DISK DOWN GROUP INTERFACE NIFS PATH SIZE SWITCH UP VMID
 %token	ENABLE DISABLE VM KERNEL LLADDR MEMORY
 %token	<v.string>	STRING
 %token  <v.number>	NUMBER
@@ -173,30 +174,15 @@ switch		: SWITCH string			{
 
 			vcp_disable = 0;
 		} '{' optnl switch_opts_l '}'	{
-			TAILQ_INSERT_TAIL(env->vmd_switches, vsw, sw_entry);
-			env->vmd_nswitches++;
-
 			if (vcp_disable) {
 				log_debug("%s:%d: switch \"%s\""
 				    " skipped (disabled)",
 				    file->name, yylval.lineno, vsw->sw_name);
 			} else if (!env->vmd_noaction) {
-				/*
-				 * XXX Configure the switch right away -
-				 * XXX this should be done after parsing
-				 * XXX the configuration.
-				 */
-				if (vm_priv_brconfig(&env->vmd_ps, vsw) == -1) {
-					log_warn("%s:%d: switch \"%s\" failed",
-					    file->name, yylval.lineno,
-					    vsw->sw_name);
-					YYERROR;
-				} else {
-					log_debug("%s:%d: switch \"%s\""
-					    " configured",
-					    file->name, yylval.lineno,
-					    vsw->sw_name);
-				}
+				TAILQ_INSERT_TAIL(env->vmd_switches, vsw, sw_entry);
+				env->vmd_nswitches++;
+				log_debug("%s:%d: switch \"%s\" registered",
+				    file->name, yylval.lineno, vsw->sw_name);
 			}
 		}
 		;
@@ -222,6 +208,14 @@ switch_opts	: disable			{
 			vif->vif_name = $2;
 
 			TAILQ_INSERT_TAIL(&vsw->sw_ifs, vif, vif_entry);
+		}
+		| GROUP string			{
+			if (priv_validgroup($2) == -1) {
+				yyerror("invalid group name: %s", $2);
+				free($2);
+				YYERROR;
+			}
+			vsw->sw_group = $2;
 		}
 		| INTERFACE string		{
 			if (priv_getiftype($2, vsw_type, &vsw_unit) == -1 ||
@@ -277,24 +271,20 @@ vm		: VM string			{
 				log_debug("%s:%d: vm \"%s\" skipped (disabled)",
 				    file->name, yylval.lineno, vcp->vcp_name);
 			} else if (!env->vmd_noaction) {
-				/*
-				 * XXX Start the vm right away -
-				 * XXX this should be done after parsing
-				 * XXX the configuration.
-				 */
-				ret = config_getvm(&env->vmd_ps, &vmc, -1, -1);
+				ret = vm_register(&env->vmd_ps, &vmc, &vm, 0);
 				if (ret == -1 && errno == EALREADY) {
 					log_debug("%s:%d: vm \"%s\""
-					    " skipped (running)",
+					    " skipped (%s)",
 					    file->name, yylval.lineno,
-					    vcp->vcp_name);
+					    vcp->vcp_name, vm->vm_running ?
+					    "running" : "already exists");
 				} else if (ret == -1) {
 					log_warn("%s:%d: vm \"%s\" failed",
 					    file->name, yylval.lineno,
 					    vcp->vcp_name);
 					YYERROR;
 				} else {
-					log_debug("%s:%d: vm \"%s\" enabled",
+					log_debug("%s:%d: vm \"%s\" registered",
 					    file->name, yylval.lineno,
 					    vcp->vcp_name);
 				}
@@ -404,11 +394,16 @@ vm_opts		: disable			{
 		;
 
 iface_opts_o	: '{' optnl iface_opts_l '}'
+		| iface_opts_c
 		| /* empty */
 		;
 
 iface_opts_l	: iface_opts_l iface_opts optnl
 		| iface_opts optnl
+		;
+
+iface_opts_c	: iface_opts_c iface_opts optcomma
+		| iface_opts
 		;
 
 iface_opts	: SWITCH string			{
@@ -422,6 +417,20 @@ iface_opts	: SWITCH string			{
 				free($2);
 				YYERROR;
 			}
+			free($2);
+		}
+		| GROUP string			{
+			unsigned int	i = vcp_nnics;
+
+			if (priv_validgroup($2) == -1) {
+				yyerror("invalid group name: %s", $2);
+				free($2);
+				YYERROR;
+			}
+
+			/* No need to check if the group exists */
+			(void)strlcpy(vmc.vmc_ifgroup[i], $2,
+			    sizeof(vmc.vmc_ifgroup[i]));
 			free($2);
 		}
 		| LLADDR lladdr			{
@@ -470,6 +479,10 @@ disable		: ENABLE			{ $$ = 0; }
 		| DISABLE			{ $$ = 1; }
 		;
 
+optcomma	: ','
+		|
+		;
+
 optnl		: '\n' optnl
 		|
 		;
@@ -516,6 +529,7 @@ lookup(char *s)
 		{ "disk",		DISK },
 		{ "down",		DOWN },
 		{ "enable",		ENABLE },
+		{ "group",		GROUP },
 		{ "id",			VMID },
 		{ "include",		INCLUDE },
 		{ "interface",		INTERFACE },

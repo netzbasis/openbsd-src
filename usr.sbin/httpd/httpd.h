@@ -1,4 +1,4 @@
-/*	$OpenBSD: httpd.h,v 1.121 2016/10/05 16:58:19 reyk Exp $	*/
+/*	$OpenBSD: httpd.h,v 1.123 2016/11/06 10:49:38 beck Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -449,6 +449,9 @@ struct server_config {
 	size_t			 tls_key_len;
 	char			*tls_key_file;
 	uint32_t		 tls_protocols;
+	uint8_t			*tls_ocsp_staple;
+	size_t			 tls_ocsp_staple_len;
+	char			*tls_ocsp_staple_file;
 
 	uint32_t		 flags;
 	int			 strip;
@@ -482,6 +485,7 @@ struct tls_config {
 
 	size_t			 tls_cert_len;
 	size_t			 tls_key_len;
+	size_t			 tls_ocsp_staple_len;
 };
 
 struct server {
@@ -724,6 +728,7 @@ struct imsgbuf *
 	 proc_ibuf(struct privsep *, enum privsep_procid, int);
 struct imsgev *
 	 proc_iev(struct privsep *, enum privsep_procid, int);
+int	 proc_flush_imsg(struct privsep *, enum privsep_procid, int);
 void	 imsg_event_add(struct imsgev *);
 int	 imsg_compose_event(struct imsgev *, uint16_t, uint32_t,
 	    pid_t, int, void *, uint16_t);

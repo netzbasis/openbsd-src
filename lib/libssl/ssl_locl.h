@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.129 2016/04/28 16:39:45 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.135 2016/11/05 08:26:36 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -160,6 +160,8 @@
 #include <openssl/ssl.h>
 #include <openssl/stack.h>
 
+__BEGIN_HIDDEN_DECLS
+
 #define c2l(c,l)	(l = ((unsigned long)(*((c)++)))     , \
 			 l|=(((unsigned long)(*((c)++)))<< 8), \
 			 l|=(((unsigned long)(*((c)++)))<<16), \
@@ -255,8 +257,6 @@
 /* Bits for algorithm_mkey (key exchange algorithm) */
 #define SSL_kRSA		0x00000001L /* RSA key exchange */
 #define SSL_kDHE		0x00000008L /* tmp DH key no DH cert */
-#define SSL_kECDHr		0x00000020L /* ECDH cert, RSA CA cert */
-#define SSL_kECDHe		0x00000040L /* ECDH cert, ECDSA CA cert */
 #define SSL_kECDHE		0x00000080L /* ephemeral ECDH */
 #define SSL_kGOST		0x00000200L /* GOST key exchange */
 
@@ -264,10 +264,8 @@
 #define SSL_aRSA		0x00000001L /* RSA auth */
 #define SSL_aDSS 		0x00000002L /* DSS auth */
 #define SSL_aNULL 		0x00000004L /* no auth (i.e. use ADH or AECDH) */
-#define SSL_aECDH 		0x00000010L /* Fixed ECDH auth (kECDHe or kECDHr) */
 #define SSL_aECDSA              0x00000040L /* ECDSA auth*/
 #define SSL_aGOST01 		0x00000200L /* GOST R 34.10-2001 signature auth */
-
 
 /* Bits for algorithm_enc (symmetric encryption) */
 #define SSL_DES			0x00000001L
@@ -706,7 +704,7 @@ int ssl3_send_client_verify(SSL *s);
 int ssl3_send_client_certificate(SSL *s);
 int ssl_do_client_cert_cb(SSL *s, X509 **px509, EVP_PKEY **ppkey);
 int ssl3_send_client_key_exchange(SSL *s);
-int ssl3_get_key_exchange(SSL *s);
+int ssl3_get_server_key_exchange(SSL *s);
 int ssl3_get_server_certificate(SSL *s);
 int ssl3_check_cert_and_algorithm(SSL *s);
 int ssl3_check_finished(SSL *s);
@@ -736,8 +734,6 @@ int ssl23_write_bytes(SSL *s);
 int tls1_new(SSL *s);
 void tls1_free(SSL *s);
 void tls1_clear(SSL *s);
-long tls1_ctrl(SSL *s, int cmd, long larg, void *parg);
-long tls1_callback_ctrl(SSL *s, int cmd, void (*fp)(void));
 
 int dtls1_new(SSL *s);
 int dtls1_accept(SSL *s);
@@ -749,8 +745,6 @@ int dtls1_shutdown(SSL *s);
 
 long dtls1_get_message(SSL *s, int st1, int stn, int mt, long max, int *ok);
 int dtls1_get_record(SSL *s);
-int do_dtls1_write(SSL *s, int type, const unsigned char *buf,
-    unsigned int len);
 int dtls1_dispatch_alert(SSL *s);
 int dtls1_enc(SSL *s, int snd);
 
@@ -758,7 +752,7 @@ int ssl_init_wbio_buffer(SSL *s, int push);
 void ssl_free_wbio_buffer(SSL *s);
 
 int tls1_init_finished_mac(SSL *s);
-void tls1_finish_mac(SSL *s, const unsigned char *buf, int len);
+int tls1_finish_mac(SSL *s, const unsigned char *buf, int len);
 void tls1_free_digest_list(SSL *s);
 void tls1_cleanup_key_block(SSL *s);
 int tls1_digest_cached_records(SSL *s);
@@ -778,11 +772,9 @@ int ssl_ok(SSL *s);
 
 int ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s);
 
-SSL_COMP *ssl3_comp_find(STACK_OF(SSL_COMP) *sk, int n);
-
-int tls1_ec_curve_id2nid(uint16_t curve_id);
-uint16_t tls1_ec_nid2curve_id(int nid);
-int tls1_check_curve(SSL *s, const unsigned char *p, size_t len);
+int tls1_ec_curve_id2nid(const uint16_t curve_id);
+uint16_t tls1_ec_nid2curve_id(const int nid);
+int tls1_check_curve(SSL *s, const uint16_t curve_id);
 int tls1_get_shared_curve(SSL *s);
 
 unsigned char *ssl_add_clienthello_tlsext(SSL *s, unsigned char *p,
@@ -843,5 +835,7 @@ int ssl3_cbc_digest_record(const EVP_MD_CTX *ctx, unsigned char *md_out,
     const unsigned char *data, size_t data_plus_mac_size,
     size_t data_plus_mac_plus_padding_size, const unsigned char *mac_secret,
     unsigned mac_secret_length, char is_sslv3);
+
+__END_HIDDEN_DECLS
 
 #endif

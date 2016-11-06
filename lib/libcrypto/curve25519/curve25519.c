@@ -3657,7 +3657,6 @@ static void slide(signed char *r, const uint8_t *a) {
     }
   }
 }
-#endif
 
 static const ge_precomp Bi[8] = {
     {
@@ -3726,7 +3725,6 @@ static const ge_precomp Bi[8] = {
     },
 };
 
-#ifdef ED25519
 /* r = a * A + b * B
  * where a = a[0]+256*a[1]+...+256^31 a[31].
  * and b = b[0]+256*b[1]+...+256^31 b[31].
@@ -4861,6 +4859,7 @@ x25519_scalar_mult_generic(uint8_t out[32], const uint8_t scalar[32],
   fe_tobytes(out, x2);
 }
 
+#ifdef unused
 void
 x25519_public_from_private_generic(uint8_t out_public_value[32],
     const uint8_t private_key[32])
@@ -4884,6 +4883,7 @@ x25519_public_from_private_generic(uint8_t out_public_value[32],
   fe_mul(zplusy, zplusy, zminusy_inv);
   fe_tobytes(out_public_value, zplusy);
 }
+#endif
 
 void
 x25519_public_from_private(uint8_t out_public_value[32],

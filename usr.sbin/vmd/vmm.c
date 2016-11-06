@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.49 2016/10/06 20:41:28 reyk Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.54 2016/11/04 15:07:26 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -122,9 +122,15 @@ static struct privsep_proc procs[] = {
  *        features of the CPU in use.
  */
 static const struct vcpu_reg_state vcpu_init_flat32 = {
+#ifdef __i386__
+	.vrs_gprs[VCPU_REGS_EFLAGS] = 0x2,
+	.vrs_gprs[VCPU_REGS_EIP] = 0x0,
+	.vrs_gprs[VCPU_REGS_ESP] = 0x0,
+#else
 	.vrs_gprs[VCPU_REGS_RFLAGS] = 0x2,
 	.vrs_gprs[VCPU_REGS_RIP] = 0x0,
 	.vrs_gprs[VCPU_REGS_RSP] = 0x0,
+#endif
 	.vrs_crs[VCPU_REGS_CR0] = CR0_CD | CR0_NW | CR0_ET | CR0_PE | CR0_PG,
 	.vrs_crs[VCPU_REGS_CR3] = PML4_PAGE,
 	.vrs_sregs[VCPU_REGS_CS] = { 0x8, 0xFFFFFFFF, 0xC09F, 0x0},
@@ -174,17 +180,15 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep		*ps = p->p_ps;
 	int			 res = 0, cmd = 0;
-	struct vmop_create_params vmc;
+	struct vmd_vm		*vm;
 	struct vm_terminate_params vtp;
 	struct vmop_result	 vmr;
 	uint32_t		 id = 0;
-	struct vmd_vm		*vm;
+	unsigned int		 mode;
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_REQUEST:
-		IMSG_SIZE_CHECK(imsg, &vmc);
-		memcpy(&vmc, imsg->data, sizeof(vmc));
-		res = config_getvm(ps, &vmc, imsg->fd, imsg->hdr.peerid);
+		res = config_getvm(ps, imsg);
 		if (res == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -225,6 +229,15 @@ vmm_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		cmd = IMSG_VMDOP_GET_INFO_VM_END_DATA;
 		break;
 	case IMSG_CTL_RESET:
+		IMSG_SIZE_CHECK(imsg, &mode);
+		memcpy(&mode, imsg->data, sizeof(mode));
+
+		if (mode & CONFIG_VMS) {
+			/* Terminate and remove all VMs */
+			vmm_shutdown();
+			mode &= ~CONFIG_VMS;
+		}
+
 		config_getreset(env, imsg);
 		break;
 	default:
@@ -286,7 +299,7 @@ vmm_sighdlr(int sig, short event, void *arg)
 					continue;
 				}
 
-				vmid = vm->vm_params.vcp_id;
+				vmid = vm->vm_params.vmc_params.vcp_id;
 				vtp.vtp_vm_id = vmid;
 				if (terminate_vm(&vtp) == 0) {
 					memset(&vmr, 0, sizeof(vmr));
@@ -323,10 +336,11 @@ vmm_shutdown(void)
 	struct vmd_vm *vm, *vm_next;
 
 	TAILQ_FOREACH_SAFE(vm, env->vmd_vms, vm_entry, vm_next) {
-		vtp.vtp_vm_id = vm->vm_params.vcp_id;
+		vtp.vtp_vm_id = vm->vm_params.vmc_params.vcp_id;
 
 		/* XXX suspend or request graceful shutdown */
-		terminate_vm(&vtp);
+		if (terminate_vm(&vtp) == ENOENT)
+			vm_remove(vm);
 	}
 }
 
@@ -457,7 +471,7 @@ start_vm(struct imsg *imsg, uint32_t *id)
 		ret = ENOENT;
 		goto err;
 	}
-	vcp = &vm->vm_params;
+	vcp = &vm->vm_params.vmc_params;
 
 	if ((vm->vm_tty = imsg->fd) == -1) {
 		log_warnx("%s: can't get tty", __func__);
@@ -1349,9 +1363,8 @@ vcpu_exit(struct vm_run_params *vrp)
 		    __progname, vrp->vrp_exit_reason);
 	}
 
-	/* XXX this may not be irq 9 all the time */
-	if (vionet_process_rx())
-		vcpu_assert_pic_irq(vrp->vrp_vm_id, vrp->vrp_vcpu_id, 9);
+	/* Process any pending traffic */
+	vionet_process_rx(vrp->vrp_vm_id);
 
 	vrp->vrp_continue = 1;
 
@@ -1440,7 +1453,7 @@ write_mem(paddr_t dst, void *buf, size_t len)
 	size_t n, off;
 	struct vm_mem_range *vmr;
 
-	vmr = find_gpa_range(&current_vm->vm_params, dst, len);
+	vmr = find_gpa_range(&current_vm->vm_params.vmc_params, dst, len);
 	if (vmr == NULL) {
 		errno = EINVAL;
 		log_warn("%s: failed - invalid memory range dst = 0x%lx, "
@@ -1488,7 +1501,7 @@ read_mem(paddr_t src, void *buf, size_t len)
 	size_t n, off;
 	struct vm_mem_range *vmr;
 
-	vmr = find_gpa_range(&current_vm->vm_params, src, len);
+	vmr = find_gpa_range(&current_vm->vm_params.vmc_params, src, len);
 	if (vmr == NULL) {
 		errno = EINVAL;
 		log_warn("%s: failed - invalid memory range src = 0x%lx, "

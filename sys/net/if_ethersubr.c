@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ethersubr.c,v 1.239 2016/07/12 09:33:13 mpi Exp $	*/
+/*	$OpenBSD: if_ethersubr.c,v 1.241 2016/10/11 11:40:12 mikeb Exp $	*/
 /*	$NetBSD: if_ethersubr.c,v 1.19 1996/05/07 02:40:30 thorpej Exp $	*/
 
 /*
@@ -286,9 +286,10 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 	if (mcopy)
 		if_input_local(ifp, mcopy, dst->sa_family);
 
-	M_PREPEND(m, sizeof(struct ether_header), M_DONTWAIT);
+	M_PREPEND(m, sizeof(struct ether_header) + ETHER_ALIGN, M_DONTWAIT);
 	if (m == NULL)
 		return (ENOBUFS);
+	m_adj(m, ETHER_ALIGN);
 	eh = mtod(m, struct ether_header *);
 	eh->ether_type = etype;
 	memcpy(eh->ether_dhost, edst, sizeof(eh->ether_dhost));
@@ -317,6 +318,10 @@ ether_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 #if NPPPOE > 0
 	struct ether_header *eh_tmp;
 #endif
+
+	/* Drop short frames */
+	if (m->m_len < ETHER_HDR_LEN)
+		goto dropanyway;
 
 	ac = (struct arpcom *)ifp;
 	eh = mtod(m, struct ether_header *);
@@ -434,7 +439,8 @@ decapsulate:
 		return (1);
 #endif
 	default:
-		if (llcfound || etype > ETHERMTU)
+		if (llcfound || etype > ETHERMTU ||
+		    m->m_len < sizeof(struct llc))
 			goto dropanyway;
 		llcfound = 1;
 		l = mtod(m, struct llc *);

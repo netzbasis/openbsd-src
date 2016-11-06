@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdos.c,v 1.5 2016/10/17 01:16:22 tedu Exp $	*/
+/*	$OpenBSD: msdos.c,v 1.9 2016/10/26 07:53:47 natano Exp $	*/
 /*	$NetBSD: msdos.c,v 1.16 2016/01/30 09:59:27 mlelstv Exp $	*/
 
 /*-
@@ -38,11 +38,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <ffs/buf.h>
-#include <fs/msdosfs/denode.h>
+#include "ffs/buf.h"
+#include "msdos/denode.h"
 #include "makefs.h"
 #include "msdos.h"
-#include "mkfs_msdos.h"
+#include "msdos/mkfs_msdos.h"
 
 static int msdos_populate_dir(const char *, struct denode *, fsnode *,
     fsnode *, fsinfo_t *);
@@ -52,20 +52,18 @@ msdos_prep_opts(fsinfo_t *fsopts)
 {
 	struct msdos_options *msdos_opt = ecalloc(1, sizeof(*msdos_opt));
 	const option_t msdos_options[] = {
-#define AOPT(_opt, _type, _name, _min, _desc) { 			\
-	.letter = _opt,							\
+#define AOPT(_type, _name, _min) { 					\
 	.name = # _name,						\
 	.type = _min == -1 ? OPT_STRPTR :				\
 	    (_min == -2 ? OPT_BOOL :					\
 	    (sizeof(_type) == 1 ? OPT_INT8 :				\
 	    (sizeof(_type) == 2 ? OPT_INT16 :				\
 	    (sizeof(_type) == 4 ? OPT_INT32 : OPT_INT64)))),		\
-	.value = &msdos_opt->_name,				\
+	.value = &msdos_opt->_name,					\
 	.minimum = _min,						\
 	.maximum = sizeof(_type) == 1 ? 0xff :				\
 	    (sizeof(_type) == 2 ? 0xffff :				\
 	    (sizeof(_type) == 4 ? 0xffffffff : 0xffffffffffffffffLL)),	\
-	.desc = _desc,						\
 },
 ALLOPTS
 #undef AOPT	
@@ -95,9 +93,6 @@ msdos_parse_opts(const char *option, fsinfo_t *fsopts)
 	assert(fsopts != NULL);
 	assert(msdos_opt != NULL);
 
-	if (debug & DEBUG_FS_PARSE_OPTS)
-		printf("msdos_parse_opts: got `%s'\n", option);
-
 	rv = set_option(msdos_options, option, NULL, 0);
 	if (rv == -1)
 		return rv;
@@ -117,7 +112,6 @@ msdos_makefs(const char *image, const char *dir, fsnode *root, fsinfo_t *fsopts)
 {
 	struct msdos_options *msdos_opt = fsopts->fs_specific;
 	struct mkfsvnode vp, rootvp;
-	struct timeval	start;
 	struct msdosfsmount *pmp;
 
 	assert(image != NULL);
@@ -146,10 +140,8 @@ msdos_makefs(const char *image, const char *dir, fsnode *root, fsinfo_t *fsopts)
 
 		/* create image */
 	printf("Creating `%s'\n", image);
-	TIMER_START(start);
 	if (mkfs_msdos(image, NULL, msdos_opt) == -1)
 		return;
-	TIMER_RESULTS(start, "mkfs_msdos");
 
 	fsopts->fd = open(image, O_RDWR);
 	vp.fs = fsopts;
@@ -160,23 +152,12 @@ msdos_makefs(const char *image, const char *dir, fsnode *root, fsinfo_t *fsopts)
 	if (msdosfs_root(pmp, &rootvp) != 0)
 		err(1, "msdosfs_root");
 
-	if (debug & DEBUG_FS_MAKEFS)
-		printf("msdos_makefs: image %s directory %s root %p\n",
-		    image, dir, root);
-
 		/* populate image */
 	printf("Populating `%s'\n", image);
-	TIMER_START(start);
 	if (msdos_populate_dir(dir, VTODE(&rootvp), root, root, fsopts) == -1)
 		errx(1, "Image file `%s' not created.", image);
-	TIMER_RESULTS(start, "msdos_populate_dir");
 
-	if (debug & DEBUG_FS_MAKEFS)
-		putchar('\n');
-
-		/* ensure no outstanding buffers remain */
-	if (debug & DEBUG_FS_MAKEFS)
-		bcleanup();
+	bcleanup();
 
 	printf("Image `%s' complete\n", image);
 }

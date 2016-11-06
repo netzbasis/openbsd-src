@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_server.c,v 1.28 2016/09/14 11:34:37 bcook Exp $ */
+/* $OpenBSD: tls_server.c,v 1.30 2016/11/05 15:13:26 beck Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -48,6 +48,7 @@ tls_server_conn(struct tls *ctx)
 		return (NULL);
 
 	conn_ctx->flags |= TLS_SERVER_CONN;
+	conn_ctx->config = ctx->config;
 
 	return (conn_ctx);
 }
@@ -213,6 +214,11 @@ tls_configure_server_ssl(struct tls *ctx, SSL_CTX **ssl_ctx,
 	if (ctx->config->ciphers_server == 1)
 		SSL_CTX_set_options(*ssl_ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+	if (SSL_CTX_set_tlsext_status_cb(ctx->ssl_ctx, tls_ocsp_stapling_cb) != 1) {
+		tls_set_errorx(ctx, "failed to add OCSP stapling callback");
+		goto err;
+	}
+
 	/*
 	 * Set session ID context to a random value.  We don't support
 	 * persistent caching of sessions so it is OK to set a temporary
@@ -313,9 +319,9 @@ tls_accept_common(struct tls *ctx)
 }
 
 int
-tls_accept_socket(struct tls *ctx, struct tls **cctx, int socket)
+tls_accept_socket(struct tls *ctx, struct tls **cctx, int s)
 {
-	return (tls_accept_fds(ctx, cctx, socket, socket));
+	return (tls_accept_fds(ctx, cctx, s, s));
 }
 
 int

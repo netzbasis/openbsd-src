@@ -1,4 +1,4 @@
-/*	$OpenBSD: dbm_map.c,v 1.3 2016/08/30 21:36:54 schwarze Exp $ */
+/*	$OpenBSD: dbm_map.c,v 1.5 2016/10/22 10:08:31 schwarze Exp $ */
 /*
  * Copyright (c) 2016 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -90,8 +90,8 @@ dbm_map(const char *fname)
 	}
 	max_offset = be32toh(*dbm_getint(3)) + sizeof(int32_t);
 	if (st.st_size != max_offset) {
-		warnx("dbm_map(%s): Inconsistent file size %llu (expected %d)",
-		    fname, st.st_size, max_offset);
+		warnx("dbm_map(%s): Inconsistent file size %lld (expected %d)",
+		    fname, (long long)st.st_size, max_offset);
 		errno = EFTYPE;
 		goto fail;
 	}

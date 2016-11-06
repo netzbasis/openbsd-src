@@ -34,25 +34,23 @@
  * State for request.
  */
 
-static struct tls_ocsp_ctx *
-tls_ocsp_ctx_new(void)
+static struct tls_ocsp *
+tls_ocsp_new(void)
 {
-	return (calloc(1, sizeof(struct tls_ocsp_ctx)));
+	return (calloc(1, sizeof(struct tls_ocsp)));
 }
 
 void
-tls_ocsp_ctx_free(struct tls_ocsp_ctx *ocsp_ctx)
+tls_ocsp_free(struct tls_ocsp *ocsp)
 {
-	if (ocsp_ctx == NULL)
+	if (ocsp == NULL)
 		return;
 
-	free(ocsp_ctx->ocsp_result);
-	ocsp_ctx->ocsp_result = NULL;
-	free(ocsp_ctx->ocsp_url);
-	ocsp_ctx->ocsp_url = NULL;
-	free(ocsp_ctx->request_data);
-	ocsp_ctx->request_data = NULL;
-	free(ocsp_ctx);
+	free(ocsp->ocsp_result);
+	ocsp->ocsp_result = NULL;
+	free(ocsp->ocsp_url);
+	ocsp->ocsp_url = NULL;
+	free(ocsp);
 }
 
 static int
@@ -63,7 +61,7 @@ tls_ocsp_asn1_parse_time(struct tls *ctx, ASN1_GENERALIZEDTIME *gt, time_t *gt_t
 	if (gt == NULL)
 		return -1;
 	/* RFC 6960 specifies that all times in OCSP must be GENERALIZEDTIME */
-	if (asn1_time_parse(gt->data, gt->length, &tm,
+	if (ASN1_time_parse(gt->data, gt->length, &tm,
 		V_ASN1_GENERALIZEDTIME) == -1)
 		return -1;
 	if ((*gt_time = timegm(&tm)) == -1)
@@ -78,8 +76,8 @@ tls_ocsp_fill_info(struct tls *ctx, int response_status, int cert_status,
 {
 	struct tls_ocsp_result *info = NULL;
 
-	free(ctx->ocsp_ctx->ocsp_result);
-	ctx->ocsp_ctx->ocsp_result = NULL;
+	free(ctx->ocsp->ocsp_result);
+	ctx->ocsp->ocsp_result = NULL;
 
 	if ((info = calloc(1, sizeof (struct tls_ocsp_result))) == NULL) {
 		tls_set_error(ctx, "calloc");
@@ -115,7 +113,7 @@ tls_ocsp_fill_info(struct tls *ctx, int response_status, int cert_status,
 		    "unable to parse next update time in OCSP reply");
 		goto error;
 	}
-	ctx->ocsp_ctx->ocsp_result = info;
+	ctx->ocsp->ocsp_result = info;
 	return 0;
  error:
 	free(info);
@@ -155,37 +153,37 @@ tls_ocsp_get_certid(X509 *main_cert, STACK_OF(X509) *extra_certs,
 	return cid;
 }
 
-struct tls_ocsp_ctx *
+struct tls_ocsp *
 tls_ocsp_setup_from_peer(struct tls *ctx)
 {
-	struct tls_ocsp_ctx *ocsp_ctx = NULL;
+	struct tls_ocsp *ocsp = NULL;
 	STACK_OF(OPENSSL_STRING) *ocsp_urls = NULL;
 
-	if ((ocsp_ctx = tls_ocsp_ctx_new()) == NULL)
+	if ((ocsp = tls_ocsp_new()) == NULL)
 		goto failed;
 
 	/* steal state from ctx struct */
-	ocsp_ctx->main_cert = SSL_get_peer_certificate(ctx->ssl_conn);
-	ocsp_ctx->extra_certs = SSL_get_peer_cert_chain(ctx->ssl_conn);
-	if (ocsp_ctx->main_cert == NULL) {
+	ocsp->main_cert = SSL_get_peer_certificate(ctx->ssl_conn);
+	ocsp->extra_certs = SSL_get_peer_cert_chain(ctx->ssl_conn);
+	if (ocsp->main_cert == NULL) {
 		tls_set_errorx(ctx, "no peer certificate for OCSP");
 		goto failed;
 	}
 
-	ocsp_urls = X509_get1_ocsp(ocsp_ctx->main_cert);
+	ocsp_urls = X509_get1_ocsp(ocsp->main_cert);
 	if (ocsp_urls == NULL)
 		goto failed;
-	ocsp_ctx->ocsp_url = strdup(sk_OPENSSL_STRING_value(ocsp_urls, 0));
-	if (ocsp_ctx->ocsp_url == NULL) {
+	ocsp->ocsp_url = strdup(sk_OPENSSL_STRING_value(ocsp_urls, 0));
+	if (ocsp->ocsp_url == NULL) {
 		tls_set_errorx(ctx, "out of memory");
 		goto failed;
 	}
 
 	X509_email_free(ocsp_urls);
-	return ocsp_ctx;
+	return ocsp;
 
  failed:
-	tls_ocsp_ctx_free(ocsp_ctx);
+	tls_ocsp_free(ocsp);
 	X509_email_free(ocsp_urls);
 	return NULL;
 }
@@ -213,7 +211,7 @@ tls_ocsp_verify_response(struct tls *ctx, OCSP_RESPONSE *resp)
 	flags = OCSP_TRUSTOTHER;
 
 	/* now verify */
-	if (OCSP_basic_verify(br, ctx->ocsp_ctx->extra_certs,
+	if (OCSP_basic_verify(br, ctx->ocsp->extra_certs,
 		SSL_CTX_get_cert_store(ctx->ssl_ctx), flags) != 1) {
 		tls_set_error(ctx, "ocsp verify failed");
 		goto error;
@@ -227,8 +225,8 @@ tls_ocsp_verify_response(struct tls *ctx, OCSP_RESPONSE *resp)
 		goto error;
 	}
 
-	cid = tls_ocsp_get_certid(ctx->ocsp_ctx->main_cert,
-	    ctx->ocsp_ctx->extra_certs, ctx->ssl_ctx);
+	cid = tls_ocsp_get_certid(ctx->ocsp->main_cert,
+	    ctx->ocsp->extra_certs, ctx->ssl_ctx);
 	if (cid == NULL) {
 		tls_set_errorx(ctx, "ocsp verify failed: no issuer cert");
 		goto error;
@@ -258,13 +256,36 @@ tls_ocsp_verify_response(struct tls *ctx, OCSP_RESPONSE *resp)
 			       OCSP_crl_reason_str(crl_reason));
 		goto error;
 	}
-
 	ret = 0;
 
  error:
 	sk_X509_free(combined);
 	OCSP_CERTID_free(cid);
 	OCSP_BASICRESP_free(br);
+	return ret;
+}
+
+/*
+ * Process a raw OCSP response from an OCSP server request.
+ * OCSP details can then be retrieved with tls_peer_ocsp_* functions.
+ * returns 0 if certificate ok, -1 otherwise.
+ */
+static int
+tls_ocsp_process_response_internal(struct tls *ctx, const unsigned char *response,
+    size_t size)
+{
+	int ret;
+	OCSP_RESPONSE *resp;
+
+	resp = d2i_OCSP_RESPONSE(NULL, &response, size);
+	if (resp == NULL) {
+		tls_ocsp_free(ctx->ocsp);
+		ctx->ocsp = NULL;
+		tls_set_error(ctx, "unable to parse OCSP response");
+		return -1;
+	}
+	ret = tls_ocsp_verify_response(ctx, resp);
+	OCSP_RESPONSE_free(resp);
 	return ret;
 }
 
@@ -280,15 +301,55 @@ tls_ocsp_verify_cb(SSL *ssl, void *arg)
 		return -1;
 
 	size = SSL_get_tlsext_status_ocsp_resp(ssl, &raw);
-	if (size <= 0)
+	if (size <= 0) {
+		if (ctx->config->ocsp_require_stapling) {
+			tls_set_errorx(ctx, "no stapled OCSP response provided");
+			return 0;
+		}
 		return 1;
+	}
 
-	tls_ocsp_ctx_free(ctx->ocsp_ctx);
-	ctx->ocsp_ctx = tls_ocsp_setup_from_peer(ctx);
-	if (ctx->ocsp_ctx != NULL)
-		res = tls_ocsp_process_response(ctx, raw, size);
+	tls_ocsp_free(ctx->ocsp);
+	ctx->ocsp = tls_ocsp_setup_from_peer(ctx);
+	if (ctx->ocsp != NULL) {
+		if (ctx->config->verify_cert == 0 || ctx->config->verify_time == 0)
+			return 1;
+		res = tls_ocsp_process_response_internal(ctx, raw, size);
+	}
 
 	return (res == 0) ? 1 : 0;
+}
+
+
+/* Staple the OCSP information in ctx->ocsp to the server handshake. */
+int
+tls_ocsp_stapling_cb(SSL *ssl, void *arg)
+{
+	struct tls *ctx;
+	unsigned char *ocsp_staple = NULL;
+	int ret = SSL_TLSEXT_ERR_ALERT_FATAL;
+
+	if ((ctx = SSL_get_app_data(ssl)) == NULL)
+		goto err;
+
+	if (ctx->config->ocsp_staple == NULL ||
+	    ctx->config->ocsp_staple_len == 0)
+		return SSL_TLSEXT_ERR_NOACK;
+
+	if ((ocsp_staple = malloc(ctx->config->ocsp_staple_len)) == NULL)
+		goto err;
+
+	memcpy(ocsp_staple, ctx->config->ocsp_staple,
+	    ctx->config->ocsp_staple_len);
+	if (SSL_set_tlsext_status_ocsp_resp(ctx->ssl_conn, ocsp_staple,
+		ctx->config->ocsp_staple_len) != 1)
+		goto err;
+
+	ret = SSL_TLSEXT_ERR_OK;
+ err:
+	if (ret != SSL_TLSEXT_ERR_OK)
+		free(ocsp_staple);
+	return ret;
 }
 
 /*
@@ -299,104 +360,86 @@ tls_ocsp_verify_cb(SSL *ssl, void *arg)
 const char *
 tls_peer_ocsp_url(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return NULL;
-	return ctx->ocsp_ctx->ocsp_url;
+	return ctx->ocsp->ocsp_url;
 }
 
 const char *
 tls_peer_ocsp_result(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return NULL;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return NULL;
-	return ctx->ocsp_ctx->ocsp_result->result_msg;
+	return ctx->ocsp->ocsp_result->result_msg;
 }
 
 int
 tls_peer_ocsp_response_status(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->response_status;
+	return ctx->ocsp->ocsp_result->response_status;
 }
 
 int
 tls_peer_ocsp_cert_status(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->cert_status;
+	return ctx->ocsp->ocsp_result->cert_status;
 }
 
 int
 tls_peer_ocsp_crl_reason(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->crl_reason;
+	return ctx->ocsp->ocsp_result->crl_reason;
 }
 
 time_t
 tls_peer_ocsp_this_update(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->this_update;
+	return ctx->ocsp->ocsp_result->this_update;
 }
 
 time_t
 tls_peer_ocsp_next_update(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->next_update;
+	return ctx->ocsp->ocsp_result->next_update;
 }
 
 time_t
 tls_peer_ocsp_revocation_time(struct tls *ctx)
 {
-	if (ctx->ocsp_ctx == NULL)
+	if (ctx->ocsp == NULL)
 		return -1;
-	if (ctx->ocsp_ctx->ocsp_result == NULL)
+	if (ctx->ocsp->ocsp_result == NULL)
 		return -1;
-	return ctx->ocsp_ctx->ocsp_result->revocation_time;
+	return ctx->ocsp->ocsp_result->revocation_time;
 }
 
-/*
- * Process a raw OCSP response from an OCSP server request.
- * OCSP details can then be retrieved with tls_peer_ocsp_* functions.
- * returns 0 if certificate ok, -1 otherwise.
- */
 int
 tls_ocsp_process_response(struct tls *ctx, const unsigned char *response,
     size_t size)
 {
-	int ret;
-	OCSP_RESPONSE *resp;
-
 	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) == 0)
 		return -1;
-
-	resp = d2i_OCSP_RESPONSE(NULL, &response, size);
-	if (resp == NULL) {
-		tls_ocsp_ctx_free(ctx->ocsp_ctx);
-		ctx->ocsp_ctx = NULL;
-		tls_set_error(ctx, "unable to parse OCSP response");
-		return -1;
-	}
-	ret = tls_ocsp_verify_response(ctx, resp);
-	OCSP_RESPONSE_free(resp);
-	return ret;
+	return tls_ocsp_process_response_internal(ctx, response, size);
 }

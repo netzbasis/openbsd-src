@@ -1,4 +1,4 @@
-/*	$OpenBSD: config.c,v 1.14 2016/10/05 17:30:13 reyk Exp $	*/
+/*	$OpenBSD: config.c,v 1.19 2016/11/04 15:16:44 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -120,12 +120,10 @@ config_getreset(struct vmd *env, struct imsg *imsg)
 }
 
 int
-config_getvm(struct privsep *ps, struct vmop_create_params *vmc,
-    int kernel_fd, uint32_t peerid)
+config_setvm(struct privsep *ps, struct vmd_vm *vm, uint32_t peerid)
 {
-	struct vmd		*env = ps->ps_env;
-	struct vmd_vm		*vm = NULL;
 	struct vmd_if		*vif;
+	struct vmop_create_params *vmc = &vm->vm_params;
 	struct vm_create_params	*vcp = &vmc->vmc_params;
 	unsigned int		 i;
 	int			 fd, ttys_fd;
@@ -138,179 +136,144 @@ config_getvm(struct privsep *ps, struct vmop_create_params *vmc,
 
 	errno = 0;
 
-	if (vm_getbyname(vcp->vcp_name) != NULL) {
-		errno = EALREADY;
+	if (vm->vm_running)
+		goto fail;
+
+	diskfds = reallocarray(NULL, vcp->vcp_ndisks, sizeof(*diskfds));
+	if (diskfds == NULL) {
+		saved_errno = errno;
+		log_warn("%s: cannot allocate disk fds", __func__);
 		goto fail;
 	}
-
-	if (vcp->vcp_ncpus == 0)
-		vcp->vcp_ncpus = 1;
-	if (vcp->vcp_ncpus > VMM_MAX_VCPUS_PER_VM) {
-		log_debug("invalid number of CPUs");
-		goto fail;
-	} else if (vcp->vcp_ndisks > VMM_MAX_DISKS_PER_VM) {
-		log_debug("invalid number of disks");
-		goto fail;
-	} else if (vcp->vcp_nnics > VMM_MAX_NICS_PER_VM) {
-		log_debug("invalid number of interfaces");
-		goto fail;
-	}
-
-	if ((vm = calloc(1, sizeof(*vm))) == NULL)
-		goto fail;
-
-	memcpy(&vm->vm_params, vcp, sizeof(vm->vm_params));
-	vm->vm_pid = -1;
-
 	for (i = 0; i < vcp->vcp_ndisks; i++)
-		vm->vm_disks[i] = -1;
-	for (i = 0; i < vcp->vcp_nnics; i++)
-		vm->vm_ifs[i].vif_fd = -1;
-	vm->vm_kernel = -1;
-	vm->vm_vmid = env->vmd_nvm + 1;
+		diskfds[i] = -1;
 
-	if (vm_getbyvmid(vm->vm_vmid) != NULL)
-		fatalx("too many vms");
-
-	TAILQ_INSERT_TAIL(env->vmd_vms, vm, vm_entry);
-
-	switch (privsep_process) {
-	case PROC_VMM:
-		if (kernel_fd == -1) {
-			log_debug("invalid kernel fd");
-			goto fail;
-		}
-		vm->vm_kernel = kernel_fd;
-		break;
-	case PROC_PARENT:
-		diskfds = reallocarray(NULL, vcp->vcp_ndisks, sizeof(*diskfds));
-		if (diskfds == NULL) {
-			saved_errno = errno;
-			log_warn("%s: cannot allocate disk fds", __func__);
-			goto fail;
-		}
-		for (i = 0; i < vcp->vcp_ndisks; i++)
-			diskfds[i] = -1;
-
-		tapfds = reallocarray(NULL, vcp->vcp_nnics, sizeof(*tapfds));
-		if (tapfds == NULL) {
-			saved_errno = errno;
-			log_warn("%s: cannot allocate tap fds", __func__);
-			goto fail;
-		}
-		for (i = 0; i < vcp->vcp_nnics; i++)
-			tapfds[i] = -1;
-
-		vm->vm_peerid = peerid;
-
-		/* Open kernel for child */
-		if ((kernfd = open(vcp->vcp_kernel, O_RDONLY)) == -1) {
-			saved_errno = errno;
-			log_warn("%s: can't open kernel %s", __func__,
-			    vcp->vcp_kernel);
-			goto fail;
-		}
-
-		/* Open disk images for child */
-		for (i = 0 ; i < vcp->vcp_ndisks; i++) {
-			if ((diskfds[i] =
-			    open(vcp->vcp_disks[i], O_RDWR)) == -1) {
-				saved_errno = errno;
-				log_warn("%s: can't open %s", __func__,
-				    vcp->vcp_disks[i]);
-				goto fail;
-			}
-		}
-
-		/* Open network interfaces */
-		for (i = 0 ; i < vcp->vcp_nnics; i++) {
-			vif = &vm->vm_ifs[i];
-
-			/* Check if the user has requested a specific tap(4) */
-			s = vmc->vmc_ifnames[i];
-			if (*s != '\0' && strcmp("tap", s) != 0) {
-				if (priv_getiftype(s, ifname, &unit) == -1 ||
-				    strcmp(ifname, "tap") != 0) {
-					saved_errno = errno;
-					log_warn("%s: invalid tap name",
-					    __func__);
-					goto fail;
-				}
-			} else
-				s = NULL;
-
-			/*
-			 * Either open the requested tap(4) device or get
-			 * the next available one.
-			 */
-			if (s != NULL) {
-				snprintf(path, PATH_MAX, "/dev/%s", s);
-				tapfds[i] = open(path, O_RDWR | O_NONBLOCK);
-			} else {
-				tapfds[i] = opentap(ifname);
-				s = ifname;
-			}
-			if (tapfds[i] == -1) {
-				saved_errno = errno;
-				log_warn("%s: can't open %s", __func__, s);
-				goto fail;
-			}
-			if ((vif->vif_name = strdup(s)) == NULL) {
-				saved_errno = errno;
-				log_warn("%s: can't save ifname", __func__);
-				goto fail;
-			}
-
-			/* Check if the the interface is attached to a switch */
-			s = vmc->vmc_ifswitch[i];
-			if (*s != '\0') {
-				if ((vif->vif_switch = strdup(s)) == NULL) {
-					saved_errno = errno;
-					log_warn("%s: can't save switch",
-					    __func__);
-					goto fail;
-				}
-			}
-
-			/* Set the interface status */
-			vif->vif_flags = vmc->vmc_ifflags[i] & IFF_UP;
-		}
-
-		/* Open TTY */
-		if (openpty(&fd, &ttys_fd, ptyname, NULL, NULL) == -1 ||
-		    (vm->vm_ttyname = strdup(ptyname)) == NULL) {
-			saved_errno = errno;
-			log_warn("%s: can't open tty", __func__);
-			goto fail;
-		}
-		close(ttys_fd);
-
-		/* Send VM information */
-		proc_compose_imsg(ps, PROC_VMM, -1,
-		    IMSG_VMDOP_START_VM_REQUEST, vm->vm_vmid, kernfd,
-		    vmc, sizeof(*vmc));
-		for (i = 0; i < vcp->vcp_ndisks; i++) {
-			proc_compose_imsg(ps, PROC_VMM, -1,
-			    IMSG_VMDOP_START_VM_DISK, vm->vm_vmid, diskfds[i],
-			    &i, sizeof(i));
-		}
-		for (i = 0; i < vcp->vcp_nnics; i++) {
-			proc_compose_imsg(ps, PROC_VMM, -1,
-			    IMSG_VMDOP_START_VM_IF, vm->vm_vmid, tapfds[i],
-			    &i, sizeof(i));
-		}
-
-		proc_compose_imsg(ps, PROC_VMM, -1,
-		    IMSG_VMDOP_START_VM_END, vm->vm_vmid, fd,  NULL, 0);
-		break;
-	default:
-		fatalx("vm received by invalid process");
+	tapfds = reallocarray(NULL, vcp->vcp_nnics, sizeof(*tapfds));
+	if (tapfds == NULL) {
+		saved_errno = errno;
+		log_warn("%s: cannot allocate tap fds", __func__);
+		goto fail;
 	}
+	for (i = 0; i < vcp->vcp_nnics; i++)
+		tapfds[i] = -1;
+
+	vm->vm_peerid = peerid;
+
+	/* Open kernel for child */
+	if ((kernfd = open(vcp->vcp_kernel, O_RDONLY)) == -1) {
+		saved_errno = errno;
+		log_warn("%s: can't open kernel %s", __func__,
+		    vcp->vcp_kernel);
+		goto fail;
+	}
+
+	/* Open disk images for child */
+	for (i = 0 ; i < vcp->vcp_ndisks; i++) {
+		if ((diskfds[i] =
+		    open(vcp->vcp_disks[i], O_RDWR)) == -1) {
+			saved_errno = errno;
+			log_warn("%s: can't open %s", __func__,
+			    vcp->vcp_disks[i]);
+			goto fail;
+		}
+	}
+
+	/* Open network interfaces */
+	for (i = 0 ; i < vcp->vcp_nnics; i++) {
+		vif = &vm->vm_ifs[i];
+
+		/* Check if the user has requested a specific tap(4) */
+		s = vmc->vmc_ifnames[i];
+		if (*s != '\0' && strcmp("tap", s) != 0) {
+			if (priv_getiftype(s, ifname, &unit) == -1 ||
+			    strcmp(ifname, "tap") != 0) {
+				saved_errno = errno;
+				log_warn("%s: invalid tap name",
+				    __func__);
+				goto fail;
+			}
+		} else
+			s = NULL;
+
+		/*
+		 * Either open the requested tap(4) device or get
+		 * the next available one.
+		 */
+		if (s != NULL) {
+			snprintf(path, PATH_MAX, "/dev/%s", s);
+			tapfds[i] = open(path, O_RDWR | O_NONBLOCK);
+		} else {
+			tapfds[i] = opentap(ifname);
+			s = ifname;
+		}
+		if (tapfds[i] == -1) {
+			saved_errno = errno;
+			log_warn("%s: can't open %s", __func__, s);
+			goto fail;
+		}
+		if ((vif->vif_name = strdup(s)) == NULL) {
+			saved_errno = errno;
+			log_warn("%s: can't save ifname", __func__);
+			goto fail;
+		}
+
+		/* Check if the the interface is attached to a switch */
+		s = vmc->vmc_ifswitch[i];
+		if (*s != '\0') {
+			if ((vif->vif_switch = strdup(s)) == NULL) {
+				saved_errno = errno;
+				log_warn("%s: can't save switch",
+				    __func__);
+				goto fail;
+			}
+		}
+
+		/* Check if the the interface is assigned to a group */
+		s = vmc->vmc_ifgroup[i];
+		if (*s != '\0') {
+			if ((vif->vif_group = strdup(s)) == NULL) {
+				saved_errno = errno;
+				log_warn("%s: can't save group",
+				    __func__);
+				goto fail;
+			}
+		}
+
+		/* Set the interface status */
+		vif->vif_flags = vmc->vmc_ifflags[i] & IFF_UP;
+	}
+
+	/* Open TTY */
+	if (openpty(&fd, &ttys_fd, ptyname, NULL, NULL) == -1 ||
+	    (vm->vm_ttyname = strdup(ptyname)) == NULL) {
+		saved_errno = errno;
+		log_warn("%s: can't open tty", __func__);
+		goto fail;
+	}
+	close(ttys_fd);
+
+	/* Send VM information */
+	proc_compose_imsg(ps, PROC_VMM, -1,
+	    IMSG_VMDOP_START_VM_REQUEST, vm->vm_vmid, kernfd,
+	    vmc, sizeof(*vmc));
+	for (i = 0; i < vcp->vcp_ndisks; i++) {
+		proc_compose_imsg(ps, PROC_VMM, -1,
+		    IMSG_VMDOP_START_VM_DISK, vm->vm_vmid, diskfds[i],
+		    &i, sizeof(i));
+	}
+	for (i = 0; i < vcp->vcp_nnics; i++) {
+		proc_compose_imsg(ps, PROC_VMM, -1,
+		    IMSG_VMDOP_START_VM_IF, vm->vm_vmid, tapfds[i],
+		    &i, sizeof(i));
+	}
+
+	proc_compose_imsg(ps, PROC_VMM, -1,
+	    IMSG_VMDOP_START_VM_END, vm->vm_vmid, fd,  NULL, 0);
 
 	free(diskfds);
 	free(tapfds);
 
-	env->vmd_nvm++;
+	vm->vm_running = 1;
 	return (0);
 
  fail:
@@ -335,6 +298,41 @@ config_getvm(struct privsep *ps, struct vmop_create_params *vmc,
 }
 
 int
+config_getvm(struct privsep *ps, struct imsg *imsg)
+{
+	struct vmop_create_params	 vmc;
+	struct vmd_vm			*vm;
+
+	IMSG_SIZE_CHECK(imsg, &vmc);
+	memcpy(&vmc, imsg->data, sizeof(vmc));
+
+	errno = 0;
+	if (vm_register(ps, &vmc, &vm, imsg->hdr.peerid) == -1)
+		return (-1);
+
+	if (imsg->fd == -1) {
+		log_debug("invalid kernel fd");
+		goto fail;
+	}
+	vm->vm_kernel = imsg->fd;
+	vm->vm_running = 1;
+
+	return (0);
+
+ fail:
+	if (imsg->fd != -1) {
+		close(imsg->fd);
+		imsg->fd = -1;
+	}
+
+	vm_remove(vm);
+	if (errno == 0)
+		errno = EINVAL;
+
+	return (-1);
+}
+
+int
 config_getdisk(struct privsep *ps, struct imsg *imsg)
 {
 	struct vmd_vm	*vm;
@@ -349,7 +347,7 @@ config_getdisk(struct privsep *ps, struct imsg *imsg)
 	IMSG_SIZE_CHECK(imsg, &n);
 	memcpy(&n, imsg->data, sizeof(n));
 
-	if (n >= vm->vm_params.vcp_ndisks ||
+	if (n >= vm->vm_params.vmc_params.vcp_ndisks ||
 	    vm->vm_disks[n] != -1 || imsg->fd == -1) {
 		log_debug("invalid disk id");
 		errno = EINVAL;
@@ -374,7 +372,7 @@ config_getif(struct privsep *ps, struct imsg *imsg)
 
 	IMSG_SIZE_CHECK(imsg, &n);
 	memcpy(&n, imsg->data, sizeof(n));
-	if (n >= vm->vm_params.vcp_nnics ||
+	if (n >= vm->vm_params.vmc_params.vcp_nnics ||
 	    vm->vm_ifs[n].vif_fd != -1 || imsg->fd == -1) {
 		log_debug("invalid interface id");
 		goto fail;

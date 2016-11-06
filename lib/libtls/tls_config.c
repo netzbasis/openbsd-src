@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_config.c,v 1.28 2016/08/22 14:55:59 jsing Exp $ */
+/* $OpenBSD: tls_config.c,v 1.32 2016/11/05 15:13:26 beck Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -62,7 +62,7 @@ set_mem(char **dest, size_t *destlen, const void *src, size_t srclen)
 }
 
 static struct tls_keypair *
-tls_keypair_new()
+tls_keypair_new(void)
 {
 	return calloc(1, sizeof(struct tls_keypair));
 }
@@ -128,6 +128,7 @@ tls_config_load_file(struct tls_error *error, const char *filetype,
 {
 	struct stat st;
 	int fd = -1;
+	ssize_t n;
 
 	free(*buf);
 	*buf = NULL;
@@ -143,13 +144,16 @@ tls_config_load_file(struct tls_error *error, const char *filetype,
 		    filetype, filename);
 		goto fail;
 	}
+	if (st.st_size < 0)
+		goto fail;
 	*len = (size_t)st.st_size;
 	if ((*buf = malloc(*len)) == NULL) {
 		tls_error_set(error, "failed to allocate buffer for "
 		    "%s file", filetype);
 		goto fail;
 	}
-	if (read(fd, *buf, *len) != *len) {
+	n = read(fd, *buf, *len);
+	if (n < 0 || (size_t)n != *len) {
 		tls_error_set(error, "failed to read %s file '%s'",
 		    filetype, filename);
 		goto fail;
@@ -223,6 +227,7 @@ tls_config_free(struct tls_config *config)
 	free((char *)config->ca_mem);
 	free((char *)config->ca_path);
 	free((char *)config->ciphers);
+	free(config->ocsp_staple);
 
 	free(config);
 }
@@ -621,6 +626,12 @@ tls_config_verify(struct tls_config *config)
 }
 
 void
+tls_config_ocsp_require_stapling(struct tls_config *config)
+{
+	config->ocsp_require_stapling = 1;
+}
+
+void
 tls_config_verify_client(struct tls_config *config)
 {
 	config->verify_client = 1;
@@ -630,4 +641,17 @@ void
 tls_config_verify_client_optional(struct tls_config *config)
 {
 	config->verify_client = 2;
+}
+
+int
+tls_config_set_ocsp_staple_file(struct tls_config *config, const char *staple_file)
+{
+	return tls_config_load_file(&config->error, "OCSP", staple_file,
+	    &config->ocsp_staple, &config->ocsp_staple_len);
+}
+
+int
+tls_config_set_ocsp_staple_mem(struct tls_config *config, char *staple, size_t len)
+{
+	return set_mem(&config->ocsp_staple, &config->ocsp_staple_len, staple, len);
 }

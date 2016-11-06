@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.185 2016/10/06 04:39:30 jsg Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.187 2016/10/27 10:48:25 schwarze Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -68,7 +68,7 @@
 #include "pf.h"
 #include "pty.h"
 
-#if defined(__amd64__)
+#if defined(__amd64__) || defined(__i386__)
 #include "vmm.h"
 #if NVMM > 0
 #include <machine/conf.h>
@@ -300,6 +300,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_link] = PLEDGE_CPATH,
 	[SYS_linkat] = PLEDGE_CPATH,
 	[SYS_symlink] = PLEDGE_CPATH,
+	[SYS_symlinkat] = PLEDGE_CPATH,
 	[SYS_unlink] = PLEDGE_CPATH | PLEDGE_TMPPATH,
 	[SYS_unlinkat] = PLEDGE_CPATH,
 	[SYS_mkdir] = PLEDGE_CPATH,

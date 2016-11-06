@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_internal.h,v 1.43 2016/09/04 12:26:43 bcook Exp $ */
+/* $OpenBSD: tls_internal.h,v 1.50 2016/11/05 15:13:26 beck Exp $ */
 /*
  * Copyright (c) 2014 Jeremie Courreges-Anglas <jca@openbsd.org>
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
@@ -24,6 +24,8 @@
 
 #include <openssl/ssl.h>
 
+__BEGIN_HIDDEN_DECLS
+
 #define _PATH_SSL_CA_FILE "/etc/ssl/cert.pem"
 
 #define TLS_CIPHERS_DEFAULT	"TLSv1.2+AEAD+ECDHE:TLSv1.2+AEAD+DHE"
@@ -39,6 +41,7 @@ union tls_addr {
 struct tls_error {
 	char *msg;
 	int num;
+	int tls;
 };
 
 struct tls_keypair {
@@ -63,6 +66,9 @@ struct tls_config {
 	int dheparams;
 	int ecdhecurve;
 	struct tls_keypair *keypair;
+	int ocsp_require_stapling;
+	char *ocsp_staple;
+	size_t ocsp_staple_len;
 	uint32_t protocols;
 	int verify_cert;
 	int verify_client;
@@ -92,6 +98,27 @@ struct tls_conninfo {
 #define TLS_EOF_NO_CLOSE_NOTIFY	(1 << 0)
 #define TLS_HANDSHAKE_COMPLETE	(1 << 1)
 
+struct tls_ocsp_result {
+	const char *result_msg;
+	int response_status;
+	int cert_status;
+	int crl_reason;
+	time_t this_update;
+	time_t next_update;
+	time_t revocation_time;
+};
+
+struct tls_ocsp {
+	/* responder location */
+	char *ocsp_url;
+
+	/* cert data, this struct does not own these */
+	X509 *main_cert;
+	STACK_OF(X509) *extra_certs;
+
+	struct tls_ocsp_result *ocsp_result;
+};
+
 struct tls_sni_ctx {
 	struct tls_sni_ctx *next;
 
@@ -117,6 +144,8 @@ struct tls {
 	X509 *ssl_peer_cert;
 
 	struct tls_conninfo *conninfo;
+
+	struct tls_ocsp *ocsp;
 
 	tls_read_cb read_cb;
 	tls_write_cb write_cb;
@@ -147,6 +176,7 @@ int tls_host_port(const char *hostport, char **host, char **port);
 int tls_set_cbs(struct tls *ctx,
     tls_read_cb read_cb, tls_write_cb write_cb, void *cb_arg);
 
+void tls_error_clear(struct tls_error *error);
 int tls_error_set(struct tls_error *error, const char *fmt, ...)
     __attribute__((__format__ (printf, 2, 3)))
     __attribute__((__nonnull__ (2)));
@@ -165,6 +195,9 @@ int tls_set_error(struct tls *ctx, const char *fmt, ...)
 int tls_set_errorx(struct tls *ctx, const char *fmt, ...)
     __attribute__((__format__ (printf, 2, 3)))
     __attribute__((__nonnull__ (2)));
+int tls_set_ssl_errorx(struct tls *ctx, const char *fmt, ...)
+    __attribute__((__format__ (printf, 2, 3)))
+    __attribute__((__nonnull__ (2)));
 
 int tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret,
     const char *prefix);
@@ -172,6 +205,11 @@ int tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret,
 int tls_conninfo_populate(struct tls *ctx);
 void tls_conninfo_free(struct tls_conninfo *conninfo);
 
-int asn1_time_parse(const char *, size_t, struct tm *, int);
+int tls_ocsp_verify_cb(SSL *ssl, void *arg);
+int tls_ocsp_stapling_cb(SSL *ssl, void *arg);
+void tls_ocsp_free(struct tls_ocsp *ctx);
+struct tls_ocsp *tls_ocsp_setup_from_peer(struct tls *ctx);
+
+__END_HIDDEN_DECLS
 
 #endif /* HEADER_TLS_INTERNAL_H */

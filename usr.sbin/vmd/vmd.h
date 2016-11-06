@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.h,v 1.28 2016/10/06 18:48:41 reyk Exp $	*/
+/*	$OpenBSD: vmd.h,v 1.34 2016/11/04 15:16:44 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -66,7 +66,8 @@ enum imsg_type {
 	IMSG_VMDOP_PRIV_IFADD,
 	IMSG_VMDOP_PRIV_IFCREATE,
 	IMSG_VMDOP_PRIV_IFUP,
-	IMSG_VMDOP_PRIV_IFDOWN
+	IMSG_VMDOP_PRIV_IFDOWN,
+	IMSG_VMDOP_PRIV_IFGROUP
 };
 
 struct vmop_result {
@@ -99,11 +100,13 @@ struct vmop_create_params {
 	unsigned int		 vmc_ifflags[VMM_MAX_NICS_PER_VM];
 	char			 vmc_ifnames[VMM_MAX_NICS_PER_VM][IF_NAMESIZE];
 	char			 vmc_ifswitch[VMM_MAX_NICS_PER_VM][VM_NAME_MAX];
+	char			 vmc_ifgroup[VMM_MAX_NICS_PER_VM][IF_NAMESIZE];
 };
 
 struct vmd_if {
 	char			*vif_name;
 	char			*vif_switch;
+	char			*vif_group;
 	int			 vif_fd;
 	unsigned int		 vif_flags;
 	TAILQ_ENTRY(vmd_if)	 vif_entry;
@@ -114,14 +117,16 @@ struct vmd_switch {
 	uint32_t		 sw_id;
 	char			*sw_name;
 	char			 sw_ifname[IF_NAMESIZE];
+	char			*sw_group;
 	unsigned int		 sw_flags;
 	struct viflist		 sw_ifs;
+	int			 sw_running;
 	TAILQ_ENTRY(vmd_switch)	 sw_entry;
 };
 TAILQ_HEAD(switchlist, vmd_switch);
 
 struct vmd_vm {
-	struct vm_create_params	 vm_params;
+	struct vmop_create_params vm_params;
 	pid_t			 vm_pid;
 	uint32_t		 vm_vmid;
 	int			 vm_kernel;
@@ -130,6 +135,7 @@ struct vmd_vm {
 	char			*vm_ttyname;
 	int			 vm_tty;
 	uint32_t		 vm_peerid;
+	int			 vm_running;
 	TAILQ_ENTRY(vmd_vm)	 vm_entry;
 };
 TAILQ_HEAD(vmlist, vmd_vm);
@@ -152,12 +158,14 @@ struct vmd {
 };
 
 /* vmd.c */
-void	 vmd_reload(int, const char *);
+void	 vmd_reload(unsigned int, const char *);
 struct vmd_vm *vm_getbyvmid(uint32_t);
 struct vmd_vm *vm_getbyid(uint32_t);
 struct vmd_vm *vm_getbyname(const char *);
 struct vmd_vm *vm_getbypid(pid_t);
 void	 vm_remove(struct vmd_vm *);
+int	 vm_register(struct privsep *, struct vmop_create_params *,
+	    struct vmd_vm **, uint32_t);
 void	 switch_remove(struct vmd_switch *);
 struct vmd_switch *switch_getbyname(const char *);
 char	*get_string(uint8_t *, size_t);
@@ -166,6 +174,7 @@ char	*get_string(uint8_t *, size_t);
 void	 priv(struct privsep *, struct privsep_proc *);
 int	 priv_getiftype(char *, char *, unsigned int *);
 int	 priv_findname(const char *, const char **);
+int	 priv_validgroup(const char *);
 int	 vm_priv_ifconfig(struct privsep *, struct vmd_vm *);
 int	 vm_priv_brconfig(struct privsep *, struct vmd_switch *);
 
@@ -184,8 +193,8 @@ int	 config_init(struct vmd *);
 void	 config_purge(struct vmd *, unsigned int);
 int	 config_setreset(struct vmd *, unsigned int);
 int	 config_getreset(struct vmd *, struct imsg *);
-int	 config_getvm(struct privsep *, struct vmop_create_params *,
-	    int, uint32_t);
+int	 config_setvm(struct privsep *, struct vmd_vm *, uint32_t);
+int	 config_getvm(struct privsep *, struct imsg *);
 int	 config_getdisk(struct privsep *, struct imsg *);
 int	 config_getif(struct privsep *, struct imsg *);
 

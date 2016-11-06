@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.33 2016/10/06 18:48:41 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.39 2016/11/04 15:16:44 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
@@ -32,6 +33,7 @@
 #include <syslog.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <util.h>
 
 #include "proc.h"
 #include "vmd.h"
@@ -63,7 +65,8 @@ int
 vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep			*ps = p->p_ps;
-	int				 res = 0, cmd = 0, v = 0;
+	int				 res = 0, cmd = 0;
+	unsigned int			 v = 0;
 	struct vmop_create_params	 vmc;
 	struct vmop_id			 vid;
 	struct vm_terminate_params	 vtp;
@@ -76,10 +79,17 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_START_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vmc);
 		memcpy(&vmc, imsg->data, sizeof(vmc));
-		res = config_getvm(ps, &vmc, -1, imsg->hdr.peerid);
+		res = vm_register(ps, &vmc, &vm, 0);
 		if (res == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		} else {
+			res = config_setvm(ps, vm, imsg->hdr.peerid);
+			if (res == -1) {
+				res = errno;
+				cmd = IMSG_VMDOP_START_VM_RESPONSE;
+				vm_remove(vm);
+			}
 		}
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
@@ -92,7 +102,7 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 				cmd = IMSG_VMDOP_TERMINATE_VM_RESPONSE;
 				break;
 			}
-			id = vm->vm_params.vcp_id;
+			id = vm->vm_params.vmc_params.vcp_id;
 		}
 		memset(&vtp, 0, sizeof(vtp));
 		vtp.vtp_vm_id = id;
@@ -103,14 +113,18 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_GET_INFO_VM_REQUEST:
 		proc_forward_imsg(ps, imsg, PROC_VMM, -1);
 		break;
-	case IMSG_VMDOP_RELOAD:
-		v = 1;
 	case IMSG_VMDOP_LOAD:
-		if (IMSG_DATA_SIZE(imsg) > 0)
-			str = get_string((uint8_t *)imsg->data,
-			    IMSG_DATA_SIZE(imsg));
-		vmd_reload(v, str);
+		IMSG_SIZE_CHECK(imsg, str); /* at least one byte for path */
+		str = get_string((uint8_t *)imsg->data,
+		    IMSG_DATA_SIZE(imsg));
+	case IMSG_VMDOP_RELOAD:
+		vmd_reload(0, str);
 		free(str);
+		break;
+	case IMSG_CTL_RESET:
+		IMSG_SIZE_CHECK(imsg, &v);
+		memcpy(&v, imsg->data, sizeof(v));
+		vmd_reload(v, str);
 		break;
 	default:
 		return (-1);
@@ -155,7 +169,7 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL)
 			fatalx("%s: invalid vm response", __func__);
 		vm->vm_pid = vmr.vmr_pid;
-		vcp = &vm->vm_params;
+		vcp = &vm->vm_params.vmc_params;
 		vcp->vcp_id = vmr.vmr_id;
 
 		/*
@@ -245,7 +259,7 @@ vmd_sighdlr(int sig, short event, void *arg)
 		 * This is safe because libevent uses async signal handlers
 		 * that run in the event loop and not in signal context.
 		 */
-		vmd_reload(1, NULL);
+		vmd_reload(0, NULL);
 		break;
 	case SIGPIPE:
 		log_info("%s: ignoring SIGPIPE", __func__);
@@ -414,6 +428,10 @@ main(int argc, char **argv)
 int
 vmd_configure(void)
 {
+	struct vmd_vm		*vm;
+	struct vmd_switch	*vsw;
+	int		 	 res, ret = 0;
+
 	/*
 	 * pledge in the parent process:
 	 * stdio - for malloc and basic I/O including events.
@@ -437,24 +455,80 @@ vmd_configure(void)
 		exit(0);
 	}
 
-	return (0);
+	TAILQ_FOREACH(vsw, env->vmd_switches, sw_entry) {
+		if (vsw->sw_running)
+			continue;
+		if (vm_priv_brconfig(&env->vmd_ps, vsw) == -1) {
+			log_warn("%s: failed to create switch %s",
+			    __func__, vsw->sw_name);
+			switch_remove(vsw);
+		}
+	}
+
+	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
+		res = config_setvm(&env->vmd_ps, vm, -1);
+		if (res == -1) {
+			log_warn("%s: failed to create vm %s",
+			    __func__,
+			    vm->vm_params.vmc_params.vcp_name);
+			ret = -1;
+			vm_remove(vm);
+			goto fail;
+		}
+	}
+ fail:
+	return (ret);
 }
 
 void
-vmd_reload(int reset, const char *filename)
+vmd_reload(unsigned int reset, const char *filename)
 {
+	struct vmd_vm		*vm;
+	struct vmd_switch	*vsw;
+	int		 	 res;
+
 	/* Switch back to the default config file */
 	if (filename == NULL || *filename == '\0')
 		filename = env->vmd_conffile;
 
 	log_debug("%s: level %d config file %s", __func__, reset, filename);
 
-	if (reset)
-		config_setreset(env, CONFIG_ALL);
+	if (reset) {
+		/* Purge the configuration */
+		config_purge(env, reset);
+		config_setreset(env, reset);
+	} else {
+		/* Reload the configuration */
+		if (parse_config(filename) == -1) {
+			log_debug("%s: failed to load config file %s",
+			    __func__, filename);
+		}
 
-	if (parse_config(filename) == -1) {
-		log_debug("%s: failed to load config file %s",
-		    __func__, filename);
+		TAILQ_FOREACH(vsw, env->vmd_switches, sw_entry) {
+			if (vsw->sw_running)
+				continue;
+			if (vm_priv_brconfig(&env->vmd_ps, vsw) == -1) {
+				log_warn("%s: failed to create switch %s",
+				    __func__, vsw->sw_name);
+				switch_remove(vsw);
+			}
+		}
+
+		TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
+			if (vm->vm_running == 0) {
+				res = config_setvm(&env->vmd_ps, vm, -1);
+				if (res == -1) {
+					log_warn("%s: failed to create vm %s",
+					    __func__,
+					    vm->vm_params.vmc_params.vcp_name);
+					vm_remove(vm);
+				}
+			} else {
+				log_debug("%s: not creating vm \"%s\": "
+				    "(running)", __func__,
+				    vm->vm_params.vmc_params.vcp_name);
+			}
+		}
 	}
 }
 
@@ -487,7 +561,7 @@ vm_getbyid(uint32_t id)
 	struct vmd_vm	*vm;
 
 	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
-		if (vm->vm_params.vcp_id == id)
+		if (vm->vm_params.vmc_params.vcp_id == id)
 			return (vm);
 	}
 
@@ -502,7 +576,7 @@ vm_getbyname(const char *name)
 	if (name == NULL)
 		return (NULL);
 	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
-		if (strcmp(vm->vm_params.vcp_name, name) == 0)
+		if (strcmp(vm->vm_params.vmc_params.vcp_name, name) == 0)
 			return (vm);
 	}
 
@@ -541,6 +615,7 @@ vm_remove(struct vmd_vm *vm)
 			close(vm->vm_ifs[i].vif_fd);
 		free(vm->vm_ifs[i].vif_name);
 		free(vm->vm_ifs[i].vif_switch);
+		free(vm->vm_ifs[i].vif_group);
 	}
 	if (vm->vm_kernel != -1)
 		close(vm->vm_kernel);
@@ -549,6 +624,64 @@ vm_remove(struct vmd_vm *vm)
 
 	free(vm->vm_ttyname);
 	free(vm);
+}
+
+int
+vm_register(struct privsep *ps, struct vmop_create_params *vmc,
+    struct vmd_vm **ret_vm, uint32_t id)
+{
+	struct vmd_vm		*vm = NULL;
+	struct vm_create_params	*vcp = &vmc->vmc_params;
+	unsigned int		 i;
+
+	errno = 0;
+	*ret_vm = NULL;
+
+	if ((vm = vm_getbyname(vcp->vcp_name)) != NULL) {
+		*ret_vm = vm;
+		errno = EALREADY;
+		goto fail;
+	}
+
+	if (vcp->vcp_ncpus == 0)
+		vcp->vcp_ncpus = 1;
+	if (vcp->vcp_ncpus > VMM_MAX_VCPUS_PER_VM) {
+		log_debug("invalid number of CPUs");
+		goto fail;
+	} else if (vcp->vcp_ndisks > VMM_MAX_DISKS_PER_VM) {
+		log_debug("invalid number of disks");
+		goto fail;
+	} else if (vcp->vcp_nnics > VMM_MAX_NICS_PER_VM) {
+		log_debug("invalid number of interfaces");
+		goto fail;
+	}
+
+	if ((vm = calloc(1, sizeof(*vm))) == NULL)
+		goto fail;
+
+	memcpy(&vm->vm_params, vmc, sizeof(vm->vm_params));
+	vm->vm_pid = -1;
+
+	for (i = 0; i < vcp->vcp_ndisks; i++)
+		vm->vm_disks[i] = -1;
+	for (i = 0; i < vcp->vcp_nnics; i++)
+		vm->vm_ifs[i].vif_fd = -1;
+	vm->vm_kernel = -1;
+
+	if (++env->vmd_nvm == 0)
+		fatalx("too many vms");
+
+	/* Assign a new internal Id if not specified */
+	vm->vm_vmid = id == 0 ? env->vmd_nvm : id;
+
+	TAILQ_INSERT_TAIL(env->vmd_vms, vm, vm_entry);
+
+	*ret_vm = vm;
+	return (0);
+fail:
+	if (errno == 0)
+		errno = EINVAL;
+	return (-1);
 }
 
 void
@@ -568,6 +701,7 @@ switch_remove(struct vmd_switch *vsw)
 		free(vif);
 	}
 
+	free(vsw->sw_group);
 	free(vsw->sw_name);
 	free(vsw);
 }

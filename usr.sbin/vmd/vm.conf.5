@@ -1,4 +1,4 @@
-.\" $OpenBSD: vm.conf.5,v 1.7 2016/10/06 10:59:14 jmc Exp $
+.\" $OpenBSD: vm.conf.5,v 1.11 2016/10/20 19:44:09 jmc Exp $
 .\"
 .\" Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
 .\" Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 6 2016 $
+.Dd $Mdocdate: October 20 2016 $
 .Dt VM.CONF 5
 .Os
 .Sh NAME
@@ -31,7 +31,7 @@ The VMM subsystem is responsible for creating, destroying, and
 executing VMs.
 .Sh SECTIONS
 .Nm
-is divided into two main sections:
+is divided into three main sections:
 .Bl -tag -width xxxx
 .It Sy Macros
 User-defined variables may be defined and used later, simplifying the
@@ -125,14 +125,20 @@ interface on the VM host side (the default) or
 to select a specific one.
 Valid options are:
 .Bl -tag -width Ds
+.It Cm group Ar group-name
+Assign the interface to a specific interface
+.Dq group .
+For example, this can be used to write
+.Xr pf.conf 5
+rules for several VM interfaces in the same group.
+The
+.Ar group-name
+must not end with a digit.
 .It Cm lladdr Ar etheraddr
 Change the link layer address (MAC address) of the interface on the
 VM guest side.
-The
-.Ar etheraddr
-is specified as six colon-separated hex values.
-If not specified, the address will be set to all zeros and eventually
-randomized by the guest OS inside the VM.
+If not specified, a randomized address will be assigned by
+.Xr vmd 8 .
 .It Cm switch Ar name
 Set the virtual switch
 by
@@ -156,23 +162,36 @@ is greater than the number of
 statements, additional default interfaces will be added.
 .El
 .Sh SWITCH CONFIGURATION
-Virtual switches can be configured at any point in the configuration file;
-they allow
-.Nm switchd
-to add network interfaces of VMs to the underlying switch interfaces
-automatically.
-It is possible to pre-configure switch interfaces using
+A virtual switch allows VMs to communicate with other network interfaces on the
+host system via either
+.Xr bridge 4
+or
+.Xr switch 4 .
+The network interface for each virtual switch defined in
+.Nm
+is automatically created by
+.Xr vmd 8 ,
+but it is also possible to pre-configure switch interfaces using
 .Xr hostname.if 5
 or
-.Xr ifconfig 8 ,
-see the sections
-.Sx BRIDGE
-or
-.Sx SWITCH
-in
 .Xr ifconfig 8
-accordingly.
+(see the
+.Sx BRIDGE
+and
+.Sx SWITCH
+sections in
+.Xr ifconfig 8
+accordingly).
+When a VM is started, virtual network interfaces which are assigned to a
+virtual switch have their
+.Xr tap 4
+interface automatically added into the corresponding
+.Xr bridge 4
+or
+.Xr switch 4
+interface underlying the virtual switch.
 .Pp
+Virtual switches can be configured at any point in the configuration file.
 Each
 .Ic switch
 section starts with a declaration of the virtual switch:
@@ -198,6 +217,15 @@ nor
 is specified.
 .It Cm disable
 Do not configure this switch.
+.It Cm group Ar group-name
+Assign each interface to a specific interface
+.Dq group .
+For example, this can be used to write
+.Xr pf.conf 5
+rules for several VM interfaces in the same group.
+The
+.Ar group-name
+must not end with a digit.
 .It Cm interface Ar name
 Set the
 .Xr switch 4

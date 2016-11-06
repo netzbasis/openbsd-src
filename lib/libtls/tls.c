@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.49 2016/09/04 12:26:43 bcook Exp $ */
+/* $OpenBSD: tls.c,v 1.52 2016/11/05 14:50:05 beck Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -61,15 +61,25 @@ tls_error(struct tls *ctx)
 	return ctx->error.msg;
 }
 
+void
+tls_error_clear(struct tls_error *error)
+{
+	free(error->msg);
+	error->msg = NULL;
+	error->num = 0;
+	error->tls = 0;
+}
+
 static int
 tls_error_vset(struct tls_error *error, int errnum, const char *fmt, va_list ap)
 {
 	char *errmsg = NULL;
 	int rv = -1;
 
-	free(error->msg);
-	error->msg = NULL;
+	tls_error_clear(error);
+
 	error->num = errnum;
+	error->tls = 1;
 
 	if (vasprintf(&errmsg, fmt, ap) == -1) {
 		errmsg = NULL;
@@ -169,6 +179,23 @@ tls_set_errorx(struct tls *ctx, const char *fmt, ...)
 {
 	va_list ap;
 	int rv;
+
+	va_start(ap, fmt);
+	rv = tls_error_vset(&ctx->error, -1, fmt, ap);
+	va_end(ap);
+
+	return (rv);
+}
+
+int
+tls_set_ssl_errorx(struct tls *ctx, const char *fmt, ...)
+{
+	va_list ap;
+	int rv;
+
+	/* Only set an error if a more specific one does not already exist. */
+	if (ctx->error.tls != 0)
+		return (0);
 
 	va_start(ap, fmt);
 	rv = tls_error_vset(&ctx->error, -1, fmt, ap);
@@ -419,6 +446,9 @@ tls_reset(struct tls *ctx)
 	tls_conninfo_free(ctx->conninfo);
 	ctx->conninfo = NULL;
 
+	tls_ocsp_free(ctx->ocsp);
+	ctx->ocsp = NULL;
+
 	for (sni = ctx->sni_ctx; sni != NULL; sni = nsni) {
 		nsni = sni->next;
 		tls_sni_ctx_free(sni);
@@ -461,21 +491,21 @@ tls_ssl_error(struct tls *ctx, SSL *ssl_conn, int ssl_ret, const char *prefix)
 		} else if (ssl_ret == -1) {
 			errstr = strerror(errno);
 		}
-		tls_set_errorx(ctx, "%s failed: %s", prefix, errstr);
+		tls_set_ssl_errorx(ctx, "%s failed: %s", prefix, errstr);
 		return (-1);
 
 	case SSL_ERROR_SSL:
 		if ((err = ERR_peek_error()) != 0) {
 			errstr = ERR_error_string(err, NULL);
 		}
-		tls_set_errorx(ctx, "%s failed: %s", prefix, errstr);
+		tls_set_ssl_errorx(ctx, "%s failed: %s", prefix, errstr);
 		return (-1);
 
 	case SSL_ERROR_WANT_CONNECT:
 	case SSL_ERROR_WANT_ACCEPT:
 	case SSL_ERROR_WANT_X509_LOOKUP:
 	default:
-		tls_set_errorx(ctx, "%s failed (%i)", prefix, ssl_err);
+		tls_set_ssl_errorx(ctx, "%s failed (%i)", prefix, ssl_err);
 		return (-1);
 	}
 }
@@ -484,6 +514,8 @@ int
 tls_handshake(struct tls *ctx)
 {
 	int rv = -1;
+
+	tls_error_clear(&ctx->error);
 
 	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
 		tls_set_errorx(ctx, "invalid operation for context");
@@ -499,6 +531,8 @@ tls_handshake(struct tls *ctx)
 		ctx->ssl_peer_cert =  SSL_get_peer_certificate(ctx->ssl_conn);
 		if (tls_conninfo_populate(ctx) == -1)
 		    rv = -1;
+		if (ctx->ocsp == NULL)
+			ctx->ocsp = tls_ocsp_setup_from_peer(ctx);
 	}
  out:
 	/* Prevent callers from performing incorrect error handling */
@@ -511,6 +545,8 @@ tls_read(struct tls *ctx, void *buf, size_t buflen)
 {
 	ssize_t rv = -1;
 	int ssl_ret;
+
+	tls_error_clear(&ctx->error);
 
 	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) == 0) {
 		if ((rv = tls_handshake(ctx)) != 0)
@@ -541,6 +577,8 @@ tls_write(struct tls *ctx, const void *buf, size_t buflen)
 	ssize_t rv = -1;
 	int ssl_ret;
 
+	tls_error_clear(&ctx->error);
+
 	if ((ctx->state & TLS_HANDSHAKE_COMPLETE) == 0) {
 		if ((rv = tls_handshake(ctx)) != 0)
 			goto out;
@@ -569,6 +607,8 @@ tls_close(struct tls *ctx)
 {
 	int ssl_ret;
 	int rv = 0;
+
+	tls_error_clear(&ctx->error);
 
 	if ((ctx->flags & (TLS_CLIENT | TLS_SERVER_CONN)) == 0) {
 		tls_set_errorx(ctx, "invalid operation for context");

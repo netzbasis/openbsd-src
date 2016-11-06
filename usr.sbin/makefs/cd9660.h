@@ -1,4 +1,4 @@
-/*	$OpenBSD: cd9660.h,v 1.2 2016/10/16 20:26:56 natano Exp $	*/
+/*	$OpenBSD: cd9660.h,v 1.11 2016/10/26 15:31:13 natano Exp $	*/
 /*	$NetBSD: cd9660.h,v 1.21 2015/12/24 15:52:37 christos Exp $	*/
 
 /*
@@ -51,8 +51,8 @@
 #include <sys/endian.h>
 
 #include "makefs.h"
-#include "iso.h"
-#include "iso_rrip.h"
+#include "cd9660/iso.h"
+#include "cd9660/iso_rrip.h"
 #include "cd9660/cd9660_eltorito.h"
 
 #ifdef DEBUG
@@ -116,7 +116,7 @@ typedef struct {
 	howmany((__bytes), (__sector_size))
 
 #define CD9660_MEM_ALLOC_ERROR(_F)	\
-    err(EXIT_FAILURE, "%s, %s l. %d", _F, __FILE__, __LINE__)
+    err(1, "%s, %s l. %d", _F, __FILE__, __LINE__)
 
 #define CD9660_TYPE_FILE	0x01
 #define CD9660_TYPE_DIR		0x02
@@ -259,11 +259,6 @@ typedef struct _iso9660_disk {
 
 	int include_padding_areas;
 
-	int follow_sym_links;
-	int verbose_level;
-	int displayHelp;
-	int keep_bad_images;
-
 	/* SUSP options and variables */
 	int64_t susp_continuation_area_start_sector;
 	int64_t susp_continuation_area_size;
@@ -275,17 +270,10 @@ typedef struct _iso9660_disk {
 	int rock_ridge_move_count;
 	cd9660node *rr_moved_dir;
 
-	int archimedes_enabled;
-	int chrp_boot;
-
 	/* Spec breaking options */
-	u_char allow_deep_trees;
-	u_char allow_start_dot;
-	u_char allow_max_name; /* Allow 37 char filenames*/
-	u_char allow_illegal_chars; /* ~, !, # */
-	u_char allow_lowercase;
-	u_char allow_multidot;
-	u_char omit_trailing_period;
+	int allow_deep_trees;
+	int allow_multidot;
+	int omit_trailing_period;
 
 	/* BOOT INFORMATION HERE */
 	int has_generic_bootimage; /* Default to 0 */
@@ -294,7 +282,6 @@ typedef struct _iso9660_disk {
 	int is_bootable;/* Default to 0 */
 	int64_t boot_catalog_sector;
 	boot_volume_descriptor *boot_descriptor;
-	char * boot_image_directory;
 
 	TAILQ_HEAD(boot_image_list,cd9660_boot_image) boot_images;
 	int image_serialno;

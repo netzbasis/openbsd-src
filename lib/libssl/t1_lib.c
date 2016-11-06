@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.92 2016/10/02 21:18:08 guenther Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.94 2016/11/05 08:26:37 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -282,7 +282,7 @@ static const uint16_t eccurves_default[] = {
 };
 
 int
-tls1_ec_curve_id2nid(uint16_t curve_id)
+tls1_ec_curve_id2nid(const uint16_t curve_id)
 {
 	/* ECC curves from draft-ietf-tls-ecc-12.txt (Oct. 17, 2005) */
 	if ((curve_id < 1) ||
@@ -405,27 +405,15 @@ tls1_get_curvelist(SSL *s, int client_curves, const uint16_t **pcurves,
 
 /* Check that a curve is one of our preferences. */
 int
-tls1_check_curve(SSL *s, const unsigned char *p, size_t len)
+tls1_check_curve(SSL *s, const uint16_t curve_id)
 {
-	CBS cbs;
 	const uint16_t *curves;
 	size_t curveslen, i;
-	uint8_t type;
-	uint16_t cid;
-
-	CBS_init(&cbs, p, len);
-
-	/* Only named curves are supported. */
-	if (CBS_len(&cbs) != 3 ||
-	    !CBS_get_u8(&cbs, &type) ||
-	    type != NAMED_CURVE_TYPE ||
-	    !CBS_get_u16(&cbs, &cid))
-		return (0);
 
 	tls1_get_curvelist(s, 0, &curves, &curveslen);
 
 	for (i = 0; i < curveslen; i++) {
-		if (curves[i] == cid)
+		if (curves[i] == curve_id)
 			return (1);
 	}
 	return (0);
@@ -651,8 +639,7 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 			alg_k = c->algorithm_mkey;
 			alg_a = c->algorithm_auth;
 
-			if ((alg_k & (SSL_kECDHE|SSL_kECDHr|SSL_kECDHe) ||
-			    (alg_a & SSL_aECDSA))) {
+			if ((alg_k & SSL_kECDHE) || (alg_a & SSL_aECDSA)) {
 				using_ecc = 1;
 				break;
 			}
@@ -964,8 +951,7 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 
 	alg_a = s->s3->tmp.new_cipher->algorithm_auth;
 	alg_k = s->s3->tmp.new_cipher->algorithm_mkey;
-	using_ecc = (alg_k & (SSL_kECDHE|SSL_kECDHr|SSL_kECDHe) ||
-	    alg_a & SSL_aECDSA) &&
+	using_ecc = ((alg_k & SSL_kECDHE) || (alg_a & SSL_aECDSA)) &&
 	    s->session->tlsext_ecpointformatlist != NULL;
 
 	ret += 2;
@@ -1959,7 +1945,7 @@ ssl_check_serverhello_tlsext(SSL *s)
 	    (s->tlsext_ecpointformatlist_length > 0) &&
 	    (s->session->tlsext_ecpointformatlist != NULL) &&
 	    (s->session->tlsext_ecpointformatlist_length > 0) &&
-	    ((alg_k & (SSL_kECDHE|SSL_kECDHr|SSL_kECDHe)) || (alg_a & SSL_aECDSA))) {
+	    ((alg_k & SSL_kECDHE) || (alg_a & SSL_aECDSA))) {
 		/* we are using an ECC cipher */
 		size_t i;
 		unsigned char *list;

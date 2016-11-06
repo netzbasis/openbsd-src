@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.h,v 1.15 2016/10/07 08:49:53 reyk Exp $	*/
+/*	$OpenBSD: switchd.h,v 1.17 2016/11/04 22:27:08 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -76,6 +76,11 @@ struct multipart_message {
 };
 SLIST_HEAD(multipart_list, multipart_message);
 
+struct switch_address {
+	enum switch_conn_type	 swa_type;
+	struct sockaddr_storage	 swa_addr;
+};
+
 struct switch_connection {
 	unsigned int		 con_id;
 	unsigned int		 con_instance;
@@ -113,18 +118,15 @@ struct switch_server {
 	struct switchd		*srv_sc;
 };
 
-struct switch_controller {
-	enum switch_conn_type	 swc_type;
-	struct sockaddr_storage	 swc_addr;
+struct switch_client {
+	struct switch_address	 swc_addr;
+	struct switch_address	 swc_target;
+	struct event		 swc_ev;
+	void			*swc_arg;
+	TAILQ_ENTRY(switch_client)
+				 swc_next;
 };
-
-struct switch_device {
-	char			 sdv_device[PATH_MAX];
-	struct switch_controller sdv_swc;
-	TAILQ_ENTRY(switch_device)
-				 sdv_next;
-};
-TAILQ_HEAD(switch_devices, switch_device);
+TAILQ_HEAD(switch_clients, switch_client);
 
 struct switchd {
 	struct privsep		 sc_ps;
@@ -136,7 +138,7 @@ struct switchd {
 	unsigned int		 sc_cache_timeout;
 	char			 sc_conffile[PATH_MAX];
 	uint8_t			 sc_opts;
-	struct switch_devices	 sc_devs;
+	struct switch_clients	 sc_clients;
 	struct switch_connections
 				 sc_conns;
 };
@@ -222,8 +224,6 @@ void		 ofrelay_write(struct switch_connection *, struct ibuf *);
 void		 ofp(struct privsep *, struct privsep_proc *);
 void		 ofp_close(struct switch_connection *);
 int		 ofp_open(struct privsep *, struct switch_connection *);
-int		 ofp_output(struct switch_connection *, struct ofp_header *,
-		    struct ibuf *);
 void		 ofp_accept(int, short, void *);
 int		 ofp_validate_header(struct switchd *,
 		    struct sockaddr_storage *, struct sockaddr_storage *,
@@ -242,8 +242,22 @@ int		 ofp10_input(struct switchd *, struct switch_connection *,
 /* ofp13.c */
 int		 ofp13_input(struct switchd *, struct switch_connection *,
 		    struct ofp_header *, struct ibuf *);
+int		 ofp13_hello(struct switchd *, struct switch_connection *,
+		    struct ofp_header *oh, struct ibuf *);
+int		 ofp13_validate(struct switchd *,
+		    struct sockaddr_storage *, struct sockaddr_storage *,
+		    struct ofp_header *, struct ibuf *);
+int		 ofp13_desc(struct switchd *, struct switch_connection *);
+int		 ofp13_flow_stats(struct switchd *, struct switch_connection *,
+		    uint32_t, uint32_t, uint8_t);
+int		 ofp13_table_features(struct switchd *,
+		    struct switch_connection *, uint8_t);
+int		 ofp13_featuresrequest(struct switchd *,
+		    struct switch_connection *);
 
 /* ofp_common.c */
+int		 ofp_output(struct switch_connection *, struct ofp_header *,
+		    struct ibuf *);
 int		 ofp_multipart_add(struct switch_connection *, uint32_t,
 		    uint8_t);
 void		 ofp_multipart_del(struct switch_connection *, uint32_t);

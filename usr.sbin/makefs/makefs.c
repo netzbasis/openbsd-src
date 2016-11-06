@@ -1,4 +1,4 @@
-/*	$OpenBSD: makefs.c,v 1.6 2016/10/16 21:59:28 tedu Exp $	*/
+/*	$OpenBSD: makefs.c,v 1.17 2016/10/26 07:53:47 natano Exp $	*/
 /*	$NetBSD: makefs.c,v 1.53 2015/11/27 15:10:32 joerg Exp $	*/
 
 /*
@@ -43,7 +43,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdbool.h>
 #include <util.h>
 
 #include "makefs.h"
@@ -71,27 +70,23 @@ static fstype_t fstypes[] = {
 	{ .type = NULL	},
 };
 
-u_int		debug;
+int Tflag;
+time_t stampts;
 struct timespec	start_time;
-struct stat stampst;
 
 static	fstype_t *get_fstype(const char *);
-static int get_tstamp(const char *, struct stat *);
+static time_t get_tstamp(const char *);
 static long long strsuftoll(const char *, const char *, long long, long long);
-static	void	usage(fstype_t *, fsinfo_t *) __dead;
+static __dead void usage(void);
 
 int
 main(int argc, char *argv[])
 {
-	struct timeval	 start;
 	fstype_t	*fstype;
 	fsinfo_t	 fsoptions;
 	fsnode		*root;
-	int	 	 ch, i, len;
+	int	 	 ch, len;
 
-	setprogname(argv[0]);
-
-	debug = 0;
 	if ((fstype = get_fstype(DEFAULT_FSTYPE)) == NULL)
 		errx(1, "Unknown default fs type `%s'.", DEFAULT_FSTYPE);
 
@@ -108,13 +103,8 @@ main(int argc, char *argv[])
 		err(1, "Unable to get system time");
 
 
-	while ((ch = getopt(argc, argv, "B:b:d:f:M:m:O:o:s:S:t:T:")) != -1) {
+	while ((ch = getopt(argc, argv, "b:f:M:m:O:o:s:S:t:T:")) != -1) {
 		switch (ch) {
-
-		case 'B':
-			warnx("Invalid endian `%s'.", optarg);
-			usage(fstype, &fsoptions);
-			break;
 		case 'b':
 			len = strlen(optarg) - 1;
 			if (optarg[len] == '%') {
@@ -127,10 +117,6 @@ main(int argc, char *argv[])
 				    strsuftoll("free blocks",
 					optarg, 0, LLONG_MAX);
 			}
-			break;
-
-		case 'd':
-			debug = strtoll(optarg, NULL, 0);
 			break;
 
 		case 'f':
@@ -170,7 +156,7 @@ main(int argc, char *argv[])
 				if (*p == '\0')
 					errx(1, "Empty option");
 				if (! fstype->parse_options(p, &fsoptions))
-					usage(fstype, &fsoptions);
+					usage();
 			}
 			break;
 		}
@@ -197,50 +183,30 @@ main(int argc, char *argv[])
 			break;
 
 		case 'T':
-			if (get_tstamp(optarg, &stampst) == -1)
-				errx(1, "Cannot get timestamp from `%s'",
-				    optarg);
+			Tflag = 1;
+			stampts = get_tstamp(optarg);
 			break;
 
 		case '?':
 		default:
-			usage(fstype, &fsoptions);
-			/* NOTREACHED */
-
+			usage();
 		}
-	}
-	if (debug) {
-		printf("debug mask: 0x%08x\n", debug);
-		printf("start time: %ld.%ld, %s",
-		    (long)start_time.tv_sec, (long)start_time.tv_nsec,
-		    ctime(&start_time.tv_sec));
 	}
 	argc -= optind;
 	argv += optind;
 
 	if (argc != 2)
-		usage(fstype, &fsoptions);
+		usage();
 
 				/* walk the tree */
-	TIMER_START(start);
 	root = walk_dir(argv[1], ".", NULL, NULL);
-	TIMER_RESULTS(start, "walk_dir");
-
-	if (debug & DEBUG_DUMP_FSNODES) {
-		printf("\nparent: %s\n", argv[1]);
-		dump_fsnodes(root);
-		putchar('\n');
-	}
 
 				/* build the file system */
-	TIMER_START(start);
 	fstype->make_fs(argv[0], argv[1], root, &fsoptions);
-	TIMER_RESULTS(start, "make_fs");
 
 	free_fsnodes(root);
 
 	exit(0);
-	/* NOTREACHED */
 }
 
 int
@@ -274,18 +240,15 @@ set_option_var(const option_t *options, const char *var, const char *val,
 		*(type *)options[i].value = 1; \
 		break; \
 	} \
-	*(type *)options[i].value = (type)strsuftoll(options[i].desc, val, \
+	*(type *)options[i].value = (type)strsuftoll(options[i].name, val, \
 	    options[i].minimum, options[i].maximum); break
 
 	for (i = 0; options[i].name != NULL; i++) {
-		if (var[1] == '\0') {
-			if (options[i].letter != var[0])
-				continue;
-		} else if (strcmp(options[i].name, var) != 0)
+		if (strcmp(options[i].name, var) != 0)
 			continue;
 		switch (options[i].type) {
 		case OPT_BOOL:
-			*(bool *)options[i].value = 1;
+			*(int *)options[i].value = 1;
 			break;
 		case OPT_STRARRAY:
 			strlcpy((void *)options[i].value, val, (size_t)
@@ -341,23 +304,19 @@ copy_opts(const option_t *o)
 	return memcpy(ecalloc(i, sizeof(*o)), o, i * sizeof(*o));
 }
 
-static int
-get_tstamp(const char *b, struct stat *st)
+static time_t
+get_tstamp(const char *b)
 {
 	time_t when;
 	char *eb;
 
-	if (stat(b, st) != -1)
-		return 0;
-
 	errno = 0;
 	when = strtoll(b, &eb, 0);
-	if (b == eb || *eb || errno)
-		return -1;
-
-	st->st_ino = 1;
-	st->st_mtime = st->st_ctime = st->st_atime = when;
-	return 0;
+	if (b == eb || *eb || errno) {
+		errx(1, "Cannot get timestamp from `%s'",
+		    optarg);
+	}
+	return when;
 }
 
 /* XXX */
@@ -374,29 +333,15 @@ strsuftoll(const char *desc, const char *val, long long min, long long max)
 }
 
 static void
-usage(fstype_t *fstype, fsinfo_t *fsoptions)
+usage(void)
 {
-	const char *prog;
+	extern char *__progname;
 
-	prog = getprogname();
 	fprintf(stderr,
-"Usage: %s [-B endian] [-b free-blocks] [-d debug-mask]\n"
-"\t[-f free-files] [-M minimum-size] [-m maximum-size]\n"
-"\t[-O offset] [-o fs-options] [-S sector-size]\n"
-"\t[-s image-size] [-T <timestamp/file>] [-t fs-type]"
-" image-file directory\n",
-	    prog);
+"usage: %s [-b free-blocks] [-f free-files] [-M minimum-size]\n"
+"\t[-m maximum-size] [-O offset] [-o fs-options] [-S sector-size]\n"
+"\t[-s image-size] [-T timestamp] [-t fs-type] image-file directory\n",
+	    __progname);
 
-	if (fstype) {
-		size_t i;
-		option_t *o = fsoptions->fs_options;
-
-		fprintf(stderr, "\n%s specific options:\n", fstype->type);
-		for (i = 0; o[i].name != NULL; i++)
-			fprintf(stderr, "\t%c%c%20.20s\t%s\n",
-			    o[i].letter ? o[i].letter : ' ',
-			    o[i].letter ? ',' : ' ',
-			    o[i].name, o[i].desc);
-	}
 	exit(1);
 }
