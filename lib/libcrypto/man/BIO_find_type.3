@@ -1,4 +1,6 @@
-.Dd $Mdocdate: September 9 2015 $
+.\"	$OpenBSD: BIO_find_type.3,v 1.4 2016/11/07 15:52:47 jmc Exp $
+.\"
+.Dd $Mdocdate: November 7 2016 $
 .Dt BIO_FIND_TYPE 3
 .Os
 .Sh NAME
@@ -84,22 +86,7 @@ returns the next BIO in a chain.
 .Fn BIO_method_type
 returns the type of the BIO
 .Fa b .
-.Sh NOTES
-.Fn BIO_next
-was added to OpenSSL 0.9.6 to provide a 'clean' way to traverse a BIO
-chain or find multiple matches using
-.Fn BIO_find_type .
-Previous versions had to use:
-.Pp
-.Dl next = bio->next_bio;
-.Sh BUGS
-.Fn BIO_find_type
-in OpenSSL 0.9.5a and earlier could not be safely passed a
-.Dv NULL
-pointer for the
-.Fa b
-argument.
-.Sh EXAMPLE
+.Sh EXAMPLES
 Traverse a chain looking for digest BIOs:
 .Bd -literal -offset 2n
 BIO *btmp;
@@ -115,3 +102,10 @@ do {
 	btmp = BIO_next(btmp);
 } while(btmp);
 .Ed
+.Sh BUGS
+.Fn BIO_find_type
+in OpenSSL 0.9.5a and earlier could not be safely passed a
+.Dv NULL
+pointer for the
+.Fa b
+argument.

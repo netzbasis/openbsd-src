@@ -1,6 +1,6 @@
-/*	$OpenBSD: tag.c,v 1.13 2016/07/20 13:02:44 schwarze Exp $ */
+/*	$OpenBSD: tag.c,v 1.16 2016/11/08 16:23:37 schwarze Exp $ */
 /*
- * Copyright (c) 2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2015, 2016 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,7 +29,9 @@
 #include "tag.h"
 
 struct tag_entry {
-	size_t	 line;
+	size_t	*lines;
+	size_t	 maxlines;
+	size_t	 nlines;
 	int	 prio;
 	char	 s[];
 };
@@ -126,18 +128,58 @@ tag_put(const char *s, int prio, size_t line)
 	size_t			 len;
 	unsigned int		 slot;
 
-	if (tag_files.tfd <= 0 || strchr(s, ' ') != NULL)
+	/* Sanity checks. */
+
+	if (tag_files.tfd <= 0)
 		return;
+	if (s[0] == '\\' && (s[1] == '&' || s[1] == 'e'))
+		s += 2;
+	if (*s == '\0' || strchr(s, ' ') != NULL)
+		return;
+
 	slot = ohash_qlookup(&tag_data, s);
 	entry = ohash_find(&tag_data, slot);
+
 	if (entry == NULL) {
+
+		/* Build a new entry. */
+
 		len = strlen(s) + 1;
 		entry = mandoc_malloc(sizeof(*entry) + len);
 		memcpy(entry->s, s, len);
+		entry->lines = NULL;
+		entry->maxlines = entry->nlines = 0;
 		ohash_insert(&tag_data, slot, entry);
-	} else if (entry->prio <= prio)
-		return;
-	entry->line = line;
+
+	} else {
+
+		/* Handle priority 0 entries. */
+
+		if (prio == 0) {
+			if (entry->prio == 0)
+				entry->prio = -1;
+			return;
+		}
+
+		/* A better entry is already present, ignore the new one. */
+
+		if (entry->prio > 0 && entry->prio < prio)
+			return;
+
+		/* The existing entry is worse, clear it. */
+
+		if (entry->prio < 1 || entry->prio > prio)
+			entry->nlines = 0;
+	}
+
+	/* Remember the new line. */
+
+	if (entry->maxlines == entry->nlines) {
+		entry->maxlines += 4;
+		entry->lines = mandoc_reallocarray(entry->lines,
+		    entry->maxlines, sizeof(*entry->lines));
+	}
+	entry->lines[entry->nlines++] = line;
 	entry->prio = prio;
 }
 
@@ -150,6 +192,7 @@ tag_write(void)
 {
 	FILE			*stream;
 	struct tag_entry	*entry;
+	size_t			 i;
 	unsigned int		 slot;
 
 	if (tag_files.tfd <= 0)
@@ -157,9 +200,11 @@ tag_write(void)
 	stream = fdopen(tag_files.tfd, "w");
 	entry = ohash_first(&tag_data, &slot);
 	while (entry != NULL) {
-		if (stream != NULL)
-			fprintf(stream, "%s %s %zu\n",
-			    entry->s, tag_files.ofn, entry->line);
+		if (stream != NULL && entry->prio >= 0)
+			for (i = 0; i < entry->nlines; i++)
+				fprintf(stream, "%s %s %zu\n",
+				    entry->s, tag_files.ofn, entry->lines[i]);
+		free(entry->lines);
 		free(entry);
 		entry = ohash_next(&tag_data, &slot);
 	}
