@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_term.c,v 1.231 2016/10/09 18:16:46 schwarze Exp $ */
+/*	$OpenBSD: mdoc_term.c,v 1.235 2016/11/08 16:37:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2016 Ingo Schwarze <schwarze@openbsd.org>
@@ -93,6 +93,7 @@ static	int	  termp_bx_pre(DECL_ARGS);
 static	int	  termp_cd_pre(DECL_ARGS);
 static	int	  termp_d1_pre(DECL_ARGS);
 static	int	  termp_eo_pre(DECL_ARGS);
+static	int	  termp_em_pre(DECL_ARGS);
 static	int	  termp_er_pre(DECL_ARGS);
 static	int	  termp_ex_pre(DECL_ARGS);
 static	int	  termp_fa_pre(DECL_ARGS);
@@ -117,6 +118,7 @@ static	int	  termp_skip_pre(DECL_ARGS);
 static	int	  termp_sm_pre(DECL_ARGS);
 static	int	  termp_sp_pre(DECL_ARGS);
 static	int	  termp_ss_pre(DECL_ARGS);
+static	int	  termp_sy_pre(DECL_ARGS);
 static	int	  termp_tag_pre(DECL_ARGS);
 static	int	  termp_under_pre(DECL_ARGS);
 static	int	  termp_ud_pre(DECL_ARGS);
@@ -193,7 +195,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_quote_pre, termp_quote_post }, /* Dq */
 	{ NULL, NULL }, /* Ec */ /* FIXME: no space */
 	{ NULL, NULL }, /* Ef */
-	{ termp_under_pre, NULL }, /* Em */
+	{ termp_em_pre, NULL }, /* Em */
 	{ termp_eo_pre, termp_eo_post }, /* Eo */
 	{ termp_xx_pre, NULL }, /* Fx */
 	{ termp_bold_pre, NULL }, /* Ms */
@@ -216,7 +218,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_quote_pre, termp_quote_post }, /* Sq */
 	{ termp_sm_pre, NULL }, /* Sm */
 	{ termp_under_pre, NULL }, /* Sx */
-	{ termp_bold_pre, NULL }, /* Sy */
+	{ termp_sy_pre, NULL }, /* Sy */
 	{ NULL, NULL }, /* Tn */
 	{ termp_xx_pre, NULL }, /* Ux */
 	{ NULL, NULL }, /* Xc */
@@ -1458,7 +1460,7 @@ termp_fn_pre(DECL_ARGS)
 	term_word(p, n->string);
 	term_fontpop(p);
 
-	if (n->sec == SEC_DESCRIPTION)
+	if (n->sec == SEC_DESCRIPTION || n->sec == SEC_CUSTOM)
 		tag_put(n->string, ++fn_prio, p->line);
 
 	if (pretty) {
@@ -2118,6 +2120,7 @@ static int
 termp_li_pre(DECL_ARGS)
 {
 
+	termp_tag_pre(p, pair, meta, n);
 	term_fontpush(p, TERMFONT_NONE);
 	return 1;
 }
@@ -2216,6 +2219,26 @@ termp_under_pre(DECL_ARGS)
 }
 
 static int
+termp_em_pre(DECL_ARGS)
+{
+	if (n->child != NULL &&
+	    n->child->type == ROFFT_TEXT)
+		tag_put(n->child->string, 0, p->line);
+	term_fontpush(p, TERMFONT_UNDER);
+	return 1;
+}
+
+static int
+termp_sy_pre(DECL_ARGS)
+{
+	if (n->child != NULL &&
+	    n->child->type == ROFFT_TEXT)
+		tag_put(n->child->string, 0, p->line);
+	term_fontpush(p, TERMFONT_BOLD);
+	return 1;
+}
+
+static int
 termp_er_pre(DECL_ARGS)
 {
 
@@ -2233,7 +2256,9 @@ termp_tag_pre(DECL_ARGS)
 
 	if (n->child != NULL &&
 	    n->child->type == ROFFT_TEXT &&
-	    n->prev == NULL &&
+	    (n->prev == NULL ||
+	     (n->prev->type == ROFFT_TEXT &&
+	      strcmp(n->prev->string, "|") == 0)) &&
 	    (n->parent->tok == MDOC_It ||
 	     (n->parent->tok == MDOC_Xo &&
 	      n->parent->parent->prev == NULL &&
