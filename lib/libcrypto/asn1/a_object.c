@@ -1,4 +1,4 @@
-/* $OpenBSD: a_object.c,v 1.28 2016/11/06 17:04:48 bcook Exp $ */
+/* $OpenBSD: a_object.c,v 1.26 2016/03/17 03:51:49 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -284,7 +284,7 @@ err:
 ASN1_OBJECT *
 c2i_ASN1_OBJECT(ASN1_OBJECT **a, const unsigned char **pp, long len)
 {
-	ASN1_OBJECT *ret;
+	ASN1_OBJECT *ret = NULL;
 	const unsigned char *p;
 	unsigned char *data;
 	int i, length;
@@ -307,7 +307,7 @@ c2i_ASN1_OBJECT(ASN1_OBJECT **a, const unsigned char **pp, long len)
 		if (*p == 0x80 && (!i || !(p[-1] & 0x80))) {
 			ASN1err(ASN1_F_C2I_ASN1_OBJECT,
 			    ASN1_R_INVALID_OBJECT_ENCODING);
-			return (NULL);
+			return NULL;
 		}
 	}
 
@@ -318,39 +318,37 @@ c2i_ASN1_OBJECT(ASN1_OBJECT **a, const unsigned char **pp, long len)
 		if ((ret = ASN1_OBJECT_new()) == NULL)
 			return (NULL);
 	} else
-		ret = *a;
+		ret = (*a);
 
 	p = *pp;
-
 	/* detach data from object */
 	data = (unsigned char *)ret->data;
 	if (data != NULL)
 		explicit_bzero(data, ret->length);
 	free(data);
-
 	data = malloc(length);
 	if (data == NULL) {
-		ASN1err(ASN1_F_C2I_ASN1_OBJECT, ERR_R_MALLOC_FAILURE);
+		i = ERR_R_MALLOC_FAILURE;
 		goto err;
 	}
-
+	ret->flags |= ASN1_OBJECT_FLAG_DYNAMIC_DATA;
 	memcpy(data, p, length);
-
 	/* reattach data to object, after which it remains const */
 	ret->data = data;
 	ret->length = length;
 	ret->sn = NULL;
 	ret->ln = NULL;
-	ret->flags |= ASN1_OBJECT_FLAG_DYNAMIC_DATA;
+	/* ret->flags=ASN1_OBJECT_FLAG_DYNAMIC; we know it is dynamic */
 	p += length;
 
 	if (a != NULL)
-		*a = ret;
+		(*a) = ret;
 	*pp = p;
 	return (ret);
 
 err:
-	if (a == NULL || ret != *a)
+	ASN1err(ASN1_F_C2I_ASN1_OBJECT, i);
+	if ((ret != NULL) && ((a == NULL) || (*a != ret)))
 		ASN1_OBJECT_free(ret);
 	return (NULL);
 }

@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.42 2016/11/08 16:39:57 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.39 2016/11/04 16:03:45 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -38,7 +38,7 @@ apply_patch()
 	local _explodir _file _files _patch=$1
 	[[ -n ${_patch} ]]
 
-	_explodir=${_TMP}/${_patch}
+	local _explodir=${_TMP}/${_patch}
 	mkdir -p ${_explodir}
 
 	_files="$(tar xvzphf ${_TMP}/${_patch}.tgz -C ${_explodir})"
@@ -64,13 +64,13 @@ apply_patch()
 apply_patches()
 {
 	needs_root
-	local _patch
+	local _m _patch _patches="$(ls_missing)"
 
-	for _patch in $(ls_missing); do
+	for _patch in ${_patches}; do
 		fetch_and_verify "${_patch}"
-		trap '' INT
+		trap "" 2
 		apply_patch "${_patch}"
-		trap exit INT
+		trap "rm -rf ${_TMP}; exit 1" 2
 	done
 
 	sp_cleanup
@@ -78,8 +78,10 @@ apply_patches()
 
 checkfs()
 {
-	local _d _f _files="${@}"
+	local _files="${@}"
 	[[ -n ${_files} ]]
+
+	local _d _f
 
 	for _d in $(stat -qf "%Sd" $(for _f in ${_files}; do echo /${_f%/*}
 		done | uniq)); do mount | grep -q "^/dev/${_d} .*read-only" &&
@@ -91,7 +93,6 @@ create_rollback()
 {
 	local _file _patch=$1 _rbfiles
 	[[ -n ${_patch} ]]
-	local _rbpatch=rollback${_patch#syspatch}
 	shift
 	local _files="${@}"
 	[[ -n ${_files} ]]
@@ -107,39 +108,41 @@ create_rollback()
 		# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
 		if ${_BSDMP} &&
 			tar -tzf ${_TMP}/${_patch}.tgz bsd >/dev/null 2>&1; then
-			tar -czf ${_PDIR}/${_REL}/${_rbpatch}.tgz \
+			tar -czf ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
 				-s '/^bsd.mp$//' -s '/^bsd$/bsd.mp/' \
 				-s '/^bsd.sp$/bsd/' bsd.sp ${_rbfiles}
 		else
-			tar -czf ${_PDIR}/${_REL}/${_rbpatch}.tgz \
+			tar -czf ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
 				${_rbfiles}
 		fi
 	); then
-		rm ${_PDIR}/${_REL}/${_rbpatch}.tgz
+		rm ${_PDIR}/${_REL}/rollback-${_patch}.tgz
 		sp_err "Failed to create rollback for ${_patch}"
 	fi
 }
 
 fetch_and_verify()
 {
-	# XXX privsep ala installer (doas|su)?
+	# XXX privsep ala installer
 	local _patch=$1
 	[[ -n ${_patch} ]]
+
+	local _key="/etc/signify/openbsd-${_RELINT}-syspatch.pub" _p
 
 	${_FETCH} -o "${_TMP}/SHA256.sig" "${PATCH_PATH}/SHA256.sig"
 	${_FETCH} -mD "Applying" -o "${_TMP}/${_patch}.tgz" \
 		"${PATCH_PATH}/${_patch}.tgz"
-	(cd ${_TMP} && /usr/bin/signify -qC -p \
-		/etc/signify/openbsd-${_RELINT}-syspatch.pub -x SHA256.sig \
-		${_patch}.tgz)
+	(cd ${_TMP} &&
+		/usr/bin/signify -qC -p ${_key} -x SHA256.sig ${_patch}.tgz)
 }
 
 install_file()
 {
 	# XXX handle symlinks, dir->file, file->dir?
-	local _dst=$2 _fgrp _fmode _fown _src=$1
+	local _src=$1 _dst=$2
 	[[ -f ${_src} && -f ${_dst} ]]
 
+	local _fmode _fown _fgrp
 	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
 
 	install -DFS -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
@@ -166,19 +169,10 @@ install_kernel()
 ls_installed()
 {
 	local _p
-	### XXX TMP
-	local _r
-	( cd ${_PDIR}/${_REL} && for _r in *; do
-		if [[ ${_r} == rollback-syspatch-${_RELINT}-*.tgz ]]; then
-			needs_root
-			mv ${_r} rollback${_RELINT}${_r#*-syspatch-${_RELINT}}
-		fi
-	done )
-	###
 	for _p in ${_PDIR}/${_REL}/*; do
 		_p=${_p:##*/}
-		[[ ${_p} == rollback${_RELINT}-*.tgz ]] &&
-			_p=${_p#rollback} && echo syspatch${_p%.tgz}
+		[[ ${_p} = rollback-syspatch-${_RELINT}-*.tgz ]] &&
+			_p=${_p#rollback-} && echo ${_p%.tgz}
 	done | sort -V
 }
 
@@ -191,7 +185,7 @@ ls_missing()
 	${_FETCH} -o "${_TMP}/index.txt" "${PATCH_PATH}/index.txt"
 
 	for _a in $(sed 's/^.* //;s/^M//;s/.tgz$//' ${_TMP}/index.txt |
-		grep "^syspatch${_RELINT}-.*$" | sort -V); do
+		grep "^syspatch-${_RELINT}-.*$" | sort -V); do
 		if [[ -n ${_installed} ]]; then
 			echo ${_a} | grep -qw -- "${_installed}" || echo ${_a}
 		else
@@ -203,18 +197,16 @@ ls_missing()
 rollback_patch()
 {
 	needs_root
-	local _explodir _file _files _patch _rbpatch
+	local _explodir _file _files _patch
 
 	_patch="$(ls_installed | sort -V | tail -1)"
 	[[ -n ${_patch} ]]
 
-	_rbpatch=rollback${_patch#syspatch}
-	_explodir=${_TMP}/${_rbpatch}
-
 	echo "Reverting ${_patch}"
+	_explodir=${_TMP}/rollback-${_patch}
 	mkdir -p ${_explodir}
 
-	_files="$(tar xvzphf ${_PDIR}/${_REL}/${_rbpatch}.tgz -C \
+	_files="$(tar xvzphf ${_PDIR}/${_REL}/rollback-${_patch}.tgz -C \
 		${_explodir})"
 	checkfs ${_files}
 
@@ -228,8 +220,8 @@ rollback_patch()
 		fi
 	done
 
-	rm ${_PDIR}/${_REL}/${_rbpatch}.tgz \
-		${_PDIR}/${_REL}/${_patch#syspatch${_RELINT}-}.patch.sig
+	rm ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
+		${_PDIR}/${_REL}/${_patch#syspatch-${_RELINT}-}.patch.sig
 
 	sp_cleanup
 }
@@ -279,11 +271,9 @@ _REL=${_KERNV[0]}
 _RELINT=${_REL%\.*}${_REL#*\.}
 _TMP=$(mktemp -d -p /tmp syspatch.XXXXXXXXXX)
 readonly _BSDMP _FETCH _PDIR _REL _RELINT _TMP
-
-trap 'rm -rf "${_TMP}"' EXIT
-trap exit HUP INT TERM ERR
-
 [[ -n ${_REL} && -n ${_RELINT} ]]
+
+trap "rm -rf ${_TMP}; exit 1" 2 3 9 13 15 ERR
 
 while getopts clr arg; do
 	case ${arg} in
@@ -297,3 +287,5 @@ shift $(( OPTIND -1 ))
 [[ $# -ne 0 ]] && usage
 
 [[ ${OPTIND} != 1 ]] || apply_patches
+
+rm -rf ${_TMP}

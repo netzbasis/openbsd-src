@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.6 2016/11/06 16:42:00 tb Exp $
+#	$OpenBSD: Makefile,v 1.5 2016/05/23 02:19:46 jsg Exp $
 
 NOMAN=		#
 
@@ -64,7 +64,7 @@ ${PROG.elf}: ${OBJS}
 	fi
 	mv ${.TARGET}.tmp ${.TARGET}
 
-.if !make(clean) && !make(cleandir) && !make(includes) && !make(obj)
+.if !make(obj)
 .BEGIN:
 	@([ -h machine ] || ln -s ${.CURDIR}/../../../${MACHINE}/include machine)
 	@([ -h arm ] || ln -s ${.CURDIR}/../../../arm/include arm)
