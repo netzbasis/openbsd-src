@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs.c,v 1.22 2016/11/08 19:38:57 natano Exp $	*/
+/*	$OpenBSD: ffs.c,v 1.24 2016/11/10 08:33:11 natano Exp $	*/
 /*	$NetBSD: ffs.c,v 1.66 2015/12/21 00:58:08 christos Exp $	*/
 
 /*
@@ -98,10 +98,9 @@
 /*
  * Various file system defaults (cribbed from newfs(8)).
  */
-#define	DFL_FRAGSIZE		1024		/* fragment size */
-#define	DFL_BLKSIZE		8192		/* block size */
+#define	DFL_FRAGSIZE		2048		/* fragment size */
+#define	DFL_BLKSIZE		16384		/* block size */
 #define	DFL_SECSIZE		512		/* sector size */
-#define	DFL_CYLSPERGROUP	65536		/* cylinders per group */
 
 
 typedef struct {
@@ -150,7 +149,6 @@ ffs_prep_opts(fsinfo_t *fsopts)
 
 	ffs_opts->bsize= -1;
 	ffs_opts->fsize= -1;
-	ffs_opts->cpg= -1;
 	ffs_opts->density= -1;
 	ffs_opts->minfree= -1;
 	ffs_opts->optimization= -1;
@@ -327,8 +325,6 @@ ffs_validate(const char *dir, fsnode *root, fsinfo_t *fsopts)
 		ffs_opts->fsize = MAX(DFL_FRAGSIZE, fsopts->sectorsize);
 	if (ffs_opts->bsize == -1)
 		ffs_opts->bsize = MIN(DFL_BLKSIZE, 8 * ffs_opts->fsize);
-	if (ffs_opts->cpg == -1)
-		ffs_opts->cpg = DFL_CYLSPERGROUP;
 				/* fsopts->density is set below */
 	if (ffs_opts->minfree == -1)
 		ffs_opts->minfree = MINFREE;
