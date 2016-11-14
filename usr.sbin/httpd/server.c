@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.98 2016/11/10 13:21:58 jca Exp $	*/
+/*	$OpenBSD: server.c,v 1.97 2016/11/06 16:05:02 beck Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -569,33 +569,15 @@ server_socket(struct sockaddr_storage *ss, in_port_t port,
 	 */
 	if (srv_conf->tcpflags & TCPFLAG_IPTTL) {
 		val = (int)srv_conf->tcpipttl;
-		switch (ss->ss_family) {
-		case AF_INET:
-			if (setsockopt(s, IPPROTO_IP, IP_TTL,
-			    &val, sizeof(val)) == -1)
-				goto bad;
-			break;
-		case AF_INET6:
-			if (setsockopt(s, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
-			    &val, sizeof(val)) == -1)
-				goto bad;
-			break;
-		}
+		if (setsockopt(s, IPPROTO_IP, IP_TTL,
+		    &val, sizeof(val)) == -1)
+			goto bad;
 	}
 	if (srv_conf->tcpflags & TCPFLAG_IPMINTTL) {
 		val = (int)srv_conf->tcpipminttl;
-		switch (ss->ss_family) {
-		case AF_INET:
-			if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
-			    &val, sizeof(val)) == -1)
-				goto bad;
-			break;
-		case AF_INET6:
-			if (setsockopt(s, IPPROTO_IPV6, IPV6_MINHOPCOUNT,
-			    &val, sizeof(val)) == -1)
-				goto bad;
-			break;
-		}
+		if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
+		    &val, sizeof(val)) == -1)
+			goto bad;
 	}
 
 	/*
