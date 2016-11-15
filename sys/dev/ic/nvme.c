@@ -1,4 +1,4 @@
-/*	$OpenBSD: nvme.c,v 1.51 2016/10/25 06:20:41 dlg Exp $ */
+/*	$OpenBSD: nvme.c,v 1.53 2016/11/15 12:17:42 mpi Exp $ */
 
 /*
  * Copyright (c) 2014 David Gwynne <dlg@openbsd.org>
@@ -46,7 +46,6 @@ int	nvme_enable(struct nvme_softc *, u_int);
 int	nvme_disable(struct nvme_softc *);
 int	nvme_shutdown(struct nvme_softc *);
 
-void	nvme_version(struct nvme_softc *, u_int32_t);
 void	nvme_dumpregs(struct nvme_softc *);
 int	nvme_identify(struct nvme_softc *, u_int);
 void	nvme_fill_identify(struct nvme_softc *, struct nvme_ccb *, void *);
@@ -112,12 +111,10 @@ void	nvme_scsi_capacity(struct scsi_xfer *);
 	bus_space_read_4((_s)->sc_iot, (_s)->sc_ioh, (_r))
 #define nvme_write4(_s, _r, _v) \
 	bus_space_write_4((_s)->sc_iot, (_s)->sc_ioh, (_r), (_v))
-#ifdef __LP64__
-#define nvme_read8(_s, _r) \
-	bus_space_read_8((_s)->sc_iot, (_s)->sc_ioh, (_r))
-#define nvme_write8(_s, _r, _v) \
-	bus_space_write_8((_s)->sc_iot, (_s)->sc_ioh, (_r), (_v))
-#else /* __LP64__ */
+/*
+ * Some controllers, at least Apple NVMe, always require split
+ * transfers, so don't use bus_space_{read,write}_8() on LP64.
+ */
 static inline u_int64_t
 nvme_read8(struct nvme_softc *sc, bus_size_t r)
 {
@@ -148,32 +145,8 @@ nvme_write8(struct nvme_softc *sc, bus_size_t r, u_int64_t v)
 	nvme_write4(sc, r + 4, a[0]);
 #endif
 }
-#endif /* __LP64__ */
 #define nvme_barrier(_s, _r, _l, _f) \
 	bus_space_barrier((_s)->sc_iot, (_s)->sc_ioh, (_r), (_l), (_f))
-
-void
-nvme_version(struct nvme_softc *sc, u_int32_t version)
-{
-	const char *v = NULL;
-
-	switch (version) {
-	case NVME_VS_1_0:
-		v = "1.0";
-		break;
-	case NVME_VS_1_1:
-		v = "1.1";
-		break;
-	case NVME_VS_1_2:
-		v = "1.2";
-		break;
-	default:
-		printf(", unknown version 0x%08x", version);
-		return;
-	}
-
-	printf(", NVMe %s", v);
-}
 
 void
 nvme_dumpregs(struct nvme_softc *sc)
@@ -206,7 +179,7 @@ nvme_dumpregs(struct nvme_softc *sc)
 	printf("%s:  mps %u\n", DEVNAME(sc), NVME_CC_MPS_R(r4));
 	printf("%s:  css %u\n", DEVNAME(sc), NVME_CC_CSS_R(r4));
 	printf("%s:  en %u\n", DEVNAME(sc), ISSET(r4, NVME_CC_EN));
-	
+
 	printf("%s: csts 0x%08x\n", DEVNAME(sc), nvme_read4(sc, NVME_CSTS));
 	printf("%s: aqa  0x%08x\n", DEVNAME(sc), nvme_read4(sc, NVME_AQA));
 	printf("%s: asq  0x%016llx\n", DEVNAME(sc), nvme_read8(sc, NVME_ASQ));
@@ -304,8 +277,7 @@ nvme_attach(struct nvme_softc *sc)
 		return (1);
 	}
 
-	nvme_version(sc, reg);
-	printf("\n");
+	printf(", NVMe %d.%d\n", NVME_VS_MJR(reg), NVME_VS_MNR(reg));
 
 	cap = nvme_read8(sc, NVME_CAP);
 	dstrd = NVME_CAP_DSTRD(cap);

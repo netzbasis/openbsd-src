@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchd.h,v 1.17 2016/11/04 22:27:08 reyk Exp $	*/
+/*	$OpenBSD: switchd.h,v 1.20 2016/11/15 09:05:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -95,7 +95,6 @@ struct switch_connection {
 
 	struct event		 con_ev;
 	struct ibuf		*con_rbuf;
-	struct ibuf		*con_ibuf;
 	struct msgbuf		 con_wbuf;
 
 	struct switch_control	*con_switch;
@@ -197,6 +196,7 @@ void		 socket_set_blockmode(int, enum blockmodes);
 int		 accept4_reserve(int, struct sockaddr *, socklen_t *,
 		    int, int, volatile int *);
 in_port_t	 socket_getport(struct sockaddr_storage *);
+int		 socket_setport(struct sockaddr_storage *, in_port_t);
 int		 sockaddr_cmp(struct sockaddr *, struct sockaddr *, int);
 struct in6_addr *prefixlen2mask6(uint8_t, uint32_t *);
 uint32_t	 prefixlen2mask(uint8_t);
@@ -225,9 +225,6 @@ void		 ofp(struct privsep *, struct privsep_proc *);
 void		 ofp_close(struct switch_connection *);
 int		 ofp_open(struct privsep *, struct switch_connection *);
 void		 ofp_accept(int, short, void *);
-int		 ofp_validate_header(struct switchd *,
-		    struct sockaddr_storage *, struct sockaddr_storage *,
-		    struct ofp_header *, uint8_t);
 int		 ofp_input(struct switch_connection *, struct ibuf *);
 
 /* ofp10.c */
@@ -256,6 +253,9 @@ int		 ofp13_featuresrequest(struct switchd *,
 		    struct switch_connection *);
 
 /* ofp_common.c */
+int		 ofp_validate_header(struct switchd *,
+		    struct sockaddr_storage *, struct sockaddr_storage *,
+		    struct ofp_header *, uint8_t);
 int		 ofp_output(struct switch_connection *, struct ofp_header *,
 		    struct ibuf *);
 int		 ofp_multipart_add(struct switch_connection *, uint32_t,

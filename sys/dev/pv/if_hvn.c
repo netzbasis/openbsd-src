@@ -108,7 +108,7 @@ TAILQ_HEAD(rndis_queue, rndis_cmd);
 /*
  * Tx ring
  */
-#define HVN_TX_DESC			128
+#define HVN_TX_DESC			256
 #define HVN_TX_FRAGS			15		/* 31 is the max */
 #define HVN_TX_FRAG_SIZE		PAGE_SIZE
 #define HVN_TX_PKT_SIZE			16384
@@ -126,7 +126,6 @@ struct hvn_tx_desc {
 	struct mbuf			*txd_buf;
 	bus_dmamap_t			 txd_dmap;
 	struct vmbus_gpa		 txd_gpa;
-	struct hvn_nvs_rndis		 txd_cmd;
 	struct rndis_packet_msg		*txd_req;
 };
 
@@ -141,9 +140,7 @@ struct hvn_softc {
 	int				 sc_link_state;
 	int				 sc_promisc;
 
-
 	/* NVS protocol */
-	int				 sc_ringsize;
 	int				 sc_proto;
 	uint32_t			 sc_nvstid;
 	uint8_t				 sc_nvsrsp[HVN_NVS_MSGSIZE];
@@ -160,6 +157,7 @@ struct hvn_softc {
 	struct rndis_queue		 sc_cntl_fq; /* free queue */
 	struct mutex			 sc_cntl_fqlck;
 	struct rndis_cmd		 sc_cntl_msgs[HVN_RNDIS_CTLREQS];
+	struct hvn_nvs_rndis		 sc_data_msg;
 
 	/* Rx ring */
 	void				*sc_rx_ring;
@@ -186,7 +184,7 @@ void	hvn_stop(struct hvn_softc *);
 void	hvn_start(struct ifnet *);
 int	hvn_encap(struct hvn_softc *, struct mbuf *, struct hvn_tx_desc **);
 void	hvn_decap(struct hvn_softc *, struct hvn_tx_desc *);
-void	hvn_txeof(struct hvn_softc *, uint64_t);
+int	hvn_txeof(struct hvn_softc *, uint64_t);
 int	hvn_rx_ring_create(struct hvn_softc *);
 int	hvn_rx_ring_destroy(struct hvn_softc *);
 int	hvn_tx_ring_create(struct hvn_softc *);
@@ -485,9 +483,6 @@ hvn_start(struct ifnet *ifp)
 		}
 
 		sc->sc_tx_next++;
-		sc->sc_tx_next %= HVN_TX_DESC;
-
-		atomic_dec_int(&sc->sc_tx_avail);
 
 		ifp->if_opackets++;
 	}
@@ -524,12 +519,11 @@ hvn_encap(struct hvn_softc *sc, struct mbuf *m, struct hvn_tx_desc **txd0)
 	size_t pktlen;
 	int i, rv;
 
-	txd = &sc->sc_tx_desc[sc->sc_tx_next];
-	while (!txd->txd_ready) {
+	do {
+		txd = &sc->sc_tx_desc[sc->sc_tx_next % HVN_TX_DESC];
 		sc->sc_tx_next++;
-		sc->sc_tx_next %= HVN_TX_DESC;
-		txd = &sc->sc_tx_desc[sc->sc_tx_next];
-	}
+	} while (!txd->txd_ready);
+	txd->txd_ready = 0;
 
 	pkt = txd->txd_req;
 	memset(pkt, 0, sizeof(*pkt));
@@ -550,6 +544,7 @@ hvn_encap(struct hvn_softc *sc, struct mbuf *m, struct hvn_tx_desc **txd0)
 		    bus_dmamap_load_mbuf(sc->sc_dmat, txd->txd_dmap, m,
 		    BUS_DMA_READ | BUS_DMA_NOWAIT) == 0)
 			break;
+		/* FALLTHROUGH */
 	default:
 		DPRINTF("%s: failed to load mbuf\n", sc->sc_dev.dv_xname);
 		return (-1);
@@ -602,6 +597,9 @@ hvn_encap(struct hvn_softc *sc, struct mbuf *m, struct hvn_tx_desc **txd0)
 	}
 
 	*txd0 = txd;
+
+	atomic_dec_int(&sc->sc_tx_avail);
+
 	return (0);
 }
 
@@ -614,18 +612,19 @@ hvn_decap(struct hvn_softc *sc, struct hvn_tx_desc *txd)
 	txd->txd_buf = NULL;
 	txd->txd_nsge = 0;
 	txd->txd_ready = 1;
+	atomic_inc_int(&sc->sc_tx_avail);
 }
 
-void
+int
 hvn_txeof(struct hvn_softc *sc, uint64_t tid)
 {
-	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct hvn_tx_desc *txd;
 	struct mbuf *m;
 	uint32_t id = tid >> 32;
 
-	if ((tid & 0xffffffff) != 0)
-		return;
+	if ((tid & 0xffffffffU) != 0)
+		return (0);
+	id -= HVN_NVS_CHIM_SIG;
 	if (id > HVN_TX_DESC)
 		panic("tx packet index too large: %u", id);
 
@@ -644,8 +643,7 @@ hvn_txeof(struct hvn_softc *sc, uint64_t tid)
 
 	atomic_inc_int(&sc->sc_tx_avail);
 
-	if (ifq_is_oactive(&ifp->if_snd))
-		ifq_restart(&ifp->if_snd);
+	return (1);
 }
 
 int
@@ -790,7 +788,7 @@ hvn_tx_ring_create(struct hvn_softc *sc)
 		txd->txd_gpa.gpa_len = msgsize;
 		txd->txd_req = (void *)((caddr_t)sc->sc_tx_msgs +
 		    (msgsize * i));
-		txd->txd_id = i;
+		txd->txd_id = i + HVN_NVS_CHIM_SIG;
 		txd->txd_ready = 1;
 	}
 	sc->sc_tx_avail = HVN_TX_DESC;
@@ -883,8 +881,8 @@ hvn_nvs_attach(struct hvn_softc *sc)
 	struct hvn_nvs_init_resp *rsp;
 	struct hvn_nvs_ndis_init ncmd;
 	struct hvn_nvs_ndis_conf ccmd;
+	uint32_t ndisver, ringsize;
 	uint64_t tid;
-	uint32_t ndisver;
 	int i;
 
 	sc->sc_nvsbuf = malloc(HVN_NVS_BUFSIZE, M_DEVBUF, M_ZERO |
@@ -896,13 +894,15 @@ hvn_nvs_attach(struct hvn_softc *sc)
 	}
 
 	/* We need to be able to fit all RNDIS control and data messages */
-	sc->sc_ringsize = HVN_RNDIS_CTLREQS *
+	ringsize = HVN_RNDIS_CTLREQS *
 	    (sizeof(struct hvn_nvs_rndis) + sizeof(struct vmbus_gpa)) +
 	    HVN_TX_DESC * (sizeof(struct hvn_nvs_rndis) +
 	    (HVN_TX_FRAGS + 1) * sizeof(struct vmbus_gpa));
+	DPRINTF("%s: ring size %u (%u pages)\n", __func__, ringsize,
+	    roundup(ringsize, PAGE_SIZE) / PAGE_SIZE);
 
 	/* Associate our interrupt handler with the channel */
-	if (hv_channel_open(sc->sc_chan, sc->sc_ringsize, NULL, 0,
+	if (hv_channel_open(sc->sc_chan, ringsize, NULL, 0,
 	    hvn_nvs_intr, sc)) {
 		DPRINTF("%s: failed to open channel\n", sc->sc_dev.dv_xname);
 		free(sc->sc_nvsbuf, M_DEVBUF, HVN_NVS_BUFSIZE);
@@ -965,11 +965,12 @@ void
 hvn_nvs_intr(void *arg)
 {
 	struct hvn_softc *sc = arg;
+	struct ifnet *ifp = &sc->sc_ac.ac_if;
 	struct vmbus_chanpkt_hdr *cph;
 	struct hvn_nvs_hdr *nvs;
 	uint64_t rid;
 	uint32_t rlen;
-	int rv;
+	int rv, restart = 0;
 
 	for (;;) {
 		rv = hv_channel_recv(sc->sc_chan, sc->sc_nvsbuf,
@@ -994,7 +995,7 @@ hvn_nvs_intr(void *arg)
 				wakeup_one(&sc->sc_nvsrsp);
 				break;
 			case HVN_NVS_TYPE_RNDIS_ACK:
-				hvn_txeof(sc, cph->cph_tid);
+				restart |= hvn_txeof(sc, cph->cph_tid);
 				break;
 			default:
 				printf("%s: unhandled NVSP packet type %d "
@@ -1015,6 +1016,9 @@ hvn_nvs_intr(void *arg)
 			printf("%s: unknown NVSP packet type %u\n",
 			    sc->sc_dev.dv_xname, cph->cph_type);
 	}
+
+	if (restart && ifq_is_oactive(&ifp->if_snd))
+		ifq_restart(&ifp->if_snd);
 }
 
 int
@@ -1255,6 +1259,12 @@ hvn_rndis_attach(struct hvn_softc *sc)
 	}
 
 	hvn_free_cmd(sc, rc);
+
+	/* Initialize RNDIS Data command */
+	memset(&sc->sc_data_msg, 0, sizeof(sc->sc_data_msg));
+	sc->sc_data_msg.nvs_type = HVN_NVS_TYPE_RNDIS;
+	sc->sc_data_msg.nvs_rndis_mtype = HVN_NVS_RNDIS_MTYPE_DATA;
+	sc->sc_data_msg.nvs_chim_idx = HVN_NVS_CHIM_IDX_INVALID;
 
 	return (0);
 
@@ -1544,15 +1554,11 @@ hvn_rndis_complete(struct hvn_softc *sc, caddr_t buf, uint32_t len)
 int
 hvn_rndis_output(struct hvn_softc *sc, struct hvn_tx_desc *txd)
 {
-	struct hvn_nvs_rndis *cmd = &txd->txd_cmd;
+	uint64_t rid = (uint64_t)txd->txd_id << 32;
 	int rv;
 
-	cmd->nvs_type = HVN_NVS_TYPE_RNDIS;
-	cmd->nvs_rndis_mtype = HVN_NVS_RNDIS_MTYPE_DATA;
-	cmd->nvs_chim_idx = HVN_NVS_CHIM_IDX_INVALID;
-
 	rv = hv_channel_send_sgl(sc->sc_chan, txd->txd_sgl, txd->txd_nsge,
-	    &txd->txd_cmd, sizeof(*cmd), (uint64_t)txd->txd_id << 32);
+	    &sc->sc_data_msg, sizeof(sc->sc_data_msg), rid);
 	if (rv) {
 		DPRINTF("%s: RNDIS data send error %d\n",
 		    sc->sc_dev.dv_xname, rv);
@@ -1565,10 +1571,10 @@ hvn_rndis_output(struct hvn_softc *sc, struct hvn_tx_desc *txd)
 void
 hvn_rndis_status(struct hvn_softc *sc, caddr_t buf, uint32_t len)
 {
-	uint32_t sta;
+	uint32_t status;
 
-	memcpy(&sta, buf + RNDIS_HEADER_OFFSET, sizeof(sta));
-	switch (sta) {
+	memcpy(&status, buf + RNDIS_HEADER_OFFSET, sizeof(status));
+	switch (status) {
 	case RNDIS_STATUS_MEDIA_CONNECT:
 		sc->sc_link_state = LINK_STATE_UP;
 		break;
@@ -1579,7 +1585,8 @@ hvn_rndis_status(struct hvn_softc *sc, caddr_t buf, uint32_t len)
 	case RNDIS_STATUS_OFFLOAD_CURRENT_CONFIG:
 		return;
 	default:
-		DPRINTF("%s: unhandled status %#x\n", sc->sc_dev.dv_xname, sta);
+		DPRINTF("%s: unhandled status %#x\n", sc->sc_dev.dv_xname,
+		    status);
 		return;
 	}
 	KERNEL_LOCK();

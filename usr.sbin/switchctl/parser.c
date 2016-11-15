@@ -1,4 +1,4 @@
-/*	$OpenBSD: parser.c,v 1.3 2016/10/12 19:07:42 reyk Exp $	*/
+/*	$OpenBSD: parser.c,v 1.5 2016/11/15 08:38:57 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -57,6 +57,8 @@ static const struct token t_reset[];
 static const struct token t_log[];
 static const struct token t_load[];
 static const struct token t_show[];
+static const struct token t_dump[];
+static const struct token t_dumpreq[];
 static const struct token t_connect[];
 static const struct token t_disconnect[];
 static const struct token t_forward_to[];
@@ -65,6 +67,7 @@ static const struct token t_uri[];
 static const struct token t_main[] = {
 	{ KEYWORD,	"connect",	CONNECT,	t_connect },
 	{ KEYWORD,	"disconnect",	DISCONNECT,	t_disconnect },
+	{ KEYWORD,	"dump",		NONE,		t_dump },
 	{ KEYWORD,	"load",		LOAD,		t_load },
 	{ KEYWORD,	"log",		NONE,		t_log },
 	{ KEYWORD,	"monitor",	MONITOR,	NULL },
@@ -90,12 +93,26 @@ static const struct token t_load[] = {
 	{ ENDTOKEN,	"",		NONE,		NULL }
 };
 
+static const struct token  t_dump[] = {
+	{ URI,		"",		NONE,		t_dumpreq },
+	{ ENDTOKEN,	"",		NONE,		NULL }
+};
+
+static const struct token t_dumpreq[] = {
+	{ KEYWORD,	"desc",		DUMP_DESC,	NULL },
+	{ KEYWORD,	"features",	DUMP_FEATURES,	NULL },
+	{ KEYWORD,	"flows",	DUMP_FLOWS,	NULL },
+	{ KEYWORD,	"tables",	DUMP_TABLES,	NULL },
+	{ ENDTOKEN,	"",		NONE,		NULL }
+};
+
 static const struct token t_show[] = {
 	{ KEYWORD,	"summary",	SHOW_SUM,	NULL },
 	{ KEYWORD,	"switches",	SHOW_SWITCHES,	NULL },
 	{ KEYWORD,	"macs",		SHOW_MACS,	NULL },
 	{ ENDTOKEN,	"",		NONE,		NULL }
 };
+
 static const struct token t_connect[] = {
 	{ ADDRESS,	"",		NONE,		t_forward_to },
 	{ ENDTOKEN,	"",		NONE,		NULL }
@@ -109,6 +126,7 @@ static const struct token t_forward_to[] = {
 	{ KEYWORD,	"forward-to",	NONE,		t_uri },
 	{ ENDTOKEN,	"",		NONE,		NULL }
 };
+
 static const struct token  t_uri[] = {
 	{ URI,		"",		NONE,		NULL },
 	{ ENDTOKEN,	"",		NONE,		NULL }
@@ -216,6 +234,7 @@ match_token(char *word, const struct token table[])
 {
 	unsigned int		 i, match = 0;
 	const struct token	*t = NULL;
+	size_t			 len;
 
 	for (i = 0; table[i].type != ENDTOKEN; i++) {
 		switch (table[i].type) {
@@ -250,7 +269,24 @@ match_token(char *word, const struct token table[])
 			break;
 		case URI:
 			if (!match && word != NULL && strlen(word) > 0) {
-				res.uri = strdup(word);
+				len = 4;
+				if (strncmp(word, "tcp:", len) == 0)
+					res.uri.swa_type = SWITCH_CONN_TCP;
+				else if (strncmp(word, "tls:", len) == 0)
+					res.uri.swa_type = SWITCH_CONN_TLS;
+				else {
+					/* set the default */
+					res.uri.swa_type = SWITCH_CONN_TCP;
+					len = 0;
+				}
+				if (parsehostport(word + len,
+				    (struct sockaddr *)&res.uri.swa_addr,
+				    sizeof(res.uri.swa_addr)) != 0) {
+					fprintf(stderr,
+					    "could not parse address: %s\n",
+					    word);
+					return (NULL);
+				}
 				match++;
 				t = &table[i];
 			}

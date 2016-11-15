@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.45 2016/11/10 10:39:09 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.51 2016/11/15 14:46:00 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -78,12 +78,26 @@ apply_patches()
 
 checkfs()
 {
-	local _d _f _files="${@}"
+	local _d _df _dev _files="${@}" _sz
 	[[ -n ${_files} ]]
 
-	for _d in $(stat -qf "%Sd" $(for _f in ${_files}; do echo /${_f%/*}
-		done | uniq)); do mount | grep -q "^/dev/${_d} .*read-only" &&
+	# assume old files are about the same size as new ones
+	eval $(cd / &&
+		stat -qf "_dev=\"\${_dev} %Sd\" %Sd=\"\${%Sd:+\${%Sd}\+}%Uz\"" \
+		${_files}) || true # ignore nonexistent files
+
+	for _d in $(printf '%s\n' ${_dev} | sort -u); do
+		# make sure the fs is local and RW
+		mount | grep -v read-only | grep -q "^/dev/${_d} " ||
 			sp_err "Remote or read-only filesystem, aborting"
+		# quick-and-dirty size check:
+		# - assume old files are about the same size as new ones
+		# - ignore new (nonexistent) files
+		# - check against all files total size, reduces margin of error
+		_df=$(df -Pk | grep "^/dev/${_d} " | tr -s ' ' | cut -d ' ' -f4)
+		_sz=$(($((${_d}))/1024)) # total size of all files
+		[[ ${_df} -gt ${_sz} ]] ||
+			sp_err "No space left on device ${_d}, aborting"
 	done
 }
 
@@ -96,7 +110,7 @@ create_rollback()
 	local _files="${@}"
 	[[ -n ${_files} ]]
 
-	[[ -d ${_PDIR}/${_REL} ]] || install -d ${_PDIR}/${_REL}
+	[[ -d ${_PDIR}/${_REL} ]] || install -d -m 0755 ${_PDIR}/${_REL}
 
 	for _file in ${_files}; do
 		[[ -f /${_file} ]] || continue
@@ -168,6 +182,10 @@ ls_installed()
 	local _p
 	### XXX TMP
 	local _r
+	if [[ ! -d ${_PDIR}/${_REL} ]]; then
+		needs_root
+		install -d -m 0755 ${_PDIR}/${_REL}
+	fi
 	( cd ${_PDIR}/${_REL} && for _r in *; do
 		if [[ ${_r} == rollback-syspatch-${_RELINT}-*.tgz ]]; then
 			needs_root
@@ -254,12 +272,13 @@ sp_cleanup()
 	cmp -s /bsd /bsd.rollback${_RELINT} && rm /bsd.rollback${_RELINT}
 
 	# in case a patch added a new directory (install -D);
-	# non-fatal in case some mount points are read-only
+	# non-fatal in case some mount point is read-only or remote
 	for _m in 4.4BSD BSD.x11; do
 		mtree -qdef /etc/mtree/${_m}.dist -p / -U >/dev/null || true
 	done
 }
 
+# XXX needs a way to match release <=> syspatch
 # only run on release (not -current nor -stable)
 set -A _KERNV -- $(sysctl -n kern.version |
 	sed 's/^OpenBSD \([0-9]\.[0-9]\)\([^ ]*\).*/\1 \2/;q')
@@ -281,8 +300,8 @@ _RELINT=${_REL%\.*}${_REL#*\.}
 _TMP=$(mktemp -d -p /tmp syspatch.XXXXXXXXXX)
 readonly _BSDMP _FETCH _PDIR _REL _RELINT _TMP
 
-trap 'rm -rf "${_TMP}"' EXIT
-trap exit HUP INT TERM ERR
+trap 'set +e; rm -rf "${_TMP}"' EXIT
+trap exit HUP INT TERM
 
 [[ -n ${_REL} && -n ${_RELINT} ]]
 
