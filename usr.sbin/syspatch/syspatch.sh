@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.42 2016/11/08 16:39:57 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.45 2016/11/10 10:39:09 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -100,6 +100,10 @@ create_rollback()
 
 	for _file in ${_files}; do
 		[[ -f /${_file} ]] || continue
+		# only save the original release kernel once
+		if [[ ${_file} == bsd && ! -f /bsd.rollback${_RELINT} ]]; then
+			install -FSp /bsd /bsd.rollback${_RELINT}
+		fi
 		_rbfiles="${_rbfiles} ${_file}"
 	done
 
@@ -149,10 +153,6 @@ install_kernel()
 {
 	local _bsd=/bsd _kern=$1
 	[[ -n ${_kern} ]]
-
-	# only save the original release kernel once
-	[[ -f /bsd.rollback${_RELINT} ]] ||
-		install -FSp /bsd /bsd.rollback${_RELINT}
 
 	if ${_BSDMP}; then
 		[[ ${_kern##*/} == bsd ]] && _bsd=/bsd.sp
@@ -253,7 +253,8 @@ sp_cleanup()
 	# remove rollback kernel if all kernel syspatches have been reverted
 	cmp -s /bsd /bsd.rollback${_RELINT} && rm /bsd.rollback${_RELINT}
 
-	# non-fatal: the syspatch|rollback tarball should have correct perms
+	# in case a patch added a new directory (install -D);
+	# non-fatal in case some mount points are read-only
 	for _m in 4.4BSD BSD.x11; do
 		mtree -qdef /etc/mtree/${_m}.dist -p / -U >/dev/null || true
 	done
