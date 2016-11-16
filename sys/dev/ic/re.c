@@ -1,4 +1,4 @@
-/*	$OpenBSD: re.c,v 1.193 2016/08/10 14:27:17 deraadt Exp $	*/
+/*	$OpenBSD: re.c,v 1.197 2016/11/16 02:50:17 dlg Exp $	*/
 /*	$FreeBSD: if_re.c,v 1.31 2004/09/04 07:54:05 ru Exp $	*/
 /*
  * Copyright (c) 1997, 1998-2003
@@ -162,6 +162,7 @@ int	re_rxeof(struct rl_softc *);
 int	re_txeof(struct rl_softc *);
 void	re_tick(void *);
 void	re_start(struct ifnet *);
+void	re_txstart(void *);
 int	re_ioctl(struct ifnet *, u_long, caddr_t);
 void	re_watchdog(struct ifnet *);
 int	re_ifmedia_upd(struct ifnet *);
@@ -658,7 +659,6 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 	int		error = 0, i;
 	const struct re_revision *rr;
 	const char	*re_name = NULL;
-	int		ntxsegs;
 
 	sc->sc_hwrev = CSR_READ_4(sc, RL_TXCFG) & RL_TXCFG_HWREV;
 
@@ -876,13 +876,13 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 		sc->rl_txstart = RL_TXSTART;
 		sc->rl_ldata.rl_tx_desc_cnt = RL_8139_TX_DESC_CNT;
 		sc->rl_ldata.rl_rx_desc_cnt = RL_8139_RX_DESC_CNT;
-		ntxsegs = RL_8139_NTXSEGS;
+		sc->rl_ldata.rl_tx_ndescs = RL_8139_NTXSEGS;
 	} else {
 		sc->rl_rxlenmask = RL_RDESC_STAT_GFRAGLEN;
 		sc->rl_txstart = RL_GTXSTART;
 		sc->rl_ldata.rl_tx_desc_cnt = RL_8169_TX_DESC_CNT;
 		sc->rl_ldata.rl_rx_desc_cnt = RL_8169_RX_DESC_CNT;
-		ntxsegs = RL_8169_NTXSEGS;
+		sc->rl_ldata.rl_tx_ndescs = RL_8169_NTXSEGS;
 	}
 
 	bcopy(eaddr, (char *)&sc->sc_arpcom.ac_enaddr, ETHER_ADDR_LEN);
@@ -899,12 +899,6 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 
 	printf(", %s, address %s\n", intrstr,
 	    ether_sprintf(sc->sc_arpcom.ac_enaddr));
-
-	if (sc->rl_ldata.rl_tx_desc_cnt >
-	    PAGE_SIZE / sizeof(struct rl_desc)) {
-		sc->rl_ldata.rl_tx_desc_cnt =
-		    PAGE_SIZE / sizeof(struct rl_desc);
-	}
 
 	/* Allocate DMA'able memory for the TX ring */
 	if ((error = bus_dmamem_alloc(sc->sc_dmat, RL_TX_LIST_SZ(sc),
@@ -943,10 +937,11 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 	}
 
 	/* Create DMA maps for TX buffers */
-	for (i = 0; i < RL_TX_QLEN; i++) {
+	for (i = 0; i < sc->rl_ldata.rl_tx_desc_cnt; i++) {
 		error = bus_dmamap_create(sc->sc_dmat,
-		    RL_JUMBO_FRAMELEN, ntxsegs, RL_JUMBO_FRAMELEN,
-		    0, 0, &sc->rl_ldata.rl_txq[i].txq_dmamap);
+		    RL_JUMBO_FRAMELEN, sc->rl_ldata.rl_tx_ndescs,
+		    RL_JUMBO_FRAMELEN, 0, 0,
+		    &sc->rl_ldata.rl_txq[i].txq_dmamap);
 		if (error) {
 			printf("%s: can't create DMA map for TX\n",
 			    sc->sc_dev.dv_xname);
@@ -1041,6 +1036,7 @@ re_attach(struct rl_softc *sc, const char *intrstr)
 	re_wol(ifp, 0);
 #endif
 	timeout_set(&sc->timer_handle, re_tick, sc);
+	task_set(&sc->rl_start, re_txstart, sc);
 
 	/* Take PHY out of power down mode. */
 	if (sc->rl_flags & RL_FLAG_PHYWAKE_PM) {
@@ -1100,7 +1096,7 @@ fail_5:
 
 fail_4:
 	/* Destroy DMA maps for TX buffers. */
-	for (i = 0; i < RL_TX_QLEN; i++) {
+	for (i = 0; i < sc->rl_ldata.rl_tx_desc_cnt; i++) {
 		if (sc->rl_ldata.rl_txq[i].txq_dmamap != NULL)
 			bus_dmamap_destroy(sc->sc_dmat,
 			    sc->rl_ldata.rl_txq[i].txq_dmamap);
@@ -1192,7 +1188,7 @@ re_tx_list_init(struct rl_softc *sc)
 	int i;
 
 	memset(sc->rl_ldata.rl_tx_list, 0, RL_TX_LIST_SZ(sc));
-	for (i = 0; i < RL_TX_QLEN; i++) {
+	for (i = 0; i < sc->rl_ldata.rl_tx_desc_cnt; i++) {
 		sc->rl_ldata.rl_txq[i].txq_mbuf = NULL;
 	}
 
@@ -1466,7 +1462,7 @@ re_txeof(struct rl_softc *sc)
 	if (ifq_is_oactive(&ifp->if_snd))
 		ifq_restart(&ifp->if_snd);
 	else if (tx_free < sc->rl_ldata.rl_tx_desc_cnt)
-		CSR_WRITE_1(sc, sc->rl_txstart, RL_TXSTART_START);
+		ifq_serialize(&ifp->if_snd, &sc->rl_start);
 	else
 		ifp->if_timer = 0;
 
@@ -1789,6 +1785,14 @@ fail_unload:
 	return (error);
 }
 
+void
+re_txstart(void *xsc)
+{
+	struct rl_softc *sc = xsc;
+
+	CSR_WRITE_1(sc, sc->rl_txstart, RL_TXSTART_START);
+}
+
 /*
  * Main transmit routine for C+ and gigE NICs.
  */
@@ -1852,7 +1856,7 @@ re_start(struct ifnet *ifp)
 
 	sc->rl_ldata.rl_txq_prodidx = idx;
 
-	CSR_WRITE_1(sc, sc->rl_txstart, RL_TXSTART_START);
+	ifq_serialize(&ifp->if_snd, &sc->rl_start);
 }
 
 int
@@ -2174,7 +2178,7 @@ re_stop(struct ifnet *ifp)
 	}
 
 	/* Free the TX list buffers. */
-	for (i = 0; i < RL_TX_QLEN; i++) {
+	for (i = 0; i < sc->rl_ldata.rl_tx_desc_cnt; i++) {
 		if (sc->rl_ldata.rl_txq[i].txq_mbuf != NULL) {
 			bus_dmamap_unload(sc->sc_dmat,
 			    sc->rl_ldata.rl_txq[i].txq_dmamap);
