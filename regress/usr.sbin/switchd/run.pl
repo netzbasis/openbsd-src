@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w
-# $OpenBSD: run.pl,v 1.5 2016/09/28 10:09:59 reyk Exp $
+# $OpenBSD: run.pl,v 1.7 2016/11/16 11:36:03 rzalamena Exp $
 
 # Copyright (c) 2016 Reyk Floeter <reyk@openbsd.org>
 #
@@ -54,32 +54,64 @@ sub ofp_debug {
 
 }
 
+sub ofp_input {
+	my $self = shift;
+	my $pkt;
+	my $pktext;
+	my $ofp;
+	my $ofplen;
+
+	# Read the OFP payload head
+	$self->{sock}->recv($pkt, 8);
+	$ofp = NetPacket::OFP->decode($pkt) or
+	    fatal('ofp_input', 'Failed to decode OFP header');
+
+	# Read the body and decode it.
+	$ofplen = $ofp->{length};
+	if (defined($ofplen) && $ofplen > 8) {
+		$ofplen -= 8;
+
+		# Perl recv() only reads 16k at a time, so loop here.
+		while ($ofplen > 0) {
+			$self->{sock}->recv($pktext, $ofplen);
+			if (length($pktext) == 0) {
+				fatal('ofp_input', 'Socket closed');
+			}
+			$ofplen -= length($pktext);
+			$pkt .= $pktext;
+		}
+
+		$ofp = NetPacket::OFP->decode($pkt) or
+		    fatal('ofp_input', 'Failed to decode OFP');
+	}
+	ofp_debug('<', $ofp);
+
+	return ($ofp);
+}
+
+sub ofp_output {
+	my $self = shift;
+	my $pkt = shift;
+	my $ofp = NetPacket::OFP->decode($pkt);
+
+	ofp_debug('>', $ofp);
+	$self->{sock}->send($pkt);
+}
+
 sub ofp_hello {
 	my $class;
 	my $self = shift;
 	my $hello = NetPacket::OFP->decode() or fatal($class, "new packet");
-	my $resp = ();
 	my $pkt;
-	my $resppkt;
 
 	$hello->{version} = $self->{version};
 	$hello->{type} = OFP_T_HELLO();
 	$hello->{xid} = $self->{xid}++;
-
 	$pkt = NetPacket::OFP->encode($hello);
 
-	ofp_debug(">", $hello);
-
 	# XXX timeout
-	$self->{sock}->send($pkt);
-	$self->{sock}->recv($resppkt, 65535);
-
-	$resp = NetPacket::OFP->decode($resppkt) or
-	    fatal($class, "recv'ed packet");
-
-	ofp_debug("<", $resp);
-
-	return ($resp);
+	ofp_output($self, $pkt);
+	return (ofp_input($self));
 }
 
 sub ofp_packet_in {
@@ -87,32 +119,25 @@ sub ofp_packet_in {
 	my $self = shift;
 	my $data = shift;
 	my $pktin = NetPacket::OFP->decode() or fatal($class, "new packet");
-	my $resp = ();
 	my $pkt;
-	my $resppkt;
+
+	$pkt = pack('NnnCxa*',
+	    OFP_PKTOUT_NO_BUFFER(),			# buffer_id
+	    length($data),				# total_len
+	    $self->{port} || OFP_PORT_NORMAL(),		# port
+	    OFP_PKTIN_REASON_NO_MATCH(),		# reason
+	    $data					# data
+	    );
 
 	$pktin->{version} = $self->{version};
 	$pktin->{type} = OFP_T_PACKET_IN();
 	$pktin->{xid} = $self->{xid}++;
-	$pktin->{data} = $data;
-	$pktin->{length} += length($data);
-	$pktin->{buffer_id} = $self->{count} || 1;
-	$pktin->{port} = $self->{port} || OFP_PORT_NORMAL();
-
+	$pktin->{data} = $pkt;
 	$pkt = NetPacket::OFP->encode($pktin);
 
-	ofp_debug(">", $pktin);
-
 	# XXX timeout
-	$self->{sock}->send($pkt);
-	$self->{sock}->recv($resppkt, 65535);
-
-	$resp = NetPacket::OFP->decode($resppkt) or
-	    fatal($class, "recv'ed packet");
-
-	ofp_debug("<", $resp);
-
-	return ($resp);
+	ofp_output($self, $pkt);
+	return (ofp_input($self));
 }
 
 sub packet_send {

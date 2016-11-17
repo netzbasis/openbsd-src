@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.150 2016/10/16 18:05:41 jca Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.152 2016/11/16 14:13:00 mpi Exp $	*/
 /*	$NetBSD: bpf.c,v 1.33 1997/02/21 23:59:35 thorpej Exp $	*/
 
 /*
@@ -92,7 +92,7 @@ int bpf_maxbufsize = BPF_MAXBUFSIZE;
 struct bpf_if	*bpf_iflist;
 LIST_HEAD(, bpf_d) bpf_d_list;
 
-void	bpf_allocbufs(struct bpf_d *);
+int	bpf_allocbufs(struct bpf_d *);
 void	bpf_ifname(struct ifnet *, struct ifreq *);
 int	_bpf_mtap(caddr_t, const struct mbuf *, u_int,
 	    void (*)(const void *, void *, size_t));
@@ -406,16 +406,17 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 	if (d->bd_bif == NULL)
 		return (ENXIO);
 
+	s = splnet();
+	bpf_get(d);
+
 	/*
 	 * Restrict application to use a buffer the same size as
 	 * as kernel buffers.
 	 */
-	if (uio->uio_resid != d->bd_bufsize)
-		return (EINVAL);
-
-	s = splnet();
-
-	bpf_get(d);
+	if (uio->uio_resid != d->bd_bufsize) {
+		error = EINVAL;
+		goto out;
+	}
 
 	/*
 	 * If there's a timeout, bd_rdStart is tagged when we start the read.
@@ -431,13 +432,12 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 	 * ends when the timeout expires or when enough packets
 	 * have arrived to fill the store buffer.
 	 */
-	while (d->bd_hbuf == 0) {
+	while (d->bd_hbuf == NULL) {
 		if (d->bd_bif == NULL) {
 			/* interface is gone */
 			if (d->bd_slen == 0) {
-				bpf_put(d);
-				splx(s);
-				return (EIO);
+				error = EIO;
+				goto out;
 			}
 			ROTATE_BUFFERS(d);
 			break;
@@ -461,18 +461,15 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 			} else
 				error = EWOULDBLOCK;
 		}
-		if (error == EINTR || error == ERESTART) {
-			bpf_put(d);
-			splx(s);
-			return (error);
-		}
+		if (error == EINTR || error == ERESTART)
+			goto out;
 		if (error == EWOULDBLOCK) {
 			/*
 			 * On a timeout, return what's in the buffer,
 			 * which may be nothing.  If there is something
 			 * in the store buffer, we can rotate the buffers.
 			 */
-			if (d->bd_hbuf)
+			if (d->bd_hbuf != NULL)
 				/*
 				 * We filled up the buffer in between
 				 * getting the timeout and arriving
@@ -481,9 +478,8 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 				break;
 
 			if (d->bd_slen == 0) {
-				bpf_put(d);
-				splx(s);
-				return (0);
+				error = 0;
+				goto out;
 			}
 			ROTATE_BUFFERS(d);
 			break;
@@ -505,7 +501,7 @@ bpfread(dev_t dev, struct uio *uio, int ioflag)
 	d->bd_fbuf = d->bd_hbuf;
 	d->bd_hbuf = NULL;
 	d->bd_hlen = 0;
-
+out:
 	bpf_put(d);
 	splx(s);
 
@@ -554,32 +550,40 @@ bpfwrite(dev_t dev, struct uio *uio, int ioflag)
 	struct bpf_insn *fcode = NULL;
 	int error, s;
 	struct sockaddr_storage dst;
+	u_int dlt;
 
 	d = bpfilter_lookup(minor(dev));
 	if (d->bd_bif == NULL)
 		return (ENXIO);
 
+	bpf_get(d);
 	ifp = d->bd_bif->bif_ifp;
 
-	if ((ifp->if_flags & IFF_UP) == 0)
-		return (ENETDOWN);
+	if ((ifp->if_flags & IFF_UP) == 0) {
+		error = ENETDOWN;
+		goto out;
+	}
 
-	if (uio->uio_resid == 0)
-		return (0);
+	if (uio->uio_resid == 0) {
+		error = 0;
+		goto out;
+	}
 
 	KERNEL_ASSERT_LOCKED(); /* for accessing bd_wfilter */
 	bf = srp_get_locked(&d->bd_wfilter);
 	if (bf != NULL)
 		fcode = bf->bf_insns;
 
-	error = bpf_movein(uio, d->bd_bif->bif_dlt, &m,
-	    (struct sockaddr *)&dst, fcode);
+	dlt = d->bd_bif->bif_dlt;
+
+	error = bpf_movein(uio, dlt, &m, (struct sockaddr *)&dst, fcode);
 	if (error)
-		return (error);
+		goto out;
 
 	if (m->m_pkthdr.len > ifp->if_mtu) {
 		m_freem(m);
-		return (EMSGSIZE);
+		error = EMSGSIZE;
+		goto out;
 	}
 
 	m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
@@ -591,9 +595,9 @@ bpfwrite(dev_t dev, struct uio *uio, int ioflag)
 	s = splsoftnet();
 	error = ifp->if_output(ifp, m, (struct sockaddr *)&dst, NULL);
 	splx(s);
-	/*
-	 * The driver frees the mbuf.
-	 */
+
+out:
+	bpf_put(d);
 	return (error);
 }
 
@@ -996,6 +1000,7 @@ int
 bpf_setif(struct bpf_d *d, struct ifreq *ifr)
 {
 	struct bpf_if *bp, *candidate = NULL;
+	int error = 0;
 	int s;
 
 	/*
@@ -1012,30 +1017,33 @@ bpf_setif(struct bpf_d *d, struct ifreq *ifr)
 			candidate = bp;
 	}
 
-	if (candidate != NULL) {
-		/*
-		 * Allocate the packet buffers if we need to.
-		 * If we're already attached to requested interface,
-		 * just flush the buffer.
-		 */
-		if (d->bd_sbuf == NULL)
-			bpf_allocbufs(d);
-		s = splnet();
-		if (candidate != d->bd_bif) {
-			if (d->bd_bif)
-				/*
-				 * Detach if attached to something else.
-				 */
-				bpf_detachd(d);
-
-			bpf_attachd(d, candidate);
-		}
-		bpf_reset_d(d);
-		splx(s);
-		return (0);
-	}
 	/* Not found. */
-	return (ENXIO);
+	if (candidate == NULL)
+		return (ENXIO);
+
+	/*
+	 * Allocate the packet buffers if we need to.
+	 * If we're already attached to requested interface,
+	 * just flush the buffer.
+	 */
+	s = splnet();
+	if (d->bd_sbuf == NULL) {
+		if ((error = bpf_allocbufs(d)))
+			goto out;
+	}
+	if (candidate != d->bd_bif) {
+		if (d->bd_bif)
+			/*
+			 * Detach if attached to something else.
+			 */
+			bpf_detachd(d);
+
+		bpf_attachd(d, candidate);
+	}
+	bpf_reset_d(d);
+out:
+	splx(s);
+	return (error);
 }
 
 /*
@@ -1434,13 +1442,23 @@ bpf_catchpacket(struct bpf_d *d, u_char *pkt, size_t pktlen, size_t snaplen,
 /*
  * Initialize all nonzero fields of a descriptor.
  */
-void
+int
 bpf_allocbufs(struct bpf_d *d)
 {
-	d->bd_fbuf = malloc(d->bd_bufsize, M_DEVBUF, M_WAITOK);
-	d->bd_sbuf = malloc(d->bd_bufsize, M_DEVBUF, M_WAITOK);
+	d->bd_fbuf = malloc(d->bd_bufsize, M_DEVBUF, M_NOWAIT);
+	if (d->bd_fbuf == NULL)
+		return (ENOMEM);
+
+	d->bd_sbuf = malloc(d->bd_bufsize, M_DEVBUF, M_NOWAIT);
+	if (d->bd_sbuf == NULL) {
+		free(d->bd_fbuf, M_DEVBUF, d->bd_bufsize);
+		return (ENOMEM);
+	}
+
 	d->bd_slen = 0;
 	d->bd_hlen = 0;
+
+	return (0);
 }
 
 void

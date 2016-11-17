@@ -89,25 +89,21 @@ sub encode {
 	my $class = shift;
 	my $self = shift;
 	my $pkt = '';
+	my $datalen = length($self->{data});
 
-	$self->{length} = 8;
-
-	$pkt = pack("CCnN", $self->{version}, $self->{type},
-	    $self->{length}, $self->{xid});
-
-	if ($self->{version} == 1) {
-		# PACKET_IN
-		if ($self->{type} == 10) {
-			$self->{length} += 10 + length($self->{data});
-			$pkt = pack("CCnNNnnCCa*",
-			    $self->{version}, $self->{type},
-			    $self->{length}, $self->{xid}, $self->{buffer_id},
-			    length($self->{data}),
-			    $self->{port}, 0, 0, $self->{data});
-		}
+	if ($self->{length} == 0) {
+		$self->{length} = 8 + $datalen;
 	}
 
-	return ($pkt); 
+	if ($datalen == 0) {
+		$pkt = pack('CCnN', $self->{version}, $self->{type},
+		    $self->{length}, $self->{xid});
+	} else {
+		$pkt = pack('CCnNa*', $self->{version}, $self->{type},
+		    $self->{length}, $self->{xid}, $self->{data});
+	}
+
+	return ($pkt);
 }
 
 #
