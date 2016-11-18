@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp13.c,v 1.25 2016/11/07 13:27:11 rzalamena Exp $	*/
+/*	$OpenBSD: ofp13.c,v 1.29 2016/11/17 16:24:00 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -104,6 +104,8 @@ int	 ofp13_setconfig_validate(struct switchd *,
 	    struct ofp_header *, struct ibuf *);
 int	 ofp13_setconfig(struct switchd *, struct switch_connection *,
 	    uint16_t, uint16_t);
+int	 ofp13_tablemiss_sendctrl(struct switchd *, struct switch_connection *,
+	    uint8_t);
 
 struct ofp_callback ofp13_callbacks[] = {
 	{ OFP_T_HELLO,			ofp13_hello, NULL },
@@ -232,6 +234,15 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 			log_debug("\t\t%s mask %s", buf, maskbuf);
 		} else
 			log_debug("\t\t%s", buf);
+		break;
+
+	case OFP_XM_T_ETH_TYPE:
+		if (hasmask)
+			return (-1);
+		len = sizeof(*ui16);
+		if ((ui16 = ibuf_seek(ibuf, off, len)) == NULL)
+			return (-1);
+		log_debug("\t\t0x%04x", ntohs(*ui16));
 		break;
 
 	case OFP_XM_T_ARP_OP:
@@ -641,6 +652,9 @@ ofp13_features_reply(struct switchd *sc, struct switch_connection *con,
 	ofp13_setconfig(sc, con, OFP_CONFIG_FRAG_NORMAL,
 	    OFP_CONTROLLER_MAXLEN_NO_BUFFER);
 
+	/* Use table '0' for switch(4) and '100' for HP 3800. */
+	ofp13_tablemiss_sendctrl(sc, con, 0);
+
 	return (0);
 }
 
@@ -979,7 +993,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 	ssize_t				 len, mlen;
 	uint32_t			 srcport = 0, dstport;
 	int				 addflow = 0, sendbuffer = 0;
-	off_t			 	 off, moff;
+	off_t				 off, moff;
 	void				*ptr;
 	struct ofp_instruction_actions	*ia;
 
@@ -1548,7 +1562,8 @@ ofp13_multipart_request_validate(struct switchd *sc,
 
 	type = ntohs(mp->mp_type);
 	flags = ntohs(mp->mp_flags);
-	log_debug("\ttype %s flags %#04x", print_map(type, ofp_mp_t_map), flags);
+	log_debug("\ttype %s flags %#04x",
+	    print_map(type, ofp_mp_t_map), flags);
 
 	totallen = ntohs(oh->oh_length);
 	off += sizeof(*mp);
@@ -1568,7 +1583,8 @@ ofp13_multipart_request_validate(struct switchd *sc,
 		matchtype = ntohs(om->om_type);
 		matchlen = ntohs(om->om_length);
 		log_debug("\ttable_id %d out_port %u out_group %u "
-		    "cookie %llu mask %llu match type %s length %d (padded to %d)",
+		    "cookie %llu mask %llu match type %s length %d "
+		    "(padded to %d)",
 		    fsr->fsr_table_id, ntohl(fsr->fsr_out_port),
 		    ntohl(fsr->fsr_out_group), be64toh(fsr->fsr_cookie),
 		    be64toh(fsr->fsr_cookie_mask),
@@ -1862,4 +1878,89 @@ ofp13_featuresrequest(struct switchd *sc, struct switch_connection *con)
 	rv = ofp_output(con, NULL, ibuf);
 	ibuf_free(ibuf);
 	return (rv);
+}
+
+/*
+ * Flow modification message.
+ *
+ * After the flow-mod header we have N OXM filters to match packets, when
+ * you finish adding them you must update match header:
+ * fm_match.om_length = sizeof(fm_match) + OXM length.
+ *
+ * Then you must add flow instructions and update the OFP header length:
+ * fm_oh.oh_length =
+ *     sizeof(*fm) + (fm_match.om_len - sizeof(fm_match)) + instructionslen.
+ * or
+ * fm_oh.oh_length = ibuf_length(ibuf).
+ *
+ * Note on match payload:
+ * After adding all matches and before starting to insert instructions you
+ * must add the mandatory padding to fm_match. You can calculate the padding
+ * size with this formula:
+ * padsize = OFP_ALIGN(fm_match.om_length) - fm_match.om_length;
+ *
+ * Note on Table-miss:
+ * To make a table miss you need to set priority 0 and don't add any
+ * matches, just instructions.
+ */
+struct ofp_flow_mod *
+ofp13_flowmod(struct switch_connection *con, struct ibuf *ibuf,
+    uint8_t cmd, uint8_t table, uint16_t idleto, uint16_t hardto,
+    uint16_t prio)
+{
+	struct ofp_flow_mod		*fm;
+
+	if ((fm = ibuf_advance(ibuf, sizeof(*fm))) == NULL)
+		return (NULL);
+
+	fm->fm_oh.oh_version = OFP_V_1_3;
+	fm->fm_oh.oh_type = OFP_T_FLOW_MOD;
+	fm->fm_oh.oh_length = htons(sizeof(*fm));
+	fm->fm_oh.oh_xid = htonl(con->con_xidnxt++);
+	fm->fm_match.om_type = htons(OFP_MATCH_OXM);
+	fm->fm_match.om_length = htons(sizeof(fm->fm_match));
+	return (fm);
+}
+
+int
+ofp13_tablemiss_sendctrl(struct switchd *sc, struct switch_connection *con,
+    uint8_t table)
+{
+	struct oflowmod_ctx	 ctx;
+	struct ibuf		*ibuf;
+	int			 ret;
+
+	if ((ibuf = oflowmod_open(&ctx, con, NULL, OFP_V_1_3)) == NULL)
+		goto err;
+
+	if (oflowmod_iopen(&ctx) == -1)
+		goto err;
+
+	/* Update header */
+	ctx.ctx_fm->fm_table_id = table;
+
+	if (oflowmod_instruction(&ctx,
+	    OFP_INSTRUCTION_T_APPLY_ACTIONS) == -1)
+		goto err;
+	if (action_output(ibuf, OFP_PORT_CONTROLLER,
+	    OFP_CONTROLLER_MAXLEN_MAX) == -1)
+		goto err;
+
+	if (oflowmod_iclose(&ctx) == -1)
+		goto err;
+	if (oflowmod_close(&ctx) == -1)
+		goto err;
+
+	if (ofp13_validate(sc, &con->con_local, &con->con_peer,
+	    &ctx.ctx_fm->fm_oh, ibuf) != 0)
+		goto err;
+
+	ret = ofp_output(con, NULL, ibuf);
+	ibuf_release(ibuf);
+
+	return (ret);
+
+ err:
+	(void)oflowmod_err(&ctx, __func__, __LINE__);
+	return (-1);
 }

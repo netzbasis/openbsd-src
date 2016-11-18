@@ -1,9 +1,9 @@
 #!/usr/local/bin/python2.7
 
-print "ping6 fragments with fragmented destination option"
+print "ping6 fragments with missplaced hop-by-hop extension header"
 
-# |OOOO|
-#      |OOOOOOOOOO--------------|
+# |HHHH----------|
+#                |----|
 
 import os
 from addr import *
@@ -11,12 +11,11 @@ from scapy.all import *
 
 pid=os.getpid() & 0xffff
 payload="ABCDEFGHIJKLMNOP"
-packet=IPv6(src=SRC_OUT6, dst=DST_IN6)/IPv6ExtHdrDestOpt( \
-    options=PadN(optdata='\0'*12)/PadN(optdata='\0'*6))/ \
+packet=IPv6(src=SRC_OUT6, dst=DST_IN6)/IPv6ExtHdrHopByHop()/ \
     ICMPv6EchoRequest(id=pid, data=payload)
 frag=[]
-frag.append(IPv6ExtHdrFragment(nh=60, id=pid, m=1)/str(packet)[40:48])
-frag.append(IPv6ExtHdrFragment(nh=60, id=pid, offset=1)/str(packet)[48:88])
+frag.append(IPv6ExtHdrFragment(nh=0, id=pid, m=1)/str(packet)[40:64])
+frag.append(IPv6ExtHdrFragment(nh=0, id=pid, offset=3)/str(packet)[64:72])
 eth=[]
 for f in frag:
 	pkt=IPv6(src=SRC_OUT6, dst=DST_IN6)/f
@@ -41,8 +40,9 @@ for a in ans:
 		data=a.payload.payload.data
 		print "payload=%s" % (data)
 		if data == payload:
-			exit(0)
+			print "ECHO REPLY"
+			exit(1)
 		print "PAYLOAD!=%s" % (payload)
-		exit(1)
-print "NO ECHO REPLY"
-exit(2)
+		exit(2)
+print "no echo reply"
+exit(0)

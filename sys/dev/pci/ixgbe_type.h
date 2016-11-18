@@ -1,4 +1,4 @@
-/*	$OpenBSD: ixgbe_type.h,v 1.25 2016/11/16 23:19:29 mikeb Exp $	*/
+/*	$OpenBSD: ixgbe_type.h,v 1.29 2016/11/17 21:13:27 mikeb Exp $	*/
 
 /******************************************************************************
 
@@ -3386,7 +3386,7 @@ struct ixgbe_eeprom_operations {
 	int32_t (*write)(struct ixgbe_hw *, uint16_t, uint16_t);
 	int32_t (*validate_checksum)(struct ixgbe_hw *, uint16_t *);
 	int32_t (*update_checksum)(struct ixgbe_hw *);
-	uint16_t (*calc_checksum)(struct ixgbe_hw *);
+	int32_t (*calc_checksum)(struct ixgbe_hw *);
 };
 
 struct ixgbe_mac_operations {
@@ -3406,17 +3406,21 @@ struct ixgbe_mac_operations {
 	int32_t (*enable_rx_dma)(struct ixgbe_hw *, uint32_t);
 	int32_t (*disable_sec_rx_path)(struct ixgbe_hw *);
 	int32_t (*enable_sec_rx_path)(struct ixgbe_hw *);
-	int32_t (*acquire_swfw_sync)(struct ixgbe_hw *, uint16_t);
-	void (*release_swfw_sync)(struct ixgbe_hw *, uint16_t);
+	int32_t (*acquire_swfw_sync)(struct ixgbe_hw *, uint32_t);
+	void (*release_swfw_sync)(struct ixgbe_hw *, uint32_t);
+	int32_t (*prot_autoc_read)(struct ixgbe_hw *, bool *, uint32_t *);
+	int32_t (*prot_autoc_write)(struct ixgbe_hw *, uint32_t, bool);
 
 	/* Link */
 	void (*disable_tx_laser)(struct ixgbe_hw *);
 	void (*enable_tx_laser)(struct ixgbe_hw *);
 	void (*flap_tx_laser)(struct ixgbe_hw *);
 	int32_t (*setup_link)(struct ixgbe_hw *, ixgbe_link_speed, bool);
+	int32_t (*setup_mac_link)(struct ixgbe_hw *, ixgbe_link_speed, bool);
 	int32_t (*check_link)(struct ixgbe_hw *, ixgbe_link_speed *, bool *, bool);
 	int32_t (*get_link_capabilities)(struct ixgbe_hw *, ixgbe_link_speed *,
 					 bool *);
+	void (*set_rate_select_speed)(struct ixgbe_hw *, ixgbe_link_speed);
 
 	/* LED */
 	int32_t (*led_on)(struct ixgbe_hw *, uint32_t);
@@ -3444,10 +3448,13 @@ struct ixgbe_mac_operations {
 
 	/* Flow Control */
 	int32_t (*fc_enable)(struct ixgbe_hw *);
+	int32_t (*setup_fc)(struct ixgbe_hw *);
+
+	/* Manageability interface */
+	void (*disable_rx)(struct ixgbe_hw *hw);
+	void (*enable_rx)(struct ixgbe_hw *hw);
 
 	/* Misc */
-	bool (*verify_lesm_fw_enabled)(struct ixgbe_hw *);
-	int32_t (*reset_pipeline)(struct ixgbe_hw *);
 	void (*stop_mac_link_on_d3)(struct ixgbe_hw *);
 };
 
@@ -3461,6 +3468,7 @@ struct ixgbe_phy_operations {
 	int32_t (*read_reg_mdi)(struct ixgbe_hw *, uint32_t, uint32_t, uint16_t *);
 	int32_t (*write_reg_mdi)(struct ixgbe_hw *, uint32_t, uint32_t, uint16_t);
 	int32_t (*setup_link)(struct ixgbe_hw *);
+	int32_t (*setup_internal_link)(struct ixgbe_hw *);
 	int32_t (*setup_link_speed)(struct ixgbe_hw *, ixgbe_link_speed, bool);
 	int32_t (*check_link)(struct ixgbe_hw *, ixgbe_link_speed *, bool *);
 	int32_t (*get_firmware_version)(struct ixgbe_hw *, uint16_t *);
@@ -3469,7 +3477,18 @@ struct ixgbe_phy_operations {
 	int32_t (*read_i2c_eeprom)(struct ixgbe_hw *, uint8_t , uint8_t *);
 	int32_t (*write_i2c_eeprom)(struct ixgbe_hw *, uint8_t, uint8_t);
 	void (*i2c_bus_clear)(struct ixgbe_hw *);
+	int32_t (*read_i2c_combined)(struct ixgbe_hw *, uint8_t addr, uint16_t reg, uint16_t *val);
+	int32_t (*write_i2c_combined)(struct ixgbe_hw *, uint8_t addr, uint16_t reg, uint16_t val);
 	int32_t (*check_overtemp)(struct ixgbe_hw *);
+	int32_t (*set_phy_power)(struct ixgbe_hw *, bool on);
+	int32_t (*read_i2c_combined_unlocked)(struct ixgbe_hw *, uint8_t addr, uint16_t reg,
+					      uint16_t *value);
+	int32_t (*write_i2c_combined_unlocked)(struct ixgbe_hw *, uint8_t addr, uint16_t reg,
+					       uint16_t value);
+	int32_t (*read_i2c_byte_unlocked)(struct ixgbe_hw *, uint8_t offset, uint8_t addr,
+					  uint8_t *value);
+	int32_t (*write_i2c_byte_unlocked)(struct ixgbe_hw *, uint8_t offset, uint8_t addr,
+					   uint8_t value);
 };
 
 struct ixgbe_eeprom_info {
@@ -3499,7 +3518,6 @@ struct ixgbe_mac_info {
 	uint32_t max_tx_queues;
 	uint32_t max_rx_queues;
 	uint32_t orig_autoc;
-	uint32_t cached_autoc;
 	bool get_link_status;
 	uint32_t orig_autoc2;
 	uint32_t max_msix_vectors;
@@ -3667,7 +3685,6 @@ struct ixgbe_hw {
 	bool adapter_stopped;
 	int api_version;
 	bool force_full_reset;
-	bool mng_fw_enabled;
 };
 
 /* Error Codes */
