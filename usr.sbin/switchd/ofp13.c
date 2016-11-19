@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp13.c,v 1.29 2016/11/17 16:24:00 rzalamena Exp $	*/
+/*	$OpenBSD: ofp13.c,v 1.34 2016/11/18 20:20:19 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -412,11 +412,11 @@ ofp13_validate_packet_in(struct switchd *sc,
 	off = 0;
 	if ((pin = ibuf_seek(ibuf, off, sizeof(*pin))) == NULL)
 		return (-1);
-	log_debug("\tbuffer %d length %u reason %s table %u cookie 0x%016llx",
-	    ntohl(pin->pin_buffer_id),
+	log_debug("\tbuffer %s length %u reason %s table %s cookie 0x%#016llx",
+	    print_map(ntohl(pin->pin_buffer_id), ofp_pktout_map),
 	    ntohs(pin->pin_total_len),
 	    print_map(ntohs(pin->pin_reason), ofp_pktin_map),
-	    pin->pin_table_id,
+	    print_map(pin->pin_table_id, ofp_table_id_map),
 	    be64toh(pin->pin_cookie));
 	off += offsetof(struct ofp_packet_in, pin_match);
 
@@ -485,9 +485,8 @@ ofp13_validate_packet_out(struct switchd *sc,
 		return (-1);
 	}
 
-	log_debug("\tbuffer %d port %s "
-	    "actions length %u",
-	    ntohl(pout->pout_buffer_id),
+	log_debug("\tbuffer %s port %s actions length %u",
+	    print_map(ntohl(pout->pout_buffer_id), ofp_pktout_map),
 	    print_map(ntohl(pout->pout_in_port), ofp_port_map),
 	    ntohs(pout->pout_actions_len));
 	len = ntohl(pout->pout_actions_len);
@@ -499,11 +498,12 @@ ofp13_validate_packet_out(struct switchd *sc,
 		case OFP_ACTION_OUTPUT:
 			ao = (struct ofp_action_output *)ah;
 			log_debug("\t\taction type %s length %d "
-			    "port %s max length %d",
+			    "port %s max length %s",
 			    print_map(ntohs(ao->ao_type), ofp_action_map),
 			    ntohs(ao->ao_len),
 			    print_map(ntohs(ao->ao_port), ofp_port_map),
-			    ntohs(ao->ao_max_len));
+			    print_map(ntohs(ao->ao_max_len),
+			    ofp_controller_maxlen_map));
 			break;
 		default:
 			log_debug("\t\taction type %s length %d",
@@ -630,11 +630,10 @@ ofp13_validate_features_reply(struct switchd *sc,
 	if ((swf = ibuf_seek(ibuf, 0, sizeof(*swf))) == NULL)
 		return (-1);
 
-	log_debug("\tdatapath_id %#llx nbuffers %u ntables %d aux_id %d "
-	    "capabilities %#08x actions %#08x",
+	log_debug("\tdatapath_id %#016llx nbuffers %u ntables %d aux_id %d "
+	    "capabilities %#08x",
 	    be64toh(swf->swf_datapath_id), ntohl(swf->swf_nbuffers),
-	    swf->swf_ntables, swf->swf_aux_id, ntohl(swf->swf_capabilities),
-	    ntohl(swf->swf_actions));
+	    swf->swf_ntables, swf->swf_aux_id, ntohl(swf->swf_capabilities));
 	return (0);
 }
 
@@ -644,7 +643,7 @@ ofp13_features_reply(struct switchd *sc, struct switch_connection *con,
 {
 #if 0
 	/* Let's not ask this while we don't use it. */
-	ofp13_flow_stats(sc, con, OFP_PORT_ANY, OFP_GROUP_ANY,
+	ofp13_flow_stats(sc, con, OFP_PORT_ANY, OFP_GROUP_ID_ANY,
 	    OFP_TABLE_ID_ALL);
 	ofp13_table_features(sc, con, 0);
 	ofp13_desc(sc, con);
@@ -686,10 +685,11 @@ ofp13_validate_action(struct switchd *sc, struct ofp_header *oh,
 			return (-1);
 
 		*off += len;
-		log_debug("\t\taction %s len %lu port %s max_len %d",
+		log_debug("\t\taction %s len %lu port %s max_len %s",
 		    print_map(type, ofp_action_map), len,
 		    print_map(ntohl(ao->ao_port), ofp_port_map),
-		    ntohs(ao->ao_max_len));
+		    print_map(ntohs(ao->ao_max_len),
+		    ofp_controller_maxlen_map));
 		break;
 	case OFP_ACTION_SET_MPLS_TTL:
 		if (len != sizeof(*amt))
@@ -743,9 +743,9 @@ ofp13_validate_action(struct switchd *sc, struct ofp_header *oh,
 			return (-1);
 
 		*off += len;
-		log_debug("\t\taction %s len %lu group_id %u",
+		log_debug("\t\taction %s len %lu group_id %s",
 		    print_map(type, ofp_action_map), len,
-		    ntohl(ag->ag_group_id));
+		    print_map(ntohl(ag->ag_group_id), ofp_group_id_map));
 		break;
 	case OFP_ACTION_SET_NW_TTL:
 		if (len != sizeof(*ant))
@@ -819,9 +819,9 @@ ofp13_validate_instruction(struct switchd *sc, struct ofp_header *oh,
 			return (-1);
 
 		*off += len;
-		log_debug("\tinstruction %s length %lu table_id %d",
+		log_debug("\tinstruction %s length %lu table_id %s",
 		    print_map(type, ofp_instruction_t_map), len,
-		    igt->igt_table_id);
+		    print_map(igt->igt_table_id, ofp_table_id_map));
 		break;
 	case OFP_INSTRUCTION_T_WRITE_META:
 		if (len != sizeof(*iwm))
@@ -831,7 +831,7 @@ ofp13_validate_instruction(struct switchd *sc, struct ofp_header *oh,
 
 		*off += len;
 		log_debug("\tinstruction %s length %lu "
-		    "metadata %llu mask %llu",
+		    "metadata %#016llx mask %#016llx",
 		    print_map(type, ofp_instruction_t_map), len,
 		    be64toh(iwm->iwm_metadata),
 		    be64toh(iwm->iwm_metadata_mask));
@@ -903,15 +903,18 @@ ofp13_validate_flow_mod(struct switchd *sc,
 	if ((fm = ibuf_seek(ibuf, off, sizeof(*fm))) == NULL)
 		return (-1);
 
-	log_debug("\tcommand %s table %d timeout (idle %d hard %d) "
-	    "priority %d buffer_id %u out_port %u out_group %u "
-	    "flags %#04x cookie %llu mask %llu",
+	log_debug("\tcommand %s table %s timeout (idle %d hard %d) "
+	    "priority %d buffer_id %s out_port %s out_group %s "
+	    "flags %#04x cookie %#016llx mask %#016llx",
 	    print_map(fm->fm_command, ofp_flowcmd_map),
-	    fm->fm_table_id, ntohs(fm->fm_idle_timeout),
-	    ntohs(fm->fm_hard_timeout), ntohs(fm->fm_priority),
-	    ntohl(fm->fm_buffer_id), ntohl(fm->fm_out_port),
-	    ntohl(fm->fm_out_group), ntohs(fm->fm_flags),
-	    be64toh(fm->fm_cookie), be64toh(fm->fm_cookie_mask));
+	    print_map(fm->fm_table_id, ofp_table_id_map),
+	    ntohs(fm->fm_idle_timeout), ntohs(fm->fm_hard_timeout),
+	    ntohs(fm->fm_priority),
+	    print_map(ntohl(fm->fm_buffer_id), ofp_pktout_map),
+	    print_map(ntohl(fm->fm_out_port), ofp_port_map),
+	    print_map(ntohl(fm->fm_out_group), ofp_group_id_map),
+	    ntohs(fm->fm_flags), be64toh(fm->fm_cookie),
+	    be64toh(fm->fm_cookie_mask));
 
 	off += offsetof(struct ofp_flow_mod, fm_match);
 
@@ -1047,7 +1050,9 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 
 	if (packet_input(sc, con->con_switch,
 	    srcport, &dstport, ibuf, len, &pkt) == -1 ||
-	    dstport > OFP_PORT_MAX) {
+	    (dstport > OFP_PORT_MAX &&
+	    dstport != OFP_PORT_LOCAL &&
+	    dstport != OFP_PORT_CONTROLLER)) {
 		/* fallback to flooding */
 		dstport = OFP_PORT_FLOOD;
 	} else if (srcport == dstport) {
@@ -1056,10 +1061,9 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 		 * (don't use OFP_PORT_INPUT here)
 		 */
 		dstport = OFP_PORT_ANY;
-	}
-
-	if (dstport <= OFP_PORT_MAX)
+	} else {
 		addflow = 1;
+	}
 
 	if ((obuf = ibuf_static()) == NULL)
 		goto done;
@@ -1071,7 +1075,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 
 		oh = &fm->fm_oh;
 		fm->fm_cookie = 0; /* XXX should we set a cookie? */
-		fm->fm_command = htons(OFP_FLOWCMD_ADD);
+		fm->fm_command = OFP_FLOWCMD_ADD;
 		fm->fm_idle_timeout = htons(sc->sc_cache_timeout);
 		fm->fm_hard_timeout = 0; /* permanent */
 		fm->fm_priority = 0;
@@ -1123,7 +1127,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 	oh->oh_xid = htonl(con->con_xidnxt++);
 
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, obuf) != 0)
-		return (-1);
+		goto done;
 
 	ofp_output(con, NULL, obuf);
 
@@ -1152,31 +1156,15 @@ ofp13_flow_removed(struct switchd *sc, struct switch_connection *con,
 	if ((fr = ibuf_getdata(ibuf, sizeof(*fr))) == NULL)
 		return (-1);
 
-	log_debug("%s: cookie:%llu priority:%d reason:%d tableid:%d "
-	    "duration(%u sec, %u nsec) idleto:%d hard:%d packet:%llu byte:%llu",
-	    __func__, be64toh(fr->fr_cookie), ntohs(fr->fr_priority),
-	    fr->fr_reason, fr->fr_table_id, ntohl(fr->fr_duration_sec),
-	    ntohl(fr->fr_duration_nsec), ntohs(fr->fr_idle_timeout),
-	    ntohs(fr->fr_hard_timeout),
+	log_debug("cookie %#016llx priority %d reason %s table_id %s "
+	    "duration(%u sec, %u nsec) timeout idle %d hard %d "
+	    "packet %llu byte %llu",
+	    be64toh(fr->fr_cookie), ntohs(fr->fr_priority),
+	    print_map(fr->fr_reason, ofp_flowrem_reason_map),
+	    print_map(fr->fr_table_id, ofp_table_id_map),
+	    ntohl(fr->fr_duration_sec), ntohl(fr->fr_duration_nsec),
+	    ntohs(fr->fr_idle_timeout), ntohs(fr->fr_hard_timeout),
 	    be64toh(fr->fr_packet_count), be64toh(fr->fr_byte_count));
-
-	switch (fr->fr_reason) {
-	case OFP_FLOWREM_REASON_IDLE_TIMEOUT:
-		log_debug("\tReason: IDLE TIMEOUT");
-		break;
-	case OFP_FLOWREM_REASON_HARD_TIMEOUT:
-		log_debug("\tReason: HARD TIMEOUT");
-		break;
-	case OFP_FLOWREM_REASON_DELETE:
-		log_debug("\tReason: DELETE");
-		break;
-	case OFP_FLOWREM_REASON_GROUP_DELETE:
-		log_debug("\tReason: GROUP DELETE");
-		break;
-	default:
-		log_debug("\tReason: UNKNOWN");
-		break;
-	}
 
 	return (0);
 }
@@ -1248,9 +1236,11 @@ ofp13_parse_tableproperties(struct ibuf *ibuf, struct ofp_table_features *tf)
 	int					 remaining, type, length;
 	int					 totallen, padsize, rv;
 
-	log_debug("Table %s (%d): max_entries %u config %u",
+	log_debug("Table %s (%d) max_entries %u config %u "
+	    "metadata match %#016llx write %#016llx",
 	    tf->tf_name, tf->tf_tableid, ntohl(tf->tf_max_entries),
-	    ntohl(tf->tf_config));
+	    ntohl(tf->tf_config), be64toh(tf->tf_metadata_match),
+	    be64toh(tf->tf_metadata_write));
 	totallen = htons(tf->tf_length);
 	remaining = totallen - sizeof(*tf);
 
@@ -1453,14 +1443,15 @@ ofp13_multipart_reply_validate(struct switchd *sc,
 		moff = off + sizeof(*fs);
 		off += hlen;
 
-		log_debug("\tflow length %d table_id %d duration sec %u "
+		log_debug("\tflow length %d table_id %s duration sec %u "
 		    "nsec %u prio %d timeout idle %d hard %d flags %#04x "
-		    "cookie %llu packet count %llu byte count %llu",
-		    hlen, fs->fs_table_id, ntohl(fs->fs_duration_sec),
-		    ntohl(fs->fs_duration_nsec), ntohs(fs->fs_priority),
-		    ntohs(fs->fs_idle_timeout), ntohs(fs->fs_hard_timeout),
-		    ntohs(fs->fs_flags), be64toh(fs->fs_cookie),
-		    be64toh(fs->fs_packet_count), be64toh(fs->fs_byte_count));
+		    "cookie %#016llx packet count %llu byte count %llu",
+		    hlen, print_map(fs->fs_table_id, ofp_table_id_map),
+		    ntohl(fs->fs_duration_sec), ntohl(fs->fs_duration_nsec),
+		    ntohs(fs->fs_priority), ntohs(fs->fs_idle_timeout),
+		    ntohs(fs->fs_hard_timeout), ntohs(fs->fs_flags),
+		    be64toh(fs->fs_cookie), be64toh(fs->fs_packet_count),
+		    be64toh(fs->fs_byte_count));
 
 		om = &fs->fs_match;
 		matchtype = ntohs(om->om_type);
@@ -1500,12 +1491,14 @@ ofp13_multipart_reply_validate(struct switchd *sc,
 			return (-1);
 
 		hlen = ntohs(tf->tf_length);
-		log_debug("\ttable features length %d tableid %d name \"%s\" "
-		    "metadata match %llu write %llu config %u max_entries %u",
-		    hlen, tf->tf_tableid, tf->tf_name,
+		log_debug("\ttable features length %d tableid %s name \"%s\" "
+		    "config %u max_entries %u "
+		    "metadata match %#016llx write %#016llx",
+		    hlen, print_map(tf->tf_tableid, ofp_table_id_map),
+		    tf->tf_name,ntohl(tf->tf_config),
+		    ntohl(tf->tf_max_entries),
 		    be64toh(tf->tf_metadata_match),
-		    be64toh(tf->tf_metadata_write), ntohl(tf->tf_config),
-		    ntohl(tf->tf_max_entries));
+		    be64toh(tf->tf_metadata_write));
 		remaining -= hlen;
 		off += hlen;
 		if (remaining)
@@ -1582,12 +1575,13 @@ ofp13_multipart_request_validate(struct switchd *sc,
 		om = &fsr->fsr_match;
 		matchtype = ntohs(om->om_type);
 		matchlen = ntohs(om->om_length);
-		log_debug("\ttable_id %d out_port %u out_group %u "
-		    "cookie %llu mask %llu match type %s length %d "
+		log_debug("\ttable_id %s out_port %s out_group %s "
+		    "cookie %#016llx mask %#016llx match type %s length %d "
 		    "(padded to %d)",
-		    fsr->fsr_table_id, ntohl(fsr->fsr_out_port),
-		    ntohl(fsr->fsr_out_group), be64toh(fsr->fsr_cookie),
-		    be64toh(fsr->fsr_cookie_mask),
+		    print_map(fsr->fsr_table_id, ofp_table_id_map),
+		    print_map(ntohl(fsr->fsr_out_port), ofp_port_map),
+		    print_map(ntohl(fsr->fsr_out_group), ofp_group_id_map),
+		    be64toh(fsr->fsr_cookie), be64toh(fsr->fsr_cookie_mask),
 		    print_map(matchtype, ofp_match_map), matchlen,
 		    OFP_ALIGN(matchlen));
 
@@ -1647,21 +1641,24 @@ ofp13_desc(struct switchd *sc, struct switch_connection *con)
 	struct ofp_header		*oh;
 	struct ofp_multipart		*mp;
 	struct ibuf			*ibuf;
+	int				 rv = -1;
 
 	if ((ibuf = ibuf_static()) == NULL)
 		return (-1);
 
 	if ((mp = ofp13_multipart_request(con, ibuf, OFP_MP_T_DESC, 0)) == NULL)
-		return (-1);
+		goto done;
 
 	oh = &mp->mp_oh;
 	oh->oh_length = htons(sizeof(*mp));
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, ibuf) != 0)
-		return (-1);
+		goto done;
 
-	ofp_output(con, NULL, ibuf);
-	ibuf_release(ibuf);
-	return (0);
+	rv = ofp_output(con, NULL, ibuf);
+
+ done:
+	ibuf_free(ibuf);
+	return (rv);
 }
 
 int
@@ -1673,15 +1670,15 @@ ofp13_flow_stats(struct switchd *sc, struct switch_connection *con,
 	struct ofp_flow_stats_request	*fsr;
 	struct ofp_match		*om;
 	struct ibuf			*ibuf;
-	int				 padsize;
+	int				 padsize, rv = -1;
 
 	if ((ibuf = ibuf_static()) == NULL)
 		return (-1);
 
 	if ((mp = ofp13_multipart_request(con, ibuf, OFP_MP_T_FLOW, 0)) == NULL)
-		return (-1);
+		goto done;
 	if ((fsr = ibuf_advance(ibuf, sizeof(*fsr))) == NULL)
-		return (-1);
+		goto done;
 
 	oh = &mp->mp_oh;
 	fsr->fsr_table_id = table_id;
@@ -1693,15 +1690,17 @@ ofp13_flow_stats(struct switchd *sc, struct switch_connection *con,
 	om->om_length = htons(sizeof(*om));
 	padsize = OFP_ALIGN(sizeof(*om)) - sizeof(*om);
 	if (padsize && ibuf_advance(ibuf, padsize) == NULL)
-		return (-1);
+		goto done;
 
 	oh->oh_length = htons(ibuf_length(ibuf));
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, ibuf) != 0)
-		return (-1);
+		goto done;
 
-	ofp_output(con, NULL, ibuf);
-	ibuf_release(ibuf);
-	return (0);
+	rv = ofp_output(con, NULL, ibuf);
+
+ done:
+	ibuf_free(ibuf);
+	return (rv);
 }
 
 int
@@ -1711,22 +1710,25 @@ ofp13_table_features(struct switchd *sc, struct switch_connection *con,
 	struct ofp_header		*oh;
 	struct ofp_multipart		*mp;
 	struct ibuf			*ibuf;
+	int				 rv = -1;
 
 	if ((ibuf = ibuf_static()) == NULL)
 		return (-1);
 
 	if ((mp = ofp13_multipart_request(con, ibuf,
 	    OFP_MP_T_TABLE_FEATURES, 0)) == NULL)
-		return (-1);
+		goto done;
 
 	oh = &mp->mp_oh;
 	oh->oh_length = htons(sizeof(*mp));
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, ibuf) != 0)
-		return (-1);
+		goto done;
 
-	ofp_output(con, NULL, ibuf);
-	ibuf_release(ibuf);
-	return (0);
+	rv = ofp_output(con, NULL, ibuf);
+
+ done:
+	ibuf_free(ibuf);
+	return (rv);
 }
 
 int
@@ -1736,11 +1738,11 @@ ofp13_error(struct switchd *sc, struct switch_connection *con,
 	struct ibuf		*obuf;
 	struct ofp_error	*err;
 	struct ofp_header	*header;
-	int			 rv, dlen;
+	int			 dlen, rv = -1;
 
 	if ((obuf = ibuf_static()) == NULL ||
 	    (err = ibuf_advance(obuf, sizeof(*err))) == NULL)
-		return (-1);
+		goto done;
 
 	header = &err->err_oh;
 	err->err_type = htons(type);
@@ -1751,20 +1753,20 @@ ofp13_error(struct switchd *sc, struct switch_connection *con,
 	if (dlen > OFP_ERRDATA_MAX)
 		dlen = OFP_ERRDATA_MAX;
 	if (ibuf_add(obuf, ibuf_seek(ibuf, 0, dlen), dlen) == -1)
-		return (-1);
+		goto done;
 
 	header->oh_version = OFP_V_1_3;
 	header->oh_type = OFP_T_ERROR;
 	header->oh_length = htons(ibuf_length(obuf));
 	header->oh_xid = oh->oh_xid;
 	if (ofp13_validate(sc, &con->con_peer, &con->con_local, header,
-	    obuf) == -1) {
-		ibuf_release(obuf);
-		return (-1);
-	}
+	    obuf) == -1)
+		goto done;
 
 	rv = ofp_output(con, NULL, obuf);
-	ibuf_release(obuf);
+
+ done:
+	ibuf_free(obuf);
 	return (rv);
 }
 
@@ -1823,8 +1825,9 @@ ofp13_setconfig_validate(struct switchd *sc,
 	if ((cfg = ibuf_seek(ibuf, 0, sizeof(*cfg))) == NULL)
 		return (-1);
 
-	log_debug("\tflags %#04x miss_send_len %d",
-	    ntohs(cfg->cfg_flags), ntohs(cfg->cfg_miss_send_len));
+	log_debug("\tflags %#04x miss_send_len %s",
+	    ntohs(cfg->cfg_flags), print_map(ntohs(cfg->cfg_miss_send_len),
+	    ofp_controller_maxlen_map));
 	return (0);
 }
 
@@ -1835,11 +1838,11 @@ ofp13_setconfig(struct switchd *sc, struct switch_connection *con,
 	struct ibuf			*ibuf;
 	struct ofp_switch_config	*cfg;
 	struct ofp_header		*oh;
-	int				 rv;
+	int				 rv = -1;
 
 	if ((ibuf = ibuf_static()) == NULL ||
 	    (cfg = ibuf_advance(ibuf, sizeof(*cfg))) == NULL)
-		return (-1);
+		goto done;
 
 	cfg->cfg_flags = htons(flags);
 	cfg->cfg_miss_send_len = htons(misslen);
@@ -1850,9 +1853,11 @@ ofp13_setconfig(struct switchd *sc, struct switch_connection *con,
 	oh->oh_length = htons(ibuf_length(ibuf));
 	oh->oh_xid = htonl(con->con_xidnxt++);
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, ibuf) != 0)
-		return (-1);
+		goto done;
 
 	rv = ofp_output(con, NULL, ibuf);
+
+ done:
 	ibuf_free(ibuf);
 	return (rv);
 }
@@ -1862,20 +1867,22 @@ ofp13_featuresrequest(struct switchd *sc, struct switch_connection *con)
 {
 	struct ibuf			*ibuf;
 	struct ofp_header		*oh;
-	int				 rv;
+	int				 rv = -1;
 
 	if ((ibuf = ibuf_static()) == NULL ||
 	    (oh = ibuf_advance(ibuf, sizeof(*oh))) == NULL)
-		return (-1);
+		goto done;
 
 	oh->oh_version = OFP_V_1_3;
 	oh->oh_type = OFP_T_FEATURES_REQUEST;
 	oh->oh_length = htons(ibuf_length(ibuf));
 	oh->oh_xid = htonl(con->con_xidnxt++);
 	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, ibuf) != 0)
-		return (-1);
+		goto done;
 
 	rv = ofp_output(con, NULL, ibuf);
+
+ done:
 	ibuf_free(ibuf);
 	return (rv);
 }
@@ -1917,8 +1924,14 @@ ofp13_flowmod(struct switch_connection *con, struct ibuf *ibuf,
 	fm->fm_oh.oh_type = OFP_T_FLOW_MOD;
 	fm->fm_oh.oh_length = htons(sizeof(*fm));
 	fm->fm_oh.oh_xid = htonl(con->con_xidnxt++);
+
+	fm->fm_command = cmd;
+	fm->fm_buffer_id = htonl(OFP_PKTOUT_NO_BUFFER);
+	fm->fm_flags = htons(OFP_FLOWFLAG_SEND_FLOW_REMOVED);
+
 	fm->fm_match.om_type = htons(OFP_MATCH_OXM);
 	fm->fm_match.om_length = htons(sizeof(fm->fm_match));
+
 	return (fm);
 }
 
