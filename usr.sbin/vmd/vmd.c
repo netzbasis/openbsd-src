@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.39 2016/11/04 15:16:44 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.42 2016/11/22 21:55:54 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -79,17 +79,10 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_START_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vmc);
 		memcpy(&vmc, imsg->data, sizeof(vmc));
-		res = vm_register(ps, &vmc, &vm, 0);
-		if (res == -1) {
+		if (vm_register(ps, &vmc, &vm, 0) == -1 ||
+		    config_setvm(ps, vm, imsg->hdr.peerid) == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
-		} else {
-			res = config_setvm(ps, vm, imsg->hdr.peerid);
-			if (res == -1) {
-				res = errno;
-				cmd = IMSG_VMDOP_START_VM_RESPONSE;
-				vm_remove(vm);
-			}
 		}
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_REQUEST:
@@ -235,6 +228,31 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		}
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_END_DATA:
+		/*
+		 * PROC_VMM has responded with the *running* VMs, now we
+		 * append the others. These use the special value 0 for their
+		 * kernel id to indicate that they are not running.
+		 */
+		TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
+			if (!vm->vm_running) {
+				memset(&vir, 0, sizeof(vir));
+				vir.vir_info.vir_id = 0;
+				strlcpy(vir.vir_info.vir_name,
+				    vm->vm_params.vmc_params.vcp_name,
+				    VMM_MAX_NAME_LEN);
+				vir.vir_info.vir_memory_size =
+				    vm->vm_params.vmc_params.vcp_memranges[0].vmr_size;
+				vir.vir_info.vir_ncpus =
+				    vm->vm_params.vmc_params.vcp_ncpus;
+				if (proc_compose_imsg(ps, PROC_CONTROL, -1,
+				    IMSG_VMDOP_GET_INFO_VM_DATA,
+				    imsg->hdr.peerid, -1, &vir,
+				    sizeof(vir)) == -1) {
+					vm_remove(vm);
+					return (-1);
+				}
+			}
+		}
 		IMSG_SIZE_CHECK(imsg, &res);
 		proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
 		break;
@@ -430,7 +448,6 @@ vmd_configure(void)
 {
 	struct vmd_vm		*vm;
 	struct vmd_switch	*vsw;
-	int		 	 res, ret = 0;
 
 	/*
 	 * pledge in the parent process:
@@ -462,22 +479,22 @@ vmd_configure(void)
 			log_warn("%s: failed to create switch %s",
 			    __func__, vsw->sw_name);
 			switch_remove(vsw);
+			return (-1);
 		}
 	}
 
 	TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
-		res = config_setvm(&env->vmd_ps, vm, -1);
-		if (res == -1) {
-			log_warn("%s: failed to create vm %s",
+		if (vm->vm_disabled) {
+			log_debug("%s: not creating vm %s (disabled)",
 			    __func__,
 			    vm->vm_params.vmc_params.vcp_name);
-			ret = -1;
-			vm_remove(vm);
-			goto fail;
+			continue;
 		}
+		if (config_setvm(&env->vmd_ps, vm, -1) == -1)
+			return (-1);
 	}
- fail:
-	return (ret);
+
+	return (0);
 }
 
 void
@@ -485,7 +502,6 @@ vmd_reload(unsigned int reset, const char *filename)
 {
 	struct vmd_vm		*vm;
 	struct vmd_switch	*vsw;
-	int		 	 res;
 
 	/* Switch back to the default config file */
 	if (filename == NULL || *filename == '\0')
@@ -511,18 +527,20 @@ vmd_reload(unsigned int reset, const char *filename)
 				log_warn("%s: failed to create switch %s",
 				    __func__, vsw->sw_name);
 				switch_remove(vsw);
+				return;
 			}
 		}
 
 		TAILQ_FOREACH(vm, env->vmd_vms, vm_entry) {
 			if (vm->vm_running == 0) {
-				res = config_setvm(&env->vmd_ps, vm, -1);
-				if (res == -1) {
-					log_warn("%s: failed to create vm %s",
-					    __func__,
+				if (vm->vm_disabled) {
+					log_debug("%s: not creating vm %s"
+					    " (disabled)", __func__,
 					    vm->vm_params.vmc_params.vcp_name);
-					vm_remove(vm);
+					continue;
 				}
+				if (config_setvm(&env->vmd_ps, vm, -1) == -1)
+					return;
 			} else {
 				log_debug("%s: not creating vm \"%s\": "
 				    "(running)", __func__,

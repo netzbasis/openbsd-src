@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.52 2016/11/18 18:54:43 schwarze Exp $
+# $OpenBSD: Makefile,v 1.54 2016/11/22 07:06:03 jmc Exp $
 
 .include <bsd.own.mk>
 
@@ -43,6 +43,7 @@ MAN=	\
 	BN_cmp.3 \
 	BN_copy.3 \
 	BN_generate_prime.3 \
+	BN_get0_nist_prime_521.3 \
 	BN_mod_inverse.3 \
 	BN_mod_mul_montgomery.3 \
 	BN_mod_mul_reciprocal.3 \
@@ -106,7 +107,7 @@ MAN=	\
 	EVP_PKEY_decrypt.3 \
 	EVP_PKEY_derive.3 \
 	EVP_PKEY_encrypt.3 \
-	EVP_PKEY_get_default_digest.3 \
+	EVP_PKEY_get_default_digest_nid.3 \
 	EVP_PKEY_keygen.3 \
 	EVP_PKEY_new.3 \
 	EVP_PKEY_print_private.3 \

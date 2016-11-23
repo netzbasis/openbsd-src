@@ -1,4 +1,4 @@
-/*	$OpenBSD: ofp13.c,v 1.34 2016/11/18 20:20:19 reyk Exp $	*/
+/*	$OpenBSD: ofp13.c,v 1.40 2016/11/22 17:21:56 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2013-2016 Reyk Floeter <reyk@openbsd.org>
@@ -76,6 +76,7 @@ int	 ofp13_parse_oxm(struct ibuf *, struct ofp_ox_match *);
 int	 ofp13_parse_tableproperties(struct ibuf *, struct ofp_table_features *);
 int	 ofp13_multipart_reply(struct switchd *, struct switch_connection *,
 	    struct ofp_header *, struct ibuf *);
+int	 ofp13_validate_tableproperty(struct ibuf *, off_t, int);
 int	 ofp13_multipart_reply_validate(struct switchd *,
 	    struct sockaddr_storage *, struct sockaddr_storage *,
 	    struct ofp_header *, struct ibuf *);
@@ -108,7 +109,7 @@ int	 ofp13_tablemiss_sendctrl(struct switchd *, struct switch_connection *,
 	    uint8_t);
 
 struct ofp_callback ofp13_callbacks[] = {
-	{ OFP_T_HELLO,			ofp13_hello, NULL },
+	{ OFP_T_HELLO,			ofp13_hello, ofp_validate_hello },
 	{ OFP_T_ERROR,			NULL, ofp13_validate_error },
 	{ OFP_T_ECHO_REQUEST,		ofp13_echo_request, NULL },
 	{ OFP_T_ECHO_REPLY,		NULL, NULL },
@@ -183,6 +184,8 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 	case OFP_XM_T_IN_PORT:
 	case OFP_XM_T_IN_PHY_PORT:
 	case OFP_XM_T_MPLS_LABEL:
+		if (hasmask)
+			return (-1);
 		if ((ui32 = ibuf_seek(ibuf, off, sizeof(*ui32))) == NULL)
 			return (-1);
 
@@ -205,12 +208,26 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 			log_debug("\t\t%llu", be64toh(*ui64));
 		break;
 
-	case OFP_XM_T_ETH_DST:
-	case OFP_XM_T_ETH_SRC:
 	case OFP_XM_T_ARP_SHA:
 	case OFP_XM_T_ARP_THA:
 	case OFP_XM_T_IPV6_ND_SLL:
 	case OFP_XM_T_IPV6_ND_TLL:
+		if (hasmask)
+			return (-1);
+		if ((ui8 = ibuf_seek(ibuf, off, ETHER_ADDR_LEN)) == NULL)
+			return (-1);
+
+		buf[0] = 0;
+		for (i = 0; i < ETHER_ADDR_LEN; i++) {
+			snprintf(hex, sizeof(hex), "%02x", *(ui8 + i));
+			strlcat(buf, hex, sizeof(buf));
+		}
+
+		log_debug("\t\t%s", buf);
+		break;
+
+	case OFP_XM_T_ETH_DST:
+	case OFP_XM_T_ETH_SRC:
 		len = ETHER_ADDR_LEN;
 		if (hasmask)
 			len *= 2;
@@ -245,15 +262,22 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 		log_debug("\t\t0x%04x", ntohs(*ui16));
 		break;
 
-	case OFP_XM_T_ARP_OP:
-	case OFP_XM_T_VLAN_VID:
-	case OFP_XM_T_IP_PROTO:
 	case OFP_XM_T_TCP_SRC:
 	case OFP_XM_T_TCP_DST:
 	case OFP_XM_T_UDP_SRC:
 	case OFP_XM_T_UDP_DST:
 	case OFP_XM_T_SCTP_SRC:
 	case OFP_XM_T_SCTP_DST:
+	case OFP_XM_T_ARP_OP:
+		if (hasmask)
+			return (-1);
+		if ((ui16 = ibuf_seek(ibuf, off, sizeof(*ui16))) == NULL)
+			return (-1);
+
+		log_debug("\t\t%d", ntohs(*ui16));
+		break;
+
+	case OFP_XM_T_VLAN_VID:
 	case OFP_XM_T_IPV6_EXTHDR:
 		len = sizeof(*ui16);
 		if (hasmask)
@@ -283,12 +307,15 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 
 	case OFP_XM_T_IP_DSCP:
 	case OFP_XM_T_IP_ECN:
+	case OFP_XM_T_IP_PROTO:
 	case OFP_XM_T_ICMPV4_TYPE:
 	case OFP_XM_T_ICMPV4_CODE:
 	case OFP_XM_T_ICMPV6_TYPE:
 	case OFP_XM_T_ICMPV6_CODE:
 	case OFP_XM_T_MPLS_TC:
 	case OFP_XM_T_MPLS_BOS:
+		if (hasmask)
+			return (-1);
 		if ((ui8 = ibuf_seek(ibuf, off, sizeof(*ui8))) == NULL)
 			return (-1);
 
@@ -314,9 +341,24 @@ ofp13_validate_oxm_basic(struct ibuf *ibuf, off_t off, int hasmask,
 			log_debug("\t\t%#08x", ntohl(*ui32));
 		break;
 
+	case OFP_XM_T_IPV6_ND_TARGET:
+		if (hasmask)
+			return (-1);
+		if ((ui8 = ibuf_seek(ibuf, off,
+		    sizeof(struct in6_addr))) == NULL)
+			return (-1);
+
+		buf[0] = 0;
+		for (i = 0; i < (int)sizeof(struct in6_addr); i++) {
+			snprintf(hex, sizeof(hex), "%02x", *(ui8 + i));
+			strlcat(buf, hex, sizeof(buf));
+		}
+
+		log_debug("\t\t%s", buf);
+		break;
+
 	case OFP_XM_T_IPV6_SRC:
 	case OFP_XM_T_IPV6_DST:
-	case OFP_XM_T_IPV6_ND_TARGET:
 		len = sizeof(struct in6_addr);
 		if (hasmask)
 			len *= 2;
@@ -473,10 +515,9 @@ ofp13_validate_packet_out(struct switchd *sc,
     struct ofp_header *oh, struct ibuf *ibuf)
 {
 	struct ofp_packet_out		*pout;
-	size_t				 len;
-	off_t				 off;
+	size_t				 len, plen, diff;
+	off_t				 off, noff;
 	struct ofp_action_header	*ah;
-	struct ofp_action_output	*ao;
 
 	off = 0;
 	if ((pout = ibuf_seek(ibuf, off, sizeof(*pout))) == NULL) {
@@ -485,36 +526,42 @@ ofp13_validate_packet_out(struct switchd *sc,
 		return (-1);
 	}
 
-	log_debug("\tbuffer %s port %s actions length %u",
-	    print_map(ntohl(pout->pout_buffer_id), ofp_pktout_map),
-	    print_map(ntohl(pout->pout_in_port), ofp_port_map),
-	    ntohs(pout->pout_actions_len));
-	len = ntohl(pout->pout_actions_len);
-
 	off += sizeof(*pout);
-	while ((ah = ibuf_seek(ibuf, off, len)) != NULL &&
-	    ntohs(ah->ah_len) >= (uint16_t)sizeof(*ah)) {
-		switch (ntohs(ah->ah_type)) {
-		case OFP_ACTION_OUTPUT:
-			ao = (struct ofp_action_output *)ah;
-			log_debug("\t\taction type %s length %d "
-			    "port %s max length %s",
-			    print_map(ntohs(ao->ao_type), ofp_action_map),
-			    ntohs(ao->ao_len),
-			    print_map(ntohs(ao->ao_port), ofp_port_map),
-			    print_map(ntohs(ao->ao_max_len),
-			    ofp_controller_maxlen_map));
-			break;
-		default:
-			log_debug("\t\taction type %s length %d",
-			    print_map(ntohs(ah->ah_type), ofp_action_map),
-			    ntohs(ah->ah_len));
-			break;
-		}
-		if (pout->pout_buffer_id == (uint32_t)-1)
-			break;
-		off += ntohs(ah->ah_len);
+	len = ntohs(pout->pout_actions_len);
+	log_debug("\tbuffer %s in_port %s actions_len %lu",
+	    print_map(ntohl(pout->pout_buffer_id), ofp_pktout_map),
+	    print_map(ntohl(pout->pout_in_port), ofp_port_map), len);
+
+	while (len > 0) {
+		if ((ah = ibuf_seek(ibuf, off, sizeof(*ah))) == NULL)
+			return (-1);
+
+		noff = off;
+		ofp13_validate_action(sc, oh, ibuf, &off, ah);
+
+		diff = off - noff;
+		/* Loop prevention. */
+		if (off < noff || diff == 0)
+			return (-1);
+
+		len -= diff;
 	}
+
+	/* Check for encapsulated packet truncation. */
+	len = ntohs(oh->oh_length) - off;
+	plen = ibuf_length(ibuf) - off;
+
+	if (plen < len) {
+		log_debug("\ttruncated packet %lu < %lu", plen, len);
+
+		/* Buffered packets can be truncated */
+		if (pout->pout_buffer_id != htonl(OFP_PKTOUT_NO_BUFFER))
+			len = plen;
+		else
+			return (-1);
+	}
+	if (ibuf_seek(ibuf, off, len) == NULL)
+		return (-1);
 
 	return (0);
 }
@@ -592,13 +639,8 @@ ofp13_hello(struct switchd *sc, struct switch_connection *con,
 		return (-1);
 	}
 
-	/* Echo back the received Hello packet */
-	oh->oh_version = OFP_V_1_3;
-	oh->oh_length = htons(sizeof(*oh));
-	oh->oh_xid = htonl(con->con_xidnxt++);
-	if (ofp13_validate(sc, &con->con_local, &con->con_peer, oh, NULL) != 0)
+	if (ofp_recv_hello(sc, con, oh, ibuf) == -1)
 		return (-1);
-	ofp_output(con, oh, NULL);
 
 	/* Ask for switch features so we can get more information. */
 	if (ofp13_featuresrequest(sc, con) == -1)
@@ -1081,7 +1123,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 		fm->fm_priority = 0;
 		fm->fm_buffer_id = pin->pin_buffer_id;
 		fm->fm_flags = htons(OFP_FLOWFLAG_SEND_FLOW_REMOVED);
-		if (pin->pin_buffer_id == OFP_PKTOUT_NO_BUFFER)
+		if (pin->pin_buffer_id == htonl(OFP_PKTOUT_NO_BUFFER))
 			sendbuffer = 1;
 
 		/* Write flow matches to create an entry. */
@@ -1115,7 +1157,7 @@ ofp13_packet_in(struct switchd *sc, struct switch_connection *con,
 			goto done;
 
 		/* Add optional packet payload */
-		if (pin->pin_buffer_id == OFP_PKTOUT_NO_BUFFER &&
+		if (pin->pin_buffer_id == htonl(OFP_PKTOUT_NO_BUFFER) &&
 		    imsg_add(obuf, pkt.pkt_buf, pkt.pkt_len) == -1)
 			goto done;
 	}
@@ -1388,19 +1430,178 @@ ofp13_multipart_reply(struct switchd *sc, struct switch_connection *con,
 }
 
 int
+ofp13_validate_tableproperty(struct ibuf *ibuf, off_t off, int remaining)
+{
+	struct ofp_table_features		*tf;
+	struct ofp_table_feature_property	*tp;
+	struct ofp_instruction			*i;
+	struct ofp_action_header		*ah;
+	struct ofp_ox_match			*oxm;
+	uint8_t					*nexttable;
+	int					 hlen, htype, tplen;
+	int					 type, length, class;
+	int					 padsize;
+
+ next_table:
+	if ((tf = ibuf_seek(ibuf, off, sizeof(*tf))) == NULL)
+		return (-1);
+
+	hlen = ntohs(tf->tf_length);
+	log_debug("\t\ttable features length %d tableid %s "
+	    " name \"%s\" metadata match %#016llx write %#016llx "
+	    "config %u max_entries %u",
+	    hlen, print_map(tf->tf_tableid, ofp_table_id_map), tf->tf_name,
+	    be64toh(tf->tf_metadata_match),
+	    be64toh(tf->tf_metadata_write), ntohl(tf->tf_config),
+	    ntohl(tf->tf_max_entries));
+
+	off += sizeof(*tf);
+	remaining -= sizeof(*tf);
+	hlen -= sizeof(*tf);
+
+ next_property:
+	if ((tp = ibuf_seek(ibuf, off, sizeof(*tp))) == NULL)
+		return (-1);
+
+	off += sizeof(*tp);
+	htype = ntohs(tp->tp_type);
+	tplen = ntohs(tp->tp_length);
+	padsize = OFP_ALIGN(tplen) - tplen;
+	remaining -= tplen;
+	hlen -= tplen;
+
+	/* Don't count the header bytes for payload. */
+	tplen -= sizeof(*tp);
+
+	log_debug("\t\t%s (length %d):",
+	    print_map(htype, ofp_table_featprop_map), tplen);
+	if (tplen <= 0)
+		goto empty_table;
+
+	switch (htype) {
+	case OFP_TABLE_FEATPROP_INSTRUCTION:
+	case OFP_TABLE_FEATPROP_INSTRUCTION_MISS:
+		while (tplen > 0) {
+			if ((i = ibuf_seek(ibuf, off, sizeof(*i))) == NULL)
+				return (-1);
+
+			type = ntohs(i->i_type);
+			length = ntohs(i->i_len);
+			if (type == OFP_INSTRUCTION_T_EXPERIMENTER) {
+				tplen -= length;
+				off += length;
+			} else {
+				tplen -= sizeof(*i);
+				off += sizeof(*i);
+			}
+
+			log_debug("\t\t\ttype %s length %d",
+			    print_map(type, ofp_instruction_t_map), length);
+		}
+		break;
+
+	case OFP_TABLE_FEATPROP_NEXT_TABLES:
+	case OFP_TABLE_FEATPROP_NEXT_TABLES_MISS:
+		while (tplen > 0) {
+			if ((nexttable = ibuf_seek(ibuf, off,
+			    sizeof(*nexttable))) == NULL)
+				return (-1);
+
+			log_debug("\t\t\t%d", *nexttable);
+
+			off += sizeof(*nexttable);
+			tplen -= sizeof(*nexttable);
+		}
+		break;
+
+	case OFP_TABLE_FEATPROP_WRITE_ACTIONS:
+	case OFP_TABLE_FEATPROP_WRITE_ACTIONS_MISS:
+	case OFP_TABLE_FEATPROP_APPLY_ACTIONS:
+	case OFP_TABLE_FEATPROP_APPLY_ACTIONS_MISS:
+		while (tplen > 0) {
+			/* NOTE: we read the action header without the pad. */
+			if ((ah = ibuf_seek(ibuf, off, 4)) == NULL)
+				return (-1);
+
+			type = ntohs(ah->ah_type);
+			length = ntohs(ah->ah_len);
+			log_debug("\t\t\taction %s length %d",
+			    print_map(type, ofp_action_map), length);
+			if (type == OFP_ACTION_EXPERIMENTER) {
+				tplen -= length;
+				off += length;
+			} else {
+				tplen -= 4;
+				off += 4;
+			}
+		}
+		break;
+
+	case OFP_TABLE_FEATPROP_MATCH:
+	case OFP_TABLE_FEATPROP_WILDCARDS:
+	case OFP_TABLE_FEATPROP_WRITE_SETFIELD:
+	case OFP_TABLE_FEATPROP_WRITE_SETFIELD_MISS:
+	case OFP_TABLE_FEATPROP_APPLY_SETFIELD:
+	case OFP_TABLE_FEATPROP_APPLY_SETFIELD_MISS:
+		while (tplen > 0) {
+			if ((oxm = ibuf_seek(ibuf, off, sizeof(*oxm))) == NULL)
+				return (-1);
+
+			class = ntohs(oxm->oxm_class);
+			type = OFP_OXM_GET_FIELD(oxm);
+			length = oxm->oxm_length;
+			if (class == OFP_OXM_C_OPENFLOW_EXPERIMENTER) {
+				off += sizeof(*oxm) + 4;
+				tplen -= sizeof(*oxm) + 4;
+			} else {
+				off += sizeof(*oxm);
+				tplen -= sizeof(*oxm);
+			}
+
+			log_debug("\t\t\tclass %s type %s length %d",
+			    print_map(class, ofp_oxm_c_map),
+			    print_map(type, ofp_xm_t_map), length);
+		}
+		break;
+
+	case OFP_TABLE_FEATPROP_EXPERIMENTER:
+	case OFP_TABLE_FEATPROP_EXPERIMENTER_MISS:
+		off += tplen;
+		break;
+
+	default:
+		return (-1);
+	}
+
+ empty_table:
+	if (padsize) {
+		off += padsize;
+		remaining -= padsize;
+		hlen -= padsize;
+	}
+	if (hlen > 0)
+		goto next_property;
+	if (remaining > 0)
+		goto next_table;
+
+	return (0);
+}
+
+int
 ofp13_multipart_reply_validate(struct switchd *sc,
     struct sockaddr_storage *src, struct sockaddr_storage *dst,
     struct ofp_header *oh, struct ibuf *ibuf)
 {
 	struct ofp_multipart		*mp;
-	struct ofp_table_features	*tf;
 	struct ofp_flow_stats		*fs;
 	struct ofp_desc			*d;
 	struct ofp_match		*om;
 	struct ofp_ox_match		*oxm;
+	struct ofp_instruction		*oi;
 	int				 mptype, mpflags, hlen;
 	int				 remaining, matchlen, matchtype;
-	off_t				 off, moff;
+	int				 ilen, padsize;
+	off_t				 off, moff, offdiff;
 
 	remaining = ntohs(oh->oh_length);
 
@@ -1455,12 +1656,16 @@ ofp13_multipart_reply_validate(struct switchd *sc,
 
 		om = &fs->fs_match;
 		matchtype = ntohs(om->om_type);
-		matchlen = ntohs(om->om_length) - sizeof(*om);
+		matchlen = ntohs(om->om_length);
+		padsize = OFP_ALIGN(matchlen) - matchlen;
+		ilen = hlen -
+		    ((sizeof(*fs) - sizeof(*om)) + matchlen + padsize);
 
 		/* We don't know how to parse anything else yet. */
 		if (matchtype != OFP_MATCH_OXM)
 			break;
 
+		matchlen -= sizeof(*om);
 		while (matchlen) {
 			if ((oxm = ibuf_seek(ibuf, moff, sizeof(*oxm))) == NULL)
 				return (-1);
@@ -1469,6 +1674,22 @@ ofp13_multipart_reply_validate(struct switchd *sc,
 			moff += sizeof(*oxm) + oxm->oxm_length;
 			matchlen -= sizeof(*oxm) + oxm->oxm_length;
 		}
+
+		moff += padsize;
+
+		while (ilen) {
+			offdiff = moff;
+			if ((oi = ibuf_seek(ibuf, moff, sizeof(*oi))) == NULL ||
+			    ofp13_validate_instruction(sc, oh, ibuf,
+			    &moff, oi) == -1)
+				return (-1);
+			/* Avoid loops. */
+			if ((moff - offdiff) == 0)
+				return (-1);
+
+			ilen -= moff - offdiff;
+		}
+
 		if (remaining)
 			goto read_next_flow;
 		break;
@@ -1486,23 +1707,8 @@ ofp13_multipart_reply_validate(struct switchd *sc,
 		break;
 
 	case OFP_MP_T_TABLE_FEATURES:
- read_next_table:
-		if ((tf = ibuf_seek(ibuf, off, sizeof(*tf))) == NULL)
+		if (ofp13_validate_tableproperty(ibuf, off, remaining))
 			return (-1);
-
-		hlen = ntohs(tf->tf_length);
-		log_debug("\ttable features length %d tableid %s name \"%s\" "
-		    "config %u max_entries %u "
-		    "metadata match %#016llx write %#016llx",
-		    hlen, print_map(tf->tf_tableid, ofp_table_id_map),
-		    tf->tf_name,ntohl(tf->tf_config),
-		    ntohl(tf->tf_max_entries),
-		    be64toh(tf->tf_metadata_match),
-		    be64toh(tf->tf_metadata_write));
-		remaining -= hlen;
-		off += hlen;
-		if (remaining)
-			goto read_next_table;
 		break;
 
 	case OFP_MP_T_PORT_DESC:

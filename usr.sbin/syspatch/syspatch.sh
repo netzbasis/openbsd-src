@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.56 2016/11/17 15:15:49 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.60 2016/11/22 14:20:39 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -20,7 +20,7 @@ set -e
 
 sp_err()
 {
-	echo "${@}" 1>&2 && return 1
+	echo "${1}" 1>&2 && return ${2:-1}
 }
 
 usage()
@@ -30,7 +30,7 @@ usage()
 
 apply_patch()
 {
-	local _explodir _file _files _patch=$1
+	local _explodir _file _files _patch=$1 _ret=0
 	[[ -n ${_patch} ]]
 
 	_explodir=${_TMP}/${_patch}
@@ -42,18 +42,18 @@ apply_patch()
 	create_rollback ${_patch} "${_files}"
 
 	for _file in ${_files}; do
+		[[ ${_ret} == 0 ]] || break
 		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
-			if ! install_kernel ${_explodir}/${_file}; then
-				rollback_patch
-				sp_err "Failed to apply ${_patch} (/${_file})"
-			fi
+			install_kernel ${_explodir}/${_file} || _ret=$?
 		else
-			if ! install_file ${_explodir}/${_file} /${_file}; then
-				rollback_patch
-				sp_err "Failed to apply ${_patch} (/${_file})"
-			fi
+			install_file ${_explodir}/${_file} /${_file} || _ret=$?
 		fi
 	done
+
+	if [[ ${_ret} != 0 ]]; then
+		sp_err "Failed to apply ${_patch} (/${_file})" 0
+		rollback_patch; return ${_ret}
+	fi
 }
 
 apply_patches()
@@ -89,7 +89,7 @@ checkfs()
 
 	eval $(cd / &&
 		stat -qf "_dev=\"\${_dev} %Sd\" %Sd=\"\${%Sd:+\${%Sd}\+}%Uz\"" \
-		${_files}) || true # ignore nonexistent files
+			${_files}) || true # ignore nonexistent files
 
 	for _d in $(printf '%s\n' ${_dev} | sort -u); do
 		mount | grep -v read-only | grep -q "^/dev/${_d} " ||
@@ -105,7 +105,7 @@ create_rollback()
 {
 	local _file _patch=$1 _rbfiles
 	[[ -n ${_patch} ]]
-	local _rbpatch=rollback${_patch#syspatch}
+	local _rbpatch=${_patch#syspatch${_RELINT}-}.rollback.tgz
 	shift
 	local _files="${@}"
 	[[ -n ${_files} ]]
@@ -125,15 +125,14 @@ create_rollback()
 		# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
 		if ${_BSDMP} &&
 			tar -tzf ${_TMP}/${_patch}.tgz bsd >/dev/null 2>&1; then
-			tar -czf ${_PDIR}/${_REL}/${_rbpatch}.tgz \
+			tar -czf ${_PDIR}/${_REL}/${_rbpatch} \
 				-s '/^bsd.mp$//' -s '/^bsd$/bsd.mp/' \
 				-s '/^bsd.sp$/bsd/' bsd.sp ${_rbfiles}
 		else
-			tar -czf ${_PDIR}/${_REL}/${_rbpatch}.tgz \
-				${_rbfiles}
+			tar -czf ${_PDIR}/${_REL}/${_rbpatch} ${_rbfiles}
 		fi
 	); then
-		rm ${_PDIR}/${_REL}/${_rbpatch}.tgz
+		rm ${_PDIR}/${_REL}/${_rbpatch}
 		sp_err "Failed to create rollback for ${_patch}"
 	fi
 }
@@ -180,7 +179,7 @@ ls_installed()
 {
 	local _p
 	### XXX temporary quirks; remove before 6.1
-	local _r
+	local _r _s _t
 	if [[ ! -d ${_PDIR}/${_REL} ]]; then
 		[[ $(id -u) -ne 0 ]] && sp_err "${0##*/}: need root privileges"
 		install -d -m 0755 ${_PDIR}/${_REL}
@@ -196,10 +195,19 @@ ls_installed()
 			mv ${_r} rollback${_RELINT}${_r#*-syspatch-${_RELINT}}
 		fi
 	done )
+	( cd ${_PDIR}/${_REL} && for _s in *; do
+		if [[ ${_s} == rollback${_RELINT}-*.tgz ]]; then
+			[[ $(id -u) -ne 0 ]] && \
+				sp_err "${0##*/}: need root privileges"
+			_t=${_s#rollback${_RELINT}-}
+			_t=${_t%.tgz}
+			mv ${_s} ${_t}.rollback.tgz
+		fi
+	done )
 	###
-	for _p in ${_PDIR}/${_REL}/rollback${_RELINT}-*.tgz; do
-		[[ -f ${_p} ]] && _p=${_p:##*/} && _p=${_p#rollback} &&
-			echo syspatch${_p%.tgz}
+	for _p in ${_PDIR}/${_REL}/*.rollback.tgz; do
+		[[ -f ${_p} ]] && _p=${_p##*/} &&
+			echo syspatch${_RELINT}-${_p%%.*}
 	done | sort -V
 }
 
@@ -223,33 +231,34 @@ ls_missing()
 
 rollback_patch()
 {
-	local _explodir _file _files _patch _rbpatch
+	local _explodir _file _files _patch _rbpatch _ret=0
 
 	_patch="$(ls_installed | sort -V | tail -1)"
 	[[ -n ${_patch} ]]
 
-	_rbpatch=rollback${_patch#syspatch}
-	_explodir=${_TMP}/${_rbpatch}
+	_rbpatch=${_patch#syspatch${_RELINT}-}.rollback.tgz
+	_explodir=${_TMP}/${_rbpatch%.tgz}
 
 	echo "Reverting ${_patch}"
 	mkdir -p ${_explodir}
 
-	_files="$(tar xvzphf ${_PDIR}/${_REL}/${_rbpatch}.tgz -C \
-		${_explodir})"
-	checkfs ${_files}
+	_files="$(tar xvzphf ${_PDIR}/${_REL}/${_rbpatch} -C ${_explodir})"
+	checkfs ${_files} ${_PDIR}/${_REL} # check for ro /var/syspatch/${OSREV}
 
 	for _file in ${_files}; do
+		[[ ${_ret} == 0 ]] || break
 		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
-			install_kernel ${_explodir}/${_file} ||
-				sp_err "Failed to revert ${_patch} (/${_file})"
+			install_kernel ${_explodir}/${_file} || _ret=$?
 		else
-			install_file ${_explodir}/${_file} /${_file} ||
-				sp_err "Failed to revert ${_patch} (/${_file})"
+			install_file ${_explodir}/${_file} /${_file} || _ret=$?
 		fi
 	done
 
-	rm ${_PDIR}/${_REL}/${_rbpatch}.tgz \
-		${_PDIR}/${_REL}/${_patch#syspatch${_RELINT}-}.patch.sig
+	# `-f' in case we failed to install *.patch.sig
+	rm -f ${_PDIR}/${_REL}/${_patch#syspatch${_RELINT}-}.patch.sig
+
+	rm ${_PDIR}/${_REL}/${_rbpatch} && [[ ${_ret} == 0 ]] ||
+		sp_err "Failed to revert ${_patch}" ${_ret}
 
 	sp_cleanup
 }
@@ -261,17 +270,17 @@ sp_cleanup()
 	# remove non matching release /var/syspatch/ content
 	for _d in ${_PDIR}/*; do
 		[[ -e ${_d} ]] || continue
-		[[ ${_d:##*/} == ${_REL} ]] || rm -r ${_d}
+		[[ ${_d##*/} == ${_REL} ]] || rm -r ${_d}
 	done
 
-	# remove non matching release rollback kernel
+	# remove non matching release backup kernel
 	for _k in /bsd.syspatch*; do
 		[[ -f ${_k} ]] || continue
 		[[ ${_k} == /bsd.syspatch${_RELINT} ]] || rm ${_k}
 	done
 
 	# remove rollback kernel if all kernel syspatches have been reverted
-	cmp -s /bsd /bsd.syspatch${_RELINT} && rm /bsd.syspatch${_RELINT}
+	! cmp -s /bsd /bsd.syspatch${_RELINT} || rm /bsd.syspatch${_RELINT}
 
 	# in case a patch added a new directory (install -D);
 	# non-fatal in case some mount point is read-only or remote
@@ -307,7 +316,7 @@ set -A _KERNV -- $(sysctl -n kern.version |
 
 # XXX to be discussed; check for $ARCH?
 [[ -d ${PATCH_PATH} ]] && PATCH_PATH="file://$(readlink -f ${PATCH_PATH})"
-[[ ${PATCH_PATH:%%://*} == @(file|ftp|http|https) ]] ||
+[[ ${PATCH_PATH%%://*} == @(file|ftp|http|https) ]] ||
 	sp_err "No valid PATCH_PATH set"
 
 [[ $(sysctl -n hw.ncpufound) -gt 1 ]] && _BSDMP=true || _BSDMP=false

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf_norm.c,v 1.195 2016/10/26 21:07:22 bluhm Exp $ */
+/*	$OpenBSD: pf_norm.c,v 1.197 2016/11/22 19:29:54 procter Exp $ */
 
 /*
  * Copyright 2001 Niels Provos <provos@citi.umich.edu>
@@ -331,16 +331,16 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 
 	/* Non terminal fragments must have more fragments flag */
 	if (frent->fe_off + frent->fe_len < total && !frent->fe_mff)
-		goto bad_fragment;
+		goto free_ipv6_fragment;
 
 	/* Check if we saw the last fragment already */
 	if (!TAILQ_LAST(&frag->fr_queue, pf_fragq)->fe_mff) {
 		if (frent->fe_off + frent->fe_len > total ||
 		    (frent->fe_off + frent->fe_len == total && frent->fe_mff))
-			goto bad_fragment;
+			goto free_ipv6_fragment;
 	} else {
 		if (frent->fe_off + frent->fe_len == total && !frent->fe_mff)
-			goto bad_fragment;
+			goto free_ipv6_fragment;
 	}
 
 	/* Find a fragment after the current one */
@@ -406,7 +406,10 @@ pf_fillup_fragment(struct pf_fragment_cmp *key, struct pf_frent *frent,
 
 	return (frag);
 
+free_ipv6_fragment:
 #ifdef INET6
+	if (frag->fr_af == AF_INET)
+		goto bad_fragment;
 free_fragment:
 	/*
 	 * RFC 5722, Errata 3089:  When reassembling an IPv6 datagram, if one
@@ -851,7 +854,7 @@ no_fragment:
 int
 pf_normalize_tcp(struct pf_pdesc *pd)
 {
-	struct tcphdr	*th = pd->hdr.tcp;
+	struct tcphdr	*th = &pd->hdr.tcp;
 	u_short		 reason;
 	u_int8_t	 flags;
 	u_int		 rewrite = 0;
@@ -907,7 +910,7 @@ tcp_drop:
 int
 pf_normalize_tcp_init(struct pf_pdesc *pd, struct pf_state_peer *src)
 {
-	struct tcphdr	*th = pd->hdr.tcp;
+	struct tcphdr	*th = &pd->hdr.tcp;
 	u_int32_t	 tsval, tsecr;
 	u_int8_t	 hdr[60];
 	u_int8_t	*opt;
@@ -1002,7 +1005,7 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd, u_short *reason,
     struct pf_state *state, struct pf_state_peer *src,
     struct pf_state_peer *dst, int *writeback)
 {
-	struct tcphdr	*th = pd->hdr.tcp;
+	struct tcphdr	*th = &pd->hdr.tcp;
 	struct timeval	 uptime;
 	u_int32_t	 tsval, tsecr;
 	u_int		 tsval_from_last;
@@ -1393,7 +1396,7 @@ pf_normalize_tcp_stateful(struct pf_pdesc *pd, u_short *reason,
 int
 pf_normalize_mss(struct pf_pdesc *pd, u_int16_t maxmss)
 {
-	struct tcphdr	*th = pd->hdr.tcp;
+	struct tcphdr	*th = &pd->hdr.tcp;
 	u_int16_t	 mss;
 	int		 thoff;
 	int		 opt, cnt, optlen = 0;

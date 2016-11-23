@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_socket.c,v 1.22 2016/10/06 17:02:10 bluhm Exp $	*/
+/*	$OpenBSD: sys_socket.c,v 1.25 2016/11/22 12:11:38 mpi Exp $	*/
 /*	$NetBSD: sys_socket.c,v 1.13 1995/08/12 23:59:09 mycroft Exp $	*/
 
 /*
@@ -73,6 +73,7 @@ int
 soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 {
 	struct socket *so = (struct socket *)fp->f_data;
+	int s, error = 0;
 
 	switch (cmd) {
 
@@ -118,12 +119,20 @@ soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 	 * interface and routing ioctls should have a
 	 * different entry since a socket's unnecessary
 	 */
-	if (IOCGROUP(cmd) == 'i')
-		return (ifioctl(so, cmd, data, p));
+	if (IOCGROUP(cmd) == 'i') {
+		s = splsoftnet();
+		error = ifioctl(so, cmd, data, p);
+		splx(s);
+		return (error);
+	}
 	if (IOCGROUP(cmd) == 'r')
-		return (rtioctl(cmd, data, p));
-	return ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL, 
+		return (EOPNOTSUPP);
+	s = splsoftnet();
+	error = ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL, 
 	    (struct mbuf *)cmd, (struct mbuf *)data, (struct mbuf *)NULL, p));
+	splx(s);
+
+	return (error);
 }
 
 int
@@ -167,6 +176,7 @@ int
 soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 {
 	struct socket *so = fp->f_data;
+	int s;
 
 	memset(ub, 0, sizeof (*ub));
 	ub->st_mode = S_IFSOCK;
@@ -177,8 +187,10 @@ soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 		ub->st_mode |= S_IWUSR | S_IWGRP | S_IWOTH;
 	ub->st_uid = so->so_euid;
 	ub->st_gid = so->so_egid;
+	s = splsoftnet();
 	(void) ((*so->so_proto->pr_usrreq)(so, PRU_SENSE,
 	    (struct mbuf *)ub, NULL, NULL, p));
+	splx(s);
 	return (0);
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta_session.c,v 1.87 2016/11/20 08:43:36 eric Exp $	*/
+/*	$OpenBSD: mta_session.c,v 1.89 2016/11/22 07:28:42 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -1177,15 +1177,13 @@ mta_io(struct io *io, int evt, void *arg)
 
 	case IO_DATAIN:
 	    nextline:
-		line = iobuf_getline(&s->iobuf, &len);
+		line = io_getline(&s->io, &len);
 		if (line == NULL) {
-			if (iobuf_len(&s->iobuf) >= LINE_MAX) {
+			if (io_datalen(&s->io) >= LINE_MAX) {
 				mta_error(s, "Input too long");
 				mta_free(s);
-				return;
 			}
-			iobuf_normalize(&s->iobuf);
-			break;
+			return;
 		}
 
 		log_trace(TRACE_MTA, "mta: %p: <<< %s", s, line);
@@ -1264,9 +1262,7 @@ mta_io(struct io *io, int evt, void *arg)
 			return;
 		}
 
-		iobuf_normalize(&s->iobuf);
-
-		if (iobuf_len(&s->iobuf)) {
+		if (io_datalen(&s->io)) {
 			log_debug("debug: mta: remaining data in input buffer");
 			mta_error(s, "Remote host sent too much data");
 			if (s->flags & MTA_WAIT)
@@ -1285,7 +1281,7 @@ mta_io(struct io *io, int evt, void *arg)
 			}
 		}
 
-		if (iobuf_queued(&s->iobuf) == 0)
+		if (io_queued(&s->io) == 0)
 			io_set_read(io);
 		break;
 
@@ -1366,7 +1362,7 @@ mta_send(struct mta_session *s, char *fmt, ...)
 
 	log_trace(TRACE_MTA, "mta: %p: >>> %s", s, p);
 
-	iobuf_xfqueue(&s->iobuf, "mta_send", "%s\r\n", p);
+	io_xprintf(&s->io, "%s\r\n", p);
 
 	free(p);
 }
@@ -1381,15 +1377,14 @@ mta_queue_data(struct mta_session *s)
 	size_t	 sz = 0, q;
 	ssize_t	 len;
 
-	q = iobuf_queued(&s->iobuf);
+	q = io_queued(&s->io);
 
-	while (iobuf_queued(&s->iobuf) < MTA_HIWAT) {
+	while (io_queued(&s->io) < MTA_HIWAT) {
 		if ((len = getline(&ln, &sz, s->datafp)) == -1)
 			break;
 		if (ln[len - 1] == '\n')
 			ln[len - 1] = '\0';
-		iobuf_xfqueue(&s->iobuf, "mta_queue_data", "%s%s\r\n",
-		    *ln == '.' ? "." : "", ln);
+		io_xprintf(&s->io, "%s%s\r\n", *ln == '.' ? "." : "", ln);
 	}
 
 	free(ln);
@@ -1404,7 +1399,7 @@ mta_queue_data(struct mta_session *s)
 		s->datafp = NULL;
 	}
 
-	return (iobuf_queued(&s->iobuf) - q);
+	return (io_queued(&s->io) - q);
 }
 
 static void
