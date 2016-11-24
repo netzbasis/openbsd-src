@@ -17,7 +17,7 @@
 #ifndef _DEV_PV_HYPERVVAR_H_
 #define _DEV_PV_HYPERVVAR_H_
 
-#define HYPERV_DEBUG
+/* #define HYPERV_DEBUG */
 
 #ifdef HYPERV_DEBUG
 #define DPRINTF(x...)		printf(x)
@@ -32,7 +32,7 @@ struct hv_msg {
 #define  MSGF_NOSLEEP			  0x0001
 #define  MSGF_NOQUEUE			  0x0002
 #define  MSGF_ORPHANED			  0x0004
-	struct hypercall_postmsg_in	 msg_req;
+	struct hypercall_postmsg_in	 msg_req; /* must be 8 byte aligned */
 	void				*msg_rsp;
 	size_t				 msg_rsplen;
 	TAILQ_ENTRY(hv_msg)		 msg_entry;
