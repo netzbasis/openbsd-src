@@ -1,4 +1,4 @@
-#	$OpenBSD: test-exec.sh,v 1.54 2016/08/23 06:36:23 djm Exp $
+#	$OpenBSD: test-exec.sh,v 1.57 2016/11/25 03:02:01 dtucker Exp $
 #	Placed in the Public Domain.
 
 USER=`id -un`
@@ -310,7 +310,7 @@ Host *
 EOF
 
 if [ ! -z "$TEST_SSH_SSH_CONFOPTS" ]; then
-	trace "adding ssh_config option $TEST_SSH_SSHD_CONFOPTS"
+	trace "adding ssh_config option $TEST_SSH_SSH_CONFOPTS"
 	echo "$TEST_SSH_SSH_CONFOPTS" >> $OBJ/ssh_config
 fi
 
@@ -371,7 +371,11 @@ if test "$REGRESS_INTEROP_PUTTY" = "yes" ; then
 
 	# Add a PuTTY key to authorized_keys
 	rm -f ${OBJ}/putty.rsa2
-	puttygen -t rsa -o ${OBJ}/putty.rsa2 < /dev/null > /dev/null
+	if ! puttygen -t rsa -o ${OBJ}/putty.rsa2 \
+	    --new-passphrase /dev/null < /dev/null > /dev/null; then
+		echo "Your installed version of PuTTY is too old to support --new-passphrase; trying without (may require manual interaction) ..." >&2
+		puttygen -t rsa -o ${OBJ}/putty.rsa2 < /dev/null > /dev/null
+	fi
 	puttygen -O public-openssh ${OBJ}/putty.rsa2 \
 	    >> $OBJ/authorized_keys_$USER
 
@@ -384,10 +388,12 @@ if test "$REGRESS_INTEROP_PUTTY" = "yes" ; then
 	# Setup proxied session
 	mkdir -p ${OBJ}/.putty/sessions
 	rm -f ${OBJ}/.putty/sessions/localhost_proxy
-	echo "Hostname=127.0.0.1" >> ${OBJ}/.putty/sessions/localhost_proxy
+	echo "Protocol=ssh" >> ${OBJ}/.putty/sessions/localhost_proxy
+	echo "HostName=127.0.0.1" >> ${OBJ}/.putty/sessions/localhost_proxy
 	echo "PortNumber=$PORT" >> ${OBJ}/.putty/sessions/localhost_proxy
 	echo "ProxyMethod=5" >> ${OBJ}/.putty/sessions/localhost_proxy
-	echo "ProxyTelnetCommand=sh ${SRC}/sshd-log-wrapper.sh ${SSHD} ${TEST_SSHD_LOGFILE} -i -f $OBJ/sshd_proxy" >> ${OBJ}/.putty/sessions/localhost_proxy
+	echo "ProxyTelnetCommand=sh ${SRC}/sshd-log-wrapper.sh ${TEST_SSHD_LOGFILE} ${SSHD} -i -f $OBJ/sshd_proxy" >> ${OBJ}/.putty/sessions/localhost_proxy
+	echo "ProxyLocalhost=1" >> ${OBJ}/.putty/sessions/localhost_proxy
 
 	REGRESS_INTEROP_PUTTY=yes
 fi
@@ -395,7 +401,7 @@ fi
 # create a proxy version of the client config
 (
 	cat $OBJ/ssh_config
-	echo proxycommand ${SUDO} sh ${SRC}/sshd-log-wrapper.sh ${SSHD} ${TEST_SSHD_LOGFILE} -i -f $OBJ/sshd_proxy
+	echo proxycommand ${SUDO} sh ${SRC}/sshd-log-wrapper.sh ${TEST_SSHD_LOGFILE} ${SSHD} -i -f $OBJ/sshd_proxy
 ) > $OBJ/ssh_proxy
 
 # check proxy config
