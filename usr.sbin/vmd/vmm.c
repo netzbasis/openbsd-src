@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmm.c,v 1.56 2016/11/24 07:58:55 reyk Exp $	*/
+/*	$OpenBSD: vmm.c,v 1.58 2016/11/26 20:03:42 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -64,7 +64,6 @@
 io_fn_t ioports_map[MAX_PORTS];
 
 void vmm_sighdlr(int, short, void *);
-int start_client_vmd(void);
 int opentap(char *);
 int start_vm(struct imsg *, uint32_t *);
 int terminate_vm(struct vm_terminate_params *);
@@ -461,13 +460,13 @@ int
 start_vm(struct imsg *imsg, uint32_t *id)
 {
 	struct vm_create_params	*vcp;
+	struct vmboot_params	 vmboot;
 	struct vmd_vm		*vm;
 	size_t			 i;
 	int			 ret = EINVAL;
 	int			 fds[2], nicfds[VMM_MAX_NICS_PER_VM];
 	struct vcpu_reg_state	 vrs;
 	FILE			*kernfp;
-	void			*boot;
 
 	if ((vm = vm_getbyvmid(imsg->hdr.peerid)) == NULL) {
 		log_warnx("%s: can't find vm", __func__);
@@ -485,7 +484,7 @@ start_vm(struct imsg *imsg, uint32_t *id)
 		fatal("socketpair");
 
 	/* Start child vmd for this VM (fork, chroot, drop privs) */
-	ret = start_client_vmd();
+	ret = fork();
 
 	/* Start child failed? - cleanup and leave */
 	if (ret == -1) {
@@ -570,17 +569,18 @@ start_vm(struct imsg *imsg, uint32_t *id)
 
 		/* Find and open kernel image */
 		if ((kernfp = vmboot_open(vm->vm_kernel,
-		    vm->vm_disks[0], &boot)) == NULL)
+		    vm->vm_disks[0], &vmboot)) == NULL)
 			fatalx("failed to open kernel - exiting");
 
 		/* Load kernel image */
-		ret = loadelf_main(kernfp, vcp, &vrs);
+		ret = loadelf_main(kernfp, vcp, &vrs,
+		    vmboot.vbp_bootdev, vmboot.vbp_howto);
 		if (ret) {
 			errno = ret;
 			fatal("failed to load kernel - exiting");
 		}
 
-		vmboot_close(kernfp, boot);
+		vmboot_close(kernfp, &vmboot);
 
 		if (vm->vm_kernel != -1)
 			close(vm->vm_kernel);
@@ -685,38 +685,6 @@ get_info_vm(struct privsep *ps, struct imsg *imsg, int terminate)
 	}
 	free(info);
 	return (0);
-}
-
-
-/*
- * start_client_vmd
- *
- * forks a copy of the parent vmd, chroots to VMD_USER's home, drops
- * privileges (changes to user VMD_USER), and returns.
- * Should the fork operation succeed, but later chroot/privsep
- * fail, the child exits.
- *
- * Return values (returns to both child and parent on success):
- *  -1 : failure
- *  0: return to child vmd returns 0
- *  !0 : return to parent vmd returns the child's pid
- */
-int
-start_client_vmd(void)
-{
-	int child_pid;
-
-	child_pid = fork();
-	if (child_pid < 0)
-		return (-1);
-
-	if (!child_pid) {
-		/* child, already running without privileges */
-		return (0);
-	}
-
-	/* Parent */
-	return (child_pid);
 }
 
 /*
