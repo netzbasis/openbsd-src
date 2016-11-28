@@ -1,8 +1,8 @@
-.\"	$OpenBSD: EVP_PKEY_new.3,v 1.3 2016/11/27 15:24:27 schwarze Exp $
-.\"	OpenSSL 9b86974e Aug 17 15:21:33 2015 -0400
+.\"	$OpenBSD: OCSP_response_status.3,v 1.1 2016/11/27 20:40:07 schwarze Exp $
+.\"	OpenSSL bb9ad09e Jun 6 00:43:05 2016 -0400
 .\"
 .\" This file was written by Dr. Stephen Henson <steve@openssl.org>.
-.\" Copyright (c) 2002 The OpenSSL Project.  All rights reserved.
+.\" Copyright (c) 2014, 2016 The OpenSSL Project.  All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
 .\" modification, are permitted provided that the following conditions
@@ -49,53 +49,86 @@
 .\" OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
 .Dd $Mdocdate: November 27 2016 $
-.Dt EVP_PKEY_NEW 3
+.Dt OCSP_RESPONSE_STATUS 3
 .Os
 .Sh NAME
-.Nm EVP_PKEY_new ,
-.Nm EVP_PKEY_free
-.Nd private key allocation functions
+.Nm OCSP_response_status ,
+.Nm OCSP_response_get1_basic ,
+.Nm OCSP_response_create ,
+.Nm OCSP_RESPONSE_free
+.Nd OCSP response functions
 .Sh SYNOPSIS
-.In openssl/evp.h
-.Ft EVP_PKEY *
-.Fn EVP_PKEY_new void
+.In openssl/ocsp.h
+.Ft int
+.Fo OCSP_response_status
+.Fa "OCSP_RESPONSE *resp"
+.Fc
+.Ft OCSP_BASICRESP *
+.Fo OCSP_response_get1_basic
+.Fa "OCSP_RESPONSE *resp"
+.Fc
+.Ft OCSP_RESPONSE *
+.Fo OCSP_response_create
+.Fa "int status"
+.Fa "OCSP_BASICRESP *bs"
+.Fc
 .Ft void
-.Fo EVP_PKEY_free
-.Fa "EVP_PKEY *key"
+.Fo OCSP_RESPONSE_free
+.Fa "OCSP_RESPONSE *resp"
 .Fc
 .Sh DESCRIPTION
-The
-.Vt EVP_PKEY
-structure is used by various OpenSSL functions which require a general
-private key without reference to any particular algorithm.
+.Fn OCSP_response_status
+returns the OCSP response status of
+.Fa resp .
+It returns one of the values:
+.Dv OCSP_RESPONSE_STATUS_SUCCESSFUL ,
+.Dv OCSP_RESPONSE_STATUS_MALFORMEDREQUEST ,
+.Dv OCSP_RESPONSE_STATUS_INTERNALERROR ,
+.Dv OCSP_RESPONSE_STATUS_TRYLATER ,
+.Dv OCSP_RESPONSE_STATUS_SIGREQUIRED ,
+or
+.Dv OCSP_RESPONSE_STATUS_UNAUTHORIZED .
 .Pp
-The
-.Fn EVP_PKEY_new
-function allocates an empty
-.Vt EVP_PKEY
-structure.
-To add a private key to it, use the functions described in
-.Xr EVP_PKEY_set1_RSA 3 .
+.Fn OCSP_response_get1_basic
+decodes and returns the
+.Vt OCSP_BASICRESP
+structure contained in
+.Fa resp .
+It is only called if the status of a response is
+.Dv OCSP_RESPONSE_STATUS_SUCCESSFUL .
 .Pp
-.Fn EVP_PKEY_free
-frees up the private key
-.Fa key .
-If
-.Fa key
-is a
-.Dv NULL
-pointer, no action occurs.
+.Fn OCSP_response_create
+creates and returns an
+.Vt OCSP_RESPONSE
+structure for
+.Fa status
+and optionally including basic response
+.Fa bs .
+.Pp
+.Fn OCSP_RESPONSE_free
+frees up OCSP response
+.Fa resp .
 .Sh RETURN VALUES
-.Fn EVP_PKEY_new
-returns either the newly allocated
-.Vt EVP_PKEY
-structure or
+.Fn OCSP_response_status
+returns a status value.
+.Pp
+.Fn OCSP_response_get1_basic
+returns an
+.Vt OCSP_BASICRESP
+structure pointer or
+.Dv NULL
+if an error occurred.
+.Pp
+.Fn OCSP_response_create
+returns an
+.Vt OCSP_RESPONSE
+structure pointer or
 .Dv NULL
 if an error occurred.
 .Sh SEE ALSO
-.Xr EVP_PKEY_set1_RSA 3
-.Sh HISTORY
-.Fn EVP_PKEY_new
-and
-.Fn EVP_PKEY_free
-exist in all versions of OpenSSL.
+.Xr crypto 3 ,
+.Xr OCSP_cert_to_id 3 ,
+.Xr OCSP_request_add1_nonce 3 ,
+.Xr OCSP_REQUEST_new 3 ,
+.Xr OCSP_resp_find_status 3 ,
+.Xr OCSP_sendreq_new 3
