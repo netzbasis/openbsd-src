@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.56 2016/11/27 20:40:07 schwarze Exp $
+# $OpenBSD: Makefile,v 1.60 2016/11/29 00:07:45 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -131,10 +131,13 @@ MAN=	\
 	OPENSSL_VERSION_NUMBER.3 \
 	OPENSSL_config.3 \
 	OPENSSL_load_builtin_modules.3 \
+	OPENSSL_malloc.3 \
 	OpenSSL_add_all_algorithms.3 \
+	PEM_read.3 \
 	PEM_read_bio_PrivateKey.3 \
 	PEM_write_bio_PKCS7_stream.3 \
 	PKCS12_create.3 \
+	PKCS12_newpass.3 \
 	PKCS12_parse.3 \
 	PKCS5_PBKDF2_HMAC.3 \
 	PKCS7_decrypt.3 \
@@ -144,7 +147,6 @@ MAN=	\
 	PKCS7_verify.3 \
 	RAND_add.3 \
 	RAND_bytes.3 \
-	RAND_cleanup.3 \
 	RAND_load_file.3 \
 	RAND_set_rand_method.3 \
 	RC4.3 \

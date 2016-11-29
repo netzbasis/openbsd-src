@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_input.c,v 1.286 2016/11/23 10:04:31 mpi Exp $	*/
+/*	$OpenBSD: ip_input.c,v 1.288 2016/11/28 23:15:31 bluhm Exp $	*/
 /*	$NetBSD: ip_input.c,v 1.30 1996/03/16 23:53:58 christos Exp $	*/
 
 /*
@@ -129,7 +129,6 @@ static struct mbuf_queue	ipsend_mq;
 void	ip_ours(struct mbuf *);
 int	ip_dooptions(struct mbuf *, struct ifnet *);
 int	in_ouraddr(struct mbuf *, struct ifnet *, struct rtentry **);
-void	ip_forward(struct mbuf *, struct ifnet *, struct rtentry *, int);
 #ifdef IPSEC
 int	ip_input_ipsec_fwd_check(struct mbuf *, int);
 int	ip_input_ipsec_ours_check(struct mbuf *, int);
@@ -978,7 +977,8 @@ void
 ip_slowtimo(void)
 {
 	struct ipq *fp, *nfp;
-	int s = splsoftnet();
+
+	splsoftassert(IPL_SOFTNET);
 
 	for (fp = LIST_FIRST(&ipq); fp != NULL; fp = nfp) {
 		nfp = LIST_NEXT(fp, ipq_q);
@@ -987,7 +987,6 @@ ip_slowtimo(void)
 			ip_freef(fp);
 		}
 	}
-	splx(s);
 }
 
 /*
