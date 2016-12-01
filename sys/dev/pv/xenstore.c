@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.29 2016/07/29 21:05:26 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.32 2016/11/29 14:55:04 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -23,6 +23,7 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/mutex.h>
+#include <sys/rwlock.h>
 #include <sys/ioctl.h>
 #include <sys/task.h>
 
@@ -166,7 +167,7 @@ struct xs_softc {
 	struct mutex		 xs_watchlck;
 	struct xs_msg		 xs_emsg;
 
-	uint			 xs_rngsem;
+	struct rwlock		 xs_rnglck;
 };
 
 struct xs_msg *
@@ -243,6 +244,8 @@ xs_attach(struct xen_softc *sc)
 	mtx_init(&xs->xs_rsplck, IPL_NET);
 	mtx_init(&xs->xs_frqlck, IPL_NET);
 
+	rw_init(&xs->xs_rnglck, "xsrnglck");
+
 	mtx_init(&xs->xs_watchlck, IPL_NET);
 	TAILQ_INIT(&xs->xs_watches);
 
@@ -263,25 +266,6 @@ xs_attach(struct xen_softc *sc)
 	free(xs, sizeof(*xs), M_DEVBUF);
 	sc->sc_xs = NULL;
 	return (-1);
-}
-
-static inline int
-xs_sem_get(uint *semaphore)
-{
-	if (atomic_inc_int_nv(semaphore) != 1) {
-		/* we're out of luck */
-		if (atomic_dec_int_nv(semaphore) == 0)
-			wakeup(semaphore);
-		return (0);
-	}
-	return (1);
-}
-
-static inline void
-xs_sem_put(uint *semaphore)
-{
-	if (atomic_dec_int_nv(semaphore) == 0)
-		wakeup(semaphore);
 }
 
 struct xs_msg *
@@ -342,7 +326,7 @@ xs_ring_avail(struct xs_ring *xsr, int req)
 int
 xs_output(struct xs_transaction *xst, uint8_t *bp, int len)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	int chunk, s;
 
 	while (len > 0) {
@@ -383,22 +367,16 @@ int
 xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
     int iov_cnt)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	int i;
 
-	while (!xs_sem_get(&xs->xs_rngsem)) {
-		if (xst->xst_flags & XST_POLL)
-			delay(XST_DELAY * 1000 >> 2);
-		else
-			tsleep(&xs->xs_rngsem, PRIBIO, "xsaccess",
-			    XST_DELAY * hz >> 2);
-	}
+	rw_enter_write(&xs->xs_rnglck);
 
 	/* Header */
 	if (xs_output(xst, (uint8_t *)&xsm->xsm_hdr,
 	    sizeof(xsm->xsm_hdr)) == -1) {
 		printf("%s: failed to write the header\n", __func__);
-		xs_sem_put(&xs->xs_rngsem);
+		rw_exit_write(&xs->xs_rnglck);
 		return (-1);
 	}
 
@@ -407,7 +385,7 @@ xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
 		if (xs_output(xst, iov[i].iov_base, iov[i].iov_len) == -1) {
 			printf("%s: failed on iovec #%d len %ld\n", __func__,
 			    i, iov[i].iov_len);
-			xs_sem_put(&xs->xs_rngsem);
+			rw_exit_write(&xs->xs_rnglck);
 			return (-1);
 		}
 	}
@@ -418,7 +396,7 @@ xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
 
 	xen_intr_signal(xs->xs_ih);
 
-	xs_sem_put(&xs->xs_rngsem);
+	rw_exit_write(&xs->xs_rnglck);
 
 	return (0);
 }
@@ -426,7 +404,7 @@ xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
 struct xs_msg *
 xs_reply(struct xs_transaction *xst, uint rid)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	struct xs_msg *xsm;
 	int s;
 
@@ -725,7 +703,7 @@ int
 xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
     struct iovec **iov, int *iov_cnt)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	struct xs_msg *xsm;
 	struct iovec ov[10];	/* output vector */
 	int datalen = XS_ERR_PAYLOAD;
@@ -821,9 +799,10 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 }
 
 int
-xs_watch(struct xen_softc *sc, const char *path, const char *property,
-    struct task *task, void (*cb)(void *), void *arg)
+xs_watch(void *xsc, const char *path, const char *property, struct task *task,
+    void (*cb)(void *), void *arg)
 {
+	struct xen_softc *sc = xsc;
 	struct xs_softc *xs = sc->sc_xs;
 	struct xs_transaction xst;
 	struct xs_watch *xsw;
@@ -833,7 +812,7 @@ xs_watch(struct xen_softc *sc, const char *path, const char *property,
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
@@ -878,9 +857,10 @@ xs_watch(struct xen_softc *sc, const char *path, const char *property,
 }
 
 int
-xs_getprop(struct xen_softc *sc, const char *path, const char *property,
-    char *value, int size)
+xs_getprop(void *xsc, const char *path, const char *property, char *value,
+    int size)
 {
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec *iovp = NULL;
 	char key[256];
@@ -891,7 +871,7 @@ xs_getprop(struct xen_softc *sc, const char *path, const char *property,
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
@@ -914,9 +894,10 @@ xs_getprop(struct xen_softc *sc, const char *path, const char *property,
 }
 
 int
-xs_setprop(struct xen_softc *sc, const char *path, const char *property,
-    char *value, int size)
+xs_setprop(void *xsc, const char *path, const char *property, char *value,
+    int size)
 {
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
 	char key[256];
@@ -927,7 +908,7 @@ xs_setprop(struct xen_softc *sc, const char *path, const char *property,
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 	if (cold)
 		xst.xst_flags = XST_POLL;
 
@@ -948,9 +929,9 @@ xs_setprop(struct xen_softc *sc, const char *path, const char *property,
 }
 
 int
-xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
+xs_kvop(void *xsc, int op, char *key, char *value, size_t valuelen)
 {
-	struct xen_softc *sc = arg;
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
 	int error = 0, iov_cnt = 0, cmd, i;
@@ -974,7 +955,7 @@ xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 
 	if ((error = xs_cmd(&xst, cmd, key, &iovp, &iov_cnt)) != 0)
 		return (error);
@@ -993,7 +974,7 @@ xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
 			 * returns an empty string (single nul byte),
 			 * so try to get the directory list in this case.
 			 */
-			return (xs_kvop(arg, PVBUS_KVLS, key, value, valuelen));
+			return (xs_kvop(xsc, PVBUS_KVLS, key, value, valuelen));
 		}
 		/* FALLTHROUGH */
 	case XS_LIST:

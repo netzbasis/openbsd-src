@@ -1,4 +1,4 @@
-.\"	$OpenBSD: options.4,v 1.244 2016/09/18 14:28:04 deraadt Exp $
+.\"	$OpenBSD: options.4,v 1.246 2016/11/30 15:08:37 jmc Exp $
 .\"	$NetBSD: options.4,v 1.21 1997/06/25 03:13:00 thorpej Exp $
 .\"
 .\" Copyright (c) 1998 Theo de Raadt
@@ -34,7 +34,7 @@
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
 .\"
-.Dd $Mdocdate: September 18 2016 $
+.Dd $Mdocdate: November 30 2016 $
 .Dt OPTIONS 4
 .Os
 .Sh NAME
@@ -54,22 +54,20 @@ options are passed to the compile process as
 flags to the C compiler.
 .Sh DEBUGGING OPTIONS
 .Bl -ohang
-.It Cd makeoptions DEBUG="-g"
-The
-.Fl g
-flag causes
+.It Cd makeoptions DEBUG=""
+Do not build the debug kernel
+.Pa bsd.gdb .
+Normally,
 .Pa bsd.gdb
-to be built in addition to
-.Pa bsd .
+is built
+(in addition to the regular
+.Pa bsd
+kernel)
+and is used for debugging kernels and their crash dumps with
+.Xr gdb 1 .
+A crash dump can be debugged by starting gdb with
 .Pa bsd.gdb
-is useful for debugging kernels and their crash dumps with gdb.
-A crash dump can be debugged by starting
-.Xr gdb 1
-with the kernel name
-.Pf ( Pa bsd.gdb )
-as an argument (no core file) and then use the
-.Xr gdb 1
-command
+as an argument (no core file) and then using the gdb command
 .Dq target kvm COREFILE .
 .It Cd makeoptions PROF="-pg"
 The
@@ -109,8 +107,6 @@ conditional debugging code.
 Note that many parts of the kernel (typically device drivers) include their own
 .Em #ifdef XXX_DEBUG
 conditionals instead.
-This option also turns on certain other options, notably
-.Cm option KMEMSTATS .
 .It Cd option DIAGNOSTIC
 Adds code to the kernel that does internal consistency checks.
 This code will cause the kernel to panic if corruption of internal data
@@ -345,9 +341,6 @@ Makes the boot process more verbose for EISA peripherals.
 The kernel memory allocator,
 .Xr malloc 9 ,
 will keep statistics on its performance if this option is enabled.
-Note that this option is silently turned on by the
-.Cm DEBUG
-option.
 .It Cd option MACOBIOVERBOSE
 Makes the boot process more verbose for OBIO peripherals on the
 .Va macppc

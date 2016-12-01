@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.39 2016/10/06 17:00:25 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.41 2016/11/29 14:55:04 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -61,10 +61,9 @@ struct xen_softc {
 	struct shared_info	*sc_ipg;	/* HYPERVISOR_shared_info */
 
 	uint32_t		 sc_flags;
-#define  XSF_CBVEC		 0x0001
-#define  XSF_UNPLUG_NIC		 0x0002		/* disable emul. NICs */
-#define  XSF_UNPLUG_IDE		 0x0004		/* disable emul. primary IDE */
-#define  XSF_UNPLUG_IDESEC	 0x0008		/* disable emul. sec. IDE */
+#define  XSF_CBVEC		  0x0001
+
+	uint32_t		 sc_unplug;
 
 	uint64_t		 sc_irq;	/* IDT vector number */
 	SLIST_HEAD(, xen_intsrc) sc_intrs;
@@ -84,11 +83,13 @@ struct xen_softc {
 
 extern struct xen_softc *xen_sc;
 
+#define XEN_MAX_NODE_LEN	64
+#define XEN_MAX_BACKEND_LEN	128
+
 struct xen_attach_args {
-	void			*xa_parent;
 	char			 xa_name[16];
-	char			 xa_node[64];
-	char			 xa_backend[128];
+	char			 xa_node[XEN_MAX_NODE_LEN];
+	char			 xa_backend[XEN_MAX_BACKEND_LEN];
 	int			 xa_domid;
 	bus_dma_tag_t		 xa_dmat;
 };
@@ -123,6 +124,15 @@ void	xen_intr_mask(xen_intr_handle_t);
 int	xen_intr_unmask(xen_intr_handle_t);
 
 /*
+ * Miscellaneous
+ */
+#define XEN_UNPLUG_NIC		0x0001	/* disable emul. NICs */
+#define XEN_UNPLUG_IDE		0x0002	/* disable emul. primary IDE */
+#define XEN_UNPLUG_IDESEC	0x0004	/* disable emul. secondary IDE */
+
+void	xen_unplug_emulated(void *, int);
+
+/*
  *  XenStore
  */
 #define XS_LIST			0x01
@@ -140,7 +150,7 @@ struct xs_transaction {
 	uint32_t		 xst_id;
 	uint32_t		 xst_flags;
 #define XST_POLL		0x0001
-	struct xs_softc		*xst_sc;
+	void			*xst_cookie;
 };
 
 static __inline void
@@ -164,10 +174,10 @@ test_bit(u_int b, volatile void *p)
 int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 	    int *);
 void	xs_resfree(struct xs_transaction *, struct iovec *, int);
-int	xs_watch(struct xen_softc *, const char *, const char *, struct task *,
+int	xs_watch(void *, const char *, const char *, struct task *,
 	    void (*)(void *), void *);
-int	xs_getprop(struct xen_softc *, const char *, const char *, char *, int);
-int	xs_setprop(struct xen_softc *, const char *, const char *, char *, int);
+int	xs_getprop(void *, const char *, const char *, char *, int);
+int	xs_setprop(void *, const char *, const char *, char *, int);
 int	xs_kvop(void *, int, char *, char *, size_t);
 
 #endif	/* _DEV_PV_XENVAR_H_ */
