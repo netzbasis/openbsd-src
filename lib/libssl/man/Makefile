@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.40 2016/11/30 16:46:56 schwarze Exp $
+# $OpenBSD: Makefile,v 1.44 2016/12/01 21:12:49 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -33,17 +33,18 @@ MAN =	BIO_f_ssl.3 \
 	SSL_CTX_set_mode.3 \
 	SSL_CTX_set_msg_callback.3 \
 	SSL_CTX_set_options.3 \
-	SSL_CTX_set_psk_client_callback.3 \
 	SSL_CTX_set_quiet_shutdown.3 \
+	SSL_CTX_set_read_ahead.3 \
 	SSL_CTX_set_session_cache_mode.3 \
 	SSL_CTX_set_session_id_context.3 \
 	SSL_CTX_set_ssl_version.3 \
 	SSL_CTX_set_timeout.3 \
+	SSL_CTX_set_tlsext_status_cb.3 \
+	SSL_CTX_set_tlsext_ticket_key_cb.3 \
 	SSL_CTX_set_tmp_dh_callback.3 \
 	SSL_CTX_set_tmp_rsa_callback.3 \
 	SSL_CTX_set_verify.3 \
 	SSL_CTX_use_certificate.3 \
-	SSL_CTX_use_psk_identity_hint.3 \
 	SSL_SESSION_free.3 \
 	SSL_SESSION_get_ex_new_index.3 \
 	SSL_SESSION_get_time.3 \
@@ -64,7 +65,6 @@ MAN =	BIO_f_ssl.3 \
 	SSL_get_fd.3 \
 	SSL_get_peer_cert_chain.3 \
 	SSL_get_peer_certificate.3 \
-	SSL_get_psk_identity.3 \
 	SSL_get_rbio.3 \
 	SSL_get_session.3 \
 	SSL_get_verify_result.3 \
@@ -80,6 +80,7 @@ MAN =	BIO_f_ssl.3 \
 	SSL_set_bio.3 \
 	SSL_set_connect_state.3 \
 	SSL_set_fd.3 \
+	SSL_set_max_send_fragment.3 \
 	SSL_set_session.3 \
 	SSL_set_shutdown.3 \
 	SSL_set_verify_result.3 \
