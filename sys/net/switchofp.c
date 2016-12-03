@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchofp.c,v 1.40 2016/11/30 19:58:29 rzalamena Exp $	*/
+/*	$OpenBSD: switchofp.c,v 1.43 2016/12/02 17:25:34 rzalamena Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -973,7 +973,7 @@ swofp_create(struct switch_softc *sc)
 	timeout_add_sec(&swofs->swofs_flow_timeout, 10);
 
 	/* TODO: Configured from ifconfig  */
-	swofs->swofs_group_table_num = 1000;
+	swofs->swofs_group_max_table = 1000;
 	swofs->swofs_flow_max_entry = 10000;
 
 	sc->sc_capabilities |= SWITCH_CAP_OFP;
@@ -1073,7 +1073,7 @@ swofp_ioctl(struct ifnet *ifp, unsigned long cmd, caddr_t data)
 		bparam->ifbrp_maxflow = swofs->swofs_flow_max_entry;
 		break;
 	case SIOCSWGMAXGROUP:
-		bparam->ifbrp_maxgroup = swofs->swofs_group_table_num;
+		bparam->ifbrp_maxgroup = swofs->swofs_group_max_table;
 		break;
 	case SIOCSWSPORTNO:
 		if ((error = suser(curproc, 0)) != 0)
@@ -4733,7 +4733,7 @@ swofp_send_flow_removed(struct switch_softc *sc, struct swofp_flow_entry *swfe,
 
 	ofr->fr_oh.oh_version = OFP_V_1_3;
 	ofr->fr_oh.oh_type = OFP_T_FLOW_REMOVED;
-	ofr->fr_oh.oh_xid = htons(sc->sc_ofs->swofs_xidnxt++);
+	ofr->fr_oh.oh_xid = htonl(sc->sc_ofs->swofs_xidnxt++);
 
 	ofr->fr_cookie = htobe64(swfe->swfe_cookie);
 	ofr->fr_priority = htons(swfe->swfe_priority);
@@ -4866,6 +4866,7 @@ swofp_flow_entry_put_instructions(struct mbuf *m,
 int
 swofp_flow_mod_cmd_add(struct switch_softc *sc, struct mbuf *m)
 {
+	struct swofp_ofs		*ofs = sc->sc_ofs;
 	struct ofp_header		*oh;
 	struct ofp_flow_mod		*ofm;
 	struct ofp_match		*om;
@@ -4902,14 +4903,19 @@ swofp_flow_mod_cmd_add(struct switch_softc *sc, struct mbuf *m)
 		goto ofp_error;
 	}
 
-	/* Validate that the OXM are in-place and correct. */
-	if (swofp_validate_flow_match(om, &error)) {
-		etype = OFP_ERRTYPE_BAD_MATCH;
+	if ((swft = swofp_flow_table_add(sc, ofm->fm_table_id)) == NULL) {
+		error = OFP_ERRFLOWMOD_TABLE_ID;
 		goto ofp_error;
 	}
 
-	if ((swft = swofp_flow_table_add(sc, ofm->fm_table_id)) == NULL) {
-		error = OFP_ERRFLOWMOD_TABLE_ID;
+	if (swft->swft_flow_num >= ofs->swofs_flow_max_entry) {
+		error = OFP_ERRFLOWMOD_TABLE_FULL;
+		goto ofp_error;
+	}
+
+	/* Validate that the OXM are in-place and correct. */
+	if (swofp_validate_flow_match(om, &error)) {
+		etype = OFP_ERRTYPE_BAD_MATCH;
 		goto ofp_error;
 	}
 
@@ -5180,11 +5186,17 @@ swofp_flow_mod(struct switch_softc *sc, struct mbuf *m)
 int
 swofp_group_mod_add(struct switch_softc *sc, struct mbuf *m)
 {
+	struct swofp_ofs		*ofs = sc->sc_ofs;
 	struct ofp_group_mod		*ogm;
 	struct swofp_group_entry	*swge;
 	int				 error;
 
 	ogm = mtod(m, struct ofp_group_mod *);
+
+	if (ofs->swofs_group_table_num >= ofs->swofs_group_max_table) {
+		error = OFP_ERRGROUPMOD_OUT_OF_GROUPS;
+		goto failed;
+	}
 
 	if (ntohl(ogm->gm_group_id) > OFP_GROUP_ID_MAX) {
 		error = OFP_ERRGROUPMOD_INVALID_GROUP;
