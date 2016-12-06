@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.69 2016/12/02 10:59:27 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.72 2016/12/05 16:11:17 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -95,7 +95,7 @@ checkfs()
 
 create_rollback()
 {
-	local _file _patch=$1 _rbfiles
+	local _file _patch=$1 _rbfiles _ret=0
 	[[ -n ${_patch} ]]
 	shift
 	local _files="${@}"
@@ -110,21 +110,23 @@ create_rollback()
 		_rbfiles="${_rbfiles} ${_file}"
 	done
 
-	if ! (cd / &&
-		# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
-		if ${_BSDMP} &&
-			tar -tzf ${_TMP}/syspatch${_patch}.tgz bsd >/dev/null \
-				2>&1; then
-			tar -czf ${_PDIR}/${_patch}/rollback.tgz \
-				-s '/^bsd.mp$//' -s '/^bsd$/bsd.mp/' \
-				-s '/^bsd.sp$/bsd/' bsd.sp ${_rbfiles}
-		else
-			tar -czf ${_PDIR}/${_patch}/rollback.tgz \
-				${_rbfiles}
-		fi
-	); then
-		rm -r ${_PDIR}/${_patch}
-		sp_err "Failed to create rollback patch ${_patch##${_OSrev}-}"
+	# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
+	if ${_BSDMP} &&
+		tar -tzf ${_TMP}/syspatch${_patch}.tgz bsd >/dev/null 2>&1; then
+		tar -C / -czf ${_PDIR}/${_patch}/rollback.tgz -s '/^bsd.mp$//' \
+			-s '/^bsd$/bsd.mp/' -s '/^bsd.sp$/bsd/' bsd.sp \
+			${_rbfiles} || _ret=$?
+	else
+		tar -C / -czf ${_PDIR}/${_patch}/rollback.tgz ${_rbfiles} ||
+			_ret=$?
+	fi
+
+	# XXX missing archive (empty _rbfiles list) probably means a missing set
+	[[ -f ${_PDIR}/${_patch}/rollback.tgz ]] || _ret=$?
+
+	if ((_ret != 0)); then
+		sp_err "Failed to create rollback patch ${_patch##${_OSrev}-}" 0
+		rm -r ${_PDIR}/${_patch}; return ${_ret}
 	fi
 }
 
@@ -170,42 +172,6 @@ install_kernel()
 ls_installed()
 {
 	local _p
-	### XXX temporary quirks; remove before 6.1 ############################
-	local _r _s _t _u _v
-	if [[ -f /bsd.rollback${_OSrev} ]]; then
-		[[ $(id -u) -ne 0 ]] && sp_err "${0##*/}: need root privileges"
-		mv /bsd.rollback${_OSrev} /bsd.syspatch${_OSrev}
-	fi
-	if [[ -d ${_PDIR}/${_KERNV[0]} ]]; then
-		( cd ${_PDIR}/${_KERNV[0]} && for _r in *; do
-			if [[ ${_r} == rollback-syspatch-${_OSrev}-*.tgz ]]; then
-				[[ $(id -u) -ne 0 ]] &&
-					sp_err "${0##*/}: need root privileges"
-				mv ${_r} rollback${_OSrev}${_r#*-syspatch-${_OSrev}}
-			fi
-		done )
-		( cd ${_PDIR}/${_KERNV[0]} && for _s in *; do
-			if [[ ${_s} == rollback${_OSrev}-*.tgz ]]; then
-				[[ $(id -u) -ne 0 ]] &&
-					sp_err "${0##*/}: need root privileges"
-				_t=${_s#rollback${_OSrev}-}
-				_t=${_t%.tgz}
-				mv ${_s} ${_t}.rollback.tgz
-			fi
-		done )
-		( cd ${_PDIR}/${_KERNV[0]} && for _u in *; do
-			if [[ ${_u} == *.rollback.tgz ]]; then
-				[[ $(id -u) -ne 0 ]] &&
-					sp_err "${0##*/}: need root privileges"
-				_v=${_u%.rollback.tgz}
-				install -d ${_PDIR}/${_OSrev}-${_v}
-				mv ${_u} ${_PDIR}/${_OSrev}-${_v}/rollback.tgz
-				mv ${_v}.patch.sig ${_PDIR}/${_OSrev}-${_v}/
-			fi
-		done )
-		rmdir ${_PDIR}/${_KERNV[0]}
-	fi
-	########################################################################
 	for _p in ${_PDIR}/*; do
 		[[ -f ${_p}/rollback.tgz ]] && echo ${_p##*/${_OSrev}-}
 	done | sort -V
@@ -305,7 +271,7 @@ unpriv()
 # only run on release (not -current nor -stable)
 set -A _KERNV -- $(sysctl -n kern.version |
 	sed 's/^OpenBSD \([0-9]\.[0-9]\)\([^ ]*\).*/\1 \2/;q')
-[[ -z ${_KERNV[1]} ]]
+((${#_KERNV[*]} > 1)) && sp_err "Unsupported release ${_KERNV[*]}"
 
 [[ $@ == @(|-[[:alpha:]]) ]] || usage; [[ $@ == @(|-(c|r)) ]] &&
 	(($(id -u) != 0)) && sp_err "${0##*/}: need root privileges"

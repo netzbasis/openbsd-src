@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.62 2016/12/04 20:51:47 schwarze Exp $
+# $OpenBSD: Makefile,v 1.67 2016/12/05 20:30:12 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -179,14 +179,25 @@ MAN=	\
 	X509_NAME_add_entry_by_txt.3 \
 	X509_NAME_get_index_by_NID.3 \
 	X509_NAME_print_ex.3 \
+	X509_PUBKEY_new.3 \
 	X509_STORE_CTX_get_error.3 \
 	X509_STORE_CTX_get_ex_new_index.3 \
 	X509_STORE_CTX_new.3 \
 	X509_STORE_CTX_set_verify_cb.3 \
 	X509_STORE_set_verify_cb_func.3 \
+	X509_STORE_set1_param.3 \
 	X509_VERIFY_PARAM_set_flags.3 \
+	X509_check_ca.3 \
+	X509_check_host.3 \
+	X509_check_issued.3 \
+	X509_get_pubkey.3 \
+	X509_get_serialNumber.3 \
+	X509_get_subject_name.3 \
+	X509_get_version.3 \
 	X509_new.3 \
+	X509_sign.3 \
 	X509_verify_cert.3 \
+	X509v3_get_ext_by_NID.3 \
 	bn.3 \
 	bn_dump.3 \
 	crypto.3 \
@@ -195,6 +206,7 @@ MAN=	\
 	d2i_DSAPublicKey.3 \
 	d2i_ECPKParameters.3 \
 	d2i_PKCS8PrivateKey_bio.3 \
+	d2i_PrivateKey.3 \
 	d2i_RSAPublicKey.3 \
 	d2i_X509.3 \
 	d2i_X509_ALGOR.3 \
