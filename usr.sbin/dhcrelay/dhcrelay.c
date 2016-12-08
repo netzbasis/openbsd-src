@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcrelay.c,v 1.43 2016/09/26 17:15:19 jca Exp $ */
+/*	$OpenBSD: dhcrelay.c,v 1.47 2016/12/07 20:03:22 patrick Exp $ */
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@cvs.openbsd.org>
@@ -113,17 +113,14 @@ main(int argc, char *argv[])
 		case 'i':
 			if (interfaces != NULL)
 				usage();
-			if ((interfaces = calloc(1,
-			    sizeof(struct interface_info))) == NULL)
-				error("calloc");
-			strlcpy(interfaces->name, optarg,
-			    sizeof(interfaces->name));
+
+			interfaces = get_interface(optarg, got_one);
 			break;
 		case 'o':
 			/* add the relay agent information option */
 			oflag++;
 			break;
-			
+
 		default:
 			usage();
 			/* not reached */
@@ -176,8 +173,6 @@ main(int argc, char *argv[])
 	/* We need at least one server. */
 	if (!sp)
 		usage();
-
-	discover_interfaces(interfaces);
 
 	rdomain = get_rdomain(interfaces->name);
 
@@ -253,6 +248,9 @@ main(int argc, char *argv[])
 		log_perror = 0;
 	}
 
+	if (pledge("stdio route", NULL) == -1)
+		error("pledge");
+
 	dispatch();
 	/* not reached */
 
@@ -285,12 +283,20 @@ relay(struct interface_info *ip, struct dhcp_packet *packet, int length,
 		to.sin_family = AF_INET;
 		to.sin_len = sizeof to;
 
-		/* Set up the hardware destination address. */
-		hto.hlen = packet->hlen;
-		if (hto.hlen > sizeof hto.haddr)
-			hto.hlen = sizeof hto.haddr;
-		memcpy(hto.haddr, packet->chaddr, hto.hlen);
-		hto.htype = packet->htype;
+		/*
+		 * Set up the hardware destination address.  If it's a reply
+		 * with the BROADCAST flag set, we should send an L2 broad-
+		 * cast as well.
+		 */
+		if (!(packet->flags & htons(BOOTP_BROADCAST))) {
+			hto.hlen = packet->hlen;
+			if (hto.hlen > sizeof hto.haddr)
+				hto.hlen = sizeof hto.haddr;
+			memcpy(hto.haddr, packet->chaddr, hto.hlen);
+			hto.htype = packet->htype;
+		} else {
+			bzero(&hto, sizeof(hto));
+		}
 
 		if ((length = relay_agentinfo(interfaces,
 		    packet, length, NULL, &to.sin_addr)) == -1) {
@@ -323,18 +329,21 @@ relay(struct interface_info *ip, struct dhcp_packet *packet, int length,
 		return;
 	}
 
-	/* If giaddr is set on a BOOTREQUEST, ignore it - it's already
-	   been gatewayed. */
-	if (packet->giaddr.s_addr) {
-		note("ignoring BOOTREQUEST with giaddr of %s",
-		    inet_ntoa(packet->giaddr));
+	if (packet->hops > 16) {
+		note("ignoring BOOTREQUEST with hop count of %d",
+		    packet->hops);
 		return;
 	}
+	packet->hops++;
 
-	/* Set the giaddr so the server can figure out what net it's
-	   from and so that we can later forward the response to the
-	   correct net. */
-	packet->giaddr = ip->primary_address;
+	/*
+	 * Set the giaddr so the server can figure out what net it's
+	 * from and so that we can later forward the response to the
+	 * correct net.  The RFC specifies that we have to keep the
+	 * initial giaddr (in case we relay over multiple hops).
+	 */
+	if (!packet->giaddr.s_addr)
+		packet->giaddr = ip->primary_address;
 
 	if ((length = relay_agentinfo(ip, packet, length,
 	    (struct in_addr *)from.iabuf, NULL)) == -1) {
