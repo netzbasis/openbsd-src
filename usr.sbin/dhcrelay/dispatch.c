@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.12 2016/12/07 13:19:18 rzalamena Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.14 2016/12/08 19:18:15 rzalamena Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -69,8 +69,7 @@ static struct timeout *free_timeouts;
 static int interfaces_invalidated;
 
 void (*bootp_packet_handler)(struct interface_info *,
-    struct dhcp_packet *, int, unsigned int,
-    struct iaddr, struct hardware *);
+    struct dhcp_packet *, int, struct packet_ctx *);
 
 static int interface_status(struct interface_info *ifinfo);
 
@@ -79,15 +78,15 @@ get_interface(const char *ifname, void (*handler)(struct protocol *))
 {
 	struct interface_info		*iface;
 	struct ifaddrs			*ifap, *ifa;
-	struct ifreq			*tif;
-	struct sockaddr_in		 foo;
+	struct sockaddr_in		*sin;
+	int				 found = 0;
 
 	if ((iface = calloc(1, sizeof(*iface))) == NULL)
 		error("failed to allocate memory");
 
 	if (strlcpy(iface->name, ifname, sizeof(iface->name)) >=
 	    sizeof(iface->name))
-		error("interface name too long");
+		error("interface name '%s' too long", ifname);
 
 	if (getifaddrs(&ifap) != 0)
 		error("getifaddrs failed");
@@ -100,6 +99,8 @@ get_interface(const char *ifname, void (*handler)(struct protocol *))
 
 		if (strcmp(ifname, ifa->ifa_name))
 			continue;
+
+		found = 1;
 
 		/*
 		 * If we have the capability, extract link information
@@ -120,31 +121,28 @@ get_interface(const char *ifname, void (*handler)(struct protocol *))
 			memcpy(iface->hw_address.haddr,
 			    LLADDR(foo), foo->sdl_alen);
 		} else if (ifa->ifa_addr->sa_family == AF_INET) {
-			struct iaddr addr;
-
-			memcpy(&foo, ifa->ifa_addr, sizeof(foo));
-			if (foo.sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+			/* We already have the primary address. */
+			if (iface->primary_address.s_addr != 0)
 				continue;
-			if (!iface->ifp) {
-				int len = IFNAMSIZ + ifa->ifa_addr->sa_len;
 
-				if ((tif = malloc(len)) == NULL)
-					error("no space to remember ifp");
-				strlcpy(tif->ifr_name, ifa->ifa_name, IFNAMSIZ);
-				memcpy(&tif->ifr_addr, ifa->ifa_addr,
-				    ifa->ifa_addr->sa_len);
-				iface->ifp = tif;
-				iface->primary_address = foo.sin_addr;
-			}
-			addr.len = 4;
-			memcpy(addr.iabuf, &foo.sin_addr.s_addr, addr.len);
+			sin = (struct sockaddr_in *)ifa->ifa_addr;
+			if (sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+				continue;
+
+			iface->primary_address = sin->sin_addr;
 		}
 	}
 
 	freeifaddrs(ifap);
 
-	if (!iface->ifp)
-		error("%s: not found", iface->name);
+	if (!found) {
+		free(iface);
+		return (NULL);
+	}
+
+	if (strlcpy(iface->ifr.ifr_name, ifname,
+	    sizeof(iface->ifr.ifr_name)) >= sizeof(iface->ifr.ifr_name))
+		error("interface name '%s' too long", ifname);
 
 	/* Register the interface... */
 	if_register_receive(iface);
@@ -261,9 +259,7 @@ another:
 void
 got_one(struct protocol *l)
 {
-	struct sockaddr_in from;
-	struct hardware hfrom;
-	struct iaddr ifrom;
+	struct packet_ctx pc;
 	size_t result;
 	union {
 		/*
@@ -275,8 +271,9 @@ got_one(struct protocol *l)
 	} u;
 	struct interface_info *ip = l->local;
 
-	if ((result = receive_packet(ip, u.packbuf, sizeof(u), &from,
-	    &hfrom)) == -1) {
+	memset(&pc, 0, sizeof(pc));
+
+	if ((result = receive_packet(ip, u.packbuf, sizeof(u), &pc)) == -1) {
 		warning("receive_packet failed on %s: %s", ip->name,
 		    strerror(errno));
 		ip->errors++;
@@ -296,13 +293,8 @@ got_one(struct protocol *l)
 	if (result == 0)
 		return;
 
-	if (bootp_packet_handler) {
-		ifrom.len = 4;
-		memcpy(ifrom.iabuf, &from.sin_addr, ifrom.len);
-
-		(*bootp_packet_handler)(ip, &u.packet, result,
-		    from.sin_port, ifrom, &hfrom);
-	}
+	if (bootp_packet_handler)
+		(*bootp_packet_handler)(ip, &u.packet, result, &pc);
 }
 
 int
