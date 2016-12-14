@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcrelay.c,v 1.50 2016/12/12 15:41:05 rzalamena Exp $ */
+/*	$OpenBSD: dhcrelay.c,v 1.54 2016/12/13 17:40:41 rzalamena Exp $ */
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@cvs.openbsd.org>
@@ -72,7 +72,7 @@ char	*print_hw_addr(int, int, unsigned char *);
 void	 got_response(struct protocol *);
 int	 get_rdomain(char *);
 
-void	 relay_agentinfo(struct packet_ctx *, struct interface_info *);
+void	 relay_agentinfo(struct packet_ctx *, struct interface_info *, int);
 
 int	 relay_agentinfo_cmp(struct packet_ctx *pc, uint8_t *, int);
 ssize_t	 relay_agentinfo_append(struct packet_ctx *, struct dhcp_packet *,
@@ -224,7 +224,8 @@ main(int argc, char *argv[])
 		error("no interface given");
 	/* We need an address for running layer 3 mode. */
 	if (drm == DRM_LAYER3 &&
-	    interfaces->primary_address.s_addr == 0)
+	    (interfaces->hw_address.htype != HTYPE_IPSEC_TUNNEL &&
+	    interfaces->primary_address.s_addr == 0))
 		error("interface '%s' does not have an address",
 		    interfaces->name);
 
@@ -337,10 +338,13 @@ relay(struct interface_info *ip, struct dhcp_packet *packet, int length,
 		return;
 	}
 
-	relay_agentinfo(pc, ip);
-
 	/* If it's a bootreply, forward it to the client. */
 	if (packet->op == BOOTREPLY) {
+		/* Filter packet that were not meant for us. */
+		if (packet->giaddr.s_addr !=
+		    interfaces->primary_address.s_addr)
+			return;
+
 		bzero(&to, sizeof(to));
 		if (!(packet->flags & htons(BOOTP_BROADCAST))) {
 			to.sin_addr = packet->yiaddr;
@@ -368,6 +372,7 @@ relay(struct interface_info *ip, struct dhcp_packet *packet, int length,
 			memset(pc->pc_dmac, 0xff, sizeof(pc->pc_dmac));
 		}
 
+		relay_agentinfo(pc, interfaces, packet->op);
 		if ((length = relay_agentinfo_remove(pc, packet,
 		    length)) == -1) {
 			note("ignoring BOOTREPLY with invalid "
@@ -415,6 +420,7 @@ relay(struct interface_info *ip, struct dhcp_packet *packet, int length,
 	if (!packet->giaddr.s_addr)
 		packet->giaddr = ip->primary_address;
 
+	relay_agentinfo(pc, interfaces, packet->op);
 	if ((length = relay_agentinfo_append(pc, packet, length)) == -1) {
 		note("ignoring BOOTREQUEST with invalid "
 		    "relay agent information");
@@ -439,7 +445,7 @@ usage(void)
 	extern char	*__progname;
 
 	fprintf(stderr, "usage: %s [-do] [-C circuit-id] [-R remote-id] "
-	    "-i interface\n\tdestination1 [... destinationN]\n",
+	    "-i interface\n\tdestination ...\n",
 	    __progname);
 	exit(1);
 }
@@ -554,9 +560,11 @@ got_response(struct protocol *l)
 }
 
 void
-relay_agentinfo(struct packet_ctx *pc, struct interface_info *intf)
+relay_agentinfo(struct packet_ctx *pc, struct interface_info *intf,
+    int bootop)
 {
-	static u_int8_t		buf[8];
+	static u_int8_t		 buf[8];
+	struct sockaddr_in	*sin;
 
 	if (oflag == 0)
 		return;
@@ -574,10 +582,15 @@ relay_agentinfo(struct packet_ctx *pc, struct interface_info *intf)
 		pc->pc_circuitlen = 2;
 
 		if (rai_remote == NULL) {
+			if (bootop == BOOTREPLY)
+				sin = ss2sin(&pc->pc_dst);
+			else
+				sin = ss2sin(&pc->pc_src);
+
 			pc->pc_remote =
-			    (uint8_t *)&ss2sin(&pc->pc_dst)->sin_addr;
+			    (uint8_t *)&sin->sin_addr;
 			pc->pc_remotelen =
-			    sizeof(ss2sin(&pc->pc_dst)->sin_addr);
+			    sizeof(sin->sin_addr);
 		}
 	} else {
 		pc->pc_circuit = (u_int8_t *)rai_circuit;
@@ -862,7 +875,7 @@ l2relay(struct interface_info *ip, struct dhcp_packet *dp, int length,
 		return;
 	}
 
-	relay_agentinfo(pc, ip);
+	relay_agentinfo(pc, ip, dp->op);
 
 	switch (dp->op) {
 	case BOOTREQUEST:

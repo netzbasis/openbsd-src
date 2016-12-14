@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.75 2016/12/12 22:48:02 schwarze Exp $
+# $OpenBSD: Makefile,v 1.78 2016/12/14 02:03:50 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -94,6 +94,7 @@ MAN=	\
 	ERR_put_error.3 \
 	ERR_remove_state.3 \
 	ERR_set_mark.3 \
+	ESS_SIGNING_CERT_new.3 \
 	EVP_AEAD_CTX_init.3 \
 	EVP_BytesToKey.3 \
 	EVP_DigestInit.3 \
@@ -145,6 +146,7 @@ MAN=	\
 	PKCS5_PBKDF2_HMAC.3 \
 	PKCS7_decrypt.3 \
 	PKCS7_encrypt.3 \
+	PKCS7_new.3 \
 	PKCS7_sign.3 \
 	PKCS7_sign_add_signer.3 \
 	PKCS7_verify.3 \
@@ -154,6 +156,7 @@ MAN=	\
 	RAND_set_rand_method.3 \
 	RC4.3 \
 	RIPEMD160.3 \
+	RSA_PSS_PARAMS_new.3 \
 	RSA_blinding_on.3 \
 	RSA_check_key.3 \
 	RSA_generate_key.3 \
@@ -170,6 +173,7 @@ MAN=	\
 	SHA1.3 \
 	SMIME_read_PKCS7.3 \
 	SMIME_write_PKCS7.3 \
+	TS_REQ_new.3 \
 	UI_new.3 \
 	X509V3_get_d2i.3 \
 	X509_ALGOR_dup.3 \

@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.152 2016/12/07 13:40:17 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.155 2016/12/13 16:10:21 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -2002,18 +2002,18 @@ err:
 }
 
 static int
-ssl3_send_client_kex_ecdhe(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
-    int *outlen)
+ssl3_send_client_kex_ecdhe(SSL *s, SESS_CERT *sess_cert, CBB *cbb)
 {
 	EC_KEY *clnt_ecdh = NULL;
 	const EC_GROUP *srvr_group = NULL;
 	const EC_POINT *srvr_ecpoint = NULL;
 	BN_CTX *bn_ctx = NULL;
-	unsigned char *encodedPoint = NULL;
 	unsigned char *key = NULL;
-	int encoded_pt_len = 0;
-	int key_size, n;
+	unsigned char *data;
+	size_t encoded_len;
+	int key_size, key_len;
 	int ret = -1;
+	CBB ecpoint;
 
 	if (sess_cert->peer_ecdh_tmp == NULL) {
 		ssl3_send_alert(s, SSL3_AL_FATAL, SSL_AD_HANDSHAKE_FAILURE);
@@ -2056,8 +2056,8 @@ ssl3_send_client_kex_ecdhe(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
 		SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
 		    ERR_R_MALLOC_FAILURE);
 	}
-	n = ECDH_compute_key(key, key_size, srvr_ecpoint, clnt_ecdh, NULL);
-	if (n <= 0) {
+	key_len = ECDH_compute_key(key, key_size, srvr_ecpoint, clnt_ecdh, NULL);
+	if (key_len <= 0) {
 		SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE, ERR_R_ECDH_LIB);
 		goto err;
 	}
@@ -2065,55 +2065,49 @@ ssl3_send_client_kex_ecdhe(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
 	/* Generate master key from the result. */
 	s->session->master_key_length =
 	    s->method->ssl3_enc->generate_master_secret(s,
-		s->session->master_key, key, n);
+		s->session->master_key, key, key_len);
 
-	/*
-	 * First check the size of encoding and allocate memory accordingly.
-	 */
-	encoded_pt_len = EC_POINT_point2oct(srvr_group,
+	encoded_len = EC_POINT_point2oct(srvr_group,
 	    EC_KEY_get0_public_key(clnt_ecdh),
 	    POINT_CONVERSION_UNCOMPRESSED, NULL, 0, NULL);
+	if (encoded_len == 0) {
+		SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE, ERR_R_ECDH_LIB);
+		goto err;
+	}
 
-	bn_ctx = BN_CTX_new();
-	encodedPoint = malloc(encoded_pt_len);
-	if (encodedPoint == NULL || bn_ctx == NULL) {
+	if ((bn_ctx = BN_CTX_new()) == NULL) {
 		SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
 		    ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 
-	/* Encode the public key */
-	n = EC_POINT_point2oct(srvr_group, EC_KEY_get0_public_key(clnt_ecdh),
-	    POINT_CONVERSION_UNCOMPRESSED, encodedPoint, encoded_pt_len,
-	    bn_ctx);
+	/* Encode the public key. */
+	if (!CBB_add_u8_length_prefixed(cbb, &ecpoint))
+		goto err;
+	if (!CBB_add_space(&ecpoint, &data, encoded_len))
+		goto err;
+	if (EC_POINT_point2oct(srvr_group, EC_KEY_get0_public_key(clnt_ecdh),
+	    POINT_CONVERSION_UNCOMPRESSED, data, encoded_len,
+	    bn_ctx) == 0)
+		goto err;
+	if (!CBB_flush(cbb))
+		goto err;
 
-	*p = n; /* length of encoded point */
-	/* Encoded point will be copied here */
-	p += 1;
-
-	/* copy the point */
-	memcpy((unsigned char *)p, encodedPoint, n);
-	/* increment n to account for length field */
-	n += 1;
-
-	*outlen = n;
 	ret = 1;
 
-err:
+ err:
 	if (key != NULL)
 		explicit_bzero(key, key_size);
 	free(key);
 
 	BN_CTX_free(bn_ctx);
-	free(encodedPoint);
 	EC_KEY_free(clnt_ecdh);
 
 	return (ret);
 }
 
 static int
-ssl3_send_client_kex_gost(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
-    int *outlen)
+ssl3_send_client_kex_gost(SSL *s, SESS_CERT *sess_cert, CBB *cbb)
 {
 	unsigned char premaster_secret[32], shared_ukm[32], tmp[256];
 	EVP_PKEY *pub_key = NULL;
@@ -2124,7 +2118,7 @@ ssl3_send_client_kex_gost(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
 	EVP_MD_CTX *ukm_hash;
 	int ret = -1;
 	int nid;
-	int n;
+	CBB gostblob;
 
 	/* Get server sertificate PKEY and create ctx from it */
 	peer_cert = sess_cert->peer_pkeys[SSL_PKEY_GOST01].x509;
@@ -2190,22 +2184,19 @@ ssl3_send_client_kex_gost(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
 	/*
 	 * Make GOST keytransport blob message, encapsulate it into sequence.
 	 */
-	*(p++) = V_ASN1_SEQUENCE | V_ASN1_CONSTRUCTED;
 	msglen = 255;
 	if (EVP_PKEY_encrypt(pkey_ctx, tmp, &msglen, premaster_secret,
 	    32) < 0) {
 		SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE, SSL_R_LIBRARY_BUG);
 		goto err;
 	}
-	if (msglen >= 0x80) {
-		*(p++) = 0x81;
-		*(p++) = msglen & 0xff;
-		n = msglen + 3;
-	} else {
-		*(p++) = msglen & 0xff;
-		n = msglen + 2;
-	}
-	memcpy(p, tmp, msglen);
+
+	if (!CBB_add_asn1(cbb, &gostblob, CBS_ASN1_SEQUENCE))
+		goto err;
+	if (!CBB_add_bytes(&gostblob, tmp, msglen))
+		goto err;
+	if (!CBB_flush(cbb))
+		goto err;
 
 	/* Check if pubkey from client certificate was used. */
 	if (EVP_PKEY_CTX_ctrl(pkey_ctx, -1, -1, EVP_PKEY_CTRL_PEER_KEY, 2,
@@ -2218,10 +2209,9 @@ ssl3_send_client_kex_gost(SSL *s, SESS_CERT *sess_cert, unsigned char *p,
 	    s->method->ssl3_enc->generate_master_secret(s,
 		s->session->master_key, premaster_secret, 32);
 
-	*outlen = n;
 	ret = 1;
 
-err:
+ err:
 	explicit_bzero(premaster_secret, sizeof(premaster_secret));
 	EVP_PKEY_free(pub_key);
 
@@ -2233,18 +2223,11 @@ ssl3_send_client_key_exchange(SSL *s)
 {
 	SESS_CERT *sess_cert;
 	unsigned long alg_k;
-	unsigned char *bufend, *p;
-	size_t outlen;
-	int n = 0;
-	CBB cbb;
+	CBB cbb, kex;
 
 	memset(&cbb, 0, sizeof(cbb));
 
-	bufend = (unsigned char *)s->init_buf->data + s->init_buf->max;
-
 	if (s->state == SSL3_ST_CW_KEY_EXCH_A) {
-		p = ssl3_handshake_msg_start(s, SSL3_MT_CLIENT_KEY_EXCHANGE);
-
 		alg_k = s->s3->tmp.new_cipher->algorithm_mkey;
 
 		if ((sess_cert = s->session->sess_cert) == NULL) {
@@ -2255,32 +2238,21 @@ ssl3_send_client_key_exchange(SSL *s)
 			goto err;
 		}
 
+		if (!ssl3_handshake_msg_start_cbb(s, &cbb, &kex,
+		    SSL3_MT_CLIENT_KEY_EXCHANGE))
+			goto err;
+
 		if (alg_k & SSL_kRSA) {
-			if (!CBB_init_fixed(&cbb, p, bufend - p))
+			if (ssl3_send_client_kex_rsa(s, sess_cert, &kex) != 1)
 				goto err;
-			if (ssl3_send_client_kex_rsa(s, sess_cert, &cbb) != 1)
-				goto err;
-			if (!CBB_finish(&cbb, NULL, &outlen))
-				goto err;
-			if (outlen > INT_MAX)
-				goto err;
-			n = (int)outlen;
 		} else if (alg_k & SSL_kDHE) {
-			if (!CBB_init_fixed(&cbb, p, bufend - p))
+			if (ssl3_send_client_kex_dhe(s, sess_cert, &kex) != 1)
 				goto err;
-			if (ssl3_send_client_kex_dhe(s, sess_cert, &cbb) != 1)
-				goto err;
-			if (!CBB_finish(&cbb, NULL, &outlen))
-				goto err;
-			if (outlen > INT_MAX)
-				goto err;
-			n = (int)outlen;
 		} else if (alg_k & SSL_kECDHE) {
-			if (ssl3_send_client_kex_ecdhe(s, sess_cert, p,
-			    &n) != 1)
+			if (ssl3_send_client_kex_ecdhe(s, sess_cert, &kex) != 1)
 				goto err;
 		} else if (alg_k & SSL_kGOST) {
-			if (ssl3_send_client_kex_gost(s, sess_cert, p, &n) != 1)
+			if (ssl3_send_client_kex_gost(s, sess_cert, &kex) != 1)
 				goto err;
 		} else {
 			ssl3_send_alert(s, SSL3_AL_FATAL,
@@ -2290,7 +2262,8 @@ ssl3_send_client_key_exchange(SSL *s)
 			goto err;
 		}
 
-		ssl3_handshake_msg_finish(s, n);
+		if (!ssl3_handshake_msg_finish_cbb(s, &cbb))
+			goto err;
 
 		s->state = SSL3_ST_CW_KEY_EXCH_B;
 	}
