@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmd.c,v 1.45 2016/11/26 20:03:42 reyk Exp $	*/
+/*	$OpenBSD: vmd.c,v 1.47 2016/12/14 21:17:25 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -65,7 +65,7 @@ int
 vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct privsep			*ps = p->p_ps;
-	int				 res = 0, cmd = 0;
+	int				 res = 0, ret = 0, cmd = 0;
 	unsigned int			 v = 0;
 	struct vmop_create_params	 vmc;
 	struct vmop_id			 vid;
@@ -79,7 +79,18 @@ vmd_dispatch_control(int fd, struct privsep_proc *p, struct imsg *imsg)
 	case IMSG_VMDOP_START_VM_REQUEST:
 		IMSG_SIZE_CHECK(imsg, &vmc);
 		memcpy(&vmc, imsg->data, sizeof(vmc));
-		if (vm_register(ps, &vmc, &vm, 0) == -1 ||
+		ret = vm_register(ps, &vmc, &vm, 0);
+		if (vmc.vmc_flags == 0) {
+			/* start an existing VM with pre-configured options */
+			if (!(ret == -1 && errno == EALREADY)) {
+				res = errno;
+				cmd = IMSG_VMDOP_START_VM_RESPONSE;
+			}
+		} else if (ret != 0) {
+			res = errno;
+			cmd = IMSG_VMDOP_START_VM_RESPONSE;
+		}
+		if (res == 0 &&
 		    config_setvm(ps, vm, imsg->hdr.peerid) == -1) {
 			res = errno;
 			cmd = IMSG_VMDOP_START_VM_RESPONSE;
@@ -203,15 +214,27 @@ vmd_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
 		    vcp->vcp_name, vcp->vcp_id, vm->vm_ttyname);
 		break;
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
-	case IMSG_VMDOP_TERMINATE_VM_EVENT:
 		IMSG_SIZE_CHECK(imsg, &vmr);
 		memcpy(&vmr, imsg->data, sizeof(vmr));
-		if (imsg->hdr.type == IMSG_VMDOP_TERMINATE_VM_RESPONSE)
-			proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
+		proc_forward_imsg(ps, imsg, PROC_CONTROL, -1);
 		if (vmr.vmr_result == 0) {
 			/* Remove local reference */
 			vm = vm_getbyid(vmr.vmr_id);
 			vm_remove(vm);
+		}
+		break;
+	case IMSG_VMDOP_TERMINATE_VM_EVENT:
+		IMSG_SIZE_CHECK(imsg, &vmr);
+		memcpy(&vmr, imsg->data, sizeof(vmr));
+		if ((vm = vm_getbyid(vmr.vmr_id)) == NULL)
+			break;
+		if (vmr.vmr_result == 0) {
+			/* Remove local reference */
+			vm_remove(vm);
+		} else if (vmr.vmr_result == EAGAIN) {
+			/* Stop VM instance but keep the tty open */
+			vm_stop(vm, 1);
+			config_setvm(ps, vm, (uint32_t)-1);
 		}
 		break;
 	case IMSG_VMDOP_GET_INFO_VM_DATA:
@@ -615,32 +638,57 @@ vm_getbypid(pid_t pid)
 }
 
 void
-vm_remove(struct vmd_vm *vm)
+vm_stop(struct vmd_vm *vm, int keeptty)
 {
 	unsigned int	 i;
 
 	if (vm == NULL)
 		return;
 
-	TAILQ_REMOVE(env->vmd_vms, vm, vm_entry);
+	vm->vm_running = 0;
 
 	for (i = 0; i < VMM_MAX_DISKS_PER_VM; i++) {
-		if (vm->vm_disks[i] != -1)
+		if (vm->vm_disks[i] != -1) {
 			close(vm->vm_disks[i]);
+			vm->vm_disks[i] = -1;
+		}
 	}
 	for (i = 0; i < VMM_MAX_NICS_PER_VM; i++) {
-		if (vm->vm_ifs[i].vif_fd != -1)
+		if (vm->vm_ifs[i].vif_fd != -1) {
 			close(vm->vm_ifs[i].vif_fd);
+			vm->vm_ifs[i].vif_fd = -1;
+		}
 		free(vm->vm_ifs[i].vif_name);
 		free(vm->vm_ifs[i].vif_switch);
 		free(vm->vm_ifs[i].vif_group);
+		vm->vm_ifs[i].vif_name = NULL;
+		vm->vm_ifs[i].vif_switch = NULL;
+		vm->vm_ifs[i].vif_group = NULL;
 	}
-	if (vm->vm_kernel != -1)
+	if (vm->vm_kernel != -1) {
 		close(vm->vm_kernel);
-	if (vm->vm_tty != -1)
-		close(vm->vm_tty);
+		vm->vm_kernel = -1;
+	}
 
+	if (keeptty)
+		return;
+
+	if (vm->vm_tty != -1) {
+		close(vm->vm_tty);
+		vm->vm_tty = -1;
+	}
 	free(vm->vm_ttyname);
+	vm->vm_ttyname = NULL;
+}
+
+void
+vm_remove(struct vmd_vm *vm)
+{
+	if (vm == NULL)
+		return;
+
+	TAILQ_REMOVE(env->vmd_vms, vm, vm_entry);
+	vm_stop(vm, 0);
 	free(vm);
 }
 
@@ -661,6 +709,10 @@ vm_register(struct privsep *ps, struct vmop_create_params *vmc,
 		goto fail;
 	}
 
+	if (vmc->vmc_flags == 0) {
+		errno = ENOENT;
+		goto fail;
+	}
 	if (vcp->vcp_ncpus == 0)
 		vcp->vcp_ncpus = 1;
 	if (vcp->vcp_memranges[0].vmr_size == 0)
