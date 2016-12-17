@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.79 2016/12/14 15:04:13 schwarze Exp $
+# $OpenBSD: Makefile,v 1.83 2016/12/17 01:08:14 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -177,7 +177,9 @@ MAN=	\
 	UI_new.3 \
 	X509V3_get_d2i.3 \
 	X509_ALGOR_dup.3 \
+	X509_CINF_new.3 \
 	X509_CRL_get0_by_serial.3 \
+	X509_CRL_new.3 \
 	X509_EXTENSION_set_object.3 \
 	X509_LOOKUP_hash_dir.3 \
 	X509_NAME_ENTRY_get_object.3 \
@@ -186,6 +188,8 @@ MAN=	\
 	X509_NAME_new.3 \
 	X509_NAME_print_ex.3 \
 	X509_PUBKEY_new.3 \
+	X509_REQ_new.3 \
+	X509_REVOKED_new.3 \
 	X509_STORE_CTX_get_error.3 \
 	X509_STORE_CTX_get_ex_new_index.3 \
 	X509_STORE_CTX_new.3 \
