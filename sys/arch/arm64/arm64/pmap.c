@@ -1,4 +1,4 @@
-/* $OpenBSD: pmap.c,v 1.1 2016/12/17 23:38:33 patrick Exp $ */
+/* $OpenBSD: pmap.c,v 1.3 2016/12/19 09:29:27 patrick Exp $ */
 /*
  * Copyright (c) 2008-2009,2014-2016 Dale Rahn <drahn@dalerahn.com>
  *
@@ -240,21 +240,18 @@ STATIC __inline int
 VP_IDX1(vaddr_t va)
 {
 	return (va >> VP_IDX1_POS) & VP_IDX1_MASK;
-	return 0;
 }
 
 STATIC __inline int
 VP_IDX2(vaddr_t va)
 {
 	return (va >> VP_IDX2_POS) & VP_IDX2_MASK;
-	return 0;
 }
 
 STATIC __inline int
 VP_IDX3(vaddr_t va)
 {
 	return (va >> VP_IDX3_POS) & VP_IDX3_MASK;
-	return 0;
 }
 
 #if 0
@@ -2243,7 +2240,6 @@ pmap_map_stolen(vaddr_t kernel_start)
 	}
 	printf("last mapping  v %16llx p %16llx\n", va, pa);
 	return va + PAGE_SIZE;
-	return 0;
 }
 
 void
@@ -2298,9 +2294,9 @@ pmap_show_mapping(uint64_t va)
 	__asm volatile ("mrs     %x0, ttbr0_el1" : "=r"(ttbr0));
 	__asm volatile ("mrs     %x0, tcr_el1" : "=r"(tcr));
 
-	printf("  ttbr0 %llx %llx %llx tcr %llx\n", ttbr0, pm->pm_pt0pa);
-	printf("  vp1 = %llx \n", vp1, VP_IDX1(va) * 8);
-
+	printf("  ttbr0 %llx %llx %llx tcr %llx\n", ttbr0, pm->pm_pt0pa,
+	    curproc->p_addr->u_pcb.pcb_pagedir, tcr);
+	printf("  vp1 = %llx\n", vp1);
 
 	vp2 = vp1->vp[VP_IDX1(va)];
 	printf("  vp2 = %llx lp2 = %llx idx1 off %x\n",

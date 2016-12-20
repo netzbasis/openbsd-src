@@ -1,4 +1,4 @@
-/*	$OpenBSD: udp_usrreq.c,v 1.224 2016/12/10 13:22:57 patrick Exp $	*/
+/*	$OpenBSD: udp_usrreq.c,v 1.226 2016/12/19 15:47:19 mpi Exp $	*/
 /*	$NetBSD: udp_usrreq.c,v 1.28 1996/03/16 23:54:03 christos Exp $	*/
 
 /*
@@ -1029,9 +1029,7 @@ udp_output(struct inpcb *inp, struct mbuf *m, struct mbuf *addr,
 			goto release;
 
 		if (inp->inp_lport == 0) {
-			int s = splsoftnet();
 			error = in_pcbbind(inp, NULL, curproc);
-			splx(s);
 			if (error)
 				goto release;
 		}
@@ -1116,7 +1114,7 @@ udp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 	struct inpcb *inp;
 	int error = 0;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 	if (req == PRU_CONTROL) {
 #ifdef INET6
