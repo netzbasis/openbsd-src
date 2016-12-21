@@ -1,4 +1,4 @@
-/*	$OpenBSD: rpc_cout.c,v 1.25 2015/08/20 22:32:41 deraadt Exp $	*/
+/*	$OpenBSD: rpc_cout.c,v 1.27 2016/12/20 22:19:08 krw Exp $	*/
 /*	$NetBSD: rpc_cout.c,v 1.6 1996/10/01 04:13:53 cgd Exp $	*/
 
 /*
@@ -98,6 +98,8 @@ emit(def)
 		break;
 	case DEF_TYPEDEF:
 		emit_typedef(def);
+		break;
+	default:
 		break;
 	}
 	print_trailer();
@@ -374,12 +376,12 @@ emit_union(def)
 		fprintf(fout, "\t\tbreak;\n");
 	}
 	dflt = def->def.un.default_decl;
+	fprintf(fout, "\tdefault:\n");
 	if (dflt != NULL) {
 		if (!streq(dflt->type, "void")) {
 			int len = strlen(def->def_name) + strlen(format) +
 			    strlen(dflt->name) + 1;
 
-			fprintf(fout, "\tdefault:\n");
 			object = malloc(len);
 			if (object == NULL) {
 				fprintf(stderr, "Fatal error: no memory\n");
@@ -396,10 +398,9 @@ emit_union(def)
 			print_ifstat(2, dflt->prefix, dflt->type, dflt->rel,
 			    dflt->array_max, object, dflt->name);
 			free(object);
-			fprintf(fout, "\t\tbreak;\n");
 		}
+		fprintf(fout, "\t\tbreak;\n");
 	} else {
-		fprintf(fout, "\tdefault:\n");
 		fprintf(fout, "\t\treturn (FALSE);\n");
 	}
 
@@ -679,6 +680,9 @@ emit_inline(decl, flag)
 		    decl->name, decl->array_max);
 		emit_single_in_line(decl, flag, REL_VECTOR);
 		fprintf(fout, "\t\t\t\t}\n\t\t\t}\n");
+		break;
+	default:
+		break;
 
 	}
 }
