@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.84 2016/12/17 14:51:09 schwarze Exp $
+# $OpenBSD: Makefile,v 1.90 2016/12/23 00:40:16 schwarze Exp $
 
 .include <bsd.own.mk>
 
@@ -120,6 +120,7 @@ MAN=	\
 	EVP_SealInit.3 \
 	EVP_SignInit.3 \
 	EVP_VerifyInit.3 \
+	GENERAL_NAME_new.3 \
 	HMAC.3 \
 	MD5.3 \
 	OBJ_nid2obj.3 \
@@ -141,8 +142,10 @@ MAN=	\
 	PEM_read_bio_PrivateKey.3 \
 	PEM_write_bio_PKCS7_stream.3 \
 	PKCS12_create.3 \
+	PKCS12_new.3 \
 	PKCS12_newpass.3 \
 	PKCS12_parse.3 \
+	PKCS12_SAFEBAG_new.3 \
 	PKCS5_PBKDF2_HMAC.3 \
 	PKCS7_decrypt.3 \
 	PKCS7_encrypt.3 \
@@ -150,6 +153,7 @@ MAN=	\
 	PKCS7_sign.3 \
 	PKCS7_sign_add_signer.3 \
 	PKCS7_verify.3 \
+	PKCS8_PRIV_KEY_INFO_new.3 \
 	RAND_add.3 \
 	RAND_bytes.3 \
 	RAND_load_file.3 \
@@ -191,6 +195,7 @@ MAN=	\
 	X509_PUBKEY_new.3 \
 	X509_REQ_new.3 \
 	X509_REVOKED_new.3 \
+	X509_SIG_new.3 \
 	X509_STORE_CTX_get_error.3 \
 	X509_STORE_CTX_get_ex_new_index.3 \
 	X509_STORE_CTX_new.3 \
@@ -209,7 +214,6 @@ MAN=	\
 	X509_sign.3 \
 	X509_verify_cert.3 \
 	X509v3_get_ext_by_NID.3 \
-	bn_dump.3 \
 	crypto.3 \
 	d2i_ASN1_OBJECT.3 \
 	d2i_DHparams.3 \
@@ -230,7 +234,6 @@ MAN=	\
 	i2d_PKCS7_bio_stream.3 \
 	lh_new.3 \
 	lh_stats.3 \
-	x509.3 \
 	openssl.cnf.5 \
 	x509v3.cnf.5
 
