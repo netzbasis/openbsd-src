@@ -1,8 +1,9 @@
-# $OpenBSD: Makefile,v 1.90 2016/12/23 00:40:16 schwarze Exp $
+# $OpenBSD: Makefile,v 1.100 2016/12/24 01:00:48 schwarze Exp $
 
 .include <bsd.own.mk>
 
 MAN=	\
+	ACCESS_DESCRIPTION_new.3 \
 	ASN1_OBJECT_new.3 \
 	ASN1_STRING_length.3 \
 	ASN1_STRING_new.3 \
@@ -11,6 +12,8 @@ MAN=	\
 	ASN1_TYPE_get.3 \
 	ASN1_generate_nconf.3 \
 	ASN1_time_parse.3 \
+	AUTHORITY_KEYID_new.3 \
+	BASIC_CONSTRAINTS_new.3 \
 	BF_set_key.3 \
 	BIO_ctrl.3 \
 	BIO_f_base64.3 \
@@ -66,6 +69,7 @@ MAN=	\
 	DH_new.3 \
 	DH_set_method.3 \
 	DH_size.3 \
+	DIST_POINT_new.3 \
 	DSA_SIG_new.3 \
 	DSA_do_sign.3 \
 	DSA_dup_DH.3 \
@@ -120,9 +124,11 @@ MAN=	\
 	EVP_SealInit.3 \
 	EVP_SignInit.3 \
 	EVP_VerifyInit.3 \
+	EXTENDED_KEY_USAGE_new.3 \
 	GENERAL_NAME_new.3 \
 	HMAC.3 \
 	MD5.3 \
+	NAME_CONSTRAINTS_new.3 \
 	OBJ_nid2obj.3 \
 	OCSP_CRLID_new.3 \
 	OCSP_REQUEST_new.3 \
@@ -154,6 +160,9 @@ MAN=	\
 	PKCS7_sign_add_signer.3 \
 	PKCS7_verify.3 \
 	PKCS8_PRIV_KEY_INFO_new.3 \
+	PKEY_USAGE_PERIOD_new.3 \
+	POLICYINFO_new.3 \
+	PROXY_POLICY_new.3 \
 	RAND_add.3 \
 	RAND_bytes.3 \
 	RAND_load_file.3 \
@@ -177,6 +186,7 @@ MAN=	\
 	SHA1.3 \
 	SMIME_read_PKCS7.3 \
 	SMIME_write_PKCS7.3 \
+	SXNET_new.3 \
 	TS_REQ_new.3 \
 	UI_new.3 \
 	X509V3_get_d2i.3 \

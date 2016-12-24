@@ -1,4 +1,4 @@
-/* $OpenBSD: ampintc.c,v 1.14 2016/08/21 06:47:47 jsg Exp $ */
+/* $OpenBSD: ampintc.c,v 1.16 2016/12/24 01:55:36 jsg Exp $ */
 /*
  * Copyright (c) 2007,2009,2011 Dale Rahn <drahn@openbsd.org>
  *
@@ -191,6 +191,7 @@ static char *ampintc_compatibles[] = {
 	"arm,cortex-a7-gic",
 	"arm,cortex-a9-gic",
 	"arm,cortex-a15-gic",
+	"arm,gic-400",
 	NULL
 };
 
@@ -488,11 +489,15 @@ ampintc_irq_handler(void *frame)
 	}
 #endif
 
-	if (iack_val == 1023) {
+	irq = iack_val & ICPIAR_IRQ_M;
+
+	if (irq == 1023) {
 		sc->sc_spur.ec_count++;
 		return;
 	}
-	irq = iack_val & ((1 << sc->sc_nintr) - 1);
+
+	if (irq >= sc->sc_nintr)
+		return;
 
 	pri = sc->sc_ampintc_handler[irq].iq_irq;
 	s = ampintc_splraise(pri);
