@@ -1,4 +1,4 @@
-/*	$OpenBSD: boot.h,v 1.24 2016/12/19 18:30:50 krw Exp $ */
+/*	$OpenBSD: boot.h,v 1.26 2016/12/24 16:00:35 kettenis Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -102,7 +102,6 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 	int		n, argc;
 	char		**argv, **envp;
 	long		loff;
-	int		prot_exec = 0;
 	RELOC_TYPE	*rp;
 	Elf_Phdr	*phdp;
 	Elf_Addr	i;
@@ -238,18 +237,9 @@ _dl_boot_bind(const long sp, long *dl_data, Elf_Dyn *dynamicp)
 			 * GNU_RELRO (a) covers the GOT, and (b) comes after
 			 * all LOAD sections, so if we found it then we're done
 			 */
-			return;
+			break;
 		}
 	}
-
-#if defined(__powerpc__)
-	if (dynld.dt_proc[DT_PROC(DT_PPC_GOT)] == 0)
-		prot_exec = PROT_EXEC;
-#endif
-
-	start = ELF_TRUNC((Elf_Addr)__got_start, pagesize);
-	size = ELF_ROUND((Elf_Addr)__got_end - start, pagesize);
-	mprotect((void *)start, size, GOT_PERMS | prot_exec);
 }
 
 #ifdef __alpha__
