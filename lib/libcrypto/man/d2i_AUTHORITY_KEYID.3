@@ -1,5 +1,4 @@
-.\"	$OpenBSD: d2i_X509_ALGOR.3,v 1.7 2016/12/28 14:17:47 schwarze Exp $
-.\"	OpenSSL 186bb907 Apr 13 11:05:13 2015 -0700
+.\"	$OpenBSD: d2i_AUTHORITY_KEYID.3,v 1.1 2016/12/28 20:36:33 schwarze Exp $
 .\"
 .\" Copyright (c) 2016 Ingo Schwarze <schwarze@openbsd.org>
 .\"
@@ -16,37 +15,55 @@
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
 .Dd $Mdocdate: December 28 2016 $
-.Dt D2I_X509_ALGOR 3
+.Dt D2I_AUTHORITY_KEYID 3
 .Os
 .Sh NAME
-.Nm d2i_X509_ALGOR ,
-.Nm i2d_X509_ALGOR
-.Nd decode and encode algorithm identifiers
+.Nm d2i_AUTHORITY_KEYID ,
+.Nm i2d_AUTHORITY_KEYID
+.Nd decode and encode X.509 authority key identifiers
 .Sh SYNOPSIS
-.In openssl/x509.h
-.Ft X509_ALGOR *
-.Fo d2i_X509_ALGOR
-.Fa "X509_ALGOR **val_out"
-.Fa "unsigned char **der_in"
+.In openssl/x509v3.h
+.Ft AUTHORITY_KEYID *
+.Fo d2i_AUTHORITY_KEYID
+.Fa "AUTHORITY_KEYID **val_out"
+.Fa "const unsigned char **der_in"
 .Fa "long length"
 .Fc
 .Ft int
-.Fo i2d_X509_ALGOR
-.Fa "X509_ALGOR *val_in"
+.Fo i2d_AUTHORITY_KEYID
+.Fa "AUTHORITY_KEYID *val_in"
 .Fa "unsigned char **der_out"
 .Fc
 .Sh DESCRIPTION
-.Fn d2i_X509_ALGOR
+.Fn d2i_AUTHORITY_KEYID
 and
-.Fn i2d_X509_ALGOR
+.Fn i2d_AUTHORITY_KEYID
 decode and encode an ASN.1
-.Vt AlgorithmIdentifier
-structure defined in RFC 5280 section 4.1.1.2.
+.Vt AuthorityKeyIdentifier
+structure  defined in RFC 5280 section 4.2.1.1.
 For details about the semantics, examples, caveats, and bugs, see
 .Xr ASN1_item_d2i 3 .
+.Sh RETURN VALUES
+.Fn d2i_AUTHORITY_KEYID
+returns an
+.Vt AUTHORITY_KEYID
+object or
+.Dv NULL
+if an error occurs.
+.Pp
+.Fn i2d_AUTHORITY_KEYID
+returns the number of bytes successfully encoded or a negative value
+if an error occurs.
 .Sh SEE ALSO
 .Xr ASN1_item_d2i 3 ,
-.Xr X509_ALGOR_new 3
+.Xr AUTHORITY_KEYID_new 3 ,
+.Xr X509_EXTENSION_new 3
 .Sh STANDARDS
 RFC 5280: Internet X.509 Public Key Infrastructure Certificate and
-Certificate Revocation List (CRL) Profile
+Certificate Revocation List (CRL) Profile:
+.Bl -dash -compact
+.It
+section 4.2.1.1: Certificate Extensions: Authority Key Identifier
+.It
+section 5.2.1: CRL Extensions: Authority Key Identifier
+.El
