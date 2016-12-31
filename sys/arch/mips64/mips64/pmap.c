@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.97 2016/12/23 12:38:16 visa Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.99 2016/12/30 12:50:38 visa Exp $	*/
 
 /*
  * Copyright (c) 2001-2004 Opsycon AB  (www.opsycon.se / www.opsycon.com)
@@ -1059,6 +1059,14 @@ pmap_enter(pmap_t pmap, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 
 	if (pg != NULL) {
 		mtx_enter(&pg->mdpage.pv_mtx);
+
+		/* Set page referenced/modified status based on flags */
+		if (flags & PROT_WRITE)
+			atomic_setbits_int(&pg->pg_flags,
+			    PGF_ATTR_MOD | PGF_ATTR_REF);
+		else if (flags & PROT_MASK)
+			atomic_setbits_int(&pg->pg_flags, PGF_ATTR_REF);
+
 		if (!(prot & PROT_WRITE)) {
 			npte = PG_ROPAGE;
 		} else {
@@ -1080,13 +1088,6 @@ pmap_enter(pmap_t pmap, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 			npte &= ~PG_CACHED;
 			npte |= PG_UNCACHED;
 		}
-
-		/* Set page referenced/modified status based on flags */
-		if (flags & PROT_WRITE)
-			atomic_setbits_int(&pg->pg_flags,
-			    PGF_ATTR_MOD | PGF_ATTR_REF);
-		else if (flags & PROT_MASK)
-			atomic_setbits_int(&pg->pg_flags, PGF_ATTR_REF);
 
 		stat_count(enter_stats.managed);
 	} else {
@@ -1436,12 +1437,8 @@ pmap_prefer(paddr_t foff, vaddr_t va)
  *	This routine is only advisory and need not do anything.
  */
 void
-pmap_copy(dst_pmap, src_pmap, dst_addr, len, src_addr)
-	pmap_t dst_pmap;
-	pmap_t src_pmap;
-	vaddr_t dst_addr;
-	vsize_t len;
-	vaddr_t src_addr;
+pmap_copy(pmap_t dst_pmap, pmap_t src_pmap, vaddr_t dst_addr, vsize_t len,
+    vaddr_t src_addr)
 {
 
 	DPRINTF(PDB_FOLLOW,("pmap_copy(%p, %p, %p, 0x%lx, %p)\n",
