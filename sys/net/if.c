@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.469 2016/12/29 12:12:43 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.473 2017/01/04 03:56:15 dlg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -624,6 +624,9 @@ if_input(struct ifnet *ifp, struct mbuf_list *ml)
 	caddr_t if_bpf;
 #endif
 
+	if (ml_empty(ml))
+		return;
+
 	MBUF_LIST_FOREACH(ml, m) {
 		m->m_pkthdr.ph_ifidx = ifp->if_index;
 		m->m_pkthdr.ph_rtableid = ifp->if_rdomain;
@@ -648,11 +651,14 @@ if_input(struct ifnet *ifp, struct mbuf_list *ml)
 			else
 				ml_enqueue(ml, m);
 		}
+
+		if (ml_empty(ml))
+			return;
 	}
 #endif
 
-	mq_enlist(&ifp->if_inputqueue, ml);
-	task_add(softnettq, ifp->if_inputtask);
+	if (mq_enlist(&ifp->if_inputqueue, ml) == 0)
+		task_add(softnettq, ifp->if_inputtask);
 }
 
 int
@@ -928,7 +934,7 @@ if_detach(struct ifnet *ifp)
 	struct ifaddr *ifa;
 	struct ifg_list *ifg;
 	struct domain *dp;
-	int i, s;
+	int i, s, s2;
 
 	/* Undo pseudo-driver changes. */
 	if_deactivate(ifp);
@@ -936,7 +942,7 @@ if_detach(struct ifnet *ifp)
 	ifq_clr_oactive(&ifp->if_snd);
 
 	NET_LOCK(s);
-	s = splnet();
+	s2 = splnet();
 	/* Other CPUs must not have a reference before we start destroying. */
 	if_idxmap_remove(ifp);
 
@@ -1011,7 +1017,7 @@ if_detach(struct ifnet *ifp)
 
 	/* Announce that the interface is gone. */
 	rt_ifannouncemsg(ifp, IFAN_DEPARTURE);
-	splx(s);
+	splx(s2);
 	NET_UNLOCK(s);
 
 	ifq_destroy(&ifp->if_snd);
@@ -1796,20 +1802,26 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCSIFFLAGS:
 		if ((error = suser(p, 0)) != 0)
 			return (error);
-		if (ifp->if_flags & IFF_UP && (ifr->ifr_flags & IFF_UP) == 0) {
-			s = splnet();
-			if_down(ifp);
-			splx(s);
-		}
-		if (ifr->ifr_flags & IFF_UP && (ifp->if_flags & IFF_UP) == 0) {
-			s = splnet();
-			if_up(ifp);
-			splx(s);
-		}
+
 		ifp->if_flags = (ifp->if_flags & IFF_CANTCHANGE) |
 			(ifr->ifr_flags & ~IFF_CANTCHANGE);
-		if (ifp->if_ioctl)
-			(void) (*ifp->if_ioctl)(ifp, cmd, data);
+
+		if (ifp->if_ioctl != NULL) {
+			error = (*ifp->if_ioctl)(ifp, cmd, data);
+			if (error != 0) {
+				ifp->if_flags = oif_flags;
+				break;
+			}
+		}
+
+		if (ISSET(oif_flags ^ ifp->if_flags, IFF_UP)) {
+			s = splnet();
+			if (ISSET(ifp->if_flags, IFF_UP))
+				if_up(ifp);
+			else
+				if_down(ifp);
+			splx(s);
+		}
 		break;
 
 	case SIOCSIFXFLAGS:
