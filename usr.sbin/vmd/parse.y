@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.17 2016/12/14 21:17:25 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.19 2017/01/05 13:53:10 krw Exp $	*/
 
 /*
  * Copyright (c) 2007-2016 Reyk Floeter <reyk@openbsd.org>
@@ -872,8 +872,7 @@ parse_config(const char *filename)
 	endservent();
 
 	/* Free macros and check which have not been used. */
-	for (sym = TAILQ_FIRST(&symhead); sym != NULL; sym = next) {
-		next = TAILQ_NEXT(sym, entry);
+	TAILQ_FOREACH_SAFE(sym, &symhead, entry, next) {
 		if (!sym->used)
 			fprintf(stderr, "warning: macro '%s' not "
 			    "used\n", sym->nam);
@@ -896,9 +895,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -957,11 +957,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 
