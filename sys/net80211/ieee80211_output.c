@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_output.c,v 1.111 2016/04/12 14:33:27 mpi Exp $	*/
+/*	$OpenBSD: ieee80211_output.c,v 1.114 2017/01/09 16:24:20 stsp Exp $	*/
 /*	$NetBSD: ieee80211_output.c,v 1.13 2004/05/31 11:02:55 dyoung Exp $	*/
 
 /*-
@@ -306,7 +306,7 @@ static const struct ieee80211_edca_ac_params
 #endif
 
 #ifndef IEEE80211_STA_ONLY
-static const struct ieee80211_edca_ac_params
+const struct ieee80211_edca_ac_params
     ieee80211_qap_edca_table[IEEE80211_MODE_MAX][EDCA_NUM_AC] = {
 	[IEEE80211_MODE_11B] = {
 		[EDCA_AC_BK] = { 5, 10, 7,   0 },
@@ -1084,8 +1084,9 @@ ieee80211_add_htop(u_int8_t *frm, struct ieee80211com *ic)
 	*frm++ = IEEE80211_ELEMID_HTOP;
 	*frm++ = 22;
 	*frm++ = ieee80211_chan2ieee(ic, ic->ic_bss->ni_chan);
-	LE_WRITE_2(frm, 0); frm += 2;
-	LE_WRITE_2(frm, 0); frm += 2;
+	*frm++ = ic->ic_bss->ni_htop0;
+	LE_WRITE_2(frm, ic->ic_bss->ni_htop1); frm += 2;
+	LE_WRITE_2(frm, ic->ic_bss->ni_htop2); frm += 2;
 	memset(frm, 0, 16); frm += 16;
 	return frm;
 }
@@ -1206,7 +1207,7 @@ ieee80211_get_probe_resp(struct ieee80211com *ic, struct ieee80211_node *ni)
 	    (((ic->ic_flags & IEEE80211_F_RSNON) &&
 	      (ic->ic_bss->ni_rsnprotos & IEEE80211_PROTO_WPA)) ?
 		2 + IEEE80211_WPAIE_MAXLEN : 0) +
-	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 : 0));
+	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 + 26 : 0));
 	if (m == NULL)
 		return NULL;
 
@@ -1235,6 +1236,7 @@ ieee80211_get_probe_resp(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if (ic->ic_flags & IEEE80211_F_HTON) {
 		frm = ieee80211_add_htcaps(frm, ic);
 		frm = ieee80211_add_htop(frm, ic);
+		frm = ieee80211_add_wme_param(frm, ic);
 	}
 
 	m->m_pkthdr.len = m->m_len = frm - mtod(m, u_int8_t *);
@@ -1396,7 +1398,7 @@ ieee80211_get_assoc_resp(struct ieee80211com *ic, struct ieee80211_node *ni,
 		2 + rs->rs_nrates - IEEE80211_RATE_SIZE : 0) +
 	    ((ni->ni_flags & IEEE80211_NODE_QOS) ? 2 + 18 : 0) +
 	    ((status == IEEE80211_STATUS_TRY_AGAIN_LATER) ? 2 + 7 : 0) +
-	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 : 0));
+	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 + 26 : 0));
 	if (m == NULL)
 		return NULL;
 
@@ -1421,6 +1423,7 @@ ieee80211_get_assoc_resp(struct ieee80211com *ic, struct ieee80211_node *ni,
 	if (ic->ic_flags & IEEE80211_F_HTON) {
 		frm = ieee80211_add_htcaps(frm, ic);
 		frm = ieee80211_add_htop(frm, ic);
+		frm = ieee80211_add_wme_param(frm, ic);
 	}
 
 	m->m_pkthdr.len = m->m_len = frm - mtod(m, u_int8_t *);
@@ -1824,7 +1827,7 @@ ieee80211_beacon_alloc(struct ieee80211com *ic, struct ieee80211_node *ni)
 	    (((ic->ic_flags & IEEE80211_F_RSNON) &&
 	      (ni->ni_rsnprotos & IEEE80211_PROTO_WPA)) ?
 		2 + IEEE80211_WPAIE_MAXLEN : 0) +
-	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 : 0));
+	    ((ic->ic_flags & IEEE80211_F_HTON) ? 28 + 24 + 26 : 0));
 	if (m == NULL)
 		return NULL;
 
@@ -1870,6 +1873,7 @@ ieee80211_beacon_alloc(struct ieee80211com *ic, struct ieee80211_node *ni)
 	if (ic->ic_flags & IEEE80211_F_HTON) {
 		frm = ieee80211_add_htcaps(frm, ic);
 		frm = ieee80211_add_htop(frm, ic);
+		frm = ieee80211_add_wme_param(frm, ic);
 	}
 
 	m->m_pkthdr.len = m->m_len = frm - mtod(m, u_int8_t *);

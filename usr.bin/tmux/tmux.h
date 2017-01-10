@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.685 2017/01/07 15:28:13 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.687 2017/01/09 21:03:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -76,7 +76,7 @@ struct tmuxproc;
 
 #define READ_CHANGE_HITS 3
 
-/* Attribute to make gcc check printf-like arguments. */
+/* Attribute to make GCC check printf-like arguments. */
 #define printflike(a, b) __attribute__ ((format (printf, a, b)))
 
 /* Number of items in array. */
@@ -1568,6 +1568,7 @@ char		*paste_make_sample(struct paste_buffer *);
 /* format.c */
 #define FORMAT_STATUS 0x1
 #define FORMAT_FORCE 0x2
+#define FORMAT_NOJOBS 0x4
 struct format_tree;
 struct format_tree *format_create(struct cmdq_item *, int);
 void		 format_free(struct format_tree *);
