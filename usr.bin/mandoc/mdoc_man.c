@@ -1,6 +1,6 @@
-/*	$OpenBSD: mdoc_man.c,v 1.94 2016/01/08 17:48:04 schwarze Exp $ */
+/*	$OpenBSD: mdoc_man.c,v 1.98 2017/01/10 23:36:24 schwarze Exp $ */
 /*
- * Copyright (c) 2011-2016 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2017 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -77,7 +77,6 @@ static	int	  pre_bf(DECL_ARGS);
 static	int	  pre_bk(DECL_ARGS);
 static	int	  pre_bl(DECL_ARGS);
 static	int	  pre_br(DECL_ARGS);
-static	int	  pre_bx(DECL_ARGS);
 static	int	  pre_dl(DECL_ARGS);
 static	int	  pre_en(DECL_ARGS);
 static	int	  pre_enc(DECL_ARGS);
@@ -180,8 +179,8 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, pre_bf, post_bf, NULL, NULL }, /* Bf */
 	{ cond_body, pre_enc, post_enc, "[", "]" }, /* Bo */
 	{ cond_body, pre_enc, post_enc, "[", "]" }, /* Bq */
-	{ NULL, pre_ux, NULL, "BSD/OS", NULL }, /* Bsx */
-	{ NULL, pre_bx, NULL, NULL, NULL }, /* Bx */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Bsx */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Bx */
 	{ NULL, pre_skip, NULL, NULL, NULL }, /* Db */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Dc */
 	{ cond_body, pre_enc, post_enc, "\\(Lq", "\\(Rq" }, /* Do */
@@ -190,12 +189,12 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, NULL, NULL, NULL, NULL }, /* Ef */
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Em */
 	{ cond_body, pre_eo, post_eo, NULL, NULL }, /* Eo */
-	{ NULL, pre_ux, NULL, "FreeBSD", NULL }, /* Fx */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Fx */
 	{ NULL, pre_sy, post_font, NULL, NULL }, /* Ms */
 	{ NULL, pre_no, NULL, NULL, NULL }, /* No */
 	{ NULL, pre_ns, NULL, NULL, NULL }, /* Ns */
-	{ NULL, pre_ux, NULL, "NetBSD", NULL }, /* Nx */
-	{ NULL, pre_ux, NULL, "OpenBSD", NULL }, /* Ox */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Nx */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Ox */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Pc */
 	{ NULL, NULL, post_pf, NULL, NULL }, /* Pf */
 	{ cond_body, pre_enc, post_enc, "(", ")" }, /* Po */
@@ -213,7 +212,7 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Sx */
 	{ NULL, pre_sy, post_font, NULL, NULL }, /* Sy */
 	{ NULL, pre_li, post_font, NULL, NULL }, /* Tn */
-	{ NULL, pre_ux, NULL, "UNIX", NULL }, /* Ux */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Ux */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Xc */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Xo */
 	{ NULL, pre_fo, post_fo, NULL, NULL }, /* Fo */
@@ -236,7 +235,7 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, NULL, post_percent, NULL, NULL }, /* %C */
 	{ NULL, pre_skip, NULL, NULL, NULL }, /* Es */
 	{ cond_body, pre_en, post_en, NULL, NULL }, /* En */
-	{ NULL, pre_ux, NULL, "DragonFly", NULL }, /* Dx */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Dx */
 	{ NULL, NULL, post_percent, NULL, NULL }, /* %Q */
 	{ NULL, pre_br, NULL, NULL, NULL }, /* br */
 	{ NULL, pre_sp, post_sp, NULL, NULL }, /* sp */
@@ -573,17 +572,20 @@ print_node(DECL_ARGS)
 	struct roff_node	*sub;
 	int			 cond, do_sub;
 
+	if (n->flags & NODE_NOPRT)
+		return;
+
 	/*
 	 * Break the line if we were parsed subsequent the current node.
 	 * This makes the page structure be more consistent.
 	 */
-	if (MMAN_spc & outflags && MDOC_LINE & n->flags)
+	if (MMAN_spc & outflags && NODE_LINE & n->flags)
 		outflags |= MMAN_nl;
 
 	act = NULL;
 	cond = 0;
 	do_sub = 1;
-	n->flags &= ~MDOC_ENDED;
+	n->flags &= ~NODE_ENDED;
 
 	if (n->type == ROFFT_TEXT) {
 		/*
@@ -596,10 +598,10 @@ print_node(DECL_ARGS)
 			printf("\\&");
 			outflags &= ~MMAN_spc;
 		}
-		if (outflags & MMAN_Sm && ! (n->flags & MDOC_DELIMC))
+		if (outflags & MMAN_Sm && ! (n->flags & NODE_DELIMC))
 			outflags |= MMAN_spc_force;
 		print_word(n->string);
-		if (outflags & MMAN_Sm && ! (n->flags & MDOC_DELIMO))
+		if (outflags & MMAN_Sm && ! (n->flags & NODE_DELIMO))
 			outflags |= MMAN_spc;
 	} else {
 		/*
@@ -625,14 +627,14 @@ print_node(DECL_ARGS)
 	/*
 	 * Lastly, conditionally run the post-node handler.
 	 */
-	if (MDOC_ENDED & n->flags)
+	if (NODE_ENDED & n->flags)
 		return;
 
 	if (cond && act->post)
 		(*act->post)(meta, n);
 
 	if (ENDBODY_NOT != n->end)
-		n->body->flags |= MDOC_ENDED;
+		n->body->flags |= NODE_ENDED;
 
 	if (ENDBODY_NOSPACE == n->end)
 		outflags &= ~(MMAN_spc | MMAN_nl);
@@ -803,7 +805,7 @@ static void
 pre_syn(const struct roff_node *n)
 {
 
-	if (NULL == n->prev || ! (MDOC_SYNPRETTY & n->flags))
+	if (NULL == n->prev || ! (NODE_SYNPRETTY & n->flags))
 		return;
 
 	if (n->prev->tok == n->tok &&
@@ -1049,26 +1051,6 @@ pre_br(DECL_ARGS)
 }
 
 static int
-pre_bx(DECL_ARGS)
-{
-
-	n = n->child;
-	if (n) {
-		print_word(n->string);
-		outflags &= ~MMAN_spc;
-		n = n->next;
-	}
-	print_word("BSD");
-	if (NULL == n)
-		return 0;
-	outflags &= ~MMAN_spc;
-	print_word("-");
-	outflags &= ~MMAN_spc;
-	print_word(n->string);
-	return 0;
-}
-
-static int
 pre_dl(DECL_ARGS)
 {
 
@@ -1171,7 +1153,7 @@ pre_fa(DECL_ARGS)
 
 	while (NULL != n) {
 		font_push('I');
-		if (am_Fa || MDOC_SYNPRETTY & n->flags)
+		if (am_Fa || NODE_SYNPRETTY & n->flags)
 			outflags |= MMAN_nbrword;
 		print_node(meta, n);
 		font_pop();
@@ -1225,7 +1207,7 @@ post_fl(DECL_ARGS)
 	if (!(n->child != NULL ||
 	    n->next == NULL ||
 	    n->next->type == ROFFT_TEXT ||
-	    n->next->flags & MDOC_LINE))
+	    n->next->flags & NODE_LINE))
 		outflags &= ~MMAN_spc;
 }
 
@@ -1239,7 +1221,7 @@ pre_fn(DECL_ARGS)
 	if (NULL == n)
 		return 0;
 
-	if (MDOC_SYNPRETTY & n->flags)
+	if (NODE_SYNPRETTY & n->flags)
 		print_block(".HP 4n", MMAN_nl);
 
 	font_push('B');
@@ -1260,7 +1242,7 @@ post_fn(DECL_ARGS)
 {
 
 	print_word(")");
-	if (MDOC_SYNPRETTY & n->flags) {
+	if (NODE_SYNPRETTY & n->flags) {
 		print_word(";");
 		outflags |= MMAN_PP;
 	}
@@ -1277,7 +1259,7 @@ pre_fo(DECL_ARGS)
 	case ROFFT_HEAD:
 		if (n->child == NULL)
 			return 0;
-		if (MDOC_SYNPRETTY & n->flags)
+		if (NODE_SYNPRETTY & n->flags)
 			print_block(".HP 4n", MMAN_nl);
 		font_push('B');
 		break;
@@ -1322,7 +1304,7 @@ static int
 pre_in(DECL_ARGS)
 {
 
-	if (MDOC_SYNPRETTY & n->flags) {
+	if (NODE_SYNPRETTY & n->flags) {
 		pre_syn(n);
 		font_push('B');
 		print_word("#include <");
@@ -1339,7 +1321,7 @@ static void
 post_in(DECL_ARGS)
 {
 
-	if (MDOC_SYNPRETTY & n->flags) {
+	if (NODE_SYNPRETTY & n->flags) {
 		outflags &= ~MMAN_spc;
 		print_word(">");
 		font_pop();
@@ -1614,7 +1596,7 @@ static void
 post_pf(DECL_ARGS)
 {
 
-	if ( ! (n->next == NULL || n->next->flags & MDOC_LINE))
+	if ( ! (n->next == NULL || n->next->flags & NODE_LINE))
 		outflags &= ~MMAN_spc;
 }
 
@@ -1746,7 +1728,7 @@ static int
 pre_vt(DECL_ARGS)
 {
 
-	if (MDOC_SYNPRETTY & n->flags) {
+	if (NODE_SYNPRETTY & n->flags) {
 		switch (n->type) {
 		case ROFFT_BLOCK:
 			pre_syn(n);
@@ -1765,7 +1747,7 @@ static void
 post_vt(DECL_ARGS)
 {
 
-	if (n->flags & MDOC_SYNPRETTY && n->type != ROFFT_BODY)
+	if (n->flags & NODE_SYNPRETTY && n->type != ROFFT_BODY)
 		return;
 	font_pop();
 }

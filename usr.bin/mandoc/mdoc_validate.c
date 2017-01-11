@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.228 2017/01/08 02:01:14 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.232 2017/01/10 23:36:24 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -102,6 +102,7 @@ static	void	 post_sm(POST_ARGS);
 static	void	 post_st(POST_ARGS);
 static	void	 post_std(POST_ARGS);
 static	void	 post_xr(POST_ARGS);
+static	void	 post_xx(POST_ARGS);
 
 static	v_post mdoc_valids[MDOC_MAX] = {
 	NULL,		/* Ap */
@@ -164,7 +165,7 @@ static	v_post mdoc_valids[MDOC_MAX] = {
 	post_bf,	/* Bf */
 	NULL,		/* Bo */
 	NULL,		/* Bq */
-	NULL,		/* Bsx */
+	post_xx,	/* Bsx */
 	post_bx,	/* Bx */
 	post_obsolete,	/* Db */
 	NULL,		/* Dc */
@@ -174,12 +175,12 @@ static	v_post mdoc_valids[MDOC_MAX] = {
 	NULL,		/* Ef */
 	NULL,		/* Em */
 	NULL,		/* Eo */
-	NULL,		/* Fx */
+	post_xx,	/* Fx */
 	NULL,		/* Ms */
 	NULL,		/* No */
 	post_ns,	/* Ns */
-	NULL,		/* Nx */
-	NULL,		/* Ox */
+	post_xx,	/* Nx */
+	post_xx,	/* Ox */
 	NULL,		/* Pc */
 	NULL,		/* Pf */
 	NULL,		/* Po */
@@ -197,7 +198,7 @@ static	v_post mdoc_valids[MDOC_MAX] = {
 	post_hyph,	/* Sx */
 	NULL,		/* Sy */
 	NULL,		/* Tn */
-	NULL,		/* Ux */
+	post_xx,	/* Ux */
 	NULL,		/* Xc */
 	NULL,		/* Xo */
 	post_fo,	/* Fo */
@@ -220,7 +221,7 @@ static	v_post mdoc_valids[MDOC_MAX] = {
 	NULL,		/* %C */
 	post_es,	/* Es */
 	post_en,	/* En */
-	NULL,		/* Dx */
+	post_xx,	/* Dx */
 	NULL,		/* %Q */
 	post_par,	/* br */
 	post_par,	/* sp */
@@ -315,9 +316,9 @@ mdoc_node_validate(struct roff_man *mdoc)
 		 */
 
 		if (n->child != NULL)
-			n->child->flags &= ~MDOC_DELIMC;
+			n->child->flags &= ~NODE_DELIMC;
 		if (n->last != NULL)
-			n->last->flags &= ~MDOC_DELIMO;
+			n->last->flags &= ~NODE_DELIMO;
 
 		/* Call the macro's postprocessor. */
 
@@ -936,12 +937,15 @@ post_defaults(POST_ARGS)
 	case MDOC_Ar:
 		mdoc->next = ROFF_NEXT_CHILD;
 		roff_word_alloc(mdoc, nn->line, nn->pos, "file");
+		mdoc->last->flags |= NODE_NOSRC;
 		roff_word_alloc(mdoc, nn->line, nn->pos, "...");
+		mdoc->last->flags |= NODE_NOSRC;
 		break;
 	case MDOC_Pa:
 	case MDOC_Mt:
 		mdoc->next = ROFF_NEXT_CHILD;
 		roff_word_alloc(mdoc, nn->line, nn->pos, "~");
+		mdoc->last->flags |= NODE_NOSRC;
 		break;
 	default:
 		abort();
@@ -952,17 +956,11 @@ post_defaults(POST_ARGS)
 static void
 post_at(POST_ARGS)
 {
-	struct roff_node	*n;
-	const char		*std_att;
-	char			*att;
+	struct roff_node	*n, *nch;
+	const char		*att;
 
 	n = mdoc->last;
-	if (n->child == NULL) {
-		mdoc->next = ROFF_NEXT_CHILD;
-		roff_word_alloc(mdoc, n->line, n->pos, "AT&T UNIX");
-		mdoc->last = n;
-		return;
-	}
+	nch = n->child;
 
 	/*
 	 * If we have a child, look it up in the standard keys.  If a
@@ -970,17 +968,19 @@ post_at(POST_ARGS)
 	 * prefix "AT&T UNIX " to the existing data.
 	 */
 
-	n = n->child;
-	assert(n->type == ROFFT_TEXT);
-	if ((std_att = mdoc_a2att(n->string)) == NULL) {
+	att = NULL;
+	if (nch != NULL && ((att = mdoc_a2att(nch->string)) == NULL))
 		mandoc_vmsg(MANDOCERR_AT_BAD, mdoc->parse,
-		    n->line, n->pos, "At %s", n->string);
-		mandoc_asprintf(&att, "AT&T UNIX %s", n->string);
-	} else
-		att = mandoc_strdup(std_att);
+		    nch->line, nch->pos, "At %s", nch->string);
 
-	free(n->string);
-	n->string = att;
+	mdoc->next = ROFF_NEXT_CHILD;
+	if (att != NULL) {
+		roff_word_alloc(mdoc, nch->line, nch->pos, att);
+		nch->flags |= NODE_NOPRT;
+	} else
+		roff_word_alloc(mdoc, n->line, n->pos, "AT&T UNIX");
+	mdoc->last->flags |= NODE_NOSRC;
+	mdoc->last = n;
 }
 
 static void
@@ -1016,6 +1016,41 @@ post_es(POST_ARGS)
 
 	post_obsolete(mdoc);
 	mdoc->last_es = mdoc->last;
+}
+
+static void
+post_xx(POST_ARGS)
+{
+	struct roff_node	*n;
+	const char		*os;
+
+	n = mdoc->last;
+	switch (n->tok) {
+	case MDOC_Bsx:
+		os = "BSD/OS";
+		break;
+	case MDOC_Dx:
+		os = "DragonFly";
+		break;
+	case MDOC_Fx:
+		os = "FreeBSD";
+		break;
+	case MDOC_Nx:
+		os = "NetBSD";
+		break;
+	case MDOC_Ox:
+		os = "OpenBSD";
+		break;
+	case MDOC_Ux:
+		os = "UNIX";
+		break;
+	default:
+		abort();
+	}
+	mdoc->next = ROFF_NEXT_CHILD;
+	roff_word_alloc(mdoc, n->line, n->pos, os);
+	mdoc->last->flags |= NODE_NOSRC;
+	mdoc->last = n;
 }
 
 static void
@@ -1543,7 +1578,7 @@ static void
 post_ns(POST_ARGS)
 {
 
-	if (mdoc->last->flags & MDOC_LINE)
+	if (mdoc->last->flags & NODE_LINE)
 		mandoc_msg(MANDOCERR_NS_SKIP, mdoc->parse,
 		    mdoc->last->line, mdoc->last->pos, NULL);
 }
@@ -1932,6 +1967,8 @@ post_dd(POST_ARGS)
 	char		 *datestr;
 
 	n = mdoc->last;
+	n->flags |= NODE_NOPRT;
+
 	if (mdoc->meta.date != NULL) {
 		mandoc_msg(MANDOCERR_PROLOG_REP, mdoc->parse,
 		    n->line, n->pos, "Dd");
@@ -1949,7 +1986,7 @@ post_dd(POST_ARGS)
 	if (n->child == NULL || n->child->string[0] == '\0') {
 		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
 		    mandoc_normdate(mdoc->parse, NULL, n->line, n->pos);
-		goto out;
+		return;
 	}
 
 	datestr = NULL;
@@ -1961,8 +1998,6 @@ post_dd(POST_ARGS)
 		    datestr, n->line, n->pos);
 		free(datestr);
 	}
-out:
-	roff_node_delete(mdoc, n);
 }
 
 static void
@@ -1973,10 +2008,12 @@ post_dt(POST_ARGS)
 	char		 *p;
 
 	n = mdoc->last;
+	n->flags |= NODE_NOPRT;
+
 	if (mdoc->flags & MDOC_PBODY) {
 		mandoc_msg(MANDOCERR_DT_LATE, mdoc->parse,
 		    n->line, n->pos, "Dt");
-		goto out;
+		return;
 	}
 
 	if (mdoc->meta.title != NULL)
@@ -2028,7 +2065,7 @@ post_dt(POST_ARGS)
 		    mdoc->parse, n->line, n->pos,
 		    "Dt %s", mdoc->meta.title);
 		mdoc->meta.vol = mandoc_strdup("LOCAL");
-		goto out;  /* msec and arch remain NULL. */
+		return;  /* msec and arch remain NULL. */
 	}
 
 	mdoc->meta.msec = mandoc_strdup(nn->string);
@@ -2046,7 +2083,7 @@ post_dt(POST_ARGS)
 	/* Optional third argument: architecture. */
 
 	if ((nn = nn->next) == NULL)
-		goto out;
+		return;
 
 	for (p = nn->string; *p != '\0'; p++)
 		*p = tolower((unsigned char)*p);
@@ -2057,15 +2094,41 @@ post_dt(POST_ARGS)
 	if ((nn = nn->next) != NULL)
 		mandoc_vmsg(MANDOCERR_ARG_EXCESS, mdoc->parse,
 		    nn->line, nn->pos, "Dt ... %s", nn->string);
-
-out:
-	roff_node_delete(mdoc, n);
 }
 
 static void
 post_bx(POST_ARGS)
 {
-	struct roff_node	*n;
+	struct roff_node	*n, *nch;
+
+	n = mdoc->last;
+	nch = n->child;
+
+	if (nch != NULL) {
+		mdoc->last = nch;
+		nch = nch->next;
+		mdoc->next = ROFF_NEXT_SIBLING;
+		roff_elem_alloc(mdoc, n->line, n->pos, MDOC_Ns);
+		mdoc->last->flags |= NODE_NOSRC;
+		mdoc->next = ROFF_NEXT_SIBLING;
+	} else
+		mdoc->next = ROFF_NEXT_CHILD;
+	roff_word_alloc(mdoc, n->line, n->pos, "BSD");
+	mdoc->last->flags |= NODE_NOSRC;
+
+	if (nch == NULL) {
+		mdoc->last = n;
+		return;
+	}
+
+	roff_elem_alloc(mdoc, n->line, n->pos, MDOC_Ns);
+	mdoc->last->flags |= NODE_NOSRC;
+	mdoc->next = ROFF_NEXT_SIBLING;
+	roff_word_alloc(mdoc, n->line, n->pos, "-");
+	mdoc->last->flags |= NODE_NOSRC;
+	roff_elem_alloc(mdoc, n->line, n->pos, MDOC_Ns);
+	mdoc->last->flags |= NODE_NOSRC;
+	mdoc->last = n;
 
 	/*
 	 * Make `Bx's second argument always start with an uppercase
@@ -2073,8 +2136,7 @@ post_bx(POST_ARGS)
 	 * uppercase blindly.
 	 */
 
-	if ((n = mdoc->last->child) != NULL && (n = n->next) != NULL)
-		*n->string = (char)toupper((unsigned char)*n->string);
+	*nch->string = (char)toupper((unsigned char)*nch->string);
 }
 
 static void
@@ -2087,6 +2149,8 @@ post_os(POST_ARGS)
 	struct roff_node *n;
 
 	n = mdoc->last;
+	n->flags |= NODE_NOPRT;
+
 	if (mdoc->meta.os != NULL)
 		mandoc_msg(MANDOCERR_PROLOG_REP, mdoc->parse,
 		    n->line, n->pos, "Os");
@@ -2107,11 +2171,11 @@ post_os(POST_ARGS)
 	mdoc->meta.os = NULL;
 	deroff(&mdoc->meta.os, n);
 	if (mdoc->meta.os)
-		goto out;
+		return;
 
 	if (mdoc->defos) {
 		mdoc->meta.os = mandoc_strdup(mdoc->defos);
-		goto out;
+		return;
 	}
 
 #ifdef OSNAME
@@ -2128,9 +2192,6 @@ post_os(POST_ARGS)
 	}
 	mdoc->meta.os = mandoc_strdup(defbuf);
 #endif /*!OSNAME*/
-
-out:
-	roff_node_delete(mdoc, n);
 }
 
 /*
