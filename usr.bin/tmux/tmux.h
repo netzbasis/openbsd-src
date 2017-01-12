@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.687 2017/01/09 21:03:25 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.691 2017/01/12 00:19:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -654,7 +654,7 @@ struct options_entry {
 	long long		 num;
 	struct grid_cell	 style;
 
-	RB_ENTRY(options_entry) entry;
+	RB_ENTRY(options_entry)	 entry;
 };
 
 /* Scheduled job. */
@@ -859,11 +859,6 @@ struct window_pane {
 };
 TAILQ_HEAD(window_panes, window_pane);
 RB_HEAD(window_pane_tree, window_pane);
-
-#define WINDOW_PANE_PALETTE_HAS(wp, c)			\
-	((wp) != NULL && (wp)->palette != NULL &&	\
-	    ((c) < 0x100 || (c) & COLOUR_FLAG_256) &&	\
-	    (wp)->palette[(c) & 0xff] != 0)
 
 /* Window structure. */
 struct window {
@@ -1112,9 +1107,6 @@ struct tty {
 	u_int		 rleft;
 	u_int		 rright;
 
-	char		*termname;
-	struct tty_term	*term;
-
 	int		 fd;
 	struct bufferevent *event;
 
@@ -1131,6 +1123,8 @@ struct tty {
 #define TTY_FOCUS 0x40
 	int		 flags;
 
+	struct tty_term	*term;
+	char		*term_name;
 	int		 term_flags;
 	enum {
 		TTY_VT100,
@@ -1152,6 +1146,8 @@ struct tty {
 	struct event	 key_timer;
 	struct tty_key	*key_tree;
 };
+#define TTY_TYPES \
+	{ "VT100", "VT101", "VT102", "VT220", "VT320", "VT420", "UNKNOWN" }
 
 /* TTY command context. */
 struct tty_ctx {
@@ -2156,6 +2152,7 @@ void		 window_set_name(struct window *, const char *);
 void		 window_remove_ref(struct window *);
 void		 winlink_clear_flags(struct winlink *);
 int		 winlink_shuffle_up(struct session *, struct winlink *);
+int		 window_pane_get_palette(const struct window_pane *, int);
 
 /* layout.c */
 u_int		 layout_count_cells(struct layout_cell *);
