@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.691 2017/01/12 00:19:32 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.693 2017/01/12 15:36:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1627,14 +1627,14 @@ struct options_entry *options_next(struct options_entry *);
 struct options_entry *options_find1(struct options *, const char *);
 struct options_entry *options_find(struct options *, const char *);
 void	options_remove(struct options *, const char *);
-struct options_entry *printflike(3, 4) options_set_string(struct options *,
-	    const char *, const char *, ...);
+struct options_entry * printflike(4, 5) options_set_string(struct options *,
+	    const char *, int, const char *, ...);
 char   *options_get_string(struct options *, const char *);
 struct options_entry *options_set_number(struct options *, const char *,
 	    long long);
 long long options_get_number(struct options *, const char *);
-struct options_entry *options_set_style(struct options *, const char *,
-	    const char *, int);
+struct options_entry *options_set_style(struct options *, const char *, int,
+	    const char *);
 struct grid_cell *options_get_style(struct options *, const char *);
 
 /* options-table.c */
@@ -2134,6 +2134,7 @@ void		 window_pane_alternate_off(struct window_pane *,
 void		 window_pane_set_palette(struct window_pane *, u_int, int);
 void		 window_pane_unset_palette(struct window_pane *, u_int);
 void		 window_pane_reset_palette(struct window_pane *);
+int		 window_pane_get_palette(const struct window_pane *, int);
 int		 window_pane_set_mode(struct window_pane *,
 		     const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);
@@ -2152,7 +2153,6 @@ void		 window_set_name(struct window *, const char *);
 void		 window_remove_ref(struct window *);
 void		 winlink_clear_flags(struct winlink *);
 int		 winlink_shuffle_up(struct session *, struct winlink *);
-int		 window_pane_get_palette(const struct window_pane *, int);
 
 /* layout.c */
 u_int		 layout_count_cells(struct layout_cell *);
