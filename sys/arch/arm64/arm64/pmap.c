@@ -1,4 +1,4 @@
-/* $OpenBSD: pmap.c,v 1.5 2017/01/11 13:00:49 patrick Exp $ */
+/* $OpenBSD: pmap.c,v 1.8 2017/01/13 12:36:45 patrick Exp $ */
 /*
  * Copyright (c) 2008-2009,2014-2016 Dale Rahn <drahn@dalerahn.com>
  *
@@ -192,8 +192,9 @@ void pmap_set_l3(struct pmap *pm, uint64_t va, struct pmapvp3 *l3_va, paddr_t l3
 void
 pmap_fill_pte(pmap_t pm, vaddr_t va, paddr_t pa, struct pte_desc *pted,
     vm_prot_t prot, int flags, int cache);
-void pte_insert(struct pte_desc *pted);
-void pte_remove(struct pte_desc *pted, int);
+void pmap_pte_insert(struct pte_desc *pted);
+void pmap_pte_remove(struct pte_desc *pted, int);
+void pmap_pte_update(struct pte_desc *pted, uint64_t *pl3);
 void pmap_kenter_cache(vaddr_t va, paddr_t pa, vm_prot_t prot, int cacheable);
 void pmap_pinit(pmap_t pm);
 void pmap_release(pmap_t pm);
@@ -296,12 +297,15 @@ pmap_vp_lookup(pmap_t pm, vaddr_t va, uint64_t **pl3entry)
 	struct pte_desc *pted;
 
 	if (pm->have_4_level_pt) {
-		vp1 = pm->pm_vp.l0->vp[VP_IDX0(va)];
-		if (vp1 == NULL) {
+		if (pm->pm_vp.l0 == NULL) {
 			return NULL;
 		}
+		vp1 = pm->pm_vp.l0->vp[VP_IDX0(va)];
 	} else {
 		vp1 = pm->pm_vp.l1;
+	}
+	if (vp1 == NULL) {
+		return NULL;
 	}
 
 	vp2 = vp1->vp[VP_IDX1(va)];
@@ -574,7 +578,7 @@ pmap_enter(pmap_t pm, vaddr_t va, paddr_t pa, vm_prot_t prot, int flags)
 	 * now.
 	 */
 	if (flags & (PROT_READ|PROT_WRITE|PROT_EXEC|PMAP_WIRED)) {
-		pte_insert(pted);
+		pmap_pte_insert(pted);
 	}
 
 //	cpu_dcache_inv_range(va & PAGE_MASK, PAGE_SIZE);
@@ -656,7 +660,7 @@ pmap_remove_pted(pmap_t pm, struct pte_desc *pted)
 	__asm __volatile("dsb sy");
 	//dcache_wbinv_poc(va & PTE_RPGN, pted->pted_pte & PTE_RPGN, PAGE_SIZE);
 
-	pte_remove(pted, pm != pmap_kernel());
+	pmap_pte_remove(pted, pm != pmap_kernel());
 
 	ttlb_flush(pm, pted->pted_va & PTE_RPGN);
 
@@ -730,7 +734,7 @@ _pmap_kenter_pa(vaddr_t va, paddr_t pa, vm_prot_t prot, int flags, int cache)
 	 * We were told to map the page, probably called from vm_fault,
 	 * so map the page!
 	 */
-	pte_insert(pted);
+	pmap_pte_insert(pted);
 
 	ttlb_flush(pm, va & PTE_RPGN);
 
@@ -778,7 +782,7 @@ pmap_kremove_pg(vaddr_t va)
 	 * so that we know the mapping information is either valid,
 	 * or that the mapping is not present in the hash table.
 	 */
-	pte_remove(pted, 0);
+	pmap_pte_remove(pted, 0);
 
 	ttlb_flush(pm, pted->pted_va & PTE_RPGN);
 
@@ -1525,16 +1529,17 @@ void
 pmap_page_ro(pmap_t pm, vaddr_t va, vm_prot_t prot)
 {
 	struct pte_desc *pted;
+	uint64_t *pl3;
 
 	/* Every VA needs a pted, even unmanaged ones. */
-	pted = pmap_vp_lookup(pm, va, NULL);
+	pted = pmap_vp_lookup(pm, va, &pl3);
 	if (!pted || !PTED_VALID(pted)) {
 		return;
 	}
 
 	pted->pted_va &= ~PROT_WRITE;
 	pted->pted_pte &= ~PROT_WRITE;
-	pte_insert(pted);
+	pmap_pte_update(pted, pl3);
 
 	ttlb_flush(pm, pted->pted_va & PTE_RPGN);
 
@@ -1656,14 +1661,25 @@ STATIC uint64_t ap_bits_kern [8] = {
 };
 
 void
-pte_insert(struct pte_desc *pted)
+pmap_pte_insert(struct pte_desc *pted)
 {
 	/* put entry into table */
 	/* need to deal with ref/change here */
+	pmap_t pm = pted->pted_pmap;
+	uint64_t *pl3;
+
+	if (pmap_vp_lookup(pm, pted->pted_va, &pl3) == NULL) {
+		panic("pmap_pte_insert: have a pted, but missing a vp"
+		    " for %x va pmap %x", __func__, pted->pted_va, pm);
+	}
+
+	pmap_pte_update(pted, pl3);
+}
+
+void
+pmap_pte_update(struct pte_desc *pted, uint64_t *pl3)
+{
 	uint64_t pte, access_bits;
-	struct pmapvp1 *vp1;
-	struct pmapvp2 *vp2;
-	struct pmapvp3 *vp3;
 	pmap_t pm = pted->pted_pmap;
 	uint64_t attr = 0;
 
@@ -1685,7 +1701,7 @@ pte_insert(struct pte_desc *pted)
 		attr |= ATTR_SH(SH_INNER);
 		break;
 	default:
-		panic("pte_insert:invalid cache mode");
+		panic("pmap_pte_insert: invalid cache mode");
 	}
 
 	// kernel mappings are global, so nG should not be set
@@ -1698,33 +1714,18 @@ pte_insert(struct pte_desc *pted)
 
 	pte = (pted->pted_pte & PTE_RPGN) | attr | access_bits | L3_P;
 
-	if (pm->have_4_level_pt) {
-		vp1 = pm->pm_vp.l0->vp[VP_IDX0(pted->pted_va)];
-	} else {
-		vp1 = pm->pm_vp.l1;
-	}
-	vp2 = vp1->vp[VP_IDX1(pted->pted_va)];
-	if (vp2 == NULL) {
-		panic("have a pted, but missing the l2 for %x va pmap %x",
-		    pted->pted_va, pm);
-	}
-	vp3 = vp2->vp[VP_IDX2(pted->pted_va)];
-	if (vp3 == NULL) {
-		panic("have a pted, but missing the l2 for %x va pmap %x",
-		    pted->pted_va, pm);
-	}
-	vp3->l3[VP_IDX3(pted->pted_va)] = pte;
+	*pl3 = pte;
 #if 0
 	__asm __volatile("dsb");
 	dcache_wb_pou((vaddr_t)&l2[VP_IDX2(pted->pted_va)], sizeof(l2[VP_IDX2(pted->pted_va)]));
 	//cpu_tlb_flushID_SE(pted->pted_va & PTE_RPGN);
 #endif
-	dcache_wb_pou((vaddr_t) &vp3->l3[VP_IDX3(pted->pted_va)],8);
+	dcache_wb_pou((vaddr_t) pl3, 8);
 	__asm __volatile("dsb sy");
 }
 
 void
-pte_remove(struct pte_desc *pted, int remove_pted)
+pmap_pte_remove(struct pte_desc *pted, int remove_pted)
 {
 	/* put entry into table */
 	/* need to deal with ref/change here */
@@ -1820,7 +1821,7 @@ int pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 		/* Thus, enable read, write and exec. */
 		pted->pted_pte |=
 		    (pted->pted_va & (PROT_READ|PROT_WRITE|PROT_EXEC));
-		pte_insert(pted);
+		pmap_pte_update(pted, pl3);
 
 		/* Flush tlb. */
 		ttlb_flush(pm, va & PTE_RPGN);
@@ -1839,7 +1840,7 @@ int pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 
 		/* Thus, enable read and exec. */
 		pted->pted_pte |= (pted->pted_va & (PROT_READ|PROT_EXEC));
-		pte_insert(pted);
+		pmap_pte_update(pted, pl3);
 
 		/* Flush tlb. */
 		ttlb_flush(pm, va & PTE_RPGN);
@@ -1858,7 +1859,7 @@ int pmap_fault_fixup(pmap_t pm, vaddr_t va, vm_prot_t ftype, int user)
 
 		/* Thus, enable read and exec. */
 		pted->pted_pte |= (pted->pted_va & (PROT_READ|PROT_EXEC));
-		pte_insert(pted);
+		pmap_pte_update(pted, pl3);
 
 		/* Flush tlb. */
 		ttlb_flush(pm, pted->pted_va & PTE_RPGN);
@@ -1971,7 +1972,6 @@ int pmap_clear_modify(struct vm_page *pg)
 int pmap_clear_reference(struct vm_page *pg)
 {
 	struct pte_desc *pted;
-	uint64_t *pl3 = NULL;
 
 	//printf("%s\n", __func__);
 
@@ -1983,13 +1983,8 @@ int pmap_clear_reference(struct vm_page *pg)
 	pg->pg_flags &= ~PG_PMAP_REF;
 
 	LIST_FOREACH(pted, &(pg->mdpage.pv_list), pted_pv_list) {
-		if (pmap_vp_lookup(pted->pted_pmap, pted->pted_va & PTE_RPGN, &pl3) == NULL)
-			panic("failed to look up pte\n");
 		pted->pted_pte &= ~PROT_MASK;
-		*pl3  |= ATTR_AP(2);	// turns of write as well !?!?
-		*pl3  &= ~ATTR_AF;
-		pted->pted_pte &= ~PROT_WRITE|PROT_READ|PROT_EXEC;
-
+		pmap_pte_insert(pted);
 		ttlb_flush(pted->pted_pmap, pted->pted_va & PTE_RPGN);
 	}
 	splx(s);

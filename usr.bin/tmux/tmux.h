@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.693 2017/01/12 15:36:35 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.696 2017/01/13 11:58:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -443,6 +443,7 @@ enum msgtype {
 	MSG_SUSPEND,
 	MSG_UNLOCK,
 	MSG_WAKEUP,
+	MSG_EXEC,
 };
 
 /*
@@ -1629,13 +1630,13 @@ struct options_entry *options_find(struct options *, const char *);
 void	options_remove(struct options *, const char *);
 struct options_entry * printflike(4, 5) options_set_string(struct options *,
 	    const char *, int, const char *, ...);
-char   *options_get_string(struct options *, const char *);
+const char *options_get_string(struct options *, const char *);
 struct options_entry *options_set_number(struct options *, const char *,
 	    long long);
 long long options_get_number(struct options *, const char *);
 struct options_entry *options_set_style(struct options *, const char *, int,
 	    const char *);
-struct grid_cell *options_get_style(struct options *, const char *);
+const struct grid_cell *options_get_style(struct options *, const char *);
 
 /* options-table.c */
 extern const struct options_table_entry options_table[];
@@ -1880,6 +1881,7 @@ int	 server_client_open(struct client *, char **);
 void	 server_client_unref(struct client *);
 void	 server_client_lost(struct client *);
 void	 server_client_detach(struct client *, enum msgtype);
+void	 server_client_exec(struct client *, const char *);
 void	 server_client_loop(void);
 void	 server_client_push_stdout(struct client *);
 void	 server_client_push_stderr(struct client *);
