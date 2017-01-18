@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-show-options.c,v 1.36 2017/01/16 14:49:14 nicm Exp $ */
+/* $OpenBSD: cmd-show-options.c,v 1.38 2017/01/18 10:08:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -105,7 +105,7 @@ cmd_show_options_print(struct cmd *self, struct cmdq_item *item,
 	if (args_has(self->args, 'v'))
 		cmdq_print(item, "%s", value);
 	else if (options_isstring(o)) {
-		stravis(&escaped, value, VIS_OCTAL|VIS_TAB|VIS_NL|VIS_DQ);
+		utf8_stravis(&escaped, value, VIS_OCTAL|VIS_TAB|VIS_NL|VIS_DQ);
 		cmdq_print(item, "%s \"%s\"", name, escaped);
 		free(escaped);
 	} else
@@ -131,7 +131,8 @@ cmd_show_options_one(struct cmd *self, struct cmdq_item *item,
 			cmdq_error(item, "ambiguous option: %s", name);
 			return (CMD_RETURN_ERROR);
 		}
-		if (options_match_get(oo, name, &idx, 0, &ambiguous) != NULL)
+		if (*name != '@' &&
+		    options_match_get(oo, name, &idx, 0, &ambiguous) != NULL)
 			return (CMD_RETURN_NORMAL);
 		cmdq_error(item, "unknown option: %s", name);
 		return (CMD_RETURN_ERROR);

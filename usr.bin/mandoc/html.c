@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.64 2017/01/17 01:47:46 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.66 2017/01/18 19:22:18 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -36,58 +36,66 @@
 struct	htmldata {
 	const char	 *name;
 	int		  flags;
-#define	HTML_CLRLINE	 (1 << 0)
-#define	HTML_NOSTACK	 (1 << 1)
-#define	HTML_AUTOCLOSE	 (1 << 2) /* Tag has auto-closure. */
+#define	HTML_NOSTACK	 (1 << 0)
+#define	HTML_AUTOCLOSE	 (1 << 1)
+#define	HTML_NLBEFORE	 (1 << 2)
+#define	HTML_NLBEGIN	 (1 << 3)
+#define	HTML_NLEND	 (1 << 4)
+#define	HTML_NLAFTER	 (1 << 5)
+#define	HTML_NLAROUND	 (HTML_NLBEFORE | HTML_NLAFTER)
+#define	HTML_NLINSIDE	 (HTML_NLBEGIN | HTML_NLEND)
+#define	HTML_NLALL	 (HTML_NLAROUND | HTML_NLINSIDE)
+#define	HTML_INDENT	 (1 << 6)
+#define	HTML_NOINDENT	 (1 << 7)
 };
 
 static	const struct htmldata htmltags[TAG_MAX] = {
-	{"html",	HTML_CLRLINE}, /* TAG_HTML */
-	{"head",	HTML_CLRLINE}, /* TAG_HEAD */
-	{"body",	HTML_CLRLINE}, /* TAG_BODY */
-	{"meta",	HTML_CLRLINE | HTML_NOSTACK | HTML_AUTOCLOSE}, /* TAG_META */
-	{"title",	HTML_CLRLINE}, /* TAG_TITLE */
-	{"div",		HTML_CLRLINE}, /* TAG_DIV */
-	{"h1",		0}, /* TAG_H1 */
-	{"h2",		0}, /* TAG_H2 */
-	{"span",	0}, /* TAG_SPAN */
-	{"link",	HTML_CLRLINE | HTML_NOSTACK | HTML_AUTOCLOSE}, /* TAG_LINK */
-	{"br",		HTML_CLRLINE | HTML_NOSTACK | HTML_AUTOCLOSE}, /* TAG_BR */
-	{"a",		0}, /* TAG_A */
-	{"table",	HTML_CLRLINE}, /* TAG_TABLE */
-	{"tbody",	HTML_CLRLINE}, /* TAG_TBODY */
-	{"col",		HTML_CLRLINE | HTML_NOSTACK | HTML_AUTOCLOSE}, /* TAG_COL */
-	{"tr",		HTML_CLRLINE}, /* TAG_TR */
-	{"td",		HTML_CLRLINE}, /* TAG_TD */
-	{"li",		HTML_CLRLINE}, /* TAG_LI */
-	{"ul",		HTML_CLRLINE}, /* TAG_UL */
-	{"ol",		HTML_CLRLINE}, /* TAG_OL */
-	{"dl",		HTML_CLRLINE}, /* TAG_DL */
-	{"dt",		HTML_CLRLINE}, /* TAG_DT */
-	{"dd",		HTML_CLRLINE}, /* TAG_DD */
-	{"blockquote",	HTML_CLRLINE}, /* TAG_BLOCKQUOTE */
-	{"pre",		HTML_CLRLINE }, /* TAG_PRE */
-	{"b",		0 }, /* TAG_B */
-	{"i",		0 }, /* TAG_I */
-	{"code",	0 }, /* TAG_CODE */
-	{"small",	0 }, /* TAG_SMALL */
-	{"style",	HTML_CLRLINE}, /* TAG_STYLE */
-	{"math",	HTML_CLRLINE}, /* TAG_MATH */
-	{"mrow",	0}, /* TAG_MROW */
-	{"mi",		0}, /* TAG_MI */
-	{"mo",		0}, /* TAG_MO */
-	{"msup",	0}, /* TAG_MSUP */
-	{"msub",	0}, /* TAG_MSUB */
-	{"msubsup",	0}, /* TAG_MSUBSUP */
-	{"mfrac",	0}, /* TAG_MFRAC */
-	{"msqrt",	0}, /* TAG_MSQRT */
-	{"mfenced",	0}, /* TAG_MFENCED */
-	{"mtable",	0}, /* TAG_MTABLE */
-	{"mtr",		0}, /* TAG_MTR */
-	{"mtd",		0}, /* TAG_MTD */
-	{"munderover",	0}, /* TAG_MUNDEROVER */
-	{"munder",	0}, /* TAG_MUNDER*/
-	{"mover",	0}, /* TAG_MOVER*/
+	{"html",	HTML_NLALL},
+	{"head",	HTML_NLALL | HTML_INDENT},
+	{"body",	HTML_NLALL},
+	{"meta",	HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
+	{"title",	HTML_NLAROUND},
+	{"div",		HTML_NLAROUND},
+	{"h1",		HTML_NLAROUND},
+	{"h2",		HTML_NLAROUND},
+	{"span",	0},
+	{"link",	HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
+	{"br",		HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
+	{"a",		0},
+	{"table",	HTML_NLALL | HTML_INDENT},
+	{"tbody",	HTML_NLALL | HTML_INDENT},
+	{"col",		HTML_NOSTACK | HTML_AUTOCLOSE | HTML_NLALL},
+	{"tr",		HTML_NLALL | HTML_INDENT},
+	{"td",		HTML_NLAROUND},
+	{"li",		HTML_NLAROUND | HTML_INDENT},
+	{"ul",		HTML_NLALL | HTML_INDENT},
+	{"ol",		HTML_NLALL | HTML_INDENT},
+	{"dl",		HTML_NLALL | HTML_INDENT},
+	{"dt",		HTML_NLAROUND},
+	{"dd",		HTML_NLAROUND | HTML_INDENT},
+	{"blockquote",	HTML_NLALL | HTML_INDENT},
+	{"pre",		HTML_NLALL | HTML_NOINDENT},
+	{"b",		0},
+	{"i",		0},
+	{"code",	0},
+	{"small",	0},
+	{"style",	HTML_NLALL | HTML_INDENT},
+	{"math",	HTML_NLALL | HTML_INDENT},
+	{"mrow",	0},
+	{"mi",		0},
+	{"mo",		0},
+	{"msup",	0},
+	{"msub",	0},
+	{"msubsup",	0},
+	{"mfrac",	0},
+	{"msqrt",	0},
+	{"mfenced",	0},
+	{"mtable",	0},
+	{"mtr",		0},
+	{"mtd",		0},
+	{"munderover",	0},
+	{"munder",	0},
+	{"mover",	0},
 };
 
 static	const char	*const roffscales[SCALE_MAX] = {
@@ -104,12 +112,13 @@ static	const char	*const roffscales[SCALE_MAX] = {
 };
 
 static	void	 a2width(const char *, struct roffsu *);
-static	void	 bufncat(struct html *, const char *, size_t);
+static	void	 html_endline(struct html *);
+static	void	 html_indent(struct html *);
 static	void	 print_ctag(struct html *, struct tag *);
 static	int	 print_escape(char);
-static	int	 print_encode(struct html *, const char *, int);
+static	int	 print_encode(struct html *, const char *, const char *, int);
+static	void	 print_href(struct html *, const char *, const char *, int);
 static	void	 print_metaf(struct html *, enum mandoc_esc);
-static	void	 print_attr(struct html *, const char *, const char *);
 
 
 void *
@@ -155,13 +164,19 @@ print_gen_head(struct html *h)
 	/*
 	 * Print a default style-sheet.
 	 */
+
 	t = print_otag(h, TAG_STYLE, "");
-	print_text(h, "table.head, table.foot { width: 100%; }\n"
-	      "td.head-rtitle, td.foot-os { text-align: right; }\n"
-	      "td.head-vol { text-align: center; }\n"
-	      "table.foot td { width: 50%; }\n"
-	      "table.head td { width: 33%; }\n"
-	      "div.spacer { margin: 1em 0; }\n");
+	print_text(h, "table.head, table.foot { width: 100%; }");
+	html_endline(h);
+	print_text(h, "td.head-rtitle, td.foot-os { text-align: right; }");
+	html_endline(h);
+	print_text(h, "td.head-vol { text-align: center; }");
+	html_endline(h);
+	print_text(h, "table.foot td { width: 50%; }");
+	html_endline(h);
+	print_text(h, "table.head td { width: 33%; }");
+	html_endline(h);
+	print_text(h, "div.spacer { margin: 1em 0; }");
 	print_tagq(h, t);
 
 	if (h->style)
@@ -302,7 +317,7 @@ print_escape(char c)
 }
 
 static int
-print_encode(struct html *h, const char *p, int norecurse)
+print_encode(struct html *h, const char *p, const char *pend, int norecurse)
 {
 	size_t		 sz;
 	int		 c, len, nospace;
@@ -311,9 +326,12 @@ print_encode(struct html *h, const char *p, int norecurse)
 	static const char rejs[9] = { '\\', '<', '>', '&', '"',
 		ASCII_NBRSP, ASCII_HYPH, ASCII_BREAK, '\0' };
 
+	if (pend == NULL)
+		pend = strchr(p, '\0');
+
 	nospace = 0;
 
-	while ('\0' != *p) {
+	while (p < pend) {
 		if (HTML_SKIPCHAR & h->flags && '\\' != *p) {
 			h->flags &= ~HTML_SKIPCHAR;
 			p++;
@@ -321,11 +339,13 @@ print_encode(struct html *h, const char *p, int norecurse)
 		}
 
 		sz = strcspn(p, rejs);
+		if (p + sz > pend)
+			sz = pend - p;
 
 		fwrite(p, 1, sz, stdout);
 		p += (int)sz;
 
-		if ('\0' == *p)
+		if (p >= pend)
 			break;
 
 		if (print_escape(*p++))
@@ -397,11 +417,27 @@ print_encode(struct html *h, const char *p, int norecurse)
 }
 
 static void
-print_attr(struct html *h, const char *key, const char *val)
+print_href(struct html *h, const char *name, const char *sec, int man)
 {
-	printf(" %s=\"", key);
-	(void)print_encode(h, val, 1);
-	putchar('\"');
+	const char	*p, *pp;
+
+	pp = man ? h->base_man : h->base_includes;
+	while ((p = strchr(pp, '%')) != NULL) {
+		print_encode(h, pp, p, 1);
+		if (man && p[1] == 'S') {
+			if (sec == NULL)
+				putchar('1');
+			else
+				print_encode(h, sec, NULL, 1);
+		} else if ((man && p[1] == 'N') ||
+		    (man == 0 && p[1] == 'I'))
+			print_encode(h, name, NULL, 1);
+		else
+			print_encode(h, p, p + 2, 1);
+		pp = p + 2;
+	}
+	if (*pp != '\0')
+		print_encode(h, pp, NULL, 1);
 }
 
 struct tag *
@@ -410,12 +446,16 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 	va_list		 ap;
 	struct roffsu	 mysu, *su;
 	struct tag	*t;
+	const char	*attr;
 	char		*s;
-	int		 i, have_style;
+	double		 v;
+	int		 i, have_style, tflags;
+
+	tflags = htmltags[tag].flags;
 
 	/* Push this tags onto the stack of open scopes. */
 
-	if ( ! (HTML_NOSTACK & htmltags[tag].flags)) {
+	if ((tflags & HTML_NOSTACK) == 0) {
 		t = mandoc_malloc(sizeof(struct tag));
 		t->tag = tag;
 		t->next = h->tags.head;
@@ -423,16 +463,19 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 	} else
 		t = NULL;
 
-	if ( ! (HTML_NOSPACE & h->flags))
-		if ( ! (HTML_CLRLINE & htmltags[tag].flags)) {
-			/* Manage keeps! */
-			if ( ! (HTML_KEEP & h->flags)) {
-				if (HTML_PREKEEP & h->flags)
-					h->flags |= HTML_KEEP;
-				putchar(' ');
-			} else
-				printf("&#160;");
+	if (tflags & HTML_NLBEFORE)
+		html_endline(h);
+	if (h->flags & HTML_NLDONE)
+		html_indent(h);
+	else if ((h->flags & HTML_NOSPACE) == 0) {
+		if (h->flags & HTML_KEEP)
+			printf("&#160;");
+		else {
+			if (h->flags & HTML_PREKEEP)
+				h->flags |= HTML_KEEP;
+			putchar(' ');
 		}
+	}
 
 	if ( ! (h->flags & HTML_NONOSPACE))
 		h->flags &= ~HTML_NOSPACE;
@@ -456,20 +499,40 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 		s = va_arg(ap, char *);
 		switch (*fmt++) {
 		case 'c':
-			print_attr(h, "class", s);
+			attr = "class";
 			break;
 		case 'h':
-			print_attr(h, "href", s);
+			attr = "href";
 			break;
 		case 'i':
-			print_attr(h, "id", s);
+			attr = "id";
 			break;
 		case '?':
-			print_attr(h, s, va_arg(ap, char *));
+			attr = s;
+			s = va_arg(ap, char *);
 			break;
 		default:
 			abort();
 		}
+		printf(" %s=\"", attr);
+		switch (*fmt) {
+		case 'M':
+			print_href(h, s, va_arg(ap, char *), 1);
+			fmt++;
+			break;
+		case 'I':
+			print_href(h, s, NULL, 0);
+			fmt++;
+			break;
+		case 'R':
+			putchar('#');
+			fmt++;
+			/* FALLTHROUGH */
+		default:
+			print_encode(h, s, NULL, 1);
+			break;
+		}
+		putchar('"');
 	}
 
 	/* Print out styles. */
@@ -505,36 +568,40 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 
 		/* Second letter: style name. */
 
-		bufinit(h);
 		switch (*fmt++) {
 		case 'b':
-			bufcat_su(h, "margin-bottom", su);
+			attr = "margin-bottom";
 			break;
 		case 'h':
-			bufcat_su(h, "height", su);
+			attr = "height";
 			break;
 		case 'i':
-			bufcat_su(h, "text-indent", su);
+			attr = "text-indent";
 			break;
 		case 'l':
-			bufcat_su(h, "margin-left", su);
+			attr = "margin-left";
 			break;
 		case 't':
-			bufcat_su(h, "margin-top", su);
+			attr = "margin-top";
 			break;
 		case 'w':
-			bufcat_su(h, "width", su);
+			attr = "width";
 			break;
 		case 'W':
-			bufcat_su(h, "min-width", su);
+			attr = "min-width";
 			break;
 		case '?':
-			bufcat_style(h, s, va_arg(ap, char *));
-			break;
+			printf("%s: %s;", s, va_arg(ap, char *));
+			continue;
 		default:
 			abort();
 		}
-		printf("%s", h->buf);
+		v = su->scale;
+		if (su->unit == SCALE_MM && (v /= 100.0) == 0.0)
+			v = 1.0;
+		else if (su->unit == SCALE_BU)
+			v /= 24.0;
+		printf("%s: %.2f%s;", attr, v, roffscales[su->unit]);
 	}
 	if (have_style)
 		putchar('"');
@@ -548,10 +615,15 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 
 	putchar('>');
 
-	h->flags |= HTML_NOSPACE;
+	if (tflags & HTML_NLBEGIN)
+		html_endline(h);
+	else
+		h->flags |= HTML_NOSPACE;
 
-	if ((HTML_AUTOCLOSE | HTML_CLRLINE) & htmltags[tag].flags)
-		putchar('\n');
+	if (tflags & HTML_INDENT)
+		h->indent++;
+	if (tflags & HTML_NOINDENT)
+		h->noindent++;
 
 	return t;
 }
@@ -559,6 +631,7 @@ print_otag(struct html *h, enum htmltag tag, const char *fmt, ...)
 static void
 print_ctag(struct html *h, struct tag *tag)
 {
+	int	 tflags;
 
 	/*
 	 * Remember to close out and nullify the current
@@ -569,11 +642,18 @@ print_ctag(struct html *h, struct tag *tag)
 	if (tag == h->tblt)
 		h->tblt = NULL;
 
+	tflags = htmltags[tag->tag].flags;
+
+	if (tflags & HTML_INDENT)
+		h->indent--;
+	if (tflags & HTML_NOINDENT)
+		h->noindent--;
+	if (tflags & HTML_NLEND)
+		html_endline(h);
+	html_indent(h);
 	printf("</%s>", htmltags[tag->tag].name);
-	if (HTML_CLRLINE & htmltags[tag->tag].flags) {
-		h->flags |= HTML_NOSPACE;
-		putchar('\n');
-	}
+	if (tflags & HTML_NLAFTER)
+		html_endline(h);
 
 	h->tags.head = tag->next;
 	free(tag);
@@ -584,14 +664,13 @@ print_gen_decls(struct html *h)
 {
 
 	puts("<!DOCTYPE html>");
+	h->flags |= HTML_NLDONE;
 }
 
 void
 print_text(struct html *h, const char *word)
 {
-
-	if ( ! (HTML_NOSPACE & h->flags)) {
-		/* Manage keeps! */
+	if ((h->flags & (HTML_NLDONE | HTML_NOSPACE)) == 0) {
 		if ( ! (HTML_KEEP & h->flags)) {
 			if (HTML_PREKEEP & h->flags)
 				h->flags |= HTML_KEEP;
@@ -613,11 +692,12 @@ print_text(struct html *h, const char *word)
 		print_otag(h, TAG_I, "");
 		break;
 	default:
+		html_indent(h);
 		break;
 	}
 
 	assert(word);
-	if ( ! print_encode(h, word, 0)) {
+	if ( ! print_encode(h, word, NULL, 0)) {
 		if ( ! (h->flags & HTML_NONOSPACE))
 			h->flags &= ~HTML_NOSPACE;
 		h->flags &= ~HTML_NONEWLINE;
@@ -665,6 +745,39 @@ print_paragraph(struct html *h)
 	print_tagq(h, t);
 }
 
+/*
+ * If something was printed on the current output line, end it.
+ * Not to be called right after html_indent().
+ */
+static void
+html_endline(struct html *h)
+{
+	if (h->flags & HTML_NLDONE)
+		return;
+
+	putchar('\n');
+	h->flags |= HTML_NLDONE | HTML_NOSPACE;
+}
+
+/*
+ * If at the beginning of a new output line,
+ * perform indentation and mark the line as containing output.
+ * Make sure to really produce some output right afterwards,
+ * but do not use print_otag() for producing it.
+ */
+static void
+html_indent(struct html *h)
+{
+	int	 i;
+
+	if ((h->flags & HTML_NLDONE) == 0)
+		return;
+
+	if (h->noindent == 0)
+		for (i = 0; i < h->indent * 2; i++)
+			putchar(' ');
+	h->flags &= ~(HTML_NLDONE | HTML_NOSPACE);
+}
 
 /*
  * Calculate the scaling unit passed in a `-width' argument.  This uses
@@ -679,132 +792,4 @@ a2width(const char *p, struct roffsu *su)
 		su->scale = html_strlen(p);
 	} else if (su->scale < 0.0)
 		su->scale = 0.0;
-}
-
-void
-bufinit(struct html *h)
-{
-
-	h->buf[0] = '\0';
-	h->buflen = 0;
-}
-
-void
-bufcat_style(struct html *h, const char *key, const char *val)
-{
-
-	bufcat(h, key);
-	bufcat(h, ":");
-	bufcat(h, val);
-	bufcat(h, ";");
-}
-
-void
-bufcat(struct html *h, const char *p)
-{
-
-	/*
-	 * XXX This is broken and not easy to fix.
-	 * When using the -Oincludes option, buffmt_includes()
-	 * may pass in strings overrunning BUFSIZ, causing a crash.
-	 */
-
-	h->buflen = strlcat(h->buf, p, BUFSIZ);
-	assert(h->buflen < BUFSIZ);
-}
-
-void
-bufcat_fmt(struct html *h, const char *fmt, ...)
-{
-	va_list		 ap;
-
-	va_start(ap, fmt);
-	(void)vsnprintf(h->buf + (int)h->buflen,
-	    BUFSIZ - h->buflen - 1, fmt, ap);
-	va_end(ap);
-	h->buflen = strlen(h->buf);
-}
-
-static void
-bufncat(struct html *h, const char *p, size_t sz)
-{
-
-	assert(h->buflen + sz + 1 < BUFSIZ);
-	strncat(h->buf, p, sz);
-	h->buflen += sz;
-}
-
-void
-buffmt_includes(struct html *h, const char *name)
-{
-	const char	*p, *pp;
-
-	pp = h->base_includes;
-
-	bufinit(h);
-	while (NULL != (p = strchr(pp, '%'))) {
-		bufncat(h, pp, (size_t)(p - pp));
-		switch (*(p + 1)) {
-		case 'I':
-			bufcat(h, name);
-			break;
-		default:
-			bufncat(h, p, 2);
-			break;
-		}
-		pp = p + 2;
-	}
-	if (pp)
-		bufcat(h, pp);
-}
-
-void
-buffmt_man(struct html *h, const char *name, const char *sec)
-{
-	const char	*p, *pp;
-
-	pp = h->base_man;
-
-	bufinit(h);
-	while (NULL != (p = strchr(pp, '%'))) {
-		bufncat(h, pp, (size_t)(p - pp));
-		switch (*(p + 1)) {
-		case 'S':
-			bufcat(h, sec ? sec : "1");
-			break;
-		case 'N':
-			bufcat_fmt(h, "%s", name);
-			break;
-		default:
-			bufncat(h, p, 2);
-			break;
-		}
-		pp = p + 2;
-	}
-	if (pp)
-		bufcat(h, pp);
-}
-
-void
-bufcat_su(struct html *h, const char *p, const struct roffsu *su)
-{
-	double		 v;
-
-	v = su->scale;
-	if (SCALE_MM == su->unit && 0.0 == (v /= 100.0))
-		v = 1.0;
-	else if (SCALE_BU == su->unit)
-		v /= 24.0;
-
-	bufcat_fmt(h, "%s: %.2f%s;", p, v, roffscales[su->unit]);
-}
-
-void
-bufcat_id(struct html *h, const char *src)
-{
-
-	/* Cf. <http://www.w3.org/TR/html5/dom.html#the-id-attribute>. */
-
-	for (; '\0' != *src; src++)
-		bufncat(h, *src == ' ' ? "_" : src, 1);
 }

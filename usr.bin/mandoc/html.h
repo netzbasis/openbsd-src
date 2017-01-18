@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.h,v 1.36 2017/01/17 01:47:46 schwarze Exp $ */
+/*	$OpenBSD: html.h,v 1.38 2017/01/18 19:22:18 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -95,14 +95,15 @@ struct	html {
 #define	HTML_NOSPLIT	 (1 << 7) /* do not break line before .An */
 #define	HTML_SPLIT	 (1 << 8) /* break line before .An */
 #define	HTML_NONEWLINE	 (1 << 9) /* No line break in nofill mode. */
+#define	HTML_NLDONE	 (1 << 10) /* Just started a new line of HTML. */
+	int		  indent; /* current output indentation level */
+	int		  noindent; /* indent disabled by <pre> */
 	struct tagq	  tags; /* stack of open tags */
 	struct rofftbl	  tbl; /* current table */
 	struct tag	 *tblt; /* current open table scope */
 	char		 *base_man; /* base for manpage href */
 	char		 *base_includes; /* base for include href */
 	char		 *style; /* style-sheet URI */
-	char		  buf[BUFSIZ]; /* see bufcat and friends */
-	size_t		  buflen;
 	struct tag	 *metaf; /* current open font scope */
 	enum htmlfont	  metal; /* last used font */
 	enum htmlfont	  metac; /* current font mode */
@@ -124,18 +125,5 @@ void		  print_tblclose(struct html *);
 void		  print_tbl(struct html *, const struct tbl_span *);
 void		  print_eqn(struct html *, const struct eqn *);
 void		  print_paragraph(struct html *);
-
-void		  bufcat_fmt(struct html *, const char *, ...)
-			__attribute__((__format__ (printf, 2, 3)));
-void		  bufcat(struct html *, const char *);
-void		  bufcat_id(struct html *, const char *);
-void		  bufcat_style(struct html *,
-			const char *, const char *);
-void		  bufcat_su(struct html *, const char *,
-			const struct roffsu *);
-void		  bufinit(struct html *);
-void		  buffmt_man(struct html *,
-			const char *, const char *);
-void		  buffmt_includes(struct html *, const char *);
 
 int		  html_strlen(const char *);
