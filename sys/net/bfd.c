@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.c,v 1.42 2017/01/12 16:14:42 mpi Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.46 2017/01/19 10:19:39 phessler Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -157,6 +157,7 @@ void	 bfd_send_control(void *);
 
 void	 bfd_start_task(void *);
 void	 bfd_send_task(void *);
+void	 bfd_error(struct bfd_config *);
 void	 bfd_timeout_rx(void *);
 void	 bfd_timeout_tx(void *);
 
@@ -234,6 +235,7 @@ bfdclear(struct rtentry *rt)
 	if (rtisvalid(bfd->bc_rt))
 		bfd_senddown(bfd);
 
+	rt->rt_flags &= ~RTF_BFD;
 	if (bfd->bc_so) {
 		/* remove upcall before calling soclose or it will be called */
 		bfd->bc_so->so_upcall = NULL;
@@ -247,6 +249,7 @@ bfdclear(struct rtentry *rt)
 		soclose(bfd->bc_sosend);
 
 	rtfree(bfd->bc_rt);
+	bfd->bc_rt = NULL;
 
 	pool_put(&bfd_pool_time, bfd->bc_time);
 	pool_put(&bfd_pool_neigh, bfd->bc_neighbor);
@@ -561,7 +564,7 @@ bfd_upcall(struct socket *so, caddr_t arg, int waitflag)
 		flags = MSG_DONTWAIT;
 		error = soreceive(so, NULL, &uio, &m, NULL, &flags, 0);
 		if (error && error != EAGAIN) {
-			bfd->bc_error++;
+			bfd_error(bfd);
 			return;
 		}
 		if (m != NULL)
@@ -571,6 +574,16 @@ bfd_upcall(struct socket *so, caddr_t arg, int waitflag)
 	return;
 }
 
+void
+bfd_error(struct bfd_config *bfd)
+{
+	if (++bfd->bc_error >= bfd->bc_neighbor->bn_mult) {
+		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_EXPIRED;
+		bfd_reset(bfd);
+		if (bfd->bc_state > BFD_STATE_DOWN)
+			bfd_set_state(bfd, BFD_STATE_DOWN);
+	}
+}
 
 void
 bfd_timeout_tx(void *v)
@@ -587,15 +600,7 @@ bfd_timeout_rx(void *v)
 {
 	struct bfd_config *bfd = v;
 
-	if (++bfd->bc_error >= bfd->bc_neighbor->bn_mult) {
-		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_EXPIRED;
-		bfd_reset(bfd);
-		if (bfd->bc_state > BFD_STATE_DOWN)
-			bfd_set_state(bfd, BFD_STATE_DOWN);
-
-		return;
-	}
-
+	bfd_error(bfd);
 	rt_bfdmsg(bfd);
 
 	timeout_add_usec(&bfd->bc_timo_rx, bfd->bc_minrx);
@@ -663,7 +668,7 @@ bfd_input(struct bfd_config *bfd, struct mbuf *m)
 	struct bfd_header	*peer;
 	struct bfd_auth_header	*auth;
 	struct mbuf		*mp, *mp0;
-	unsigned int		 ver, diag, state, flags;
+	unsigned int		 ver, diag = BFD_DIAG_NONE, state, flags;
 	int			 offp;
 
 	mp = m_pulldown(m, 0, sizeof(*peer), &offp);
@@ -698,7 +703,7 @@ bfd_input(struct bfd_config *bfd, struct mbuf *m)
 	if ((ntohl(peer->bfd_your_discriminator) != 0) &&
 	    (ntohl(peer->bfd_your_discriminator) !=
 	    bfd->bc_neighbor->bn_ldiscr)) {
-		bfd->bc_error++;
+		bfd_error(bfd);
 		goto discard;
 	}
 
@@ -889,6 +894,7 @@ bfd_send_control(void *x)
 	error = bfd_send(bfd, m);
 
 	if (error) {
+		bfd_error(bfd);
 		if (!(error == EHOSTDOWN || error == ECONNREFUSED)) {
 			printf("%s: %u\n", __func__, error);
 		}
@@ -900,7 +906,7 @@ bfd_send(struct bfd_config *bfd, struct mbuf *m)
 {
 	struct rtentry *rt = bfd->bc_rt;
 
-	if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_UP)) {
+	if (!rtisvalid(rt) || !ISSET(rt->rt_flags, RTF_BFD)) {
 		m_freem(m);
 		return (EHOSTDOWN);
 	}

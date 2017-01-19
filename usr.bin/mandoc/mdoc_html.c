@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.126 2017/01/19 01:00:11 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.130 2017/01/19 16:56:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2016, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -46,6 +46,7 @@ struct	htmlmdoc {
 	void		(*post)(MDOC_ARGS);
 };
 
+static	char		 *make_id(const struct roff_node *);
 static	void		  print_mdoc_head(MDOC_ARGS);
 static	void		  print_mdoc_node(MDOC_ARGS);
 static	void		  print_mdoc_nodelist(MDOC_ARGS);
@@ -297,25 +298,25 @@ void
 html_mdoc(void *arg, const struct roff_man *mdoc)
 {
 	struct html	*h;
-	struct tag	*t, *tt;
+	struct tag	*t;
 
 	h = (struct html *)arg;
 
-	if ( ! (HTML_FRAGMENT & h->oflags)) {
+	if ((h->oflags & HTML_FRAGMENT) == 0) {
 		print_gen_decls(h);
-		t = print_otag(h, TAG_HTML, "");
-		tt = print_otag(h, TAG_HEAD, "");
+		print_otag(h, TAG_HTML, "");
+		t = print_otag(h, TAG_HEAD, "");
 		print_mdoc_head(&mdoc->meta, mdoc->first->child, h);
-		print_tagq(h, tt);
+		print_tagq(h, t);
 		print_otag(h, TAG_BODY, "");
-		print_otag(h, TAG_DIV, "c", "mandoc");
-	} else
-		t = print_otag(h, TAG_DIV, "c", "mandoc");
+	}
 
 	mdoc_root_pre(&mdoc->meta, mdoc->first->child, h);
+	t = print_otag(h, TAG_DIV, "c", "manual-text");
 	print_mdoc_nodelist(&mdoc->meta, mdoc->first->child, h);
-	mdoc_root_post(&mdoc->meta, mdoc->first->child, h);
 	print_tagq(h, t);
+	mdoc_root_post(&mdoc->meta, mdoc->first->child, h);
+	print_tagq(h, NULL);
 }
 
 static void
@@ -490,7 +491,7 @@ mdoc_root_pre(MDOC_ARGS)
 	return 1;
 }
 
-char *
+static char *
 make_id(const struct roff_node *n)
 {
 	const struct roff_node	*nch;
@@ -519,7 +520,6 @@ mdoc_sh_pre(MDOC_ARGS)
 
 	switch (n->type) {
 	case ROFFT_BLOCK:
-		print_otag(h, TAG_DIV, "c", "section");
 		return 1;
 	case ROFFT_BODY:
 		if (n->sec == SEC_AUTHORS)
@@ -530,10 +530,10 @@ mdoc_sh_pre(MDOC_ARGS)
 	}
 
 	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_H1, "i", id);
+		print_otag(h, TAG_H1, "ci", "Sh", id);
 		free(id);
 	} else
-		print_otag(h, TAG_H1, "");
+		print_otag(h, TAG_H1, "c", "Sh");
 
 	return 1;
 }
@@ -543,17 +543,14 @@ mdoc_ss_pre(MDOC_ARGS)
 {
 	char	*id;
 
-	if (n->type == ROFFT_BLOCK) {
-		print_otag(h, TAG_DIV, "c", "subsection");
-		return 1;
-	} else if (n->type == ROFFT_BODY)
+	if (n->type != ROFFT_HEAD)
 		return 1;
 
 	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_H2, "i", id);
+		print_otag(h, TAG_H2, "ci", "Ss", id);
 		free(id);
 	} else
-		print_otag(h, TAG_H2, "");
+		print_otag(h, TAG_H2, "c", "Ss");
 
 	return 1;
 }
@@ -637,11 +634,11 @@ mdoc_xr_pre(MDOC_ARGS)
 		return 0;
 
 	if (h->base_man)
-		print_otag(h, TAG_A, "chM", "link-man",
+		print_otag(h, TAG_A, "chM", "Xr",
 		    n->child->string, n->child->next == NULL ?
 		    NULL : n->child->next->string);
 	else
-		print_otag(h, TAG_A, "c", "link-man");
+		print_otag(h, TAG_A, "c", "Xr");
 
 	n = n->child;
 	print_text(h, n->string);
@@ -847,14 +844,10 @@ mdoc_d1_pre(MDOC_ARGS)
 	if (n->type != ROFFT_BLOCK)
 		return 1;
 
-	print_otag(h, TAG_BLOCKQUOTE, "svtvb", 0, 0);
+	print_otag(h, TAG_DIV, "c", "D1");
 
-	/* BLOCKQUOTE needs a block body. */
-
-	print_otag(h, TAG_DIV, "c", "display");
-
-	if (MDOC_Dl == n->tok)
-		print_otag(h, TAG_CODE, "c", "lit");
+	if (n->tok == MDOC_Dl)
+		print_otag(h, TAG_CODE, "c", "Li");
 
 	return 1;
 }
@@ -864,12 +857,11 @@ mdoc_sx_pre(MDOC_ARGS)
 {
 	char	*id;
 
-	print_otag(h, TAG_I, "c", "link-sec");
 	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_A, "chR", "link-sec", id);
+		print_otag(h, TAG_A, "chR", "Sx", id);
 		free(id);
 	} else
-		print_otag(h, TAG_A, "c", "link-sec");
+		print_otag(h, TAG_A, "c", "Sx");
 
 	return 1;
 }
@@ -911,15 +903,15 @@ mdoc_bd_pre(MDOC_ARGS)
 		offs = -1;
 
 	if (offs == -1)
-		print_otag(h, TAG_DIV, "cswl", "display", n->norm->Bd.offs);
+		print_otag(h, TAG_DIV, "cswl", "Bd", n->norm->Bd.offs);
 	else
-		print_otag(h, TAG_DIV, "cshl", "display", offs);
+		print_otag(h, TAG_DIV, "cshl", "Bd", offs);
 
 	if (n->norm->Bd.type != DISP_unfilled &&
 	    n->norm->Bd.type != DISP_literal)
 		return 1;
 
-	print_otag(h, TAG_PRE, "c", "lit");
+	print_otag(h, TAG_PRE, "c", "Li");
 
 	/* This can be recursive: save & set our literal state. */
 
@@ -1416,7 +1408,7 @@ mdoc_bf_pre(MDOC_ARGS)
 	else if (FONT_Sy == n->norm->Bf.font)
 		cattr = "symb";
 	else if (FONT_Li == n->norm->Bf.font)
-		cattr = "lit";
+		cattr = "Li";
 	else
 		cattr = "none";
 
@@ -1475,7 +1467,7 @@ mdoc_no_pre(MDOC_ARGS)
 static int
 mdoc_li_pre(MDOC_ARGS)
 {
-	print_otag(h, TAG_CODE, "c", "lit");
+	print_otag(h, TAG_CODE, "c", "Li");
 	return 1;
 }
 
@@ -1658,7 +1650,7 @@ mdoc_quote_pre(MDOC_ARGS)
 	case MDOC_Ql:
 		print_text(h, "\\(oq");
 		h->flags |= HTML_NOSPACE;
-		print_otag(h, TAG_CODE, "c", "lit");
+		print_otag(h, TAG_CODE, "c", "Li");
 		break;
 	case MDOC_So:
 	case MDOC_Sq:
