@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.c,v 1.47 2017/01/19 23:18:29 phessler Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.52 2017/01/20 10:18:52 phessler Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -390,8 +390,8 @@ bfd_send_task(void *arg)
 	if (ISSET(rt->rt_flags, RTF_UP)) {
 		bfd_send_control(bfd);
 	} else {
-		bfd->bc_error++;
 		if (bfd->bc_neighbor->bn_lstate > BFD_STATE_DOWN) {
+			bfd->bc_error++;
 			bfd->bc_neighbor->bn_ldiag = BFD_DIAG_PATH_DOWN;
 			bfd_reset(bfd);
 			bfd_set_state(bfd, BFD_STATE_DOWN);
@@ -612,6 +612,9 @@ bfd_upcall(struct socket *so, caddr_t arg, int waitflag)
 void
 bfd_error(struct bfd_config *bfd)
 {
+	if (bfd->bc_state <= BFD_STATE_DOWN)
+		return;
+
 	if (++bfd->bc_error >= bfd->bc_neighbor->bn_mult) {
 		bfd->bc_neighbor->bn_ldiag = BFD_DIAG_EXPIRED;
 		bfd_reset(bfd);
@@ -688,7 +691,7 @@ bfd_reset(struct bfd_config *bfd)
 	bfd->bc_neighbor->bn_mult = 3;
 
 	bfd->bc_mintx = bfd->bc_neighbor->bn_mintx;
-	bfd->bc_minrx = bfd->bc_neighbor->bn_rminrx;
+	bfd->bc_minrx = bfd->bc_neighbor->bn_req_minrx;
 	bfd->bc_multiplier = bfd->bc_neighbor->bn_mult;
 	bfd->bc_minecho = 0;	//XXX - BFD_SECOND;
 
@@ -857,7 +860,7 @@ bfd_set_state(struct bfd_config *bfd, int state)
 		bfd->bc_neighbor->bn_ldiag = 0;
 
 	if (!rtisvalid(rt))
-		bfd->bc_neighbor->bn_lstate = BFD_STATE_ADMINDOWN;
+		bfd->bc_neighbor->bn_lstate = BFD_STATE_DOWN;
 
 	switch (state) {
 	case BFD_STATE_ADMINDOWN:
