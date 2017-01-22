@@ -1,4 +1,4 @@
-/* $OpenBSD: dsa_ameth.c,v 1.20 2016/10/19 16:49:11 jsing Exp $ */
+/* $OpenBSD: dsa_ameth.c,v 1.22 2017/01/21 10:38:29 beck Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2006.
  */
@@ -66,8 +66,8 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 
-
 #include "asn1_locl.h"
+#include "bn_lcl.h"
 
 static int
 dsa_pub_decode(EVP_PKEY *pkey, X509_PUBKEY *pubkey)
@@ -224,7 +224,7 @@ dsa_priv_decode(EVP_PKEY *pkey, PKCS8_PRIV_KEY_INFO *p8)
 		goto dsaerr;
 	}
 
-	if (!BN_mod_exp(dsa->pub_key, dsa->g, dsa->priv_key, dsa->p, ctx)) {
+	if (!BN_mod_exp_ct(dsa->pub_key, dsa->g, dsa->priv_key, dsa->p, ctx)) {
 		DSAerr(DSA_F_DSA_PRIV_DECODE,DSA_R_BN_ERROR);
 		goto dsaerr;
 	}
@@ -501,7 +501,7 @@ old_dsa_priv_decode(EVP_PKEY *pkey, const unsigned char **pder, int derlen)
 	if (BN_sub(p1, dsa->p, BN_value_one()) == 0)
 		goto err;
 	/* j = (p - 1) / q */
-	if (BN_div(j, NULL, p1, dsa->q, ctx) == 0)
+	if (BN_div_ct(j, NULL, p1, dsa->q, ctx) == 0)
 		goto err;
 	/* q * j should == p - 1 */
 	if (BN_mul(newp1, dsa->q, j, ctx) == 0)

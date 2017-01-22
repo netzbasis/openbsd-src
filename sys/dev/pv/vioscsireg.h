@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioscsireg.h,v 1.1 2013/12/20 21:50:49 matthew Exp $	*/
+/*	$OpenBSD: vioscsireg.h,v 1.1 2017/01/21 11:22:57 reyk Exp $	*/
 /*
  * Copyright (c) 2013 Google Inc.
  *

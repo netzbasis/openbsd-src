@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vio.c,v 1.43 2016/12/13 19:54:29 mikeb Exp $	*/
+/*	$OpenBSD: if_vio.c,v 1.1 2017/01/21 11:21:28 reyk Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch, Alexander Fiveg.
@@ -38,8 +38,8 @@
 #include <sys/sockio.h>
 #include <sys/timeout.h>
 
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 
 #include <net/if.h>
 #include <net/if_media.h>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioblkreg.h,v 1.2 2012/10/12 21:12:19 reyk Exp $	*/
+/*	$OpenBSD: vioblkreg.h,v 1.1 2017/01/21 11:22:34 reyk Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch.

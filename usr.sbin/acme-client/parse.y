@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.4 2017/01/05 13:53:09 krw Exp $ */
+/*	$OpenBSD: parse.y,v 1.14 2017/01/21 13:16:40 benno Exp $ */
 
 /*
  * Copyright (c) 2016 Kristaps Dzonsons <kristaps@bsd.lv>
@@ -62,8 +62,9 @@ int		 findeol(void);
 struct authority_c	*conf_new_authority(struct acme_conf *, char *);
 struct domain_c		*conf_new_domain(struct acme_conf *, char *);
 struct keyfile		*conf_new_keyfile(struct acme_conf *, char *);
-void			 clear_config(struct acme_conf *xconf);
-int			 conf_check_file(char *);
+void			 clear_config(struct acme_conf *);
+void			 print_config(struct acme_conf *);
+int			 conf_check_file(char *, int);
 
 TAILQ_HEAD(symhead, sym)	 symhead = TAILQ_HEAD_INITIALIZER(symhead);
 struct sym {
@@ -92,7 +93,7 @@ typedef struct {
 %}
 
 %token	AUTHORITY AGREEMENT URL API ACCOUNT
-%token	DOMAIN ALTERNATIVE NAMES CERT KEY SIGN WITH
+%token	DOMAIN ALTERNATIVE NAMES CERT FULL CHAIN KEY SIGN WITH CHALLENGEDIR
 %token	YES NO
 %token	INCLUDE
 %token	ERROR
@@ -215,10 +216,6 @@ authorityoptsl	: AGREEMENT URL STRING {
 			}
 			if ((s = strdup($3)) == NULL)
 				err(EXIT_FAILURE, "strdup");
-			if (!conf_check_file(s)) {
-				free(s);
-				YYERROR;
-			}
 			auth->account = s;
 		}
 		;
@@ -238,7 +235,18 @@ domain		: DOMAIN STRING {
 				YYERROR;
 			}
 		} '{' optnl domainopts_l '}' {
-			/* XXX enforce minimum config here */
+			/* enforce minimum config here */
+			if (domain->key == NULL) {
+				yyerror("no domain key file specified for "
+				    "domain %s", domain->domain);
+				YYERROR;
+			}
+			if (domain->cert == NULL && domain->fullchain == NULL) {
+				yyerror("at least certificate file or full "
+				    "certificate chain file must be specified "
+				    "for domain %s", domain->domain);
+				YYERROR;
+			}
 			domain = NULL;
 		}
 		;
@@ -256,7 +264,12 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 			}
 			if ((s = strdup($3)) == NULL)
 				err(EXIT_FAILURE, "strdup");
-			if (((void *)conf_new_keyfile(conf, s)) == NULL) {
+			if (!conf_check_file(s,
+			    (conf->opts & ACME_OPT_NEWDKEY))) {
+				free(s);
+				YYERROR;
+			}
+			if ((conf_new_keyfile(conf, s)) == NULL) {
 				free(s);
 				yyerror("domain key file already used");
 				YYERROR;
@@ -264,7 +277,7 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 			domain->key = s;
 		}
 		| DOMAIN CERT STRING {
-			char		*s;
+			char *s;
 			if (domain->cert != NULL) {
 				yyerror("duplicate cert");
 				YYERROR;
@@ -276,12 +289,42 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 				yyerror("not an absolute path");
 				YYERROR;				
 			}
-			if (((void *)conf_new_keyfile(conf, s)) == NULL) {
+			if ((conf_new_keyfile(conf, s)) == NULL) {
 				free(s);
 				yyerror("domain cert file already used");
 				YYERROR;
 			}
 			domain->cert = s;
+		}
+		| DOMAIN CHAIN CERT STRING {
+			char *s;
+			if (domain->chain != NULL) {
+				yyerror("duplicate chain");
+				YYERROR;
+			}
+			if ((s = strdup($4)) == NULL)
+				err(EXIT_FAILURE, "strdup");
+			if ((conf_new_keyfile(conf, s)) == NULL) {
+				free(s);
+				yyerror("domain chain file already used");
+				YYERROR;
+			}
+			domain->chain = s;
+		}
+		| DOMAIN FULL CHAIN CERT STRING {
+			char *s;
+			if (domain->fullchain != NULL) {
+				yyerror("duplicate chain");
+				YYERROR;
+			}
+			if ((s = strdup($5)) == NULL)
+				err(EXIT_FAILURE, "strdup");
+			if ((conf_new_keyfile(conf, s)) == NULL) {
+				free(s);
+				yyerror("domain full chain file already used");
+				YYERROR;
+			}
+			domain->fullchain = s;
 		}
 		| SIGN WITH STRING {
 			char *s;
@@ -296,6 +339,16 @@ domainoptsl	: ALTERNATIVE NAMES '{' altname_l '}'
 				YYERROR;
 			}
 			domain->auth = s;
+		}
+		| CHALLENGEDIR STRING {
+			char *s;
+			if (domain->challengedir != NULL) {
+				yyerror("duplicate challengedir");
+				YYERROR;
+			}
+			if ((s = strdup($2)) == NULL)
+				err(EXIT_FAILURE, "strdup");
+			domain->challengedir = s;
 		}
 		;
 
@@ -317,7 +370,8 @@ altname		: STRING {
 				err(EXIT_FAILURE, "strdup");
 			}
 			ac->domain = s;
-			LIST_INSERT_HEAD(&domain->altname_list, ac, entry);
+			TAILQ_INSERT_TAIL(&domain->altname_list, ac, entry);
+			domain->altname_count++;
 			/*
 			 * XXX we could check if altname is duplicate
 			 * or identical to domain->domain
@@ -364,7 +418,10 @@ lookup(char *s)
 		{"api",			API},
 		{"authority",		AUTHORITY},
 		{"certificate",		CERT},
+		{"chain",		CHAIN},
+		{"challengedir",	CHALLENGEDIR},
 		{"domain",		DOMAIN},
+		{"full",		FULL},
 		{"include",		INCLUDE},
 		{"key",			KEY},
 		{"names",		NAMES},
@@ -602,7 +659,7 @@ nodigits:
 	x != '!' && x != '=' && x != '#' && \
 	x != ','))
 
-	if (isalnum(c) || c == ':' || c == '_' || c == '/') {
+	if (isalnum(c) || c == ':' || c == '_') {
 		do {
 			*p++ = c;
 			if ((unsigned)(p-buf) >= sizeof(buf)) {
@@ -683,8 +740,8 @@ parse_config(const char *filename, int opts)
 	}
 	topfile = file;
 
-	LIST_INIT(&conf->authority_list);
-	LIST_INIT(&conf->domain_list);
+	TAILQ_INIT(&conf->authority_list);
+	TAILQ_INIT(&conf->domain_list);
 
 	yyparse();
 	errors = file->errors;
@@ -707,6 +764,9 @@ parse_config(const char *filename, int opts)
 		clear_config(conf);
 		return (NULL);
 	}
+
+	if (opts & ACME_OPT_CHECK)
+		print_config(conf);
 
 	return (conf);
 }
@@ -797,7 +857,7 @@ conf_new_authority(struct acme_conf *c, char *s)
 		return (NULL);
 	if ((a = calloc(1, sizeof(struct authority_c))) == NULL)
 		err(EXIT_FAILURE, "calloc");
-	LIST_INSERT_HEAD(&c->authority_list, a, entry);
+	TAILQ_INSERT_TAIL(&c->authority_list, a, entry);
 
 	a->name = s;
 	return (a);
@@ -808,7 +868,7 @@ authority_find(struct acme_conf *c, char *s)
 {
 	struct authority_c	*a;
 
-	LIST_FOREACH(a, &c->authority_list, entry) {
+	TAILQ_FOREACH(a, &c->authority_list, entry) {
 		if (strncmp(a->name, s, AUTH_MAXLEN) == 0) {
 			return (a);
 		}
@@ -819,13 +879,7 @@ authority_find(struct acme_conf *c, char *s)
 struct authority_c *
 authority_find0(struct acme_conf *c)
 {
-	struct authority_c	*a, *b;
-	a = b = NULL;
-
-	LIST_FOREACH(a, &c->authority_list, entry)
-	    b = a;
-
-	return (b);
+	return (TAILQ_FIRST(&c->authority_list));
 }
 
 struct domain_c *
@@ -838,10 +892,10 @@ conf_new_domain(struct acme_conf *c, char *s)
 		return (NULL);
 	if ((d = calloc(1, sizeof(struct domain_c))) == NULL)
 		err(EXIT_FAILURE, "calloc");
-	LIST_INSERT_HEAD(&c->domain_list, d, entry);
+	TAILQ_INSERT_TAIL(&c->domain_list, d, entry);
 
 	d->domain = s;
-	LIST_INIT(&d->altname_list);
+	TAILQ_INIT(&d->altname_list);
 
 	return (d);
 }
@@ -851,7 +905,7 @@ domain_find(struct acme_conf *c, char *s)
 {
 	struct domain_c	*d;
 
-	LIST_FOREACH(d, &c->domain_list, entry) {
+	TAILQ_FOREACH(d, &c->domain_list, entry) {
 		if (strncmp(d->domain, s, DOMAIN_MAXLEN) == 0) {
 			return (d);
 		}
@@ -885,19 +939,67 @@ clear_config(struct acme_conf *xconf)
 	struct domain_c		*d;
 	struct altname_c	*ac;
 
-	while ((a = LIST_FIRST(&xconf->authority_list)) != NULL) {
-		LIST_REMOVE(a, entry);
+	while ((a = TAILQ_FIRST(&xconf->authority_list)) != NULL) {
+		TAILQ_REMOVE(&xconf->authority_list, a, entry);
 		free(a);
 	}
-	while ((d = LIST_FIRST(&xconf->domain_list)) != NULL) {
-		while ((ac = LIST_FIRST(&d->altname_list)) != NULL) {
-			LIST_REMOVE(ac, entry);
+	while ((d = TAILQ_FIRST(&xconf->domain_list)) != NULL) {
+		while ((ac = TAILQ_FIRST(&d->altname_list)) != NULL) {
+			TAILQ_REMOVE(&d->altname_list, ac, entry);
 			free(ac);
 		}
-		LIST_REMOVE(d, entry);
+		TAILQ_REMOVE(&xconf->domain_list, d, entry);
 		free(d);
 	}
 	free(xconf);
+}
+
+void
+print_config(struct acme_conf *xconf)
+{
+	struct authority_c	*a;
+	struct domain_c		*d;
+	struct altname_c	*ac;
+	int			 f;
+
+	TAILQ_FOREACH(a, &xconf->authority_list, entry) {
+		printf("authority %s {\n", a->name);
+		if (a->agreement != NULL)
+			printf("\tagreement url \"%s\"\n", a->agreement);
+		if (a->api != NULL)
+			printf("\tapi url \"%s\"\n", a->api);
+		if (a->account != NULL)
+			printf("\taccount key \"%s\"\n", a->account);
+		printf("}\n\n");
+	}
+	TAILQ_FOREACH(d, &xconf->domain_list, entry) {
+		f = 0;
+		printf("domain %s {\n", d->domain);
+		TAILQ_FOREACH(ac, &d->altname_list, entry) {
+			if (!f)
+				printf("\talternative names { ");
+			if (ac->domain != NULL) {
+				printf("%s%s", f ? ", " : " ", ac->domain);
+				f = 1;
+			}
+		}
+		if (f)
+			printf("}\n");
+		if (d->key != NULL)
+			printf("\tdomain key \"%s\"\n", d->key);
+		if (d->cert != NULL)
+			printf("\tdomain certificate \"%s\"\n", d->cert);
+		if (d->chain != NULL)
+			printf("\tdomain chain certificate \"%s\"\n", d->chain);
+		if (d->fullchain != NULL)
+			printf("\tdomain full chain certificate \"%s\"\n",
+			    d->fullchain);
+		if (d->auth != NULL)
+			printf("\tsign with \"%s\"\n", d->auth);
+		if (d->challengedir != NULL)
+			printf("\tchallengedir \"%s\"\n", d->challengedir);
+		printf("}\n\n");
+	}
 }
 
 /*
@@ -918,7 +1020,7 @@ domain_valid(const char *cp)
 }
 
 int
-conf_check_file(char *s)
+conf_check_file(char *s, int dontstat)
 {
 	struct stat st;
 
@@ -926,6 +1028,8 @@ conf_check_file(char *s)
 		warnx("%s: not an absolute path", s);
 		return (0);
 	}
+	if (dontstat)
+		return (1);
 	if (stat(s, &st)) {
 		warn("cannot stat %s", s);
 		return (0);

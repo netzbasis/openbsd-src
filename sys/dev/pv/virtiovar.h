@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtiovar.h,v 1.8 2016/07/14 12:44:53 sf Exp $	*/
+/*	$OpenBSD: virtiovar.h,v 1.1 2017/01/21 11:23:10 reyk Exp $	*/
 /*	$NetBSD: virtiovar.h,v 1.1 2011/10/30 12:12:21 hannken Exp $	*/
 
 /*
@@ -74,7 +74,7 @@
 #include <sys/mutex.h>
 #include <machine/bus.h>
 
-#include <dev/pci/virtioreg.h>
+#include <dev/pv/virtioreg.h>
 
 #ifndef VIRTIO_DEBUG
 #define VIRTIO_DEBUG		0

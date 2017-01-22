@@ -1,4 +1,4 @@
-/*	$OpenBSD: vioblk.c,v 1.12 2016/07/14 12:50:07 sf Exp $	*/
+/*	$OpenBSD: vioblk.c,v 1.2 2017/01/21 11:33:01 reyk Exp $	*/
 
 /*
  * Copyright (c) 2012 Stefan Fritsch.
@@ -54,9 +54,9 @@
 #include <sys/device.h>
 #include <sys/stat.h>
 #include <sys/buf.h>
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
-#include <dev/pci/vioblkreg.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
+#include <dev/pv/vioblkreg.h>
 
 #include <scsi/scsi_all.h>
 #include <scsi/scsi_disk.h>

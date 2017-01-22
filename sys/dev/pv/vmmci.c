@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmci.c,v 1.2 2017/01/19 10:16:22 reyk Exp $	*/
+/*	$OpenBSD: vmmci.c,v 1.1 2017/01/21 11:23:14 reyk Exp $	*/
 
 /*
  * Copyright (c) 2017 Reyk Floeter <reyk@openbsd.org>
@@ -28,8 +28,8 @@
 
 #include <machine/bus.h>
 
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 #include <dev/pv/pvvar.h>
 #include <dev/rndvar.h>
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa_gen.c,v 1.18 2016/06/30 02:02:06 bcook Exp $ */
+/* $OpenBSD: rsa_gen.c,v 1.20 2017/01/21 11:00:47 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -68,6 +68,8 @@
 #include <openssl/bn.h>
 #include <openssl/err.h>
 #include <openssl/rsa.h>
+
+#include "bn_lcl.h"
 
 static int rsa_builtin_keygen(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb);
 
@@ -195,23 +197,23 @@ rsa_builtin_keygen(RSA *rsa, int bits, BIGNUM *e_value, BN_GENCB *cb)
 
 	BN_with_flags(&pr0, r0, BN_FLG_CONSTTIME);
 
-	if (!BN_mod_inverse(rsa->d, rsa->e, &pr0, ctx)) /* d */
+	if (!BN_mod_inverse_ct(rsa->d, rsa->e, &pr0, ctx)) /* d */
 		goto err;
 
 	/* set up d for correct BN_FLG_CONSTTIME flag */
 	BN_with_flags(&d, rsa->d, BN_FLG_CONSTTIME);
 
 	/* calculate d mod (p-1) */
-	if (!BN_mod(rsa->dmp1, &d, r1, ctx))
+	if (!BN_mod_ct(rsa->dmp1, &d, r1, ctx))
 		goto err;
 
 	/* calculate d mod (q-1) */
-	if (!BN_mod(rsa->dmq1, &d, r2, ctx))
+	if (!BN_mod_ct(rsa->dmq1, &d, r2, ctx))
 		goto err;
 
 	/* calculate inverse of q mod p */
 	BN_with_flags(&p, rsa->p, BN_FLG_CONSTTIME);
-	if (!BN_mod_inverse(rsa->iqmp, rsa->q, &p, ctx))
+	if (!BN_mod_inverse_ct(rsa->iqmp, rsa->q, &p, ctx))
 		goto err;
 
 	ok = 1;

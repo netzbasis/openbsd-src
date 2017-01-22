@@ -1,4 +1,4 @@
-/*	$OpenBSD: viocon.c,v 1.2 2015/12/24 16:21:11 mmcc Exp $	*/
+/*	$OpenBSD: viocon.c,v 1.1 2017/01/21 11:22:38 reyk Exp $	*/
 
 /*
  * Copyright (c) 2013-2015 Stefan Fritsch <sf@sfritsch.de>
@@ -25,8 +25,8 @@
 #include <sys/conf.h>
 #include <sys/tty.h>
 #include <dev/pci/pcivar.h>
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 
 
 /* features */

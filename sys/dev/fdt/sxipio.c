@@ -1,4 +1,4 @@
-/*	$OpenBSD: sxipio.c,v 1.18 2017/01/04 12:15:37 kettenis Exp $	*/
+/*	$OpenBSD: sxipio.c,v 1.1 2017/01/21 08:26:49 patrick Exp $	*/
 /*
  * Copyright (c) 2010 Miodrag Vallat.
  * Copyright (c) 2013 Artturi Alm
@@ -34,8 +34,8 @@
 #include <dev/ofw/ofw_pinctrl.h>
 #include <dev/ofw/fdt.h>
 
-#include <armv7/sunxi/sunxireg.h>
-#include <armv7/sunxi/sxipiovar.h>
+#include <dev/fdt/sunxireg.h>
+#include <dev/fdt/sxipiovar.h>
 
 #include "gpio.h"
 
@@ -147,6 +147,10 @@ struct sxipio_pins sxipio_pins[] = {
 	{
 		"allwinner,sun9i-a80-r-pinctrl",
 		sun9i_a80_r_pins, nitems(sun9i_a80_r_pins)
+	},
+	{
+		"allwinner,sun50i-a64-pinctrl",
+		sun50i_a64_pins, nitems(sun50i_a64_pins)
 	}
 };
 

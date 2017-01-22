@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.19 2016/07/14 12:42:00 sf Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.1 2017/01/21 11:23:01 reyk Exp $	*/
 /*	$NetBSD: virtio.c,v 1.3 2011/11/02 23:05:52 njoly Exp $	*/
 
 /*
@@ -35,8 +35,8 @@
 #include <sys/atomic.h>
 #include <sys/malloc.h>
 
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 
 #define MINSEG_INDIRECT		2 /* use indirect if nsegs >= this value */
 

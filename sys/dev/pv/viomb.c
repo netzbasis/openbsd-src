@@ -1,4 +1,4 @@
-/* $OpenBSD: viomb.c,v 1.15 2016/07/14 12:42:00 sf Exp $	 */
+/* $OpenBSD: viomb.c,v 1.1 2017/01/21 11:22:43 reyk Exp $	 */
 /* $NetBSD: viomb.c,v 1.1 2011/10/30 12:12:21 hannken Exp $	 */
 
 /*
@@ -37,8 +37,8 @@
 
 #include <uvm/uvm_extern.h>
 
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 
 #if VIRTIO_PAGE_SIZE!=PAGE_SIZE
 #error non-4K page sizes are not supported yet

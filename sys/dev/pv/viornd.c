@@ -1,4 +1,4 @@
-/*	$OpenBSD: viornd.c,v 1.3 2016/07/14 12:42:00 sf Exp $	*/
+/*	$OpenBSD: viornd.c,v 1.1 2017/01/21 11:22:48 reyk Exp $	*/
 
 /*
  * Copyright (c) 2014 Stefan Fritsch <sf@sfritsch.de>
@@ -24,8 +24,8 @@
 #include <sys/device.h>
 #include <sys/pool.h>
 #include <dev/rndvar.h>
-#include <dev/pci/virtioreg.h>
-#include <dev/pci/virtiovar.h>
+#include <dev/pv/virtioreg.h>
+#include <dev/pv/virtiovar.h>
 
 /*
  * The host may not have an unlimited supply of entropy. Therefore, we must

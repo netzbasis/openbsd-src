@@ -1,4 +1,4 @@
-/* $OpenBSD: dsa_ossl.c,v 1.26 2016/06/21 04:16:53 bcook Exp $ */
+/* $OpenBSD: dsa_ossl.c,v 1.29 2017/01/21 11:00:46 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -65,6 +65,8 @@
 #include <openssl/dsa.h>
 #include <openssl/err.h>
 #include <openssl/sha.h>
+
+#include "bn_lcl.h"
 
 static DSA_SIG *dsa_do_sign(const unsigned char *dgst, int dlen, DSA *dsa);
 static int dsa_sign_setup(DSA *dsa, BN_CTX *ctx_in, BIGNUM **kinvp,
@@ -238,15 +240,15 @@ dsa_sign_setup(DSA *dsa, BN_CTX *ctx_in, BIGNUM **kinvp, BIGNUM **rp)
 					dsa->method_mont_p))
 			goto err;
 	} else {
-		if (!BN_mod_exp_mont(r, dsa->g, &k, dsa->p, ctx, dsa->method_mont_p))
+		if (!BN_mod_exp_mont_ct(r, dsa->g, &k, dsa->p, ctx, dsa->method_mont_p))
 			goto err;
 	}
 
-	if (!BN_mod(r,r,dsa->q,ctx))
+	if (!BN_mod_ct(r,r,dsa->q,ctx))
 		goto err;
 
 	/* Compute  part of 's = inv(k) (m + xr) mod q' */
-	if ((kinv = BN_mod_inverse(NULL, &k, dsa->q, ctx)) == NULL)
+	if ((kinv = BN_mod_inverse_ct(NULL, &k, dsa->q, ctx)) == NULL)
 		goto err;
 
 	BN_clear_free(*kinvp);
@@ -310,7 +312,7 @@ dsa_do_verify(const unsigned char *dgst, int dgst_len, DSA_SIG *sig, DSA *dsa)
 
 	/* Calculate W = inv(S) mod Q
 	 * save W in u2 */
-	if ((BN_mod_inverse(&u2, sig->s, dsa->q, ctx)) == NULL)
+	if ((BN_mod_inverse_ct(&u2, sig->s, dsa->q, ctx)) == NULL)
 		goto err;
 
 	/* save M in u1 */
@@ -349,10 +351,10 @@ dsa_do_verify(const unsigned char *dgst, int dgst_len, DSA_SIG *sig, DSA *dsa)
 						mont))
 			goto err;
 	}
-		
+
 	/* BN_copy(&u1,&t1); */
 	/* let u1 = u1 mod q */
-	if (!BN_mod(&u1, &t1, dsa->q, ctx))
+	if (!BN_mod_ct(&u1, &t1, dsa->q, ctx))
 		goto err;
 
 	/* V is now in u1.  If the signature is correct, it will be
