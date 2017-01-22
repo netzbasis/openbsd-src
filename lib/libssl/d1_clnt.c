@@ -1,4 +1,4 @@
-/* $OpenBSD: d1_clnt.c,v 1.60 2017/01/21 06:50:02 jsing Exp $ */
+/* $OpenBSD: d1_clnt.c,v 1.62 2017/01/22 09:02:07 jsing Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -247,7 +247,7 @@ dtls1_connect(SSL *s)
 			/* mark client_random uninitialized */
 			memset(s->s3->client_random, 0,
 			    sizeof(s->s3->client_random));
-			s->d1->send_cookie = 0;
+			D1I(s)->send_cookie = 0;
 			s->hit = 0;
 			break;
 
@@ -268,9 +268,9 @@ dtls1_connect(SSL *s)
 			if (ret <= 0)
 				goto end;
 
-			if (s->d1->send_cookie) {
+			if (D1I(s)->send_cookie) {
 				s->state = SSL3_ST_CW_FLUSH;
-				s->s3->tmp.next_state = SSL3_ST_CR_SRVR_HELLO_A;
+				S3I(s)->tmp.next_state = SSL3_ST_CR_SRVR_HELLO_A;
 			} else
 				s->state = SSL3_ST_CR_SRVR_HELLO_A;
 
@@ -304,7 +304,7 @@ dtls1_connect(SSL *s)
 			if (ret <= 0)
 				goto end;
 			dtls1_stop_timer(s);
-			if ( s->d1->send_cookie) /* start again, with a cookie */
+			if ( D1I(s)->send_cookie) /* start again, with a cookie */
 				s->state = SSL3_ST_CW_CLNT_HELLO_A;
 			else
 				s->state = SSL3_ST_CR_CERT_A;
@@ -326,7 +326,7 @@ dtls1_connect(SSL *s)
 				break;
 			}
 			/* Check if it is anon DH. */
-			if (!(s->s3->tmp.new_cipher->algorithm_auth &
+			if (!(S3I(s)->tmp.new_cipher->algorithm_auth &
 			    SSL_aNULL)) {
 				ret = ssl3_get_server_certificate(s);
 				if (ret <= 0)
@@ -373,12 +373,12 @@ dtls1_connect(SSL *s)
 			if (ret <= 0)
 				goto end;
 			dtls1_stop_timer(s);
-			if (s->s3->tmp.cert_req)
-				s->s3->tmp.next_state = SSL3_ST_CW_CERT_A;
+			if (S3I(s)->tmp.cert_req)
+				S3I(s)->tmp.next_state = SSL3_ST_CW_CERT_A;
 			else
-				s->s3->tmp.next_state = SSL3_ST_CW_KEY_EXCH_A;
+				S3I(s)->tmp.next_state = SSL3_ST_CW_KEY_EXCH_A;
 			s->init_num = 0;
-			s->state = s->s3->tmp.next_state;
+			s->state = S3I(s)->tmp.next_state;
 			break;
 
 		case SSL3_ST_CW_CERT_A:
@@ -404,11 +404,11 @@ dtls1_connect(SSL *s)
 			 * sent back */
 			/* For TLS, cert_req is set to 2, so a cert chain
 			 * of nothing is sent, but no verify packet is sent */
-			if (s->s3->tmp.cert_req == 1) {
+			if (S3I(s)->tmp.cert_req == 1) {
 				s->state = SSL3_ST_CW_CERT_VRFY_A;
 			} else {
 				s->state = SSL3_ST_CW_CHANGE_A;
-				s->s3->change_cipher_spec = 0;
+				S3I(s)->change_cipher_spec = 0;
 			}
 
 			s->init_num = 0;
@@ -422,7 +422,7 @@ dtls1_connect(SSL *s)
 				goto end;
 			s->state = SSL3_ST_CW_CHANGE_A;
 			s->init_num = 0;
-			s->s3->change_cipher_spec = 0;
+			S3I(s)->change_cipher_spec = 0;
 			break;
 
 		case SSL3_ST_CW_CHANGE_A:
@@ -437,7 +437,7 @@ dtls1_connect(SSL *s)
 			s->state = SSL3_ST_CW_FINISHED_A;
 			s->init_num = 0;
 
-			s->session->cipher = s->s3->tmp.new_cipher;
+			s->session->cipher = S3I(s)->tmp.new_cipher;
 			if (!s->method->ssl3_enc->setup_key_block(s)) {
 				ret = -1;
 				goto end;
@@ -468,20 +468,20 @@ dtls1_connect(SSL *s)
 			/* clear flags */
 			s->s3->flags&= ~SSL3_FLAGS_POP_BUFFER;
 			if (s->hit) {
-				s->s3->tmp.next_state = SSL_ST_OK;
+				S3I(s)->tmp.next_state = SSL_ST_OK;
 				if (s->s3->flags & SSL3_FLAGS_DELAY_CLIENT_FINISHED) {
 					s->state = SSL_ST_OK;
 					s->s3->flags |= SSL3_FLAGS_POP_BUFFER;
-					s->s3->delay_buf_pop_ret = 0;
+					S3I(s)->delay_buf_pop_ret = 0;
 				}
 			} else {
 
 				/* Allow NewSessionTicket if ticket expected */
 				if (s->tlsext_ticket_expected)
-					s->s3->tmp.next_state =
+					S3I(s)->tmp.next_state =
 					    SSL3_ST_CR_SESSION_TICKET_A;
 				else
-					s->s3->tmp.next_state =
+					S3I(s)->tmp.next_state =
 					    SSL3_ST_CR_FINISHED_A;
 			}
 			s->init_num = 0;
@@ -507,7 +507,7 @@ dtls1_connect(SSL *s)
 
 		case SSL3_ST_CR_FINISHED_A:
 		case SSL3_ST_CR_FINISHED_B:
-			s->d1->change_cipher_spec_ok = 1;
+			D1I(s)->change_cipher_spec_ok = 1;
 			ret = ssl3_get_finished(s, SSL3_ST_CR_FINISHED_A,
 			    SSL3_ST_CR_FINISHED_B);
 			if (ret <= 0)
@@ -529,14 +529,14 @@ dtls1_connect(SSL *s)
 				/* If the write error was fatal, stop trying */
 				if (!BIO_should_retry(s->wbio)) {
 					s->rwstate = SSL_NOTHING;
-					s->state = s->s3->tmp.next_state;
+					s->state = S3I(s)->tmp.next_state;
 				}
 
 				ret = -1;
 				goto end;
 			}
 			s->rwstate = SSL_NOTHING;
-			s->state = s->s3->tmp.next_state;
+			s->state = S3I(s)->tmp.next_state;
 			break;
 
 		case SSL_ST_OK:
@@ -566,8 +566,8 @@ dtls1_connect(SSL *s)
 				cb(s, SSL_CB_HANDSHAKE_DONE, 1);
 
 			/* done with handshaking */
-			s->d1->handshake_read_seq = 0;
-			s->d1->next_handshake_write_seq = 0;
+			D1I(s)->handshake_read_seq = 0;
+			D1I(s)->next_handshake_write_seq = 0;
 			goto end;
 			/* break; */
 
@@ -579,7 +579,7 @@ dtls1_connect(SSL *s)
 		}
 
 		/* did we do anything */
-		if (!s->s3->tmp.reuse_message && !skip) {
+		if (!S3I(s)->tmp.reuse_message && !skip) {
 			if (s->debug) {
 				if ((ret = BIO_flush(s->wbio)) <= 0)
 					goto end;
@@ -618,9 +618,9 @@ dtls1_get_hello_verify(SSL *s)
 	if (!ok)
 		return ((int)n);
 
-	if (s->s3->tmp.message_type != DTLS1_MT_HELLO_VERIFY_REQUEST) {
-		s->d1->send_cookie = 0;
-		s->s3->tmp.reuse_message = 1;
+	if (S3I(s)->tmp.message_type != DTLS1_MT_HELLO_VERIFY_REQUEST) {
+		D1I(s)->send_cookie = 0;
+		S3I(s)->tmp.reuse_message = 1;
 		return (1);
 	}
 
@@ -642,14 +642,14 @@ dtls1_get_hello_verify(SSL *s)
 	if (!CBS_get_u8_length_prefixed(&hello_verify_request, &cookie))
 		goto truncated;
 
-	if (!CBS_write_bytes(&cookie, s->d1->cookie,
-	    sizeof(s->d1->cookie), &cookie_len)) {
-		s->d1->cookie_len = 0;
+	if (!CBS_write_bytes(&cookie, D1I(s)->cookie,
+	    sizeof(D1I(s)->cookie), &cookie_len)) {
+		D1I(s)->cookie_len = 0;
 		al = SSL_AD_ILLEGAL_PARAMETER;
 		goto f_err;
 	}
-	s->d1->cookie_len = cookie_len;
-	s->d1->send_cookie = 1;
+	D1I(s)->cookie_len = cookie_len;
+	D1I(s)->send_cookie = 1;
 
 	return 1;
 

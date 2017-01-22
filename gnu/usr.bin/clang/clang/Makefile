@@ -1,9 +1,10 @@
-# $OpenBSD: Makefile,v 1.3 2017/01/22 03:56:33 jsg Exp $
+# $OpenBSD: Makefile,v 1.5 2017/01/22 07:16:36 patrick Exp $
 
 .include <bsd.own.mk>
 
 PROG=	clang
 BINDIR=	/usr/bin
+LIBEXECDIR=/usr/libexec
 SRCS=	driver.cpp \
 	cc1_main.cpp \
 	cc1as_main.cpp
@@ -12,9 +13,15 @@ LDADD+=	-ltermlib
 DPADD+=	${LIBTERMLIB}
 
 LINKS=	${BINDIR}/clang ${BINDIR}/clang++ \
-	${BINDIR}/clang ${BINDIR}/clang-cpp
+	${BINDIR}/clang ${BINDIR}/clang-cpp \
+	${BINDIR}/clang ${BINDIR}/cc \
+	${BINDIR}/clang ${BINDIR}/c++ \
+	${BINDIR}/clang ${LIBEXECDIR}/cpp
 MLINKS=	clang.1 clang++.1 \
-	clang.1 clang-cpp.1
+	clang.1 clang-cpp.1 \
+	clang.1 cc.1 \
+	clang.1 c++.1 \
+	clang.1 cpp.1
 
 CPPFLAGS+=	-I${.CURDIR}/../../../llvm/tools/clang/include
 

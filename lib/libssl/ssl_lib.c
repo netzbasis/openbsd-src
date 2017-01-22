@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.126 2017/01/22 03:50:45 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.129 2017/01/22 09:02:07 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -336,18 +336,18 @@ SSL_new(SSL_CTX *ctx)
 	s->tlsext_ocsp_resplen = -1;
 	CRYPTO_add(&ctx->references, 1, CRYPTO_LOCK_SSL_CTX);
 	s->initial_ctx = ctx;
-	s->next_proto_negotiated = NULL;
+	s->internal->next_proto_negotiated = NULL;
 
-	if (s->ctx->alpn_client_proto_list != NULL) {
-		s->alpn_client_proto_list =
-		    malloc(s->ctx->alpn_client_proto_list_len);
-		if (s->alpn_client_proto_list == NULL)
+	if (s->ctx->internal->alpn_client_proto_list != NULL) {
+		s->internal->alpn_client_proto_list =
+		    malloc(s->ctx->internal->alpn_client_proto_list_len);
+		if (s->internal->alpn_client_proto_list == NULL)
 			goto err;
-		memcpy(s->alpn_client_proto_list,
-		    s->ctx->alpn_client_proto_list,
-		    s->ctx->alpn_client_proto_list_len);
-		s->alpn_client_proto_list_len =
-		    s->ctx->alpn_client_proto_list_len;
+		memcpy(s->internal->alpn_client_proto_list,
+		    s->ctx->internal->alpn_client_proto_list,
+		    s->ctx->internal->alpn_client_proto_list_len);
+		s->internal->alpn_client_proto_list_len =
+		    s->ctx->internal->alpn_client_proto_list_len;
 	}
 
 	s->verify_result = X509_V_OK;
@@ -554,8 +554,8 @@ SSL_free(SSL *s)
 
 	SSL_CTX_free(s->ctx);
 
-	free(s->next_proto_negotiated);
-	free(s->alpn_client_proto_list);
+	free(s->internal->next_proto_negotiated);
+	free(s->internal->alpn_client_proto_list);
 
 #ifndef OPENSSL_NO_SRTP
 	if (s->srtp_profiles)
@@ -702,10 +702,10 @@ SSL_get_finished(const SSL *s, void *buf, size_t count)
 	size_t	ret = 0;
 
 	if (s->s3 != NULL) {
-		ret = s->s3->tmp.finish_md_len;
+		ret = S3I(s)->tmp.finish_md_len;
 		if (count > ret)
 			count = ret;
-		memcpy(buf, s->s3->tmp.finish_md, count);
+		memcpy(buf, S3I(s)->tmp.finish_md, count);
 	}
 	return (ret);
 }
@@ -717,10 +717,10 @@ SSL_get_peer_finished(const SSL *s, void *buf, size_t count)
 	size_t	ret = 0;
 
 	if (s->s3 != NULL) {
-		ret = s->s3->tmp.peer_finish_md_len;
+		ret = S3I(s)->tmp.peer_finish_md_len;
 		if (count > ret)
 			count = ret;
-		memcpy(buf, s->s3->tmp.peer_finish_md, count);
+		memcpy(buf, S3I(s)->tmp.peer_finish_md, count);
 	}
 	return (ret);
 }
@@ -1078,7 +1078,7 @@ SSL_ctrl(SSL *s, int cmd, long larg, void *parg)
 			return (0);
 #endif
 		if (SSL_IS_DTLS(s)) {
-			s->d1->mtu = larg;
+			D1I(s)->mtu = larg;
 			return (larg);
 		}
 		return (0);
@@ -1089,7 +1089,7 @@ SSL_ctrl(SSL *s, int cmd, long larg, void *parg)
 		return (1);
 	case SSL_CTRL_GET_RI_SUPPORT:
 		if (s->s3)
-			return (s->s3->send_connection_binding);
+			return (S3I(s)->send_connection_binding);
 		else return (0);
 	default:
 		return (s->method->ssl_ctrl(s, cmd, larg, parg));
@@ -1425,7 +1425,7 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 	uint16_t		 cipher_value, max_version;
 
 	if (s->s3)
-		s->s3->send_connection_binding = 0;
+		S3I(s)->send_connection_binding = 0;
 
 	/*
 	 * RFC 5246 section 7.4.1.2 defines the interval as [2,2^16-2].
@@ -1464,7 +1464,7 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 
 				goto err;
 			}
-			s->s3->send_connection_binding = 1;
+			S3I(s)->send_connection_binding = 1;
 			continue;
 		}
 
@@ -1614,11 +1614,11 @@ void
 SSL_get0_next_proto_negotiated(const SSL *s, const unsigned char **data,
     unsigned *len)
 {
-	*data = s->next_proto_negotiated;
+	*data = s->internal->next_proto_negotiated;
 	if (!*data) {
 		*len = 0;
 	} else {
-		*len = s->next_proto_negotiated_len;
+		*len = s->internal->next_proto_negotiated_len;
 	}
 }
 
@@ -1637,8 +1637,8 @@ void
 SSL_CTX_set_next_protos_advertised_cb(SSL_CTX *ctx, int (*cb) (SSL *ssl,
     const unsigned char **out, unsigned int *outlen, void *arg), void *arg)
 {
-	ctx->next_protos_advertised_cb = cb;
-	ctx->next_protos_advertised_cb_arg = arg;
+	ctx->internal->next_protos_advertised_cb = cb;
+	ctx->internal->next_protos_advertised_cb_arg = arg;
 }
 
 /*
@@ -1657,8 +1657,8 @@ SSL_CTX_set_next_proto_select_cb(SSL_CTX *ctx, int (*cb) (SSL *s,
     unsigned char **out, unsigned char *outlen, const unsigned char *in,
     unsigned int inlen, void *arg), void *arg)
 {
-	ctx->next_proto_select_cb = cb;
-	ctx->next_proto_select_cb_arg = arg;
+	ctx->internal->next_proto_select_cb = cb;
+	ctx->internal->next_proto_select_cb_arg = arg;
 }
 
 /*
@@ -1670,11 +1670,11 @@ int
 SSL_CTX_set_alpn_protos(SSL_CTX *ctx, const unsigned char *protos,
     unsigned int protos_len)
 {
-	free(ctx->alpn_client_proto_list);
-	if ((ctx->alpn_client_proto_list = malloc(protos_len)) == NULL)
+	free(ctx->internal->alpn_client_proto_list);
+	if ((ctx->internal->alpn_client_proto_list = malloc(protos_len)) == NULL)
 		return (1);
-	memcpy(ctx->alpn_client_proto_list, protos, protos_len);
-	ctx->alpn_client_proto_list_len = protos_len;
+	memcpy(ctx->internal->alpn_client_proto_list, protos, protos_len);
+	ctx->internal->alpn_client_proto_list_len = protos_len;
 
 	return (0);
 }
@@ -1688,11 +1688,11 @@ int
 SSL_set_alpn_protos(SSL *ssl, const unsigned char* protos,
     unsigned int protos_len)
 {
-	free(ssl->alpn_client_proto_list);
-	if ((ssl->alpn_client_proto_list = malloc(protos_len)) == NULL)
+	free(ssl->internal->alpn_client_proto_list);
+	if ((ssl->internal->alpn_client_proto_list = malloc(protos_len)) == NULL)
 		return (1);
-	memcpy(ssl->alpn_client_proto_list, protos, protos_len);
-	ssl->alpn_client_proto_list_len = protos_len;
+	memcpy(ssl->internal->alpn_client_proto_list, protos, protos_len);
+	ssl->internal->alpn_client_proto_list_len = protos_len;
 
 	return (0);
 }
@@ -1707,8 +1707,8 @@ SSL_CTX_set_alpn_select_cb(SSL_CTX* ctx,
     int (*cb) (SSL *ssl, const unsigned char **out, unsigned char *outlen,
     const unsigned char *in, unsigned int inlen, void *arg), void *arg)
 {
-	ctx->alpn_select_cb = cb;
-	ctx->alpn_select_cb_arg = arg;
+	ctx->internal->alpn_select_cb = cb;
+	ctx->internal->alpn_select_cb_arg = arg;
 }
 
 /*
@@ -1725,8 +1725,8 @@ SSL_get0_alpn_selected(const SSL *ssl, const unsigned char **data,
 	*len = 0;
 
 	if (ssl->s3 != NULL) {
-		*data = ssl->s3->alpn_selected;
-		*len = ssl->s3->alpn_selected_len;
+		*data = ssl->s3->internal->alpn_selected;
+		*len = ssl->s3->internal->alpn_selected_len;
 	}
 }
 
@@ -1912,8 +1912,8 @@ SSL_CTX_new(const SSL_METHOD *meth)
 	ret->tlsext_status_cb = 0;
 	ret->tlsext_status_arg = NULL;
 
-	ret->next_protos_advertised_cb = 0;
-	ret->next_proto_select_cb = 0;
+	ret->internal->next_protos_advertised_cb = 0;
+	ret->internal->next_proto_select_cb = 0;
 #ifndef OPENSSL_NO_ENGINE
 	ret->client_cert_engine = NULL;
 #ifdef OPENSSL_SSL_CLIENT_ENGINE_AUTO
@@ -2003,7 +2003,7 @@ SSL_CTX_free(SSL_CTX *a)
 		ENGINE_finish(a->client_cert_engine);
 #endif
 
-	free(a->alpn_client_proto_list);
+	free(a->internal->alpn_client_proto_list);
 
 	free(a->internal);
 	free(a);
@@ -2119,7 +2119,7 @@ ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
 int
 ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s)
 {
-	const SSL_CIPHER	*cs = s->s3->tmp.new_cipher;
+	const SSL_CIPHER	*cs = S3I(s)->tmp.new_cipher;
 	unsigned long		 alg_a;
 
 	alg_a = cs->algorithm_auth;
@@ -2148,9 +2148,9 @@ ssl_get_server_send_pkey(const SSL *s)
 	int		 i;
 
 	c = s->cert;
-	ssl_set_cert_masks(c, s->s3->tmp.new_cipher);
+	ssl_set_cert_masks(c, S3I(s)->tmp.new_cipher);
 
-	alg_a = s->s3->tmp.new_cipher->algorithm_auth;
+	alg_a = S3I(s)->tmp.new_cipher->algorithm_auth;
 
 	if (alg_a & SSL_aECDSA) {
 		i = SSL_PKEY_ECC;
@@ -2221,9 +2221,9 @@ ssl_get_auto_dh(SSL *s)
 
 	if (s->cert->dh_tmp_auto == 2) {
 		keylen = 1024;
-	} else if (s->s3->tmp.new_cipher->algorithm_auth & SSL_aNULL) {
+	} else if (S3I(s)->tmp.new_cipher->algorithm_auth & SSL_aNULL) {
 		keylen = 1024;
-		if (s->s3->tmp.new_cipher->strength_bits == 256)
+		if (S3I(s)->tmp.new_cipher->strength_bits == 256)
 			keylen = 3072;
 	} else {
 		if ((cpk = ssl_get_server_send_pkey(s)) == NULL)
@@ -2396,7 +2396,7 @@ SSL_get_error(const SSL *s, int i)
 
 	if (i == 0) {
 		if ((s->shutdown & SSL_RECEIVED_SHUTDOWN) &&
-		    (s->s3->warn_alert == SSL_AD_CLOSE_NOTIFY))
+		    (S3I(s)->warn_alert == SSL_AD_CLOSE_NOTIFY))
 		return (SSL_ERROR_ZERO_RETURN);
 	}
 	return (SSL_ERROR_SYSCALL);

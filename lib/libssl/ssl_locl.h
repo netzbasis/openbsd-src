@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.148 2017/01/22 05:14:42 beck Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.151 2017/01/22 09:02:07 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -383,20 +383,252 @@ typedef struct ssl_session_internal_st {
 typedef struct ssl_ctx_internal_st {
 	uint16_t min_version;
 	uint16_t max_version;
+
+	/* Next protocol negotiation information */
+	/* (for experimental NPN extension). */
+
+	/* For a server, this contains a callback function by which the set of
+	 * advertised protocols can be provided. */
+	int (*next_protos_advertised_cb)(SSL *s, const unsigned char **buf,
+	    unsigned int *len, void *arg);
+	void *next_protos_advertised_cb_arg;
+	/* For a client, this contains a callback function that selects the
+	 * next protocol from the list provided by the server. */
+	int (*next_proto_select_cb)(SSL *s, unsigned char **out,
+	    unsigned char *outlen, const unsigned char *in,
+	    unsigned int inlen, void *arg);
+	void *next_proto_select_cb_arg;
+
+	/*
+	 * ALPN information
+	 * (we are in the process of transitioning from NPN to ALPN).
+	 */
+
+	/*
+	 * Server callback function that allows the server to select the
+	 * protocol for the connection.
+	 *   out: on successful return, this must point to the raw protocol
+	 *       name (without the length prefix).
+	 *   outlen: on successful return, this contains the length of out.
+	 *   in: points to the client's list of supported protocols in
+	 *       wire-format.
+	 *   inlen: the length of in.
+	 */
+	int (*alpn_select_cb)(SSL *s, const unsigned char **out,
+	    unsigned char *outlen, const unsigned char *in, unsigned int inlen,
+	    void *arg);
+	void *alpn_select_cb_arg;
+
+	/* Client list of supported protocols in wire format. */
+	unsigned char *alpn_client_proto_list;
+	unsigned int alpn_client_proto_list_len;
+
 } SSL_CTX_INTERNAL;
 
 typedef struct ssl_internal_st {
 	uint16_t min_version;
 	uint16_t max_version;
+
+	/* Next protocol negotiation. For the client, this is the protocol that
+	 * we sent in NextProtocol and is set when handling ServerHello
+	 * extensions.
+	 *
+	 * For a server, this is the client's selected_protocol from
+	 * NextProtocol and is set when handling the NextProtocol message,
+	 * before the Finished message. */
+	unsigned char *next_proto_negotiated;
+	unsigned char next_proto_negotiated_len;
+
+	/* Client list of supported protocols in wire format. */
+	unsigned char *alpn_client_proto_list;
+	unsigned int alpn_client_proto_list_len;
 } SSL_INTERNAL;
 
 typedef struct ssl3_state_internal_st {
+	int delay_buf_pop_ret;
 
+	unsigned char read_sequence[SSL3_SEQUENCE_SIZE];
+	int read_mac_secret_size;
+	unsigned char read_mac_secret[EVP_MAX_MD_SIZE];
+	unsigned char write_sequence[SSL3_SEQUENCE_SIZE];
+	int write_mac_secret_size;
+	unsigned char write_mac_secret[EVP_MAX_MD_SIZE];
+
+	/* flags for countermeasure against known-IV weakness */
+	int need_empty_fragments;
+	int empty_fragment_done;
+
+	SSL3_RECORD rrec;	/* each decoded record goes in here */
+	SSL3_RECORD wrec;	/* goes out from here */
+
+	/* storage for Alert/Handshake protocol data received but not
+	 * yet processed by ssl3_read_bytes: */
+	unsigned char alert_fragment[2];
+	unsigned int alert_fragment_len;
+	unsigned char handshake_fragment[4];
+	unsigned int handshake_fragment_len;
+
+	/* partial write - check the numbers match */
+	unsigned int wnum;	/* number of bytes sent so far */
+	int wpend_tot;		/* number bytes written */
+	int wpend_type;
+	int wpend_ret;		/* number of bytes submitted */
+	const unsigned char *wpend_buf;
+
+	/* used during startup, digest all incoming/outgoing packets */
+	BIO *handshake_buffer;
+	/* When set of handshake digests is determined, buffer is hashed
+	 * and freed and MD_CTX-es for all required digests are stored in
+	 * this array */
+	EVP_MD_CTX **handshake_dgst;
+	/* this is set whenerver we see a change_cipher_spec message
+	 * come in when we are not looking for one */
+	int change_cipher_spec;
+
+	int warn_alert;
+	int fatal_alert;
+
+	/* This flag is set when we should renegotiate ASAP, basically when
+	 * there is no more data in the read or write buffers */
+	int renegotiate;
+	int total_renegotiations;
+	int num_renegotiations;
+
+	int in_read_app_data;
+
+	struct	{
+		/* actually only needs to be 16+20 */
+		unsigned char cert_verify_md[EVP_MAX_MD_SIZE*2];
+
+		/* actually only need to be 16+20 for SSLv3 and 12 for TLS */
+		unsigned char finish_md[EVP_MAX_MD_SIZE*2];
+		int finish_md_len;
+		unsigned char peer_finish_md[EVP_MAX_MD_SIZE*2];
+		int peer_finish_md_len;
+
+		unsigned long message_size;
+		int message_type;
+
+		/* used to hold the new cipher we are going to use */
+		const SSL_CIPHER *new_cipher;
+		DH *dh;
+
+		EC_KEY *ecdh; /* holds short lived ECDH key */
+
+		uint8_t *x25519;
+
+		/* used when SSL_ST_FLUSH_DATA is entered */
+		int next_state;
+
+		int reuse_message;
+
+		/* used for certificate requests */
+		int cert_req;
+		int ctype_num;
+		char ctype[SSL3_CT_NUMBER];
+		STACK_OF(X509_NAME) *ca_names;
+
+		int key_block_length;
+		unsigned char *key_block;
+
+		const EVP_CIPHER *new_sym_enc;
+		const EVP_AEAD *new_aead;
+		const EVP_MD *new_hash;
+		int new_mac_pkey_type;
+		int cert_request;
+	} tmp;
+
+	/* Connection binding to prevent renegotiation attacks */
+	unsigned char previous_client_finished[EVP_MAX_MD_SIZE];
+	unsigned char previous_client_finished_len;
+	unsigned char previous_server_finished[EVP_MAX_MD_SIZE];
+	unsigned char previous_server_finished_len;
+	int send_connection_binding; /* TODOEKR */
+
+	/* Set if we saw the Next Protocol Negotiation extension from our peer.
+	 */
+	int next_proto_neg_seen;
+
+	/*
+	 * ALPN information
+	 * (we are in the process of transitioning from NPN to ALPN).
+	 */
+
+	/*
+	 * In a server these point to the selected ALPN protocol after the
+	 * ClientHello has been processed. In a client these contain the
+	 * protocol that the server selected once the ServerHello has been
+	 * processed.
+	 */
+	unsigned char *alpn_selected;
+	unsigned int alpn_selected_len;
 } SSL3_STATE_INTERNAL;
+#define S3I(s) (s->s3->internal)
 
 typedef struct dtls1_state_internal_st {
+	unsigned int send_cookie;
+	unsigned char cookie[DTLS1_COOKIE_LENGTH];
+	unsigned char rcvd_cookie[DTLS1_COOKIE_LENGTH];
+	unsigned int cookie_len;
 
+	/*
+	 * The current data and handshake epoch.  This is initially
+	 * undefined, and starts at zero once the initial handshake is
+	 * completed
+	 */
+	unsigned short r_epoch;
+	unsigned short w_epoch;
+
+	/* records being received in the current epoch */
+	DTLS1_BITMAP bitmap;
+
+	/* renegotiation starts a new set of sequence numbers */
+	DTLS1_BITMAP next_bitmap;
+
+	/* handshake message numbers */
+	unsigned short handshake_write_seq;
+	unsigned short next_handshake_write_seq;
+
+	unsigned short handshake_read_seq;
+
+	/* save last sequence number for retransmissions */
+	unsigned char last_write_sequence[8];
+
+	/* Received handshake records (processed and unprocessed) */
+	record_pqueue unprocessed_rcds;
+	record_pqueue processed_rcds;
+
+	/* Buffered handshake messages */
+	struct _pqueue *buffered_messages;
+
+	/* Buffered application records.
+	 * Only for records between CCS and Finished
+	 * to prevent either protocol violation or
+	 * unnecessary message loss.
+	 */
+	record_pqueue buffered_app_data;
+
+	/* Is set when listening for new connections with dtls1_listen() */
+	unsigned int listen;
+
+	unsigned int mtu; /* max DTLS packet size */
+
+	struct hm_header_st w_msg_hdr;
+	struct hm_header_st r_msg_hdr;
+
+	struct dtls1_timeout_st timeout;
+
+	/* storage for Alert/Handshake protocol data received but not
+	 * yet processed by ssl3_read_bytes: */
+	unsigned char alert_fragment[DTLS1_AL_HEADER_LENGTH];
+	unsigned int alert_fragment_len;
+	unsigned char handshake_fragment[DTLS1_HM_HEADER_LENGTH];
+	unsigned int handshake_fragment_len;
+
+	unsigned int retransmitting;
+	unsigned int change_cipher_spec_ok;
 } DTLS1_STATE_INTERNAL;
+#define D1I(s) (s->d1->internal)
 
 typedef struct cert_pkey_st {
 	X509 *x509;
@@ -448,7 +680,6 @@ typedef struct sess_cert_st {
 
 	int references; /* actually always 1 at the moment */
 } SESS_CERT;
-
 
 /*#define SSL_DEBUG	*/
 /*#define RSA_DEBUG	*/
