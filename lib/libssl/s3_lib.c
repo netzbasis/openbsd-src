@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.120 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.124 2017/01/23 05:13:02 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1928,10 +1928,10 @@ ssl_ctrl_get_server_tmp_key(SSL *s, EVP_PKEY **pkey_tmp)
 
 	if (s->server != 0)
 		return 0;
-	if (s->session == NULL || s->session->sess_cert == NULL)
+	if (s->session == NULL || SSI(s)->sess_cert == NULL)
 		return 0;
 
-	sc = s->session->sess_cert;
+	sc = SSI(s)->sess_cert;
 
 	if ((pkey = EVP_PKEY_new()) == NULL)
 		return 0;
@@ -2102,7 +2102,7 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 		}
 		break;
 	case SSL_CTRL_SET_TLSEXT_DEBUG_ARG:
-		s->tlsext_debug_arg = parg;
+		s->internal->tlsext_debug_arg = parg;
 		ret = 1;
 		break;
 
@@ -2181,7 +2181,7 @@ ssl3_callback_ctrl(SSL *s, int cmd, void (*fp)(void))
 		s->cert->ecdh_tmp_cb = (EC_KEY *(*)(SSL *, int, int))fp;
 		break;
 	case SSL_CTRL_SET_TLSEXT_DEBUG_CB:
-		s->tlsext_debug_cb = (void (*)(SSL *, int , int,
+		s->internal->tlsext_debug_cb = (void (*)(SSL *, int , int,
 		    unsigned char *, int, void *))fp;
 		break;
 	default:
@@ -2195,7 +2195,7 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 {
 	CERT	*cert;
 
-	cert = ctx->cert;
+	cert = ctx->internal->cert;
 
 	switch (cmd) {
 	case SSL_CTRL_NEED_TMP_RSA:
@@ -2225,7 +2225,7 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 		return (0);
 
 	case SSL_CTRL_SET_DH_AUTO:
-		ctx->cert->dh_tmp_auto = larg;
+		ctx->internal->cert->dh_tmp_auto = larg;
 		return (1);
 
 	case SSL_CTRL_SET_TMP_ECDH:
@@ -2265,7 +2265,7 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 		}
 		break;
 	case SSL_CTRL_SET_TLSEXT_SERVERNAME_ARG:
-		ctx->tlsext_servername_arg = parg;
+		ctx->internal->tlsext_servername_arg = parg;
 		break;
 	case SSL_CTRL_SET_TLSEXT_TICKET_KEYS:
 	case SSL_CTRL_GET_TLSEXT_TICKET_KEYS:
@@ -2279,27 +2279,27 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 				return 0;
 			}
 			if (cmd == SSL_CTRL_SET_TLSEXT_TICKET_KEYS) {
-				memcpy(ctx->tlsext_tick_key_name, keys, 16);
-				memcpy(ctx->tlsext_tick_hmac_key,
+				memcpy(ctx->internal->tlsext_tick_key_name, keys, 16);
+				memcpy(ctx->internal->tlsext_tick_hmac_key,
 				    keys + 16, 16);
-				memcpy(ctx->tlsext_tick_aes_key, keys + 32, 16);
+				memcpy(ctx->internal->tlsext_tick_aes_key, keys + 32, 16);
 			} else {
-				memcpy(keys, ctx->tlsext_tick_key_name, 16);
+				memcpy(keys, ctx->internal->tlsext_tick_key_name, 16);
 				memcpy(keys + 16,
-				    ctx->tlsext_tick_hmac_key, 16);
+				    ctx->internal->tlsext_tick_hmac_key, 16);
 				memcpy(keys + 32,
-				    ctx->tlsext_tick_aes_key, 16);
+				    ctx->internal->tlsext_tick_aes_key, 16);
 			}
 			return 1;
 		}
 
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB_ARG:
-		ctx->tlsext_status_arg = parg;
+		ctx->internal->tlsext_status_arg = parg;
 		return 1;
 		break;
 
 	case SSL_CTRL_SET_ECDH_AUTO:
-		ctx->cert->ecdh_tmp_auto = larg;
+		ctx->internal->cert->ecdh_tmp_auto = larg;
 		return 1;
 
 		/* A Thawte special :-) */
@@ -2333,7 +2333,7 @@ ssl3_ctx_callback_ctrl(SSL_CTX *ctx, int cmd, void (*fp)(void))
 {
 	CERT	*cert;
 
-	cert = ctx->cert;
+	cert = ctx->internal->cert;
 
 	switch (cmd) {
 	case SSL_CTRL_SET_TMP_RSA_CB:
@@ -2346,16 +2346,16 @@ ssl3_ctx_callback_ctrl(SSL_CTX *ctx, int cmd, void (*fp)(void))
 		cert->ecdh_tmp_cb = (EC_KEY *(*)(SSL *, int, int))fp;
 		break;
 	case SSL_CTRL_SET_TLSEXT_SERVERNAME_CB:
-		ctx->tlsext_servername_callback =
+		ctx->internal->tlsext_servername_callback =
 		    (int (*)(SSL *, int *, void *))fp;
 		break;
 
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB:
-		ctx->tlsext_status_cb = (int (*)(SSL *, void *))fp;
+		ctx->internal->tlsext_status_cb = (int (*)(SSL *, void *))fp;
 		break;
 
 	case SSL_CTRL_SET_TLSEXT_TICKET_KEY_CB:
-		ctx->tlsext_ticket_key_cb = (int (*)(SSL *, unsigned char  *,
+		ctx->internal->tlsext_ticket_key_cb = (int (*)(SSL *, unsigned char  *,
 		    unsigned char *, EVP_CIPHER_CTX *, HMAC_CTX *, int))fp;
 		break;
 
@@ -2614,16 +2614,16 @@ ssl3_read_internal(SSL *s, void *buf, int len, int peek)
 	    SSL3_RT_APPLICATION_DATA, buf, len, peek);
 	if ((ret == -1) && (S3I(s)->in_read_app_data == 2)) {
 		/*
-		 * ssl3_read_bytes decided to call s->handshake_func, which
+		 * ssl3_read_bytes decided to call s->internal->handshake_func, which
 		 * called ssl3_read_bytes to read handshake data.
 		 * However, ssl3_read_bytes actually found application data
 		 * and thinks that application data makes sense here; so disable
 		 * handshake processing and try to read application data again.
 		 */
-		s->in_handshake++;
+		s->internal->in_handshake++;
 		ret = s->method->ssl_read_bytes(s,
 		    SSL3_RT_APPLICATION_DATA, buf, len, peek);
-		s->in_handshake--;
+		s->internal->in_handshake--;
 	} else
 		S3I(s)->in_read_app_data = 0;
 
@@ -2645,7 +2645,7 @@ ssl3_peek(SSL *s, void *buf, int len)
 int
 ssl3_renegotiate(SSL *s)
 {
-	if (s->handshake_func == NULL)
+	if (s->internal->handshake_func == NULL)
 		return (1);
 
 	if (s->s3->flags & SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.153 2017/01/22 03:47:20 krw Exp $	*/
+/*	$OpenBSD: route.h,v 1.156 2017/01/23 00:59:22 krw Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -126,6 +126,7 @@ struct rtentry {
 #define	rt_locks	rt_rmx.rmx_locks
 #define	rt_mtu		rt_rmx.rmx_mtu
 
+/* bitmask values for rtm_flags */
 #define	RTF_UP		0x1		/* route usable */
 #define	RTF_GATEWAY	0x2		/* destination is a gateway */
 #define	RTF_HOST	0x4		/* host entry (net otherwise) */
@@ -219,6 +220,7 @@ struct rt_msghdr {
 
 #define RTM_MAXSIZE	2048	/* Maximum size of an accepted route msg */
 
+/* values for rtm_type */
 #define RTM_ADD		0x1	/* Add Route */
 #define RTM_DELETE	0x2	/* Delete Route */
 #define RTM_CHANGE	0x3	/* Change Metrics or flags */
@@ -246,7 +248,7 @@ struct rt_msghdr {
 #define RTV_RTTVAR	0x80	/* init or lock _rttvar */
 
 /*
- * Bitmask values for rtm_addr.
+ * Bitmask values for rtm_addrs.
  */
 #define RTA_DST		0x1	/* destination sockaddr present */
 #define RTA_GATEWAY	0x2	/* gateway sockaddr present */

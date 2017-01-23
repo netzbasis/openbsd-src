@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_srvr.c,v 1.141 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: s3_srvr.c,v 1.146 2017/01/23 05:13:02 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -178,13 +178,13 @@ ssl3_accept(SSL *s)
 	ERR_clear_error();
 	errno = 0;
 
-	if (s->info_callback != NULL)
-		cb = s->info_callback;
-	else if (s->ctx->info_callback != NULL)
-		cb = s->ctx->info_callback;
+	if (s->internal->info_callback != NULL)
+		cb = s->internal->info_callback;
+	else if (s->ctx->internal->info_callback != NULL)
+		cb = s->ctx->internal->info_callback;
 
 	/* init things to blank */
-	s->in_handshake++;
+	s->internal->in_handshake++;
 	if (!SSL_in_init(s) || SSL_in_before(s))
 		SSL_clear(s);
 
@@ -246,7 +246,7 @@ ssl3_accept(SSL *s)
 				}
 
 				s->state = SSL3_ST_SR_CLNT_HELLO_A;
-				s->ctx->stats.sess_accept++;
+				s->ctx->internal->stats.sess_accept++;
 			} else if (!S3I(s)->send_connection_binding) {
 				/*
 				 * Server attempting to renegotiate with
@@ -264,7 +264,7 @@ ssl3_accept(SSL *s)
 				 * s->state == SSL_ST_RENEGOTIATE,
 				 * we will just send a HelloRequest
 				 */
-				s->ctx->stats.sess_accept_renegotiate++;
+				s->ctx->internal->stats.sess_accept_renegotiate++;
 				s->state = SSL3_ST_SW_HELLO_REQ_A;
 			}
 			break;
@@ -660,9 +660,9 @@ ssl3_accept(SSL *s)
 
 				ssl_update_cache(s, SSL_SESS_CACHE_SERVER);
 
-				s->ctx->stats.sess_accept_good++;
+				s->ctx->internal->stats.sess_accept_good++;
 				/* s->server=1; */
-				s->handshake_func = ssl3_accept;
+				s->internal->handshake_func = ssl3_accept;
 
 				if (cb != NULL)
 					cb(s, SSL_CB_HANDSHAKE_DONE, 1);
@@ -699,7 +699,7 @@ ssl3_accept(SSL *s)
 end:
 	/* BIO_flush(s->wbio); */
 
-	s->in_handshake--;
+	s->internal->in_handshake--;
 	if (cb != NULL)
 		cb(s, SSL_CB_ACCEPT_EXIT, ret);
 	return (ret);
@@ -870,8 +870,8 @@ ssl3_get_client_hello(SSL *s)
 		    cookie_len > 0) {
 			memcpy(D1I(s)->rcvd_cookie, p, cookie_len);
 
-			if (s->ctx->app_verify_cookie_cb != NULL) {
-				if (s->ctx->app_verify_cookie_cb(s,
+			if (s->ctx->internal->app_verify_cookie_cb != NULL) {
+				if (s->ctx->internal->app_verify_cookie_cb(s,
 				    D1I(s)->rcvd_cookie, cookie_len) == 0) {
 					al = SSL_AD_HANDSHAKE_FAILURE;
 					SSLerr(SSL_F_SSL3_GET_CLIENT_HELLO,
@@ -976,13 +976,13 @@ ssl3_get_client_hello(SSL *s)
 	 */
 	arc4random_buf(s->s3->server_random, SSL3_RANDOM_SIZE);
 
-	if (!s->hit && s->tls_session_secret_cb) {
+	if (!s->hit && s->internal->tls_session_secret_cb) {
 		SSL_CIPHER *pref_cipher = NULL;
 
 		s->session->master_key_length = sizeof(s->session->master_key);
-		if (s->tls_session_secret_cb(s, s->session->master_key,
+		if (s->internal->tls_session_secret_cb(s, s->session->master_key,
 		    &s->session->master_key_length, ciphers, &pref_cipher,
-		    s->tls_session_secret_cb_arg)) {
+		    s->internal->tls_session_secret_cb_arg)) {
 			s->hit = 1;
 			s->session->ciphers = ciphers;
 			s->session->verify_result = X509_V_OK;
@@ -1129,7 +1129,7 @@ ssl3_send_server_hello(SSL *s)
 		 * so the following won't overwrite an ID that we're supposed
 		 * to send back.
 		 */
-		if (!(s->ctx->session_cache_mode & SSL_SESS_CACHE_SERVER)
+		if (!(s->ctx->internal->session_cache_mode & SSL_SESS_CACHE_SERVER)
 		    && !s->hit)
 			s->session->session_id_length = 0;
 
@@ -1553,8 +1553,8 @@ ssl3_send_server_key_exchange(SSL *s)
 				j = 0;
 				for (num = 2; num > 0; num--) {
 					if (!EVP_DigestInit_ex(&md_ctx,
-					    (num == 2) ? s->ctx->md5 :
-					    s->ctx->sha1, NULL))
+					    (num == 2) ? s->ctx->internal->md5 :
+					    s->ctx->internal->sha1, NULL))
 						goto err;
 					EVP_DigestUpdate(&md_ctx,
 					    s->s3->client_random,
@@ -2593,17 +2593,17 @@ ssl3_get_client_certificate(SSL *s)
 	 * With the current implementation, sess_cert will always be NULL
 	 * when we arrive here
 	 */
-	if (s->session->sess_cert == NULL) {
-		s->session->sess_cert = ssl_sess_cert_new();
-		if (s->session->sess_cert == NULL) {
+	if (SSI(s)->sess_cert == NULL) {
+		SSI(s)->sess_cert = ssl_sess_cert_new();
+		if (SSI(s)->sess_cert == NULL) {
 			SSLerr(SSL_F_SSL3_GET_CLIENT_CERTIFICATE,
 			    ERR_R_MALLOC_FAILURE);
 			goto err;
 		}
 	}
-	if (s->session->sess_cert->cert_chain != NULL)
-		sk_X509_pop_free(s->session->sess_cert->cert_chain, X509_free);
-	s->session->sess_cert->cert_chain = sk;
+	if (SSI(s)->sess_cert->cert_chain != NULL)
+		sk_X509_pop_free(SSI(s)->sess_cert->cert_chain, X509_free);
+	SSI(s)->sess_cert->cert_chain = sk;
 
 	/*
 	 * Inconsistency alert: cert_chain does *not* include the
@@ -2742,19 +2742,19 @@ ssl3_send_newsession_ticket(SSL *s)
 		 * it does all the work otherwise use generated values
 		 * from parent ctx.
 		 */
-		if (tctx->tlsext_ticket_key_cb) {
-			if (tctx->tlsext_ticket_key_cb(s, key_name, iv, &ctx,
-			    &hctx, 1) < 0) {
+		if (tctx->internal->tlsext_ticket_key_cb) {
+			if (tctx->internal->tlsext_ticket_key_cb(s,
+			    key_name, iv, &ctx, &hctx, 1) < 0) {
 				EVP_CIPHER_CTX_cleanup(&ctx);
 				goto err;
 			}
 		} else {
 			arc4random_buf(iv, 16);
 			EVP_EncryptInit_ex(&ctx, EVP_aes_128_cbc(), NULL,
-			    tctx->tlsext_tick_aes_key, iv);
-			HMAC_Init_ex(&hctx, tctx->tlsext_tick_hmac_key, 16,
-			    tlsext_tick_md(), NULL);
-			memcpy(key_name, tctx->tlsext_tick_key_name, 16);
+			    tctx->internal->tlsext_tick_aes_key, iv);
+			HMAC_Init_ex(&hctx, tctx->internal->tlsext_tick_hmac_key,
+			    16, tlsext_tick_md(), NULL);
+			memcpy(key_name, tctx->internal->tlsext_tick_key_name, 16);
 		}
 
 		/*

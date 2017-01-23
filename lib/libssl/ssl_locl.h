@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.151 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.157 2017/01/23 05:27:22 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -373,6 +373,20 @@ __BEGIN_HIDDEN_DECLS
 #define NAMED_CURVE_TYPE           3
 
 typedef struct ssl_session_internal_st {
+	CRYPTO_EX_DATA ex_data; /* application specific data */
+
+	/* These are used to make removal of session-ids more
+	 * efficient and to implement a maximum cache size. */
+	struct ssl_session_st *prev, *next;
+
+	/* Used to indicate that session resumption is not allowed.
+	 * Applications can also set this bit for a new session via
+	 * not_resumable_session_cb to disable session caching and tickets. */
+	int not_resumable;
+
+	/* The cert is the certificate used to establish this connection */
+	struct sess_cert_st /* SESS_CERT */ *sess_cert;
+
 	size_t tlsext_ecpointformatlist_length;
 	uint8_t *tlsext_ecpointformatlist; /* peer's list */
 	size_t tlsext_ellipticcurvelist_length;
@@ -383,6 +397,140 @@ typedef struct ssl_session_internal_st {
 typedef struct ssl_ctx_internal_st {
 	uint16_t min_version;
 	uint16_t max_version;
+
+	/* If this callback is not null, it will be called each
+	 * time a session id is added to the cache.  If this function
+	 * returns 1, it means that the callback will do a
+	 * SSL_SESSION_free() when it has finished using it.  Otherwise,
+	 * on 0, it means the callback has finished with it.
+	 * If remove_session_cb is not null, it will be called when
+	 * a session-id is removed from the cache.  After the call,
+	 * OpenSSL will SSL_SESSION_free() it. */
+	int (*new_session_cb)(struct ssl_st *ssl, SSL_SESSION *sess);
+	void (*remove_session_cb)(struct ssl_ctx_st *ctx, SSL_SESSION *sess);
+	SSL_SESSION *(*get_session_cb)(struct ssl_st *ssl,
+	    unsigned char *data, int len, int *copy);
+
+	/* if defined, these override the X509_verify_cert() calls */
+	int (*app_verify_callback)(X509_STORE_CTX *, void *);
+	    void *app_verify_arg;
+
+	/* Default password callback. */
+	pem_password_cb *default_passwd_callback;
+
+	/* Default password callback user data. */
+	void *default_passwd_callback_userdata;
+
+	/* get client cert callback */
+	int (*client_cert_cb)(SSL *ssl, X509 **x509, EVP_PKEY **pkey);
+
+	/* cookie generate callback */
+	int (*app_gen_cookie_cb)(SSL *ssl, unsigned char *cookie,
+	    unsigned int *cookie_len);
+
+	/* verify cookie callback */
+	int (*app_verify_cookie_cb)(SSL *ssl, unsigned char *cookie,
+	    unsigned int cookie_len);
+
+	void (*info_callback)(const SSL *ssl,int type,int val); /* used if SSL's info_callback is NULL */
+
+	/* callback that allows applications to peek at protocol messages */
+	void (*msg_callback)(int write_p, int version, int content_type,
+	    const void *buf, size_t len, SSL *ssl, void *arg);
+	void *msg_callback_arg;
+
+	int (*default_verify_callback)(int ok,X509_STORE_CTX *ctx); /* called 'verify_callback' in the SSL */
+
+	/* Default generate session ID callback. */
+	GEN_SESSION_CB generate_session_id;
+
+	/* TLS extensions servername callback */
+	int (*tlsext_servername_callback)(SSL*, int *, void *);
+	void *tlsext_servername_arg;
+
+	/* Callback to support customisation of ticket key setting */
+	int (*tlsext_ticket_key_cb)(SSL *ssl, unsigned char *name,
+	    unsigned char *iv, EVP_CIPHER_CTX *ectx, HMAC_CTX *hctx, int enc);
+
+	/* certificate status request info */
+	/* Callback for status request */
+	int (*tlsext_status_cb)(SSL *ssl, void *arg);
+	void *tlsext_status_arg;
+
+	struct lhash_st_SSL_SESSION *sessions;
+
+	/* Most session-ids that will be cached, default is
+	 * SSL_SESSION_CACHE_MAX_SIZE_DEFAULT. 0 is unlimited. */
+	unsigned long session_cache_size;
+	struct ssl_session_st *session_cache_head;
+	struct ssl_session_st *session_cache_tail;
+
+	/* This can have one of 2 values, ored together,
+	 * SSL_SESS_CACHE_CLIENT,
+	 * SSL_SESS_CACHE_SERVER,
+	 * Default is SSL_SESSION_CACHE_SERVER, which means only
+	 * SSL_accept which cache SSL_SESSIONS. */
+	int session_cache_mode;
+
+	struct {
+		int sess_connect;	/* SSL new conn - started */
+		int sess_connect_renegotiate;/* SSL reneg - requested */
+		int sess_connect_good;	/* SSL new conne/reneg - finished */
+		int sess_accept;	/* SSL new accept - started */
+		int sess_accept_renegotiate;/* SSL reneg - requested */
+		int sess_accept_good;	/* SSL accept/reneg - finished */
+		int sess_miss;		/* session lookup misses  */
+		int sess_timeout;	/* reuse attempt on timeouted session */
+		int sess_cache_full;	/* session removed due to full cache */
+		int sess_hit;		/* session reuse actually done */
+		int sess_cb_hit;	/* session-id that was not
+					 * in the cache was
+					 * passed back via the callback.  This
+					 * indicates that the application is
+					 * supplying session-id's from other
+					 * processes - spooky :-) */
+	} stats;
+
+	CRYPTO_EX_DATA ex_data;
+
+	/* same cipher_list but sorted for lookup */
+	STACK_OF(SSL_CIPHER) *cipher_list_by_id;
+
+	struct cert_st /* CERT */ *cert;
+
+	const EVP_MD *md5;	/* For SSLv3/TLSv1 'ssl3-md5' */
+	const EVP_MD *sha1;	/* For SSLv3/TLSv1 'ssl3-sha1' */
+
+	/* Default values used when no per-SSL value is defined follow */
+
+	/* what we put in client cert requests */
+	STACK_OF(X509_NAME) *client_CA;
+
+	long max_cert_list;
+
+	int read_ahead;
+
+	int quiet_shutdown;
+
+	/* Maximum amount of data to send in one fragment.
+	 * actual record size can be more than this due to
+	 * padding and MAC overheads.
+	 */
+	unsigned int max_send_fragment;
+
+#ifndef OPENSSL_NO_ENGINE
+	/* Engine to pass requests for client certs to
+	 */
+	ENGINE *client_cert_engine;
+#endif
+
+	/* RFC 4507 session ticket keys */
+	unsigned char tlsext_tick_key_name[16];
+	unsigned char tlsext_tick_hmac_key[16];
+	unsigned char tlsext_tick_aes_key[16];
+
+	/* SRTP profiles we are willing to do from RFC 5764 */
+	STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;
 
 	/* Next protocol negotiation information */
 	/* (for experimental NPN extension). */
@@ -422,7 +570,6 @@ typedef struct ssl_ctx_internal_st {
 	/* Client list of supported protocols in wire format. */
 	unsigned char *alpn_client_proto_list;
 	unsigned int alpn_client_proto_list_len;
-
 } SSL_CTX_INTERNAL;
 
 typedef struct ssl_internal_st {
@@ -442,6 +589,37 @@ typedef struct ssl_internal_st {
 	/* Client list of supported protocols in wire format. */
 	unsigned char *alpn_client_proto_list;
 	unsigned int alpn_client_proto_list_len;
+
+	/* XXX Callbacks */
+
+	/* true when we are actually in SSL_accept() or SSL_connect() */
+	int in_handshake;
+	int (*handshake_func)(SSL *);
+	/* callback that allows applications to peek at protocol messages */
+	void (*msg_callback)(int write_p, int version, int content_type,
+	    const void *buf, size_t len, SSL *ssl, void *arg);
+	void *msg_callback_arg;
+
+	/* Default generate session ID callback. */
+	GEN_SESSION_CB generate_session_id;
+
+	int (*verify_callback)(int ok,X509_STORE_CTX *ctx); /* fail if callback returns 0 */
+
+	void (*info_callback)(const SSL *ssl,int type,int val); /* optional informational callback */
+
+	/* TLS extension debug callback */
+	void (*tlsext_debug_cb)(SSL *s, int client_server, int type,
+	    unsigned char *data, int len, void *arg);
+	void *tlsext_debug_arg;
+
+	/* TLS Session Ticket extension callback */
+	tls_session_ticket_ext_cb_fn tls_session_ticket_ext_cb;
+	void *tls_session_ticket_ext_cb_arg;
+
+	/* TLS pre-shared secret session resumption */
+	tls_session_secret_cb_fn tls_session_secret_cb;
+	void *tls_session_secret_cb_arg;
+
 } SSL_INTERNAL;
 
 typedef struct ssl3_state_internal_st {

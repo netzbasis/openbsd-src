@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_cert.c,v 1.54 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: ssl_cert.c,v 1.57 2017/01/23 05:13:02 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -440,11 +440,12 @@ ssl_verify_cert_chain(SSL *s, STACK_OF(X509) *sk)
 	 */
 	X509_VERIFY_PARAM_set1(X509_STORE_CTX_get0_param(&ctx), s->param);
 
-	if (s->verify_callback)
-		X509_STORE_CTX_set_verify_cb(&ctx, s->verify_callback);
+	if (s->internal->verify_callback)
+		X509_STORE_CTX_set_verify_cb(&ctx, s->internal->verify_callback);
 
-	if (s->ctx->app_verify_callback != NULL)
-		ret = s->ctx->app_verify_callback(&ctx, s->ctx->app_verify_arg);
+	if (s->ctx->internal->app_verify_callback != NULL)
+		ret = s->ctx->internal->app_verify_callback(&ctx,
+		    s->ctx->internal->app_verify_arg);
 	else
 		ret = X509_verify_cert(&ctx);
 
@@ -491,13 +492,13 @@ SSL_set_client_CA_list(SSL *s, STACK_OF(X509_NAME) *name_list)
 void
 SSL_CTX_set_client_CA_list(SSL_CTX *ctx, STACK_OF(X509_NAME) *name_list)
 {
-	set_client_CA_list(&(ctx->client_CA), name_list);
+	set_client_CA_list(&(ctx->internal->client_CA), name_list);
 }
 
 STACK_OF(X509_NAME) *
 SSL_CTX_get_client_CA_list(const SSL_CTX *ctx)
 {
-	return (ctx->client_CA);
+	return (ctx->internal->client_CA);
 }
 
 STACK_OF(X509_NAME) *
@@ -514,7 +515,7 @@ SSL_get_client_CA_list(const SSL *s)
 		if (s->client_CA != NULL)
 			return (s->client_CA);
 		else
-			return (s->ctx->client_CA);
+			return (s->ctx->internal->client_CA);
 	}
 }
 
@@ -547,7 +548,7 @@ SSL_add_client_CA(SSL *ssl, X509 *x)
 int
 SSL_CTX_add_client_CA(SSL_CTX *ctx, X509 *x)
 {
-	return (add_client_CA(&(ctx->client_CA), x));
+	return (add_client_CA(&(ctx->internal->client_CA), x));
 }
 
 static int

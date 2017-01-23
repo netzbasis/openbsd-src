@@ -1,4 +1,4 @@
-/* $OpenBSD: d1_srvr.c,v 1.72 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: d1_srvr.c,v 1.75 2017/01/23 04:55:26 beck Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -188,15 +188,15 @@ dtls1_accept(SSL *s)
 	ERR_clear_error();
 	errno = 0;
 
-	if (s->info_callback != NULL)
-		cb = s->info_callback;
-	else if (s->ctx->info_callback != NULL)
-		cb = s->ctx->info_callback;
+	if (s->internal->info_callback != NULL)
+		cb = s->internal->info_callback;
+	else if (s->ctx->internal->info_callback != NULL)
+		cb = s->ctx->internal->info_callback;
 
 	listen = D1I(s)->listen;
 
 	/* init things to blank */
-	s->in_handshake++;
+	s->internal->in_handshake++;
 	if (!SSL_in_init(s) || SSL_in_before(s))
 		SSL_clear(s);
 
@@ -259,11 +259,11 @@ dtls1_accept(SSL *s)
 				}
 
 				s->state = SSL3_ST_SR_CLNT_HELLO_A;
-				s->ctx->stats.sess_accept++;
+				s->ctx->internal->stats.sess_accept++;
 			} else {
 				/* s->state == SSL_ST_RENEGOTIATE,
 				 * we will just send a HelloRequest */
-				s->ctx->stats.sess_accept_renegotiate++;
+				s->ctx->internal->stats.sess_accept_renegotiate++;
 				s->state = SSL3_ST_SW_HELLO_REQ_A;
 			}
 
@@ -641,9 +641,9 @@ dtls1_accept(SSL *s)
 
 				ssl_update_cache(s, SSL_SESS_CACHE_SERVER);
 
-				s->ctx->stats.sess_accept_good++;
+				s->ctx->internal->stats.sess_accept_good++;
 				/* s->server=1; */
-				s->handshake_func = dtls1_accept;
+				s->internal->handshake_func = dtls1_accept;
 
 				if (cb != NULL)
 					cb(s, SSL_CB_HANDSHAKE_DONE, 1);
@@ -684,7 +684,7 @@ dtls1_accept(SSL *s)
 end:
 	/* BIO_flush(s->wbio); */
 
-	s->in_handshake--;
+	s->internal->in_handshake--;
 
 	if (cb != NULL)
 		cb(s, SSL_CB_ACCEPT_EXIT, ret);
@@ -704,9 +704,9 @@ dtls1_send_hello_verify_request(SSL *s)
 		*(p++) = s->version >> 8;
 		*(p++) = s->version & 0xFF;
 
-		if (s->ctx->app_gen_cookie_cb == NULL ||
-		    s->ctx->app_gen_cookie_cb(s, D1I(s)->cookie,
-			&(D1I(s)->cookie_len)) == 0) {
+		if (s->ctx->internal->app_gen_cookie_cb == NULL ||
+		    s->ctx->internal->app_gen_cookie_cb(s,
+			D1I(s)->cookie, &(D1I(s)->cookie_len)) == 0) {
 			SSLerr(SSL_F_DTLS1_SEND_HELLO_VERIFY_REQUEST,
 			    ERR_R_INTERNAL_ERROR);
 			return 0;

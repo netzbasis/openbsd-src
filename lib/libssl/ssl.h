@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl.h,v 1.106 2017/01/22 06:36:49 jsing Exp $ */
+/* $OpenBSD: ssl.h,v 1.113 2017/01/23 05:27:22 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -464,28 +464,23 @@ struct ssl_session_st {
 
 	int master_key_length;
 	unsigned char master_key[SSL_MAX_MASTER_KEY_LENGTH];
+
 	/* session_id - valid? */
 	unsigned int session_id_length;
 	unsigned char session_id[SSL_MAX_SSL_SESSION_ID_LENGTH];
+
 	/* this is used to determine whether the session is being reused in
 	 * the appropriate context. It is up to the application to set this,
 	 * via SSL_new */
 	unsigned int sid_ctx_length;
 	unsigned char sid_ctx[SSL_MAX_SID_CTX_LENGTH];
 
-	/* Used to indicate that session resumption is not allowed.
-	 * Applications can also set this bit for a new session via
-	 * not_resumable_session_cb to disable session caching and tickets. */
-	int not_resumable;
-
-	/* The cert is the certificate used to establish this connection */
-	struct sess_cert_st /* SESS_CERT */ *sess_cert;
-
 	/* This is the cert for the other end.
 	 * On clients, it will be the same as sess_cert->peer_key->x509
 	 * (the latter is not enough as sess_cert is not retained
 	 * in the external representation of sessions, see ssl_asn1.c). */
 	X509 *peer;
+
 	/* when app_verify_callback accepts a session where the peer's certificate
 	 * is not ok, we must remember the error for session reuse: */
 	long verify_result; /* only for servers */
@@ -501,11 +496,6 @@ struct ssl_session_st {
 
 	STACK_OF(SSL_CIPHER) *ciphers; /* shared ciphers? */
 
-	CRYPTO_EX_DATA ex_data; /* application specific data */
-
-	/* These are used to make removal of session-ids more
-	 * efficient and to implement a maximum cache size. */
-	struct ssl_session_st *prev, *next;
 	char *tlsext_hostname;
 
 	/* RFC4507 info */
@@ -694,155 +684,28 @@ struct ssl_ctx_st {
 	const SSL_METHOD *method;
 
 	STACK_OF(SSL_CIPHER) *cipher_list;
-	/* same as above but sorted for lookup */
-	STACK_OF(SSL_CIPHER) *cipher_list_by_id;
 
 	struct x509_store_st /* X509_STORE */ *cert_store;
-	struct lhash_st_SSL_SESSION *sessions;
-	/* Most session-ids that will be cached, default is
-	 * SSL_SESSION_CACHE_MAX_SIZE_DEFAULT. 0 is unlimited. */
-	unsigned long session_cache_size;
-	struct ssl_session_st *session_cache_head;
-	struct ssl_session_st *session_cache_tail;
-
-	/* This can have one of 2 values, ored together,
-	 * SSL_SESS_CACHE_CLIENT,
-	 * SSL_SESS_CACHE_SERVER,
-	 * Default is SSL_SESSION_CACHE_SERVER, which means only
-	 * SSL_accept which cache SSL_SESSIONS. */
-	int session_cache_mode;
 
 	/* If timeout is not 0, it is the default timeout value set
 	 * when SSL_new() is called.  This has been put in to make
 	 * life easier to set things up */
 	long session_timeout;
 
-	/* If this callback is not null, it will be called each
-	 * time a session id is added to the cache.  If this function
-	 * returns 1, it means that the callback will do a
-	 * SSL_SESSION_free() when it has finished using it.  Otherwise,
-	 * on 0, it means the callback has finished with it.
-	 * If remove_session_cb is not null, it will be called when
-	 * a session-id is removed from the cache.  After the call,
-	 * OpenSSL will SSL_SESSION_free() it. */
-	int (*new_session_cb)(struct ssl_st *ssl, SSL_SESSION *sess);
-	void (*remove_session_cb)(struct ssl_ctx_st *ctx, SSL_SESSION *sess);
-	SSL_SESSION *(*get_session_cb)(struct ssl_st *ssl,
-	unsigned char *data, int len, int *copy);
-
-	struct {
-		int sess_connect;	/* SSL new conn - started */
-		int sess_connect_renegotiate;/* SSL reneg - requested */
-		int sess_connect_good;	/* SSL new conne/reneg - finished */
-		int sess_accept;	/* SSL new accept - started */
-		int sess_accept_renegotiate;/* SSL reneg - requested */
-		int sess_accept_good;	/* SSL accept/reneg - finished */
-		int sess_miss;		/* session lookup misses  */
-		int sess_timeout;	/* reuse attempt on timeouted session */
-		int sess_cache_full;	/* session removed due to full cache */
-		int sess_hit;		/* session reuse actually done */
-		int sess_cb_hit;	/* session-id that was not
-					 * in the cache was
-					 * passed back via the callback.  This
-					 * indicates that the application is
-					 * supplying session-id's from other
-					 * processes - spooky :-) */
-	} stats;
-
 	int references;
-
-	/* if defined, these override the X509_verify_cert() calls */
-	int (*app_verify_callback)(X509_STORE_CTX *, void *);
-	void *app_verify_arg;
-
-	/* Default password callback. */
-	pem_password_cb *default_passwd_callback;
-
-	/* Default password callback user data. */
-	void *default_passwd_callback_userdata;
-
-	/* get client cert callback */
-	int (*client_cert_cb)(SSL *ssl, X509 **x509, EVP_PKEY **pkey);
-
-	/* cookie generate callback */
-	int (*app_gen_cookie_cb)(SSL *ssl, unsigned char *cookie,
-	unsigned int *cookie_len);
-
-	/* verify cookie callback */
-	int (*app_verify_cookie_cb)(SSL *ssl, unsigned char *cookie,
-	unsigned int cookie_len);
-
-	CRYPTO_EX_DATA ex_data;
-
-	const EVP_MD *md5;	/* For SSLv3/TLSv1 'ssl3-md5' */
-	const EVP_MD *sha1;	/* For SSLv3/TLSv1 'ssl3-sha1' */
-
-	STACK_OF(X509) *extra_certs;
-
-	/* Default values used when no per-SSL value is defined follow */
-
-	void (*info_callback)(const SSL *ssl,int type,int val); /* used if SSL's info_callback is NULL */
-
-	/* what we put in client cert requests */
-	STACK_OF(X509_NAME) *client_CA;
-
 
 	/* Default values to use in SSL structures follow (these are copied by SSL_new) */
 
 	unsigned long options;
 	unsigned long mode;
-	long max_cert_list;
 
-	struct cert_st /* CERT */ *cert;
-	int read_ahead;
-
-	/* callback that allows applications to peek at protocol messages */
-	void (*msg_callback)(int write_p, int version, int content_type,
-	    const void *buf, size_t len, SSL *ssl, void *arg);
-	void *msg_callback_arg;
+	STACK_OF(X509) *extra_certs;
 
 	int verify_mode;
 	unsigned int sid_ctx_length;
 	unsigned char sid_ctx[SSL_MAX_SID_CTX_LENGTH];
-	int (*default_verify_callback)(int ok,X509_STORE_CTX *ctx); /* called 'verify_callback' in the SSL */
-
-	/* Default generate session ID callback. */
-	GEN_SESSION_CB generate_session_id;
 
 	X509_VERIFY_PARAM *param;
-
-	int quiet_shutdown;
-
-	/* Maximum amount of data to send in one fragment.
-	 * actual record size can be more than this due to
-	 * padding and MAC overheads.
-	 */
-	unsigned int max_send_fragment;
-
-#ifndef OPENSSL_NO_ENGINE
-	/* Engine to pass requests for client certs to
-	 */
-	ENGINE *client_cert_engine;
-#endif
-
-	/* TLS extensions servername callback */
-	int (*tlsext_servername_callback)(SSL*, int *, void *);
-	void *tlsext_servername_arg;
-	/* RFC 4507 session ticket keys */
-	unsigned char tlsext_tick_key_name[16];
-	unsigned char tlsext_tick_hmac_key[16];
-	unsigned char tlsext_tick_aes_key[16];
-	/* Callback to support customisation of ticket key setting */
-	int (*tlsext_ticket_key_cb)(SSL *ssl, unsigned char *name,
-	    unsigned char *iv, EVP_CIPHER_CTX *ectx, HMAC_CTX *hctx, int enc);
-
-	/* certificate status request info */
-	/* Callback for status request */
-	int (*tlsext_status_cb)(SSL *ssl, void *arg);
-	void *tlsext_status_arg;
-
-	/* SRTP profiles we are willing to do from RFC 5764 */
-	STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;
 
 	struct ssl_ctx_internal_st *internal;
 };
@@ -989,10 +852,6 @@ struct ssl_st {
 	 * in SSL_accept or SSL_connect */
 	int rwstate;
 
-	/* true when we are actually in SSL_accept() or SSL_connect() */
-	int in_handshake;
-	int (*handshake_func)(SSL *);
-
 	/* Imagine that here's a boolean member "init" that is
 	 * switched as soon as SSL_set_{accept/connect}_state
 	 * is called for the first time, so that "state" and
@@ -1027,11 +886,6 @@ struct ssl_st {
 
 	int read_ahead;		/* Read as many input bytes as possible
 				 * (for non-blocking reads) */
-
-	/* callback that allows applications to peek at protocol messages */
-	void (*msg_callback)(int write_p, int version, int content_type,
-	    const void *buf, size_t len, SSL *ssl, void *arg);
-	void *msg_callback_arg;
 
 	int hit;		/* reusing a previous session */
 
@@ -1073,16 +927,9 @@ struct ssl_st {
 	/* This can also be in the session once a session is established */
 	SSL_SESSION *session;
 
-	/* Default generate session ID callback. */
-	GEN_SESSION_CB generate_session_id;
-
 	/* Used in SSL2 and SSL3 */
 	int verify_mode;	/* 0 don't care about verify failure.
 				 * 1 fail if verify fails */
-	int (*verify_callback)(int ok,X509_STORE_CTX *ctx); /* fail if callback returns 0 */
-
-	void (*info_callback)(const SSL *ssl,int type,int val); /* optional informational callback */
-
 	int error;		/* error bytes to be written */
 	int error_code;		/* actual code */
 
@@ -1109,11 +956,9 @@ struct ssl_st {
 	int client_version;	/* what was passed, used for
 				 * SSLv3/TLS rollback check */
 	unsigned int max_send_fragment;
-	/* TLS extension debug callback */
-	void (*tlsext_debug_cb)(SSL *s, int client_server, int type,
-	    unsigned char *data, int len, void *arg);
-	void *tlsext_debug_arg;
+
 	char *tlsext_hostname;
+
 	int servername_done;	/* no further mod of servername
 				   0 : call the servername extension callback.
 				   1 : prepare 2, allow last ack just after in server callback.
@@ -1141,27 +986,11 @@ struct ssl_st {
 	/* TLS Session Ticket extension override */
 	TLS_SESSION_TICKET_EXT *tlsext_session_ticket;
 
-	/* TLS Session Ticket extension callback */
-	tls_session_ticket_ext_cb_fn tls_session_ticket_ext_cb;
-	void *tls_session_ticket_ext_cb_arg;
-
-	/* TLS pre-shared secret session resumption */
-	tls_session_secret_cb_fn tls_session_secret_cb;
-	void *tls_session_secret_cb_arg;
-
 	SSL_CTX * initial_ctx; /* initial ctx, used to store sessions */
 #define session_ctx initial_ctx
 
 	STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;	/* What we'll do */
 	SRTP_PROTECTION_PROFILE *srtp_profile;			/* What's been chosen */
-
-	unsigned int tlsext_heartbeat;	/* Is use of the Heartbeat extension negotiated?
-					   0: disabled
-					   1: enabled
-					   2: enabled, but not allowed to send Requests
-					   */
-	unsigned int tlsext_hb_pending; /* Indicates if a HeartbeatRequest is in flight */
-	unsigned int tlsext_hb_seq;	/* HeartbeatRequest sequence number */
 
 	int renegotiate;/* 1 if we are renegotiating.
 		 	 * 2 if we are a server and are inside a handshake

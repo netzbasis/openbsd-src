@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.99 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.102 2017/01/23 05:13:02 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1227,9 +1227,9 @@ ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
 		if (end - data < size)
 			goto err;
 
-		if (s->tlsext_debug_cb)
-			s->tlsext_debug_cb(s, 0, type, data, size,
-			    s->tlsext_debug_arg);
+		if (s->internal->tlsext_debug_cb)
+			s->internal->tlsext_debug_cb(s, 0, type, data, size,
+			    s->internal->tlsext_debug_arg);
 /* The servername extension is treated as follows:
 
    - Only the hostname type is supported with a maximum length of 255.
@@ -1395,8 +1395,8 @@ ssl_parse_clienthello_tlsext(SSL *s, unsigned char **p, unsigned char *d,
 			}
 		}
 		else if (type == TLSEXT_TYPE_session_ticket) {
-			if (s->tls_session_ticket_ext_cb &&
-			    !s->tls_session_ticket_ext_cb(s, data, size, s->tls_session_ticket_ext_cb_arg)) {
+			if (s->internal->tls_session_ticket_ext_cb &&
+			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
 				*al = TLS1_AD_INTERNAL_ERROR;
 				return 0;
 			}
@@ -1645,9 +1645,9 @@ ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 		if (end - data < size)
 			goto err;
 
-		if (s->tlsext_debug_cb)
-			s->tlsext_debug_cb(s, 1, type, data, size,
-			    s->tlsext_debug_arg);
+		if (s->internal->tlsext_debug_cb)
+			s->internal->tlsext_debug_cb(s, 1, type, data, size,
+			    s->internal->tlsext_debug_arg);
 
 		if (type == TLSEXT_TYPE_server_name) {
 			if (s->tlsext_hostname == NULL || size > 0) {
@@ -1690,8 +1690,8 @@ ssl_parse_serverhello_tlsext(SSL *s, unsigned char **p, size_t n, int *al)
 			}
 		}
 		else if (type == TLSEXT_TYPE_session_ticket) {
-			if (s->tls_session_ticket_ext_cb &&
-			    !s->tls_session_ticket_ext_cb(s, data, size, s->tls_session_ticket_ext_cb_arg)) {
+			if (s->internal->tls_session_ticket_ext_cb &&
+			    !s->internal->tls_session_ticket_ext_cb(s, data, size, s->internal->tls_session_ticket_ext_cb_arg)) {
 				*al = TLS1_AD_INTERNAL_ERROR;
 				return 0;
 			}
@@ -1859,10 +1859,12 @@ ssl_check_clienthello_tlsext_early(SSL *s)
 	 * ssl3_choose_cipher in s3_lib.c.
 	 */
 
-	if (s->ctx != NULL && s->ctx->tlsext_servername_callback != 0)
-		ret = s->ctx->tlsext_servername_callback(s, &al, s->ctx->tlsext_servername_arg);
-	else if (s->initial_ctx != NULL && s->initial_ctx->tlsext_servername_callback != 0)
-		ret = s->initial_ctx->tlsext_servername_callback(s, &al, s->initial_ctx->tlsext_servername_arg);
+	if (s->ctx != NULL && s->ctx->internal->tlsext_servername_callback != 0)
+		ret = s->ctx->internal->tlsext_servername_callback(s, &al,
+		    s->ctx->internal->tlsext_servername_arg);
+	else if (s->initial_ctx != NULL && s->initial_ctx->internal->tlsext_servername_callback != 0)
+		ret = s->initial_ctx->internal->tlsext_servername_callback(s, &al,
+		    s->initial_ctx->internal->tlsext_servername_arg);
 
 	switch (ret) {
 	case SSL_TLSEXT_ERR_ALERT_FATAL:
@@ -1890,7 +1892,7 @@ ssl_check_clienthello_tlsext_late(SSL *s)
 	 * has been chosen because this may influence which certificate is sent
  	 */
 	if ((s->tlsext_status_type != -1) &&
-	    s->ctx && s->ctx->tlsext_status_cb) {
+	    s->ctx && s->ctx->internal->tlsext_status_cb) {
 		int r;
 		CERT_PKEY *certpkey;
 		certpkey = ssl_get_server_send_pkey(s);
@@ -1903,7 +1905,8 @@ ssl_check_clienthello_tlsext_late(SSL *s)
 		 * SSL_get_certificate et al can pick it up.
 		 */
 		s->cert->key = certpkey;
-		r = s->ctx->tlsext_status_cb(s, s->ctx->tlsext_status_arg);
+		r = s->ctx->internal->tlsext_status_cb(s,
+		    s->ctx->internal->tlsext_status_arg);
 		switch (r) {
 			/* We don't want to send a status request response */
 		case SSL_TLSEXT_ERR_NOACK:
@@ -1973,16 +1976,18 @@ ssl_check_serverhello_tlsext(SSL *s)
 	}
 	ret = SSL_TLSEXT_ERR_OK;
 
-	if (s->ctx != NULL && s->ctx->tlsext_servername_callback != 0)
-		ret = s->ctx->tlsext_servername_callback(s, &al, s->ctx->tlsext_servername_arg);
-	else if (s->initial_ctx != NULL && s->initial_ctx->tlsext_servername_callback != 0)
-		ret = s->initial_ctx->tlsext_servername_callback(s, &al, s->initial_ctx->tlsext_servername_arg);
+	if (s->ctx != NULL && s->ctx->internal->tlsext_servername_callback != 0)
+		ret = s->ctx->internal->tlsext_servername_callback(s, &al,
+		    s->ctx->internal->tlsext_servername_arg);
+	else if (s->initial_ctx != NULL && s->initial_ctx->internal->tlsext_servername_callback != 0)
+		ret = s->initial_ctx->internal->tlsext_servername_callback(s, &al,
+		    s->initial_ctx->internal->tlsext_servername_arg);
 
 	/* If we've requested certificate status and we wont get one
  	 * tell the callback
  	 */
 	if ((s->tlsext_status_type != -1) && !(s->tlsext_status_expected) &&
-	    s->ctx && s->ctx->tlsext_status_cb) {
+	    s->ctx && s->ctx->internal->tlsext_status_cb) {
 		int r;
 		/* Set resp to NULL, resplen to -1 so callback knows
  		 * there is no response.
@@ -1990,7 +1995,8 @@ ssl_check_serverhello_tlsext(SSL *s)
 		free(s->tlsext_ocsp_resp);
 		s->tlsext_ocsp_resp = NULL;
 		s->tlsext_ocsp_resplen = -1;
-		r = s->ctx->tlsext_status_cb(s, s->ctx->tlsext_status_arg);
+		r = s->ctx->internal->tlsext_status_cb(s,
+		    s->ctx->internal->tlsext_status_arg);
 		if (r == 0) {
 			al = SSL_AD_BAD_CERTIFICATE_STATUS_RESPONSE;
 			ret = SSL_TLSEXT_ERR_ALERT_FATAL;
@@ -2029,7 +2035,7 @@ ssl_check_serverhello_tlsext(SSL *s)
  *   ret: (output) on return, if a ticket was decrypted, then this is set to
  *       point to the resulting session.
  *
- * If s->tls_session_secret_cb is set then we are expecting a pre-shared key
+ * If s->internal->tls_session_secret_cb is set then we are expecting a pre-shared key
  * ciphersuite, in which case we have no use for session tickets and one will
  * never be decrypted, nor will s->tlsext_ticket_expected be set to 1.
  *
@@ -2038,14 +2044,14 @@ ssl_check_serverhello_tlsext(SSL *s)
  *    0: no ticket was found (or was ignored, based on settings).
  *    1: a zero length extension was found, indicating that the client supports
  *       session tickets but doesn't currently have one to offer.
- *    2: either s->tls_session_secret_cb was set, or a ticket was offered but
+ *    2: either s->internal->tls_session_secret_cb was set, or a ticket was offered but
  *       couldn't be decrypted because of a non-fatal error.
  *    3: a ticket was successfully decrypted and *ret was set.
  *
  * Side effects:
  *   Sets s->tlsext_ticket_expected to 1 if the server will have to issue
  *   a new session ticket to the client because the client indicated support
- *   (and s->tls_session_secret_cb is NULL) but the client either doesn't have
+ *   (and s->internal->tls_session_secret_cb is NULL) but the client either doesn't have
  *   a session ticket or we couldn't use the one it gave us, or if
  *   s->ctx->tlsext_ticket_key_cb asked to renew the client's ticket.
  *   Otherwise, s->tlsext_ticket_expected is set to 0.
@@ -2113,7 +2119,7 @@ tls1_process_ticket(SSL *s, const unsigned char *session, int session_len,
 				s->tlsext_ticket_expected = 1;
 				return 1;
 			}
-			if (s->tls_session_secret_cb) {
+			if (s->internal->tls_session_secret_cb) {
 				/* Indicate that the ticket couldn't be
 				 * decrypted rather than generating the session
 				 * from ticket now, trigger abbreviated
@@ -2182,10 +2188,10 @@ tls_decrypt_ticket(SSL *s, const unsigned char *etick, int eticklen,
 	/* Initialize session ticket encryption and HMAC contexts */
 	HMAC_CTX_init(&hctx);
 	EVP_CIPHER_CTX_init(&ctx);
-	if (tctx->tlsext_ticket_key_cb) {
+	if (tctx->internal->tlsext_ticket_key_cb) {
 		unsigned char *nctick = (unsigned char *)etick;
-		int rv = tctx->tlsext_ticket_key_cb(s, nctick, nctick + 16,
-		    &ctx, &hctx, 0);
+		int rv = tctx->internal->tlsext_ticket_key_cb(s,
+		    nctick, nctick + 16, &ctx, &hctx, 0);
 		if (rv < 0) {
 			HMAC_CTX_cleanup(&hctx);
 			EVP_CIPHER_CTX_cleanup(&ctx);
@@ -2200,12 +2206,13 @@ tls_decrypt_ticket(SSL *s, const unsigned char *etick, int eticklen,
 			renew_ticket = 1;
 	} else {
 		/* Check key name matches */
-		if (timingsafe_memcmp(etick, tctx->tlsext_tick_key_name, 16))
+		if (timingsafe_memcmp(etick,
+		    tctx->internal->tlsext_tick_key_name, 16))
 			return 2;
-		HMAC_Init_ex(&hctx, tctx->tlsext_tick_hmac_key, 16,
-		    tlsext_tick_md(), NULL);
+		HMAC_Init_ex(&hctx, tctx->internal->tlsext_tick_hmac_key,
+		    16, tlsext_tick_md(), NULL);
 		EVP_DecryptInit_ex(&ctx, EVP_aes_128_cbc(), NULL,
-		    tctx->tlsext_tick_aes_key, etick + 16);
+		    tctx->internal->tlsext_tick_aes_key, etick + 16);
 	}
 
 	/*

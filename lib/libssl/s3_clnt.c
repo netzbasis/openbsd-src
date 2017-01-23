@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.162 2017/01/22 09:02:07 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.167 2017/01/23 05:13:02 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -183,12 +183,12 @@ ssl3_connect(SSL *s)
 	ERR_clear_error();
 	errno = 0;
 
-	if (s->info_callback != NULL)
-		cb = s->info_callback;
-	else if (s->ctx->info_callback != NULL)
-		cb = s->ctx->info_callback;
+	if (s->internal->info_callback != NULL)
+		cb = s->internal->info_callback;
+	else if (s->ctx->internal->info_callback != NULL)
+		cb = s->ctx->internal->info_callback;
 
-	s->in_handshake++;
+	s->internal->in_handshake++;
 	if (!SSL_in_init(s) || SSL_in_before(s))
 		SSL_clear(s);
 
@@ -199,7 +199,7 @@ ssl3_connect(SSL *s)
 		case SSL_ST_RENEGOTIATE:
 			s->renegotiate = 1;
 			s->state = SSL_ST_CONNECT;
-			s->ctx->stats.sess_connect_renegotiate++;
+			s->ctx->internal->stats.sess_connect_renegotiate++;
 			/* break */
 		case SSL_ST_BEFORE:
 		case SSL_ST_CONNECT:
@@ -241,7 +241,7 @@ ssl3_connect(SSL *s)
 			}
 
 			s->state = SSL3_ST_CW_CLNT_HELLO_A;
-			s->ctx->stats.sess_connect++;
+			s->ctx->internal->stats.sess_connect++;
 			s->init_num = 0;
 			break;
 
@@ -539,12 +539,12 @@ ssl3_connect(SSL *s)
 
 			ssl_update_cache(s, SSL_SESS_CACHE_CLIENT);
 			if (s->hit)
-				s->ctx->stats.sess_hit++;
+				s->ctx->internal->stats.sess_hit++;
 
 			ret = 1;
 			/* s->server=0; */
-			s->handshake_func = ssl3_connect;
-			s->ctx->stats.sess_connect_good++;
+			s->internal->handshake_func = ssl3_connect;
+			s->ctx->internal->stats.sess_connect_good++;
 
 			if (cb != NULL)
 				cb(s, SSL_CB_HANDSHAKE_DONE, 1);
@@ -578,7 +578,7 @@ ssl3_connect(SSL *s)
 	}
 
 end:
-	s->in_handshake--;
+	s->internal->in_handshake--;
 	if (cb != NULL)
 		cb(s, SSL_CB_CONNECT_EXIT, ret);
 
@@ -600,7 +600,7 @@ ssl3_client_hello(SSL *s)
 		if ((sess == NULL) ||
 		    (sess->ssl_version != s->version) ||
 		    (!sess->session_id_length && !sess->tlsext_tick) ||
-		    (sess->not_resumable)) {
+		    (sess->internal->not_resumable)) {
 			if (!ssl_get_new_session(s, 0))
 				goto err;
 		}
@@ -800,12 +800,12 @@ ssl3_get_server_hello(SSL *s)
 	 * Check if we want to resume the session based on external
 	 * pre-shared secret.
 	 */
-	if (s->tls_session_secret_cb) {
+	if (s->internal->tls_session_secret_cb) {
 		SSL_CIPHER *pref_cipher = NULL;
 		s->session->master_key_length = sizeof(s->session->master_key);
-		if (s->tls_session_secret_cb(s, s->session->master_key,
+		if (s->internal->tls_session_secret_cb(s, s->session->master_key,
 		    &s->session->master_key_length, NULL, &pref_cipher,
-		    s->tls_session_secret_cb_arg)) {
+		    s->internal->tls_session_secret_cb_arg)) {
 			s->session->cipher = pref_cipher ? pref_cipher :
 			    ssl3_get_cipher_by_value(cipher_suite);
 			s->s3->flags |= SSL3_FLAGS_CCS_OK;
@@ -1037,9 +1037,9 @@ ssl3_get_server_certificate(SSL *s)
 	sc = ssl_sess_cert_new();
 	if (sc == NULL)
 		goto err;
-	if (s->session->sess_cert)
-		ssl_sess_cert_free(s->session->sess_cert);
-	s->session->sess_cert = sc;
+	if (SSI(s)->sess_cert)
+		ssl_sess_cert_free(SSI(s)->sess_cert);
+	SSI(s)->sess_cert = sc;
 
 	sc->cert_chain = sk;
 	/*
@@ -1114,7 +1114,7 @@ ssl3_get_server_kex_dhe(SSL *s, EVP_PKEY **pkey, unsigned char **pp, long *nn)
 	int al;
 
 	alg_a = S3I(s)->tmp.new_cipher->algorithm_auth;
-	sc = s->session->sess_cert;
+	sc = SSI(s)->sess_cert;
 
 	if (*nn < 0)
 		goto err;
@@ -1281,7 +1281,7 @@ ssl3_get_server_kex_ecdhe(SSL *s, EVP_PKEY **pkey, unsigned char **pp, long *nn)
 	int al;
 
 	alg_a = S3I(s)->tmp.new_cipher->algorithm_auth;
-	sc = s->session->sess_cert;
+	sc = SSI(s)->sess_cert;
 
 	if (*nn < 0)
 		goto err;
@@ -1397,18 +1397,18 @@ ssl3_get_server_key_exchange(SSL *s)
 		return (1);
 	}
 
-	if (s->session->sess_cert != NULL) {
-		DH_free(s->session->sess_cert->peer_dh_tmp);
-		s->session->sess_cert->peer_dh_tmp = NULL;
+	if (SSI(s)->sess_cert != NULL) {
+		DH_free(SSI(s)->sess_cert->peer_dh_tmp);
+		SSI(s)->sess_cert->peer_dh_tmp = NULL;
 
-		EC_KEY_free(s->session->sess_cert->peer_ecdh_tmp);
-		s->session->sess_cert->peer_ecdh_tmp = NULL;
+		EC_KEY_free(SSI(s)->sess_cert->peer_ecdh_tmp);
+		SSI(s)->sess_cert->peer_ecdh_tmp = NULL;
 
-		free(s->session->sess_cert->peer_x25519_tmp);
-		s->session->sess_cert->peer_x25519_tmp = NULL;
+		free(SSI(s)->sess_cert->peer_x25519_tmp);
+		SSI(s)->sess_cert->peer_x25519_tmp = NULL;
 	} else {
-		s->session->sess_cert = ssl_sess_cert_new();
-		if (s->session->sess_cert == NULL)
+		SSI(s)->sess_cert = ssl_sess_cert_new();
+		if (SSI(s)->sess_cert == NULL)
 			goto err;
 	}
 
@@ -1484,8 +1484,8 @@ ssl3_get_server_key_exchange(SSL *s)
 			q = md_buf;
 			for (num = 2; num > 0; num--) {
 				if (!EVP_DigestInit_ex(&md_ctx,
-				    (num == 2) ?  s->ctx->md5 : s->ctx->sha1,
-				    NULL)) {
+				    (num == 2) ? s->ctx->internal->md5 :
+				    s->ctx->internal->sha1, NULL)) {
 					al = SSL_AD_INTERNAL_ERROR;
 					goto f_err;
 				}
@@ -1886,9 +1886,10 @@ ssl3_get_cert_status(SSL *s)
  	}
 	s->tlsext_ocsp_resplen = (int)stow_len;
 
-	if (s->ctx->tlsext_status_cb) {
+	if (s->ctx->internal->tlsext_status_cb) {
 		int ret;
-		ret = s->ctx->tlsext_status_cb(s, s->ctx->tlsext_status_arg);
+		ret = s->ctx->internal->tlsext_status_cb(s,
+		    s->ctx->internal->tlsext_status_arg);
 		if (ret == 0) {
 			al = SSL_AD_BAD_CERTIFICATE_STATUS_RESPONSE;
 			SSLerr(SSL_F_SSL3_GET_CERT_STATUS,
@@ -2341,7 +2342,7 @@ ssl3_send_client_key_exchange(SSL *s)
 	if (s->state == SSL3_ST_CW_KEY_EXCH_A) {
 		alg_k = S3I(s)->tmp.new_cipher->algorithm_mkey;
 
-		if ((sess_cert = s->session->sess_cert) == NULL) {
+		if ((sess_cert = SSI(s)->sess_cert) == NULL) {
 			ssl3_send_alert(s, SSL3_AL_FATAL,
 			    SSL_AD_UNEXPECTED_MESSAGE);
 			SSLerr(SSL_F_SSL3_SEND_CLIENT_KEY_EXCHANGE,
@@ -2636,13 +2637,13 @@ ssl3_check_cert_and_algorithm(SSL *s)
 	if (alg_a & SSL_aNULL)
 		return (1);
 
-	sc = s->session->sess_cert;
+	sc = SSI(s)->sess_cert;
 	if (sc == NULL) {
 		SSLerr(SSL_F_SSL3_CHECK_CERT_AND_ALGORITHM,
 		    ERR_R_INTERNAL_ERROR);
 		goto err;
 	}
-	dh = s->session->sess_cert->peer_dh_tmp;
+	dh = SSI(s)->sess_cert->peer_dh_tmp;
 
 	/* This is the passed certificate. */
 
@@ -2754,15 +2755,15 @@ ssl_do_client_cert_cb(SSL *s, X509 **px509, EVP_PKEY **ppkey)
 	int	i = 0;
 
 #ifndef OPENSSL_NO_ENGINE
-	if (s->ctx->client_cert_engine) {
-		i = ENGINE_load_ssl_client_cert(s->ctx->client_cert_engine, s,
-		SSL_get_client_CA_list(s),
-		px509, ppkey, NULL, NULL, NULL);
+	if (s->ctx->internal->client_cert_engine) {
+		i = ENGINE_load_ssl_client_cert(
+		    s->ctx->internal->client_cert_engine, s,
+		    SSL_get_client_CA_list(s), px509, ppkey, NULL, NULL, NULL);
 		if (i != 0)
 			return (i);
 	}
 #endif
-	if (s->ctx->client_cert_cb)
-		i = s->ctx->client_cert_cb(s, px509, ppkey);
+	if (s->ctx->internal->client_cert_cb)
+		i = s->ctx->internal->client_cert_cb(s, px509, ppkey);
 	return (i);
 }
