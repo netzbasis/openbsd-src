@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.144 2017/01/24 01:47:22 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.149 2017/01/24 15:11:55 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -336,6 +336,34 @@ SSL_new(SSL_CTX *ctx)
 	s->internal->tlsext_ocsp_resplen = -1;
 	CRYPTO_add(&ctx->references, 1, CRYPTO_LOCK_SSL_CTX);
 	s->initial_ctx = ctx;
+
+	if (ctx->internal->tlsext_ecpointformatlist != NULL) {
+		s->internal->tlsext_ecpointformatlist =
+		    calloc(ctx->internal->tlsext_ecpointformatlist_length,
+			sizeof(ctx->internal->tlsext_ecpointformatlist[0]));
+		if (s->internal->tlsext_ecpointformatlist == NULL)
+			goto err;
+		memcpy(s->internal->tlsext_ecpointformatlist,
+		    ctx->internal->tlsext_ecpointformatlist,
+		    ctx->internal->tlsext_ecpointformatlist_length *
+		    sizeof(ctx->internal->tlsext_ecpointformatlist[0]));
+		s->internal->tlsext_ecpointformatlist_length =
+		    ctx->internal->tlsext_ecpointformatlist_length;
+	}
+	if (ctx->internal->tlsext_supportedgroups != NULL) {
+		s->internal->tlsext_supportedgroups =
+		    calloc(ctx->internal->tlsext_supportedgroups_length,
+			sizeof(ctx->internal->tlsext_supportedgroups));
+		if (s->internal->tlsext_supportedgroups == NULL)
+			goto err;
+		memcpy(s->internal->tlsext_supportedgroups,
+		    ctx->internal->tlsext_supportedgroups,
+		    ctx->internal->tlsext_supportedgroups_length *
+		    sizeof(ctx->internal->tlsext_supportedgroups[0]));
+		s->internal->tlsext_supportedgroups_length =
+		    ctx->internal->tlsext_supportedgroups_length;
+	}
+
 	s->internal->next_proto_negotiated = NULL;
 
 	if (s->ctx->internal->alpn_client_proto_list != NULL) {
@@ -494,8 +522,7 @@ SSL_free(SSL *s)
 	if (i > 0)
 		return;
 
-	if (s->param)
-		X509_VERIFY_PARAM_free(s->param);
+	X509_VERIFY_PARAM_free(s->param);
 
 	CRYPTO_free_ex_data(CRYPTO_EX_INDEX_SSL, s, &s->internal->ex_data);
 
@@ -512,8 +539,7 @@ SSL_free(SSL *s)
 		BIO_free_all(s->rbio);
 	BIO_free_all(s->wbio);
 
-	if (s->internal->init_buf != NULL)
-		BUF_MEM_free(s->internal->init_buf);
+	BUF_MEM_free(s->internal->init_buf);
 
 	/* add extra stuff */
 	sk_SSL_CIPHER_free(s->cipher_list);
@@ -533,17 +559,16 @@ SSL_free(SSL *s)
 
 	free(s->tlsext_hostname);
 	SSL_CTX_free(s->initial_ctx);
+
 	free(s->internal->tlsext_ecpointformatlist);
-	free(s->internal->tlsext_ellipticcurvelist);
-	if (s->internal->tlsext_ocsp_exts)
-		sk_X509_EXTENSION_pop_free(s->internal->tlsext_ocsp_exts,
-		    X509_EXTENSION_free);
-	if (s->internal->tlsext_ocsp_ids)
-		sk_OCSP_RESPID_pop_free(s->internal->tlsext_ocsp_ids, OCSP_RESPID_free);
+	free(s->internal->tlsext_supportedgroups);
+
+	sk_X509_EXTENSION_pop_free(s->internal->tlsext_ocsp_exts,
+	    X509_EXTENSION_free);
+	sk_OCSP_RESPID_pop_free(s->internal->tlsext_ocsp_ids, OCSP_RESPID_free);
 	free(s->internal->tlsext_ocsp_resp);
 
-	if (s->internal->client_CA != NULL)
-		sk_X509_NAME_pop_free(s->internal->client_CA, X509_NAME_free);
+	sk_X509_NAME_pop_free(s->internal->client_CA, X509_NAME_free);
 
 	if (s->method != NULL)
 		s->method->internal->ssl_free(s);
@@ -554,8 +579,7 @@ SSL_free(SSL *s)
 	free(s->internal->alpn_client_proto_list);
 
 #ifndef OPENSSL_NO_SRTP
-	if (s->internal->srtp_profiles)
-		sk_SRTP_PROTECTION_PROFILE_free(s->internal->srtp_profiles);
+	sk_SRTP_PROTECTION_PROFILE_free(s->internal->srtp_profiles);
 #endif
 
 	free(s->internal);
@@ -1947,19 +1971,18 @@ err2:
 }
 
 void
-SSL_CTX_free(SSL_CTX *a)
+SSL_CTX_free(SSL_CTX *ctx)
 {
 	int	i;
 
-	if (a == NULL)
+	if (ctx == NULL)
 		return;
 
-	i = CRYPTO_add(&a->references, -1, CRYPTO_LOCK_SSL_CTX);
+	i = CRYPTO_add(&ctx->references, -1, CRYPTO_LOCK_SSL_CTX);
 	if (i > 0)
 		return;
 
-	if (a->param)
-		X509_VERIFY_PARAM_free(a->param);
+	X509_VERIFY_PARAM_free(ctx->param);
 
 	/*
 	 * Free internal session cache. However: the remove_cb() may reference
@@ -1970,38 +1993,37 @@ SSL_CTX_free(SSL_CTX *a)
 	 * free ex_data, then finally free the cache.
 	 * (See ticket [openssl.org #212].)
 	 */
-	if (a->internal->sessions != NULL)
-		SSL_CTX_flush_sessions(a, 0);
+	if (ctx->internal->sessions != NULL)
+		SSL_CTX_flush_sessions(ctx, 0);
 
-	CRYPTO_free_ex_data(CRYPTO_EX_INDEX_SSL_CTX, a, &a->internal->ex_data);
+	CRYPTO_free_ex_data(CRYPTO_EX_INDEX_SSL_CTX, ctx, &ctx->internal->ex_data);
 
-	if (a->internal->sessions != NULL)
-		lh_SSL_SESSION_free(a->internal->sessions);
+	lh_SSL_SESSION_free(ctx->internal->sessions);
 
-	if (a->cert_store != NULL)
-		X509_STORE_free(a->cert_store);
-	sk_SSL_CIPHER_free(a->cipher_list);
-	sk_SSL_CIPHER_free(a->internal->cipher_list_by_id);
-	ssl_cert_free(a->internal->cert);
-	if (a->internal->client_CA != NULL)
-		sk_X509_NAME_pop_free(a->internal->client_CA, X509_NAME_free);
-	if (a->extra_certs != NULL)
-		sk_X509_pop_free(a->extra_certs, X509_free);
+	X509_STORE_free(ctx->cert_store);
+	sk_SSL_CIPHER_free(ctx->cipher_list);
+	sk_SSL_CIPHER_free(ctx->internal->cipher_list_by_id);
+	ssl_cert_free(ctx->internal->cert);
+	sk_X509_NAME_pop_free(ctx->internal->client_CA, X509_NAME_free);
+	sk_X509_pop_free(ctx->extra_certs, X509_free);
 
 #ifndef OPENSSL_NO_SRTP
-	if (a->internal->srtp_profiles)
-		sk_SRTP_PROTECTION_PROFILE_free(a->internal->srtp_profiles);
+	if (ctx->internal->srtp_profiles)
+		sk_SRTP_PROTECTION_PROFILE_free(ctx->internal->srtp_profiles);
 #endif
 
 #ifndef OPENSSL_NO_ENGINE
-	if (a->internal->client_cert_engine)
-		ENGINE_finish(a->internal->client_cert_engine);
+	if (ctx->internal->client_cert_engine)
+		ENGINE_finish(ctx->internal->client_cert_engine);
 #endif
 
-	free(a->internal->alpn_client_proto_list);
+	free(ctx->internal->tlsext_ecpointformatlist);
+	free(ctx->internal->tlsext_supportedgroups);
 
-	free(a->internal);
-	free(a);
+	free(ctx->internal->alpn_client_proto_list);
+
+	free(ctx->internal);
+	free(ctx);
 }
 
 void
@@ -3009,8 +3031,7 @@ SSL_CTX_get_cert_store(const SSL_CTX *ctx)
 void
 SSL_CTX_set_cert_store(SSL_CTX *ctx, X509_STORE *store)
 {
-	if (ctx->cert_store != NULL)
-		X509_STORE_free(ctx->cert_store);
+	X509_STORE_free(ctx->cert_store);
 	ctx->cert_store = store;
 }
 

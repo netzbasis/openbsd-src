@@ -1,4 +1,4 @@
-.\"	$OpenBSD: vmctl.8,v 1.23 2017/01/13 19:21:16 edd Exp $
+.\"	$OpenBSD: vmctl.8,v 1.26 2017/01/24 11:29:30 jmc Exp $
 .\"
 .\" Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: January 13 2017 $
+.Dd $Mdocdate: January 24 2017 $
 .Dt VMCTL 8
 .Os
 .Sh NAME
@@ -73,10 +73,10 @@ Reset the configured switches.
 Reset and terminate all VMs.
 .It Xo Cm start Ar name
 .Op Fl c
-.Fl k Ar path
-.Fl m Ar size
 .Op Fl d Ar path
 .Op Fl i Ar count
+.Op Fl k Ar path
+.Op Fl m Ar size
 .Op Fl n Ar switch
 .Xc
 Starts a VM defined by the specified name and parameters:
@@ -88,7 +88,7 @@ Disk image file (may be specified multiple times to add multiple disk images).
 .It Fl i Ar count
 Number of network interfaces to add to the VM.
 .It Fl k Ar path
-Kernel to load when booting the VM.
+Boot the VM with a kernel loaded from the host, not the first disk image.
 .It Fl m Ar size
 Memory
 .Ar size

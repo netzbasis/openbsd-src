@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_clnt.c,v 1.171 2017/01/24 01:39:13 jsing Exp $ */
+/* $OpenBSD: s3_clnt.c,v 1.174 2017/01/24 15:11:55 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -520,10 +520,8 @@ ssl3_connect(SSL *s)
 			/* clean a few things up */
 			tls1_cleanup_key_block(s);
 
-			if (s->internal->init_buf != NULL) {
-				BUF_MEM_free(s->internal->init_buf);
-				s->internal->init_buf = NULL;
-			}
+			BUF_MEM_free(s->internal->init_buf);
+			s->internal->init_buf = NULL;
 
 			/*
 			 * If we are not 'joining' the last two packets,
@@ -1099,6 +1097,7 @@ err:
 	EVP_PKEY_free(pkey);
 	X509_free(x);
 	sk_X509_pop_free(sk, X509_free);
+
 	return (ret);
 }
 
@@ -1723,8 +1722,7 @@ ssl3_get_certificate_request(SSL *s)
 	/* we should setup a certificate to return.... */
 	S3I(s)->tmp.cert_req = 1;
 	S3I(s)->tmp.ctype_num = ctype_num;
-	if (S3I(s)->tmp.ca_names != NULL)
-		sk_X509_NAME_pop_free(S3I(s)->tmp.ca_names, X509_NAME_free);
+	sk_X509_NAME_pop_free(S3I(s)->tmp.ca_names, X509_NAME_free);
 	S3I(s)->tmp.ca_names = ca_sk;
 	ca_sk = NULL;
 
@@ -1736,8 +1734,7 @@ truncated:
 	}
 err:
 	X509_NAME_free(xn);
-	if (ca_sk != NULL)
-		sk_X509_NAME_pop_free(ca_sk, X509_NAME_free);
+	sk_X509_NAME_pop_free(ca_sk, X509_NAME_free);
 	return (ret);
 }
 
