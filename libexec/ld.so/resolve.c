@@ -1,4 +1,4 @@
-/*	$OpenBSD: resolve.c,v 1.76 2017/01/22 01:20:36 guenther Exp $ */
+/*	$OpenBSD: resolve.c,v 1.80 2017/01/24 02:37:10 guenther Exp $ */
 
 /*
  * Copyright (c) 1998 Per Fogelstrom, Opsycon AB
@@ -233,11 +233,13 @@ _dl_origin_subst(elf_object_t *object)
 		return;
 
 	/* perform path substitutions on each segment of runpath and rpath */
-	for (pp = object->runpath; *pp != NULL; pp++) {
-		_dl_origin_subst_path(object, origin_path, pp);
+	if (object->runpath != NULL) {
+		for (pp = object->runpath; *pp != NULL; pp++)
+			_dl_origin_subst_path(object, origin_path, pp);
 	}
-	for (pp = object->rpath; *pp != NULL; pp++) {
-		_dl_origin_subst_path(object, origin_path, pp);
+	if (object->rpath != NULL) {
+		for (pp = object->rpath; *pp != NULL; pp++)
+			_dl_origin_subst_path(object, origin_path, pp);
 	}
 }
 
@@ -327,6 +329,8 @@ _dl_finalize_object(const char *objname, Elf_Dyn *dynp, Elf_Phdr *phdrp,
 		object->Dyn.info[DT_SONAME] += object->Dyn.info[DT_STRTAB];
 	if (object->Dyn.info[DT_RPATH])
 		object->Dyn.info[DT_RPATH] += object->Dyn.info[DT_STRTAB];
+	if (object->Dyn.info[DT_RUNPATH])
+		object->Dyn.info[DT_RUNPATH] += object->Dyn.info[DT_STRTAB];
 	if (object->Dyn.info[DT_REL])
 		object->Dyn.info[DT_REL] += obase;
 	if (object->Dyn.info[DT_INIT])
@@ -404,7 +408,7 @@ _dl_tailq_free(struct dep_node *n)
 	}
 }
 
-elf_object_t *free_objects;
+static elf_object_t *free_objects;
 
 void
 _dl_cleanup_objects()

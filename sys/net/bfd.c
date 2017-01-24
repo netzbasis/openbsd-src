@@ -1,4 +1,4 @@
-/*	$OpenBSD: bfd.c,v 1.55 2017/01/22 00:39:45 phessler Exp $	*/
+/*	$OpenBSD: bfd.c,v 1.57 2017/01/24 03:53:32 phessler Exp $	*/
 
 /*
  * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
@@ -443,17 +443,6 @@ bfd_listener(struct bfd_config *bfd, unsigned int port)
 		goto close;
 	}
 
-	MGET(mopt, M_WAIT, MT_SOOPTS);
-	mopt->m_len = sizeof(int);
-	ip = mtod(mopt, int *);
-	*ip = IPTOS_PREC_INTERNETCONTROL;
-	error = sosetopt(so, IPPROTO_IP, IP_TOS, mopt);
-	if (error) {
-		printf("%s: sosetopt error %d\n",
-		    __func__, error);
-		goto close;
-	}
-
 	MGET(m, M_WAIT, MT_SONAME);
 	m->m_len = src->sa_len;
 	sa = mtod(m, struct sockaddr *);
@@ -531,6 +520,17 @@ bfd_sender(struct bfd_config *bfd, unsigned int port)
 	ip = mtod(mopt, int *);
 	*ip = MAXTTL;
 	error = sosetopt(so, IPPROTO_IP, IP_TTL, mopt);
+	if (error) {
+		printf("%s: sosetopt error %d\n",
+		    __func__, error);
+		goto close;
+	}
+
+	MGET(mopt, M_WAIT, MT_SOOPTS);
+	mopt->m_len = sizeof(int);
+	ip = mtod(mopt, int *);
+	*ip = IPTOS_PREC_INTERNETCONTROL;
+	error = sosetopt(so, IPPROTO_IP, IP_TOS, mopt);
 	if (error) {
 		printf("%s: sosetopt error %d\n",
 		    __func__, error);
@@ -649,8 +649,10 @@ bfd_timeout_rx(void *v)
 {
 	struct bfd_config *bfd = v;
 
-	bfd_error(bfd);
-	rt_bfdmsg(bfd);
+	if (bfd->bc_state > BFD_STATE_DOWN) {
+		bfd_error(bfd);
+		rt_bfdmsg(bfd);
+	}
 
 	timeout_add_usec(&bfd->bc_timo_rx, bfd->bc_minrx);
 }

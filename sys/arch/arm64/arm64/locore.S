@@ -1,4 +1,4 @@
-/* $OpenBSD: locore.S,v 1.4 2017/01/15 18:16:55 patrick Exp $ */
+/* $OpenBSD: locore.S,v 1.6 2017/01/23 13:43:50 patrick Exp $ */
 /*-
  * Copyright (c) 2012-2014 Andrew Turner
  * All rights reserved.
@@ -58,10 +58,6 @@ _start:
 	mov x22, x1
 	mov x23, x2
 
-	/* Store symbol value. */
-	adr	x0, .Lesym
-	str	x21, [x0]
-
 	/* Drop to EL1 */
 	bl	drop_to_el1
 
@@ -81,6 +77,12 @@ _start:
 
 	/* Get the virt -> phys offset */
 	bl	get_virt_delta
+
+	/* Store symbol value. */
+	adr	x0, .Lesym
+	ldr	x0, [x0]
+	sub	x0, x0, x29
+	str	x21, [x0]
 
 	/*
 	 * At this point:
@@ -355,6 +357,8 @@ create_pagetables:
 	adr	x7, .Lesym
 	ldr	x7, [x7]
 	sub	x7, x7, x29
+	ldr	x7, [x7]
+	sub	x7, x7, x29
 
 	/* Find the end - begin */
 	sub	x8, x7, x6
@@ -397,6 +401,13 @@ create_pagetables:
 	mov	x6, x27		/* The initial page table */
 	mov	x7, #NORMAL_MEM // #NORMAL
 	mov	x9, x27
+	mov	x8, x9		/* VA start (== PA start) */
+	bl	build_section_pagetable
+
+	/* Create a mapping for the FDT */
+	mov	x6, x27		/* The initial page table */
+	mov	x7, #NORMAL_MEM // #NORMAL
+	mov	x9, x23
 	mov	x8, x9		/* VA start (== PA start) */
 	bl	build_section_pagetable
 

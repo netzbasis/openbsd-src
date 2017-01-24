@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.5 2017/01/20 08:03:21 patrick Exp $ */
+/* $OpenBSD: machdep.c,v 1.7 2017/01/23 14:02:02 jsg Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -43,6 +43,9 @@
 #include <machine/bootconfig.h>
 #include <machine/bus.h>
 #include <arm64/arm64/arm64var.h>
+
+#include <machine/db_machdep.h>
+#include <ddb/db_extern.h>
 
 char *boot_args = NULL;
 char *boot_file = "";
@@ -283,6 +286,14 @@ cpu_startup()
 	curpcb = &proc0.p_addr->u_pcb;
 	curpcb->pcb_flags = 0;
 	curpcb->pcb_tf = &proc0tf;
+
+	if (boothowto & RB_CONFIG) {
+#ifdef BOOT_CONFIG
+		user_config();
+#else
+		printf("kernel does not support -c; continuing..\n");
+#endif
+	}
 }
 
 /*
@@ -947,7 +958,15 @@ int pmap_bootstrap_bs_map(bus_space_tag_t t, bus_addr_t bpa, bus_size_t size,
 
 	pmap_physload_avail();
 
-	//early_boot = 0;
+#ifdef DDB
+	db_machine_init();
+
+	/* Firmware doesn't load symbols. */
+	ddb_init();
+
+	if (boothowto & RB_KDB)
+		Debugger();
+#endif
 
 	softintr_init();
 	splraise(IPL_IPI);

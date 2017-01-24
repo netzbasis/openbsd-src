@@ -1,4 +1,4 @@
-/* $OpenBSD: s23_srvr.c,v 1.53 2017/01/23 04:55:26 beck Exp $ */
+/* $OpenBSD: s23_srvr.c,v 1.57 2017/01/23 14:35:42 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -139,9 +139,9 @@ ssl23_accept(SSL *s)
 		SSL_clear(s);
 
 	for (;;) {
-		state = s->state;
+		state = s->internal->state;
 
-		switch (s->state) {
+		switch (s->internal->state) {
 		case SSL_ST_BEFORE:
 		case SSL_ST_ACCEPT:
 		case SSL_ST_BEFORE|SSL_ST_ACCEPT:
@@ -152,7 +152,7 @@ ssl23_accept(SSL *s)
 				cb(s, SSL_CB_HANDSHAKE_START, 1);
 
 			/* s->version=SSL3_VERSION; */
-			s->type = SSL_ST_ACCEPT;
+			s->internal->type = SSL_ST_ACCEPT;
 
 			if (!ssl3_setup_init_buffer(s)) {
 				ret = -1;
@@ -163,15 +163,15 @@ ssl23_accept(SSL *s)
 				goto end;
 			}
 
-			s->state = SSL23_ST_SR_CLNT_HELLO_A;
+			s->internal->state = SSL23_ST_SR_CLNT_HELLO_A;
 			s->ctx->internal->stats.sess_accept++;
-			s->init_num = 0;
+			s->internal->init_num = 0;
 			break;
 
 		case SSL23_ST_SR_CLNT_HELLO_A:
 		case SSL23_ST_SR_CLNT_HELLO_B:
 
-			s->shutdown = 0;
+			s->internal->shutdown = 0;
 			ret = ssl23_get_client_hello(s);
 			if (ret >= 0)
 				cb = NULL;
@@ -185,11 +185,11 @@ ssl23_accept(SSL *s)
 			/* break; */
 		}
 
-		if ((cb != NULL) && (s->state != state)) {
-			new_state = s->state;
-			s->state = state;
+		if ((cb != NULL) && (s->internal->state != state)) {
+			new_state = s->internal->state;
+			s->internal->state = state;
 			cb(s, SSL_CB_ACCEPT_LOOP, 1);
-			s->state = new_state;
+			s->internal->state = new_state;
 		}
 	}
 
@@ -228,7 +228,7 @@ ssl23_get_client_hello(SSL *s)
 	int n = 0, j;
 	int type = 0;
 
-	if (s->state ==	SSL23_ST_SR_CLNT_HELLO_A) {
+	if (s->internal->state == SSL23_ST_SR_CLNT_HELLO_A) {
 		/* read the initial header */
 		if (!ssl3_setup_buffers(s))
 			return -1;
@@ -237,7 +237,7 @@ ssl23_get_client_hello(SSL *s)
 		if (n != sizeof buf)
 			return(n);
 
-		p = s->packet;
+		p = s->internal->packet;
 
 		memcpy(buf, p, n);
 
@@ -252,7 +252,7 @@ ssl23_get_client_hello(SSL *s)
 				goto unsupported;
 
 			s->version = shared_version;
-			s->state = SSL23_ST_SR_CLNT_HELLO_B;
+			s->internal->state = SSL23_ST_SR_CLNT_HELLO_B;
 		} else if ((p[0] == SSL3_RT_HANDSHAKE) &&
 		    (p[1] == SSL3_VERSION_MAJOR) &&
 		    (p[5] == SSL3_MT_CLIENT_HELLO) &&
@@ -279,7 +279,7 @@ ssl23_get_client_hello(SSL *s)
 
 			if (!ssl_max_shared_version(s, client_version,
 			    &shared_version)) {
-				if (s->options & SSL_OP_NO_TLSv1)
+				if (s->internal->options & SSL_OP_NO_TLSv1)
 					goto unsupported;
 				/*
 				 * We won't be able to use TLS of course,
@@ -301,7 +301,7 @@ ssl23_get_client_hello(SSL *s)
 		}
 	}
 
-	if (s->state == SSL23_ST_SR_CLNT_HELLO_B) {
+	if (s->internal->state == SSL23_ST_SR_CLNT_HELLO_B) {
 		/* we have SSLv3/TLSv1 in an SSLv2 header
 		 * (other cases skip this state) */
 
@@ -310,11 +310,11 @@ ssl23_get_client_hello(SSL *s)
 		 * only to "backward" versions of TLS. If we have moved
 		 * on to modernity, just say no.
 		 */
-		if (s->options & SSL_OP_NO_TLSv1)
+		if (s->internal->options & SSL_OP_NO_TLSv1)
 			goto unsupported;
 
 		type = 2;
-		p = s->packet;
+		p = s->internal->packet;
 		client_version = p[3] << 8 | p[4];
 
 		/* An SSLv3/TLSv1 backwards-compatible CLIENT-HELLO in an SSLv2
@@ -344,18 +344,18 @@ ssl23_get_client_hello(SSL *s)
 		if (j != n + 2)
 			return -1;
 
-		tls1_finish_mac(s, s->packet + 2, s->packet_length - 2);
+		tls1_finish_mac(s, s->internal->packet + 2, s->internal->packet_length - 2);
 		if (s->internal->msg_callback)
-			s->internal->msg_callback(0, SSL2_VERSION, 0, s->packet + 2,
-			    s->packet_length - 2, s, s->internal->msg_callback_arg);
+			s->internal->msg_callback(0, SSL2_VERSION, 0, s->internal->packet + 2,
+			    s->internal->packet_length - 2, s, s->internal->msg_callback_arg);
 
-		p = s->packet;
+		p = s->internal->packet;
 		p += 5;
 		n2s(p, csl);
 		n2s(p, sil);
 		n2s(p, cl);
-		d = (unsigned char *)s->init_buf->data;
-		if ((csl + sil + cl + 11) != s->packet_length) {
+		d = (unsigned char *)s->internal->init_buf->data;
+		if ((csl + sil + cl + 11) != s->internal->packet_length) {
 			/*
 			 * We can't have TLS extensions in SSL 2.0 format
 			 * Client Hello, can we ? Error condition should be
@@ -403,7 +403,7 @@ ssl23_get_client_hello(SSL *s)
 		*(d++) = 1;
 		*(d++) = 0;
 
-		i = (d - (unsigned char *)s->init_buf->data) - 4;
+		i = (d - (unsigned char *)s->internal->init_buf->data) - 4;
 		l2n3((long)i, d_len);
 
 		/* get the data reused from the init_buf */
@@ -413,7 +413,7 @@ ssl23_get_client_hello(SSL *s)
 	}
 
 	/* imaginary new state (for program structure): */
-	/* s->state = SSL23_SR_CLNT_HELLO_C */
+	/* s->internal->state = SSL23_SR_CLNT_HELLO_C */
 
 	if (type == 2 || type == 3) {
 		/* we have SSLv3/TLSv1 (type 2: SSL2 style, type 3: SSL3/TLS style) */
@@ -422,23 +422,23 @@ ssl23_get_client_hello(SSL *s)
 			return -1;
 
 		/* we are in this state */
-		s->state = SSL3_ST_SR_CLNT_HELLO_A;
+		s->internal->state = SSL3_ST_SR_CLNT_HELLO_A;
 
 		if (type == 3) {
 			/* put the 'n' bytes we have read into the input buffer
 			 * for SSLv3 */
-			s->rstate = SSL_ST_READ_HEADER;
-			s->packet_length = n;
+			s->internal->rstate = SSL_ST_READ_HEADER;
+			s->internal->packet_length = n;
 			if (s->s3->rbuf.buf == NULL)
 				if (!ssl3_setup_read_buffer(s))
 					return -1;
 
-			s->packet = &(s->s3->rbuf.buf[0]);
-			memcpy(s->packet, buf, n);
+			s->internal->packet = &(s->s3->rbuf.buf[0]);
+			memcpy(s->internal->packet, buf, n);
 			s->s3->rbuf.left = n;
 			s->s3->rbuf.offset = 0;
 		} else {
-			s->packet_length = 0;
+			s->internal->packet_length = 0;
 			s->s3->rbuf.left = 0;
 			s->s3->rbuf.offset = 0;
 		}
@@ -450,13 +450,13 @@ ssl23_get_client_hello(SSL *s)
 			s->method = TLSv1_server_method();
 		else
 			goto unsupported;
-		s->internal->handshake_func = s->method->ssl_accept;
+		s->internal->handshake_func = s->method->internal->ssl_accept;
 	} else {
 		/* bad, very bad */
 		SSLerr(SSL_F_SSL23_GET_CLIENT_HELLO, SSL_R_UNKNOWN_PROTOCOL);
 		return -1;
 	}
-	s->init_num = 0;
+	s->internal->init_num = 0;
 
 	return (SSL_accept(s));
 

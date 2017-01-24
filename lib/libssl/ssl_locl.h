@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.157 2017/01/23 05:27:22 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.163 2017/01/23 22:34:38 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -327,19 +327,20 @@ __BEGIN_HIDDEN_DECLS
 #define SSL_C_PKEYLENGTH(c)	1024
 
 /* Check if an SSL structure is using DTLS. */
-#define SSL_IS_DTLS(s) (s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_DTLS)
+#define SSL_IS_DTLS(s) \
+	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_DTLS)
 
 /* See if we need explicit IV. */
 #define SSL_USE_EXPLICIT_IV(s) \
-	(s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_EXPLICIT_IV)
+	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_EXPLICIT_IV)
 
 /* See if we use signature algorithms extension. */
 #define SSL_USE_SIGALGS(s) \
-	(s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_SIGALGS)
+	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_SIGALGS)
 
 /* Allow TLS 1.2 ciphersuites: applies to DTLS 1.2 as well as TLS 1.2. */
 #define SSL_USE_TLS1_2_CIPHERS(s) \
-	(s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_TLS1_2_CIPHERS)
+	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_TLS1_2_CIPHERS)
 
 /* Mostly for SSLv3 */
 #define SSL_PKEY_RSA_ENC	0
@@ -372,6 +373,41 @@ __BEGIN_HIDDEN_DECLS
 #define EXPLICIT_CHAR2_CURVE_TYPE  2
 #define NAMED_CURVE_TYPE           3
 
+typedef struct ssl_method_internal_st {
+	int version;
+
+	uint16_t min_version;
+	uint16_t max_version;
+
+	int (*ssl_new)(SSL *s);
+	void (*ssl_clear)(SSL *s);
+	void (*ssl_free)(SSL *s);
+
+	int (*ssl_accept)(SSL *s);
+	int (*ssl_connect)(SSL *s);
+	int (*ssl_read)(SSL *s, void *buf, int len);
+	int (*ssl_peek)(SSL *s, void *buf, int len);
+	int (*ssl_write)(SSL *s, const void *buf, int len);
+	int (*ssl_shutdown)(SSL *s);
+
+	int (*ssl_renegotiate)(SSL *s);
+	int (*ssl_renegotiate_check)(SSL *s);
+
+	long (*ssl_get_message)(SSL *s, int st1, int stn, int mt,
+	    long max, int *ok);
+	int (*ssl_read_bytes)(SSL *s, int type, unsigned char *buf,
+	    int len, int peek);
+	int (*ssl_write_bytes)(SSL *s, int type, const void *buf_, int len);
+
+	int (*ssl_pending)(const SSL *s);
+	const struct ssl_method_st *(*get_ssl_method)(int version);
+
+	long (*get_timeout)(void);
+	int (*ssl_version)(void);
+
+	struct ssl3_enc_method *ssl3_enc; /* Extra SSLv3/TLS stuff */
+} SSL_METHOD_INTERNAL;
+
 typedef struct ssl_session_internal_st {
 	CRYPTO_EX_DATA ex_data; /* application specific data */
 
@@ -398,6 +434,9 @@ typedef struct ssl_ctx_internal_st {
 	uint16_t min_version;
 	uint16_t max_version;
 
+	unsigned long options;
+	unsigned long mode;
+
 	/* If this callback is not null, it will be called each
 	 * time a session id is added to the cache.  If this function
 	 * returns 1, it means that the callback will do a
@@ -414,12 +453,6 @@ typedef struct ssl_ctx_internal_st {
 	/* if defined, these override the X509_verify_cert() calls */
 	int (*app_verify_callback)(X509_STORE_CTX *, void *);
 	    void *app_verify_arg;
-
-	/* Default password callback. */
-	pem_password_cb *default_passwd_callback;
-
-	/* Default password callback user data. */
-	void *default_passwd_callback_userdata;
 
 	/* get client cert callback */
 	int (*client_cert_cb)(SSL *ssl, X509 **x509, EVP_PKEY **pkey);
@@ -576,6 +609,9 @@ typedef struct ssl_internal_st {
 	uint16_t min_version;
 	uint16_t max_version;
 
+	unsigned long options; /* protocol behaviour */
+	unsigned long mode; /* API behaviour */
+
 	/* Next protocol negotiation. For the client, this is the protocol that
 	 * we sent in NextProtocol and is set when handling ServerHello
 	 * extensions.
@@ -619,6 +655,113 @@ typedef struct ssl_internal_st {
 	/* TLS pre-shared secret session resumption */
 	tls_session_secret_cb_fn tls_session_secret_cb;
 	void *tls_session_secret_cb_arg;
+
+	/* XXX non-callback */
+
+	int type; /* SSL_ST_CONNECT or SSL_ST_ACCEPT */
+
+	/* This holds a variable that indicates what we were doing
+	 * when a 0 or -1 is returned.  This is needed for
+	 * non-blocking IO so we know what request needs re-doing when
+	 * in SSL_accept or SSL_connect */
+	int rwstate;
+
+	/* Imagine that here's a boolean member "init" that is
+	 * switched as soon as SSL_set_{accept/connect}_state
+	 * is called for the first time, so that "state" and
+	 * "handshake_func" are properly initialized.  But as
+	 * handshake_func is == 0 until then, we use this
+	 * test instead of an "init" member.
+	 */
+
+	int new_session;/* Generate a new session or reuse an old one.
+			 * NB: For servers, the 'new' session may actually be a previously
+			 * cached session or even the previous session unless
+			 * SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION is set */
+	int quiet_shutdown;/* don't send shutdown packets */
+	int shutdown;	/* we have shut things down, 0x01 sent, 0x02
+			 * for received */
+	BUF_MEM *init_buf;	/* buffer used during init */
+	void *init_msg;		/* pointer to handshake message body, set by ssl3_get_message() */
+	int init_num;		/* amount read/written */
+	int init_off;		/* amount read/written */
+
+	/* used internally to point at a raw packet */
+	unsigned char *packet;
+	unsigned int packet_length;
+
+	int read_ahead;		/* Read as many input bytes as possible
+				 * (for non-blocking reads) */
+
+	int hit;		/* reusing a previous session */
+
+	/* crypto */
+	STACK_OF(SSL_CIPHER) *cipher_list_by_id;
+
+	/* These are the ones being used, the ones in SSL_SESSION are
+	 * the ones to be 'copied' into these ones */
+	int mac_flags;
+
+	SSL_AEAD_CTX *aead_read_ctx;	/* AEAD context. If non-NULL, then
+					   enc_read_ctx and read_hash are
+					   ignored. */
+
+	SSL_AEAD_CTX *aead_write_ctx;	/* AEAD context. If non-NULL, then
+					   enc_write_ctx and write_hash are
+					   ignored. */
+
+	EVP_CIPHER_CTX *enc_write_ctx;		/* cryptographic state */
+	EVP_MD_CTX *write_hash;			/* used for mac generation */
+
+	/* session info */
+
+	/* extra application data */
+	CRYPTO_EX_DATA ex_data;
+
+	/* client cert? */
+	/* for server side, keep the list of CA_dn we can use */
+	STACK_OF(X509_NAME) *client_CA;
+
+	/* set this flag to 1 and a sleep(1) is put into all SSL_read()
+	 * and SSL_write() calls, good for nbio debuging :-) */
+	int debug;
+	long max_cert_list;
+	int first_packet;
+
+	int servername_done;	/* no further mod of servername
+				   0 : call the servername extension callback.
+				   1 : prepare 2, allow last ack just after in server callback.
+				   2 : don't call servername callback, no ack in server hello
+				   */
+
+	/* Expect OCSP CertificateStatus message */
+	int tlsext_status_expected;
+	/* OCSP status request only */
+	STACK_OF(OCSP_RESPID) *tlsext_ocsp_ids;
+	X509_EXTENSIONS *tlsext_ocsp_exts;
+	/* OCSP response received or to be sent */
+	unsigned char *tlsext_ocsp_resp;
+	int tlsext_ocsp_resplen;
+
+	/* RFC4507 session ticket expected to be received or sent */
+	int tlsext_ticket_expected;
+	size_t tlsext_ecpointformatlist_length;
+	uint8_t *tlsext_ecpointformatlist; /* our list */
+	size_t tlsext_ellipticcurvelist_length;
+	uint16_t *tlsext_ellipticcurvelist; /* our list */
+
+	/* TLS Session Ticket extension override */
+	TLS_SESSION_TICKET_EXT *tlsext_session_ticket;
+
+	STACK_OF(SRTP_PROTECTION_PROFILE) *srtp_profiles;	/* What we'll do */
+	SRTP_PROTECTION_PROFILE *srtp_profile;			/* What's been chosen */
+
+	int renegotiate;/* 1 if we are renegotiating.
+		 	 * 2 if we are a server and are inside a handshake
+	                 * (i.e. not just sending a HelloRequest) */
+
+	int state;	/* where we are */
+	int rstate;	/* where we are when reading */
 
 } SSL_INTERNAL;
 

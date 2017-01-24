@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpctl.c,v 1.191 2017/01/13 18:59:12 phessler Exp $ */
+/*	$OpenBSD: bgpctl.c,v 1.193 2017/01/23 23:38:51 claudio Exp $ */
 
 /*
  * Copyright (c) 2003 Henning Brauer <henning@openbsd.org>
@@ -38,7 +38,6 @@
 #include "bgpd.h"
 #include "session.h"
 #include "rde.h"
-#include "log.h"
 #include "parser.h"
 #include "irrfilter.h"
 #include "mrtparser.h"
@@ -2013,41 +2012,4 @@ msg_type(u_int8_t type)
 	if (type >= sizeof(msgtypenames)/sizeof(msgtypenames[0]))
 		return "BAD";
 	return (msgtypenames[type]);
-}
-
-/* following functions are necessary for the imsg framework */
-void
-log_warnx(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	vwarnx(emsg, ap);
-	va_end(ap);
-}
-
-void
-log_warn(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	vwarn(emsg, ap);
-	va_end(ap);
-}
-
-void
-fatal(const char *emsg, ...)
-{
-	va_list	 ap;
-
-	va_start(ap, emsg);
-	verr(1, emsg, ap);
-	va_end(ap);
-}
-
-void
-fatalx(const char *emsg)
-{
-	errx(1, "%s", emsg);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.22 2017/01/13 18:59:12 phessler Exp $ */
+/*	$OpenBSD: util.c,v 1.24 2017/01/24 04:22:42 benno Exp $ */
 
 /*
  * Copyright (c) 2006 Claudio Jeker <claudio@openbsd.org>
@@ -28,6 +28,7 @@
 
 #include "bgpd.h"
 #include "rde.h"
+#include "log.h"
 
 const char	*aspath_delim(u_int8_t, int);
 
@@ -405,6 +406,10 @@ aspath_extract(const void *seg, int pos)
 	return (ntohl(as));
 }
 
+/*
+ * This function will have undefined behaviour if the passed in prefixlen is
+ * to large for the respective bgpd_addr address family.
+ */
 int
 prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
     int prefixlen)
@@ -421,7 +426,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		if (prefixlen == 0)
 			return (0);
 		if (prefixlen > 32)
-			fatalx("prefix_cmp: bad IPv4 prefixlen");
+			return (-1);
 		mask = htonl(prefixlen2mask(prefixlen));
 		aa = ntohl(a->v4.s_addr & mask);
 		ba = ntohl(b->v4.s_addr & mask);
@@ -432,7 +437,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		if (prefixlen == 0)
 			return (0);
 		if (prefixlen > 128)
-			fatalx("prefix_cmp: bad IPv6 prefixlen");
+			return (-1);
 		for (i = 0; i < prefixlen / 8; i++)
 			if (a->v6.s6_addr[i] != b->v6.s6_addr[i])
 				return (a->v6.s6_addr[i] - b->v6.s6_addr[i]);
@@ -447,7 +452,7 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 		return (0);
 	case AID_VPN_IPv4:
 		if (prefixlen > 32)
-			fatalx("prefix_cmp: bad IPv4 VPN prefixlen");
+			return (-1);
 		if (betoh64(a->vpn4.rd) > betoh64(b->vpn4.rd))
 			return (1);
 		if (betoh64(a->vpn4.rd) < betoh64(b->vpn4.rd))
@@ -463,8 +468,6 @@ prefix_compare(const struct bgpd_addr *a, const struct bgpd_addr *b,
 			return (-1);
 		return (memcmp(a->vpn4.labelstack, b->vpn4.labelstack,
 		    a->vpn4.labellen));
-	default:
-		fatalx("prefix_cmp: unknown af");
 	}
 	return (-1);
 }

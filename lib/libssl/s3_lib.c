@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.124 2017/01/23 05:13:02 jsing Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.129 2017/01/24 03:00:54 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -1678,7 +1678,7 @@ ssl3_cipher_get_value(const SSL_CIPHER *c)
 int
 ssl3_pending(const SSL *s)
 {
-	if (s->rstate == SSL_ST_READ_BODY)
+	if (s->internal->rstate == SSL_ST_READ_BODY)
 		return 0;
 
 	return (S3I(s)->rrec.type == SSL3_RT_APPLICATION_DATA) ?
@@ -1697,7 +1697,7 @@ ssl3_handshake_msg_start(SSL *s, uint8_t msg_type)
 {
 	unsigned char *d, *p;
 
-	d = p = (unsigned char *)s->init_buf->data;
+	d = p = (unsigned char *)s->internal->init_buf->data;
 
 	/* Handshake message type and length. */
 	*(p++) = msg_type;
@@ -1712,14 +1712,14 @@ ssl3_handshake_msg_finish(SSL *s, unsigned int len)
 	unsigned char *d, *p;
 	uint8_t msg_type;
 
-	d = p = (unsigned char *)s->init_buf->data;
+	d = p = (unsigned char *)s->internal->init_buf->data;
 
 	/* Handshake message length. */
 	msg_type = *(p++);
 	l2n3(len, p);
 
-	s->init_num = ssl3_handshake_msg_hdr_len(s) + (int)len;
-	s->init_off = 0;
+	s->internal->init_num = ssl3_handshake_msg_hdr_len(s) + (int)len;
+	s->internal->init_off = 0;
 
 	if (SSL_IS_DTLS(s)) {
 		dtls1_set_message_header(s, d, msg_type, len, 0, len);
@@ -1766,13 +1766,13 @@ ssl3_handshake_msg_finish_cbb(SSL *s, CBB *handshake)
 	if (outlen > INT_MAX)
 		goto err;
 
-	if (!BUF_MEM_grow_clean(s->init_buf, outlen))
+	if (!BUF_MEM_grow_clean(s->internal->init_buf, outlen))
 		goto err;
 
-	memcpy(s->init_buf->data, data, outlen);
+	memcpy(s->internal->init_buf->data, data, outlen);
 
-	s->init_num = (int)outlen;
-	s->init_off = 0;
+	s->internal->init_num = (int)outlen;
+	s->internal->init_off = 0;
 
 	if (SSL_IS_DTLS(s)) {
 		unsigned long len;
@@ -1816,7 +1816,7 @@ ssl3_new(SSL *s)
 		return (0);
 	}
 
-	s->method->ssl_clear(s);
+	s->method->internal->ssl_clear(s);
 
 	return (1);
 }
@@ -1905,7 +1905,7 @@ ssl3_clear(SSL *s)
 	S3I(s)->num_renegotiations = 0;
 	S3I(s)->in_read_app_data = 0;
 
-	s->packet_length = 0;
+	s->internal->packet_length = 0;
 	s->version = TLS1_VERSION;
 
 	free(s->internal->next_proto_negotiated);
@@ -1990,7 +1990,7 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 
 	switch (cmd) {
 	case SSL_CTRL_GET_SESSION_REUSED:
-		ret = s->hit;
+		ret = s->internal->hit;
 		break;
 	case SSL_CTRL_GET_CLIENT_CERT_REQUEST:
 		break;
@@ -2056,7 +2056,7 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 				return (ret);
 			}
 			ecdh = (EC_KEY *)parg;
-			if (!(s->options & SSL_OP_SINGLE_ECDH_USE)) {
+			if (!(s->internal->options & SSL_OP_SINGLE_ECDH_USE)) {
 				if (!EC_KEY_generate_key(ecdh)) {
 					EC_KEY_free(ecdh);
 					SSLerr(SSL_F_SSL3_CTRL,
@@ -2112,33 +2112,33 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 		break;
 
 	case SSL_CTRL_GET_TLSEXT_STATUS_REQ_EXTS:
-		*(STACK_OF(X509_EXTENSION) **)parg = s->tlsext_ocsp_exts;
+		*(STACK_OF(X509_EXTENSION) **)parg = s->internal->tlsext_ocsp_exts;
 		ret = 1;
 		break;
 
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_EXTS:
-		s->tlsext_ocsp_exts = parg;
+		s->internal->tlsext_ocsp_exts = parg;
 		ret = 1;
 		break;
 
 	case SSL_CTRL_GET_TLSEXT_STATUS_REQ_IDS:
-		*(STACK_OF(OCSP_RESPID) **)parg = s->tlsext_ocsp_ids;
+		*(STACK_OF(OCSP_RESPID) **)parg = s->internal->tlsext_ocsp_ids;
 		ret = 1;
 		break;
 
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_IDS:
-		s->tlsext_ocsp_ids = parg;
+		s->internal->tlsext_ocsp_ids = parg;
 		ret = 1;
 		break;
 
 	case SSL_CTRL_GET_TLSEXT_STATUS_REQ_OCSP_RESP:
-		*(unsigned char **)parg = s->tlsext_ocsp_resp;
-		return s->tlsext_ocsp_resplen;
+		*(unsigned char **)parg = s->internal->tlsext_ocsp_resp;
+		return s->internal->tlsext_ocsp_resplen;
 
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP:
-		free(s->tlsext_ocsp_resp);
-		s->tlsext_ocsp_resp = parg;
-		s->tlsext_ocsp_resplen = larg;
+		free(s->internal->tlsext_ocsp_resp);
+		s->internal->tlsext_ocsp_resp = parg;
+		s->internal->tlsext_ocsp_resplen = larg;
 		ret = 1;
 		break;
 
@@ -2243,7 +2243,7 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 				    ERR_R_EC_LIB);
 				return 0;
 			}
-			if (!(ctx->options & SSL_OP_SINGLE_ECDH_USE)) {
+			if (!(ctx->internal->options & SSL_OP_SINGLE_ECDH_USE)) {
 				if (!EC_KEY_generate_key(ecdh)) {
 					EC_KEY_free(ecdh);
 					SSLerr(SSL_F_SSL3_CTX_CTRL,
@@ -2296,7 +2296,6 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 	case SSL_CTRL_SET_TLSEXT_STATUS_REQ_CB_ARG:
 		ctx->internal->tlsext_status_arg = parg;
 		return 1;
-		break;
 
 	case SSL_CTRL_SET_ECDH_AUTO:
 		ctx->internal->cert->ecdh_tmp_auto = larg;
@@ -2413,7 +2412,7 @@ ssl3_choose_cipher(SSL *s, STACK_OF(SSL_CIPHER) *clnt,
 	 * but would have to pay with the price of sk_SSL_CIPHER_dup().
 	 */
 
-	if (s->options & SSL_OP_CIPHER_SERVER_PREFERENCE) {
+	if (s->internal->options & SSL_OP_CIPHER_SERVER_PREFERENCE) {
 		prio = srvr;
 		allow = clnt;
 	} else {
@@ -2505,13 +2504,13 @@ ssl3_shutdown(SSL *s)
 	 * Don't do anything much if we have not done the handshake or
 	 * we don't want to send messages :-)
 	 */
-	if ((s->quiet_shutdown) || (s->state == SSL_ST_BEFORE)) {
-		s->shutdown = (SSL_SENT_SHUTDOWN|SSL_RECEIVED_SHUTDOWN);
+	if ((s->internal->quiet_shutdown) || (s->internal->state == SSL_ST_BEFORE)) {
+		s->internal->shutdown = (SSL_SENT_SHUTDOWN|SSL_RECEIVED_SHUTDOWN);
 		return (1);
 	}
 
-	if (!(s->shutdown & SSL_SENT_SHUTDOWN)) {
-		s->shutdown|=SSL_SENT_SHUTDOWN;
+	if (!(s->internal->shutdown & SSL_SENT_SHUTDOWN)) {
+		s->internal->shutdown|=SSL_SENT_SHUTDOWN;
 		ssl3_send_alert(s, SSL3_AL_WARNING, SSL_AD_CLOSE_NOTIFY);
 		/*
 		 * Our shutdown alert has been sent now, and if it still needs
@@ -2531,15 +2530,15 @@ ssl3_shutdown(SSL *s)
 			 */
 			return (ret);
 		}
-	} else if (!(s->shutdown & SSL_RECEIVED_SHUTDOWN)) {
+	} else if (!(s->internal->shutdown & SSL_RECEIVED_SHUTDOWN)) {
 		/* If we are waiting for a close from our peer, we are closed */
-		s->method->ssl_read_bytes(s, 0, NULL, 0, 0);
-		if (!(s->shutdown & SSL_RECEIVED_SHUTDOWN)) {
+		s->method->internal->ssl_read_bytes(s, 0, NULL, 0, 0);
+		if (!(s->internal->shutdown & SSL_RECEIVED_SHUTDOWN)) {
 			return(-1);	/* return WANT_READ */
 		}
 	}
 
-	if ((s->shutdown == (SSL_SENT_SHUTDOWN|SSL_RECEIVED_SHUTDOWN)) &&
+	if ((s->internal->shutdown == (SSL_SENT_SHUTDOWN|SSL_RECEIVED_SHUTDOWN)) &&
 	    !s->s3->alert_dispatch)
 		return (1);
 	else
@@ -2552,8 +2551,8 @@ ssl3_write(SSL *s, const void *buf, int len)
 	int	ret, n;
 
 #if 0
-	if (s->shutdown & SSL_SEND_SHUTDOWN) {
-		s->rwstate = SSL_NOTHING;
+	if (s->internal->shutdown & SSL_SEND_SHUTDOWN) {
+		s->internal->rwstate = SSL_NOTHING;
 		return (0);
 	}
 #endif
@@ -2579,11 +2578,11 @@ ssl3_write(SSL *s, const void *buf, int len)
 			S3I(s)->delay_buf_pop_ret = ret;
 		}
 
-		s->rwstate = SSL_WRITING;
+		s->internal->rwstate = SSL_WRITING;
 		n = BIO_flush(s->wbio);
 		if (n <= 0)
 			return (n);
-		s->rwstate = SSL_NOTHING;
+		s->internal->rwstate = SSL_NOTHING;
 
 		/* We have flushed the buffer, so remove it */
 		ssl_free_wbio_buffer(s);
@@ -2592,8 +2591,8 @@ ssl3_write(SSL *s, const void *buf, int len)
 		ret = S3I(s)->delay_buf_pop_ret;
 		S3I(s)->delay_buf_pop_ret = 0;
 	} else {
-		ret = s->method->ssl_write_bytes(s, SSL3_RT_APPLICATION_DATA,
-		    buf, len);
+		ret = s->method->internal->ssl_write_bytes(s,
+		    SSL3_RT_APPLICATION_DATA, buf, len);
 		if (ret <= 0)
 			return (ret);
 	}
@@ -2610,7 +2609,7 @@ ssl3_read_internal(SSL *s, void *buf, int len, int peek)
 	if (S3I(s)->renegotiate)
 		ssl3_renegotiate_check(s);
 	S3I(s)->in_read_app_data = 1;
-	ret = s->method->ssl_read_bytes(s,
+	ret = s->method->internal->ssl_read_bytes(s,
 	    SSL3_RT_APPLICATION_DATA, buf, len, peek);
 	if ((ret == -1) && (S3I(s)->in_read_app_data == 2)) {
 		/*
@@ -2621,7 +2620,7 @@ ssl3_read_internal(SSL *s, void *buf, int len, int peek)
 		 * handshake processing and try to read application data again.
 		 */
 		s->internal->in_handshake++;
-		ret = s->method->ssl_read_bytes(s,
+		ret = s->method->internal->ssl_read_bytes(s,
 		    SSL3_RT_APPLICATION_DATA, buf, len, peek);
 		s->internal->in_handshake--;
 	} else
@@ -2669,7 +2668,7 @@ ssl3_renegotiate_check(SSL *s)
 			 * to SSL_ST_ACCEPT.
 			 */
 			/* SSL_ST_ACCEPT */
-			s->state = SSL_ST_RENEGOTIATE;
+			s->internal->state = SSL_ST_RENEGOTIATE;
 			S3I(s)->renegotiate = 0;
 			S3I(s)->num_renegotiations++;
 			S3I(s)->total_renegotiations++;
@@ -2687,7 +2686,7 @@ ssl_get_algorithm2(SSL *s)
 {
 	long	alg2 = S3I(s)->tmp.new_cipher->algorithm2;
 
-	if (s->method->ssl3_enc->enc_flags & SSL_ENC_FLAG_SHA256_PRF &&
+	if (s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_SHA256_PRF &&
 	    alg2 == (SSL_HANDSHAKE_MAC_DEFAULT|TLS1_PRF))
 		return SSL_HANDSHAKE_MAC_SHA256 | TLS1_PRF_SHA256;
 	return alg2;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.h,v 1.151 2016/10/27 08:21:58 phessler Exp $ */
+/*	$OpenBSD: rde.h,v 1.157 2017/01/23 22:53:52 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org> and
@@ -42,6 +42,8 @@ LIST_HEAD(rde_peer_head, rde_peer);
 LIST_HEAD(aspath_head, rde_aspath);
 RB_HEAD(uptree_prefix, update_prefix);
 RB_HEAD(uptree_attr, update_attr);
+struct rib_desc;
+struct rib;
 RB_HEAD(rib_tree, rib_entry);
 TAILQ_HEAD(uplist_prefix, update_prefix);
 TAILQ_HEAD(uplist_attr, update_attr);
@@ -73,7 +75,7 @@ struct rde_peer {
 	u_int32_t			 up_nlricnt;
 	u_int32_t			 up_wcnt;
 	enum peer_state			 state;
-	u_int16_t			 ribid;
+	struct rib_desc			*rib;
 	u_int16_t			 short_as;
 	u_int16_t			 mrt_idx;
 	u_int8_t			 reconf_out;	/* out filter changed */
@@ -280,28 +282,30 @@ struct rib_entry {
 	struct prefix_head	 prefix_h;
 	struct prefix		*active; /* for fast access */
 	struct pt_entry		*prefix;
-	u_int16_t		 ribid;
+	struct rib		*rib;
 	u_int16_t		 flags;
 };
 
 struct rib {
+	struct rib_tree		tree;
+	u_int16_t		flags;
+	u_int16_t		id;
+};
+
+struct rib_desc {
 	char			name[PEER_DESCR_LEN];
-	struct rib_tree		rib;
+	struct rib		rib;
 	struct filter_head	*in_rules;
 	struct filter_head	*in_rules_tmp;
 	u_int			rtableid;
-	u_int16_t		flags;
-	u_int16_t		id;
 	enum reconf_action 	state;
 };
-
-#define RIB_FAILED		0xffff
 
 struct prefix {
 	LIST_ENTRY(prefix)		 rib_l, path_l;
 	struct rde_aspath		*aspath;
 	struct pt_entry			*prefix;
-	struct rib_entry		*rib;	/* NULL for Adj-RIB-In */
+	struct rib_entry		*re;
 	time_t				 lastchange;
 };
 
@@ -421,11 +425,11 @@ int	 pt_prefix_cmp(const struct pt_entry *, const struct pt_entry *);
 
 /* rde_rib.c */
 extern u_int16_t	 rib_size;
-extern struct rib	*ribs;
+extern struct rib_desc	*ribs;
 
-u_int16_t	 rib_new(char *, u_int, u_int16_t);
-u_int16_t	 rib_find(char *);
-void		 rib_free(struct rib *);
+struct rib_desc	 *rib_new(char *, u_int, u_int16_t);
+struct rib_desc	 *rib_find(char *);
+void		 rib_free(struct rib_desc *);
 struct rib_entry *rib_get(struct rib *, struct bgpd_addr *, int);
 struct rib_entry *rib_lookup(struct rib *, struct bgpd_addr *);
 void		 rib_dump(struct rib *, void (*)(struct rib_entry *, void *),

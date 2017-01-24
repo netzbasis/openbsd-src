@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde_decide.c,v 1.62 2012/07/04 20:43:26 claudio Exp $ */
+/*	$OpenBSD: rde_decide.c,v 1.64 2017/01/24 04:22:42 benno Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Claudio Jeker <claudio@openbsd.org>
@@ -24,6 +24,7 @@
 
 #include "bgpd.h"
 #include "rde.h"
+#include "log.h"
 
 int	prefix_cmp(struct prefix *, struct prefix *);
 /*
@@ -287,9 +288,9 @@ prefix_evaluate(struct prefix *p, struct rib_entry *re)
 		 * but remember that xp may be NULL aka ineligible.
 		 * Additional decision may be made by the called functions.
 		 */
-		rde_generate_updates(re->ribid, xp, re->active);
+		rde_generate_updates(re->rib->id, xp, re->active);
 		if ((re->flags & F_RIB_NOFIB) == 0)
-			rde_send_kroute(xp, re->active, re->ribid);
+			rde_send_kroute(xp, re->active, re->rib->id);
 
 		re->active = xp;
 		if (xp != NULL)

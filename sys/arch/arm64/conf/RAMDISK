@@ -1,4 +1,4 @@
-# $OpenBSD: RAMDISK,v 1.1 2017/01/23 00:17:25 patrick Exp $
+# $OpenBSD: RAMDISK,v 1.5 2017/01/23 14:29:12 jsg Exp $
 #
 # GENERIC machine description file
 #
@@ -23,6 +23,7 @@ maxusers	4
 
 option		TIMEZONE=0	# time zone to adjust RTC time by
 option		DST=0		# daylight saving time used by RTC
+option		USBVERBOSE
 option		SMALL_KERNEL
 option		NO_PROPOLICE
 option		BOOT_CONFIG
@@ -40,7 +41,7 @@ option		SYSCALL_DEBUG
 makeoptions	KERNEL_BASE_PHYS="0x00200000"
 makeoptions	KERNEL_BASE_VIRT="0xffffff8000200000"
 
-config		bsd	swap generic
+config		bsd	root on rd0a swap on rd0b
 
 # The main bus device
 mainbus0	at root
@@ -66,6 +67,12 @@ vio*		at virtio?
 vioblk*		at virtio?
 viomb*		at virtio?
 viornd*		at virtio?
+
+# Raspberry Pi 3
+bcmintc*	at fdt?
+bcmdog*		at fdt?
+dwctwo*		at fdt?
+usb*		at dwctwo?
 
 # Sunxi SoCs
 sxipio*		at fdt? early 1	# GPIO pins for leds & PHYs
