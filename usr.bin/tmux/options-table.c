@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.82 2017/01/16 14:52:25 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.86 2017/01/24 20:15:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -65,6 +65,16 @@ const struct options_table_entry options_table[] = {
 	  .default_num = 20
 	},
 
+	{ .name = "command-alias",
+	  .type = OPTIONS_TABLE_ARRAY,
+	  .scope = OPTIONS_TABLE_SERVER,
+	  .default_str = "split-pane=split-window,"
+			 "splitp=split-window,"
+			 "server-info=show-messages -JT,"
+			 "info=show-messages -JT",
+	  .separator = ","
+	},
+
 	{ .name = "default-terminal",
 	  .type = OPTIONS_TABLE_STRING,
 	  .scope = OPTIONS_TABLE_SERVER,
@@ -112,11 +122,12 @@ const struct options_table_entry options_table[] = {
 	},
 
 	{ .name = "terminal-overrides",
-	  .type = OPTIONS_TABLE_STRING,
+	  .type = OPTIONS_TABLE_ARRAY,
 	  .scope = OPTIONS_TABLE_SERVER,
 	  .default_str = "xterm*:XT:Ms=\\E]52;%p1%s;%p2%s\\007"
 	                 ":Cs=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
-			 ":Ss=\\E[%p1%d q:Se=\\E[2 q,screen*:XT"
+			 ":Ss=\\E[%p1%d q:Se=\\E[2 q,screen*:XT",
+	  .separator = ","
 	},
 
 	{ .name = "assume-paste-time",
@@ -471,11 +482,10 @@ const struct options_table_entry options_table[] = {
 	},
 
 	{ .name = "update-environment",
-	  .type = OPTIONS_TABLE_STRING,
+	  .type = OPTIONS_TABLE_ARRAY,
 	  .scope = OPTIONS_TABLE_SESSION,
 	  .default_str = "DISPLAY SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID "
 	                 "SSH_CONNECTION WINDOWID XAUTHORITY"
-
 	},
 
 	{ .name = "visual-activity",

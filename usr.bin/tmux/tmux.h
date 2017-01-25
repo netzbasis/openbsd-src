@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.702 2017/01/23 10:09:43 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.706 2017/01/24 21:50:23 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -471,57 +471,9 @@ struct msg_stderr_data {
 	char	data[BUFSIZ];
 };
 
-/* Mode key commands. */
-enum mode_key_cmd {
-	MODEKEY_NONE,
-	MODEKEY_OTHER,
-
-	/* Menu (choice) keys. */
-	MODEKEYCHOICE_BACKSPACE,
-	MODEKEYCHOICE_BOTTOMLINE,
-	MODEKEYCHOICE_CANCEL,
-	MODEKEYCHOICE_CHOOSE,
-	MODEKEYCHOICE_DOWN,
-	MODEKEYCHOICE_ENDOFLIST,
-	MODEKEYCHOICE_PAGEDOWN,
-	MODEKEYCHOICE_PAGEUP,
-	MODEKEYCHOICE_SCROLLDOWN,
-	MODEKEYCHOICE_SCROLLUP,
-	MODEKEYCHOICE_STARTNUMBERPREFIX,
-	MODEKEYCHOICE_STARTOFLIST,
-	MODEKEYCHOICE_TOPLINE,
-	MODEKEYCHOICE_TREE_COLLAPSE,
-	MODEKEYCHOICE_TREE_COLLAPSE_ALL,
-	MODEKEYCHOICE_TREE_EXPAND,
-	MODEKEYCHOICE_TREE_EXPAND_ALL,
-	MODEKEYCHOICE_TREE_TOGGLE,
-	MODEKEYCHOICE_UP,
-};
-
-/* Data required while mode keys are in use. */
-struct mode_key_data {
-	struct mode_key_tree   *tree;
-};
+/* Mode keys. */
 #define MODEKEY_EMACS 0
 #define MODEKEY_VI 1
-
-/* Binding between a key and a command. */
-struct mode_key_binding {
-	key_code			 key;
-	enum mode_key_cmd		 cmd;
-
-	RB_ENTRY(mode_key_binding)	 entry;
-};
-RB_HEAD(mode_key_tree, mode_key_binding);
-
-/* Named mode key table description. */
-struct mode_key_entry;
-struct mode_key_table {
-	const char			*name;
-	const struct mode_key_cmdstr	*cmdstr;
-	struct mode_key_tree		*tree;
-	const struct mode_key_entry	*table;	/* default entries */
-};
 
 /* Modes. */
 #define MODE_CURSOR 0x1
@@ -1479,6 +1431,7 @@ struct options_table_entry {
 	const char		 *default_str;
 	long long		  default_num;
 
+	const char		 *separator;
 	const char		 *style;
 };
 
@@ -1579,20 +1532,6 @@ void printflike(4, 5) hooks_run(struct hooks *, struct client *,
 void printflike(4, 5) hooks_insert(struct hooks *, struct cmdq_item *,
 		    struct cmd_find_state *, const char *, ...);
 
-/* mode-key.c */
-extern struct mode_key_tree mode_key_tree_vi_choice;
-extern struct mode_key_tree mode_key_tree_emacs_choice;
-int	mode_key_cmp(struct mode_key_binding *, struct mode_key_binding *);
-RB_PROTOTYPE(mode_key_tree, mode_key_binding, entry, mode_key_cmp);
-const char *mode_key_tostring(const struct mode_key_cmdstr *,
-	    enum mode_key_cmd);
-enum mode_key_cmd mode_key_fromstring(const struct mode_key_cmdstr *,
-	    const char *);
-const struct mode_key_table *mode_key_findtable(const char *);
-void	mode_key_init_trees(void);
-void	mode_key_init(struct mode_key_data *, struct mode_key_tree *);
-enum mode_key_cmd mode_key_lookup(struct mode_key_data *, key_code);
-
 /* notify.c */
 void	notify_input(struct window_pane *, struct evbuffer *);
 void	notify_client(const char *, struct client *);
@@ -1616,17 +1555,20 @@ const struct options_table_entry *options_table_entry(struct options_entry *);
 struct options_entry *options_get_only(struct options *, const char *);
 struct options_entry *options_get(struct options *, const char *);
 void		 options_remove(struct options_entry *);
+void		 options_array_clear(struct options_entry *);
 const char	*options_array_get(struct options_entry *, u_int);
-int		 options_array_set(struct options_entry *, u_int, const char *);
+int		 options_array_set(struct options_entry *, u_int, const char *,
+		     int);
 int		 options_array_size(struct options_entry *, u_int *);
+void		 options_array_assign(struct options_entry *, const char *);
 int		 options_isstring(struct options_entry *);
 const char	*options_tostring(struct options_entry *, int);
 char		*options_parse(const char *, int *);
 struct options_entry *options_parse_get(struct options *, const char *, int *,
-		    int);
+		     int);
 char		*options_match(const char *, int *, int *);
 struct options_entry *options_match_get(struct options *, const char *, int *,
-		    int, int *);
+		     int, int *);
 const char	*options_get_string(struct options *, const char *);
 long long	 options_get_number(struct options *, const char *);
 const struct grid_cell *options_get_style(struct options *, const char *);
@@ -1665,7 +1607,7 @@ void printflike(3, 4) environ_set(struct environ *, const char *, const char *,
 void	environ_clear(struct environ *, const char *);
 void	environ_put(struct environ *, const char *);
 void	environ_unset(struct environ *, const char *);
-void	environ_update(const char *, struct environ *, struct environ *);
+void	environ_update(struct options *, struct environ *, struct environ *);
 void	environ_push(struct environ *);
 void	environ_log(struct environ *, const char *);
 
@@ -1824,6 +1766,7 @@ void printflike(2, 3) cmdq_print(struct cmdq_item *, const char *, ...);
 void printflike(2, 3) cmdq_error(struct cmdq_item *, const char *, ...);
 
 /* cmd-string.c */
+int		 cmd_string_split(const char *, int *, char ***);
 struct cmd_list	*cmd_string_parse(const char *, const char *, u_int, char **);
 
 /* cmd-wait-for.c */

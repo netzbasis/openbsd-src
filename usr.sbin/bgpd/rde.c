@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.358 2017/01/24 04:22:42 benno Exp $ */
+/*	$OpenBSD: rde.c,v 1.361 2017/01/25 03:21:55 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -630,7 +630,7 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 	struct filter_rule	*r;
 	struct filter_set	*s;
 	struct nexthop		*nh;
-	struct rib_desc		*rib;
+	struct rib		*rib;
 	int			 n, fd;
 	u_int16_t		 rid;
 
@@ -725,22 +725,23 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 			if (rib == NULL)
 				rib = rib_new(rn.name, rn.rtableid, rn.flags);
 			else if (rib->rtableid != rn.rtableid ||
-			    (rib->rib.flags & F_RIB_HASNOFIB) !=
-			    (rib->rib.flags & F_RIB_HASNOFIB)) {
+			    (rib->flags & F_RIB_HASNOFIB) !=
+			    (rib->flags & F_RIB_HASNOFIB)) {
 				struct filter_head	*in_rules;
+				struct rib_desc		*ribd = rib_desc(rib);
 				/*
 				 * Big hammer in the F_RIB_HASNOFIB case but
 				 * not often enough used to optimise it more.
 				 * Need to save the filters so that they're not
 				 * lost.
 				 */
-				in_rules = rib->in_rules;
-				rib->in_rules = NULL;
+				in_rules = ribd->in_rules;
+				ribd->in_rules = NULL;
 				rib_free(rib);
 				rib = rib_new(rn.name, rn.rtableid, rn.flags);
-				rib->in_rules = in_rules;
+				ribd->in_rules = in_rules;
 			} else
-				rib->state = RECONF_KEEP;
+				rib_desc(rib)->state = RECONF_KEEP;
 			break;
 		case IMSG_RECONF_FILTER:
 			if (imsg.hdr.len - IMSG_HEADER_SIZE !=
@@ -757,17 +758,17 @@ rde_dispatch_imsg_parent(struct imsgbuf *ibuf)
 				free(r);
 				break;
 			}
-			r->peer.ribid = rib->rib.id;
+			r->peer.ribid = rib->id;
 			parent_set = &r->set;
 			if (r->dir == DIR_IN) {
-				nr = rib->in_rules_tmp;
+				nr = rib_desc(rib)->in_rules_tmp;
 				if (nr == NULL) {
 					nr = calloc(1,
 					    sizeof(struct filter_head));
 					if (nr == NULL)
 						fatal(NULL);
 					TAILQ_INIT(nr);
-					rib->in_rules_tmp = nr;
+					rib_desc(rib)->in_rules_tmp = nr;
 				}
 				TAILQ_INSERT_TAIL(nr, r, entry);
 			} else
@@ -2331,7 +2332,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
     enum imsg_type type)
 {
 	struct rde_dump_ctx	*ctx;
-	struct rib_desc		*rib;
+	struct rib		*rib;
 	struct rib_entry	*re;
 	u_int			 error;
 	u_int8_t		 hostplen;
@@ -2356,7 +2357,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 	ctx->req.pid = pid;
 	ctx->req.type = type;
 	ctx->ribctx.ctx_count = RDE_RUNNER_ROUNDS;
-	ctx->ribctx.ctx_rib = &rib->rib;
+	ctx->ribctx.ctx_rib = rib;
 	switch (ctx->req.type) {
 	case IMSG_CTL_SHOW_NETWORK:
 		ctx->ribctx.ctx_upcall = network_dump_upcall;
@@ -2384,9 +2385,9 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 			fatalx("rde_dump_ctx_new: unknown af");
 		}
 		if (req->prefixlen == hostplen)
-			re = rib_lookup(&rib->rib, &req->prefix);
+			re = rib_lookup(rib, &req->prefix);
 		else
-			re = rib_get(&rib->rib, &req->prefix, req->prefixlen);
+			re = rib_get(rib, &req->prefix, req->prefixlen);
 		if (re)
 			rde_dump_upcall(re, ctx);
 		rde_dump_done(ctx);
@@ -2414,7 +2415,7 @@ void
 rde_dump_mrt_new(struct mrt *mrt, pid_t pid, int fd)
 {
 	struct rde_mrt_ctx	*ctx;
-	struct rib_desc		*rib;
+	struct rib		*rib;
 
 	if ((ctx = calloc(1, sizeof(*ctx))) == NULL) {
 		log_warn("rde_dump_mrt_new");
@@ -2435,7 +2436,7 @@ rde_dump_mrt_new(struct mrt *mrt, pid_t pid, int fd)
 		mrt_dump_v2_hdr(&ctx->mrt, conf, &peerlist);
 
 	ctx->ribctx.ctx_count = RDE_RUNNER_ROUNDS;
-	ctx->ribctx.ctx_rib = &rib->rib;
+	ctx->ribctx.ctx_rib = rib;
 	ctx->ribctx.ctx_upcall = mrt_dump_upcall;
 	ctx->ribctx.ctx_done = mrt_done;
 	ctx->ribctx.ctx_arg = &ctx->mrt;
@@ -2461,7 +2462,7 @@ rde_rdomain_import(struct rde_aspath *asp, struct rdomain *rd)
 }
 
 void
-rde_send_kroute(struct prefix *new, struct prefix *old, u_int16_t ribid)
+rde_send_kroute(struct rib *rib, struct prefix *new, struct prefix *old)
 {
 	struct kroute_full	 kr;
 	struct bgpd_addr	 addr;
@@ -2501,7 +2502,7 @@ rde_send_kroute(struct prefix *new, struct prefix *old, u_int16_t ribid)
 
 	switch (addr.aid) {
 	case AID_VPN_IPv4:
-		if (ribid != 1)
+		if (rib->flags & F_RIB_LOCAL)
 			/* not Loc-RIB, no update for VPNs */
 			break;
 
@@ -2522,11 +2523,182 @@ rde_send_kroute(struct prefix *new, struct prefix *old, u_int16_t ribid)
 		}
 		break;
 	default:
-		if (imsg_compose(ibuf_main, type, ribs[ribid].rtableid, 0, -1,
+		if (imsg_compose(ibuf_main, type, rib->rtableid, 0, -1,
 		    &kr, sizeof(kr)) == -1)
 			fatal("%s %d imsg_compose error", __func__, __LINE__);
 		break;
 	}
+}
+
+/*
+ * update specific functions
+ */
+void
+rde_generate_updates(struct rib *rib, struct prefix *new, struct prefix *old)
+{
+	struct rde_peer			*peer;
+
+	/*
+	 * If old is != NULL we know it was active and should be removed.
+	 * If new is != NULL we know it is reachable and then we should
+	 * generate an update.
+	 */
+	if (old == NULL && new == NULL)
+		return;
+
+	LIST_FOREACH(peer, &peerlist, peer_l) {
+		if (peer->conf.id == 0)
+			continue;
+		if (peer->rib != rib)
+			continue;
+		if (peer->state != PEER_UP)
+			continue;
+		up_generate_updates(out_rules, peer, new, old);
+	}
+}
+
+u_char	queue_buf[4096];
+
+void
+rde_up_dump_upcall(struct rib_entry *re, void *ptr)
+{
+	struct rde_peer		*peer = ptr;
+
+	if (re_rib(re) != peer->rib)
+		fatalx("King Bula: monstrous evil horror.");
+	if (re->active == NULL)
+		return;
+	up_generate_updates(out_rules, peer, re->active, NULL);
+}
+
+void
+rde_update_queue_runner(void)
+{
+	struct rde_peer		*peer;
+	int			 r, sent, max = RDE_RUNNER_ROUNDS, eor = 0;
+	u_int16_t		 len, wd_len, wpos;
+
+	len = sizeof(queue_buf) - MSGSIZE_HEADER;
+	do {
+		sent = 0;
+		LIST_FOREACH(peer, &peerlist, peer_l) {
+			if (peer->conf.id == 0)
+				continue;
+			if (peer->state != PEER_UP)
+				continue;
+			/* first withdraws */
+			wpos = 2; /* reserve space for the length field */
+			r = up_dump_prefix(queue_buf + wpos, len - wpos - 2,
+			    &peer->withdraws[AID_INET], peer);
+			wd_len = r;
+			/* write withdraws length filed */
+			wd_len = htons(wd_len);
+			memcpy(queue_buf, &wd_len, 2);
+			wpos += r;
+
+			/* now bgp path attributes */
+			r = up_dump_attrnlri(queue_buf + wpos, len - wpos,
+			    peer);
+			switch (r) {
+			case -1:
+				eor = 1;
+				if (wd_len == 0) {
+					/* no withdraws queued just send EoR */
+					peer_send_eor(peer, AID_INET);
+					continue;
+				}
+				break;
+			case 2:
+				if (wd_len == 0) {
+					/*
+					 * No packet to send. No withdraws and
+					 * no path attributes. Skip.
+					 */
+					continue;
+				}
+				/* FALLTHROUGH */
+			default:
+				wpos += r;
+				break;
+			}
+
+			/* finally send message to SE */
+			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
+			    0, -1, queue_buf, wpos) == -1)
+				fatal("%s %d imsg_compose error", __func__,
+				    __LINE__);
+			sent++;
+			if (eor) {
+				eor = 0;
+				peer_send_eor(peer, AID_INET);
+			}
+		}
+		max -= sent;
+	} while (sent != 0 && max > 0);
+}
+
+void
+rde_update6_queue_runner(u_int8_t aid)
+{
+	struct rde_peer		*peer;
+	u_char			*b;
+	int			 r, sent, max = RDE_RUNNER_ROUNDS / 2;
+	u_int16_t		 len;
+
+	/* first withdraws ... */
+	do {
+		sent = 0;
+		LIST_FOREACH(peer, &peerlist, peer_l) {
+			if (peer->conf.id == 0)
+				continue;
+			if (peer->state != PEER_UP)
+				continue;
+			len = sizeof(queue_buf) - MSGSIZE_HEADER;
+			b = up_dump_mp_unreach(queue_buf, &len, peer, aid);
+
+			if (b == NULL)
+				continue;
+			/* finally send message to SE */
+			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
+			    0, -1, b, len) == -1)
+				fatal("%s %d imsg_compose error", __func__,
+				    __LINE__);
+			sent++;
+		}
+		max -= sent;
+	} while (sent != 0 && max > 0);
+
+	/* ... then updates */
+	max = RDE_RUNNER_ROUNDS / 2;
+	do {
+		sent = 0;
+		LIST_FOREACH(peer, &peerlist, peer_l) {
+			if (peer->conf.id == 0)
+				continue;
+			if (peer->state != PEER_UP)
+				continue;
+			len = sizeof(queue_buf) - MSGSIZE_HEADER;
+			r = up_dump_mp_reach(queue_buf, &len, peer, aid);
+			switch (r) {
+			case -2:
+				continue;
+			case -1:
+				peer_send_eor(peer, aid);
+				continue;
+			default:
+				b = queue_buf + r;
+				break;
+			}
+
+			/* finally send message to SE */
+			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
+			    0, -1, b, len) == -1)
+				fatal("%s %d imsg_compose error", __func__,
+				    __LINE__);
+			sent++;
+		}
+		max -= sent;
+	} while (sent != 0 && max > 0);
 }
 
 /*
@@ -2649,8 +2821,8 @@ rde_reload_done(void)
 		peer->reconf_out = 0;
 		peer->reconf_rib = 0;
 		if (peer->rib != rib_find(peer->conf.rib)) {
-			rib_dump(&peer->rib->rib,
-			    rde_softreconfig_unload_peer, peer, AID_UNSPEC);
+			rib_dump(peer->rib, rde_softreconfig_unload_peer, peer,
+			    AID_UNSPEC);
 			peer->rib = rib_find(peer->conf.rib);
 			if (peer->rib == NULL)
 				fatalx("King Bula's peer met an unknown RIB");
@@ -2675,7 +2847,7 @@ rde_reload_done(void)
 
 		switch (ribs[rid].state) {
 		case RECONF_DELETE:
-			rib_free(&ribs[rid]);
+			rib_free(&ribs[rid].rib);
 			break;
 		case RECONF_KEEP:
 			if (rde_filter_equal(ribs[rid].in_rules,
@@ -2697,7 +2869,7 @@ rde_reload_done(void)
 	}
 	LIST_FOREACH(peer, &peerlist, peer_l) {
 		if (peer->reconf_out)
-			rib_dump(&peer->rib->rib, rde_softreconfig_out,
+			rib_dump(peer->rib, rde_softreconfig_out,
 			    peer, AID_UNSPEC);
 		else if (peer->reconf_rib)
 			/* dump the full table to neighbors that changed rib */
@@ -2858,177 +3030,6 @@ rde_softreconfig_unload_peer(struct rib_entry *re, void *ptr)
 done:
 	if (oasp != p->aspath)
 		path_put(oasp);
-}
-
-/*
- * update specific functions
- */
-u_char	queue_buf[4096];
-
-void
-rde_up_dump_upcall(struct rib_entry *re, void *ptr)
-{
-	struct rde_peer		*peer = ptr;
-
-	if (re->rib != &peer->rib->rib)
-		fatalx("King Bula: monstrous evil horror.");
-	if (re->active == NULL)
-		return;
-	up_generate_updates(out_rules, peer, re->active, NULL);
-}
-
-void
-rde_generate_updates(u_int16_t ribid, struct prefix *new, struct prefix *old)
-{
-	struct rde_peer			*peer;
-
-	/*
-	 * If old is != NULL we know it was active and should be removed.
-	 * If new is != NULL we know it is reachable and then we should
-	 * generate an update.
-	 */
-	if (old == NULL && new == NULL)
-		return;
-
-	LIST_FOREACH(peer, &peerlist, peer_l) {
-		if (peer->conf.id == 0)
-			continue;
-		if (peer->rib->rib.id != ribid)
-			continue;
-		if (peer->state != PEER_UP)
-			continue;
-		up_generate_updates(out_rules, peer, new, old);
-	}
-}
-
-void
-rde_update_queue_runner(void)
-{
-	struct rde_peer		*peer;
-	int			 r, sent, max = RDE_RUNNER_ROUNDS, eor = 0;
-	u_int16_t		 len, wd_len, wpos;
-
-	len = sizeof(queue_buf) - MSGSIZE_HEADER;
-	do {
-		sent = 0;
-		LIST_FOREACH(peer, &peerlist, peer_l) {
-			if (peer->conf.id == 0)
-				continue;
-			if (peer->state != PEER_UP)
-				continue;
-			/* first withdraws */
-			wpos = 2; /* reserve space for the length field */
-			r = up_dump_prefix(queue_buf + wpos, len - wpos - 2,
-			    &peer->withdraws[AID_INET], peer);
-			wd_len = r;
-			/* write withdraws length filed */
-			wd_len = htons(wd_len);
-			memcpy(queue_buf, &wd_len, 2);
-			wpos += r;
-
-			/* now bgp path attributes */
-			r = up_dump_attrnlri(queue_buf + wpos, len - wpos,
-			    peer);
-			switch (r) {
-			case -1:
-				eor = 1;
-				if (wd_len == 0) {
-					/* no withdraws queued just send EoR */
-					peer_send_eor(peer, AID_INET);
-					continue;
-				}
-				break;
-			case 2:
-				if (wd_len == 0) {
-					/*
-					 * No packet to send. No withdraws and
-					 * no path attributes. Skip.
-					 */
-					continue;
-				}
-				/* FALLTHROUGH */
-			default:
-				wpos += r;
-				break;
-			}
-
-			/* finally send message to SE */
-			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
-			    0, -1, queue_buf, wpos) == -1)
-				fatal("%s %d imsg_compose error", __func__,
-				    __LINE__);
-			sent++;
-			if (eor) {
-				eor = 0;
-				peer_send_eor(peer, AID_INET);
-			}
-		}
-		max -= sent;
-	} while (sent != 0 && max > 0);
-}
-
-void
-rde_update6_queue_runner(u_int8_t aid)
-{
-	struct rde_peer		*peer;
-	u_char			*b;
-	int			 r, sent, max = RDE_RUNNER_ROUNDS / 2;
-	u_int16_t		 len;
-
-	/* first withdraws ... */
-	do {
-		sent = 0;
-		LIST_FOREACH(peer, &peerlist, peer_l) {
-			if (peer->conf.id == 0)
-				continue;
-			if (peer->state != PEER_UP)
-				continue;
-			len = sizeof(queue_buf) - MSGSIZE_HEADER;
-			b = up_dump_mp_unreach(queue_buf, &len, peer, aid);
-
-			if (b == NULL)
-				continue;
-			/* finally send message to SE */
-			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
-			    0, -1, b, len) == -1)
-				fatal("%s %d imsg_compose error", __func__,
-				    __LINE__);
-			sent++;
-		}
-		max -= sent;
-	} while (sent != 0 && max > 0);
-
-	/* ... then updates */
-	max = RDE_RUNNER_ROUNDS / 2;
-	do {
-		sent = 0;
-		LIST_FOREACH(peer, &peerlist, peer_l) {
-			if (peer->conf.id == 0)
-				continue;
-			if (peer->state != PEER_UP)
-				continue;
-			len = sizeof(queue_buf) - MSGSIZE_HEADER;
-			r = up_dump_mp_reach(queue_buf, &len, peer, aid);
-			switch (r) {
-			case -2:
-				continue;
-			case -1:
-				peer_send_eor(peer, aid);
-				continue;
-			default:
-				b = queue_buf + r;
-				break;
-			}
-
-			/* finally send message to SE */
-			if (imsg_compose(ibuf_se, IMSG_UPDATE, peer->conf.id,
-			    0, -1, b, len) == -1)
-				fatal("%s %d imsg_compose error", __func__,
-				    __LINE__);
-			sent++;
-		}
-		max -= sent;
-	} while (sent != 0 && max > 0);
 }
 
 /*
@@ -3364,7 +3365,7 @@ peer_dump(u_int32_t id, u_int8_t aid)
 	if (peer->conf.announce_type == ANNOUNCE_DEFAULT_ROUTE)
 		up_generate_default(out_rules, peer, aid);
 	else
-		rib_dump(&peer->rib->rib, rde_up_dump_upcall, peer, aid);
+		rib_dump(peer->rib, rde_up_dump_upcall, peer, aid);
 	if (peer->capa.grestart.restart)
 		up_generate_marker(peer, aid);
 }
