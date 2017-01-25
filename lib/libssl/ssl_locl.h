@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.164 2017/01/24 09:03:21 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.167 2017/01/25 10:54:23 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -328,7 +328,7 @@ __BEGIN_HIDDEN_DECLS
 
 /* Check if an SSL structure is using DTLS. */
 #define SSL_IS_DTLS(s) \
-	(s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_DTLS)
+	(s->method->internal->version == DTLS1_VERSION)
 
 /* See if we need explicit IV. */
 #define SSL_USE_EXPLICIT_IV(s) \
@@ -1049,9 +1049,6 @@ typedef struct ssl3_enc_method {
 /* Uses SHA256 default PRF. */
 #define SSL_ENC_FLAG_SHA256_PRF         (1 << 2)
 
-/* Is DTLS. */
-#define SSL_ENC_FLAG_DTLS               (1 << 3)
-
 /* Allow TLS 1.2 ciphersuites: applies to DTLS 1.2 as well as TLS 1.2. */
 #define SSL_ENC_FLAG_TLS1_2_CIPHERS     (1 << 4)
 
@@ -1082,6 +1079,7 @@ extern SSL_CIPHER ssl3_ciphers[];
 
 const char *ssl_version_string(int ver);
 int ssl_enabled_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver);
+int ssl_supported_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver);
 int ssl_max_shared_version(SSL *s, uint16_t peer_ver, uint16_t *max_ver);
 uint16_t ssl_max_server_version(SSL *s);
 
@@ -1198,7 +1196,8 @@ long ssl23_default_timeout(void);
 
 long tls1_default_timeout(void);
 int dtls1_do_write(SSL *s, int type);
-int ssl3_read_n(SSL *s, int n, int max, int extend);
+int ssl3_packet_read(SSL *s, int plen);
+int ssl3_packet_extend(SSL *s, int plen);
 int dtls1_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek);
 int ssl3_write_pending(SSL *s, int type, const unsigned char *buf,
     unsigned int len);
