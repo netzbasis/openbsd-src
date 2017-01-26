@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.86 2017/01/19 23:41:57 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.90 2017/01/26 04:38:27 rpe Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -270,22 +270,23 @@ set -A _KERNV -- $(sysctl -n kern.version |
 	sed 's/^OpenBSD \([0-9]\.[0-9]\)\([^ ]*\).*/\1 \2/;q')
 ((${#_KERNV[*]} > 1)) && sp_err "Unsupported release ${_KERNV[*]}"
 
+_OSrev=${_KERNV[0]%.*}${_KERNV[0]#*.}
+[[ -n ${_OSrev} ]]
+
 _MIRROR=$(while read _line; do _line=${_line%%#*}; [[ -n ${_line} ]] &&
 	print -r -- "${_line}"; done </etc/installurl | tail -1)
 [[ -z ${_MIRROR} ]] && sp_err "${0##*/}: no URL configured in /etc/installurl"
 _MIRROR="${_MIRROR}/syspatch/${_KERNV[0]}/$(machine)"
 
 (($(sysctl -n hw.ncpufound) > 1)) && _BSDMP=true || _BSDMP=false
-_OSrev=${_KERNV[0]%\.*}${_KERNV[0]#*\.}
 _PDIR="/var/syspatch"
 _TMP=$(mktemp -d -p /tmp syspatch.XXXXXXXXXX)
 
-readonly _BSDMP _KERNV _MIRROR _OSrev _PDIR _REL _TMP
+readonly _BSDMP _KERNV _MIRROR _OSrev _PDIR _TMP
 
 trap 'set +e; rm -rf "${_TMP}"' EXIT
 trap exit HUP INT TERM
 
-[[ -n ${_OSrev} ]]
 
 while getopts clr arg; do
 	case ${arg} in
@@ -295,8 +296,8 @@ while getopts clr arg; do
 		*) usage;;
 	esac
 done
-shift $((OPTIND -1))
-[[ $# -ne 0 ]] && usage
+shift $((OPTIND - 1))
+(($# != 0)) && usage
 
 if ((OPTIND == 1)); then
 	for _PATCH in $(ls_missing); do

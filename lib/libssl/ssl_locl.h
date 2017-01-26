@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_locl.h,v 1.167 2017/01/25 10:54:23 jsing Exp $ */
+/* $OpenBSD: ssl_locl.h,v 1.169 2017/01/26 05:31:25 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -769,6 +769,7 @@ typedef struct ssl_internal_st {
 	int state;	/* where we are */
 	int rstate;	/* where we are when reading */
 
+	int mac_packet;
 } SSL_INTERNAL;
 
 typedef struct ssl3_state_internal_st {
@@ -1074,7 +1075,6 @@ struct ssl_aead_ctx_st {
 	char variable_nonce_in_record;
 };
 
-extern SSL3_ENC_METHOD ssl3_undef_enc_method;
 extern SSL_CIPHER ssl3_ciphers[];
 
 const char *ssl_version_string(int ver);
@@ -1082,6 +1082,11 @@ int ssl_enabled_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver);
 int ssl_supported_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver);
 int ssl_max_shared_version(SSL *s, uint16_t peer_ver, uint16_t *max_ver);
 uint16_t ssl_max_server_version(SSL *s);
+
+const SSL_METHOD *dtls1_get_client_method(int ver);
+const SSL_METHOD *dtls1_get_server_method(int ver);
+const SSL_METHOD *tls1_get_client_method(int ver);
+const SSL_METHOD *tls1_get_server_method(int ver);
 
 extern SSL3_ENC_METHOD DTLSv1_enc_data;
 extern SSL3_ENC_METHOD TLSv1_enc_data;
@@ -1198,6 +1203,7 @@ long tls1_default_timeout(void);
 int dtls1_do_write(SSL *s, int type);
 int ssl3_packet_read(SSL *s, int plen);
 int ssl3_packet_extend(SSL *s, int plen);
+int ssl_server_legacy_first_packet(SSL *s);
 int dtls1_read_bytes(SSL *s, int type, unsigned char *buf, int len, int peek);
 int ssl3_write_pending(SSL *s, int type, const unsigned char *buf,
     unsigned int len);
