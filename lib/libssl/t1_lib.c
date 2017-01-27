@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_lib.c,v 1.111 2017/01/24 14:57:31 jsing Exp $ */
+/* $OpenBSD: t1_lib.c,v 1.114 2017/01/26 12:16:13 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -125,55 +125,16 @@ static int tls_decrypt_ticket(SSL *s, const unsigned char *tick, int ticklen,
 
 SSL3_ENC_METHOD TLSv1_enc_data = {
 	.enc = tls1_enc,
-	.mac = tls1_mac,
-	.setup_key_block = tls1_setup_key_block,
-	.generate_master_secret = tls1_generate_master_secret,
-	.change_cipher_state = tls1_change_cipher_state,
-	.final_finish_mac = tls1_final_finish_mac,
-	.finish_mac_length = TLS1_FINISH_MAC_LENGTH,
-	.cert_verify_mac = tls1_cert_verify_mac,
-	.client_finished_label = TLS_MD_CLIENT_FINISH_CONST,
-	.client_finished_label_len = TLS_MD_CLIENT_FINISH_CONST_SIZE,
-	.server_finished_label = TLS_MD_SERVER_FINISH_CONST,
-	.server_finished_label_len = TLS_MD_SERVER_FINISH_CONST_SIZE,
-	.alert_value = tls1_alert_code,
-	.export_keying_material = tls1_export_keying_material,
 	.enc_flags = 0,
 };
 
 SSL3_ENC_METHOD TLSv1_1_enc_data = {
 	.enc = tls1_enc,
-	.mac = tls1_mac,
-	.setup_key_block = tls1_setup_key_block,
-	.generate_master_secret = tls1_generate_master_secret,
-	.change_cipher_state = tls1_change_cipher_state,
-	.final_finish_mac = tls1_final_finish_mac,
-	.finish_mac_length = TLS1_FINISH_MAC_LENGTH,
-	.cert_verify_mac = tls1_cert_verify_mac,
-	.client_finished_label = TLS_MD_CLIENT_FINISH_CONST,
-	.client_finished_label_len = TLS_MD_CLIENT_FINISH_CONST_SIZE,
-	.server_finished_label = TLS_MD_SERVER_FINISH_CONST,
-	.server_finished_label_len = TLS_MD_SERVER_FINISH_CONST_SIZE,
-	.alert_value = tls1_alert_code,
-	.export_keying_material = tls1_export_keying_material,
 	.enc_flags = SSL_ENC_FLAG_EXPLICIT_IV,
 };
 
 SSL3_ENC_METHOD TLSv1_2_enc_data = {
 	.enc = tls1_enc,
-	.mac = tls1_mac,
-	.setup_key_block = tls1_setup_key_block,
-	.generate_master_secret = tls1_generate_master_secret,
-	.change_cipher_state = tls1_change_cipher_state,
-	.final_finish_mac = tls1_final_finish_mac,
-	.finish_mac_length = TLS1_FINISH_MAC_LENGTH,
-	.cert_verify_mac = tls1_cert_verify_mac,
-	.client_finished_label = TLS_MD_CLIENT_FINISH_CONST,
-	.client_finished_label_len = TLS_MD_CLIENT_FINISH_CONST_SIZE,
-	.server_finished_label = TLS_MD_SERVER_FINISH_CONST,
-	.server_finished_label_len = TLS_MD_SERVER_FINISH_CONST_SIZE,
-	.alert_value = tls1_alert_code,
-	.export_keying_material = tls1_export_keying_material,
 	.enc_flags = SSL_ENC_FLAG_EXPLICIT_IV|SSL_ENC_FLAG_SIGALGS|
 	    SSL_ENC_FLAG_SHA256_PRF|SSL_ENC_FLAG_TLS1_2_CIPHERS,
 };
@@ -781,8 +742,7 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		int el;
 
 		if (!ssl_add_clienthello_renegotiate_ext(s, 0, &el, 0)) {
-			SSLerr(SSL_F_SSL_ADD_CLIENTHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -793,8 +753,7 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		s2n(el, ret);
 
 		if (!ssl_add_clienthello_renegotiate_ext(s, ret, &el, el)) {
-			SSLerr(SSL_F_SSL_ADD_CLIENTHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -819,8 +778,7 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		if (formatslen > lenmax)
 			return NULL;
 		if (formatslen > 255) {
-			SSLerr(SSL_F_SSL_ADD_CLIENTHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -842,8 +800,7 @@ ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		if (curveslen * 2 > lenmax)
 			return NULL;
 		if (curveslen * 2 > 65532) {
-			SSLerr(SSL_F_SSL_ADD_CLIENTHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -985,8 +942,7 @@ skip_ext:
 		s2n(el, ret);
 
 		if (ssl_add_clienthello_use_srtp_ext(s, ret, &el, el)) {
-			SSLerr(SSL_F_SSL_ADD_CLIENTHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 		ret += el;
@@ -1064,8 +1020,7 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		int el;
 
 		if (!ssl_add_serverhello_renegotiate_ext(s, 0, &el, 0)) {
-			SSLerr(SSL_F_SSL_ADD_SERVERHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -1076,8 +1031,7 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		s2n(el, ret);
 
 		if (!ssl_add_serverhello_renegotiate_ext(s, ret, &el, el)) {
-			SSLerr(SSL_F_SSL_ADD_SERVERHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -1100,8 +1054,7 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		if (formatslen > lenmax)
 			return NULL;
 		if (formatslen > 255) {
-			SSLerr(SSL_F_SSL_ADD_SERVERHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 
@@ -1147,8 +1100,7 @@ ssl_add_serverhello_tlsext(SSL *s, unsigned char *p, unsigned char *limit)
 		s2n(el, ret);
 
 		if (ssl_add_serverhello_use_srtp_ext(s, ret, &el, el)) {
-			SSLerr(SSL_F_SSL_ADD_SERVERHELLO_TLSEXT,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return NULL;
 		}
 		ret += el;
@@ -1666,8 +1618,7 @@ ri_check:
 
 	if (!renegotiate_seen && s->internal->renegotiate) {
 		*al = SSL_AD_HANDSHAKE_FAILURE;
-		SSLerr(SSL_F_SSL_PARSE_CLIENTHELLO_TLSEXT,
-		    SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
+		SSLerror(SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
 		return 0;
 	}
 
@@ -1919,8 +1870,7 @@ ri_check:
 	if (!renegotiate_seen &&
 	    !(s->internal->options & SSL_OP_LEGACY_SERVER_CONNECT)) {
 		*al = SSL_AD_HANDSHAKE_FAILURE;
-		SSLerr(SSL_F_SSL_PARSE_SERVERHELLO_TLSEXT,
-		    SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
+		SSLerror(SSL_R_UNSAFE_LEGACY_RENEGOTIATION_DISABLED);
 		return 0;
 	}
 
@@ -2055,7 +2005,7 @@ ssl_check_serverhello_tlsext(SSL *s)
 			}
 		}
 		if (!found_uncompressed) {
-			SSLerr(SSL_F_SSL_CHECK_SERVERHELLO_TLSEXT, SSL_R_TLS_INVALID_ECPOINTFORMAT_LIST);
+			SSLerror(SSL_R_TLS_INVALID_ECPOINTFORMAT_LIST);
 			return -1;
 		}
 	}

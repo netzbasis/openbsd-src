@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_lib.c,v 1.151 2017/01/26 00:42:44 jsing Exp $ */
+/* $OpenBSD: ssl_lib.c,v 1.155 2017/01/26 12:16:13 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -163,7 +163,7 @@ int
 SSL_clear(SSL *s)
 {
 	if (s->method == NULL) {
-		SSLerr(SSL_F_SSL_CLEAR, SSL_R_NO_METHOD_SPECIFIED);
+		SSLerror(SSL_R_NO_METHOD_SPECIFIED);
 		return (0);
 	}
 
@@ -177,7 +177,7 @@ SSL_clear(SSL *s)
 	s->internal->shutdown = 0;
 
 	if (s->internal->renegotiate) {
-		SSLerr(SSL_F_SSL_CLEAR, ERR_R_INTERNAL_ERROR);
+		SSLerror(ERR_R_INTERNAL_ERROR);
 		return (0);
 	}
 
@@ -226,8 +226,7 @@ SSL_CTX_set_ssl_version(SSL_CTX *ctx, const SSL_METHOD *meth)
 	sk = ssl_create_cipher_list(ctx->method, &(ctx->cipher_list),
 	    &(ctx->internal->cipher_list_by_id), SSL_DEFAULT_CIPHER_LIST);
 	if ((sk == NULL) || (sk_SSL_CIPHER_num(sk) <= 0)) {
-		SSLerr(SSL_F_SSL_CTX_SET_SSL_VERSION,
-		    SSL_R_SSL_LIBRARY_HAS_NO_CIPHERS);
+		SSLerror(SSL_R_SSL_LIBRARY_HAS_NO_CIPHERS);
 		return (0);
 	}
 	return (1);
@@ -239,21 +238,21 @@ SSL_new(SSL_CTX *ctx)
 	SSL	*s;
 
 	if (ctx == NULL) {
-		SSLerr(SSL_F_SSL_NEW, SSL_R_NULL_SSL_CTX);
+		SSLerror(SSL_R_NULL_SSL_CTX);
 		return (NULL);
 	}
 	if (ctx->method == NULL) {
-		SSLerr(SSL_F_SSL_NEW, SSL_R_SSL_CTX_HAS_NO_DEFAULT_SSL_VERSION);
+		SSLerror(SSL_R_SSL_CTX_HAS_NO_DEFAULT_SSL_VERSION);
 		return (NULL);
 	}
 
 	if ((s = calloc(1, sizeof(*s))) == NULL) {
-		SSLerr(SSL_F_SSL_NEW, ERR_R_MALLOC_FAILURE);
+		SSLerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 	if ((s->internal = calloc(1, sizeof(*s->internal))) == NULL) {
 		free(s);
-		SSLerr(SSL_F_SSL_NEW, ERR_R_MALLOC_FAILURE);
+		SSLerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 
@@ -372,7 +371,7 @@ SSL_new(SSL_CTX *ctx)
 
  err:
 	SSL_free(s);
-	SSLerr(SSL_F_SSL_NEW, ERR_R_MALLOC_FAILURE);
+	SSLerror(ERR_R_MALLOC_FAILURE);
 	return (NULL);
 }
 
@@ -381,8 +380,7 @@ SSL_CTX_set_session_id_context(SSL_CTX *ctx, const unsigned char *sid_ctx,
     unsigned int sid_ctx_len)
 {
 	if (sid_ctx_len > sizeof ctx->sid_ctx) {
-		SSLerr(SSL_F_SSL_CTX_SET_SESSION_ID_CONTEXT,
-		    SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
+		SSLerror(SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
 		return (0);
 	}
 	ctx->sid_ctx_length = sid_ctx_len;
@@ -396,8 +394,7 @@ SSL_set_session_id_context(SSL *ssl, const unsigned char *sid_ctx,
     unsigned int sid_ctx_len)
 {
 	if (sid_ctx_len > SSL_MAX_SID_CTX_LENGTH) {
-		SSLerr(SSL_F_SSL_SET_SESSION_ID_CONTEXT,
-		    SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
+		SSLerror(SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
 		return (0);
 	}
 	ssl->sid_ctx_length = sid_ctx_len;
@@ -634,7 +631,7 @@ SSL_set_fd(SSL *s, int fd)
 	bio = BIO_new(BIO_s_socket());
 
 	if (bio == NULL) {
-		SSLerr(SSL_F_SSL_SET_FD, ERR_R_BUF_LIB);
+		SSLerror(ERR_R_BUF_LIB);
 		goto err;
 	}
 	BIO_set_fd(bio, fd, BIO_NOCLOSE);
@@ -655,7 +652,7 @@ SSL_set_wfd(SSL *s, int fd)
 		bio = BIO_new(BIO_s_socket());
 
 		if (bio == NULL) {
-			SSLerr(SSL_F_SSL_SET_WFD, ERR_R_BUF_LIB);
+			SSLerror(ERR_R_BUF_LIB);
 			goto err;
 		}
 		BIO_set_fd(bio, fd, BIO_NOCLOSE);
@@ -678,7 +675,7 @@ SSL_set_rfd(SSL *s, int fd)
 		bio = BIO_new(BIO_s_socket());
 
 		if (bio == NULL) {
-			SSLerr(SSL_F_SSL_SET_RFD, ERR_R_BUF_LIB);
+			SSLerror(ERR_R_BUF_LIB);
 			goto err;
 		}
 		BIO_set_fd(bio, fd, BIO_NOCLOSE);
@@ -873,13 +870,11 @@ SSL_CTX_check_private_key(const SSL_CTX *ctx)
 {
 	if ((ctx == NULL) || (ctx->internal->cert == NULL) ||
 	    (ctx->internal->cert->key->x509 == NULL)) {
-		SSLerr(SSL_F_SSL_CTX_CHECK_PRIVATE_KEY,
-		    SSL_R_NO_CERTIFICATE_ASSIGNED);
+		SSLerror(SSL_R_NO_CERTIFICATE_ASSIGNED);
 		return (0);
 	}
 	if (ctx->internal->cert->key->privatekey == NULL) {
-		SSLerr(SSL_F_SSL_CTX_CHECK_PRIVATE_KEY,
-		    SSL_R_NO_PRIVATE_KEY_ASSIGNED);
+		SSLerror(SSL_R_NO_PRIVATE_KEY_ASSIGNED);
 		return (0);
 	}
 	return (X509_check_private_key(ctx->internal->cert->key->x509,
@@ -891,23 +886,19 @@ int
 SSL_check_private_key(const SSL *ssl)
 {
 	if (ssl == NULL) {
-		SSLerr(SSL_F_SSL_CHECK_PRIVATE_KEY,
-		    ERR_R_PASSED_NULL_PARAMETER);
+		SSLerror(ERR_R_PASSED_NULL_PARAMETER);
 		return (0);
 	}
 	if (ssl->cert == NULL) {
-		SSLerr(SSL_F_SSL_CHECK_PRIVATE_KEY,
-		    SSL_R_NO_CERTIFICATE_ASSIGNED);
+		SSLerror(SSL_R_NO_CERTIFICATE_ASSIGNED);
 		return (0);
 	}
 	if (ssl->cert->key->x509 == NULL) {
-		SSLerr(SSL_F_SSL_CHECK_PRIVATE_KEY,
-		    SSL_R_NO_CERTIFICATE_ASSIGNED);
+		SSLerror(SSL_R_NO_CERTIFICATE_ASSIGNED);
 		return (0);
 	}
 	if (ssl->cert->key->privatekey == NULL) {
-		SSLerr(SSL_F_SSL_CHECK_PRIVATE_KEY,
-		    SSL_R_NO_PRIVATE_KEY_ASSIGNED);
+		SSLerror(SSL_R_NO_PRIVATE_KEY_ASSIGNED);
 		return (0);
 	}
 	return (X509_check_private_key(ssl->cert->key->x509,
@@ -942,7 +933,7 @@ int
 SSL_read(SSL *s, void *buf, int num)
 {
 	if (s->internal->handshake_func == NULL) {
-		SSLerr(SSL_F_SSL_READ, SSL_R_UNINITIALIZED);
+		SSLerror(SSL_R_UNINITIALIZED);
 		return (-1);
 	}
 
@@ -957,7 +948,7 @@ int
 SSL_peek(SSL *s, void *buf, int num)
 {
 	if (s->internal->handshake_func == NULL) {
-		SSLerr(SSL_F_SSL_PEEK, SSL_R_UNINITIALIZED);
+		SSLerror(SSL_R_UNINITIALIZED);
 		return (-1);
 	}
 
@@ -971,13 +962,13 @@ int
 SSL_write(SSL *s, const void *buf, int num)
 {
 	if (s->internal->handshake_func == NULL) {
-		SSLerr(SSL_F_SSL_WRITE, SSL_R_UNINITIALIZED);
+		SSLerror(SSL_R_UNINITIALIZED);
 		return (-1);
 	}
 
 	if (s->internal->shutdown & SSL_SENT_SHUTDOWN) {
 		s->internal->rwstate = SSL_NOTHING;
-		SSLerr(SSL_F_SSL_WRITE, SSL_R_PROTOCOL_IS_SHUTDOWN);
+		SSLerror(SSL_R_PROTOCOL_IS_SHUTDOWN);
 		return (-1);
 	}
 	return (s->method->internal->ssl_write(s, buf, num));
@@ -994,7 +985,7 @@ SSL_shutdown(SSL *s)
 	 */
 
 	if (s->internal->handshake_func == NULL) {
-		SSLerr(SSL_F_SSL_SHUTDOWN, SSL_R_UNINITIALIZED);
+		SSLerror(SSL_R_UNINITIALIZED);
 		return (-1);
 	}
 
@@ -1306,7 +1297,7 @@ SSL_CTX_set_cipher_list(SSL_CTX *ctx, const char *str)
 	if (sk == NULL)
 		return (0);
 	else if (sk_SSL_CIPHER_num(sk) == 0) {
-		SSLerr(SSL_F_SSL_CTX_SET_CIPHER_LIST, SSL_R_NO_CIPHER_MATCH);
+		SSLerror(SSL_R_NO_CIPHER_MATCH);
 		return (0);
 	}
 	return (1);
@@ -1324,7 +1315,7 @@ SSL_set_cipher_list(SSL *s, const char *str)
 	if (sk == NULL)
 		return (0);
 	else if (sk_SSL_CIPHER_num(sk) == 0) {
-		SSLerr(SSL_F_SSL_SET_CIPHER_LIST, SSL_R_NO_CIPHER_MATCH);
+		SSLerror(SSL_R_NO_CIPHER_MATCH);
 		return (0);
 	}
 	return (1);
@@ -1428,21 +1419,19 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 	 * RFC 5246 section 7.4.1.2 defines the interval as [2,2^16-2].
 	 */
 	if (num < 2 || num > 0x10000 - 2) {
-		SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
-		    SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST);
+		SSLerror(SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST);
 		return (NULL);
 	}
 
 	if ((sk = sk_SSL_CIPHER_new_null()) == NULL) {
-		SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST, ERR_R_MALLOC_FAILURE);
+		SSLerror(ERR_R_MALLOC_FAILURE);
 		goto err;
 	}
 
 	CBS_init(&cbs, p, num);
 	while (CBS_len(&cbs) > 0) {
 		if (!CBS_get_u16(&cbs, &cipher_value)) {
-			SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
-			    SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST);
+			SSLerror(SSL_R_ERROR_IN_RECEIVED_CIPHER_LIST);
 			goto err;
 		}
 
@@ -1454,8 +1443,7 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 			 * renegotiating.
 			 */
 			if (s->internal->renegotiate) {
-				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
-				    SSL_R_SCSV_RECEIVED_WHEN_RENEGOTIATING);
+				SSLerror(SSL_R_SCSV_RECEIVED_WHEN_RENEGOTIATING);
 				ssl3_send_alert(s, SSL3_AL_FATAL,
 				    SSL_AD_HANDSHAKE_FAILURE);
 
@@ -1474,8 +1462,7 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 			 */
 			max_version = ssl_max_server_version(s);
 			if (max_version == 0 || s->version < max_version) {
-				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
-				    SSL_R_INAPPROPRIATE_FALLBACK);
+				SSLerror(SSL_R_INAPPROPRIATE_FALLBACK);
 				if (s->s3 != NULL)
 					ssl3_send_alert(s, SSL3_AL_FATAL,
 					    SSL_AD_INAPPROPRIATE_FALLBACK);
@@ -1486,8 +1473,7 @@ ssl_bytes_to_cipher_list(SSL *s, const unsigned char *p, int num)
 
 		if ((c = ssl3_get_cipher_by_value(cipher_value)) != NULL) {
 			if (!sk_SSL_CIPHER_push(sk, c)) {
-				SSLerr(SSL_F_SSL_BYTES_TO_CIPHER_LIST,
-				    ERR_R_MALLOC_FAILURE);
+				SSLerror(ERR_R_MALLOC_FAILURE);
 				goto err;
 			}
 		}
@@ -1732,7 +1718,7 @@ SSL_export_keying_material(SSL *s, unsigned char *out, size_t olen,
     const char *label, size_t llen, const unsigned char *p, size_t plen,
     int use_context)
 {
-	return (s->method->internal->ssl3_enc->export_keying_material(s, out, olen,
+	return (tls1_export_keying_material(s, out, olen,
 	    label, llen, p, plen, use_context));
 }
 
@@ -1797,23 +1783,22 @@ SSL_CTX_new(const SSL_METHOD *meth)
 	SSL_CTX	*ret;
 
 	if (meth == NULL) {
-		SSLerr(SSL_F_SSL_CTX_NEW, SSL_R_NULL_SSL_METHOD_PASSED);
+		SSLerror(SSL_R_NULL_SSL_METHOD_PASSED);
 		return (NULL);
 	}
 
 	if ((ret = calloc(1, sizeof(*ret))) == NULL) {
-		SSLerr(SSL_F_SSL_CTX_NEW, ERR_R_MALLOC_FAILURE);
+		SSLerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 	if ((ret->internal = calloc(1, sizeof(*ret->internal))) == NULL) {
 		free(ret);
-		SSLerr(SSL_F_SSL_CTX_NEW, ERR_R_MALLOC_FAILURE);
+		SSLerror(ERR_R_MALLOC_FAILURE);
 		return (NULL);
 	}
 
 	if (SSL_get_ex_data_X509_STORE_CTX_idx() < 0) {
-		SSLerr(SSL_F_SSL_CTX_NEW,
-		    SSL_R_X509_VERIFICATION_SETUP_PROBLEMS);
+		SSLerror(SSL_R_X509_VERIFICATION_SETUP_PROBLEMS);
 		goto err;
 	}
 
@@ -1872,7 +1857,7 @@ SSL_CTX_new(const SSL_METHOD *meth)
 	    &ret->internal->cipher_list_by_id, SSL_DEFAULT_CIPHER_LIST);
 	if (ret->cipher_list == NULL ||
 	    sk_SSL_CIPHER_num(ret->cipher_list) <= 0) {
-		SSLerr(SSL_F_SSL_CTX_NEW, SSL_R_LIBRARY_HAS_NO_CIPHERS);
+		SSLerror(SSL_R_LIBRARY_HAS_NO_CIPHERS);
 		goto err2;
 	}
 
@@ -1881,13 +1866,11 @@ SSL_CTX_new(const SSL_METHOD *meth)
 		goto err;
 
 	if ((ret->internal->md5 = EVP_get_digestbyname("ssl3-md5")) == NULL) {
-		SSLerr(SSL_F_SSL_CTX_NEW,
-		    SSL_R_UNABLE_TO_LOAD_SSL3_MD5_ROUTINES);
+		SSLerror(SSL_R_UNABLE_TO_LOAD_SSL3_MD5_ROUTINES);
 		goto err2;
 	}
 	if ((ret->internal->sha1 = EVP_get_digestbyname("ssl3-sha1")) == NULL) {
-		SSLerr(SSL_F_SSL_CTX_NEW,
-		    SSL_R_UNABLE_TO_LOAD_SSL3_SHA1_ROUTINES);
+		SSLerror(SSL_R_UNABLE_TO_LOAD_SSL3_SHA1_ROUTINES);
 		goto err2;
 	}
 
@@ -1942,7 +1925,7 @@ SSL_CTX_new(const SSL_METHOD *meth)
 
 	return (ret);
 err:
-	SSLerr(SSL_F_SSL_CTX_NEW, ERR_R_MALLOC_FAILURE);
+	SSLerror(ERR_R_MALLOC_FAILURE);
 err2:
 	SSL_CTX_free(ret);
 	return (NULL);
@@ -2126,8 +2109,7 @@ ssl_check_srvr_ecc_cert_and_alg(X509 *x, SSL *s)
 		/* Key usage, if present, must allow signing. */
 		if ((x->ex_flags & EXFLAG_KUSAGE) &&
 		    ((x->ex_kusage & X509v3_KU_DIGITAL_SIGNATURE) == 0)) {
-			SSLerr(SSL_F_SSL_CHECK_SRVR_ECC_CERT_AND_ALG,
-			    SSL_R_ECC_CERT_NOT_FOR_SIGNING);
+			SSLerror(SSL_R_ECC_CERT_NOT_FOR_SIGNING);
 			return (0);
 		}
 	}
@@ -2159,7 +2141,7 @@ ssl_get_server_send_pkey(const SSL *s)
 	} else if (alg_a & SSL_aGOST01) {
 		i = SSL_PKEY_GOST01;
 	} else { /* if (alg_a & SSL_aNULL) */
-		SSLerr(SSL_F_SSL_GET_SERVER_SEND_PKEY, ERR_R_INTERNAL_ERROR);
+		SSLerror(ERR_R_INTERNAL_ERROR);
 		return (NULL);
 	}
 
@@ -2199,7 +2181,7 @@ ssl_get_sign_pkey(SSL *s, const SSL_CIPHER *cipher, const EVP_MD **pmd)
 	    (c->pkeys[SSL_PKEY_ECC].privatekey != NULL))
 		idx = SSL_PKEY_ECC;
 	if (idx == -1) {
-		SSLerr(SSL_F_SSL_GET_SIGN_PKEY, ERR_R_INTERNAL_ERROR);
+		SSLerror(ERR_R_INTERNAL_ERROR);
 		return (NULL);
 	}
 	if (pmd)
@@ -2403,7 +2385,7 @@ SSL_do_handshake(SSL *s)
 	int	ret = 1;
 
 	if (s->internal->handshake_func == NULL) {
-		SSLerr(SSL_F_SSL_DO_HANDSHAKE, SSL_R_CONNECTION_TYPE_NOT_SET);
+		SSLerror(SSL_R_CONNECTION_TYPE_NOT_SET);
 		return (-1);
 	}
 
@@ -2448,24 +2430,21 @@ SSL_set_connect_state(SSL *s)
 int
 ssl_undefined_function(SSL *s)
 {
-	SSLerr(SSL_F_SSL_UNDEFINED_FUNCTION,
-	    ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+	SSLerror(ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
 	return (0);
 }
 
 int
 ssl_undefined_void_function(void)
 {
-	SSLerr(SSL_F_SSL_UNDEFINED_VOID_FUNCTION,
-	    ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+	SSLerror(ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
 	return (0);
 }
 
 int
 ssl_undefined_const_function(const SSL *s)
 {
-	SSLerr(SSL_F_SSL_UNDEFINED_CONST_FUNCTION,
-	    ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+	SSLerror(ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
 	return (0);
 }
 
@@ -2490,161 +2469,6 @@ const char *
 SSL_get_version(const SSL *s)
 {
 	return ssl_version_string(s->version);
-}
-
-static int
-ssl_clamp_version_range(uint16_t *min_ver, uint16_t *max_ver,
-    uint16_t clamp_min, uint16_t clamp_max)
-{
-	if (clamp_min > clamp_max || *min_ver > *max_ver)
-		return 0;
-	if (clamp_max < *min_ver || clamp_min > *max_ver)
-		return 0;
-
-	if (*min_ver < clamp_min)
-		*min_ver = clamp_min;
-	if (*max_ver > clamp_max)
-		*max_ver = clamp_max;
-
-	return 1;
-}
-
-int
-ssl_enabled_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver)
-{
-	uint16_t min_version, max_version;
-
-	/*
-	 * The enabled versions have to be a contiguous range, which means we
-	 * cannot enable and disable single versions at our whim, even though
-	 * this is what the OpenSSL flags allow. The historical way this has
-	 * been handled is by making a flag mean that all higher versions
-	 * are disabled, if any version lower than the flag is enabled.
-	 */
-
-	min_version = 0;
-	max_version = TLS1_2_VERSION;
-
-	if ((s->internal->options & SSL_OP_NO_TLSv1) == 0)
-		min_version = TLS1_VERSION;
-	else if ((s->internal->options & SSL_OP_NO_TLSv1_1) == 0)
-		min_version = TLS1_1_VERSION;
-	else if ((s->internal->options & SSL_OP_NO_TLSv1_2) == 0)
-		min_version = TLS1_2_VERSION;
-
-	if ((s->internal->options & SSL_OP_NO_TLSv1_2) && min_version < TLS1_2_VERSION)
-		max_version = TLS1_1_VERSION;
-	if ((s->internal->options & SSL_OP_NO_TLSv1_1) && min_version < TLS1_1_VERSION)
-		max_version = TLS1_VERSION;
-	if ((s->internal->options & SSL_OP_NO_TLSv1) && min_version < TLS1_VERSION)
-		max_version = 0;
-
-	/* Everything has been disabled... */
-	if (min_version == 0 || max_version == 0)
-		return 0;
-
-	/* Limit to configured version range. */
-	if (!ssl_clamp_version_range(&min_version, &max_version,
-	    s->internal->min_version, s->internal->max_version))
-		return 0;
-
-	if (min_ver != NULL)
-		*min_ver = min_version;
-	if (max_ver != NULL)
-		*max_ver = max_version;
-
-	return 1;
-}
-
-int
-ssl_supported_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver)
-{
-	uint16_t min_version, max_version;
-
-	/* DTLS cannot currently be disabled... */
-	if (SSL_IS_DTLS(s)) {
-		min_version = max_version = DTLS1_VERSION;
-		goto done;
-	}
-
-	if (!ssl_enabled_version_range(s, &min_version, &max_version))
-		return 0;
-
-	/* Limit to the versions supported by this method. */
-	if (!ssl_clamp_version_range(&min_version, &max_version,
-	    s->method->internal->min_version,
-	    s->method->internal->max_version))
-		return 0;
-
- done:
-	if (min_ver != NULL)
-		*min_ver = min_version;
-	if (max_ver != NULL)
-		*max_ver = max_version;
-
-	return 1;
-}
-
-int
-ssl_max_shared_version(SSL *s, uint16_t peer_ver, uint16_t *max_ver)
-{
-	uint16_t min_version, max_version, shared_version;
-
-	*max_ver = 0;
-
-	if (SSL_IS_DTLS(s)) {
-		if (peer_ver >= DTLS1_VERSION) {
-			*max_ver = DTLS1_VERSION;
-			return 1;
-		}
-		return 0;
-	}
-
-	if (peer_ver >= TLS1_2_VERSION)
-		shared_version = TLS1_2_VERSION;
-	else if (peer_ver >= TLS1_1_VERSION)
-		shared_version = TLS1_1_VERSION;
-	else if (peer_ver >= TLS1_VERSION)
-		shared_version = TLS1_VERSION;
-	else
-		return 0;
-
-	if (!ssl_supported_version_range(s, &min_version, &max_version))
-		return 0;
-
-	if (shared_version < min_version)
-		return 0;
-
-	if (shared_version > max_version)
-		shared_version = max_version;
-
-	*max_ver = shared_version;
-
-	return 1;
-}
-
-uint16_t
-ssl_max_server_version(SSL *s)
-{
-	uint16_t max_version, min_version = 0;
-
-	if (SSL_IS_DTLS(s))
-		return (DTLS1_VERSION);
-
-	if (!ssl_enabled_version_range(s, &min_version, &max_version))
-		return 0;
-
-	/*
-	 * Limit to the versions supported by this method. The SSL method
-	 * will be changed during version negotiation, as such we want to
-	 * use the SSL method from the context.
-	 */
-	if (!ssl_clamp_version_range(&min_version, &max_version,
-	    s->ctx->method->internal->min_version,
-	    s->ctx->method->internal->max_version))
-		return 0;
-
-	return (max_version);
 }
 
 SSL *
@@ -2855,7 +2679,7 @@ ssl_init_wbio_buffer(SSL *s, int push)
 	(void)BIO_reset(bbio);
 /*	if (!BIO_set_write_buffer_size(bbio,16*1024)) */
 	if (!BIO_set_read_buffer_size(bbio, 1)) {
-		SSLerr(SSL_F_SSL_INIT_WBIO_BUFFER, ERR_R_BUF_LIB);
+		SSLerror(ERR_R_BUF_LIB);
 		return (0);
 	}
 	if (push) {

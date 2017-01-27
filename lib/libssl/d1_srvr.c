@@ -1,4 +1,4 @@
-/* $OpenBSD: d1_srvr.c,v 1.80 2017/01/26 05:31:25 jsing Exp $ */
+/* $OpenBSD: d1_srvr.c,v 1.83 2017/01/26 12:16:13 beck Exp $ */
 /*
  * DTLS implementation written by Nagendra Modadugu
  * (nagendra@cs.stanford.edu) for the OpenSSL project 2005.
@@ -202,7 +202,7 @@ dtls1_accept(SSL *s)
 	D1I(s)->listen = listen;
 
 	if (s->cert == NULL) {
-		SSLerr(SSL_F_DTLS1_ACCEPT, SSL_R_NO_CERTIFICATE_SET);
+		SSLerror(SSL_R_NO_CERTIFICATE_SET);
 		ret = -1;
 		goto end;
 	}
@@ -225,7 +225,7 @@ dtls1_accept(SSL *s)
 				cb(s, SSL_CB_HANDSHAKE_START, 1);
 
 			if ((s->version & 0xff00) != (DTLS1_VERSION & 0xff00)) {
-				SSLerr(SSL_F_DTLS1_ACCEPT, ERR_R_INTERNAL_ERROR);
+				SSLerror(ERR_R_INTERNAL_ERROR);
 				ret = -1;
 				goto end;
 			}
@@ -506,8 +506,7 @@ dtls1_accept(SSL *s)
 				 * at this point and digest cached records.
 				 */
 				if (!S3I(s)->handshake_buffer) {
-					SSLerr(SSL_F_SSL3_ACCEPT,
-					    ERR_R_INTERNAL_ERROR);
+					SSLerror(ERR_R_INTERNAL_ERROR);
 					ret = -1;
 					goto end;
 				}
@@ -522,9 +521,9 @@ dtls1_accept(SSL *s)
 
 				/* We need to get hashes here so if there is
 				 * a client cert, it can be verified */
-				s->method->internal->ssl3_enc->cert_verify_mac(s,
+				tls1_cert_verify_mac(s,
 				    NID_md5, &(S3I(s)->tmp.cert_verify_md[0]));
-				s->method->internal->ssl3_enc->cert_verify_mac(s,
+				tls1_cert_verify_mac(s,
 				    NID_sha1,
 				    &(S3I(s)->tmp.cert_verify_md[MD5_DIGEST_LENGTH]));
 			}
@@ -582,7 +581,7 @@ dtls1_accept(SSL *s)
 		case SSL3_ST_SW_CHANGE_B:
 
 			s->session->cipher = S3I(s)->tmp.new_cipher;
-			if (!s->method->internal->ssl3_enc->setup_key_block(s)) {
+			if (!tls1_setup_key_block(s)) {
 				ret = -1;
 				goto end;
 			}
@@ -597,7 +596,7 @@ dtls1_accept(SSL *s)
 			s->internal->state = SSL3_ST_SW_FINISHED_A;
 			s->internal->init_num = 0;
 
-			if (!s->method->internal->ssl3_enc->change_cipher_state(s,
+			if (!tls1_change_cipher_state(s,
 				SSL3_CHANGE_CIPHER_SERVER_WRITE)) {
 				ret = -1;
 				goto end;
@@ -610,8 +609,8 @@ dtls1_accept(SSL *s)
 		case SSL3_ST_SW_FINISHED_B:
 			ret = ssl3_send_finished(s,
 			    SSL3_ST_SW_FINISHED_A, SSL3_ST_SW_FINISHED_B,
-			    s->method->internal->ssl3_enc->server_finished_label,
-			    s->method->internal->ssl3_enc->server_finished_label_len);
+			    TLS_MD_SERVER_FINISH_CONST,
+			    TLS_MD_SERVER_FINISH_CONST_SIZE);
 			if (ret <= 0)
 				goto end;
 			s->internal->state = SSL3_ST_SW_FLUSH;
@@ -659,7 +658,7 @@ dtls1_accept(SSL *s)
 			/* break; */
 
 		default:
-			SSLerr(SSL_F_DTLS1_ACCEPT, SSL_R_UNKNOWN_STATE);
+			SSLerror(SSL_R_UNKNOWN_STATE);
 			ret = -1;
 			goto end;
 			/* break; */
@@ -706,8 +705,7 @@ dtls1_send_hello_verify_request(SSL *s)
 		if (s->ctx->internal->app_gen_cookie_cb == NULL ||
 		    s->ctx->internal->app_gen_cookie_cb(s,
 			D1I(s)->cookie, &(D1I(s)->cookie_len)) == 0) {
-			SSLerr(SSL_F_DTLS1_SEND_HELLO_VERIFY_REQUEST,
-			    ERR_R_INTERNAL_ERROR);
+			SSLerror(ERR_R_INTERNAL_ERROR);
 			return 0;
 		}
 
