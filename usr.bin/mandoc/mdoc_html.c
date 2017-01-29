@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.136 2017/01/25 02:14:41 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.138 2017/01/28 22:36:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2016, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -505,22 +505,18 @@ mdoc_sh_pre(MDOC_ARGS)
 	char	*id;
 
 	switch (n->type) {
-	case ROFFT_BLOCK:
-		return 1;
+	case ROFFT_HEAD:
+		id = make_id(n);
+		print_otag(h, TAG_H1, "ci", "Sh", id);
+		free(id);
+		break;
 	case ROFFT_BODY:
 		if (n->sec == SEC_AUTHORS)
 			h->flags &= ~(HTML_SPLIT|HTML_NOSPLIT);
-		return 1;
+		break;
 	default:
 		break;
 	}
-
-	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_H1, "ci", "Sh", id);
-		free(id);
-	} else
-		print_otag(h, TAG_H1, "c", "Sh");
-
 	return 1;
 }
 
@@ -532,12 +528,9 @@ mdoc_ss_pre(MDOC_ARGS)
 	if (n->type != ROFFT_HEAD)
 		return 1;
 
-	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_H2, "ci", "Ss", id);
-		free(id);
-	} else
-		print_otag(h, TAG_H2, "c", "Ss");
-
+	id = make_id(n);
+	print_otag(h, TAG_H2, "ci", "Ss", id);
+	free(id);
 	return 1;
 }
 
@@ -747,11 +740,8 @@ mdoc_it_pre(MDOC_ARGS)
 				print_otag(h, TAG_B, "c", cattr);
 			break;
 		case ROFFT_BODY:
-			if (bl->norm->Bl.width == NULL)
-				print_otag(h, TAG_DD, "c", cattr);
-			else
-				print_otag(h, TAG_DD, "cswl", cattr,
-				    bl->norm->Bl.width);
+			print_otag(h, TAG_DD, "cswl", cattr,
+			    bl->norm->Bl.width);
 			break;
 		default:
 			break;
@@ -763,22 +753,16 @@ mdoc_it_pre(MDOC_ARGS)
 			if (h->style != NULL && !bl->norm->Bl.comp &&
 			    (n->parent->prev == NULL ||
 			     n->parent->prev->body->child != NULL)) {
-				if (bl->norm->Bl.width == NULL)
-					t = print_otag(h, TAG_DT, "c", cattr);
-				else
-					t = print_otag(h, TAG_DT, "csWl",
-					    cattr, bl->norm->Bl.width);
+				t = print_otag(h, TAG_DT, "csWl",
+				    cattr, bl->norm->Bl.width);
 				print_text(h, "\\ ");
 				print_tagq(h, t);
 				t = print_otag(h, TAG_DD, "c", cattr);
 				print_text(h, "\\ ");
 				print_tagq(h, t);
 			}
-			if (bl->norm->Bl.width == NULL)
-				print_otag(h, TAG_DT, "c", cattr);
-			else
-				print_otag(h, TAG_DT, "csWl", cattr,
-				    bl->norm->Bl.width);
+			print_otag(h, TAG_DT, "csWl", cattr,
+			    bl->norm->Bl.width);
 			break;
 		case ROFFT_BODY:
 			if (n->child == NULL) {
@@ -815,18 +799,21 @@ mdoc_it_pre(MDOC_ARGS)
 static int
 mdoc_bl_pre(MDOC_ARGS)
 {
+	struct mdoc_bl	*bl;
 	const char	*cattr;
-	int		 i;
+	size_t		 i;
 	enum htmltag	 elemtype;
 
+	bl = &n->norm->Bl;
+
 	if (n->type == ROFFT_BODY) {
-		if (LIST_column == n->norm->Bl.type)
+		if (bl->type == LIST_column)
 			print_otag(h, TAG_TBODY, "");
 		return 1;
 	}
 
 	if (n->type == ROFFT_HEAD) {
-		if (LIST_column != n->norm->Bl.type)
+		if (bl->type != LIST_column || bl->ncols == 0)
 			return 0;
 
 		/*
@@ -836,14 +823,13 @@ mdoc_bl_pre(MDOC_ARGS)
 		 * screen and we want to preserve that behaviour.
 		 */
 
-		for (i = 0; i < (int)n->norm->Bl.ncols - 1; i++)
-			print_otag(h, TAG_COL, "sww", n->norm->Bl.cols[i]);
-		print_otag(h, TAG_COL, "swW", n->norm->Bl.cols[i]);
-
+		for (i = 0; i < bl->ncols - 1; i++)
+			print_otag(h, TAG_COL, "sww", bl->cols[i]);
+		print_otag(h, TAG_COL, "swW", bl->cols[i]);
 		return 0;
 	}
 
-	switch (n->norm->Bl.type) {
+	switch (bl->type) {
 	case LIST_bullet:
 		elemtype = TAG_UL;
 		cattr = "Bl-bullet";
@@ -879,14 +865,9 @@ mdoc_bl_pre(MDOC_ARGS)
 		break;
 	case LIST_tag:
 		cattr = "Bl-tag";
-		if (n->norm->Bl.offs)
-			print_otag(h, TAG_DIV, "cswl", cattr,
-			    n->norm->Bl.offs);
-		if (n->norm->Bl.width == NULL)
-			print_otag(h, TAG_DL, "c", cattr);
-		else
-			print_otag(h, TAG_DL, "cswl", cattr,
-			    n->norm->Bl.width);
+		if (bl->offs)
+			print_otag(h, TAG_DIV, "cswl", cattr, bl->offs);
+		print_otag(h, TAG_DL, "cswl", cattr, bl->width);
 		return 1;
 	case LIST_column:
 		elemtype = TAG_TABLE;
@@ -895,12 +876,7 @@ mdoc_bl_pre(MDOC_ARGS)
 	default:
 		abort();
 	}
-
-	if (n->norm->Bl.offs)
-		print_otag(h, elemtype, "cswl", cattr, n->norm->Bl.offs);
-	else
-		print_otag(h, elemtype, "c", cattr);
-
+	print_otag(h, elemtype, "cswl", cattr, bl->offs);
 	return 1;
 }
 
@@ -938,12 +914,9 @@ mdoc_sx_pre(MDOC_ARGS)
 {
 	char	*id;
 
-	if ((id = make_id(n)) != NULL) {
-		print_otag(h, TAG_A, "chR", "Sx", id);
-		free(id);
-	} else
-		print_otag(h, TAG_A, "c", "Sx");
-
+	id = make_id(n);
+	print_otag(h, TAG_A, "chR", "Sx", id);
+	free(id);
 	return 1;
 }
 
