@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.482 2017/01/25 21:59:41 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.485 2017/02/01 02:02:01 jsg Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -234,10 +234,6 @@ struct task if_input_task_locked = TASK_INITIALIZER(if_netisr, NULL);
  * are introduced in IP output paths.
  */
 struct rwlock netlock = RWLOCK_INITIALIZER("netlock");
-#if 1
-/* tsleep() is ok if inside ifioctl(). */
-int inifioctl;
-#endif
 
 /*
  * Network interface utility routines.
@@ -517,11 +513,11 @@ if_attachhead(struct ifnet *ifp)
 {
 	int s;
 
-	s = splsoftnet();
 	if_attach_common(ifp);
+	NET_LOCK(s);
 	TAILQ_INSERT_HEAD(&ifnet, ifp, if_list);
 	if_attachsetup(ifp);
-	splx(s);
+	NET_UNLOCK(s);
 }
 
 void
@@ -529,8 +525,8 @@ if_attach(struct ifnet *ifp)
 {
 	int s;
 
-	NET_LOCK(s);
 	if_attach_common(ifp);
+	NET_LOCK(s);
 	TAILQ_INSERT_TAIL(&ifnet, ifp, if_list);
 	if_attachsetup(ifp);
 	NET_UNLOCK(s);

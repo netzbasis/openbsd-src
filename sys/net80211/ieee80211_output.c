@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_output.c,v 1.115 2017/01/30 18:21:13 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_output.c,v 1.117 2017/01/31 11:06:15 stsp Exp $	*/
 /*	$NetBSD: ieee80211_output.c,v 1.13 2004/05/31 11:02:55 dyoung Exp $	*/
 
 /*-
@@ -361,7 +361,7 @@ ieee80211_up_to_ac(struct ieee80211com *ic, int up)
 #endif
 	/*
 	 * We do not support the admission control procedure defined in
-	 * IEEE Std 802.11-2007 section 9.9.3.1.2.  The spec says that
+	 * IEEE Std 802.11-2012 section 9.19.4.2.3. The spec says that
 	 * non-AP QSTAs that don't support this procedure shall use EDCA
 	 * parameters of a lower priority AC that does not require
 	 * admission control.
@@ -767,7 +767,7 @@ ieee80211_add_edca_params(u_int8_t *frm, struct ieee80211com *ic)
 	*frm++ = 0;	/* reserved */
 
 	/* setup AC Parameter Records */
-	edca = ieee80211_qap_edca_table[ic->ic_curmode];
+	edca = ieee80211_edca_table[ic->ic_curmode];
 	for (aci = 0; aci < EDCA_NUM_AC; aci++) {
 		const struct ieee80211_edca_ac_params *ac = &edca[aci];
 
@@ -867,7 +867,7 @@ ieee80211_add_wme_param(uint8_t *frm, struct ieee80211com *ic)
 	*frm++ = 0; /* reserved */
 
 	/* setup AC Parameter Records */
-	edca = ieee80211_qap_edca_table[ic->ic_curmode];
+	edca = ieee80211_edca_table[ic->ic_curmode];
 	for (aci = 0; aci < EDCA_NUM_AC; aci++) {
 		const struct ieee80211_edca_ac_params *ac = &edca[aci];
 
