@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.710 2017/02/01 09:55:07 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.712 2017/02/03 21:01:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -545,7 +545,6 @@ struct grid_cell {
 	int			fg;
 	int			bg;
 	struct utf8_data	data;
-
 };
 struct grid_cell_entry {
 	u_char			flags;
@@ -935,6 +934,8 @@ struct session {
 	struct winlink	*curw;
 	struct winlink_stack lastw;
 	struct winlinks	 windows;
+
+	int		 statusat;
 
 	struct hooks	*hooks;
 	struct options	*options;
@@ -1503,8 +1504,11 @@ char		*paste_make_sample(struct paste_buffer *);
 #define FORMAT_STATUS 0x1
 #define FORMAT_FORCE 0x2
 #define FORMAT_NOJOBS 0x4
+#define FORMAT_NONE 0
+#define FORMAT_PANE 0x80000000U
+#define FORMAT_WINDOW 0x40000000U
 struct format_tree;
-struct format_tree *format_create(struct cmdq_item *, int);
+struct format_tree *format_create(struct cmdq_item *, int, int);
 void		 format_free(struct format_tree *);
 void printflike(3, 4) format_add(struct format_tree *, const char *,
 		     const char *, ...);
@@ -1861,6 +1865,7 @@ void	 server_unzoom_window(struct window *);
 /* status.c */
 void	 status_timer_start(struct client *);
 void	 status_timer_start_all(void);
+void	 status_update_saved(struct session *s);
 int	 status_at_line(struct client *);
 struct window *status_get_window_at(struct client *, u_int);
 int	 status_redraw(struct client *);
