@@ -1,4 +1,4 @@
-/* $OpenBSD: machdep.c,v 1.7 2017/01/23 14:02:02 jsg Exp $ */
+/* $OpenBSD: machdep.c,v 1.9 2017/02/04 19:49:18 patrick Exp $ */
 /*
  * Copyright (c) 2014 Patrick Wildt <patrick@blueri.se>
  *
@@ -761,8 +761,6 @@ install_coproc_handler()
 void	collect_kernel_args(char *);
 void	process_kernel_args(void);
 
-volatile int gdb_wc, gdb_w;
-
 void
 initarm(struct arm64_bootparams *abp)
 {
@@ -780,11 +778,6 @@ initarm(struct arm64_bootparams *abp)
 	int (*map_a4x_func_save)(bus_space_tag_t, bus_addr_t, bus_size_t, int,
 	    bus_space_handle_t *);
 
-#if 0
-	gdb_w = 1;
-	while(gdb_w)
-		;
-#endif
 	// NOTE that 1GB of ram is mapped in by default in
 	// the bootstrap memory config, so nothing is necessary
 	// until pmap_bootstrap_finalize is called??
@@ -817,19 +810,9 @@ initarm(struct arm64_bootparams *abp)
 	if (reg.size >  0x80000000)
 		memsize = 0x80000000;
 
-#if 0
-	/* Load the physical memory ranges */
-	physmap_idx = 0;
-	efihdr = (struct efi_map_header *)preload_search_info(kmdp,
-	    MODINFO_METADATA | MODINFOMD_EFI_MAP);
-	add_efi_map_entries(efihdr, physmap, &physmap_idx);
-#endif
-
 	/* Set the pcpu data, this is needed by pmap_bootstrap */
 	// smp
 	pcpup = &cpu_info_primary;
-	//pcpu_init(pcpup, 0, sizeof(struct pcpu));
-
 
 	/*
 	 * Set the pcpu pointer with a backup in tpidr_el1 to be
@@ -845,19 +828,6 @@ initarm(struct arm64_bootparams *abp)
 	}
 	process_kernel_args();
 
-	if (gdb_wc >= 0) {
-		gdb_w = 1;
-		while(gdb_w)
-			;
-	}
-
-	// PCPU_SET(curthread, &thread0);
-
-	/* Do basic tuning, hz etc */
-	// init_param1();
-
-	// cache_setup();
-
 	// XXX
 	paddr_t pmap_steal_avail(size_t size, int align, void **kva);
 
@@ -869,18 +839,8 @@ initarm(struct arm64_bootparams *abp)
 	    kernbase, esym,
 	    memstart, memstart + memsize);
 
-	//arm_devmap_bootstrap(0, NULL);
-
-	//cninit();
-
 	// XX correctly sized?
 	proc0paddr = (struct user *)abp->kern_stack;
-	//msgbufinit(msgbufp, msgbufsize);
-	//mutex_init();
-	//init_param2(physmem);
-
-	//dbg_monitor_init();
-	//kdb_init();
 
 	msgbufaddr = (caddr_t)vstart;
 	msgbufphys = pmap_steal_avail(round_page(MSGBUFSIZE), PAGE_SIZE, NULL);
@@ -913,11 +873,6 @@ initarm(struct arm64_bootparams *abp)
 		vstart += size;
 	}
 
-	/* XXX */
-#if 0
-	// XXX ?
-	vstart += reserve_dumppages( (caddr_t)(?address? + arm_kvm_stolen));
-#endif
 	/*
 	 * Managed KVM space is what we have claimed up to end of
 	 * mapped kernel buffers.
@@ -934,9 +889,9 @@ initarm(struct arm64_bootparams *abp)
 	if (fdt)
 		fdt_init(fdt);
 
-// XXX
-int pmap_bootstrap_bs_map(bus_space_tag_t t, bus_addr_t bpa, bus_size_t size,
-    int flags, bus_space_handle_t *bshp);
+	// XXX
+	int pmap_bootstrap_bs_map(bus_space_tag_t t, bus_addr_t bpa,
+	    bus_size_t size, int flags, bus_space_handle_t *bshp);
 
 	map_func_save = arm64_bs_tag._space_map;
 	map_a4x_func_save = arm64_a4x_bs_tag._space_map;
@@ -1036,11 +991,6 @@ process_kernel_args(void)
 		case 's':
 			fl |= RB_SINGLE;
 			break;
-// hack
-		case 'g':
-			gdb_wc = 0;
-			break;
-// hack
 		case '1':
 			comcnspeed = B115200;
 			break;
@@ -1054,25 +1004,6 @@ process_kernel_args(void)
 		boothowto |= fl;
 	}
 }
-volatile int gdb_wc=-1;
-int gdb_c=0;
-void dbg(int index, long arg0, long arg1)
-{
-	if (gdb_wc > 0) {
-		gdb_wc--;
-	}
-	if (gdb_wc==-1) {
-		gdb_c++;
-	}
-	if (gdb_wc == 0)
-		gdb_w = 1;
-	while(gdb_w)
-		;
-}
-void prt(char *fmt, long arg0, long arg1, long arg2)
-{
-}
-
 
 /*
  * allow bootstrap to steal KVA after machdep has given it back to pmap.
