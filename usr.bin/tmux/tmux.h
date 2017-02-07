@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.712 2017/02/03 21:01:02 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.717 2017/02/06 22:05:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -240,6 +240,7 @@ enum tty_code_code {
 	TTYC_DL1,	/* delete_line, dl */
 	TTYC_E3,
 	TTYC_ECH,	/* erase_chars, ec */
+	TTYC_ED,	/* csr_eos, cd */
 	TTYC_EL,	/* clr_eol, ce */
 	TTYC_EL1,	/* clr_bol, cb */
 	TTYC_ENACS,	/* ena_acs, eA */
@@ -1054,6 +1055,9 @@ struct tty {
 
 	struct grid_cell cell;
 
+	int              last_wp;
+	struct grid_cell last_cell;
+
 #define TTY_NOCURSOR 0x1
 #define TTY_FREEZE 0x2
 #define TTY_TIMER 0x4
@@ -1226,6 +1230,7 @@ struct cmdq_item {
 
 	struct cmd_list		*cmdlist;
 	struct cmd		*cmd;
+	int			 repeat;
 
 	cmdq_cb			 cb;
 	void			*data;
@@ -1667,7 +1672,6 @@ void	tty_cmd_erasecharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertcharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_linefeed(struct tty *, const struct tty_ctx *);
-void	tty_cmd_utf8character(struct tty *, const struct tty_ctx *);
 void	tty_cmd_reverseindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_setselection(struct tty *, const struct tty_ctx *);
 void	tty_cmd_rawstring(struct tty *, const struct tty_ctx *);
@@ -1992,7 +1996,7 @@ void	 screen_write_scrollregion(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_linefeed(struct screen_write_ctx *, int);
 void	 screen_write_carriagereturn(struct screen_write_ctx *);
 void	 screen_write_clearendofscreen(struct screen_write_ctx *, u_int);
-void	 screen_write_clearstartofscreen(struct screen_write_ctx *);
+void	 screen_write_clearstartofscreen(struct screen_write_ctx *, u_int);
 void	 screen_write_clearscreen(struct screen_write_ctx *, u_int);
 void	 screen_write_clearhistory(struct screen_write_ctx *);
 void	 screen_write_cell(struct screen_write_ctx *, const struct grid_cell *);

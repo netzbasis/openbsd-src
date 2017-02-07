@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.45 2016/12/21 12:17:15 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.48 2017/02/06 21:58:29 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -18,14 +18,6 @@
 
 #ifndef _DEV_PV_XENVAR_H_
 #define _DEV_PV_XENVAR_H_
-
-/* #define XEN_DEBUG */
-
-#ifdef XEN_DEBUG
-#define DPRINTF(x...)		printf(x)
-#else
-#define DPRINTF(x...)
-#endif
 
 static inline void
 clear_bit(u_int b, volatile void *p)
@@ -54,6 +46,7 @@ struct xen_intsrc {
 	evtchn_port_t		 xi_port;
 	short			 xi_noclose;
 	short			 xi_masked;
+	struct refcnt		 xi_refcnt;
 	struct task		 xi_task;
 	struct taskq		*xi_taskq;
 };
@@ -64,7 +57,7 @@ struct xen_gntent {
 	short			 ge_reserved;
 	short			 ge_next;
 	short			 ge_free;
-	struct mutex		 ge_mtx;
+	struct mutex		 ge_lock;
 };
 
 struct xen_gntmap {
@@ -104,9 +97,10 @@ struct xen_softc {
 
 	uint64_t		 sc_irq;	/* IDT vector number */
 	SLIST_HEAD(, xen_intsrc) sc_intrs;
+	struct mutex		 sc_islck;
 
 	struct xen_gntent	*sc_gnt;	/* grant table entries */
-	struct mutex		 sc_gntmtx;
+	struct mutex		 sc_gntlck;
 	int			 sc_gntcnt;	/* number of allocated frames */
 	int			 sc_gntmax;	/* number of allotted frames */
 
@@ -182,8 +176,6 @@ void	xen_unplug_emulated(void *, int);
 
 struct xs_transaction {
 	uint32_t		 xst_id;
-	uint32_t		 xst_flags;
-#define XST_POLL		0x0001
 	void			*xst_cookie;
 };
 
