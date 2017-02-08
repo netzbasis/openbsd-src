@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.229 2017/02/06 22:05:11 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.232 2017/02/07 18:27:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -64,8 +64,6 @@ static int	tty_large_region(struct tty *, const struct tty_ctx *);
 static int	tty_fake_bce(const struct tty *, const struct window_pane *,
 		    u_int);
 static void	tty_redraw_region(struct tty *, const struct tty_ctx *);
-static void	tty_clear_area(struct tty *, const struct tty_ctx *ctx, u_int,
-		    u_int, u_int, u_int);
 static void	tty_emulate_repeat(struct tty *, enum tty_code_code,
 		    enum tty_code_code, u_int);
 static void	tty_repeat_space(struct tty *, u_int);
@@ -447,6 +445,7 @@ tty_puts(struct tty *tty, const char *s)
 
 	if (tty_log_fd != -1)
 		write(tty_log_fd, s, strlen(s));
+	log_debug("%s: %s", tty->path, s);
 }
 
 void
@@ -456,12 +455,17 @@ tty_putc(struct tty *tty, u_char ch)
 
 	if (tty->cell.attr & GRID_ATTR_CHARSET) {
 		acs = tty_acs_get(tty, ch);
-		if (acs != NULL)
+		if (acs != NULL) {
 			bufferevent_write(tty->event, acs, strlen(acs));
-		else
+			log_debug("%s: %s", tty->path, acs);
+		} else {
 			bufferevent_write(tty->event, &ch, 1);
-	} else
+			log_debug("%s: %c", tty->path, ch);
+		}
+	} else {
 		bufferevent_write(tty->event, &ch, 1);
+		log_debug("%s: %c", tty->path, ch);
+	}
 
 	if (ch >= 0x20 && ch != 0x7f) {
 		if (tty->cx >= tty->sx) {
@@ -488,8 +492,11 @@ void
 tty_putn(struct tty *tty, const void *buf, size_t len, u_int width)
 {
 	bufferevent_write(tty->event, buf, len);
+
 	if (tty_log_fd != -1)
 		write(tty_log_fd, buf, len);
+	log_debug("%s: %.*s", tty->path, (int)len, (char *)buf);
+
 	tty->cx += width;
 }
 
@@ -685,17 +692,6 @@ tty_redraw_region(struct tty *tty, const struct tty_ctx *ctx)
 		for (i = ctx->orupper; i <= ctx->orlower; i++)
 			tty_draw_pane(tty, wp, i, ctx->xoff, ctx->yoff);
 	}
-}
-
-static void
-tty_clear_area(struct tty *tty, const struct tty_ctx *ctx, u_int sx, u_int sy,
-    u_int ex, u_int ey)
-{
-	char s[64];
-
-	snprintf (s, sizeof s, "\033[32;%u;%u;%u;%u$x", ctx->yoff + sy + 1,
-	    ctx->xoff + sx + 1, ctx->yoff + ey + 1, ctx->xoff + ex + 1);
-	tty_puts(tty, s);
 }
 
 void
@@ -921,9 +917,6 @@ tty_cmd_clearline(struct tty *tty, const struct tty_ctx *ctx)
 	    !tty_fake_bce(tty, wp, ctx->bg) &&
 	    tty_term_has(tty->term, TTYC_EL))
 		tty_putcode(tty, TTYC_EL);
-	else if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg))
-		tty_clear_area(tty, ctx, 0, ctx->ocy, sx - 1, ctx->ocy);
 	else
 		tty_repeat_space(tty, sx);
 }
@@ -943,9 +936,6 @@ tty_cmd_clearendofline(struct tty *tty, const struct tty_ctx *ctx)
 	    tty_term_has(tty->term, TTYC_EL) &&
 	    !tty_fake_bce(tty, wp, ctx->bg))
 		tty_putcode(tty, TTYC_EL);
-	else if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg))
-		tty_clear_area(tty, ctx, ctx->ocx, ctx->ocy, sx - 1, ctx->ocy);
 	else
 		tty_repeat_space(tty, sx - ctx->ocx);
 }
@@ -957,18 +947,14 @@ tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_default_attributes(tty, wp, ctx->bg);
 
+	tty_cursor_pane(tty, ctx, 0, ctx->ocy);
+
 	if (ctx->xoff == 0 &&
 	    tty_term_has(tty->term, TTYC_EL1) &&
-	    !tty_fake_bce(tty, ctx->wp, ctx->bg)) {
-		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+	    !tty_fake_bce(tty, ctx->wp, ctx->bg))
 		tty_putcode(tty, TTYC_EL1);
-	} else if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg))
-		tty_clear_area(tty, ctx, 0, ctx->ocy, ctx->ocx, ctx->ocy);
-	else {
-		tty_cursor_pane(tty, ctx, 0, ctx->ocy);
+	else
 		tty_repeat_space(tty, ctx->ocx + 1);
-	}
 }
 
 void
@@ -1059,18 +1045,6 @@ tty_cmd_clearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
 	    tty_term_has(tty->term, TTYC_ED)) {
 		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 		tty_putcode(tty, TTYC_ED);
-	} else if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg)) {
-		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
-		if (tty_pane_full_width(tty, ctx) &&
-		    tty_term_has(tty->term, TTYC_EL))
-			tty_putcode(tty, TTYC_EL);
-		else
-			tty_repeat_space(tty, sx - ctx->ocx);
-		if (ctx->ocy != sy - 1) {
-			tty_clear_area(tty, ctx, 0, ctx->ocy + 1, sx - 1,
-			    sy - 1);
-		}
 	} else if (tty_pane_full_width(tty, ctx) &&
 	    tty_term_has(tty->term, TTYC_EL) &&
 	    !tty_fake_bce(tty, wp, ctx->bg)) {
@@ -1109,10 +1083,7 @@ tty_cmd_clearstartofscreen(struct tty *tty, const struct tty_ctx *ctx)
 	tty_region_pane(tty, ctx, 0, sy - 1);
 	tty_margin_off(tty);
 
-	if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg))
-		tty_clear_area(tty, ctx, 0, 0, sx - 1, ctx->ocy - 1);
-	else if (tty_pane_full_width(tty, ctx) &&
+	if (tty_pane_full_width(tty, ctx) &&
 	    tty_term_has(tty->term, TTYC_EL) &&
 	    !tty_fake_bce(tty, wp, ctx->bg)) {
 		tty_cursor_pane(tty, ctx, 0, 0);
@@ -1150,10 +1121,7 @@ tty_cmd_clearscreen(struct tty *tty, const struct tty_ctx *ctx)
 	    tty_term_has(tty->term, TTYC_ED)) {
 		tty_cursor_pane(tty, ctx, 0, 0);
 		tty_putcode(tty, TTYC_ED);
-	} else if (tty->term_type == TTY_VT420 &&
-	    !tty_fake_bce(tty, wp, ctx->bg))
-		tty_clear_area(tty, ctx, 0, 0, sx - 1, sy - 1);
-	else if (tty_pane_full_width(tty, ctx) &&
+	} else if (tty_pane_full_width(tty, ctx) &&
 	    tty_term_has(tty->term, TTYC_EL) &&
 	    !tty_fake_bce(tty, wp, ctx->bg)) {
 		tty_cursor_pane(tty, ctx, 0, 0);
@@ -1360,7 +1328,7 @@ tty_region(struct tty *tty, u_int rupper, u_int rlower)
 		tty_cursor(tty, 0, tty->cy);
 
 	tty_putcode2(tty, TTYC_CSR, tty->rupper, tty->rlower);
-	tty_cursor(tty, 0, 0);
+	tty->cx = tty->cy = 0;
 }
 
 /* Turn off margin. */
@@ -1388,12 +1356,17 @@ tty_margin(struct tty *tty, u_int rleft, u_int rright)
 	if (tty->rleft == rleft && tty->rright == rright)
 		return;
 
+	tty_putcode2(tty, TTYC_CSR, tty->rupper, tty->rlower);
+
 	tty->rleft = rleft;
 	tty->rright = rright;
 
-	snprintf(s, sizeof s, "\033[%u;%us", rleft + 1, rright + 1);
+	if (rleft == 0 && rright == tty->sx - 1)
+		snprintf(s, sizeof s, "\033[s");
+	else
+		snprintf(s, sizeof s, "\033[%u;%us", rleft + 1, rright + 1);
 	tty_puts(tty, s);
-	tty_cursor(tty, 0, 0);
+	tty->cx = tty->cy = 0;
 }
 
 /* Move cursor inside pane. */
