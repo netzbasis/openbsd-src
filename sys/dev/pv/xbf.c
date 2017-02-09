@@ -1,4 +1,4 @@
-/*	$OpenBSD: xbf.c,v 1.18 2017/02/06 21:47:06 mikeb Exp $	*/
+/*	$OpenBSD: xbf.c,v 1.23 2017/02/08 17:39:57 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2016 Mike Belopuhov
@@ -309,12 +309,14 @@ int
 xbf_detach(struct device *self, int flags)
 {
 	struct xbf_softc *sc = (struct xbf_softc *)self;
+	int ostate = sc->sc_state;
+
+	sc->sc_state = XBF_CLOSING;
 
 	xen_intr_mask(sc->sc_xih);
+	xen_intr_barrier(sc->sc_xih);
 
-	intr_barrier(&sc->sc_xih);
-
-	if (sc->sc_state == XBF_CONNECTED) {
+	if (ostate == XBF_CONNECTED) {
 		xen_intr_disestablish(sc->sc_xih);
 		xbf_stop(sc);
 	}
@@ -388,7 +390,7 @@ xbf_scsi_cmd(struct scsi_xfer *xs)
 	case WRITE_12:
 	case WRITE_16:
 		if (sc->sc_state != XBF_CONNECTED) {
-			xbf_scsi_done(xs, XS_RESET);
+			xbf_scsi_done(xs, XS_SELTIMEOUT);
 			return;
 		}
 		break;
@@ -429,10 +431,13 @@ xbf_scsi_cmd(struct scsi_xfer *xs)
 	}
 
 	if (ISSET(xs->flags, SCSI_POLL) && xbf_poll_cmd(xs, desc, 1000)) {
-		DPRINTF("%s: desc %u timed out\n", sc->sc_dev.dv_xname, desc);
-		sc->sc_xs[desc] = NULL;
-		xbf_reclaim_xs(xs, desc);
-		xbf_scsi_done(xs, XS_TIMEOUT);
+		printf("%s: op %#x timed out\n", sc->sc_dev.dv_xname,
+		    xs->cmd->opcode);
+		if (sc->sc_state == XBF_CONNECTED) {
+			sc->sc_xs[desc] = NULL;
+			xbf_reclaim_xs(xs, desc);
+			xbf_scsi_done(xs, XS_TIMEOUT);
+		}
 		return;
 	}
 }
@@ -511,6 +516,10 @@ xbf_bounce_xs(struct scsi_xfer *xs, int desc)
 		mapflags |= BUS_DMA_NOWAIT;
 	else
 		mapflags |= BUS_DMA_WAITOK;
+	if (ISSET(xs->flags, SCSI_DATA_IN))
+		mapflags |= BUS_DMA_READ;
+	else
+		mapflags |= BUS_DMA_WRITE;
 
 	error = xbf_dma_alloc(sc, dma, size, size / PAGE_SIZE, mapflags);
 	if (error) {
@@ -974,8 +983,6 @@ xbf_init(struct xbf_softc *sc)
 		return (-1);
 	}
 
-	sc->sc_state = XBF_CONNECTED;
-
 	action = "read";
 
 	prop = "sectors";
@@ -1019,6 +1026,8 @@ xbf_init(struct xbf_softc *sc)
 		    sc->sc_dev.dv_xname);
 		return (-1);
 	}
+
+	sc->sc_state = XBF_CONNECTED;
 
 	return (0);
 
@@ -1190,9 +1199,6 @@ xbf_ring_destroy(struct xbf_softc *sc)
 		bus_dmamap_unload(sc->sc_dmat, sc->sc_xs_map[i]);
 		bus_dmamap_destroy(sc->sc_dmat, sc->sc_xs_map[i]);
 		sc->sc_xs_map[i] = NULL;
-		if (sc->sc_xs == NULL || sc->sc_xs[i] == NULL)
-			continue;
-		xbf_scsi_done(sc->sc_xs[i], XS_RESET);
 	}
 
 	free(sc->sc_xs, M_DEVBUF, sc->sc_xr_ndesc *
@@ -1208,7 +1214,6 @@ xbf_ring_destroy(struct xbf_softc *sc)
 	sc->sc_xs_bb = NULL;
 
 	xbf_dma_free(sc, &sc->sc_xr_dma);
-
 	sc->sc_xr = NULL;
 }
 
@@ -1240,14 +1245,9 @@ xbf_stop(struct xbf_softc *sc)
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 		bus_dmamap_unload(sc->sc_dmat, map);
 		xbf_reclaim_xs(xs, desc);
-		xbf_scsi_done(xs, XS_RESET);
+		xbf_scsi_done(xs, XS_SELTIMEOUT);
 		sc->sc_xs[desc] = NULL;
 	}
-
-	sc->sc_state = XBF_CLOSING;
-
-	/* Give other processes a chance to run */
-	yield();
 
 	xbf_ring_destroy(sc);
 }

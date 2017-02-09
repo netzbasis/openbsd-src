@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.2 2017/02/06 22:58:51 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.4 2017/02/08 23:09:28 bluhm Exp $
 
 # This test needs a manual setup of four machines, the make
 # target create-setup can be used distribute the configuration.
@@ -38,40 +38,41 @@ PREFIX_IPV6 ?=	fdd7:e83e:66bc:1
 # to avoid encryption of neighbor discovery packets
 
 SRC_OUT_IPV4 ?=	${PREFIX_IPV4}00.17
-SRC_OUT_IPV6 ?=	${PREFIX_IPV6}0::17
+SRC_OUT_IPV6 ?=	${PREFIX_IPV6}00::17
 SRC_TRANSP_IPV4 ?=	${PREFIX_IPV4}05.17
-SRC_TRANSP_IPV6 ?=	${PREFIX_IPV6}4::17
+SRC_TRANSP_IPV6 ?=	${PREFIX_IPV6}04::17
 SRC_TUNNEL_IPV4 ?=	${PREFIX_IPV4}08.17
-SRC_TUNNEL_IPV6 ?=	${PREFIX_IPV6}8::17
+SRC_TUNNEL_IPV6 ?=	${PREFIX_IPV6}08::17
 
 IPS_IN_IPV4 ?=	${PREFIX_IPV4}00.70
-IPS_IN_IPV6 ?=	${PREFIX_IPV6}0::70
+IPS_IN_IPV6 ?=	${PREFIX_IPV6}00::70
 IPS_OUT_IPV4 ?=	${PREFIX_IPV4}01.70
-IPS_OUT_IPV6 ?=	${PREFIX_IPV6}1::70
+IPS_OUT_IPV6 ?=	${PREFIX_IPV6}01::70
 IPS_TRANSP_IPV4 ?=	${PREFIX_IPV4}05.70
-IPS_TRANSP_IPV6 ?=	${PREFIX_IPV6}5::70
+IPS_TRANSP_IPV6 ?=	${PREFIX_IPV6}05::70
 IPS_TUNNEL4_IPV4 ?=	${PREFIX_IPV4}12.70
-IPS_TUNNEL4_IPV6 ?=	${PREFIX_IPV6}c::70
+IPS_TUNNEL4_IPV6 ?=	${PREFIX_IPV6}0c::70
 IPS_TUNNEL6_IPV4 ?=	${PREFIX_IPV4}13.70
-IPS_TUNNEL6_IPV6 ?=	${PREFIX_IPV6}d::70
+IPS_TUNNEL6_IPV6 ?=	${PREFIX_IPV6}0d::70
 
 RT_IN_IPV4 ?=	${PREFIX_IPV4}01.71
-RT_IN_IPV6 ?=	${PREFIX_IPV6}1::71
+RT_IN_IPV6 ?=	${PREFIX_IPV6}01::71
 RT_OUT_IPV4 ?=	${PREFIX_IPV4}02.71
-RT_OUT_IPV6 ?=	${PREFIX_IPV6}2::71
+RT_OUT_IPV6 ?=	${PREFIX_IPV6}02::71
 
 ECO_IN_IPV4 ?=	${PREFIX_IPV4}02.72
-ECO_IN_IPV6 ?=	${PREFIX_IPV6}2::72
+ECO_IN_IPV6 ?=	${PREFIX_IPV6}02::72
 ECO_TUNNEL4_IPV4 ?=	${PREFIX_IPV4}14.72
-ECO_TUNNEL4_IPV6 ?=	${PREFIX_IPV6}e::72
+ECO_TUNNEL4_IPV6 ?=	${PREFIX_IPV6}0e::72
 ECO_TUNNEL6_IPV4 ?=	${PREFIX_IPV4}15.72
-ECO_TUNNEL6_IPV6 ?=	${PREFIX_IPV6}f::72
+ECO_TUNNEL6_IPV6 ?=	${PREFIX_IPV6}0f::72
 
 # Configure Addresses on the machines, there must be routes for the
 # networks.  Adapt interface and addresse variables to your local
 # setup.  To control the remote machine you need a hostname for
 # ssh to log in.
 #
+# IPS and ECO need inetd echo service on TRANSP and TUNNEL addresses.
 # Run make create-setup to copy hostname.if files to the machines
 # Run make check-setup to see if you got the setup correct.
 
@@ -144,6 +145,11 @@ run-regress-ping-IPS_TRANSP_IPV6:
 	@echo 'request does not create state and echo reply does not pass pf.'
 	@echo DISABLED
 
+run-regress-tcp-IPS_TRANSP_IPV6:
+	@echo '\n======== $@ ========'
+	@echo 'IPv6 IPsec input does not filter enc0 interface with pf.  TCP'
+	@echo 'SYN does not create state and SYN+ACK does not pass pf.'
+	@echo DISABLED
 
 .for host dir in SRC OUT SRC TRANSP SRC TUNNEL \
     IPS IN IPS OUT IPS TRANSP IPS TUNNEL4 IPS TUNNEL6 \
@@ -160,6 +166,29 @@ run-regress-ping-${host}_${dir}_${ipv}:
 	netstat -s -p esp | awk '/input ESP /{print $$1-1}' | diff esp.in -
 	netstat -s -p esp | awk '/output ESP /{print $$1-1}' | diff esp.out -
 .endif
+.endfor
+.endfor
+
+.for host dir in IPS TRANSP IPS TUNNEL4 IPS TUNNEL6 \
+    ECO TUNNEL4 ECO TUNNEL6
+.for ipv in IPV4 IPV6
+TARGETS +=      udp-${host}_${dir}_${ipv}
+run-regress-udp-${host}_${dir}_${ipv}:
+	@echo '\n======== $@ ========'
+	netstat -s -p esp | awk '/input ESP /{print $$1}' >esp.in
+	netstat -s -p esp | awk '/output ESP /{print $$1}' >esp.out
+	echo $$$$ | nc -n -u -w 1 ${${host}_${dir}_${ipv}} 7 | fgrep $$$$
+	netstat -s -p esp | awk '/input ESP /{print $$1-1}' | diff esp.in -
+	netstat -s -p esp | awk '/output ESP /{print $$1-1}' | diff esp.out -
+
+TARGETS +=      tcp-${host}_${dir}_${ipv}
+run-regress-tcp-${host}_${dir}_${ipv}:
+	@echo '\n======== $@ ========'
+	netstat -s -p esp | awk '/input ESP /{print $$1}' >esp.in
+	netstat -s -p esp | awk '/output ESP /{print $$1}' >esp.out
+	echo $$$$ | nc -n -N -w 3 ${${host}_${dir}_${ipv}} 7 | fgrep $$$$
+	netstat -s -p esp | awk '/input ESP /{print $$1-4}' | diff esp.in -
+	netstat -s -p esp | awk '/output ESP /{print $$1-6}' | diff esp.out -
 .endfor
 .endfor
 
@@ -337,11 +366,11 @@ stamp-hostname: etc/hostname.${SRC_OUT_IF} \
 	    /etc/hostname.${SRC_OUT_IF} &&\
 	    sh /etc/netstart ${SRC_OUT_IF}"
 .for host dir in IPS IN IPS OUT RT IN RT OUT ECO IN
-	ssh ${${host}_SSH} ${SUDO} "umask 027;\
+	ssh root@${${host}_SSH} "umask 027;\
 	    { sed '/^### regress/,\$$d' /etc/hostname.${${host}_${dir}_IF} &&\
 	    cat; } >/etc/hostname.${${host}_${dir}_IF}.tmp"\
 	    <${${host}_SSH}/hostname.${${host}_${dir}_IF}
-	ssh ${${host}_SSH} ${SUDO} "mv /etc/hostname.${${host}_${dir}_IF}.tmp\
+	ssh root@${${host}_SSH} "mv /etc/hostname.${${host}_${dir}_IF}.tmp\
 	    /etc/hostname.${${host}_${dir}_IF} &&\
 	    sh /etc/netstart ${${host}_${dir}_IF}"
 .endfor
@@ -397,6 +426,11 @@ check-setup-ips:
 	ssh ${IPS_SSH} route -n get -${inet} ${${host}_${dir}_${ipv}} |\
 	    grep -q 'flags: .*REJECT'  # ${host}_${dir}_${ipv}
 .endfor
+.for host dir in IPS TRANSP IPS TUNNEL4 IPS TUNNEL6
+	ssh ${IPS_SSH} netstat -nav -f ${inet} -p udp |\
+	    fgrep ' ${${host}_${dir}_${ipv}}.7 '  # ${host}_${dir}_${ipv}
+.endfor
+	ssh ${ECO_SSH} netstat -na -f ${inet} -p tcp | fgrep ' *.7 '
 .endfor
 	ssh ${IPS_SSH} route -n get -inet ${SRC_TRANSP_IPV4} |\
 	    egrep -q 'flags: .*(CLONING|CLONED)' # SRC_TRANSP_IPV4
@@ -442,6 +476,11 @@ check-setup-eco:
 	    fgrep -q 'gateway: ${RT_OUT_${ipv}}' \
 	    # ${host}_${dir}_${ipv} RT_OUT_${ipv}
 .endfor
+.for host dir in ECO TUNNEL4 ECO TUNNEL6
+	ssh ${ECO_SSH} netstat -nav -f ${inet} -p udp |\
+	    fgrep ' ${${host}_${dir}_${ipv}}.7 '  # ${host}_${dir}_${ipv}
+.endfor
+	ssh ${ECO_SSH} netstat -na -f ${inet} -p tcp | fgrep ' *.7 '
 .endfor
 
 .include <bsd.regress.mk>

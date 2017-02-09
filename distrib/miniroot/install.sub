@@ -1,5 +1,5 @@
 #!/bin/ksh
-#	$OpenBSD: install.sub,v 1.962 2017/02/05 19:29:32 rpe Exp $
+#	$OpenBSD: install.sub,v 1.969 2017/02/08 23:13:02 rpe Exp $
 #
 # Copyright (c) 1997-2015 Todd Miller, Theo de Raadt, Ken Westerback
 # Copyright (c) 2015, Robert Peichaer <rpe@openbsd.org>
@@ -286,9 +286,9 @@ scan_dmesg() {
 
 # Extract device names from hw.disknames matching sed expression $1.
 scan_disknames() {
-	local IFS=,
+	local IFS=, _disks=$(sysctl -n hw.disknames)
 
-	bsort $(for _n in $(sysctl -n hw.disknames); do echo "${_n%%:*} "; done | sed -n "$1")
+	bsort $(for _n in $_disks; do echo "${_n%%:*} "; done | sed -n "$1")
 }
 
 # Return disk devices found in hw.disknames.
@@ -390,7 +390,7 @@ disk_has() {
 # $2 = /path/to/fstab
 #
 disklabel_autolayout() {
-	local _disk=$1 _f=$2 _dl=/tmp/i/disklabel.auto _op
+	local _disk=$1 _f=$2 _dl=/tmp/i/disklabel.auto _op _qst
 
 	# Skip disklabel auto-layout for any disk except the root disk.
 	[[ $_disk != $ROOTDISK ]] && return
@@ -413,10 +413,11 @@ disklabel_autolayout() {
 		fi
 	done
 
+	_qst="Use (A)uto layout, (E)dit auto layout, or create (C)ustom layout?"
 	while :; do
 		echo "The auto-allocated layout for $_disk is:"
 		disklabel -h -A $_disk | egrep "^#  |^  [a-p]:"
-		ask "Use (A)uto layout, (E)dit auto layout, or create (C)ustom layout?" a
+		ask "$_qst" a
 		case $resp in
 		[aA]*)	_op=-w;;
 		[eE]*)	_op=-E;;
@@ -531,7 +532,8 @@ get_responsefile() {
 
 	[[ -f /auto_upgrade.conf ]] && _rf=/auto_upgrade.conf _mode=upgrade
 	[[ -f /auto_install.conf ]] && _rf=/auto_install.conf _mode=install
-	[[ -f $_rf ]] && cp $_rf /tmp/ai/ai.$_mode.conf && AI_MODE=$_mode && return
+	[[ -f $_rf ]] && cp $_rf /tmp/ai/ai.$_mode.conf &&
+		AI_MODE=$_mode && return
 
 	for _if in ''; do
 		[[ -x /sbin/dhclient ]] || break
@@ -545,7 +547,8 @@ get_responsefile() {
 		# Ask if multiple were found and system was not netbooted.
 		while (($# > 1)); do
 			ask_which "network interface" \
-				"should be used for the initial DHCP request" "$*"
+				"should be used for the initial DHCP request" \
+				"$*"
 			isin "$resp" $* && _if=$resp && break
 		done
 
@@ -560,7 +563,8 @@ get_responsefile() {
 		_mode=${_aifile##*?(/)auto_}
 
 		# Extract installer server ip address from lease file.
-		AI_SERVER=$(lease_value $_lf server-name tftp-server-name next-server)
+		AI_SERVER=$(lease_value $_lf \
+			server-name tftp-server-name next-server)
 
 		# Prime hostname with host-name option from lease file.
 		_hn=$(lease_value $_lf host-name)
@@ -575,7 +579,8 @@ get_responsefile() {
 		for _rf in {$AI_MAC-,${_hn:+$_hn-,}}$_mode; do
 			_url="http://$AI_SERVER/$_path$_rf.conf?path=$HTTP_SETDIR"
 			echo "Fetching $_url"
-			if unpriv ftp -Vo - "$_url" >"/tmp/ai/ai.$_mode.conf" 2>/dev/null; then
+			if unpriv ftp -Vo - "$_url" \
+				>"/tmp/ai/ai.$_mode.conf" 2>/dev/null; then
 				AI_MODE=$_mode
 				ifconfig $_if delete down 2>/dev/null
 				return 0
@@ -604,7 +609,8 @@ get_responsefile() {
 
 	echo "Fetching $_rf"
 	[[ -f $_rf ]] && _rf="file://$_rf"
-	unpriv ftp -Vo - "$_rf" >"/tmp/ai/ai.$_mode.conf" 2>/dev/null && AI_MODE=$_mode
+	unpriv ftp -Vo - "$_rf" >"/tmp/ai/ai.$_mode.conf" 2>/dev/null &&
+		 AI_MODE=$_mode
 	ifconfig $_if delete down 2>/dev/null
 	[[ -n $AI_MODE ]]
 }
@@ -949,7 +955,7 @@ v6_info() {
 
 # Set up IPv6 default route on interface $1.
 v6_defroute() {
-	local _if=$1 _prompt _resp _routers
+	local _if=$1 _prompt _resp _routers PS3
 
 	route -n show -inet6 | egrep -q '^default[[:space:]]' && return
 
@@ -962,7 +968,7 @@ v6_defroute() {
 	if $AUTO; then
 		_autorespond "$_prompt" && _resp=$resp && echo "$_prompt $_resp"
 	else
-		local PS3="$_prompt (${_routers:+list #, }IPv6 address or 'none'): "
+		PS3="$_prompt (${_routers:+list #, }IPv6 address or 'none'): "
 		select _resp in $_routers; do
 			[[ ${_resp:=$REPLY} == *:* ]] && break
 			[[ $_resp == none ]] && return
@@ -996,7 +1002,8 @@ v6_config() {
 	case $resp in
 	none)	return
 		;;
-	rtsol)	ifconfig $_if inet6 >/dev/null 2>&1 || { echo "No INET6 support."; return; }
+	rtsol)	ifconfig $_if inet6 >/dev/null 2>&1 ||
+			{ echo "No INET6 support."; return; }
 		ifconfig $_if up
 		ifconfig $_if inet6 autoconf && echo "up\nrtsol" >>$_hn
 		return
@@ -1092,7 +1099,8 @@ configure_ifs() {
 	while :; do
 		_vd=$(ifconfig vlan$_vl 2>&1)
 		[[ $_vd == @(*no such interface*) ]] && break
-		[[ $_vd == @(*vlan: +([[:digit:]]) parent interface:*) ]] || break
+		[[ $_vd == @(*vlan: +([[:digit:]]) parent interface:*) ]] ||
+			break
 		((_vl++))
 	done
 	_vd=
@@ -1138,12 +1146,14 @@ configure_ifs() {
 			while [[ $1 == vlan+([0-9]) ]]; do
 				shift
 			done
-			ask "Which interface:tag should $_if be on?" "${_vd:=$1}:$_vi"
+			ask "Which interface:tag should $_if be on?" \
+				"${_vd:=$1}:$_vi"
 			_vd=${resp%%:*}
 			_vi=${resp##*:}
 
 			# Validate that $_vd is a real interface.
-			if ! (isin "$_vd" $_ifs && [[ $_vd != vlan+([0-9]) ]]); then
+			if ! (isin "$_vd" $_ifs &&
+				[[ $_vd != vlan+([0-9]) ]]); then
 				echo "Invalid interface choice '$_vd'"
 				_vd=
 				continue
@@ -1203,7 +1213,8 @@ v4_defroute() {
 
 	# Check routing table to see if a default route ($1) already exists
 	# and if it is handled by dhclient ($2).
-	set -- $(route -nv show -inet | { set -- $(grep '^default '); print $2 $9; })
+	set -- $(route -nv show -inet |
+		{ set -- $(grep '^default '); print $2 $9; })
 	[[ -n $1 ]] && _dr=$1
 
 	# Don't ask if a default route exits and is handled by dhclient.
@@ -1213,7 +1224,8 @@ v4_defroute() {
 		ask_until "Default IPv4 route? (IPv4 address or none)" "$_dr"
 		[[ $resp == none ]] && break
 		route delete -inet default >/dev/null 2>&1
-		route -n add -inet -host default "$resp" && { echo "$resp" >>/tmp/i/mygate; break; }
+		route -n add -inet -host default "$resp" &&
+			{ echo "$resp" >>/tmp/i/mygate; break; }
 		# Put the old default route back. The new one did not work.
 		route -n add -inet -host default $_dr >/dev/null 2>&1
 	done
@@ -1289,7 +1301,8 @@ __EOT
 			[[ $resp == all ]] && resp=*
 
 			for _f in $_avail; do
-				[[ $_f == $resp ]] && _selected=$($_action $_f $_selected)
+				[[ $_f == $resp ]] &&
+					_selected=$($_action $_f $_selected)
 			done
 		done
 	done
@@ -1448,7 +1461,8 @@ install_files() {
 			_issue="Cannot fetch SHA256.sig" && break
 
 		# Verify signature file with public keys.
-		! unpriv -f "$_cfile" signify -Vep $PUB_KEY -x "$_cfile.sig" -m "$_cfile" &&
+		! unpriv -f "$_cfile" \
+			signify -Vep $PUB_KEY -x "$_cfile.sig" -m "$_cfile" &&
 			_issue="Signature check of SHA256.sig failed" && break
 
 		for _f in $_get_sets; do
@@ -1498,7 +1512,8 @@ install_files() {
 		_fsrc="$_src/$_f"
 		[[ -f $_tmpsrc/$_f ]] && _fsrc="file://$_tmpsrc/$_f"
 		case $_fsrc in
-		*.tgz)	$_unpriv ftp -D Installing -Vmo - "$_fsrc" | tar -zxphf - -C /mnt
+		*.tgz)	$_unpriv ftp -D Installing -Vmo - "$_fsrc" |
+				tar -zxphf - -C /mnt
 			if [[ $_f == ?(x)base*.tgz && $MODE == install ]]; then
 				ftp -D Extracting -Vmo - \
 				file:///mnt/var/sysmerge/${_f%%base*}etc.tgz |
@@ -2464,7 +2479,8 @@ apply() {
 			-e "/^$CTTY/s/unknown/vt220	/" \
 			-e "/$CTTY/s/off.*/on secure/" /tmp/i/ttys >/mnt/etc/ttys
 		[[ -n $CPROM ]] &&
-			echo "stty $CPROM $CSPEED\nset tty $CPROM" >>/mnt/etc/boot.conf
+			echo "stty $CPROM $CSPEED\nset tty $CPROM" \
+				>>/mnt/etc/boot.conf
 	fi
 
 	ln -sf /usr/share/zoneinfo/$TZ /mnt/etc/localtime
@@ -2844,7 +2860,8 @@ do_install(){
 	# Store root password and rebuild password database.
 	if [[ -n "$_rootpass" ]]; then
 		_encr=$(encr_pwd "$_rootpass")
-		sed -i -e "s@^root::@root:${_encr}:@" /mnt/etc/master.passwd 2>/dev/null
+		sed -i -e "s@^root::@root:${_encr}:@" /mnt/etc/master.passwd \
+			2>/dev/null
 	fi
 	pwd_mkdb -p -d /mnt/etc /etc/master.passwd
 

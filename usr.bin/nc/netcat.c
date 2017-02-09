@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.172 2017/02/05 01:39:14 jca Exp $ */
+/* $OpenBSD: netcat.c,v 1.175 2017/02/08 18:44:50 bluhm Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -121,6 +121,7 @@ int	local_listen(char *, char *, struct addrinfo);
 void	readwrite(int, struct tls *);
 void	fdpass(int nfd) __attribute__((noreturn));
 int	remote_connect(const char *, const char *, struct addrinfo);
+int	timeout_tls(int, struct tls *, int (*)(struct tls *));
 int	timeout_connect(int, const struct sockaddr *, socklen_t);
 int	socks_connect(const char *, const char *, struct addrinfo,
 	    const char *, const char *, struct addrinfo, int, const char *);
@@ -577,12 +578,7 @@ main(int argc, char *argv[])
 				if (!usetls)
 					readwrite(connfd, NULL);
 				if (tls_cctx) {
-					int i;
-
-					do {
-						i = tls_close(tls_cctx);
-					} while (i == TLS_WANT_POLLIN ||
-					    i == TLS_WANT_POLLOUT);
+					timeout_tls(s, tls_cctx, tls_close);
 					tls_free(tls_cctx);
 					tls_cctx = NULL;
 				}
@@ -672,12 +668,7 @@ main(int argc, char *argv[])
 				if (!zflag)
 					readwrite(s, tls_ctx);
 				if (tls_ctx) {
-					int j;
-
-					do {
-						j = tls_close(tls_ctx);
-					} while (j == TLS_WANT_POLLIN ||
-					    j == TLS_WANT_POLLOUT);
+					timeout_tls(s, tls_ctx, tls_close);
 					tls_free(tls_ctx);
 					tls_ctx = NULL;
 				}
@@ -727,21 +718,48 @@ unix_bind(char *path, int flags)
 	return (s);
 }
 
+int
+timeout_tls(int s, struct tls *tls_ctx, int (*func)(struct tls *))
+{
+	struct pollfd pfd;
+	int ret;
+
+	while ((ret = (*func)(tls_ctx)) != 0) {
+		if (ret == TLS_WANT_POLLIN)
+			pfd.events = POLLIN;
+		else if (ret == TLS_WANT_POLLOUT)
+			pfd.events = POLLOUT;
+		else
+			break;
+		pfd.fd = s;
+		if ((ret = poll(&pfd, 1, timeout)) == 1)
+			continue;
+		else if (ret == 0) {
+			errno = ETIMEDOUT;
+			ret = -1;
+			break;
+		} else
+			err(1, "poll failed");
+	}
+
+	return (ret);
+}
+
 void
 tls_setup_client(struct tls *tls_ctx, int s, char *host)
 {
-	int i;
+	const char *errstr;
 
 	if (tls_connect_socket(tls_ctx, s,
 		tls_expectname ? tls_expectname : host) == -1) {
 		errx(1, "tls connection failed (%s)",
 		    tls_error(tls_ctx));
 	}
-	do {
-		if ((i = tls_handshake(tls_ctx)) == -1)
-			errx(1, "tls handshake failed (%s)",
-			    tls_error(tls_ctx));
-	} while (i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
+	if (timeout_tls(s, tls_ctx, tls_handshake) == -1) {
+		if ((errstr = tls_error(tls_ctx)) == NULL)
+			errstr = strerror(errno);
+		errx(1, "tls handshake failed (%s)", errstr);
+	}
 	if (vflag)
 		report_tls(tls_ctx, host, tls_expectname);
 	if (tls_expecthash && tls_peer_cert_hash(tls_ctx) &&
@@ -753,22 +771,15 @@ struct tls *
 tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 {
 	struct tls *tls_cctx;
+	const char *errstr;
 
-	if (tls_accept_socket(tls_ctx, &tls_cctx,
-		connfd) == -1) {
-		warnx("tls accept failed (%s)",
-		    tls_error(tls_ctx));
-		tls_cctx = NULL;
+	if (tls_accept_socket(tls_ctx, &tls_cctx, connfd) == -1) {
+		warnx("tls accept failed (%s)", tls_error(tls_ctx));
+	} else if (timeout_tls(connfd, tls_cctx, tls_handshake) == -1) {
+		if ((errstr = tls_error(tls_ctx)) == NULL)
+			errstr = strerror(errno);
+		warnx("tls handshake failed (%s)", errstr);
 	} else {
-		int i;
-
-		do {
-			if ((i = tls_handshake(tls_cctx)) == -1)
-				warnx("tls handshake failed (%s)",
-				    tls_error(tls_cctx));
-		} while(i == TLS_WANT_POLLIN || i == TLS_WANT_POLLOUT);
-	}
-	if (tls_cctx) {
 		int gotcert = tls_peer_cert_provided(tls_cctx);
 
 		if (vflag && gotcert)
@@ -1026,21 +1037,15 @@ readwrite(int net_fd, struct tls *tls_ctx)
 	while (1) {
 		/* both inputs are gone, buffers are empty, we are done */
 		if (pfd[POLL_STDIN].fd == -1 && pfd[POLL_NETIN].fd == -1 &&
-		    stdinbufpos == 0 && netinbufpos == 0) {
-			close(net_fd);
+		    stdinbufpos == 0 && netinbufpos == 0)
 			return;
-		}
 		/* both outputs are gone, we can't continue */
-		if (pfd[POLL_NETOUT].fd == -1 && pfd[POLL_STDOUT].fd == -1) {
-			close(net_fd);
+		if (pfd[POLL_NETOUT].fd == -1 && pfd[POLL_STDOUT].fd == -1)
 			return;
-		}
 		/* listen and net in gone, queues empty, done */
 		if (lflag && pfd[POLL_NETIN].fd == -1 &&
-		    stdinbufpos == 0 && netinbufpos == 0) {
-			close(net_fd);
+		    stdinbufpos == 0 && netinbufpos == 0)
 			return;
-		}
 
 		/* help says -i is for "wait between lines sent". We read and
 		 * write arbitrary amounts of data, and we don't want to start
@@ -1052,10 +1057,8 @@ readwrite(int net_fd, struct tls *tls_ctx)
 		num_fds = poll(pfd, 4, timeout);
 
 		/* treat poll errors */
-		if (num_fds == -1) {
-			close(net_fd);
+		if (num_fds == -1)
 			err(1, "polling error");
-		}
 
 		/* timeout happened */
 		if (num_fds == 0)
