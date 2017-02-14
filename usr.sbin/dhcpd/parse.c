@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.22 2017/02/11 16:12:36 krw Exp $	*/
+/*	$OpenBSD: parse.c,v 1.25 2017/02/13 23:04:05 krw Exp $	*/
 
 /* Common parser code for dhcpd and dhclient. */
 
@@ -48,6 +48,7 @@
 #include <netinet/in.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -61,6 +62,7 @@
 #include "tree.h"
 #include "dhcpd.h"
 #include "dhctoken.h"
+#include "log.h"
 
 /*
  * Skip to the semicolon ending the current statement.   If we encounter
@@ -144,7 +146,7 @@ parse_string(FILE *cfile)
 	}
 	s = strdup(val);
 	if (s == NULL)
-		error("no memory for string %s.", val);
+		fatalx("no memory for string %s.", val);
 
 	if (!parse_semi(cfile)) {
 		free(s);
@@ -175,7 +177,7 @@ parse_host_name(FILE *cfile)
 		/* Store this identifier... */
 		s = strdup(val);
 		if (s == NULL)
-			error("can't allocate temp space for hostname.");
+			fatalx("can't allocate temp space for hostname.");
 		c = cons((caddr_t) s, c);
 		len += strlen(s) + 1;
 		/*
@@ -189,7 +191,7 @@ parse_host_name(FILE *cfile)
 
 	/* Assemble the hostname together into a string. */
 	if (!(s = malloc(len)))
-		error("can't allocate space for hostname.");
+		fatalx("can't allocate space for hostname.");
 	t = s + len;
 	*--t = '\0';
 	while (c) {
@@ -251,7 +253,8 @@ parse_hardware_param(FILE *cfile, struct hardware *hardware)
 		parse_warn("hardware address too long");
 	} else {
 		hardware->hlen = hlen;
-		memcpy((unsigned char *)&hardware->haddr[0], t, hardware->hlen);
+		memcpy((unsigned char *)&hardware->haddr[0], t,
+		    hardware->hlen);
 		if (hlen < sizeof(hardware->haddr))
 			memset(&hardware->haddr[hlen], 0,
 			    sizeof(hardware->haddr) - hlen);
@@ -310,7 +313,7 @@ parse_numeric_aggregate(FILE *cfile, unsigned char *buf, int *max,
 	if (!bufp && *max) {
 		bufp = malloc(*max * size / 8);
 		if (!bufp)
-			error("can't allocate space for numeric aggregate");
+			fatalx("can't allocate space for numeric aggregate");
 	} else
 		s = bufp;
 
@@ -350,7 +353,7 @@ parse_numeric_aggregate(FILE *cfile, unsigned char *buf, int *max,
 		} else {
 			t = strdup(val);
 			if (t == NULL)
-				error("no temp space for number.");
+				fatalx("no temp space for number.");
 			c = cons(t, c);
 		}
 	} while (++count != *max);
@@ -359,7 +362,7 @@ parse_numeric_aggregate(FILE *cfile, unsigned char *buf, int *max,
 	if (c) {
 		bufp = malloc(count * size / 8);
 		if (!bufp)
-			error("can't allocate space for numeric aggregate.");
+			fatalx("can't allocate space for numeric aggregate.");
 		s = bufp + count - size / 8;
 		*max = count;
 	}
@@ -413,11 +416,11 @@ convert_num(unsigned char *buf, char *str, int base, int size)
 		else if (tval >= '0')
 			tval -= '0';
 		else {
-			warning("Bogus number: %s.", str);
+			log_warnx("Bogus number: %s.", str);
 			break;
 		}
 		if (tval >= base) {
-			warning("Bogus number: %s: digit %d not in base %d",
+			log_warnx("Bogus number: %s: digit %d not in base %d",
 			    str, tval, base);
 			break;
 		}
@@ -431,15 +434,15 @@ convert_num(unsigned char *buf, char *str, int base, int size)
 	if (val > max) {
 		switch (base) {
 		case 8:
-			warning("value %s%o exceeds max (%d) for precision.",
+			log_warnx("value %s%o exceeds max (%d) for precision.",
 			    negative ? "-" : "", val, max);
 			break;
 		case 16:
-			warning("value %s%x exceeds max (%d) for precision.",
+			log_warnx("value %s%x exceeds max (%d) for precision.",
 			    negative ? "-" : "", val, max);
 			break;
 		default:
-			warning("value %s%u exceeds max (%d) for precision.",
+			log_warnx("value %s%u exceeds max (%d) for precision.",
 			    negative ? "-" : "", val, max);
 			break;
 		}
@@ -457,7 +460,7 @@ convert_num(unsigned char *buf, char *str, int base, int size)
 			putLong(buf, -(unsigned long)val);
 			break;
 		default:
-			warning("Unexpected integer size: %d", size);
+			log_warnx("Unexpected integer size: %d", size);
 			break;
 		}
 	} else {
@@ -472,7 +475,7 @@ convert_num(unsigned char *buf, char *str, int base, int size)
 			putULong(buf, val);
 			break;
 		default:
-			warning("Unexpected integer size: %d", size);
+			log_warnx("Unexpected integer size: %d", size);
 			break;
 		}
 	}
@@ -545,11 +548,13 @@ parse_date(FILE *cfile)
 	return (guess);
 }
 
+int warnings_occurred;
+
 int
 parse_warn(char *fmt, ...)
 {
-	extern char mbuf[1024];
-	extern char fbuf[1024];
+	static char fbuf[1024];
+	static char mbuf[1024];
 	va_list list;
 	static char spaces[] =
 	    "                                        "
@@ -557,7 +562,6 @@ parse_warn(char *fmt, ...)
 	struct iovec iov[6];
 	size_t iovcnt;
 
-	do_percentm(mbuf, sizeof(mbuf), fmt);
 	snprintf(fbuf, sizeof(fbuf), "%s line %d: %s", tlname, lexline, mbuf);
 	va_start(list, fmt);
 	vsnprintf(mbuf, sizeof(mbuf), fbuf, list);
@@ -582,11 +586,10 @@ parse_warn(char *fmt, ...)
 		}
 		writev(STDERR_FILENO, iov, iovcnt);
 	} else {
-		syslog_r(log_priority | LOG_ERR, &sdata, "%s", mbuf);
-		syslog_r(log_priority | LOG_ERR, &sdata, "%s", token_line);
+		log_warnx("%s", mbuf);
+		log_warnx("%s", token_line);
 		if (lexchar < 81)
-			syslog_r(log_priority | LOG_ERR, &sdata, "%*c", lexchar,
-			    '^');
+			log_warnx("%*c", lexchar, '^');
 	}
 
 	warnings_occurred = 1;
