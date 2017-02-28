@@ -1,4 +1,4 @@
-/*	$OpenBSD: res_send_async.c,v 1.32 2017/02/18 22:25:13 eric Exp $	*/
+/*	$OpenBSD: res_send_async.c,v 1.34 2017/02/27 11:38:08 jca Exp $	*/
 /*
  * Copyright (c) 2012 Eric Faurot <eric@openbsd.org>
  *
@@ -67,7 +67,7 @@ res_send_async(const unsigned char *buf, int buflen, void *asr)
 	}
 	as->as_run = res_send_async_run;
 
-	as->as.dns.flags |= ASYNC_EXTOBUF;
+	as->as_flags |= ASYNC_EXTOBUF;
 	as->as.dns.obuf = (unsigned char *)buf;
 	as->as.dns.obuflen = buflen;
 	as->as.dns.obufsize = buflen;
@@ -346,7 +346,7 @@ setup_query(struct asr_query *as, const char *name, const char *dom,
 	char			fqdn[MAXDNAME];
 	char			dname[MAXDNAME];
 
-	if (as->as.dns.flags & ASYNC_EXTOBUF) {
+	if (as->as_flags & ASYNC_EXTOBUF) {
 		errno = EINVAL;
 		DPRINT("attempting to write in user packet");
 		return (-1);
@@ -377,14 +377,15 @@ setup_query(struct asr_query *as, const char *name, const char *dom,
 	if (as->as_ctx->ac_options & RES_RECURSE)
 		h.flags |= RD_MASK;
 	h.qdcount = 1;
-	if (as->as_ctx->ac_options & RES_USE_EDNS0)
+	if (as->as_ctx->ac_options & (RES_USE_EDNS0 | RES_USE_DNSSEC))
 		h.arcount = 1;
 
 	_asr_pack_init(&p, as->as.dns.obuf, as->as.dns.obufsize);
 	_asr_pack_header(&p, &h);
 	_asr_pack_query(&p, type, class, dname);
-	if (as->as_ctx->ac_options & RES_USE_EDNS0)
-		_asr_pack_edns0(&p, MAXPACKETSZ);
+	if (as->as_ctx->ac_options & (RES_USE_EDNS0 | RES_USE_DNSSEC))
+		_asr_pack_edns0(&p, MAXPACKETSZ,
+		    as->as_ctx->ac_options & RES_USE_DNSSEC);
 	if (p.err) {
 		DPRINT("error packing query");
 		errno = EINVAL;
