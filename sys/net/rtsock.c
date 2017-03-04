@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.226 2017/03/02 17:09:21 krw Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.228 2017/03/03 15:48:02 bluhm Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -509,10 +509,7 @@ rt_report(struct rtentry *rt, u_char type, int seq, int tableid)
 
 	/* build new route message */
 	len = rt_msg2(type, RTM_VERSION, &info, NULL, NULL);
-	/* XXX why can't we wait? Should be process context... */
-	rtm = malloc(len, M_RTABLE, M_NOWAIT | M_ZERO);
-	if (rtm == NULL)
-		return NULL;
+	rtm = malloc(len, M_RTABLE, M_WAITOK | M_ZERO);
 
 	rt_msg2(type, RTM_VERSION, &info, (caddr_t)rtm, NULL);
 	rtm->rtm_type = type;
@@ -531,7 +528,8 @@ rt_report(struct rtentry *rt, u_char type, int seq, int tableid)
 }
 
 int
-route_output(struct mbuf *m, ...)
+route_output(struct mbuf *m, struct socket *so, struct sockaddr *dstaddr,
+    struct mbuf *control)
 {
 	struct rt_msghdr	*rtm = NULL;
 	struct rtentry		*rt = NULL;
@@ -539,19 +537,13 @@ route_output(struct mbuf *m, ...)
 	int			 plen, len, seq, newgate = 0, error = 0;
 	struct ifnet		*ifp = NULL;
 	struct ifaddr		*ifa = NULL;
-	struct socket		*so;
 	struct rawcb		*rp = NULL;
 #ifdef MPLS
 	struct sockaddr_mpls	*psa_mpls;
 #endif
-	va_list			 ap;
 	u_int			 tableid;
 	u_int8_t		 prio;
 	u_char			 vers, type;
-
-	va_start(ap, m);
-	so = va_arg(ap, struct socket *);
-	va_end(ap);
 
 	if (m == NULL || ((m->m_len < sizeof(int32_t)) &&
 	    (m = m_pullup(m, sizeof(int32_t))) == 0))
@@ -575,11 +567,7 @@ route_output(struct mbuf *m, ...)
 			error = EMSGSIZE;
 			goto fail;
 		}
-		rtm = malloc(len, M_RTABLE, M_NOWAIT);
-		if (rtm == NULL) {
-			error = ENOBUFS;
-			goto fail;
-		}
+		rtm = malloc(len, M_RTABLE, M_WAITOK);
 		m_copydata(m, 0, len, (caddr_t)rtm);
 		break;
 	default:
@@ -864,11 +852,7 @@ change:
 				if (rt->rt_llinfo == NULL) {
 					rt->rt_llinfo =
 					    malloc(sizeof(struct rt_mpls),
-					    M_TEMP, M_NOWAIT|M_ZERO);
-				}
-				if (rt->rt_llinfo == NULL) {
-					error = ENOMEM;
-					goto flush;
+					    M_TEMP, M_WAITOK | M_ZERO);
 				}
 
 				rt_mpls = (struct rt_mpls *)rt->rt_llinfo;
@@ -963,10 +947,7 @@ change:
 	rtm = rt_report(rt, type, seq, tableid);
 flush:
 	rtfree(rt);
-	if (rtm == NULL) {
-		error = ENOBUFS;
-		goto fail;
-	} else if (error) {
+	if (error) {
 		rtm->rtm_errno = error;
 	} else {
 		rtm->rtm_flags |= RTF_DONE;
