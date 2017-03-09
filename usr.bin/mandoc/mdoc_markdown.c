@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_markdown.c,v 1.8 2017/03/07 15:31:18 schwarze Exp $ */
+/*	$OpenBSD: mdoc_markdown.c,v 1.14 2017/03/08 19:23:23 schwarze Exp $ */
 /*
  * Copyright (c) 2017 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -244,7 +244,6 @@ static	int	 escflags; /* Escape in generated markdown code: */
 #define	ESC_BOL	 (1 << 0)  /* "#*+-" near the beginning of a line. */
 #define	ESC_NUM	 (1 << 1)  /* "." after a leading number. */
 #define	ESC_HYP	 (1 << 2)  /* "(" immediately after "]". */
-#define	ESC_PAR	 (1 << 3)  /* ")" when "(" is open. */
 #define	ESC_SQU	 (1 << 4)  /* "]" when "[" is open. */
 #define	ESC_FON	 (1 << 5)  /* "*" immediately after unrelated "*". */
 #define	ESC_EOL	 (1 << 6)  /* " " at the and of a line. */
@@ -375,6 +374,8 @@ md_stack(char c)
 static void
 md_preword(void)
 {
+	const char	*cp;
+
 	/*
 	 * If a list block is nested inside a code block or a blockquote,
 	 * blank lines for paragraph breaks no longer work; instead,
@@ -405,7 +406,11 @@ md_preword(void)
 
 	if (outflags & (MD_nl | MD_br | MD_sp)) {
 		putchar('\n');
-		fputs(md_stack('\0'), stdout);
+		for (cp = md_stack('\0'); *cp != '\0'; cp++) {
+			putchar(*cp);
+			if (*cp == '>')
+				putchar(' ');
+		}
 		outflags &= ~(MD_nl | MD_br | MD_sp);
 		escflags = ESC_BOL;
 		outcount = 0;
@@ -449,12 +454,6 @@ md_rawword(const char *s)
 
 	while (*s != '\0') {
 		switch(*s) {
-		case '(':
-			escflags |= ESC_PAR;
-			break;
-		case ')':
-			escflags |= ~ESC_PAR;
-			break;
 		case '*':
 			if (s[1] == '\0')
 				escflags |= ESC_FON;
@@ -529,7 +528,7 @@ md_word(const char *s)
 			bs = escflags & ESC_HYP && !code_blocks;
 			break;
 		case ')':
-			bs = escflags & ESC_PAR && !code_blocks;
+			bs = escflags & ESC_NUM && !code_blocks;
 			break;
 		case '*':
 		case '[':
@@ -700,6 +699,8 @@ md_pre_raw(struct roff_node *n)
 	if ((prefix = md_acts[n->tok].prefix) != NULL) {
 		md_rawword(prefix);
 		outflags &= ~MD_spc;
+		if (*prefix == '`')
+			code_blocks++;
 	}
 	return 1;
 }
@@ -712,6 +713,8 @@ md_post_raw(struct roff_node *n)
 	if ((suffix = md_acts[n->tok].suffix) != NULL) {
 		outflags &= ~(MD_spc | MD_nl);
 		md_rawword(suffix);
+		if (*suffix == '`')
+			code_blocks--;
 	}
 }
 
@@ -1145,7 +1148,8 @@ md_pre_It(struct roff_node *n)
 
 	case ROFFT_HEAD:
 		bln = n->parent->parent;
-		if (bln->norm->Bl.comp == 0)
+		if (bln->norm->Bl.comp == 0 &&
+		    bln->norm->Bl.type != LIST_column)
 			outflags |= MD_sp;
 		outflags |= MD_nl;
 
@@ -1171,9 +1175,14 @@ md_pre_It(struct roff_node *n)
 			break;
 		case LIST_enum:
 			md_preword();
-			printf("%d.\t", ++bln->norm->Bl.count);
+			if (bln->norm->Bl.count < 99)
+				bln->norm->Bl.count++;
+			printf("%d.\t", bln->norm->Bl.count);
 			escflags &= ~ESC_FON;
 			break;
+		case LIST_column:
+			outflags |= MD_br;
+			return 0;
 		default:
 			return 0;
 		}
@@ -1292,7 +1301,7 @@ md_pre_Lk(struct roff_node *n)
 		md_rawword("<");
 
 	for (s = link->string; *s != '\0'; s++) {
-		if (strchr("%)<>", *s) != NULL) {
+		if (strchr("%()<>", *s) != NULL) {
 			printf("%%%2.2hhX", *s);
 			outcount += 3;
 		} else {
