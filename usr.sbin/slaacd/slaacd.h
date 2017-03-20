@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.h,v 1.2 2017/03/18 21:22:08 florian Exp $	*/
+/*	$OpenBSD: slaacd.h,v 1.4 2017/03/19 16:12:22 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -78,6 +78,7 @@ struct ctl_engine_info {
 	int			running;
 	int			autoconfprivacy;
 	struct ether_addr	hw_address;
+	struct sockaddr_in6	ll_address;
 };
 
 enum rpref {
@@ -106,6 +107,9 @@ struct ctl_engine_info_ra_prefix {
 	int			autonomous;
 	uint32_t		vltime;
 	uint32_t		pltime;
+	struct sockaddr_in6	addr;
+	struct sockaddr_in6	priv_addr;
+	struct in6_addr		mask;
 };
 
 struct ctl_engine_info_ra_rdns {
@@ -123,6 +127,7 @@ struct imsg_ifinfo {
 	int			running;
 	int			autoconfprivacy;
 	struct ether_addr	hw_address;
+	struct sockaddr_in6	ll_address;
 };
 
 struct imsg_ra {
