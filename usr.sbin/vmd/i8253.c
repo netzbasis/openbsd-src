@@ -1,4 +1,4 @@
-/* $OpenBSD: i8253.c,v 1.7 2017/03/23 07:02:47 mlarkin Exp $ */
+/* $OpenBSD: i8253.c,v 1.9 2017/03/24 11:08:43 reyk Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
