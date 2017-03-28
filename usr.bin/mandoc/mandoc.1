@@ -1,4 +1,4 @@
-.\"	$OpenBSD: mandoc.1,v 1.105 2017/03/21 18:25:32 schwarze Exp $
+.\"	$OpenBSD: mandoc.1,v 1.108 2017/03/27 18:51:20 schwarze Exp $
 .\"
 .\" Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
 .\" Copyright (c) 2012, 2014-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 21 2017 $
+.Dd $Mdocdate: March 27 2017 $
 .Dt MANDOC 1
 .Os
 .Sh NAME
@@ -23,11 +23,11 @@
 .Nd format manual pages
 .Sh SYNOPSIS
 .Nm mandoc
-.Op Fl acfhkl
+.Op Fl ac
 .Op Fl I Cm os Ns = Ns Ar name
 .Op Fl K Ar encoding
 .Op Fl mdoc | man
-.Op Fl O Ar option
+.Op Fl O Ar options
 .Op Fl T Ar output
 .Op Fl W Ar level
 .Op Ar
@@ -65,18 +65,6 @@ to paginate them.
 This is the default.
 It can be specified to override
 .Fl a .
-.It Fl f
-A synonym for
-.Xr whatis 1 .
-This overrides any earlier
-.Fl k
-and
-.Fl l
-options.
-.It Fl h
-Display only the SYNOPSIS lines.
-Implies
-.Fl c .
 .It Fl I Cm os Ns = Ns Ar name
 Override the default operating system
 .Ar name
@@ -120,22 +108,6 @@ sequence, input is interpreted as
 Otherwise, input is interpreted as
 .Cm iso-8859-1 .
 .El
-.It Fl k
-A synonym for
-.Xr apropos 1 .
-This overrides any earlier
-.Fl f
-and
-.Fl l
-options.
-.It Fl l
-A synonym for
-.Fl a .
-Also reverts any earlier
-.Fl f
-and
-.Fl k
-options.
 .It Fl mdoc | man
 With
 .Fl mdoc ,
@@ -158,7 +130,7 @@ parser is used.
 With other arguments,
 .Fl m
 is silently ignored.
-.It Fl O Ar option
+.It Fl O Ar options
 Comma-separated output options.
 .It Fl T Ar output
 Output format.
@@ -211,6 +183,9 @@ If multiple files are specified,
 will halt with the first failed parse.
 .El
 .Pp
+The options
+.Fl fhklw
+are also supported and are documented in man(1).
 In
 .Fl f
 and
@@ -218,10 +193,13 @@ and
 mode,
 .Nm
 also supports the options
-.Fl CMmOSsw
+.Fl CMmOSs
 described in the
 .Xr apropos 1
 manual.
+The options
+.Fl fkl
+are mutually exclusive and override each other.
 .Ss Output Formats
 The
 .Nm
