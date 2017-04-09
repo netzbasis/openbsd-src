@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.166 2017/04/07 15:03:00 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.169 2017/04/08 20:16:04 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -188,9 +188,8 @@ extern struct in_addr active_addr;
 int cons_options(struct interface_info *, struct option_data *);
 char *pretty_print_option(unsigned int, struct option_data *, int);
 char *pretty_print_domain_search(unsigned char *, size_t);
-int pretty_print_string(unsigned char *, size_t, unsigned char *, size_t, int);
-int pretty_print_classless_routes(unsigned char *, size_t, unsigned char *,
-    size_t);
+char *pretty_print_string(unsigned char *, size_t, int);
+char *pretty_print_classless_routes(unsigned char *, size_t);
 void do_packet(struct interface_info *, unsigned int, struct in_addr,
     struct ether_addr *);
 
@@ -205,7 +204,7 @@ int peek_token(char **, FILE *);
 extern int warnings_occurred;
 void skip_to_semi(FILE *);
 int parse_semi(FILE *);
-char *parse_string(FILE *, int *);
+char *parse_string(FILE *, unsigned int *);
 int parse_ip_addr(FILE *, struct in_addr *);
 int parse_cidr(FILE *, unsigned char *);
 void parse_ethernet(FILE *, struct ether_addr *);
@@ -256,8 +255,8 @@ void routehandler(struct interface_info *);
 void assemble_eh_header(struct interface_info *, struct ether_header *);
 ssize_t decode_hw_header(unsigned char *, int, struct ether_addr *);
 ssize_t decode_udp_ip_header(unsigned char *, int, struct sockaddr_in *,
-    int);
-u_int32_t checksum(unsigned char *, unsigned, u_int32_t);
+    u_int32_t);
+u_int32_t checksum(unsigned char *, u_int32_t, u_int32_t);
 u_int32_t wrapsum(u_int32_t);
 
 /* clparse.c */
