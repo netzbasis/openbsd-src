@@ -1,8 +1,8 @@
-.\"	$OpenBSD: SSL_CTX_sess_set_cache_size.3,v 1.3 2017/04/10 14:00:51 schwarze Exp $
-.\"	OpenSSL b97fdb57 Nov 11 09:33:09 2016 +0100
+.\"	$OpenBSD: X25519.3,v 1.1 2017/04/10 17:45:06 schwarze Exp $
+.\"	OpenSSL X25519.pod 69687aa8 Mar 28 23:57:28 2017 +0200
 .\"
-.\" This file was written by Lutz Jaenicke <jaenicke@openssl.org>.
-.\" Copyright (c) 2001, 2002, 2014 The OpenSSL Project.  All rights reserved.
+.\" This file was written by Dr. Stephen Henson <steve@openssl.org>.
+.\" Copyright (c) 2017 The OpenSSL Project.  All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
 .\" modification, are permitted provided that the following conditions
@@ -49,54 +49,51 @@
 .\" OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
 .Dd $Mdocdate: April 10 2017 $
-.Dt SSL_CTX_SESS_SET_CACHE_SIZE 3
+.Dt X25519 3
 .Os
 .Sh NAME
-.Nm SSL_CTX_sess_set_cache_size ,
-.Nm SSL_CTX_sess_get_cache_size
-.Nd manipulate session cache size
-.Sh SYNOPSIS
-.In openssl/ssl.h
-.Ft long
-.Fn SSL_CTX_sess_set_cache_size "SSL_CTX *ctx" "long t"
-.Ft long
-.Fn SSL_CTX_sess_get_cache_size "SSL_CTX *ctx"
+.Nm X25519
+.Nd EVP_PKEY X25519 support
 .Sh DESCRIPTION
-.Fn SSL_CTX_sess_set_cache_size
-sets the size of the internal session cache of context
-.Fa ctx
-to
-.Fa t .
+The
+.Nm
+.Vt EVP_PKEY
+implementation supports key generation and key derivation using X25519.
+It has associated private and public key formats compatible with
+draft-ietf-curdle-pkix-03.
 .Pp
-.Fn SSL_CTX_sess_get_cache_size
-returns the currently valid session cache size.
+No additional parameters can be set during key generation.
 .Pp
-The internal session cache size is
-.Dv SSL_SESSION_CACHE_MAX_SIZE_DEFAULT ,
-currently 1024\(mu20, so that up to 20000 sessions can be held.
-This size can be modified using the
-.Fn SSL_CTX_sess_set_cache_size
-call.
-A special case is the size 0, which is used for unlimited size.
+The peer public key must be set using
+.Xr EVP_PKEY_derive_set_peer 3
+when performing key derivation.
 .Pp
-If adding the session makes the cache exceed its size, then unused
-sessions are dropped from the end of the cache.
-Cache space may also be reclaimed by calling
-.Xr SSL_CTX_flush_sessions 3
-to remove expired sessions.
+A context for the
+.Nm
+algorithm can be obtained by calling:
 .Pp
-If the size of the session cache is reduced and more sessions are already in
-the session cache,
-old session will be removed the next time a session shall be added.
-This removal is not synchronized with the expiration of sessions.
-.Sh RETURN VALUES
-.Fn SSL_CTX_sess_set_cache_size
-returns the previously valid size.
+.Dl EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(NID_X25519, NULL);
+.Sh EXAMPLES
+Generate an
+.Nm
+private key and write it to standard output in PEM format:
+.Bd -literal
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+
+EVP_PKEY *pkey = NULL;
+EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(NID_X25519, NULL);
+EVP_PKEY_keygen_init(pctx);
+EVP_PKEY_keygen(pctx, &pkey);
+EVP_PKEY_CTX_free(pctx);
+PEM_write_PrivateKey(stdout, pkey, NULL, NULL, 0, NULL, NULL);
+.Ed
 .Pp
-.Fn SSL_CTX_sess_get_cache_size
-returns the currently valid size.
+The key derivation example in
+.Xr EVP_PKEY_derive 3
+can be used with
+.Nm .
 .Sh SEE ALSO
-.Xr SSL_CTX_ctrl 3 ,
-.Xr SSL_CTX_flush_sessions 3 ,
-.Xr SSL_CTX_sess_number 3 ,
-.Xr SSL_CTX_set_session_cache_mode 3
+.Xr EVP_PKEY_CTX_new 3 ,
+.Xr EVP_PKEY_derive 3 ,
+.Xr EVP_PKEY_keygen 3

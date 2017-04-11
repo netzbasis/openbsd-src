@@ -1,8 +1,8 @@
-.\"	$OpenBSD: SSL_CTX_sess_set_cache_size.3,v 1.3 2017/04/10 14:00:51 schwarze Exp $
-.\"	OpenSSL b97fdb57 Nov 11 09:33:09 2016 +0100
+.\"	$OpenBSD: SSL_CTX_set_tlsext_servername_callback.3,v 1.1 2017/04/10 13:05:06 schwarze Exp $
+.\"	OpenSSL 8c55c461 Mar 29 08:34:37 2017 +1000
 .\"
-.\" This file was written by Lutz Jaenicke <jaenicke@openssl.org>.
-.\" Copyright (c) 2001, 2002, 2014 The OpenSSL Project.  All rights reserved.
+.\" This file was written by Jon Spillett <jon.spillett@oracle.com>
+.\" Copyright (c) 2000 The OpenSSL Project.  All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
 .\" modification, are permitted provided that the following conditions
@@ -49,54 +49,76 @@
 .\" OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
 .Dd $Mdocdate: April 10 2017 $
-.Dt SSL_CTX_SESS_SET_CACHE_SIZE 3
+.Dt SSL_CTX_SET_TLSEXT_SERVERNAME_CALLBACK 3
 .Os
 .Sh NAME
-.Nm SSL_CTX_sess_set_cache_size ,
-.Nm SSL_CTX_sess_get_cache_size
-.Nd manipulate session cache size
+.Nm SSL_CTX_set_tlsext_servername_callback ,
+.Nm SSL_CTX_set_tlsext_servername_arg ,
+.Nm SSL_get_servername_type ,
+.Nm SSL_get_servername
+.Nd handle server name indication (SNI)
 .Sh SYNOPSIS
 .In openssl/ssl.h
 .Ft long
-.Fn SSL_CTX_sess_set_cache_size "SSL_CTX *ctx" "long t"
+.Fo SSL_CTX_set_tlsext_servername_callback
+.Fa "SSL_CTX *ctx"
+.Fa "int (*cb)(SSL_CTX *, int *, void *)"
+.Fc
 .Ft long
-.Fn SSL_CTX_sess_get_cache_size "SSL_CTX *ctx"
+.Fo SSL_CTX_set_tlsext_servername_arg
+.Fa "SSL_CTX *ctx"
+.Fa "void *arg"
+.Fc
+.Ft const char *
+.Fo SSL_get_servername
+.Fa "const SSL *s"
+.Fa "const int type"
+.Fc
+.Ft int
+.Fo SSL_get_servername_type
+.Fa "const SSL *s"
+.Fc
 .Sh DESCRIPTION
-.Fn SSL_CTX_sess_set_cache_size
-sets the size of the internal session cache of context
-.Fa ctx
-to
-.Fa t .
+.Fn SSL_CTX_set_tlsext_servername_callback
+sets the application callback
+.Fa cb
+used by a server to perform any actions or configuration required based
+on the servername extension received in the incoming connection.
+When
+.Fa cb
+is
+.Dv NULL ,
+SNI is not used.
+The
+.Fa arg
+value is a pointer which is passed to the application callback.
 .Pp
-.Fn SSL_CTX_sess_get_cache_size
-returns the currently valid session cache size.
+.Fn SSL_CTX_set_tlsext_servername_arg
+sets a context-specific argument to be passed into the callback for
+.Fa ctx .
 .Pp
-The internal session cache size is
-.Dv SSL_SESSION_CACHE_MAX_SIZE_DEFAULT ,
-currently 1024\(mu20, so that up to 20000 sessions can be held.
-This size can be modified using the
-.Fn SSL_CTX_sess_set_cache_size
-call.
-A special case is the size 0, which is used for unlimited size.
+Both functions are implemented as macros.
 .Pp
-If adding the session makes the cache exceed its size, then unused
-sessions are dropped from the end of the cache.
-Cache space may also be reclaimed by calling
-.Xr SSL_CTX_flush_sessions 3
-to remove expired sessions.
-.Pp
-If the size of the session cache is reduced and more sessions are already in
-the session cache,
-old session will be removed the next time a session shall be added.
-This removal is not synchronized with the expiration of sessions.
+The ALPN and SNI callbacks are both executed during Client Hello
+processing.
+The servername callback is executed first, followed by the ALPN
+callback.
 .Sh RETURN VALUES
-.Fn SSL_CTX_sess_set_cache_size
-returns the previously valid size.
+.Fn SSL_CTX_set_tlsext_servername_callback
+and
+.Fn SSL_CTX_set_tlsext_servername_arg
+always return 1 indicating success.
 .Pp
-.Fn SSL_CTX_sess_get_cache_size
-returns the currently valid size.
+.Fn SSL_get_servername
+returns a servername extension value of the specified type if provided
+in the Client Hello, or
+.Dv NULL
+otherwise.
+.Pp
+.Fn SSL_get_servername_type
+returns the servername type or -1 if no servername is present.
+Currently the only supported type (defined in RFC 3546) is
+.Dv TLSEXT_NAMETYPE_host_name .
 .Sh SEE ALSO
-.Xr SSL_CTX_ctrl 3 ,
-.Xr SSL_CTX_flush_sessions 3 ,
-.Xr SSL_CTX_sess_number 3 ,
-.Xr SSL_CTX_set_session_cache_mode 3
+.Xr SSL_CTX_callback_ctrl 3 ,
+.Xr SSL_CTX_set_alpn_select_cb 3
