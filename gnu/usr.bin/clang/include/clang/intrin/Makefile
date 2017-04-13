@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.7 2017/04/10 13:36:04 kettenis Exp $
+# $OpenBSD: Makefile,v 1.9 2017/04/12 08:02:10 jsg Exp $
 
 .include <bsd.own.mk>
 
@@ -86,10 +86,12 @@ clean cleandir:
 	rm -f ${GEN}
 
 install includes: ${HEADERS}
-	${INSTALL} -d -o ${SHAREOWN} -g ${SHAREGRP} -m ${DIRMODE} \
-		${DESTDIR}${CLANG_INTR_INCDIR}
-	${INSTALL} ${INSTALL_COPY} -m 444 ${.ALLSRC} \
-		${DESTDIR}${CLANG_INTR_INCDIR}
+.for dir in /usr/lib/clang /usr/lib/clang/${LLVM_V} ${CLANG_INTR_INCDIR}
+	${INSTALL} -d -o ${BINOWN} -g ${BINGRP} -m ${DIRMODE} \
+	    ${DESTDIR}${dir}
+.endfor
+	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m 444 \
+	    ${.ALLSRC} ${DESTDIR}${CLANG_INTR_INCDIR}
 
 arm_neon.h: ${CLANG_INC}/clang/Basic/arm_neon.td
 	${TBLGEN} -gen-arm-neon -o ${.TARGET} ${.ALLSRC}
