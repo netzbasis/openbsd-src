@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-queue.c,v 1.48 2017/02/03 11:57:27 nicm Exp $ */
+/* $OpenBSD: cmd-queue.c,v 1.53 2017/04/21 22:23:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2013 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -102,8 +102,11 @@ cmdq_insert_after(struct cmdq_item *after, struct cmdq_item *item)
 static void
 cmdq_remove(struct cmdq_item *item)
 {
-	if (item->formats != NULL)
-		format_free(item->formats);
+	if (item->shared != NULL && --item->shared->references == 0) {
+		if (item->shared->formats != NULL)
+			format_free(item->shared->formats);
+		free(item->shared);
+	}
 
 	if (item->client != NULL)
 		server_client_unref(item->client);
@@ -150,6 +153,15 @@ cmdq_get_command(struct cmd_list *cmdlist, struct cmd_find_state *current,
 	struct cmd		*cmd;
 	u_int			 group = cmdq_next_group();
 	char			*tmp;
+	struct cmdq_shared	*shared;
+
+	shared = xcalloc(1, sizeof *shared);
+	if (current != NULL)
+		cmd_find_copy_state(&shared->current, current);
+	else
+		cmd_find_clear_state(&shared->current, 0);
+	if (m != NULL)
+		memcpy(&shared->mouse, m, sizeof shared->mouse);
 
 	TAILQ_FOREACH(cmd, &cmdlist->list, qentry) {
 		xasprintf(&tmp, "command[%s]", cmd->entry->name);
@@ -161,13 +173,11 @@ cmdq_get_command(struct cmd_list *cmdlist, struct cmd_find_state *current,
 		item->group = group;
 		item->flags = flags;
 
+		item->shared = shared;
 		item->cmdlist = cmdlist;
 		item->cmd = cmd;
 
-		if (current != NULL)
-			cmd_find_copy_state(&item->current, current);
-		if (m != NULL)
-			memcpy(&item->mouse, m, sizeof item->mouse);
+		shared->references++;
 		cmdlist->references++;
 
 		if (first == NULL)
@@ -193,12 +203,13 @@ cmdq_fire_command(struct cmdq_item *item)
 	flags = !!(cmd->flags & CMD_CONTROL);
 	cmdq_guard(item, "begin", flags);
 
+	if (item->client == NULL)
+		item->client = cmd_find_client(item, NULL, 1);
+
 	if (cmd_prepare_state(cmd, item) != 0) {
 		retval = CMD_RETURN_ERROR;
 		goto out;
 	}
-	if (item->client == NULL)
-		item->client = cmd_find_client(item, NULL, CMD_FIND_QUIET);
 
 	retval = cmd->entry->exec(cmd, item);
 	if (retval == CMD_RETURN_ERROR)
@@ -208,11 +219,12 @@ cmdq_fire_command(struct cmdq_item *item)
 		name = cmd->entry->name;
 		if (cmd_find_valid_state(&item->state.tflag))
 			fsp = &item->state.tflag;
-		else {
-			if (cmd_find_current(&fs, item, CMD_FIND_QUIET) != 0)
-				goto out;
+		else if (cmd_find_valid_state(&item->shared->current))
+			fsp = &item->shared->current;
+		else if (cmd_find_from_client(&fs, item->client) == 0)
 			fsp = &fs;
-		}
+		else
+			goto out;
 		hooks_insert(fsp->s->hooks, item, fsp, "after-%s", name);
 	}
 
@@ -258,19 +270,17 @@ cmdq_fire_callback(struct cmdq_item *item)
 void
 cmdq_format(struct cmdq_item *item, const char *key, const char *fmt, ...)
 {
+	struct cmdq_shared	*shared = item->shared;
 	va_list			 ap;
-	struct cmdq_item	*loop;
 	char			*value;
 
 	va_start(ap, fmt);
 	xvasprintf(&value, fmt, ap);
 	va_end(ap);
 
-	for (loop = item; loop != NULL; loop = item->next) {
-		if (loop->formats == NULL)
-			loop->formats = format_create(NULL, FORMAT_NONE, 0);
-		format_add(loop->formats, key, "%s", value);
-	}
+	if (shared->formats == NULL)
+		shared->formats = format_create(NULL, FORMAT_NONE, 0);
+	format_add(shared->formats, key, "%s", value);
 
 	free(value);
 }
@@ -319,8 +329,7 @@ cmdq_next(struct client *c)
 			item->time = time(NULL);
 			item->number = ++number;
 
-			switch (item->type)
-			{
+			switch (item->type) {
 			case CMDQ_COMMAND:
 				retval = cmdq_fire_command(item);
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.221 2017/04/20 15:16:20 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.226 2017/04/21 22:23:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -138,11 +138,11 @@ server_client_get_key_table(struct client *c)
 	return (name);
 }
 
-/* Is this client using the default key table? */
-int
-server_client_is_default_key_table(struct client *c)
+/* Is this table the default key table? */
+static int
+server_client_is_default_key_table(struct client *c, struct key_table *table)
 {
-	return (strcmp(c->keytable->name, server_client_get_key_table(c)) == 0);
+	return (strcmp(table->name, server_client_get_key_table(c)) == 0);
 }
 
 /* Create a new client. */
@@ -793,8 +793,7 @@ server_client_handle_key(struct client *c, key_code key)
 	struct window		*w;
 	struct window_pane	*wp;
 	struct timeval		 tv;
-	const char		*name;
-	struct key_table	*table;
+	struct key_table	*table, *first;
 	struct key_binding	 bd_find, *bd;
 	int			 xtimeout;
 	struct cmd_find_state	 fs;
@@ -870,22 +869,18 @@ server_client_handle_key(struct client *c, key_code key)
 	if (!KEYC_IS_MOUSE(key) && server_client_assume_paste(s))
 		goto forward;
 
-retry:
 	/*
 	 * Work out the current key table. If the pane is in a mode, use
 	 * the mode table instead of the default key table.
 	 */
-	name = NULL;
-	if (wp != NULL && wp->mode != NULL && wp->mode->key_table != NULL)
-		name = wp->mode->key_table(wp);
-	if (name == NULL || !server_client_is_default_key_table(c))
+	if (server_client_is_default_key_table(c, c->keytable) &&
+	    wp != NULL &&
+	    wp->mode != NULL &&
+	    wp->mode->key_table != NULL)
+		table = key_bindings_get_table(wp->mode->key_table(wp), 1);
+	else
 		table = c->keytable;
-	else
-		table = key_bindings_get_table(name, 1);
-	if (wp == NULL)
-		log_debug("key table %s (no pane)", table->name);
-	else
-		log_debug("key table %s (pane %%%u)", table->name, wp->id);
+	first = table;
 
 	/*
 	 * The prefix always takes precedence and forces a switch to the prefix
@@ -899,6 +894,15 @@ retry:
 		return;
 	}
 
+retry:
+	/* Log key table. */
+	if (wp == NULL)
+		log_debug("key table %s (no pane)", table->name);
+	else
+		log_debug("key table %s (pane %%%u)", table->name, wp->id);
+	if (c->flags & CLIENT_REPEAT)
+		log_debug("currently repeating");
+
 	/* Try to see if there is a key binding in the current table. */
 	bd_find.key = key;
 	bd = RB_FIND(key_bindings, &table->key_bindings, &bd_find);
@@ -908,12 +912,15 @@ retry:
 		 * non-repeating binding was found, stop repeating and try
 		 * again in the root table.
 		 */
-		if ((c->flags & CLIENT_REPEAT) && !bd->can_repeat) {
+		if ((c->flags & CLIENT_REPEAT) &&
+		    (~bd->flags & KEY_BINDING_REPEAT)) {
 			server_client_set_key_table(c, NULL);
 			c->flags &= ~CLIENT_REPEAT;
 			server_status_client(c);
+			table = c->keytable;
 			goto retry;
 		}
+		log_debug("found in key table %s", table->name);
 
 		/*
 		 * Take a reference to this table to make sure the key binding
@@ -926,7 +933,7 @@ retry:
 		 * the client back to the root table.
 		 */
 		xtimeout = options_get_number(s->options, "repeat-time");
-		if (xtimeout != 0 && bd->can_repeat) {
+		if (xtimeout != 0 && (bd->flags & KEY_BINDING_REPEAT)) {
 			c->flags |= CLIENT_REPEAT;
 
 			tv.tv_sec = xtimeout / 1000;
@@ -941,15 +948,8 @@ retry:
 
 		/* Find default state if the pane is known. */
 		if (KEYC_IS_MOUSE(key) && m->valid && wp != NULL) {
-			cmd_find_clear_state(&fs, NULL, 0);
-			fs.s = s;
-			fs.wl = fs.s->curw;
-			fs.w = fs.wl->window;
-			fs.wp = wp;
+			cmd_find_from_winlink_pane(&fs, s->curw, wp);
 			cmd_find_log_state(__func__, &fs);
-
-			if (!cmd_find_valid_state(&fs))
-				fatalx("invalid key state");
 			key_bindings_dispatch(bd, c, m, &fs);
 		} else
 			key_bindings_dispatch(bd, c, m, NULL);
@@ -958,19 +958,24 @@ retry:
 	}
 
 	/*
-	 * No match in this table. If repeating, switch the client back to the
-	 * root table and try again.
+	 * No match in this table. If not in the root table or if repeating,
+	 * switch the client back to the root table and try again.
 	 */
-	if (c->flags & CLIENT_REPEAT) {
+	log_debug("not found in key table %s", table->name);
+	if (!server_client_is_default_key_table(c, table) ||
+	    (c->flags & CLIENT_REPEAT)) {
 		server_client_set_key_table(c, NULL);
 		c->flags &= ~CLIENT_REPEAT;
 		server_status_client(c);
+		table = c->keytable;
 		goto retry;
 	}
 
-	/* If no match and we're not in the root table, that's it. */
-	if (name == NULL && !server_client_is_default_key_table(c)) {
-		log_debug("no key in key table %s", table->name);
+	/*
+	 * No match in the root table either. If this wasn't the first table
+	 * tried, don't pass the key to the pane.
+	 */
+	if (first != table) {
 		server_client_set_key_table(c, NULL);
 		server_status_client(c);
 		return;

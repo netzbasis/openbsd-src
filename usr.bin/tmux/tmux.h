@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.744 2017/04/20 17:49:26 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.750 2017/04/21 20:26:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1145,7 +1145,6 @@ enum cmd_find_type {
 	CMD_FIND_SESSION,
 };
 struct cmd_find_state {
-	struct cmdq_item	*item;
 	int			 flags;
 	struct cmd_find_state	*current;
 
@@ -1204,6 +1203,19 @@ enum cmdq_type {
 	CMDQ_CALLBACK,
 };
 
+/* Command queue item shared state. */
+struct cmdq_shared {
+	int			 references;
+
+	int			 flags;
+#define CMDQ_SHARED_REPEAT 0x1
+
+	struct format_tree	*formats;
+
+	struct mouse_event	 mouse;
+	struct cmd_find_state	 current;
+};
+
 /* Command queue item. */
 typedef enum cmd_retval (*cmdq_cb) (struct cmdq_item *, void *);
 struct cmdq_item {
@@ -1219,24 +1231,19 @@ struct cmdq_item {
 	u_int			 number;
 	time_t			 time;
 
-	struct format_tree	*formats;
-
 	int			 flags;
 #define CMDQ_FIRED 0x1
 #define CMDQ_WAITING 0x2
 #define CMDQ_NOHOOKS 0x4
 
+	struct cmdq_shared	*shared;
 	struct cmd_list		*cmdlist;
 	struct cmd		*cmd;
-	int			 repeat;
 
 	cmdq_cb			 cb;
 	void			*data;
 
-	struct cmd_find_state	 current;
 	struct cmd_state	 state;
-
-	struct mouse_event	 mouse;
 
 	TAILQ_ENTRY(cmdq_item)	 entry;
 };
@@ -1394,7 +1401,9 @@ TAILQ_HEAD(clients, client);
 struct key_binding {
 	key_code		 key;
 	struct cmd_list		*cmdlist;
-	int			 can_repeat;
+
+	int			 flags;
+#define KEY_BINDING_REPEAT 0x1
 
 	RB_ENTRY(key_binding)	 entry;
 };
@@ -1552,7 +1561,7 @@ void printflike(4, 5) hooks_insert(struct hooks *, struct cmdq_item *,
 void	notify_input(struct window_pane *, struct evbuffer *);
 void	notify_client(const char *, struct client *);
 void	notify_session(const char *, struct session *);
-void	notify_winlink(const char *, struct session *, struct winlink *);
+void	notify_winlink(const char *, struct winlink *);
 void	notify_session_window(const char *, struct session *, struct window *);
 void	notify_window(const char *, struct window *);
 void	notify_pane(const char *, struct window_pane *);
@@ -1720,28 +1729,30 @@ long long	 args_strtonum(struct args *, u_char, long long, long long,
 		     char **);
 
 /* cmd-find.c */
-int		 cmd_find_current(struct cmd_find_state *, struct cmdq_item *,
-		     int);
-int		 cmd_find_target(struct cmd_find_state *,
-		     struct cmd_find_state *, struct cmdq_item *, const char *,
-		     enum cmd_find_type, int);
+int		 cmd_find_target(struct cmd_find_state *, struct cmdq_item *,
+		     const char *, enum cmd_find_type, int);
 struct client	*cmd_find_client(struct cmdq_item *, const char *, int);
-void		 cmd_find_clear_state(struct cmd_find_state *,
-		     struct cmdq_item *, int);
+void		 cmd_find_clear_state(struct cmd_find_state *, int);
 int		 cmd_find_empty_state(struct cmd_find_state *);
 int		 cmd_find_valid_state(struct cmd_find_state *);
 void		 cmd_find_copy_state(struct cmd_find_state *,
 		     struct cmd_find_state *);
 void		 cmd_find_log_state(const char *, struct cmd_find_state *);
-int		 cmd_find_from_session(struct cmd_find_state *,
+void		 cmd_find_from_session(struct cmd_find_state *,
 		     struct session *);
-int		 cmd_find_from_winlink(struct cmd_find_state *,
-		     struct session *, struct winlink *);
+void		 cmd_find_from_winlink(struct cmd_find_state *,
+		     struct winlink *);
 int		 cmd_find_from_session_window(struct cmd_find_state *,
 		     struct session *, struct window *);
 int		 cmd_find_from_window(struct cmd_find_state *, struct window *);
+void		 cmd_find_from_winlink_pane(struct cmd_find_state *,
+		     struct winlink *, struct window_pane *);
 int		 cmd_find_from_pane(struct cmd_find_state *,
 		     struct window_pane *);
+int		 cmd_find_from_client(struct cmd_find_state *, struct client *);
+int		 cmd_find_from_mouse(struct cmd_find_state *,
+		     struct mouse_event *);
+int		 cmd_find_from_nothing(struct cmd_find_state *);
 
 /* cmd.c */
 int		 cmd_pack_argv(int, char **, char *, size_t);
@@ -1836,7 +1847,6 @@ void	 server_client_set_identify(struct client *);
 void	 server_client_clear_identify(struct client *, struct window_pane *);
 void	 server_client_set_key_table(struct client *, const char *);
 const char *server_client_get_key_table(struct client *);
-int	 server_client_is_default_key_table(struct client *);
 int	 server_client_check_nested(struct client *);
 void	 server_client_handle_key(struct client *, key_code);
 void	 server_client_create(int);
