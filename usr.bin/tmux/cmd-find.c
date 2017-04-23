@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find.c,v 1.50 2017/04/21 22:23:24 nicm Exp $ */
+/* $OpenBSD: cmd-find.c,v 1.52 2017/04/22 12:08:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -891,7 +891,7 @@ cmd_find_from_client(struct cmd_find_state *fs, struct client *c)
 		}
 		if (wl != NULL) {
 			fs->s = s;
-			fs->wl = s->curw; /* use active session */
+			fs->wl = s->curw; /* use current session */
 			fs->w = fs->wl->window;
 			fs->wp = fs->w->active; /* use active pane */
 
@@ -952,6 +952,10 @@ cmd_find_target(struct cmd_find_state *fs, struct cmdq_item *item,
 	char			*colon, *period, *copy = NULL;
 	const char		*session, *window, *pane;
 	int			 window_only = 0, pane_only = 0;
+
+	/* Can fail flag implies quiet. */
+	if (flags & CMD_FIND_CANFAIL)
+		flags |= CMD_FIND_QUIET;
 
 	/* Log the arguments. */
 	if (target == NULL)
@@ -1190,6 +1194,8 @@ error:
 	log_debug("%s: error", __func__);
 
 	free(copy);
+	if (flags & CMD_FIND_CANFAIL)
+		return (0);
 	return (-1);
 
 found:
