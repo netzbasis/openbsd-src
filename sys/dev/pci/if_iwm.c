@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.172 2017/04/24 09:48:42 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.175 2017/04/26 09:19:56 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -356,7 +356,7 @@ int	iwm_send_tx_ant_cfg(struct iwm_softc *, uint8_t);
 int	iwm_send_phy_cfg_cmd(struct iwm_softc *);
 int	iwm_load_ucode_wait_alive(struct iwm_softc *, enum iwm_ucode_type);
 int	iwm_run_init_mvm_ucode(struct iwm_softc *, int);
-int	iwm_rx_addbuf(struct iwm_softc *, int, int);
+int	iwm_rx_addbuf(struct iwm_softc *, int);
 int	iwm_calc_rssi(struct iwm_softc *, struct iwm_rx_phy_info *);
 int	iwm_get_signal_strength(struct iwm_softc *, struct iwm_rx_phy_info *);
 void	iwm_rx_rx_phy_cmd(struct iwm_softc *, struct iwm_rx_packet *,
@@ -1061,7 +1061,7 @@ iwm_alloc_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 			goto fail;
 		}
 
-		err = iwm_rx_addbuf(sc, IWM_RBUF_SIZE, i);
+		err = iwm_rx_addbuf(sc, i);
 		if (err)
 			goto fail;
 	}
@@ -3161,7 +3161,7 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 }
 
 int
-iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
+iwm_rx_addbuf(struct iwm_softc *sc, int idx)
 {
 	struct iwm_rx_ring *ring = &sc->rxq;
 	struct iwm_rx_data *data = &ring->data[idx];
@@ -3173,11 +3173,7 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	if (m == NULL)
 		return ENOBUFS;
 
-	if (size <= MCLBYTES) {
-		MCLGET(m, M_DONTWAIT);
-	} else {
-		MCLGETI(m, M_DONTWAIT, NULL, IWM_RBUF_SIZE);
-	}
+	MCLGETI(m, M_DONTWAIT, NULL, IWM_RBUF_SIZE);
 	if ((m->m_flags & M_EXT) == 0) {
 		m_freem(m);
 		return ENOBUFS;
@@ -3199,7 +3195,8 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 		return err;
 	}
 	data->m = m;
-	bus_dmamap_sync(sc->sc_dmat, data->map, 0, size, BUS_DMASYNC_PREREAD);
+	bus_dmamap_sync(sc->sc_dmat, data->map, 0, IWM_RBUF_SIZE,
+	    BUS_DMASYNC_PREREAD);
 
 	/* Update RX descriptor. */
 	ring->desc[idx] = htole32(data->map->dm_segs[0].ds_addr >> 8);
@@ -3423,7 +3420,7 @@ iwm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 		in->in_mn.ampdu_size = le16toh(tx_resp->byte_cnt);
 		in->in_mn.agglen = tx_resp->frame_count;
 		if (tx_resp->failure_frame > 0)
-			in->in_mn.retries++;
+			in->in_mn.retries += tx_resp->failure_frame;
 		if (txfail)
 			in->in_mn.txfail += tx_resp->frame_count;
 		if (ic->ic_state == IEEE80211_S_RUN)
@@ -6488,22 +6485,6 @@ iwm_nic_error(struct iwm_softc *sc)
 }
 #endif
 
-#define SYNC_RESP_STRUCT(_var_, _pkt_)					\
-do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*(_pkt_)),	\
-	    sizeof(*(_var_)), BUS_DMASYNC_POSTREAD);			\
-	_var_ = (void *)((_pkt_)+1);					\
-} while (/*CONSTCOND*/0)
-
-#define SYNC_RESP_PTR(_ptr_, _len_, _pkt_)				\
-do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*(_pkt_)),	\
-	    sizeof(len), BUS_DMASYNC_POSTREAD);				\
-	_ptr_ = (void *)((_pkt_)+1);					\
-} while (/*CONSTCOND*/0)
-
-#define ADVANCE_RXQ(sc) (sc->rxq.cur = (sc->rxq.cur + 1) % IWM_RX_RING_COUNT);
-
 void
 iwm_rx_mpdu(struct iwm_softc *sc, struct mbuf *m)
 {
@@ -6565,7 +6546,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 
 		if (code == IWM_REPLY_RX_MPDU_CMD && ++nmpdu == 1) {
 			/* Take mbuf m0 off the RX ring. */
-			if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur)) {
+			if (iwm_rx_addbuf(sc, sc->rxq.cur)) {
 				ifp->if_ierrors++;
 				break;
 			}
@@ -6610,7 +6591,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 			struct iwm_alive_resp_v3 *resp3;
 
 			if (iwm_rx_packet_payload_len(pkt) == sizeof(*resp1)) {
-				SYNC_RESP_STRUCT(resp1, pkt);
+				resp1 = (void *)pkt->data;
 				sc->sc_uc.uc_error_event_table
 				    = le32toh(resp1->error_event_table_ptr);
 				sc->sc_uc.uc_log_event_table
@@ -6623,7 +6604,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 			}
 
 			if (iwm_rx_packet_payload_len(pkt) == sizeof(*resp2)) {
-				SYNC_RESP_STRUCT(resp2, pkt);
+				resp2 = (void *)pkt->data;
 				sc->sc_uc.uc_error_event_table
 				    = le32toh(resp2->error_event_table_ptr);
 				sc->sc_uc.uc_log_event_table
@@ -6638,7 +6619,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 			}
 
 			if (iwm_rx_packet_payload_len(pkt) == sizeof(*resp3)) {
-				SYNC_RESP_STRUCT(resp3, pkt);
+				resp3 = (void *)pkt->data;
 				sc->sc_uc.uc_error_event_table
 				    = le32toh(resp3->error_event_table_ptr);
 				sc->sc_uc.uc_log_event_table
@@ -6659,25 +6640,19 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 
 		case IWM_CALIB_RES_NOTIF_PHY_DB: {
 			struct iwm_calib_res_notif_phy_db *phy_db_notif;
-			SYNC_RESP_STRUCT(phy_db_notif, pkt);
+			phy_db_notif = (void *)pkt->data;
 			iwm_phy_db_set_section(sc, phy_db_notif);
 			break;
 		}
 
-		case IWM_STATISTICS_NOTIFICATION: {
-			struct iwm_notif_statistics *stats;
-			SYNC_RESP_STRUCT(stats, pkt);
-			memcpy(&sc->sc_stats, stats, sizeof(sc->sc_stats));
-			sc->sc_noise = iwm_get_noise(&stats->rx.general);
+		case IWM_STATISTICS_NOTIFICATION:
+			memcpy(&sc->sc_stats, pkt->data, sizeof(sc->sc_stats));
+			sc->sc_noise = iwm_get_noise(&sc->sc_stats.rx.general);
 			break;
-		}
 
 		case IWM_NVM_ACCESS_CMD:
 		case IWM_MCC_UPDATE_CMD:
 			if (sc->sc_wantresp == ((qid << 16) | idx)) {
-				bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-				    sizeof(sc->sc_cmd_resp),
-				    BUS_DMASYNC_POSTREAD);
 				memcpy(sc->sc_cmd_resp,
 				    pkt, sizeof(sc->sc_cmd_resp));
 			}
@@ -6685,11 +6660,11 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 
 		case IWM_MCC_CHUB_UPDATE_CMD: {
 			struct iwm_mcc_chub_notif *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
-
+			notif = (void *)pkt->data;
 			sc->sc_fw_mcc[0] = (notif->mcc & 0xff00) >> 8;
 			sc->sc_fw_mcc[1] = notif->mcc & 0xff;
 			sc->sc_fw_mcc[2] = '\0';
+			break;
 		}
 
 		case IWM_DTS_MEASUREMENT_NOTIFICATION:
@@ -6715,7 +6690,7 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 		case IWM_LQ_CMD:
 		case IWM_BT_CONFIG:
 		case IWM_REPLY_THERMAL_MNG_BACKOFF:
-			SYNC_RESP_STRUCT(cresp, pkt);
+			cresp = (void *)pkt->data;
 			if (sc->sc_wantresp == ((qid << 16) | idx)) {
 				memcpy(sc->sc_cmd_resp,
 				    pkt, sizeof(*pkt)+sizeof(*cresp));
@@ -6731,48 +6706,32 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 			wakeup(&sc->sc_init_complete);
 			break;
 
-		case IWM_SCAN_OFFLOAD_COMPLETE: {
-			struct iwm_periodic_scan_complete *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
+		case IWM_SCAN_OFFLOAD_COMPLETE:
 			break;
-		}
 
-		case IWM_SCAN_ITERATION_COMPLETE: {
-			struct iwm_lmac_scan_complete_notif *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
+		case IWM_SCAN_ITERATION_COMPLETE:
 			task_add(sc->sc_eswq, &sc->sc_eswk);
 			break;
-		}
 
-		case IWM_SCAN_COMPLETE_UMAC: {
-			struct iwm_umac_scan_complete *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
+		case IWM_SCAN_COMPLETE_UMAC:
 			task_add(sc->sc_eswq, &sc->sc_eswk);
 			break;
-		}
 
-		case IWM_SCAN_ITERATION_COMPLETE_UMAC: {
-			struct iwm_umac_scan_iter_complete_notif *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
-
+		case IWM_SCAN_ITERATION_COMPLETE_UMAC:
 			task_add(sc->sc_eswq, &sc->sc_eswk);
 			break;
-		}
 
 		case IWM_REPLY_ERROR: {
 			struct iwm_error_resp *resp;
-			SYNC_RESP_STRUCT(resp, pkt);
+			resp = (void *)pkt->data;
 			printf("%s: firmware error 0x%x, cmd 0x%x\n",
 				DEVNAME(sc), le32toh(resp->error_type),
 				resp->cmd_id);
 			break;
 		}
 
-		case IWM_TIME_EVENT_NOTIFICATION: {
-			struct iwm_time_event_notif *notif;
-			SYNC_RESP_STRUCT(notif, pkt);
+		case IWM_TIME_EVENT_NOTIFICATION:
 			break;
-		}
 
 		/*
 		 * Firmware versions 21 and 22 generate some DEBUG_LOG_MSG
@@ -6784,12 +6743,8 @@ iwm_rx_pkt(struct iwm_softc *sc, struct iwm_rx_data *data)
 		case IWM_MCAST_FILTER_CMD:
 			break;
 
-		case IWM_SCD_QUEUE_CFG: {
-			struct iwm_scd_txq_cfg_rsp *rsp;
-			SYNC_RESP_STRUCT(rsp, pkt);
-
+		case IWM_SCD_QUEUE_CFG:
 			break;
-		}
 
 		default:
 			printf("%s: unhandled firmware response 0x%x/0x%x "
@@ -6830,7 +6785,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 		struct iwm_rx_data *data = &sc->rxq.data[sc->rxq.cur];
 
 		iwm_rx_pkt(sc, data);
-		ADVANCE_RXQ(sc);
+		sc->rxq.cur = (sc->rxq.cur + 1) % IWM_RX_RING_COUNT;
 	}
 
 	IWM_CLRBITS(sc, IWM_CSR_GP_CNTRL,
