@@ -29,6 +29,7 @@
 ./usr/include/complex.h
 ./usr/include/cpio.h
 ./usr/include/crypto
+./usr/include/crypto/aes.h
 ./usr/include/crypto/arc4.h
 ./usr/include/crypto/blf.h
 ./usr/include/crypto/cast.h
@@ -112,6 +113,7 @@
 ./usr/include/dev/eisa/eisareg.h
 ./usr/include/dev/eisa/eisavar.h
 ./usr/include/dev/fdt
+./usr/include/dev/fdt/rkclock_clocks.h
 ./usr/include/dev/fdt/sunxireg.h
 ./usr/include/dev/fdt/sxiccmu_clocks.h
 ./usr/include/dev/fdt/sxipio_pins.h
@@ -845,7 +847,7 @@
 ./usr/include/fuse.h
 ./usr/include/fuse_opt.h
 ./usr/include/g++
-./usr/include/g++/FlexLexer.h
+./usr/include/FlexLexer.h
 ./usr/include/getopt.h
 ./usr/include/glob.h
 ./usr/include/grp.h
@@ -1260,7 +1262,6 @@
 ./usr/include/sys/ipc.h
 ./usr/include/sys/kcore.h
 ./usr/include/sys/kernel.h
-./usr/include/sys/kgdb.h
 ./usr/include/sys/kthread.h
 ./usr/include/sys/ktrace.h
 ./usr/include/sys/limits.h
