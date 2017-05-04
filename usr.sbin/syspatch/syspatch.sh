@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.95 2017/04/30 13:41:10 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.97 2017/05/03 17:23:34 ajacoutot Exp $
 #
 # Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -69,7 +69,7 @@ apply_patch()
 	trap exit INT
 }
 
-# quick-and-dirty size check:
+# quick-and-dirty filesystem status and size checks:
 # - assume old files are about the same size as new ones
 # - ignore new (nonexistent) files
 # - compute total size of all files per fs, simpler and less margin for error
@@ -78,7 +78,7 @@ apply_patch()
 #   - /bsd.syspatchXX is not present (create_rollback will copy it from /bsd)
 checkfs()
 {
-	local _d _df _dev _files="${@}" _sz
+	local _d _dev _df _files="${@}" _sz
 	[[ -n ${_files} ]]
 
 	if echo "${_files}" | grep -qw bsd; then
@@ -86,13 +86,18 @@ checkfs()
 			_files="bsd ${_files}"
 	fi
 
+	set +e # ignore errors due to:
+	# - nonexistent files (i.e. syspatch is installing new files)
+	# - broken interpolation due to bogus devices like remote filesystems
 	eval $(cd / &&
 		stat -qf "_dev=\"\${_dev} %Sd\" %Sd=\"\${%Sd:+\${%Sd}\+}%Uz\"" \
-			${_files}) || true # ignore nonexistent files
+			${_files}) 2>/dev/null
+	set -e
+	[[ -z ${_dev} && -n ${_files} ]] && sp_err "Remote filesystem, aborting"
 
 	for _d in $(printf '%s\n' ${_dev} | sort -u); do
 		mount | grep -v read-only | grep -q "^/dev/${_d} " ||
-			sp_err "Remote or read-only filesystem, aborting"
+			sp_err "Read-only filesystem, aborting"
 		_df=$(df -Pk | grep "^/dev/${_d} " | tr -s ' ' | cut -d ' ' -f4)
 		_sz=$(($((_d))/1024))
 		((_df > _sz)) || sp_err "No space left on ${_d}, aborting"
@@ -180,9 +185,13 @@ ls_missing()
 {
 	local _c _l="$(ls_installed)" _sha=${_TMP}/SHA256
 
-	# don't output anything on stdout to prevent corrupting the patch list
+	# return inmediately if we cannot reach the mirror server
+	unpriv ftp -MVo /dev/null ${_MIRROR%syspatch/*} >/dev/null
+
+	# don't output anything on stdout to prevent corrupting the patch list;
+	# redirect stderr as well in case there's no patch available
 	unpriv -f "${_sha}.sig" ftp -MVo "${_sha}.sig" "${_MIRROR}/SHA256.sig" \
-		>/dev/null 2>&1
+		>/dev/null 2>&1 || return 0 # empty directory
 	unpriv -f "${_sha}" signify -Veq -x ${_sha}.sig -m ${_sha} -p \
 		/etc/signify/openbsd-${_OSrev}-syspatch.pub >/dev/null
 
@@ -300,7 +309,8 @@ shift $((OPTIND - 1))
 (($# != 0)) && usage
 
 if ((OPTIND == 1)); then
-	for _PATCH in $(ls_missing); do
+	_PATCHES=$(ls_missing)
+	for _PATCH in ${_PATCHES}; do
 		apply_patch ${_OSrev}-${_PATCH}
 	done
 	sp_cleanup
