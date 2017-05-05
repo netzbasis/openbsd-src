@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_html.c,v 1.155 2017/04/24 23:06:09 schwarze Exp $ */
+/*	$OpenBSD: mdoc_html.c,v 1.158 2017/05/05 02:06:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015, 2016, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -235,7 +235,6 @@ static	const struct htmlmdoc __mdocs[MDOC_MAX - MDOC_Dd] = {
 	{mdoc_quote_pre, mdoc_quote_post}, /* En */
 	{mdoc_xx_pre, NULL}, /* Dx */
 	{mdoc__x_pre, mdoc__x_post}, /* %Q */
-	{mdoc_sp_pre, NULL}, /* br */
 	{mdoc_sp_pre, NULL}, /* sp */
 	{mdoc__x_pre, mdoc__x_post}, /* %U */
 	{NULL, NULL}, /* Ta */
@@ -392,6 +391,11 @@ print_mdoc_node(MDOC_ARGS)
 			t = h->tag;
 		}
 		assert(h->tblt == NULL);
+		if (n->tok < ROFF_MAX) {
+			roff_html_pre(h, n);
+			child = 0;
+			break;
+		}
 		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
 		if (mdocs[n->tok].pre != NULL &&
 		    (n->end == ENDBODY_NOT || n->child != NULL))
@@ -413,7 +417,9 @@ print_mdoc_node(MDOC_ARGS)
 	case ROFFT_EQN:
 		break;
 	default:
-		if (mdocs[n->tok].post == NULL || n->flags & NODE_ENDED)
+		if (n->tok < ROFF_MAX ||
+		    mdocs[n->tok].post == NULL ||
+		    n->flags & NODE_ENDED)
 			break;
 		(*mdocs[n->tok].post)(meta, n, h);
 		if (n->end != ENDBODY_NOT)
@@ -1003,7 +1009,7 @@ mdoc_bd_pre(MDOC_ARGS)
 		 */
 		switch (nn->tok) {
 		case MDOC_Sm:
-		case MDOC_br:
+		case ROFF_br:
 		case MDOC_sp:
 		case MDOC_Bl:
 		case MDOC_D1:
@@ -1324,16 +1330,12 @@ mdoc_sp_pre(MDOC_ARGS)
 	struct roffsu	 su;
 
 	SCALE_VS_INIT(&su, 1);
-
-	if (MDOC_sp == n->tok) {
-		if (NULL != (n = n->child)) {
-			if ( ! a2roffsu(n->string, &su, SCALE_VS))
-				su.scale = 1.0;
-			else if (su.scale < 0.0)
-				su.scale = 0.0;
-		}
-	} else
-		su.scale = 0.0;
+	if (NULL != (n = n->child)) {
+		if ( ! a2roffsu(n->string, &su, SCALE_VS))
+			su.scale = 1.0;
+		else if (su.scale < 0.0)
+			su.scale = 0.0;
+	}
 
 	print_otag(h, TAG_DIV, "suh", &su);
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_term.c,v 1.145 2017/04/24 23:06:09 schwarze Exp $ */
+/*	$OpenBSD: man_term.c,v 1.148 2017/05/05 02:06:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -78,7 +78,6 @@ static	int		  pre_SS(DECL_ARGS);
 static	int		  pre_TP(DECL_ARGS);
 static	int		  pre_UR(DECL_ARGS);
 static	int		  pre_alternate(DECL_ARGS);
-static	int		  pre_ft(DECL_ARGS);
 static	int		  pre_ign(DECL_ARGS);
 static	int		  pre_in(DECL_ARGS);
 static	int		  pre_literal(DECL_ARGS);
@@ -114,7 +113,6 @@ static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
 	{ pre_I, NULL, 0 }, /* I */
 	{ pre_alternate, NULL, 0 }, /* IR */
 	{ pre_alternate, NULL, 0 }, /* RI */
-	{ pre_sp, NULL, MAN_NOTEXT }, /* br */
 	{ pre_sp, NULL, MAN_NOTEXT }, /* sp */
 	{ pre_literal, NULL, 0 }, /* nf */
 	{ pre_literal, NULL, 0 }, /* fi */
@@ -125,7 +123,6 @@ static	const struct termact __termacts[MAN_MAX - MAN_TH] = {
 	{ pre_PD, NULL, MAN_NOTEXT }, /* PD */
 	{ pre_ign, NULL, 0 }, /* AT */
 	{ pre_in, NULL, MAN_NOTEXT }, /* in */
-	{ pre_ft, NULL, MAN_NOTEXT }, /* ft */
 	{ pre_OP, NULL, 0 }, /* OP */
 	{ pre_literal, NULL, 0 }, /* EX */
 	{ pre_literal, NULL, 0 }, /* EE */
@@ -361,41 +358,6 @@ pre_OP(DECL_ARGS)
 }
 
 static int
-pre_ft(DECL_ARGS)
-{
-	const char	*cp;
-
-	if (NULL == n->child) {
-		term_fontlast(p);
-		return 0;
-	}
-
-	cp = n->child->string;
-	switch (*cp) {
-	case '4':
-	case '3':
-	case 'B':
-		term_fontrepl(p, TERMFONT_BOLD);
-		break;
-	case '2':
-	case 'I':
-		term_fontrepl(p, TERMFONT_UNDER);
-		break;
-	case 'P':
-		term_fontlast(p);
-		break;
-	case '1':
-	case 'C':
-	case 'R':
-		term_fontrepl(p, TERMFONT_NONE);
-		break;
-	default:
-		break;
-	}
-	return 0;
-}
-
-static int
 pre_in(DECL_ARGS)
 {
 	struct roffsu	 su;
@@ -456,9 +418,7 @@ pre_sp(DECL_ARGS)
 		}
 	}
 
-	if (n->tok == MAN_br)
-		len = 0;
-	else if (n->child == NULL)
+	if (n->child == NULL)
 		len = 1;
 	else {
 		if ( ! a2roffsu(n->child->string, &su, SCALE_VS))
@@ -985,6 +945,12 @@ print_man_node(DECL_ARGS)
 		break;
 	}
 
+	if (n->tok < ROFF_MAX) {
+		roff_term_pre(p, n);
+		return;
+	}
+
+	assert(n->tok >= MAN_TH && n->tok <= MAN_MAX);
 	if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
 		term_fontrepl(p, TERMFONT_NONE);
 
