@@ -1,4 +1,4 @@
-/*	$OpenBSD: vm.c,v 1.15 2017/05/02 07:19:53 mlarkin Exp $	*/
+/*	$OpenBSD: vm.c,v 1.17 2017/05/05 20:16:40 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -139,7 +139,8 @@ static const struct vcpu_reg_state vcpu_init_flat32 = {
 	.vrs_msrs[VCPU_REGS_LSTAR] = 0ULL,
 	.vrs_msrs[VCPU_REGS_CSTAR] = 0ULL,
 	.vrs_msrs[VCPU_REGS_SFMASK] = 0ULL,
-	.vrs_msrs[VCPU_REGS_KGSBASE] = 0ULL
+	.vrs_msrs[VCPU_REGS_KGSBASE] = 0ULL,
+	.vrs_crs[VCPU_REGS_XCR0] = XCR0_X87
 #endif
 };
 
@@ -175,7 +176,8 @@ static const struct vcpu_reg_state vcpu_init_flat16 = {
 	.vrs_msrs[VCPU_REGS_LSTAR] = 0ULL,
 	.vrs_msrs[VCPU_REGS_CSTAR] = 0ULL,
 	.vrs_msrs[VCPU_REGS_SFMASK] = 0ULL,
-	.vrs_msrs[VCPU_REGS_KGSBASE] = 0ULL
+	.vrs_msrs[VCPU_REGS_KGSBASE] = 0ULL,
+	.vrs_crs[VCPU_REGS_XCR0] = XCR0_X87
 #endif
 };
 
@@ -407,22 +409,20 @@ vm_dispatch_vmm(int fd, short event, void *arg)
 __dead void
 vm_shutdown(unsigned int cmd)
 {
-	struct privsep	*ps = &env->vmd_ps;
-
 	switch (cmd) {
 	case VMMCI_NONE:
 	case VMMCI_SHUTDOWN:
-		(void)proc_compose(ps, PROC_VMM,
-		    IMSG_VMDOP_VM_SHUTDOWN, NULL, 0);
+		(void)imsg_compose_event(&current_vm->vm_iev,
+		    IMSG_VMDOP_VM_SHUTDOWN, 0, 0, -1, NULL, 0);
 		break;
 	case VMMCI_REBOOT:
-		(void)proc_compose(ps, PROC_VMM,
-		    IMSG_VMDOP_VM_REBOOT, NULL, 0);
+		(void)imsg_compose_event(&current_vm->vm_iev,
+		    IMSG_VMDOP_VM_REBOOT, 0, 0, -1, NULL, 0);
 		break;
 	default:
 		fatalx("invalid vm ctl command: %d", cmd);
 	}
-	proc_flush_imsg(ps, PROC_VMM, -1);
+	imsg_flush(&current_vm->vm_iev.ibuf);
 
 	_exit(0);
 }
