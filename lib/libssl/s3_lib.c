@@ -1,4 +1,4 @@
-/* $OpenBSD: s3_lib.c,v 1.140 2017/04/10 17:27:33 jsing Exp $ */
+/* $OpenBSD: s3_lib.c,v 1.142 2017/05/06 22:24:57 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -2141,6 +2141,16 @@ ssl3_ctrl(SSL *s, int cmd, long larg, void *parg)
 		ret = ssl_ctrl_get_server_tmp_key(s, parg);
 		break;
 
+	case SSL_CTRL_SET_MIN_PROTO_VERSION:
+		if (larg < 0 || larg > UINT16_MAX)
+			return (0);
+		return SSL_set_min_proto_version(s, larg);
+
+	case SSL_CTRL_SET_MAX_PROTO_VERSION:
+		if (larg < 0 || larg > UINT16_MAX)
+			return (0);
+		return SSL_set_max_proto_version(s, larg);
+
 	default:
 		break;
 	}
@@ -2323,6 +2333,16 @@ ssl3_ctx_ctrl(SSL_CTX *ctx, int cmd, long larg, void *parg)
 	case SSL_CTRL_SET_GROUPS_LIST:
 		return SSL_CTX_set1_groups_list(ctx, parg);
 
+	case SSL_CTRL_SET_MIN_PROTO_VERSION:
+		if (larg < 0 || larg > UINT16_MAX)
+			return (0);
+		return SSL_CTX_set_min_proto_version(ctx, larg);
+
+	case SSL_CTRL_SET_MAX_PROTO_VERSION:
+		if (larg < 0 || larg > UINT16_MAX)
+			return (0);
+		return SSL_CTX_set_max_proto_version(ctx, larg);
+
 	default:
 		return (0);
 	}
@@ -2484,7 +2504,7 @@ ssl3_get_req_cert_type(SSL *s, unsigned char *p)
 	int		ret = 0;
 	unsigned long	alg_k;
 
-	alg_k = S3I(s)->tmp.new_cipher->algorithm_mkey;
+	alg_k = S3I(s)->hs.new_cipher->algorithm_mkey;
 
 #ifndef OPENSSL_NO_GOST
 	if ((alg_k & SSL_kGOST)) {
@@ -2700,7 +2720,7 @@ ssl3_renegotiate_check(SSL *s)
 long
 ssl_get_algorithm2(SSL *s)
 {
-	long	alg2 = S3I(s)->tmp.new_cipher->algorithm2;
+	long	alg2 = S3I(s)->hs.new_cipher->algorithm2;
 
 	if (s->method->internal->ssl3_enc->enc_flags & SSL_ENC_FLAG_SHA256_PRF &&
 	    alg2 == (SSL_HANDSHAKE_MAC_DEFAULT|TLS1_PRF))
