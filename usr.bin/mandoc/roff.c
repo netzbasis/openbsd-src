@@ -1,4 +1,4 @@
-/*	$OpenBSD: roff.c,v 1.172 2017/05/07 17:30:58 schwarze Exp $ */
+/*	$OpenBSD: roff.c,v 1.174 2017/05/08 20:33:40 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -211,7 +211,7 @@ static	enum rofferr	 roff_userdef(ROFF_ARGS);
 
 const char *__roff_name[MAN_MAX + 1] = {
 	"br",		"ft",		"ll",		"sp",
-	"ta",		NULL,
+	"ta",		"ti",		NULL,
 	"ab",		"ad",		"af",		"aln",
 	"als",		"am",		"am1",		"ami",
 	"ami1",		"as",		"as1",		"asciify",
@@ -262,7 +262,7 @@ const char *__roff_name[MAN_MAX + 1] = {
 	"spacewidth",	"special",	"spreadwarn",	"ss",
 	"sty",		"substring",	"sv",		"sy",
 	"T&",		"tc",		"TE",
-	"TH",		"ti",		"tkf",		"tl",
+	"TH",		"tkf",		"tl",
 	"tm",		"tm1",		"tmc",		"tr",
 	"track",	"transchar",	"trf",		"trimat",
 	"trin",		"trnt",		"troff",	"TS",
@@ -322,6 +322,7 @@ static	struct roffmac	 roffs[TOKEN_NONE] = {
 	{ roff_onearg, NULL, NULL, 0 },  /* ll */
 	{ roff_onearg, NULL, NULL, 0 },  /* sp */
 	{ roff_manyarg, NULL, NULL, 0 },  /* ta */
+	{ roff_onearg, NULL, NULL, 0 },  /* ti */
 	{ NULL, NULL, NULL, 0 },  /* ROFF_MAX */
 	{ roff_unsupp, NULL, NULL, 0 },  /* ab */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* ad */
@@ -523,7 +524,6 @@ static	struct roffmac	 roffs[TOKEN_NONE] = {
 	{ roff_unsupp, NULL, NULL, 0 },  /* tc */
 	{ roff_TE, NULL, NULL, 0 },  /* TE */
 	{ roff_TH, NULL, NULL, 0 },  /* TH */
-	{ roff_unsupp, NULL, NULL, 0 },  /* ti */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* tkf */
 	{ roff_unsupp, NULL, NULL, 0 },  /* tl */
 	{ roff_line_ignore, NULL, NULL, 0 },  /* tm */
@@ -1007,7 +1007,7 @@ roff_addtbl(struct roff_man *man, const struct tbl_span *tbl)
 	struct roff_node	*n;
 
 	if (man->macroset == MACROSET_MAN)
-		man_breakscope(man, TOKEN_NONE);
+		man_breakscope(man, ROFF_TS);
 	n = roff_node_alloc(man, tbl->line, 0, ROFFT_TBL, TOKEN_NONE);
 	n->span = tbl;
 	roff_node_append(man, n);
@@ -2776,6 +2776,10 @@ roff_onearg(ROFF_ARGS)
 	struct roff_node	*n;
 	char			*cp;
 
+	if (r->man->flags & (MAN_BLINE | MAN_ELINE) &&
+	    (tok == ROFF_sp || tok == ROFF_ti))
+		man_breakscope(r->man, tok);
+
 	roff_elem_alloc(r->man, ln, ppos, tok);
 	n = r->man->last;
 
@@ -2824,6 +2828,8 @@ roff_manyarg(ROFF_ARGS)
 static enum rofferr
 roff_br(ROFF_ARGS)
 {
+	if (r->man->flags & (MAN_BLINE | MAN_ELINE))
+		man_breakscope(r->man, ROFF_br);
 	roff_elem_alloc(r->man, ln, ppos, ROFF_br);
 	if (buf->buf[pos] != '\0')
 		mandoc_vmsg(MANDOCERR_ARG_SKIP, r->parse, ln, pos,
