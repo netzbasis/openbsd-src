@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.761 2017/05/09 13:04:36 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.763 2017/05/10 16:48:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -1345,6 +1345,7 @@ struct client {
 #define CLIENT_STATUSFORCE 0x80000
 #define CLIENT_DOUBLECLICK 0x100000
 #define CLIENT_TRIPLECLICK 0x200000
+#define CLIENT_SIZECHANGED 0x400000
 	int		 flags;
 	struct key_table *keytable;
 
@@ -1801,8 +1802,8 @@ void	 key_bindings_add(const char *, key_code, int, struct cmd_list *);
 void	 key_bindings_remove(const char *, key_code);
 void	 key_bindings_remove_table(const char *);
 void	 key_bindings_init(void);
-void	 key_bindings_dispatch(struct key_binding *, struct client *,
-	     struct mouse_event *, struct cmd_find_state *);
+void	 key_bindings_dispatch(struct key_binding *, struct cmdq_item *,
+	     struct client *, struct mouse_event *, struct cmd_find_state *);
 
 /* key-string.c */
 key_code	 key_string_lookup_string(const char *);
