@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.273 2017/05/11 11:38:49 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.281 2017/05/12 23:10:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -798,6 +798,7 @@ tty_clear_area(struct tty *tty, const struct window_pane *wp, u_int py,
     u_int ny, u_int px, u_int nx, u_int bg)
 {
 	u_int	yy;
+	char	tmp[64];
 
 	log_debug("%s: %u,%u at %u,%u", __func__, nx, ny, px, py);
 
@@ -807,12 +808,52 @@ tty_clear_area(struct tty *tty, const struct window_pane *wp, u_int py,
 
 	/* If genuine BCE is available, can try escape sequences. */
 	if (!tty_fake_bce(tty, wp, bg)) {
+		/* Use ED if clearing off the bottom of the terminal. */
 		if (px == 0 &&
 		    px + nx >= tty->sx &&
 		    py + ny >= tty->sy &&
 		    tty_term_has(tty->term, TTYC_ED)) {
 			tty_cursor(tty, 0, py);
 			tty_putcode(tty, TTYC_ED);
+			return;
+		}
+
+		/*
+		 * On VT420 compatible terminals we can use DECFRA if the
+		 * background colour isn't default (because it doesn't work
+		 * after SGR 0).
+		 */
+		if (tty->term_type == TTY_VT420 && bg != 8) {
+			xsnprintf(tmp, sizeof tmp, "\033[32;%u;%u;%u;%u$x",
+			    py + 1, px + 1, py + ny, px + nx);
+			tty_puts(tty, tmp);
+			return;
+		}
+
+		/* Full lines can be scrolled away to clear them. */
+		if (px == 0 &&
+		    px + nx >= tty->sx &&
+		    ny > 2 &&
+		    tty_term_has(tty->term, TTYC_CSR) &&
+		    tty_term_has(tty->term, TTYC_INDN)) {
+			tty_region(tty, py, py + ny - 1);
+			tty_margin_off(tty);
+			tty_putcode1(tty, TTYC_INDN, ny);
+			return;
+		}
+
+		/*
+		 * If margins are supported, can just scroll the area off to
+		 * clear it.
+		 */
+		if (nx > 2 &&
+		    ny > 2 &&
+		    tty_term_has(tty->term, TTYC_CSR) &&
+		    tty_use_margin(tty) &&
+		    tty_term_has(tty->term, TTYC_INDN)) {
+			tty_region(tty, py, py + ny - 1);
+			tty_margin(tty, px, px + nx - 1);
+			tty_putcode1(tty, TTYC_INDN, ny);
 			return;
 		}
 	}
@@ -1023,7 +1064,7 @@ tty_cmd_deletecharacter(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_clearcharacter(struct tty *tty, const struct tty_ctx *ctx)
 {
-	tty_attributes(tty, &grid_default_cell, ctx->wp);
+	tty_default_attributes(tty, ctx->wp, ctx->bg);
 
 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
@@ -1052,6 +1093,7 @@ tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
 	tty_emulate_repeat(tty, TTYC_IL, TTYC_IL1, ctx->num);
+	tty->cx = tty->cy = UINT_MAX;
 }
 
 void
@@ -1072,6 +1114,7 @@ tty_cmd_deleteline(struct tty *tty, const struct tty_ctx *ctx)
 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
 	tty_emulate_repeat(tty, TTYC_DL, TTYC_DL1, ctx->num);
+	tty->cx = tty->cy = UINT_MAX;
 }
 
 void
@@ -1113,18 +1156,20 @@ tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 {
+	struct window_pane	*wp = ctx->wp;
+
 	if (ctx->ocy != ctx->orupper)
 		return;
 
 	if (!tty_pane_full_width(tty, ctx) ||
-	    tty_fake_bce(tty, ctx->wp, 8) ||
+	    tty_fake_bce(tty, wp, 8) ||
 	    !tty_term_has(tty->term, TTYC_CSR) ||
 	    !tty_term_has(tty->term, TTYC_RI)) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
 
-	tty_attributes(tty, &grid_default_cell, ctx->wp);
+	tty_default_attributes(tty, wp, ctx->bg);
 
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 	tty_margin_off(tty);
@@ -1148,7 +1193,7 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 		return;
 	}
 
-	tty_attributes(tty, &grid_default_cell, wp);
+	tty_default_attributes(tty, wp, ctx->bg);
 
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 	tty_margin_pane(tty, ctx);
@@ -1179,7 +1224,7 @@ tty_cmd_scrollup(struct tty *tty, const struct tty_ctx *ctx)
 		return;
 	}
 
-	tty_attributes(tty, &grid_default_cell, wp);
+	tty_default_attributes(tty, wp, ctx->bg);
 
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 	tty_margin_pane(tty, ctx);

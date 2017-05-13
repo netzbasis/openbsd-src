@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_input.c,v 1.299 2017/05/11 11:36:20 bluhm Exp $	*/
+/*	$OpenBSD: ip_input.c,v 1.301 2017/05/12 23:05:58 bluhm Exp $	*/
 /*	$NetBSD: ip_input.c,v 1.30 1996/03/16 23:53:58 christos Exp $	*/
 
 /*
@@ -130,7 +130,6 @@ void	ip_ours(struct mbuf *);
 int	ip_dooptions(struct mbuf *, struct ifnet *);
 int	in_ouraddr(struct mbuf *, struct ifnet *, struct rtentry **);
 #ifdef IPSEC
-int	ip_input_ipsec_fwd_check(struct mbuf *, int);
 int	ip_input_ipsec_ours_check(struct mbuf *, int);
 #endif /* IPSEC */
 
@@ -241,9 +240,6 @@ ipv4_input(struct mbuf *m)
 	struct rtentry	*rt = NULL;
 	struct ip	*ip;
 	int hlen, len;
-#if defined(MROUTING) || defined(IPSEC)
-	int rv;
-#endif
 	in_addr_t pfrdr = 0;
 
 	ifp = if_get(m->m_pkthdr.ph_ifidx);
@@ -377,6 +373,8 @@ ipv4_input(struct mbuf *m)
 
 #ifdef MROUTING
 		if (ipmforwarding && ip_mrouter[ifp->if_rdomain]) {
+			int rv;
+
 			if (m->m_flags & M_EXT) {
 				if ((m = m_pullup(m, hlen)) == NULL) {
 					ipstat_inc(ips_toosmall);
@@ -444,8 +442,10 @@ ipv4_input(struct mbuf *m)
 	}
 #ifdef IPSEC
 	if (ipsec_in_use) {
+		int rv;
+
 		KERNEL_LOCK();
-		rv = ip_input_ipsec_fwd_check(m, hlen);
+		rv = ip_input_ipsec_fwd_check(m, hlen, AF_INET);
 		KERNEL_UNLOCK();
 		if (rv != 0) {
 			ipstat_inc(ips_cantforward);
@@ -482,9 +482,6 @@ ip_ours(struct mbuf *m)
 	int mff, hlen;
 
 	hlen = ip->ip_hl << 2;
-
-	/* pf might have modified stuff, might have to chksum */
-	in_proto_cksum_out(m, NULL);
 
 	/*
 	 * If offset or IP_MF are set, must reassemble.
@@ -570,11 +567,26 @@ found:
 				ip_freef(fp);
 	}
 
+	ip_local(m, hlen, ip->ip_p);
+	return;
+bad:
+	m_freem(m);
+}
+
+void
+ip_local(struct mbuf *m, int off, int nxt)
+{
+	KERNEL_ASSERT_LOCKED();
+
+	/* pf might have modified stuff, might have to chksum */
+	in_proto_cksum_out(m, NULL);
+
 #ifdef IPSEC
 	if (ipsec_in_use) {
-		if (ip_input_ipsec_ours_check(m, hlen) != 0) {
+		if (ip_input_ipsec_ours_check(m, off) != 0) {
 			ipstat_inc(ips_cantforward);
-			goto bad;
+			m_freem(m);
+			return;
 		}
 	}
 	/* Otherwise, just fall through and deliver the packet */
@@ -584,10 +596,7 @@ found:
 	 * Switch out to protocol's input routine.
 	 */
 	ipstat_inc(ips_delivered);
-	(*inetsw[ip_protox[ip->ip_p]].pr_input)(&m, &hlen, ip->ip_p, AF_INET);
-	return;
-bad:
-	m_freem(m);
+	(*inetsw[ip_protox[nxt]].pr_input)(&m, &off, nxt, AF_INET);
 }
 
 int
@@ -675,7 +684,7 @@ in_ouraddr(struct mbuf *m, struct ifnet *ifp, struct rtentry **prt)
 
 #ifdef IPSEC
 int
-ip_input_ipsec_fwd_check(struct mbuf *m, int hlen)
+ip_input_ipsec_fwd_check(struct mbuf *m, int hlen, int af)
 {
 	struct tdb *tdb;
 	struct tdb_ident *tdbi;
@@ -692,8 +701,7 @@ ip_input_ipsec_fwd_check(struct mbuf *m, int hlen)
 		tdb = gettdb(tdbi->rdomain, tdbi->spi, &tdbi->dst, tdbi->proto);
 	} else
 		tdb = NULL;
-	ipsp_spd_lookup(m, AF_INET, hlen, &error, IPSP_DIRECTION_IN, tdb, NULL,
-	    0);
+	ipsp_spd_lookup(m, af, hlen, &error, IPSP_DIRECTION_IN, tdb, NULL, 0);
 
 	return error;
 }
