@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.186 2017/05/12 14:04:09 bluhm Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.188 2017/05/22 22:23:11 bluhm Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -475,7 +475,7 @@ ip6_input(struct mbuf *m)
 		int rv;
 
 		KERNEL_LOCK();
-		rv = ip_input_ipsec_fwd_check(m, off, AF_INET6);
+		rv = ipsec_forward_check(m, off, AF_INET6);
 		KERNEL_UNLOCK();
 		if (rv != 0) {
 			ipstat_inc(ips_cantforward);
@@ -549,6 +549,17 @@ ip6_local(struct mbuf *m, int off, int nxt)
 			} else
 				goto bad;
 		}
+
+#ifdef IPSEC
+		if (ipsec_in_use) {
+			if (ipsec_local_check(m, off, nxt, AF_INET6) != 0) {
+				ipstat_inc(ip6s_cantforward);
+				m_freem(m);
+				return;
+			}
+		}
+		/* Otherwise, just fall through and deliver the packet */
+#endif /* IPSEC */
 
 		nxt = (*inet6sw[ip6_protox[nxt]].pr_input)(&m, &off, nxt,
 		    AF_INET6);
