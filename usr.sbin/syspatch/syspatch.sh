@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.106 2017/05/23 13:08:28 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.109 2017/05/24 11:21:13 ajacoutot Exp $
 #
 # Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
@@ -67,6 +67,8 @@ apply_patch()
 		sp_err "Failed to apply patch ${_patch##${_OSrev}-}" 0
 		rollback_patch; return ${_ret}
 	fi
+	# don't fill up /tmp when installing multiple patches at once; non-fatal
+	rm -rf ${_edir} ${_TMP}/syspatch${_patch}.tgz
 	trap exit INT
 }
 
@@ -160,7 +162,7 @@ install_file()
 
 	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
 
-	install -DFS -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
+	install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
 }
 
 install_kernel()
@@ -172,7 +174,7 @@ install_kernel()
 		[[ ${_kern##*/} == bsd ]] && _bsd=bsd.sp || _bsd=bsd
 	fi
 
-	install -FS ${_kern} /${_bsd:-${_kern##*/}}
+	install -FSp ${_kern} /${_bsd:-${_kern##*/}}
 }
 
 ls_installed()
@@ -214,6 +216,7 @@ rollback_patch()
 	_edir=${_TMP}/${_patch}-rollback
 	_patch=${_OSrev}-${_patch}
 
+	trap '' INT
 	echo "Reverting patch ${_patch##${_OSrev}-}"
 	install -d ${_edir}
 
@@ -225,7 +228,7 @@ rollback_patch()
 		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
 			install_kernel ${_edir}/${_file} || _ret=$?
 			# remove the backup kernel if all kernel syspatches have
-			# been reverted; non-fatal (`-f')
+			# been reverted; non-fatal
 			cmp -s /bsd /bsd.syspatch${_OSrev} &&
 				rm -f /bsd.syspatch${_OSrev}
 		else
@@ -235,6 +238,8 @@ rollback_patch()
 
 	((_ret == 0)) && rm -r ${_PDIR}/${_patch} ||
 		sp_err "Failed to revert patch ${_patch##${_OSrev}-}" ${_ret}
+	rm -rf ${_edir} # don't fill up /tmp when using `-R'; non-fatal
+	trap exit INT
 }
 
 sp_cleanup()
