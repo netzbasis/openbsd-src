@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgpd.h,v 1.300 2017/01/25 00:11:07 claudio Exp $ */
+/*	$OpenBSD: bgpd.h,v 1.304 2017/05/27 18:12:23 phessler Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -309,6 +309,7 @@ struct peer_config {
 	u_int32_t		 max_prefix;
 	enum announce_type	 announce_type;
 	enum enforce_as		 enforce_as;
+	enum enforce_as		 enforce_local_as;
 	enum reconf_action	 reconf_action;
 	u_int16_t		 max_prefix_restart;
 	u_int16_t		 holdtime;
@@ -607,8 +608,8 @@ struct ctl_show_rib {
 	u_int32_t		local_pref;
 	u_int32_t		med;
 	u_int32_t		weight;
+	u_int32_t		flags;
 	u_int16_t		aspath_len;
-	u_int16_t		flags;
 	u_int8_t		prefixlen;
 	u_int8_t		origin;
 	/* plus a aspath_len bytes long aspath */
@@ -739,9 +740,10 @@ struct filter_peers {
 #define	COMMUNITY_ERROR			-1
 #define	COMMUNITY_ANY			-2
 #define	COMMUNITY_NEIGHBOR_AS		-3
-#define	COMMUNITY_UNSET			-4
+#define	COMMUNITY_LOCAL_AS		-4
+#define	COMMUNITY_UNSET			-5
 #define	COMMUNITY_WELLKNOWN		0xffff
-#define	COMMUNITY_BLACKHOLE		0x029A	/* draft-ymbk-grow-blackholing-01 */
+#define	COMMUNITY_BLACKHOLE		0x029A	/* RFC 7999 */
 #define	COMMUNITY_NO_EXPORT		0xff01
 #define	COMMUNITY_NO_ADVERTISE		0xff02
 #define	COMMUNITY_NO_EXPSUBCONFED	0xff03

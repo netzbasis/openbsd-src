@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.301 2017/05/26 20:55:30 phessler Exp $ */
+/*	$OpenBSD: parse.y,v 1.305 2017/05/27 18:12:23 phessler Exp $ */
 
 /*
  * Copyright (c) 2002, 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -188,7 +188,7 @@ typedef struct {
 %token	RDOMAIN RD EXPORTTRGT IMPORTTRGT
 %token	RDE RIB EVALUATE IGNORE COMPARE
 %token	GROUP NEIGHBOR NETWORK
-%token	REMOTEAS DESCR LOCALADDR MULTIHOP PASSIVE MAXPREFIX RESTART
+%token	LOCALAS REMOTEAS DESCR LOCALADDR MULTIHOP PASSIVE MAXPREFIX RESTART
 %token	ANNOUNCE CAPABILITIES REFRESH AS4BYTE CONNECTRETRY
 %token	DEMOTE ENFORCE NEIGHBORAS REFLECTOR DEPEND DOWN SOFTRECONFIG
 %token	DUMP IN OUT SOCKET RESTRICTED
@@ -677,7 +677,7 @@ mrtdump		: DUMP STRING inout STRING optnumber	{
 		;
 
 network		: NETWORK prefix filter_set	{
-			struct network	*n;
+			struct network	*n, *m;
 
 			if ((n = calloc(1, sizeof(struct network))) == NULL)
 				fatal("new_network");
@@ -686,6 +686,13 @@ network		: NETWORK prefix filter_set	{
 			n->net.prefixlen = $2.len;
 			filterset_move($3, &n->net.attrset);
 			free($3);
+			TAILQ_FOREACH(m, netconf, entry) {
+				if (n->net.prefixlen == m->net.prefixlen &&
+				    prefix_compare(&n->net.prefix,
+				    &m->net.prefix, n->net.prefixlen) == 0)
+					yyerror("duplicate prefix "
+					    "in network statement");
+			}
 
 			TAILQ_INSERT_TAIL(netconf, n, entry);
 		}
@@ -1038,6 +1045,17 @@ peeroptsl	: peeropts nl
 peeropts	: REMOTEAS as4number	{
 			curpeer->conf.remote_as = $2;
 		}
+		| LOCALAS as4number	{
+			curpeer->conf.local_as = $2;
+			if ($2 > USHRT_MAX)
+				curpeer->conf.local_short_as = AS_TRANS;
+			else
+				curpeer->conf.local_short_as = $2;
+		}
+		| LOCALAS as4number asnumber {
+			curpeer->conf.local_as = $2;
+			curpeer->conf.local_short_as = $3;
+		}
 		| DESCR string		{
 			if (strlcpy(curpeer->conf.descr, $2,
 			    sizeof(curpeer->conf.descr)) >=
@@ -1171,6 +1189,12 @@ peeropts	: REMOTEAS as4number	{
 				curpeer->conf.enforce_as = ENFORCE_AS_ON;
 			else
 				curpeer->conf.enforce_as = ENFORCE_AS_OFF;
+		}
+		| ENFORCE LOCALAS yesno {
+			if ($3)
+				curpeer->conf.enforce_local_as = ENFORCE_AS_ON;
+			else
+				curpeer->conf.enforce_local_as = ENFORCE_AS_OFF;
 		}
 		| MAXPREFIX NUMBER restart {
 			if ($2 < 0 || $2 > UINT_MAX) {
@@ -2369,6 +2393,7 @@ lookup(char *s)
 		{ "large-community",	LARGECOMMUNITY},
 		{ "listen",		LISTEN},
 		{ "local-address",	LOCALADDR},
+		{ "local-as",		LOCALAS},
 		{ "localpref",		LOCALPREF},
 		{ "log",		LOG},
 		{ "match",		MATCH},
@@ -2953,6 +2978,8 @@ getcommunity(char *s)
 		return (COMMUNITY_ANY);
 	if (strcmp(s, "neighbor-as") == 0)
 		return (COMMUNITY_NEIGHBOR_AS);
+	if (strcmp(s, "local-as") == 0)
+		return (COMMUNITY_LOCAL_AS);
 	val = strtonum(s, 0, USHRT_MAX, &errstr);
 	if (errstr) {
 		yyerror("Community %s is %s (max: %u)", s, errstr, USHRT_MAX);
@@ -3022,6 +3049,8 @@ getlargecommunity(char *s)
 		return (COMMUNITY_ANY);
 	if (strcmp(s, "neighbor-as") == 0)
 		return (COMMUNITY_NEIGHBOR_AS);
+	if (strcmp(s, "local-as") == 0)
+		return (COMMUNITY_LOCAL_AS);
 	val = strtonum(s, 0, UINT_MAX, &errstr);
 	if (errstr) {
 		yyerror("Large Community %s is %s (max: %u)",
@@ -3674,6 +3703,8 @@ neighbor_consistent(struct peer *p)
 	if (p->conf.enforce_as == ENFORCE_AS_UNDEF)
 		p->conf.enforce_as = p->conf.ebgp ?
 		    ENFORCE_AS_ON : ENFORCE_AS_OFF;
+	if (p->conf.enforce_local_as == ENFORCE_AS_UNDEF)
+		p->conf.enforce_local_as = ENFORCE_AS_ON;
 
 	/* EBGP neighbors are not allowed in route reflector clusters */
 	if (p->conf.reflector_client && p->conf.ebgp) {

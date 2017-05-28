@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.43 2017/01/23 04:57:13 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.46 2017/05/27 09:34:55 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1993
@@ -372,22 +372,17 @@ getname(void)
 			lower = 1;
 		else if (isupper(c))
 			upper = 1;
-		else if (c == ERASE || c == '#' || c == '\b') {
+		else if (c == ERASE || c == '\b') {
 			if (np > name) {
 				np--;
-				if (cfgetospeed(&tmode) >= 1200)
-					xputs("\b \b");
-				else
-					putchr(cs);
+				xputs("\b \b");
 			}
 			continue;
-		} else if (c == KILL || c == '@') {
+		} else if (c == KILL) {
 			putchr(cs);
 			putchr('\r');
-			if (cfgetospeed(&tmode) < 1200)
-				putchr('\n');
 			/* this is the way they do it down under ... */
-			else if (np > name)
+			if (np > name)
 				xputs("                                     \r");
 			prompt();
 			np = name;
@@ -397,7 +392,11 @@ getname(void)
 		if (IG && (c <= ' ' || c > 0176))
 			continue;
 		*np++ = c;
-		putchr(cs);
+		if (c == '\033') {
+			putchr('^');
+			putchr('[');
+		} else
+			putchr(cs);
 	}
 	signal(SIGINT, SIG_IGN);
 	if (interrupt_flag) {
