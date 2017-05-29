@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.24 2017/05/28 20:40:13 florian Exp $	*/
+/*	$OpenBSD: engine.c,v 1.27 2017/05/29 08:59:42 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -172,6 +172,7 @@ struct address_proposal {
 	struct timespec			 when;
 	struct timespec			 uptime;
 	uint32_t			 if_index;
+	struct ether_addr		 hw_address;
 	struct sockaddr_in6		 addr;
 	struct in6_addr			 mask;
 	struct in6_addr			 prefix;
@@ -294,7 +295,7 @@ engine(int debug, int verbose)
 		fatal("chdir(\"/\")");
 
 	slaacd_process = PROC_ENGINE;
-	setproctitle(log_procnames[slaacd_process]);
+	setproctitle("%s", log_procnames[slaacd_process]);
 	log_procinit(log_procnames[slaacd_process]);
 
 	if (setgroups(1, &pw->pw_gid) ||
@@ -462,11 +463,29 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				LIST_INIT(&iface->addr_proposals);
 				LIST_INIT(&iface->dfr_proposals);
 			} else {
+				int need_refresh = 0;
 				DEBUG_IMSG("%s: updating %d", __func__,
 				    imsg_ifinfo.if_index);
+
+				if (iface->autoconfprivacy !=
+				    imsg_ifinfo.autoconfprivacy) {
+					iface->autoconfprivacy =
+					    imsg_ifinfo.autoconfprivacy;
+					need_refresh = 1;
+				}
+				if (memcmp(&iface->hw_address,
+					    &imsg_ifinfo.hw_address,
+					    sizeof(struct ether_addr)) != 0) {
+					memcpy(&iface->hw_address,
+					    &imsg_ifinfo.hw_address,
+					    sizeof(struct ether_addr));
+					need_refresh = 1;
+				}
+
 				if (!iface->state == IF_DOWN &&
-				    imsg_ifinfo.running)
+				    imsg_ifinfo.running && need_refresh)
 					start_probe(iface);
+
 				iface->running = imsg_ifinfo.running;
 				if (!iface->running) {
 					iface->state = IF_DOWN;
@@ -474,11 +493,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 					    NULL))
 						evtimer_del(&iface->timer);
 				}
-				iface->autoconfprivacy =
-				    imsg_ifinfo.autoconfprivacy;
-				memcpy(&iface->hw_address,
-				    &imsg_ifinfo.hw_address,
-				    sizeof(struct ether_addr));
+				
 				memcpy(&iface->ll_address,
 				    &imsg_ifinfo.ll_address,
 				    sizeof(struct sockaddr_in6));
@@ -1541,6 +1556,12 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 				    &addr_proposal->prefix,
 				    sizeof(struct in6_addr)) != 0)
 					continue;
+
+				if (memcmp(&addr_proposal->hw_address,
+				    &iface->hw_address,
+				    sizeof(addr_proposal->hw_address)) != 0)
+					continue;
+
 				if (addr_proposal->privacy) {
 					/*
 					 * create new privacy address if old
@@ -1661,6 +1682,8 @@ gen_address_proposal(struct slaacd_iface *iface, struct radv *ra, struct
 	addr_proposal->when = ra->when;
 	addr_proposal->uptime = ra->uptime;
 	addr_proposal->if_index = iface->if_index;
+	memcpy(&addr_proposal->hw_address, &iface->hw_address,
+	    sizeof(addr_proposal->hw_address));
 	addr_proposal->privacy = privacy;
 	memcpy(&addr_proposal->prefix, &prefix->prefix,
 	    sizeof(addr_proposal->prefix));

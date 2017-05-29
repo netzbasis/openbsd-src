@@ -1,0 +1,33 @@
+/Makefile/1.40/Sun Jan 22 23:56:44 2017//
+/Makefile.inc/1.29/Sat May  7 19:05:21 2016//
+/Symbols.list/1.53/Sun Apr 30 09:01:14 2017//
+/shlib_version/1.190/Sun Apr 30 09:01:14 2017//
+D/arch////
+D/asr////
+D/citrus////
+D/compat-43////
+D/crypt////
+D/db////
+D/dlfcn////
+D/gdtoa////
+D/gen////
+D/gmon////
+D/hash////
+D/hidden////
+D/include////
+D/locale////
+D/net////
+D/nls////
+D/quad////
+D/regex////
+D/rpc////
+D/softfloat////
+D/stdio////
+D/stdlib////
+D/string////
+D/sys////
+D/termios////
+D/thread////
+D/time////
+D/uuid////
+D/yp////

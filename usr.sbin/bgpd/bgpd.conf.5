@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.conf.5,v 1.157 2017/05/28 16:52:27 jmc Exp $
+.\" $OpenBSD: bgpd.conf.5,v 1.159 2017/05/29 20:23:18 benno Exp $
 .\"
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 28 2017 $
+.Dd $Mdocdate: May 29 2017 $
 .Dt BGPD.CONF 5
 .Os
 .Sh NAME
@@ -38,7 +38,7 @@ configuration file.
 .It Sy Global Configuration
 Global settings for
 .Xr bgpd 8 .
-.It Sy Routing Domain Configuration
+.It Sy MPLS VPN Configuration
 The definition and properties for BGP MPLS VPNs are set in this section.
 .It Sy Neighbors and Groups
 .Xr bgpd 8
@@ -417,8 +417,11 @@ If
 .Ic restricted
 is specified a restricted control socket will be created.
 By default
-.Pa /var/run/bgpd.sock
-is used and no restricted socket is created.
+.Pa /var/run/bgpd.sock.<rdomain>
+is used where
+.Ar <rdomain>
+is the routing domain in which bgpd has been started.
+By default, no restricted socket is created.
 .Pp
 .It Xo
 .Ic transparent-as
@@ -431,7 +434,7 @@ to EBGP neighbors are not prepended with the local AS.
 The default is
 .Ic no .
 .El
-.Sh ROUTING DOMAIN CONFIGURATION
+.Sh MPLS VPN CONFIGURATION
 .Xr bgpd 8
 supports the setup and distribution of Virtual Private Networks.
 It is possible to import and export prefixes between routing domains.

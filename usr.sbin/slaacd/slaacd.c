@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.c,v 1.18 2017/05/28 21:05:54 naddy Exp $	*/
+/*	$OpenBSD: slaacd.c,v 1.20 2017/05/29 20:31:31 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -221,7 +221,6 @@ main(int argc, char *argv[])
 
 	slaacd_process = PROC_MAIN;
 	
-	setproctitle(log_procnames[slaacd_process]);
 	log_procinit(log_procnames[slaacd_process]);
 
 	if ((routesock = socket(PF_ROUTE, SOCK_RAW | SOCK_CLOEXEC |
@@ -666,6 +665,9 @@ configure_interface(struct imsg_configure_address *address)
 
 	in6_addreq.ifra_lifetime.ia6t_preferred = t + address->pltime;
 	in6_addreq.ifra_lifetime.ia6t_pltime = address->pltime;
+
+	in6_addreq.ifra_flags |= IN6_IFF_AUTOCONF;
+
 	if (address->privacy)
 		in6_addreq.ifra_flags |= IN6_IFF_PRIVACY;
 
