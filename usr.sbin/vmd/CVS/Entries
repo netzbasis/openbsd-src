@@ -25,8 +25,8 @@
 /proc.c/1.14/Mon May 29 12:56:26 2017//
 /proc.h/1.12/Mon Mar 27 00:28:04 2017//
 /ufs.c/1.4/Fri Nov 25 17:03:59 2016//
-/virtio.c/1.47/Sat May 27 23:58:16 2017//
-/virtio.h/1.17/Mon May  8 09:08:40 2017//
+/virtio.c/1.48/Tue May 30 13:13:47 2017//
+/virtio.h/1.18/Tue May 30 13:13:47 2017//
 /vm.c/1.18/Sun May 28 23:56:13 2017//
 /vm.conf.5/1.20/Thu May  4 08:26:06 2017//
 /vmboot.c/1.3/Sat Nov 26 20:03:42 2016//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.c,v 1.5 2017/05/27 10:24:31 sf Exp $	*/
+/*	$OpenBSD: virtio.c,v 1.8 2017/05/30 12:47:47 krw Exp $	*/
 /*	$NetBSD: virtio.c,v 1.3 2011/11/02 23:05:52 njoly Exp $	*/
 
 /*
@@ -256,10 +256,14 @@ virtio_init_vq(struct virtio_softc *sc, struct virtqueue *vq, int reinit)
 	}
 
 	/* free slot management */
-	SIMPLEQ_INIT(&vq->vq_freelist);
-	for (i = 0; i < vq_size; i++) {
-		SIMPLEQ_INSERT_TAIL(&vq->vq_freelist,
-				    &vq->vq_entries[i], qe_list);
+	SLIST_INIT(&vq->vq_freelist);
+	/*
+	 * virtio_enqueue_trim needs monotonely raising entries, therefore
+	 * initialize in reverse order
+	 */
+	for (i = vq_size - 1; i >= 0; i--) {
+		SLIST_INSERT_HEAD(&vq->vq_freelist, &vq->vq_entries[i],
+		    qe_list);
 		vq->vq_entries[i].qe_index = i;
 	}
 
@@ -405,7 +409,7 @@ virtio_free_vq(struct virtio_softc *sc, struct virtqueue *vq)
 
 	/* device must be already deactivated */
 	/* confirm the vq is empty */
-	SIMPLEQ_FOREACH(qe, &vq->vq_freelist, qe_list) {
+	SLIST_FOREACH(qe, &vq->vq_freelist, qe_list) {
 		i++;
 	}
 	if (i != vq->vq_num) {
@@ -435,10 +439,10 @@ vq_alloc_entry(struct virtqueue *vq)
 {
 	struct vq_entry *qe;
 
-	if (SIMPLEQ_EMPTY(&vq->vq_freelist))
+	if (SLIST_EMPTY(&vq->vq_freelist))
 		return NULL;
-	qe = SIMPLEQ_FIRST(&vq->vq_freelist);
-	SIMPLEQ_REMOVE_HEAD(&vq->vq_freelist, qe_list);
+	qe = SLIST_FIRST(&vq->vq_freelist);
+	SLIST_REMOVE_HEAD(&vq->vq_freelist, qe_list);
 
 	return qe;
 }
@@ -446,7 +450,7 @@ vq_alloc_entry(struct virtqueue *vq)
 void
 vq_free_entry(struct virtqueue *vq, struct vq_entry *qe)
 {
-	SIMPLEQ_INSERT_TAIL(&vq->vq_freelist, qe, qe_list);
+	SLIST_INSERT_HEAD(&vq->vq_freelist, qe, qe_list);
 }
 
 /*
@@ -709,18 +713,29 @@ virtio_enqueue_abort(struct virtqueue *vq, int slot)
 void
 virtio_enqueue_trim(struct virtqueue *vq, int slot, int nsegs)
 {
+	struct vq_entry *qe1 = &vq->vq_entries[slot];
 	struct vring_desc *vd = &vq->vq_desc[0];
-	int i;
+	struct vq_entry *qe;
+	int i, s;
 
 	if ((vd[slot].flags & VRING_DESC_F_INDIRECT) == 0) {
-		for (i = 0; i < nsegs; i++) {
-			vd[slot].flags = VRING_DESC_F_NEXT;
-			if (i == (nsegs - 1))
-				vd[slot].flags = 0;
-			slot = vd[slot].next;
+		qe1->qe_indirect = 0;
+		qe1->qe_desc_base = vd;
+		qe1->qe_next = qe1->qe_index;
+
+		/*
+		 * N.B.: the vq_entries are ASSUMED to be a contiguous
+		 *       block with slot being the index to the first one.
+		 */
+		s = slot;
+		for (i = 0; i < nsegs - 1; i++) {
+			qe = &vq->vq_entries[s+1];
+			vd[s].flags = VRING_DESC_F_NEXT;
+			vd[s].next = qe->qe_index;
+			s = qe->qe_index;
 		}
+		vd[s].flags = 0;
 	} else {
-		struct vq_entry *qe1 = &vq->vq_entries[slot];
 		vd = &vq->vq_desc[qe1->qe_index];
 		vd->len = sizeof(struct vring_desc) * nsegs;
 		vd = qe1->qe_desc_base;
@@ -729,6 +744,7 @@ virtio_enqueue_trim(struct virtqueue *vq, int slot, int nsegs)
 			if (i == (nsegs - 1))
 				vd[i].flags = 0;
 		}
+		qe1->qe_next = 0;
 	}
 }
 

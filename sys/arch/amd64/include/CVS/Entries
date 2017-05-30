@@ -11,7 +11,7 @@
 /codepatch.h/1.2/Sun Apr 19 19:45:21 2015//
 /conf.h/1.7/Fri Jan  8 11:20:58 2016//
 /cpu.h/1.111/Fri Apr 14 01:02:28 2017//
-/cpufunc.h/1.18/Sat May 27 12:21:50 2017//
+/cpufunc.h/1.19/Tue May 30 15:11:32 2017//
 /cpuvar.h/1.8/Thu Jul 28 21:57:57 2016//
 /db_machdep.h/1.16/Sun Apr 30 13:04:49 2017//
 /disklabel.h/1.11/Wed Sep 30 14:57:03 2015//

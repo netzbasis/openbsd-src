@@ -1,4 +1,4 @@
-/ieee80211.c/1.58/Wed Jan 13 14:33:07 2016//
+/ieee80211.c/1.59/Tue May 30 11:00:38 2017//
 /ieee80211.h/1.59/Sun Apr 23 21:04:55 2017//
 /ieee80211_amrr.c/1.11/Tue Jan  5 18:41:16 2016//
 /ieee80211_amrr.h/1.4/Sat Jun 16 13:17:05 2007//
@@ -19,12 +19,12 @@
 /ieee80211_pae_input.c/1.28/Wed Mar  1 20:20:45 2017//
 /ieee80211_pae_output.c/1.29/Wed Mar  1 19:28:48 2017//
 /ieee80211_priv.h/1.5/Mon Jan 26 19:09:41 2009//
-/ieee80211_proto.c/1.74/Thu Mar  2 09:41:27 2017//
+/ieee80211_proto.c/1.75/Tue May 30 10:50:33 2017//
 /ieee80211_proto.h/1.42/Wed Sep 21 12:21:27 2016//
 /ieee80211_radiotap.h/1.14/Sat Oct  8 14:42:36 2016//
 /ieee80211_regdomain.c/1.10/Tue Nov 24 13:45:06 2015//
 /ieee80211_regdomain.h/1.9/Tue Jan 12 09:28:09 2016//
 /ieee80211_rssadapt.c/1.11/Tue Dec 23 03:24:08 2014//
 /ieee80211_rssadapt.h/1.5/Sat Jul 17 16:25:09 2010//
-/ieee80211_var.h/1.77/Thu Feb  2 16:47:53 2017//
+/ieee80211_var.h/1.78/Tue May 30 11:00:38 2017//
 D

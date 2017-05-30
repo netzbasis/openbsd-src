@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.27 2017/05/29 08:59:42 florian Exp $	*/
+/*	$OpenBSD: engine.c,v 1.34 2017/05/30 15:57:12 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -228,13 +228,12 @@ void			 gen_addr(struct slaacd_iface *, struct radv_prefix *,
 			     struct address_proposal *, int);
 void			 gen_address_proposal(struct slaacd_iface *, struct
 			     radv *, struct radv_prefix *, int);
-void			 configure_address(struct slaacd_iface *, struct
-			     address_proposal *);
+void			 configure_address(struct address_proposal *);
 void			 in6_prefixlen2mask(struct in6_addr *, int len);
 void			 gen_dfr_proposal(struct slaacd_iface *, struct
 			     radv *);
-void			 configure_dfr(struct slaacd_iface *, struct
-			     dfr_proposal *);
+void			 configure_dfr(struct dfr_proposal *);
+void			 withdraw_dfr(struct dfr_proposal *);
 void			 debug_log_ra(struct imsg_ra *);
 char			*parse_dnssl(char *, int);
 void		 	 update_iface_ra(struct slaacd_iface *, struct radv *);
@@ -482,7 +481,7 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 					need_refresh = 1;
 				}
 
-				if (!iface->state == IF_DOWN &&
+				if (iface->state != IF_DOWN &&
 				    imsg_ifinfo.running && need_refresh)
 					start_probe(iface);
 
@@ -565,9 +564,9 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				}
 			}
 			if (addr_proposal != NULL)
-				configure_address(iface, addr_proposal);
+				configure_address(addr_proposal);
 			else if (dfr_proposal != NULL)
-				configure_dfr(iface, dfr_proposal);
+				configure_dfr(dfr_proposal);
 
 			break;
 		case IMSG_DEL_ADDRESS:
@@ -1473,7 +1472,7 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 	struct radv		*old_ra;
 	struct radv_prefix	*prefix;
 	struct address_proposal	*addr_proposal;
-	struct dfr_proposal	*dfr_proposal;
+	struct dfr_proposal	*dfr_proposal, *tmp;
 	int			 found, found_privacy;
 	char			 hbuf[NI_MAXHOST];
 
@@ -1484,7 +1483,17 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 		free_ra(old_ra);
 	}
 	if (ra->router_lifetime == 0) {
-		/* XXX expire default route */
+		LIST_FOREACH_SAFE(dfr_proposal, &iface->dfr_proposals, entries,
+		    tmp) {
+			if (memcmp(&dfr_proposal->addr,
+			    &ra->from, sizeof(struct sockaddr_in6)) ==
+			    0) {
+				LIST_REMOVE(dfr_proposal, entries);
+				evtimer_del(&dfr_proposal->timer);
+				withdraw_dfr(dfr_proposal);
+				free(dfr_proposal);
+			}
+		}
 	} else {
 		found = 0;
 		LIST_FOREACH(dfr_proposal, &iface->dfr_proposals, entries) {
@@ -1503,19 +1512,17 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 					dfr_proposal->router_lifetime =
 					    ra->router_lifetime;
 
-					log_debug("%s, dfr state: %s",
+					log_debug("%s, dfr state: %s, rl: %d",
 					    __func__, proposal_state_name[
-					    dfr_proposal->state]);
+					    dfr_proposal->state],
+					    real_lifetime(&dfr_proposal->uptime,
+					    dfr_proposal->router_lifetime));
 
 					switch (dfr_proposal->state) {
 					case PROPOSAL_CONFIGURED:
 					case PROPOSAL_NEARLY_EXPIRED:
-						/*
-						 * nothing to do here
-						 * maybe we should check
-						 * if the route got deleted
-						 * and re-add it 
-						 */
+						log_debug("updating dfr");
+						configure_dfr(dfr_proposal);
 						break;
 					default:
 						if (getnameinfo((struct
@@ -1605,7 +1612,7 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 				case PROPOSAL_CONFIGURED:
 				case PROPOSAL_NEARLY_EXPIRED:
 					log_debug("updating address");
-					configure_address(iface, addr_proposal);
+					configure_address(addr_proposal);
 					break;
 				default:
 					if (getnameinfo((struct sockaddr *)
@@ -1636,8 +1643,7 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 }
 
 void
-configure_address(struct slaacd_iface *iface, struct address_proposal
-    *addr_proposal)
+configure_address(struct address_proposal *addr_proposal)
 {
 	struct imsg_configure_address	 address;
 	struct timeval			 tv;
@@ -1651,9 +1657,9 @@ configure_address(struct slaacd_iface *iface, struct address_proposal
 
 	addr_proposal->state = PROPOSAL_CONFIGURED;
 
-	log_debug("%s: %d", __func__, iface->if_index);
+	log_debug("%s: %d", __func__, addr_proposal->if_index);
 
-	address.if_index = iface->if_index;
+	address.if_index = addr_proposal->if_index;
 	memcpy(&address.addr, &addr_proposal->addr, sizeof(address.addr));
 	memcpy(&address.mask, &addr_proposal->mask, sizeof(address.mask));
 	address.vltime = addr_proposal->vltime;
@@ -1761,11 +1767,11 @@ gen_dfr_proposal(struct slaacd_iface *iface, struct radv *ra)
 }
 
 void
-configure_dfr(struct slaacd_iface *iface, struct dfr_proposal
-    *dfr_proposal)
+configure_dfr(struct dfr_proposal *dfr_proposal)
 {
 	struct imsg_configure_dfr	 dfr;
 	struct timeval			 tv;
+	enum proposal_state		 prev_state;
 
 	dfr_proposal->next_timeout = dfr_proposal->router_lifetime -
 	    MAX_RTR_SOLICITATIONS * (RTR_SOLICITATION_INTERVAL + 1);
@@ -1774,15 +1780,40 @@ configure_dfr(struct slaacd_iface *iface, struct dfr_proposal
 	tv.tv_usec = arc4random_uniform(1000000);
 	evtimer_add(&dfr_proposal->timer, &tv);
 
+	prev_state = dfr_proposal->state;
+
 	dfr_proposal->state = PROPOSAL_CONFIGURED;
 
-	log_debug("%s: %d", __func__, iface->if_index);
+	log_debug("%s: %d", __func__, dfr_proposal->if_index);
 
-	dfr.if_index = iface->if_index;
+	if (prev_state == PROPOSAL_CONFIGURED || prev_state ==
+	    PROPOSAL_NEARLY_EXPIRED) {
+		/*
+		 * nothing to do here, routes do not expire in the kernel
+		 * XXX check if the route got deleted and re-add it?
+		 */
+		return;
+	}
+
+	dfr.if_index = dfr_proposal->if_index;
 	memcpy(&dfr.addr, &dfr_proposal->addr, sizeof(dfr.addr));
 	dfr.router_lifetime = dfr_proposal->router_lifetime;
 
 	engine_imsg_compose_main(IMSG_CONFIGURE_DFR, 0, &dfr, sizeof(dfr));
+}
+
+void
+withdraw_dfr(struct dfr_proposal *dfr_proposal)
+{
+	struct imsg_configure_dfr	 dfr;
+
+	log_debug("%s: %d", __func__, dfr_proposal->if_index);
+
+	dfr.if_index = dfr_proposal->if_index;
+	memcpy(&dfr.addr, &dfr_proposal->addr, sizeof(dfr.addr));
+	dfr.router_lifetime = dfr_proposal->router_lifetime;
+
+	engine_imsg_compose_main(IMSG_WITHDRAW_DFR, 0, &dfr, sizeof(dfr));
 }
 
 void
@@ -1886,6 +1917,21 @@ address_proposal_timeout(int fd, short events, void *arg)
 
 		break;
 	case PROPOSAL_NEARLY_EXPIRED:
+		log_debug("%s: rl: %d", __func__,
+		    real_lifetime(&addr_proposal->uptime,
+		    addr_proposal->vltime));
+		/*
+		 * we should have gotten a RTM_DELADDR from the kernel,
+		 * in case we missed it, delete to not waste memory
+		 */
+		if (real_lifetime(&addr_proposal->uptime,
+		    addr_proposal->vltime) == 0) {
+			evtimer_del(&addr_proposal->timer);
+			LIST_REMOVE(addr_proposal, entries);
+			free(addr_proposal);
+			log_debug("%s: removing address proposal", __func__);
+			break;
+		}
 		if (addr_proposal->privacy)
 			break; /* just let it expire */
 
@@ -1971,6 +2017,15 @@ dfr_proposal_timeout(int fd, short events, void *arg)
 
 		break;
 	case PROPOSAL_NEARLY_EXPIRED:
+		if (real_lifetime(&dfr_proposal->uptime,
+		    dfr_proposal->router_lifetime) == 0) {
+			evtimer_del(&dfr_proposal->timer);
+			LIST_REMOVE(dfr_proposal, entries);
+			withdraw_dfr(dfr_proposal);
+			free(dfr_proposal);
+			log_debug("%s: removing dfr proposal", __func__);
+			break;
+		}
 		engine_imsg_compose_frontend(IMSG_CTL_SEND_SOLICITATION,
 		    0, &dfr_proposal->if_index,
 		    sizeof(dfr_proposal->if_index));
