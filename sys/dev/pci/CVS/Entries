@@ -140,7 +140,7 @@
 /if_iwm.c/1.184/Sun May 28 11:03:48 2017//
 /if_iwmreg.h/1.27/Wed May  3 14:53:12 2017//
 /if_iwmvar.h/1.27/Sun May 28 09:59:58 2017//
-/if_iwn.c/1.187/Tue May 30 11:01:38 2017//
+/if_iwn.c/1.188/Tue May 30 16:21:55 2017//
 /if_iwnreg.h/1.53/Thu Apr 28 08:28:18 2016//
 /if_iwnvar.h/1.32/Wed Dec  7 15:48:44 2016//
 /if_ix.c/1.151/Mon Apr 24 13:20:46 2017//
@@ -173,7 +173,7 @@
 /if_ocereg.h/1.7/Mon Nov 26 19:03:59 2012//
 /if_pcn.c/1.43/Sun Jan 22 10:17:38 2017//
 /if_pgt_pci.c/1.18/Fri Dec 11 16:07:02 2015//
-/if_ral_pci.c/1.25/Wed Aug 17 11:50:52 2016//
+/if_ral_pci.c/1.26/Wed May 31 03:45:15 2017//
 /if_re_pci.c/1.50/Mon Dec 28 05:49:15 2015//
 /if_rl_pci.c/1.33/Tue Nov 24 17:11:39 2015//
 /if_rtw_pci.c/1.20/Tue Nov 24 17:11:39 2015//
@@ -255,9 +255,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1818/Wed May 17 05:00:17 2017//
-/pcidevs.h/1.1812/Wed May 17 05:00:58 2017//
-/pcidevs_data.h/1.1806/Wed May 17 05:00:58 2017//
+/pcidevs/1.1819/Wed May 31 03:37:54 2017//
+/pcidevs.h/1.1813/Wed May 31 03:38:35 2017//
+/pcidevs_data.h/1.1807/Wed May 31 03:38:35 2017//
 /pciide.c/1.357/Mon Dec 21 20:52:33 2015//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

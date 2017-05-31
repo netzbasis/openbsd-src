@@ -247,7 +247,7 @@
 /p9000.h/1.4/Tue May 22 04:14:03 2007//
 /pcdisplay.h/1.2/Fri Feb  2 20:25:39 2001//
 /pcdisplay_chars.c/1.5/Sat Aug 28 12:48:14 2010//
-/pcdisplay_subr.c/1.12/Tue May 30 08:24:56 2017//
+/pcdisplay_subr.c/1.13/Tue May 30 21:42:54 2017//
 /pcdisplayvar.h/1.12/Tue May 30 08:24:56 2017//
 /pcf8584.c/1.11/Sun Aug  1 18:48:41 2010//
 /pcf8584var.h/1.5/Sat Oct 20 18:46:21 2007//
@@ -275,8 +275,8 @@
 /rt2661.c/1.91/Sun Jan 22 10:17:38 2017//
 /rt2661reg.h/1.13/Tue Nov 26 20:33:16 2013//
 /rt2661var.h/1.18/Fri Dec  6 21:03:03 2013//
-/rt2860.c/1.92/Sun Jan 22 10:17:38 2017//
-/rt2860reg.h/1.33/Wed Aug 17 11:50:52 2016//
+/rt2860.c/1.93/Wed May 31 03:45:15 2017//
+/rt2860reg.h/1.34/Wed May 31 03:45:15 2017//
 /rt2860var.h/1.24/Wed Aug 17 11:50:52 2016//
 /rtl80x9.c/1.11/Fri Sep 11 13:02:28 2015//
 /rtl80x9reg.h/1.4/Mon Nov 24 02:03:37 2014//
