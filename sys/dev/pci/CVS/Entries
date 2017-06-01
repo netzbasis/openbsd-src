@@ -137,10 +137,10 @@
 /if_iwi.c/1.136/Wed Mar 29 16:42:25 2017//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.184/Sun May 28 11:03:48 2017//
+/if_iwm.c/1.189/Wed May 31 13:22:16 2017//
 /if_iwmreg.h/1.27/Wed May  3 14:53:12 2017//
 /if_iwmvar.h/1.27/Sun May 28 09:59:58 2017//
-/if_iwn.c/1.188/Tue May 30 16:21:55 2017//
+/if_iwn.c/1.189/Wed May 31 16:12:39 2017//
 /if_iwnreg.h/1.53/Thu Apr 28 08:28:18 2016//
 /if_iwnvar.h/1.32/Wed Dec  7 15:48:44 2016//
 /if_ix.c/1.151/Mon Apr 24 13:20:46 2017//
@@ -326,7 +326,7 @@
 /vga_pci_common.c/1.8/Thu Oct 29 07:47:03 2015//
 /vga_pcivar.h/1.20/Thu Oct 29 07:47:03 2015//
 /viapm.c/1.16/Fri Oct  5 10:51:28 2012//
-/virtio_pci.c/1.17/Sat Jan 21 11:29:52 2017//
+/virtio_pci.c/1.18/Wed May 31 08:57:48 2017//
 /vmwpvs.c/1.14/Fri Aug 26 00:45:50 2016//
 /wdt.c/1.22/Wed Dec 10 12:27:57 2014//
 /xhci_pci.c/1.8/Wed Jun  1 06:19:59 2016//

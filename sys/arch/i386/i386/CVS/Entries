@@ -7,7 +7,7 @@
 /apicvec.s/1.32/Sat Jul 16 06:04:29 2016//
 /apm.c/1.116/Sat Oct  8 05:49:08 2016//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
-/autoconf.c/1.101/Wed Jun  8 17:24:44 2016//
+/autoconf.c/1.102/Wed May 31 19:18:18 2017//
 /bios.c/1.115/Mon Mar  7 05:32:46 2016//
 /bus_dma.c/1.35/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.9/Sat Apr 25 21:31:24 2015//
@@ -38,7 +38,8 @@
 /kvm86call.S/1.7/Sat Apr 25 21:31:24 2015//
 /lapic.c/1.40/Sat Jul 18 19:21:03 2015//
 /lock_machdep.c/1.25/Mon May 29 14:19:49 2017//
-/locore.s/1.174/Tue May 30 15:11:32 2017//
+/locore.s/1.175/Wed May 31 19:18:18 2017//
+/locore0.S/1.1/Wed May 31 19:18:18 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.602/Tue May 30 15:11:32 2017//
 /mainbus.c/1.57/Sat Mar 25 22:24:01 2017//

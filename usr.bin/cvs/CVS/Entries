@@ -2,7 +2,7 @@
 /README/1.6/Sun Mar  9 00:48:42 2008//
 /add.c/1.113/Thu Oct 13 20:51:25 2016//
 /admin.c/1.67/Thu Oct 13 20:51:25 2016//
-/annotate.c/1.67/Thu Oct 13 20:51:25 2016//
+/annotate.c/1.68/Wed May 31 16:14:37 2017//
 /atomicio.c/1.2/Fri Jan 16 06:40:06 2015//
 /atomicio.h/1.1/Mon Sep 17 10:07:21 2007//
 /buf.c/1.84/Sat Oct 15 22:20:17 2016//
@@ -10,7 +10,7 @@
 /checkout.c/1.170/Thu Nov  5 09:48:21 2015//
 /client.c/1.125/Thu Nov  5 09:48:21 2015//
 /cmd.c/1.69/Fri Jan 16 06:40:07 2015//
-/commit.c/1.156/Sun May 28 17:01:10 2017//
+/commit.c/1.157/Wed May 31 16:48:16 2017//
 /config.c/1.17/Thu Nov  5 09:48:21 2015//
 /config.h/1.10/Sun Mar  2 11:58:45 2008//
 /cvs.1/1.128/Thu Dec 24 16:54:37 2015//
@@ -40,7 +40,7 @@
 /log.h/1.23/Tue Jun 10 01:00:34 2008//
 /logmsg.c/1.60/Sun May 28 16:57:01 2017//
 /modules.c/1.19/Thu Nov  5 09:48:21 2015//
-/rcs.c/1.316/Sat Oct 15 22:20:17 2016//
+/rcs.c/1.317/Wed May 31 16:31:55 2017//
 /rcs.h/1.102/Thu Oct 13 20:51:25 2016//
 /rcsnum.c/1.58/Thu Oct 13 20:51:25 2016//
 /rcsparse.c/1.13/Thu Oct 13 20:51:25 2016//
@@ -49,12 +49,12 @@
 /remote.c/1.31/Thu Nov  5 09:48:21 2015//
 /remote.h/1.37/Sat Apr  4 11:29:57 2009//
 /remove.c/1.83/Thu Nov  5 09:48:21 2015//
-/repository.c/1.24/Fri Jan 16 06:40:07 2015//
+/repository.c/1.25/Wed May 31 16:18:20 2017//
 /repository.h/1.6/Fri Jul 23 08:31:19 2010//
 /root.c/1.48/Fri Jan 16 06:40:07 2015//
 /server.c/1.104/Wed Dec  9 17:55:42 2015//
 /status.c/1.99/Sun May 28 16:58:54 2017//
-/tag.c/1.85/Thu Oct 27 07:12:02 2016//
+/tag.c/1.86/Wed May 31 16:13:25 2017//
 /trigger.c/1.23/Thu Nov  5 09:48:21 2015//
 /trigger.h/1.2/Tue Jun 10 05:29:14 2008//
 /update.c/1.175/Mon May 29 17:18:56 2017//

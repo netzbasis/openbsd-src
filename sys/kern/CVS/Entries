@@ -12,7 +12,7 @@
 /kern_bufq.c/1.31/Fri Aug 28 00:03:53 2015//
 /kern_clock.c/1.92/Wed Apr  5 03:59:13 2017//
 /kern_descrip.c/1.140/Sat Feb 11 19:51:06 2017//
-/kern_event.c/1.78/Sat Feb 11 19:51:06 2017//
+/kern_event.c/1.79/Wed May 31 14:52:05 2017//
 /kern_exec.c/1.188/Thu Apr 13 03:52:25 2017//
 /kern_exit.c/1.160/Thu Apr 20 12:59:36 2017//
 /kern_fork.c/1.197/Thu Apr 20 12:59:36 2017//
@@ -84,7 +84,7 @@
 /uipc_mbuf.c/1.248/Sat May 27 16:41:10 2017//
 /uipc_mbuf2.c/1.42/Fri Nov 13 10:12:39 2015//
 /uipc_proto.c/1.14/Mon Mar 13 20:18:21 2017//
-/uipc_socket.c/1.185/Sat May 27 18:50:53 2017//
+/uipc_socket.c/1.186/Wed May 31 08:55:10 2017//
 /uipc_socket2.c/1.77/Sat May 27 18:50:53 2017//
 /uipc_syscalls.c/1.151/Mon Mar 27 11:45:49 2017//
 /uipc_usrreq.c/1.117/Mon Mar 13 20:18:21 2017//

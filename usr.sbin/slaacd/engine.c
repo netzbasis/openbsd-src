@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.35 2017/05/30 18:18:08 deraadt Exp $	*/
+/*	$OpenBSD: engine.c,v 1.38 2017/05/31 09:39:03 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -233,6 +233,7 @@ void			 in6_prefixlen2mask(struct in6_addr *, int len);
 void			 gen_dfr_proposal(struct slaacd_iface *, struct
 			     radv *);
 void			 configure_dfr(struct dfr_proposal *);
+void			 free_dfr_proposal(struct dfr_proposal *);
 void			 withdraw_dfr(struct dfr_proposal *);
 void			 debug_log_ra(struct imsg_ra *);
 char			*parse_dnssl(char *, int);
@@ -384,21 +385,17 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 	int				 shut = 0, verbose;
 	uint32_t			 if_index;
 
-	DEBUG_IMSG("%s", __func__);
-
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
-		DEBUG_IMSG("%s: EV_READ, n=%ld", __func__, n);
 	}
 	if (event & EV_WRITE) {
 		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
 			fatal("msgbuf_write");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
-		DEBUG_IMSG("%s: EV_WRITE, n=%ld", __func__, n);
 	}
 
 	for (;;) {
@@ -406,8 +403,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 			fatal("%s: imsg_get error", __func__);
 		if (n == 0)	/* No more messages. */
 			break;
-
-		DEBUG_IMSG("%s: %s", __func__, imsg_type_name[imsg.hdr.type]);
 
 		switch (imsg.hdr.type) {
 		case IMSG_CTL_LOG_VERBOSE:
@@ -428,16 +423,9 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				fatal("%s: IMSG_UPDATE_IF wrong length: %d",
 				    __func__, imsg.hdr.len);
 			memcpy(&imsg_ifinfo, imsg.data, sizeof(imsg_ifinfo));
-			DEBUG_IMSG("%s: IMSG_UPDATE_IF: %d[%s], running: %s, "
-			    "privacy: %s", __func__, imsg_ifinfo.if_index,
-			    ether_ntoa(&imsg_ifinfo.hw_address),
-			    imsg_ifinfo.running ? "yes" : "no",
-			    imsg_ifinfo.autoconfprivacy ? "yes" : "no");
 
 			iface = get_slaacd_iface_by_id(imsg_ifinfo.if_index);
 			if (iface == NULL) {
-				DEBUG_IMSG("%s: new interface: %d", __func__,
-				    imsg_ifinfo.if_index);
 				if ((iface = calloc(1, sizeof(*iface))) == NULL)
 					fatal("calloc");
 				evtimer_set(&iface->timer, iface_timeout,
@@ -463,8 +451,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				LIST_INIT(&iface->dfr_proposals);
 			} else {
 				int need_refresh = 0;
-				DEBUG_IMSG("%s: updating %d", __func__,
-				    imsg_ifinfo.if_index);
 
 				if (iface->autoconfprivacy !=
 				    imsg_ifinfo.autoconfprivacy) {
@@ -503,8 +489,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				fatal("%s: IMSG_REMOVE_IF wrong length: %d",
 				    __func__, imsg.hdr.len);
 			memcpy(&if_index, imsg.data, sizeof(if_index));
-			DEBUG_IMSG("%s: IMSG_REMOVE_IF: %d", __func__,
-			    if_index);
 			remove_slaacd_iface(if_index);
 			break;
 		case IMSG_RA:
@@ -512,7 +496,6 @@ engine_dispatch_frontend(int fd, short event, void *bula)
 				fatal("%s: IMSG_RA wrong length: %d",
 				    __func__, imsg.hdr.len);
 			memcpy(&ra, imsg.data, sizeof(ra));
-			DEBUG_IMSG("%s: IMSG_RA: %d", __func__, ra->if_index);
 			iface = get_slaacd_iface_by_id(ra.if_index);
 			if (iface != NULL)
 				parse_ra(iface, &ra);
@@ -618,21 +601,17 @@ engine_dispatch_main(int fd, short event, void *bula)
 	ssize_t			 n;
 	int			 shut = 0;
 
-	DEBUG_IMSG("%s", __func__);
-
 	if (event & EV_READ) {
 		if ((n = imsg_read(ibuf)) == -1 && errno != EAGAIN)
 			fatal("imsg_read error");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
-		DEBUG_IMSG("%s: EV_READ, n=%ld", __func__, n);
 	}
 	if (event & EV_WRITE) {
 		if ((n = msgbuf_write(&ibuf->w)) == -1 && errno != EAGAIN)
 			fatal("msgbuf_write");
 		if (n == 0)	/* Connection closed. */
 			shut = 1;
-		DEBUG_IMSG("%s: EV_WRITE, n=%ld", __func__, n);
 	}
 
 	for (;;) {
@@ -641,7 +620,6 @@ engine_dispatch_main(int fd, short event, void *bula)
 		if (n == 0)	/* No more messages. */
 			break;
 
-		DEBUG_IMSG("%s: %s", __func__, imsg_type_name[imsg.hdr.type]);
 		switch (imsg.hdr.type) {
 		case IMSG_SOCKET_IPC:
 			/*
@@ -870,6 +848,8 @@ remove_slaacd_iface(uint32_t if_index)
 {
 	struct slaacd_iface	*iface, *tiface;
 	struct radv		*ra;
+	struct address_proposal	*addr_proposal;
+	struct dfr_proposal	*dfr_proposal;
 
 	LIST_FOREACH_SAFE (iface, &slaacd_interfaces, entries, tiface) {
 		if (iface->if_index == if_index) {
@@ -878,6 +858,18 @@ remove_slaacd_iface(uint32_t if_index)
 				ra = LIST_FIRST(&iface->radvs);
 				LIST_REMOVE(ra, entries);
 				free_ra(ra);
+			}
+			/* XXX inform netcfgd? */
+			while(!LIST_EMPTY(&iface->addr_proposals)) {
+				addr_proposal =
+				    LIST_FIRST(&iface->addr_proposals);
+				LIST_REMOVE(addr_proposal, entries);
+				free(addr_proposal);
+			}
+			while(!LIST_EMPTY(&iface->dfr_proposals)) {
+				dfr_proposal =
+				    LIST_FIRST(&iface->dfr_proposals);
+				free_dfr_proposal(dfr_proposal);
 			}
 			free(iface);
 			break;
@@ -1488,10 +1480,7 @@ void update_iface_ra(struct slaacd_iface *iface, struct radv *ra)
 			if (memcmp(&dfr_proposal->addr,
 			    &ra->from, sizeof(struct sockaddr_in6)) ==
 			    0) {
-				LIST_REMOVE(dfr_proposal, entries);
-				evtimer_del(&dfr_proposal->timer);
-				withdraw_dfr(dfr_proposal);
-				free(dfr_proposal);
+				free_dfr_proposal(dfr_proposal);
 			}
 		}
 	} else {
@@ -1817,6 +1806,23 @@ withdraw_dfr(struct dfr_proposal *dfr_proposal)
 }
 
 void
+free_dfr_proposal(struct dfr_proposal *dfr_proposal)
+{
+
+	LIST_REMOVE(dfr_proposal, entries);
+	evtimer_del(&dfr_proposal->timer);
+	switch (dfr_proposal->state) {
+	case PROPOSAL_CONFIGURED:
+	case PROPOSAL_NEARLY_EXPIRED:
+		withdraw_dfr(dfr_proposal);
+		break;
+	default:
+		break;
+	}
+	free(dfr_proposal);
+}
+
+void
 send_proposal(struct imsg_proposal *proposal)
 {
 #ifndef SKIP_PROPOSAL
@@ -1998,9 +2004,7 @@ dfr_proposal_timeout(int fd, short events, void *arg)
 		} else {
 			log_debug("%s: giving up, no response to proposal",
 			    __func__);
-			LIST_REMOVE(dfr_proposal, entries);
-			evtimer_del(&dfr_proposal->timer);
-			free(dfr_proposal);
+			free_dfr_proposal(dfr_proposal);
 		}
 		break;
 	case PROPOSAL_CONFIGURED:
@@ -2019,10 +2023,7 @@ dfr_proposal_timeout(int fd, short events, void *arg)
 	case PROPOSAL_NEARLY_EXPIRED:
 		if (real_lifetime(&dfr_proposal->uptime,
 		    dfr_proposal->router_lifetime) == 0) {
-			evtimer_del(&dfr_proposal->timer);
-			LIST_REMOVE(dfr_proposal, entries);
-			withdraw_dfr(dfr_proposal);
-			free(dfr_proposal);
+			free_dfr_proposal(dfr_proposal);
 			log_debug("%s: removing dfr proposal", __func__);
 			break;
 		}

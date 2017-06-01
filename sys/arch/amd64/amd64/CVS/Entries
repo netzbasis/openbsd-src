@@ -5,7 +5,7 @@
 /amd64_mem.c/1.13/Tue Apr 26 15:27:32 2016//
 /amd64errata.c/1.7/Sun Jul 13 12:11:01 2014//
 /apic.c/1.6/Sat Mar 14 03:38:46 2015//
-/autoconf.c/1.47/Wed Jun  8 17:24:44 2016//
+/autoconf.c/1.48/Wed May 31 19:18:18 2017//
 /bios.c/1.34/Sat Sep 12 23:03:30 2015//
 /bus_dma.c/1.49/Thu Dec 17 17:16:04 2015//
 /bus_space.c/1.26/Sat Apr 25 21:31:24 2015//
@@ -36,7 +36,8 @@
 /k1x-pstate.c/1.8/Sat Mar 14 03:38:46 2015//
 /lapic.c/1.47/Mon May 29 14:19:49 2017//
 /lock_machdep.c/1.16/Mon May 29 14:19:49 2017//
-/locore.S/1.84/Mon Feb  6 09:15:51 2017//
+/locore.S/1.85/Wed May 31 19:18:18 2017//
+/locore0.S/1.1/Wed May 31 19:18:18 2017//
 /machdep.c/1.229/Thu May 18 09:20:06 2017//
 /mainbus.c/1.39/Sat Mar 25 22:24:01 2017//
 /mem.c/1.31/Sun Sep 25 15:23:36 2016//

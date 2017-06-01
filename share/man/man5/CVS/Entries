@@ -2,7 +2,7 @@
 /acct.5/1.15/Thu Sep 10 17:55:21 2015//
 /ar.5/1.5/Thu Dec 24 01:47:25 2015//
 /bsd.port.arch.mk.5/1.10/Tue Apr 11 20:40:43 2017//
-/bsd.port.mk.5/1.457/Tue Apr 11 20:40:33 2017//
+/bsd.port.mk.5/1.459/Wed May 31 10:06:02 2017//
 /bsd.regress.mk.5/1.13/Tue May 30 12:14:38 2017//
 /changelist.5/1.8/Sun Jul  8 21:48:38 2012//
 /core.5/1.22/Thu Sep  1 12:26:32 2016//
@@ -33,7 +33,7 @@
 /netgroup.5/1.15/Mon Nov 30 17:03:05 2015//
 /networks.5/1.19/Sat Aug 23 07:25:54 2014//
 /passwd.5/1.41/Sun Nov  2 05:33:04 2014//
-/pf.conf.5/1.563/Mon May 22 19:15:29 2017//
+/pf.conf.5/1.565/Wed May 31 09:30:38 2017//
 /pf.os.5/1.8/Thu May 31 19:19:58 2007//
 /port-modules.5/1.218/Sat May 27 20:18:04 2017//
 /printcap.5/1.27/Sun May 14 12:01:52 2017//
