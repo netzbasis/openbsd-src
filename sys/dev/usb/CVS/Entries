@@ -64,9 +64,9 @@
 /makemap.awk/1.14/Wed Nov 20 17:27:32 2013//
 /mbim.h/1.4/Tue Apr 18 13:27:55 2017//
 /moscom.c/1.24/Fri Sep  2 09:14:59 2016//
-/ohci.c/1.151/Fri May 26 13:13:50 2017//
+/ohci.c/1.152/Thu Jun  1 09:47:55 2017//
 /ohcireg.h/1.14/Mon Apr 15 09:23:01 2013//
-/ohcivar.h/1.38/Fri May 26 13:13:50 2017//
+/ohcivar.h/1.39/Thu Jun  1 09:47:55 2017//
 /ualea.c/1.2/Fri Apr 17 07:17:51 2015//
 /uark.c/1.24/Fri Sep  2 09:14:59 2016//
 /uaudio.c/1.127/Wed May  3 06:58:11 2017//

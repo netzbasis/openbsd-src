@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.44 2017/05/29 21:19:30 mpi Exp $
+#	$OpenBSD: Makefile,v 1.46 2017/06/01 10:59:23 mpi Exp $
 
 LIB=pthread
 LIBCSRCDIR=	${.CURDIR}/../libc

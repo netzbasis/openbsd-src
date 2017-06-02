@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.160 2017/05/31 15:30:12 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.162 2017/06/01 19:05:15 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -48,6 +48,7 @@ enum	mandocerr {
 
 	MANDOCERR_MACRO_USELESS, /* useless macro: macro */
 	MANDOCERR_BX, /* consider using OS macro: macro */
+	MANDOCERR_ND_DOT, /* description line ends with a full stop */
 
 	MANDOCERR_WARNING, /* ===== start of warnings ===== */
 
@@ -410,6 +411,7 @@ enum	mandoc_esc {
 	ESCAPE_NUMBERED, /* a numbered glyph */
 	ESCAPE_UNICODE, /* a unicode codepoint */
 	ESCAPE_NOSPACE, /* suppress space if the last on a line */
+	ESCAPE_HORIZ, /* horizontal movement */
 	ESCAPE_SKIPCHAR, /* skip the next character */
 	ESCAPE_OVERSTRIKE /* overstrike all chars in the argument */
 };
