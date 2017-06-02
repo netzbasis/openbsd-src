@@ -732,7 +732,7 @@ getbootparams(char *boot, int devfd, struct disklabel *dl)
 	fs = (struct fs *)sblock;
 
 	/* Sanity-check super-block. */
-	if (fs->fs_magic != FS_MAGIC)
+	if (fs->fs_magic != FS_MAGIC && fs->fs_magic != FS_UFS2_MAGIC)
 		errx(1, "Bad magic number in superblock");
 	if (fs->fs_inopb <= 0)
 		err(1, "Bad inopb=%d in superblock", fs->fs_inopb);

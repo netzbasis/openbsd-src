@@ -491,7 +491,7 @@ configure_disk() {
 			[[ $_fstype == ffs ]] || continue
 			_opt=
 			[[ $_mp == / ]] && _opt=$MDROOTFSOPT
-			newfs -q $_opt ${_pp##/dev/}
+			newfs -O2 -q $_opt ${_pp##/dev/}
 			# N.B.: '!' is lexically < '/'. That is
 			#	required for correct sorting of
 			#	mount points.
