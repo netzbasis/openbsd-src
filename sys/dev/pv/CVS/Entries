@@ -25,7 +25,7 @@
 /vmmci.c/1.3/Tue May  2 09:50:38 2017//
 /vmt.c/1.12/Fri Feb  3 08:23:01 2017//
 /xbf.c/1.28/Sun Mar 19 16:37:19 2017//
-/xen.c/1.81/Sun Mar 19 16:55:31 2017//
+/xen.c/1.82/Fri Jun  2 20:25:50 2017//
 /xenreg.h/1.10/Wed Sep 14 17:48:28 2016//
 /xenstore.c/1.43/Mon Mar 13 01:10:03 2017//
 /xenvar.h/1.49/Wed Feb  8 16:15:52 2017//

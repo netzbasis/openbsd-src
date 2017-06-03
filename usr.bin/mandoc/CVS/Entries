@@ -3,7 +3,7 @@
 /att.c/1.11/Tue Oct  6 18:30:43 2015//
 /cgi.c/1.92/Wed Apr 19 00:59:32 2017//
 /cgi.h.example/1.6/Sat Mar 18 16:48:07 2017//
-/chars.c/1.39/Fri Feb 17 18:26:16 2017//
+/chars.c/1.40/Fri Jun  2 12:41:28 2017//
 /dba.c/1.7/Thu Feb  9 18:26:17 2017//
 /dba.h/1.2/Wed Aug 17 20:46:06 2016//
 /dba_array.c/1.1/Mon Aug  1 10:32:39 2016//
@@ -38,9 +38,9 @@
 /man_validate.c/1.98/Fri May  5 15:16:25 2017//
 /manconf.h/1.4/Fri Feb 10 15:44:31 2017//
 /mandoc.1/1.116/Thu Jun  1 15:24:41 2017//
-/mandoc.c/1.67/Thu Jun  1 19:05:15 2017//
+/mandoc.c/1.68/Fri Jun  2 19:21:03 2017//
 /mandoc.css/1.5/Mon Mar 13 20:22:11 2017//
-/mandoc.h/1.162/Thu Jun  1 19:05:15 2017//
+/mandoc.h/1.163/Fri Jun  2 19:21:03 2017//
 /mandoc_aux.c/1.7/Mon Oct 12 21:09:08 2015//
 /mandoc_aux.h/1.8/Thu Feb  9 17:19:07 2017//
 /mandoc_ohash.c/1.2/Mon Oct 19 18:58:20 2015//
@@ -82,7 +82,7 @@
 /tbl_layout.c/1.28/Mon Oct 12 00:07:27 2015//
 /tbl_opts.c/1.13/Sat Sep 26 00:53:15 2015//
 /tbl_term.c/1.31/Mon Oct 12 00:07:27 2015//
-/term.c/1.121/Thu Jun  1 19:05:15 2017//
+/term.c/1.122/Fri Jun  2 19:21:03 2017//
 /term.h/1.65/Mon May  8 15:33:43 2017//
 /term_ascii.c/1.41/Mon May  8 15:33:43 2017//
 /term_ps.c/1.48/Mon May  8 15:33:43 2017//
