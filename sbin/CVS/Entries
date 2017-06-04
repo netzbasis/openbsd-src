@@ -1,4 +1,4 @@
-/Makefile/1.105/Sat Sep 17 18:37:01 2016//
+/Makefile/1.106/Sat Jun  3 10:00:29 2017//
 /Makefile.inc/1.6/Fri Jul 11 13:13:04 2014//
 D/atactl////
 D/badsect////
@@ -54,6 +54,7 @@ D/savecore////
 D/scan_ffs////
 D/scsi////
 D/shutdown////
+D/slaacd////
 D/swapctl////
 D/sysctl////
 D/ttyflags////
