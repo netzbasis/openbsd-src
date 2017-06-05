@@ -1,4 +1,4 @@
-/*	$OpenBSD: term.c,v 1.122 2017/06/02 19:21:03 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.124 2017/06/04 22:43:50 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -34,6 +34,7 @@ static	void		 adjbuf(struct termp *p, size_t);
 static	void		 bufferc(struct termp *, char);
 static	void		 encode(struct termp *, const char *, size_t);
 static	void		 encode1(struct termp *, int);
+static	void		 endline(struct termp *);
 
 
 void
@@ -82,11 +83,11 @@ term_end(struct termp *p)
  *    to be broken, start the next line at the right margin instead
  *    of at the offset.  Used together with TERMP_NOBREAK for the tags
  *    in various kinds of tagged lists.
- *  - TERMP_DANGLE: Do not break the output line at the right margin,
+ *  - TERMP_HANG: Do not break the output line at the right margin,
  *    append the next chunk after it even if this one is too long.
  *    To be used together with TERMP_NOBREAK.
- *  - TERMP_HANG: Like TERMP_DANGLE, and also suppress padding before
- *    the next chunk if this column is not full.
+ *  - TERMP_NOPAD: Start writing at the current position,
+ *    do not pad with blank characters up to the offset.
  */
 void
 term_flushln(struct termp *p)
@@ -102,34 +103,15 @@ term_flushln(struct termp *p)
 	size_t		 jhy;	/* last hyph before overflow w/r/t j */
 	size_t		 maxvis; /* output position of visible boundary */
 
-	/*
-	 * First, establish the maximum columns of "visible" content.
-	 * This is usually the difference between the right-margin and
-	 * an indentation, but can be, for tagged lists or columns, a
-	 * small set of values.
-	 *
-	 * The following unsigned-signed subtractions look strange,
-	 * but they are actually correct.  If the int p->overstep
-	 * is negative, it gets sign extended.  Subtracting that
-	 * very large size_t effectively adds a small number to dv.
-	 */
-	dv = p->rmargin > p->offset ? p->rmargin - p->offset : 0;
-	maxvis = (int)dv > p->overstep ? dv - (size_t)p->overstep : 0;
-
-	if (p->flags & TERMP_NOBREAK) {
-		dv = p->maxrmargin > p->offset ?
-		     p->maxrmargin - p->offset : 0;
-		bp = (int)dv > p->overstep ?
-		     dv - (size_t)p->overstep : 0;
-	} else
-		bp = maxvis;
-
-	/*
-	 * Calculate the required amount of padding.
-	 */
-	vbl = p->offset + p->overstep > p->viscol ?
-	      p->offset + p->overstep - p->viscol : 0;
-
+	vbl = (p->flags & TERMP_NOPAD) || p->offset < p->viscol ? 0 :
+	    p->offset - p->viscol;
+	if (p->minbl && vbl < p->minbl)
+		vbl = p->minbl;
+	maxvis = p->rmargin > p->viscol + vbl ?
+	    p->rmargin - p->viscol - vbl : 0;
+	bp = !(p->flags & TERMP_NOBREAK) ? maxvis :
+	    p->maxrmargin > p->viscol + vbl ?
+	    p->maxrmargin - p->viscol - vbl : 0;
 	vis = vend = 0;
 	i = 0;
 
@@ -186,10 +168,10 @@ term_flushln(struct termp *p)
 		 * Find out whether we would exceed the right margin.
 		 * If so, break to the next line.
 		 */
-		if (vend > bp && 0 == jhy && vis > 0) {
+		if (vend > bp && 0 == jhy && vis > 0 &&
+		    (p->flags & TERMP_BRNEVER) == 0) {
 			vend -= vis;
-			(*p->endline)(p);
-			p->viscol = 0;
+			endline(p);
 
 			/* Use pending tabs on the new line. */
 
@@ -199,20 +181,13 @@ term_flushln(struct termp *p)
 
 			/* Re-establish indentation. */
 
-			if (p->flags & TERMP_BRIND) {
+			if (p->flags & TERMP_BRIND)
 				vbl += p->rmargin;
-				vend += p->rmargin - p->offset;
-			} else
+			else
 				vbl += p->offset;
-
-			/*
-			 * Remove the p->overstep width.
-			 * Again, if p->overstep is negative,
-			 * sign extension does the right thing.
-			 */
-
-			bp += (size_t)p->overstep;
-			p->overstep = 0;
+			maxvis = p->rmargin > vbl ? p->rmargin - vbl : 0;
+			bp = !(p->flags & TERMP_NOBREAK) ? maxvis :
+			    p->maxrmargin > vbl ?  p->maxrmargin - vbl : 0;
 		}
 
 		/* Write out the [remaining] word. */
@@ -267,42 +242,37 @@ term_flushln(struct termp *p)
 		vis = 0;
 
 	p->col = 0;
-	p->overstep = 0;
-	p->flags &= ~(TERMP_BACKAFTER | TERMP_BACKBEFORE);
-
-	if ( ! (TERMP_NOBREAK & p->flags)) {
-		p->viscol = 0;
-		(*p->endline)(p);
-		return;
-	}
-
-	if (TERMP_HANG & p->flags) {
-		p->overstep += (int)(p->offset + vis - p->rmargin +
-		    p->trailspace * (*p->width)(p, ' '));
-
-		/*
-		 * If we have overstepped the margin, temporarily move
-		 * it to the right and flag the rest of the line to be
-		 * shorter.
-		 * If there is a request to keep the columns together,
-		 * allow negative overstep when the column is not full.
-		 */
-		if (p->trailspace && p->overstep < 0)
-			p->overstep = 0;
-		return;
-
-	} else if (TERMP_DANGLE & p->flags)
-		return;
+	p->minbl = p->trailspace;
+	p->flags &= ~(TERMP_BACKAFTER | TERMP_BACKBEFORE | TERMP_NOPAD);
 
 	/* Trailing whitespace is significant in some columns. */
 	if (vis && vbl && (TERMP_BRTRSP & p->flags))
 		vis += vbl;
 
 	/* If the column was overrun, break the line. */
-	if (maxvis < vis + p->trailspace * (*p->width)(p, ' ')) {
-		(*p->endline)(p);
-		p->viscol = 0;
+	if ((p->flags & TERMP_NOBREAK) == 0 ||
+	    ((p->flags & TERMP_HANG) == 0 &&
+	     vis + p->trailspace * (*p->width)(p, ' ') > maxvis))
+		endline(p);
+}
+
+static void
+endline(struct termp *p)
+{
+	if ((p->flags & (TERMP_NEWMC | TERMP_ENDMC)) == TERMP_ENDMC) {
+		p->mc = NULL;
+		p->flags &= ~TERMP_ENDMC;
 	}
+	if (p->mc != NULL) {
+		if (p->viscol && p->maxrmargin >= p->viscol)
+			(*p->advance)(p, p->maxrmargin - p->viscol + 1);
+		p->flags |= TERMP_NOBUF | TERMP_NOSPACE;
+		term_word(p, p->mc);
+		p->flags &= ~(TERMP_NOBUF | TERMP_NEWMC);
+	}
+	p->viscol = 0;
+	p->minbl = 0;
+	(*p->endline)(p);
 }
 
 /*
@@ -331,6 +301,7 @@ term_vspace(struct termp *p)
 
 	term_newln(p);
 	p->viscol = 0;
+	p->minbl = 0;
 	if (0 < p->skipvsp)
 		p->skipvsp--;
 	else
@@ -405,24 +376,24 @@ term_word(struct termp *p, const char *word)
 	size_t		 csz, lsz, ssz;
 	enum mandoc_esc	 esc;
 
-	if ( ! (TERMP_NOSPACE & p->flags)) {
-		if ( ! (TERMP_KEEP & p->flags)) {
-			bufferc(p, ' ');
-			if (TERMP_SENTENCE & p->flags)
+	if ((p->flags & TERMP_NOBUF) == 0) {
+		if ((p->flags & TERMP_NOSPACE) == 0) {
+			if ((p->flags & TERMP_KEEP) == 0) {
 				bufferc(p, ' ');
-		} else
-			bufferc(p, ASCII_NBRSP);
+				if (p->flags & TERMP_SENTENCE)
+					bufferc(p, ' ');
+			} else
+				bufferc(p, ASCII_NBRSP);
+		}
+		if (p->flags & TERMP_PREKEEP)
+			p->flags |= TERMP_KEEP;
+		if (p->flags & TERMP_NONOSPACE)
+			p->flags |= TERMP_NOSPACE;
+		else
+			p->flags &= ~TERMP_NOSPACE;
+		p->flags &= ~(TERMP_SENTENCE | TERMP_NONEWLINE);
+		p->skipvsp = 0;
 	}
-	if (TERMP_PREKEEP & p->flags)
-		p->flags |= TERMP_KEEP;
-
-	if ( ! (p->flags & TERMP_NONOSPACE))
-		p->flags &= ~TERMP_NOSPACE;
-	else
-		p->flags |= TERMP_NOSPACE;
-
-	p->flags &= ~(TERMP_SENTENCE | TERMP_NONEWLINE);
-	p->skipvsp = 0;
 
 	while ('\0' != *word) {
 		if ('\\' != *word) {
@@ -625,10 +596,12 @@ adjbuf(struct termp *p, size_t sz)
 static void
 bufferc(struct termp *p, char c)
 {
-
+	if (p->flags & TERMP_NOBUF) {
+		(*p->letter)(p, c);
+		return;
+	}
 	if (p->col + 1 >= p->maxcols)
 		adjbuf(p, p->col + 1);
-
 	p->buf[p->col++] = c;
 }
 
@@ -641,6 +614,11 @@ static void
 encode1(struct termp *p, int c)
 {
 	enum termfont	  f;
+
+	if (p->flags & TERMP_NOBUF) {
+		(*p->letter)(p, c);
+		return;
+	}
 
 	if (p->col + 7 >= p->maxcols)
 		adjbuf(p, p->col + 7);
@@ -677,6 +655,12 @@ static void
 encode(struct termp *p, const char *word, size_t sz)
 {
 	size_t		  i;
+
+	if (p->flags & TERMP_NOBUF) {
+		for (i = 0; i < sz; i++)
+			(*p->letter)(p, word[i]);
+		return;
+	}
 
 	if (p->col + 2 + (sz * 5) >= p->maxcols)
 		adjbuf(p, p->col + 2 + (sz * 5));
