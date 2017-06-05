@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-run-shell.c,v 1.36 2016/02/12 12:24:52 nicm Exp $ */
+/* $OpenBSD: cmd-run-shell.c,v 1.50 2017/05/30 21:44:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -29,11 +29,11 @@
  * Runs a command without a window.
  */
 
-enum cmd_retval	 cmd_run_shell_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_run_shell_exec(struct cmd *, struct cmdq_item *);
 
-void	cmd_run_shell_callback(struct job *);
-void	cmd_run_shell_free(void *);
-void	cmd_run_shell_print(struct job *, const char *);
+static void	cmd_run_shell_callback(struct job *);
+static void	cmd_run_shell_free(void *);
+static void	cmd_run_shell_print(struct job *, const char *);
 
 const struct cmd_entry cmd_run_shell_entry = {
 	.name = "run-shell",
@@ -42,97 +42,94 @@ const struct cmd_entry cmd_run_shell_entry = {
 	.args = { "bt:", 1, 1 },
 	.usage = "[-b] " CMD_TARGET_PANE_USAGE " shell-command",
 
-	.tflag = CMD_PANE_CANFAIL,
+	.target = { 't', CMD_FIND_PANE, CMD_FIND_CANFAIL },
 
 	.flags = 0,
 	.exec = cmd_run_shell_exec
 };
 
 struct cmd_run_shell_data {
-	char		*cmd;
-	struct cmd_q	*cmdq;
-	int		 bflag;
-	int		 wp_id;
+	char			*cmd;
+	struct cmdq_item	*item;
+	int			 wp_id;
 };
 
-void
+static void
 cmd_run_shell_print(struct job *job, const char *msg)
 {
 	struct cmd_run_shell_data	*cdata = job->data;
 	struct window_pane		*wp = NULL;
+	struct cmd_find_state		 fs;
 
 	if (cdata->wp_id != -1)
 		wp = window_pane_find_by_id(cdata->wp_id);
 	if (wp == NULL) {
-		cmdq_print(cdata->cmdq, "%s", msg);
-		return;
+		if (cdata->item != NULL) {
+			cmdq_print(cdata->item, "%s", msg);
+			return;
+		}
+		if (cmd_find_from_nothing(&fs) != 0)
+			return;
+		wp = fs.wp;
+		if (wp == NULL)
+			return;
 	}
 
-	if (window_pane_set_mode(wp, &window_copy_mode) == 0)
+	if (window_pane_set_mode(wp, &window_copy_mode, NULL, NULL) == 0)
 		window_copy_init_for_output(wp);
 	if (wp->mode == &window_copy_mode)
 		window_copy_add(wp, "%s", msg);
 }
 
-enum cmd_retval
-cmd_run_shell_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_run_shell_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args			*args = self->args;
 	struct cmd_run_shell_data	*cdata;
-	char				*shellcmd;
-	struct session			*s = cmdq->state.tflag.s;
-	struct winlink			*wl = cmdq->state.tflag.wl;
-	struct window_pane		*wp = cmdq->state.tflag.wp;
-	struct format_tree		*ft;
+	struct client			*c = cmd_find_client(item, NULL, 1);
+	struct session			*s = item->target.s;
+	struct winlink			*wl = item->target.wl;
+	struct window_pane		*wp = item->target.wp;
 	const char			*cwd;
 
-	if (cmdq->client != NULL && cmdq->client->session == NULL)
-		cwd = cmdq->client->cwd;
+	if (item->client != NULL && item->client->session == NULL)
+		cwd = item->client->cwd;
 	else if (s != NULL)
 		cwd = s->cwd;
 	else
 		cwd = NULL;
-	ft = format_create(cmdq, 0);
-	format_defaults(ft, cmdq->state.c, s, wl, wp);
-	shellcmd = format_expand(ft, args->argv[0]);
-	format_free(ft);
 
-	cdata = xmalloc(sizeof *cdata);
-	cdata->cmd = shellcmd;
-	cdata->bflag = args_has(args, 'b');
-	cdata->wp_id = wp != NULL ? (int) wp->id : -1;
+	cdata = xcalloc(1, sizeof *cdata);
+	cdata->cmd = format_single(item, args->argv[0], c, s, wl, wp);
 
-	cdata->cmdq = cmdq;
-	cmdq->references++;
+	if (args_has(args, 't') && wp != NULL)
+		cdata->wp_id = wp->id;
+	else
+		cdata->wp_id = -1;
 
-	job_run(shellcmd, s, cwd, cmd_run_shell_callback, cmd_run_shell_free,
-	    cdata);
+	if (!args_has(args, 'b'))
+		cdata->item = item;
 
-	if (cdata->bflag)
+	job_run(cdata->cmd, s, cwd, NULL, cmd_run_shell_callback,
+	    cmd_run_shell_free, cdata);
+
+	if (args_has(args, 'b'))
 		return (CMD_RETURN_NORMAL);
 	return (CMD_RETURN_WAIT);
 }
 
-void
+static void
 cmd_run_shell_callback(struct job *job)
 {
 	struct cmd_run_shell_data	*cdata = job->data;
-	struct cmd_q			*cmdq = cdata->cmdq;
-	char				*cmd, *msg, *line;
+	char				*cmd = cdata->cmd, *msg, *line;
 	size_t				 size;
 	int				 retcode;
-	u_int				 lines;
 
-	if (cmdq->flags & CMD_Q_DEAD)
-		return;
-	cmd = cdata->cmd;
-
-	lines = 0;
 	do {
 		if ((line = evbuffer_readline(job->event->input)) != NULL) {
 			cmd_run_shell_print(job, line);
 			free(line);
-			lines++;
 		}
 	} while (line != NULL);
 
@@ -143,7 +140,6 @@ cmd_run_shell_callback(struct job *job)
 		line[size] = '\0';
 
 		cmd_run_shell_print(job, line);
-		lines++;
 
 		free(line);
 	}
@@ -159,16 +155,15 @@ cmd_run_shell_callback(struct job *job)
 	if (msg != NULL)
 		cmd_run_shell_print(job, msg);
 	free(msg);
+
+	if (cdata->item != NULL)
+		cdata->item->flags &= ~CMDQ_WAITING;
 }
 
-void
+static void
 cmd_run_shell_free(void *data)
 {
 	struct cmd_run_shell_data	*cdata = data;
-	struct cmd_q			*cmdq = cdata->cmdq;
-
-	if (!cmdq_free(cmdq) && !cdata->bflag)
-		cmdq_continue(cmdq);
 
 	free(cdata->cmd);
 	free(cdata);

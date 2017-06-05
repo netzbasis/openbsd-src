@@ -1,4 +1,4 @@
-/*	$OpenBSD: cvs.h,v 1.182 2015/04/04 14:19:10 stsp Exp $	*/
+/*	$OpenBSD: cvs.h,v 1.184 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -372,6 +372,8 @@ void		cvs_write_tagfile(const char *, char *, char *);
 
 /* root.c */
 struct cvsroot	*cvsroot_get(const char *);
+int		cvsroot_is_local(void);
+int		cvsroot_is_remote(void);
 
 /* logmsg.c */
 char	*cvs_logmsg_read(const char *);
@@ -388,6 +390,7 @@ void	cvs_remove_local(struct cvs_file *);
 void	cvs_add_local(struct cvs_file *);
 int	update_has_conflict_markers(struct cvs_file *);
 void	cvs_backup_file(struct cvs_file *);
+void	cvs_import_ignored(const char *);
 
 #define CO_MERGE	0x01
 #define CO_SETSTICKY	0x02

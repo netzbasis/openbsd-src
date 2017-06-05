@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.16 2016/09/02 21:30:34 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.23 2017/05/15 13:10:33 bluhm Exp $
 
 # The following ports must be installed:
 #
@@ -6,9 +6,11 @@
 # py-libdnet          python interface to libdnet
 # scapy               powerful interactive packet manipulation in python
 
+.if ! (make(clean) || make(cleandir) || make(obj))
 # Check wether all required python packages are installed.  If some
 # are missing print a warning and skip the tests, but do not fail.
 PYTHON_IMPORT != python2.7 -c 'from scapy.all import *' 2>&1 || true
+.endif
 .if ! empty(PYTHON_IMPORT)
 regress:
 	@echo '${PYTHON_IMPORT}'
@@ -113,14 +115,15 @@ addr.py: Makefile
 	echo 'PF_IFIN="${PF_IFIN}"' >>$@.tmp
 	echo 'PF_IFOUT="${PF_IFOUT}"' >>$@.tmp
 	echo 'PF_MAC="${PF_MAC}"' >>$@.tmp
-.for var in SRC_OUT PF_IN PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN RPT_OUT
+.for var in SRC_OUT PF_IN PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT\
+    AF_IN RTT_IN RPT_OUT
 	echo '${var}="${${var}}"' >>$@.tmp
 	echo '${var}6="${${var}6}"' >>$@.tmp
 .endfor
 	mv $@.tmp $@
 
-# load the pf rules into the kernel of the PF machine
-# XXX pfctl does not replace variables after @
+# Load the pf rules into the kernel of the PF machine.
+# XXX pfctl does not replace variables after @.
 stamp-pfctl: addr.py pf.conf
 	cat addr.py ${.CURDIR}/pf.conf | pfctl -n -f -
 	cat addr.py ${.CURDIR}/pf.conf | \
@@ -136,55 +139,52 @@ PYTHON =	python2.7 ./
 PYTHON =	PYTHONPATH=${.OBJDIR} python2.7 ${.CURDIR}/
 .endif
 
+.for inet in inet inet6
+
 # Ping all addresses.  This ensures that the IP addresses are configured
 # and all routing table are set up to allow bidirectional packet flow.
 # Note that RDR does not exist physically.  So this traffic is rewritten
 # by PF and handled by ECO.
-TARGETS +=	ping  ping6
 
-run-regress-ping: stamp-pfctl
+.for ip in SRC_OUT PF_IN PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT\
+    AF_IN RTT_IN RPT_OUT
+TARGETS +=	ping-${inet}-${ip}
+run-regress-ping-${inet}-${ip}: stamp-pfctl
 	@echo '\n======== $@ ========'
-.for ip in SRC_OUT PF_IN PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	@echo Check ping ${ip}:
-	ping -n -c 1 ${${ip}}
-.endfor
-	@echo Check ping RPT_OUT:
-	ping -n -c 1 -I ${RPT_OUT} ${ECO_IN}
+	@echo Check ping ${ip}${inet:S/inet//}:
+.if "RPT_OUT" == ${ip}
+	ping${inet:S/inet//} -n -c 1 -I ${${ip}${inet:S/inet//}}\
+	    ${ECO_IN${inet:S/inet//}}
+.else
+	ping${inet:S/inet//} -n -c 1 ${${ip}${inet:S/inet//}}
+.endif
+.endfor # ip
 
-run-regress-ping6: stamp-pfctl
-	@echo '\n======== $@ ========'
-.for ip in SRC_OUT PF_IN PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	@echo Check ping ${ip}6:
-	ping6 -n -c 1 ${${ip}6}
-.endfor
-	@echo Check ping RPT_OUT6:
-	ping6 -n -c 1 -I ${RPT_OUT6} ${ECO_IN6}
+.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN RPT_OUT
 
 # Send a large IPv4/ICMP-Echo-Request packet with enabled DF bit and
 # parse response packet to determine MTU of the packet filter.  The
 # outgoing MTU of PF has to be 1400 octets.  Packet size is 1500.
 # Check that the IP length of the original packet and the ICMP
 # quoted packet are the same.
-# XXX AF_IN is broken with PF MTU
-TARGETS +=	ping-mtu-1400 ping6-mtu-1400
 
-run-regress-ping-mtu-1400: addr.py stamp-pfctl
+TARGETS +=	ping-mtu-1400-${inet}-${ip}
+run-regress-ping-mtu-1400-${inet}-${ip}: stamp-pfctl
 	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check path MTU to ${ip} is 1400
-	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${${ip}} 1500 1400
-.endfor
-	@echo Check path MTU from RPT_OUT is 1400
-	${SUDO} ${PYTHON}ping_mtu.py ${RPT_OUT} ${ECO_IN} 1500 1400
-
-run-regress-ping6-mtu-1400: addr.py stamp-pfctl
-	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check path MTU to ${ip}6 is 1400
-	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${${ip}6} 1500 1400
-.endfor
-	@echo Check path MTU from RPT_OUT6 is 1400
-	${SUDO} ${PYTHON}ping6_mtu.py ${RPT_OUT6} ${ECO_IN6} 1500 1400
+	@echo Check path MTU to ${ip}${inet:S/inet//} is 1400
+.if "RPT_OUT" == ${ip}
+	${SUDO} ${PYTHON}ping${inet:S/inet//}_mtu.py ${${ip}${inet:S/inet//}}\
+	    ${ECO_IN${inet:S/inet//}} 1500 1400
+.elif "AF_IN" == ${ip}
+.if "inet" == ${inet}
+	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${${ip}} 1500 1380
+.else
+	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${${ip}6} 1500 1420
+.endif
+.else
+	${SUDO} ${PYTHON}ping${inet:S/inet//}_mtu.py ${SRC_OUT${inet:S/inet//}}\
+	    ${${ip}${inet:S/inet//}} 1500 1400
+.endif
 
 # Send a large IPv4/ICMP-Echo-Request packet with enabled DF bit and
 # parse response packet to determine MTU of the router.  The MTU has
@@ -192,88 +192,93 @@ run-regress-ping6-mtu-1400: addr.py stamp-pfctl
 # the router RT before.  Packet size is 1400 to pass PF MTU.
 # Check that the IP length of the original packet and the ICMP
 # quoted packet are the same.
-TARGETS +=	ping-mtu-1300 ping6-mtu-1300
 
-run-regress-ping-mtu-1300: addr.py stamp-pfctl
+TARGETS +=	ping-mtu-1300-${inet}-${ip}
+run-regress-ping-mtu-1300-${inet}-${ip}: stamp-pfctl
 	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check path MTU to ${ip} is 1300
-	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${${ip}} 1400 1300
-.endfor
-	@echo Check path MTU to AF_IN is 1280
-	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${AF_IN} 1380 1280
-	@echo Check path MTU from RPT_OUT is 1300
-	${SUDO} ${PYTHON}ping_mtu.py ${RPT_OUT} ${ECO_IN} 1400 1300
-
-run-regress-ping6-mtu-1300: addr.py stamp-pfctl
-	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check path MTU to ${ip}6 is 1300
-	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${${ip}6} 1400 1300
-.endfor
-	@echo Check path MTU to AF_IN6 is 1320
-	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${AF_IN6} 1420 1320
-	@echo Check path MTU from RPT_OUT6 is 1300
-	${SUDO} ${PYTHON}ping6_mtu.py ${RPT_OUT6} ${ECO_IN6} 1400 1300
+	@echo Check path MTU from ${ip}${inet:S/inet//} is 1300
+.if "RPT_OUT" == ${ip}
+	${SUDO} ${PYTHON}ping${inet:S/inet//}_mtu.py ${${ip}${inet:S/inet//}}\
+	    ${ECO_IN${inet:S/inet//}} 1400 1300
+.elif "AF_IN" == ${ip}
+.if "inet" == ${inet}
+	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${${ip}} 1380 1280
+.else
+	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${${ip}6} 1420 1320
+.endif
+.else
+	${SUDO} ${PYTHON}ping${inet:S/inet//}_mtu.py ${SRC_OUT${inet:S/inet//}}\
+	    ${${ip}${inet:S/inet//}} 1400 1300
+.endif
 
 # Send one UDP echo port 7 packet to all destination addresses with netcat.
 # The response must arrive in 1 second.
-TARGETS +=	udp  udp6
 
-run-regress-udp: stamp-pfctl
+TARGETS +=	udp-${inet}-${ip}
+run-regress-udp-${inet}-${ip}: stamp-pfctl
 	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	@echo Check UDP ${ip}:
-	( echo $$$$ | nc -u ${${ip}} 7 & sleep 1; kill $$! ) | grep $$$$
-.endfor
-	@echo Check UDP RPT_OUT:
-	( echo $$$$ | nc -u -s ${RPT_OUT} ${ECO_IN} 7 & sleep 1; kill $$! ) | grep $$$$
-
-run-regress-udp6: stamp-pfctl
-	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	@echo Check UDP ${ip}6:
-	( echo $$$$ | nc -u ${${ip}6} 7 & sleep 1; kill $$! ) | grep $$$$
-.endfor
-	@echo Check UDP RPT_OUT6:
-	( echo $$$$ | nc -u -s ${RPT_OUT6} ${ECO_IN6} 7 & sleep 1; kill $$! ) | grep $$$$
+	@echo Check UDP ${ip${inet:S/inet//}}:
+.if "RPT_OUT" == ${ip}
+	echo $$$$ | nc -n -u -W 1 -w 3 -s ${${ip}${inet:S/inet//}}\
+	    ${ECO_IN${inet:S/inet//}} 7 | grep $$$$
+.else
+	echo $$$$ | nc -n -u -W 1 -w 3 ${${ip}${inet:S/inet//}} 7 | grep $$$$
+.endif
 
 # Send a data stream to TCP echo port 7 to all destination addresses
 # with netcat.  Use enough data to make sure PMTU discovery works.
 # Count the reflected bytes and compare with the transmitted ones.
 # Delete host route before test to trigger PMTU discovery.
-# XXX AF_IN is broken with PF MTU, make sure that it hits RT MTU 1300.
-TARGETS +=	tcp  tcp6
 
-run-regress-tcp: stamp-pfctl
+TARGETS +=	tcp-${inet}-${ip}
+run-regress-tcp-${inet}-${ip}: stamp-pfctl
 	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check tcp ${ip}:
-	${SUDO} route -n delete -host -inet ${${ip}} || true
-	openssl rand 200000 | nc -N ${${ip}} 7 | wc -c | grep '200000$$'
-.endfor
-	@echo Check tcp AF_IN:
-	${SUDO} route -n delete -host -inet ${AF_IN} || true
-	${SUDO} ${PYTHON}ping_mtu.py ${SRC_OUT} ${AF_IN} 1380 1280 || true
-	openssl rand 200000 | nc -N ${AF_IN} 7 | wc -c | grep '200000$$'
-	@echo Check tcp RPT_OUT:
-	${SUDO} route -n delete -host -inet ${RPT_OUT} || true
-	openssl rand 200000 | nc -N -s ${RPT_OUT} ${ECO_IN} 7 | wc -c | grep '200000$$'
+	@echo Check tcp ${ip}${inet:S/inet//}:
+	${SUDO} route -n delete -host -inet ${${ip}${inet:S/inet//}} || true
+.if "RPT_OUT" == ${ip}
+	openssl rand 200000 | nc -n -N -w 10 -s ${${ip}${inet:S/inet//}}\
+	    ${ECO_IN${inet:S/inet//}} 7 | wc -c | grep '200000$$'
+.else
+	openssl rand 200000 | nc -n -N -w 10 ${${ip}${inet:S/inet//}} 7 |\
+	    wc -c | grep '200000$$'
+.endif
 
-run-regress-tcp6: stamp-pfctl
+.endfor # ip
+
+# Run traceroute with ICMP and UDP to all destination addresses.
+# Expect three hops in output and that every probe has a response.
+
+TRACEROUTE_CHECK =	awk \
+    'BEGIN{ x=0 } \
+    { print $$0 } \
+    { n=$$1 } \
+    /\*/{ x++ } \
+    END{ if (n!=3) { print "hopcount is not 3: "n; exit 1 } } \
+    END{ if (x!=0) { print "unanswered probes: "x; exit 1 } }'
+
+.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN RPT_OUT
+.for proto in icmp udp
+run-regress-traceroute-${proto}-${inet}-RPT_OUT:
 	@echo '\n======== $@ ========'
-.for ip in ECO_IN ECO_OUT RDR_IN RDR_OUT RTT_IN
-	@echo Check tcp ${ip}6:
-	${SUDO} route -n delete -host -inet6 ${${ip}6} || true
-	openssl rand 200000 | nc -N ${${ip}6} 7 | wc -c | grep '200000$$'
-.endfor
-	@echo Check tcp AF_IN6:
-	${SUDO} route -n delete -host -inet6 ${AF_IN6} || true
-	${SUDO} ${PYTHON}ping6_mtu.py ${SRC_OUT6} ${AF_IN6} 1420 1320 || true
-	openssl rand 200000 | nc -N ${AF_IN6} 7 | wc -c | grep '200000$$'
-	@echo Check tcp RPT_OUT6:
-	${SUDO} route -n delete -host -inet6 ${RPT_OUT6} || true
-	openssl rand 200000 | nc -N -s ${RPT_OUT6} ${ECO_IN6} 7 | wc -c | grep '200000$$'
+	@echo 'RPT_OUT is broken with PF ttl.'
+	@echo DISABLED
+
+TARGETS +=	traceroute-${proto}-${inet}-${ip}
+run-regress-traceroute-${proto}-${inet}-${ip}: stamp-pfctl
+	@echo '\n======== $@ ========'
+	@echo Check traceroute ${proto} ${ip${inet:S/inet//}}:
+.if "RPT_OUT" == ${ip}
+	traceroute${inet:S/inet//} ${proto:S/icmp/-I/:S/udp//}
+	    -s ${${ip}${inet:S/inet//}} ${ECO_IN${inet:S/inet//}} |\
+	    ${TRACEROUTE_CHECK}
+.else
+	traceroute${inet:S/inet//} ${proto:S/icmp/-I/:S/udp//}\
+	    ${${ip}${inet:S/inet//}} | ${TRACEROUTE_CHECK}
+.endif
+.endfor # proto
+.endfor # ip
+
+.endfor # inet
 
 REGRESS_TARGETS =	${TARGETS:S/^/run-regress-/}
 
@@ -291,45 +296,57 @@ check-setup-src:
 	route -n get -inet ${${ip}} | grep -q 'flags: .*LOCAL'  # ${ip}
 .endfor
 	ping -n -c 1 ${PF_IN}  # PF_IN
-	route -n get -inet ${PF_IN} | fgrep -q 'interface: ${SRC_IF}'  # PF_IN SRC_IF
+	route -n get -inet ${PF_IN} | fgrep -q 'interface: ${SRC_IF}' \
+	    # PF_IN SRC_IF
 .for ip in PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	route -n get -inet ${${ip}} | fgrep -q 'gateway: ${PF_IN}'  # ${ip} PF_IN
+	route -n get -inet ${${ip}} | fgrep -q 'gateway: ${PF_IN}' \
+	    # ${ip} PF_IN
 .endfor
 .for ip in SRC_OUT RPT_OUT
 	ping6 -n -c 1 ${${ip}6}  # ${ip}6
 	route -n get -inet6 ${${ip}6} | grep -q 'flags: .*LOCAL'  # ${ip}6
 .endfor
 	ping6 -n -c 1 ${PF_IN6}  # PF_IN6
-	route -n get -inet6 ${PF_IN6} | fgrep -q 'interface: ${SRC_IF}'  # PF_IN6 SRC_IF
+	route -n get -inet6 ${PF_IN6} | fgrep -q 'interface: ${SRC_IF}' \
+	    # PF_IN6 SRC_IF
 .for ip in PF_OUT RT_IN RT_OUT ECO_IN ECO_OUT RDR_IN RDR_OUT AF_IN RTT_IN
-	route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${PF_IN6}'  # ${ip}6 PF_IN6
+	route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${PF_IN6}' \
+	    # ${ip}6 PF_IN6
 .endfor
 
 check-setup-pf:
 	@echo '\n======== $@ ========'
 	ssh ${PF_SSH} ping -n -c 1 ${PF_IN}  # PF_IN
-	ssh ${PF_SSH} route -n get -inet ${PF_IN} | grep -q 'flags: .*LOCAL'  # PF_IN
+	ssh ${PF_SSH} route -n get -inet ${PF_IN} | grep -q 'flags: .*LOCAL' \
+	    # PF_IN
 	ssh ${PF_SSH} ping -n -c 1 ${SRC_OUT}  # SRC_OUT
 	ssh ${PF_SSH} ping -n -c 1 ${PF_OUT}  # PF_OUT
-	ssh ${PF_SSH} route -n get -inet ${PF_OUT} | grep -q 'flags: .*LOCAL'  # PF_OUT
+	ssh ${PF_SSH} route -n get -inet ${PF_OUT} | grep -q 'flags: .*LOCAL' \
+	    # PF_OUT
 	ssh ${PF_SSH} ping -n -c 1 ${RT_IN}  # RT_IN
 .for ip in RT_OUT ECO_IN ECO_OUT
-	ssh ${PF_SSH} route -n get -inet ${${ip}} | fgrep -q 'gateway: ${RT_IN}'  # ${ip} RT_IN
+	ssh ${PF_SSH} route -n get -inet ${${ip}} |\
+	    fgrep -q 'gateway: ${RT_IN}'  # ${ip} RT_IN
 .endfor
 .for ip in RTT_IN RPT_OUT
-	ssh ${PF_SSH} route -n get -inet ${${ip}} | grep -q 'flags: .*REJECT'  # ${ip} reject
+	ssh ${PF_SSH} route -n get -inet ${${ip}} | grep -q 'flags: .*REJECT' \
+	    # ${ip} reject
 .endfor
 	ssh ${PF_SSH} ping6 -n -c 1 ${PF_IN6}  # PF_IN6
-	ssh ${PF_SSH} route -n get -inet6 ${PF_IN6} | grep -q 'flags: .*LOCAL'  # PF_IN6
+	ssh ${PF_SSH} route -n get -inet6 ${PF_IN6} | grep -q 'flags: .*LOCAL' \
+	    # PF_IN6
 	ssh ${PF_SSH} ping6 -n -c 1 ${SRC_OUT6}  # SRC_OUT6
 	ssh ${PF_SSH} ping6 -n -c 1 ${PF_OUT6}  # PF_OUT6
-	ssh ${PF_SSH} route -n get -inet6 ${PF_OUT6} | grep -q 'flags: .*LOCAL'  # PF_OUT6
+	ssh ${PF_SSH} route -n get -inet6 ${PF_OUT6} |\
+	    grep -q 'flags: .*LOCAL'  # PF_OUT6
 	ssh ${PF_SSH} ping6 -n -c 1 ${RT_IN6}  # RT_IN6
 .for ip in RT_OUT ECO_IN ECO_OUT
-	ssh ${PF_SSH} route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${RT_IN6}'  # ${ip}6 RT_IN6
+	ssh ${PF_SSH} route -n get -inet6 ${${ip}6} |\
+	    fgrep -q 'gateway: ${RT_IN6}'  # ${ip}6 RT_IN6
 .endfor
 .for ip in RTT_IN RPT_OUT
-	ssh ${PF_SSH} route -n get -inet6 ${${ip}6} | grep -q 'flags: .*REJECT'  # ${ip}6 reject
+	ssh ${PF_SSH} route -n get -inet6 ${${ip}6} |\
+	    grep -q 'flags: .*REJECT'  # ${ip}6 reject
 .endfor
 	ssh ${PF_SSH} ${SUDO} pfctl -sr | grep '^anchor "regress" all$$'
 	ssh ${PF_SSH} ${SUDO} pfctl -si | grep '^Status: Enabled '
@@ -340,28 +357,36 @@ check-setup-pf:
 check-setup-rt:
 	@echo '\n======== $@ ========'
 	ssh ${RT_SSH} ping -n -c 1 ${RT_IN}  # RT_IN
-	ssh ${RT_SSH} route -n get -inet ${RT_IN} | grep -q 'flags: .*LOCAL'  # RT_IN
+	ssh ${RT_SSH} route -n get -inet ${RT_IN} | grep -q 'flags: .*LOCAL' \
+	    # RT_IN
 	ssh ${RT_SSH} ping -n -c 1 ${PF_OUT}  # PF_OUT
 .for ip in PF_IN SRC_OUT RPT_OUT
-	ssh ${RT_SSH} route -n get -inet ${${ip}} | fgrep -q 'gateway: ${PF_OUT}'  # ${ip} PF_OUT
+	ssh ${RT_SSH} route -n get -inet ${${ip}} |\
+	    fgrep -q 'gateway: ${PF_OUT}'  # ${ip} PF_OUT
 .endfor
 	ssh ${RT_SSH} ping -n -c 1 ${RT_OUT}  # RT_OUT
-	ssh ${RT_SSH} route -n get -inet ${RT_OUT} | grep -q 'flags: .*LOCAL'  # RT_OUT
+	ssh ${RT_SSH} route -n get -inet ${RT_OUT} | grep -q 'flags: .*LOCAL' \
+	    # RT_OUT
 	ssh ${RT_SSH} ping -n -c 1 ${ECO_IN}  # ECO_IN
 .for ip in ECO_OUT RTT_IN
-	ssh ${RT_SSH} route -n get -inet ${${ip}} | fgrep -q 'gateway: ${ECO_IN}'  # ${ip} ECO_IN
+	ssh ${RT_SSH} route -n get -inet ${${ip}} |\
+	    fgrep -q 'gateway: ${ECO_IN}'  # ${ip} ECO_IN
 .endfor
 	ssh ${RT_SSH} ping6 -n -c 1 ${RT_IN6}  # RT_IN6
-	ssh ${RT_SSH} route -n get -inet6 ${RT_IN6} | grep -q 'flags: .*LOCAL'  # RT_IN6
+	ssh ${RT_SSH} route -n get -inet6 ${RT_IN6} | grep -q 'flags: .*LOCAL' \
+	    # RT_IN6
 	ssh ${RT_SSH} ping6 -n -c 1 ${PF_OUT6}  # PF_OUT6
 .for ip in PF_IN SRC_OUT RPT_OUT
-	ssh ${RT_SSH} route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${PF_OUT6}'  # ${ip}6 PF_OUT6
+	ssh ${RT_SSH} route -n get -inet6 ${${ip}6} |\
+	    fgrep -q 'gateway: ${PF_OUT6}'  # ${ip}6 PF_OUT6
 .endfor
 	ssh ${RT_SSH} ping6 -n -c 1 ${RT_OUT6}  # RT_OUT6
-	ssh ${RT_SSH} route -n get -inet6 ${RT_OUT6} | grep -q 'flags: .*LOCAL'  # RT_OUT6
+	ssh ${RT_SSH} route -n get -inet6 ${RT_OUT6} |\
+	    grep -q 'flags: .*LOCAL'  # RT_OUT6
 	ssh ${RT_SSH} ping6 -n -c 1 ${ECO_IN6}  # ECO_IN6
 .for ip in ECO_OUT RTT_IN
-	ssh ${RT_SSH} route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${ECO_IN6}'  # ${ip}6 ECO_IN6
+	ssh ${RT_SSH} route -n get -inet6 ${${ip}6} |\
+	    fgrep -q 'gateway: ${ECO_IN6}'  # ${ip}6 ECO_IN6
 .endfor
 	ssh ${RT_SSH} sysctl net.inet.ip.forwarding | fgrep =1
 	ssh ${RT_SSH} sysctl net.inet6.ip6.forwarding | fgrep =1
@@ -371,28 +396,32 @@ check-setup-eco:
 	@echo '\n======== $@ ========'
 .for ip in ECO_IN ECO_OUT RTT_IN
 	ssh ${ECO_SSH} ping -n -c 1 ${${ip}}  # ${ip}
-	ssh ${ECO_SSH} route -n get -inet ${${ip}} | grep -q 'flags: .*LOCAL'  # ${ip}
+	ssh ${ECO_SSH} route -n get -inet ${${ip}} | grep -q 'flags: .*LOCAL' \
+	    # ${ip}
 .endfor
 	ssh ${ECO_SSH} ping -n -c 1 ${RT_OUT}  # RT_OUT
 .for ip in RT_IN PF_OUT PF_IN SRC_OUT RPT_OUT
-	ssh ${ECO_SSH} route -n get -inet ${${ip}} | fgrep -q 'gateway: ${RT_OUT}'  # ${ip} RT_OUT
+	ssh ${ECO_SSH} route -n get -inet ${${ip}} |\
+	    fgrep -q 'gateway: ${RT_OUT}'  # ${ip} RT_OUT
 .endfor
 .for ip in ECO_IN ECO_OUT RTT_IN
 	ssh ${ECO_SSH} ping6 -n -c 1 ${${ip}6}  # ${ip}6
-	ssh ${ECO_SSH} route -n get -inet6 ${${ip}6} | grep -q 'flags: .*LOCAL'  # ${ip}6
+	ssh ${ECO_SSH} route -n get -inet6 ${${ip}6} |\
+	    grep -q 'flags: .*LOCAL'  # ${ip}6
 .endfor
 	ssh ${ECO_SSH} ping6 -n -c 1 ${RT_OUT6}  # RT_OUT6
 .for ip in RT_IN PF_OUT PF_IN SRC_OUT RPT_OUT
-	ssh ${ECO_SSH} route -n get -inet6 ${${ip}6} | fgrep -q 'gateway: ${RT_OUT6}'  # ${ip}6 RT_OUT6
+	ssh ${ECO_SSH} route -n get -inet6 ${${ip}6} |\
+	    fgrep -q 'gateway: ${RT_OUT6}'  # ${ip}6 RT_OUT6
 .endfor
-.for af in inet inet6
+.for inet in inet inet6
 .for proto in udp tcp
-	ssh ${ECO_SSH} netstat -a -f ${af} -p ${proto} | fgrep ' *.echo '
+	ssh ${ECO_SSH} netstat -na -f ${inet} -p ${proto} | fgrep ' *.7 '
 .endfor
 .endfor
 .for ip in ECO_IN ECO_OUT RTT_IN
-	ssh ${ECO_SSH} netstat -av -f inet -p udp | fgrep ' ${${ip}}.echo '
-	ssh ${ECO_SSH} netstat -av -f inet6 -p udp | fgrep ' ${${ip}6}.echo '
+	ssh ${ECO_SSH} netstat -nav -f inet -p udp | fgrep ' ${${ip}}.7 '
+	ssh ${ECO_SSH} netstat -nav -f inet6 -p udp | fgrep ' ${${ip}6}.7 '
 .endfor
 
 .include <bsd.regress.mk>

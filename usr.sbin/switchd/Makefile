@@ -1,10 +1,10 @@
-# $OpenBSD: Makefile,v 1.3 2016/07/20 14:04:51 reyk Exp $
+# $OpenBSD: Makefile,v 1.6 2016/10/07 08:49:53 reyk Exp $
 
 PROG=		switchd
 MAN=		switchd.8 switchd.conf.5
 
-SRCS=		imsg_util.c log.c packet.c switch.c timer.c util.c
-SRCS+=		switchd.c ofp.c ofp10.c ofp13.c control.c proc.c
+SRCS=		imsg_util.c log.c packet.c proc.c switch.c timer.c util.c
+SRCS+=		switchd.c control.c ofp.c ofp10.c ofp13.c ofp_common.c ofrelay.c
 SRCS+=		${.OBJDIR}/ofp_map.c ${.OBJDIR}/ofp10_map.c
 SRCS+=		parse.y ofcconn.c
 
@@ -20,9 +20,9 @@ CFLAGS+=	-Wsign-compare
 GENERATED=	ofp_map.c ofp10_map.c
 CLEANFILES+=	${GENERATED} *~
 
-ofp_map.c: genmap.sh ${.CURDIR}/ofp_map.h ${.CURDIR}/ofp.h
-	/bin/sh ${.CURDIR}/genmap.sh -i ${.CURDIR}/ofp.h -t ofp \
-	    -m ${.CURDIR}/ofp_map.h -h '"ofp.h"' > $@
+ofp_map.c: genmap.sh ${.CURDIR}/ofp_map.h ${.CURDIR}/../../sys/net/ofp.h
+	/bin/sh ${.CURDIR}/genmap.sh -i ${.CURDIR}/../../sys/net/ofp.h -t ofp \
+	    -m ${.CURDIR}/ofp_map.h -h '<net/ofp.h>' > $@
 	@touch $@
 
 ofp10_map.c: genmap.sh ${.CURDIR}/ofp_map.h ${.CURDIR}/ofp10.h

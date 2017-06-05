@@ -1,4 +1,4 @@
-/*	$OpenBSD: arcofi.c,v 1.13 2015/06/26 04:25:18 miod Exp $	*/
+/*	$OpenBSD: arcofi.c,v 1.17 2016/09/19 22:21:09 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2011 Miodrag Vallat.
@@ -195,15 +195,12 @@ int	arcofi_set_param(struct arcofi_softc *, int, int, int,
 
 void	arcofi_close(void *);
 int	arcofi_commit_settings(void *);
-int	arcofi_drain(void *);
-int	arcofi_getdev(void *, struct audio_device *);
 int	arcofi_get_port(void *, mixer_ctrl_t *);
 int	arcofi_get_props(void *);
 int	arcofi_halt_input(void *);
 int	arcofi_halt_output(void *);
 int	arcofi_open(void *, int);
 int	arcofi_query_devinfo(void *, mixer_devinfo_t *);
-int	arcofi_query_encoding(void *, struct audio_encoding *);
 int	arcofi_round_blocksize(void *, int);
 int	arcofi_set_params(void *, int, int, struct audio_params *,
 	    struct audio_params *);
@@ -214,7 +211,6 @@ int	arcofi_start_output(void *, void *, int, void (*)(void *), void *);
 /* const */ struct audio_hw_if arcofi_hw_if = {
 	.open = arcofi_open,
 	.close = arcofi_close,
-	.query_encoding = arcofi_query_encoding,
 	.set_params = arcofi_set_params,
 	.round_blocksize = arcofi_round_blocksize,
 	.commit_settings = arcofi_commit_settings,
@@ -222,7 +218,6 @@ int	arcofi_start_output(void *, void *, int, void (*)(void *), void *);
 	.start_input = arcofi_start_input,
 	.halt_output = arcofi_halt_output,
 	.halt_input = arcofi_halt_input,
-	.getdev = arcofi_getdev,
 	.set_port = arcofi_set_port,
 	.get_port = arcofi_get_port,
 	.query_devinfo = arcofi_query_devinfo,
@@ -293,71 +288,6 @@ arcofi_close(void *v)
 	arcofi_halt_input(v);
 	arcofi_halt_output(v);
 	sc->sc_open = 0;
-}
-
-int
-arcofi_drain(void *v)
-{
-	struct arcofi_softc *sc = (struct arcofi_softc *)v;
-
-	mtx_enter(&audio_lock);
-	if ((arcofi_read(sc, ARCOFI_FIFO_SR) & FIFO_SR_OUT_EMPTY) == 0) {
-		/* enable output FIFO empty interrupt... */
-		arcofi_write(sc, ARCOFI_FIFO_IR,
-		    arcofi_read(sc, ARCOFI_FIFO_IR) |
-		    FIFO_IR_ENABLE(FIFO_IR_OUT_EMPTY));
-		/* ...and wait for it to fire */
-		if (msleep(&sc->sc_xmit, &audio_lock, 0, "arcofidr",
-		    1 + (ARCOFI_FIFO_SIZE * hz) / 8000) != 0) {
-			printf("%s: drain did not complete\n",
-			    sc->sc_dev.dv_xname);
-			arcofi_write(sc, ARCOFI_FIFO_IR,
-			    arcofi_read(sc, ARCOFI_FIFO_IR) &
-			    ~FIFO_IR_ENABLE(FIFO_IR_OUT_EMPTY));
-		}
-	}
-	mtx_leave(&audio_lock);
-	return 0;
-}
-
-int
-arcofi_query_encoding(void *v, struct audio_encoding *ae)
-{
-	switch (ae->index) {
-	/*
-	 * 8-bit encodings: u-Law and A-Law are native
-	 */
-	case 0:
-		strlcpy(ae->name, AudioEmulaw, sizeof ae->name);
-		ae->precision = 8;
-		ae->encoding = AUDIO_ENCODING_ULAW;
-		ae->flags = 0;
-		break;
-	case 1:
-		strlcpy(ae->name, AudioEalaw, sizeof ae->name);
-		ae->precision = 8;
-		ae->encoding = AUDIO_ENCODING_ALAW;
-		ae->flags = 0;
-		break;
-
-	/*
-	 * 16-bit encodings: slinear big-endian is native
-	 */
-	case 2:
-		strlcpy(ae->name, AudioEslinear_be, sizeof ae->name);
-		ae->precision = 16;
-		ae->encoding = AUDIO_ENCODING_SLINEAR_BE;
-		ae->flags = 0;
-		break;
-
-	default:
-		return EINVAL;
-	}
-
-	ae->bps = AUDIO_BPS(ae->precision);
-	ae->msb = 1;
-
-	return 0;
 }
 
 /*
@@ -610,15 +540,6 @@ arcofi_halt_output(void *v)
 		    arcofi_read(sc, ARCOFI_CSR) & ~CSR_DATA_FIFO_ENABLE);
 
 	mtx_leave(&audio_lock);
-	return 0;
-}
-
-int
-arcofi_getdev(void *v, struct audio_device *ad)
-{
-	struct arcofi_softc *sc = (struct arcofi_softc *)v;
-
-	bcopy(&sc->sc_audio_device, ad, sizeof(*ad));
 	return 0;
 }
 
@@ -1203,13 +1124,6 @@ arcofi_attach(struct arcofi_softc *sc, const char *version)
 
 	arcofi_write(sc, ARCOFI_FIFO_IR, 0);
 	arcofi_write(sc, ARCOFI_CSR, CSR_INTR_ENABLE);
-
-	strlcpy(sc->sc_audio_device.name, arcofi_cd.cd_name,
-	    sizeof(sc->sc_audio_device.name));
-	strlcpy(sc->sc_audio_device.version, version,
-	    sizeof(sc->sc_audio_device.version));
-	strlcpy(sc->sc_audio_device.config, sc->sc_dev.dv_xname,
-	    sizeof(sc->sc_audio_device.config));
 
 	audio_attach_mi(&arcofi_hw_if, sc, &sc->sc_dev);
 	return;

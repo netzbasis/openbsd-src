@@ -1,23 +1,18 @@
-#	$OpenBSD: Makefile.inc,v 1.6 2015/07/01 23:11:18 djm Exp $
+#	$OpenBSD: Makefile.inc,v 1.11 2017/04/30 23:33:48 djm Exp $
+
+REGRESS_FAIL_EARLY?=	yes
 
 .include <bsd.own.mk>
 .include <bsd.obj.mk>
 
-REGRESS_FAIL_EARLY= yes
+MALLOC_OPTIONS?=	CFGJRSUX
+TEST_ENV?=		MALLOC_OPTIONS=${MALLOC_OPTIONS}
 
 # XXX detect from ssh binary?
-SSH1?=		no
 OPENSSL?=	yes
 
 .if (${OPENSSL:L} == "yes")
 CFLAGS+=	-DWITH_OPENSSL
-.else
-# SSH v.1 requires OpenSSL.
-SSH1=		no
-.endif
-
-.if (${SSH1:L} == "yes")
-CFLAGS+=	-DWITH_SSH1
 .endif
 
 # enable warnings
@@ -47,7 +42,7 @@ CDIAGFLAGS+=	-Wswitch
 CDIAGFLAGS+=	-Wtrigraphs
 CDIAGFLAGS+=	-Wuninitialized
 CDIAGFLAGS+=	-Wunused
-.if ${COMPILER_VERSION} == "gcc4"
+.if ${COMPILER_VERSION:L} != "gcc3"
 CDIAGFLAGS+=	-Wpointer-sign
 CDIAGFLAGS+=	-Wold-style-definition
 .endif
@@ -66,11 +61,15 @@ DPADD+=${.CURDIR}/../test_helper/libtest_helper.a
 
 .if exists(${.CURDIR}/${SSHREL}/lib/${__objdir})
 LDADD+=-L${.CURDIR}/${SSHREL}/lib/${__objdir} -lssh
-DPADD+=${.CURDIR}/${SSHREL}/lib/${__objdir}/libssh.a
+LIBSSH=${.CURDIR}/${SSHREL}/lib/${__objdir}/libssh.a
 .else
 LDADD+=-L${.CURDIR}/${SSHREL}/lib -lssh
-DPADD+=${.CURDIR}/${SSHREL}/lib/libssh.a
+LIBSSH=${.CURDIR}/${SSHREL}/lib/libssh.a
 .endif
+DPADD+=${LIBSSH}
+${PROG}: ${LIBSSH}
+${LIBSSH}:
+	cd ${.CURDIR}/${SSHREL} && ${MAKE} lib
 
 LDADD+= -lutil
 DPADD+= ${LIBUTIL}

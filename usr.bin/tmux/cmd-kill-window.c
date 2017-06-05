@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-kill-window.c,v 1.21 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-kill-window.c,v 1.24 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,7 +24,7 @@
  * Destroy window.
  */
 
-enum cmd_retval	 cmd_kill_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_kill_window_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_kill_window_entry = {
 	.name = "kill-window",
@@ -33,7 +33,7 @@ const struct cmd_entry cmd_kill_window_entry = {
 	.args = { "at:", 0, 0 },
 	.usage = "[-a] " CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
 	.flags = 0,
 	.exec = cmd_kill_window_exec
@@ -46,23 +46,23 @@ const struct cmd_entry cmd_unlink_window_entry = {
 	.args = { "kt:", 0, 0 },
 	.usage = "[-k] " CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
 	.flags = 0,
 	.exec = cmd_kill_window_exec
 };
 
-enum cmd_retval
-cmd_kill_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_kill_window_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
-	struct winlink		*wl = cmdq->state.tflag.wl, *wl2, *wl3;
+	struct winlink		*wl = item->target.wl, *wl2, *wl3;
 	struct window		*w = wl->window;
-	struct session		*s = cmdq->state.tflag.s;
+	struct session		*s = item->target.s;
 
 	if (self->entry == &cmd_unlink_window_entry) {
 		if (!args_has(self->args, 'k') && !session_is_linked(s, w)) {
-			cmdq_error(cmdq, "window only linked to one session");
+			cmdq_error(item, "window only linked to one session");
 			return (CMD_RETURN_ERROR);
 		}
 		server_unlink_window(s, wl);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tree.h,v 1.21 2016/09/09 20:31:46 millert Exp $	*/
+/*	$OpenBSD: tree.h,v 1.25 2016/09/26 08:08:51 kettenis Exp $	*/
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
@@ -764,8 +764,6 @@ name##_RB_MINMAX(struct name *head, int val)				\
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#if 0
-
 struct rb_type {
 	int		(*t_compare)(const void *, const void *);
 	void		(*t_augment)(void *);
@@ -777,10 +775,10 @@ struct rb_tree {
 };
 
 struct rb_entry {
-	struct rb_entry	 *rbe_parent;
-	struct rb_entry	 *rbe_left;
-	struct rb_entry	 *rbe_right;
-	unsigned int	  rbe_color;
+	struct rb_entry	 *rbt_parent;
+	struct rb_entry	 *rbt_left;
+	struct rb_entry	 *rbt_right;
+	unsigned int	  rbt_color;
 };
 
 #define RBT_HEAD(_name, _type)						\
@@ -789,6 +787,8 @@ struct _name {								\
 }
 
 #define RBT_ENTRY(_type)	struct rb_entry
+
+#ifdef _KERNEL
 
 static inline void
 _rb_init(struct rb_tree *rbt)
@@ -815,94 +815,108 @@ void	*_rb_left(const struct rb_type *, void *);
 void	*_rb_right(const struct rb_type *, void *);
 void	*_rb_parent(const struct rb_type *, void *);
 void	*_rb_color(const struct rb_type *, void *);
+void	 _rb_poison(const struct rb_type *, void *, unsigned long);
+int	 _rb_check(const struct rb_type *, void *, unsigned long);
 
 #define RBT_INITIALIZER(_head)	{ { NULL } }
 
 #define RBT_PROTOTYPE(_name, _type, _field, _cmp)			\
 extern const struct rb_type *const _name##_RBT_TYPE;			\
 									\
-static inline void							\
+__unused static inline void						\
 _name##_RBT_INIT(struct _name *head)					\
 {									\
 	_rb_init(&head->rbh_root);					\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_INSERT(struct _name *head, struct _type *elm)		\
 {									\
 	return _rb_insert(_name##_RBT_TYPE, &head->rbh_root, elm);	\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_REMOVE(struct _name *head, struct _type *elm)		\
 {									\
 	return _rb_remove(_name##_RBT_TYPE, &head->rbh_root, elm);	\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_FIND(struct _name *head, const struct _type *key)		\
 {									\
 	return _rb_find(_name##_RBT_TYPE, &head->rbh_root, key);	\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_NFIND(struct _name *head, const struct _type *key)		\
 {									\
 	return _rb_nfind(_name##_RBT_TYPE, &head->rbh_root, key);	\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_ROOT(struct _name *head)					\
 {									\
 	return _rb_root(_name##_RBT_TYPE, &head->rbh_root);		\
 }									\
 									\
-static inline int							\
+__unused static inline int						\
 _name##_RBT_EMPTY(struct _name *head)					\
 {									\
 	return _rb_empty(&head->rbh_root);				\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_MIN(struct _name *head)					\
 {									\
 	return _rb_min(_name##_RBT_TYPE, &head->rbh_root);		\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_MAX(struct _name *head)					\
 {									\
 	return _rb_max(_name##_RBT_TYPE, &head->rbh_root);		\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_NEXT(struct _type *elm)					\
 {									\
 	return _rb_next(_name##_RBT_TYPE, elm);				\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_PREV(struct _type *elm)					\
 {									\
 	return _rb_prev(_name##_RBT_TYPE, elm);				\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_LEFT(struct _type *elm)					\
 {									\
 	return _rb_left(_name##_RBT_TYPE, elm);				\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_RIGHT(struct _type *elm)					\
 {									\
 	return _rb_right(_name##_RBT_TYPE, elm);			\
 }									\
 									\
-static inline struct _type *						\
+__unused static inline struct _type *					\
 _name##_RBT_PARENT(struct _type *elm)					\
 {									\
 	return _rb_parent(_name##_RBT_TYPE, elm);			\
+}									\
+									\
+__unused static inline void						\
+_name##_RBT_POISON(struct _type *elm, unsigned long poison)		\
+{									\
+	return _rb_poison(_name##_RBT_TYPE, elm, poison);		\
+}									\
+									\
+__unused static inline int						\
+_name##_RBT_CHECK(struct _type *elm, unsigned long poison)		\
+{									\
+	return _rb_check(_name##_RBT_TYPE, elm, poison);		\
 }
 
 #define RBT_GENERATE_INTERNAL(_name, _type, _field, _cmp, _aug)		\
@@ -945,6 +959,8 @@ RBT_GENERATE_INTERNAL(_name, _type, _field, _cmp, _name##_RBT_AUGMENT)
 #define RBT_LEFT(_name, _elm)		_name##_RBT_LEFT(_elm)
 #define RBT_RIGHT(_name, _elm)		_name##_RBT_RIGHT(_elm)
 #define RBT_PARENT(_name, _elm)		_name##_RBT_PARENT(_elm)
+#define RBT_POISON(_name, _elm, _p)	_name##_RBT_POISON(_elm, _p)
+#define RBT_CHECK(_name, _elm, _p)	_name##_RBT_CHECK(_elm, _p)
 
 #define RBT_FOREACH(_e, _name, _head)					\
 	for ((_e) = RBT_MIN(_name, (_head));				\
@@ -966,6 +982,6 @@ RBT_GENERATE_INTERNAL(_name, _type, _field, _cmp, _name##_RBT_AUGMENT)
 	     (_e) != NULL && ((_n) = RBT_PREV(_name, (_e)), 1);	\
 	     (_e) = (_n))
 
-#endif /* 0 */
+#endif /* _KERNEL */
 
 #endif	/* _SYS_TREE_H_ */

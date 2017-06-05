@@ -11,14 +11,17 @@ srcaddr=sys.argv[1]
 dstaddr=sys.argv[2]
 size=int(sys.argv[3])
 expect=int(sys.argv[4])
-pid=os.getpid() & 0xffff
-hdr=IP(flags="DF", src=srcaddr, dst=dstaddr)/ICMP(id=pid)
+eid=os.getpid() & 0xffff
+hdr=IP(flags="DF", src=srcaddr, dst=dstaddr)/ICMP(type='echo-request', id=eid)
 payload="a" * (size - len(str(hdr)))
 ip=hdr/payload
 iplen=IP(str(ip)).len
 eth=Ether(src=SRC_MAC, dst=PF_MAC)/ip
 a=srp1(eth, iface=SRC_IF, timeout=2)
 
+if a is None:
+	print "no packet sniffed"
+	exit(2)
 if a and a.payload.payload.type==3 and a.payload.payload.code==4:
 	mtu=a.payload.payload.nexthopmtu
 	print "mtu=%d" % (mtu)

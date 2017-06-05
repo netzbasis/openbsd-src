@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.109 2016/09/02 15:44:26 mpi Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.120 2017/05/28 14:37:48 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -66,12 +66,14 @@
 
 #include "dhcp.h"
 #include "dhcpd.h"
+#include "log.h"
 #include "privsep.h"
 
 
 struct dhcp_timeout timeout;
 
 void packethandler(struct interface_info *ifi);
+void sendhup(struct client_lease *);
 
 void
 get_hw_address(struct interface_info *ifi)
@@ -81,13 +83,12 @@ get_hw_address(struct interface_info *ifi)
 	int found;
 
 	if (getifaddrs(&ifap) != 0)
-		error("getifaddrs failed");
+		fatalx("getifaddrs failed");
 
 	found = 0;
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		if ((ifa->ifa_flags & IFF_LOOPBACK) ||
-		    (ifa->ifa_flags & IFF_POINTOPOINT) ||
-		    (!(ifa->ifa_flags & IFF_UP)))
+		    (ifa->ifa_flags & IFF_POINTOPOINT))
 			continue;
 
 		if (strcmp(ifi->name, ifa->ifa_name) != 0)
@@ -108,7 +109,7 @@ get_hw_address(struct interface_info *ifi)
 	}
 
 	if (!found)
-		error("%s: no such interface", ifi->name);
+		fatalx("%s: no such interface", ifi->name);
 
 	freeifaddrs(ifap);
 }
@@ -169,7 +170,7 @@ dispatch(struct interface_info *ifi)
 			if (errno == EAGAIN || errno == EINTR) {
 				continue;
 			} else {
-				warning("poll: %s", strerror(errno));
+				log_warn("poll");
 				quit = INTERNALSIG;
 				continue;
 			}
@@ -190,11 +191,10 @@ dispatch(struct interface_info *ifi)
 	if (quit == SIGHUP) {
 		/* Tell [priv] process that HUP has occurred. */
 		sendhup(client->active);
-		warning("%s; restarting", strsignal(quit));
+		log_warnx("%s; restarting", strsignal(quit));
 		exit (0);
 	} else if (quit != INTERNALSIG) {
-		warning("%s; exiting", strsignal(quit));
-		exit(1);
+		fatalx("%s", strsignal(quit));
 	}
 }
 
@@ -207,13 +207,12 @@ packethandler(struct interface_info *ifi)
 	ssize_t result;
 
 	if ((result = receive_packet(ifi, &from, &hfrom)) == -1) {
-		warning("%s receive_packet failed: %s", ifi->name,
-		    strerror(errno));
 		ifi->errors++;
-		if (ifi->errors > 20) {
-			error("%s too many receive_packet failures; exiting",
+		if (ifi->errors > 20)
+			fatalx("%s too many receive_packet failures",
 			    ifi->name);
-		}
+		else
+			log_warn("%s receive_packet failed", ifi->name);
 		return;
 	}
 	ifi->errors = 0;
@@ -230,95 +229,55 @@ void
 interface_link_forceup(char *ifname)
 {
 	struct ifreq ifr;
-	int sock;
-
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-		error("Can't create socket");
+	extern int sock;
 
 	memset(&ifr, 0, sizeof(ifr));
 	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	if (ioctl(sock, SIOCGIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCGIFFLAGS failed (%s)",
-		    strerror(errno));
-		close(sock);
+		log_warn("SIOCGIFFLAGS");
 		return;
 	}
 
-	/* Force it down and up so others notice link state change. */
-	ifr.ifr_flags &= ~IFF_UP;
-	if (ioctl(sock, SIOCSIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCSIFFLAGS DOWN failed (%s)",
-		    strerror(errno));
-		close(sock);
-		return;
+	/* Force it up if it isn't already. */
+	if ((ifr.ifr_flags & IFF_UP) == 0) {
+		ifr.ifr_flags |= IFF_UP;
+		if (ioctl(sock, SIOCSIFFLAGS, (caddr_t)&ifr) == -1) {
+			log_warn("SIOCSIFFLAGS");
+			return;
+		}
 	}
-
-	ifr.ifr_flags |= IFF_UP;
-	if (ioctl(sock, SIOCSIFFLAGS, (caddr_t)&ifr) == -1) {
-		note("interface_link_forceup: SIOCSIFFLAGS UP failed (%s)",
-		    strerror(errno));
-		close(sock);
-		return;
-	}
-
-	close(sock);
 }
 
 int
 interface_status(struct interface_info *ifi)
 {
-	struct ifreq ifr;
-	struct ifmediareq ifmr;
-	int sock;
+	struct ifaddrs *ifap, *ifa;
+	struct if_data *ifdata;
 
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-		error("Can't create socket");
+	if (getifaddrs(&ifap) != 0)
+		fatalx("getifaddrs failed");
 
-	/* Get interface flags. */
-	memset(&ifr, 0, sizeof(ifr));
-	strlcpy(ifr.ifr_name, ifi->name, sizeof(ifr.ifr_name));
-	if (ioctl(sock, SIOCGIFFLAGS, &ifr) == -1) {
-		error("ioctl(SIOCGIFFLAGS) on %s: %s", ifi->name,
-		    strerror(errno));
+	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
+		if ((ifa->ifa_flags & IFF_LOOPBACK) ||
+		    (ifa->ifa_flags & IFF_POINTOPOINT))
+			continue;
+
+		if (strcmp(ifi->name, ifa->ifa_name) != 0)
+			continue;
+
+		if (ifa->ifa_addr->sa_family != AF_LINK)
+			continue;
+
+		if ((ifa->ifa_flags & (IFF_UP|IFF_RUNNING)) !=
+		    (IFF_UP|IFF_RUNNING))
+			return 0;
+
+		ifdata = ifa->ifa_data;
+
+		return LINK_STATE_IS_UP(ifdata->ifi_link_state);
 	}
 
-	if ((ifr.ifr_flags & (IFF_UP|IFF_RUNNING)) != (IFF_UP|IFF_RUNNING))
-		goto inactive;
-
-	/* Next, check carrier on the interface if possible. */
-	if (ifi->flags & IFI_NOMEDIA)
-		goto active;
-	memset(&ifmr, 0, sizeof(ifmr));
-	strlcpy(ifmr.ifm_name, ifi->name, sizeof(ifmr.ifm_name));
-	if (ioctl(sock, SIOCGIFMEDIA, (caddr_t)&ifmr) == -1) {
-		/*
-		 * EINVAL or ENOTTY simply means that the interface does not
-		 * support the SIOCGIFMEDIA ioctl. We regard it alive.
-		 */
-#ifdef DEBUG
-		if (errno != EINVAL && errno != ENOTTY)
-			debug("ioctl(SIOCGIFMEDIA) on %s: %s", ifname,
-			    strerror(errno));
-#endif
-
-		ifi->flags |= IFI_NOMEDIA;
-		goto active;
-	}
-	if (ifmr.ifm_status & IFM_AVALID) {
-		if (ifmr.ifm_status & IFM_ACTIVE)
-			goto active;
-		else
-			goto inactive;
-	}
-
-	/* Assume 'active' if IFM_AVALID is not set. */
-
-active:
-	close(sock);
-	return (1);
-inactive:
-	close(sock);
-	return (0);
+	return 0;
 }
 
 void
@@ -352,7 +311,7 @@ get_rdomain(char *name)
 	struct ifreq ifr;
 
 	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-	    error("get_rdomain socket: %s", strerror(errno));
+	    fatal("get_rdomain socket");
 
 	memset(&ifr, 0, sizeof(ifr));
 	strlcpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
@@ -361,4 +320,26 @@ get_rdomain(char *name)
 
 	close(s);
 	return rv;
+}
+
+/*
+ * Inform the [priv] process a HUP was received and it should restart.
+ */
+void
+sendhup(struct client_lease *active)
+{
+	struct imsg_hup imsg;
+	int rslt;
+
+	if (active)
+		imsg.addr = active->address;
+	else
+		imsg.addr.s_addr = INADDR_ANY;
+
+	rslt = imsg_compose(unpriv_ibuf, IMSG_HUP, 0, 0, -1,
+	    &imsg, sizeof(imsg));
+	if (rslt == -1)
+		log_warn("sendhup: imsg_compose");
+
+	flush_unpriv_ibuf("sendhup");
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.21 2016/09/10 06:36:26 jasper Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.28 2017/05/30 15:39:04 mpi Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.18 1996/05/03 19:42:01 christos Exp $	*/
 
 /*
@@ -74,7 +74,7 @@ struct db_variable *db_eregs = db_regs + nitems(db_regs);
 #define	INTERRUPT	3
 #define	AST		4
 
-int db_numargs(struct callframe *);
+int db_numargs(struct callframe *, Elf_Sym *);
 void db_nextframe(struct callframe **, db_addr_t *, int *, int,
     int (*pr)(const char *, ...));
 
@@ -82,12 +82,17 @@ void db_nextframe(struct callframe **, db_addr_t *, int *, int,
  * Figure out how many arguments were passed into the frame at "fp".
  */
 int
-db_numargs(struct callframe *fp)
+db_numargs(struct callframe *fp, Elf_Sym *sym)
 {
 	int	*argp;
 	int	inst;
 	int	args;
 	extern char	etext[];
+
+#ifdef DDBCTF
+	if ((args = db_ctf_func_numargs(sym)) != -1)
+		return args;
+#endif /* DDBCTF */
 
 	argp = (int *)db_get_value((int)&fp->f_retaddr, 4, FALSE);
 	if (argp < (int *)VM_MIN_KERNEL_ADDRESS || argp > (int *)etext) {
@@ -101,7 +106,7 @@ db_numargs(struct callframe *fp)
 		else
 			args = 5;
 	}
-	return (args);
+	return args;
 }
 
 /*
@@ -153,6 +158,30 @@ db_nextframe(struct callframe **fp, db_addr_t	*ip, int *argp, int is_trap,
 	}
 }
 
+static inline int
+db_is_trap(const char *name)
+{
+	if (name != NULL) {
+		if (!strcmp(name, "trap"))
+			return TRAP;
+		if (!strcmp(name, "ast"))
+			return AST;
+		if (!strcmp(name, "syscall"))
+			return SYSCALL;
+		if (name[0] == 'X') {
+			if (!strncmp(name, "Xintr", 5) ||
+			    !strncmp(name, "Xresume", 7) ||
+			    !strncmp(name, "Xstray", 6) ||
+			    !strncmp(name, "Xhold", 5) ||
+			    !strncmp(name, "Xrecurse", 8) ||
+			    !strcmp(name, "Xdoreti") ||
+			    !strncmp(name, "Xsoft", 5))
+				return INTERRUPT;
+		}
+	}
+	return NONE;
+}
+
 void
 db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
     char *modif, int (*pr)(const char *, ...))
@@ -188,7 +217,7 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 	} else if (trace_thread) {
 		(*pr) ("%s: can't trace thread\n", __func__);
 	} else if (trace_proc) {
-		struct proc *p = pfind((pid_t)addr);
+		struct proc *p = tfind((pid_t)addr);
 		if (p == NULL) {
 			(*pr) ("not found\n");
 			return;
@@ -207,7 +236,7 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		int		narg;
 		char *	name;
 		db_expr_t	offset;
-		db_sym_t	sym;
+		Elf_Sym		*sym;
 
 		sym = db_search_symbol(callpc, DB_STGY_ANY, &offset);
 		db_symbol_values(sym, &name, NULL);
@@ -224,28 +253,11 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 				offset = 0;
 			}
 		}
-		if (INKERNEL(callpc) && name) {
-			if (!strcmp(name, "trap")) {
-				is_trap = TRAP;
-			} else if (!strcmp(name, "ast")) {
-				is_trap = AST;
-			} else if (!strcmp(name, "syscall")) {
-				is_trap = SYSCALL;
-			} else if (!strncmp(name, "Xintr", 5) ||
-			    !strncmp(name, "Xresume", 7) ||
-			    !strncmp(name, "Xstray", 6) ||
-			    !strncmp(name, "Xhold", 5) ||
-			    !strncmp(name, "Xrecurse", 8) ||
-			    !strcmp(name, "Xdoreti") ||
-			    !strncmp(name, "Xsoft", 5)) {
-				is_trap = INTERRUPT;
-			} else
-				goto normal;
+		if (INKERNEL(callpc) && (is_trap = db_is_trap(name)) != NONE)
 			narg = 0;
-		} else {
-		normal:
+		else {
 			is_trap = NONE;
-			narg = db_numargs(frame);
+			narg = db_numargs(frame, sym);
 		}
 
 		(*pr)("%s(", name);
@@ -286,13 +298,13 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 			/* end of chain */
 			break;
 		}
-		if (INKERNEL((int)frame)) {
+		if (INKERNEL(frame)) {
 			/* staying in kernel */
 			if (frame <= lastframe) {
 				(*pr)("Bad frame pointer: %p\n", frame);
 				break;
 			}
-		} else if (INKERNEL((int)lastframe)) {
+		} else if (INKERNEL(lastframe)) {
 			/* switch from user to kernel */
 			if (kernel_only)
 				break;	/* kernel stack only */
@@ -311,4 +323,68 @@ db_stack_trace_print(db_expr_t addr, boolean_t have_addr, db_expr_t count,
 		db_printsym(callpc, DB_STGY_XTRN, pr);
 		(*pr)(":\n");
 	}
+}
+
+void
+db_save_stack_trace(struct db_stack_trace *st)
+{
+	struct callframe *frame, *lastframe;
+	db_addr_t	callpc;
+	unsigned int	i;
+
+	frame = __builtin_frame_address(0);
+	callpc = db_get_value((int)&frame->f_retaddr, 4, FALSE);
+
+	lastframe = NULL;
+	for (i = 0; i < DB_STACK_TRACE_MAX && frame != NULL; i++) {
+		char		*name;
+		db_expr_t	offset;
+		Elf_Sym		*sym;
+		int		is_trap = 0;
+
+		st->st_pc[st->st_count++] = callpc;
+		sym = db_search_symbol(callpc, DB_STGY_ANY, &offset);
+		db_symbol_values(sym, &name, NULL);
+
+		if (INKERNEL(callpc))
+			is_trap = db_is_trap(name);
+		else
+			is_trap = NONE;
+
+		lastframe = frame;
+		if (is_trap == NONE) {
+			callpc = frame->f_retaddr;
+			frame = frame->f_frame;
+		} else {
+			struct trapframe *tf;
+
+			tf = (struct trapframe *)&frame->f_arg0;
+			callpc = (db_addr_t)tf->tf_eip;
+			frame = (struct callframe *)tf->tf_ebp;
+		}
+
+		if (!INKERNEL(frame))
+			break;
+		if (frame <= lastframe)
+			break;
+	}
+}
+
+vaddr_t
+db_get_pc(struct trapframe *tf)
+{
+	struct callframe *cf;
+
+	if (KERNELMODE(tf->tf_cs, tf->tf_eflags))
+		cf = (struct callframe *)((long)&tf->tf_esp - sizeof(long));
+	else
+		cf = (struct callframe *)(tf->tf_esp - sizeof(long));
+
+	return db_get_value((db_addr_t)&cf->f_retaddr, sizeof(long), 0);
+}
+
+vaddr_t
+db_get_probe_addr(struct trapframe *tf)
+{
+	return tf->tf_eip - BKPT_SIZE;
 }

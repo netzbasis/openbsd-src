@@ -1,4 +1,4 @@
-/* $OpenBSD: monitor.c,v 1.165 2016/09/05 13:57:31 djm Exp $ */
+/* $OpenBSD: monitor.c,v 1.171 2017/05/31 10:04:29 markus Exp $ */
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * Copyright 2002 Markus Friedl <markus@openbsd.org>
@@ -70,7 +70,6 @@
 #include "misc.h"
 #include "servconf.h"
 #include "monitor.h"
-#include "monitor_mm.h"
 #ifdef GSSAPI
 #include "ssh-gss.h"
 #endif
@@ -225,6 +224,7 @@ monitor_permit_authentications(int permit)
 void
 monitor_child_preauth(Authctxt *_authctxt, struct monitor *pmonitor)
 {
+	struct ssh *ssh = active_state;	/* XXX */
 	struct mon_table *ent;
 	int authenticated = 0, partial = 0;
 
@@ -284,6 +284,7 @@ monitor_child_preauth(Authctxt *_authctxt, struct monitor *pmonitor)
 
 	debug("%s: %s has been authenticated by privileged process",
 	    __func__, authctxt->user);
+	ssh_packet_set_log_preamble(ssh, "user %s", authctxt->user);
 
 	mm_get_keystate(pmonitor);
 
@@ -333,31 +334,6 @@ monitor_child_postauth(struct monitor *pmonitor)
 
 	for (;;)
 		monitor_read(pmonitor, mon_dispatch, NULL);
-}
-
-void
-monitor_sync(struct monitor *pmonitor)
-{
-	if (options.compression) {
-		/* The member allocation is not visible, so sync it */
-		mm_share_sync(&pmonitor->m_zlib, &pmonitor->m_zback);
-	}
-}
-
-/* Allocation functions for zlib */
-static void *
-mm_zalloc(struct mm_master *mm, u_int ncount, u_int size)
-{
-	if (size == 0 || ncount == 0 || ncount > SIZE_MAX / size)
-		fatal("%s: mm_zalloc(%u, %u)", __func__, ncount, size);
-
-	return mm_malloc(mm, size * ncount);
-}
-
-static void
-mm_zfree(struct mm_master *mm, void *address)
-{
-	mm_free(mm, address);
 }
 
 static int
@@ -645,6 +621,7 @@ mm_answer_sign(int sock, Buffer *m)
 int
 mm_answer_pwnamallow(int sock, Buffer *m)
 {
+	struct ssh *ssh = active_state;	/* XXX */
 	char *username;
 	struct passwd *pwent;
 	int allowed = 0;
@@ -685,6 +662,8 @@ mm_answer_pwnamallow(int sock, Buffer *m)
 	buffer_put_cstring(m, pwent->pw_shell);
 
  out:
+	ssh_packet_set_log_preamble(ssh, "%suser %s",
+	    authctxt->valid ? "authenticating" : "invalid ", authctxt->user);
 	buffer_put_string(m, &options, sizeof(options));
 
 #define M_CP_STROPT(x) do { \
@@ -849,7 +828,7 @@ mm_answer_bsdauthrespond(int sock, Buffer *m)
 int
 mm_answer_keyallowed(int sock, Buffer *m)
 {
-	Key *key;
+	struct sshkey *key;
 	char *cuser, *chost;
 	u_char *blob;
 	u_int bloblen, pubkey_auth_attempt;
@@ -1060,25 +1039,25 @@ monitor_valid_hostbasedblob(u_char *data, u_int datalen, char *cuser,
 }
 
 int
-mm_answer_keyverify(int sock, Buffer *m)
+mm_answer_keyverify(int sock, struct sshbuf *m)
 {
-	Key *key;
+	struct sshkey *key;
 	u_char *signature, *data, *blob;
-	u_int signaturelen, datalen, bloblen;
-	int verified = 0;
-	int valid_data = 0;
+	size_t signaturelen, datalen, bloblen;
+	int r, ret, valid_data = 0, encoded_ret;
 
-	blob = buffer_get_string(m, &bloblen);
-	signature = buffer_get_string(m, &signaturelen);
-	data = buffer_get_string(m, &datalen);
+	if ((r = sshbuf_get_string(m, &blob, &bloblen)) != 0 ||
+	    (r = sshbuf_get_string(m, &signature, &signaturelen)) != 0 ||
+	    (r = sshbuf_get_string(m, &data, &datalen)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
 
 	if (hostbased_cuser == NULL || hostbased_chost == NULL ||
 	  !monitor_allowed_key(blob, bloblen))
 		fatal("%s: bad key, not previously allowed", __func__);
 
-	key = key_from_blob(blob, bloblen);
-	if (key == NULL)
-		fatal("%s: bad public key blob", __func__);
+	/* XXX use sshkey_froms here; need to change key_blob, etc. */
+	if ((r = sshkey_from_blob(blob, bloblen, &key)) != 0)
+		fatal("%s: bad public key blob: %s", __func__, ssh_err(r));
 
 	switch (key_blobtype) {
 	case MM_USERKEY:
@@ -1095,15 +1074,16 @@ mm_answer_keyverify(int sock, Buffer *m)
 	if (!valid_data)
 		fatal("%s: bad signature data blob", __func__);
 
-	verified = key_verify(key, signature, signaturelen, data, datalen);
+	ret = sshkey_verify(key, signature, signaturelen, data, datalen,
+	    active_state->compat);
 	debug3("%s: key %p signature %s",
-	    __func__, key, (verified == 1) ? "verified" : "unverified");
+	    __func__, key, (ret == 0) ? "verified" : "unverified");
 
 	/* If auth was successful then record key to ensure it isn't reused */
-	if (verified == 1 && key_blobtype == MM_USERKEY)
+	if (ret == 0 && key_blobtype == MM_USERKEY)
 		auth2_record_userkey(authctxt, key);
 	else
-		key_free(key);
+		sshkey_free(key);
 
 	free(blob);
 	free(signature);
@@ -1113,11 +1093,15 @@ mm_answer_keyverify(int sock, Buffer *m)
 
 	monitor_reset_key_state();
 
-	buffer_clear(m);
-	buffer_put_int(m, verified);
+	sshbuf_reset(m);
+
+	/* encode ret != 0 as positive integer, since we're sending u32 */
+	encoded_ret = (ret != 0);
+	if ((r = sshbuf_put_u32(m, encoded_ret)) != 0)
+		fatal("%s: buffer error: %s", __func__, ssh_err(r));
 	mm_request_send(sock, MONITOR_ANS_KEYVERIFY, m);
 
-	return (verified == 1);
+	return ret == 0;
 }
 
 static void
@@ -1262,6 +1246,17 @@ mm_answer_term(int sock, Buffer *req)
 }
 
 void
+monitor_clear_keystate(struct monitor *pmonitor)
+{
+	struct ssh *ssh = active_state;	/* XXX */
+
+	ssh_clear_newkeys(ssh, MODE_IN);
+	ssh_clear_newkeys(ssh, MODE_OUT);
+	sshbuf_free(child_state);
+	child_state = NULL;
+}
+
+void
 monitor_apply_keystate(struct monitor *pmonitor)
 {
 	struct ssh *ssh = active_state;	/* XXX */
@@ -1292,13 +1287,6 @@ monitor_apply_keystate(struct monitor *pmonitor)
 		kex->host_key_index=&get_hostkey_index;
 		kex->sign = sshd_hostkey_sign;
 	}
-
-	/* Update with new address */
-	if (options.compression) {
-		ssh_packet_set_compress_hooks(ssh, pmonitor->m_zlib,
-		    (ssh_packet_comp_alloc_func *)mm_zalloc,
-		    (ssh_packet_comp_free_func *)mm_zfree);
-	}
 }
 
 /* This function requries careful sanity checking */
@@ -1327,9 +1315,18 @@ static void
 monitor_openfds(struct monitor *mon, int do_logfds)
 {
 	int pair[2];
+#ifdef SO_ZEROIZE
+	int on = 1;
+#endif
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == -1)
 		fatal("%s: socketpair: %s", __func__, strerror(errno));
+#ifdef SO_ZEROIZE
+	if (setsockopt(pair[0], SOL_SOCKET, SO_ZEROIZE, &on, sizeof(on)) < 0)
+		error("setsockopt SO_ZEROIZE(0): %.100s", strerror(errno));
+	if (setsockopt(pair[1], SOL_SOCKET, SO_ZEROIZE, &on, sizeof(on)) < 0)
+		error("setsockopt SO_ZEROIZE(1): %.100s", strerror(errno));
+#endif
 	FD_CLOSEONEXEC(pair[0]);
 	FD_CLOSEONEXEC(pair[1]);
 	mon->m_recvfd = pair[0];
@@ -1351,23 +1348,10 @@ monitor_openfds(struct monitor *mon, int do_logfds)
 struct monitor *
 monitor_init(void)
 {
-	struct ssh *ssh = active_state;			/* XXX */
 	struct monitor *mon;
 
 	mon = xcalloc(1, sizeof(*mon));
-
 	monitor_openfds(mon, 1);
-
-	/* Used to share zlib space across processes */
-	if (options.compression) {
-		mon->m_zback = mm_create(NULL, MM_MEMSIZE);
-		mon->m_zlib = mm_create(mon->m_zback, 20 * MM_MEMSIZE);
-
-		/* Compression needs to share state across borders */
-		ssh_packet_set_compress_hooks(ssh, mon->m_zlib,
-		    (ssh_packet_comp_alloc_func *)mm_zalloc,
-		    (ssh_packet_comp_free_func *)mm_zfree);
-	}
 
 	return mon;
 }

@@ -1,7 +1,7 @@
-/*	$OpenBSD: term.h,v 1.62 2015/11/07 13:57:55 schwarze Exp $ */
+/*	$OpenBSD: term.h,v 1.67 2017/06/04 22:43:50 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,9 +36,10 @@ enum	termfont {
 	TERMFONT__MAX
 };
 
-#define	TERM_MAXMARGIN	  100000 /* FIXME */
-
+struct	eqn;
 struct	roff_meta;
+struct	roff_node;
+struct	tbl_span;
 struct	termp;
 
 typedef void	(*term_margin)(struct termp *, const struct roff_meta *);
@@ -61,11 +62,11 @@ struct	termp {
 	size_t		  maxrmargin;	/* Max right margin. */
 	size_t		  maxcols;	/* Max size of buf. */
 	size_t		  offset;	/* Margin offest. */
-	size_t		  tabwidth;	/* Distance of tab positions. */
 	size_t		  col;		/* Bytes in buf. */
 	size_t		  viscol;	/* Chars on current line. */
 	size_t		  trailspace;	/* See termp_flushln(). */
-	int		  overstep;	/* See termp_flushln(). */
+	size_t		  minbl;	/* Minimum blanks before next field. */
+	int		  ti;		/* Temporary indent for one line. */
 	int		  skipvsp;	/* Vertical space to skip. */
 	int		  flags;
 #define	TERMP_SENTENCE	 (1 << 0)	/* Space before a sentence. */
@@ -79,11 +80,15 @@ struct	termp {
 #define	TERMP_NOBREAK	 (1 << 8)	/* See term_flushln(). */
 #define	TERMP_BRTRSP	 (1 << 9)	/* See term_flushln(). */
 #define	TERMP_BRIND	 (1 << 10)	/* See term_flushln(). */
-#define	TERMP_DANGLE	 (1 << 11)	/* See term_flushln(). */
-#define	TERMP_HANG	 (1 << 12)	/* See term_flushln(). */
+#define	TERMP_HANG	 (1 << 11)	/* See term_flushln(). */
+#define	TERMP_NOPAD	 (1 << 12)	/* See term_flushln(). */
 #define	TERMP_NOSPLIT	 (1 << 13)	/* Do not break line before .An. */
 #define	TERMP_SPLIT	 (1 << 14)	/* Break line before .An. */
 #define	TERMP_NONEWLINE	 (1 << 15)	/* No line break in nofill mode. */
+#define	TERMP_BRNEVER	 (1 << 16)	/* Don't even break at maxrmargin. */
+#define	TERMP_NOBUF	 (1 << 17)	/* Bypass output buffer. */
+#define	TERMP_NEWMC	 (1 << 18)	/* No .mc printed yet. */
+#define	TERMP_ENDMC	 (1 << 19)	/* Next break ends .mc mode. */
 	int		 *buf;		/* Output buffer. */
 	enum termenc	  enc;		/* Type of encoding. */
 	enum termfont	  fontl;	/* Last font set. */
@@ -102,14 +107,14 @@ struct	termp {
 	int		(*hspan)(const struct termp *,
 				const struct roffsu *);
 	const void	 *argf;		/* arg for headf/footf */
+	const char	 *mc;		/* Margin character. */
 	struct termp_ps	 *ps;
 };
 
 
-struct	tbl_span;
-struct	eqn;
-
 const char	 *ascii_uc2str(int);
+
+void		  roff_term_pre(struct termp *, const struct roff_node *);
 
 void		  term_eqn(struct termp *, const struct eqn *);
 void		  term_tbl(struct termp *, const struct tbl_span *);
@@ -127,6 +132,9 @@ int		  term_hspan(const struct termp *, const struct roffsu *);
 int		  term_vspan(const struct termp *, const struct roffsu *);
 size_t		  term_strlen(const struct termp *, const char *);
 size_t		  term_len(const struct termp *, size_t);
+
+void		  term_tab_set(const struct termp *, const char *);
+size_t		  term_tab_next(size_t);
 
 void		  term_fontpush(struct termp *, enum termfont);
 void		  term_fontpop(struct termp *);

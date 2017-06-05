@@ -1,6 +1,13 @@
-# $OpenBSD: Makefile,v 1.1 2016/09/05 11:38:16 pascal Exp $
+# $OpenBSD: Makefile,v 1.8 2017/05/09 21:09:27 kettenis Exp $
 
 .include <bsd.own.mk>
+
+.if ${COMPILER_VERSION:L} != "clang"
+CC=		clang
+CXX=		clang++
+.endif
+
+.if ${BUILD_CLANG:L} == "yes"
 
 LIB=	compiler_rt
 NOPIC=
@@ -57,6 +64,7 @@ GEN_SRCS=	absvdi2 \
 		divti3 \
 		divtf3 \
 		divxc3 \
+		emutls \
 		enable_execute_stack \
 		eprintf \
 		extendsfdf2 \
@@ -164,6 +172,72 @@ SRCS+=	${file}.c
 .	endif
 .endfor
 
+.if ${RTARCH} == "aarch64"
+SRCS+=	comparetf2.c \
+	extenddftf2.c \
+	extendsftf2.c \
+	fixtfdi.c \
+	fixtfsi.c \
+	fixtfti.c \
+	fixunstfdi.c \
+	fixunstfsi.c \
+	fixunstfti.c \
+	floatditf.c \
+	floatsitf.c \
+	floatunsitf.c \
+	floatunditf.c \
+	multc3.c \
+	trunctfdf2.c \
+	trunctfsf2.c
+.endif
+
+.if ${RTARCH} == "arm"
+SRCS+=	aeabi_cdcmp.S \
+	aeabi_cdcmpeq_check_nan.c \
+	aeabi_cfcmp.S \
+	aeabi_cfcmpeq_check_nan.c \
+	aeabi_dcmp.S \
+	aeabi_div0.c \
+	aeabi_drsub.c \
+	aeabi_fcmp.S \
+	aeabi_frsub.c \
+	aeabi_idivmod.S \
+	aeabi_ldivmod.S \
+	aeabi_memcmp.S \
+	aeabi_memcpy.S \
+	aeabi_memmove.S \
+	aeabi_memset.S \
+	aeabi_uidivmod.S \
+	aeabi_uldivmod.S \
+	bswapdi2.S \
+	bswapsi2.S \
+	switch16.S \
+	switch32.S \
+	switch8.S \
+	switchu8.S \
+	sync_fetch_and_add_4.S \
+	sync_fetch_and_add_8.S \
+	sync_fetch_and_and_4.S \
+	sync_fetch_and_and_8.S \
+	sync_fetch_and_max_4.S \
+	sync_fetch_and_max_8.S \
+	sync_fetch_and_min_4.S \
+	sync_fetch_and_min_8.S \
+	sync_fetch_and_nand_4.S \
+	sync_fetch_and_nand_8.S \
+	sync_fetch_and_or_4.S \
+	sync_fetch_and_or_8.S \
+	sync_fetch_and_sub_4.S \
+	sync_fetch_and_sub_8.S \
+	sync_fetch_and_umax_4.S \
+	sync_fetch_and_umax_8.S \
+	sync_fetch_and_umin_4.S \
+	sync_fetch_and_umin_8.S \
+	sync_fetch_and_xor_4.S \
+	sync_fetch_and_xor_8.S \
+	sync_synchronize.S
+.endif
+
 .if ${RTARCH} == "ppc"
 SRCS+=	divtc3.c \
 	fixtfdi.c \
@@ -174,9 +248,12 @@ SRCS+=	divtc3.c \
 	gcc_qdiv.c \
 	gcc_qmul.c \
 	gcc_qsub.c \
-	multc3.c \
-	restFP.S \
-	saveFP.S
+	multc3.c
 .endif
 
 .include <bsd.lib.mk>
+
+.else
+NOPROG=
+.include <bsd.prog.mk>
+.endif

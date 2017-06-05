@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.139 2016/02/27 13:08:06 mpi Exp $	*/
+/*	$OpenBSD: trap.c,v 1.141 2016/10/19 08:31:32 guenther Exp $	*/
 
 /*
  * Copyright (c) 1998-2004 Michael Shalayeff
@@ -690,7 +690,7 @@ ss_get_value(struct proc *p, vaddr_t addr, u_int *value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_READ_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_READ_I));
 }
 
 int
@@ -708,7 +708,7 @@ ss_put_value(struct proc *p, vaddr_t addr, u_int value)
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
 	uio.uio_procp = curproc;
-	return (process_domem(curproc, p, &uio, PT_WRITE_I));
+	return (process_domem(curproc, p->p_p, &uio, PT_WRITE_I));
 }
 
 void
@@ -913,7 +913,7 @@ syscall(struct trapframe *frame)
 		printf("WARNING: SPL (0x%x) NOT LOWERED ON "
 		    "syscall(0x%x, 0x%lx, 0x%lx, 0x%lx...) EXIT, PID %d\n",
 		    curcpu()->ci_cpl, code, args[0], args[1], args[2],
-		    p->p_pid);
+		    p->p_p->ps_pid);
 		curcpu()->ci_cpl = oldcpl;
 	}
 #endif

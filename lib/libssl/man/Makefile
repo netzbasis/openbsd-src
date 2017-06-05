@@ -1,12 +1,10 @@
-# $OpenBSD: Makefile,v 1.34 2016/09/03 12:42:45 beck Exp $
+# $OpenBSD: Makefile,v 1.55 2017/04/10 15:54:46 schwarze Exp $
 
-.include <bsd.own.mk>		# for NOMAN
+.include <bsd.own.mk>
 
-POD2MAN=pod2man --official --release="OpenBSD ${OSREV}" --center=OpenSSL
-
-.ifndef NOMAN
-MAN=	\
-	BIO_f_ssl.3 \
+MAN =	BIO_f_ssl.3 \
+	DTLSv1_listen.3 \
+	PEM_read_SSL_SESSION.3 \
 	SSL_CIPHER_get_name.3 \
 	SSL_COMP_add_compression_method.3 \
 	SSL_CTX_add_extra_chain_cert.3 \
@@ -22,6 +20,7 @@ MAN=	\
 	SSL_CTX_sess_set_cache_size.3 \
 	SSL_CTX_sess_set_get_cb.3 \
 	SSL_CTX_sessions.3 \
+	SSL_CTX_set_alpn_select_cb.3 \
 	SSL_CTX_set_cert_store.3 \
 	SSL_CTX_set_cert_verify_callback.3 \
 	SSL_CTX_set_cipher_list.3 \
@@ -34,27 +33,39 @@ MAN=	\
 	SSL_CTX_set_mode.3 \
 	SSL_CTX_set_msg_callback.3 \
 	SSL_CTX_set_options.3 \
-	SSL_CTX_set_psk_client_callback.3 \
 	SSL_CTX_set_quiet_shutdown.3 \
+	SSL_CTX_set_read_ahead.3 \
 	SSL_CTX_set_session_cache_mode.3 \
 	SSL_CTX_set_session_id_context.3 \
 	SSL_CTX_set_ssl_version.3 \
 	SSL_CTX_set_timeout.3 \
+	SSL_CTX_set_tlsext_servername_callback.3 \
+	SSL_CTX_set_tlsext_status_cb.3 \
+	SSL_CTX_set_tlsext_ticket_key_cb.3 \
 	SSL_CTX_set_tmp_dh_callback.3 \
 	SSL_CTX_set_tmp_rsa_callback.3 \
 	SSL_CTX_set_verify.3 \
 	SSL_CTX_use_certificate.3 \
-	SSL_CTX_use_psk_identity_hint.3 \
 	SSL_SESSION_free.3 \
+	SSL_SESSION_get_compress_id.3 \
 	SSL_SESSION_get_ex_new_index.3 \
+	SSL_SESSION_get_id.3 \
 	SSL_SESSION_get_time.3 \
+	SSL_SESSION_get0_peer.3 \
+	SSL_SESSION_new.3 \
+	SSL_SESSION_print.3 \
+	SSL_SESSION_set1_id_context.3 \
 	SSL_accept.3 \
 	SSL_alert_type_string.3 \
 	SSL_clear.3 \
 	SSL_connect.3 \
+	SSL_copy_session_id.3 \
 	SSL_do_handshake.3 \
+	SSL_dup.3 \
+	SSL_dup_CA_list.3 \
 	SSL_free.3 \
 	SSL_get_SSL_CTX.3 \
+	SSL_get_certificate.3 \
 	SSL_get_ciphers.3 \
 	SSL_get_client_CA_list.3 \
 	SSL_get_current_cipher.3 \
@@ -65,21 +76,27 @@ MAN=	\
 	SSL_get_fd.3 \
 	SSL_get_peer_cert_chain.3 \
 	SSL_get_peer_certificate.3 \
-	SSL_get_psk_identity.3 \
 	SSL_get_rbio.3 \
+	SSL_get_server_tmp_key.3 \
 	SSL_get_session.3 \
+	SSL_get_shared_ciphers.3 \
+	SSL_get_state.3 \
 	SSL_get_verify_result.3 \
 	SSL_get_version.3 \
 	SSL_library_init.3 \
 	SSL_load_client_CA_file.3 \
 	SSL_new.3 \
+	SSL_num_renegotiations.3 \
 	SSL_pending.3 \
 	SSL_read.3 \
+	SSL_renegotiate.3 \
 	SSL_rstate_string.3 \
 	SSL_session_reused.3 \
+	SSL_set1_param.3 \
 	SSL_set_bio.3 \
 	SSL_set_connect_state.3 \
 	SSL_set_fd.3 \
+	SSL_set_max_send_fragment.3 \
 	SSL_set_session.3 \
 	SSL_set_shutdown.3 \
 	SSL_set_verify_result.3 \
@@ -88,24 +105,10 @@ MAN=	\
 	SSL_want.3 \
 	SSL_write.3 \
 	d2i_SSL_SESSION.3 \
-	ssl.3 \
+	ssl.3
+
+all clean cleandir depend includes obj tags:
+
+install: maninstall
 
 .include <bsd.man.mk>
-.else
-maninstall:
-
-.endif
-
-.PATH: ${.CURDIR}/../doc
-.SUFFIXES: .pod .1 .3 .7
-.for sect in 1 3 7
-.pod.${sect}:
-	@echo '${POD2MAN} --section=${sect} --name=${*:U} $< > $@'
-	@${POD2MAN} --section=${sect} --name=${*:U} $< > $@.tmp && mv $@.tmp $@
-.endfor
-
-.include <bsd.obj.mk>
-.include <bsd.subdir.mk>
-
-clean cleandir:
-	rm -f ${MAN}

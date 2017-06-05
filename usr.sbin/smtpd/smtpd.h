@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.523 2016/09/04 09:33:49 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.532 2017/05/26 21:30:00 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -22,10 +22,12 @@
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
 
+#include <netinet/in.h>
+#include <event.h>
+
 #include "smtpd-defines.h"
 #include "smtpd-api.h"
 #include "ioev.h"
-#include "iobuf.h"
 
 #include "rfc2822.h"
 
@@ -376,6 +378,7 @@ enum decision {
 };
 
 struct rule {
+	uint64_t			r_id;
 	TAILQ_ENTRY(rule)		r_entry;
 	enum decision			r_decision;
 	uint8_t				r_nottag;
@@ -395,7 +398,8 @@ struct rule {
 	struct table		       *r_destination;
 
 	uint8_t				r_wantauth;
-	
+	uint8_t				r_negwantauth;
+
 	enum action_type		r_action;
 	union rule_dest {
 		char			buffer[EXPAND_BUFFER];
@@ -1016,7 +1020,7 @@ struct msg {
 
 extern enum smtp_proc_type	smtpd_process;
 
-extern int verbose;
+extern int tracing;
 extern int foreground_log;
 extern int profiling;
 
@@ -1244,6 +1248,11 @@ void mda_postprivdrop(void);
 void mda_imsg(struct mproc *, struct imsg *);
 
 
+/* mda_variables.c */
+size_t mda_expand_format(char *, size_t, const struct envelope *,
+    const struct userinfo *);
+
+
 /* makemap.c */
 int makemap(int, char **);
 
@@ -1387,6 +1396,12 @@ void smtp_filter_response(uint64_t, int, int, uint32_t, const char *);
 void smtp_filter_fd(uint64_t, int);
 
 
+/* smtpf_session.c */
+int smtpf_session(struct listener *, int, const struct sockaddr_storage *,
+    const char *);
+void smtpf_session_imsg(struct mproc *, struct imsg *);
+
+
 /* smtpd.c */
 void imsg_dispatch(struct mproc *, struct imsg *);
 const char *proc_name(enum smtp_proc_type);
@@ -1492,8 +1507,8 @@ void *xcalloc(size_t, size_t, const char *);
 char *xstrdup(const char *, const char *);
 void *xmemdup(const void *, size_t, const char *);
 char *strip(char *);
-void iobuf_xinit(struct iobuf *, size_t, size_t, const char *);
-void iobuf_xfqueue(struct iobuf *, const char *, const char *, ...);
+int io_xprint(struct io *, const char *);
+int io_xprintf(struct io *, const char *, ...);
 void log_envelope(const struct envelope *, const char *, const char *,
     const char *);
 int session_socket_error(int);

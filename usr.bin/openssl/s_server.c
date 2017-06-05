@@ -1,4 +1,4 @@
-/* $OpenBSD: s_server.c,v 1.24 2015/12/23 20:43:42 mmcc Exp $ */
+/* $OpenBSD: s_server.c,v 1.26 2017/04/18 02:15:50 deraadt Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -605,7 +605,7 @@ s_server_main(int argc, char *argv[])
 	tlsextalpnctx alpn_ctx = { NULL, 0 };
 
 	if (single_execution) {
-		if (pledge("stdio inet dns rpath tty", NULL) == -1) {
+		if (pledge("stdio rpath inet dns tty", NULL) == -1) {
 			perror("pledge");
 			exit(1);
 		}
@@ -1590,10 +1590,7 @@ err:
 		SSL_free(con);
 	}
 	BIO_printf(bio_s_out, "CONNECTION CLOSED\n");
-	if (buf != NULL) {
-		explicit_bzero(buf, bufsize);
-		free(buf);
-	}
+	freezero(buf, bufsize);
 	if (ret >= 0)
 		BIO_printf(bio_s_out, "ACCEPT\n");
 	return (ret);

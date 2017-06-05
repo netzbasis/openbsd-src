@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec.c,v 1.8 2016/06/21 15:39:51 kettenis Exp $	*/
+/*	$OpenBSD: exec.c,v 1.10 2016/10/06 18:15:44 kettenis Exp $	*/
 
 /*
  * Copyright (c) 2006, 2016 Mark Kettenis
@@ -42,7 +42,7 @@ run_loadfile(u_long *marks, int howto)
 	char args[256];
 	char *cp;
 	void *fdt;
-	uint32_t board_id;
+	uint32_t board_id = 0;
 	int i;
 
 	/*
@@ -82,7 +82,7 @@ run_loadfile(u_long *marks, int howto)
 
 	efi_cleanup();
 
-	(*(startfuncp)(marks[MARK_ENTRY]))(NULL, (void *)board_id, fdt);
+	(*(startfuncp)(marks[MARK_ENTRY]))((void *)esym, (void *)board_id, fdt);
 
 	/* NOTREACHED */
 }

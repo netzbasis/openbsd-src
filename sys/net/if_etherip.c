@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_etherip.c,v 1.7 2016/04/13 11:41:15 mpi Exp $	*/
+/*	$OpenBSD: if_etherip.c,v 1.18 2017/05/04 17:58:46 bluhm Exp $	*/
 /*
  * Copyright (c) 2015 Kazuya GODA <goda@openbsd.org>
  *
@@ -118,6 +118,7 @@ etherip_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_softc = sc;
 	ifp->if_ioctl = etherip_ioctl;
 	ifp->if_start = etherip_start;
+	ifp->if_xflags = IFXF_CLONED;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
@@ -185,8 +186,6 @@ etherip_start(struct ifnet *ifp)
 			continue;
 		}
 
-		ifp->if_opackets++;
-
 		switch (sc->sc_src.ss_family) {
 		case AF_INET:
 			error = ip_etherip_output(ifp, m);
@@ -215,7 +214,7 @@ etherip_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	struct ifreq *ifr = (struct ifreq *)data;
 	struct sockaddr_storage *src, *dst;
 	struct proc *p = curproc;
-	int s, error = 0;
+	int error = 0;
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -280,11 +279,9 @@ etherip_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		if ((error = suser(p, 0)) != 0)
 			break;
 
-		s = splsoftnet();
 		ifp->if_flags &= ~IFF_RUNNING;
 		memset(&sc->sc_src, 0, sizeof(sc->sc_src));
 		memset(&sc->sc_dst, 0, sizeof(sc->sc_dst));
-		splx(s);
 		break;
 
 	case SIOCGLIFPHYADDR:
@@ -316,12 +313,11 @@ etherip_set_tunnel_addr(struct ifnet *ifp, struct sockaddr_storage *src,
     struct sockaddr_storage *dst)
 {
 	struct etherip_softc *sc, *tsc;
-	int s, error = 0;
+	int error = 0;
 
 	sc  = ifp->if_softc;
 
-	s = splsoftnet();
-	LIST_FOREACH (tsc, &etherip_softc_list, sc_entry) {
+	LIST_FOREACH(tsc, &etherip_softc_list, sc_entry) {
 		if (tsc == sc)
 			continue;
 
@@ -342,8 +338,6 @@ etherip_set_tunnel_addr(struct ifnet *ifp, struct sockaddr_storage *src,
 	memcpy(&sc->sc_src, src, src->ss_len);
 	memcpy(&sc->sc_dst, dst, dst->ss_len);
 out:
-	splx(s);
-
 	return error;
 }
 
@@ -372,7 +366,7 @@ ip_etherip_output(struct ifnet *ifp, struct mbuf *m)
 
 	M_PREPEND(m, sizeof(struct etherip_header), M_DONTWAIT);
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return ENOBUFS;
 	}
 	eip = mtod(m, struct etherip_header *);
@@ -382,7 +376,7 @@ ip_etherip_output(struct ifnet *ifp, struct mbuf *m)
 
 	M_PREPEND(m, sizeof(struct ip), M_DONTWAIT);
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return ENOBUFS;
 	}
 	ip = mtod(m, struct ip *);
@@ -403,41 +397,36 @@ ip_etherip_output(struct ifnet *ifp, struct mbuf *m)
 #if NPF > 0
 	pf_pkt_addr_changed(m);
 #endif
-	etheripstat.etherip_opackets++;
-	etheripstat.etherip_obytes += (m->m_pkthdr.len -
+	etheripstat.etherips_opackets++;
+	etheripstat.etherips_obytes += (m->m_pkthdr.len -
 	    (sizeof(struct ip) + sizeof(struct etherip_header)));
 
 	return ip_output(m, NULL, NULL, IP_RAWOUTPUT, NULL, NULL, 0);
 }
 
-void
-ip_etherip_input(struct mbuf *m, ...)
+int
+ip_etherip_input(struct mbuf **mp, int *offp, int proto, int af)
 {
+	struct mbuf *m = *mp;
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
 	struct etherip_softc *sc;
 	const struct ip *ip;
 	struct etherip_header *eip;
 	struct sockaddr_in *src, *dst;
 	struct ifnet *ifp = NULL;
-	int off;
-	va_list ap;
-
-	va_start(ap, m);
-	off = va_arg(ap, int);
-	va_end(ap);
 
 	ip = mtod(m, struct ip *);
 
 	if (ip->ip_p != IPPROTO_ETHERIP) {
 		m_freem(m);
-		ipstat.ips_noproto++;
-		return;
+		ipstat_inc(ips_noproto);
+		return IPPROTO_DONE;
 	}
 
-	if (!etherip_allow) {
+	if (!etherip_allow && (m->m_flags & (M_AUTH|M_CONF)) == 0) {
 		m_freem(m);
-		etheripstat.etherip_pdrops++;
-		return;
+		etheripstat.etherips_pdrops++;
+		return IPPROTO_DONE;
 	}
 
 	LIST_FOREACH(sc, &etherip_softc_list, sc_entry) {
@@ -464,37 +453,37 @@ ip_etherip_input(struct mbuf *m, ...)
 		 * This is tricky but the path will be removed soon when
 		 * implementation of etherip is removed from gif(4).
 		 */
-		etherip_input(m, off);
+		return etherip_input(mp, offp, proto, af);
 #else
-		etheripstat.etherip_noifdrops++;
+		etheripstat.etherips_noifdrops++;
 		m_freem(m);
+		return IPPROTO_DONE;
 #endif /* NGIF */
-		return;
 	}
 
-	m_adj(m, off);
-	m = m_pullup(m, sizeof(struct etherip_header));
+	m_adj(m, *offp);
+	m = *mp = m_pullup(m, sizeof(struct etherip_header));
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
-		return;
+		etheripstat.etherips_adrops++;
+		return IPPROTO_DONE;
 	}
 
 	eip = mtod(m, struct etherip_header *);
 	if (eip->eip_ver != ETHERIP_VERSION || eip->eip_pad) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		m_freem(m);
-		return;
+		return IPPROTO_DONE;
 	}
 
-	etheripstat.etherip_ipackets++;
-	etheripstat.etherip_ibytes += (m->m_pkthdr.len -
+	etheripstat.etherips_ipackets++;
+	etheripstat.etherips_ibytes += (m->m_pkthdr.len -
 	    sizeof(struct etherip_header));
 
 	m_adj(m, sizeof(struct etherip_header));
-	m = m_pullup(m, sizeof(struct ether_header));
+	m = *mp = m_pullup(m, sizeof(struct ether_header));
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
-		return;
+		etheripstat.etherips_adrops++;
+		return IPPROTO_DONE;
 	}
 	m->m_flags &= ~(M_BCAST|M_MCAST);
 
@@ -504,6 +493,7 @@ ip_etherip_input(struct mbuf *m, ...)
 
 	ml_enqueue(&ml, m);
 	if_input(ifp, &ml);
+	return IPPROTO_DONE;
 }
 
 #ifdef INET6
@@ -514,25 +504,26 @@ ip6_etherip_output(struct ifnet *ifp, struct mbuf *m)
 	struct sockaddr_in6 *src, *dst;
 	struct etherip_header *eip;
 	struct ip6_hdr *ip6;
+	int error;
 
 	src = (struct sockaddr_in6 *)&sc->sc_src;
 	dst = (struct sockaddr_in6 *)&sc->sc_dst;
 
 	if (src == NULL || dst == NULL ||
 	    src->sin6_family != AF_INET6 || dst->sin6_family != AF_INET6) {
-		m_freem(m);
-		return EAFNOSUPPORT;
+		error = EAFNOSUPPORT;
+		goto drop;
 	}
 	if (IN6_IS_ADDR_UNSPECIFIED(&dst->sin6_addr)) {
-		m_freem(m);
-		return ENETUNREACH;
+		error = ENETUNREACH;
+		goto drop;
 	}
 
 	m->m_flags &= ~(M_BCAST|M_MCAST);
 
 	M_PREPEND(m, sizeof(struct etherip_header), M_DONTWAIT);
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return ENOBUFS;
 	}
 	eip = mtod(m, struct etherip_header *);
@@ -542,7 +533,7 @@ ip6_etherip_output(struct ifnet *ifp, struct mbuf *m)
 
 	M_PREPEND(m, sizeof(struct ip6_hdr), M_DONTWAIT);
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return ENOBUFS;
 	}
 	ip6 = mtod(m, struct ip6_hdr *);
@@ -552,41 +543,51 @@ ip6_etherip_output(struct ifnet *ifp, struct mbuf *m)
 	ip6->ip6_nxt  = IPPROTO_ETHERIP;
 	ip6->ip6_hlim = ip6_defhlim;
 	ip6->ip6_plen = htons(m->m_pkthdr.len - sizeof(struct ip6_hdr));
-	ip6->ip6_src  = src->sin6_addr;
-	ip6->ip6_dst = dst->sin6_addr;
+	error = in6_embedscope(&ip6->ip6_src, src, NULL);
+	if (error != 0)
+		goto drop;
+	error = in6_embedscope(&ip6->ip6_dst, dst, NULL);
+	if (error != 0)
+		goto drop;
 
 	m->m_pkthdr.ph_rtableid = sc->sc_rdomain;
 
 #if NPF > 0
 	pf_pkt_addr_changed(m);
 #endif
-	etheripstat.etherip_opackets++;
-	etheripstat.etherip_obytes += (m->m_pkthdr.len -
+	etheripstat.etherips_opackets++;
+	etheripstat.etherips_obytes += (m->m_pkthdr.len -
 	    (sizeof(struct ip6_hdr) + sizeof(struct etherip_header)));
 
 	return ip6_output(m, 0, NULL, IPV6_MINMTU, 0, NULL);
+
+drop:
+	m_freem(m);
+	return (error);
 }
 
 int
-ip6_etherip_input(struct mbuf **mp, int *offp, int proto)
+ip6_etherip_input(struct mbuf **mp, int *offp, int proto, int af)
 {
 	struct mbuf *m = *mp;
 	struct mbuf_list ml = MBUF_LIST_INITIALIZER();
-	int off = *offp;
 	struct etherip_softc *sc;
 	const struct ip6_hdr *ip6;
 	struct etherip_header *eip;
+	struct sockaddr_in6 ipsrc, ipdst;
 	struct sockaddr_in6 *src6, *dst6;
 	struct ifnet *ifp = NULL;
 
 
-	if (!etherip_allow) {
+	if (!etherip_allow && (m->m_flags & (M_AUTH|M_CONF)) == 0) {
 		m_freem(m);
-		etheripstat.etherip_pdrops++;
+		etheripstat.etherips_pdrops++;
 		return IPPROTO_NONE;
 	}
 
 	ip6 = mtod(m, const struct ip6_hdr *);
+	in6_recoverscope(&ipsrc, &ip6->ip6_src);
+	in6_recoverscope(&ipdst, &ip6->ip6_dst);
 
 	LIST_FOREACH(sc, &etherip_softc_list, sc_entry) {
 		if (sc->sc_src.ss_family != AF_INET6 ||
@@ -596,12 +597,13 @@ ip6_etherip_input(struct mbuf **mp, int *offp, int proto)
 		src6 = (struct sockaddr_in6 *)&sc->sc_src;
 		dst6 = (struct sockaddr_in6 *)&sc->sc_dst;
 
-		if (!IN6_ARE_ADDR_EQUAL(&src6->sin6_addr, &ip6->ip6_dst) ||
-		    !IN6_ARE_ADDR_EQUAL(&dst6->sin6_addr, &ip6->ip6_src))
-			continue;
-
-		ifp = &sc->sc_ac.ac_if;
-		break;
+		if (IN6_ARE_ADDR_EQUAL(&src6->sin6_addr, &ipdst.sin6_addr) &&
+		    src6->sin6_scope_id == ipdst.sin6_scope_id &&
+		    IN6_ARE_ADDR_EQUAL(&dst6->sin6_addr, &ipsrc.sin6_addr) &&
+		    dst6->sin6_scope_id == ipsrc.sin6_scope_id) {
+			ifp = &sc->sc_ac.ac_if;
+			break;
+		}
 	}
 
 	if (ifp == NULL) {
@@ -611,35 +613,35 @@ ip6_etherip_input(struct mbuf **mp, int *offp, int proto)
 		 * This is tricky but the path will be removed soon when
 		 * implementation of etherip is removed from gif(4).
 		 */
-		return etherip_input6(mp, offp, proto);
+		return etherip_input(mp, offp, proto, af);
 #else
-		etheripstat.etherip_noifdrops++;
+		etheripstat.etherips_noifdrops++;
 		m_freem(m);
 		return IPPROTO_DONE;
 #endif /* NGIF */
 	}
 
-	m_adj(m, off);
-	m = m_pullup(m, sizeof(struct etherip_header));
+	m_adj(m, *offp);
+	m = *mp = m_pullup(m, sizeof(struct etherip_header));
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return IPPROTO_DONE;
 	}
 
 	eip = mtod(m, struct etherip_header *);
 	if ((eip->eip_ver != ETHERIP_VERSION) || eip->eip_pad) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		m_freem(m);
 		return IPPROTO_DONE;
 	}
-	etheripstat.etherip_ipackets++;
-	etheripstat.etherip_ibytes += (m->m_pkthdr.len -
+	etheripstat.etherips_ipackets++;
+	etheripstat.etherips_ibytes += (m->m_pkthdr.len -
 	    sizeof(struct etherip_header));
 
 	m_adj(m, sizeof(struct etherip_header));
-	m = m_pullup(m, sizeof(struct ether_header));
+	m = *mp = m_pullup(m, sizeof(struct ether_header));
 	if (m == NULL) {
-		etheripstat.etherip_adrops++;
+		etheripstat.etherips_adrops++;
 		return IPPROTO_DONE;
 	}
 
@@ -651,10 +653,8 @@ ip6_etherip_input(struct mbuf **mp, int *offp, int proto)
 
 	ml_enqueue(&ml, m);
 	if_input(ifp, &ml);
-
 	return IPPROTO_DONE;
 }
-
 #endif /* INET6 */
 
 int

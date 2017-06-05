@@ -1,5 +1,5 @@
-.\"	$OpenBSD: mdoclint.1,v 1.16 2013/08/21 13:22:03 jmc Exp $
-.\" $NetBSD: mdoclint.1,v 1.13 2013/08/21 11:22:15 wiz Exp $
+.\" $OpenBSD: mdoclint.1,v 1.24 2017/06/03 12:23:13 schwarze Exp $
+.\" $NetBSD: mdoclint.1,v 1.20 2017/06/01 14:38:50 wiz Exp $
 .\"
 .\" Copyright (c) 2001-2013 Thomas Klausner
 .\" All rights reserved.
@@ -25,7 +25,7 @@
 .\" ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 .\" POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: August 21 2013 $
+.Dd $Mdocdate: June 3 2017 $
 .Dt MDOCLINT 1
 .Os
 .Sh NAME
@@ -33,7 +33,7 @@
 .Nd man page verifier
 .Sh SYNOPSIS
 .Nm
-.Op Fl AaDdeFfHhlmnoPprSsvwXx
+.Op Fl DdeFhlmoprSvwx
 .Ar
 .Sh DESCRIPTION
 .Nm
@@ -41,24 +41,12 @@ is a man page verifier.
 It tries to automatically find as many common
 errors that occur when writing man pages as possible.
 If no flags are given,
-.Fl AaDdfmnoPprSsXx
+.Fl DdmoprSx
 is assumed (that is, everything except
-.Fl eFHhlvw ) .
+.Fl eFhlvw ) .
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl A
-Warn if the
-.Dq .An
-macro (author) markup is not used in the
-.Sx AUTHORS
-section.
-.It Fl a
-Warn about some possible problems in the
-.Sx SEE ALSO
-section, like incorrect order (correct order: first by section
-numbers, then by name), or incorrect or superfluous punctuation
-between or after the cross-references.
 .It Fl D
 Warn about bad casing and architectures in the .Dt macro.
 .It Fl d
@@ -66,26 +54,7 @@ Warn about bad date strings (in the .Dd macro).
 .It Fl e
 Warn about unsorted errors (for functions).
 .It Fl F
-Fix whitespace problems (see also
-.Fl s ) .
-.It Fl f
-Warn about possible .Fn abuse; its arguments should be put in
-.Sq \&"
-separately, not together and separated by commas.
-Those will be automatically added by mdoc.
-.It Fl H
-Show warnings for characters that might generate problems in
-HTML output:
-.Sq \*(Lt
-and
-.Sq \*(Gt .
-Replace a pair of angle quotes with the .Aq macro.
-Otherwise, the replacements are
-.Dq \e*(Lt
-and
-.Dq \e*(Gt .
-This option is off by default,
-as these characters no longer pose any problems.
+Delete whitespace at the end of input lines.
 .It Fl h
 Display usage.
 .It Fl l
@@ -94,17 +63,11 @@ Warn about unknown libraries used as arguments to Lb.
 Warn if man page is not in
 .Xr mdoc 7
 format.
-.It Fl n
-Warn when the .Nd macro's argument ends in a dot, that is
-.Sq \&. .
 .It Fl o
 Warn when the .Os macro has an argument (it shouldn't have one at
 least in the base system, because on
 .Ox
 the current version is default).
-.It Fl P
-Warn about paragraph problems, like empty lines or .Pp macros before
-section macros like .Ss and .Sh.
 .It Fl p
 Warn about possible punctuation problems at the end of macro arguments,
 abuse of .Ns to get punctuation directly next to a word,
@@ -115,29 +78,12 @@ Warn about missing RCS Id.
 Warn about any unknown sections or about a section that comes in the
 wrong order (see
 .Xr mdoc 7 ) .
-.It Fl s
-Warn about superfluous whitespace at the end of line.
 .It Fl v
 Verbose output.
 .It Fl w
 Display the section name,
 in addition to the relevant line number,
 in warnings.
-.It Fl X
-Warn about explicit mentions of the words
-.Dq FreeBSD ,
-.Dq NetBSD ,
-.Dq DragonFlyBSD ,
-and
-.Dq OpenBSD ,
-which should be replaced by .Fx, .Nx, .Dx, and .Ox respectively.
-Also notices occurrences of
-.Dq \&.Bx Free ,
-.Dq \&.Bx Net ,
-.Dq \&.Bx DragonFly ,
-and
-.Dq \&.Bx Open ,
-for which the same applies.
 .It Fl x
 Warn about cross-references whose target is missing, cross-references
 to itself, or plain bogus cross-references.
@@ -159,8 +105,12 @@ The
 utility first appeared in
 .Ox 4.5 .
 .Sh AUTHORS
-.An Thomas Klausner Aq Mt wiz@netbsd.org
-.An Marc Espie Aq Mt espie@openbsd.org
+.An Thomas Klausner
+.Aq Mt wiz@NetBSD.org
+.An Marc Espie
+.Aq Mt espie@OpenBSD.org
+.An Ingo Schwarze
+.Aq Mt schwarze@OpenBSD.org
 .Sh BUGS
 The
 .Fl o

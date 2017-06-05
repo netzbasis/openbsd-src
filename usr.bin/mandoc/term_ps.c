@@ -1,7 +1,7 @@
-/*	$OpenBSD: term_ps.c,v 1.46 2016/08/10 11:02:30 schwarze Exp $ */
+/*	$OpenBSD: term_ps.c,v 1.48 2017/05/08 15:33:43 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2014, 2015, 2016 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2014, 2015, 2016, 2017 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -100,7 +100,7 @@ static	void		  ps_pclose(struct termp *);
 static	void		  ps_plast(struct termp *);
 static	void		  ps_pletter(struct termp *, int);
 static	void		  ps_printf(struct termp *, const char *, ...)
-				__attribute__((__format__ (printf, 2, 3)));
+				__attribute__((__format__ (__printf__, 2, 3)));
 static	void		  ps_putchar(struct termp *, char);
 static	void		  ps_setfont(struct termp *, enum termfont);
 static	void		  ps_setwidth(struct termp *, int, int);
@@ -1215,6 +1215,9 @@ ps_endline(struct termp *p)
 	}
 
 	ps_closepage(p);
+
+	p->offset -= p->ti;
+	p->ti = 0;
 }
 
 static void

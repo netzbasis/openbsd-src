@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_socket2.c,v 1.65 2016/09/02 13:28:21 bluhm Exp $	*/
+/*	$OpenBSD: uipc_socket2.c,v 1.77 2017/05/27 18:50:53 claudio Exp $	*/
 /*	$NetBSD: uipc_socket2.c,v 1.11 1996/02/04 02:17:55 christos Exp $	*/
 
 /*
@@ -38,6 +38,7 @@
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/protosw.h>
+#include <sys/domain.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/signalvar.h>
@@ -52,6 +53,8 @@ u_long	sb_max = SB_MAX;		/* patchable */
 
 extern struct pool mclpools[];
 extern struct pool mbpool;
+
+int sbsleep(struct sockbuf *, struct rwlock *);
 
 /*
  * Procedures to manipulate state flags of socket
@@ -138,8 +141,6 @@ soisdisconnected(struct socket *so)
  * then we allocate a new structure, properly linked into the
  * data structure of the original socket, and return this.
  * Connstatus may be 0 or SS_ISCONNECTED.
- *
- * Must be called at splsoftnet()
  */
 struct socket *
 sonewconn(struct socket *head, int connstatus)
@@ -147,7 +148,7 @@ sonewconn(struct socket *head, int connstatus)
 	struct socket *so;
 	int soqueue = connstatus ? 1 : 0;
 
-	splsoftassert(IPL_SOFTNET);
+	soassertlocked(head);
 
 	if (mclpools[0].pr_nout > mclpools[0].pr_hardlimit * 95 / 100)
 		return (NULL);
@@ -185,12 +186,8 @@ sonewconn(struct socket *head, int connstatus)
 	so->so_rcv.sb_lowat = head->so_rcv.sb_lowat;
 	so->so_rcv.sb_timeo = head->so_rcv.sb_timeo;
 
-	rw_init(&so->so_rcv.sb_lock, "sbsndl");
-	rw_init(&so->so_snd.sb_lock, "sbrcvl");
-
 	soqinsque(head, so, soqueue);
-	if ((*so->so_proto->pr_usrreq)(so, PRU_ATTACH, NULL, NULL, NULL,
-	    curproc)) {
+	if ((*so->so_proto->pr_attach)(so, 0)) {
 		(void) soqremque(so, soqueue);
 		pool_put(&socket_pool, so);
 		return (NULL);
@@ -270,44 +267,110 @@ socantrcvmore(struct socket *so)
 	sorwakeup(so);
 }
 
+int
+solock(struct socket *so)
+{
+	int s;
+
+	if ((so->so_proto->pr_domain->dom_family != PF_LOCAL) &&
+	    (so->so_proto->pr_domain->dom_family != PF_ROUTE) &&
+	    (so->so_proto->pr_domain->dom_family != PF_KEY))
+		NET_LOCK(s);
+	else
+		s = -42;
+
+	return (s);
+}
+
+void
+sounlock(int s)
+{
+	if (s != -42)
+		NET_UNLOCK(s);
+}
+
+void
+soassertlocked(struct socket *so)
+{
+	if ((so->so_proto->pr_domain->dom_family != PF_LOCAL) &&
+	    (so->so_proto->pr_domain->dom_family != PF_ROUTE) &&
+	    (so->so_proto->pr_domain->dom_family != PF_KEY))
+		NET_ASSERT_LOCKED();
+}
+
+int
+sosleep(struct socket *so, void *ident, int prio, const char *wmesg, int timo)
+{
+	if ((so->so_proto->pr_domain->dom_family != PF_LOCAL) &&
+	    (so->so_proto->pr_domain->dom_family != PF_ROUTE) &&
+	    (so->so_proto->pr_domain->dom_family != PF_KEY)) {
+		return rwsleep(ident, &netlock, prio, wmesg, timo);
+	} else
+		return tsleep(ident, prio, wmesg, timo);
+}
+
 /*
  * Wait for data to arrive at/drain from a socket buffer.
  */
 int
-sbwait(struct sockbuf *sb)
+sbwait(struct socket *so, struct sockbuf *sb)
 {
-	splsoftassert(IPL_SOFTNET);
+	soassertlocked(so);
 
 	sb->sb_flagsintr |= SB_WAIT;
-	return (tsleep(&sb->sb_cc,
+	return (sosleep(so, &sb->sb_cc,
 	    (sb->sb_flags & SB_NOINTR) ? PSOCK : PSOCK | PCATCH, "netio",
 	    sb->sb_timeo));
 }
 
-/*
- * Lock a sockbuf already known to be locked;
- * return any error returned from sleep (EINTR).
- */
 int
-sblock(struct sockbuf *sb, int wf)
+sbsleep(struct sockbuf *sb, struct rwlock *lock)
+{
+	int error, prio = (sb->sb_flags & SB_NOINTR) ? PSOCK : PSOCK | PCATCH;
+
+	if (lock != NULL)
+		error = rwsleep(&sb->sb_flags, lock, prio, "netlck", 0);
+	else
+		error = tsleep(&sb->sb_flags, prio, "netlck", 0);
+
+	return (error);
+}
+
+int
+sblock(struct sockbuf *sb, int wait, struct rwlock *lock)
 {
 	int error;
 
-	error = rw_enter(&sb->sb_lock, RW_WRITE |
-	    (sb->sb_flags & SB_NOINTR ? 0 : RW_INTR) |
-	    (wf == M_WAITOK ? 0 : RW_NOSLEEP));
+	KERNEL_ASSERT_LOCKED();
 
-	if (error == EBUSY)
-		error = EWOULDBLOCK;
-	return (error);
+	if ((sb->sb_flags & SB_LOCK) == 0) {
+		sb->sb_flags |= SB_LOCK;
+		return (0);
+	}
+	if (wait & M_NOWAIT)
+		return (EWOULDBLOCK);
+
+	while (sb->sb_flags & SB_LOCK) {
+		sb->sb_flags |= SB_WANT;
+		error = sbsleep(sb, lock);
+		if (error)
+			return (error);
+	}
+	sb->sb_flags |= SB_LOCK;
+	return (0);
 }
 
 void
 sbunlock(struct sockbuf *sb)
 {
-	rw_exit(&sb->sb_lock);
-}
+	KERNEL_ASSERT_LOCKED();
 
+	sb->sb_flags &= ~SB_LOCK;
+	if (sb->sb_flags & SB_WANT) {
+		sb->sb_flags &= ~SB_WANT;
+		wakeup(&sb->sb_flags);
+	}
+}
 
 /*
  * Wakeup processes waiting on a socket buffer.
@@ -317,7 +380,7 @@ sbunlock(struct sockbuf *sb)
 void
 sowakeup(struct socket *so, struct sockbuf *sb)
 {
-	int s = splsoftnet();
+	soassertlocked(so);
 
 	selwakeup(&sb->sb_sel);
 	sb->sb_flagsintr &= ~SB_SEL;
@@ -325,7 +388,6 @@ sowakeup(struct socket *so, struct sockbuf *sb)
 		sb->sb_flagsintr &= ~SB_WAIT;
 		wakeup(&sb->sb_cc);
 	}
-	splx(s);
 	if (so->so_state & SS_ASYNC)
 		csignal(so->so_pgid, SIGIO, so->so_siguid, so->so_sigeuid);
 }
@@ -835,7 +897,7 @@ void
 sbflush(struct sockbuf *sb)
 {
 
-	rw_assert_unlocked(&sb->sb_lock);
+	KASSERT((sb->sb_flags & SB_LOCK) == 0);
 
 	while (sb->sb_mbcnt)
 		sbdrop(sb, (int)sb->sb_cc);

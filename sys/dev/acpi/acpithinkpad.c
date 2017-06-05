@@ -1,4 +1,4 @@
-/*	$OpenBSD: acpithinkpad.c,v 1.52 2016/05/05 05:12:49 jsg Exp $	*/
+/*	$OpenBSD: acpithinkpad.c,v 1.57 2017/02/28 10:39:07 natano Exp $	*/
 /*
  * Copyright (c) 2008 joshua stein <jcs@openbsd.org>
  *
@@ -105,6 +105,8 @@
 #define THINKPAD_NSENSORS 9
 #define THINKPAD_NTEMPSENSORS 8
 
+#define THINKPAD_ECOFFSET_VOLUME	0x30
+#define THINKPAD_ECOFFSET_VOLUME_MUTE_MASK 0x40
 #define THINKPAD_ECOFFSET_FANLO		0x84
 #define THINKPAD_ECOFFSET_FANHI		0x85
 
@@ -163,6 +165,9 @@ void    thinkpad_sensor_attach(struct acpithinkpad_softc *sc);
 void    thinkpad_sensor_refresh(void *);
 
 #if NAUDIO > 0 && NWSKBD > 0
+void thinkpad_attach_deferred(void *);
+int thinkpad_get_volume_mute(struct acpithinkpad_softc *);
+extern int wskbd_set_mixermute(long, long);
 extern int wskbd_set_mixervolume(long, long);
 #endif
 
@@ -176,7 +181,10 @@ struct cfdriver acpithinkpad_cd = {
 };
 
 const char *acpithinkpad_hids[] = {
-	ACPI_DEV_IBM, ACPI_DEV_LENOVO, 0
+	"IBM0068",
+	"LEN0068",
+	"LEN0268",
+	0
 };
 
 int
@@ -257,6 +265,12 @@ thinkpad_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_devnode = aa->aaa_node;
 
 	printf("\n");
+
+#if NAUDIO > 0 && NWSKBD > 0
+	/* Defer speaker mute */
+	if (thinkpad_get_volume_mute(sc) == 1)
+		startuphook_establish(thinkpad_attach_deferred, sc);
+#endif
 
 	/* Set event mask to receive everything */
 	thinkpad_enable_events(sc);
@@ -369,7 +383,7 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 #ifndef SMALL_KERNEL
 			if (acpi_record_event(sc->sc_acpi, APM_USER_SUSPEND_REQ))
 				acpi_addtask(sc->sc_acpi, acpi_sleep_task, 
-				    sc->sc_acpi, ACPI_STATE_S3);
+				    sc->sc_acpi, ACPI_SLEEP_SUSPEND);
 #endif
 			handled = 1;
 			break;
@@ -395,7 +409,7 @@ thinkpad_hotkey(struct aml_node *node, int notify_type, void *arg)
 #if defined(HIBERNATE) && !defined(SMALL_KERNEL)
 			if (acpi_record_event(sc->sc_acpi, APM_USER_HIBERNATE_REQ))
 				acpi_addtask(sc->sc_acpi, acpi_sleep_task, 
-				    sc->sc_acpi, ACPI_STATE_S4);
+				    sc->sc_acpi, ACPI_SLEEP_HIBERNATE);
 #endif
 			handled = 1;
 			break;
@@ -589,12 +603,20 @@ thinkpad_activate(struct device *self, int act)
 
 	struct acpithinkpad_softc *sc = (struct acpithinkpad_softc *)self;
 	int64_t res;
+#if NAUDIO > 0 && NWSKBD > 0
+	int mute;
+#endif
 
-	switch(act) {
+	switch (act) {
 	case DVACT_WAKEUP:
 		if (aml_evalinteger(sc->sc_acpi, sc->sc_devnode, "GTRW",
 		    0, NULL, &res) == 0)
 			thinkpad_adaptive_change(sc);
+#if NAUDIO > 0 && NWSKBD > 0
+		mute = thinkpad_get_volume_mute(sc);
+		if (mute != -1)
+			wskbd_set_mixermute(mute, 1);
+#endif
 		break;
 	}
 	return (0);
@@ -642,9 +664,11 @@ int
 thinkpad_set_backlight(struct wskbd_backlight *kbl)
 {
 	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
-	int maxval = (sc->sc_thinklight >> 8) & 0x0f;
+	int maxval;
 
 	KASSERT(sc != NULL);
+
+	maxval = (sc->sc_thinklight >> 8) & 0x0f;
 
 	if (maxval == 0)
 		return (ENOTTY);
@@ -702,10 +726,12 @@ int
 thinkpad_set_param(struct wsdisplay_param *dp)
 {
 	struct acpithinkpad_softc *sc = acpithinkpad_cd.cd_devs[0];
-	int maxval = (sc->sc_brightness >> 8) & 0xff;
+	int maxval;
 
 	if (sc == NULL)
 		return -1;
+
+	maxval = (sc->sc_brightness >> 8) & 0xff;
 
 	switch (dp->param) {
 	case WSDISPLAYIO_PARAM_BRIGHTNESS:
@@ -722,3 +748,24 @@ thinkpad_set_param(struct wsdisplay_param *dp)
 		return -1;
 	}
 }
+
+#if NAUDIO > 0 && NWSKBD > 0
+void
+thinkpad_attach_deferred(void *v __unused)
+{
+	wskbd_set_mixermute(1, 1);
+}
+
+int
+thinkpad_get_volume_mute(struct acpithinkpad_softc *sc)
+{
+	u_int8_t vol = 0;
+
+	if (sc->sc_acpi->sc_ec == NULL)
+		return (-1);
+
+	acpiec_read(sc->sc_acpi->sc_ec, THINKPAD_ECOFFSET_VOLUME, 1, &vol);
+	return ((vol & THINKPAD_ECOFFSET_VOLUME_MUTE_MASK) ==
+	    THINKPAD_ECOFFSET_VOLUME_MUTE_MASK);
+}
+#endif

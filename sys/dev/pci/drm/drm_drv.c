@@ -1,4 +1,4 @@
-/* $OpenBSD: drm_drv.c,v 1.148 2016/08/24 09:31:56 dlg Exp $ */
+/* $OpenBSD: drm_drv.c,v 1.151 2016/12/01 01:37:17 jsg Exp $ */
 /*-
  * Copyright 2007-2009 Owain G. Ainsworth <oga@openbsd.org>
  * Copyright © 2008 Intel Corporation
@@ -81,6 +81,7 @@ int	 drm_version(struct drm_device *, void *, struct drm_file *);
 int	 drm_setversion(struct drm_device *, void *, struct drm_file *);
 int	 drm_getmagic(struct drm_device *, void *, struct drm_file *);
 int	 drm_authmagic(struct drm_device *, void *, struct drm_file *);
+int	 drm_getpciinfo(struct drm_device *, void *, struct drm_file *);
 int	 drm_file_cmp(struct drm_file *, struct drm_file *);
 SPLAY_PROTOTYPE(drm_file_tree, drm_file, link, drm_file_cmp);
 
@@ -120,6 +121,8 @@ static struct drm_ioctl_desc drm_ioctls[] = {
 	DRM_IOCTL_DEF(DRM_IOCTL_SET_SAREA_CTX, drm_setsareactx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_SAREA_CTX, drm_getsareactx, DRM_AUTH),
 #else
+	DRM_IOCTL_DEF(DRM_IOCTL_GET_PCIINFO, drm_getpciinfo, DRM_UNLOCKED|DRM_RENDER_ALLOW),
+
 	DRM_IOCTL_DEF(DRM_IOCTL_SET_SAREA_CTX, drm_noop, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_GET_SAREA_CTX, drm_noop, DRM_AUTH),
 #endif
@@ -127,7 +130,13 @@ static struct drm_ioctl_desc drm_ioctls[] = {
 #ifdef __linux__
 	DRM_IOCTL_DEF(DRM_IOCTL_SET_MASTER, drm_setmaster_ioctl, DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_DROP_MASTER, drm_dropmaster_ioctl, DRM_ROOT_ONLY),
+#else
+	/* On OpenBSD xorg privdrop has already occurred before this point */
+	DRM_IOCTL_DEF(DRM_IOCTL_SET_MASTER, drm_noop, DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF(DRM_IOCTL_DROP_MASTER, drm_noop, DRM_UNLOCKED|DRM_RENDER_ALLOW),
+#endif
 
+#ifdef __linux__
 	DRM_IOCTL_DEF(DRM_IOCTL_ADD_CTX, drm_addctx, DRM_AUTH|DRM_ROOT_ONLY),
 	DRM_IOCTL_DEF(DRM_IOCTL_RM_CTX, drm_rmctx, DRM_AUTH|DRM_MASTER|DRM_ROOT_ONLY),
 #endif
@@ -436,9 +445,8 @@ drm_attach(struct device *parent, struct device *self, void *aux)
 	if (dev->driver->driver_features & DRIVER_GEM) {
 		KASSERT(dev->driver->gem_size >= sizeof(struct drm_gem_object));
 		/* XXX unique name */
-		pool_init(&dev->objpl, dev->driver->gem_size, 0, 0, 0,
+		pool_init(&dev->objpl, dev->driver->gem_size, 0, IPL_NONE, 0,
 		    "drmobjpl", NULL);
-		pool_setipl(&dev->objpl, IPL_NONE);
 	}
 
 	if (dev->driver->driver_features & DRIVER_GEM) {
@@ -1346,5 +1354,23 @@ int drm_pcie_get_speed_cap_mask(struct drm_device *dev, u32 *mask)
 
 	DRM_INFO("probing gen 2 caps for device 0x%04x:0x%04x = %x/%x\n",
 	    PCI_VENDOR(id), PCI_PRODUCT(id), lnkcap, lnkcap2);
+	return 0;
+}
+
+int
+drm_getpciinfo(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+	struct drm_pciinfo *info = data;
+
+	info->domain = 0;
+	info->bus = dev->pdev->bus->number;
+	info->dev = PCI_SLOT(dev->pdev->devfn);
+	info->func = PCI_FUNC(dev->pdev->devfn);
+	info->vendor_id = dev->pdev->vendor;
+	info->device_id = dev->pdev->device;
+	info->subvendor_id = dev->pdev->subsystem_vendor;
+	info->subdevice_id = dev->pdev->subsystem_device;
+	info->revision_id = 0;
+
 	return 0;
 }

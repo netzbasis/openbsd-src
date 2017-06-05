@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.7 2016/08/17 05:07:13 deraadt Exp $	*/
+/*	$OpenBSD: control.c,v 1.19 2017/05/04 19:41:58 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>
@@ -47,18 +47,18 @@ struct ctl_conn
 	*control_connbyfd(int);
 void	 control_close(int, struct control_sock *);
 void	 control_dispatch_imsg(int, short, void *);
-int	 control_dispatch_vmm(int, struct privsep_proc *, struct imsg *);
+int	 control_dispatch_vmd(int, struct privsep_proc *, struct imsg *);
 void	 control_imsg_forward(struct imsg *);
 void	 control_run(struct privsep *, struct privsep_proc *, void *);
 
 static struct privsep_proc procs[] = {
-	{ "parent",	PROC_PARENT,	control_dispatch_vmm }
+	{ "parent",	PROC_PARENT,	control_dispatch_vmd }
 };
 
-pid_t
+void
 control(struct privsep *ps, struct privsep_proc *p)
 {
-	return (proc_run(ps, p, procs, nitems(procs), control_run, NULL));
+	proc_run(ps, p, procs, nitems(procs), control_run, NULL);
 }
 
 void
@@ -66,30 +66,41 @@ control_run(struct privsep *ps, struct privsep_proc *p, void *arg)
 {
 	/*
 	 * pledge in the control process:
- 	 * stdio - for malloc and basic I/O including events.
+	 * stdio - for malloc and basic I/O including events.
+	 * cpath - for managing the control socket.
 	 * unix - for the control socket.
+	 * recvfd - for the proc fd exchange.
 	 */
-	if (pledge("stdio unix", NULL) == -1)
+	if (pledge("stdio cpath unix recvfd", NULL) == -1)
 		fatal("pledge");
 }
 
 int
-control_dispatch_vmm(int fd, struct privsep_proc *p, struct imsg *imsg)
+control_dispatch_vmd(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
 	struct ctl_conn		*c;
-
-	if ((c = control_connbyfd(imsg->hdr.peerid)) == NULL) {
-		log_warnx("%s: fd %d: not found", __func__, imsg->hdr.peerid);
-		return (-1);
-	}
+	struct privsep		*ps = p->p_ps;
 
 	switch (imsg->hdr.type) {
 	case IMSG_VMDOP_START_VM_RESPONSE:
 	case IMSG_VMDOP_TERMINATE_VM_RESPONSE:
 	case IMSG_VMDOP_GET_INFO_VM_DATA:
 	case IMSG_VMDOP_GET_INFO_VM_END_DATA:
+	case IMSG_CTL_FAIL:
+	case IMSG_CTL_OK:
+		if ((c = control_connbyfd(imsg->hdr.peerid)) == NULL) {
+			log_warnx("%s: lost control connection: fd %d",
+			    __func__, imsg->hdr.peerid);
+			return (0);
+		}
 		imsg_compose_event(&c->iev, imsg->hdr.type,
 		    0, 0, -1, imsg->data, IMSG_DATA_SIZE(imsg));
+		break;
+	case IMSG_VMDOP_CONFIG:
+		config_getconfig(ps->ps_env, imsg);
+		break;
+	case IMSG_CTL_RESET:
+		config_getreset(ps->ps_env, imsg);
 		break;
 	default:
 		return (-1);
@@ -247,9 +258,10 @@ control_connbyfd(int fd)
 {
 	struct ctl_conn	*c;
 
-	for (c = TAILQ_FIRST(&ctl_conns); c != NULL && c->iev.ibuf.fd != fd;
-	    c = TAILQ_NEXT(c, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(c, &ctl_conns, entry) {
+		if (c->iev.ibuf.fd == fd)
+			break;
+	}
 
 	return (c);
 }
@@ -283,11 +295,13 @@ control_close(int fd, struct control_sock *cs)
 void
 control_dispatch_imsg(int fd, short event, void *arg)
 {
-	struct control_sock	*cs = arg;
-	struct privsep		*ps = cs->cs_env;
-	struct ctl_conn		*c;
-	struct imsg		 imsg;
-	int			 n, v, ret = 0;
+	struct control_sock		*cs = arg;
+	struct privsep			*ps = cs->cs_env;
+	struct ctl_conn			*c;
+	struct imsg			 imsg;
+	struct vmop_create_params	 vmc;
+	struct vmop_id			 vid;
+	int				 n, v, ret = 0;
 
 	if ((c = control_connbyfd(fd)) == NULL) {
 		log_warn("%s: fd %d: not found", __func__, fd);
@@ -319,6 +333,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 
 		switch (imsg.hdr.type) {
 		case IMSG_VMDOP_GET_INFO_VM_REQUEST:
+		case IMSG_VMDOP_TERMINATE_VM_REQUEST:
+		case IMSG_VMDOP_START_VM_REQUEST:
 			break;
 		default:
 			if (c->peercred.uid != 0) {
@@ -344,28 +360,53 @@ control_dispatch_imsg(int fd, short event, void *arg)
 			c->flags |= CTL_CONN_NOTIFY;
 			break;
 		case IMSG_CTL_VERBOSE:
-			IMSG_SIZE_CHECK(&imsg, &v);
-
+			if (IMSG_DATA_SIZE(&imsg) < sizeof(v))
+				goto fail;
 			memcpy(&v, imsg.data, sizeof(v));
-			log_verbose(v);
+			log_setverbose(v);
 
-			proc_forward_imsg(ps, &imsg, PROC_PARENT, -1);
+			/* FALLTHROUGH */
+		case IMSG_VMDOP_LOAD:
+		case IMSG_VMDOP_RELOAD:
+		case IMSG_CTL_RESET:
+			if (proc_compose_imsg(ps, PROC_PARENT, -1,
+			    imsg.hdr.type, fd, -1,
+			    imsg.data, IMSG_DATA_SIZE(&imsg)) == -1)
+				goto fail;
 			break;
 		case IMSG_VMDOP_START_VM_REQUEST:
-		case IMSG_VMDOP_TERMINATE_VM_REQUEST:
-		case IMSG_VMDOP_GET_INFO_VM_REQUEST:
-			imsg.hdr.peerid = fd;
+			if (IMSG_DATA_SIZE(&imsg) < sizeof(vmc))
+				goto fail;
+			memcpy(&vmc, imsg.data, sizeof(vmc));
+			vmc.vmc_uid = c->peercred.uid;
+			vmc.vmc_gid = -1;
 
 			if (proc_compose_imsg(ps, PROC_PARENT, -1,
-			    imsg.hdr.type, imsg.hdr.peerid, -1,
-			    imsg.data, IMSG_DATA_SIZE(&imsg)) == -1) {
+			    imsg.hdr.type, fd, -1, &vmc, sizeof(vmc)) == -1) {
 				control_close(fd, cs);
 				return;
 			}
 			break;
-		case IMSG_VMDOP_LOAD:
-		case IMSG_VMDOP_RELOAD:
-			proc_forward_imsg(ps, &imsg, PROC_PARENT, -1);
+		case IMSG_VMDOP_TERMINATE_VM_REQUEST:
+			if (IMSG_DATA_SIZE(&imsg) < sizeof(vid))
+				goto fail;
+			memcpy(&vid, imsg.data, sizeof(vid));
+			vid.vid_uid = c->peercred.uid;
+
+			if (proc_compose_imsg(ps, PROC_PARENT, -1,
+			    imsg.hdr.type, fd, -1, &vid, sizeof(vid)) == -1) {
+				control_close(fd, cs);
+				return;
+			}
+			break;
+		case IMSG_VMDOP_GET_INFO_VM_REQUEST:
+			if (IMSG_DATA_SIZE(&imsg) != 0)
+				goto fail;
+			if (proc_compose_imsg(ps, PROC_PARENT, -1,
+			    imsg.hdr.type, fd, -1, NULL, 0) == -1) {
+				control_close(fd, cs);
+				return;
+			}
 			break;
 		default:
 			log_debug("%s: error handling imsg %d",
@@ -380,6 +421,8 @@ control_dispatch_imsg(int fd, short event, void *arg)
 	return;
 
  fail:
+	if (ret == 0)
+		ret = EINVAL;
 	imsg_compose_event(&c->iev, IMSG_CTL_FAIL,
 	    0, 0, -1, &ret, sizeof(ret));
 	imsg_flush(&c->iev.ibuf);

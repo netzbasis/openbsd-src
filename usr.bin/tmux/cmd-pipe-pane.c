@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-pipe-pane.c,v 1.36 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-pipe-pane.c,v 1.42 2017/05/01 12:20:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -33,9 +33,9 @@
  * Open pipe to redirect pane output. If already open, close first.
  */
 
-enum cmd_retval	 cmd_pipe_pane_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_pipe_pane_exec(struct cmd *, struct cmdq_item *);
 
-void	cmd_pipe_pane_error_callback(struct bufferevent *, short, void *);
+static void cmd_pipe_pane_error_callback(struct bufferevent *, short, void *);
 
 const struct cmd_entry cmd_pipe_pane_entry = {
 	.name = "pipe-pane",
@@ -44,20 +44,20 @@ const struct cmd_entry cmd_pipe_pane_entry = {
 	.args = { "ot:", 0, 1 },
 	.usage = "[-o] " CMD_TARGET_PANE_USAGE " [command]",
 
-	.tflag = CMD_PANE,
+	.target = { 't', CMD_FIND_PANE, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_pipe_pane_exec
 };
 
-enum cmd_retval
-cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_pipe_pane_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
-	struct client		*c = cmdq->state.c;
-	struct window_pane	*wp = cmdq->state.tflag.wp;
-	struct session		*s = cmdq->state.tflag.s;
-	struct winlink		*wl = cmdq->state.tflag.wl;
+	struct client		*c = cmd_find_client(item, NULL, 1);
+	struct window_pane	*wp = item->target.wp;
+	struct session		*s = item->target.s;
+	struct winlink		*wl = item->target.wl;
 	char			*cmd;
 	int			 old_fd, pipe_fd[2], null_fd;
 	struct format_tree	*ft;
@@ -85,12 +85,12 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	/* Open the new pipe. */
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pipe_fd) != 0) {
-		cmdq_error(cmdq, "socketpair error: %s", strerror(errno));
+		cmdq_error(item, "socketpair error: %s", strerror(errno));
 		return (CMD_RETURN_ERROR);
 	}
 
 	/* Expand the command. */
-	ft = format_create(cmdq, 0);
+	ft = format_create(item->client, item, FORMAT_NONE, 0);
 	format_defaults(ft, c, s, wl, wp);
 	cmd = format_expand_time(ft, args->argv[0], time(NULL));
 	format_free(ft);
@@ -98,7 +98,7 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 	/* Fork the child. */
 	switch (fork()) {
 	case -1:
-		cmdq_error(cmdq, "fork error: %s", strerror(errno));
+		cmdq_error(item, "fork error: %s", strerror(errno));
 
 		free(cmd);
 		return (CMD_RETURN_ERROR);
@@ -142,7 +142,7 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 	}
 }
 
-void
+static void
 cmd_pipe_pane_error_callback(__unused struct bufferevent *bufev,
     __unused short what, void *data)
 {

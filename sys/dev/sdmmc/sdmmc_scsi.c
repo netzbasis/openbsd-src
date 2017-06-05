@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdmmc_scsi.c,v 1.36 2016/05/05 10:51:10 kettenis Exp $	*/
+/*	$OpenBSD: sdmmc_scsi.c,v 1.40 2017/04/06 17:00:53 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
@@ -67,6 +67,7 @@ struct sdmmc_scsi_softc {
 	struct sdmmc_scsi_target *sc_tgt;
 	int sc_ntargets;
 	struct sdmmc_ccb *sc_ccbs;		/* allocated ccbs */
+	int		sc_nccbs;
 	struct sdmmc_ccb_list sc_ccb_freeq;	/* free ccbs */
 	struct sdmmc_ccb_list sc_ccb_runq;	/* queued ccbs */
 	struct mutex sc_ccb_mtx;
@@ -103,7 +104,7 @@ sdmmc_scsi_attach(struct sdmmc_softc *sc)
 
 	scbus = malloc(sizeof *scbus, M_DEVBUF, M_WAITOK | M_ZERO);
 
-	scbus->sc_tgt = malloc(sizeof(*scbus->sc_tgt) *
+	scbus->sc_tgt = mallocarray(sizeof(*scbus->sc_tgt),
 	    (SDMMC_SCSIID_MAX+1), M_DEVBUF, M_WAITOK | M_ZERO);
 
 	/*
@@ -151,8 +152,9 @@ sdmmc_scsi_attach(struct sdmmc_softc *sc)
 	sc->sc_scsibus = NULL;
 	sdmmc_free_ccbs(scbus);
  free_sctgt:
-	free(scbus->sc_tgt, M_DEVBUF, 0);
-	free(scbus, M_DEVBUF, 0);
+	free(scbus->sc_tgt, M_DEVBUF,
+	    sizeof(*scbus->sc_tgt) * (SDMMC_SCSIID_MAX+1));
+	free(scbus, M_DEVBUF, sizeof *scbus);
 }
 
 void
@@ -179,10 +181,11 @@ sdmmc_scsi_detach(struct sdmmc_softc *sc)
 		config_detach(scbus->sc_child, DETACH_FORCE);
 
 	if (scbus->sc_tgt != NULL)
-		free(scbus->sc_tgt, M_DEVBUF, 0);
+		free(scbus->sc_tgt, M_DEVBUF,
+		    sizeof(*scbus->sc_tgt) * (SDMMC_SCSIID_MAX+1));
 
 	sdmmc_free_ccbs(scbus);
-	free(scbus, M_DEVBUF, 0);
+	free(scbus, M_DEVBUF, sizeof *scbus);
 	sc->sc_scsibus = NULL;
 }
 
@@ -200,6 +203,7 @@ sdmmc_alloc_ccbs(struct sdmmc_scsi_softc *scbus, int nccbs)
 	    M_DEVBUF, M_NOWAIT);
 	if (scbus->sc_ccbs == NULL)
 		return 1;
+	scbus->sc_nccbs = nccbs;
 
 	TAILQ_INIT(&scbus->sc_ccb_freeq);
 	TAILQ_INIT(&scbus->sc_ccb_runq);
@@ -223,7 +227,8 @@ void
 sdmmc_free_ccbs(struct sdmmc_scsi_softc *scbus)
 {
 	if (scbus->sc_ccbs != NULL) {
-		free(scbus->sc_ccbs, M_DEVBUF, 0);
+		free(scbus->sc_ccbs, M_DEVBUF,
+		    scbus->sc_nccbs * sizeof(struct sdmmc_ccb));
 		scbus->sc_ccbs = NULL;
 	}
 }
@@ -313,7 +318,7 @@ sdmmc_scsi_cmd(struct scsi_xfer *xs)
 
 	DPRINTF(("%s: scsi cmd target=%d opcode=%#x proc=\"%s\" (poll=%#x)\n",
 	    DEVNAME(sc), link->target, xs->cmd->opcode, curproc ?
-	    curproc->p_comm : "", xs->flags & SCSI_POLL));
+	    curproc->p_p->ps_comm : "", xs->flags & SCSI_POLL));
 
 	xs->error = XS_NOERROR;
 
@@ -424,6 +429,7 @@ sdmmc_inquiry(struct scsi_xfer *xs)
 
 	memset(&inq, 0, sizeof inq);
 	inq.device = T_DIRECT;
+	inq.dev_qual2 = SID_REMOVABLE;
 	inq.version = 2;
 	inq.response_format = 2;
 	inq.additional_length = 32;
@@ -475,7 +481,7 @@ sdmmc_complete_xs(void *arg)
 
 	DPRINTF(("%s: scsi cmd target=%d opcode=%#x proc=\"%s\" (poll=%#x)"
 	    " complete\n", DEVNAME(sc), link->target, xs->cmd->opcode,
-	    curproc ? curproc->p_comm : "", xs->flags & SCSI_POLL));
+	    curproc ? curproc->p_p->ps_comm : "", xs->flags & SCSI_POLL));
 
 	s = splbio();
 
@@ -506,7 +512,7 @@ sdmmc_done_xs(struct sdmmc_ccb *ccb)
 
 	DPRINTF(("%s: scsi cmd target=%d opcode=%#x proc=\"%s\" (error=%#x)"
 	    " done\n", DEVNAME(sc), link->target, xs->cmd->opcode,
-	    curproc ? curproc->p_comm : "", xs->error));
+	    curproc ? curproc->p_p->ps_comm : "", xs->error));
 
 	xs->resid = 0;
 

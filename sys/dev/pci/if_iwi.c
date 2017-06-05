@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwi.c,v 1.133 2016/09/05 08:17:48 tedu Exp $	*/
+/*	$OpenBSD: if_iwi.c,v 1.136 2017/03/29 16:42:25 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -965,6 +965,7 @@ iwi_notification_intr(struct iwi_softc *sc, struct iwi_rx_data *data,
     struct iwi_notif *notif)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
+	struct ieee80211_node *ni = ic->ic_bss;
 	struct ifnet *ifp = &ic->ic_if;
 
 	switch (notif->type) {
@@ -1028,6 +1029,8 @@ iwi_notification_intr(struct iwi_softc *sc, struct iwi_rx_data *data,
 			break;
 
 		case IWI_ASSOCIATED:
+			if (ic->ic_flags & IEEE80211_F_RSNON)
+				ni->ni_rsn_supp_state = RSNA_SUPP_PTKSTART;
 			ieee80211_new_state(ic, IEEE80211_S_RUN, -1);
 			break;
 
@@ -1127,8 +1130,6 @@ iwi_tx_intr(struct iwi_softc *sc, struct iwi_tx_ring *txq)
 		ieee80211_release_node(ic, data->ni);
 		data->ni = NULL;
 
-		ifp->if_opackets++;
-
 		txq->queued--;
 		txq->next = (txq->next + 1) % IWI_TX_RING_COUNT;
 	}
@@ -1166,7 +1167,6 @@ iwi_intr(void *arg)
 
 	if (r & IWI_INTR_RADIO_OFF) {
 		DPRINTF(("radio transmitter off\n"));
-		ifp->if_flags &= ~IFF_UP;
 		iwi_stop(ifp, 1);
 		return 1;
 	}
@@ -1431,7 +1431,6 @@ iwi_watchdog(struct ifnet *ifp)
 	if (sc->sc_tx_timer > 0) {
 		if (--sc->sc_tx_timer == 0) {
 			printf("%s: device timeout\n", sc->sc_dev.dv_xname);
-			ifp->if_flags &= ~IFF_UP;
 			iwi_stop(ifp, 1);
 			ifp->if_oerrors++;
 			return;
@@ -2042,6 +2041,7 @@ iwi_auth_and_assoc(struct iwi_softc *sc)
 	config.disable_multicast_decryption = 1;
 	config.silence_threshold = 30;
 	config.report_noise = 1;
+	config.allow_mgt = 1;
 	config.answer_pbreq =
 #ifndef IEEE80211_STA_ONLY
 	    (ic->ic_opmode == IEEE80211_M_IBSS) ? 1 :

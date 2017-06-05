@@ -1,4 +1,4 @@
-/* $OpenBSD: zsig.c,v 1.12 2016/09/10 12:23:16 deraadt Exp $ */
+/* $OpenBSD: zsig.c,v 1.14 2016/10/04 14:40:41 espie Exp $ */
 /*
  * Copyright (c) 2016 Marc Espie <espie@openbsd.org>
  *
@@ -52,10 +52,7 @@ struct gzheader {
 
 static uint8_t fake[10] = { 0x1f, 0x8b, 8, FCOMMENT_FLAG, 0, 0, 0, 0, 0, 3 };
 
-/* XXX no static there, confuses the hell out of gcc which displays
- * non-existent warnings.
- */
-uint8_t *
+static uint8_t *
 readgz_header(struct gzheader *h, int fd)
 {
 	size_t sz = 1024;
@@ -97,7 +94,7 @@ readgz_header(struct gzheader *h, int fd)
 			h->os = buf[9];
 			/* magic gzip header */
 			if (buf[0] != 0x1f || buf[1] != 0x8b || buf[2] != 8)
-				err(1, "invalud magic in gzheader");
+				err(1, "invalid magic in gzheader");
 			/* XXX special code that only caters to our needs */
 			if (h->flg & ~ (FCOMMENT_FLAG | FNAME_FLAG))
 				err(1, "invalid flags in gzheader");

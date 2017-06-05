@@ -1,4 +1,4 @@
-/*	$OpenBSD: radix.c,v 1.53 2016/08/30 23:29:39 dlg Exp $	*/
+/*	$OpenBSD: radix.c,v 1.56 2017/01/24 10:08:30 krw Exp $	*/
 /*	$NetBSD: radix.c,v 1.20 2003/08/07 16:32:56 agc Exp $	*/
 
 /*
@@ -48,16 +48,6 @@
 
 #include <net/radix.h>
 
-#if defined(ART) && !defined(SMALL_KERNEL)
-#define SMALL_KERNEL
-#endif
-
-#ifndef SMALL_KERNEL
-#include <sys/socket.h>
-#include <net/route.h>
-#include <net/radix_mpath.h>
-#endif
-
 static unsigned int max_keylen;
 struct radix_node_head *mask_rnhead;
 static char *addmask_key;
@@ -102,18 +92,18 @@ static inline void rn_swap_nodes(struct radix_node *, struct radix_node *);
  * We define the index of a route to associated with the mask to be
  * the first bit number in the mask where 0 occurs (with bit number 0
  * representing the highest order bit).
- * 
+ *
  * We say a mask is normal if every bit is 0, past the index of the mask.
  * If a node n has a descendant (k, m) with index(m) == index(n) == rn_b,
  * and m is a normal mask, then the route applies to every descendant of n.
  * If the index(m) < rn_b, this implies the trailing last few bits of k
  * before bit b are all 0, (and hence consequently true of every descendant
  * of n), so the route applies to all descendants of the node as well.
- * 
+ *
  * Similar logic shows that a non-normal mask m such that
  * index(m) <= index(n) could potentially apply to many children of n.
  * Thus, for each non-host route, we attach its mask to a list at an internal
- * node as high in the tree as we can go. 
+ * node as high in the tree as we can go.
  *
  * The present version of the code makes use of normal routes in short-
  * circuiting an explicit mask and compare operation when testing whether
@@ -632,9 +622,6 @@ rn_add_dupedkey(struct radix_node *saved_tt, struct radix_node_head *head,
 {
 	caddr_t netmask = tt->rn_mask;
 	struct radix_node *x = saved_tt, *xp;
-#ifndef SMALL_KERNEL
-	struct radix_node *dupedkey_tt = NULL;
-#endif
 	int before = -1;
 	int b_leaf = 0;
 
@@ -642,46 +629,6 @@ rn_add_dupedkey(struct radix_node *saved_tt, struct radix_node_head *head,
 		b_leaf = tt->rn_b;
 
 	for (xp = x; x; xp = x, x = x->rn_dupedkey) {
-#ifndef SMALL_KERNEL
-		/* permit multipath, if enabled for the family */
-		if (rn_mpath_capable(head) && netmask == x->rn_mask) {
-			int mid;
-			/*
-			 * Try to insert the new node in the middle
-			 * of the list of any preexisting multipaths,
-			 * to reduce the number of path disruptions
-			 * that occur as a result of an insertion,
-			 * per RFC2992.
-			 * Additionally keep the list sorted by route
-			 * priority.
-			 */
-			before = 0;
-
-			dupedkey_tt = x;
-			x = rn_mpath_prio(x, prio);
-			if (((struct rtentry *)x)->rt_priority !=
-			    prio) {
-				/*
-				 * rn_mpath_prio returns the previous
-				 * element if no element with the 
-				 * requested priority exists. It could
-				 * be that the previous element comes
-				 * with a bigger priority.
-				 */
-				if (((struct rtentry *)x)->rt_priority > prio)
-					before = 1;
-				xp = x;
-				break;
-			}
-
-			mid = rn_mpath_active_count(x) / 2;
-			do {
-				xp = x;
-				x = rn_mpath_next(x, RMP_MODE_BYPRIO);
-			} while (x && --mid > 0);
-			break;
-		}
-#endif
 		if (x->rn_mask == netmask)
 			return (-1);
 		if (netmask == NULL ||
@@ -711,14 +658,6 @@ rn_add_dupedkey(struct radix_node *saved_tt, struct radix_node_head *head,
 		before = 0;
 	rn_link_dupedkey(tt, xp, before);
 
-
-#ifndef SMALL_KERNEL
-	/* adjust the flags of the possible multipath chain */
-	if (!dupedkey_tt)
-		dupedkey_tt = tt;
-	if (rn_mpath_capable(head))
-		rn_mpath_adj_mpflag(dupedkey_tt, prio);
-#endif
 	return (0);
 }
 
@@ -853,10 +792,6 @@ rn_addroute(void *v_arg, void *n_arg, struct radix_node_head *head,
 			return (NULL);
 	} else {
 		rn_fixup_nodes(tt);
-#ifndef SMALL_KERNEL
-		if (rn_mpath_capable(head))
-			rn_mpath_adj_mpflag(tt, prio);
-#endif
 	}
 
 	/* finally insert a radix_mask element if needed */
@@ -889,7 +824,7 @@ rn_del_radix_mask(struct radix_node *tt)
 		if (m->rm_leaf != tt) {
 			if (--m->rm_refs >= 0)
 				return (0);
-			else 
+			else
 				log(LOG_ERR, "rn_delete: "
 				    "inconsistent mklist refcount\n");
 		}
@@ -1007,12 +942,6 @@ rn_delete(void *v_arg, void *n_arg, struct radix_node_head *head,
 	/* save start of multi path chain for later use */
 	dupedkey_tt = tt;
 
-#ifndef SMALL_KERNEL
-	/* if we got a hint use the hint from now on */
-	if (rn)
-		tt = rn;
-#endif
-
 	KASSERT((tt->rn_flags & RNF_ROOT) == 0);
 
 	/* remove possible radix_mask */
@@ -1049,12 +978,6 @@ rn_delete(void *v_arg, void *n_arg, struct radix_node_head *head,
 		if  (tt[1].rn_flags & RNF_ACTIVE)
 			rn_swap_nodes(&tt[1], &x[1]);
 
-#ifndef SMALL_KERNEL
-		/* adjust the flags of the multipath chain */
-		if (rn_mpath_capable(head))
-			rn_mpath_adj_mpflag(dupedkey_tt,
-			    ((struct rtentry *)tt)->rt_priority);
-#endif
 		/* over and out */
 		goto out;
 	}
@@ -1223,9 +1146,8 @@ rn_init(unsigned int keylen)
 	char *cp, *cplim;
 
 	if (max_keylen == 0) {
-		pool_init(&rtmask_pool, sizeof(struct radix_mask), 0, 0, 0,
-		    "rtmask", NULL);
-		pool_setipl(&rtmask_pool, IPL_SOFTNET);
+		pool_init(&rtmask_pool, sizeof(struct radix_mask), 0,
+		    IPL_SOFTNET, 0, "rtmask", NULL);
 	}
 
 	if (keylen <= max_keylen)

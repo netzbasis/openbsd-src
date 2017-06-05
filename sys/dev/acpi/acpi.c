@@ -1,4 +1,4 @@
-/* $OpenBSD: acpi.c,v 1.315 2016/09/03 14:46:56 naddy Exp $ */
+/* $OpenBSD: acpi.c,v 1.328 2017/04/08 04:06:01 deraadt Exp $ */
 /*
  * Copyright (c) 2005 Thorsten Lockert <tholo@sigmasoft.com>
  * Copyright (c) 2005 Jordan Hargrave <jordan@openbsd.org>
@@ -91,9 +91,6 @@ int	_acpi_matchhids(const char *, const char *[]);
 int	acpi_inidev(struct aml_node *, void *);
 int	acpi_foundprt(struct aml_node *, void *);
 
-struct acpi_q *acpi_maptable(struct acpi_softc *, paddr_t, const char *,
-	    const char *, const char *, int);
-
 int	acpi_enable(struct acpi_softc *);
 void	acpi_init_states(struct acpi_softc *);
 
@@ -135,6 +132,7 @@ int	acpi_foundpss(struct aml_node *, void *);
 int	acpi_foundtmp(struct aml_node *, void *);
 int	acpi_foundprw(struct aml_node *, void *);
 int	acpi_foundvideo(struct aml_node *, void *);
+int	acpi_foundsbs(struct aml_node *node, void *);
 
 int	acpi_foundide(struct aml_node *node, void *arg);
 int	acpiide_notify(struct aml_node *, int, void *);
@@ -513,10 +511,10 @@ TAILQ_HEAD(, acpi_pci) acpi_pcirootdevs =
     TAILQ_HEAD_INITIALIZER(acpi_pcirootdevs);
 
 int acpi_getpci(struct aml_node *node, void *arg);
-int acpi_getminbus(union acpi_resource *crs, void *arg);
+int acpi_getminbus(int crsidx, union acpi_resource *crs, void *arg);
 
 int
-acpi_getminbus(union acpi_resource *crs, void *arg)
+acpi_getminbus(int crsidx, union acpi_resource *crs, void *arg)
 {
 	int *bbn = arg;
 	int typ = AML_CRSTYPE(crs);
@@ -1082,6 +1080,11 @@ acpi_attach(struct device *parent, struct device *self, void *aux)
 
 	aml_walknodes(&aml_root, AML_WALK_PRE, acpi_add_device, sc);
 
+#ifndef SMALL_KERNEL
+	/* try to find smart battery first */
+	aml_find_node(&aml_root, "_HID", acpi_foundsbs, sc);
+#endif /* SMALL_KERNEL */
+
 	/* attach battery, power supply and button devices */
 	aml_find_node(&aml_root, "_HID", acpi_foundhid, sc);
 
@@ -1113,6 +1116,12 @@ acpi_attach(struct device *parent, struct device *self, void *aux)
 			bat = malloc(sizeof(*bat), M_DEVBUF, M_WAITOK | M_ZERO);
 			bat->aba_softc = (struct acpibat_softc *)dev;
 			SLIST_INSERT_HEAD(&sc->sc_bat, bat, aba_link);
+		} else if (!strcmp(dev->dv_cfdata->cf_driver->cd_name, "acpisbs")) {
+			struct acpi_sbs *sbs;
+
+			sbs = malloc(sizeof(*sbs), M_DEVBUF, M_WAITOK | M_ZERO);
+			sbs->asbs_softc = (struct acpisbs_softc *)dev;
+			SLIST_INSERT_HEAD(&sc->sc_sbs, sbs, asbs_link);
 		}
 	}
 
@@ -1759,17 +1768,18 @@ acpi_sleep_task(void *arg0, int sleepmode)
 	struct acpi_softc *sc = arg0;
 	struct acpi_ac *ac;
 	struct acpi_bat *bat;
+	struct acpi_sbs *sbs;
 
 	/* System goes to sleep here.. */
 	acpi_sleep_state(sc, sleepmode);
 
 	/* AC and battery information needs refreshing */
 	SLIST_FOREACH(ac, &sc->sc_ac, aac_link)
-		aml_notify(ac->aac_softc->sc_devnode,
-		    0x80);
+		aml_notify(ac->aac_softc->sc_devnode, 0x80);
 	SLIST_FOREACH(bat, &sc->sc_bat, aba_link)
-		aml_notify(bat->aba_softc->sc_devnode,
-		    0x80);
+		aml_notify(bat->aba_softc->sc_devnode, 0x80);
+	SLIST_FOREACH(sbs, &sc->sc_sbs, asbs_link)
+		aml_notify(sbs->asbs_softc->sc_devnode, 0x80);
 }
 
 #endif /* SMALL_KERNEL */
@@ -1958,12 +1968,10 @@ acpi_add_device(struct aml_node *node, void *arg)
 	struct device *self = arg;
 	struct acpi_softc *sc = arg;
 	struct acpi_attach_args aaa;
-#ifdef MULTIPROCESSOR
 	struct aml_value res;
 	CPU_INFO_ITERATOR cii;
 	struct cpu_info *ci;
 	int proc_id = -1;
-#endif
 
 	memset(&aaa, 0, sizeof(aaa));
 	aaa.aaa_node = node;
@@ -1976,7 +1984,6 @@ acpi_add_device(struct aml_node *node, void *arg)
 	case AML_OBJTYPE_PROCESSOR:
 		if (nacpicpus >= ncpus)
 			return 0;
-#ifdef MULTIPROCESSOR
 		if (aml_evalnode(sc, aaa.aaa_node, 0, NULL, &res) == 0) {
 			if (res.type == AML_OBJTYPE_PROCESSOR)
 				proc_id = res.v_processor.proc_id;
@@ -1988,7 +1995,6 @@ acpi_add_device(struct aml_node *node, void *arg)
 		}
 		if (ci == NULL)
 			return 0;
-#endif
 		nacpicpus++;
 
 		aaa.aaa_name = "acpicpu";
@@ -2343,21 +2349,23 @@ acpi_indicator(struct acpi_softc *sc, int led_state)
 
 
 int
-acpi_sleep_state(struct acpi_softc *sc, int state)
+acpi_sleep_state(struct acpi_softc *sc, int sleepmode)
 {
 	extern int perflevel;
-	extern int lid_suspend;
+	extern int lid_action;
 	int error = ENXIO;
 	size_t rndbuflen = 0;
 	char *rndbuf = NULL;
-	int s;
+	int state, s;
 
-	switch (state) {
-	case ACPI_STATE_S0:
-		return (0);
-	case ACPI_STATE_S1:
-		return (EOPNOTSUPP);
-	case ACPI_STATE_S5:	/* only sleep states handled here */
+	switch (sleepmode) {
+	case ACPI_SLEEP_SUSPEND:
+		state = ACPI_STATE_S3;
+		break;
+	case ACPI_SLEEP_HIBERNATE:
+		state = ACPI_STATE_S4;
+		break;
+	default:
 		return (EOPNOTSUPP);
 	}
 
@@ -2386,7 +2394,7 @@ acpi_sleep_state(struct acpi_softc *sc, int state)
 	stop_periodic_resettodr();
 
 #ifdef HIBERNATE
-	if (state == ACPI_STATE_S4) {
+	if (sleepmode == ACPI_SLEEP_HIBERNATE) {
 		uvmpd_hibernate();
 		hibernate_suspend_bufcache();
 		if (hibernate_alloc()) {
@@ -2397,6 +2405,7 @@ acpi_sleep_state(struct acpi_softc *sc, int state)
 	}
 #endif /* HIBERNATE */
 
+	sensor_quiesce();
 	if (config_suspend_all(DVACT_QUIESCE))
 		goto fail_quiesce;
 
@@ -2442,7 +2451,7 @@ acpi_sleep_state(struct acpi_softc *sc, int state)
 	/* Resume */
 
 #ifdef HIBERNATE
-	if (state == ACPI_STATE_S4) {
+	if (sleepmode == ACPI_SLEEP_HIBERNATE) {
 		uvm_pmr_dirty_everything();
 		hib_getentropy(&rndbuf, &rndbuflen);
 	}
@@ -2476,11 +2485,12 @@ fail_suspend:
 
 fail_quiesce:
 	config_suspend_all(DVACT_WAKEUP);
+	sensor_restart();
 
 #ifdef HIBERNATE
-fail_alloc:
-	if (state == ACPI_STATE_S4) {
+	if (sleepmode == ACPI_SLEEP_HIBERNATE) {
 		hibernate_free();
+fail_alloc:
 		hibernate_resume_bufcache();
 	}
 #endif /* HIBERNATE */
@@ -2501,8 +2511,8 @@ fail_alloc:
 	acpi_indicator(sc, ACPI_SST_WORKING);
 
 	/* If we woke up but all the lids are closed, go back to sleep */
-	if (acpibtn_numopenlids() == 0 && lid_suspend != 0)
-		acpi_addtask(sc, acpi_sleep_task, sc, state);
+	if (acpibtn_numopenlids() == 0 && lid_action != 0)
+		acpi_addtask(sc, acpi_sleep_task, sc, sleepmode);
 
 fail_tts:
 	return (error);
@@ -2821,15 +2831,15 @@ acpi_foundhid(struct aml_node *node, void *arg)
 {
 	struct acpi_softc	*sc = (struct acpi_softc *)arg;
 	struct device		*self = (struct device *)arg;
-	char		 	 cdev[16];
-	char		 	 dev[16];
+	char		 	 cdev[32];
+	char		 	 dev[32];
 	struct acpi_attach_args	 aaa;
 	int64_t			 sta;
 #ifndef SMALL_KERNEL
 	int			 i;
 #endif
 
-	if (acpi_parsehid(node, arg, cdev, dev, 16) != 0)
+	if (acpi_parsehid(node, arg, cdev, dev, sizeof(dev)) != 0)
 		return (0);
 
 	if (aml_evalinteger(sc, node->parent, "_STA", 0, NULL, &sta))
@@ -2908,6 +2918,44 @@ acpi_foundvideo(struct aml_node *node, void *arg)
 }
 
 int
+acpi_foundsbs(struct aml_node *node, void *arg)
+{
+	struct acpi_softc	*sc = (struct acpi_softc *)arg;
+	struct device		*self = (struct device *)arg;
+	char		 	 cdev[32], dev[32];
+	struct acpi_attach_args	 aaa;
+	int64_t			 sta;
+
+	if (acpi_parsehid(node, arg, cdev, dev, sizeof(dev)) != 0)
+		return (0);
+
+	if (aml_evalinteger(sc, node->parent, "_STA", 0, NULL, &sta))
+		sta = STA_PRESENT | STA_ENABLED | STA_DEV_OK | 0x1000;
+
+	if ((sta & STA_PRESENT) == 0)
+		return (0);
+
+	acpi_attach_deps(sc, node->parent);
+
+	if (strcmp(dev, ACPI_DEV_SBS) != 0)
+		return (0);
+
+	if (node->parent->attached)
+		return (0);
+
+	memset(&aaa, 0, sizeof(aaa));
+	aaa.aaa_iot = sc->sc_iot;
+	aaa.aaa_memt = sc->sc_memt;
+	aaa.aaa_node = node->parent;
+	aaa.aaa_dev = dev;
+
+	config_found(self, &aaa, acpi_print);
+	node->parent->attached = 1;
+
+	return (0);
+}
+
+int
 acpiopen(dev_t dev, int flag, int mode, struct proc *p)
 {
 	int error = 0;
@@ -2980,6 +3028,7 @@ acpiioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 	struct acpi_softc *sc;
 	struct acpi_ac *ac;
 	struct acpi_bat *bat;
+	struct acpi_sbs *sbs;
 	struct apm_power_info *pi = (struct apm_power_info *)data;
 	int bats;
 	unsigned int remaining, rem, minutes, rate;
@@ -2998,7 +3047,7 @@ acpiioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 			error = EBADF;
 			break;
 		}
-		acpi_addtask(sc, acpi_sleep_task, sc, ACPI_STATE_S3);
+		acpi_addtask(sc, acpi_sleep_task, sc, ACPI_SLEEP_SUSPEND);
 		acpi_wakeup(sc);
 		break;
 #ifdef HIBERNATE
@@ -3013,7 +3062,7 @@ acpiioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 			error = EOPNOTSUPP;
 			break;
 		}
-		acpi_addtask(sc, acpi_sleep_task, sc, ACPI_STATE_S4);
+		acpi_addtask(sc, acpi_sleep_task, sc, ACPI_SLEEP_HIBERNATE);
 		acpi_wakeup(sc);
 		break;
 #endif
@@ -3056,6 +3105,27 @@ acpiioctl(dev_t dev, u_long cmd, caddr_t data, int flag, struct proc *p)
 				rate = bat->aba_softc->sc_bst.bst_rate;
 
 			minutes += bat->aba_softc->sc_bst.bst_capacity;
+		}
+
+		SLIST_FOREACH(sbs, &sc->sc_sbs, asbs_link) {
+			if (sbs->asbs_softc->sc_batteries_present == 0)
+				continue;
+
+			if (sbs->asbs_softc->sc_battery.rel_charge == 0)
+				continue;
+
+			bats++;
+			rem = sbs->asbs_softc->sc_battery.rel_charge;
+			if (rem > 100)
+				rem = 100;
+			remaining += rem;
+
+			if (sbs->asbs_softc->sc_battery.run_time ==
+			    ACPISBS_VALUE_UNKNOWN)
+				continue;
+
+			rate = 60; /* XXX */
+			minutes += sbs->asbs_softc->sc_battery.run_time;
 		}
 
 		if (bats == 0) {

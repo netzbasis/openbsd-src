@@ -1,4 +1,4 @@
-/*	$OpenBSD: wsfont.c,v 1.43 2016/09/04 18:20:34 tedu Exp $ */
+/*	$OpenBSD: wsfont.c,v 1.48 2017/05/30 13:14:44 fcambus Exp $ */
 /*	$NetBSD: wsfont.c,v 1.17 2001/02/07 13:59:24 ad Exp $	*/
 
 /*-
@@ -43,41 +43,6 @@
 #include "wsfont_glue.h"	/* NRASOPS_ROTATION */
 
 #undef HAVE_FONT
-
-#ifdef FONT_QVSS8x15
-#define HAVE_FONT 1
-#include <dev/wsfont/qvss8x15.h>
-#endif
-
-#ifdef FONT_LUCIDA16x29
-#define HAVE_FONT 1
-#include <dev/wsfont/lucida16x29.h>
-#endif
-
-#ifdef FONT_VT220L8x8
-#define HAVE_FONT 1
-#include <dev/wsfont/vt220l8x8.h>
-#endif
-
-#ifdef FONT_VT220L8x10
-#define HAVE_FONT 1
-#include <dev/wsfont/vt220l8x10.h>
-#endif
-
-#ifdef FONT_SONY8x16
-#define HAVE_FONT 1
-#include <dev/wsfont/sony8x16.h>
-#endif
-
-#ifdef FONT_SONY12x24
-#define HAVE_FONT 1
-#include <dev/wsfont/sony12x24.h>
-#endif
-
-#ifdef FONT_OMRON12x20
-#define HAVE_FONT 1
-#include <dev/wsfont/omron12x20.h>
-#endif
 
 #ifdef FONT_BOLD8x16
 #define HAVE_FONT 1
@@ -139,32 +104,8 @@ static struct font builtin_fonts[] = {
 #ifdef FONT_BOLD8x16_ISO1
 	BUILTIN_FONT(bold8x16_iso1, 2),
 #endif
-#ifdef FONT_COURIER11x18
-	BUILTIN_FONT(courier11x18, 3),
-#endif
 #ifdef FONT_GALLANT12x22
-	BUILTIN_FONT(gallant12x22, 4),
-#endif
-#ifdef FONT_LUCIDA16x29
-	BUILTIN_FONT(lucida16x29, 5),
-#endif
-#ifdef FONT_QVSS8x15
-	BUILTIN_FONT(qvss8x15, 6),
-#endif
-#ifdef FONT_VT220L8x8
-	BUILTIN_FONT(vt220l8x8, 7),
-#endif
-#ifdef FONT_VT220L8x10
-	BUILTIN_FONT(vt220l8x10, 8),
-#endif
-#ifdef FONT_SONY8x16
-	BUILTIN_FONT(sony8x16, 9),
-#endif
-#ifdef FONT_SONY12x24
-	BUILTIN_FONT(sony12x24, 10),
-#endif
-#ifdef FONT_OMRON12x20
-	BUILTIN_FONT(omron12x20, 11),
+	BUILTIN_FONT(gallant12x22, 3),
 #endif
 #undef BUILTIN_FONT
 };
@@ -450,13 +391,21 @@ wsfont_add(struct wsdisplay_font *font, int copy)
 {
 	static int cookiegen = 666;
 	struct font *ent;
-	int s;
+	int s, fontc = 0;
 
 	s = splhigh();
 
 	/* Don't allow exact duplicates */
 	if (wsfont_find(font->name, font->fontwidth, font->fontheight,
 	    font->stride) >= 0) {
+		splx(s);
+		return (-1);
+	}
+
+	TAILQ_FOREACH(ent, &fontlist, chain)
+		fontc++;
+
+	if (fontc >= WSDISPLAY_MAXFONTCOUNT) {
 		splx(s);
 		return (-1);
 	}

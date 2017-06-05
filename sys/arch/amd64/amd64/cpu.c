@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.c,v 1.102 2016/07/28 21:57:57 kettenis Exp $	*/
+/*	$OpenBSD: cpu.c,v 1.105 2017/05/30 15:11:32 deraadt Exp $	*/
 /* $NetBSD: cpu.c,v 1.1 2003/04/26 18:39:26 fvdl Exp $ */
 
 /*-
@@ -125,7 +125,6 @@ struct cpu_softc {
 	struct cpu_info *sc_info;	/* pointer to CPU info */
 };
 
-#ifndef SMALL_KERNEL
 void	replacesmap(void);
 
 extern long _stac;
@@ -148,7 +147,6 @@ replacesmap(void)
 
 	splx(s);
 }
-#endif /* !SMALL_KERNEL */
 
 #ifdef MULTIPROCESSOR
 int mp_cpu_start(struct cpu_info *);
@@ -496,14 +494,12 @@ cpu_init(struct cpu_info *ci)
 	cr4 = rcr4() | CR4_DEFAULT;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMEP)
 		cr4 |= CR4_SMEP;
-#ifndef SMALL_KERNEL
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_SMAP)
 		cr4 |= CR4_SMAP;
 	if (ci->ci_feature_sefflags_ebx & SEFF0EBX_FSGSBASE)
 		cr4 |= CR4_FSGSBASE;
 	if (ci->ci_feature_sefflags_ecx & SEFF0ECX_UMIP)
 		cr4 |= CR4_UMIP;
-#endif
 	if (cpu_ecxfeature & CPUIDECX_XSAVE)
 		cr4 |= CR4_OSXSAVE;
 	lcr4(cr4);
@@ -528,7 +524,14 @@ cpu_init(struct cpu_info *ci)
 
 #ifdef MULTIPROCESSOR
 	ci->ci_flags |= CPUF_RUNNING;
-	tlbflushg();
+	/*
+	 * Big hammer: flush all TLB entries, including ones from PTE's
+	 * with the G bit set.  This should only be necessary if TLB
+	 * shootdown falls far behind.
+	 */
+	cr4 = rcr4();
+	lcr4(cr4 & ~CR4_PGE);
+	lcr4(cr4);
 #endif
 }
 
@@ -619,7 +622,7 @@ cpu_start_secondary(struct cpu_info *ci)
 		printf("%s: failed to become ready\n", ci->ci_dev->dv_xname);
 #if defined(MPDEBUG) && defined(DDB)
 		printf("dropping into debugger; continue from here to resume boot\n");
-		Debugger();
+		db_enter();
 #endif
 	}
 
@@ -655,7 +658,7 @@ cpu_boot_secondary(struct cpu_info *ci)
 		printf("cpu failed to start\n");
 #if defined(MPDEBUG) && defined(DDB)
 		printf("dropping into debugger; continue from here to resume boot\n");
-		Debugger();
+		db_enter();
 #endif
 	}
 }

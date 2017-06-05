@@ -1,4 +1,4 @@
-/*	$OpenBSD: init_main.c,v 1.257 2016/09/04 09:22:29 mpi Exp $	*/
+/*	$OpenBSD: init_main.c,v 1.269 2017/04/28 13:50:55 mpi Exp $	*/
 /*	$NetBSD: init_main.c,v 1.84.4.1 1996/06/02 09:08:06 mrg Exp $	*/
 
 /*
@@ -75,6 +75,7 @@
 #include <sys/mbuf.h>
 #include <sys/pipe.h>
 #include <sys/task.h>
+#include <sys/witness.h>
 
 #include <sys/syscall.h>
 #include <sys/syscallargs.h>
@@ -105,7 +106,7 @@ extern void nfs_init(void);
 const char	copyright[] =
 "Copyright (c) 1982, 1986, 1989, 1991, 1993\n"
 "\tThe Regents of the University of California.  All rights reserved.\n"
-"Copyright (c) 1995-2016 OpenBSD. All rights reserved.  https://www.OpenBSD.org\n";
+"Copyright (c) 1995-2017 OpenBSD. All rights reserved.  https://www.OpenBSD.org\n";
 
 /* Components of the first process -- never freed. */
 struct	session session0;
@@ -139,11 +140,15 @@ void	start_cleaner(void *);
 void	start_update(void *);
 void	start_reaper(void *);
 void	crypto_init(void);
+void	db_ctf_init(void);
 void	prof_init(void);
 void	init_exec(void);
 void	kqueue_init(void);
+void	futex_init(void);
 void	taskq_init(void);
+void	timeout_proc_init(void);
 void	pool_gc_pages(void *);
+void	percpu_init(void);
 
 extern char sigcode[], esigcode[], sigcoderet[];
 #ifdef SYSCALL_DEBUG
@@ -188,7 +193,7 @@ main(void *framep)
 	struct process *pr;
 	struct pdevinit *pdev;
 	quad_t lim;
-	int s, i;
+	int i;
 	extern struct pdevinit pdevinit[];
 	extern void disk_init(void);
 
@@ -212,6 +217,8 @@ main(void *framep)
 	consinit();
 
 	printf("%s\n", copyright);
+
+	WITNESS_INITIALIZE();
 
 	KERNEL_LOCK_INIT();
 	SCHED_LOCK_INIT();
@@ -258,6 +265,11 @@ main(void *framep)
 	 */
 	kqueue_init();
 
+	/*
+	 * Initialize futexes.
+	 */
+	futex_init();
+
 	/* Create credentials. */
 	p->p_ucred = crget();
 	p->p_ucred->cr_ngroups = 1;	/* group 0 */
@@ -269,6 +281,7 @@ main(void *framep)
 	process_initialize(pr, p);
 
 	LIST_INSERT_HEAD(&allprocess, pr, ps_list);
+	LIST_INSERT_HEAD(PIDHASH(0), pr, ps_hash);
 	atomic_setbits_int(&pr->ps_flags, PS_SYSTEM);
 
 	/* Set the default routing table/domain. */
@@ -276,7 +289,7 @@ main(void *framep)
 
 	LIST_INSERT_HEAD(&allproc, p, p_list);
 	pr->ps_pgrp = &pgrp0;
-	LIST_INSERT_HEAD(PIDHASH(0), p, p_hash);
+	LIST_INSERT_HEAD(TIDHASH(0), p, p_hash);
 	LIST_INSERT_HEAD(PGRPHASH(0), &pgrp0, pg_hash);
 	LIST_INIT(&pgrp0.pg_members);
 	LIST_INSERT_HEAD(&pgrp0.pg_members, pr, ps_pglist);
@@ -289,7 +302,7 @@ main(void *framep)
 	p->p_stat = SONPROC;
 	pr->ps_nice = NZERO;
 	pr->ps_emul = &emul_native;
-	strlcpy(p->p_comm, "swapper", sizeof(p->p_comm));
+	strlcpy(pr->ps_comm, "swapper", sizeof(pr->ps_comm));
 
 	/* Init timeouts. */
 	timeout_set(&p->p_sleep_to, endtsleep, p);
@@ -335,6 +348,9 @@ main(void *framep)
 	sched_init_cpu(curcpu());
 	p->p_cpu->ci_randseed = (arc4random() & 0x7fffffff) + 1;
 
+	/* Initialize timeouts in process context. */
+	timeout_proc_init();
+
 	/* Initialize task queues */
 	taskq_init();
 
@@ -354,6 +370,9 @@ main(void *framep)
 
 	/* Configure virtual memory system, set vm rlimits. */
 	uvm_init_limits(p);
+
+	/* Per CPU memory allocation */
+	percpu_init();
 
 	/* Initialize the file systems. */
 #if defined(NFSSERVER) || defined(NFSCLIENT)
@@ -379,6 +398,9 @@ main(void *framep)
 	msginit();
 #endif
 
+	/* Create default routing table before attaching lo0. */
+	rtable_init();
+
 	/* Attach pseudo-devices. */
 	for (pdev = pdevinit; pdev->pdev_attach != NULL; pdev++)
 		if (pdev->pdev_count > 0)
@@ -389,15 +411,10 @@ main(void *framep)
 	swcr_init();
 #endif /* CRYPTO */
 
-	rtable_init();
-
 	/*
-	 * Initialize protocols.  Block reception of incoming packets
-	 * until everything is ready.
+	 * Initialize protocols.
 	 */
-	s = splnet();
 	domaininit();
-	splx(s);
 
 	initconsbuf();
 
@@ -405,6 +422,8 @@ main(void *framep)
 	/* Initialize kernel profiling. */
 	prof_init();
 #endif
+
+	mbcpuinit();	/* enable per cpu mbuf data */
 
 	/* init exec and emul */
 	init_exec();
@@ -424,8 +443,7 @@ main(void *framep)
 	{
 		struct proc *initproc;
 
-		if (fork1(p, FORK_FORK, NULL, 0, start_init, NULL, NULL,
-		    &initproc))
+		if (fork1(p, FORK_FORK, start_init, NULL, NULL, &initproc))
 			panic("fork init");
 		initprocess = initproc->p_p;
 	}
@@ -529,6 +547,10 @@ main(void *framep)
 #endif
 
 	config_process_deferred_mountroot();
+
+#ifdef DDBCTF
+	db_ctf_init();
+#endif
 
 	/*
 	 * Okay, now we can let init(8) exec!  It's off to userland!

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.182 2016/09/04 17:22:40 jsing Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.211 2017/06/03 04:34:41 tb Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -65,9 +65,11 @@
 #include <sys/pledge.h>
 
 #include "audio.h"
+#include "bpfilter.h"
+#include "pf.h"
 #include "pty.h"
 
-#if defined(__amd64__)
+#if defined(__amd64__) || defined(__i386__)
 #include "vmm.h"
 #if NVMM > 0
 #include <machine/conf.h>
@@ -75,7 +77,8 @@
 #endif
 
 #if defined(__amd64__) || defined(__i386__) || \
-    defined(__macppc__) || defined(__sparc64__)
+    defined(__loongson__) || defined(__macppc__) || \
+    defined(__sparc64__)
 #include "drm.h"
 #endif
 
@@ -119,7 +122,6 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_getegid] = PLEDGE_STDIO,
 	[SYS_getresgid] = PLEDGE_STDIO,
 	[SYS_getgroups] = PLEDGE_STDIO,
-	[SYS_getlogin59] = PLEDGE_STDIO,
 	[SYS_getlogin_r] = PLEDGE_STDIO,
 	[SYS_getpgrp] = PLEDGE_STDIO,
 	[SYS_getpgid] = PLEDGE_STDIO,
@@ -127,6 +129,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_getsid] = PLEDGE_STDIO,
 	[SYS_getthrid] = PLEDGE_STDIO,
 	[SYS_getrlimit] = PLEDGE_STDIO,
+	[SYS_getrtable] = PLEDGE_STDIO,
 	[SYS_gettimeofday] = PLEDGE_STDIO,
 	[SYS_getdtablecount] = PLEDGE_STDIO,
 	[SYS_getrusage] = PLEDGE_STDIO,
@@ -234,8 +237,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	/*
 	 * FIONREAD/FIONBIO for "stdio"
-	 * A few non-tty ioctl available using "ioctl"
-	 * tty-centric ioctl available using "tty"
+	 * Other ioctl are selectively allowed based upon other pledges.
 	 */
 	[SYS_ioctl] = PLEDGE_STDIO,
 
@@ -258,6 +260,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	 */
 	[SYS___tfork] = PLEDGE_STDIO,
 	[SYS_sched_yield] = PLEDGE_STDIO,
+	[SYS_futex] = PLEDGE_STDIO,
 	[SYS___thrsleep] = PLEDGE_STDIO,
 	[SYS___thrwakeup] = PLEDGE_STDIO,
 	[SYS___threxit] = PLEDGE_STDIO,
@@ -299,6 +302,7 @@ const uint64_t pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_link] = PLEDGE_CPATH,
 	[SYS_linkat] = PLEDGE_CPATH,
 	[SYS_symlink] = PLEDGE_CPATH,
+	[SYS_symlinkat] = PLEDGE_CPATH,
 	[SYS_unlink] = PLEDGE_CPATH | PLEDGE_TMPPATH,
 	[SYS_unlinkat] = PLEDGE_CPATH,
 	[SYS_mkdir] = PLEDGE_CPATH,
@@ -358,6 +362,7 @@ static const struct {
 	uint64_t flags;
 } pledgereq[] = {
 	{ "audio",		PLEDGE_AUDIO },
+	{ "bpf",		PLEDGE_BPF },
 	{ "chown",		PLEDGE_CHOWN | PLEDGE_CHOWNUID },
 	{ "cpath",		PLEDGE_CPATH },
 	{ "disklabel",		PLEDGE_DISKLABEL },
@@ -370,7 +375,6 @@ static const struct {
 	{ "getpw",		PLEDGE_GETPW },
 	{ "id",			PLEDGE_ID },
 	{ "inet",		PLEDGE_INET },
-	{ "ioctl",		PLEDGE_IOCTL },
 	{ "mcast",		PLEDGE_MCAST },
 	{ "pf",			PLEDGE_PF },
 	{ "proc",		PLEDGE_PROC },
@@ -382,6 +386,7 @@ static const struct {
 	{ "sendfd",		PLEDGE_SENDFD },
 	{ "settime",		PLEDGE_SETTIME },
 	{ "stdio",		PLEDGE_STDIO },
+	{ "tape",		PLEDGE_TAPE },
 	{ "tmppath",		PLEDGE_TMPPATH },
 	{ "tty",		PLEDGE_TTY },
 	{ "unix",		PLEDGE_UNIX },
@@ -397,6 +402,7 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 		syscallarg(const char *)request;
 		syscallarg(const char **)paths;
 	} */	*uap = v;
+	struct process *pr = p->p_p;
 	uint64_t flags = 0;
 	int error;
 
@@ -437,8 +443,8 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 		 * flags doesn't contain flags outside _USERSET: they will be
 		 * relearned.
 		 */
-		if (ISSET(p->p_p->ps_flags, PS_PLEDGE) &&
-		    (((flags | p->p_p->ps_pledge) != p->p_p->ps_pledge)))
+		if (ISSET(pr->ps_flags, PS_PLEDGE) &&
+		    (((flags | pr->ps_pledge) != pr->ps_pledge)))
 			return (EPERM);
 	}
 
@@ -454,7 +460,7 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 		size_t maxargs = 0;
 		int i, error;
 
-		if (p->p_p->ps_pledgepaths)
+		if (pr->ps_pledgepaths)
 			return (EPERM);
 
 		/* Count paths */
@@ -518,12 +524,12 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 			free(wl, M_TEMP, wl->wl_size);
 			return (error);
 		}
-		p->p_p->ps_pledgepaths = wl;
+		pr->ps_pledgepaths = wl;
 
 #ifdef DEBUG_PLEDGE
 		/* print paths registered as whilelisted (viewed as without chroot) */
-		DNPRINTF(1, "pledge: %s(%d): paths loaded:\n", p->p_comm,
-		    p->p_pid);
+		DNPRINTF(1, "pledge: %s(%d): paths loaded:\n", pr->ps_comm,
+		    pr->ps_pid);
 		for (i = 0; i < wl->wl_count; i++)
 			if (wl->wl_paths[i].name)
 				DNPRINTF(1, "pledge: %d=\"%s\" [%lld]\n", i,
@@ -534,15 +540,15 @@ sys_pledge(struct proc *p, void *v, register_t *retval)
 	}
 
 	if (SCARG(uap, request)) {
-		p->p_p->ps_pledge = flags;
-		p->p_p->ps_flags |= PS_PLEDGE;
+		pr->ps_pledge = flags;
+		pr->ps_flags |= PS_PLEDGE;
 	}
 
 	return (0);
 }
 
 int
-pledge_syscall(struct proc *p, int code, int *tval)
+pledge_syscall(struct proc *p, int code, uint64_t *tval)
 {
 	p->p_pledge_syscall = code;
 	*tval = 0;
@@ -573,7 +579,7 @@ pledge_fail(struct proc *p, int error, uint64_t code)
 			codes = pledgenames[i].name;
 			break;
 		}
-	printf("%s(%d): syscall %d \"%s\"\n", p->p_comm, p->p_pid,
+	printf("%s(%d): syscall %d \"%s\"\n", p->p_p->ps_comm, p->p_p->ps_pid,
 	    p->p_pledge_syscall, codes);
 #ifdef KTRACE
 	if (KTRPOINT(p, KTR_PLEDGE))
@@ -750,7 +756,7 @@ pledge_namei_wlpath(struct proc *p, struct nameidata *ni)
 {
 	struct whitepaths *wl = p->p_p->ps_pledgepaths;
 	char *rdir = NULL, *cwd = NULL, *resolved = NULL;
-	size_t rdirlen, cwdlen, resolvedlen;
+	size_t rdirlen = 0, cwdlen = 0, resolvedlen = 0;
 	int i, error, pardir_found;
 
 	/*
@@ -760,7 +766,7 @@ pledge_namei_wlpath(struct proc *p, struct nameidata *ni)
 	if (ni->ni_p_path == NULL)
 		return(0);
 
-	KASSERT(p->p_p->ps_pledgepaths);
+	KASSERT(wl != NULL);
 
 	// XXX change later or more help from namei?
 	error = resolvpath(p, &rdir, &rdirlen, &cwd, &cwdlen,
@@ -821,7 +827,7 @@ pledge_namei_wlpath(struct proc *p, struct nameidata *ni)
 	if (error == ENOENT)
 		/* print the path that is reported as ENOENT */
 		DNPRINTF(1, "pledge: %s(%d): wl_path ENOENT: \"%s\"\n",
-		    p->p_comm, p->p_pid, resolved);
+		    p->p_p->ps_comm, p->p_p->ps_pid, resolved);
 #endif
 
 	free(resolved, M_TEMP, resolvedlen);
@@ -885,6 +891,8 @@ pledge_sendfd(struct proc *p, struct file *fp)
 int
 pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 {
+	int	i;
+
 	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
 		return (0);
 
@@ -1043,13 +1051,15 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 	if (miblen == 2 &&		/* hw.ncpu */
 	    mib[0] == CTL_HW && mib[1] == HW_NCPU)
 		return (0);
-	if (miblen == 2 &&		/* kern.loadavg / getloadavg(3) */
+	if (miblen == 2 &&		/* vm.loadavg / getloadavg(3) */
 	    mib[0] == CTL_VM && mib[1] == VM_LOADAVG)
 		return (0);
 
-	printf("%s(%d): sysctl %d: %d %d %d %d %d %d\n",
-	    p->p_comm, p->p_pid, miblen, mib[0], mib[1],
-	    mib[2], mib[3], mib[4], mib[5]);
+	printf("%s(%d): sysctl %d:", p->p_p->ps_comm, p->p_p->ps_pid, miblen);
+	for (i = 0; i < miblen; i++)
+		printf(" %d", mib[i]);
+	printf("\n");
+
 	return pledge_fail(p, EINVAL, 0);
 }
 
@@ -1124,40 +1134,48 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 			return (ENOTTY);
 	}
 
-	/*
-	 * Further sets of ioctl become available, but are checked a
-	 * bit more carefully against the vnode.
-	 */
-	if ((p->p_p->ps_pledge & PLEDGE_IOCTL)) {
+	if ((p->p_p->ps_pledge & PLEDGE_INET)) {
 		switch (com) {
-		case TIOCGETA:
-		case TIOCGPGRP:
-		case TIOCGWINSZ:	/* ENOTTY return for non-tty */
-			if (fp->f_type == DTYPE_VNODE && (vp->v_flag & VISTTY))
-				return (0);
-			return (ENOTTY);
-		case BIOCGSTATS:	/* bpf: tcpdump privsep on ^C */
-			if (fp->f_type == DTYPE_VNODE &&
-			    fp->f_ops->fo_ioctl == vn_ioctl)
-				return (0);
-			break;
-		case MTIOCGET:
-		case MTIOCTOP:
-			/* for pax(1) and such, checking tapes... */
-			if (fp->f_type == DTYPE_VNODE &&
-			    (vp->v_type == VCHR || vp->v_type == VBLK))
-				return (0);
-			break;
+		case SIOCATMARK:
 		case SIOCGIFGROUP:
-			if ((p->p_p->ps_pledge & PLEDGE_INET) &&
-			    fp->f_type == DTYPE_SOCKET)
+			if (fp->f_type == DTYPE_SOCKET)
 				return (0);
 			break;
 		}
 	}
 
-	if ((p->p_p->ps_pledge & PLEDGE_DRM)) {
+#if NBPFILTER > 0
+	if ((p->p_p->ps_pledge & PLEDGE_BPF)) {
+		switch (com) {
+		case BIOCGSTATS:	/* bpf: tcpdump privsep on ^C */
+			if (fp->f_type == DTYPE_VNODE &&
+			    fp->f_ops->fo_ioctl == vn_ioctl &&
+			    vp->v_type == VCHR &&
+			    cdevsw[major(vp->v_rdev)].d_open == bpfopen)
+				return (0);
+			break;
+		}
+	}
+#endif /* NBPFILTER > 0 */
+
+	if ((p->p_p->ps_pledge & PLEDGE_TAPE)) {
+		switch (com) {
+		case MTIOCGET:
+		case MTIOCTOP:
+			/* for pax(1) and such, checking tapes... */
+			if (fp->f_type == DTYPE_VNODE &&
+			    vp->v_type == VCHR) {
+				if (vp->v_flag & VISTTY)
+					return (ENOTTY);
+				else
+					return (0);
+			}
+			break;
+		}
+	}
+
 #if NDRM > 0
+	if ((p->p_p->ps_pledge & PLEDGE_DRM)) {
 		if ((fp->f_type == DTYPE_VNODE) &&
 		    (vp->v_type == VCHR) &&
 		    (cdevsw[major(vp->v_rdev)].d_open == drmopen)) {
@@ -1165,11 +1183,11 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 			if (error == 0)
 				return 0;
 		}
-#endif /* NDRM > 0 */
 	}
+#endif /* NDRM > 0 */
 
-	if ((p->p_p->ps_pledge & PLEDGE_AUDIO)) {
 #if NAUDIO > 0
+	if ((p->p_p->ps_pledge & PLEDGE_AUDIO)) {
 		switch (com) {
 		case AUDIO_GETPOS:
 		case AUDIO_GETPAR:
@@ -1181,8 +1199,8 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 			    cdevsw[major(vp->v_rdev)].d_open == audioopen)
 				return (0);
 		}
-#endif /* NAUDIO > 0 */
 	}
+#endif /* NAUDIO > 0 */
 
 	if ((p->p_p->ps_pledge & PLEDGE_DISKLABEL)) {
 		switch (com) {
@@ -1210,8 +1228,8 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
+#if NPF > 0
 	if ((p->p_p->ps_pledge & PLEDGE_PF)) {
-#ifndef SMALL_KERNEL
 		switch (com) {
 		case DIOCADDRULE:
 		case DIOCGETSTATUS:
@@ -1231,8 +1249,8 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 				return (0);
 			break;
 		}
-#endif /* !SMALL_KERNEL */
 	}
+#endif
 
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
@@ -1290,6 +1308,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		case SIOCGIFRDOMAIN:
 		case SIOCGIFDSTADDR_IN6:
 		case SIOCGIFNETMASK_IN6:
+		case SIOCGIFXFLAGS:
 		case SIOCGNBRINFO_IN6:
 		case SIOCGIFINFO_IN6:
 		case SIOCGIFMEDIA:
@@ -1299,8 +1318,8 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
-	if ((p->p_p->ps_pledge & PLEDGE_VMM)) {
 #if NVMM > 0
+	if ((p->p_p->ps_pledge & PLEDGE_VMM)) {
 		if ((fp->f_type == DTYPE_VNODE) &&
 		    (vp->v_type == VCHR) &&
 		    (cdevsw[major(vp->v_rdev)].d_open == vmmopen)) {
@@ -1308,10 +1327,10 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 			if (error == 0)
 				return 0;
 		}
-#endif
 	}
+#endif
 
-	return pledge_fail(p, error, PLEDGE_IOCTL);
+	return pledge_fail(p, error, PLEDGE_TTY);
 }
 
 int
@@ -1413,6 +1432,8 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 		case IP_RECVDSTPORT:
 			return (0);
 		case IP_MULTICAST_IF:
+		case IP_MULTICAST_TTL:
+		case IP_MULTICAST_LOOP:
 		case IP_ADD_MEMBERSHIP:
 		case IP_DROP_MEMBERSHIP:
 			if (p->p_p->ps_pledge & PLEDGE_MCAST)
@@ -1436,6 +1457,8 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 #endif
 			return (0);
 		case IPV6_MULTICAST_IF:
+		case IPV6_MULTICAST_HOPS:
+		case IPV6_MULTICAST_LOOP:
 		case IPV6_JOIN_GROUP:
 		case IPV6_LEAVE_GROUP:
 			if (p->p_p->ps_pledge & PLEDGE_MCAST)
@@ -1598,11 +1621,11 @@ canonpath(const char *input, char *buf, size_t bufsize)
 			*q++ = *p++;
 		}
 	}
-        if ((*p == '\0') && (q - buf < bufsize)) {
-                *q = 0;
-                return 0;
-        } else
-                return ENAMETOOLONG;
+	if ((*p == '\0') && (q - buf < bufsize)) {
+		*q = 0;
+		return 0;
+	} else
+		return ENAMETOOLONG;
 }
 
 int

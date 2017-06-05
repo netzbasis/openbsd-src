@@ -1,4 +1,4 @@
-/*	$OpenBSD: cn30xxgmx.c,v 1.26 2016/08/04 13:10:31 visa Exp $	*/
+/*	$OpenBSD: cn30xxgmx.c,v 1.34 2017/05/02 13:26:49 visa Exp $	*/
 
 /*
  * Copyright (c) 2007 Internet Initiative Japan, Inc.
@@ -33,16 +33,20 @@
 #include <sys/malloc.h>
 #include <sys/syslog.h>
 
+#include <dev/ofw/openfirm.h>
+
 #include <machine/bus.h>
 #include <machine/octeon_model.h>
 #include <machine/octeonvar.h>
 
 #include <octeon/dev/iobusvar.h>
+#include <octeon/dev/cn30xxasxvar.h>
 #include <octeon/dev/cn30xxciureg.h>
 #include <octeon/dev/cn30xxgmxreg.h>
-#include <octeon/dev/cn30xxipdvar.h>
-#include <octeon/dev/cn30xxasxvar.h>
 #include <octeon/dev/cn30xxgmxvar.h>
+#include <octeon/dev/cn30xxipdvar.h>
+#include <octeon/dev/cn30xxpipvar.h>
+#include <octeon/dev/cn30xxsmivar.h>
 
 #define	dprintf(...)
 #define	OCTEON_ETH_KASSERT	KASSERT
@@ -86,7 +90,6 @@ struct cn30xxgmx_port_ops {
 int	cn30xxgmx_match(struct device *, void *, void *);
 void	cn30xxgmx_attach(struct device *, struct device *, void *);
 int	cn30xxgmx_print(void *, const char *);
-int	cn30xxgmx_submatch(struct device *, void *, void *);
 int	cn30xxgmx_port_phy_addr(int);
 int	cn30xxgmx_init(struct cn30xxgmx_softc *);
 int	cn30xxgmx_rx_frm_ctl_xable(struct cn30xxgmx_port_softc *,
@@ -175,43 +178,33 @@ cn30xxgmx_match(struct device *parent, void *match, void *aux)
 }
 
 int
-cn30xxgmx_port_phy_addr(int port)
+cn30xxgmx_get_phy_phandle(int port)
 {
-	static const int octeon_eth_phy_table[] = {
-		/* portwell cam-0100 */
-		0x02, 0x03, 0x22
-	};
+	char name[64];
+	int node;
+	int phandle = 0;
 
-	switch (octeon_boot_info->board_type) {
-	case BOARD_TYPE_UBIQUITI_E100:	/* port 0: 7, port 1: 6 */
-		if (port > 2)
-			return -1;
-		return 7 - port;
-
-	case BOARD_TYPE_UBIQUITI_E200:
-		if (port >= 0 && port < 4)
-			/* XXX RJ45/SFP combos use the second MDIO. */
-			return port + 4;  /* GMX0: eth[4-7] */
-		else if (port >= 16 && port < 20)
-			return port - 16; /* GMX1: eth[0-3] */
-		return -1;
-
-	default:
-		if (port >= nitems(octeon_eth_phy_table))
-			return -1;
-		return octeon_eth_phy_table[port];
-	}
+	snprintf(name, sizeof(name),
+	    "/soc/pip@11800a0000000/interface@%x/ethernet@%x",
+	    port / 16, port % 16);
+	node = OF_finddevice(name);
+	if (node != - 1)
+		phandle = OF_getpropint(node, "phy-handle", 0);
+	return phandle;
 }
 
 void
 cn30xxgmx_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct cn30xxgmx_softc *sc = (void *)self;
-	struct iobus_attach_args *aa = aux;
 	struct cn30xxgmx_attach_args gmx_aa;
-	int status;
-	int i;
+	struct iobus_attach_args *aa = aux;
 	struct cn30xxgmx_port_softc *port_sc;
+	struct cn30xxgmx_softc *sc = (void *)self;
+	struct cn30xxsmi_softc *smi;
+	int i;
+	int phy_addr;
+	int port;
+	int status;
 
 	printf("\n");
 
@@ -227,11 +220,20 @@ cn30xxgmx_attach(struct device *parent, struct device *self, void *aux)
 
 	sc->sc_ports = mallocarray(sc->sc_nports, sizeof(*sc->sc_ports),
 	    M_DEVBUF, M_NOWAIT | M_ZERO);
+	if (sc->sc_ports == NULL) {
+		printf("%s: out of memory\n", sc->sc_dev.dv_xname);
+		return;
+	}
 
 	for (i = 0; i < sc->sc_nports; i++) {
+		port = GMX_PORT_NUM(sc->sc_unitno, i);
+		if (cn30xxsmi_get_phy(cn30xxgmx_get_phy_phandle(port), port,
+		    &smi, &phy_addr))
+			continue;
+
 		port_sc = &sc->sc_ports[i];
 		port_sc->sc_port_gmx = sc;
-		port_sc->sc_port_no = GMX_PORT_NUM(sc->sc_unitno, i);
+		port_sc->sc_port_no = port;
 		port_sc->sc_port_type = sc->sc_port_types[i];
 		port_sc->sc_port_ops = cn30xxgmx_port_ops[port_sc->sc_port_type];
 		status = bus_space_map(sc->sc_regt,
@@ -271,14 +273,10 @@ cn30xxgmx_attach(struct device *parent, struct device *self, void *aux)
 		gmx_aa.ga_port_type = sc->sc_port_types[i];
 		gmx_aa.ga_gmx = sc;
 		gmx_aa.ga_gmx_port = port_sc;
-		gmx_aa.ga_phy_addr = cn30xxgmx_port_phy_addr(
-		    port_sc->sc_port_no);
-		if (gmx_aa.ga_phy_addr == -1)
-			panic(": don't know phy address for port %d",
-			    port_sc->sc_port_no);
+		gmx_aa.ga_phy_addr = phy_addr;
+		gmx_aa.ga_smi = smi;
 
-		config_found_sm(self, &gmx_aa,
-		    cn30xxgmx_print, cn30xxgmx_submatch);
+		config_found(self, &gmx_aa, cn30xxgmx_print);
 
 #ifdef OCTEON_ETH_DEBUG
 		__cn30xxgmx_port_softc[port_sc->sc_port_no] = port_sc;
@@ -315,14 +313,6 @@ cn30xxgmx_print(void *aux, const char *pnp)
 }
 
 int
-cn30xxgmx_submatch(struct device *parent, void *vcf, void *aux)
-{
-	struct cfdata *cf = vcf;
-
-	return (*cf->cf_attach->ca_match)(parent, vcf, aux);
-}
-
-int
 cn30xxgmx_init(struct cn30xxgmx_softc *sc)
 {
 	int result = 0;
@@ -331,10 +321,9 @@ cn30xxgmx_init(struct cn30xxgmx_softc *sc)
 
 	inf_mode = bus_space_read_8(sc->sc_regt, sc->sc_regh, GMX0_INF_MODE);
 	if ((inf_mode & INF_MODE_EN) == 0) {
-		printf("port are disable\n");
+		printf("ports are disabled\n");
 		sc->sc_nports = 0;
-		result = 1;
-		return result;
+		return 1;
 	}
 
 	id = octeon_get_chipid();
@@ -412,6 +401,21 @@ cn30xxgmx_init(struct cn30xxgmx_softc *sc)
 		}
 		break;
 	}
+	case OCTEON_MODEL_FAMILY_CN71XX:
+		switch (inf_mode & INF_MODE_MODE) {
+		case INF_MODE_MODE_SGMII:
+			sc->sc_nports = 4;
+			for (i = 0; i < sc->sc_nports; i++)
+				sc->sc_port_types[i] = GMX_SGMII_PORT;
+			break;
+#ifdef notyet
+		case INF_MODE_MODE_XAUI:
+#endif
+		default:
+			sc->sc_nports = 0;
+			result = 1;
+		}
+		break;
 	case OCTEON_MODEL_FAMILY_CN38XX:
 	case OCTEON_MODEL_FAMILY_CN56XX:
 	case OCTEON_MODEL_FAMILY_CN58XX:
@@ -1307,8 +1311,6 @@ cn30xxgmx_stats(struct cn30xxgmx_port_softc *sc)
 	    (uint32_t)_GMX_PORT_RD8(sc, GMX0_RX0_STATS_PKTS_BAD);
 	ifp->if_iqdrops +=
 	    (uint32_t)_GMX_PORT_RD8(sc, GMX0_RX0_STATS_PKTS_DRP);
-	ifp->if_opackets +=
-	    (uint32_t)_GMX_PORT_RD8(sc, GMX0_TX0_STAT3);
 	tmp = _GMX_PORT_RD8(sc, GMX0_TX0_STAT0);
 	ifp->if_oerrors +=
 	    (uint32_t)tmp + ((uint32_t)(tmp >> 32) * 16);

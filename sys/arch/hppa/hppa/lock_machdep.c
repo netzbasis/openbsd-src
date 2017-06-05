@@ -1,4 +1,4 @@
-/*	$OpenBSD: lock_machdep.c,v 1.9 2016/03/19 11:34:22 mpi Exp $	*/
+/*	$OpenBSD: lock_machdep.c,v 1.11 2017/05/29 14:19:49 mpi Exp $	*/
 
 /*
  * Copyright (c) 2007 Artur Grabowski <art@openbsd.org>
@@ -22,6 +22,7 @@
 #include <machine/atomic.h>
 #include <machine/intr.h>
 #include <machine/psl.h>
+#include <machine/cpu.h>
 
 #include <ddb/db_output.h>
 
@@ -72,23 +73,21 @@ __mp_lock_init(struct __mp_lock *lock)
 extern int __mp_lock_spinout;
 #endif
 
-#define SPINLOCK_SPIN_HOOK	/**/
-
 static __inline void
 __mp_lock_spin(struct __mp_lock *mpl)
 {
 #ifndef MP_LOCKDEBUG
 	while (mpl->mpl_count != 0)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 #else
 	int nticks = __mp_lock_spinout;
 
 	while (mpl->mpl_count != 0 && --nticks > 0)
-		SPINLOCK_SPIN_HOOK;
+		CPU_BUSY_CYCLE();
 
 	if (nticks == 0) {
 		db_printf("__mp_lock(%p): lock spun out", mpl);
-		Debugger();
+		db_enter();
 	}
 #endif
 }
@@ -136,7 +135,7 @@ __mp_unlock(struct __mp_lock *mpl)
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_unlock(%p): lock not held - %p != %p\n",
 		    mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
 #endif
 
@@ -159,7 +158,7 @@ __mp_release_all(struct __mp_lock *mpl)
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_release_all(%p): lock not held - %p != %p\n",
 		    mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
 #endif
 
@@ -181,7 +180,7 @@ __mp_release_all_but_one(struct __mp_lock *mpl)
 	if (mpl->mpl_cpu != curcpu()) {
 		db_printf("__mp_release_all_but_one(%p): lock not held - "
 		    "%p != %p\n", mpl, mpl->mpl_cpu, curcpu());
-		Debugger();
+		db_enter();
 	}
 #endif
 

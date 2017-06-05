@@ -1,4 +1,4 @@
-/*	$OpenBSD: systm.h,v 1.116 2016/09/04 09:22:29 mpi Exp $	*/
+/*	$OpenBSD: systm.h,v 1.131 2017/05/29 12:12:35 tedu Exp $	*/
 /*	$NetBSD: systm.h,v 1.50 1996/06/09 04:55:09 briggs Exp $	*/
 
 /*-
@@ -150,6 +150,7 @@ void vfs_op_init(void);
 int	seltrue(dev_t dev, int which, struct proc *);
 int	selfalse(dev_t dev, int which, struct proc *);
 void	*hashinit(int, int, int, u_long *);
+void	 hashfree(void *, int, int);
 int	sys_nosys(struct proc *, void *, register_t *);
 
 void	panic(const char *, ...)
@@ -206,6 +207,7 @@ int	copyoutstr(const void *, void *, size_t, size_t *);
 int	copyin(const void *, void *, size_t)
 		__attribute__ ((__bounded__(__buffer__,2,3)));
 int	copyout(const void *, void *, size_t);
+int	copyin32(const uint32_t *, uint32_t *);
 
 void	arc4random_buf(void *, size_t)
 		__attribute__ ((__bounded__(__buffer__,1,2)));
@@ -246,11 +248,13 @@ int	sleep_finish_signal(struct sleep_state *);
 void	sleep_queue_init(void);
 
 struct mutex;
+struct rwlock;
 void    wakeup_n(const volatile void *, int);
 void    wakeup(const volatile void *);
 #define wakeup_one(c) wakeup_n((c), 1)
 int	tsleep(const volatile void *, int, const char *, int);
 int	msleep(const volatile void *, struct mutex *, int,  const char*, int);
+int	rwsleep(const volatile void *, struct rwlock *, int, const char *, int);
 void	yield(void);
 
 void	wdog_register(int (*)(void *, int), void *);
@@ -287,6 +291,36 @@ struct uio;
 int	uiomove(void *, size_t, struct uio *);
 
 #if defined(_KERNEL)
+
+#include <sys/rwlock.h>
+
+extern struct rwlock netlock;
+
+#define	NET_LOCK(s)							\
+do {									\
+	rw_enter_write(&netlock);					\
+	s = splsoftnet();						\
+} while (0)
+
+#define	NET_UNLOCK(s)							\
+do {									\
+	splx(s);							\
+	rw_exit_write(&netlock);					\
+} while (0)
+
+#define	NET_ASSERT_LOCKED()						\
+do {									\
+	if (rw_status(&netlock) != RW_WRITE)				\
+		splassert_fail(RW_WRITE, rw_status(&netlock), __func__);\
+	splsoftassert(IPL_SOFTNET);					\
+} while (0)
+
+#define	NET_ASSERT_UNLOCKED()						\
+do {									\
+	if (rw_status(&netlock) == RW_WRITE)				\
+		splassert_fail(0, rw_status(&netlock), __func__);	\
+} while (0)
+
 __returns_twice int	setjmp(label_t *);
 __dead void	longjmp(label_t *);
 #endif
@@ -303,10 +337,21 @@ extern int (*mountroot)(void);
 
 #include <lib/libkern/libkern.h>
 
-#if defined(DDB) || defined(KGDB)
+#define bzero(b, n)		__builtin_bzero((b), (n))
+#define memcmp(b1, b2, n)	__builtin_memcmp((b1), (b2), (n))
+#define memcpy(d, s, n)		__builtin_memcpy((d), (s), (n))
+#define memset(b, c, n)		__builtin_memset((b), (c), (n))
+#if (defined(__GNUC__) && __GNUC__ >= 4)
+#define memmove(d, s, n)	__builtin_memmove((d), (s), (n))
+#endif
+#if !defined(__clang__) && (defined(__GNUC__) && __GNUC__ >= 4)
+#define bcmp(b1, b2, n)		__builtin_bcmp((b1), (b2), (n))
+#define bcopy(s, d, n)		__builtin_bcopy((s), (d), (n))
+#endif
+
+#if defined(DDB)
 /* debugger entry points */
-void	Debugger(void);	/* in DDB only */
-int	read_symtab_from_file(struct proc *,struct vnode *,const char *);
+void	db_enter(void);	/* in DDB only */
 #endif
 
 #ifdef BOOT_CONFIG
@@ -315,12 +360,12 @@ void	user_config(void);
 
 #if defined(MULTIPROCESSOR)
 void	_kernel_lock_init(void);
-void	_kernel_lock(void);
+void	_kernel_lock(const char *, int);
 void	_kernel_unlock(void);
 int	_kernel_lock_held(void);
 
 #define	KERNEL_LOCK_INIT()		_kernel_lock_init()
-#define	KERNEL_LOCK()			_kernel_lock()
+#define	KERNEL_LOCK()			_kernel_lock(__FILE__, __LINE__)
 #define	KERNEL_UNLOCK()			_kernel_unlock()
 #define	KERNEL_ASSERT_LOCKED()		KASSERT(_kernel_lock_held())
 #define	KERNEL_ASSERT_UNLOCKED()	KASSERT(!_kernel_lock_held())

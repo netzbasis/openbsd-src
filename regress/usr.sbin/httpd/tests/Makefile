@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.3 2016/09/02 21:30:34 bluhm Exp $
+#	$OpenBSD: Makefile,v 1.7 2017/01/30 21:18:24 reyk Exp $
 
 # The following ports must be installed for the regression tests:
 # p5-IO-Socket-INET6	object interface for AF_INET and AF_INET6 domain sockets
@@ -20,16 +20,6 @@ regress:
 	@echo SKIPPED
 .endif
 
-# Fill out these variables if you want to test httpd with
-# the httpd process running on a remote machine.  You have to specify
-# a local and remote ip address for the tcp connections.  To control
-# the remote machine you need a hostname for ssh to log in.  All the
-# test files must be in the same directory local and remote.
-
-LOCAL_ADDR ?=
-REMOTE_ADDR ?=
-REMOTE_SSH ?=
-
 # Automatically generate regress targets from test cases in directory.
 
 ARGS !=			cd ${.CURDIR} && ls args-*.pl
@@ -38,10 +28,11 @@ REGRESS_TARGETS =	${TARGETS:S/^/run-regress-/}
 CLEANFILES +=		*.log httpd.conf ktrace.out stamp-*
 CLEANFILES +=		*.pem *.req *.crt *.key *.srl md5-*
 
-HTDOCS =		512 1048576 1073741824
-HTDOCS_MD5 =		${HTDOCS:S/^/${.OBJDIR}\/md5-/}
+HTDOCS =		${.OBJDIR}/htdocs
+HTDOCS_FILES =		512 1048576 1073741824
+HTDOCS_MD5 =		${HTDOCS_FILES:S/^/${.OBJDIR}\/md5-/}
 HTDOCS_SPARSE =		yes
-CLEANFILES +=		${HTDOCS}
+CLEANFILES +=		${HTDOCS_FILES:S/^/${HTDOCS}\//} ${HTDOCS}/*.log
 
 # Set variables so that make runs with and without obj directory.
 # Only do that if necessary to keep visible output short.
@@ -58,15 +49,18 @@ PERLPATH =	${.CURDIR}/
 # test parameters.  Generally they consist of client, httpd, server.
 
 .for a in ${ARGS}
-run-regress-$a: $a ${HTDOCS_MD5}
+run-regress-$a: ${HTDOCS} $a ${HTDOCS_MD5}
 	@echo '\n======== $@ ========'
 	time SUDO=${SUDO} KTRACE=${KTRACE} HTTPD=${HTTPD} perl ${PERLINC} ${PERLPATH}httpd.pl ${.OBJDIR} ${PERLPATH}$a
 .endfor
 
 # htdocs
 
-.for d in ${HTDOCS}
-${.OBJDIR}/$d:
+${HTDOCS}:
+	@mkdir -m 0755 -p ${HTDOCS}
+
+.for d in ${HTDOCS_FILES}
+${HTDOCS}/$d:
 	@echo '\n======== file: $d ========'
 .if (${HTDOCS_SPARSE} != "yes")
 	@dd if=/dev/arandom of=$@ count=$$(($d / 512)) bs=512
@@ -74,8 +68,8 @@ ${.OBJDIR}/$d:
 	@dd of=$@ seek=$$(($d / 512)) bs=512 count=0 status=none
 .endif
 
-${.OBJDIR}/md5-$d: ${.OBJDIR}/$d
-	@md5 -q ${.OBJDIR}/$d > $@
+${.OBJDIR}/md5-$d: ${HTDOCS}/$d
+	@md5 -q ${HTDOCS}/$d > $@
 .endfor
 
 # create certificates for TLS

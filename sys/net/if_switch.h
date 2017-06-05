@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_switch.h,v 1.2 2016/09/04 16:47:41 goda Exp $	*/
+/*	$OpenBSD: if_switch.h,v 1.10 2016/11/20 12:45:26 reyk Exp $	*/
 
 /*
  * Copyright (c) 2016 Kazuya GODA <goda@openbsd.org>
@@ -174,17 +174,18 @@ struct switch_port {
 	struct timespec			 swpo_appended;
 	struct switch_softc		*swpo_switch;
 	uint32_t			 swpo_flags;
+	void				*swpo_dhcookie;
 	void				(*swop_bk_start)(struct ifnet *);
 };
 
 TAILQ_HEAD(switch_fwdp_queue, switch_port);
 
 struct switch_dev {
+	struct mbuf		*swdev_lastm;
+	struct mbuf		*swdev_inputm;
 	struct mbuf_queue	 swdev_outq;
 	struct selinfo		 swdev_rsel;
-	struct mutex		 swdev_rsel_mtx;
 	struct selinfo		 swdev_wsel;
-	struct mutex		 swdev_wsel_mtx;
 	int			 swdev_waiting;
 	void			(*swdev_init)(struct switch_softc *);
 	int			(*swdev_input)(struct switch_softc *,
@@ -200,8 +201,9 @@ struct switch_softc {
 	struct switch_dev		*sc_swdev;		/* char device */
 	struct bstp_state		*sc_stp;		/* STP state */
 	struct swofp_ofs		*sc_ofs;		/* OpenFlow */
-	TAILQ_HEAD(,switch_port)	 sc_swpo_list; 		/* port */
-	LIST_ENTRY(switch_softc)	 sc_switch_next; 	/* switch link */
+	caddr_t				 sc_ofbpf;		/* DLT_OPENFLOW */
+	TAILQ_HEAD(,switch_port)	 sc_swpo_list;		/* port */
+	LIST_ENTRY(switch_softc)	 sc_switch_next;	/* switch link */
 	void				(*switch_process_forward)(
 	    struct switch_softc *, struct switch_flow_classify *,
 	    struct mbuf *);
@@ -215,6 +217,11 @@ void	 switch_port_egress(struct switch_softc *, struct switch_fwdp_queue *,
 int	 switch_swfcl_dup(struct switch_flow_classify *,
 	    struct switch_flow_classify *);
 void	 switch_swfcl_free(struct switch_flow_classify *);
+struct mbuf
+	*switch_flow_classifier(struct mbuf *, uint32_t,
+	    struct switch_flow_classify *);
+int	 switch_mtap(caddr_t, struct mbuf *, int, uint64_t);
+int	 ofp_split_mbuf(struct mbuf *, struct mbuf **);
 
 /* switchctl.c */
 void	 switch_dev_destroy(struct switch_softc *);

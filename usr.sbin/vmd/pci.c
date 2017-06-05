@@ -1,4 +1,4 @@
-/*	$OpenBSD: pci.c,v 1.9 2016/09/01 16:40:06 mlarkin Exp $	*/
+/*	$OpenBSD: pci.c,v 1.17 2017/04/21 04:18:47 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -20,19 +20,20 @@
 
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcidevs.h>
-#include <dev/pci/virtioreg.h>
+#include <dev/pv/virtioreg.h>
 #include <machine/vmmvar.h>
 
 #include <string.h>
 #include "vmd.h"
 #include "pci.h"
+#include "vmm.h"
 
 struct pci pci;
 
 extern char *__progname;
 
 /* PIC IRQs, assigned to devices in order */
-const uint8_t pci_pic_irqs[PCI_MAX_PIC_IRQS] = {3, 5, 9, 10, 11};
+const uint8_t pci_pic_irqs[PCI_MAX_PIC_IRQS] = {3, 5, 7, 9, 10, 11, 14, 15};
 
 /*
  * pci_add_bar
@@ -40,7 +41,7 @@ const uint8_t pci_pic_irqs[PCI_MAX_PIC_IRQS] = {3, 5, 9, 10, 11};
  * Adds a BAR for the PCI device 'id'. On access, 'barfn' will be
  * called, and passed 'cookie' as an identifier.
  *
- * BARs are fixed size, meaning all I/O BARs requested have the 
+ * BARs are fixed size, meaning all I/O BARs requested have the
  * same size and all MMIO BARs have the same size.
  *
  * Parameters:
@@ -85,8 +86,8 @@ pci_add_bar(uint8_t id, uint32_t type, void *barfn, void *cookie)
 			return (1);
 
 		pci.pci_devices[id].pd_cfg_space[bar_reg_idx] =
-		     PCI_MAPREG_IO_ADDR(pci.pci_next_io_bar) |
-		     PCI_MAPREG_TYPE_IO;
+		    PCI_MAPREG_IO_ADDR(pci.pci_next_io_bar) |
+		    PCI_MAPREG_TYPE_IO;
 		pci.pci_next_io_bar += VMM_PCI_IO_BAR_SIZE;
 		pci.pci_devices[id].pd_barfunc[bar_ct] = barfn;
 		pci.pci_devices[id].pd_bar_cookie[bar_ct] = cookie;
@@ -98,6 +99,26 @@ pci_add_bar(uint8_t id, uint32_t type, void *barfn, void *cookie)
 	}
 
 	return (0);
+}
+
+/*
+ * pci_get_dev_irq
+ *
+ * Returns the IRQ for the specified PCI device
+ *
+ * Parameters:
+ *  id: PCI device id to return IRQ for
+ *
+ * Return values:
+ *  The IRQ for the device, or 0xff if no device IRQ assigned
+ */
+uint8_t
+pci_get_dev_irq(uint8_t id)
+{
+	if (pci.pci_devices[id].pd_int)
+		return pci.pci_devices[id].pd_irq;
+	else
+		return 0xFF;
 }
 
 /*
@@ -194,14 +215,14 @@ pci_handle_address_reg(struct vm_run_params *vrp)
 	 * The guest wrote to the address register.
 	 */
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
-		pci.pci_addr_reg = vei->vei.vei_data;
+		get_input_data(vei, &pci.pci_addr_reg);
 	} else {
 		/*
 		 * vei_dir == VEI_DIR_IN : in instruction
 		 *
 		 * The guest read the address register
 		 */
-		vei->vei.vei_data = pci.pci_addr_reg;
+		set_return_data(vei, pci.pci_addr_reg);
 	}
 }
 
@@ -238,7 +259,8 @@ pci_handle_io(struct vm_run_params *vrp)
 		if (fn(vei->vei.vei_dir, reg -
 		    PCI_MAPREG_IO_ADDR(pci.pci_devices[l].pd_bar[k]),
 		    &vei->vei.vei_data, &intr,
-		    pci.pci_devices[l].pd_bar_cookie[k])) {
+		    pci.pci_devices[l].pd_bar_cookie[k],
+		    vei->vei.vei_size)) {
 			log_warnx("%s: pci i/o access function failed",
 			    __progname);
 		}
@@ -247,7 +269,7 @@ pci_handle_io(struct vm_run_params *vrp)
 		    __progname, (uint64_t)reg);
 		/* Reads from undefined ports return 0xFF */
 		if (dir == 1)
-			vei->vei.vei_data = 0xFFFFFFFF;	
+			set_return_data(vei, 0xFFFFFFFF);
 	}
 
 	if (intr != 0xFF) {
@@ -261,7 +283,7 @@ void
 pci_handle_data_reg(struct vm_run_params *vrp)
 {
 	union vm_exit *vei = vrp->vrp_exit;
-	uint8_t b, d, f, o, baridx;
+	uint8_t b, d, f, o, baridx, ofs, sz;
 	int ret;
 	pci_cs_fn_t csfunc;
 
@@ -269,11 +291,15 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	if (!(pci.pci_addr_reg & PCI_MODE1_ENABLE)) {
 		/* if read, return FFs */
 		if (vei->vei.vei_dir == VEI_DIR_IN)
-			vei->vei.vei_data = 0xffffffff;
+			set_return_data(vei, 0xFFFFFFFF);
 		log_warnx("invalid address register during pci read: "
 		    "0x%llx", (uint64_t)pci.pci_addr_reg);
 		return;
 	}
+
+	/* I/Os to 0xCFC..0xCFF are permitted */
+	ofs = vei->vei.vei_port - 0xCFC;
+	sz = vei->vei.vei_size;
 
 	b = (pci.pci_addr_reg >> 16) & 0xff;
 	d = (pci.pci_addr_reg >> 11) & 0x1f;
@@ -290,6 +316,8 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 	}
 
 	/* No config space function, fallback to default simple r/w impl. */
+
+	o += ofs;
 
 	/*
 	 * vei_dir == VEI_DIR_OUT : out instruction
@@ -315,7 +343,14 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 			else
 				vei->vei.vei_data = 0;
 		}
-		pci.pci_devices[d].pd_cfg_space[o / 4] = vei->vei.vei_data;
+
+		/* XXX - discard writes to reassign IRQs / pins */
+		if (o != 0x3c && o != 0x30 && o != 0x38)
+			get_input_data(vei, &pci.pci_devices[d].pd_cfg_space[o / 4]);
+
+		/* IOBAR registers must have bit 0 set */
+		if (o == 0x10)
+			pci.pci_devices[d].pd_cfg_space[o / 4] |= 1;
 	} else {
 		/*
 		 * vei_dir == VEI_DIR_IN : in instruction
@@ -323,6 +358,26 @@ pci_handle_data_reg(struct vm_run_params *vrp)
 		 * The guest read from the config space location determined by
 		 * the current value in the address register.
 		 */
-		vei->vei.vei_data = pci.pci_devices[d].pd_cfg_space[o / 4];
+		if (d > pci.pci_dev_ct || b > 0 || f > 0)
+			set_return_data(vei, 0xFFFFFFFF);
+		else {
+			switch (sz) {
+			case 4:
+				set_return_data(vei, pci.pci_devices[d].pd_cfg_space[o / 4]);
+				break;
+			case 2:
+				if (ofs == 0)
+					set_return_data(vei,
+					    pci.pci_devices[d].pd_cfg_space[o / 4]);
+				else
+					set_return_data(vei,
+					    pci.pci_devices[d].pd_cfg_space[o / 4] >> 16);
+				break;
+			case 1:
+				set_return_data(vei,
+				    pci.pci_devices[d].pd_cfg_space[o / 4] >> (ofs * 3));
+				break;
+			}
+		}
 	}
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: msdosfs_vfsops.c,v 1.80 2016/09/07 17:30:12 natano Exp $	*/
+/*	$OpenBSD: msdosfs_vfsops.c,v 1.84 2017/05/29 14:07:16 sf Exp $	*/
 /*	$NetBSD: msdosfs_vfsops.c,v 1.48 1997/10/18 02:54:57 briggs Exp $	*/
 
 /*-
@@ -64,6 +64,7 @@
 #include <sys/malloc.h>
 #include <sys/dirent.h>
 #include <sys/disk.h>
+#include <sys/dkio.h>
 #include <sys/stdint.h>
 
 #include <msdosfs/bpb.h>
@@ -128,8 +129,14 @@ msdosfs_mount(struct mount *mp, const char *path, void *data,
 			if (mp->mnt_flag & MNT_FORCE)
 				flags |= FORCECLOSE;
 			error = vflush(mp, NULLVP, flags);
-			if (!error)
+			if (!error) {
+				int force = 0;
+
 				pmp->pm_flags |= MSDOSFSMNT_RONLY;
+				/* may be not supported, ignore error */
+				VOP_IOCTL(pmp->pm_devvp, DIOCCACHESYNC,
+				    &force, FWRITE, FSCRED, p);
+			}
 		}
 		if (!error && (mp->mnt_flag & MNT_RELOAD))
 			/* not yet implemented */
@@ -299,7 +306,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	bsp = (union bootsector *)bp->b_data;
 	b33 = (struct byte_bpb33 *)bsp->bs33.bsBPB;
 	b50 = (struct byte_bpb50 *)bsp->bs50.bsBPB;
-	b710 = (struct byte_bpb710 *)bsp->bs710.bsPBP;
+	b710 = (struct byte_bpb710 *)bsp->bs710.bsBPB;
 
 	pmp = malloc(sizeof *pmp, M_MSDOSFSMNT, M_WAITOK | M_ZERO);
 	pmp->pm_mountp = mp;
@@ -323,7 +330,7 @@ msdosfs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p,
 	/* Determine the number of DEV_BSIZE blocks in a MSDOSFS sector */
 	pmp->pm_BlkPerSec = pmp->pm_BytesPerSec / DEV_BSIZE;
 
-	if (!pmp->pm_BytesPerSec || !SecPerClust || pmp->pm_SecPerTrack > 64) {
+	if (!pmp->pm_BytesPerSec || !SecPerClust) {
 		error = EFTYPE;
 		goto error_exit;
 	}
@@ -592,8 +599,6 @@ msdosfs_unmount(struct mount *mp, int mntflags,struct proc *p)
 	flags = 0;
 	if (mntflags & MNT_FORCE)
 		flags |= FORCECLOSE;
-#ifdef QUOTA
-#endif
 	if ((error = vflush(mp, NULLVP, flags)) != 0)
 		return (error);
 	pmp = VFSTOMSDOSFS(mp);

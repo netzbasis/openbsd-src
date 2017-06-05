@@ -1,4 +1,4 @@
-#	$OpenBSD: files,v 1.630 2016/09/09 04:50:54 dlg Exp $
+#	$OpenBSD: files,v 1.647 2017/05/29 12:58:37 jmatthew Exp $
 #	$NetBSD: files,v 1.87 1996/05/19 17:17:50 jonathan Exp $
 
 #	@(#)files.newconf	7.5 (Berkeley) 5/10/93
@@ -41,7 +41,6 @@ attach	midi at midibus
 
 # raster operations attributes
 define	rasops1
-define	rasops2
 define	rasops4
 define	rasops8
 define	rasops15
@@ -194,7 +193,7 @@ file	dev/ic/ahci.c			ahci | (ahci_pci | ahci_jmb |
 
 # NVM Express Controller
 device	nvme: scsi
-file	dev/ic/nvme.c			nvme
+file	dev/ic/nvme.c			nvme needs-flag
 
 # LSI Logic Fusion-MPT Message Passing Interface
 device	mpi: scsi
@@ -444,6 +443,7 @@ define	pcmciaslot {[slot = -1]}	# PCMCIA slot itself
 define	sdmmcbus {}			# SD/MMC attachment
 define	btbus {}			# Bluetooth host controller
 define	agpbus {}			# AGP bridge
+device	virtio {}			# VirtIO
 
 # UHCI USB controller
 device	uhci: usbus
@@ -594,9 +594,10 @@ file 	net/if_pppoe.c			pppoe	needs-flag
 # XXX machine-independent SCSI files should live somewhere here, maybe
 
 # kernel sources
-file ddb/db_access.c			ddb | kgdb
+file ddb/db_access.c			ddb
 file ddb/db_break.c			ddb
 file ddb/db_command.c			ddb
+file ddb/db_ctf.c			ddb & ddbctf
 file ddb/db_dwarf.c			ddb
 file ddb/db_elf.c			ddb
 file ddb/db_examine.c			ddb
@@ -606,7 +607,7 @@ file ddb/db_input.c			ddb
 file ddb/db_lex.c			ddb
 file ddb/db_output.c			ddb
 file ddb/db_prof.c			ddb & ddbprof & !gprof
-file ddb/db_run.c			ddb | kgdb
+file ddb/db_run.c			ddb
 file ddb/db_struct.c			ddb & ddb_struct
 file ddb/db_sym.c			ddb
 file ddb/db_trap.c			ddb
@@ -643,8 +644,7 @@ file isofs/udf/udf_vfsops.c		udf
 file isofs/udf/udf_vnops.c		udf
 file kern/clock_subr.c
 file kern/exec_conf.c
-file kern/exec_elf32.c
-file kern/exec_elf64.c
+file kern/exec_elf.c
 file kern/exec_script.c
 file kern/exec_subr.c
 file kern/init_main.c
@@ -662,6 +662,7 @@ file kern/kern_ktrace.c			ktrace
 file kern/kern_lock.c
 file kern/kern_malloc.c
 file kern/kern_malloc_debug.c		malloc_debug
+file kern/kern_mutex.c			witness
 file kern/kern_rwlock.c
 file kern/kern_physio.c
 file kern/kern_proc.c
@@ -682,7 +683,6 @@ file kern/kern_watchdog.c		!small_kernel
 file kern/kern_task.c
 file kern/kern_srp.c
 file kern/kern_xxx.c
-file kern/kgdb_stub.c			kgdb
 file kern/sched_bsd.c
 file kern/subr_autoconf.c
 file kern/subr_disk.c
@@ -690,13 +690,17 @@ file kern/subr_evcount.c
 file kern/subr_extent.c
 file kern/subr_hibernate.c		hibernate
 file kern/subr_log.c
+file kern/subr_percpu.c
 file kern/subr_poison.c			diagnostic
 file kern/subr_pool.c
+file kern/subr_tree.c
 file kern/dma_alloc.c
 file kern/subr_prf.c
 file kern/subr_prof.c
 file kern/subr_userconf.c		boot_config
+file kern/subr_witness.c		witness
 file kern/subr_xxx.c
+file kern/sys_futex.c
 file kern/sys_generic.c
 file kern/sys_pipe.c
 file kern/sys_process.c			ptrace
@@ -759,6 +763,7 @@ file tmpfs/tmpfs_fifoops.c		tmpfs & fifo
 file net/art.c				art
 file net/bpf.c				bpfilter		needs-count
 file net/bpf_filter.c			bpfilter
+file net/fq_codel.c			pf
 file net/if.c
 file net/ifq.c
 file net/if_ethersubr.c			ether			needs-flag
@@ -780,7 +785,6 @@ file net/switchctl.c			switch
 file net/switchofp.c			switch
 file net/pipex.c			pipex
 file net/radix.c
-file net/radix_mpath.c			!small_kernel & !art
 file net/raw_cb.c
 file net/raw_usrreq.c
 file net/rtable.c
@@ -807,6 +811,7 @@ file net80211/ieee80211_crypto_tkip.c	wlan
 file net80211/ieee80211_crypto_wep.c	wlan
 file net80211/ieee80211_input.c		wlan
 file net80211/ieee80211_ioctl.c		wlan
+file net80211/ieee80211_mira.c		wlan
 file net80211/ieee80211_node.c		wlan
 file net80211/ieee80211_output.c	wlan
 file net80211/ieee80211_pae_input.c	wlan
@@ -846,6 +851,7 @@ file netinet/ip_esp.c			ipsec
 file netinet/ip_ah.c			ipsec
 file netinet/ip_carp.c			carp			needs-count
 file netinet/ip_ipcomp.c		ipsec
+file crypto/aes.c			ipsec | crypto | uvm_swap_encrypt | wlan
 file crypto/rijndael.c			ipsec | crypto | uvm_swap_encrypt | wlan
 file crypto/md5.c
 file crypto/rmd160.c			ipsec | crypto
@@ -973,10 +979,9 @@ file netinet6/raw_ip6.c			inet6
 file netinet6/udp6_output.c		inet6
 
 # ... PF_KEY
-file net/pfkey.c			key | ipsec | tcp_signature
-file net/pfkeyv2.c			key | ipsec | tcp_signature
-file net/pfkeyv2_parsemessage.c		key | ipsec | tcp_signature
-file net/pfkeyv2_convert.c		key | ipsec | tcp_signature
+file net/pfkeyv2.c			ipsec | tcp_signature
+file net/pfkeyv2_parsemessage.c		ipsec | tcp_signature
+file net/pfkeyv2_convert.c		ipsec | tcp_signature
 
 # libx86emu
 file dev/x86emu/x86emu.c		x86emu

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_usrreq.c,v 1.134 2016/07/20 19:57:53 bluhm Exp $	*/
+/*	$OpenBSD: tcp_usrreq.c,v 1.151 2017/05/18 11:38:07 mpi Exp $	*/
 /*	$NetBSD: tcp_usrreq.c,v 1.20 1996/02/13 23:44:16 christos Exp $	*/
 
 /*
@@ -94,7 +94,6 @@
 #include <netinet/tcp_seq.h>
 #include <netinet/tcp_timer.h>
 #include <netinet/tcp_var.h>
-#include <netinet/tcpip.h>
 #include <netinet/tcp_debug.h>
 
 #ifdef INET6
@@ -124,18 +123,15 @@ int tcp_ident(void *, size_t *, void *, size_t, int);
  */
 /*ARGSUSED*/
 int
-tcp_usrreq(so, req, m, nam, control, p)
-	struct socket *so;
-	int req;
-	struct mbuf *m, *nam, *control;
-	struct proc *p;
+tcp_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
+    struct mbuf *control, struct proc *p)
 {
-	struct sockaddr_in *sin;
 	struct inpcb *inp;
 	struct tcpcb *tp = NULL;
-	int s;
 	int error = 0;
 	short ostate;
+
+	NET_ASSERT_LOCKED();
 
 	if (req == PRU_CONTROL) {
 #ifdef INET6
@@ -153,18 +149,16 @@ tcp_usrreq(so, req, m, nam, control, p)
 		return (EINVAL);
 	}
 
-	s = splsoftnet();
 	inp = sotoinpcb(so);
 	/*
 	 * When a TCP is attached to a socket, then there will be
 	 * a (struct inpcb) pointed at by the socket, and this
 	 * structure will point at a subsidiary (struct tcpcb).
 	 */
-	if (inp == NULL && req != PRU_ATTACH) {
+	if (inp == NULL) {
 		error = so->so_error;
 		if (error == 0)
 			error = EINVAL;
-		splx(s);
 		/*
 		 * The following corrects an mbuf leak under rare
 		 * circumstances
@@ -177,7 +171,6 @@ tcp_usrreq(so, req, m, nam, control, p)
 		tp = intotcpcb(inp);
 		/* tp might get 0 when using socket splicing */
 		if (tp == NULL) {
-			splx(s);
 			return (0);
 		}
 #ifdef KPROF
@@ -187,23 +180,6 @@ tcp_usrreq(so, req, m, nam, control, p)
 	} else
 		ostate = 0;
 	switch (req) {
-
-	/*
-	 * TCP attaches to socket via PRU_ATTACH, reserving space,
-	 * and an internet control block.
-	 */
-	case PRU_ATTACH:
-		if (inp) {
-			error = EISCONN;
-			break;
-		}
-		error = tcp_attach(so);
-		if (error)
-			break;
-		if ((so->so_options & SO_LINGER) && so->so_linger == 0)
-			so->so_linger = TCP_LINGERTIME;
-		tp = sototcpcb(so);
-		break;
 
 	/*
 	 * PRU_DETACH detaches the TCP protocol from the socket.
@@ -243,33 +219,40 @@ tcp_usrreq(so, req, m, nam, control, p)
 	 * Send initial segment on connection.
 	 */
 	case PRU_CONNECT:
-		sin = mtod(nam, struct sockaddr_in *);
+		switch (mtod(nam, struct sockaddr *)->sa_family) {
+		case AF_INET: {
+			struct in_addr *addr =
+			    &mtod(nam, struct sockaddr_in *)->sin_addr;
 
-#ifdef INET6
-		if (sin->sin_family == AF_INET6) {
-			struct in6_addr *in6_addr = &mtod(nam,
-			    struct sockaddr_in6 *)->sin6_addr;
-
-			if (IN6_IS_ADDR_UNSPECIFIED(in6_addr) ||
-			    IN6_IS_ADDR_MULTICAST(in6_addr) ||
-			    IN6_IS_ADDR_V4MAPPED(in6_addr)) {
-				error = EINVAL;
-				break;
-			}
-
-			error = in6_pcbconnect(inp, nam);
-		} else if (sin->sin_family == AF_INET)
-#endif /* INET6 */
-		{
-			if ((sin->sin_addr.s_addr == INADDR_ANY) ||
-			    (sin->sin_addr.s_addr == INADDR_BROADCAST) ||
-			    IN_MULTICAST(sin->sin_addr.s_addr) ||
-			    in_broadcast(sin->sin_addr, inp->inp_rtableid)) {
+			if ((addr->s_addr == INADDR_ANY) ||
+			    (addr->s_addr == INADDR_BROADCAST) ||
+			    IN_MULTICAST(addr->s_addr) ||
+			    in_broadcast(*addr, inp->inp_rtableid)) {
 				error = EINVAL;
 				break;
 			}
 
 			error = in_pcbconnect(inp, nam);
+			break;
+		}
+#ifdef INET6
+		case AF_INET6: {
+			struct in6_addr *addr6 =
+			    &mtod(nam, struct sockaddr_in6 *)->sin6_addr;
+
+			if (IN6_IS_ADDR_UNSPECIFIED(addr6) ||
+			    IN6_IS_ADDR_MULTICAST(addr6)) {
+				error = EINVAL;
+				break;
+			}
+
+			error = in6_pcbconnect(inp, nam);
+			break;
+		}
+#endif /* INET6 */
+		default:
+			error = EAFNOSUPPORT;
+			break;
 		}
 
 		if (error)
@@ -288,7 +271,7 @@ tcp_usrreq(so, req, m, nam, control, p)
 		tcp_rscale(tp, sb_max);
 
 		soisconnecting(so);
-		tcpstat.tcps_connattempt++;
+		tcpstat_inc(tcps_connattempt);
 		tp->t_state = TCPS_SYN_SENT;
 		TCP_TIMER_ARM(tp, TCPT_KEEP, tcptv_keep_init);
 		tcp_set_iss_tsm(tp);
@@ -385,7 +368,6 @@ tcp_usrreq(so, req, m, nam, control, p)
 
 	case PRU_SENSE:
 		((struct stat *) m)->st_blksize = so->so_snd.sb_hiwat;
-		splx(s);
 		return (0);
 
 	case PRU_RCVOOB:
@@ -450,46 +432,38 @@ tcp_usrreq(so, req, m, nam, control, p)
 	}
 	if (tp && (so->so_options & SO_DEBUG))
 		tcp_trace(TA_USER, ostate, tp, (caddr_t)0, req, 0);
-	splx(s);
 	return (error);
 }
 
 int
-tcp_ctloutput(op, so, level, optname, mp)
-	int op;
-	struct socket *so;
-	int level, optname;
-	struct mbuf **mp;
+tcp_ctloutput(int op, struct socket *so, int level, int optname,
+    struct mbuf *m)
 {
-	int error = 0, s;
+	int error = 0;
 	struct inpcb *inp;
 	struct tcpcb *tp;
-	struct mbuf *m;
 	int i;
 
-	s = splsoftnet();
 	inp = sotoinpcb(so);
 	if (inp == NULL) {
-		splx(s);
 		if (op == PRCO_SETOPT)
-			(void) m_free(*mp);
+			(void) m_free(m);
 		return (ECONNRESET);
 	}
 	if (level != IPPROTO_TCP) {
 		switch (so->so_proto->pr_domain->dom_family) {
 #ifdef INET6
 		case PF_INET6:
-			error = ip6_ctloutput(op, so, level, optname, mp);
+			error = ip6_ctloutput(op, so, level, optname, m);
 			break;
 #endif /* INET6 */
 		case PF_INET:
-			error = ip_ctloutput(op, so, level, optname, mp);
+			error = ip_ctloutput(op, so, level, optname, m);
 			break;
 		default:
 			error = EAFNOSUPPORT;	/*?*/
 			break;
 		}
-		splx(s);
 		return (error);
 	}
 	tp = intotcpcb(inp);
@@ -497,7 +471,6 @@ tcp_ctloutput(op, so, level, optname, mp)
 	switch (op) {
 
 	case PRCO_SETOPT:
-		m = *mp;
 		switch (optname) {
 
 		case TCP_NODELAY:
@@ -582,12 +555,10 @@ tcp_ctloutput(op, so, level, optname, mp)
 			error = ENOPROTOOPT;
 			break;
 		}
-		if (m)
-			(void) m_free(m);
+		m_free(m);
 		break;
 
 	case PRCO_GETOPT:
-		*mp = m = m_get(M_WAIT, MT_SOOPTS);
 		m->m_len = sizeof(int);
 
 		switch (optname) {
@@ -616,7 +587,6 @@ tcp_ctloutput(op, so, level, optname, mp)
 		}
 		break;
 	}
-	splx(s);
 	return (error);
 }
 
@@ -626,13 +596,14 @@ tcp_ctloutput(op, so, level, optname, mp)
  * bufer space, and entering LISTEN state if to accept connections.
  */
 int
-tcp_attach(so)
-	struct socket *so;
+tcp_attach(struct socket *so, int proto)
 {
 	struct tcpcb *tp;
 	struct inpcb *inp;
 	int error;
 
+	if (so->so_pcb)
+		return EISCONN;
 	if (so->so_snd.sb_hiwat == 0 || so->so_rcv.sb_hiwat == 0 ||
 	    sbcheckreserve(so->so_snd.sb_wat, tcp_sendspace) ||
 	    sbcheckreserve(so->so_rcv.sb_wat, tcp_recvspace)) {
@@ -664,6 +635,11 @@ tcp_attach(so)
 #else
 	tp->pf = PF_INET;
 #endif
+	if ((so->so_options & SO_LINGER) && so->so_linger == 0)
+		so->so_linger = TCP_LINGERTIME;
+
+	if (tp && (so->so_options & SO_DEBUG))
+		tcp_trace(TA_USER, 0, tp, (caddr_t)0, 0 /* XXX */, 0);
 	return (0);
 }
 
@@ -676,8 +652,7 @@ tcp_attach(so)
  * send segment to peer (with FIN).
  */
 struct tcpcb *
-tcp_disconnect(tp)
-	struct tcpcb *tp;
+tcp_disconnect(struct tcpcb *tp)
 {
 	struct socket *so = tp->t_inpcb->inp_socket;
 
@@ -706,8 +681,7 @@ tcp_disconnect(tp)
  * We can let the user exit from the close as soon as the FIN is acked.
  */
 struct tcpcb *
-tcp_usrclosed(tp)
-	struct tcpcb *tp;
+tcp_usrclosed(struct tcpcb *tp)
 {
 
 	switch (tp->t_state) {
@@ -749,7 +723,7 @@ tcp_usrclosed(tp)
 int
 tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 {
-	int error = 0, s;
+	int error = 0;
 	struct tcp_ident_mapping tir;
 	struct inpcb *inp;
 	struct tcpcb *tp = NULL;
@@ -758,6 +732,9 @@ tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 	struct sockaddr_in6 *fin6, *lin6;
 	struct in6_addr f6, l6;
 #endif
+
+	NET_ASSERT_LOCKED();
+
 	if (dodrop) {
 		if (oldp != NULL || *oldlenp != 0)
 			return (EINVAL);
@@ -798,7 +775,6 @@ tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 		return (EINVAL);
 	}
 
-	s = splsoftnet();
 	switch (tir.faddr.ss_family) {
 #ifdef INET6
 	case AF_INET6:
@@ -820,12 +796,11 @@ tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 			tp = tcp_drop(tp, ECONNABORTED);
 		else
 			error = ESRCH;
-		splx(s);
 		return (error);
 	}
 
 	if (inp == NULL) {
-		++tcpstat.tcps_pcbhashmiss;
+		tcpstat_inc(tcps_pcbhashmiss);
 		switch (tir.faddr.ss_family) {
 #ifdef INET6
 		case AF_INET6:
@@ -847,26 +822,152 @@ tcp_ident(void *oldp, size_t *oldlenp, void *newp, size_t newlen, int dodrop)
 		tir.ruid = -1;
 		tir.euid = -1;
 	}
-	splx(s);
 
 	*oldlenp = sizeof (tir);
 	error = copyout((void *)&tir, oldp, sizeof (tir));
 	return (error);
 }
 
+int
+tcp_sysctl_tcpstat(void *oldp, size_t *oldlenp, void *newp)
+{
+	uint64_t counters[tcps_ncounters];
+	struct tcpstat tcpstat;
+	struct syn_cache_set *set;
+	int i = 0;
+
+#define ASSIGN(field)	do { tcpstat.field = counters[i++]; } while (0)
+
+	memset(&tcpstat, 0, sizeof tcpstat);
+	counters_read(tcpcounters, counters, nitems(counters));
+	ASSIGN(tcps_connattempt);
+	ASSIGN(tcps_accepts);
+	ASSIGN(tcps_connects);
+	ASSIGN(tcps_drops);
+	ASSIGN(tcps_conndrops);
+	ASSIGN(tcps_closed);
+	ASSIGN(tcps_segstimed);
+	ASSIGN(tcps_rttupdated);
+	ASSIGN(tcps_delack);
+	ASSIGN(tcps_timeoutdrop);
+	ASSIGN(tcps_rexmttimeo);
+	ASSIGN(tcps_persisttimeo);
+	ASSIGN(tcps_persistdrop);
+	ASSIGN(tcps_keeptimeo);
+	ASSIGN(tcps_keepprobe);
+	ASSIGN(tcps_keepdrops);
+	ASSIGN(tcps_sndtotal);
+	ASSIGN(tcps_sndpack);
+	ASSIGN(tcps_sndbyte);
+	ASSIGN(tcps_sndrexmitpack);
+	ASSIGN(tcps_sndrexmitbyte);
+	ASSIGN(tcps_sndrexmitfast);
+	ASSIGN(tcps_sndacks);
+	ASSIGN(tcps_sndprobe);
+	ASSIGN(tcps_sndurg);
+	ASSIGN(tcps_sndwinup);
+	ASSIGN(tcps_sndctrl);
+	ASSIGN(tcps_rcvtotal);
+	ASSIGN(tcps_rcvpack);
+	ASSIGN(tcps_rcvbyte);
+	ASSIGN(tcps_rcvbadsum);
+	ASSIGN(tcps_rcvbadoff);
+	ASSIGN(tcps_rcvmemdrop);
+	ASSIGN(tcps_rcvnosec);
+	ASSIGN(tcps_rcvshort);
+	ASSIGN(tcps_rcvduppack);
+	ASSIGN(tcps_rcvdupbyte);
+	ASSIGN(tcps_rcvpartduppack);
+	ASSIGN(tcps_rcvpartdupbyte);
+	ASSIGN(tcps_rcvoopack);
+	ASSIGN(tcps_rcvoobyte);
+	ASSIGN(tcps_rcvpackafterwin);
+	ASSIGN(tcps_rcvbyteafterwin);
+	ASSIGN(tcps_rcvafterclose);
+	ASSIGN(tcps_rcvwinprobe);
+	ASSIGN(tcps_rcvdupack);
+	ASSIGN(tcps_rcvacktoomuch);
+	ASSIGN(tcps_rcvacktooold);
+	ASSIGN(tcps_rcvackpack);
+	ASSIGN(tcps_rcvackbyte);
+	ASSIGN(tcps_rcvwinupd);
+	ASSIGN(tcps_pawsdrop);
+	ASSIGN(tcps_predack);
+	ASSIGN(tcps_preddat);
+	ASSIGN(tcps_pcbhashmiss);
+	ASSIGN(tcps_noport);
+	ASSIGN(tcps_badsyn);
+	ASSIGN(tcps_dropsyn);
+	ASSIGN(tcps_rcvbadsig);
+	ASSIGN(tcps_rcvgoodsig);
+	ASSIGN(tcps_inswcsum);
+	ASSIGN(tcps_outswcsum);
+	ASSIGN(tcps_ecn_accepts);
+	ASSIGN(tcps_ecn_rcvece);
+	ASSIGN(tcps_ecn_rcvcwr);
+	ASSIGN(tcps_ecn_rcvce);
+	ASSIGN(tcps_ecn_sndect);
+	ASSIGN(tcps_ecn_sndece);
+	ASSIGN(tcps_ecn_sndcwr);
+	ASSIGN(tcps_cwr_ecn);
+	ASSIGN(tcps_cwr_frecovery);
+	ASSIGN(tcps_cwr_timeout);
+	ASSIGN(tcps_sc_added);
+	ASSIGN(tcps_sc_completed);
+	ASSIGN(tcps_sc_timed_out);
+	ASSIGN(tcps_sc_overflowed);
+	ASSIGN(tcps_sc_reset);
+	ASSIGN(tcps_sc_unreach);
+	ASSIGN(tcps_sc_bucketoverflow);
+	ASSIGN(tcps_sc_aborted);
+	ASSIGN(tcps_sc_dupesyn);
+	ASSIGN(tcps_sc_dropped);
+	ASSIGN(tcps_sc_collisions);
+	ASSIGN(tcps_sc_retransmitted);
+	ASSIGN(tcps_sc_seedrandom);
+	ASSIGN(tcps_sc_hash_size);
+	ASSIGN(tcps_sc_entry_count);
+	ASSIGN(tcps_sc_entry_limit);
+	ASSIGN(tcps_sc_bucket_maxlen);
+	ASSIGN(tcps_sc_bucket_limit);
+	ASSIGN(tcps_sc_uses_left);
+	ASSIGN(tcps_conndrained);
+	ASSIGN(tcps_sack_recovery_episode);
+	ASSIGN(tcps_sack_rexmits);
+	ASSIGN(tcps_sack_rexmit_bytes);
+	ASSIGN(tcps_sack_rcv_opts);
+	ASSIGN(tcps_sack_snd_opts);
+
+#undef ASSIGN
+
+	set = &tcp_syn_cache[tcp_syn_cache_active];
+	tcpstat.tcps_sc_hash_size = set->scs_size;
+	tcpstat.tcps_sc_entry_count = set->scs_count;
+	tcpstat.tcps_sc_entry_limit = tcp_syn_cache_limit;
+	tcpstat.tcps_sc_bucket_maxlen = 0;
+	for (i = 0; i < set->scs_size; i++) {
+		if (tcpstat.tcps_sc_bucket_maxlen <
+		    set->scs_buckethead[i].sch_length)
+			tcpstat.tcps_sc_bucket_maxlen =
+				set->scs_buckethead[i].sch_length;
+	}
+	tcpstat.tcps_sc_bucket_limit = tcp_syn_bucket_limit;
+	tcpstat.tcps_sc_uses_left = set->scs_use;
+
+	return (sysctl_rdstruct(oldp, oldlenp, newp,
+	    &tcpstat, sizeof(tcpstat)));
+}
+
 /*
  * Sysctl for tcp variables.
  */
 int
-tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
-	int *name;
-	u_int namelen;
-	void *oldp;
-	size_t *oldlenp;
-	void *newp;
-	size_t newlen;
+tcp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen)
 {
 	int error, nval;
+
+	NET_ASSERT_LOCKED();
 
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
@@ -934,28 +1035,7 @@ tcp_sysctl(name, namelen, oldp, oldlenp, newp, newlen)
 #endif
 
 	case TCPCTL_STATS:
-		if (newp != NULL)
-			return (EPERM);
-		{
-			struct syn_cache_set *set;
-			int i;
-
-			set = &tcp_syn_cache[tcp_syn_cache_active];
-			tcpstat.tcps_sc_hash_size = set->scs_size;
-			tcpstat.tcps_sc_entry_count = set->scs_count;
-			tcpstat.tcps_sc_entry_limit = tcp_syn_cache_limit;
-			tcpstat.tcps_sc_bucket_maxlen = 0;
-			for (i = 0; i < set->scs_size; i++) {
-				if (tcpstat.tcps_sc_bucket_maxlen <
-				    set->scs_buckethead[i].sch_length)
-					tcpstat.tcps_sc_bucket_maxlen =
-					    set->scs_buckethead[i].sch_length;
-			}
-			tcpstat.tcps_sc_bucket_limit = tcp_syn_bucket_limit;
-			tcpstat.tcps_sc_uses_left = set->scs_use;
-		}
-		return (sysctl_struct(oldp, oldlenp, newp, newlen,
-		    &tcpstat, sizeof(tcpstat)));
+		return (tcp_sysctl_tcpstat(oldp, oldlenp, newp));
 
 	case TCPCTL_SYN_USE_LIMIT:
 		error = sysctl_int(oldp, oldlenp, newp, newlen,
@@ -1047,7 +1127,7 @@ tcp_update_sndspace(struct tcpcb *tp)
 
 /*
  * Scale the recv buffer by looking at how much data was transferred in
- * on approximated RTT. If more then a big part of the recv buffer was
+ * on approximated RTT. If more than a big part of the recv buffer was
  * transferred during that time we increase the buffer by a constant.
  * In low memory situation try to shrink the buffer to the initial size.
  */

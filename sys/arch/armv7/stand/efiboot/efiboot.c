@@ -1,4 +1,4 @@
-/*	$OpenBSD: efiboot.c,v 1.11 2016/07/01 09:34:39 patrick Exp $	*/
+/*	$OpenBSD: efiboot.c,v 1.14 2017/03/11 09:09:14 jsg Exp $	*/
 
 /*
  * Copyright (c) 2015 YASUOKA Masahiko <yasuoka@yasuoka.net>
@@ -226,28 +226,14 @@ struct board_id {
 };
 
 struct board_id board_id_table[] = {
-	{ "allwinner,sun4i-a10",		4104 },
-	{ "allwinner,sun7i-a20",		4283 },
 	{ "arm,vexpress",			2272 },
-	{ "boundary,imx6q-nitrogen6_max",	3769 },
-	{ "boundary,imx6q-nitrogen6x",		3769 },
-	{ "compulab,cm-fx6",			4273 },
-	{ "fsl,imx6q-sabrelite",		3769 },
-	{ "fsl,imx6q-sabresd",			3980 },
 	{ "google,snow",			3774 },
 	{ "google,spring",			3774 },
-	{ "kosagi,imx6q-novena",		4269 },
 	{ "samsung,universal_c210",		2838 },
-	{ "solidrun,cubox-i/dl",		4821 },
-	{ "solidrun,cubox-i/q",			4821 },
-	{ "solidrun,hummingboard/dl",		4773 },
-	{ "solidrun,hummingboard/q",		4773 },
 	{ "ti,am335x-bone",			3589 },
 	{ "ti,omap3-beagle",			1546 },
 	{ "ti,omap3-beagle-xm",			1546 },
 	{ "ti,omap4-panda",			2791 },
-	{ "udoo,imx6q-udoo",			4800 },
-	{ "wand,imx6q-wandboard",		4412 },
 };
 
 static EFI_GUID fdt_guid = FDT_TABLE_GUID;
@@ -383,7 +369,7 @@ efi_timer_init(void)
 {
 	EFI_STATUS status;
 
-	status = BS->CreateEvent(EVT_TIMER, TPL_CALLBACK,
+	status = BS->CreateEvent(EVT_TIMER | EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
 	    efi_timer, NULL, &timer);
 	if (status == EFI_SUCCESS)
 		status = BS->SetTimer(timer, TimerPeriodic, 10000000);

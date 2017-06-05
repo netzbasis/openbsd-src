@@ -1,4 +1,4 @@
-/*      $OpenBSD: ip_divert.c,v 1.39 2016/03/07 18:44:00 naddy Exp $ */
+/*      $OpenBSD: ip_divert.c,v 1.47 2017/05/30 07:50:37 mpi Exp $ */
 
 /*
  * Copyright (c) 2009 Michele Marchetto <michele@openbsd.org>
@@ -42,7 +42,7 @@
 #include <net/pfvar.h>
 
 struct	inpcbtable	divbtable;
-struct	divstat		divstat;
+struct	cpumem		*divcounters;
 
 #ifndef DIVERT_SENDSPACE
 #define DIVERT_SENDSPACE	(65536 + 100)
@@ -63,19 +63,13 @@ int divbhashsize = DIVERTHASHSIZE;
 
 static struct sockaddr_in ipaddr = { sizeof(ipaddr), AF_INET };
 
-void	divert_detach(struct inpcb *);
 int	divert_output(struct inpcb *, struct mbuf *, struct mbuf *,
 	    struct mbuf *);
 void
 divert_init(void)
 {
 	in_pcbinit(&divbtable, divbhashsize);
-}
-
-void
-divert_input(struct mbuf *m, ...)
-{
-	m_freem(m);
+	divcounters = counters_alloc(divs_ncounters);
 }
 
 int
@@ -103,7 +97,7 @@ divert_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 		goto fail;
 	if ((m = m_pullup(m, sizeof(struct ip))) == NULL) {
 		/* m_pullup() has freed the mbuf, so just return. */
-		divstat.divs_errors++;
+		divstat_inc(divs_errors);
 		return (ENOBUFS);
 	}
 	ip = mtod(m, struct ip *);
@@ -140,6 +134,7 @@ divert_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 
 	if (dir == PF_IN) {
 		ipaddr.sin_addr = sin->sin_addr;
+		/* XXXSMP ifa_ifwithaddr() is not safe. */
 		ifa = ifa_ifwithaddr(sintosa(&ipaddr), m->m_pkthdr.ph_rtableid);
 		if (ifa == NULL) {
 			error = EADDRNOTAVAIL;
@@ -156,7 +151,8 @@ divert_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 		ip->ip_sum = in_cksum(m, off);
 		in_proto_cksum_out(m, NULL);
 
-		niq_enqueue(&ipintrq, m);
+		/* XXXSMP ``ifa'' is not reference counted. */
+		ipv4_input(ifa->ifa_ifp, m);
 	} else {
 		error = ip_output(m, NULL, &inp->inp_route,
 		    IP_ALLOWBROADCAST | IP_RAWOUTPUT, NULL, NULL, 0);
@@ -164,12 +160,12 @@ divert_output(struct inpcb *inp, struct mbuf *m, struct mbuf *nam,
 			error = EHOSTUNREACH;
 	}
 
-	divstat.divs_opackets++;
+	divstat_inc(divs_opackets);
 	return (error);
 
 fail:
 	m_freem(m);
-	divstat.divs_errors++;
+	divstat_inc(divs_errors);
 	return (error ? error : EINVAL);
 }
 
@@ -181,11 +177,11 @@ divert_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	struct sockaddr_in addr;
 
 	inp = NULL;
-	divstat.divs_ipackets++;
+	divstat_inc(divs_ipackets);
 
 	if (m->m_len < sizeof(struct ip) &&
 	    (m = m_pullup(m, sizeof(struct ip))) == NULL) {
-		divstat.divs_errors++;
+		divstat_inc(divs_errors);
 		return (0);
 	}
 
@@ -227,7 +223,7 @@ divert_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	if (inp) {
 		sa = inp->inp_socket;
 		if (sbappendaddr(&sa->so_rcv, sintosa(&addr), m, NULL) == 0) {
-			divstat.divs_fullsock++;
+			divstat_inc(divs_fullsock);
 			m_freem(m);
 			return (0);
 		} else
@@ -235,7 +231,7 @@ divert_packet(struct mbuf *m, int dir, u_int16_t divert_port)
 	}
 
 	if (sa == NULL) {
-		divstat.divs_noport++;
+		divstat_inc(divs_noport);
 		m_freem(m);
 	}
 	return (0);
@@ -248,47 +244,25 @@ divert_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 {
 	struct inpcb *inp = sotoinpcb(so);
 	int error = 0;
-	int s;
+
+	NET_ASSERT_LOCKED();
 
 	if (req == PRU_CONTROL) {
 		return (in_control(so, (u_long)m, (caddr_t)addr,
 		    (struct ifnet *)control));
 	}
-	if (inp == NULL && req != PRU_ATTACH) {
+	if (inp == NULL) {
 		error = EINVAL;
 		goto release;
 	}
 	switch (req) {
 
-	case PRU_ATTACH:
-		if (inp != NULL) {
-			error = EINVAL;
-			break;
-		}
-		if ((so->so_state & SS_PRIV) == 0) {
-			error = EACCES;
-			break;
-		}
-		s = splsoftnet();
-		error = in_pcballoc(so, &divbtable);
-		splx(s);
-		if (error)
-			break;
-
-		error = soreserve(so, divert_sendspace, divert_recvspace);
-		if (error)
-			break;
-		sotoinpcb(so)->inp_flags |= INP_HDRINCL;
-		break;
-
 	case PRU_DETACH:
-		divert_detach(inp);
+		in_pcbdetach(inp);
 		break;
 
 	case PRU_BIND:
-		s = splsoftnet();
 		error = in_pcbbind(inp, addr, p);
-		splx(s);
 		break;
 
 	case PRU_SHUTDOWN:
@@ -300,7 +274,7 @@ divert_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *addr,
 
 	case PRU_ABORT:
 		soisdisconnected(so);
-		divert_detach(inp);
+		in_pcbdetach(inp);
 		break;
 
 	case PRU_SOCKADDR:
@@ -341,13 +315,45 @@ release:
 	return (error);
 }
 
-void
-divert_detach(struct inpcb *inp)
+int
+divert_attach(struct socket *so, int proto)
 {
-	int s = splsoftnet();
+	int error;
 
-	in_pcbdetach(inp);
-	splx(s);
+	if (so->so_pcb != NULL)
+		return EINVAL;
+	if ((so->so_state & SS_PRIV) == 0)
+		return EACCES;
+
+	error = in_pcballoc(so, &divbtable);
+	if (error)
+		return error;
+
+	error = soreserve(so, divert_sendspace, divert_recvspace);
+	if (error)
+		return error;
+
+	sotoinpcb(so)->inp_flags |= INP_HDRINCL;
+	return (0);
+}
+
+int
+divert_sysctl_divstat(void *oldp, size_t *oldlenp, void *newp)
+{
+	uint64_t counters[divs_ncounters];
+	struct divstat divstat;
+	u_long *words = (u_long *)&divstat;
+	int i;
+
+	CTASSERT(sizeof(divstat) == (nitems(counters) * sizeof(u_long)));
+	memset(&divstat, 0, sizeof divstat);
+	counters_read(divcounters, counters, nitems(counters));
+
+	for (i = 0; i < nitems(counters); i++)
+		words[i] = (u_long)counters[i];
+
+	return (sysctl_rdstruct(oldp, oldlenp, newp,
+	    &divstat, sizeof(divstat)));
 }
 
 /*
@@ -369,10 +375,7 @@ divert_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		return (sysctl_int(oldp, oldlenp, newp, newlen,
 		    &divert_recvspace));
 	case DIVERTCTL_STATS:
-		if (newp != NULL)
-			return (EPERM);
-		return (sysctl_struct(oldp, oldlenp, newp, newlen,
-		    &divstat, sizeof(divstat)));
+		return (divert_sysctl_divstat(oldp, oldlenp, newp));
 	default:
 		if (name[0] < DIVERTCTL_MAXID)
 			return sysctl_int_arr(divertctl_vars, name, namelen,

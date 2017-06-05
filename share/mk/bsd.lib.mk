@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.lib.mk,v 1.77 2016/07/04 18:01:44 guenther Exp $
+#	$OpenBSD: bsd.lib.mk,v 1.81 2017/04/27 17:41:47 robert Exp $
 #	$NetBSD: bsd.lib.mk,v 1.67 1996/01/17 20:39:26 mycroft Exp $
 #	@(#)bsd.lib.mk	5.26 (Berkeley) 5/2/91
 
@@ -169,28 +169,34 @@ OBJS+=	${SRCS:N*.h:R:S/$/.o/}
 lib${LIB}.a: ${OBJS}
 	@echo building standard ${LIB} library
 	@rm -f lib${LIB}.a
-	@${AR} cq lib${LIB}.a `${LORDER} ${OBJS} | tsort -q`
+	@${AR} cqD lib${LIB}.a `${LORDER} ${OBJS} | tsort -q`
 	${RANLIB} lib${LIB}.a
 
 POBJS+=	${OBJS:.o=.po}
 lib${LIB}_p.a: ${POBJS}
 	@echo building profiled ${LIB} library
 	@rm -f lib${LIB}_p.a
-	@${AR} cq lib${LIB}_p.a `${LORDER} ${POBJS} | tsort -q`
+	@${AR} cqD lib${LIB}_p.a `${LORDER} ${POBJS} | tsort -q`
 	${RANLIB} lib${LIB}_p.a
 
 SOBJS+=	${OBJS:.o=.so}
 ${FULLSHLIBNAME}: ${SOBJS} ${DPADD}
 	@echo building shared ${LIB} library \(version ${SHLIB_MAJOR}.${SHLIB_MINOR}\)
 	@rm -f ${.TARGET}
+.if defined(SYSPATCH)
+	${CC} -shared ${PICFLAG} -o ${.TARGET} \
+	    `readelf -Ws ${LIBDIR}/${.TARGET} | awk '/ FILE/{gsub(/\..*/, ".so", $$NF); sub(".*/", "", $$NF); print $$NF}' | \
+	    grep -v unwind-dw2` ${LDADD}
+.else
 	${CC} -shared ${PICFLAG} -o ${.TARGET} \
 	    `echo ${SOBJS} | tr ' ' '\n' | sort -R` ${LDADD}
+.endif
 
 ${FULLSHLIBNAME}.a: ${SOBJS}
 	@echo building shared ${LIB} library \(version ${SHLIB_MAJOR}.${SHLIB_MINOR}\) ar
 	@rm -f ${.TARGET}
 	@echo ${PICFLAG} ${LDADD} > .ldadd
-	ar cq ${FULLSHLIBNAME}.a ${SOBJS} .ldadd ${SYMBOLSMAP}
+	ar cqD ${FULLSHLIBNAME}.a ${SOBJS} .ldadd ${SYMBOLSMAP}
 
 # all .do files...
 DOBJS+=	${OBJS:.o=.do}
@@ -207,9 +213,9 @@ ${DIST_LIB}: ${SELECTED_DOBJS}
 	@echo building distrib ${DIST_LIB} library from ${SELECTED_DOBJS}
 	@rm -f ${DIST_LIB}
 .if !empty(SELECTED_DOBJS)
-	@${AR} cq ${DIST_LIB} `${LORDER} ${SELECTED_DOBJS} | tsort -q`
+	@${AR} cqD ${DIST_LIB} `${LORDER} ${SELECTED_DOBJS} | tsort -q`
 .else
-	@${AR} cq ${DIST_LIB}
+	@${AR} cqD ${DIST_LIB}
 .endif
 	${RANLIB} ${DIST_LIB}
 
@@ -227,14 +233,7 @@ cleandir: _SUBDIRUSE clean
 
 .if defined(SRCS)
 afterdepend: .depend
-	@(TMP=`mktemp -q /tmp/_dependXXXXXXXXXX`; \
-	if [ $$? -ne 0 ]; then \
-		echo "$$0: cannot create temp file, exiting..."; \
-		exit 1; \
-	fi; \
-	sed -e 's/^\([^\.]*\).o[ ]*:/\1.o \1.po \1.so \1.do:/' \
-	      < .depend > $$TMP; \
-	mv $$TMP .depend)
+	@sed -i 's/^\([^\.]*\).o[ ]*:/\1.o \1.po \1.so \1.do:/' .depend
 .endif
 
 .if !target(install)

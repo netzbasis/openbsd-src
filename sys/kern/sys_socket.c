@@ -1,4 +1,4 @@
-/*	$OpenBSD: sys_socket.c,v 1.21 2015/12/05 10:11:53 tedu Exp $	*/
+/*	$OpenBSD: sys_socket.c,v 1.30 2017/02/22 10:20:21 mpi Exp $	*/
 /*	$NetBSD: sys_socket.c,v 1.13 1995/08/12 23:59:09 mycroft Exp $	*/
 
 /*
@@ -73,6 +73,7 @@ int
 soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 {
 	struct socket *so = (struct socket *)fp->f_data;
+	int s, error = 0;
 
 	switch (cmd) {
 
@@ -118,12 +119,20 @@ soo_ioctl(struct file *fp, u_long cmd, caddr_t data, struct proc *p)
 	 * interface and routing ioctls should have a
 	 * different entry since a socket's unnecessary
 	 */
-	if (IOCGROUP(cmd) == 'i')
-		return (ifioctl(so, cmd, data, p));
+	if (IOCGROUP(cmd) == 'i') {
+		NET_LOCK(s);
+		error = ifioctl(so, cmd, data, p);
+		NET_UNLOCK(s);
+		return (error);
+	}
 	if (IOCGROUP(cmd) == 'r')
-		return (rtioctl(cmd, data, p));
-	return ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL, 
+		return (EOPNOTSUPP);
+	s = solock(so);
+	error = ((*so->so_proto->pr_usrreq)(so, PRU_CONTROL, 
 	    (struct mbuf *)cmd, (struct mbuf *)data, (struct mbuf *)NULL, p));
+	sounlock(s);
+
+	return (error);
 }
 
 int
@@ -131,8 +140,9 @@ soo_poll(struct file *fp, int events, struct proc *p)
 {
 	struct socket *so = fp->f_data;
 	int revents = 0;
-	int s = splsoftnet();
+	int s;
 
+	s = solock(so);
 	if (events & (POLLIN | POLLRDNORM)) {
 		if (soreadable(so))
 			revents |= events & (POLLIN | POLLRDNORM);
@@ -158,7 +168,7 @@ soo_poll(struct file *fp, int events, struct proc *p)
 			so->so_snd.sb_flagsintr |= SB_SEL;
 		}
 	}
-	splx(s);
+	sounlock(s);
 	return (revents);
 }
 
@@ -166,6 +176,7 @@ int
 soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 {
 	struct socket *so = fp->f_data;
+	int s;
 
 	memset(ub, 0, sizeof (*ub));
 	ub->st_mode = S_IFSOCK;
@@ -176,8 +187,10 @@ soo_stat(struct file *fp, struct stat *ub, struct proc *p)
 		ub->st_mode |= S_IWUSR | S_IWGRP | S_IWOTH;
 	ub->st_uid = so->so_euid;
 	ub->st_gid = so->so_egid;
+	s = solock(so);
 	(void) ((*so->so_proto->pr_usrreq)(so, PRU_SENSE,
 	    (struct mbuf *)ub, NULL, NULL, p));
+	sounlock(s);
 	return (0);
 }
 

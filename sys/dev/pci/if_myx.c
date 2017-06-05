@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_myx.c,v 1.95 2016/05/23 15:22:44 tedu Exp $	*/
+/*	$OpenBSD: if_myx.c,v 1.102 2017/02/07 06:51:58 dlg Exp $	*/
 
 /*
  * Copyright (c) 2007 Reyk Floeter <reyk@openbsd.org>
@@ -159,7 +159,8 @@ struct myx_softc {
 };
 
 #define MYX_RXSMALL_SIZE	MCLBYTES
-#define MYX_RXBIG_SIZE		(9 * 1024)
+#define MYX_RXBIG_SIZE		(MYX_MTU - \
+    (ETHER_ALIGN + ETHER_HDR_LEN + ETHER_VLAN_ENCAP_LEN))
 
 int	 myx_match(struct device *, void *, void *);
 void	 myx_attach(struct device *, struct device *, void *);
@@ -200,7 +201,7 @@ void	 myx_up(struct myx_softc *);
 void	 myx_iff(struct myx_softc *);
 void	 myx_down(struct myx_softc *);
 
-void	 myx_start(struct ifnet *);
+void	 myx_start(struct ifqueue *);
 void	 myx_write_txd_tail(struct myx_softc *, struct myx_slot *, u_int8_t,
 	    u_int32_t, u_int);
 int	 myx_load_mbuf(struct myx_softc *, struct myx_slot *, struct mbuf *);
@@ -293,8 +294,6 @@ myx_attach(struct device *parent, struct device *self, void *aux)
 
 	/* this is sort of racy */
 	if (myx_mcl_pool == NULL) {
-		extern struct kmem_pa_mode kp_dma_contig;
-
 		myx_mcl_pool = malloc(sizeof(*myx_mcl_pool), M_DEVBUF,
 		    M_WAITOK);
 		if (myx_mcl_pool == NULL) {
@@ -302,10 +301,9 @@ myx_attach(struct device *parent, struct device *self, void *aux)
 			    DEVNAME(sc));
 			goto unmap;
 		}
-		pool_init(myx_mcl_pool, MYX_RXBIG_SIZE, MYX_BOUNDARY, 0,
-		    0, "myxmcl", NULL);
-		pool_setipl(myx_mcl_pool, IPL_NET);
-		pool_set_constraints(myx_mcl_pool, &kp_dma_contig);
+
+		m_pool_init(myx_mcl_pool, MYX_RXBIG_SIZE, MYX_BOUNDARY,
+		    "myxmcl");
 	}
 
 	if (myx_pcie_dc(sc, pa) != 0)
@@ -510,9 +508,9 @@ myx_attachhook(struct device *self)
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = myx_ioctl;
-	ifp->if_start = myx_start;
+	ifp->if_qstart = myx_start;
 	ifp->if_watchdog = myx_watchdog;
-	ifp->if_hardmtu = 9000;
+	ifp->if_hardmtu = MYX_RXBIG_SIZE;
 	strlcpy(ifp->if_xname, DEVNAME(sc), IFNAMSIZ);
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
 
@@ -1200,10 +1198,9 @@ myx_up(struct myx_softc *sc)
 		goto empty_rx_ring_big;
 	}
 
-	ifq_clr_oactive(&ifp->if_snd);
-	SET(ifp->if_flags, IFF_RUNNING);
 	myx_iff(sc);
-	if_start(ifp);
+	SET(ifp->if_flags, IFF_RUNNING);
+	ifq_restart(&ifp->if_snd);
 
 	return;
 
@@ -1422,8 +1419,9 @@ myx_write_txd_tail(struct myx_softc *sc, struct myx_slot *ms, u_int8_t flags,
 }
 
 void
-myx_start(struct ifnet *ifp)
+myx_start(struct ifqueue *ifq)
 {
+	struct ifnet			*ifp = ifq->ifq_if;
 	struct myx_tx_desc		txd;
 	struct myx_softc		*sc = ifp->if_softc;
 	struct myx_slot			*ms;
@@ -1448,11 +1446,11 @@ myx_start(struct ifnet *ifp)
 
 	for (;;) {
 		if (used + sc->sc_tx_nsegs + 1 > free) {
-			ifq_set_oactive(&ifp->if_snd);
+			ifq_set_oactive(ifq);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		m = ifq_dequeue(ifq);
 		if (m == NULL)
 			break;
 
@@ -1685,8 +1683,6 @@ myx_txeof(struct myx_softc *sc, u_int32_t done_count)
 		    map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
 		bus_dmamap_unload(sc->sc_dmat, map);
 		m_freem(ms->ms_m);
-
-		ifp->if_opackets++;
 
 		if (++cons >= sc->sc_tx_ring_count)
 			cons = 0;

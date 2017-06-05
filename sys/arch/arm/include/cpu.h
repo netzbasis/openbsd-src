@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.41 2016/04/04 09:13:44 patrick Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.46 2017/04/27 22:41:46 kettenis Exp $	*/
 /*	$NetBSD: cpu.h,v 1.34 2003/06/23 11:01:08 martin Exp $	*/
 
 /*
@@ -66,7 +66,8 @@
 		/*		10	   formerly struct: CPU_ZTSSCALE */
 #define	CPU_MAXSPEED		11	/* int: number of valid machdep ids */
 #define CPU_LIDSUSPEND		12	/* int: closing lid causes suspend */
-#define	CPU_MAXID		13	/* number of valid machdep ids */
+#define CPU_LIDACTION		13	/* action caused by lid close */
+#define	CPU_MAXID		14	/* number of valid machdep ids */
 
 #define	CTL_MACHDEP_NAMES { \
 	{ 0, 0 }, \
@@ -81,7 +82,8 @@
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ "maxspeed", CTLTYPE_INT }, \
-	{ "lidsuspend", CTLTYPE_INT } \
+	{ "lidsuspend", CTLTYPE_INT }, \
+	{ "lidaction", CTLTYPE_INT }, \
 }
 
 #ifdef _KERNEL
@@ -187,6 +189,7 @@ struct cpu_info {
 	u_int32_t ci_randseed;
 
 	struct pcb *ci_curpcb;
+	struct pcb *ci_idle_pcb;
 
 	u_int32_t ci_arm_cpuid;		/* aggregate CPU id */
 	u_int32_t ci_arm_cputype;	/* CPU type */
@@ -208,7 +211,6 @@ struct cpu_info {
 extern struct cpu_info cpu_info_primary;
 extern struct cpu_info *cpu_info_list;
 
-#ifdef CPU_ARMv7
 static inline struct cpu_info *
 curcpu(void)
 {
@@ -216,9 +218,6 @@ curcpu(void)
 	__asm volatile("mrc	p15, 0, %0, c13, c0, 4" : "=r" (__ci));
 	return (__ci);
 }
-#else
-#define	curcpu()	(&cpu_info_primary)
-#endif
 
 #ifndef MULTIPROCESSOR
 #define cpu_number()	0
@@ -282,9 +281,7 @@ extern int want_resched;	/* resched() was called */
  * cpu device glue (belongs in cpuvar.h)
  */
 
-struct device;
-void	cpu_attach	(struct device *);
-int	cpu_alloc_idlepcb	(struct cpu_info *);
+int	cpu_alloc_idle_pcb(struct cpu_info *);
 
 /*
  * Random cruft

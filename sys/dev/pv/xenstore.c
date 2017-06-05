@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenstore.c,v 1.29 2016/07/29 21:05:26 mikeb Exp $	*/
+/*	$OpenBSD: xenstore.c,v 1.43 2017/03/13 01:10:03 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -23,6 +23,7 @@
 #include <sys/malloc.h>
 #include <sys/device.h>
 #include <sys/mutex.h>
+#include <sys/rwlock.h>
 #include <sys/ioctl.h>
 #include <sys/task.h>
 
@@ -33,6 +34,14 @@
 #include <dev/pv/pvvar.h>
 #include <dev/pv/xenreg.h>
 #include <dev/pv/xenvar.h>
+
+/* #define XS_DEBUG */
+
+#ifdef XS_DEBUG
+#define DPRINTF(x...)		printf(x)
+#else
+#define DPRINTF(x...)
+#endif
 
 /*
  * The XenStore interface is a simple storage system that is a means of
@@ -107,8 +116,8 @@ struct xs_msghdr {
 
 struct xs_msg {
 	struct xs_msghdr	 xsm_hdr;
-	int			 xsm_read;
-	int			 xsm_dlen;
+	uint32_t		 xsm_read;
+	uint32_t		 xsm_dlen;
 	uint8_t			*xsm_data;
 	TAILQ_ENTRY(xs_msg)	 xsm_link;
 };
@@ -165,8 +174,9 @@ struct xs_softc {
 	TAILQ_HEAD(, xs_watch)	 xs_watches;
 	struct mutex		 xs_watchlck;
 	struct xs_msg		 xs_emsg;
+	struct taskq		*xs_watchtq;
 
-	uint			 xs_rngsem;
+	struct rwlock		 xs_rnglck;
 };
 
 struct xs_msg *
@@ -175,6 +185,7 @@ void	xs_put_msg(struct xs_softc *, struct xs_msg *);
 int	xs_ring_get(struct xs_softc *, void *, size_t);
 int	xs_ring_put(struct xs_softc *, void *, size_t);
 void	xs_intr(void *);
+void	xs_poll(struct xs_softc *, int);
 int	xs_output(struct xs_transaction *, uint8_t *, int);
 int	xs_start(struct xs_transaction *, struct xs_msg *, struct iovec *, int);
 struct xs_msg *
@@ -208,7 +219,7 @@ xs_attach(struct xen_softc *sc)
 	}
 	xs->xs_port = xhv.value;
 
-	printf(", event channel %d\n", xs->xs_port);
+	printf(", event channel %u\n", xs->xs_port);
 
 	/* Fetch a frame number (PA) of a shared xenstore page */
 	memset(&xhv, 0, sizeof(xhv));
@@ -243,6 +254,10 @@ xs_attach(struct xen_softc *sc)
 	mtx_init(&xs->xs_rsplck, IPL_NET);
 	mtx_init(&xs->xs_frqlck, IPL_NET);
 
+	rw_init(&xs->xs_rnglck, "xsrnglck");
+
+	xs->xs_watchtq = taskq_create("xenwatch", 1, IPL_NET, 0);
+
 	mtx_init(&xs->xs_watchlck, IPL_NET);
 	TAILQ_INIT(&xs->xs_watches);
 
@@ -263,25 +278,6 @@ xs_attach(struct xen_softc *sc)
 	free(xs, sizeof(*xs), M_DEVBUF);
 	sc->sc_xs = NULL;
 	return (-1);
-}
-
-static inline int
-xs_sem_get(uint *semaphore)
-{
-	if (atomic_inc_int_nv(semaphore) != 1) {
-		/* we're out of luck */
-		if (atomic_dec_int_nv(semaphore) == 0)
-			wakeup(semaphore);
-		return (0);
-	}
-	return (1);
-}
-
-static inline void
-xs_sem_put(uint *semaphore)
-{
-	if (atomic_dec_int_nv(semaphore) == 0)
-		wakeup(semaphore);
 }
 
 struct xs_msg *
@@ -325,8 +321,8 @@ xs_geterror(struct xs_msg *xsm)
 
 	for (i = 0; i < nitems(xs_errors); i++)
 		if (strcmp(xs_errors[i].xse_errstr, xsm->xsm_data) == 0)
-			break;
-	return (xs_errors[i].xse_errnum);
+			return (xs_errors[i].xse_errnum);
+	return (EOPNOTSUPP);
 }
 
 static inline uint32_t
@@ -339,11 +335,25 @@ xs_ring_avail(struct xs_ring *xsr, int req)
 	return (req ? XS_RING_SIZE - (prod - cons) : prod - cons);
 }
 
+void
+xs_poll(struct xs_softc *xs, int nosleep)
+{
+	int s;
+
+	if (nosleep) {
+		delay(XST_DELAY * 1000 >> 2);
+		s = splnet();
+		xs_intr(xs);
+		splx(s);
+	} else
+		tsleep(xs->xs_wchan, PRIBIO, xs->xs_wchan, XST_DELAY * hz >> 2);
+}
+
 int
 xs_output(struct xs_transaction *xst, uint8_t *bp, int len)
 {
-	struct xs_softc *xs = xst->xst_sc;
-	int chunk, s;
+	struct xs_softc *xs = xst->xst_cookie;
+	int chunk;
 
 	while (len > 0) {
 		chunk = xs_ring_put(xs, bp, MIN(len, XS_RING_SIZE));
@@ -364,17 +374,8 @@ xs_output(struct xs_transaction *xst, uint8_t *bp, int len)
 		 * Alternatively we have managed to fill the ring
 		 * and must wait for HV to collect the data.
 		 */
-		while (xs->xs_ring->xsr_req_prod != xs->xs_ring->xsr_req_cons) {
-			if (xst->xst_flags & XST_POLL) {
-				delay(XST_DELAY * 1000 >> 2);
-				s = splnet();
-				xs_intr(xs);
-				splx(s);
-			} else
-				tsleep(xs->xs_wchan, PRIBIO, xs->xs_wchan,
-				    XST_DELAY * hz >> 2);
-			virtio_membar_sync();
-		}
+		while (xs->xs_ring->xsr_req_prod != xs->xs_ring->xsr_req_cons)
+			xs_poll(xs, 1);
 	}
 	return (0);
 }
@@ -383,31 +384,25 @@ int
 xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
     int iov_cnt)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	int i;
 
-	while (!xs_sem_get(&xs->xs_rngsem)) {
-		if (xst->xst_flags & XST_POLL)
-			delay(XST_DELAY * 1000 >> 2);
-		else
-			tsleep(&xs->xs_rngsem, PRIBIO, "xsaccess",
-			    XST_DELAY * hz >> 2);
-	}
+	rw_enter_write(&xs->xs_rnglck);
 
 	/* Header */
 	if (xs_output(xst, (uint8_t *)&xsm->xsm_hdr,
 	    sizeof(xsm->xsm_hdr)) == -1) {
 		printf("%s: failed to write the header\n", __func__);
-		xs_sem_put(&xs->xs_rngsem);
+		rw_exit_write(&xs->xs_rnglck);
 		return (-1);
 	}
 
 	/* Data loop */
 	for (i = 0; i < iov_cnt; i++) {
 		if (xs_output(xst, iov[i].iov_base, iov[i].iov_len) == -1) {
-			printf("%s: failed on iovec #%d len %ld\n", __func__,
+			printf("%s: failed on iovec #%d len %lu\n", __func__,
 			    i, iov[i].iov_len);
-			xs_sem_put(&xs->xs_rngsem);
+			rw_exit_write(&xs->xs_rnglck);
 			return (-1);
 		}
 	}
@@ -418,7 +413,7 @@ xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
 
 	xen_intr_signal(xs->xs_ih);
 
-	xs_sem_put(&xs->xs_rngsem);
+	rw_exit_write(&xs->xs_rnglck);
 
 	return (0);
 }
@@ -426,7 +421,7 @@ xs_start(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec *iov,
 struct xs_msg *
 xs_reply(struct xs_transaction *xst, uint rid)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	struct xs_msg *xsm;
 	int s;
 
@@ -441,7 +436,7 @@ xs_reply(struct xs_transaction *xst, uint rid)
 			TAILQ_REMOVE(&xs->xs_rsps, xsm, xsm_link);
 			break;
 		}
-		if (xst->xst_flags & XST_POLL) {
+		if (cold) {
 			mtx_leave(&xs->xs_rsplck);
 			delay(XST_DELAY * 1000 >> 2);
 			s = splnet();
@@ -533,7 +528,7 @@ xs_intr(void *arg)
  again:
 	if (xs->xs_rmsg == NULL) {
 		if (avail < sizeof(xmh)) {
-			printf("%s: incomplete header: %d\n",
+			DPRINTF("%s: incomplete header: %u\n",
 			    sc->sc_dev.dv_xname, avail);
 			goto out;
 		}
@@ -610,10 +605,9 @@ xs_intr(void *arg)
 static inline int
 xs_get_buf(struct xs_transaction *xst, struct xs_msg *xsm, int len)
 {
-	unsigned char *buf = NULL;
+	unsigned char *buf;
 
-	buf = malloc(len, M_DEVBUF, M_ZERO | (xst->xst_flags & XST_POLL ?
-	    M_NOWAIT : M_WAITOK));
+	buf = malloc(len, M_DEVBUF, M_ZERO | (cold ? M_NOWAIT : M_WAITOK));
 	if (buf == NULL)
 		return (-1);
 	xsm->xsm_dlen = len;
@@ -643,11 +637,12 @@ xs_parse(struct xs_transaction *xst, struct xs_msg *xsm, struct iovec **iov,
     int *iov_cnt)
 {
 	char *bp, *cp;
-	int i, dlen, flags;
+	uint32_t dlen;
+	int i, flags;
 
 	/* If the response size is zero, we return an empty string */
 	dlen = MAX(xsm->xsm_hdr.xmh_len, 1);
-	flags = M_ZERO | (xst->xst_flags & XST_POLL ? M_NOWAIT : M_WAITOK);
+	flags = M_ZERO | (cold ? M_NOWAIT : M_WAITOK);
 
 	*iov_cnt = 0;
 	/* Make sure that the data is NUL terminated */
@@ -711,7 +706,7 @@ xs_event(struct xs_softc *xs, struct xs_msg *xsm)
 		if (strcmp(xsw->xsw_token, token))
 			continue;
 		mtx_leave(&xs->xs_watchlck);
-		task_add(systq, xsw->xsw_task);
+		task_add(xs->xs_watchtq, xsw->xsw_task);
 		return (0);
 	}
 	mtx_leave(&xs->xs_watchlck);
@@ -725,7 +720,7 @@ int
 xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
     struct iovec **iov, int *iov_cnt)
 {
-	struct xs_softc *xs = xst->xst_sc;
+	struct xs_softc *xs = xst->xst_cookie;
 	struct xs_msg *xsm;
 	struct iovec ov[10];	/* output vector */
 	int datalen = XS_ERR_PAYLOAD;
@@ -767,7 +762,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		}
 	}
 
-	xsm = xs_get_msg(xs, !(xst->xst_flags & XST_POLL));
+	xsm = xs_get_msg(xs, !cold);
 
 	if (xs_get_buf(xst, xsm, datalen)) {
 		xs_put_msg(xs, xsm);
@@ -807,7 +802,7 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 		KASSERT(iov && iov_cnt);
 		error = xs_parse(xst, xsm, iov, iov_cnt);
 	}
-#ifdef XEN_DEBUG
+#ifdef XS_DEBUG
 	else
 		if (strcmp(xsm->xsm_data, "OK"))
 			printf("%s: xenstore request %d failed: %s\n",
@@ -821,9 +816,10 @@ xs_cmd(struct xs_transaction *xst, int cmd, const char *path,
 }
 
 int
-xs_watch(struct xen_softc *sc, const char *path, const char *property,
-    struct task *task, void (*cb)(void *), void *arg)
+xs_watch(void *xsc, const char *path, const char *property, struct task *task,
+    void (*cb)(void *), void *arg)
 {
+	struct xen_softc *sc = xsc;
 	struct xs_softc *xs = sc->sc_xs;
 	struct xs_transaction xst;
 	struct xs_watch *xsw;
@@ -833,9 +829,7 @@ xs_watch(struct xen_softc *sc, const char *path, const char *property,
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
-	if (cold)
-		xst.xst_flags = XST_POLL;
+	xst.xst_cookie = sc->sc_xs;
 
 	xsw = malloc(sizeof(*xsw), M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (xsw == NULL)
@@ -877,23 +871,90 @@ xs_watch(struct xen_softc *sc, const char *path, const char *property,
 	return (0);
 }
 
-int
-xs_getprop(struct xen_softc *sc, const char *path, const char *property,
-    char *value, int size)
+static unsigned long long
+atoull(const char *cp, int *error)
 {
+	unsigned long long res, cutoff;
+	int ch;
+	int cutlim;
+
+	res = 0;
+	cutoff = ULLONG_MAX / (unsigned long long)10;
+	cutlim = ULLONG_MAX % (unsigned long long)10;
+
+	do {
+		if (*cp < '0' || *cp > '9') {
+			*error = EINVAL;
+			return (res);
+		}
+		ch = *cp - '0';
+		if (res > cutoff || (res == cutoff && ch > cutlim)) {
+			*error = ERANGE;
+			return (res);
+		}
+		res *= 10;
+		res += ch;
+	} while (*(++cp) != '\0');
+
+	*error = 0;
+	return (res);
+}
+
+int
+xs_getnum(void *xsc, const char *path, const char *property,
+    unsigned long long *val)
+{
+	char *buf;
+	int error = 0;
+
+	buf = malloc(XS_MAX_PAYLOAD, M_DEVBUF, M_ZERO |
+	    (cold ? M_NOWAIT : M_WAITOK));
+	if (buf == NULL)
+		return (ENOMEM);
+
+	error = xs_getprop(xsc, path, property, buf, XS_MAX_PAYLOAD);
+	if (error)
+		goto out;
+
+	*val = atoull(buf, &error);
+	if (error)
+		goto out;
+
+ out:
+	free(buf, M_DEVBUF, XS_MAX_PAYLOAD);
+	return (error);
+}
+
+int
+xs_setnum(void *xsc, const char *path, const char *property,
+    unsigned long long val)
+{
+	char buf[32];
+	int ret;
+
+	ret = snprintf(buf, sizeof(buf), "%llu", val);
+	if (ret == -1 || ret >= sizeof(buf))
+		return (ERANGE);
+
+	return (xs_setprop(xsc, path, property, buf, strlen(buf)));
+}
+
+int
+xs_getprop(void *xsc, const char *path, const char *property, char *value,
+    int size)
+{
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec *iovp = NULL;
 	char key[256];
 	int error, ret, iov_cnt = 0;
 
 	if (!property)
-		return (-1);
+		return (EINVAL);
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
-	if (cold)
-		xst.xst_flags = XST_POLL;
+	xst.xst_cookie = sc->sc_xs;
 
 	if (path)
 		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
@@ -914,22 +975,21 @@ xs_getprop(struct xen_softc *sc, const char *path, const char *property,
 }
 
 int
-xs_setprop(struct xen_softc *sc, const char *path, const char *property,
-    char *value, int size)
+xs_setprop(void *xsc, const char *path, const char *property, char *value,
+    int size)
 {
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
 	char key[256];
 	int error, ret, iov_cnt = 0;
 
 	if (!property)
-		return (-1);
+		return (EINVAL);
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
-	if (cold)
-		xst.xst_flags = XST_POLL;
+	xst.xst_cookie = sc->sc_xs;
 
 	if (path)
 		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
@@ -948,9 +1008,62 @@ xs_setprop(struct xen_softc *sc, const char *path, const char *property,
 }
 
 int
-xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
+xs_cmpprop(void *xsc, const char *path, const char *property, const char *value,
+    int *result)
 {
-	struct xen_softc *sc = arg;
+	struct xen_softc *sc = xsc;
+	struct xs_transaction xst;
+	struct iovec *iovp = NULL;
+	char key[256];
+	int error, ret, iov_cnt = 0;
+
+	if (!property)
+		return (EINVAL);
+
+	memset(&xst, 0, sizeof(xst));
+	xst.xst_id = 0;
+	xst.xst_cookie = sc->sc_xs;
+
+	if (path)
+		ret = snprintf(key, sizeof(key), "%s/%s", path, property);
+	else
+		ret = snprintf(key, sizeof(key), "%s", property);
+	if (ret == -1 || ret >= sizeof(key))
+		return (EINVAL);
+
+	if ((error = xs_cmd(&xst, XS_READ, key, &iovp, &iov_cnt)) != 0)
+		return (error);
+
+	*result = strcmp(value, (char *)iovp->iov_base);
+
+	xs_resfree(&xst, iovp, iov_cnt);
+
+	return (0);
+}
+
+int
+xs_await_transition(void *xsc, const char *path, const char *property,
+    const char *value, int timo)
+{
+	struct xen_softc *sc = xsc;
+	int error, res;
+
+	do {
+		error = xs_cmpprop(xsc, path, property, value, &res);
+		if (error)
+			return (error);
+		if (timo && --timo == 0)
+			return (ETIMEDOUT);
+		xs_poll(sc->sc_xs, cold);
+	} while (res != 0);
+
+	return (0);
+}
+
+int
+xs_kvop(void *xsc, int op, char *key, char *value, size_t valuelen)
+{
+	struct xen_softc *sc = xsc;
 	struct xs_transaction xst;
 	struct iovec iov, *iovp = &iov;
 	int error = 0, iov_cnt = 0, cmd, i;
@@ -974,7 +1087,7 @@ xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 
 	if ((error = xs_cmd(&xst, cmd, key, &iovp, &iov_cnt)) != 0)
 		return (error);
@@ -993,7 +1106,7 @@ xs_kvop(void *arg, int op, char *key, char *value, size_t valuelen)
 			 * returns an empty string (single nul byte),
 			 * so try to get the directory list in this case.
 			 */
-			return (xs_kvop(arg, PVBUS_KVLS, key, value, valuelen));
+			return (xs_kvop(xsc, PVBUS_KVLS, key, value, valuelen));
 		}
 		/* FALLTHROUGH */
 	case XS_LIST:

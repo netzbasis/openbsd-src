@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.217 2016/09/03 13:42:28 reyk Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.229 2017/05/30 12:09:27 friehm Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -86,6 +86,9 @@ struct m_hdr {
 	u_int	mh_len;			/* amount of data in this mbuf */
 	short	mh_type;		/* type of data in this mbuf */
 	u_short	mh_flags;		/* flags; see below */
+#ifndef __LP64__
+	u_int	mh_pad;			/* pad to 8-byte boundary */
+#endif
 };
 
 /* pf stuff */
@@ -122,6 +125,7 @@ struct pkthdr_pf {
 struct	pkthdr {
 	void			*ph_cookie;	/* additional data */
 	SLIST_HEAD(, m_tag)	 ph_tags;	/* list of packet tags */
+	int64_t			 ph_timestamp;	/* packet timestamp */
 	int			 len;		/* total packet length */
 	u_int16_t		 ph_tagsset;	/* mtags attached */
 	u_int16_t		 ph_flowid;	/* pseudo unique flow id */
@@ -136,10 +140,9 @@ struct	pkthdr {
 /* description of external storage mapped into mbuf, valid if M_EXT set */
 struct mbuf_ext {
 	caddr_t	ext_buf;		/* start of buffer */
-					/* free routine if not the usual */
 	void	*ext_arg;
-	u_int	ext_free_fn;
-	u_int	ext_size;		/* size of buffer, for ext_free */
+	u_int	ext_free_fn;		/* index of free function */
+	u_int	ext_size;		/* size of buffer, for ext_free_fn */
 	struct mbuf *ext_nextref;
 	struct mbuf *ext_prevref;
 #ifdef DEBUG
@@ -185,8 +188,8 @@ struct mbuf {
 #define M_VLANTAG	0x0020	/* ether_vtag is valid */
 #define M_LOOP		0x0040	/* for Mbuf statistics */
 #define M_ACAST		0x0080	/* received as IPv6 anycast */
-#define M_BCAST		0x0100	/* send/received as link-level broadcast */
-#define M_MCAST		0x0200	/* send/received as link-level multicast */
+#define M_BCAST		0x0100	/* sent/received as link-level broadcast */
+#define M_MCAST		0x0200	/* sent/received as link-level multicast */
 #define M_CONF		0x0400  /* payload was encrypted (ESP-transport) */
 #define M_AUTH		0x0800  /* payload was authenticated (AH or ESP auth) */
 #define M_TUNNEL	0x1000  /* IP-in-IP added by tunnel mode IPsec */
@@ -236,6 +239,7 @@ struct mbuf {
 #define	MT_FTABLE	5	/* fragment reassembly header */
 #define	MT_CONTROL	6	/* extra-data protocol message */
 #define	MT_OOBDATA	7	/* expedited data  */
+#define	MT_NTYPES	8
 
 /* flowid field */
 #define M_FLOWID_VALID	0x8000	/* is the flowid set */
@@ -387,15 +391,17 @@ u_int mextfree_register(void (*)(caddr_t, u_int, void *));
  * pool headers (mbpool and mclpool).
  */
 struct mbstat {
-	u_long	_m_spare;	/* formerly m_mbufs */
-	u_long	_m_spare1;	/* formerly m_clusters */
-	u_long	_m_spare2;	/* spare field */
-	u_long	_m_spare3;	/* formely m_clfree - free clusters */
 	u_long	m_drops;	/* times failed to find space */
 	u_long	m_wait;		/* times waited for space */
 	u_long	m_drain;	/* times drained protocols for space */
 	u_short	m_mtypes[256];	/* type specific mbuf allocations */
 };
+
+#define MBSTAT_TYPES           MT_NTYPES
+#define MBSTAT_DROPS           (MBSTAT_TYPES + 0)
+#define MBSTAT_WAIT            (MBSTAT_TYPES + 1)
+#define MBSTAT_DRAIN           (MBSTAT_TYPES + 2)
+#define MBSTAT_COUNT           (MBSTAT_TYPES + 3)
 
 #include <sys/mutex.h>
 
@@ -413,8 +419,8 @@ struct mbuf_queue {
 };
 
 #ifdef	_KERNEL
+struct pool;
 
-extern	struct mbstat mbstat;
 extern	int nmbclust;			/* limit on the # of clusters */
 extern	int mblowat;			/* mbuf low water mark */
 extern	int mcllowat;			/* mbuf cluster low water mark */
@@ -423,7 +429,7 @@ extern	int max_protohdr;		/* largest protocol header */
 extern	int max_hdr;			/* largest link+protocol header */
 
 void	mbinit(void);
-struct	mbuf *m_copym2(struct mbuf *, int, int, int);
+void	mbcpuinit(void);
 struct	mbuf *m_copym(struct mbuf *, int, int, int);
 struct	mbuf *m_free(struct mbuf *);
 struct	mbuf *m_get(int, int);
@@ -436,12 +442,13 @@ struct	mbuf *m_prepend(struct mbuf *, int, int);
 struct	mbuf *m_pulldown(struct mbuf *, int, int, int *);
 struct	mbuf *m_pullup(struct mbuf *, int);
 struct	mbuf *m_split(struct mbuf *, int, int);
-struct  mbuf *m_inject(struct mbuf *, int, int, int);
+struct	mbuf *m_makespace(struct mbuf *, int, int, int *);
 struct  mbuf *m_getptr(struct mbuf *, int, int *);
 int	m_leadingspace(struct mbuf *);
 int	m_trailingspace(struct mbuf *);
 struct mbuf *m_clget(struct mbuf *, int, u_int);
 void	m_extref(struct mbuf *, struct mbuf *);
+void	m_pool_init(struct pool *, u_int, u_int, const char *);
 void	m_extfree_pool(caddr_t, u_int, void *);
 void	m_adj(struct mbuf *, int);
 int	m_copyback(struct mbuf *, int, int, const void *, int);
@@ -478,11 +485,12 @@ struct m_tag *m_tag_next(struct mbuf *, struct m_tag *);
 #define PACKET_TAG_PF_REASSEMBLED	0x0800 /* pf reassembled ipv6 packet */
 #define PACKET_TAG_SRCROUTE		0x1000 /* IPv4 source routing options */
 #define PACKET_TAG_TUNNEL		0x2000	/* Tunnel endpoint address */
+#define PACKET_TAG_CARP_BAL_IP		0x4000  /* carp(4) ip balanced marker */
 
 #define MTAG_BITS \
     ("\20\1IPSEC_IN_DONE\2IPSEC_OUT_DONE\3IPSEC_IN_CRYPTO_DONE" \
     "\4IPSEC_OUT_CRYPTO_NEEDED\5IPSEC_PENDING_TDB\6BRIDGE\7GIF\10GRE\11DLT" \
-    "\12PF_DIVERT\14PF_REASSEMBLED\15SRCROUTE\16TUNNEL")
+    "\12PF_DIVERT\14PF_REASSEMBLED\15SRCROUTE\16TUNNEL\17CARP_BAL_IP")
 
 /*
  * Maximum tag payload length (that is excluding the m_tag structure).

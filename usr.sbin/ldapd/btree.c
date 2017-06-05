@@ -1,4 +1,4 @@
-/*	$OpenBSD: btree.c,v 1.36 2016/03/20 00:01:22 krw Exp $ */
+/*	$OpenBSD: btree.c,v 1.38 2017/05/26 21:23:14 sthen Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -55,6 +55,7 @@
 #define P_INVALID	 0xFFFFFFFF
 
 #define F_ISSET(w, f)	 (((w) & (f)) == (f))
+#define MINIMUM(a,b)	 ((a) < (b) ? (a) : (b))
 
 typedef uint32_t	 pgno_t;
 typedef uint16_t	 indx_t;
@@ -844,10 +845,11 @@ btree_write_header(struct btree *bt, int fd)
 	DPRINTF("writing header page");
 	assert(bt != NULL);
 
-	/* Ask stat for 'optimal blocksize for I/O'.
+	/*
+	 * Ask stat for 'optimal blocksize for I/O', but cap to fit in indx_t.
 	 */
 	if (fstat(fd, &sb) == 0)
-		psize = sb.st_blksize;
+		psize = MINIMUM(32*1024, sb.st_blksize);
 	else
 		psize = PAGESIZE;
 
@@ -1176,6 +1178,8 @@ btree_close(struct btree *bt)
 		DPRINTF("ref is zero, closing btree %p", bt);
 		close(bt->fd);
 		mpage_flush(bt);
+		free(bt->lru_queue);
+		free(bt->path);
 		free(bt->page_cache);
 		free(bt);
 	} else

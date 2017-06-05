@@ -1,4 +1,4 @@
-/*	$OpenBSD: mutex.c,v 1.16 2016/06/13 01:26:14 dlg Exp $	*/
+/*	$OpenBSD: mutex.c,v 1.18 2017/05/29 14:19:49 mpi Exp $	*/
 
 /*
  * Copyright (c) 2004 Artur Grabowski <art@openbsd.org>
@@ -31,7 +31,7 @@
 #include <sys/atomic.h>
 
 #include <machine/intr.h>
-#include <machine/lock.h>
+#include <machine/cpu.h>
 
 #include <ddb/db_output.h>
 
@@ -45,14 +45,14 @@ __mtx_init(struct mutex *mtx, int wantipl)
 
 #ifdef MULTIPROCESSOR
 void
-mtx_enter(struct mutex *mtx)
+__mtx_enter(struct mutex *mtx)
 {
-	while (mtx_enter_try(mtx) == 0)
-		SPINLOCK_SPIN_HOOK;
+	while (__mtx_enter_try(mtx) == 0)
+		CPU_BUSY_CYCLE();
 }
 
 int
-mtx_enter_try(struct mutex *mtx)
+__mtx_enter_try(struct mutex *mtx)
 {
 	struct cpu_info *owner, *ci = curcpu();
 	int s;
@@ -82,7 +82,7 @@ mtx_enter_try(struct mutex *mtx)
 }
 #else
 void
-mtx_enter(struct mutex *mtx)
+__mtx_enter(struct mutex *mtx)
 {
 	struct cpu_info *ci = curcpu();
 
@@ -101,15 +101,15 @@ mtx_enter(struct mutex *mtx)
 }
 
 int
-mtx_enter_try(struct mutex *mtx)
+__mtx_enter_try(struct mutex *mtx)
 {
-	mtx_enter(mtx);
+	__mtx_enter(mtx);
 	return (1);
 }
 #endif
 
 void
-mtx_leave(struct mutex *mtx)
+__mtx_leave(struct mutex *mtx)
 {
 	int s;
 

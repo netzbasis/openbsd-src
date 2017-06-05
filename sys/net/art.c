@@ -1,4 +1,4 @@
-/*	$OpenBSD: art.c,v 1.23 2016/08/30 07:42:57 jmatthew Exp $ */
+/*	$OpenBSD: art.c,v 1.27 2017/02/28 09:50:13 mpi Exp $ */
 
 /*
  * Copyright (c) 2015 Martin Pieuchot
@@ -102,19 +102,14 @@ struct task		 art_node_gc_task = TASK_INITIALIZER(art_gc, NULL);
 void
 art_init(void)
 {
-	pool_init(&an_pool, sizeof(struct art_node), 0, 0, 0, "art_node", NULL);
-	pool_setipl(&an_pool, IPL_SOFTNET);
-
-	pool_init(&at_pool, sizeof(struct art_table), 0, 0, 0, "art_table",
-	    NULL);
-	pool_setipl(&at_pool, IPL_SOFTNET);
-
-	pool_init(&at_heap_4_pool, AT_HEAPSIZE(4), 0, 0, 0, "art_heap4", NULL);
-	pool_setipl(&at_heap_4_pool, IPL_SOFTNET);
-
-	pool_init(&at_heap_8_pool, AT_HEAPSIZE(8), 0, 0, 0, "art_heap8",
-	    &pool_allocator_single);
-	pool_setipl(&at_heap_8_pool, IPL_SOFTNET);
+	pool_init(&an_pool, sizeof(struct art_node), 0, IPL_SOFTNET, 0,
+	    "art_node", NULL);
+	pool_init(&at_pool, sizeof(struct art_table), 0, IPL_SOFTNET, 0,
+	    "art_table", NULL);
+	pool_init(&at_heap_4_pool, AT_HEAPSIZE(4), 0, IPL_SOFTNET, 0,
+	    "art_heap4", NULL);
+	pool_init(&at_heap_8_pool, AT_HEAPSIZE(8), 0, IPL_SOFTNET, 0,
+	    "art_heap8", &pool_allocator_single);
 }
 
 /*
@@ -189,7 +184,7 @@ int
 art_bindex(struct art_table *at, uint8_t *addr, int plen)
 {
 	uint8_t			boff, bend;
-	uint32_t 		k;
+	uint32_t		k;
 
 	if (plen < at->at_offset || plen > (at->at_offset + at->at_bits))
 		return (-1);
@@ -252,7 +247,7 @@ art_findex(struct art_table *at, uint8_t *addr)
  * Return the best existing match for a destination.
  */
 struct art_node *
-art_match(struct art_root *ar, uint8_t *addr, struct srp_ref *nsr)
+art_match(struct art_root *ar, void *addr, struct srp_ref *nsr)
 {
 	struct srp_ref		dsr, ndsr;
 	void			*entry;
@@ -315,7 +310,7 @@ done:
  * it does not exist.
  */
 struct art_node *
-art_lookup(struct art_root *ar, uint8_t *addr, int plen, struct srp_ref *nsr)
+art_lookup(struct art_root *ar, void *addr, int plen, struct srp_ref *nsr)
 {
 	void			*entry;
 	struct art_table	*at;
@@ -373,7 +368,7 @@ done:
  * same destination/mask pair is already present.
  */
 struct art_node *
-art_insert(struct art_root *ar, struct art_node *an, uint8_t *addr, int plen)
+art_insert(struct art_root *ar, struct art_node *an, void *addr, int plen)
 {
 	struct art_table	*at, *child;
 	struct art_node		*node;
@@ -477,7 +472,7 @@ art_table_insert(struct art_root *ar, struct art_table *at, int i,
  * Deletion API function.
  */
 struct art_node *
-art_delete(struct art_root *ar, struct art_node *an, uint8_t *addr, int plen)
+art_delete(struct art_root *ar, struct art_node *an, void *addr, int plen)
 {
 	struct art_table	*at;
 	struct art_node		*node;
@@ -708,7 +703,6 @@ art_walk_apply(struct art_root *ar,
 	int error = 0;
 
 	if ((an != NULL) && (an != next)) {
-		/* this assumes an->an_dst is not used by f */
 		rw_exit_write(&ar->ar_lock);
 		error = (*f)(an, arg);
 		rw_enter_write(&ar->ar_lock);
@@ -927,7 +921,7 @@ moveup:
 }
 
 struct art_node *
-art_get(struct sockaddr *dst, uint8_t plen)
+art_get(void *dst, uint8_t plen)
 {
 	struct art_node		*an;
 
@@ -935,7 +929,6 @@ art_get(struct sockaddr *dst, uint8_t plen)
 	if (an == NULL)
 		return (NULL);
 
-	an->an_dst = dst;
 	an->an_plen = plen;
 	SRPL_INIT(&an->an_rtlist);
 

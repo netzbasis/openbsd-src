@@ -1,4 +1,4 @@
-/*	$OpenBSD: pcidump.c,v 1.40 2016/08/27 04:38:48 guenther Exp $	*/
+/*	$OpenBSD: pcidump.c,v 1.44 2017/05/18 05:12:34 jsg Exp $	*/
 
 /*
  * Copyright (c) 2006, 2007 David Gwynne <loki@animata.net>
@@ -85,7 +85,7 @@ const char *pci_capnames[] = {
 	"AGP",
 	"Vital Product Data (VPD)",
 	"Slot Identification",
-	"Message Signaled Interrupts (MSI)",
+	"Message Signalled Interrupts (MSI)",
 	"CompactPCI Hot Swap",
 	"PCI-X",
 	"AMD LDT/HT",
@@ -97,9 +97,44 @@ const char *pci_capnames[] = {
 	"AGP8",
 	"Secure",
 	"PCI Express",
-	"Extended Message Signaled Interrupts (MSI-X)",
+	"Extended Message Signalled Interrupts (MSI-X)",
 	"SATA",
 	"PCI Advanced Features"
+};
+
+const char *pci_enhanced_capnames[] = {
+	"Unknown",
+	"Advanced Error Reporting",
+	"Virtual Channel Capability",
+	"Device Serial Number",
+	"Power Budgeting",
+	"Root Complex Link Declaration",
+	"Root Complex Internal Link Control",
+	"Root Complex Event Collector",
+	"Multi-Function VC Capability",
+	"Virtual Channel Capability",
+	"Root Complex/Root Bridge",
+	"Vendor-Specific",
+	"Config Access",
+	"Access Control Services",
+	"Alternate Routing ID",
+	"Address Translation Services",
+	"Single Root I/O Virtualization",
+	"Multi Root I/O Virtualization",
+	"Multicast",
+	"Page Request Interface",
+	"Reserved for AMD",
+	"Resizable BAR",
+	"Dynamic Power Allocation",
+	"TPH Requester",
+	"Latency Tolerance Reporting",
+	"Secondary PCIe Capability",
+	"Protocol Multiplexing",
+	"Process Address Space ID",
+	"Unknown",
+	"Downstream Port Containment",
+	"L1 PM",
+	"Precision Time Measurement",
 };
 
 int
@@ -356,6 +391,38 @@ dump_pcie_linkspeed(int bus, int dev, int func, uint8_t ptr)
 }
 
 void
+dump_pcie_enhanced_caplist(int bus, int dev, int func)
+{
+	u_int32_t reg;
+	u_int32_t capidx;
+	u_int16_t ptr;
+	u_int16_t ecap;
+
+	ptr = PCI_PCIE_ECAP;
+
+	do {
+		if (pci_read(bus, dev, func, ptr, &reg) != 0)
+			return;
+
+		if (PCI_PCIE_ECAP_ID(reg) == 0xffff &&
+		    PCI_PCIE_ECAP_NEXT(reg) == PCI_PCIE_ECAP_LAST)
+			return;
+
+		ecap = PCI_PCIE_ECAP_ID(reg);
+		if (ecap >= nitems(pci_enhanced_capnames))
+			capidx = 0;
+		else
+			capidx = ecap;
+
+		printf("\t0x%04x: Enhanced Capability 0x%02x: ", ptr, ecap);
+		printf("%s\n", pci_enhanced_capnames[capidx]);
+
+		ptr = PCI_PCIE_ECAP_NEXT(reg);
+
+	} while (ptr != PCI_PCIE_ECAP_LAST);
+}
+
+void
 dump_caplist(int bus, int dev, int func, u_int8_t ptr)
 {
 	u_int32_t reg;
@@ -379,8 +446,10 @@ dump_caplist(int bus, int dev, int func, u_int8_t ptr)
 		printf("%s\n", pci_capnames[cap]);
 		if (cap == PCI_CAP_PWRMGMT)
 			dump_pci_powerstate(bus, dev, func, ptr);
-		if (cap == PCI_CAP_PCIEXPRESS)
+		if (cap == PCI_CAP_PCIEXPRESS) {
 			dump_pcie_linkspeed(bus, dev, func, ptr);
+			dump_pcie_enhanced_caplist(bus, dev, func);
+		}
 		ptr = PCI_CAPLIST_NEXT(reg);
 	}
 }

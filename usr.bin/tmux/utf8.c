@@ -1,4 +1,4 @@
-/* $OpenBSD: utf8.c,v 1.33 2016/05/27 22:57:27 nicm Exp $ */
+/* $OpenBSD: utf8.c,v 1.39 2017/06/04 09:02:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -112,7 +112,7 @@ utf8_width(wchar_t wc)
 
 	width = wcwidth(wc);
 	if (width < 0 || width > 0xff) {
-		log_debug("Unicode %04x, wcwidth() %d", wc, width);
+		log_debug("Unicode %04lx, wcwidth() %d", (long)wc, width);
 		return (-1);
 	}
 	return (width);
@@ -193,6 +193,44 @@ utf8_strvis(char *dst, const char *src, size_t len, int flag)
 	return (dst - start);
 }
 
+/* Same as utf8_strvis but allocate the buffer. */
+int
+utf8_stravis(char **dst, const char *src, int flag)
+{
+	char	*buf;
+	int	 len;
+
+	buf = xreallocarray(NULL, 4, strlen(src) + 1);
+	len = utf8_strvis(buf, src, strlen(src), flag);
+
+	*dst = xrealloc(buf, len + 1);
+	return (len);
+}
+
+/* Does this string contain anything that isn't valid UTF-8? */
+int
+utf8_isvalid(const char *s)
+{
+	struct utf8_data	 ud;
+	const char		*end;
+	enum utf8_state		 more;
+
+	end = s + strlen(s);
+	while (s < end) {
+		if ((more = utf8_open(&ud, *s)) == UTF8_MORE) {
+			while (++s < end && more == UTF8_MORE)
+				more = utf8_append(&ud, *s);
+			if (more == UTF8_DONE)
+				continue;
+			return (0);
+		}
+		if (*s < 0x20 || *s > 0x7e)
+			return (0);
+		s++;
+	}
+	return (1);
+}
+
 /*
  * Sanitize a string, changing any UTF-8 characters to '_'. Caller should free
  * the returned string. Anything not valid printable ASCII or UTF-8 is
@@ -234,6 +272,33 @@ utf8_sanitize(const char *src)
 	dst = xreallocarray(dst, n + 1, sizeof *dst);
 	dst[n] = '\0';
 	return (dst);
+}
+
+/* Get UTF-8 buffer length. */
+size_t
+utf8_strlen(const struct utf8_data *s)
+{
+	size_t	i;
+
+	for (i = 0; s[i].size != 0; i++)
+		/* nothing */;
+	return (i);
+}
+
+/* Get UTF-8 string width. */
+u_int
+utf8_strwidth(const struct utf8_data *s, ssize_t n)
+{
+	ssize_t	i;
+	u_int	width;
+
+	width = 0;
+	for (i = 0; s[i].size != 0; i++) {
+		if (n != -1 && n == i)
+			break;
+		width += s[i].width;
+	}
+	return (width);
 }
 
 /*
@@ -361,8 +426,7 @@ utf8_rtrimcstr(const char *s, u_int width)
 	next = end - 1;
 
 	at = 0;
-	for (;;)
-	{
+	for (;;) {
 		if (at + next->width > width) {
 			next++;
 			break;

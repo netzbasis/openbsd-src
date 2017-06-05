@@ -1,4 +1,4 @@
-/*	$OpenBSD: cpu.h,v 1.111 2016/08/14 08:23:52 visa Exp $	*/
+/*	$OpenBSD: cpu.h,v 1.117 2017/05/24 13:33:00 visa Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993
@@ -234,6 +234,9 @@ extern struct cpu_info *cpu_info_list;
 
 #define CPU_INFO_UNIT(ci)               ((ci)->ci_dev ? (ci)->ci_dev->dv_unit : 0)
 
+extern void (*cpu_idle_cycle_func)(void);
+#define cpu_idle_cycle()		(*cpu_idle_cycle_func)()
+
 #ifdef MULTIPROCESSOR
 #define MAXCPUS				4
 #define getcurcpu()			hw_getcurcpu()
@@ -361,12 +364,16 @@ void	cp0_calibrate(struct cpu_info *);
  */
 #define	CPU_ALLOWAPERTURE	1	/* allow mmap of /dev/xf86 */
 		/*		2	   formerly: keyboard reset */
-#define	CPU_MAXID		3	/* number of valid machdep ids */
+#define	CPU_LIDSUSPEND		3	/* lid close causes a suspend */
+#define CPU_LIDACTION		4	/* action caused by lid close */
+#define	CPU_MAXID		5	/* number of valid machdep ids */
 
 #define	CTL_MACHDEP_NAMES {			\
 	{ 0, 0 },				\
 	{ "allowaperture", CTLTYPE_INT },	\
 	{ 0, 0 },				\
+	{ "lidsuspend", CTLTYPE_INT },		\
+	{ "lidaction", CTLTYPE_INT },		\
 }
 
 /*
@@ -378,7 +385,7 @@ void	cp0_calibrate(struct cpu_info *);
 #define	MIPS_R4000	0x04	/* MIPS R4000/4400 CPU		ISA III	*/
 #define	MIPS_R3LSI	0x05	/* LSI Logic R3000 derivate	ISA I	*/
 #define	MIPS_R6000A	0x06	/* MIPS R6000A CPU		ISA II	*/
-#define MIPS_OCTEON	0x06	/* Cavium OCTEON		MIPS64R2*/
+#define	MIPS_CN50XX	0x06	/* Cavium OCTEON CN50xx		MIPS64R2*/
 #define	MIPS_R3IDT	0x07	/* IDT R3000 derivate		ISA I	*/
 #define	MIPS_R10000	0x09	/* MIPS R10000/T5 CPU		ISA IV  */
 #define	MIPS_R4200	0x0a	/* MIPS R4200 CPU (ICE)		ISA III */
@@ -397,7 +404,9 @@ void	cp0_calibrate(struct cpu_info *);
 #define	MIPS_LOONGSON	0x42	/* STC LoongSon CPU		ISA III */
 #define	MIPS_VR5400	0x54	/* NEC Vr5400 CPU		ISA IV+ */
 #define	MIPS_LOONGSON2	0x63	/* STC LoongSon2/3 CPU		ISA III+ */
-#define MIPS_OCTEON2	0x93	/* Cavium OCTEON II		MIPS64R2 */
+#define	MIPS_CN61XX	0x93	/* Cavium OCTEON II CN6[01]xx	MIPS64R2 */
+#define	MIPS_CN71XX	0x96	/* Cavium OCTEON III CN7[01]xx	MIPS64R2 */
+#define	MIPS_CN73XX	0x97	/* Cavium OCTEON III CN7[23]xx	MIPS64R2 */
 
 /*
  * MIPS FPU types. Only soft, rest is the same as cpu type.
@@ -408,6 +417,7 @@ void	cp0_calibrate(struct cpu_info *);
 #if defined(_KERNEL) && !defined(_LOCORE)
 
 extern register_t protosr;
+extern int cpu_has_userlocal;
 
 struct exec_package;
 struct user;
@@ -488,6 +498,31 @@ void	cp0_set_config(register_t);
 void	cp0_set_pagegrain(uint32_t);
 void	cp0_set_trapbase(register_t);
 u_int	cp1_get_prid(void);
+
+static inline uint32_t
+cp0_get_hwrena(void)
+{
+	uint32_t value;
+	__asm__ volatile ("mfc0 %0, $7" : "=r" (value));
+	return value;
+}
+
+static inline void
+cp0_set_hwrena(uint32_t value)
+{
+	__asm__ volatile ("mtc0 %0, $7" : : "r" (value));
+}
+
+static inline void
+cp0_set_userlocal(void *value)
+{
+	__asm__ volatile (
+	"	.set	push\n"
+	"	.set	mips64r2\n"
+	"	dmtc0	%0, $4, 2\n"
+	"	.set	pop\n"
+	: : "r" (value));
+}
 
 /*
  * Cache routines (may be overridden)

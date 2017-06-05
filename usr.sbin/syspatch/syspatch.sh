@@ -1,8 +1,8 @@
 #!/bin/ksh
 #
-# $OpenBSD: syspatch.sh,v 1.13 2016/09/10 16:19:14 ajacoutot Exp $
+# $OpenBSD: syspatch.sh,v 1.112 2017/05/27 09:05:25 ajacoutot Exp $
 #
-# Copyright (c) 2016 Antoine Jacoutot <ajacoutot@openbsd.org>
+# Copyright (c) 2016, 2017 Antoine Jacoutot <ajacoutot@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -17,45 +17,101 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 set -e
-
-trap "rm -rf ${_TMP}; exit 1" 2 3 9 13 15 ERR
+umask 0022
 
 sp_err()
 {
-	echo "${@}" 1>&2 && return 1
+	echo "${1}" 1>&2 && return ${2:-1}
 }
 
 usage()
 {
-	sp_err "usage: ${0##*/} [-c | -l | -r]"
+	sp_err "usage: ${0##*/} [-c | -l | -R | -r]"
 }
 
-needs_root()
+apply_patch()
 {
-	[[ $(id -u) -ne 0 ]] && sp_err "${0##*/}: need root privileges"
-}
+	local _edir _file _files _patch=$1 _ret=0 _s
+	[[ -n ${_patch} ]]
 
-apply_patches()
-{
-	needs_root
-	# XXX cleanup mismatch/old rollback patches and sig (installer should as well)
-	local _m _patch _patches="$(ls_missing)"
-	[[ -n ${_patches} ]] || return 0 # nothing to do
+	_edir=${_TMP}/${_patch}
 
-	for _patch in ${_patches}; do
-		fetch_and_verify "${_patch}" && \
-			install_patch "${_patch}" || return
+	fetch_and_verify "syspatch${_patch}.tgz"
+
+	trap '' INT
+	echo "Installing patch ${_patch##${_OSrev}-}"
+	install -d ${_edir} ${_PDIR}/${_patch}
+
+	! ${_BSDMP} && [[ ! -f /bsd.mp ]] && _s="-s /^bsd.mp$//"
+	_files="$(tar -xvzphf ${_TMP}/syspatch${_patch}.tgz -C ${_edir} ${_s})"
+
+	checkfs ${_files}
+	create_rollback ${_patch} "${_files}"
+
+	# create_rollback(): tar(1) was fed with an empty list of files; that is
+	# not an error but no tarball is created; this happens if no earlier
+	# version of the files contained in the syspatch exists on the system
+	[[ ! -f ${_PDIR}/${_patch}/rollback.tgz ]] && unset _files &&
+		echo "Missing set, skipping patch ${_patch##${_OSrev}-}"
+
+	for _file in ${_files}; do
+		((_ret == 0)) || break
+		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
+			install_kernel ${_edir}/${_file} || _ret=$?
+		else
+			install_file ${_edir}/${_file} /${_file} || _ret=$?
+		fi
 	done
 
-	# non-fatal: the syspatch tarball should have correct permissions
-	for _m in 4.4BSD BSD.x11; do
-		mtree -qdef /etc/mtree/${_m}.dist -p / -U >/dev/null || true
+	if ((_ret != 0)); then
+		sp_err "Failed to apply patch ${_patch##${_OSrev}-}" 0
+		rollback_patch; return ${_ret}
+	fi
+	# don't fill up /tmp when installing multiple patches at once; non-fatal
+	rm -rf ${_edir} ${_TMP}/syspatch${_patch}.tgz
+	trap exit INT
+}
+
+# quick-and-dirty filesystem status and size checks:
+# - assume old files are about the same size as new ones
+# - ignore new (nonexistent) files
+# - ignore rollback tarball: create_rollback() will handle the failure
+# - compute total size of all files per fs, simpler and less margin for error
+# - if we install a kernel, double /bsd size (duplicate it in the list) when:
+#   - we are on an MP system (/bsd.mp does not exist there)
+#   - /bsd.syspatchXX is not present (create_rollback will copy it from /bsd)
+checkfs()
+{
+	local _d _dev _df _files="${@}" _ret _sz
+	[[ -n ${_files} ]]
+
+	if echo "${_files}" | grep -qw bsd; then
+		${_BSDMP} || [[ ! -f /bsd.syspatch${_OSrev} ]] &&
+			_files="bsd ${_files}"
+	fi
+
+	set +e # ignore errors due to:
+	# - nonexistent files (i.e. syspatch is installing new files)
+	# - broken interpolation due to bogus devices like remote filesystems
+	eval $(cd / &&
+		stat -qf "_dev=\"\${_dev} %Sd\" %Sd=\"\${%Sd:+\${%Sd}\+}%Uz\"" \
+			${_files}) 2>/dev/null || _ret=$?
+	set -e
+	[[ ${_ret} == 127 ]] && sp_err "Remote filesystem, aborting" 
+
+	for _d in $(printf '%s\n' ${_dev} | sort -u); do
+		mount | grep -v read-only | grep -q "^/dev/${_d} " ||
+			sp_err "Read-only filesystem, aborting"
+		_df=$(df -Pk | grep "^/dev/${_d} " | tr -s ' ' | cut -d ' ' -f4)
+		_sz=$(($((_d))/1024))
+		((_df > _sz)) || sp_err "No space left on ${_d}, aborting"
 	done
 }
 
 create_rollback()
 {
-	local _file _patch=$1 _rbfiles
+	# XXX annotate new files so we can remove them if we rollback?
+	local _file _patch=$1 _rbfiles _ret=0
 	[[ -n ${_patch} ]]
 	shift
 	local _files="${@}"
@@ -63,188 +119,212 @@ create_rollback()
 
 	for _file in ${_files}; do
 		[[ -f /${_file} ]] || continue
+		# only save the original release kernel once
+		if [[ ${_file} == bsd && ! -f /bsd.syspatch${_OSrev} ]]; then
+			install -FSp /bsd /bsd.syspatch${_OSrev}
+		fi
 		_rbfiles="${_rbfiles} ${_file}"
 	done
 
-	(cd / && \
-		# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
-		if ${_BSDMP} && \
-			tar -tzf ${_TMP}/${_patch}.tgz bsd >/dev/null 2>&1; then
-			tar -czf ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
-				-s '/^bsd.mp$//' -s '/^bsd$/bsd.mp/' \
-				-s '/^bsd.sp$/bsd/' bsd.sp ${_rbfiles}
-		else
-			tar -czf ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
-				${_rbfiles}
-		fi
-	)
+	# GENERIC.MP: substitute bsd.mp->bsd and bsd.sp->bsd
+	if ${_BSDMP} &&
+		tar -tzf ${_TMP}/syspatch${_patch}.tgz bsd >/dev/null 2>&1; then
+		tar -C / -czf ${_PDIR}/${_patch}/rollback.tgz -s '/^bsd.mp$//' \
+			-s '/^bsd$/bsd.mp/' -s '/^bsd.sp$/bsd/' bsd.sp \
+			${_rbfiles} || _ret=$?
+	else
+		tar -C / -czf ${_PDIR}/${_patch}/rollback.tgz ${_rbfiles} ||
+			_ret=$?
+	fi
+
+	if ((_ret != 0)); then
+		sp_err "Failed to create rollback patch ${_patch##${_OSrev}-}" 0
+		rm -r ${_PDIR}/${_patch}; return ${_ret}
+	fi
 }
 
 fetch_and_verify()
 {
-	# XXX privsep ala installer
-	local _patch="$@"
-	[[ -n ${_patch} ]]
+	local _tgz=$1 _title="Get/Verify"
+	[[ -n ${_tgz} ]]
 
-	local _key="/etc/signify/openbsd-${_RELINT}-syspatch.pub" _p
+	[[ -t 0 ]] || echo "${_title} ${_tgz}"
+	unpriv -f "${_TMP}/${_tgz}" ftp -VD "${_title}" -o "${_TMP}/${_tgz}" \
+		"${_MIRROR}/${_tgz}"
 
-	${_FETCH} -o "${_TMP}/SHA256.sig" "${PATCH_PATH}/SHA256.sig"
-
-	for _p in ${_patch}; do
-		_p=${_p}.tgz
-		 ${_FETCH} -mD "Get/Verify" -o "${_TMP}/${_p}" \
-			"${PATCH_PATH}/${_p}"
-		(cd ${_TMP} && /usr/bin/signify -qC -p ${_key} -x SHA256.sig ${_p})
-	done
+	(cd ${_TMP} && sha256 -qC ${_TMP}/SHA256 ${_tgz})
 }
 
 install_file()
 {
-	# XXX handle sym/hardlinks?
-	# XXX handle dir becoming file and vice-versa?
-	local _src=$1 _dst=$2
+	# XXX handle hard and symbolic links, dir->file, file->dir?
+	local _dst=$2 _fgrp _fmode _fown _src=$1
 	[[ -f ${_src} && -f ${_dst} ]]
 
-	local _fmode _fown _fgrp
-	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" \
-		${_src})
+	eval $(stat -f "_fmode=%OMp%OLp _fown=%Su _fgrp=%Sg" ${_src})
 
-	install -DFS -m ${_fmode} -o ${_fown} -g ${_fgrp} \
-		${_src} ${_dst}
+	install -DFSp -m ${_fmode} -o ${_fown} -g ${_fgrp} ${_src} ${_dst}
 }
 
 install_kernel()
 {
-	local _bsd=/bsd _kern=$1
+	local _bsd _kern=$1
 	[[ -n ${_kern} ]]
 
-	# we only save the original release kernel once
-	[[ -f /bsd.rollback${_RELINT} ]] || \
-		install -FSp /bsd /bsd.rollback${_RELINT}
-
 	if ${_BSDMP}; then
-		[[ ${_kern##*/} == bsd ]] && _bsd=/bsd.sp
+		[[ ${_kern##*/} == bsd ]] && _bsd=bsd.sp || _bsd=bsd
 	fi
 
-	if [[ -n ${_bsd} ]]; then
-		install -FS ${_kern} ${_bsd}
-	fi
-}
-
-install_patch()
-{
-	local _explodir _file _files _patch="$1"
-	[[ -n ${_patch} ]]
-
-	local _explodir=${_TMP}/${_patch}
-	mkdir -p ${_explodir}
-
-	_files="$(tar xvzphf ${_TMP}/${_patch}.tgz -C ${_explodir})"
-	create_rollback ${_patch} "${_files}"
-
-	for _file in ${_files}; do
-		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
-			if ! install_kernel ${_explodir}/${_file}; then
-				rollback_patch
-				return 1
-			fi
-		else
-			if ! install_file ${_explodir}/${_file} /${_file}; then
-				rollback_patch
-				return 1
-			fi
-		fi
-	done
-}
-
-ls_avail()
-{
-	${_FETCH} -o - "${PATCH_PATH}/index.txt" | sed 's/^.* //;s/^M//;s/.tgz$//' | \
-		grep "^syspatch-${_RELINT}-.*$" | sort -V
+	install -FSp ${_kern} /${_bsd:-${_kern##*/}}
 }
 
 ls_installed()
 {
 	local _p
-	# no _REL dir = no installed patch
-	cd ${_PDIR}/${_REL} 2>/dev/null && set -- * || return 0
-	for _p; do
-		 [[ ${_p} = rollback-syspatch-${_RELINT}-*.tgz ]] && \
-			_p=${_p#rollback-} && echo ${_p%.tgz}
+	for _p in ${_PDIR}/${_OSrev}-+([[:digit:]])_+([[:alnum:]_]); do
+		[[ -f ${_p}/rollback.tgz ]] && echo ${_p##*/${_OSrev}-}
 	done | sort -V
 }
 
 ls_missing()
 {
-	local _a _installed
-	_installed="$(ls_installed)"
+	local _c _l="$(ls_installed)" _sha=${_TMP}/SHA256
 
-	for _a in $(ls_avail); do
-		if [[ -n ${_installed} ]]; then
-			echo ${_a} | grep -qw -- "${_installed}" || echo ${_a}
-		else
-			echo ${_a}
-		fi
-	done
+	# return inmediately if we cannot reach the mirror server
+	[[ -d ${_MIRROR#file://*} ]] ||
+		unpriv ftp -MVo /dev/null ${_MIRROR%syspatch/*} >/dev/null
+
+	# don't output anything on stdout to prevent corrupting the patch list;
+	# redirect stderr as well in case there's no patch available
+	unpriv -f "${_sha}.sig" ftp -MVo "${_sha}.sig" "${_MIRROR}/SHA256.sig" \
+		>/dev/null 2>&1 || return 0 # empty directory
+	unpriv -f "${_sha}" signify -Veq -x ${_sha}.sig -m ${_sha} -p \
+		/etc/signify/openbsd-${_OSrev}-syspatch.pub >/dev/null
+
+	grep -Eo "syspatch${_OSrev}-[[:digit:]]{3}_[[:alnum:]_]+" ${_sha} |
+		while read _c; do _c=${_c##syspatch${_OSrev}-} &&
+		[[ -n ${_l} ]] && echo ${_c} | grep -qw -- "${_l}" || echo ${_c}
+	done | sort -V
 }
 
 rollback_patch()
 {
-	needs_root
-	local _explodir _file _files _patch
+	local _edir _file _files _patch _ret=0
 
-	_patch="$(ls_installed | sort -V | tail -1)"
-	[[ -n ${_patch} ]]
+	_patch="$(ls_installed | tail -1)"
+	[[ -n ${_patch} ]] || return # function used as a while condition
 
-	_explodir=${_TMP}/rollback-${_patch}
-	mkdir -p ${_explodir}
+	_edir=${_TMP}/${_patch}-rollback
+	_patch=${_OSrev}-${_patch}
 
-	_files="$(tar xvzphf ${_PDIR}/${_REL}/rollback-${_patch}.tgz -C ${_explodir})"
+	trap '' INT
+	echo "Reverting patch ${_patch##${_OSrev}-}"
+	install -d ${_edir}
+
+	_files="$(tar xvzphf ${_PDIR}/${_patch}/rollback.tgz -C ${_edir})"
+	checkfs ${_files} ${_PDIR} # check for read-only /var/syspatch
+
 	for _file in ${_files}; do
+		((_ret == 0)) || break
 		if [[ ${_file} == @(bsd|bsd.mp) ]]; then
-			install_kernel ${_explodir}/${_file}
+			install_kernel ${_edir}/${_file} || _ret=$?
+			# remove the backup kernel if all kernel syspatches have
+			# been reverted; non-fatal
+			cmp -s /bsd /bsd.syspatch${_OSrev} &&
+				rm -f /bsd.syspatch${_OSrev}
 		else
-			install_file ${_explodir}/${_file} /${_file}
+			install_file ${_edir}/${_file} /${_file} || _ret=$?
 		fi
 	done
 
-	rm ${_PDIR}/${_REL}/rollback-${_patch}.tgz \
-		${_PDIR}/${_REL}/${_patch#syspatch-${_RELINT}-}.patch.sig
+	((_ret != 0)) || rm -r ${_PDIR}/${_patch} || _ret=$?
+	((_ret == 0)) ||
+		sp_err "Failed to revert patch ${_patch##${_OSrev}-}" ${_ret}
+	rm -rf ${_edir} # don't fill up /tmp when using `-R'; non-fatal
+	trap exit INT
 }
 
-# we do not run on current
-set -A _KERNV -- $(sysctl -n kern.version | \
+sp_cleanup()
+{
+	local _d _k _m
+
+	# remove non matching release /var/syspatch/ content
+	for _d in ${_PDIR}/{.[!.],}*; do
+		[[ -e ${_d} ]] || continue
+		[[ ${_d##*/} == ${_OSrev}-+([[:digit:]])_+([[:alnum:]]|_) ]] &&
+			[[ -f ${_d}/rollback.tgz ]] || rm -r ${_d}
+	done
+
+	# remove non matching release backup kernel
+	for _k in /bsd.syspatch+([[:digit:]]); do
+		[[ -f ${_k} ]] || continue
+		[[ ${_k} == /bsd.syspatch${_OSrev} ]] || rm ${_k}
+	done
+
+	# in case a patch added a new directory (install -D)
+	for _m in /etc/mtree/{4.4BSD,BSD.x11}.dist; do
+		[[ -f ${_m} ]] && mtree -qdef ${_m} -p / -U >/dev/null
+	done
+}
+
+unpriv()
+{
+	local _file=$2 _user=_syspatch
+
+	if [[ $1 == -f && -n ${_file} ]]; then
+		>${_file}
+		chown "${_user}" "${_file}"
+		chmod 0711 ${_TMP}
+		shift 2
+	fi
+	(($# >= 1))
+
+	eval su -s /bin/sh ${_user} -c "'$@'"
+}
+
+[[ $@ == @(|-[[:alpha:]]) ]] || usage; [[ $@ == @(|-(c|r)) ]] &&
+	(($(id -u) != 0)) && sp_err "${0##*/}: need root privileges"
+
+# only run on release (not -current nor -stable)
+set -A _KERNV -- $(sysctl -n kern.version |
 	sed 's/^OpenBSD \([0-9]\.[0-9]\)\([^ ]*\).*/\1 \2/;q')
-[[ -z ${_KERNV[1]} ]] || [[ ${_KERNV[1]} == "-stable" ]]
+((${#_KERNV[*]} > 1)) && sp_err "Unsupported release: ${_KERNV[0]}${_KERNV[1]}"
 
-# check args
-[[ $@ == @(|-[[:alpha:]]) ]] || usage
+_OSrev=${_KERNV[0]%.*}${_KERNV[0]#*.}
+[[ -n ${_OSrev} ]]
 
-# XXX to be discussed
-[[ -n ${PATCH_PATH} ]]
-[[ -d ${PATCH_PATH} ]] && PATCH_PATH="file://$(readlink -f ${PATCH_PATH})"
+_MIRROR=$(while read _line; do _line=${_line%%#*}; [[ -n ${_line} ]] &&
+	print -r -- "${_line}"; done </etc/installurl | tail -1) 2>/dev/null
+[[ ${_MIRROR} == @(file|http|https)://*/*[!/] ]] ||
+	sp_err "${0##*/}: invalid URL configured in /etc/installurl"
 
-[[ $(sysctl -n hw.ncpu) -gt 1 ]] && _BSDMP=true || _BSDMP=false
-readonly _BSDMP
-readonly _FETCH="/usr/bin/ftp -MV -k ${FTP_KEEPALIVE-0}"
-readonly _PDIR="/var/syspatch"
-readonly _REL=${_KERNV[0]}
-readonly _RELINT=${_REL%\.*}${_REL#*\.}
-readonly _TMP=$(mktemp -d -p /tmp syspatch.XXXXXXXXXX)
+_MIRROR="${_MIRROR}/syspatch/${_KERNV[0]}/$(machine)"
 
-while getopts clr arg; do
+(($(sysctl -n hw.ncpufound) > 1)) && _BSDMP=true || _BSDMP=false
+_PDIR="/var/syspatch"
+_TMP=$(mktemp -d -p /tmp syspatch.XXXXXXXXXX)
+
+readonly _BSDMP _KERNV _MIRROR _OSrev _PDIR _TMP
+
+trap 'set +e; rm -rf "${_TMP}"' EXIT
+trap exit HUP INT TERM
+
+while getopts clRr arg; do
 	case ${arg} in
-		c) ls_missing;;
-		l) ls_installed;;
-		r) rollback_patch;;
-		*) usage;;
+		c) ls_missing ;;
+		l) ls_installed ;;
+		R) while [[ -n $(ls_installed) ]]; do rollback_patch; done ;;
+		r) rollback_patch ;;
+		*) usage ;;
 	esac
 done
-shift $(( OPTIND -1 ))
-[[ $# -ne 0 ]] && usage
+shift $((OPTIND - 1))
+(($# != 0)) && usage
 
-if [[ ${OPTIND} == 1 ]]; then
-	apply_patches
+if ((OPTIND == 1)); then
+	_PATCHES=$(ls_missing)
+	for _PATCH in ${_PATCHES}; do
+		apply_patch ${_OSrev}-${_PATCH}
+	done
+	sp_cleanup
 fi
-
-rm -rf ${_TMP}

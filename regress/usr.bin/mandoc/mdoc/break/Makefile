@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.4 2016/08/20 17:58:09 schwarze Exp $
+# $OpenBSD: Makefile,v 1.7 2017/03/08 22:53:36 schwarze Exp $
 
 REGRESS_TARGETS	= brokenbreaker twice tail two notopen
 LINT_TARGETS	= brokenbreaker twice tail two notopen

@@ -1,4 +1,4 @@
-/* $OpenBSD: md_init.h,v 1.9 2016/03/20 02:32:39 guenther Exp $ */
+/* $OpenBSD: md_init.h,v 1.12 2017/02/26 22:26:42 kettenis Exp $ */
 
 /*
  * Copyright (c) 2003 Dale Rahn. All rights reserved.
@@ -24,28 +24,34 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */  
 
+/*
+ * hppa overrides these because it has different label syntax
+ */
+#define MD_DATA_SECTION_FLAGS_SYMBOL(section, flags, type, symbol)	\
+	extern __dso_hidden type symbol[];				\
+	__asm("	.section "section",\""flags"\",@progbits		\n" \
+	"	.balign 4						\n" \
+	#symbol"							\n" \
+	"	.previous")
+#define MD_DATA_SECTION_SYMBOL_VALUE(section, type, symbol, value)	\
+	extern __dso_hidden type symbol[];				\
+	__asm("	.section "section",\"aw\",@progbits			\n" \
+	"	.balign 4						\n" \
+	#symbol"							\n" \
+	"	.int "#value"						\n" \
+	"	.previous")
+#define MD_DATA_SECTION_FLAGS_VALUE(section, flags, value)		\
+	__asm("	.section "section",\""flags"\",@progbits		\n" \
+	"	.balign 4						\n" \
+	"	.int "#value"						\n" \
+	"	.previous")
 
-#ifdef __PIC__
 #define MD_SECT_CALL_FUNC(section, func)			\
 	__asm (".section "#section",\"ax\",@progbits	\n"	\
 	"	bl	" #func ",%r2			\n"	\
 	"	stw	%r19,-80(%r30)			\n"	\
 	"	ldw	-80(%r30),%r19			\n"	\
 	"	.previous")
-#else
-#define MD_SECT_CALL_FUNC(section, func)			\
-	__asm (".section .rodata			\n"	\
-	"	.align 4				\n"	\
-	"L$" #func "					\n"	\
-	"	.word "#func "				\n"	\
-	"	.previous				\n"	\
-	"	.section "#section",\"ax\",@progbits	\n"	\
-	"	ldil	LR'L$" #func ",%r1		\n"	\
-	"	ldw	RR'L$" #func "(%r1), %r31	\n"	\
-	"	ble	0(%sr4,%r31)			\n"	\
-	"	copy 	%r31,%r2			\n"	\
-	"	.previous")
-#endif
 
 #define MD_SECTION_PROLOGUE(sect, entry_pt)			\
 	__asm (						   	\
@@ -68,7 +74,7 @@
 	"	.previous")
 
 
-#include <sys/exec.h>		/* for struct psstrings */
+#include <sys/exec.h>		/* for struct ps_strings */
 
 #define	MD_CRT0_START						\
 	__asm(							\

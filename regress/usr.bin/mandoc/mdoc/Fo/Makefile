@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.13 2015/02/16 11:39:34 schwarze Exp $
+# $OpenBSD: Makefile,v 1.15 2017/03/08 22:53:35 schwarze Exp $
 
 REGRESS_TARGETS	 = basic break eos font noarg nohead
 REGRESS_TARGETS += obsolete punct section warn

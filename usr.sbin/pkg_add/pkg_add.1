@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pkg_add.1,v 1.138 2016/06/14 17:06:23 espie Exp $
+.\"	$OpenBSD: pkg_add.1,v 1.149 2017/05/30 13:56:07 tb Exp $
 .\"
 .\" Documentation and design originally from FreeBSD. All the code has
 .\" been rewritten since. We keep the documentation's notice:
@@ -15,7 +15,7 @@
 .\" Jordan K. Hubbard
 .\"
 .\"
-.Dd $Mdocdate: June 14 2016 $
+.Dd $Mdocdate: May 30 2017 $
 .Dt PKG_ADD 1
 .Os
 .Sh NAME
@@ -24,7 +24,7 @@
 .Sh SYNOPSIS
 .Nm pkg_add
 .Bk -words
-.Op Fl acIimnqrsUuvxz
+.Op Fl acIimnqrsUuVvxz
 .Op Fl A Ar arch
 .Op Fl B Ar pkg-destdir
 .Op Fl D Ar name Ns Op = Ns Ar value
@@ -42,11 +42,7 @@ with the
 command.
 Packages containing pre-compiled applications from the
 .Pa /usr/ports
-tree can be found on the
-.Ox
-FTP site or on the official
-.Ox
-CD.
+tree can be found on the official HTTP mirrors.
 .Bd -filled -offset indent
 .Em Note :
 System distribution files, e.g., base58.tgz, comp58.tgz, are
@@ -79,11 +75,7 @@ Details of packing-list internals are documented in
 .Nm
 will
 .Xr syslog 3
-installations and updates by default
-.Po
-but see
-.Xr pkg.conf 5
-.Pc .
+installations and updates by default.
 .Pp
 .Nm
 relies on the file system information being consistent.
@@ -98,13 +90,13 @@ If a package is digitally signed:
 .Bl -bullet
 .It
 .Nm
-checks that its packing-list is not corrupted and matches the cryptographic
-signature stored within.
+checks that its signature is valid and that the compressed package
+data matches the signature.
 .It
 .Nm
-verifies that the signature was emitted by a valid user certificate, signed
-by one of the authorities in
-.Pa /etc/ssl/pkgca.pem
+verifies that the signature was emitted by a valid signing key, as
+stored in
+.Pa /etc/signify/*-pkg.pub
 .It
 .Nm
 verifies that each file matches its sha256 checksum right after extraction,
@@ -113,6 +105,16 @@ before doing anything with it.
 .Nm
 verifies that any dangerous mode or owner is registered in the packing-list.
 .El
+.Pp
+By default,
+.Nm
+enforces signed packages, except if they come from a trusted source
+.Po
+.Ev TRUSTED_PKG_PATH
+.Pc
+or if
+.Fl D Ns Ar unsigned
+is specified.
 .Pp
 In normal mode,
 the package names given on the command lines are names of new packages that
@@ -138,16 +140,24 @@ suffix) or a URL referring to FTP, HTTP, HTTPS, or SCP locations.
 If the given package names are not found in the current working directory,
 .Nm
 will search for them in each directory (local or remote) named by the
+.Ev TRUSTED_PKG_PATH
+environment variable,
+then the
 .Ev PKG_PATH
 environment variable.
-If
+The special url
+.Sq installpath
+refers to the contents of
+.Xr installurl 5 .
+If neither
+.Ev TRUSTED_PKG_PATH
+nor
 .Ev PKG_PATH
-is not defined,
+are defined,
 .Nm
-will use the path named by
-.Ar installpath
-within
-.Xr pkg.conf 5 .
+will use
+.Sq ./:installpath
+as a default.
 Specifying
 .Ql -
 as a package name causes
@@ -161,7 +171,12 @@ that is, package names without any version specification.
 For instance, with
 .Sq Nm Ar kdelibs ,
 .Nm
-will look in the current directory (or the PKG_PATH) for a
+will look in the current directory
+.Po
+or the
+.Ev PKG_PATH
+.Pc
+for a
 .Ar kdelibs
 package.
 .Pp
@@ -209,13 +224,35 @@ respectively.
 .Pp
 All paths recognize special sequences
 .Sq %a ,
-.Sq %c ,
 .Sq %m ,
-.Sq %v
-.Po
-from
-.Xr pkg.conf 5
-.Pc .
+.Sq %c ,
+.Sq %v ,
+which will be expanded to
+.Sq package architecture ,
+.Sq OS version or snapshots ,
+.Sq full mirror path
+and
+.Sq OS version
+respectively.
+.Pp
+The sequences
+.Sq %c
+and
+.Sq %m
+are slightly more magical.
+One can force them to expand to
+.Sq snapshots
+on a release kernel by using
+.Fl D Ar snap .
+Otherwise, on a
+.Sq -stable
+system, they will expand
+.Sq %c/packages
+into
+two directories:
+.Pa <VERSION>/packages-stable
+and
+.Pa <VERSION>/packages .
 .Pp
 The following examples are valid:
 .Bd -literal -offset indent
@@ -265,10 +302,7 @@ While replacing packages, delete extra configuration file in the old package,
 mentioned as
 .Dl @extra file
 in the packing-list.
-.It Xo
-.Fl D
-.Ar name Ns Op = Ns Ar value
-.Xc
+.It Fl D Ar name Ns Op = Ns Ar value
 Force installation of the package.
 .Ar name
 is a keyword that states what failsafe
@@ -277,41 +311,41 @@ Recognized keywords include:
 .Pp
 .Bl -tag -width "updatedependsXX" -compact
 .It Ar allversions
-do not trim older p* variants of packages for updates.
+Do not trim older p* variants of packages for updates.
 .It Ar arch
-architecture recorded in package may not match.
+Architecture recorded in package may not match.
+.It Ar checksum
+Verify checksums before deleting or tying old files.
 .It Ar dontmerge
-by default, if dependencies are too strict,
+By default, if dependencies are too strict,
 .Nm
 will merge updates together to make sure everything stays in sync.
-.Fl D Ar dontmerge
+.Fl D Ns Ar dontmerge
 disables that behavior.
 .It Ar donttie
-by default,
+By default,
 .Nm
 will try to find new files in old packages by comparing the stored sha256,
 and tie the entries together to avoid extracting files needlessly.
-.Fl D Ar donttie
+.Fl D Ns Ar donttie
 disables that behavior.
 .It Ar downgrade
-don't filter out package versions older than what's currently installed.
+Don't filter out package versions older than what's currently installed.
 .It Ar installed
-in update mode, reinstall an existing package with the same update signature.
+In update mode, reinstall an existing package with the same update signature.
 .It Ar libdepends
-library specifications may not be fulfilled.
+Library specifications may not be fulfilled.
 .It Ar nonroot
-install even if not running as root.
-.It Ar nosig
-do not check digital signatures.
-Still displays a very prominent message if a signature is found.
+Install even if not running as root.
 .It Ar paranoid
-very safe update: don't run any @exec/@unexec.
+Very safe update: don't run any @exec/@unexec.
+This may break some packages that will need manual intervention.
 .It Ar repair
-attempt to repair installed packages with missing registration data.
+Attempt to repair installed packages with missing registration data.
 .It Ar scripts
-external scripts may fail.
+External scripts may fail.
 .It Ar SIGNER
-list of trusted signers, separated by commas.
+List of trusted signers, separated by commas.
 Corresponds to list of public keys under
 .Pa /etc/signify
 we want to trust.
@@ -320,13 +354,21 @@ Defaults to any key matching
 for packages, and any key matching
 .Sq *fw
 for firmware.
+.It Ar snap
+Force
+.Sq %c
+and
+.Sq %m
+to expand to
+.Sq snapshots ,
+even on a release kernel.
 .It Ar unsigned
-allow the installation of unsigned packages without warnings/errors
+Allow the installation of unsigned packages without warnings/errors
 (necessary for
 .Xr ports 7 ,
 automatically set by the build infrastructure).
 .It Ar updatedepends
-force update even if forward dependencies no longer match.
+Force update even if forward dependencies no longer match.
 .El
 .It Fl I
 Force non-interactive mode.
@@ -388,11 +430,8 @@ can be
 .Sq cdrom
 or
 .Sq ftp .
-.It Fl q
-Replace package quickly; do not bother with checksums before removing normal
-files.
-If used twice,
-it will not bother with checksums for configuration files either.
+.It Fl qq
+Do not bother with checksums for configuration files.
 .It Fl r
 Replace existing packages.
 .Nm
@@ -437,6 +476,12 @@ will update all installed packages.
 This relies on
 .Ev PKG_PATH
 to figure out the new package names.
+.It Fl V
+Turn on statistics output.
+For now, only displays the number of packages done/total number of packages.
+Several
+.Fl V
+will turn on more statistics in the future.
 .It Fl v
 Turn on verbose output.
 Several
@@ -712,7 +757,7 @@ Once a suitable update candidate has been found,
 .Nm
 checks the package dependencies.
 If necessary, it will install or update them first.
-Once all dependencies are up-to-date,
+Once all dependencies are up to date,
 .Nm
 will update the package.
 .El
@@ -733,16 +778,12 @@ Override use of
 .Xr ftp 1 .
 Must point to a command that understands
 .Li ${FETCH_CMD} -o - url .
-.It Ev FTP_KEEPALIVE
-Have
-.Xr ftp 1
-send a byte after every
-.Ev FTP_KEEPALIVE
-seconds,
-so that incorrectly configured network equipment won't aggressively drop it.
-See
-.Dq ftp -k
-for more information.
+.It Ev PKG_CACHE
+If set, any package retrieved from a distant location will be copied to
+that directory as well.
+.It Ev PKG_CHECKSUM
+If set, verify files checksums during deletion, exactly like
+.Fl D Ns Ar checksum .
 .It Ev PKG_DBDIR
 Where to register packages instead of
 .Pa /var/db/pkg .
@@ -752,9 +793,6 @@ Value for
 if no
 .Fl B
 option is specified.
-.It Ev PKG_CACHE
-If set, any package retrieved from a distant location will be copied to
-that directory as well.
 .It Ev PKG_PATH
 If a given package name cannot be found,
 the directories named by
@@ -772,13 +810,16 @@ Special sequences
 .Sq %c ,
 .Sq %m ,
 .Sq %v
-will be expanded with the same semantics as
-.Ar installpath
-in
-.Xr pkg.conf 5 .
+will be expanded.
 .It Ev PKG_TMPDIR
 Temporary area where package information files will be extracted, instead of
 .Pa /var/tmp .
+.It Ev TRUSTED_PKG_PATH
+Same semantics as
+.Ev PKG_PATH ,
+but it is searched before
+.Ev PKG_PATH
+and waives any kind of signature checking.
 .El
 .Sh SEE ALSO
 .Xr ftp 1 ,
@@ -787,8 +828,8 @@ Temporary area where package information files will be extracted, instead of
 .Xr pkg_info 1 ,
 .Xr OpenBSD::Intro 3p ,
 .Xr bsd.port.mk 5 ,
+.Xr installurl 5 ,
 .Xr package 5 ,
-.Xr pkg.conf 5 ,
 .Xr pkg_check 8
 .Sh AUTHORS
 .Bl -tag -width indent -compact

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ar5008.c,v 1.35 2016/01/05 18:41:15 stsp Exp $	*/
+/*	$OpenBSD: ar5008.c,v 1.44 2017/04/26 07:53:17 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2009 Damien Bergamini <damien.bergamini@free.fr>
@@ -51,6 +51,7 @@
 
 #include <net80211/ieee80211_var.h>
 #include <net80211/ieee80211_amrr.h>
+#include <net80211/ieee80211_mira.h>
 #include <net80211/ieee80211_radiotap.h>
 
 #include <dev/ic/athnreg.h>
@@ -213,12 +214,24 @@ ar5008_attach(struct athn_softc *sc)
 		return (EINVAL);
 	}
 
-	if (base->opCapFlags & AR_OPFLAGS_11A)
+	if (base->opCapFlags & AR_OPFLAGS_11A) {
 		sc->flags |= ATHN_FLAG_11A;
-	if (base->opCapFlags & AR_OPFLAGS_11G)
+		if ((base->opCapFlags & AR_OPFLAGS_11N_5G20) == 0)
+			sc->flags |= ATHN_FLAG_11N;
+#ifdef notyet
+		if ((base->opCapFlags & AR_OPFLAGS_11N_5G40) == 0)
+			sc->flags |= ATHN_FLAG_11N;
+#endif
+	}
+	if (base->opCapFlags & AR_OPFLAGS_11G) {
 		sc->flags |= ATHN_FLAG_11G;
-	if (base->opCapFlags & AR_OPFLAGS_11N)
-		sc->flags |= ATHN_FLAG_11N;
+		if ((base->opCapFlags & AR_OPFLAGS_11N_2G20) == 0)
+			sc->flags |= ATHN_FLAG_11N;
+#ifdef notyet
+		if ((base->opCapFlags & AR_OPFLAGS_11N_2G40) == 0)
+			sc->flags |= ATHN_FLAG_11N;
+#endif
+	}
 
 	IEEE80211_ADDR_COPY(ic->ic_myaddr, base->macAddr);
 
@@ -649,8 +662,7 @@ ar5008_rx_free(struct athn_softc *sc)
 
 		if (bf->bf_map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, bf->bf_map);
-		if (bf->bf_m != NULL)
-			m_freem(bf->bf_m);
+		m_freem(bf->bf_m);
 	}
 	free(rxq->bf, M_DEVBUF, 0);
 
@@ -953,9 +965,11 @@ ar5008_tx_process(struct athn_softc *sc, int qid)
 	struct ifnet *ifp = &ic->ic_if;
 	struct athn_txq *txq = &sc->txq[qid];
 	struct athn_node *an;
+	struct ieee80211_node *ni;
 	struct athn_tx_buf *bf;
 	struct ar_tx_desc *ds;
 	uint8_t failcnt;
+	int txfail;
 
 	bf = SIMPLEQ_FIRST(&txq->head);
 	if (bf == NULL)
@@ -967,31 +981,55 @@ ar5008_tx_process(struct athn_softc *sc, int qid)
 		return (EBUSY);
 
 	SIMPLEQ_REMOVE_HEAD(&txq->head, bf_list);
-	ifp->if_opackets++;
 
 	sc->sc_tx_timer = 0;
 
-	if (ds->ds_status1 & AR_TXS1_EXCESSIVE_RETRIES)
+	txfail = (ds->ds_status1 & AR_TXS1_EXCESSIVE_RETRIES);
+	if (txfail)
 		ifp->if_oerrors++;
 
 	if (ds->ds_status1 & AR_TXS1_UNDERRUN)
 		athn_inc_tx_trigger_level(sc);
 
 	an = (struct athn_node *)bf->bf_ni;
+	ni = (struct ieee80211_node *)bf->bf_ni;
+
 	/*
 	 * NB: the data fail count contains the number of un-acked tries
 	 * for the final series used.  We must add the number of tries for
-	 * each series that was fully processed.
+	 * each series that was fully processed to punish transmit rates in
+	 * the earlier series which did not perform well.
+	 * If RTS/CTS was used, each series used the same transmit rate.
+	 * Ignore the series count in this case, since each series had
+	 * the same chance of success.
 	 */
 	failcnt  = MS(ds->ds_status1, AR_TXS1_DATA_FAIL_CNT);
-	/* NB: Assume two tries per series. */
-	failcnt += MS(ds->ds_status9, AR_TXS9_FINAL_IDX) * 2;
+	if (!(ds->ds_ctl0 & (AR_TXC0_RTS_ENABLE | AR_TXC0_CTS_ENABLE))) {
+		/* NB: Assume two tries per series. */
+		failcnt += MS(ds->ds_status9, AR_TXS9_FINAL_IDX) * 2;
+	}
 
 	/* Update rate control statistics. */
-	an->amn.amn_txcnt++;
-	if (failcnt > 0)
-		an->amn.amn_retrycnt++;
-
+	if (ni->ni_flags & IEEE80211_NODE_HT) {
+		an->mn.frames++;
+		an->mn.ampdu_size = bf->bf_m->m_pkthdr.len + IEEE80211_CRC_LEN;
+		an->mn.agglen = 1; /* XXX We do not yet support Tx agg. */
+		if (failcnt > 0)
+			an->mn.retries += failcnt;
+		if (txfail)
+			an->mn.txfail++;
+		if (ic->ic_state == IEEE80211_S_RUN) {
+#ifndef IEEE80211_STA_ONLY
+			if (ic->ic_opmode != IEEE80211_M_HOSTAP ||
+			    ni->ni_state == IEEE80211_STA_ASSOC)
+#endif
+				ieee80211_mira_choose(&an->mn, ic, ni);
+		}
+	} else {
+		an->amn.amn_txcnt++;
+		if (failcnt > 0)
+			an->amn.amn_retrycnt++;
+	}
 	DPRINTFN(5, ("Tx done qid=%d status1=%d fail count=%d\n",
 	    qid, ds->ds_status1, failcnt));
 
@@ -1111,7 +1149,7 @@ ar5008_swba_intr(struct athn_softc *sc)
 	ds->ds_ctl2 = SM(AR_TXC2_XMIT_DATA_TRIES0, 1);
 
 	/* Write Tx rate. */
-	ridx = (ic->ic_curmode == IEEE80211_MODE_11A) ?
+	ridx = IEEE80211_IS_CHAN_5GHZ(ni->ni_chan) ?
 	    ATHN_RIDX_OFDM6 : ATHN_RIDX_CCK1;
 	hwrate = athn_rates[ridx].hwrate;
 	ds->ds_ctl3 = SM(AR_TXC3_XMIT_RATE0, hwrate);
@@ -1235,7 +1273,6 @@ ar5008_intr(struct athn_softc *sc)
 			printf("%s: radio switch turned off\n",
 			    sc->sc_dev.dv_xname);
 			/* Turn the interface down. */
-			ifp->if_flags &= ~IFF_UP;
 			athn_stop(ifp, 1);
 			return (1);
 		}
@@ -1316,15 +1353,25 @@ ar5008_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	    IEEE80211_FC0_TYPE_DATA) {
 		/* Use lowest rate for all tries. */
 		ridx[0] = ridx[1] = ridx[2] = ridx[3] =
-		    (ic->ic_curmode == IEEE80211_MODE_11A) ?
-			ATHN_RIDX_OFDM6 : ATHN_RIDX_CCK1;
+		    (IEEE80211_IS_CHAN_5GHZ(ni->ni_chan) ?
+			ATHN_RIDX_OFDM6 : ATHN_RIDX_CCK1);
+	} else if ((ni->ni_flags & IEEE80211_NODE_HT) &&
+	    ic->ic_fixed_mcs != -1) {
+		/* Use same fixed rate for all tries. */
+		ridx[0] = ridx[1] = ridx[2] = ridx[3] =
+		    ATHN_RIDX_MCS0 + ic->ic_fixed_mcs;
 	} else if (ic->ic_fixed_rate != -1) {
 		/* Use same fixed rate for all tries. */
 		ridx[0] = ridx[1] = ridx[2] = ridx[3] =
 		    sc->fixed_ridx;
 	} else {
-		int txrate = ni->ni_txrate;
 		/* Use fallback table of the node. */
+		int txrate;
+		
+		if (ni->ni_flags & IEEE80211_NODE_HT)
+			txrate = ATHN_NUM_LEGACY_RATES + ni->ni_txmcs;
+		else
+			txrate = ni->ni_txrate;
 		for (i = 0; i < 4; i++) {
 			ridx[i] = an->ridx[txrate];
 			txrate = an->fallback[txrate];
@@ -1338,7 +1385,10 @@ ar5008_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 
 		tap->wt_flags = 0;
 		/* Use initial transmit rate. */
-		tap->wt_rate = athn_rates[ridx[0]].rate;
+		if (athn_rates[ridx[0]].hwrate & 0x80) /* MCS */
+			tap->wt_rate = athn_rates[ridx[0]].hwrate;
+		else
+			tap->wt_rate = athn_rates[ridx[0]].rate;
 		tap->wt_chan_freq = htole16(ic->ic_bss->ni_chan->ic_freq);
 		tap->wt_chan_flags = htole16(ic->ic_bss->ni_chan->ic_flags);
 		tap->wt_hwqueue = qid;
@@ -1455,20 +1505,31 @@ ar5008_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	ds->ds_ctl6 = SM(AR_TXC6_ENCR_TYPE, encrtype);
 
 	/* Check if frame must be protected using RTS/CTS or CTS-to-self. */
-	if (!IEEE80211_IS_MULTICAST(wh->i_addr1)) {
+	if (!IEEE80211_IS_MULTICAST(wh->i_addr1) &&
+	    (wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK) ==
+	    IEEE80211_FC0_TYPE_DATA) {
+		enum ieee80211_htprot htprot;
+		
+		htprot = (ic->ic_bss->ni_htop1 & IEEE80211_HTOP1_PROT_MASK);
 		/* NB: Group frames are sent using CCK in 802.11b/g. */
 		if (totlen > ic->ic_rtsthreshold) {
 			ds->ds_ctl0 |= AR_TXC0_RTS_ENABLE;
-		} else if ((ic->ic_flags & IEEE80211_F_USEPROT) &&
-		    athn_rates[ridx[0]].phy == IEEE80211_T_OFDM) {
+		} else if (((ic->ic_flags & IEEE80211_F_USEPROT) &&
+		    athn_rates[ridx[0]].phy == IEEE80211_T_OFDM) ||
+		    ((ni->ni_flags & IEEE80211_NODE_HT) &&
+		    htprot != IEEE80211_HTPROT_NONE)) {
 			if (ic->ic_protmode == IEEE80211_PROT_RTSCTS)
 				ds->ds_ctl0 |= AR_TXC0_RTS_ENABLE;
 			else if (ic->ic_protmode == IEEE80211_PROT_CTSONLY)
 				ds->ds_ctl0 |= AR_TXC0_CTS_ENABLE;
 		}
 	}
+	/* 
+	 * Disable multi-rate retries when protection is used.
+	 * The RTS/CTS frame's duration field is fixed and won't be
+	 * updated by hardware when the data rate changes.
+	 */
 	if (ds->ds_ctl0 & (AR_TXC0_RTS_ENABLE | AR_TXC0_CTS_ENABLE)) {
-		/* Disable multi-rate retries when protection is used. */
 		ridx[1] = ridx[2] = ridx[3] = ridx[0];
 	}
 	/* Setup multi-rate retries. */
@@ -1522,7 +1583,7 @@ ar5008_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 	    SM(AR_TXC7_CHAIN_SEL3, sc->txchainmask);
 #ifdef notyet
 	/* Use the same short GI setting for all tries. */
-	if (ic->ic_flags & IEEE80211_F_SHGI)
+	if (ni->ni_htcaps & IEEE80211_HTCAP_SGI20)
 		ds->ds_ctl7 |= AR_TXC7_GI0123;
 	/* Use the same channel width for all tries. */
 	if (ic->ic_flags & IEEE80211_F_CBW40)
@@ -1539,8 +1600,8 @@ ar5008_tx(struct athn_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 			ds->ds_ctl5 |= AR_TXC5_RTSCTS_QUAL23;
 		}
 		/* Select protection rate (suboptimal but ok). */
-		protridx = (ic->ic_curmode == IEEE80211_MODE_11A) ?
-		    ATHN_RIDX_OFDM6 : ATHN_RIDX_CCK2;
+		protridx = IEEE80211_IS_CHAN_5GHZ(ni->ni_chan) ?
+		    ATHN_RIDX_OFDM6 : ATHN_RIDX_CCK1;
 		if (ds->ds_ctl0 & AR_TXC0_RTS_ENABLE) {
 			/* Account for CTS duration. */
 			dur += athn_txtime(sc, IEEE80211_ACK_LEN,

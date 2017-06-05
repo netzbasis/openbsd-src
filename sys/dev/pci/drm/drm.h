@@ -1,4 +1,4 @@
-/* $OpenBSD: drm.h,v 1.20 2015/09/23 23:12:11 kettenis Exp $ */
+/* $OpenBSD: drm.h,v 1.22 2016/12/01 01:37:17 jsg Exp $ */
 /**
  * \file drm.h
  * Header for the Direct Rendering Manager
@@ -706,6 +706,20 @@ struct drm_event_vblank {
 	u_int32_t		 reserved;
 };
 
+#ifdef __OpenBSD__
+struct drm_pciinfo {
+	uint16_t	domain;
+	uint8_t		bus;
+	uint8_t		dev;
+	uint8_t		func;
+	uint16_t	vendor_id;
+	uint16_t	device_id;
+	uint16_t	subvendor_id;
+	uint16_t	subdevice_id;
+	uint8_t		revision_id;
+};
+#endif
+
 #include "drm_mode.h"
 
 #define DRM_IOCTL_BASE			'd'
@@ -734,7 +748,11 @@ struct drm_event_vblank {
 #define DRM_IOCTL_BLOCK			DRM_IOWR(0x12, struct drm_block)
 #define DRM_IOCTL_UNBLOCK		DRM_IOWR(0x13, struct drm_block)
 #define DRM_IOCTL_CONTROL		DRM_IOW( 0x14, struct drm_control)
+#ifdef __OpenBSD__
+#define DRM_IOCTL_GET_PCIINFO		DRM_IOR( 0x15, struct drm_pciinfo)
+#else
 #define DRM_IOCTL_ADD_MAP		DRM_IOWR(0x15, struct drm_map)
+#endif
 #define DRM_IOCTL_ADD_BUFS		DRM_IOWR(0x16, struct drm_buf_desc)
 #define DRM_IOCTL_MARK_BUFS		DRM_IOW( 0x17, struct drm_buf_desc)
 #define DRM_IOCTL_INFO_BUFS		DRM_IOWR(0x18, struct drm_buf_info)
@@ -745,6 +763,9 @@ struct drm_event_vblank {
 
 #define DRM_IOCTL_SET_SAREA_CTX		DRM_IOW( 0x1c, struct drm_ctx_priv_map)
 #define DRM_IOCTL_GET_SAREA_CTX		DRM_IOWR(0x1d, struct drm_ctx_priv_map)
+
+#define DRM_IOCTL_SET_MASTER		DRM_IO(0x1e)
+#define DRM_IOCTL_DROP_MASTER		DRM_IO(0x1f)
 
 #define DRM_IOCTL_ADD_CTX		DRM_IOWR(0x20, struct drm_ctx)
 #define DRM_IOCTL_RM_CTX		DRM_IOWR(0x21, struct drm_ctx)

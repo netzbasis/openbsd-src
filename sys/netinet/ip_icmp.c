@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_icmp.c,v 1.152 2016/08/22 15:37:23 mpi Exp $	*/
+/*	$OpenBSD: ip_icmp.c,v 1.169 2017/05/30 12:09:27 friehm Exp $	*/
 /*	$NetBSD: ip_icmp.c,v 1.19 1996/02/13 23:42:22 christos Exp $	*/
 
 /*
@@ -121,18 +121,20 @@ static int icmperrpps_count = 0;
 static struct timeval icmperrppslim_last;
 
 static struct rttimer_queue *icmp_redirect_timeout_q = NULL;
-struct	icmpstat icmpstat;
+struct cpumem *icmpcounters;
 
 int *icmpctl_vars[ICMPCTL_MAXID] = ICMPCTL_VARS;
 
 void icmp_mtudisc_timeout(struct rtentry *, struct rttimer *);
 int icmp_ratelimit(const struct in_addr *, const int, const int);
 void icmp_redirect_timeout(struct rtentry *, struct rttimer *);
-void icmp_input_if(struct ifnet *, struct mbuf *, int);
+int icmp_input_if(struct ifnet *, struct mbuf **, int *, int, int);
+int icmp_sysctl_icmpstat(void *, size_t *, void *);
 
 void
 icmp_init(void)
 {
+	icmpcounters = counters_alloc(icps_ncounters);
 	/*
 	 * This is only useful if the user initializes redirtimeout to
 	 * something other than zero.
@@ -157,7 +159,7 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 		printf("icmp_error(%x, %d, %d)\n", oip, type, code);
 #endif
 	if (type != ICMP_REDIRECT)
-		icmpstat.icps_error++;
+		icmpstat_inc(icps_error);
 	/*
 	 * Don't send error if not the first fragment of message.
 	 * Don't error if the old packet protocol was ICMP
@@ -169,7 +171,7 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	    n->m_len >= oiplen + ICMP_MINLEN &&
 	    !ICMP_INFOTYPE(((struct icmp *)
 	    ((caddr_t)oip + oiplen))->icmp_type)) {
-		icmpstat.icps_oldicmp++;
+		icmpstat_inc(icps_oldicmp);
 		goto freeit;
 	}
 	/* Don't send error in response to a multicast or broadcast packet */
@@ -180,7 +182,7 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	 * First, do a rate limitation check.
 	 */
 	if (icmp_ratelimit(&oip->ip_src, type, code)) {
-		icmpstat.icps_toofreq++;
+		icmpstat_inc(icps_toofreq);
 		goto freeit;
 	}
 
@@ -227,7 +229,7 @@ icmp_do_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 	icp = mtod(m, struct icmp *);
 	if ((u_int)type > ICMP_MAXTYPE)
 		panic("icmp_error");
-	icmpstat.icps_outhist[type]++;
+	icmpstat_inc(icps_outhist + type);
 	icp->icmp_type = type;
 	if (type == ICMP_REDIRECT)
 		icp->icmp_gwaddr.s_addr = dest;
@@ -303,36 +305,33 @@ icmp_error(struct mbuf *n, int type, int code, u_int32_t dest, int destmtu)
 /*
  * Process a received ICMP message.
  */
-void
-icmp_input(struct mbuf *m, ...)
+int
+icmp_input(struct mbuf **mp, int *offp, int proto, int af)
 {
 	struct ifnet *ifp;
-	int hlen;
-	va_list ap;
 
-	va_start(ap, m);
-	hlen = va_arg(ap, int);
-	va_end(ap);
-
-	ifp = if_get(m->m_pkthdr.ph_ifidx);
+	ifp = if_get((*mp)->m_pkthdr.ph_ifidx);
 	if (ifp == NULL) {
-		m_freem(m);
-		return;
+		m_freem(*mp);
+		return IPPROTO_DONE;
 	}
 
-	icmp_input_if(ifp, m, hlen);
+	proto = icmp_input_if(ifp, mp, offp, proto, af);
 	if_put(ifp);
+	return proto;
 }
 
-void
-icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
+int
+icmp_input_if(struct ifnet *ifp, struct mbuf **mp, int *offp, int proto, int af)
 {
+	struct mbuf *m = *mp;
+	int hlen = *offp;
 	struct icmp *icp;
 	struct ip *ip = mtod(m, struct ip *);
 	struct sockaddr_in sin;
 	int icmplen, i, code;
 	struct in_ifaddr *ia;
-	void *(*ctlfunc)(int, struct sockaddr *, u_int, void *);
+	void (*ctlfunc)(int, struct sockaddr *, u_int, void *);
 	struct mbuf *opts;
 
 	/*
@@ -351,17 +350,17 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 	}
 #endif
 	if (icmplen < ICMP_MINLEN) {
-		icmpstat.icps_tooshort++;
+		icmpstat_inc(icps_tooshort);
 		goto freeit;
 	}
 	i = hlen + min(icmplen, ICMP_ADVLENMIN);
-	if (m->m_len < i && (m = m_pullup(m, i)) == NULL) {
-		icmpstat.icps_tooshort++;
-		return;
+	if (m->m_len < i && (m = *mp = m_pullup(m, i)) == NULL) {
+		icmpstat_inc(icps_tooshort);
+		return IPPROTO_DONE;
 	}
 	ip = mtod(m, struct ip *);
 	if (in4_cksum(m, 0, hlen, icmplen)) {
-		icmpstat.icps_checksum++;
+		icmpstat_inc(icps_checksum);
 		goto freeit;
 	}
 
@@ -399,7 +398,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 		}
 	}
 #endif /* NPF */
-	icmpstat.icps_inhist[icp->icmp_type]++;
+	icmpstat_inc(icps_inhist + icp->icmp_type);
 	code = icp->icmp_code;
 	switch (icp->icmp_type) {
 
@@ -464,7 +463,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 		 */
 		if (icmplen < ICMP_ADVLENMIN || icmplen < ICMP_ADVLEN(icp) ||
 		    icp->icmp_ip.ip_hl < (sizeof(struct ip) >> 2)) {
-			icmpstat.icps_badlen++;
+			icmpstat_inc(icps_badlen);
 			goto freeit;
 		}
 		if (IN_MULTICAST(icp->icmp_ip.ip_dst.s_addr))
@@ -474,13 +473,13 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 		if (icp->icmp_ip.ip_p == IPPROTO_IPV6) {
 			if (icmplen < ICMP_V6ADVLENMIN ||
 			    icmplen < ICMP_V6ADVLEN(icp)) {
-				icmpstat.icps_badlen++;
+				icmpstat_inc(icps_badlen);
 				goto freeit;
 			} else {
-				if ((m = m_pullup(m, (ip->ip_hl << 2) +
+				if ((m = *mp = m_pullup(m, (ip->ip_hl << 2) +
 				    ICMP_V6ADVLEN(icp))) == NULL) {
-					icmpstat.icps_tooshort++;
-					return;
+					icmpstat_inc(icps_tooshort);
+					return IPPROTO_DONE;
 				}
 				ip = mtod(m, struct ip *);
 				icp = (struct icmp *)
@@ -499,7 +498,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 #if NCARP > 0
 		if (ifp->if_type == IFT_CARP &&
 		    carp_lsdrop(m, AF_INET, &sin.sin_addr.s_addr,
-		    &ip->ip_dst.s_addr))
+		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
 		/*
@@ -513,13 +512,13 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 		break;
 
 	badcode:
-		icmpstat.icps_badcode++;
+		icmpstat_inc(icps_badcode);
 		break;
 
 	case ICMP_ECHO:
 		if (!icmpbmcastecho &&
 		    (m->m_flags & (M_MCAST | M_BCAST)) != 0) {
-			icmpstat.icps_bmcastecho++;
+			icmpstat_inc(icps_bmcastecho);
 			break;
 		}
 		icp->icmp_type = ICMP_ECHOREPLY;
@@ -531,11 +530,11 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 
 		if (!icmpbmcastecho &&
 		    (m->m_flags & (M_MCAST | M_BCAST)) != 0) {
-			icmpstat.icps_bmcastecho++;
+			icmpstat_inc(icps_bmcastecho);
 			break;
 		}
 		if (icmplen < ICMP_TSLEN) {
-			icmpstat.icps_badlen++;
+			icmpstat_inc(icps_badlen);
 			break;
 		}
 		icp->icmp_type = ICMP_TSTAMPREPLY;
@@ -547,7 +546,7 @@ icmp_input_if(struct ifnet *ifp, struct mbuf *m, int hlen)
 		if (icmpmaskrepl == 0)
 			break;
 		if (icmplen < ICMP_MASKLEN) {
-			icmpstat.icps_badlen++;
+			icmpstat_inc(icps_badlen);
 			break;
 		}
 		/*
@@ -583,18 +582,20 @@ reflect:
 #if NCARP > 0
 		if (ifp->if_type == IFT_CARP &&
 		    carp_lsdrop(m, AF_INET, &ip->ip_src.s_addr,
-		    &ip->ip_dst.s_addr))
+		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
 		/* Free packet atttributes */
 		if (m->m_flags & M_PKTHDR)
 			m_tag_delete_chain(m);
 
-		icmpstat.icps_reflect++;
-		icmpstat.icps_outhist[icp->icmp_type]++;
-		if (!icmp_reflect(m, &opts, NULL))
+		icmpstat_inc(icps_reflect);
+		icmpstat_inc(icps_outhist + icp->icmp_type);
+		if (!icmp_reflect(m, &opts, NULL)) {
 			icmp_send(m, opts);
-		return;
+			m_free(opts);
+		}
+		return IPPROTO_DONE;
 
 	case ICMP_REDIRECT:
 	{
@@ -612,7 +613,7 @@ reflect:
 			goto badcode;
 		if (icmplen < ICMP_ADVLENMIN || icmplen < ICMP_ADVLEN(icp) ||
 		    icp->icmp_ip.ip_hl < (sizeof(struct ip) >> 2)) {
-			icmpstat.icps_badlen++;
+			icmpstat_inc(icps_badlen);
 			break;
 		}
 		/*
@@ -649,7 +650,7 @@ reflect:
 #if NCARP > 0
 		if (ifp->if_type == IFT_CARP &&
 		    carp_lsdrop(m, AF_INET, &sdst.sin_addr.s_addr,
-		    &ip->ip_dst.s_addr))
+		    &ip->ip_dst.s_addr, 1))
 			goto freeit;
 #endif
 		rtredirect(sintosa(&sdst), sintosa(&sgw),
@@ -686,11 +687,11 @@ reflect:
 	}
 
 raw:
-	rip_input(m);
-	return;
+	return rip_input(mp, offp, proto, af);
 
 freeit:
 	m_freem(m);
+	return IPPROTO_DONE;
 }
 
 /*
@@ -751,7 +752,7 @@ icmp_reflect(struct mbuf *m, struct mbuf **op, struct in_ifaddr *ia)
 		/* keep packet in the original virtual instance */
 		rt = rtalloc(sintosa(&sin), RT_RESOLVE, rtableid);
 		if (rt == NULL) {
-			ipstat.ips_noroute++;
+			ipstat_inc(ips_noroute);
 			m_freem(m);
 			return (EHOSTUNREACH);
 		}
@@ -878,13 +879,14 @@ int
 icmp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
     size_t newlen)
 {
-	int s, error;
+	int error;
+
+	NET_ASSERT_LOCKED();
 
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
 		return (ENOTDIR);
 
-	s = splsoftnet();
 	switch (name[0]) {
 	case ICMPCTL_REDIRTIMEOUT:
 
@@ -904,12 +906,7 @@ icmp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		break;
 
 	case ICMPCTL_STATS:
-		if (newp != NULL) {
-			error = EPERM;
-			break;
-		}
-		error = sysctl_struct(oldp, oldlenp, newp, newlen,
-		    &icmpstat, sizeof(icmpstat));
+		error = icmp_sysctl_icmpstat(oldp, oldlenp, newp);
 		break;
 
 	default:
@@ -921,11 +918,28 @@ icmp_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 		error = ENOPROTOOPT;
 		break;
 	}
-	splx(s);
 
 	return (error);
 }
 
+int
+icmp_sysctl_icmpstat(void *oldp, size_t *oldlenp, void *newp)
+{
+	uint64_t counters[icps_ncounters];
+	struct icmpstat icmpstat;
+	u_long *words = (u_long *)&icmpstat;
+	int i;
+
+	CTASSERT(sizeof(icmpstat) == (nitems(counters) * sizeof(u_long)));
+	memset(&icmpstat, 0, sizeof icmpstat);
+	counters_read(icmpcounters, counters, nitems(counters));
+
+	for (i = 0; i < nitems(counters); i++)
+		words[i] = (u_long)counters[i];
+
+	return (sysctl_rdstruct(oldp, oldlenp, newp,
+	    &icmpstat, sizeof(icmpstat)));
+}
 
 struct rtentry *
 icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
@@ -951,13 +965,18 @@ icmp_mtudisc_clone(struct in_addr dst, u_int rtableid)
 	if ((rt->rt_flags & RTF_HOST) == 0) {
 		struct rtentry *nrt;
 		struct rt_addrinfo info;
+		struct sockaddr_rtlabel sa_rl;
 
 		memset(&info, 0, sizeof(info));
+		info.rti_ifa = rt->rt_ifa;
+		info.rti_flags = RTF_GATEWAY | RTF_HOST | RTF_DYNAMIC;
 		info.rti_info[RTAX_DST] = sintosa(&sin);
 		info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
-		info.rti_flags = RTF_GATEWAY | RTF_HOST | RTF_DYNAMIC;
+		info.rti_info[RTAX_LABEL] =
+		    rtlabel_id2sa(rt->rt_labelid, &sa_rl);
 
-		error = rtrequest(RTM_ADD, &info, RTP_DEFAULT, &nrt, rtableid);
+		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
+		    rtableid);
 		if (error) {
 			rtfree(rt);
 			return (NULL);
@@ -1004,12 +1023,12 @@ icmp_mtudisc(struct icmp *icp, u_int rtableid)
 
 		mtu = ntohs(icp->icmp_ip.ip_len);
 		/* Some 4.2BSD-based routers incorrectly adjust the ip_len */
-		if (mtu > rt->rt_rmx.rmx_mtu && rt->rt_rmx.rmx_mtu != 0)
+		if (mtu > rt->rt_mtu && rt->rt_mtu != 0)
 			mtu -= (icp->icmp_ip.ip_hl << 2);
 
 		/* If we still can't guess a value, try the route */
 		if (mtu == 0) {
-			mtu = rt->rt_rmx.rmx_mtu;
+			mtu = rt->rt_mtu;
 
 			/* If no route mtu, default to the interface mtu */
 
@@ -1031,11 +1050,11 @@ icmp_mtudisc(struct icmp *icp, u_int rtableid)
 	 *	  on a route.  We should be using a separate flag
 	 *	  for the kernel to indicate this.
 	 */
-	if ((rt->rt_rmx.rmx_locks & RTV_MTU) == 0) {
+	if ((rt->rt_locks & RTV_MTU) == 0) {
 		if (mtu < 296 || mtu > ifp->if_mtu)
-			rt->rt_rmx.rmx_locks |= RTV_MTU;
-		else if (rt->rt_rmx.rmx_mtu > mtu || rt->rt_rmx.rmx_mtu == 0)
-			rt->rt_rmx.rmx_mtu = mtu;
+			rt->rt_locks |= RTV_MTU;
+		else if (rt->rt_mtu > mtu || rt->rt_mtu == 0)
+			rt->rt_mtu = mtu;
 	}
 
 	if_put(ifp);
@@ -1046,19 +1065,19 @@ void
 icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 {
 	struct ifnet *ifp;
-	int s;
+
+	NET_ASSERT_LOCKED();
 
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp == NULL)
 		return;
 
 	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
-		void *(*ctlfunc)(int, struct sockaddr *, u_int, void *);
+		void (*ctlfunc)(int, struct sockaddr *, u_int, void *);
 		struct sockaddr_in sin;
 
 		sin = *satosin(rt_key(rt));
 
-		s = splsoftnet();
 		rtdeletemsg(rt, ifp, r->rtt_tableid);
 
 		/* Notify TCP layer of increased Path MTU estimate */
@@ -1066,10 +1085,9 @@ icmp_mtudisc_timeout(struct rtentry *rt, struct rttimer *r)
 		if (ctlfunc)
 			(*ctlfunc)(PRC_MTUINC, sintosa(&sin),
 			    r->rtt_tableid, NULL);
-		splx(s);
 	} else {
-		if ((rt->rt_rmx.rmx_locks & RTV_MTU) == 0)
-			rt->rt_rmx.rmx_mtu = 0;
+		if ((rt->rt_locks & RTV_MTU) == 0)
+			rt->rt_mtu = 0;
 	}
 
 	if_put(ifp);
@@ -1097,16 +1115,15 @@ void
 icmp_redirect_timeout(struct rtentry *rt, struct rttimer *r)
 {
 	struct ifnet *ifp;
-	int s;
+
+	NET_ASSERT_LOCKED();
 
 	ifp = if_get(rt->rt_ifidx);
 	if (ifp == NULL)
 		return;
 
 	if ((rt->rt_flags & (RTF_DYNAMIC|RTF_HOST)) == (RTF_DYNAMIC|RTF_HOST)) {
-		s = splsoftnet();
 		rtdeletemsg(rt, ifp, r->rtt_tableid);
-		splx(s);
 	}
 
 	if_put(ifp);

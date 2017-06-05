@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.191 2016/09/06 00:04:15 dlg Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.209 2017/05/16 12:24:02 mpi Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -93,6 +93,8 @@ struct nd_prhead nd_prefix = { 0 };
 int nd6_recalc_reachtm_interval = ND6_RECALC_REACHTM_INTERVAL;
 
 void nd6_slowtimo(void *);
+void nd6_timer_work(void *);
+void nd6_timer(void *);
 void nd6_invalidate(struct rtentry *);
 struct llinfo_nd6 *nd6_free(struct rtentry *, int);
 void nd6_llinfo_timer(void *);
@@ -100,7 +102,6 @@ void nd6_llinfo_timer(void *);
 struct timeout nd6_slowtimo_ch;
 struct timeout nd6_timer_ch;
 struct task nd6_timer_task;
-void nd6_timer_work(void *);
 
 int fill_drlist(void *, size_t *, size_t);
 int fill_prlist(void *, size_t *, size_t);
@@ -116,8 +117,8 @@ nd6_init(void)
 	}
 
 	TAILQ_INIT(&nd6_list);
-	pool_init(&nd6_pool, sizeof(struct llinfo_nd6), 0, 0, 0, "nd6", NULL);
-	pool_setipl(&nd6_pool, IPL_SOFTNET);
+	pool_init(&nd6_pool, sizeof(struct llinfo_nd6), 0,
+	    IPL_SOFTNET, 0, "nd6", NULL);
 
 	/* initialization of the default router list */
 	TAILQ_INIT(&nd_defrouter);
@@ -127,8 +128,10 @@ nd6_init(void)
 	nd6_init_done = 1;
 
 	/* start timer */
-	timeout_set(&nd6_slowtimo_ch, nd6_slowtimo, NULL);
+	timeout_set_proc(&nd6_slowtimo_ch, nd6_slowtimo, NULL);
 	timeout_add_sec(&nd6_slowtimo_ch, ND6_SLOWTIMER_INTERVAL);
+	timeout_set(&nd6_timer_ch, nd6_timer, NULL);
+	timeout_add_sec(&nd6_timer_ch, nd6_prune);
 
 	nd6_rs_init();
 }
@@ -246,7 +249,7 @@ nd6_options(union nd_opts *ndopts)
 			 * Message validation requires that all included
 			 * options have a length that is greater than zero.
 			 */
-			icmp6stat.icp6s_nd_badopt++;
+			icmp6stat_inc(icp6s_nd_badopt);
 			bzero(ndopts, sizeof(*ndopts));
 			return -1;
 		}
@@ -290,7 +293,7 @@ nd6_options(union nd_opts *ndopts)
 skip1:
 		i++;
 		if (i > nd6_maxndopt) {
-			icmp6stat.icp6s_nd_toomanyopt++;
+			icmp6stat_inc(icp6s_nd_toomanyopt);
 			nd6log((LOG_INFO, "too many loop in nd opt\n"));
 			break;
 		}
@@ -308,10 +311,6 @@ skip1:
 void
 nd6_llinfo_settimer(struct llinfo_nd6 *ln, int secs)
 {
-	int s;
-
-	s = splsoftnet();
-
 	if (secs < 0) {
 		ln->ln_rt->rt_expire = 0;
 		timeout_del(&ln->ln_timer_ch);
@@ -319,8 +318,6 @@ nd6_llinfo_settimer(struct llinfo_nd6 *ln, int secs)
 		ln->ln_rt->rt_expire = time_uptime + secs;
 		timeout_add_sec(&ln->ln_timer_ch, secs);
 	}
-
-	splx(s);
 }
 
 void
@@ -333,14 +330,14 @@ nd6_llinfo_timer(void *arg)
 	struct ifnet *ifp;
 	struct nd_ifinfo *ndi = NULL;
 
-	s = splsoftnet();
+	NET_LOCK(s);
 
 	ln = (struct llinfo_nd6 *)arg;
 
 	if ((rt = ln->ln_rt) == NULL)
 		panic("ln->ln_rt == NULL");
 	if ((ifp = if_get(rt->rt_ifidx)) == NULL) {
-		splx(s);
+		NET_UNLOCK(s);
 		return;
 	}
 	ndi = ND_IFINFO(ifp);
@@ -427,7 +424,7 @@ nd6_llinfo_timer(void *arg)
 	}
 
 	if_put(ifp);
-	splx(s);
+	NET_UNLOCK(s);
 }
 
 /*
@@ -436,18 +433,18 @@ nd6_llinfo_timer(void *arg)
 void
 nd6_timer_work(void *null)
 {
-	int s;
 	struct nd_defrouter *dr, *ndr;
 	struct nd_prefix *pr, *npr;
-	struct in6_ifaddr *ia6, *nia6;
+	struct ifnet *ifp;
+	int s;
 
-	s = splsoftnet();
-	timeout_set(&nd6_timer_ch, nd6_timer, NULL);
+	NET_LOCK(s);
+
 	timeout_add_sec(&nd6_timer_ch, nd6_prune);
 
 	/* expire default router list */
 	TAILQ_FOREACH_SAFE(dr, &nd_defrouter, dr_entry, ndr)
-		if (dr->expire && dr->expire < time_second)
+		if (dr->expire && dr->expire < time_uptime)
 			defrtrlist_del(dr);
 
 	/*
@@ -456,18 +453,26 @@ nd6_timer_work(void *null)
 	 * However, from a stricter spec-conformance standpoint, we should
 	 * rather separate address lifetimes and prefix lifetimes.
 	 */
-	TAILQ_FOREACH_SAFE(ia6, &in6_ifaddr, ia_list, nia6) {
-		/* check address lifetime */
-		if (IFA6_IS_INVALID(ia6)) {
-			in6_purgeaddr(&ia6->ia_ifa);
-		} else if (IFA6_IS_DEPRECATED(ia6)) {
-			ia6->ia6_flags |= IN6_IFF_DEPRECATED;
-		} else {
-			/*
-			 * A new RA might have made a deprecated address
-			 * preferred.
-			 */
-			ia6->ia6_flags &= ~IN6_IFF_DEPRECATED;
+	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+		struct ifaddr *ifa, *nifa;
+		struct in6_ifaddr *ia6;
+
+		TAILQ_FOREACH_SAFE(ifa, &ifp->if_addrlist, ifa_list, nifa) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
+			ia6 = ifatoia6(ifa);
+			/* check address lifetime */
+			if (IFA6_IS_INVALID(ia6)) {
+				in6_purgeaddr(&ia6->ia_ifa);
+			} else if (IFA6_IS_DEPRECATED(ia6)) {
+				ia6->ia6_flags |= IN6_IFF_DEPRECATED;
+			} else {
+				/*
+				 * A new RA might have made a deprecated address
+				 * preferred.
+				 */
+				ia6->ia6_flags &= ~IN6_IFF_DEPRECATED;
+			}
 		}
 	}
 
@@ -479,7 +484,7 @@ nd6_timer_work(void *null)
 		 * prefix is not necessary.
 		 */
 		if (pr->ndpr_vltime != ND6_INFINITE_LIFETIME &&
-		    time_second - pr->ndpr_lastupdate > pr->ndpr_vltime) {
+		    time_uptime - pr->ndpr_lastupdate > pr->ndpr_vltime) {
 			/*
 			 * address expiration and prefix expiration are
 			 * separate.  NEVER perform in6_purgeaddr here.
@@ -488,7 +493,7 @@ nd6_timer_work(void *null)
 			prelist_remove(pr);
 		}
 	}
-	splx(s);
+	NET_UNLOCK(s);
 }
 
 void
@@ -507,6 +512,8 @@ nd6_purge(struct ifnet *ifp)
 	struct llinfo_nd6 *ln, *nln;
 	struct nd_defrouter *dr, *ndr;
 	struct nd_prefix *pr, *npr;
+
+	NET_ASSERT_LOCKED();
 
 	/*
 	 * Nuke default router list entries toward ifp.
@@ -587,6 +594,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 	if (rt == NULL) {
 		if (create && ifp) {
 			struct rt_addrinfo info;
+			struct ifaddr *ifa;
 			int error;
 
 			/*
@@ -596,8 +604,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 			 * This hack is necessary for a neighbor which can't
 			 * be covered by our own prefix.
 			 */
-			struct ifaddr *ifa =
-			    ifaof_ifpforaddr(sin6tosa(&sin6), ifp);
+			ifa = ifaof_ifpforaddr(sin6tosa(&sin6), ifp);
 			if (ifa == NULL)
 				return (NULL);
 
@@ -608,6 +615,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 			 * called in rtrequest.
 			 */
 			bzero(&info, sizeof(info));
+			info.rti_ifa = ifa;
 			info.rti_flags = RTF_HOST | RTF_LLINFO;
 			info.rti_info[RTAX_DST] = sin6tosa(&sin6);
 			info.rti_info[RTAX_GATEWAY] = sdltosa(ifp->if_sadl);
@@ -737,15 +745,11 @@ nd6_free(struct rtentry *rt, int gc)
 	struct in6_addr in6 = satosin6(rt_key(rt))->sin6_addr;
 	struct nd_defrouter *dr;
 	struct ifnet *ifp;
-	int s;
 
-	/*
-	 * we used to have pfctlinput(PRC_HOSTDEAD) here.
-	 * even though it is not harmful, it was not really necessary.
-	 */
+	NET_ASSERT_LOCKED();
+
 	ifp = if_get(rt->rt_ifidx);
 
-	s = splsoftnet();
 	if (!ip6_forwarding) {
 		dr = defrouter_lookup(&satosin6(rt_key(rt))->sin6_addr,
 		    rt->rt_ifidx);
@@ -764,12 +768,11 @@ nd6_free(struct rtentry *rt, int gc)
 			 * XXX: the check for ln_state would be redundant,
 			 *      but we intentionally keep it just in case.
 			 */
-			if (dr->expire > time_second) {
+			if (dr->expire > time_uptime) {
 				nd6_llinfo_settimer(ln,
-				    dr->expire - time_second);
+				    dr->expire - time_uptime);
 			} else
 				nd6_llinfo_settimer(ln, nd6_gctimer);
-			splx(s);
 			if_put(ifp);
 			return (TAILQ_NEXT(ln, ln_list));
 		}
@@ -822,6 +825,8 @@ nd6_free(struct rtentry *rt, int gc)
 	 */
 	next = TAILQ_NEXT(ln, ln_list);
 
+	nd6_invalidate(rt);
+
 	/*
 	 * Detach the route from the routing tree and the list of neighbor
 	 * caches, and disable the route entry not to be used in already
@@ -829,7 +834,6 @@ nd6_free(struct rtentry *rt, int gc)
 	 */
 	if (!ISSET(rt->rt_flags, RTF_STATIC|RTF_CACHED))
 		rtdeletemsg(rt, ifp, ifp->if_rdomain);
-	splx(s);
 
 	if_put(ifp);
 
@@ -989,7 +993,7 @@ nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		nd6_inuse++;
 		nd6_allocated++;
 		ln->ln_rt = rt;
-		timeout_set(&ln->ln_timer_ch, nd6_llinfo_timer, ln);
+		timeout_set_proc(&ln->ln_timer_ch, nd6_llinfo_timer, ln);
 		/* this is required for "ndp" command. - shin */
 		if (req == RTM_ADD) {
 		        /*
@@ -1125,7 +1129,8 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 	struct in6_nbrinfo *nbi = (struct in6_nbrinfo *)data;
 	struct rtentry *rt;
 	int error = 0;
-	int s;
+
+	NET_ASSERT_LOCKED();
 
 	switch (cmd) {
 	case SIOCGIFINFO_IN6:
@@ -1147,21 +1152,31 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 		/* flush all the prefix advertised by routers */
 		struct nd_prefix *pr, *npr;
 
-		s = splsoftnet();
 		/* First purge the addresses referenced by a prefix. */
 		LIST_FOREACH_SAFE(pr, &nd_prefix, ndpr_entry, npr) {
-			struct in6_ifaddr *ia6, *ia6_next;
+			struct ifnet *ifp;
+			struct ifaddr *ifa, *nifa;
+			struct in6_ifaddr *ia6;
 
 			if (IN6_IS_ADDR_LINKLOCAL(&pr->ndpr_prefix.sin6_addr))
 				continue; /* XXX */
 
 			/* do we really have to remove addresses as well? */
-			TAILQ_FOREACH_SAFE(ia6, &in6_ifaddr, ia_list, ia6_next) {
-				if ((ia6->ia6_flags & IN6_IFF_AUTOCONF) == 0)
-					continue;
+			TAILQ_FOREACH(ifp, &ifnet, if_list) {
+				TAILQ_FOREACH_SAFE(ifa, &ifp->if_addrlist,
+				    ifa_list, nifa) {
+					if (ifa->ifa_addr->sa_family !=
+					    AF_INET6)
+						continue;
 
-				if (ia6->ia6_ndpr == pr)
-					in6_purgeaddr(&ia6->ia_ifa);
+					ia6 = ifatoia6(ifa);
+					if ((ia6->ia6_flags & IN6_IFF_AUTOCONF)
+					    == 0)
+						continue;
+
+					if (ia6->ia6_ndpr == pr)
+						in6_purgeaddr(&ia6->ia_ifa);
+				}
 			}
 		}
 		/*
@@ -1175,7 +1190,6 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 
 			prelist_remove(pr);
 		}
-		splx(s);
 		break;
 	}
 	case SIOCSRTRFLUSH_IN6:
@@ -1183,12 +1197,10 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 		/* flush all the default routers */
 		struct nd_defrouter *dr, *ndr;
 
-		s = splsoftnet();
 		defrouter_reset();
 		TAILQ_FOREACH_SAFE(dr, &nd_defrouter, dr_entry, ndr)
 			defrtrlist_del(dr);
 		defrouter_select();
-		splx(s);
 		break;
 	}
 	case SIOCGNBRINFO_IN6:
@@ -1209,13 +1221,11 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 				*idp = htons(ifp->if_index);
 		}
 
-		s = splsoftnet();
 		rt = nd6_lookup(&nb_addr, 0, ifp, ifp->if_rdomain);
 		if (rt == NULL ||
 		    (ln = (struct llinfo_nd6 *)rt->rt_llinfo) == NULL) {
 			error = EINVAL;
 			rtfree(rt);
-			splx(s);
 			break;
 		}
 		expire = ln->ln_rt->rt_expire;
@@ -1229,7 +1239,6 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 		nbi->isrouter = ln->ln_router;
 		nbi->expire = expire;
 		rtfree(rt);
-		splx(s);
 
 		break;
 	}
@@ -1483,12 +1492,14 @@ fail:
 void
 nd6_slowtimo(void *ignored_arg)
 {
-	int s = splsoftnet();
 	struct nd_ifinfo *nd6if;
 	struct ifnet *ifp;
+	int s;
 
-	timeout_set(&nd6_slowtimo_ch, nd6_slowtimo, NULL);
+	NET_LOCK(s);
+
 	timeout_add_sec(&nd6_slowtimo_ch, ND6_SLOWTIMER_INTERVAL);
+
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		nd6if = ND_IFINFO(ifp);
 		if (nd6if->basereachable && /* already initialized */
@@ -1503,7 +1514,7 @@ nd6_slowtimo(void *ignored_arg)
 			nd6if->reachable = ND_COMPUTE_RTIME(nd6if->basereachable);
 		}
 	}
-	splx(s);
+	NET_UNLOCK(s);
 }
 
 int
@@ -1644,6 +1655,8 @@ nd6_sysctl(int name, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 	size_t ol;
 	int error;
 
+	NET_ASSERT_LOCKED();
+
 	error = 0;
 
 	if (newp)
@@ -1683,12 +1696,11 @@ nd6_sysctl(int name, void *oldp, size_t *oldlenp, void *newp, size_t newlen)
 int
 fill_drlist(void *oldp, size_t *oldlenp, size_t ol)
 {
-	int error = 0, s;
+	int error = 0;
 	struct in6_defrouter *d = NULL, *de = NULL;
 	struct nd_defrouter *dr;
+	time_t expire;
 	size_t l;
-
-	s = splsoftnet();
 
 	if (oldp) {
 		d = (struct in6_defrouter *)oldp;
@@ -1704,7 +1716,12 @@ fill_drlist(void *oldp, size_t *oldlenp, size_t ol)
 			in6_recoverscope(&d->rtaddr, &dr->rtaddr);
 			d->flags = dr->flags;
 			d->rtlifetime = dr->rtlifetime;
-			d->expire = dr->expire;
+			expire = dr->expire;
+			if (expire != 0) {
+				expire -= time_uptime;
+				expire += time_second;
+			}
+			d->expire = expire;
 			d->if_index = dr->ifp->if_index;
 		}
 
@@ -1720,21 +1737,17 @@ fill_drlist(void *oldp, size_t *oldlenp, size_t ol)
 	} else
 		*oldlenp = l;
 
-	splx(s);
-
 	return (error);
 }
 
 int
 fill_prlist(void *oldp, size_t *oldlenp, size_t ol)
 {
-	int error = 0, s;
+	int error = 0;
 	struct nd_prefix *pr;
 	char *p = NULL, *ps = NULL;
 	char *pe = NULL;
 	size_t l;
-
-	s = splsoftnet();
 
 	if (oldp) {
 		ps = p = (char *)oldp;
@@ -1815,8 +1828,6 @@ fill_prlist(void *oldp, size_t *oldlenp, size_t ol)
 			error = ENOMEM;
 	} else
 		*oldlenp = l;
-
-	splx(s);
 
 	return (error);
 }

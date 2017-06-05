@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-pane.c,v 1.32 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-select-pane.c,v 1.38 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,7 +24,7 @@
  * Select pane.
  */
 
-enum cmd_retval	 cmd_select_pane_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_select_pane_exec(struct cmd *, struct cmdq_item *);
 
 const struct cmd_entry cmd_select_pane_entry = {
 	.name = "select-pane",
@@ -33,7 +33,7 @@ const struct cmd_entry cmd_select_pane_entry = {
 	.args = { "DdegLlMmP:Rt:U", 0, 0 },
 	.usage = "[-DdegLlMmRU] [-P style] " CMD_TARGET_PANE_USAGE,
 
-	.tflag = CMD_PANE,
+	.target = { 't', CMD_FIND_PANE, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_pane_exec
@@ -46,42 +46,42 @@ const struct cmd_entry cmd_last_pane_entry = {
 	.args = { "det:", 0, 0 },
 	.usage = "[-de] " CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_pane_exec
 };
 
-enum cmd_retval
-cmd_select_pane_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_select_pane_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args		*args = self->args;
-	struct winlink		*wl = cmdq->state.tflag.wl;
+	struct cmd_find_state	*current = &item->shared->current;
+	struct winlink		*wl = item->target.wl;
 	struct window		*w = wl->window;
-	struct session		*s = cmdq->state.tflag.s;
-	struct window_pane	*wp = cmdq->state.tflag.wp, *lastwp, *markedwp;
+	struct session		*s = item->target.s;
+	struct window_pane	*wp = item->target.wp, *lastwp, *markedwp;
 	const char		*style;
 
 	if (self->entry == &cmd_last_pane_entry || args_has(args, 'l')) {
-
-		if (wl->window->last == NULL) {
-			cmdq_error(cmdq, "no last pane");
+		lastwp = w->last;
+		if (lastwp == NULL) {
+			cmdq_error(item, "no last pane");
 			return (CMD_RETURN_ERROR);
 		}
-
 		if (args_has(self->args, 'e'))
-			w->last->flags &= ~PANE_INPUTOFF;
+			lastwp->flags &= ~PANE_INPUTOFF;
 		else if (args_has(self->args, 'd'))
-			w->last->flags |= PANE_INPUTOFF;
+			lastwp->flags |= PANE_INPUTOFF;
 		else {
 			server_unzoom_window(w);
-			window_redraw_active_switch(w, w->last);
-			if (window_set_active_pane(w, w->last)) {
+			window_redraw_active_switch(w, lastwp);
+			if (window_set_active_pane(w, lastwp)) {
+				cmd_find_from_winlink(current, wl);
 				server_status_window(w);
 				server_redraw_window_borders(w);
 			}
 		}
-
 		return (CMD_RETURN_NORMAL);
 	}
 
@@ -112,13 +112,13 @@ cmd_select_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 			style = args_get(args, 'P');
 			if (style_parse(&grid_default_cell, &wp->colgc,
 			    style) == -1) {
-				cmdq_error(cmdq, "bad style: %s", style);
+				cmdq_error(item, "bad style: %s", style);
 				return (CMD_RETURN_ERROR);
 			}
 			wp->flags |= PANE_REDRAW;
 		}
 		if (args_has(self->args, 'g'))
-			cmdq_print(cmdq, "%s", style_tostring(&wp->colgc));
+			cmdq_print(item, "%s", style_tostring(&wp->colgc));
 		return (CMD_RETURN_NORMAL);
 	}
 
@@ -151,11 +151,12 @@ cmd_select_pane_exec(struct cmd *self, struct cmd_q *cmdq)
 		return (CMD_RETURN_NORMAL);
 	server_unzoom_window(wp->window);
 	if (!window_pane_visible(wp)) {
-		cmdq_error(cmdq, "pane not visible");
+		cmdq_error(item, "pane not visible");
 		return (CMD_RETURN_ERROR);
 	}
 	window_redraw_active_switch(w, wp);
 	if (window_set_active_pane(w, wp)) {
+		cmd_find_from_winlink(current, wl);
 		server_status_window(w);
 		server_redraw_window_borders(w);
 	}

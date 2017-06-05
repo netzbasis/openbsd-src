@@ -1,4 +1,4 @@
-/*	$OpenBSD: control.c,v 1.82 2015/12/05 18:28:04 benno Exp $ */
+/*	$OpenBSD: control.c,v 1.88 2017/05/28 12:21:36 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -27,6 +27,7 @@
 
 #include "bgpd.h"
 #include "session.h"
+#include "log.h"
 
 #define	CONTROL_BACKLOG	5
 
@@ -156,9 +157,10 @@ control_connbyfd(int fd)
 {
 	struct ctl_conn	*c;
 
-	for (c = TAILQ_FIRST(&ctl_conns); c != NULL && c->ibuf.fd != fd;
-	    c = TAILQ_NEXT(c, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(c, &ctl_conns, entry) {
+		if (c->ibuf.fd == fd)
+			break;
+	}
 
 	return (c);
 }
@@ -168,9 +170,10 @@ control_connbypid(pid_t pid)
 {
 	struct ctl_conn	*c;
 
-	for (c = TAILQ_FIRST(&ctl_conns); c != NULL && c->ibuf.pid != pid;
-	    c = TAILQ_NEXT(c, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(c, &ctl_conns, entry) {
+		if (c->ibuf.pid == pid)
+			break;
+	}
 
 	return (c);
 }
@@ -210,11 +213,16 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 		return (0);
 	}
 
-	if (pfd->revents & POLLOUT)
+	if (pfd->revents & POLLOUT) {
 		if (msgbuf_write(&c->ibuf.w) <= 0 && errno != EAGAIN) {
 			*ctl_cnt -= control_close(pfd->fd);
 			return (1);
 		}
+		if (c->throttled && c->ibuf.w.queued < CTL_MSG_LOW_MARK) {
+			if (imsg_ctl_rde(IMSG_XON, c->ibuf.pid, NULL, 0) != -1)
+				c->throttled = 0;
+		}
+	}
 
 	if (!(pfd->revents & POLLIN))
 		return (0);
@@ -244,6 +252,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			case IMSG_CTL_SHOW_RIB_PREFIX:
 			case IMSG_CTL_SHOW_RIB_MEM:
 			case IMSG_CTL_SHOW_RIB_COMMUNITY:
+			case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 			case IMSG_CTL_SHOW_NETWORK:
 			case IMSG_CTL_SHOW_TERSE:
 			case IMSG_CTL_SHOW_TIMER:
@@ -337,13 +346,22 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 				switch (imsg.hdr.type) {
 				case IMSG_CTL_NEIGHBOR_UP:
 					bgp_fsm(p, EVNT_START);
+					p->conf.down = 0;
+					p->conf.shutcomm[0] = '\0';
 					control_result(c, CTL_RES_OK);
 					break;
 				case IMSG_CTL_NEIGHBOR_DOWN:
+					p->conf.down = 1;
+					strlcpy(p->conf.shutcomm,
+					    neighbor->shutcomm,
+					    sizeof(neighbor->shutcomm));
 					session_stop(p, ERR_CEASE_ADMIN_DOWN);
 					control_result(c, CTL_RES_OK);
 					break;
 				case IMSG_CTL_NEIGHBOR_CLEAR:
+					strlcpy(p->conf.shutcomm,
+					    neighbor->shutcomm,
+					    sizeof(neighbor->shutcomm));
 					if (!p->conf.down) {
 						session_stop(p,
 						    ERR_CEASE_ADMIN_RESET);
@@ -462,6 +480,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			break;
 		case IMSG_CTL_SHOW_RIB_MEM:
 		case IMSG_CTL_SHOW_RIB_COMMUNITY:
+		case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		case IMSG_CTL_SHOW_NETWORK:
 			c->ibuf.pid = imsg.hdr.pid;
 			imsg_ctl_rde(imsg.hdr.type, imsg.hdr.pid,
@@ -489,7 +508,7 @@ control_dispatch_msg(struct pollfd *pfd, u_int *ctl_cnt)
 			    imsg.data, imsg.hdr.len - IMSG_HEADER_SIZE);
 
 			memcpy(&verbose, imsg.data, sizeof(verbose));
-			log_verbose(verbose);
+			log_setverbose(verbose);
 			break;
 		default:
 			break;
@@ -507,6 +526,11 @@ control_imsg_relay(struct imsg *imsg)
 
 	if ((c = control_connbypid(imsg->hdr.pid)) == NULL)
 		return (0);
+
+	if (!c->throttled && c->ibuf.w.queued > CTL_MSG_HIGH_MARK) {
+		if (imsg_ctl_rde(IMSG_XOFF, imsg->hdr.pid, NULL, 0) != -1)
+			c->throttled = 1;
+	}
 
 	return (imsg_compose(&c->ibuf, imsg->hdr.type, 0, imsg->hdr.pid, -1,
 	    imsg->data, imsg->hdr.len - IMSG_HEADER_SIZE));

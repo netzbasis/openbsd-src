@@ -1,4 +1,4 @@
-/*	$OpenBSD: relay_udp.c,v 1.43 2016/09/02 14:31:47 reyk Exp $	*/
+/*	$OpenBSD: relay_udp.c,v 1.46 2017/05/28 10:39:15 benno Exp $	*/
 
 /*
  * Copyright (c) 2007 - 2013 Reyk Floeter <reyk@openbsd.org>
@@ -39,7 +39,6 @@
 
 extern volatile sig_atomic_t relay_sessions;
 extern objid_t relay_conid;
-extern int debug;
 
 static struct relayd *env = NULL;
 struct shuffle relay_shuffle;
@@ -138,15 +137,33 @@ relay_udp_socket(struct sockaddr_storage *ss, in_port_t port,
 	 */
 	if (proto->tcpflags & TCPFLAG_IPTTL) {
 		val = (int)proto->tcpipttl;
-		if (setsockopt(s, IPPROTO_IP, IP_TTL,
-		    &val, sizeof(val)) == -1)
-			goto bad;
+		switch (ss->ss_family) {
+		case AF_INET:
+			if (setsockopt(s, IPPROTO_IP, IP_TTL,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		case AF_INET6:
+			if (setsockopt(s, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		}
 	}
 	if (proto->tcpflags & TCPFLAG_IPMINTTL) {
 		val = (int)proto->tcpipminttl;
-		if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
-		    &val, sizeof(val)) == -1)
-			goto bad;
+		switch (ss->ss_family) {
+		case AF_INET:
+			if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		case AF_INET6:
+			if (setsockopt(s, IPPROTO_IPV6, IPV6_MINHOPCOUNT,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		}
 	}
 
 	return (s);
@@ -449,7 +466,7 @@ relay_dns_request(struct rsession *con)
 
 	if (buf == NULL || priv == NULL || len < 1)
 		return (-1);
-	if (debug)
+	if (log_getverbose() > 1)
 		relay_dns_log(con, buf, len);
 
 	getmonotime(&con->se_tv_start);
@@ -502,9 +519,9 @@ relay_dns_result(struct rsession *con, u_int8_t *buf, size_t len)
 	socklen_t		 slen;
 
 	if (priv == NULL)
-		fatalx("relay_dns_result: response to invalid session");
+		fatalx("%s: response to invalid session", __func__);
 
-	if (debug)
+	if (log_getverbose() > 1)
 		relay_dns_log(con, buf, len);
 
 	/*
@@ -530,7 +547,7 @@ relay_dns_cmp(struct rsession *a, struct rsession *b)
 	struct relay_dns_priv	*bp = b->se_priv;
 
 	if (ap == NULL || bp == NULL)
-		fatalx("relay_dns_cmp: invalid session");
+		fatalx("%s: invalid session", __func__);
 
 	return (memcmp(&ap->dp_inkey, &bp->dp_inkey, sizeof(u_int16_t)));
 }

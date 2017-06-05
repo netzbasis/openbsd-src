@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.50 2015/01/23 13:18:40 espie Exp $ */
+/*	$OpenBSD: engine.c,v 1.52 2017/01/29 10:04:13 espie Exp $ */
 /*
  * Copyright (c) 2012 Marc Espie.
  *
@@ -300,6 +300,10 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 
 	assert(cgn->type & (OP_USE|OP_TRANSFORM));
 
+	if (pgn == NULL)
+		Fatal("Trying to apply .USE to '%s' without a parent",
+		    cgn->name);
+
 	if ((cgn->type & OP_USE) || Lst_IsEmpty(&pgn->commands)) {
 		/* .USE or transformation and target has no commands
 		 * -- append the child's commands to the parent.  */
@@ -308,7 +312,7 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 
 	for (ln = Lst_First(&cgn->children); ln != NULL;
 	    ln = Lst_Adv(ln)) {
-		gn = (GNode *)Lst_Datum(ln);
+		gn = Lst_Datum(ln);
 
 		if (Lst_AddNew(&pgn->children, gn)) {
 			Lst_AtEnd(&gn->parents, pgn);
@@ -351,7 +355,7 @@ Make_DoAllVar(GNode *gn)
 	Var(ALLSRC_INDEX, gn) = "";
 
 	for (ln = Lst_First(&gn->children); ln != NULL; ln = Lst_Adv(ln)) {
-		child = (GNode *)Lst_Datum(ln);
+		child = Lst_Datum(ln);
 		if ((child->type & (OP_EXEC|OP_USE|OP_INVISIBLE)) != 0)
 			continue;
 		if (OP_NOP(child->type) ||

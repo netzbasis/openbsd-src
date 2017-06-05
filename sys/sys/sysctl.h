@@ -1,4 +1,4 @@
-/*	$OpenBSD: sysctl.h,v 1.165 2016/09/07 17:30:12 natano Exp $	*/
+/*	$OpenBSD: sysctl.h,v 1.172 2017/02/27 19:16:56 claudio Exp $	*/
 /*	$NetBSD: sysctl.h,v 1.16 1996/04/09 20:55:36 cgd Exp $	*/
 
 /*
@@ -113,7 +113,7 @@ struct ctlname {
 #define	KERN_HOSTNAME		10	/* string: hostname */
 #define	KERN_HOSTID		11	/* int: host identifier */
 #define	KERN_CLOCKRATE		12	/* struct: struct clockinfo */
-/* was KERN_VNODE		13	*/
+#define	KERN_DNSJACKPORT	13	/* hijack dns sockets */
 /* was KERN_PROC		14	*/
 /* was KERN_FILE		15	*/
 #define	KERN_PROF		16	/* node: kernel profiling info */
@@ -137,7 +137,7 @@ struct ctlname {
 #define	KERN_SYSVMSG		34	/* int: SysV message queue suppoprt */
 #define	KERN_SYSVSEM		35	/* int: SysV semaphore support */
 #define	KERN_SYSVSHM		36	/* int: SysV shared memory support */
-#define	KERN_ARND		37	/* int: random integer from arc4rnd */
+/* was KERN_ARND		37	*/
 #define	KERN_MSGBUFSIZE		38	/* int: size of message buffer */
 #define KERN_MALLOCSTATS	39	/* node: malloc statistics */
 #define KERN_CPTIME		40	/* array: cp_time */
@@ -152,7 +152,7 @@ struct ctlname {
 #define	KERN_POOL		49	/* struct: pool information */
 #define	KERN_STACKGAPRANDOM	50	/* int: stackgap_random */
 #define	KERN_SYSVIPC_INFO	51	/* struct: SysV sem/shm/msg info */
-/* was KERN_USERCRYPTO		52	*/
+#define KERN_ALLOWKMEM		52	/* int: allowkmem */
 /* was KERN_CRYPTODEVALLOWSOFT	53	*/
 #define KERN_SPLASSERT		54	/* int: splassert */
 #define KERN_PROC_ARGS		55	/* node: proc args and env */
@@ -200,7 +200,7 @@ struct ctlname {
 	{ "hostname", CTLTYPE_STRING }, \
 	{ "hostid", CTLTYPE_INT }, \
 	{ "clockrate", CTLTYPE_STRUCT }, \
-	{ "gap", 0 }, \
+	{ "dnsjackport", CTLTYPE_INT }, \
 	{ "gap", 0 }, \
 	{ "gap", 0 }, \
 	{ "profiling", CTLTYPE_NODE }, \
@@ -218,13 +218,13 @@ struct ctlname {
 	{ "somaxconn", CTLTYPE_INT }, \
 	{ "sominconn", CTLTYPE_INT }, \
 	{ "gap", 0 }, \
-	{ "random", CTLTYPE_STRUCT }, \
+	{ "gap", 0 }, \
 	{ "nosuidcoredump", CTLTYPE_INT }, \
 	{ "fsync", CTLTYPE_INT }, \
 	{ "sysvmsg", CTLTYPE_INT }, \
 	{ "sysvsem", CTLTYPE_INT }, \
 	{ "sysvshm", CTLTYPE_INT }, \
-	{ "arandom", CTLTYPE_INT }, \
+	{ "gap", 0 }, \
 	{ "msgbufsize", CTLTYPE_INT }, \
 	{ "malloc", CTLTYPE_NODE }, \
 	{ "cp_time", CTLTYPE_STRUCT }, \
@@ -239,7 +239,7 @@ struct ctlname {
 	{ "pool", CTLTYPE_NODE }, \
 	{ "stackgap_random", CTLTYPE_INT }, \
 	{ "sysvipc_info", CTLTYPE_INT }, \
-	{ "gap", 0 }, \
+	{ "allowkmem", CTLTYPE_INT }, \
 	{ "gap", 0 }, \
 	{ "splassert", CTLTYPE_INT }, \
 	{ "procargs", CTLTYPE_NODE }, \
@@ -494,12 +494,13 @@ struct kinfo_vmentry {
  *	uc - source struct ucreds
  *	pg - source struct pgrp
  *	paddr - kernel address of the source struct proc
+ *	praddr - kernel address of the source struct process
  *	sess - source struct session
  *	vm - source struct vmspace
  *	lim - source struct plimits
  *	sa - source struct sigacts
  * There are some members that are not handled by these macros
- * because they're too painful to generalize: p_pid, p_ppid, p_sid, p_tdev,
+ * because they're too painful to generalize: p_ppid, p_sid, p_tdev,
  * p_tpgid, p_tsess, p_vm_rssize, p_u[us]time_{sec,usec}, p_cpuid
  */
 
@@ -522,6 +523,7 @@ do {									\
 	(kp)->p_stats = 0;						\
 	(kp)->p_exitsig = 0;						\
 	(kp)->p_flag = (p)->p_flag;					\
+	(kp)->p_pid = (pr)->ps_pid;					\
 	(kp)->p_psflags = (pr)->ps_flags;				\
 									\
 	(kp)->p__pgid = (pg)->pg_id;					\
@@ -543,7 +545,7 @@ do {									\
 	if (isthread) {							\
 		(kp)->p_rtime_sec = (p)->p_tu.tu_runtime.tv_sec;	\
 		(kp)->p_rtime_usec = (p)->p_tu.tu_runtime.tv_nsec/1000;	\
-		(kp)->p_tid = (p)->p_pid + THREAD_PID_OFFSET;		\
+		(kp)->p_tid = (p)->p_tid + THREAD_PID_OFFSET;		\
 		(kp)->p_uticks = (p)->p_tu.tu_uticks;			\
 		(kp)->p_sticks = (p)->p_tu.tu_sticks;			\
 		(kp)->p_iticks = (p)->p_tu.tu_iticks;			\
@@ -575,7 +577,7 @@ do {									\
 	/* XXX depends on e_name being an array and not a pointer */	\
 	copy_str((kp)->p_emul, (char *)(pr)->ps_emul +			\
 	    offsetof(struct emul, e_name), sizeof((kp)->p_emul));	\
-	strlcpy((kp)->p_comm, (p)->p_comm, sizeof((kp)->p_comm));	\
+	strlcpy((kp)->p_comm, (pr)->ps_comm, sizeof((kp)->p_comm));	\
 	strlcpy((kp)->p_login, (sess)->s_login,			\
 	    MIN(sizeof((kp)->p_login), sizeof((sess)->s_login)));	\
 									\
@@ -748,6 +750,8 @@ struct kinfo_file {
 	uint64_t	t_rcv_wnd;	/* ULONG: tcp receive window */
 	uint64_t	t_snd_wnd;	/* ULONG: tcp send window */
 	uint64_t	t_snd_cwnd;	/* ULONG: congestion-controlled win */
+
+	uint32_t	va_nlink;	/* NLINK_T: number of references to file */
 };
 
 /*
@@ -972,6 +976,7 @@ extern void (*cpu_setperf)(int);
 int bpf_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int pflow_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int pipex_sysctl(int *, u_int, void *, size_t *, void *, size_t);
+int mpls_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 
 #else	/* !_KERNEL */
 

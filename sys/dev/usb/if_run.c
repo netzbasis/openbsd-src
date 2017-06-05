@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_run.c,v 1.116 2016/04/13 11:03:37 mpi Exp $	*/
+/*	$OpenBSD: if_run.c,v 1.119 2017/06/02 15:09:13 kevlo Exp $	*/
 
 /*-
  * Copyright (c) 2008-2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -842,14 +842,13 @@ run_load_microcode(struct run_softc *sc)
 	if (size != 4096) {
 		printf("%s: invalid firmware size (should be 4KB)\n",
 		    sc->sc_dev.dv_xname);
-		free(ucode, M_DEVBUF, 0);
+		free(ucode, M_DEVBUF, size);
 		return EINVAL;
 	}
 
-	run_read(sc, RT2860_ASIC_VER_ID, &tmp);
 	/* write microcode image */
 	run_write_region_1(sc, RT2870_FW_BASE, ucode, size);
-	free(ucode, M_DEVBUF, 0);
+	free(ucode, M_DEVBUF, size);
 	run_write(sc, RT2860_H2M_MAILBOX_CID, 0xffffffff);
 	run_write(sc, RT2860_H2M_MAILBOX_STATUS, 0xffffffff);
 
@@ -2374,7 +2373,6 @@ run_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	}
 
 	sc->sc_tx_timer = 0;
-	ifp->if_opackets++;
 	ifq_clr_oactive(&ifp->if_snd);
 	run_start(ifp);
 	splx(s);

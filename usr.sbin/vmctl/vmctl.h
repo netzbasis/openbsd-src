@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmctl.h,v 1.8 2016/09/03 20:49:05 deraadt Exp $	*/
+/*	$OpenBSD: vmctl.h,v 1.14 2017/04/06 18:07:13 reyk Exp $	*/
 
 /*
  * Copyright (c) 2015 Reyk Floeter <reyk@openbsd.org>
@@ -26,7 +26,9 @@ enum actions {
 	CMD_CONSOLE,
 	CMD_CREATE,
 	CMD_LOAD,
+	CMD_LOG,
 	CMD_RELOAD,
+	CMD_RESET,
 	CMD_START,
 	CMD_STATUS,
 	CMD_STOP,
@@ -41,9 +43,13 @@ struct parse_result {
 	char			*path;
 	long long		 size;
 	int			 nifs;
+	char			**nets;
+	int			 nnets;
 	size_t			 ndisks;
 	char			**disks;
 	int			 disable;
+	int			 verbose;
+	unsigned int		 mode;
 	struct ctl_command	*ctl;
 };
 
@@ -60,6 +66,7 @@ struct imsgbuf	*ibuf;
 /* main.c */
 int	 vmmaction(struct parse_result *);
 int	 parse_ifs(struct parse_result *, char *, int);
+int	 parse_network(struct parse_result *, char *);
 int	 parse_size(struct parse_result *, char *, long long);
 int	 parse_disk(struct parse_result *, char *);
 int	 parse_vmid(struct parse_result *, char *);
@@ -70,8 +77,9 @@ __dead void
 
 /* vmctl.c */
 int	 create_imagefile(const char *, long);
-int	 start_vm(const char *, int, int, int, char **, char *);
-int	 start_vm_complete(struct imsg *, int *, int);
+int	 vm_start(uint32_t, const char *, int, int, char **, int,
+	    char **, char *);
+int	 vm_start_complete(struct imsg *, int *, int);
 void	 terminate_vm(uint32_t, const char *);
 int	 terminate_vm_complete(struct imsg *, int *);
 int	 check_info_id(const char *, uint32_t);

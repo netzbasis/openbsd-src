@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_umb.c,v 1.3 2016/06/20 07:33:34 stsp Exp $ */
+/*	$OpenBSD: if_umb.c,v 1.14 2017/05/30 07:50:37 mpi Exp $ */
 
 /*
  * Copyright (c) 2016 genua mbH
@@ -120,6 +120,7 @@ const struct umb_valdescr umb_istate[] = UMB_INTERNAL_STATE_DESCRIPTIONS;
 int		 umb_match(struct device *, void *, void *);
 void		 umb_attach(struct device *, struct device *, void *);
 int		 umb_detach(struct device *, int);
+void		 umb_ncm_setup(struct umb_softc *);
 int		 umb_alloc_xfers(struct umb_softc *);
 void		 umb_free_xfers(struct umb_softc *);
 int		 umb_alloc_bulkpipes(struct umb_softc *);
@@ -155,7 +156,7 @@ int		 umb_decode_connect_info(struct umb_softc *, void *, int);
 int		 umb_decode_ip_configuration(struct umb_softc *, void *, int);
 void		 umb_rx(struct umb_softc *);
 void		 umb_rxeof(struct usbd_xfer *, void *, usbd_status);
-int		 umb_encap(struct umb_softc *, struct mbuf *);
+int		 umb_encap(struct umb_softc *);
 void		 umb_txeof(struct usbd_xfer *, void *, usbd_status);
 void		 umb_decap(struct umb_softc *, struct usbd_xfer *);
 
@@ -170,6 +171,8 @@ int		 umb_setpin(struct umb_softc *, int, int, void *, int, void *,
 		    int);
 void		 umb_setdataclass(struct umb_softc *);
 void		 umb_radio(struct umb_softc *, int);
+void		 umb_allocate_cid(struct umb_softc *);
+void		 umb_send_fcc_auth(struct umb_softc *);
 void		 umb_packet_service(struct umb_softc *, int);
 void		 umb_connect(struct umb_softc *);
 void		 umb_disconnect(struct umb_softc *);
@@ -177,8 +180,10 @@ void		 umb_send_connect(struct umb_softc *, int);
 
 void		 umb_qry_ipconfig(struct umb_softc *);
 void		 umb_cmd(struct umb_softc *, int, int, void *, int);
+void		 umb_cmd1(struct umb_softc *, int, int, void *, int, uint8_t *);
 void		 umb_command_done(struct umb_softc *, void *, int);
 void		 umb_decode_cid(struct umb_softc *, uint32_t, void *, int);
+void		 umb_decode_qmi(struct umb_softc *, uint8_t *, int);
 
 void		 umb_intr(struct usbd_xfer *, void *, usbd_status);
 
@@ -188,6 +193,7 @@ int		 umb_xfer_tout = USBD_DEFAULT_TIMEOUT;
 
 uint8_t		 umb_uuid_basic_connect[] = MBIM_UUID_BASIC_CONNECT;
 uint8_t		 umb_uuid_context_internet[] = MBIM_UUID_CONTEXT_INTERNET;
+uint8_t		 umb_uuid_qmi_mbim[] = MBIM_UUID_QMI_MBIM;
 uint32_t	 umb_session_id = 0;
 
 struct cfdriver umb_cd = {
@@ -203,6 +209,39 @@ const struct cfattach umb_ca = {
 };
 
 int umb_delay = 4000;
+
+/*
+ * These devices require an "FCC Authentication" command.
+ */
+const struct usb_devno umb_fccauth_devs[] = {
+	{ USB_VENDOR_SIERRA, USB_PRODUCT_SIERRA_EM7455 },
+};
+
+uint8_t umb_qmi_alloc_cid[] = {
+	0x01,
+	0x0f, 0x00,		/* len */
+	0x00,			/* QMUX flags */
+	0x00,			/* service "ctl" */
+	0x00,			/* CID */
+	0x00,			/* QMI flags */
+	0x01,			/* transaction */
+	0x22, 0x00,		/* msg "Allocate CID" */
+	0x04, 0x00,		/* TLV len */
+	0x01, 0x01, 0x00, 0x02	/* TLV */
+};
+
+uint8_t umb_qmi_fcc_auth[] = {
+	0x01,
+	0x0c, 0x00,		/* len */
+	0x00,			/* QMUX flags */
+	0x02,			/* service "dms" */
+#define UMB_QMI_CID_OFFS	5
+	0x00,			/* CID (filled in later) */
+	0x00,			/* QMI flags */
+	0x01, 0x00,		/* transaction */
+	0x5f, 0x55,		/* msg "Send FCC Authentication" */
+	0x00, 0x00		/* TLV len */
+};
 
 int
 umb_match(struct device *parent, void *match, void *aux)
@@ -257,10 +296,10 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	int	 altnum;
 	int	 s;
 	struct ifnet *ifp;
-	int	 hard_mtu;
 
 	sc->sc_udev = uaa->device;
 	sc->sc_ctrl_ifaceno = uaa->ifaceno;
+	ml_init(&sc->sc_tx_ml);
 
 	/*
 	 * Some MBIM hardware does not provide the mandatory CDC Union
@@ -269,7 +308,7 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	 * number.
 	 */
 	sc->sc_ver_maj = sc->sc_ver_min = -1;
-	hard_mtu = MBIM_MAXSEGSZ_MINVAL;
+	sc->sc_maxpktlen = MBIM_MAXSEGSZ_MINVAL;
 	usbd_desc_iter_init(sc->sc_udev, &iter);
 	while ((desc = usbd_desc_iter_next(&iter))) {
 		if (desc->bDescriptorType == UDESC_IFACE_ASSOC) {
@@ -309,13 +348,6 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 				/* cont. anyway */
 			}
 			sc->sc_maxpktlen = UGETW(md->wMaxSegmentSize);
-			if (sc->sc_maxpktlen < MBIM_MAXSEGSZ_MINVAL) {
-				DPRINTF("%s: ignoring invalid segment "
-				    "size %d\n", DEVNAM(sc), sc->sc_maxpktlen);
-				/* cont. anyway */
-				sc->sc_maxpktlen = 8 * 1024;
-			}
-			hard_mtu = sc->sc_maxpktlen;
 			DPRINTFN(2, "%s: ctrl_len=%d, maxpktlen=%d, cap=0x%x\n",
 			    DEVNAM(sc), sc->sc_ctrl_len, sc->sc_maxpktlen,
 			    md->bmNetworkCapabilities);
@@ -327,6 +359,10 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	if (sc->sc_ver_maj < 0) {
 		printf("%s: missing MBIM descriptor\n", DEVNAM(sc));
 		goto fail;
+	}
+	if (usb_lookup(umb_fccauth_devs, uaa->vendor, uaa->product)) {
+		sc->sc_flags |= UMBFLG_FCC_AUTH_REQUIRED;
+		sc->sc_cid = -1;
 	}
 
 	for (i = 0; i < uaa->nifaces; i++) {
@@ -450,6 +486,10 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_info.rssi = UMB_VALUE_UNKNOWN;
 	sc->sc_info.ber = UMB_VALUE_UNKNOWN;
 
+	umb_ncm_setup(sc);
+	DPRINTFN(2, "%s: rx/tx size %d/%d\n", DEVNAM(sc),
+	    sc->sc_rx_bufsz, sc->sc_tx_bufsz);
+
 	s = splnet();
 	ifp = GET_IFP(sc);
 	ifp->if_flags = IFF_SIMPLEX | IFF_MULTICAST | IFF_POINTOPOINT;
@@ -466,7 +506,7 @@ umb_attach(struct device *parent, struct device *self, void *aux)
 	ifp->if_hdrlen = sizeof (struct ncm_header16) +
 	    sizeof (struct ncm_pointer16);
 	ifp->if_mtu = 1500;		/* use a common default */
-	ifp->if_hardmtu = hard_mtu;
+	ifp->if_hardmtu = sc->sc_maxpktlen;
 	ifp->if_output = umb_output;
 	if_attach(ifp);
 	if_ih_insert(ifp, umb_input, NULL);
@@ -528,18 +568,55 @@ umb_detach(struct device *self, int flags)
 	return 0;
 }
 
+void
+umb_ncm_setup(struct umb_softc *sc)
+{
+	usb_device_request_t req;
+	struct ncm_ntb_parameters np;
+
+	/* Query NTB tranfers sizes */
+	req.bmRequestType = UT_READ_CLASS_INTERFACE;
+	req.bRequest = NCM_GET_NTB_PARAMETERS;
+	USETW(req.wValue, 0);
+	USETW(req.wIndex, sc->sc_ctrl_ifaceno);
+	USETW(req.wLength, sizeof (np));
+	if (usbd_do_request(sc->sc_udev, &req, &np) == USBD_NORMAL_COMPLETION &&
+	    UGETW(np.wLength) == sizeof (np)) {
+		sc->sc_rx_bufsz = UGETDW(np.dwNtbInMaxSize);
+		sc->sc_tx_bufsz = UGETDW(np.dwNtbOutMaxSize);
+		sc->sc_maxdgram = UGETW(np.wNtbOutMaxDatagrams);
+		sc->sc_align = UGETW(np.wNdpOutAlignment);
+		sc->sc_ndp_div = UGETW(np.wNdpOutDivisor);
+		sc->sc_ndp_remainder = UGETW(np.wNdpOutPayloadRemainder);
+		/* Validate values */
+		if (!powerof2(sc->sc_align) || sc->sc_align == 0 ||
+		    sc->sc_align >= sc->sc_tx_bufsz)
+			sc->sc_align = sizeof (uint32_t);
+		if (!powerof2(sc->sc_ndp_div) || sc->sc_ndp_div == 0 ||
+		    sc->sc_ndp_div >= sc->sc_tx_bufsz)
+			sc->sc_ndp_div = sizeof (uint32_t);
+		if (sc->sc_ndp_remainder >= sc->sc_ndp_div)
+			sc->sc_ndp_remainder = 0;
+	} else {
+		sc->sc_rx_bufsz = sc->sc_tx_bufsz = 8 * 1024;
+		sc->sc_maxdgram = 0;
+		sc->sc_align = sc->sc_ndp_div = sizeof (uint32_t);
+		sc->sc_ndp_remainder = 0;
+	}
+}
+
 int
 umb_alloc_xfers(struct umb_softc *sc)
 {
 	if (!sc->sc_rx_xfer) {
 		if ((sc->sc_rx_xfer = usbd_alloc_xfer(sc->sc_udev)) != NULL)
 			sc->sc_rx_buf = usbd_alloc_buffer(sc->sc_rx_xfer,
-			    sc->sc_maxpktlen + MBIM_HDR32_LEN);
+			    sc->sc_rx_bufsz);
 	}
 	if (!sc->sc_tx_xfer) {
 		if ((sc->sc_tx_xfer = usbd_alloc_xfer(sc->sc_udev)) != NULL)
 			sc->sc_tx_buf = usbd_alloc_buffer(sc->sc_tx_xfer,
-			    sc->sc_maxpktlen + MBIM_HDR16_LEN);
+			    sc->sc_tx_bufsz);
 	}
 	return (sc->sc_rx_buf && sc->sc_tx_buf) ? 1 : 0;
 }
@@ -558,10 +635,7 @@ umb_free_xfers(struct umb_softc *sc)
 		sc->sc_tx_xfer = NULL;
 		sc->sc_tx_buf = NULL;
 	}
-	if (sc->sc_tx_m) {
-		m_freem(sc->sc_tx_m);
-		sc->sc_tx_m = NULL;
-	}
+	ml_purge(&sc->sc_tx_ml);
 }
 
 int
@@ -694,7 +768,6 @@ umb_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 int
 umb_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 {
-	struct niqueue *inq;
 	uint8_t ipv;
 
 	if ((ifp->if_flags & IFF_UP) == 0) {
@@ -715,11 +788,13 @@ umb_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 	ifp->if_ibytes += m->m_pkthdr.len;
 	switch (ipv) {
 	case 4:
-		inq = &ipintrq;
-		break;
+		ipv4_input(ifp, m);
+		return 1;
+#ifdef INET6
 	case 6:
-		inq = &ip6intrq;
-		break;
+		ipv6_input(ifp, m);
+		return 1;
+#endif /* INET6 */
 	default:
 		ifp->if_ierrors++;
 		DPRINTFN(4, "%s: dropping packet with bad IP version (%d)\n",
@@ -727,39 +802,94 @@ umb_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 		m_freem(m);
 		return 1;
 	}
-	niq_enqueue(inq, m);
 	return 1;
+}
+
+static inline int
+umb_align(size_t bufsz, int offs, int alignment, int remainder)
+{
+	size_t	 m = alignment - 1;
+	int	 align;
+
+	align = (((size_t)offs + m) & ~m) - alignment + remainder;
+	if (align < offs)
+		align += alignment;
+	if (align > bufsz)
+		align = bufsz;
+	return align - offs;
+}
+
+static inline int
+umb_padding(void *buf, size_t bufsz, int offs, int alignment, int remainder)
+{
+	int	 nb;
+
+	nb = umb_align(bufsz, offs, alignment, remainder);
+	if (nb > 0)
+		memset(buf + offs, 0, nb);
+	return nb;
 }
 
 void
 umb_start(struct ifnet *ifp)
 {
 	struct umb_softc *sc = ifp->if_softc;
-	struct mbuf *m_head = NULL;
+	struct mbuf *m = NULL;
+	int	 ndgram = 0;
+	int	 offs, plen, len, mlen;
+	int	 maxalign;
 
 	if (usbd_is_dying(sc->sc_udev) ||
 	    !(ifp->if_flags & IFF_RUNNING) ||
 	    ifq_is_oactive(&ifp->if_snd))
 		return;
 
-	m_head = ifq_deq_begin(&ifp->if_snd);
-	if (m_head == NULL)
-		return;
+	KASSERT(ml_empty(&sc->sc_tx_ml));
 
-	if (!umb_encap(sc, m_head)) {
-		ifq_deq_rollback(&ifp->if_snd, m_head);
-		ifq_set_oactive(&ifp->if_snd);
-		return;
-	}
-	ifq_deq_commit(&ifp->if_snd, m_head);
+	offs = sizeof (struct ncm_header16);
+	offs += umb_align(sc->sc_tx_bufsz, offs, sc->sc_align, 0);
+
+	/*
+	 * Note that 'struct ncm_pointer16' already includes space for the
+	 * terminating zero pointer.
+	 */
+	offs += sizeof (struct ncm_pointer16);
+	plen = sizeof (struct ncm_pointer16_dgram);
+	maxalign = (sc->sc_ndp_div - 1) + sc->sc_ndp_remainder;
+	len = 0;
+	while (1) {
+		m = ifq_deq_begin(&ifp->if_snd);
+		if (m == NULL)
+			break;
+
+		/*
+		 * Check if mbuf plus required NCM pointer still fits into
+		 * xfer buffers. Assume maximal padding.
+		 */
+		plen += sizeof (struct ncm_pointer16_dgram);
+		mlen = maxalign +  m->m_pkthdr.len;
+		if ((sc->sc_maxdgram != 0 && ndgram >= sc->sc_maxdgram) ||
+		    (offs + plen + len + mlen > sc->sc_tx_bufsz)) {
+			ifq_deq_rollback(&ifp->if_snd, m);
+			break;
+		}
+		ifq_deq_commit(&ifp->if_snd, m);
+
+		ndgram++;
+		len += mlen;
+		ml_enqueue(&sc->sc_tx_ml, m);
 
 #if NBPFILTER > 0
-	if (ifp->if_bpf)
-		bpf_mtap(ifp->if_bpf, m_head, BPF_DIRECTION_OUT);
+		if (ifp->if_bpf)
+			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
-
-	ifq_set_oactive(&ifp->if_snd);
-	ifp->if_timer = (2 * umb_xfer_tout) / 1000;
+	}
+	if (ml_empty(&sc->sc_tx_ml))
+		return;
+	if (umb_encap(sc)) {
+		ifq_set_oactive(&ifp->if_snd);
+		ifp->if_timer = (2 * umb_xfer_tout) / 1000;
+	}
 }
 
 void
@@ -781,7 +911,14 @@ umb_statechg_timeout(void *arg)
 {
 	struct umb_softc *sc = arg;
 
-	printf("%s: state change timeout\n",DEVNAM(sc));
+	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
+		/*
+		 * Query the registration state until we're with the home
+		 * network again.
+		 */
+		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
+	} else
+		printf("%s: state change timeout\n",DEVNAM(sc));
 	usb_add_task(sc->sc_udev, &sc->sc_umb_task);
 }
 
@@ -810,7 +947,7 @@ umb_state_task(void *arg)
 	struct ifnet *ifp = GET_IFP(sc);
 	struct ifreq ifr;
 	struct in_aliasreq ifra;
-	int	 s;
+	int	 s, ns;
 	int	 state;
 
 	s = splnet();
@@ -834,6 +971,7 @@ umb_state_task(void *arg)
 			 */
 			memset(sc->sc_info.ipv4dns, 0,
 			    sizeof (sc->sc_info.ipv4dns));
+			NET_LOCK(ns);
 			if (in_ioctl(SIOCGIFADDR, (caddr_t)&ifr, ifp, 1) == 0 &&
 			    satosin(&ifr.ifr_addr)->sin_addr.s_addr !=
 			    INADDR_ANY) {
@@ -842,6 +980,7 @@ umb_state_task(void *arg)
 				    sizeof (ifra.ifra_addr));
 				in_ioctl(SIOCDIFADDR, (caddr_t)&ifra, ifp, 1);
 			}
+			NET_UNLOCK(ns);
 		}
 		if_link_state_change(ifp);
 	}
@@ -851,8 +990,6 @@ umb_state_task(void *arg)
 void
 umb_up(struct umb_softc *sc)
 {
-	struct ifnet *ifp = GET_IFP(sc);
-
 	splassert(IPL_NET);
 
 	switch (sc->sc_state) {
@@ -861,8 +998,23 @@ umb_up(struct umb_softc *sc)
 		umb_open(sc);
 		break;
 	case UMB_S_OPEN:
-		DPRINTF("%s: init: turning radio on ...\n", DEVNAM(sc));
-		umb_radio(sc, 1);
+		if (sc->sc_flags & UMBFLG_FCC_AUTH_REQUIRED) {
+			if (sc->sc_cid == -1) {
+				DPRINTF("%s: init: allocating CID ...\n",
+				    DEVNAM(sc));
+				umb_allocate_cid(sc);
+				break;
+			} else
+				umb_newstate(sc, UMB_S_CID, UMB_NS_DONT_DROP);
+		} else {
+			DPRINTF("%s: init: turning radio on ...\n", DEVNAM(sc));
+			umb_radio(sc, 1);
+			break;
+		}
+		/*FALLTHROUGH*/
+	case UMB_S_CID:
+		DPRINTF("%s: init: sending FCC auth ...\n", DEVNAM(sc));
+		umb_send_fcc_auth(sc);
 		break;
 	case UMB_S_RADIO:
 		DPRINTF("%s: init: checking SIM state ...\n", DEVNAM(sc));
@@ -891,7 +1043,6 @@ umb_up(struct umb_softc *sc)
 		DPRINTF("%s: init: reached state UP\n", DEVNAM(sc));
 		if (!umb_alloc_bulkpipes(sc)) {
 			printf("%s: opening bulk pipes failed\n", DEVNAM(sc));
-			ifp->if_flags &= ~IFF_UP;
 			umb_down(sc, 1);
 		}
 		break;
@@ -934,6 +1085,7 @@ umb_down(struct umb_softc *sc, int force)
 		if (!force)
 			break;
 		/*FALLTHROUGH*/
+	case UMB_S_CID:
 	case UMB_S_OPEN:
 	case UMB_S_DOWN:
 		/* Do not close the device */
@@ -1138,20 +1290,6 @@ umb_getinfobuf(void *in, int inlen, uint32_t offs, uint32_t sz,
 }
 
 static inline int
-umb_padding(void *data, int len, size_t sz)
-{
-	char	*p = data;
-	int	 np = 0;
-
-	while (len < sz && (len % 4) != 0) {
-		*p++ = '\0';
-		len++;
-		np++;
-	}
-	return np;
-}
-
-static inline int
 umb_addstr(void *buf, size_t bufsz, int *offs, void *str, int slen,
     uint32_t *offsmember, uint32_t *sizemember)
 {
@@ -1163,7 +1301,7 @@ umb_addstr(void *buf, size_t bufsz, int *offs, void *str, int slen,
 		*offsmember = htole32((uint32_t)*offs);
 		memcpy(buf + *offs, str, slen);
 		*offs += slen;
-		*offs += umb_padding(buf, *offs, bufsz);
+		*offs += umb_padding(buf, bufsz, *offs, sizeof (uint32_t), 0);
 	} else
 		*offsmember = htole32(0);
 	return 1;
@@ -1200,7 +1338,7 @@ umb_decode_register_state(struct umb_softc *sc, void *data, int len)
 			log(LOG_INFO,
 			    "%s: disconnecting from roaming network\n",
 			    DEVNAM(sc));
-		umb_newstate(sc, UMB_S_ATTACHED, UMB_NS_DONT_RAISE);
+		umb_disconnect(sc);
 	}
 	return 1;
 }
@@ -1475,7 +1613,7 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 {
 	struct mbim_cid_ip_configuration_info *ic = data;
 	struct ifnet *ifp = GET_IFP(sc);
-	int	 s;
+	int	 s, ns;
 	uint32_t avail;
 	uint32_t val;
 	int	 n, i;
@@ -1508,7 +1646,6 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 
 		/* Only pick the first one */
 		memcpy(&ipv4elem, data + off, sizeof (ipv4elem));
-		ipv4elem.addr = letoh32(ipv4elem.addr);
 		ipv4elem.prefixlen = letoh32(ipv4elem.prefixlen);
 
 		memset(&ifra, 0, sizeof (ifra));
@@ -1522,8 +1659,7 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		sin->sin_len = sizeof (ifra.ifra_dstaddr);
 		if (avail & MBIM_IPCONF_HAS_GWINFO) {
 			off = letoh32(ic->ipv4_gwoffs);
-			sin->sin_addr.s_addr =
-			    letoh32(*((uint32_t *)(data + off)));
+			sin->sin_addr.s_addr = *((uint32_t *)(data + off));
 		}
 
 		sin = (struct sockaddr_in *)&ifra.ifra_mask;
@@ -1531,7 +1667,10 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		sin->sin_len = sizeof (ifra.ifra_mask);
 		in_len2mask(&sin->sin_addr, ipv4elem.prefixlen);
 
-		if ((rv = in_ioctl(SIOCAIFADDR, (caddr_t)&ifra, ifp, 1)) == 0) {
+		NET_LOCK(ns);
+		rv = in_ioctl(SIOCAIFADDR, (caddr_t)&ifra, ifp, 1);
+		NET_UNLOCK(ns);
+		if (rv == 0) {
 			if (ifp->if_flags & IFF_DEBUG)
 				log(LOG_INFO, "%s: IPv4 addr %s, mask %s, "
 				    "gateway %s\n", DEVNAM(ifp->if_softc),
@@ -1552,7 +1691,7 @@ umb_decode_ip_configuration(struct umb_softc *sc, void *data, int len)
 		while (n-- > 0) {
 			if (off + sizeof (uint32_t) > len)
 				break;
-			val = letoh32(*((uint32_t *)(data + off)));
+			val = *((uint32_t *)(data + off));
 			if (i < UMB_MAX_DNSSRV)
 				sc->sc_info.ipv4dns[i++] = val;
 			off += sizeof (uint32_t);
@@ -1587,7 +1726,7 @@ void
 umb_rx(struct umb_softc *sc)
 {
 	usbd_setup_xfer(sc->sc_rx_xfer, sc->sc_rx_pipe, sc, sc->sc_rx_buf,
-	    sc->sc_maxpktlen, USBD_SHORT_XFER_OK | USBD_NO_COPY,
+	    sc->sc_rx_bufsz, USBD_SHORT_XFER_OK | USBD_NO_COPY,
 	    USBD_NO_TIMEOUT, umb_rxeof);
 	usbd_transfer(sc->sc_rx_xfer);
 }
@@ -1622,46 +1761,71 @@ umb_rxeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 }
 
 int
-umb_encap(struct umb_softc *sc, struct mbuf *m)
+umb_encap(struct umb_softc *sc)
 {
 	struct ncm_header16 *hdr;
 	struct ncm_pointer16 *ptr;
+	struct ncm_pointer16_dgram *dgram;
+	int	 offs, poffs;
+	struct mbuf_list tmpml = MBUF_LIST_INITIALIZER();
+	struct mbuf *m;
 	usbd_status  err;
-	int	 len;
 
-	KASSERT(sc->sc_tx_m == NULL);
-
+	/* All size constraints have been validated by the caller! */
 	hdr = sc->sc_tx_buf;
-	ptr = (struct ncm_pointer16 *)(hdr + 1);
-
 	USETDW(hdr->dwSignature, NCM_HDR16_SIG);
 	USETW(hdr->wHeaderLength, sizeof (*hdr));
+	USETW(hdr->wBlockLength, 0);
 	USETW(hdr->wSequence, sc->sc_tx_seq);
 	sc->sc_tx_seq++;
-	USETW(hdr->wNdpIndex, sizeof (*hdr));
+	offs = sizeof (*hdr);
+	offs += umb_padding(sc->sc_tx_buf, sc->sc_tx_bufsz, offs,
+	    sc->sc_align, 0);
+	USETW(hdr->wNdpIndex, offs);
 
-	len = m->m_pkthdr.len;
+	poffs = offs;
+	ptr = (struct ncm_pointer16 *)(sc->sc_tx_buf + offs);
 	USETDW(ptr->dwSignature, MBIM_NCM_NTH16_SIG(umb_session_id));
-	USETW(ptr->wLength, sizeof (*ptr));
 	USETW(ptr->wNextNdpIndex, 0);
-	USETW(ptr->dgram[0].wDatagramIndex, MBIM_HDR16_LEN);
-	USETW(ptr->dgram[0].wDatagramLen, len);
-	USETW(ptr->dgram[1].wDatagramIndex, 0);
-	USETW(ptr->dgram[1].wDatagramLen, 0);
+	dgram = &ptr->dgram[0];
+	offs = (caddr_t)dgram - (caddr_t)sc->sc_tx_buf;
 
-	m_copydata(m, 0, len, (caddr_t)(ptr + 1));
-	sc->sc_tx_m = m;
-	len += MBIM_HDR16_LEN;
-	USETW(hdr->wBlockLength, len);
+	/* Leave space for dgram pointers */
+	while ((m = ml_dequeue(&sc->sc_tx_ml)) != NULL) {
+		offs += sizeof (*dgram);
+		ml_enqueue(&tmpml, m);
+	}
+	offs += sizeof (*dgram);	/* one more to terminate pointer list */
+	USETW(ptr->wLength, offs - poffs);
 
-	DPRINTFN(3, "%s: encap %d bytes\n", DEVNAM(sc), len);
-	DDUMPN(5, sc->sc_tx_buf, len);
-	usbd_setup_xfer(sc->sc_tx_xfer, sc->sc_tx_pipe, sc, sc->sc_tx_buf, len,
+	/* Encap mbufs */
+	while ((m = ml_dequeue(&tmpml)) != NULL) {
+		offs += umb_padding(sc->sc_tx_buf, sc->sc_tx_bufsz, offs,
+		    sc->sc_ndp_div, sc->sc_ndp_remainder);
+		USETW(dgram->wDatagramIndex, offs);
+		USETW(dgram->wDatagramLen, m->m_pkthdr.len);
+		dgram++;
+		m_copydata(m, 0, m->m_pkthdr.len, sc->sc_tx_buf + offs);
+		offs += m->m_pkthdr.len;
+		ml_enqueue(&sc->sc_tx_ml, m);
+	}
+
+	/* Terminating pointer */
+	USETW(dgram->wDatagramIndex, 0);
+	USETW(dgram->wDatagramLen, 0);
+	USETW(hdr->wBlockLength, offs);
+
+	DPRINTFN(3, "%s: encap %d bytes\n", DEVNAM(sc), offs);
+	DDUMPN(5, sc->sc_tx_buf, offs);
+	KASSERT(offs <= sc->sc_tx_bufsz);
+
+	usbd_setup_xfer(sc->sc_tx_xfer, sc->sc_tx_pipe, sc, sc->sc_tx_buf, offs,
 	    USBD_FORCE_SHORT_XFER | USBD_NO_COPY, umb_xfer_tout, umb_txeof);
 	err = usbd_transfer(sc->sc_tx_xfer);
 	if (err != USBD_IN_PROGRESS) {
 		DPRINTF("%s: start tx error: %s\n", DEVNAM(sc),
 		    usbd_errstr(err));
+		ml_purge(&sc->sc_tx_ml);
 		return 0;
 	}
 	return 1;
@@ -1675,11 +1839,9 @@ umb_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 	int	 s;
 
 	s = splnet();
+	ml_purge(&sc->sc_tx_ml);
 	ifq_clr_oactive(&ifp->if_snd);
 	ifp->if_timer = 0;
-
-	m_freem(sc->sc_tx_m);
-	sc->sc_tx_m = NULL;
 
 	if (status != USBD_NORMAL_COMPLETION) {
 		if (status != USBD_NOT_STARTED && status != USBD_CANCELLED) {
@@ -1690,7 +1852,6 @@ umb_txeof(struct usbd_xfer *xfer, void *priv, usbd_status status)
 				usbd_clear_endpoint_stall_async(sc->sc_tx_pipe);
 		}
 	} else {
-		ifp->if_opackets++;
 		if (IFQ_IS_EMPTY(&ifp->if_snd) == 0)
 			umb_start(ifp);
 	}
@@ -1724,17 +1885,17 @@ umb_decap(struct umb_softc *sc, struct usbd_xfer *xfer)
 	s = splnet();
 	if (len < sizeof (*hdr16))
 		goto toosmall;
-	if (len > sc->sc_maxpktlen) {
-		DPRINTF("%s: packet too large (%d)\n", DEVNAM(sc), len);
-		goto fail;
-	}
 
 	hdr16 = (struct ncm_header16 *)buf;
 	hsig = UGETDW(hdr16->dwSignature);
 	hlen = UGETW(hdr16->wHeaderLength);
+	if (len < hlen)
+		goto toosmall;
+
 	switch (hsig) {
 	case NCM_HDR16_SIG:
 		blen = UGETW(hdr16->wBlockLength);
+		ptroff = UGETW(hdr16->wNdpIndex);
 		if (hlen != sizeof (*hdr16)) {
 			DPRINTF("%s: bad header len %d for NTH16 (exp %zu)\n",
 			    DEVNAM(sc), hlen, sizeof (*hdr16));
@@ -1744,6 +1905,7 @@ umb_decap(struct umb_softc *sc, struct usbd_xfer *xfer)
 	case NCM_HDR32_SIG:
 		hdr32 = (struct ncm_header32 *)hdr16;
 		blen = UGETDW(hdr32->dwBlockLength);
+		ptroff = UGETDW(hdr32->dwNdpIndex);
 		if (hlen != sizeof (*hdr32)) {
 			DPRINTF("%s: bad header len %d for NTH32 (exp %zu)\n",
 			    DEVNAM(sc), hlen, sizeof (*hdr32));
@@ -1755,15 +1917,12 @@ umb_decap(struct umb_softc *sc, struct usbd_xfer *xfer)
 		    DEVNAM(sc), hsig);
 		goto fail;
 	}
-	if (len < hlen)
-		goto toosmall;
-	if (len < blen) {
+	if (blen != 0 && len < blen) {
 		DPRINTF("%s: bad NTB len (%d) for %d bytes of data\n",
 		    DEVNAM(sc), blen, len);
 		goto fail;
 	}
 
-	ptroff = hlen;
 	ptr16 = (struct ncm_pointer16 *)(buf + ptroff);
 	psig = UGETDW(ptr16->dwSignature);
 	ptrlen = UGETW(ptr16->wLength);
@@ -1812,7 +1971,7 @@ umb_decap(struct umb_softc *sc, struct usbd_xfer *xfer)
 		}
 
 		/* Terminating zero entry */
-		if (dlen == 0 && doff == 0)
+		if (dlen == 0 || doff == 0)
 			break;
 		if (len < dlen + doff) {
 			/* Skip giant datagram but continue processing */
@@ -2037,6 +2196,29 @@ umb_radio(struct umb_softc *sc, int on)
 }
 
 void
+umb_allocate_cid(struct umb_softc *sc)
+{
+	umb_cmd1(sc, MBIM_CID_DEVICE_CAPS, MBIM_CMDOP_SET,
+	    umb_qmi_alloc_cid, sizeof (umb_qmi_alloc_cid), umb_uuid_qmi_mbim);
+}
+
+void
+umb_send_fcc_auth(struct umb_softc *sc)
+{
+	uint8_t	 fccauth[sizeof (umb_qmi_fcc_auth)];
+
+	if (sc->sc_cid == -1) {
+		DPRINTF("%s: missing CID, cannot send FCC auth\n", DEVNAM(sc));
+		umb_allocate_cid(sc);
+		return;
+	}
+	memcpy(fccauth, umb_qmi_fcc_auth, sizeof (fccauth));
+	fccauth[UMB_QMI_CID_OFFS] = sc->sc_cid;
+	umb_cmd1(sc, MBIM_CID_DEVICE_CAPS, MBIM_CMDOP_SET,
+	    fccauth, sizeof (fccauth), umb_uuid_qmi_mbim);
+}
+
+void
 umb_packet_service(struct umb_softc *sc, int attach)
 {
 	struct mbim_cid_packet_service	s;
@@ -2117,6 +2299,13 @@ umb_qry_ipconfig(struct umb_softc *sc)
 void
 umb_cmd(struct umb_softc *sc, int cid, int op, void *data, int len)
 {
+	umb_cmd1(sc, cid, op, data, len, umb_uuid_basic_connect);
+}
+
+void
+umb_cmd1(struct umb_softc *sc, int cid, int op, void *data, int len,
+    uint8_t *uuid)
+{
 	struct mbim_h2f_cmd *cmd;
 	int	totlen;
 
@@ -2129,7 +2318,7 @@ umb_cmd(struct umb_softc *sc, int cid, int op, void *data, int len)
 	cmd = sc->sc_ctrl_msg;
 	memset(cmd, 0, sizeof (*cmd));
 	cmd->frag.nfrag = htole32(1);
-	memcpy(cmd->devid, umb_uuid_basic_connect, sizeof (cmd->devid));
+	memcpy(cmd->devid, uuid, sizeof (cmd->devid));
 	cmd->cid = htole32(cid);
 	cmd->op = htole32(op);
 	cmd->infolen = htole32(len);
@@ -2149,6 +2338,7 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 	uint32_t status;
 	uint32_t cid;
 	uint32_t infolen;
+	int	 qmimsg = 0;
 
 	if (len < sizeof (*cmd)) {
 		DPRINTF("%s: discard short %s messsage\n", DEVNAM(sc),
@@ -2157,10 +2347,14 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 	}
 	cid = letoh32(cmd->cid);
 	if (memcmp(cmd->devid, umb_uuid_basic_connect, sizeof (cmd->devid))) {
-		DPRINTF("%s: discard %s messsage for other UUID '%s'\n",
-		    DEVNAM(sc), umb_request2str(letoh32(cmd->hdr.type)),
-		    umb_uuid2str(cmd->devid));
-		return;
+		if (memcmp(cmd->devid, umb_uuid_qmi_mbim,
+		    sizeof (cmd->devid))) {
+			DPRINTF("%s: discard %s messsage for other UUID '%s'\n",
+			    DEVNAM(sc), umb_request2str(letoh32(cmd->hdr.type)),
+			    umb_uuid2str(cmd->devid));
+			return;
+		} else
+			qmimsg = 1;
 	}
 
 	status = letoh32(cmd->status);
@@ -2189,8 +2383,14 @@ umb_command_done(struct umb_softc *sc, void *data, int len)
 		    (int)sizeof (*cmd) + infolen, len);
 		return;
 	}
-	DPRINTFN(2, "%s: set/qry %s done\n", DEVNAM(sc), umb_cid2str(cid));
-	umb_decode_cid(sc, cid, cmd->info, infolen);
+	if (qmimsg) {
+		if (sc->sc_flags & UMBFLG_FCC_AUTH_REQUIRED)
+			umb_decode_qmi(sc, cmd->info, infolen);
+	} else {
+		DPRINTFN(2, "%s: set/qry %s done\n", DEVNAM(sc),
+		    umb_cid2str(cid));
+		umb_decode_cid(sc, cid, cmd->info, infolen);
+	}
 }
 
 void
@@ -2238,6 +2438,122 @@ umb_decode_cid(struct umb_softc *sc, uint32_t cid, void *data, int len)
 	if (!ok)
 		DPRINTF("%s: discard %s with bad info length %d\n",
 		    DEVNAM(sc), umb_cid2str(cid), len);
+	return;
+}
+
+void
+umb_decode_qmi(struct umb_softc *sc, uint8_t *data, int len)
+{
+	uint8_t	srv;
+	uint16_t msg, tlvlen;
+	uint32_t val;
+
+#define UMB_QMI_QMUXLEN		6
+	if (len < UMB_QMI_QMUXLEN)
+		goto tooshort;
+
+	srv = data[4];
+	data += UMB_QMI_QMUXLEN;
+	len -= UMB_QMI_QMUXLEN;
+
+#define UMB_GET16(p)	((uint16_t)*p | (uint16_t)*(p + 1) << 8)
+#define UMB_GET32(p)	((uint32_t)*p | (uint32_t)*(p + 1) << 8 | \
+			    (uint32_t)*(p + 2) << 16 |(uint32_t)*(p + 3) << 24)
+	switch (srv) {
+	case 0:	/* ctl */
+#define UMB_QMI_CTLLEN		6
+		if (len < UMB_QMI_CTLLEN)
+			goto tooshort;
+		msg = UMB_GET16(&data[2]);
+		tlvlen = UMB_GET16(&data[4]);
+		data += UMB_QMI_CTLLEN;
+		len -= UMB_QMI_CTLLEN;
+		break;
+	case 2:	/* dms  */
+#define UMB_QMI_DMSLEN		7
+		if (len < UMB_QMI_DMSLEN)
+			goto tooshort;
+		msg = UMB_GET16(&data[3]);
+		tlvlen = UMB_GET16(&data[5]);
+		data += UMB_QMI_DMSLEN;
+		len -= UMB_QMI_DMSLEN;
+		break;
+	default:
+		DPRINTF("%s: discard QMI message for unknown service type %d\n",
+		    DEVNAM(sc), srv);
+		return;
+	}
+
+	if (len < tlvlen)
+		goto tooshort;
+
+#define UMB_QMI_TLVLEN		3
+	while (len > 0) {
+		if (len < UMB_QMI_TLVLEN)
+			goto tooshort;
+		tlvlen = UMB_GET16(&data[1]);
+		if (len < UMB_QMI_TLVLEN + tlvlen)
+			goto tooshort;
+		switch (data[0]) {
+		case 1:	/* allocation info */
+			if (msg == 0x0022) {	/* Allocate CID */
+				if (tlvlen != 2 || data[3] != 2) /* dms */
+					break;
+				sc->sc_cid = data[4];
+				DPRINTF("%s: QMI CID %d allocated\n",
+				    DEVNAM(sc), sc->sc_cid);
+				umb_newstate(sc, UMB_S_CID, UMB_NS_DONT_DROP);
+			}
+			break;
+		case 2:	/* response */
+			if (tlvlen != sizeof (val))
+				break;
+			val = UMB_GET32(&data[3]);
+			switch (msg) {
+			case 0x0022:	/* Allocate CID */
+				if (val != 0) {
+					log(LOG_ERR, "%s: allocation of QMI CID"
+					    " failed, error 0x%x\n", DEVNAM(sc),
+					    val);
+					/* XXX how to proceed? */
+					return;
+				}
+				break;
+			case 0x555f:	/* Send FCC Authentication */
+				if (val == 0)
+					log(LOG_INFO, "%s: send FCC "
+					    "Authentication succeeded\n",
+					    DEVNAM(sc));
+				else if (val == 0x001a0001)
+					log(LOG_INFO, "%s: FCC Authentication "
+					    "not required\n", DEVNAM(sc));
+				else
+					log(LOG_INFO, "%s: send FCC "
+					    "Authentication failed, "
+					    "error 0x%x\n", DEVNAM(sc), val);
+
+				/* FCC Auth is needed only once after power-on*/
+				sc->sc_flags &= ~UMBFLG_FCC_AUTH_REQUIRED;
+
+				/* Try to proceed anyway */
+				DPRINTF("%s: init: turning radio on ...\n",
+				    DEVNAM(sc));
+				umb_radio(sc, 1);
+				break;
+			default:
+				break;
+			}
+			break;
+		default:
+			break;
+		}
+		data += UMB_QMI_TLVLEN + tlvlen;
+		len -= UMB_QMI_TLVLEN + tlvlen;
+	}
+	return;
+
+tooshort:
+	DPRINTF("%s: discard short QMI message\n", DEVNAM(sc));
 	return;
 }
 

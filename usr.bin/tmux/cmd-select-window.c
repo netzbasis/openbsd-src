@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-window.c,v 1.16 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-select-window.c,v 1.20 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -26,7 +26,8 @@
  * Select window by index.
  */
 
-enum cmd_retval	 cmd_select_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_select_window_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_select_window_entry = {
 	.name = "select-window",
@@ -35,7 +36,7 @@ const struct cmd_entry cmd_select_window_entry = {
 	.args = { "lnpTt:", 0, 0 },
 	.usage = "[-lnpT] " CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_window_exec
@@ -48,7 +49,7 @@ const struct cmd_entry cmd_next_window_entry = {
 	.args = { "at:", 0, 0 },
 	.usage = "[-a] " CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_window_exec
@@ -61,7 +62,7 @@ const struct cmd_entry cmd_previous_window_entry = {
 	.args = { "at:", 0, 0 },
 	.usage = "[-a] " CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_window_exec
@@ -74,18 +75,19 @@ const struct cmd_entry cmd_last_window_entry = {
 	.args = { "t:", 0, 0 },
 	.usage = CMD_TARGET_SESSION_USAGE,
 
-	.tflag = CMD_SESSION,
+	.target = { 't', CMD_FIND_SESSION, 0 },
 
 	.flags = 0,
 	.exec = cmd_select_window_exec
 };
 
-enum cmd_retval
-cmd_select_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_select_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct winlink	*wl = cmdq->state.tflag.wl;
-	struct session	*s = cmdq->state.tflag.s;
-	int		 next, previous, last, activity;
+	struct cmd_find_state	*current = &item->shared->current;
+	struct winlink		*wl = item->target.wl;
+	struct session		*s = item->target.s;
+	int			 next, previous, last, activity;
 
 	next = self->entry == &cmd_next_window_entry;
 	if (args_has(self->args, 'n'))
@@ -101,21 +103,21 @@ cmd_select_window_exec(struct cmd *self, struct cmd_q *cmdq)
 		activity = args_has(self->args, 'a');
 		if (next) {
 			if (session_next(s, activity) != 0) {
-				cmdq_error(cmdq, "no next window");
+				cmdq_error(item, "no next window");
 				return (CMD_RETURN_ERROR);
 			}
 		} else if (previous) {
 			if (session_previous(s, activity) != 0) {
-				cmdq_error(cmdq, "no previous window");
+				cmdq_error(item, "no previous window");
 				return (CMD_RETURN_ERROR);
 			}
 		} else {
 			if (session_last(s) != 0) {
-				cmdq_error(cmdq, "no last window");
+				cmdq_error(item, "no last window");
 				return (CMD_RETURN_ERROR);
 			}
 		}
-
+		cmd_find_from_session(&item->shared->current, s);
 		server_redraw_session(s);
 	} else {
 		/*
@@ -124,12 +126,16 @@ cmd_select_window_exec(struct cmd *self, struct cmd_q *cmdq)
 		 */
 		if (args_has(self->args, 'T') && wl == s->curw) {
 			if (session_last(s) != 0) {
-				cmdq_error(cmdq, "no last window");
+				cmdq_error(item, "no last window");
 				return (-1);
 			}
+			if (current->s == s)
+				cmd_find_from_session(current, s);
 			server_redraw_session(s);
-		} else if (session_select(s, wl->idx) == 0)
+		} else if (session_select(s, wl->idx) == 0) {
+			cmd_find_from_session(current, s);
 			server_redraw_session(s);
+		}
 	}
 	recalculate_sizes();
 

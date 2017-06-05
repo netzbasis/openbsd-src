@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.dep.mk,v 1.12 2016/09/04 00:34:29 patrick Exp $
+#	$OpenBSD: bsd.dep.mk,v 1.14 2017/06/04 12:25:19 espie Exp $
 #	$NetBSD: bsd.dep.mk,v 1.12 1995/09/27 01:15:09 christos Exp $
 
 # some of the rules involve .h sources, so remove them from mkdep line
@@ -12,19 +12,19 @@ realdepend: _SUBDIRUSE
 	@rm -f .depend
 	@files="${.ALLSRC:M*.s} ${.ALLSRC:M*.S}"; \
 	if [ "$$files" != " " ]; then \
-	  echo mkdep -a ${MKDEP} ${CFLAGS:M-[ID]*} ${CPPFLAGS} ${AINC} $$files;\
-	  mkdep -a ${MKDEP} ${CFLAGS:M-[ID]*} ${CPPFLAGS} ${AINC} $$files; \
+	  echo mkdep -a ${MKDEP} ${CFLAGS:M-std=*} ${CFLAGS:M-[ID]*} ${CPPFLAGS} ${AINC} $$files;\
+	  mkdep -a ${MKDEP} ${CFLAGS:M-std=*} ${CFLAGS:M-[ID]*} ${CPPFLAGS} ${AINC} $$files; \
 	fi
 	@files="${.ALLSRC:M*.c}"; \
 	if [ "$$files" != "" ]; then \
-	  echo mkdep -a ${MKDEP} ${CFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
+	  echo mkdep -a ${MKDEP} ${CFLAGS:M-std=*} ${CFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
 	  mkdep -a ${MKDEP} ${CFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
 	fi
 	@files="${.ALLSRC:M*.cc} ${.ALLSRC:M*.C} ${.ALLSRC:M*.cpp}"; \
 	files="$$files ${.ALLSRC:M*.cxx}"; \
 	if [ "$$files" != "   " ]; then \
-	  echo mkdep -a ${MKDEP} ${CXXFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
-	  mkdep -a ${MKDEP} ${CXXFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
+	  echo CC=${CXX:Q} mkdep -a ${MKDEP} ${CXXFLAGS:M-std=*} ${CXXFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
+	  CC=${CXX:Q} mkdep -a ${MKDEP} ${CXXFLAGS:M-std=*} ${CXXFLAGS:M-[ID]*} ${CPPFLAGS} $$files; \
 	fi
 .  else
 .depend:
@@ -40,7 +40,7 @@ afterdepend:
 .if !target(tags)
 .  if defined(SRCS)
 tags: ${SRCS} _SUBDIRUSE
-	-cd ${.CURDIR}; ${CTAGS} -f /dev/stdout -d -t ${.ALLSRC:N*.h} | \
+	-cd ${.CURDIR}; ${CTAGS} -f /dev/stdout -d ${.ALLSRC:N*.h} | \
 	    sed "s;\${.CURDIR}/;;" > tags
 .  else
 tags:

@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Paths.pm,v 1.33 2015/07/23 19:46:52 jung Exp $
+# $OpenBSD: Paths.pm,v 1.35 2017/03/01 17:52:00 rpe Exp $
 #
 # Copyright (c) 2007-2014 Marc Espie <espie@openbsd.org>
 #
@@ -67,7 +67,7 @@ sub portsdir() { '/usr/ports' }
 
 sub library_dirs() { ("/usr", "/usr/X11R6") }
 sub master_keys() { ("/etc/master_key") }
-sub pkgconf() { "/etc/pkg.conf" }
+sub installurl() { "/etc/installurl" }
 sub srclocatedb() { "/usr/lib/locate/src.db" }
 sub xlocatedb() { "/usr/X11R6/lib/locate/xorg.db" }
 

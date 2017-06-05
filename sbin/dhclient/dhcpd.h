@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.158 2016/09/02 15:44:26 mpi Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.171 2017/04/18 13:59:09 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -69,7 +69,8 @@ struct client_lease {
 	char			*server_name;
 	char			*filename;
 	char			*resolv_conf;
-	char			 ssid[33];
+	char			 ssid[32];
+	uint8_t			 ssid_len;
 	unsigned int		 is_static;
 	unsigned int		 is_bootp;
 	unsigned int		 is_invalid;
@@ -130,6 +131,7 @@ struct client_state {
 	struct in_addr		 destination;
 	int			 flags;
 #define IS_RESPONSIBLE	0x1
+#define IN_CHARGE	0x2
 	u_int32_t		 xid;
 	u_int16_t		 secs;
 	time_t			 first_sending;
@@ -144,7 +146,8 @@ struct client_state {
 struct interface_info {
 	struct ether_addr	hw_address;
 	char		 name[IFNAMSIZ];
-	char		 ssid[33];
+	char		 ssid[32];
+	uint8_t		 ssid_len;
 	struct client_state	*client;
 	int		 bfdesc; /* bpf - reading & broadcast writing*/
 	int		 ufdesc; /* udp - unicast writing */
@@ -169,6 +172,7 @@ struct dhcp_timeout {
 	void	*arg;
 };
 
+#define	_PATH_RESOLV_CONF	"/etc/resolv.conf"
 #define	_PATH_DHCLIENT_CONF	"/etc/dhclient.conf"
 #define	_PATH_DHCLIENT_DB	"/var/db/dhclient.leases"
 
@@ -176,31 +180,19 @@ struct dhcp_timeout {
 
 extern struct client_config *config;
 extern struct imsgbuf *unpriv_ibuf;
+extern volatile sig_atomic_t quit;
 extern struct in_addr deleting;
 extern struct in_addr adding;
 extern struct in_addr active_addr;
-extern volatile sig_atomic_t quit;
 
 /* options.c */
 int cons_options(struct interface_info *, struct option_data *);
 char *pretty_print_option(unsigned int, struct option_data *, int);
-int pretty_print_string(unsigned char *, size_t, unsigned char *, size_t, int);
-int pretty_print_classless_routes(unsigned char *, size_t, unsigned char *,
-    size_t);
-int pretty_print_domain_search(unsigned char *, size_t, unsigned char *,
-    size_t);
+char *pretty_print_domain_search(unsigned char *, size_t);
+char *pretty_print_string(unsigned char *, size_t, int);
+char *pretty_print_classless_routes(unsigned char *, size_t);
 void do_packet(struct interface_info *, unsigned int, struct in_addr,
     struct ether_addr *);
-
-/* errwarn.c */
-extern int warnings_occurred;
-void error(char *, ...) __attribute__ ((__format__ (__printf__, 1, 2)));
-void warning(char *, ...) __attribute__ ((__format__ (__printf__, 1, 2)));
-void note(char *, ...) __attribute__ ((__format__ (__printf__, 1, 2)));
-#ifdef DEBUG
-void debug(char *, ...) __attribute__ ((__format__ (__printf__, 1, 2)));
-#endif
-void parse_warn(char *);
 
 /* conflex.c */
 extern int lexline, lexchar;
@@ -210,9 +202,10 @@ int next_token(char **, FILE *);
 int peek_token(char **, FILE *);
 
 /* parse.c */
+extern int warnings_occurred;
 void skip_to_semi(FILE *);
 int parse_semi(FILE *);
-char *parse_string(FILE *);
+char *parse_string(FILE *, unsigned int *);
 int parse_ip_addr(FILE *, struct in_addr *);
 int parse_cidr(FILE *, unsigned char *);
 void parse_ethernet(FILE *, struct ether_addr *);
@@ -220,6 +213,7 @@ void parse_lease_time(FILE *, time_t *);
 int parse_decimal(FILE *, unsigned char *, char);
 int parse_hex(FILE *, unsigned char *);
 time_t parse_date(FILE *);
+void parse_warn(char *);
 
 /* bpf.c */
 void if_register_send(struct interface_info *);
@@ -260,10 +254,9 @@ void routehandler(struct interface_info *);
 
 /* packet.c */
 void assemble_eh_header(struct interface_info *, struct ether_header *);
-ssize_t decode_hw_header(unsigned char *, int, struct ether_addr *);
-ssize_t decode_udp_ip_header(unsigned char *, int, struct sockaddr_in *,
-    int);
-u_int32_t checksum(unsigned char *, unsigned, u_int32_t);
+ssize_t decode_hw_header(unsigned char *, u_int32_t, struct ether_addr *);
+ssize_t decode_udp_ip_header(unsigned char *, u_int32_t, struct sockaddr_in *);
+u_int32_t checksum(unsigned char *, u_int32_t, u_int32_t);
 u_int32_t wrapsum(u_int32_t);
 
 /* clparse.c */
@@ -281,8 +274,6 @@ void flush_routes(void);
 
 void add_route(struct in_addr, struct in_addr, struct in_addr, struct in_addr,
     int, int);
-
-void sendhup(struct client_lease *);
 
 int resolv_conf_priority(struct interface_info *);
 

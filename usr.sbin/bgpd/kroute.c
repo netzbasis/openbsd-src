@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.209 2016/04/08 12:27:05 phessler Exp $ */
+/*	$OpenBSD: kroute.c,v 1.215 2017/05/31 10:47:21 claudio Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -36,6 +36,7 @@
 #include <unistd.h>
 
 #include "bgpd.h"
+#include "log.h"
 
 struct ktable		**krt;
 u_int			  krt_size;
@@ -874,10 +875,13 @@ kr_dispatch_msg(void)
 }
 
 int
-kr_nexthop_add(u_int rtableid, struct bgpd_addr *addr)
+kr_nexthop_add(u_int rtableid, struct bgpd_addr *addr, struct bgpd_config *conf)
 {
 	struct ktable		*kt;
 	struct knexthop_node	*h;
+
+	if (rtableid == 0)
+		rtableid = conf->default_tableid;
 
 	if ((kt = ktable_get(rtableid)) == NULL) {
 		log_warnx("kr_nexthop_add: non-existent rtableid %d", rtableid);
@@ -901,10 +905,14 @@ kr_nexthop_add(u_int rtableid, struct bgpd_addr *addr)
 }
 
 void
-kr_nexthop_delete(u_int rtableid, struct bgpd_addr *addr)
+kr_nexthop_delete(u_int rtableid, struct bgpd_addr *addr,
+    struct bgpd_config *conf)
 {
 	struct ktable		*kt;
 	struct knexthop_node	*kn;
+
+	if (rtableid == 0)
+		rtableid = conf->default_tableid;
 
 	if ((kt = ktable_get(rtableid)) == NULL) {
 		log_warnx("kr_nexthop_delete: non-existent rtableid %d",
@@ -1111,6 +1119,10 @@ kr_net_match(struct ktable *kt, struct kroute *kr)
 			if (kr->flags & F_CONNECTED)
 				return (xn);
 			break;
+		case NETWORK_RTLABEL:
+			if (kr->labelid == xn->net.rtlabel)
+				return (xn);
+			break;
 		case NETWORK_MRTCLONE:
 			/* can not happen */
 			break;
@@ -1141,6 +1153,10 @@ kr_net_match6(struct ktable *kt, struct kroute6 *kr6)
 			break;
 		case NETWORK_CONNECTED:
 			if (kr6->flags & F_CONNECTED)
+				return (xn);
+			break;
+		case NETWORK_RTLABEL:
+			if (kr6->labelid == xn->net.rtlabel)
 				return (xn);
 			break;
 		case NETWORK_MRTCLONE:
@@ -1269,6 +1285,7 @@ sendit:
 	net.prefix.aid = AID_INET;
 	net.prefix.v4.s_addr = kr->prefix.s_addr;
 	net.prefixlen = kr->prefixlen;
+	net.rtlabel = kr->labelid;
 	net.rtableid = kt->rtableid;
 
 	return (send_network(type, &net, match ? &match->net.attrset : NULL));
@@ -1337,6 +1354,7 @@ sendit:
 	net.prefix.aid = AID_INET6;
 	memcpy(&net.prefix.v6, &kr6->prefix, sizeof(struct in6_addr));
 	net.prefixlen = kr6->prefixlen;
+	net.rtlabel = kr6->labelid;
 	net.rtableid = kt->rtableid;
 
 	return (send_network(type, &net, match ? &match->net.attrset : NULL));
@@ -1392,6 +1410,7 @@ kr_tofull(struct kroute *kr)
 	kf.nexthop.aid = AID_INET;
 	kf.nexthop.v4.s_addr = kr->nexthop.s_addr;
 	strlcpy(kf.label, rtlabel_id2name(kr->labelid), sizeof(kf.label));
+	kf.labelid = kr->labelid;
 	kf.flags = kr->flags;
 	kf.ifindex = kr->ifindex;
 	kf.prefixlen = kr->prefixlen;
@@ -1412,6 +1431,7 @@ kr6_tofull(struct kroute6 *kr6)
 	kf.nexthop.aid = AID_INET6;
 	memcpy(&kf.nexthop.v6, &kr6->nexthop, sizeof(struct in6_addr));
 	strlcpy(kf.label, rtlabel_id2name(kr6->labelid), sizeof(kf.label));
+	kf.labelid = kr6->labelid;
 	kf.flags = kr6->flags;
 	kf.ifindex = kr6->ifindex;
 	kf.prefixlen = kr6->prefixlen;
@@ -2187,9 +2207,10 @@ knexthop_send_update(struct knexthop_node *kn)
 		kr = kn->kroute;
 		n.valid = kroute_validate(&kr->r);
 		n.connected = kr->r.flags & F_CONNECTED;
-		if ((n.gateway.v4.s_addr =
-		    kr->r.nexthop.s_addr) != 0)
+		if (kr->r.nexthop.s_addr != 0) {
 			n.gateway.aid = AID_INET;
+			n.gateway.v4.s_addr = kr->r.nexthop.s_addr;
+		}
 		if (n.connected) {
 			n.net.aid = AID_INET;
 			n.net.v4.s_addr = kr->r.prefix.s_addr;
@@ -2208,7 +2229,7 @@ knexthop_send_update(struct knexthop_node *kn)
 		}
 		if (n.connected) {
 			n.net.aid = AID_INET6;
-			memcpy(&n.net.v6, &kr6->r.nexthop,
+			memcpy(&n.net.v6, &kr6->r.prefix,
 			    sizeof(struct in6_addr));
 			n.netlen = kr6->r.prefixlen;
 		}
@@ -2780,6 +2801,7 @@ fetchtable(struct ktable *kt, u_int8_t fib_prio)
 	struct sockaddr		*sa, *gw, *rti_info[RTAX_MAX];
 	struct sockaddr_in	*sa_in;
 	struct sockaddr_in6	*sa_in6;
+	struct sockaddr_rtlabel	*label;
 	struct kroute_node	*kr = NULL;
 	struct kroute6_node	*kr6 = NULL;
 
@@ -2858,6 +2880,14 @@ fetchtable(struct ktable *kt, u_int8_t fib_prio)
 			else
 				kr->r.prefixlen =
 				    prefixlen_classful(kr->r.prefix.s_addr);
+			rtlabel_unref(kr->r.labelid);
+			kr->r.labelid = 0;
+			if ((label = (struct sockaddr_rtlabel *)
+			    rti_info[RTAX_LABEL]) != NULL) {
+				kr->r.flags |= F_RTLABEL;
+				kr->r.labelid =
+				    rtlabel_name2id(label->sr_label);
+			}
 			break;
 		case AF_INET6:
 			if ((kr6 = calloc(1, sizeof(struct kroute6_node))) ==
@@ -2891,6 +2921,14 @@ fetchtable(struct ktable *kt, u_int8_t fib_prio)
 				kr6->r.prefixlen = 128;
 			else
 				fatalx("INET6 route without netmask");
+			rtlabel_unref(kr6->r.labelid);
+			kr6->r.labelid = 0;
+			if ((label = (struct sockaddr_rtlabel *)
+			    rti_info[RTAX_LABEL]) != NULL) {
+				kr6->r.flags |= F_RTLABEL;
+				kr6->r.labelid =
+				    rtlabel_name2id(label->sr_label);
+			}
 			break;
 		default:
 			continue;

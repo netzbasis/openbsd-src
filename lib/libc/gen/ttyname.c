@@ -1,4 +1,4 @@
-/*	$OpenBSD: ttyname.c,v 1.18 2016/06/27 16:52:30 espie Exp $ */
+/*	$OpenBSD: ttyname.c,v 1.20 2017/04/14 15:02:51 deraadt Exp $ */
 /*
  * Copyright (c) 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -115,6 +115,7 @@ oldttyname(struct stat *sb, char *buf, size_t len)
 	struct dirent *dirp;
 	DIR *dp;
 	struct stat dsb;
+	int error = ENOTTY;
 
 	if ((dp = opendir(_PATH_DEV)) == NULL)
 		return (errno);
@@ -122,16 +123,18 @@ oldttyname(struct stat *sb, char *buf, size_t len)
 	while ((dirp = readdir(dp))) {
 		if (dirp->d_type != DT_CHR && dirp->d_type != DT_UNKNOWN)
 			continue;
-		if (fstatat(dirfd(dp), dirp->d_name, &dsb, AT_SYMLINK_NOFOLLOW) 
+		if (fstatat(dirfd(dp), dirp->d_name, &dsb, AT_SYMLINK_NOFOLLOW)
 		    || !S_ISCHR(dsb.st_mode) || sb->st_rdev != dsb.st_rdev)
 			continue;
-		(void)closedir(dp);
-		if (dirp->d_namlen > len - sizeof(_PATH_DEV))
-			return (ERANGE);
-		memcpy(buf + sizeof(_PATH_DEV) - 1, dirp->d_name,
-		    dirp->d_namlen + 1);
-		return (0);
+		if (dirp->d_namlen > len - sizeof(_PATH_DEV)) {
+			error = ERANGE;
+		} else {
+			memcpy(buf + sizeof(_PATH_DEV) - 1, dirp->d_name,
+			    dirp->d_namlen + 1);
+			error = 0;
+		}
+		break;
 	}
 	(void)closedir(dp);
-	return (ENOTTY);
+	return (error);
 }

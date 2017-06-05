@@ -1,4 +1,4 @@
-/*	$OpenBSD: brconfig.c,v 1.11 2016/09/03 17:13:48 chl Exp $	*/
+/*	$OpenBSD: brconfig.c,v 1.14 2016/11/28 10:12:50 reyk Exp $	*/
 
 /*
  * Copyright (c) 1999, 2000 Jason L. Wright (jason@thought.net)
@@ -1008,19 +1008,19 @@ switch_cfg(char *delim)
 	if (ioctl(s, SIOCSWGDPID, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%sdatapath-id 0x%016llx\n", delim, bp.ifbrp_datapath);
+	printf("%sdatapath %#016llx", delim, bp.ifbrp_datapath);
 
 	strlcpy(bp.ifbrp_name, name, sizeof(bp.ifbrp_name));
-	if (ioctl(s, SIOCSWGFLOWMAX, (caddr_t)&bp) < 0)
+	if (ioctl(s, SIOCSWGMAXFLOW, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%smax flows per table %d\n", delim, bp.ifbrp_maxflow);
+	printf(" maxflow %d", bp.ifbrp_maxflow);
 
 	strlcpy(bp.ifbrp_name, name, sizeof(bp.ifbrp_name));
 	if (ioctl(s, SIOCSWGMAXGROUP, (caddr_t)&bp) < 0)
 		err(1, "%s", name);
 
-	printf("%smax groups %d\n", delim, bp.ifbrp_maxgroup);
+	printf(" maxgroup %d\n", bp.ifbrp_maxgroup);
 }
 
 void
@@ -1051,7 +1051,7 @@ switch_datapathid(const char *arg, int d)
 	char *endptr;
 
 	errno = 0;
-	newdpid = strtoll(arg, &endptr, 0);
+	newdpid = strtoull(arg, &endptr, 0);
 	if (arg[0] == '\0' || endptr[0] != '\0' || errno == ERANGE)
 		errx(1, "invalid arg for datapath-id: %s", arg);
 

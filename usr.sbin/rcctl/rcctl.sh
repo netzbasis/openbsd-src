@@ -1,6 +1,6 @@
 #!/bin/ksh
 #
-# $OpenBSD: rcctl.sh,v 1.105 2016/09/07 13:13:13 ajacoutot Exp $
+# $OpenBSD: rcctl.sh,v 1.106 2017/05/30 12:04:27 tb Exp $
 #
 # Copyright (c) 2014, 2015 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -19,7 +19,8 @@
 
 pledge "stdio rpath wpath cpath proc exec"
 
-_special_svcs="accounting check_quotas ipsec multicast pf spamd_black"
+_special_svcs="accounting check_quotas ipsec library_aslr multicast pf
+               spamd_black"
 readonly _special_svcs
 
 # get local functions from rc.subr(8)

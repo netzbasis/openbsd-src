@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_machdep.c,v 1.39 2016/09/01 09:05:37 kettenis Exp $ */
+/*	$OpenBSD: armv7_machdep.c,v 1.49 2017/05/02 21:39:45 kettenis Exp $ */
 /*	$NetBSD: lubbock_machdep.c,v 1.2 2003/07/15 00:25:06 lukem Exp $ */
 
 /*
@@ -199,7 +199,7 @@ int   safepri = 0;
 /* Prototypes */
 
 char	bootargs[MAX_BOOT_STRING];
-int	bootstrap_bs_map(void *, bus_addr_t, bus_size_t, int,
+int	bootstrap_bs_map(void *, uint64_t, bus_size_t, int,
     bus_space_handle_t *);
 void	process_kernel_args(char *);
 void	consinit(void);
@@ -218,6 +218,9 @@ int comcnmode = CONMODE;
 
 int stdout_node = 0;
 
+void (*cpuresetfn)(void);
+void (*powerdownfn)(void);
+
 /*
  * void boot(int howto, char *bootstr)
  *
@@ -229,24 +232,10 @@ int stdout_node = 0;
 __dead void
 boot(int howto)
 {
-#ifdef DIAGNOSTIC
-	/* info */
-	printf("boot: howto=%08x curproc=%p\n", howto, curproc);
-#endif
-
 	if (cold) {
-		config_suspend_all(DVACT_POWERDOWN);
-		if ((howto & (RB_HALT | RB_USERREQ)) != RB_USERREQ) {
-			printf("The operating system has halted.\n");
-			printf("Please press any key to reboot.\n\n");
-			cngetc();
-		}
-		printf("rebooting...\n");
-		delay(500000);
-		platform_watchdog_reset();
-		printf("reboot failed; spinning\n");
-		while(1);
-		/*NOTREACHED*/
+		if ((howto & RB_USERREQ) == 0)
+			howto |= RB_HALT;
+		goto haltsys;
 	}
 
 	/* Disable console buffering */
@@ -271,6 +260,7 @@ boot(int howto)
 	if ((howto & (RB_DUMP | RB_HALT)) == RB_DUMP)
 		dumpsys();
 
+haltsys:
 	config_suspend_all(DVACT_POWERDOWN);
 
 	/* Make sure IRQ's are disabled */
@@ -280,7 +270,8 @@ boot(int howto)
 		if ((howto & RB_POWERDOWN) != 0) {
 			printf("\nAttempting to power down...\n");
 			delay(500000);
-			platform_powerdown();
+			if (powerdownfn)
+				(*powerdownfn)();
 		}
 
 		printf("The operating system has halted.\n");
@@ -290,9 +281,11 @@ boot(int howto)
 
 	printf("rebooting...\n");
 	delay(500000);
-	platform_watchdog_reset();
+	if (cpuresetfn)
+		(*cpuresetfn)();
 	printf("reboot failed; spinning\n");
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 
@@ -318,7 +311,7 @@ read_ttb(void)
 static vaddr_t section_free = 0xfd000000; /* XXX - huh */
 
 int
-bootstrap_bs_map(void *t, bus_addr_t bpa, bus_size_t size,
+bootstrap_bs_map(void *t, uint64_t bpa, bus_size_t size,
     int flags, bus_space_handle_t *bshp)
 {
 	u_long startpa, pa, endpa;
@@ -376,13 +369,12 @@ copy_io_area_map(pd_entry_t *new_pd)
  *   Setting up page tables for the kernel.
  */
 u_int
-initarm(void *arg0, void *arg1, void *arg2)
+initarm(void *arg0, void *arg1, void *arg2, paddr_t loadaddr)
 {
 	int loop, loop1, i, physsegs = VM_PHYSSEG_MAX;
 	u_int l1pagetable;
 	pv_addr_t kernel_l1pt;
 	pv_addr_t fdt;
-	paddr_t loadaddr;
 	struct fdt_reg reg;
 	paddr_t memstart;
 	psize_t memsize;
@@ -394,10 +386,12 @@ initarm(void *arg0, void *arg1, void *arg2)
 
 	/* early bus_space_map support */
 	struct bus_space tmp_bs_tag;
-	int	(*map_func_save)(void *, bus_addr_t, bus_size_t, int,
+	int	(*map_func_save)(void *, uint64_t, bus_size_t, int,
 	    bus_space_handle_t *);
 
-	loadaddr = (paddr_t)arg0;
+	if (arg0)
+		esym = (uint32_t)arg0;
+
 	board_id = (uint32_t)arg1;
 	/*
 	 * u-boot has decided the top four bits are
@@ -465,7 +459,6 @@ initarm(void *arg0, void *arg1, void *arg2)
 	physical_end = MIN(reg.addr + reg.size, (paddr_t)-PAGE_SIZE);
 
 	platform_init();
-	platform_disable_l2_if_needed();
 
 	/* setup a serial console for very early boot */
 	consinit();
@@ -756,9 +749,12 @@ initarm(void *arg0, void *arg1, void *arg2)
 		physsegs--;
 	}
 
+	node = fdt_find_node("/memory");
 	for (i = 1; i < physsegs; i++) {
 		if (fdt_get_reg(node, i, &reg))
 			break;
+		if (reg.size == 0)
+			continue;
 
 		memstart = reg.addr;
 		memend = MIN(reg.addr + reg.size, (paddr_t)-PAGE_SIZE);
@@ -789,7 +785,7 @@ initarm(void *arg0, void *arg1, void *arg2)
 	ddb_init();
 
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 	printf("board type: %u\n", board_id);
 

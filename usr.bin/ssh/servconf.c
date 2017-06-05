@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.295 2016/08/25 23:57:54 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.308 2017/05/17 01:24:17 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -153,6 +153,7 @@ initialize_server_options(ServerOptions *options)
 	options->ip_qos_bulk = -1;
 	options->version_addendum = NULL;
 	options->fingerprint_hash = -1;
+	options->disable_forwarding = -1;
 }
 
 /* Returns 1 if a string option is unset or set to "none" or 0 otherwise. */
@@ -252,7 +253,7 @@ fill_default_server_options(ServerOptions *options)
 	if (options->gss_cleanup_creds == -1)
 		options->gss_cleanup_creds = 1;
 	if (options->gss_strict_acceptor == -1)
-		options->gss_strict_acceptor = 0;
+		options->gss_strict_acceptor = 1;
 	if (options->password_authentication == -1)
 		options->password_authentication = 1;
 	if (options->kbd_interactive_authentication == -1)
@@ -313,6 +314,8 @@ fill_default_server_options(ServerOptions *options)
 		options->fwd_opts.streamlocal_bind_unlink = 0;
 	if (options->fingerprint_hash == -1)
 		options->fingerprint_hash = SSH_FP_HASH_DEFAULT;
+	if (options->disable_forwarding == -1)
+		options->disable_forwarding = 0;
 
 	assemble_algorithms(options);
 
@@ -384,7 +387,7 @@ typedef enum {
 	sAuthorizedKeysCommand, sAuthorizedKeysCommandUser,
 	sAuthenticationMethods, sHostKeyAgent, sPermitUserRC,
 	sStreamLocalBindMask, sStreamLocalBindUnlink,
-	sAllowStreamLocalForwarding, sFingerprintHash,
+	sAllowStreamLocalForwarding, sFingerprintHash, sDisableForwarding,
 	sDeprecated, sIgnore, sUnsupported
 } ServerOpCodes;
 
@@ -408,7 +411,7 @@ static struct {
 	{ "keyregenerationinterval", sDeprecated, SSHCFG_GLOBAL },
 	{ "permitrootlogin", sPermitRootLogin, SSHCFG_ALL },
 	{ "syslogfacility", sLogFacility, SSHCFG_GLOBAL },
-	{ "loglevel", sLogLevel, SSHCFG_GLOBAL },
+	{ "loglevel", sLogLevel, SSHCFG_ALL },
 	{ "rhostsauthentication", sDeprecated, SSHCFG_GLOBAL },
 	{ "rhostsrsaauthentication", sDeprecated, SSHCFG_ALL },
 	{ "hostbasedauthentication", sHostbasedAuthentication, SSHCFG_ALL },
@@ -482,11 +485,11 @@ static struct {
 	{ "usedns", sUseDNS, SSHCFG_GLOBAL },
 	{ "verifyreversemapping", sDeprecated, SSHCFG_GLOBAL },
 	{ "reversemappingcheck", sDeprecated, SSHCFG_GLOBAL },
-	{ "clientaliveinterval", sClientAliveInterval, SSHCFG_GLOBAL },
-	{ "clientalivecountmax", sClientAliveCountMax, SSHCFG_GLOBAL },
+	{ "clientaliveinterval", sClientAliveInterval, SSHCFG_ALL },
+	{ "clientalivecountmax", sClientAliveCountMax, SSHCFG_ALL },
 	{ "authorizedkeysfile", sAuthorizedKeysFile, SSHCFG_ALL },
 	{ "authorizedkeysfile2", sDeprecated, SSHCFG_ALL },
-	{ "useprivilegeseparation", sUsePrivilegeSeparation, SSHCFG_GLOBAL},
+	{ "useprivilegeseparation", sDeprecated, SSHCFG_GLOBAL},
 	{ "acceptenv", sAcceptEnv, SSHCFG_ALL },
 	{ "permittunnel", sPermitTunnel, SSHCFG_ALL },
 	{ "permittty", sPermitTTY, SSHCFG_ALL },
@@ -511,6 +514,7 @@ static struct {
 	{ "streamlocalbindunlink", sStreamLocalBindUnlink, SSHCFG_ALL },
 	{ "allowstreamlocalforwarding", sAllowStreamLocalForwarding, SSHCFG_ALL },
 	{ "fingerprinthash", sFingerprintHash, SSHCFG_GLOBAL },
+	{ "disableforwarding", sDisableForwarding, SSHCFG_ALL },
 	{ NULL, sBadOption, 0 }
 };
 
@@ -874,8 +878,8 @@ static const struct multistate multistate_permitrootlogin[] = {
 	{ NULL, -1 }
 };
 static const struct multistate multistate_compression[] = {
+	{ "yes",			COMP_DELAYED },
 	{ "delayed",			COMP_DELAYED },
-	{ "yes",			COMP_ZLIB },
 	{ "no",				COMP_NONE },
 	{ NULL, -1 }
 };
@@ -883,13 +887,6 @@ static const struct multistate multistate_gatewayports[] = {
 	{ "clientspecified",		2 },
 	{ "yes",			1 },
 	{ "no",				0 },
-	{ NULL, -1 }
-};
-static const struct multistate multistate_privsep[] = {
-	{ "yes",			PRIVSEP_NOSANDBOX },
-	{ "sandbox",			PRIVSEP_ON },
-	{ "nosandbox",			PRIVSEP_NOSANDBOX },
-	{ "no",				PRIVSEP_OFF },
 	{ NULL, -1 }
 };
 static const struct multistate multistate_tcpfwd[] = {
@@ -915,6 +912,15 @@ process_server_config_line(ServerOptions *options, char *line,
 	size_t len;
 	long long val64;
 	const struct multistate *multistate_ptr;
+
+	/* Strip trailing whitespace. Allow \f (form feed) at EOL only */
+	if ((len = strlen(line)) == 0)
+		return 0;
+	for (len--; len > 0; len--) {
+		if (strchr(WHITESPACE "\f", line[len]) == NULL)
+			break;
+		line[len] = '\0';
+	}
 
 	cp = line;
 	if ((arg = strdelim(&cp)) == NULL)
@@ -1064,7 +1070,6 @@ process_server_config_line(ServerOptions *options, char *line,
 			    MAX_HOSTCERTS);
 		charptr = &options->host_cert_files[*intptr];
 		goto parse_filename;
-		break;
 
 	case sPidFile:
 		charptr = &options->pid_file;
@@ -1113,7 +1118,8 @@ process_server_config_line(ServerOptions *options, char *line,
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.",
 			    filename, linenum);
-		if (!sshkey_names_valid2(*arg == '+' ? arg + 1 : arg, 1))
+		if (*arg != '-' &&
+		    !sshkey_names_valid2(*arg == '+' ? arg + 1 : arg, 1))
 			fatal("%s line %d: Bad key types '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (*activep && *charptr == NULL)
@@ -1287,7 +1293,7 @@ process_server_config_line(ServerOptions *options, char *line,
 		if (value == SYSLOG_LEVEL_NOT_SET)
 			fatal("%.200s line %d: unsupported log level '%s'",
 			    filename, linenum, arg ? arg : "<NONE>");
-		if (*log_level_ptr == -1)
+		if (*activep && *log_level_ptr == -1)
 			*log_level_ptr = (LogLevel) value;
 		break;
 
@@ -1305,16 +1311,18 @@ process_server_config_line(ServerOptions *options, char *line,
 		intptr = &options->allow_agent_forwarding;
 		goto parse_flag;
 
-	case sUsePrivilegeSeparation:
-		intptr = &use_privsep;
-		multistate_ptr = multistate_privsep;
-		goto parse_multistate;
+	case sDisableForwarding:
+		intptr = &options->disable_forwarding;
+		goto parse_flag;
 
 	case sAllowUsers:
 		while ((arg = strdelim(&cp)) && *arg != '\0') {
 			if (options->num_allow_users >= MAX_ALLOW_USERS)
 				fatal("%s line %d: too many allow users.",
 				    filename, linenum);
+			if (match_user(NULL, NULL, NULL, arg) == -1)
+				fatal("%s line %d: invalid AllowUsers pattern: "
+				    "\"%.100s\"", filename, linenum, arg);
 			if (!*activep)
 				continue;
 			options->allow_users[options->num_allow_users++] =
@@ -1327,6 +1335,9 @@ process_server_config_line(ServerOptions *options, char *line,
 			if (options->num_deny_users >= MAX_DENY_USERS)
 				fatal("%s line %d: too many deny users.",
 				    filename, linenum);
+			if (match_user(NULL, NULL, NULL, arg) == -1)
+				fatal("%s line %d: invalid DenyUsers pattern: "
+				    "\"%.100s\"", filename, linenum, arg);
 			if (!*activep)
 				continue;
 			options->deny_users[options->num_deny_users++] =
@@ -1362,7 +1373,7 @@ process_server_config_line(ServerOptions *options, char *line,
 		arg = strdelim(&cp);
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.", filename, linenum);
-		if (!ciphers_valid(*arg == '+' ? arg + 1 : arg))
+		if (*arg != '-' && !ciphers_valid(*arg == '+' ? arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 cipher spec '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->ciphers == NULL)
@@ -1373,7 +1384,7 @@ process_server_config_line(ServerOptions *options, char *line,
 		arg = strdelim(&cp);
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.", filename, linenum);
-		if (!mac_valid(*arg == '+' ? arg + 1 : arg))
+		if (*arg != '-' && !mac_valid(*arg == '+' ? arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 mac spec '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->macs == NULL)
@@ -1385,7 +1396,8 @@ process_server_config_line(ServerOptions *options, char *line,
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: Missing argument.",
 			    filename, linenum);
-		if (!kex_names_valid(*arg == '+' ? arg + 1 : arg))
+		if (*arg != '-' &&
+		    !kex_names_valid(*arg == '+' ? arg + 1 : arg))
 			fatal("%s line %d: Bad SSH2 KexAlgorithms '%s'.",
 			    filename, linenum, arg ? arg : "<NONE>");
 		if (options->kex_algorithms == NULL)
@@ -1908,6 +1920,7 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(allow_tcp_forwarding);
 	M_CP_INTOPT(allow_streamlocal_forwarding);
 	M_CP_INTOPT(allow_agent_forwarding);
+	M_CP_INTOPT(disable_forwarding);
 	M_CP_INTOPT(permit_tun);
 	M_CP_INTOPT(fwd_opts.gateway_ports);
 	M_CP_INTOPT(fwd_opts.streamlocal_bind_unlink);
@@ -1918,10 +1931,13 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(permit_user_rc);
 	M_CP_INTOPT(max_sessions);
 	M_CP_INTOPT(max_authtries);
+	M_CP_INTOPT(client_alive_count_max);
+	M_CP_INTOPT(client_alive_interval);
 	M_CP_INTOPT(ip_qos_interactive);
 	M_CP_INTOPT(ip_qos_bulk);
 	M_CP_INTOPT(rekey_limit);
 	M_CP_INTOPT(rekey_interval);
+	M_CP_INTOPT(log_level);
 
 	/*
 	 * The bind_mask is a mode_t that may be unsigned, so we can't use
@@ -2028,8 +2044,6 @@ fmt_intarg(ServerOpCodes code, int val)
 		return fmt_multistate_int(val, multistate_gatewayports);
 	case sCompression:
 		return fmt_multistate_int(val, multistate_compression);
-	case sUsePrivilegeSeparation:
-		return fmt_multistate_int(val, multistate_privsep);
 	case sAllowTcpForwarding:
 		return fmt_multistate_int(val, multistate_tcpfwd);
 	case sAllowStreamLocalForwarding:
@@ -2080,8 +2094,6 @@ dump_cfg_fmtint(ServerOpCodes code, int val)
 static void
 dump_cfg_string(ServerOpCodes code, const char *val)
 {
-	if (val == NULL)
-		return;
 	printf("%s %s\n", lookup_opcode_name(code),
 	    val == NULL ? "none" : val);
 }
@@ -2197,9 +2209,9 @@ dump_config(ServerOptions *o)
 	dump_cfg_fmtint(sUseDNS, o->use_dns);
 	dump_cfg_fmtint(sAllowTcpForwarding, o->allow_tcp_forwarding);
 	dump_cfg_fmtint(sAllowAgentForwarding, o->allow_agent_forwarding);
+	dump_cfg_fmtint(sDisableForwarding, o->disable_forwarding);
 	dump_cfg_fmtint(sAllowStreamLocalForwarding, o->allow_streamlocal_forwarding);
 	dump_cfg_fmtint(sStreamLocalBindUnlink, o->fwd_opts.streamlocal_bind_unlink);
-	dump_cfg_fmtint(sUsePrivilegeSeparation, use_privsep);
 	dump_cfg_fmtint(sFingerprintHash, o->fingerprint_hash);
 
 	/* string arguments */

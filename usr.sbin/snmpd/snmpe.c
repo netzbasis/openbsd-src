@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpe.c,v 1.42 2016/08/16 18:41:57 tedu Exp $	*/
+/*	$OpenBSD: snmpe.c,v 1.47 2017/04/21 13:50:23 jca Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -42,7 +42,7 @@
 void	 snmpe_init(struct privsep *, struct privsep_proc *, void *);
 int	 snmpe_parse(struct snmp_message *);
 int	 snmpe_parsevarbinds(struct snmp_message *);
-void	 snmpe_response(int, struct snmp_message *);
+void	 snmpe_response(struct snmp_message *);
 unsigned long
 	 snmpe_application(struct ber_element *);
 void	 snmpe_sig_handler(int sig, short, void *);
@@ -52,23 +52,22 @@ void	 snmpe_recvmsg(int fd, short, void *);
 int	 snmpe_encode(struct snmp_message *);
 void	 snmp_msgfree(struct snmp_message *);
 
-struct snmpd	*env = NULL;
-
 struct imsgev	*iev_parent;
 
 static struct privsep_proc procs[] = {
 	{ "parent",	PROC_PARENT,	snmpe_dispatch_parent }
 };
 
-pid_t
+void
 snmpe(struct privsep *ps, struct privsep_proc *p)
 {
+	struct snmpd		*env = ps->ps_env;
+	struct address		*h;
+	struct listen_sock	*so;
 #ifdef DEBUG
 	char		 buf[BUFSIZ];
 	struct oid	*oid;
 #endif
-
-	env = ps->ps_env;
 
 #ifdef DEBUG
 	for (oid = NULL; (oid = smi_foreach(oid, 0)) != NULL;) {
@@ -77,26 +76,35 @@ snmpe(struct privsep *ps, struct privsep_proc *p)
 	}
 #endif
 
-	/* bind SNMP UDP socket */
-	if ((env->sc_sock = snmpe_bind(&env->sc_address)) == -1)
-		fatalx("snmpe: failed to bind SNMP UDP socket");
+	TAILQ_FOREACH(h, &env->sc_addresses, entry) {
+		if ((so = calloc(1, sizeof(*so))) == NULL)
+			fatal("snmpe: %s", __func__);
+		if ((so->s_fd = snmpe_bind(h)) == -1)
+			fatal("snmpe: failed to bind SNMP UDP socket");
+		TAILQ_INSERT_TAIL(&env->sc_sockets, so, entry);
+	}
 
-	return (proc_run(ps, p, procs, nitems(procs), snmpe_init, NULL));
+	proc_run(ps, p, procs, nitems(procs), snmpe_init, NULL);
 }
 
 /* ARGSUSED */
 void
 snmpe_init(struct privsep *ps, struct privsep_proc *p, void *arg)
 {
+	struct snmpd		*env = ps->ps_env;
+	struct listen_sock	*so;
+
 	kr_init();
 	trap_init();
 	timer_init();
 	usm_generate_keys();
 
 	/* listen for incoming SNMP UDP messages */
-	event_set(&env->sc_ev, env->sc_sock, EV_READ|EV_PERSIST,
-	    snmpe_recvmsg, env);
-	event_add(&env->sc_ev, NULL);
+	TAILQ_FOREACH(so, &env->sc_sockets, entry) {
+		event_set(&so->s_ev, so->s_fd, EV_READ|EV_PERSIST,
+		    snmpe_recvmsg, env);
+		event_add(&so->s_ev, NULL);
+	}
 }
 
 void
@@ -120,7 +128,7 @@ int
 snmpe_bind(struct address *addr)
 {
 	char	 buf[512];
-	int	 s;
+	int	 val, s;
 
 	if ((s = snmpd_socket_af(&addr->ss, htons(addr->port))) == -1)
 		return (-1);
@@ -131,13 +139,33 @@ snmpe_bind(struct address *addr)
 	if (fcntl(s, F_SETFL, O_NONBLOCK) == -1)
 		goto bad;
 
+	switch (addr->ss.ss_family) {
+	case AF_INET:
+		val = 1;
+		if (setsockopt(s, IPPROTO_IP, IP_RECVDSTADDR,
+		    &val, sizeof(int)) == -1) {
+			log_warn("%s: failed to set IPv4 packet info",
+			    __func__);
+			goto bad;
+		}
+		break;
+	case AF_INET6:
+		val = 1;
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO,
+		    &val, sizeof(int)) == -1) {
+			log_warn("%s: failed to set IPv6 packet info",
+			    __func__);
+			goto bad;
+		}
+	}
+
 	if (bind(s, (struct sockaddr *)&addr->ss, addr->ss.ss_len) == -1)
 		goto bad;
 
 	if (print_host(&addr->ss, buf, sizeof(buf)) == NULL)
 		goto bad;
 
-	log_info("snmpe_bind: binding to address %s:%d", buf, addr->port);
+	log_info("snmpe: listening on %s:%d", buf, addr->port);
 
 	return (s);
 
@@ -149,6 +177,7 @@ snmpe_bind(struct address *addr)
 int
 snmpe_parse(struct snmp_message *msg)
 {
+	struct snmpd		*env = snmpd_env;
 	struct snmp_stats	*stats = &env->sc_stats;
 	struct ber_element	*a;
 	long long		 ver, req;
@@ -331,7 +360,7 @@ snmpe_parse(struct snmp_message *msg)
 int
 snmpe_parsevarbinds(struct snmp_message *msg)
 {
-	struct snmp_stats	*stats = &env->sc_stats;
+	struct snmp_stats	*stats = &snmpd_env->sc_stats;
 	char			 buf[BUFSIZ];
 	struct ber_oid		 o;
 	int			 ret = 0;
@@ -398,7 +427,7 @@ snmpe_parsevarbinds(struct snmp_message *msg)
 					goto varfail;
 
 				case SNMP_C_SETREQ:
-					if (env->sc_readonly == 0) {
+					if (snmpd_env->sc_readonly == 0) {
 						ret = mps_setreq(msg,
 						    msg->sm_b, &o);
 						if (ret == 0)
@@ -452,6 +481,7 @@ snmpe_parsevarbinds(struct snmp_message *msg)
 void
 snmpe_recvmsg(int fd, short sig, void *arg)
 {
+	struct snmpd		*env = arg;
 	struct snmp_stats	*stats = &env->sc_stats;
 	ssize_t			 len;
 	struct snmp_message	*msg;
@@ -459,9 +489,11 @@ snmpe_recvmsg(int fd, short sig, void *arg)
 	if ((msg = calloc(1, sizeof(*msg))) == NULL)
 		return;
 
+	msg->sm_sock = fd;
 	msg->sm_slen = sizeof(msg->sm_ss);
-	if ((len = recvfrom(fd, msg->sm_data, sizeof(msg->sm_data), 0,
-	    (struct sockaddr *)&msg->sm_ss, &msg->sm_slen)) < 1) {
+	if ((len = recvfromto(fd, msg->sm_data, sizeof(msg->sm_data), 0,
+	    (struct sockaddr *)&msg->sm_ss, &msg->sm_slen,
+	    (struct sockaddr *)&msg->sm_local_ss, &msg->sm_local_slen)) < 1) {
 		free(msg);
 		return;
 	}
@@ -489,7 +521,7 @@ snmpe_recvmsg(int fd, short sig, void *arg)
 	if (snmpe_parse(msg) == -1) {
 		if (msg->sm_usmerr != 0 && MSG_REPORT(msg)) {
 			usm_make_report(msg);
-			snmpe_response(fd, msg);
+			snmpe_response(msg);
 			return;
 		} else {
 			snmp_msgfree(msg);
@@ -508,13 +540,13 @@ snmpe_dispatchmsg(struct snmp_message *msg)
 
 	/* not dispatched to subagent; respond directly */
 	msg->sm_context = SNMP_C_GETRESP;
-	snmpe_response(env->sc_sock, msg);
+	snmpe_response(msg);
 }
 
 void
-snmpe_response(int fd, struct snmp_message *msg)
+snmpe_response(struct snmp_message *msg)
 {
-	struct snmp_stats	*stats = &env->sc_stats;
+	struct snmp_stats	*stats = &snmpd_env->sc_stats;
 	u_int8_t		*ptr = NULL;
 	ssize_t			 len;
 
@@ -549,8 +581,9 @@ snmpe_response(int fd, struct snmp_message *msg)
 		goto done;
 
 	usm_finalize_digest(msg, ptr, len);
-	len = sendto(fd, ptr, len, 0, (struct sockaddr *)&msg->sm_ss,
-	    msg->sm_slen);
+	len = sendtofrom(msg->sm_sock, ptr, len, 0,
+	    (struct sockaddr *)&msg->sm_ss, msg->sm_slen,
+	    (struct sockaddr *)&msg->sm_local_ss, msg->sm_local_slen);
 	if (len != -1)
 		stats->snmp_outpkts++;
 
@@ -596,8 +629,9 @@ snmpe_encode(struct snmp_message *msg)
 
 	pdu = epdu = ber_add_sequence(NULL);
 	if (msg->sm_version == SNMP_V3) {
-		if ((epdu = ber_printf_elements(epdu, "xs{", env->sc_engineid,
-		    env->sc_engineid_len, msg->sm_ctxname)) == NULL) {
+		if ((epdu = ber_printf_elements(epdu, "xs{",
+		    snmpd_env->sc_engineid, snmpd_env->sc_engineid_len,
+		    msg->sm_ctxname)) == NULL) {
 			ber_free_elements(pdu);
 			return -1;
 		}

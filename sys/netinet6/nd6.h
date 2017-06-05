@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.h,v 1.63 2016/07/13 01:51:22 dlg Exp $	*/
+/*	$OpenBSD: nd6.h,v 1.66 2016/12/27 18:45:01 bluhm Exp $	*/
 /*	$KAME: nd6.h,v 1.95 2002/06/08 11:31:06 itojun Exp $	*/
 
 /*
@@ -223,8 +223,6 @@ extern int nd6_debug;
 
 #define nd6log(x)	do { if (nd6_debug) log x; } while (0)
 
-extern struct timeout nd6_timer_ch;
-
 union nd_opts {
 	struct nd_opt_hdr *nd_opt_array[9];
 	struct {
@@ -260,7 +258,6 @@ int nd6_options(union nd_opts *);
 struct	rtentry *nd6_lookup(struct in6_addr *, int, struct ifnet *, u_int);
 void nd6_setmtu(struct ifnet *);
 void nd6_llinfo_settimer(struct llinfo_nd6 *, int);
-void nd6_timer(void *);
 void nd6_purge(struct ifnet *);
 void nd6_nud_hint(struct rtentry *);
 void nd6_rtrequest(struct ifnet *, int, struct rtentry *);
@@ -288,14 +285,10 @@ void nd6_rs_detach(struct ifnet *);
 void nd6_rs_input(struct mbuf *, int, int);
 
 void prelist_del(struct nd_prefix *);
-void defrouter_addreq(struct nd_defrouter *);
 void defrouter_reset(void);
 void defrouter_select(void);
 void defrtrlist_del(struct nd_defrouter *);
 void prelist_remove(struct nd_prefix *);
-int prelist_update(struct nd_prefix *, struct nd_defrouter *, struct mbuf *);
-int nd6_prelist_add(struct nd_prefix *, struct nd_defrouter *,
-	struct nd_prefix **);
 void pfxlist_onlink_check(void);
 struct nd_defrouter *defrouter_lookup(struct in6_addr *, unsigned int);
 

@@ -1,7 +1,8 @@
-/*	$OpenBSD: mandocdb.c,v 1.179 2016/09/02 14:03:24 schwarze Exp $ */
+/*	$OpenBSD: mandocdb.c,v 1.199 2017/05/17 22:26:52 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2011-2016 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011-2017 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2016 Ed Maste <emaste@freebsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -73,6 +74,7 @@ struct	mpage {
 	char		*arch;    /* architecture from file content */
 	char		*title;   /* title from file content */
 	char		*desc;    /* description from file content */
+	struct mpage	*next;    /* singly linked list */
 	struct mlink	*mlinks;  /* singly linked list */
 	int		 name_head_done;
 	enum form	 form;    /* format from file content */
@@ -97,6 +99,7 @@ typedef	int (*mdoc_fp)(struct mpage *, const struct roff_meta *,
 struct	mdoc_handler {
 	mdoc_fp		 fp; /* optional handler */
 	uint64_t	 mask;  /* set unless handler returns 0 */
+	int		 taboo;  /* node flags that must not be set */
 };
 
 
@@ -107,11 +110,11 @@ static	void	 dbadd_mlink(const struct mlink *mlink);
 static	void	 dbprune(struct dba *);
 static	void	 dbwrite(struct dba *);
 static	void	 filescan(const char *);
+static	int	 fts_compare(const FTSENT **, const FTSENT **);
 static	void	 mlink_add(struct mlink *, const struct stat *);
 static	void	 mlink_check(struct mpage *, struct mlink *);
 static	void	 mlink_free(struct mlink *);
 static	void	 mlinks_undupe(struct mpage *);
-int		 mpages_compare(const void *, const void *);
 static	void	 mpages_free(void);
 static	void	 mpages_merge(struct dba *, struct mparse *);
 static	void	 parse_cat(struct mpage *, int);
@@ -141,10 +144,10 @@ static	int	 parse_mdoc_Xr(struct mpage *, const struct roff_meta *,
 static	void	 putkey(const struct mpage *, char *, uint64_t);
 static	void	 putkeys(const struct mpage *, char *, size_t, uint64_t);
 static	void	 putmdockey(const struct mpage *,
-			const struct roff_node *, uint64_t);
+			const struct roff_node *, uint64_t, int);
 static	int	 render_string(char **, size_t *);
 static	void	 say(const char *, const char *, ...)
-			__attribute__((__format__ (printf, 2, 3)));
+			__attribute__((__format__ (__printf__, 2, 3)));
 static	int	 set_basedir(const char *, int);
 static	int	 treescan(void);
 static	size_t	 utf8(unsigned int, char [7]);
@@ -158,137 +161,136 @@ static	int		 write_utf8; /* write UTF-8 output; else ASCII */
 static	int		 exitcode; /* to be returned by main */
 static	enum op		 op; /* operational mode */
 static	char		 basedir[PATH_MAX]; /* current base directory */
+static	struct mpage	*mpage_head; /* list of distinct manual pages */
 static	struct ohash	 mpages; /* table of distinct manual pages */
 static	struct ohash	 mlinks; /* table of directory entries */
 static	struct ohash	 names; /* table of all names */
 static	struct ohash	 strings; /* table of all strings */
 static	uint64_t	 name_mask;
 
-static	const struct mdoc_handler mdocs[MDOC_MAX] = {
-	{ NULL, 0 },  /* Ap */
-	{ NULL, 0 },  /* Dd */
-	{ NULL, 0 },  /* Dt */
-	{ NULL, 0 },  /* Os */
-	{ parse_mdoc_Sh, TYPE_Sh }, /* Sh */
-	{ parse_mdoc_head, TYPE_Ss }, /* Ss */
-	{ NULL, 0 },  /* Pp */
-	{ NULL, 0 },  /* D1 */
-	{ NULL, 0 },  /* Dl */
-	{ NULL, 0 },  /* Bd */
-	{ NULL, 0 },  /* Ed */
-	{ NULL, 0 },  /* Bl */
-	{ NULL, 0 },  /* El */
-	{ NULL, 0 },  /* It */
-	{ NULL, 0 },  /* Ad */
-	{ NULL, TYPE_An },  /* An */
-	{ NULL, TYPE_Ar },  /* Ar */
-	{ NULL, TYPE_Cd },  /* Cd */
-	{ NULL, TYPE_Cm },  /* Cm */
-	{ NULL, TYPE_Dv },  /* Dv */
-	{ NULL, TYPE_Er },  /* Er */
-	{ NULL, TYPE_Ev },  /* Ev */
-	{ NULL, 0 },  /* Ex */
-	{ NULL, TYPE_Fa },  /* Fa */
-	{ parse_mdoc_Fd, 0 },  /* Fd */
-	{ NULL, TYPE_Fl },  /* Fl */
-	{ parse_mdoc_Fn, 0 },  /* Fn */
-	{ NULL, TYPE_Ft },  /* Ft */
-	{ NULL, TYPE_Ic },  /* Ic */
-	{ NULL, TYPE_In },  /* In */
-	{ NULL, TYPE_Li },  /* Li */
-	{ parse_mdoc_Nd, 0 },  /* Nd */
-	{ parse_mdoc_Nm, 0 },  /* Nm */
-	{ NULL, 0 },  /* Op */
-	{ NULL, 0 },  /* Ot */
-	{ NULL, TYPE_Pa },  /* Pa */
-	{ NULL, 0 },  /* Rv */
-	{ NULL, TYPE_St },  /* St */
-	{ parse_mdoc_Va, TYPE_Va },  /* Va */
-	{ parse_mdoc_Va, TYPE_Vt },  /* Vt */
-	{ parse_mdoc_Xr, 0 },  /* Xr */
-	{ NULL, 0 },  /* %A */
-	{ NULL, 0 },  /* %B */
-	{ NULL, 0 },  /* %D */
-	{ NULL, 0 },  /* %I */
-	{ NULL, 0 },  /* %J */
-	{ NULL, 0 },  /* %N */
-	{ NULL, 0 },  /* %O */
-	{ NULL, 0 },  /* %P */
-	{ NULL, 0 },  /* %R */
-	{ NULL, 0 },  /* %T */
-	{ NULL, 0 },  /* %V */
-	{ NULL, 0 },  /* Ac */
-	{ NULL, 0 },  /* Ao */
-	{ NULL, 0 },  /* Aq */
-	{ NULL, TYPE_At },  /* At */
-	{ NULL, 0 },  /* Bc */
-	{ NULL, 0 },  /* Bf */
-	{ NULL, 0 },  /* Bo */
-	{ NULL, 0 },  /* Bq */
-	{ NULL, TYPE_Bsx },  /* Bsx */
-	{ NULL, TYPE_Bx },  /* Bx */
-	{ NULL, 0 },  /* Db */
-	{ NULL, 0 },  /* Dc */
-	{ NULL, 0 },  /* Do */
-	{ NULL, 0 },  /* Dq */
-	{ NULL, 0 },  /* Ec */
-	{ NULL, 0 },  /* Ef */
-	{ NULL, TYPE_Em },  /* Em */
-	{ NULL, 0 },  /* Eo */
-	{ NULL, TYPE_Fx },  /* Fx */
-	{ NULL, TYPE_Ms },  /* Ms */
-	{ NULL, 0 },  /* No */
-	{ NULL, 0 },  /* Ns */
-	{ NULL, TYPE_Nx },  /* Nx */
-	{ NULL, TYPE_Ox },  /* Ox */
-	{ NULL, 0 },  /* Pc */
-	{ NULL, 0 },  /* Pf */
-	{ NULL, 0 },  /* Po */
-	{ NULL, 0 },  /* Pq */
-	{ NULL, 0 },  /* Qc */
-	{ NULL, 0 },  /* Ql */
-	{ NULL, 0 },  /* Qo */
-	{ NULL, 0 },  /* Qq */
-	{ NULL, 0 },  /* Re */
-	{ NULL, 0 },  /* Rs */
-	{ NULL, 0 },  /* Sc */
-	{ NULL, 0 },  /* So */
-	{ NULL, 0 },  /* Sq */
-	{ NULL, 0 },  /* Sm */
-	{ NULL, 0 },  /* Sx */
-	{ NULL, TYPE_Sy },  /* Sy */
-	{ NULL, TYPE_Tn },  /* Tn */
-	{ NULL, 0 },  /* Ux */
-	{ NULL, 0 },  /* Xc */
-	{ NULL, 0 },  /* Xo */
-	{ parse_mdoc_Fo, 0 },  /* Fo */
-	{ NULL, 0 },  /* Fc */
-	{ NULL, 0 },  /* Oo */
-	{ NULL, 0 },  /* Oc */
-	{ NULL, 0 },  /* Bk */
-	{ NULL, 0 },  /* Ek */
-	{ NULL, 0 },  /* Bt */
-	{ NULL, 0 },  /* Hf */
-	{ NULL, 0 },  /* Fr */
-	{ NULL, 0 },  /* Ud */
-	{ NULL, TYPE_Lb },  /* Lb */
-	{ NULL, 0 },  /* Lp */
-	{ NULL, TYPE_Lk },  /* Lk */
-	{ NULL, TYPE_Mt },  /* Mt */
-	{ NULL, 0 },  /* Brq */
-	{ NULL, 0 },  /* Bro */
-	{ NULL, 0 },  /* Brc */
-	{ NULL, 0 },  /* %C */
-	{ NULL, 0 },  /* Es */
-	{ NULL, 0 },  /* En */
-	{ NULL, TYPE_Dx },  /* Dx */
-	{ NULL, 0 },  /* %Q */
-	{ NULL, 0 },  /* br */
-	{ NULL, 0 },  /* sp */
-	{ NULL, 0 },  /* %U */
-	{ NULL, 0 },  /* Ta */
-	{ NULL, 0 },  /* ll */
+static	const struct mdoc_handler __mdocs[MDOC_MAX - MDOC_Dd] = {
+	{ NULL, 0, NODE_NOPRT },  /* Dd */
+	{ NULL, 0, NODE_NOPRT },  /* Dt */
+	{ NULL, 0, NODE_NOPRT },  /* Os */
+	{ parse_mdoc_Sh, TYPE_Sh, 0 }, /* Sh */
+	{ parse_mdoc_head, TYPE_Ss, 0 }, /* Ss */
+	{ NULL, 0, 0 },  /* Pp */
+	{ NULL, 0, 0 },  /* D1 */
+	{ NULL, 0, 0 },  /* Dl */
+	{ NULL, 0, 0 },  /* Bd */
+	{ NULL, 0, 0 },  /* Ed */
+	{ NULL, 0, 0 },  /* Bl */
+	{ NULL, 0, 0 },  /* El */
+	{ NULL, 0, 0 },  /* It */
+	{ NULL, 0, 0 },  /* Ad */
+	{ NULL, TYPE_An, 0 },  /* An */
+	{ NULL, 0, 0 },  /* Ap */
+	{ NULL, TYPE_Ar, 0 },  /* Ar */
+	{ NULL, TYPE_Cd, 0 },  /* Cd */
+	{ NULL, TYPE_Cm, 0 },  /* Cm */
+	{ NULL, TYPE_Dv, 0 },  /* Dv */
+	{ NULL, TYPE_Er, 0 },  /* Er */
+	{ NULL, TYPE_Ev, 0 },  /* Ev */
+	{ NULL, 0, 0 },  /* Ex */
+	{ NULL, TYPE_Fa, 0 },  /* Fa */
+	{ parse_mdoc_Fd, 0, 0 },  /* Fd */
+	{ NULL, TYPE_Fl, 0 },  /* Fl */
+	{ parse_mdoc_Fn, 0, 0 },  /* Fn */
+	{ NULL, TYPE_Ft, 0 },  /* Ft */
+	{ NULL, TYPE_Ic, 0 },  /* Ic */
+	{ NULL, TYPE_In, 0 },  /* In */
+	{ NULL, TYPE_Li, 0 },  /* Li */
+	{ parse_mdoc_Nd, 0, 0 },  /* Nd */
+	{ parse_mdoc_Nm, 0, 0 },  /* Nm */
+	{ NULL, 0, 0 },  /* Op */
+	{ NULL, 0, 0 },  /* Ot */
+	{ NULL, TYPE_Pa, NODE_NOSRC },  /* Pa */
+	{ NULL, 0, 0 },  /* Rv */
+	{ NULL, TYPE_St, 0 },  /* St */
+	{ parse_mdoc_Va, TYPE_Va, 0 },  /* Va */
+	{ parse_mdoc_Va, TYPE_Vt, 0 },  /* Vt */
+	{ parse_mdoc_Xr, 0, 0 },  /* Xr */
+	{ NULL, 0, 0 },  /* %A */
+	{ NULL, 0, 0 },  /* %B */
+	{ NULL, 0, 0 },  /* %D */
+	{ NULL, 0, 0 },  /* %I */
+	{ NULL, 0, 0 },  /* %J */
+	{ NULL, 0, 0 },  /* %N */
+	{ NULL, 0, 0 },  /* %O */
+	{ NULL, 0, 0 },  /* %P */
+	{ NULL, 0, 0 },  /* %R */
+	{ NULL, 0, 0 },  /* %T */
+	{ NULL, 0, 0 },  /* %V */
+	{ NULL, 0, 0 },  /* Ac */
+	{ NULL, 0, 0 },  /* Ao */
+	{ NULL, 0, 0 },  /* Aq */
+	{ NULL, TYPE_At, 0 },  /* At */
+	{ NULL, 0, 0 },  /* Bc */
+	{ NULL, 0, 0 },  /* Bf */
+	{ NULL, 0, 0 },  /* Bo */
+	{ NULL, 0, 0 },  /* Bq */
+	{ NULL, TYPE_Bsx, NODE_NOSRC },  /* Bsx */
+	{ NULL, TYPE_Bx, NODE_NOSRC },  /* Bx */
+	{ NULL, 0, 0 },  /* Db */
+	{ NULL, 0, 0 },  /* Dc */
+	{ NULL, 0, 0 },  /* Do */
+	{ NULL, 0, 0 },  /* Dq */
+	{ NULL, 0, 0 },  /* Ec */
+	{ NULL, 0, 0 },  /* Ef */
+	{ NULL, TYPE_Em, 0 },  /* Em */
+	{ NULL, 0, 0 },  /* Eo */
+	{ NULL, TYPE_Fx, NODE_NOSRC },  /* Fx */
+	{ NULL, TYPE_Ms, 0 },  /* Ms */
+	{ NULL, 0, 0 },  /* No */
+	{ NULL, 0, 0 },  /* Ns */
+	{ NULL, TYPE_Nx, NODE_NOSRC },  /* Nx */
+	{ NULL, TYPE_Ox, NODE_NOSRC },  /* Ox */
+	{ NULL, 0, 0 },  /* Pc */
+	{ NULL, 0, 0 },  /* Pf */
+	{ NULL, 0, 0 },  /* Po */
+	{ NULL, 0, 0 },  /* Pq */
+	{ NULL, 0, 0 },  /* Qc */
+	{ NULL, 0, 0 },  /* Ql */
+	{ NULL, 0, 0 },  /* Qo */
+	{ NULL, 0, 0 },  /* Qq */
+	{ NULL, 0, 0 },  /* Re */
+	{ NULL, 0, 0 },  /* Rs */
+	{ NULL, 0, 0 },  /* Sc */
+	{ NULL, 0, 0 },  /* So */
+	{ NULL, 0, 0 },  /* Sq */
+	{ NULL, 0, 0 },  /* Sm */
+	{ NULL, 0, 0 },  /* Sx */
+	{ NULL, TYPE_Sy, 0 },  /* Sy */
+	{ NULL, TYPE_Tn, 0 },  /* Tn */
+	{ NULL, 0, NODE_NOSRC },  /* Ux */
+	{ NULL, 0, 0 },  /* Xc */
+	{ NULL, 0, 0 },  /* Xo */
+	{ parse_mdoc_Fo, 0, 0 },  /* Fo */
+	{ NULL, 0, 0 },  /* Fc */
+	{ NULL, 0, 0 },  /* Oo */
+	{ NULL, 0, 0 },  /* Oc */
+	{ NULL, 0, 0 },  /* Bk */
+	{ NULL, 0, 0 },  /* Ek */
+	{ NULL, 0, 0 },  /* Bt */
+	{ NULL, 0, 0 },  /* Hf */
+	{ NULL, 0, 0 },  /* Fr */
+	{ NULL, 0, 0 },  /* Ud */
+	{ NULL, TYPE_Lb, NODE_NOSRC },  /* Lb */
+	{ NULL, 0, 0 },  /* Lp */
+	{ NULL, TYPE_Lk, 0 },  /* Lk */
+	{ NULL, TYPE_Mt, NODE_NOSRC },  /* Mt */
+	{ NULL, 0, 0 },  /* Brq */
+	{ NULL, 0, 0 },  /* Bro */
+	{ NULL, 0, 0 },  /* Brc */
+	{ NULL, 0, 0 },  /* %C */
+	{ NULL, 0, 0 },  /* Es */
+	{ NULL, 0, 0 },  /* En */
+	{ NULL, TYPE_Dx, NODE_NOSRC },  /* Dx */
+	{ NULL, 0, 0 },  /* %Q */
+	{ NULL, 0, 0 },  /* %U */
+	{ NULL, 0, 0 },  /* Ta */
 };
+static	const struct mdoc_handler *const mdocs = __mdocs - MDOC_Dd;
 
 
 int
@@ -442,8 +444,7 @@ mandocdb(int argc, char *argv[])
 	} else {
 		/*
 		 * If we have arguments, use them as our manpaths.
-		 * If we don't, grok from manpath(1) or however else
-		 * manconf_parse() wants to do it.
+		 * If we don't, use man.conf(5).
 		 */
 		if (argc > 0) {
 			conf.manpath.paths = mandoc_reallocarray(NULL,
@@ -517,6 +518,16 @@ usage:
 }
 
 /*
+ * To get a singly linked list in alpha order while inserting entries
+ * at the beginning, process directory entries in reverse alpha order.
+ */
+static int
+fts_compare(const FTSENT **a, const FTSENT **b)
+{
+	return -strcmp((*a)->fts_name, (*b)->fts_name);
+}
+
+/*
  * Scan a directory tree rooted at "basedir" for manpages.
  * We use fts(), scanning directory parts along the way for clues to our
  * section and architecture.
@@ -544,10 +555,10 @@ treescan(void)
 	const char	*argv[2];
 
 	argv[0] = ".";
-	argv[1] = (char *)NULL;
+	argv[1] = NULL;
 
-	f = fts_open((char * const *)argv,
-	    FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+	f = fts_open((char * const *)argv, FTS_PHYSICAL | FTS_NOCHDIR,
+	    fts_compare);
 	if (f == NULL) {
 		exitcode = (int)MANDOCLEVEL_SYSERR;
 		say("", "&fts_open");
@@ -819,6 +830,20 @@ filescan(const char *file)
 	}
 
 	/*
+	 * In test mode or when the original name is absolute
+	 * but outside our tree, guess the base directory.
+	 */
+
+	if (op == OP_TEST || (start == buf && *start == '/')) {
+		if (strncmp(buf, "man/", 4) == 0)
+			start = buf + 4;
+		else if ((start = strstr(buf, "/man/")) != NULL)
+			start += 5;
+		else
+			start = buf;
+	}
+
+	/*
 	 * First try to guess our directory structure.
 	 * If we find a separator, try to look for man* or cat*.
 	 * If we find one of these and what's underneath is a directory,
@@ -905,6 +930,8 @@ mlink_add(struct mlink *mlink, const struct stat *st)
 		mpage->inodev.st_ino = inodev.st_ino;
 		mpage->inodev.st_dev = inodev.st_dev;
 		mpage->form = FORM_NONE;
+		mpage->next = mpage_head;
+		mpage_head = mpage;
 		ohash_insert(&mpages, slot, mpage);
 	} else
 		mlink->next = mpage->mlinks;
@@ -928,20 +955,18 @@ mpages_free(void)
 {
 	struct mpage	*mpage;
 	struct mlink	*mlink;
-	unsigned int	 slot;
 
-	mpage = ohash_first(&mpages, &slot);
-	while (NULL != mpage) {
-		while (NULL != (mlink = mpage->mlinks)) {
+	while ((mpage = mpage_head) != NULL) {
+		while ((mlink = mpage->mlinks) != NULL) {
 			mpage->mlinks = mlink->next;
 			mlink_free(mlink);
 		}
+		mpage_head = mpage->next;
 		free(mpage->sec);
 		free(mpage->arch);
 		free(mpage->title);
 		free(mpage->desc);
 		free(mpage);
-		mpage = ohash_next(&mpages, &slot);
 	}
 }
 
@@ -1055,30 +1080,18 @@ mlink_check(struct mpage *mpage, struct mlink *mlink)
 static void
 mpages_merge(struct dba *dba, struct mparse *mp)
 {
-	struct mpage		**mplist, *mpage, *mpage_dest;
+	struct mpage		*mpage, *mpage_dest;
 	struct mlink		*mlink, *mlink_dest;
 	struct roff_man		*man;
 	char			*sodest;
 	char			*cp;
 	int			 fd;
-	unsigned int		 ip, npages, pslot;
 
-	npages = ohash_entries(&mpages);
-	mplist = mandoc_reallocarray(NULL, npages, sizeof(*mplist));
-	ip = 0;
-	mpage = ohash_first(&mpages, &pslot);
-	while (mpage != NULL) {
+	for (mpage = mpage_head; mpage != NULL; mpage = mpage->next) {
 		mlinks_undupe(mpage);
-		if (mpage->mlinks != NULL)
-			mplist[ip++] = mpage;
-		mpage = ohash_next(&mpages, &pslot);
-	}
-	npages = ip;
-	qsort(mplist, npages, sizeof(*mplist), mpages_compare);
+		if ((mlink = mpage->mlinks) == NULL)
+			continue;
 
-	for (ip = 0; ip < npages; ip++) {
-		mpage = mplist[ip];
-		mlink = mpage->mlinks;
 		name_mask = NAME_MASK;
 		mandoc_ohash_init(&names, 4, offsetof(struct str, key));
 		mandoc_ohash_init(&strings, 6, offsetof(struct str, key));
@@ -1098,6 +1111,7 @@ mpages_merge(struct dba *dba, struct mparse *mp)
 		if (mlink->dform != FORM_CAT || mlink->fform != FORM_CAT) {
 			mparse_readfd(mp, fd, mlink->file);
 			close(fd);
+			fd = -1;
 			mparse_result(mp, &man, &sodest);
 		}
 
@@ -1154,79 +1168,96 @@ mpages_merge(struct dba *dba, struct mparse *mp)
 			mpage->title = mandoc_strdup(man->meta.title);
 		} else if (man != NULL && man->macroset == MACROSET_MAN) {
 			man_validate(man);
-			mpage->form = FORM_SRC;
-			mpage->sec = mandoc_strdup(man->meta.msec);
-			mpage->arch = mandoc_strdup(mlink->arch);
-			mpage->title = mandoc_strdup(man->meta.title);
-		} else {
+			if (*man->meta.msec != '\0' ||
+			    *man->meta.title != '\0') {
+				mpage->form = FORM_SRC;
+				mpage->sec = mandoc_strdup(man->meta.msec);
+				mpage->arch = mandoc_strdup(mlink->arch);
+				mpage->title = mandoc_strdup(man->meta.title);
+			} else
+				man = NULL;
+		}
+
+		assert(mpage->desc == NULL);
+		if (man == NULL) {
 			mpage->form = FORM_CAT;
 			mpage->sec = mandoc_strdup(mlink->dsec);
 			mpage->arch = mandoc_strdup(mlink->arch);
 			mpage->title = mandoc_strdup(mlink->name);
+			parse_cat(mpage, fd);
+		} else if (man->macroset == MACROSET_MDOC)
+			parse_mdoc(mpage, &man->meta, man->first);
+		else
+			parse_man(mpage, &man->meta, man->first);
+		if (mpage->desc == NULL) {
+			mpage->desc = mandoc_strdup(mlink->name);
+			if (warnings)
+				say(mlink->file, "No one-line description, "
+				    "using filename \"%s\"", mlink->name);
 		}
 
-		assert(mpage->desc == NULL);
-		if (man != NULL && man->macroset == MACROSET_MDOC)
-			parse_mdoc(mpage, &man->meta, man->first);
-		else if (man != NULL)
-			parse_man(mpage, &man->meta, man->first);
-		else
-			parse_cat(mpage, fd);
-		if (mpage->desc == NULL)
-			mpage->desc = mandoc_strdup(mpage->mlinks->name);
-
-		if (warnings && !use_all)
-			for (mlink = mpage->mlinks; mlink;
-			     mlink = mlink->next)
+		for (mlink = mpage->mlinks;
+		     mlink != NULL;
+		     mlink = mlink->next) {
+			putkey(mpage, mlink->name, NAME_FILE);
+			if (warnings && !use_all)
 				mlink_check(mpage, mlink);
+		}
 
 		dbadd(dba, mpage);
-		mlink = mpage->mlinks;
 
 nextpage:
 		ohash_delete(&strings);
 		ohash_delete(&names);
 	}
-	free(mplist);
-}
-
-int
-mpages_compare(const void *vp1, const void *vp2)
-{
-	const struct mpage	*mp1, *mp2;
-
-	mp1 = *(const struct mpage **)vp1;
-	mp2 = *(const struct mpage **)vp2;
-	return strcmp(mp1->mlinks->file, mp2->mlinks->file);
 }
 
 static void
 parse_cat(struct mpage *mpage, int fd)
 {
 	FILE		*stream;
-	char		*line, *p, *title;
+	struct mlink	*mlink;
+	char		*line, *p, *title, *sec;
 	size_t		 linesz, plen, titlesz;
 	ssize_t		 len;
 	int		 offs;
 
-	stream = (-1 == fd) ?
-	    fopen(mpage->mlinks->file, "r") :
-	    fdopen(fd, "r");
-	if (NULL == stream) {
-		if (-1 != fd)
+	mlink = mpage->mlinks;
+	stream = fd == -1 ? fopen(mlink->file, "r") : fdopen(fd, "r");
+	if (stream == NULL) {
+		if (fd != -1)
 			close(fd);
 		if (warnings)
-			say(mpage->mlinks->file, "&fopen");
+			say(mlink->file, "&fopen");
 		return;
 	}
 
 	line = NULL;
 	linesz = 0;
 
+	/* Parse the section number from the header line. */
+
+	while (getline(&line, &linesz, stream) != -1) {
+		if (*line == '\n')
+			continue;
+		if ((sec = strchr(line, '(')) == NULL)
+			break;
+		if ((p = strchr(++sec, ')')) == NULL)
+			break;
+		free(mpage->sec);
+		mpage->sec = mandoc_strndup(sec, p - sec);
+		if (warnings && *mlink->dsec != '\0' &&
+		    strcasecmp(mpage->sec, mlink->dsec))
+			say(mlink->file,
+			    "Section \"%s\" manual in %s directory",
+			    mpage->sec, mlink->dsec);
+		break;
+	}
+
 	/* Skip to first blank line. */
 
-	while (getline(&line, &linesz, stream) != -1)
-		if (*line == '\n')
+	while (line == NULL || *line != '\n')
+		if (getline(&line, &linesz, stream) == -1)
 			break;
 
 	/*
@@ -1272,8 +1303,7 @@ parse_cat(struct mpage *mpage, int fd)
 
 	if (NULL == title || '\0' == *title) {
 		if (warnings)
-			say(mpage->mlinks->file,
-			    "Cannot find NAME section");
+			say(mlink->file, "Cannot find NAME section");
 		fclose(stream);
 		free(title);
 		return;
@@ -1292,8 +1322,8 @@ parse_cat(struct mpage *mpage, int fd)
 			/* Skip to next word. */ ;
 	} else {
 		if (warnings)
-			say(mpage->mlinks->file,
-			    "No dash in title line");
+			say(mlink->file, "No dash in title line, "
+			    "reusing \"%s\" as one-line description", title);
 		p = title;
 	}
 
@@ -1330,12 +1360,14 @@ putkey(const struct mpage *mpage, char *value, uint64_t type)
  */
 static void
 putmdockey(const struct mpage *mpage,
-	const struct roff_node *n, uint64_t m)
+	const struct roff_node *n, uint64_t m, int taboo)
 {
 
 	for ( ; NULL != n; n = n->next) {
+		if (n->flags & taboo)
+			continue;
 		if (NULL != n->child)
-			putmdockey(mpage, n->child, m);
+			putmdockey(mpage, n->child, m, taboo);
 		if (n->type == ROFFT_TEXT)
 			putkey(mpage, n->string, m);
 	}
@@ -1471,23 +1503,26 @@ parse_mdoc(struct mpage *mpage, const struct roff_meta *meta,
 	const struct roff_node *n)
 {
 
-	assert(NULL != n);
-	for (n = n->child; NULL != n; n = n->next) {
+	for (n = n->child; n != NULL; n = n->next) {
+		if (n->tok == TOKEN_NONE ||
+		    n->tok < ROFF_MAX ||
+		    n->flags & mdocs[n->tok].taboo)
+			continue;
+		assert(n->tok >= MDOC_Dd && n->tok < MDOC_MAX);
 		switch (n->type) {
 		case ROFFT_ELEM:
 		case ROFFT_BLOCK:
 		case ROFFT_HEAD:
 		case ROFFT_BODY:
 		case ROFFT_TAIL:
-			if (NULL != mdocs[n->tok].fp)
-			       if (0 == (*mdocs[n->tok].fp)(mpage, meta, n))
-				       break;
+			if (mdocs[n->tok].fp != NULL &&
+			    (*mdocs[n->tok].fp)(mpage, meta, n) == 0)
+				break;
 			if (mdocs[n->tok].mask)
 				putmdockey(mpage, n->child,
-				    mdocs[n->tok].mask);
+				    mdocs[n->tok].mask, mdocs[n->tok].taboo);
 			break;
 		default:
-			assert(n->type != ROFFT_ROOT);
 			continue;
 		}
 		if (NULL != n->child)
@@ -1652,12 +1687,12 @@ parse_mdoc_Nm(struct mpage *mpage, const struct roff_meta *meta,
 {
 
 	if (SEC_NAME == n->sec)
-		putmdockey(mpage, n->child, NAME_TITLE);
+		putmdockey(mpage, n->child, NAME_TITLE, 0);
 	else if (n->sec == SEC_SYNOPSIS && n->type == ROFFT_HEAD) {
 		if (n->child == NULL)
 			putkey(mpage, meta->name, NAME_SYN);
 		else
-			putmdockey(mpage, n->child, NAME_SYN);
+			putmdockey(mpage, n->child, NAME_SYN, 0);
 	}
 	if ( ! (mpage->name_head_done ||
 	    n->child == NULL || n->child->string == NULL ||
@@ -1710,7 +1745,8 @@ putkeys(const struct mpage *mpage, char *cp, size_t sz, uint64_t v)
 			name_mask &= ~NAME_FIRST;
 		if (debug > 1)
 			say(mpage->mlinks->file,
-			    "Adding name %*s, bits=0x%llu", (int)sz, cp, v);
+			    "Adding name %*s, bits=0x%llx", (int)sz, cp,
+			    (unsigned long long)v);
 	} else {
 		htab = &strings;
 		if (debug > 1)
@@ -2046,6 +2082,23 @@ dbwrite(struct dba *dba)
 	int		 status;
 	pid_t		 child;
 
+	/*
+	 * Do not write empty databases, and delete existing ones
+	 * when makewhatis -u causes them to become empty.
+	 */
+
+	dba_array_start(dba->pages);
+	if (dba_array_next(dba->pages) == NULL) {
+		if (unlink(MANDOC_DB) == -1)
+			say(MANDOC_DB, "&unlink");
+		return;
+	}
+
+	/*
+	 * Build the database in a temporary file,
+	 * then atomically move it into place.
+	 */
+
 	if (dba_write(MANDOC_DB "~", dba) != -1) {
 		if (rename(MANDOC_DB "~", MANDOC_DB) == -1) {
 			exitcode = (int)MANDOCLEVEL_SYSERR;
@@ -2054,6 +2107,11 @@ dbwrite(struct dba *dba)
 		}
 		return;
 	}
+
+	/*
+	 * We lack write permission and cannot replace the database
+	 * file, but let's at least check whether the data changed.
+	 */
 
 	(void)strlcpy(tfn, "/tmp/mandocdb.XXXXXXXX", sizeof(tfn));
 	if (mkdtemp(tfn) == NULL) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mda.c,v 1.120 2016/09/01 15:12:45 eric Exp $	*/
+/*	$OpenBSD: mda.c,v 1.126 2016/11/30 17:43:32 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -79,12 +79,11 @@ struct mda_session {
 	uint64_t		 id;
 	struct mda_user		*user;
 	struct mda_envelope	*evp;
-	struct io		 io;
-	struct iobuf		 iobuf;
+	struct io		*io;
 	FILE			*datafp;
 };
 
-static void mda_io(struct io *, int);
+static void mda_io(struct io *, int, void *);
 static int mda_check_loop(FILE *, struct mda_envelope *);
 static int mda_getlastline(int, char *, size_t);
 static void mda_done(struct mda_session *);
@@ -253,11 +252,10 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			if (e->method == A_MDA || e->method == A_FILENAME) {
 				time(&now);
 				if (e->sender[0])
-					n = iobuf_fqueue(&s->iobuf,
-					    "From %s %s", e->sender,
-					    ctime(&now));
+					n = io_printf(s->io, "From %s %s",
+					    e->sender, ctime(&now));
 				else
-					n = iobuf_fqueue(&s->iobuf,
+					n = io_printf(s->io,
 					    "From MAILER-DAEMON@%s %s",
 					    env->sc_hostname, ctime(&now));
 			}
@@ -268,13 +266,13 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 					 * XXX: remove existing Return-Path,
 					 * if any
 					 */
-					n = iobuf_fqueue(&s->iobuf,
+					n = io_printf(s->io,
 					    "Return-Path: %s\n"
 					    "Delivered-To: %s\n",
 					    e->sender,
 					    e->rcpt ? e->rcpt : e->dest);
 				else
-					n = iobuf_fqueue(&s->iobuf,
+					n = io_printf(s->io,
 					    "Delivered-To: %s\n",
 					    e->rcpt ? e->rcpt : e->dest);
 			}
@@ -432,8 +430,8 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			    imsg->fd, s->id, s->evp->id);
 
 			io_set_nonblocking(imsg->fd);
-			io_init(&s->io, imsg->fd, s, mda_io, &s->iobuf);
-			io_set_write(&s->io);
+			io_set_fd(s->io, imsg->fd);
+			io_set_write(s->io);
 			return;
 
 		case IMSG_MDA_DONE:
@@ -457,7 +455,7 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 			 */
 			error = NULL;
 			if (strcmp(parent_error, "exited okay") == 0) {
-				if (s->datafp || iobuf_queued(&s->iobuf))
+				if (s->datafp || (s->io && io_queued(s->io)))
 					error = "mda exited prematurely";
 			} else
 				error = out[0] ? out : parent_error;
@@ -496,9 +494,9 @@ mda_postprivdrop()
 }
 
 static void
-mda_io(struct io *io, int evt)
+mda_io(struct io *io, int evt, void *arg)
 {
-	struct mda_session	*s = io->arg;
+	struct mda_session	*s = arg;
 	char			*ln = NULL;
 	size_t			 sz = 0;
 	ssize_t			 len;
@@ -515,20 +513,21 @@ mda_io(struct io *io, int evt)
 			log_debug("debug: mda: all data sent for session"
 			    " %016"PRIx64 " evpid %016"PRIx64,
 			    s->id, s->evp->id);
-			io_clear(io);
+			io_free(io);
+			s->io = NULL;
 			return;
 		}
 
-		while (iobuf_queued(&s->iobuf) < MDA_HIWAT) {
+		while (io_queued(s->io) < MDA_HIWAT) {
 			if ((len = getline(&ln, &sz, s->datafp)) == -1)
 				break;
-			if (iobuf_queue(&s->iobuf, ln, len) == -1) {
+			if (io_write(s->io, ln, len) == -1) {
 				m_create(p_parent, IMSG_MDA_KILL,
 				    0, 0, -1);
 				m_add_id(p_parent, s->id);
 				m_add_string(p_parent, "Out of memory");
 				m_close(p_parent);
-				io_pause(io, IO_PAUSE_OUT);
+				io_pause(io, IO_OUT);
 				free(ln);
 				return;
 			}
@@ -543,7 +542,7 @@ mda_io(struct io *io, int evt)
 			m_add_id(p_parent, s->id);
 			m_add_string(p_parent, "Error reading body");
 			m_close(p_parent);
-			io_pause(io, IO_PAUSE_OUT);
+			io_pause(io, IO_OUT);
 			return;
 		}
 
@@ -553,32 +552,32 @@ mda_io(struct io *io, int evt)
 			    s->id, s->evp->id);
 			fclose(s->datafp);
 			s->datafp = NULL;
-			if (iobuf_queued(&s->iobuf) == 0)
+			if (io_queued(s->io) == 0)
 				goto done;
 		}
 		return;
 
 	case IO_TIMEOUT:
 		log_debug("debug: mda: timeout on session %016"PRIx64, s->id);
-		io_pause(io, IO_PAUSE_OUT);
+		io_pause(io, IO_OUT);
 		return;
 
 	case IO_ERROR:
 		log_debug("debug: mda: io error on session %016"PRIx64": %s",
-		    s->id, io->error);
-		io_pause(io, IO_PAUSE_OUT);
+		    s->id, io_error(io));
+		io_pause(io, IO_OUT);
 		return;
 
 	case IO_DISCONNECTED:
 		log_debug("debug: mda: io disconnected on session %016"PRIx64,
 		    s->id);
-		io_pause(io, IO_PAUSE_OUT);
+		io_pause(io, IO_OUT);
 		return;
 
 	default:
 		log_debug("debug: mda: unexpected event on session %016"PRIx64,
 		    s->id);
-		io_pause(io, IO_PAUSE_OUT);
+		io_pause(io, IO_OUT);
 		return;
 	}
 }
@@ -748,8 +747,8 @@ mda_done(struct mda_session *s)
 
 	if (s->datafp)
 		fclose(s->datafp);
-	io_clear(&s->io);
-	iobuf_clear(&s->iobuf);
+	if (s->io)
+		io_free(s->io);
 
 	free(s);
 
@@ -955,9 +954,8 @@ mda_session(struct mda_user * u)
 	s = xcalloc(1, sizeof *s, "mda_session");
 	s->id = generate_uid();
 	s->user = u;
-	s->io.sock = -1;
-	if (iobuf_init(&s->iobuf, 0, 0) == -1)
-		fatal("mda_session");
+	s->io = io_new();
+	io_set_callback(s->io, mda_io, s);
 
 	tree_xset(&sessions, s->id, s);
 

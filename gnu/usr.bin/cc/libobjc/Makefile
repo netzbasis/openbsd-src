@@ -1,5 +1,5 @@
 # $FreeBSD: src/gnu/lib/libobjc/Makefile,v 1.34.2.1 2009/08/03 08:13:06 kensmith Exp $
-# $OpenBSD: Makefile,v 1.3 2013/07/01 14:22:08 mpi Exp $
+# $OpenBSD: Makefile,v 1.5 2017/02/15 21:22:53 miod Exp $
 
 OBJCDIR=${.CURDIR}/../../../gcc/libobjc
 GCCDIR=	${.CURDIR}/../../../gcc/gcc
@@ -22,6 +22,9 @@ CFLAGS+= -I${OBJCDIR}/objc -I${OBJCDIR}
 CFLAGS+= -I${GCCDIR}/config -I${GCCDIR}
 CFLAGS+= -I${GCCLIB}/include
 CFLAGS+= -fexceptions -frandom-seed=RepeatabilityConsideredGood
+.if ${MACHINE_ARCH} == "m88k"
+CPPFLAGS+=	-DSJLJ_EXCEPTIONS=1
+.endif
 OBJCFLAGS= -fgnu-runtime ${CFLAGS}
 
 GENHDRS= runtime-info.h
@@ -43,7 +46,7 @@ SRCS+=		${GENHDRS}
 includes: ${INCS}
 	@test -d ${DESTDIR}/usr/include/objc || \
 	    mkdir ${DESTDIR}/usr/include/objc
-	${INSTALL} -C -o ${BINOWN} -g ${LOCALEGRP} -m ${NONBINMODE} ${.ALLSRC} \
+	${INSTALL} -C -o ${BINOWN} -g ${BINGRP} -m ${NONBINMODE} ${.ALLSRC} \
 		${DESTDIR}/usr/include/objc
 .endif
 

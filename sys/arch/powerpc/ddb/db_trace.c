@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_trace.c,v 1.10 2016/09/10 06:36:26 jasper Exp $	*/
+/*	$OpenBSD: db_trace.c,v 1.12 2017/05/30 15:39:05 mpi Exp $	*/
 /*	$NetBSD: db_trace.c,v 1.15 1996/02/22 23:23:41 gwr Exp $	*/
 
 /*
@@ -119,7 +119,7 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 {
 	db_addr_t	 lr, sp, lastsp;
 	db_expr_t	 offset;
-	db_sym_t	 sym;
+	Elf_Sym		*sym;
 	char		*name;
 	char		 c, *cp = modif;
 	int		 trace_proc = 0;
@@ -134,7 +134,7 @@ db_stack_trace_print(db_expr_t addr, int have_addr, db_expr_t count,
 		lr = ddb_regs.srr0;
 	} else {
 		if (trace_proc) {
-			struct proc *p = pfind((pid_t)addr);
+			struct proc *p = tfind((pid_t)addr);
 			if (p == NULL) {
 				(*pr) ("not found\n");
 				return;

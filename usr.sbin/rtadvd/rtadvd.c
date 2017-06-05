@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtadvd.c,v 1.78 2016/09/03 16:57:29 jca Exp $	*/
+/*	$OpenBSD: rtadvd.c,v 1.85 2017/04/05 14:50:05 jca Exp $	*/
 /*	$KAME: rtadvd.c,v 1.66 2002/05/29 14:18:36 itojun Exp $	*/
 
 /*
@@ -55,6 +55,8 @@
 #include <string.h>
 #include <pwd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <paths.h>
 
 #include "rtadvd.h"
 #include "advcap.h"
@@ -71,6 +73,8 @@ static size_t sndcmsgbuflen;
 struct msghdr sndmhdr;
 struct iovec rcviov[2];
 struct iovec sndiov[2];
+static char *rtsockbuf;
+static size_t rtsockbuflen;
 struct sockaddr_in6 from;
 struct sockaddr_in6 sin6_allnodes = {sizeof(sin6_allnodes), AF_INET6};
 int sock;
@@ -139,6 +143,7 @@ static int nd6_options(struct nd_opt_hdr *, int,
 static void free_ndopts(union nd_opts *);
 static void ra_output(struct rainfo *);
 static struct rainfo *if_indextorainfo(int);
+static int rdaemon(int);
 
 static void dump_cb(int, short, void *);
 static void die_cb(int, short, void *);
@@ -151,12 +156,14 @@ main(int argc, char *argv[])
 {
 	struct passwd *pw;
 	int ch;
+	int devnull = -1;
 	struct event ev_sock;
 	struct event ev_rtsock;
 	struct event ev_sigterm;
 	struct event ev_sigusr1;
 	struct rainfo *rai;
 
+	log_procname = getprogname();
 	log_init(1);		/* log to stderr until daemonized */
 
 	closefrom(3);
@@ -182,6 +189,13 @@ main(int argc, char *argv[])
 	if (argc == 0)
 		usage();
 
+	if (!dflag) {
+		devnull = open(_PATH_DEVNULL, O_RDWR, 0);
+		if (devnull == -1)
+			fatal("open(\"" _PATH_DEVNULL "\")");
+	} else
+		log_verbose(1);
+
 	SLIST_INIT(&ralist);
 
 	/* get iflist block from kernel */
@@ -195,12 +209,6 @@ main(int argc, char *argv[])
 
 	if (inet_pton(AF_INET6, ALLNODES, &sin6_allnodes.sin6_addr) != 1)
 		fatal("inet_pton failed");
-
-	if (conffile != NULL)
-		log_init(dflag);
-
-	if (!dflag)
-		daemon(1, 0);
 
 	sock_open();
 
@@ -217,6 +225,14 @@ main(int argc, char *argv[])
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("cannot drop privileges");
+
+	if (!dflag) {
+		if (rdaemon(devnull) == -1)
+			fatal("rdaemon");
+	}
+
+	if (conffile != NULL)
+		log_init(dflag);
 
 	if (pledge("stdio inet route", NULL) == -1)
 		err(1, "pledge");
@@ -289,17 +305,17 @@ rtsock_cb(int fd, short event, void *arg)
 {
 	int n, type, ifindex = 0, plen;
 	size_t len;
-	char msg[2048], *next, *lim;
+	char *next, *lim;
 	u_char ifname[IF_NAMESIZE];
 	struct prefix *prefix;
 	struct rainfo *rai;
 	struct in6_addr *addr;
 	char addrbuf[INET6_ADDRSTRLEN];
 
-	n = read(rtsock, msg, sizeof(msg));
+	n = read(rtsock, rtsockbuf, rtsockbuflen);
 	log_debug("received a routing message "
-	    "(type = %d, len = %d)", rtmsg_type(msg), n);
-	if (n > rtmsg_len(msg)) {
+	    "(type = %d, len = %d)", rtmsg_type(rtsockbuf), n);
+	if (n > rtmsg_len(rtsockbuf)) {
 		/*
 		 * This usually won't happen for messages received on
 		 * a routing socket.
@@ -307,15 +323,15 @@ rtsock_cb(int fd, short event, void *arg)
 		log_debug("received data length is larger than "
 		    "1st routing message len. multiple messages? "
 		    "read %d bytes, but 1st msg len = %d",
-		    n, rtmsg_len(msg));
+		    n, rtmsg_len(rtsockbuf));
 #if 0
 		/* adjust length */
-		n = rtmsg_len(msg);
+		n = rtmsg_len(rtsockbuf);
 #endif
 	}
 
-	lim = msg + n;
-	for (next = msg; next < lim; next += len) {
+	lim = rtsockbuf + n;
+	for (next = rtsockbuf; next < lim; next += len) {
 		int oldifflags;
 
 		next = get_next_msg(next, lim, &len);
@@ -359,8 +375,8 @@ rtsock_cb(int fd, short event, void *arg)
 			if (sflag)
 				break;	/* we aren't interested in prefixes  */
 
-			addr = get_addr(msg);
-			plen = get_prefixlen(msg);
+			addr = get_addr(next);
+			plen = get_prefixlen(next);
 			/* sanity check for plen */
 			/* as RFC2373, prefixlen is at least 4 */
 			if (plen < 4 || plen > 127) {
@@ -388,8 +404,8 @@ rtsock_cb(int fd, short event, void *arg)
 			if (sflag)
 				break;
 
-			addr = get_addr(msg);
-			plen = get_prefixlen(msg);
+			addr = get_addr(next);
+			plen = get_prefixlen(next);
 			/* sanity check for plen */
 			/* as RFC2373, prefixlen is at least 4 */
 			if (plen < 4 || plen > 127) {
@@ -447,7 +463,7 @@ rtsock_cb(int fd, short event, void *arg)
 void
 sock_cb(int fd, short event, void *arg)
 {
-	int i;
+	ssize_t len;
 	int *hlimp = NULL;
 	struct icmp6_hdr *icp;
 	int ifindex = 0;
@@ -462,7 +478,7 @@ sock_cb(int fd, short event, void *arg)
 	 * receive options.
 	 */
 	rcvmhdr.msg_controllen = rcvcmsgbuflen;
-	if ((i = recvmsg(sock, &rcvmhdr, 0)) < 0)
+	if ((len = recvmsg(sock, &rcvmhdr, 0)) < 0)
 		return;
 
 	/* extract optional information via Advanced API */
@@ -500,8 +516,8 @@ sock_cb(int fd, short event, void *arg)
 		return;
 	}
 
-	if (i < sizeof(struct icmp6_hdr)) {
-		log_warnx("packet size(%d) is too short", i);
+	if (len < sizeof(struct icmp6_hdr)) {
+		log_warnx("packet size(%zd) is too short", len);
 		return;
 	}
 
@@ -532,15 +548,14 @@ sock_cb(int fd, short event, void *arg)
 			    if_indextoname(pi->ipi6_ifindex, ifnamebuf));
 			return;
 		}
-		if (i < sizeof(struct nd_router_solicit)) {
-			log_info("RS from %s on %s does not have enough "
-			    "length (len = %d)",
+		if (len < sizeof(struct nd_router_solicit)) {
+			log_info("RS from %s on %s too short (len = %zd)",
 			    inet_ntop(AF_INET6, &from.sin6_addr, ntopbuf,
 			    INET6_ADDRSTRLEN),
-			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), i);
+			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), len);
 			return;
 		}
-		rs_input(i, (struct nd_router_solicit *)icp, pi, &from);
+		rs_input(len, (struct nd_router_solicit *)icp, pi, &from);
 		break;
 	case ND_ROUTER_ADVERT:
 		/*
@@ -565,15 +580,14 @@ sock_cb(int fd, short event, void *arg)
 			    if_indextoname(pi->ipi6_ifindex, ifnamebuf));
 			return;
 		}
-		if (i < sizeof(struct nd_router_advert)) {
-			log_info("RA from %s on %s does not have enough "
-			    "length (len = %d)",
+		if (len < sizeof(struct nd_router_advert)) {
+			log_info("RA from %s on %s too short (len = %zd)",
 			    inet_ntop(AF_INET6, &from.sin6_addr, ntopbuf,
 			    INET6_ADDRSTRLEN),
-			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), i);
+			    if_indextoname(pi->ipi6_ifindex, ifnamebuf), len);
 			return;
 		}
-		ra_input(i, (struct nd_router_advert *)icp, pi, &from);
+		ra_input(len, (struct nd_router_advert *)icp, pi, &from);
 		break;
 	default:
 		/*
@@ -1177,6 +1191,11 @@ rtsock_open(void)
 	if (setsockopt(rtsock, PF_ROUTE, ROUTE_MSGFILTER,
 	    &rtfilter, sizeof(rtfilter)) == -1)
 		fatal("setsockopt(ROUTE_MSGFILTER)");
+
+	rtsockbuflen = 2048;
+	rtsockbuf = malloc(rtsockbuflen);
+	if (rtsockbuf == NULL)
+		fatal(NULL);
 }
 
 static struct rainfo *
@@ -1197,7 +1216,7 @@ ra_output(struct rainfo *rainfo)
 {
 	struct cmsghdr *cm;
 	struct in6_pktinfo *pi;
-	size_t len;
+	ssize_t len;
 
 	if ((iflist[rainfo->ifindex]->ifm_flags & IFF_UP) == 0) {
 		log_debug("%s is not up, skip sending RA", rainfo->ifname);
@@ -1234,9 +1253,10 @@ ra_output(struct rainfo *rainfo)
 	    rainfo->ifname, rainfo->waiting);
 
 	len = sendmsg(sock, &sndmhdr, 0);
-
-	if (len < 0)
+	if (len < 0) {
 		log_warn("sendmsg on %s", rainfo->ifname);
+		return;
+	}
 
 	/* update counter */
 	if (rainfo->initcounter < MAX_INITIAL_RTR_ADVERTISEMENTS)
@@ -1296,4 +1316,35 @@ ra_timer_update(struct rainfo *rai)
 
 	log_debug("RA timer on %s set to %lld.%lds", rai->ifname,
 	    (long long)tm->tv_sec, tm->tv_usec);
+}
+
+int
+rdaemon(int devnull)
+{
+	if (devnull == -1) {
+		errno = EBADF;
+		return (-1);
+	}
+	if (fcntl(devnull, F_GETFL) == -1)
+		return (-1);
+
+	switch (fork()) {
+	case -1:
+		return (-1);
+	case 0:
+		break;
+	default:
+		_exit(0);
+	}
+
+	if (setsid() == -1)
+		return (-1);
+
+	(void)dup2(devnull, STDIN_FILENO);
+	(void)dup2(devnull, STDOUT_FILENO);
+	(void)dup2(devnull, STDERR_FILENO);
+	if (devnull > 2)
+		(void)close(devnull);
+
+	return (0);
 }

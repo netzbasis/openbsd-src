@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.h,v 1.90 2016/06/27 16:33:48 jca Exp $	*/
+/*	$OpenBSD: in6.h,v 1.96 2017/05/30 09:10:49 mpi Exp $	*/
 /*	$KAME: in6.h,v 1.83 2001/03/29 02:55:07 jinmei Exp $	*/
 
 /*
@@ -280,11 +280,11 @@ struct route_in6 {
 
 #define IFA6_IS_DEPRECATED(a) \
 	((a)->ia6_lifetime.ia6t_pltime != ND6_INFINITE_LIFETIME && \
-	 (u_int32_t)((time_second - (a)->ia6_updatetime)) > \
+	 (u_int32_t)((time_uptime - (a)->ia6_updatetime)) > \
 	 (a)->ia6_lifetime.ia6t_pltime)
 #define IFA6_IS_INVALID(a) \
 	((a)->ia6_lifetime.ia6t_vltime != ND6_INFINITE_LIFETIME && \
-	 (u_int32_t)((time_second - (a)->ia6_updatetime)) > \
+	 (u_int32_t)((time_uptime - (a)->ia6_updatetime)) > \
 	 (a)->ia6_lifetime.ia6t_vltime)
 
 #endif /* _KERNEL */
@@ -294,9 +294,9 @@ struct route_in6 {
  * First word of comment is data type; bool is stored in int.
  */
 #define IPV6_UNICAST_HOPS	4  /* int; IP6 hops */
-#define IPV6_MULTICAST_IF	9  /* u_char; set/get IP6 multicast i/f */
-#define IPV6_MULTICAST_HOPS	10 /* u_char; set/get IP6 multicast hops */
-#define IPV6_MULTICAST_LOOP	11 /* u_char; set/get IP6 multicast loopback */
+#define IPV6_MULTICAST_IF	9  /* u_int; set/get IP6 multicast i/f */
+#define IPV6_MULTICAST_HOPS	10 /* u_int; set/get IP6 multicast hops */
+#define IPV6_MULTICAST_LOOP	11 /* u_int; set/get IP6 multicast loopback */
 #define IPV6_JOIN_GROUP		12 /* ip6_mreq; join a group membership */
 #define IPV6_LEAVE_GROUP	13 /* ip6_mreq; leave a group membership */
 #define IPV6_PORTRANGE		14 /* int; range to choose for unspec port */
@@ -405,12 +405,13 @@ typedef	__socklen_t	socklen_t;	/* length type for network syscalls */
 
 #ifdef _KERNEL
 extern	u_char inet6ctlerrmap[];
-extern	struct niqueue ip6intrq;	/* IP6 packet input queue */
 extern	struct in6_addr zeroin6_addr;
 
 struct mbuf;
 struct ifnet;
 struct cmsghdr;
+
+void	ipv6_input(struct ifnet *, struct mbuf *);
 
 int	in6_cksum(struct mbuf *, u_int8_t, u_int32_t, u_int32_t);
 void	in6_proto_cksum_out(struct mbuf *, struct ifnet *);
@@ -438,19 +439,19 @@ struct in6_ifaddr;
  * casts or defines.
  */
 
-static __inline struct sockaddr_in6 *
+static inline struct sockaddr_in6 *
 satosin6(struct sockaddr *sa)
 {
 	return ((struct sockaddr_in6 *)(sa));
 }
 
-static __inline struct sockaddr *
+static inline struct sockaddr *
 sin6tosa(struct sockaddr_in6 *sin6)
 {
 	return ((struct sockaddr *)(sin6));
 }
 
-static __inline struct in6_ifaddr *
+static inline struct in6_ifaddr *
 ifatoia6(struct ifaddr *ifa)
 {
 	return ((struct in6_ifaddr *)(ifa));
@@ -511,7 +512,7 @@ ifatoia6(struct ifaddr *ifa)
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
-	{ "pim6", CTLTYPE_NODE }, \
+	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \

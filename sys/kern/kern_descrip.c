@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_descrip.c,v 1.134 2016/08/25 00:00:02 dlg Exp $	*/
+/*	$OpenBSD: kern_descrip.c,v 1.140 2017/02/11 19:51:06 guenther Exp $	*/
 /*	$NetBSD: kern_descrip.c,v 1.42 1996/03/30 22:24:38 christos Exp $	*/
 
 /*
@@ -83,12 +83,10 @@ struct pool fdesc_pool;
 void
 filedesc_init(void)
 {
-	pool_init(&file_pool, sizeof(struct file), 0, 0, PR_WAITOK,
-	    "filepl", NULL);
-	pool_setipl(&file_pool, IPL_NONE);
-	pool_init(&fdesc_pool, sizeof(struct filedesc0), 0, 0, PR_WAITOK,
-	    "fdescpl", NULL);
-	pool_setipl(&fdesc_pool, IPL_NONE);
+	pool_init(&file_pool, sizeof(struct file), 0, IPL_NONE,
+	    PR_WAITOK, "filepl", NULL);
+	pool_init(&fdesc_pool, sizeof(struct filedesc0), 0, IPL_NONE,
+	    PR_WAITOK, "fdescpl", NULL);
 	LIST_INIT(&filehead);
 }
 
@@ -613,7 +611,7 @@ finishdup(struct proc *p, struct file *fp, int old, int new,
 		FREF(oldfp);
 
 	fdp->fd_ofiles[new] = fp;
-	fdp->fd_ofileflags[new] = fdp->fd_ofileflags[old] & ~UF_EXCLOSE;
+	fdp->fd_ofileflags[new] = fdp->fd_ofileflags[old] & ~(UF_EXCLOSE|UF_PLEDGED);
 	fp->f_count++;
 	FRELE(fp, p);
 	if (dup2 && oldfp == NULL)
@@ -634,6 +632,7 @@ fdremove(struct filedesc *fdp, int fd)
 {
 	fdpassertlocked(fdp);
 	fdp->fd_ofiles[fd] = NULL;
+	fdp->fd_ofileflags[fd] = 0;
 	fd_unused(fdp, fd);
 }
 
@@ -807,6 +806,8 @@ restart:
 				fdp->fd_freefile = i;
 			*result = i;
 			fdp->fd_ofileflags[i] = 0;
+			if (ISSET(p->p_p->ps_flags, PS_PLEDGE))
+				fdp->fd_ofileflags[i] |= UF_PLEDGED;
 			return (0);
 		}
 	}
@@ -837,6 +838,16 @@ fdexpand(struct proc *p)
 		nfiles = 2 * fdp->fd_nfiles;
 
 	newofile = mallocarray(nfiles, OFILESIZE, M_FILEDESC, M_WAITOK);
+	/*
+	 * Allocate all required chunks before calling free(9) to make
+	 * sure that ``fd_ofiles'' stays valid if we go to sleep.
+	 */
+	if (NDHISLOTS(nfiles) > NDHISLOTS(fdp->fd_nfiles)) {
+		newhimap = mallocarray(NDHISLOTS(nfiles), sizeof(u_int),
+		    M_FILEDESC, M_WAITOK);
+		newlomap = mallocarray(NDLOSLOTS(nfiles), sizeof(u_int),
+		    M_FILEDESC, M_WAITOK);
+	}
 	newofileflags = (char *) &newofile[nfiles];
 
 	/*
@@ -855,11 +866,6 @@ fdexpand(struct proc *p)
 		free(fdp->fd_ofiles, M_FILEDESC, fdp->fd_nfiles * OFILESIZE);
 
 	if (NDHISLOTS(nfiles) > NDHISLOTS(fdp->fd_nfiles)) {
-		newhimap = mallocarray(NDHISLOTS(nfiles), sizeof(u_int),
-		    M_FILEDESC, M_WAITOK);
-		newlomap = mallocarray(NDLOSLOTS(nfiles), sizeof(u_int),
-		    M_FILEDESC, M_WAITOK);
-
 		copylen = NDHISLOTS(fdp->fd_nfiles) * sizeof(u_int);
 		memcpy(newhimap, fdp->fd_himap, copylen);
 		memset((char *)newhimap + copylen, 0,
@@ -889,10 +895,13 @@ fdexpand(struct proc *p)
  * a file descriptor for the process that refers to it.
  */
 int
-falloc(struct proc *p, struct file **resultfp, int *resultfd)
+falloc(struct proc *p, int flags, struct file **resultfp, int *resultfd)
 {
 	struct file *fp, *fq;
 	int error, i;
+
+	KASSERT(resultfp != NULL);
+	KASSERT(resultfd != NULL);
 
 	fdpassertlocked(p->p_fd);
 restart:
@@ -923,13 +932,12 @@ restart:
 		LIST_INSERT_HEAD(&filehead, fp, f_list);
 	}
 	p->p_fd->fd_ofiles[i] = fp;
+	p->p_fd->fd_ofileflags[i] |= (flags & UF_EXCLOSE);
 	fp->f_count = 1;
 	fp->f_cred = p->p_ucred;
 	crhold(fp->f_cred);
-	if (resultfp)
-		*resultfp = fp;
-	if (resultfd)
-		*resultfd = i;
+	*resultfp = fp;
+	*resultfd = i;
 	FREF(fp);
 	return (0);
 }
@@ -1098,7 +1106,7 @@ fdfree(struct proc *p)
 	if (fdp->fd_rdir)
 		vrele(fdp->fd_rdir);
 	free(fdp->fd_knlist, M_TEMP, fdp->fd_knlistsize * sizeof(struct klist));
-	free(fdp->fd_knhash, M_TEMP, 0);
+	hashfree(fdp->fd_knhash, KN_HASHSIZE, M_TEMP);
 	pool_put(&fdesc_pool, fdp);
 }
 
@@ -1255,8 +1263,10 @@ filedescopen(dev_t dev, int mode, int type, struct proc *p)
  * Duplicate the specified descriptor to a free descriptor.
  */
 int
-dupfdopen(struct filedesc *fdp, int indx, int dfd, int mode)
+dupfdopen(struct proc *p, int indx, int mode)
 {
+	struct filedesc *fdp = p->p_fd;
+	int dupfd = p->p_dupfd;
 	struct file *wfp;
 
 	fdpassertlocked(fdp);
@@ -1265,10 +1275,10 @@ dupfdopen(struct filedesc *fdp, int indx, int dfd, int mode)
 	 * Assume that the filename was user-specified; applications do
 	 * not tend to open /dev/fd/# when they can just call dup()
 	 */
-	if ((curproc->p_p->ps_flags & (PS_SUGIDEXEC | PS_SUGID))) {
-		if (curproc->p_descfd == 255)
+	if ((p->p_p->ps_flags & (PS_SUGIDEXEC | PS_SUGID))) {
+		if (p->p_descfd == 255)
 			return (EPERM);
-		if (curproc->p_descfd != curproc->p_dupfd)
+		if (p->p_descfd != dupfd)
 			return (EPERM);
 	}
 
@@ -1279,7 +1289,7 @@ dupfdopen(struct filedesc *fdp, int indx, int dfd, int mode)
 	 * because fd_getfile will return NULL if the file at indx is
 	 * newly created by falloc (FIF_LARVAL).
 	 */
-	if ((wfp = fd_getfile(fdp, dfd)) == NULL)
+	if ((wfp = fd_getfile(fdp, dupfd)) == NULL)
 		return (EBADF);
 
 	/*
@@ -1293,7 +1303,9 @@ dupfdopen(struct filedesc *fdp, int indx, int dfd, int mode)
 
 	fdp->fd_ofiles[indx] = wfp;
 	fdp->fd_ofileflags[indx] = (fdp->fd_ofileflags[indx] & UF_EXCLOSE) |
-	    (fdp->fd_ofileflags[dfd] & ~UF_EXCLOSE);
+	    (fdp->fd_ofileflags[dupfd] & ~UF_EXCLOSE);
+	if (ISSET(p->p_p->ps_flags, PS_PLEDGE))
+		fdp->fd_ofileflags[indx] |= UF_PLEDGED;
 	wfp->f_count++;
 	fd_used(fdp, indx);
 	return (0);
@@ -1309,9 +1321,11 @@ fdcloseexec(struct proc *p)
 	int fd;
 
 	fdplock(fdp);
-	for (fd = 0; fd <= fdp->fd_lastfile; fd++)
+	for (fd = 0; fd <= fdp->fd_lastfile; fd++) {
+		fdp->fd_ofileflags[fd] &= ~UF_PLEDGED;
 		if (fdp->fd_ofileflags[fd] & UF_EXCLOSE)
 			(void) fdrelease(p, fd);
+	}
 	fdpunlock(fdp);
 }
 

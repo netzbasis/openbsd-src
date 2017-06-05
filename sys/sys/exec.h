@@ -1,4 +1,4 @@
-/*	$OpenBSD: exec.h,v 1.34 2016/05/30 21:31:27 deraadt Exp $	*/
+/*	$OpenBSD: exec.h,v 1.36 2017/02/08 21:04:44 guenther Exp $	*/
 /*	$NetBSD: exec.h,v 1.59 1996/02/09 18:25:09 christos Exp $	*/
 
 /*-
@@ -135,7 +135,6 @@ struct exec_package {
 	size_t	ep_emul_argsize;	/* emulation argument size */
 	void	*ep_emul_argp;		/* emulation argument pointer */
 	char	*ep_interp;		/* name of interpreter if any */
-	u_long	ep_interp_pos;		/* interpreter load position */
 };
 #define	EXEC_INDIR	0x0001		/* script handling already done */
 #define	EXEC_HASFD	0x0002		/* holding a shell script */
@@ -287,6 +286,7 @@ struct exec {
 #define	MID_HPPA	154	/* hppa */
 #define	MID_AMD64	157	/* AMD64 */
 #define	MID_MIPS64	158	/* big-endian MIPS64 */
+#define	MID_ARM64	159	/* ARM64 */
 #define	MID_HP200	200	/* hp200 (68010) BSD binary */
 #define	MID_HP300	300	/* hp300 (68020+68881) BSD binary */
 #define	MID_HPUX	0x20C	/* hp200/300 HP-UX binary */

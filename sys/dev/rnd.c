@@ -1,4 +1,4 @@
-/*	$OpenBSD: rnd.c,v 1.185 2016/09/04 16:15:30 kettenis Exp $	*/
+/*	$OpenBSD: rnd.c,v 1.192 2017/03/15 15:24:24 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2011 Theo de Raadt.
@@ -85,9 +85,8 @@
  * The output of this single ChaCha20 engine is then shared amongst many
  * consumers in the kernel and userland via a few interfaces:
  * arc4random_buf(), arc4random(), arc4random_uniform(), randomread()
- * for the set of /dev/random nodes, the sysctl kern.arandom, and the
- * system call getentropy(), which provides seeds for process-context
- * pseudorandom generators.
+ * for the set of /dev/random nodes and the system call getentropy(),
+ * which provides seeds for process-context pseudorandom generators.
  *
  * Acknowledgements:
  * =================
@@ -143,7 +142,7 @@
  * (See M. Matsumoto & Y. Kurita, 1992.  Twisted GFSR generators.  ACM
  * Transactions on Modeling and Computer Simulation 2(3):179-194.
  * Also see M. Matsumoto & Y. Kurita, 1994.  Twisted GFSR generators
- * II.  ACM Transactions on Mdeling and Computer Simulation 4:254-266)
+ * II.  ACM Transactions on Modeling and Computer Simulation 4:254-266)
  *
  * Thanks to Colin Plumb for suggesting this.
  *
@@ -187,7 +186,7 @@
  * distance from evenly spaced; except for the last tap, which is 1 to
  * get the twisting happening as fast as possible.
  *
- * The reultant polynomial is:
+ * The resultant polynomial is:
  *   2^POOLWORDS + 2^POOL_TAP1 + 2^POOL_TAP2 + 2^POOL_TAP3 + 2^POOL_TAP4 + 1
  */
 #define POOLWORDS	2048
@@ -205,13 +204,6 @@ struct mutex entropylock = MUTEX_INITIALIZER(IPL_HIGH);
  * add_*_randomness() provide data which is put into the entropy queue.
  * Almost completely under the entropylock.
  */
-struct timer_rand_state {	/* There is one of these per entropy source */
-	u_int	last_time;
-	u_int	last_delta;
-	u_int	last_delta2;
-	u_int	dont_count_entropy : 1;
-	u_int	max_entropy : 1;
-} rnd_states[RND_SRC_NUM];
 
 #define QEVLEN (1024 / sizeof(struct rand_event))
 #define QEVSLOW (QEVLEN * 3 / 4) /* yet another 0.75 for 60-minutes hour /-; */
@@ -224,7 +216,6 @@ struct timer_rand_state {	/* There is one of these per entropy source */
 #define EBUFSIZE KEYSZ + IVSZ
 
 struct rand_event {
-	struct timer_rand_state *re_state;
 	u_int re_time;
 	u_int re_val;
 } rnd_event_space[QEVLEN];
@@ -271,7 +262,7 @@ static __inline struct rand_event *
 rnd_put(void)
 {
 	u_int idx = rnd_event_idx++;
-	
+
 	/* allow wrapping. caller will use xor. */
 	idx = idx % QEVLEN;
 
@@ -296,11 +287,8 @@ rnd_qlen(void)
 void
 enqueue_randomness(u_int state, u_int val)
 {
-	int	delta, delta2, delta3;
-	struct timer_rand_state *p;
 	struct rand_event *rep;
 	struct timespec	ts;
-	u_int	time, nbits;
 
 #ifdef DIAGNOSTIC
 	if (state >= RND_SRC_NUM)
@@ -310,72 +298,12 @@ enqueue_randomness(u_int state, u_int val)
 	if (timeout_initialized(&rnd_timeout))
 		nanotime(&ts);
 
-	p = &rnd_states[state];
 	val += state << 13;
 
-	time = (ts.tv_nsec >> 10) + (ts.tv_sec << 20);
-	nbits = 0;
-
-	/*
-	 * Calculate the number of bits of randomness that we probably
-	 * added.  We take into account the first and second order
-	 * deltas in order to make our estimate.
-	 */
-	if (!p->dont_count_entropy) {
-		delta  = time   - p->last_time;
-		delta2 = delta  - p->last_delta;
-		delta3 = delta2 - p->last_delta2;
-
-		if (delta < 0) delta = -delta;
-		if (delta2 < 0) delta2 = -delta2;
-		if (delta3 < 0) delta3 = -delta3;
-		if (delta > delta2) delta = delta2;
-		if (delta > delta3) delta = delta3;
-		delta3 = delta >>= 1;
-		/*
-		 * delta &= 0xfff;
-		 * we don't do it since our time sheet is different from linux
-		 */
-
-		if (delta & 0xffff0000) {
-			nbits = 16;
-			delta >>= 16;
-		}
-		if (delta & 0xff00) {
-			nbits += 8;
-			delta >>= 8;
-		}
-		if (delta & 0xf0) {
-			nbits += 4;
-			delta >>= 4;
-		}
-		if (delta & 0xc) {
-			nbits += 2;
-			delta >>= 2;
-		}
-		if (delta & 2) {
-			nbits += 1;
-			delta >>= 1;
-		}
-		if (delta & 1)
-			nbits++;
-	} else if (p->max_entropy)
-		nbits = 8 * sizeof(val) - 1;
-
-	/* given the multi-order delta logic above, this should never happen */
-	if (nbits >= 32)
-		return;
-
 	mtx_enter(&entropylock);
-	if (!p->dont_count_entropy) {
-		p->last_time = time;
-		p->last_delta  = delta3;
-		p->last_delta2 = delta2;
-	}
 
 	rep = rnd_put();
 
-	rep->re_state = p;
 	rep->re_time += ts.tv_nsec ^ (ts.tv_sec << 20);
 	rep->re_val += val;
 
@@ -435,7 +363,7 @@ add_entropy_words(const u_int32_t *buf, u_int n)
 }
 
 /*
- * Pulls entropy out of the queue and throws merges it into the pool
+ * Pulls entropy out of the queue and merges it into the pool
  * with the CRC.
  */
 /* ARGSUSED */
@@ -511,7 +439,6 @@ struct mutex rndlock = MUTEX_INITIALIZER(IPL_HIGH);
 struct timeout arc4_timeout;
 struct task arc4_task = TASK_INITIALIZER(arc4_init, NULL);
 
-static int rs_initialized;
 static chacha_ctx rs;		/* chacha context for random keystream */
 /* keystream blocks (also chacha seed from boot) */
 static u_char rs_buf[RSBUFSZ];
@@ -601,7 +528,12 @@ _rs_stir(int do_lock)
 static inline void
 _rs_stir_if_needed(size_t len)
 {
+	static int rs_initialized;
+
 	if (!rs_initialized) {
+		memcpy(entropy_pool, entropy_pool0, sizeof entropy_pool);
+		memcpy(rs_buf, rs_buf0, sizeof rs_buf);
+		/* seeds cannot be cleaned yet, random_start() will do so */
 		_rs_init(rs_buf, KEYSZ + IVSZ);
 		rs_count = 1024 * 1024 * 1024;	/* until main() runs */
 		rs_initialized = 1;
@@ -650,13 +582,6 @@ _rs_clearseed(const void *p, size_t s)
 static inline void
 _rs_rekey(u_char *dat, size_t datlen)
 {
-	if (!rs_initialized) {
-		memcpy(entropy_pool, entropy_pool0, sizeof entropy_pool);
-		memcpy(rs_buf, rs_buf0, sizeof rs_buf);
-		rs_initialized = 1;
-		/* seeds cannot be cleaned yet, random_start() will do so */
-	}
-
 #ifndef KEYSTREAM_ONLY
 	memset(rs_buf, 0, RSBUFSZ);
 #endif
@@ -706,7 +631,6 @@ _rs_random_u32(u_int32_t *val)
 	memcpy(val, rs_buf + RSBUFSZ - rs_have, sizeof(*val));
 	memset(rs_buf + RSBUFSZ - rs_have, 0, sizeof(*val));
 	rs_have -= sizeof(*val);
-	return;
 }
 
 /* Return one word of randomness from a ChaCha20 generator */
@@ -803,24 +727,11 @@ random_start(void)
 	_rs_clearseed(entropy_pool0, sizeof entropy_pool0);
 	_rs_clearseed(rs_buf0, sizeof rs_buf0);
 
-	rnd_states[RND_SRC_TIMER].dont_count_entropy = 1;
-	rnd_states[RND_SRC_TRUE].dont_count_entropy = 1;
-	rnd_states[RND_SRC_TRUE].max_entropy = 1;
-
-	/* Provide some data from this kernel */
-	add_entropy_words((u_int32_t *)version,
-	    strlen(version) / sizeof(u_int32_t));
-
-	/* Provide some data from this kernel */
-	add_entropy_words((u_int32_t *)cfdata,
-	    8192 / sizeof(u_int32_t));
-
 	/* Message buffer may contain data from previous boot */
 	if (msgbufp->msg_magic == MSG_MAGIC)
 		add_entropy_words((u_int32_t *)msgbufp->msg_bufc,
 		    msgbufp->msg_bufs / sizeof(u_int32_t));
 
-	rs_initialized = 1;
 	dequeue_randomness(NULL);
 	arc4_init(NULL);
 	timeout_set(&arc4_timeout, arc4_reinit, NULL);

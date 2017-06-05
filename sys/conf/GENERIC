@@ -1,14 +1,13 @@
-#	$OpenBSD: GENERIC,v 1.233 2016/09/04 09:22:28 mpi Exp $
+#	$OpenBSD: GENERIC,v 1.244 2017/05/27 08:02:40 claudio Exp $
 #
 #	Machine-independent option; used by all architectures for their
 #	GENERIC kernel
 
-#option		INSECURE	# default to secure
-
 option		DDB		# in-kernel debugger
 #option		DDBPROF		# ddb(4) based profiling
+#option		DDBCTF		# DDB support for CTF
 #option		DDB_SAFE_CONSOLE # allow break into ddb during boot
-#makeoptions	DEBUG="-g"	# compile full symbol table
+#makeoptions	DEBUG=""	# do not compile full symbol table
 #makeoptions	PROF="-pg"	# build profiled kernel
 #option		GPROF		# kernel profiling, kgmon(8)
 option		DIAGNOSTIC	# internal consistency checks
@@ -16,6 +15,7 @@ option		KTRACE		# system call tracing, a la ktrace(1)
 option		ACCOUNTING	# acct(2) process accounting
 option		KMEMSTATS	# collect malloc(9) statistics
 option		PTRACE		# ptrace(2) system call
+#option		WITNESS		# witness(4) lock checker
 
 #option		KVA_GUARDPAGES	# slow virtual address recycling (+ guarding)
 option		POOL_DEBUG	# pool corruption detection
@@ -54,12 +54,10 @@ option		TCP_SIGNATURE	# TCP MD5 Signatures, for BGP routing sessions
 option		ART		# Allotment Routing Table
 option		INET6		# IPv6
 option		IPSEC		# IPsec
-#option		KEY		# PF_KEY (implied by IPSEC)
 option		PPP_BSDCOMP	# PPP BSD compression
 option		PPP_DEFLATE
 option		PIPEX		# Ppp IP EXtension, for npppd
 option		MROUTING	# Multicast router
-#option		PIM		# Protocol Independent Multicast
 option		MPLS		# Multi-Protocol Label Switching
 #option		BFD		# Bi-directional Forwarding Detection
 
@@ -109,7 +107,7 @@ pseudo-device	tun		# network tunneling over tty (tun & tap)
 pseudo-device	vether		# Virtual ethernet
 pseudo-device	vxlan		# Virtual extensible LAN
 pseudo-device	vlan		# IEEE 802.1Q VLAN
-#pseudo-device	switch		# Switch
+pseudo-device	switch		# Switch
 
 pseudo-device	bio	1	# ioctl multiplexing device
 

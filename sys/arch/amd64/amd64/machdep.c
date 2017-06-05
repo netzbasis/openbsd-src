@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.221 2016/05/21 00:56:43 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.229 2017/05/18 09:20:06 kettenis Exp $	*/
 /*	$NetBSD: machdep.c,v 1.3 2003/05/07 22:58:18 fvdl Exp $	*/
 
 /*-
@@ -87,10 +87,6 @@
 #include <sys/kcore.h>
 #include <sys/syscallargs.h>
 
-#ifdef KGDB
-#include <sys/kgdb.h>
-#endif
-
 #include <dev/cons.h>
 #include <stand/boot/bootarg.h>
 
@@ -146,6 +142,12 @@ extern int db_console;
 #include <machine/hibernate_var.h>
 #endif /* HIBERNATE */
 
+#include "ukbd.h"
+#include "pckbc.h"
+#if NPCKBC > 0 && NUKBD > 0
+#include <dev/ic/pckbcvar.h>
+#endif
+
 /* the following is used externally (sysctl_hw) */
 char machine[] = MACHINE;
 
@@ -188,7 +190,8 @@ paddr_t lo32_paddr;
 paddr_t tramp_pdirpa;
 
 int kbd_reset;
-int lid_suspend = 1;
+int lid_action = 1;
+int forceukbd;
 
 /*
  * safepri is a safe priority for sleep to set for a spin-wait
@@ -261,34 +264,8 @@ void	map_tramps(void);
 void	init_x86_64(paddr_t);
 void	(*cpuresetfn)(void);
 
-#ifdef KGDB
-#ifndef KGDB_DEVNAME
-#define KGDB_DEVNAME	"com"
-#endif /* KGDB_DEVNAME */
-char kgdb_devname[] = KGDB_DEVNAME;
-#if NCOM > 0
-#ifndef KGDBADDR
-#define KGDBADDR	0x3f8
-#endif /* KGDBADDR */
-int comkgdbaddr = KGDBADDR;
-#ifndef KGDBRATE
-#define KGDBRATE	TTYDEF_SPEED
-#endif /* KGDBRATE */
-int comkgdbrate = KGDBRATE;
-#ifndef KGDBMODE
-#define KGDBMODE	((TTYDEF_CFLAG & ~(CSIZE | CSTOPB | PARENB)) | CS8)
-#endif /* KGDBMODE */
-int comkgdbmode = KGDBMODE;
-#endif /* NCOM */
-void	kgdb_port_init(void);
-#endif /* KGDB */
-
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 /*
@@ -451,6 +428,7 @@ cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	extern int amd64_has_xcrypt;
 	dev_t consdev;
 	dev_t dev;
+	int val, error;
 
 	switch (name[0]) {
 	case CPU_CONSDEV:
@@ -499,7 +477,26 @@ cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
 	case CPU_XCRYPT:
 		return (sysctl_rdint(oldp, oldlenp, newp, amd64_has_xcrypt));
 	case CPU_LIDSUSPEND:
-		return (sysctl_int(oldp, oldlenp, newp, newlen, &lid_suspend));
+	case CPU_LIDACTION:
+		val = lid_action;
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &val);
+		if (!error) {
+			if (val < 0 || val > 2)
+				error = EINVAL;
+			else
+				lid_action = val;
+		}
+		return (error);
+#if NPCKBC > 0 && NUKBD > 0
+	case CPU_FORCEUKBD:
+		if (forceukbd)
+			return (sysctl_rdint(oldp, oldlenp, newp, forceukbd));
+
+		error = sysctl_int(oldp, oldlenp, newp, newlen, &forceukbd);
+		if (forceukbd)
+			pckbc_release_console();
+		return (error);
+#endif
 	default:
 		return (EOPNOTSUPP);
 	}
@@ -719,7 +716,7 @@ __dead void
 boot(int howto)
 {
 	if ((howto & RB_POWERDOWN) != 0)
-		lid_suspend = 0;
+		lid_action = 0;
 
 	if (cold) {
 		if ((howto & RB_USERREQ) == 0)
@@ -776,7 +773,8 @@ haltsys:
 	if (cpureset_delay > 0)
 		delay(cpureset_delay * 1000);
 	cpu_reset();
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 
@@ -1604,30 +1602,9 @@ init_x86_64(paddr_t first_avail)
 	db_machine_init();
 	ddb_init();
 	if (boothowto & RB_KDB)
-		Debugger();
-#endif
-#ifdef KGDB
-	kgdb_port_init();
-	if (boothowto & RB_KDB) {
-		kgdb_debug_init = 1;
-		kgdb_connect(1);
-	}
+		db_enter();
 #endif
 }
-
-#ifdef KGDB
-void
-kgdb_port_init(void)
-{
-#if NCOM > 0
-	if (!strcmp(kgdb_devname, "com")) {
-		bus_space_tag_t tag = X86_BUS_SPACE_IO;
-		com_kgdb_attach(tag, comkgdbaddr, comkgdbrate, COM_FREQ,
-		    comkgdbmode);
-	}
-#endif
-} 
-#endif /* KGDB */
 
 void
 cpu_reset(void)
@@ -1664,7 +1641,9 @@ cpu_reset(void)
 	tlbflush(); 
 #endif
 
-	for (;;);
+	for (;;)
+		continue;
+	/* NOTREACHED */
 }
 
 /*
@@ -1797,6 +1776,16 @@ splassert_check(int wantipl, const char *func)
 	
 }
 #endif
+
+int
+copyin32(const uint32_t *uaddr, uint32_t *kaddr)
+{
+	if ((vaddr_t)uaddr & 0x3)
+		return EFAULT;
+
+	/* copyin(9) is atomic */
+	return copyin(uaddr, kaddr, sizeof(uint32_t));
+}
 
 void
 getbootinfo(char *bootinfo, int bootinfo_size)

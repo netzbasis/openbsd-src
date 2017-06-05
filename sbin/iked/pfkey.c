@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfkey.c,v 1.52 2016/09/03 09:20:07 vgross Exp $	*/
+/*	$OpenBSD: pfkey.c,v 1.58 2017/04/18 02:29:56 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -449,6 +449,7 @@ pfkey_sa(int sd, uint8_t satype, uint8_t action, struct iked_childsa *sa)
 	struct iovec		 iov[IOV_CNT];
 	uint32_t		 jitter;
 	int			 iov_cnt;
+	int			 ret;
 
 	sa_srcid = sa_dstid = NULL;
 
@@ -511,6 +512,18 @@ pfkey_sa(int sd, uint8_t satype, uint8_t action, struct iked_childsa *sa)
 	if (action == SADB_DELETE)
 		goto send;
 
+	if (satype == SADB_SATYPE_ESP &&
+	    sa->csa_ikesa->sa_udpencap && sa->csa_ikesa->sa_natt) {
+		sadb.sadb_sa_flags |= SADB_X_SAFLAGS_UDPENCAP;
+		udpencap.sadb_x_udpencap_exttype = SADB_X_EXT_UDPENCAP;
+		udpencap.sadb_x_udpencap_len = sizeof(udpencap) / 8;
+		udpencap.sadb_x_udpencap_port =
+		    sa->csa_ikesa->sa_peer.addr_port;
+
+		log_debug("%s: udpencap port %d", __func__,
+		    ntohs(udpencap.sadb_x_udpencap_port));
+	}
+
 	if ((action == SADB_ADD || action == SADB_UPDATE) &&
 	    !sa->csa_persistent && (lt->lt_bytes || lt->lt_seconds)) {
 		sa_ltime_hard.sadb_lifetime_exttype = SADB_EXT_LIFETIME_HARD;
@@ -518,9 +531,11 @@ pfkey_sa(int sd, uint8_t satype, uint8_t action, struct iked_childsa *sa)
 		sa_ltime_hard.sadb_lifetime_bytes = lt->lt_bytes;
 		sa_ltime_hard.sadb_lifetime_addtime = lt->lt_seconds;
 
-		/* double the lifetime for IP compression */
-		if (satype == SADB_X_SATYPE_IPCOMP)
+		/* double the lifetime for ipcomp; disable byte lifetime */
+		if (satype == SADB_X_SATYPE_IPCOMP) {
 			sa_ltime_hard.sadb_lifetime_addtime *= 2;
+			sa_ltime_hard.sadb_lifetime_bytes = 0;
+		}
 
 		sa_ltime_soft.sadb_lifetime_exttype = SADB_EXT_LIFETIME_SOFT;
 		sa_ltime_soft.sadb_lifetime_len = sizeof(sa_ltime_soft) / 8;
@@ -538,18 +553,6 @@ pfkey_sa(int sd, uint8_t satype, uint8_t action, struct iked_childsa *sa)
 	    satype != SADB_X_SATYPE_IPCOMP && satype != SADB_X_SATYPE_IPIP) {
 		log_warnx("%s: no key specified", __func__);
 		return (-1);
-	}
-
-	if (satype == SADB_SATYPE_ESP &&
-	    sa->csa_ikesa->sa_udpencap && sa->csa_ikesa->sa_natt) {
-		sadb.sadb_sa_flags |= SADB_X_SAFLAGS_UDPENCAP;
-		udpencap.sadb_x_udpencap_exttype = SADB_X_EXT_UDPENCAP;
-		udpencap.sadb_x_udpencap_len = sizeof(udpencap) / 8;
-		udpencap.sadb_x_udpencap_port =
-		    sa->csa_ikesa->sa_peer.addr_port;
-
-		log_debug("%s: udpencap port %d", __func__,
-		    ntohs(udpencap.sadb_x_udpencap_port));
 	}
 
 	if (sa->csa_integrid)
@@ -732,7 +735,12 @@ pfkey_sa(int sd, uint8_t satype, uint8_t action, struct iked_childsa *sa)
 		iov_cnt++;
 	}
 
-	return (pfkey_write(sd, &smsg, iov, iov_cnt, NULL, NULL));
+	ret = pfkey_write(sd, &smsg, iov, iov_cnt, NULL, NULL);
+
+	free(sa_srcid);
+	free(sa_dstid);
+
+	return ret;
 }
 
 int
@@ -842,8 +850,7 @@ pfkey_sa_last_used(int sd, struct iked_childsa *sa, uint64_t *last_used)
 	log_debug("%s: last_used %llu", __func__, *last_used);
 
 done:
-	explicit_bzero(data, n);
-	free(data);
+	freezero(data, n);
 	return (ret);
 }
 
@@ -950,8 +957,7 @@ pfkey_sa_getspi(int sd, uint8_t satype, struct iked_childsa *sa,
 	log_debug("%s: spi 0x%08x", __func__, *spip);
 
 done:
-	explicit_bzero(data, n);
-	free(data);
+	freezero(data, n);
 	return (ret);
 }
 
@@ -1019,7 +1025,7 @@ pfkey_sagroup(int sd, uint8_t satype1, uint8_t action,
 	    (sizeof(sa_dst2) + ROUNDUP(sdst2.ss_len)) / 8;
 
 	bzero(&sa_proto, sizeof(sa_proto));
-	sa_proto.sadb_protocol_exttype = SADB_X_EXT_PROTOCOL;
+	sa_proto.sadb_protocol_exttype = SADB_X_EXT_SATYPE2;
 	sa_proto.sadb_protocol_len = sizeof(sa_proto) / 8;
 	sa_proto.sadb_protocol_direction = 0;
 	sa_proto.sadb_protocol_proto = satype2;

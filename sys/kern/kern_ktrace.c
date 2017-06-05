@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_ktrace.c,v 1.88 2016/03/19 12:04:15 natano Exp $	*/
+/*	$OpenBSD: kern_ktrace.c,v 1.91 2017/02/14 10:31:15 mpi Exp $	*/
 /*	$NetBSD: kern_ktrace.c,v 1.23 1996/02/09 18:59:36 christos Exp $	*/
 
 /*
@@ -135,9 +135,10 @@ ktrinitheaderraw(struct ktr_header *kth, uint type, pid_t pid, pid_t tid)
 void
 ktrinitheader(struct ktr_header *kth, struct proc *p, int type)
 {
-	ktrinitheaderraw(kth, type, p->p_p->ps_pid,
-	    p->p_pid + THREAD_PID_OFFSET);
-	memcpy(kth->ktr_comm, p->p_comm, MAXCOMLEN);
+	struct process *pr = p->p_p;
+
+	ktrinitheaderraw(kth, type, pr->ps_pid, p->p_tid + THREAD_PID_OFFSET);
+	memcpy(kth->ktr_comm, pr->ps_comm, MAXCOMLEN);
 }
 
 void
@@ -245,8 +246,7 @@ ktrgenio(struct proc *p, int fd, enum uio_rw rw, struct iovec *iov,
 		 * Don't allow this process to hog the cpu when doing
 		 * huge I/O.
 		 */
-		if (curcpu()->ci_schedstate.spc_schedflags & SPCF_SHOULDYIELD)
-			preempt(NULL);
+		sched_pause(preempt);
 
 		count = lmin(iov->iov_len, buflen);
 		if (count > len)
@@ -361,8 +361,7 @@ ktrexec(struct proc *p, int type, const char *data, ssize_t len)
 		 * Don't allow this process to hog the cpu when doing
 		 * huge I/O.
 		 */
-		if (curcpu()->ci_schedstate.spc_schedflags & SPCF_SHOULDYIELD)
-			preempt(NULL);
+		sched_pause(preempt);
 
 		count = lmin(len, buflen);
 		if (ktrwrite(p, &kth, data, count) != 0)

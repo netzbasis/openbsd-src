@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.655 2016/08/26 06:06:58 guenther Exp $	*/
+/*	$OpenBSD: parse.y,v 1.660 2017/05/28 15:15:21 akfaew Exp $	*/
 
 /*
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -36,7 +36,6 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/icmp6.h>
 #include <net/pfvar.h>
-#include <net/hfsc.h>
 #include <arpa/inet.h>
 
 #include <stdio.h>
@@ -306,15 +305,25 @@ struct node_sc {
 	struct node_queue_bw	m2;
 };
 
+struct node_fq {
+	u_int			flows;
+	u_int			quantum;
+	u_int			target;
+	u_int			interval;
+};
+
 struct queue_opts {
 	int		 marker;
 #define	QOM_BWSPEC	0x01
 #define	QOM_PARENT	0x02
 #define	QOM_DEFAULT	0x04
 #define	QOM_QLIMIT	0x08
+#define	QOM_FLOWS	0x10
+#define	QOM_QUANTUM	0x20
 	struct node_sc	 realtime;
 	struct node_sc	 linkshare;
 	struct node_sc	 upperlimit;
+	struct node_fq	 flowqueue;
 	char		*parent;
 	int		 flags;
 	u_int		 qlimit;
@@ -459,7 +468,7 @@ int	parseport(char *, struct range *r, int);
 %token	SYNPROXY FINGERPRINTS NOSYNC DEBUG SKIP HOSTID
 %token	ANTISPOOF FOR INCLUDE MATCHES
 %token	BITMASK RANDOM SOURCEHASH ROUNDROBIN LEASTSTATES STATICPORT PROBABILITY
-%token	WEIGHT BANDWIDTH
+%token	WEIGHT BANDWIDTH FLOWS QUANTUM
 %token	QUEUE PRIORITY QLIMIT RTABLE RDOMAIN MINIMUM BURST PARENT
 %token	LOAD RULESET_OPTIMIZATION RTABLE RDOMAIN PRIO ONCE DEFAULT
 %token	STICKYADDRESS MAXSRCSTATES MAXSRCNODES SOURCETRACK GLOBAL RULE
@@ -1319,6 +1328,11 @@ queue_opt	: BANDWIDTH scspec optscs			{
 				yyerror("bandwidth cannot be respecified");
 				YYERROR;
 			}
+			if (queue_opts.marker & QOM_FLOWS) {
+				yyerror("bandwidth cannot be specified for "
+				    "a flow queue");
+				YYERROR;
+			}
 			queue_opts.marker |= QOM_BWSPEC;
 			queue_opts.linkshare = $2;
 			queue_opts.realtime= $3.realtime;
@@ -1338,9 +1352,9 @@ queue_opt	: BANDWIDTH scspec optscs			{
 				YYERROR;
 			}
 			queue_opts.marker |= QOM_DEFAULT;
-			queue_opts.flags |= HFSC_DEFAULTCLASS;
+			queue_opts.flags |= PFQS_DEFAULT;
 		}
-		| QLIMIT NUMBER	{
+		| QLIMIT NUMBER					{
 			if (queue_opts.marker & QOM_QLIMIT) {
 				yyerror("qlimit cannot be respecified");
 				YYERROR;
@@ -1351,6 +1365,37 @@ queue_opt	: BANDWIDTH scspec optscs			{
 			}
 			queue_opts.marker |= QOM_QLIMIT;
 			queue_opts.qlimit = $2;
+		}
+		| FLOWS NUMBER					{
+			if (queue_opts.marker & QOM_FLOWS) {
+				yyerror("number of flows cannot be respecified");
+				YYERROR;
+			}
+			if (queue_opts.marker & QOM_BWSPEC) {
+				yyerror("bandwidth cannot be specified for "
+				    "a flow queue");
+				YYERROR;
+			}
+			if ($2 < 1 || $2 > 32767) {
+				yyerror("number of flows out of range: "
+				    "max 32767");
+				YYERROR;
+			}
+			queue_opts.marker |= QOM_FLOWS;
+			queue_opts.flags |= PFQS_FLOWQUEUE;
+			queue_opts.flowqueue.flows = $2;
+		}
+		| QUANTUM NUMBER				{
+			if (queue_opts.marker & QOM_QUANTUM) {
+				yyerror("quantum cannot be respecified");
+				YYERROR;
+			}
+			if ($2 < 1 || $2 > 65535) {
+				yyerror("quantum out of range: max 65535");
+				YYERROR;
+			}
+			queue_opts.marker |= QOM_QUANTUM;
+			queue_opts.flowqueue.quantum = $2;
 		}
 		;
 
@@ -1528,6 +1573,11 @@ pfrule		: action dir logquick interface af proto fromto
 				r.rule_flag |= PFRULE_AFTO;
 			if (($8.marker & FOM_AFTO) && r.direction != PF_IN) {
 				yyerror("af-to can only be used with direction in");
+				YYERROR;
+			}
+			if (($8.marker & FOM_AFTO) && $8.route.rt) {
+				yyerror("af-to cannot be used together with "
+				    "route-to, reply-to, dup-to");
 				YYERROR;
 			}
 			r.af = $5;
@@ -4293,6 +4343,10 @@ expand_queue(char *qname, struct node_if *interfaces, struct queue_opts *opts)
 
 	LOOP_THROUGH(struct node_if, interface, interfaces,
 		bzero(&qspec, sizeof(qspec));
+		if ((opts->flags & PFQS_FLOWQUEUE) && opts->parent) {
+			yyerror("discipline doesn't support hierarchy");
+			return (1);
+		}
 		if (strlcpy(qspec.qname, qname, sizeof(qspec.qname)) >=
 		    sizeof(qspec.qname)) {
 			yyerror("queuename too long");
@@ -4325,6 +4379,11 @@ expand_queue(char *qname, struct node_if *interfaces, struct queue_opts *opts)
 		qspec.upperlimit.m2.absolute = opts->upperlimit.m2.bw_absolute;
 		qspec.upperlimit.m2.percent = opts->upperlimit.m2.bw_percent;
 		qspec.upperlimit.d = opts->upperlimit.d;
+
+		qspec.flowqueue.flows = opts->flowqueue.flows;
+		qspec.flowqueue.quantum = opts->flowqueue.quantum;
+		qspec.flowqueue.interval = opts->flowqueue.interval;
+		qspec.flowqueue.target = opts->flowqueue.target;
 
 		qspec.flags = opts->flags;
 		qspec.qlimit = opts->qlimit;
@@ -4363,7 +4422,6 @@ expand_divertspec(struct pf_rule *r, struct divertspec *ds)
 		return (1);
 	}
 	if (r->af) {
-		n = ds->addr;
 		for (n = ds->addr; n != NULL; n = n->next)
 			if (n->af == r->af)
 				break;
@@ -4538,7 +4596,7 @@ apply_redirspec(struct pf_pool *rpool, struct pf_rule *r, struct redirspec *rs,
 	rpool->proxy_port[0] = ntohs(rs->rdr->rport.a);
 
 	if (isrdr) {
-		if (!rs->rdr->rport.b && rs->rdr->rport.t && np->port != NULL) {
+		if (!rs->rdr->rport.b && rs->rdr->rport.t) {
 			rpool->proxy_port[1] = ntohs(rs->rdr->rport.a) +
 			    (ntohs(np->port[1]) - ntohs(np->port[0]));
 		} else
@@ -4981,6 +5039,7 @@ lookup(char *s)
 		{ "fingerprints",	FINGERPRINTS},
 		{ "flags",		FLAGS},
 		{ "floating",		FLOATING},
+		{ "flows",		FLOWS},
 		{ "flush",		FLUSH},
 		{ "for",		FOR},
 		{ "fragment",		FRAGMENT},
@@ -5032,6 +5091,7 @@ lookup(char *s)
 		{ "probability",	PROBABILITY},
 		{ "proto",		PROTO},
 		{ "qlimit",		QLIMIT},
+		{ "quantum",		QUANTUM},
 		{ "queue",		QUEUE},
 		{ "quick",		QUICK},
 		{ "random",		RANDOM},
@@ -5437,7 +5497,6 @@ parse_config(char *filename, struct pfctl *xpf)
 	struct sym	*sym;
 
 	pf = xpf;
-	errors = 0;
 	returnicmpdefault = (ICMP_UNREACH << 8) | ICMP_UNREACH_PORT;
 	returnicmp6default =
 	    (ICMP6_DST_UNREACH << 8) | ICMP6_DST_UNREACH_NOPORT;
@@ -5471,9 +5530,10 @@ symset(const char *nam, const char *val, int persist)
 {
 	struct sym	*sym;
 
-	for (sym = TAILQ_FIRST(&symhead); sym && strcmp(nam, sym->nam);
-	    sym = TAILQ_NEXT(sym, entry))
-		;	/* nothing */
+	TAILQ_FOREACH(sym, &symhead, entry) {
+		if (strcmp(nam, sym->nam) == 0)
+			break;
+	}
 
 	if (sym != NULL) {
 		if (sym->persist == 1)
@@ -5530,11 +5590,12 @@ symget(const char *nam)
 {
 	struct sym	*sym;
 
-	TAILQ_FOREACH(sym, &symhead, entry)
+	TAILQ_FOREACH(sym, &symhead, entry) {
 		if (strcmp(nam, sym->nam) == 0) {
 			sym->used = 1;
 			return (sym->val);
 		}
+	}
 	return (NULL);
 }
 

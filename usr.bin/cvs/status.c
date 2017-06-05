@@ -1,4 +1,4 @@
-/*	$OpenBSD: status.c,v 1.96 2015/04/04 14:20:11 stsp Exp $	*/
+/*	$OpenBSD: status.c,v 1.100 2017/06/01 08:08:24 joris Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  * Copyright (c) 2005-2008 Xavier Santolaria <xsa@openbsd.org>
@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -86,7 +87,7 @@ cvs_status(int argc, char **argv)
 	cr.enterdir = NULL;
 	cr.leavedir = NULL;
 
-	if (current_cvsroot->cr_method == CVS_METHOD_LOCAL) {
+	if (cvsroot_is_local()) {
 		flags |= CR_REPO;
 		cr.fileproc = cvs_status_local;
 	} else {
@@ -105,7 +106,7 @@ cvs_status(int argc, char **argv)
 	else
 		cvs_file_run(1, &arg, &cr);
 
-	if (current_cvsroot->cr_method != CVS_METHOD_LOCAL) {
+	if (cvsroot_is_remote()) {
 		cvs_client_send_files(argv, argc);
 		cvs_client_senddir(".");
 		cvs_client_send_request("status");
@@ -119,7 +120,7 @@ void
 cvs_status_local(struct cvs_file *cf)
 {
 	size_t len;
-	RCSNUM *head;
+	RCSNUM *head, *brev;
 	const char *status;
 	struct rcs_delta *rdp;
 	char buf[PATH_MAX + CVS_REV_BUFSZ + 128];
@@ -177,8 +178,12 @@ cvs_status_local(struct cvs_file *cf)
 		rcsnum_tostr(cf->file_ent->ce_rev, revbuf, sizeof(revbuf));
 
 		if (cf->file_ent->ce_conflict == NULL) {
-			(void)strlcpy(timebuf, cf->file_ent->ce_time,
-			    sizeof(timebuf));
+			if (cvs_server_active == 0) {
+				(void)strlcpy(timebuf, cf->file_ent->ce_time,
+				    sizeof(timebuf));
+			} else {
+				timebuf[0] = '\0';
+			}
 		} else {
 			len = strlcpy(timebuf, cf->file_ent->ce_conflict,
 			    sizeof(timebuf));
@@ -223,11 +228,28 @@ cvs_status_local(struct cvs_file *cf)
 	}
 
 	if (cf->file_ent != NULL) {
-		if (cf->file_ent->ce_tag != NULL)
-			cvs_printf("   Sticky Tag:\t\t%s\n",
-			    cf->file_ent->ce_tag);
-		else if (verbosity > 0)
+		if (cf->file_ent->ce_tag != NULL) {
+			if ((brev = rcs_sym_getrev(cf->file_rcs,
+			    cf->file_ent->ce_tag)) == NULL) {
+				(void)strlcpy(buf, "- MISSING from RCS file!",
+				    sizeof(buf));
+			} else {
+				rcsnum_tostr(brev, revbuf, sizeof(revbuf));
+				if (RCSNUM_ISBRANCH(brev)) {
+					xsnprintf(buf, sizeof(buf),
+					    "(branch: %s)", revbuf);
+				} else {
+					xsnprintf(buf, sizeof(buf),
+					    "(revision: %s)", revbuf);
+				}
+				free(brev);
+			}
+
+			cvs_printf("   Sticky Tag:\t\t%s %s\n",
+			    cf->file_ent->ce_tag, buf);
+		} else if (verbosity > 0) {
 			cvs_printf("   Sticky Tag:\t\t(none)\n");
+		}
 
 		if (cf->file_ent->ce_date != -1) {
 			struct tm datetm;

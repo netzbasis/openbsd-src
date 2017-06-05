@@ -1,4 +1,4 @@
-/*	$OpenBSD: buf.h,v 1.103 2016/05/23 09:31:28 natano Exp $	*/
+/*	$OpenBSD: buf.h,v 1.106 2017/04/16 14:25:42 beck Exp $	*/
 /*	$NetBSD: buf.h,v 1.25 1997/04/09 21:12:17 mycroft Exp $	*/
 
 /*
@@ -47,9 +47,6 @@
 
 struct buf;
 struct vnode;
-
-struct buf_rb_bufs;
-RB_PROTOTYPE(buf_rb_bufs, buf, b_rbbufs, rb_buf_compare);
 
 LIST_HEAD(bufhead, buf);
 
@@ -140,7 +137,7 @@ extern struct bio_ops {
 
 /* The buffer header describes an I/O operation in the kernel. */
 struct buf {
-	RB_ENTRY(buf) b_rbbufs;		/* vnode "hash" tree */
+	RBT_ENTRY(buf) b_rbbufs;	/* vnode "hash" tree */
 	LIST_ENTRY(buf) b_list;		/* All allocated buffers. */
 	LIST_ENTRY(buf) b_vnbufs;	/* Buffer's associated vnode. */
 	TAILQ_ENTRY(buf) b_freelist;	/* Free list position if not active. */
@@ -281,7 +278,7 @@ void    buf_undirty(struct buf *);
 void	buf_adjcnt(struct buf *, long);
 int	bwrite(struct buf *);
 struct buf *getblk(struct vnode *, daddr_t, int, int, int);
-struct buf *geteblk(int);
+struct buf *geteblk(size_t);
 struct buf *incore(struct vnode *, daddr_t);
 
 /*
@@ -290,7 +287,7 @@ struct buf *incore(struct vnode *, daddr_t);
 void bufcache_take(struct buf *);
 void bufcache_release(struct buf *);
 
-void buf_flip_high(struct buf *);
+int buf_flip_high(struct buf *);
 void buf_flip_dma(struct buf *);
 struct buf *bufcache_getcleanbuf(int, int);
 struct buf *bufcache_getanycleanbuf(void);
@@ -314,7 +311,6 @@ int	buf_dealloc_mem(struct buf *);
 void	buf_fix_mapping(struct buf *, vsize_t);
 void	buf_alloc_pages(struct buf *, vsize_t);
 void	buf_free_pages(struct buf *);
-
 
 void	minphys(struct buf *bp);
 int	physio(void (*strategy)(struct buf *), dev_t dev, int flags,

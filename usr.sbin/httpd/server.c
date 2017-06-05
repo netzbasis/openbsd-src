@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.95 2016/08/30 14:31:53 rzalamena Exp $	*/
+/*	$OpenBSD: server.c,v 1.109 2017/04/17 21:58:27 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -58,6 +58,7 @@ int		 server_socket(struct sockaddr_storage *, in_port_t,
 		    struct server_config *, int, int);
 int		 server_socket_listen(struct sockaddr_storage *, in_port_t,
 		    struct server_config *);
+struct server	*server_byid(uint32_t);
 
 int		 server_tls_init(struct server *);
 void		 server_tls_readcb(int, short, void *);
@@ -135,6 +136,8 @@ server_tls_cmp(struct server *s1, struct server *s2, int match_keypair)
 
 	if (sc1->tls_protocols != sc2->tls_protocols)
 		return (-1);
+	if (sc1->tls_ticket_lifetime != sc2->tls_ticket_lifetime)
+		return (-1);
 	if (strcmp(sc1->tls_ciphers, sc2->tls_ciphers) != 0)
 		return (-1);
 	if (strcmp(sc1->tls_dhe_params, sc2->tls_dhe_params) != 0)
@@ -158,20 +161,37 @@ server_tls_load_keypair(struct server *srv)
 	if ((srv->srv_conf.flags & SRVFLAG_TLS) == 0)
 		return (0);
 
-	if ((srv->srv_conf.tls_cert = tls_load_file(
-	    srv->srv_conf.tls_cert_file, &srv->srv_conf.tls_cert_len,
-	    NULL)) == NULL)
+	if ((srv->srv_conf.tls_cert = tls_load_file(srv->srv_conf.tls_cert_file,
+	    &srv->srv_conf.tls_cert_len, NULL)) == NULL)
 		return (-1);
 	log_debug("%s: using certificate %s", __func__,
 	    srv->srv_conf.tls_cert_file);
 
 	/* XXX allow to specify password for encrypted key */
-	if ((srv->srv_conf.tls_key = tls_load_file(
-	    srv->srv_conf.tls_key_file, &srv->srv_conf.tls_key_len,
-	    NULL)) == NULL)
+	if ((srv->srv_conf.tls_key = tls_load_file(srv->srv_conf.tls_key_file,
+	    &srv->srv_conf.tls_key_len, NULL)) == NULL)
 		return (-1);
 	log_debug("%s: using private key %s", __func__,
 	    srv->srv_conf.tls_key_file);
+
+	return (0);
+}
+
+int
+server_tls_load_ocsp(struct server *srv)
+{
+	if ((srv->srv_conf.flags & SRVFLAG_TLS) == 0)
+		return (0);
+
+	if (srv->srv_conf.tls_ocsp_staple_file == NULL)
+		return (0);
+
+	if ((srv->srv_conf.tls_ocsp_staple = tls_load_file(
+	    srv->srv_conf.tls_ocsp_staple_file,
+	    &srv->srv_conf.tls_ocsp_staple_len, NULL)) == NULL)
+		return (-1);
+	log_debug("%s: using ocsp staple from %s", __func__,
+	    srv->srv_conf.tls_ocsp_staple_file);
 
 	return (0);
 }
@@ -199,9 +219,12 @@ server_tls_init(struct server *srv)
 		return (-1);
 	}
 
-	tls_config_set_protocols(srv->srv_tls_config,
-	    srv->srv_conf.tls_protocols);
-
+	if (tls_config_set_protocols(srv->srv_tls_config,
+	    srv->srv_conf.tls_protocols) != 0) {
+		log_warnx("%s: failed to set tls protocols: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
+		return (-1);
+	}
 	if (tls_config_set_ciphers(srv->srv_tls_config,
 	    srv->srv_conf.tls_ciphers) != 0) {
 		log_warnx("%s: failed to set tls ciphers: %s",
@@ -221,9 +244,11 @@ server_tls_init(struct server *srv)
 		return (-1);
 	}
 
-	if (tls_config_set_keypair_mem(srv->srv_tls_config,
+	if (tls_config_set_keypair_ocsp_mem(srv->srv_tls_config,
 	    srv->srv_conf.tls_cert, srv->srv_conf.tls_cert_len,
-	    srv->srv_conf.tls_key, srv->srv_conf.tls_key_len) != 0) {
+	    srv->srv_conf.tls_key, srv->srv_conf.tls_key_len,
+	    srv->srv_conf.tls_ocsp_staple,
+	    srv->srv_conf.tls_ocsp_staple_len) != 0) {
 		log_warnx("%s: failed to set tls certificate/key: %s",
 		    __func__, tls_config_error(srv->srv_tls_config));
 		return (-1);
@@ -234,12 +259,39 @@ server_tls_init(struct server *srv)
 			continue;
 		log_debug("%s: adding keypair for server %s", __func__,
 		    srv->srv_conf.name);
-		if (tls_config_add_keypair_mem(srv->srv_tls_config,
+		if (tls_config_add_keypair_ocsp_mem(srv->srv_tls_config,
 		    srv_conf->tls_cert, srv_conf->tls_cert_len,
-		    srv_conf->tls_key, srv_conf->tls_key_len) != 0) {
+		    srv_conf->tls_key, srv_conf->tls_key_len,
+		    srv_conf->tls_ocsp_staple,
+		    srv_conf->tls_ocsp_staple_len) != 0) {
 			log_warnx("%s: failed to add tls keypair", __func__);
 			return (-1);
 		}
+	}
+
+	/* set common session ID among all processes */
+	if (tls_config_set_session_id(srv->srv_tls_config,
+	    httpd_env->sc_tls_sid, sizeof(httpd_env->sc_tls_sid)) == -1) {
+		log_warnx("%s: could not set the TLS session ID: %s",
+		    __func__, tls_config_error(srv->srv_tls_config));
+		return (-1);
+	}
+
+	/* ticket support */
+	if (srv->srv_conf.tls_ticket_lifetime) {
+		if (tls_config_set_session_lifetime(srv->srv_tls_config,
+		    srv->srv_conf.tls_ticket_lifetime) == -1) {
+			log_warnx("%s: could not set the TLS session lifetime: "
+			    "%s", __func__,
+			    tls_config_error(srv->srv_tls_config));
+			return (-1);
+		}
+		tls_config_add_ticket_key(srv->srv_tls_config,
+		    srv->srv_conf.tls_ticket_key.tt_keyrev,
+		    srv->srv_conf.tls_ticket_key.tt_key,
+		    sizeof(srv->srv_conf.tls_ticket_key.tt_key));
+		explicit_bzero(&srv->srv_conf.tls_ticket_key,
+		    sizeof(srv->srv_conf.tls_ticket_key));
 	}
 
 	if (tls_configure(srv->srv_tls_ctx, srv->srv_tls_config) != 0) {
@@ -250,16 +302,24 @@ server_tls_init(struct server *srv)
 
 	/* We're now done with the public/private key... */
 	tls_config_clear_keys(srv->srv_tls_config);
-	explicit_bzero(srv->srv_conf.tls_cert, srv->srv_conf.tls_cert_len);
-	explicit_bzero(srv->srv_conf.tls_key, srv->srv_conf.tls_key_len);
-	free(srv->srv_conf.tls_cert);
-	free(srv->srv_conf.tls_key);
+	freezero(srv->srv_conf.tls_cert, srv->srv_conf.tls_cert_len);
+	freezero(srv->srv_conf.tls_key, srv->srv_conf.tls_key_len);
 	srv->srv_conf.tls_cert = NULL;
 	srv->srv_conf.tls_key = NULL;
 	srv->srv_conf.tls_cert_len = 0;
 	srv->srv_conf.tls_key_len = 0;
 
 	return (0);
+}
+
+void
+server_generate_ticket_key(struct server_config *srv_conf)
+{
+	struct server_tls_ticket *key = &srv_conf->tls_ticket_key;
+
+	key->tt_id = srv_conf->id;
+	key->tt_keyrev = arc4random();
+	arc4random_buf(key->tt_key, sizeof(key->tt_key));
 }
 
 void
@@ -354,16 +414,10 @@ serverconfig_free(struct server_config *srv_conf)
 	free(srv_conf->return_uri);
 	free(srv_conf->tls_cert_file);
 	free(srv_conf->tls_key_file);
-
-	if (srv_conf->tls_cert != NULL) {
-		explicit_bzero(srv_conf->tls_cert, srv_conf->tls_cert_len);
-		free(srv_conf->tls_cert);
-	}
-
-	if (srv_conf->tls_key != NULL) {
-		explicit_bzero(srv_conf->tls_key, srv_conf->tls_key_len);
-		free(srv_conf->tls_key);
-	}
+	free(srv_conf->tls_ocsp_staple_file);
+	free(srv_conf->tls_ocsp_staple);
+	freezero(srv_conf->tls_cert, srv_conf->tls_cert_len);
+	freezero(srv_conf->tls_key, srv_conf->tls_key_len);
 }
 
 void
@@ -375,6 +429,8 @@ serverconfig_reset(struct server_config *srv_conf)
 	srv_conf->tls_cert_file = NULL;
 	srv_conf->tls_key = NULL;
 	srv_conf->tls_key_file = NULL;
+	srv_conf->tls_ocsp_staple = NULL;
+	srv_conf->tls_ocsp_staple_file = NULL;
 }
 
 struct server *
@@ -407,6 +463,18 @@ serverconfig_byid(uint32_t id)
 		}
 	}
 
+	return (NULL);
+}
+
+struct server *
+server_byid(uint32_t id)
+{
+	struct server	*srv;
+
+	TAILQ_FOREACH(srv, httpd_env->sc_servers, srv_entry) {
+		if (srv->srv_conf.id == id)
+			return (srv);
+	}
 	return (NULL);
 }
 
@@ -536,15 +604,33 @@ server_socket(struct sockaddr_storage *ss, in_port_t port,
 	 */
 	if (srv_conf->tcpflags & TCPFLAG_IPTTL) {
 		val = (int)srv_conf->tcpipttl;
-		if (setsockopt(s, IPPROTO_IP, IP_TTL,
-		    &val, sizeof(val)) == -1)
-			goto bad;
+		switch (ss->ss_family) {
+		case AF_INET:
+			if (setsockopt(s, IPPROTO_IP, IP_TTL,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		case AF_INET6:
+			if (setsockopt(s, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		}
 	}
 	if (srv_conf->tcpflags & TCPFLAG_IPMINTTL) {
 		val = (int)srv_conf->tcpipminttl;
-		if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
-		    &val, sizeof(val)) == -1)
-			goto bad;
+		switch (ss->ss_family) {
+		case AF_INET:
+			if (setsockopt(s, IPPROTO_IP, IP_MINTTL,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		case AF_INET6:
+			if (setsockopt(s, IPPROTO_IPV6, IPV6_MINHOPCOUNT,
+			    &val, sizeof(val)) == -1)
+				goto bad;
+			break;
+		}
 	}
 
 	/*
@@ -772,7 +858,7 @@ server_input(struct client *clt)
 	bufferevent_setwatermark(clt->clt_bev, EV_READ, 0, FCGI_CONTENT_SIZE);
 
 	bufferevent_settimeout(clt->clt_bev,
-	    srv_conf->timeout.tv_sec, srv_conf->timeout.tv_sec);
+	    srv_conf->requesttimeout.tv_sec, srv_conf->requesttimeout.tv_sec);
 	bufferevent_enable(clt->clt_bev, EV_READ|EV_WRITE);
 }
 
@@ -791,8 +877,6 @@ server_write(struct bufferevent *bev, void *arg)
 	if (clt->clt_done)
 		goto done;
 
-	bufferevent_enable(bev, EV_READ);
-
 	if (clt->clt_srvbev && clt->clt_srvbev_throttled) {
 		bufferevent_enable(clt->clt_srvbev, EV_READ);
 		clt->clt_srvbev_throttled = 0;
@@ -800,7 +884,7 @@ server_write(struct bufferevent *bev, void *arg)
 
 	return;
  done:
-	(*bev->errorcb)(bev, EVBUFFER_WRITE|EVBUFFER_EOF, bev->cbarg);
+	(*bev->errorcb)(bev, EVBUFFER_WRITE, bev->cbarg);
 	return;
 }
 
@@ -845,7 +929,7 @@ server_read(struct bufferevent *bev, void *arg)
 
 	return;
  done:
-	(*bev->errorcb)(bev, EVBUFFER_READ|EVBUFFER_EOF, bev->cbarg);
+	(*bev->errorcb)(bev, EVBUFFER_READ, bev->cbarg);
 	return;
  fail:
 	server_close(clt, strerror(errno));
@@ -858,7 +942,7 @@ server_error(struct bufferevent *bev, short error, void *arg)
 	struct evbuffer		*dst;
 
 	if (error & EVBUFFER_TIMEOUT) {
-		server_close(clt, "buffer event timeout");
+		server_abort_http(clt, 408, "timeout");
 		return;
 	}
 	if (error & EVBUFFER_ERROR) {
@@ -869,7 +953,11 @@ server_error(struct bufferevent *bev, short error, void *arg)
 		server_close(clt, "buffer event error");
 		return;
 	}
-	if (error & (EVBUFFER_READ|EVBUFFER_WRITE|EVBUFFER_EOF)) {
+	if (error & EVBUFFER_EOF) {
+		server_close(clt, "closed");
+		return;
+	}
+	if (error & (EVBUFFER_READ|EVBUFFER_WRITE)) {
 		bufferevent_disable(bev, EV_READ|EV_WRITE);
 
 		clt->clt_done = 1;
@@ -1092,14 +1180,13 @@ server_log(struct client *clt, const char *msg)
 	struct server_config	*srv_conf = clt->clt_srv_conf;
 	char			*ptr = NULL, *vmsg = NULL;
 	int			 debug_cmd = -1;
-	extern int		 verbose;
 
 	switch (srv_conf->logformat) {
 	case LOG_FORMAT_CONNECTION:
 		debug_cmd = IMSG_LOG_ACCESS;
 		break;
 	default:
-		if (verbose > 1)
+		if (log_getverbose() > 1)
 			debug_cmd = IMSG_LOG_ERROR;
 		if (EVBUFFER_LENGTH(clt->clt_log)) {
 			while ((ptr =
@@ -1179,6 +1266,9 @@ server_close(struct client *clt, const char *msg)
 int
 server_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 {
+	struct server			*srv;
+	struct server_tls_ticket	 key;
+
 	switch (imsg->hdr.type) {
 	case IMSG_CFG_MEDIA:
 		config_getmedia(httpd_env, imsg);
@@ -1200,6 +1290,16 @@ server_dispatch_parent(int fd, struct privsep_proc *p, struct imsg *imsg)
 		break;
 	case IMSG_CTL_RESET:
 		config_getreset(httpd_env, imsg);
+		break;
+	case IMSG_TLSTICKET_REKEY:
+		IMSG_SIZE_CHECK(imsg, (&key));
+		memcpy(&key, imsg->data, sizeof(key));
+		/* apply to the right server */
+		srv = server_byid(key.tt_id);
+		if (srv) {
+			tls_config_add_ticket_key(srv->srv_tls_config,
+			    key.tt_keyrev, key.tt_key, sizeof(key.tt_key));
+		}
 		break;
 	default:
 		return (-1);

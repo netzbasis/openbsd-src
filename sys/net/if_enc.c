@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_enc.c,v 1.65 2016/09/04 21:46:36 krw Exp $	*/
+/*	$OpenBSD: if_enc.c,v 1.68 2017/05/28 09:35:13 mpi Exp $	*/
 
 /*
  * Copyright (c) 2010 Reyk Floeter <reyk@vantronix.net>
@@ -72,7 +72,7 @@ enc_clone_create(struct if_clone *ifc, int unit)
 	struct ifnet		*ifp;
 	struct ifnet		**new;
 	size_t			 newlen;
-	int			 error;
+	int			 s, error;
 
 	if (unit > ENC_MAX_UNITS)
 		return (EINVAL);
@@ -86,6 +86,7 @@ enc_clone_create(struct if_clone *ifc, int unit)
 	ifp = &sc->sc_if;
 	ifp->if_softc = sc;
 	ifp->if_type = IFT_ENC;
+	ifp->if_xflags = IFXF_CLONED;
 	ifp->if_start = enc_start;
 	ifp->if_output = enc_output;
 	ifp->if_ioctl = enc_ioctl;
@@ -110,8 +111,10 @@ enc_clone_create(struct if_clone *ifc, int unit)
 #if NBPFILTER > 0
 	bpfattach(&ifp->if_bpf, ifp, DLT_ENC, ENC_HDRLEN);
 #endif
-
-	if ((error = enc_setif(ifp, 0)) != 0) {
+	NET_LOCK(s);
+	error = enc_setif(ifp, 0);
+	if (error != 0) {
+		NET_UNLOCK(s);
 		if_detach(ifp);
 		free(sc, M_DEVBUF, 0);
 		return (error);
@@ -119,8 +122,10 @@ enc_clone_create(struct if_clone *ifc, int unit)
 
 	if (unit == 0 || unit > enc_max_unit) {
 		if ((new = mallocarray(unit + 1, sizeof(struct ifnet *),
-		    M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
+		    M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL) {
+			NET_UNLOCK(s);
 			return (ENOBUFS);
+		}
 		newlen = sizeof(struct ifnet *) * (unit + 1);
 
 		if (enc_allifps != NULL) {
@@ -132,6 +137,7 @@ enc_clone_create(struct if_clone *ifc, int unit)
 		enc_max_unit = unit;
 	}
 	enc_allifps[unit] = ifp;
+	NET_UNLOCK(s);
 
 	return (0);
 }
@@ -146,12 +152,13 @@ enc_clone_destroy(struct ifnet *ifp)
 	if (sc->sc_unit == 0)
 		return (EPERM);
 
-	s = splnet();
+	NET_LOCK(s);
 	enc_allifps[sc->sc_unit] = NULL;
 	enc_unsetif(ifp);
+	NET_UNLOCK(s);
+
 	if_detach(ifp);
 	free(sc, M_DEVBUF, 0);
-	splx(s);
 
 	return (0);
 }
@@ -184,7 +191,6 @@ enc_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	int		 error;
 
 	switch (cmd) {
-	case SIOCAIFADDR:
 	case SIOCSIFADDR:
 	case SIOCSIFDSTADDR:
 	case SIOCSIFFLAGS:
@@ -229,8 +235,8 @@ enc_getif(u_int id, u_int unit)
 	return (enc_ifps[id]);
 }
 
-struct ifaddr
-*enc_getifa(u_int id, u_int unit)
+struct ifaddr *
+enc_getifa(u_int id, u_int unit)
 {
 	struct ifnet		*ifp;
 	struct enc_softc	*sc;
@@ -247,6 +253,8 @@ enc_setif(struct ifnet *ifp, u_int id)
 {
 	struct ifnet	**new;
 	size_t		 newlen;
+
+	NET_ASSERT_LOCKED();
 
 	enc_unsetif(ifp);
 

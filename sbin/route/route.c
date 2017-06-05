@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.190 2016/09/04 09:41:03 claudio Exp $	*/
+/*	$OpenBSD: route.c,v 1.200 2017/03/23 13:28:25 krw Exp $	*/
 /*	$NetBSD: route.c,v 1.16 1996/04/15 18:27:05 cgd Exp $	*/
 
 /*
@@ -40,6 +40,11 @@
 #include <net/route.h>
 #include <netinet/in.h>
 #include <netmpls/mpls.h>
+
+#ifdef BFD
+#include <sys/time.h>
+#include <net/bfd.h>
+#endif
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -90,6 +95,13 @@ void	 sodump(sup, char *);
 char	*priorityname(uint8_t);
 uint8_t	 getpriority(char *);
 void	 print_getmsg(struct rt_msghdr *, int);
+#ifdef BFD
+const char *bfd_state(unsigned int);
+const char *bfd_diag(unsigned int);
+const char *bfd_calc_uptime(time_t);
+void	 print_bfdmsg(struct rt_msghdr *);
+void	 print_sabfd(struct sockaddr_bfd *, int);
+#endif
 const char *get_linkstate(int, int);
 void	 print_rtmsg(struct rt_msghdr *, int);
 void	 pmsg_common(struct rt_msghdr *);
@@ -107,6 +119,9 @@ void	 interfaces(void);
 void	 getlabel(char *);
 int	 gettable(const char *);
 int	 rdomain(int, char **);
+void	 print_rtdns(struct sockaddr_rtdns *);
+void	 print_rtstatic(struct sockaddr_rtstatic *);
+void	 print_rtsearch(struct sockaddr_rtsearch *);
 
 __dead void
 usage(char *cp)
@@ -227,7 +242,7 @@ main(int argc, char **argv)
 		exit(flushroutes(argc, argv));
 		break;
 	}
-		
+
 	if (pledge("stdio rpath dns", NULL) == -1)
 		err(1, "pledge");
 
@@ -374,13 +389,17 @@ flushroutes(int argc, char **argv)
 		if (verbose)
 			print_rtmsg(rtm, rlen);
 		else {
+			struct sockaddr	*mask, *rti_info[RTAX_MAX];
+
 			sa = (struct sockaddr *)(next + rtm->rtm_hdrlen);
-			printf("%-20.20s ", rtm->rtm_flags & RTF_HOST ?
-			    routename(sa) : netname(sa, NULL)); /* XXX extract
-								   netmask */
-			sa = (struct sockaddr *)
-			    (ROUNDUP(sa->sa_len) + (char *)sa);
-			printf("%-20.20s ", routename(sa));
+
+			get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+
+			sa = rti_info[RTAX_DST];
+			mask = rti_info[RTAX_NETMASK];
+
+			p_sockaddr(sa, mask, rtm->rtm_flags, 20);
+			p_sockaddr(rti_info[RTAX_GATEWAY], NULL, RTF_HOST, 20);
 			printf("done\n");
 		}
 	}
@@ -1240,7 +1259,9 @@ char *msgtypes[] = {
 	"RTM_IFINFO: iface status change",
 	"RTM_IFANNOUNCE: iface arrival/departure",
 	"RTM_DESYNC: route socket overflow",
+	"RTM_INVALIDATE: invalidate cache of L2 route",
 	"RTM_BFD: bidirectional forwarding detection",
+	"RTM_PROPOSAL: config proposal"
 };
 
 char metricnames[] =
@@ -1254,7 +1275,7 @@ char ifnetflags[] =
 "\1UP\2BROADCAST\3DEBUG\4LOOPBACK\5PTP\6NOTRAILERS\7RUNNING\010NOARP\011PPROMISC"
 "\012ALLMULTI\013OACTIVE\014SIMPLEX\015LINK0\016LINK1\017LINK2\020MULTICAST";
 char addrnames[] =
-"\1DST\2GATEWAY\3NETMASK\4GENMASK\5IFP\6IFA\7AUTHOR\010BRD\011SRC\12SRCMASK\013LABEL";
+"\1DST\2GATEWAY\3NETMASK\4GENMASK\5IFP\6IFA\7AUTHOR\010BRD\011SRC\012SRCMASK\013LABEL\014BFD\015DNS\016STATIC\017SEARCH";
 
 const char *
 get_linkstate(int mt, int link_state)
@@ -1292,7 +1313,7 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 	else
 		printf("[rtm_type %d out of range]", rtm->rtm_type);
 
-	printf(": len %d", rtm->rtm_msglen);	
+	printf(": len %d", rtm->rtm_msglen);
 	switch (rtm->rtm_type) {
 	case RTM_DESYNC:
 		printf("\n");
@@ -1302,9 +1323,10 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		(void) printf(", if# %d, ", ifm->ifm_index);
 		if (if_indextoname(ifm->ifm_index, ifname) != NULL)
 			printf("name: %s, ", ifname);
-		printf("link: %s, flags:",
+		printf("link: %s, mtu: %u, flags:",
 		    get_linkstate(ifm->ifm_data.ifi_type,
-		    ifm->ifm_data.ifi_link_state));
+		        ifm->ifm_data.ifi_link_state),
+		    ifm->ifm_data.ifi_mtu);
 		bprintf(stdout, ifm->ifm_flags, ifnetflags);
 		pmsg_addrs((char *)ifm + ifm->ifm_hdrlen, ifm->ifm_addrs);
 		break;
@@ -1332,8 +1354,91 @@ print_rtmsg(struct rt_msghdr *rtm, int msglen)
 		}
 		printf("\n");
 		break;
+#ifdef BFD
 	case RTM_BFD:
-		printf("bfd\n");	/* XXX - expand*/
+		print_bfdmsg(rtm);
+		break;
+#endif
+	case RTM_PROPOSAL:
+		printf(", source ");
+		switch (rtm->rtm_priority) {
+		case RTP_PROPOSAL_STATIC:
+			printf("static");
+			break;
+		case RTP_PROPOSAL_DHCLIENT:
+			printf("dhcp");
+			break;
+		case RTP_PROPOSAL_SLAAC:
+			printf("slaac");
+			break;
+		default:
+			printf("unknown");
+			break;
+		}
+		printf(" table %u, ifidx %u, ",
+		    rtm->rtm_tableid, rtm->rtm_index);
+		printf("pid: %ld, seq %d, errno %d\nflags:",
+		    (long)rtm->rtm_pid, rtm->rtm_seq, rtm->rtm_errno);
+		bprintf(stdout, rtm->rtm_flags, routeflags);
+		printf("\nfmask:");
+		bprintf(stdout, rtm->rtm_fmask, routeflags);
+		if (verbose) {
+#define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')
+			relative_expire = rtm->rtm_rmx.rmx_expire ?
+			    rtm->rtm_rmx.rmx_expire - time(NULL) : 0;
+			printf("\nuse: %8llu   mtu: %8u%c   expire: %8lld%c",
+			    rtm->rtm_rmx.rmx_pksent,
+			    rtm->rtm_rmx.rmx_mtu, lock(MTU),
+			    relative_expire, lock(EXPIRE));
+#undef lock
+		}
+		printf("\nlocks: ");
+		bprintf(stdout, rtm->rtm_rmx.rmx_locks, metricnames);
+		printf(" inits: ");
+		bprintf(stdout, rtm->rtm_inits, metricnames);
+		pmsg_addrs(((char *)rtm + rtm->rtm_hdrlen),
+		   rtm->rtm_addrs & ~(RTA_STATIC | RTA_SEARCH | RTA_DNS));
+		printf("Static Routes:\n");
+		if (rtm->rtm_addrs & RTA_STATIC) {
+			char *next = (char *)rtm + rtm->rtm_hdrlen;
+			struct sockaddr	*sa, *rti_info[RTAX_MAX];
+			struct sockaddr_rtstatic *rtstatic;
+			sa = (struct sockaddr *)next;
+			get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+			rtstatic = (struct sockaddr_rtstatic *)
+			    rti_info[RTAX_STATIC];
+			if (rtstatic != NULL) {
+				printf(" ");
+				print_rtstatic(rtstatic);
+			}
+		}
+		printf("Domain search:\n");
+		if (rtm->rtm_addrs & RTA_SEARCH) {
+			char *next = (char *)rtm + rtm->rtm_hdrlen;
+			struct sockaddr	*sa, *rti_info[RTAX_MAX];
+			struct sockaddr_rtsearch *rtsearch;
+			sa = (struct sockaddr *)next;
+			get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+			rtsearch = (struct sockaddr_rtsearch *)
+			    rti_info[RTAX_SEARCH];
+			if (rtsearch != NULL) {
+				printf(" ");
+				print_rtsearch(rtsearch);
+			}
+		}
+		printf("Domain Name Servers:\n");
+		if (rtm->rtm_addrs & RTA_DNS) {
+			char *next = (char *)rtm + rtm->rtm_hdrlen;
+			struct sockaddr	*sa, *rti_info[RTAX_MAX];
+			struct sockaddr_rtdns *rtdns;
+			sa = (struct sockaddr *)next;
+			get_rtaddrs(rtm->rtm_addrs, sa, rti_info);
+			rtdns = (struct sockaddr_rtdns *)rti_info[RTAX_DNS];
+			if (rtdns != NULL) {
+				printf(" ");
+				print_rtdns(rtdns);
+			}
+		}
 		break;
 	default:
 		printf(", priority %d, table %u, ifidx %u, ",
@@ -1425,6 +1530,9 @@ print_getmsg(struct rt_msghdr *rtm, int msglen)
 	struct sockaddr *dst = NULL, *gate = NULL, *mask = NULL, *ifa = NULL;
 	struct sockaddr_dl *ifp = NULL;
 	struct sockaddr_rtlabel *sa_rl = NULL;
+#ifdef BFD
+	struct sockaddr_bfd *sa_bfd = NULL;
+#endif
 	struct sockaddr *mpls = NULL;
 	struct sockaddr *sa;
 	char *cp;
@@ -1473,6 +1581,11 @@ print_getmsg(struct rt_msghdr *rtm, int msglen)
 				case RTA_LABEL:
 					sa_rl = (struct sockaddr_rtlabel *)sa;
 					break;
+#ifdef BFD
+				case RTA_BFD:
+					sa_bfd = (struct sockaddr_bfd *)sa;
+					break;
+#endif
 				}
 				ADVANCE(cp, sa);
 			}
@@ -1505,6 +1618,10 @@ print_getmsg(struct rt_msghdr *rtm, int msglen)
 	printf("\n");
 	if (sa_rl != NULL)
 		printf("      label: %s\n", sa_rl->sr_label);
+#ifdef BFD
+	if (sa_bfd)
+		print_sabfd(sa_bfd, rtm->rtm_fmask);
+#endif
 
 #define lock(f)	((rtm->rtm_rmx.rmx_locks & __CONCAT(RTV_,f)) ? 'L' : ' ')
 	relative_expire = rtm->rtm_rmx.rmx_expire ?
@@ -1525,6 +1642,145 @@ print_getmsg(struct rt_msghdr *rtm, int msglen)
 	}
 #undef	RTA_IGN
 }
+
+#ifdef BFD
+const char *
+bfd_state(unsigned int state)
+{
+	switch (state) {
+	case BFD_STATE_ADMINDOWN:
+		return("admindown");
+		break;
+	case BFD_STATE_DOWN:
+		return("down");
+		break;
+	case BFD_STATE_INIT:
+		return("init");
+		break;
+	case BFD_STATE_UP:
+		return("up");
+		break;
+	}
+	return "invalid";
+}
+
+const char *
+bfd_diag(unsigned int diag)
+{
+	switch (diag) {
+	case BFD_DIAG_NONE:
+		return("none");
+		break;
+	case BFD_DIAG_EXPIRED:
+		return("expired");
+		break;
+	case BFD_DIAG_ECHO_FAILED:
+		return("echo-failed");
+		break;
+	case BFD_DIAG_NEIGHBOR_SIGDOWN:
+		return("neighbor-down");
+		break;
+	case BFD_DIAG_FIB_RESET:
+		return("fib-reset");
+		break;
+	case BFD_DIAG_PATH_DOWN:
+		return("path-down");
+		break;
+	case BFD_DIAG_CONCAT_PATH_DOWN:
+		return("concat-path-down");
+		break;
+	case BFD_DIAG_ADMIN_DOWN:
+		return("admindown");
+		break;
+	case BFD_DIAG_CONCAT_REVERSE_DOWN:
+		return("concat-reverse-down");
+		break;
+	}
+	return "invalid";
+}
+
+const char *
+bfd_calc_uptime(time_t time)
+{
+	static char buf[256];
+	struct tm *tp;
+	const char *fmt;
+
+	if (time > 2*86400)
+		fmt = "%dd%kh%Mm%Ss";
+	else if (time > 2*3600)
+		fmt = "%kh%Mm%Ss";
+	else if (time > 2*60)
+		fmt = "%Mm%Ss";
+	else
+		fmt = "%Ss";
+
+	tp = localtime(&time);
+	(void)strftime(buf, sizeof(buf), fmt, tp);
+	return (buf);
+}
+
+void
+print_bfdmsg(struct rt_msghdr *rtm)
+{
+	struct bfd_msghdr *bfdm = (struct bfd_msghdr *)rtm;
+
+	printf("\n");
+	print_sabfd(&bfdm->bm_sa, rtm->rtm_fmask);
+	pmsg_addrs(((char *)rtm + rtm->rtm_hdrlen), rtm->rtm_addrs);
+}
+
+void
+print_sabfd(struct sockaddr_bfd *sa_bfd, int fmask)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+
+	printf("        BFD:");
+
+	/* only show the state, unless verbose or -bfd */
+	if (!verbose && ((fmask & RTF_BFD) != RTF_BFD)) {
+		printf(" %s\n", bfd_state(sa_bfd->bs_state));
+		return;
+	}
+
+	switch (sa_bfd->bs_mode) {
+	case BFD_MODE_ASYNC:
+		printf(" async");
+		break;
+	case BFD_MODE_DEMAND:
+		printf(" demand");
+		break;
+	default:
+		printf(" unknown %u", sa_bfd->bs_mode);
+		break;
+	}
+
+	printf(" state %s", bfd_state(sa_bfd->bs_state));
+	printf(" remote %s", bfd_state(sa_bfd->bs_remotestate));
+	printf(" laststate %s", bfd_state(sa_bfd->bs_laststate));
+
+	printf(" error %d", sa_bfd->bs_error);
+	printf("\n            ");
+	printf(" diag %s", bfd_diag(sa_bfd->bs_localdiag));
+	printf(" remote %s", bfd_diag(sa_bfd->bs_remotediag));
+	printf("\n            ");
+	printf(" discr %u", sa_bfd->bs_localdiscr);
+	printf(" remote %u", sa_bfd->bs_remotediscr);
+	printf("\n            ");
+	printf(" uptime %s", bfd_calc_uptime(tv.tv_sec - sa_bfd->bs_uptime));
+	if (sa_bfd->bs_lastuptime)
+		printf(" last state time %s",
+		    bfd_calc_uptime(sa_bfd->bs_lastuptime));
+	printf("\n            ");
+	printf(" mintx %u", sa_bfd->bs_mintx);
+	printf(" minrx %u", sa_bfd->bs_minrx);
+	printf(" minecho %u", sa_bfd->bs_minecho);
+	printf(" multiplier %u", sa_bfd->bs_multiplier);
+	printf("\n");
+}
+#endif /* BFD */
 
 void
 pmsg_common(struct rt_msghdr *rtm)
@@ -1746,4 +2002,175 @@ rdomain(int argc, char **argv)
 	execvp(*argv, argv);
 	warn("%s", argv[0]);
 	return (errno == ENOENT ? 127 : 126);
+}
+
+/*
+ * Print RTM_PROPOSAL DNS server addresses.
+ */
+void
+print_rtdns(struct sockaddr_rtdns *rtdns)
+{
+	struct in_addr	 server;
+	struct in6_addr	 in6;
+	size_t		 srclen, offset;
+	unsigned int	 servercnt;
+	int		 i;
+	char		*src = rtdns->sr_dns;
+	char		 ntopbuf[INET6_ADDRSTRLEN];
+
+	offset = offsetof(struct sockaddr_rtdns, sr_dns);
+	if (rtdns->sr_len <= offset) {
+		printf("<invalid sr_len (%d <= %zu)>\n", rtdns->sr_len,
+		    offset);
+		return;
+	}
+	srclen = rtdns->sr_len - offset;
+	if (srclen > sizeof(rtdns->sr_dns)) {
+		printf("<invalid sr_len (%zu > %zu)>\n", srclen,
+		    sizeof(rtdns->sr_dns));
+		return;
+	}
+
+	switch (rtdns->sr_family) {
+	case AF_INET:
+		/* An array of IPv4 addresses. */
+		servercnt = srclen / sizeof(struct in_addr);
+		if (servercnt * sizeof(struct in_addr) != srclen) {
+			printf("<invalid server count>\n");
+			return;
+		}
+		for (i = 0; i < servercnt; i++) {
+			memcpy(&server.s_addr, src, sizeof(server.s_addr));
+			printf("%s ", inet_ntoa(server));
+			src += sizeof(struct in_addr);
+		}
+		break;
+	case AF_INET6:
+		servercnt = srclen / sizeof(struct in6_addr);
+		if (servercnt * sizeof(struct in6_addr) != srclen) {
+			printf("<invalid server count>\n");
+			return;
+		}
+		for (i = 0; i < servercnt; i++) {
+			memcpy(&in6, src, sizeof(in6));
+			src += sizeof(in6);
+			printf("%s ", inet_ntop(AF_INET6, &in6, ntopbuf,
+			    INET6_ADDRSTRLEN));
+		}
+		break;
+	default:
+		break;
+	}
+	printf("\n");
+}
+
+/*
+ * Print RTM_PROPOSAL static routes.
+ */
+void
+print_rtstatic(struct sockaddr_rtstatic *rtstatic)
+{
+	struct sockaddr_in6	 gateway6;
+	struct in6_addr		 prefix;
+	struct in_addr		 dest, gateway;
+	size_t			 srclen, offset;
+	int			 bits, bytes, error;
+	uint8_t			 prefixlen;
+	unsigned char		*src = rtstatic->sr_static;
+	char			 ntoabuf[INET_ADDRSTRLEN];
+	char			 hbuf[NI_MAXHOST];
+	char			 ntopbuf[INET6_ADDRSTRLEN];
+
+	offset = offsetof(struct sockaddr_rtstatic, sr_static);
+	if (rtstatic->sr_len <= offset) {
+		printf("<invalid sr_len (%d <= %zu)>\n", rtstatic->sr_len,
+		    offset);
+		return;
+	}
+	srclen = rtstatic->sr_len - offset;
+	if (srclen > sizeof(rtstatic->sr_static)) {
+		printf("<invalid sr_len (%zu > %zu)>\n", srclen,
+		    sizeof(rtstatic->sr_static));
+		return;
+	}
+
+	switch (rtstatic->sr_family) {
+	case AF_INET:
+		/* AF_INET -> RFC 3442 encoded static routes. */
+		while (srclen) {
+			bits = *src;
+			src++;
+			srclen--;
+			bytes = (bits + 7) / 8;
+			if (srclen < bytes || bytes > sizeof(dest.s_addr))
+				break;
+			memset(&dest, 0, sizeof(dest));
+			memcpy(&dest.s_addr, src, bytes);
+			src += bytes;
+			srclen -= bytes;
+			strlcpy(ntoabuf, inet_ntoa(dest), sizeof(ntoabuf));
+			if (srclen < sizeof(gateway.s_addr))
+				break;
+			memcpy(&gateway.s_addr, src, sizeof(gateway.s_addr));
+			src += sizeof(gateway.s_addr);
+			srclen -= sizeof(gateway.s_addr);
+			printf("%s/%u %s ", ntoabuf, bits, inet_ntoa(gateway));
+		}
+		break;
+	case AF_INET6:
+		while (srclen >= sizeof(prefixlen) + sizeof(prefix) +
+		    sizeof(gateway6)) {
+			memcpy(&prefixlen, src, sizeof(prefixlen));
+			srclen -= sizeof(prefixlen);
+			src += sizeof(prefixlen);
+
+			memcpy(&prefix, src, sizeof(prefix));
+			srclen -= sizeof(prefix);
+			src += sizeof(prefix);
+
+			memcpy(&gateway6, src, sizeof(gateway6));
+			srclen -= sizeof(gateway6);
+			src += sizeof(gateway6);
+
+			if ((error = getnameinfo((struct sockaddr *)&gateway6,
+			    gateway6.sin6_len, hbuf, sizeof(hbuf), NULL, 0,
+			    NI_NUMERICHOST | NI_NUMERICSERV))) {
+				warnx("cannot get gateway address: %s",
+				    gai_strerror(error));
+				return;
+			}
+			printf("%s/%u %s ", inet_ntop(AF_INET6, &prefix,
+			    ntopbuf, INET6_ADDRSTRLEN), prefixlen, hbuf);
+		}
+		break;
+	default:
+		printf("<unknown address family %d>", rtstatic->sr_family);
+		break;
+	}
+	printf("\n");
+}
+
+/*
+ * Print RTM_PROPOSAL domain search list.
+ */
+void
+print_rtsearch(struct sockaddr_rtsearch *rtsearch)
+{
+	char	*src = rtsearch->sr_search;
+	size_t	 srclen, offset;
+
+	offset = offsetof(struct sockaddr_rtsearch, sr_search);
+	if (rtsearch->sr_len <= offset) {
+		printf("<invalid sr_len (%d <= %zu)>\n", rtsearch->sr_len,
+		    offset);
+		return;
+	}
+	srclen = rtsearch->sr_len - offset;
+	if (srclen > sizeof(rtsearch->sr_search)) {
+		printf("<invalid sr_len (%zu > %zu)>\n", srclen,
+		    sizeof(rtsearch->sr_search));
+		return;
+	}
+
+	printf("%.*s\n", (int)srclen, src);
 }

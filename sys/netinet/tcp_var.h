@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_var.h,v 1.115 2016/07/20 19:57:53 bluhm Exp $	*/
+/*	$OpenBSD: tcp_var.h,v 1.124 2017/04/14 20:46:31 bluhm Exp $	*/
 /*	$NetBSD: tcp_var.h,v 1.17 1996/02/13 23:44:24 christos Exp $	*/
 
 /*
@@ -217,7 +217,7 @@ extern int tcp_delack_ticks;
 void	tcp_delack(void *);
 
 #define TCP_INIT_DELACK(tp)						\
-	timeout_set(&(tp)->t_delack_to, tcp_delack, tp)
+	timeout_set_proc(&(tp)->t_delack_to, tcp_delack, tp)
 
 #define TCP_RESTART_DELACK(tp)						\
 	timeout_add(&(tp)->t_delack_to, tcp_delack_ticks)
@@ -566,8 +566,132 @@ struct tcp_ident_mapping {
 };
 
 #ifdef _KERNEL
+
+#include <sys/percpu.h>
+
+enum tcpstat_counters {
+	tcps_connattempt,
+	tcps_accepts,
+	tcps_connects,
+	tcps_drops,
+	tcps_conndrops,
+	tcps_closed,
+	tcps_segstimed,
+	tcps_rttupdated,
+	tcps_delack,
+	tcps_timeoutdrop,
+	tcps_rexmttimeo,
+	tcps_persisttimeo,
+	tcps_persistdrop,
+	tcps_keeptimeo,
+	tcps_keepprobe,
+	tcps_keepdrops,
+	tcps_sndtotal,
+	tcps_sndpack,
+	tcps_sndbyte,
+	tcps_sndrexmitpack,
+	tcps_sndrexmitbyte,
+	tcps_sndrexmitfast,
+	tcps_sndacks,
+	tcps_sndprobe,
+	tcps_sndurg,
+	tcps_sndwinup,
+	tcps_sndctrl,
+	tcps_rcvtotal,
+	tcps_rcvpack,
+	tcps_rcvbyte,
+	tcps_rcvbadsum,
+	tcps_rcvbadoff,
+	tcps_rcvmemdrop,
+	tcps_rcvnosec,
+	tcps_rcvshort,
+	tcps_rcvduppack,
+	tcps_rcvdupbyte,
+	tcps_rcvpartduppack,
+	tcps_rcvpartdupbyte,
+	tcps_rcvoopack,
+	tcps_rcvoobyte,
+	tcps_rcvpackafterwin,
+	tcps_rcvbyteafterwin,
+	tcps_rcvafterclose,
+	tcps_rcvwinprobe,
+	tcps_rcvdupack,
+	tcps_rcvacktoomuch,
+	tcps_rcvacktooold,
+	tcps_rcvackpack,
+	tcps_rcvackbyte,
+	tcps_rcvwinupd,
+	tcps_pawsdrop,
+	tcps_predack,
+	tcps_preddat,
+	tcps_pcbhashmiss,
+	tcps_noport,
+	tcps_badsyn,
+	tcps_dropsyn,
+	tcps_rcvbadsig,
+	tcps_rcvgoodsig,
+	tcps_inswcsum,
+	tcps_outswcsum,
+	tcps_ecn_accepts,
+	tcps_ecn_rcvece,
+	tcps_ecn_rcvcwr,
+	tcps_ecn_rcvce,
+	tcps_ecn_sndect,
+	tcps_ecn_sndece,
+	tcps_ecn_sndcwr,
+	tcps_cwr_ecn,
+	tcps_cwr_frecovery,
+	tcps_cwr_timeout,
+	tcps_sc_added,
+	tcps_sc_completed,
+	tcps_sc_timed_out,
+	tcps_sc_overflowed,
+	tcps_sc_reset,
+	tcps_sc_unreach,
+	tcps_sc_bucketoverflow,
+	tcps_sc_aborted,
+	tcps_sc_dupesyn,
+	tcps_sc_dropped,
+	tcps_sc_collisions,
+	tcps_sc_retransmitted,
+	tcps_sc_seedrandom,
+	tcps_sc_hash_size,
+	tcps_sc_entry_count,
+	tcps_sc_entry_limit,
+	tcps_sc_bucket_maxlen,
+	tcps_sc_bucket_limit,
+	tcps_sc_uses_left,
+	tcps_conndrained,
+	tcps_sack_recovery_episode,
+	tcps_sack_rexmits,
+	tcps_sack_rexmit_bytes,
+	tcps_sack_rcv_opts,
+	tcps_sack_snd_opts,
+	tcps_ncounters,
+};
+
+extern struct cpumem *tcpcounters;
+
+static inline void
+tcpstat_inc(enum tcpstat_counters c)
+{
+	counters_inc(tcpcounters, c);
+}
+
+static inline void
+tcpstat_add(enum tcpstat_counters c, uint64_t v)
+{
+	counters_add(tcpcounters, c, v);
+}
+
+static inline void
+tcpstat_pkt(enum tcpstat_counters pcounter, enum tcpstat_counters bcounter,
+    uint64_t v)
+{
+	counters_pkt(tcpcounters, pcounter, bcounter, v);
+}
+
 extern	struct inpcbtable tcbtable;	/* head of queue of active tcpcb's */
-extern	struct tcpstat tcpstat;	/* tcp statistics */
 extern	u_int32_t tcp_now;		/* for RFC 1323 timestamps */
 extern	int tcp_do_rfc1323;	/* enabled/disabled? */
 extern	int tcptv_keep_init;	/* time to keep alive the initial SYN packet */
@@ -592,7 +716,6 @@ extern	int tcp_syn_use_limit;   /* number of uses before reseeding hash */
 extern	struct syn_cache_set tcp_syn_cache[];
 extern	int tcp_syn_cache_active; /* active syn cache, may be 0 or 1 */
 
-int	 tcp_attach(struct socket *);
 void	 tcp_canceltimers(struct tcpcb *);
 struct tcpcb *
 	 tcp_close(struct tcpcb *);
@@ -601,8 +724,8 @@ int	 tcp_freeq(struct tcpcb *);
 #ifdef INET6
 void	 tcp6_ctlinput(int, struct sockaddr *, u_int, void *);
 #endif
-void	 *tcp_ctlinput(int, struct sockaddr *, u_int, void *);
-int	 tcp_ctloutput(int, struct socket *, int, int, struct mbuf **);
+void	 tcp_ctlinput(int, struct sockaddr *, u_int, void *);
+int	 tcp_ctloutput(int, struct socket *, int, int, struct mbuf *);
 struct tcpcb *
 	 tcp_disconnect(struct tcpcb *);
 struct tcpcb *
@@ -610,10 +733,7 @@ struct tcpcb *
 int	 tcp_dooptions(struct tcpcb *, u_char *, int, struct tcphdr *,
 		struct mbuf *, int, struct tcp_opt_info *, u_int);
 void	 tcp_init(void);
-#ifdef INET6
-int	 tcp6_input(struct mbuf **, int *, int);
-#endif
-void	 tcp_input(struct mbuf *, ...);
+int	 tcp_input(struct mbuf **, int *, int, int);
 int	 tcp_mss(struct tcpcb *, int);
 void	 tcp_mss_update(struct tcpcb *);
 u_int	 tcp_hdrsz(struct tcpcb *);
@@ -644,6 +764,7 @@ struct tcpcb *
 int	 tcp_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 int	 tcp_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
+int	 tcp_attach(struct socket *, int);
 void	 tcp_xmit_timer(struct tcpcb *, int);
 void	 tcpdropoldhalfopen(struct tcpcb *, u_int16_t);
 #ifdef TCP_SACK
@@ -670,24 +791,10 @@ int	tcp_signature(struct tdb *, int, struct mbuf *, struct tcphdr *,
 #endif /* TCP_SIGNATURE */
 void     tcp_set_iss_tsm(struct tcpcb *);
 
-int	 syn_cache_add(struct sockaddr *, struct sockaddr *,
-		struct tcphdr *, unsigned int, struct socket *,
-		struct mbuf *, u_char *, int, struct tcp_opt_info *, tcp_seq *);
 void	 syn_cache_unreach(struct sockaddr *, struct sockaddr *,
 	   struct tcphdr *, u_int);
-struct socket *syn_cache_get(struct sockaddr *, struct sockaddr *,
-		struct tcphdr *, unsigned int, unsigned int,
-		struct socket *so, struct mbuf *);
 void	 syn_cache_init(void);
-void	 syn_cache_insert(struct syn_cache *, struct tcpcb *);
-struct syn_cache *syn_cache_lookup(struct sockaddr *, struct sockaddr *,
-		struct syn_cache_head **, u_int);
-void	 syn_cache_reset(struct sockaddr *, struct sockaddr *,
-		struct tcphdr *, u_int);
-int	 syn_cache_respond(struct syn_cache *, struct mbuf *);
-void	 syn_cache_timer(void *);
 void	 syn_cache_cleanup(struct tcpcb *);
-void	 syn_cache_reaper(void *);
 
 #endif /* _KERNEL */
 #endif /* _NETINET_TCP_VAR_H_ */

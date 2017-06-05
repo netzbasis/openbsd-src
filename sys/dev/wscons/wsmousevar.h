@@ -1,4 +1,4 @@
-/* $OpenBSD: wsmousevar.h,v 1.11 2016/06/06 22:32:47 bru Exp $ */
+/* $OpenBSD: wsmousevar.h,v 1.14 2017/03/06 09:53:01 mpi Exp $ */
 /* $NetBSD: wsmousevar.h,v 1.4 2000/01/08 02:57:24 takemura Exp $ */
 
 /*
@@ -46,6 +46,11 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
+#ifndef _WSMOUSEVAR_H_
+#define _WSMOUSEVAR_H_
+
+#ifdef _KERNEL
 
 /*
  * WSMOUSE interfaces.
@@ -114,7 +119,6 @@ int	wsmousedevprint(void *, const char *);
 
 
 struct device;
-struct mtpoint;
 
 /*
  * Type codes for wsmouse_set. REL_X/Y, MT_REL_X/Y, and TOUCH_WIDTH
@@ -140,8 +144,12 @@ enum wsmouseval {
 #define WSMOUSE_IS_MT_CODE(code) \
     ((code) >= WSMOUSE_MT_REL_X && (code) <= WSMOUSE_MT_PRESSURE)
 
-
-
+struct mtpoint {
+	int x;
+	int y;
+	int pressure;
+	int slot;		/* An output field, set by wsmouse_mtframe. */
+};
 
 /* Report button state. */
 void wsmouse_buttons(struct device *, u_int);
@@ -175,56 +183,66 @@ void wsmouse_input_sync(struct device *);
 /* Initialize MT structures (num_slots, tracking). */
 int wsmouse_mt_init(struct device *, int, int);
 
-/* Set a filter/transformation value (param type, value). */
-void wsmouse_set_param(struct device *, size_t, int);
+#define WSMOUSE_MT_SLOTS_MAX 10
+#define WSMOUSE_MT_INIT_TRACKING 1
 
 /* Switch between compatibility mode and native mode. */
 int wsmouse_set_mode(struct device *, int);
 
+/* Read/Set parameter values. */
+int wsmouse_get_params(struct device *, struct wsmouse_param *, u_int);
+int wsmouse_set_params(struct device *, const struct wsmouse_param *, u_int);
 
-struct mtpoint {
-	int x;
-	int y;
-	int pressure;
-	int slot;		/* An output field, set by wsmouse_mtframe. */
+
+enum wsmousehw_type {
+	WSMOUSEHW_RAW,
+	WSMOUSEHW_MOUSE,
+	WSMOUSEHW_TOUCHPAD,
+	WSMOUSEHW_CLICKPAD,
+	WSMOUSEHW_TPANEL,
 };
 
+/*
+ * wsmousehw.flags
+ */
+/* Invert Y-coordinates */
+#define WSMOUSEHW_LR_DOWN 	(1 << 0)
+/* Allocate the buffers for wsmouse_mtframe(). */
+#define WSMOUSEHW_MT_TRACKING	(1 << 1)
 
-struct wsmouseparams {
-	int x_inv;
-	int y_inv;
 
-	int dx_mul;		/* delta scaling */
-	int dx_div;
-	int dy_mul;
-	int dy_div;
+/*
+ * The more or less minimal hardware description for the default
+ * configuration.
+ *
+ * Drivers that report coordinates with a downward orientation
+ * must set the flag WSMOUSEHW_LR_DOWN. Drivers for MT hardware
+ * must provide the number of slots. If they use wsmouse_mtframe(),
+ * WSMOUSEHW_MT_TRACKING must be set.
+ *
+ * The resolution values are optional.
+ */
+struct wsmousehw {
+	int type;		/* WSMOUSE_TYPE_*, cf. wsconsio.h */
+	enum wsmousehw_type hw_type;
+	int x_min;
+	int x_max;
+	int y_min;
+	int y_max;
+	int h_res;
+	int v_res;
 
-	int swapxy;
+	int flags;
+	int mt_slots;
 
-	int pressure_lo;
-	int pressure_hi;
-
-	int dx_max;		/* (compat mode) */
-	int dy_max;
-
-	int tracking_maxdist;
+	int contacts_max;	/* inclusive (not needed for MT touchpads) */
 };
 
-#define WSMPARAM_X_INV		offsetof(struct wsmouseparams, x_inv)
-#define WSMPARAM_Y_INV		offsetof(struct wsmouseparams, y_inv)
-#define WSMPARAM_DX_MUL		offsetof(struct wsmouseparams, dx_mul)
-#define WSMPARAM_DX_DIV		offsetof(struct wsmouseparams, dx_div)
-#define WSMPARAM_DY_MUL		offsetof(struct wsmouseparams, dy_mul)
-#define WSMPARAM_DY_DIV		offsetof(struct wsmouseparams, dy_div)
-#define WSMPARAM_SWAPXY		offsetof(struct wsmouseparams, swapxy)
-#define WSMPARAM_PRESSURE_LO	offsetof(struct wsmouseparams, pressure_lo)
-#define WSMPARAM_PRESSURE_HI	offsetof(struct wsmouseparams, pressure_hi)
-#define WSMPARAM_DX_MAX		offsetof(struct wsmouseparams, dx_max)
-#define WSMPARAM_DY_MAX		offsetof(struct wsmouseparams, dy_max)
+struct wsmousehw *wsmouse_get_hw(struct device*);
 
-#define WSMPARAM_LASTFIELD	WSMPARAM_DY_MAX
+/* Configure the input context. */
+int wsmouse_configure(struct device *, struct wsmouse_param *, u_int);
 
-#define IS_WSMFLTR_PARAM(param) \
-    ((param) >= WSMPARAM_DX_MUL && (param) <= WSMPARAM_DY_DIV)
+#endif /* _KERNEL */
 
-#define WSMOUSE_MT_SLOTS_MAX	10
+#endif /* _WSMOUSEVAR_H_ */

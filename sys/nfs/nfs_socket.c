@@ -1,4 +1,4 @@
-/*	$OpenBSD: nfs_socket.c,v 1.111 2015/08/24 14:00:29 bluhm Exp $	*/
+/*	$OpenBSD: nfs_socket.c,v 1.116 2017/05/17 08:59:05 mpi Exp $	*/
 /*	$NetBSD: nfs_socket.c,v 1.27 1996/04/15 20:20:00 thorpej Exp $	*/
 
 /*
@@ -128,6 +128,16 @@ int  nfs_estimate_rto(struct nfsmount *, u_int32_t procnum);
 
 void nfs_realign(struct mbuf **, int);
 void nfs_realign_fixup(struct mbuf *, struct mbuf *, unsigned int *);
+
+int nfs_rcvlock(struct nfsreq *);
+int nfs_receive(struct nfsreq *, struct mbuf **, struct mbuf **);
+int nfs_reconnect(struct nfsreq *);
+int nfs_reply(struct nfsreq *);
+void nfs_msg(struct nfsreq *, char *);
+void nfs_rcvunlock(int *);
+
+int nfsrv_getstream(struct nfssvc_sock *, int);
+
 unsigned int nfs_realign_test = 0;
 unsigned int nfs_realign_count = 0;
 
@@ -296,25 +306,24 @@ nfs_connect(struct nfsmount *nmp, struct nfsreq *rep)
 		 * connect system call but with the wait timing out so
 		 * that interruptible mounts don't hang here for a long time.
 		 */
-		s = splsoftnet();
+		s = solock(so);
 		while ((so->so_state & SS_ISCONNECTING) && so->so_error == 0) {
-			(void) tsleep((caddr_t)&so->so_timeo, PSOCK,
-				"nfscon", 2 * hz);
+			sosleep(so, &so->so_timeo, PSOCK, "nfscon", 2 * hz);
 			if ((so->so_state & SS_ISCONNECTING) &&
 			    so->so_error == 0 && rep &&
 			    (error = nfs_sigintr(nmp, rep, rep->r_procp)) != 0){
 				so->so_state &= ~SS_ISCONNECTING;
-				splx(s);
+				sounlock(s);
 				goto bad;
 			}
 		}
 		if (so->so_error) {
 			error = so->so_error;
 			so->so_error = 0;
-			splx(s);
+			sounlock(s);
 			goto bad;
 		}
-		splx(s);
+		sounlock(s);
 	}
 	/*
 	 * Always set receive timeout to detect server crash and reconnect.
@@ -385,7 +394,7 @@ nfs_reconnect(struct nfsreq *rep)
 {
 	struct nfsreq *rp;
 	struct nfsmount *nmp = rep->r_nmp;
-	int s, error;
+	int error;
 
 	nfs_disconnect(nmp);
 	while ((error = nfs_connect(nmp, rep)) != 0) {
@@ -398,12 +407,10 @@ nfs_reconnect(struct nfsreq *rep)
 	 * Loop through outstanding request list and fix up all requests
 	 * on old socket.
 	 */
-	s = splsoftnet();
 	TAILQ_FOREACH(rp, &nmp->nm_reqsq, r_chain) {
 		rp->r_flags |= R_MUSTRESEND;
 		rp->r_rexmit = 0;
 	}
-	splx(s);
 	return (0);
 }
 
@@ -728,7 +735,7 @@ nfs_reply(struct nfsreq *myrep)
 	struct mbuf *nam;
 	u_int32_t rxid, *tl, t1;
 	caddr_t cp2;
-	int s, error;
+	int error;
 
 	/*
 	 * Loop around until we get our own reply
@@ -781,7 +788,6 @@ nfsmout:
 		 * Loop through the request list to match up the reply
 		 * Iff no match, just drop the datagram
 		 */
-		s = splsoftnet();
 		TAILQ_FOREACH(rep, &nmp->nm_reqsq, r_chain) {
 			if (rep->r_mrep == NULL && rxid == rep->r_xid) {
 				/* Found it.. */
@@ -811,7 +817,6 @@ nfsmout:
 				break;
 			}
 		}
-		splx(s);
 		/*
 		 * If not matched to a request, drop it.
 		 * If it's mine, get out.
@@ -845,7 +850,7 @@ nfs_request(struct vnode *vp, int procnum, struct nfsm_info *infop)
 	struct nfsmount *nmp;
 	struct timeval tv;
 	caddr_t cp2;
-	int t1, i, s, error = 0;
+	int t1, i, error = 0;
 	int trylater_delay;
 	struct nfsreq *rep;
 	int  mrest_len;
@@ -902,7 +907,6 @@ tryagain:
 	 * Chain request into list of outstanding requests. Be sure
 	 * to put it LAST so timer finds oldest requests first.
 	 */
-	s = splsoftnet();
 	if (TAILQ_EMPTY(&nmp->nm_reqsq))
 		timeout_add(&nmp->nm_rtimeout, nfs_ticks);
 	TAILQ_INSERT_TAIL(&nmp->nm_reqsq, rep, r_chain);
@@ -915,7 +919,6 @@ tryagain:
 	if (nmp->nm_so && (nmp->nm_sotype != SOCK_DGRAM ||
 		(nmp->nm_flag & NFSMNT_DUMBTIMR) ||
 		nmp->nm_sent < nmp->nm_cwnd)) {
-		splx(s);
 		if (nmp->nm_soflags & PR_CONNREQUIRED)
 			error = nfs_sndlock(&nmp->nm_flag, rep);
 		if (!error) {
@@ -930,7 +933,6 @@ tryagain:
 			rep->r_flags |= R_SENT;
 		}
 	} else {
-		splx(s);
 		rep->r_rtt = -1;
 	}
 
@@ -943,11 +945,9 @@ tryagain:
 	/*
 	 * RPC done, unlink the request.
 	 */
-	s = splsoftnet();
 	TAILQ_REMOVE(&nmp->nm_reqsq, rep, r_chain);
 	if (TAILQ_EMPTY(&nmp->nm_reqsq))
 		timeout_del(&nmp->nm_rtimeout);
-	splx(s);
 
 	/*
 	 * Decrement the outstanding request count.
@@ -1132,7 +1132,7 @@ nfs_timer(void *arg)
 	struct socket *so;
 	int timeo, s, error;
 
-	s = splsoftnet();
+	NET_LOCK(s);
 	TAILQ_FOREACH(rep, &nmp->nm_reqsq, r_chain) {
 		if (rep->r_mrep || (rep->r_flags & R_SOFTTERM))
 			continue;
@@ -1215,7 +1215,7 @@ nfs_timer(void *arg)
 			}
 		}
 	}
-	splx(s);
+	NET_UNLOCK(s);
 	timeout_add(&nmp->nm_rtimeout, nfs_ticks);
 }
 
@@ -1570,26 +1570,15 @@ nfsrv_rcv(struct socket *so, caddr_t arg, int waitflag)
 
 	if ((slp->ns_flag & SLP_VALID) == 0)
 		return;
-#ifdef notdef
-	/*
-	 * Define this to test for nfsds handling this under heavy load.
-	 */
+
+	/* Defer soreceive() to an nfsd. */
 	if (waitflag == M_DONTWAIT) {
-		slp->ns_flag |= SLP_NEEDQ; goto dorecs;
+		slp->ns_flag |= SLP_NEEDQ;
+		goto dorecs;
 	}
-#endif
+
 	auio.uio_procp = NULL;
 	if (so->so_type == SOCK_STREAM) {
-		/*
-		 * If there are already records on the queue, defer soreceive()
-		 * to an nfsd so that there is feedback to the TCP layer that
-		 * the nfs servers are heavily loaded.
-		 */
-		if (slp->ns_rec && waitflag == M_DONTWAIT) {
-			slp->ns_flag |= SLP_NEEDQ;
-			goto dorecs;
-		}
-
 		/*
 		 * Do soreceive().
 		 */

@@ -1,7 +1,9 @@
-/*	$OpenBSD: printconf.c,v 1.97 2016/07/13 20:07:38 benno Exp $	*/
+/*	$OpenBSD: printconf.c,v 1.104 2017/05/31 10:44:00 claudio Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
+ * Copyright (c) 2016 Job Snijders <job@instituut.net>
+ * Copyright (c) 2016 Peter Hessler <phessler@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -25,9 +27,11 @@
 #include "mrt.h"
 #include "session.h"
 #include "rde.h"
+#include "log.h"
 
 void		 print_op(enum comp_ops);
 void		 print_community(int, int);
+void		 print_largecommunity(int64_t, int64_t, int64_t);
 void		 print_extcommunity(struct filter_extcommunity *);
 void		 print_origin(u_int8_t);
 void		 print_set(struct filter_set_head *);
@@ -90,6 +94,8 @@ print_community(int as, int type)
 		printf("*:");
 	else if (as == COMMUNITY_NEIGHBOR_AS)
 		printf("neighbor-as:");
+	else if (as == COMMUNITY_LOCAL_AS)
+		printf("local-as:");
 	else
 		printf("%u:", (unsigned int)as);
 
@@ -97,32 +103,81 @@ print_community(int as, int type)
 		printf("* ");
 	else if (type == COMMUNITY_NEIGHBOR_AS)
 		printf("neighbor-as ");
+	else if (type == COMMUNITY_LOCAL_AS)
+		printf("local-as");
 	else
 		printf("%d ", type);
 }
 
 void
+print_largecommunity(int64_t as, int64_t ld1, int64_t ld2)
+{
+	if (as == COMMUNITY_ANY)
+		printf("*:");
+	else if (as == COMMUNITY_NEIGHBOR_AS)
+		printf("neighbor-as:");
+	else if (as == COMMUNITY_LOCAL_AS)
+		printf("local-as:");
+	else
+		printf("%lld:", as);
+
+	if (ld1 == COMMUNITY_ANY)
+		printf("*:");
+	else if (ld1 == COMMUNITY_NEIGHBOR_AS)
+		printf("neighbor-as:");
+	else if (ld1 == COMMUNITY_LOCAL_AS)
+		printf("local-as:");
+	else
+		printf("%lld:", ld1);
+
+	if (ld2 == COMMUNITY_ANY)
+		printf("* ");
+	else if (ld2 == COMMUNITY_NEIGHBOR_AS)
+		printf("neighbor-as ");
+	else if (ld2 == COMMUNITY_LOCAL_AS)
+		printf("local-as ");
+	else
+		printf("%lld ", ld2);
+
+}
+
+
+void
 print_extcommunity(struct filter_extcommunity *c)
 {
-	switch (c->type & EXT_COMMUNITY_VALUE) {
-	case EXT_COMMUNITY_TWO_AS:
-		printf("%s %hu:%u ", log_ext_subtype(c->subtype),
-		    c->data.ext_as.as, c->data.ext_as.val);
+	printf("%s ", log_ext_subtype(c->type, c->subtype));
+
+	switch (c->type) {
+	case EXT_COMMUNITY_TRANS_TWO_AS:
+		printf("%hu:%u ", c->data.ext_as.as, c->data.ext_as.val);
 		break;
-	case EXT_COMMUNITY_IPV4:
-		printf("%s %s:%u ", log_ext_subtype(c->subtype),
-		    inet_ntoa(c->data.ext_ip.addr), c->data.ext_ip.val);
+	case EXT_COMMUNITY_TRANS_IPV4:
+		printf("%s:%u ", inet_ntoa(c->data.ext_ip.addr),
+		    c->data.ext_ip.val);
 		break;
-	case EXT_COMMUNITY_FOUR_AS:
-		printf("%s %s:%u ", log_ext_subtype(c->subtype),
-		    log_as(c->data.ext_as4.as4), c->data.ext_as.val);
+	case EXT_COMMUNITY_TRANS_FOUR_AS:
+		printf("%s:%u ", log_as(c->data.ext_as4.as4),
+		    c->data.ext_as.val);
 		break;
-	case EXT_COMMUNITY_OPAQUE:
-		printf("%s 0x%llx ", log_ext_subtype(c->subtype),
-		    c->data.ext_opaq);
+	case EXT_COMMUNITY_TRANS_OPAQUE:
+	case EXT_COMMUNITY_TRANS_EVPN:
+		printf("0x%llx ", c->data.ext_opaq);
+		break;
+	case EXT_COMMUNITY_NON_TRANS_OPAQUE:
+		switch (c->data.ext_opaq) {
+		case EXT_COMMUNITY_OVS_VALID:
+			printf("valid ");
+			break;
+		case EXT_COMMUNITY_OVS_NOTFOUND:
+			printf("not-found ");
+			break;
+		case EXT_COMMUNITY_OVS_INVALID:
+			printf("invalid ");
+			break;
+		}
 		break;
 	default:
-		printf("0x%x 0x%llx ", c->type, c->data.ext_opaq);
+		printf("0x%llx ", c->data.ext_opaq);
 		break;
 	}
 }
@@ -200,6 +255,20 @@ print_set(struct filter_set_head *set)
 			printf("community ");
 			print_community(s->action.community.as,
 			    s->action.community.type);
+			printf(" ");
+			break;
+		case ACTION_DEL_LARGE_COMMUNITY:
+			printf("large-community delete ");
+			print_largecommunity(s->action.large_community.as,
+			    s->action.large_community.ld1,
+			    s->action.large_community.ld2);
+			printf(" ");
+			break;
+		case ACTION_SET_LARGE_COMMUNITY:
+			printf("large-community ");
+			print_largecommunity(s->action.large_community.as,
+			    s->action.large_community.ld1,
+			    s->action.large_community.ld2);
 			printf(" ");
 			break;
 		case ACTION_PFTABLE:
@@ -336,6 +405,10 @@ print_network(struct network_config *n, const char *c)
 	case NETWORK_CONNECTED:
 		printf("%snetwork %s connected", c, print_af(n->prefix.aid));
 		break;
+	case NETWORK_RTLABEL:
+		printf("%snetwork %s rtlabel \"%s\"", c,
+		    print_af(n->prefix.aid), rtlabel_id2name(n->rtlabel));
+		break;
 	default:
 		printf("%snetwork %s/%u", c, log_addr(&n->prefix),
 		    n->prefixlen);
@@ -365,6 +438,12 @@ print_peer(struct peer_config *p, struct bgpd_config *conf, const char *c)
 		printf("%s\trib \"%s\"\n", c, p->rib);
 	if (p->remote_as)
 		printf("%s\tremote-as %s\n", c, log_as(p->remote_as));
+	if (p->local_as != conf->as) {
+		printf("%s\tlocal-as %s", c, log_as(p->local_as));
+		if (p->local_as > USHRT_MAX && p->local_short_as != AS_TRANS)
+			printf(" %u", p->local_short_as);
+		printf("\n");
+	}
 	if (p->down)
 		printf("%s\tdown\n", c);
 	if (p->distance > 1)
@@ -405,6 +484,10 @@ print_peer(struct peer_config *p, struct bgpd_config *conf, const char *c)
 		printf("%s\tenforce neighbor-as yes\n", c);
 	else
 		printf("%s\tenforce neighbor-as no\n", c);
+	if (p->enforce_local_as == ENFORCE_AS_ON)
+		printf("%s\tenforce local-as yes\n", c);
+	else
+		printf("%s\tenforce local-as no\n", c);
 	if (p->reflector_client) {
 		if (conf->clusterid == 0)
 			printf("%s\troute-reflector\n", c);
@@ -623,6 +706,12 @@ print_rule(struct peer *peer_l, struct filter_rule *r)
 	if (r->match.ext_community.flags & EXT_COMMUNITY_FLAG_VALID) {
 		printf("ext-community ");
 		print_extcommunity(&r->match.ext_community);
+	}
+	if (r->match.large_community.as != COMMUNITY_UNSET) {
+		printf("large-community ");
+		print_largecommunity(r->match.large_community.as,
+		    r->match.large_community.ld1,
+		    r->match.large_community.ld2);
 	}
 
 	print_set(&r->set);

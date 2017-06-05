@@ -1,4 +1,4 @@
-/*	$OpenBSD: hfsc.c,v 1.32 2015/11/21 01:08:49 dlg Exp $	*/
+/*	$OpenBSD: hfsc.c,v 1.39 2017/05/08 11:30:53 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2012-2013 Henning Brauer <henning@openbsd.org>
@@ -259,23 +259,43 @@ struct pool	hfsc_class_pl, hfsc_internal_sc_pl;
  * ifqueue glue.
  */
 
-void		*hfsc_alloc(void *);
-void		 hfsc_free(void *);
-int		 hfsc_enq(struct ifqueue *, struct mbuf *);
+unsigned int	 hfsc_idx(unsigned int, const struct mbuf *);
+struct mbuf	*hfsc_enq(struct ifqueue *, struct mbuf *);
 struct mbuf	*hfsc_deq_begin(struct ifqueue *, void **);
 void		 hfsc_deq_commit(struct ifqueue *, struct mbuf *, void *);
 void		 hfsc_purge(struct ifqueue *, struct mbuf_list *);
+void		*hfsc_alloc(unsigned int, void *);
+void		 hfsc_free(unsigned int, void *);
 
 const struct ifq_ops hfsc_ops = {
-        hfsc_alloc,
-        hfsc_free,
-        hfsc_enq,
-        hfsc_deq_begin,
-        hfsc_deq_commit,
-        hfsc_purge,
+	hfsc_idx,
+	hfsc_enq,
+	hfsc_deq_begin,
+	hfsc_deq_commit,
+	hfsc_purge,
+	hfsc_alloc,
+	hfsc_free,
 };
 
 const struct ifq_ops * const ifq_hfsc_ops = &hfsc_ops;
+
+/*
+ * pf queue glue.
+ */
+
+void		*hfsc_pf_alloc(struct ifnet *);
+int		 hfsc_pf_addqueue(void *, struct pf_queuespec *);
+void		 hfsc_pf_free(void *);
+int		 hfsc_pf_qstats(struct pf_queuespec *, void *, int *);
+
+const struct pfq_ops hfsc_pf_ops = {
+	hfsc_pf_alloc,
+	hfsc_pf_addqueue,
+	hfsc_pf_free,
+	hfsc_pf_qstats
+};
+
+const struct pfq_ops * const pfq_hfsc_ops = &hfsc_pf_ops;
 
 u_int64_t
 hfsc_microuptime(void)
@@ -315,15 +335,13 @@ hfsc_grow_class_tbl(struct hfsc_if *hif, u_int howmany)
 void
 hfsc_initialize(void)
 {
-	pool_init(&hfsc_class_pl, sizeof(struct hfsc_class), 0, 0, PR_WAITOK,
-	    "hfscclass", NULL);
-	pool_setipl(&hfsc_class_pl, IPL_NONE);
-	pool_init(&hfsc_internal_sc_pl, sizeof(struct hfsc_internal_sc), 0, 0,
-	    PR_WAITOK, "hfscintsc", NULL);
-	pool_setipl(&hfsc_internal_sc_pl, IPL_NONE);
+	pool_init(&hfsc_class_pl, sizeof(struct hfsc_class), 0,
+	    IPL_NONE, PR_WAITOK, "hfscclass", NULL);
+	pool_init(&hfsc_internal_sc_pl, sizeof(struct hfsc_internal_sc), 0,
+	    IPL_NONE, PR_WAITOK, "hfscintsc", NULL);
 }
 
-struct hfsc_if *
+void *
 hfsc_pf_alloc(struct ifnet *ifp)
 {
 	struct hfsc_if *hif;
@@ -342,17 +360,20 @@ hfsc_pf_alloc(struct ifnet *ifp)
 }
 
 int
-hfsc_pf_addqueue(struct hfsc_if *hif, struct pf_queuespec *q)
+hfsc_pf_addqueue(void *arg, struct pf_queuespec *q)
 {
+	struct hfsc_if *hif = arg;
 	struct hfsc_class *cl, *parent;
 	struct hfsc_sc rtsc, lssc, ulsc;
 
 	KASSERT(hif != NULL);
 
-	if (q->parent_qid == HFSC_NULLCLASS_HANDLE &&
-	    hif->hif_rootclass == NULL)
-		parent = NULL;
-	else if ((parent = hfsc_clh2cph(hif, q->parent_qid)) == NULL)
+	if (q->parent_qid == 0 && hif->hif_rootclass == NULL) {
+		parent = hfsc_class_create(hif, NULL, NULL, NULL, NULL,
+		    0, 0, HFSC_ROOT_CLASS | q->qid);
+		if (parent == NULL)
+			return (EINVAL);
+	} else if ((parent = hfsc_clh2cph(hif, q->parent_qid)) == NULL)
 		return (EINVAL);
 
 	if (q->qid == 0)
@@ -370,6 +391,14 @@ hfsc_pf_addqueue(struct hfsc_if *hif, struct pf_queuespec *q)
 	ulsc.m1 = q->upperlimit.m1.absolute;
 	ulsc.d  = q->upperlimit.d;
 	ulsc.m2 = q->upperlimit.m2.absolute;
+
+	/* Compatibility with older pfctl, return an EINVAL after 6.2 */
+	if (rtsc.m1 == 0 && rtsc.m2 == 0 && lssc.m1 == 0 &&
+	    lssc.m2 == 0 && ulsc.m1 == 0 && ulsc.m2 == 0 &&
+	    q->parent_qid == 0 && strncmp(q->qname, "_root_", 6) == 0) {
+		hfsc_class_destroy(hif, parent);
+		parent = NULL;
+	}
 
 	cl = hfsc_class_create(hif, &rtsc, &lssc, &ulsc,
 	    parent, q->qlimit, q->flags, q->qid);
@@ -414,15 +443,30 @@ hfsc_pf_qstats(struct pf_queuespec *q, void *ubuf, int *nbytes)
 }
 
 void
-hfsc_pf_free(struct hfsc_if *hif)
+hfsc_pf_free(void *arg)
 {
-	hfsc_free(hif);
+	struct hfsc_if *hif = arg;
+
+	hfsc_free(0, hif);
+}
+
+unsigned int
+hfsc_idx(unsigned int nqueues, const struct mbuf *m)
+{
+	/*
+	 * hfsc can only function on a single ifq and the stack understands
+	 * this. when the first ifq on an interface is switched to hfsc,
+	 * this gets used to map all mbufs to the first and only ifq that
+	 * is set up for hfsc.
+	 */
+	return (0);
 }
 
 void *
-hfsc_alloc(void *q)
+hfsc_alloc(unsigned int idx, void *q)
 {
 	struct hfsc_if *hif = q;
+	KASSERT(idx == 0); /* when hfsc is enabled we only use the first ifq */
 	KASSERT(hif != NULL);
 
 	timeout_add(&hif->hif_defer, 1);
@@ -430,19 +474,25 @@ hfsc_alloc(void *q)
 }
 
 void
-hfsc_free(void *q)
+hfsc_free(unsigned int idx, void *q)
 {
 	struct hfsc_if *hif = q;
-	int i;
+	struct hfsc_class *cl;
+	int i, restart;
 
 	KERNEL_ASSERT_LOCKED();
+	KASSERT(idx == 0); /* when hfsc is enabled we only use the first ifq */
 
 	timeout_del(&hif->hif_defer);
 
-	i = hif->hif_allocated;
-	do
-		hfsc_class_destroy(hif, hif->hif_class_tbl[--i]);
-	while (i > 0);
+	do {
+		restart = 0;
+		for (i = 0; i < hif->hif_allocated; i++) {
+			cl = hif->hif_class_tbl[i];
+			if (hfsc_class_destroy(hif, cl) == EBUSY)
+				restart++;
+		}
+	} while (restart > 0);
 
 	free(hif->hif_class_tbl, M_DEVBUF, hif->hif_allocated * sizeof(void *));
 	free(hif, M_DEVBUF, sizeof(*hif));
@@ -636,7 +686,7 @@ hfsc_nextclass(struct hfsc_class *cl)
 	return (cl);
 }
 
-int
+struct mbuf *
 hfsc_enq(struct ifqueue *ifq, struct mbuf *m)
 {
 	struct hfsc_if *hif = ifq->ifq_q;
@@ -646,14 +696,14 @@ hfsc_enq(struct ifqueue *ifq, struct mbuf *m)
 	    cl->cl_children != NULL) {
 		cl = hif->hif_defaultclass;
 		if (cl == NULL)
-			return (ENOBUFS);
+			return (m);
 		cl->cl_pktattr = NULL;
 	}
 
 	if (ml_len(&cl->cl_q.q) >= cl->cl_q.qlimit) {
 		/* drop occurred.  mbuf needs to be freed */
 		PKTCNTR_INC(&cl->cl_stats.drop_cnt, m->m_pkthdr.len);
-		return (ENOBUFS);
+		return (m);
 	}
 
 	ml_enqueue(&cl->cl_q.q, m);
@@ -663,7 +713,7 @@ hfsc_enq(struct ifqueue *ifq, struct mbuf *m)
 	if (ml_len(&cl->cl_q.q) == 1)
 		hfsc_set_active(hif, cl, m->m_pkthdr.len);
 
-	return (0);
+	return (NULL);
 }
 
 struct mbuf *
@@ -760,18 +810,16 @@ void
 hfsc_deferred(void *arg)
 {
 	struct ifnet *ifp = arg;
+	struct ifqueue *ifq = &ifp->if_snd;
 	struct hfsc_if *hif;
-	int s;
 
 	KERNEL_ASSERT_LOCKED();
-	KASSERT(HFSC_ENABLED(&ifp->if_snd));
+	KASSERT(HFSC_ENABLED(ifq));
 
-	s = splnet();
-	if (!IFQ_IS_EMPTY(&ifp->if_snd))
-		if_start(ifp);
-	splx(s);
+	if (!ifq_empty(ifq))
+		(*ifp->if_qstart)(ifq);
 
-	hif = ifp->if_snd.ifq_q;
+	hif = ifq->ifq_q;
 
 	/* XXX HRTIMER nearest virtual/fit time is likely less than 1/HZ. */
 	timeout_add(&hif->hif_defer, 1);

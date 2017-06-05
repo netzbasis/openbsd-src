@@ -1,4 +1,4 @@
-/*	$OpenBSD: fpu.c,v 1.33 2016/04/21 22:08:27 mlarkin Exp $	*/
+/*	$OpenBSD: fpu.c,v 1.35 2017/05/29 14:19:49 mpi Exp $	*/
 /*	$NetBSD: fpu.c,v 1.1 2003/04/26 18:39:28 fvdl Exp $	*/
 
 /*-
@@ -52,7 +52,6 @@
 #include <machine/trap.h>
 #include <machine/specialreg.h>
 #include <machine/fpu.h>
-#include <machine/lock.h>
 
 #include <dev/isa/isavar.h>
 
@@ -74,41 +73,10 @@
  * state is saved.
  */
 
-#define	fninit()		__asm("fninit")
-#define fwait()			__asm("fwait")
-#define fnclex()		__asm("fnclex")
-#define	fxsave(addr)		__asm("fxsave %0" : "=m" (*addr))
-#define	fxrstor(addr)		__asm("fxrstor %0" : : "m" (*addr))
-#define	ldmxcsr(addr)		__asm("ldmxcsr %0" : : "m" (*addr))
-#define fldcw(addr)		__asm("fldcw %0" : : "m" (*addr))
-#define	clts()			__asm("clts")
-#define	stts()			lcr0(rcr0() | CR0_TS)
-
 /*
  * The mask of enabled XSAVE features.
  */
 uint64_t	xsave_mask;
-
-static inline void
-xsave(struct savefpu *addr, uint64_t mask)
-{
-	uint32_t lo, hi;
-
-	lo = mask;
-	hi = mask >> 32;
-	__asm volatile("xsave %0" : "=m" (*addr) : "a" (lo), "d" (hi) :
-	    "memory");
-}
-
-static inline void
-xrstor(struct savefpu *addr, uint64_t mask)
-{
-	uint32_t lo, hi;
-
-	lo = mask;
-	hi = mask >> 32;
-	__asm volatile("xrstor %0" : : "m" (*addr), "a" (lo), "d" (hi));
-}
 
 void fpudna(struct cpu_info *);
 static int x86fpflags_to_siginfo(u_int32_t);
@@ -366,7 +334,7 @@ fpusave_proc(struct proc *p, int save)
 		x86_send_ipi(oci,
 	    	    save ? X86_IPI_SYNCH_FPU : X86_IPI_FLUSH_FPU);
 		while (p->p_addr->u_pcb.pcb_fpcpu != NULL)
-			SPINLOCK_SPIN_HOOK;
+			CPU_BUSY_CYCLE();
 	}
 #else
 	KASSERT(ci->ci_fpcurproc == p);

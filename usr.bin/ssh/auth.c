@@ -1,4 +1,4 @@
-/* $OpenBSD: auth.c,v 1.116 2016/08/13 17:47:41 markus Exp $ */
+/* $OpenBSD: auth.c,v 1.121 2017/05/30 08:52:19 markus Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -86,6 +86,7 @@ allowed_user(struct passwd * pw)
 	struct ssh *ssh = active_state; /* XXX */
 	struct stat st;
 	const char *hostname = NULL, *ipaddr = NULL;
+	int r;
 	u_int i;
 
 	/* Shouldn't be called if pw is NULL, but better safe than sorry... */
@@ -125,21 +126,31 @@ allowed_user(struct passwd * pw)
 
 	/* Return false if user is listed in DenyUsers */
 	if (options.num_deny_users > 0) {
-		for (i = 0; i < options.num_deny_users; i++)
-			if (match_user(pw->pw_name, hostname, ipaddr,
-			    options.deny_users[i])) {
+		for (i = 0; i < options.num_deny_users; i++) {
+			r = match_user(pw->pw_name, hostname, ipaddr,
+			    options.deny_users[i]);
+			if (r < 0) {
+				fatal("Invalid DenyUsers pattern \"%.100s\"",
+				    options.deny_users[i]);
+			} else if (r != 0) {
 				logit("User %.100s from %.100s not allowed "
 				    "because listed in DenyUsers",
 				    pw->pw_name, hostname);
 				return 0;
 			}
+		}
 	}
 	/* Return false if AllowUsers isn't empty and user isn't listed there */
 	if (options.num_allow_users > 0) {
-		for (i = 0; i < options.num_allow_users; i++)
-			if (match_user(pw->pw_name, hostname, ipaddr,
-			    options.allow_users[i]))
+		for (i = 0; i < options.num_allow_users; i++) {
+			r = match_user(pw->pw_name, hostname, ipaddr,
+			    options.allow_users[i]);
+			if (r < 0) {
+				fatal("Invalid AllowUsers pattern \"%.100s\"",
+				    options.allow_users[i]);
+			} else if (r == 1)
 				break;
+		}
 		/* i < options.num_allow_users iff we break for loop */
 		if (i >= options.num_allow_users) {
 			logit("User %.100s from %.100s not allowed because "
@@ -325,7 +336,7 @@ authorized_principals_file(struct passwd *pw)
 
 /* return ok if key exists in sysfile or userfile */
 HostStatus
-check_key_in_hostfiles(struct passwd *pw, Key *key, const char *host,
+check_key_in_hostfiles(struct passwd *pw, struct sshkey *key, const char *host,
     const char *sysfile, const char *userfile)
 {
 	char *user_hostfile;
@@ -528,6 +539,7 @@ getpwnamallow(const char *user)
 
 	ci->user = user;
 	parse_server_match_config(&options, ci);
+	log_change_level(options.log_level);
 
 	pw = getpwnam(user);
 	if (pw == NULL) {
@@ -555,7 +567,7 @@ getpwnamallow(const char *user)
 
 /* Returns 1 if key is revoked by revoked_keys_file, 0 otherwise */
 int
-auth_key_is_revoked(Key *key)
+auth_key_is_revoked(struct sshkey *key)
 {
 	char *fp = NULL;
 	int r;

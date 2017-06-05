@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip_ipip.h,v 1.6 2007/12/14 18:33:41 deraadt Exp $ */
+/*	$OpenBSD: ip_ipip.h,v 1.9 2017/05/18 10:56:45 bluhm Exp $ */
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr) and
@@ -43,18 +43,17 @@
  * Not quite all the functionality of RFC-1853, but the main idea is there.
  */
 
-struct ipipstat
-{
-    u_int32_t	ipips_ipackets;		/* total input packets */
-    u_int32_t	ipips_opackets;		/* total output packets */
-    u_int32_t	ipips_hdrops;		/* packet shorter than header shows */
-    u_int32_t	ipips_qfull;
-    u_int64_t   ipips_ibytes;
-    u_int64_t   ipips_obytes;
-    u_int32_t	ipips_pdrops;		/* packet dropped due to policy */
-    u_int32_t	ipips_spoof;		/* IP spoofing attempts */
-    u_int32_t   ipips_family;		/* Protocol family mismatch */
-    u_int32_t   ipips_unspec;            /* Missing tunnel endpoint address */
+struct ipipstat {
+    u_int64_t	ipips_ipackets;		/* total input packets */
+    u_int64_t	ipips_opackets;		/* total output packets */
+    u_int64_t	ipips_hdrops;		/* packet shorter than header shows */
+    u_int64_t	ipips_qfull;
+    u_int64_t	ipips_ibytes;
+    u_int64_t	ipips_obytes;
+    u_int64_t	ipips_pdrops;		/* packet dropped due to policy */
+    u_int64_t	ipips_spoof;		/* IP spoofing attempts */
+    u_int64_t	ipips_family;		/* Protocol family mismatch */
+    u_int64_t	ipips_unspec;            /* Missing tunnel endpoint address */
 };
 
 #define IP4_DEFAULT_TTL    0
@@ -74,9 +73,43 @@ struct ipipstat
 }
 
 #ifdef _KERNEL
+
+#include <sys/percpu.h>
+
+enum ipipstat_counters {
+	ipips_ipackets,
+	ipips_opackets,
+	ipips_hdrops,
+	ipips_qfull,
+	ipips_ibytes,
+	ipips_obytes,
+	ipips_pdrops,
+	ipips_spoof,
+	ipips_family,
+	ipips_unspec,
+	ipips_ncounters
+};
+
+extern struct cpumem *ipipcounters;
+
+static inline void
+ipipstat_inc(enum ipipstat_counters c)
+{
+	counters_inc(ipipcounters, c);
+}
+
+static inline void
+ipipstat_add(enum ipipstat_counters c, uint64_t v)
+{
+	counters_add(ipipcounters, c, v);
+}
+
+void	ipip_init(void);
+int	ipip_input(struct mbuf **, int *, int, int);
+int	ipip_input_gif(struct mbuf **, int *, int, int, struct ifnet *);
+int	ipip_output(struct mbuf *, struct tdb *, struct mbuf **, int, int);
 int	ipip_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 
 extern int ipip_allow;
-extern struct ipipstat ipipstat;
 #endif /* _KERNEL */
 #endif /* _NETINET_IPIP_H_ */

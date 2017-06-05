@@ -31,7 +31,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ***************************************************************************/
 
-/* $OpenBSD: if_em.c,v 1.331 2016/04/13 10:34:32 mpi Exp $ */
+/* $OpenBSD: if_em.c,v 1.335 2017/03/19 11:09:26 jsg Exp $ */
 /* $FreeBSD: if_em.c,v 1.46 2004/09/29 18:28:28 mlaier Exp $ */
 
 #include <dev/pci/if_em.h>
@@ -146,9 +146,14 @@ const struct pci_matchid em_devices[] = {
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I218_V_2 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I218_V_3 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM3 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM4 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_LM5 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V2 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V4 },
+	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_I219_V5 },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82580_COPPER },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82580_FIBER },
 	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82580_SERDES },
@@ -206,7 +211,7 @@ void em_defer_attach(struct device*);
 int  em_detach(struct device *, int);
 int  em_activate(struct device *, int);
 int  em_intr(void *);
-void em_start(struct ifnet *);
+void em_start(struct ifqueue *);
 int  em_ioctl(struct ifnet *, u_long, caddr_t);
 void em_watchdog(struct ifnet *);
 void em_init(void *);
@@ -583,15 +588,16 @@ err_pci:
  **********************************************************************/
 
 void
-em_start(struct ifnet *ifp)
+em_start(struct ifqueue *ifq)
 {
+	struct ifnet *ifp = ifq->ifq_if;
 	struct em_softc *sc = ifp->if_softc;
 	u_int head, free, used;
 	struct mbuf *m;
 	int post = 0;
 
 	if (!sc->link_active) {
-		IFQ_PURGE(&ifp->if_snd);
+		ifq_purge(ifq);
 		return;
 	}
 
@@ -611,11 +617,11 @@ em_start(struct ifnet *ifp)
 	for (;;) {
 		/* use 2 because cksum setup can use an extra slot */
 		if (EM_MAX_SCATTER + 2 > free) {
-			ifq_set_oactive(&ifp->if_snd);
+			ifq_set_oactive(ifq);
 			break;
 		}
 
-		m = ifq_dequeue(&ifp->if_snd);
+		m = ifq_dequeue(ifq);
 		if (m == NULL)
 			break;
 
@@ -1870,7 +1876,7 @@ em_setup_interface(struct em_softc *sc)
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_xflags = IFXF_MPSAFE;
 	ifp->if_ioctl = em_ioctl;
-	ifp->if_start = em_start;
+	ifp->if_qstart = em_start;
 	ifp->if_watchdog = em_watchdog;
 	ifp->if_hardmtu =
 		sc->hw.max_frame_size - ETHER_HDR_LEN - ETHER_CRC_LEN;
@@ -2416,8 +2422,6 @@ em_txeof(struct em_softc *sc)
 	if (free == 0)
 		return;
 
-	ifp->if_opackets += free;
-
 	sc->sc_tx_desc_tail = tail;
 
 	if (ifq_is_oactive(&ifp->if_snd))
@@ -2450,9 +2454,7 @@ em_get_buf(struct em_softc *sc, int i)
 		return (ENOBUFS);
 	}
 	m->m_len = m->m_pkthdr.len = EM_MCLBYTES;
-#ifdef __STRICT_ALIGNMENT
 	m_adj(m, ETHER_ALIGN);
-#endif
 
 	error = bus_dmamap_load_mbuf(sc->sc_dmat, pkt->pkt_map,
 	    m, BUS_DMA_NOWAIT);

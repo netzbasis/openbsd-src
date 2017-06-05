@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_usrreq.c,v 1.102 2016/08/26 07:12:30 guenther Exp $	*/
+/*	$OpenBSD: uipc_usrreq.c,v 1.117 2017/03/13 20:18:21 claudio Exp $	*/
 /*	$NetBSD: uipc_usrreq.c,v 1.18 1996/02/09 19:00:50 christos Exp $	*/
 
 /*
@@ -63,9 +63,14 @@ LIST_HEAD(unp_head, unpcb) unp_head = LIST_HEAD_INITIALIZER(unp_head);
 struct	unp_deferral {
 	SLIST_ENTRY(unp_deferral)	ud_link;
 	int	ud_n;
-	/* followed by ud_n struct file * pointers */
-	struct file *ud_fp[];
+	/* followed by ud_n struct fdpass */
+	struct fdpass ud_fp[];
 };
+
+void	unp_discard(struct fdpass *, int);
+void	unp_mark(struct fdpass *, int);
+void	unp_scan(struct mbuf *, void (*)(struct fdpass *, int));
+
 
 /* list of sets of files that were sent over sockets that are now closed */
 SLIST_HEAD(,unp_deferral) unp_deferred = SLIST_HEAD_INITIALIZER(unp_deferred);
@@ -112,19 +117,14 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		error = EOPNOTSUPP;
 		goto release;
 	}
-	if (unp == NULL && req != PRU_ATTACH) {
+	if (unp == NULL) {
 		error = EINVAL;
 		goto release;
 	}
-	switch (req) {
 
-	case PRU_ATTACH:
-		if (unp) {
-			error = EISCONN;
-			break;
-		}
-		error = unp_attach(so);
-		break;
+	NET_ASSERT_UNLOCKED();
+
+	switch (req) {
 
 	case PRU_DETACH:
 		unp_detach(unp);
@@ -321,10 +321,8 @@ uipc_usrreq(struct socket *so, int req, struct mbuf *m, struct mbuf *nam,
 		panic("piusrreq");
 	}
 release:
-	if (control)
-		m_freem(control);
-	if (m)
-		m_freem(m);
+	m_freem(control);
+	m_freem(m);
 	return (error);
 }
 
@@ -345,11 +343,13 @@ u_long	unpdg_recvspace = 4*1024;
 int	unp_rights;			/* file descriptors in flight */
 
 int
-unp_attach(struct socket *so)
+uipc_attach(struct socket *so, int proto)
 {
 	struct unpcb *unp;
 	int error;
 	
+	if (so->so_pcb)
+		return EISCONN;
 	if (so->so_snd.sb_hiwat == 0 || so->so_rcv.sb_hiwat == 0) {
 		switch (so->so_type) {
 
@@ -382,7 +382,7 @@ void
 unp_detach(struct unpcb *unp)
 {
 	struct vnode *vp;
-	
+
 	LIST_REMOVE(unp, unp_link);
 	if (unp->unp_vnode) {
 		unp->unp_vnode->v_socket = NULL;
@@ -484,8 +484,8 @@ unp_connect(struct socket *so, struct mbuf *nam, struct proc *p)
 	struct vnode *vp;
 	struct socket *so2, *so3;
 	struct unpcb *unp, *unp2, *unp3;
-	int error;
 	struct nameidata nd;
+	int error;
 
 	if (soun->sun_family != AF_UNIX)
 		return (EAFNOSUPPORT);
@@ -663,12 +663,12 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 	struct proc *p = curproc;		/* XXX */
 	struct cmsghdr *cm = mtod(rights, struct cmsghdr *);
 	int i, *fdp = NULL;
-	struct file **rp;
+	struct fdpass *rp;
 	struct file *fp;
 	int nfds, error = 0;
 
 	nfds = (cm->cmsg_len - CMSG_ALIGN(sizeof(*cm))) /
-	    sizeof(struct file *);
+	    sizeof(struct fdpass);
 	if (controllen < CMSG_ALIGN(sizeof(struct cmsghdr)))
 		controllen = 0;
 	else
@@ -679,9 +679,10 @@ unp_externalize(struct mbuf *rights, socklen_t controllen, int flags)
 	}
 
 	/* Make sure the recipient should be able to see the descriptors.. */
-	rp = (struct file **)CMSG_DATA(cm);
+	rp = (struct fdpass *)CMSG_DATA(cm);
 	for (i = 0; i < nfds; i++) {
-		fp = *rp++;
+		fp = rp->fp;
+		rp++;
 		error = pledge_recvfd(p, fp);
 		if (error)
 			break;
@@ -708,7 +709,7 @@ restart:
 	fdplock(p->p_fd);
 	if (error != 0) {
 		if (nfds > 0) {
-			rp = ((struct file **)CMSG_DATA(cm));
+			rp = ((struct fdpass *)CMSG_DATA(cm));
 			unp_discard(rp, nfds);
 		}
 		goto out;
@@ -718,7 +719,7 @@ restart:
 	 * First loop -- allocate file descriptor table slots for the
 	 * new descriptors.
 	 */
-	rp = ((struct file **)CMSG_DATA(cm));
+	rp = ((struct fdpass *)CMSG_DATA(cm));
 	for (i = 0; i < nfds; i++) {
 		if ((error = fdalloc(p, 0, &fdp[i])) != 0) {
 			/*
@@ -747,7 +748,9 @@ restart:
 		 * fdalloc() works properly.. We finalize it all
 		 * in the loop below.
 		 */
-		p->p_fd->fd_ofiles[fdp[i]] = *rp++;
+		p->p_fd->fd_ofiles[fdp[i]] = rp->fp;
+		p->p_fd->fd_ofileflags[fdp[i]] = (rp->flags & UF_PLEDGED);
+		rp++;
 
 		if (flags & MSG_CMSG_CLOEXEC)
 			p->p_fd->fd_ofileflags[fdp[i]] |= UF_EXCLOSE;
@@ -757,11 +760,12 @@ restart:
 	 * Now that adding them has succeeded, update all of the
 	 * descriptor passing state.
 	 */
-	rp = (struct file **)CMSG_DATA(cm);
+	rp = (struct fdpass *)CMSG_DATA(cm);
 	for (i = 0; i < nfds; i++) {
 		struct unpcb *unp;
 
-		fp = *rp++;
+		fp = rp->fp;
+		rp++;
 		if ((unp = fptounp(fp)) != NULL)
 			unp->unp_msgcount--;
 		unp_rights--;
@@ -786,7 +790,8 @@ unp_internalize(struct mbuf *control, struct proc *p)
 {
 	struct filedesc *fdp = p->p_fd;
 	struct cmsghdr *cm = mtod(control, struct cmsghdr *);
-	struct file **rp, *fp;
+	struct fdpass *rp;
+	struct file *fp;
 	struct unpcb *unp;
 	int i, error;
 	int nfds, *ip, fd, neededspace;
@@ -806,7 +811,7 @@ unp_internalize(struct mbuf *control, struct proc *p)
 
 	/* Make sure we have room for the struct file pointers */
 morespace:
-	neededspace = CMSG_SPACE(nfds * sizeof(struct file *)) -
+	neededspace = CMSG_SPACE(nfds * sizeof(struct fdpass)) -
 	    control->m_len;
 	if (neededspace > M_TRAILINGSPACE(control)) {
 		char *tmp;
@@ -833,11 +838,11 @@ morespace:
 	}
 
 	/* adjust message & mbuf to note amount of space actually used. */
-	cm->cmsg_len = CMSG_LEN(nfds * sizeof(struct file *));
-	control->m_len = CMSG_SPACE(nfds * sizeof(struct file *));
+	cm->cmsg_len = CMSG_LEN(nfds * sizeof(struct fdpass));
+	control->m_len = CMSG_SPACE(nfds * sizeof(struct fdpass));
 
 	ip = ((int *)CMSG_DATA(cm)) + nfds - 1;
-	rp = ((struct file **)CMSG_DATA(cm)) + nfds - 1;
+	rp = ((struct fdpass *)CMSG_DATA(cm)) + nfds - 1;
 	for (i = 0; i < nfds; i++) {
 		memcpy(&fd, ip, sizeof fd);
 		ip--;
@@ -858,7 +863,8 @@ morespace:
 			error = EINVAL;
 			goto fail;
 		}
-		memcpy(rp, &fp, sizeof fp);
+		rp->fp = fp;
+		rp->flags = fdp->fd_ofileflags[fd] & UF_PLEDGED;
 		rp--;
 		fp->f_count++;
 		if ((unp = fptounp(fp)) != NULL) {
@@ -872,7 +878,7 @@ fail:
 	/* Back out what we just did. */
 	for ( ; i > 0; i--) {
 		rp++;
-		memcpy(&fp, rp, sizeof(fp));
+		fp = rp->fp;
 		fp->f_count--;
 		if ((unp = fptounp(fp)) != NULL)
 			unp->unp_msgcount--;
@@ -901,7 +907,7 @@ unp_gc(void *arg __unused)
 	while ((defer = SLIST_FIRST(&unp_deferred)) != NULL) {
 		SLIST_REMOVE_HEAD(&unp_deferred, ud_link);
 		for (i = 0; i < defer->ud_n; i++) {
-			fp = defer->ud_fp[i];
+			fp = defer->ud_fp[i].fp;
 			if (fp == NULL)
 				continue;
 			FREF(fp);
@@ -910,7 +916,8 @@ unp_gc(void *arg __unused)
 			unp_rights--;
 			(void) closef(fp, NULL);
 		}
-		free(defer, M_TEMP, sizeof(*defer) + sizeof(fp) * defer->ud_n);
+		free(defer, M_TEMP, sizeof(*defer) +
+		    sizeof(struct fdpass) * defer->ud_n);
 	}
 
 	unp_defer = 0;
@@ -1004,10 +1011,10 @@ unp_dispose(struct mbuf *m)
 }
 
 void
-unp_scan(struct mbuf *m0, void (*op)(struct file **, int))
+unp_scan(struct mbuf *m0, void (*op)(struct fdpass *, int))
 {
 	struct mbuf *m;
-	struct file **rp;
+	struct fdpass *rp;
 	struct cmsghdr *cm;
 	int qfds;
 
@@ -1020,9 +1027,9 @@ unp_scan(struct mbuf *m0, void (*op)(struct file **, int))
 				    cm->cmsg_type != SCM_RIGHTS)
 					continue;
 				qfds = (cm->cmsg_len - CMSG_ALIGN(sizeof *cm))
-				    / sizeof(struct file *);
+				    / sizeof(struct fdpass);
 				if (qfds > 0) {
-					rp = (struct file **)CMSG_DATA(cm);
+					rp = (struct fdpass *)CMSG_DATA(cm);
 					op(rp, qfds);
 				}
 				break;		/* XXX, but saves time */
@@ -1033,16 +1040,16 @@ unp_scan(struct mbuf *m0, void (*op)(struct file **, int))
 }
 
 void
-unp_mark(struct file **rp, int nfds)
+unp_mark(struct fdpass *rp, int nfds)
 {
 	struct unpcb *unp;
 	int i;
 
 	for (i = 0; i < nfds; i++) {
-		if (rp[i] == NULL)
+		if (rp[i].fp == NULL)
 			continue;
 
-		unp = fptounp(rp[i]);
+		unp = fptounp(rp[i].fp);
 		if (unp == NULL)
 			continue;
 
@@ -1056,7 +1063,7 @@ unp_mark(struct file **rp, int nfds)
 }
 
 void
-unp_discard(struct file **rp, int nfds)
+unp_discard(struct fdpass *rp, int nfds)
 {
 	struct unp_deferral *defer;
 

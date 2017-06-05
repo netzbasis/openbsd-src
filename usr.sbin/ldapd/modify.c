@@ -1,4 +1,4 @@
-/*	$OpenBSD: modify.c,v 1.17 2015/12/24 17:47:57 mmcc Exp $ */
+/*	$OpenBSD: modify.c,v 1.19 2017/02/11 20:40:03 guenther Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "ldapd.h"
+#include "log.h"
 #include "uuid.h"
 
 int
@@ -295,11 +296,20 @@ ldap_modify(struct request *req)
 			}
 			break;
 		case LDAP_MOD_DELETE:
+			/*
+			 * We're already in the "SET OF value
+			 * AttributeValue" (see RFC2411 section
+			 * 4.1.7) have either EOC, so all values
+			 * for the attribute gets deleted, or we
+			 * have a (first) octetstring (there is one
+			 * for each AttributeValue to be deleted)
+			 */
 			if (vals->be_sub &&
-			    vals->be_sub->be_type == BER_TYPE_SET)
+			    vals->be_sub->be_type == BER_TYPE_OCTETSTRING) {
 				ldap_del_values(a, vals);
-			else
+			} else {
 				ldap_del_attribute(entry, attr);
+			}
 			break;
 		case LDAP_MOD_REPLACE:
 			if (vals->be_sub != NULL &&

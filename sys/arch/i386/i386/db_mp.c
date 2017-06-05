@@ -1,4 +1,4 @@
-/*	$OpenBSD: db_mp.c,v 1.8 2016/03/07 05:32:46 naddy Exp $	*/
+/*	$OpenBSD: db_mp.c,v 1.10 2017/04/30 16:45:45 mpi Exp $	*/
 
 /*
  * Copyright (c) 2003, 2004 Andreas Gunnarsson <andreas@openbsd.org>
@@ -23,7 +23,8 @@
 
 #include <ddb/db_output.h>
 
-struct mutex ddb_mp_mutex = MUTEX_INITIALIZER(IPL_HIGH);
+struct mutex ddb_mp_mutex =
+    MUTEX_INITIALIZER_FLAGS(IPL_HIGH, "ddb_mp_mutex", MTX_NOWITNESS);
 
 volatile int ddb_state = DDB_STATE_NOT_RUNNING;	/* protected by ddb_mp_mutex */
 volatile cpuid_t ddb_active_cpu;		/* protected by ddb_mp_mutex */
@@ -136,5 +137,5 @@ db_stopcpu(int cpu)
 void
 i386_ipi_db(struct cpu_info *ci)
 {
-	Debugger();
+	db_enter();
 }

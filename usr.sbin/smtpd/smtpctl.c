@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.151 2016/09/04 09:33:49 eric Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.153 2017/05/19 19:56:42 eric Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -396,26 +396,20 @@ static int
 srv_iter_evpids(uint32_t msgid, uint64_t *evpid, int *offset)
 {
 	static uint64_t	*evpids = NULL, *tmp;
-	static int	 n, alloc = 0;
+	static int	 n, tmpalloc, alloc = 0;
 	struct envelope	 evp;
-
-	if (evpids == NULL) {
-		alloc = 1000;
-		evpids = calloc(alloc, sizeof(*evpids));
-		if (evpids == NULL)
-			err(1, "calloc");
-	}
 
 	if (*offset == 0) {
 		n = 0;
 		while (srv_iter_envelopes(msgid, &evp)) {
 			if (n == alloc) {
-				alloc += 256;
-				tmp = reallocarray(evpids, alloc,
+				tmpalloc = alloc ? (alloc * 2) : 128;
+				tmp = recallocarray(evpids, alloc, tmpalloc,
 				    sizeof(*evpids));
 				if (tmp == NULL)
-					err(1, "reallocarray");
+					err(1, "recallocarray");
 				evpids = tmp;
+				alloc = tmpalloc;
 			}
 			evpids[n++] = evp.id;
 		}
@@ -730,7 +724,7 @@ do_show_queue(int argc, struct parameter *argv)
 	now = time(NULL);
 
 	if (!srv_connect()) {
-		log_init(1);
+		log_init(1, LOG_MAIL);
 		queue_init("fs", 0);
 		if (chroot(PATH_SPOOL) == -1 || chdir("/") == -1)
 			err(1, "%s", PATH_SPOOL);

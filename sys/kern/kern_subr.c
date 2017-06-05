@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_subr.c,v 1.47 2016/03/15 04:19:26 stefan Exp $	*/
+/*	$OpenBSD: kern_subr.c,v 1.49 2017/02/14 10:31:15 mpi Exp $	*/
 /*	$NetBSD: kern_subr.c,v 1.15 1996/04/09 17:21:56 ragge Exp $	*/
 
 /*
@@ -76,9 +76,7 @@ uiomove(void *cp, size_t n, struct uio *uio)
 		switch (uio->uio_segflg) {
 
 		case UIO_USERSPACE:
-			if (curcpu()->ci_schedstate.spc_schedflags &
-			    SPCF_SHOULDYIELD)
-				preempt(NULL);
+			sched_pause(preempt);
 			if (uio->uio_rw == UIO_READ)
 				error = copyout(cp, iov->iov_base, cnt);
 			else
@@ -174,6 +172,20 @@ hashinit(int elements, int type, int flags, u_long *hashmask)
 		LIST_INIT(&hashtbl[i]);
 	*hashmask = hashsize - 1;
 	return (hashtbl);
+}
+
+void
+hashfree(void *hash, int elements, int type)
+{
+	u_long hashsize;
+	LIST_HEAD(generic, generic) *hashtbl = hash;
+
+	if (elements <= 0)
+		panic("hashfree: bad cnt");
+	for (hashsize = 1; hashsize < elements; hashsize <<= 1)
+		continue;
+
+	free(hashtbl, type, sizeof(*hashtbl) * hashsize);
 }
 
 /*

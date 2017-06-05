@@ -1,4 +1,4 @@
-/*	$OpenBSD: identd.c,v 1.34 2016/09/04 14:39:32 florian Exp $ */
+/*	$OpenBSD: identd.c,v 1.36 2017/05/26 17:38:46 florian Exp $ */
 
 /*
  * Copyright (c) 2013 David Gwynne <dlg@openbsd.org>
@@ -128,7 +128,6 @@ void	identd_response(int, short, void *);
 int	fetchuid(struct ident_client *);
 
 const char *gethost(struct sockaddr_storage *);
-const char *getport(struct sockaddr_storage *);
 const char *gentoken(void);
 
 struct loggers {
@@ -1079,7 +1078,7 @@ syslog_err(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_EMERG, fmt, ap);
+	syslog_vstrerror(errno, LOG_CRIT, fmt, ap);
 	va_end(ap);
 	exit(ecode);
 }
@@ -1090,7 +1089,7 @@ syslog_errx(int ecode, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_CRIT, fmt, ap);
 	va_end(ap);
 	exit(ecode);
 }
@@ -1101,7 +1100,7 @@ syslog_warn(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	syslog_vstrerror(errno, LOG_WARNING, fmt, ap);
+	syslog_vstrerror(errno, LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1111,7 +1110,7 @@ syslog_warnx(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_WARNING, fmt, ap);
+	vsyslog(LOG_ERR, fmt, ap);
 	va_end(ap);
 }
 
@@ -1146,19 +1145,6 @@ gethost(struct sockaddr_storage *ss)
 
 	if (getnameinfo(sa, sa->sa_len, buf, sizeof(buf),
 	    NULL, 0, NI_NUMERICHOST) != 0)
-		return ("(unknown)");
-
-	return (buf);
-}
-
-const char *
-getport(struct sockaddr_storage *ss)
-{
-	struct sockaddr *sa = (struct sockaddr *)ss;
-	static char buf[NI_MAXSERV];
-
-	if (getnameinfo(sa, sa->sa_len, NULL, 0, buf, sizeof(buf),
-	    NI_NUMERICSERV) != 0)
 		return ("(unknown)");
 
 	return (buf);

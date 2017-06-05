@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-layout.c,v 1.29 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-select-layout.c,v 1.33 2017/04/22 10:22:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -26,7 +26,8 @@
  * Switch window to selected layout.
  */
 
-enum cmd_retval	 cmd_select_layout_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_select_layout_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_select_layout_entry = {
 	.name = "select-layout",
@@ -35,9 +36,9 @@ const struct cmd_entry cmd_select_layout_entry = {
 	.args = { "nopt:", 0, 1 },
 	.usage = "[-nop] " CMD_TARGET_WINDOW_USAGE " [layout-name]",
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_select_layout_exec
 };
 
@@ -48,9 +49,9 @@ const struct cmd_entry cmd_next_layout_entry = {
 	.args = { "t:", 0, 0 },
 	.usage = CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_select_layout_exec
 };
 
@@ -61,17 +62,17 @@ const struct cmd_entry cmd_previous_layout_entry = {
 	.args = { "t:", 0, 0 },
 	.usage = CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
-	.flags = 0,
+	.flags = CMD_AFTERHOOK,
 	.exec = cmd_select_layout_exec
 };
 
-enum cmd_retval
-cmd_select_layout_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_select_layout_exec(struct cmd *self, struct cmdq_item *item)
 {
 	struct args	*args = self->args;
-	struct winlink	*wl = cmdq->state.tflag.wl;
+	struct winlink	*wl = item->target.wl;
 	struct window	*w;
 	const char	*layoutname;
 	char		*oldlayout;
@@ -118,7 +119,7 @@ cmd_select_layout_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if (layoutname != NULL) {
 		if (layout_parse(w, layoutname) == -1) {
-			cmdq_error(cmdq, "can't set layout: %s", layoutname);
+			cmdq_error(item, "can't set layout: %s", layoutname);
 			goto error;
 		}
 		goto changed;

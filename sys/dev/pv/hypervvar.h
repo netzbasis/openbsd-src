@@ -14,10 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _HYPERVVAR_H_
-#define _HYPERVVAR_H_
+#ifndef _DEV_PV_HYPERVVAR_H_
+#define _DEV_PV_HYPERVVAR_H_
 
-#define HYPERV_DEBUG
+/* #define HYPERV_DEBUG */
 
 #ifdef HYPERV_DEBUG
 #define DPRINTF(x...)		printf(x)
@@ -32,7 +32,7 @@ struct hv_msg {
 #define  MSGF_NOSLEEP			  0x0001
 #define  MSGF_NOQUEUE			  0x0002
 #define  MSGF_ORPHANED			  0x0004
-	struct hypercall_postmsg_in	 msg_req;
+	struct hypercall_postmsg_in	 msg_req; /* must be 8 byte aligned */
 	void				*msg_rsp;
 	size_t				 msg_rsplen;
 	TAILQ_ENTRY(hv_msg)		 msg_entry;
@@ -51,8 +51,7 @@ struct hv_ring_data {
 	struct mutex			 rd_lock;
 	uint32_t			 rd_prod;
 	uint32_t			 rd_cons;
-	uint32_t			 rd_data_size;
-	uint32_t			 rd_data_offset;
+	uint32_t			 rd_dsize;
 };
 
 struct hv_channel {
@@ -71,7 +70,6 @@ struct hv_channel {
 
 	void				*ch_ring;
 	uint32_t			 ch_ring_gpadl;
-	uint32_t			 ch_ring_npg;
 	u_long				 ch_ring_size;
 
 	struct hv_ring_data		 ch_wrd;
@@ -81,8 +79,6 @@ struct hv_channel {
 
 	void				(*ch_handler)(void *);
 	void				 *ch_ctx;
-	uint8_t				 *ch_buf;
-	int				  ch_buflen;
 	struct evcount			  ch_evcnt;
 
 	uint32_t			 ch_flags;
@@ -182,11 +178,36 @@ test_bit(u_int b, volatile void *p)
 	return !!(((volatile u_int *)p)[b >> 5] & (1 << (b & 0x1f)));
 }
 
+extern const struct hv_guid hv_guid_network;
+extern const struct hv_guid hv_guid_ide;
+extern const struct hv_guid hv_guid_scsi;
+extern const struct hv_guid hv_guid_shutdown;
+extern const struct hv_guid hv_guid_timesync;
+extern const struct hv_guid hv_guid_heartbeat;
+extern const struct hv_guid hv_guid_kvp;
+#ifdef HYPERV_DEBUG
+extern const struct hv_guid hv_guid_vss;
+extern const struct hv_guid hv_guid_dynmem;
+extern const struct hv_guid hv_guid_mouse;
+extern const struct hv_guid hv_guid_kbd;
+extern const struct hv_guid hv_guid_video;
+extern const struct hv_guid hv_guid_fc;
+extern const struct hv_guid hv_guid_fcopy;
+extern const struct hv_guid hv_guid_pcie;
+extern const struct hv_guid hv_guid_netdir;
+extern const struct hv_guid hv_guid_rdesktop;
+extern const struct hv_guid hv_guid_avma1;
+extern const struct hv_guid hv_guid_avma2;
+extern const struct hv_guid hv_guid_avma3;
+extern const struct hv_guid hv_guid_avma4;
+#endif	/* HYPERV_DEBUG */
+
 int	hv_handle_alloc(struct hv_channel *, void *, uint32_t, uint32_t *);
 void	hv_handle_free(struct hv_channel *, uint32_t);
-int	hv_channel_open(struct hv_channel *, void *, size_t, void (*)(void *),
-	    void *);
+int	hv_channel_open(struct hv_channel *, size_t, void *, size_t,
+	    void (*)(void *), void *);
 int	hv_channel_close(struct hv_channel *);
+void	hv_evcount_attach(struct hv_channel *, const char *);
 int	hv_channel_send(struct hv_channel *, void *, uint32_t, uint64_t,
 	    int, uint32_t);
 int	hv_channel_send_sgl(struct hv_channel *, struct vmbus_gpa *,
@@ -194,4 +215,4 @@ int	hv_channel_send_sgl(struct hv_channel *, struct vmbus_gpa *,
 int	hv_channel_recv(struct hv_channel *, void *, uint32_t, uint32_t *,
 	    uint64_t *, int);
 
-#endif	/* _HYPERVVAR_H_ */
+#endif	/* _DEV_PV_HYPERVVAR_H_ */

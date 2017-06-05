@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.80 2016/09/08 15:51:54 millert Exp $	*/
+/*	$OpenBSD: main.c,v 1.82 2016/10/17 17:44:47 schwarze Exp $	*/
 
 /*
  * startup, main loop, environments and error handling

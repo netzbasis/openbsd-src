@@ -1,4 +1,4 @@
-/*	$OpenBSD: switchctl.c,v 1.2 2016/07/20 21:04:44 reyk Exp $	*/
+/*	$OpenBSD: switchctl.c,v 1.7 2017/01/31 05:53:08 jsg Exp $	*/
 
 /*
  * Copyright (c) 2007-2015 Reyk Floeter <reyk@openbsd.org>
@@ -30,8 +30,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <event.h>
+#include <pwd.h>
 
 #include "switchd.h"
 #include "parser.h"
@@ -83,23 +85,28 @@ main(int argc, char *argv[])
 	struct sockaddr_un	 sun;
 	struct parse_result	*res;
 	struct imsg		 imsg;
-	struct switch_device	 sdv;
-	struct switch_controller *swc;
+	struct switch_client	 swc;
+	struct switch_address	*to;
+	struct passwd		*pw;
 	int			 ctl_sock;
 	int			 done = 1;
 	int			 n;
 	int			 ch;
 	int			 v = 0;
 	int			 quiet = 0;
+	int			 verbose = 0;
 	const char		*sock = SWITCHD_SOCKET;
 
-	while ((ch = getopt(argc, argv, "qs:")) != -1) {
+	while ((ch = getopt(argc, argv, "qs:v")) != -1) {
 		switch (ch) {
 		case 'q':
 			quiet = 1;
 			break;
 		case 's':
 			sock = optarg;
+			break;
+		case 'v':
+			verbose = 2;
 			break;
 		default:
 			usage();
@@ -109,15 +116,43 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
+	if ((pw = getpwnam(SWITCHD_USER)) == NULL)
+		fatal("switchctl: getpwnam");
+
+	/*
+	 * pledge in switchctl:
+	 * stdio - for malloc and basic I/O including events.
+	 * dns - for parsehostport() in the device spec.
+	 * inet - for handling tcp connections with OpenFlow peers.
+	 * unix - for opening the control socket.
+	 */
+	if (pledge("stdio dns inet unix", NULL) == -1)
+		err(1, "pledge");
+
+	log_init(quiet ? 0 : 2, LOG_USER);
+
 	/* parse options */
 	if ((res = parse(argc, argv)) == NULL)
 		exit(1);
 
 	res->quiet = quiet;
+	res->verbose = verbose;
+
+	if (res->quiet && res->verbose)
+		fatal("conflicting -v and -q options");
 
 	switch (res->action) {
 	case NONE:
 		usage();
+		break;
+	case DUMP_DESC:
+	case DUMP_FEATURES:
+	case DUMP_FLOWS:
+	case DUMP_TABLES:
+	case FLOW_ADD:
+	case FLOW_DELETE:
+	case FLOW_MODIFY:
+		ofpclient(res, pw);
 		break;
 	default:
 		goto connect;
@@ -143,14 +178,6 @@ main(int argc, char *argv[])
 		}
 		err(1, "connect: %s", sock);
 	}
-
-	/*
-	 * pledge in switchctl:
-	 * stdio - for malloc and basic I/O including events.
-	 * dns - for parsehostport() in the device spec.
-	 */
-	if (pledge("stdio dns", NULL) == -1)
-		err(1, "pledge");
 
 	if (res->ibuf != NULL)
 		ibuf = res->ibuf;
@@ -186,40 +213,24 @@ main(int argc, char *argv[])
 		    "Switch", "Port", "Type", "Name", "Info");
 		done = 0;
 		break;
-	case ADD_DEVICE:
-	case REMOVE_DEVICE:
-		memset(&sdv, 0, sizeof(sdv));
-		swc = &sdv.sdv_swc;
-		if (res->path[0] != '/')
-			strlcpy(sdv.sdv_device, "/dev/",
-			    sizeof(sdv.sdv_device));
-		if (strlcat(sdv.sdv_device, res->path,
-		    sizeof(sdv.sdv_device)) >= sizeof(sdv.sdv_device))
-			errx(1, "path is too long");
-		if (res->action == REMOVE_DEVICE) {
-			imsg_compose(ibuf, IMSG_CTL_DEVICE_DISCONNECT, 0, 0, -1,
-			    &sdv, sizeof(sdv));
+	case CONNECT:
+	case DISCONNECT:
+		memset(&swc, 0, sizeof(swc));
+		if (res->addr.ss_family == AF_UNSPEC)
+			errx(1, "invalid address");
+
+		memcpy(&swc.swc_addr.swa_addr, &res->addr, sizeof(res->addr));
+		if (res->action == DISCONNECT) {
+			imsg_compose(ibuf, IMSG_CTL_DISCONNECT, 0, 0, -1,
+			    &swc, sizeof(swc));
 			break;
 		}
-		if (res->uri == NULL || res->uri[0] == '\0')
-			swc->swc_type = SWITCH_CONN_LOCAL;
-		else {
-			if (strncmp(res->uri, "tcp:", 4) == 0)
-				swc->swc_type = SWITCH_CONN_TCP;
-			else if (strncmp(res->uri, "tls:", 4) == 0)
-				swc->swc_type = SWITCH_CONN_TLS;
-			else
-				errx(1, "protocol field is unknown");
 
-			if (parsehostport(res->uri + 4,
-			    (struct sockaddr *)&swc->swc_addr,
-			    sizeof(swc->swc_addr)) != 0)
-				errx(1,
-				    "couldn't parse name-or-address and port");
-			warnx("%s", sdv.sdv_device);
-		}
-		imsg_compose(ibuf, IMSG_CTL_DEVICE_CONNECT, 0, 0, -1,
-		    &sdv, sizeof(sdv));
+		to = &swc.swc_target;
+		memcpy(to, &res->uri, sizeof(*to));
+
+		imsg_compose(ibuf, IMSG_CTL_CONNECT, 0, 0, -1,
+		    &swc, sizeof(swc));
 		break;
 	case RESETALL:
 		imsg_compose(ibuf, IMSG_CTL_RESET, 0, 0, -1, &v, sizeof(v));
@@ -309,7 +320,7 @@ show_summary_msg(struct imsg *imsg, int type)
 			break;
 
 		getmonotime(&tv);
-		printf("%-4u\t%-4ld\t%-8s\t%-24s\tage %llds\n",
+		printf("%-4u\t%-4u\t%-8s\t%-24s\tage %llds\n",
 		    sw_id, mac->mac_port, "mac",
 		    print_ether(mac->mac_addr),
 		    (long long)tv.tv_sec - mac->mac_age);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwmvar.h,v 1.22 2016/09/10 09:32:33 stsp Exp $	*/
+/*	$OpenBSD: if_iwmvar.h,v 1.27 2017/05/28 09:59:58 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -281,9 +281,8 @@ struct iwm_rx_ring {
 
 #define IWM_FLAG_USE_ICT	0x01
 #define IWM_FLAG_HW_INITED	0x02
-#define IWM_FLAG_STOPPED	0x04
-#define IWM_FLAG_RFKILL		0x08
-#define IWM_FLAG_SCANNING	0x10
+#define IWM_FLAG_RFKILL		0x04
+#define IWM_FLAG_SCANNING	0x08
 
 struct iwm_ucode_status {
 	uint32_t uc_error_event_table;
@@ -329,11 +328,6 @@ struct iwm_phy_db {
 	struct iwm_phy_db_entry	calib_nch;
 	struct iwm_phy_db_entry	calib_ch_group_papd[IWM_NUM_PAPD_CH_GROUPS];
 	struct iwm_phy_db_entry	calib_ch_group_txp[IWM_NUM_TXP_CH_GROUPS];
-};
-
-struct iwm_int_sta {
-	uint32_t sta_id;
-	uint32_t tfd_queue_msk;
 };
 
 struct iwm_phy_ctxt {
@@ -466,14 +460,13 @@ struct iwm_softc {
 
 	uint8_t sc_cmd_resp[IWM_CMD_RESP_MAX];
 	int sc_wantresp;
+	int sc_nic_locks;
 
 	struct taskq *sc_nswq, *sc_eswq;
 	struct task sc_eswk;
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;
-
-	struct iwm_int_sta sc_aux_sta;
 
 	/* phy contexts.  we only use the first one */
 	struct iwm_phy_ctxt sc_phyctxt[IWM_NUM_PHY_CTX];
@@ -508,13 +501,10 @@ struct iwm_node {
 
 	uint16_t in_id;
 	uint16_t in_color;
-	int in_tsfid;
-
-	/* status "bits" */
-	int in_assoc;
 
 	struct iwm_lq_cmd in_lq;
 	struct ieee80211_amrr_node in_amn;
+	struct ieee80211_mira_node in_mn;
 };
 #define IWM_STATION_ID 0
 #define IWM_AUX_STA_ID 1

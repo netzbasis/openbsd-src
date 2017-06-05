@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.176 2016/05/21 00:56:43 deraadt Exp $	*/
+/*	$OpenBSD: machdep.c,v 1.180 2017/04/30 16:45:45 mpi Exp $	*/
 /*	$NetBSD: machdep.c,v 1.4 1996/10/16 19:33:11 ws Exp $	*/
 
 /*
@@ -115,11 +115,7 @@ void * startsym, *endsym;
 #endif
 
 #ifdef APERTURE
-#ifdef INSECURE
-int allowaperture = 1;
-#else
 int allowaperture = 0;
-#endif
 #endif
 
 void dumpsys(void);
@@ -315,7 +311,7 @@ initppc(startkernel, endkernel, args)
 
 #ifdef DDB
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 
 	/*
@@ -324,8 +320,8 @@ initppc(startkernel, endkernel, args)
 	ofwconprobe();
 	consinit();
 
-        pool_init(&ppc_vecpl, sizeof(struct vreg), 16, 0, 0, "ppcvec", NULL);
-	pool_setipl(&ppc_vecpl, IPL_NONE);
+        pool_init(&ppc_vecpl, sizeof(struct vreg), 16, IPL_NONE, 0, "ppcvec",
+	    NULL);
 
 }
 
@@ -788,7 +784,8 @@ haltsys:
 	OF_interpret("reset-all", 0);
 	OF_exit();
 	printf("boot failed, spinning\n");
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_rtr.c,v 1.145 2016/09/08 09:02:42 mpi Exp $	*/
+/*	$OpenBSD: nd6_rtr.c,v 1.159 2017/05/30 08:58:34 florian Exp $	*/
 /*	$KAME: nd6_rtr.c,v 1.97 2001/02/07 11:09:13 itojun Exp $	*/
 
 /*
@@ -69,13 +69,15 @@ void purge_detached(struct ifnet *);
 int nd6_prefix_onlink(struct nd_prefix *);
 int nd6_prefix_offlink(struct nd_prefix *);
 void in6_init_address_ltimes(struct nd_prefix *, struct in6_addrlifetime *);
-
+int prelist_update(struct nd_prefix *, struct nd_defrouter *, struct mbuf *);
+int nd6_prelist_add(struct nd_prefix *, struct nd_defrouter *,
+	struct nd_prefix **);
+void defrouter_addreq(struct nd_defrouter *);
 int rt6_deleteroute(struct rtentry *, void *, unsigned int);
 
 void nd6_addr_add(void *);
 
 void nd6_rs_output_timo(void *);
-u_int32_t nd6_rs_next_pltime_timo(struct ifnet *);
 void nd6_rs_output_set_timo(int);
 void nd6_rs_output(struct ifnet *, struct in6_ifaddr *);
 void nd6_rs_dev_state(void *);
@@ -92,7 +94,7 @@ int		nd6_rs_timeout_count = 0;
 void
 nd6_rs_init(void)
 {
-	timeout_set(&nd6_rs_output_timer, nd6_rs_output_timo, NULL);
+	timeout_set_proc(&nd6_rs_output_timer, nd6_rs_output_timo, NULL);
 }
 
 
@@ -148,7 +150,7 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 
 	IP6_EXTHDR_GET(nd_rs, struct nd_router_solicit *, m, off, icmp6len);
 	if (nd_rs == NULL) {
-		icmp6stat.icp6s_tooshort++;
+		icmp6stat_inc(icp6s_tooshort);
 		return;
 	}
 
@@ -188,7 +190,7 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 	return;
 
  bad:
-	icmp6stat.icp6s_badrs++;
+	icmp6stat_inc(icp6s_badrs);
 	m_freem(m);
 }
 
@@ -200,7 +202,9 @@ nd6_rs_output(struct ifnet* ifp, struct in6_ifaddr *ia6)
 	struct nd_router_solicit *rs;
 	struct ip6_moptions im6o;
 	caddr_t mac;
-	int icmp6len, maxlen, s;
+	int icmp6len, maxlen;
+
+	NET_ASSERT_LOCKED();
 
 	KASSERT(ia6 != NULL);
 	KASSERT(ifp->if_flags & IFF_RUNNING);
@@ -270,41 +274,19 @@ nd6_rs_output(struct ifnet* ifp, struct in6_ifaddr *ia6)
 
 	ip6->ip6_plen = htons((u_short)icmp6len);
 
-	s = splsoftnet();
 	ip6_output(m, NULL, NULL, 0, &im6o, NULL);
-	splx(s);
 
-	icmp6stat.icp6s_outhist[ND_ROUTER_SOLICIT]++;
+	icmp6stat_inc(icp6s_outhist + ND_ROUTER_SOLICIT);
 }
 
 void
 nd6_rs_output_set_timo(int timeout)
 {
+#ifndef	SMALL_KERNEL
+	return;
+#endif	/* SMALL_KERNEL */
 	nd6_rs_output_timeout = timeout;
 	timeout_add_sec(&nd6_rs_output_timer, nd6_rs_output_timeout);
-}
-
-u_int32_t
-nd6_rs_next_pltime_timo(struct ifnet *ifp)
-{
-	struct ifaddr *ifa;
-	struct in6_ifaddr *ia6;
-	u_int32_t pltime_expires = ND6_INFINITE_LIFETIME;
-
-	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr->sa_family != AF_INET6)
-			continue;
-
-		ia6 = ifatoia6(ifa);
-		if (ia6->ia6_lifetime.ia6t_pltime == ND6_INFINITE_LIFETIME ||
-		    IFA6_IS_DEPRECATED(ia6) || IFA6_IS_INVALID(ia6))
-			continue;
-
-		pltime_expires = MIN(pltime_expires,
-		    ia6->ia6_lifetime.ia6t_pltime);
-	}
-
-	return pltime_expires;
 }
 
 void
@@ -312,36 +294,28 @@ nd6_rs_output_timo(void *ignored_arg)
 {
 	struct ifnet *ifp;
 	struct in6_ifaddr *ia6;
-	u_int32_t pltime_expire = ND6_INFINITE_LIFETIME, t;
-	int timeout = ND6_RS_OUTPUT_INTERVAL;
+	int s;
 
 	if (nd6_rs_timeout_count == 0)
 		return;
 
 	if (nd6_rs_output_timeout < ND6_RS_OUTPUT_INTERVAL)
 		/* exponential backoff if running quick timeouts */
-		timeout = nd6_rs_output_timeout * 2;
+		nd6_rs_output_timeout *= 2;
+	if (nd6_rs_output_timeout > ND6_RS_OUTPUT_INTERVAL)
+		nd6_rs_output_timeout = ND6_RS_OUTPUT_INTERVAL;
 
+	NET_LOCK(s);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ISSET(ifp->if_flags, IFF_RUNNING) &&
 		    ISSET(ifp->if_xflags, IFXF_AUTOCONF6)) {
-			t = nd6_rs_next_pltime_timo(ifp);
-			if (t == ND6_INFINITE_LIFETIME || t <
-			    ND6_RS_OUTPUT_INTERVAL) {
-				timeout = ND6_RS_OUTPUT_QUICK_INTERVAL;
-				ia6 = in6ifa_ifpforlinklocal(ifp,
-				    IN6_IFF_TENTATIVE);
-				if (ia6 != NULL)
-					nd6_rs_output(ifp, ia6);
-			}
-
-			pltime_expire = MIN(pltime_expire, t);
+			ia6 = in6ifa_ifpforlinklocal(ifp, IN6_IFF_TENTATIVE);
+			if (ia6 != NULL)
+				nd6_rs_output(ifp, ia6);
 		}
 	}
-	if (pltime_expire != ND6_INFINITE_LIFETIME)
-		timeout = MAX(timeout, pltime_expire / 2);
-
-	nd6_rs_output_set_timo(timeout);
+	NET_UNLOCK(s);
+	nd6_rs_output_set_timo(nd6_rs_output_timeout);
 }
 
 void
@@ -358,7 +332,7 @@ nd6_rs_attach(struct ifnet *ifp)
 	}
 
 	/*
-	 * (re)send solicitation regardless if we are enableing autoconf
+	 * (re)send solicitation regardless if we are enabling autoconf
 	 * for the first time or if the link comes up
 	 */
 	nd6_rs_output_set_timo(ND6_RS_OUTPUT_QUICK_INTERVAL);
@@ -410,6 +384,10 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	if (ifp == NULL)
 		goto freeit;
 
+#ifndef	SMALL_KERNEL
+	goto freeit;
+#endif	/* SMALL_KERNEL */
+
 	/* We accept RAs only if inet6 autoconf is enabled  */
 	if (!(ifp->if_xflags & IFXF_AUTOCONF6))
 		goto freeit;
@@ -441,7 +419,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 
 	IP6_EXTHDR_GET(nd_ra, struct nd_router_advert *, m, off, icmp6len);
 	if (nd_ra == NULL) {
-		icmp6stat.icp6s_tooshort++;
+		icmp6stat_inc(icp6s_tooshort);
 		if_put(ifp);
 		return;
 	}
@@ -463,7 +441,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	dr0.rtaddr = saddr6;
 	dr0.flags  = nd_ra->nd_ra_flags_reserved;
 	dr0.rtlifetime = ntohs(nd_ra->nd_ra_router_lifetime);
-	dr0.expire = time_second + dr0.rtlifetime;
+	dr0.expire = time_uptime + dr0.rtlifetime;
 	dr0.ifp = ifp;
 	/* unspecified or not? (RFC 2461 6.3.4) */
 	if (advreachable) {
@@ -553,7 +531,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 			pr.ndpr_plen = pi->nd_opt_pi_prefix_len;
 			pr.ndpr_vltime = ntohl(pi->nd_opt_pi_valid_time);
 			pr.ndpr_pltime = ntohl(pi->nd_opt_pi_preferred_time);
-			pr.ndpr_lastupdate = time_second;
+			pr.ndpr_lastupdate = time_uptime;
 
 			if (in6_init_prefix_ltimes(&pr))
 				continue; /* prefix lifetime init failed */
@@ -599,7 +577,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	return;
 
  bad:
-	icmp6stat.icp6s_badra++;
+	icmp6stat_inc(icp6s_badra);
 	if_put(ifp);
 	m_freem(m);
 }
@@ -613,7 +591,6 @@ defrouter_addreq(struct nd_defrouter *new)
 	struct rt_addrinfo info;
 	struct sockaddr_in6 def, mask, gate;
 	struct rtentry *rt;
-	int s;
 	int error;
 
 	memset(&def, 0, sizeof(def));
@@ -627,21 +604,19 @@ defrouter_addreq(struct nd_defrouter *new)
 	gate.sin6_addr = new->rtaddr;
 	gate.sin6_scope_id = 0;	/* XXX */
 
+	info.rti_ifa = NULL;
 	info.rti_flags = RTF_GATEWAY;
 	info.rti_info[RTAX_DST] = sin6tosa(&def);
 	info.rti_info[RTAX_GATEWAY] = sin6tosa(&gate);
 	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask);
 
-	s = splsoftnet();
 	error = rtrequest(RTM_ADD, &info, RTP_DEFAULT, &rt,
 	    new->ifp->if_rdomain);
 	if (error == 0) {
-		rt_sendmsg(rt, RTM_ADD, new->ifp->if_rdomain);
+		rtm_send(rt, RTM_ADD, new->ifp->if_rdomain);
 		rtfree(rt);
 		new->installed = 1;
 	}
-	splx(s);
-	return;
 }
 
 struct nd_defrouter *
@@ -698,7 +673,7 @@ defrtrlist_del(struct nd_defrouter *dr)
 
 	ext->ndefrouters--;
 	if (ext->ndefrouters < 0) {
-		log(LOG_WARNING, "defrtrlist_del: negative count on %s\n",
+		log(LOG_WARNING, "%s: negative count on %s\n", __func__,
 		    dr->ifp->if_xname);
 	}
 
@@ -742,7 +717,7 @@ defrouter_delreq(struct nd_defrouter *dr)
 	error = rtrequest(RTM_DELETE, &info, RTP_DEFAULT, &rt,
 	    dr->ifp->if_rdomain);
 	if (error == 0) {
-		rt_sendmsg(rt, RTM_DELETE, dr->ifp->if_rdomain);
+		rtm_send(rt, RTM_DELETE, dr->ifp->if_rdomain);
 		rtfree(rt);
 	}
 
@@ -793,14 +768,12 @@ defrouter_select(void)
 	struct nd_defrouter *dr, *selected_dr = NULL, *installed_dr = NULL;
 	struct rtentry *rt = NULL;
 	struct llinfo_nd6 *ln = NULL;
-	int s = splsoftnet();
 
 	/*
 	 * Let's handle easy case (3) first:
 	 * If default router list is empty, there's nothing to be done.
 	 */
 	if (TAILQ_EMPTY(&nd_defrouter)) {
-		splx(s);
 		return;
 	}
 
@@ -865,9 +838,6 @@ defrouter_select(void)
 			defrouter_delreq(installed_dr);
 		defrouter_addreq(selected_dr);
 	}
-
-	splx(s);
-	return;
 }
 
 /*
@@ -906,7 +876,8 @@ defrtrlist_update(struct nd_defrouter *new)
 {
 	struct nd_defrouter *dr, *n;
 	struct in6_ifextra *ext = new->ifp->if_afdata[AF_INET6];
-	int s = splsoftnet();
+
+	NET_ASSERT_LOCKED();
 
 	if ((dr = defrouter_lookup(&new->rtaddr, new->ifp->if_index)) != NULL) {
 		/* entry exists */
@@ -929,7 +900,6 @@ defrtrlist_update(struct nd_defrouter *new)
 			 * to sort the entries.
 			 */
 			if (rtpref(new) == oldpref) {
-				splx(s);
 				return (dr);
 			}
 
@@ -946,7 +916,6 @@ defrtrlist_update(struct nd_defrouter *new)
 			n = dr;
 			goto insert;
 		}
-		splx(s);
 		return (dr);
 	}
 
@@ -955,19 +924,16 @@ defrtrlist_update(struct nd_defrouter *new)
 		/* flush all possible redirects */
 		if (new->ifp->if_xflags & IFXF_AUTOCONF6)
 			rt6_flush(&new->rtaddr, new->ifp);
-		splx(s);
 		return (NULL);
 	}
 
 	if (ip6_maxifdefrouters >= 0 &&
 	    ext->ndefrouters >= ip6_maxifdefrouters) {
-		splx(s);
 		return (NULL);
 	}
 
 	n = malloc(sizeof(*n), M_IP6NDP, M_NOWAIT | M_ZERO);
 	if (n == NULL) {
-		splx(s);
 		return (NULL);
 	}
 	*n = *new;
@@ -992,8 +958,6 @@ insert:
 	defrouter_select();
 
 	ext->ndefrouters++;
-
-	splx(s);
 
 	return (n);
 }
@@ -1057,7 +1021,7 @@ purge_detached(struct ifnet *ifp)
 	struct in6_ifaddr *ia6;
 	struct ifaddr *ifa, *ifa_next;
 
-	splsoftassert(IPL_SOFTNET);
+	NET_ASSERT_LOCKED();
 
 	LIST_FOREACH_SAFE(pr, &nd_prefix, ndpr_entry, pr_next) {
 		/*
@@ -1090,14 +1054,14 @@ nd6_prelist_add(struct nd_prefix *pr, struct nd_defrouter *dr,
     struct nd_prefix **newp)
 {
 	struct nd_prefix *new = NULL;
-	int i, s;
 	struct in6_ifextra *ext = pr->ndpr_ifp->if_afdata[AF_INET6];
+	int i;
+
+	NET_ASSERT_LOCKED();
 
 	if (ip6_maxifprefixes >= 0) {
 		if (ext->nprefixes >= ip6_maxifprefixes / 2) {
-			s = splsoftnet();
 			purge_detached(pr->ndpr_ifp);
-			splx(s);
 		}
 		if (ext->nprefixes >= ip6_maxifprefixes)
 			return(ENOMEM);
@@ -1120,7 +1084,6 @@ nd6_prelist_add(struct nd_prefix *pr, struct nd_defrouter *dr,
 
 	task_set(&new->ndpr_task, nd6_addr_add, new);
 
-	s = splsoftnet();
 	/* link ndpr_entry to nd_prefix list */
 	LIST_INSERT_HEAD(&nd_prefix, new, ndpr_entry);
 
@@ -1130,8 +1093,8 @@ nd6_prelist_add(struct nd_prefix *pr, struct nd_defrouter *dr,
 		int e;
 
 		if ((e = nd6_prefix_onlink(new)) != 0) {
-			nd6log((LOG_ERR, "nd6_prelist_add: failed to make "
-			    "the prefix %s/%d on-link on %s (errno=%d)\n",
+			nd6log((LOG_ERR, "%s: failed to make the prefix %s/%d"
+			    " on-link on %s (errno=%d)\n", __func__,
 			    inet_ntop(AF_INET6, &pr->ndpr_prefix.sin6_addr,
 				addr, sizeof(addr)),
 			    pr->ndpr_plen, pr->ndpr_ifp->if_xname, e));
@@ -1141,7 +1104,6 @@ nd6_prelist_add(struct nd_prefix *pr, struct nd_defrouter *dr,
 
 	if (dr)
 		pfxrtr_add(new, dr);
-	splx(s);
 
 	ext->nprefixes++;
 
@@ -1152,8 +1114,10 @@ void
 prelist_remove(struct nd_prefix *pr)
 {
 	struct nd_pfxrouter *pfr, *next;
-	int e, s;
 	struct in6_ifextra *ext = pr->ndpr_ifp->if_afdata[AF_INET6];
+	int e;
+
+	NET_ASSERT_LOCKED();
 
 	/* make sure to invalidate the prefix until it is really freed. */
 	pr->ndpr_vltime = 0;
@@ -1162,8 +1126,8 @@ prelist_remove(struct nd_prefix *pr)
 	if ((pr->ndpr_stateflags & NDPRF_ONLINK) != 0 &&
 	    (e = nd6_prefix_offlink(pr)) != 0) {
 		char addr[INET6_ADDRSTRLEN];
-		nd6log((LOG_ERR, "prelist_remove: failed to make %s/%d offlink "
-		    "on %s, errno=%d\n",
+		nd6log((LOG_ERR, "%s: failed to make %s/%d offlink "
+		    "on %s, errno=%d\n", __func__,
 		    inet_ntop(AF_INET6, &pr->ndpr_prefix.sin6_addr,
 			addr, sizeof(addr)),
 		    pr->ndpr_plen, pr->ndpr_ifp->if_xname, e));
@@ -1172,8 +1136,6 @@ prelist_remove(struct nd_prefix *pr)
 
 	if (pr->ndpr_refcnt > 0)
 		return;		/* notice here? */
-
-	s = splsoftnet();
 
 	/* unlink ndpr_entry from nd_prefix list */
 	LIST_REMOVE(pr, ndpr_entry);
@@ -1184,14 +1146,13 @@ prelist_remove(struct nd_prefix *pr)
 
 	ext->nprefixes--;
 	if (ext->nprefixes < 0) {
-		log(LOG_WARNING, "prelist_remove: negative count on %s\n",
+		log(LOG_WARNING, "%s: negative count on %s\n", __func__,
 		    pr->ndpr_ifp->if_xname);
 	}
 
 	free(pr, M_IP6NDP, sizeof(*pr));
 
 	pfxlist_onlink_check();
-	splx(s);
 }
 
 /*
@@ -1205,13 +1166,13 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 	struct ifaddr *ifa;
 	struct ifnet *ifp = new->ndpr_ifp;
 	struct nd_prefix *pr;
-	int s, error = 0;
+	int error = 0;
 	int tempaddr_preferred = 0, autoconf = 0, statique = 0;
 	int auth;
 	struct in6_addrlifetime lt6_tmp;
 	char addr[INET6_ADDRSTRLEN];
 
-	s = splsoftnet();
+	NET_ASSERT_LOCKED();
 
 	auth = 0;
 	if (m) {
@@ -1250,11 +1211,9 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 			int e;
 
 			if ((e = nd6_prefix_onlink(pr)) != 0) {
-				nd6log((LOG_ERR,
-				    "prelist_update: failed to make "
-				    "the prefix %s/%d on-link on %s "
-				    "(errno=%d)\n",
-				    inet_ntop(AF_INET6,
+				nd6log((LOG_ERR, "%s: failed to make the prefix"
+				    " %s/%d on-link on %s (errno=%d)\n",
+				    __func__, inet_ntop(AF_INET6,
 					&pr->ndpr_prefix.sin6_addr,
 					addr, sizeof(addr)),
 				    pr->ndpr_plen, pr->ndpr_ifp->if_xname, e));
@@ -1274,9 +1233,8 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 
 		error = nd6_prelist_add(new, dr, &newpr);
 		if (error != 0 || newpr == NULL) {
-			nd6log((LOG_NOTICE, "prelist_update: "
-			    "nd6_prelist_add failed for %s/%d on %s "
-			    "errno=%d, returnpr=%p\n",
+			nd6log((LOG_NOTICE, "%s: nd6_prelist_add failed for"
+			    " %s/%d on %s errno=%d, returnpr=%p\n", __func__,
 			    inet_ntop(AF_INET6, &new->ndpr_prefix.sin6_addr,
 				addr, sizeof(addr)),
 			    new->ndpr_plen, new->ndpr_ifp->if_xname,
@@ -1385,7 +1343,7 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 
 		if (lt6_tmp.ia6t_vltime == ND6_INFINITE_LIFETIME)
 			storedlifetime = ND6_INFINITE_LIFETIME;
-		else if (time_second - ia6->ia6_updatetime >
+		else if (time_uptime - ia6->ia6_updatetime >
 			 lt6_tmp.ia6t_vltime) {
 			/*
 			 * The case of "invalid" address.  We should usually
@@ -1394,7 +1352,7 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 			storedlifetime = 0;
 		} else
 			storedlifetime = lt6_tmp.ia6t_vltime -
-				(time_second - ia6->ia6_updatetime);
+				(time_uptime - ia6->ia6_updatetime);
 		if (TWOHOUR < new->ndpr_vltime ||
 		    storedlifetime < new->ndpr_vltime) {
 			lt6_tmp.ia6t_vltime = new->ndpr_vltime;
@@ -1425,7 +1383,7 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 		in6_init_address_ltimes(pr, &lt6_tmp);
 
 		ia6->ia6_lifetime = lt6_tmp;
-		ia6->ia6_updatetime = time_second;
+		ia6->ia6_updatetime = time_uptime;
 	}
 
 	if ((!autoconf || ((ifp->if_xflags & IFXF_INET6_NOPRIVACY) == 0 &&
@@ -1446,7 +1404,6 @@ prelist_update(struct nd_prefix *new, struct nd_defrouter *dr, struct mbuf *m)
 	}
 
  end:
-	splx(s);
 	return error;
 }
 
@@ -1458,7 +1415,7 @@ nd6_addr_add(void *prptr)
 	struct ifaddr *ifa;
 	int ifa_plen, autoconf, privacy, s;
 
-	s = splsoftnet();
+	NET_LOCK(s);
 
 	autoconf = 1;
 	privacy = (pr->ndpr_ifp->if_xflags & IFXF_INET6_NOPRIVACY) == 0;
@@ -1524,7 +1481,7 @@ nd6_addr_add(void *prptr)
 	if (--pr->ndpr_refcnt == 0)
 		prelist_remove(pr);
 
-	splx(s);
+	NET_UNLOCK(s);
 }
 
 /*
@@ -1569,8 +1526,10 @@ find_pfxlist_reachable_router(struct nd_prefix *pr)
 void
 pfxlist_onlink_check(void)
 {
+	struct ifnet *ifp;
+	struct ifaddr *ifa;
 	struct nd_prefix *pr;
-	struct in6_ifaddr *ia6;
+	struct in6_ifaddr *ia6, *pia6 = NULL;
 	char addr[INET6_ADDRSTRLEN];
 
 	/*
@@ -1644,9 +1603,8 @@ pfxlist_onlink_check(void)
 		if ((pr->ndpr_stateflags & NDPRF_DETACHED) != 0 &&
 		    (pr->ndpr_stateflags & NDPRF_ONLINK) != 0) {
 			if ((e = nd6_prefix_offlink(pr)) != 0) {
-				nd6log((LOG_ERR,
-				    "pfxlist_onlink_check: failed to "
-				    "make %s/%d offlink, errno=%d\n",
+				nd6log((LOG_ERR, "%s: failed to make %s/%d "
+				    "offlink, errno=%d\n", __func__,
 				    inet_ntop(AF_INET6,
 					&pr->ndpr_prefix.sin6_addr,
 					addr, sizeof(addr)),
@@ -1657,9 +1615,8 @@ pfxlist_onlink_check(void)
 		    (pr->ndpr_stateflags & NDPRF_ONLINK) == 0 &&
 		    pr->ndpr_raf_onlink) {
 			if ((e = nd6_prefix_onlink(pr)) != 0) {
-				nd6log((LOG_ERR,
-				    "pfxlist_onlink_check: failed to "
-				    "make %s/%d offlink, errno=%d\n",
+				nd6log((LOG_ERR, "%s: failed to make %s/%d "
+				    "offlink, errno=%d\n", __func__,
 				    inet_ntop(AF_INET6,
 					&pr->ndpr_prefix.sin6_addr,
 					addr, sizeof(addr)),
@@ -1676,42 +1633,54 @@ pfxlist_onlink_check(void)
 	 * always be attached.
 	 * The precise detection logic is same as the one for prefixes.
 	 */
-	TAILQ_FOREACH(ia6, &in6_ifaddr, ia_list) {
-		if (!(ia6->ia6_flags & IN6_IFF_AUTOCONF))
-			continue;
+	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
 
-		if (ia6->ia6_ndpr == NULL) {
+			ia6 = ifatoia6(ifa);
+			if ((ia6->ia6_flags & IN6_IFF_AUTOCONF) == 0)
+				continue;
+
 			/*
 			 * This can happen when we first configure the address
 			 * (i.e. the address exists, but the prefix does not).
 			 * XXX: complicated relationships...
 			 */
-			continue;
+			if (ia6->ia6_ndpr == NULL)
+				continue;
+
+			if (find_pfxlist_reachable_router(ia6->ia6_ndpr)) {
+				pia6 = ia6;
+				break;
+			}
 		}
 
-		if (find_pfxlist_reachable_router(ia6->ia6_ndpr))
+		if (pia6 != NULL)
 			break;
 	}
-	if (ia6) {
-		TAILQ_FOREACH(ia6, &in6_ifaddr, ia_list) {
+
+	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
+			if (ifa->ifa_addr->sa_family != AF_INET6)
+				continue;
+
+			ia6 = ifatoia6(ifa);
 			if ((ia6->ia6_flags & IN6_IFF_AUTOCONF) == 0)
 				continue;
 
-			if (ia6->ia6_ndpr == NULL) /* XXX: see above. */
-				continue;
+			if (pia6 != NULL) {
+				/* XXX: see above. */
+				if (ia6->ia6_ndpr == NULL)
+					continue;
 
-			if (find_pfxlist_reachable_router(ia6->ia6_ndpr))
+				if (find_pfxlist_reachable_router(ia6->ia6_ndpr))
+					ia6->ia6_flags &= ~IN6_IFF_DETACHED;
+				else
+					ia6->ia6_flags |= IN6_IFF_DETACHED;
+			} else {
 				ia6->ia6_flags &= ~IN6_IFF_DETACHED;
-			else
-				ia6->ia6_flags |= IN6_IFF_DETACHED;
-		}
-	}
-	else {
-		TAILQ_FOREACH(ia6, &in6_ifaddr, ia_list) {
-			if ((ia6->ia6_flags & IN6_IFF_AUTOCONF) == 0)
-				continue;
-
-			ia6->ia6_flags &= ~IN6_IFF_DETACHED;
+			}
 		}
 	}
 }
@@ -1867,9 +1836,11 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 	struct ifaddr *ifa;
 	struct in6_aliasreq ifra;
 	struct in6_ifaddr *ia6;
-	int error, s, plen0;
+	int error, plen0;
 	struct in6_addr mask, rand_ifid;
 	int prefixlen = pr->ndpr_plen;
+
+	NET_ASSERT_LOCKED();
 
 	in6_prefixlen2mask(&mask, prefixlen);
 
@@ -1902,8 +1873,8 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 	/* prefixlen + ifidlen must be equal to 128 */
 	plen0 = in6_mask2len(&ia6->ia_prefixmask.sin6_addr, NULL);
 	if (prefixlen != plen0) {
-		nd6log((LOG_INFO, "in6_ifadd: wrong prefixlen for %s "
-		    "(prefix=%d ifid=%d)\n",
+		nd6log((LOG_INFO, "%s: wrong prefixlen for %s "
+		    "(prefix=%d ifid=%d)\n", __func__,
 		    ifp->if_xname, prefixlen, 128 - plen0));
 		return NULL;
 	}
@@ -1975,15 +1946,13 @@ in6_ifadd(struct nd_prefix *pr, int privacy)
 	/* If this address already exists, update it. */
 	ia6 = in6ifa_ifpwithaddr(ifp, &ifra.ifra_addr.sin6_addr);
 
-	s = splsoftnet();
 	error = in6_update_ifa(ifp, &ifra, ia6);
-	splx(s);
 
 	if (error != 0) {
 		char addr[INET6_ADDRSTRLEN];
 
 		nd6log((LOG_ERR,
-		    "in6_ifadd: failed to make ifaddr %s on %s (errno=%d)\n",
+		    "%s: failed to make ifaddr %s on %s (errno=%d)\n", __func__,
 		    inet_ntop(AF_INET6,	&ifra.ifra_addr.sin6_addr,
 			addr, sizeof(addr)),
 		    ifp->if_xname, error));
@@ -2013,11 +1982,11 @@ in6_init_prefix_ltimes(struct nd_prefix *ndpr)
 	if (ndpr->ndpr_pltime == ND6_INFINITE_LIFETIME)
 		ndpr->ndpr_preferred = 0;
 	else
-		ndpr->ndpr_preferred = time_second + ndpr->ndpr_pltime;
+		ndpr->ndpr_preferred = time_uptime + ndpr->ndpr_pltime;
 	if (ndpr->ndpr_vltime == ND6_INFINITE_LIFETIME)
 		ndpr->ndpr_expire = 0;
 	else
-		ndpr->ndpr_expire = time_second + ndpr->ndpr_vltime;
+		ndpr->ndpr_expire = time_uptime + ndpr->ndpr_vltime;
 
 	return 0;
 }
@@ -2031,7 +2000,7 @@ in6_init_address_ltimes(struct nd_prefix *new, struct in6_addrlifetime *lt6)
 	if (lt6->ia6t_vltime == ND6_INFINITE_LIFETIME)
 		lt6->ia6t_expire = 0;
 	else {
-		lt6->ia6t_expire = time_second;
+		lt6->ia6t_expire = time_uptime;
 		lt6->ia6t_expire += lt6->ia6t_vltime;
 	}
 
@@ -2039,7 +2008,7 @@ in6_init_address_ltimes(struct nd_prefix *new, struct in6_addrlifetime *lt6)
 	if (lt6->ia6t_pltime == ND6_INFINITE_LIFETIME)
 		lt6->ia6t_preferred = 0;
 	else {
-		lt6->ia6t_preferred = time_second;
+		lt6->ia6t_preferred = time_uptime;
 		lt6->ia6t_preferred += lt6->ia6t_pltime;
 	}
 }
@@ -2052,7 +2021,7 @@ in6_init_address_ltimes(struct nd_prefix *new, struct in6_addrlifetime *lt6)
 void
 rt6_flush(struct in6_addr *gateway, struct ifnet *ifp)
 {
-	int s;
+	NET_ASSERT_LOCKED();
 
 	/* We'll care only link-local addresses */
 	if (!IN6_IS_ADDR_LINKLOCAL(gateway))
@@ -2061,9 +2030,7 @@ rt6_flush(struct in6_addr *gateway, struct ifnet *ifp)
 	/* XXX: hack for KAME's link-local address kludge */
 	gateway->s6_addr16[1] = htons(ifp->if_index);
 
-	s = splsoftnet();
 	rtable_walk(ifp->if_rdomain, AF_INET6, rt6_deleteroute, gateway);
-	splx(s);
 }
 
 int

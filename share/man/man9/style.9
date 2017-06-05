@@ -22,9 +22,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: style.9,v 1.66 2016/08/24 16:14:24 renato Exp $
+.\"	$OpenBSD: style.9,v 1.70 2017/01/22 22:57:15 benno Exp $
 .\"
-.Dd $Mdocdate: August 24 2016 $
+.Dd $Mdocdate: January 22 2017 $
 .Dt STYLE 9
 .Os
 .Sh NAME
@@ -86,10 +86,7 @@ Then there's a blank line, followed by the
 files.
 The
 .Pa /usr/include
-files should be sorted!
-.Bd -literal -offset indent
-#include <stdio.h>
-.Ed
+files, for the most part, should be sorted.
 .Pp
 Global pathnames are defined in
 .Pa /usr/include/paths.h .
@@ -297,7 +294,7 @@ used for control statements with zero or only a single statement unless that
 statement is more than a single line, in which case they are permitted.
 .Bd -literal -offset indent
 for (p = buf; *p != '\e0'; ++p)
-	;	/* nothing */
+	continue;
 for (;;)
 	stmt;
 for (;;) {
@@ -312,8 +309,6 @@ for (;;) {
 .Ed
 .Pp
 Parts of a for loop may be left empty.
-Don't put declarations inside blocks unless the routine is
-unusually complicated.
 .Bd -literal -offset indent
 for (; cnt < 15; cnt++) {
 	stmt1;

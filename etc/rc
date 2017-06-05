@@ -1,4 +1,4 @@
-#	$OpenBSD: rc,v 1.486 2016/07/10 09:08:18 rpe Exp $
+#	$OpenBSD: rc,v 1.500 2017/06/03 22:59:09 deraadt Exp $
 
 # System startup script run by init on autoboot or after single-user.
 # Output and error are redirected to console by init, and the console is the
@@ -8,7 +8,6 @@
 set +o sh
 
 # Subroutines (have to come first).
-
 
 # Strip in- and whole-line comments from a file.
 # Strip leading and trailing whitespace if IFS is set.
@@ -31,7 +30,7 @@ update_limit() {
 	local _cap=$2 _val	# login.conf capability and its value
 	local _suffix
 
-	for _suffix in {,-cur,-max}; do
+	for _suffix in {,-max,-cur}; do
 		_val=$(getcap -f /etc/login.conf -s ${_cap}${_suffix} daemon 2>/dev/null)
 		[[ -n $_val ]] || continue
 		[[ $_val == infinity ]] && _val=unlimited
@@ -81,13 +80,12 @@ wsconsctl_conf() {
 	done
 }
 
+# Push the old seed into the kernel, create a future seed  and create a seed
+# file for the boot-loader.
 random_seed() {
-	# push the old seed into the kernel
 	dd if=/var/db/host.random of=/dev/random bs=65536 count=1 status=none
 	chmod 600 /var/db/host.random
-	# ... and create a future seed
 	dd if=/dev/random of=/var/db/host.random bs=65536 count=1 status=none
-	# and create a seed file for the boot-loader
 	dd if=/dev/random of=/etc/random.seed bs=512 count=1 status=none
 	chmod 600 /etc/random.seed
 }
@@ -160,9 +158,12 @@ make_keys() {
 
 # Re-link libraries, placing the objects in a random order.
 reorder_libs() {
-	local _l _liba _libas _tmpdir _remount=false _error=false
-	local _dkdev=$(df /usr/lib | sed '1d;s/ .*//')
-	local _mp=$(mount | grep "^$_dkdev")
+	local _dkdev _l _liba _libas _mp _tmpdir _remount=false _error=false
+
+	[[ $library_aslr == NO ]] && return
+
+	_dkdev=$(df /usr/lib | sed '1d;s/ .*//')
+	_mp=$(mount | grep "^$_dkdev")
 
 	# Skip if /usr/lib is on a nfs mounted filesystem.
 	[[ $_mp == *' type nfs '* ]] && return
@@ -170,7 +171,7 @@ reorder_libs() {
 	echo -n 'reordering libraries:'
 
 	# Only choose the latest version of the libraries.
-	for _liba in /usr/lib/libc.so.*.a; do
+	for _liba in /usr/lib/libc.so.*.a /usr/lib/libcrypto.so.*.a; do
 		_liba=$(ls ${_liba%%.[0-9]*}*.a | sort -V | tail -1)
 		for _l in $_libas; do
 			[[ $_l == $_liba ]] && continue 2
@@ -198,6 +199,8 @@ reorder_libs() {
 			cc -shared -o $_lib $(ls *.so | sort -R) $(cat .ldadd)
 			[[ -s $_lib ]] && file $_lib | fgrep -q 'shared object'
 			LD_BIND_NOW=1 LD_LIBRARY_PATH=$_tmpdir awk 'BEGIN {exit 0}'
+			LD_BIND_NOW=1 LD_LIBRARY_PATH=$_tmpdir openssl \
+			    x509 -in /etc/ssl/cert.pem -out /dev/null
 			install -F -S -o root -g bin -m 0444 $_lib /usr/lib/$_lib
 		) || { _error=true; break; }
 	done
@@ -220,7 +223,9 @@ reorder_libs() {
 # Usage: run_upgrade_script firsttime|sysmerge
 run_upgrade_script() {
 	local _suffix=$1
+
 	[[ -n $_suffix ]] || return 1
+
 	if [[ -f /etc/rc.$_suffix ]]; then
 		mv /etc/rc.$_suffix /etc/rc.$_suffix.run
 		. /etc/rc.$_suffix.run 2>&1 | tee /dev/tty |
@@ -275,12 +280,14 @@ if [[ -s /etc/defaultdomain ]]; then
 	domainname "$(stripcom /etc/defaultdomain)"
 fi
 
-# Need to get local functions from rc.subr.
+# Get local functions from rc.subr to load rc.conf into scope.
 FUNCS_ONLY=1 . /etc/rc.d/rc.subr
-
-# Load rc.conf into scope.
 _rc_parse_conf
 
+# If executed with the 'shutdown' parameter by the halt, reboot or shutdown:
+# - update seed files
+# - execute the rc.d scripts specified by $pkg_scripts in reverse order
+# - bring carp interfaces down gracefully
 if [[ $1 == shutdown ]]; then
 	if echo 2>/dev/null >>/var/db/host.random || \
 	    echo 2>/dev/null >>/etc/random.seed; then
@@ -307,7 +314,6 @@ if [[ $1 == shutdown ]]; then
 		[[ -f /etc/rc.shutdown ]] && sh /etc/rc.shutdown
 	fi
 
-	# Bring carp interfaces down gracefully.
 	ifconfig | while read _if _junk; do
 		[[ $_if == carp+([0-9]): ]] && ifconfig ${_if%:} down
 	done
@@ -318,6 +324,7 @@ fi
 # Add swap block-devices.
 swapctl -A -t blk
 
+# Run filesystem check unless a /fastboot file exists.
 if [[ -e /fastboot ]]; then
 	echo "Fast boot: skipping disk checks."
 elif [[ $1 == autoboot ]]; then
@@ -325,14 +332,23 @@ elif [[ $1 == autoboot ]]; then
 	do_fsck
 fi
 
+# From now on, allow user to interrupt (^C) the boot process.
 trap "echo 'Boot interrupted.'; exit 1" 3
 
+# Unmount all filesystems except root.
 umount -a >/dev/null 2>&1
-mount -a -t nonfs,vnd
-mount -uw /		# root on nfs requires this, others aren't hurt.
-rm -f /fastboot		# XXX (root now writeable)
 
-# Set flags on ttys.  (Do early, in case they use tty for SLIP in netstart.)
+# Mount all filesystems except those of type NFS and VND.
+mount -a -t nonfs,vnd
+
+# Re-mount the root filesystem read/writeable. (root on nfs requires this,
+# others aren't hurt.)
+mount -uw /
+chmod og-rwx /bsd
+
+rm -f /fastboot
+
+# Set flags on ttys. (Do early, in case they use tty for SLIP in netstart.)
 echo 'setting tty flags'
 ttyflags -a
 
@@ -372,7 +388,6 @@ if [[ $pf != NO ]]; then
 	pfctl -e
 fi
 
-# Fill net.inet.(tcp|udp).baddynamic lists from /etc/services.
 fill_baddynamic udp
 fill_baddynamic tcp
 
@@ -392,7 +407,8 @@ fi
 
 sh /etc/netstart
 
-dmesg >/dev/random	# Any write triggers a rekey.
+# Any write triggers a rekey.
+dmesg >/dev/random
 
 # Load pf rules and bring up pfsync interface.
 if [[ $pf != NO ]]; then
@@ -412,16 +428,17 @@ random_seed
 reorder_libs
 
 # Clean up left-over files.
-rm -f /etc/nologin /var/spool/lock/LCK.* /var/spool/uucp/STST/*
+rm -f /etc/nologin /var/spool/lock/LCK.*
 (cd /var/run && { rm -rf -- *; install -c -m 664 -g utmp /dev/null utmp; })
 (cd /var/authpf && rm -rf -- *)
 
-dmesg >/var/run/dmesg.boot	# Save a copy of the boot messages.
+# Save a copy of the boot messages.
+dmesg >/var/run/dmesg.boot
 
 make_keys
 
 echo -n 'starting early daemons:'
-start_daemon syslogd ldattach pflogd nsd rebound unbound ntpd
+start_daemon syslogd ldattach pflogd slaacd nsd rebound unbound ntpd
 start_daemon iscsid isakmpd iked sasyncd ldapd npppd
 echo '.'
 
@@ -451,6 +468,11 @@ if [[ -d /var/crash ]]; then
 	savecore $savecore_flags /var/crash
 fi
 
+# Store ACPI tables in /var/db/acpi to be used by sendbug(1).
+if [[ -x /usr/sbin/acpidump ]]; then
+	acpidump -o /var/db/acpi/
+fi
+
 if [[ $check_quotas == YES ]]; then
 	echo -n 'checking quotas:'
 	quotacheck -a
@@ -466,7 +488,7 @@ dev_mkdb
 chmod 666 /dev/tty[pqrstuvwxyzPQRST]*
 chown root:wheel /dev/tty[pqrstuvwxyzPQRST]*
 
-# Check the password temp/lock file.
+# Check for the password temp/lock file.
 if [[ -f /etc/ptmp ]]; then
 	logger -s -p auth.err \
 	    'password file may be incorrect -- /etc/ptmp exists'
@@ -497,8 +519,7 @@ if [[ ! -f /etc/motd ]]; then
 fi
 if T=$(mktemp /tmp/_motd.XXXXXXXXXX); then
 	sysctl -n kern.version | sed 1q >$T
-	echo "" >>$T
-	sed '1,/^$/d' </etc/motd >>$T
+	sed -n '/^$/,$p' </etc/motd >>$T
 	cmp -s $T /etc/motd || cp $T /etc/motd
 	rm -f $T
 fi
@@ -522,7 +543,7 @@ echo 'preserving editor files.'; /usr/libexec/vi.recover
 run_upgrade_script sysmerge
 
 echo -n 'starting network daemons:'
-start_daemon ldomd vmd sshd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
+start_daemon ldomd sshd switchd snmpd ldpd ripd ospfd ospf6d bgpd ifstated
 start_daemon relayd dhcpd dhcrelay mrouted dvmrpd radiusd eigrpd
 
 if ifconfig lo0 inet6 >/dev/null 2>&1; then
@@ -533,7 +554,7 @@ fi
 
 start_daemon hostapd lpd smtpd slowcgi httpd ftpd
 start_daemon ftpproxy ftpproxy6 tftpd tftpproxy identd inetd rarpd bootparamd
-start_daemon rbootd mopd spamd spamlogd sndiod
+start_daemon rbootd mopd vmd spamd spamlogd sndiod
 echo '.'
 
 # If rc.firsttime exists, run it just once, and make sure it is deleted.
@@ -554,12 +575,13 @@ fi
 
 [[ -f /etc/rc.local ]] && sh /etc/rc.local
 
-ifconfig -g carp -carpdemote 128	# Disable carp interlock.
+# Disable carp interlock.
+ifconfig -g carp -carpdemote 128
 
 mixerctl_conf
 
 echo -n 'starting local daemons:'
-start_daemon apmd sensorsd hotplugd watchdogd cron wsmoused xdm
+start_daemon apmd sensorsd hotplugd watchdogd cron wsmoused xenodm
 echo '.'
 
 date

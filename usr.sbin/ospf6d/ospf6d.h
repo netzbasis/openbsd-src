@@ -1,4 +1,4 @@
-/*	$OpenBSD: ospf6d.h,v 1.30 2016/09/02 14:06:35 benno Exp $ */
+/*	$OpenBSD: ospf6d.h,v 1.32 2017/05/30 12:42:31 friehm Exp $ */
 
 /*
  * Copyright (c) 2004, 2007 Esben Norby <norby@openbsd.org>
@@ -390,16 +390,12 @@ struct kroute {
 	struct in6_addr	prefix;
 	struct in6_addr	nexthop;
 	u_int32_t	ext_tag;
+	u_int32_t	metric;
 	unsigned int	scope;		/* scope of nexthop */
 	u_int16_t	flags;
 	u_int16_t	rtlabel;
 	u_short		ifindex;
 	u_int8_t	prefixlen;
-};
-
-struct rroute {
-	struct kroute	kr;
-	u_int32_t	metric;
 };
 
 /* name2id */
@@ -536,7 +532,7 @@ u_int16_t	 iso_cksum(void *, u_int16_t, u_int16_t);
 
 /* kroute.c */
 int		 kr_init(int);
-int		 kr_change(struct kroute *);
+int		 kr_change(struct kroute *, int);
 int		 kr_delete(struct kroute *);
 void		 kr_shutdown(void);
 void		 kr_fib_couple(void);

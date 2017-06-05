@@ -1,10 +1,10 @@
-/*	$OpenBSD: if_pflog.c,v 1.74 2016/04/29 08:55:03 krw Exp $	*/
+/*	$OpenBSD: if_pflog.c,v 1.79 2017/05/16 11:35:36 mpi Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
- * Angelos D. Keromytis (kermit@csd.uch.gr) and 
+ * Angelos D. Keromytis (kermit@csd.uch.gr) and
  * Niels Provos (provos@physnet.uni-hamburg.de).
  *
- * This code was written by John Ioannidis for BSD/OS in Athens, Greece, 
+ * This code was written by John Ioannidis for BSD/OS in Athens, Greece,
  * in November 1995.
  *
  * Ported to OpenBSD and NetBSD, with additional transforms, in December 1996,
@@ -21,7 +21,7 @@
  * Permission to use, copy, and modify this software with or without fee
  * is hereby granted, provided that this entire notice is included in
  * all copies of any software which is or includes a copy or
- * modification of this software. 
+ * modification of this software.
  * You may use this code under the GNU public license if you so wish. Please
  * contribute changes back to the authors under this freer than GPL license
  * so that we may further the use of strong encryption without limitations to
@@ -52,9 +52,9 @@
 
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
-#include <netinet/ip_icmp.h>
 
 #ifdef INET6
 #include <netinet/ip6.h>
@@ -62,6 +62,7 @@
 #endif /* INET6 */
 
 #include <net/pfvar.h>
+#include <net/pfvar_priv.h>
 #include <net/if_pflog.h>
 
 #define PFLOGMTU	(32768 + MHLEN + MLEN)
@@ -75,14 +76,13 @@
 void	pflogattach(int);
 int	pflogifs_resize(size_t);
 int	pflogoutput(struct ifnet *, struct mbuf *, struct sockaddr *,
-	    	       struct rtentry *);
+		       struct rtentry *);
 int	pflogioctl(struct ifnet *, u_long, caddr_t);
 void	pflogstart(struct ifnet *);
 int	pflog_clone_create(struct if_clone *, int);
 int	pflog_clone_destroy(struct ifnet *);
 void	pflog_bpfcopy(const void *, void *, size_t);
 
-LIST_HEAD(, pflog_softc)	pflogif_list;
 struct if_clone	pflog_cloner =
     IF_CLONE_INITIALIZER("pflog", pflog_clone_create, pflog_clone_destroy);
 
@@ -93,7 +93,6 @@ struct mbuf	 *pflog_mhdr = NULL, *pflog_mptr = NULL;
 void
 pflogattach(int npflog)
 {
-	LIST_INIT(&pflogif_list);
 	if (pflog_mhdr == NULL)
 		if ((pflog_mhdr = m_get(M_DONTWAIT, MT_HEADER)) == NULL)
 			panic("pflogattach: no mbuf");
@@ -108,6 +107,8 @@ pflogifs_resize(size_t n)
 {
 	struct ifnet	**p;
 	int		  i;
+
+	NET_ASSERT_LOCKED();
 
 	if (n > SIZE_MAX / sizeof(*p))
 		return (EINVAL);
@@ -149,6 +150,7 @@ pflog_clone_create(struct if_clone *ifc, int unit)
 	ifp->if_ioctl = pflogioctl;
 	ifp->if_output = pflogoutput;
 	ifp->if_start = pflogstart;
+	ifp->if_xflags = IFXF_CLONED;
 	ifp->if_type = IFT_PFLOG;
 	IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
 	ifp->if_hdrlen = PFLOG_HDRLEN;
@@ -159,14 +161,13 @@ pflog_clone_create(struct if_clone *ifc, int unit)
 	bpfattach(&pflogif->sc_if.if_bpf, ifp, DLT_PFLOG, PFLOG_HDRLEN);
 #endif
 
-	s = splnet();
-	LIST_INSERT_HEAD(&pflogif_list, pflogif, sc_list);
+	NET_LOCK(s);
 	if (unit + 1 > npflogifs && pflogifs_resize(unit + 1) != 0) {
-		splx(s);
+		NET_UNLOCK(s);
 		return (ENOMEM);
 	}
 	pflogifs[unit] = ifp;
-	splx(s);
+	NET_UNLOCK(s);
 
 	return (0);
 }
@@ -177,15 +178,13 @@ pflog_clone_destroy(struct ifnet *ifp)
 	struct pflog_softc	*pflogif = ifp->if_softc;
 	int			 s, i;
 
-	s = splnet();
+	NET_LOCK(s);
 	pflogifs[pflogif->sc_unit] = NULL;
-	LIST_REMOVE(pflogif, sc_list);
-
 	for (i = npflogifs; i > 0 && pflogifs[i - 1] == NULL; i--)
 		; /* nothing */
 	if (i < npflogifs)
 		pflogifs_resize(i);	/* error harmless here */
-	splx(s);
+	NET_UNLOCK(s);
 
 	if_detach(ifp);
 	free(pflogif, M_DEVBUF, 0);
@@ -297,16 +296,6 @@ pflog_bpfcopy(const void *src_arg, void *dst_arg, size_t len)
 	u_int			 count;
 	u_char			*dst, *mdst;
 	int			 afto, hlen, mlen, off;
-	union pf_headers {
-		struct tcphdr		tcp;
-		struct udphdr		udp;
-		struct icmp		icmp;
-#ifdef INET6
-		struct icmp6_hdr	icmp6;
-		struct mld_hdr		mld;
-		struct nd_neighbor_solicit nd_ns;
-#endif /* INET6 */
-	} pdhdrs;
 
 	struct pf_pdesc		 pd;
 	struct pf_addr		 osaddr, odaddr;
@@ -412,7 +401,7 @@ pflog_bpfcopy(const void *src_arg, void *dst_arg, size_t len)
 	 * Rewrite addresses if needed. Reason pointer must be NULL to avoid
 	 * counting the packet here again.
 	 */
-	if (pf_setup_pdesc(&pd, &pdhdrs, pfloghdr->af, pfloghdr->dir, NULL,
+	if (pf_setup_pdesc(&pd, pfloghdr->af, pfloghdr->dir, NULL,
 	    mhdr, NULL) != PF_PASS)
 		goto copy;
 	pd.naf = pfloghdr->naf;
@@ -429,7 +418,7 @@ pflog_bpfcopy(const void *src_arg, void *dst_arg, size_t len)
 	    pfloghdr->sport, &pfloghdr->daddr, pfloghdr->dport, 0,
 	    pfloghdr->dir))) {
 		m_copyback(pd.m, pd.off, min(pd.m->m_len - pd.off, pd.hdrlen),
-		    pd.hdr.any, M_NOWAIT);
+		    &pd.hdr, M_NOWAIT);
 #ifdef INET6
 		if (afto) {
 			PF_ACPY(&pd.nsaddr, &pfloghdr->saddr, pd.naf);

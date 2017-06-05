@@ -1,4 +1,4 @@
-/*	$OpenBSD: virtio.h,v 1.5 2016/09/02 17:08:28 stefan Exp $	*/
+/*	$OpenBSD: virtio.h,v 1.18 2017/05/30 13:13:47 mlarkin Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
@@ -16,20 +16,24 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <dev/pci/virtioreg.h>
+#include <dev/pv/virtioreg.h>
 
-#define VIRTQUEUE_ALIGN(n)      (((n)+(VIRTIO_PAGE_SIZE-1))&    \
-	~(VIRTIO_PAGE_SIZE-1))
+#define VIRTQUEUE_ALIGN(n)	(((n)+(VIRTIO_PAGE_SIZE-1))&    \
+				    ~(VIRTIO_PAGE_SIZE-1))
 
 /* Queue sizes must be power of two */
 #define VIORND_QUEUE_SIZE	64
 #define VIORND_QUEUE_MASK	(VIORND_QUEUE_SIZE - 1)
 
-#define VIOBLK_QUEUE_SIZE	64
+#define VIOBLK_QUEUE_SIZE	128
 #define VIOBLK_QUEUE_MASK	(VIOBLK_QUEUE_SIZE - 1)
 
-#define VIONET_QUEUE_SIZE	64
+#define VIONET_QUEUE_SIZE	128
 #define VIONET_QUEUE_MASK	(VIONET_QUEUE_SIZE - 1)
+
+/* VMM Control Interface shutdown timeout (in seconds) */
+#define VMMCI_TIMEOUT		3
+#define VMMCI_SHUTDOWN_TIMEOUT	30
 
 /* All the devices we support have either 1 or 2 queues */
 #define VIRTIO_MAX_QUEUES	2
@@ -100,6 +104,7 @@ struct vioblk_dev {
 
 	int fd;
 	uint64_t sz;
+	uint32_t max_xfer;
 };
 
 struct vionet_dev {
@@ -113,8 +118,13 @@ struct vionet_dev {
 	int fd, rx_added;
 	int rx_pending;
 	uint32_t vm_id;
+	uint32_t vm_vmid;
 	int irq;
 	uint8_t mac[6];
+
+	int idx;
+	int lockedmac;
+	int local;
 };
 
 struct virtio_net_hdr {
@@ -133,26 +143,60 @@ struct virtio_net_hdr {
 /*	uint16_t num_buffers; */
 };
 
+enum vmmci_cmd {
+	VMMCI_NONE = 0,
+	VMMCI_SHUTDOWN,
+	VMMCI_REBOOT,
+	VMMCI_SYNCRTC,
+};
 
-void virtio_init(struct vm_create_params *, int *, int *);
+struct vmmci_dev {
+	struct virtio_io_cfg cfg;
+	struct event timeout;
+	struct timeval time;
+	enum vmmci_cmd cmd;
+	uint32_t vm_id;
+	int irq;
+};
+
+/* virtio.c */
+void virtio_init(struct vmd_vm *, int *, int *);
+int virtio_dump(int);
+int virtio_restore(int, struct vmd_vm *, int *, int *);
 uint32_t vring_size(uint32_t);
 
-int virtio_rnd_io(int, uint16_t, uint32_t *, uint8_t *, void *);
+int virtio_rnd_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
+int viornd_dump(int);
+int viornd_restore(int);
 void viornd_update_qs(void);
 void viornd_update_qa(void);
 int viornd_notifyq(void);
 
-int virtio_blk_io(int, uint16_t, uint32_t *, uint8_t *, void *);
+int virtio_blk_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
+int vioblk_dump(int);
+int vioblk_restore(int, struct vm_create_params *, int *);
 void vioblk_update_qs(struct vioblk_dev *);
 void vioblk_update_qa(struct vioblk_dev *);
 int vioblk_notifyq(struct vioblk_dev *);
 
-int virtio_net_io(int, uint16_t, uint32_t *, uint8_t *, void *);
+int virtio_net_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
+int vionet_dump(int);
+int vionet_restore(int, struct vmd_vm *, int *);
 void vionet_update_qs(struct vionet_dev *);
 void vionet_update_qa(struct vionet_dev *);
 int vionet_notifyq(struct vionet_dev *);
 void vionet_notify_rx(struct vionet_dev *);
-int vionet_process_rx(void);
+void vionet_process_rx(uint32_t);
 int vionet_enq_rx(struct vionet_dev *, char *, ssize_t, int *);
 
+int vmmci_io(int, uint16_t, uint32_t *, uint8_t *, void *, uint8_t);
+int vmmci_dump(int);
+int vmmci_restore(int, uint32_t);
+int vmmci_ctl(unsigned int);
+void vmmci_ack(unsigned int);
+void vmmci_timeout(int, short, void *);
+
 const char *vioblk_cmd_name(uint32_t);
+
+/* dhcp.c */
+ssize_t dhcp_request(struct vionet_dev *, char *, size_t, char **);

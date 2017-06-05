@@ -1,4 +1,4 @@
-/*	$OpenBSD: types.h,v 1.45 2016/08/27 05:14:42 guenther Exp $	*/
+/*	$OpenBSD: types.h,v 1.47 2017/02/04 02:54:33 guenther Exp $	*/
 /*	$NetBSD: types.h,v 1.29 1996/11/15 22:48:25 jtc Exp $	*/
 
 /*-
@@ -152,17 +152,6 @@ typedef	__fsblkcnt_t	fsblkcnt_t;	/* file system block count */
 typedef	__fsfilcnt_t	fsfilcnt_t;	/* file system file count */
 
 /*
- * XPG4.2 states that inclusion of <netinet/in.h> must pull these
- * in and that inclusion of <sys/socket.h> must pull in sa_family_t.
- * We put these here because there are other headers that require
- * these types and <sys/socket.h> and <netinet/in.h> will indirectly
- * include <sys/types.h>.
- * XXX - now that we have protected versions these should move.
- */
-typedef __in_addr_t	in_addr_t;	/* base type for internet address */
-typedef __in_port_t	in_port_t;	/* IP port type */
-
-/*
  * The following types may be defined in multiple header files.
  */
 #ifndef	_CLOCK_T_DEFINED_
@@ -223,10 +212,6 @@ __END_DECLS
 #define	major(x)	((int32_t)(((u_int32_t)(x) >> 8) & 0xff))
 #define	minor(x)	((int32_t)((x) & 0xff) | (((x) & 0xffff0000) >> 8))
 #define	makedev(x,y)	((dev_t)((((x) & 0xff) << 8) | ((y) & 0xff) | (((y) & 0xffff00) << 8)))
-#endif
-
-#if __BSD_VISIBLE
-#include <sys/select.h>	/* must be after type declarations */
 #endif
 
 #if defined(__STDC__) && defined(_KERNEL)

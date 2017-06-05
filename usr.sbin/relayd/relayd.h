@@ -1,4 +1,4 @@
-/*	$OpenBSD: relayd.h,v 1.233 2016/09/03 14:44:21 reyk Exp $	*/
+/*	$OpenBSD: relayd.h,v 1.240 2017/05/27 08:33:25 claudio Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2016 Reyk Floeter <reyk@openbsd.org>
@@ -28,6 +28,7 @@
 #include <sys/time.h>
 
 #include <net/if.h>
+#include <net/pfvar.h>
 
 #include <stdarg.h>
 #include <limits.h>
@@ -36,6 +37,7 @@
 #include <imsg.h>
 
 #include <openssl/ssl.h>
+#include <tls.h>
 
 #ifndef nitems
 #define	nitems(_a)	(sizeof((_a)) / sizeof((_a)[0]))
@@ -60,6 +62,7 @@
 #define MAX_NAME_SIZE		64
 #define SRV_MAX_VIRTS		16
 #define TLS_NAME_SIZE		512
+#define TLS_CERT_HASH_SIZE	128
 #define RELAY_MAX_PREFETCH	256
 #define RELAY_MIN_PREFETCHED	32
 
@@ -165,7 +168,7 @@ struct ctl_tcp_event {
 	int			(*validate_read)(struct ctl_tcp_event *);
 	int			(*validate_close)(struct ctl_tcp_event *);
 
-	SSL			*ssl;	/* libssl object */
+	struct tls		*tls;
 };
 
 enum direction {
@@ -173,13 +176,6 @@ enum direction {
 	RELAY_DIR_ANY		=  0,
 	RELAY_DIR_REQUEST	=  1,
 	RELAY_DIR_RESPONSE	=  2
-};
-
-enum tlsreneg_state {
-	TLSRENEG_INIT		= 0,	/* first/next negotiation is allowed */
-	TLSRENEG_ALLOW		= 1,	/* all (re-)negotiations are allowed */
-	TLSRENEG_DENY		= 2,	/* next renegotiation must be denied */
-	TLSRENEG_ABORT		= 3	/* the connection should be aborted */
 };
 
 enum relay_state {
@@ -198,10 +194,11 @@ struct ctl_relay_event {
 	struct ctl_relay_event	*dst;
 	struct rsession		*con;
 
-	SSL			*ssl;	/* libssl object */
+	struct tls		*tls;
+	struct tls_config	*tls_cfg;
 
-	X509			*tlscert;
-	enum tlsreneg_state	 tlsreneg_state;
+	uint8_t			*tlscert;
+	size_t			 tlscert_len;
 
 	off_t			 splicelen;
 	off_t			 toread;
@@ -211,9 +208,6 @@ struct ctl_relay_event {
 	int			 timedout;
 	enum relay_state	 state;
 	enum direction		 dir;
-
-	u_int8_t		*buf;
-	int			 buflen;
 
 	/* protocol-specific descriptor */
 	void			*desc;
@@ -250,7 +244,7 @@ struct ctl_bindany {
 };
 
 struct ctl_keyop {
-	objid_t			 cko_id;
+	char			 cko_hash[TLS_CERT_HASH_SIZE];
 	int			 cko_proc;
 	int			 cko_flen;
 	int			 cko_tlen;
@@ -503,7 +497,7 @@ struct table {
 	int			 up;
 	int			 skipped;
 	struct hostlist		 hosts;
-	SSL_CTX			*ssl_ctx;	/* libssl context */
+	struct tls_config	*tls_cfg;
 	char			*sendbuf;
 };
 TAILQ_HEAD(tablelist, table);
@@ -680,27 +674,21 @@ TAILQ_HEAD(relay_rules, relay_rule);
 #define TLSFLAG_CIPHER_SERVER_PREF		0x20
 #define TLSFLAG_CLIENT_RENEG			0x40
 #define TLSFLAG_DEFAULT				\
-	(TLSFLAG_TLSV1_2|TLSFLAG_CIPHER_SERVER_PREF|TLSFLAG_CLIENT_RENEG)
+	(TLSFLAG_TLSV1_2|TLSFLAG_CIPHER_SERVER_PREF)
 
 #define TLSFLAG_BITS						\
 	"\06\01sslv3\02tlsv1.0\03tlsv1.1\04tlsv1.2"	\
 	"\06cipher-server-preference\07client-renegotiation"
 
 #define TLSCIPHERS_DEFAULT	"HIGH:!aNULL"
-#define TLSECDHCURVE_DEFAULT	NID_X9_62_prime256v1
+#define TLSECDHCURVE_DEFAULT	"auto"
+#define TLSDHPARAM_DEFAULT	"none"
 
-#define TLSDHPARAMS_NONE	0
-#define TLSDHPARAMS_DEFAULT	0
-#define TLSDHPARAMS_MIN		1024
-
-struct tls_ticket {
-	/* The key, aes key and hmac key must be 16 bytes / 128bits */
-	unsigned char	tt_key_name[16];
-	unsigned char	tt_aes_key[16];
-	unsigned char	tt_hmac_key[16];
-	int		tt_backup;
+struct relay_ticket_key {
+	uint32_t	tt_keyrev;
+	unsigned char	tt_key[TLS_TICKET_KEY_SIZE];
 };
-#define	TLS_TICKET_REKEY_TIME	(2 * 3600)
+#define	TLS_SESSION_LIFETIME	(2 * 3600)
 
 struct protocol {
 	objid_t			 id;
@@ -712,8 +700,8 @@ struct protocol {
 	u_int8_t		 tcpipminttl;
 	u_int8_t		 tlsflags;
 	char			 tlsciphers[768];
-	int			 tlsdhparams;
-	int			 tlsecdhcurve;
+	char			 tlsdhparams[128];
+	char			 tlsecdhcurve[128];
 	char			 tlsca[PATH_MAX];
 	char			 tlscacert[PATH_MAX];
 	char			 tlscakey[PATH_MAX];
@@ -749,7 +737,7 @@ struct relay_table {
 TAILQ_HEAD(relaytables, relay_table);
 
 struct ca_pkey {
-	objid_t			 pkey_id;
+	char			 pkey_hash[TLS_CERT_HASH_SIZE];
 	EVP_PKEY		*pkey;
 	TAILQ_ENTRY(ca_pkey)	 pkey_entry;
 };
@@ -795,10 +783,11 @@ struct relay {
 	struct event		 rl_ev;
 	struct event		 rl_evt;
 
-	SSL_CTX			*rl_ssl_ctx;	/* libssl context */
+	struct tls_config	*rl_tls_cfg;
+	struct tls_config	*rl_tls_client_cfg;
+	struct tls		*rl_tls_ctx;
 
 	char			*rl_tls_cert;
-	X509			*rl_tls_x509;
 	char			*rl_tls_key;
 	EVP_PKEY		*rl_tls_pkey;
 	char			*rl_tls_ca;
@@ -1028,10 +1017,10 @@ struct privsep_proc {
 				    struct imsg *);
 	void			(*p_init)(struct privsep *,
 				    struct privsep_proc *);
-	void			(*p_shutdown)(void);
 	const char		*p_chroot;
 	struct privsep		*p_ps;
-	struct relayd		*p_env;
+	void			(*p_shutdown)(void);
+	struct passwd		*p_pw;
 };
 
 struct privsep_fd {
@@ -1048,6 +1037,14 @@ struct relayd_config {
 	u_int16_t		 prefork_relay;
 	u_int16_t		 opts;
 	u_int32_t		 flags;
+};
+
+struct pfdata {
+	int			 dev;
+	struct pf_anchor	*anchor;
+	struct pfioc_trans	 pft;
+	struct pfioc_trans_e	 pfte;
+	u_int8_t		 pfused;
 };
 
 struct relayd {
@@ -1091,11 +1088,10 @@ struct relayd {
 	struct ctl_icmp_event	 sc_icmp6_send;
 	struct ctl_icmp_event	 sc_icmp6_recv;
 
+	struct relay_ticket_key	 sc_ticket;
+
 	struct privsep		*sc_ps;
 	int			 sc_reload;
-
-	struct tls_ticket	 sc_tls_ticket;
-	struct tls_ticket	 sc_tls_ticket_bak;
 };
 
 #define RELAYD_OPT_VERBOSE		0x01
@@ -1142,7 +1138,6 @@ int	 disable_table(struct ctl_conn *, struct ctl_id *);
 int	 disable_host(struct ctl_conn *, struct ctl_id *, struct host *);
 
 /* pfe_filter.c */
-void	 init_filter(struct relayd *, int);
 void	 init_tables(struct relayd *);
 void	 flush_table(struct relayd *, struct rdr *);
 void	 sync_table(struct relayd *, struct rdr *, struct table *);
@@ -1237,6 +1232,9 @@ void	 check_icmp(struct relayd *, struct timeval *);
 /* check_tcp.c */
 void	 check_tcp(struct ctl_tcp_event *);
 
+/* check_tls.c */
+void	 check_tls(struct ctl_tcp_event *);
+
 /* check_script.c */
 void	 check_script(struct relayd *, struct host *);
 void	 script_done(struct relayd *, struct ctl_script *);
@@ -1244,15 +1242,11 @@ int	 script_exec(struct relayd *, struct ctl_script *);
 
 /* ssl.c */
 void	 ssl_init(struct relayd *);
-void	 ssl_transaction(struct ctl_tcp_event *);
-SSL_CTX	*ssl_ctx_create(struct relayd *);
-void	 ssl_error(const char *, const char *);
 char	*ssl_load_key(struct relayd *, const char *, off_t *, char *);
-X509	*ssl_update_certificate(X509 *, EVP_PKEY *, EVP_PKEY *, X509 *);
-int	 ssl_load_pkey(const void *, size_t, char *, off_t,
-	    X509 **, EVP_PKEY **);
-int	 ssl_ctx_fake_private_key(SSL_CTX *, const void *, size_t,
-	    char *, off_t, X509 **, EVP_PKEY **);
+uint8_t *ssl_update_certificate(const uint8_t *, size_t, EVP_PKEY *,
+	    EVP_PKEY *, X509 *, size_t *);
+int	 ssl_load_pkey(void *, char *, off_t, X509 **, EVP_PKEY **);
+int	 ssl_ctx_fake_private_key(char *, off_t, const char **);
 
 /* ca.c */
 void	 ca(struct privsep *, struct privsep_proc *);
@@ -1276,8 +1270,8 @@ struct protocol	*proto_find(struct relayd *, objid_t);
 struct rsession	*session_find(struct relayd *, objid_t);
 struct relay	*relay_findbyname(struct relayd *, const char *);
 struct relay	*relay_findbyaddr(struct relayd *, struct relay_config *);
-EVP_PKEY	*pkey_find(struct relayd *, objid_t);
-struct ca_pkey	*pkey_add(struct relayd *, EVP_PKEY *, objid_t);
+EVP_PKEY	*pkey_find(struct relayd *, char *hash);
+struct ca_pkey	*pkey_add(struct relayd *, EVP_PKEY *, char *hash);
 int		 expand_string(char *, size_t, const char *, const char *);
 void		 translate_string(char *);
 void		 purge_key(char **, off_t);
@@ -1352,7 +1346,8 @@ u_int16_t	shuffle_generate16(struct shuffle *);
 /* log.c */
 void	log_init(int, int);
 void	log_procinit(const char *);
-void	log_verbose(int);
+void	log_setverbose(int);
+int	log_getverbose(void);
 void	log_warn(const char *, ...)
 	    __attribute__((__format__ (printf, 1, 2)));
 void	log_warnx(const char *, ...)
@@ -1373,6 +1368,7 @@ __dead void fatalx(const char *, ...)
 /* proc.c */
 enum privsep_procid
 	    proc_getid(struct privsep_proc *, unsigned int, const char *);
+int	 proc_flush_imsg(struct privsep *, enum privsep_procid, int);
 void	 proc_init(struct privsep *, struct privsep_proc *, unsigned int,
 	    int, char **, enum privsep_procid);
 void	 proc_kill(struct privsep *);

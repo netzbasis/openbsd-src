@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_device.c,v 1.52 2015/08/28 00:03:54 deraadt Exp $	*/
+/*	$OpenBSD: uvm_device.c,v 1.54 2017/05/21 13:00:53 visa Exp $	*/
 /*	$NetBSD: uvm_device.c,v 1.30 2000/11/25 06:27:59 chs Exp $	*/
 
 /*
@@ -42,7 +42,8 @@
 #include <uvm/uvm_device.h>
 
 #if defined(__amd64__) || defined(__i386__) || \
-    defined(__macppc__) || defined(__sparc64__)
+    defined(__loongson__) || defined(__macppc__) || \
+    defined(__sparc64__)
 #include "drm.h"
 #endif
 
@@ -232,7 +233,7 @@ again:
 		uobj->uo_refs--;
 		return;
 	}
-	KASSERT(uobj->uo_npages == 0 && RB_EMPTY(&uobj->memt));
+	KASSERT(uobj->uo_npages == 0 && RBT_EMPTY(uvm_objtree, &uobj->memt));
 
 	/* is it being held?   if so, wait until others are done. */
 	mtx_enter(&udv_lock);

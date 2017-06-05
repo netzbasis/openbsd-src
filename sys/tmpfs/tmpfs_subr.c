@@ -1,4 +1,4 @@
-/*	$OpenBSD: tmpfs_subr.c,v 1.16 2016/06/19 11:54:33 natano Exp $	*/
+/*	$OpenBSD: tmpfs_subr.c,v 1.18 2017/04/20 14:13:00 visa Exp $	*/
 /*	$NetBSD: tmpfs_subr.c,v 1.79 2012/03/13 18:40:50 elad Exp $	*/
 
 /*
@@ -314,7 +314,7 @@ again:
 		return error;
 	}
 
-	rrw_init(&node->tn_vlock, "tnode");
+	rrw_init_flags(&node->tn_vlock, "tnode", RWL_DUPOK);
 	vp->v_type = node->tn_type;
 
 	/* Type-specific initialization. */
@@ -1112,13 +1112,13 @@ tmpfs_chtimes(struct vnode *vp, const struct timespec *atime,
 	    (error = VOP_ACCESS(vp, VWRITE, cred, p))))
 	    	return error;
 
- 	if (atime->tv_nsec != VNOVAL)
+	if (atime->tv_nsec != VNOVAL)
 		node->tn_atime = *atime;
- 
- 	if (mtime->tv_nsec != VNOVAL)
+
+	if (mtime->tv_nsec != VNOVAL)
 		node->tn_mtime = *mtime;
 
- 	if (mtime->tv_nsec != VNOVAL || (vaflags & VA_UTIMES_CHANGE))
+	if (mtime->tv_nsec != VNOVAL || (vaflags & VA_UTIMES_CHANGE))
 		tmpfs_update(VP_TO_TMPFS_NODE(vp), TMPFS_NODE_CHANGED);
 
 	VN_KNOTE(vp, NOTE_ATTRIB);

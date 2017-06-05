@@ -14,13 +14,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <fcntl.h>
 #include <errno.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <sndio.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -214,7 +212,7 @@ slot_new(char *path, int mode, struct aparams *par, int hdr,
 	if (!afile_open(&s->afile, path, hdr,
 		mode == SIO_PLAY ? AFILE_FREAD : AFILE_FWRITE,
 		par, rate, cmax - cmin + 1)) {
-		free(s);
+		xfree(s);
 		return 0;
 	}
 	s->cmin = cmin;
@@ -254,6 +252,10 @@ slot_new(char *path, int mode, struct aparams *par, int hdr,
 			log_puti(s->afile.startpos);
 			log_puts("..");
 			log_puti(s->afile.endpos);
+		}
+		if (s->mode == SIO_PLAY) {
+			log_puts(", vol ");
+			log_puti(s->vol);
 		}
 		log_puts("\n");
 	}
@@ -428,14 +430,14 @@ slot_del(struct slot *s)
 #endif
 		abuf_done(&s->buf);
 		if (s->resampbuf)
-			free(s->resampbuf);
+			xfree(s->resampbuf);
 		if (s->convbuf)
-			free(s->convbuf);
+			xfree(s->convbuf);
 	}
 	for (ps = &slot_list; *ps != s; ps = &(*ps)->next)
 		; /* nothing */
 	*ps = s->next;
-	free(s);
+	xfree(s);
 }
 
 static void
@@ -531,6 +533,8 @@ slot_mix_badd(struct slot *s, adata_t *odata)
 	while (otodo > 0) {
 		idata = (adata_t *)abuf_rgetblk(&s->buf, &len);
 		icnt = len / s->bpf;
+		if (icnt > s->round)
+			icnt = s->round;
 		ocnt = otodo;
 		slot_getcnt(s, &icnt, &ocnt);
 		if (icnt == 0)
@@ -605,6 +609,8 @@ slot_sub_bcopy(struct slot *s, adata_t *idata, int itodo)
 	while (itodo > 0) {
 		odata = (adata_t *)abuf_wgetblk(&s->buf, &len);
 		ocnt = len / s->bpf;
+		if (ocnt > s->round)
+			ocnt = s->round;
 		icnt = itodo;
 		slot_getcnt(s, &icnt, &ocnt);
 		if (ocnt == 0)
@@ -660,6 +666,7 @@ dev_open(char *dev, int mode, int bufsz, char *port)
 	par.bps = sizeof(adata_t);
 	par.msb = 0;
 	par.le = SIO_LE_NATIVE;
+	par.rate = rate;
 	if (mode & SIO_PLAY)
 		par.pchan = pmax + 1;
 	if (mode & SIO_REC)
@@ -720,9 +727,9 @@ dev_close(void)
 	if (dev_mh)
 		mio_close(dev_mh);
 	if (dev_mode & SIO_PLAY)
-		free(dev_pbuf);
+		xfree(dev_pbuf);
 	if (dev_mode & SIO_REC)
-		free(dev_rbuf);
+		xfree(dev_rbuf);
 }
 
 static void
@@ -1060,7 +1067,7 @@ offline(void)
 		slot_list_copy(todo, dev_pchan, dev_pbuf);
 		slot_list_iodo();
 	}
-	free(dev_pbuf);
+	xfree(dev_pbuf);
 	while (slot_list)
 		slot_del(slot_list);
 	return 1;
@@ -1210,7 +1217,7 @@ playrec(char *dev, int mode, int bufsz, char *port)
 
 	if (dev_pstate == DEV_START)
 		dev_mmcstop();
-	free(pfds);
+	xfree(pfds);
 	dev_close();
 	while (slot_list)
 		slot_del(slot_list);

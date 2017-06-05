@@ -1,4 +1,4 @@
-/* $OpenBSD: siotty.c,v 1.16 2014/06/07 11:55:35 aoyama Exp $ */
+/* $OpenBSD: siotty.c,v 1.19 2017/06/04 13:48:13 aoyama Exp $ */
 /* $NetBSD: siotty.c,v 1.9 2002/03/17 19:40:43 atatat Exp $ */
 
 /*-
@@ -41,6 +41,7 @@
 #include <sys/fcntl.h>
 #include <dev/cons.h>
 
+#include <machine/board.h>
 #include <machine/cpu.h>
 
 #include <luna88k/dev/sioreg.h>
@@ -75,7 +76,7 @@ struct siotty_softc {
 cdev_decl(sio);
 void siostart(struct tty *);
 int  sioparam(struct tty *, struct termios *);
-void siottyintr(int);
+void siottyintr(void *);
 int  siomctl(struct siotty_softc *, int, int);
 
 int  siotty_match(struct device *, void *, void *);
@@ -102,13 +103,16 @@ siotty_match(struct device *parent, void *cf, void *aux)
 void 
 siotty_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct sio_softc *scp = (void *)parent;
+	struct sio_softc *siosc = (void *)parent;
 	struct siotty_softc *sc = (void *)self;
 	struct sio_attach_args *args = aux;
+	int channel;
 
-	sc->sc_ctl = (struct sioreg *)scp->scp_ctl + args->channel;
-	bcopy(ch0_regs, sc->sc_wr, sizeof(ch0_regs));
-	scp->scp_intr[args->channel] = siottyintr;
+	channel = args->channel;
+	sc->sc_ctl = &siosc->sc_ctl[channel];
+	memcpy(sc->sc_wr, ch0_regs, sizeof(ch0_regs));
+	siosc->sc_intrhand[channel].ih_func = siottyintr;
+	siosc->sc_intrhand[channel].ih_arg = sc;
 
 	if (args->hwflags == 1) {
 		printf(" (console)");
@@ -132,7 +136,7 @@ siotty_attach(struct device *parent, struct device *self, void *aux)
 /*--------------------  low level routine --------------------*/
 
 void
-siottyintr(int chan)
+siottyintr(void *arg)
 {
 	struct siotty_softc *sc;
 	struct sioreg *sio;
@@ -140,9 +144,7 @@ siottyintr(int chan)
 	unsigned int code;
 	int rr;
 
-	if (chan >= siotty_cd.cd_ndevs)
-		return;
-	sc = siotty_cd.cd_devs[chan];
+	sc = (struct siotty_softc *)arg;
 	tp = sc->sc_tty;
 	sio = sc->sc_ctl;
 	rr = getsiocsr(sio);
@@ -161,7 +163,7 @@ siottyintr(int chan)
 #if 0 && defined(DDB) /* ?!?! fails to resume ?!?! */
 			if ((rr & RR_BREAK) && tp->t_dev == cn_tab->cn_dev) {
 				if (db_console)
-					Debugger();
+					db_enter();
 				return;
 			}
 #endif
@@ -539,7 +541,7 @@ syscnattach(int channel)
  * boot/reset/poweron.  ROM monitor emits one line message on CH.A.
  */
 	struct sioreg *sio;
-	sio = (struct sioreg *)0x51000000 + channel;
+	sio = (struct sioreg *)OBIO_SIO + channel;
 
 	syscons.cn_dev = makedev(12, channel);
 	cn_tab = &syscons;
@@ -562,7 +564,7 @@ syscngetc(dev_t dev)
 	struct sioreg *sio;
 	int s, c;
 
-	sio = (struct sioreg *)0x51000000 + ((int)dev & 0x1);
+	sio = (struct sioreg *)OBIO_SIO + ((int)dev & 0x1);
 	s = splhigh();
 	while ((getsiocsr(sio) & RR_RXRDY) == 0)
 		;
@@ -578,7 +580,7 @@ syscnputc(dev_t dev, int c)
 	struct sioreg *sio;
 	int s;
 
-	sio = (struct sioreg *)0x51000000 + ((int)dev & 0x1);
+	sio = (struct sioreg *)OBIO_SIO + ((int)dev & 0x1);
 	s = splhigh();
 	while ((getsiocsr(sio) & RR_TXRDY) == 0)
 		;

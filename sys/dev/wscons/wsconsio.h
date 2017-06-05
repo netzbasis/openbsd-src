@@ -1,4 +1,4 @@
-/* $OpenBSD: wsconsio.h,v 1.74 2016/03/30 23:34:12 bru Exp $ */
+/* $OpenBSD: wsconsio.h,v 1.80 2017/05/08 20:55:29 bru Exp $ */
 /* $NetBSD: wsconsio.h,v 1.74 2005/04/28 07:15:44 martin Exp $ */
 
 /*
@@ -207,6 +207,12 @@ struct wskbd_backlight {
 #define		WSKBD_TRANSLATED	0
 #define		WSKBD_RAW		1
 
+struct wskbd_encoding_data {
+	int	nencodings;
+	kbd_t	*encodings;
+};
+#define WSKBDIO_GETENCODINGS	_IOWR('W', 21, struct wskbd_encoding_data)
+
 /*
  * Mouse ioctls (32 - 63)
  */
@@ -269,6 +275,77 @@ struct wsmouse_calibcoords {
 #define	WSMOUSEIO_SETMODE	_IOW('W', 38, int)
 #define		WSMOUSE_COMPAT		0
 #define		WSMOUSE_NATIVE		1
+
+/*
+ * Keys of the configuration parameters in WSMOUSEIO_GETPARAMS/
+ * WSMOUSEIO_SETPARAMS calls. Arbitrary subsets can be passed, provided
+ * that all keys are valid and that the number of key/value pairs doesn't
+ * exceed WSMOUSECFG_MAX.
+ */
+enum wsmousecfg {
+ 	/*
+ 	 * Coordinate handling.
+ 	 */
+	WSMOUSECFG_DX_SCALE = 0,/* Xscale factor in [*.12] fixed-point format */
+	WSMOUSECFG_DY_SCALE,	/* Yscale factor in [*.12] fixed-point format */
+	WSMOUSECFG_PRESSURE_LO,	/* pressure limits defining start of touch */
+	WSMOUSECFG_PRESSURE_HI,	/* pressure limits defining end of touch */
+	WSMOUSECFG_TRKMAXDIST,	/* max distance to pair points for MT contact */
+	WSMOUSECFG_SWAPXY,	/* swap X- and Y-axis */
+	WSMOUSECFG_X_INV,	/* map absolute coordinate X to (INV - X) */
+	WSMOUSECFG_Y_INV,	/* map absolute coordinate Y to (INV - Y) */
+
+	/*
+	 * Coordinate handling, applying only in WSMOUSE_COMPAT  mode.
+	 */
+	WSMOUSECFG_DX_MAX = 32,	/* ignore X deltas greater than this limit */
+	WSMOUSECFG_DY_MAX,	/* ignore Y deltas greater than this limit */
+	WSMOUSECFG_X_HYSTERESIS,/* retard value for X coordinates */
+	WSMOUSECFG_Y_HYSTERESIS,/* retard value for Y coordinates */
+	WSMOUSECFG_DECELERATION,/* threshold (distance) for deceleration */
+	WSMOUSECFG_STRONG_HYSTERESIS,	/* apply the filter continuously */
+	WSMOUSECFG_SMOOTHING,	/* smoothing factor (0-7) */
+
+	/*
+	 * Touchpad features
+	 */
+	WSMOUSECFG_SOFTBUTTONS = 64,	/* 2 soft-buttons at the bottom edge */
+	WSMOUSECFG_SOFTMBTN,		/* add a middle-button area */
+	WSMOUSECFG_TOPBUTTONS,		/* 3 soft-buttons at the top edge */
+	WSMOUSECFG_TWOFINGERSCROLL,	/* enable two-finger scrolling */
+	WSMOUSECFG_EDGESCROLL,		/* enable edge scrolling */
+	WSMOUSECFG_HORIZSCROLL,		/* enable horizontal edge scrolling */
+	WSMOUSECFG_SWAPSIDES,		/* invert soft-button/scroll areas */
+	WSMOUSECFG_DISABLE,		/* disable all output except for
+					   clicks in the top-button area */
+
+	/*
+	 * Touchpad options
+	 */
+	WSMOUSECFG_LEFT_EDGE = 128,	/* ratio: left edge / total width */
+	WSMOUSECFG_RIGHT_EDGE,		/* ratio: right edge / total width */
+	WSMOUSECFG_TOP_EDGE,		/* ratio: top edge / total height */
+	WSMOUSECFG_BOTTOM_EDGE,		/* ratio: bottom edge / total height */
+	WSMOUSECFG_CENTERWIDTH,		/* ratio: center width / total width */
+	WSMOUSECFG_HORIZSCROLLDIST,	/* distance mapped to a scroll event */
+	WSMOUSECFG_VERTSCROLLDIST,	/* distance mapped to a scroll event */
+	WSMOUSECFG_F2WIDTH,		/* width limit for single touches */
+	WSMOUSECFG_F2PRESSURE,		/* pressure limit for single touches */
+};
+#define WSMOUSECFG_MAX	32	/* max size of param array per ioctl */
+
+struct wsmouse_param {
+	enum wsmousecfg key;
+	int value;
+};
+
+struct wsmouse_parameters {
+	struct wsmouse_param *params;
+	u_int nparams;
+};
+
+#define WSMOUSEIO_GETPARAMS	_IOW('W', 39, struct wsmouse_parameters)
+#define WSMOUSEIO_SETPARAMS	_IOW('W', 40, struct wsmouse_parameters)
 
 /*
  * Display ioctls (64 - 95)
@@ -418,6 +495,7 @@ struct wsdisplay_cursor {
 struct wsdisplay_font {
 	char name[WSFONT_NAME_SIZE];
 	int index;
+#define WSDISPLAY_MAXFONTCOUNT	8
 	int firstchar, numchars;
 	int encoding;
 #define WSDISPLAY_FONTENC_ISO 0

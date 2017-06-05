@@ -1,4 +1,4 @@
-.\"	$OpenBSD: syslogd.8,v 1.42 2016/07/12 23:04:30 bluhm Exp $
+.\"	$OpenBSD: syslogd.8,v 1.55 2017/04/25 17:45:50 bluhm Exp $
 .\"
 .\" Copyright (c) 1983, 1986, 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -30,20 +30,21 @@
 .\"     from: @(#)syslogd.8	8.1 (Berkeley) 6/6/93
 .\"	$NetBSD: syslogd.8,v 1.3 1996/01/02 17:41:48 perry Exp $
 .\"
-.Dd $Mdocdate: July 12 2016 $
+.Dd $Mdocdate: April 25 2017 $
 .Dt SYSLOGD 8
 .Os
 .Sh NAME
 .Nm syslogd
-.Nd log systems messages
+.Nd log system messages
 .Sh SYNOPSIS
 .Nm syslogd
 .Bk -words
-.Op Fl 46dFhnuV
+.Op Fl 46dFhnruVZ
 .Op Fl a Ar path
 .Op Fl C Ar CAfile
 .Op Fl c Ar cert_file
 .Op Fl f Ar config_file
+.Op Fl K Ar CAfile
 .Op Fl k Ar key_file
 .Op Fl m Ar mark_interval
 .Op Fl p Ar log_socket
@@ -54,9 +55,11 @@
 .Ek
 .Sh DESCRIPTION
 .Nm
-reads and logs messages to the system console, log files, pipes to
-other programs, other machines and/or users as specified by its
-configuration file.
+writes system messages to log files or a user's terminal.
+Output can be sent to other programs
+for further processing.
+It can also securely send and receive log messages
+to and from remote hosts.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -72,7 +75,6 @@ to use only IPv6 addresses for UDP.
 Specify a location where
 .Nm
 should place an additional log socket.
-Up to 20 additional logging sockets can be specified.
 The primary use for this is to place additional log sockets in
 .Pa /dev/log
 of various chroot filespaces, though the need for these is
@@ -80,7 +82,7 @@ less urgent after the introduction of
 .Xr sendsyslog 2 .
 .It Fl C Ar CAfile
 PEM encoded file containing CA certificates used for certificate
-validation;
+validation of a remote loghost;
 the default is
 .Pa /etc/ssl/cert.pem .
 .It Fl c Ar cert_file
@@ -102,6 +104,10 @@ the default is
 .Pa /etc/syslog.conf .
 .It Fl h
 Include the hostname when forwarding messages to a remote host.
+.It Fl K Ar CAfile
+PEM encoded file containing CA certificates used for client certificate
+validation on the local server socket.
+By default incoming connections from any TLS server are allowed.
 .It Fl k Ar key_file
 PEM encoded file containing the client private key for TLS connections
 to a remote host.
@@ -123,25 +129,21 @@ the symbolic local host name.
 Specify the pathname of an alternate log socket to be used instead;
 the default is
 .Pa /dev/log .
+.It Fl r
+Print duplicate lines immediately and suppress the "last message
+repeated" summary when piping to another program or forwarding to
+a remote loghost.
+If given twice, this is done for all log actions.
 .It Fl S Ar listen_address
 Create a TLS listen socket for receiving encrypted messages and
 bind it to the specified address.
 A port number may be specified using the
-.Ar host:port
+.Ar host : Ns Ar port
 syntax.
-The syslog server will attempt to look up a private key in
-.Pa /etc/ssl/private/host:port.key
-and a public certificate in
-.Pa /etc/ssl/host:port.crt ,
-where
-.Ar host
-is the specified host name or IP address and
-.Ar port
-is the specified port if given on the command line.
-If these files are not present, syslogd will continue to look in
-.Pa /etc/ssl/private/host.key
-and
-.Pa /etc/ssl/host.crt .
+The first
+.Ar listen_address
+is also used to find a suitable server key and certificate in
+.Pa /etc/ssl/ .
 .It Fl s Ar reporting_socket
 Specify path to an
 .Dv AF_LOCAL
@@ -152,7 +154,7 @@ Create a TCP listen socket for receiving messages and bind it to
 the specified address.
 There is no well-known port for syslog over TCP, so a port number
 must be specified using the
-.Ar host:port
+.Ar host : Ns Ar port
 syntax.
 .It Fl U Ar bind_address
 Create a UDP socket for receiving messages and bind it to the
@@ -160,7 +162,7 @@ specified address.
 This can be used, for example, with a pf divert-to rule to receive
 packets when syslogd is bound to localhost.
 A port number may be specified using the
-.Ar host:port
+.Ar host : Ns Ar port
 syntax.
 .It Fl u
 Select the historical
@@ -170,32 +172,40 @@ accept input from the UDP port.
 Some software wants this, but you can be subjected to a variety of
 attacks over the network, including attackers remotely filling logs.
 .It Fl V
-Do not perform server certificate and hostname validation.
+Do not perform remote server certificate and hostname validation
+when sending messages.
+.It Fl Z
+Generate timestamps in ISO format.
+This includes the year and the timezone, and all logging is done
+in UTC.
 .El
 .Pp
+The options
+.Fl a , S , T ,
+and
+.Fl U
+can be given more than once to specify multiple input sources.
+.Pp
 .Nm
-reads its configuration file when it starts up and whenever it
+reads its configuration file,
+.Xr syslog.conf 5 ,
+when it starts up and whenever it
 receives a hangup signal.
-For information on the format of the configuration file,
-see
-.Xr syslog.conf 5 .
-.Pp
-.Nm
-creates the file
-.Pa /var/run/syslog.pid ,
+It creates the file
+.Pa /var/run/syslog.pid
 and stores its process ID there.
-This can be used to kill or reconfigure
-.Nm syslogd .
+The PID can be used to kill or reconfigure
+.Nm .
 .Pp
 .Nm
-opens an Internet domain socket as specified
+opens a UDP socket, as specified
 in
-.Pa /etc/services .
-Normally
-.Nm
-will only use this socket to send messages outwards, but in
-.Dq insecure
-mode it will also read messages from this socket.
+.Pa /etc/services ,
+for sending forwarded messages.
+By default all incoming data on this socket is discarded.
+If insecure mode is switched on with
+.Fl u ,
+it will also read messages from the socket.
 .Nm
 also opens and reads messages from the
 .Ux Ns -domain
@@ -203,15 +213,10 @@ socket
 .Pa /dev/log ,
 and from the special device
 .Pa /dev/klog
-(to read kernel messages).
-.Pp
-.Nm
-opens the above described socket whether or not it is
-running in secure mode.
-If
-.Nm
-is running in secure mode, all incoming data on this socket is discarded.
-The socket is required for sending forwarded messages.
+(to read kernel messages),
+and from
+.Xr sendsyslog 2
+(to read messages from userland processes).
 .Pp
 The message sent to
 .Nm
@@ -222,19 +227,57 @@ decimal number in angle braces, for example,
 This priority code should map into the priorities defined in the
 include file
 .In sys/syslog.h .
+.Pp
+When sending syslog messages to a remote loghost via TLS, the
+server's certificate and hostname are validated to prevent malicious
+servers from reading messages.
+If the server has a certificate with a matching hostname signed by
+a CA in
+.Pa /etc/ssl/cert.pem ,
+it is verified with that by default.
+If the server has a certificate with a matching hostname signed by
+a private CA, use the
+.Fl C
+option and put that CA into
+.Ar CAfile .
+Validation can be explicitly turned off using the
+.Fl V
+option.
+If the server is accepting messages only from clients with a trusted
+client certificate, use the
+.Fl k
+and
+.Fl c
+options to authenticate
+.Nm
+with this certificate.
+.Pp
+When receiving syslog messages from a TLS client, there must be
+a server key and certificate in
+.Pa /etc/ssl/private/host Ns Oo : Ns Ar port Oc Ns Ar .key
+and
+.Pa /etc/ssl/host Ns Oo : Ns Ar port Oc Ns Ar .crt .
+If the client uses certificates to authenticate, the CA of the
+client's certificate may be added to
+.Ar CAfile
+using the
+.Fl K
+option to protect from messages being spoofed by malicious clients.
 .Sh FILES
 .Bl -tag -width /var/run/syslog.pid -compact
-.It Pa /etc/syslog.conf
-configuration file
-.It Pa /var/run/syslog.pid
-process ID of current
-.Nm syslogd
 .It Pa /dev/log
-name of the
+Name of the
 .Ux Ns -domain
-datagram log socket
+datagram log socket.
 .It Pa /dev/klog
-kernel log device
+Kernel log device.
+.It Pa /etc/ssl/
+Private keys and public certificates.
+.It Pa /etc/syslog.conf
+Configuration file.
+.It Pa /var/run/syslog.pid
+Process ID of current
+.Nm .
 .El
 .Sh SEE ALSO
 .Xr logger 1 ,

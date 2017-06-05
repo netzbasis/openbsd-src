@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-bgp.c,v 1.18 2015/10/20 11:29:07 sthen Exp $	*/
+/*	$OpenBSD: print-bgp.c,v 1.23 2017/05/30 12:52:59 akfaew Exp $	*/
 
 /*
  * Copyright (C) 1999 WIDE Project.
@@ -134,6 +134,7 @@ struct bgp_attr {
 #define BGPTYPE_EXTD_COMMUNITIES	16	/* RFC4360 */
 #define BGPTYPE_AS4_PATH		17	/* RFC4893 */
 #define BGPTYPE_AGGREGATOR4		18	/* RFC4893 */
+#define BGPTYPE_LARGE_COMMUNITIES	32	/* draft-ietf-idr-large-community */
 
 #define BGP_AS_SET             1
 #define BGP_AS_SEQUENCE        2
@@ -225,32 +226,48 @@ static const char *bgpnotify_minor_update[] = {
 	"Invalid Network Field", "Malformed AS_PATH",
 };
 
+static const char *bgpnotify_minor_holdtime[] = {
+	NULL,
+};
+
+/* RFC 6608 */
+static const char *bgpnotify_minor_fsm[] = {
+	"Unspecified Error", "In OpenSent State", "In OpenConfirm State",
+	"In Established State",
+};
+
 /* RFC 4486 */
 #define BGP_NOTIFY_MINOR_CEASE_MAXPRFX  1
+/* draft-ietf-idr-shutdown-07 */
+#define BGP_NOTIFY_MINOR_CEASE_SHUT			2
+#define BGP_NOTIFY_MINOR_CEASE_RESET			4
+#define BGP_NOTIFY_MINOR_CEASE_ADMIN_SHUTDOWN_LEN	128
 static const char *bgpnotify_minor_cease[] = {
-	NULL, "Maximum Number of Prefixes Reached", "Administratively Shutdown",
-	"Peer De-configured", "Administratively Reset", "Connection Rejected",
+	NULL, "Maximum Number of Prefixes Reached", "Administrative Shutdown",
+	"Peer De-configured", "Administrative Reset", "Connection Rejected",
 	"Other Configuration Change", "Connection Collision Resolution",
 	"Out of Resources",
 };
 
-static const char *bgpnotify_minor_cap[] = {
-	NULL, "Invalid Action Value", "Invalid Capability Length",
-	"Malformed Capability Value", "Unsupported Capability Code",
+/* RFC 7313 */
+static const char *bgpnotify_minor_err[] = {
+	NULL, "Invalid Message Length",
 };
 
 static const char **bgpnotify_minor[] = {
 	NULL, bgpnotify_minor_msg, bgpnotify_minor_open, bgpnotify_minor_update,
+	bgpnotify_minor_holdtime, bgpnotify_minor_fsm, bgpnotify_minor_cease,
+	bgpnotify_minor_err,
 };
 static const int bgpnotify_minor_siz[] = {
 	0,
 	sizeof(bgpnotify_minor_msg)/sizeof(bgpnotify_minor_msg[0]),
 	sizeof(bgpnotify_minor_open)/sizeof(bgpnotify_minor_open[0]),
 	sizeof(bgpnotify_minor_update)/sizeof(bgpnotify_minor_update[0]),
-	0,
-	0,
+	sizeof(bgpnotify_minor_holdtime)/sizeof(bgpnotify_minor_holdtime[0]),
+	sizeof(bgpnotify_minor_fsm)/sizeof(bgpnotify_minor_fsm[0]),
 	sizeof(bgpnotify_minor_cease)/sizeof(bgpnotify_minor_cease[0]),
-	sizeof(bgpnotify_minor_cap)/sizeof(bgpnotify_minor_cap[0]),
+	sizeof(bgpnotify_minor_err)/sizeof(bgpnotify_minor_err[0]),
 };
 
 static const char *bgpattr_origin[] = {
@@ -265,7 +282,9 @@ static const char *bgpattr_type[] = {
 	"MULTI_EXIT_DISC", "LOCAL_PREF", "ATOMIC_AGGREGATE", "AGGREGATOR",
 	"COMMUNITIES", "ORIGINATOR_ID", "CLUSTER_LIST", "DPA",
 	"ADVERTISERS", "RCID_PATH", "MP_REACH_NLRI", "MP_UNREACH_NLRI",
-	"EXTD_COMMUNITIES", "AS4_PATH", "AGGREGATOR4",
+	"EXTD_COMMUNITIES", "AS4_PATH", "AGGREGATOR4", NULL, NULL, NULL,
+	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+	"LARGE_COMMUNITIES",
 };
 #define bgp_attr_type(x) \
 	num_or_str(bgpattr_type, \
@@ -544,6 +563,21 @@ bgp_attr_print(const struct bgp_attr *attr, const u_char *dat, int len)
 			}
 			tlen -= 4;
 			p += 4;
+		}
+		break;
+	case BGPTYPE_LARGE_COMMUNITIES:
+		if (len == 0 || len % 12) {
+			printf(" invalid len");
+			break;
+		}
+		while (tlen>0) {
+			TCHECK2(p[0], 12);
+			printf(" %u:%u:%u",
+			EXTRACT_32BITS(p),
+			EXTRACT_32BITS(p + 4),
+			EXTRACT_32BITS(p + 8));
+			tlen -= 12;
+			p += 12;
 		}
 		break;
 	case BGPTYPE_ORIGINATOR_ID:
@@ -978,6 +1012,8 @@ bgp_notification_print(const u_char *dat, int length)
 	u_int16_t af;
 	u_int8_t safi;
 	const u_char *p;
+	uint8_t shutdown_comm_length;
+	char shutstring[BGP_NOTIFY_MINOR_CEASE_ADMIN_SHUTDOWN_LEN + 1];
 
 	TCHECK2(dat[0], BGP_NOTIFICATION_SIZE);
 	memcpy(&bgpn, dat, BGP_NOTIFICATION_SIZE);
@@ -1008,9 +1044,43 @@ bgp_notification_print(const u_char *dat, int length)
 
 			printf(" Max Prefixes: %u", EXTRACT_32BITS(p+3));
 		}
+
+		/*
+		 * draft-ietf-idr-shutdown describes a method to send a
+		 * message intended for human consumption regarding the
+		 * Administrative Shutdown or Reset event. This is called
+		 * the "Shutdown Communication". The communication is
+		 * UTF-8 encoded and may be no longer than 128 bytes.
+		 */
+		if ((bgpn.bgpn_minor == BGP_NOTIFY_MINOR_CEASE_SHUT ||
+		    bgpn.bgpn_minor == BGP_NOTIFY_MINOR_CEASE_RESET) &&
+		    (length >= BGP_NOTIFICATION_SIZE + 1)) {
+			p = dat + BGP_NOTIFICATION_SIZE;
+			TCHECK2(*p, 1);
+			shutdown_comm_length = *(p);
+
+			/* sanity checking */
+			if (shutdown_comm_length == 0)
+				return;
+			if (shutdown_comm_length >
+			    BGP_NOTIFY_MINOR_CEASE_ADMIN_SHUTDOWN_LEN)
+				return;
+			if (length < (shutdown_comm_length + 1 + BGP_NOTIFICATION_SIZE))
+				return;
+			TCHECK2(*(p+1), shutdown_comm_length);
+			
+			/* a proper shutdown communication */
+			printf(", Shutdown Communication [len %u]: \"",
+			    shutdown_comm_length);
+			memset(shutstring, 0, BGP_NOTIFY_MINOR_CEASE_ADMIN_SHUTDOWN_LEN + 1);
+			memcpy(shutstring, p+1, shutdown_comm_length);
+			safeputs(shutstring);
+			printf("\"");
+		}
 	}
 
 	return;
+
 trunc:
 	printf("[|BGP]");
 }

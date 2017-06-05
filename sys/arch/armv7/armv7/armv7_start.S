@@ -1,4 +1,4 @@
-/*	$OpenBSD: armv7_start.S,v 1.9 2016/08/26 11:59:04 kettenis Exp $	*/
+/*	$OpenBSD: armv7_start.S,v 1.13 2017/01/07 15:44:28 kettenis Exp $	*/
 /*	$NetBSD: lubbock_start.S,v 1.1 2003/06/18 10:51:15 bsh Exp $ */
 
 /*
@@ -40,6 +40,7 @@
 
 #define ELR	.long	0xe12ef30e		@ msr	ELR_hyp, lr
 #define ERET	.long	0xe160006e		@ eret
+#define HVC	.word	0xe1400070		@ hvc
 
 /*
  * CPWAIT -- Canonical method to wait for CP15 update.
@@ -118,6 +119,14 @@ _C_LABEL(bootstrap_start):
 
 	/* create the bootstrap MMU table at offset 0x00200000 */
 	orr	r0, r9, #0x00200000
+	mov	r3, #0
+	mov	r2, #0
+2:
+	str	r3, [r0, r2]
+	add	r2, r2, #4
+	cmp	r2, #(L1_TABLE_SIZE)
+	bne	2b
+
 	adr	r4, mmu_init_table
 
 	mov	r2, r9, lsr #18
@@ -127,25 +136,23 @@ _C_LABEL(bootstrap_start):
 	str	r2, [r4, #4]
 	str	r3, [r4, #8]
 	str	r3, [r4, #0x14] // ram address for 0xc0000000
-	add	r3, r3, #0x01000000
-	str	r3, [r4, #0x20] // ram address for 0x00000000 (vectors)
 
 	/*
 	 * the first entry has two fields that need to be updated for
 	 * specific ram configuration of this board.
 	 */
-	b	3f
+	b	4f
 
-2:
+3:
 	str	r3, [r0, r2]
 	add	r2, r2, #4
 	add	r3, r3, #(L1_S_SIZE)
 	adds	r1, r1, #-1
-	bhi	2b
-3:	
+	bhi	3b
+4:	
 	ldmia	r4!, {r1,r2,r3}   /* # of sections, PA|attr, VA */
 	cmp	r1, #0
-	bne	2b	
+	bne	3b	
 
 	mcr	CP15_TTBR0(r0)		/* Set TTB */
 	mcr	CP15_TLBIALL(r0)	/* Flush TLB */
@@ -161,9 +168,10 @@ _C_LABEL(bootstrap_start):
 	CPWAIT(r0)
 
 	/* Restore U-Boot arguments */
-	mov	r0, r9
+	mov	r0, r6
 	mov	r1, r7
 	mov	r2, r8
+	mov	r3, r9
 
 	/* Jump to kernel code in TRUE VA */
 	adr	r6, Lstart
@@ -181,16 +189,21 @@ mmu_init_table:
 	/* map SDRAM VA==PA, WT cacheable */
 	MMU_INIT(0x00000000, 0x00000000, 64,
 		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
-mmu_init_table2:	
-	/* map VA 0xc0000000..0xc3ffffff to PA 0xa0000000..0xa3ffffff */
+	/* map VA 0xc0000000..0xc3ffffff to PA */
 	MMU_INIT(0xc0000000, 0x00000000, 64,
-		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
-	MMU_INIT(0x00000000, 0x00000000, 1,
 		 L1_TYPE_S|L1_S_C|L1_S_V7_AP(AP_KRW)|L1_S_V7_AF)
 
 	.word 0	/* end of table */
 
 	.text
+
+ENTRY(smc_call)
+	smc	#0
+	bx	lr
+
+ENTRY(hvc_call)
+	HVC
+	bx	lr
 
 /*-
  * Copyright (c) 2011
@@ -244,15 +257,6 @@ ENTRY(omap4_smc_call)
 	stmfd   sp!, {r2-r12, lr}
 	mov     r12, r0
 	mov     r0, r1
-#if 0
-	dsb
-#else
-	.word	0xf57ff040
-#endif
-#if 0
-	smc     #0	/* XXX or #1 ??? */
-#else
-	.word	0xe1600070
-#endif
+	dsb	sy
+	smc     #0
 	ldmfd   sp!, {r2-r12, pc}
-

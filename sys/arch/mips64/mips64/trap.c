@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.118 2016/08/16 13:03:58 visa Exp $	*/
+/*	$OpenBSD: trap.c,v 1.124 2017/05/30 15:39:04 mpi Exp $	*/
 
 /*
  * Copyright (c) 1988 University of Utah.
@@ -68,6 +68,7 @@
 #include <machine/frame.h>
 #include <machine/mips_opcode.h>
 #include <machine/regnum.h>
+#include <machine/tcb.h>
 #include <machine/trap.h>
 
 #ifdef DDB
@@ -614,7 +615,7 @@ fault_common_no_miss:
 #ifdef DEBUG
 				printf("trap: %s (%d): breakpoint at %p "
 				    "(insn %08x)\n",
-				    p->p_comm, p->p_pid,
+				    p->p_p->ps_comm, p->p_p->ps_pid,
 				    (void *)p->p_md.md_ss_addr,
 				    p->p_md.md_ss_instr);
 #endif
@@ -715,9 +716,44 @@ fault_common_no_miss:
 	    }
 
 	case T_RES_INST+T_USER:
+	    {
+		register_t *regs = (register_t *)trapframe;
+		caddr_t va;
+		InstFmt inst;
+
+		/* Compute the instruction's address. */
+		va = (caddr_t)trapframe->pc;
+		if (trapframe->cause & CR_BR_DELAY)
+			va += 4;
+
+		/* Get the faulting instruction. */
+		if (copyin(va, &inst, sizeof(inst)) != 0) {
+			i = SIGBUS;
+			typ = BUS_OBJERR;
+			break;
+		}
+		
+		/* Emulate "RDHWR rt, UserLocal". */
+		if (inst.RType.op == OP_SPECIAL3 &&
+		    inst.RType.rs == 0 &&
+		    inst.RType.rd == 29 &&
+		    inst.RType.shamt == 0 &&
+		    inst.RType.func == OP_RDHWR) {
+			regs[inst.RType.rt] = (register_t)TCB_GET(p);
+
+			/* Figure out where to continue. */
+			if (trapframe->cause & CR_BR_DELAY)
+				trapframe->pc = MipsEmulateBranch(trapframe,
+				    trapframe->pc, 0, 0);
+			else
+				trapframe->pc += 4;
+			return;
+		}
+
 		i = SIGILL;
 		typ = ILL_ILLOPC;
 		break;
+	    }
 
 	case T_COP_UNUSABLE+T_USER:
 		/*
@@ -1031,8 +1067,8 @@ ptrace_read_insn(struct proc *p, vaddr_t va, uint32_t *insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_READ;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_READ_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_READ_I);
 }
 
 int
@@ -1049,8 +1085,8 @@ ptrace_write_insn(struct proc *p, vaddr_t va, uint32_t insn)
 	uio.uio_resid = sizeof(uint32_t);
 	uio.uio_segflg = UIO_SYSSPACE;
 	uio.uio_rw = UIO_WRITE;
-	uio.uio_procp = p;
-	return process_domem(p, p, &uio, PT_WRITE_I);
+	uio.uio_procp = curproc;
+	return process_domem(curproc, p->p_p, &uio, PT_WRITE_I);
 }
 
 /*
@@ -1075,7 +1111,7 @@ process_sstep(struct proc *p, int sstep)
 			if (rc != 0)
 				printf("WARNING: %s (%d): can't restore "
 				    "instruction at %p: %08x\n",
-				    p->p_comm, p->p_pid,
+				    p->p_p->ps_comm, p->p_p->ps_pid,
 				    (void *)p->p_md.md_ss_addr,
 				    p->p_md.md_ss_instr);
 #endif
@@ -1101,7 +1137,8 @@ process_sstep(struct proc *p, int sstep)
 	if (p->p_md.md_ss_addr != 0) {
 		printf("WARNING: %s (%d): breakpoint request "
 		    "at %p, already set at %p\n",
-		    p->p_comm, p->p_pid, (void *)va, (void *)p->p_md.md_ss_addr);
+		    p->p_p->ps_comm, p->p_p->ps_pid, (void *)va,
+		    (void *)p->p_md.md_ss_addr);
 		return EFAULT;
 	}
 #endif
@@ -1120,7 +1157,7 @@ process_sstep(struct proc *p, int sstep)
 
 #ifdef DEBUG
 	printf("%s (%d): breakpoint set at %p: %08x (pc %p %08x)\n",
-		p->p_comm, p->p_pid, (void *)p->p_md.md_ss_addr,
+		p->p_p->ps_comm, p->p_p->ps_pid, (void *)p->p_md.md_ss_addr,
 		p->p_md.md_ss_instr, (void *)locr0->pc, curinstr);
 #endif
 	return 0;
@@ -1169,7 +1206,7 @@ stacktrace_subr(struct trapframe *regs, int count,
 	extern char k_general[];
 #ifdef DDB
 	db_expr_t diff;
-	db_sym_t sym;
+	Elf_Sym *sym;
 	char *symname;
 #endif
 
@@ -1371,7 +1408,7 @@ end:
 		}
 	} else {
 		if (curproc)
-			(*pr)("User-level: pid %d\n", curproc->p_pid);
+			(*pr)("User-level: pid %d\n", curproc->p_p->ps_pid);
 		else
 			(*pr)("User-level: curproc NULL\n");
 	}
@@ -1533,7 +1570,7 @@ fpe_branch_emulate(struct proc *p, struct trapframe *tf, uint32_t insn,
 	p->p_md.md_fpslotva = (vaddr_t)tf->pc + 4;
 	p->p_md.md_flags |= MDP_FPUSED;
 	tf->pc = p->p_md.md_fppgva;
-	pmap_proc_iflush(p, tf->pc, 2 * 4);
+	pmap_proc_iflush(p->p_p, tf->pc, 2 * 4);
 
 	return 0;
 

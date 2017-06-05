@@ -1,4 +1,4 @@
-.\"	$OpenBSD: switchd.conf.5,v 1.3 2016/07/20 07:21:24 yasuoka Exp $
+.\"	$OpenBSD: switchd.conf.5,v 1.6 2017/03/08 09:41:40 sobrado Exp $
 .\"
 .\" Copyright (c) 2014, 2015, 2016 Reyk Floeter <reyk@openbsd.org>
 .\" Copyright (c) 2016 YASUOKA Masahiko <yasuoka@openbsd.org>
@@ -17,12 +17,12 @@
 .\"
 .\" The following requests are required for all man pages.
 .\"
-.Dd $Mdocdate: July 20 2016 $
+.Dd $Mdocdate: March 8 2017 $
 .Dt SWITCHD.CONF 5
 .Os
 .Sh NAME
 .Nm switchd.conf
-.Nd Switch daemon configuration file
+.Nd switch daemon configuration file
 .Sh DESCRIPTION
 .Nm
 is the configuration file for the switch daemon,
@@ -54,7 +54,7 @@ Additional configuration files can be included with the
 .Ic include
 keyword, for example:
 .Bd -literal -offset indent
-include "/etc/snmpd.conf.local"
+include "/etc/switchd.conf.local"
 .Ed
 .Sh MACROS
 Macros can be defined that will later be expanded in context.
@@ -105,11 +105,12 @@ keyword.
 .\".Dq tls .
 .El
 .Sh EXAMPLES
-The folowing example is a typical one.
+The following example is a typical one.
 .Bd -literal -offset indent
 listen on 0.0.0.0 port 6633
 .\"device "/dev/switch0"
 .\"device "/dev/switch1" forward to tcp:192.168.0.1:6633
 .Ed
 .Sh SEE ALSO
+.Xr switchctl 8 ,
 .Xr switchd 8

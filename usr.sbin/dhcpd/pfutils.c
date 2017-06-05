@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfutils.c,v 1.14 2016/02/06 23:50:10 krw Exp $ */
+/*	$OpenBSD: pfutils.c,v 1.18 2017/02/13 23:04:05 krw Exp $ */
 /*
  * Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
  *
@@ -36,6 +36,7 @@
 #include "dhcp.h"
 #include "tree.h"
 #include "dhcpd.h"
+#include "log.h"
 
 extern struct passwd *pw;
 extern int pfpipe[2];
@@ -52,15 +53,15 @@ pftable_handler()
 	int l, r, fd, nfds;
 
 	if ((fd = open(_PATH_DEV_PF, O_RDWR|O_NOFOLLOW, 0660)) == -1)
-		error("can't open pf device: %m");
+		log_warn("can't open pf device");
 	if (chroot(_PATH_VAREMPTY) == -1)
-		error("chroot %s: %m", _PATH_VAREMPTY);
+		log_warn("chroot %s", _PATH_VAREMPTY);
 	if (chdir("/") == -1)
-		error("chdir(\"/\"): %m");
+		log_warn("chdir(\"/\")");
 	if (setgroups(1, &pw->pw_gid) ||
 	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
-		error("can't drop privileges: %m");
+		log_warn("can't drop privileges");
 
 	setproctitle("pf table handler");
 	l = sizeof(struct pf_cmd);
@@ -70,17 +71,17 @@ pftable_handler()
 		pfd[0].events = POLLIN;
 		if ((nfds = poll(pfd, 1, -1)) == -1)
 			if (errno != EINTR)
-				error("poll: %m");
+				log_warn("poll");
 
 		if (nfds > 0 && (pfd[0].revents & POLLHUP))
-			error("pf pipe closed");
+			log_warnx("pf pipe closed");
 
 		if (nfds > 0 && (pfd[0].revents & POLLIN)) {
-			bzero(&cmd, l);
+			memset(&cmd, 0, l);
 			r = atomicio(read, pfpipe[0], &cmd, l);
 
 			if (r != l)
-				error("pf pipe error: %m");
+				log_warn("pf pipe error");
 
 			switch (cmd.type) {
 			case 'A':
@@ -141,22 +142,22 @@ pf_change_table(int fd, int op, struct in_addr ip, char *table)
 	if (table == NULL)
 		return;
 
-	bzero(&io, sizeof(io));
+	memset(&io, 0, sizeof(io));
 	strlcpy(io.pfrio_table.pfrt_name, table,
 	    sizeof(io.pfrio_table.pfrt_name));
 	io.pfrio_buffer = &addr;
 	io.pfrio_esize = sizeof(addr);
 	io.pfrio_size = 1;
 
-	bzero(&addr, sizeof(addr));
+	memset(&addr, 0, sizeof(addr));
 	memcpy(&addr.pfra_ip4addr, &ip, 4);
 	addr.pfra_af = AF_INET;
 	addr.pfra_net = 32;
 
 	if (ioctl(fd, op ? DIOCRADDADDRS : DIOCRDELADDRS, &io) &&
 	    errno != ESRCH) {
-		warning( "DIOCR%sADDRS on table %s: %s",
-		    op ? "ADD" : "DEL", table, strerror(errno));
+		log_warn( "DIOCR%sADDRS on table %s", op ? "ADD" : "DEL",
+		    table);
 	}
 }
 
@@ -166,8 +167,8 @@ pf_kill_state(int fd, struct in_addr ip)
 	struct pfioc_state_kill	psk;
 	struct pf_addr target;
 
-	bzero(&psk, sizeof(psk));
-	bzero(&target, sizeof(target));
+	memset(&psk, 0, sizeof(psk));
+	memset(&target, 0, sizeof(target));
 
 	memcpy(&target.v4, &ip.s_addr, 4);
 	psk.psk_af = AF_INET;
@@ -178,17 +179,17 @@ pf_kill_state(int fd, struct in_addr ip)
 	memset(&psk.psk_src.addr.v.a.mask, 0xff,
 	    sizeof(psk.psk_src.addr.v.a.mask));
 	if (ioctl(fd, DIOCKILLSTATES, &psk)) {
-		warning("DIOCKILLSTATES failed (%s)", strerror(errno));
+		log_warn("DIOCKILLSTATES failed");
 	}
 
 	/* Kill all states to target */
-	bzero(&psk.psk_src, sizeof(psk.psk_src));
+	memset(&psk.psk_src, 0, sizeof(psk.psk_src));
 	memcpy(&psk.psk_dst.addr.v.a.addr, &target,
 	    sizeof(psk.psk_dst.addr.v.a.addr));
 	memset(&psk.psk_dst.addr.v.a.mask, 0xff,
 	    sizeof(psk.psk_dst.addr.v.a.mask));
 	if (ioctl(fd, DIOCKILLSTATES, &psk)) {
-		warning("DIOCKILLSTATES failed (%s)", strerror(errno));
+		log_warn("DIOCKILLSTATES failed");
 	}
 }
 

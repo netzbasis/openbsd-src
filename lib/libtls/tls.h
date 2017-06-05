@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.h,v 1.37 2016/09/04 14:15:44 jsing Exp $ */
+/* $OpenBSD: tls.h,v 1.49 2017/05/06 20:57:45 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -27,7 +27,7 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
-#define TLS_API	20160904
+#define TLS_API	20170126
 
 #define TLS_PROTOCOL_TLSv1_0	(1 << 1)
 #define TLS_PROTOCOL_TLSv1_1	(1 << 2)
@@ -41,12 +41,40 @@ extern "C" {
 #define TLS_WANT_POLLIN		-2
 #define TLS_WANT_POLLOUT	-3
 
+/* RFC 6960 Section 2.3 */
+#define TLS_OCSP_RESPONSE_SUCCESSFUL		0
+#define TLS_OCSP_RESPONSE_MALFORMED		1
+#define TLS_OCSP_RESPONSE_INTERNALERROR		2
+#define TLS_OCSP_RESPONSE_TRYLATER		3
+#define TLS_OCSP_RESPONSE_SIGREQUIRED		4
+#define TLS_OCSP_RESPONSE_UNAUTHORIZED		5
+
+/* RFC 6960 Section 2.2 */
+#define TLS_OCSP_CERT_GOOD			0
+#define TLS_OCSP_CERT_REVOKED			1
+#define TLS_OCSP_CERT_UNKNOWN			2
+
+/* RFC 5280 Section 5.3.1 */
+#define TLS_CRL_REASON_UNSPECIFIED		0
+#define TLS_CRL_REASON_KEY_COMPROMISE		1
+#define TLS_CRL_REASON_CA_COMPROMISE		2
+#define TLS_CRL_REASON_AFFILIATION_CHANGED	3
+#define TLS_CRL_REASON_SUPERSEDED		4
+#define TLS_CRL_REASON_CESSATION_OF_OPERATION	5
+#define TLS_CRL_REASON_CERTIFICATE_HOLD		6
+#define TLS_CRL_REASON_REMOVE_FROM_CRL		8
+#define TLS_CRL_REASON_PRIVILEGE_WITHDRAWN	9
+#define TLS_CRL_REASON_AA_COMPROMISE		10
+
+#define TLS_MAX_SESSION_ID_LENGTH		32
+#define TLS_TICKET_KEY_SIZE			48
+
 struct tls;
 struct tls_config;
 
-typedef ssize_t (*tls_read_cb)(void *_ctx, void *_buf, size_t _buflen,
+typedef ssize_t (*tls_read_cb)(struct tls *_ctx, void *_buf, size_t _buflen,
     void *_cb_arg);
-typedef ssize_t (*tls_write_cb)(void *_ctx, const void *_buf,
+typedef ssize_t (*tls_write_cb)(struct tls *_ctx, const void *_buf,
     size_t _buflen, void *_cb_arg);
 
 int tls_init(void);
@@ -61,7 +89,12 @@ int tls_config_add_keypair_file(struct tls_config *_config,
     const char *_cert_file, const char *_key_file);
 int tls_config_add_keypair_mem(struct tls_config *_config, const uint8_t *_cert,
     size_t _cert_len, const uint8_t *_key, size_t _key_len);
-
+int tls_config_add_keypair_ocsp_file(struct tls_config *_config,
+    const char *_cert_file, const char *_key_file,
+    const char *_ocsp_staple_file);
+int tls_config_add_keypair_ocsp_mem(struct tls_config *_config, const uint8_t *_cert,
+    size_t _cert_len, const uint8_t *_key, size_t _key_len,
+    const uint8_t *_staple, size_t _staple_len);
 int tls_config_set_alpn(struct tls_config *_config, const char *_alpn);
 int tls_config_set_ca_file(struct tls_config *_config, const char *_ca_file);
 int tls_config_set_ca_path(struct tls_config *_config, const char *_ca_path);
@@ -81,8 +114,17 @@ int tls_config_set_keypair_file(struct tls_config *_config,
     const char *_cert_file, const char *_key_file);
 int tls_config_set_keypair_mem(struct tls_config *_config, const uint8_t *_cert,
     size_t _cert_len, const uint8_t *_key, size_t _key_len);
-void tls_config_set_protocols(struct tls_config *_config, uint32_t _protocols);
-void tls_config_set_verify_depth(struct tls_config *_config, int _verify_depth);
+int tls_config_set_keypair_ocsp_file(struct tls_config *_config,
+    const char *_cert_file, const char *_key_file, const char *_staple_file);
+int tls_config_set_keypair_ocsp_mem(struct tls_config *_config, const uint8_t *_cert,
+    size_t _cert_len, const uint8_t *_key, size_t _key_len,
+    const uint8_t *_staple, size_t staple_len);
+int tls_config_set_ocsp_staple_mem(struct tls_config *_config,
+    const uint8_t *_staple, size_t _len);
+int tls_config_set_ocsp_staple_file(struct tls_config *_config,
+    const char *_staple_file);
+int tls_config_set_protocols(struct tls_config *_config, uint32_t _protocols);
+int tls_config_set_verify_depth(struct tls_config *_config, int _verify_depth);
 
 void tls_config_prefer_ciphers_client(struct tls_config *_config);
 void tls_config_prefer_ciphers_server(struct tls_config *_config);
@@ -92,11 +134,18 @@ void tls_config_insecure_noverifyname(struct tls_config *_config);
 void tls_config_insecure_noverifytime(struct tls_config *_config);
 void tls_config_verify(struct tls_config *_config);
 
+void tls_config_ocsp_require_stapling(struct tls_config *_config);
 void tls_config_verify_client(struct tls_config *_config);
 void tls_config_verify_client_optional(struct tls_config *_config);
 
 void tls_config_clear_keys(struct tls_config *_config);
 int tls_config_parse_protocols(uint32_t *_protocols, const char *_protostr);
+
+int tls_config_set_session_id(struct tls_config *_config,
+    const unsigned char *_session_id, size_t _len);
+int tls_config_set_session_lifetime(struct tls_config *_config, int _lifetime);
+int tls_config_add_ticket_key(struct tls_config *_config, uint32_t _keyrev,
+    unsigned char *_key, size_t _keylen);
 
 struct tls *tls_client(void);
 struct tls *tls_server(void);
@@ -130,6 +179,7 @@ const char *tls_peer_cert_issuer(struct tls *_ctx);
 const char *tls_peer_cert_subject(struct tls *_ctx);
 time_t	tls_peer_cert_notbefore(struct tls *_ctx);
 time_t	tls_peer_cert_notafter(struct tls *_ctx);
+const uint8_t *tls_peer_cert_chain_pem(struct tls *_ctx, size_t *_len);
 
 const char *tls_conn_alpn_selected(struct tls *_ctx);
 const char *tls_conn_cipher(struct tls *_ctx);
@@ -137,6 +187,18 @@ const char *tls_conn_servername(struct tls *_ctx);
 const char *tls_conn_version(struct tls *_ctx);
 
 uint8_t *tls_load_file(const char *_file, size_t *_len, char *_password);
+void tls_unload_file(uint8_t *_buf, size_t len);
+
+int tls_ocsp_process_response(struct tls *_ctx, const unsigned char *_response,
+    size_t _size);
+int tls_peer_ocsp_cert_status(struct tls *_ctx);
+int tls_peer_ocsp_crl_reason(struct tls *_ctx);
+time_t tls_peer_ocsp_next_update(struct tls *_ctx);
+int tls_peer_ocsp_response_status(struct tls *_ctx);
+const char *tls_peer_ocsp_result(struct tls *_ctx);
+time_t tls_peer_ocsp_revocation_time(struct tls *_ctx);
+time_t tls_peer_ocsp_this_update(struct tls *_ctx);
+const char *tls_peer_ocsp_url(struct tls *_ctx);
 
 #ifdef __cplusplus
 }

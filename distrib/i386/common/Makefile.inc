@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile.inc,v 1.37 2014/03/29 17:32:41 deraadt Exp $
+#	$OpenBSD: Makefile.inc,v 1.42 2017/06/03 22:25:19 deraadt Exp $
 
 TOP=		${.CURDIR}/..
 
@@ -20,7 +20,7 @@ VND_RDEV=	/dev/r${VND}a
 VND_CRDEV=	/dev/r${VND}c
 PID!=		echo $$$$
 REALIMAGE!=	echo /var/tmp/image.${PID}
-BOOT=		${DESTDIR}/usr/mdec/boot
+BOOT?=		${DESTDIR}/usr/mdec/boot
 FLOPPYSIZE?=	2880
 FLOPPYTYPE?=	floppy3
 
@@ -49,10 +49,13 @@ ${FS}:	bsd.gz
 	cp ${REALIMAGE} ${FS}
 	rm ${REALIMAGE}
 
-DISKTYPE?=       rdroot
-NBLKS?=          3872
-# minfree, opt, b/i, blks/cyl
-NEWFSARGS= -m 0 -o space -i 4096
+unconfig:
+	-umount -f ${MOUNT_POINT}
+	-vnconfig -u ${VND}
+
+
+DISKTYPE?=	rdroot
+MAKEFSARGS_RD=	-o disklabel=${DISKTYPE},minfree=0,density=4096
 
 COPTS= -Os -mtune=i486
 
@@ -68,43 +71,33 @@ bsd.rd:	${IMAGE} bsd rdsetroot
 
 
 bsd:
-	cd ${.CURDIR}/../../../sys/arch/i386/conf && config ${RAMDISK}
 	cd ${.CURDIR}/../../../sys/arch/i386/compile/${RAMDISK} && \
-	    ${MAKE} clean && COPTS="${COPTS}" exec ${MAKE}
-	cp ${.CURDIR}/../../../sys/arch/i386/compile/${RAMDISK}/bsd bsd
+	    su ${BUILDUSER} -c '${MAKE} config && ${MAKE} clean && env COPTS="${COPTS}" ${MAKE}'
+	cp -p ${.CURDIR}/../../../sys/arch/i386/compile/${RAMDISK}/obj/bsd bsd
 
-${IMAGE}: ${CBIN} rd_setup do_files rd_teardown
-
-rd_setup: ${CBIN}
-	dd if=/dev/zero of=${REALIMAGE} bs=512 count=${NBLKS}
-	vnconfig -v -c ${VND} ${REALIMAGE}
-	disklabel -w ${VND} ${DISKTYPE}
-	newfs ${NEWFSARGS} ${VND_RDEV}
-	fsck ${VND_RDEV}
-	mount ${VND_DEV} ${MOUNT_POINT}
-
-rd_teardown:
-	@df -i ${MOUNT_POINT}
-	-umount ${MOUNT_POINT}
-	-vnconfig -u ${VND}
-	cp ${REALIMAGE} ${IMAGE}
-	rm ${REALIMAGE}
+${IMAGE}: ${CBIN}
+	rm -rf $@.d
+	install -d -o root -g wheel $@.d
+	mtree -def ${MTREE} -p $@.d -u
+	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} REV=${REV} \
+	    TARGDIR=$@.d UTILS=${UTILS} RELEASEDIR=${RELEASEDIR} \
+	    sh ${UTILS}/runlist.sh ${LISTS}
+	rm $@.d/${CBIN}
+	makefs ${MAKEFSARGS_RD} $@ $@.d
+	vnconfig -v -c ${VND} mr.fs
+	df -i /dev/${VND}a
+	vnconfig -u ${VND}
 
 rdsetroot:	${TOP}/../common/elfrdsetroot.c
 	${HOSTCC} ${HOSTCFLAGS} -o rdsetroot \
 	    ${TOP}/../common/elfrdsetroot.c ${TOP}/../common/elf32.c \
 	    ${TOP}/../common/elf64.c
 
-unconfig:
-	-umount -f ${MOUNT_POINT}
-	-vnconfig -u ${VND}
-
-.PRECIOUS:	${IMAGE}
-
 .ifdef RELEASEDIR
 install:
 .ifndef NOBSDRD
 	cp bsd.rd ${RELEASEDIR}/bsd.rd
+	chmod a+r ${RELEASEDIR}/bsd.rd
 .endif
 .ifndef NOFS
 	cp ${FS} ${RELEASEDIR}/${FS}
@@ -122,18 +115,12 @@ ${CBIN}: ${CBIN}.mk ${CBIN}.cache ${CBIN}.c
 ${CRUNCHCONF}: ${LISTS}
 	awk -f ${UTILS}/makeconf.awk CBIN=${CBIN} ${LISTS} > ${CRUNCHCONF}
 
-do_files:
-	mtree -def ${MTREE} -p ${MOUNT_POINT}/ -u
-	TOPDIR=${TOP} CURDIR=${.CURDIR} OBJDIR=${.OBJDIR} \
-	    REV=${REV} TARGDIR=${MOUNT_POINT} UTILS=${UTILS} \
-	    RELEASEDIR=${RELEASEDIR} sh ${UTILS}/runlist.sh ${LISTS}
-	rm ${MOUNT_POINT}/${CBIN}
-
 clean cleandir:
 	/bin/rm -f *.core ${IMAGE} ${CBIN} ${CBIN}.mk ${CBIN}*.cache \
 	    *.o *.lo *.c bsd bsd.rd bsd.gz bsd.strip floppy*.fs \
 	    lib*.a lib*.olist ${CBIN}.map \
 	    rdsetroot boot ${CRUNCHCONF} ${FS}
+	/bin/rm -rf ${IMAGE}.d
 
 .include <bsd.obj.mk>
 .include <bsd.subdir.mk>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: options.c,v 1.31 2016/08/05 14:02:23 krw Exp $	*/
+/*	$OpenBSD: options.c,v 1.35 2017/02/13 22:33:39 krw Exp $	*/
 
 /* DHCP options parsing and reassembly. */
 
@@ -54,6 +54,7 @@
 #include "dhcp.h"
 #include "tree.h"
 #include "dhcpd.h"
+#include "log.h"
 
 int bad_options = 0;
 int bad_options_max = 5;
@@ -150,17 +151,19 @@ parse_option_buffer(struct packet *packet,
 		if (s + len + 2 > end) {
 		    bogus:
 			bad_options++;
-			warning("option %s (%d) %s.",
+			log_warnx("option %s (%d) %s.",
 			    dhcp_options[code].name, len,
 			    "larger than buffer");
 			if (bad_options == bad_options_max) {
 				packet->options_valid = 1;
 				bad_options = 0;
-				warning("Many bogus options seen in offers.");
-				warning("Taking this offer in spite of bogus");
-				warning("options - hope for the best!");
+				log_warnx("Many bogus options seen in "
+				    "offers.");
+				log_warnx("Taking this offer in spite of "
+				    "bogus");
+				log_warnx("options - hope for the best!");
 			} else {
-				warning("rejecting bogus offer.");
+				log_warnx("rejecting bogus offer.");
 				packet->options_valid = 0;
 			}
 			return;
@@ -172,7 +175,7 @@ parse_option_buffer(struct packet *packet,
 		if (!packet->options[code].data) {
 			t = calloc(1, len + 1);
 			if (!t)
-				error("Can't allocate storage for option %s.",
+				fatalx("Can't allocate storage for option %s.",
 				    dhcp_options[code].name);
 			/*
 			 * Copy and NUL-terminate the option (in case
@@ -190,7 +193,7 @@ parse_option_buffer(struct packet *packet,
 			 */
 			t = calloc(1, len + packet->options[code].len + 1);
 			if (!t)
-				error("Can't expand storage for option %s.",
+				fatalx("Can't expand storage for option %s.",
 				    dhcp_options[code].name);
 			memcpy(t, packet->options[code].data,
 				packet->options[code].len);
@@ -221,7 +224,7 @@ create_priority_list(unsigned char *priority_list, unsigned char *prl,
 	int i, priority_len = 0;
 
 	/* clear stored_list, priority_list should be cleared before */
-	bzero(&stored_list, sizeof(stored_list));
+	memset(&stored_list, 0, sizeof(stored_list));
 
 	/* Some options we don't want on the priority list. */
 	stored_list[DHO_PAD] = 1;
@@ -248,16 +251,16 @@ create_priority_list(unsigned char *priority_list, unsigned char *prl,
 	for(i = 0; i < prl_len; i++) {
 		if (stored_list[prl[i]])
 			continue;
-		priority_list[priority_len++] = prl[i];	
+		priority_list[priority_len++] = prl[i];
 		stored_list[prl[i]] = 1;
-	}	
+	}
 
 	/* Default priority list. */
 	prl = dhcp_option_default_priority_list;
 	for(i = 0; i < 256; i++) {
 		if (stored_list[prl[i]])
 			continue;
-		priority_list[priority_len++] = prl[i];	
+		priority_list[priority_len++] = prl[i];
 		stored_list[prl[i]] = 1;
 	}
 }
@@ -322,8 +325,9 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 	 * list provided in the options. Lacking that use the list provided by
 	 * prl. If that is not available just use the default list.
 	 */
-	bzero(&priority_list, sizeof(priority_list));
-	if (inpacket && inpacket->options[DHO_DHCP_PARAMETER_REQUEST_LIST].data)
+	memset(&priority_list, 0, sizeof(priority_list));
+	if (inpacket &&
+	    inpacket->options[DHO_DHCP_PARAMETER_REQUEST_LIST].data)
 		create_priority_list(priority_list,
 		    inpacket->options[DHO_DHCP_PARAMETER_REQUEST_LIST].data,
 		    inpacket->options[DHO_DHCP_PARAMETER_REQUEST_LIST].len);
@@ -530,7 +534,7 @@ do_packet(struct interface_info *interface, struct dhcp_packet *packet,
 	int i;
 
 	if (packet->hlen > sizeof(packet->chaddr)) {
-		note("Discarding packet with invalid hlen.");
+		log_info("Discarding packet with invalid hlen.");
 		return;
 	}
 

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: vmctl.8,v 1.13 2016/08/18 16:12:05 jmc Exp $
+.\"	$OpenBSD: vmctl.8,v 1.29 2017/04/19 15:38:32 reyk Exp $
 .\"
 .\" Copyright (c) 2015 Mike Larkin <mlarkin@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 18 2016 $
+.Dd $Mdocdate: April 19 2017 $
 .Dt VMCTL 8
 .Os
 .Sh NAME
@@ -28,8 +28,7 @@
 The
 .Nm
 utility is used to control the virtual machine monitor (VMM) subsystem.
-A VMM manages virtual machines (VMs) on a
-.Ar host .
+A VMM manages virtual machines (VMs) on a host.
 The VMM subsystem is responsible for creating, destroying, and executing
 VMs.
 .Pp
@@ -57,31 +56,60 @@ Creates a VM disk image file with the specified
 and
 .Ar size ,
 rounded to megabytes.
-.It Cm load Op Ar filename
-Load the configuration from the specified file.
-.It Cm reload Op Ar filename
-Reload the configuration from the default configuration file.
-.It Xo Cm start Op Ar name
-.Op Fl c
-.Fl k Ar path
-.Fl m Ar size
+.It Cm load Ar filename
+Load additional configuration from the specified file.
+.It Cm log brief
+Disable verbose debug logging.
+.It Cm log verbose
+Enable verbose debug logging.
+.It Cm reload
+Remove all stopped VMs and reload the configuration from the default
+configuration file.
+.It Cm reset Op Cm all
+Reset the running state.
+.It Cm reset switches
+Reset the configured switches.
+.It Cm reset vms
+Reset and terminate all VMs.
+.It Xo Cm start Ar name
+.Op Fl Lc
+.Op Fl b Ar path
 .Op Fl d Ar path
 .Op Fl i Ar count
+.Op Fl m Ar size
+.Op Fl n Ar switch
 .Xc
 Starts a VM defined by the specified name and parameters:
 .Bl -tag -width "-i count"
+.It Fl b Ar path
+Boot the VM with the specified kernel or BIOS image.
+If not specified, the default is to boot using the BIOS image in
+.Pa /etc/firmware/vmm-bios .
 .It Fl c
 Automatically connect to the VM console.
 .It Fl d Ar path
 Disk image file (may be specified multiple times to add multiple disk images).
 .It Fl i Ar count
 Number of network interfaces to add to the VM.
-.It Fl k Ar path
-Kernel to load when booting the VM.
+.It Fl L
+Add a local network interface.
+.Xr vmd 8
+will auto-generate an IPv4 subnet for the interface,
+configure a gateway address on the VM host side,
+and run a simple DHCP (BOOTP) server for the VM.
 .It Fl m Ar size
 Memory
 .Ar size
 of the VM, rounded to megabytes.
+The default is 512M.
+.It Fl n Ar switch
+Add a network interface that is attached to the specified virtual
+.Ar switch .
+See
+.Sx SWITCH CONFIGURATION
+in
+.Xr vm.conf 5
+for more information.
 .El
 .It Cm status Op Ar id
 Lists VMs running on the host, optionally listing just the selected VM
@@ -89,6 +117,11 @@ Lists VMs running on the host, optionally listing just the selected VM
 .It Cm stop Ar id
 Stops (terminates) a VM defined by the specified VM
 .Ar id .
+A graceful shutdown will be attempted if the VM supports the
+.Xr vmmci 4
+device.
+Once stopped, if the VM was not defined in a configuration file, then it is
+removed.
 .El
 .Pp
 If the
@@ -129,16 +162,35 @@ A requested VM-based operation could not be completed.
 .El
 .Sh EXAMPLES
 Create a 4.5 Gigabyte disk image, disk.img:
-.Dl $ vmctl create disk.img -s 4.5G
+.Bd -literal -offset indent
+$ vmctl create disk.img -s 4.5G
+.Ed
 .Pp
-Create a new VM with 512MB memory, one network interface, one disk image
+Create a new VM with 1GB memory, one network interface, one disk image
 ('disk.img') and boot from kernel '/bsd':
 .Bd -literal -offset indent
-$ vmctl start "myvm" -m 512M -i 1 -d disk.img -k /bsd
+# vmctl start "myvm" -m 1G -i 1 -b /bsd -d disk.img
+.Ed
+.Pp
+.Xr vmd 8
+will create a new
+.Xr tap 4
+network interface on the host side and set the description to indicate
+the VM by ID, interface number, and name:
+.Bd -literal -offset indent
+# ifconfig tap0
+tap0: flags=8842<BROADCAST,RUNNING,SIMPLEX,MULTICAST> mtu 1500
+	lladdr fe:e1:ba:d8:50:d1
+	description: vm1-if0-myvm
+	index 15 priority 0 llprio 3
+	groups: tap
+	status: active
 .Ed
 .Pp
 Terminate VM number 1:
-.Dl $ vmctl stop 1
+.Bd -literal -offset indent
+# vmctl stop 1
+.Ed
 .Sh SEE ALSO
 .Xr bridge 4 ,
 .Xr pf 4 ,

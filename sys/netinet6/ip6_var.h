@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_var.h,v 1.64 2016/08/24 09:41:12 mpi Exp $	*/
+/*	$OpenBSD: ip6_var.h,v 1.75 2017/05/31 05:59:09 mpi Exp $	*/
 /*	$KAME: ip6_var.h,v 1.33 2000/06/11 14:59:20 jinmei Exp $	*/
 
 /*
@@ -203,6 +203,65 @@ struct	ip6stat {
 };
 
 #ifdef _KERNEL
+
+#include <sys/percpu.h>
+
+enum ip6stat_counters {
+	ip6s_total,
+	ip6s_tooshort,
+	ip6s_toosmall,
+	ip6s_fragments,
+	ip6s_fragdropped,
+	ip6s_fragtimeout,
+	ip6s_fragoverflow,
+	ip6s_forward,
+	ip6s_cantforward,
+	ip6s_redirectsent,
+	ip6s_delivered,
+	ip6s_localout,
+	ip6s_odropped,
+	ip6s_reassembled,
+	ip6s_fragmented,
+	ip6s_ofragments,
+	ip6s_cantfrag,
+	ip6s_badoptions,
+	ip6s_noroute,
+	ip6s_badvers,
+	ip6s_rawout,
+	ip6s_badscope,
+	ip6s_notmember,
+	ip6s_nxthist,
+	ip6s_m1 = ip6s_nxthist + 256,
+	ip6s_m2m,
+	ip6s_mext1 = ip6s_m2m + 32,
+	ip6s_mext2m,
+	ip6s_nogif,
+	ip6s_toomanyhdr,
+	ip6s_sources_none,
+	ip6s_sources_sameif,
+	ip6s_sources_otherif = ip6s_sources_sameif + 16,
+	ip6s_sources_samescope = ip6s_sources_otherif + 16,
+	ip6s_sources_otherscope = ip6s_sources_samescope + 16,
+	ip6s_sources_deprecated = ip6s_sources_otherscope + 16,
+	ip6s_forward_cachehit = ip6s_sources_deprecated + 16,
+	ip6s_forward_cachemiss,
+	ip6s_ncounters,
+};
+
+extern struct cpumem *ip6counters;
+
+static inline void
+ip6stat_inc(enum ip6stat_counters c)
+{
+	counters_inc(ip6counters, c);
+}
+
+static inline void
+ip6stat_add(enum ip6stat_counters c, uint64_t v)
+{
+	counters_add(ip6counters, c, v);
+}
+
 /* flags passed to ip6_output as last parameter */
 #define	IPV6_UNSPECSRC		0x01	/* allow :: as the source address */
 #define	IPV6_FORWARDING		0x02	/* most of IPv6 header exists */
@@ -211,7 +270,6 @@ struct	ip6stat {
 extern int ip6_mtudisc_timeout;		/* mtu discovery */
 extern struct rttimer_queue *icmp6_mtudisc_timeout_q;
 
-extern struct	ip6stat ip6stat;	/* statistics */
 extern int	ip6_defhlim;		/* default hop limit */
 extern int	ip6_defmcasthlim;	/* default multicast hop limit */
 extern int	ip6_forwarding;		/* act as router? */
@@ -225,7 +283,7 @@ extern int	ip6_maxifprefixes; /* Max acceptable prefixes via RA per IF */
 extern int	ip6_maxifdefrouters; /* Max acceptable def routers via RA */
 extern int	ip6_maxdynroutes; /* Max # of routes created via redirect */
 
-extern struct socket *ip6_mrouter; 	/* multicast routing daemon */
+extern struct socket *ip6_mrouter[RT_TABLEID_MAX]; /* multicast routing daemon */
 extern int	ip6_sendredirects;	/* send IP redirects when forwarding? */
 extern int	ip6_maxfragpackets; /* Maximum packets in reassembly queue */
 extern int	ip6_maxfrags;	/* Maximum fragments in reassembly queue */
@@ -241,11 +299,11 @@ extern int ip6_auto_linklocal;
 struct in6pcb;
 struct inpcb;
 
-int	icmp6_ctloutput(int, struct socket *, int, int, struct mbuf **);
+int	icmp6_ctloutput(int, struct socket *, int, int, struct mbuf *);
 
 void	ip6_init(void);
 void	ip6intr(void);
-void	ip6_input(struct mbuf *);
+void	ip6_deliver(struct mbuf **, int *, int, int);
 void	ip6_freepcbopts(struct ip6_pktopts *);
 void	ip6_freemoptions(struct ip6_moptions *);
 int	ip6_unknown_opt(u_int8_t *, struct mbuf *, int);
@@ -264,8 +322,8 @@ void	ip6_mloopback(struct ifnet *, struct mbuf *, struct sockaddr_in6 *);
 int	ip6_output(struct mbuf *, struct ip6_pktopts *, struct route_in6 *, int,
 	    struct ip6_moptions *, struct inpcb *);
 int	ip6_fragment(struct mbuf *, int, u_char, u_long);
-int	ip6_ctloutput(int, struct socket *, int, int, struct mbuf **);
-int	ip6_raw_ctloutput(int, struct socket *, int, int, struct mbuf **);
+int	ip6_ctloutput(int, struct socket *, int, int, struct mbuf *);
+int	ip6_raw_ctloutput(int, struct socket *, int, int, struct mbuf *);
 void	ip6_initpktopts(struct ip6_pktopts *);
 int	ip6_setpktopts(struct mbuf *, struct ip6_pktopts *,
 	    struct ip6_pktopts *, int, int);
@@ -274,30 +332,32 @@ void	ip6_randomid_init(void);
 u_int32_t ip6_randomid(void);
 void	ip6_send(struct mbuf *);
 
-int	route6_input(struct mbuf **, int *, int);
+int	route6_input(struct mbuf **, int *, int, int);
 
 void	frag6_init(void);
-int	frag6_input(struct mbuf **, int *, int);
+int	frag6_input(struct mbuf **, int *, int, int);
 int	frag6_deletefraghdr(struct mbuf *, int);
 void	frag6_slowtimo(void);
 void	frag6_drain(void);
 
 void	rip6_init(void);
-int	rip6_input(struct mbuf **mp, int *offp, int proto);
+int	rip6_input(struct mbuf **, int *, int, int);
 void	rip6_ctlinput(int, struct sockaddr *, u_int, void *);
-int	rip6_ctloutput(int, struct socket *, int, int, struct mbuf **);
-int	rip6_output(struct mbuf *, ...);
+int	rip6_ctloutput(int, struct socket *, int, int, struct mbuf *);
+int	rip6_output(struct mbuf *, struct socket *, struct sockaddr *,
+	    struct mbuf *);
 int	rip6_usrreq(struct socket *,
 	    int, struct mbuf *, struct mbuf *, struct mbuf *, struct proc *);
+int	rip6_attach(struct socket *, int);
 int	rip6_sysctl(int *, u_int, void *, size_t *, void *, size_t);
 
-int	dest6_input(struct mbuf **, int *, int);
+int	dest6_input(struct mbuf **, int *, int, int);
 int	none_input(struct mbuf **, int *, int);
 
 int	in6_pcbselsrc(struct in6_addr **, struct sockaddr_in6 *,
 	    struct inpcb *, struct ip6_pktopts *);
 int	in6_selectsrc(struct in6_addr **, struct sockaddr_in6 *,
-	    struct ip6_moptions *, struct route_in6 *, u_int);
+	    struct ip6_moptions *, unsigned int);
 struct rtentry *in6_selectroute(struct sockaddr_in6 *, struct ip6_pktopts *,
 	    struct route_in6 *, unsigned int rtableid);
 

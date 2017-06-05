@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.61 2016/09/10 16:38:16 jsing Exp $
+#	$OpenBSD: Makefile,v 1.65 2017/06/01 11:18:53 naddy Exp $
 
 COPTS?=
 MAN?=	boot.8
@@ -32,7 +32,7 @@ SRCS+=	apmprobe.c debug.c pciprobe.c ps2probe.c
 SRCS+=	cmd_i386.c dev_i386.c exec_i386.c gateA20.c machdep.c
 SRCS+=	bioscons.c biosdev.c diskprobe.c memprobe.c time.c
 .if ${SOFTRAID:L} == "yes"
-SRCS+=	softraid.c
+SRCS+=	softraid_i386.c
 .endif
 
 .PATH:	${S}/lib/libsa
@@ -44,7 +44,8 @@ SRCS+=	close.c closeall.c cons.c cread.c dev.c disklabel.c dkcksum.c fstat.c \
 SRCS+=	elf32.c elf64.c loadfile.c
 SRCS+=	ufs.c
 .if ${SOFTRAID:L} == "yes"
-SRCS+=	aes_xts.c explicit_bzero.c hmac_sha1.c pkcs5_pbkdf2.c rijndael.c sha1.c
+SRCS+=	aes_xts.c bcrypt_pbkdf.c blowfish.c explicit_bzero.c hmac_sha1.c \
+	pkcs5_pbkdf2.c rijndael.c sha1.c sha2.c softraid.c
 .endif
 
 .PATH:	${S}/lib/libkern
@@ -80,6 +81,7 @@ CPPFLAGS+=-DBOOTMAGIC=$(BOOTMAGIC) ${DEBUGFLAGS} -DLINKADDR=${LINKADDR}
 CPPFLAGS+=-DSLOW -DSMALL -DNOBYFOUR -DNO_GZIP -DDYNAMIC_CRC_TABLE
 CPPFLAGS+=-DHEAP_LIMIT=${HEAP_LIMIT} -I${S}/stand/boot #-DCOMPAT_UFS
 CFLAGS+=-m32 $(SACFLAGS) -D__INTERNAL_LIBSA_CREAD -fno-pie
+AFLAGS+=${NO_INTEGR_AS}
 AFLAGS+=-m32 # -Wa,-R
 # AFLAGS+=-Wa,-a
 AFLAGS+=-fno-pie

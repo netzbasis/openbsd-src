@@ -1,4 +1,4 @@
-.\" $OpenBSD: bgpd.conf.5,v 1.146 2016/08/17 08:14:40 phessler Exp $
+.\" $OpenBSD: bgpd.conf.5,v 1.160 2017/05/31 10:49:10 claudio Exp $
 .\"
 .\" Copyright (c) 2004 Claudio Jeker <claudio@openbsd.org>
 .\" Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -16,7 +16,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 17 2016 $
+.Dd $Mdocdate: May 31 2017 $
 .Dt BGPD.CONF 5
 .Os
 .Sh NAME
@@ -38,7 +38,7 @@ configuration file.
 .It Sy Global Configuration
 Global settings for
 .Xr bgpd 8 .
-.It Sy Routing Domain Configuration
+.It Sy MPLS VPN Configuration
 The definition and properties for BGP MPLS VPNs are set in this section.
 .It Sy Neighbors and Groups
 .Xr bgpd 8
@@ -268,6 +268,11 @@ Log received and sent updates.
 .Pq Ic inet Ns | Ns Ic inet6
 .Ic connected Op Ic set ...\&
 .Xc
+.It Xo
+.Ic network
+.Pq Ic inet Ns | Ns Ic inet6
+.Ic rtlabel Ar label Op Ic set ...\&
+.Xc
 Announce the specified network as belonging to our AS.
 If set to
 .Ic connected ,
@@ -275,6 +280,11 @@ routes to directly attached networks will be announced.
 If set to
 .Ic static ,
 all static routes will be announced.
+If set to
+.Ic rtlabel ,
+routes with the specified
+.Ar label
+will be announced.
 .Bd -literal -offset indent
 network 192.168.7.0/24
 .Ed
@@ -342,9 +352,12 @@ flag.
 If a
 .Ic rtable
 is specified, routes will be exported to the given kernel routing table.
-Currently the routing table must belong to the default routing domain and
-nexthop verification happens on table 0.
-Routes in the specified table will not be considered for nexthop verification.
+Currently the routing table must belong to the routing domain
+.Xr bgpd 8
+was started in.
+Nexthop verification happens in the table
+.Xr bgpd 8
+was started in - routes in the specified table will not be considered.
 .Ic Adj-RIB-In
 and
 .Ic Loc-RIB
@@ -386,10 +399,12 @@ to the local machine.
 .Pp
 .It Ic rtable Ar number
 Work with the given kernel routing table
-instead of the default table,
-.Ar 0 .
-Note that table 0 is used for nexthop verification.
-Routes in the specified table will not be considered for nexthop verification.
+instead of the default table, which is the one
+.Xr bgpd 8
+was started in.
+For nexthop verification,
+.Xr bgpd 8
+will always consult the default table.
 This is the same as using the following syntax:
 .Bd -literal -offset indent
 rde rib Loc-RIB rtable number
@@ -402,8 +417,11 @@ If
 .Ic restricted
 is specified a restricted control socket will be created.
 By default
-.Pa /var/run/bgpd.sock
-is used and no restricted socket is created.
+.Pa /var/run/bgpd.sock.<rdomain>
+is used where
+.Ar <rdomain>
+is the routing domain in which bgpd has been started.
+By default, no restricted socket is created.
 .Pp
 .It Xo
 .Ic transparent-as
@@ -416,7 +434,7 @@ to EBGP neighbors are not prepended with the local AS.
 The default is
 .Ic no .
 .El
-.Sh ROUTING DOMAIN CONFIGURATION
+.Sh MPLS VPN CONFIGURATION
 .Xr bgpd 8
 supports the setup and distribution of Virtual Private Networks.
 It is possible to import and export prefixes between routing domains.
@@ -727,9 +745,18 @@ The description is used when logging neighbor events, in status
 reports, for specifying neighbors, etc., but has no further meaning to
 .Xr bgpd 8 .
 .Pp
-.It Ic down
+.It Ic down Op Ar reason
 Do not start the session when bgpd comes up but stay in
 .Em IDLE .
+If the session is cleared at runtime, after a
+.Ic down
+.Ar reason
+was configured at runtime, the
+.Ar reason
+is sent as Administrative Shutdown Communication.
+The
+.Ar reason
+cannot exceed 128 octets.
 .Pp
 .It Xo
 .Ic dump
@@ -746,6 +773,20 @@ See also the
 .Ic dump
 section in
 .Sx GLOBAL CONFIGURATION .
+.Pp
+.It Xo
+.Ic enforce local-as
+.Pq Ic yes Ns | Ns Ic no
+.Xc
+If set to
+.Ic no ,
+.Em AS paths
+will not be checked for AS loop detection.
+This feature is similar to allowas-in in some other BGP implementations.
+Since there is no AS path loop check, this feature is dangerous, and
+requires you to add filters to prevent receiving your own prefixes.
+The default value is
+.Ic yes .
 .Pp
 .It Xo
 .Ic enforce neighbor-as
@@ -855,6 +896,17 @@ is given,
 .Xr bgpd 8
 binds to this address first.
 .Pp
+.It Ic local-as Ar as-number Op Ar as-number
+Set the AS number sent to the remote system.
+Used as described above under
+.Sx GLOBAL CONFIGURATION
+option
+.Ic AS .
+.Pp
+Since there is no AS path loop check, this option is dangerous, and
+requires you to add filters to prevent receiving your ASNs.
+Intended to be used temporarily, for migrations to another AS.
+.Pp
 .It Ic log no
 Disable neighbor specific logging.
 .Pp
@@ -865,9 +917,9 @@ Log received and sent updates for this neighbor.
 .Ic max-prefix Ar number
 .Op Ic restart Ar number
 .Xc
-Terminate the session after
+Terminate the session when the maximum
 .Ar number
-prefixes have been received
+of prefixes received is exceeded
 (no such limit is imposed by default).
 If
 .Ic restart
@@ -1060,7 +1112,9 @@ is an AS number as explained above under
 .Sx GLOBAL CONFIGURATION .
 It may be set to
 .Ic neighbor-as ,
-which is expanded to the current neighbor remote AS number.
+which is expanded to the current neighbor remote AS number, or
+.Ic local-as ,
+which is expanded to the locally assigned AS number.
 .Pp
 The
 .Ar operator
@@ -1130,7 +1184,43 @@ and
 .Ar local
 may be set to
 .Ic neighbor-as ,
-which is expanded to the current neighbor remote AS number.
+which is expanded to the current neighbor remote AS number, or
+.Ic local-as ,
+which is expanded to the locally assigned AS number.
+.Pp
+.It Xo
+.Ic large-community
+.Ar as-number : Ns Ar local : Ns Ar local
+.Xc
+This rule applies only to
+.Em UPDATES
+where the
+.Ic Large community
+path attribute is present and matches.
+Communities are specified as
+.Ar as-number : Ns Ar local : Ns Ar local ,
+where
+.Ar as-number
+is an AS number and
+.Ar local
+is a locally significant number between zero and
+.Li 4294967295 .
+Both
+.Ar as-number
+and
+.Ar local
+may be set to
+.Sq *
+to do wildcard matching.
+Both
+.Ar as-number
+and
+.Ar local
+may be set to
+.Ic neighbor-as ,
+which is expanded to the current neighbor remote AS number,
+.Ic local-as ,
+which is expanded to the locally assigned AS number.
 .Pp
 .It Xo
 .Ic ext-community
@@ -1143,6 +1233,11 @@ which is expanded to the current neighbor remote AS number.
 .It Xo
 .Ic ext-community
 .Ar subtype Ar numvalue
+.Xc
+.It Xo
+.Ic ext-community
+.Ar ovs
+.Pq Ic valid | not-found | invalid
 .Xc
 This rule applies only to
 .Em UPDATES
@@ -1365,6 +1460,35 @@ may be set to
 to do wildcard matching.
 .Pp
 .It Xo
+.Ic large-community Op Ar delete
+.Ar as-number : Ns Ar local : Ns Ar local
+.Xc
+.It Xo
+.Ic large-community Op Ar delete
+.Ar name
+.Xc
+Set or delete the
+.Em Large Communities
+path attribute.
+Communities are specified as
+.Ar as-number : Ns Ar local : Ns Ar local ,
+where
+.Ar as-number
+is an AS number and
+.Ar local
+is a locally-significant number between zero and
+.Li 4294967295 .
+For
+.Cm delete ,
+both
+.Ar as-number
+and
+.Ar local
+may be set to
+.Sq *
+to do wildcard matching.
+.Pp
+.It Xo
 .Ic ext-community Op Ar delete
 .Ar subtype Ar as-number : Ns Ar local
 .Xc
@@ -1375,6 +1499,11 @@ to do wildcard matching.
 .It Xo
 .Ic ext-community Op Ar delete
 .Ar subtype Ar numvalue
+.Xc
+.It Xo
+.Ic ext-community Op Ar delete
+.Ar ovs
+.Pq Ic valid | not-found | invalid
 .Xc
 Set or delete the
 .Em Extended Community
@@ -1393,14 +1522,29 @@ is bigger than 65535 or if the AS_DOT encoding is used.
 IPv4 Address Specific Extended Communities are encoded as
 .Ar IP : Ns Ar local .
 Opaque Extended Communities are encoded with a single numeric value.
+The
+.Ar ovs
+subtype can only be set to
+.Ar valid ,
+.Ar not-found ,
+or
+.Ar invalid .
 Currently the following subtypes are supported:
 .Bd -literal -offset indent
-rt       Route Target
-soo      Source of Origin
+bdc      BGP Data Collection
+defgw	 Default Gateway
+esi-lab  ESI Label
+esi-rt   ES-Import Route Target
+l2vid    L2VPN Identifier
+mac-mob  MAC Mobility
 odi      OSPF Domain Identifier
 ort      OSPF Route Type
 ori      OSPF Router ID
-bdc      BGP Data Collection
+ovs      BGP Origin Validation State
+rt       Route Target
+soo      Route Origin / Source of Origin
+srcas    Source AS
+vrfri    VRF Route Import
 .Ed
 .Pp
 Not all type and subtype value pairs are allowed by IANA and the parser

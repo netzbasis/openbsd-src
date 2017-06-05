@@ -1,4 +1,4 @@
-/*	$OpenBSD: pfctl.c,v 1.337 2016/09/03 21:30:49 jca Exp $ */
+/*	$OpenBSD: pfctl.c,v 1.344 2017/05/30 12:13:04 henning Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -40,7 +40,6 @@
 #include <netinet/in.h>
 #include <net/pfvar.h>
 #include <arpa/inet.h>
-#include <net/hfsc.h>
 #include <sys/sysctl.h>
 
 #include <err.h>
@@ -69,9 +68,11 @@ int	 pfctl_clear_src_nodes(int, int);
 int	 pfctl_clear_states(int, const char *, int);
 void	 pfctl_addrprefix(char *, struct pf_addr *);
 int	 pfctl_kill_src_nodes(int, const char *, int);
-int	 pfctl_net_kill_states(int, const char *, int);
-int	 pfctl_label_kill_states(int, const char *, int);
-int	 pfctl_id_kill_states(int, const char *, int);
+int	 pfctl_net_kill_states(int, const char *, int, int);
+int	 pfctl_label_kill_states(int, const char *, int, int);
+int	 pfctl_id_kill_states(int, int);
+int	 pfctl_key_kill_states(int, const char *, int, int);
+int	 pfctl_parse_host(char *, struct pf_rule_addr *);
 void	 pfctl_init_options(struct pfctl *);
 int	 pfctl_load_options(struct pfctl *);
 int	 pfctl_load_limit(struct pfctl *, unsigned int, unsigned int);
@@ -231,19 +232,19 @@ struct pf_qihead qspecs = TAILQ_HEAD_INITIALIZER(qspecs);
 struct pf_qihead rootqs = TAILQ_HEAD_INITIALIZER(rootqs);
 
 
-void
+__dead void
 usage(void)
 {
 	extern char *__progname;
 
 	fprintf(stderr, "usage: %s [-deghnPqrvz] ", __progname);
-	fprintf(stderr, "[-a anchor] [-D macro=value] [-F modifier]\n");
-	fprintf(stderr, "\t[-f file] [-i interface] [-K host | network]\n");
-	fprintf(stderr, "\t[-k host | network | label | id] ");
-	fprintf(stderr, "[-L statefile] [-o level] [-p device]\n");
-	fprintf(stderr, "\t[-S statefile] [-s modifier [-R id]] ");
-	fprintf(stderr, "[-t table -T command [address ...]]\n");
-	fprintf(stderr, "\t[-x level]\n");
+	fprintf(stderr, "[-a anchor] [-D macro=value] [-F modifier]");
+	fprintf(stderr, " [-f file]\n");
+	fprintf(stderr, "\t[-i interface] [-K key] [-k key] [-L statefile]");
+	fprintf(stderr, " [-o level]\n");
+	fprintf(stderr, "\t[-p device] [-S statefile] [-s modifier [-R id]]\n");
+	fprintf(stderr, "\t[-t table -T command [address ...]]");
+	fprintf(stderr, " [-V rdomain] [-x level]\n");
 	exit(1);
 }
 
@@ -512,7 +513,7 @@ pfctl_kill_src_nodes(int dev, const char *iface, int opts)
 }
 
 int
-pfctl_net_kill_states(int dev, const char *iface, int opts)
+pfctl_net_kill_states(int dev, const char *iface, int opts, int rdomain)
 {
 	struct pfioc_state_kill psk;
 	struct addrinfo *res[2], *resp[2];
@@ -530,6 +531,8 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
 	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
 		errx(1, "invalid interface: %s", iface);
+
+	psk.psk_rdomain = rdomain;
 
 	pfctl_addrprefix(state_kill[0], &psk.psk_src.addr.v.a.mask);
 
@@ -618,7 +621,7 @@ pfctl_net_kill_states(int dev, const char *iface, int opts)
 }
 
 int
-pfctl_label_kill_states(int dev, const char *iface, int opts)
+pfctl_label_kill_states(int dev, const char *iface, int opts, int rdomain)
 {
 	struct pfioc_state_kill psk;
 
@@ -635,6 +638,8 @@ pfctl_label_kill_states(int dev, const char *iface, int opts)
 	    sizeof(psk.psk_label))
 		errx(1, "label too long: %s", state_kill[1]);
 
+	psk.psk_rdomain = rdomain;
+
 	if (ioctl(dev, DIOCKILLSTATES, &psk))
 		err(1, "DIOCKILLSTATES");
 
@@ -645,7 +650,7 @@ pfctl_label_kill_states(int dev, const char *iface, int opts)
 }
 
 int
-pfctl_id_kill_states(int dev, const char *iface, int opts)
+pfctl_id_kill_states(int dev, int opts)
 {
 	struct pfioc_state_kill psk;
 
@@ -677,6 +682,122 @@ pfctl_id_kill_states(int dev, const char *iface, int opts)
 		fprintf(stderr, "killed %d states\n", psk.psk_killed);
 
 	return (0);
+}
+
+int
+pfctl_key_kill_states(int dev, const char *iface, int opts, int rdomain)
+{
+	struct pfioc_state_kill psk;
+	char *s, *token, *tokens[4];
+	struct protoent *p;
+	u_int i, sidx, didx;
+
+	if (state_killers != 2 || (strlen(state_kill[1]) == 0)) {
+		warnx("no key specified");
+		usage();
+	}
+	memset(&psk, 0, sizeof(psk));
+
+	if (iface != NULL && strlcpy(psk.psk_ifname, iface,
+	    sizeof(psk.psk_ifname)) >= sizeof(psk.psk_ifname))
+		errx(1, "invalid interface: %s", iface);
+
+	psk.psk_rdomain = rdomain;
+
+	s = strdup(state_kill[1]);
+	if (!s)
+		errx(1, "pfctl_key_kill_states: strdup");
+	i = 0;
+	while ((token = strsep(&s, " \t")) != NULL)
+		if (*token != '\0') {
+			if (i < 4)
+				tokens[i] = token;
+			i++;
+		}
+	if (i != 4)
+		errx(1, "pfctl_key_kill_states: key must be "
+		    "\"protocol host1:port1 direction host2:port2\" format");
+
+	if ((p = getprotobyname(tokens[0])) == NULL)
+		errx(1, "invalid protocol: %s", tokens[0]);
+	psk.psk_proto = p->p_proto;
+
+	if (strcmp(tokens[2], "->") == 0) {
+		sidx = 1;
+		didx = 3;
+	} else if (strcmp(tokens[2], "<-") == 0) {
+		sidx = 3;
+		didx = 1;
+	} else
+		errx(1, "invalid direction: %s", tokens[2]);
+
+	if (pfctl_parse_host(tokens[sidx], &psk.psk_src) == -1)
+		errx(1, "invalid host: %s", tokens[sidx]);
+	if (pfctl_parse_host(tokens[didx], &psk.psk_dst) == -1)
+		errx(1, "invalid host: %s", tokens[didx]);
+
+	if (ioctl(dev, DIOCKILLSTATES, &psk))
+		err(1, "DIOCKILLSTATES");
+
+	if ((opts & PF_OPT_QUIET) == 0)
+		fprintf(stderr, "killed %d states\n", psk.psk_killed);
+
+	return (0);
+}
+
+int
+pfctl_parse_host(char *str, struct pf_rule_addr *addr)
+{
+	char *s = NULL, *sbs, *sbe;
+	struct addrinfo hints, *ai;
+	struct sockaddr_in *sin4;
+	struct sockaddr_in6 *sin6;
+
+	s = strdup(str);
+	if (!s)
+		errx(1, "pfctl_parse_host: strdup");
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_socktype = SOCK_DGRAM;	/* dummy */
+	hints.ai_flags = AI_NUMERICHOST;
+
+	if ((sbs = strchr(s, '[')) != NULL && (sbe = strrchr(s, ']')) != NULL) {
+		hints.ai_family = AF_INET6;
+		*(sbs++) = *sbe = '\0';
+	} else if ((sbs = strchr(s, ':')) != NULL) {
+		hints.ai_family = AF_INET;
+		*(sbs++) = '\0';
+	} else
+		goto error;
+
+	if (getaddrinfo(s, sbs, &hints, &ai) != 0)
+		goto error;
+
+	switch (ai->ai_family) {
+	case AF_INET:
+		sin4 = (struct sockaddr_in *)ai->ai_addr;
+		addr->addr.v.a.addr.v4 = sin4->sin_addr;
+		addr->port[0] = sin4->sin_port;
+		break;
+
+	case AF_INET6:
+		sin6 = (struct sockaddr_in6 *)ai->ai_addr;
+		addr->addr.v.a.addr.v6 = sin6->sin6_addr;
+		addr->port[0] = sin6->sin6_port;
+		break;
+	}
+	freeaddrinfo(ai);
+	free(s);
+
+	memset(&addr->addr.v.a.mask, 0xff, sizeof(struct pf_addr));
+	addr->port_op = PF_OP_EQ;
+	addr->addr.type = PF_ADDR_ADDRMASK;
+
+	return (0);
+
+ error:
+	free(s);
+	return (-1);
 }
 
 void
@@ -749,7 +870,7 @@ pfctl_show_rules(int dev, char *path, int opts, enum pfctl_show format,
 	memset(&pr, 0, sizeof(pr));
 	if (anchorname[0] == '/') {
 		if ((npath = calloc(1, PATH_MAX)) == NULL)
-			errx(1, "pfctl_rules: calloc");
+			err(1, "calloc");
 		strlcpy(npath, anchorname, PATH_MAX);
 	} else {
 		if (path[0])
@@ -1191,7 +1312,7 @@ pfctl_find_childqs(struct pfctl_qsitem *qi)
 	TAILQ_FOREACH(p, &qi->children, entries)
 		flags |= pfctl_find_childqs(p);
 
-	if (qi->qs.flags & HFSC_DEFAULTCLASS && !TAILQ_EMPTY(&qi->children))
+	if (qi->qs.flags & PFQS_DEFAULT && !TAILQ_EMPTY(&qi->children))
 		errx(1, "default queue %s is not a leaf queue", qi->qs.qname);
 
 	return (flags);
@@ -1220,7 +1341,7 @@ pfctl_load_queue(struct pfctl *pf, u_int32_t ticket, struct pfctl_qsitem *qi)
 int
 pfctl_load_queues(struct pfctl *pf)
 {
-	struct pfctl_qsitem	*qi, *tempqi, rqi;
+	struct pfctl_qsitem	*qi, *tempqi;
 	u_int32_t		 ticket;
 
 	TAILQ_FOREACH(qi, &qspecs, entries) {
@@ -1240,23 +1361,7 @@ pfctl_load_queues(struct pfctl *pf)
 
 	TAILQ_FOREACH_SAFE(qi, &rootqs, entries, tempqi) {
 		TAILQ_REMOVE(&rootqs, qi, entries);
-
-		/*
-		 * We must have a hidden root queue below the user-
-		 * specified/visible root queue, due to the way the
-		 * dequeueing works far down there... don't ask.
-		 * the _ namespace is reserved for these.
-		 */
-		bzero(&rqi, sizeof(rqi));
-		TAILQ_INIT(&rqi.children);
-		TAILQ_INSERT_TAIL(&rqi.children, qi, entries);
-		snprintf(rqi.qs.qname, PF_QNAME_SIZE, "_root_%s",
-		    qi->qs.ifname);
-		strlcpy(rqi.qs.ifname, qi->qs.ifname, sizeof(rqi.qs.ifname));
-		strlcpy(qi->qs.parent, rqi.qs.qname, sizeof(qi->qs.parent));
-
-		pfctl_load_queue(pf, ticket, &rqi);
-
+		pfctl_load_queue(pf, ticket, qi);
 		TAILQ_INSERT_HEAD(&rootqs, qi, entries);
 	}
 
@@ -1314,7 +1419,8 @@ pfctl_check_qassignments(struct pf_ruleset *rs)
 	if (rs->anchor->path[0] == 0) {
 		TAILQ_FOREACH(qi, &rootqs, entries) {
 			flags = pfctl_find_childqs(qi);
-			if (!(flags & HFSC_DEFAULTCLASS))
+			if (!(qi->qs.flags & PFQS_FLOWQUEUE) &&
+			    !(flags & PFQS_DEFAULT))
 				errx(1, "no default queue specified");
 		}
 	}
@@ -1658,7 +1764,7 @@ pfctl_load_options(struct pfctl *pf)
 			error = 1;
 
 	/*
-	 * If we've set the limit, but haven't explicitly set adaptive
+	 * If we've set the states limit, but haven't explicitly set adaptive
 	 * timeouts, do it now with a start of 60% and end of 120%.
 	 */
 	if (pf->limit_set[PF_LIMIT_STATES] &&
@@ -2107,6 +2213,7 @@ main(int argc, char *argv[])
 	int	 opts = 0;
 	int	 optimize = PF_OPTIMIZE_BASIC;
 	int	 level;
+	int	 rdomain = 0;
 	char	 anchorname[PATH_MAX];
 	int	 anchor_wildcard = 0;
 	char	*path;
@@ -2118,7 +2225,7 @@ main(int argc, char *argv[])
 		usage();
 
 	while ((ch = getopt(argc, argv,
-	    "a:dD:eqf:F:ghi:k:K:L:no:Pp:R:rS:s:t:T:vx:z")) != -1) {
+	    "a:dD:eqf:F:ghi:k:K:L:no:Pp:R:rS:s:t:T:vV:x:z")) != -1) {
 		switch (ch) {
 		case 'a':
 			anchoropt = optarg;
@@ -2223,6 +2330,13 @@ main(int argc, char *argv[])
 			if (opts & PF_OPT_VERBOSE)
 				opts |= PF_OPT_VERBOSE2;
 			opts |= PF_OPT_VERBOSE;
+			break;
+		case 'V':
+			rdomain = strtonum(optarg, 0, RT_TABLEID_MAX, &errstr);
+			if (errstr) {
+				warnx("Invalid rdomain: %s", errstr);
+				usage();
+			}
 			break;
 		case 'x':
 			debugopt = pfctl_lookup_option(optarg, debugopt_list);
@@ -2412,11 +2526,13 @@ main(int argc, char *argv[])
 	}
 	if (state_killers) {
 		if (!strcmp(state_kill[0], "label"))
-			pfctl_label_kill_states(dev, ifaceopt, opts);
+			pfctl_label_kill_states(dev, ifaceopt, opts, rdomain);
 		else if (!strcmp(state_kill[0], "id"))
-			pfctl_id_kill_states(dev, ifaceopt, opts);
+			pfctl_id_kill_states(dev, opts);
+		else if (!strcmp(state_kill[0], "key"))
+			pfctl_key_kill_states(dev, ifaceopt, opts, rdomain);
 		else
-			pfctl_net_kill_states(dev, ifaceopt, opts);
+			pfctl_net_kill_states(dev, ifaceopt, opts, rdomain);
 	}
 
 	if (src_node_killers)

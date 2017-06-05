@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmmvar.h,v 1.19 2016/09/04 08:49:18 mlarkin Exp $	*/
+/*	$OpenBSD: vmmvar.h,v 1.41 2017/05/30 20:31:24 mlarkin Exp $	*/
 /*
  * Copyright (c) 2014 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -30,10 +30,10 @@
 #define VMM_MAX_KERNEL_PATH	128
 #define VMM_MAX_VCPUS_PER_VM	64
 #define VMM_MAX_VM_MEM_SIZE	(512 * 1024)
-#define VMM_MAX_NICS_PER_VM	2
+#define VMM_MAX_NICS_PER_VM	4
 
 #define VMM_PCI_MMIO_BAR_BASE	0xF0000000
-#define VMM_PCI_MMIO_BAR_END	0xF0FFFFFF
+#define VMM_PCI_MMIO_BAR_END	0xFFFFFFFF
 #define VMM_PCI_MMIO_BAR_SIZE	0x00010000
 #define VMM_PCI_IO_BAR_BASE	0x1000
 #define VMM_PCI_IO_BAR_END	0xFFFF
@@ -101,8 +101,181 @@
 #define VMX_EXIT_XSAVES				63
 #define VMX_EXIT_XRSTORS			64
 
+/*
+ * VMX: Misc defines
+ */
+#define VMX_MAX_CR3_TARGETS			256
+
 #define VM_EXIT_TERMINATED			0xFFFE
 #define VM_EXIT_NONE				0xFFFF
+
+/*
+ * SVM: Intercept codes (exit reasons)
+ */
+#define SVM_VMEXIT_CR0_READ			0x00
+#define SVM_VMEXIT_CR1_READ			0x01
+#define SVM_VMEXIT_CR2_READ			0x02
+#define SVM_VMEXIT_CR3_READ			0x03
+#define SVM_VMEXIT_CR4_READ			0x04
+#define SVM_VMEXIT_CR5_READ			0x05
+#define SVM_VMEXIT_CR6_READ			0x06
+#define SVM_VMEXIT_CR7_READ			0x07
+#define SVM_VMEXIT_CR8_READ			0x08
+#define SVM_VMEXIT_CR9_READ			0x09
+#define SVM_VMEXIT_CR10_READ			0x0A
+#define SVM_VMEXIT_CR11_READ			0x0B
+#define SVM_VMEXIT_CR12_READ			0x0C
+#define SVM_VMEXIT_CR13_READ			0x0D
+#define SVM_VMEXIT_CR14_READ			0x0E
+#define SVM_VMEXIT_CR15_READ			0x0F
+#define SVM_VMEXIT_CR0_WRITE			0x10
+#define SVM_VMEXIT_CR1_WRITE			0x11
+#define SVM_VMEXIT_CR2_WRITE			0x12
+#define SVM_VMEXIT_CR3_WRITE			0x13
+#define SVM_VMEXIT_CR4_WRITE			0x14
+#define SVM_VMEXIT_CR5_WRITE			0x15
+#define SVM_VMEXIT_CR6_WRITE			0x16
+#define SVM_VMEXIT_CR7_WRITE			0x17
+#define SVM_VMEXIT_CR8_WRITE			0x18
+#define SVM_VMEXIT_CR9_WRITE			0x19
+#define SVM_VMEXIT_CR10_WRITE			0x1A
+#define SVM_VMEXIT_CR11_WRITE			0x1B
+#define SVM_VMEXIT_CR12_WRITE			0x1C
+#define SVM_VMEXIT_CR13_WRITE			0x1D
+#define SVM_VMEXIT_CR14_WRITE			0x1E
+#define SVM_VMEXIT_CR15_WRITE			0x1F
+#define SVM_VMEXIT_DR0_READ			0x20
+#define SVM_VMEXIT_DR1_READ			0x21
+#define SVM_VMEXIT_DR2_READ			0x22
+#define SVM_VMEXIT_DR3_READ			0x23
+#define SVM_VMEXIT_DR4_READ			0x24
+#define SVM_VMEXIT_DR5_READ			0x25
+#define SVM_VMEXIT_DR6_READ			0x26
+#define SVM_VMEXIT_DR7_READ			0x27
+#define SVM_VMEXIT_DR8_READ			0x28
+#define SVM_VMEXIT_DR9_READ			0x29
+#define SVM_VMEXIT_DR10_READ			0x2A
+#define SVM_VMEXIT_DR11_READ			0x2B
+#define SVM_VMEXIT_DR12_READ			0x2C
+#define SVM_VMEXIT_DR13_READ			0x2D
+#define SVM_VMEXIT_DR14_READ			0x2E
+#define SVM_VMEXIT_DR15_READ			0x2F
+#define SVM_VMEXIT_DR0_WRITE			0x30
+#define SVM_VMEXIT_DR1_WRITE			0x31
+#define SVM_VMEXIT_DR2_WRITE			0x32
+#define SVM_VMEXIT_DR3_WRITE			0x33
+#define SVM_VMEXIT_DR4_WRITE			0x34
+#define SVM_VMEXIT_DR5_WRITE			0x35
+#define SVM_VMEXIT_DR6_WRITE			0x36
+#define SVM_VMEXIT_DR7_WRITE			0x37
+#define SVM_VMEXIT_DR8_WRITE			0x38
+#define SVM_VMEXIT_DR9_WRITE			0x39
+#define SVM_VMEXIT_DR10_WRITE			0x3A
+#define SVM_VMEXIT_DR11_WRITE			0x3B
+#define SVM_VMEXIT_DR12_WRITE			0x3C
+#define SVM_VMEXIT_DR13_WRITE			0x3D
+#define SVM_VMEXIT_DR14_WRITE			0x3E
+#define SVM_VMEXIT_DR15_WRITE			0x3F
+#define SVM_VMEXIT_EXCP0			0x40
+#define SVM_VMEXIT_EXCP1			0x41
+#define SVM_VMEXIT_EXCP2			0x42
+#define SVM_VMEXIT_EXCP3			0x43
+#define SVM_VMEXIT_EXCP4			0x44
+#define SVM_VMEXIT_EXCP5			0x45
+#define SVM_VMEXIT_EXCP6			0x46
+#define SVM_VMEXIT_EXCP7			0x47
+#define SVM_VMEXIT_EXCP8			0x48
+#define SVM_VMEXIT_EXCP9			0x49
+#define SVM_VMEXIT_EXCP10			0x4A
+#define SVM_VMEXIT_EXCP11			0x4B
+#define SVM_VMEXIT_EXCP12			0x4C
+#define SVM_VMEXIT_EXCP13			0x4D
+#define SVM_VMEXIT_EXCP14			0x4E
+#define SVM_VMEXIT_EXCP15			0x4F
+#define SVM_VMEXIT_EXCP16			0x50
+#define SVM_VMEXIT_EXCP17			0x51
+#define SVM_VMEXIT_EXCP18			0x52
+#define SVM_VMEXIT_EXCP19			0x53
+#define SVM_VMEXIT_EXCP20			0x54
+#define SVM_VMEXIT_EXCP21			0x55
+#define SVM_VMEXIT_EXCP22			0x56
+#define SVM_VMEXIT_EXCP23			0x57
+#define SVM_VMEXIT_EXCP24			0x58
+#define SVM_VMEXIT_EXCP25			0x59
+#define SVM_VMEXIT_EXCP26			0x5A
+#define SVM_VMEXIT_EXCP27			0x5B
+#define SVM_VMEXIT_EXCP28			0x5C
+#define SVM_VMEXIT_EXCP29			0x5D
+#define SVM_VMEXIT_EXCP30			0x5E
+#define SVM_VMEXIT_EXCP31			0x5F
+#define SVM_VMEXIT_INTR				0x60
+#define SVM_VMEXIT_NMI				0x61
+#define SVM_VMEXIT_SMI				0x62
+#define SVM_VMEXIT_INIT				0x63
+#define SVM_VMEXIT_VINTR			0x64
+#define SVM_VMEXIT_CR0_SEL_WRITE		0x65
+#define SVM_VMEXIT_IDTR_READ			0x66
+#define SVM_VMEXIT_GDTR_READ			0x67
+#define SVM_VMEXIT_LDTR_READ			0x68
+#define SVM_VMEXIT_TR_READ			0x69
+#define SVM_VMEXIT_IDTR_WRITE			0x6A
+#define SVM_VMEXIT_GDTR_WRITE			0x6B
+#define SVM_VMEXIT_LDTR_WRITE			0x6C
+#define SVM_VMEXIT_TR_WRITE			0x6D
+#define SVM_VMEXIT_RDTSC			0x6E
+#define SVM_VMEXIT_RDPMC			0x6F
+#define SVM_VMEXIT_PUSHF			0x70
+#define SVM_VMEXIT_POPF				0x71
+#define SVM_VMEXIT_CPUID			0x72
+#define SVM_VMEXIT_RSM				0x73
+#define SVM_VMEXIT_IRET				0x74
+#define SVM_VMEXIT_SWINT			0x75
+#define SVM_VMEXIT_INVD				0x76
+#define SVM_VMEXIT_PAUSE			0x77
+#define SVM_VMEXIT_HLT				0x78
+#define SVM_VMEXIT_INVLPG			0x79
+#define SVM_VMEXIT_INVLPGA			0x7A
+#define SVM_VMEXIT_IOIO				0x7B
+#define SVM_VMEXIT_MSR				0x7C
+#define SVM_VMEXIT_TASK_SWITCH			0x7D
+#define SVM_VMEXIT_FERR_FREEZE			0x7E
+#define SVM_VMEXIT_SHUTDOWN			0x7F
+#define SVM_VMEXIT_VMRUN			0x80
+#define SVM_VMEXIT_VMMCALL			0x81
+#define SVM_VMEXIT_VMLOAD			0x82
+#define SVM_VMEXIT_VMSAVE			0x83
+#define SVM_VMEXIT_STGI				0x84
+#define SVM_VMEXIT_CLGI				0x85
+#define SVM_VMEXIT_SKINIT			0x86
+#define SVM_VMEXIT_RDTSCP			0x87
+#define SVM_VMEXIT_ICEBP			0x88
+#define SVM_VMEXIT_WBINVD			0x89
+#define SVM_VMEXIT_MONITOR			0x8A
+#define SVM_VMEXIT_MWAIT			0x8B
+#define SVM_VMEXIT_MWAIT_CONDITIONAL		0x8C
+#define SVM_VMEXIT_XSETBV			0x8D
+#define SVM_VMEXIT_EFER_WRITE_TRAP		0x8F
+#define SVM_VMEXIT_CR0_WRITE_TRAP		0x90
+#define SVM_VMEXIT_CR1_WRITE_TRAP		0x91
+#define SVM_VMEXIT_CR2_WRITE_TRAP		0x92
+#define SVM_VMEXIT_CR3_WRITE_TRAP		0x93
+#define SVM_VMEXIT_CR4_WRITE_TRAP		0x94
+#define SVM_VMEXIT_CR5_WRITE_TRAP		0x95
+#define SVM_VMEXIT_CR6_WRITE_TRAP		0x96
+#define SVM_VMEXIT_CR7_WRITE_TRAP		0x97
+#define SVM_VMEXIT_CR8_WRITE_TRAP		0x98
+#define SVM_VMEXIT_CR9_WRITE_TRAP		0x99
+#define SVM_VMEXIT_CR10_WRITE_TRAP		0x9A
+#define SVM_VMEXIT_CR11_WRITE_TRAP		0x9B
+#define SVM_VMEXIT_CR12_WRITE_TRAP		0x9C
+#define SVM_VMEXIT_CR13_WRITE_TRAP		0x9D
+#define SVM_VMEXIT_CR14_WRITE_TRAP		0x9E
+#define SVM_VMEXIT_CR15_WRITE_TRAP		0x9F
+#define SVM_VMEXIT_NPF				0x400
+#define SVM_AVIC_INCOMPLETE_IPI			0x401
+#define SVM_AVIC_NOACCEL			0x402
+#define SVM_VMEXIT_VMGEXIT			0x403
+#define SVM_VMEXIT_INVALID			-1
 
 /*
  * VCPU state values. Note that there is a conversion function in vmm.c
@@ -176,7 +349,8 @@ struct vcpu_segment_info {
 #define VCPU_REGS_CR3	2
 #define VCPU_REGS_CR4	3
 #define VCPU_REGS_CR8	4
-#define VCPU_REGS_NCRS	(VCPU_REGS_CR8 + 1)
+#define VCPU_REGS_XCR0	5
+#define VCPU_REGS_NCRS	(VCPU_REGS_XCR0 + 1)
 
 #define VCPU_REGS_CS		0
 #define VCPU_REGS_DS		1
@@ -188,9 +362,18 @@ struct vcpu_segment_info {
 #define VCPU_REGS_TR		7
 #define VCPU_REGS_NSREGS	(VCPU_REGS_TR + 1)
 
+#define VCPU_REGS_EFER   	0
+#define VCPU_REGS_STAR   	1
+#define VCPU_REGS_LSTAR  	2
+#define VCPU_REGS_CSTAR  	3
+#define VCPU_REGS_SFMASK 	4
+#define VCPU_REGS_KGSBASE	5
+#define VCPU_REGS_NMSRS	(VCPU_REGS_KGSBASE + 1)
+
 struct vcpu_reg_state {
 	uint64_t			vrs_gprs[VCPU_REGS_NGPRS];
 	uint64_t			vrs_crs[VCPU_REGS_NCRS];
+	uint64_t			vrs_msrs[VCPU_REGS_NMSRS];
 	struct vcpu_segment_info	vrs_sregs[VCPU_REGS_NSREGS];
 	struct vcpu_segment_info	vrs_gdtr;
 	struct vcpu_segment_info	vrs_idtr;
@@ -275,7 +458,9 @@ struct vm_intr_params {
 #define VM_RWREGS_GPRS	0x1	/* read/write GPRs */
 #define VM_RWREGS_SREGS	0x2	/* read/write segment registers */
 #define VM_RWREGS_CRS	0x4	/* read/write CRs */
-#define VM_RWREGS_ALL	(VM_RWREGS_GPRS | VM_RWREGS_SREGS | VM_RWREGS_CRS)
+#define VM_RWREGS_MSRS	0x8	/* read/write MSRs */
+#define VM_RWREGS_ALL	(VM_RWREGS_GPRS | VM_RWREGS_SREGS | VM_RWREGS_CRS | \
+    VM_RWREGS_MSRS)
 
 struct vm_rwregs_params {
 	uint32_t		vrwp_vm_id;
@@ -300,11 +485,15 @@ struct vm_rwregs_params {
 #define VMX_FAIL_LAUNCH_INVALID_VMCS 2
 #define VMX_FAIL_LAUNCH_VALID_VMCS 3
 
-#define VMX_NUM_MSR_STORE 7
+#define VMX_NUM_MSR_STORE 6
 
 /* MSR bitmap manipulation macros */
-#define MSRIDX(m) ((m) / 8)
-#define MSRBIT(m) (1 << (m) % 8)
+#define VMX_MSRIDX(m) ((m) / 8)
+#define VMX_MSRBIT(m) (1 << (m) % 8)
+
+#define SVM_MSRIDX(m) ((m) / 4)
+#define SVM_MSRBIT_R(m) (1 << (((m) % 4) * 2))
+#define SVM_MSRBIT_W(m) (1 << (((m) % 4) * 2 + 1))
 
 enum {
 	VMM_MODE_UNKNOWN,
@@ -325,7 +514,110 @@ struct vm;
 /*
  * Implementation-specific cpu state
  */
+
+struct vmcb_segment {
+	uint16_t 			vs_sel;			/* 000h */
+	uint16_t 			vs_attr;		/* 002h */
+	uint32_t			vs_lim;			/* 004h */
+	uint64_t			vs_base;		/* 008h */
+};
+
 struct vmcb {
+	union {
+		struct {
+			uint32_t	v_cr_rw;		/* 000h */
+			uint32_t	v_dr_rw;		/* 004h */
+			uint32_t	v_excp;			/* 008h */
+			uint32_t	v_intercept1;		/* 00Ch */
+			uint32_t	v_intercept2;		/* 010h */
+			uint8_t		v_pad1[0x28];		/* 014h-03Bh */
+			uint16_t	v_pause_thr;		/* 03Ch */
+			uint16_t	v_pause_ct;		/* 03Eh */
+			uint64_t	v_iopm_pa;		/* 040h */
+			uint64_t	v_msrpm_pa;		/* 048h */
+			uint64_t	v_tsc_offset;		/* 050h */
+			uint32_t	v_asid;			/* 058h */
+			uint8_t		v_tlb_control;		/* 05Ch */
+			uint8_t		v_pad2[0x3];		/* 05Dh-05Fh */
+			uint8_t		v_tpr;			/* 060h */
+			uint8_t		v_irq;			/* 061h */
+			uint8_t		v_intr_misc;		/* 062h */
+			uint8_t		v_intr_masking;		/* 063h */
+			uint8_t		v_intr_vector;		/* 064h */
+			uint8_t		v_pad3[0x3];		/* 065h-067h */
+			uint64_t	v_intr_shadow;		/* 068h */
+			uint64_t	v_exitcode;		/* 070h */
+			uint64_t	v_exitinfo1;		/* 078h */
+			uint64_t	v_exitinfo2;		/* 080h */
+			uint64_t	v_exitintinfo;		/* 088h */
+			uint64_t	v_np_enable;		/* 090h */
+			uint64_t	v_avic_apic_bar;	/* 098h */
+			uint64_t	v_pad4;			/* 0A0h */
+			uint64_t	v_eventinj;		/* 0A8h */
+			uint64_t	v_n_cr3;		/* 0B0h */
+			uint64_t	v_lbr_virt_enable;	/* 0B8h */
+			uint64_t	v_vmcb_clean_bits;	/* 0C0h */
+			uint64_t	v_nrip;			/* 0C8h */
+			uint8_t		v_n_bytes_fetched;	/* 0D0h */
+			uint8_t		v_guest_ins_bytes[0xf];	/* 0D1h-0DFh */
+			uint64_t	v_avic_apic_back_page;	/* 0E0h */
+			uint64_t	v_pad5;			/* 0E8h-0EFh */
+			uint64_t	v_avic_logical_table;	/* 0F0h */
+			uint64_t	v_avic_phys;		/* 0F8h */
+			
+		};
+		uint8_t vmcb_control[0x400];
+	};
+
+	union {
+		struct {
+			/* Offsets here are relative to start of VMCB SSA */
+			struct vmcb_segment	v_es;		/* 000h */
+			struct vmcb_segment	v_cs;		/* 010h */
+			struct vmcb_segment	v_ss;		/* 020h */
+			struct vmcb_segment	v_ds;		/* 030h */
+			struct vmcb_segment	v_fs;		/* 040h */
+			struct vmcb_segment	v_gs;		/* 050h */
+			struct vmcb_segment	v_gdtr;		/* 060h */
+			struct vmcb_segment	v_ldtr;		/* 070h */
+			struct vmcb_segment	v_idtr;		/* 080h */
+			struct vmcb_segment	v_tr;		/* 090h */
+			uint8_t 		v_pad6[0x2B];	/* 0A0h-0CAh */
+			uint8_t			v_cpl;		/* 0CBh */
+			uint32_t		v_pad7;		/* 0CCh-0CFh */
+			uint64_t		v_efer;		/* 0D0h */
+			uint8_t			v_pad8[0x70];	/* 0D8h-147h */
+			uint64_t		v_cr4;		/* 148h */
+			uint64_t		v_cr3;		/* 150h */
+			uint64_t		v_cr0;		/* 158h */
+			uint64_t		v_dr7;		/* 160h */
+			uint64_t		v_dr6;		/* 168h */
+			uint64_t		v_rflags;	/* 170h */
+			uint64_t		v_rip;		/* 178h */
+			uint64_t		v_pad9[0xB];	/* 180h-1D7h */
+			uint64_t		v_rsp;		/* 1D8h */
+			uint64_t		v_pad10[0x3];	/* 1E0h-1F7h */
+			uint64_t		v_rax;		/* 1F8h */
+			uint64_t		v_star;		/* 200h */
+			uint64_t		v_lstar;	/* 208h */
+			uint64_t		v_cstar;	/* 210h */
+			uint64_t		v_sfmask;	/* 218h */
+			uint64_t		v_kgsbase;	/* 220h */
+			uint64_t		v_sysenter_cs;	/* 228h */
+			uint64_t		v_sysenter_esp;	/* 230h */
+			uint64_t		v_sysenter_eip;	/* 238h */
+			uint64_t		v_cr2;		/* 240h */
+			uint64_t		v_pad11[0x4];	/* 248h-267h */
+			uint64_t		v_g_pat;	/* 268h */
+			uint64_t		v_dbgctl;	/* 270h */
+			uint64_t		v_br_from;	/* 278h */
+			uint64_t		v_br_to;	/* 280h */
+			uint64_t		v_lastexcpfrom;	/* 288h */
+			uint64_t		v_lastexcpto;	/* 290h */
+		};
+
+		uint8_t vmcb_layout[PAGE_SIZE - 0x400];
+	};
 };
 
 struct vmcs {
@@ -334,7 +626,7 @@ struct vmcs {
 
 struct vmx_invvpid_descriptor
 {
-	uint64_t	vid_vpid; // : 16;
+	uint64_t	vid_vpid;
 	uint64_t	vid_addr;
 };
 
@@ -346,7 +638,7 @@ struct vmx_invept_descriptor
 
 struct vmx_msr_store
 {
-	uint64_t	vms_index : 32;
+	uint64_t	vms_index;
 	uint64_t	vms_data;
 };
 
@@ -354,10 +646,10 @@ struct vmx_msr_store
  * Storage for guest registers not preserved in VMCS and various exit
  * information.
  *
- * Note that vmx_enter_guest depends on the layout of this struct for
+ * Note that vmx/svm_enter_guest depend on the layout of this struct for
  * field access.
  */
-struct vmx_gueststate
+struct vcpu_gueststate
 {
 	/* %rsi should be first */
 	uint64_t	vg_rsi;			/* 0x00 */
@@ -379,6 +671,7 @@ struct vmx_gueststate
 	uint64_t	vg_rip;			/* 0x80 */
 	uint32_t	vg_exit_reason;		/* 0x88 */
 	uint64_t	vg_rflags;		/* 0x90 */
+	uint64_t	vg_xcr0;		/* 0x98 */
 };
 
 /*
@@ -390,6 +683,12 @@ struct vm;
  * Virtual CPU
  */
 struct vcpu {
+	/*
+	 * Guest FPU state - this must remain as the first member of the struct
+	 * to ensure 64-byte alignment (set up during vcpu_pool init)
+	 */
+	struct savefpu vc_g_fpu;
+
 	/* VMCS / VMCB pointer */
 	vaddr_t vc_control_va;
 	uint64_t vc_control_pa;
@@ -404,9 +703,9 @@ struct vcpu {
 
 	struct vm *vc_parent;
 	uint32_t vc_id;
+	uint16_t vc_vpid;
 	u_int vc_state;
 	SLIST_ENTRY(vcpu) vc_vcpu_link;
-	vaddr_t vc_hsa_stack_va;
 
 	uint8_t vc_virt_mode;
 
@@ -415,6 +714,14 @@ struct vcpu {
 
 	uint16_t vc_intr;
 	uint8_t vc_irqready;
+
+	uint8_t vc_fpuinited;
+
+	uint64_t vc_h_xcr0;
+
+	struct vcpu_gueststate vc_gueststate;
+
+	uint8_t vc_event;
 
 	/* VMX only */
 	uint64_t vc_vmx_basic;
@@ -427,13 +734,19 @@ struct vcpu {
 	uint64_t vc_vmx_procbased_ctls;
 	uint64_t vc_vmx_true_procbased_ctls;
 	uint64_t vc_vmx_procbased2_ctls;
-	struct vmx_gueststate vc_gueststate;
 	vaddr_t vc_vmx_msr_exit_save_va;
 	paddr_t vc_vmx_msr_exit_save_pa;
 	vaddr_t vc_vmx_msr_exit_load_va;
 	paddr_t vc_vmx_msr_exit_load_pa;
 	vaddr_t vc_vmx_msr_entry_load_va;
 	paddr_t vc_vmx_msr_entry_load_pa;
+	uint8_t vc_vmx_vpid_enabled;
+
+	/* SVM only */
+	vaddr_t vc_svm_hsa_va;
+	paddr_t vc_svm_hsa_pa;
+	vaddr_t vc_svm_ioio_va;
+	paddr_t vc_svm_ioio_pa;
 };
 
 SLIST_HEAD(vcpu_head, vcpu);
@@ -448,7 +761,9 @@ int	vmwrite(uint64_t, uint64_t);
 int	vmread(uint64_t, uint64_t *);
 void	invvpid(uint64_t, struct vmx_invvpid_descriptor *);
 void	invept(uint64_t, struct vmx_invept_descriptor *);
-int	vmx_enter_guest(uint64_t *, struct vmx_gueststate *, int);
+int	vmx_enter_guest(uint64_t *, struct vcpu_gueststate *, int);
+int	svm_enter_guest(uint64_t, struct vcpu_gueststate *,
+    struct region_descriptor *);
 void	start_vmm_on_cpu(struct cpu_info *);
 void	stop_vmm_on_cpu(struct cpu_info *);
 

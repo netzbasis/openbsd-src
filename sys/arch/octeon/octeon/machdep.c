@@ -1,4 +1,4 @@
-/*	$OpenBSD: machdep.c,v 1.75 2016/08/14 08:23:52 visa Exp $ */
+/*	$OpenBSD: machdep.c,v 1.88 2017/04/30 16:45:45 mpi Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Miodrag Vallat.
@@ -96,10 +96,13 @@ struct uvm_constraint_range *uvm_md_constraints[] = { NULL };
 vm_map_t exec_map;
 vm_map_t phys_map;
 
+extern uint8_t dt_blob_start[];
+
 struct boot_desc *octeon_boot_desc;
 struct boot_info *octeon_boot_info;
 
-void *octeon_fdt;
+void		*octeon_fdt;
+unsigned int	 octeon_ver;
 
 char uboot_rootdev[OCTEON_ARGV_MAX];
 
@@ -197,6 +200,10 @@ octeon_memory_init(struct boot_info *boot_info)
 		if (fp >= lp)
 			continue;
 
+		/* Skip small fragments. */
+		if (lp - fp < atop(1u << 20))
+			continue;
+
 		mem_layout[i].mem_first_page = fp;
 		mem_layout[i].mem_last_page = lp;
 		i++;
@@ -271,6 +278,22 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 	prid = cp0_get_prid();
 
 	bootcpu_hwinfo.clock = boot_desc->eclock;
+
+	switch ((prid >> 8) & 0xff) {
+	default:
+		octeon_ver = OCTEON_1;
+		break;
+	case MIPS_CN50XX:
+		octeon_ver = OCTEON_PLUS;
+		break;
+	case MIPS_CN61XX:
+		octeon_ver = OCTEON_2;
+		break;
+	case MIPS_CN71XX:
+	case MIPS_CN73XX:
+		octeon_ver = OCTEON_3;
+		break;
+	}
 
 	/*
 	 * Look at arguments passed to us and compute boothowto.
@@ -375,7 +398,8 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 			memcpy(octeon_fdt, fdt, fdt_size);
 			fdt_init(octeon_fdt);
 		}
-	}
+	} else
+		fdt_init(dt_blob_start);
 
 	/*
 	 * Get a console, very early but after initial mapping setup.
@@ -489,7 +513,7 @@ mips_init(__register_t a0, __register_t a1, __register_t a2 __unused,
 #ifdef DDB
 	db_machine_init();
 	if (boothowto & RB_KDB)
-		Debugger();
+		db_enter();
 #endif
 
 #ifdef MULTIPROCESSOR
@@ -532,7 +556,7 @@ cpu_startup()
 	/*
 	 * Good {morning,afternoon,evening,night}.
 	 */
-	printf(version);
+	printf("%s", version);
 	printf("real mem = %lu (%luMB)\n", ptoa((psize_t)physmem),
 	    ptoa((psize_t)physmem)/1024/1024);
 
@@ -579,16 +603,17 @@ int
 octeon_ioclock_speed(void)
 {
 	extern struct boot_info *octeon_boot_info;
-	int chipid;
-	u_int64_t mio_rst_boot;
+	u_int64_t mio_rst_boot, rst_boot;
 
-	chipid = octeon_get_chipid();
-	switch (octeon_model_family(chipid)) {
-	case OCTEON_MODEL_FAMILY_CN61XX:
+	switch (octeon_ver) {
+	case OCTEON_2:
 		mio_rst_boot = octeon_xkphys_read_8(MIO_RST_BOOT);
 		return OCTEON_IO_REF_CLOCK * ((mio_rst_boot >>
 		    MIO_RST_BOOT_PNR_MUL_SHIFT) & MIO_RST_BOOT_PNR_MUL_MASK);
-		break;
+	case OCTEON_3:
+		rst_boot = octeon_xkphys_read_8(RST_BOOT);
+		return OCTEON_IO_REF_CLOCK * ((rst_boot >>
+		    RST_BOOT_PNR_MUL_SHIFT) & RST_BOOT_PNR_MUL_MASK);
 	default:
 		return octeon_boot_info->eclock;
 	}
@@ -597,7 +622,19 @@ octeon_ioclock_speed(void)
 void
 octeon_tlb_init(void)
 {
+	uint32_t hwrena = 0;
 	uint32_t pgrain = 0;
+
+	/*
+	 * If the UserLocal register is available, let userspace
+	 * access it using the RDHWR instruction.
+	 */
+	if (cp0_get_config_3() & CONFIG3_ULRI) {
+		cp0_set_userlocal(NULL);
+		hwrena |= HWRENA_ULR;
+		cpu_has_userlocal = 1;
+	}
+	cp0_set_hwrena(hwrena);
 
 #ifdef MIPS_PTE64
 	pgrain |= PGRAIN_ELPA;
@@ -630,12 +667,10 @@ process_bootargs(void)
 	extern struct boot_desc *octeon_boot_desc;
 
 	/*
-	 * The kernel is booted via a bootoctlinux command. Thus we need to skip
-	 * argv[0] when we start to decode the boot arguments (${bootargs}).
-	 * Note that U-Boot doesn't pass us anything by default, we need to
-	 * explicitly pass the rootdevice.
+	 * U-Boot doesn't pass us anything by default, we need to explicitly
+	 * pass the rootdevice.
 	 */
-	for (i = 1; i < octeon_boot_desc->argc; i++ ) {
+	for (i = 0; i < octeon_boot_desc->argc; i++ ) {
 		const char *arg = (const char*)
 		    PHYS_TO_XKPHYS(octeon_boot_desc->argv[i], CCA_CACHED);
 
@@ -648,7 +683,7 @@ process_bootargs(void)
 
 		/*
 		 * XXX: We currently only expect one other argument,
-		 * argv[1], rootdev=ROOTDEV.
+		 * rootdev=ROOTDEV.
 		 */
 		if (strncmp(arg, "rootdev=", 8) == 0) {
 			if (*uboot_rootdev == '\0') {
@@ -664,14 +699,8 @@ process_bootargs(void)
  * Machine dependent system variables.
  */
 int
-cpu_sysctl(name, namelen, oldp, oldlenp, newp, newlen, p)
-	int *name;
-	u_int namelen;
-	void *oldp;
-	size_t *oldlenp;
-	void *newp;
-	size_t newlen;
-	struct proc *p;
+cpu_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp, void *newp,
+    size_t newlen, struct proc *p)
 {
 	/* All sysctl names at this level are terminal. */
 	if (namelen != 1)
@@ -731,10 +760,16 @@ haltsys:
 		(void)disableintr();
 		tlb_set_wired(0);
 		tlb_flush(bootcpu_hwinfo.tlbsize);
-		octeon_xkphys_write_8(OCTEON_CIU_BASE + CIU_SOFT_RST, 1);
+
+		if (octeon_ver == OCTEON_3)
+			octeon_xkphys_write_8(RST_SOFT_RST, 1);
+		else
+			octeon_xkphys_write_8(OCTEON_CIU_BASE +
+			    CIU_SOFT_RST, 1);
 	}
 
-	for (;;) ;
+	for (;;)
+		continue;
 	/* NOTREACHED */
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: xhci.c,v 1.66 2015/12/02 09:23:23 mpi Exp $ */
+/* $OpenBSD: xhci.c,v 1.72 2017/03/10 11:18:48 mpi Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -75,7 +75,6 @@ struct xhci_pipe {
 
 int	xhci_reset(struct xhci_softc *);
 int	xhci_intr1(struct xhci_softc *);
-void	xhci_waitintr(struct xhci_softc *, struct usbd_xfer *);
 void	xhci_event_dequeue(struct xhci_softc *);
 void	xhci_event_xfer(struct xhci_softc *, uint64_t, uint32_t, uint32_t);
 void	xhci_event_command(struct xhci_softc *, uint64_t);
@@ -243,7 +242,8 @@ usbd_dma_contig_alloc(struct usbd_bus *bus, struct usbd_dma_info *dma,
 	if (error != 0)
 		goto unmap;
 
-	bus_dmamap_sync(dma->tag, dma->map, 0, size, BUS_DMASYNC_PREWRITE);
+	bus_dmamap_sync(dma->tag, dma->map, 0, size, BUS_DMASYNC_PREREAD |
+	    BUS_DMASYNC_PREWRITE);
 
 	dma->paddr = dma->map->dm_segs[0].ds_addr;
 	if (kvap != NULL)
@@ -311,9 +311,8 @@ xhci_init(struct xhci_softc *sc)
 			    DEVNAME(sc));
 			return (ENOMEM);
 		}
-		pool_init(xhcixfer, sizeof(struct xhci_xfer), 0, 0, 0,
-		    "xhcixfer", NULL);
-		pool_setipl(xhcixfer, IPL_SOFTUSB);
+		pool_init(xhcixfer, sizeof(struct xhci_xfer), 0, IPL_SOFTUSB,
+		    0, "xhcixfer", NULL);
 	}
 
 	hcr = XREAD4(sc, XHCI_HCCPARAMS);
@@ -377,7 +376,7 @@ xhci_init(struct xhci_softc *sc)
 	sc->sc_erst.segs[0].er_size = htole32(XHCI_MAX_EVTS);
 	sc->sc_erst.segs[0].er_rsvd = 0;
 	bus_dmamap_sync(sc->sc_erst.dma.tag, sc->sc_erst.dma.map, 0,
-	    sc->sc_erst.dma.size, BUS_DMASYNC_PREWRITE);
+	    sc->sc_erst.dma.size, BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	/* Get the number of scratch pages and configure them if necessary. */
 	hcr = XREAD4(sc, XHCI_HCSPARAMS2);
@@ -634,26 +633,6 @@ xhci_poll(struct usbd_bus *bus)
 }
 
 void
-xhci_waitintr(struct xhci_softc *sc, struct usbd_xfer *xfer)
-{
-	int timo;
-
-	for (timo = xfer->timeout; timo >= 0; timo--) {
-		usb_delay_ms(&sc->sc_bus, 1);
-		if (sc->sc_bus.dying)
-			break;
-
-		if (xfer->status != USBD_IN_PROGRESS)
-			return;
-
-		xhci_intr1(sc);
-	}
-
-	xfer->status = USBD_TIMEOUT;
-	usb_transfer_complete(xfer);
-}
-
-void
 xhci_softintr(void *v)
 {
 	struct xhci_softc *sc = v;
@@ -830,6 +809,10 @@ xhci_event_command(struct xhci_softc *sc, uint64_t paddr)
 	}
 
 	trb = &sc->sc_cmd_ring.trbs[trb_idx];
+
+	bus_dmamap_sync(sc->sc_cmd_ring.dma.tag, sc->sc_cmd_ring.dma.map,
+	    TRBOFF(&sc->sc_cmd_ring, trb), sizeof(struct xhci_trb),
+	    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 
 	flags = letoh32(trb->trb_flags);
 
@@ -1089,9 +1072,10 @@ xhci_context_setup(struct xhci_softc *sc, struct usbd_pipe *pipe)
 	struct xhci_pipe *xp = (struct xhci_pipe *)pipe;
 	struct xhci_soft_dev *sdev = &sc->sc_sdevs[xp->slot];
 	usb_endpoint_descriptor_t *ed = pipe->endpoint->edesc;
+	uint32_t mps = UE_GET_SIZE(UGETW(ed->wMaxPacketSize));
 	uint8_t xfertype = UE_GET_XFERTYPE(ed->bmAttributes);
 	uint8_t ival, speed, cerr = 0;
-	uint32_t mps, route = 0, rhport = 0;
+	uint32_t route = 0, rhport = 0;
 	struct usbd_device *hub;
 
 	/*
@@ -1113,29 +1097,22 @@ xhci_context_setup(struct xhci_softc *sc, struct usbd_pipe *pipe)
 	case USB_SPEED_LOW:
 		ival= 3;
 		speed = XHCI_SPEED_LOW;
-		mps = 8;
 		break;
 	case USB_SPEED_FULL:
 		ival = 3;
 		speed = XHCI_SPEED_FULL;
-		mps = 8;
 		break;
 	case USB_SPEED_HIGH:
 		ival = min(3, ed->bInterval);
 		speed = XHCI_SPEED_HIGH;
-		mps = 64;
 		break;
 	case USB_SPEED_SUPER:
 		ival = min(3, ed->bInterval);
 		speed = XHCI_SPEED_SUPER;
-		mps = 512;
 		break;
 	default:
 		return;
 	}
-
-	/* XXX Until we fix wMaxPacketSize for ctrl ep depending on the speed */
-	mps = max(mps, UE_GET_SIZE(UGETW(ed->wMaxPacketSize)));
 
 	if (pipe->interval != USBD_DEFAULT_INTERVAL)
 		ival = min(ival, pipe->interval);
@@ -1215,7 +1192,7 @@ xhci_context_setup(struct xhci_softc *sc, struct usbd_pipe *pipe)
 	sdev->input_ctx->add_flags |= htole32(XHCI_INCTX_MASK_DCI(0));
 
 	bus_dmamap_sync(sdev->ictx_dma.tag, sdev->ictx_dma.map, 0,
-	    sc->sc_pagesize, BUS_DMASYNC_PREWRITE);
+	    sc->sc_pagesize, BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 }
 
 int
@@ -1296,7 +1273,7 @@ xhci_pipe_close(struct usbd_pipe *pipe)
 	memset(sdev->ep_ctx[xp->dci - 1], 0, sizeof(struct xhci_epctx));
 
 	bus_dmamap_sync(sdev->ictx_dma.tag, sdev->ictx_dma.map, 0,
-	    sc->sc_pagesize, BUS_DMASYNC_PREWRITE);
+	    sc->sc_pagesize, BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	if (xhci_cmd_configure_ep(sc, xp->slot, sdev->ictx_dma.paddr))
 		DPRINTF(("%s: error clearing ep (%d)\n", DEVNAME(sc), xp->dci));
@@ -1398,12 +1375,13 @@ xhci_scratchpad_alloc(struct xhci_softc *sc, int npage)
 	}
 
 	bus_dmamap_sync(sc->sc_spad.table_dma.tag, sc->sc_spad.table_dma.map, 0,
-	    npage * sizeof(uint64_t), BUS_DMASYNC_PREWRITE);
+	    npage * sizeof(uint64_t), BUS_DMASYNC_PREREAD |
+	    BUS_DMASYNC_PREWRITE);
 
 	/*  Entry 0 points to the table of scratchpad pointers. */
 	sc->sc_dcbaa.segs[0] = htole64(sc->sc_spad.table_dma.paddr);
 	bus_dmamap_sync(sc->sc_dcbaa.dma.tag, sc->sc_dcbaa.dma.map, 0,
-	    sizeof(uint64_t), BUS_DMASYNC_PREWRITE);
+	    sizeof(uint64_t), BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	sc->sc_spad.npage = npage;
 
@@ -1415,7 +1393,7 @@ xhci_scratchpad_free(struct xhci_softc *sc)
 {
 	sc->sc_dcbaa.segs[0] = 0;
 	bus_dmamap_sync(sc->sc_dcbaa.dma.tag, sc->sc_dcbaa.dma.map, 0,
-	    sizeof(uint64_t), BUS_DMASYNC_PREWRITE);
+	    sizeof(uint64_t), BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 
 	usbd_dma_contig_free(&sc->sc_bus, &sc->sc_spad.pages_dma);
 	usbd_dma_contig_free(&sc->sc_bus, &sc->sc_spad.table_dma);
@@ -1469,9 +1447,11 @@ xhci_ring_reset(struct xhci_softc *sc, struct xhci_ring *ring)
 
 		trb->trb_paddr = htole64(ring->dma.paddr);
 		trb->trb_flags = htole32(XHCI_TRB_TYPE_LINK | XHCI_TRB_LINKSEG);
-	}
-	bus_dmamap_sync(ring->dma.tag, ring->dma.map, 0, size,
-	    BUS_DMASYNC_PREWRITE);
+		bus_dmamap_sync(ring->dma.tag, ring->dma.map, 0, size,
+		    BUS_DMASYNC_PREWRITE);
+	} else
+		bus_dmamap_sync(ring->dma.tag, ring->dma.map, 0, size,
+		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 }
 
 struct xhci_trb*
@@ -1506,7 +1486,8 @@ xhci_ring_produce(struct xhci_softc *sc, struct xhci_ring *ring)
 	KASSERT(ring->index < ring->ntrb);
 
 	bus_dmamap_sync(ring->dma.tag, ring->dma.map, TRBOFF(ring, trb),
-	    sizeof(struct xhci_trb), BUS_DMASYNC_POSTREAD);
+	    sizeof(struct xhci_trb), BUS_DMASYNC_POSTREAD |
+	    BUS_DMASYNC_POSTWRITE);
 
 	ring->index++;
 
@@ -1515,7 +1496,8 @@ xhci_ring_produce(struct xhci_softc *sc, struct xhci_ring *ring)
 		struct xhci_trb *lnk = &ring->trbs[ring->index];
 
 		bus_dmamap_sync(ring->dma.tag, ring->dma.map, TRBOFF(ring, lnk),
-		    sizeof(struct xhci_trb), BUS_DMASYNC_POSTREAD);
+		    sizeof(struct xhci_trb), BUS_DMASYNC_POSTREAD |
+		    BUS_DMASYNC_POSTWRITE);
 
 		lnk->trb_flags ^= htole32(XHCI_TRB_CYCLE);
 
@@ -1814,7 +1796,8 @@ xhci_softdev_alloc(struct xhci_softc *sc, uint8_t slot)
 
 	sc->sc_dcbaa.segs[slot] = htole64(sdev->octx_dma.paddr);
 	bus_dmamap_sync(sc->sc_dcbaa.dma.tag, sc->sc_dcbaa.dma.map,
-	    slot * sizeof(uint64_t), sizeof(uint64_t), BUS_DMASYNC_PREWRITE);
+	    slot * sizeof(uint64_t), sizeof(uint64_t), BUS_DMASYNC_PREREAD |
+	    BUS_DMASYNC_PREWRITE);
 
 	return (0);
 }
@@ -1826,7 +1809,8 @@ xhci_softdev_free(struct xhci_softc *sc, uint8_t slot)
 
 	sc->sc_dcbaa.segs[slot] = 0;
 	bus_dmamap_sync(sc->sc_dcbaa.dma.tag, sc->sc_dcbaa.dma.map,
-	    slot * sizeof(uint64_t), sizeof(uint64_t), BUS_DMASYNC_PREWRITE);
+	    slot * sizeof(uint64_t), sizeof(uint64_t), BUS_DMASYNC_PREREAD |
+	    BUS_DMASYNC_PREWRITE);
 
 	usbd_dma_contig_free(&sc->sc_bus, &sdev->octx_dma);
 	usbd_dma_contig_free(&sc->sc_bus, &sdev->ictx_dma);
@@ -2361,7 +2345,7 @@ ret:
 	s = splusb();
 	usb_transfer_complete(xfer);
 	splx(s);
-	return (USBD_IN_PROGRESS);
+	return (err);
 }
 
 
@@ -2479,6 +2463,9 @@ xhci_device_ctrl_start(struct usbd_xfer *xfer)
 		);
 		trb->trb_flags = htole32(flags);
 
+		bus_dmamap_sync(xp->ring.dma.tag, xp->ring.dma.map,
+		    TRBOFF(&xp->ring, trb), sizeof(struct xhci_trb),
+		    BUS_DMASYNC_PREWRITE);
 	}
 
 	/* Status TRB */
@@ -2491,6 +2478,10 @@ xhci_device_ctrl_start(struct usbd_xfer *xfer)
 	trb->trb_paddr = 0;
 	trb->trb_status = htole32(XHCI_TRB_INTR(0));
 	trb->trb_flags = htole32(flags);
+
+	bus_dmamap_sync(xp->ring.dma.tag, xp->ring.dma.map,
+	    TRBOFF(&xp->ring, trb), sizeof(struct xhci_trb),
+	    BUS_DMASYNC_PREWRITE);
 
 	/* Setup TRB */
 	flags = XHCI_TRB_TYPE_SETUP | XHCI_TRB_IDT | toggle0;
@@ -2506,17 +2497,14 @@ xhci_device_ctrl_start(struct usbd_xfer *xfer)
 	trb0->trb_flags = htole32(flags);
 
 	bus_dmamap_sync(xp->ring.dma.tag, xp->ring.dma.map,
-	    TRBOFF(&xp->ring, trb0), 3 * sizeof(struct xhci_trb),
+	    TRBOFF(&xp->ring, trb0), sizeof(struct xhci_trb),
 	    BUS_DMASYNC_PREWRITE);
 
 	s = splusb();
 	XDWRITE4(sc, XHCI_DOORBELL(xp->slot), xp->dci);
 
 	xfer->status = USBD_IN_PROGRESS;
-
-	if (sc->sc_bus.use_polling)
-		xhci_waitintr(sc, xfer);
-	else if (xfer->timeout) {
+	if (xfer->timeout && !sc->sc_bus.use_polling) {
 		timeout_del(&xfer->timeout_handle);
 		timeout_set(&xfer->timeout_handle, xhci_timeout, xfer);
 		timeout_add_msec(&xfer->timeout_handle, xfer->timeout);
@@ -2603,6 +2591,10 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 		);
 		trb->trb_flags = htole32(flags);
 
+		bus_dmamap_sync(xp->ring.dma.tag, xp->ring.dma.map,
+		    TRBOFF(&xp->ring, trb), sizeof(struct xhci_trb),
+		    BUS_DMASYNC_PREWRITE);
+
 		remain -= len;
 		paddr += len;
 		len = min(remain, XHCI_TRB_MAXSIZE);
@@ -2622,17 +2614,14 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 	trb0->trb_flags = htole32(flags);
 
 	bus_dmamap_sync(xp->ring.dma.tag, xp->ring.dma.map,
-	    TRBOFF(&xp->ring, trb0), sizeof(struct xhci_trb) * ntrb,
+	    TRBOFF(&xp->ring, trb0), sizeof(struct xhci_trb),
 	    BUS_DMASYNC_PREWRITE);
 
 	s = splusb();
 	XDWRITE4(sc, XHCI_DOORBELL(xp->slot), xp->dci);
 
 	xfer->status = USBD_IN_PROGRESS;
-
-	if (sc->sc_bus.use_polling)
-		xhci_waitintr(sc, xfer);
-	else if (xfer->timeout) {
+	if (xfer->timeout && !sc->sc_bus.use_polling) {
 		timeout_del(&xfer->timeout_handle);
 		timeout_set(&xfer->timeout_handle, xhci_timeout, xfer);
 		timeout_add_msec(&xfer->timeout_handle, xfer->timeout);
@@ -2645,9 +2634,6 @@ xhci_device_generic_start(struct usbd_xfer *xfer)
 void
 xhci_device_generic_done(struct usbd_xfer *xfer)
 {
-	usb_syncmem(&xfer->dmabuf, 0, xfer->length, usbd_xfer_isread(xfer) ?
-	    BUS_DMASYNC_POSTREAD : BUS_DMASYNC_POSTWRITE);
-
 	/* Only happens with interrupt transfers. */
 	if (xfer->pipe->repeat) {
 		xfer->actlen = 0;

@@ -1,3 +1,4 @@
+/* $OpenBSD: ns8250.c,v 1.8 2017/05/08 09:08:40 reyk Exp $ */
 /*
  * Copyright (c) 2016 Mike Larkin <mlarkin@openbsd.org>
  *
@@ -30,6 +31,7 @@
 #include "proc.h"
 #include "vmd.h"
 #include "vmm.h"
+#include "atomicio.h"
 
 extern char *__progname;
 struct ns8250_dev com1_dev;
@@ -53,7 +55,7 @@ ns8250_init(int fd, uint32_t vmid)
 	com1_dev.rcv_pending = 0;
 
 	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
-	    com_rcv_event, (void *)(uint64_t)vmid);
+	    com_rcv_event, (void *)(intptr_t)vmid);
 	event_add(&com1_dev.event, NULL);
 }
 
@@ -153,7 +155,7 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 	 */
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
 		write(com1_dev.fd, &vei->vei.vei_data, 1);
-		if (com1_dev.regs.ier & 0x2) {
+		if (com1_dev.regs.ier & IER_ETXRDY) {
 			/* Set TXRDY */
 			com1_dev.regs.iir |= IIR_TXRDY;
 			/* Set "interrupt pending" (IIR low bit cleared) */
@@ -169,13 +171,13 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 		 * interrupt info register regardless.
 		 */
 		if (com1_dev.regs.lsr & LSR_RXRDY) {
-			vei->vei.vei_data = com1_dev.regs.data;
+			set_return_data(vei, com1_dev.regs.data);
 			com1_dev.regs.data = 0x0;
 			com1_dev.regs.lsr &= ~LSR_RXRDY;
 		} else {
 			/* XXX should this be com1_dev.data or 0xff? */
-			vei->vei.vei_data = com1_dev.regs.data;
-			log_warnx("guest reading com1 when not ready");
+			set_return_data(vei, com1_dev.regs.data);
+			log_warnx("%s: guest reading com1 when not ready", __func__);
 		}
 
 		/* Reading the data register always clears RXRDY from IIR */
@@ -195,6 +197,7 @@ vcpu_process_com_data(union vm_exit *vei, uint32_t vm_id, uint32_t vcpu_id)
 	/* If pending interrupt, make sure it gets injected */
 	if ((com1_dev.regs.iir & 0x1) == 0)
 		return (com1_dev.irq);
+
 	return (0xFF);
 }
 
@@ -223,7 +226,7 @@ vcpu_process_com_lcr(union vm_exit *vei)
 		 *
 		 * Read line control register
 		 */
-		vei->vei.vei_data = com1_dev.regs.lcr;
+		set_return_data(vei, com1_dev.regs.lcr);
 	}
 }
 
@@ -256,7 +259,7 @@ vcpu_process_com_iir(union vm_exit *vei)
 		 * Read IIR. Reading the IIR resets the TXRDY bit in the IIR
 		 * after the data is read.
 		 */
-		vei->vei.vei_data = com1_dev.regs.iir;
+		set_return_data(vei, com1_dev.regs.iir);
 		com1_dev.regs.iir &= ~IIR_TXRDY;
 
 		/*
@@ -294,7 +297,7 @@ vcpu_process_com_mcr(union vm_exit *vei)
 		 *
 		 * Read from MCR
 		 */
-		vei->vei.vei_data = com1_dev.regs.mcr;
+		set_return_data(vei, com1_dev.regs.mcr);
 	}
 }
 
@@ -326,7 +329,7 @@ vcpu_process_com_lsr(union vm_exit *vei)
 		 * Read from LSR. We always report TXRDY and TSRE since we
 		 * can process output characters immediately (at any time).
 		 */
-		vei->vei.vei_data = com1_dev.regs.lsr | LSR_TSRE | LSR_TXRDY;
+		set_return_data(vei, com1_dev.regs.lsr | LSR_TSRE | LSR_TXRDY);
 	}
 }
 
@@ -357,8 +360,8 @@ vcpu_process_com_msr(union vm_exit *vei)
 		 *
 		 * Read from MSR. We always report DCD, DSR, and CTS.
 		 */
-		vei->vei.vei_data =
-		    com1_dev.regs.lsr | MSR_DCD | MSR_DSR | MSR_CTS;
+		set_return_data(vei, com1_dev.regs.lsr | MSR_DCD | MSR_DSR |
+		    MSR_CTS);
 	}
 }
 
@@ -393,7 +396,7 @@ vcpu_process_com_scr(union vm_exit *vei)
 		 * a real scratch register, we negate what was written on
 		 * subsequent readback.
 		 */
-		vei->vei.vei_data = ~com1_dev.regs.scr;
+		set_return_data(vei, ~com1_dev.regs.scr);
 	}
 }
 
@@ -417,13 +420,15 @@ vcpu_process_com_ier(union vm_exit *vei)
 	 */
 	if (vei->vei.vei_dir == VEI_DIR_OUT) {
 		com1_dev.regs.ier = vei->vei.vei_data;
+		if (com1_dev.regs.ier & IER_ETXRDY)
+			com1_dev.regs.iir |= IIR_TXRDY;
 	} else {
 		/*
 		 * vei_dir == VEI_DIR_IN : in instruction
 		 *
 		 * Read from IER
 		 */
-		vei->vei.vei_data = com1_dev.regs.ier;
+		set_return_data(vei, com1_dev.regs.ier);
 	}
 }
 
@@ -479,4 +484,42 @@ vcpu_exit_com(struct vm_run_params *vrp)
 
 	mutex_unlock(&com1_dev.mutex);
 	return (intr);
+}
+
+int
+ns8250_dump(int fd)
+{
+	log_debug("%s: sending UART", __func__);
+	if (atomicio(vwrite, fd, &com1_dev.regs,
+	    sizeof(com1_dev.regs)) != sizeof(com1_dev.regs)) {
+		log_warnx("%s: error writing UART to fd", __func__);
+		return (-1);
+	}
+	return (0);
+}
+
+int
+ns8250_restore(int fd, int con_fd, uint32_t vmid)
+{
+	int ret;
+	log_debug("%s: receiving UART", __func__);
+	if (atomicio(read, fd, &com1_dev.regs,
+	    sizeof(com1_dev.regs)) != sizeof(com1_dev.regs)) {
+		log_warnx("%s: error reading UART from fd", __func__);
+		return (-1);
+	}
+
+	ret = pthread_mutex_init(&com1_dev.mutex, NULL);
+	if (ret) {
+		errno = ret;
+		fatal("could not initialize com1 mutex");
+	}
+	com1_dev.fd = con_fd;
+	com1_dev.irq = 4;
+	com1_dev.rcv_pending = 0;
+
+	event_set(&com1_dev.event, com1_dev.fd, EV_READ | EV_PERSIST,
+	    com_rcv_event, (void *)(intptr_t)vmid);
+	event_add(&com1_dev.event, NULL);
+	return (0);
 }

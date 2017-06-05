@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.92 2016/09/11 03:14:04 guenther Exp $	*/
+/*	$OpenBSD: trap.c,v 1.97 2017/01/21 05:42:04 guenther Exp $	*/
 /*	$NetBSD: trap.c,v 1.73 2001/08/09 01:03:01 eeh Exp $ */
 
 /*
@@ -431,10 +431,7 @@ trap(struct trapframe64 *tf, unsigned type, vaddr_t pc, long tstate)
 
 	default:
 		if (type < 0x100) {
-			extern int trap_trace_dis;
 dopanic:
-			trap_trace_dis = 1;
-
 			panic("trap type 0x%x (%s): pc=%lx npc=%lx pstate=%b",
 			    type, type < N_TRAP_TYPES ? trap_type[type] : T,
 			    pc, (long)tf->tf_npc, pstate, PSTATE_BITS);
@@ -456,7 +453,7 @@ dopanic:
 		 * XXX Flushing the user windows here should not be
 		 * necessary, but not doing so here causes corruption
 		 * of user windows on sun4v.  Flushing them shouldn't
-		 * be much of a prefermance penalty since we're
+		 * be much of a performance penalty since we're
 		 * probably going to spill any remaining user windows
 		 * anyhow.
 		 */
@@ -851,8 +848,6 @@ data_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 kfault:
 			onfault = (long)p->p_addr->u_pcb.pcb_onfault;
 			if (!onfault) {
-				extern int trap_trace_dis;
-				trap_trace_dis = 1; /* Disable traptrace for printf */
 				(void) splhigh();
 				panic("kernel data fault: pc=%lx addr=%lx",
 				    pc, addr);
@@ -871,8 +866,8 @@ kfault:
 
 		if (rv == ENOMEM) {
 			printf("UVM: pid %d (%s), uid %d killed: out of swap\n",
-			       p->p_pid, p->p_comm,
-			       p->p_ucred ? (int)p->p_ucred->cr_uid : -1);
+			    p->p_p->ps_pid, p->p_p->ps_comm,
+			    p->p_ucred ? (int)p->p_ucred->cr_uid : -1);
 			trapsignal(p, SIGKILL, access_type, SEGV_MAPERR, sv);
 		} else {
 			trapsignal(p, SIGSEGV, access_type, SEGV_MAPERR, sv);
@@ -909,6 +904,8 @@ data_access_error(struct trapframe64 *tf, unsigned type, vaddr_t afva,
 	if ((p = curproc) == NULL)	/* safety check */
 		p = &proc0;
 
+	tstate = tf->tf_tstate;
+
 	/*
 	 * Catch PCI config space reads.
 	 */
@@ -918,7 +915,6 @@ data_access_error(struct trapframe64 *tf, unsigned type, vaddr_t afva,
 	}
 
 	pc = tf->tf_pc;
-	tstate = tf->tf_tstate;
 
 	sv.sival_ptr = (void *)pc;
 
@@ -934,9 +930,6 @@ data_access_error(struct trapframe64 *tf, unsigned type, vaddr_t afva,
 	if (tstate & TSTATE_PRIV) {
 
 		if (!onfault) {
-			extern int trap_trace_dis;
-
-			trap_trace_dis = 1; /* Disable traptrace for printf */
 			(void) splhigh();
 			panic("data fault: pc=%lx addr=%lx sfsr=%lb",
 				(u_long)pc, (long)sfva, sfsr, SFSR_BITS);
@@ -998,8 +991,6 @@ text_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 
 	access_type = PROT_EXEC;
 	if (tstate & TSTATE_PRIV) {
-		extern int trap_trace_dis;
-		trap_trace_dis = 1; /* Disable traptrace for printf */
 		(void) splhigh();
 		panic("kernel text_access_fault: pc=%lx va=%lx", pc, va);
 		/* NOTREACHED */
@@ -1031,8 +1022,6 @@ text_access_fault(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 		 * fault, deliver SIGSEGV.
 		 */
 		if (tstate & TSTATE_PRIV) {
-			extern int trap_trace_dis;
-			trap_trace_dis = 1; /* Disable traptrace for printf */
 			(void) splhigh();
 			panic("kernel text fault: pc=%llx", (unsigned long long)pc);
 			/* NOTREACHED */
@@ -1076,13 +1065,9 @@ text_access_error(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 	tstate = tf->tf_tstate;
 
 	if ((afsr) != 0) {
-		extern int trap_trace_dis;
-
-		trap_trace_dis++; /* Disable traptrace for printf */
 		printf("text_access_error: memory error...\n");
 		printf("text memory error type %d sfsr=%lx sfva=%lx afsr=%lx afva=%lx tf=%p\n",
 		       type, sfsr, pc, afsr, afva, tf);
-		trap_trace_dis--; /* Reenable traptrace for printf */
 
 		if (tstate & TSTATE_PRIV)
 			panic("text_access_error: kernel memory error");
@@ -1101,8 +1086,6 @@ text_access_error(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 	/* Now munch on protections... */
 	access_type = PROT_EXEC;
 	if (tstate & TSTATE_PRIV) {
-		extern int trap_trace_dis;
-		trap_trace_dis = 1; /* Disable traptrace for printf */
 		(void) splhigh();
 		panic("kernel text error: pc=%lx sfsr=%lb", pc,
 		    sfsr, SFSR_BITS);
@@ -1136,8 +1119,6 @@ text_access_error(struct trapframe64 *tf, unsigned type, vaddr_t pc,
 		 * fault, deliver SIGSEGV.
 		 */
 		if (tstate & TSTATE_PRIV) {
-			extern int trap_trace_dis;
-			trap_trace_dis = 1; /* Disable traptrace for printf */
 			(void) splhigh();
 			panic("kernel text error: pc=%lx sfsr=%lb", pc,
 			    sfsr, SFSR_BITS);
@@ -1169,7 +1150,7 @@ syscall(struct trapframe64 *tf, register_t code, register_t pc)
 	int i, nsys, nap;
 	int64_t *ap;
 	const struct sysent *callp;
-	struct proc *p;
+	struct proc *p = curproc;
 	int error, new;
 	register_t args[8];
 	register_t rval[2];
@@ -1178,7 +1159,6 @@ syscall(struct trapframe64 *tf, register_t code, register_t pc)
 		sigexit(p, SIGILL);
 
 	uvmexp.syscalls++;
-	p = curproc;
 #ifdef DIAGNOSTIC
 	if (tf->tf_tstate & TSTATE_PRIV)
 		panic("syscall from kernel");

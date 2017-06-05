@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_node.c,v 1.104 2016/08/17 09:42:03 stsp Exp $	*/
+/*	$OpenBSD: ieee80211_node.c,v 1.117 2017/06/04 12:48:42 tb Exp $	*/
 /*	$NetBSD: ieee80211_node.c,v 1.14 2004/05/09 09:18:47 dyoung Exp $	*/
 
 /*-
@@ -92,9 +92,9 @@ ieee80211_inact_timeout(void *arg)
 	int s;
 
 	s = splnet();
-	for (ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+	for (ni = RBT_MIN(ieee80211_tree, &ic->ic_tree);
 	    ni != NULL; ni = next_ni) {
-		next_ni = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+		next_ni = RBT_NEXT(ieee80211_tree, ni);
 		if (ni->ni_refcnt > 0)
 			continue;
 		if (ni->ni_inact < IEEE80211_INACT_MAX)
@@ -123,7 +123,7 @@ ieee80211_node_attach(struct ifnet *ifp)
 	int size;
 #endif
 
-	RB_INIT(&ic->ic_tree);
+	RBT_INIT(ieee80211_tree, &ic->ic_tree);
 	ic->ic_node_alloc = ieee80211_node_alloc;
 	ic->ic_node_free = ieee80211_node_free;
 	ic->ic_node_copy = ieee80211_node_copy;
@@ -202,12 +202,12 @@ ieee80211_node_detach(struct ifnet *ifp)
 	}
 	ieee80211_free_allnodes(ic);
 #ifndef IEEE80211_STA_ONLY
-	if (ic->ic_aid_bitmap != NULL)
-		free(ic->ic_aid_bitmap, M_DEVBUF, 0);
-	if (ic->ic_tim_bitmap != NULL)
-		free(ic->ic_tim_bitmap, M_DEVBUF, 0);
+	free(ic->ic_aid_bitmap, M_DEVBUF,
+	    howmany(ic->ic_max_aid, 32) * sizeof(u_int32_t));
+	free(ic->ic_tim_bitmap, M_DEVBUF, ic->ic_tim_len);
 	timeout_del(&ic->ic_inact_timeout);
 	timeout_del(&ic->ic_node_cache_timeout);
+	timeout_del(&ic->ic_tkip_micfail_timeout);
 #endif
 	timeout_del(&ic->ic_rsn_timeout);
 }
@@ -352,6 +352,31 @@ ieee80211_create_ibss(struct ieee80211com* ic, struct ieee80211_channel *chan)
 	ni->ni_capinfo = IEEE80211_CAPINFO_IBSS;
 	if (ic->ic_flags & IEEE80211_F_WEPON)
 		ni->ni_capinfo |= IEEE80211_CAPINFO_PRIVACY;
+	if (ic->ic_flags & IEEE80211_F_HTON) {
+		const struct ieee80211_edca_ac_params *ac_qap;
+		struct ieee80211_edca_ac_params *ac;
+		int aci;
+
+		/* 
+		 * Default to non-member HT protection. This will be updated
+		 * later based on the number of non-HT nodes in the node cache.
+		 */
+		ni->ni_htop1 = IEEE80211_HTPROT_NONMEMBER;
+		ic->ic_protmode = IEEE80211_PROT_RTSCTS;
+
+		/* Configure QoS EDCA parameters. */
+		for (aci = 0; aci < EDCA_NUM_AC; aci++) {
+			ac = &ic->ic_edca_ac[aci];
+			ac_qap = &ieee80211_qap_edca_table[ic->ic_curmode][aci];
+			ac->ac_acm       = ac_qap->ac_acm;
+			ac->ac_aifsn     = ac_qap->ac_aifsn;
+			ac->ac_ecwmin    = ac_qap->ac_ecwmin;
+			ac->ac_ecwmax    = ac_qap->ac_ecwmax;
+			ac->ac_txoplimit = ac_qap->ac_txoplimit;
+		}
+		if (ic->ic_updateedca)
+			(*ic->ic_updateedca)(ic);
+	}
 	if (ic->ic_flags & IEEE80211_F_RSNON) {
 		struct ieee80211_key *k;
 
@@ -371,6 +396,7 @@ ieee80211_create_ibss(struct ieee80211com* ic, struct ieee80211_channel *chan)
 		}
 
 		ic->ic_def_txkey = 1;
+		ic->ic_flags &= ~IEEE80211_F_COUNTERM;
 		k = &ic->ic_nw_keys[ic->ic_def_txkey];
 		memset(k, 0, sizeof(*k));
 		k->k_id = ic->ic_def_txkey;
@@ -538,7 +564,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 	if (ic->ic_scan_count)
 		ic->ic_flags &= ~IEEE80211_F_ASCAN;
 
-	ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+	ni = RBT_MIN(ieee80211_tree, &ic->ic_tree);
 
 #ifndef IEEE80211_STA_ONLY
 	if (ic->ic_opmode == IEEE80211_M_HOSTAP) {
@@ -554,7 +580,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 		 * channel from the active set.
 		 */
 		memset(occupied, 0, sizeof(occupied));
-		RB_FOREACH(ni, ieee80211_tree, &ic->ic_tree)
+		RBT_FOREACH(ni, ieee80211_tree, &ic->ic_tree)
 			setbit(occupied, ieee80211_chan2ieee(ic, ni->ni_chan));
 		for (i = 0; i < IEEE80211_CHAN_MAX; i++)
 			if (isset(ic->ic_chan_active, i) && isclr(occupied, i))
@@ -611,7 +637,7 @@ ieee80211_end_scan(struct ifnet *ifp)
 	selbs = NULL;
 
 	for (; ni != NULL; ni = nextbs) {
-		nextbs = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+		nextbs = RBT_NEXT(ieee80211_tree, ni);
 		if (ni->ni_fails) {
 			/*
 			 * The configuration of the access points may change
@@ -646,6 +672,12 @@ ieee80211_end_scan(struct ifnet *ifp)
 	ni = ic->ic_bss;
 
 	ic->ic_curmode = ieee80211_chan2mode(ic, ni->ni_chan);
+
+	/* Make sure we send valid rates in an association request. */
+	if (ic->ic_opmode == IEEE80211_M_STA)
+		ieee80211_fix_rate(ic, ni,
+		    IEEE80211_F_DOSORT | IEEE80211_F_DOFRATE |
+		    IEEE80211_F_DONEGO | IEEE80211_F_DODEL);
 
 	if (ic->ic_flags & IEEE80211_F_RSNON)
 		ieee80211_choose_rsnparams(ic);
@@ -759,7 +791,7 @@ void
 ieee80211_node_cleanup(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	if (ni->ni_rsnie != NULL) {
-		free(ni->ni_rsnie, M_DEVBUF, 0);
+		free(ni->ni_rsnie, M_DEVBUF, 2 + ni->ni_rsnie[1]);
 		ni->ni_rsnie = NULL;
 	}
 	ieee80211_ba_del(ni);
@@ -807,7 +839,7 @@ ieee80211_setup_node(struct ieee80211com *ic,
 	timeout_set(&ni->ni_sa_query_to, ieee80211_sa_query_timeout, ni);
 #endif
 	s = splnet();
-	RB_INSERT(ieee80211_tree, &ic->ic_tree, ni);
+	RBT_INSERT(ieee80211_tree, &ic->ic_tree, ni);
 	ic->ic_nnodes++;
 	splx(s);
 }
@@ -845,14 +877,14 @@ ieee80211_find_node(struct ieee80211com *ic, const u_int8_t *macaddr)
 	struct ieee80211_node *ni;
 	int cmp;
 
-	/* similar to RB_FIND except we compare keys, not nodes */
-	ni = RB_ROOT(&ic->ic_tree);
+	/* similar to RBT_FIND except we compare keys, not nodes */
+	ni = RBT_ROOT(ieee80211_tree, &ic->ic_tree);
 	while (ni != NULL) {
 		cmp = memcmp(macaddr, ni->ni_macaddr, IEEE80211_ADDR_LEN);
 		if (cmp < 0)
-			ni = RB_LEFT(ni, ni_node);
+			ni = RBT_LEFT(ieee80211_tree, ni);
 		else if (cmp > 0)
-			ni = RB_RIGHT(ni, ni_node);
+			ni = RBT_RIGHT(ieee80211_tree, ni);
 		else
 			break;
 	}
@@ -1112,7 +1144,7 @@ ieee80211_free_node(struct ieee80211com *ic, struct ieee80211_node *ni)
 	IEEE80211_AID_CLR(ni->ni_associd, ic->ic_aid_bitmap);
 #endif
 	ieee80211_ba_del(ni);
-	RB_REMOVE(ieee80211_tree, &ic->ic_tree, ni);
+	RBT_REMOVE(ieee80211_tree, &ic->ic_tree, ni);
 	ic->ic_nnodes--;
 #ifndef IEEE80211_STA_ONLY
 	if (mq_purge(&ni->ni_savedq) > 0) {
@@ -1147,7 +1179,7 @@ ieee80211_free_allnodes(struct ieee80211com *ic)
 
 	DPRINTF(("freeing all nodes\n"));
 	s = splnet();
-	while ((ni = RB_MIN(ieee80211_tree, &ic->ic_tree)) != NULL)
+	while ((ni = RBT_MIN(ieee80211_tree, &ic->ic_tree)) != NULL)
 		ieee80211_free_node(ic, ni);
 	splx(s);
 
@@ -1162,9 +1194,9 @@ ieee80211_clean_cached(struct ieee80211com *ic)
 	int s;
 
 	s = splnet();
-	for (ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+	for (ni = RBT_MIN(ieee80211_tree, &ic->ic_tree);
 	    ni != NULL; ni = next_ni) {
-		next_ni = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+		next_ni = RBT_NEXT(ieee80211_tree, ni);
 		if (ni->ni_state == IEEE80211_STA_CACHE)
 			ieee80211_free_node(ic, ni);
 	}
@@ -1175,7 +1207,7 @@ ieee80211_clean_cached(struct ieee80211com *ic)
  *
  * If called because of a cache timeout, which happens only in hostap and ibss
  * modes, clean all inactive cached or authenticated nodes but don't de-auth
- * any associated nodes.
+ * any associated nodes. Also update HT protection settings.
  *
  * Else, this function is called because a new node must be allocated but the
  * node cache is full. In this case, return as soon as a free slot was made
@@ -1190,20 +1222,29 @@ ieee80211_clean_nodes(struct ieee80211com *ic, int cache_timeout)
 	u_int gen = ic->ic_scangen++;		/* NB: ok 'cuz single-threaded*/
 	int s;
 #ifndef IEEE80211_STA_ONLY
-	int nnodes = 0;
+	int nnodes = 0, nonht = 0, nonhtassoc = 0;
 	struct ifnet *ifp = &ic->ic_if;
+	enum ieee80211_htprot htprot = IEEE80211_HTPROT_NONE;
+	enum ieee80211_protmode protmode = IEEE80211_PROT_NONE;
 #endif
 
 	s = splnet();
-	for (ni = RB_MIN(ieee80211_tree, &ic->ic_tree);
+	for (ni = RBT_MIN(ieee80211_tree, &ic->ic_tree);
 	    ni != NULL; ni = next_ni) {
-		next_ni = RB_NEXT(ieee80211_tree, &ic->ic_tree, ni);
+		next_ni = RBT_NEXT(ieee80211_tree, ni);
 		if (!cache_timeout && ic->ic_nnodes < ic->ic_max_nnodes)
 			break;
 		if (ni->ni_scangen == gen)	/* previously handled */
 			continue;
 #ifndef IEEE80211_STA_ONLY
 		nnodes++;
+		if ((ic->ic_flags & IEEE80211_F_HTON) && cache_timeout) {
+			if ((ni->ni_rxmcs[0] & 0xff) == 0) {
+				nonht++;
+				if (ni->ni_state == IEEE80211_STA_ASSOC)
+					nonhtassoc++;
+			}
+		}
 #endif
 		ni->ni_scangen = gen;
 		if (ni->ni_refcnt > 0)
@@ -1243,14 +1284,19 @@ ieee80211_clean_nodes(struct ieee80211com *ic, int cache_timeout)
 		 */
 #ifndef IEEE80211_STA_ONLY
 		nnodes--;
+		if ((ic->ic_flags & IEEE80211_F_HTON) && cache_timeout) {
+			if ((ni->ni_rxmcs[0] & 0xff) == 0) {
+				nonht--;
+				if (ni->ni_state == IEEE80211_STA_ASSOC)
+					nonhtassoc--;
+			}
+		}
 		if (ic->ic_opmode == IEEE80211_M_HOSTAP &&
 		    ni->ni_state >= IEEE80211_STA_AUTH &&
 		    ni->ni_state != IEEE80211_STA_COLLECT) {
-			splx(s);
 			IEEE80211_SEND_MGMT(ic, ni,
 			    IEEE80211_FC0_SUBTYPE_DEAUTH,
 			    IEEE80211_REASON_AUTH_EXPIRE);
-			s = splnet();
 			ieee80211_node_leave(ic, ni);
 		} else
 #endif
@@ -1259,6 +1305,23 @@ ieee80211_clean_nodes(struct ieee80211com *ic, int cache_timeout)
 	}
 
 #ifndef IEEE80211_STA_ONLY
+	if ((ic->ic_flags & IEEE80211_F_HTON) && cache_timeout) {
+		/* Update HT protection settings. */
+		if (nonht) {
+			protmode = IEEE80211_PROT_RTSCTS;
+			if (nonhtassoc)
+				htprot = IEEE80211_HTPROT_NONHT_MIXED;
+			else
+				htprot = IEEE80211_HTPROT_NONMEMBER;
+		}
+		if (ic->ic_bss->ni_htop1 != htprot) {
+			ic->ic_bss->ni_htop1 = htprot;
+			ic->ic_protmode = protmode;
+			if (ic->ic_update_htprot)
+				ic->ic_update_htprot(ic, ic->ic_bss);
+		}
+	}
+
 	/* 
 	 * During a cache timeout we iterate over all nodes.
 	 * Check for node leaks by comparing the actual number of cached
@@ -1282,7 +1345,7 @@ ieee80211_iterate_nodes(struct ieee80211com *ic, ieee80211_iter_func *f,
 	int s;
 
 	s = splnet();
-	RB_FOREACH(ni, ieee80211_tree, &ic->ic_tree)
+	RBT_FOREACH(ni, ieee80211_tree, &ic->ic_tree)
 		(*f)(arg, ni);
 	splx(s);
 }
@@ -1320,6 +1383,27 @@ ieee80211_setup_htcaps(struct ieee80211_node *ni, const uint8_t *data,
 		(data[24] << 24));
 	ni->ni_aselcaps = data[25];
 }
+
+#ifndef IEEE80211_STA_ONLY
+/* 
+ * Handle nodes switching from 11n into legacy modes.
+ */
+void
+ieee80211_clear_htcaps(struct ieee80211_node *ni)
+{
+	ni->ni_htcaps = 0;
+	ni->ni_ampdu_param = 0;
+	memset(ni->ni_rxmcs, 0, sizeof(ni->ni_rxmcs));
+	ni->ni_max_rxrate = 0;
+	ni->ni_tx_mcs_set = 0;
+	ni->ni_htxcaps = 0;
+	ni->ni_txbfcaps = 0;
+	ni->ni_aselcaps = 0;
+
+	ni->ni_flags &= ~IEEE80211_NODE_HT;
+
+}
+#endif
 
 /*
  * Install received HT op information in the node's state block.
@@ -1421,7 +1505,14 @@ ieee80211_needs_auth(struct ieee80211com *ic, struct ieee80211_node *ni)
 void
 ieee80211_node_join_ht(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
-	/* TBD */
+	enum ieee80211_htprot;
+
+	/* Update HT protection setting. */
+	if ((ni->ni_flags & IEEE80211_NODE_HT) == 0) {
+		ic->ic_bss->ni_htop1 = IEEE80211_HTPROT_NONHT_MIXED;
+		if (ic->ic_update_htprot)
+			ic->ic_update_htprot(ic, ic->ic_bss);
+	}
 }
 
 /*
@@ -1436,7 +1527,6 @@ ieee80211_node_join_rsn(struct ieee80211com *ic, struct ieee80211_node *ni)
 	    ni->ni_rsngroupcipher));
 
 	ni->ni_rsn_state = RSNA_AUTHENTICATION;
-	ic->ic_rsnsta++;
 
 	ni->ni_key_count = 0;
 	ni->ni_port_valid = 0;
@@ -1463,12 +1553,62 @@ ieee80211_node_join_rsn(struct ieee80211com *ic, struct ieee80211_node *ni)
 	}
 }
 
+void
+ieee80211_count_longslotsta(void *arg, struct ieee80211_node *ni)
+{
+	int *longslotsta = arg;
+
+	if (ni->ni_associd == 0 || ni->ni_state == IEEE80211_STA_COLLECT)
+		return;
+
+	if (!(ni->ni_capinfo & IEEE80211_CAPINFO_SHORT_SLOTTIME))
+		(*longslotsta)++;
+}
+
+void
+ieee80211_count_nonerpsta(void *arg, struct ieee80211_node *ni)
+{
+	int *nonerpsta = arg;
+
+	if (ni->ni_associd == 0 || ni->ni_state == IEEE80211_STA_COLLECT)
+		return;
+
+	if (!ieee80211_iserp_sta(ni))
+		(*nonerpsta)++;
+}
+
+void
+ieee80211_count_pssta(void *arg, struct ieee80211_node *ni)
+{
+	int *pssta = arg;
+
+	if (ni->ni_associd == 0 || ni->ni_state == IEEE80211_STA_COLLECT)
+		return;
+
+ 	if (ni->ni_pwrsave == IEEE80211_PS_DOZE)
+		(*pssta)++;
+}
+
+void
+ieee80211_count_rekeysta(void *arg, struct ieee80211_node *ni)
+{
+	int *rekeysta = arg;
+
+	if (ni->ni_associd == 0 || ni->ni_state == IEEE80211_STA_COLLECT)
+		return;
+
+	if (ni->ni_flags & IEEE80211_NODE_REKEY)
+		(*rekeysta)++;
+}
+
 /*
  * Handle a station joining an 11g network.
  */
 void
 ieee80211_node_join_11g(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
+	int longslotsta = 0, nonerpsta = 0;
+
 	if (!(ni->ni_capinfo & IEEE80211_CAPINFO_SHORT_SLOTTIME)) {
 		/*
 		 * Joining STA doesn't support short slot time.  We must
@@ -1476,24 +1616,25 @@ ieee80211_node_join_11g(struct ieee80211com *ic, struct ieee80211_node *ni)
 		 * STAs and give the driver a chance to reconfigure the
 		 * hardware.
 		 */
-		if (++ic->ic_longslotsta == 1) {
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_longslotsta, &longslotsta);
+		if (longslotsta == 1) {
 			if (ic->ic_caps & IEEE80211_C_SHSLOT)
 				ieee80211_set_shortslottime(ic, 0);
 		}
 		DPRINTF(("[%s] station needs long slot time, count %d\n",
-		    ether_sprintf(ni->ni_macaddr), ic->ic_longslotsta));
+		    ether_sprintf(ni->ni_macaddr), longslotsta));
 	}
 
 	if (!ieee80211_iserp_sta(ni)) {
 		/*
 		 * Joining STA is non-ERP.
 		 */
-		ic->ic_nonerpsta++;
-
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_nonerpsta, &nonerpsta);
 		DPRINTF(("[%s] station is non-ERP, %d non-ERP "
 		    "stations associated\n", ether_sprintf(ni->ni_macaddr),
-		    ic->ic_nonerpsta));
-
+		    nonerpsta));
 		/* must enable the use of protection */
 		if (ic->ic_protmode != IEEE80211_PROT_NONE) {
 			DPRINTF(("enable use of protection\n"));
@@ -1542,6 +1683,10 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 	    ether_sprintf(ni->ni_macaddr), newassoc ? "newly" : "already",
 	    ni->ni_associd & ~0xc000));
 
+	ieee80211_ht_negotiate(ic, ni);
+	if (ic->ic_flags & IEEE80211_F_HTON)
+		ieee80211_node_join_ht(ic, ni);
+
 	/* give driver a chance to setup state like ni_txrate */
 	if (ic->ic_newassoc)
 		(*ic->ic_newassoc)(ic, ni, newassoc);
@@ -1553,10 +1698,6 @@ ieee80211_node_join(struct ieee80211com *ic, struct ieee80211_node *ni,
 		ni->ni_rsncipher = IEEE80211_CIPHER_USEGROUP;
 	} else
 		ieee80211_node_join_rsn(ic, ni);
-
-	ieee80211_ht_negotiate(ic, ni);
-	if (ni->ni_flags & IEEE80211_NODE_HT)
-		ieee80211_node_join_ht(ic, ni);
 
 #if NBRIDGE > 0
 	/*
@@ -1580,15 +1721,19 @@ ieee80211_node_leave_ht(struct ieee80211com *ic, struct ieee80211_node *ni)
 	int i;
 
 	/* free all Block Ack records */
+	ieee80211_ba_del(ni);
 	for (tid = 0; tid < IEEE80211_NUM_TID; tid++) {
 		ba = &ni->ni_rx_ba[tid];
 		if (ba->ba_buf != NULL) {
 			for (i = 0; i < IEEE80211_BA_MAX_WINSZ; i++)
 				m_freem(ba->ba_buf[i].m);
-			free(ba->ba_buf, M_DEVBUF, 0);
+			free(ba->ba_buf, M_DEVBUF,
+			    IEEE80211_BA_MAX_WINSZ * sizeof(*ba->ba_buf));
 			ba->ba_buf = NULL;
 		}
 	}
+
+	ieee80211_clear_htcaps(ni);
 }
 
 /*
@@ -1597,15 +1742,18 @@ ieee80211_node_leave_ht(struct ieee80211com *ic, struct ieee80211_node *ni)
 void
 ieee80211_node_leave_rsn(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
+	int rekeysta = 0;
+
 	ni->ni_rsn_state = RSNA_DISCONNECTED;
-	ic->ic_rsnsta--;
 
 	ni->ni_rsn_state = RSNA_INITIALIZE;
-	if ((ni->ni_flags & IEEE80211_NODE_REKEY) &&
-	    --ic->ic_rsn_keydonesta == 0)
-		ieee80211_setkeysdone(ic);
-	ni->ni_flags &= ~IEEE80211_NODE_REKEY;
-
+	if (ni->ni_flags & IEEE80211_NODE_REKEY) {
+		ni->ni_flags &= ~IEEE80211_NODE_REKEY;
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_rekeysta, &rekeysta);
+		if (rekeysta == 0)
+			ieee80211_setkeysdone(ic);
+	}
 	ni->ni_flags &= ~IEEE80211_NODE_PMK;
 	ni->ni_rsn_gstate = RSNA_IDLE;
 
@@ -1624,15 +1772,13 @@ ieee80211_node_leave_rsn(struct ieee80211com *ic, struct ieee80211_node *ni)
 void
 ieee80211_node_leave_11g(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
+	int longslotsta = 0, nonerpsta = 0;
+
 	if (!(ni->ni_capinfo & IEEE80211_CAPINFO_SHORT_SLOTTIME)) {
-#ifdef DIAGNOSTIC
-		if (ic->ic_longslotsta == 0) {
-			panic("bogus long slot station count %d",
-			    ic->ic_longslotsta);
-		}
-#endif
 		/* leaving STA did not support short slot time */
-		if (--ic->ic_longslotsta == 0) {
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_longslotsta, &longslotsta);
+		if (longslotsta == 1) {
 			/*
 			 * All associated STAs now support short slot time, so
 			 * enable this feature and give the driver a chance to
@@ -1644,18 +1790,14 @@ ieee80211_node_leave_11g(struct ieee80211com *ic, struct ieee80211_node *ni)
 				ieee80211_set_shortslottime(ic, 1);
 		}
 		DPRINTF(("[%s] long slot time station leaves, count %d\n",
-		    ether_sprintf(ni->ni_macaddr), ic->ic_longslotsta));
+		    ether_sprintf(ni->ni_macaddr), longslotsta));
 	}
 
 	if (!(ni->ni_flags & IEEE80211_NODE_ERP)) {
-#ifdef DIAGNOSTIC
-		if (ic->ic_nonerpsta == 0) {
-			panic("bogus non-ERP station count %d",
-			    ic->ic_nonerpsta);
-		}
-#endif
 		/* leaving STA was non-ERP */
-		if (--ic->ic_nonerpsta == 0) {
+		ieee80211_iterate_nodes(ic,
+		    ieee80211_count_nonerpsta, &nonerpsta);
+		if (nonerpsta == 1) {
 			/*
 			 * All associated STAs are now ERP capable, disable use
 			 * of protection and re-enable short preamble support.
@@ -1665,7 +1807,7 @@ ieee80211_node_leave_11g(struct ieee80211com *ic, struct ieee80211_node *ni)
 				ic->ic_flags |= IEEE80211_F_SHPREAMBLE;
 		}
 		DPRINTF(("[%s] non-ERP station leaves, count %d\n",
-		    ether_sprintf(ni->ni_macaddr), ic->ic_nonerpsta));
+		    ether_sprintf(ni->ni_macaddr), nonerpsta));
 	}
 }
 
@@ -1678,6 +1820,9 @@ ieee80211_node_leave(struct ieee80211com *ic, struct ieee80211_node *ni)
 {
 	if (ic->ic_opmode != IEEE80211_M_HOSTAP)
 		panic("not in ap mode, mode %u", ic->ic_opmode);
+
+	if (ni->ni_state == IEEE80211_STA_COLLECT)
+		return;
 	/*
 	 * If node wasn't previously associated all we need to do is
 	 * reclaim the reference.
@@ -1687,10 +1832,8 @@ ieee80211_node_leave(struct ieee80211com *ic, struct ieee80211_node *ni)
 		return;
 	}
 
-	if (ni->ni_pwrsave == IEEE80211_PS_DOZE) {
-		ic->ic_pssta--;
+	if (ni->ni_pwrsave == IEEE80211_PS_DOZE)
 		ni->ni_pwrsave = IEEE80211_PS_AWAKE;
-	}
 
 	if (mq_purge(&ni->ni_savedq) > 0) {
 		if (ic->ic_set_tim != NULL)
@@ -1877,4 +2020,4 @@ ieee80211_node_cmp(const struct ieee80211_node *b1,
 /*
  * Generate red-black tree function logic
  */
-RB_GENERATE(ieee80211_tree, ieee80211_node, ni_node, ieee80211_node_cmp);
+RBT_GENERATE(ieee80211_tree, ieee80211_node, ni_node, ieee80211_node_cmp);

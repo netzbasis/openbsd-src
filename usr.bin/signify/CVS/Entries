@@ -1,0 +1,16 @@
+/Makefile/1.12/Sun May 28 21:59:56 2017//
+/crypto_api.c/1.1/Wed Jan  8 03:59:46 2014//
+/crypto_api.h/1.1/Tue Jul 22 00:41:19 2014//
+/fe25519.c/1.1/Tue Jul 22 00:41:19 2014//
+/fe25519.h/1.1/Tue Jul 22 00:41:19 2014//
+/ge25519.h/1.2/Mon Feb 16 18:26:26 2015//
+/ge25519_base.data/1.1/Tue Jul 22 00:41:19 2014//
+/mod_ed25519.c/1.1/Wed Jan  8 05:00:01 2014//
+/mod_ge25519.c/1.2/Wed Jan  8 05:51:35 2014//
+/sc25519.c/1.1/Tue Jul 22 00:41:19 2014//
+/sc25519.h/1.1/Tue Jul 22 00:41:19 2014//
+/signify.1/1.41/Thu Mar  9 19:42:05 2017//
+/signify.c/1.127/Tue Apr 18 02:20:50 2017//
+/signify.h/1.1/Fri Sep  2 16:10:56 2016//
+/zsig.c/1.14/Tue Oct  4 14:40:41 2016//
+D

@@ -1,4 +1,4 @@
-/* $OpenBSD: auth2.c,v 1.136 2016/05/02 08:49:03 djm Exp $ */
+/* $OpenBSD: auth2.c,v 1.142 2017/05/31 07:00:13 markus Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -83,8 +83,8 @@ Authmethod *authmethods[] = {
 
 /* protocol */
 
-static int input_service_request(int, u_int32_t, void *);
-static int input_userauth_request(int, u_int32_t, void *);
+static int input_service_request(int, u_int32_t, struct ssh *);
+static int input_userauth_request(int, u_int32_t, struct ssh *);
 
 /* helper */
 static Authmethod *authmethod_lookup(Authctxt *, const char *);
@@ -155,16 +155,19 @@ done:
 void
 do_authentication2(Authctxt *authctxt)
 {
-	dispatch_init(&dispatch_protocol_error);
-	dispatch_set(SSH2_MSG_SERVICE_REQUEST, &input_service_request);
-	dispatch_run(DISPATCH_BLOCK, &authctxt->success, authctxt);
+	struct ssh *ssh = active_state;		/* XXX */
+	ssh->authctxt = authctxt;		/* XXX move to caller */
+	ssh_dispatch_init(ssh, &dispatch_protocol_error);
+	ssh_dispatch_set(ssh, SSH2_MSG_SERVICE_REQUEST, &input_service_request);
+	ssh_dispatch_run_fatal(ssh, DISPATCH_BLOCK, &authctxt->success);
+	ssh->authctxt = NULL;
 }
 
 /*ARGSUSED*/
 static int
-input_service_request(int type, u_int32_t seq, void *ctxt)
+input_service_request(int type, u_int32_t seq, struct ssh *ssh)
 {
-	Authctxt *authctxt = ctxt;
+	Authctxt *authctxt = ssh->authctxt;
 	u_int len;
 	int acceptit = 0;
 	char *service = packet_get_cstring(&len);
@@ -177,7 +180,7 @@ input_service_request(int type, u_int32_t seq, void *ctxt)
 		if (!authctxt->success) {
 			acceptit = 1;
 			/* now we can handle user-auth requests */
-			dispatch_set(SSH2_MSG_USERAUTH_REQUEST, &input_userauth_request);
+			ssh_dispatch_set(ssh, SSH2_MSG_USERAUTH_REQUEST, &input_userauth_request);
 		}
 	}
 	/* XXX all other service requests are denied */
@@ -197,9 +200,9 @@ input_service_request(int type, u_int32_t seq, void *ctxt)
 
 /*ARGSUSED*/
 static int
-input_userauth_request(int type, u_int32_t seq, void *ctxt)
+input_userauth_request(int type, u_int32_t seq, struct ssh *ssh)
 {
-	Authctxt *authctxt = ctxt;
+	Authctxt *authctxt = ssh->authctxt;
 	Authmethod *m = NULL;
 	char *user, *service, *method, *style = NULL;
 	int authenticated = 0;
@@ -221,11 +224,14 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 		authctxt->pw = PRIVSEP(getpwnamallow(user));
 		if (authctxt->pw && strcmp(service, "ssh-connection")==0) {
 			authctxt->valid = 1;
-			debug2("input_userauth_request: setting up authctxt for %s", user);
+			debug2("%s: setting up authctxt for %s",
+			    __func__, user);
 		} else {
-			logit("input_userauth_request: invalid user %s", user);
+			/* Invalid user, fake password information */
 			authctxt->pw = fakepw();
 		}
+		ssh_packet_set_log_preamble(ssh, "%suser %s",
+		    authctxt->valid ? "authenticating " : "invalid ", user);
 		setproctitle("%s%s", authctxt->valid ? user : "unknown",
 		    use_privsep ? " [net]" : "");
 		authctxt->user = xstrdup(user);
@@ -243,12 +249,12 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 		    authctxt->user, authctxt->service, user, service);
 	}
 	/* reset state */
-	auth2_challenge_stop(authctxt);
+	auth2_challenge_stop(ssh);
 
 #ifdef GSSAPI
 	/* XXX move to auth2_gssapi_stop() */
-	dispatch_set(SSH2_MSG_USERAUTH_GSSAPI_TOKEN, NULL);
-	dispatch_set(SSH2_MSG_USERAUTH_GSSAPI_EXCHANGE_COMPLETE, NULL);
+	ssh_dispatch_set(ssh, SSH2_MSG_USERAUTH_GSSAPI_TOKEN, NULL);
+	ssh_dispatch_set(ssh, SSH2_MSG_USERAUTH_GSSAPI_EXCHANGE_COMPLETE, NULL);
 #endif
 
 	authctxt->postponed = 0;
@@ -258,9 +264,9 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 	m = authmethod_lookup(authctxt, method);
 	if (m != NULL && authctxt->failures < options.max_authtries) {
 		debug2("input_userauth_request: try method %s", method);
-		authenticated =	m->userauth(authctxt);
+		authenticated =	m->userauth(ssh);
 	}
-	userauth_finish(authctxt, authenticated, method, NULL);
+	userauth_finish(ssh, authenticated, method, NULL);
 
 	free(service);
 	free(user);
@@ -269,9 +275,10 @@ input_userauth_request(int type, u_int32_t seq, void *ctxt)
 }
 
 void
-userauth_finish(Authctxt *authctxt, int authenticated, const char *method,
+userauth_finish(struct ssh *ssh, int authenticated, const char *method,
     const char *submethod)
 {
+	Authctxt *authctxt = ssh->authctxt;
 	char *methods;
 	int partial = 0;
 
@@ -301,12 +308,13 @@ userauth_finish(Authctxt *authctxt, int authenticated, const char *method,
 
 	if (authenticated == 1) {
 		/* turn off userauth */
-		dispatch_set(SSH2_MSG_USERAUTH_REQUEST, &dispatch_protocol_ignore);
+		ssh_dispatch_set(ssh, SSH2_MSG_USERAUTH_REQUEST, &dispatch_protocol_ignore);
 		packet_start(SSH2_MSG_USERAUTH_SUCCESS);
 		packet_send();
 		packet_write_wait();
 		/* now we can break out */
 		authctxt->success = 1;
+		ssh_packet_set_log_preamble(ssh, "user %s", authctxt->user);
 	} else {
 		/* Allow initial try of "none" auth without failure penalty */
 		if (!partial && !authctxt->server_caused_failure &&

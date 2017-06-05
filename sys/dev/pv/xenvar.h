@@ -1,4 +1,4 @@
-/*	$OpenBSD: xenvar.h,v 1.36 2016/08/17 17:18:38 mikeb Exp $	*/
+/*	$OpenBSD: xenvar.h,v 1.49 2017/02/08 16:15:52 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015 Mike Belopuhov
@@ -16,16 +16,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef _XENVAR_H_
-#define _XENVAR_H_
+#ifndef _DEV_PV_XENVAR_H_
+#define _DEV_PV_XENVAR_H_
 
-/* #define XEN_DEBUG */
+static inline void
+clear_bit(u_int b, volatile void *p)
+{
+	atomic_clearbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+}
 
-#ifdef XEN_DEBUG
-#define DPRINTF(x...)		printf(x)
-#else
-#define DPRINTF(x...)
-#endif
+static inline void
+set_bit(u_int b, volatile void *p)
+{
+	atomic_setbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
+}
+
+static inline int
+test_bit(u_int b, volatile void *p)
+{
+	return !!(((volatile u_int *)p)[b >> 5] & (1 << (b & 0x1f)));
+}
+
+#define XEN_MAX_NODE_LEN	64
+#define XEN_MAX_BACKEND_LEN	128
 
 struct xen_intsrc {
 	SLIST_ENTRY(xen_intsrc)	 xi_entry;
@@ -33,6 +46,7 @@ struct xen_intsrc {
 	evtchn_port_t		 xi_port;
 	short			 xi_noclose;
 	short			 xi_masked;
+	struct refcnt		 xi_refcnt;
 	struct task		 xi_task;
 	struct taskq		*xi_taskq;
 };
@@ -43,13 +57,29 @@ struct xen_gntent {
 	short			 ge_reserved;
 	short			 ge_next;
 	short			 ge_free;
-	struct mutex		 ge_mtx;
+	struct mutex		 ge_lock;
 };
 
 struct xen_gntmap {
 	grant_ref_t		 gm_ref;
 	paddr_t			 gm_paddr;
 };
+
+struct xen_device {
+	struct device		*dv_dev;
+	char			 dv_unit[16];
+	LIST_ENTRY(xen_device)	 dv_entry;
+};
+LIST_HEAD(xen_devices, xen_device);
+
+struct xen_devlist {
+	struct xen_softc	*dl_xen;
+	char			 dl_node[XEN_MAX_NODE_LEN];
+	struct task		 dl_task;
+	struct xen_devices	 dl_devs;
+	SLIST_ENTRY(xen_devlist) dl_entry;
+};
+SLIST_HEAD(xen_devlists, xen_devlist);
 
 struct xen_softc {
 	struct device		 sc_dev;
@@ -61,16 +91,16 @@ struct xen_softc {
 	struct shared_info	*sc_ipg;	/* HYPERVISOR_shared_info */
 
 	uint32_t		 sc_flags;
-#define  XSF_CBVEC		 0x0001
-#define  XSF_UNPLUG_NIC		 0x0002		/* disable emul. NICs */
-#define  XSF_UNPLUG_IDE		 0x0004		/* disable emul. primary IDE */
-#define  XSF_UNPLUG_IDESEC	 0x0008		/* disable emul. sec. IDE */
+#define  XSF_CBVEC		  0x0001
+
+	uint32_t		 sc_unplug;
 
 	uint64_t		 sc_irq;	/* IDT vector number */
 	SLIST_HEAD(, xen_intsrc) sc_intrs;
+	struct mutex		 sc_islck;
 
 	struct xen_gntent	*sc_gnt;	/* grant table entries */
-	struct mutex		 sc_gntmtx;
+	struct mutex		 sc_gntlck;
 	int			 sc_gntcnt;	/* number of allocated frames */
 	int			 sc_gntmax;	/* number of allotted frames */
 
@@ -78,17 +108,16 @@ struct xen_softc {
 	 * Xenstore
 	 */
 	struct xs_softc		*sc_xs;		/* xenstore softc */
-
 	struct task		 sc_ctltsk;	/* control task */
+	struct xen_devlists	 sc_devlists;	/* device lists heads */
 };
 
-extern struct xen_softc *xen_sc;
+extern struct xen_softc		*xen_sc;
 
 struct xen_attach_args {
-	void			*xa_parent;
 	char			 xa_name[16];
-	char			 xa_node[64];
-	char			 xa_backend[128];
+	char			 xa_node[XEN_MAX_NODE_LEN];
+	char			 xa_backend[XEN_MAX_BACKEND_LEN];
 	int			 xa_domid;
 	bus_dma_tag_t		 xa_dmat;
 };
@@ -115,12 +144,22 @@ void	xen_intr(void);
 void	xen_intr_ack(void);
 void	xen_intr_signal(xen_intr_handle_t);
 void	xen_intr_schedule(xen_intr_handle_t);
+void	xen_intr_barrier(xen_intr_handle_t);
 int	xen_intr_establish(evtchn_port_t, xen_intr_handle_t *, int,
 	    void (*)(void *), void *, char *);
 int	xen_intr_disestablish(xen_intr_handle_t);
 void	xen_intr_enable(void);
 void	xen_intr_mask(xen_intr_handle_t);
 int	xen_intr_unmask(xen_intr_handle_t);
+
+/*
+ * Miscellaneous
+ */
+#define XEN_UNPLUG_NIC		0x0001	/* disable emul. NICs */
+#define XEN_UNPLUG_IDE		0x0002	/* disable emul. primary IDE */
+#define XEN_UNPLUG_IDESEC	0x0004	/* disable emul. secondary IDE */
+
+void	xen_unplug_emulated(void *, int);
 
 /*
  *  XenStore
@@ -138,36 +177,31 @@ int	xen_intr_unmask(xen_intr_handle_t);
 
 struct xs_transaction {
 	uint32_t		 xst_id;
-	uint32_t		 xst_flags;
-#define XST_POLL		0x0001
-	struct xs_softc		*xst_sc;
+	void			*xst_cookie;
 };
-
-static __inline void
-clear_bit(u_int b, volatile void *p)
-{
-	atomic_clearbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
-}
-
-static __inline void
-set_bit(u_int b, volatile void *p)
-{
-	atomic_setbits_int(((volatile u_int *)p) + (b >> 5), 1 << (b & 0x1f));
-}
-
-static __inline int
-test_bit(u_int b, volatile void *p)
-{
-	return !!(((volatile u_int *)p)[b >> 5] & (1 << (b & 0x1f)));
-}
 
 int	xs_cmd(struct xs_transaction *, int, const char *, struct iovec **,
 	    int *);
 void	xs_resfree(struct xs_transaction *, struct iovec *, int);
-int	xs_watch(struct xen_softc *, const char *, const char *, struct task *,
+int	xs_watch(void *, const char *, const char *, struct task *,
 	    void (*)(void *), void *);
-int	xs_getprop(struct xen_softc *, const char *, const char *, char *, int);
-int	xs_setprop(struct xen_softc *, const char *, const char *, char *, int);
+int	xs_getnum(void *, const char *, const char *, unsigned long long *);
+int	xs_setnum(void *, const char *, const char *, unsigned long long);
+int	xs_getprop(void *, const char *, const char *, char *, int);
+int	xs_setprop(void *, const char *, const char *, char *, int);
 int	xs_kvop(void *, int, char *, char *, size_t);
 
-#endif	/* _XENVAR_H_ */
+#define XEN_STATE_UNKNOWN	"0"
+#define XEN_STATE_INITIALIZING	"1"
+#define XEN_STATE_INITWAIT	"2"
+#define XEN_STATE_INITIALIZED	"3"
+#define XEN_STATE_CONNECTED	"4"
+#define XEN_STATE_CLOSING	"5"
+#define XEN_STATE_CLOSED	"6"
+#define XEN_STATE_RECONFIGURING	"7"
+#define XEN_STATE_RECONFIGURED	"8"
+
+int	xs_await_transition(void *, const char *, const char *,
+	    const char *, int);
+
+#endif	/* _DEV_PV_XENVAR_H_ */

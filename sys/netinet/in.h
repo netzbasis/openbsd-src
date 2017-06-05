@@ -1,4 +1,4 @@
-/*	$OpenBSD: in.h,v 1.119 2016/09/04 17:05:24 claudio Exp $	*/
+/*	$OpenBSD: in.h,v 1.123 2017/05/30 07:50:37 mpi Exp $	*/
 /*	$NetBSD: in.h,v 1.20 1996/02/13 23:41:47 christos Exp $	*/
 
 /*
@@ -57,6 +57,12 @@
 #define	_SA_FAMILY_T_DEFINED_
 typedef	__sa_family_t	sa_family_t;	/* sockaddr address family type */
 #endif /* _SA_FAMILY_T_DEFINED_ */
+
+#ifndef _IN_TYPES_DEFINED_
+#define _IN_TYPES_DEFINED_
+typedef __in_addr_t	in_addr_t;	/* base type for internet address */
+typedef __in_port_t	in_port_t;	/* IP port type */
+#endif
 
 /*
  * Protocols
@@ -487,7 +493,7 @@ struct ip_mreq {
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
-	{ "pim", CTLTYPE_NODE }, \
+	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
 	{ 0, 0 }, \
@@ -794,7 +800,6 @@ __END_DECLS
 
 #ifdef _KERNEL
 extern	   int inetctlerrmap[];
-extern	   struct niqueue ipintrq;	/* ip packet input queue */
 extern	   struct in_addr zeroin_addr;
 
 struct mbuf;
@@ -802,6 +807,8 @@ struct sockaddr;
 struct sockaddr_in;
 struct ifaddr;
 struct in_ifaddr;
+
+void	   ipv4_input(struct ifnet *, struct mbuf *);
 
 int	   in_broadcast(struct in_addr, u_int);
 int	   in_canforward(struct in_addr);
@@ -828,19 +835,19 @@ const char *sockaddr_ntop(struct sockaddr *, char *, size_t);
  * casts or defines.
  */
 
-static __inline struct sockaddr_in *
+static inline struct sockaddr_in *
 satosin(struct sockaddr *sa)
 {
 	return ((struct sockaddr_in *)(sa));
 }
 
-static __inline struct sockaddr *
+static inline struct sockaddr *
 sintosa(struct sockaddr_in *sin)
 {
 	return ((struct sockaddr *)(sin));
 }
 
-static __inline struct in_ifaddr *
+static inline struct in_ifaddr *
 ifatoia(struct ifaddr *ifa)
 {
 	return ((struct in_ifaddr *)(ifa));

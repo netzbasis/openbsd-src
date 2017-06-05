@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.11 2016/08/27 01:26:22 guenther Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.21 2017/04/04 15:52:12 reyk Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -49,6 +49,7 @@
 #include <net/if_types.h>
 
 #include <netinet/in.h>
+#include <netinet/if_ether.h>
 
 #include <errno.h>
 #include <ifaddrs.h>
@@ -62,6 +63,15 @@
 
 #include "dhcp.h"
 #include "dhcpd.h"
+#include "log.h"
+
+/*
+ * Macros implementation used to generate link-local addresses. This
+ * code was copied from: sys/netinet6/in6_ifattach.c.
+ */
+#define EUI64_UBIT		0x02
+#define EUI64_TO_IFID(in6) \
+	do { (in6)->s6_addr[8] ^= EUI64_UBIT; } while (0)
 
 struct protocol *protocols;
 struct timeout *timeouts;
@@ -69,84 +79,159 @@ static struct timeout *free_timeouts;
 static int interfaces_invalidated;
 
 void (*bootp_packet_handler)(struct interface_info *,
-    struct dhcp_packet *, int, unsigned int,
-    struct iaddr, struct hardware *);
+    struct dhcp_packet *, int, struct packet_ctx *);
 
 static int interface_status(struct interface_info *ifinfo);
 
-/*
- * Use getifaddrs() to get a list of all the attached interfaces.  For
- * each interface that's of type INET and not the loopback interface,
- * register that interface with the network I/O software, figure out
- * what subnet it's on, and add it to the list of interfaces.
- */
-void
-discover_interfaces(struct interface_info *iface)
+struct interface_info *
+iflist_getbyname(const char *name)
 {
-	struct sockaddr_in foo;
-	struct ifaddrs *ifap, *ifa;
-	struct ifreq *tif;
+	struct interface_info	*intf;
 
-	if (getifaddrs(&ifap) != 0)
-		error("getifaddrs failed");
+	TAILQ_FOREACH(intf, &intflist, entry) {
+		if (strcmp(intf->name, name) != 0)
+			continue;
+
+		return intf;
+	}
+
+	return NULL;
+}
+
+void
+setup_iflist(void)
+{
+	struct interface_info		*intf;
+	struct sockaddr_dl		*sdl;
+	struct ifaddrs			*ifap, *ifa;
+	struct if_data			*ifi;
+	struct sockaddr_in		*sin;
+	struct sockaddr_in6		*sin6;
+
+	TAILQ_INIT(&intflist);
+	if (getifaddrs(&ifap))
+		fatalx("getifaddrs failed");
 
 	for (ifa = ifap; ifa != NULL; ifa = ifa->ifa_next) {
 		if ((ifa->ifa_flags & IFF_LOOPBACK) ||
-		    (ifa->ifa_flags & IFF_POINTOPOINT) ||
-		    (!(ifa->ifa_flags & IFF_UP)))
+		    (ifa->ifa_flags & IFF_POINTOPOINT))
 			continue;
 
-		if (strcmp(iface->name, ifa->ifa_name))
-			continue;
+		/* Find interface or create it. */
+		intf = iflist_getbyname(ifa->ifa_name);
+		if (intf == NULL) {
+			intf = calloc(1, sizeof(*intf));
+			if (intf == NULL)
+				fatal("calloc");
 
-		/*
-		 * If we have the capability, extract link information
-		 * and record it in a linked list.
-		 */
+			strlcpy(intf->name, ifa->ifa_name,
+			    sizeof(intf->name));
+			TAILQ_INSERT_HEAD(&intflist, intf, entry);
+		}
+
+		/* Signal disabled interface. */
+		if ((ifa->ifa_flags & IFF_UP) == 0)
+			intf->dead = 1;
+
 		if (ifa->ifa_addr->sa_family == AF_LINK) {
-			struct sockaddr_dl *foo =
-			    (struct sockaddr_dl *)ifa->ifa_addr;
-			struct if_data *ifi =
-			    (struct if_data *)ifa->ifa_data;
+			sdl = (struct sockaddr_dl *)ifa->ifa_addr;
+			ifi = (struct if_data *)ifa->ifa_data;
 
-			iface->index = foo->sdl_index;
-			iface->hw_address.hlen = foo->sdl_alen;
-			if (ifi->ifi_type == IFT_ENC)
-				iface->hw_address.htype = HTYPE_IPSEC_TUNNEL;
-			else
-				iface->hw_address.htype = HTYPE_ETHER; /* XXX */
-			memcpy(iface->hw_address.haddr,
-			    LLADDR(foo), foo->sdl_alen);
-		} else if (ifa->ifa_addr->sa_family == AF_INET) {
-			struct iaddr addr;
-
-			memcpy(&foo, ifa->ifa_addr, sizeof(foo));
-			if (foo.sin_addr.s_addr == htonl(INADDR_LOOPBACK))
+			/* Skip non ethernet interfaces. */
+			if (ifi->ifi_type != IFT_ETHER &&
+			    ifi->ifi_type != IFT_ENC) {
+				TAILQ_REMOVE(&intflist, intf, entry);
+				free(intf);
 				continue;
-			if (!iface->ifp) {
-				int len = IFNAMSIZ + ifa->ifa_addr->sa_len;
-
-				if ((tif = malloc(len)) == NULL)
-					error("no space to remember ifp");
-				strlcpy(tif->ifr_name, ifa->ifa_name, IFNAMSIZ);
-				memcpy(&tif->ifr_addr, ifa->ifa_addr,
-				    ifa->ifa_addr->sa_len);
-				iface->ifp = tif;
-				iface->primary_address = foo.sin_addr;
 			}
-			addr.len = 4;
-			memcpy(addr.iabuf, &foo.sin_addr.s_addr, addr.len);
+
+			if (ifi->ifi_type == IFT_ETHER)
+				intf->hw_address.htype = HTYPE_ETHER;
+			else
+				intf->hw_address.htype = HTYPE_IPSEC_TUNNEL;
+
+			intf->index = sdl->sdl_index;
+			intf->hw_address.hlen = sdl->sdl_alen;
+			memcpy(intf->hw_address.haddr,
+			    LLADDR(sdl), sdl->sdl_alen);
+		} else if (ifa->ifa_addr->sa_family == AF_INET) {
+			sin = (struct sockaddr_in *)ifa->ifa_addr;
+			if (sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK) ||
+			    intf->primary_address.s_addr != INADDR_ANY)
+				continue;
+
+			intf->primary_address = sin->sin_addr;
+		} else if (ifa->ifa_addr->sa_family == AF_INET6) {
+			sin6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+			/* Remove the scope from address if link-local. */
+			if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
+				intf->linklocal = sin6->sin6_addr;
+				intf->linklocal.s6_addr[2] = 0;
+				intf->linklocal.s6_addr[3] = 0;
+			} else
+				intf->gipv6 = 1;
+
+			/* At least one IPv6 address was found. */
+			intf->ipv6 = 1;
 		}
 	}
 
-	if (!iface->ifp)
-		error("%s: not found", iface->name);
-
-	/* Register the interface... */
-	if_register_receive(iface);
-	if_register_send(iface);
-	add_protocol(iface->name, iface->rfdesc, got_one, iface);
 	freeifaddrs(ifap);
+
+	/*
+	 * Generate link-local IPv6 address for interfaces without it.
+	 *
+	 * For IPv6 DHCP Relay it doesn't matter what is used for
+	 * link-addr field, so let's generate an address that won't
+	 * change during execution so we can always find the interface
+	 * to relay packets back. This is only used for layer 2 relaying
+	 * when the interface might not have an address.
+	 */
+	TAILQ_FOREACH(intf, &intflist, entry) {
+		if (memcmp(&intf->linklocal, &in6addr_any,
+		    sizeof(in6addr_any)) != 0)
+			continue;
+
+		intf->linklocal.s6_addr[0] = 0xfe;
+		intf->linklocal.s6_addr[1] = 0x80;
+		intf->linklocal.s6_addr[8] = intf->hw_address.haddr[0];
+		intf->linklocal.s6_addr[9] = intf->hw_address.haddr[1];
+		intf->linklocal.s6_addr[10] = intf->hw_address.haddr[2];
+		intf->linklocal.s6_addr[11] = 0xff;
+		intf->linklocal.s6_addr[12] = 0xfe;
+		intf->linklocal.s6_addr[13] = intf->hw_address.haddr[3];
+		intf->linklocal.s6_addr[14] = intf->hw_address.haddr[4];
+		intf->linklocal.s6_addr[15] = intf->hw_address.haddr[5];
+		EUI64_TO_IFID(&intf->linklocal);
+	}
+}
+
+struct interface_info *
+register_interface(const char *ifname, void (*handler)(struct protocol *),
+    int isserver)
+{
+	struct interface_info		*intf;
+
+	if ((intf = iflist_getbyname(ifname)) == NULL)
+		return NULL;
+
+	/* Don't register disabled interfaces. */
+	if (intf->dead)
+		return NULL;
+
+	/* Check if we already registered the interface. */
+	if (intf->ifr.ifr_name[0] != 0)
+		return intf;
+
+	if (strlcpy(intf->ifr.ifr_name, ifname,
+	    sizeof(intf->ifr.ifr_name)) >= sizeof(intf->ifr.ifr_name))
+		fatalx("interface name '%s' too long", ifname);
+
+	if_register_receive(intf, isserver);
+	if_register_send(intf);
+	add_protocol(intf->name, intf->rfdesc, handler, intf);
+
+	return intf;
 }
 
 /*
@@ -169,7 +254,7 @@ dispatch(void)
 
 	fds = calloc(nfds, sizeof(struct pollfd));
 	if (fds == NULL)
-		error("Can't allocate poll structures.");
+		fatalx("Can't allocate poll structures.");
 
 	do {
 		/*
@@ -216,7 +301,7 @@ another:
 		}
 
 		if (i == 0)
-			error("No live interfaces to poll on - exiting.");
+			fatalx("No live interfaces to poll on - exiting.");
 
 		/* Wait for a packet or a timeout... XXX */
 		count = poll(fds, nfds, to_msec);
@@ -228,7 +313,7 @@ another:
 				continue;
 			}
 			else
-				error("poll: %m");
+				fatal("poll");
 		}
 
 		/* Get the current time... */
@@ -256,10 +341,8 @@ another:
 void
 got_one(struct protocol *l)
 {
-	struct sockaddr_in from;
-	struct hardware hfrom;
-	struct iaddr ifrom;
-	size_t result;
+	struct packet_ctx pc;
+	ssize_t result;
 	union {
 		/*
 		 * Packet input buffer.  Must be as large as largest
@@ -270,15 +353,15 @@ got_one(struct protocol *l)
 	} u;
 	struct interface_info *ip = l->local;
 
-	if ((result = receive_packet(ip, u.packbuf, sizeof(u), &from,
-	    &hfrom)) == -1) {
-		warning("receive_packet failed on %s: %s", ip->name,
-		    strerror(errno));
+	memset(&pc, 0, sizeof(pc));
+
+	if ((result = receive_packet(ip, u.packbuf, sizeof(u), &pc)) == -1) {
+		log_warn("receive_packet failed on %s", ip->name);
 		ip->errors++;
 		if ((!interface_status(ip)) ||
 		    (ip->noifmedia && ip->errors > 20)) {
 			/* our interface has gone away. */
-			warning("Interface %s no longer appears valid.",
+			log_warnx("Interface %s no longer appears valid.",
 			    ip->name);
 			ip->dead = 1;
 			interfaces_invalidated = 1;
@@ -291,13 +374,8 @@ got_one(struct protocol *l)
 	if (result == 0)
 		return;
 
-	if (bootp_packet_handler) {
-		ifrom.len = 4;
-		memcpy(ifrom.iabuf, &from.sin_addr, ifrom.len);
-
-		(*bootp_packet_handler)(ip, &u.packet, result,
-		    from.sin_port, ifrom, &hfrom);
-	}
+	if (bootp_packet_handler)
+		(*bootp_packet_handler)(ip, &u.packet, result, &pc);
 }
 
 int
@@ -312,7 +390,7 @@ interface_status(struct interface_info *ifinfo)
 	memset(&ifr, 0, sizeof(ifr));
 	strlcpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	if (ioctl(ifsock, SIOCGIFFLAGS, &ifr) == -1) {
-		syslog(LOG_ERR, "ioctl(SIOCGIFFLAGS) on %s: %m", ifname);
+		log_warn("ioctl(SIOCGIFFLAGS) on %s", ifname);
 		goto inactive;
 	}
 	/*
@@ -329,9 +407,7 @@ interface_status(struct interface_info *ifinfo)
 	strlcpy(ifmr.ifm_name, ifname, sizeof(ifmr.ifm_name));
 	if (ioctl(ifsock, SIOCGIFMEDIA, (caddr_t)&ifmr) == -1) {
 		if (errno != EINVAL) {
-			syslog(LOG_DEBUG, "ioctl(SIOCGIFMEDIA) on %s: %m",
-			    ifname);
-
+			log_debug("ioctl(SIOCGIFMEDIA) on %s", ifname);
 			ifinfo->noifmedia = 1;
 			goto active;
 		}
@@ -369,7 +445,7 @@ add_protocol(char *name, int fd, void (*handler)(struct protocol *),
 
 	p = malloc(sizeof(*p));
 	if (!p)
-		error("can't allocate protocol struct for %s", name);
+		fatalx("can't allocate protocol struct for %s", name);
 
 	p->fd = fd;
 	p->handler = handler;

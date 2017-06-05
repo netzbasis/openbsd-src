@@ -1,4 +1,4 @@
-/*	$OpenBSD: gus.c,v 1.43 2015/06/25 20:05:11 ratchov Exp $	*/
+/*	$OpenBSD: gus.c,v 1.46 2017/05/04 15:19:01 bluhm Exp $	*/
 /*	$NetBSD: gus.c,v 1.51 1998/01/25 23:48:06 mycroft Exp $	*/
 
 /*-
@@ -263,10 +263,6 @@ static const unsigned short gus_log_volumes[512] = {
 struct audio_hw_if gus_hw_if = {
 	gusopen,
 	gusclose,
-	NULL,				/* drain */
-
-	gus_query_encoding,
-
 	gus_set_params,
 
 	gus_round_blocksize,
@@ -282,7 +278,6 @@ struct audio_hw_if gus_hw_if = {
 	gus_halt_in_dma,
 	gus_speaker_ctl,
 
-	gus_getdev,
 	NULL,
 	gus_mixer_set_port,
 	gus_mixer_get_port,
@@ -290,10 +285,8 @@ struct audio_hw_if gus_hw_if = {
 	gus_malloc,
 	gus_free,
 	gus_round,
-	gus_mappage,
 	gus_get_props,
 
-	NULL,
 	NULL,
 	NULL
 };
@@ -301,10 +294,6 @@ struct audio_hw_if gus_hw_if = {
 static struct audio_hw_if gusmax_hw_if = {
 	gusmaxopen,
 	gusmax_close,
-	NULL,				/* drain */
-
-	gus_query_encoding, /* query encoding */
-
 	gusmax_set_params,
 
 	gusmax_round_blocksize,
@@ -321,7 +310,6 @@ static struct audio_hw_if gusmax_hw_if = {
 
 	gusmax_speaker_ctl,
 
-	gus_getdev,
 	NULL,
 	gusmax_mixer_set_port,
 	gusmax_mixer_get_port,
@@ -329,23 +317,11 @@ static struct audio_hw_if gusmax_hw_if = {
 	ad1848_malloc,
 	ad1848_free,
 	ad1848_round,
-	ad1848_mappage,
 	gusmax_get_props,
 
 	NULL,
-	NULL,
 	NULL
 };
-
-/*
- * Some info about the current audio device
- */
-struct audio_device gus_device = {
-	"UltraSound",
-	"",
-	"gus",
-};
-
 
 int
 gusopen(void *addr, int flags)
@@ -882,7 +858,7 @@ gus_dmaout_dointr(struct gus_softc *sc)
 	 * flip to the next DMA buffer
 	 */
 
-	sc->sc_dmabuf = ++sc->sc_dmabuf % sc->sc_nbufs;
+	sc->sc_dmabuf = (sc->sc_dmabuf + 1) % sc->sc_nbufs;
 	/*
 	 * See comments below about DMA admission control strategy.
 	 * We can call the upper level here if we have an
@@ -972,7 +948,7 @@ gus_voice_intr(struct gus_softc *sc)
 				   sc->sc_dev.dv_xname, sc->sc_bufcnt);
 			    gus_falsestops++;
 
-			    sc->sc_playbuf = ++sc->sc_playbuf % sc->sc_nbufs;
+			    sc->sc_playbuf = (sc->sc_playbuf + 1) % sc->sc_nbufs;
 			    gus_start_playing(sc, sc->sc_playbuf);
 			} else if (sc->sc_bufcnt < 0) {
 			    panic("%s: negative bufcnt in stopped voice",
@@ -1140,7 +1116,7 @@ gus_continue_playing(struct gus_softc *sc, int voice)
 	 * update playbuf to point to the buffer the hardware just started
 	 * playing
 	 */
-	sc->sc_playbuf = ++sc->sc_playbuf % sc->sc_nbufs;
+	sc->sc_playbuf = (sc->sc_playbuf + 1) % sc->sc_nbufs;
 
 	/*
 	 * account for buffer just finished
@@ -2123,18 +2099,6 @@ gus_init_cs4231(struct gus_softc *sc)
 	}
 }
 
-
-/*
- * Return info about the audio device, for the AUDIO_GETINFO ioctl
- */
-
-int
-gus_getdev(void *addr, struct audio_device *dev)
-{
-	*dev = gus_device;
-	return 0;
-}
-
 /*
  * stubs (XXX)
  */
@@ -3115,44 +3079,6 @@ mute:
 	return 0;
 }
 
-int
-gus_query_encoding(void *addr, struct audio_encoding *fp)
-{
-	switch (fp->index) {
-	case 0:
-		strlcpy(fp->name, AudioEslinear, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 1:
-		strlcpy(fp->name, AudioEslinear_le, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_SLINEAR_LE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	case 2:
-		strlcpy(fp->name, AudioEulinear, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR;
-		fp->precision = 8;
-		fp->flags = 0;
-		break;
-	case 3:
-		strlcpy(fp->name, AudioEulinear_le, sizeof fp->name);
-		fp->encoding = AUDIO_ENCODING_ULINEAR_LE;
-		fp->precision = 16;
-		fp->flags = 0;
-		break;
-	default:
-		return(EINVAL);
-		/*NOTREACHED*/
-	}
-	fp->bps = AUDIO_BPS(fp->precision);
-	fp->msb = 1;
-
-	return (0);
-}
-
 void *
 gus_malloc(void *addr, int direction, size_t size, int pool, int flags)
 {
@@ -3179,12 +3105,6 @@ gus_round(void *addr, int direction, size_t size)
 	if (size > MAX_ISADMA)
 		size = MAX_ISADMA;
 	return size;
-}
-
-paddr_t
-gus_mappage(void *addr, void *mem, off_t off, int prot)
-{
-	return isa_mappage(mem, off, prot);
 }
 
 /*
@@ -3419,9 +3339,6 @@ gus_subattach(struct gus_softc *sc, struct isa_attach_args *ia)
 	 * of the board version. Simply use the revision register as
 	 * identification.
 	 */
-	snprintf(gus_device.version, sizeof gus_device.version, "%d",
-	    sc->sc_revision);
-
 	printf(": ver %d", sc->sc_revision);
 	if (sc->sc_revision >= 10)
 		printf(", MAX");

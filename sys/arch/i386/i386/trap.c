@@ -1,4 +1,4 @@
-/*	$OpenBSD: trap.c,v 1.125 2016/02/28 15:46:18 naddy Exp $	*/
+/*	$OpenBSD: trap.c,v 1.130 2017/04/30 13:04:49 mpi Exp $	*/
 /*	$NetBSD: trap.c,v 1.95 1996/05/05 06:50:02 mycroft Exp $	*/
 
 /*-
@@ -60,10 +60,6 @@
 #include <machine/trap.h>
 #ifdef DDB
 #include <machine/db_machdep.h>
-#endif
-
-#ifdef KGDB
-#include <sys/kgdb.h>
 #endif
 
 #include <sys/exec.h>
@@ -159,28 +155,13 @@ trap(struct trapframe *frame)
 
 	/* trace trap */
 	case T_TRCTRAP:
-#if !(defined(DDB) || defined(KGDB))
+#ifndef DDB
 		return;	/* Just return if no kernel debugger */
 #endif
 		/* FALLTHROUGH */
 
 	default:
 	we_re_toast:
-#ifdef KGDB
-		if (kgdb_trap(type, frame))
-			return;
-		else {
-			/*
-			 * If this is a breakpoint, don't panic
-			 * if we're not connected.
-			 */
-			if (type == T_BPTFLT) {
-				printf("kgdb: ignored %s\n", trap_type[type]);
-				return;
-			}
-		}
-#endif
-
 #ifdef DDB
 		if (db_ktrap(type, 0, frame))
 			return;
@@ -332,7 +313,7 @@ trap(struct trapframe *frame)
 
 	case T_DNA|T_USER: {
 		printf("pid %d killed due to lack of floating point\n",
-		    p->p_pid);
+		    p->p_p->ps_pid);
 		sv.sival_int = frame->tf_eip;
 		KERNEL_LOCK();
 		trapsignal(p, SIGKILL, type &~ T_USER, FPE_FLTINV, sv);
@@ -375,11 +356,6 @@ trap(struct trapframe *frame)
 			goto we_re_toast;
 
 		pcb = &p->p_addr->u_pcb;
-#if 0
-		/* XXX - check only applies to 386's and 486's with WP off */
-		if (frame->tf_err & PGEX_P)
-			goto we_re_toast;
-#endif
 		cr2 = rcr2();
 		KERNEL_LOCK();
 		/* This will only trigger if SMEP is enabled */
@@ -462,7 +438,7 @@ trap(struct trapframe *frame)
 	}
 
 #if 0  /* Should this be left out?  */
-#if !defined(DDB) && !defined(KGDB)
+#if !defined(DDB)
 	/* XXX need to deal with this when DDB is present, too */
 	case T_TRCTRAP: /* kernel trace trap; someone single stepping lcall's */
 			/* syscall has to turn off the trace bit itself */
@@ -483,21 +459,15 @@ trap(struct trapframe *frame)
 		KERNEL_UNLOCK();
 		break;
 
-#if	NISA > 0
+#if NISA > 0
 	case T_NMI:
 	case T_NMI|T_USER:
-#if defined(DDB) || defined(KGDB)
+#ifdef DDB
 		/* NMI can be hooked up to a pushbutton for debugging */
 		printf ("NMI ... going to debugger\n");
-#ifdef KGDB
-		if (kgdb_trap(type, frame))
-			return;
-#endif
-#ifdef DDB
 		if (db_ktrap(type, 0, frame))
 			return;
 #endif
-#endif /* DDB || KGDB */
 		/* machine/parity/power fail/"kitchen sink" faults */
 		if (isa_nmi() == 0)
 			return;
@@ -625,10 +595,7 @@ syscall(struct trapframe *frame)
 		break;
 	default:
 	bad:
-		if (p->p_p->ps_emul->e_errno && error >= 0 && error <= ELAST)
-			frame->tf_eax = p->p_p->ps_emul->e_errno[error];
-		else
-			frame->tf_eax = error;
+		frame->tf_eax = error;
 		frame->tf_eflags |= PSL_C;	/* carry bit */
 		break;
 	}
@@ -639,7 +606,8 @@ syscall(struct trapframe *frame)
 	if (lapic_tpr != ocpl) {
 		printf("WARNING: SPL (0x%x) NOT LOWERED ON "
 		    "syscall(0x%lx, 0x%lx, 0x%lx, 0x%lx...) EXIT, PID %d\n",
-		    lapic_tpr, code, args[0], args[1], args[2], p->p_pid);
+		    lapic_tpr, code, args[0], args[1], args[2],
+		    p->p_p->ps_pid);
 		lapic_tpr = ocpl;
 	}
 #endif

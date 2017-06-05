@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.183 2016/09/03 14:28:24 jca Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.188 2017/04/13 03:52:25 guenther Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -61,10 +61,7 @@
 #include <sys/syscallargs.h>
 
 #include <uvm/uvm_extern.h>
-
-#ifdef __HAVE_MD_TCB
-# include <machine/tcb.h>
-#endif
+#include <machine/tcb.h>
 
 const struct kmem_va_mode kv_exec = {
 	.kv_wait = 1,
@@ -254,7 +251,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 #endif
 	char *stack;
 	struct ps_strings arginfo;
-	struct vmspace *vm = pr->ps_vmspace;
+	struct vmspace *vm;
 	char **tmpfap;
 	extern struct emul emul_native;
 	struct vnode *otvp;
@@ -421,7 +418,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 
 	/*
 	 * Prepare vmspace for remapping. Note that uvmspace_exec can replace
-	 * pr_vmspace!
+	 * ps_vmspace!
 	 */
 	uvmspace_exec(p, VM_MIN_ADDRESS, VM_MAXUSER_ADDRESS);
 
@@ -492,9 +489,9 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	arc4random_buf(&pr->ps_sigcookie, sizeof pr->ps_sigcookie);
 
 	/* set command name & other accounting info */
-	memset(p->p_comm, 0, sizeof(p->p_comm));
+	memset(pr->ps_comm, 0, sizeof(pr->ps_comm));
 	len = min(nid.ni_cnd.cn_namelen, MAXCOMLEN);
-	memcpy(p->p_comm, nid.ni_cnd.cn_nameptr, len);
+	memcpy(pr->ps_comm, nid.ni_cnd.cn_nameptr, len);
 	pr->ps_acflag &= ~AFORK;
 
 	/* record proc's vnode, for use by sysctl */
@@ -576,7 +573,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 				struct vnode *vp;
 				int indx;
 
-				if ((error = falloc(p, &fp, &indx)) != 0)
+				if ((error = falloc(p, 0, &fp, &indx)) != 0)
 					break;
 #ifdef DIAGNOSTIC
 				if (indx != i)
@@ -680,20 +677,6 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 
 	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
 
-	/*
-	 * Call emulation specific exec hook. This can setup per-process
-	 * p->p_emuldata or do any other per-process stuff an emulation needs.
-	 *
-	 * If we are executing process of different emulation than the
-	 * original forked process, call e_proc_exit() of the old emulation
-	 * first, then e_proc_exec() of new emulation. If the emulation is
-	 * same, the exec hook code should deallocate any old emulation
-	 * resources held previously by this process.
-	 */
-	if (pr->ps_emul && pr->ps_emul->e_proc_exit &&
-	    pr->ps_emul != pack.ep_emul)
-		(*pr->ps_emul->e_proc_exit)(p);
-
 	p->p_descfd = 255;
 	if ((pack.ep_flags & EXEC_HASFD) && pack.ep_fd < 255)
 		p->p_descfd = pack.ep_fd;
@@ -702,13 +685,6 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 		p->p_p->ps_flags |= PS_WXNEEDED;
 	else
 		p->p_p->ps_flags &= ~PS_WXNEEDED;
-
-	/*
-	 * Call exec hook. Emulation code may NOT store reference to anything
-	 * from &pack.
-	 */
-	if (pack.ep_emul->e_proc_exec)
-		(*pack.ep_emul->e_proc_exec)(p, &pack);
 
 	/* update ps_emul, the old value is no longer needed */
 	pr->ps_emul = pack.ep_emul;

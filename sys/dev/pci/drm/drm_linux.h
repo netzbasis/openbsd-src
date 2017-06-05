@@ -1,4 +1,4 @@
-/*	$OpenBSD: drm_linux.h,v 1.47 2016/04/05 20:44:03 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.50 2017/05/26 14:26:33 kettenis Exp $	*/
 /*
  * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  *
@@ -17,6 +17,15 @@
 
 #include <sys/atomic.h>
 #include <sys/task.h>
+
+/* The Linux code doesn't meet our usual standards! */
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wenum-conversion"
+#pragma clang diagnostic ignored "-Winitializer-overrides"
+#pragma clang diagnostic ignored "-Wtautological-pointer-compare"
+#pragma clang diagnostic ignored "-Wunneeded-internal-declaration"
+#pragma clang diagnostic ignored "-Wunused-const-variable"
+#endif
 
 typedef int irqreturn_t;
 #define IRQ_NONE	0
@@ -129,23 +138,23 @@ typedef off_t loff_t;
 #endif
 
 #define dev_warn(dev, fmt, arg...)				\
-	printf("drm:pid%d:%s *WARNING* " fmt, curproc->p_pid,	\
+	printf("drm:pid%d:%s *WARNING* " fmt, curproc->p_p->ps_pid,	\
 	    __func__ , ## arg)
 #define dev_notice(dev, fmt, arg...)				\
-	printf("drm:pid%d:%s *NOTICE* " fmt, curproc->p_pid,	\
+	printf("drm:pid%d:%s *NOTICE* " fmt, curproc->p_p->ps_pid,	\
 	    __func__ , ## arg)
 #define dev_crit(dev, fmt, arg...)				\
-	printf("drm:pid%d:%s *ERROR* " fmt, curproc->p_pid,	\
+	printf("drm:pid%d:%s *ERROR* " fmt, curproc->p_p->ps_pid,	\
 	    __func__ , ## arg)
 #define dev_err(dev, fmt, arg...)				\
-	printf("drm:pid%d:%s *ERROR* " fmt, curproc->p_pid,	\
+	printf("drm:pid%d:%s *ERROR* " fmt, curproc->p_p->ps_pid,	\
 	    __func__ , ## arg)
 
 #ifdef DRMDEBUG
 #define dev_info(dev, fmt, arg...)				\
 	printf("drm: " fmt, ## arg)
 #define dev_debug(dev, fmt, arg...)				\
-	printf("drm:pid%d:%s *DEBUG* " fmt, curproc->p_pid,	\
+	printf("drm:pid%d:%s *DEBUG* " fmt, curproc->p_p->ps_pid,	\
 	    __func__ , ## arg)
 #else
 #define dev_info(dev, fmt, arg...) 				\
@@ -162,7 +171,11 @@ do {									\
 	panic("BUG at %s:%d", __FILE__, __LINE__);			\
 } while (0)
 
-#define BUG_ON(x) KASSERT(!(x))
+#ifndef DIAGNOSTIC
+#define BUG_ON(x)	((void)(x))
+#else
+#define BUG_ON(x)	KASSERT(!(x))
+#endif
 
 #define BUILD_BUG_ON(x) CTASSERT(!(x))
 #define BUILD_BUG_ON_NOT_POWER_OF_2(x)

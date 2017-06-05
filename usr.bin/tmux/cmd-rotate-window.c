@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-rotate-window.c,v 1.19 2016/01/19 15:59:12 nicm Exp $ */
+/* $OpenBSD: cmd-rotate-window.c,v 1.24 2017/05/09 11:00:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -24,7 +24,8 @@
  * Rotate the panes in a window.
  */
 
-enum cmd_retval	 cmd_rotate_window_exec(struct cmd *, struct cmd_q *);
+static enum cmd_retval	cmd_rotate_window_exec(struct cmd *,
+			    struct cmdq_item *);
 
 const struct cmd_entry cmd_rotate_window_entry = {
 	.name = "rotate-window",
@@ -33,20 +34,23 @@ const struct cmd_entry cmd_rotate_window_entry = {
 	.args = { "Dt:U", 0, 0 },
 	.usage = "[-DU] " CMD_TARGET_WINDOW_USAGE,
 
-	.tflag = CMD_WINDOW,
+	.target = { 't', CMD_FIND_WINDOW, 0 },
 
 	.flags = 0,
 	.exec = cmd_rotate_window_exec
 };
 
-enum cmd_retval
-cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
+static enum cmd_retval
+cmd_rotate_window_exec(struct cmd *self, struct cmdq_item *item)
 {
-	struct winlink		*wl = cmdq->state.tflag.wl;
+	struct cmd_find_state	*current = &item->shared->current;
+	struct winlink		*wl = item->target.wl;
 	struct window		*w = wl->window;
 	struct window_pane	*wp, *wp2;
 	struct layout_cell	*lc;
 	u_int			 sx, sy, xoff, yoff;
+
+	server_unzoom_window(w);
 
 	if (args_has(self->args, 'D')) {
 		wp = TAILQ_LAST(&w->panes, window_panes);
@@ -74,6 +78,7 @@ cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
 		if ((wp = TAILQ_PREV(w->active, window_panes, entry)) == NULL)
 			wp = TAILQ_LAST(&w->panes, window_panes);
 		window_set_active_pane(w, wp);
+		cmd_find_from_winlink_pane(current, wl, wp);
 		server_redraw_window(w);
 	} else {
 		wp = TAILQ_FIRST(&w->panes);
@@ -101,6 +106,7 @@ cmd_rotate_window_exec(struct cmd *self, struct cmd_q *cmdq)
 		if ((wp = TAILQ_NEXT(w->active, entry)) == NULL)
 			wp = TAILQ_FIRST(&w->panes);
 		window_set_active_pane(w, wp);
+		cmd_find_from_winlink_pane(current, wl, wp);
 		server_redraw_window(w);
 	}
 

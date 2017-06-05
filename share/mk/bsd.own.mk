@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.own.mk,v 1.178 2016/09/08 18:59:49 kettenis Exp $
+#	$OpenBSD: bsd.own.mk,v 1.184 2017/04/18 14:03:08 deraadt Exp $
 #	$NetBSD: bsd.own.mk,v 1.24 1996/04/13 02:08:09 thorpej Exp $
 
 # Host-specific overrides
@@ -15,6 +15,8 @@ SKEY?=		yes
 # Set `YP' to `yes' to build with support for NIS/YP.
 YP?=		yes
 
+CLANG_ARCH=aarch64 amd64 i386
+GCC4_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
 GCC3_ARCH=m88k
 
 # m88k: ?
@@ -24,8 +26,26 @@ STATICPIE_ARCH=alpha amd64 arm hppa i386 mips64 mips64el powerpc sh sparc64
 .for _arch in ${MACHINE_ARCH}
 .if !empty(GCC3_ARCH:M${_arch})
 COMPILER_VERSION?=gcc3
-.else
+.elif !empty(GCC4_ARCH:M${_arch})
 COMPILER_VERSION?=gcc4
+.elif !empty(CLANG_ARCH:M${_arch})
+COMPILER_VERSION?=clang
+.endif
+
+.if !empty(GCC3_ARCH:M${_arch})
+BUILD_GCC3?=yes
+.else
+BUILD_GCC3?=no
+.endif
+.if !empty(GCC4_ARCH:M${_arch})
+BUILD_GCC4?=yes
+.else
+BUILD_GCC4?=no
+.endif
+.if !empty(CLANG_ARCH:M${_arch})
+BUILD_CLANG?=yes
+.else
+BUILD_CLANG?=no
 .endif
 
 .if !empty(STATICPIE_ARCH:M${_arch})
@@ -72,11 +92,6 @@ DOCDIR?=	/usr/share/doc
 DOCGRP?=	bin
 DOCOWN?=	root
 DOCMODE?=	${NONBINMODE}
-
-LKMDIR?=	/usr/lkm
-LKMGRP?=	${BINGRP}
-LKMOWN?=	${BINOWN}
-LKMMODE?=	${NONBINMODE}
 
 LOCALEDIR?=	/usr/share/locale
 LOCALEGRP?=	wheel
@@ -132,6 +147,10 @@ DEFAULT_PIE_DEF=-DPIE_DEFAULT=1
 .if 0
 NOPROFILE=
 .endif
+
+BUILDUSER?= build
+WOBJGROUP?= wobj
+WOBJUMASK?= 007
 
 BSD_OWN_MK=Done
 

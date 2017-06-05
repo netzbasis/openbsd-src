@@ -1,7 +1,7 @@
-/*	$OpenBSD: xen.c,v 1.62 2016/08/17 17:18:38 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.82 2017/06/02 20:25:50 mikeb Exp $	*/
 
 /*
- * Copyright (c) 2015 Mike Belopuhov
+ * Copyright (c) 2015, 2016, 2017 Mike Belopuhov
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -33,8 +33,10 @@
 #include <sys/proc.h>
 #include <sys/signal.h>
 #include <sys/signalvar.h>
+#include <sys/refcnt.h>
 #include <sys/malloc.h>
 #include <sys/kernel.h>
+#include <sys/stdint.h>
 #include <sys/device.h>
 #include <sys/task.h>
 #include <sys/syslog.h>
@@ -53,6 +55,14 @@
 #include <dev/pv/pvreg.h>
 #include <dev/pv/xenreg.h>
 #include <dev/pv/xenvar.h>
+
+/* #define XEN_DEBUG */
+
+#ifdef XEN_DEBUG
+#define DPRINTF(x...)		printf(x)
+#else
+#define DPRINTF(x...)
+#endif
 
 struct xen_softc *xen_sc;
 
@@ -75,8 +85,11 @@ int 	xen_match(struct device *, void *, void *);
 void	xen_attach(struct device *, struct device *, void *);
 void	xen_deferred(struct device *);
 void	xen_control(void *);
+void	xen_hotplug(void *);
 void	xen_resume(struct device *);
 int	xen_activate(struct device *, int);
+int	xen_attach_device(struct xen_softc *, struct xen_devlist *,
+	    const char *, const char *);
 int	xen_probe_devices(struct xen_softc *);
 
 int	xen_bus_dmamap_create(bus_dma_tag_t, bus_size_t, int, bus_size_t,
@@ -202,7 +215,7 @@ xen_control(void *arg)
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
+	xst.xst_cookie = sc->sc_xs;
 
 	error = xs_getprop(sc, "control", "shutdown", action, sizeof(action));
 	if (error) {
@@ -219,27 +232,9 @@ xen_control(void *arg)
 	xs_setprop(sc, "control", "shutdown", "", 0);
 
 	if (strcmp(action, "halt") == 0 || strcmp(action, "poweroff") == 0) {
-		extern int allowpowerdown;
-
-		if (allowpowerdown == 0)
-			return;
-
-		suspend_randomness();
-
-		log(LOG_KERN | LOG_NOTICE, "Shutting down in response to "
-		    "request from Xen host\n");
-		prsignal(initprocess, SIGUSR2);
+		pvbus_shutdown(&sc->sc_dev);
 	} else if (strcmp(action, "reboot") == 0) {
-		extern int allowpowerdown;
-
-		if (allowpowerdown == 0)
-			return;
-
-		suspend_randomness();
-
-		log(LOG_KERN | LOG_NOTICE, "Rebooting in response to request "
-		    "from Xen host\n");
-		prsignal(initprocess, SIGINT);
+		pvbus_reboot(&sc->sc_dev);
 	} else if (strcmp(action, "crash") == 0) {
 		panic("xen told us to do this");
 	} else if (strcmp(action, "suspend") == 0) {
@@ -281,7 +276,7 @@ xen_init_hypercall(struct xen_softc *sc)
 
 	/* We don't support more than one hypercall page */
 	if (regs[0] != 1) {
-		printf(": requested %d hypercall pages\n", regs[0]);
+		printf(": requested %u hypercall pages\n", regs[0]);
 		return (-1);
 	}
 
@@ -569,6 +564,8 @@ xen_init_interrupts(struct xen_softc *sc)
 
 	SLIST_INIT(&sc->sc_intrs);
 
+	mtx_init(&sc->sc_islck, IPL_NET);
+
 	return (0);
 }
 
@@ -588,14 +585,52 @@ xen_evtchn_hypercall(struct xen_softc *sc, int cmd, void *arg, size_t len)
 	return (error);
 }
 
+static inline void
+xen_intsrc_add(struct xen_softc *sc, struct xen_intsrc *xi)
+{
+	refcnt_init(&xi->xi_refcnt);
+	mtx_enter(&sc->sc_islck);
+	SLIST_INSERT_HEAD(&sc->sc_intrs, xi, xi_entry);
+	mtx_leave(&sc->sc_islck);
+}
+
 static inline struct xen_intsrc *
-xen_lookup_intsrc(struct xen_softc *sc, evtchn_port_t port)
+xen_intsrc_acquire(struct xen_softc *sc, evtchn_port_t port)
 {
 	struct xen_intsrc *xi;
 
-	SLIST_FOREACH(xi, &sc->sc_intrs, xi_entry)
-		if (xi->xi_port == port)
+	mtx_enter(&sc->sc_islck);
+	SLIST_FOREACH(xi, &sc->sc_intrs, xi_entry) {
+		if (xi->xi_port == port) {
+			refcnt_take(&xi->xi_refcnt);
 			break;
+		}
+	}
+	mtx_leave(&sc->sc_islck);
+	return (xi);
+}
+
+static inline void
+xen_intsrc_release(struct xen_softc *sc, struct xen_intsrc *xi)
+{
+	refcnt_rele_wake(&xi->xi_refcnt);
+}
+
+static inline struct xen_intsrc *
+xen_intsrc_remove(struct xen_softc *sc, evtchn_port_t port)
+{
+	struct xen_intsrc *xi;
+
+	mtx_enter(&sc->sc_islck);
+	SLIST_FOREACH(xi, &sc->sc_intrs, xi_entry) {
+		if (xi->xi_port == port) {
+			SLIST_REMOVE(&sc->sc_intrs, xi, xen_intsrc, xi_entry);
+			break;
+		}
+	}
+	mtx_leave(&sc->sc_islck);
+	if (xi != NULL)
+		refcnt_finalize(&xi->xi_refcnt, "xenisrm");
 	return (xi);
 }
 
@@ -637,13 +672,14 @@ xen_intr(void)
 			if ((pending & 1) == 0)
 				continue;
 			port = (row * LONG_BIT) + bit;
-			if ((xi = xen_lookup_intsrc(sc, port)) == NULL) {
-				printf("%s: unhandled interrupt on port %u\n",
+			if ((xi = xen_intsrc_acquire(sc, port)) == NULL) {
+				printf("%s: unhandled interrupt on port %d\n",
 				    sc->sc_dev.dv_xname, port);
 				continue;
 			}
 			xi->xi_evcnt.ec_count++;
 			task_add(xi->xi_taskq, &xi->xi_task);
+			xen_intsrc_release(sc, xi);
 		}
 	}
 }
@@ -654,8 +690,53 @@ xen_intr_schedule(xen_intr_handle_t xih)
 	struct xen_softc *sc = xen_sc;
 	struct xen_intsrc *xi;
 
-	if ((xi = xen_lookup_intsrc(sc, (evtchn_port_t)xih)) != NULL)
+	if ((xi = xen_intsrc_acquire(sc, (evtchn_port_t)xih)) != NULL) {
 		task_add(xi->xi_taskq, &xi->xi_task);
+		xen_intsrc_release(sc, xi);
+	}
+}
+
+static void
+xen_barrier_task(void *arg)
+{
+	int *notdone = arg;
+
+	*notdone = 0;
+	wakeup_one(notdone);
+}
+
+/*
+ * This code achieves two goals: 1) makes sure that *after* masking
+ * the interrupt source we're not getting more task_adds: intr_barrier
+ * will take care of that, and 2) makes sure that the interrupt task
+ * has finished executing the current task and won't be called again:
+ * it sets up a barrier task to await completion of the current task
+ * and relies on the interrupt masking to prevent submission of new
+ * tasks in the future.
+ */
+void
+xen_intr_barrier(xen_intr_handle_t xih)
+{
+	struct xen_softc *sc = xen_sc;
+	struct xen_intsrc *xi;
+	struct sleep_state sls;
+	int notdone = 1;
+	struct task t = TASK_INITIALIZER(xen_barrier_task, &notdone);
+
+	/*
+	 * XXX This will need to be revised once intr_barrier starts
+	 * using its argument.
+	 */
+	intr_barrier(NULL);
+
+	if ((xi = xen_intsrc_acquire(sc, (evtchn_port_t)xih)) != NULL) {
+		task_add(xi->xi_taskq, &t);
+		while (notdone) {
+			sleep_setup(&sls, &notdone, PWAIT, "xenbar");
+			sleep_finish(&sls, notdone);
+		}
+		xen_intsrc_release(sc, xi);
+	}
 }
 
 void
@@ -665,8 +746,9 @@ xen_intr_signal(xen_intr_handle_t xih)
 	struct xen_intsrc *xi;
 	struct evtchn_send es;
 
-	if ((xi = xen_lookup_intsrc(sc, (evtchn_port_t)xih)) != NULL) {
+	if ((xi = xen_intsrc_acquire(sc, (evtchn_port_t)xih)) != NULL) {
 		es.port = xi->xi_port;
+		xen_intsrc_release(sc, xi);
 		xen_evtchn_hypercall(sc, EVTCHNOP_send, &es, sizeof(es));
 	}
 }
@@ -685,7 +767,8 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 	struct evtchn_status es;
 #endif
 
-	if (port && xen_lookup_intsrc(sc, port)) {
+	if (port && (xi = xen_intsrc_acquire(sc, port)) != NULL) {
+		xen_intsrc_release(sc, xi);
 		DPRINTF("%s: interrupt handler has already been established "
 		    "for port %u\n", sc->sc_dev.dv_xname, port);
 		return (-1);
@@ -741,7 +824,7 @@ xen_intr_establish(evtchn_port_t port, xen_intr_handle_t *xih, int domain,
 
 	evcount_attach(&xi->xi_evcnt, name, &sc->sc_irq);
 
-	SLIST_INSERT_HEAD(&sc->sc_intrs, xi, xi_entry);
+	xen_intsrc_add(sc, xi);
 
 	/* Mask the event port */
 	set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
@@ -780,13 +863,10 @@ xen_intr_disestablish(xen_intr_handle_t xih)
 	struct evtchn_close ec;
 	struct xen_intsrc *xi;
 
-	if ((xi = xen_lookup_intsrc(sc, port)) == NULL)
+	if ((xi = xen_intsrc_remove(sc, port)) == NULL)
 		return (-1);
 
 	evcount_detach(&xi->xi_evcnt);
-
-	/* XXX not MP safe */
-	SLIST_REMOVE(&sc->sc_intrs, xi, xen_intsrc, xi_entry);
 
 	taskq_destroy(xi->xi_taskq);
 
@@ -812,6 +892,7 @@ xen_intr_enable(void)
 	struct xen_intsrc *xi;
 	struct evtchn_unmask eu;
 
+	mtx_enter(&sc->sc_islck);
 	SLIST_FOREACH(xi, &sc->sc_intrs, xi_entry) {
 		if (!xi->xi_masked) {
 			eu.port = xi->xi_port;
@@ -825,6 +906,7 @@ xen_intr_enable(void)
 				    sc->sc_dev.dv_xname, xi->xi_port);
 		}
 	}
+	mtx_leave(&sc->sc_islck);
 }
 
 void
@@ -834,9 +916,10 @@ xen_intr_mask(xen_intr_handle_t xih)
 	evtchn_port_t port = (evtchn_port_t)xih;
 	struct xen_intsrc *xi;
 
-	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
+	if ((xi = xen_intsrc_acquire(sc, port)) != NULL) {
 		xi->xi_masked = 1;
 		set_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]);
+		xen_intsrc_release(sc, xi);
 	}
 }
 
@@ -848,11 +931,12 @@ xen_intr_unmask(xen_intr_handle_t xih)
 	struct xen_intsrc *xi;
 	struct evtchn_unmask eu;
 
-	if ((xi = xen_lookup_intsrc(sc, port)) != NULL) {
+	if ((xi = xen_intsrc_acquire(sc, port)) != NULL) {
 		xi->xi_masked = 0;
 		if (!test_bit(xi->xi_port, &sc->sc_ipg->evtchn_mask[0]))
 			return (0);
 		eu.port = xi->xi_port;
+		xen_intsrc_release(sc, xi);
 		return (xen_evtchn_hypercall(sc, EVTCHNOP_unmask, &eu,
 		    sizeof(eu)));
 	}
@@ -884,7 +968,7 @@ xen_init_grant_tables(struct xen_softc *sc)
 		return (-1);
 	}
 
-	mtx_init(&sc->sc_gntmtx, IPL_NET);
+	mtx_init(&sc->sc_gntlck, IPL_NET);
 
 	if (xen_grant_table_grow(sc) == NULL) {
 		free(sc->sc_gnt, M_DEVBUF, sc->sc_gntmax *
@@ -892,7 +976,7 @@ xen_init_grant_tables(struct xen_softc *sc)
 		return (-1);
 	}
 
-	printf(", %u grant table frames", sc->sc_gntmax);
+	printf(", %d grant table frames", sc->sc_gntmax);
 
 	xen_bus_dma_tag._cookie = sc;
 
@@ -904,6 +988,7 @@ xen_grant_table_grow(struct xen_softc *sc)
 {
 	struct xen_add_to_physmap xatp;
 	struct xen_gntent *ge;
+	void *va;
 	paddr_t pa;
 
 	if (sc->sc_gntcnt == sc->sc_gntmax) {
@@ -912,23 +997,21 @@ xen_grant_table_grow(struct xen_softc *sc)
 		return (NULL);
 	}
 
-	mtx_enter(&sc->sc_gntmtx);
-
-	ge = &sc->sc_gnt[sc->sc_gntcnt];
-	ge->ge_table = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
-	if (ge->ge_table == NULL) {
-		free(ge, M_DEVBUF, sizeof(*ge));
-		mtx_leave(&sc->sc_gntmtx);
+	va = km_alloc(PAGE_SIZE, &kv_any, &kp_zero, &kd_nowait);
+	if (va == NULL)
 		return (NULL);
-	}
-	if (!pmap_extract(pmap_kernel(), (vaddr_t)ge->ge_table, &pa)) {
+	if (!pmap_extract(pmap_kernel(), (vaddr_t)va, &pa)) {
 		printf("%s: grant table page PA extraction failed\n",
 		    sc->sc_dev.dv_xname);
-		km_free(ge->ge_table, PAGE_SIZE, &kv_any, &kp_zero);
-		free(ge, M_DEVBUF, sizeof(*ge));
-		mtx_leave(&sc->sc_gntmtx);
+		km_free(va, PAGE_SIZE, &kv_any, &kp_zero);
 		return (NULL);
 	}
+
+	mtx_enter(&sc->sc_gntlck);
+
+	ge = &sc->sc_gnt[sc->sc_gntcnt];
+	ge->ge_table = va;
+
 	xatp.domid = DOMID_SELF;
 	xatp.idx = sc->sc_gntcnt;
 	xatp.space = XENMAPSPACE_grant_table;
@@ -937,8 +1020,7 @@ xen_grant_table_grow(struct xen_softc *sc)
 		printf("%s: failed to add a grant table page\n",
 		    sc->sc_dev.dv_xname);
 		km_free(ge->ge_table, PAGE_SIZE, &kv_any, &kp_zero);
-		free(ge, M_DEVBUF, sizeof(*ge));
-		mtx_leave(&sc->sc_gntmtx);
+		mtx_leave(&sc->sc_gntlck);
 		return (NULL);
 	}
 	ge->ge_start = sc->sc_gntcnt * GNTTAB_NEPG;
@@ -946,10 +1028,10 @@ xen_grant_table_grow(struct xen_softc *sc)
 	ge->ge_reserved = ge->ge_start == 0 ? GNTTAB_NR_RESERVED_ENTRIES : 0;
 	ge->ge_free = GNTTAB_NEPG - ge->ge_reserved;
 	ge->ge_next = ge->ge_reserved;
-	mtx_init(&ge->ge_mtx, IPL_NET);
+	mtx_init(&ge->ge_lock, IPL_NET);
 
 	sc->sc_gntcnt++;
-	mtx_leave(&sc->sc_gntmtx);
+	mtx_leave(&sc->sc_gntlck);
 
 	return (ge);
 }
@@ -963,10 +1045,10 @@ xen_grant_table_alloc(struct xen_softc *sc, grant_ref_t *ref)
 	/* Start with a previously allocated table page */
 	ge = &sc->sc_gnt[sc->sc_gntcnt - 1];
 	if (ge->ge_free > 0) {
-		mtx_enter(&ge->ge_mtx);
+		mtx_enter(&ge->ge_lock);
 		if (ge->ge_free > 0)
 			goto search;
-		mtx_leave(&ge->ge_mtx);
+		mtx_leave(&ge->ge_lock);
 	}
 
 	/* Try other existing table pages */
@@ -974,10 +1056,10 @@ xen_grant_table_alloc(struct xen_softc *sc, grant_ref_t *ref)
 		ge = &sc->sc_gnt[i];
 		if (ge->ge_free == 0)
 			continue;
-		mtx_enter(&ge->ge_mtx);
+		mtx_enter(&ge->ge_lock);
 		if (ge->ge_free > 0)
 			goto search;
-		mtx_leave(&ge->ge_mtx);
+		mtx_leave(&ge->ge_lock);
 	}
 
  alloc:
@@ -985,10 +1067,10 @@ xen_grant_table_alloc(struct xen_softc *sc, grant_ref_t *ref)
 	if ((ge = xen_grant_table_grow(sc)) == NULL)
 		return (-1);
 
-	mtx_enter(&ge->ge_mtx);
+	mtx_enter(&ge->ge_lock);
 	if (ge->ge_free == 0) {
 		/* We were not fast enough... */
-		mtx_leave(&ge->ge_mtx);
+		mtx_leave(&ge->ge_lock);
 		goto alloc;
 	}
 
@@ -1001,19 +1083,18 @@ xen_grant_table_alloc(struct xen_softc *sc, grant_ref_t *ref)
 			i = 0;
 		if (ge->ge_reserved && i < ge->ge_reserved)
 			continue;
-		if (ge->ge_table[i].flags != GTF_invalid &&
-		    ge->ge_table[i].frame != 0)
+		if (ge->ge_table[i].frame != 0)
 			continue;
 		*ref = ge->ge_start + i;
-		/* XXX Mark as taken */
-		ge->ge_table[i].frame = 0xffffffff;
+		ge->ge_table[i].flags = GTF_invalid;
+		ge->ge_table[i].frame = 0xffffffff; /* Mark as taken */
 		if ((ge->ge_next = i + 1) == GNTTAB_NEPG)
 			ge->ge_next = ge->ge_reserved;
 		ge->ge_free--;
-		mtx_leave(&ge->ge_mtx);
+		mtx_leave(&ge->ge_lock);
 		return (0);
 	}
-	mtx_leave(&ge->ge_mtx);
+	mtx_leave(&ge->ge_lock);
 
 	panic("page full, sc %p gnt %p (%d) ge %p", sc, sc->sc_gnt,
 	    sc->sc_gntcnt, ge);
@@ -1031,29 +1112,25 @@ xen_grant_table_free(struct xen_softc *sc, grant_ref_t ref)
 		    sc->sc_gnt, sc->sc_gntcnt);
 #endif
 	ge = &sc->sc_gnt[ref / GNTTAB_NEPG];
-	mtx_enter(&ge->ge_mtx);
+	mtx_enter(&ge->ge_lock);
 #ifdef XEN_DEBUG
 	if (ref < ge->ge_start || ref > ge->ge_start + GNTTAB_NEPG) {
-		mtx_leave(&ge->ge_mtx);
+		mtx_leave(&ge->ge_lock);
 		panic("out of bounds ref %u ge %p start %u sc %p gnt %p",
 		    ref, ge, ge->ge_start, sc, sc->sc_gnt);
 	}
 #endif
 	ref -= ge->ge_start;
 	if (ge->ge_table[ref].flags != GTF_invalid) {
-		mtx_leave(&ge->ge_mtx);
-#ifdef XEN_DEBUG
-		panic("ref %u is still in use, sc %p gnt %p", ref +
-		    ge->ge_start, sc, sc->sc_gnt);
-#else
-		printf("%s: reference %u is still in use\n",
-		    sc->sc_dev.dv_xname, ref + ge->ge_start);
-#endif
+		mtx_leave(&ge->ge_lock);
+		panic("reference %u is still in use, flags %#x frame %#x",
+		    ref + ge->ge_start, ge->ge_table[ref].flags,
+		    ge->ge_table[ref].frame);
 	}
 	ge->ge_table[ref].frame = 0;
 	ge->ge_next = ref;
 	ge->ge_free++;
-	mtx_leave(&ge->ge_mtx);
+	mtx_leave(&ge->ge_lock);
 }
 
 void
@@ -1109,13 +1186,15 @@ xen_grant_table_remove(struct xen_softc *sc, grant_ref_t ref)
 	    (ge->ge_table[ref].domid << 16);
 	loop = 0;
 	while (atomic_cas_uint(ptr, flags, GTF_invalid) != flags) {
-		if (loop++ > 10000000) {
+		if (loop++ > 100000000) {
 			printf("%s: grant table reference %u is held "
 			    "by domain %d\n", sc->sc_dev.dv_xname, ref +
 			    ge->ge_start, ge->ge_table[ref].domid);
 			return;
 		}
-		CPU_BUSY_CYCLE();
+#if (defined(__amd64__) || defined(__i386__))
+		__asm volatile("pause": : : "memory");
+#endif
 	}
 	ge->ge_table[ref].frame = 0xffffffff;
 }
@@ -1245,19 +1324,6 @@ xen_bus_dmamap_sync(bus_dma_tag_t t, bus_dmamap_t map, bus_addr_t addr,
 }
 
 static int
-atoi(char *cp, int *res)
-{
-	*res = 0;
-	do {
-		if (*cp < '0' || *cp > '9')
-			return (-1);
-		*res *= 10;
-		*res += *cp - '0';
-	} while (*(++cp) != '\0');
-	return (0);
-}
-
-static int
 xen_attach_print(void *aux, const char *name)
 {
 	struct xen_attach_args *xa = aux;
@@ -1269,19 +1335,56 @@ xen_attach_print(void *aux, const char *name)
 }
 
 int
-xen_probe_devices(struct xen_softc *sc)
+xen_attach_device(struct xen_softc *sc, struct xen_devlist *xdl,
+    const char *name, const char *unit)
 {
 	struct xen_attach_args xa;
+	struct xen_device *xdv;
+	unsigned long long res;
+
+	xa.xa_dmat = &xen_bus_dma_tag;
+
+	strlcpy(xa.xa_name, name, sizeof(xa.xa_name));
+	snprintf(xa.xa_node, sizeof(xa.xa_node), "device/%s/%s", name, unit);
+
+	if (xs_getprop(sc, xa.xa_node, "backend", xa.xa_backend,
+	    sizeof(xa.xa_backend))) {
+		DPRINTF("%s: failed to identify \"backend\" for "
+		    "\"%s\"\n", sc->sc_dev.dv_xname, xa.xa_node);
+		return (EIO);
+	}
+
+	if (xs_getnum(sc, xa.xa_node, "backend-id", &res) || res > UINT16_MAX) {
+		DPRINTF("%s: invalid \"backend-id\" for \"%s\"\n",
+		    sc->sc_dev.dv_xname, xa.xa_node);
+		return (EIO);
+	}
+	xa.xa_domid = (uint16_t)res;
+
+	xdv = malloc(sizeof(struct xen_device), M_DEVBUF, M_ZERO | M_NOWAIT);
+	if (xdv == NULL)
+		return (ENOMEM);
+
+	strlcpy(xdv->dv_unit, unit, sizeof(xdv->dv_unit));
+	LIST_INSERT_HEAD(&xdl->dl_devs, xdv, dv_entry);
+
+	xdv->dv_dev = config_found((struct device *)sc, &xa, xen_attach_print);
+
+	return (0);
+}
+
+int
+xen_probe_devices(struct xen_softc *sc)
+{
+	struct xen_devlist *xdl;
 	struct xs_transaction xst;
 	struct iovec *iovp1 = NULL, *iovp2 = NULL;
-	int i, j, error = 0, iov1_cnt = 0, iov2_cnt = 0;
-	char domid[16];
+	int i, j, error, iov1_cnt = 0, iov2_cnt = 0;
 	char path[256];
 
 	memset(&xst, 0, sizeof(xst));
 	xst.xst_id = 0;
-	xst.xst_sc = sc->sc_xs;
-	xst.xst_flags |= XST_POLL;
+	xst.xst_cookie = sc->sc_xs;
 
 	if ((error = xs_cmd(&xst, XS_LIST, "device", &iovp1, &iov1_cnt)) != 0)
 		return (error);
@@ -1292,37 +1395,105 @@ xen_probe_devices(struct xen_softc *sc)
 		snprintf(path, sizeof(path), "device/%s",
 		    (char *)iovp1[i].iov_base);
 		if ((error = xs_cmd(&xst, XS_LIST, path, &iovp2,
-		    &iov2_cnt)) != 0) {
-			xs_resfree(&xst, iovp1, iov1_cnt);
-			return (error);
+		    &iov2_cnt)) != 0)
+			goto out;
+		if ((xdl = malloc(sizeof(struct xen_devlist), M_DEVBUF,
+		    M_ZERO | M_NOWAIT)) == NULL) {
+			error = ENOMEM;
+			goto out;
 		}
+		xdl->dl_xen = sc;
+		strlcpy(xdl->dl_node, (const char *)iovp1[i].iov_base,
+		    XEN_MAX_NODE_LEN);
 		for (j = 0; j < iov2_cnt; j++) {
-			xa.xa_parent = sc;
-			xa.xa_dmat = &xen_bus_dma_tag;
-			strlcpy(xa.xa_name, (char *)iovp1[i].iov_base,
-			    sizeof(xa.xa_name));
-			snprintf(xa.xa_node, sizeof(xa.xa_node), "device/%s/%s",
-			    (char *)iovp1[i].iov_base,
-			    (char *)iovp2[j].iov_base);
-			if (xs_getprop(sc, xa.xa_node, "backend-id", domid,
-			    sizeof(domid)) ||
-			    xs_getprop(sc, xa.xa_node, "backend", xa.xa_backend,
-			    sizeof(xa.xa_backend))) {
-				printf("%s: failed to identify \"backend\" "
-				    "for \"%s\"\n", sc->sc_dev.dv_xname,
-				    xa.xa_node);
-			} else if (atoi(domid, &xa.xa_domid)) {
-				printf("%s: non-numeric backend domain id "
-				    "\"%s\" for \"%s\"\n", sc->sc_dev.dv_xname,
-				    domid, xa.xa_node);
+			error = xen_attach_device(sc, xdl,
+			    (const char *)iovp1[i].iov_base,
+			    (const char *)iovp2[j].iov_base);
+			if (error) {
+				printf("%s: failed to attach \"%s/%s\"\n",
+				    sc->sc_dev.dv_xname, path,
+				    (const char *)iovp2[j].iov_base);
+				goto out;
 			}
-			config_found((struct device *)sc, &xa,
-			    xen_attach_print);
 		}
+		/* Setup a watch for every device subtree */
+		if (xs_watch(sc, "device", (char *)iovp1[i].iov_base,
+		    &xdl->dl_task, xen_hotplug, xdl))
+			printf("%s: failed to setup hotplug watch for \"%s\"\n",
+			    sc->sc_dev.dv_xname, (char *)iovp1[i].iov_base);
+		SLIST_INSERT_HEAD(&sc->sc_devlists, xdl, dl_entry);
 		xs_resfree(&xst, iovp2, iov2_cnt);
+		iovp2 = NULL;
+		iov2_cnt = 0;
 	}
 
+ out:
+	if (iovp2)
+		xs_resfree(&xst, iovp2, iov2_cnt);
+	xs_resfree(&xst, iovp1, iov1_cnt);
 	return (error);
+}
+
+void
+xen_hotplug(void *arg)
+{
+	struct xen_devlist *xdl = arg;
+	struct xen_softc *sc = xdl->dl_xen;
+	struct xen_device *xdv, *xvdn;
+	struct xs_transaction xst;
+	struct iovec *iovp = NULL;
+	int error, i, keep, iov_cnt = 0;
+	char path[256];
+	int8_t *seen;
+
+	memset(&xst, 0, sizeof(xst));
+	xst.xst_id = 0;
+	xst.xst_cookie = sc->sc_xs;
+
+	snprintf(path, sizeof(path), "device/%s", xdl->dl_node);
+	if ((error = xs_cmd(&xst, XS_LIST, path, &iovp, &iov_cnt)) != 0)
+		return;
+
+	seen = malloc(iov_cnt, M_TEMP, M_ZERO | M_WAITOK);
+
+	/* Detect all removed and kept devices */
+	LIST_FOREACH_SAFE(xdv, &xdl->dl_devs, dv_entry, xvdn) {
+		for (i = 0, keep = 0; i < iov_cnt; i++) {
+			if (!seen[i] &&
+			    !strcmp(xdv->dv_unit, (char *)iovp[i].iov_base)) {
+				seen[i]++;
+				keep++;
+				break;
+			}
+		}
+		if (!keep) {
+			DPRINTF("%s: removing \"%s/%s\"\n", sc->sc_dev.dv_xname,
+			    xdl->dl_node, xdv->dv_unit);
+			LIST_REMOVE(xdv, dv_entry);
+			config_detach(xdv->dv_dev, 0);
+			free(xdv, M_DEVBUF, sizeof(struct xen_device));
+		}
+	}
+
+	/* Attach all new devices */
+	for (i = 0; i < iov_cnt; i++) {
+		if (seen[i])
+			continue;
+		DPRINTF("%s: attaching \"%s/%s\"\n", sc->sc_dev.dv_xname,
+			    xdl->dl_node, (const char *)iovp[i].iov_base);
+		error = xen_attach_device(sc, xdl, xdl->dl_node,
+		    (const char *)iovp[i].iov_base);
+		if (error) {
+			printf("%s: failed to attach \"%s/%s\"\n",
+			    sc->sc_dev.dv_xname, path,
+			    (const char *)iovp[i].iov_base);
+			continue;
+		}
+	}
+
+	free(seen, M_TEMP, iov_cnt);
+
+	xs_resfree(&xst, iovp, iov_cnt);
 }
 
 #include <machine/pio.h>
@@ -1344,13 +1515,21 @@ xen_disable_emulated_devices(struct xen_softc *sc)
 		    sc->sc_dev.dv_xname);
 		return;
 	}
-	if (sc->sc_flags & XSF_UNPLUG_IDE)
+	if (sc->sc_unplug & XEN_UNPLUG_IDE)
 		unplug |= XMI_UNPLUG_IDE;
-	if (sc->sc_flags & XSF_UNPLUG_IDESEC)
+	if (sc->sc_unplug & XEN_UNPLUG_IDESEC)
 		unplug |= XMI_UNPLUG_IDESEC;
-	if (sc->sc_flags & XSF_UNPLUG_NIC)
+	if (sc->sc_unplug & XEN_UNPLUG_NIC)
 		unplug |= XMI_UNPLUG_NIC;
 	if (unplug)
 		outw(XMI_PORT, unplug);
 #endif	/* __i386__ || __amd64__ */
+}
+
+void
+xen_unplug_emulated(void *xsc, int what)
+{
+	struct xen_softc *sc = xsc;
+
+	sc->sc_unplug |= what;
 }
