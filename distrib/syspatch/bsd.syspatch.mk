@@ -1,4 +1,4 @@
-#	$OpenBSD: bsd.syspatch.mk,v 1.8 2017/04/22 13:39:00 robert Exp $
+#	$OpenBSD: bsd.syspatch.mk,v 1.11 2017/06/05 09:47:54 robert Exp $
 #
 # Copyright (c) 2016-2017 Robert Nagy <robert@openbsd.org>
 #
@@ -19,6 +19,9 @@
 ERRATA?=
 ECURR=${ERRATA:C/_.*//}
 EPREV!=echo ${ECURR} | awk '{printf "%03d\n", $$1 - 1;}'
+
+# use the base and xenocara build user
+BUILDUSER?=	build
 
 # binaries used by this makefile
 FETCH=		/usr/bin/ftp -Vm
@@ -134,32 +137,36 @@ ${_BUILD_COOKIE}: ${_PATCH_COOKIE} ${_FAKE_COOKIE}
 	@echo '>> Building syspatch for ${ERRATA}'
 .if ${BUILD:L:Msrc}
 . for _t in clean obj build
-	@su ${BUILDUSER} -c "cd ${SRCDIR} && /usr/bin/make SYSPATCH=Yes ${_t}"
+	@cd ${SRCDIR} && /usr/bin/make SYSPATCH=Yes ${_t}
 . endfor
 	@su ${BUILDUSER} -c "cd ${SRCDIR} && make SYSPATCH=Yes DESTDIR=${FAKE} install"
 .elif ${BUILD:L:Mxenocara}
 . for _t in clean bootstrap obj build
-	@su ${BUILDUSER} -c "cd ${SRCDIR} && /usr/bin/make SYSPATCH=Yes ${_t}"
+	@cd ${SRCDIR} && /usr/bin/make SYSPATCH=Yes ${_t}
 . endfor
 	@su ${BUILDUSER} -c "cd ${SRCDIR} && make SYSPATCH=Yes DESTDIR=${FAKE} install"
 .elif ${BUILD:L:Mkernel}
+. for _t in clean obj build
+	@cd ${SRCDIR} && /usr/bin/make SYSPATCH=Yes ${_t}
+. endfor
+	@su ${BUILDUSER} -c "cd ${SRCDIR} && make SYSPATCH=Yes DESTDIR=${FAKE} install"
 .  for _kern in GENERIC GENERIC.MP
 	@if cd ${SRCDIR}/sys/arch/${MACHINE_ARCH}/conf; then \
 		if config ${_kern}; then \
-			if cd ../compile/${_kern} && make; then \
+			if cd ../compile/${_kern} && make clean && make ; then \
 				exit 0; \
 			fi; exit 1; \
 		fi; exit 1; \
 	fi;
 	@if [ ${_kern} = "GENERIC" ]; then \
 		su ${BUILDUSER} -c '${INSTALL} ${INSTALL_COPY} -o ${SHAREOWN} -g ${LOCALEGRP} \
-		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/bsd \
+		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/obj/bsd \
 		${FAKE}/bsd' || \
 		{ echo "***>   failed to install ${_kern}"; \
 		exit 1; }; \
 	elif [ ${_kern} = "GENERIC.MP" ]; then \
 		su ${BUILDUSER} -c '${INSTALL} ${INSTALL_COPY} -o ${SHAREOWN} -g ${LOCALEGRP} \
-		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/bsd \
+		-m 0644 ${SRCDIR}/sys/arch/${MACHINE_ARCH}/compile/${_kern}/obj/bsd \
 		${FAKE}/bsd.mp' || \
 		{ echo "***>   failed to install ${_kern}"; \
 		exit 1; }; \
@@ -190,6 +197,6 @@ ${ERRATA}/.plist: ${_BUILD_COOKIE}
 	@su ${BUILDUSER} -c 'echo ${SYSPATCH_DIR}/${ERRATA}.patch.sig >> ${.OBJDIR}/${ERRATA}/.plist' || \
 		{ echo "***>   unable to add syspatch to list of files"; \
 		exit 1; };
-	@su ${BUILDUSER} -c 'sed -i "s,^${FAKEROOT}/syspatch/${OSrev}-[^/]*/,./,g" ${.TARGET}' 
+	@su ${BUILDUSER} -c 'sed -i "s,^${FAKEROOT}/syspatch/${OSrev}-[^/]*/,,g" ${.TARGET}' 
 
 .include <bsd.obj.mk>

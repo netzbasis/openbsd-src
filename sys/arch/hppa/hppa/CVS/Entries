@@ -10,7 +10,8 @@
 /intr.c/1.49/Sun Sep 13 14:58:20 2015//
 /ipi.c/1.4/Fri Jan 14 13:20:06 2011//
 /lock_machdep.c/1.11/Mon May 29 14:19:49 2017//
-/locore.S/1.197/Thu May 18 15:41:59 2017//
+/locore.S/1.198/Mon Jun  5 18:59:06 2017//
+/locore0.S/1.1/Mon Jun  5 18:59:06 2017//
 /machdep.c/1.248/Thu May 18 15:41:59 2017//
 /mainbus.c/1.87/Sun Sep 13 11:40:01 2015//
 /mem.c/1.2/Sun Sep 25 15:23:37 2016//

@@ -258,9 +258,9 @@
 /pgtvar.h/1.17/Fri Dec 11 16:07:01 2015//
 /pt2254a.c/1.1/Thu Apr 25 04:56:59 2002//
 /pt2254a.h/1.1/Thu Apr 25 04:56:59 2002//
-/qla.c/1.55/Tue Jan 24 02:28:17 2017//
-/qlareg.h/1.8/Tue May 10 11:16:18 2016//
-/qlavar.h/1.10/Sat May 17 11:51:21 2014//
+/qla.c/1.56/Mon Jun  5 04:57:37 2017//
+/qlareg.h/1.9/Mon Jun  5 04:57:37 2017//
+/qlavar.h/1.11/Mon Jun  5 04:57:37 2017//
 /qlw.c/1.31/Tue Jan 24 02:28:17 2017//
 /qlwreg.h/1.7/Sat Mar 15 21:49:47 2014//
 /qlwvar.h/1.10/Sat Mar 15 13:08:52 2014//
