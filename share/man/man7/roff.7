@@ -1,4 +1,4 @@
-.\"	$OpenBSD: roff.7,v 1.64 2017/06/04 22:43:50 schwarze Exp $
+.\"	$OpenBSD: roff.7,v 1.66 2017/06/07 00:50:30 schwarze Exp $
 .\"
 .\" Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
 .\" Copyright (c) 2010,2011,2013-2015,2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -15,7 +15,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 4 2017 $
+.Dd $Mdocdate: June 7 2017 $
 .Dt ROFF 7
 .Os
 .Sh NAME
@@ -525,7 +525,10 @@ Trailing characters are ignored.
 Center the next
 .Ar N
 input lines without filling.
-Currently ignored.
+.Ar N
+defaults to 1.
+An argument of 0 or less ends centering.
+Currently, high level macros abort centering.
 .It Ic \&cf Ar filename
 Output the contents of a file.
 Ignored because insecure.
@@ -1477,7 +1480,16 @@ Currently ignored.
 Remove a request, macro or string.
 .It Ic \&rn Ar oldname newname
 Rename a request, macro, diversion, or string.
-Currently unsupported.
+In
+.Xr mandoc 1 ,
+user-defined macros,
+.Xr mdoc 7
+and
+.Xr man 7
+macros, and user-defined strings can be renamed, but renaming of
+predefined strings and of
+.Nm
+requests is not supported, and diversions are not implemented at all.
 .It Ic \&rnn Ar oldname newname
 Rename a number register.
 Currently unsupported.

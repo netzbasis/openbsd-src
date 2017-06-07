@@ -27,7 +27,7 @@
 /rnd.c/1.192/Wed Mar 15 15:24:24 2017//
 /rndis.h/1.2/Tue Sep 20 10:34:41 2016//
 /rndvar.h/1.38/Mon May 23 15:48:59 2016//
-/softraid.c/1.380/Fri Apr 14 15:11:31 2017//
+/softraid.c/1.381/Tue Jun  6 19:01:27 2017//
 /softraid_concat.c/1.26/Fri Apr 28 23:33:07 2017//
 /softraid_crypto.c/1.133/Tue Feb  7 17:25:46 2017//
 /softraid_raid0.c/1.52/Tue Apr 12 16:26:54 2016//
