@@ -19,11 +19,11 @@
 /kern_kthread.c/1.41/Sun Feb 12 04:55:08 2017//
 /kern_ktrace.c/1.91/Tue Feb 14 10:31:15 2017//
 /kern_lock.c/1.49/Thu Apr 20 15:06:47 2017//
-/kern_malloc.c/1.128/Sat Mar 14 03:38:50 2015//
+/kern_malloc.c/1.129/Wed Jun  7 13:30:36 2017//
 /kern_malloc_debug.c/1.34/Sun Nov 16 12:31:00 2014//
 /kern_mutex.c/1.1/Thu Apr 20 13:57:30 2017//
 /kern_physio.c/1.43/Sat Mar 14 03:38:50 2015//
-/kern_pledge.c/1.211/Sat Jun  3 04:34:41 2017//
+/kern_pledge.c/1.212/Wed Jun  7 20:53:59 2017//
 /kern_proc.c/1.76/Sat Feb  4 07:42:52 2017//
 /kern_prot.c/1.69/Thu Apr 13 04:06:46 2017//
 /kern_resource.c/1.57/Thu Sep 15 02:00:16 2016//
@@ -56,7 +56,7 @@
 /subr_pool.c/1.208/Thu Apr 20 14:13:00 2017//
 /subr_prf.c/1.91/Sun Apr 30 16:45:46 2017//
 /subr_prof.c/1.30/Sun Sep  4 09:22:29 2016//
-/subr_tree.c/1.6/Tue Sep 20 01:11:27 2016//
+/subr_tree.c/1.9/Thu Jun  8 03:30:52 2017//
 /subr_userconf.c/1.45/Sun Apr 30 16:45:46 2017//
 /subr_witness.c/1.3/Mon May 22 13:54:14 2017//
 /subr_xxx.c/1.15/Sat Dec  5 10:11:53 2015//
@@ -85,7 +85,7 @@
 /uipc_mbuf2.c/1.42/Fri Nov 13 10:12:39 2015//
 /uipc_proto.c/1.14/Mon Mar 13 20:18:21 2017//
 /uipc_socket.c/1.186/Wed May 31 08:55:10 2017//
-/uipc_socket2.c/1.77/Sat May 27 18:50:53 2017//
+/uipc_socket2.c/1.78/Wed Jun  7 13:41:02 2017//
 /uipc_syscalls.c/1.151/Mon Mar 27 11:45:49 2017//
 /uipc_usrreq.c/1.117/Mon Mar 13 20:18:21 2017//
 /vfs_bio.c/1.182/Tue Apr 18 13:41:32 2017//

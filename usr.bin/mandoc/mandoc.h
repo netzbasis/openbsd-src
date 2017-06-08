@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.165 2017/06/06 15:00:56 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.167 2017/06/08 00:21:23 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -48,6 +48,8 @@ enum	mandocerr {
 
 	MANDOCERR_MACRO_USELESS, /* useless macro: macro */
 	MANDOCERR_BX, /* consider using OS macro: macro */
+	MANDOCERR_ER_ORDER, /* errnos out of order: Er ... */
+	MANDOCERR_ER_REP, /* duplicate errno: Er ... */
 	MANDOCERR_ND_DOT, /* description line ends with a full stop */
 
 	MANDOCERR_WARNING, /* ===== start of warnings ===== */
@@ -133,6 +135,7 @@ enum	mandocerr {
 	MANDOCERR_AT_BAD, /* unknown AT&T UNIX version: At version */
 	MANDOCERR_FA_COMMA, /* comma in function argument: arg */
 	MANDOCERR_FN_PAREN, /* parenthesis in function name: arg */
+	MANDOCERR_LB_BAD, /* unknown library name: Lb ... */
 	MANDOCERR_RS_BAD, /* invalid content in Rs block: macro */
 	MANDOCERR_SM_BAD, /* invalid Boolean argument: macro arg */
 	MANDOCERR_FT_BAD, /* unknown font, skipping request: ft font */

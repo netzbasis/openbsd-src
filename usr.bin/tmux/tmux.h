@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.781 2017/06/04 09:02:36 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.783 2017/06/07 15:27:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -617,7 +617,7 @@ struct job {
 	job_free_cb		 freecb;
 	void			*data;
 
-	LIST_ENTRY(job)	 	 entry;
+	LIST_ENTRY(job)		 entry;
 };
 LIST_HEAD(joblist, job);
 
@@ -676,7 +676,7 @@ struct screen_write_ctx {
 	struct screen_write_collect_item *item;
 	struct screen_write_collect_line *list;
 	u_int			 scrolled;
-	u_int                    bg;
+	u_int			 bg;
 
 	u_int			 cells;
 	u_int			 written;
@@ -2203,8 +2203,8 @@ void	 mode_tree_up(struct mode_tree_data *, int);
 void	 mode_tree_down(struct mode_tree_data *, int);
 struct mode_tree_data *mode_tree_start(struct window_pane *,
 	     void (*)(void *, u_int, uint64_t *), struct screen *(*)(void *,
-	     void *, u_int, u_int), void *, const char **, u_int,
-	     struct screen **);
+	     void *, u_int, u_int), int (*)(void *, void *, const char *),
+	     void *, const char **, u_int, struct screen **);
 void	 mode_tree_build(struct mode_tree_data *);
 void	 mode_tree_free(struct mode_tree_data *);
 void	 mode_tree_resize(struct mode_tree_data *, u_int, u_int);
@@ -2213,7 +2213,7 @@ struct mode_tree_item *mode_tree_add(struct mode_tree_data *,
 	     const char *, int);
 void	 mode_tree_remove(struct mode_tree_data *, struct mode_tree_item *);
 void	 mode_tree_draw(struct mode_tree_data *);
-int	 mode_tree_key(struct mode_tree_data *, key_code *,
+int	 mode_tree_key(struct mode_tree_data *, struct client *, key_code *,
 	     struct mouse_event *);
 void	 mode_tree_run_command(struct client *, struct cmd_find_state *,
 	     const char *, const char *);
