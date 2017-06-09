@@ -1,4 +1,4 @@
-/Makefile/1.40/Fri Oct  7 17:30:10 2016//
+/Makefile/1.41/Thu Jun  8 17:33:21 2017//
 D/basename////
 D/bc////
 D/calendar////
@@ -19,6 +19,7 @@ D/ftp////
 D/grep////
 D/gzip////
 D/jot////
+D/lastcomm////
 D/libtool////
 D/m4////
 D/make////

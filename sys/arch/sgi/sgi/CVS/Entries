@@ -1,4 +1,4 @@
-/autoconf.c/1.40/Fri Jan  2 22:38:46 2015//
+/autoconf.c/1.42/Thu Jun  8 12:02:52 2017//
 /bus_dma.c/1.41/Thu May 11 15:47:45 2017//
 /conf.c/1.39/Sun Sep  4 10:51:24 2016//
 /disksubr.c/1.33/Tue Feb 28 10:49:37 2017//
@@ -15,7 +15,8 @@
 /ip32_machdep.c/1.22/Sat Feb  8 22:20:15 2014//
 /l1.c/1.11/Sat Sep 19 21:07:04 2015//
 /l1.h/1.6/Tue Nov 25 19:08:42 2014//
-/locore.S/1.17/Fri Dec 25 09:02:57 2015//
+/locore.S/1.18/Thu Jun  8 11:47:25 2017//
+/locore0.S/1.1/Thu Jun  8 11:47:25 2017//
 /machdep.c/1.156/Sun Apr 30 16:45:45 2017//
 /mainbus.c/1.13/Sat Sep 29 21:46:02 2012//
 /sginode.c/1.32/Thu Dec  3 15:38:06 2015//
