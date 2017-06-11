@@ -315,7 +315,7 @@
 /smc91cxxvar.h/1.8/Tue Oct 13 19:33:16 2009//
 /smc93cx6.c/1.18/Sat Mar 24 20:19:05 2012//
 /smc93cx6var.h/1.17/Sat Sep 12 16:24:14 2015//
-/sti.c/1.77/Wed Sep  9 18:23:39 2015//
+/sti.c/1.78/Sun Jun 11 02:06:36 2017//
 /stireg.h/1.14/Sun Apr  5 23:25:57 2015//
 /stivar.h/1.25/Sun Apr  5 23:25:57 2015//
 /tc921x.c/1.3/Tue May 22 04:14:03 2007//
