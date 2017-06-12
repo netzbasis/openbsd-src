@@ -38,7 +38,7 @@
 /ip_input.c/1.310/Wed May 31 05:59:09 2017//
 /ip_ipcomp.c/1.56/Wed Apr  5 22:27:03 2017//
 /ip_ipcomp.h/1.8/Tue Feb  7 18:18:16 2017//
-/ip_ipip.c/1.82/Tue May 30 07:50:37 2017//
+/ip_ipip.c/1.83/Sun Jun 11 19:59:57 2017//
 /ip_ipip.h/1.9/Thu May 18 10:56:45 2017//
 /ip_ipsp.c/1.224/Thu May 18 10:56:45 2017//
 /ip_ipsp.h/1.182/Mon May 22 22:23:11 2017//

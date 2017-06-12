@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.249 2017/06/10 16:53:58 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.253 2017/06/11 20:02:48 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -51,10 +51,10 @@ typedef	void	(*v_post)(POST_ARGS);
 
 static	int	 build_list(struct roff_man *, int);
 static	void	 check_text(struct roff_man *, int, int, char *);
-static	void	 check_bsd(struct roff_man *, int, int, char *);
 static	void	 check_argv(struct roff_man *,
 			struct roff_node *, struct mdoc_argv *);
 static	void	 check_args(struct roff_man *, struct roff_node *);
+static	void	 check_toptext(struct roff_man *, int, int, const char *);
 static	int	 child_an(const struct roff_node *);
 static	size_t		macro2len(enum roff_tok);
 static	void	 rewrite_macro2len(struct roff_man *, char **);
@@ -182,7 +182,7 @@ static	const v_post __mdoc_valids[MDOC_MAX - MDOC_Dd] = {
 	NULL,		/* Eo */
 	post_xx,	/* Fx */
 	post_delim,	/* Ms */
-	post_delim,	/* No */
+	NULL,		/* No */
 	post_ns,	/* Ns */
 	post_xx,	/* Nx */
 	post_xx,	/* Ox */
@@ -302,10 +302,11 @@ mdoc_node_validate(struct roff_man *mdoc)
 		if (n->sec != SEC_SYNOPSIS ||
 		    (n->parent->tok != MDOC_Cd && n->parent->tok != MDOC_Fd))
 			check_text(mdoc, n->line, n->pos, n->string);
-		if (n->parent->tok == MDOC_Sh ||
-		    n->parent->tok == MDOC_Ss ||
-		    n->parent->tok == MDOC_It)
-			check_bsd(mdoc, n->line, n->pos, n->string);
+		if (n->parent->tok == MDOC_It ||
+		    (n->parent->type == ROFFT_BODY &&
+		     (n->parent->tok == MDOC_Sh ||
+		      n->parent->tok == MDOC_Ss)))
+			check_toptext(mdoc, n->line, n->pos, n->string);
 		break;
 	case ROFFT_EQN:
 	case ROFFT_TBL:
@@ -388,9 +389,12 @@ check_text(struct roff_man *mdoc, int ln, int pos, char *p)
 }
 
 static void
-check_bsd(struct roff_man *mdoc, int ln, int pos, char *p)
+check_toptext(struct roff_man *mdoc, int ln, int pos, const char *p)
 {
-	const char	*cp;
+	const char	*cp, *cpr;
+
+	if (*p == '\0')
+		return;
 
 	if ((cp = strstr(p, "OpenBSD")) != NULL)
 		mandoc_msg(MANDOCERR_BX, mdoc->parse,
@@ -404,6 +408,19 @@ check_bsd(struct roff_man *mdoc, int ln, int pos, char *p)
 	if ((cp = strstr(p, "DragonFly")) != NULL)
 		mandoc_msg(MANDOCERR_BX, mdoc->parse,
 		    ln, pos + (cp - p), "Dx");
+
+	cp = p;
+	while ((cp = strstr(cp + 1, "()")) != NULL) {
+		for (cpr = cp - 1; cpr >= p; cpr--)
+			if (*cpr != '_' && !isalnum((unsigned char)*cpr))
+				break;
+		if ((cpr < p || *cpr == ' ') && cpr + 1 < cp) {
+			cpr++;
+			mandoc_vmsg(MANDOCERR_FUNC, mdoc->parse,
+			    ln, pos + (cpr - p),
+			    "%.*s()", (int)(cp - cpr), cpr);
+		}
+	}
 }
 
 static void
@@ -479,8 +496,8 @@ post_delim(POST_ARGS)
 
 	/* At least three alphabetic words with a sentence ending. */
 	if (strchr("!.:?", *lc) != NULL && (tok == MDOC_Em ||
-	    tok == MDOC_Li || tok == MDOC_No || tok == MDOC_Po ||
-	    tok == MDOC_Pq || tok == MDOC_Sy)) {
+	    tok == MDOC_Li || tok == MDOC_Po || tok == MDOC_Pq ||
+	    tok == MDOC_Sy)) {
 		nw = 0;
 		for (cp = lc - 1; cp >= nch->string; cp--) {
 			if (*cp == ' ') {
@@ -1758,9 +1775,8 @@ post_root(POST_ARGS)
 	/* Add missing prologue data. */
 
 	if (mdoc->meta.date == NULL)
-		mdoc->meta.date = mdoc->quick ?
-		    mandoc_strdup("") :
-		    mandoc_normdate(mdoc->parse, NULL, 0, 0);
+		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
+		    mandoc_normdate(mdoc, NULL, 0, 0);
 
 	if (mdoc->meta.title == NULL) {
 		mandoc_msg(MANDOCERR_DT_NOTITLE,
@@ -2316,7 +2332,7 @@ post_dd(POST_ARGS)
 
 	if (n->child == NULL || n->child->string[0] == '\0') {
 		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
-		    mandoc_normdate(mdoc->parse, NULL, n->line, n->pos);
+		    mandoc_normdate(mdoc, NULL, n->line, n->pos);
 		return;
 	}
 
@@ -2325,7 +2341,7 @@ post_dd(POST_ARGS)
 	if (mdoc->quick)
 		mdoc->meta.date = datestr;
 	else {
-		mdoc->meta.date = mandoc_normdate(mdoc->parse,
+		mdoc->meta.date = mandoc_normdate(mdoc,
 		    datestr, n->line, n->pos);
 		free(datestr);
 	}
@@ -2537,6 +2553,29 @@ post_os(POST_ARGS)
 out:	mdoc->meta.os_e = strstr(mdoc->meta.os, "OpenBSD") != NULL ?
 	    MDOC_OS_OPENBSD : strstr(mdoc->meta.os, "NetBSD") != NULL ?
 	    MDOC_OS_NETBSD : MDOC_OS_OTHER;
+
+	/*
+	 * This is the earliest point where we can check
+	 * Mdocdate conventions because we don't know
+	 * the operating system earlier.
+	 */
+
+	while (n->tok != MDOC_Dd)
+		if ((n = n->prev) == NULL)
+			return;
+	if ((n = n->child) == NULL)
+		return;
+	if (strncmp(n->string, "$" "Mdocdate", 9)) {
+		if (mdoc->meta.os_e == MDOC_OS_OPENBSD)
+			mandoc_vmsg(MANDOCERR_MDOCDATE_MISSING,
+			    mdoc->parse, n->line, n->pos,
+			    "Dd %s", n->string);
+	} else {
+		if (mdoc->meta.os_e == MDOC_OS_NETBSD)
+			mandoc_vmsg(MANDOCERR_MDOCDATE,
+			    mdoc->parse, n->line, n->pos,
+			    "Dd %s", n->string);
+	}
 }
 
 enum roff_sec
