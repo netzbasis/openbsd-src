@@ -87,7 +87,7 @@
 /hmac.h/1.9/Tue Jun 24 01:13:21 2014//
 /hostfile.c/1.71/Wed May 31 09:15:42 2017//
 /hostfile.h/1.24/Mon Feb 16 22:08:57 2015//
-/kex.c/1.133/Tue May 30 14:23:52 2017//
+/kex.c/1.134/Tue Jun 13 12:13:59 2017//
 /kex.h/1.83/Tue May 30 14:23:52 2017//
 /kexc25519.c/1.10/Mon May  2 08:49:03 2016//
 /kexc25519c.c/1.8/Wed May 31 04:17:12 2017//
@@ -204,7 +204,7 @@
 /sshbuf.h/1.8/Fri Nov 25 23:22:04 2016//
 /sshconnect.c/1.280/Tue May 30 14:13:40 2017//
 /sshconnect.h/1.30/Tue May 30 08:52:19 2017//
-/sshconnect2.c/1.263/Wed May 31 07:00:13 2017//
+/sshconnect2.c/1.264/Wed Jun 14 00:31:38 2017//
 /sshd.8/1.289/Sun May  7 23:12:57 2017//
 /sshd.c/1.490/Wed May 31 08:09:45 2017//
 /sshd_config/1.101/Tue Mar 14 07:19:07 2017//
@@ -212,7 +212,7 @@
 /ssherr.c/1.6/Sun May  7 23:15:59 2017//
 /ssherr.h/1.4/Sun May  7 23:15:59 2017//
 /sshkey.c/1.52/Fri Jun  9 06:40:24 2017//
-/sshkey.h/1.18/Sun May  7 23:15:59 2017//
+/sshkey.h/1.19/Tue Jun 13 11:22:15 2017//
 /sshlogin.c/1.32/Sat Dec 26 20:51:35 2015//
 /sshlogin.h/1.8/Thu Aug  3 03:34:42 2006//
 /sshpty.c/1.31/Tue Nov 29 03:54:50 2016//
