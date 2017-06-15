@@ -1,4 +1,4 @@
-/*	$OpenBSD: dispatch.c,v 1.120 2017/05/28 14:37:48 krw Exp $	*/
+/*	$OpenBSD: dispatch.c,v 1.122 2017/06/14 20:27:08 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -120,19 +120,18 @@ get_hw_address(struct interface_info *ifi)
 void
 dispatch(struct interface_info *ifi)
 {
-	struct client_state *client = ifi->client;
 	int count, to_msec;
 	struct pollfd fds[3];
 	time_t cur_time, howlong;
-	void (*func)(void *);
-	void *arg;
+	void (*func)(struct interface_info *);
+	struct interface_info *arg;
 
 	while (quit == 0) {
 		if (timeout.func) {
 			time(&cur_time);
 			if (timeout.when <= cur_time) {
 				func = timeout.func;
-				arg = timeout.arg;
+				arg = timeout.ifi;
 				cancel_timeout();
 				(*(func))(arg);
 				continue;
@@ -156,7 +155,7 @@ dispatch(struct interface_info *ifi)
 		 *  fds[0] == bpf socket for incoming packets
 		 *  fds[1] == routing socket for incoming RTM messages
 		 *  fds[2] == imsg socket to privileged process
-		*/
+		 */
 		fds[0].fd = ifi->bfdesc;
 		fds[1].fd = routefd;
 		fds[2].fd = unpriv_ibuf->fd;
@@ -190,7 +189,7 @@ dispatch(struct interface_info *ifi)
 
 	if (quit == SIGHUP) {
 		/* Tell [priv] process that HUP has occurred. */
-		sendhup(client->active);
+		sendhup(ifi->active);
 		log_warnx("%s; restarting", strsignal(quit));
 		exit (0);
 	} else if (quit != INTERNALSIG) {
@@ -281,19 +280,21 @@ interface_status(struct interface_info *ifi)
 }
 
 void
-set_timeout(time_t when, void (*where)(void *), void *arg)
+set_timeout(time_t when, void (*where)(struct interface_info *),
+    struct interface_info *ifi)
 {
 	timeout.when = when;
 	timeout.func = where;
-	timeout.arg = arg;
+	timeout.ifi = ifi;
 }
 
 void
-set_timeout_interval(time_t secs, void (*where)(void *), void *arg)
+set_timeout_interval(time_t secs, void (*where)(struct interface_info *),
+    struct interface_info *ifi)
 {
 	timeout.when = time(NULL) + secs;
 	timeout.func = where;
-	timeout.arg = arg;
+	timeout.ifi = ifi;
 }
 
 void
@@ -301,7 +302,7 @@ cancel_timeout(void)
 {
 	timeout.when = 0;
 	timeout.func = NULL;
-	timeout.arg = NULL;
+	timeout.ifi = NULL;
 }
 
 int

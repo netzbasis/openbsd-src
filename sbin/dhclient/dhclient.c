@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.419 2017/06/13 15:49:32 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.425 2017/06/14 20:27:08 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -130,16 +130,16 @@ void		 apply_ignore_list(char *);
 int compare_lease(struct client_lease *, struct client_lease *);
 void set_lease_times(struct client_lease *);
 
-void state_preboot(void *);
-void state_reboot(void *);
-void state_init(void *);
-void state_selecting(void *);
-void state_bound(void *);
-void state_panic(void *);
+void state_preboot(struct interface_info *);
+void state_reboot(struct interface_info *);
+void state_init(struct interface_info *);
+void state_selecting(struct interface_info *);
+void state_bound(struct interface_info *);
+void state_panic(struct interface_info *);
 
-void send_discover(void *);
-void send_request(void *);
-void send_decline(void *);
+void send_discover(struct interface_info *);
+void send_request(struct interface_info *);
+void send_decline(struct interface_info *);
 
 void bind_lease(struct interface_info *);
 
@@ -230,7 +230,6 @@ routehandler(struct interface_info *ifi)
 	struct in_addr a, b;
 	struct sockaddr *sa;
 	struct ifa_msghdr *ifam;
-	struct client_state *client = ifi->client;
 	struct ether_addr hw;
 	struct rt_msghdr *rtm;
 	struct if_msghdr *ifm;
@@ -260,9 +259,9 @@ routehandler(struct interface_info *ifi)
 		    rtm->rtm_priority != RTP_PROPOSAL_DHCLIENT)
 			goto done;
 		if ((rtm->rtm_flags & RTF_PROTO3) != 0) {
-			if (rtm->rtm_seq == (int32_t)client->xid) {
-				client->flags |= IN_CHARGE;
-			} else if ((client->flags & IN_CHARGE) != 0) {
+			if (rtm->rtm_seq == (int32_t)ifi->xid) {
+				ifi->flags |= IFI_IN_CHARGE;
+			} else if ((ifi->flags & IFI_IN_CHARGE) != 0) {
 				rslt = asprintf(&errmsg, "yielding "
 				    "responsibility for %s",
 				    ifi->name);
@@ -294,14 +293,14 @@ routehandler(struct interface_info *ifi)
 		if (a.s_addr == adding.s_addr) {
 			adding.s_addr = INADDR_ANY;
 			log_info("bound to %s -- renewal in %lld seconds.",
-			    inet_ntoa(client->active->address),
-			    (long long)(client->active->renewal -
+			    inet_ntoa(ifi->active->address),
+			    (long long)(ifi->active->renewal -
 			    time(NULL)));
-			client->flags |= IS_RESPONSIBLE;
+			ifi->flags |= IFI_IS_RESPONSIBLE;
 			go_daemon();
 			break;
 		}
-		if ((client->flags & IS_RESPONSIBLE) == 0)
+		if ((ifi->flags & IFI_IS_RESPONSIBLE) == 0)
 			/* We're not responsible yet! */
 			break;
 		if (adding.s_addr != INADDR_ANY) {
@@ -336,18 +335,18 @@ routehandler(struct interface_info *ifi)
 			deleting.s_addr = INADDR_ANY;
 			break;
 		}
-		if ((client->flags & IS_RESPONSIBLE) == 0)
+		if ((ifi->flags & IFI_IS_RESPONSIBLE) == 0)
 			/* We're not responsible yet! */
 			break;
-		if (adding.s_addr == INADDR_ANY && client->active &&
-		    a.s_addr == client->active->address.s_addr) {
+		if (adding.s_addr == INADDR_ANY && ifi->active &&
+		    a.s_addr == ifi->active->address.s_addr) {
 			/* Tell the priv process active_addr is gone. */
 			log_warnx("Active address (%s) deleted; exiting",
-			    inet_ntoa(client->active->address));
+			    inet_ntoa(ifi->active->address));
 			memset(&b, 0, sizeof(b));
 			add_address(b, b);
 			/* No need to write resolv.conf now. */
-			client->flags &= ~IS_RESPONSIBLE;
+			ifi->flags &= ~IFI_IS_RESPONSIBLE;
 			quit = INTERNALSIG;
 			break;
 		}
@@ -391,11 +390,11 @@ routehandler(struct interface_info *ifi)
 #endif	/* DEBUG */
 			ifi->linkstat = linkstat;
 			if (ifi->linkstat) {
-				if (client->state == S_PREBOOT) {
+				if (ifi->state == S_PREBOOT) {
 					state_preboot(ifi);
 					get_hw_address(ifi);
 				} else {
-					client->state = S_REBOOTING;
+					ifi->state = S_REBOOTING;
 					state_reboot(ifi);
 				}
 			} else {
@@ -422,16 +421,16 @@ routehandler(struct interface_info *ifi)
 	}
 
 	/* Something has happened. Try to write out the resolv.conf. */
-	if (client->active && client->active->resolv_conf &&
-	    client->flags & IS_RESPONSIBLE)
-		write_resolv_conf(client->active->resolv_conf,
-		    strlen(client->active->resolv_conf));
+	if (ifi->active && ifi->active->resolv_conf &&
+	    ifi->flags & IFI_IS_RESPONSIBLE)
+		write_resolv_conf(ifi->active->resolv_conf,
+		    strlen(ifi->active->resolv_conf));
 
-done:
+ done:
 	free(rtmmsg);
 	return;
 
-die:
+ die:
 	if (rslt == -1)
 		fatalx("no memory for errmsg");
 	fatalx("%s", errmsg);
@@ -564,11 +563,8 @@ main(int argc, char *argv[])
 		fatalx("config calloc");
 	TAILQ_INIT(&config->reject_list);
 
-	ifi->client = calloc(1, sizeof(struct client_state));
-	if (ifi->client == NULL)
-		fatalx("client calloc");
-	TAILQ_INIT(&ifi->client->leases);
-	TAILQ_INIT(&ifi->client->offered_leases);
+	TAILQ_INIT(&ifi->leases);
+	TAILQ_INIT(&ifi->offered_leases);
 
 	read_client_conf(ifi);
 
@@ -681,13 +677,13 @@ main(int argc, char *argv[])
 	}
 
 	setproctitle("%s", ifi->name);
-	time(&ifi->client->startup_time);
+	time(&ifi->startup_time);
 
 	if (ifi->linkstat) {
-		ifi->client->state = S_REBOOTING;
+		ifi->state = S_REBOOTING;
 		state_reboot(ifi);
 	} else {
-		ifi->client->state = S_PREBOOT;
+		ifi->state = S_PREBOOT;
 		state_preboot(ifi);
 	}
 
@@ -709,17 +705,15 @@ usage(void)
 }
 
 void
-state_preboot(void *xifi)
+state_preboot(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
 	static int preamble;
 	time_t cur_time;
 	int interval;
 
 	time(&cur_time);
 
-	interval = (int)(cur_time - client->startup_time);
+	interval = (int)(cur_time - ifi->startup_time);
 
 	ifi->linkstat = interface_status(ifi);
 
@@ -740,12 +734,12 @@ state_preboot(void *xifi)
 	}
 
 	if (ifi->linkstat) {
-		client->state = S_REBOOTING;
+		ifi->state = S_REBOOTING;
 		set_timeout_interval(1, state_reboot, ifi);
 	} else {
 		if (interval > config->link_timeout)
 			go_daemon();
-		client->state = S_PREBOOT;
+		ifi->state = S_PREBOOT;
 		set_timeout_interval(1, state_preboot, ifi);
 	}
 }
@@ -754,10 +748,8 @@ state_preboot(void *xifi)
  * Called when the interface link becomes active.
  */
 void
-state_reboot(void *xifi)
+state_reboot(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
 	char ifname[IF_NAMESIZE];
 	time_t cur_time;
 
@@ -766,28 +758,28 @@ state_reboot(void *xifi)
 	adding.s_addr = INADDR_ANY;
 
 	time(&cur_time);
-	if (client->active) {
-		if (client->active->expiry <= cur_time)
-			client->active = NULL;
-		else if (addressinuse(ifi, client->active->address, ifname) &&
+	if (ifi->active) {
+		if (ifi->active->expiry <= cur_time)
+			ifi->active = NULL;
+		else if (addressinuse(ifi, ifi->active->address, ifname) &&
 		    strncmp(ifname, ifi->name, IF_NAMESIZE) != 0)
-			client->active = NULL;
+			ifi->active = NULL;
 	} else
-		client->active = get_recorded_lease(ifi);
+		ifi->active = get_recorded_lease(ifi);
 
 	/* If we don't remember an active lease, go straight to INIT. */
-	if (!client->active || client->active->is_bootp) {
-		client->state = S_INIT;
+	if (!ifi->active || ifi->active->is_bootp) {
+		ifi->state = S_INIT;
 		state_init(ifi);
 		return;
 	}
 
-	client->xid = arc4random();
-	make_request(ifi, client->active);
+	ifi->xid = arc4random();
+	make_request(ifi, ifi->active);
 
-	client->destination.s_addr = INADDR_BROADCAST;
-	client->first_sending = time(NULL);
-	client->interval = 0;
+	ifi->destination.s_addr = INADDR_BROADCAST;
+	ifi->first_sending = time(NULL);
+	ifi->interval = 0;
 
 	send_request(ifi);
 }
@@ -797,18 +789,15 @@ state_reboot(void *xifi)
  * renew it.
  */
 void
-state_init(void *xifi)
+state_init(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
+	ifi->xid = arc4random();
+	make_discover(ifi, ifi->active);
 
-	client->xid = arc4random();
-	make_discover(ifi, client->active);
-
-	client->destination.s_addr = INADDR_BROADCAST;
-	client->state = S_SELECTING;
-	client->first_sending = time(NULL);
-	client->interval = 0;
+	ifi->destination.s_addr = INADDR_BROADCAST;
+	ifi->state = S_SELECTING;
+	ifi->first_sending = time(NULL);
+	ifi->interval = 0;
 
 	send_discover(ifi);
 }
@@ -818,25 +807,23 @@ state_init(void *xifi)
  * configurable period of time has passed.
  */
 void
-state_selecting(void *xifi)
+state_selecting(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
 	struct client_lease *lease, *picked;
 
 	cancel_timeout();
 
 	/* Take the first valid DHCPOFFER. */
-	TAILQ_FOREACH_SAFE(picked, &client->offered_leases, next, lease) {
+	TAILQ_FOREACH_SAFE(picked, &ifi->offered_leases, next, lease) {
 		if (picked->is_invalid == 0) {
-			TAILQ_REMOVE(&client->offered_leases, picked, next);
+			TAILQ_REMOVE(&ifi->offered_leases, picked, next);
 			break;
 		}
 	}
 	/* DECLINE the rest of the offers. */
-	while (!TAILQ_EMPTY(&client->offered_leases)) {
-		lease = TAILQ_FIRST(&client->offered_leases);
-		TAILQ_REMOVE(&client->offered_leases, lease, next);
+	while (!TAILQ_EMPTY(&ifi->offered_leases)) {
+		lease = TAILQ_FIRST(&ifi->offered_leases);
+		TAILQ_REMOVE(&ifi->offered_leases, lease, next);
 		make_decline(ifi, lease);
 		send_decline(ifi);
 		free_client_lease(lease);
@@ -851,7 +838,7 @@ state_selecting(void *xifi)
 	if (!picked->options[DHO_DHCP_MESSAGE_TYPE].len) {
 		struct option_data *option;
 
-		client->new = picked;
+		ifi->new = picked;
 
 		/*
 		 * Set (unsigned 32 bit) options
@@ -863,36 +850,36 @@ state_selecting(void *xifi)
 		 * so bind_lease() can set the lease times. Note that the
 		 * values must be big-endian.
 		 */
-		option = &client->new->options[DHO_DHCP_LEASE_TIME];
+		option = &ifi->new->options[DHO_DHCP_LEASE_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
 			memcpy(option->data, "\x00\x00\x2e\xe0", 4);
 		}
-		option = &client->new->options[DHO_DHCP_RENEWAL_TIME];
+		option = &ifi->new->options[DHO_DHCP_RENEWAL_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
 			memcpy(option->data, "\x00\x00\x1f\x40", 4);
 		}
-		option = &client->new->options[DHO_DHCP_REBINDING_TIME];
+		option = &ifi->new->options[DHO_DHCP_REBINDING_TIME];
 		option->data = malloc(4);
 		if (option->data) {
 			option->len = 4;
 			memcpy(option->data, "\x00\x00\x27\x10", 4);
 		}
 
-		client->state = S_REQUESTING;
+		ifi->state = S_REQUESTING;
 		bind_lease(ifi);
 
 		return;
 	}
 
-	client->destination.s_addr = INADDR_BROADCAST;
-	client->state = S_REQUESTING;
-	client->first_sending = time(NULL);
+	ifi->destination.s_addr = INADDR_BROADCAST;
+	ifi->state = S_REQUESTING;
+	ifi->first_sending = time(NULL);
 
-	client->interval = 0;
+	ifi->interval = 0;
 
 	/*
 	 * Make a DHCPREQUEST packet from the lease we picked. Keep
@@ -911,13 +898,12 @@ void
 dhcpack(struct interface_info *ifi, struct in_addr client_addr,
     struct option_data *options, char *info)
 {
-	struct client_state *client = ifi->client;
 	struct client_lease *lease;
 
-	if (client->state != S_REBOOTING &&
-	    client->state != S_REQUESTING &&
-	    client->state != S_RENEWING &&
-	    client->state != S_REBINDING) {
+	if (ifi->state != S_REBOOTING &&
+	    ifi->state != S_REQUESTING &&
+	    ifi->state != S_RENEWING &&
+	    ifi->state != S_REBINDING) {
 #ifdef DEBUG
 		log_debug("Unexpected %s. State #%d", info, client->state);
 #endif	/* DEBUG */
@@ -932,14 +918,14 @@ dhcpack(struct interface_info *ifi, struct in_addr client_addr,
 		make_decline(ifi, lease);
 		send_decline(ifi);
 		free_client_lease(lease);
-		client->state = S_INIT;
+		ifi->state = S_INIT;
 		state_init(ifi);
 		return;
 	}
 
-	client->new = lease;
-	memcpy(client->new->ssid, ifi->ssid, sizeof(client->new->ssid));
-	client->new->ssid_len = ifi->ssid_len;
+	ifi->new = lease;
+	memcpy(ifi->new->ssid, ifi->ssid, sizeof(ifi->new->ssid));
+	ifi->new->ssid_len = ifi->ssid_len;
 
 	/* Stop resending DHCPREQUEST. */
 	cancel_timeout();
@@ -950,7 +936,6 @@ dhcpack(struct interface_info *ifi, struct in_addr client_addr,
 void
 bind_lease(struct interface_info *ifi)
 {
-	struct client_state *client = ifi->client;
 	struct in_addr gateway, mask;
 	struct option_data *opt;
 	struct option_data *options;
@@ -962,41 +947,41 @@ bind_lease(struct interface_info *ifi)
 	 * Clear out any old resolv_conf in case the lease has been here
 	 * before (e.g. static lease).
 	 */
-	free(client->new->resolv_conf);
-	client->new->resolv_conf = NULL;
+	free(ifi->new->resolv_conf);
+	ifi->new->resolv_conf = NULL;
 
-	lease = apply_defaults(client->new);
+	lease = apply_defaults(ifi->new);
 	options = lease->options;
 
 	set_lease_times(lease);
 
-	client->new->expiry = lease->expiry;
-	client->new->renewal = lease->renewal;
-	client->new->rebind = lease->rebind;
+	ifi->new->expiry = lease->expiry;
+	ifi->new->renewal = lease->renewal;
+	ifi->new->rebind = lease->rebind;
 
 	/*
 	 * A duplicate lease once we are responsible & S_RENEWING means we
 	 * don't need to change the interface, routing table or resolv.conf.
 	 */
-	if ((client->flags & IS_RESPONSIBLE) && client->state == S_RENEWING &&
-	    compare_lease(client->active, client->new) == 0) {
-		client->new->resolv_conf = client->active->resolv_conf;
-		client->active->resolv_conf = NULL;
-		client->active = client->new;
-		client->new = NULL;
+	if ((ifi->flags & IFI_IS_RESPONSIBLE) && ifi->state == S_RENEWING &&
+	    compare_lease(ifi->active, ifi->new) == 0) {
+		ifi->new->resolv_conf = ifi->active->resolv_conf;
+		ifi->active->resolv_conf = NULL;
+		ifi->active = ifi->new;
+		ifi->new = NULL;
 		log_info("bound to %s -- renewal in %lld seconds.",
-		    inet_ntoa(client->active->address),
-		    (long long)(client->active->renewal - time(NULL)));
+		    inet_ntoa(ifi->active->address),
+		    (long long)(ifi->active->renewal - time(NULL)));
 		goto newlease;
 	}
 
-	client->new->resolv_conf = resolv_conf_contents(ifi,
+	ifi->new->resolv_conf = resolv_conf_contents(ifi,
 	    &options[DHO_DOMAIN_NAME], &options[DHO_DOMAIN_NAME_SERVERS],
 	    &options[DHO_DOMAIN_SEARCH]);
 
 	/* Replace the old active lease with the new one. */
-	client->active = client->new;
-	client->new = NULL;
+	ifi->active = ifi->new;
+	ifi->new = NULL;
 
 	/* Deleting the addresses also clears out arp entries. */
 	delete_addresses(ifi);
@@ -1024,15 +1009,15 @@ bind_lease(struct interface_info *ifi)
 	 * Add address and default route last, so we know when the binding
 	 * is done by the RTM_NEWADDR message being received.
 	 */
-	add_address(client->active->address, mask);
+	add_address(ifi->active->address, mask);
 	if (options[DHO_CLASSLESS_STATIC_ROUTES].len) {
 		add_classless_static_routes(
 		    &options[DHO_CLASSLESS_STATIC_ROUTES],
-		    client->active->address);
+		    ifi->active->address);
 	} else if (options[DHO_CLASSLESS_MS_STATIC_ROUTES].len) {
 		add_classless_static_routes(
 		    &options[DHO_CLASSLESS_MS_STATIC_ROUTES],
-		    client->active->address);
+		    ifi->active->address);
 	} else {
 		opt = &options[DHO_ROUTERS];
 		if (opt->len >= sizeof(gateway)) {
@@ -1046,18 +1031,18 @@ bind_lease(struct interface_info *ifi)
 			 */
 			if (mask.s_addr == INADDR_BROADCAST) {
 				add_direct_route(gateway, mask,
-				    client->active->address);
+				    ifi->active->address);
 			}
 
-			add_default_route(client->active->address, gateway);
+			add_default_route(ifi->active->address, gateway);
 		}
 		if (options[DHO_STATIC_ROUTES].len)
 			add_static_routes(&options[DHO_STATIC_ROUTES],
-			    client->active->address);
+			    ifi->active->address);
 	}
 
 newlease:
-	rewrite_option_db(ifi, client->active, lease);
+	rewrite_option_db(ifi, ifi->active, lease);
 	free_client_lease(lease);
 
 	/*
@@ -1066,34 +1051,34 @@ newlease:
 	 */
 	seen = 0;
 	time(&cur_time);
-	TAILQ_FOREACH_SAFE(lease, &client->leases, next, pl) {
+	TAILQ_FOREACH_SAFE(lease, &ifi->leases, next, pl) {
 		if (lease->is_static)
 			break;
-		if (client->active == NULL)
+		if (ifi->active == NULL)
 		       continue;
-		if (client->active->ssid_len != lease->ssid_len)
+		if (ifi->active->ssid_len != lease->ssid_len)
 			continue;
-		if (memcmp(client->active->ssid, lease->ssid, lease->ssid_len)
+		if (memcmp(ifi->active->ssid, lease->ssid, lease->ssid_len)
 		    != 0)
 			continue;
-		if (client->active == lease)
+		if (ifi->active == lease)
 			seen = 1;
 		else if (lease->expiry <= cur_time || lease->address.s_addr ==
-		    client->active->address.s_addr) {
-			TAILQ_REMOVE(&client->leases, lease, next);
+		    ifi->active->address.s_addr) {
+			TAILQ_REMOVE(&ifi->leases, lease, next);
 			free_client_lease(lease);
 		}
 	}
-	if (!client->active->is_static && !seen)
-		TAILQ_INSERT_HEAD(&client->leases, client->active,  next);
+	if (!ifi->active->is_static && !seen)
+		TAILQ_INSERT_HEAD(&ifi->leases, ifi->active,  next);
 
 	/* Write out new leases file. */
 	rewrite_client_leases(ifi);
 
-	client->state = S_BOUND;
+	ifi->state = S_BOUND;
 
 	/* Set timeout to start the renewal process. */
-	set_timeout(client->active->renewal, state_bound, ifi);
+	set_timeout(ifi->active->renewal, state_bound, ifi);
 }
 
 /*
@@ -1102,27 +1087,25 @@ newlease:
  * the server that gave us our original lease.
  */
 void
-state_bound(void *xifi)
+state_bound(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
 	struct option_data *opt;
 	struct in_addr *dest;
 
-	client->xid = arc4random();
-	make_request(ifi, client->active);
+	ifi->xid = arc4random();
+	make_request(ifi, ifi->active);
 
-	dest = &client->destination;
-	opt = &client->active->options[DHO_DHCP_SERVER_IDENTIFIER];
+	dest = &ifi->destination;
+	opt = &ifi->active->options[DHO_DHCP_SERVER_IDENTIFIER];
 
 	if (opt->len == sizeof(*dest))
 		dest->s_addr = ((struct in_addr *)opt->data)->s_addr;
 	else
 		dest->s_addr = INADDR_BROADCAST;
 
-	client->first_sending = time(NULL);
-	client->interval = 0;
-	client->state = S_RENEWING;
+	ifi->first_sending = time(NULL);
+	ifi->interval = 0;
+	ifi->state = S_RENEWING;
 
 	send_request(ifi);
 }
@@ -1131,12 +1114,11 @@ void
 dhcpoffer(struct interface_info *ifi, struct in_addr client_addr,
     struct option_data *options, char *info)
 {
-	struct client_state *client = ifi->client;
-	struct dhcp_packet *packet = &client->recv_packet;
+	struct dhcp_packet *packet = &ifi->recv_packet;
 	struct client_lease *lease, *lp;
 	time_t stop_selecting;
 
-	if (client->state != S_SELECTING) {
+	if (ifi->state != S_SELECTING) {
 #ifdef DEBUG
 		log_debug("Unexpected %s. State #%d.", info, client->state);
 #endif	/* DEBUG */
@@ -1146,7 +1128,7 @@ dhcpoffer(struct interface_info *ifi, struct in_addr client_addr,
 	log_info("%s", info);
 
 	/* If we've already seen this lease, don't record it again. */
-	TAILQ_FOREACH(lp, &client->offered_leases, next) {
+	TAILQ_FOREACH(lp, &ifi->offered_leases, next) {
 		if (!memcmp(&lp->address.s_addr, &packet->yiaddr,
 		    sizeof(in_addr_t))) {
 #ifdef DEBUG
@@ -1166,16 +1148,16 @@ dhcpoffer(struct interface_info *ifi, struct in_addr client_addr,
 		lease->is_bootp = 1;
 
 	/* Figure out when we're supposed to stop selecting. */
-	stop_selecting = client->first_sending + config->select_interval;
+	stop_selecting = ifi->first_sending + config->select_interval;
 
-	if (TAILQ_EMPTY(&client->offered_leases)) {
-		TAILQ_INSERT_HEAD(&client->offered_leases, lease, next);
-	} else if (lease->address.s_addr == client->requested_address.s_addr) {
+	if (TAILQ_EMPTY(&ifi->offered_leases)) {
+		TAILQ_INSERT_HEAD(&ifi->offered_leases, lease, next);
+	} else if (lease->address.s_addr == ifi->requested_address.s_addr) {
 		/* The expected lease - put it at the head of the list. */
-		TAILQ_INSERT_HEAD(&client->offered_leases, lease, next);
+		TAILQ_INSERT_HEAD(&ifi->offered_leases, lease, next);
 	} else {
 		/* Not the expected lease - put it at the end of the list. */
-		TAILQ_INSERT_TAIL(&client->offered_leases, lease, next);
+		TAILQ_INSERT_TAIL(&ifi->offered_leases, lease, next);
 	}
 
 	if (stop_selecting <= time(NULL))
@@ -1222,8 +1204,7 @@ struct client_lease *
 packet_to_lease(struct interface_info *ifi, struct in_addr client_addr,
     struct option_data *options)
 {
-	struct client_state *client = ifi->client;
-	struct dhcp_packet *packet = &client->recv_packet;
+	struct dhcp_packet *packet = &ifi->recv_packet;
 	char ifname[IF_NAMESIZE];
 	struct client_lease *lease;
 	char *pretty, *buf;
@@ -1351,19 +1332,17 @@ void
 dhcpnak(struct interface_info *ifi, struct in_addr client_addr,
     struct option_data *options, char *info)
 {
-	struct client_state *client = ifi->client;
-
-	if (client->state != S_REBOOTING &&
-	    client->state != S_REQUESTING &&
-	    client->state != S_RENEWING &&
-	    client->state != S_REBINDING) {
+	if (ifi->state != S_REBOOTING &&
+	    ifi->state != S_REQUESTING &&
+	    ifi->state != S_RENEWING &&
+	    ifi->state != S_REBINDING) {
 #ifdef DEBUG
 		log_debug("Unexpected %s. State #%d", info, client->state);
 #endif	/* DEBUG */
 		return;
 	}
 
-	if (!client->active) {
+	if (!ifi->active) {
 #ifdef DEBUG
 		log_debug("Unexpected %s. No active lease.", info);
 #endif	/* DEBUG */
@@ -1373,17 +1352,17 @@ dhcpnak(struct interface_info *ifi, struct in_addr client_addr,
 	log_info("%s", info);
 
 	/* XXX Do we really want to remove a NAK'd lease from the database? */
-	if (!client->active->is_static) {
-		TAILQ_REMOVE(&client->leases, client->active, next);
-		free_client_lease(client->active);
+	if (!ifi->active->is_static) {
+		TAILQ_REMOVE(&ifi->leases, ifi->active, next);
+		free_client_lease(ifi->active);
 	}
 
-	client->active = NULL;
+	ifi->active = NULL;
 
 	/* Stop sending DHCPREQUEST packets. */
 	cancel_timeout();
 
-	client->state = S_INIT;
+	ifi->state = S_INIT;
 	state_init(ifi);
 }
 
@@ -1393,11 +1372,9 @@ dhcpnak(struct interface_info *ifi, struct in_addr client_addr,
  * the time we reach the panic interval, call the panic function.
  */
 void
-send_discover(void *xifi)
+send_discover(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
-	struct dhcp_packet *packet = &client->sent_packet;
+	struct dhcp_packet *packet = &ifi->sent_packet;
 	time_t cur_time;
 	ssize_t rslt;
 	int interval;
@@ -1405,7 +1382,7 @@ send_discover(void *xifi)
 	time(&cur_time);
 
 	/* Figure out how long it's been since we started transmitting. */
-	interval = cur_time - client->first_sending;
+	interval = cur_time - ifi->first_sending;
 
 	if (interval > config->timeout) {
 		state_panic(ifi);
@@ -1419,39 +1396,39 @@ send_discover(void *xifi)
 	 * number between zero and two times itself.  On average, this
 	 * means that it will double with every transmission.
 	 */
-	if (!client->interval)
-		client->interval = config->initial_interval;
+	if (!ifi->interval)
+		ifi->interval = config->initial_interval;
 	else {
-		client->interval += arc4random_uniform(2 * client->interval);
+		ifi->interval += arc4random_uniform(2 * ifi->interval);
 	}
 
 	/* Don't backoff past cutoff. */
-	if (client->interval > config->backoff_cutoff)
-		client->interval = config->backoff_cutoff;
+	if (ifi->interval > config->backoff_cutoff)
+		ifi->interval = config->backoff_cutoff;
 
 	/* If the backoff would take us to the panic timeout, just use that
 	   as the interval. */
-	if (cur_time + client->interval >
-	    client->first_sending + config->timeout)
-		client->interval = (client->first_sending +
-			 config->timeout) - cur_time + 1;
+	if (cur_time + ifi->interval >
+	    ifi->first_sending + config->timeout)
+		ifi->interval = (ifi->first_sending +
+		    config->timeout) - cur_time + 1;
 
 	/* Record the number of seconds since we started sending. */
 	if (interval < UINT16_MAX)
 		packet->secs = htons(interval);
 	else
 		packet->secs = htons(UINT16_MAX);
-	client->secs = packet->secs;
+	ifi->secs = packet->secs;
 
 	log_info("DHCPDISCOVER on %s - interval %lld", ifi->name,
-	    (long long)client->interval);
+	    (long long)ifi->interval);
 
 	rslt = send_packet(ifi, inaddr_any, inaddr_broadcast);
 	if (rslt == -1 && errno == EAFNOSUPPORT) {
 		log_warnx("dhclient cannot be used on %s", ifi->name);
 		quit = INTERNALSIG;
 	} else
-		set_timeout_interval(client->interval, send_discover, ifi);
+		set_timeout_interval(ifi->interval, send_discover, ifi);
 }
 
 /*
@@ -1459,18 +1436,16 @@ send_discover(void *xifi)
  * this happens, we try to use existing leases that haven't yet expired.
  */
 void
-state_panic(void *xifi)
+state_panic(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
 	struct client_lease *lp;
 
 	log_info("No acceptable DHCPOFFERS received.");
 
 	lp = get_recorded_lease(ifi);
 	if (lp) {
-		client->new = lp;
-		client->state = S_REQUESTING;
+		ifi->new = lp;
+		ifi->state = S_REQUESTING;
 		bind_lease(ifi);
 		return;
 	}
@@ -1479,17 +1454,15 @@ state_panic(void *xifi)
 	 * No leases were available, or what was available didn't work
 	 */
 	log_info("No working leases in persistent database - sleeping.");
-	client->state = S_INIT;
+	ifi->state = S_INIT;
 	set_timeout_interval(config->retry_interval, state_init, ifi);
 	go_daemon();
 }
 
 void
-send_request(void *xifi)
+send_request(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-	struct client_state *client = ifi->client;
-	struct dhcp_packet *packet = &client->sent_packet;
+	struct dhcp_packet *packet = &ifi->sent_packet;
 	struct sockaddr_in destination;
 	struct in_addr from;
 	time_t cur_time;
@@ -1498,7 +1471,7 @@ send_request(void *xifi)
 	time(&cur_time);
 
 	/* Figure out how long it's been since we started transmitting. */
-	interval = (int)(cur_time - client->first_sending);
+	interval = (int)(cur_time - ifi->first_sending);
 
 	/*
 	 * If we're in the INIT-REBOOT state and we've been trying longer
@@ -1512,9 +1485,9 @@ send_request(void *xifi)
 	 * reused our old address.  In the former case, we're hosed
 	 * anyway.  This is not a win-prone situation.
 	 */
-	if (client->state == S_REBOOTING && interval >
+	if (ifi->state == S_REBOOTING && interval >
 	    config->reboot_timeout) {
-		client->state = S_INIT;
+		ifi->state = S_INIT;
 		cancel_timeout();
 		state_init(ifi);
 		return;
@@ -1524,35 +1497,35 @@ send_request(void *xifi)
 	 * If the lease has expired, relinquish the address and go back to the
 	 * INIT state.
 	 */
-	if (client->state != S_REQUESTING &&
-	    cur_time > client->active->expiry) {
-		if (client->active)
-			delete_address(client->active->address);
-		client->state = S_INIT;
+	if (ifi->state != S_REQUESTING &&
+	    cur_time > ifi->active->expiry) {
+		if (ifi->active)
+			delete_address(ifi->active->address);
+		ifi->state = S_INIT;
 		state_init(ifi);
 		return;
 	}
 
 	/* Do the exponential backoff. */
-	if (!client->interval) {
-		if (client->state == S_REBOOTING)
-			client->interval = config->reboot_timeout;
+	if (!ifi->interval) {
+		if (ifi->state == S_REBOOTING)
+			ifi->interval = config->reboot_timeout;
 		else
-			client->interval = config->initial_interval;
+			ifi->interval = config->initial_interval;
 	} else
-		client->interval += arc4random_uniform(2 * client->interval);
+		ifi->interval += arc4random_uniform(2 * ifi->interval);
 
 	/* Don't backoff past cutoff. */
-	if (client->interval > config->backoff_cutoff)
-		client->interval = config->backoff_cutoff;
+	if (ifi->interval > config->backoff_cutoff)
+		ifi->interval = config->backoff_cutoff;
 
 	/*
 	 * If the backoff would take us to the expiry time, just set the
 	 * timeout to the expiry time.
 	 */
-	if (client->state != S_REQUESTING && cur_time + client->interval >
-	    client->active->expiry)
-		client->interval = client->active->expiry - cur_time + 1;
+	if (ifi->state != S_REQUESTING && cur_time + ifi->interval >
+	    ifi->active->expiry)
+		ifi->interval = ifi->active->expiry - cur_time + 1;
 
 	/*
 	 * If the reboot timeout has expired, or the lease rebind time has
@@ -1560,22 +1533,22 @@ send_request(void *xifi)
 	 * than unicasting.
 	 */
 	memset(&destination, 0, sizeof(destination));
-	if (client->state == S_REQUESTING ||
-	    client->state == S_REBOOTING ||
-	    cur_time > client->active->rebind ||
+	if (ifi->state == S_REQUESTING ||
+	    ifi->state == S_REBOOTING ||
+	    cur_time > ifi->active->rebind ||
 	    interval > config->reboot_timeout)
 		destination.sin_addr.s_addr = INADDR_BROADCAST;
 	else
-		destination.sin_addr.s_addr = client->destination.s_addr;
+		destination.sin_addr.s_addr = ifi->destination.s_addr;
 
-	if (client->state != S_REQUESTING)
-		from.s_addr = client->active->address.s_addr;
+	if (ifi->state != S_REQUESTING)
+		from.s_addr = ifi->active->address.s_addr;
 	else
 		from.s_addr = INADDR_ANY;
 
 	/* Record the number of seconds since we started sending. */
-	if (client->state == S_REQUESTING)
-		packet->secs = client->secs;
+	if (ifi->state == S_REQUESTING)
+		packet->secs = ifi->secs;
 	else {
 		if (interval < UINT16_MAX)
 			packet->secs = htons(interval);
@@ -1588,14 +1561,12 @@ send_request(void *xifi)
 
 	send_packet(ifi, from, destination.sin_addr);
 
-	set_timeout_interval(client->interval, send_request, ifi);
+	set_timeout_interval(ifi->interval, send_request, ifi);
 }
 
 void
-send_decline(void *xifi)
+send_decline(struct interface_info *ifi)
 {
-	struct interface_info *ifi = xifi;
-
 	log_info("DHCPDECLINE on %s", ifi->name);
 
 	send_packet(ifi, inaddr_any, inaddr_broadcast);
@@ -1604,9 +1575,8 @@ send_decline(void *xifi)
 void
 make_discover(struct interface_info *ifi, struct client_lease *lease)
 {
-	struct client_state *client = ifi->client;
 	struct option_data options[256];
-	struct dhcp_packet *packet = &client->sent_packet;
+	struct dhcp_packet *packet = &ifi->sent_packet;
 	unsigned char discover = DHCPDISCOVER;
 	int i;
 
@@ -1625,12 +1595,12 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 
 	/* If we had an address, try to get it again. */
 	if (lease) {
-		client->requested_address = lease->address;
+		ifi->requested_address = lease->address;
 		i = DHO_DHCP_REQUESTED_ADDRESS;
 		options[i].data = (char *)&lease->address;
 		options[i].len = sizeof(lease->address);
 	} else
-		client->requested_address.s_addr = INADDR_ANY;
+		ifi->requested_address.s_addr = INADDR_ANY;
 
 	/* Send any options requested in the config file. */
 	for (i = 0; i < 256; i++)
@@ -1644,15 +1614,15 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 	i = cons_options(ifi, options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPDISCOVER packet.");
-	client->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
-	if (client->sent_packet_length < BOOTP_MIN_LEN)
-		client->sent_packet_length = BOOTP_MIN_LEN;
+	ifi->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
+	if (ifi->sent_packet_length < BOOTP_MIN_LEN)
+		ifi->sent_packet_length = BOOTP_MIN_LEN;
 
 	packet->op = BOOTREQUEST;
 	packet->htype = HTYPE_ETHER ;
 	packet->hlen = ETHER_ADDR_LEN;
 	packet->hops = 0;
-	packet->xid = client->xid;
+	packet->xid = ifi->xid;
 	packet->secs = 0; /* filled in by send_discover. */
 	packet->flags = 0;
 
@@ -1668,9 +1638,8 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 void
 make_request(struct interface_info *ifi, struct client_lease * lease)
 {
-	struct client_state *client = ifi->client;
 	struct option_data options[256];
-	struct dhcp_packet *packet = &client->sent_packet;
+	struct dhcp_packet *packet = &ifi->sent_packet;
 	unsigned char request = DHCPREQUEST;
 	int i;
 
@@ -1691,15 +1660,15 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 	 * If we are requesting an address that hasn't yet been assigned
 	 * to us, use the DHCP Requested Address option.
 	 */
-	if (client->state == S_REQUESTING) {
+	if (ifi->state == S_REQUESTING) {
 		/* Send back the server identifier. */
 		i = DHO_DHCP_SERVER_IDENTIFIER;
 		options[i].data = lease->options[i].data;
 		options[i].len = lease->options[i].len;
 	}
-	if (client->state == S_REQUESTING ||
-	    client->state == S_REBOOTING) {
-		client->requested_address = lease->address;
+	if (ifi->state == S_REQUESTING ||
+	    ifi->state == S_REBOOTING) {
+		ifi->requested_address = lease->address;
 		i = DHO_DHCP_REQUESTED_ADDRESS;
 		options[i].data = (char *)&lease->address.s_addr;
 		options[i].len = sizeof(in_addr_t);
@@ -1716,15 +1685,15 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 	i = cons_options(ifi, options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPREQUEST packet.");
-	client->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
-	if (client->sent_packet_length < BOOTP_MIN_LEN)
-		client->sent_packet_length = BOOTP_MIN_LEN;
+	ifi->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
+	if (ifi->sent_packet_length < BOOTP_MIN_LEN)
+		ifi->sent_packet_length = BOOTP_MIN_LEN;
 
 	packet->op = BOOTREQUEST;
 	packet->htype = HTYPE_ETHER ;
 	packet->hlen = ETHER_ADDR_LEN;
 	packet->hops = 0;
-	packet->xid = client->xid;
+	packet->xid = ifi->xid;
 	packet->secs = 0; /* Filled in by send_request. */
 	packet->flags = 0;
 
@@ -1732,9 +1701,9 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 	 * If we own the address we're requesting, put it in ciaddr. Otherwise
 	 * set ciaddr to zero.
 	 */
-	if (client->state == S_BOUND ||
-	    client->state == S_RENEWING ||
-	    client->state == S_REBINDING)
+	if (ifi->state == S_BOUND ||
+	    ifi->state == S_RENEWING ||
+	    ifi->state == S_REBINDING)
 		packet->ciaddr.s_addr = lease->address.s_addr;
 	else
 		packet->ciaddr.s_addr = INADDR_ANY;
@@ -1750,9 +1719,8 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 void
 make_decline(struct interface_info *ifi, struct client_lease *lease)
 {
-	struct client_state *client = ifi->client;
 	struct option_data options[256];
-	struct dhcp_packet *packet = &client->sent_packet;
+	struct dhcp_packet *packet = &ifi->sent_packet;
 	unsigned char decline = DHCPDECLINE;
 	int i;
 
@@ -1785,15 +1753,15 @@ make_decline(struct interface_info *ifi, struct client_lease *lease)
 	i = cons_options(ifi, options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPDECLINE packet.");
-	client->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
-	if (client->sent_packet_length < BOOTP_MIN_LEN)
-		client->sent_packet_length = BOOTP_MIN_LEN;
+	ifi->sent_packet_length = DHCP_FIXED_NON_UDP+i+1;
+	if (ifi->sent_packet_length < BOOTP_MIN_LEN)
+		ifi->sent_packet_length = BOOTP_MIN_LEN;
 
 	packet->op = BOOTREQUEST;
 	packet->htype = HTYPE_ETHER ;
 	packet->hlen = ETHER_ADDR_LEN;
 	packet->hops = 0;
-	packet->xid = client->xid;
+	packet->xid = ifi->xid;
 	packet->secs = 0; /* Filled in by send_request. */
 	packet->flags = 0;
 
@@ -1828,7 +1796,6 @@ free_client_lease(struct client_lease *lease)
 void
 rewrite_client_leases(struct interface_info *ifi)
 {
-	struct client_state *client = ifi->client;
 	struct client_lease *lp;
 	char *leasestr;
 	time_t cur_time;
@@ -1842,12 +1809,12 @@ rewrite_client_leases(struct interface_info *ifi)
 	 * The leases file is kept in chronological order, with the
 	 * most recently bound lease last. When the file was read
 	 * leases that were not expired were added to the head of the
-	 * TAILQ client->leases as they were read. Therefore write out
-	 * the leases in client->leases in reverse order to recreate
+	 * TAILQ ifi->leases as they were read. Therefore write out
+	 * the leases in ifi->leases in reverse order to recreate
 	 * the chonological order required.
 	 */
 	time(&cur_time);
-	TAILQ_FOREACH_REVERSE(lp, &client->leases, _leases, next) {
+	TAILQ_FOREACH_REVERSE(lp, &ifi->leases, _leases, next) {
 		/* Don't write out static leases from dhclient.conf. */
 		if (lp->is_static)
 			continue;
@@ -2605,13 +2572,13 @@ take_charge(struct interface_info *ifi)
 	rtm.rtm_msglen = sizeof(rtm);
 	rtm.rtm_tableid = ifi->rdomain;
 	rtm.rtm_index = ifi->index;
-	rtm.rtm_seq = ifi->client->xid = arc4random();
+	rtm.rtm_seq = ifi->xid = arc4random();
 	rtm.rtm_priority = RTP_PROPOSAL_DHCLIENT;
 	rtm.rtm_addrs = 0;
 	rtm.rtm_flags = RTF_UP | RTF_PROTO3;
 
 	retries = 0;
-	while ((ifi->client->flags & IN_CHARGE) == 0) {
+	while ((ifi->flags & IFI_IN_CHARGE) == 0) {
 		if (write(routefd, &rtm, sizeof(rtm)) == -1)
 			fatal("tried to take charge");
 		time(&cur_time);
@@ -2641,7 +2608,6 @@ get_recorded_lease(struct interface_info *ifi)
 {
 	char			 ifname[IF_NAMESIZE];
 	time_t			 cur_time;
-	struct client_state	*client = ifi->client;
 	struct client_lease	*lp;
 	int			 i;
 
@@ -2649,7 +2615,7 @@ get_recorded_lease(struct interface_info *ifi)
 
 	/* Run through the list of leases and see if one can be used. */
 	i = DHO_DHCP_CLIENT_IDENTIFIER;
-	TAILQ_FOREACH(lp, &client->leases, next) {
+	TAILQ_FOREACH(lp, &ifi->leases, next) {
 		if (lp->ssid_len != ifi->ssid_len)
 			continue;
 		if (memcmp(lp->ssid, ifi->ssid, lp->ssid_len) != 0)

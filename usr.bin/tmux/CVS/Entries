@@ -16,7 +16,7 @@
 /cmd-display-message.c/1.42/Mon May  1 12:20:55 2017//
 /cmd-display-panes.c/1.19/Sat Apr 22 10:22:39 2017//
 /cmd-find-window.c/1.44/Wed May 31 16:44:33 2017//
-/cmd-find.c/1.52/Sat Apr 22 12:08:41 2017//
+/cmd-find.c/1.53/Wed Jun 14 07:37:17 2017//
 /cmd-if-shell.c/1.56/Tue Apr 25 11:49:35 2017//
 /cmd-join-pane.c/1.32/Sat Apr 22 10:22:39 2017//
 /cmd-kill-pane.c/1.25/Sat Apr 22 10:22:39 2017//
@@ -60,7 +60,7 @@
 /cmd-show-options.c/1.42/Wed May 10 13:05:41 2017//
 /cmd-source-file.c/1.35/Wed Apr 19 16:59:54 2017//
 /cmd-split-window.c/1.85/Tue May 30 21:44:59 2017//
-/cmd-string.c/1.28/Tue Jan 24 19:53:37 2017//
+/cmd-string.c/1.29/Wed Jun 14 07:42:41 2017//
 /cmd-swap-pane.c/1.31/Sat Apr 22 10:22:39 2017//
 /cmd-swap-window.c/1.23/Sat Apr 22 10:22:39 2017//
 /cmd-switch-client.c/1.52/Thu May  4 07:16:43 2017//

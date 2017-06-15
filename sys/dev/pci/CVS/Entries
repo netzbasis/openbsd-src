@@ -137,9 +137,9 @@
 /if_iwi.c/1.136/Wed Mar 29 16:42:25 2017//
 /if_iwireg.h/1.28/Thu Sep  4 15:59:52 2008//
 /if_iwivar.h/1.26/Mon Sep  5 08:17:48 2016//
-/if_iwm.c/1.192/Fri Jun  9 13:47:26 2017//
+/if_iwm.c/1.196/Wed Jun 14 16:58:28 2017//
 /if_iwmreg.h/1.27/Wed May  3 14:53:12 2017//
-/if_iwmvar.h/1.27/Sun May 28 09:59:58 2017//
+/if_iwmvar.h/1.28/Wed Jun 14 16:56:04 2017//
 /if_iwn.c/1.190/Fri Jun  2 11:18:16 2017//
 /if_iwnreg.h/1.53/Thu Apr 28 08:28:18 2016//
 /if_iwnvar.h/1.32/Wed Dec  7 15:48:44 2016//

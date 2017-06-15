@@ -1,4 +1,4 @@
-.\"	$OpenBSD: roff.7,v 1.68 2017/06/14 01:31:19 schwarze Exp $
+.\"	$OpenBSD: roff.7,v 1.73 2017/06/14 23:23:51 schwarze Exp $
 .\"
 .\" Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
 .\" Copyright (c) 2010,2011,2013-2015,2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -410,7 +410,6 @@ Create an alias for a number register.
 Currently unsupported.
 .It Ic \&als Ar newname oldname
 Create an alias for a request, string, macro, or diversion.
-Currently unsupported.
 .It Ic \&am Ar macroname Op Ar endmacro
 Append to a macro definition.
 The syntax of this request is the same as that of
@@ -1043,8 +1042,6 @@ If the first character of
 is
 .Sq c
 .Pq character available ,
-.Sq d
-.Pq string defined ,
 .Sq e
 .Pq even page ,
 .Sq t
@@ -1053,6 +1050,15 @@ or
 .Sq v
 .Pq vroff mode ,
 it evaluates to false.
+.It
+If the first character of
+.Ar condition
+is
+.Sq d ,
+it evaluates to true if the rest of
+.Ar condition
+is the name of an existing user defined macro or string;
+otherwise, it evaluates to false.
 .It
 If the first character of
 .Ar condition
@@ -1433,8 +1439,15 @@ Currently ignored.
 Print all number registers on standard error output.
 Currently ignored.
 .It Ic \&po Op Oo Cm + Ns | Ns Cm - Oc Ns Ar offset
-Set horizontal page offset.
-Currently ignored.
+Set a horizontal page offset.
+If no argument is specified, the page offset is reverted to its
+previous value.
+If a sign is specified, the new page offset is calculated relative
+to the current one; otherwise, it is absolute.
+The argument follows the syntax of
+.Sx Scaling Widths
+and the default scaling unit is
+.Cm m .
 .It Ic \&ps Op Oo Cm + Ns | Ns Cm - Oc Ns size
 Change point size.
 Currently ignored.
@@ -1475,7 +1488,9 @@ This is a Heirloom extension and currently ignored.
 Justify the next
 .Ar N
 input lines to the right margin without filling.
-Currently ignored.
+.Ar N
+defaults to 1.
+An argument of 0 or less ends right adjustment.
 .It Ic \&rm Ar macroname
 Remove a request, macro or string.
 .It Ic \&rn Ar oldname newname
@@ -1939,8 +1954,11 @@ and
 .Ss \eH\(aq Ns Oo +|- Oc Ns Ar number Ns \(aq
 Set the height of the current font; ignored by
 .Xr mandoc 1 .
-.Ss \eh\(aq Ns Ar width Ns \(aq
-Horizontal motion relative to the current position.
+.Ss \eh\(aq Ns Oo Cm \&| Oc Ns Ar width Ns \(aq
+Horizontal motion.
+If the vertical bar is given, the motion is relative to the current
+indentation.
+Otherwise, it is relative to the current position.
 The default scaling unit is
 .Cm m .
 .Ss \ek[ Ns Ar name ]
