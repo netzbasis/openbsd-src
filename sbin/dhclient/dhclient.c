@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.425 2017/06/14 20:27:08 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.427 2017/06/15 17:06:17 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -153,7 +153,7 @@ void rewrite_option_db(struct interface_info *, struct client_lease *,
 char *lease_as_string(struct interface_info *, char *, struct client_lease *);
 void append_statement(char *, size_t, char *, char *);
 
-struct client_lease *packet_to_lease(struct interface_info *, struct in_addr,
+struct client_lease *packet_to_lease(struct interface_info *,
     struct option_data *);
 void go_daemon(void);
 int rdaemon(int);
@@ -895,8 +895,7 @@ state_selecting(struct interface_info *ifi)
 }
 
 void
-dhcpack(struct interface_info *ifi, struct in_addr client_addr,
-    struct option_data *options, char *info)
+dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 {
 	struct client_lease *lease;
 
@@ -912,7 +911,7 @@ dhcpack(struct interface_info *ifi, struct in_addr client_addr,
 
 	log_info("%s", info);
 
-	lease = packet_to_lease(ifi, client_addr, options);
+	lease = packet_to_lease(ifi, options);
 	if (lease->is_invalid) {
 		log_info("Unsatisfactory %s", info);
 		make_decline(ifi, lease);
@@ -1111,8 +1110,7 @@ state_bound(struct interface_info *ifi)
 }
 
 void
-dhcpoffer(struct interface_info *ifi, struct in_addr client_addr,
-    struct option_data *options, char *info)
+dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 {
 	struct dhcp_packet *packet = &ifi->recv_packet;
 	struct client_lease *lease, *lp;
@@ -1138,7 +1136,7 @@ dhcpoffer(struct interface_info *ifi, struct in_addr client_addr,
 		}
 	}
 
-	lease = packet_to_lease(ifi, client_addr, options);
+	lease = packet_to_lease(ifi, options);
 
 	/*
 	 * If this lease was acquired through a BOOTREPLY, record that
@@ -1201,8 +1199,7 @@ addressinuse(struct interface_info *ifi, struct in_addr address, char *ifname)
  * parameters in the specified packet.
  */
 struct client_lease *
-packet_to_lease(struct interface_info *ifi, struct in_addr client_addr,
-    struct option_data *options)
+packet_to_lease(struct interface_info *ifi, struct option_data *options)
 {
 	struct dhcp_packet *packet = &ifi->recv_packet;
 	char ifname[IF_NAMESIZE];
@@ -1329,8 +1326,7 @@ packet_to_lease(struct interface_info *ifi, struct in_addr client_addr,
 }
 
 void
-dhcpnak(struct interface_info *ifi, struct in_addr client_addr,
-    struct option_data *options, char *info)
+dhcpnak(struct interface_info *ifi, struct option_data *options, char *info)
 {
 	if (ifi->state != S_REBOOTING &&
 	    ifi->state != S_REQUESTING &&
