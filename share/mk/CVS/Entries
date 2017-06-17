@@ -1,14 +1,14 @@
 /Makefile/1.14/Mon Oct 26 10:43:42 2015//
 /bsd.README/1.65/Mon Jul  4 18:01:44 2016//
-/bsd.dep.mk/1.14/Sun Jun  4 12:25:19 2017//
-/bsd.lib.mk/1.83/Wed Jun  7 16:01:07 2017//
+/bsd.dep.mk/1.15/Fri Jun 16 10:20:52 2017//
+/bsd.lib.mk/1.84/Fri Jun 16 10:20:52 2017//
 /bsd.man.mk/1.41/Fri Jan 16 01:58:17 2015//
 /bsd.obj.mk/1.19/Tue Jan 24 03:22:13 2017//
 /bsd.own.mk/1.184/Tue Apr 18 14:03:08 2017//
 /bsd.port.arch.mk/1.1/Sat Sep 24 07:26:01 2011//
 /bsd.port.mk/1.95/Sat Sep 24 07:26:01 2011//
 /bsd.port.subdir.mk/1.9/Sat Sep 24 07:26:01 2011//
-/bsd.prog.mk/1.70/Sat Nov 14 23:56:50 2015//
+/bsd.prog.mk/1.71/Fri Jun 16 10:20:52 2017//
 /bsd.regress.mk/1.13/Sat Jul 19 18:15:53 2014//
 /bsd.subdir.mk/1.22/Sat Oct  8 09:43:46 2016//
 /bsd.sys.mk/1.10/Sun Apr  8 15:56:28 2012//

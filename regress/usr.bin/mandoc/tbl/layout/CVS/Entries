@@ -1,4 +1,4 @@
-/Makefile/1.2/Fri Jan 30 00:27:09 2015//
+/Makefile/1.3/Fri Jun 16 20:00:41 2017//
 /center.in/1.1.1.1/Thu Jan 29 23:24:24 2015//
 /center.out_ascii/1.1.1.1/Thu Jan 29 23:24:24 2015//
 /complex.in/1.1.1.1/Thu Jan 29 23:24:24 2015//
@@ -9,6 +9,10 @@
 /empty.out_lint/1.1/Fri Jan 30 00:27:09 2015//
 /emptyline.in/1.1/Fri Jan 30 00:27:09 2015//
 /emptyline.out_ascii/1.1/Fri Jan 30 00:27:09 2015//
+/lines-nogroff.in/1.1/Fri Jun 16 20:00:41 2017//
+/lines-nogroff.out_ascii/1.1/Fri Jun 16 20:00:41 2017//
+/lines.in/1.1/Fri Jun 16 20:00:41 2017//
+/lines.out_ascii/1.1/Fri Jun 16 20:00:41 2017//
 /numbers.in/1.1.1.1/Thu Jan 29 23:24:24 2015//
 /numbers.out_ascii/1.1.1.1/Thu Jan 29 23:24:24 2015//
 /span.in/1.2/Tue Jun 13 14:38:38 2017//

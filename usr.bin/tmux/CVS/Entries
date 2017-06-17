@@ -16,7 +16,7 @@
 /cmd-display-message.c/1.42/Mon May  1 12:20:55 2017//
 /cmd-display-panes.c/1.19/Sat Apr 22 10:22:39 2017//
 /cmd-find-window.c/1.44/Wed May 31 16:44:33 2017//
-/cmd-find.c/1.53/Wed Jun 14 07:37:17 2017//
+/cmd-find.c/1.54/Fri Jun 16 15:12:38 2017//
 /cmd-if-shell.c/1.56/Tue Apr 25 11:49:35 2017//
 /cmd-join-pane.c/1.32/Sat Apr 22 10:22:39 2017//
 /cmd-kill-pane.c/1.25/Sat Apr 22 10:22:39 2017//
@@ -37,7 +37,7 @@
 /cmd-new-window.c/1.70/Sat Apr 22 10:22:39 2017//
 /cmd-paste-buffer.c/1.38/Sat Apr 22 10:22:39 2017//
 /cmd-pipe-pane.c/1.42/Mon May  1 12:20:55 2017//
-/cmd-queue.c/1.56/Tue May 30 21:44:59 2017//
+/cmd-queue.c/1.57/Fri Jun 16 15:12:38 2017//
 /cmd-refresh-client.c/1.26/Sun May 28 19:00:52 2017//
 /cmd-rename-session.c/1.26/Sat Apr 22 10:22:39 2017//
 /cmd-rename-window.c/1.20/Sat Apr 22 10:22:39 2017//
@@ -108,7 +108,7 @@
 /tmux.h/1.786/Mon Jun 12 07:04:24 2017//
 /tty-acs.c/1.6/Mon May 15 16:44:04 2017//
 /tty-keys.c/1.98/Mon Jun 12 07:04:24 2017//
-/tty-term.c/1.55/Wed May 31 08:43:44 2017//
+/tty-term.c/1.56/Fri Jun 16 11:50:06 2017//
 /tty.c/1.290/Tue Jun  6 14:53:28 2017//
 /utf8.c/1.39/Sun Jun  4 09:02:57 2017//
 /window-buffer.c/1.8/Fri Jun  9 16:01:39 2017//
