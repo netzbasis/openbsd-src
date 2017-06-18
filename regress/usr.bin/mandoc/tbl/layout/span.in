@@ -1,4 +1,4 @@
-.TH TBL-LAYOUT-SPAN 1
+.TH TBL-LAYOUT-SPAN 1 "June 17, 2017" OpenBSD
 .SH NAME
 tbl-layout-span \- alignment of spanned cells
 .SH DESCRIPTION
@@ -48,3 +48,7 @@ a:b:c:d:e
 s1:s2
 a:b:c:d:e
 .TE
+.sp
+leaked tab settings:
+.br
+a	b	c	d	e	f

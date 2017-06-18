@@ -1,4 +1,4 @@
-/*	$OpenBSD: man_validate.c,v 1.99 2017/06/11 19:36:31 schwarze Exp $ */
+/*	$OpenBSD: man_validate.c,v 1.101 2017/06/17 22:40:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -45,11 +45,12 @@ static	void	  check_text(CHKARGS);
 
 static	void	  post_AT(CHKARGS);
 static	void	  post_IP(CHKARGS);
-static	void	  post_vs(CHKARGS);
 static	void	  post_OP(CHKARGS);
 static	void	  post_TH(CHKARGS);
 static	void	  post_UC(CHKARGS);
 static	void	  post_UR(CHKARGS);
+static	void	  post_in(CHKARGS);
+static	void	  post_vs(CHKARGS);
 
 static	const v_check __man_valids[MAN_MAX - MAN_TH] = {
 	post_TH,    /* TH */
@@ -80,7 +81,7 @@ static	const v_check __man_valids[MAN_MAX - MAN_TH] = {
 	post_UC,    /* UC */
 	NULL,       /* PD */
 	post_AT,    /* AT */
-	NULL,       /* in */
+	post_in,    /* in */
 	post_OP,    /* OP */
 	NULL,       /* EX */
 	NULL,       /* EE */
@@ -167,6 +168,10 @@ check_root(CHKARGS)
 		man->meta.date = man->quick ? mandoc_strdup("") :
 		    mandoc_normdate(man, NULL, n->line, n->pos);
 	}
+
+	if (man->meta.os_e &&
+	    (man->meta.rcsids & (1 << man->meta.os_e)) == 0)
+		mandoc_msg(MANDOCERR_RCS_MISSING, man->parse, 0, 0, NULL);
 }
 
 static void
@@ -335,6 +340,10 @@ post_TH(CHKARGS)
 		man->meta.os = mandoc_strdup(n->string);
 	else if (man->defos != NULL)
 		man->meta.os = mandoc_strdup(man->defos);
+	man->meta.os_e = man->meta.os == NULL ? MDOC_OS_OTHER :
+	    strstr(man->meta.os, "OpenBSD") != NULL ? MDOC_OS_OPENBSD :
+	    strstr(man->meta.os, "NetBSD") != NULL ? MDOC_OS_NETBSD :
+	    MDOC_OS_OTHER;
 
 	/* TITLE MSEC DATE OS ->VOL<- */
 	/* If missing, use the default VOL name for MSEC. */
@@ -430,6 +439,22 @@ post_AT(CHKARGS)
 
 	free(man->meta.os);
 	man->meta.os = mandoc_strdup(p);
+}
+
+static void
+post_in(CHKARGS)
+{
+	char	*s;
+
+	if (n->parent->tok != MAN_TP ||
+	    n->parent->type != ROFFT_HEAD ||
+	    n->child == NULL ||
+	    *n->child->string == '+' ||
+	    *n->child->string == '-')
+		return;
+	mandoc_asprintf(&s, "+%s", n->child->string);
+	free(n->child->string);
+	n->child->string = s;
 }
 
 static void
