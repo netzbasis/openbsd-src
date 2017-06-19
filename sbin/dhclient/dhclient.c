@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.432 2017/06/17 20:23:17 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.438 2017/06/19 01:09:09 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -404,7 +404,7 @@ routehandler(struct interface_info *ifi)
 					ftruncate(fileno(optionDB), 0);
 				}
 				/* No need to wait for anything but link. */
-				cancel_timeout();
+				cancel_timeout(ifi);
 			}
 		}
 		break;
@@ -712,7 +712,7 @@ state_preboot(struct interface_info *ifi)
 
 	time(&cur_time);
 
-	interval = (int)(cur_time - ifi->startup_time);
+	interval = cur_time - ifi->startup_time;
 
 	ifi->linkstat = interface_status(ifi);
 
@@ -734,12 +734,12 @@ state_preboot(struct interface_info *ifi)
 
 	if (ifi->linkstat) {
 		ifi->state = S_REBOOTING;
-		set_timeout_interval(1, state_reboot, ifi);
+		set_timeout(1, state_reboot, ifi);
 	} else {
 		if (interval > config->link_timeout)
 			go_daemon();
 		ifi->state = S_PREBOOT;
-		set_timeout_interval(1, state_preboot, ifi);
+		set_timeout(1, state_preboot, ifi);
 	}
 }
 
@@ -752,7 +752,7 @@ state_reboot(struct interface_info *ifi)
 	char ifname[IF_NAMESIZE];
 	time_t cur_time;
 
-	cancel_timeout();
+	cancel_timeout(ifi);
 	deleting.s_addr = INADDR_ANY;
 	adding.s_addr = INADDR_ANY;
 
@@ -810,7 +810,7 @@ state_selecting(struct interface_info *ifi)
 {
 	struct option_data *option;
 
-	cancel_timeout();
+	cancel_timeout(ifi);
 
 	if (ifi->offer == NULL) {
 		state_panic(ifi);
@@ -881,7 +881,7 @@ dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 
 	if (ifi->state != S_SELECTING) {
 #ifdef DEBUG
-		log_debug("Unexpected %s. State #%d.", info, client->state);
+		log_debug("Unexpected %s. State #%d.", info, ifi->state);
 #endif	/* DEBUG */
 		return;
 	}
@@ -922,7 +922,7 @@ dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 	    ifi->state != S_RENEWING &&
 	    ifi->state != S_REBINDING) {
 #ifdef DEBUG
-		log_debug("Unexpected %s. State #%d", info, client->state);
+		log_debug("Unexpected %s. State #%d", info, ifi->state);
 #endif	/* DEBUG */
 		return;
 	}
@@ -941,7 +941,7 @@ dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 	ifi->offer->ssid_len = ifi->ssid_len;
 
 	/* Stop resending DHCPREQUEST. */
-	cancel_timeout();
+	cancel_timeout(ifi);
 
 	bind_lease(ifi);
 }
@@ -954,7 +954,7 @@ dhcpnak(struct interface_info *ifi, struct option_data *options, char *info)
 	    ifi->state != S_RENEWING &&
 	    ifi->state != S_REBINDING) {
 #ifdef DEBUG
-		log_debug("Unexpected %s. State #%d", info, client->state);
+		log_debug("Unexpected %s. State #%d", info, ifi->state);
 #endif	/* DEBUG */
 		return;
 	}
@@ -977,7 +977,7 @@ dhcpnak(struct interface_info *ifi, struct option_data *options, char *info)
 	ifi->active = NULL;
 
 	/* Stop sending DHCPREQUEST packets. */
-	cancel_timeout();
+	cancel_timeout(ifi);
 
 	ifi->state = S_INIT;
 	state_init(ifi);
@@ -1128,7 +1128,7 @@ newlease:
 	ifi->state = S_BOUND;
 
 	/* Set timeout to start the renewal process. */
-	set_timeout(ifi->active->renewal, state_bound, ifi);
+	set_timeout(ifi->active->renewal - cur_time, state_bound, ifi);
 }
 
 /*
@@ -1229,12 +1229,10 @@ packet_to_lease(struct interface_info *ifi, struct option_data *options)
 			/* Must decode the option into text to check names. */
 			buf = pretty_print_domain_search(options[i].data,
 			    options[i].len);
-			if (buf == NULL)
+			if (buf == NULL || !res_hnok_list(buf)) {
+				log_warnx("Ignoring %s in offer: invalid host "
+				    "name(s)", dhcp_options[i].name);
 				continue;
-			if (!res_hnok_list(buf)) {
-				log_warnx("lease declined: invalid host "
-				    "name(s) in %s", dhcp_options[i].name);
-				goto decline;
 			}
 			break;
 		case DHO_DOMAIN_NAME:
@@ -1245,17 +1243,17 @@ packet_to_lease(struct interface_info *ifi, struct option_data *options)
 			 * entries in the resolv.conf 'search' statement.
 			 */
 			if (!res_hnok_list(pretty)) {
-				log_warnx("lease declined: invalid host "
-				    "names in %s", dhcp_options[i].name);
-				goto decline;
+				log_warnx("Ignoring %s in offer: invalid host "
+				    "name(s)", dhcp_options[i].name);
+				continue;
 			}
 			break;
 		case DHO_HOST_NAME:
 		case DHO_NIS_DOMAIN:
 			if (!res_hnok(pretty)) {
-				log_warnx("lease declined: invalid host name "
-				    "in %s", dhcp_options[i].name);
-				goto decline;
+				log_warnx("Ignoring %s in offer: invalid host "
+				    "name", dhcp_options[i].name);
+				continue;
 			}
 			break;
 		default:
@@ -1394,7 +1392,7 @@ send_discover(struct interface_info *ifi)
 		log_warnx("dhclient cannot be used on %s", ifi->name);
 		quit = INTERNALSIG;
 	} else
-		set_timeout_interval(ifi->interval, send_discover, ifi);
+		set_timeout(ifi->interval, send_discover, ifi);
 }
 
 /*
@@ -1418,7 +1416,7 @@ state_panic(struct interface_info *ifi)
 	 */
 	log_info("No working leases in persistent database - sleeping.");
 	ifi->state = S_INIT;
-	set_timeout_interval(config->retry_interval, state_init, ifi);
+	set_timeout(config->retry_interval, state_init, ifi);
 	go_daemon();
 }
 
@@ -1434,7 +1432,7 @@ send_request(struct interface_info *ifi)
 	time(&cur_time);
 
 	/* Figure out how long it's been since we started transmitting. */
-	interval = (int)(cur_time - ifi->first_sending);
+	interval = cur_time - ifi->first_sending;
 
 	/*
 	 * If we're in the INIT-REBOOT state and we've been trying longer
@@ -1451,7 +1449,7 @@ send_request(struct interface_info *ifi)
 	if (ifi->state == S_REBOOTING && interval >
 	    config->reboot_timeout) {
 		ifi->state = S_INIT;
-		cancel_timeout();
+		cancel_timeout(ifi);
 		state_init(ifi);
 		return;
 	}
@@ -1524,7 +1522,7 @@ send_request(struct interface_info *ifi)
 
 	send_packet(ifi, from, destination.sin_addr);
 
-	set_timeout_interval(ifi->interval, send_request, ifi);
+	set_timeout(ifi->interval, send_request, ifi);
 }
 
 void
@@ -1725,7 +1723,7 @@ make_decline(struct interface_info *ifi, struct client_lease *lease)
 	packet->hlen = ETHER_ADDR_LEN;
 	packet->hops = 0;
 	packet->xid = ifi->xid;
-	packet->secs = 0; /* Filled in by send_request. */
+	packet->secs = 0;
 	packet->flags = 0;
 
 	/* ciaddr must always be zero. */

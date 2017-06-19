@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.186 2017/06/17 17:10:26 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.189 2017/06/18 21:08:15 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -119,12 +119,12 @@ struct client_config {
 	char			*server_name;
 };
 
+
 struct interface_info {
 	struct ether_addr	 hw_address;
 	char			 name[IFNAMSIZ];
 	char			 ssid[32];
 	uint8_t			 ssid_len;
-	struct client_state	*client;
 	int			 bfdesc; /* bpf - reading & broadcast writing*/
 	int			 ufdesc; /* udp - unicast writing */
 	unsigned char		*rbuf;
@@ -145,6 +145,8 @@ struct interface_info {
 	struct dhcp_packet	 sent_packet;
 	int			 sent_packet_length;
 	u_int32_t		 xid;
+	time_t			 timeout;
+	void			(*timeout_func)(struct interface_info *);
 	u_int16_t		 secs;
 	time_t			 first_sending;
 	time_t			 startup_time;
@@ -155,12 +157,6 @@ struct interface_info {
 	struct client_lease	*active;
 	struct client_lease	*offer;
 	TAILQ_HEAD(_leases, client_lease) leases;
-};
-
-struct dhcp_timeout {
-	time_t			when;
-	void			(*func)(struct interface_info *);
-	struct interface_info	*ifi;
 };
 
 #define	_PATH_RESOLV_CONF	"/etc/resolv.conf"
@@ -216,9 +212,7 @@ ssize_t receive_packet(struct interface_info *, struct sockaddr_in *,
 void dispatch(struct interface_info *);
 void set_timeout(time_t, void (*)(struct interface_info *),
     struct interface_info *);
-void set_timeout_interval(time_t, void (*)(struct interface_info *),
-    struct interface_info *);
-void cancel_timeout(void);
+void cancel_timeout(struct interface_info *);
 void interface_link_forceup(char *);
 int interface_status(struct interface_info *);
 int get_rdomain(char *);

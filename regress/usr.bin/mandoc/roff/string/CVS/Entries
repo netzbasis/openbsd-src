@@ -1,4 +1,4 @@
-/Makefile/1.6/Sun Jul  6 19:08:57 2014//
+/Makefile/1.7/Sun Jun 18 17:35:40 2017//
 /escape.in/1.2/Sat Jun 17 22:46:26 2017//
 /escape.out_ascii/1.5/Sat Jun 17 22:46:26 2017//
 /infinite.in/1.2/Thu Nov 17 16:28:46 2011//
@@ -6,6 +6,9 @@
 /name.in/1.3/Sun Jul  6 19:08:57 2014//
 /name.out_ascii/1.5/Tue Aug 26 11:32:57 2014//
 /name.out_lint/1.4/Sat Jun 17 22:46:26 2017//
+/std.in/1.1/Sun Jun 18 17:35:40 2017//
+/std.out_ascii/1.1/Sun Jun 18 17:35:40 2017//
+/std.out_lint/1.1/Sun Jun 18 17:35:40 2017//
 /zerolength.in/1.2/Sat Jun 17 22:46:26 2017//
 /zerolength.out_ascii/1.5/Sat Jun 17 22:46:26 2017//
 D

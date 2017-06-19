@@ -1,4 +1,4 @@
-/Makefile/1.23/Wed Jun 14 22:50:37 2017//
+/Makefile/1.24/Sun Jun 18 17:35:40 2017//
 /Makefile.inc/1.4/Wed Mar  8 22:53:36 2017//
 D/args////
 D/br////
@@ -16,6 +16,7 @@ D/nr////
 D/po////
 D/ps////
 D/rm////
+D/rn////
 D/scale////
 D/sp////
 D/string////
