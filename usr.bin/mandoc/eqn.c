@@ -1,7 +1,7 @@
-/*	$OpenBSD: eqn.c,v 1.26 2017/06/20 17:24:09 schwarze Exp $ */
+/*	$OpenBSD: eqn.c,v 1.30 2017/06/22 00:30:06 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2014, 2015, 2017 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 #include <assert.h>
+#include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,9 +79,12 @@ enum	eqn_tok {
 	EQN_TOK_TDEFINE,
 	EQN_TOK_NDEFINE,
 	EQN_TOK_UNDEF,
-	EQN_TOK_EOF,
 	EQN_TOK_ABOVE,
-	EQN_TOK__MAX
+	EQN_TOK__MAX,
+	EQN_TOK_FUNC,
+	EQN_TOK_QUOTED,
+	EQN_TOK_SYM,
+	EQN_TOK_EOF
 };
 
 static	const char *eqn_toks[EQN_TOK__MAX] = {
@@ -128,8 +132,14 @@ static	const char *eqn_toks[EQN_TOK__MAX] = {
 	"tdefine", /* EQN_TOK_TDEFINE */
 	"ndefine", /* EQN_TOK_NDEFINE */
 	"undef", /* EQN_TOK_UNDEF */
-	NULL, /* EQN_TOK_EOF */
 	"above", /* EQN_TOK_ABOVE */
+};
+
+static	const char *const eqn_func[] = {
+	"acos",	"acsc",	"and",	"arc",	"asec",	"asin", "atan",
+	"cos",	"cosh", "coth",	"csc",	"det",	"exp",	"for",
+	"if",	"lim",	"ln",	"log",	"max",	"min",
+	"sec",	"sin",	"sinh",	"tan",	"tanh",	"Im",	"Re",
 };
 
 enum	eqn_symt {
@@ -496,31 +506,40 @@ eqn_tok_parse(struct eqn_node *ep, char **p)
 	size_t		 i, sz;
 	int		 quoted;
 
-	if (NULL != p)
+	if (p != NULL)
 		*p = NULL;
 
 	quoted = ep->data[ep->cur] == '"';
 
-	if (NULL == (start = eqn_nexttok(ep, &sz)))
+	if ((start = eqn_nexttok(ep, &sz)) == NULL)
 		return EQN_TOK_EOF;
 
 	if (quoted) {
 		if (p != NULL)
 			*p = mandoc_strndup(start, sz);
-		return EQN_TOK__MAX;
+		return EQN_TOK_QUOTED;
 	}
 
-	for (i = 0; i < EQN_TOK__MAX; i++) {
-		if (NULL == eqn_toks[i])
-			continue;
+	for (i = 0; i < EQN_TOK__MAX; i++)
 		if (STRNEQ(start, sz, eqn_toks[i], strlen(eqn_toks[i])))
-			break;
+			return i;
+
+	for (i = 0; i < EQNSYM__MAX; i++) {
+		if (STRNEQ(start, sz,
+		    eqnsyms[i].str, strlen(eqnsyms[i].str))) {
+			mandoc_asprintf(p, "\\[%s]", eqnsyms[i].sym);
+			return EQN_TOK_SYM;
+		}
 	}
 
-	if (i == EQN_TOK__MAX && NULL != p)
+	if (p != NULL)
 		*p = mandoc_strndup(start, sz);
 
-	return i;
+	for (i = 0; i < sizeof(eqn_func)/sizeof(*eqn_func); i++)
+		if (STRNEQ(start, sz, eqn_func[i], strlen(eqn_func[i])))
+			return EQN_TOK_FUNC;
+
+	return EQN_TOK__MAX;
 }
 
 static void
@@ -700,10 +719,10 @@ static enum rofferr
 eqn_parse(struct eqn_node *ep, struct eqn_box *parent)
 {
 	char		 sym[64];
-	struct eqn_box	*cur;
-	const char	*start;
+	struct eqn_box	*cur, *fontp, *nbox;
+	const char	*cp, *cpn, *start;
 	char		*p;
-	size_t		 i, sz;
+	size_t		 sz;
 	enum eqn_tok	 tok, subtok;
 	enum eqn_post	 pos;
 	int		 size;
@@ -1065,28 +1084,72 @@ this_tok:
 		 * TODO: make sure we're not in an open subexpression.
 		 */
 		return ROFF_EQN;
-	default:
-		assert(tok == EQN_TOK__MAX);
-		assert(NULL != p);
+	case EQN_TOK__MAX:
+	case EQN_TOK_FUNC:
+	case EQN_TOK_QUOTED:
+	case EQN_TOK_SYM:
+		assert(p != NULL);
 		/*
 		 * If we already have something in the stack and we're
 		 * in an expression, then rewind til we're not any more.
 		 */
 		while (parent->args == parent->expectargs)
 			parent = parent->parent;
+		/*
+		 * Wrap well-known function names in a roman box,
+		 * unless they already are in roman context.
+		 */
+		for (fontp = parent; fontp != NULL; fontp = fontp->parent)
+			if (fontp->font != EQNFONT_NONE)
+				break;
+		if (tok == EQN_TOK_FUNC &&
+		    (fontp == NULL || fontp->font != EQNFONT_ROMAN)) {
+			parent = fontp = eqn_box_alloc(ep, parent);
+			parent->type = EQN_LISTONE;
+			parent->font = EQNFONT_ROMAN;
+			parent->expectargs = 1;
+		}
 		cur = eqn_box_alloc(ep, parent);
 		cur->type = EQN_TEXT;
-		for (i = 0; i < EQNSYM__MAX; i++)
-			if (0 == strcmp(eqnsyms[i].str, p)) {
-				(void)snprintf(sym, sizeof(sym),
-					"\\[%s]", eqnsyms[i].sym);
-				cur->text = mandoc_strdup(sym);
-				free(p);
+		cur->text = p;
+		/*
+		 * If not inside any explicit font context,
+		 * quoted strings become italic, and every letter
+		 * of a bare string gets its own italic box.
+		 */
+		do {
+			if (fontp != NULL || *p == '\0' ||
+			    tok == EQN_TOK_SYM)
+				break;
+			if (tok == EQN_TOK_QUOTED) {
+				cur->font = EQNFONT_ITALIC;
 				break;
 			}
-
-		if (i == EQNSYM__MAX)
-			cur->text = p;
+			cp = p;
+			for (;;) {
+				if (isalpha((unsigned char)*cp))
+					cur->font = EQNFONT_ITALIC;
+				cpn = cp + 1;
+				if (*cp == '\\')
+					mandoc_escape(&cpn, NULL, NULL);
+				if (*cpn == '\0')
+					break;
+				if (cur->font != EQNFONT_ITALIC &&
+				    isalpha((unsigned char)*cpn) == 0) {
+					cp = cpn;
+					continue;
+				}
+				nbox = eqn_box_alloc(ep, parent);
+				nbox->type = EQN_TEXT;
+				nbox->text = mandoc_strdup(cpn);
+				p = mandoc_strndup(cur->text,
+				    cpn - cur->text);
+				free(cur->text);
+				cur->text = p;
+				cur = nbox;
+				cp = nbox->text;
+			}
+		} while (0);
 		/*
 		 * Post-process list status.
 		 */
@@ -1094,6 +1157,8 @@ this_tok:
 		    parent->args == parent->expectargs)
 			parent = parent->parent;
 		break;
+	default:
+		abort();
 	}
 	goto next_tok;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.439 2017/06/19 19:28:35 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.443 2017/06/21 16:39:05 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -734,12 +734,12 @@ state_preboot(struct interface_info *ifi)
 
 	if (ifi->linkstat) {
 		ifi->state = S_REBOOTING;
-		set_timeout(1, state_reboot, ifi);
+		set_timeout(ifi, 1, state_reboot);
 	} else {
 		if (interval > config->link_timeout)
 			go_daemon();
 		ifi->state = S_PREBOOT;
-		set_timeout(1, state_preboot, ifi);
+		set_timeout(ifi, 1, state_preboot);
 	}
 }
 
@@ -749,25 +749,17 @@ state_preboot(struct interface_info *ifi)
 void
 state_reboot(struct interface_info *ifi)
 {
-	char ifname[IF_NAMESIZE];
-	time_t cur_time;
-
 	cancel_timeout(ifi);
+
 	deleting.s_addr = INADDR_ANY;
 	adding.s_addr = INADDR_ANY;
 
-	time(&cur_time);
-	if (ifi->active) {
-		if (ifi->active->expiry <= cur_time)
-			ifi->active = NULL;
-		else if (addressinuse(ifi, ifi->active->address, ifname) &&
-		    strncmp(ifname, ifi->name, IF_NAMESIZE) != 0)
-			ifi->active = NULL;
-	} else
-		ifi->active = get_recorded_lease(ifi);
-
-	/*  No active lease, or the lease is BOOTP, go straight to INIT. */
-	if (!ifi->active || BOOTP_LEASE(ifi->active)) {
+	/*
+	 * If there is no recorded lease or the lease is BOOTP then
+	 * go straight to INIT and try to DISCOVER a new lease.
+	 */
+	ifi->active = get_recorded_lease(ifi);
+	if (ifi->active == NULL || BOOTP_LEASE(ifi->active)) {
 		ifi->state = S_INIT;
 		state_init(ifi);
 		return;
@@ -777,7 +769,7 @@ state_reboot(struct interface_info *ifi)
 	make_request(ifi, ifi->active);
 
 	ifi->destination.s_addr = INADDR_BROADCAST;
-	ifi->first_sending = time(NULL);
+	time(&ifi->first_sending);
 	ifi->interval = 0;
 
 	send_request(ifi);
@@ -795,7 +787,7 @@ state_init(struct interface_info *ifi)
 
 	ifi->destination.s_addr = INADDR_BROADCAST;
 	ifi->state = S_SELECTING;
-	ifi->first_sending = time(NULL);
+	time(&ifi->first_sending);
 	ifi->interval = 0;
 
 	send_discover(ifi);
@@ -856,7 +848,7 @@ state_selecting(struct interface_info *ifi)
 
 	ifi->destination.s_addr = INADDR_BROADCAST;
 	ifi->state = S_REQUESTING;
-	ifi->first_sending = time(NULL);
+	time(&ifi->first_sending);
 
 	ifi->interval = 0;
 
@@ -909,7 +901,7 @@ dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 	if (stop_selecting <= time(NULL))
 		state_selecting(ifi);
 	else
-		set_timeout(stop_selecting, state_selecting, ifi);
+		set_timeout(ifi, stop_selecting, state_selecting);
 }
 
 void
@@ -1128,7 +1120,7 @@ newlease:
 	ifi->state = S_BOUND;
 
 	/* Set timeout to start the renewal process. */
-	set_timeout(ifi->active->renewal - cur_time, state_bound, ifi);
+	set_timeout(ifi, ifi->active->renewal - cur_time, state_bound);
 }
 
 /*
@@ -1153,7 +1145,7 @@ state_bound(struct interface_info *ifi)
 	else
 		dest->s_addr = INADDR_BROADCAST;
 
-	ifi->first_sending = time(NULL);
+	time(&ifi->first_sending);
 	ifi->interval = 0;
 	ifi->state = S_RENEWING;
 
@@ -1392,7 +1384,7 @@ send_discover(struct interface_info *ifi)
 		log_warnx("dhclient cannot be used on %s", ifi->name);
 		quit = INTERNALSIG;
 	} else
-		set_timeout(ifi->interval, send_discover, ifi);
+		set_timeout(ifi, ifi->interval, send_discover);
 }
 
 /*
@@ -1416,7 +1408,7 @@ state_panic(struct interface_info *ifi)
 	 */
 	log_info("No working leases in persistent database - sleeping.");
 	ifi->state = S_INIT;
-	set_timeout(config->retry_interval, state_init, ifi);
+	set_timeout(ifi, config->retry_interval, state_init);
 	go_daemon();
 }
 
@@ -1522,7 +1514,7 @@ send_request(struct interface_info *ifi)
 
 	send_packet(ifi, from, destination.sin_addr);
 
-	set_timeout(ifi->interval, send_request, ifi);
+	set_timeout(ifi, ifi->interval, send_request);
 }
 
 void
@@ -1742,7 +1734,7 @@ free_client_lease(struct client_lease *lease)
 	int i;
 
 	/* Static leases are forever. */
-	if (lease->is_static)
+	if (lease == NULL || lease->is_static)
 		return;
 
 	free(lease->server_name);
@@ -2588,7 +2580,7 @@ get_recorded_lease(struct interface_info *ifi)
 		if (addressinuse(ifi, lp->address, ifname) &&
 		    strncmp(ifname, ifi->name, IF_NAMESIZE) != 0)
 			continue;
-		else if (lp->expiry <= cur_time)
+		if (lp->is_static == 0 && lp->expiry <= cur_time)
 			continue;
 
 		if (lp->is_static)

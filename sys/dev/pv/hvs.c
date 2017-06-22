@@ -408,8 +408,8 @@ hvs_scsi_cmd(struct scsi_xfer *xs)
 	ccb->ccb_done = hvs_scsi_cmd_done;
 
 #ifdef HVS_DEBUG_IO
-	DPRINTF("%s: %u.%u: opcode %#x flags %#x datalen %d\n",
-	    sc->sc_dev.dv_xname, link->target, link->lun,
+	DPRINTF("%s: %u.%u: rid %llu opcode %#x flags %#x datalen %d\n",
+	    sc->sc_dev.dv_xname, link->target, link->lun, ccb->ccb_rid,
 	    xs->cmd->opcode, xs->flags, xs->datalen);
 #endif
 
@@ -527,8 +527,8 @@ hvs_intr(void *xsc)
 		}
 
 #ifdef HVS_DEBUG_IO
-		DPRINTF("%s: opertaion %u flags %#x status %#x\n",
-		    sc->sc_dev.dv_xname, cmd.cmd_op, cmd.cmd_flags,
+		DPRINTF("%s: rid %llu opertaion %u flags %#x status %#x\n",
+		    sc->sc_dev.dv_xname, rid, cmd.cmd_op, cmd.cmd_flags,
 		    cmd.cmd_status);
 #endif
 
@@ -614,31 +614,41 @@ hvs_scsi_cmd_done(struct hvs_ccb *ccb)
 	xs = ccb->ccb_xfer;
 	srb = &cmd->io.cmd_srb;
 
-	if (srb->srb_datalen > xs->datalen)
-		printf("%s: transfer length %u too large: %u\n",
-		    sc->sc_dev.dv_xname, srb->srb_datalen, xs->datalen);
-	else if (srb->srb_datalen)
-		xs->resid = xs->datalen - srb->srb_datalen;
+	xs->status = srb->srb_scsistatus & 0xff;
 
-	if ((srb->srb_scsistatus & 0xff) == SCSI_CHECK &&
-	    srb->srb_iostatus & SRB_STATUS_AUTOSENSE_VALID)
-		memcpy(&xs->sense, srb->srb_data, MIN(sizeof(xs->sense),
-		    srb->srb_senselen));
-
-	error = srb->srb_scsistatus & 0xff;
-
-	if (srb->srb_scsistatus != SCSI_OK) {
-		KERNEL_LOCK();
-		hvs_scsi_done(xs, error);
-		KERNEL_UNLOCK();
-		return;
+	switch (xs->status) {
+	case SCSI_OK:
+		if ((srb->srb_iostatus & ~(SRB_STATUS_AUTOSENSE_VALID |
+		    SRB_STATUS_QUEUE_FROZEN)) != SRB_STATUS_SUCCESS)
+			error = XS_SELTIMEOUT;
+		else
+			error = XS_NOERROR;
+		break;
+	case SCSI_BUSY:
+	case SCSI_QUEUE_FULL:
+		printf("%s: status %#x iostatus %#x (busy)\n",
+		    sc->sc_dev.dv_xname, srb->srb_scsistatus,
+		    srb->srb_iostatus);
+		xs->error = XS_BUSY;
+		break;
+	case SCSI_CHECK:
+		if (srb->srb_iostatus & SRB_STATUS_AUTOSENSE_VALID) {
+			memcpy(&xs->sense, srb->srb_data,
+			    MIN(sizeof(xs->sense), srb->srb_senselen));
+			error = XS_SENSE;
+			break;
+		}
+		/* FALLTHROUGH */
+	default:
+		error = XS_DRIVER_STUFFUP;
 	}
 
-	if ((srb->srb_iostatus & ~(SRB_STATUS_AUTOSENSE_VALID |
-	    SRB_STATUS_QUEUE_FROZEN)) != SRB_STATUS_SUCCESS)
-		error = XS_SELTIMEOUT;
-	else if (xs->cmd->opcode == INQUIRY)
-		fixup_inquiry(xs, srb);
+	if (error == XS_NOERROR) {
+		if (xs->cmd->opcode == INQUIRY)
+			fixup_inquiry(xs, srb);
+		else if (srb->srb_direction != SRB_DATA_NONE)
+			xs->resid = xs->datalen - srb->srb_datalen;
+	}
 
 	KERNEL_LOCK();
 	hvs_scsi_done(xs, error);
