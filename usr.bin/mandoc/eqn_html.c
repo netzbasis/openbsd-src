@@ -1,4 +1,4 @@
-/*	$OpenBSD: eqn_html.c,v 1.8 2017/06/20 17:24:09 schwarze Exp $ */
+/*	$OpenBSD: eqn_html.c,v 1.10 2017/06/23 22:59:27 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 #include <assert.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,10 @@ eqn_box(struct html *p, const struct eqn_box *bp)
 {
 	struct tag	*post, *row, *cell, *t;
 	const struct eqn_box *child, *parent;
+	const char	*cp;
 	size_t		 i, j, rows;
+	enum htmltag	 tag;
+	enum eqn_fontt	 font;
 
 	if (NULL == bp)
 		return;
@@ -134,9 +138,57 @@ eqn_box(struct html *p, const struct eqn_box *bp)
 		print_otag(p, TAG_MTD, "");
 	}
 
-	if (NULL != bp->text) {
-		assert(NULL == post);
-		post = print_otag(p, TAG_MI, "");
+	if (bp->text != NULL) {
+		assert(post == NULL);
+		tag = TAG_MI;
+		cp = bp->text;
+		if (isdigit((unsigned char)cp[0]) ||
+		    (cp[0] == '.' && isdigit((unsigned char)cp[1]))) {
+			tag = TAG_MN;
+			while (*++cp != '\0') {
+				if (*cp != '.' &&
+				    isdigit((unsigned char)*cp) == 0) {
+					tag = TAG_MI;
+					break;
+				}
+			}
+		} else if (*cp != '\0' && isalpha((unsigned char)*cp) == 0) {
+			tag = TAG_MO;
+			while (*cp != '\0') {
+				if (cp[0] == '\\' && cp[1] != '\0') {
+					cp++;
+					mandoc_escape(&cp, NULL, NULL);
+				} else if (isalnum((unsigned char)*cp)) {
+					tag = TAG_MI;
+					break;
+				} else
+					cp++;
+			}
+		}
+		font = bp->font;
+		if (bp->text[0] != '\0' &&
+		    (((tag == TAG_MN || tag == TAG_MO) &&
+		      font == EQNFONT_ROMAN) ||
+		     (tag == TAG_MI && font == (bp->text[1] == '\0' ?
+		      EQNFONT_ITALIC : EQNFONT_ROMAN))))
+			font = EQNFONT_NONE;
+		switch (font) {
+		case EQNFONT_NONE:
+			post = print_otag(p, tag, "");
+			break;
+		case EQNFONT_ROMAN:
+			post = print_otag(p, tag, "?", "fontstyle", "normal");
+			break;
+		case EQNFONT_BOLD:
+		case EQNFONT_FAT:
+			post = print_otag(p, tag, "?", "fontweight", "bold");
+			break;
+		case EQNFONT_ITALIC:
+			post = print_otag(p, tag, "?", "fontstyle", "italic");
+			break;
+		default:
+			abort();
+		}
 		print_text(p, bp->text);
 	} else if (NULL == post) {
 		if (NULL != bp->left || NULL != bp->right)

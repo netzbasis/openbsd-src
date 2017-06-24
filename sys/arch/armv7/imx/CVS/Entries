@@ -8,7 +8,7 @@
 /imxehci.c/1.19/Wed Dec 28 22:45:24 2016//
 /imxesdhc.c/1.36/Sat Jan 21 05:42:03 2017//
 /imxgpc.c/1.2/Sat Aug  6 17:18:38 2016//
-/imxgpio.c/1.11/Sat Aug  6 18:12:13 2016//
+/imxgpio.c/1.12/Thu Jun 22 11:34:51 2017//
 /imxgpiovar.h/1.2/Sat Aug  6 18:12:13 2016//
 /imxiic.c/1.13/Mon Mar  6 06:44:46 2017//
 /imxiicvar.h/1.1/Fri Sep  6 20:45:54 2013//

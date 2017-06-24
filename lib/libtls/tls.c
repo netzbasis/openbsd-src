@@ -1,4 +1,4 @@
-/* $OpenBSD: tls.c,v 1.63 2017/05/07 01:59:34 jsing Exp $ */
+/* $OpenBSD: tls.c,v 1.67 2017/06/22 18:03:57 jsing Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -289,15 +289,17 @@ tls_keypair_cert_hash(struct tls_keypair *keypair, char **hash)
 
 	*hash = NULL;
 
-	if ((membio = BIO_new_mem_buf(keypair->cert_mem, keypair->cert_len))
-	    == NULL)
+	if ((membio = BIO_new_mem_buf(keypair->cert_mem,
+	    keypair->cert_len)) == NULL)
 		goto err;
-
-	if ((cert = PEM_read_bio_X509_AUX(membio, NULL, NULL, NULL)) == NULL)
+	if ((cert = PEM_read_bio_X509_AUX(membio, NULL, tls_password_cb,
+	    NULL)) == NULL)
 		goto err;
 
 	rv = tls_cert_hash(cert, hash);
+
  err:
+	X509_free(cert);
 	BIO_free(membio);
 
 	return (rv);
@@ -309,7 +311,6 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
     struct tls_keypair *keypair, int required)
 {
 	EVP_PKEY *pkey = NULL;
-	X509 *cert = NULL;
 	BIO *bio = NULL;
 
 	if (!required &&
@@ -330,7 +331,6 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 		}
 		if (tls_keypair_cert_hash(keypair, &keypair->cert_hash) == -1)
 			goto err;
-		cert = NULL;
 	}
 
 	if (keypair->key_mem != NULL) {
@@ -344,7 +344,7 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 			tls_set_errorx(ctx, "failed to create buffer");
 			goto err;
 		}
-		if ((pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL,
+		if ((pkey = PEM_read_bio_PrivateKey(bio, NULL, tls_password_cb,
 		    NULL)) == NULL) {
 			tls_set_errorx(ctx, "failed to read private key");
 			goto err;
@@ -379,7 +379,6 @@ tls_configure_ssl_keypair(struct tls *ctx, SSL_CTX *ssl_ctx,
 
  err:
 	EVP_PKEY_free(pkey);
-	X509_free(cert);
 	BIO_free(bio);
 
 	return (1);
@@ -641,7 +640,7 @@ tls_handshake(struct tls *ctx)
 		ctx->ssl_peer_cert = SSL_get_peer_certificate(ctx->ssl_conn);
 		ctx->ssl_peer_chain = SSL_get_peer_cert_chain(ctx->ssl_conn);
 		if (tls_conninfo_populate(ctx) == -1)
-		    rv = -1;
+			rv = -1;
 		if (ctx->ocsp == NULL)
 			ctx->ocsp = tls_ocsp_setup_from_peer(ctx);
 	}

@@ -54,7 +54,7 @@
 /cipher.c/1.107/Sun May  7 23:12:57 2017//
 /cipher.h/1.52/Sun May  7 23:12:57 2017//
 /cleanup.c/1.5/Thu Aug  3 03:34:42 2006//
-/clientloop.c/1.299/Wed May 31 09:15:42 2017//
+/clientloop.c/1.300/Fri Jun 23 07:24:48 2017//
 /clientloop.h/1.33/Fri Sep 30 09:19:13 2016//
 /compat.c/1.103/Sun Apr 30 23:13:25 2017//
 /compat.h/1.49/Sun Apr 30 23:13:25 2017//

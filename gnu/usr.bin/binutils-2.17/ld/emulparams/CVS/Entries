@@ -126,7 +126,7 @@
 /elf_i386_chaos.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf_i386_fbsd.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf_i386_ldso.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
-/elf_i386_obsd.sh/1.2/Wed Jun 21 20:29:39 2017//
+/elf_i386_obsd.sh/1.3/Thu Jun 22 21:26:54 2017//
 /elf_i386_vxworks.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//
 /elf_obsd.sh/1.2/Thu Apr 30 17:56:18 2015//
 /elf_s390.sh/1.1.1.1/Sun Apr 24 20:14:49 2011//

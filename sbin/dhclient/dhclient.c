@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.443 2017/06/21 16:39:05 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.445 2017/06/23 19:51:07 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -375,7 +375,6 @@ routehandler(struct interface_info *ifi)
 			get_hw_address(ifi);
 			if (memcmp(&hw, &ifi->hw_address, sizeof(hw))) {
 				log_warnx("LLADDR changed; restarting");
-				ifi->flags |= IFI_NEW_LLADDR;
 				quit = SIGHUP;
 				goto done;
 			}
@@ -443,6 +442,7 @@ int sock;
 int
 main(int argc, char *argv[])
 {
+	const char *tail_path = "/etc/resolv.conf.tail";
 	struct interface_info *ifi;
 	struct ifreq ifr;
 	struct ieee80211_nwid nwid;
@@ -585,26 +585,25 @@ main(int argc, char *argv[])
 	if (ignore_list)
 		apply_ignore_list(ignore_list);
 
-	tailfd = open("/etc/resolv.conf.tail", O_RDONLY);
+	tailfd = open(tail_path, O_RDONLY);
 	if (tailfd == -1) {
 		if (errno != ENOENT)
-			fatal("Cannot open /etc/resolv.conf.tail");
+			fatal("Cannot open %s", tail_path);
 	} else if (fstat(tailfd, &sb) == -1) {
-		fatal("Cannot stat /etc/resolv.conf.tail");
+		fatal("Cannot stat %s", tail_path);
 	} else {
 		if (sb.st_size > 0 && sb.st_size < LLONG_MAX) {
 			config->resolv_tail = calloc(1, sb.st_size + 1);
 			if (config->resolv_tail == NULL) {
-				fatalx("no memory for resolv.conf.tail "
-				    "contents");
+				fatalx("no memory for %s contents", tail_path);
 			}
 			tailn = read(tailfd, config->resolv_tail, sb.st_size);
 			if (tailn == -1)
-				fatal("Couldn't read resolv.conf.tail");
+				fatal("Couldn't read %s", tail_path);
 			else if (tailn == 0)
-				fatalx("Got no data from resolv.conf.tail");
+				fatalx("Got no data from %s", tail_path);
 			else if (tailn != sb.st_size)
-				fatalx("Short read of resolv.conf.tail");
+				fatalx("Short read of %s", tail_path);
 		}
 		close(tailfd);
 	}
@@ -2111,8 +2110,7 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 	}
 
 	if (quit == SIGHUP) {
-		if (!(ifi->flags & IFI_HUP) &&
-		    (!(ifi->flags & IFI_NEW_LLADDR)))
+		if (!(ifi->flags & IFI_HUP))
 			log_warnx("%s; restarting.", strsignal(quit));
 		signal(SIGHUP, SIG_IGN); /* will be restored after exec */
 		execvp(saved_argv[0], saved_argv);
