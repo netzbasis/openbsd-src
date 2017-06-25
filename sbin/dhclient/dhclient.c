@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.445 2017/06/23 19:51:07 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.448 2017/06/25 00:38:38 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -227,7 +227,7 @@ void
 routehandler(struct interface_info *ifi)
 {
 	char ntoabuf[INET_ADDRSTRLEN];
-	struct in_addr a, b;
+	struct in_addr a;
 	struct sockaddr *sa;
 	struct ifa_msghdr *ifam;
 	struct ether_addr hw;
@@ -340,15 +340,10 @@ routehandler(struct interface_info *ifi)
 			break;
 		if (adding.s_addr == INADDR_ANY && ifi->active &&
 		    a.s_addr == ifi->active->address.s_addr) {
-			/* Tell the priv process active_addr is gone. */
 			log_warnx("Active address (%s) deleted; exiting",
 			    inet_ntoa(ifi->active->address));
-			memset(&b, 0, sizeof(b));
-			add_address(b, b);
-			/* No need to write resolv.conf now. */
-			ifi->flags &= ~IFI_IS_RESPONSIBLE;
 			quit = INTERNALSIG;
-			break;
+			goto done;
 		}
 		if (deleting.s_addr != INADDR_ANY) {
 			strlcpy(ntoabuf, inet_ntoa(a), sizeof(ntoabuf));
@@ -375,7 +370,7 @@ routehandler(struct interface_info *ifi)
 			get_hw_address(ifi);
 			if (memcmp(&hw, &ifi->hw_address, sizeof(hw))) {
 				log_warnx("LLADDR changed; restarting");
-				quit = SIGHUP;
+				sendhup();
 				goto done;
 			}
 		}
@@ -2030,11 +2025,10 @@ res_hnok_list(const char *names)
 void
 fork_privchld(struct interface_info *ifi, int fd, int fd2)
 {
-	struct imsg_hup imsg;
 	struct pollfd pfd[1];
 	struct imsgbuf *priv_ibuf;
 	ssize_t n;
-	int nfds, rslt;
+	int nfds, rslt, got_imsg_hup = 0;
 
 	switch (fork()) {
 	case -1:
@@ -2086,7 +2080,9 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 			continue;
 		}
 
-		dispatch_imsg(ifi, priv_ibuf);
+		got_imsg_hup = dispatch_imsg(ifi, priv_ibuf);
+		if (got_imsg_hup)
+			quit = SIGHUP;
 	}
 
 	imsg_clear(priv_ibuf);
@@ -2104,13 +2100,11 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 	 * routes, possibly preventing NFS from properly shutting down.
 	 */
 	if (quit != SIGTERM) {
-		memset(&imsg, 0, sizeof(imsg));
-		imsg.addr = active_addr;
-		priv_cleanup(ifi, &imsg);
+		priv_cleanup(ifi);
 	}
 
 	if (quit == SIGHUP) {
-		if (!(ifi->flags & IFI_HUP))
+		if (!got_imsg_hup)
 			log_warnx("%s; restarting.", strsignal(quit));
 		signal(SIGHUP, SIG_IGN); /* will be restored after exec */
 		execvp(saved_argv[0], saved_argv);

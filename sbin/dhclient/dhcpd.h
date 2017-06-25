@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.193 2017/06/23 19:51:07 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.195 2017/06/24 23:32:57 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -135,7 +135,6 @@ struct interface_info {
 	int			 rdomain;
 	int			 flags;
 #define	IFI_VALID_LLADDR	0x01
-#define IFI_HUP			0x04
 #define IFI_IS_RESPONSIBLE	0x08
 #define IFI_IN_CHARGE		0x10
 	struct dhcp_packet	 recv_packet;
@@ -213,6 +212,7 @@ void interface_link_forceup(char *);
 int interface_status(struct interface_info *);
 int get_rdomain(char *);
 void get_hw_address(struct interface_info *);
+void sendhup(void);
 
 /* tables.c */
 extern const struct option dhcp_options[256];

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.92 2017/06/23 15:40:56 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.94 2017/06/25 00:44:49 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -707,17 +707,6 @@ priv_add_address(struct interface_info *ifi, struct imsg_add_address *imsg)
 	struct sockaddr_in *in;
 	int s;
 
-	if (imsg->addr.s_addr == INADDR_ANY) {
-		/* Notification that the active_addr has been deleted. */
-		active_addr.s_addr = INADDR_ANY;
-		quit = INTERNALSIG;
-		return;
-	}
-
-	/*
-	 * Add specified address on specified interface.
-	 */
-
 	if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 		fatal("socket open failed");
 
@@ -750,7 +739,7 @@ priv_add_address(struct interface_info *ifi, struct imsg_add_address *imsg)
  * priv_cleanup removes dhclient installed routes and address.
  */
 void
-priv_cleanup(struct interface_info *ifi, struct imsg_hup *imsg)
+priv_cleanup(struct interface_info *ifi)
 {
 	struct imsg_flush_routes fimsg;
 	struct imsg_delete_address dimsg;
@@ -758,10 +747,10 @@ priv_cleanup(struct interface_info *ifi, struct imsg_hup *imsg)
 	fimsg.zapzombies = 0;	/* Only zapzombies when binding a lease. */
 	priv_flush_routes(ifi, &fimsg);
 
-	if (imsg->addr.s_addr == INADDR_ANY)
+	if (active_addr.s_addr == INADDR_ANY)
 		return;
 
-	dimsg.addr = imsg->addr;
+	dimsg.addr = active_addr;
 	priv_delete_address(ifi, &dimsg);
 }
 
