@@ -15,7 +15,7 @@
 /dbm.h/1.1/Mon Aug  1 10:32:39 2016//
 /dbm_map.c/1.6/Thu Feb  9 18:26:17 2017//
 /dbm_map.h/1.1/Mon Aug  1 10:32:39 2016//
-/eqn.c/1.32/Fri Jun 23 21:04:34 2017//
+/eqn.c/1.34/Mon Jun 26 19:53:00 2017//
 /eqn_html.c/1.10/Fri Jun 23 22:59:27 2017//
 /eqn_term.c/1.5/Sun Feb 12 14:13:23 2017//
 /html.c/1.85/Fri Jun 23 02:31:39 2017//
@@ -23,7 +23,7 @@
 /libman.h/1.56/Sat Apr 29 12:43:55 2017//
 /libmandoc.h/1.53/Sun Jun 11 19:36:31 2017//
 /libmdoc.h/1.83/Tue May 30 16:21:07 2017//
-/libroff.h/1.17/Sat Nov  7 13:57:55 2015//
+/libroff.h/1.18/Mon Jun 26 19:53:00 2017//
 /main.c/1.196/Sat Jun 24 14:38:27 2017//
 /main.h/1.22/Fri Mar  3 14:21:41 2017//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//

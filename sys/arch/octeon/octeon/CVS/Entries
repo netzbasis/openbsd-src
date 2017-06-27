@@ -1,7 +1,7 @@
 /autoconf.c/1.12/Thu Jun  8 12:02:52 2017//
 /bus_dma.c/1.15/Sat Apr 15 04:38:27 2017//
-/cn3xxx.dts/1.1/Mon Apr 24 13:54:28 2017//
-/cn3xxx_dts.S/1.1/Mon Apr 24 13:54:28 2017//
+/cn3xxx.dts/1.2/Mon Jun 26 16:54:31 2017//
+/cn3xxx_dts.S/1.2/Mon Jun 26 16:54:31 2017//
 /conf.c/1.20/Sun Sep  4 10:51:24 2016//
 /disksubr.c/1.10/Tue Feb 28 10:49:37 2017//
 /genassym.cf/1.1/Mon Sep 20 06:32:30 2010//
