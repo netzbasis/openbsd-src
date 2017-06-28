@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.449 2017/06/27 13:24:49 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.452 2017/06/28 16:31:52 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -392,11 +392,6 @@ routehandler(struct interface_info *ifi)
 					state_reboot(ifi);
 				}
 			} else {
-				/* Let monitoring programs see link loss. */
-				if (optionDB) {
-					rewind(optionDB);
-					ftruncate(fileno(optionDB), 0);
-				}
 				/* No need to wait for anything but link. */
 				cancel_timeout(ifi);
 			}
@@ -612,7 +607,7 @@ main(int argc, char *argv[])
 	if (ifi->linkstat == 0)
 		interface_link_forceup(ifi->name);
 
-	if ((routefd = socket(PF_ROUTE, SOCK_RAW, 0)) == -1)
+	if ((routefd = socket(PF_ROUTE, SOCK_RAW, AF_INET)) == -1)
 		fatal("socket(PF_ROUTE, SOCK_RAW)");
 
 	rtfilter = ROUTE_FILTER(RTM_PROPOSAL) | ROUTE_FILTER(RTM_NEWADDR) |
@@ -638,7 +633,7 @@ main(int argc, char *argv[])
 	close(fd);
 
 	if (strlen(path_option_db) != 0) {
-		if ((optionDB = fopen(path_option_db, "w")) == NULL)
+		if ((optionDB = fopen(path_option_db, "a")) == NULL)
 			fatal("can't open %s", path_option_db);
 	}
 
@@ -1010,7 +1005,7 @@ bind_lease(struct interface_info *ifi)
 		goto newlease;
 	}
 
-	ifi->offer->resolv_conf = resolv_conf_contents(ifi,
+	ifi->offer->resolv_conf = resolv_conf_contents(ifi->name,
 	    &options[DHO_DOMAIN_NAME], &options[DHO_DOMAIN_NAME_SERVERS],
 	    &options[DHO_DOMAIN_SEARCH]);
 
@@ -1919,13 +1914,7 @@ go_daemon(void)
 	if (rdaemon(nullfd) == -1)
 		fatal("Cannot daemonize");
 
-	/* Catch stuff that might be trying to terminate the program. */
 	signal(SIGHUP, sighdlr);
-	signal(SIGINT, sighdlr);
-	signal(SIGTERM, sighdlr);
-	signal(SIGUSR1, sighdlr);
-	signal(SIGUSR2, sighdlr);
-
 	signal(SIGPIPE, SIG_IGN);
 }
 
@@ -2027,7 +2016,7 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 	struct pollfd pfd[1];
 	struct imsgbuf *priv_ibuf;
 	ssize_t n;
-	int nfds, rslt, got_imsg_hup = 0;
+	int nfds, got_imsg_hup = 0;
 
 	switch (fork()) {
 	case -1:
@@ -2086,21 +2075,6 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 
 	imsg_clear(priv_ibuf);
 	close(fd);
-
-	if (strlen(path_option_db)) {
-		/* Truncate the file so monitoring process see exit. */
-		rslt = truncate(path_option_db, 0);
-		if (rslt == -1)
-			log_warn("Unable to truncate '%s'", path_option_db);
-	}
-
-	/*
-	 * SIGTERM is used by system at shut down. Be nice and don't cleanup
-	 * routes, possibly preventing NFS from properly shutting down.
-	 */
-	if (quit != SIGTERM) {
-		priv_cleanup(ifi);
-	}
 
 	if (quit == SIGHUP) {
 		if (!got_imsg_hup)

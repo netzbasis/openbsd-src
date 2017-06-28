@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.196 2017/06/27 13:24:49 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.198 2017/06/28 15:23:19 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -165,7 +165,6 @@ extern struct imsgbuf *unpriv_ibuf;
 extern volatile sig_atomic_t quit;
 extern struct in_addr deleting;
 extern struct in_addr adding;
-extern struct in_addr active_addr;
 
 /* options.c */
 int cons_options(struct interface_info *, struct option_data *);
@@ -252,7 +251,5 @@ void flush_routes(void);
 
 void add_route(struct in_addr, struct in_addr, struct in_addr, struct in_addr,
     int, int);
-
-int resolv_conf_priority(struct interface_info *);
 
 void flush_unpriv_ibuf(const char *);

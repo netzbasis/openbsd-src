@@ -1,4 +1,4 @@
-/Makefile/1.41/Thu Jun  8 17:33:21 2017//
+/Makefile/1.42/Wed Jun 28 15:09:41 2017//
 D/basename////
 D/bc////
 D/calendar////
@@ -22,6 +22,7 @@ D/jot////
 D/lastcomm////
 D/libtool////
 D/m4////
+D/mail////
 D/make////
 D/mandoc////
 D/mdoclint////

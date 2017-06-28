@@ -1,5 +1,5 @@
 /acpi_machdep.c/1.78/Mon Mar 27 18:32:53 2017//
-/acpi_wakecode.S/1.39/Mon Dec 19 20:03:15 2016//
+/acpi_wakecode.S/1.40/Wed Jun 28 07:16:58 2017//
 /aes_intel.S/1.9/Tue Mar 26 15:47:01 2013//
 /aesni.c/1.41/Tue May  2 11:47:49 2017//
 /amd64_mem.c/1.13/Tue Apr 26 15:27:32 2016//
@@ -60,7 +60,7 @@
 /vector.S/1.48/Tue May 30 12:41:55 2017//
 /via.c/1.23/Tue May  2 11:47:49 2017//
 /vm_machdep.c/1.36/Sun Feb 12 04:55:08 2017//
-/vmm.c/1.154/Tue Jun 20 06:25:01 2017//
+/vmm.c/1.155/Wed Jun 28 07:10:02 2017//
 /vmm_support.S/1.9/Tue May 30 17:49:47 2017//
 /wscons_machdep.c/1.13/Tue Jun 21 15:24:55 2016//
 D
