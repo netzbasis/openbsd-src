@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.198 2017/06/28 15:23:19 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.200 2017/06/29 21:37:43 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -188,7 +188,6 @@ int parse_semi(FILE *);
 char *parse_string(FILE *, unsigned int *);
 int parse_ip_addr(FILE *, struct in_addr *);
 int parse_cidr(FILE *, unsigned char *);
-void parse_ethernet(FILE *, struct ether_addr *);
 void parse_lease_time(FILE *, time_t *);
 int parse_decimal(FILE *, unsigned char *, char);
 int parse_hex(FILE *, unsigned char *);
@@ -208,7 +207,7 @@ void set_timeout( struct interface_info *, time_t,
     void (*)(struct interface_info *));
 void cancel_timeout(struct interface_info *);
 void interface_link_forceup(char *);
-int interface_status(struct interface_info *);
+int interface_status(char *);
 void get_hw_address(struct interface_info *);
 void sendhup(void);
 
@@ -241,7 +240,7 @@ void read_client_conf(struct interface_info *);
 void read_client_leases(struct interface_info *);
 
 /* kroute.c */
-void delete_addresses(struct interface_info *);
+void delete_addresses(char *);
 void delete_address(struct in_addr);
 
 void set_interface_mtu(int);
