@@ -4,6 +4,7 @@ D/libc////
 D/libcrypto////
 D/libedit////
 D/libevent////
+D/libexpat////
 D/libfuse////
 D/libm////
 D/libpthread////

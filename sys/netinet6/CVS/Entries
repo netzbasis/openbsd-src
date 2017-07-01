@@ -12,7 +12,7 @@
 /in6_var.h/1.66/Mon Mar  6 08:59:07 2017//
 /ip6_divert.c/1.48/Mon Jun 26 09:32:32 2017//
 /ip6_divert.h/1.8/Fri Apr 14 20:46:31 2017//
-/ip6_forward.c/1.94/Sun Feb  5 16:04:14 2017//
+/ip6_forward.c/1.95/Fri Jun 30 11:29:15 2017//
 /ip6_id.c/1.12/Mon Oct  3 12:33:21 2016//
 /ip6_input.c/1.197/Tue Jun 27 13:28:02 2017//
 /ip6_mroute.c/1.114/Mon Jun 26 09:32:32 2017//
