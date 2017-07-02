@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.196 2017/06/24 14:38:27 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.199 2017/07/01 12:53:56 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -37,6 +37,7 @@
 
 #include "mandoc_aux.h"
 #include "mandoc.h"
+#include "mandoc_xr.h"
 #include "roff.h"
 #include "mdoc.h"
 #include "man.h"
@@ -80,11 +81,12 @@ struct	curparse {
 
 int			  mandocdb(int, char *[]);
 
+static	void		  check_xr(const char *);
 static	int		  fs_lookup(const struct manpaths *,
 				size_t ipath, const char *,
 				const char *, const char *,
 				struct manpage **, size_t *);
-static	void		  fs_search(const struct mansearch *,
+static	int		  fs_search(const struct mansearch *,
 				const struct manpaths *, int, char**,
 				struct manpage **, size_t *);
 static	int		  koptions(int *, char *);
@@ -487,6 +489,7 @@ main(int argc, char *argv[])
 			break;
 		}
 	}
+	mandoc_xr_free();
 	mparse_free(curp.mp);
 	mchars_free();
 
@@ -630,12 +633,23 @@ fs_lookup(const struct manpaths *paths, size_t ipath,
 	if (globres == 0)
 		file = mandoc_strdup(*globinfo.gl_pathv);
 	globfree(&globinfo);
-	if (globres != 0)
+	if (globres == 0)
+		goto found;
+	if (res != NULL || ipath + 1 != paths->sz)
 		return 0;
+
+	mandoc_asprintf(&file, "%s.%s", name, sec);
+	globres = access(file, R_OK);
+	free(file);
+	return globres != -1;
 
 found:
 	warnx("outdated mandoc.db lacks %s(%s) entry, run makewhatis %s",
 	    name, sec, paths->paths[ipath]);
+	if (res == NULL) {
+		free(file);
+		return 1;
+	}
 	*res = mandoc_reallocarray(*res, ++*ressz, sizeof(struct manpage));
 	page = *res + (*ressz - 1);
 	page->file = file;
@@ -648,7 +662,7 @@ found:
 	return 1;
 }
 
-static void
+static int
 fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 	int argc, char **argv, struct manpage **res, size_t *ressz)
 {
@@ -660,7 +674,8 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 
 	assert(cfg->argmode == ARG_NAME);
 
-	*res = NULL;
+	if (res != NULL)
+		*res = NULL;
 	*ressz = lastsz = 0;
 	while (argc) {
 		for (ipath = 0; ipath < paths->sz; ipath++) {
@@ -668,19 +683,20 @@ fs_search(const struct mansearch *cfg, const struct manpaths *paths,
 				if (fs_lookup(paths, ipath, cfg->sec,
 				    cfg->arch, *argv, res, ressz) &&
 				    cfg->firstmatch)
-					return;
+					return 1;
 			} else for (isec = 0; isec < nsec; isec++)
 				if (fs_lookup(paths, ipath, sections[isec],
 				    cfg->arch, *argv, res, ressz) &&
 				    cfg->firstmatch)
-					return;
+					return 1;
 		}
-		if (*ressz == lastsz)
+		if (res != NULL && *ressz == lastsz)
 			warnx("No entry for %s in the manual.", *argv);
 		lastsz = *ressz;
 		argv++;
 		argc--;
 	}
+	return 0;
 }
 
 static void
@@ -717,6 +733,8 @@ parse(struct curparse *curp, int fd, const char *file)
 
 	if (man == NULL)
 		return;
+	if (curp->mmin < MANDOCERR_STYLE)
+		mandoc_xr_reset();
 	if (man->macroset == MACROSET_MDOC) {
 		if (curp->outtype != OUTT_TREE || !curp->outopts->noval)
 			mdoc_validate(man);
@@ -768,7 +786,37 @@ parse(struct curparse *curp, int fd, const char *file)
 			break;
 		}
 	}
+	check_xr(file);
 	mparse_updaterc(curp->mp, &rc);
+}
+
+static void
+check_xr(const char *file)
+{
+	static struct manpaths	 paths;
+	struct mansearch	 search;
+	struct mandoc_xr	*xr;
+	char			*cp;
+	size_t			 sz;
+
+	if (paths.sz == 0)
+		manpath_base(&paths);
+
+	for (xr = mandoc_xr_get(); xr != NULL; xr = xr->next) {
+		search.arch = NULL;
+		search.sec = xr->sec;
+		search.outkey = NULL;
+		search.argmode = ARG_NAME;
+		search.firstmatch = 1;
+		if (mansearch(&search, &paths, 1, &xr->name, NULL, &sz))
+			continue;
+		if (fs_search(&search, &paths, 1, &xr->name, NULL, &sz))
+			continue;
+		mandoc_asprintf(&cp, "Xr %s %s", xr->name, xr->sec);
+		mmsg(MANDOCERR_XR_BAD, MANDOCLEVEL_STYLE,
+		    file, xr->line, xr->pos + 1, cp);
+		free(cp);
+	}
 }
 
 static void
