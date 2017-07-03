@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifstated.h,v 1.12 2017/06/28 11:10:08 benno Exp $	*/
+/*	$OpenBSD: ifstated.h,v 1.15 2017/07/02 15:28:26 benno Exp $	*/
 
 /*
  * Copyright (c) 2004 Ryan McBride
@@ -70,7 +70,6 @@ struct ifsd_action {
 		struct {
 			struct ifsd_action_list	 actions;
 			struct ifsd_expression	*expression;
-			u_int8_t		 ignore_init;
 		} c;
 	} act;
 	u_int32_t			 type;
@@ -110,7 +109,7 @@ struct ifsd_state {
 	struct ifsd_external_list	 external_tests;
 	TAILQ_ENTRY(ifsd_state)		 entries;
 	struct ifsd_action		*init;
-	struct ifsd_action		*always;
+	struct ifsd_action		*body;
 	u_int32_t			 entered;
 	char				*name;
 };
@@ -118,7 +117,7 @@ struct ifsd_state {
 TAILQ_HEAD(ifsd_state_list, ifsd_state);
 
 struct ifsd_config {
-	struct ifsd_state		 always;
+	struct ifsd_state		 initstate;
 	struct ifsd_state_list		 states;
 	struct ifsd_state		*curstate;
 	struct ifsd_state		*nextstate;
