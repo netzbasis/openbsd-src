@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.h,v 1.181 2017/07/02 15:31:48 schwarze Exp $ */
+/*	$OpenBSD: mandoc.h,v 1.183 2017/07/03 17:33:01 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2017 Ingo Schwarze <schwarze@openbsd.org>
@@ -62,8 +62,8 @@ enum	mandocerr {
 	MANDOCERR_BX, /* consider using OS macro: macro */
 	MANDOCERR_ER_ORDER, /* errnos out of order: Er ... */
 	MANDOCERR_ER_REP, /* duplicate errno: Er ... */
-	MANDOCERR_ND_DOT, /* description line ends with a full stop */
-	MANDOCERR_DELIM, /* no blank before trailing delimiter: macro ... */
+	MANDOCERR_DELIM, /* trailing delimiter: macro ... */
+	MANDOCERR_DELIM_NB, /* no blank before trailing delimiter: macro ... */
 	MANDOCERR_FUNC, /* function name without markup: name() */
 
 	MANDOCERR_WARNING, /* ===== start of warnings ===== */
@@ -76,6 +76,7 @@ enum	mandocerr {
 	MANDOCERR_MSEC_BAD, /* unknown manual section: Dt ... section */
 	MANDOCERR_DATE_MISSING, /* missing date, using today's date */
 	MANDOCERR_DATE_BAD, /* cannot parse date, using it verbatim: date */
+	MANDOCERR_DATE_FUTURE, /* date in the future, using it anyway: date */
 	MANDOCERR_OS_MISSING, /* missing Os macro, using "" */
 	MANDOCERR_PROLOG_REP, /* duplicate prologue macro: macro */
 	MANDOCERR_PROLOG_LATE, /* late prologue macro: macro */

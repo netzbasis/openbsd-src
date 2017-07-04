@@ -245,7 +245,7 @@
 /neo.c/1.32/Mon Sep 19 06:46:44 2016//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//
 /nviic.c/1.17/Sat Mar 14 03:38:48 2015//
-/nvme_pci.c/1.5/Thu Nov 10 11:56:41 2016//
+/nvme_pci.c/1.6/Mon Jul  3 23:27:53 2017//
 /ohci_pci.c/1.40/Fri May 16 18:17:03 2014//
 /pccbb.c/1.96/Fri Sep 11 09:15:44 2015//
 /pccbbreg.h/1.12/Thu Oct 18 21:40:49 2012//
@@ -255,9 +255,9 @@
 /pci_map.c/1.31/Sat Mar 14 03:38:48 2015//
 /pci_quirks.c/1.7/Mon Jul 20 18:05:04 2015//
 /pci_subr.c/1.22/Wed Mar 22 07:21:39 2017//
-/pcidevs/1.1820/Fri Jun  2 16:04:11 2017//
-/pcidevs.h/1.1814/Fri Jun  2 16:04:36 2017//
-/pcidevs_data.h/1.1808/Fri Jun  2 16:04:36 2017//
+/pcidevs/1.1821/Mon Jul  3 06:32:54 2017//
+/pcidevs.h/1.1815/Mon Jul  3 06:33:24 2017//
+/pcidevs_data.h/1.1809/Mon Jul  3 06:33:24 2017//
 /pciide.c/1.357/Mon Dec 21 20:52:33 2015//
 /pciide_acard_reg.h/1.5/Fri Sep 24 07:43:03 2004//
 /pciide_acer_reg.h/1.8/Fri Jul 23 07:47:13 2010//

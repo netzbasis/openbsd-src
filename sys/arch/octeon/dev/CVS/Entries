@@ -30,12 +30,12 @@
 /cn30xxsmi.c/1.4/Tue May  2 13:26:49 2017//
 /cn30xxsmireg.h/1.2/Tue May  2 13:26:49 2017//
 /cn30xxsmivar.h/1.3/Tue May  2 13:26:49 2017//
-/cn30xxuart.c/1.9/Thu Apr 14 13:51:58 2016//
+/cn30xxuart.c/1.10/Mon Jul  3 08:17:20 2017//
 /cn30xxuartreg.h/1.1/Thu Jun 16 11:22:30 2011//
 /if_cnmac.c/1.64/Tue May  2 13:26:49 2017//
 /if_cnmacvar.h/1.16/Sat Aug  6 04:32:24 2016//
 /iobusvar.h/1.3/Sun Jul 19 23:46:50 2015//
-/mainbus.c/1.8/Sat Jan 16 11:21:42 2016//
+/mainbus.c/1.9/Mon Jul  3 08:17:20 2017//
 /octcf.c/1.29/Thu May  4 22:47:27 2017//
 /octciu.c/1.2/Mon Jun 19 13:31:04 2017//
 /octdwctwo.c/1.11/Wed Feb 15 14:44:20 2017//
@@ -47,7 +47,6 @@
 /octeon_pcibus.h/1.3/Mon Jul 20 01:38:31 2015//
 /octeon_pcibus_irq.h/1.1/Thu Oct 28 22:52:10 2010//
 /octeon_pcibusvar.h/1.3/Sun May  8 13:24:55 2011//
-/octeon_uartbus.c/1.7/Wed Jul 27 11:28:40 2016//
 /octhcireg.h/1.3/Wed Jun  8 15:46:03 2016//
 /octmmc.c/1.2/Thu Apr  6 15:29:47 2017//
 /octmmcreg.h/1.1/Wed Dec 21 13:59:57 2016//
@@ -59,5 +58,4 @@
 /octuctlvar.h/1.1/Fri Mar 18 05:38:10 2016//
 /simplebus.c/1.1/Thu Dec  8 16:24:51 2016//
 /simplebusvar.h/1.1/Thu Dec  8 16:24:51 2016//
-/uartbusvar.h/1.1/Sun May  8 13:39:30 2011//
 D

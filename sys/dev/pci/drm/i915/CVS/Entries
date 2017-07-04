@@ -63,7 +63,7 @@
 /intel_guc_loader.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_hdmi.c/1.14/Sat Jul  1 16:14:10 2017//
 /intel_hotplug.c/1.1/Sat Jul  1 16:14:10 2017//
-/intel_i2c.c/1.10/Sat Jul  1 16:14:10 2017//
+/intel_i2c.c/1.11/Mon Jul  3 13:26:04 2017//
 /intel_lrc.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_lrc.h/1.1/Sat Jul  1 16:14:10 2017//
 /intel_lvds.c/1.17/Sat Jul  1 16:14:10 2017//

@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.199 2017/06/28 11:36:40 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.201 2017/07/03 12:38:50 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicholas.marriott@gmail.com>
@@ -386,6 +386,23 @@ window_destroy(struct window *w)
 
 	free(w->name);
 	free(w);
+}
+
+int
+window_pane_destroy_ready(struct window_pane *wp)
+{
+	int	n;
+
+	if (wp->pipe_fd != -1) {
+		if (EVBUFFER_LENGTH(wp->pipe_event->output) != 0)
+			return (0);
+		if (ioctl(wp->fd, FIONREAD, &n) != -1 && n > 0)
+			return (0);
+	}
+
+	if (~wp->flags & PANE_EXITED)
+		return (0);
+	return (1);
 }
 
 void
@@ -1000,7 +1017,11 @@ window_pane_error_callback(__unused struct bufferevent *bufev,
 {
 	struct window_pane *wp = data;
 
-	server_destroy_pane(wp, 1);
+	log_debug("%%%u error", wp->id);
+	wp->flags |= PANE_EXITED;
+
+	if (window_pane_destroy_ready(wp))
+		server_destroy_pane(wp, 1);
 }
 
 void
