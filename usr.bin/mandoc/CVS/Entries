@@ -15,9 +15,9 @@
 /dbm.h/1.1/Mon Aug  1 10:32:39 2016//
 /dbm_map.c/1.6/Thu Feb  9 18:26:17 2017//
 /dbm_map.h/1.1/Mon Aug  1 10:32:39 2016//
-/eqn.c/1.35/Thu Jun 29 16:30:47 2017//
-/eqn_html.c/1.10/Fri Jun 23 22:59:27 2017//
-/eqn_term.c/1.5/Sun Feb 12 14:13:23 2017//
+/eqn.c/1.36/Wed Jul  5 15:03:20 2017//
+/eqn_html.c/1.11/Wed Jul  5 15:03:20 2017//
+/eqn_term.c/1.6/Wed Jul  5 15:03:20 2017//
 /html.c/1.85/Fri Jun 23 02:31:39 2017//
 /html.h/1.48/Fri Jun 23 02:31:39 2017//
 /libman.h/1.56/Sat Apr 29 12:43:55 2017//
@@ -40,7 +40,7 @@
 /mandoc.1/1.138/Tue Jul  4 14:40:30 2017//
 /mandoc.c/1.71/Mon Jul  3 13:40:00 2017//
 /mandoc.css/1.5/Mon Mar 13 20:22:11 2017//
-/mandoc.h/1.183/Mon Jul  3 17:33:01 2017//
+/mandoc.h/1.184/Wed Jul  5 15:03:20 2017//
 /mandoc_aux.c/1.8/Mon Jun 12 18:55:42 2017//
 /mandoc_aux.h/1.9/Mon Jun 12 18:55:42 2017//
 /mandoc_ohash.c/1.2/Mon Oct 19 18:58:20 2015//
@@ -89,5 +89,5 @@
 /term_ascii.c/1.43/Wed Jun 14 14:23:50 2017//
 /term_ps.c/1.49/Wed Jun  7 17:38:08 2017//
 /term_tab.c/1.4/Sat Jun 17 14:55:02 2017//
-/tree.c/1.41/Mon Apr 24 23:06:09 2017//
+/tree.c/1.42/Wed Jul  5 15:03:20 2017//
 D

@@ -10,7 +10,7 @@
 /tls_internal.h/1.61/Thu Jun 22 18:03:57 2017//
 /tls_ocsp.c/1.12/Tue May 16 05:52:52 2017//
 /tls_peer.c/1.8/Mon Apr 10 17:11:13 2017//
-/tls_server.c/1.39/Thu Jun 22 18:03:57 2017//
+/tls_server.c/1.40/Wed Jul  5 15:38:35 2017//
 /tls_util.c/1.9/Thu Jun 22 18:03:57 2017//
 /tls_verify.c/1.19/Mon Apr 10 17:11:13 2017//
 D/man////
