@@ -1,13 +1,13 @@
 /Makefile/1.5/Fri Feb  6 09:38:22 2015//
-/badargs-man.in/1.4/Tue Dec 23 09:31:17 2014//
+/badargs-man.in/1.5/Tue Jul  4 14:53:27 2017//
 /badargs-man.out_ascii/1.6/Tue Dec 23 09:31:17 2014//
-/badargs-man.out_lint/1.3/Sun Jun 25 12:48:58 2017//
-/badargs-mdoc.in/1.4/Tue Dec 23 09:31:17 2014//
-/badargs-mdoc.out_ascii/1.6/Tue Dec 23 09:31:17 2014//
-/negative.in/1.1/Fri Jul 13 14:15:50 2012//
+/badargs-man.out_lint/1.4/Tue Jul  4 14:53:27 2017//
+/badargs-mdoc.in/1.5/Tue Jul  4 14:53:27 2017//
+/badargs-mdoc.out_ascii/1.7/Tue Jul  4 14:53:27 2017//
+/negative.in/1.2/Tue Jul  4 14:53:27 2017//
 /negative.out_ascii/1.2/Tue Aug 26 11:32:57 2014//
-/scaling-man.in/1.1/Tue Dec 23 06:16:21 2014//
+/scaling-man.in/1.2/Tue Jul  4 14:53:27 2017//
 /scaling-man.out_ascii/1.1/Tue Dec 23 06:16:21 2014//
-/scaling-mdoc.in/1.1/Tue Dec 23 06:16:21 2014//
-/scaling-mdoc.out_ascii/1.1/Tue Dec 23 06:16:21 2014//
+/scaling-mdoc.in/1.2/Tue Jul  4 14:53:27 2017//
+/scaling-mdoc.out_ascii/1.2/Tue Jul  4 14:53:27 2017//
 D
