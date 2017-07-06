@@ -10,8 +10,8 @@
 /i915_cmd_parser.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_devlist.h/1.5/Mon Sep 28 09:43:45 2015//
 /i915_dma.c/1.25/Sat Jul  1 16:14:10 2017//
-/i915_drv.c/1.103/Sat Jul  1 16:14:10 2017//
-/i915_drv.h/1.75/Sat Jul  1 16:14:10 2017//
+/i915_drv.c/1.104/Wed Jul  5 20:30:13 2017//
+/i915_drv.h/1.76/Wed Jul  5 20:30:13 2017//
 /i915_gem.c/1.107/Sat Jul  1 16:14:10 2017//
 /i915_gem_batch_pool.c/1.1/Sat Jul  1 16:14:10 2017//
 /i915_gem_batch_pool.h/1.1/Sat Jul  1 16:14:10 2017//
@@ -72,7 +72,7 @@
 /intel_modes.c/1.8/Sat Jul  1 16:14:10 2017//
 /intel_opregion.c/1.10/Sat Jul  1 16:14:10 2017//
 /intel_overlay.c/1.18/Sat Jul  1 16:14:10 2017//
-/intel_panel.c/1.13/Sat Jul  1 16:14:10 2017//
+/intel_panel.c/1.14/Wed Jul  5 20:30:13 2017//
 /intel_pm.c/1.41/Sat Jul  1 16:14:10 2017//
 /intel_psr.c/1.1/Sat Jul  1 16:14:10 2017//
 /intel_renderstate.h/1.1/Sat Jul  1 16:14:10 2017//

@@ -8,7 +8,7 @@
 /atombios.h/1.1/Mon Aug 12 04:11:53 2013//
 /atombios_crtc.c/1.7/Sat Jul  1 16:14:10 2017//
 /atombios_dp.c/1.7/Sat Jul  1 16:14:10 2017//
-/atombios_encoders.c/1.9/Sat Apr 18 14:47:34 2015//
+/atombios_encoders.c/1.10/Wed Jul  5 20:30:13 2017//
 /atombios_i2c.c/1.6/Sat Jul  1 16:14:10 2017//
 /avivod.h/1.1/Mon Aug 12 04:11:53 2013//
 /cayman_blit_shaders.c/1.1/Mon Aug 12 04:11:53 2013//
@@ -83,7 +83,7 @@
 /radeon_irq_kms.c/1.10/Sat Jul  1 16:14:10 2017//
 /radeon_kms.c/1.51/Sat Jul  1 16:14:10 2017//
 /radeon_legacy_crtc.c/1.4/Sat Jul  1 16:14:10 2017//
-/radeon_legacy_encoders.c/1.5/Sat Jul  1 16:14:10 2017//
+/radeon_legacy_encoders.c/1.6/Wed Jul  5 20:30:13 2017//
 /radeon_legacy_tv.c/1.1/Mon Aug 12 04:11:53 2013//
 /radeon_mode.h/1.4/Sat Jul  1 16:14:10 2017//
 /radeon_object.c/1.10/Sat Apr 18 11:41:29 2015//
