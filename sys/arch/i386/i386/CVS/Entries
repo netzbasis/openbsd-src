@@ -4,7 +4,7 @@
 /amd64errata.c/1.6/Sat Dec  7 01:43:50 2013//
 /amdmsr.c/1.9/Tue Apr 20 22:05:41 2010//
 /apic.c/1.6/Thu Aug 13 13:24:48 2009//
-/apicvec.s/1.32/Sat Jul 16 06:04:29 2016//
+/apicvec.s/1.33/Thu Jul  6 06:17:05 2017//
 /apm.c/1.116/Sat Oct  8 05:49:08 2016//
 /apmcall.S/1.6/Thu Nov 28 19:30:46 2013//
 /autoconf.c/1.103/Tue Jun 20 21:05:46 2017//
@@ -38,7 +38,7 @@
 /kvm86call.S/1.7/Sat Apr 25 21:31:24 2015//
 /lapic.c/1.40/Sat Jul 18 19:21:03 2015//
 /lock_machdep.c/1.25/Mon May 29 14:19:49 2017//
-/locore.s/1.177/Fri Jun 30 06:17:47 2017//
+/locore.s/1.178/Thu Jul  6 06:17:05 2017//
 /locore0.S/1.2/Thu Jun 29 06:15:30 2017//
 /longrun.c/1.16/Sun Sep 14 14:17:23 2014//
 /machdep.c/1.603/Thu Jun 29 07:11:24 2017//

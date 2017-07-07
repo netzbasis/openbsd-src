@@ -1,4 +1,4 @@
-/*	$OpenBSD: slaacd.c,v 1.2 2017/07/03 19:02:04 florian Exp $	*/
+/*	$OpenBSD: slaacd.c,v 1.4 2017/07/06 15:02:53 florian Exp $	*/
 
 /*
  * Copyright (c) 2017 Florian Obser <florian@openbsd.org>
@@ -50,6 +50,7 @@
 #include "engine.h"
 #include "control.h"
 
+#ifndef	SMALL
 const char* imsg_type_name[] = {
 	"IMSG_NONE",
 	"IMSG_CTL_LOG_VERBOSE",
@@ -58,26 +59,26 @@ const char* imsg_type_name[] = {
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_PREFIX",
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_RDNS",
 	"IMSG_CTL_SHOW_INTERFACE_INFO_RA_DNSSL",
-	"IMSG_CTL_SHOW_FRONTEND_INFO",
-	"IMSG_CTL_SHOW_MAIN_INFO",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSALS",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS",
+	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL",
 	"IMSG_CTL_END",
+	"IMSG_CTL_SEND_SOLICITATION",
 	"IMSG_SOCKET_IPC",
 	"IMSG_STARTUP",
 	"IMSG_UPDATE_IF",
 	"IMSG_REMOVE_IF",
 	"IMSG_RA",
-	"IMSG_CTL_SEND_SOLICITATION",
 	"IMSG_PROPOSAL",
 	"IMSG_PROPOSAL_ACK",
 	"IMSG_CONFIGURE_ADDRESS",
 	"IMSG_DEL_ADDRESS",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_ADDR_PROPOSAL",
 	"IMSG_FAKE_ACK",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSALS",
-	"IMSG_CTL_SHOW_INTERFACE_INFO_DFR_PROPOSAL",
 	"IMSG_CONFIGURE_DFR",
 	"IMSG_WITHDRAW_DFR",
 };
+#endif	/* SMALL */
 
 __dead void	usage(void);
 __dead void	main_shutdown(void);
@@ -309,7 +310,9 @@ main_shutdown(void)
 	free(iev_frontend);
 	free(iev_engine);
 
+#ifndef	SMALL
 	control_cleanup(csock);
+#endif	/* SMALL */
 
 	log_info("terminating");
 	exit(0);
@@ -367,7 +370,10 @@ main_dispatch_frontend(int fd, short event, void *bula)
 	struct imsgbuf		*ibuf;
 	struct imsg		 imsg;
 	ssize_t			 n;
-	int			 shut = 0, verbose;
+	int			 shut = 0;
+#ifndef	SMALL
+	int			 verbose;
+#endif	/* SMALL */
 
 	ibuf = &iev->ibuf;
 
@@ -391,11 +397,13 @@ main_dispatch_frontend(int fd, short event, void *bula)
 			break;
 
 		switch (imsg.hdr.type) {
+#ifndef	SMALL
 		case IMSG_CTL_LOG_VERBOSE:
 			/* Already checked by frontend. */
 			memcpy(&verbose, imsg.data, sizeof(verbose));
 			log_setverbose(verbose);
 			break;
+#endif	/* SMALL */
 		default:
 			log_debug("%s: error handling imsg %d", __func__,
 			    imsg.hdr.type);

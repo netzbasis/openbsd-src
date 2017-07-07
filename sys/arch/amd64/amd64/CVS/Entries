@@ -36,8 +36,8 @@
 /k1x-pstate.c/1.8/Sat Mar 14 03:38:46 2015//
 /lapic.c/1.47/Mon May 29 14:19:49 2017//
 /lock_machdep.c/1.16/Mon May 29 14:19:49 2017//
-/locore.S/1.86/Thu Jun 29 17:17:28 2017//
-/locore0.S/1.1/Wed May 31 19:18:18 2017//
+/locore.S/1.87/Thu Jul  6 06:17:04 2017//
+/locore0.S/1.2/Thu Jul  6 06:17:04 2017//
 /machdep.c/1.230/Thu Jun 29 07:19:40 2017//
 /mainbus.c/1.39/Sat Mar 25 22:24:01 2017//
 /mem.c/1.31/Sun Sep 25 15:23:36 2016//
