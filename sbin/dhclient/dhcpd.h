@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhcpd.h,v 1.204 2017/07/06 16:56:52 krw Exp $	*/
+/*	$OpenBSD: dhcpd.h,v 1.208 2017/07/08 00:36:10 krw Exp $	*/
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -51,7 +51,7 @@ struct option {
 
 struct option_data {
 	unsigned int	 len;
-	u_int8_t	*data;
+	uint8_t		*data;
 };
 
 struct reject_elem {
@@ -70,7 +70,7 @@ struct client_lease {
 	char			 ssid[32];
 	uint8_t			 ssid_len;
 	unsigned int		 is_static;
-	struct option_data	 options[256];
+	struct option_data	 options[DHO_COUNT];
 };
 #define BOOTP_LEASE(l)	((l)->options[DHO_DHCP_MESSAGE_TYPE].len == 0)
 
@@ -89,20 +89,20 @@ enum dhcp_state {
 TAILQ_HEAD(client_lease_tq, client_lease);
 
 struct client_config {
-	struct option_data	defaults[256];
+	struct option_data	defaults[DHO_COUNT];
 	enum {
 		ACTION_DEFAULT,
 		ACTION_SUPERSEDE,
 		ACTION_PREPEND,
 		ACTION_APPEND
-	} default_actions[256];
+	} default_actions[DHO_COUNT];
 
 	struct in_addr		 address;
 	struct in_addr		 next_server;
-	struct option_data	 send_options[256];
-	u_int8_t		 required_options[256];
-	u_int8_t		 requested_options[256];
-	u_int8_t		 ignored_options[256];
+	struct option_data	 send_options[DHO_COUNT];
+	uint8_t			 required_options[DHO_COUNT];
+	uint8_t			 requested_options[DHO_COUNT];
+	uint8_t			 ignored_options[DHO_COUNT];
 	int			 requested_option_count;
 	int			 required_option_count;
 	int			 ignored_option_count;
@@ -133,7 +133,7 @@ struct interface_info {
 	size_t			 rbuf_offset;
 	size_t			 rbuf_len;
 	int			 errors;
-	u_int16_t		 index;
+	uint16_t		 index;
 	int			 linkstat;
 	int			 rdomain;
 	int			 flags;
@@ -143,10 +143,10 @@ struct interface_info {
 	struct dhcp_packet	 recv_packet;
 	struct dhcp_packet	 sent_packet;
 	int			 sent_packet_length;
-	u_int32_t		 xid;
+	uint32_t		 xid;
 	time_t			 timeout;
 	void			(*timeout_func)(struct interface_info *);
-	u_int16_t		 secs;
+	uint16_t		 secs;
 	time_t			 first_sending;
 	time_t			 startup_time;
 	enum dhcp_state		 state;
@@ -170,13 +170,12 @@ extern struct in_addr deleting;
 extern struct in_addr adding;
 
 /* options.c */
-int cons_options(unsigned char *, int, struct option_data *);
+int pack_options(unsigned char *, int, struct option_data *);
 char *pretty_print_option(unsigned int, struct option_data *, int);
 char *pretty_print_domain_search(unsigned char *, size_t);
 char *pretty_print_string(unsigned char *, size_t, int);
 char *pretty_print_classless_routes(unsigned char *, size_t);
-void do_packet(struct interface_info *, unsigned int, struct in_addr,
-    struct ether_addr *);
+struct option_data *unpack_options(struct dhcp_packet *);
 
 /* conflex.c */
 extern int lexline, lexchar;
@@ -215,7 +214,7 @@ void get_hw_address(struct interface_info *);
 void sendhup(void);
 
 /* tables.c */
-extern const struct option dhcp_options[256];
+extern const struct option dhcp_options[DHO_COUNT];
 
 /* dhclient.c */
 extern char *path_dhclient_conf;
@@ -230,11 +229,11 @@ void free_client_lease(struct client_lease *);
 void routehandler(struct interface_info *, int);
 
 /* packet.c */
-void assemble_eh_header(struct interface_info *, struct ether_header *);
-ssize_t decode_hw_header(unsigned char *, u_int32_t, struct ether_addr *);
-ssize_t decode_udp_ip_header(unsigned char *, u_int32_t, struct sockaddr_in *);
-u_int32_t checksum(unsigned char *, u_int32_t, u_int32_t);
-u_int32_t wrapsum(u_int32_t);
+void assemble_eh_header(struct ether_addr, struct ether_header *);
+ssize_t decode_hw_header(unsigned char *, uint32_t, struct ether_addr *);
+ssize_t decode_udp_ip_header(unsigned char *, uint32_t, struct sockaddr_in *);
+uint32_t checksum(unsigned char *, uint32_t, uint32_t);
+uint32_t wrapsum(uint32_t);
 
 /* clparse.c */
 void read_client_conf(char *);

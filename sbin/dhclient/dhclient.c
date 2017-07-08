@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.456 2017/07/06 16:56:52 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.460 2017/07/08 00:36:10 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -1022,8 +1022,8 @@ bind_lease(struct interface_info *ifi)
 	flush_routes();
 
 	opt = &options[DHO_INTERFACE_MTU];
-	if (opt->len == sizeof(u_int16_t)) {
-		u_int16_t mtu;
+	if (opt->len == sizeof(uint16_t)) {
+		uint16_t mtu;
 		memcpy(&mtu, opt->data, sizeof(mtu));
 		mtu = ntohs(mtu);
 		/* "The minimum legal value for the MTU is 68." */
@@ -1197,7 +1197,7 @@ packet_to_lease(struct interface_info *ifi, struct option_data *options)
 	}
 
 	/* Copy the lease options. */
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < DHO_COUNT; i++) {
 		if (options[i].len == 0)
 			continue;
 		if (!unknown_ok && strncmp("option-",
@@ -1520,7 +1520,7 @@ send_decline(struct interface_info *ifi)
 void
 make_discover(struct interface_info *ifi, struct client_lease *lease)
 {
-	struct option_data	 options[256];
+	struct option_data	 options[DHO_COUNT];
 	struct dhcp_packet	*packet = &ifi->sent_packet;
 	unsigned char		 discover = DHCPDISCOVER;
 	int			 i;
@@ -1548,7 +1548,7 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 		ifi->requested_address.s_addr = INADDR_ANY;
 
 	/* Send any options requested in the config file. */
-	for (i = 0; i < 256; i++)
+	for (i = 0; i < DHO_COUNT; i++)
 		if (!options[i].data &&
 		    config->send_options[i].data) {
 			options[i].data = config->send_options[i].data;
@@ -1560,7 +1560,7 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 	 * RFC 791 says is the largest packet that *MUST* be accepted
 	 * by any host.
 	 */
-	i = cons_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
+	i = pack_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
 	    options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPDISCOVER packet.");
@@ -1588,7 +1588,7 @@ make_discover(struct interface_info *ifi, struct client_lease *lease)
 void
 make_request(struct interface_info *ifi, struct client_lease * lease)
 {
-	struct option_data	 options[256];
+	struct option_data	 options[DHO_COUNT];
 	struct dhcp_packet	*packet = &ifi->sent_packet;
 	unsigned char		 request = DHCPREQUEST;
 	int			 i;
@@ -1625,7 +1625,7 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 	}
 
 	/* Send any options requested in the config file. */
-	for (i = 0; i < 256; i++)
+	for (i = 0; i < DHO_COUNT; i++)
 		if (!options[i].data && config->send_options[i].data) {
 			options[i].data = config->send_options[i].data;
 			options[i].len = config->send_options[i].len;
@@ -1636,7 +1636,7 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 	 * RFC 791 says is the largest packet that *MUST* be accepted
 	 * by any host.
 	 */
-	i = cons_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
+	i = pack_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
 	    options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPREQUEST packet.");
@@ -1674,7 +1674,7 @@ make_request(struct interface_info *ifi, struct client_lease * lease)
 void
 make_decline(struct interface_info *ifi, struct client_lease *lease)
 {
-	struct option_data	 options[256];
+	struct option_data	 options[DHO_COUNT];
 	struct dhcp_packet	*packet = &ifi->sent_packet;
 	unsigned char		 decline = DHCPDECLINE;
 	int			 i;
@@ -1709,7 +1709,7 @@ make_decline(struct interface_info *ifi, struct client_lease *lease)
 	 * RFC 791 says is the largest packet that *MUST* be accepted
 	 * by any host.
 	 */
-	i = cons_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
+	i = pack_options(ifi->sent_packet.options, 576 - DHCP_FIXED_LEN,
 	    options);
 	if (i == -1 || packet->options[i] != DHO_END)
 		fatalx("options do not fit in DHCPDECLINE packet.");
@@ -1747,7 +1747,7 @@ free_client_lease(struct client_lease *lease)
 	free(lease->server_name);
 	free(lease->filename);
 	free(lease->resolv_conf);
-	for (i = 0; i < 256; i++)
+	for (i = 0; i < DHO_COUNT; i++)
 		free(lease->options[i].data);
 
 	free(lease);
@@ -1876,7 +1876,7 @@ lease_as_string(char *name, char *type, struct client_lease *lease)
 		append_statement(string, sizeof(string), "  ssid ", buf);
 	}
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < DHO_COUNT; i++) {
 		opt = &lease->options[i];
 		if (opt->len == 0)
 			continue;
@@ -2091,7 +2091,8 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 			continue;
 		}
 
-		got_imsg_hup = dispatch_imsg(ifi, ioctlfd, routefd, priv_ibuf);
+		got_imsg_hup = dispatch_imsg(ifi->name, ifi->rdomain, ioctlfd,
+		    routefd, priv_ibuf);
 		if (got_imsg_hup)
 			quit = SIGHUP;
 	}
@@ -2181,7 +2182,7 @@ apply_defaults(struct client_lease *lease)
 	if (config->next_server.s_addr != INADDR_ANY)
 		newlease->next_server.s_addr = config->next_server.s_addr;
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < DHO_COUNT; i++) {
 		for (j = 0; j < config->ignored_option_count; j++) {
 			if (config->ignored_options[j] == i) {
 				free(newlease->options[i].data);
@@ -2323,7 +2324,7 @@ clone_lease(struct client_lease *oldlease)
 			goto cleanup;
 	}
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < DHO_COUNT; i++) {
 		if (oldlease->options[i].len == 0)
 			continue;
 		newlease->options[i].len = oldlease->options[i].len;
@@ -2354,9 +2355,9 @@ cleanup:
 void
 apply_ignore_list(char *ignore_list)
 {
-	u_int8_t list[256];
-	char *p;
-	int ix, i, j;
+	uint8_t	 list[DHO_COUNT];
+	char	*p;
+	int	 ix, i, j;
 
 	memset(list, 0, sizeof(list));
 	ix = 0;
@@ -2389,8 +2390,8 @@ apply_ignore_list(char *ignore_list)
 void
 set_lease_times(struct client_lease *lease)
 {
-	time_t cur_time, time_max;
-	u_int32_t uint32val;
+	time_t		 cur_time, time_max;
+	uint32_t	 uint32val;
 
 	time(&cur_time);
 
@@ -2479,7 +2480,7 @@ compare_lease(struct client_lease *active, struct client_lease *new)
 			return (1);
 	}
 
-	for (i = 0; i < 256; i++) {
+	for (i = 0; i < DHO_COUNT; i++) {
 		if (active->options[i].len != new->options[i].len)
 			return (1);
 		if (memcmp(active->options[i].data, new->options[i].data,

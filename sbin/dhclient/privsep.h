@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.h,v 1.41 2017/07/01 23:27:56 krw Exp $ */
+/*	$OpenBSD: privsep.h,v 1.43 2017/07/08 00:36:10 krw Exp $ */
 
 /*
  * Copyright (c) 2004 Henning Brauer <henning@openbsd.org>
@@ -49,7 +49,7 @@ struct imsg_set_interface_mtu {
 	int	mtu;
 };
 
-int	dispatch_imsg(struct interface_info *, int, int, struct imsgbuf *);
+int	dispatch_imsg(char *, int, int, int, struct imsgbuf *);
 
 void	add_direct_route(struct in_addr, struct in_addr, struct in_addr);
 void	add_default_route(struct in_addr, struct in_addr);
@@ -60,8 +60,8 @@ void	priv_flush_routes(char *, int, int);
 
 char	*resolv_conf_contents(char *, struct option_data *,
     struct option_data *, struct option_data *);
-void	write_resolv_conf(u_int8_t *, size_t);
-void	priv_write_resolv_conf(u_int8_t *, size_t);
+void	write_resolv_conf(uint8_t *, size_t);
+void	priv_write_resolv_conf(uint8_t *, size_t);
 
 void	priv_delete_address(char *, int, struct imsg_delete_address *);
 void	priv_add_address(char *, int, struct imsg_add_address *);
