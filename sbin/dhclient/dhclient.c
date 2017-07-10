@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.461 2017/07/08 20:38:31 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.464 2017/07/10 00:47:47 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -159,8 +159,8 @@ void	take_charge(struct interface_info *, int);
 void	set_default_client_identifier(struct interface_info *);
 struct client_lease *get_recorded_lease(struct interface_info *);
 
-#define	ROUNDUP(a) \
-	    ((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : sizeof(long))
+#define ROUNDUP(a)	((a) > 0 ? (1 + (((a) - 1) | (sizeof(long) - 1))) : \
+    sizeof(long))
 #define	ADVANCE(x, n) (x += ROUNDUP((n)->sa_len))
 
 static FILE *leaseFile;
@@ -175,8 +175,8 @@ sighdlr(int sig)
 int
 findproto(char *cp, int n)
 {
-	struct sockaddr *sa;
-	unsigned int i;
+	struct sockaddr		*sa;
+	unsigned int		 i;
 
 	if (n == 0)
 		return -1;
@@ -199,26 +199,26 @@ findproto(char *cp, int n)
 			ADVANCE(cp, sa);
 		}
 	}
-	return (-1);
+	return -1;
 }
 
 struct sockaddr *
 get_ifa(char *cp, int n)
 {
-	struct sockaddr *sa;
-	unsigned int i;
+	struct sockaddr		*sa;
+	unsigned int		 i;
 
 	if (n == 0)
-		return (NULL);
+		return NULL;
 	for (i = 1; i; i <<= 1)
 		if (i & n) {
 			sa = (struct sockaddr *)cp;
 			if (i == RTA_IFA)
-				return (sa);
+				return sa;
 			ADVANCE(cp, sa);
 		}
 
-	return (NULL);
+	return NULL;
 }
 
 void
@@ -681,7 +681,7 @@ main(int argc, char *argv[])
 	dispatch(ifi, routefd);
 
 	/* not reached */
-	return (0);
+	return 0;
 }
 
 void
@@ -698,9 +698,9 @@ usage(void)
 void
 state_preboot(struct interface_info *ifi)
 {
-	static int preamble;
-	time_t cur_time;
-	int interval;
+	static int	 preamble;
+	time_t		 cur_time;
+	int		 interval;
 
 	time(&cur_time);
 
@@ -792,7 +792,7 @@ state_init(struct interface_info *ifi)
 void
 state_selecting(struct interface_info *ifi)
 {
-	struct option_data *option;
+	struct option_data	*option;
 
 	cancel_timeout(ifi);
 
@@ -860,8 +860,8 @@ state_selecting(struct interface_info *ifi)
 void
 dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 {
-	struct client_lease *lease;
-	time_t stop_selecting;
+	struct client_lease	*lease;
+	time_t			 stop_selecting;
 
 	if (ifi->state != S_SELECTING) {
 #ifdef DEBUG
@@ -899,7 +899,7 @@ dhcpoffer(struct interface_info *ifi, struct option_data *options, char *info)
 void
 dhcpack(struct interface_info *ifi, struct option_data *options, char *info)
 {
-	struct client_lease *lease;
+	struct client_lease	*lease;
 
 	if (ifi->state != S_REBOOTING &&
 	    ifi->state != S_REQUESTING &&
@@ -970,12 +970,12 @@ dhcpnak(struct interface_info *ifi, struct option_data *options, char *info)
 void
 bind_lease(struct interface_info *ifi)
 {
-	struct in_addr gateway, mask;
-	struct option_data *opt;
-	struct option_data *options;
-	struct client_lease *lease, *pl;
-	time_t cur_time;
-	int seen;
+	struct in_addr		 gateway, mask;
+	struct option_data	*opt;
+	struct option_data	*options;
+	struct client_lease	*lease, *pl;
+	time_t			 cur_time;
+	int			 seen;
 
 	/*
 	 * Clear out any old resolv_conf in case the lease has been here
@@ -1123,8 +1123,8 @@ newlease:
 void
 state_bound(struct interface_info *ifi)
 {
-	struct option_data *opt;
-	struct in_addr *dest;
+	struct option_data	*opt;
+	struct in_addr		*dest;
 
 	ifi->xid = arc4random();
 	make_request(ifi, ifi->active);
@@ -1147,13 +1147,13 @@ state_bound(struct interface_info *ifi)
 int
 addressinuse(char *name, struct in_addr address, char *ifname)
 {
-	struct ifaddrs *ifap, *ifa;
-	struct sockaddr_in *sin;
-	int used = 0;
+	struct ifaddrs		*ifap, *ifa;
+	struct sockaddr_in	*sin;
+	int			 used = 0;
 
 	if (getifaddrs(&ifap) != 0) {
 		log_warn("addressinuse: getifaddrs");
-		return (0);
+		return 0;
 	}
 
 	for (ifa = ifap; ifa; ifa = ifa->ifa_next) {
@@ -1171,7 +1171,7 @@ addressinuse(char *name, struct in_addr address, char *ifname)
 	}
 
 	freeifaddrs(ifap);
-	return (used);
+	return used;
 }
 
 /*
@@ -1184,11 +1184,11 @@ addressinuse(char *name, struct in_addr address, char *ifname)
 struct client_lease *
 packet_to_lease(struct interface_info *ifi, struct option_data *options)
 {
-	struct dhcp_packet *packet = &ifi->recv_packet;
-	char ifname[IF_NAMESIZE];
-	struct client_lease *lease;
-	char *pretty, *buf, *name;
-	int i;
+	char			 ifname[IF_NAMESIZE];
+	struct dhcp_packet	*packet = &ifi->recv_packet;
+	struct client_lease	*lease;
+	char			*pretty, *buf, *name;
+	int			 i;
 
 	lease = calloc(1, sizeof(struct client_lease));
 	if (lease == NULL) {
@@ -1323,10 +1323,10 @@ decline:
 void
 send_discover(struct interface_info *ifi)
 {
-	struct dhcp_packet *packet = &ifi->sent_packet;
-	time_t cur_time;
-	ssize_t rslt;
-	int interval;
+	struct dhcp_packet	*packet = &ifi->sent_packet;
+	time_t			 cur_time;
+	ssize_t			 rslt;
+	int			 interval;
 
 	time(&cur_time);
 
@@ -1408,11 +1408,11 @@ state_panic(struct interface_info *ifi)
 void
 send_request(struct interface_info *ifi)
 {
-	struct dhcp_packet *packet = &ifi->sent_packet;
-	struct sockaddr_in destination;
-	struct in_addr from;
-	time_t cur_time;
-	int interval;
+	struct sockaddr_in	 destination;
+	struct in_addr		 from;
+	struct dhcp_packet	*packet = &ifi->sent_packet;
+	time_t			 cur_time;
+	int			 interval;
 
 	time(&cur_time);
 
@@ -1739,7 +1739,7 @@ make_decline(struct interface_info *ifi, struct client_lease *lease)
 void
 free_client_lease(struct client_lease *lease)
 {
-	int i;
+	int	 i;
 
 	/* Static leases are forever. */
 	if (lease == NULL || lease->is_static)
@@ -1757,9 +1757,9 @@ free_client_lease(struct client_lease *lease)
 void
 rewrite_client_leases(struct interface_info *ifi)
 {
-	struct client_lease *lp;
-	char *leasestr;
-	time_t cur_time;
+	struct client_lease	*lp;
+	char			*leasestr;
+	time_t			 cur_time;
 
 	if (!leaseFile)	/* XXX */
 		fatalx("lease file not open");
@@ -1797,7 +1797,7 @@ void
 rewrite_option_db(char *name, struct client_lease *offered,
     struct client_lease *effective)
 {
-	char *leasestr;
+	char	*leasestr;
 
 	if (!optionDB)
 		return;
@@ -1832,12 +1832,12 @@ append_statement(char *string, size_t sz, char *s1, char *s2)
 char *
 lease_as_string(char *ifname, char *type, struct client_lease *lease)
 {
-	static char string[8192];
-	char timebuf[27];	/* to hold "6 2017/04/08 05:47:50 UTC;" */
-	struct option_data *opt;
-	char *buf, *name;
-	size_t rslt;
-	int i;
+	static char		 string[8192];
+	char			 timebuf[27];	/* 6 2017/04/08 05:47:50 UTC; */
+	struct option_data	*opt;
+	char			*buf, *name;
+	size_t			 rslt;
+	int			 i;
 
 	memset(string, 0, sizeof(string));
 
@@ -1847,7 +1847,7 @@ lease_as_string(char *ifname, char *type, struct client_lease *lease)
 
 	buf = pretty_print_string(ifname, strlen(ifname), 1);
 	if (buf == NULL)
-		return (NULL);
+		return NULL;
 	append_statement(string, sizeof(string), "  interface ", buf);
 
 	append_statement(string, sizeof(string), "  fixed-address ",
@@ -1859,21 +1859,21 @@ lease_as_string(char *ifname, char *type, struct client_lease *lease)
 		buf = pretty_print_string(lease->filename,
 		    strlen(lease->filename), 1);
 		if (buf == NULL)
-			return (NULL);
+			return NULL;
 		append_statement(string, sizeof(string), "  filename ", buf);
 	}
 	if (lease->server_name) {
 		buf = pretty_print_string(lease->server_name,
 		    strlen(lease->server_name), 1);
 		if (buf == NULL)
-			return (NULL);
+			return NULL;
 		append_statement(string, sizeof(string), "  server-name ",
 		    buf);
 	}
 	if (lease->ssid_len != 0) {
 		buf = pretty_print_string(lease->ssid, lease->ssid_len, 1);
 		if (buf == NULL)
-			return (NULL);
+			return NULL;
 		append_statement(string, sizeof(string), "  ssid ", buf);
 	}
 
@@ -1885,7 +1885,7 @@ lease_as_string(char *ifname, char *type, struct client_lease *lease)
 
 		buf = pretty_print_option(i, opt, 1);
 		if (buf == NULL)
-			return (NULL);
+			return NULL;
 		strlcat(string, "  option ", sizeof(string));
 		strlcat(string, name, sizeof(string));
 		append_statement(string, sizeof(string), " ", buf);
@@ -1894,32 +1894,32 @@ lease_as_string(char *ifname, char *type, struct client_lease *lease)
 	rslt = strftime(timebuf, sizeof(timebuf), DB_TIMEFMT,
 	    gmtime(&lease->renewal));
 	if (rslt == 0)
-		return (NULL);
+		return NULL;
 	append_statement(string, sizeof(string), "  renew ", timebuf);
 
 	rslt = strftime(timebuf, sizeof(timebuf), DB_TIMEFMT,
 	    gmtime(&lease->rebind));
 	if (rslt == 0)
-		return (NULL);
+		return NULL;
 	append_statement(string, sizeof(string), "  rebind ", timebuf);
 
 	rslt = strftime(timebuf, sizeof(timebuf), DB_TIMEFMT,
 	    gmtime(&lease->expiry));
 	if (rslt == 0)
-		return (NULL);
+		return NULL;
 	append_statement(string, sizeof(string), "  expire ", timebuf);
 
 	rslt = strlcat(string, "}\n", sizeof(string));
 	if (rslt >= sizeof(string))
-		return (NULL);
+		return NULL;
 
-	return (string);
+	return  string ;
 }
 
 void
 go_daemon(void)
 {
-	static int state = 0;
+	static int	 state = 0;
 
 	if (!daemonize || state)
 		return;
@@ -1943,14 +1943,14 @@ rdaemon(int devnull)
 {
 	if (devnull == -1) {
 		errno = EBADF;
-		return (-1);
+		return -1;
 	}
 	if (fcntl(devnull, F_GETFL) == -1)
-		return (-1);
+		return -1;
 
 	switch (fork()) {
 	case -1:
-		return (-1);
+		return -1;
 	case 0:
 		break;
 	default:
@@ -1958,7 +1958,7 @@ rdaemon(int devnull)
 	}
 
 	if (setsid() == -1)
-		return (-1);
+		return -1;
 
 	(void)dup2(devnull, STDIN_FILENO);
 	(void)dup2(devnull, STDOUT_FILENO);
@@ -1966,15 +1966,15 @@ rdaemon(int devnull)
 	if (devnull > 2)
 		(void)close(devnull);
 
-	return (0);
+	return 0;
 }
 
 int
 res_hnok(const char *name)
 {
-	const char *dn = name;
-	int pch = '.', ch = (unsigned char)*dn++;
-	int warn = 0;
+	const char	*dn = name;
+	int		 pch = '.', ch = (unsigned char)*dn++;
+	int		 warn = 0;
 
 	while (ch != '\0') {
 		int nch = (unsigned char)*dn++;
@@ -1983,9 +1983,9 @@ res_hnok(const char *name)
 			;
 		} else if (pch == '.' || nch == '.' || nch == '\0') {
 			if (!isalnum(ch))
-				return (0);
+				return 0;
 		} else if (!isalnum(ch) && ch != '-' && ch != '_') {
-			return (0);
+			return 0;
 		} else if (ch == '_' && warn == 0) {
 			log_warnx("warning: hostname %s contains an "
 			    "underscore which violates RFC 952", name);
@@ -1993,7 +1993,7 @@ res_hnok(const char *name)
 		}
 		pch = ch, ch = nch;
 	}
-	return (1);
+	return 1;
 }
 
 /*
@@ -2004,11 +2004,11 @@ res_hnok(const char *name)
 int
 res_hnok_list(const char *names)
 {
-	char *dupnames, *hn, *inputstring;
-	int count;
+	char	*dupnames, *hn, *inputstring;
+	int	 count;
 
 	if (strlen(names) >= DHCP_DOMAIN_SEARCH_LEN)
-		return (0);
+		return 0;
 
 	dupnames = inputstring = strdup(names);
 	if (inputstring == NULL)
@@ -2027,7 +2027,7 @@ res_hnok_list(const char *names)
 
 	free(dupnames);
 
-	return (count > 0 && count < 7 && hn == NULL);
+	return count > 0 && count < 7 && hn == NULL;
 }
 
 void
@@ -2121,10 +2121,10 @@ fork_privchld(struct interface_info *ifi, int fd, int fd2)
 void
 get_ifname(struct interface_info *ifi, char *arg)
 {
-	struct ifgroupreq ifgr;
-	struct ifg_req *ifg;
-	unsigned int len;
-	int s;
+	struct ifgroupreq	 ifgr;
+	struct ifg_req		*ifg;
+	unsigned int		 len;
+	int			 s;
 
 	if (strcmp(arg, "egress") == 0) {
 		s = socket(AF_INET, SOCK_DGRAM, 0);
@@ -2164,8 +2164,8 @@ get_ifname(struct interface_info *ifi, char *arg)
 struct client_lease *
 apply_defaults(struct client_lease *lease)
 {
-	struct client_lease *newlease;
-	int i, j;
+	struct client_lease	*newlease;
+	int			 i, j;
 
 	newlease = clone_lease(lease);
 	if (newlease == NULL)
@@ -2277,7 +2277,7 @@ apply_defaults(struct client_lease *lease)
 		newlease->options[DHO_STATIC_ROUTES].len = 0;
 	}
 
-	return (newlease);
+	return newlease;
 
 cleanup:
 	if (newlease) {
@@ -2288,14 +2288,14 @@ cleanup:
 	fatalx("Unable to apply defaults");
 	/* NOTREACHED */
 
-	return (NULL);
+	return NULL;
 }
 
 struct client_lease *
 clone_lease(struct client_lease *oldlease)
 {
-	struct client_lease *newlease;
-	int i;
+	struct client_lease	*newlease;
+	int			 i;
 
 	newlease = calloc(1, sizeof(struct client_lease));
 	if (newlease == NULL)
@@ -2338,7 +2338,7 @@ clone_lease(struct client_lease *oldlease)
 		    newlease->options[i].len);
 	}
 
-	return (newlease);
+	return newlease;
 
 cleanup:
 	if (newlease) {
@@ -2346,7 +2346,7 @@ cleanup:
 		free_client_lease(newlease);
 	}
 
-	return (NULL);
+	return NULL;
 }
 
 /*
@@ -2357,9 +2357,9 @@ cleanup:
 void
 apply_ignore_list(char *ignore_list)
 {
-	uint8_t	 list[DHO_COUNT];
-	char	*p;
-	int	 ix, i, j;
+	uint8_t		 list[DHO_COUNT];
+	char		*p;
+	int		 ix, i, j;
 
 	memset(list, 0, sizeof(list));
 	ix = 0;
@@ -2452,42 +2452,42 @@ set_lease_times(struct client_lease *lease)
 int
 compare_lease(struct client_lease *active, struct client_lease *new)
 {
-	int i;
+	int	 i;
 
 	if (active == new)
-		return (0);
+		return 0;
 
 	if (!new || !active)
-		return (1);
+		return 1;
 
 	if (active->address.s_addr != new->address.s_addr ||
 	    active->is_static != new->is_static ||
 	    BOOTP_LEASE(active) != BOOTP_LEASE(new))
-		return (1);
+		return 1;
 
 	if (active->server_name != new->server_name) {
 		if (!active->server_name || !new->server_name)
-			return (1);
+			return 1;
 		if (strcmp(active->server_name, new->server_name) != 0)
-			return (1);
+			return 1;
 	}
 
 	if (active->filename != new->filename) {
 		if (!active->filename || !new->filename)
-			return (1);
+			return 1;
 		if (strcmp(active->filename, new->filename) != 0)
-			return (1);
+			return 1;
 	}
 
 	for (i = 0; i < DHO_COUNT; i++) {
 		if (active->options[i].len != new->options[i].len)
-			return (1);
+			return 1;
 		if (memcmp(active->options[i].data, new->options[i].data,
 		    active->options[i].len))
-			return (1);
+			return 1;
 	}
 
-	return (0);
+	return 0;
 }
 
 void
@@ -2578,13 +2578,13 @@ get_recorded_lease(struct interface_info *ifi)
 		break;
 	}
 
-	return (lp);
+	return lp;
 }
 
 void
 set_default_client_identifier(struct interface_info *ifi)
 {
-	struct option_data *opt;
+	struct option_data	*opt;
 
 	/*
 	 *

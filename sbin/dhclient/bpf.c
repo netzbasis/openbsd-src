@@ -1,4 +1,4 @@
-/*	$OpenBSD: bpf.c,v 1.57 2017/07/08 00:36:10 krw Exp $	*/
+/*	$OpenBSD: bpf.c,v 1.59 2017/07/10 00:47:47 krw Exp $	*/
 
 /* BPF socket interface code, originally contributed by Archie Cobbs. */
 
@@ -75,8 +75,8 @@ void if_register_bpf(struct interface_info *ifi);
 void
 if_register_bpf(struct interface_info *ifi)
 {
-	struct ifreq ifr;
-	int sock;
+	struct ifreq	 ifr;
+	int		 sock;
 
 	if ((sock = open("/dev/bpf", O_RDWR | O_CLOEXEC)) == -1)
 		fatal("Can't open bpf");
@@ -92,7 +92,7 @@ if_register_bpf(struct interface_info *ifi)
 void
 if_register_send(struct interface_info *ifi)
 {
-	int sock, on = 1;
+	int	 sock, on = 1;
 
 	/*
 	 * Use raw socket for unicast send.
@@ -187,9 +187,9 @@ int dhcp_bpf_wfilter_len = sizeof(dhcp_bpf_wfilter) / sizeof(struct bpf_insn);
 void
 if_register_receive(struct interface_info *ifi)
 {
-	struct bpf_version v;
-	struct bpf_program p;
-	int flag = 1, sz;
+	struct bpf_version	 v;
+	struct bpf_program	 p;
+	int			 flag = 1, sz;
 
 	/* Open a BPF device and hang it on this interface. */
 	if_register_bpf(ifi);
@@ -256,15 +256,15 @@ if_register_receive(struct interface_info *ifi)
 ssize_t
 send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 {
-	struct sockaddr_in dest;
-	struct ether_header eh;
-	struct ip ip;
-	struct udphdr udp;
-	struct iovec iov[4];
-	struct msghdr msg;
-	struct dhcp_packet *packet = &ifi->sent_packet;
-	ssize_t result;
-	int iovcnt = 0, len = ifi->sent_packet_length;
+	struct iovec		 iov[4];
+	struct sockaddr_in	 dest;
+	struct ether_header	 eh;
+	struct ip		 ip;
+	struct udphdr		 udp;
+	struct msghdr		 msg;
+	struct dhcp_packet	*packet = &ifi->sent_packet;
+	ssize_t			 result;
+	int			 iovcnt = 0, len = ifi->sent_packet_length;
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sin_family = AF_INET;
@@ -324,16 +324,16 @@ send_packet(struct interface_info *ifi, struct in_addr from, struct in_addr to)
 
 	if (result == -1)
 		log_warn("send_packet");
-	return (result);
+	return result ;
 }
 
 ssize_t
 receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
     struct ether_addr *hfrom)
 {
-	struct dhcp_packet *packet = &ifi->recv_packet;
-	int length = 0, offset = 0;
-	struct bpf_hdr hdr;
+	struct bpf_hdr		 hdr;
+	struct dhcp_packet	*packet = &ifi->recv_packet;
+	int			 length = 0, offset = 0;
 
 	/*
 	 * All this complexity is because BPF doesn't guarantee that
@@ -350,7 +350,7 @@ receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
 		if (ifi->rbuf_offset >= ifi->rbuf_len) {
 			length = read(ifi->bfdesc, ifi->rbuf, ifi->rbuf_max);
 			if (length <= 0)
-				return (length);
+				return  length ;
 			ifi->rbuf_offset = 0;
 			ifi->rbuf_len = length;
 		}
@@ -439,7 +439,7 @@ receive_packet(struct interface_info *ifi, struct sockaddr_in *from,
 		memcpy(packet, ifi->rbuf + ifi->rbuf_offset, hdr.bh_caplen);
 		ifi->rbuf_offset = BPF_WORDALIGN(ifi->rbuf_offset +
 		    hdr.bh_caplen);
-		return (hdr.bh_caplen);
+		return  hdr.bh_caplen ;
 	} while (!length);
-	return (0);
+	return  0 ;
 }
