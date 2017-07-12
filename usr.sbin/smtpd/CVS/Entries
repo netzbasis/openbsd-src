@@ -47,7 +47,7 @@
 /mta.c/1.203/Mon Jan  9 09:53:23 2017//
 /mta_session.c/1.98/Wed May 24 21:27:32 2017//
 /newaliases.8/1.11/Tue Dec 22 17:52:21 2015//
-/parse.y/1.196/Mon May 22 13:43:15 2017//
+/parse.y/1.197/Tue Jul 11 06:08:40 2017//
 /parser.c/1.40/Fri Jan  9 08:28:02 2015//
 /parser.h/1.29/Tue Feb  4 15:22:39 2014//
 /pony.c/1.17/Mon Jan  9 09:53:23 2017//
@@ -75,7 +75,7 @@
 /smtpd-defines.h/1.7/Wed Aug 31 10:18:08 2016//
 /smtpd.8/1.32/Tue Jan  3 22:11:39 2017//
 /smtpd.c/1.289/Fri May 12 20:15:52 2017//
-/smtpd.conf.5/1.173/Wed Jun  7 13:25:18 2017//
+/smtpd.conf.5/1.174/Tue Jul 11 06:08:40 2017//
 /smtpd.h/1.532/Fri May 26 21:30:00 2017//
 /smtpf_session.c/1.1/Mon May 22 13:40:54 2017//
 /ssl.c/1.89/Wed May 17 14:00:06 2017//
