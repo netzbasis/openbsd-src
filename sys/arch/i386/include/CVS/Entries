@@ -11,7 +11,7 @@
 /cdefs.h/1.10/Thu Mar 28 17:30:45 2013//
 /codepatch.h/1.2/Sat Jul  1 19:42:59 2017//
 /conf.h/1.16/Fri Oct 21 06:56:38 2016//
-/cpu.h/1.155/Thu Mar 16 10:02:03 2017//
+/cpu.h/1.156/Wed Jul 12 06:26:33 2017//
 /cpufunc.h/1.26/Sat Jun 17 09:32:26 2017//
 /cputypes.h/1.10/Mon Dec 29 08:14:18 2003//
 /cpuvar.h/1.7/Thu Jul 28 21:57:57 2016//
@@ -74,6 +74,6 @@
 /varargs.h/1.6/Wed Mar 23 16:54:35 2011//
 /vga_post.h/1.2/Wed Mar 23 16:54:35 2011//
 /vm86.h/1.10/Sat Jun 25 19:20:41 2011//
-/vmmvar.h/1.11/Thu Jul  6 06:19:15 2017//
+/vmmvar.h/1.12/Wed Jul 12 05:32:50 2017//
 /vmparam.h/1.55/Sun Nov  1 20:09:59 2015//
 D
