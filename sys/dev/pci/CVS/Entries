@@ -192,7 +192,7 @@
 /if_stgereg.h/1.11/Mon Aug 10 19:41:05 2009//
 /if_tht.c/1.140/Sun Jan 22 10:17:38 2017//
 /if_ti_pci.c/1.5/Tue Nov 24 17:11:39 2015//
-/if_tl.c/1.70/Sun Jan 22 10:17:38 2017//
+/if_tl.c/1.71/Thu Jul 13 17:44:36 2017//
 /if_tlreg.h/1.10/Fri Jan 31 06:05:40 2014//
 /if_txp.c/1.126/Wed Jul 12 14:36:57 2017//
 /if_txpreg.h/1.39/Wed Jul 12 14:36:57 2017//
@@ -206,7 +206,7 @@
 /if_vrreg.h/1.37/Tue Oct 20 17:08:39 2015//
 /if_vte.c/1.19/Sun Jan 22 10:17:38 2017//
 /if_vtereg.h/1.2/Sat May 28 08:31:51 2011//
-/if_wb.c/1.68/Sun Jan 22 10:17:38 2017//
+/if_wb.c/1.69/Thu Jul 13 17:45:00 2017//
 /if_wbreg.h/1.9/Thu Oct 18 21:44:21 2012//
 /if_wi_pci.c/1.52/Tue Nov 24 17:11:39 2015//
 /if_wpi.c/1.140/Sat Apr  8 02:57:25 2017//
