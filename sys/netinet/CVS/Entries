@@ -46,7 +46,7 @@
 /ip_mroute.h/1.28/Wed Feb  1 20:59:47 2017//
 /ip_output.c/1.340/Mon May 29 14:36:22 2017//
 /ip_spd.c/1.92/Thu Apr  6 14:25:18 2017//
-/ip_var.h/1.79/Mon Jun 26 19:06:12 2017//
+/ip_var.h/1.80/Fri Jul 14 16:50:41 2017//
 /ipsec_input.c/1.156/Wed Jul  5 11:34:10 2017//
 /ipsec_output.c/1.68/Thu May 18 10:56:45 2017//
 /raw_ip.c/1.100/Mon Jun 26 09:32:32 2017//

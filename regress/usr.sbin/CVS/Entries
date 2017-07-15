@@ -2,6 +2,7 @@
 D/acme-client////
 D/arp////
 D/httpd////
+D/ifstated////
 D/ldapd////
 D/mtree////
 D/ospfd////
