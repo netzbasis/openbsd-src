@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.199 2017/07/15 15:48:08 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.202 2017/07/16 23:38:36 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014, 2016 genua gmbh <info@genua.de>
@@ -5435,6 +5435,16 @@ iwm_deauth(struct iwm_softc *sc)
 
 	splassert(IPL_NET);
 
+	if (sc->sc_flags & IWM_FLAG_STA_ACTIVE) {
+		err = iwm_rm_sta_cmd(sc, in);
+		if (err) {
+			printf("%s: could not remove STA (error %d)\n",
+			    DEVNAME(sc), err);
+			return err;
+		}
+		sc->sc_flags &= ~IWM_FLAG_STA_ACTIVE;
+	}
+
 	tfd_msk = 0;
 	for (ac = 0; ac < EDCA_NUM_AC; ac++)
 		tfd_msk |= htole32(1 << iwm_ac_to_tx_fifo[ac]);
@@ -5841,17 +5851,20 @@ iwm_newstate_task(void *psc)
 	    ieee80211_state_name[ostate],
 	    ieee80211_state_name[nstate]));
 
-	if (ostate == IEEE80211_S_SCAN && nstate != ostate)
+	if (nstate == ostate) {
+		splx(s);
+		return;
+	}
+
+	if (ostate == IEEE80211_S_SCAN)
 		iwm_led_blink_stop(sc);
 
-	if (nstate <= ostate) {
+	if (nstate < ostate) {
 		switch (ostate) {
 		case IEEE80211_S_RUN:
-			if (nstate <= IEEE80211_S_RUN) {
-				err = iwm_run_stop(sc);
-				if (err)
-					goto out;
-			}
+			err = iwm_run_stop(sc);
+			if (err)
+				goto out;
 			/* FALLTHROUGH */
 		case IEEE80211_S_ASSOC:
 			if (nstate <= IEEE80211_S_ASSOC) {
