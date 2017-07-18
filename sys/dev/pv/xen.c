@@ -1,4 +1,4 @@
-/*	$OpenBSD: xen.c,v 1.85 2017/07/14 21:53:34 mikeb Exp $	*/
+/*	$OpenBSD: xen.c,v 1.87 2017/07/17 16:32:26 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2015, 2016, 2017 Mike Belopuhov
@@ -1178,6 +1178,11 @@ xen_grant_table_enter(struct xen_softc *sc, grant_ref_t ref, paddr_t pa,
 	}
 #endif
 	ref -= ge->ge_start;
+	if (ge->ge_table[ref].flags != GTF_invalid) {
+		panic("reference %u is still in use, flags %#x frame %#x",
+		    ref + ge->ge_start, ge->ge_table[ref].flags,
+		    ge->ge_table[ref].frame);
+	}
 	ge->ge_table[ref].frame = atop(pa);
 	ge->ge_table[ref].domid = domain;
 	virtio_membar_sync();
@@ -1212,7 +1217,7 @@ xen_grant_table_remove(struct xen_softc *sc, grant_ref_t ref)
 	    (ge->ge_table[ref].domid << 16);
 	loop = 0;
 	while (atomic_cas_uint(ptr, flags, GTF_invalid) != flags) {
-		if (loop++ > 1000) {
+		if (loop++ > 10) {
 			printf("%s: grant table reference %u is held "
 			    "by domain %d\n", sc->sc_dev.dv_xname, ref +
 			    ge->ge_start, ge->ge_table[ref].domid);
