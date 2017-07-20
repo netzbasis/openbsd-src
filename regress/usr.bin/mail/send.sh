@@ -14,13 +14,11 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-set -e
-
 testseq() {
 	stdin=$1
 	exp=$(echo "$2")
-	act=$(echo -n "$stdin" | ./edit mail -En unknown)
-	[ "$exp" = "$act" ] && return 0
+	act=$(echo -n "$stdin" | ./edit -p 'Subject: ' mail -En unknown)
+	[ $? = 0 ] && [ "$exp" = "$act" ] && return 0
 
 	echo input:
 	echo ">>>${stdin}<<<"
@@ -32,21 +30,26 @@ testseq() {
 	echo ">>>${act}<<<"
 	echo -n "$act" | hexdump -C
 
-	return 1
+	exit 1
 }
 
-MALLOC_OPTIONS=S
-export MALLOC_OPTIONS
+# Create a fake HOME with a minimal .mailrc.
+tmp=$(mktemp -d)
+trap 'rm -r $tmp' 0
+cat >$tmp/.mailrc <<!
+set ask
+!
 
-# NL: New line.
-testseq "\n" "Subject: \r\n"
+HOME=$tmp
+MALLOC_OPTIONS=S
+export HOME MALLOC_OPTIONS
 
 # VERASE: Delete character.
 testseq "\0177" "Subject: "
 testseq "a\0177" "Subject: a\b \b"
 
 # VINTR: Kill letter.
-testseq "\0003\0003" \
+testseq "\0003" \
 	"Subject: ^C\r\n(Interrupt -- one more to kill letter)\r\nSubject: "
 
 # VKILL: Kill line.

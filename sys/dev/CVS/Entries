@@ -15,9 +15,9 @@
 /ipmi.h/1.1/Fri Feb  5 06:29:01 2016//
 /ipmivar.h/1.28/Fri Feb  5 06:29:01 2016//
 /ksyms.c/1.31/Mon Jan 11 17:29:43 2016//
-/midi.c/1.42/Tue Jan  3 06:39:44 2017//
+/midi.c/1.43/Wed Jul 19 22:23:54 2017//
 /midi_if.h/1.9/Sat May 16 10:04:20 2015//
-/midivar.h/1.9/Sat May 16 09:56:10 2015//
+/midivar.h/1.10/Wed Jul 19 22:23:54 2017//
 /mulaw.c/1.18/Thu Jun 25 06:43:46 2015//
 /mulaw.h/1.16/Thu Jun 25 06:43:46 2015//
 /radio.c/1.11/Thu Sep 22 00:47:19 2016//
@@ -39,7 +39,7 @@
 /spdmemvar.h/1.1/Mon Mar 22 21:20:56 2010//
 /video.c/1.40/Sun Jul  3 20:05:44 2016//
 /video_if.h/1.18/Sat Oct 18 08:01:34 2014//
-/vnd.c/1.163/Sat Jan 21 05:42:04 2017//
+/vnd.c/1.165/Wed Jul 19 14:54:29 2017//
 /vndioctl.h/1.10/Wed Dec 14 18:59:12 2016//
 /vscsi.c/1.41/Sun Feb 12 17:12:37 2017//
 /vscsivar.h/1.5/Tue Apr  5 15:28:49 2011//
