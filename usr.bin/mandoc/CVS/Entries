@@ -24,7 +24,7 @@
 /libmandoc.h/1.55/Sat Jul  8 17:52:42 2017//
 /libmdoc.h/1.83/Tue May 30 16:21:07 2017//
 /libroff.h/1.20/Sat Jul  8 17:52:42 2017//
-/main.c/1.202/Tue Jul  4 14:40:30 2017//
+/main.c/1.203/Thu Jul 20 15:26:35 2017//
 /main.h/1.22/Fri Mar  3 14:21:41 2017//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
 /man.1/1.27/Wed May 17 23:22:29 2017//
@@ -37,7 +37,7 @@
 /man_term.c/1.161/Sun Jun 25 07:23:53 2017//
 /man_validate.c/1.103/Sun Jun 25 07:23:53 2017//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
-/mandoc.1/1.140/Fri Jul  7 16:19:30 2017//
+/mandoc.1/1.141/Thu Jul 20 15:26:35 2017//
 /mandoc.c/1.71/Mon Jul  3 13:40:00 2017//
 /mandoc.css/1.9/Sun Jul 16 18:44:15 2017//
 /mandoc.h/1.187/Sat Jul  8 14:51:01 2017//
@@ -60,14 +60,14 @@
 /mdoc_markdown.c/1.23/Wed Jun 14 01:31:19 2017//
 /mdoc_state.c/1.8/Fri May  5 15:16:25 2017//
 /mdoc_term.c/1.263/Wed Jun 14 17:50:43 2017//
-/mdoc_validate.c/1.264/Sat Jul 15 16:40:23 2017//
+/mdoc_validate.c/1.265/Thu Jul 20 12:53:55 2017//
 /msec.c/1.12/Tue Oct  6 18:30:44 2015//
 /msec.in/1.6/Sat Jun 24 17:36:50 2017//
 /out.c/1.42/Tue Jun 27 18:23:29 2017//
 /out.h/1.22/Tue Jun 27 18:23:29 2017//
 /preconv.c/1.8/Sat Feb 18 13:43:34 2017//
 /predefs.in/1.4/Fri Nov 28 19:25:03 2014//
-/read.c/1.163/Sat Jul  8 17:52:42 2017//
+/read.c/1.164/Thu Jul 20 14:36:32 2017//
 /roff.c/1.196/Fri Jul 14 17:16:13 2017//
 /roff.h/1.40/Sat Jul  8 14:51:01 2017//
 /roff_html.c/1.11/Sat Jun 24 14:38:28 2017//
