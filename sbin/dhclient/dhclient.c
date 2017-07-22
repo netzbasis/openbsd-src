@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.472 2017/07/20 17:44:13 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.474 2017/07/21 18:57:55 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -195,7 +195,7 @@ get_ifa_family(char *cp, int n)
 		if ((i & n) != 0) {
 			sa = (struct sockaddr *)cp;
 			if (i == RTA_IFA)
-				    return sa->sa_family;
+				return sa->sa_family;
 			ADVANCE(cp, sa);
 		}
 	}
@@ -943,7 +943,7 @@ bind_lease(struct interface_info *ifi)
 		if (mtu < 68)
 			log_warnx("mtu size %u < 68: ignored", mtu);
 		else
-			set_interface_mtu(mtu);
+			set_mtu(mtu);
 	}
 
 	opt = &options[DHO_SUBNET_MASK];

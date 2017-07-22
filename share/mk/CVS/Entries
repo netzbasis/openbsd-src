@@ -2,13 +2,13 @@
 /bsd.README/1.76/Wed Jul 19 17:28:51 2017//
 /bsd.dep.mk/1.22/Mon Jul 10 07:59:00 2017//
 /bsd.lib.mk/1.88/Tue Jul 11 18:16:48 2017//
-/bsd.man.mk/1.41/Fri Jan 16 01:58:17 2015//
+/bsd.man.mk/1.42/Fri Jul 21 15:18:35 2017//
 /bsd.obj.mk/1.19/Tue Jan 24 03:22:13 2017//
 /bsd.own.mk/1.185/Mon Jun 19 08:35:24 2017//
 /bsd.port.arch.mk/1.1/Sat Sep 24 07:26:01 2011//
 /bsd.port.mk/1.95/Sat Sep 24 07:26:01 2011//
 /bsd.port.subdir.mk/1.9/Sat Sep 24 07:26:01 2011//
-/bsd.prog.mk/1.74/Sun Jul  9 15:29:52 2017//
+/bsd.prog.mk/1.75/Fri Jul 21 11:00:24 2017//
 /bsd.regress.mk/1.13/Sat Jul 19 18:15:53 2014//
 /bsd.subdir.mk/1.22/Sat Oct  8 09:43:46 2016//
 /bsd.sys.mk/1.13/Sun Jul  9 14:04:50 2017//
