@@ -242,7 +242,7 @@
 /elf64.c/1.1.1.1/Sun Apr 24 20:14:42 2011//
 /elfcode.h/1.1.1.1/Sun Apr 24 20:14:42 2011//
 /elfcore.h/1.1.1.1/Sun Apr 24 20:14:42 2011//
-/elflink.c/1.19/Sat Sep  3 09:34:33 2016//
+/elflink.c/1.20/Sat Jul 22 15:39:15 2017//
 /elfn32-mips.c/1.1.1.1/Sun Apr 24 20:14:42 2011//
 /elfxx-ia64.c/1.4/Tue Aug 25 02:24:49 2015//
 /elfxx-mips.c/1.8/Tue Apr 26 09:01:33 2016//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.111 2017/07/21 18:57:55 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.113 2017/07/22 17:55:20 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -272,7 +272,7 @@ add_direct_route(struct in_addr dest, struct in_addr mask,
  *	route -q $rdomain add default $router
  */
 void
-add_default_route(struct in_addr addr, struct in_addr gateway)
+add_default_route(struct in_addr gateway, struct in_addr addr)
 {
 	struct in_addr	 netmask, dest;
 	int		 addrs, flags;
@@ -394,6 +394,45 @@ create_route_label(struct sockaddr_rtlabel *label)
 	}
 
 	return 0;
+}
+
+void
+set_routes(struct in_addr addr, struct option_data *classless,
+    struct option_data *msclassless, struct option_data *routers,
+    struct option_data *classfull, struct option_data *subnet)
+{
+	struct in_addr	gateway, mask;
+
+	if (classless->len != 0) {
+		add_classless_static_routes(classless, addr);
+		return;
+	}
+
+	if (msclassless->len != 0) {
+		add_classless_static_routes(msclassless, addr);
+		return;
+	}
+
+	if (routers->len >= sizeof(gateway)) {
+		/* XXX Only use FIRST router address for now. */
+		gateway.s_addr = ((struct in_addr *)routers->data)->s_addr;
+
+		/*
+		 * To be compatible with ISC DHCP behavior on Linux, if
+		 * we were given a /32 IP assignment, then add a /32
+		 * direct route for the gateway to make it routable.
+		 */
+		if (subnet->len == sizeof(mask)) {
+			mask.s_addr = ((struct in_addr *)subnet->data)->s_addr;
+			if (mask.s_addr == INADDR_BROADCAST)
+				add_direct_route(gateway, mask, addr);
+		}
+
+		add_default_route(gateway, addr);
+	}
+
+	if (classfull->len != 0)
+		add_static_routes(classfull, addr);
 }
 
 /*
@@ -614,12 +653,20 @@ priv_delete_address(char *name, int ioctlfd, struct imsg_delete_address *imsg)
  *      ifconfig <if> mtu <mtu>
  */
 void
-set_mtu(int mtu)
+set_mtu(struct option_data *mtu)
 {
 	struct imsg_set_mtu	 imsg;
 	int			 rslt;
 
-	imsg.mtu = mtu;
+	if (mtu->len != sizeof(uint16_t))
+		return;
+
+	memcpy(&imsg.mtu, mtu->data, sizeof(uint16_t));
+	imsg.mtu = ntohs(imsg.mtu);
+	if (imsg.mtu < 68) {
+		log_warnx("mtu size %u < 68: ignored", imsg.mtu);
+		return;
+	}
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_SET_MTU, 0, 0, -1,
 	    &imsg, sizeof(imsg));
@@ -644,29 +691,32 @@ priv_set_mtu(char *name, int ioctlfd, struct imsg_set_mtu *imsg)
 }
 
 /*
- * [priv_]add_address is the equivalent of
+ * [priv_]set_address is the equivalent of
  *
  *	ifconfig <if> inet <addr> netmask <mask> broadcast <addr>
  */
 void
-add_address(struct in_addr addr, struct in_addr mask)
+set_address(struct in_addr addr, struct option_data *mask)
 {
-	struct imsg_add_address	 imsg;
+	struct imsg_set_address	 imsg;
 	int			 rslt;
 
 	imsg.addr = addr;
-	imsg.mask = mask;
+	if (mask->len == sizeof(imsg.mask))
+		imsg.mask.s_addr = ((struct in_addr *)mask->data)->s_addr;
+	else
+		imsg.mask.s_addr = INADDR_ANY;
 
-	rslt = imsg_compose(unpriv_ibuf, IMSG_ADD_ADDRESS, 0, 0, -1, &imsg,
+	rslt = imsg_compose(unpriv_ibuf, IMSG_SET_ADDRESS, 0, 0, -1, &imsg,
 	    sizeof(imsg));
 	if (rslt == -1)
-		log_warn("add_address: imsg_compose");
+		log_warn("set_address: imsg_compose");
 
-	flush_unpriv_ibuf("add_address");
+	flush_unpriv_ibuf("set_address");
 }
 
 void
-priv_add_address(char *name, int ioctlfd, struct imsg_add_address *imsg)
+priv_set_address(char *name, int ioctlfd, struct imsg_set_address *imsg)
 {
 	struct ifaliasreq	 ifaliasreq;
 	struct sockaddr_in	*in;
