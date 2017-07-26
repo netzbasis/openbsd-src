@@ -24,7 +24,7 @@
 /libmandoc.h/1.55/Sat Jul  8 17:52:42 2017//
 /libmdoc.h/1.83/Tue May 30 16:21:07 2017//
 /libroff.h/1.20/Sat Jul  8 17:52:42 2017//
-/main.c/1.203/Thu Jul 20 15:26:35 2017//
+/main.c/1.204/Wed Jul 26 10:21:24 2017//
 /main.h/1.22/Fri Mar  3 14:21:41 2017//
 /makewhatis.8/1.14/Wed May 17 22:26:52 2017//
 /man.1/1.27/Wed May 17 23:22:29 2017//
@@ -35,7 +35,7 @@
 /man_html.c/1.98/Sun Jun 25 07:23:53 2017//
 /man_macro.c/1.85/Sun Jun 25 07:23:53 2017//
 /man_term.c/1.161/Sun Jun 25 07:23:53 2017//
-/man_validate.c/1.103/Sun Jun 25 07:23:53 2017//
+/man_validate.c/1.104/Wed Jul 26 10:33:02 2017//
 /manconf.h/1.5/Sat Jul  1 09:47:23 2017//
 /mandoc.1/1.141/Thu Jul 20 15:26:35 2017//
 /mandoc.c/1.71/Mon Jul  3 13:40:00 2017//
