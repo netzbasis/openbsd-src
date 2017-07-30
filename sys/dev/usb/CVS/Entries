@@ -35,7 +35,7 @@
 /if_rumvar.h/1.9/Mon Apr 15 09:23:01 2013//
 /if_run.c/1.121/Fri Jul 21 00:55:05 2017//
 /if_runvar.h/1.10/Sat May 24 10:10:17 2014//
-/if_smsc.c/1.30/Sun Feb 12 04:29:57 2017//
+/if_smsc.c/1.31/Sat Jul 29 17:24:04 2017//
 /if_smscreg.h/1.5/Thu Jun 18 09:28:54 2015//
 /if_uath.c/1.81/Fri Jul 28 10:50:56 2017//
 /if_uathreg.h/1.2/Mon Sep 18 16:34:23 2006//
@@ -129,7 +129,7 @@
 /uowreg.h/1.5/Sun Oct  8 20:04:23 2006//
 /upd.c/1.26/Sat Apr  8 02:57:25 2017//
 /uplcom.c/1.69/Sat Apr  8 02:57:25 2017//
-/usb.c/1.113/Fri Jul 21 20:13:41 2017//
+/usb.c/1.114/Sat Jul 29 18:26:14 2017//
 /usb.h/1.58/Wed Mar 29 00:18:51 2017//
 /usb_mem.c/1.29/Sat Apr  8 02:57:25 2017//
 /usb_mem.h/1.15/Wed Nov 30 10:19:18 2016//
