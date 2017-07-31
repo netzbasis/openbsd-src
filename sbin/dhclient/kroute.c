@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.122 2017/07/29 15:07:47 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.124 2017/07/30 15:26:46 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -593,20 +593,19 @@ priv_delete_address(char *name, int ioctlfd, struct imsg_delete_address *imsg)
  *      ifconfig <if> mtu <mtu>
  */
 void
-set_mtu(struct option_data *mtu)
+set_mtu(int inits, uint16_t mtu)
 {
 	struct imsg_set_mtu	 imsg;
 	int			 rslt;
 
-	if (mtu->len != sizeof(uint16_t))
+	if ((inits & RTV_MTU) == 0)
 		return;
 
-	memcpy(&imsg.mtu, mtu->data, sizeof(uint16_t));
-	imsg.mtu = ntohs(imsg.mtu);
-	if (imsg.mtu < 68) {
-		log_warnx("mtu size %u < 68: ignored", imsg.mtu);
+	if (mtu < 68) {
+		log_warnx("mtu size %u < 68: ignored", mtu);
 		return;
 	}
+	imsg.mtu = mtu;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_SET_MTU, 0, 0, -1,
 	    &imsg, sizeof(imsg));
@@ -636,7 +635,7 @@ priv_set_mtu(char *name, int ioctlfd, struct imsg_set_mtu *imsg)
  *	ifconfig <if> inet <addr> netmask <mask> broadcast <addr>
  */
 void
-set_address(char *name, struct in_addr addr, struct option_data *mask)
+set_address(char *name, struct in_addr addr, struct in_addr netmask)
 {
 	struct imsg_set_address	 imsg;
 	int			 rslt;
@@ -645,10 +644,7 @@ set_address(char *name, struct in_addr addr, struct option_data *mask)
 	delete_addresses(name);
 
 	imsg.addr = addr;
-	if (mask->len == sizeof(imsg.mask))
-		imsg.mask.s_addr = ((struct in_addr *)mask->data)->s_addr;
-	else
-		imsg.mask.s_addr = INADDR_ANY;
+	imsg.mask = netmask;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_SET_ADDRESS, 0, 0, -1, &imsg,
 	    sizeof(imsg));
@@ -824,56 +820,50 @@ done:
  */
 char *
 resolv_conf_contents(char *name,
-    struct option_data *domainname, struct option_data *nameservers,
-    struct option_data *domainsearch)
+    uint8_t *rtsearch, unsigned int rtsearch_len,
+    uint8_t *rtdns, unsigned int rtdns_len)
 {
-	char		*dn, *ns, *nss[MAXNS], *contents, *courtesy, *p, *buf;
+	char		*dn, *nss[MAXNS], *contents, *courtesy;
+	struct in_addr	*addr;
 	size_t		 len;
-	int		 i, rslt;
+	unsigned int	 i, servers;
+	int		 rslt;
 
 	memset(nss, 0, sizeof(nss));
+	len = 0;
 
-	if (domainsearch->len != 0) {
-		buf = pretty_print_domain_search(domainsearch->data,
-		    domainsearch->len);
-		if (buf == NULL)
-			dn = strdup("");
-		else {
-			rslt = asprintf(&dn, "search %s\n", buf);
-			if (rslt == -1)
-				dn = NULL;
-		}
-	} else if (domainname->len != 0) {
-		rslt = asprintf(&dn, "search %s\n",
-		    pretty_print_option(DHO_DOMAIN_NAME, domainname, 0));
+	if (rtsearch_len != 0) {
+		rslt = asprintf(&dn, "search %.*s\n", rtsearch_len,
+		    rtsearch);
 		if (rslt == -1)
 			dn = NULL;
 	} else
 		dn = strdup("");
 	if (dn == NULL)
 		fatalx("no memory for domainname");
+	len += strlen(dn);
 
-	if (nameservers->len != 0) {
-		ns = pretty_print_option(DHO_DOMAIN_NAME_SERVERS, nameservers,
-		    0);
-		for (i = 0; i < MAXNS; i++) {
-			p = strsep(&ns, " ");
-			if (p == NULL)
-				break;
-			if (*p == '\0')
-				continue;
-			rslt = asprintf(&nss[i], "nameserver %s\n", p);
+	if (rtdns_len != 0) {
+		addr = (struct in_addr *)rtdns;
+		servers = rtdns_len / sizeof(struct in_addr);
+		if (servers > MAXNS)
+			servers = MAXNS;
+		for (i = 0; i < servers; i++) {
+			rslt = asprintf(&nss[i], "nameserver %s\n",
+			    inet_ntoa(*addr));
 			if (rslt == -1)
 				fatalx("no memory for nameserver");
+			len += strlen(nss[i]);
+			addr++;
 		}
 	}
 
-	len = strlen(dn);
-	for (i = 0; i < MAXNS; i++)
-		if (nss[i] != NULL)
-			len += strlen(nss[i]);
-
-	if (len > 0 && config->resolv_tail)
+	/*
+	 * XXX historically dhclient-script did not overwrite
+	 *     resolv.conf when neither search nor dns info
+	 *     was provided. Is that really what we want?
+	 */
+	if (len > 0 && config->resolv_tail != NULL)
 		len += strlen(config->resolv_tail);
 
 	if (len == 0) {
@@ -904,7 +894,7 @@ resolv_conf_contents(char *name,
 		}
 	}
 
-	if (config->resolv_tail)
+	if (config->resolv_tail != NULL)
 		strlcat(contents, config->resolv_tail, len);
 
 	return contents;
