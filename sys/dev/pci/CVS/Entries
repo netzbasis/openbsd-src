@@ -159,7 +159,7 @@
 /if_msk.c/1.129/Fri Jun  2 01:47:36 2017//
 /if_mskvar.h/1.13/Fri Jun  2 01:47:36 2017//
 /if_mtd_pci.c/1.11/Mon Dec 22 02:28:52 2014//
-/if_myx.c/1.102/Tue Feb  7 06:51:58 2017//
+/if_myx.c/1.103/Tue Aug  1 01:11:35 2017//
 /if_myxreg.h/1.9/Mon Oct 31 01:38:57 2016//
 /if_ne_pci.c/1.20/Mon Dec 22 02:28:52 2014//
 /if_nep.c/1.30/Tue Apr 11 14:43:49 2017//
