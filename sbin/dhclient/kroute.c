@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.124 2017/07/30 15:26:46 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.126 2017/08/03 00:33:07 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -156,7 +156,7 @@ priv_flush_routes(char *name, int routefd, int rdomain)
 	mib[2] = 0;
 	mib[3] = AF_INET;
 	mib[4] = NET_RT_FLAGS;
-	mib[5] = RTF_GATEWAY;
+	mib[5] = RTF_STATIC;
 	mib[6] = rdomain;
 
 	while (1) {
@@ -202,9 +202,6 @@ priv_flush_routes(char *name, int routefd, int rdomain)
 
 		switch (check_route_label(sa_rl)) {
 		case ROUTE_LABEL_DHCLIENT_OURS:
-			/* Always delete routes we labeled. */
-			delete_route(routefd, rtm);
-			break;
 		case ROUTE_LABEL_DHCLIENT_DEAD:
 			delete_route(routefd, rtm);
 			break;
