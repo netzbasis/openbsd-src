@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.126 2017/08/03 00:33:07 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.128 2017/08/04 00:10:14 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -351,10 +351,10 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 				    RTF_STATIC);
 			} else {
 				/*
-				* DEFAULT ROUTE IS VIA GATEWAY
-				*
-				* route add default $gateway
-				*/
+				 * DEFAULT ROUTE IS VIA GATEWAY
+				 *
+				 * route add default $gateway
+				 */
 				add_route(any, any, gateway, addr,
 				    RTA_DST | RTA_NETMASK | RTA_GATEWAY | RTA_IFA,
 				    RTF_GATEWAY | RTF_STATIC);
@@ -781,10 +781,10 @@ resolv_conf_priority(int rdomain, int routefd)
 		len = read(routefd, &m_rtmsg, sizeof(m_rtmsg));
 		if (len == -1) {
 			log_warn("get default route read");
-			break;
+			goto done;
 		} else if (len == 0) {
 			log_warnx("no data from default route read");
-			break;
+			goto done;
 		}
 		if (m_rtmsg.m_rtm.rtm_version != RTM_VERSION)
 			continue;
