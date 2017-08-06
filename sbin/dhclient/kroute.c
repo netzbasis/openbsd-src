@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.128 2017/08/04 00:10:14 krw Exp $	*/
+/*	$OpenBSD: kroute.c,v 1.131 2017/08/05 13:39:17 krw Exp $	*/
 
 /*
  * Copyright 2012 Kenneth R Westerback <krw@openbsd.org>
@@ -74,10 +74,10 @@ int	create_route_label(struct sockaddr_rtlabel *);
 int	check_route_label(struct sockaddr_rtlabel *);
 void	populate_rti_info(struct sockaddr **, struct rt_msghdr *);
 void	delete_route(int, struct rt_msghdr *);
-void	add_route(struct in_addr, struct in_addr, struct in_addr,
-    struct in_addr, int, int);
+void	add_route(struct in_addr, struct in_addr, struct in_addr, int);
 void	flush_routes(void);
-void	delete_addresses(char *);
+int	delete_addresses(char *, struct in_addr, struct in_addr);
+char	*get_routes(int, int, size_t *);
 
 #define	ROUTE_LABEL_NONE		1
 #define	ROUTE_LABEL_NOT_DHCLIENT	2
@@ -85,6 +85,56 @@ void	delete_addresses(char *);
 #define	ROUTE_LABEL_DHCLIENT_UNKNOWN	4
 #define	ROUTE_LABEL_DHCLIENT_LIVE	5
 #define	ROUTE_LABEL_DHCLIENT_DEAD	6
+
+char *
+get_routes(int rdomain, int flags, size_t *len)
+{
+	int		 mib[7];
+	char		*buf, *bufp, *errmsg = NULL;
+	size_t		 needed;
+
+	mib[0] = CTL_NET;
+	mib[1] = PF_ROUTE;
+	mib[2] = 0;
+	mib[3] = AF_INET;
+	mib[4] = NET_RT_FLAGS;
+	mib[5] = flags;
+	mib[6] = rdomain;
+
+	buf = NULL;
+	errmsg = NULL;
+	while (1) {
+		if (sysctl(mib, 7, NULL, &needed, NULL, 0) == -1) {
+			errmsg = "sysctl size of routes:";
+			break;
+		}
+		if (needed == 0) {
+			free(buf);
+			return NULL;
+		}
+		if ((bufp = realloc(buf, needed)) == NULL) {
+			errmsg = "routes buf realloc:";
+			break;
+		}
+		buf = bufp;
+		if (sysctl(mib, 7, buf, &needed, NULL, 0) == -1) {
+			if (errno == ENOMEM)
+				continue;
+			errmsg = "sysctl retrieval of routes:";
+			break;
+		}
+		break;
+	}
+
+	if (errmsg != NULL) {
+		log_warn("get_routes - %s (msize=%zu)", errmsg, needed);
+		free(buf);
+		buf = NULL;
+	}
+
+	*len = needed;
+	return buf;
+}
 
 /*
  * check_route_label examines the label associated with a route and
@@ -142,54 +192,19 @@ flush_routes(void)
 void
 priv_flush_routes(char *name, int routefd, int rdomain)
 {
-	int			 mib[7];
-	char			 ifname[IF_NAMESIZE];
-	struct sockaddr		*rti_info[RTAX_MAX];
-	char			*lim, *buf = NULL, *bufp, *next, *errmsg = NULL;
-	struct rt_msghdr	*rtm;
-	struct sockaddr_in	*sa_in;
-	struct sockaddr_rtlabel	*sa_rl;
-	size_t			 needed;
+	char				 ifname[IF_NAMESIZE];
+	struct sockaddr			*rti_info[RTAX_MAX];
+	char				*lim, *buf = NULL, *next;
+	struct rt_msghdr		*rtm;
+	struct sockaddr_in		*sa_in;
+	struct sockaddr_rtlabel		*sa_rl;
+	size_t				 len;
 
-	mib[0] = CTL_NET;
-	mib[1] = PF_ROUTE;
-	mib[2] = 0;
-	mib[3] = AF_INET;
-	mib[4] = NET_RT_FLAGS;
-	mib[5] = RTF_STATIC;
-	mib[6] = rdomain;
-
-	while (1) {
-		if (sysctl(mib, 7, NULL, &needed, NULL, 0) == -1) {
-			errmsg = "sysctl size of routes:";
-			break;
-		}
-		if (needed == 0) {
-			free(buf);
-			return;
-		}
-		if ((bufp = realloc(buf, needed)) == NULL) {
-			errmsg = "routes buf realloc:";
-			break;
-		}
-		buf = bufp;
-		if (sysctl(mib, 7, buf, &needed, NULL, 0) == -1) {
-			if (errno == ENOMEM)
-				continue;
-			errmsg = "sysctl retrieval of routes:";
-			break;
-		}
-		break;
-	}
-
-	if (errmsg != NULL) {
-		log_warn("route cleanup failed - %s (msize=%zu)", errmsg,
-		    needed);
-		free(buf);
+	buf = get_routes(rdomain, RTF_STATIC, &len);
+	if (buf == NULL)
 		return;
-	}
 
-	lim = buf + needed;
+	lim = buf + len;
 	for (next = buf; next < lim; next += rtm->rtm_msglen) {
 		rtm = (struct rt_msghdr *)next;
 		if (rtm->rtm_version != RTM_VERSION)
@@ -316,9 +331,8 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 			 * route add -net $dest -netmask $netmask -cloning
 			 *     -iface $addr
 			 */
-			add_route(dest, netmask, addr, any,
-			    RTA_DST | RTA_NETMASK | RTA_GATEWAY,
-			    RTF_CLONING | RTF_STATIC);
+			add_route(dest, netmask, addr,
+			    RTF_STATIC | RTF_CLONING);
 		} else if (netmask.s_addr == INADDR_ANY) {
 			/*
 			 * DEFAULT ROUTE
@@ -335,9 +349,8 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 				 * route add -net $gateway -netmask $addrmask
 				 *     -cloning -iface $addr
 				 */
-				add_route(gateway, addrmask, addr, any,
-				    RTA_DST | RTA_NETMASK | RTA_GATEWAY,
-				    RTF_CLONING | RTF_STATIC);
+				add_route(gateway, addrmask, addr,
+				    RTF_STATIC | RTF_CLONING);
 			}
 
 			if (memcmp(&gateway, &addr, sizeof(addr)) == 0) {
@@ -346,18 +359,15 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 				 *
 				 * route add default -iface $addr
 				 */
-				add_route(any, any, gateway, addr,
-				    RTA_DST | RTA_NETMASK | RTA_GATEWAY | RTA_IFA,
-				    RTF_STATIC);
+				add_route(any, any, gateway, RTF_STATIC);
 			} else {
 				/*
 				 * DEFAULT ROUTE IS VIA GATEWAY
 				 *
 				 * route add default $gateway
 				 */
-				add_route(any, any, gateway, addr,
-				    RTA_DST | RTA_NETMASK | RTA_GATEWAY | RTA_IFA,
-				    RTF_GATEWAY | RTF_STATIC);
+				add_route(any, any, gateway,
+				    RTF_STATIC | RTF_GATEWAY);
 			}
 		} else {
 			/*
@@ -365,9 +375,8 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
 			 *
 			 * route add -net $dest -netmask $netmask $gateway
 			 */
-			add_route(dest, netmask, gateway, addr,
-			    RTA_DST | RTA_NETMASK | RTA_GATEWAY | RTA_IFA,
-			    RTF_GATEWAY | RTF_STATIC);
+			add_route(dest, netmask, gateway,
+			    RTF_STATIC | RTF_GATEWAY);
 		}
 	}
 }
@@ -376,8 +385,8 @@ set_routes(struct in_addr addr, struct in_addr addrmask, uint8_t *rtstatic,
  * [priv_]add_route() add a single route to the routing table.
  */
 void
-add_route(struct in_addr dest, struct in_addr netmask,
-    struct in_addr gateway, struct in_addr ifa, int addrs, int flags)
+add_route(struct in_addr dest, struct in_addr netmask, struct in_addr gateway,
+    int flags)
 {
 	struct imsg_add_route	 imsg;
 	int			 rslt;
@@ -385,8 +394,6 @@ add_route(struct in_addr dest, struct in_addr netmask,
 	imsg.dest = dest;
 	imsg.gateway = gateway;
 	imsg.netmask = netmask;
-	imsg.ifa = ifa;
-	imsg.addrs = addrs;
 	imsg.flags = flags;
 
 	rslt = imsg_compose(unpriv_ibuf, IMSG_ADD_ROUTE, 0, 0, -1,
@@ -398,22 +405,20 @@ add_route(struct in_addr dest, struct in_addr netmask,
 }
 
 void
-priv_add_route(int rdomain, int routefd, struct imsg_add_route *imsg)
+priv_add_route(char *name, int rdomain, int routefd,
+    struct imsg_add_route *imsg)
 {
 	char			 destbuf[INET_ADDRSTRLEN];
-	char			 gatewaybuf[INET_ADDRSTRLEN];
 	char			 maskbuf[INET_ADDRSTRLEN];
-	char			 ifabuf[INET_ADDRSTRLEN];
-	struct iovec		 iov[6];
+	struct iovec		 iov[5];
 	struct rt_msghdr	 rtm;
-	struct sockaddr_in	 dest, gateway, mask, ifa;
+	struct sockaddr_in	 dest, gateway, mask;
 	struct sockaddr_rtlabel	 label;
-	int			 i, iovcnt = 0;
+	int			 i, index, iovcnt = 0;
 
-	memset(destbuf, 0, sizeof(destbuf));
-	memset(maskbuf, 0, sizeof(maskbuf));
-	memset(gatewaybuf, 0, sizeof(gatewaybuf));
-	memset(ifabuf, 0, sizeof(ifabuf));
+	index = if_nametoindex(name);
+	if (index == 0)
+		return;
 
 	/* Build RTM header */
 
@@ -421,71 +426,45 @@ priv_add_route(int rdomain, int routefd, struct imsg_add_route *imsg)
 
 	rtm.rtm_version = RTM_VERSION;
 	rtm.rtm_type = RTM_ADD;
+	rtm.rtm_index = index;
 	rtm.rtm_tableid = rdomain;
 	rtm.rtm_priority = RTP_NONE;
-	rtm.rtm_msglen = sizeof(rtm);
-	rtm.rtm_addrs = imsg->addrs;
+	rtm.rtm_addrs =	RTA_DST | RTA_NETMASK | RTA_GATEWAY;
 	rtm.rtm_flags = imsg->flags;
 
+	rtm.rtm_msglen = sizeof(rtm);
 	iov[iovcnt].iov_base = &rtm;
 	iov[iovcnt++].iov_len = sizeof(rtm);
 
-	if (imsg->addrs & RTA_DST) {
-		strlcpy(destbuf, inet_ntoa(imsg->dest), sizeof(destbuf));
-		memset(&dest, 0, sizeof(dest));
+	/* Add the destination address. */
+	memset(&dest, 0, sizeof(dest));
+	dest.sin_len = sizeof(dest);
+	dest.sin_family = AF_INET;
+	dest.sin_addr.s_addr = imsg->dest.s_addr;
 
-		dest.sin_len = sizeof(dest);
-		dest.sin_family = AF_INET;
-		dest.sin_addr.s_addr = imsg->dest.s_addr;
+	rtm.rtm_msglen += sizeof(dest);
+	iov[iovcnt].iov_base = &dest;
+	iov[iovcnt++].iov_len = sizeof(dest);
 
-		rtm.rtm_msglen += sizeof(dest);
+	/* Add the gateways address. */
+	memset(&gateway, 0, sizeof(gateway));
+	gateway.sin_len = sizeof(gateway);
+	gateway.sin_family = AF_INET;
+	gateway.sin_addr.s_addr = imsg->gateway.s_addr;
 
-		iov[iovcnt].iov_base = &dest;
-		iov[iovcnt++].iov_len = sizeof(dest);
-	}
+	rtm.rtm_msglen += sizeof(gateway);
+	iov[iovcnt].iov_base = &gateway;
+	iov[iovcnt++].iov_len = sizeof(gateway);
 
-	if (imsg->addrs & RTA_GATEWAY) {
-		strlcpy(gatewaybuf, inet_ntoa(imsg->gateway),
-		    sizeof(gatewaybuf));
-		memset(&gateway, 0, sizeof(gateway));
+	/* Add the network mask. */
+	memset(&mask, 0, sizeof(mask));
+	mask.sin_len = sizeof(mask);
+	mask.sin_family = AF_INET;
+	mask.sin_addr.s_addr = imsg->netmask.s_addr;
 
-		gateway.sin_len = sizeof(gateway);
-		gateway.sin_family = AF_INET;
-		gateway.sin_addr.s_addr = imsg->gateway.s_addr;
-
-		rtm.rtm_msglen += sizeof(gateway);
-
-		iov[iovcnt].iov_base = &gateway;
-		iov[iovcnt++].iov_len = sizeof(gateway);
-	}
-
-	if (imsg->addrs & RTA_NETMASK) {
-		strlcpy(maskbuf, inet_ntoa(imsg->netmask), sizeof(maskbuf));
-		memset(&mask, 0, sizeof(mask));
-
-		mask.sin_len = sizeof(mask);
-		mask.sin_family = AF_INET;
-		mask.sin_addr.s_addr = imsg->netmask.s_addr;
-
-		rtm.rtm_msglen += sizeof(mask);
-
-		iov[iovcnt].iov_base = &mask;
-		iov[iovcnt++].iov_len = sizeof(mask);
-	}
-
-	if (imsg->addrs & RTA_IFA) {
-		strlcpy(ifabuf, inet_ntoa(imsg->ifa), sizeof(ifabuf));
-		memset(&ifa, 0, sizeof(ifa));
-
-		ifa.sin_len = sizeof(ifa);
-		ifa.sin_family = AF_INET;
-		ifa.sin_addr.s_addr = imsg->ifa.s_addr;
-
-		rtm.rtm_msglen += sizeof(ifa);
-
-		iov[iovcnt].iov_base = &ifa;
-		iov[iovcnt++].iov_len = sizeof(ifa);
-	}
+	rtm.rtm_msglen += sizeof(mask);
+	iov[iovcnt].iov_base = &mask;
+	iov[iovcnt++].iov_len = sizeof(mask);
 
 	/* Add our label so we can identify the route as our creation. */
 	if (create_route_label(&label) == 0) {
@@ -499,23 +478,28 @@ priv_add_route(int rdomain, int routefd, struct imsg_add_route *imsg)
 	for (i = 0; i < 5; i++) {
 		if (writev(routefd, iov, iovcnt) != -1)
 			break;
-		if (i == 4)
-			log_warn("failed to add route (%s/%s via %s/%s)",
-			    destbuf, maskbuf, gatewaybuf, ifabuf);
-		else if (errno == EEXIST || errno == ENETUNREACH)
+		if (i == 4) {
+			strlcpy(destbuf, inet_ntoa(imsg->dest), sizeof(destbuf));
+			strlcpy(maskbuf, inet_ntoa(imsg->netmask), sizeof(maskbuf));
+			log_warn("failed to add route (%s/%s via %s)",
+			    destbuf, maskbuf, inet_ntoa(imsg->gateway));
+		} else if (errno == EEXIST || errno == ENETUNREACH)
 			sleep(1);
 	}
 }
 
 /*
- * delete_addresses deletes all existing inet addresses on the specified
- * interface.
+ * delete_addresses() deletes existing inet addresses on the named interface,
+ * leaving in place newaddr/newnetmask.
+ *
+ * Return 1 if newaddr/newnetmask is seen while deleting addresses, 0 otherwise.
  */
-void
-delete_addresses(char *name)
+int
+delete_addresses(char *name, struct in_addr newaddr, struct in_addr newnetmask)
 {
-	struct in_addr		 addr;
+	struct in_addr		 addr, netmask;
 	struct ifaddrs		*ifap, *ifa;
+	int			 found = 0;
 
 	if (getifaddrs(&ifap) != 0)
 		fatal("delete_addresses getifaddrs");
@@ -528,13 +512,22 @@ delete_addresses(char *name)
 		    (strcmp(name, ifa->ifa_name) != 0))
 			continue;
 
-		memcpy(&addr, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
+		memcpy(&addr,
+		    &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
 		    sizeof(addr));
+		memcpy(&netmask,
+		    &((struct sockaddr_in *)ifa->ifa_netmask)->sin_addr,
+		    sizeof(netmask));
 
-		delete_address(addr);
+		if (addr.s_addr == newaddr.s_addr &&
+		    netmask.s_addr == newnetmask.s_addr)
+			found = 1;
+		else
+			delete_address(addr);
 	}
 
 	freeifaddrs(ifap);
+	return (found);
 }
 
 /*
@@ -638,7 +631,8 @@ set_address(char *name, struct in_addr addr, struct in_addr netmask)
 	int			 rslt;
 
 	/* Deleting the addresses also clears out arp entries. */
-	delete_addresses(name);
+	if (delete_addresses(name, addr, netmask) != 0)
+		return;
 
 	imsg.addr = addr;
 	imsg.mask = netmask;
