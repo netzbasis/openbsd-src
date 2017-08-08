@@ -10,8 +10,8 @@
 /if_dwge_fdt.c/1.4/Sun Jul 23 17:09:19 2017//
 /plrtc.c/1.1/Wed Jan 25 10:14:40 2017//
 /psci.c/1.2/Mon Feb 27 08:39:25 2017//
-/rkclock.c/1.8/Sun Jul 23 17:06:51 2017//
-/rkclock_clocks.h/1.7/Sun Jul 23 17:06:51 2017//
+/rkclock.c/1.9/Mon Aug  7 22:20:39 2017//
+/rkclock_clocks.h/1.8/Mon Aug  7 22:20:39 2017//
 /rkgpio.c/1.1/Sat May  6 18:25:43 2017//
 /rkgrf.c/1.2/Sun Jul 23 17:07:18 2017//
 /rkpinctrl.c/1.4/Sun Jul 23 17:08:29 2017//

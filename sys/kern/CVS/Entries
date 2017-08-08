@@ -46,7 +46,7 @@
 /sched_bsd.c/1.46/Tue Feb 14 10:31:15 2017//
 /spec_vnops.c/1.89/Tue Apr  5 19:26:15 2016//
 /subr_autoconf.c/1.92/Mon Mar 14 23:08:06 2016//
-/subr_disk.c/1.231/Sun Aug  6 19:56:29 2017//
+/subr_disk.c/1.232/Mon Aug  7 11:50:58 2017//
 /subr_evcount.c/1.12/Sat Mar 14 03:38:50 2015//
 /subr_extent.c/1.58/Thu Sep 15 02:00:16 2016//
 /subr_hibernate.c/1.122/Thu Jun 22 15:56:29 2017//
