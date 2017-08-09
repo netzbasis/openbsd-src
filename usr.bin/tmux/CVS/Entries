@@ -48,8 +48,8 @@
 /cmd-run-shell.c/1.50/Tue May 30 21:44:59 2017//
 /cmd-save-buffer.c/1.43/Sat Apr 22 06:13:30 2017//
 /cmd-select-layout.c/1.33/Sat Apr 22 10:22:39 2017//
-/cmd-select-pane.c/1.38/Sat Apr 22 10:22:39 2017//
-/cmd-select-window.c/1.20/Sat Apr 22 10:22:39 2017//
+/cmd-select-pane.c/1.39/Tue Aug  8 09:21:20 2017//
+/cmd-select-window.c/1.21/Tue Aug  8 09:21:20 2017//
 /cmd-send-keys.c/1.42/Wed Jun 28 11:36:39 2017//
 /cmd-set-buffer.c/1.28/Sun Oct 16 19:04:05 2016//
 /cmd-set-environment.c/1.22/Sat Apr 22 10:22:39 2017//
