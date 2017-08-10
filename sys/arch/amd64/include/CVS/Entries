@@ -64,7 +64,7 @@
 /setjmp.h/1.1/Wed Jan 28 01:39:39 2004//
 /signal.h/1.9/Tue May 10 18:39:42 2016//
 /smbiosvar.h/1.9/Thu Aug 18 16:01:24 2011//
-/specialreg.h/1.58/Tue Jun 20 06:25:01 2017//
+/specialreg.h/1.60/Wed Aug  9 21:23:38 2017//
 /spinlock.h/1.2/Sat Jun  1 20:47:40 2013//
 /stdarg.h/1.9/Tue Mar 11 19:45:27 2014//
 /sysarch.h/1.13/Sun May  5 19:25:57 2013//

@@ -1,4 +1,4 @@
-/*	$OpenBSD: ndp.c,v 1.83 2017/07/13 11:28:02 florian Exp $	*/
+/*	$OpenBSD: ndp.c,v 1.86 2017/08/09 17:35:38 jmc Exp $	*/
 /*	$KAME: ndp.c,v 1.101 2002/07/17 08:46:33 itojun Exp $	*/
 
 /*
@@ -134,7 +134,7 @@ int ndp_ether_aton(char *, u_char *);
 void usage(void);
 int rtmsg(int);
 int rtget(struct sockaddr_in6 **, struct sockaddr_dl **);
-void ifinfo(char *, int, char **);
+void ifinfo(char *);
 void harmonize_rtr(void);
 static char *sec2str(time_t);
 static void ts_print(const struct timeval *);
@@ -238,7 +238,9 @@ main(int argc, char *argv[])
 		file(arg);
 		break;
 	case 'i':
-		ifinfo(arg, argc, argv);
+		if (argc != 0)
+			usage();
+		ifinfo(arg);
 		break;
 	case 's':
 		if (argc < 2 || argc > 4)
@@ -760,10 +762,9 @@ void
 usage(void)
 {
 	printf("usage: ndp [-acnt] ");
-	printf("[-A wait] [-d hostname] [-f filename]\n");
-	printf("\t[-i interface [flag ...]] ");
-	printf("[-s nodename ether_addr [temp] [proxy]]\n");
-	printf("\t[-V rdomain] [hostname]\n");
+	printf("[-A wait] [-d hostname] [-f filename] [-i interface]\n");
+	printf("\t[-s nodename ether_addr [temp] [proxy]] ");
+	printf("[-V rdomain] [hostname]\n");
 	exit(1);
 }
 
@@ -881,11 +882,10 @@ rtget(struct sockaddr_in6 **sinp, struct sockaddr_dl **sdlp)
 }
 
 void
-ifinfo(char *ifname, int argc, char **argv)
+ifinfo(char *ifname)
 {
 	struct in6_ndireq nd;
 	int i, s;
-	u_int32_t newflags;
 
 	if ((s = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
 		err(1, "socket");
@@ -893,58 +893,17 @@ ifinfo(char *ifname, int argc, char **argv)
 	}
 	bzero(&nd, sizeof(nd));
 	strlcpy(nd.ifname, ifname, sizeof(nd.ifname));
-	if (ioctl(s, SIOCGIFINFO_IN6, (caddr_t)&nd) < 0) {
+	if (ioctl(s, SIOCGIFINFO_IN6, (caddr_t)&nd) < 0)
 		err(1, "ioctl(SIOCGIFINFO_IN6)");
-		/* NOTREACHED */
-	}
-	newflags = nd.ndi.flags;
-	for (i = 0; i < argc; i++) {
-		int clear = 0;
-		char *cp = argv[i];
 
-		if (*cp == '-') {
-			clear = 1;
-			cp++;
-		}
-
-#define SETFLAG(s, f) \
-	do {\
-		if (strcmp(cp, (s)) == 0) {\
-			if (clear)\
-				newflags &= ~(f);\
-			else\
-				newflags |= (f);\
-		}\
-	} while (0)
-		SETFLAG("nud", ND6_IFF_PERFORMNUD);
-		SETFLAG("accept_rtadv", ND6_IFF_ACCEPT_RTADV);
-
-		nd.ndi.flags = newflags;
-		if (ioctl(s, SIOCSIFINFO_FLAGS, (caddr_t)&nd) < 0) {
-			err(1, "ioctl(SIOCSIFINFO_FLAGS)");
-			/* NOTREACHED */
-		}
-#undef SETFLAG
-	}
-
-	if (!nd.ndi.initialized) {
+	if (!nd.ndi.initialized)
 		errx(1, "%s: not initialized yet", ifname);
-		/* NOTREACHED */
-	}
 
 	printf("basereachable=%ds%dms",
 	    nd.ndi.basereachable / 1000, nd.ndi.basereachable % 1000);
 	printf(", reachable=%ds", nd.ndi.reachable);
-	printf(", retrans=%ds%dms", nd.ndi.retrans / 1000,
+	printf(", retrans=%ds%dms\n", nd.ndi.retrans / 1000,
 	    nd.ndi.retrans % 1000);
-	if (nd.ndi.flags) {
-		printf("\nFlags: ");
-		if ((nd.ndi.flags & ND6_IFF_PERFORMNUD))
-			printf("nud ");
-		if ((nd.ndi.flags & ND6_IFF_ACCEPT_RTADV))
-			printf("accept_rtadv ");
-	}
-	putc('\n', stdout);
 
 	close(s);
 }

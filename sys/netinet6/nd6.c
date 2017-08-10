@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.214 2017/08/08 18:15:58 florian Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.217 2017/08/09 14:36:00 florian Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -138,7 +138,6 @@ nd6_ifattach(struct ifnet *ifp)
 	nd->reachable = ND_COMPUTE_RTIME(nd->basereachable);
 	nd->retrans = RETRANS_TIMER;
 	/* per-interface IFXF_AUTOCONF6 needs to be set too to accept RAs */
-	nd->flags = (ND6_IFF_PERFORMNUD | ND6_IFF_ACCEPT_RTADV);
 
 	return nd;
 }
@@ -387,16 +386,13 @@ nd6_llinfo_timer(void *arg)
 		break;
 
 	case ND6_LLINFO_DELAY:
-		if (ndi && (ndi->flags & ND6_IFF_PERFORMNUD) != 0) {
+		if (ndi) {
 			/* We need NUD */
 			ln->ln_asked = 1;
 			ln->ln_state = ND6_LLINFO_PROBE;
 			nd6_llinfo_settimer(ln, ndi->retrans / 1000);
 			nd6_ns_output(ifp, &dst->sin6_addr,
 			    &dst->sin6_addr, ln, 0);
-		} else {
-			ln->ln_state = ND6_LLINFO_STALE; /* XXX */
-			nd6_llinfo_settimer(ln, nd6_gctimer);
 		}
 		break;
 	case ND6_LLINFO_PROBE:
@@ -1000,12 +996,9 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 	switch (cmd) {
 	case SIOCGIFINFO_IN6:
 		ndi->ndi = *ND_IFINFO(ifp);
-		memset(&ndi->ndi.randomseed0, 0, sizeof ndi->ndi.randomseed0);
-		memset(&ndi->ndi.randomseed1, 0, sizeof ndi->ndi.randomseed1);
-		memset(&ndi->ndi.randomid, 0, sizeof ndi->ndi.randomid);
 		break;
 	case SIOCSIFINFO_FLAGS:
-		ND_IFINFO(ifp)->flags = ndi->ndi.flags;
+		error = ENOTSUP;
 		break;
 	case SIOCSNDFLUSH_IN6:	/* XXX: the ioctl name is confusing... */
 		/* sync kernel routing table with the default router list */
