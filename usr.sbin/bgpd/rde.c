@@ -1,4 +1,4 @@
-/*	$OpenBSD: rde.c,v 1.368 2017/05/29 13:10:40 claudio Exp $ */
+/*	$OpenBSD: rde.c,v 1.370 2017/08/10 15:44:09 benno Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -213,11 +213,11 @@ rde_main(int debug, int verbose)
 	signal(SIGALRM, SIG_IGN);
 	signal(SIGUSR1, SIG_IGN);
 
-	/* initialize the RIB structures */
 	if ((ibuf_main = malloc(sizeof(struct imsgbuf))) == NULL)
 		fatal(NULL);
 	imsg_init(ibuf_main, 3);
 
+	/* initialize the RIB structures */
 	pt_init();
 	path_init(pathhashsize);
 	aspath_init(pathhashsize);
@@ -571,6 +571,7 @@ badnet:
 		case IMSG_CTL_SHOW_RIB:
 		case IMSG_CTL_SHOW_RIB_AS:
 		case IMSG_CTL_SHOW_RIB_COMMUNITY:
+		case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 		case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		case IMSG_CTL_SHOW_RIB_PREFIX:
 			if (imsg.hdr.len != IMSG_HEADER_SIZE + sizeof(req)) {
@@ -1168,7 +1169,8 @@ rde_update_dispatch(struct imsg *imsg)
 		if (peer->conf.max_prefix &&
 		    peer->prefix_cnt > peer->conf.max_prefix) {
 			log_peer_warnx(&peer->conf, "prefix limit reached"
-			    " (>%u/%u)", peer->prefix_cnt, peer->conf.max_prefix);
+			    " (>%u/%u)", peer->prefix_cnt,
+			    peer->conf.max_prefix);
 			rde_update_err(peer, ERR_CEASE, ERR_CEASE_MAX_PREFIX,
 			    NULL, 0);
 			goto done;
@@ -2308,6 +2310,9 @@ rde_dump_filter(struct prefix *p, struct ctl_show_rib_request *req)
 		    !community_match(p->aspath, req->community.as,
 		    req->community.type))
 			return;
+		if (req->type == IMSG_CTL_SHOW_RIB_EXTCOMMUNITY &&
+		    !community_ext_match(p->aspath, &req->extcommunity, 0))
+			return;
 		if (req->type == IMSG_CTL_SHOW_RIB_LARGECOMMUNITY &&
 		    !community_large_match(p->aspath, req->large_community.as,
 		    req->large_community.ld1, req->large_community.ld2))
@@ -2394,6 +2399,7 @@ rde_dump_ctx_new(struct ctl_show_rib_request *req, pid_t pid,
 	case IMSG_CTL_SHOW_RIB:
 	case IMSG_CTL_SHOW_RIB_AS:
 	case IMSG_CTL_SHOW_RIB_COMMUNITY:
+	case IMSG_CTL_SHOW_RIB_EXTCOMMUNITY:
 	case IMSG_CTL_SHOW_RIB_LARGECOMMUNITY:
 		ctx->ribctx.ctx_upcall = rde_dump_upcall;
 		break;

@@ -19,13 +19,13 @@
 /ns8250.h/1.5/Wed Jun  7 14:53:28 2017//
 /packet.c/1.1/Wed Apr 19 15:38:32 2017//
 /parse.y/1.29/Thu May  4 08:26:06 2017//
-/pci.c/1.19/Wed Aug  9 21:42:44 2017//
+/pci.c/1.20/Thu Aug 10 17:11:47 2017//
 /pci.h/1.6/Thu Jul  6 06:19:15 2017//
 /priv.c/1.9/Thu May  4 08:26:06 2017//
 /proc.c/1.14/Mon May 29 12:56:26 2017//
 /proc.h/1.12/Mon Mar 27 00:28:04 2017//
 /ufs.c/1.4/Fri Nov 25 17:03:59 2016//
-/virtio.c/1.50/Sat Aug  5 05:41:31 2017//
+/virtio.c/1.51/Thu Aug 10 16:59:04 2017//
 /virtio.h/1.19/Tue Jun 20 01:59:12 2017//
 /vm.c/1.22/Sat Jul 15 05:05:36 2017//
 /vm.conf.5/1.21/Wed Jul 19 01:36:31 2017//

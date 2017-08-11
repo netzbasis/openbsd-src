@@ -16,7 +16,7 @@
 /dlfcn.h/1.13/Sun Mar 24 01:37:21 2013//
 /elf_abi.h/1.4/Wed May 22 07:46:22 1996//
 /err.h/1.13/Mon Aug 31 02:53:56 2015//
-/errno.h/1.2/Wed Dec  5 23:19:57 2012//
+/errno.h/1.3/Thu Aug 10 13:34:46 2017//
 /fenv.h/1.2/Wed May 25 21:46:49 2011//
 /float.h/1.1/Tue Jun 26 16:16:16 2012//
 /fnmatch.h/1.8/Tue Dec 13 00:35:22 2005//
@@ -72,7 +72,7 @@
 /sysexits.h/1.5/Mon Jun  2 19:34:12 2003//
 /tar.h/1.3/Thu Jun 26 05:42:04 2008//
 /tgmath.h/1.1/Fri Jul  8 19:28:06 2011//
-/tib.h/1.4/Thu Apr 20 16:07:52 2017//
+/tib.h/1.5/Thu Aug 10 13:35:18 2017//
 /time.h/1.29/Fri Sep  9 18:12:37 2016//
 /ttyent.h/1.4/Mon Jun  2 19:34:12 2003//
 /unistd.h/1.104/Thu Mar  9 10:13:03 2017//

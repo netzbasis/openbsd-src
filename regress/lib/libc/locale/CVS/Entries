@@ -2,4 +2,5 @@
 D/check_isw////
 D/mbrtowc////
 D/setlocale////
+D/uselocale////
 D/wcrtomb////

@@ -35,7 +35,7 @@
 /autrivar.h/1.4/Fri Aug 27 18:50:56 2010//
 /auvia.c/1.58/Tue Dec 20 15:45:29 2016//
 /auviavar.h/1.12/Sun Sep 12 02:03:35 2010//
-/azalia.c/1.235/Tue Apr 11 14:43:49 2017//
+/azalia.c/1.236/Thu Aug 10 15:25:52 2017//
 /azalia.h/1.65/Wed Sep 14 06:12:19 2016//
 /azalia_codec.c/1.172/Tue Mar 28 04:54:44 2017//
 /berkwdt.c/1.8/Wed Dec 10 12:27:57 2014//
@@ -240,7 +240,7 @@
 /mfii.c/1.43/Sat Apr  8 02:57:25 2017//
 /mmuagp.c/1.5/Tue Jul  8 17:19:25 2014//
 /mpi_pci.c/1.25/Mon Sep 15 12:00:04 2014//
-/mpii.c/1.111/Sat Apr  8 02:57:25 2017//
+/mpii.c/1.112/Thu Aug 10 15:01:42 2017//
 /mpiireg.h/1.12/Mon Jan 16 18:09:35 2017//
 /neo.c/1.32/Mon Sep 19 06:46:44 2016//
 /neoreg.h/1.2/Mon Nov 22 04:27:14 2004//

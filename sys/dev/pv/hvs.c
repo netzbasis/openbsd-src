@@ -341,7 +341,7 @@ hvs_scsi_cmd(struct scsi_xfer *xs)
 	struct hvs_srb *srb = &io->cmd_srb;
 	int i, rv, flags = BUS_DMA_NOWAIT;
 
-	if (xs->cmdlen > HVS_CMD_SIZE) {
+	if (xs->cmdlen > MAX_SRB_DATA) {
 		printf("%s: CDB is too big: %d\n", sc->sc_dev.dv_xname,
 		    xs->cmdlen);
 		memset(&xs->sense, 0, sizeof(xs->sense));
@@ -589,7 +589,7 @@ fixup_inquiry(struct scsi_xfer *xs, struct hvs_srb *srb)
 	struct hvs_softc *sc = xs->sc_link->adapter_softc;
 	struct scsi_inquiry_data *inq = (struct scsi_inquiry_data *)xs->data;
 	int datalen, resplen;
-	char vendor[16];
+	char vendor[8];
 
 	resplen = srb->srb_datalen >= 5 ? inq->additional_length + 5 : 0;
 	datalen = MIN(resplen, srb->srb_datalen);
